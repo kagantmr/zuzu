@@ -6,7 +6,7 @@ A minimalist, modular microkernel written for **ARM**, designed for experimentat
 ---
 ## Overview
 
-`zuzuMicrokernel` is a small yet extendable operating system kernel that focuses on:
+`zuzuMicrokernel` is a small operating system kernel that focuses on:
 
 - **Microkernel architecture** – minimal core (IPC, scheduling, memory)
 - **ARM-based systems** – for learning low-level embedded and OS design
@@ -14,7 +14,7 @@ A minimalist, modular microkernel written for **ARM**, designed for experimentat
 - **Clean C + ASM design** – clarity and simplicity over bloat
 - **Experimental goals** – future graphics layer, filesystem, and networking
 
-This project is meant for educational and research purposes, providing an approachable path into **kernel development**, **low-level programming**, and **embedded system architecture**.
+This project is meant for an educational purpose, as an approachable path into **kernel development**, **low-level programming**, and **embedded system architecture**.
 
 ---
 
