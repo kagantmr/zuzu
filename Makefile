@@ -7,7 +7,7 @@ CPUFLAGS = -mcpu=cortex-a15
 CFLAGS   = -ffreestanding -Wall -Wextra -Werror $(CPUFLAGS)
 LDFLAGS  = -T linker.ld
 
-TARGET   = build/kernel.elf
+TARGET   = build/zuzuMicrokernel.elf
 OBJS     = build/_start.o build/start.o
 
 all: $(TARGET)
@@ -31,7 +31,7 @@ run: $(TARGET)
 
 # Disassemble
 dump: $(TARGET)
-	$(OBJDUMP) -d $(TARGET) > build/kernel.asm
+	$(OBJDUMP) -d $(TARGET) > build/zuzuMicrokernel.asm
 
 clean:
 	rm -rf build
