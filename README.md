@@ -49,44 +49,38 @@ cd zuzuMicrokernel
 make
 ```
 
-This will generate a kernel image (e.g., kernel.elf) under the build/ directory.
+This will generate the starting object files and the zuzuMicrokernel.elf file in the `build` directory.
 
 Running in QEMU
 
-qemu-system-arm -M versatilepb -kernel build/kernel.elf -serial stdio
+`qemu-system-arm -M versatilepb -kernel build/kernel.elf -serial stdio`
+
+OR
+
+Use make run
 
 
 ⸻
 
-## Testing
-
-You can run the kernel under QEMU to verify:
-	•	Boot messages via UART
-	•	Interrupt handling (timer / keyboard)
-	•	Task switching behavior
-
-Planned unit tests for memory allocator and scheduler will be added under tests/.
 
 ⸻
 
 ## Roadmap
-	1.	Bootloader cleanup – make startup more modular
-	2.	Add a simple scheduler – basic cooperative tasks
-	3.	Introduce IPC – message queues
-	4.	UART and Timer drivers
-	5.	Framebuffer graphics output (basic GUI demo)
-	6.	Filesystem & process management
+
+1. Skeleton
+2. UART Layer
+3. Core Utilities
+4. Memory & Task Structure
+5. Timer & Preemption
+6. Syscalls & IPC
+7. User-space Servers
+8. Network layer
 
 ⸻
 
 ## Learning Goals
 
-This project will be a deep dive into:
-	•	ARM architecture & exception levels
-	•	Context switching and scheduling
-	•	Interrupts and traps
-	•	MMU, paging, and memory protection
-	•	Microkernel vs monolithic design tradeoffs
+This project aims to be a dive into how microkernel systems work.
 
 ⸻
 
