@@ -4,25 +4,32 @@ LD      = $(CROSS)ld
 OBJDUMP = $(CROSS)objdump
 
 CPUFLAGS = -mcpu=cortex-a15
-CFLAGS   = -ffreestanding -Wall -Wextra -Werror $(CPUFLAGS)
+CFLAGS   = -ffreestanding -Wall -Wextra -Werror $(CPUFLAGS) -Iinclude -MMD -MP
 LDFLAGS  = -T linker.ld
 
+CSRCS    = $(shell find src -name '*.c')
+SRSCS    = $(shell find src -name '*.s')
+SRCS     = $(CSRCS) $(SRSCS)
+OBJS     = $(patsubst src/%.c,build/%.o,$(CSRCS)) $(patsubst src/%.s,build/%.o,$(SRSCS))
+DEPS     = $(OBJS:.o=.d)
+
 TARGET   = build/zuzuMicrokernel.elf
-OBJS     = build/_start.o build/start.o
 
 all: $(TARGET)
 
-# Compile assembly and C source from src/boot/
-build/%.o: src/boot/%.s
+# Compile C
+build/%.o: src/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-build/%.o: src/boot/%.c
+# Compile assembly
+build/%.o: src/%.s
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
 
 # Link everything
 $(TARGET): $(OBJS)
+	@mkdir -p $(dir $@)
 	$(LD) $(LDFLAGS) $(OBJS) -o $@
 
 # Run in QEMU
@@ -35,3 +42,6 @@ dump: $(TARGET)
 
 clean:
 	rm -rf build
+
+# Include dependency files
+-include $(DEPS)
