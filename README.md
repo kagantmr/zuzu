@@ -53,15 +53,11 @@ This will generate the starting object files and the zuzuMicrokernel.elf file in
 
 Running in QEMU
 
-`qemu-system-arm -M versatilepb -kernel build/kernel.elf -serial stdio`
+`qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -kernel $(TARGET)  build/zuzuMicrokernel.elf -nographic`
 
 OR
 
 Use make run
-
-
-⸻
-
 
 ⸻
 
