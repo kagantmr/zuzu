@@ -1,5 +1,5 @@
-#ifndef UART_H
-#define UART_H
+#ifndef VGA_H
+#define VGA_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -17,24 +17,24 @@ static inline int uart_busy(void) {
 }
 
 /**
- * @brief Send a single character over UART.
+ * @brief Send a single character over VGA.
  * @param c Character to send.
  */
-void uart_putc(char c);
+void vga_putc(char c);
 
 /**
- * @brief Send a null-terminated string over UART.
+ * @brief Send a null-terminated string over VGA.
  * @param string Pointer to string.
  * @return UART_SUCCESS on full transmission, UART_FAIL on failure.
  */
-int uart_puts(const char *string);
+int vga_puts(const char *string);
 
 
 /**
- * @brief Send formatted string over UART.
+ * @brief Send formatted string over VGA.
  * @param string Pointer to string.
  * @return UART_SUCCESS on full transmission, UART_FAIL on failure.
  */
-int uart_printf(const char *fstring, ...);
+int vga_printf(const char *fstring, ...);
 
 #endif

@@ -76,10 +76,23 @@ char *strncpy(char *dest, const char *src, size_t n);
  * Works similarly to sprintf but minimal; typically supports
  * %c, %s, %d, %x, etc.
  * 
+ * @param outc   Function pointer to output a single character.
  * @param fstring Format string.
  * @param ...     Variable arguments matching the format specifiers.
  * @return Pointer to a static or provided buffer containing the formatted string.
  */
-char *strfmt(const char *fstring, ...);
+void strfmt(void (*outc)(char), const char *fstring, ...) ;
+
+/**
+ * @brief Format a string according to a format specifier list using va_list.
+ * 
+ * Works similarly to vprintf but minimal; typically supports
+ * %c, %s, %d, %x, etc.
+ * 
+ * @param outc   Function pointer to output a single character.
+ * @param fstring Format string.
+ * @param args    va_list of arguments matching the format specifiers.
+ */
+void vstrfmt(void (*outc)(char), const char *fstring, va_list args);
 
 #endif
