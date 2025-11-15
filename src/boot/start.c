@@ -1,8 +1,6 @@
 #include "drivers/uart.h"
 
 void start(void) {
-    uart_puts("Keep it classy yall!");
-    uart_putc('\n');
-    uart_puts("zuzuMicrokernel is booting..?");
+    uart_printf("Booting zuzuMicrokernel...\n", 1);
     while (1);      // Loop forever
 }
