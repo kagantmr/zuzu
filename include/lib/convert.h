@@ -1,6 +1,5 @@
 #ifndef CONVERT_H
 #define CONVERT_H
-#include "stddef.h"
 
 /**
  * @brief Convert a string to an integer.

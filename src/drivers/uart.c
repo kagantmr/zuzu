@@ -1,20 +1,25 @@
 #include "drivers/uart.h"
 #include "lib/string.h"
+#include "core/log.h"
+#include <stddef.h>
+#include <stdint.h>
 
-#define UART_CHAR_MAX 256
+static inline int uart_tx_full(void) {
+    volatile uint32_t *UART0_FR = (volatile uint32_t *)(UART0_BASE + 0x18);
+    return (*UART0_FR & 0b00100000) ? 1 : 0;
+}
 
+void uart_init(void) {
+    // UART initialization code can be added here if needed
+}
 
 void uart_putc(char c) {
     volatile uint32_t *UART0 = (uint32_t *)UART0_BASE;
-    while (uart_busy());
+    while (uart_tx_full());
     *UART0 = c;
 }
 
 int uart_puts(const char *string) {
-    size_t len = strlen(string);
-    if (len > UART_CHAR_MAX) {
-        return UART_FAIL;
-    }
     while (*string) {
         uart_putc(*string);
         string++;

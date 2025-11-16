@@ -7,27 +7,32 @@ CPUFLAGS = -mcpu=cortex-a15
 CFLAGS   = -ffreestanding -Wall -Wextra -Werror $(CPUFLAGS) -Iinclude -MMD -MP
 LDFLAGS  = -T linker.ld
 
+# Find sources
 CSRCS    = $(shell find src -name '*.c')
-SRSCS    = $(shell find src -name '*.s')
-SRCS     = $(CSRCS) $(SRSCS)
-OBJS     = $(patsubst src/%.c,build/%.o,$(CSRCS)) $(patsubst src/%.s,build/%.o,$(SRSCS))
+ASRCS    = $(shell find src -name '*.s')
+SRCS     = $(CSRCS) $(ASRCS)
+
+# Object files in build/
+OBJS     = $(patsubst src/%.c, build/%.o, $(CSRCS)) \
+           $(patsubst src/%.s, build/%.o, $(ASRCS))
+
 DEPS     = $(OBJS:.o=.d)
 
-TARGET   = build/zuzuMicrokernel.elf
+TARGET   = build/zuzu.elf
 
 all: $(TARGET)
 
-# Compile C
+# Compile C sources
 build/%.o: src/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Compile assembly
+# Compile assembly sources
 build/%.o: src/%.s
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
 
-# Link everything
+# Link
 $(TARGET): $(OBJS)
 	@mkdir -p $(dir $@)
 	$(LD) $(LDFLAGS) $(OBJS) -o $@
@@ -38,10 +43,9 @@ run: $(TARGET)
 
 # Disassemble
 dump: $(TARGET)
-	$(OBJDUMP) -d $(TARGET) > build/zuzuMicrokernel.asm
+	$(OBJDUMP) -d $(TARGET) > build/zuzu.asm
 
 clean:
 	rm -rf build
 
-# Include dependency files
 -include $(DEPS)

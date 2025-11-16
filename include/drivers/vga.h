@@ -1,9 +1,6 @@
 #ifndef VGA_H
 #define VGA_H
 
-#include <stddef.h>
-#include <stdint.h>
-#include "../lib/string.h"
 
 #define UART0_BASE 0x1C090000UL // UART address for vexpress-a15
 
@@ -11,10 +8,10 @@
 #define UART_OK 0
 #define UART_BUSY 1
 
-static inline int uart_busy(void) {
-    volatile uint32_t *UART0_FR = (volatile uint32_t *)(UART0_BASE + 0x18);
-    return (*UART0_FR & 0b00100000) ? 1 : 0;
-}
+/**
+ * @brief Initialize the VGA hardware.
+ */
+void vga_init(void);
 
 /**
  * @brief Send a single character over VGA.
