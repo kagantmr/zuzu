@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "symbols.h": "c",
+        "cpu.h": "c"
+    }
+}

@@ -1,27 +1,25 @@
 #include "lib/convert.h"
 #include "stddef.h"
 
-int is_digit(char c) {
-    return (c == '0') || (c == '1') || (c == '2') || (c == '3') || (c == '4') ||
-    (c == '5') || (c == '6') || (c == '7') || (c == '8') || (c == '9');
+static inline int is_digit(char c) {
+    return (c >= '0' && c <= '9');
 }
 
 
 int atoi(const char *str) {
     int value = 0; 
     char is_negative = 0;
+    while (*str == ' ' || *str == '\t' || *str == '\n') str++;
     if (*str == '-') {
         is_negative = 1; // 2's complement will be applied if is_negative is 1.
         str++;
     } else if (*str == '+') {
-        is_negative = 0; // 2's complement will be applied if is_negative is 1.
+        is_negative = 0; 
         str++;
     }
-    
-    // no need for extra check, the while loop will rule out invalid characters anyway
-    
+        
     while (is_digit(*str)) { // omitted null termination because this also covers that case
-        value = value * 10 + (*str++ - '0');
+        value = value * 10 + (*str++ - '0'); // Strip digit, 
     }
 
     return is_negative ? -value : value;
