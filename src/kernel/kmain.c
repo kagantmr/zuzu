@@ -47,14 +47,14 @@ void kmain(void) {
     __asm__ volatile ("mov %0, sp" : "=r"(sp));
     KINFO("SP: %p", (void*)sp);
 
-    KINFO("Kernel start: %p", (void*)&_kernel_start);
-    KINFO("Kernel end:   %p", (void*)&_kernel_end);
-    KINFO("Stack base:    %p", (void*)&kernel_layout.stack_base);
-    KINFO("Stack top:     %p", (void*)&kernel_layout.stack_top);
+    KINFO("Kernel start: %p", (void*)_kernel_start);
+    KINFO("Kernel end:   %p", (void*)_kernel_end);
+    KINFO("Stack base:    %p", (void*)kernel_layout.stack_base);
+    KINFO("Stack top:     %p", (void*)kernel_layout.stack_top);
     
 
 
-    KINFO("Kernel init complete. Entering idle.");
+    KINFO("\nKernel init complete. Entering idle.");
     while (1) {
         __asm__("wfi");
     }

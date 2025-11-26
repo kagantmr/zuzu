@@ -14,11 +14,10 @@ void kernel_early(void) {
     
     kernel_layout.kernel_start = (uintptr_t) _kernel_start;
     kernel_layout.kernel_end =   (uintptr_t) _kernel_end;
-    kernel_layout.stack_base = align_up((uintptr_t)_kernel_end, 8);
-    kernel_layout.stack_top = kernel_layout.stack_base + 0x10000;
+    kernel_layout.stack_base = (uintptr_t) __stack_base__;
+    kernel_layout.stack_top = (uintptr_t) __stack_top__;
 
-    // Switch to the stack now that it's computed
-    // __asm__ volatile ("mov sp, %0" : : "r"(kernel_layout.stack_txop));
+    //__asm__ volatile ("mov sp, %0" : : "r"(kernel_layout.stack_top));
 
     // Call kmain once that RAM stuffs are settled
     kmain();

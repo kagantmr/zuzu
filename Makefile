@@ -18,7 +18,7 @@ OBJS     = $(patsubst src/%.c, build/%.o, $(CSRCS)) \
 
 DEPS     = $(OBJS:.o=.d)
 
-TARGET   = build/zuzu.elf
+TARGET   = build/zuzu.elf 
 
 all: $(TARGET)
 
@@ -33,7 +33,7 @@ build/%.o: src/%.s
 	$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
 
 # Link
-$(TARGET): $(OBJS)
+$(TARGET): $(OBJS) src/arch/arm/linker.ld
 	@mkdir -p $(dir $@)
 	$(LD) $(LDFLAGS) $(OBJS) -o $@
 
