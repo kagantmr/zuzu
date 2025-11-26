@@ -50,3 +50,16 @@ void *memmove(void *dest, const void *src, size_t n) {
 
     return result;
 }
+
+uintptr_t align_up(uintptr_t addr, size_t alignment) {
+    if (alignment == 0) {
+        return addr;
+    }
+
+    uintptr_t remainder = addr % alignment;
+    if (remainder == 0) {
+        return addr;
+    }
+
+    return addr + (alignment - remainder);
+}

@@ -1,6 +1,7 @@
 #ifndef MEM_H
 #define MEM_H
 #include "stddef.h"
+#include "stdint.h"
 
 /**
  * @brief Copy n bytes from source to destination.
@@ -31,5 +32,15 @@ void *memset(void *ptr, char x, size_t n);
  * @return Pointer to the destination memory area.
  */
 void *memmove(void *dest, const void *src, size_t n);
+
+/** 
+ * @brief Align an address upwards to the nearest multiple of alignment.
+ * 
+ * @param addr The address to align.
+ * @param alignment The alignment boundary (must be a power of two).
+ * @return The aligned address.
+ * 
+*/
+uintptr_t align_up(uintptr_t addr, size_t alignment);
 
 #endif

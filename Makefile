@@ -5,7 +5,7 @@ OBJDUMP = $(CROSS)objdump
 
 CPUFLAGS = -mcpu=cortex-a15
 CFLAGS   = -ffreestanding -Wall -Wextra -Werror $(CPUFLAGS) -Iinclude -MMD -MP
-LDFLAGS  = -T linker.ld
+LDFLAGS  = -T src/arch/arm/linker.ld
 
 # Find sources
 CSRCS    = $(shell find src -name '*.c')

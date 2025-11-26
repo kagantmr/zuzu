@@ -10,7 +10,11 @@
 #include "core/log.h"
 #include "core/panic.h"
 
+#include "kernel/include/layout.h"
+
 #define ZUZU_VER "v0.0.1"
+
+extern kernel_layout_t kernel_layout;
 
 void kmain(void) {
     
@@ -45,8 +49,9 @@ void kmain(void) {
 
     KINFO("Kernel start: %p", (void*)&_kernel_start);
     KINFO("Kernel end:   %p", (void*)&_kernel_end);
-    KINFO("Stack base:    %p", (void*)&STACK_BASE);
-    KINFO("Stack top:     %p", (void*)&STACK_TOP);
+    KINFO("Stack base:    %p", (void*)&kernel_layout.stack_base);
+    KINFO("Stack top:     %p", (void*)&kernel_layout.stack_top);
+    
 
 
     KINFO("Kernel init complete. Entering idle.");

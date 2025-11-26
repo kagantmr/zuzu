@@ -10,9 +10,4 @@ SECTIONS {
     .bss    : { *(.bss*) *(COMMON) }
 
     _kernel_end = .;
-
-    . = ALIGN(8);
-    STACK_BASE = .;
-    . += 0x10000;
-    STACK_TOP = .;
 }
