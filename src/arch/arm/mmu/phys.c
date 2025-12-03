@@ -1,4 +1,4 @@
-#include "kernel/mm/phys.h"
+#include "arch/arm/mmu/phys.h"
 
 /* QEMU vexpress-a15:
    RAM: 0x80000000 → 0x88000000 (128 MB)

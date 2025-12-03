@@ -16,6 +16,7 @@ typedef struct {
 
     uintptr_t heap_start;     // after bitmap / boot alloc
     uintptr_t heap_end;       // later, when you know RAM size
+
 } kernel_layout_t;
 
 
