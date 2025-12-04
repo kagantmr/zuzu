@@ -12,16 +12,21 @@
 
 #include "kernel/include/layout.h"
 
+#include "kernel/mm/pmm.h"
+
 #define ZUZU_VER "v0.0.1"
 
 extern kernel_layout_t kernel_layout;
+extern pmm_state_t pmm_state;
 
 void kmain(void) {
     
 
     uart_init();
     kprintf_init(uart_putc);
-    KINFO("UART driver and kprintf initialized");
+    KINFO("early() complete");
+    KINFO("UART driver initialized");
+    
 
     KINFO("Booting...\n");
 
@@ -49,12 +54,18 @@ void kmain(void) {
 
     KINFO("Kernel start: %p", (void*)_kernel_start);
     KINFO("Kernel end:   %p", (void*)_kernel_end);
+
+    KINFO("Bitmap start: %p", (void*)pmm_state.bitmap);
+    KINFO("Bitmap end:   %p", (void*)pmm_state.bitmap + pmm_state.bitmap_bytes);
+
+    KINFO("free pages: %d, total pages: %d", pmm_state.free_pages, pmm_state.total_pages);
+
     KINFO("Stack base:    %p", (void*)kernel_layout.stack_base);
     KINFO("Stack top:     %p", (void*)kernel_layout.stack_top);
     
 
 
-    KINFO("\nKernel init complete. Entering idle.");
+    KINFO("Kernel init complete. Entering idle.");
     while (1) {
         __asm__("wfi");
     }

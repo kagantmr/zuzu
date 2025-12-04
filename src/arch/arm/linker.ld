@@ -20,5 +20,5 @@ SECTIONS {
 
     /* Stack at the top of RAM */
     __stack_base__ = 0x80800000;    /* end of RAM */
-    __stack_top__  = __stack_base__ - 0x8000; /* 32 KB stack */
+    __stack_top__  = __stack_base__ - 0x1000; /* 4 KB stack */
 }

@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define PAGE_SIZE 4 * 1024 // A page is 4KB
+#define PAGE_SIZE 4096 // A page is 4KB
 
 #define MARK_OK 0
 #define MARK_FAIL -1

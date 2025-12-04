@@ -50,11 +50,28 @@ void kernel_early(void) {
     kernel_layout.bitmap_end   = bitmap_phys_end;
 
     /* reserve kernel, stack, and bitmap pages */
+
     mark(kernel_layout.kernel_start, kernel_layout.kernel_end);
     mark(kernel_layout.bitmap_start, kernel_layout.bitmap_end);
-    mark(kernel_layout.stack_top, kernel_layout.stack_base);
+    
 
-    // Stack pointer is already set in _start.s
+    // Switch to larger stack, first allocate pages for the stack
+    size_t stack_pages = 2; // 8 KB 
+    uintptr_t kernel_stack = 0;
+    for (size_t i = 0; i < stack_pages; i++) {
+        uintptr_t page = alloc_page();
+        if (!page) panic("Out of memory for kernel stack");
+        kernel_stack = page; // pick the last allocated page as the top
+    }
+
+    // Use inline assembly to move to the larger stack
+    uintptr_t stack_top = kernel_stack + stack_pages * PAGE_SIZE;
+    __asm__ volatile ("mov sp, %0" : : "r"(stack_top));
+
+    kernel_layout.stack_base = kernel_stack;
+    kernel_layout.stack_top  = stack_top;
+    mark(kernel_layout.stack_base, kernel_layout.stack_top);
+    
     // Call main kernel
     kmain();
 }
