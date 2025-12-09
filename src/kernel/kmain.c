@@ -76,8 +76,6 @@ void print_logo(void) {
 
 void kmain(void)
 {
-
-    uart_init();
     kprintf_init(uart_putc);
     KINFO("early() complete");
     KINFO("UART driver initialized");

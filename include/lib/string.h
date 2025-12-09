@@ -71,6 +71,13 @@ int strncmp(const char *s1, const char *s2, size_t n);
 char *strncpy(char *dest, const char *src, size_t n);
 
 /**
+ * @brief Locate the first occurrence of a character in a string.
+ * @param s Pointer to the input string.
+ * @param c Character to locate (as an int, but treated as char).
+ * @return Pointer to the first occurrence of c in s, or NULL if not found.
+ */
+char *strchr(const char *s, int c);
+/**
  * @brief Format a string according to a format specifier list.
  * 
  * Works similarly to sprintf but minimal; typically supports

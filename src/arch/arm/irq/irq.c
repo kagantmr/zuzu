@@ -3,12 +3,12 @@
 
 void disable_interrupts() {
     __asm__ volatile (
-        "cpsid i"
+        "cpsid i\n"
     );
 };
 
 void enable_interrupts() {
     __asm__ volatile (
-        "cpsie i"
+        "cpsie i\n"
     );
 }

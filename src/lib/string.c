@@ -83,6 +83,15 @@ char *strncpy(char *dest, const char *src, size_t n) {
     return ret;
 }
 
+char *strchr(const char *s, int c) {
+    while (*s) {
+        if (*s == (char)c) {
+            return (char *)s;
+        }
+        s++;
+    }
+    return NULL;
+}
 
 void strfmt(void (*outc)(char), const char *fstring, ...) {
     va_list args;
