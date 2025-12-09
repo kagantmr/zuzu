@@ -4,8 +4,8 @@ _start:
     cpsid i                   @ Disable interrupts
     cpsid f                   @ Disable FIQs
     bl clear_bss              @ Clear BSS section
+    mov r0, r2                @ Pass DTB address in r0
     bl early                  @ Jump to C code
-
 1:  b 1b                      @ Loop forever
 .size _start, . - _start
 
