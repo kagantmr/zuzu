@@ -4,13 +4,16 @@
 #include <stddef.h>
 #include <stdint.h>
 
+uintptr_t UART0_BASE;
+
 static inline int uart_tx_full(void) {
     volatile uint32_t *UART0_FR = (volatile uint32_t *)(UART0_BASE + 0x18);
     return (*UART0_FR & 0b00100000) ? 1 : 0;
 }
 
-void uart_init(void) {
+void uart_init(uintptr_t base_addr) {
     // UART initialization code can be added here if needed
+    UART0_BASE = base_addr;
 }
 
 void uart_putc(char c) {

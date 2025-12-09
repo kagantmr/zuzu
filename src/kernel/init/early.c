@@ -1,23 +1,40 @@
 #include "arch/arm/symbols.h"
 #include "kernel/include/layout.h"
 #include "arch/arm/mmu/phys.h"
+#include "arch/arm/irq/irq.h"
 #include "kernel/mm/pmm.h"
 #include "kernel/mm/reserve.h"
 #include "core/log.h"
 #include "core/panic.h"
 #include "kernel/kmain.h"
 #include "lib/mem.h"
+#include "drivers/uart.h"
+#include "kernel/dtb/dtb_parser.h"
 
 extern kernel_layout_t kernel_layout;
 extern pmm_state_t pmm_state;
 extern phys_region_t phys_region[];
+dtb_node_t *root;
 
-void kernel_early(void) {
+void early() {
+
+    root = dtb_parse((void*)(uintptr_t)(0x40000000));
+
+    uint32_t ram_base = dtb_get_reg_addr(root, "/memory");
+    uint32_t ram_size = dtb_get_reg_size(root, "/memory");
+
+    // compute end
+    uint32_t ram_end = ram_base + ram_size;
+
     /* Fill kernel layout */
     kernel_layout.kernel_start = (uintptr_t)_kernel_start;
     kernel_layout.kernel_end   = (uintptr_t)_kernel_end;
     kernel_layout.stack_top    = (uintptr_t)__stack_top__;
     kernel_layout.stack_base   = (uintptr_t)__stack_base__;
+
+    /* Fill physical region */
+    phys_region[0].start = (uintptr_t)ram_base;
+    phys_region[0].end   = (uintptr_t)ram_end;
 
     /* Fill PMM */
     pmm_state.pfn_base   = phys_region->start / PAGE_SIZE;
@@ -35,7 +52,7 @@ void kernel_early(void) {
 
     /* sanity: ensure bitmap fits below stack */
     if (bitmap_phys_end > kernel_layout.stack_top) {
-        panic("Bitmap does not fit in RAM before stack!");
+        panic("Bitmap does not fit in RAM before stack");
     }
 
     /* Install bitmap */
@@ -72,6 +89,9 @@ void kernel_early(void) {
     kernel_layout.stack_top  = stack_top;
     mark(kernel_layout.stack_base, kernel_layout.stack_top);
     
+    uart_init(dtb_get_reg_addr(root, "/smb/serial@1c090000"));
+
+    enable_interrupts();
     // Call main kernel
     kmain();
 }

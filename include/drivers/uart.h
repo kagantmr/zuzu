@@ -1,16 +1,18 @@
 #ifndef UART_H
 #define UART_H
 
-#define UART0_BASE 0x1C090000UL // UART address for vexpress-a15
+#include <stdint.h>
 
 #define UART_FAIL 2
 #define UART_OK 0
 #define UART_BUSY 1
 
+
+
 /**
  * @brief Initialize the UART hardware.
  */
-void uart_init(void);
+void uart_init(uintptr_t base_addr);
 
 
 /**

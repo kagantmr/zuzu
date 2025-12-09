@@ -1,7 +1,7 @@
 ENTRY(_start)
 
 SECTIONS {
-    . = 0x80000000;
+    . = 0x40000000;
     _kernel_start = .;
 
     .text : { KEEP(*(.text.boot)) *(.text*) }
