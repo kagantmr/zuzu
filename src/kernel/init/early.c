@@ -16,9 +16,9 @@ extern pmm_state_t pmm_state;
 extern phys_region_t phys_region[];
 dtb_node_t *root;
 
-void early() {
+void early(void* dtb_ptr) {
 
-    root = dtb_parse((void*)(uintptr_t)(0x40000000));
+    root = dtb_parse(dtb_ptr);
 
     uint32_t ram_base = dtb_get_reg_addr(root, "/memory");
     uint32_t ram_size = dtb_get_reg_size(root, "/memory");
