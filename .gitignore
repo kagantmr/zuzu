@@ -55,3 +55,4 @@ dkms.conf
 *.dwo
 gdb.txt
 .vscode/*
+.DS_Store

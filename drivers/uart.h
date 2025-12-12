@@ -7,13 +7,18 @@
 #define UART_OK 0
 #define UART_BUSY 1
 
-
-
 /**
  * @brief Initialize the UART hardware.
  */
 void uart_init(uintptr_t base_addr);
 
+/**
+ * @brief Swap the UART base address to a new one.
+ * @param new_base_addr New base address for UART.
+ */
+inline void uart_swap(uintptr_t new_base_addr) {
+    uart_init(new_base_addr);
+}
 
 /**
  * @brief Send a single character over UART.

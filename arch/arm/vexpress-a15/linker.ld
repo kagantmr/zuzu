@@ -7,7 +7,7 @@ SECTIONS {
 
     /* Put boot code first */
     .text : {
-        KEEP(*(.text.boot))   /* our _start lives here */
+        KEEP(*(.text.boot))   /*  _start lives here */
         *(.text*)
     }
 

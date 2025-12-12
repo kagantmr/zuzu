@@ -1,7 +1,7 @@
 #ifndef DTB_PARSER_H
 #define DTB_PARSER_H
 
-#include <dtb.h>
+#include <kernel/dtb/dtb.h>
 #include <stdbool.h>
 
 /**
@@ -44,18 +44,13 @@ uint32_t dtb_get_reg_size(const dtb_node_t* root, const char* path);
  */
 uint32_t dtb_get_reg_addr(const dtb_node_t* root, const char* path);
 
+
 /**
- * Retrieves the translated 'reg' property address and size for a given node path,
- * taking into account any address translations defined by 'ranges' properties
- * in the DTB hierarchy.
- * @param node Pointer to the current dtb_node_t being examined.
- * @param target_path Path to the target node whose 'reg' property is to be retrieved
- * after translation.
- * @param parent_base The accumulated base address translation from parent nodes.
- * @param parent_addr_cells The number of address cells defined by the parent node.
- * @param out_addr Pointer to store the translated address.
- * @param out_size Pointer to store the size from the 'reg' property.
- * @return true if the target node was found and values were retrieved; false otherwise.
- *
+ * Finds a node in the DTB by its path.
+ * @param root Pointer to the root dtb_node_t.
+ * @param path Path to the desired node.
+ * @return Pointer to the found dtb_node_t, or NULL if not found.
  */
+const dtb_node_t* dtb_find_node(const dtb_node_t* root, const char* path);
+
 #endif // DTB_PARSER_H

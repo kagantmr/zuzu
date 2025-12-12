@@ -1,21 +1,25 @@
+#include "arch/arm/include/symbols.h"
+#include "arch/arm/mmu/phys.h"
 
-#include "symbols.h"
-#include "uart.h"
-#include "version.h"
-#include "kprintf.h"
-#include "log.h"
-#include "panic.h"
-#include "phys.h"
+#include "drivers/uart.h"
 
-#include "layout.h"
+#include "core/version.h"
 
-#include "pmm.h"
+#include "core/kprintf.h"
+#include "core/log.h"
+#include "core/panic.h"
+
+#include "kernel/layout.h"
+#include "kernel/mm/pmm.h"
+#include "kernel/dtb/dtb_parser.h"
 
 #define ZUZU_VER "v0.0.1"
 
 extern kernel_layout_t kernel_layout;
 extern pmm_state_t pmm_state;
-extern phys_region_t phys_region;
+extern phys_region_t phys_region[];
+
+extern dtb_node_t *root;
 
 static inline uint32_t read_cpsr(void) {
     uint32_t cpsr;
@@ -39,7 +43,6 @@ static inline const char* cpu_mode_str(uint32_t mode) {
         default:   return "Unknown";
     }
 }
-
 
 void print_logo(void) {
 
@@ -96,9 +99,9 @@ void print_logo(void) {
     kprintf("\x1b[0m\n"); // Reset color
     }
 
+
 void kmain(void)
 {
-    kprintf_init(uart_putc);
     KINFO("early() complete");
     KINFO("UART driver initialized");
 
@@ -106,10 +109,27 @@ void kmain(void)
 
     print_logo();
 
-
     KINFO("Zuzu kernel %s", ZUZU_VERSION);
-    KINFO("Machine: %s", "QEMU Vexpress-A15");
-    KINFO("RAM: %u MB", (unsigned)(phys_region.end - phys_region.start / (1024 * 1024)));
+    const char *machine_name = dtb_get_property(root, "/", "model");
+
+    if (machine_name) {
+        KINFO("Machine: %s", machine_name);
+    } else {
+        KINFO("Machine: Unknown");
+    }
+    const char *compatible = dtb_get_property(root, "/", "compatible");
+    if (compatible) {
+        KINFO("Compatible ID: %s", compatible);
+    }
+    // Calculate size in Megabytes (Bytes / 1024 / 1024)
+    uint32_t ram_size_mb = pmm_state.total_pages * PAGE_SIZE / 1024 / 1024;
+
+    if (ram_size_mb < 64) {
+        kprintf("\n");
+        KWARN("%u MB of RAM detected. Zuzu recommends 64MB+ for smooth functioning.\n", ram_size_mb);
+    } else {
+        KINFO("%u MB of RAM detected", ram_size_mb);
+    }
 
     uint32_t cpsr = read_cpsr();
     uint32_t mode = cpu_mode_from_cpsr(cpsr);
