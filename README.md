@@ -41,7 +41,7 @@ Boot the kernel in QEMU using the included vexpress-v2p-ca15-tc1.dtb:
 make run
 ```
 
-Currently, support for other boards is minimal. This is hopefully changed with the
+Currently, support for other boards is minimal. This will hopefully change with the Raspberry Pi support
 
 3. Debugging
 
