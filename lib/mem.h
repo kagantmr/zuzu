@@ -4,6 +4,14 @@
 #include "stdint.h"
 
 /**
+ * @brief Byte-swap a 32-bit unsigned integer.
+ * 
+ * @param x The 32-bit unsigned integer to byte-swap.
+ * @return The byte-swapped 32-bit unsigned integer.
+ */
+uint32_t bswap32(uint32_t x);
+
+/**
  * @brief Copy n bytes from source to destination.
  * 
  * @param dest Pointer to the destination memory area.

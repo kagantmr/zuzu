@@ -1,6 +1,6 @@
-#include "uart.h"
-#include "string.h"
-#include "log.h"
+#include "drivers/uart.h"
+#include "lib/string.h"
+#include "core/log.h"
 #include <stddef.h>
 #include <stdint.h>
 

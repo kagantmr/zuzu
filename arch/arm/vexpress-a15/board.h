@@ -8,4 +8,6 @@
 // Offsets for specific devices (relative to SMB_BASE)
 #define VEXPRESS_UART0_OFF  0x090000
 
+#define VEXPRESS_UART0 1
+
 #endif

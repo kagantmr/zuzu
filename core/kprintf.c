@@ -1,6 +1,6 @@
-#include "kprintf.h"
-#include "log.h"
-#include "string.h"
+#include "core/kprintf.h"
+#include "core/log.h"
+#include "lib/string.h"
 
 static void (*kernel_console_putc)(char);
 

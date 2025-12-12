@@ -1,4 +1,4 @@
-#include "irq.h"
+#include "arch/arm/include/irq.h"
 
 
 void disable_interrupts() {
