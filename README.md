@@ -75,23 +75,23 @@ The Zuzu project follows this source structure for ease of development:
 └── lib/                   # Standard library implementations (memcpy, string)
 ```
 
-## Roadmap
+## Short-sighted Roadmap
 
-[x] Early Boot (Assembly)
+- [x] Early Boot (Assembly)
 
-[x] UART Driver (PL011)
+- [x] UART Driver (PL011)
 
-[x] Device Tree Parsing (FDT)
+- [x] Device Tree Parsing (FDT)
 
-[x] Physical Memory Manager (PMM)
+- [x] Physical Memory Manager (PMM)
 
-[ ] Virtual Memory Manager (VMM / Paging) (In Progress)
+- [ ] Virtual Memory Manager (VMM / Paging)
 
-[ ] Interrupt Descriptor Table (Vector Table)
+- [ ] Interrupt Descriptor Table (Vector Table)
 
-[ ] Heap Allocator (kmalloc)
+- [ ] Heap Allocator (kmalloc)
 
-[ ] Timer Driver
+- [ ] Timer Driver
 
 ## License
 MIT License. See LICENSE for details.
