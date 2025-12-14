@@ -1,13 +1,15 @@
-# Zuzu
+
+
+# Zuzu
 
 Zuzu is a lightweight microkernel targeting AArch32 and ARMv7-A.
 
-## Currently Supported Boards
+## Currently Supported Boards
 - ARM Versatile Express `vexpress-a15`
 - ... maybe Raspberry Pi 3
 - ... something that definitely isn't x86
 
-## Prerequisites
+## Prerequisites
 To build and run Zuzu on QEMU, install QEMU and `gcc-arm-none-eabi` cross-compiler:
 
 ### Linux (Debian/Ubuntu)
