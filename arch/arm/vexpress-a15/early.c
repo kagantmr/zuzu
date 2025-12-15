@@ -61,8 +61,8 @@ void early(void* dtb_ptr) {
     /* Fill kernel layout */
     kernel_layout.kernel_start = (uintptr_t)_kernel_start;
     kernel_layout.kernel_end   = (uintptr_t)_kernel_end;
-    kernel_layout.stack_top    = (uintptr_t)__stack_top__;
-    kernel_layout.stack_base   = (uintptr_t)__stack_base__;
+    kernel_layout.stack_top    = (uintptr_t)__svc_stack_top__;
+    kernel_layout.stack_base   = (uintptr_t)__svc_stack_base__;
 
     /* Fill physical region */
     phys_region.start = (uintptr_t)ram_base;
@@ -123,6 +123,11 @@ void early(void* dtb_ptr) {
     kernel_layout.stack_top  = stack_top;
     mark(kernel_layout.stack_base, kernel_layout.stack_top);
     
+    // __asm__ volatile (".word 0xE7F000F0"); // Undefined instruction exception test
+
+    // __asm__ volatile ("add sp, #1"); // Bad access exception test (for QEMU at least, QEMU for some reason accepts anything being read from and written to.)
+
+    // __asm__ volatile ("svc #0"); // Supervisor call test
 
     enable_interrupts();
     // Call main kernel
