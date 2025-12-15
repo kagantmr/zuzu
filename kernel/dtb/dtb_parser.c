@@ -12,8 +12,6 @@ static inline void halt(void) {
     };
 }
 
-
-
 typedef enum FDT_CODE {
     FDT_BEGIN_NODE = 1,
     FDT_END_NODE   = 2,
@@ -22,7 +20,7 @@ typedef enum FDT_CODE {
     FDT_END        = 9
 } FDT_CODE;
 
-static dtb_node_t node_pool[128];
+static dtb_node_t node_pool[512];
 static size_t allocated = 0;
 
 static dtb_node_t* dtb_new_node(void) {

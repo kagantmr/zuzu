@@ -1,17 +1,21 @@
 ENTRY(_start)
 
-SECTIONS {
-    __dtb_addr__ = 0x80000000;  /* Address where DTB is loaded by bootloader */
+SECTIONS
+{
+    __dtb_addr__ = 0x80000000;   /* DTB provided by bootloader */
+
     . = 0x80010000;
     _kernel_start = .;
 
-    /* Put boot code first */
+    /* --- Code --- */
     .text : {
-        KEEP(*(.text.boot))   /*  _start lives here */
+        KEEP(*(.text.boot))     /* _start */
         *(.text*)
     }
 
-    .rodata : { *(.rodata*) }
+    .rodata : {
+        *(.rodata*)
+    }
 
     .data : {
         _data_start = .;
@@ -28,9 +32,37 @@ SECTIONS {
 
     _kernel_end = .;
 
-    . = ALIGN(8);
+    /* --------------------------------------------------
+       Stack allocation region (high memory)
+       -------------------------------------------------- */
 
-    /* Hardcode stack to 0x80800000 (Safety Gap) */
-    __stack_base__ = 0x80800000;
-    __stack_top__  = __stack_base__ - 0x1000;
+    . = ALIGN(16);
+
+    /* Stack base (top of RAM area you chose) */
+    __stack_region_base__ = 0x80800000;
+
+    /* Per-mode stack sizes */
+    __svc_stack_size__   = 0x4000;  /* 16 KB */
+    __irq_stack_size__   = 0x2000;  /* 8 KB */
+    __abt_stack_size__   = 0x2000;  /* 8 KB */
+    __und_stack_size__   = 0x2000;  /* 8 KB */
+
+    /* SVC stack */
+    __svc_stack_top__  = __stack_region_base__;
+    __svc_stack_base__ = __svc_stack_top__ - __svc_stack_size__;
+
+    /* IRQ stack */
+    __irq_stack_top__  = __svc_stack_base__;
+    __irq_stack_base__ = __irq_stack_top__ - __irq_stack_size__;
+
+    /* Abort stack */
+    __abt_stack_top__  = __irq_stack_base__;
+    __abt_stack_base__ = __abt_stack_top__ - __abt_stack_size__;
+
+    /* Undefined stack */
+    __und_stack_top__  = __abt_stack_base__;
+    __und_stack_base__ = __und_stack_top__ - __und_stack_size__;
+
+    /* Bottom of all stacks (for sanity checks later) */
+    __stack_region_end__ = __und_stack_base__;
 }
