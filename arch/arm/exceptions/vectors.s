@@ -1,5 +1,5 @@
 .section .vectors, "ax"
-.align 5        @ 2^5 = 32-byte alignment
+.align 5        @ 32-byte alignment
 .global vector_table
 
 vector_table:

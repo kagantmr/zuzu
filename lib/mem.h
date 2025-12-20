@@ -2,6 +2,13 @@
 #define MEM_H
 #include "stddef.h"
 #include "stdint.h"
+#include "stdbool.h"
+
+typedef struct mem_block {
+    size_t size;           // Size of the block, excluding this header
+    struct mem_block *next;
+    bool free;            
+} kmem_block_t;
 
 /**
  * @brief Byte-swap a 32-bit unsigned integer.
@@ -51,4 +58,23 @@ void *memmove(void *dest, const void *src, size_t n);
 */
 uintptr_t align_up(uintptr_t addr, size_t alignment);
 
-#endif
+/**
+    * @brief Allocate a block of memory of the specified size.
+    * @param size The size of memory to allocate in bytes.
+    * @return A pointer to the allocated memory block, or NULL if allocation fails.
+ */
+void* kmalloc(size_t size);
+
+/**
+ * @brief Free a previously allocated block of memory.
+ * 
+ * @param ptr Pointer to the memory block to free.
+ */
+void kfree(void* ptr);
+
+/**
+ * @brief Initialize the kernel heap.
+ */
+void kheap_init(void);
+
+#endif /* MEM_H */

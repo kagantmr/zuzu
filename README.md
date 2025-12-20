@@ -43,7 +43,7 @@ Boot the kernel in QEMU using the included vexpress-v2p-ca15-tc1.dtb:
 make run
 ```
 
-Currently, support for other boards is minimal. This will hopefully change with the Raspberry Pi support
+Currently, support for other boards is minimal. This will hopefully change with the Raspberry Pi support.
 
 3. Debugging
 
@@ -56,7 +56,7 @@ make debug
 In another terminal, run:
 ```bash
 gdb-multiarch build/zuzu.elf
-(gdb) target remote localhost:1234
+(gdb) target remote :1234
 ```
 ## Structure
 The Zuzu project follows this source structure for ease of development:
