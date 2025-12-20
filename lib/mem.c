@@ -73,3 +73,12 @@ uintptr_t align_up(uintptr_t addr, size_t alignment) {
 
     return addr + (alignment - remainder);
 }
+
+
+void* kmalloc(size_t size) {}
+
+
+void kfree(void* ptr) {}
+
+
+void kheap_init(void) {}
