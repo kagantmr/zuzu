@@ -42,10 +42,10 @@ SECTIONS
     __stack_region_base__ = 0x80800000;
 
     /* Per-mode stack sizes */
-    __svc_stack_size__   = 0x4000;  /* 16 KB */
-    __irq_stack_size__   = 0x2000;  /* 8 KB */
-    __abt_stack_size__   = 0x2000;  /* 8 KB */
-    __und_stack_size__   = 0x2000;  /* 8 KB */
+    __svc_stack_size__   = 0x10000;  /* 64 KB */
+    __irq_stack_size__   = 0x4000;   /* 16 KB */
+    __abt_stack_size__   = 0x8000;   /* 32 KB */
+    __und_stack_size__   = 0x4000;   /* 16 KB */
 
     /* SVC stack */
     __svc_stack_top__  = __stack_region_base__;

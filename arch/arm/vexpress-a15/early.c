@@ -101,44 +101,20 @@ void early(void* dtb_ptr) {
     kernel_layout.bitmap_start = bitmap_phys_start;
     kernel_layout.bitmap_end   = bitmap_phys_end;
 
-
-    /* reserve DTB, kernel, stack, and bitmap pages */
+    /* reserve DTB, kernel, bitmap, and all mode stacks */
 
     mark(kernel_layout.dtb_start, kernel_layout.kernel_start);
     mark(kernel_layout.kernel_start, kernel_layout.kernel_end);
     mark(kernel_layout.bitmap_start, kernel_layout.bitmap_end);
-
-    // Switch to larger stack, first allocate pages for the stack
-    // Thought of doing this in a function but it would mess everything up bcuz C ABI wouldn't be able to find where to return from
-    size_t stack_pages = 2; // 8 KB 
-    uintptr_t kernel_stack = 0;
-    for (size_t i = 0; i < stack_pages; i++) {
-        uintptr_t page = alloc_page();
-        if (!page) KPANIC("Stack reallocation failed");
-        kernel_stack = page; // pick the last allocated page as the top
-    }
-
-    // Use inline assembly to move to the larger stack
-    uintptr_t stack_top = kernel_stack + stack_pages * PAGE_SIZE;
-    __asm__ volatile ("mov sp, %0" : : "r"(stack_top));
-
-
-    kernel_layout.stack_base = kernel_stack;
-    kernel_layout.stack_top  = stack_top;
-    mark(kernel_layout.stack_base, kernel_layout.stack_top);
+    mark(kernel_layout.stack_base, kernel_layout.stack_top);       // Bootloader SVC stack
+    mark((uintptr_t)__irq_stack_base__, (uintptr_t)__irq_stack_top__);  // IRQ stack
+    mark((uintptr_t)__abt_stack_base__, (uintptr_t)__abt_stack_top__);  // Abort stack
+    mark((uintptr_t)__und_stack_base__, (uintptr_t)__und_stack_top__);  // Undefined stack
     
     kheap_init();
-    kheap_dump();
-    uint32_t* test_ptr = kmalloc(32);
-    *test_ptr = 1;
-    kheap_dump();
-    kfree(test_ptr);
-    kheap_dump();
 
-
-    // __asm__ volatile (".word 0xE7F000F0"); // Undefined instruction exception test
-    // __asm__ volatile ("add sp, #1"); // Bad access exception test (for QEMU at least, QEMU for some reason accepts anything being read from and written to.)
-    //__asm__ volatile ("svc #0"); // Supervisor call test
+    // Test panic
+    //KPANIC("Zuzu chewed on the wires");
 
     enable_interrupts();
     // Call main kernel
