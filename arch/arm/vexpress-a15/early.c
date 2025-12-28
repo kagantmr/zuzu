@@ -9,6 +9,7 @@
 #include "kernel/mm/reserve.h"
 #include "kernel/kmain.h"
 #include "kernel/dtb/dtb_parser.h"
+#include "kernel/mm/alloc.h"
 
 
 #include "core/assert.h"
@@ -22,7 +23,7 @@
 
 
 
-kernel_layout_t kernel_layout;
+extern kernel_layout_t kernel_layout;
 extern pmm_state_t pmm_state;
 phys_region_t phys_region;
 dtb_node_t *root;
@@ -88,6 +89,7 @@ void early(void* dtb_ptr) {
     kassert(bitmap_phys_end <= phys_region.end);         // Does bitmap fit in RAM?
     
 
+
     /* Install bitmap */
     pmm_state.bitmap = (uint8_t*)bitmap_phys_start;
     pmm_state.bitmap_bytes = bitmap_bytes;
@@ -100,12 +102,14 @@ void early(void* dtb_ptr) {
     kernel_layout.bitmap_end   = bitmap_phys_end;
 
 
-    /* reserve kernel, stack, and bitmap pages */
+    /* reserve DTB, kernel, stack, and bitmap pages */
 
+    mark(kernel_layout.dtb_start, kernel_layout.kernel_start);
     mark(kernel_layout.kernel_start, kernel_layout.kernel_end);
     mark(kernel_layout.bitmap_start, kernel_layout.bitmap_end);
 
     // Switch to larger stack, first allocate pages for the stack
+    // Thought of doing this in a function but it would mess everything up bcuz C ABI wouldn't be able to find where to return from
     size_t stack_pages = 2; // 8 KB 
     uintptr_t kernel_stack = 0;
     for (size_t i = 0; i < stack_pages; i++) {
@@ -123,11 +127,18 @@ void early(void* dtb_ptr) {
     kernel_layout.stack_top  = stack_top;
     mark(kernel_layout.stack_base, kernel_layout.stack_top);
     
+    kheap_init();
+    kheap_dump();
+    uint32_t* test_ptr = kmalloc(32);
+    *test_ptr = 1;
+    kheap_dump();
+    kfree(test_ptr);
+    kheap_dump();
+
+
     // __asm__ volatile (".word 0xE7F000F0"); // Undefined instruction exception test
-
     // __asm__ volatile ("add sp, #1"); // Bad access exception test (for QEMU at least, QEMU for some reason accepts anything being read from and written to.)
-
-    // __asm__ volatile ("svc #0"); // Supervisor call test
+    //__asm__ volatile ("svc #0"); // Supervisor call test
 
     enable_interrupts();
     // Call main kernel

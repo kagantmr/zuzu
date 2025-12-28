@@ -19,7 +19,6 @@ reset_handler:
     b 1b
 
 undef_handler:
-
     stmdb sp!, {lr}        @ Save original LR
 
     sub lr, lr, #4 @ PC = LR - 4 for undefined instruction

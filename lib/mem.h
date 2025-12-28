@@ -4,11 +4,7 @@
 #include "stdint.h"
 #include "stdbool.h"
 
-typedef struct mem_block {
-    size_t size;           // Size of the block, excluding this header
-    struct mem_block *next;
-    bool free;            
-} kmem_block_t;
+
 
 /**
  * @brief Byte-swap a 32-bit unsigned integer.
@@ -49,6 +45,16 @@ void *memset(void *ptr, char x, size_t n);
 void *memmove(void *dest, const void *src, size_t n);
 
 /** 
+ * @brief Align an address downwards to the nearest multiple of alignment.
+ * 
+ * @param addr The address to align.
+ * @param alignment The alignment boundary (must be a power of two).
+ * @return The aligned address.
+ * 
+*/
+uintptr_t align_down(uintptr_t addr, size_t alignment);
+
+/** 
  * @brief Align an address upwards to the nearest multiple of alignment.
  * 
  * @param addr The address to align.
@@ -57,24 +63,5 @@ void *memmove(void *dest, const void *src, size_t n);
  * 
 */
 uintptr_t align_up(uintptr_t addr, size_t alignment);
-
-/**
-    * @brief Allocate a block of memory of the specified size.
-    * @param size The size of memory to allocate in bytes.
-    * @return A pointer to the allocated memory block, or NULL if allocation fails.
- */
-void* kmalloc(size_t size);
-
-/**
- * @brief Free a previously allocated block of memory.
- * 
- * @param ptr Pointer to the memory block to free.
- */
-void kfree(void* ptr);
-
-/**
- * @brief Initialize the kernel heap.
- */
-void kheap_init(void);
 
 #endif /* MEM_H */

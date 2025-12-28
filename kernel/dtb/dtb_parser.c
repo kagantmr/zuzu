@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include "lib/mem.h"
 #include "lib/string.h"
+#include "core/assert.h"
 
 static inline void halt(void) {
     while (1) {
@@ -24,6 +25,7 @@ static dtb_node_t node_pool[512];
 static size_t allocated = 0;
 
 static dtb_node_t* dtb_new_node(void) {
+    kassert(allocated < (sizeof(node_pool)/sizeof(node_pool[0])));
     if (allocated >= (sizeof(node_pool)/sizeof(node_pool[0]))) {
         halt();
     }
@@ -45,12 +47,14 @@ static dtb_node_t* dtb_new_node(void) {
 
 // safe read of a big-endian u32 at cur (avoids unaligned dereference)
 static inline uint32_t read_be32(const uint8_t* cur) {
+    kassert(cur != NULL);
     uint32_t tmp;
     memcpy(&tmp, cur, sizeof(uint32_t));
     return bswap32(tmp);
 }
 
 dtb_node_t *dtb_parse(const void *dtb_data) {
+    kassert(dtb_data != NULL);
     if ((uintptr_t) dtb_data == 0) halt();
 
     const dtb_header_t *header = (const dtb_header_t *)dtb_data;
@@ -234,6 +238,7 @@ static const dtb_node_t* dtb_find_node_rec(const dtb_node_t* node, const char* p
 }
 
 const dtb_node_t* dtb_find_node(const dtb_node_t* root, const char* path) {
+    kassert(path != NULL);
     if (!root || !path) return NULL;
     if (strcmp(path, "/") == 0) return root;
     return dtb_find_node_rec(root, path);
@@ -243,6 +248,8 @@ const char* dtb_get_property(const dtb_node_t* root,
                              const char* node_path,
                              const char* prop_name)
 {
+    kassert(node_path != NULL);
+    kassert(prop_name != NULL);
     const dtb_node_t* node = dtb_find_node(root, node_path);
     if (!node) return NULL;
 
@@ -257,6 +264,7 @@ const char* dtb_get_property(const dtb_node_t* root,
 
 uint64_t dtb_get_reg(const dtb_node_t* root, const char* path)
 {
+    kassert(path != NULL);
     const dtb_node_t* node = dtb_find_node(root, path);
     if (!node) return 0;
 
@@ -285,6 +293,7 @@ uint64_t dtb_get_reg(const dtb_node_t* root, const char* path)
 
 uint32_t dtb_get_reg_addr(const dtb_node_t* root, const char* path)
 {
+    kassert(path != NULL);
     const dtb_node_t* node = dtb_find_node(root, path);
     if (!node) return 0;
 
@@ -313,6 +322,7 @@ uint32_t dtb_get_reg_addr(const dtb_node_t* root, const char* path)
 
 uint32_t dtb_get_reg_size(const dtb_node_t* root, const char* path)
 {
+    kassert(path != NULL);
     const dtb_node_t* node = dtb_find_node(root, path);
     if (!node) return 0;
 

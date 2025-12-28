@@ -8,6 +8,7 @@
 #include "core/kprintf.h"
 #include "core/log.h"
 #include "core/panic.h"
+#include "core/assert.h"
 
 #include "kernel/layout.h"
 #include "kernel/mm/pmm.h"
@@ -122,6 +123,8 @@ void kmain(void)
         KINFO("Compatible ID: %s", compatible);
     }
     // Calculate size in Megabytes (Bytes / 1024 / 1024)
+    kassert(pmm_state.pfn_end >= pmm_state.pfn_base);
+    kassert(pmm_state.total_pages == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
     uint32_t ram_size_mb = pmm_state.total_pages * PAGE_SIZE / 1024 / 1024;
 
     if (ram_size_mb < 64) {
@@ -142,6 +145,7 @@ void kmain(void)
     KINFO("Kernel start: %p", (void *)_kernel_start);
     KINFO("Kernel end:   %p", (void *)_kernel_end);
 
+    kassert(pmm_state.bitmap != NULL);
     KINFO("Bitmap start: %p", (void *)pmm_state.bitmap);
     KINFO("Bitmap end:   %p", (void *)pmm_state.bitmap + pmm_state.bitmap_bytes);
 

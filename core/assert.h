@@ -1,6 +1,8 @@
 #ifndef ASSERT_H
 #define ASSERT_H
 
+#include "log.h"
+
 #ifdef NDEBUG
     // In release builds, disable assertions
     #define kassert(expr) ((void)0)
