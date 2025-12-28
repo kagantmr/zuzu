@@ -1,6 +1,7 @@
 #include "drivers/uart.h"
 #include "lib/string.h"
 #include "core/log.h"
+#include "core/assert.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -13,16 +14,19 @@ static inline int uart_tx_full(void) {
 
 void uart_init(uintptr_t base_addr) {
     // UART initialization code can be added here if needed
+    kassert(base_addr != 0);
     UART0_BASE = base_addr;
 }
 
 void uart_putc(char c) {
+    kassert(UART0_BASE != 0);
     volatile uint32_t *UART0 = (uint32_t *)UART0_BASE;
     while (uart_tx_full());
     *UART0 = c;
 }
 
 int uart_puts(const char *string) {
+    kassert(string != NULL);
     while (*string) {
         uart_putc(*string);
         string++;
@@ -31,6 +35,7 @@ int uart_puts(const char *string) {
 }
 
 int uart_printf(const char *fstring, ...) {
+    kassert(fstring != NULL);
     va_list list;
     va_start(list, fstring);
     vstrfmt(uart_putc, fstring, list);

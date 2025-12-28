@@ -1,8 +1,10 @@
 #include "lib/string.h"
 #include <stdint.h>
 #include "lib/convert.h"
+#include "core/assert.h"
 
 size_t strlen(const char *s) {
+    kassert(s != NULL);
     size_t len = 0;
     while (*s++) {
         len++;
@@ -12,6 +14,7 @@ size_t strlen(const char *s) {
 
 
 char *strcat(char *dest, const char *src) {
+    kassert(dest != NULL && src != NULL);
     char *end = dest;
 
     while (*end) end++;
@@ -24,6 +27,7 @@ char *strcat(char *dest, const char *src) {
 }
 
 char *strncat(char *dest, const char *src, size_t n) {
+    kassert(dest != NULL && src != NULL);
     char *end = dest;
 
     while (*end) end++;  // find end of dest
@@ -35,6 +39,7 @@ char *strncat(char *dest, const char *src, size_t n) {
 
 
 int strcmp(const char *s1, const char *s2) {
+    kassert(s1 != NULL && s2 != NULL);
     int diff;
     while (*s1 && *s2) {
         diff = *s1++ - *s2++;
@@ -48,6 +53,7 @@ int strcmp(const char *s1, const char *s2) {
 
 
 int strncmp(const char *s1, const char *s2, size_t n) {
+    kassert(s1 != NULL && s2 != NULL);
     signed char diff;
     size_t compared = 0;
     while (*s1 && *s2 && compared < n) {
@@ -62,12 +68,14 @@ int strncmp(const char *s1, const char *s2, size_t n) {
 }
 
 char *strcpy(char *dest, const char *src) {
+    kassert(dest != NULL && src != NULL);
     char *ret = dest;
     while ((*dest++ = *src++));
     return ret;
 }
 
 char *strncpy(char *dest, const char *src, size_t n) {
+    kassert(dest != NULL && src != NULL);
     char *ret = dest;
 
     while (n && (*dest++ = *src++)) {
@@ -84,6 +92,7 @@ char *strncpy(char *dest, const char *src, size_t n) {
 }
 
 char *strchr(const char *s, int c) {
+    kassert(s != NULL);
     while (*s) {
         if (*s == (char)c) {
             return (char *)s;
@@ -94,6 +103,8 @@ char *strchr(const char *s, int c) {
 }
 
 void strfmt(void (*outc)(char), const char *fstring, ...) {
+    kassert(outc != NULL);
+    kassert(fstring != NULL);
     va_list args;
     
 
@@ -103,6 +114,8 @@ void strfmt(void (*outc)(char), const char *fstring, ...) {
 }
 
 void vstrfmt(void (*outc)(char), const char *fstring, va_list args) {
+    kassert(outc != NULL);
+    kassert(fstring != NULL);
     while (*fstring) {
         if (*fstring == '%') {
             fstring++;
@@ -114,6 +127,7 @@ void vstrfmt(void (*outc)(char), const char *fstring, va_list args) {
                 }
                 case 's': {
                     char *s = va_arg(args, char *);
+                    kassert(s != NULL);
                     while (*s) {
                         outc(*s++);
                     }

@@ -1,6 +1,6 @@
 #include "lib/mem.h"
-
-
+#include "kernel/mm/pmm.h"
+#include "core/assert.h"
 
 uint32_t bswap32(uint32_t x) {
 #ifdef __GNUC__
@@ -12,6 +12,7 @@ uint32_t bswap32(uint32_t x) {
 }
 
 void *memcpy(void *dest, const void *src, size_t n) {
+    kassert(n == 0 || (dest != NULL && src != NULL));
     void *result = dest;
 
     unsigned char *d = (unsigned char *) dest;
@@ -26,6 +27,7 @@ void *memcpy(void *dest, const void *src, size_t n) {
 
 
 void *memset(void *ptr, char x, size_t n) {
+    kassert(n == 0 || (ptr != NULL));
     void *result = ptr;
 
     unsigned char *p = (unsigned char *) ptr;
@@ -39,6 +41,7 @@ void *memset(void *ptr, char x, size_t n) {
 
 
 void *memmove(void *dest, const void *src, size_t n) {
+    kassert(n == 0 || (dest != NULL && src != NULL));
     void *result = dest;
 
     unsigned char *d = (unsigned char *) dest;
@@ -61,10 +64,15 @@ void *memmove(void *dest, const void *src, size_t n) {
     return result;
 }
 
+uintptr_t align_down(uintptr_t addr, size_t alignment) {
+    kassert(alignment != 0);
+    kassert((alignment & (alignment - 1)) == 0); // power of two
+    return addr & ~(alignment - 1);
+}
+
 uintptr_t align_up(uintptr_t addr, size_t alignment) {
-    if (alignment == 0) {
-        return addr;
-    }
+    kassert(alignment != 0);
+    kassert((alignment & (alignment - 1)) == 0); // power of two
 
     uintptr_t remainder = addr % alignment;
     if (remainder == 0) {
@@ -75,10 +83,3 @@ uintptr_t align_up(uintptr_t addr, size_t alignment) {
 }
 
 
-void* kmalloc(size_t size) {}
-
-
-void kfree(void* ptr) {}
-
-
-void kheap_init(void) {}

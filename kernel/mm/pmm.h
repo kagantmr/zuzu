@@ -43,6 +43,13 @@ int unmark(uintptr_t start, uintptr_t end);
 uintptr_t alloc_page(void);
 
 /**
+ * @brief Allocates contiguous physical pages.
+ * @param n_pages Number of pages to allocate.
+ * @return Address of the first allocated page.
+ */
+uintptr_t alloc_pages(size_t n_pages);
+
+/**
  * @brief Marks an allocated page as unallocated.
  * @param addr Address of the allocated page.
  */
