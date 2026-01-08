@@ -1,5 +1,12 @@
 ENTRY(_start)
 
+PHDRS
+{
+    text    PT_LOAD FLAGS(1 | 4);   /* PF_X | PF_R */
+    rodata  PT_LOAD FLAGS(4);       /* PF_R */
+    data    PT_LOAD FLAGS(2 | 4);   /* PF_W | PF_R */
+}
+
 SECTIONS
 {
     __dtb_addr__ = 0x80000000;   /* DTB provided by bootloader */
@@ -11,24 +18,24 @@ SECTIONS
     .text : {
         KEEP(*(.text.boot))     /* _start */
         *(.text*)
-    }
+    } : text
 
     .rodata : {
         *(.rodata*)
-    }
+    } : rodata
 
     .data : {
         _data_start = .;
         *(.data*)
         _data_end = .;
-    }
+    } : data
 
-    .bss : ALIGN(8) {
+    .bss (NOLOAD) : ALIGN(8) {
         _bss_start = .;
         *(.bss*)
         *(COMMON)
         _bss_end = .;
-    }
+    } : data
 
     _kernel_end = .;
 

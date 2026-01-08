@@ -24,6 +24,17 @@ typedef enum FDT_CODE {
 static dtb_node_t node_pool[512];
 static size_t allocated = 0;
 
+static const dtb_property_t* find_prop(const dtb_node_t* node, const char* name) {
+    kassert(node != NULL);
+    kassert(name != NULL);
+    for (uint32_t i = 0; i < node->property_count; i++) {
+        if (strcmp(node->properties[i].name, name) == 0) {
+            return &node->properties[i];
+        }
+    }
+    return NULL;
+}
+
 static dtb_node_t* dtb_new_node(void) {
     kassert(allocated < (sizeof(node_pool)/sizeof(node_pool[0])));
     if (allocated >= (sizeof(node_pool)/sizeof(node_pool[0]))) {
@@ -253,13 +264,8 @@ const char* dtb_get_property(const dtb_node_t* root,
     const dtb_node_t* node = dtb_find_node(root, node_path);
     if (!node) return NULL;
 
-    for (uint32_t i = 0; i < node->property_count; i++) {
-        if (strcmp(node->properties[i].name, prop_name) == 0) {
-            return (const char*)node->properties[i].value;
-        }
-    }
-
-    return NULL;
+    const dtb_property_t* prop = find_prop(node, prop_name);
+    return prop ? (const char*)prop->value : NULL;
 }
 
 uint64_t dtb_get_reg(const dtb_node_t* root, const char* path)
@@ -268,14 +274,7 @@ uint64_t dtb_get_reg(const dtb_node_t* root, const char* path)
     const dtb_node_t* node = dtb_find_node(root, path);
     if (!node) return 0;
 
-    const dtb_property_t* prop = NULL;
-
-    for (uint32_t i = 0; i < node->property_count; i++) {
-        if (strcmp(node->properties[i].name, "reg") == 0) {
-            prop = &node->properties[i];
-            break;
-        }
-    }
+    const dtb_property_t* prop = find_prop(node, "reg");
     if (!prop) return 0;
 
     if (prop->length < 8)     // require 2 × BE32 cells
@@ -291,33 +290,49 @@ uint64_t dtb_get_reg(const dtb_node_t* root, const char* path)
     return ((uint64_t)hi << 32) | lo;
 }
 
+static bool decode_reg32(const dtb_property_t* prop, uint32_t* addr_out, uint32_t* size_out) {
+    kassert(prop != NULL);
+    kassert(addr_out != NULL);
+    kassert(size_out != NULL);
+
+    const uint8_t* val = prop->value;
+    uint32_t addr = 0;
+    uint32_t size = 0;
+
+    // Common layouts: [ADDR_HI][ADDR_LO][SIZE_HI][SIZE_LO] (16)
+    //                 [ADDR_HI][ADDR_LO][SIZE] (12)
+    //                 [ADDR][SIZE] (8)
+    if (prop->length >= 16) {
+        addr = read_be32(val + 4);
+        size = read_be32(val + 12);
+    } else if (prop->length >= 12) {
+        addr = read_be32(val + 4);
+        size = read_be32(val + 8);
+    } else if (prop->length >= 8) {
+        addr = read_be32(val + 0);
+        size = read_be32(val + 4);
+    } else {
+        return false;
+    }
+
+    *addr_out = addr;
+    *size_out = size;
+    return true;
+}
+
 uint32_t dtb_get_reg_addr(const dtb_node_t* root, const char* path)
 {
     kassert(path != NULL);
     const dtb_node_t* node = dtb_find_node(root, path);
     if (!node) return 0;
 
-    for (uint32_t i = 0; i < node->property_count; i++) {
-        if (strcmp(node->properties[i].name, "reg") == 0) {
-            const dtb_property_t* prop = &node->properties[i];
-            const uint8_t* val = prop->value;
+    const dtb_property_t* prop = find_prop(node, "reg");
+    if (!prop) return 0;
 
-            // Heuristic: If length is 16 bytes, it's <ADDR_HI> <ADDR_LO> <SIZE_HI> <SIZE_LO>
-            if (prop->length >= 16) {
-                // Return ADDR_LO (Offset 4)
-                uint32_t be = *(uint32_t*)(val + 4);
-                return bswap32(be);
-            }
-            
-            // Standard 32-bit: <ADDR> <SIZE>
-            if (prop->length >= 8) {
-                // Return ADDR (Offset 0)
-                uint32_t be = *(uint32_t*)val;
-                return bswap32(be);
-            }
-        }
-    }
-    return 0;
+    uint32_t addr, size;
+    if (!decode_reg32(prop, &addr, &size)) return 0;
+    (void)size; // size unused here
+    return addr;
 }
 
 uint32_t dtb_get_reg_size(const dtb_node_t* root, const char* path)
@@ -326,28 +341,38 @@ uint32_t dtb_get_reg_size(const dtb_node_t* root, const char* path)
     const dtb_node_t* node = dtb_find_node(root, path);
     if (!node) return 0;
 
-    for (uint32_t i = 0; i < node->property_count; i++) {
-        if (strcmp(node->properties[i].name, "reg") == 0) {
-            const dtb_property_t* prop = &node->properties[i];
-            const uint8_t* val = prop->value;
+    const dtb_property_t* prop = find_prop(node, "reg");
+    if (!prop) return 0;
 
-            // Heuristic: If length is 16 bytes, it's <ADDR_HI> <ADDR_LO> <SIZE_HI> <SIZE_LO>
-            if (prop->length >= 16) {
-                // Return SIZE_LO (Offset 12)
-                uint32_t be = *(uint32_t*)(val + 12);
-                return bswap32(be);
-            }
+    uint32_t addr, size;
+    if (!decode_reg32(prop, &addr, &size)) return 0;
+    (void)addr; // addr unused here
+    return size;
+}
 
-            // Standard 32-bit: <ADDR> <SIZE>
-            if (prop->length >= 8) {
-                // Return SIZE (Offset 4)
-                uint32_t be = *(uint32_t*)(val + 4);
-                return bswap32(be);
-            }
+uint32_t dtb_get_ranges_parent_addr(const dtb_node_t* root, const char* path, uint32_t child_addr_hi)
+{
+    kassert(path != NULL);
+    const dtb_node_t* node = dtb_find_node(root, path);
+    if (!node) return 0;
+
+    const dtb_property_t* ranges = find_prop(node, "ranges");
+    if (!ranges) return 0;
+
+    const uint8_t* val = ranges->value;
+    size_t len = ranges->length;
+
+    // For this platform: child #address-cells = 2, parent #address-cells = 2, size-cells = 1
+    const size_t entry_bytes = 5 * sizeof(uint32_t); // hi, lo, parent_hi, parent_lo, size
+    if (entry_bytes == 0 || len < entry_bytes) return 0;
+
+    for (size_t offset = 0; offset + entry_bytes <= len; offset += entry_bytes) {
+        uint32_t child_hi = read_be32(val + offset + 0);
+        // uint32_t child_lo = read_be32(val + offset + 4);
+        uint32_t parent_lo = read_be32(val + offset + 12);
+        if (child_hi == child_addr_hi) {
+            return parent_lo;
         }
     }
     return 0;
 }
-
-
-  

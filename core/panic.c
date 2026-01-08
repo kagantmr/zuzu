@@ -4,7 +4,7 @@
 #include "core/kprintf.h"
 #include "arch/arm/include/irq.h"
 #include "arch/arm/include/symbols.h"
-#include "drivers/uart.h"
+#include "drivers/uart/uart.h"
 #include "kernel/layout.h"
 #include <stdint.h>
 

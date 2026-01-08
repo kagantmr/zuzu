@@ -37,6 +37,16 @@ const char* dtb_get_property(const void* dtb, const char* node, const char* prop
 uint32_t dtb_get_reg_size(const dtb_node_t* root, const char* path);
 
 /**
+ * Retrieves the parent address (low 32 bits) for a given child bus address
+ * from a node's ranges property. This is useful for simple-bus translations.
+ * @param root Pointer to the root dtb_node_t.
+ * @param path Path to the node with a "ranges" property.
+ * @param child_addr_hi The first address cell of the child bus to match.
+ * @return The parent address low 32 bits if found, otherwise 0.
+ */
+uint32_t dtb_get_ranges_parent_addr(const dtb_node_t* root, const char* path, uint32_t child_addr_hi);
+
+/**
  * Retrieves the address from the 'reg' property of a specified node in the DTB.
  * @param root Pointer to the root dtb_node_t.
  * @param path Path to the node whose 'reg' address is to be retrieved.
