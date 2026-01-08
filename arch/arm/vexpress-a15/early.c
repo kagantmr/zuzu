@@ -19,8 +19,9 @@
 #include "lib/mem.h"
 #include "lib/string.h"
 
-#include "drivers/uart.h"
+#include "drivers/uart/uart.h"
 
+#include "drivers/uart/pl011.h"
 
 
 extern kernel_layout_t kernel_layout;
@@ -34,20 +35,26 @@ void early(void* dtb_ptr) {
 
     root = dtb_parse(dtb_ptr);
 
-    #ifdef VEXPRESS_UART0
-    uintptr_t uart_base = dtb_get_reg_addr(root, "/smb/motherboard/iofpga/uart@090000");
+    uintptr_t smb_base = dtb_get_ranges_parent_addr(root, "/smb", 0x03);
+    if (smb_base == 0) {
+        smb_base = VEXPRESS_SMB_BASE; // Fallback to board default if DTB omits it
+    }
+
+    uintptr_t uart_offset = 0;
+    #if defined(VEXPRESS_UART0)
+    uart_offset = dtb_get_reg_addr(root, "/smb/motherboard/iofpga/uart@090000");
+    #elif defined(VEXPRESS_UART1)
+    uart_offset = dtb_get_reg_addr(root, "/smb/motherboard/iofpga/uart@0a0000");
+    #elif defined(VEXPRESS_UART2)
+    uart_offset = dtb_get_reg_addr(root, "/smb/motherboard/iofpga/uart@0b0000");
+    #elif defined(VEXPRESS_UART3)
+    uart_offset = dtb_get_reg_addr(root, "/smb/motherboard/iofpga/uart@0c0000");
+    #else
+    #error "No VEXPRESS_UARTx selected"
     #endif
-    #ifdef VEXPRESS_UART1
-    uintptr_t uart_base = dtb_get_reg_addr(root, "/smb/motherboard/iofpga/uart@0a0000");
-    #endif
-    #ifdef VEXPRESS_UART2
-    uintptr_t uart_base = dtb_get_reg_addr(root, "/smb/motherboard/iofpga/uart@0b0000");
-    #endif
-    #ifdef VEXPRESS_UART3
-    uintptr_t uart_base = dtb_get_reg_addr(root, "/smb/motherboard/iofpga/uart@0c0000");
-    #endif
-    
-    uart_init(uart_base + VEXPRESS_SMB_BASE); // UART0 base address is offset by 0x1c000000
+
+    kassert(uart_offset != 0);
+    uart_set_driver(&pl011_driver, smb_base + uart_offset);
     kprintf_init(uart_putc);
 
     kassert(bss_check == 0); // Ensure BSS is zeroed
@@ -68,7 +75,6 @@ void early(void* dtb_ptr) {
     /* Fill physical region */
     phys_region.start = (uintptr_t)ram_base;
     phys_region.end   = (uintptr_t)ram_end;
-
 
     /* Fill PMM */
     pmm_state.pfn_base   = phys_region.start / PAGE_SIZE;
