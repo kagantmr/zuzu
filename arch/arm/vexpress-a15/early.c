@@ -2,6 +2,7 @@
 #include "arch/arm/include/irq.h"
 
 #include "arch/arm/vexpress-a15/board.h"
+#include "arch/arm/mmu/mmu.h"
 
 #include "kernel/layout.h"
 #include "kernel/mm/pmm.h"
@@ -27,6 +28,8 @@
 extern kernel_layout_t kernel_layout;
 extern pmm_state_t pmm_state;
 extern phys_region_t phys_region;
+extern addrspace_t* g_kernel_as;
+
 dtb_node_t *root;
 uint32_t bss_check;
 
@@ -122,12 +125,11 @@ void early(void* dtb_ptr) {
     // Test panic
     //KPANIC("Zuzu chewed on the wires");
 
-    // Enable virtual memory
-    KINFO("Attempting to enable MMU.");   
+    // Enable virtual memory 
     vmm_bootstrap();
-    KINFO("MMU enabled.");
+    KINFO("MMU enabled");
 
-    enable_interrupts();
+    arch_global_irq_enable();
     // Call main kernel
     kmain();
 }

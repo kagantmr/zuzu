@@ -62,7 +62,7 @@ void panic(void) {
     // Get caller's return address
     void *caller_ra = __builtin_return_address(0);
     
-    disable_interrupts();
+    arch_global_irq_disable();
     
     uart_puts("\nZuzu has panicked.\n");
     kprintf("[PANIC] called from %p\n", caller_ra);
