@@ -1,5 +1,4 @@
 #include "arch/arm/include/symbols.h"
-#include "arch/arm/mmu/phys.h"
 #include "arch/arm/include/irq.h"
 
 #include "arch/arm/vexpress-a15/board.h"
@@ -10,6 +9,7 @@
 #include "kernel/kmain.h"
 #include "kernel/dtb/dtb_parser.h"
 #include "kernel/mm/alloc.h"
+#include "kernel/vm/vmm.h"
 
 
 #include "core/assert.h"
@@ -26,7 +26,7 @@
 
 extern kernel_layout_t kernel_layout;
 extern pmm_state_t pmm_state;
-phys_region_t phys_region;
+extern phys_region_t phys_region;
 dtb_node_t *root;
 uint32_t bss_check;
 
@@ -109,18 +109,23 @@ void early(void* dtb_ptr) {
 
     /* reserve DTB, kernel, bitmap, and all mode stacks */
 
-    mark(kernel_layout.dtb_start, kernel_layout.kernel_start);
-    mark(kernel_layout.kernel_start, kernel_layout.kernel_end);
-    mark(kernel_layout.bitmap_start, kernel_layout.bitmap_end);
-    mark(kernel_layout.stack_base, kernel_layout.stack_top);       // Bootloader SVC stack
-    mark((uintptr_t)__irq_stack_base__, (uintptr_t)__irq_stack_top__);  // IRQ stack
-    mark((uintptr_t)__abt_stack_base__, (uintptr_t)__abt_stack_top__);  // Abort stack
-    mark((uintptr_t)__und_stack_base__, (uintptr_t)__und_stack_top__);  // Undefined stack
+    pmm_mark_phys_page(kernel_layout.dtb_start, kernel_layout.kernel_start);
+    pmm_mark_phys_page(kernel_layout.kernel_start, kernel_layout.kernel_end);
+    pmm_mark_phys_page(kernel_layout.bitmap_start, kernel_layout.bitmap_end);
+    pmm_mark_phys_page(kernel_layout.stack_base, kernel_layout.stack_top);       // Bootloader SVC stack
+    pmm_mark_phys_page((uintptr_t)__irq_stack_base__, (uintptr_t)__irq_stack_top__);  // IRQ stack
+    pmm_mark_phys_page((uintptr_t)__abt_stack_base__, (uintptr_t)__abt_stack_top__);  // Abort stack
+    pmm_mark_phys_page((uintptr_t)__und_stack_base__, (uintptr_t)__und_stack_top__);  // Undefined stack
     
     kheap_init();
 
     // Test panic
     //KPANIC("Zuzu chewed on the wires");
+
+    // Enable virtual memory
+    KINFO("Attempting to enable MMU.");   
+    vmm_bootstrap();
+    KINFO("MMU enabled.");
 
     enable_interrupts();
     // Call main kernel

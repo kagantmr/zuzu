@@ -28,31 +28,31 @@ typedef struct {
  * @brief Mark a range of physical pages as used. 
  * @return MARK_OK if successful, MARK_FAIL if the addresses are invalid.
  */
-int mark(uintptr_t start, uintptr_t end);
+int pmm_mark_phys_page(uintptr_t start, uintptr_t end);
 
 /**
  * @brief Unmark a range of pages.
  * @return UNMARK_OK if successful, UNMARK_FAIL if the addresses are invalid.
  */
-int unmark(uintptr_t start, uintptr_t end);
+int pmm_unmark_phys_page(uintptr_t start, uintptr_t end);
 
 /**
  * @brief Allocates a physical page, and returns a pointer to it.
  * @return Address of the allocated page.
  */
-uintptr_t alloc_page(void);
+uintptr_t pmm_alloc_page(void);
 
 /**
  * @brief Allocates contiguous physical pages.
  * @param n_pages Number of pages to allocate.
  * @return Address of the first allocated page.
  */
-uintptr_t alloc_pages(size_t n_pages);
+uintptr_t pmm_alloc_pages(size_t n_pages);
 
 /**
  * @brief Marks an allocated page as unallocated.
  * @param addr Address of the allocated page.
  */
-int free_page(uintptr_t addr);
+int pmm_free_page(uintptr_t addr);
 
 #endif

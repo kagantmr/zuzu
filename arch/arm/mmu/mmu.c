@@ -1,337 +1,253 @@
 #include "mmu.h"
-#include "kernel/mm/alloc.h"
+#include "kernel/mm/pmm.h"
 #include "lib/mem.h"
 #include <stdint.h>
 
-// ARM v7 (ARMv7-A) page table constants
-#define L1_DESCRIPTOR_BASE_MASK     0xFFFFF000
-#define L1_DESCRIPTOR_TYPE_MASK     0x00000003
-#define L1_DESCRIPTOR_TYPE_INVALID  0x00
-#define L1_DESCRIPTOR_TYPE_TABLE    0x01  // L2 table (coarse)
-#define L1_DESCRIPTOR_TYPE_SECTION  0x02  // 1 MB section
 
-#define L2_DESCRIPTOR_BASE_MASK     0xFFFFF000
-#define L2_DESCRIPTOR_TYPE_MASK     0x00000003
-#define L2_DESCRIPTOR_TYPE_INVALID  0x00
-#define L2_DESCRIPTOR_TYPE_LARGE    0x01  // 64 KB large page
-#define L2_DESCRIPTOR_TYPE_SMALL    0x02  // 4 KB small page
-
-#define PAGE_SIZE 4096
-#define SECTION_SIZE (1024 * 1024)  // 1 MB
-#define L2_ENTRIES 256  // 256 small pages (256 * 4KB = 1 MB)
-
-// Helper: Get L1 index from virtual address
-static inline size_t l1_index(uintptr_t va) {
-    return (va >> 20) & 0xFFF;  // Bits [31:20]
-}
-
-// Helper: Get L2 index from virtual address
-static inline size_t l2_index(uintptr_t va) {
-    return (va >> 12) & 0xFF;   // Bits [19:12]
-}
-
-// Helper: Get page offset within 4KB page
-static inline size_t page_offset(uintptr_t va) {
-    return va & 0xFFF;           // Bits [11:0]
-}
-
-/**
- * @brief Translate a virtual address to physical address using page tables.
- * Walks L1 table, finds L2 table, and returns physical address.
- */
-uintptr_t arch_mmu_translate(uintptr_t ttbr0_pa, uintptr_t va) {
-    if (ttbr0_pa == 0) return 0;
-    
-    // Index into L1 table
-    size_t l1_idx = l1_index(va);
-    
-    // L1 table is at physical address ttbr0_pa
-    // We need to access it via physical memory. For now, assume identity mapping
-    // (PA == VA) for early boot, or use a temporary mapping.
-    // This is a simplified implementation; real code would need VA of L1 table.
-    uint32_t* l1_table = (uint32_t*)(ttbr0_pa);
-    
-    uint32_t l1_desc = l1_table[l1_idx];
-    
-    // Check L1 descriptor type
-    if ((l1_desc & L1_DESCRIPTOR_TYPE_MASK) == L1_DESCRIPTOR_TYPE_INVALID) {
-        return 0;  // Not mapped
-    }
-    
-    if ((l1_desc & L1_DESCRIPTOR_TYPE_MASK) == L1_DESCRIPTOR_TYPE_SECTION) {
-        // 1 MB section mapping
-        uintptr_t section_base = l1_desc & L1_DESCRIPTOR_BASE_MASK;
-        return section_base | (va & 0xFFFFF);  // Combine base with offset
-    }
-    
-    if ((l1_desc & L1_DESCRIPTOR_TYPE_MASK) == L1_DESCRIPTOR_TYPE_TABLE) {
-        // Points to L2 table
-        uintptr_t l2_table_pa = l1_desc & L1_DESCRIPTOR_BASE_MASK;
-        uint32_t* l2_table = (uint32_t*)(l2_table_pa);
-        
-        size_t l2_idx = l2_index(va);
-        uint32_t l2_desc = l2_table[l2_idx];
-        
-        // Check L2 descriptor type
-        if ((l2_desc & L2_DESCRIPTOR_TYPE_MASK) == L2_DESCRIPTOR_TYPE_INVALID) {
-            return 0;  // Not mapped
-        }
-        
-        if ((l2_desc & L2_DESCRIPTOR_TYPE_MASK) == L2_DESCRIPTOR_TYPE_SMALL) {
-            // 4 KB small page
-            uintptr_t page_base = l2_desc & L2_DESCRIPTOR_BASE_MASK;
-            return page_base | page_offset(va);
-        }
-        
-        if ((l2_desc & L2_DESCRIPTOR_TYPE_MASK) == L2_DESCRIPTOR_TYPE_LARGE) {
-            // 64 KB large page
-            uintptr_t large_base = l2_desc & 0xFFFF0000;
-            return large_base | (va & 0xFFFF);
-        }
-    }
-    
-    return 0;  // Not mapped or invalid
-}
-
-/**
- * @brief Create and initialize L1 page table.
- * Allocates 16 KB of memory and zeros it.
- */
 uintptr_t arch_mmu_create_tables(void) {
-    // Allocate 16 KB for L1 table (4096 entries × 4 bytes)
-    // This is 4 pages (4096 is PAGE_SIZE)
-    uintptr_t l1_pa = (uintptr_t)kmalloc(16384);
-    if (l1_pa == 0) {
-        return 0;
-    }
-    
-    // Zero the table
-    memset((void*)l1_pa, 0, 16384);
-    
-    return l1_pa;
-}
+    // ARMv7 short-descriptor L1 table requirements:
+    // - 16KB size
+    // - 16KB alignment (TTBR0 base must be 0 mod 16KB)
+    const size_t l1_bytes = 16 * 1024;
+    const size_t l1_pages = 4;
+    const uintptr_t l1_align = 16 * 1024;
 
-/**
- * @brief Free page tables and all associated L2 tables.
- */
-void arch_mmu_free_tables(uintptr_t ttbr0_pa) {
-    if (ttbr0_pa == 0) return;
-    
-    // Walk L1 table and free all L2 tables
-    uint32_t* l1_table = (uint32_t*)(ttbr0_pa);
-    
-    for (size_t i = 0; i < 4096; i++) {
-        uint32_t l1_desc = l1_table[i];
-        
-        if ((l1_desc & L1_DESCRIPTOR_TYPE_MASK) == L1_DESCRIPTOR_TYPE_TABLE) {
-            uintptr_t l2_pa = l1_desc & L1_DESCRIPTOR_BASE_MASK;
-            kfree((void*)l2_pa);
+    // alloc_pages() returns a PHYSICAL address in PMM (see pmm.c).
+    // Retry until we get a 16KB-aligned base.
+    for (int attempt = 0; attempt < 256; attempt++) {
+        uintptr_t l1_pa = pmm_alloc_pages(l1_pages);
+        if (l1_pa == 0) {
+            return 0;
         }
+
+        if ((l1_pa & (l1_align - 1)) != 0) {
+            // Not 16KB-aligned: free the 4 pages individually and retry.
+            for (size_t i = 0; i < l1_pages; i++) {
+                (void)pmm_free_page(l1_pa + i * PAGE_SIZE);
+            }
+            continue;
+        }
+
+        // MMU is off during bring-up and we will identity-map initially,
+        // so treating PA as an addressable pointer is OK here.
+        memset((void*)l1_pa, 0, l1_bytes);
+        return l1_pa;
     }
-    
-    // Free L1 table
-    kfree((void*)ttbr0_pa);
+
+    // Could not obtain a 16KB-aligned block (fragmentation / allocator limits).
+    return 0;
 }
 
-/**
- * @brief Map a VA range to PA range.
- * Creates L2 tables as needed.
- */
+void arch_mmu_free_tables(uintptr_t ttbr0_pa) {
+    if (ttbr0_pa == 0) {
+        return;
+    }
+
+    // L1 table is exactly 4 contiguous pages allocated via alloc_pages(4)
+    // alloc_pages() returns a PHYSICAL address
+    for (size_t i = 0; i < 4; i++) {
+        pmm_free_page(ttbr0_pa + i * PAGE_SIZE);
+    }
+}
+
+
 bool arch_mmu_map(addrspace_t* as, uintptr_t va, uintptr_t pa, size_t size,
                   vm_prot_t prot, vm_memtype_t memtype) {
-    (void)memtype;  // TODO: implement memory type handling (TEX/C/B bits)
-    if (!as || size == 0) return false;
-    
-    uint32_t* l1_table = (uint32_t*)(as->ttbr0_pa);
-    
-    // For simplicity, map page-by-page (4 KB)
-    for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE) {
-        uintptr_t v = va + offset;
-        uintptr_t p = pa + offset;
-        
-        size_t l1_idx = l1_index(v);
-        uint32_t l1_desc = l1_table[l1_idx];
-        
-        uint32_t* l2_table = NULL;
-        
-        // Check if L2 table exists
-        if ((l1_desc & L1_DESCRIPTOR_TYPE_MASK) == L1_DESCRIPTOR_TYPE_TABLE) {
-            l2_table = (uint32_t*)(l1_desc & L1_DESCRIPTOR_BASE_MASK);
-        } else if ((l1_desc & L1_DESCRIPTOR_TYPE_MASK) == L1_DESCRIPTOR_TYPE_INVALID) {
-            // Need to create L2 table
-            l2_table = (uint32_t*)kmalloc(1024);  // 256 entries × 4 bytes
-            if (!l2_table) return false;
-            
-            memset(l2_table, 0, 1024);
-            
-            // Set L1 entry to point to L2 table (coarse table descriptor)
-            l1_table[l1_idx] = ((uintptr_t)l2_table & L1_DESCRIPTOR_BASE_MASK) | L1_DESCRIPTOR_TYPE_TABLE;
-        } else {
-            // L1 entry is a section, can't create L2 table
-            return false;
-        }
-        
-        // Now write L2 entry (small page descriptor)
-        size_t l2_idx = l2_index(v);
-        
-        // Build L2 descriptor with AP bits and permissions
-        uint32_t l2_desc = (p & L2_DESCRIPTOR_BASE_MASK) | L2_DESCRIPTOR_TYPE_SMALL;
-        
-        // AP bits for permissions (simplified: 0x3 = full access, 0x1 = RO)
-        if ((prot & VM_PROT_WRITE) != 0) {
-            l2_desc |= (0x3 << 4);  // AP[1:0] = 11 (full access)
-        } else {
-            l2_desc |= (0x1 << 4);  // AP[1:0] = 01 (read-only)
-        }
-        
-        // XN bit: set if execute is NOT requested
-        if ((prot & VM_PROT_EXEC) == 0) {
-            l2_desc |= (1 << 0);  // XN bit
-        }
-        
-        // nG bit (not global) - set for user mappings
-        if ((prot & VM_PROT_USER) != 0) {
-            l2_desc |= (1 << 11);  // nG bit
-        }
-        
-        l2_table[l2_idx] = l2_desc;
+    (void)prot;
+
+    // Bring-up policy: sections only.
+    if (!as || size == 0 || (va % 0x100000) != 0 || (pa % 0x100000) != 0 || (size % 0x100000) != 0) {
+        return false;
     }
-    
+
+    // During identity-map bring-up, TTBR0 PA is directly addressable (MMU off / identity).
+    uint32_t* l1_table = (uint32_t*)(as->ttbr0_pa);
+
+    for (uintptr_t offset = 0; offset < size; offset += 0x100000) {
+        uintptr_t curr_va = va + offset;
+        uintptr_t curr_pa = pa + offset;
+
+        // Base section descriptor: section type (bits[1:0] = 0b10)
+        uint32_t entry = (uint32_t)(curr_pa & 0xFFF00000) | 0x2;
+
+        // Domain = 0 (bits[8:5] left as 0)
+
+        // Bring-up permissions: AP[1:0] = 0b11 (full access)
+        entry |= (0x3u << 10);
+
+        // Memory attributes (short-descriptor section): TEX[14:12], C[3], B[2]
+        // For bring-up we keep NORMAL memory non-cacheable and DEVICE memory as device.
+        if (memtype == VM_MEM_DEVICE) {
+            // Device: TEX=0, C=0, B=1
+            entry |= (1u << 2);
+        } else {
+            // Normal non-cacheable: TEX=0, C=0, B=0
+        }
+
+        size_t idx = (curr_va >> 20) & 0xFFF;
+        l1_table[idx] = entry;
+    }
+
     return true;
 }
 
-/**
- * @brief Unmap a VA range.
- * Clears page table entries.
- */
+
 bool arch_mmu_unmap(addrspace_t* as, uintptr_t va, size_t size) {
-    if (!as || size == 0) return false;
-    
+    // Bring-up policy: sections only.
+    if (!as || size == 0 || (va % 0x100000) != 0 || (size % 0x100000) != 0) {
+        return false;
+    }
+
+    // During identity-map bring-up, TTBR0 PA is directly addressable (MMU off / identity).
     uint32_t* l1_table = (uint32_t*)(as->ttbr0_pa);
-    bool found = false;
-    
-    for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE) {
-        uintptr_t v = va + offset;
-        
-        size_t l1_idx = l1_index(v);
-        uint32_t l1_desc = l1_table[l1_idx];
-        
-        if ((l1_desc & L1_DESCRIPTOR_TYPE_MASK) != L1_DESCRIPTOR_TYPE_TABLE) {
-            continue;  // No L2 table
-        }
-        
-        uint32_t* l2_table = (uint32_t*)(l1_desc & L1_DESCRIPTOR_BASE_MASK);
-        size_t l2_idx = l2_index(v);
-        
-        if (l2_table[l2_idx] != 0) {
-            l2_table[l2_idx] = 0;  // Clear the entry
-            found = true;
+
+    bool unmapped_any = false;
+    for (uintptr_t offset = 0; offset < size; offset += 0x100000) {
+        uintptr_t curr_va = va + offset;
+        size_t idx = (curr_va >> 20) & 0xFFF;
+
+        if (l1_table[idx] != 0) {
+            l1_table[idx] = 0; // fault
+            unmapped_any = true;
         }
     }
-    
-    // Invalidate TLB
-    if (found) {
-        arch_mmu_flush_tlb_va(va);
+
+    // Conservative bring-up behavior: flush the entire TLB if anything changed.
+    if (unmapped_any) {
+        arch_mmu_flush_tlb();
+        arch_mmu_barrier();
     }
-    
-    return found;
+
+    return unmapped_any;
 }
 
-/**
- * @brief Change permissions on a mapped range.
- */
-bool arch_mmu_protect(addrspace_t* as, uintptr_t va, size_t size, vm_prot_t new_prot) {
-    if (!as || size == 0) return false;
-    
+
+
+bool arch_mmu_protect(addrspace_t* as, uintptr_t va, size_t size, vm_prot_t prot) {
+    (void)prot;
+
+    // Bring-up policy: sections only. Permissions are currently permissive.
+    if (!as || size == 0 || (va % 0x100000) != 0 || (size % 0x100000) != 0) {
+        return false;
+    }
+
+    // For bring-up we do not yet encode per-region permissions (XN/user/RO).
+    // Return true iff the range is currently mapped.
     uint32_t* l1_table = (uint32_t*)(as->ttbr0_pa);
-    bool found = false;
-    
-    for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE) {
-        uintptr_t v = va + offset;
-        
-        size_t l1_idx = l1_index(v);
-        uint32_t l1_desc = l1_table[l1_idx];
-        
-        if ((l1_desc & L1_DESCRIPTOR_TYPE_MASK) != L1_DESCRIPTOR_TYPE_TABLE) {
-            continue;
+    bool found_any = false;
+
+    for (uintptr_t offset = 0; offset < size; offset += 0x100000) {
+        uintptr_t curr_va = va + offset;
+        size_t idx = (curr_va >> 20) & 0xFFF;
+        if (l1_table[idx] != 0) {
+            found_any = true;
         }
-        
-        uint32_t* l2_table = (uint32_t*)(l1_desc & L1_DESCRIPTOR_BASE_MASK);
-        size_t l2_idx = l2_index(v);
-        uint32_t* l2_desc_ptr = &l2_table[l2_idx];
-        
-        if (*l2_desc_ptr == 0) continue;
-        
-        // Modify AP bits
-        *l2_desc_ptr &= ~(0x3 << 4);  // Clear AP bits
-        if ((new_prot & VM_PROT_WRITE) != 0) {
-            *l2_desc_ptr |= (0x3 << 4);  // Full access
-        } else {
-            *l2_desc_ptr |= (0x1 << 4);  // Read-only
-        }
-        
-        // Modify XN bit
-        *l2_desc_ptr &= ~1;  // Clear XN
-        if ((new_prot & VM_PROT_EXEC) == 0) {
-            *l2_desc_ptr |= 1;  // Set XN
-        }
-        
-        found = true;
     }
-    
-    if (found) {
-        arch_mmu_flush_tlb_va(va);
-    }
-    
-    return found;
+
+    // No changes applied in bring-up mode.
+    return found_any;
 }
 
-/**
- * @brief Enable the MMU (stub for now).
- */
+
+
 void arch_mmu_enable(addrspace_t* as) {
-    (void)as;  // TODO: implement actual MMU enablement
-    // TODO: Implement actual MMU enablement
-    // This would involve:
-    // - Writing TTBR0 with as->ttbr0_pa
-    // - Setting DACR (domain access control)
-    // - Setting SCTLR.M bit to enable MMU
-    // - ISB, DSB barriers
+    if (!as || as->ttbr0_pa == 0) {
+        return;
+    }
+
+    // Barriers before changing translation context.
+    arch_mmu_barrier();
+
+    // Set TTBR0 to the L1 table base.
+    // For bring-up we do not set cacheability bits in TTBR0.
+    __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" :: "r"((uint32_t)as->ttbr0_pa) : "memory");
+
+    // Domain Access Control: set domain 0 to Manager (no permission checks during bring-up).
+    // Bits [1:0] correspond to domain 0.
+    uint32_t dacr = 0x3u;
+    __asm__ volatile("mcr p15, 0, %0, c3, c0, 0" :: "r"(dacr) : "memory");
+
+    // Invalidate TLB before enabling.
+    arch_mmu_flush_tlb();
+    arch_mmu_barrier();
+
+    // Read SCTLR, set M bit.
+    uint32_t sctlr;
+    __asm__ volatile("mrc p15, 0, %0, c1, c0, 0" : "=r"(sctlr));
+    sctlr |= 1u; // SCTLR.M
+    __asm__ volatile("mcr p15, 0, %0, c1, c0, 0" :: "r"(sctlr) : "memory");
+
+    // Synchronize after enabling MMU.
+    arch_mmu_barrier();
 }
 
-/**
- * @brief Disable the MMU (stub).
- */
+
+
 void arch_mmu_disable(void) {
-    // TODO: Implement MMU disabling
+    // Disable MMU by clearing SCTLR.M.
+    uint32_t sctlr;
+    __asm__ volatile("mrc p15, 0, %0, c1, c0, 0" : "=r"(sctlr));
+    sctlr &= ~1u;
+    __asm__ volatile("mcr p15, 0, %0, c1, c0, 0" :: "r"(sctlr) : "memory");
+
+    arch_mmu_flush_tlb();
+    arch_mmu_barrier();
 }
 
-/**
- * @brief Switch to another address space (context switch).
- */
+
 void arch_mmu_switch(addrspace_t* as) {
-    if (!as) return;
-    // TODO: Write TTBR0 with as->ttbr0_pa and flush TLB
+    if (!as || as->ttbr0_pa == 0) {
+        return;
+    }
+
+    arch_mmu_barrier();
+
+    __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" :: "r"((uint32_t)as->ttbr0_pa) : "memory");
+
+    arch_mmu_flush_tlb();
+    arch_mmu_barrier();
 }
 
-/**
- * @brief Flush entire TLB (stub).
- */
+
+
 void arch_mmu_flush_tlb(void) {
-    // TODO: Implement full TLB invalidation
+    // Invalidate entire unified TLB (ARMv7-A short-descriptor).
+    uint32_t zero = 0;
+    __asm__ volatile("mcr p15, 0, %0, c8, c7, 0" :: "r"(zero) : "memory");
 }
 
-/**
- * @brief Flush single TLB entry (stub).
- */
+
 void arch_mmu_flush_tlb_va(uintptr_t va) {
-    (void)va;  // TODO: implement single-entry TLB invalidation
-    // TODO: Implement single-entry TLB invalidation
+    // Invalidate unified TLB entry by MVA.
+    // The architecture ignores low bits as appropriate.
+    __asm__ volatile("mcr p15, 0, %0, c8, c7, 1" :: "r"((uint32_t)va) : "memory");
 }
 
-/**
- * @brief Issue memory barriers (stub).
- */
+
+
+uintptr_t arch_mmu_translate(uintptr_t ttbr0_pa, uintptr_t va) {
+    if (ttbr0_pa == 0) {
+        return 0;
+    }
+
+    // Section-only translation (L1 short-descriptor)
+    uint32_t* l1_table = (uint32_t*)ttbr0_pa;
+    size_t idx = (va >> 20) & 0xFFF;
+    uint32_t desc = l1_table[idx];
+
+    // If not a section descriptor, treat as unmapped for bring-up.
+    if ((desc & 0x3u) != 0x2u) {
+        return 0;
+    }
+
+    uintptr_t section_base = (uintptr_t)(desc & 0xFFF00000u);
+    return section_base | (va & 0xFFFFFu);
+}
+
+
+
 void arch_mmu_barrier(void) {
-    // TODO: Implement ISB/DSB barriers
+    // Ensure completion of memory operations and pipeline synchronization.
+    __asm__ volatile("dsb sy" ::: "memory");
+    __asm__ volatile("isb" ::: "memory");
 }
