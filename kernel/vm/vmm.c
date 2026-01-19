@@ -16,7 +16,6 @@
 static addrspace_t* g_kernel_as = NULL;
 static addrspace_t* g_current_addrspace = NULL;
 static bool g_mmu_enabled = false;
-
 extern phys_region_t phys_region;
 
 addrspace_t* addrspace_create(addrspace_type_t type) {
