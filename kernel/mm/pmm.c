@@ -13,7 +13,7 @@ static inline uintptr_t align_up(uintptr_t x, uintptr_t a)   {
 }
 
 /* mark: mark pages in [start, end) as USED */
-int mark(uintptr_t start, uintptr_t end) {
+int pmm_mark_phys_page(uintptr_t start, uintptr_t end) {
     if (start >= end) return MARK_FAIL;
 
     /* Align the range to page boundaries */
@@ -56,7 +56,7 @@ int mark(uintptr_t start, uintptr_t end) {
 }
 
 /* unmark: mark pages in [start, end) as FREE */
-int unmark(uintptr_t start, uintptr_t end) {
+int pmm_unmark_phys_page(uintptr_t start, uintptr_t end) {
     if (start >= end) return MARK_FAIL;
 
     uintptr_t astart = align_down(start, PAGE_SIZE);
@@ -96,7 +96,7 @@ int unmark(uintptr_t start, uintptr_t end) {
 }
 
 /* alloc_page: return physical address of one page or 0 on failure */
-uintptr_t alloc_page(void) {
+uintptr_t pmm_alloc_page(void) {
     if (pmm_state.free_pages == 0) return (uintptr_t)0;
 
     kassert(pmm_state.bitmap != NULL);
@@ -133,7 +133,7 @@ uintptr_t alloc_page(void) {
 
     return (uintptr_t)0;
 }
-uintptr_t alloc_pages(size_t n_pages) {
+uintptr_t pmm_alloc_pages(size_t n_pages) {
     if (n_pages == 0 || pmm_state.free_pages < n_pages) return (uintptr_t)0;
 
     kassert(pmm_state.bitmap != NULL);
@@ -163,7 +163,7 @@ uintptr_t alloc_pages(size_t n_pages) {
 
             if (consecutive == n_pages) {
                 /* Mark pages as allocated */
-                if (mark(start_index * PAGE_SIZE + pmm_state.pfn_base * PAGE_SIZE,
+                if (pmm_mark_phys_page(start_index * PAGE_SIZE + pmm_state.pfn_base * PAGE_SIZE,
                      (start_index + n_pages) * PAGE_SIZE + pmm_state.pfn_base * PAGE_SIZE) != MARK_OK) {
                         return (uintptr_t)0; /* marking failed */
                 }
@@ -182,7 +182,7 @@ uintptr_t alloc_pages(size_t n_pages) {
     return (uintptr_t)0;
 }
 
-int free_page(uintptr_t addr) {
+int pmm_free_page(uintptr_t addr) {
     if (addr % PAGE_SIZE != 0) return FREE_FAIL;
 
     size_t pfn = addr / PAGE_SIZE;

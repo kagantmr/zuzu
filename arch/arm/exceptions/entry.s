@@ -14,7 +14,7 @@ reset_handler:
     cpsid if             @ Mask interrupts
     cps #0x13            @ SVC mode
 
-    b _start             @ Go to startup code
+    b _start             @ Go to startup code
 1:
     b 1b
 
@@ -30,7 +30,7 @@ undef_handler:
     mrs r0, spsr
     stmdb sp!, {r0}
 
-    mov r1, sp              @ pointer to struct
+    mov r1, sp              @ pointer to struct
     mov r0, #1              @ EXC_UNDEF
     bl exception_dispatch   @ call exception_dispatch(enum exc_type, exception_frame *frame)
 

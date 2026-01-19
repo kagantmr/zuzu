@@ -148,7 +148,7 @@ void kfree(void* ptr) {
 void kheap_init(void) {
     // Request 1 MB of heap (256 pages at 4KB/page)
     kassert(HEAP_SIZE % PAGE_SIZE == 0);    // Check alignment
-    kernel_layout.heap_start = alloc_pages(HEAP_SIZE/PAGE_SIZE);
+    kernel_layout.heap_start = pmm_alloc_pages(HEAP_SIZE/PAGE_SIZE);
     if (!kernel_layout.heap_start) {
         KPANIC("Heap could not be allocated");
     }

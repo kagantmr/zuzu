@@ -5,6 +5,13 @@
 #include <stddef.h>
 
 typedef struct {
+    uintptr_t start;   // physical start address of RAM region
+    uintptr_t end;     // physical end address (exclusive)
+} phys_region_t;
+
+
+
+typedef struct {
     uintptr_t dtb_start;      // provided by bootloader
 
     uintptr_t kernel_start;   // from linker symbol
@@ -20,7 +27,6 @@ typedef struct {
     uintptr_t heap_end;       // later, when you know RAM size
 
 } kernel_layout_t;
-
 
 
 #endif

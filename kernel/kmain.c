@@ -1,5 +1,4 @@
 #include "arch/arm/include/symbols.h"
-#include "arch/arm/mmu/phys.h"
 
 #include "drivers/uart/uart.h"
 
