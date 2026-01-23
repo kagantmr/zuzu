@@ -1,19 +1,58 @@
 #include "kernel/mm/pmm.h"
 #include "core/assert.h"
+#include "kernel/layout.h"
+#include "kernel/mm/reserve.h"
+#include "arch/arm/include/symbols.h"
+#include "lib/mem.h"
 
 pmm_state_t pmm_state;
+extern phys_region_t phys_region;
+extern kernel_layout_t kernel_layout;
 
-static inline uintptr_t align_down(uintptr_t x, uintptr_t a) {
-    kassert(a != 0);
-    return x & ~(a - 1);
+static void pmm_reserve_boot_regions(void) {
+    pmm_mark_range(kernel_layout.dtb_start,  kernel_layout.kernel_start);
+    pmm_mark_range(kernel_layout.kernel_start, kernel_layout.kernel_end);
+    pmm_mark_range(kernel_layout.bitmap_start, kernel_layout.bitmap_end);
+    
+    // All mode stacks
+    pmm_mark_range((uintptr_t)__svc_stack_base__, (uintptr_t)__svc_stack_top__);
+    pmm_mark_range((uintptr_t)__irq_stack_base__, (uintptr_t)__irq_stack_top__);
+    pmm_mark_range((uintptr_t)__abt_stack_base__, (uintptr_t)__abt_stack_top__);
+    pmm_mark_range((uintptr_t)__und_stack_base__, (uintptr_t)__und_stack_top__);
 }
-static inline uintptr_t align_up(uintptr_t x, uintptr_t a)   {
-    kassert(a != 0);
-    return (x + a - 1) & ~(a - 1);
+
+void pmm_init(void) {
+    // Compute PFN range from phys_region
+    pmm_state.pfn_base    = phys_region.start / PAGE_SIZE;
+    pmm_state.pfn_end     = phys_region.end / PAGE_SIZE;
+    pmm_state.total_pages = pmm_state.pfn_end - pmm_state.pfn_base;
+    pmm_state.free_pages  = pmm_state.total_pages;
+
+    // Place bitmap after kernel, page-aligned
+    uintptr_t bitmap_start = align_up(kernel_layout.kernel_end, PAGE_SIZE);
+    size_t bitmap_bytes    = (pmm_state.total_pages + 7) / 8;
+    size_t bitmap_size     = align_up(bitmap_bytes, PAGE_SIZE);
+    uintptr_t bitmap_end   = bitmap_start + bitmap_size;
+
+    // Sanity checks
+    kassert(bitmap_end <= kernel_layout.stack_base);
+    kassert(bitmap_end <= phys_region.end);
+
+    // Install and zero
+    pmm_state.bitmap       = (uint8_t*)bitmap_start;
+    pmm_state.bitmap_bytes = bitmap_bytes;
+    memset(pmm_state.bitmap, 0, bitmap_size);
+
+    // Record in layout
+    kernel_layout.bitmap_start = bitmap_start;
+    kernel_layout.bitmap_end   = bitmap_end;
+
+    // Reserve boot-time regions
+    pmm_reserve_boot_regions();
 }
 
 /* mark: mark pages in [start, end) as USED */
-int pmm_mark_phys_page(uintptr_t start, uintptr_t end) {
+int pmm_mark_range(uintptr_t start, uintptr_t end) {
     if (start >= end) return MARK_FAIL;
 
     /* Align the range to page boundaries */
@@ -56,7 +95,7 @@ int pmm_mark_phys_page(uintptr_t start, uintptr_t end) {
 }
 
 /* unmark: mark pages in [start, end) as FREE */
-int pmm_unmark_phys_page(uintptr_t start, uintptr_t end) {
+int pmm_unmark_range(uintptr_t start, uintptr_t end) {
     if (start >= end) return MARK_FAIL;
 
     uintptr_t astart = align_down(start, PAGE_SIZE);
@@ -163,7 +202,7 @@ uintptr_t pmm_alloc_pages(size_t n_pages) {
 
             if (consecutive == n_pages) {
                 /* Mark pages as allocated */
-                if (pmm_mark_phys_page(start_index * PAGE_SIZE + pmm_state.pfn_base * PAGE_SIZE,
+                if (pmm_mark_range(start_index * PAGE_SIZE + pmm_state.pfn_base * PAGE_SIZE,
                      (start_index + n_pages) * PAGE_SIZE + pmm_state.pfn_base * PAGE_SIZE) != MARK_OK) {
                         return (uintptr_t)0; /* marking failed */
                 }

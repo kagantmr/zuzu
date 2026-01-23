@@ -12,6 +12,14 @@ size_t strlen(const char *s) {
     return len;
 }
 
+size_t strnlen (const char *s, size_t maxlen)
+{
+  size_t len;
+  for (len = 0; len < maxlen; ++len)
+    if (s[len] == '\0')
+      break;
+  return len;
+}
 
 char *strcat(char *dest, const char *src) {
     kassert(dest != NULL && src != NULL);
@@ -114,8 +122,11 @@ void strfmt(void (*outc)(char), const char *fstring, ...) {
 }
 
 void vstrfmt(void (*outc)(char), const char *fstring, va_list args) {
-    kassert(outc != NULL);
-    kassert(fstring != NULL);
+    if (!outc || !fstring) {
+        return;
+    }
+    //kassert(outc != NULL);
+    //kassert(fstring != NULL);
     while (*fstring) {
         if (*fstring == '%') {
             fstring++;

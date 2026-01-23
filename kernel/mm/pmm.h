@@ -24,17 +24,24 @@ typedef struct {
     size_t    bitmap_bytes;// size of bitmap in bytes
 } pmm_state_t;
 
+
+/**
+ * @brief Initialize the physical memory manager.
+ * This sets up the bitmap and marks reserved regions.
+ */
+void pmm_init(void);
+
 /**
  * @brief Mark a range of physical pages as used. 
  * @return MARK_OK if successful, MARK_FAIL if the addresses are invalid.
  */
-int pmm_mark_phys_page(uintptr_t start, uintptr_t end);
+int pmm_mark_range(uintptr_t start, uintptr_t end);
 
 /**
  * @brief Unmark a range of pages.
  * @return UNMARK_OK if successful, UNMARK_FAIL if the addresses are invalid.
  */
-int pmm_unmark_phys_page(uintptr_t start, uintptr_t end);
+int pmm_unmark_range(uintptr_t start, uintptr_t end);
 
 /**
  * @brief Allocates a physical page, and returns a pointer to it.

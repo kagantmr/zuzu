@@ -14,6 +14,14 @@
 size_t strlen(const char *s);
 
 /**
+ * @brief Calculate the length of a string up to a maximum number of characters.
+ * @param s Pointer to the input string.
+ * @param maxlen Maximum number of characters to examine.
+ * @return Number of characters in the string up to maxlen (excluding the null terminator
+ */
+size_t strnlen(const char *s, size_t maxlen);
+
+/**
  * @brief Append one string to another.
  * 
  * @param dest Destination buffer (must be large enough to hold both strings).

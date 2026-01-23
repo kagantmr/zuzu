@@ -11,8 +11,6 @@ void kprintf_init(void (*putc_func)(char)) {
 }
 
 void kprintf(const char* fmt, ...) {
-    kassert(fmt != NULL);
-    kassert(kernel_console_putc != NULL);
     va_list args;
     va_start(args, fmt);
     vstrfmt(kernel_console_putc, fmt, args);

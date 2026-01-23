@@ -58,6 +58,11 @@ gdb.txt
 # vscode dir
 .vscode/*
 # mac-specific file
-.DS_Store
 # zippings
 *.zip
+arch/.DS_Store
+arch/.DS_Store
+arch/arm/mmu/.DS_Store
+arch/arm/.DS_Store
+.DS_Store
+kernel/.DS_Store

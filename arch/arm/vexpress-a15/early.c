@@ -10,8 +10,7 @@
 #include "kernel/kmain.h"
 #include "kernel/dtb/dtb.h"
 #include "kernel/mm/alloc.h"
-#include "kernel/vm/vmm.h"
-
+#include "kernel/vmm/vmm.h"
 
 #include "core/assert.h"
 #include "core/log.h"
@@ -21,123 +20,194 @@
 #include "lib/string.h"
 
 #include "drivers/uart/uart.h"
-
 #include "drivers/uart/pl011.h"
-
 
 extern kernel_layout_t kernel_layout;
 extern pmm_state_t pmm_state;
 extern phys_region_t phys_region;
-extern addrspace_t* g_kernel_as;
+extern addrspace_t *g_kernel_as;
 
-//uint32_t bss_check;
+/* =============================================================================
+ * Early Boot Page Table (placed in .bss.boot, physical address space)
+ *
+ * L1 table for short-descriptor format:
+ *   - 4096 entries × 4 bytes = 16KB
+ *   - Each entry maps 1MB section
+ *   - Must be 16KB aligned
+ * ============================================================================= */
+__attribute__((section(".bss.boot"), aligned(16384)))
+static uint32_t early_l1[4096];
 
-_Noreturn void early(void* dtb_ptr) {
-    // early(void*) begins its life with minimal stack
+/* =============================================================================
+ * ARMv7 Short-Descriptor L1 Section Entry Format
+ *
+ * Bits [31:20] = Section base address (PA[31:20])
+ * Bits [19]    = NS (Non-Secure)
+ * Bits [18]    = 0
+ * Bits [17]    = nG (not Global) - 0 for kernel
+ * Bits [16]    = S (Shareable)
+ * Bits [15]    = AP[2]
+ * Bits [14:12] = TEX[2:0]
+ * Bits [11:10] = AP[1:0]
+ * Bits [9]     = Implementation defined
+ * Bits [8:5]   = Domain
+ * Bits [4]     = XN (Execute Never)
+ * Bits [3]     = C (Cacheable)
+ * Bits [2]     = B (Bufferable)
+ * Bits [1:0]   = 0b10 for Section descriptor
+ * ============================================================================= */
 
-    //kassert(bss_check == 0); // Ensure BSS is zeroed
+/* Section descriptor type */
+#define L1_TYPE_SECTION     0x2
 
-    /**
-    root = dtb_parse(dtb_ptr);
+/* Access permissions: AP[2:0] = 0b011 = full access (privileged R/W, user R/W) */
+#define L1_AP_FULL_ACCESS   ((0 << 15) | (3 << 10))  /* AP[2]=0, AP[1:0]=11 */
 
-    uintptr_t smb_base = dtb_get_ranges_parent_addr(root, "/smb", 0x03);
-    if (smb_base == 0) {
-        smb_base = VEXPRESS_SMB_BASE; // Fallback to board default if DTB omits it
+/* Memory attributes for normal memory (cacheable, write-back, write-allocate) */
+/* TEX=001, C=1, B=1 -> Outer and Inner Write-Back, Write-Allocate */
+#define L1_MEM_NORMAL       ((1 << 12) | (1 << 3) | (1 << 2))  /* TEX=001, C=1, B=1 */
+
+/* Memory attributes for device memory (strongly ordered / device) */
+/* TEX=000, C=0, B=1 -> Shared Device memory */
+#define L1_MEM_DEVICE       ((0 << 12) | (0 << 3) | (1 << 2))  /* TEX=000, C=0, B=1 */
+
+/* Shareable bit */
+#define L1_SHAREABLE        (1 << 16)
+
+/* Execute Never bit */
+#define L1_XN               (1 << 4)
+
+/* Domain 0 */
+#define L1_DOMAIN_0         (0 << 5)
+
+/* Build a section entry for normal memory (cacheable, executable) */
+#define SECTION_NORMAL(pa)  \
+    (((pa) & 0xFFF00000) | L1_TYPE_SECTION | L1_AP_FULL_ACCESS | \
+     L1_MEM_NORMAL | L1_SHAREABLE | L1_DOMAIN_0)
+
+/* Build a section entry for device memory (non-cacheable, non-executable) */
+#define SECTION_DEVICE(pa)  \
+    (((pa) & 0xFFF00000) | L1_TYPE_SECTION | L1_AP_FULL_ACCESS | \
+     L1_MEM_DEVICE | L1_SHAREABLE | L1_XN | L1_DOMAIN_0)
+
+/* Memory layout constants */
+#define RAM_PA_BASE         0x80000000
+#define RAM_VA_BASE         0xC0000000
+#define RAM_SIZE_MB         256         /* Map 256MB of RAM */
+
+#define MMIO_BASE           0x1C000000
+#define MMIO_END            0x20000000  /* 64MB MMIO window */
+
+/**
+ * @brief Early boot page table initialization (runs before MMU)
+ *
+ * Sets up minimal L1 page table with:
+ *   - Identity mapping for RAM at 0x80000000 (so current code keeps running)
+ *   - Higher-half mapping for RAM at 0xC0000000 -> 0x80000000
+ *   - Identity mapping for MMIO at 0x1C000000-0x20000000
+ *
+ * @param dtb_phys Physical address of DTB (unused for now, reserved for future)
+ * @return Physical address of L1 table (for TTBR0)
+ *
+ * NOTE: This function is placed in .text.boot and runs at physical addresses
+ */
+__attribute__((section(".text.boot")))
+uintptr_t early_paging_init(uintptr_t dtb_phys)
+{
+    (void)dtb_phys;  /* Reserved for future DTB-based memory detection */
+
+    /* Zero the entire L1 table (4096 entries) */
+    for (int i = 0; i < 4096; i++) {
+        early_l1[i] = 0;
     }
 
-    uintptr_t uart_offset = 0;
-    #if defined(VEXPRESS_UART0)
-    uart_offset = dtb_get_reg_addr(root, "/smb/motherboard/iofpga/uart@090000");
-    #elif defined(VEXPRESS_UART1)
-    uart_offset = dtb_get_reg_addr(root, "/smb/motherboard/iofpga/uart@0a0000");
-    #elif defined(VEXPRESS_UART2)
-    uart_offset = dtb_get_reg_addr(root, "/smb/motherboard/iofpga/uart@0b0000");
-    #elif defined(VEXPRESS_UART3)
-    uart_offset = dtb_get_reg_addr(root, "/smb/motherboard/iofpga/uart@0c0000");
-    #else
-    #error "No VEXPRESS_UARTx selected"
-    #endif*/
+    /*
+     * Map RAM: Identity mapping (VA = PA)
+     * VA 0x80000000 - 0x8FFFFFFF -> PA 0x80000000 - 0x8FFFFFFF
+     *
+     * L1 index = VA[31:20], so 0x800 = index 2048
+     */
+    for (unsigned int i = 0; i < RAM_SIZE_MB; i++) {
+        uintptr_t pa = RAM_PA_BASE + (i << 20);  /* 1MB sections */
+        unsigned int idx = (RAM_PA_BASE >> 20) + i;
+        early_l1[idx] = SECTION_NORMAL(pa);
+    }
 
-    //kassert(uart_offset != 0);
+    /*
+     * Map RAM: Higher-half mapping
+     * VA 0xC0000000 - 0xCFFFFFFF -> PA 0x80000000 - 0x8FFFFFFF
+     *
+     * L1 index for 0xC0000000 = 0xC00 = 3072
+     */
+    for (unsigned int i = 0; i < RAM_SIZE_MB; i++) {
+        uintptr_t pa = RAM_PA_BASE + (i << 20);
+        unsigned int idx = (RAM_VA_BASE >> 20) + i;
+        early_l1[idx] = SECTION_NORMAL(pa);
+    }
 
+    /*
+     * Map MMIO: Identity mapping for vexpress peripherals
+     * VA 0x1C000000 - 0x1FFFFFFF -> PA 0x1C000000 - 0x1FFFFFFF (device memory)
+     *
+     * L1 index for 0x1C000000 = 0x1C0 = 448
+     */
+    unsigned int mmio_sections = (MMIO_END - MMIO_BASE) >> 20;  /* 64 sections */
+    for (unsigned int i = 0; i < mmio_sections; i++) {
+        uintptr_t pa = MMIO_BASE + (i << 20);
+        unsigned int idx = (MMIO_BASE >> 20) + i;
+        early_l1[idx] = SECTION_DEVICE(pa);
+    }
 
+    /*
+     * Return physical address of L1 table for TTBR0
+     * Since early_l1 is in .bss.boot which is at physical addresses,
+     * the symbol value IS the physical address.
+     */
+    return (uintptr_t)early_l1;
+}
 
-    uart_set_driver(&pl011_driver, VEXPRESS_SMB_BASE + VEXPRESS_UART0_OFF);
-    kprintf_init(uart_putc);
+// uint32_t bss_check;
 
+_Noreturn void early(void *dtb_ptr)
+{
 
-    uint32_t ram_base = 0x80000000; //dtb_get_reg_addr(root, "memory");
-    uint32_t ram_size = 0x4000000; //dtb_get_reg_size(root, "memory"); // 64MB
-
-    kassert(ram_base != 0 && ram_size != 0);
-
-    uint32_t ram_end = ram_base + ram_size;
-
-    /* Fill kernel layout */
-    kernel_layout.kernel_start = (uintptr_t)_kernel_start;
-    kernel_layout.kernel_end   = (uintptr_t)_kernel_end;
-    kernel_layout.stack_top    = (uintptr_t)__svc_stack_top__;
-    kernel_layout.stack_base   = (uintptr_t)__svc_stack_base__;
-
-    /* Fill physical region */
-    phys_region.start = (uintptr_t)ram_base;
-    phys_region.end   = (uintptr_t)ram_end;
-
-    /* Fill PMM */
-    pmm_state.pfn_base   = phys_region.start / PAGE_SIZE;
-    pmm_state.pfn_end    = phys_region.end / PAGE_SIZE;
-    pmm_state.total_pages = pmm_state.pfn_end - pmm_state.pfn_base;
-    pmm_state.free_pages  = pmm_state.total_pages;
-
-    /* Place bitmap just after kernel, page aligned */
-    uintptr_t bitmap_phys_start = align_up(kernel_layout.kernel_end, PAGE_SIZE);
-
-    /* compute bitmap size in bytes and round up to full pages */
-    size_t bitmap_bytes = (pmm_state.total_pages + 7) / 8;
-    size_t bitmap_page_bytes = align_up(bitmap_bytes, PAGE_SIZE);
-    uintptr_t bitmap_phys_end = bitmap_phys_start + bitmap_page_bytes;
-
-
-    kassert(bitmap_phys_end <= kernel_layout.stack_top); // Does bitmap fit below stack?
-    kassert(bitmap_phys_end <= phys_region.end);         // Does bitmap fit in RAM?
-    
-
-
-    /* Install bitmap */
-    pmm_state.bitmap = (uint8_t*)bitmap_phys_start;
-    pmm_state.bitmap_bytes = bitmap_bytes;
-
-    /* zero bitmap pages */
-    memset((void*)bitmap_phys_start, 0, bitmap_page_bytes);
-
-    /* record in layout */
-    kernel_layout.bitmap_start = bitmap_phys_start;
-    kernel_layout.bitmap_end   = bitmap_phys_end;
-
-    /* reserve DTB, kernel, bitmap, and all mode stacks */
-
-    pmm_mark_phys_page(kernel_layout.dtb_start, kernel_layout.kernel_start);
-    pmm_mark_phys_page(kernel_layout.kernel_start, kernel_layout.kernel_end);
-    pmm_mark_phys_page(kernel_layout.bitmap_start, kernel_layout.bitmap_end);
-    pmm_mark_phys_page(kernel_layout.stack_base, kernel_layout.stack_top);       // Bootloader SVC stack
-    pmm_mark_phys_page((uintptr_t)__irq_stack_base__, (uintptr_t)__irq_stack_top__);  // IRQ stack
-    pmm_mark_phys_page((uintptr_t)__abt_stack_base__, (uintptr_t)__abt_stack_top__);  // Abort stack
-    pmm_mark_phys_page((uintptr_t)__und_stack_base__, (uintptr_t)__und_stack_top__);  // Undefined stack
-    
-    kheap_init();
-
+    // Parse DTB and extract memory info
     dtb_init(dtb_ptr);
+// Set up hardcoded emergency console
+    #if defined(EARLY_UART)
+        uart_set_driver(&pl011_driver, VEXPRESS_SMB_BASE + VEXPRESS_UART0_OFF);
+        kprintf_init(uart_putc);
+        KINFO("Early UART initialized");
+    #endif
 
-    dtb_walk();
 
-    // Test panic
-    //KPANIC("Zuzu chewed on the wires");
+    // Fill kernel_layout from linker symbols + DTB
+    // NOTE: PMM works with PHYSICAL addresses, so use _kernel_phys_* symbols
+    kernel_layout.dtb_start = (uintptr_t)dtb_ptr;
+    kernel_layout.kernel_start = (uintptr_t)_kernel_phys_start;
+    kernel_layout.kernel_end = (uintptr_t)_kernel_phys_end;
+    kernel_layout.stack_base = (uintptr_t)__svc_stack_base__;
+    kernel_layout.stack_top = (uintptr_t)__svc_stack_top__;
 
-    // Enable virtual memory 
-    vmm_bootstrap();
-    KINFO("MMU enabled");
+    // Fill phys_region from DTB
+    uint64_t ram_base, ram_size;
+    if (!dtb_get_reg("/memory", 0, &ram_base, &ram_size))
+    {
+        KPANIC("Failed to find memory in DTB");
+    }
+    phys_region.start = (uintptr_t)ram_base;
+    phys_region.end = (uintptr_t)(ram_base + ram_size);
 
-    arch_global_irq_enable();
-    // Call main kernel
+    
+    //__asm__ volatile(".word 0xffffffff");
+
+    // Initialize subsystems (in dependency order)
+    pmm_init();      // Needs kernel_layout, phys_region
+    kheap_init();    // Needs PMM
+    vmm_bootstrap(); // Needs heap
+
+    //__asm__ volatile(".word 0xffffffff");
+
+    // Hand off to kernel proper
     kmain();
 }
