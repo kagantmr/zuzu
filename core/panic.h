@@ -8,7 +8,7 @@
  * @brief Handle a kernel panic by disabling interrupts and halting.
  * This function does not return.
  */
-void panic(void);
+_Noreturn void panic(void);
 
 /**
  * @brief Dump the current stack trace.

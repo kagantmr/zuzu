@@ -11,7 +11,7 @@
 
 #include "kernel/layout.h"
 #include "kernel/mm/pmm.h"
-#include "kernel/dtb/dtb_parser.h"
+#include "kernel/dtb/dtb.h"
 
 #define ZUZU_VER "v0.0.1"
 
@@ -19,7 +19,7 @@ extern kernel_layout_t kernel_layout;
 extern pmm_state_t pmm_state;
 extern phys_region_t phys_region[];
 
-extern dtb_node_t *root;
+//extern dtb_node_t *root;
 
 static inline uint32_t read_cpsr(void) {
     uint32_t cpsr;
@@ -100,7 +100,7 @@ void print_logo(void) {
     }
 
 
-void kmain(void)
+_Noreturn void kmain(void)
 {
     KINFO("early() complete");
     KINFO("UART driver initialized");
@@ -110,7 +110,7 @@ void kmain(void)
     print_logo();
 
     KINFO("Zuzu kernel %s", ZUZU_VERSION);
-    const char *machine_name = dtb_get_property(root, "/", "model");
+    /*const char *machine_name = dtb_get_property(root, "/", "model");
 
     if (machine_name) {
         KINFO("Machine: %s", machine_name);
@@ -120,7 +120,7 @@ void kmain(void)
     const char *compatible = dtb_get_property(root, "/", "compatible");
     if (compatible) {
         KINFO("Compatible ID: %s", compatible);
-    }
+    }*/
     // Calculate size in Megabytes (Bytes / 1024 / 1024)
     kassert(pmm_state.pfn_end >= pmm_state.pfn_base);
     kassert(pmm_state.total_pages == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
