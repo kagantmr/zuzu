@@ -8,7 +8,7 @@
 #include "kernel/mm/pmm.h"
 #include "kernel/mm/reserve.h"
 #include "kernel/kmain.h"
-#include "kernel/dtb/dtb_parser.h"
+#include "kernel/dtb/dtb.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/vm/vmm.h"
 
@@ -30,12 +30,14 @@ extern pmm_state_t pmm_state;
 extern phys_region_t phys_region;
 extern addrspace_t* g_kernel_as;
 
-dtb_node_t *root;
-uint32_t bss_check;
+//uint32_t bss_check;
 
-void early(void* dtb_ptr) {
+_Noreturn void early(void* dtb_ptr) {
     // early(void*) begins its life with minimal stack
 
+    //kassert(bss_check == 0); // Ensure BSS is zeroed
+
+    /**
     root = dtb_parse(dtb_ptr);
 
     uintptr_t smb_base = dtb_get_ranges_parent_addr(root, "/smb", 0x03);
@@ -54,16 +56,18 @@ void early(void* dtb_ptr) {
     uart_offset = dtb_get_reg_addr(root, "/smb/motherboard/iofpga/uart@0c0000");
     #else
     #error "No VEXPRESS_UARTx selected"
-    #endif
+    #endif*/
 
-    kassert(uart_offset != 0);
-    uart_set_driver(&pl011_driver, smb_base + uart_offset);
+    //kassert(uart_offset != 0);
+
+
+
+    uart_set_driver(&pl011_driver, VEXPRESS_SMB_BASE + VEXPRESS_UART0_OFF);
     kprintf_init(uart_putc);
 
-    kassert(bss_check == 0); // Ensure BSS is zeroed
 
-    uint32_t ram_base = dtb_get_reg_addr(root, "memory");
-    uint32_t ram_size = dtb_get_reg_size(root, "memory");
+    uint32_t ram_base = 0x80000000; //dtb_get_reg_addr(root, "memory");
+    uint32_t ram_size = 0x4000000; //dtb_get_reg_size(root, "memory"); // 64MB
 
     kassert(ram_base != 0 && ram_size != 0);
 
@@ -121,6 +125,10 @@ void early(void* dtb_ptr) {
     pmm_mark_phys_page((uintptr_t)__und_stack_base__, (uintptr_t)__und_stack_top__);  // Undefined stack
     
     kheap_init();
+
+    dtb_init(dtb_ptr);
+
+    dtb_walk();
 
     // Test panic
     //KPANIC("Zuzu chewed on the wires");

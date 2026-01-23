@@ -17,6 +17,7 @@ LDFLAGS  = -T $(LINKER_SCRIPT)
 
 # Set DEBUG_BUILD to 1 to enable assertions and extra logging
 DEBUG_BUILD ?= 1
+DTB_DEBUG_WALK ?= 0
 
 ifeq ($(DEBUG_BUILD), 1)
     # Enable assertions (default C standard for enabling assertions)
@@ -25,6 +26,12 @@ ifeq ($(DEBUG_BUILD), 1)
 else
     # Disable assertions for release builds
     CFLAGS += -DNDEBUG
+endif
+
+ifeq ($(DTB_DEBUG_WALK), 0)
+	CFLAGS += -UDTB_DEBUG_WALK
+else
+	CFLAGS += -DDTB_DEBUG_WALK
 endif
 
 # Directories to search for source files

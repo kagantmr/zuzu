@@ -6,6 +6,7 @@
 #include "arch/arm/include/symbols.h"
 #include "drivers/uart/uart.h"
 #include "kernel/layout.h"
+
 #include <stdint.h>
 
 
@@ -58,7 +59,7 @@ void dump_stack(void) {
     kprintf("********************\n");
 }
 
-void panic(void) {
+_Noreturn void panic(void) {
     // Get caller's return address
     void *caller_ra = __builtin_return_address(0);
     
@@ -68,11 +69,13 @@ void panic(void) {
     kprintf("[PANIC] called from %p\n", caller_ra);
     
     dump_stack();
-    
+
+    arch_global_irq_disable();
     __asm__ volatile (
         "1:\n"
         "    wfi\n"
         "    b 1b\n"
     );
+    while (1);
 }
 

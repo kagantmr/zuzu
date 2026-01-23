@@ -2,34 +2,65 @@
 #define KERNEL_DTB_DTB_H
 
 #include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
 
-typedef struct dtb_header {
-    uint32_t magic;
-    uint32_t totalsize;
-    uint32_t off_dt_struct;
-    uint32_t off_dt_strings;
-    uint32_t off_mem_rsvmap;
-    uint32_t version;
-    uint32_t last_comp_version;
-} dtb_header_t;
+// In-place DTB parser interface
 
-typedef struct dtb_property {
-    const char* name;
-    const void* value;
-    uint32_t length;
-} dtb_property_t;
+/**
+ * Initializes the DTB parser with the given DTB base address.
+ * @param dtb_base Pointer to the base of the DTB in memory.
+ * @return true on success, false on failure.
+ */
+bool dtb_init(const void* dtb_base);
 
-#define DTB_MAX_PROPS     32
-#define DTB_MAX_CHILDREN  32
+/**
+ * Generic DTB accessor
+ * @param path The path to the node in the DTB.
+ * @param index The index of the memory region.
+ * @param out_addr Pointer to store the starting address of the region.
+ * @param out_size Pointer to store the size of the region.
+ * @return true on success, false on failure.
+ */
+bool dtb_get_property(const char* path, const char* prop, const void** out_value, uint32_t* out_len);
 
-typedef struct dtb_node {
-    const char* name;
+/**
+ * Retrieves a 32-bit unsigned integer property from the DTB.
+ * @param path The path to the node in the DTB.
+ * @param prop The name of the property.
+ * @param out Pointer to store the retrieved value.
+ * @return true on success, false on failure.
+ */
+bool dtb_get_u32(const char* path, const char* prop, uint32_t* out);
 
-    dtb_property_t properties[DTB_MAX_PROPS];
-    uint32_t       property_count;
+/**
+ * Retrieves a 64-bit unsigned integer property from the DTB.
+ * @param path The path to the node in the DTB.
+ * @param prop The name of the property.
+ * @param out Pointer to store the retrieved value.
+ * @return true on success, false on failure.
+ */
+bool dtb_get_reg(const char* path, int index, uint64_t* out_addr, uint64_t* out_size);
 
-    struct dtb_node* children[DTB_MAX_CHILDREN];
-    uint32_t        child_count;
-} dtb_node_t;
+/**
+ * Finds a device node compatible with the given string.
+ * @param compatible The compatible string to search for.
+ * @param out_path Buffer to store the path of the found node.
+ * @param out_path_cap Capacity of the output buffer.
+ * @return true if a compatible node was found, false otherwise.
+ */
+bool dtb_find_compatible(const char* compatible, char* out_path, size_t out_path_cap);
+
+
+#ifdef DTB_DEBUG_WALK
+/**
+ * Debug function to walk and print the DTB structure.
+ */
+void dtb_walk(void);
+#endif
+
+bool dtb_get_string(const char *path, const char *prop, char *out, size_t out_cap);
+
+bool dtb_get_stdout_uart(char *out_node_path, size_t out_node_path_cap, uint64_t *out_base);
 
 #endif

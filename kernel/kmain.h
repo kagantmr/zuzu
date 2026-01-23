@@ -1,7 +1,7 @@
 #ifndef KMAIN_H
 #define KMAIN_H
 
-void kmain(void);
+_Noreturn void kmain(void);
 
 
 static inline uint32_t cpu_mode_from_cpsr(uint32_t cpsr) {
