@@ -404,6 +404,7 @@ bool dtb_get_property(const char *path, const char *prop, const void **out_value
     int matched_segments = 0;
     bool in_target_node = false;
     int target_depth = -1; // depth of the target node (node depth, not parent depth)
+    bool entered_root = false;
 
     // Small software stack to restore matching state when exiting subtrees
     enum
@@ -448,11 +449,17 @@ bool dtb_get_property(const char *path, const char *prop, const void **out_value
 
             const int node_depth = depth + 1;
 
-            // If caller asked for root, the first (root) BEGIN_NODE (empty name) is target.
-            if (!in_target_node && want_root && name[0] == '\0')
+            // Handle root node specially (empty name)
+            if (name[0] == '\0')
             {
-                in_target_node = true;
-                target_depth = node_depth;
+                entered_root = true;
+                if (want_root)
+                {
+                    // Caller asked for "/" - this is the target
+                    in_target_node = true;
+                    target_depth = node_depth;
+                }
+                // Either way, enter root without matching any segment
                 depth = node_depth;
                 break;
             }
@@ -464,11 +471,9 @@ bool dtb_get_property(const char *path, const char *prop, const void **out_value
                 break;
             }
 
-            // Only attempt to match the next segment at the expected depth.
-            // matched_segments == 0 => looking for first segment under root => node_depth must be 1.
-            // matched_segments == 1 => looking for second segment => node_depth must be 2, etc.
-            const int expected_depth = matched_segments + 1;
-            if (node_depth == expected_depth)
+            // Only attempt to match path segments after we have entered the DTB root.
+            const int expected_depth = matched_segments + 2;
+            if (entered_root && node_depth == expected_depth)
             {
                 const char *seg = NULL;
                 int seg_len = 0;
@@ -497,7 +502,6 @@ bool dtb_get_property(const char *path, const char *prop, const void **out_value
             depth = node_depth;
             break;
         }
-
         case FDT_PROP:
         {
             uint32_t len = 0;
@@ -910,128 +914,206 @@ bool dtb_get_string(const char *path, const char *prop, char *out, size_t out_ca
     return true;
 }
 
-static inline bool dtb_decode_reg0_base(const char *node_path, uint64_t *base_out)
+
+// Helper: get parent path from a node path
+static bool get_parent_path(const char *path, char *parent, size_t parent_cap)
 {
-    uint64_t addr = 0, size = 0;
-    if (!dtb_get_reg(node_path, 0, &addr, &size))
+    if (!path || !parent || parent_cap == 0)
         return false;
-    *base_out = addr;
+
+    size_t len = strlen(path);
+    if (len == 0 || (len == 1 && path[0] == '/'))
+    {
+        // Root has no parent
+        return false;
+    }
+
+    if (len >= parent_cap)
+        return false;
+    memcpy(parent, path, len + 1);
+
+    // Strip trailing slashes
+    while (len > 1 && parent[len - 1] == '/')
+    {
+        parent[--len] = '\0';
+    }
+
+    // Find last slash
+    char *last_slash = NULL;
+    for (size_t i = 0; i < len; i++)
+    {
+        if (parent[i] == '/')
+            last_slash = &parent[i];
+    }
+
+    if (!last_slash || last_slash == parent)
+    {
+        // Parent is root
+        parent[0] = '/';
+        parent[1] = '\0';
+    }
+    else
+    {
+        *last_slash = '\0';
+    }
+
     return true;
 }
 
-bool dtb_get_stdout_uart(char *out_node_path, size_t out_node_path_cap, uint64_t *out_base)
+// Apply ranges translation from child address space to parent address space
+static bool apply_ranges(const char *node_path, uint64_t child_addr, uint64_t *out_parent_addr)
 {
-    if (out_base == NULL || !g_dtb_ready)
+    if (!node_path || !out_parent_addr)
+        return false;
+
+    const void *ranges_val = NULL;
+    uint32_t ranges_len = 0;
+
+    if (!dtb_get_property(node_path, "ranges", &ranges_val, &ranges_len))
+    {
+        // No ranges property - assume identity mapping
+        *out_parent_addr = child_addr;
+        return true;
+    }
+
+    // Empty ranges = 1:1 identity mapping
+    if (ranges_len == 0)
+    {
+        *out_parent_addr = child_addr;
+        return true;
+    }
+
+    // Get cell sizes from this node
+    uint32_t child_addr_cells = 2;
+    uint32_t child_size_cells = 1;
+    (void)dtb_get_u32(node_path, "#address-cells", &child_addr_cells);
+    (void)dtb_get_u32(node_path, "#size-cells", &child_size_cells);
+
+    // Get parent's #address-cells
+    char parent_path[256];
+    uint32_t parent_addr_cells = 2;
+    if (get_parent_path(node_path, parent_path, sizeof(parent_path)))
+    {
+        (void)dtb_get_u32(parent_path, "#address-cells", &parent_addr_cells);
+    }
+
+    if (child_addr_cells == 0 || child_addr_cells > 2 ||
+        parent_addr_cells == 0 || parent_addr_cells > 2 ||
+        child_size_cells == 0 || child_size_cells > 2)
     {
         return false;
     }
 
-    if (out_node_path != NULL && out_node_path_cap > 0)
+    uint32_t cells_per_entry = child_addr_cells + parent_addr_cells + child_size_cells;
+    uint32_t bytes_per_entry = cells_per_entry * 4;
+
+    if (bytes_per_entry == 0 || ranges_len % bytes_per_entry != 0)
     {
-        out_node_path[0] = '\0';
+        return false;
     }
 
+    const uint8_t *p = (const uint8_t *)ranges_val;
+    uint32_t num_entries = ranges_len / bytes_per_entry;
 
-    // 1) Try /chosen stdout-path (may be an absolute path or alias with options)
-    char tmp[256];
-    if (dtb_get_string("/chosen", "stdout-path", tmp, sizeof(tmp)))
+    for (uint32_t i = 0; i < num_entries; i++)
     {
-        // Strip options after ':' (e.g., "serial0:115200n8")
-        for (size_t i = 0; tmp[i] != '\0'; i++)
+        const uint8_t *entry = p + (i * bytes_per_entry);
+
+        // Read child bus address
+        uint64_t child_base = 0;
+        for (uint32_t j = 0; j < child_addr_cells; j++)
         {
-            if (tmp[i] == ':')
-            {
-                tmp[i] = '\0';
-                break;
-            }
+            child_base = (child_base << 32) | read_be32(entry + j * 4);
         }
 
-        if (tmp[0] == '/')
+        // Read parent bus address
+        uint64_t parent_base = 0;
+        const uint8_t *parent_ptr = entry + child_addr_cells * 4;
+        for (uint32_t j = 0; j < parent_addr_cells; j++)
         {
-            uint64_t base = 0;
-            if (dtb_decode_reg0_base(tmp, &base))
-            {
-                *out_base = base;
-                if (out_node_path != NULL && out_node_path_cap > 0)
-                {
-                    // Copy path (truncate safely)
-                    size_t n = strlen(tmp);
-                    size_t to_copy = (n < (out_node_path_cap - 1)) ? n : (out_node_path_cap - 1);
-                    memcpy(out_node_path, tmp, to_copy);
-                    out_node_path[to_copy] = '\0';
-                }
-                return true;
-            }
+            parent_base = (parent_base << 32) | read_be32(parent_ptr + j * 4);
         }
-        else
-        {
-            // Treat as alias key
-            char node_path[256];
-            if (dtb_get_string("/aliases", tmp, node_path, sizeof(node_path)))
-            {
-                uint64_t base = 0;
-                if (dtb_decode_reg0_base(node_path, &base))
-                {
-                    *out_base = base;
-                    if (out_node_path != NULL && out_node_path_cap > 0)
-                    {
-                        size_t n = strlen(node_path);
-                        size_t to_copy = (n < (out_node_path_cap - 1)) ? n : (out_node_path_cap - 1);
-                        memcpy(out_node_path, node_path, to_copy);
-                        out_node_path[to_copy] = '\0';
-                    }
-                    return true;
-                }
-            }
-        }
-    }
 
-    // 2) Try /aliases serial0
-    char node_path[256];
-    if (dtb_get_string("/aliases", "serial0", node_path, sizeof(node_path)))
-    {
-        uint64_t base = 0;
-        if (dtb_decode_reg0_base(node_path, &base))
+        // Read size
+        uint64_t range_size = 0;
+        const uint8_t *size_ptr = parent_ptr + parent_addr_cells * 4;
+        for (uint32_t j = 0; j < child_size_cells; j++)
         {
-            *out_base = base;
-            if (out_node_path != NULL && out_node_path_cap > 0)
-            {
-                size_t n = strlen(node_path);
-                size_t to_copy = (n < (out_node_path_cap - 1)) ? n : (out_node_path_cap - 1);
-                memcpy(out_node_path, node_path, to_copy);
-                out_node_path[to_copy] = '\0';
-            }
+            range_size = (range_size << 32) | read_be32(size_ptr + j * 4);
+        }
+
+        // Check if child_addr falls within this range
+        if (child_addr >= child_base && child_addr < child_base + range_size)
+        {
+            *out_parent_addr = parent_base + (child_addr - child_base);
             return true;
         }
     }
 
-    // 3) Fallback: first compatible arm,pl011
-    if (out_node_path != NULL && out_node_path_cap > 0)
+    // Address not in any range - try identity (some DTBs are sloppy)
+    *out_parent_addr = child_addr;
+    return true;
+}
+
+bool dtb_translate_address(const char *node_path, uint64_t raw_addr, uint64_t *out_phys)
+{
+    if (!node_path || !out_phys || !g_dtb_ready)
+        return false;
+
+    char current_path[256];
+    size_t len = strlen(node_path);
+    if (len >= sizeof(current_path))
+        return false;
+    memcpy(current_path, node_path, len + 1);
+
+    uint64_t addr = raw_addr;
+
+    // Walk up the tree, applying ranges at each level
+    while (true)
     {
-        if (dtb_find_compatible("arm,pl011", out_node_path, out_node_path_cap))
+        char parent_path[256];
+        if (!get_parent_path(current_path, parent_path, sizeof(parent_path)))
         {
-            uint64_t base = 0;
-            if (dtb_decode_reg0_base(out_node_path, &base))
-            {
-                *out_base = base;
-                return true;
-            }
+            // Reached root
+            break;
         }
-    }
-    else
-    {
-        // No path buffer provided; use a temporary for the compatible search
-        char tmp_path[256];
-        if (dtb_find_compatible("arm,pl011", tmp_path, sizeof(tmp_path)))
+
+        uint64_t translated;
+        if (!apply_ranges(parent_path, addr, &translated))
         {
-            uint64_t base = 0;
-            if (dtb_decode_reg0_base(tmp_path, &base))
-            {
-                *out_base = base;
-                return true;
-            }
+            return false;
+        }
+
+        addr = translated;
+
+        // Move up
+        len = strlen(parent_path);
+        memcpy(current_path, parent_path, len + 1);
+
+        if (len == 1 && parent_path[0] == '/')
+        {
+            break;
         }
     }
 
-    return false;
+    *out_phys = addr;
+    return true;
+}
+
+bool dtb_get_reg_phys(const char *path, int index, uint64_t *out_addr, uint64_t *out_size)
+{
+    if (!path || !out_addr || !out_size)
+        return false;
+
+    uint64_t raw_addr, size;
+    if (!dtb_get_reg(path, index, &raw_addr, &size))
+        return false;
+
+    uint64_t phys_addr;
+    if (!dtb_translate_address(path, raw_addr, &phys_addr))
+        return false;
+
+    *out_addr = phys_addr;
+    *out_size = size;
+    return true;
 }

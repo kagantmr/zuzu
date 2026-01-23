@@ -15,13 +15,14 @@ CPUFLAGS = -mcpu=cortex-a15
 CFLAGS   = -ffreestanding -O0 -fno-omit-frame-pointer -Wall -Wextra -Werror $(CPUFLAGS) -I. -MMD -MP -g
 LDFLAGS  = -T $(LINKER_SCRIPT)
 
-# Set DEBUG_BUILD to 1 to enable assertions and extra logging
+# Debug options
 DEBUG_BUILD ?= 1
 DTB_DEBUG_WALK ?= 0
+EARLY_UART ?= 0
 
 ifeq ($(DEBUG_BUILD), 1)
     # Enable assertions (default C standard for enabling assertions)
-    # You might also add -DDEBUG_LOGGING for KINFO/KWARN
+    # might also add -DDEBUG_LOGGING for KINFO/KWARN
     CFLAGS += -UNDEBUG -DDEBUG
 else
     # Disable assertions for release builds
@@ -33,6 +34,13 @@ ifeq ($(DTB_DEBUG_WALK), 0)
 else
 	CFLAGS += -DDTB_DEBUG_WALK
 endif
+
+ifeq ($(EARLY_UART), 0)
+	CFLAGS += -UEARLY_UART
+else
+	CFLAGS += -DEARLY_UART
+endif
+
 
 # Directories to search for source files
 SRC_DIRS = arch core drivers kernel lib

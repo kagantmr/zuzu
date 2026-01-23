@@ -61,6 +61,13 @@ void dtb_walk(void);
 
 bool dtb_get_string(const char *path, const char *prop, char *out, size_t out_cap);
 
-bool dtb_get_stdout_uart(char *out_node_path, size_t out_node_path_cap, uint64_t *out_base);
+/**
+ * Translates a raw address through parent ranges up to root.
+ */
+bool dtb_translate_address(const char *node_path, uint64_t raw_addr, uint64_t *out_phys);
 
+/**
+ * Get reg property with full address translation to physical.
+ */
+bool dtb_get_reg_phys(const char *path, int index, uint64_t *out_addr, uint64_t *out_size);
 #endif
