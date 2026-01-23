@@ -54,5 +54,10 @@ dkms.conf
 # debug information files
 *.dwo
 gdb.txt
+
+# vscode dir
 .vscode/*
+# mac-specific file
 .DS_Store
+# zippings
+*.zip
