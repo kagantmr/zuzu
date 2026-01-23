@@ -6,7 +6,8 @@ Zuzu is a lightweight microkernel targeting AArch32 and ARMv7-A.
 
 ## Currently Supported Boards
 - ARM Versatile Express `vexpress-a15`
-- ... maybe Raspberry Pi 3
+- ... maybe Raspberry Pi 4
+- ... maybe a RISC-V board
 - ... something that definitely isn't x86
 
 ## Prerequisites
@@ -61,7 +62,7 @@ gdb-multiarch build/zuzu.elf
 ## Structure
 The Zuzu project follows this source structure for ease of development:
 
-```t
+```
 .
 ├── arch/
 │   └── arm/
@@ -77,23 +78,5 @@ The Zuzu project follows this source structure for ease of development:
 └── lib/                   # Standard library implementations (memcpy, string)
 ```
 
-## Short-sighted Roadmap
-
-- [x] Early Boot (Assembly)
-
-- [x] UART Driver (PL011)
-
-- [x] Device Tree Parsing (FDT)
-
-- [x] Physical Memory Manager (PMM)
-
-- [ ] Virtual Memory Manager (VMM / Paging)
-
-- [ ] Interrupt Descriptor Table (Vector Table)
-
-- [ ] Heap Allocator (kmalloc)
-
-- [ ] Timer Driver
-
 ## License
-MIT License. See LICENSE for details.
+GNU Public License. See LICENSE for details.
