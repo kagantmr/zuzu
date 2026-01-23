@@ -143,6 +143,7 @@ higher_half_entry:
     isb
 
     /* Re-enable interrupts now that vectors are set up */
+    cpsie   if
     /* (We'll keep them disabled until proper IRQ setup in kernel) */
 
     /* =========================================================================
