@@ -258,24 +258,11 @@ void vmm_bootstrap(void) {
         // Switch to new page tables
         vmm_activate(g_kernel_as);
 
-        KINFO("VMM: Bootstrap complete (identity mapping still present)");
-        KINFO("VMM: Call vmm_remove_identity_mapping() to finalize");
+        KDEBUG("VMM: Bootstrap complete (identity mapping still present)");
+        KDEBUG("VMM: Call vmm_remove_identity_mapping() to finalize");
     }
 }
 
-/**
- * @brief Remove identity mapping and relocate ALL stacks to higher-half.
- * 
- * CRITICAL: This function must be called from a context where:
- *   1. We won't return through any stack frames that use identity-mapped addresses
- *   2. Typically called at the START of kmain() before any significant work
- *   3. Interrupts MUST be disabled (we're changing IRQ/ABT/UND stacks)
- * 
- * After this call:
- *   - Identity mapping (0x80000000+) is removed
- *   - ALL mode stack pointers relocated to higher-half (0xC0800000+)
- *   - All kernel code/data accessed via 0xC0000000+ addresses
- */
 void vmm_remove_identity_mapping(void) {
     if (!g_kernel_as) {
         return;
@@ -287,19 +274,6 @@ void vmm_remove_identity_mapping(void) {
     uintptr_t map_pa_end = (ram_pa_base + ram_size + SECTION_SIZE - 1) & ~(SECTION_SIZE - 1);
     size_t map_size = map_pa_end - map_pa_start;
 
-    // =========================================================================
-    // STEP 1: Relocate ALL mode stacks while both mappings still exist
-    // =========================================================================
-    // This must happen BEFORE we unmap the identity region, because:
-    //   - Current SP values point to 0x808xxxxx (physical)
-    //   - We need to change them to 0xC08xxxxx (virtual)
-    //   - Both addresses currently map to the same physical memory
-    //
-    // We need to fix stacks for: SVC (current), IRQ, ABT, UND
-    // FIQ uses banked registers but we're not using FIQ, skip it
-
-    // If stacks were already relocated to the higher half in early assembly,
-    // do NOT add KERNEL_VA_OFFSET again (it would wrap and crash).
     uintptr_t cur_sp = 0;
     __asm__ volatile("mov %0, sp" : "=r"(cur_sp));
 
@@ -343,15 +317,8 @@ void vmm_remove_identity_mapping(void) {
         );
     }
 
-    // =========================================================================
-    // STEP 2: Remove identity mapping from page tables
-    // =========================================================================
-    // Now safe because all SPs point to 0xC0... addresses
     vmm_unmap_range(g_kernel_as, map_pa_start, map_size);
-    
-    // =========================================================================
-    // STEP 3: Remove from region tracking (bookkeeping)
-    // =========================================================================
+
     for (size_t i = 0; i < g_kernel_as->region_count; i++) {
         if (g_kernel_as->regions[i].vaddr_start == map_pa_start) {
             for (size_t j = i; j + 1 < g_kernel_as->region_count; j++) {
@@ -362,13 +329,6 @@ void vmm_remove_identity_mapping(void) {
         }
     }
 
-    // =========================================================================
-    // STEP 4: Fix kernel_layout struct (for panic dumps, debugging, etc.)
-    // =========================================================================
-    // These were set in early.c using physical addresses from linker symbols.
-    // Now that we're in higher-half, update them to virtual addresses.
-    kernel_layout.stack_base_pa = PA_TO_VA(kernel_layout.stack_base_pa);
-    kernel_layout.stack_top_pa  = PA_TO_VA(kernel_layout.stack_top_pa);
 
     KINFO("VMM: Identity mapping removed, running pure higher-half");
 }

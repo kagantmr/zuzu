@@ -246,35 +246,7 @@ _Noreturn void kmain(void) {
     }
     #endif
 
-
     KINFO("Booting...");
-
-    // print linker symbols
-    KDEBUG("Linker symbols:");
-    KDEBUG("  _kernel_phys_start: %p", (void *)_kernel_phys_start);
-    KDEBUG("  _kernel_phys_end:   %p", (void *)_kernel_phys_end);
-    KDEBUG("  _kernel_start:      %p", (void *)_kernel_start);
-    KDEBUG("  _kernel_end:        %p", (void *)_kernel_end);
-    KDEBUG("  __svc_stack_base__:  %p", (void *)__svc_stack_base__);
-    KDEBUG("  __svc_stack_top__:   %p", (void *)__svc_stack_top__);
-    KDEBUG("  __irq_stack_base__:  %p", (void *)__irq_stack_base__);
-    KDEBUG("  __irq_stack_top__:   %p", (void *)__irq_stack_top__);
-    KDEBUG("  __abt_stack_base__:  %p", (void *)__abt_stack_base__);
-    KDEBUG("  __abt_stack_top__:   %p", (void *)__abt_stack_top__);
-    KDEBUG("  __und_stack_base__:  %p", (void *)__und_stack_base__);
-    KDEBUG("  __und_stack_top__:   %p", (void *)__und_stack_top__);
-
-    KDEBUG("Kernel layout:");
-    KDEBUG("  DTB PA:        %p", (void *)kernel_layout.dtb_start_pa);
-    KDEBUG("  DTB VA:        %p", kernel_layout.dtb_start_va);
-    KDEBUG("  Kernel PA:     %p - %p", (void *)kernel_layout.kernel_start_pa, (void *)kernel_layout.kernel_end_pa);
-    KDEBUG("  Kernel VA:     %p - %p", (void *)kernel_layout.kernel_start_va, (void *)kernel_layout.kernel_end_va);
-    KDEBUG("  Stack PA:      %p - %p", (void *)kernel_layout.stack_base_pa, (void *)kernel_layout.stack_top_pa);
-    KDEBUG("  Stack VA:      %p - %p", (void *)kernel_layout.stack_base_va, (void *)kernel_layout.stack_top_va);
-    KDEBUG("  Bitmap PA:     %p - %p", (void *)kernel_layout.bitmap_start_pa, (void *)kernel_layout.bitmap_end_pa);
-    KDEBUG("  Bitmap VA:     %p", (void *)kernel_layout.bitmap_va);
-    KDEBUG("  Heap PA:       %p - %p", (void *)kernel_layout.heap_start_pa, (void *)kernel_layout.heap_end_pa);
-    KDEBUG("  Heap VA:       %p - %p", kernel_layout.heap_start_va, kernel_layout.heap_end_va);
 
     // data abort test (null deref)
     // enable only when explicitly debugging the abort path
@@ -287,8 +259,8 @@ _Noreturn void kmain(void) {
     // TODO: Timer init here
     arch_global_irq_enable();  // Only after GIC
     
-    // trigger svc 
-    //__asm__ volatile("svc #0"); 
+    // trigger SVC to verify exception handling
+    //__asm__ volatile("svc #0");
 
     KINFO("Entering idle");
     while (1) {
