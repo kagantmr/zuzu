@@ -79,4 +79,4 @@ The Zuzu project follows this source structure for ease of development:
 ```
 
 ## License
-GNU Public License. See LICENSE for details.
+MIT License. See LICENSE for details.
