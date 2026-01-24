@@ -4,15 +4,16 @@
 #include "kernel/mm/reserve.h"
 #include "arch/arm/include/symbols.h"
 #include "lib/mem.h"
+#include "kernel/vmm/vmm.h"   // PA_TO_VA / VA_TO_PA helpers
 
 pmm_state_t pmm_state;
 extern phys_region_t phys_region;
 extern kernel_layout_t kernel_layout;
 
 static void pmm_reserve_boot_regions(void) {
-    pmm_mark_range(kernel_layout.dtb_start,  kernel_layout.kernel_start);
-    pmm_mark_range(kernel_layout.kernel_start, kernel_layout.kernel_end);
-    pmm_mark_range(kernel_layout.bitmap_start, kernel_layout.bitmap_end);
+    pmm_mark_range(kernel_layout.dtb_start_pa,  kernel_layout.kernel_start_pa);
+    pmm_mark_range(kernel_layout.kernel_start_pa, kernel_layout.kernel_end_pa);
+    pmm_mark_range(kernel_layout.bitmap_start_pa, kernel_layout.bitmap_end_pa);
     
     // All mode stacks
     pmm_mark_range((uintptr_t)__svc_stack_base__, (uintptr_t)__svc_stack_top__);
@@ -29,23 +30,27 @@ void pmm_init(void) {
     pmm_state.free_pages  = pmm_state.total_pages;
 
     // Place bitmap after kernel, page-aligned
-    uintptr_t bitmap_start = align_up(kernel_layout.kernel_end, PAGE_SIZE);
+    uintptr_t bitmap_start_pa = align_up(kernel_layout.kernel_end_pa, PAGE_SIZE);
     size_t bitmap_bytes    = (pmm_state.total_pages + 7) / 8;
     size_t bitmap_size     = align_up(bitmap_bytes, PAGE_SIZE);
-    uintptr_t bitmap_end   = bitmap_start + bitmap_size;
+    uintptr_t bitmap_end_pa   = bitmap_start_pa + bitmap_size;
 
     // Sanity checks
-    kassert(bitmap_end <= kernel_layout.stack_base);
-    kassert(bitmap_end <= phys_region.end);
+    kassert(bitmap_end_pa <= kernel_layout.stack_base_pa);
+    kassert(bitmap_end_pa <= phys_region.end);
 
-    // Install and zero
-    pmm_state.bitmap       = (uint8_t*)bitmap_start;
+    // Record in layout (physical placement)
+    kernel_layout.bitmap_start_pa = bitmap_start_pa;
+    kernel_layout.bitmap_end_pa   = bitmap_end_pa;
+
+    // Establish dereferenceable VA for the bitmap.
+    // After identity mapping is removed, the bitmap MUST be accessed via VA.
+    kernel_layout.bitmap_va = (uint8_t *)PA_TO_VA(kernel_layout.bitmap_start_pa);
+
+    // Install and zero (use VA pointer)
+    pmm_state.bitmap       = kernel_layout.bitmap_va;
     pmm_state.bitmap_bytes = bitmap_bytes;
     memset(pmm_state.bitmap, 0, bitmap_size);
-
-    // Record in layout
-    kernel_layout.bitmap_start = bitmap_start;
-    kernel_layout.bitmap_end   = bitmap_end;
 
     // Reserve boot-time regions
     pmm_reserve_boot_regions();
@@ -252,4 +257,59 @@ int pmm_free_page(uintptr_t addr) {
 
     /* already free -> double free */
     return DOUBLE_FREE;
+}
+
+uintptr_t pmm_alloc_pages_aligned(size_t n_pages, size_t align_pages)
+{
+    if (n_pages == 0) return (uintptr_t)0;
+    if (align_pages == 0) align_pages = 1;
+
+    // Require power-of-two alignment (common + cheap)
+    if ((align_pages & (align_pages - 1)) != 0) return (uintptr_t)0;
+
+    if (pmm_state.free_pages < n_pages) return (uintptr_t)0;
+
+    kassert(pmm_state.bitmap != NULL);
+    kassert(pmm_state.total_pages == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
+    kassert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_pages);
+
+    size_t total_pages = pmm_state.total_pages;
+    size_t consecutive = 0;
+    size_t start_index = 0;
+
+    for (size_t index = 0; index < total_pages; index++) {
+
+        // Enforce alignment on the start of a run
+        if (consecutive == 0) {
+            if ((index & (align_pages - 1)) != 0) {
+                continue;
+            }
+        }
+
+        size_t byte_idx = index / 8;
+        size_t bit_idx  = index % 8;
+        uint8_t mask = (uint8_t)(1u << bit_idx);
+
+        if (byte_idx >= pmm_state.bitmap_bytes) break;
+
+        if (!(pmm_state.bitmap[byte_idx] & mask)) { // free
+            if (consecutive == 0) start_index = index;
+            consecutive++;
+
+            if (consecutive == n_pages) {
+                uintptr_t start_pa = (uintptr_t)(pmm_state.pfn_base + start_index) * PAGE_SIZE;
+                uintptr_t end_pa   = (uintptr_t)(pmm_state.pfn_base + start_index + n_pages) * PAGE_SIZE;
+
+                if (pmm_mark_range(start_pa, end_pa) != MARK_OK) {
+                    return (uintptr_t)0;
+                }
+
+                return start_pa;
+            }
+        } else {
+            consecutive = 0;
+        }
+    }
+
+    return (uintptr_t)0;
 }

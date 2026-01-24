@@ -62,4 +62,12 @@ uintptr_t pmm_alloc_pages(size_t n_pages);
  */
 int pmm_free_page(uintptr_t addr);
 
+/**
+ * @brief Allocates contiguous physical pages with specific alignment.
+ * @param n_pages Number of pages to allocate.
+ * @param align_pages Alignment in pages (must be power of two).
+ * @return Address of the first allocated page.
+ */
+uintptr_t pmm_alloc_pages_aligned(size_t n_pages, size_t align_pages);
+
 #endif

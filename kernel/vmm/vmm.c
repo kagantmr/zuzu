@@ -17,6 +17,7 @@ static addrspace_t* g_kernel_as = NULL;
 static addrspace_t* g_current_addrspace = NULL;
 static bool g_mmu_enabled = false;
 extern phys_region_t phys_region;
+extern kernel_layout_t kernel_layout;
 
 addrspace_t* addrspace_create(addrspace_type_t type) {
     addrspace_t* addrspace = kmalloc(sizeof(addrspace_t));
@@ -185,30 +186,55 @@ void vmm_bootstrap(void) {
     if (!g_kernel_as) {
         g_kernel_as = addrspace_create(ADDRSPACE_KERNEL);
         if (!g_kernel_as) {
-            // panic or handle error
+            KPANIC("Failed to create kernel address space");
             return;
         }
 
-        uintptr_t ram_base = phys_region.start;
-        size_t ram_size = phys_region.end - phys_region.start; 
+        uintptr_t ram_pa_base = phys_region.start;  // 0x80000000
+        size_t ram_size = phys_region.end - phys_region.start;
 
-        uintptr_t map_start = ram_base & ~(0x100000 - 1);
-        uintptr_t map_end = (ram_base + ram_size + 0x100000 - 1) & ~(0x100000 - 1);
-        size_t map_size = map_end - map_start;
+        // Round to section boundaries (1MB)
+        uintptr_t map_pa_start = ram_pa_base & ~(SECTION_SIZE - 1);
+        uintptr_t map_pa_end = (ram_pa_base + ram_size + SECTION_SIZE - 1) & ~(SECTION_SIZE - 1);
+        size_t map_size = map_pa_end - map_pa_start;
 
-        vm_region_t ram_region = {
-            .vaddr_start = map_start,
-            .paddr_start = map_start,
+        // === Higher-half kernel mapping (the real/permanent mapping) ===
+        // VA 0xC0000000+ -> PA 0x80000000+
+        uintptr_t kernel_va = PA_TO_VA(map_pa_start);  // 0xC0000000
+        
+        vm_region_t kernel_region = {
+            .vaddr_start = kernel_va,           // 0xC0000000
+            .paddr_start = map_pa_start,        // 0x80000000
             .size = map_size,
             .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXEC,
             .memtype = VM_MEM_NORMAL,
             .owner = VM_OWNER_SHARED,
             .flags = VM_FLAG_GLOBAL | VM_FLAG_PINNED,
         };
-        if (!vmm_add_region(g_kernel_as, &ram_region)) {
+        if (!vmm_add_region(g_kernel_as, &kernel_region)) {
+            KPANIC("Failed to add kernel region");
             return;
         }
 
+        // === Temporary identity mapping (for transition) ===
+        // VA 0x80000000 -> PA 0x80000000
+        // Needed so current stack (at PA 0x808xxxxx) keeps working
+        // Will be removed by vmm_remove_identity_mapping() later
+        vm_region_t identity_region = {
+            .vaddr_start = map_pa_start,        // 0x80000000
+            .paddr_start = map_pa_start,        // 0x80000000
+            .size = map_size,
+            .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXEC,
+            .memtype = VM_MEM_NORMAL,
+            .owner = VM_OWNER_NONE,             // Not owned - will be removed
+            .flags = VM_FLAG_NONE,              // Temporary, not pinned
+        };
+        if (!vmm_add_region(g_kernel_as, &identity_region)) {
+            KPANIC("Failed to add identity region");
+            return;
+        }
+
+        // === MMIO mapping (identity - common practice) ===
         vm_region_t uart_region = {
             .vaddr_start = 0x1C000000,
             .paddr_start = 0x1C000000,
@@ -219,15 +245,132 @@ void vmm_bootstrap(void) {
             .flags = VM_FLAG_GLOBAL | VM_FLAG_PINNED,
         };
         if (!vmm_add_region(g_kernel_as, &uart_region)) {
+            KPANIC("Failed to add UART region");
             return;
         }
 
+        // Build page tables (creates both mappings)
         if (!vmm_build_page_tables(g_kernel_as)) {
+            KPANIC("Failed to build page tables");
             return;
         }
 
+        // Switch to new page tables
         vmm_activate(g_kernel_as);
+
+        KINFO("VMM: Bootstrap complete (identity mapping still present)");
+        KINFO("VMM: Call vmm_remove_identity_mapping() to finalize");
     }
+}
+
+/**
+ * @brief Remove identity mapping and relocate ALL stacks to higher-half.
+ * 
+ * CRITICAL: This function must be called from a context where:
+ *   1. We won't return through any stack frames that use identity-mapped addresses
+ *   2. Typically called at the START of kmain() before any significant work
+ *   3. Interrupts MUST be disabled (we're changing IRQ/ABT/UND stacks)
+ * 
+ * After this call:
+ *   - Identity mapping (0x80000000+) is removed
+ *   - ALL mode stack pointers relocated to higher-half (0xC0800000+)
+ *   - All kernel code/data accessed via 0xC0000000+ addresses
+ */
+void vmm_remove_identity_mapping(void) {
+    if (!g_kernel_as) {
+        return;
+    }
+
+    uintptr_t ram_pa_base = phys_region.start;
+    size_t ram_size = phys_region.end - phys_region.start;
+    uintptr_t map_pa_start = ram_pa_base & ~(SECTION_SIZE - 1);
+    uintptr_t map_pa_end = (ram_pa_base + ram_size + SECTION_SIZE - 1) & ~(SECTION_SIZE - 1);
+    size_t map_size = map_pa_end - map_pa_start;
+
+    // =========================================================================
+    // STEP 1: Relocate ALL mode stacks while both mappings still exist
+    // =========================================================================
+    // This must happen BEFORE we unmap the identity region, because:
+    //   - Current SP values point to 0x808xxxxx (physical)
+    //   - We need to change them to 0xC08xxxxx (virtual)
+    //   - Both addresses currently map to the same physical memory
+    //
+    // We need to fix stacks for: SVC (current), IRQ, ABT, UND
+    // FIQ uses banked registers but we're not using FIQ, skip it
+
+    // If stacks were already relocated to the higher half in early assembly,
+    // do NOT add KERNEL_VA_OFFSET again (it would wrap and crash).
+    uintptr_t cur_sp = 0;
+    __asm__ volatile("mov %0, sp" : "=r"(cur_sp));
+
+    if (cur_sp < KERNEL_VA_BASE) {
+        uint32_t offset = KERNEL_VA_OFFSET;
+
+        __asm__ volatile(
+            // Save current mode (should be SVC)
+            "mrs    r0, cpsr\n\t"
+            "mov    r4, r0\n\t"             // r4 = saved CPSR
+
+            // Disable IRQ/FIQ during mode switches (safety)
+            "orr    r0, r0, #0xC0\n\t"      // Set I and F bits
+            "msr    cpsr_c, r0\n\t"
+
+            // --- Relocate SVC stack (current mode) ---
+            "add    sp, sp, %0\n\t"
+            "add    fp, fp, %0\n\t"
+
+            // --- Switch to IRQ mode and relocate ---
+            "cps    #0x12\n\t"              // IRQ mode
+            "add    sp, sp, %0\n\t"
+
+            // --- Switch to ABT mode and relocate ---
+            "cps    #0x17\n\t"              // Abort mode
+            "add    sp, sp, %0\n\t"
+
+            // --- Switch to UND mode and relocate ---
+            "cps    #0x1B\n\t"              // Undefined mode
+            "add    sp, sp, %0\n\t"
+
+            // --- Return to SVC mode ---
+            "cps    #0x13\n\t"              // Back to SVC
+
+            // Restore original CPSR (re-enables interrupts if they were enabled)
+            "msr    cpsr_c, r4\n\t"
+
+            :
+            : "r"(offset)
+            : "r0", "r4", "memory"
+        );
+    }
+
+    // =========================================================================
+    // STEP 2: Remove identity mapping from page tables
+    // =========================================================================
+    // Now safe because all SPs point to 0xC0... addresses
+    vmm_unmap_range(g_kernel_as, map_pa_start, map_size);
+    
+    // =========================================================================
+    // STEP 3: Remove from region tracking (bookkeeping)
+    // =========================================================================
+    for (size_t i = 0; i < g_kernel_as->region_count; i++) {
+        if (g_kernel_as->regions[i].vaddr_start == map_pa_start) {
+            for (size_t j = i; j + 1 < g_kernel_as->region_count; j++) {
+                g_kernel_as->regions[j] = g_kernel_as->regions[j + 1];
+            }
+            g_kernel_as->region_count--;
+            break;
+        }
+    }
+
+    // =========================================================================
+    // STEP 4: Fix kernel_layout struct (for panic dumps, debugging, etc.)
+    // =========================================================================
+    // These were set in early.c using physical addresses from linker symbols.
+    // Now that we're in higher-half, update them to virtual addresses.
+    kernel_layout.stack_base_pa = PA_TO_VA(kernel_layout.stack_base_pa);
+    kernel_layout.stack_top_pa  = PA_TO_VA(kernel_layout.stack_top_pa);
+
+    KINFO("VMM: Identity mapping removed, running pure higher-half");
 }
 
 void vmm_activate(addrspace_t* as) {
