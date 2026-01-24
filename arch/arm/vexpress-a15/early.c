@@ -183,11 +183,11 @@ _Noreturn void early(void *dtb_ptr)
 
     // Fill kernel_layout from linker symbols + DTB
     // NOTE: PMM works with PHYSICAL addresses, so use _kernel_phys_* symbols
-    kernel_layout.dtb_start = (uintptr_t)dtb_ptr;
-    kernel_layout.kernel_start = (uintptr_t)_kernel_phys_start;
-    kernel_layout.kernel_end = (uintptr_t)_kernel_phys_end;
-    kernel_layout.stack_base = (uintptr_t)__svc_stack_base__;
-    kernel_layout.stack_top = (uintptr_t)__svc_stack_top__;
+    kernel_layout.dtb_start_pa = (uintptr_t)dtb_ptr;
+    kernel_layout.kernel_start_pa = (uintptr_t)_kernel_phys_start;
+    kernel_layout.kernel_end_pa = (uintptr_t)_kernel_phys_end;
+    kernel_layout.stack_base_pa = (uintptr_t)__svc_stack_base__;
+    kernel_layout.stack_top_pa = (uintptr_t)__svc_stack_top__;
 
     // Fill phys_region from DTB
     uint64_t ram_base, ram_size;

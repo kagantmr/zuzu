@@ -1,6 +1,7 @@
 #include "alloc.h"
 #include "pmm.h"
 #include "kernel/layout.h"
+#include "kernel/vmm/vmm.h"  // For PA_TO_VA
 #include "stdbool.h"
 #include "lib/mem.h"
 #include "core/assert.h"
@@ -22,7 +23,7 @@ void* kmalloc(size_t size) {
                 kmem_block_t* new_block = (kmem_block_t*) ((uint8_t*)current_block + HDR + req);
                 
                 // Sanity check: ensure new_block header fits within heap bounds
-                if ((uint8_t*)new_block + HDR > (uint8_t*)kernel_layout.heap_end) {
+                if ((uint8_t*)new_block + HDR > (uint8_t*)kernel_layout.heap_end_pa) {
                     KERROR("kmalloc: split would create block outside heap bounds");
                     return NULL;
                 }
@@ -59,8 +60,8 @@ void kfree(void* ptr) {
     }
     
     // Sanity check: ptr must be within heap bounds
-    if ((uint8_t*)ptr < (uint8_t*)kernel_layout.heap_start || 
-        (uint8_t*)ptr >= (uint8_t*)kernel_layout.heap_end) {
+    if ((uint8_t*)ptr < (uint8_t*)kernel_layout.heap_start_pa || 
+        (uint8_t*)ptr >= (uint8_t*)kernel_layout.heap_end_pa) {
         KERROR("kfree: pointer outside heap bounds");
         return;
     }
@@ -68,8 +69,8 @@ void kfree(void* ptr) {
     kmem_block_t* header  = (kmem_block_t*)((uint8_t*)ptr - HDR);
     
     // Sanity check: header must also be within heap bounds
-    if ((uint8_t*)header < (uint8_t*)kernel_layout.heap_start || 
-        (uint8_t*)header >= (uint8_t*)kernel_layout.heap_end) {
+    if ((uint8_t*)header < (uint8_t*)kernel_layout.heap_start_pa || 
+        (uint8_t*)header >= (uint8_t*)kernel_layout.heap_end_pa) {
         KERROR("kfree: computed header outside heap bounds");
         return;
     }
@@ -83,8 +84,8 @@ void kfree(void* ptr) {
     // Forward merge: merge freed block with its next repeatedly
     while (header->next) {
         // Sanity check: ensure next is within heap bounds
-        if ((uint8_t*)header->next < (uint8_t*)kernel_layout.heap_start ||
-            (uint8_t*)header->next >= (uint8_t*)kernel_layout.heap_end) {
+        if ((uint8_t*)header->next < (uint8_t*)kernel_layout.heap_start_pa ||
+            (uint8_t*)header->next >= (uint8_t*)kernel_layout.heap_end_pa) {
             KERROR("kfree: corrupted next pointer in forward merge");
             break;
         }
@@ -122,8 +123,8 @@ void kfree(void* ptr) {
             // Forward merge again from prev (it might now be adjacent to a free block)
             while (prev->next) {
                 // Sanity check: ensure next is within heap bounds
-                if ((uint8_t*)prev->next < (uint8_t*)kernel_layout.heap_start ||
-                    (uint8_t*)prev->next >= (uint8_t*)kernel_layout.heap_end) {
+                if ((uint8_t*)prev->next < (uint8_t*)kernel_layout.heap_start_pa ||
+                    (uint8_t*)prev->next >= (uint8_t*)kernel_layout.heap_end_pa) {
                     KERROR("kfree: corrupted next pointer in backward merge forward pass");
                     break;
                 }
@@ -148,14 +149,19 @@ void kfree(void* ptr) {
 void kheap_init(void) {
     // Request 1 MB of heap (256 pages at 4KB/page)
     kassert(HEAP_SIZE % PAGE_SIZE == 0);    // Check alignment
-    kernel_layout.heap_start = pmm_alloc_pages(HEAP_SIZE/PAGE_SIZE);
-    if (!kernel_layout.heap_start) {
+    
+    // PMM returns physical addresses, convert to virtual
+    uintptr_t heap_pa = pmm_alloc_pages(HEAP_SIZE/PAGE_SIZE);
+    if (!heap_pa) {
         KPANIC("Heap could not be allocated");
     }
+    
+    // Store VIRTUAL addresses in kernel_layout
+    // This works because early boot page tables have both identity and higher-half mappings
+    kernel_layout.heap_start_pa = PA_TO_VA(heap_pa);
+    kernel_layout.heap_end_pa = kernel_layout.heap_start_pa + HEAP_SIZE;
 
-    kernel_layout.heap_end = kernel_layout.heap_start + HEAP_SIZE; // Fill kernel layout struct
-
-    heap_head = (kmem_block_t*) kernel_layout.heap_start; // Cast start of heap to a header
+    heap_head = (kmem_block_t*) kernel_layout.heap_start_pa; // Cast start of heap to a header
     heap_head->size = align_down(HEAP_SIZE - HDR, ALIGNMENT);
     heap_head->next = NULL;
     heap_head->free = true;
@@ -164,7 +170,7 @@ void kheap_init(void) {
 
 void kheap_dump(void) {
     KINFO("*** HEAP DUMP ***");
-    KINFO("Allocated heap: %p - %p", kernel_layout.heap_start, kernel_layout.heap_end);
+    KINFO("Allocated heap: %p - %p", kernel_layout.heap_start_pa, kernel_layout.heap_end_pa);
     
     kmem_block_t* current = heap_head;
     int block_num = 0;
@@ -173,8 +179,8 @@ void kheap_dump(void) {
     
     while (current) {
         // Sanity check: ensure current is within heap bounds
-        if ((uint8_t*)current < (uint8_t*)kernel_layout.heap_start ||
-            (uint8_t*)current >= (uint8_t*)kernel_layout.heap_end) {
+        if ((uint8_t*)current < (uint8_t*)kernel_layout.heap_start_pa ||
+            (uint8_t*)current >= (uint8_t*)kernel_layout.heap_end_pa) {
             KERROR("Block %d corrupted - pointer %p outside heap bounds", block_num, current);
             break;
         }

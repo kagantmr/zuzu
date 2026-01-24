@@ -10,10 +10,12 @@
 - [x] DTB parser for hardware discovery
 
 ## Phase 2: Memory Management 
-- [ ] ARMv7 first level page table setup
+- [x] ARMv7 first level page table setup
 - [x] Bitmap-based physical page allocator (PMM)
 - [x] MMU enable with identity + higher-half mapping
 - [x] Linked list kernel heap allocator (kmalloc/kfree)
+- [x] ARMv7 second level page table setup
+
 
 ## Phase 3: Interrupts 
 - [ ] GICv2 distributor + CPU interface init

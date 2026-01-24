@@ -25,6 +25,7 @@ typedef struct
 
 static dtb_data_t g_dtb;
 static bool g_dtb_ready;
+static const void *g_dtb_base_ptr;
 
 static inline uint32_t read_be32(const void *p)
 {
@@ -37,13 +38,28 @@ static inline uint32_t read_be32(const void *p)
 
 bool dtb_init(const void *dtb_base)
 {
-
-    kassert(g_dtb_ready == false);
-
     if (dtb_base == NULL)
     {
         KERROR("Invalid DTB base pointer: Pointer %p is null", dtb_base);
         return false;
+    }
+
+    // If DTB is already initialized, allow re-entry.
+    // - If the caller passes the same DTB base again, treat it as success.
+    // - If the caller passes a different base, reset and re-initialize.
+    if (g_dtb_ready)
+    {
+        if (g_dtb_base_ptr == dtb_base)
+        {
+            return true;
+        }
+
+        // Re-init with a different DTB base
+        g_dtb_ready = false;
+        g_dtb.dt_base = NULL;
+        g_dtb.str_base = NULL;
+        g_dtb.dtb_end = NULL;
+        g_dtb_base_ptr = NULL;
     }
 
     const uint8_t *base = (const uint8_t *)dtb_base;
@@ -65,9 +81,8 @@ bool dtb_init(const void *dtb_base)
         g_dtb.dtb_end = (const uint8_t *)base + totalsize;
         g_dtb.dt_base = (const uint8_t *)base + off_dt_struct;
         g_dtb.str_base = (const uint8_t *)base + off_dt_strings;
-
+        g_dtb_base_ptr = dtb_base;
         g_dtb_ready = true;
-
         return true;
     }
     return false;

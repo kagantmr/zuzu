@@ -14,8 +14,10 @@
 #include "kernel/layout.h"
 #include "kernel/mm/pmm.h"
 #include "kernel/dtb/dtb.h"
+#include "kernel/vmm/vmm.h"
 
-#define ZUZU_VER "v0.0.1"
+#include "lib/mem.h"
+#include "kernel/mm/alloc.h"
 
 extern kernel_layout_t kernel_layout;
 extern pmm_state_t pmm_state;
@@ -29,6 +31,14 @@ static inline uint32_t read_cpsr(void) {
 
 static inline uint32_t cpu_mode_from_cpsr(uint32_t cpsr) {
     return cpsr & 0x1F;
+}
+
+static inline uint32_t read_be32(const void *p) {
+    const uint8_t *b = (const uint8_t *)p;
+    return ((uint32_t)b[0] << 24) |
+           ((uint32_t)b[1] << 16) |
+           ((uint32_t)b[2] << 8)  |
+           ((uint32_t)b[3]);
 }
 
 static inline const char* cpu_mode_str(uint32_t mode) {
@@ -147,43 +157,141 @@ void print_boot_info(void)
 
     KINFO("Free pages: %u, Total pages: %u", pmm_state.free_pages, pmm_state.total_pages);
 
-    KINFO("Stack base: %p", (void *)kernel_layout.stack_base);
-    KINFO("Stack top:  %p", (void *)kernel_layout.stack_top);
+    KINFO("Stack base (VA): %p", (void *)kernel_layout.stack_base_va);
+    KINFO("Stack top  (VA): %p", (void *)kernel_layout.stack_top_va);
+
+    KINFO("Heap start (VA): %p", kernel_layout.heap_start_va);
+    KINFO("Heap end   (VA): %p", kernel_layout.heap_end_va);
 }
 
 
 _Noreturn void kmain(void) {
+
+    // === CRITICAL: Complete VMM transition first ===
+    // This removes identity mapping and relocates ALL mode stacks to higher-half.
+    // Must happen before ANY other code runs in kmain.
+    // 
+    // NOTE: Interrupts should already be disabled from early boot,
+    // but we disable them explicitly here for safety since we're
+    // modifying IRQ/ABT/UND mode stack pointers.
+    __asm__ volatile("cpsid if");  // Disable IRQ and FIQ
+    
+    // Establish VA companions for boot-time physical addresses while both mappings exist.
+    // After identity removal, only *_va fields should be dereferenced.
+    kernel_layout.dtb_start_va = (void *)PA_TO_VA(kernel_layout.dtb_start_pa);
+    kernel_layout.stack_base_va = (uintptr_t)PA_TO_VA(kernel_layout.stack_base_pa);
+    kernel_layout.stack_top_va  = (uintptr_t)PA_TO_VA(kernel_layout.stack_top_pa);
+    kernel_layout.kernel_start_va = (uintptr_t)_kernel_start;
+    kernel_layout.kernel_end_va   = (uintptr_t)_kernel_end;
+
+
+    // Copy DTB into heap so it remains valid after identity mapping is removed.
+    // DTB header fields are big-endian.
+    void *boot_dtb = kernel_layout.dtb_start_va;
+
+    uint32_t magic = read_be32((uint8_t *)boot_dtb + 0x00);
+    kassert(magic == 0xD00DFEED);
+
+    uint32_t totalsize = read_be32((uint8_t *)boot_dtb + 0x04);
+    // Basic sanity: header is 0x28 bytes; DTBs for this platform should be well under 1 MiB.
+    kassert(totalsize >= 0x28 && totalsize < (1024u * 1024u));
+
+    uint8_t *new_dtb = (uint8_t *)kmalloc(totalsize);
+    kassert(new_dtb != NULL);
+    memcpy(new_dtb, boot_dtb, totalsize);
+
+    
+
+    kernel_layout.dtb_start_va = new_dtb;
+
+    vmm_remove_identity_mapping();
+
+    // Ensure heap VA companions are populated for logging and dereferencing.
+    // Some early bring-up paths may only have heap_*_pa set.
+    if (kernel_layout.heap_start_va == NULL) {
+        if (kernel_layout.heap_start_pa >= KERNEL_VA_BASE) {
+            kernel_layout.heap_start_va = (void *)kernel_layout.heap_start_pa;
+        } else {
+            kernel_layout.heap_start_va = (void *)PA_TO_VA(kernel_layout.heap_start_pa);
+        }
+    }
+    if (kernel_layout.heap_end_va == NULL) {
+        if (kernel_layout.heap_end_pa >= KERNEL_VA_BASE) {
+            kernel_layout.heap_end_va = (void *)kernel_layout.heap_end_pa;
+        } else {
+            kernel_layout.heap_end_va = (void *)PA_TO_VA(kernel_layout.heap_end_pa);
+        }
+    }
+
+
+    // From this point onward, use dtb_start_va (VA), never dtb_start_pa
+    dtb_init(kernel_layout.dtb_start_va);
+    
+    // Interrupts stay disabled until GIC is initialized
 
     #ifndef EARLY_UART
     char uart_path[128];
     uint64_t uart_base, uart_size;
 
     // Find first PL011
+
     if (dtb_find_compatible("arm,pl011", uart_path, sizeof(uart_path)))
     {
         if (dtb_get_reg_phys(uart_path, 0, &uart_base, &uart_size))
         {
             uart_set_driver(&pl011_driver, (uintptr_t)uart_base);
             kprintf_init(uart_putc);
-            KINFO("UART initialized: %s @ 0x%lx", uart_path, uart_base);
+            KINFO("UART initialized: %s @ 0x%x", uart_path, uart_base);
         }
     }
     #endif
 
+
     KINFO("Booting...");
+
+    // print linker symbols
+    KDEBUG("Linker symbols:");
+    KDEBUG("  _kernel_phys_start: %p", (void *)_kernel_phys_start);
+    KDEBUG("  _kernel_phys_end:   %p", (void *)_kernel_phys_end);
+    KDEBUG("  _kernel_start:      %p", (void *)_kernel_start);
+    KDEBUG("  _kernel_end:        %p", (void *)_kernel_end);
+    KDEBUG("  __svc_stack_base__:  %p", (void *)__svc_stack_base__);
+    KDEBUG("  __svc_stack_top__:   %p", (void *)__svc_stack_top__);
+    KDEBUG("  __irq_stack_base__:  %p", (void *)__irq_stack_base__);
+    KDEBUG("  __irq_stack_top__:   %p", (void *)__irq_stack_top__);
+    KDEBUG("  __abt_stack_base__:  %p", (void *)__abt_stack_base__);
+    KDEBUG("  __abt_stack_top__:   %p", (void *)__abt_stack_top__);
+    KDEBUG("  __und_stack_base__:  %p", (void *)__und_stack_base__);
+    KDEBUG("  __und_stack_top__:   %p", (void *)__und_stack_top__);
+
+    KDEBUG("Kernel layout:");
+    KDEBUG("  DTB PA:        %p", (void *)kernel_layout.dtb_start_pa);
+    KDEBUG("  DTB VA:        %p", kernel_layout.dtb_start_va);
+    KDEBUG("  Kernel PA:     %p - %p", (void *)kernel_layout.kernel_start_pa, (void *)kernel_layout.kernel_end_pa);
+    KDEBUG("  Kernel VA:     %p - %p", (void *)kernel_layout.kernel_start_va, (void *)kernel_layout.kernel_end_va);
+    KDEBUG("  Stack PA:      %p - %p", (void *)kernel_layout.stack_base_pa, (void *)kernel_layout.stack_top_pa);
+    KDEBUG("  Stack VA:      %p - %p", (void *)kernel_layout.stack_base_va, (void *)kernel_layout.stack_top_va);
+    KDEBUG("  Bitmap PA:     %p - %p", (void *)kernel_layout.bitmap_start_pa, (void *)kernel_layout.bitmap_end_pa);
+    KDEBUG("  Bitmap VA:     %p", (void *)kernel_layout.bitmap_va);
+    KDEBUG("  Heap PA:       %p - %p", (void *)kernel_layout.heap_start_pa, (void *)kernel_layout.heap_end_pa);
+    KDEBUG("  Heap VA:       %p - %p", kernel_layout.heap_start_va, kernel_layout.heap_end_va);
+
+    // data abort test (null deref)
+    // enable only when explicitly debugging the abort path
+    // __asm__ volatile("mov r0, #0\n\tldr r0, [r0]"); 
     
     print_logo();
-    print_boot_info();   // All the KINFO diagnostic spam
+    print_boot_info();
     
     // TODO: GIC init here
     // TODO: Timer init here
-    arch_global_irq_enable();  // Only after GIC!
+    arch_global_irq_enable();  // Only after GIC
     
-    //__asm__ volatile("svc #0");
+    // trigger svc 
+    //__asm__ volatile("svc #0"); 
 
     KINFO("Entering idle");
     while (1) {
         __asm__("wfi");
     }
 }
-

@@ -1,6 +1,5 @@
 # Zuzu Memory Map
 
-## Target: VExpress-A15 (Cortex-A15, ARMv7-A)
 
 This document describes the physical and virtual memory layout for the Zuzu kernel running on QEMU's `vexpress-a15` machine.
 

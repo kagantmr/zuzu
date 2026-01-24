@@ -5,6 +5,16 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+#define SECTION_SIZE      0x100000UL     /* 1MB section for ARMv7 */
+
+#define KERNEL_PA_BASE  0x80000000UL
+#define KERNEL_VA_BASE  0xC0000000UL
+#define KERNEL_VA_OFFSET (KERNEL_VA_BASE - KERNEL_PA_BASE)  // 0x40000000
+
+// Convert between physical and virtual addresses for kernel memory
+#define PA_TO_VA(pa)  ((uintptr_t)(pa) + KERNEL_VA_OFFSET)
+#define VA_TO_PA(va)  ((uintptr_t)(va) - KERNEL_VA_OFFSET)
+
 typedef enum {
     VM_PROT_NONE  = 0,
     VM_PROT_READ  = 1u << 0,
@@ -35,6 +45,7 @@ typedef enum {
     VM_FLAG_PINNED = 1u << 0, // must stay mapped
     VM_FLAG_GLOBAL = 1u << 1, // global TLB entry where supported
     VM_FLAG_GUARD  = 1u << 2, // guard page/region
+    VM_FLAG_TEMPORARY = 1u << 3, // temporary mapping (e.g. identity map during boot)
 } vm_flags_t;
 
 typedef struct vm_region {
@@ -190,5 +201,6 @@ uintptr_t kmap_mmio(uintptr_t pa, size_t size);
  */
 bool kmap_user_page(addrspace_t* as, uintptr_t pa, uintptr_t va, vm_prot_t prot);
 
+void vmm_remove_identity_mapping(void);
 
 #endif // KERNEL_VM_VMM_H

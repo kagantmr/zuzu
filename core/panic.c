@@ -21,20 +21,20 @@ void dump_stack(void) {
     
     // Use current kernel stack bounds from layout if initialized
     // Otherwise fall back to bootloader stack bounds from linker symbols
-    uintptr_t stack_base = kernel_layout.stack_base;
-    uintptr_t stack_top = kernel_layout.stack_top;
+    uintptr_t stack_base_va = kernel_layout.stack_base_va;
+    uintptr_t stack_top_va = kernel_layout.stack_top_va;
     
     kprintf("*** Stack dump ***\n");
-    kprintf("kernel_layout raw: base=%p top=%p\n", (void*)stack_base, (void*)stack_top);
+    kprintf("kernel_layout raw: base=%p top=%p\n", (void*)stack_base_va, (void*)stack_top_va);
     
-    if (stack_base == 0 || stack_top == 0) {
+    if (stack_base_va == 0 || stack_top_va == 0) {
         // kernel_layout not yet initialized, use bootloader stack
         kprintf("Using bootloader stack bounds\n");
-        stack_base = (uintptr_t)__svc_stack_base__;
-        stack_top = (uintptr_t)__svc_stack_top__;
+        stack_base_va = (uintptr_t)__svc_stack_base__;
+        stack_top_va = (uintptr_t)__svc_stack_top__;
     }
     
-    kprintf("Stack: %p - %p\n", (void*)stack_base, (void*)stack_top);
+    kprintf("Stack: %p - %p\n", (void*)stack_base_va, (void*)stack_top_va);
     kprintf("Current SP: %p\n", sp);
     
     // Get kernel code bounds for filtering return addresses
@@ -44,7 +44,7 @@ void dump_stack(void) {
     // Dump stack memory looking for likely return addresses
     // Scan from current SP upward toward stack top
     uint32_t *addr = sp;
-    while ((uintptr_t)addr < stack_top && count < 64) {
+    while ((uintptr_t)addr < stack_top_va && count < 64) {
         uint32_t value = *addr;
         
         // Check if this value looks like a code address (within kernel .text section)
@@ -66,7 +66,7 @@ _Noreturn void panic(void) {
     arch_global_irq_disable();
     
     uart_puts("\nZuzu has panicked.\n");
-    kprintf("[PANIC] called from %p\n", caller_ra);
+    kprintf("Triggered from caller @ %p\n", caller_ra);
     
     dump_stack();
 

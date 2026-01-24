@@ -114,6 +114,41 @@ setup_mode_stacks:
 
 
 /* =============================================================================
+ * setup_mode_stacks_higher_half - Initialize SP for all modes at higher-half VAs
+ * Called after MMU is enabled and we are executing in the higher half.
+ * Converts linker-provided physical stack tops (0x80...) into higher-half VAs.
+ * ============================================================================= */
+.section .text, "ax"
+.type setup_mode_stacks_higher_half, %function
+setup_mode_stacks_higher_half:
+    /* VA = PA + (KERNEL_VA_BASE - KERNEL_PA_BASE) = PA + 0x40000000 */
+    ldr     r1, =0x40000000
+
+    /* IRQ mode */
+    cps     #0x12
+    ldr     r0, =__irq_stack_top__
+    add     sp, r0, r1
+
+    /* Abort mode */
+    cps     #0x17
+    ldr     r0, =__abt_stack_top__
+    add     sp, r0, r1
+
+    /* Undefined mode */
+    cps     #0x1b
+    ldr     r0, =__und_stack_top__
+    add     sp, r0, r1
+
+    /* SVC mode (return to this mode) */
+    cps     #0x13
+    ldr     r0, =__svc_stack_top__
+    add     sp, r0, r1
+
+    bx      lr
+.size setup_mode_stacks_higher_half, . - setup_mode_stacks_higher_half
+
+
+/* =============================================================================
  * Higher-Half Entry Point
  * This code is linked at virtual address 0xC0... and runs after MMU is enabled
  * ============================================================================= */
@@ -142,8 +177,14 @@ higher_half_entry:
     mcr     p15, 0, r0, c12, c0, 0  @ VBAR = vector_table
     isb
 
-    /* Re-enable interrupts now that vectors are set up */
-    cpsie   if
+    /* Relocate all mode stacks to higher-half VAs before entering C.
+     * Pre-MMU stacks were set to physical/identity addresses (0x80...).
+     * After identity removal, those become invalid.
+     */
+    bl      setup_mode_stacks_higher_half
+
+    /* Keep interrupts disabled until kernel IRQ/GIC init is complete */
+    /* cpsie   if */
     /* (We'll keep them disabled until proper IRQ setup in kernel) */
 
     /* =========================================================================

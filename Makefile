@@ -20,13 +20,15 @@ DEBUG_BUILD ?= 1
 DTB_DEBUG_WALK ?= 0
 EARLY_UART ?= 0
 
+
+
 ifeq ($(DEBUG_BUILD), 1)
     # Enable assertions (default C standard for enabling assertions)
     # might also add -DDEBUG_LOGGING for KINFO/KWARN
-    CFLAGS += -UNDEBUG -DDEBUG
+    CFLAGS += -UNDEBUG -DDEBUG -DDEBUG_PRINT
 else
     # Disable assertions for release builds
-    CFLAGS += -DNDEBUG
+    CFLAGS += -DNDEBUG -UDEBUG -UDEBUG_PRINT
 endif
 
 ifeq ($(DTB_DEBUG_WALK), 0)
