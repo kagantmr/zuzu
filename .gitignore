@@ -66,3 +66,5 @@ arch/arm/mmu/.DS_Store
 arch/arm/.DS_Store
 .DS_Store
 kernel/.DS_Store
+/Users/kagantemur/Documents/Projects/zuzu/build/*
+build/zuzu.asm
