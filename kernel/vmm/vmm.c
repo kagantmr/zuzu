@@ -354,8 +354,8 @@ bool vmm_map_range(addrspace_t* as, uintptr_t va, uintptr_t pa, size_t size,
     if ((pa % 0x100000) != 0) return false;
     if ((size % 0x100000) != 0) return false;
 
-    (void)owner;  // ownership tracked at higher level; arch layer doesn't need it
-    (void)flags;  // flags handled at higher level for now
+    (void)owner;  
+    (void)flags;  
 
     // Delegate to arch layer (handles ownership and flags at the architecture level)
     // Note: arch_mmu_map takes a range, not individual pages
