@@ -138,29 +138,27 @@ reserved_handler:
 
     subs pc, lr, #0         @ Return from exception
 irq_handler:
-
-    stmdb sp!, {lr}        @ Save original LR
-
-    sub lr, lr, #4 @ PC = LR - 4 for IRQ
-
-    /* r0–r12 and original lr */
+    /* Save general regs + lr_irq */
     stmdb sp!, {r0-r12, lr}
 
-    /* spsr */
-    mrs r0, spsr
+    /* Save spsr */
+    mrs   r0, spsr
     stmdb sp!, {r0}
 
-    mov r1, sp              @ pointer to struct
-    mov r0, #6              @ EXC_IRQ
-    bl exception_dispatch   @ call exception_dispatch(enum exc_type, exception_frame *frame)
+    /* Call C dispatcher: r0=EXC_IRQ, r1=frame */
+    mov   r1, sp
+    mov   r0, #6
+    bl    exception_dispatch
 
-    ldmia sp!, {r0}         @ Restore spsr into r0
-    msr spsr_cxsf, r0       
+    /* Restore spsr */
+    ldmia sp!, {r0}
+    msr   spsr_cxsf, r0
 
-    ldmia sp!, {r0-r12, lr} 
-    ldmia sp!, {lr}         @ Restore pc
+    /* Restore regs + lr_irq */
+    ldmia sp!, {r0-r12, lr}
 
-    subs pc, lr, #0         @ Return from exception
+    /* Return from IRQ (restores CPSR from SPSR) */
+    subs  pc, lr, #4
 fiq_handler:
 
     stmdb sp!, {lr}        @ Save original LR

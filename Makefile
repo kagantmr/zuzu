@@ -12,7 +12,7 @@ DTB_FILE      = arch/arm/dtb/vexpress-a15/vexpress-v2p-ca15-tc1.dtb
 
 CPUFLAGS = -mcpu=cortex-a15
 # -I. is crucial: It lets you include files relative to the project root
-CFLAGS   = -ffreestanding -O0 -fno-omit-frame-pointer -Wall -Wextra -Werror $(CPUFLAGS) -I. -MMD -MP -g
+CFLAGS   = -ffreestanding -O2 -fno-omit-frame-pointer -Wall -Wextra -Werror $(CPUFLAGS) -I. -MMD -MP -g
 LDFLAGS  = -T $(LINKER_SCRIPT)
 
 # Debug options

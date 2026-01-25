@@ -121,36 +121,95 @@ void strfmt(void (*outc)(char), const char *fstring, ...) {
     va_end(args);
 }
 
+// --- helpers for vstrfmt field width and padding ---
+static void emit_repeat(void (*outc)(char), char ch, int count) {
+    while (count-- > 0) outc(ch);
+}
+
+static int parse_width(const char **pfmt) {
+    const char *p = *pfmt;
+    int w = 0;
+    while (*p >= '0' && *p <= '9') {
+        w = (w * 10) + (*p - '0');
+        p++;
+    }
+    *pfmt = p;
+    return w;
+}
+
 void vstrfmt(void (*outc)(char), const char *fstring, va_list args) {
     if (!outc || !fstring) {
         return;
     }
-    //kassert(outc != NULL);
-    //kassert(fstring != NULL);
     while (*fstring) {
         if (*fstring == '%') {
-            fstring++;
+            fstring++; // skip '%'
+
+            int left = 0;
+            int zero = 0;
+
+            // flags
+            for (;;) {
+                if (*fstring == '-') { left = 1; fstring++; continue; }
+                if (*fstring == '0') { zero = 1; fstring++; continue; }
+                break;
+            }
+
+            // width
+            int width = 0;
+            if (*fstring >= '0' && *fstring <= '9') {
+                const char *p = fstring;
+                width = parse_width(&p);
+                fstring = p;
+            }
+
             switch (*fstring) {
                 case 'c': {
                     char c = (char)va_arg(args, int);
+                    int pad = (width > 1) ? (width - 1) : 0;
+                    if (!left) emit_repeat(outc, ' ', pad);
                     outc(c);
+                    if (left) emit_repeat(outc, ' ', pad);
                     break;
                 }
                 case 's': {
                     char *s = va_arg(args, char *);
                     kassert(s != NULL);
-                    while (*s) {
-                        outc(*s++);
-                    }
+                    int len = (int)strlen(s);
+                    int pad = (width > len) ? (width - len) : 0;
+                    char padch = ' '; // zero flag ignored for strings
+                    if (!left) emit_repeat(outc, padch, pad);
+                    while (*s) outc(*s++);
+                    if (left) emit_repeat(outc, padch, pad);
                     break;
                 }
                 case 'd': {
                     int d = va_arg(args, int);
                     char bfr[32];
-                    itoa(d, bfr, 10);
-                    char *s = bfr;
-                    while (*s) {
-                        outc(*s++);
+
+                    // handle sign separately for correct zero-padding
+                    if (d < 0) {
+                        unsigned int ud = (unsigned int)(-(d + 1)) + 1u; // avoid INT_MIN overflow
+                        char nbfr[32];
+                        utoa(ud, nbfr, 10);
+                        int nlen = (int)strlen(nbfr);
+                        int total = nlen + 1; // include '-'
+                        int pad = (width > total) ? (width - total) : 0;
+                        char padch = (zero && !left) ? '0' : ' ';
+
+                        if (!left && padch == ' ') emit_repeat(outc, ' ', pad);
+                        outc('-');
+                        if (!left && padch == '0') emit_repeat(outc, '0', pad);
+                        for (int i = 0; nbfr[i]; i++) outc(nbfr[i]);
+                        if (left) emit_repeat(outc, ' ', pad);
+                    } else {
+                        utoa((unsigned int)d, bfr, 10);
+                        int len = (int)strlen(bfr);
+                        int pad = (width > len) ? (width - len) : 0;
+                        char padch = (zero && !left) ? '0' : ' ';
+                        if (!left) emit_repeat(outc, padch, pad);
+                        for (int i = 0; bfr[i]; i++) outc(bfr[i]);
+                        if (left) emit_repeat(outc, ' ', pad);
                     }
                     break;
                 }
@@ -158,61 +217,72 @@ void vstrfmt(void (*outc)(char), const char *fstring, va_list args) {
                     unsigned int d = va_arg(args, unsigned int);
                     char bfr[32];
                     utoa(d, bfr, 10);
-                    char *s = bfr;
-                    while (*s) {
-                        outc(*s++);
-                    }
+                    int len = (int)strlen(bfr);
+                    int pad = (width > len) ? (width - len) : 0;
+                    char padch = (zero && !left) ? '0' : ' ';
+                    if (!left) emit_repeat(outc, padch, pad);
+                    for (int i = 0; bfr[i]; i++) outc(bfr[i]);
+                    if (left) emit_repeat(outc, ' ', pad);
                     break;
                 }
                 case 'p': {
                     void* p = va_arg(args, void*);
                     char bfr[32];
                     utoa((uintptr_t)p, bfr, 16);
-                    char *s = bfr;
+                    int len = (int)strlen(bfr) + 2; // include 0x
+                    int pad = (width > len) ? (width - len) : 0;
+                    char padch = (zero && !left) ? '0' : ' ';
+                    if (!left) emit_repeat(outc, padch, pad);
                     outc('0'); outc('x');
-                    while (*s) {
-                        outc(*s++);
-                    }
+                    for (int i = 0; bfr[i]; i++) outc(bfr[i]);
+                    if (left) emit_repeat(outc, ' ', pad);
                     break;
                 }
                 case 'x': {
                     unsigned int x = va_arg(args, unsigned int);
                     char bfr[32];
                     utoa(x, bfr, 16);
-                    char *s = bfr;
-                    while (*s) {
-                        outc(*s++);
-                    }
+                    int len = (int)strlen(bfr);
+                    int pad = (width > len) ? (width - len) : 0;
+                    char padch = (zero && !left) ? '0' : ' ';
+                    if (!left) emit_repeat(outc, padch, pad);
+                    for (int i = 0; bfr[i]; i++) outc(bfr[i]);
+                    if (left) emit_repeat(outc, ' ', pad);
                     break;
                 }
                 case 'o': {
                     unsigned int x = va_arg(args, unsigned int);
                     char bfr[32];
                     utoa(x, bfr, 8);
-                    char *s = bfr;
-                    while (*s) {
-                        outc(*s++);
-                    }
+                    int len = (int)strlen(bfr);
+                    int pad = (width > len) ? (width - len) : 0;
+                    char padch = (zero && !left) ? '0' : ' ';
+                    if (!left) emit_repeat(outc, padch, pad);
+                    for (int i = 0; bfr[i]; i++) outc(bfr[i]);
+                    if (left) emit_repeat(outc, ' ', pad);
                     break;
                 }
                 case 'b': {
-                    int x = va_arg(args, unsigned int);
+                    unsigned int x = va_arg(args, unsigned int);
                     char bfr[32];
                     utoa(x, bfr, 2);
-                    char *s = bfr;
-                    while (*s) {
-                        outc(*s++);
-                    }
+                    int len = (int)strlen(bfr);
+                    int pad = (width > len) ? (width - len) : 0;
+                    char padch = (zero && !left) ? '0' : ' ';
+                    if (!left) emit_repeat(outc, padch, pad);
+                    for (int i = 0; bfr[i]; i++) outc(bfr[i]);
+                    if (left) emit_repeat(outc, ' ', pad);
                     break;
                 }
-
                 case '%':
                     outc('%');
                     break;
                 default:
                     outc(*fstring);
+                    break;
             }
-            fstring++;
+
+            if (*fstring) fstring++;
         } else {
             outc(*fstring++);
         }
