@@ -234,7 +234,6 @@ void vmm_bootstrap(void) {
             return;
         }
 
-        // === MMIO mapping (identity - common practice) ===
         vm_region_t uart_region = {
             .vaddr_start = 0x1C000000,
             .paddr_start = 0x1C000000,
@@ -246,6 +245,20 @@ void vmm_bootstrap(void) {
         };
         if (!vmm_add_region(g_kernel_as, &uart_region)) {
             KPANIC("Failed to add UART region");
+            return;
+        }
+
+        vm_region_t gic_region = {
+            .vaddr_start = 0x2C000000,
+            .paddr_start = 0x2C000000,
+            .size = 0x100000,
+            .prot = VM_PROT_READ | VM_PROT_WRITE,
+            .memtype = VM_MEM_DEVICE,
+            .owner = VM_OWNER_NONE,
+            .flags = VM_FLAG_GLOBAL | VM_FLAG_PINNED,
+        };
+        if (!vmm_add_region(g_kernel_as, &gic_region)) {
+            KPANIC("Failed to add GIC region");
             return;
         }
 

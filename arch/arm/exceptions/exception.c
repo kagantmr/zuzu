@@ -1,5 +1,6 @@
 
 #include "context.h"
+#include "arch/arm/include/irq.h"
 #include "core/log.h"
 #include <stdint.h>
 
@@ -63,11 +64,11 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame) {
         }
         break;
         case (EXC_IRQ): {
-            KWARN("No support for interrupts (at pc=%x from lr=%x)", frame->fault_pc, frame->exc_lr);
+            irq_dispatch();
         }
         break;
         case (EXC_FIQ): {
-            KWARN("No support for fast interrupts (at pc=%x from lr=%x)", frame->fault_pc, frame->exc_lr);
+            KWARN("No support for fast interrupts");
         }
         break;
         default: {

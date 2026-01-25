@@ -1,5 +1,7 @@
 #include "arch/arm/include/symbols.h"
 #include "arch/arm/include/irq.h"
+#include "arch/arm/include/gicv2.h"
+#include "arch/arm/include/timer.h"
 
 #include "drivers/uart/uart.h"
 #include "drivers/uart/pl011.h"
@@ -224,10 +226,9 @@ _Noreturn void kmain(void) {
     }
 
 
-    // From this point onward, use dtb_start_va (VA), never dtb_start_pa
+    // From this point onward, use dtb_start_va
     dtb_init(kernel_layout.dtb_start_va);
-    
-    // Interrupts stay disabled until GIC is initialized
+
 
     #ifndef EARLY_UART
     char uart_path[128];
@@ -246,18 +247,35 @@ _Noreturn void kmain(void) {
     }
     #endif
 
+    // Interrupts stay disabled until GIC is initialized
+
+    uint64_t gicd_addr, gicd_size, gicc_addr, gicc_size;
+    char gic_path[128];
+
+    if (dtb_find_compatible("arm,cortex-a15-gic", gic_path, sizeof(gic_path))) {
+        // reg has 4 entries: GICD, GICC, GICH, GICV
+        dtb_get_reg(gic_path, 0, &gicd_addr, &gicd_size);  // GICD
+        dtb_get_reg(gic_path, 1, &gicc_addr, &gicc_size);  // GICC
+        
+        gic_init((uintptr_t)gicd_addr, (uintptr_t)gicc_addr);  // Pass addresses to init
+    } else {
+        KPANIC("GIC not found in DTB");
+    }
+
+    irq_init();
+    timer_init();
+
+    arch_global_irq_enable();  // Only after GIC is initialized
+
     KINFO("Booting...");
 
     // data abort test (null deref)
     // enable only when explicitly debugging the abort path
-    // __asm__ volatile("mov r0, #0\n\tldr r0, [r0]"); 
+    //__asm__ volatile("mov r0, #0\n\tldr r0, [r0]"); 
     
     print_logo();
     print_boot_info();
-    
-    // TODO: GIC init here
-    // TODO: Timer init here
-    arch_global_irq_enable();  // Only after GIC
+
     
     // trigger SVC to verify exception handling
     //__asm__ volatile("svc #0");
