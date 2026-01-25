@@ -54,6 +54,7 @@ dkms.conf
 # debug information files
 *.dwo
 gdb.txt
+*.dts
 
 # vscode dir
 .vscode/*
