@@ -3,7 +3,7 @@
 ## Phase 0: Project Genesis & Build System [DONE]
 - [x] Repository structure (arch/, kernel/, drivers/, lib/)
 - [x] Cross-compile Makefile
-- [x] Linker script defining kernel layout
+- [x] Linker script
 - [x] Versioned README and LICENSE
 - [x] Assertion and panic infrastructure
 
