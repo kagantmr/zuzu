@@ -74,7 +74,9 @@ bool arch_mmu_map(addrspace_t *as, uintptr_t va, uintptr_t pa, size_t size,
         }
         else
         {
-            // Normal non-cacheable: TEX=0, C=0, B=0
+           // Enable Write-Back, Write-Allocate Caching
+            // TEX=001 (bit 12), C=1 (bit 3), B=1 (bit 2)
+            entry |= (1u << 12) | (1u << 3) | (1u << 2);
         }
 
         size_t idx = (curr_va >> 20) & 0xFFF;

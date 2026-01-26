@@ -4,7 +4,6 @@
 #include <stdint.h>
 #include <stddef.h>
 
-
 #define TIMER_IRQ_PHYS 30  // CNTP (Physical Non-secure) timer PPI
 #define TIMER_IRQ_VIRT 27  // CNTV (Virtual) timer PPI (some QEMU setups deliver this)
 
