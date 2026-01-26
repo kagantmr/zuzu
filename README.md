@@ -6,7 +6,7 @@ Zuzu is a lightweight microkernel targeting AArch32 and ARMv7-A.
 
 ## Currently Supported Boards
 - ARM Versatile Express `vexpress-a15`
-- 
+  
 ## Future Boards
 - Raspberry Pi 4
 - ... maybe a RISC-V board
