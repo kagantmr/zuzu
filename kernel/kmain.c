@@ -264,6 +264,7 @@ _Noreturn void kmain(void) {
     }
 
     irq_init();
+    pl011_init_irq(uart_get_base());  // Enable RX interrupts for UART
 
     #ifndef SP804_TIMER
     timer_init();
@@ -297,6 +298,16 @@ _Noreturn void kmain(void) {
     
     // trigger SVC to verify exception handling
     //__asm__ volatile("svc #0");
+
+    KINFO("Entering idle - type to test UART RX");
+    while (1) {
+        int c = pl011_getc();
+        if (c >= 0) {
+            // Echo back what we received
+            KINFO("Got %c", c);
+        }
+        __asm__("wfi");
+    }
 
     while (1) {
         __asm__("wfi");

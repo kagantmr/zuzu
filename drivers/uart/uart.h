@@ -11,13 +11,12 @@ struct uart_driver {
     void (*init)(uintptr_t base_addr);
     void (*putc)(char c);
     int  (*puts)(const char *string); // Optional, falls back to putc loop
+    int  (*getc)(void);               // Optional, returns -1 if no char
 };
 
 void uart_set_driver(const struct uart_driver *driver, uintptr_t base_addr);
 const struct uart_driver *uart_get_driver(void);
 uintptr_t uart_get_base(void);
-
-
 
 /**
  * @brief Initialize the UART hardware.
