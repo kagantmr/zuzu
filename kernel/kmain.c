@@ -5,6 +5,7 @@
 
 #include "drivers/uart/uart.h"
 #include "drivers/uart/pl011.h"
+#include "drivers/timer/sp804.h"
 
 #include "core/version.h"
 
@@ -113,7 +114,7 @@ void print_logo(void) {
 
 void print_boot_info(void)
 {    
-    KINFO("Zuzu kernel %s", ZUZU_VERSION);
+    KINFO("Zuzu %s", ZUZU_VERSION);
     
     // Use dtb_get_string for string properties
     char machine_name[64];
@@ -143,27 +144,27 @@ void print_boot_info(void)
     // CPU info
     uint32_t cpsr = read_cpsr();
     uint32_t mode = cpu_mode_from_cpsr(cpsr);
-    KINFO("CPU mode: %s (CPSR=0x%x)", cpu_mode_str(mode), cpsr);
+    KDEBUG("CPU mode: %s (CPSR=0x%x)", cpu_mode_str(mode), cpsr);
 
     uint32_t sp;
     __asm__ volatile("mov %0, sp" : "=r"(sp));
-    KINFO("SP: %p", (void *)sp);
+    KDEBUG("SP: %p", (void *)sp);
 
     // Memory layout
-    KINFO("Kernel start: %p", (void *)_kernel_start);
-    KINFO("Kernel end:   %p", (void *)_kernel_end);
+    KDEBUG("Kernel start: %8p", (void *)_kernel_start);
+    KDEBUG("Kernel end:   %8p", (void *)_kernel_end);
 
     kassert(pmm_state.bitmap != NULL);
-    KINFO("Bitmap start: %p", (void *)pmm_state.bitmap);
-    KINFO("Bitmap end:   %p", (void *)(pmm_state.bitmap + pmm_state.bitmap_bytes));
+    KDEBUG("Bitmap start: %8p", (void *)pmm_state.bitmap);
+    KDEBUG("Bitmap end:   %8p", (void *)(pmm_state.bitmap + pmm_state.bitmap_bytes));
 
-    KINFO("Free pages: %u, Total pages: %u", pmm_state.free_pages, pmm_state.total_pages);
+    KDEBUG("Free phys pages: %5u, Total phys pages: %5u", pmm_state.free_pages, pmm_state.total_pages);
 
-    KINFO("Stack base (VA): %p", (void *)kernel_layout.stack_base_va);
-    KINFO("Stack top  (VA): %p", (void *)kernel_layout.stack_top_va);
+    KDEBUG("Stack base: %8p", (void *)kernel_layout.stack_base_va);
+    KDEBUG("Stack top : %8p", (void *)kernel_layout.stack_top_va);
 
-    KINFO("Heap start (VA): %p", kernel_layout.heap_start_va);
-    KINFO("Heap end   (VA): %p", kernel_layout.heap_end_va);
+    KDEBUG("Heap start: %8p", kernel_layout.heap_start_va);
+    KDEBUG("Heap end. : %8p", kernel_layout.heap_end_va);
 }
 
 
@@ -242,7 +243,7 @@ _Noreturn void kmain(void) {
         {
             uart_set_driver(&pl011_driver, (uintptr_t)uart_base);
             kprintf_init(uart_putc);
-            KINFO("UART initialized: %s @ 0x%x", uart_path, uart_base);
+            KDEBUG("UART initialized: %s @ 0x%x", uart_path, uart_base);
         }
     }
     #endif
@@ -263,8 +264,25 @@ _Noreturn void kmain(void) {
     }
 
     irq_init();
-    timer_init();
 
+    #ifndef SP804_TIMER
+    timer_init();
+    #else
+    uint64_t sp804_addr, sp804_size;
+    char sp804_path[128];
+    if (dtb_find_compatible("arm,sp804", sp804_path, sizeof(sp804_path))) {
+        uint64_t raw_addr, raw_size;
+        if (dtb_get_reg_phys(sp804_path, 0, &sp804_addr, &sp804_size)) {
+            sp804_init((uintptr_t)sp804_addr, 10000);  // ~10ms at 1MHz
+            sp804_start((uintptr_t)sp804_addr);   
+            KDEBUG("SP804 timer initialized at 0x%x", sp804_addr);
+        }
+    } else {
+        timer_init(); // Fallback to generic timer if SP804 not found
+    }
+    #endif
+
+    
     arch_global_irq_enable();  // Only after GIC is initialized
 
     KINFO("Booting...");
@@ -280,7 +298,6 @@ _Noreturn void kmain(void) {
     // trigger SVC to verify exception handling
     //__asm__ volatile("svc #0");
 
-    KINFO("Entering idle");
     while (1) {
         __asm__("wfi");
     }

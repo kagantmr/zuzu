@@ -56,7 +56,20 @@ void gic_init(uintptr_t gicd_base_addr, uintptr_t gicc_base_addr) {
 }
 
 void gic_enable_irq(uint32_t irq_id) {
+    // Enable the interrupt
     gicd_write(GICD_ISENABLER + (irq_id / 32) * 4, (1 << (irq_id % 32)));
+    
+    // For SPIs (irq >= 32), set target to CPU0
+    if (irq_id >= 32) {
+        // ITARGETSR: 1 byte per IRQ at offset 0x800
+        uint32_t reg_offset = GICD_ITARGETSR + (irq_id & ~3);  // 4-byte aligned
+        uint32_t byte_shift = (irq_id % 4) * 8;
+        
+        uint32_t val = gicd_read(reg_offset);
+        val &= ~(0xFF << byte_shift);      // Clear this IRQ's byte
+        val |= (0x01 << byte_shift);       // Set CPU0 as target
+        gicd_write(reg_offset, val);
+    }
 }
 
 void gic_disable_irq(uint32_t irq_id) {

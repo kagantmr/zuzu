@@ -237,7 +237,7 @@ void vmm_bootstrap(void) {
         vm_region_t uart_region = {
             .vaddr_start = 0x1C000000,
             .paddr_start = 0x1C000000,
-            .size = 0x100000,
+            .size = 0x1000000,
             .prot = VM_PROT_READ | VM_PROT_WRITE,
             .memtype = VM_MEM_DEVICE,
             .owner = VM_OWNER_NONE,
@@ -261,6 +261,8 @@ void vmm_bootstrap(void) {
             KPANIC("Failed to add GIC region");
             return;
         }
+
+
 
         // Build page tables (creates both mappings)
         if (!vmm_build_page_tables(g_kernel_as)) {
