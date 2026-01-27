@@ -55,6 +55,7 @@ void irq_enable_line(uint32_t irq_id) {
 }
 
 void irq_dispatch(void) {
+    //KINFO("IRQ received");
     uint32_t iar = gic_acknowledge();
     uint32_t irq_id = iar & 0x3FF;
 
