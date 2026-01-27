@@ -1,7 +1,7 @@
-
 #include "context.h"
 #include "arch/arm/include/irq.h"
 #include "core/log.h"
+#include "core/panic.h"
 #include <stdint.h>
 
 typedef enum exception_type {
@@ -15,64 +15,143 @@ typedef enum exception_type {
     EXC_FIQ = 7
 } exception_type;
 
+// Decode FSR status bits (works for both DFSR and IFSR)
+static const char *decode_fault_status(uint32_t fsr) {
+    // Status = FS[10] : FS[3:0]
+    uint32_t status = (fsr & 0xF) | ((fsr >> 6) & 0x10);
+    
+    switch (status) {
+        case 0x01: return "Alignment fault";
+        case 0x02: return "Debug event";
+        case 0x03: return "Access flag fault (section)";
+        case 0x04: return "Instruction cache maintenance fault";
+        case 0x05: return "Translation fault (section)";
+        case 0x06: return "Access flag fault (page)";
+        case 0x07: return "Translation fault (page)";
+        case 0x08: return "Synchronous external abort";
+        case 0x09: return "Domain fault (section)";
+        case 0x0B: return "Domain fault (page)";
+        case 0x0C: return "External abort on table walk (L1)";
+        case 0x0D: return "Permission fault (section)";
+        case 0x0E: return "External abort on table walk (L2)";
+        case 0x0F: return "Permission fault (page)";
+        case 0x10: return "TLB conflict abort";
+        case 0x16: return "Asynchronous external abort";
+        case 0x19: return "Parity error on memory access";
+        default:   return "Unknown fault";
+    }
+}
+
+static const char *decode_mode(uint32_t spsr) {
+    switch (spsr & 0x1F) {
+        case 0x10: return "USR";
+        case 0x11: return "FIQ";
+        case 0x12: return "IRQ";
+        case 0x13: return "SVC";
+        case 0x17: return "ABT";
+        case 0x1B: return "UND";
+        case 0x1F: return "SYS";
+        default:   return "???";
+    }
+}
+
+static void dump_registers(exception_frame_t *frame) {
+    kprintf("\033[31m");  // Red
+    kprintf("  r0=%08x  r1=%08x  r2=%08x  r3=%08x\n",
+            frame->r[0], frame->r[1], frame->r[2], frame->r[3]);
+    kprintf("  r4=%08x  r5=%08x  r6=%08x  r7=%08x\n",
+            frame->r[4], frame->r[5], frame->r[6], frame->r[7]);
+    kprintf("  r8=%08x  r9=%08x r10=%08x r11=%08x\n",
+            frame->r[8], frame->r[9], frame->r[10], frame->r[11]);
+    kprintf(" r12=%08x  sp=????????  lr=%08x  pc=%08x\n",
+            frame->r[12], frame->exc_lr, frame->fault_pc);
+    kprintf("spsr=%08x [%s mode, %s%s%s]\n",
+            frame->spsr,
+            decode_mode(frame->spsr),
+            (frame->spsr & (1 << 7)) ? "I" : "i",
+            (frame->spsr & (1 << 6)) ? "F" : "f",
+            (frame->spsr & (1 << 5)) ? " Thumb" : "");
+    kprintf("\033[0m");  // Reset
+}
+
 void exception_dispatch(exception_type exctype, exception_frame_t *frame) {
     switch (exctype) {
-        case (EXC_UNDEF): {
-            KERROR("Undefined instruction (at pc=%x from lr=%x)", frame->fault_pc, frame->exc_lr);
+        case EXC_UNDEF: {
+            KERROR("=== UNDEFINED INSTRUCTION ===");
+            KERROR("PC: 0x%08x", frame->fault_pc);
+            
+            // Try to show the faulting instruction
+            uint32_t *pc = (uint32_t *)frame->fault_pc;
+            KERROR("Instruction: 0x%08x", *pc);
+            
+            dump_registers(frame);
             panic();
         }
         break;
-        case (EXC_SVC): {
-            KWARN("No support for supervisor calls (at pc=%x from lr=%x)", frame->fault_pc, frame->exc_lr);
+        
+        case EXC_SVC: {
+            // Extract SVC number from instruction
+            uint32_t *svc_instr = (uint32_t *)frame->fault_pc;
+            uint32_t svc_num = *svc_instr & 0x00FFFFFF;
+            KWARN("SVC #%u (not implemented)", svc_num);
         }
         break;
-        case (EXC_PREFETCH_ABORT): {
+        
+        case EXC_PREFETCH_ABORT: {
             uint32_t ifar, ifsr;
-            __asm__ volatile("mrc p15, 0, %0, c6, c0, 2" : "=r"(ifar));   // IFAR
-            __asm__ volatile("mrc p15, 0, %0, c5, c0, 2" : "=r"(ifsr));  // IFSR
+            __asm__ volatile("mrc p15, 0, %0, c6, c0, 2" : "=r"(ifar));
+            __asm__ volatile("mrc p15, 0, %0, c5, c0, 1" : "=r"(ifsr));
             
-            KERROR("Aborted on prefetch (at pc=%x from lr=%x)", frame->fault_pc, frame->exc_lr);
+            KERROR("=== PREFETCH ABORT ===");
+            KERROR("IFAR: 0x%08x  IFSR: 0x%08x", ifar, ifsr);
+            KERROR("Fault: %s", decode_fault_status(ifsr));
+            KERROR("PC: 0x%08x", frame->fault_pc);
+            
+            dump_registers(frame);
             panic();
         }
         break;
+        
         case EXC_DATA_ABORT: {
-            uint32_t far, dfsr;
-            __asm__ volatile("mrc p15, 0, %0, c6, c0, 0" : "=r"(far));   // FAR
-            __asm__ volatile("mrc p15, 0, %0, c5, c0, 0" : "=r"(dfsr));  // DFSR
+            uint32_t dfar, dfsr;
+            __asm__ volatile("mrc p15, 0, %0, c6, c0, 0" : "=r"(dfar));
+            __asm__ volatile("mrc p15, 0, %0, c5, c0, 0" : "=r"(dfsr));
             
-            KERROR("Data Abort: FAR=%08x DFSR=%08x PC=%08x LR=%08x",
-                far, dfsr, frame->fault_pc, frame->exc_lr);
+            KERROR("=== DATA ABORT ===");
+            KERROR("DFAR: 0x%08x  DFSR: 0x%08x", dfar, dfsr);
+            KERROR("Fault: %s", decode_fault_status(dfsr));
+            KERROR("Access: %s, %s", 
+                   (dfsr & (1 << 11)) ? "Write" : "Read",
+                   (dfsr & (1 << 12)) ? "External" : "Internal");
+            KERROR("Domain: %u", (dfsr >> 4) & 0xF);
+            KERROR("PC: 0x%08x (instruction that caused abort)", frame->fault_pc);
             
-            // Decode DFSR status bits
-            uint32_t status = (dfsr & 0xF) | ((dfsr >> 6) & 0x10);
-            const char* fault_str = "Unknown";
-            switch (status) {
-                case 0x5: fault_str = "Translation fault (section)"; break;
-                case 0x7: fault_str = "Translation fault (page)"; break;
-                case 0x9: fault_str = "Domain fault (section)"; break;
-                case 0xB: fault_str = "Domain fault (page)"; break;
-                case 0xD: fault_str = "Permission fault (section)"; break;
-                case 0xF: fault_str = "Permission fault (page)"; break;
-            }
-            KERROR("Fault type: %s, %s", fault_str, (dfsr & (1<<11)) ? "Write" : "Read");
+            dump_registers(frame);
             panic();
         }
         break;
-        case (EXC_RESERVED): {
-            KERROR("No support for reserved exception (at pc=%x from lr=%x)", frame->fault_pc, frame->exc_lr);
+        
+        case EXC_RESERVED: {
+            KERROR("=== RESERVED EXCEPTION ===");
+            dump_registers(frame);
             panic();
         }
         break;
-        case (EXC_IRQ): {
+        
+        case EXC_IRQ: {
             irq_dispatch();
         }
         break;
-        case (EXC_FIQ): {
-            KWARN("No support for fast interrupts");
+        
+        case EXC_FIQ: {
+            KERROR("=== FIQ (not supported) ===");
+            panic();
         }
         break;
+        
         default: {
-            KERROR("Unknown exception occurred (at pc=%x from lr=%x)", frame->fault_pc, frame->exc_lr);
+            KERROR("=== UNKNOWN EXCEPTION %d ===", exctype);
+            dump_registers(frame);
             panic();
         }
         break;

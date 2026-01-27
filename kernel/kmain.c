@@ -288,27 +288,19 @@ _Noreturn void kmain(void) {
 
     KINFO("Booting...");
 
-    // data abort test (null deref)
-    // enable only when explicitly debugging the abort path
-    //__asm__ volatile("mov r0, #0\n\tldr r0, [r0]"); 
+    // data abort test (page fault)
+    //volatile uint32_t *bad = (volatile uint32_t *)0xDEADBEEF;
+    //*bad = 42;
+
     
     print_logo();
     print_boot_info();
 
     
     // trigger SVC to verify exception handling
-    //__asm__ volatile("svc #0");
+    __asm__ volatile("svc #0");
 
-    KINFO("Entering idle - type to test UART RX");
-    while (1) {
-        int c = pl011_getc();
-        if (c >= 0) {
-            // Echo back what we received
-            KINFO("Got %c", c);
-        }
-        __asm__("wfi");
-    }
-
+    KINFO("Entering idle");
     while (1) {
         __asm__("wfi");
     }
