@@ -69,3 +69,4 @@ arch/arm/.DS_Store
 kernel/.DS_Store
 /Users/kagantemur/Documents/Projects/zuzu/build/*
 build/zuzu.asm
+drivers/.DS_Store
