@@ -3,16 +3,10 @@
 #include <lib/io.h>
 #include "core/log.h"
 
-static uint32_t sp804_tick_count = 0;
 
 static void sp804_irq_handler(void* ctx) {
 
     (void)ctx;
-    sp804_tick_count++;
-
-    if ((sp804_tick_count % 100) == 0) {
-        KINFO("SP804 timer tick: %u", sp804_tick_count);
-    }
 
     sp804_clear_interrupt((uintptr_t)ctx);
 }
@@ -47,4 +41,5 @@ void sp804_clear_interrupt(uintptr_t base_addr) {
 void sp804_set_load_value(uintptr_t base_addr, uint32_t load_value) {
     writel(base_addr + SP804_TIMER0_OFFSET + SP804_TIMER_LOAD, load_value);
 }
+
 

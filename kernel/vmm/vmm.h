@@ -72,6 +72,16 @@ typedef struct addrspace {
 } addrspace_t;
 
 
+#define IOREMAP_BASE    0xF0000000
+#define IOREMAP_END     0xFFFFFFFF  
+#define IOREMAP_SIZE    (IOREMAP_END - IOREMAP_BASE + 1)  // 256MB
+#define IOREMAP_SLOTS   (IOREMAP_SIZE / SECTION_SIZE)     // 256
+
+
+// Mapping table: track active mappings for iounmap lookup
+#define IOREMAP_MAX_ENTRIES 64
+
+
 /**
  * @brief Create a new address space.
  * @param type ADDRSPACE_KERNEL or ADDRSPACE_USER.
@@ -201,6 +211,24 @@ uintptr_t kmap_mmio(uintptr_t pa, size_t size);
  */
 bool kmap_user_page(addrspace_t* as, uintptr_t pa, uintptr_t va, vm_prot_t prot);
 
+/**
+ * @brief Remove the identity mapping from the kernel address space.
+ * After calling this, the kernel runs purely in higher-half memory.
+ */
 void vmm_remove_identity_mapping(void);
+
+/**
+ * @brief Map a physical address range into kernel virtual address space for I/O.
+ * @param phys Physical address to map.
+ * @param size Size of the mapping.
+ * @return Virtual address of the mapped region, or NULL on failure.
+ */
+void* ioremap(uintptr_t phys, size_t size);
+
+/**
+ * @brief Unmap a previously mapped I/O region.
+ * @param va Virtual address returned by ioremap.
+ */
+void iounmap(void* va);
 
 #endif // KERNEL_VM_VMM_H

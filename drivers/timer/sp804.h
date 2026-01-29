@@ -35,6 +35,7 @@ void sp804_start(uintptr_t base_addr);
 void sp804_stop(uintptr_t base_addr);
 void sp804_clear_interrupt(uintptr_t base_addr);
 void sp804_set_load_value(uintptr_t base_addr, uint32_t load_value);
+
 #endif // SP804_H
 
 

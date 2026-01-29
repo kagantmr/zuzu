@@ -81,8 +81,6 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame) {
             KERROR("PC: 0x%08x", frame->fault_pc);
             
             // Try to show the faulting instruction
-            uint32_t *pc = (uint32_t *)frame->fault_pc;
-            KERROR("Instruction: 0x%08x", *pc);
             
             dump_registers(frame);
             panic();
