@@ -19,16 +19,16 @@ LDFLAGS  = -T $(LINKER_SCRIPT)
 DEBUG_BUILD ?= 1
 DTB_DEBUG_WALK ?= 0
 EARLY_UART ?= 0
-
+SP804_TIMER ?= 0
 
 
 ifeq ($(DEBUG_BUILD), 1)
     # Enable assertions (default C standard for enabling assertions)
     # might also add -DDEBUG_LOGGING for KINFO/KWARN
-    CFLAGS += -UNDEBUG -DDEBUG -DDEBUG_PRINT
+    CFLAGS += -UNDEBUG -DDEBUG -DDEBUG_PRINT -DZUZU_BANNER_SHOW_ADDR
 else
     # Disable assertions for release builds
-    CFLAGS += -DNDEBUG -UDEBUG -UDEBUG_PRINT
+    CFLAGS += -DNDEBUG -UDEBUG -UDEBUG_PRINT -UZUZU_BANNER_SHOW_ADDR
 endif
 
 ifeq ($(DTB_DEBUG_WALK), 0)
@@ -41,6 +41,12 @@ ifeq ($(EARLY_UART), 0)
 	CFLAGS += -UEARLY_UART
 else
 	CFLAGS += -DEARLY_UART
+endif
+
+ifeq ($(SP804_TIMER), 1)
+    CFLAGS += -DSP804_TIMER
+else
+    CFLAGS += -USP804_TIMER
 endif
 
 

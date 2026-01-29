@@ -1,4 +1,6 @@
 #include "arch/arm/include/irq.h"
+#include "arch/arm/timer/generic_timer.h"
+#include "kernel/time/tick.h"
 #include "core/log.h"
 
 #include <stdint.h>
@@ -33,41 +35,31 @@ static inline void write_cntv_ctl(uint32_t v) {
     __asm__ volatile("isb");
 }
 
-static volatile uint64_t tick_count = 0;
+static uint32_t freq = 0;
+static uint32_t tval = 0;
 
-static void timer_handler(void* ctx) {
+static void generic_timer_handler(void* ctx) {
     (void)ctx;
-    tick_count++;
-
-    if ((tick_count % 100) == 0) {
-        uint32_t lo = (uint32_t)tick_count;
-        uint32_t hi = (uint32_t)(tick_count >> 32);
-        KINFO("Timer tick: %u%u", hi, lo);
-    }
-
-    // Reload both physical and virtual timers so whichever one is wired keeps ticking
-    uint32_t freq = read_cntfrq();
-    uint32_t tval = freq / 100;  // 10ms interval
+    tick_announce();
 
     write_cntp_tval(tval);
     write_cntv_tval(tval);
 }
 
-void timer_init(void) {
+void generic_timer_init(void) {
     // Read counter frequency
-    uint32_t freq = read_cntfrq();
-    KINFO("Timer frequency: %u Hz", freq);
+    freq = read_cntfrq();
+    tval = freq / 100;  // 10ms interval
 
     // Register handler for both PPIs
-    irq_register(TIMER_IRQ_PHYS, timer_handler, NULL);
-    irq_register(TIMER_IRQ_VIRT, timer_handler, NULL);
+    irq_register(TIMER_IRQ_PHYS, generic_timer_handler, NULL);
+    irq_register(TIMER_IRQ_VIRT, generic_timer_handler, NULL);
 
     // Enable IRQ lines in GIC
     irq_enable_line(TIMER_IRQ_PHYS);
     irq_enable_line(TIMER_IRQ_VIRT);
 
     // Set timer value (10ms = freq/100)
-    uint32_t tval = freq / 100;
     write_cntp_tval(tval);
     write_cntv_tval(tval);
 
@@ -76,5 +68,5 @@ void timer_init(void) {
     write_cntp_ctl(ctl);
     write_cntv_ctl(ctl);
 
-    KINFO("Generic timer initialized (10ms interval, CNTP+CNTV)");
+    KDEBUG("Generic timer initialized (10ms interval, %u Hz)", freq);
 }

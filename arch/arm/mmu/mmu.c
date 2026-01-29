@@ -50,7 +50,7 @@ bool arch_mmu_map(addrspace_t *as, uintptr_t va, uintptr_t pa, size_t size,
     }
 
     // During identity-map bring-up, TTBR0 PA is directly addressable (MMU off / identity).
-    uint32_t *l1_table = (uint32_t *)(as->ttbr0_pa);
+    uint32_t *l1_table = (uint32_t *)PA_TO_VA(as->ttbr0_pa);
 
     for (uintptr_t offset = 0; offset < size; offset += 0x100000)
     {
@@ -95,7 +95,7 @@ bool arch_mmu_unmap(addrspace_t *as, uintptr_t va, size_t size)
     }
 
     // During identity-map bring-up, TTBR0 PA is directly addressable (MMU off / identity).
-    uint32_t *l1_table = (uint32_t *)(as->ttbr0_pa);
+    uint32_t *l1_table = (uint32_t *)PA_TO_VA(as->ttbr0_pa);
 
     bool unmapped_any = false;
     for (uintptr_t offset = 0; offset < size; offset += 0x100000)
@@ -132,7 +132,7 @@ bool arch_mmu_protect(addrspace_t *as, uintptr_t va, size_t size, vm_prot_t prot
 
     // For bring-up we do not yet encode per-region permissions (XN/user/RO).
     // Return true iff the range is currently mapped.
-    uint32_t *l1_table = (uint32_t *)(as->ttbr0_pa);
+    uint32_t *l1_table = (uint32_t *)PA_TO_VA(as->ttbr0_pa);
     bool found_any = false;
 
     for (uintptr_t offset = 0; offset < size; offset += 0x100000)
@@ -231,7 +231,7 @@ uintptr_t arch_mmu_translate(uintptr_t ttbr0_pa, uintptr_t va)
     }
 
     // Section-only translation (L1 short-descriptor)
-    uint32_t *l1_table = (uint32_t *)ttbr0_pa;
+    uint32_t *l1_table = (uint32_t *)PA_TO_VA(ttbr0_pa);
     size_t idx = (va >> 20) & 0xFFF;
     uint32_t desc = l1_table[idx];
 

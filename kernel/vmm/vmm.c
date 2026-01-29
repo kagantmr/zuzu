@@ -19,6 +19,16 @@ static bool g_mmu_enabled = false;
 extern phys_region_t phys_region;
 extern kernel_layout_t kernel_layout;
 
+// Bitmap: 256 bits = 8 x uint32_t
+static uint32_t ioremap_bitmap[8];  // Bit N = slot N allocated
+
+typedef struct {
+    uintptr_t va;       // Base VA (0 = unused entry)
+    uintptr_t pa;       // Physical address  
+    uint32_t sections;  // Number of 1MB sections
+} ioremap_entry_t;
+static ioremap_entry_t ioremap_table[IOREMAP_MAX_ENTRIES];
+
 addrspace_t* addrspace_create(addrspace_type_t type) {
     addrspace_t* addrspace = kmalloc(sizeof(addrspace_t));
     if (!addrspace) {
@@ -248,6 +258,7 @@ void vmm_bootstrap(void) {
             return;
         }
 
+        /*
         vm_region_t gic_region = {
             .vaddr_start = 0x2C000000,
             .paddr_start = 0x2C000000,
@@ -260,7 +271,7 @@ void vmm_bootstrap(void) {
         if (!vmm_add_region(g_kernel_as, &gic_region)) {
             KPANIC("Failed to add GIC region");
             return;
-        }
+        }*/
 
 
 
@@ -345,7 +356,7 @@ void vmm_remove_identity_mapping(void) {
     }
 
 
-    KINFO("VMM: Identity mapping removed, running pure higher-half");
+    KDEBUG("VMM: Identity mapping removed, running pure higher-half");
 }
 
 void vmm_activate(addrspace_t* as) {
@@ -425,4 +436,125 @@ bool kmap_user_page(addrspace_t* as, uintptr_t pa, uintptr_t va, vm_prot_t prot)
 
     return vmm_map_range(as, va, pa, PAGE_SIZE, prot | VM_PROT_USER,
                          VM_MEM_NORMAL, VM_OWNER_SHARED, VM_FLAG_NONE);
+}
+
+
+
+
+// Find N contiguous free bits in bitmap, return starting index or -1
+static int bitmap_find_free(uint32_t n) {
+    uint32_t count = 0;
+    for (uint32_t i = 0; i < IOREMAP_SLOTS; i++) {
+        uint32_t word = ioremap_bitmap[i / 32];
+        uint32_t bit = 1u << (i % 32);
+        if ((word & bit) == 0) {
+            count++;
+            if (count == n) {
+                return i + 1 - n;
+            }
+        } else {
+            count = 0;
+        }
+    }
+    return -1;
+}
+
+// Mark bits [start, start+count) as used
+static void bitmap_alloc(uint32_t start, uint32_t count) {
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t idx = start + i;
+        uint32_t bit = 1u << (idx % 32);
+        ioremap_bitmap[idx / 32] |= bit;
+    }
+}
+
+// Mark bits [start, start+count) as free  
+static void bitmap_free(uint32_t start, uint32_t count) {
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t idx = start + i;
+        uint32_t bit = 1u << (idx % 32);
+        ioremap_bitmap[idx / 32] &= ~bit;
+    }
+}
+
+// Find ioremap_table entry by VA
+static ioremap_entry_t* ioremap_find(uintptr_t va) {
+    for (size_t i = 0; i < IOREMAP_MAX_ENTRIES; i++) {
+        if (ioremap_table[i].va == va) {
+            return &ioremap_table[i];
+        }
+    }
+    return NULL;
+}
+
+// Find free slot in ioremap_table
+static ioremap_entry_t* ioremap_alloc_entry(void) {
+    for (size_t i = 0; i < IOREMAP_MAX_ENTRIES; i++) {
+        if (ioremap_table[i].va == 0) {
+            return &ioremap_table[i];
+        }
+    }
+    return NULL;
+}
+
+void* ioremap(uintptr_t phys, size_t size) {
+    if (size == 0) {
+        return NULL;
+    }
+
+    uintptr_t phys_aligned = align_down(phys, SECTION_SIZE);
+    uintptr_t offset = phys - phys_aligned;
+    size_t total_size = size + offset;
+    size_t aligned_size = align_up(total_size, SECTION_SIZE);
+    uint32_t sections_needed = aligned_size / SECTION_SIZE;
+
+    int slot = bitmap_find_free(sections_needed);
+    if (slot < 0) {
+        return NULL;
+    }
+
+    uintptr_t va = IOREMAP_BASE + (slot * SECTION_SIZE);
+
+    if (!vmm_map_range(g_kernel_as, va, phys_aligned, aligned_size, 
+                       VM_PROT_READ | VM_PROT_WRITE,
+                       VM_MEM_DEVICE, VM_OWNER_NONE,
+                       VM_FLAG_PINNED | VM_FLAG_GLOBAL)) {
+        return NULL;
+    }
+
+    bitmap_alloc(slot, sections_needed);
+
+    ioremap_entry_t* entry = ioremap_alloc_entry();
+    if (!entry) {
+        vmm_unmap_range(g_kernel_as, va, aligned_size);
+        bitmap_free(slot, sections_needed);
+        return NULL;
+    }
+    entry->va = va;
+    entry->pa = phys_aligned; 
+    entry->sections = sections_needed;
+
+    return (void*)(va + offset);
+}
+
+void iounmap(void* va) {
+    if (!va) {
+        return;
+    }
+
+    uintptr_t base_va = align_down((uintptr_t)va, SECTION_SIZE);
+    ioremap_entry_t* entry = ioremap_find(base_va);
+    if (!entry) {
+        return;
+    }
+
+    size_t size = entry->sections * SECTION_SIZE;
+    vmm_unmap_range(g_kernel_as, entry->va, size);
+
+    uint32_t slot_start = (entry->va - IOREMAP_BASE) / SECTION_SIZE;
+    bitmap_free(slot_start, entry->sections);
+
+    entry->va = 0;
+    entry->pa = 0;
+    entry->sections = 0;
 }
