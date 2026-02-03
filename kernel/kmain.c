@@ -19,6 +19,8 @@
 #include "kernel/dtb/dtb.h"
 #include "kernel/vmm/vmm.h"
 #include "kernel/time/tick.h"
+#include "kernel/sched/sched.h"
+#include "kernel/proc/process.h"
 
 #include "lib/mem.h"
 #include "kernel/mm/alloc.h"
@@ -36,6 +38,22 @@ static inline uint32_t read_be32(const void *p)
            ((uint32_t)b[1] << 16) |
            ((uint32_t)b[2] << 8) |
            ((uint32_t)b[3]);
+}
+
+void test_process_a(void) {
+    arch_global_irq_enable();
+    while (1) {
+        KINFO("Process A");
+        for (volatile int i = 0; i < 1000000; i++);  // delay
+    }
+}
+
+void test_process_b(void) {
+    arch_global_irq_enable();
+    while (1) {
+        KINFO("Process B");
+        for (volatile int i = 0; i < 1000000; i++);  // delay
+    }
 }
 
 _Noreturn void kmain(void)
@@ -207,6 +225,16 @@ _Noreturn void kmain(void)
 
     // trigger SVC to verify exception handling
     // __asm__ volatile("svc #0");
+
+    sched_init();
+
+    process_t *a = process_create(test_process_a);
+    process_t *b = process_create(test_process_b);
+
+    sched_add(a);
+    sched_add(b);
+
+    register_tick_callback(schedule);
 
     KINFO("Entering idle");
     while (1)

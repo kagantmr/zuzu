@@ -7,7 +7,7 @@ static volatile uint64_t tick_count = 0;
 static tick_callback_t tick_callback = NULL;
 
 uint64_t get_ticks(void) {
-    return 0;
+    return tick_count;
 }
 
 uint32_t get_tick_rate(void) {

@@ -40,10 +40,11 @@ static uint32_t tval = 0;
 
 static void generic_timer_handler(void* ctx) {
     (void)ctx;
-    tick_announce();
-
+    
     write_cntp_tval(tval);
     write_cntv_tval(tval);
+
+    tick_announce();
 }
 
 void generic_timer_init(void) {
