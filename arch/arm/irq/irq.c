@@ -63,11 +63,12 @@ void irq_dispatch(void) {
         return;  // Spurious interrupt, ignore
     }
 
+    gic_end(iar);
+
     if (irq_id < MAX_IRQS && handler_table[irq_id] != NULL) {
         handler_table[irq_id](handler_ctx[irq_id]);
     } else {
         KERROR("Unhandled IRQ %u", irq_id);
     }
-
-    gic_end(iar);
+    
 }
