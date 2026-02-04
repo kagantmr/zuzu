@@ -1,8 +1,8 @@
 
 
-# Zuzu
+# zuzu
 
-Zuzu is a lightweight microkernel targeting AArch32 and ARMv7-A.
+zuzu is a lightweight microkernel targeting AArch32 and ARMv7-A.
 
 ## Currently Supported Boards
 - ARM Versatile Express `vexpress-a15`
@@ -13,7 +13,7 @@ Zuzu is a lightweight microkernel targeting AArch32 and ARMv7-A.
 - ... something that definitely isn't x86
 
 ## Prerequisites
-To build and run Zuzu on QEMU, install QEMU and `gcc-arm-none-eabi` cross-compiler:
+To build and run zuzu on QEMU, install QEMU and `gcc-arm-none-eabi` cross-compiler:
 
 ### Linux (Debian/Ubuntu)
 
@@ -62,7 +62,7 @@ gdb-multiarch build/zuzu.elf
 (gdb) target remote :1234
 ```
 ## Structure
-The Zuzu project follows this source structure for ease of development:
+The zuzu project follows this source structure for ease of development:
 
 ```
 .
