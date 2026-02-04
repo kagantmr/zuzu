@@ -65,7 +65,7 @@ void pl011_init(uintptr_t base_addr) {
 }
 
 void pl011_putc(char c) {
-	kassert(pl011_base != 0);
+	//kassert(pl011_base != 0);
 	while (pl011_tx_full()) {
 		// spin
 	}
@@ -73,7 +73,7 @@ void pl011_putc(char c) {
 }
 
 int pl011_puts(const char *string) {
-	kassert(string != NULL);
+	//kassert(string != NULL);
 	while (*string) {
 		pl011_putc(*string++);
 	}
