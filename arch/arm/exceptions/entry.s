@@ -138,27 +138,31 @@ reserved_handler:
 
     subs pc, lr, #0         @ Return from exception
 irq_handler:
-    /* Save general regs + lr_irq */
+    @ Adjust return address (standard IRQ linkage)
+    sub lr, lr, #4
+    
+    @ Store Return State (lr_irq and spsr_irq) to SVC mode's stack
+    @ This magically pushes to sp_svc, not sp_irq!
+    srsdb sp!, #0x13
+    
+    @ Switch to SVC mode, IRQs stay disabled
+    cpsid i, #0x13
+    
+    @ Now sp = sp_svc (the interrupted process's kernel stack)
+    @ Save all general purpose registers
     stmdb sp!, {r0-r12, lr}
-
-    /* Save spsr */
-    mrs   r0, spsr
-    stmdb sp!, {r0}
-
-    /* Call C dispatcher: r0=EXC_IRQ, r1=frame */
-    mov   r1, sp
-    mov   r0, #6
-    bl    exception_dispatch
-
-    /* Restore spsr */
-    ldmia sp!, {r0}
-    msr   spsr_cxsf, r0
-
-    /* Restore regs + lr_irq */
+    
+    @ Call C handler - may call schedule() -> context_switch()
+    mov r0, #6           @ EXC_IRQ = 6
+    mov r1, sp           @ frame pointer
+    bl exception_dispatch
+    
+    @ After return, sp may point to a DIFFERENT process's stack!
+    @ Restore all registers
     ldmia sp!, {r0-r12, lr}
-
-    /* Return from IRQ (restores CPSR from SPSR) */
-    subs  pc, lr, #4
+    
+    @ Return From Exception - pops pc and cpsr, returns to (possibly different) process
+    rfeia sp!
 fiq_handler:
 
     stmdb sp!, {lr}        @ Save original LR
