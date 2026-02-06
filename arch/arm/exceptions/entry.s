@@ -164,13 +164,13 @@ irq_handler:
     @ Return From Exception - pops pc and cpsr, returns to (possibly different) process
     rfeia sp!
 fiq_handler:
-
+    cpsid f
     stmdb sp!, {lr}        @ Save original LR
-
-    sub lr, lr, #4 @ PC = LR - 4 for FIQ
+    
+    sub lr, lr, #4         @ PC = LR - 4 for FIQ
 
     /* r0–r12 and original lr */
-    stmdb sp!, {r0-r12, lr}
+    stmdb sp!, {r0-r12, lr} 
 
     /* spsr */
     mrs r0, spsr

@@ -19,6 +19,8 @@ static bool g_mmu_enabled = false;
 extern phys_region_t phys_region;
 extern kernel_layout_t kernel_layout;
 
+
+
 // Bitmap: 256 bits = 8 x uint32_t
 static uint32_t ioremap_bitmap[8];  // Bit N = slot N allocated
 
