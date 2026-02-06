@@ -4,6 +4,15 @@
 #include "core/assert.h"
 #include <stdint.h>
 
+#define L1_MASK 0x2u
+#define L2_MASK 0x1u
+
+#define ALIGNMENT_1MB_MASK 0xFFF00000u
+#define ALIGNMENT_1KB_MASK 0xFFFFFC00u
+#define ALIGNMENT_4KB_MASK 0xFFFFF000u
+
+//#define SECTION_SIZE 0x100000
+
 uintptr_t arch_mmu_create_tables(void)
 {
     const size_t   l1_bytes = 16 * 1024;
@@ -43,74 +52,107 @@ bool arch_mmu_map(addrspace_t *as, uintptr_t va, uintptr_t pa, size_t size,
 {
     (void)prot;
 
-    // Bring-up policy: sections only.
-    if (!as || size == 0 || (va % 0x100000) != 0 || (pa % 0x100000) != 0 || (size % 0x100000) != 0)
-    {
+    if (!as || size == 0) {
         return false;
     }
 
-    // During identity-map bring-up, TTBR0 PA is directly addressable (MMU off / identity).
-    uint32_t *l1_table = (uint32_t *)PA_TO_VA(as->ttbr0_pa);
-
-    for (uintptr_t offset = 0; offset < size; offset += 0x100000)
+    // Bring-up policy: sections only.
+    if ((va % SECTION_SIZE) == 0 || (pa % SECTION_SIZE) == 0 || (size % SECTION_SIZE) == 0)
     {
-        uintptr_t curr_va = va + offset;
-        uintptr_t curr_pa = pa + offset;
+        // During identity-map bring-up, TTBR0 PA is directly addressable (MMU off / identity).
+        uint32_t *l1_table = (uint32_t *)PA_TO_VA(as->ttbr0_pa);
 
-        // Base section descriptor: section type (bits[1:0] = 0b10)
-        uint32_t entry = (uint32_t)(curr_pa & 0xFFF00000) | 0x2;
-
-        // Domain = 0 (bits[8:5] left as 0)
-
-        // Bring-up permissions: AP[1:0] = 0b11 (full access)
-        entry |= (0x3u << 10);
-
-        // Memory attributes (short-descriptor section): TEX[14:12], C[3], B[2]
-        // For bring-up we keep NORMAL memory non-cacheable and DEVICE memory as device.
-        if (memtype == VM_MEM_DEVICE)
+        for (uintptr_t offset = 0; offset < size; offset += SECTION_SIZE)
         {
-            // Device: TEX=0, C=0, B=1
-            entry |= (1u << 2);
-        }
-        else
-        {
-           // Enable Write-Back, Write-Allocate Caching
-            // TEX=001 (bit 12), C=1 (bit 3), B=1 (bit 2)
-            entry |= (1u << 12) | (1u << 3) | (1u << 2);
+            uintptr_t curr_va = va + offset;
+            uintptr_t curr_pa = pa + offset;
+
+            // Base section descriptor: section type (bits[1:0] = 0b10)
+            uint32_t entry = (uint32_t)(curr_pa & ALIGNMENT_1MB_MASK) | L1_MASK;
+
+            // Domain = 0 (bits[8:5] left as 0)
+
+            // Bring-up permissions: AP[1:0] = 0b11 (full access)
+            entry |= (0x3u << 10);
+
+            // Memory attributes (short-descriptor section): TEX[14:12], C[3], B[2]
+            // For bring-up we keep NORMAL memory non-cacheable and DEVICE memory as device.
+            if (memtype == VM_MEM_DEVICE)
+            {
+                // Device: TEX=0, C=0, B=1
+                entry |= (1u << 2);
+            }
+            else
+            {
+            // Enable Write-Back, Write-Allocate Caching
+                // TEX=001 (bit 12), C=1 (bit 3), B=1 (bit 2)
+                entry |= (1u << 12) | (1u << 3) | (1u << 2);
+            }
+
+            size_t idx = (curr_va >> 20) & 0xFFF;
+            l1_table[idx] = entry;
         }
 
-        size_t idx = (curr_va >> 20) & 0xFFF;
-        l1_table[idx] = entry;
+        return true;
+    } else if ((va % PAGE_SIZE == 0) && (pa % PAGE_SIZE == 0) && (size % PAGE_SIZE == 0)) {
+        // Loop over each page
+        for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE)
+        {
+            if (!arch_mmu_map_page(as, va + offset, pa + offset, memtype)) {
+            // Unmap everything that was mapped so far
+            for (uintptr_t rollback = 0; rollback < offset; rollback += PAGE_SIZE) {
+                arch_mmu_unmap_page(as, va + rollback);
+            }
+            return false;
+            }
+        }
+
+        return true;
+    } else {
+        return false; // couldn't map 
     }
-
-    return true;
 }
 
 bool arch_mmu_unmap(addrspace_t *as, uintptr_t va, size_t size)
 {
-    // Bring-up policy: sections only.
-    if (!as || size == 0 || (va % 0x100000) != 0 || (size % 0x100000) != 0)
+    if (!as || size == 0) {
+        return false;
+    }
+
+    bool unmapped_any = false;
+
+    // Section-aligned: use sections
+    if ((va % SECTION_SIZE) == 0 && (size % SECTION_SIZE) == 0)
+    {
+        uint32_t *l1_table = (uint32_t *)PA_TO_VA(as->ttbr0_pa);
+
+        for (uintptr_t offset = 0; offset < size; offset += SECTION_SIZE)
+        {
+            uintptr_t curr_va = va + offset;
+            size_t idx = (curr_va >> 20) & 0xFFF;
+
+            if (l1_table[idx] != 0)
+            {
+                l1_table[idx] = 0;
+                unmapped_any = true;
+            }
+        }
+    }
+    // Page-aligned: use pages
+    else if ((va % PAGE_SIZE) == 0 && (size % PAGE_SIZE) == 0)
+    {
+        for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE)
+        {
+            if (arch_mmu_unmap_page(as, va + offset)) {
+                unmapped_any = true;
+            }
+        }
+    }
+    else
     {
         return false;
     }
 
-    // During identity-map bring-up, TTBR0 PA is directly addressable (MMU off / identity).
-    uint32_t *l1_table = (uint32_t *)PA_TO_VA(as->ttbr0_pa);
-
-    bool unmapped_any = false;
-    for (uintptr_t offset = 0; offset < size; offset += 0x100000)
-    {
-        uintptr_t curr_va = va + offset;
-        size_t idx = (curr_va >> 20) & 0xFFF;
-
-        if (l1_table[idx] != 0)
-        {
-            l1_table[idx] = 0; // fault
-            unmapped_any = true;
-        }
-    }
-
-    // Conservative bring-up behavior: flush the entire TLB if anything changed.
     if (unmapped_any)
     {
         arch_mmu_flush_tlb();
@@ -125,7 +167,7 @@ bool arch_mmu_protect(addrspace_t *as, uintptr_t va, size_t size, vm_prot_t prot
     (void)prot;
 
     // Bring-up policy: sections only. Permissions are currently permissive.
-    if (!as || size == 0 || (va % 0x100000) != 0 || (size % 0x100000) != 0)
+    if (!as || size == 0 || (va % SECTION_SIZE) != 0 || (size % SECTION_SIZE) != 0)
     {
         return false;
     }
@@ -135,7 +177,7 @@ bool arch_mmu_protect(addrspace_t *as, uintptr_t va, size_t size, vm_prot_t prot
     uint32_t *l1_table = (uint32_t *)PA_TO_VA(as->ttbr0_pa);
     bool found_any = false;
 
-    for (uintptr_t offset = 0; offset < size; offset += 0x100000)
+    for (uintptr_t offset = 0; offset < size; offset += SECTION_SIZE)
     {
         uintptr_t curr_va = va + offset;
         size_t idx = (curr_va >> 20) & 0xFFF;
@@ -233,16 +275,116 @@ uintptr_t arch_mmu_translate(uintptr_t ttbr0_pa, uintptr_t va)
     // Section-only translation (L1 short-descriptor)
     uint32_t *l1_table = (uint32_t *)PA_TO_VA(ttbr0_pa);
     size_t idx = (va >> 20) & 0xFFF;
-    uint32_t desc = l1_table[idx];
+    uint32_t l1_entry = l1_table[idx];
+    uint32_t type = l1_entry & 0x3;
 
-    // If not a section descriptor, treat as unmapped for bring-up.
-    if ((desc & 0x3u) != 0x2u)
-    {
+    if (type == 0) {
+        // Fault - unmapped
         return 0;
     }
+    else if (type == 2 || type == 3) {
+        // Section - your existing code
+        uintptr_t section_base = (uintptr_t)(l1_entry & 0xFFF00000u);
+        return section_base | (va & 0xFFFFFu);
+    }
+    else if (type == 1) {
+        uint32_t l2_table_pa = l1_entry & 0xFFFFFC00;
+        uint32_t *l2 = (uint32_t *)PA_TO_VA(l2_table_pa);
+        uint32_t l2_idx = (va >> 12) & 0xFF;
+        uint32_t l2_entry = l2[l2_idx];
+        
+        if (!(l2_entry & 0x2)) {
+            return 0;  // not a valid small page
+        }
+        
+        uint32_t page_pa = l2_entry & ALIGNMENT_4KB_MASK;
+        return page_pa | (va & 0xFFF);
+    }
+    return 0;
+}
 
-    uintptr_t section_base = (uintptr_t)(desc & 0xFFF00000u);
-    return section_base | (va & 0xFFFFFu);
+uintptr_t arch_mmu_alloc_l2_table(void) {
+    uintptr_t new_page = pmm_alloc_page();
+    if (!new_page) return 0;
+    memset((void *)PA_TO_VA(new_page), 0, 4096);
+    return (uintptr_t)new_page;
+}
+
+uint32_t arch_mmu_make_l1_pte(uintptr_t l2_pa) {
+    if (!l2_pa) return 0;
+    return (uint32_t)(l2_pa & ALIGNMENT_1KB_MASK) | L2_MASK; // L2 mask
+}
+
+uint32_t arch_mmu_make_l2_pte(uintptr_t pa, vm_memtype_t memtype) {
+    // 1. Start with PA masked for 4KB alignment, plus type bits
+    uint32_t entry = (pa & ALIGNMENT_4KB_MASK) | 0x2;
+    // 2. Add AP bits for full access (same value 0x3, but different position)
+    entry |= (3u << 4);
+    // 3. Add memory type bits (TEX/C/B)
+    if (memtype == VM_MEM_DEVICE) {
+        entry |= (1u << 2);                           // B=1 only → Device
+    } else {
+        entry |= (1u << 6) | (1u << 3) | (1u << 2);  // TEX=001, C=1, B=1 → Normal cached
+    }
+    return entry;
+}
+
+
+
+bool arch_mmu_map_page(addrspace_t *as, uintptr_t va, uintptr_t pa,
+                       vm_memtype_t memtype) {
+    uint32_t *l1 = (uint32_t *)PA_TO_VA(as->ttbr0_pa);
+    
+    uint32_t l1_idx = (va >> 20) & 0xFFF;   // bits [31:20] → index 0-4095
+    uint32_t l2_idx = (va >> 12) & 0xFF;    // bits [19:12] → index 0-255
+    
+    uint32_t l1_entry = l1[l1_idx];
+    uint32_t type = l1_entry & 0x3;
+    
+    uint32_t *l2;
+    
+    if (type == 0) {
+        uintptr_t l2_pa = arch_mmu_alloc_l2_table();
+        if (!l2_pa) return false;  // allocation failed
+        
+        l1[l1_idx] = arch_mmu_make_l1_pte(l2_pa);
+        l2 = (uint32_t *)PA_TO_VA(l2_pa);
+    } else if (type == 1) {
+        uint32_t l2_table_pa = l1_entry & 0xFFFFFC00;
+        l2 = (uint32_t *)PA_TO_VA(l2_table_pa);
+    } else {
+        // It's a section - can't mix!
+        return false;
+    }
+    
+    // Now install the page entry
+    l2[l2_idx] = arch_mmu_make_l2_pte(pa, memtype);
+    return true;
+}
+
+bool arch_mmu_unmap_page(addrspace_t *as, uintptr_t va) {
+    uint32_t *l1 = (uint32_t *)PA_TO_VA(as->ttbr0_pa);
+    
+    uint32_t l1_idx = (va >> 20) & 0xFFF;   // bits [31:20] → index 0-4095
+    uint32_t l2_idx = (va >> 12) & 0xFF;    // bits [19:12] → index 0-255
+    
+    uint32_t l1_entry = l1[l1_idx];
+    uint32_t type = l1_entry & 0x3;
+
+    uint32_t *l2;
+    
+    if (type == 1) {
+        uint32_t l2_table_pa = l1_entry & 0xFFFFFC00;
+        l2 = (uint32_t *)PA_TO_VA(l2_table_pa);
+    } else {
+        return false;  // Not a page table, can't unmap page
+    }
+
+    if (l2[l2_idx] == 0) {
+        return false;  // wasn't mapped
+    }
+    l2[l2_idx] = 0;
+    return true;
 }
 
 void arch_mmu_barrier(void)
@@ -251,3 +393,4 @@ void arch_mmu_barrier(void)
     __asm__ volatile("dsb sy" ::: "memory");
     __asm__ volatile("isb" ::: "memory");
 }
+

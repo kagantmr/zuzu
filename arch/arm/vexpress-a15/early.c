@@ -35,8 +35,7 @@ extern addrspace_t *g_kernel_as;
  *   - Each entry maps 1MB section
  *   - Must be 16KB aligned
  * ============================================================================= */
-__attribute__((section(".bss.boot"), aligned(16384)))
-static uint32_t early_l1[4096];
+__attribute__((section(".bss.boot"), aligned(16384))) static uint32_t early_l1[4096];
 
 /* =============================================================================
  * ARMv7 Short-Descriptor L1 Section Entry Format
@@ -58,45 +57,45 @@ static uint32_t early_l1[4096];
  * ============================================================================= */
 
 /* Section descriptor type */
-#define L1_TYPE_SECTION     0x2
+#define L1_TYPE_SECTION 0x2
 
 /* Access permissions: AP[2:0] = 0b011 = full access (privileged R/W, user R/W) */
-#define L1_AP_FULL_ACCESS   ((0 << 15) | (3 << 10))  /* AP[2]=0, AP[1:0]=11 */
+#define L1_AP_FULL_ACCESS ((0 << 15) | (3 << 10)) /* AP[2]=0, AP[1:0]=11 */
 
 /* Memory attributes for normal memory (cacheable, write-back, write-allocate) */
 /* TEX=001, C=1, B=1 -> Outer and Inner Write-Back, Write-Allocate */
-#define L1_MEM_NORMAL       ((1 << 12) | (1 << 3) | (1 << 2))  /* TEX=001, C=1, B=1 */
+#define L1_MEM_NORMAL ((1 << 12) | (1 << 3) | (1 << 2)) /* TEX=001, C=1, B=1 */
 
 /* Memory attributes for device memory (strongly ordered / device) */
 /* TEX=000, C=0, B=1 -> Shared Device memory */
-#define L1_MEM_DEVICE       ((0 << 12) | (0 << 3) | (1 << 2))  /* TEX=000, C=0, B=1 */
+#define L1_MEM_DEVICE ((0 << 12) | (0 << 3) | (1 << 2)) /* TEX=000, C=0, B=1 */
 
 /* Shareable bit */
-#define L1_SHAREABLE        (1 << 16)
+#define L1_SHAREABLE (1 << 16)
 
 /* Execute Never bit */
-#define L1_XN               (1 << 4)
+#define L1_XN (1 << 4)
 
 /* Domain 0 */
-#define L1_DOMAIN_0         (0 << 5)
+#define L1_DOMAIN_0 (0 << 5)
 
 /* Build a section entry for normal memory (cacheable, executable) */
-#define SECTION_NORMAL(pa)  \
+#define SECTION_NORMAL(pa)                                       \
     (((pa) & 0xFFF00000) | L1_TYPE_SECTION | L1_AP_FULL_ACCESS | \
      L1_MEM_NORMAL | L1_SHAREABLE | L1_DOMAIN_0)
 
 /* Build a section entry for device memory (non-cacheable, non-executable) */
-#define SECTION_DEVICE(pa)  \
+#define SECTION_DEVICE(pa)                                       \
     (((pa) & 0xFFF00000) | L1_TYPE_SECTION | L1_AP_FULL_ACCESS | \
      L1_MEM_DEVICE | L1_SHAREABLE | L1_XN | L1_DOMAIN_0)
 
 /* Memory layout constants */
-#define RAM_PA_BASE         0x80000000
-#define RAM_VA_BASE         0xC0000000
-#define RAM_SIZE_MB         256         /* Map 256MB of RAM */
+#define RAM_PA_BASE 0x80000000
+#define RAM_VA_BASE 0xC0000000
+#define RAM_SIZE_MB 256 /* Map 256MB of RAM */
 
-#define MMIO_BASE           0x1C000000
-#define MMIO_END            0x20000000  /* 64MB MMIO window */
+#define MMIO_BASE 0x1C000000
+#define MMIO_END 0x20000000 /* 64MB MMIO window */
 
 /**
  * @brief Early boot page table initialization (runs before MMU)
@@ -112,12 +111,14 @@ static uint32_t early_l1[4096];
  * NOTE: This function is placed in .text.boot and runs at physical addresses
  */
 __attribute__((section(".text.boot")))
-uintptr_t early_paging_init(uintptr_t dtb_phys)
+uintptr_t
+early_paging_init(uintptr_t dtb_phys)
 {
-    (void)dtb_phys;  /* Reserved for future DTB-based memory detection */
+    (void)dtb_phys; /* Reserved for future DTB-based memory detection */
 
     /* Zero the entire L1 table (4096 entries) */
-    for (int i = 0; i < 4096; i++) {
+    for (int i = 0; i < 4096; i++)
+    {
         early_l1[i] = 0;
     }
 
@@ -127,8 +128,9 @@ uintptr_t early_paging_init(uintptr_t dtb_phys)
      *
      * L1 index = VA[31:20], so 0x800 = index 2048
      */
-    for (unsigned int i = 0; i < RAM_SIZE_MB; i++) {
-        uintptr_t pa = RAM_PA_BASE + (i << 20);  /* 1MB sections */
+    for (unsigned int i = 0; i < RAM_SIZE_MB; i++)
+    {
+        uintptr_t pa = RAM_PA_BASE + (i << 20); /* 1MB sections */
         unsigned int idx = (RAM_PA_BASE >> 20) + i;
         early_l1[idx] = SECTION_NORMAL(pa);
     }
@@ -139,7 +141,8 @@ uintptr_t early_paging_init(uintptr_t dtb_phys)
      *
      * L1 index for 0xC0000000 = 0xC00 = 3072
      */
-    for (unsigned int i = 0; i < RAM_SIZE_MB; i++) {
+    for (unsigned int i = 0; i < RAM_SIZE_MB; i++)
+    {
         uintptr_t pa = RAM_PA_BASE + (i << 20);
         unsigned int idx = (RAM_VA_BASE >> 20) + i;
         early_l1[idx] = SECTION_NORMAL(pa);
@@ -151,8 +154,9 @@ uintptr_t early_paging_init(uintptr_t dtb_phys)
      *
      * L1 index for 0x1C000000 = 0x1C0 = 448
      */
-    unsigned int mmio_sections = (MMIO_END - MMIO_BASE) >> 20;  /* 64 sections */
-    for (unsigned int i = 0; i < mmio_sections; i++) {
+    unsigned int mmio_sections = (MMIO_END - MMIO_BASE) >> 20; /* 64 sections */
+    for (unsigned int i = 0; i < mmio_sections; i++)
+    {
         uintptr_t pa = MMIO_BASE + (i << 20);
         unsigned int idx = (MMIO_BASE >> 20) + i;
         early_l1[idx] = SECTION_DEVICE(pa);
@@ -173,13 +177,12 @@ _Noreturn void early(void *dtb_ptr)
 
     // Parse DTB and extract memory info
     dtb_init(dtb_ptr);
-// Set up hardcoded emergency console
-    #if defined(EARLY_UART)
-        uart_set_driver(&pl011_driver, VEXPRESS_SMB_BASE + VEXPRESS_UART0_OFF);
-        kprintf_init(uart_putc);
-        KINFO("Early UART initialized");
-    #endif
-
+    // Set up hardcoded emergency console
+#if defined(EARLY_UART)
+    uart_set_driver(&pl011_driver, VEXPRESS_SMB_BASE + VEXPRESS_UART0_OFF);
+    kprintf_init(uart_putc);
+    KINFO("Early UART initialized");
+#endif
 
     // Fill kernel_layout from linker symbols + DTB
     // NOTE: PMM works with PHYSICAL addresses, so use _kernel_phys_* symbols
@@ -198,7 +201,6 @@ _Noreturn void early(void *dtb_ptr)
     phys_region.start = (uintptr_t)ram_base;
     phys_region.end = (uintptr_t)(ram_base + ram_size);
 
-    
     //__asm__ volatile(".word 0xffffffff");
 
     // Initialize subsystems (in dependency order)

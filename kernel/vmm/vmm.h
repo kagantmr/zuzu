@@ -15,6 +15,8 @@
 #define PA_TO_VA(pa)  ((uintptr_t)(pa) + KERNEL_VA_OFFSET)
 #define VA_TO_PA(va)  ((uintptr_t)(va) - KERNEL_VA_OFFSET)
 
+
+
 typedef enum {
     VM_PROT_NONE  = 0,
     VM_PROT_READ  = 1u << 0,

@@ -3,6 +3,8 @@
 #include "arch/arm/include/gicv2.h"
 #include "arch/arm/timer/generic_timer.h"
 
+#include "arch/arm/mmu/mmu.h"
+
 #include "drivers/uart/uart.h"
 #include "drivers/uart/pl011.h"
 #include "drivers/timer/sp804.h"
@@ -59,12 +61,11 @@ void test_process_b(void) {
 _Noreturn void kmain(void)
 {
 
-    // === CRITICAL: Complete VMM transition first ===
     // This removes identity mapping and relocates ALL mode stacks to higher-half.
     // Must happen before ANY other code runs in kmain.
     //
-    // NOTE: Interrupts should already be disabled from early boot,
-    // but we disable them explicitly here for safety since we're
+    // Interrupts should already be disabled from early boot,
+    // but disable them explicitly here for safety since we're
     // modifying IRQ/ABT/UND mode stack pointers.
     __asm__ volatile("cpsid if"); // Disable IRQ and FIQ
 
@@ -217,6 +218,8 @@ _Noreturn void kmain(void)
 
     KINFO("Booting...");
 
+    test_l2_pages();
+
     // data abort test (page fault)
     // volatile uint32_t *bad = (volatile uint32_t *)0xDEADBEEF;
     //*bad = 42;
@@ -224,7 +227,7 @@ _Noreturn void kmain(void)
     print_boot_banner();
 
     // trigger SVC to verify exception handling
-    // __asm__ volatile("svc #0");
+    //__asm__ volatile("svc #0");
 
     sched_init();
 
