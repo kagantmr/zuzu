@@ -1,9 +1,10 @@
 #include "sched.h"
 #include "lib/list.h"
 #include "core/log.h"
+#include "kernel/vmm/vmm.h"
 
 static list_head_t run_queue = LIST_HEAD_INIT(run_queue); 
-static process_t *current_process;
+process_t *current_process;
 
 void sched_init() {
     list_init(&run_queue);
@@ -35,5 +36,8 @@ void schedule() {
 
     // Context switch to the new process (not implemented here)
     KINFO("schedule: prev=%p next=%p", prev, current_process);
+    if (current_process->as && (!prev || prev->as != current_process->as)) {
+        vmm_activate(current_process->as);
+    }
     context_switch(prev, current_process);  // need to save prev first!
 }

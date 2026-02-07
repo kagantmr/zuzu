@@ -26,8 +26,7 @@ uintptr_t arch_mmu_create_tables(void)
     kassert((l1_pa & (l1_align - 1)) == 0);
 
     // If MMU is off or identity mapping exists for this region, this is OK.
-    // Prefer phys_to_virt(l1_pa) long-term.
-    memset((void *)l1_pa, 0, l1_bytes);
+    memset((void *)PA_TO_VA(l1_pa), 0, l1_bytes);  // ← goes through kernel mapping
 
     return l1_pa;
 }
@@ -41,6 +40,17 @@ void arch_mmu_free_tables(uintptr_t ttbr0_pa)
 
     // L1 table is exactly 4 contiguous pages allocated via alloc_pages(4)
     // alloc_pages() returns a PHYSICAL address
+
+    uint32_t *l1 = (uint32_t *)PA_TO_VA(ttbr0_pa);
+
+    for (size_t page_no = 0; page_no < 2048; page_no++)
+    {
+        if ((l1[page_no] & 0x3) == 0x1) {  // if L2 page table
+            uint32_t l2_table_pa = l1[page_no] & 0xFFFFFC00;
+            pmm_free_page(l2_table_pa);
+        }
+    }
+
     for (size_t i = 0; i < 4; i++)
     {
         pmm_free_page(ttbr0_pa + i * PAGE_SIZE);
@@ -50,14 +60,13 @@ void arch_mmu_free_tables(uintptr_t ttbr0_pa)
 bool arch_mmu_map(addrspace_t *as, uintptr_t va, uintptr_t pa, size_t size,
                   vm_prot_t prot, vm_memtype_t memtype)
 {
-    (void)prot;
 
     if (!as || size == 0) {
         return false;
     }
 
     // Bring-up policy: sections only.
-    if ((va % SECTION_SIZE) == 0 || (pa % SECTION_SIZE) == 0 || (size % SECTION_SIZE) == 0)
+    if ((va % SECTION_SIZE) == 0 && (pa % SECTION_SIZE) == 0 && (size % SECTION_SIZE) == 0)
     {
         // During identity-map bring-up, TTBR0 PA is directly addressable (MMU off / identity).
         uint32_t *l1_table = (uint32_t *)PA_TO_VA(as->ttbr0_pa);
@@ -98,7 +107,7 @@ bool arch_mmu_map(addrspace_t *as, uintptr_t va, uintptr_t pa, size_t size,
         // Loop over each page
         for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE)
         {
-            if (!arch_mmu_map_page(as, va + offset, pa + offset, memtype)) {
+            if (!arch_mmu_map_page(as, va + offset, pa + offset, memtype, prot)) {
             // Unmap everything that was mapped so far
             for (uintptr_t rollback = 0; rollback < offset; rollback += PAGE_SIZE) {
                 arch_mmu_unmap_page(as, va + rollback);
@@ -315,11 +324,16 @@ uint32_t arch_mmu_make_l1_pte(uintptr_t l2_pa) {
     return (uint32_t)(l2_pa & ALIGNMENT_1KB_MASK) | L2_MASK; // L2 mask
 }
 
-uint32_t arch_mmu_make_l2_pte(uintptr_t pa, vm_memtype_t memtype) {
-    // 1. Start with PA masked for 4KB alignment, plus type bits
+uint32_t arch_mmu_make_l2_pte(uintptr_t pa, vm_memtype_t memtype, vm_prot_t prot) {
+    // Start with PA masked for 4KB alignment, plus type bits
     uint32_t entry = (pa & ALIGNMENT_4KB_MASK) | 0x2;
-    // 2. Add AP bits for full access (same value 0x3, but different position)
-    entry |= (3u << 4);
+    // Set AP bits depending on who's demanding the page (11 means everyone can access, 01 means privileged)
+    if (prot & VM_PROT_USER) {
+        entry |= (3u << 4);
+    } else {
+        entry |= (1u << 4);
+    }
+   
     // 3. Add memory type bits (TEX/C/B)
     if (memtype == VM_MEM_DEVICE) {
         entry |= (1u << 2);                           // B=1 only → Device
@@ -332,7 +346,7 @@ uint32_t arch_mmu_make_l2_pte(uintptr_t pa, vm_memtype_t memtype) {
 
 
 bool arch_mmu_map_page(addrspace_t *as, uintptr_t va, uintptr_t pa,
-                       vm_memtype_t memtype) {
+                       vm_memtype_t memtype, vm_prot_t prot) {
     uint32_t *l1 = (uint32_t *)PA_TO_VA(as->ttbr0_pa);
     
     uint32_t l1_idx = (va >> 20) & 0xFFF;   // bits [31:20] → index 0-4095
@@ -358,7 +372,7 @@ bool arch_mmu_map_page(addrspace_t *as, uintptr_t va, uintptr_t pa,
     }
     
     // Now install the page entry
-    l2[l2_idx] = arch_mmu_make_l2_pte(pa, memtype);
+    l2[l2_idx] = arch_mmu_make_l2_pte(pa, memtype, prot);
     return true;
 }
 
@@ -385,6 +399,17 @@ bool arch_mmu_unmap_page(addrspace_t *as, uintptr_t va) {
     }
     l2[l2_idx] = 0;
     return true;
+}
+
+void arch_mmu_init_ttbr1(addrspace_t *as) {
+    __asm__ volatile("mcr p15, 0, %0, c2, c0, 1" ::"r"((uint32_t)as->ttbr0_pa) : "memory"); // write ttbr0 to ttbr1, final operand 1 because we're writing to ttbr1
+    uint32_t ttbcr;
+    __asm__ volatile("mrc p15, 0, %0, c2, c0, 2" : "=r"(ttbcr) :: "memory"); // get TTBCR (translation table base control register)
+    ttbcr &= 0xFFFFFFE0; // clear last 5 bits 
+    ttbcr |= 0x1; // write 00001 (set N=1, split at split at 0x80000000, clear PD0 and PD1)
+    __asm__ volatile("mcr p15, 0, %0, c2, c0, 2" :: "r"(ttbcr) : "memory"); // set
+    arch_mmu_flush_tlb(); // flush tlb so it doesnt corrupt shit
+    arch_mmu_barrier(); // make sure it goes through or whatever man
 }
 
 void arch_mmu_barrier(void)

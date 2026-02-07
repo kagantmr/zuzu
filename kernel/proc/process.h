@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "lib/list.h"
+#include "kernel/vmm/vmm.h"
 
 typedef enum process_state {
     PROCESS_READY = 0,
@@ -15,8 +16,8 @@ typedef struct process {
     uint32_t pid, parent_pid;
     p_state_t process_state;
     uint32_t *kernel_sp;
-    uint32_t ttbr0;
     uint32_t priority, time_slice, ticks_remaining;
+    addrspace_t *as;
     list_node_t node;  // fixed: embedded, not pointers
 } process_t;
 
@@ -25,7 +26,7 @@ typedef struct cpu_context {
     uint32_t lr;   // return address (or entry point for new process)
 } cpu_context_t;
 
-process_t *process_create(void (*entry)(void));
+process_t *process_create(void (*entry)(void), uint32_t magic);
 void process_destroy(process_t *process);
 void process_print(const process_t *process);
 

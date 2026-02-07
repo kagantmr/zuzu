@@ -126,9 +126,11 @@ uintptr_t arch_mmu_translate(uintptr_t ttbr0_pa, uintptr_t va);
 
 uintptr_t arch_mmu_alloc_l2_table(void);
 uint32_t arch_mmu_make_l1_pte(uintptr_t l2_pa);
-uint32_t arch_mmu_make_l2_pte(uintptr_t pa, vm_memtype_t memtype);
-bool arch_mmu_map_page(addrspace_t *as, uintptr_t va, uintptr_t pa, vm_memtype_t memtype);
+uint32_t arch_mmu_make_l2_pte(uintptr_t pa, vm_memtype_t memtype, vm_prot_t prot);
+bool arch_mmu_map_page(addrspace_t *as, uintptr_t va, uintptr_t pa, vm_memtype_t memtype, vm_prot_t prot);
 bool arch_mmu_unmap_page(addrspace_t *as, uintptr_t va);
+
+void arch_mmu_init_ttbr1(addrspace_t *as);
 
 /**
  * @brief Issue memory barriers (ISB, DSB).
