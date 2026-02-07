@@ -19,7 +19,9 @@ static bool g_mmu_enabled = false;
 extern phys_region_t phys_region;
 extern kernel_layout_t kernel_layout;
 
-
+addrspace_t* vmm_get_kernel_as(void) {
+    return g_kernel_as;
+}
 
 // Bitmap: 256 bits = 8 x uint32_t
 static uint32_t ioremap_bitmap[8];  // Bit N = slot N allocated
@@ -378,15 +380,13 @@ bool vmm_map_range(addrspace_t* as, uintptr_t va, uintptr_t pa, size_t size,
                    vm_prot_t prot, vm_memtype_t memtype, vm_owner_t owner, vm_flags_t flags) {
     if (!as) return false;
     if (size == 0) return false;
-    if ((va % 0x100000) != 0) return false;
-    if ((pa % 0x100000) != 0) return false;
-    if ((size % 0x100000) != 0) return false;
+    if ((va % 0x1000) != 0) return false;
+    if ((pa % 0x1000) != 0) return false;
 
     (void)owner;  
     (void)flags;  
 
     // Delegate to arch layer (handles ownership and flags at the architecture level)
-    // Note: arch_mmu_map takes a range, not individual pages
     return arch_mmu_map(as, va, pa, size, prot, memtype);
 }
 

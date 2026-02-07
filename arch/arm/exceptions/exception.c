@@ -2,6 +2,8 @@
 #include "arch/arm/include/irq.h"
 #include "core/log.h"
 #include "core/panic.h"
+#include "kernel/proc/process.h"
+#include "kernel/sched/sched.h"
 #include <stdint.h>
 
 typedef enum exception_type {
@@ -74,6 +76,8 @@ static void dump_registers(exception_frame_t *frame) {
     kprintf("\033[0m");  // Reset
 }
 
+extern process_t *current_process;
+
 void exception_dispatch(exception_type exctype, exception_frame_t *frame) {
     switch (exctype) {
         case EXC_UNDEF: {
@@ -114,6 +118,8 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame) {
             uint32_t dfar, dfsr;
             __asm__ volatile("mrc p15, 0, %0, c6, c0, 0" : "=r"(dfar));
             __asm__ volatile("mrc p15, 0, %0, c5, c0, 0" : "=r"(dfsr));
+
+
             
             KERROR("=== DATA ABORT ===");
             KERROR("DFAR: 0x%08x  DFSR: 0x%08x", dfar, dfsr);
@@ -122,10 +128,18 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame) {
                    (dfsr & (1 << 11)) ? "Write" : "Read",
                    (dfsr & (1 << 12)) ? "External" : "Internal");
             KERROR("Domain: %u", (dfsr >> 4) & 0xF);
-            KERROR("PC: 0x%08x (instruction that caused abort)", frame->fault_pc);
-            
-            dump_registers(frame);
-            panic();
+
+            if (current_process) { // todo: remove when userland arrives
+                KERROR("Process with ID %d failed at 0x%08x", current_process->pid,frame->fault_pc);
+                current_process->process_state = PROCESS_ZOMBIE;
+                current_process = NULL; // remove C
+                schedule();
+
+            } else {
+                KERROR("PC: 0x%08x (instruction that caused abort)", frame->fault_pc);
+                dump_registers(frame);
+                panic();
+            }
         }
         break;
         

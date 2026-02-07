@@ -71,6 +71,7 @@ typedef struct addrspace {
     size_t          region_count;
     //uint32_t         lock;      // placeholder until concurrency is added
     addrspace_type_t type;
+    uint8_t          asid;
 } addrspace_t;
 
 
@@ -83,6 +84,7 @@ typedef struct addrspace {
 // Mapping table: track active mappings for iounmap lookup
 #define IOREMAP_MAX_ENTRIES 64
 
+addrspace_t* vmm_get_kernel_as(void);
 
 /**
  * @brief Create a new address space.

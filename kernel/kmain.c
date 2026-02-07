@@ -45,16 +45,28 @@ static inline uint32_t read_be32(const void *p)
 void test_process_a(void) {
     arch_global_irq_enable();
     while (1) {
-        KINFO("Process A");
-        for (volatile int i = 0; i < 1000000; i++);  // delay
+        uint32_t val = *(volatile uint32_t *)0x10000;
+        KINFO("Process A: read 0x%08x (expect 0xDEADBEEF)", val);
+        for (volatile int i = 0; i < 1000000; i++);
     }
 }
 
 void test_process_b(void) {
     arch_global_irq_enable();
     while (1) {
-        KINFO("Process B");
+        uint32_t val = *(volatile uint32_t *)0x10000;
+        KINFO("Process B: read 0x%08x (expect 0xCAFEBABE)", val);
+        for (volatile int i = 0; i < 1000000; i++);
+    }
+}
+
+void test_process_c(void) {
+    arch_global_irq_enable();
+    while (1) {
+        KINFO("Process C");
         for (volatile int i = 0; i < 1000000; i++);  // delay
+        volatile uint32_t junk = *(volatile uint32_t *)0x20000000;
+        (void)junk;
     }
 }
 
@@ -96,6 +108,8 @@ _Noreturn void kmain(void)
     kernel_layout.dtb_start_va = new_dtb;
 
     vmm_remove_identity_mapping();
+
+    arch_mmu_init_ttbr1(vmm_get_kernel_as());
 
     // Ensure heap VA companions are populated for logging and dereferencing.
     // Some early bring-up paths may only have heap_*_pa set.
@@ -218,7 +232,6 @@ _Noreturn void kmain(void)
 
     KINFO("Booting...");
 
-    test_l2_pages();
 
     // data abort test (page fault)
     // volatile uint32_t *bad = (volatile uint32_t *)0xDEADBEEF;
@@ -231,11 +244,14 @@ _Noreturn void kmain(void)
 
     sched_init();
 
-    process_t *a = process_create(test_process_a);
-    process_t *b = process_create(test_process_b);
+    process_t *a = process_create(test_process_a, 0xDEADBEEF);
+    process_t *b = process_create(test_process_b, 0xCAFEBABE);
+    process_t *c = process_create(test_process_c, 0x02342425);
 
     sched_add(a);
     sched_add(b);
+    sched_add(c);
+
 
     register_tick_callback(schedule);
 
