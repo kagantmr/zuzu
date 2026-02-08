@@ -66,13 +66,13 @@ static void dump_registers(exception_frame_t *frame) {
     kprintf("  r8=%08x  r9=%08x r10=%08x r11=%08x\n",
             frame->r[8], frame->r[9], frame->r[10], frame->r[11]);
     kprintf(" r12=%08x  sp=????????  lr=%08x  pc=%08x\n",
-            frame->r[12], frame->exc_lr, frame->fault_pc);
+            frame->r[12], frame->lr, frame->return_pc);
     kprintf("spsr=%08x [%s mode, %s%s%s]\n",
-            frame->spsr,
-            decode_mode(frame->spsr),
-            (frame->spsr & (1 << 7)) ? "I" : "i",
-            (frame->spsr & (1 << 6)) ? "F" : "f",
-            (frame->spsr & (1 << 5)) ? " Thumb" : "");
+            frame->return_cpsr,
+            decode_mode(frame->return_cpsr),
+            (frame->return_cpsr & (1 << 7)) ? "I" : "i",
+            (frame->return_cpsr & (1 << 6)) ? "F" : "f",
+            (frame->return_cpsr & (1 << 5)) ? " Thumb" : "");
     kprintf("\033[0m");  // Reset
 }
 
@@ -82,18 +82,23 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame) {
     switch (exctype) {
         case EXC_UNDEF: {
             KERROR("=== UNDEFINED INSTRUCTION ===");
-            KERROR("PC: 0x%08x", frame->fault_pc);
             
-            // Try to show the faulting instruction
-            
-            dump_registers(frame);
-            panic();
+            if (current_process) { // todo: remove when userland arrives
+                KERROR("Process with ID %d failed at 0x%08x", current_process->pid,frame->return_pc);
+                current_process->process_state = PROCESS_ZOMBIE;
+                current_process = NULL; // remove C
+                schedule();
+            } else {
+                KERROR("PC: 0x%08x (instruction that caused abort)", frame->return_pc);
+                dump_registers(frame);
+                panic();
+            }
         }
         break;
         
         case EXC_SVC: {
             // Extract SVC number from instruction
-            uint32_t *svc_instr = (uint32_t *)frame->fault_pc;
+            uint32_t *svc_instr = (uint32_t *)frame->return_pc;
             uint32_t svc_num = *svc_instr & 0x00FFFFFF;
             KWARN("SVC #%u (not implemented)", svc_num);
         }
@@ -107,10 +112,18 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame) {
             KERROR("=== PREFETCH ABORT ===");
             KERROR("IFAR: 0x%08x  IFSR: 0x%08x", ifar, ifsr);
             KERROR("Fault: %s", decode_fault_status(ifsr));
-            KERROR("PC: 0x%08x", frame->fault_pc);
-            
-            dump_registers(frame);
-            panic();
+            KERROR("PC: 0x%08x", frame->return_pc);
+            if (current_process) { // todo: remove when userland arrives
+                KERROR("Process with ID %d failed at 0x%08x", current_process->pid,frame->return_pc);
+                current_process->process_state = PROCESS_ZOMBIE;
+                current_process = NULL; // remove C
+                schedule();
+
+            } else {
+                KERROR("PC: 0x%08x (instruction that caused abort)", frame->return_pc);
+                dump_registers(frame);
+                panic();
+            }
         }
         break;
         
@@ -130,13 +143,13 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame) {
             KERROR("Domain: %u", (dfsr >> 4) & 0xF);
 
             if (current_process) { // todo: remove when userland arrives
-                KERROR("Process with ID %d failed at 0x%08x", current_process->pid,frame->fault_pc);
+                KERROR("Process with ID %d failed at 0x%08x", current_process->pid,frame->return_pc);
                 current_process->process_state = PROCESS_ZOMBIE;
                 current_process = NULL; // remove C
                 schedule();
 
             } else {
-                KERROR("PC: 0x%08x (instruction that caused abort)", frame->fault_pc);
+                KERROR("PC: 0x%08x (instruction that caused abort)", frame->return_pc);
                 dump_registers(frame);
                 panic();
             }
@@ -144,9 +157,9 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame) {
         break;
         
         case EXC_RESERVED: {
-            KERROR("=== RESERVED EXCEPTION ===");
-            dump_registers(frame);
-            panic();
+            KWARN("=== RESERVED EXCEPTION (Unused) ===");
+            //dump_registers(frame);
+            //panic();
         }
         break;
         

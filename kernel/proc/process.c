@@ -5,10 +5,24 @@
 static uint32_t next_pid = 1;
 
 process_t* process_create(void (*entry)(void), const uint32_t magic) {
+    (void) entry;
     process_t* process = kmalloc(sizeof(process_t));
+    process->as = addrspace_create(ADDRSPACE_USER);
     uint32_t* kernel_stack = kmalloc(4096); // Allocate 4KB for kernel stack
 
     uintptr_t stack_top = (uintptr_t)kernel_stack + 4096;
+
+    // write exception frame to the stack
+    stack_top -= 16 * sizeof(uint32_t);    // 16 words
+    uint32_t *exc_frame = (uint32_t *)stack_top;
+    *(exc_frame++) = 0x7FFFF000; // set r0 to new sp
+    for (int i = 0; i < 12; i++) {
+        *(exc_frame++) = 0; // r1-12 = 0  (indices 0-12)
+    }
+    *(exc_frame++) = 0; // lr = 0              (index 13)
+    *(exc_frame++) = 0x10000; // PC = entry point    (index 14)
+    *(exc_frame++) = 0x10; // CPSR = 0x10         (index 15)
+    // write trampoline cpu_context to the stack
 
     // write cpu_context to stack
     stack_top -= sizeof(cpu_context_t);
@@ -21,12 +35,13 @@ process_t* process_create(void (*entry)(void), const uint32_t magic) {
     context->r9 = 0;
     context->r10 = 0;
     context->r11 = 0;
-    context->lr = (uint32_t)entry;
+    context->lr = (uint32_t)process_entry_trampoline;
+
     process->kernel_sp = (uint32_t*)stack_top;
     process->process_state = PROCESS_READY;
     process->pid = next_pid++;
     process->parent_pid = 0; // No parent for now
-    process->as = addrspace_create(ADDRSPACE_USER);
+    
     process->priority = 1; // Default priority
     process->time_slice = 5; // Default time slice
     process->ticks_remaining = process->time_slice;
@@ -37,6 +52,18 @@ process_t* process_create(void (*entry)(void), const uint32_t magic) {
      *(volatile uint32_t *)(PA_TO_VA(program_page_pa)) = magic;
 
     kmap_user_page(process->as, program_page_pa, 0x10000, VM_PROT_READ | VM_PROT_WRITE);
+    
+    uintptr_t user_stack_pa = pmm_alloc_pages(4);
+    for (int i = 0; i < 4; i++) {
+        kmap_user_page(process->as, user_stack_pa + i * 0x1000,
+                    0x7FFFC000 + i * 0x1000, VM_PROT_READ | VM_PROT_WRITE);
+    }
+
+    uint32_t *code = (uint32_t *)(PA_TO_VA(program_page_pa));
+    code[0] = 0xEE010F10;  // mcr p15, 0, r0, c1, c0, 0  (write SCTLR)
+    code[1] = 0xEAFFFFFE;  // b .
+    code[2] = 0xEAFFFFFE;  // b ., but padding anyways
+    code[3] = 0xC0000000;  // the address to read from
 
     // user VA for code should start at first page, stack could be ...idk? N=1 means we get a 2gb/2gb split
     // allocate those

@@ -11,7 +11,6 @@
 #include "lib/mem.h"
 #include "kernel/layout.h"
 
-
 // Track kernel and current address spaces
 static addrspace_t* g_kernel_as = NULL;
 static addrspace_t* g_current_addrspace = NULL;
@@ -47,6 +46,32 @@ addrspace_t* addrspace_create(addrspace_type_t type) {
     addrspace->region_count = 0;
     addrspace->type = type;
     return addrspace;
+}
+
+void vmm_lockdown_kernel_sections(void) {
+    uint32_t *l1 = (uint32_t *)PA_TO_VA(g_kernel_as->ttbr0_pa);
+    uint32_t patched = 0;
+
+    for (size_t i = 0; i < 4096; i++) {
+        uint32_t entry = l1[i];
+        
+        // Check if it's a section descriptor (bits[1:0] == 0b10)
+        if ((entry & 0x3) != 0x2) continue;
+        
+        // Clear AP[11:10], set to 0b01 (kernel only)
+        entry &= ~(0x3 << 10);   // clear AP[1:0]
+        entry |=  (0x1 << 10);   // set AP = 0b01
+        
+        l1[i] = entry;
+        patched++;
+    }
+    
+    // Flush TLB so old permissions are gone
+    __asm__ volatile("mcr p15, 0, %0, c8, c7, 0" :: "r"(0));
+    __asm__ volatile("dsb");
+    __asm__ volatile("isb");
+
+    KINFO("Lockdown: patched %u section entries", patched);
 }
 
 void addrspace_destroy(addrspace_t* as) {

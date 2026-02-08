@@ -81,8 +81,8 @@ bool arch_mmu_map(addrspace_t *as, uintptr_t va, uintptr_t pa, size_t size,
 
             // Domain = 0 (bits[8:5] left as 0)
 
-            // Bring-up permissions: AP[1:0] = 0b11 (full access)
-            entry |= (0x3u << 10);
+            // Bring-up permissions: AP[1:0] = 0b01 (kernel code)
+            entry |= (0x1u << 10);
 
             // Memory attributes (short-descriptor section): TEX[14:12], C[3], B[2]
             // For bring-up we keep NORMAL memory non-cacheable and DEVICE memory as device.
@@ -216,7 +216,7 @@ void arch_mmu_enable(addrspace_t *as)
 
     // Domain Access Control: set domain 0 to Manager (no permission checks during bring-up).
     // Bits [1:0] correspond to domain 0.
-    uint32_t dacr = 0x3u;
+    uint32_t dacr = 0x1u;
     __asm__ volatile("mcr p15, 0, %0, c3, c0, 0" ::"r"(dacr) : "memory");
 
     // Invalidate TLB before enabling.

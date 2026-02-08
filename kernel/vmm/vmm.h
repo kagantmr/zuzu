@@ -235,4 +235,7 @@ void* ioremap(uintptr_t phys, size_t size);
  */
 void iounmap(void* va);
 
+
+void vmm_lockdown_kernel_sections(void);
+
 #endif // KERNEL_VM_VMM_H
