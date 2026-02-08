@@ -45,28 +45,34 @@ static inline uint32_t read_be32(const void *p)
 void test_process_a(void) {
     arch_global_irq_enable();
     while (1) {
+                /*
         uint32_t val = *(volatile uint32_t *)0x10000;
         KINFO("Process A: read 0x%08x (expect 0xDEADBEEF)", val);
         for (volatile int i = 0; i < 1000000; i++);
+            */
     }
 }
 
 void test_process_b(void) {
     arch_global_irq_enable();
     while (1) {
+                /*
         uint32_t val = *(volatile uint32_t *)0x10000;
         KINFO("Process B: read 0x%08x (expect 0xCAFEBABE)", val);
         for (volatile int i = 0; i < 1000000; i++);
+                */
     }
 }
 
 void test_process_c(void) {
     arch_global_irq_enable();
     while (1) {
+        /*
         KINFO("Process C");
         for (volatile int i = 0; i < 1000000; i++);  // delay
         volatile uint32_t junk = *(volatile uint32_t *)0x20000000;
         (void)junk;
+        */
     }
 }
 
@@ -107,9 +113,11 @@ _Noreturn void kmain(void)
 
     kernel_layout.dtb_start_va = new_dtb;
 
+    
     vmm_remove_identity_mapping();
 
     arch_mmu_init_ttbr1(vmm_get_kernel_as());
+    vmm_lockdown_kernel_sections();
 
     // Ensure heap VA companions are populated for logging and dereferencing.
     // Some early bring-up paths may only have heap_*_pa set.

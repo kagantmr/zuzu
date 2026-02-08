@@ -5,6 +5,8 @@
 #include "lib/list.h"
 #include "kernel/vmm/vmm.h"
 
+extern void process_entry_trampoline(void);
+
 typedef enum process_state {
     PROCESS_READY = 0,
     PROCESS_RUNNING,

@@ -1,7 +1,7 @@
 #include <stdint.h>
 typedef struct exception_frame {
-    uint32_t spsr;          // [0]
-    uint32_t r[13];         // [1..13] r0..r12
-    uint32_t fault_pc;      // [14] modified lr (lr-4 or lr-8)
-    uint32_t exc_lr;        // [15] original exception lr (return address)
+    uint32_t r[13];       // [0..12]  r0-r12
+    uint32_t lr;          // [13]     lr_svc
+    uint32_t return_pc;   // [14]     where to return (adjusted lr)
+    uint32_t return_cpsr; // [15]     saved CPSR
 } exception_frame_t;

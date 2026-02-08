@@ -9,6 +9,26 @@
 .global reserved_handler
 .global irq_handler
 .global fiq_handler
+.global process_entry_trampoline
+
+process_entry_trampoline:
+    ldmia sp!, {r0-r12, lr}
+    cps #0x1F              @ SYS mode (shares SP with USR)
+    mov sp, r0             @ set user stack pointer
+    cps #0x13              @ back to SVC
+    rfeia sp!
+
+.macro exception_entry, lr_adjust
+    sub lr, lr, #\lr_adjust
+    srsdb sp!, #0x13          @ push return_pc + cpsr to SVC stack
+    cpsid i, #0x13            @ switch to SVC mode
+    stmdb sp!, {r0-r12, lr}  @ push r0-r12, lr_svc
+.endm
+
+.macro exception_exit
+    ldmia sp!, {r0-r12, lr}
+    rfeia sp!
+.endm
 
 reset_handler:
     cpsid if             @ Mask interrupts
@@ -18,173 +38,51 @@ reset_handler:
 1:
     b 1b
 
-undef_handler:
-    stmdb sp!, {lr}        @ Save original LR
-
-    sub lr, lr, #4 @ PC = LR - 4 for undefined instruction
-
-    /* r0–r12 and original lr */
-    stmdb sp!, {r0-r12, lr}
-
-    /* spsr */
-    mrs r0, spsr
-    stmdb sp!, {r0}
-
-    mov r1, sp              @ pointer to struct
-    mov r0, #1              @ EXC_UNDEF
-    bl exception_dispatch   @ call exception_dispatch(enum exc_type, exception_frame *frame)
-
-    ldmia sp!, {r0}         @ Restore spsr into r0
-    msr spsr_cxsf, r0       
-
-    ldmia sp!, {r0-r12, lr} 
-    ldmia sp!, {lr}         @ Restore pc
-
-    subs pc, lr, #0         @ Return from exception
-svc_handler:
-
-    stmdb sp!, {lr}        @ Save original LR
-
-    sub lr, lr, #4 @ PC = LR - 4 for supervisor call
-
-    /* r0–r12 and original lr */
-    stmdb sp!, {r0-r12, lr}
-
-    /* spsr */
-    mrs r0, spsr
-    stmdb sp!, {r0}
-
-    mov r1, sp              @ pointer to struct
-    mov r0, #2              @ EXC_SVC
-    bl exception_dispatch   @ call exception_dispatch(enum exc_type, exception_frame *frame)
-
-    ldmia sp!, {r0}         @ Restore spsr into r0
-    msr spsr_cxsf, r0       
-
-    ldmia sp!, {r0-r12, lr} 
-    ldmia sp!, {lr}         @ Restore pc
-
-    subs pc, lr, #0         @ Return from exception
-prefetch_abort_handler:
-
-    stmdb sp!, {lr}        @ Save original LR
-
-    sub lr, lr, #4 @ PC = LR - 4 for prefetch abort
-
-    /* r0–r12 and original lr */
-    stmdb sp!, {r0-r12, lr}
-
-    /* spsr */
-    mrs r0, spsr
-    stmdb sp!, {r0}
-
-    mov r1, sp              @ pointer to struct
-    mov r0, #3              @ EXC_PREFETCH_ABORT
-    bl exception_dispatch   @ call exception_dispatch(enum exc_type, exception_frame *frame)
-
-    ldmia sp!, {r0}         @ Restore spsr into r0
-    msr spsr_cxsf, r0       
-
-    ldmia sp!, {r0-r12, lr} 
-    ldmia sp!, {lr}         @ Restore pc
-
-    subs pc, lr, #0         @ Return from exception
-data_abort_handler:
-
-    stmdb sp!, {lr}        @ Save original LR
-
-    sub lr, lr, #8 @ PC = LR - 8 for data abort
-
-    /* r0–r12 and original lr */
-    stmdb sp!, {r0-r12, lr}
-
-    /* spsr */
-    mrs r0, spsr
-    stmdb sp!, {r0}
-
-    mov r1, sp              @ pointer to struct
-    mov r0, #4              @ EXC_DATA_ABORT
-    bl exception_dispatch   @ call exception_dispatch(enum exc_type, exception_frame *frame)
-
-    ldmia sp!, {r0}         @ Restore spsr into r0
-    msr spsr_cxsf, r0       
-
-    ldmia sp!, {r0-r12, lr} 
-    ldmia sp!, {lr}         @ Restore pc
-
-    subs pc, lr, #0         @ Return from exception
-reserved_handler:
-
-    stmdb sp!, {lr}        @ Save original LR
-
-    sub lr, lr, #4 @ PC = LR - 4 for reserved
-
-    /* r0–r12 and original lr */
-    stmdb sp!, {r0-r12, lr}
-
-    /* spsr */
-    mrs r0, spsr
-    stmdb sp!, {r0}
-
-    mov r1, sp              @ pointer to struct
-    mov r0, #5              @ EXC_RESERVED
-    bl exception_dispatch   @ call exception_dispatch(enum exc_type, exception_frame *frame)
-
-    ldmia sp!, {r0}         @ Restore spsr into r0
-    msr spsr_cxsf, r0       
-
-    ldmia sp!, {r0-r12, lr} 
-    ldmia sp!, {lr}         @ Restore pc
-
-    subs pc, lr, #0         @ Return from exception
 irq_handler:
-    @ Adjust return address (standard IRQ linkage)
-    sub lr, lr, #4
-    
-    @ Store Return State (lr_irq and spsr_irq) to SVC mode's stack
-    @ This magically pushes to sp_svc, not sp_irq!
-    srsdb sp!, #0x13
-    
-    @ Switch to SVC mode, IRQs stay disabled
-    cpsid i, #0x13
-    
-    @ Now sp = sp_svc (the interrupted process's kernel stack)
-    @ Save all general purpose registers
-    stmdb sp!, {r0-r12, lr}
-    
-    @ Call C handler - may call schedule() -> context_switch()
-    mov r0, #6           @ EXC_IRQ = 6
-    mov r1, sp           @ frame pointer
+    exception_entry 4
+    mov r0, #6
+    mov r1, sp
     bl exception_dispatch
-    
-    @ After return, sp may point to a DIFFERENT process's stack!
-    @ Restore all registers
-    ldmia sp!, {r0-r12, lr}
-    
-    @ Return From Exception - pops pc and cpsr, returns to (possibly different) process
-    rfeia sp!
+    exception_exit
+
+reserved_handler:
+    exception_entry 4
+    mov r0, #5
+    mov r1, sp
+    bl exception_dispatch
+    exception_exit
+
+data_abort_handler:
+    exception_entry 8
+    mov r0, #4
+    mov r1, sp
+    bl exception_dispatch
+    exception_exit
+
+svc_handler:
+    exception_entry 0
+    mov r0, #2
+    mov r1, sp
+    bl exception_dispatch
+    exception_exit
+
+prefetch_abort_handler:
+    exception_entry 4
+    mov r0, #3
+    mov r1, sp
+    bl exception_dispatch
+    exception_exit
+
+undef_handler:
+    exception_entry 4
+    mov r0, #1
+    mov r1, sp
+    bl exception_dispatch
+    exception_exit
+
 fiq_handler:
-    cpsid f
-    stmdb sp!, {lr}        @ Save original LR
-    
-    sub lr, lr, #4         @ PC = LR - 4 for FIQ
-
-    /* r0–r12 and original lr */
-    stmdb sp!, {r0-r12, lr} 
-
-    /* spsr */
-    mrs r0, spsr
-    stmdb sp!, {r0}
-
-    mov r1, sp              @ pointer to struct
-    mov r0, #7              @ EXC_FIQ
-    bl exception_dispatch   @ call exception_dispatch(enum exc_type, exception_frame *frame)
-
-    ldmia sp!, {r0}         @ Restore spsr into r0
-    msr spsr_cxsf, r0       
-
-    ldmia sp!, {r0-r12, lr} 
-    ldmia sp!, {lr}         @ Restore pc
-
-    subs pc, lr, #0         @ Return from exception
-
+    exception_entry 4
+    mov r0, #7
+    mov r1, sp
+    bl exception_dispatch
+    exception_exit
