@@ -63,7 +63,7 @@ process_t* process_create(void (*entry)(void), const uint32_t magic) {
     uint32_t *code = (uint32_t *)(PA_TO_VA(program_page_pa));
     if (magic == 0xDEADBEEF) {
         code[0] = 0xE3A00001;   // MOV R0, 1
-        code[1] = 0xEAFFFFFE;  // b .
+        code[1] = 0xEF000000;  // svc #255
         code[2] = 0xEAFFFFFE;  // b .
         code[3] = 0xEAFFFFFE;  // b .
     } else {
@@ -73,13 +73,10 @@ process_t* process_create(void (*entry)(void), const uint32_t magic) {
         code[0] = 0xE3A00001; 
         
         // 2. MOVT R0, #0xC000 (R0 becomes 0xC0000000)
-        code[1] = 0xE34C0000; 
-        
-        // 3. LDR R1, [R0]     (Load from 0xC0000000 -> CRASH)
-        code[2] = 0xEE010F10; 
-        
+        code[1] = 0xEE010F10; // mcr p15, 0, r0, c1, c0, 0
+        code[2] = 0xEAFFFFFE; 
         // 4. b .              (In case it somehow survives)
-        code[3] = 0xEAFFFFFE;
+        code[3] = 0xEF000000;
     }
 
     // user VA for code should start at first page, stack could be ...idk? N=1 means we get a 2gb/2gb split

@@ -55,9 +55,9 @@ Phase 6: Virtual Memory & MMU
 - [x] Mapping helpers (map, unmap)
 
 Phase 6.5: VMM Extensions
-- [ ] ioremap(phys, size) for device mappings
-- [ ] iounmap(va) cleanup
-- [ ] Reserved VA range for MMIO (0xF0000000+)
+- [x] ioremap(phys, size) for device mappings
+- [x] iounmap(va) cleanup
+- [x] Reserved VA range for MMIO (0xF0000000+)
 
 Phase 7: Exceptions & CPU State Management 
 - [x] Exception vector table (vectors.s)
@@ -79,30 +79,30 @@ Phase 8: Interrupt Subsystem
 - [x] GICv2 distributor initialization
 
 Phase 8.5: MMIO Cleanup
-- [ ] ioremap(phys, size) for device mappings
-- [ ] iounmap(va) cleanup
-- [ ] Reserved VA range for MMIO (0xF0000000+)
+- [x] ioremap(phys, size) for device mappings
+- [x] iounmap(va) cleanup
+- [x] Reserved VA range for MMIO (0xF0000000+)
 
 Phase 9: Time & Scheduling Foundations
-- [ ] Periodic timer source selection
-- [ ] Global tick counter
-- [ ] Preemption point definition
-- [ ] Scheduler entry from IRQ
+- [x] Periodic timer source selection
+- [x] Global tick counter
+- [x] Preemption point definition
+- [x] Scheduler entry from IRQ
 
 Phase 10: Process Model
-- [ ] Process Control Block (PCB) structure
-- [ ] Process states (READY, RUNNING, BLOCKED, ZOMBIE)
-- [ ] Per-process kernel stack
-- [ ] L2 page tables (4KB pages)
-- [ ] Per-process address spaces
-- [ ] Context switch routine
-- [ ] Round-robin scheduler
+- [x] Process Control Block (PCB) structure
+- [x] Process states (READY, RUNNING, BLOCKED, ZOMBIE)
+- [x] Per-process kernel stack
+- [x] L2 page tables (4KB pages)
+- [x] Per-process address spaces
+- [x] Context switch routine
+- [x] Round-robin scheduler
 - [ ] Kernel symbol lookup (addr to function name)
 - [ ] Backtrace/stack unwinding
 
 Phase 11: Privilege Separation & Syscalls
 - [ ] SVC syscall entry
-- [ ] Syscall ABI definition
+- [x] Syscall ABI definition
 - [ ] User stack setup
 - [ ] SVC to USR transition
 - [ ] write syscall
