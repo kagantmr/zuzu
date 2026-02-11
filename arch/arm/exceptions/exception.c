@@ -97,10 +97,13 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame) {
         break;
         
         case EXC_SVC: {
-            // Extract SVC number from instruction
-            uint32_t *svc_instr = (uint32_t *)frame->return_pc;
-            uint32_t svc_num = *svc_instr & 0x00FFFFFF;
-            KWARN("SVC #%u (not implemented)", svc_num);
+            uint32_t *svc_instr_ptr = (uint32_t *)(frame->return_pc - 4);
+            uint32_t svc_instr = *svc_instr_ptr;
+            
+            // Extract the lower 24 bits (the SVC number)
+            uint32_t svc_num = svc_instr & 0x000000FF;
+
+            KWARN("SVC #%d (not implemented)", svc_num);
         }
         break;
         
