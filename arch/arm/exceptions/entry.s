@@ -14,7 +14,8 @@
 process_entry_trampoline:
     ldmia sp!, {r0-r12, lr}
     cps #0x1F              @ SYS mode (shares SP with USR)
-    mov sp, r0             @ set user stack pointer
+    mov sp, lr                @ Set User SP from LR
+    mov lr, #0                @ Clear LR (prevent return to nowhere)
     cps #0x13              @ back to SVC
     rfeia sp!
 
