@@ -4,6 +4,7 @@
 #include "core/panic.h"
 #include "kernel/proc/process.h"
 #include "kernel/sched/sched.h"
+#include "kernel/syscall/syscall.h"
 #include <stdint.h>
 
 typedef enum exception_type {
@@ -100,10 +101,10 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame) {
             uint32_t *svc_instr_ptr = (uint32_t *)(frame->return_pc - 4);
             uint32_t svc_instr = *svc_instr_ptr;
             
-            // Extract the lower 24 bits (the SVC number)
-            uint32_t svc_num = svc_instr & 0x000000FF;
+            // Extract the lower 8 bits (the SVC number)
+            uint8_t svc_num = svc_instr & 0xFF;
 
-            KWARN("SVC #%d (not implemented)", svc_num);
+            uint32_t syscall_result = syscall_dispatch(svc_num);
         }
         break;
         

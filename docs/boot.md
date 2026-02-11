@@ -1,4 +1,4 @@
-# Zuzu Boot Process
+# zuzu Boot Process
 
 This document outlines the boot process of the Zuzu kernel on the VExpress-A15 platform, detailing the steps taken from power-on to the kmainc() function.
 
@@ -15,7 +15,7 @@ Upon reset, the CPU starts executing from a predefined address. `_start.s` runs 
 
 ## 2. Early Console Initialization
 
-(wip)
+If zuzu was compiled with the EARLY_UART flag set, UART will be initialized (board-specific).
 
 ## 3. C Environment Setup (early.c)
 ## 4. Kernel Main Function (kmain.c)
