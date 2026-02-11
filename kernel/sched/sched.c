@@ -34,13 +34,6 @@ void schedule() {
     current_process = container_of(next_node, process_t, node);
     current_process->process_state = PROCESS_RUNNING;
 
-    if (prev && prev->pid > 0) {
-        // The saved registers are on prev's kernel stack above kernel_sp
-        // After context_switch saves {r4-r11, lr}, the exception frame is above that
-        uint32_t *exc = (uint32_t *)((uintptr_t)prev->kernel_sp + sizeof(cpu_context_t));
-        KINFO("PID %d preempted, r0=0x%08x", prev->pid, exc[0]);
-    }
-
     // Context switch to the new process (not implemented here)
     KINFO("schedule: prev=%p next=%p", prev, current_process);
     if (current_process->as && (!prev || prev->as != current_process->as)) {

@@ -1,7 +1,6 @@
 #include "kernel/mm/pmm.h"
 #include "core/assert.h"
 #include "kernel/layout.h"
-#include "kernel/mm/reserve.h"
 #include "arch/arm/include/symbols.h"
 #include "lib/mem.h"
 #include "kernel/vmm/vmm.h"   // PA_TO_VA / VA_TO_PA helpers

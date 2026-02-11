@@ -6,7 +6,6 @@
 
 #include "kernel/layout.h"
 #include "kernel/mm/pmm.h"
-#include "kernel/mm/reserve.h"
 #include "kernel/kmain.h"
 #include "kernel/dtb/dtb.h"
 #include "kernel/mm/alloc.h"
@@ -35,7 +34,7 @@ extern addrspace_t *g_kernel_as;
  *   - Each entry maps 1MB section
  *   - Must be 16KB aligned
  * ============================================================================= */
-__attribute__((section(".bss.boot"), aligned(16384))) static uint32_t early_l1[4096];
+__attribute__((section(".bss.boot"), aligned(16384))) uint32_t early_l1[4096];
 
 /* =============================================================================
  * ARMv7 Short-Descriptor L1 Section Entry Format

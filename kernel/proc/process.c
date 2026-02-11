@@ -15,14 +15,13 @@ process_t* process_create(void (*entry)(void), const uint32_t magic) {
     // write exception frame to the stack
     stack_top -= 16 * sizeof(uint32_t);    // 16 words
     uint32_t *exc_frame = (uint32_t *)stack_top;
-    *(exc_frame++) = 0x7FFFF000; // set r0 to new sp
+    *(exc_frame++) = 0;
     for (int i = 0; i < 12; i++) {
         *(exc_frame++) = 0; // r1-12 = 0  (indices 0-12)
     }
-    *(exc_frame++) = 0; // lr = 0              (index 13)
+    *(exc_frame++) = 0x7FFFF000; // lr = SP_usr              (index 13)
     *(exc_frame++) = 0x10000; // PC = entry point    (index 14)
     *(exc_frame++) = 0x10; // CPSR = 0x10         (index 15)
-    // write trampoline cpu_context to the stack
 
     // write cpu_context to stack
     stack_top -= sizeof(cpu_context_t);
@@ -59,11 +58,29 @@ process_t* process_create(void (*entry)(void), const uint32_t magic) {
                     0x7FFFC000 + i * 0x1000, VM_PROT_READ | VM_PROT_WRITE);
     }
 
+    // EXPERIMENTAL PROCESS TEST!!!!!!
+    // TODO: Clean up after ELF loading is activated
     uint32_t *code = (uint32_t *)(PA_TO_VA(program_page_pa));
-    code[0] = 0xEE010F10;  // mcr p15, 0, r0, c1, c0, 0  (write SCTLR)
-    code[1] = 0xEAFFFFFE;  // b .
-    code[2] = 0xEAFFFFFE;  // b ., but padding anyways
-    code[3] = 0xC0000000;  // the address to read from
+    if (magic == 0xDEADBEEF) {
+        code[0] = 0xE3A00001;   // MOV R0, 1
+        code[1] = 0xEAFFFFFE;  // b .
+        code[2] = 0xEAFFFFFE;  // b .
+        code[3] = 0xEAFFFFFE;  // b .
+    } else {
+        // Process B/C: Force Data Abort at 0xC0000000
+        
+        // 1. MOV R0, #1
+        code[0] = 0xE3A00001; 
+        
+        // 2. MOVT R0, #0xC000 (R0 becomes 0xC0000000)
+        code[1] = 0xE34C0000; 
+        
+        // 3. LDR R1, [R0]     (Load from 0xC0000000 -> CRASH)
+        code[2] = 0xEE010F10; 
+        
+        // 4. b .              (In case it somehow survives)
+        code[3] = 0xEAFFFFFE;
+    }
 
     // user VA for code should start at first page, stack could be ...idk? N=1 means we get a 2gb/2gb split
     // allocate those

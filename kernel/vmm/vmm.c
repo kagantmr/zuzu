@@ -221,100 +221,60 @@ bool vmm_build_page_tables(addrspace_t* as) {
     return true;
 }
 
+extern uint32_t early_l1[];  // from early.c, in .bss.boot (physical address)
+
 void vmm_bootstrap(void) {
     if (!g_kernel_as) {
-        g_kernel_as = addrspace_create(ADDRSPACE_KERNEL);
+        // Adopt the early boot page table — no new allocation, no page table switch
+        g_kernel_as = kmalloc(sizeof(addrspace_t));
         if (!g_kernel_as) {
             KPANIC("Failed to create kernel address space");
             return;
         }
 
-        uintptr_t ram_pa_base = phys_region.start;  // 0x80000000
-        size_t ram_size = phys_region.end - phys_region.start;
+        // early_l1 is in .bss.boot, linked at physical addresses
+        // The symbol value IS the physical address
+        g_kernel_as->ttbr0_pa = (uintptr_t)early_l1;
+        g_kernel_as->regions = NULL;
+        g_kernel_as->region_count = 0;
+        g_kernel_as->type = ADDRSPACE_KERNEL;
+        g_kernel_as->asid = 0;
 
-        // Round to section boundaries (1MB)
+        // We're already running on early_l1 — no activate needed
+        g_mmu_enabled = true;
+        g_current_addrspace = g_kernel_as;
+
+        // Record kernel RAM region for bookkeeping
+        uintptr_t ram_pa_base = phys_region.start;
+        size_t ram_size = phys_region.end - phys_region.start;
         uintptr_t map_pa_start = ram_pa_base & ~(SECTION_SIZE - 1);
         uintptr_t map_pa_end = (ram_pa_base + ram_size + SECTION_SIZE - 1) & ~(SECTION_SIZE - 1);
         size_t map_size = map_pa_end - map_pa_start;
 
-        // === Higher-half kernel mapping (the real/permanent mapping) ===
-        // VA 0xC0000000+ -> PA 0x80000000+
-        uintptr_t kernel_va = PA_TO_VA(map_pa_start);  // 0xC0000000
-        
         vm_region_t kernel_region = {
-            .vaddr_start = kernel_va,           // 0xC0000000
-            .paddr_start = map_pa_start,        // 0x80000000
+            .vaddr_start = PA_TO_VA(map_pa_start),
+            .paddr_start = map_pa_start,
             .size = map_size,
             .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXEC,
             .memtype = VM_MEM_NORMAL,
             .owner = VM_OWNER_SHARED,
             .flags = VM_FLAG_GLOBAL | VM_FLAG_PINNED,
         };
-        if (!vmm_add_region(g_kernel_as, &kernel_region)) {
-            KPANIC("Failed to add kernel region");
-            return;
-        }
+        vmm_add_region(g_kernel_as, &kernel_region);
 
-        // === Temporary identity mapping (for transition) ===
-        // VA 0x80000000 -> PA 0x80000000
-        // Needed so current stack (at PA 0x808xxxxx) keeps working
-        // Will be removed by vmm_remove_identity_mapping() later
+        // Record identity mapping so vmm_remove_identity_mapping can find it
         vm_region_t identity_region = {
-            .vaddr_start = map_pa_start,        // 0x80000000
-            .paddr_start = map_pa_start,        // 0x80000000
+            .vaddr_start = map_pa_start,
+            .paddr_start = map_pa_start,
             .size = map_size,
             .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXEC,
             .memtype = VM_MEM_NORMAL,
-            .owner = VM_OWNER_NONE,             // Not owned - will be removed
-            .flags = VM_FLAG_NONE,              // Temporary, not pinned
-        };
-        if (!vmm_add_region(g_kernel_as, &identity_region)) {
-            KPANIC("Failed to add identity region");
-            return;
-        }
-
-        vm_region_t uart_region = {
-            .vaddr_start = 0x1C000000,
-            .paddr_start = 0x1C000000,
-            .size = 0x1000000,
-            .prot = VM_PROT_READ | VM_PROT_WRITE,
-            .memtype = VM_MEM_DEVICE,
             .owner = VM_OWNER_NONE,
-            .flags = VM_FLAG_GLOBAL | VM_FLAG_PINNED,
+            .flags = VM_FLAG_NONE,
         };
-        if (!vmm_add_region(g_kernel_as, &uart_region)) {
-            KPANIC("Failed to add UART region");
-            return;
-        }
+        vmm_add_region(g_kernel_as, &identity_region);
 
-        /*
-        vm_region_t gic_region = {
-            .vaddr_start = 0x2C000000,
-            .paddr_start = 0x2C000000,
-            .size = 0x100000,
-            .prot = VM_PROT_READ | VM_PROT_WRITE,
-            .memtype = VM_MEM_DEVICE,
-            .owner = VM_OWNER_NONE,
-            .flags = VM_FLAG_GLOBAL | VM_FLAG_PINNED,
-        };
-        if (!vmm_add_region(g_kernel_as, &gic_region)) {
-            KPANIC("Failed to add GIC region");
-            return;
-        }*/
-
-
-
-        // Build page tables (creates both mappings)
-        if (!vmm_build_page_tables(g_kernel_as)) {
-            KPANIC("Failed to build page tables");
-            return;
-        }
-
-        // Switch to new page tables
-        vmm_activate(g_kernel_as);
-
-        KDEBUG("VMM: Bootstrap complete (identity mapping still present)");
-        KDEBUG("VMM: Call vmm_remove_identity_mapping() to finalize");
+        KDEBUG("VMM: Bootstrap complete (adopted early_l1)");
     }
 }
 

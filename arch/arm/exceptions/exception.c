@@ -1,4 +1,4 @@
-#include "context.h"
+#include "arch/arm/include/context.h"
 #include "arch/arm/include/irq.h"
 #include "core/log.h"
 #include "core/panic.h"
@@ -117,6 +117,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame) {
                 KERROR("Process with ID %d failed at 0x%08x", current_process->pid,frame->return_pc);
                 current_process->process_state = PROCESS_ZOMBIE;
                 current_process = NULL; // remove C
+                dump_registers(frame);
                 schedule();
 
             } else {
@@ -146,6 +147,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame) {
                 KERROR("Process with ID %d failed at 0x%08x", current_process->pid,frame->return_pc);
                 current_process->process_state = PROCESS_ZOMBIE;
                 current_process = NULL; // remove C
+                dump_registers(frame);
                 schedule();
 
             } else {

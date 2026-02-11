@@ -4,6 +4,7 @@
 #include "arch/arm/timer/generic_timer.h"
 
 #include "arch/arm/mmu/mmu.h"
+#include "arch/arm/vexpress-a15/board.h"
 
 #include "drivers/uart/uart.h"
 #include "drivers/uart/pl011.h"
@@ -147,95 +148,9 @@ _Noreturn void kmain(void)
     // From this point onward, use dtb_start_va
     dtb_init(kernel_layout.dtb_start_va);
 
-#ifdef EARLY_UART
-    // UART already working from early boot - remap it to proper VA
-    void *uart_va = ioremap(uart_get_base(), 0x1000);
-    if (!uart_va)
-    {
-        KPANIC("Failed to ioremap UART");
-    }
-    uart_set_driver(&pl011_driver, (uintptr_t)uart_va);
-    KDEBUG("UART remapped: 0x%08x -> %p", uart_get_base(), uart_va);
-#else
-    // Discover UART from DTB
-    char uart_path[128];
-    uint64_t uart_base, uart_size;
-
-    if (dtb_find_compatible("arm,pl011", uart_path, sizeof(uart_path)))
-    {
-        if (dtb_get_reg_phys(uart_path, 0, &uart_base, &uart_size))
-        {
-            void *uart_va = ioremap((uintptr_t)uart_base, (size_t)uart_size);
-            if (!uart_va)
-            {
-                KPANIC("Failed to ioremap UART");
-            }
-            uart_set_driver(&pl011_driver, (uintptr_t)uart_va);
-            kprintf_init(uart_putc);
-            KDEBUG("UART mapped: 0x%08x -> %p", (uint32_t)uart_base, uart_va);
-        }
-    }
-    else
-    {
-        KPANIC("UART not found in DTB");
-    }
-#endif
-
-    // Interrupts stay disabled until GIC is initialized
-
-    uint64_t gicd_addr, gicd_size, gicc_addr, gicc_size;
-    char gic_path[128];
-
-    if (dtb_find_compatible("arm,cortex-a15-gic", gic_path, sizeof(gic_path)))
-    {
-        dtb_get_reg(gic_path, 0, &gicd_addr, &gicd_size);
-        dtb_get_reg(gic_path, 1, &gicc_addr, &gicc_size);
-
-        void *gicd_va = ioremap((uintptr_t)gicd_addr, (size_t)gicd_size);
-        void *gicc_va = ioremap((uintptr_t)gicc_addr, (size_t)gicc_size);
-
-        if (!gicd_va || !gicc_va)
-        {
-            KPANIC("Failed to ioremap GIC");
-        }
-
-        gic_init((uintptr_t)gicd_va, (uintptr_t)gicc_va);
-        KDEBUG("GIC mapped: GICD @ 0x%x -> 0x%x", (uintptr_t)gicd_addr, gicd_va);
-        KDEBUG("GIC mapped: GICC @ 0x%x -> 0x%x", (uintptr_t)gicc_addr, gicc_va);
-    }
-    else
-    {
-        KPANIC("GIC not found in DTB");
-    }
-
     irq_init();
+    board_init_devices();
     pl011_init_irq(uart_get_base()); // Enable RX interrupts for UART
-
-#ifndef SP804_TIMER
-    generic_timer_init();
-#else
-    uint64_t sp804_addr, sp804_size;
-    char sp804_path[128];
-    if (dtb_find_compatible("arm,sp804", sp804_path, sizeof(sp804_path)))
-    {
-        if (dtb_get_reg_phys(sp804_path, 0, &sp804_addr, &sp804_size))
-        {
-            void *sp804_va = ioremap((uintptr_t)sp804_addr, (size_t)sp804_size);
-            if (!sp804_va)
-            {
-                KPANIC("Failed to ioremap SP804");
-            }
-            sp804_init((uintptr_t)sp804_va, 10000);
-            sp804_start((uintptr_t)sp804_va);
-            KDEBUG("SP804 mapped: 0x%x -> %p", sp804_addr, sp804_va);
-        }
-    }
-    else
-    {
-        generic_timer_init();
-    }
-#endif
-
     arch_global_irq_enable(); // Only after GIC is initialized
 
     KINFO("Booting...");
@@ -243,7 +158,7 @@ _Noreturn void kmain(void)
 
     // data abort test (page fault)
     // volatile uint32_t *bad = (volatile uint32_t *)0xDEADBEEF;
-    //*bad = 42;
+    // *bad = 42;
 
     print_boot_banner();
 
@@ -259,7 +174,6 @@ _Noreturn void kmain(void)
     sched_add(a);
     sched_add(b);
     sched_add(c);
-
 
     register_tick_callback(schedule);
 

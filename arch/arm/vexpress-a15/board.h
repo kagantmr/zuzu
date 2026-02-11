@@ -10,4 +10,6 @@
 
 #define VEXPRESS_UART0 1
 
+void board_init_devices(void);
+
 #endif
