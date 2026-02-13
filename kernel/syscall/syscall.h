@@ -1,6 +1,10 @@
 #ifndef KERNEL_SYSCALL_H
 #define KERNEL_SYSCALL_H
 
+#include "arch/arm/include/context.h"
+#include "stdbool.h"
+#include "stddef.h"
+#include "kernel/vmm/vmm.h"
 #include "stdint.h"
 
 /*
@@ -63,6 +67,13 @@
 #define ERR_NOMATCH     (-7)       /* Syscall not implemented              */
 #define ERR_PTRFAULT    (-8)       /* Bad pointer                          */
 
-uint32_t syscall_dispatch(uint8_t svc_num);
+void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame);
+
+static inline bool validate_user_ptr(uintptr_t addr, size_t len) {
+    if (addr + len < addr) return false;        // overflow
+    if (addr >= KERNEL_VA_BASE) return false;
+    if (addr + len >= KERNEL_VA_BASE) return false;
+    return true;
+}
 
 #endif /* KERNEL_SYSCALL_H */

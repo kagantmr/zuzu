@@ -62,21 +62,28 @@ process_t* process_create(void (*entry)(void), const uint32_t magic) {
     // TODO: Clean up after ELF loading is activated
     uint32_t *code = (uint32_t *)(PA_TO_VA(program_page_pa));
     if (magic == 0xDEADBEEF) {
-        code[0] = 0xE3A00001;   // MOV R0, 1
-        code[1] = 0xEF000000;  // svc #255
-        code[2] = 0xEAFFFFFE;  // b .
-        code[3] = 0xEAFFFFFE;  // b .
+        code[0] = 0xE3A00000;  // MOV R0, #0
+        code[1] = 0xE34C0000;  // MOVT R0, #0xC000
+        code[2] = 0xE3A0100A;  // MOV R1, #10
+        code[3] = 0xEF0000F0;  // SVC #0xF0 (sys_log)
+        code[4] = 0xE3A00000;  // MOV R0, #0
+        code[5] = 0xEF000000;  // SVC #0x00 (sys_task_quit)
+        code[6] = 0xEAFFFFFE;  // B . (safety)
+    } else if (magic == 0xCAFEBABE){
+        // Pass kernel address 0xC0000000 to sys_log
+        code[0] = 0xE3A00000;  // MOV R0, #0
+        code[1] = 0xE34C0000;  // MOVT R0, #0xC000  (R0 = 0xC0000000)
+        code[2] = 0xE3A0100A;  // MOV R1, #10
+        code[3] = 0xEF0000F0;  // SVC #0xF0 (sys_log — should be rejected)
+        code[4] = 0xE3A00000;  // MOV R0, #0
+        code[5] = 0xEF000000;  // SVC #0x00 (sys_task_quit)
+        code[6] = 0xEAFFFFFE;  // B . (safety)
     } else {
-        // Process B/C: Force Data Abort at 0xC0000000
-        
-        // 1. MOV R0, #1
-        code[0] = 0xE3A00001; 
-        
-        // 2. MOVT R0, #0xC000 (R0 becomes 0xC0000000)
-        code[1] = 0xEE010F10; // mcr p15, 0, r0, c1, c0, 0
-        code[2] = 0xEAFFFFFE; 
-        // 4. b .              (In case it somehow survives)
-        code[3] = 0xEF000000;
+        // Call a syscall that doesn't exist
+        code[0] = 0xEF0000FE;  // SVC #0xFE (not in dispatch table)
+        code[1] = 0xE3A00000;  // MOV R0, #0
+        code[2] = 0xEF000000;  // SVC #0x00 (sys_task_quit)
+        code[3] = 0xEAFFFFFE;  // B . (safety)
     }
 
     // user VA for code should start at first page, stack could be ...idk? N=1 means we get a 2gb/2gb split
