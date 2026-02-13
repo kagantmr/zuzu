@@ -44,7 +44,7 @@ void arch_mmu_free_tables(uintptr_t ttbr0_pa, addrspace_type_t type)
 
     uint32_t *l1 = (uint32_t *)PA_TO_VA(ttbr0_pa);
     size_t entries = (type == ADDRSPACE_USER) ? 2048 : 4096;
-    //size_t pages   = (type == ADDRSPACE_USER) ? 2 : 4;
+    size_t pages   = (type == ADDRSPACE_USER) ? 2 : 4;
 
     for (size_t i = 0; i < entries; i++) {
         if ((l1[i] & 0x3) == 0x1) {
@@ -53,7 +53,7 @@ void arch_mmu_free_tables(uintptr_t ttbr0_pa, addrspace_type_t type)
         }
     }
 
-    for (size_t i = 0; i < 4; i++)
+    for (size_t i = 0; i < pages; i++)
     {
         pmm_free_page(ttbr0_pa + i * PAGE_SIZE);
     }
@@ -453,23 +453,16 @@ void arch_mmu_free_user_pages(uintptr_t ttbr0_pa)
     uint32_t *l1 = (uint32_t *)PA_TO_VA(ttbr0_pa);
 
     // Walk L1 entries in the user range (0 to 2047 for N=1)
+    // Only free the BACKING physical pages, not the page table structures.
+    // L2 tables and L1 pages are freed separately by arch_mmu_free_tables().
     for (size_t i = 0; i < 2048; i++)
     {
         uint32_t l1_entry = l1[i];
         uint32_t type = l1_entry & 0x3;
 
-        if (type == 0x2)
+        if (type == 0x1)
         {
-            // Section mapping — the section base IS the physical page
-            // Normally user space uses L2, but handle it for completeness
-            uintptr_t section_pa = l1_entry & 0xFFF00000;
-            (void)section_pa;
-            // Don't free — sections are 1MB and come from special allocations
-            // (you don't currently use sections for user mappings)
-        }
-        else if (type == 0x1)
-        {
-            // L2 page table — walk it and free each mapped page
+            // L2 page table — walk it and free each mapped user page
             uintptr_t l2_pa = l1_entry & 0xFFFFFC00;
             uint32_t *l2 = (uint32_t *)PA_TO_VA(l2_pa);
 
@@ -481,16 +474,8 @@ void arch_mmu_free_user_pages(uintptr_t ttbr0_pa)
                     pmm_free_page(page_pa);
                 }
             }
-            // Free the L2 table itself
-            // (use l2_pool_free if you implement the pool, else pmm_free_page)
-            pmm_free_page(l2_pa);
         }
-    }
-
-    // 2. Free L1 page table pages
-    for (size_t i = 0; i < 4; i++)
-    { // change to 2 after N=1 fix
-        pmm_free_page(ttbr0_pa + i * PAGE_SIZE);
+        // Section mappings (type == 0x2): not used for user space currently
     }
 }  
 

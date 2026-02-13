@@ -1,5 +1,6 @@
 #include "lib/string.h"
 #include <stdint.h>
+#include <stdarg.h>
 #include "lib/convert.h"
 #include "core/assert.h"
 
@@ -126,165 +127,372 @@ static void emit_repeat(void (*outc)(char), char ch, int count) {
     while (count-- > 0) outc(ch);
 }
 
-static int parse_width(const char **pfmt) {
-    const char *p = *pfmt;
-    int w = 0;
-    while (*p >= '0' && *p <= '9') {
-        w = (w * 10) + (*p - '0');
-        p++;
-    }
-    *pfmt = p;
-    return w;
+static void emit_strn(void (*outc)(char), const char *s, int n) {
+    for (int i = 0; i < n; i++) outc(s[i]);
 }
 
-void vstrfmt(void (*outc)(char), const char *fstring, va_list args) {
-    if (!outc || !fstring) {
-        return;
+static int is_digit(char c) { return (c >= '0' && c <= '9'); }
+
+static int parse_int(const char **pp) {
+    const char *p = *pp;
+    int v = 0;
+    while (is_digit(*p)) {
+        v = v * 10 + (*p - '0');
+        p++;
     }
-    while (*fstring) {
-        if (*fstring == '%') {
-            fstring++; // skip '%'
+    *pp = p;
+    return v;
+}
 
-            int left = 0;
-            int zero = 0;
+// Convert unsigned value to string in given base. Returns length.
+// Output is in forward order in buf (null-terminated).
+static int utoa_ull(char *buf, unsigned long long v, unsigned base, int uppercase) {
+    static const char digs_lo[] = "0123456789abcdef";
+    static const char digs_hi[] = "0123456789ABCDEF";
+    const char *digs = uppercase ? digs_hi : digs_lo;
 
-            // flags
-            for (;;) {
-                if (*fstring == '-') { left = 1; fstring++; continue; }
-                if (*fstring == '0') { zero = 1; fstring++; continue; }
+    char tmp[65];
+    int n = 0;
+
+    if (base < 2) base = 10;
+
+    // Fast paths for power-of-two bases (no division)
+    if (base == 16) {
+        if (v == 0) tmp[n++] = '0';
+        while (v != 0) {
+            tmp[n++] = digs[(unsigned)(v & 0xFULL)];
+            v >>= 4;
+        }
+    } else if (base == 8) {
+        if (v == 0) tmp[n++] = '0';
+        while (v != 0) {
+            tmp[n++] = digs[(unsigned)(v & 0x7ULL)];
+            v >>= 3;
+        }
+    } else if (base == 2) {
+        if (v == 0) tmp[n++] = '0';
+        while (v != 0) {
+            tmp[n++] = digs[(unsigned)(v & 0x1ULL)];
+            v >>= 1;
+        }
+    } else if (base == 10) {
+        // Long division by 10 without using 64-bit / or % (avoids __aeabi_uldivmod)
+        if (v == 0) {
+            tmp[n++] = '0';
+        } else {
+            while (v != 0) {
+                unsigned long long q = 0;
+                unsigned int r = 0;
+
+                // Bitwise long division: (q, r) = v / 10, v % 10
+                for (int i = 63; i >= 0; i--) {
+                    r = (r << 1) | (unsigned int)((v >> i) & 1ULL);
+                    if (r >= 10U) {
+                        r -= 10U;
+                        q |= (1ULL << i);
+                    }
+                }
+
+                tmp[n++] = (char)('0' + r);
+                v = q;
+            }
+        }
+    } else {
+        // Fallback: support only bases we explicitly handle in this kernel
+        // (Add other bases here if needed.)
+        tmp[n++] = '?';
+    }
+
+    // reverse into buf
+    for (int i = 0; i < n; i++) buf[i] = tmp[n - 1 - i];
+    buf[n] = '\0';
+    return n;
+}
+
+typedef enum {
+    LEN_NONE,
+    LEN_HH,
+    LEN_H,
+    LEN_L,
+    LEN_LL,
+    LEN_Z
+} length_t;
+
+static unsigned long long get_unsigned_arg(va_list *args, length_t len) {
+    switch (len) {
+        case LEN_HH: return (unsigned char)va_arg(*args, unsigned int);
+        case LEN_H:  return (unsigned short)va_arg(*args, unsigned int);
+        case LEN_L:  return va_arg(*args, unsigned long);
+        case LEN_LL: return va_arg(*args, unsigned long long);
+        case LEN_Z:  return va_arg(*args, size_t);
+        default:     return va_arg(*args, unsigned int);
+    }
+}
+
+static long long get_signed_arg(va_list *args, length_t len) {
+    switch (len) {
+        case LEN_HH: return (signed char)va_arg(*args, int);
+        case LEN_H:  return (short)va_arg(*args, int);
+        case LEN_L:  return va_arg(*args, long);
+        case LEN_LL: return va_arg(*args, long long);
+        case LEN_Z:  return (long long)va_arg(*args, size_t);
+        default:     return va_arg(*args, int);
+    }
+}
+
+void vstrfmt(void (*outc)(char), const char *fmt, va_list args) {
+    if (!outc || !fmt) return;
+
+    while (*fmt) {
+        if (*fmt != '%') {
+            outc(*fmt++);
+            continue;
+        }
+        fmt++; // skip '%'
+
+        // ---- flags ----
+        int left = 0;
+        int zero = 0;
+        int plus = 0;
+        int space = 0;
+        int alt = 0;
+
+        for (;;) {
+            if (*fmt == '-') { left = 1; fmt++; continue; }
+            if (*fmt == '0') { zero = 1; fmt++; continue; }
+            if (*fmt == '+') { plus = 1; fmt++; continue; }
+            if (*fmt == ' ') { space = 1; fmt++; continue; }
+            if (*fmt == '#') { alt = 1; fmt++; continue; }
+            break;
+        }
+
+        // ---- width ----
+        int width = 0;
+        if (*fmt == '*') {
+            fmt++;
+            width = va_arg(args, int);
+            if (width < 0) { left = 1; width = -width; }
+        } else if (is_digit(*fmt)) {
+            width = parse_int(&fmt);
+        }
+
+        // ---- precision ----
+        int prec = -1; // -1 means "not specified"
+        if (*fmt == '.') {
+            fmt++;
+            if (*fmt == '*') {
+                fmt++;
+                prec = va_arg(args, int);
+                if (prec < 0) prec = -1; // like printf
+            } else {
+                prec = is_digit(*fmt) ? parse_int(&fmt) : 0;
+            }
+        }
+
+        // ---- length ----
+        length_t len = LEN_NONE;
+        if (*fmt == 'h') {
+            fmt++;
+            if (*fmt == 'h') { fmt++; len = LEN_HH; }
+            else len = LEN_H;
+        } else if (*fmt == 'l') {
+            fmt++;
+            if (*fmt == 'l') { fmt++; len = LEN_LL; }
+            else len = LEN_L;
+        } else if (*fmt == 'z') {
+            fmt++;
+            len = LEN_Z;
+        }
+
+        // spec
+        char spec = *fmt ? *fmt++ : '\0';
+        if (!spec) break;
+
+        // When precision is specified for integers, '0' flag is ignored unless left aligned.
+        if (prec >= 0) zero = 0;
+
+        switch (spec) {
+            case '%':
+                outc('%');
+                break;
+
+            case 'c': {
+                char ch = (char)va_arg(args, int);
+                int pad = (width > 1) ? (width - 1) : 0;
+                if (!left) emit_repeat(outc, ' ', pad);
+                outc(ch);
+                if (left) emit_repeat(outc, ' ', pad);
                 break;
             }
 
-            // width
-            int width = 0;
-            if (*fstring >= '0' && *fstring <= '9') {
-                const char *p = fstring;
-                width = parse_width(&p);
-                fstring = p;
+            case 's': {
+                const char *s = va_arg(args, const char *);
+                if (!s) s = "(null)";
+
+                int slen = (int)strlen(s);
+                if (prec >= 0 && prec < slen) slen = prec;
+
+                int pad = (width > slen) ? (width - slen) : 0;
+                if (!left) emit_repeat(outc, ' ', pad);
+                emit_strn(outc, s, slen);
+                if (left) emit_repeat(outc, ' ', pad);
+                break;
             }
 
-            switch (*fstring) {
-                case 'c': {
-                    char c = (char)va_arg(args, int);
-                    int pad = (width > 1) ? (width - 1) : 0;
-                    if (!left) emit_repeat(outc, ' ', pad);
-                    outc(c);
-                    if (left) emit_repeat(outc, ' ', pad);
-                    break;
-                }
-                case 's': {
-                    char *s = va_arg(args, char *);
-                    kassert(s != NULL);
-                    int len = (int)strlen(s);
-                    int pad = (width > len) ? (width - len) : 0;
-                    char padch = ' '; // zero flag ignored for strings
-                    if (!left) emit_repeat(outc, padch, pad);
-                    while (*s) outc(*s++);
-                    if (left) emit_repeat(outc, padch, pad);
-                    break;
-                }
-                case 'd': {
-                    int d = va_arg(args, int);
-                    char bfr[32];
+            case 'd':
+            case 'i': {
+                // FIXED: Pass &args (pointer)
+                long long v = get_signed_arg(&args, len);
+                unsigned long long uv;
+                char signch = 0;
 
-                    // handle sign separately for correct zero-padding
-                    if (d < 0) {
-                        unsigned int ud = (unsigned int)(-(d + 1)) + 1u; // avoid INT_MIN overflow
-                        char nbfr[32];
-                        utoa(ud, nbfr, 10);
-                        int nlen = (int)strlen(nbfr);
-                        int total = nlen + 1; // include '-'
-                        int pad = (width > total) ? (width - total) : 0;
-                        char padch = (zero && !left) ? '0' : ' ';
+                if (v < 0) {
+                    signch = '-';
+                    // avoid overflow on LLONG_MIN: use two's complement trick
+                    uv = (unsigned long long)(~(unsigned long long)v) + 1ULL;
+                } else {
+                    if (plus) signch = '+';
+                    else if (space) signch = ' ';
+                    uv = (unsigned long long)v;
+                }
 
-                        if (!left && padch == ' ') emit_repeat(outc, ' ', pad);
-                        outc('-');
-                        if (!left && padch == '0') emit_repeat(outc, '0', pad);
-                        for (int i = 0; nbfr[i]; i++) outc(nbfr[i]);
-                        if (left) emit_repeat(outc, ' ', pad);
-                    } else {
-                        utoa((unsigned int)d, bfr, 10);
-                        int len = (int)strlen(bfr);
-                        int pad = (width > len) ? (width - len) : 0;
-                        char padch = (zero && !left) ? '0' : ' ';
-                        if (!left) emit_repeat(outc, padch, pad);
-                        for (int i = 0; bfr[i]; i++) outc(bfr[i]);
-                        if (left) emit_repeat(outc, ' ', pad);
+                char num[65];
+                int nlen = utoa_ull(num, uv, 10, 0);
+
+                // precision: minimum digits
+                int zpad = 0;
+                if (prec > nlen) zpad = prec - nlen;
+
+                int total = nlen + zpad + (signch ? 1 : 0);
+
+                char padch = (zero && !left) ? '0' : ' ';
+                int wpad = (width > total) ? (width - total) : 0;
+
+                if (!left && padch == ' ') emit_repeat(outc, ' ', wpad);
+                if (signch) outc(signch);
+                if (!left && padch == '0') emit_repeat(outc, '0', wpad);
+
+                emit_repeat(outc, '0', zpad);
+                emit_strn(outc, num, nlen);
+
+                if (left) emit_repeat(outc, ' ', wpad);
+                break;
+            }
+
+            case 'u':
+            case 'x':
+            case 'X':
+            case 'o':
+            case 'b': {
+                unsigned base = 10;
+                int uppercase = 0;
+                const char *prefix = "";
+                int prefix_len = 0;
+
+                if (spec == 'x' || spec == 'X') { base = 16; uppercase = (spec == 'X'); }
+                else if (spec == 'o') { base = 8; }
+                else if (spec == 'b') { base = 2; }
+
+                // FIXED: Pass &args (pointer)
+                unsigned long long v = get_unsigned_arg(&args, len);
+
+                // conversion (v==0 with precision==0 -> empty per printf)
+                char num[65];
+                int nlen = 0;
+                if (!(prec == 0 && v == 0)) {
+                    nlen = utoa_ull(num, v, base, uppercase);
+                }
+
+                // alternate form
+                if (alt) {
+                    if ((spec == 'x' || spec == 'X') && v != 0) {
+                        prefix = "0x";
+                        prefix_len = 2;
+                    } else if (spec == 'b' && v != 0) {
+                        prefix = "0b";
+                        prefix_len = 2;
+                    } else if (spec == 'o') {
+                        // '#' for octal => ensure a leading zero when it would not otherwise exist
+                        if (v != 0 && (prec <= nlen)) {
+                            prefix = "0";
+                            prefix_len = 1;
+                        }
+                        if (v == 0 && prec == 0) {
+                            num[0] = '0'; num[1] = '\0';
+                            nlen = 1;
+                        }
                     }
-                    break;
                 }
-                case 'u': {
-                    unsigned int d = va_arg(args, unsigned int);
-                    char bfr[32];
-                    utoa(d, bfr, 10);
-                    int len = (int)strlen(bfr);
-                    int pad = (width > len) ? (width - len) : 0;
-                    char padch = (zero && !left) ? '0' : ' ';
-                    if (!left) emit_repeat(outc, padch, pad);
-                    for (int i = 0; bfr[i]; i++) outc(bfr[i]);
-                    if (left) emit_repeat(outc, ' ', pad);
-                    break;
-                }
-                case 'p': {
-                    void* p = va_arg(args, void*);
-                    char bfr[32];
-                    utoa((uintptr_t)p, bfr, 16);
-                    int len = (int)strlen(bfr) + 2; // include 0x
-                    int pad = (width > len) ? (width - len) : 0;
-                    char padch = (zero && !left) ? '0' : ' ';
-                    if (!left) emit_repeat(outc, padch, pad);
-                    outc('0'); outc('x');
-                    for (int i = 0; bfr[i]; i++) outc(bfr[i]);
-                    if (left) emit_repeat(outc, ' ', pad);
-                    break;
-                }
-                case 'x': {
-                    unsigned int x = va_arg(args, unsigned int);
-                    char bfr[32];
-                    utoa(x, bfr, 16);
-                    int len = (int)strlen(bfr);
-                    int pad = (width > len) ? (width - len) : 0;
-                    char padch = (zero && !left) ? '0' : ' ';
-                    if (!left) emit_repeat(outc, padch, pad);
-                    for (int i = 0; bfr[i]; i++) outc(bfr[i]);
-                    if (left) emit_repeat(outc, ' ', pad);
-                    break;
-                }
-                case 'o': {
-                    unsigned int x = va_arg(args, unsigned int);
-                    char bfr[32];
-                    utoa(x, bfr, 8);
-                    int len = (int)strlen(bfr);
-                    int pad = (width > len) ? (width - len) : 0;
-                    char padch = (zero && !left) ? '0' : ' ';
-                    if (!left) emit_repeat(outc, padch, pad);
-                    for (int i = 0; bfr[i]; i++) outc(bfr[i]);
-                    if (left) emit_repeat(outc, ' ', pad);
-                    break;
-                }
-                case 'b': {
-                    unsigned int x = va_arg(args, unsigned int);
-                    char bfr[32];
-                    utoa(x, bfr, 2);
-                    int len = (int)strlen(bfr);
-                    int pad = (width > len) ? (width - len) : 0;
-                    char padch = (zero && !left) ? '0' : ' ';
-                    if (!left) emit_repeat(outc, padch, pad);
-                    for (int i = 0; bfr[i]; i++) outc(bfr[i]);
-                    if (left) emit_repeat(outc, ' ', pad);
-                    break;
-                }
-                case '%':
-                    outc('%');
-                    break;
-                default:
-                    outc(*fstring);
-                    break;
+
+                // precision: minimum digits
+                int zpad = 0;
+                if (prec > nlen) zpad = prec - nlen;
+
+                int total = prefix_len + zpad + nlen;
+
+                char padch = (zero && !left) ? '0' : ' ';
+                int wpad = (width > total) ? (width - total) : 0;
+
+                if (!left && padch == ' ') emit_repeat(outc, ' ', wpad);
+
+                if (prefix_len) emit_strn(outc, prefix, prefix_len);
+
+                // width zero-padding goes after prefix
+                if (!left && padch == '0') emit_repeat(outc, '0', wpad);
+
+                emit_repeat(outc, '0', zpad);
+                if (nlen) emit_strn(outc, num, nlen);
+
+                if (left) emit_repeat(outc, ' ', wpad);
+                break;
             }
 
-            if (*fstring) fstring++;
-        } else {
-            outc(*fstring++);
+            case 'p':
+            case 'P': {
+                // Pointer: always prints 0x/0X and defaults precision to pointer width.
+                uintptr_t pv = (uintptr_t)va_arg(args, void *);
+                int uppercase = (spec == 'P');
+
+                const char *prefix = "0x";
+                int prefix_len = 2;
+
+                int ptr_digits = (int)(sizeof(void*) * 2); // hex digits
+
+                int eff_prec = prec;
+                if (eff_prec < 0) eff_prec = ptr_digits;
+
+                char num[65];
+                int nlen = 0;
+                if (!(eff_prec == 0 && pv == 0)) {
+                    nlen = utoa_ull(num, (unsigned long long)pv, 16, uppercase);
+                }
+
+                int zpad = 0;
+                if (eff_prec > nlen) zpad = eff_prec - nlen;
+
+                int total = prefix_len + zpad + nlen;
+
+                char padch = (zero && !left) ? '0' : ' ';
+                int wpad = (width > total) ? (width - total) : 0;
+
+                if (!left && padch == ' ') emit_repeat(outc, ' ', wpad);
+
+                emit_strn(outc, prefix, prefix_len);
+
+                // width zero-padding goes after 0x/0X
+                if (!left && padch == '0') emit_repeat(outc, '0', wpad);
+
+                emit_repeat(outc, '0', zpad);
+                if (nlen) emit_strn(outc, num, nlen);
+
+                if (left) emit_repeat(outc, ' ', wpad);
+                break;
+            }
+
+            default:
+                // Unknown spec: print it literally
+                outc(spec);
+                break;
         }
     }
 }

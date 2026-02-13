@@ -71,7 +71,7 @@ bool dtb_init(const void *dtb_base)
     const uint32_t off_dt_strings = read_be32(base + 0x0C);
     if (magic != 0xD00DFEED)
     {
-        KERROR("Could not validate DTB: Magic is %x, not 0xD00DFEED", magic);
+        KERROR("Could not validate DTB: Magic is %X, not 0xD00DFEED", magic);
         return false;
     }
 
@@ -308,7 +308,7 @@ void dtb_walk(void)
             return;
 
         default:
-            KERROR("DTB walk: unknown token 0x%08x", tok);
+            KERROR("DTB walk: unknown token 0x%08X", tok);
             return;
         }
     }

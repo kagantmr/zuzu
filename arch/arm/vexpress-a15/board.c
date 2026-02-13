@@ -68,7 +68,7 @@ void board_init_devices(void) {
             sp804_init((uintptr_t)sp804_va, 10000); 
             sp804_start((uintptr_t)sp804_va);
             
-            KINFO("Initialized SP804 Timer at %p", sp804_va);
+            KINFO("Initialized SP804 timer at %p", sp804_va);
             sp804_found = true;
         }
     }

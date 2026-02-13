@@ -109,6 +109,7 @@ static int emit_info_line(int i)
             uint32_t ram_mb  = (uint32_t)((pmm_state.total_pages * (uint64_t)PAGE_SIZE) / 1024 / 1024);
             uint32_t free_mb = (uint32_t)((pmm_state.free_pages  * (uint64_t)PAGE_SIZE) / 1024 / 1024);
             kprintf("%sMemory:%s   %u MB free / %u MB total", ANSI_BLUE, ANSI_RESET, free_mb, ram_mb);
+            //kprintf("%sPages:%s   %u MB free / %u MB total", ANSI_BLUE, ANSI_RESET, pmm_state.free_pages, pmm_state.total_pages);
             // Hard to count digits without snprintf; just return a conservative estimate.
             return 32; // used only for padding; ok if slightly off
         }
@@ -127,14 +128,14 @@ static int emit_info_line(int i)
 
 #if ZUZU_BANNER_SHOW_ADDR
         case 10:
-            kprintf("%sKernel:%s   %p - %p", ANSI_BLUE, ANSI_RESET, _kernel_start, _kernel_end);
+            kprintf("%sKernel:%s   %P - %P", ANSI_BLUE, ANSI_RESET, _kernel_start, _kernel_end);
             return 32; // estimate
         case 11:
-            kprintf("%sHeap:%s     %p - %p", ANSI_BLUE, ANSI_RESET,
+            kprintf("%sHeap:%s     %P - %P", ANSI_BLUE, ANSI_RESET,
                     (void*)kernel_layout.heap_start_va, (void*)kernel_layout.heap_end_va);
             return 32;
         case 12:
-            kprintf("%sStack:%s    %p - %p", ANSI_BLUE, ANSI_RESET,
+            kprintf("%sStack:%s    %P - %P", ANSI_BLUE, ANSI_RESET,
                     (void*)kernel_layout.stack_base_va, (void*)kernel_layout.stack_top_va);
             return 32;
 #else
