@@ -101,13 +101,13 @@ Phase 10: Process Model
 - [ ] Backtrace/stack unwinding
 
 Phase 11: Privilege Separation & Syscalls
-- [ ] SVC syscall entry
+- [x] SVC syscall entry
 - [x] Syscall ABI definition
-- [ ] User stack setup
-- [ ] SVC to USR transition
+- [x] User stack setup
+- [x] SVC to USR transition
 - [ ] write syscall
-- [ ] exit syscall
-- [ ] yield syscall
+- [x] exit syscall
+- [x] yield syscall
 
 Phase 12: IPC & Microkernel Identity
 - [ ] Synchronous IPC (send/recv)

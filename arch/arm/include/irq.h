@@ -6,7 +6,7 @@
 
 typedef void (*irq_handler_t)(void *ctx);
 
-#define MAX_IRQS 256
+#define MAX_IRQS 128
 
 /**
  * @brief Disable all interrupts (ARM).

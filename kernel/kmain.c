@@ -108,8 +108,15 @@ _Noreturn void kmain(void)
     // Basic sanity: header is 0x28 bytes; DTBs for this platform should be well under 1 MiB.
     kassert(totalsize >= 0x28 && totalsize < (1024u * 1024u));
 
-    uint8_t *new_dtb = (uint8_t *)kmalloc(totalsize);
-    kassert(new_dtb != NULL);
+    uint32_t dtb_pages = (totalsize + PAGE_SIZE - 1) / PAGE_SIZE;
+    uintptr_t dtb_pa = pmm_alloc_pages(dtb_pages);
+    if (!dtb_pa) {
+        KPANIC("Failed to allocate pages for DTB");
+    }
+
+    // The pages are already mapped in kernel space via the higher-half mapping
+    // (all of RAM is mapped at PA+0x40000000), so we can just use PA_TO_VA
+    uint8_t *new_dtb = (uint8_t *)PA_TO_VA(dtb_pa);
     memcpy(new_dtb, boot_dtb, totalsize);
 
     kernel_layout.dtb_start_va = new_dtb;

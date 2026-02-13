@@ -1,6 +1,7 @@
 #include "process.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm.h"
+#include "arch/arm/mmu/mmu.h"
 
 static uint32_t next_pid = 1;
 
@@ -9,7 +10,7 @@ process_t* process_create(void (*entry)(void), const uint32_t magic) {
     process_t* process = kmalloc(sizeof(process_t));
     process->as = addrspace_create(ADDRSPACE_USER);
     uint32_t* kernel_stack = kmalloc(4096); // Allocate 4KB for kernel stack
-
+    process->kernel_stack_base = (uintptr_t)kernel_stack;   // track for later free
     uintptr_t stack_top = (uintptr_t)kernel_stack + 4096;
 
     // write exception frame to the stack
@@ -94,3 +95,15 @@ process_t* process_create(void (*entry)(void), const uint32_t magic) {
 
     return process;
 }
+
+void process_destroy(process_t *p) {
+    if (p->as) {
+        arch_mmu_free_user_pages(p->as->ttbr0_pa);  // arch-specific
+        arch_mmu_free_tables(p->as->ttbr0_pa, p->as->type);       // already exists
+        if (p->as->regions) kfree(p->as->regions);   // generic
+        kfree(p->as);                                 // generic
+    }
+    kfree((void *)p->kernel_stack_base);              // generic
+    kfree(p);                                         // generic
+}
+

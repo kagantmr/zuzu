@@ -20,8 +20,12 @@ DEBUG_BUILD ?= 1
 DTB_DEBUG_WALK ?= 0
 EARLY_UART ?= 0
 SP804_TIMER ?= 0
+BANNER ?= 1
 
 
+ifeq ($(BANNER), 0)
+    CFLAGS += -DZUZU_BANNER_DISABLE
+endif
 ifeq ($(DEBUG_BUILD), 1)
     # Enable assertions (default C standard for enabling assertions)
     # might also add -DDEBUG_LOGGING for KINFO/KWARN

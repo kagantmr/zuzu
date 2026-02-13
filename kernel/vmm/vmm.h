@@ -11,10 +11,13 @@
 #define KERNEL_VA_BASE  0xC0000000UL
 #define KERNEL_VA_OFFSET (KERNEL_VA_BASE - KERNEL_PA_BASE)  // 0x40000000
 
+#define USER_VA_TOP  0x80000000UL  // TTBR0/TTBR1 boundary with N=1
+
 // Convert between physical and virtual addresses for kernel memory
 #define PA_TO_VA(pa)  ((uintptr_t)(pa) + KERNEL_VA_OFFSET)
 #define VA_TO_PA(va)  ((uintptr_t)(va) - KERNEL_VA_OFFSET)
 
+#define IOREMAP_MAX_ENTRIES 16    // was 64
 
 
 typedef enum {
@@ -81,8 +84,6 @@ typedef struct addrspace {
 #define IOREMAP_SLOTS   (IOREMAP_SIZE / SECTION_SIZE)     // 256
 
 
-// Mapping table: track active mappings for iounmap lookup
-#define IOREMAP_MAX_ENTRIES 64
 
 addrspace_t* vmm_get_kernel_as(void);
 

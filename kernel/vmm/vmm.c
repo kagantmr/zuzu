@@ -37,7 +37,11 @@ addrspace_t* addrspace_create(addrspace_type_t type) {
     if (!addrspace) {
         return NULL;
     }
-    addrspace->ttbr0_pa = arch_mmu_create_tables();
+    if (type == ADDRSPACE_USER) {
+        addrspace->ttbr0_pa = arch_mmu_create_user_tables();
+    } else {
+        addrspace->ttbr0_pa = arch_mmu_create_tables();  // full 16KB for kernel
+    }
     if (addrspace->ttbr0_pa == 0) {
         kfree(addrspace);
         return NULL;
@@ -97,7 +101,7 @@ void addrspace_destroy(addrspace_t* as) {
     }
     
     // Free page tables
-    arch_mmu_free_tables(as->ttbr0_pa);
+    arch_mmu_free_tables(as->ttbr0_pa, as->type);
     
     // Free regions array
     if (as->regions) {
