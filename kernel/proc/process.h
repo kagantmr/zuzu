@@ -21,6 +21,7 @@ typedef struct process {
     uint32_t priority, time_slice, ticks_remaining;
     addrspace_t *as;
     list_node_t node;  // fixed: embedded, not pointers
+    int32_t exit_status;
 } process_t;
 
 typedef struct cpu_context {

@@ -104,7 +104,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame) {
             // Extract the lower 8 bits (the SVC number)
             uint8_t svc_num = svc_instr & 0xFF;
 
-            uint32_t syscall_result = syscall_dispatch(svc_num);
+            syscall_dispatch(svc_num, frame);
         }
         break;
         

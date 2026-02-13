@@ -406,7 +406,7 @@ void arch_mmu_init_ttbr1(addrspace_t *as) {
     uint32_t ttbcr;
     __asm__ volatile("mrc p15, 0, %0, c2, c0, 2" : "=r"(ttbcr) :: "memory"); // get TTBCR (translation table base control register)
     ttbcr &= 0xFFFFFFE0; // clear last 5 bits 
-    ttbcr |= 0x1; // write 00001 (set N=1, split at split at 0x80000000, clear PD0 and PD1)
+    ttbcr |= 0x2; // write 00001 (set N=1, split at split at 0xc0000000, clear PD0 and PD1)
     __asm__ volatile("mcr p15, 0, %0, c2, c0, 2" :: "r"(ttbcr) : "memory"); // set
     arch_mmu_flush_tlb(); // flush tlb so it doesnt corrupt shit
     arch_mmu_barrier(); // make sure it goes through or whatever man
