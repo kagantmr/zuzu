@@ -96,7 +96,7 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     } break;
     default:
     {
-        KWARN("Syscall no %x does not exist", svc_num);
+        KWARN("Syscall no 0x%X does not exist", svc_num);
         frame->r[0] = ERR_NOMATCH;
     } break;
     }

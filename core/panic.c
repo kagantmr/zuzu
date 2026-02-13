@@ -49,7 +49,7 @@ void dump_stack(void) {
         
         // Check if this value looks like a code address (within kernel .text section)
         if (value >= code_start && value < code_end) {
-            kprintf("[%p]: %x (code)\n", addr, value);
+            kprintf("[%p]: %X (code)\n", addr, value);
         }
         
         addr++;

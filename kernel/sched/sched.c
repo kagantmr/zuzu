@@ -19,6 +19,7 @@ void sched_add(process_t *p) {
 void sched_defer_destroy(process_t *p) {
     list_add_tail(&p->node, &destroy_queue.node);
 }
+
 void sched_reap_zombies(void) {
     while (!list_is_empty(&destroy_queue)) {
         list_node_t *node = list_remove_head(&destroy_queue);
@@ -28,7 +29,6 @@ void sched_reap_zombies(void) {
 }
 
 void schedule() {
-    sched_reap_zombies();
     if (current_process != NULL) {
         // Save current process state
         current_process->process_state = PROCESS_READY;
@@ -49,7 +49,7 @@ void schedule() {
     current_process->process_state = PROCESS_RUNNING;
 
     // Context switch to the new process (not implemented here)
-    KDEBUG("schedule: prev=%p next=%p", prev, current_process);
+    // KDEBUG("schedule: prev=%P next=%P", prev, current_process);
     if (current_process->as && (!prev || prev->as != current_process->as)) {
         vmm_activate(current_process->as);
     }

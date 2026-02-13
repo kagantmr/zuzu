@@ -2,6 +2,7 @@
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm.h"
 #include "arch/arm/mmu/mmu.h"
+#include "kernel/sched/sched.h"
 
 static uint32_t next_pid = 1;
 
@@ -62,29 +63,55 @@ process_t* process_create(void (*entry)(void), const uint32_t magic) {
     // EXPERIMENTAL PROCESS TEST!!!!!!
     // TODO: Clean up after ELF loading is activated
     uint32_t *code = (uint32_t *)(PA_TO_VA(program_page_pa));
-    if (magic == 0xDEADBEEF) {
-        code[0] = 0xE3A00000;  // MOV R0, #0
-        code[1] = 0xE34C0000;  // MOVT R0, #0xC000
-        code[2] = 0xE3A0100A;  // MOV R1, #10
-        code[3] = 0xEF0000F0;  // SVC #0xF0 (sys_log)
-        code[4] = 0xE3A00000;  // MOV R0, #0
-        code[5] = 0xEF000000;  // SVC #0x00 (sys_task_quit)
-        code[6] = 0xEAFFFFFE;  // B . (safety)
-    } else if (magic == 0xCAFEBABE){
-        // Pass kernel address 0xC0000000 to sys_log
-        code[0] = 0xE3A00000;  // MOV R0, #0
-        code[1] = 0xE34C0000;  // MOVT R0, #0xC000  (R0 = 0xC0000000)
-        code[2] = 0xE3A0100A;  // MOV R1, #10
-        code[3] = 0xEF0000F0;  // SVC #0xF0 (sys_log — should be rejected)
-        code[4] = 0xE3A00000;  // MOV R0, #0
-        code[5] = 0xEF000000;  // SVC #0x00 (sys_task_quit)
-        code[6] = 0xEAFFFFFE;  // B . (safety)
-    } else {
-        // Call a syscall that doesn't exist
-        code[0] = 0xEF0000FE;  // SVC #0xFE (not in dispatch table)
-        code[1] = 0xE3A00000;  // MOV R0, #0
-        code[2] = 0xEF000000;  // SVC #0x00 (sys_task_quit)
-        code[3] = 0xEAFFFFFE;  // B . (safety)
+    switch (magic) {
+        case 0xDEADBEEF: // "The Yielder" - Stresses the scheduler
+            // Loops 100,000 times calling SYS_TASK_YIELD
+            code[0] = 0xE30846A0;  // MOVW R4, #0x86A0 (lower 16 bits of 100,000)
+            code[1] = 0xE3404001;  // MOVT R4, #0x0001 (upper 16 bits) -> R4 = 100,000
+            // loop:
+            code[2] = 0xEF000001;  // SVC #0x01 (SYS_TASK_YIELD)
+            code[3] = 0xE2544001;  // SUBS R4, R4, #1  (Decrement counter, set flags)
+            code[4] = 0x1AFFFFFC;  // BNE -4 words (Jump back to SVC if R4 != 0)
+            // exit:
+            code[5] = 0xE3A00000;  // MOV R0, #0 (Success)
+            code[6] = 0xEF000000;  // SVC #0x00 (SYS_TASK_QUIT)
+            code[7] = 0xEAFFFFFE;  // B . (Spin safety)
+            break;
+
+        case 0xBAD0B010: // "The Trespasser" - Memory Protection Test
+            // Attempts to write to Kernel Memory (0xC0000000)
+            // Should trigger a DATA ABORT in the kernel.
+            code[0] = 0xE3A00000;  // MOV R0, #0
+            code[1] = 0xE34C0000;  // MOVT R0, #0xC000  (R0 = 0xC0000000)
+            code[2] = 0xE5800000;  // STR R0, [R0]      (Write to 0xC0000000)
+            code[3] = 0xEF000000;  // SVC #0x00 (Quit if it somehow survives)
+            code[4] = 0xEAFFFFFE;  // B .
+            break;
+
+        case 0xCAFEBABE: // "The Talker" - String & Syscall Test
+            // Prints "Hello!" using SYS_LOG (0xF0)
+            
+            // 1. Calculate address of string (PC + offset)
+            // PC is currently at instruction + 8. 
+            // We want the data at offset 0x14 (20 bytes).
+            // At instr 0, PC=8. 8 + 12 = 20.
+            code[0] = 0xE28F000C;  // ADD R0, PC, #12  (R0 points to "Hello!")
+            code[1] = 0xE3A01006;  // MOV R1, #6       (Length)
+            code[2] = 0xEF0000F0;  // SVC #0xF0        (SYS_LOG)
+            code[3] = 0xE3A00000;  // MOV R0, #0
+            code[4] = 0xEF000000;  // SVC #0x00        (SYS_TASK_QUIT)
+            // String Data "Hello!" (packed into 32-bit words)
+            // 'H' 'e' 'l' 'l' = 0x6C6C6548 (Little Endian)
+            code[5] = 0x6C6C6548;  
+            // 'o' '!' '\0' '\0' = 0x0000216F
+            code[6] = 0x0000216F;
+            break;
+
+        default: // "The Spinner" - CPU Burner
+            // Just spins forever. Good for testing preemption.
+            code[0] = 0xE3A00000;  // MOV R0, #0
+            code[1] = 0xEAFFFFFE;  // B . (Infinite Loop)
+            break;
     }
 
     // user VA for code should start at first page, stack could be ...idk? N=1 means we get a 2gb/2gb split
@@ -98,12 +125,12 @@ process_t* process_create(void (*entry)(void), const uint32_t magic) {
 
 void process_destroy(process_t *p) {
     if (p->as) {
-        arch_mmu_free_user_pages(p->as->ttbr0_pa);  // arch-specific
-        arch_mmu_free_tables(p->as->ttbr0_pa, p->as->type);       // already exists
-        if (p->as->regions) kfree(p->as->regions);   // generic
-        kfree(p->as);                                 // generic
+        arch_mmu_free_user_pages(p->as->ttbr0_pa);
+        arch_mmu_free_tables(p->as->ttbr0_pa, p->as->type);
+        if (p->as->regions) kfree(p->as->regions);
+        kfree(p->as);
     }
-    kfree((void *)p->kernel_stack_base);              // generic
-    kfree(p);                                         // generic
+    kfree((void *)p->kernel_stack_base);
+    kfree(p);
+    // sched_defer_destroy(p); 
 }
-

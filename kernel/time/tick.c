@@ -24,8 +24,8 @@ void tick_announce(void) {
         tick_callback();
     }
     if (tick_count % TICK_HZ == 0) {
-        uint32_t lo = (uint32_t)tick_count;
-        uint32_t hi = (uint32_t)(tick_count >> 32);
-        KINFO("Tick: %u%u", hi, lo);
+        //uint32_t lo = (uint32_t)tick_count;
+        //uint32_t hi = (uint32_t)(tick_count >> 32);
+        KINFO("Tick: %llu", tick_count);
     }
 }

@@ -60,15 +60,15 @@ static const char *decode_mode(uint32_t spsr) {
 
 static void dump_registers(exception_frame_t *frame) {
     kprintf("\033[31m");  // Red
-    kprintf("  r0=%08x  r1=%08x  r2=%08x  r3=%08x\n",
+    kprintf("  r0=%08X  r1=%08X  r2=%08X  r3=%08X\n",
             frame->r[0], frame->r[1], frame->r[2], frame->r[3]);
-    kprintf("  r4=%08x  r5=%08x  r6=%08x  r7=%08x\n",
+    kprintf("  r4=%08X  r5=%08X  r6=%08X  r7=%08X\n",
             frame->r[4], frame->r[5], frame->r[6], frame->r[7]);
-    kprintf("  r8=%08x  r9=%08x r10=%08x r11=%08x\n",
+    kprintf("  r8=%08X  r9=%08X r10=%08X r11=%08X\n",
             frame->r[8], frame->r[9], frame->r[10], frame->r[11]);
-    kprintf(" r12=%08x  sp=????????  lr=%08x  pc=%08x\n",
+    kprintf(" r12=%08X  sp=????????  lr=%08X  pc=%08X\n",
             frame->r[12], frame->lr, frame->return_pc);
-    kprintf("spsr=%08x [%s mode, %s%s%s]\n",
+    kprintf("spsr=%08X [%s mode, %s%s%s]\n",
             frame->return_cpsr,
             decode_mode(frame->return_cpsr),
             (frame->return_cpsr & (1 << 7)) ? "I" : "i",
@@ -84,13 +84,15 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame) {
         case EXC_UNDEF: {
             KERROR("=== UNDEFINED INSTRUCTION ===");
             
-            if (current_process) { // todo: remove when userland arrives
-                KERROR("Process with ID %d failed at 0x%08x", current_process->pid,frame->return_pc);
-                current_process->process_state = PROCESS_ZOMBIE;
-                current_process = NULL; // remove C
+            if (current_process) {
+                KERROR("Process with ID %d failed at 0x%08X", current_process->pid,frame->return_pc);
+                process_t *dying = current_process;
+                current_process = NULL;
+                dying->process_state = PROCESS_ZOMBIE;
+                sched_defer_destroy(dying);
                 schedule();
             } else {
-                KERROR("PC: 0x%08x (instruction that caused abort)", frame->return_pc);
+                KERROR("PC: 0x%08X (instruction that caused abort)", frame->return_pc);
                 dump_registers(frame);
                 panic();
             }
@@ -120,18 +122,20 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame) {
             __asm__ volatile("mrc p15, 0, %0, c5, c0, 1" : "=r"(ifsr));
             
             KERROR("=== PREFETCH ABORT ===");
-            KERROR("IFAR: 0x%08x  IFSR: 0x%08x", ifar, ifsr);
+            KERROR("IFAR: 0x%08X  IFSR: 0x%08X", ifar, ifsr);
             KERROR("Fault: %s", decode_fault_status(ifsr));
-            KERROR("PC: 0x%08x", frame->return_pc);
-            if (current_process) { // todo: remove when userland arrives
-                KERROR("Process with ID %d failed at 0x%08x", current_process->pid,frame->return_pc);
-                current_process->process_state = PROCESS_ZOMBIE;
-                current_process = NULL; // remove C
+            KERROR("PC: 0x%08X", frame->return_pc);
+            if (current_process) {
+                KERROR("Process with ID %d failed at 0x%08X", current_process->pid,frame->return_pc);
+                process_t *dying = current_process;
+                current_process = NULL;
+                dying->process_state = PROCESS_ZOMBIE;
                 dump_registers(frame);
+                sched_defer_destroy(dying);
                 schedule();
 
             } else {
-                KERROR("PC: 0x%08x (instruction that caused abort)", frame->return_pc);
+                KERROR("PC: 0x%08X (instruction that caused abort)", frame->return_pc);
                 dump_registers(frame);
                 panic();
             }
@@ -146,22 +150,24 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame) {
 
             
             KERROR("=== DATA ABORT ===");
-            KERROR("DFAR: 0x%08x  DFSR: 0x%08x", dfar, dfsr);
+            KERROR("DFAR: 0x%08X  DFSR: 0x%08X", dfar, dfsr);
             KERROR("Fault: %s", decode_fault_status(dfsr));
             KERROR("Access: %s, %s", 
                    (dfsr & (1 << 11)) ? "Write" : "Read",
                    (dfsr & (1 << 12)) ? "External" : "Internal");
             KERROR("Domain: %u", (dfsr >> 4) & 0xF);
 
-            if (current_process) { // todo: remove when userland arrives
-                KERROR("Process with ID %d failed at 0x%08x", current_process->pid,frame->return_pc);
-                current_process->process_state = PROCESS_ZOMBIE;
-                current_process = NULL; // remove C
+            if (current_process) {
+                KERROR("Process with ID %d failed at 0x%08X", current_process->pid,frame->return_pc);
+                process_t *dying = current_process;
+                current_process = NULL;
+                dying->process_state = PROCESS_ZOMBIE;
                 dump_registers(frame);
+                sched_defer_destroy(dying);
                 schedule();
 
             } else {
-                KERROR("PC: 0x%08x (instruction that caused abort)", frame->return_pc);
+                KERROR("PC: 0x%08X (instruction that caused abort)", frame->return_pc);
                 dump_registers(frame);
                 panic();
             }
