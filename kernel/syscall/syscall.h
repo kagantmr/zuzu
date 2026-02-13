@@ -70,9 +70,9 @@
 void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame);
 
 static inline bool validate_user_ptr(uintptr_t addr, size_t len) {
-    if (addr + len < addr) return false;        // overflow
-    if (addr >= KERNEL_VA_BASE) return false;
-    if (addr + len >= KERNEL_VA_BASE) return false;
+    if (addr + len < addr) return false;
+    if (addr >= USER_VA_TOP) return false;
+    if (addr + len > USER_VA_TOP) return false;
     return true;
 }
 

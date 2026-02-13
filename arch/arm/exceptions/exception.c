@@ -98,11 +98,17 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame) {
         break;
         
         case EXC_SVC: {
-            uint32_t *svc_instr_ptr = (uint32_t *)(frame->return_pc - 4);
-            uint32_t svc_instr = *svc_instr_ptr;
-            
-            // Extract the lower 8 bits (the SVC number)
-            uint8_t svc_num = svc_instr & 0xFF;
+            uint8_t svc_num;
+
+            if (frame->return_cpsr & (1 << 5)) {
+                // Thumb mode: SVC instruction is 2 bytes, at return_pc - 2
+                uint16_t *thumb_instr = (uint16_t *)(frame->return_pc - 2);
+                svc_num = (uint8_t)(*thumb_instr & 0xFF);
+            } else {
+                // ARM mode: SVC instruction is 4 bytes, at return_pc - 4
+                uint32_t *arm_instr = (uint32_t *)(frame->return_pc - 4);
+                svc_num = (uint8_t)(*arm_instr & 0xFF);
+            }
 
             syscall_dispatch(svc_num, frame);
         }

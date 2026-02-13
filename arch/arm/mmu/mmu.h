@@ -16,14 +16,14 @@
 uintptr_t arch_mmu_create_tables(void);
 
 /**
- * @brief Free page tables (later phase).
+ * @brief Free page tables.
  * @param ttbr0_pa Physical address of the L1 table.
  * Responsibilities:
  *   - free all L2 tables
  *   - free L1 table
  *   - release physical memory
  */
-void arch_mmu_free_tables(uintptr_t ttbr0_pa);
+void arch_mmu_free_tables(uintptr_t ttbr0_pa, addrspace_type_t type);
 
 /**
  * @brief Encode mappings into ARM L1/L2 tables.
@@ -129,6 +129,10 @@ uint32_t arch_mmu_make_l1_pte(uintptr_t l2_pa);
 uint32_t arch_mmu_make_l2_pte(uintptr_t pa, vm_memtype_t memtype, vm_prot_t prot);
 bool arch_mmu_map_page(addrspace_t *as, uintptr_t va, uintptr_t pa, vm_memtype_t memtype, vm_prot_t prot);
 bool arch_mmu_unmap_page(addrspace_t *as, uintptr_t va);
+
+// Walk page tables and free all user-space physical pages
+uintptr_t arch_mmu_create_user_tables(void);
+void arch_mmu_free_user_pages(uintptr_t ttbr0_pa);
 
 void arch_mmu_init_ttbr1(addrspace_t *as);
 

@@ -1,9 +1,11 @@
 #include "sched.h"
+#include "kernel/proc/process.h"
 #include "lib/list.h"
 #include "core/log.h"
 #include "kernel/vmm/vmm.h"
 
 static list_head_t run_queue = LIST_HEAD_INIT(run_queue); 
+static list_head_t destroy_queue = LIST_HEAD_INIT(destroy_queue);
 process_t *current_process;
 
 void sched_init() {
@@ -13,8 +15,20 @@ void sched_init() {
 void sched_add(process_t *p) {
     list_add_tail(&p->node, &run_queue.node);
 }
+
+void sched_defer_destroy(process_t *p) {
+    list_add_tail(&p->node, &destroy_queue.node);
+}
+void sched_reap_zombies(void) {
+    while (!list_is_empty(&destroy_queue)) {
+        list_node_t *node = list_remove_head(&destroy_queue);
+        process_t *p = container_of(node, process_t, node);
+        process_destroy(p);
+    }
+}
+
 void schedule() {
-    KINFO("schedule: current=%p", current_process);
+    sched_reap_zombies();
     if (current_process != NULL) {
         // Save current process state
         current_process->process_state = PROCESS_READY;
@@ -35,7 +49,7 @@ void schedule() {
     current_process->process_state = PROCESS_RUNNING;
 
     // Context switch to the new process (not implemented here)
-    KINFO("schedule: prev=%p next=%p", prev, current_process);
+    KDEBUG("schedule: prev=%p next=%p", prev, current_process);
     if (current_process->as && (!prev || prev->as != current_process->as)) {
         vmm_activate(current_process->as);
     }
