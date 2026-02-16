@@ -1,6 +1,7 @@
 #include "sys_task.h"
 #include "syscall.h"
 #include "kernel/sched/sched.h"
+#include "kernel/time/tick.h"
 #include "kernel/proc/process.h"
 #include "core/log.h"
 
@@ -33,4 +34,26 @@ void sys_log(exception_frame_t *frame) {
     }
     for (size_t i = 0; i < len; i++) {kprintf("%c", msg[i]);}
     frame->r[0] = 0; // Success
+}
+
+void sys_task_sleep(exception_frame_t *frame) {
+    uint32_t ms = frame->r[0]; // Argument 0: Milliseconds to sleep
+    
+    // Convert ms to ticks (assuming 100Hz timer -> 10ms per tick)
+    uint32_t ticks = ms / 10; 
+    if (ticks == 0) ticks = 1; // Sleep at least 1 tick
+
+    // Calculate wake time
+    current_process->wake_tick = get_ticks() + ticks;
+    
+    // Change state
+    current_process->process_state = PROCESS_BLOCKED;
+    
+    // Schedule someone else immediately
+    schedule();
+}
+
+// Add this function
+void sys_get_pid(exception_frame_t *frame) {
+    frame->r[0] = current_process->pid;
 }

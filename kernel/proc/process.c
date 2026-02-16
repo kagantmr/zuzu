@@ -3,6 +3,7 @@
 #include "kernel/mm/pmm.h"
 #include "arch/arm/mmu/mmu.h"
 #include "kernel/sched/sched.h"
+#include "kstack.h"
 
 static uint32_t next_pid = 1;
 
@@ -10,9 +11,8 @@ process_t* process_create(void (*entry)(void), const uint32_t magic) {
     (void) entry;
     process_t* process = kmalloc(sizeof(process_t));
     process->as = addrspace_create(ADDRSPACE_USER);
-    uint32_t* kernel_stack = kmalloc(4096); // Allocate 4KB for kernel stack
-    process->kernel_stack_base = (uintptr_t)kernel_stack;   // track for later free
-    uintptr_t stack_top = (uintptr_t)kernel_stack + 4096;
+    uintptr_t stack_top = kstack_alloc();
+    process->kernel_stack_top = stack_top;
 
     // write exception frame to the stack
     stack_top -= 16 * sizeof(uint32_t);    // 16 words
@@ -21,7 +21,7 @@ process_t* process_create(void (*entry)(void), const uint32_t magic) {
     for (int i = 0; i < 12; i++) {
         *(exc_frame++) = 0; // r1-12 = 0  (indices 0-12)
     }
-    *(exc_frame++) = 0x7FFFF000; // lr = SP_usr              (index 13)
+    *(exc_frame++) = USR_SP; // lr = SP_usr              (index 13)
     *(exc_frame++) = 0x10000; // PC = entry point    (index 14)
     *(exc_frame++) = 0x10; // CPSR = 0x10         (index 15)
 
@@ -106,7 +106,40 @@ process_t* process_create(void (*entry)(void), const uint32_t magic) {
             // 'o' '!' '\0' '\0' = 0x0000216F
             code[6] = 0x0000216F;
             break;
+        case 0xABABABAB: // "The Napper"
+            // 1. Print "Yawn..."
+            // PC is at code[0]+8 = code[2]. String is at code[11].
+            // Diff = 9 instructions * 4 bytes = 36 (0x24)
+            code[0] = 0xE28F0024;  // ADD R0, PC, #0x24  <-- FIXED (Was 0x14)
+            code[1] = 0xE3A01007;  // MOV R1, #7
+            code[2] = 0xEF0000F0;  // SVC #0xF0 (LOG)
 
+            // 2. Sleep for 1000ms
+            code[3] = 0xE3A00FA0;  // MOV R0, #1000
+            code[4] = 0xEF000002;  // SVC #0x02 (SYS_SLEEP)
+
+            // 3. Print "Awake!"
+            // PC is at code[5]+8 = code[7]. String is at code[13].
+            // Diff = 6 instructions * 4 bytes = 24 (0x18)
+            code[5] = 0xE28F0018;  // ADD R0, PC, #0x18  <-- FIXED (Was 0x10)
+            code[6] = 0xE3A01007;  // MOV R1, #7
+            code[7] = 0xEF0000F0;  // SVC #0xF0 (LOG)
+
+            // 4. Quit
+            code[8] = 0xEF000000;
+            code[9] = 0xEAFFFFFE;
+
+            // Gap filler (Code[10] unused in logic but space needed)
+            code[10] = 0xE1A00000; // NOP (MOV R0, R0)
+
+            // Data: "Yawn..." (at code[11])
+            code[11] = 0x6E776159; 
+            code[12] = 0x002E2E2E; 
+            
+            // Data: "Awake!" (at code[13])
+            code[13] = 0x6B617741; 
+            code[14] = 0x002165;   
+            break;
         default: // "The Spinner" - CPU Burner
             // Just spins forever. Good for testing preemption.
             code[0] = 0xE3A00000;  // MOV R0, #0
@@ -130,7 +163,7 @@ void process_destroy(process_t *p) {
         if (p->as->regions) kfree(p->as->regions);
         kfree(p->as);
     }
-    kfree((void *)p->kernel_stack_base);
+    kstack_free(p->kernel_stack_top);
     kfree(p);
     // sched_defer_destroy(p); 
 }

@@ -2,6 +2,7 @@
 #include "kernel/mm/pmm.h"
 #include "lib/mem.h"
 #include "core/assert.h"
+#include "l2_pool.h"
 #include <stdint.h>
 
 #define L1_MASK 0x2u
@@ -49,7 +50,7 @@ void arch_mmu_free_tables(uintptr_t ttbr0_pa, addrspace_type_t type)
     for (size_t i = 0; i < entries; i++) {
         if ((l1[i] & 0x3) == 0x1) {
             uint32_t l2_pa = l1[i] & 0xFFFFFC00;
-            pmm_free_page(l2_pa);  // or l2_pool_free() once you have the pool
+            l2_pool_free(l2_pa);  // or l2_pool_free() once you have the pool
         }
     }
 
@@ -329,10 +330,10 @@ uintptr_t arch_mmu_translate(uintptr_t ttbr0_pa, uintptr_t va)
 
 uintptr_t arch_mmu_alloc_l2_table(void)
 {
-    uintptr_t new_page = pmm_alloc_page();
+    uintptr_t new_page = l2_pool_alloc();
     if (!new_page)
         return 0;
-    memset((void *)PA_TO_VA(new_page), 0, 4096);
+    //memset((void *)PA_TO_VA(new_page), 0, 4096);
     return (uintptr_t)new_page;
 }
 
@@ -369,6 +370,62 @@ uint32_t arch_mmu_make_l2_pte(uintptr_t pa, vm_memtype_t memtype, vm_prot_t prot
     return entry;
 }
 
+/*
+ * Break a 1MB section mapping into 256 equivalent 4KB page mappings.
+ * Allocates an L2 table, fills all 256 entries to match the original section's
+ * physical base and attributes, then replaces the L1 section entry with an
+ * L1 page-table pointer. After this, individual pages can be remapped or
+ * unmapped within the former section.
+ */
+static bool arch_mmu_break_section(uint32_t *l1, uint32_t l1_idx)
+{
+    uint32_t section = l1[l1_idx];
+
+    /* Extract physical base (bits [31:20]) */
+    uintptr_t section_pa = section & 0xFFF00000u;
+
+    /* Determine memory type from the section's TEX/C/B bits.
+     * Section format:  TEX[14:12], C[3], B[2]
+     * We only need to distinguish device vs normal for make_l2_pte. */
+    vm_memtype_t memtype;
+    uint32_t tex = (section >> 12) & 0x7;
+    uint32_t cb  = (section >> 2) & 0x3;
+    if (tex == 0 && cb == 1)
+        memtype = VM_MEM_DEVICE;   /* TEX=000, C=0, B=1 */
+    else
+        memtype = VM_MEM_NORMAL;
+
+    /* Determine access permissions from AP[11:10].
+     * Section AP[1:0] is at bits [11:10].  We map to the prot flags
+     * that make_l2_pte expects. */
+    uint32_t ap = (section >> 10) & 0x3;
+    vm_prot_t prot = VM_PROT_READ | VM_PROT_WRITE;  /* default: kernel RW */
+    if (ap == 3)
+        prot |= VM_PROT_USER;                       /* AP=11 → user RW */
+
+    /* Allocate an L2 table (1KB, from the pool) */
+    uintptr_t l2_pa = arch_mmu_alloc_l2_table();
+    if (!l2_pa)
+        return false;
+
+    uint32_t *l2 = (uint32_t *)PA_TO_VA(l2_pa);
+
+    /* Fill all 256 entries to replicate the section mapping at 4KB granularity */
+    for (int i = 0; i < 256; i++)
+    {
+        l2[i] = arch_mmu_make_l2_pte(section_pa + i * PAGE_SIZE, memtype, prot);
+    }
+
+    /* Replace the section entry with an L1 page-table descriptor */
+    l1[l1_idx] = arch_mmu_make_l1_pte(l2_pa);
+
+    /* Flush TLB — the old section TLB entries are now stale */
+    arch_mmu_flush_tlb();
+    arch_mmu_barrier();
+
+    return true;
+}
+
 bool arch_mmu_map_page(addrspace_t *as, uintptr_t va, uintptr_t pa,
                        vm_memtype_t memtype, vm_prot_t prot)
 {
@@ -384,22 +441,28 @@ bool arch_mmu_map_page(addrspace_t *as, uintptr_t va, uintptr_t pa,
 
     if (type == 0)
     {
+        // Unmapped — allocate a fresh L2 table
         uintptr_t l2_pa = arch_mmu_alloc_l2_table();
         if (!l2_pa)
-            return false; // allocation failed
+            return false;
 
         l1[l1_idx] = arch_mmu_make_l1_pte(l2_pa);
         l2 = (uint32_t *)PA_TO_VA(l2_pa);
     }
     else if (type == 1)
     {
+        // Already an L2 page table — reuse it
         uint32_t l2_table_pa = l1_entry & 0xFFFFFC00;
         l2 = (uint32_t *)PA_TO_VA(l2_table_pa);
     }
     else
     {
-        // It's a section - can't mix!
-        return false;
+        // Section mapping — break it into 256 page entries first
+        if (!arch_mmu_break_section(l1, l1_idx))
+            return false;
+
+        uint32_t l2_table_pa = l1[l1_idx] & 0xFFFFFC00;
+        l2 = (uint32_t *)PA_TO_VA(l2_table_pa);
     }
 
     // Now install the page entry

@@ -158,17 +158,6 @@ _Noreturn void kmain(void)
     irq_init();
     board_init_devices();
 
-    kprintf("RAM: base=%p size=%u bytes (%u KiB)\n",
-            (void*)phys_region.start, (unsigned)(phys_region.end - phys_region.start), (unsigned)((phys_region.end - phys_region.start) / 1024));
-
-    kprintf("PMM: total_pages=%u => %u bytes (%u KiB)\n",
-            pmm_state.total_pages,
-            (unsigned)(pmm_state.total_pages * PAGE_SIZE),
-            (unsigned)((pmm_state.total_pages * PAGE_SIZE) / 1024));
-
-    kprintf("Kernel reserved: [%p..%p) = %u bytes\n",
-            (void*)_kernel_phys_start, (void*)_kernel_phys_end,
-            (unsigned)((uintptr_t)_kernel_phys_end - (uintptr_t)_kernel_phys_start));
 
     pl011_init_irq(uart_get_base()); // Enable RX interrupts for UART
     arch_global_irq_enable(); // Only after GIC is initialized
@@ -187,22 +176,21 @@ _Noreturn void kmain(void)
 
     sched_init();
 
-    // 1. The Talker: Should print "Hello!" and exit gracefully
+    // Prints hello, exits
     process_t *p_talk = process_create(NULL, 0xCAFEBABE);
     sched_add(p_talk);
 
-    // 2. The Yielder: Should run for a while, yielding constantly
+    // Yields
     process_t *p_yield = process_create(NULL, 0xDEADBEEF);
     sched_add(p_yield);
 
-    // 3. The Trespasser: Should crash with a Data Abort
-    process_t *p_crash = process_create(NULL, 0xBAD0B010);
+    // Sleeps, wakes up, exits
+    process_t *p_crash = process_create(NULL, 0xABABABAB);
     sched_add(p_crash);
 
-    // 4. Background noise to ensure the Yielder has someone to yield TO
+    // infinite loop
     process_t *p_idle_work = process_create(NULL, 0x12345678); // Default spinner
     sched_add(p_idle_work);
-
 
     register_tick_callback(schedule);
 

@@ -95,6 +95,9 @@ run: $(TARGET)
 debug: $(TARGET)
 	qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -kernel $(TARGET) -dtb $(DTB_FILE) -nographic -S -s
 
+size:
+	arm-none-eabi-size $(TARGET)
+
 # Disassemble
 dump: $(TARGET)
 	$(OBJDUMP) -d $(TARGET) > build/zuzu.asm
