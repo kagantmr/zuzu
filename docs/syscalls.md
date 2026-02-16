@@ -39,6 +39,7 @@ Negative r0 values indicate errors:
 | 0x02 | task_spawn | r0: name ptr, r1: name len | pid or -err   | Create new task from initrd ELF      |
 | 0x03 | task_wait  | r0: pid, r1: &status       | 0 or -err     | Block until child exits              |
 | 0x04 | get_pid    | —                          | pid           | Return caller's PID                  |
+| 0x06 | task_sleep | r0: duration (ms)          | 0             | Sleep for given duration             |
 
 ## 0x10–0x1F: IPC
 

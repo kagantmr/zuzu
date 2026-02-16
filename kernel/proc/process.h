@@ -18,7 +18,8 @@ typedef struct process {
     uint32_t pid, parent_pid;
     p_state_t process_state;
     uint32_t *kernel_sp;
-    uintptr_t kernel_stack_base;   // base of kernel stack for freeing
+    uintptr_t kernel_stack_top;   // base of kernel stack for freeing
+    uint32_t wake_tick;
     uint32_t priority, time_slice, ticks_remaining;
     addrspace_t *as;
     list_node_t node;  // embedded, not pointers

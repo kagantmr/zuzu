@@ -22,9 +22,12 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     {
         frame->r[0] = ERR_NOMATCH;
     } break; 
+    case SYS_TASK_SLEEP: {
+        sys_task_sleep(frame);
+    } break;
     case SYS_GET_PID:
     {
-        frame->r[0] = ERR_NOMATCH;
+        sys_get_pid(frame);
     } break; 
     case SYS_PROC_SEND:
     {
