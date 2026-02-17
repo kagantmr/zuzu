@@ -7,13 +7,12 @@ OBJDUMP = $(CROSS)objdump
 BOARD_DIR     = arch/arm/vexpress-a15
 LINKER_SCRIPT = $(BOARD_DIR)/linker.ld
 DTB_FILE      = arch/arm/dtb/vexpress-a15/vexpress-v2p-ca15-tc1.dtb
-
+MAP = build/zuzu.map
 
 
 CPUFLAGS = -mcpu=cortex-a15
-# -I. is crucial: It lets you include files relative to the project root
 CFLAGS   = -ffreestanding -O2 -fno-omit-frame-pointer -Wall -Wextra -Werror $(CPUFLAGS) -I. -MMD -MP -g
-LDFLAGS  = -T $(LINKER_SCRIPT)
+LDFLAGS  = -T $(LINKER_SCRIPT) -Map=$(MAP)
 
 # Debug options
 DEBUG_BUILD ?= 1
@@ -63,7 +62,6 @@ ASRCS    = $(shell find $(SRC_DIRS) -name '*.s')
 SRCS     = $(CSRCS) $(ASRCS)
 
 # Object files in build/
-# Example mapping: core/kprintf.c -> build/core/kprintf.o
 OBJS     = $(CSRCS:%.c=build/%.o) \
            $(ASRCS:%.s=build/%.o)
 

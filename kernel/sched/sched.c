@@ -86,3 +86,18 @@ void schedule() {
     }
     context_switch(prev, current_process);  // need to save prev first!
 }
+
+size_t sched_ready_queue_snapshot(process_t **out, size_t max_out) {
+    size_t total = 0;
+    list_node_t *node = run_queue.node.next;
+
+    while (node != &run_queue.node) {
+        if (out && total < max_out) {
+            out[total] = container_of(node, process_t, node);
+        }
+        total++;
+        node = node->next;
+    }
+
+    return total;
+}

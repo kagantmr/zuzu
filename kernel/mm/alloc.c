@@ -5,6 +5,7 @@
 #include "stdbool.h"
 #include "lib/mem.h"
 #include "core/assert.h"
+#include "core/log.h"
 
 extern kernel_layout_t kernel_layout;
 
@@ -154,7 +155,7 @@ void kheap_init(void) {
     // PMM returns physical addresses
     uintptr_t heap_pa = pmm_alloc_pages(HEAP_SIZE/PAGE_SIZE);
     if (!heap_pa) {
-        KPANIC("Heap could not be allocated");
+        panic("Heap could not be allocated");
     }
     
     // Store PHYSICAL addresses in _pa fields (for debug/bookkeeping)

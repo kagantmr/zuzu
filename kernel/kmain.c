@@ -28,7 +28,7 @@
 #include "lib/mem.h"
 #include "kernel/mm/alloc.h"
 
-#include "banner.h"
+#include "fetch.h"
 
 extern kernel_layout_t kernel_layout;
 extern pmm_state_t pmm_state;
@@ -111,8 +111,10 @@ _Noreturn void kmain(void)
     uint32_t dtb_pages = (totalsize + PAGE_SIZE - 1) / PAGE_SIZE;
     uintptr_t dtb_pa = pmm_alloc_pages(dtb_pages);
     if (!dtb_pa) {
-        KPANIC("Failed to allocate pages for DTB");
+        panic("Failed to allocate pages for DTB");
     }
+
+    
 
     // The pages are already mapped in kernel space via the higher-half mapping
     // (all of RAM is mapped at PA+0x40000000), so we can just use PA_TO_VA
@@ -166,10 +168,12 @@ _Noreturn void kmain(void)
 
 
     // data abort test (page fault)
-    // volatile uint32_t *bad = (volatile uint32_t *)0xDEADBEEF;
-    // *bad = 42;
+    volatile uint32_t *bad = (volatile uint32_t *)0xDEADBEEF;
+    *bad = 42;
 
     print_boot_banner();
+
+    
 
     // trigger SVC to verify exception handling
     //__asm__ volatile("svc #0");

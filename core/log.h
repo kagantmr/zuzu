@@ -12,12 +12,4 @@
 #else
 #define KDEBUG(fmt, ...) do {} while(0)
 #endif
-
-
-// The do-while(0) loop ensures this works correctly inside if/else statements
-#define KPANIC(fmt, ...) do { \
-    kprintf("\033[1;31m[PANIC] \033[0m" fmt "\n", ##__VA_ARGS__); \
-    panic(); \
-} while(0)
-
 #endif

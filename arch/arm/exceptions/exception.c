@@ -133,7 +133,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
         {
             KERROR("PC: 0x%08X (instruction that caused abort)", frame->return_pc);
             dump_registers(frame);
-            panic();
+            panic("Undefined instruction");
         }
     }
     break;
@@ -183,7 +183,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
         {
             KERROR("PC: 0x%08X (instruction that caused abort)", frame->return_pc);
             dump_registers(frame);
-            panic();
+            panic("Prefetch abort");
         }
     }
     break;
@@ -215,7 +215,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
                     KERROR("KERNEL STACK OVERFLOW at 0x%08X (PID %d)",
                            dfar, current_process ? current_process->pid : 0);
                     dump_registers(frame);
-                    panic();
+                    panic("Kernel stack overflow");
                 }
             }
             process_t *dying = current_process;
@@ -229,7 +229,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
         {
             KERROR("PC: 0x%08X (instruction that caused abort)", frame->return_pc);
             dump_registers(frame);
-            panic();
+            panic("Data abort");
         }
     }
     break;
@@ -251,7 +251,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
     case EXC_FIQ:
     {
         KERROR("=== FIQ (not supported) ===");
-        panic();
+        panic("No support for FIQ");
     }
     break;
 
@@ -259,7 +259,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
     {
         KERROR("=== UNKNOWN EXCEPTION %d ===", exctype);
         dump_registers(frame);
-        panic();
+        panic("Unknown exception");
     }
     break;
     }
