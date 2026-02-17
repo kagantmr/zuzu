@@ -16,6 +16,8 @@ extern kernel_layout_t kernel_layout;
 extern process_t *current_process;
 extern pmm_state_t pmm_state;
 
+panic_fault_context_t panic_fault_ctx;
+
 #ifndef PANIC_FULL_SCREEN
 #define PANIC_FULL_SCREEN 1
 #endif
@@ -211,6 +213,58 @@ static void panic_screen(const char *reason, void *caller_ra)
     panic_box_line(line);
     panic_box_rule();
 
+    if (panic_fault_ctx.valid) {
+        panic_box_header("FAULT DETAILS");
+        panic_box_empty();
+
+        if (panic_fault_ctx.fault_type) {
+            snprintf(line, sizeof(line), "  Type:   %s", panic_fault_ctx.fault_type);
+            panic_box_line(line);
+        }
+        if (panic_fault_ctx.fault_decoded) {
+            snprintf(line, sizeof(line), "  Fault:  %s", panic_fault_ctx.fault_decoded);
+            panic_box_line(line);
+        }
+        if (panic_fault_ctx.far) {
+            snprintf(line, sizeof(line), "  FAR:    0x%08X", panic_fault_ctx.far);
+            panic_box_line(line);
+        }
+        if (panic_fault_ctx.fsr) {
+            snprintf(line, sizeof(line), "  FSR:    0x%08X", panic_fault_ctx.fsr);
+            panic_box_line(line);
+        }
+        if (panic_fault_ctx.access_type) {
+            snprintf(line, sizeof(line), "  Access: %s", panic_fault_ctx.access_type);
+            panic_box_line(line);
+        }
+
+        panic_box_rule();
+
+        if (panic_fault_ctx.frame) {
+            exception_frame_t *f = panic_fault_ctx.frame;
+
+            panic_box_header("REGISTERS");
+            panic_box_empty();
+
+            for (int i = 0; i < 13; i += 2) {
+                if (i + 1 < 13)
+                    snprintf(line, sizeof(line), "  r%-2d=%08X  r%-2d=%08X",
+                             i, f->r[i], i + 1, f->r[i + 1]);
+                else
+                    snprintf(line, sizeof(line), "  r%-2d=%08X",
+                             i, f->r[i]);
+                panic_box_line(line);
+            }
+            snprintf(line, sizeof(line), "  lr =%08X  pc =%08X",
+                     f->lr, f->return_pc);
+            panic_box_line(line);
+            snprintf(line, sizeof(line), "  cpsr=%08X", f->return_cpsr);
+            panic_box_line(line);
+
+            panic_box_rule();
+        }
+    }
+
     panic_box_header("BACKTRACE");
     panic_box_empty();
 
@@ -348,6 +402,22 @@ static void panic_screen(const char *reason, void *caller_ra)
 
     backtrace_t bt;
     backtrace_walk(&bt);
+
+    if (panic_fault_ctx.valid) {
+        if (panic_fault_ctx.fault_decoded)
+            kprintf("Fault: %s\n", panic_fault_ctx.fault_decoded);
+        if (panic_fault_ctx.far)
+            kprintf("FAR: 0x%08X  FSR: 0x%08X\n", panic_fault_ctx.far, panic_fault_ctx.fsr);
+        if (panic_fault_ctx.access_type)
+            kprintf("Access: %s\n", panic_fault_ctx.access_type);
+        if (panic_fault_ctx.frame) {
+            exception_frame_t *f = panic_fault_ctx.frame;
+            kprintf("r0=%08X r1=%08X r2=%08X r3=%08X\n", f->r[0], f->r[1], f->r[2], f->r[3]);
+            kprintf("r4=%08X r5=%08X r6=%08X r7=%08X\n", f->r[4], f->r[5], f->r[6], f->r[7]);
+            kprintf("r8=%08X r9=%08X r10=%08X r11=%08X\n", f->r[8], f->r[9], f->r[10], f->r[11]);
+            kprintf("r12=%08X lr=%08X pc=%08X cpsr=%08X\n", f->r[12], f->lr, f->return_pc, f->return_cpsr);
+        }
+    }
 
     kprintf("Backtrace:\n");
     for (int i = 0; i < bt.depth; i++)
