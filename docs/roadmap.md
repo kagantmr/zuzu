@@ -98,7 +98,7 @@ Phase 10: Process Model
 - [x] Context switch routine
 - [x] Round-robin scheduler
 - [ ] Kernel symbol lookup (addr to function name)
-- [ ] Backtrace/stack unwinding
+- [x] Backtrace/stack unwinding
 
 Phase 11: Privilege Separation & Syscalls
 - [x] SVC syscall entry
@@ -110,7 +110,7 @@ Phase 11: Privilege Separation & Syscalls
 - [x] yield syscall
 
 Phase 12: IPC & Microkernel Identity
-- [ ] Synchronous IPC (send/recv)
+- [x] Synchronous IPC (send/recv)
 - [ ] Message copying
 - [ ] Process naming or capability system
 - [ ] Service registry
