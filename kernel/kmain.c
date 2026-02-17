@@ -155,6 +155,12 @@ _Noreturn void kmain(void)
     process_t *p_yield = process_create(NULL, 0xDEADBEEF);
     sched_add(p_yield);
 
+    process_t *p_rx = process_create(NULL, 0x11111111);
+    sched_add(p_rx);
+
+    process_t *p_tx = process_create(NULL, 0x22222222);
+    sched_add(p_tx);
+
     // Sleeps, wakes up, exits
     process_t *p_crash = process_create(NULL, 0xABABABAB);
     sched_add(p_crash);
