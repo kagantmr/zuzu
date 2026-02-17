@@ -23,7 +23,9 @@ panic_fault_context_t panic_fault_ctx;
 #endif
 
 #define BACKTRACE_MAX_DEPTH 16
-#define PANIC_BOX_WIDTH 52
+#define PANIC_BOX_WIDTH 76
+#define PANIC_COL_WIDTH 38
+#define PANIC_COL_MAX_LINES 24
 #define PANIC_READY_SNAPSHOT_MAX 6
 
 // Colors — text only, no background
@@ -108,6 +110,86 @@ static void panic_puts_centered(const char *s)
 }
 
 // ============================================================
+// Column-based rendering for side-by-side layout
+// ============================================================
+
+typedef struct {
+    char lines[PANIC_COL_MAX_LINES][96];
+    int count;
+} panic_col_t;
+
+static panic_col_t _col_left, _col_right;
+
+static int _col_append(char *dst, int pos, int max, const char *s)
+{
+    while (*s && pos < max - 1)
+        dst[pos++] = *s++;
+    return pos;
+}
+
+static void col_init(panic_col_t *c) { c->count = 0; }
+
+static void col_line(panic_col_t *c, const char *content)
+{
+    if (c->count >= PANIC_COL_MAX_LINES) return;
+    char *d = c->lines[c->count];
+    int p = 0;
+    p = _col_append(d, p, 96, C_GREY "| " C_RESET);
+    p = _col_append(d, p, 96, content);
+    int pad = (PANIC_COL_WIDTH - 4) - visible_len(content);
+    if (pad < 0) pad = 0;
+    for (int i = 0; i < pad && p < 93; i++) d[p++] = ' ';
+    p = _col_append(d, p, 96, C_GREY " |" C_RESET);
+    d[p] = '\0';
+    c->count++;
+}
+
+static void col_rule(panic_col_t *c)
+{
+    if (c->count >= PANIC_COL_MAX_LINES) return;
+    char *d = c->lines[c->count];
+    int p = 0;
+    p = _col_append(d, p, 96, C_GREY);
+    d[p++] = '+';
+    for (int i = 0; i < PANIC_COL_WIDTH - 2; i++) d[p++] = '-';
+    d[p++] = '+';
+    p = _col_append(d, p, 96, C_RESET);
+    d[p] = '\0';
+    c->count++;
+}
+
+static void col_empty(panic_col_t *c) { col_line(c, ""); }
+
+static void col_header(panic_col_t *c, const char *title)
+{
+    char tmp[64];
+    snprintf(tmp, sizeof(tmp), C_GOLD "%s" C_RESET, title);
+    col_line(c, tmp);
+}
+
+static void panic_render_pair(panic_col_t *left, panic_col_t *right)
+{
+    int max = left->count > right->count ? left->count : right->count;
+    for (int i = 0; i < max; i++) {
+        if (i < left->count)
+            panic_puts(left->lines[i]);
+        else
+            panic_pad(PANIC_COL_WIDTH);
+        if (i < right->count)
+            panic_puts(right->lines[i]);
+        panic_puts("\n");
+    }
+}
+
+static void panic_render_single(panic_col_t *col)
+{
+    for (int i = 0; i < col->count; i++) {
+        panic_puts(col->lines[i]);
+        panic_puts("\n");
+    }
+}
+
+// ============================================================
 // Backtrace walker
 // ============================================================
 
@@ -187,6 +269,7 @@ static void panic_screen(const char *reason, void *caller_ra)
     panic_puts(ANSI_CLEAR);
     panic_puts("\n");
 
+    // Logo centered within full box width
     int logo_offset = (PANIC_BOX_WIDTH - PANIC_LOGO_WIDTH) / 2;
     if (logo_offset < 0) logo_offset = 0;
 
@@ -202,17 +285,17 @@ static void panic_screen(const char *reason, void *caller_ra)
     panic_puts_centered(C_DIM "Please share this screen with the developers." C_RESET);
     panic_puts("\n");
 
+    // ── Full-width: KERNEL PANIC ──
     panic_box_rule();
     panic_box_header("KERNEL PANIC");
     panic_box_empty();
     snprintf(line, sizeof(line), "  %s", reason ? reason : "unknown");
     panic_box_line(line);
-    panic_box_rule();
-
-    snprintf(line, sizeof(line), "Caller:  %p", caller_ra);
+    snprintf(line, sizeof(line), "  Caller: %p", caller_ra);
     panic_box_line(line);
     panic_box_rule();
 
+    // ── Full-width: FAULT DETAILS (if present) ──
     if (panic_fault_ctx.valid) {
         panic_box_header("FAULT DETAILS");
         panic_box_empty();
@@ -225,13 +308,19 @@ static void panic_screen(const char *reason, void *caller_ra)
             snprintf(line, sizeof(line), "  Fault:  %s", panic_fault_ctx.fault_decoded);
             panic_box_line(line);
         }
-        if (panic_fault_ctx.far) {
-            snprintf(line, sizeof(line), "  FAR:    0x%08X", panic_fault_ctx.far);
+        if (panic_fault_ctx.far && panic_fault_ctx.fsr) {
+            snprintf(line, sizeof(line), "  FAR:    0x%08X    FSR:    0x%08X",
+                     panic_fault_ctx.far, panic_fault_ctx.fsr);
             panic_box_line(line);
-        }
-        if (panic_fault_ctx.fsr) {
-            snprintf(line, sizeof(line), "  FSR:    0x%08X", panic_fault_ctx.fsr);
-            panic_box_line(line);
+        } else {
+            if (panic_fault_ctx.far) {
+                snprintf(line, sizeof(line), "  FAR:    0x%08X", panic_fault_ctx.far);
+                panic_box_line(line);
+            }
+            if (panic_fault_ctx.fsr) {
+                snprintf(line, sizeof(line), "  FSR:    0x%08X", panic_fault_ctx.fsr);
+                panic_box_line(line);
+            }
         }
         if (panic_fault_ctx.access_type) {
             snprintf(line, sizeof(line), "  Access: %s", panic_fault_ctx.access_type);
@@ -239,53 +328,80 @@ static void panic_screen(const char *reason, void *caller_ra)
         }
 
         panic_box_rule();
-
-        if (panic_fault_ctx.frame) {
-            exception_frame_t *f = panic_fault_ctx.frame;
-
-            panic_box_header("REGISTERS");
-            panic_box_empty();
-
-            for (int i = 0; i < 13; i += 2) {
-                if (i + 1 < 13)
-                    snprintf(line, sizeof(line), "  r%-2d=%08X  r%-2d=%08X",
-                             i, f->r[i], i + 1, f->r[i + 1]);
-                else
-                    snprintf(line, sizeof(line), "  r%-2d=%08X",
-                             i, f->r[i]);
-                panic_box_line(line);
-            }
-            snprintf(line, sizeof(line), "  lr =%08X  pc =%08X",
-                     f->lr, f->return_pc);
-            panic_box_line(line);
-            snprintf(line, sizeof(line), "  cpsr=%08X", f->return_cpsr);
-            panic_box_line(line);
-
-            panic_box_rule();
-        }
     }
 
-    panic_box_header("BACKTRACE");
-    panic_box_empty();
-
+    // Walk the backtrace once
     backtrace_t bt;
     backtrace_walk(&bt);
 
-    if (bt.depth == 0) {
-        panic_box_line("  (no frames)");
-    } else {
-        for (int i = 0; i < bt.depth; i++) {
-            snprintf(line, sizeof(line), "  #%-2d  0x%08X", i, bt.addresses[i]);
-            panic_box_line(line);
+    // ── Side-by-side: REGISTERS | BACKTRACE ──
+    if (panic_fault_ctx.valid && panic_fault_ctx.frame) {
+        exception_frame_t *f = panic_fault_ctx.frame;
+
+        // Left column: REGISTERS
+        col_init(&_col_left);
+        col_rule(&_col_left);
+        col_header(&_col_left, "REGISTERS");
+        col_empty(&_col_left);
+        for (int i = 0; i < 13; i += 2) {
+            if (i + 1 < 13)
+                snprintf(line, sizeof(line), "  r%-2d=%08X  r%-2d=%08X",
+                         i, f->r[i], i + 1, f->r[i + 1]);
+            else
+                snprintf(line, sizeof(line), "  r%-2d=%08X",
+                         i, f->r[i]);
+            col_line(&_col_left, line);
         }
+        snprintf(line, sizeof(line), "  lr =%08X  pc =%08X",
+                 f->lr, f->return_pc);
+        col_line(&_col_left, line);
+        snprintf(line, sizeof(line), "  cpsr=%08X", f->return_cpsr);
+        col_line(&_col_left, line);
+        col_rule(&_col_left);
+
+        // Right column: BACKTRACE
+        col_init(&_col_right);
+        col_rule(&_col_right);
+        col_header(&_col_right, "BACKTRACE");
+        col_empty(&_col_right);
+        if (bt.depth == 0) {
+            col_line(&_col_right, "  (no frames)");
+        } else {
+            for (int i = 0; i < bt.depth; i++) {
+                snprintf(line, sizeof(line), "  #%-2d 0x%08X", i, bt.addresses[i]);
+                col_line(&_col_right, line);
+            }
+        }
+        col_empty(&_col_right);
+        snprintf(line, sizeof(line), C_DIM "  addr2line -e zuzu.elf" C_RESET);
+        col_line(&_col_right, line);
+        col_rule(&_col_right);
+
+        panic_render_pair(&_col_left, &_col_right);
+    } else {
+        // No registers — backtrace full width
+        panic_box_header("BACKTRACE");
+        panic_box_empty();
+        if (bt.depth == 0) {
+            panic_box_line("  (no frames)");
+        } else {
+            for (int i = 0; i < bt.depth; i++) {
+                snprintf(line, sizeof(line), "  #%-2d  0x%08X", i, bt.addresses[i]);
+                panic_box_line(line);
+            }
+        }
+        panic_box_empty();
+        snprintf(line, sizeof(line), C_DIM "  addr2line -e build/zuzu.elf <addr>" C_RESET);
+        panic_box_line(line);
+        panic_box_rule();
     }
 
-    panic_box_empty();
-    snprintf(line, sizeof(line), C_DIM "  addr2line -e build/zuzu.elf <addr>" C_RESET);
-    panic_box_line(line);
-    panic_box_rule();
+    // ── Side-by-side: PROCESS | MEMORY ──
 
-    panic_box_header("PROCESS");
+    // Left column: PROCESS
+    col_init(&_col_left);
+    col_rule(&_col_left);
+    col_header(&_col_left, "PROCESS");
     if (current_process) {
         const char *state = "UNKNOWN";
         switch (current_process->process_state) {
@@ -294,35 +410,36 @@ static void panic_screen(const char *reason, void *caller_ra)
         case PROCESS_BLOCKED: state = "BLOCKED"; break;
         case PROCESS_ZOMBIE:  state = "ZOMBIE";  break;
         }
-
-        snprintf(line, sizeof(line), "  ptr=%p  pid=%u  ppid=%u",
-                 current_process, current_process->pid, current_process->parent_pid);
-        panic_box_line(line);
-        snprintf(line, sizeof(line), "  state=%s  as=%p", state, current_process->as);
-        panic_box_line(line);
-        snprintf(line, sizeof(line), "  prio=%u  slice=%u  left=%u",
+        snprintf(line, sizeof(line), "  pid=%-4u ppid=%-4u %s",
+                 current_process->pid, current_process->parent_pid, state);
+        col_line(&_col_left, line);
+        snprintf(line, sizeof(line), "  ptr=%p", current_process);
+        col_line(&_col_left, line);
+        snprintf(line, sizeof(line), "  as =%p", current_process->as);
+        col_line(&_col_left, line);
+        snprintf(line, sizeof(line), "  prio=%u slice=%u left=%u",
                  current_process->priority,
                  current_process->time_slice,
                  current_process->ticks_remaining);
-        panic_box_line(line);
+        col_line(&_col_left, line);
     } else {
-        panic_box_line("  (none)");
+        col_line(&_col_left, "  (none)");
     }
-    panic_box_rule();
+    col_rule(&_col_left);
 
-    panic_box_header("MEMORY");
-    size_t pmm_free_pages = pmm_state.free_pages;
-    size_t pmm_total_pages = pmm_state.total_pages;
-    size_t pmm_used_pages = (pmm_total_pages >= pmm_free_pages) ? (pmm_total_pages - pmm_free_pages) : 0;
-    snprintf(line, sizeof(line), "  pmm pages: free=%lu used=%lu total=%lu",
-             (unsigned long)pmm_free_pages,
-             (unsigned long)pmm_used_pages,
-             (unsigned long)pmm_total_pages);
-    panic_box_line(line);
+    // Right column: MEMORY
+    col_init(&_col_right);
+    col_rule(&_col_right);
+    col_header(&_col_right, "MEMORY");
+
+    size_t pmm_free = pmm_state.free_pages;
+    size_t pmm_total = pmm_state.total_pages;
+    snprintf(line, sizeof(line), "  pmm: %lu/%lu pages free",
+             (unsigned long)pmm_free, (unsigned long)pmm_total);
+    col_line(&_col_right, line);
 
     if (heap_head && kernel_layout.heap_start_va && kernel_layout.heap_end_va) {
         size_t heap_free_bytes = 0;
-        size_t heap_used_bytes = 0;
         size_t heap_free_blocks = 0;
         size_t heap_used_blocks = 0;
 
@@ -333,61 +450,60 @@ static void panic_screen(const char *reason, void *caller_ra)
                 heap_free_bytes += block->size;
                 heap_free_blocks++;
             } else {
-                heap_used_bytes += block->size;
                 heap_used_blocks++;
             }
             block = block->next;
             seen++;
         }
 
-        size_t heap_total_bytes =
+        size_t heap_total =
             (size_t)((uintptr_t)kernel_layout.heap_end_va - (uintptr_t)kernel_layout.heap_start_va);
 
-        snprintf(line, sizeof(line), "  heap bytes: free=%lu used=%lu total=%lu",
-                 (unsigned long)heap_free_bytes,
-                 (unsigned long)heap_used_bytes,
-                 (unsigned long)heap_total_bytes);
-        panic_box_line(line);
-
-        snprintf(line, sizeof(line), "  heap blocks: free=%lu used=%lu",
-                 (unsigned long)heap_free_blocks,
-                 (unsigned long)heap_used_blocks);
-        panic_box_line(line);
+        snprintf(line, sizeof(line), "  heap: %lu/%lu bytes",
+                 (unsigned long)heap_free_bytes, (unsigned long)heap_total);
+        col_line(&_col_right, line);
+        snprintf(line, sizeof(line), "  blks: %lu free %lu used",
+                 (unsigned long)heap_free_blocks, (unsigned long)heap_used_blocks);
+        col_line(&_col_right, line);
     } else {
-        panic_box_line("  heap: unavailable");
+        col_line(&_col_right, "  heap: unavailable");
     }
-    panic_box_rule();
+    col_rule(&_col_right);
 
-    panic_box_header("READY QUEUE");
+    panic_render_pair(&_col_left, &_col_right);
+
+    // ── Single column: READY QUEUE ──
+    col_init(&_col_left);
+    col_rule(&_col_left);
+    col_header(&_col_left, "READY QUEUE");
+
     process_t *ready[PANIC_READY_SNAPSHOT_MAX];
     size_t ready_total = sched_ready_queue_snapshot(ready, PANIC_READY_SNAPSHOT_MAX);
     size_t ready_shown = (ready_total < PANIC_READY_SNAPSHOT_MAX) ? ready_total : PANIC_READY_SNAPSHOT_MAX;
 
     snprintf(line, sizeof(line), "  ready=%lu shown=%lu",
-             (unsigned long)ready_total,
-             (unsigned long)ready_shown);
-    panic_box_line(line);
+             (unsigned long)ready_total, (unsigned long)ready_shown);
+    col_line(&_col_left, line);
 
     if (ready_total == 0) {
-        panic_box_line("  (empty)");
+        col_line(&_col_left, "  (empty)");
     } else {
         for (size_t i = 0; i < ready_shown; i++) {
-            const char *state = "UNKNOWN";
+            const char *st = "?";
             switch (ready[i]->process_state) {
-            case PROCESS_READY:   state = "READY";   break;
-            case PROCESS_RUNNING: state = "RUNNING"; break;
-            case PROCESS_BLOCKED: state = "BLOCKED"; break;
-            case PROCESS_ZOMBIE:  state = "ZOMBIE";  break;
+            case PROCESS_READY:   st = "READY";   break;
+            case PROCESS_RUNNING: st = "RUNNING"; break;
+            case PROCESS_BLOCKED: st = "BLOCKED"; break;
+            case PROCESS_ZOMBIE:  st = "ZOMBIE";  break;
             }
-
-            snprintf(line, sizeof(line), "  #%lu pid=%lu st=%s",
-                     (unsigned long)i,
-                     (unsigned long)ready[i]->pid,
-                     state);
-            panic_box_line(line);
+            snprintf(line, sizeof(line), "  #%lu pid=%lu %s",
+                     (unsigned long)i, (unsigned long)ready[i]->pid, st);
+            col_line(&_col_left, line);
         }
     }
-    panic_box_rule();
+    col_rule(&_col_left);
+
+    panic_render_single(&_col_left);
 
     panic_puts("\n");
 }
