@@ -87,7 +87,7 @@ void addrspace_destroy(addrspace_t* as) {
     // The address space being destroyed must NOT be currently active (TTBR0).
     // If it is active, unmapping and freeing will corrupt the running kernel.
     if (as == g_current_addrspace) {
-        KPANIC("Cannot destroy active addrspace");
+        panic("Attempted to destroy active addrspace");
         return;  // For now, silently fail to prevent corruption
     }
     
@@ -232,7 +232,7 @@ void vmm_bootstrap(void) {
         // Adopt the early boot page table — no new allocation, no page table switch
         g_kernel_as = kmalloc(sizeof(addrspace_t));
         if (!g_kernel_as) {
-            KPANIC("Failed to create kernel address space");
+            panic("Failed to create kernel address space");
             return;
         }
 

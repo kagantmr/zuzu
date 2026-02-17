@@ -195,17 +195,17 @@ _Noreturn void early(void *dtb_ptr)
     uint64_t ram_base, ram_size;
     if (!dtb_get_reg("/memory", 0, &ram_base, &ram_size))
     {
-        KPANIC("Failed to find memory in DTB");
+        panic("Failed to find memory cell in DTB");
     }
     phys_region.start = (uintptr_t)ram_base;
     phys_region.end = (uintptr_t)(ram_base + ram_size);
 
     //__asm__ volatile(".word 0xffffffff");
 
-    // Initialize subsystems (in dependency order)
-    pmm_init();      // Needs kernel_layout, phys_region
-    kheap_init();    // Needs PMM
-    vmm_bootstrap(); // Needs heap
+    // Initialize subsystems
+    pmm_init();     
+    kheap_init();    
+    vmm_bootstrap(); 
 
     //__asm__ volatile(".word 0xffffffff");
 

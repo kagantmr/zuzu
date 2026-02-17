@@ -30,17 +30,17 @@ void board_init_devices(void) {
         void *gicd_va = ioremap(gicd, s_d);
         void *gicc_va = ioremap(gicc, s_c);
         
-        if (!gicd_va || !gicc_va) KPANIC("Failed to ioremap GIC");
+        if (!gicd_va || !gicc_va) panic("Failed to ioremap GIC");
         
         gic_init((uintptr_t)gicd_va, (uintptr_t)gicc_va);
     } else {
-        KPANIC("GIC not found");
+        panic("GIC not found");
     }
 
     if (dtb_find_compatible("arm,pl011", path, sizeof(path))) {
         if (dtb_get_reg_phys(path, 0, &addr, &size)) {
             void *uart_va = ioremap((uintptr_t)addr, (size_t)size);
-            if (!uart_va) KPANIC("Failed to ioremap UART");
+            if (!uart_va) panic("Failed to ioremap UART");
             
             uart_set_driver(&pl011_driver, (uintptr_t)uart_va);
             kprintf_init(uart_putc);
@@ -62,7 +62,7 @@ void board_init_devices(void) {
     if (dtb_find_compatible("arm,sp804", path, sizeof(path))) {
         if (dtb_get_reg_phys(path, 0, &addr, &size)) {
             void *sp804_va = ioremap((uintptr_t)addr, (size_t)size);
-            if (!sp804_va) KPANIC("Failed to ioremap SP804");
+            if (!sp804_va) panic("Failed to ioremap SP804");
 
             // Initialize SP804
             sp804_init((uintptr_t)sp804_va, 10000); 
