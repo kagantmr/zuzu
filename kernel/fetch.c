@@ -9,6 +9,7 @@
 #include "core/version.h"
 #include "kernel/mm/pmm.h"
 #include "lib/mem.h"
+#include "lib/snprintf.h"
 #include "layout.h"
 
 #ifndef ZUZU_BANNER_SHOW_ADDR
@@ -34,32 +35,35 @@ static inline uint32_t read_be32(const void *p)
            ((uint32_t)b[3]);
 }
 
-// Returns length up to NUL (ASCII). Logo is spaces + blocks; still counts bytes.
-static int cstr_len(const char *s)
+// Count visible characters (skip ANSI escape sequences).
+static int visible_len(const char *s)
 {
-    int n = 0;
-    while (s && s[n]) n++;
-    return n;
+    int len = 0;
+    while (*s) {
+        if (*s == '\033') {
+            while (*s && *s != 'm') s++;
+            if (*s) s++;
+        } else {
+            len++;
+            s++;
+        }
+    }
+    return len;
 }
 
-// Emit a logo line with coloring. Does not emit newline.
+// Emit a logo line padded to LOGO_WIDTH visible chars. Does not emit newline.
+#define LOGO_WIDTH 38
+
 static void emit_logo_line(const char *line)
 {
-    int nonspace = 0;
-    for (const char *p = line; *p; p++) {
-        if (*p != ' ') { nonspace = 1; break; }
-    }
-
-    const char *logo_col = nonspace ? ANSI_CYAN : (ANSI_BLUE);
-    kprintf("%s%s%s", logo_col, line, ANSI_RESET);
+    kprintf("%s%s%s", ANSI_CYAN, line, ANSI_RESET);
+    int pad = LOGO_WIDTH - visible_len(line);
+    for (int i = 0; i < pad; i++)
+        kprintf(" ");
 }
 
 static void emit_tiles(void)
 {
-    // "Tiles:" label included in info row
-    kprintf("%sTiles:%s    ", ANSI_BLUE, ANSI_RESET);
-
-    // 8 tiles (2 spaces each)
     kprintf("\033[40m  \033[0m");
     kprintf("\033[41m  \033[0m");
     kprintf("\033[42m  \033[0m");
@@ -70,82 +74,95 @@ static void emit_tiles(void)
     kprintf("\033[47m  \033[0m");
 }
 
-// To make boxing easy WITHOUT snprintf, we print info content,
-// and we also return an *approximate* visible width so we can pad.
-// For ANSI-colored strings, visible width != byte count; we just track it manually.
-static int emit_info_line(int i)
+#define INFO_LABEL_WIDTH 10
+
+static void emit_info_kv(const char *label, const char *value)
 {
-    // Return visible chars printed (not counting ANSI escape sequences).
-    // Keep these numbers aligned with the literals.
+    char padded[INFO_LABEL_WIDTH + 1];
+    snprintf(padded, sizeof(padded), "%-*s", INFO_LABEL_WIDTH, label);
+    kprintf("%s%s%s%s", ANSI_BLUE, padded, ANSI_RESET, value);
+}
+
+static void emit_info_line(int i)
+{
+    char val[64];
 
     switch (i) {
         case 0:
         case 1:
-            return 0;
+            break;
 
-        case 2: {
-            // "     zuzu " + version
-            // visible width: 5 + 5 + 1 + len(version) = 11 + len
-            const int vlen = cstr_len(ZUZU_VERSION);
-            kprintf("%s           zuzu %s%s", ANSI_CYAN, ZUZU_VERSION, ANSI_RESET);
-            return 11 + vlen;
-        }
+        case 2:
+            kprintf("%szuzu%s %s", ANSI_CYAN, ANSI_RESET, ZUZU_VERSION);
+            break;
 
-        case 3: {
+        case 3:
+            kprintf("%s----------%s", ANSI_CYAN, ANSI_RESET);
+            break;
+
+        case 4: {
             char machine[64] = "Unknown";
             (void)dtb_get_string("/", "model", machine, sizeof(machine));
-            // "Machine:  " = 10 visible chars (7+2+1?), actually:
-            // "Machine:"(8) + two spaces (2) = 10, plus model len
-            kprintf("%sMachine:%s  %s", ANSI_BLUE, ANSI_RESET, machine);
-            return 10 + cstr_len(machine);
+            emit_info_kv("Machine:", machine);
+            break;
         }
 
-        case 4:
-            kprintf("%sCPU:%s      ARM Cortex-A15", ANSI_BLUE, ANSI_RESET);
-            // "CPU:" 4 + 6 spaces = 10 + "ARM Cortex-A15" 13 => 23
-            return 4 + 6 + 13;
+        case 5:
+            emit_info_kv("CPU:", "ARM Cortex-A15");
+            break;
 
-        case 5: {
+        case 6: {
             uint32_t ram_mb  = (uint32_t)((pmm_state.total_pages * (uint64_t)PAGE_SIZE) / 1024 / 1024);
             uint32_t free_mb = (uint32_t)((pmm_state.free_pages  * (uint64_t)PAGE_SIZE) / 1024 / 1024);
-            kprintf("%sMemory:%s   %u MB free / %u MB total", ANSI_BLUE, ANSI_RESET, free_mb, ram_mb);
-            //kprintf("%sPages:%s   %u MB free / %u MB total", ANSI_BLUE, ANSI_RESET, pmm_state.free_pages, pmm_state.total_pages);
-            // Hard to count digits without snprintf; just return a conservative estimate.
-            return 32; // used only for padding; ok if slightly off
+            snprintf(val, sizeof(val), "%u MB free / %u MB total", free_mb, ram_mb);
+            emit_info_kv("Memory:", val);
+            break;
         }
 
-        case 6:
-            kprintf("%sTimer:%s    %u Hz", ANSI_BLUE, ANSI_RESET, get_tick_rate());
-            return 14; // estimate
-
         case 7:
-            kprintf("%sBuild:%s    %s %s", ANSI_BLUE, ANSI_RESET, __DATE__, __TIME__);
-            return 6 + 4 + 1 + 8; // estimate
+            snprintf(val, sizeof(val), "%u Hz", get_tick_rate());
+            emit_info_kv("Timer:", val);
+            break;
 
         case 8:
-            emit_tiles();
-            return 6 + 4 + (8 * 2); // "Tiles:" + spaces + 16 visible tile chars
+            snprintf(val, sizeof(val), "%s %s", __DATE__, __TIME__);
+            emit_info_kv("Build:", val);
+            break;
 
 #if ZUZU_BANNER_SHOW_ADDR
+        case 9:
+            snprintf(val, sizeof(val), "%P - %P", _kernel_start, _kernel_end);
+            emit_info_kv("Kernel:", val);
+            break;
         case 10:
-            kprintf("%sKernel:%s   %P - %P", ANSI_BLUE, ANSI_RESET, _kernel_start, _kernel_end);
-            return 32; // estimate
-        case 11:
-            kprintf("%sHeap:%s     %P - %P", ANSI_BLUE, ANSI_RESET,
+            snprintf(val, sizeof(val), "%P - %P",
                     (void*)kernel_layout.heap_start_va, (void*)kernel_layout.heap_end_va);
-            return 32;
-        case 12:
-            kprintf("%sStack:%s    %P - %P", ANSI_BLUE, ANSI_RESET,
+            emit_info_kv("Heap:", val);
+            break;
+        case 11:
+            snprintf(val, sizeof(val), "%P - %P",
                     (void*)kernel_layout.stack_base_va, (void*)kernel_layout.stack_top_va);
-            return 32;
-#else
-        case 10:
-            kprintf("%sPMM:%s      %u free / %u pages", ANSI_BLUE, ANSI_RESET,
+            emit_info_kv("Stack:", val);
+            break;
+        case 12:
+            snprintf(val, sizeof(val), "%u free / %u pages",
                     (unsigned)pmm_state.free_pages, (unsigned)pmm_state.total_pages);
-            return 28; // estimate
+            emit_info_kv("PMM:", val);
+            break;
+        case 14:
+#else
+        case 9:
+            snprintf(val, sizeof(val), "%u free / %u pages",
+                    (unsigned)pmm_state.free_pages, (unsigned)pmm_state.total_pages);
+            emit_info_kv("PMM:", val);
+            break;
+        case 11:
 #endif
+            emit_tiles();
+            break;
+
         default:
-            return 0;
+            break;
     }
 }
 
@@ -176,7 +193,7 @@ void print_boot_banner(void)
     for (int i = 0; i < lines; i++) {
         emit_logo_line(logo[i]);
         kprintf("  ");
-        (void)emit_info_line(i);
+        emit_info_line(i);
         kprintf("\n");
     }
 

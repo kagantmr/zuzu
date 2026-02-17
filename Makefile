@@ -20,6 +20,7 @@ DTB_DEBUG_WALK ?= 0
 EARLY_UART ?= 0
 SP804_TIMER ?= 0
 BANNER ?= 1
+STATS_MODE ?= 0
 
 
 ifeq ($(BANNER), 0)
@@ -50,6 +51,12 @@ ifeq ($(SP804_TIMER), 1)
     CFLAGS += -DSP804_TIMER
 else
     CFLAGS += -USP804_TIMER
+endif
+
+ifeq ($(STATS_MODE), 1)
+    CFLAGS += -DSTATS_MODE
+else
+    CFLAGS += -USTATS_MODE
 endif
 
 
