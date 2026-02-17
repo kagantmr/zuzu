@@ -1,5 +1,6 @@
 #include "tick.h"
 #include "core/log.h"
+#include "kernel/stats/stats.h"
 #include <stddef.h>
 
 
@@ -20,6 +21,7 @@ void register_tick_callback(tick_callback_t cb) {
 
 void tick_announce(void) {
     tick_count++;
+    stats_check_input();
     if (tick_callback) {
         tick_callback();
     }

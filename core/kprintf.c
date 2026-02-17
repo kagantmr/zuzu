@@ -1,6 +1,7 @@
 #include "core/kprintf.h"
 #include "core/log.h"
 #include "arch/arm/include/irq.h"
+#include "kernel/stats/stats.h"
 #include "lib/string.h"
 
 static void (*kernel_console_putc)(char);
@@ -10,6 +11,7 @@ void kprintf_init(void (*putc_func)(char)) {
 }
 
 void kprintf(const char* fmt, ...) {
+    if (stats_mode_active) return;
     uint32_t cpsr;
     __asm__ volatile("mrs %0, cpsr" : "=r"(cpsr));
     arch_global_irq_disable();

@@ -280,7 +280,7 @@ static void panic_screen(const char *reason, void *caller_ra)
     }
     panic_puts("\n");
 
-    panic_puts_centered(C_WHITE "Oops! ZuzuOS has panicked." C_RESET);
+    panic_puts_centered(C_WHITE "Oops! zuzu has panicked." C_RESET);
     panic_puts_centered(C_DIM "Something went wrong and the system was halted." C_RESET);
     panic_puts_centered(C_DIM "Please share this screen with the developers." C_RESET);
     panic_puts("\n");

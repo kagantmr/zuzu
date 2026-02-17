@@ -135,15 +135,14 @@ _Noreturn void kmain(void)
 
 
     // data abort test (page fault)
-    //volatile uint32_t *bad = (volatile uint32_t *)0xDEADBEEF;
-    //*bad = 42;
+    // *(volatile uint32_t *)0xDEADBEEF = 42;
 
     print_boot_banner();
 
     
 
     // trigger SVC to verify exception handling
-    //__asm__ volatile("svc #0");
+    __asm__ volatile("svc #0");
 
     sched_init();
 
