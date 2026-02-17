@@ -24,9 +24,9 @@ void sched_defer_destroy(process_t *p) {
     list_add_tail(&p->node, &destroy_queue.node);
 }
 
-void sched_reap_zombies(void) {
-    while (!list_is_empty(&destroy_queue)) {
-        list_node_t *node = list_remove_head(&destroy_queue);
+void sched_reap(void) {
+    while (!list_empty(&destroy_queue)) {
+        list_node_t *node = list_pop_front(&destroy_queue);
         process_t *p = container_of(node, process_t, node);
         process_destroy(p);
     }
@@ -66,7 +66,7 @@ void schedule() {
         // If ZOMBIE, it's already gone (current_process set to NULL in sys_task_quit usually)
     }
 
-    if (list_is_empty(&run_queue)) {
+    if (list_empty(&run_queue)) {
         // No process to schedule
         current_process = NULL;
         return;
@@ -75,7 +75,7 @@ void schedule() {
     process_t *prev = current_process;  // save previous process
 
     // Pick the next process from the run queue
-    list_node_t *next_node = list_remove_head(&run_queue);
+    list_node_t *next_node = list_pop_front(&run_queue);
     current_process = container_of(next_node, process_t, node);
     current_process->process_state = PROCESS_RUNNING;
 

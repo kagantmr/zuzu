@@ -24,12 +24,12 @@ static inline void list_init(list_head_t *head) {
     head->node.prev = &head->node;
 }
 
-static inline int list_is_empty(const list_head_t *head) {
+static inline int list_empty(const list_head_t *head) {
     return head->node.next == &head->node;
 }
 
-static inline list_node_t* list_remove_head(list_head_t *head) {
-    if (list_is_empty(head)) {
+static inline list_node_t* list_pop_front(list_head_t *head) {
+    if (list_empty(head)) {
         return NULL;
     }
     list_node_t *first = head->node.next;

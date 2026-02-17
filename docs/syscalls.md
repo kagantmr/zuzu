@@ -36,51 +36,51 @@ Negative r0 values indicate errors:
 |------|------------|----------------------------|---------------|--------------------------------------|
 | 0x00 | task_quit  | r0: status                 | never returns | Terminate calling task, store status |
 | 0x01 | task_yield | —                          | 0             | Voluntarily reschedule               |
-| 0x02 | task_spawn | r0: name ptr, r1: name len | pid or -err   | Create new task from initrd ELF      |
-| 0x03 | task_wait  | r0: pid, r1: &status       | 0 or -err     | Block until child exits              |
+| 0x02 | task_spawn | r0: name ptr, r1: name len | pid or err   | Create new task from initrd ELF      |
+| 0x03 | task_wait  | r0: pid, r1: &status       | 0 or err     | Block until child exits              |
 | 0x04 | get_pid    | —                          | pid           | Return caller's PID                  |
-| 0x06 | task_sleep | r0: duration (ms)          | 0             | Sleep for given duration             |
+| 0x06 | task_sleep | r0: duration (ms)          | 0             | Sleep for given duration             w|
 
 ## 0x10–0x1F: IPC
 
 | #    | Name       | Arguments                  | Returns                        | Description                        |
 |------|------------|----------------------------|--------------------------------|------------------------------------|
-| 0x10 | proc_send  | r0: port, r1–r3: payload  | 0 or -err                      | Send message, block until received |
+| 0x10 | proc_send  | r0: port, r1–r3: payload  | 0 or err                      | Send message, block until received |
 | 0x11 | proc_recv  | r0: port                   | r0: sender pid, r1–r3: payload | Receive message, block until sent  |
 | 0x12 | proc_call  | r0: port, r1–r3: payload  | r0–r3: reply                   | Send then block for reply (RPC)    |
-| 0x13 | proc_reply | r0–r3: payload             | 0 or -err                      | Reply to last call sender          |
+| 0x13 | proc_reply | r0–r3: payload             | 0 or err                      | Reply to last call sender          |
 
 ## 0x20–0x2F: Ports
 
 | #    | Name         | Arguments           | Returns        | Description                      |
 |------|--------------|---------------------|----------------|----------------------------------|
-| 0x20 | port_create  | —                   | handle or -err | Create new IPC port              |
-| 0x21 | port_destroy | r0: handle          | 0 or -err      | Destroy a port                   |
-| 0x22 | port_grant   | r0: handle, r1: pid | 0 or -err      | Give port access to another task |
+| 0x20 | port_create  | —                   | handle or err | Create new IPC port              |
+| 0x21 | port_destroy | r0: handle          | 0 or err      | Destroy a port                   |
+| 0x22 | port_grant   | r0: handle, r1: pid | 0 or err      | Give port access to another task |
 
 ## 0x30–0x3F: Memory
 
 | #    | Name   | Arguments                     | Returns      | Description                       |
 |------|--------|-------------------------------|--------------|-----------------------------------|
-| 0x30 | mmap   | r0: addr, r1: size, r2: prot  | addr or -err | Map pages into caller's space     |
-| 0x31 | munmap | r0: addr, r1: size            | 0 or -err    | Unmap and free pages              |
-| 0x32 | mshare | r0: size                      | id or -err   | Create shared memory object       |
-| 0x33 | attach | r0: id, r1: addr              | addr or -err | Map shared object into caller     |
-| 0x34 | mapdev | r0: phys, r1: size            | addr or -err | Map MMIO region (privileged only) |
+| 0x30 | mmap   | r0: addr, r1: size, r2: prot  | addr or err | Map pages into caller's space     |
+| 0x31 | munmap | r0: addr, r1: size            | 0 or err    | Unmap and free pages              |
+| 0x32 | mshare | r0: size                      | id or err   | Create shared memory object       |
+| 0x33 | attach | r0: id, r1: addr              | addr or err | Map shared object into caller     |
+| 0x34 | mapdev | r0: phys, r1: size            | addr or err | Map MMIO region (privileged only) |
 
 ## 0x40–0x4F: Interrupts
 
 | #    | Name      | Arguments   | Returns   | Description                      |
 |------|-----------|-------------|-----------|----------------------------------|
-| 0x40 | irq_claim | r0: irq_num | 0 or -err | Register as handler for this IRQ |
-| 0x41 | irq_wait  | r0: irq_num | 0 or -err | Block until IRQ fires            |
-| 0x42 | irq_done  | r0: irq_num | 0 or -err | Acknowledge and unmask IRQ line  |
+| 0x40 | irq_claim | r0: irq_num | 0 or err | Register as handler for this IRQ |
+| 0x41 | irq_wait  | r0: irq_num | 0 or err | Block until IRQ fires            |
+| 0x42 | irq_done  | r0: irq_num | 0 or err | Acknowledge and unmask IRQ line  |
 
 ## 0xF0–0xFF: Experimental/Debug (temporary)
 
 | #    | Name | Arguments            | Returns   | Description                    |
 |------|------|----------------------|-----------|--------------------------------|
-| 0xF0 | log  | r0: msg ptr, r1: len | 0 or -err | Print string to kernel console |
+| 0xF0 | log  | r0: msg ptr, r1: len | 0 or err | Print string to kernel console |
 | 0xF1 | dump | —                    | 0         | Dump caller's register state   |
 
 ---
@@ -100,7 +100,7 @@ Tasks interact with it via normal IPC:
 ## Notes
 
 - All pointer arguments must point to user memory (below 0xC0000000). The kernel validates before dereferencing.
-- `mapdev` is restricted to tasks with a privilege flag in their PCB. Normal tasks get -ERR_NOPERM.
+- `mapdev` is restricted to tasks with a privilege flag in their PCB. Normal tasks get err_NOPERM.
 - `proc_recv` returns the sender's PID in r0 so the server knows who it is talking to.
 - `proc_call` = atomic `proc_send` + `proc_recv` on the same port.
 - `proc_reply` does not take a port — it replies to whoever last did `proc_call` to the current task.

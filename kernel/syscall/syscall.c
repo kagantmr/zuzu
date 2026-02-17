@@ -1,5 +1,6 @@
 #include "syscall.h"
-#include "sys_task.h"
+#include "kernel/sched/sys_task.h" 
+#include "kernel/ipc/sys_port.h" 
 #include "core/log.h"
 
 void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
@@ -47,15 +48,15 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     } break; 
     case SYS_PORT_CREATE:
     {
-        frame->r[0] = ERR_NOMATCH;
+        sys_port_create(frame);
     } break; 
     case SYS_PORT_DESTROY:
     {
-        frame->r[0] = ERR_NOMATCH;
+        sys_port_destroy(frame);
     } break; 
     case SYS_PORT_GRANT:
     {
-        frame->r[0] = ERR_NOMATCH;
+        sys_port_grant(frame);
     } break; 
     case SYS_MMAP:
     {

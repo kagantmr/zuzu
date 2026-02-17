@@ -43,39 +43,6 @@ static inline uint32_t read_be32(const void *p)
            ((uint32_t)b[3]);
 }
 
-void test_process_a(void) {
-    arch_global_irq_enable();
-    while (1) {
-                /*
-        uint32_t val = *(volatile uint32_t *)0x10000;
-        KINFO("Process A: read 0x%08x (expect 0xDEADBEEF)", val);
-        for (volatile int i = 0; i < 1000000; i++);
-            */
-    }
-}
-
-void test_process_b(void) {
-    arch_global_irq_enable();
-    while (1) {
-                /*
-        uint32_t val = *(volatile uint32_t *)0x10000;
-        KINFO("Process B: read 0x%08x (expect 0xCAFEBABE)", val);
-        for (volatile int i = 0; i < 1000000; i++);
-                */
-    }
-}
-
-void test_process_c(void) {
-    arch_global_irq_enable();
-    while (1) {
-        /*
-        KINFO("Process C");
-        for (volatile int i = 0; i < 1000000; i++);  // delay
-        volatile uint32_t junk = *(volatile uint32_t *)0x20000000;
-        (void)junk;
-        */
-    }
-}
 
 _Noreturn void kmain(void)
 {
@@ -168,8 +135,8 @@ _Noreturn void kmain(void)
 
 
     // data abort test (page fault)
-    volatile uint32_t *bad = (volatile uint32_t *)0xDEADBEEF;
-    *bad = 42;
+    //volatile uint32_t *bad = (volatile uint32_t *)0xDEADBEEF;
+    //*bad = 42;
 
     print_boot_banner();
 
@@ -201,7 +168,7 @@ _Noreturn void kmain(void)
     KINFO("Entering idle");
     while (1)
     {
-        sched_reap_zombies();
+        sched_reap();
         __asm__("wfi");
     }
 }

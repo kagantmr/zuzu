@@ -67,6 +67,7 @@
 #define ERR_BADARG      (-6)       /* Invalid argument                     */
 #define ERR_NOMATCH     (-7)       /* Syscall not implemented              */
 #define ERR_PTRFAULT    (-8)       /* Bad pointer                          */
+#define ERR_DEAD        (-9)       // endpoint destroyed while waiting
 
 void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame);
 
