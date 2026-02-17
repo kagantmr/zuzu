@@ -546,6 +546,7 @@ static void panic_screen(const char *reason, void *caller_ra)
 
 _Noreturn void panic(const char *reason)
 {
+    panic_puts("\a");
     void *caller_ra = __builtin_return_address(0);
 
     arch_global_irq_disable();

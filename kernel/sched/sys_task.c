@@ -32,7 +32,7 @@ void sys_log(exception_frame_t *frame) {
         frame->r[0] = ERR_PTRFAULT;
         return;
     }
-    for (size_t i = 0; i < len; i++) {kprintf("%c", msg[i]);}
+    kprintf("%.*s", (int)len, msg);
     frame->r[0] = 0; // Success
 }
 
