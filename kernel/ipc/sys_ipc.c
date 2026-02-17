@@ -45,7 +45,7 @@ void proc_send(exception_frame_t *frame)
     } else {
         current_process->ipc_state = IPC_SENDER;
         current_process->blocked_endpoint = ep;
-        list_add_tail(&current_process->node, &ep->sender_queue);
+        list_add_tail(&current_process->node, &ep->sender_queue.node);
         current_process->process_state = PROCESS_BLOCKED;
         schedule();
     }
