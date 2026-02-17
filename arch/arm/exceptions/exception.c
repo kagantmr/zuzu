@@ -131,8 +131,12 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
         }
         else
         {
-            KERROR("PC: 0x%08X (instruction that caused abort)", frame->return_pc);
-            dump_registers(frame);
+            panic_fault_ctx = (panic_fault_context_t){
+                .valid = 1,
+                .fault_type = "Undefined instruction",
+                .fault_decoded = "Undefined instruction",
+                .frame = frame,
+            };
             panic("Undefined instruction");
         }
     }
@@ -140,6 +144,11 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
 
     case EXC_SVC:
     {
+        if ((frame->return_cpsr & 0x1F) != 0x10)
+        {
+            break;
+        }
+
         uint8_t svc_num;
 
         if (frame->return_cpsr & (1 << 5))
@@ -181,8 +190,14 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
         }
         else
         {
-            KERROR("PC: 0x%08X (instruction that caused abort)", frame->return_pc);
-            dump_registers(frame);
+            panic_fault_ctx = (panic_fault_context_t){
+                .valid = 1,
+                .far = ifar,
+                .fsr = ifsr,
+                .fault_type = "Prefetch abort",
+                .fault_decoded = decode_fault_status(ifsr),
+                .frame = frame,
+            };
             panic("Prefetch abort");
         }
     }
@@ -212,9 +227,15 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
                 uint32_t offset_in_slot = (dfar - KSTACK_REGION_BASE) % 0x2000;
                 if (offset_in_slot < 0x1000)
                 {
-                    KERROR("KERNEL STACK OVERFLOW at 0x%08X (PID %d)",
-                           dfar, current_process ? current_process->pid : 0);
-                    dump_registers(frame);
+                    panic_fault_ctx = (panic_fault_context_t){
+                        .valid = 1,
+                        .far = dfar,
+                        .fsr = dfsr,
+                        .fault_type = "Data abort (kernel stack overflow)",
+                        .fault_decoded = decode_fault_status(dfsr),
+                        .access_type = (dfsr & (1 << 11)) ? "Write" : "Read",
+                        .frame = frame,
+                    };
                     panic("Kernel stack overflow");
                 }
             }
@@ -227,8 +248,15 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
         }
         else
         {
-            KERROR("PC: 0x%08X (instruction that caused abort)", frame->return_pc);
-            dump_registers(frame);
+            panic_fault_ctx = (panic_fault_context_t){
+                .valid = 1,
+                .far = dfar,
+                .fsr = dfsr,
+                .fault_type = "Data abort",
+                .fault_decoded = decode_fault_status(dfsr),
+                .access_type = (dfsr & (1 << 11)) ? "Write" : "Read",
+                .frame = frame,
+            };
             panic("Data abort");
         }
     }
@@ -250,15 +278,23 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
 
     case EXC_FIQ:
     {
-        KERROR("=== FIQ (not supported) ===");
+        panic_fault_ctx = (panic_fault_context_t){
+            .valid = 1,
+            .fault_type = "FIQ",
+            .fault_decoded = "FIQ not supported",
+            .frame = frame,
+        };
         panic("No support for FIQ");
     }
     break;
 
     default:
     {
-        KERROR("=== UNKNOWN EXCEPTION %d ===", exctype);
-        dump_registers(frame);
+        panic_fault_ctx = (panic_fault_context_t){
+            .valid = 1,
+            .fault_type = "Unknown exception",
+            .frame = frame,
+        };
         panic("Unknown exception");
     }
     break;
