@@ -1,6 +1,7 @@
 #include "syscall.h"
 #include "kernel/sched/sys_task.h" 
 #include "kernel/ipc/sys_port.h" 
+#include "kernel/ipc/sys_ipc.h"
 #include "core/log.h"
 
 void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
@@ -32,19 +33,19 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     } break; 
     case SYS_PROC_SEND:
     {
-        frame->r[0] = ERR_NOMATCH;
+        proc_send(frame);
     } break; 
     case SYS_PROC_RECV:
     {
-        frame->r[0] = ERR_NOMATCH;
+        proc_recv(frame);
     } break; 
     case SYS_PROC_CALL:
     {
-        frame->r[0] = ERR_NOMATCH;
+        proc_call(frame);
     } break; 
     case SYS_PROC_REPLY:
     {
-        frame->r[0] = ERR_NOMATCH;
+        proc_reply(frame);
     } break; 
     case SYS_PORT_CREATE:
     {
