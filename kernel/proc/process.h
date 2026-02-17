@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "lib/list.h"
+#include "kernel/ipc/endpoint.h"
 #include "kernel/vmm/vmm.h"
 
 extern void process_entry_trampoline(void);
@@ -14,6 +15,13 @@ typedef enum process_state {
     PROCESS_ZOMBIE,
 } p_state_t;
 
+typedef enum ipc_state {
+    IPC_NONE = 0,
+    IPC_SENDER,
+    IPC_RECEIVER,
+    IPC_WAITING,
+} ipc_state_t;
+
 typedef struct process {
     uint32_t pid, parent_pid;
     p_state_t process_state;
@@ -24,6 +32,9 @@ typedef struct process {
     addrspace_t *as;
     list_node_t node;  // embedded, not pointers
     int32_t exit_status;
+    endpoint_t *handle_table[MAX_HANDLE_TABLE];
+    ipc_state_t ipc_state;
+    endpoint_t *blocked_endpoint;
 } process_t;
 
 typedef struct cpu_context {

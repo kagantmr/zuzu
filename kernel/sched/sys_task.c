@@ -1,5 +1,5 @@
-#include "sys_task.h"
-#include "syscall.h"
+#include "kernel/sched/sys_task.h"
+#include "kernel/syscall/syscall.h"
 #include "kernel/sched/sched.h"
 #include "kernel/time/tick.h"
 #include "kernel/proc/process.h"
