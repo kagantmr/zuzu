@@ -56,9 +56,10 @@ static endpoint_t *make_shared_endpoint(process_t *owner, process_t **procs, int
     return ep;
 }
 
-static inline void perform_panic_tests(void) {
+static inline void perform_panic_tests(void)
+{
     /**
-     * disclaimer: most of these tests will halt the kernel immediately, so don't uncomment ANY of these 
+     * disclaimer: most of these tests will halt the kernel immediately, so don't uncomment ANY of these
      * if you want your kernel to actually do something instead of saying "Oops! zuzu has halted.".
      */
 
@@ -82,7 +83,7 @@ static inline void perform_panic_tests(void) {
     //__asm__ volatile("svc #0");
 
     // test 8: just manually halt the system
-    //panic("Test panic triggered (chewed wires)");
+    // panic("Test panic triggered (chewed wires)");
 }
 
 _Noreturn void kmain(void)
@@ -106,7 +107,8 @@ _Noreturn void kmain(void)
 
     uint32_t dtb_pages = (totalsize + PAGE_SIZE - 1) / PAGE_SIZE;
     uintptr_t dtb_pa = pmm_alloc_pages(dtb_pages);
-    if (!dtb_pa) {
+    if (!dtb_pa)
+    {
         panic("Failed to allocate pages for DTB");
     }
 
@@ -159,7 +161,7 @@ _Noreturn void kmain(void)
     {
         process_t *pinger = process_create(NULL, 0xAAAA0001);
         process_t *ponger = process_create(NULL, 0xAAAA0002);
-        process_t *group[] = { pinger, ponger };
+        process_t *group[] = {pinger, ponger};
         make_shared_endpoint(pinger, group, 2);
         sched_add(pinger);
         sched_add(ponger);
@@ -169,7 +171,7 @@ _Noreturn void kmain(void)
     {
         process_t *sender = process_create(NULL, 0xBBBB0001);
         process_t *receiver = process_create(NULL, 0xBBBB0002);
-        process_t *group[] = { sender, receiver };
+        process_t *group[] = {sender, receiver};
         make_shared_endpoint(sender, group, 2);
         sched_add(sender);
         sched_add(receiver);
@@ -180,7 +182,7 @@ _Noreturn void kmain(void)
         process_t *s1 = process_create(NULL, 0xCCCC0001);
         process_t *s2 = process_create(NULL, 0xCCCC0002);
         process_t *rcv = process_create(NULL, 0xCCCC0003);
-        process_t *group[] = { s1, s2, rcv };
+        process_t *group[] = {s1, s2, rcv};
         make_shared_endpoint(rcv, group, 3);
         sched_add(s1);
         sched_add(s2);
@@ -199,11 +201,29 @@ _Noreturn void kmain(void)
         sched_add(spinner);
     }
 
+    KINFO("=== Scheduler Stress Test ===");
+    KINFO("PMM before: %d free pages", pmm_state.free_pages);
+
+    for (int i = 0; i < 100; i++)
+    {
+        process_t *p = process_create(NULL, 0xEEFFEEFF);
+        if (!p)
+        {
+            KWARN("Failed to create process at i=%d", i);
+            break;
+        }
+        sched_add(p);
+    }
+
+    // Let them run and reap... but this is async.
+    // The idle loop handles reaping. So just log the count.
+    KINFO("Spawned 100 stress workers");
+
     register_tick_callback(schedule);
+
     KINFO("Entering idle");
     while (1)
     {
-        sched_reap();
         __asm__("wfi");
     }
 }

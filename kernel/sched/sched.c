@@ -53,6 +53,7 @@ static void sched_wake_sleepers(void) {
 }
 
 void schedule() {
+    sched_reap();
     sched_wake_sleepers();
 
     if (current_process != NULL) {

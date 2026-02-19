@@ -24,6 +24,14 @@ process_t *process_create(void (*entry)(void), const uint32_t magic)
     memset(process, 0, sizeof(process_t));
     process->as = addrspace_create(ADDRSPACE_USER);
     uintptr_t stack_top = kstack_alloc();
+    if (!stack_top) {
+        // Clean up the address space we already allocated
+        arch_mmu_free_tables(process->as->ttbr0_pa, process->as->type);
+        if (process->as->regions) kfree(process->as->regions);
+        kfree(process->as);
+        kfree(process);
+        return NULL;
+    }
     process->kernel_stack_top = stack_top;
 
     // write exception frame to the stack
@@ -314,6 +322,13 @@ process_t *process_create(void (*entry)(void), const uint32_t magic)
         code[10] = 0x48646142; // "BadH"
         code[11] = 0x0A4B4F3A; // ":OK\n"
         break;
+    case 0xEEFFEEFF: // "Stress worker" — logs ID, exits
+        // The kernel puts the PID in r4 before launch (we'll set it up)
+        // Actually — use SYS_GET_PID syscall to get own PID
+        code[0] = 0xEF000004; // SVC #0x04 (SYS_GET_PID) → r0 = my PID
+        code[1] = 0xEF000000; // SVC #0x00 (exit with PID as status)
+        code[2] = 0xEAFFFFFE; // B .
+        break;
 
     default: // "The Spinner"
         code[0] = 0xE3A00000; // MOV R0, #0
@@ -321,12 +336,14 @@ process_t *process_create(void (*entry)(void), const uint32_t magic)
         break;
     }
 
-    KDEBUG("Created process with magic %X and PID %d", magic, process->pid);
+    //KDEBUG("Created process with magic %X and PID %d", magic, process->pid);
     return process;
 }
 
 void process_destroy(process_t *p)
 {
+    extern pmm_state_t pmm_state;
+    KDEBUG("destroy PID %d, pmm before=%d", p->pid, pmm_state.free_pages);
     if (p->as)
     {
         arch_mmu_free_user_pages(p->as->ttbr0_pa);
@@ -338,4 +355,5 @@ void process_destroy(process_t *p)
     process_table[p->pid] = NULL;
     kstack_free(p->kernel_stack_top);
     kfree(p);
+    KDEBUG("destroy PID %d, pmm before=%d", p->pid, pmm_state.free_pages);
 }
