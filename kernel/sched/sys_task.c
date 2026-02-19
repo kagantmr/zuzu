@@ -6,6 +6,7 @@
 #include "core/log.h"
 
 extern process_t *current_process;
+extern list_head_t sleep_queue;
 
 void sys_task_quit(exception_frame_t *frame) {
     current_process->process_state = PROCESS_ZOMBIE;
@@ -26,6 +27,7 @@ void sys_task_yield(exception_frame_t *frame) {
 
 void sys_log(exception_frame_t *frame) {
     const char* msg = (const char *)frame->r[0];
+    //KDEBUG("sys_log syscall reached");
     size_t len = frame->r[1];
     if (!validate_user_ptr((uintptr_t)msg, len)) {
         KWARN("Rejected bad pointer 0x%08X", (uint32_t)msg);
@@ -48,7 +50,8 @@ void sys_task_sleep(exception_frame_t *frame) {
     
     // Change state
     current_process->process_state = PROCESS_BLOCKED;
-    
+    list_add_tail(&current_process->node, &sleep_queue.node);
+    //KDEBUG("Woke up as process PID %d",current_process->pid);
     // Schedule someone else immediately
     schedule();
 }

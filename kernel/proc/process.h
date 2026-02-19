@@ -5,6 +5,10 @@
 #include "lib/list.h"
 #include "kernel/ipc/endpoint.h"
 #include "kernel/vmm/vmm.h"
+#include "arch/arm/include/context.h"
+
+#define MAX_PROCESSES 64
+
 
 extern void process_entry_trampoline(void);
 
@@ -32,6 +36,7 @@ typedef struct process {
     addrspace_t *as;
     list_node_t node;  // embedded, not pointers
     int32_t exit_status;
+    exception_frame_t *trap_frame;
     endpoint_t *handle_table[MAX_HANDLE_TABLE];
     ipc_state_t ipc_state;
     endpoint_t *blocked_endpoint;
@@ -44,6 +49,6 @@ typedef struct cpu_context {
 
 process_t *process_create(void (*entry)(void), uint32_t magic);
 void process_destroy(process_t *process);
-void process_print(const process_t *process);
+process_t *process_find_by_pid(uint32_t pid);
 
 #endif // KERNEL_PROC_PROCESS_H

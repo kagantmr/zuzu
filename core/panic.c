@@ -18,9 +18,6 @@ extern pmm_state_t pmm_state;
 
 panic_fault_context_t panic_fault_ctx;
 
-#ifndef PANIC_FULL_SCREEN
-#define PANIC_FULL_SCREEN 1
-#endif
 
 #define BACKTRACE_MAX_DEPTH 16
 #define PANIC_BOX_WIDTH 76
@@ -42,6 +39,7 @@ static void panic_puts(const char *s)
         uart_putc(*s++);
 }
 
+#ifdef PANIC_FULL_SCREEN
 static int visible_len(const char *s)
 {
     int len = 0;
@@ -56,6 +54,7 @@ static int visible_len(const char *s)
     }
     return len;
 }
+
 
 static void panic_pad(int n)
 {
@@ -108,6 +107,7 @@ static void panic_puts_centered(const char *s)
     panic_puts(s);
     panic_puts("\n");
 }
+
 
 // ============================================================
 // Column-based rendering for side-by-side layout
@@ -188,6 +188,7 @@ static void panic_render_single(panic_col_t *col)
         panic_puts("\n");
     }
 }
+#endif
 
 // ============================================================
 // Backtrace walker
@@ -237,6 +238,7 @@ static void backtrace_walk(backtrace_t *bt)
 // Panic logo
 // ============================================================
 
+#ifdef PANIC_FULL_SCREEN
 static const char *panic_logo[] = {
     "      " C_WHITE "@@@@@@" C_RESET,
     "        " C_WHITE "%@@" C_RESET "         " C_WHITE "%@@@  @" C_RESET,
@@ -250,9 +252,11 @@ static const char *panic_logo[] = {
     "        " C_WHITE "@@  @" C_RESET "      " C_WHITE "@@ @@" C_RESET,
     "         " C_WHITE "@@@" C_RESET "        " C_WHITE "@@@" C_RESET,
 };
+#endif
 
 #define PANIC_LOGO_LINES (sizeof(panic_logo) / sizeof(panic_logo[0]))
 #define PANIC_LOGO_WIDTH 30  // approximate visible width of logo
+
 
 // ============================================================
 // Panic screens

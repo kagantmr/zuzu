@@ -9,9 +9,10 @@ LINKER_SCRIPT = $(BOARD_DIR)/linker.ld
 DTB_FILE      = arch/arm/dtb/vexpress-a15/vexpress-v2p-ca15-tc1.dtb
 MAP = build/zuzu.map
 
+OPTIMIZATION_LEVEL = 2
 
 CPUFLAGS = -mcpu=cortex-a15
-CFLAGS   = -ffreestanding -O2 -fno-omit-frame-pointer -Wall -Wextra -Werror $(CPUFLAGS) -I. -MMD -MP -g
+CFLAGS   = -ffreestanding -O$(OPTIMIZATION_LEVEL) -fno-omit-frame-pointer -Wall -Wextra -Werror $(CPUFLAGS) -I. -MMD -MP -g
 LDFLAGS  = -T $(LINKER_SCRIPT) -Map=$(MAP)
 
 # Debug options
@@ -21,10 +22,15 @@ EARLY_UART ?= 0
 SP804_TIMER ?= 0
 BANNER ?= 1
 STATS_MODE ?= 1
+FANCY_PANIC ?= 1
+
 
 
 ifeq ($(BANNER), 0)
     CFLAGS += -DZUZU_BANNER_DISABLE
+endif
+ifeq ($(FANCY_PANIC), 1)
+    CFLAGS += -DPANIC_FULL_SCREEN
 endif
 ifeq ($(DEBUG_BUILD), 1)
     # Enable assertions (default C standard for enabling assertions)

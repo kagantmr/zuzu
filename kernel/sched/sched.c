@@ -3,12 +3,14 @@
 #include "lib/list.h"
 #include "core/log.h"
 #include "kernel/vmm/vmm.h"
+#include "kernel/mm/alloc.h"
 #include "kernel/time/tick.h"
 
 static list_head_t run_queue = LIST_HEAD_INIT(run_queue); 
 static list_head_t destroy_queue = LIST_HEAD_INIT(destroy_queue);
-static list_head_t sleep_queue = LIST_HEAD_INIT(sleep_queue);
+list_head_t sleep_queue = LIST_HEAD_INIT(sleep_queue);
 process_t *current_process;
+
 
 void sched_init() {
     list_init(&run_queue);
@@ -59,9 +61,6 @@ void schedule() {
             // It was running and wasn't blocked/killed
             current_process->process_state = PROCESS_READY;
             list_add_tail(&current_process->node, &run_queue.node);
-        } else if (current_process->process_state == PROCESS_BLOCKED) {
-            // It put itself to sleep
-            list_add_tail(&current_process->node, &sleep_queue.node);
         }
         // If ZOMBIE, it's already gone (current_process set to NULL in sys_task_quit usually)
     }
@@ -80,7 +79,7 @@ void schedule() {
     current_process->process_state = PROCESS_RUNNING;
 
     // Context switch to the new processre)
-    // KDEBUG("schedule: prev=%P next=%P", prev, current_process);
+    //KDEBUG("schedule: prev=%P next=%P", prev, current_process);
     if (current_process->as && (!prev || prev->as != current_process->as)) {
         vmm_activate(current_process->as);
     }
