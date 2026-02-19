@@ -3,14 +3,25 @@
 #include "kernel/mm/pmm.h"
 #include "arch/arm/mmu/mmu.h"
 #include "kernel/sched/sched.h"
+#include "lib/mem.h"
+#include "core/log.h"
 #include "kstack.h"
 
 static uint32_t next_pid = 1;
+process_t *process_table[MAX_PROCESSES];
+
+process_t *process_find_by_pid(uint32_t pid)
+{
+    if (pid >= MAX_PROCESSES)
+        return NULL;
+    return process_table[pid];
+}
 
 process_t *process_create(void (*entry)(void), const uint32_t magic)
 {
     (void)entry;
     process_t *process = kmalloc(sizeof(process_t));
+    memset(process, 0, sizeof(process_t));
     process->as = addrspace_create(ADDRSPACE_USER);
     uintptr_t stack_top = kstack_alloc();
     process->kernel_stack_top = stack_top;
@@ -43,10 +54,11 @@ process_t *process_create(void (*entry)(void), const uint32_t magic)
     process->kernel_sp = (uint32_t *)stack_top;
     process->process_state = PROCESS_READY;
     process->pid = next_pid++;
-    process->parent_pid = 0; // No parent for now
+    process_table[process->pid] = process;
+    process->parent_pid = 0;
 
-    process->priority = 1;   // Default priority
-    process->time_slice = 5; // Default time slice
+    process->priority = 1;
+    process->time_slice = 5;
     process->ticks_remaining = process->time_slice;
     process->node.next = NULL;
     process->node.prev = NULL;
@@ -63,141 +75,253 @@ process_t *process_create(void (*entry)(void), const uint32_t magic)
                        0x7FFFC000 + i * 0x1000, VM_PROT_READ | VM_PROT_WRITE);
     }
 
-    // EXPERIMENTAL PROCESS TEST!!!!!!
-    // TODO: Clean up after ELF loading is activated
     uint32_t *code = (uint32_t *)(PA_TO_VA(program_page_pa));
     switch (magic)
     {
-    case 0xDEADBEEF: // "The Yielder" - Stresses the scheduler
-        // Loops 100,000 times calling SYS_TASK_YIELD
-        code[0] = 0xE30846A0; // MOVW R4, #0x86A0 (lower 16 bits of 100,000)
-        code[1] = 0xE3404001; // MOVT R4, #0x0001 (upper 16 bits) -> R4 = 100,000
-        // loop:
-        code[2] = 0xEF000001; // SVC #0x01 (SYS_TASK_YIELD)
-        code[3] = 0xE2544001; // SUBS R4, R4, #1  (Decrement counter, set flags)
-        code[4] = 0x1AFFFFFC; // BNE -4 words (Jump back to SVC if R4 != 0)
-        // exit:
-        code[5] = 0xE3A00000; // MOV R0, #0 (Success)
-        code[6] = 0xEF000000; // SVC #0x00 (SYS_TASK_QUIT)
-        code[7] = 0xEAFFFFFE; // B . (Spin safety)
+    case 0xDEADBEEF: // "The Yielder"
+        code[0] = 0xE30846A0; // MOVW R4, #0x86A0
+        code[1] = 0xE3404001; // MOVT R4, #0x0001
+        code[2] = 0xEF000001; // SVC #0x01 (yield)
+        code[3] = 0xE2544001; // SUBS R4, R4, #1
+        code[4] = 0x1AFFFFFC; // BNE code[2]
+        code[5] = 0xE3A00000; // MOV R0, #0
+        code[6] = 0xEF000000; // SVC #0x00 (exit)
+        code[7] = 0xEAFFFFFE; // B .
         break;
 
-    case 0xBAD0B010: // "The Trespasser" - Memory Protection Test
-        // Attempts to write to Kernel Memory (0xC0000000)
-        // Should trigger a DATA ABORT in the kernel.
+    case 0xBAD0B010: // "The Trespasser"
         code[0] = 0xE3A00000; // MOV R0, #0
-        code[1] = 0xE34C0000; // MOVT R0, #0xC000  (R0 = 0xC0000000)
-        code[2] = 0xE5800000; // STR R0, [R0]      (Write to 0xC0000000)
-        code[3] = 0xEF000000; // SVC #0x00 (Quit if it somehow survives)
+        code[1] = 0xE34C0000; // MOVT R0, #0xC000
+        code[2] = 0xE5800000; // STR R0, [R0]
+        code[3] = 0xEF000000; // SVC #0x00
         code[4] = 0xEAFFFFFE; // B .
         break;
 
-    case 0x11111111: // "The Listener" - IPC Receiver
-        // 1. Create a Port (SYS_PORT_CREATE = 0x20)
-        code[0] = 0xEF000020; // SVC #0x20
-        code[1] = 0xE1A04000; // MOV R4, R0 (Save port handle)
-
-        // loop: (This is the target)
-        // 2. Log "Wait...\n"
-        code[2] = 0xE28F0020; // ADD R0, PC, #32 (Points to code[12])
-        code[3] = 0xE3A01008; // MOV R1, #8
-        code[4] = 0xEF0000F0; // SVC #0xF0 (SYS_LOG)
-
-        // 3. Receive (SYS_PROC_RECV = 0x11)
-        code[5] = 0xE1A00004; // MOV R0, R4
-        code[6] = 0xEF000011; // SVC #0x11 (Blocks)
-
-        // 4. Log "Got it!\n"
-        code[7] = 0xE28F0014; // ADD R0, PC, #20 (Points to code[14])
-        code[8] = 0xE3A01008; // MOV R1, #8
-        code[9] = 0xEF0000F0; // SVC #0xF0 (SYS_LOG)
-
-        // 5. Branch back to code[2]
-        // To jump from code[10] to code[2]:
-        // PC at code[10] is code[12].
-        // We need to go back 10 words (40 bytes).
-        // The immediate in the B instruction is (offset - 8) >> 2.
-        // (-40 - 8) >> 2 = -48 >> 2 = -12.
-        // Two's complement for -12 in 24 bits is 0xFFFFF4.
-        code[10] = 0xEAFFFFF4; // B code[2] (Re-calculated)
-        code[11] = 0xE1A00000; // NOP
-
-        // --- DATA SECTION ---
-        code[12] = 0x74696157; // "Wait"
-        code[13] = 0x0A2E2E2E; // "...\n"
-        code[14] = 0x20746F47; // "Got "
-        code[15] = 0x0A217469; // "it!\n"
+    case 0x11111111: // "The Listener" (handle 0 pre-assigned)
+        code[0] = 0xE28F001C; // ADD R0, PC, #28 -> code[9]
+        code[1] = 0xE3A01008; // MOV R1, #8
+        code[2] = 0xEF0000F0; // SVC #0xF0
+        code[3] = 0xE3A00000; // MOV R0, #0
+        code[4] = 0xEF000011; // SVC #0x11 (recv)
+        code[5] = 0xE28F0010; // ADD R0, PC, #16 -> code[11]
+        code[6] = 0xE3A01007; // MOV R1, #7
+        code[7] = 0xEF0000F0; // SVC #0xF0
+        code[8] = 0xEAFFFFF6; // B code[0]
+        code[9]  = 0x74696157; // "Wait"
+        code[10] = 0x0A2E2E2E; // "...\n"
+        code[11] = 0x20746F47; // "Got "
+        code[12] = 0x0A217469; // "it!\n"
         break;
-    case 0x22222222: // "The Messenger" - IPC Sender
-        // 1. Sleep (SYS_TASK_SLEEP = 0x05)
-        code[0] = 0xE3A00FA0; // MOV R0, #1000
-        code[1] = 0xEF000005; // SVC #0x05
 
-        // 2. Prepare Payload (r1-r3)
+    case 0x22222222: // "The Messenger"
+        code[0] = 0xE3A00FA0; // MOV R0, #1000
+        code[1] = 0xEF000005; // SVC #0x05 (sleep)
         code[2] = 0xE3A0100A; // MOV R1, #10
         code[3] = 0xE3A02014; // MOV R2, #20
         code[4] = 0xE3A0301E; // MOV R3, #30
-
-        // 3. Send (SYS_PROC_SEND = 0x10)
-        code[5] = 0xE3A00000; // MOV R0, #0 (Port 0)
-        code[6] = 0xEF000010; // SVC #0x10
-
-        // 4. Log "Sent!\n"
-        code[7] = 0xE28F0008; // ADD R0, PC, #8 (Pointer to "Sent!\n")
+        code[5] = 0xE3A00000; // MOV R0, #0
+        code[6] = 0xEF000010; // SVC #0x10 (send)
+        code[7] = 0xE28F0008; // ADD R0, PC, #8 -> code[11]
         code[8] = 0xE3A01006; // MOV R1, #6
-        code[9] = 0xEF0000F0; // SVC #0xF0 (SYS_LOG)
-
-        // 5. Quit (SYS_TASK_QUIT = 0x00)
-        code[10] = 0xEF000000;
-
-        // Data
+        code[9] = 0xEF0000F0; // SVC #0xF0
+        code[10] = 0xEF000000; // SVC #0x00 (exit)
         code[11] = 0x746E6553; // "Sent"
         code[12] = 0x00000A21; // "!\n\0\0"
         break;
-    case 0xABABABAB: // "The Napper" - Precision Fixed
-        // 1. Log "Yawn...\n"
-        // PC is at code[0]+8 = code[2].
-        // Data is at code[11]. (11 - 2) * 4 bytes = 36 bytes (0x24)
-        code[0] = 0xE28F0024; // ADD R0, PC, #36
-        code[1] = 0xE3A01008; // MOV R1, #8 (Y, a, w, n, ., ., ., \n)
+
+    case 0xABABABAB: // "The Napper"
+        code[0] = 0xE28F0024; // ADD R0, PC, #36 -> code[11]
+        code[1] = 0xE3A01008; // MOV R1, #8
         code[2] = 0xEF0000F0; // SYS_LOG
-
-        // 2. Sleep 1000ms
-        code[3] = 0xE3A00FA0;
-        code[4] = 0xEF000005; // SYS_TASK_SLEEP (0x05)
-
-        // 3. Log "Awake!\n"
-        // PC is at code[5]+8 = code[7].
-        // Data is at code[13]. (13 - 7) * 4 bytes = 24 bytes (0x18)
-        code[5] = 0xE28F0018; // ADD R0, PC, #24
-        code[6] = 0xE3A01007; // MOV R1, #7 (A, w, a, k, e, !, \n)
+        code[3] = 0xE3A00FA0; // MOV R0, #1000
+        code[4] = 0xEF000005; // SYS_TASK_SLEEP
+        code[5] = 0xE28F0018; // ADD R0, PC, #24 -> code[13]
+        code[6] = 0xE3A01007; // MOV R1, #7
         code[7] = 0xEF0000F0; // SYS_LOG
-
         code[8] = 0xEF000000;  // SYS_TASK_QUIT
-        code[9] = 0xEAFFFFFE;  // Spin safety
-        code[10] = 0xE1A00000; // NOP (Ensures code[11] is 4-byte aligned)
-
-        // --- DATA SECTION ---
-        // Little Endian packing:
+        code[9] = 0xEAFFFFFE;  // B .
+        code[10] = 0xE1A00000; // NOP
         code[11] = 0x6E776159; // "Yawn"
         code[12] = 0x0A2E2E2E; // "...\n"
-
         code[13] = 0x6B617741; // "Awak"
         code[14] = 0x000A2165; // "e!\n\0"
         break;
-    default: // "The Spinner" - CPU Burner
-        // Just spins forever. Good for testing preemption.
+
+    /* ================================================================
+     * IPC TEST A: Ping-Pong
+     *   Pinger: send 0xDEADBEEF → recv reply → log → exit(reply)
+     *   Ponger: recv → send 0xCAFEBABE → log → exit(received)
+     * ================================================================ */
+    case 0xAAAA0001: // "Pinger"
+        code[0]  = 0xE30B1EEF; // MOVW R1, #0xBEEF
+        code[1]  = 0xE34D1EAD; // MOVT R1, #0xDEAD
+        code[2]  = 0xE3A00000; // MOV R0, #0
+        code[3]  = 0xEF000010; // SVC #0x10 (send)
+        code[4]  = 0xE3A00000; // MOV R0, #0
+        code[5]  = 0xEF000011; // SVC #0x11 (recv)
+        code[6]  = 0xE1A04001; // MOV R4, R1 (save reply)
+        // Log "Ping:OK\n"
+        code[7]  = 0xE28F0010; // ADD R0, PC, #16 (PC=code[9], +16=code[13])
+        code[8]  = 0xE3A01008; // MOV R1, #8
+        code[9]  = 0xEF0000F0; // SVC #0xF0
+        code[10] = 0xE1A00004; // MOV R0, R4
+        code[11] = 0xEF000000; // SVC #0x00 (exit)
+        code[12] = 0xEAFFFFFE; // B .
+        // DATA at code[13]
+        code[13] = 0x676E6950; // "Ping"
+        code[14] = 0x0A4B4F3A; // ":OK\n"
+        break;
+
+    case 0xAAAA0002: // "Ponger"
+        code[0]  = 0xE3A00000; // MOV R0, #0
+        code[1]  = 0xEF000011; // SVC #0x11 (recv)
+        code[2]  = 0xE1A04000; // MOV R4, R0 (sender PID)
+        code[3]  = 0xE1A05001; // MOV R5, R1 (received payload)
+        // Send 0xCAFEBABE back
+        code[4]  = 0xE30B1ABE; // MOVW R1, #0xBABE
+        code[5]  = 0xE34C1AFE; // MOVT R1, #0xCAFE
+        code[6]  = 0xE3A00000; // MOV R0, #0
+        code[7]  = 0xEF000010; // SVC #0x10 (send)
+        // Log "Pong:OK\n"
+        code[8]  = 0xE28F0010; // ADD R0, PC, #16 (PC=code[10], +16=code[14])
+        code[9]  = 0xE3A01008; // MOV R1, #8
+        code[10] = 0xEF0000F0; // SVC #0xF0
+        // Exit with received payload (expect 0xDEADBEEF)
+        code[11] = 0xE1A00005; // MOV R0, R5
+        code[12] = 0xEF000000; // SVC #0x00
+        code[13] = 0xEAFFFFFE; // B .
+        // DATA at code[14]
+        code[14] = 0x676E6F50; // "Pong"
+        code[15] = 0x0A4B4F3A; // ":OK\n"
+        break;
+
+    /* ================================================================
+     * IPC TEST B: Sender blocks first
+     *   Sender sends immediately (blocks waiting for receiver)
+     *   Receiver sleeps 500ms then recvs
+     * ================================================================ */
+    case 0xBBBB0001: // "Sender-first"
+        code[0]  = 0xE3A01042; // MOV R1, #0x42
+        code[1]  = 0xE3A00000; // MOV R0, #0
+        code[2]  = 0xEF000010; // SVC #0x10 (send — blocks)
+        // Log "SndOK!\n"
+        code[3]  = 0xE28F0008; // ADD R0, PC, #8 (PC=code[5], +8=code[7])
+        code[4]  = 0xE3A01007; // MOV R1, #7
+        code[5]  = 0xEF0000F0; // SVC #0xF0
+        code[6]  = 0xEF000000; // SVC #0x00 (exit)
+        // DATA at code[7]
+        code[7]  = 0x4F646E53; // "SndO"
+        code[8]  = 0x000A214B; // "K!\n\0"
+        break;
+
+    case 0xBBBB0002: // "Delayed-receiver"
+        // Sleep 500ms
+        code[0]  = 0xE30001F4; // MOVW R0, #500
+        code[1]  = 0xEF000005; // SVC #0x05 (sleep)
+        // Recv
+        code[2]  = 0xE3A00000; // MOV R0, #0
+        code[3]  = 0xEF000011; // SVC #0x11 (recv)
+        code[4]  = 0xE1A04001; // MOV R4, R1 (save payload)
+        // Log "RcvOK!\n"
+        code[5] = 0xE28F0010; // ADD R0, PC, #16 (PC=code[7], +16=code[11])
+        code[6]  = 0xE3A01007; // MOV R1, #7
+        code[7]  = 0xEF0000F0; // SVC #0xF0
+        // Exit with payload (expect 0x42)
+        code[8]  = 0xE1A00004; // MOV R0, R4
+        code[9]  = 0xEF000000; // SVC #0x00
+        code[10] = 0xEAFFFFFE; // B .
+        // DATA at code[11]
+        code[11] = 0x4F766352; // "RcvO"
+        code[12] = 0x000A214B; // "K!\n\0"
+        break;
+
+    /* ================================================================
+     * IPC TEST C: Multiple senders, one receiver (FIFO order)
+     *   Sender1 sends 0x11, Sender2 sends 0x22 — both block
+     *   Receiver sleeps 500ms, then recvs twice
+     *   Exit status = first payload (expect 0x11 if FIFO correct)
+     * ================================================================ */
+    case 0xCCCC0001: // "Multi-sender 1"
+        code[0]  = 0xE3A01011; // MOV R1, #0x11
+        code[1]  = 0xE3A00000; // MOV R0, #0
+        code[2]  = 0xEF000010; // SVC #0x10 (send)
+        // Log "Snd1OK\n"
+        code[3]  = 0xE28F0008; // ADD R0, PC, #8 (PC=code[5], +8=code[7])
+        code[4]  = 0xE3A01007; // MOV R1, #7
+        code[5]  = 0xEF0000F0; // SVC #0xF0
+        code[6]  = 0xEF000000; // SVC #0x00
+        // DATA at code[7]
+        code[7]  = 0x31646E53; // "Snd1"
+        code[8]  = 0x000A4B4F; // "OK\n\0"
+        break;
+
+    case 0xCCCC0002: // "Multi-sender 2"
+        code[0]  = 0xE3A01022; // MOV R1, #0x22
+        code[1]  = 0xE3A00000; // MOV R0, #0
+        code[2]  = 0xEF000010; // SVC #0x10 (send)
+        // Log "Snd2OK\n"
+        code[3]  = 0xE28F0008; // ADD R0, PC, #8 (PC=code[5], +8=code[7])
+        code[4]  = 0xE3A01007; // MOV R1, #7
+        code[5]  = 0xEF0000F0; // SVC #0xF0
+        code[6]  = 0xEF000000; // SVC #0x00
+        // DATA at code[7]
+        code[7]  = 0x32646E53; // "Snd2"
+        code[8]  = 0x000A4B4F; // "OK\n\0"
+        break;
+
+    case 0xCCCC0003: // "Multi-receiver"
+        // Sleep 500ms so both senders block first
+        code[0]  = 0xE30001F4; // MOVW R0, #500
+        code[1]  = 0xEF000005; // SVC #0x05 (sleep)
+        // First recv
+        code[2]  = 0xE3A00000; // MOV R0, #0
+        code[3]  = 0xEF000011; // SVC #0x11
+        code[4]  = 0xE1A04001; // MOV R4, R1 (first payload)
+        // Second recv
+        code[5]  = 0xE3A00000; // MOV R0, #0
+        code[6]  = 0xEF000011; // SVC #0x11
+        code[7]  = 0xE1A05001; // MOV R5, R1 (second payload)
+        // Log "MrcvOK\n"
+        code[8] = 0xE28F0010; // ADD R0, PC, #16 (PC=code[10], +16=code[14])
+        code[9]  = 0xE3A01007; // MOV R1, #7
+        code[10] = 0xEF0000F0; // SVC #0xF0
+        // Exit with first payload (expect 0x11 if FIFO)
+        code[11] = 0xE1A00004; // MOV R0, R4
+        code[12] = 0xEF000000; // SVC #0x00
+        code[13] = 0xEAFFFFFE; // B .
+        // DATA at code[14]
+        code[14] = 0x7663724D; // "Mrcv"
+        code[15] = 0x000A4B4F; // "OK\n\0"
+        break;
+
+    /* ================================================================
+     * IPC TEST D: Invalid handle — should return error, not crash
+     * ================================================================ */
+    case 0xDDDD0001: // "Bad-handle"
+        code[0]  = 0xE3A01042; // MOV R1, #0x42
+        code[1]  = 0xE30003E7; // MOVW R0, #999
+        code[2]  = 0xEF000010; // SVC #0x10 (send — should fail)
+        code[3]  = 0xE1A04000; // MOV R4, R0 (save error)
+        // Log "BadH:OK\n"
+        code[4]  = 0xE28F0010; // ADD R0, PC, #8 (PC=code[6], +8=code[8])
+        code[5]  = 0xE3A01008; // MOV R1, #8
+        code[6]  = 0xEF0000F0; // SVC #0xF0
+        // Exit with error code (expect ERR_BADARG = -6)
+        code[7]  = 0xE1A00004; // MOV R0, R4
+        code[8]  = 0xEF000000; // SVC #0x00
+        code[9]  = 0xEAFFFFFE; // B .
+        // DATA at code[10]
+        code[10] = 0x48646142; // "BadH"
+        code[11] = 0x0A4B4F3A; // ":OK\n"
+        break;
+
+    default: // "The Spinner"
         code[0] = 0xE3A00000; // MOV R0, #0
-        code[1] = 0xEAFFFFFE; // B . (Infinite Loop)
+        code[1] = 0xEAFFFFFE; // B .
         break;
     }
 
-    // user VA for code should start at first page, stack could be ...idk? N=1 means we get a 2gb/2gb split
-    // allocate those
-    // copy code, memcpy() probably
-    // copy stack, memcpy() prob.
-    // set entry point
-
+    KDEBUG("Created process with magic %X and PID %d", magic, process->pid);
     return process;
 }
 
@@ -211,7 +335,7 @@ void process_destroy(process_t *p)
             kfree(p->as->regions);
         kfree(p->as);
     }
+    process_table[p->pid] = NULL;
     kstack_free(p->kernel_stack_top);
     kfree(p);
-    // sched_defer_destroy(p);
 }

@@ -2,10 +2,14 @@
 #include "kernel/sched/sys_task.h" 
 #include "kernel/ipc/sys_port.h" 
 #include "kernel/ipc/sys_ipc.h"
+#include "kernel/sched/sched.h"
 #include "core/log.h"
+
+extern process_t *current_process;
 
 void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
 {
+    current_process->trap_frame = frame;
     switch (svc_num)
     {
     case SYS_TASK_QUIT:
