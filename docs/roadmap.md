@@ -65,7 +65,7 @@ Phase 7: Exceptions & CPU State Management
 - [x] Full register save/restore
 - [x] Mode-specific stacks (SVC, IRQ, ABT, UND)
 - [x] Panic on unhandled exception
-- [ ] Detailed fault decoding (DFSR/IFSR)
+- [x] Detailed fault decoding (DFSR/IFSR)
 
 Phase 8: Interrupt Subsystem
 - [x] Interrupt-driven UART I/O
@@ -89,69 +89,114 @@ Phase 9: Time & Scheduling Foundations
 - [x] Preemption point definition
 - [x] Scheduler entry from IRQ
 
-Phase 10: Process Model
+Phase 10: Process Model & Address Space Isolation
 - [x] Process Control Block (PCB) structure
 - [x] Process states (READY, RUNNING, BLOCKED, ZOMBIE)
 - [x] Per-process kernel stack
+- [x] Kernel stack guard pages
 - [x] L2 page tables (4KB pages)
-- [x] Per-process address spaces
-- [x] Context switch routine
+- [x] L2 table pool for fast allocation
+- [x] Per-process address spaces (TTBR0 per process)
+- [x] TTBR1 for kernel mappings (set once at boot)
+- [x] Context switch routine (switch.s)
 - [x] Round-robin scheduler
-- [ ] Kernel symbol lookup (addr to function name)
 - [x] Backtrace/stack unwinding
+- [ ] Kernel symbol lookup (addr to function name)
 
-Phase 11: Privilege Separation & Syscalls
-- [x] SVC syscall entry
-- [x] Syscall ABI definition
+Phase 11: Privilege Separation & Syscall ABI
+- [x] SVC syscall entry (entry.s)
+- [x] Syscall number extraction from SVC immediate (& 0xFF)
+- [x] Syscall dispatch table
+- [x] Syscall ABI definition (docs/syscalls.md)
 - [x] User stack setup
-- [x] SVC to USR transition
-- [ ] write syscall
-- [x] exit syscall
-- [x] yield syscall
+- [x] USR mode entry via exception return frame
+- [x] AP bit enforcement (kernel-only sections locked down)
+- [x] User pointer validation (validate_user_ptr)
+- [x] task_exit syscall
+- [x] task_yield syscall
+- [x] task_sleep syscall
+- [x] get_pid syscall
+- [ ] task_spawn syscall (depends on Phase 13)
+- [ ] task_wait syscall (depends on Phase 13)
 
-Phase 12: IPC & Microkernel Identity
-- [x] Synchronous IPC (send/recv)
-- [ ] Message copying
-- [ ] Process naming or capability system
-- [ ] Service registry
+Phase 12: IPC
+- [x] Endpoint kernel object (sender/receiver queues)
+- [x] Handle table per process (16 slots)
+- [x] proc_send (SVC #0x10)
+- [x] proc_recv (SVC #0x11)
+- [x] proc_call (SVC #0x12)
+- [x] proc_reply (SVC #0x13)
+- [x] port_create (SVC #0x20)
+- [x] port_destroy (SVC #0x21)
+- [x] port_grant (SVC #0x22)
+- [x] Blocking send/recv with scheduler integration
+- [x] ERR_DEAD on endpoint destroyed while waiting
+- [ ] Name server (well-known handle 0)
+- [ ] Capability transfer through IPC messages
 
 Phase 13: Program Loading
-- [ ] Initrd/ramdisk loading
-- [ ] ELF header parsing
-- [ ] ELF segment loading
-- [ ] User process bootstrap
+- [ ] Initrd/ramdisk in kernel image (CPIO or raw)
+- [ ] ELF header parsing (PT_LOAD segments)
+- [ ] BSS zeroing for ELF segments
+- [ ] process_create_from_elf()
+- [ ] User process bootstrap (crt0, _start)
 - [ ] Init process (PID 1)
 
-Phase 14: User Space
-- [ ] Minimal libc (crt0.s)
-- [ ] Syscall wrappers
-- [ ] Shell
-- [ ] Process spawning (fork/exec or spawn)
-- [ ] Standard I/O
+Phase 14: Userspace C Runtime
+- [ ] crt0.s (_start → main → exit)
+- [ ] Syscall wrapper library (SVC #n wrappers)
+- [ ] User-side linker script
+- [ ] Separate build targets for kernel and userspace
+- [ ] "Hello World" user process in C
 
-Phase 15: Networking
-- [ ] NIC driver (LAN9118 or virtio-net)
-- [ ] DMA buffer management
-- [ ] Ethernet frame handling
+Phase 15: Service Registry
+- [ ] Name server process
+- [ ] Handle 0 pre-populated in every process
+- [ ] register / lookup IPC protocol
+- [ ] Capability transfer (port_grant through IPC)
+
+Phase 16: IRQ Forwarding & Userspace Drivers
+- [ ] sys_irq_claim: process claims an IRQ line
+- [ ] sys_irq_wait: block until claimed IRQ fires
+- [ ] sys_irq_done: unmask IRQ line after handling
+- [ ] Kernel IRQ path routes to waiting driver process
+- [ ] sys_mapdev: map MMIO into driver process address space
+- [ ] Userspace PL011 UART driver
+
+Phase 17: Advanced Memory Management
+- [ ] sys_mmap / sys_munmap
+- [ ] Demand paging (Data Abort on unmapped user page → allocate)
+- [ ] Shared memory objects (sys_mshare / sys_attach)
+
+Phase 18: Process Lifecycle
+- [ ] task_spawn: load ELF from initrd, return child PID
+- [ ] task_wait: block until child exits, return exit status
+- [ ] Orphan re-parenting to init
+- [ ] Zombie reaping
+
+Phase 19: NIC Driver & Network Stack
+- [ ] LAN9118 MMIO discovery from DTB
+- [ ] Userspace NIC driver process
+- [ ] LAN9118 initialization sequence
+- [ ] Ethernet frame TX/RX
 - [ ] ARP table
-- [ ] IPv4 packet handling
-- [ ] ICMP (ping)
+- [ ] IPv4 receive/send path
+- [ ] ICMP echo (ping)
 - [ ] UDP
-- [ ] TCP
-- [ ] Socket API (socket, bind, connect, send, recv)
+- [ ] TCP (state machine, 3-way handshake, retransmission)
+- [ ] Socket API (socket, bind, connect, send, recv, close)
 
-Phase 16: Portability & HAL
+Phase 20: Portability
 - [ ] HAL interface: timer
 - [ ] HAL interface: serial
-- [ ] Clock speed from DTB
 - [ ] HAL interface: IRQ controller
-- [ ] Raspberry Pi port
-- [ ] QEMU virt machine support
-- [ ] Virtio drivers
+- [ ] Raspberry Pi 4 port (bare metal, 32-bit mode)
+- [ ] STM32 port (MPU, real-time branch)
 
-Phase 17: Advanced Systems
-- [ ] SMP boot (secondary cores)
-- [ ] Spinlocks and atomic operations
-- [ ] Block device driver
-- [ ] Filesystem (FAT32 or ext2)
-- [ ] Persistent storage
+Phase 21: Hardening
+- [ ] ASID support (eliminate full TLB flushes on context switch)
+- [ ] Kernel symbol table embedded in image (panic backtraces with names)
+- [ ] copy_from_user / copy_to_user with page-table walk validation
+- [ ] Watchdog: flag processes that don't yield within N ticks
+- [ ] LDREX/STREX atomic support for userspace
+- [ ] Cache maintenance on ELF code segment load (D-cache clean, I-cache invalidate)
