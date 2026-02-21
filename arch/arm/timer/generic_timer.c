@@ -69,5 +69,5 @@ void generic_timer_init(void) {
     write_cntp_ctl(ctl);
     write_cntv_ctl(ctl);
 
-    KDEBUG("Generic timer initialized (10ms interval, %u Hz)", freq);
+    //KDEBUG("Generic timer initialized (10ms interval, %u Hz)", freq);
 }

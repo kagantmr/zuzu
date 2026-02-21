@@ -285,8 +285,10 @@ static void panic_screen(const char *reason, void *caller_ra)
     panic_puts("\n");
 
     panic_puts_centered(C_WHITE "Oops! zuzu has panicked." C_RESET);
-    panic_puts_centered(C_DIM "Something went wrong and the system was halted." C_RESET);
-    panic_puts_centered(C_DIM "Please share this screen with the developers." C_RESET);
+    panic_puts_centered(C_DIM "An unrecoverable kernel error occurred and the system was halted." C_RESET);
+    panic_puts_centered(C_DIM "This may be caused by a kernel bug or an operation not yet supported by zuzu." C_RESET);
+    panic_puts_centered(C_DIM "If you believe this is a bug, please report it at:" C_RESET);
+    panic_puts_centered(C_DIM "https://github.com/kagantmr/zuzu/issues" C_RESET);
     panic_puts("\n");
 
     // ── Full-width: KERNEL PANIC ──

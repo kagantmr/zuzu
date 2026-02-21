@@ -53,8 +53,9 @@ static void sched_wake_sleepers(void) {
 }
 
 void schedule() {
-    sched_reap();
     sched_wake_sleepers();
+
+    sched_reap();
 
     if (current_process != NULL) {
         // Handle the outgoing process based on its state

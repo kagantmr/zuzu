@@ -77,7 +77,7 @@ static inline void perform_panic_tests(void)
     //__asm__ volatile("cps #0x11\n");
 
     // test 6: a bad access in kernel code should panic with a data abort.
-    //__asm__ volatile("mov r0, #0x0\n" "str r0, [r0]\n");
+    // __asm__ volatile("mov r0, #0x0\n" "str r0, [r0]\n");
 
     // test 7: a syscall should do absolutely nothing in SVC mode, used to crash, fixed by ignoring in SVC mode.
     //__asm__ volatile("svc #0");
