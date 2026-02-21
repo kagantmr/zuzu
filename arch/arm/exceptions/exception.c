@@ -137,7 +137,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
                 .fault_decoded = "Undefined instruction",
                 .frame = frame,
             };
-            panic("Undefined instruction");
+            panic("Kernel-level undefined instruction");
         }
     }
     break;
@@ -178,7 +178,10 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
         KERROR("IFAR: 0x%08X  IFSR: 0x%08X", ifar, ifsr);
         KERROR("Fault: %s", decode_fault_status(ifsr));
         KERROR("PC: 0x%08X", frame->return_pc);
-        if (current_process)
+
+        bool from_user = (frame->return_cpsr & 0x1F) == 0x10;
+
+        if (from_user && current_process)
         {
             KERROR("Process with ID %d failed at 0x%08X", current_process->pid, frame->return_pc);
             process_t *dying = current_process;
@@ -198,7 +201,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
                 .fault_decoded = decode_fault_status(ifsr),
                 .frame = frame,
             };
-            panic("Prefetch abort");
+            panic("Kernel-level prefetch abort");
         }
     }
     break;
@@ -217,7 +220,10 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
                (dfsr & (1 << 12)) ? "External" : "Internal");
         KERROR("Domain: %u", (dfsr >> 4) & 0xF);
 
-        if (current_process)
+        bool from_user = (frame->return_cpsr & 0x1F) == 0x10;
+
+
+        if (from_user && current_process)
         {
             KERROR("Process with ID %d failed at 0x%08X", current_process->pid, frame->return_pc);
 
@@ -257,7 +263,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
                 .access_type = (dfsr & (1 << 11)) ? "Write" : "Read",
                 .frame = frame,
             };
-            panic("Data abort");
+            panic("Kernel-level data abort");
         }
     }
     break;
