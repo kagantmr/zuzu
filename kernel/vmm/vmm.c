@@ -7,7 +7,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "lib/string.h"
-#include "core/log.h"
 #include "lib/mem.h"
 #include "core/panic.h"
 #include "kernel/layout.h"
@@ -18,6 +17,10 @@ static addrspace_t* g_current_addrspace = NULL;
 static bool g_mmu_enabled = false;
 extern phys_region_t phys_region;
 extern kernel_layout_t kernel_layout;
+
+#define LOG_FMT(fmt) "(vmm) " fmt
+#include "core/log.h"
+
 
 addrspace_t* vmm_get_kernel_as(void) {
     return g_kernel_as;

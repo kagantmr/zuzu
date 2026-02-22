@@ -13,7 +13,6 @@
 #include "core/version.h"
 
 #include "core/kprintf.h"
-#include "core/log.h"
 #include "core/panic.h"
 #include "core/assert.h"
 
@@ -29,6 +28,10 @@
 #include "kernel/mm/alloc.h"
 
 #include "fetch.h"
+
+#define LOG_FMT(fmt) "(main) " fmt
+#include "core/log.h"
+
 
 extern kernel_layout_t kernel_layout;
 extern pmm_state_t pmm_state;

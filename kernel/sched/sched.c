@@ -1,7 +1,7 @@
 #include "sched.h"
 #include "kernel/proc/process.h"
 #include "lib/list.h"
-#include "core/log.h"
+
 #include "kernel/vmm/vmm.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/time/tick.h"
@@ -10,6 +10,9 @@ static list_head_t run_queue = LIST_HEAD_INIT(run_queue);
 static list_head_t destroy_queue = LIST_HEAD_INIT(destroy_queue);
 list_head_t sleep_queue = LIST_HEAD_INIT(sleep_queue);
 process_t *current_process;
+
+#define LOG_FMT(fmt) "(sched) " fmt
+#include "core/log.h"
 
 
 void sched_init() {
