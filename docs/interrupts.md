@@ -1,12 +1,12 @@
-# Zuzu Interrupt Subsystem
+# zuzu Interrupt Subsystem
 
-This document covers how hardware interrupts are handled in Zuzu: the GICv2 controller, the IRQ registration API, timer configuration, and the relationship between interrupts and the scheduler.
+This document covers how hardware interrupts are handled in zuzu: the GICv2 controller, the IRQ registration API, timer configuration, and the relationship between interrupts and the scheduler.
 
 ---
 
 ## GICv2 Overview
 
-Zuzu uses the ARM Generic Interrupt Controller version 2, which is the interrupt controller on the vexpress-a15 platform. GICv2 has two distinct components:
+zuzu uses the ARM Generic Interrupt Controller version 2, which is the interrupt controller on the vexpress-a15 platform. GICv2 has two distinct components:
 
 **GICD — Distributor** (`0x2C001000`)  
 Receives interrupt signals from all connected peripherals. Routes each interrupt to one or more CPU interfaces. Responsible for enable/disable per interrupt line, priority configuration, and target CPU selection.
@@ -76,7 +76,7 @@ Hardware asserts IRQ line
 
 ## Timer Configuration
 
-Zuzu supports two timer sources:
+zuzu supports two timer sources:
 
 ### SP804 Dual Timer (`drivers/timer/sp804.c`)
 

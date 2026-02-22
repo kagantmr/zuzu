@@ -1,4 +1,4 @@
-# Zuzu Syscall ABI
+# zuzu Syscall ABI
 
 ## Encoding
 

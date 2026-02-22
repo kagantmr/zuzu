@@ -1,4 +1,4 @@
-Zuzu Kernel Roadmap
+zuzu Kernel Roadmap
 
 Phase 0: Project Genesis & Build System 
 - [x] Repository structure (arch/, kernel/, drivers/, lib/)
@@ -134,7 +134,15 @@ Phase 12: IPC
 - [ ] Name server (well-known handle 0)
 - [ ] Capability transfer through IPC messages
 
-Phase 13: Program Loading
+Phase 13: IRQ Forwarding & Userspace Drivers
+- [ ] sys_irq_claim: process claims an IRQ line
+- [ ] sys_irq_wait: block until claimed IRQ fires
+- [ ] sys_irq_done: unmask IRQ line after handling
+- [ ] Kernel IRQ path routes to waiting driver process
+- [ ] sys_mapdev: map MMIO into driver process address space
+- [ ] Userspace PL011 UART driver
+
+Phase 14: Program Loading
 - [ ] Initrd/ramdisk in kernel image (CPIO or raw)
 - [ ] ELF header parsing (PT_LOAD segments)
 - [ ] BSS zeroing for ELF segments
@@ -142,26 +150,18 @@ Phase 13: Program Loading
 - [ ] User process bootstrap (crt0, _start)
 - [ ] Init process (PID 1)
 
-Phase 14: Userspace C Runtime
+Phase 15: Userspace C Runtime
 - [ ] crt0.s (_start → main → exit)
 - [ ] Syscall wrapper library (SVC #n wrappers)
 - [ ] User-side linker script
 - [ ] Separate build targets for kernel and userspace
 - [ ] "Hello World" user process in C
 
-Phase 15: Service Registry
+Phase 16: Service Registry
 - [ ] Name server process
 - [ ] Handle 0 pre-populated in every process
 - [ ] register / lookup IPC protocol
 - [ ] Capability transfer (port_grant through IPC)
-
-Phase 16: IRQ Forwarding & Userspace Drivers
-- [ ] sys_irq_claim: process claims an IRQ line
-- [ ] sys_irq_wait: block until claimed IRQ fires
-- [ ] sys_irq_done: unmask IRQ line after handling
-- [ ] Kernel IRQ path routes to waiting driver process
-- [ ] sys_mapdev: map MMIO into driver process address space
-- [ ] Userspace PL011 UART driver
 
 Phase 17: Advanced Memory Management
 - [ ] sys_mmap / sys_munmap

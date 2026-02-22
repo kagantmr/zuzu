@@ -1,7 +1,7 @@
-# Zuzu Memory Map
+# zuzu Memory Map
 
 
-This document describes the physical and virtual memory layout for the Zuzu kernel running on QEMU's `vexpress-a15` machine.
+This document describes the physical and virtual memory layout for the zuzu kernel running on QEMU's `vexpress-a15` machine.
 
 ---
 
