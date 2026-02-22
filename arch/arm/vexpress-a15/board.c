@@ -5,17 +5,16 @@
 #include "arch/arm/include/gicv2.h"
 #include "arch/arm/timer/generic_timer.h"
 #include "core/panic.h"
-#include "core/log.h"
 #include "core/kprintf.h" 
 
-// arch/arm/vexpress-a15/devices.c
+
 #include "kernel/dtb/dtb.h"
 #include "kernel/vmm/vmm.h"
 #include "core/panic.h"
-#include "core/log.h"
 #include "core/kprintf.h"
 
-
+#define LOG_FMT(fmt) "(board) " fmt
+#include "core/log.h"
 
 void board_init_devices(void) {
     char path[128];

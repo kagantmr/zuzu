@@ -1,9 +1,12 @@
 #include "arch/arm/include/irq.h"
 #include "arch/arm/include/gicv2.h"
-#include "core/log.h"
 
 #include <stddef.h>
 #include <stdint.h>
+
+#define LOG_FMT(fmt) "(irq) " fmt
+#include "core/log.h"
+
 
 irq_handler_t handler_table[MAX_IRQS];
 void* handler_ctx[MAX_IRQS];

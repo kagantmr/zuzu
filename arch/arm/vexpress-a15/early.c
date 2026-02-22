@@ -12,7 +12,6 @@
 #include "kernel/vmm/vmm.h"
 
 #include "core/assert.h"
-#include "core/log.h"
 #include "core/panic.h"
 
 #include "lib/mem.h"
@@ -25,6 +24,10 @@ extern kernel_layout_t kernel_layout;
 extern pmm_state_t pmm_state;
 extern phys_region_t phys_region;
 extern addrspace_t *g_kernel_as;
+
+#define LOG_FMT(fmt) "(early) " fmt
+#include "core/log.h"
+
 
 /* =============================================================================
  * Early Boot Page Table (placed in .bss.boot, physical address space)
