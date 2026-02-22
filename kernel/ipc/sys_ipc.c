@@ -2,11 +2,13 @@
 #include "kernel/syscall/syscall.h"
 #include "endpoint.h"
 #include "kernel/sched/sched.h"
-#include "core/log.h"
 #include "kernel/mm/alloc.h"
 #include "lib/mem.h"
 
 extern process_t *current_process;
+
+#define LOG_FMT(fmt) "(ipc) " fmt
+#include "core/log.h"
 
 void proc_send(exception_frame_t *frame)
 {

@@ -9,6 +9,7 @@
 #include "lib/string.h"
 #include "core/log.h"
 #include "lib/mem.h"
+#include "core/panic.h"
 #include "kernel/layout.h"
 
 // Track kernel and current address spaces

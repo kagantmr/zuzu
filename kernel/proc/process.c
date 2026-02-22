@@ -366,9 +366,11 @@ fail_process:
 
 void process_destroy(process_t *p)
 {
-    extern pmm_state_t pmm_state;
+
     uint32_t pid = p->pid; // apparently causes an UAF
+    extern pmm_state_t pmm_state;
     KDEBUG("destroy PID %d, pmm before=%d", p->pid, pmm_state.free_pages);
+    (void)pmm_state;
     if (p->as)
     {
         arch_mmu_free_user_pages(p->as->ttbr0_pa);

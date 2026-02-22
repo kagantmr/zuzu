@@ -38,7 +38,7 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list args)
     size_t term_pos = snprintf_ctx.pos < (size - 1) ? snprintf_ctx.pos : (size - 1);
     buf[term_pos] = '\0';
 
-    // Return total chars that *would* have been written (excluding null)
+    // Return total chars that would have been written (excluding null)
     return (int)snprintf_ctx.pos;
 }
 
