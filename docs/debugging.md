@@ -18,7 +18,6 @@ In another terminal, attach GDB:
 arm-none-eabi-gdb build/zuzu.elf
 (gdb) set architecture armv7
 (gdb) target remote :1234
-(gdb) continue
 ```
 
 ### Useful commands
