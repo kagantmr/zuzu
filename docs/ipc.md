@@ -1,19 +1,19 @@
-# Zuzu IPC
+# zuzu IPC
 
-Inter-process communication is the defining feature of a microkernel. In Zuzu, processes cannot call kernel functions to access services — they send messages to server processes that own those services. The kernel's job in IPC is to be a fast, correct switchboard.
+Inter-process communication is the defining feature of a microkernel. In zuzu, processes cannot call kernel functions to access services — they send messages to server processes that own those services. The kernel's job in IPC is to be a fast, correct switchboard.
 
 ---
 
 ## Model: Synchronous Rendezvous
 
-Zuzu uses **synchronous blocking IPC**. This means:
+zuzu uses **synchronous blocking IPC**. This means:
 
 - `send` blocks the caller until a receiver is ready on the endpoint.
 - `recv` blocks the caller until a sender arrives.
 - When both are present, the kernel copies the message and unblocks both in one operation.
 - There are no message queues. There is no heap allocation in the IPC hot path.
 
-This is the same model used by L4, seL4, and QNX. The reason for choosing it over asynchronous IPC is simplicity: no buffer management, no flow control, no partial delivery. The trade-off is that a slow server blocks its clients. For the current stage of Zuzu this is fine — proper protocol design handles it at the application level.
+This is the same model used by L4, seL4, and QNX. The reason for choosing it over asynchronous IPC is simplicity: no buffer management, no flow control, no partial delivery. The trade-off is that a slow server blocks its clients. For the current stage of zuzu this is fine — proper protocol design handles it at the application level.
 
 ---
 
@@ -64,7 +64,7 @@ Sends a reply to whoever last called `proc_call` on the current process. Does no
 
 ## Endpoints and Ports
 
-<!-- TODO: explain the distinction between endpoints and ports in Zuzu's model: -->
+<!-- TODO: explain the distinction between endpoints and ports in zuzu's model: -->
 <!-- An endpoint (kernel/ipc/endpoint.h) is the kernel object — it has a sender queue and a receiver queue. -->
 <!-- A port (kernel/ipc/sys_port.h) is... (explain what sys_port.c does vs sys_ipc.c) -->
 <!-- Currently both exist. Clarify which one user processes interact with and which is internal. -->
@@ -96,7 +96,7 @@ This prevents processes from forging references to endpoints they were never giv
 
 **Handle 0** is reserved: the kernel pre-populates it in every process with a pointer to the name server's endpoint, so any process can look up services without prior coordination.
 
-<!-- TODO: handle 0 may not be implemented yet — mark it as planned if so -->
+Handle 0 has not been implemented yet.
 
 ---
 
@@ -106,8 +106,7 @@ At present, a message is exactly four 32-bit words: `r0–r3`. This maps directl
 
 No heap allocation occurs. The kernel copies four words from one saved register frame to another.
 
-<!-- TODO: note the planned extension: shared memory (Phase 19) for large payloads. The message then -->
-<!-- carries a handle to a shared memory object, not the data itself. -->
+Shared memory will be implemented in a future phase, but for now all IPC is by value.
 
 ---
 

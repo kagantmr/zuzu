@@ -1,12 +1,12 @@
-# Zuzu Architecture Notes
+# zuzu Architecture Document
 
-This document covers the key ARM-specific design decisions in Zuzu: why they were made, what the alternatives were, and what constraints they impose going forward.
+This document covers the key ARM-specific design decisions in zuzu: why they were made, what the alternatives were, and what constraints they impose going forward.
 
 ---
 
 ## ARM Processor Modes
 
-ARMv7-A has seven processor modes. Zuzu uses four of them (SYS mode is also partially used):
+ARMv7-A has seven processor modes. zuzu uses four of them (SYS mode is also partially used):
 
 | Mode | Value | Used for |
 |------|-------|----------|
@@ -18,10 +18,10 @@ ARMv7-A has seven processor modes. Zuzu uses four of them (SYS mode is also part
 
 
 
-These modes all have seperate registers of their own (called banked registers), SP_usr and SP_irq are different and must be indiviually set before executing code in any of them. This also means that modes are seperated on a hardware level, so we can switch from SVC mode to IRQ mode without manually saving CPU context.
+These modes all have seperate registers of their own (called banked registers), i.e. SP_usr and SP_irq are different and must be indiviually set before executing code in any of them. This also means that modes are seperated on a hardware level, so the kernel can switch from SVC mode to IRQ mode without manually saving CPU context (unlike processes).
 
 
-ARMv7-A classifies processors modes by two rings: PL0 (unprivileged), PL1 (privileged) and PL2 (virtualization extensions). For the purposes of Zuzu's development, only PL0 and PL1 are used. Every mode except USR is PL1, and is considered kernel mode. In this mode the CPU can access all kernel memory, can modify the CPSR, and manipulate the coprocessor. In USR execution mode, code cannot do any of these. ARM enforces privilege seperation using these modes, and Zuzu utilizes them accordingly.
+ARMv7-A classifies processors modes by two rings: PL0 (unprivileged), PL1 (privileged) and PL2 (virtualization extensions). For the purposes of zuzu's development, only PL0 and PL1 are used. Every mode except USR is PL1, and is considered kernel mode. In this mode the CPU can access all kernel memory, can modify the CPSR, and manipulate the coprocessor. In USR execution mode, code cannot do any of these. ARM enforces privilege seperation using these modes, and zuzu utilizes them accordingly.
 
 ---
 
@@ -32,8 +32,7 @@ ARMv7 exposes two coprocessor registers called Translation Table Base Registers 
 
 ## Exception Vector Table
 
-<!-- TODO: show the vector table layout — 8 entries at fixed offsets from the base address -->
-When an exception occurs in code execution, the processor jumps to the address specified by the Vector Base Address Register (VBAR) with an offset and switches to the appropriate mode, depending on the instruction.
+When an exception occurs in code execution, the processor jumps to the address specified by the Vector Base Address Register (VBAR) with an offset and switches to the appropriate mode, depending on the instruction. 
 
 | Exception | Offset |
 |------|-------|
@@ -42,21 +41,19 @@ When an exception occurs in code execution, the processor jumps to the address s
 | SVC  | `0x08` | 
 | Prefetch Abort  | `0x0C` |
 | Data Abort  | `0x10` | 
-| Reserved | ` |
-| IRQ | ` |
-| FIQ | ` |
-<!-- - Reset:            offset 0x00 -->
-<!-- - Undefined:        offset 0x04 -->
-<!-- - SVC:              offset 0x08 -->
-<!-- - Prefetch Abort:   offset 0x0C -->
-<!-- - Data Abort:       offset 0x10 -->
-<!-- - Reserved:         offset 0x14 -->
-<!-- - IRQ:              offset 0x18 -->
-<!-- - FIQ:              offset 0x1C -->
+| Reserved | `0x14` |
+| IRQ | `0x18` |
+| FIQ | `0x1C` |
 [arch/arm/exceptions/vectors.s](arch/arm/exceptions/vectors.s)
 
-<!-- TODO: explain how the vector base address is set — VBAR (Vector Base Address Register) via MCR p15. -->
+zuzu's vector table is placed by the linker script at VA `C0018000` for `vexpress-a15`. It's then set with in `_start.s`:
 
+```armasm
+    /* Set VBAR to vector_table */
+    ldr     r0, =vector_table
+    mcr     p15, 0, r0, c12, c0, 0  @ VBAR = vector_table
+    isb
+```
 ---
 
 ## Exception Entry and the Stack Frame
@@ -79,8 +76,8 @@ When an exception occurs in code execution, the processor jumps to the address s
 <!-- TODO: explain the design decision: -->
 <!-- Most ARM OS projects (including Linux) put the syscall number in r7 and execute SVC #0. -->
 <!-- Linux did this for Thumb compatibility — Thumb SVC has only an 8-bit immediate, same as ARM, -->
-<!-- but the *same* 8-bit space is what Zuzu uses for the syscall number. -->
-<!-- Zuzu uses SVC #n where n IS the syscall number, masked as & 0xFF from the 24-bit imm field. -->
+<!-- but the *same* 8-bit space is what zuzu uses for the syscall number. -->
+<!-- zuzu uses SVC #n where n IS the syscall number, masked as & 0xFF from the 24-bit imm field. -->
 <!-- -->
 <!-- How extraction works: -->
 <!--   return_pc = frame->return_pc           // points to instruction AFTER the SVC -->
@@ -90,7 +87,7 @@ When an exception occurs in code execution, the processor jumps to the address s
 <!-- Why 8 bits and not 24: the full 24-bit space is available but using 8 gives 256 syscalls — -->
 <!-- more than enough and keeps the dispatch table a fixed array rather than a hash. -->
 <!-- -->
-<!-- Trade-off: commits Zuzu to ARM-mode-only userspace. Thumb userspace would need a different -->
+<!-- Trade-off: commits zuzu to ARM-mode-only userspace. Thumb userspace would need a different -->
 <!-- extraction path (the SVC in Thumb is 16-bit with only an 8-bit imm). Not a problem for now. -->
 
 ---
@@ -112,7 +109,7 @@ When an exception occurs in code execution, the processor jumps to the address s
 
 ## Memory Attributes and Cache Configuration
 
-<!-- TODO: explain the two memory types Zuzu uses (from vmm.h): -->
+<!-- TODO: explain the two memory types zuzu uses (from vmm.h): -->
 <!-- VM_MEM_NORMAL: TEX=001, C=1, B=1 — Write-Back Write-Allocate, cacheable -->
 <!-- VM_MEM_DEVICE: TEX=000, C=0, B=1 — Shared Device, non-cacheable, strongly ordered -->
 <!-- -->
@@ -124,14 +121,13 @@ When an exception occurs in code execution, the processor jumps to the address s
 
 ## ARM Access Permissions (AP Bits)
 
-<!-- TODO: reproduce the AP bit table from the roadmap (already in appendix C there) -->
-<!-- and explain which AP values Zuzu uses in practice: -->
-<!-- - Kernel code/data: AP=0b001 (kernel RW, user no access) -->
-<!-- - User code/data:   AP=0b011 (kernel RW, user RW) -->  
-<!-- - Guard pages:      AP=0b000 (no access from either privilege level) -->
-<!-- -->
-<!-- Where the enforcement matters: the Data Abort handler checks SPSR to determine if the -->
-<!-- fault came from USR mode. If yes, it kills the process. If no, it panics the kernel. -->
+| AP[2:0] | PL1 (Kernel) | PL0 (User) | Use Case                     |
+| ------- | ------------ | ---------- | ---------------------------- |
+| 0b001   | Read/Write   | No access  | Kernel code/data             |
+| 0b011   | Read/Write   | Read/Write | User code/data               |
+| 0b101   | Read-only    | No access  | Kernel read-only             |
+| 0b111   | Read-only    | Read-only  | User read-only (shared libs) |
+| 0b000   | No access    | No access  | Unmapped / guard page        |
 
 ---
 

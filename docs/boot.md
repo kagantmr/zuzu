@@ -1,4 +1,4 @@
-# Zuzu Boot Process
+# zuzu Boot Process
 
 This document traces the boot sequence from CPU reset to the kernel idle loop, explaining what happens at each stage and why.
 
@@ -20,7 +20,7 @@ CPU reset
 
 The CPU starts executing at the physical address of the kernel image (`0x80010000` on vexpress-a15). The MMU is off. Everything runs at physical addresses.
 
-**What `_start.s` does, in order:**
+**What `_start.s` does**
 
 1. Disables interrupts (`CPSID if`)
 2. Initializes stack pointers for all CPU modes (SVC, IRQ, ABT, UND) — each mode has its own banked SP. Stacks are placed at fixed physical addresses defined in the linker script.
@@ -50,8 +50,7 @@ Still in a minimal environment. The heap does not exist yet. No interrupts. `kpr
 6. Initializes the kernel heap (`alloc_init()`).
 7. Calls `kmain()`.
 
-<!-- TODO: explain why the heap can't exist before early.c — the PMM must be up first, -->
-<!-- and the PMM needs to know the memory map before it can be queried for free pages. -->
+The heap cannot exist before `early.c` because the PMM must be initialized first, and the PMM needs to know the memory map from the DTB to manage free pages. Only after the PMM is ready can zuzu allocate memory for the heap.
 
 ---
 
@@ -76,11 +75,9 @@ By the time `kmain()` runs, the full kernel environment is ready: virtual addres
 13. Registers the scheduler as the tick callback.
 14. Enters the idle loop (`WFI`).
 
-<!-- TODO: expand the TTBR1 lockdown step — this is when the transition from "single shared -->
-<!-- page table" to "kernel in TTBR1, per-process in TTBR0" happens. Before this step, -->
-<!-- everything is in one L1 table. After it, the kernel is only reachable via TTBR1. -->
+TTBR1 is set up with the kernel's page tables, and the AP bits for all kernel sections are set to 0b001 (kernel RW, user no access). This means that once the MMU is on, user-mode code cannot access any kernel memory. The kernel can still access everything, but user processes are confined to their own address space defined by TTBR0.
 
-<!-- TODO: explain the boot banner function — what it prints (version string, memory stats, etc.) -->
+The boot banner is inspired by neofetch, it prints the kernel version, build info, and a small summary of the memory layout (total RAM, free RAM, kernel size).
 
 ---
 
@@ -88,14 +85,14 @@ By the time `kmain()` runs, the full kernel environment is ready: virtual addres
 
 | Point in boot | MMU | Heap | PMM | IRQs |
 |---------------|-----|------|-----|------|
-| `_start.s` begins | Off | No | No | Disabled |
-| MMU enable (identity+higher-half) | On | No | No | Disabled |
-| `early.c` begins | On | No | No | Disabled |
-| After `pmm_init()` | On | No | Yes | Disabled |
-| After `alloc_init()` | On | Yes | Yes | Disabled |
-| `kmain()` begins | On | Yes | Yes | Disabled |
-| After `arch_global_irq_enable()` | On | Yes | Yes | **Enabled** |
-| After `sched_init()` + `register_tick_callback()` | On | Yes | Yes | Enabled + ticking |
+| `_start.s` begins | off | no | no | Disabled |
+| MMU enable (identity+higher-half) | on | no | no | Disabled |
+| `early.c` begins | on | no | no | Disabled |
+| After `pmm_init()` | on | no | yes | Disabled |
+| After `alloc_init()` | on | yes | yes | Disabled |
+| `kmain()` begins | on | yes | yes | Disabled |
+| After `arch_global_irq_enable()` | on | yes | yes | **Enabled** |
+| After `sched_init()` + `register_tick_callback()` | on | yes | yes | Enabled + ticking |
 
 ---
 

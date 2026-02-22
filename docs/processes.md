@@ -1,6 +1,6 @@
-# Zuzu Process Model
+# zuzu Process Model
 
-This document describes how processes are represented, created, scheduled, and destroyed in Zuzu.
+This document describes how processes are represented, created, scheduled, and destroyed in zuzu.
 
 ---
 
@@ -34,35 +34,12 @@ typedef struct process {
 ## Process States
 
 ```
-         process_create()
-               │
-               ▼
-           ┌───────┐
-           │ READY │ ◄──────────────────────────────┐
-           └───┬───┘                                │
-               │ scheduler picks it                 │
-               ▼                                    │
-          ┌─────────┐    tick / yield / IPC    ┌────┴───┐
-          │ RUNNING │ ──────────────────────► │  READY │
-          └────┬────┘                          └────────┘
-               │
-        ┌──────┴──────┐
-        │             │
-   IPC blocks     task_quit
-        │             │
-        ▼             ▼
-   ┌─────────┐   ┌────────┐
-   │ BLOCKED │   │ ZOMBIE │
-   └────┬────┘   └────────┘
-        │
-   IPC completes
-        │
-        ▼
-     READY (re-added to run queue)
+<!-- TODO: state machine here -->
 ```
 
-<!-- TODO: explain ZOMBIE state — process has exited but PCB is kept until parent calls task_wait. -->
+<!-- TODO: explain ZOMBIE state, process has exited but PCB is kept until parent calls task_wait. -->
 <!-- If parent never calls task_wait, the zombie accumulates (init should reap orphans). -->
+
 
 ---
 
@@ -80,7 +57,7 @@ The `kernel_stack_top` field records the physical base of the allocation so it c
 
 ## Context Switch (`arch/arm/exceptions/switch.s`)
 
-Context switching in Zuzu works by saving and restoring the **callee-saved registers** (r4–r11 + lr) on the kernel stack. The scheduler calls `context_switch(prev, next)` which:
+Context switching in zuzu works by saving and restoring the **callee-saved registers** (r4–r11 + lr) on the kernel stack. The scheduler calls `context_switch(prev, next)` which:
 
 1. Pushes `{r4–r11, lr}` onto `prev`'s kernel stack. Saves `sp` into `prev->kernel_sp`.
 2. Loads `sp` from `next->kernel_sp`. Pops `{r4–r11, lr}` from `next`'s kernel stack.
@@ -139,7 +116,7 @@ The `magic` parameter is currently used in test processes to identify which test
 
 ## Scheduler (`kernel/sched/sched.c`)
 
-Zuzu uses a simple round-robin scheduler. All ready processes sit in a linked list. On each tick, the scheduler picks the next process in the list, performs a context switch, and updates the current process pointer.
+zuzu uses a simple round-robin scheduler. All ready processes sit in a linked list. On each tick, the scheduler picks the next process in the list, performs a context switch, and updates the current process pointer.
 
 <!-- TODO: document sched_init(), sched_add(), sched_remove(), schedule() -->
 <!-- TODO: explain current_process global and why it's important for IPC and syscall handling -->

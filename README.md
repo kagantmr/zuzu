@@ -6,7 +6,7 @@ Zuzu is a microkernel targeting AArch32 / ARMv7-A. It's written in C and ARM ass
 
 This project started as a hobby project and grew into a full systems programming exploration. The goal is a complete, understandable microkernel, something that demonstrates how a real OS kernel works at every level.
 
-<!-- TODO: one or two sentences about what drives you to work on this — reviewers respond to motivation -->
+zuzu is like a holy grail of projects for me. I've always wanted to build an OS from scratch, use all the concepts of systems programming in one giant project, as well as create a legacy that could tie things in my life together. The name "zuzu" is a tribute to our family cat, Zuzu, who's 1 year old at the time of me writing this.
 
 ---
 
@@ -34,7 +34,6 @@ Phases 0–12 is completed. Synchronous IPC is implemented and tested.
 
 ## Design Choices
 
-<!-- TODO: expand each of these into 1–2 sentences of explanation. The "why" matters more than the "what" to a reviewer. -->
 
 **SVC immediate used as syscall number.** Zuzu encodes the syscall number directly in the lower byte of the `SVC #n` instruction's immediate field, rather than the Linux convention of placing it in `r7`. This was chosen to reduce excess register usage and make use of the 24 bits. Now, due to the incompatibility between ARM mode and Thumb mode (Thumb `SVC #n` immediate is 8 bits), the full 24-bits of the ARM mode `SVC #n` instruction are not used.
 
@@ -42,11 +41,9 @@ Phases 0–12 is completed. Synchronous IPC is implemented and tested.
 
 **Higher-half kernel.** The kernel runs at virtual address `0xC0000000` (physical `0x80000000`). User processes occupy `0x00000000–0x7FFFFFFF` due to the TTBR split.
 
-**Synchronous rendezvous IPC.** Message passing uses a blocking rendezvous model: `send` blocks until a receiver is ready, `recv` blocks until a sender arrives. When both are present, the kernel copies four registers (r0-r3) and unblocks both. No queues or heap allocation for now.
+**Synchronous rendezvous IPC.** Message passing uses a blocking rendezvous model: `send` blocks until a receiver is ready, `recv` blocks until a sender arrives. When both are present, the kernel copies four registers (r0-r3) and unblocks both. No queues or heap allocation for performance consistency.
 
 **GICv2 interrupt controller.** Interrupt routing is handled through the ARM Generic Interrupt Controller v2 (GICv2) with a distributor and per-CPU interface. The kernel handles a small set of interrupts in-kernel (timer, UART) with the infrastructure in place for forwarding to userspace drivers.
-
-![Panic screen](img/panic.png)
 
 ---
 
@@ -102,7 +99,6 @@ In another, attach GDB:
 arm-none-eabi-gdb build/zuzu.elf
 (gdb) set architecture armv7
 (gdb) target remote :1234
-(gdb) continue
 ```
 
 To find more debugging info, see `docs/debugging.md`.
