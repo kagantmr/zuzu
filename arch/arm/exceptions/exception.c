@@ -120,9 +120,11 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
     {
         KERROR("=== UNDEFINED INSTRUCTION ===");
 
-        if (current_process)
+        bool from_user = (frame->return_cpsr & 0x1F) == 0x10;
+
+        if (from_user && current_process)
         {
-            KERROR("exc", "Process with ID %d failed at 0x%08X", current_process->pid, frame->return_pc);
+            KERROR("Process with ID %d failed at 0x%08X", current_process->pid, frame->return_pc);
             process_t *dying = current_process;
             current_process = NULL;
             dying->process_state = PROCESS_ZOMBIE;
