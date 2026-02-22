@@ -4,11 +4,14 @@
 #include "arch/arm/mmu/mmu.h"
 #include "kernel/sched/sched.h"
 #include "lib/mem.h"
-#include "core/log.h"
 #include "kstack.h"
 
 static uint32_t next_pid = 1;
 process_t *process_table[MAX_PROCESSES];
+
+#define LOG_FMT(fmt) "(proc) " fmt
+#include "core/log.h"
+
 
 process_t *process_find_by_pid(uint32_t pid)
 {
@@ -369,7 +372,7 @@ void process_destroy(process_t *p)
 
     uint32_t pid = p->pid; // apparently causes an UAF
     extern pmm_state_t pmm_state;
-    KDEBUG("destroy PID %d, pmm before=%d", p->pid, pmm_state.free_pages);
+    KDEBUG("destroy PID %d, pmm before=%d", pid, pmm_state.free_pages);
     (void)pmm_state;
     if (p->as)
     {
