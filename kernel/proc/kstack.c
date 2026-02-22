@@ -20,7 +20,8 @@ uintptr_t kstack_alloc(void) {
 
             /* Map the usable stack page */
             bool result = vmm_map_range(vmm_get_kernel_as(), slot_va + 0x1000, page_pa, PAGE_SIZE,
-              VM_PROT_READ | VM_PROT_WRITE, VM_MEM_NORMAL, VM_OWNER_ANON, VM_FLAG_NONE);
+                VM_PROT_READ | VM_PROT_WRITE, VM_MEM_NORMAL, VM_OWNER_ANON, VM_FLAG_NONE);
+            (void)result;
             kassert(result);
 
             /* Unmap the guard page (may have been part of a section mapping) */

@@ -1,8 +1,5 @@
 ENTRY(_start)
 
-/* =============================================================================
- * Higher-Half Kernel Memory Layout Constants
- * ============================================================================= */
 KERNEL_PA_BASE = 0x80000000;        /* Physical RAM base */
 KERNEL_VA_BASE = 0xC0000000;        /* Virtual kernel base (higher-half) */
 BOOT_OFFSET    = 0x10000;           /* Offset from base (64KB for DTB space) */
@@ -98,16 +95,9 @@ SECTIONS
     . = ALIGN(4096);
     _kernel_end = .;
 
-    /* =========================================================================
-     * Physical address helpers for boot code
-     * ========================================================================= */
     _kernel_phys_start = _boot_end;
     _kernel_phys_end   = _kernel_phys_start + (_kernel_end - _kernel_start);
 
-    /* =========================================================================
-     * Stack Allocation Region (physical addresses for now)
-     * These will need virtualization later
-     * ========================================================================= */
     . = ALIGN(16);
 
     /* Stack base (top of low RAM area) */

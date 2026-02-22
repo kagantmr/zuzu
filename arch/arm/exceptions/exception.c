@@ -122,7 +122,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
 
         if (current_process)
         {
-            KERROR("Process with ID %d failed at 0x%08X", current_process->pid, frame->return_pc);
+            KERROR("exc", "Process with ID %d failed at 0x%08X", current_process->pid, frame->return_pc);
             process_t *dying = current_process;
             current_process = NULL;
             dying->process_state = PROCESS_ZOMBIE;

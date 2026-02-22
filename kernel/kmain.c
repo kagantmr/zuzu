@@ -43,7 +43,6 @@ static inline uint32_t read_be32(const void *p)
            ((uint32_t)b[3]);
 }
 
-/* Helper: create a shared endpoint and assign to handle 0 of all given processes */
 static endpoint_t *make_shared_endpoint(process_t *owner, process_t **procs, int count)
 {
     endpoint_t *ep = kmalloc(sizeof(endpoint_t));
