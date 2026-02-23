@@ -18,7 +18,7 @@ ARMv7-A has seven processor modes. zuzu uses four of them (SYS mode is also part
 
 
 
-These modes all have seperate registers of their own (called banked registers), i.e. SP_usr and SP_irq are different and must be indiviually set before executing code in any of them. This also means that modes are seperated on a hardware level, so the kernel can switch from SVC mode to IRQ mode without manually saving CPU context (unlike processes).
+These modes all have seperate registers of their own (called **banked registers**), i.e. SP_usr and SP_irq are different and must be indiviually set before executing code in any of them. This also means that modes are seperated on a hardware level, so the kernel can switch from SVC mode to IRQ mode without manually saving CPU context (unlike processes).
 
 
 ARMv7-A classifies processors modes by two rings: PL0 (unprivileged), PL1 (privileged) and PL2 (virtualization extensions). For the purposes of zuzu's development, only PL0 and PL1 are used. Every mode except USR is PL1, and is considered kernel mode. In this mode the CPU can access all kernel memory, can modify the CPSR, and manipulate the coprocessor. In USR execution mode, code cannot do any of these. ARM enforces privilege seperation using these modes, and zuzu utilizes them accordingly.
@@ -27,7 +27,7 @@ ARMv7-A classifies processors modes by two rings: PL0 (unprivileged), PL1 (privi
 
 ## TTBR0 / TTBR1 Address Space Split
 
-ARMv7 exposes two coprocessor registers called Translation Table Base Registers (TTBR0/1). They hold the base pointer to the virtual memory translation page tables. TTBR1 is used by the kernel itself to address its virtual memory, while TTBR0 is used by the currently executed userspace process. With this, zuzu avoids the overhead of copying kernel page tables, however this imposes the limitation of the ARM TTBR split. The two registers are assigned their ranges through the two bits in TTBCR.N, which does not have a 3GB user and 1GB kernel split like Linux does. This is why zuzu goes for an even split of 2GB user and 2GB kernel with N=1.
+ARMv7 exposes two coprocessor registers called **Translation Table Base Registers (TTBR0/1)**. They hold the base pointer to the virtual memory translation page tables. TTBR1 is used by the kernel itself to address its virtual memory, while TTBR0 is used by the currently executed userspace process. With this, zuzu avoids the overhead of copying kernel page tables, however this imposes the limitation of the ARM TTBR split. The two registers are assigned their ranges through the two bits in TTBCR.N, which does not have a 3GB user and 1GB kernel split like Linux does. This is why zuzu goes for an even split of 2GB user and 2GB kernel with N=1.
 
 ---
 
@@ -47,7 +47,7 @@ When an exception occurs in code execution, the processor jumps to the address s
 | FIQ | `0x1C` |
 
 
-You can find the vector table on [../arch/arm/exceptions/vectors.s](arch/arm/exceptions/vectors.s)
+Find the full vector table on `arch/arm/exceptions/vectors.s`
 
 zuzu's vector table is placed by the linker script at VA `C0018000` for `vexpress-a15`. It's then set with in `_start.s`:
 
@@ -61,64 +61,42 @@ zuzu's vector table is placed by the linker script at VA `C0018000` for `vexpres
 
 ## Exception Entry and the Stack Frame
 
-<!-- TODO: walk through what entry.s actually does: -->
-<!-- 1. Mode-specific LR adjustment (IRQ needs sub lr, lr, #4; SVC does NOT; Data Abort is different) -->
-<!-- 2. SRSDB: pushes LR and SPSR onto the target mode stack -->
-<!-- 3. CPSID: disables interrupts for the duration of kernel handling -->
-<!-- 4. Saving r0–r12 and user-mode SP/LR with ^ suffix -->
-<!-- 5. Calling the C handler with a pointer to the exception_frame_t on the stack -->
-<!-- 6. RFEIA: atomically restores PC and CPSR from the stack frame (mode switch happens here) -->
+When an exception occurs, the CPU automatically saves some registers on the stack before jumping to the handler. The exact registers and their order depend on the exception type and the mode it was taken from. For example, for an IRQ taken from SVC mode, the CPU saves the following on the IRQ stack. `entry.s` then saves the rest of the registers to form a complete `exception_frame_t` before calling the C handler. If the C handler returns (it may not due to a panic), the CPU restores the registers and returns from the exception, resuming execution.
 
-<!-- TODO: show the exception_frame_t layout from context.h — which registers are saved in which order.
-     This is important because the IPC code directly manipulates frame->r[0]–r[3] to pass return values. -->
+```c
+typedef struct exception_frame {
+    uint32_t r[13];       // [0..12]  r0-r12
+    uint32_t lr;          // [13]     lr_svc
+    uint32_t return_pc;   // [14]     where to return (adjusted lr)
+    uint32_t return_cpsr; // [15]     saved CPSR
+} exception_frame_t;
+```
 
 ---
 
-## SVC Syscall ABI — Why the Immediate Field
+## SVC Syscall ABI 
 
-<!-- TODO: explain the design decision: -->
-<!-- Most ARM OS projects (including Linux) put the syscall number in r7 and execute SVC #0. -->
-<!-- Linux did this for Thumb compatibility — Thumb SVC has only an 8-bit immediate, same as ARM, -->
-<!-- but the *same* 8-bit space is what zuzu uses for the syscall number. -->
-<!-- zuzu uses SVC #n where n IS the syscall number, masked as & 0xFF from the 24-bit imm field. -->
-<!-- -->
-<!-- How extraction works: -->
-<!--   return_pc = frame->return_pc           // points to instruction AFTER the SVC -->
-<!--   svc_instr = *(uint32_t *)(return_pc - 4)  // the SVC instruction itself -->
-<!--   svc_num   = svc_instr & 0xFF           // low 8 bits = syscall number -->
-<!-- -->
-<!-- Why 8 bits and not 24: the full 24-bit space is available but using 8 gives 256 syscalls — -->
-<!-- more than enough and keeps the dispatch table a fixed array rather than a hash. -->
-<!-- -->
-<!-- Trade-off: commits zuzu to ARM-mode-only userspace. Thumb userspace would need a different -->
-<!-- extraction path (the SVC in Thumb is 16-bit with only an 8-bit imm). Not a problem for now. -->
+While most ARM OS projects follow the Linux convention putting the syscall number in `r7` then executing `SVC #0`, zuzu uses `SVC #n` where `n` IS the syscall number, masked as `& 0xFF` from the 24-bit imm field. This means that the syscall number is encoded directly in the lowest byte of the immediate field of the SVC instruction itself, and can be extracted in the handler by reading the instruction at `return_pc - 4`. The 1-byte limitation arises from Thumb mode, where the SVC instruction is only 16 bits with an 8-bit immediate. To use more than 256 syscalls, we would need to switch to ARM mode and use the 32-bit SVC instruction, which has a 24-bit immediate. However, this would require compiling the entire kernel in ARM mode, which is less efficient for code density. By using the SVC immediate field for the syscall number, userspace Thumb programs can be executed.
 
 ---
 
 ## The LR Adjustment Problem
 
-<!-- TODO: This is a subtle but important correctness point. Explain: -->
-<!-- Different exceptions leave LR_mode pointing to different things: -->
-<!-- - SVC:           LR_svc = PC of instruction AFTER the SVC (correct for return) -->
-<!-- - IRQ:           LR_irq = PC of next instruction + 4 (must subtract 4) -->
-<!-- - Data Abort:    LR_abt = faulting PC + 8 (must subtract 8 to get faulting addr) -->
-<!-- - Prefetch Abort: LR_abt = faulting PC + 4 (must subtract 4) -->
-<!-- -->
-<!-- The entry stubs in entry.s handle this per-mode. The C code then reads frame->return_pc -->
-<!-- which has already been corrected. For SVC specifically: the LR is NOT adjusted before -->
-<!-- saving, and the syscall number is read from (return_pc - 4) in C. -->
+Different exception modes require different adjustments to the Link Register (LR) to get the correct return address. This is a subtle  point that is handled in the entry stubs in `entry.s`. The C code then reads `frame->return_pc` which has already been corrected. The table below summarizes the adjustments needed for each exception type:
+
+| Exception Type | LR Value | Adjustment Needed |
+|----------------|----------|-------------------|
+| SVC            | PC of instruction after the SVC | lr = lr (no adjustment)|
+| IRQ            | PC of next instruction + 4 | lr = lr - 4 |
+| Data Abort     | Faulting PC + 8 | lr = lr - 8 |
+| Prefetch Abort | Faulting PC + 4 | lr = lr - 8 |
+
 
 ---
 
 ## Memory Attributes and Cache Configuration
 
-<!-- TODO: explain the two memory types zuzu uses (from vmm.h): -->
-<!-- VM_MEM_NORMAL: TEX=001, C=1, B=1 — Write-Back Write-Allocate, cacheable -->
-<!-- VM_MEM_DEVICE: TEX=000, C=0, B=1 — Shared Device, non-cacheable, strongly ordered -->
-<!-- -->
-<!-- Why it matters: mapping MMIO as Normal cacheable causes silent data corruption. -->
-<!-- The CPU may read from cache instead of the device register. -->
-<!-- ioremap() always uses VM_MEM_DEVICE. -->
+Zuzu enforces two memory safety levels for its virtual memory mappings: Normal cacheable and Device non-cacheable. This is done by setting the appropriate bits in the page table entries. MMIO regions must be mapped as Device non-cacheable to ensure that the CPU does not cache reads and writes to these regions, because there is usually nothing to read/write from, which pollutes the cache and causes stale data manipulation. On the other hand, normal memory can be mapped as cacheable to improve performance. `ioremap()` specifically looks out for VM_MEM_DEVICE.
 
 ---
 
@@ -139,6 +117,6 @@ zuzu's vector table is placed by the linker script at VA `C0018000` for `vexpres
 - [memory.md](memory.md) — physical and virtual layout
 - [interrupts.md](interrupts.md) — GICv2, IRQ dispatch
 - [syscalls.md](syscalls.md) — full syscall ABI
-- [../arch/arm/exceptions/entry.s](`arch/arm/exceptions/entry.s`) — exception entry assembly
-- [../arch/arm/exceptions/exception.c](`arch/arm/exceptions/exception.c`) — C fault handlers
-- [../arch/arm/mmu/mmu.c](`arch/arm/mmu/mmu.c`) — page table management
+- `arch/arm/exceptions/entry.s` — exception entry assembly
+- `arch/arm/exceptions/exception.c` — C fault handlers
+- `arch/arm/mmu/mmu.c` — page table management
