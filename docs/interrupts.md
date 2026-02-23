@@ -8,10 +8,10 @@ This document covers how hardware interrupts are handled in zuzu: the GICv2 cont
 
 zuzu uses the ARM Generic Interrupt Controller version 2, which is the interrupt controller on the vexpress-a15 platform. GICv2 has two distinct components:
 
-**GICD — Distributor** (`0x2C001000`)  
+**GICD — Distributor** (`0x2C001000` on vexpress-a15)  
 Receives interrupt signals from all connected peripherals. Routes each interrupt to one or more CPU interfaces. Responsible for enable/disable per interrupt line, priority configuration, and target CPU selection.
 
-**GICC — CPU Interface** (`0x2C002000`)  
+**GICC — CPU Interface** (`0x2C002000` on vexpress-a15)  
 Per-CPU register interface. The running CPU reads the CPU interface to acknowledge an interrupt (getting its ID from the IAR register), and writes to the EOIR register to signal end-of-interrupt. The CPU interface also controls the priority mask — the minimum priority level the CPU will accept.
 
 <!-- TODO: explain how the two components interact: -->
@@ -58,20 +58,15 @@ GICv2 uses a flat namespace. Interrupt IDs 0–15 are Software Generated Interru
 
 When an IRQ fires:
 
-```
-Hardware asserts IRQ line
-  → GIC asserts CPU IRQ signal
-    → CPU takes IRQ exception (entry.s irq_handler stub)
-      → saves registers (SRSDB + STMFD)
-        → reads GICC_IAR to acknowledge and get IRQ ID
-          → calls registered handler for that IRQ ID
-            → writes GICC_EOIR (end of interrupt)
-              → RFEIA restores registers and returns to interrupted code
-```
 
-<!-- TODO: trace through the actual assembly in entry.s for the IRQ path -->
-<!-- Highlight the sub lr, lr, #4 that is required for IRQ but NOT for SVC -->
-
+1. Hardware asserts IRQ line
+2. GIC asserts CPU IRQ signal
+3. CPU takes IRQ exception (entry.s irq_handler stub)
+4. saves registers (SRSDB + STMFD)
+5. reads GICC_IAR to acknowledge and get IRQ ID
+6. calls registered handler for that IRQ ID
+7. writes GICC_EOIR (end of interrupt)
+8. RFEIA restores registers and returns to interrupted code
 ---
 
 ## Timer Configuration
@@ -80,41 +75,25 @@ zuzu supports two timer sources:
 
 ### SP804 Dual Timer (`drivers/timer/sp804.c`)
 
-<!-- TODO: explain: -->
-<!-- - SP804 is a legacy timer on the vexpress-a15 motherboard -->
-<!-- - Configured as a free-running periodic interrupt source -->
-<!-- - Used during early bring-up before the generic timer was available -->
-<!-- - Still present and initialized, but the generic timer is the primary tick source -->
+The SP804 is a legacy dual-timer on the vexpress-a15 motherboard that can be used as a periodic interrupt source. zuzu keeps this optional because the timer is old, and is largely unneeded due to the existence of the coprocessor generic timer. You can configure its usage via the Makefile.
+
 
 ### ARM Generic Timer (`arch/arm/timer/generic_timer.c`)
 
-<!-- TODO: explain: -->
-<!-- - Part of the Cortex-A15 core itself, not a memory-mapped peripheral -->
-<!-- - Programmed via system registers (CNTP_TVAL, CNTP_CTL) -->
-<!-- - PPI interrupt ID 27 — private to each CPU, always available -->
-<!-- - Higher precision than SP804, more portable across ARM platforms -->
-<!-- - Used as the primary preemption tick source in the current build -->
+This timer sits within the ARM coprocessor (CP15) and is available on all ARMv7 platforms. It has two modes: a per-CPU physical timer (PPI 27 on vexpress-a15) and a global virtual timer (SPI, not used in this build). The physical timer is the primary preemption tick source in the current build. It is more precise than the SP804, and is programmed via system registers (`mrc` and `mcr` privileged instructions) rather than MMIO. It's more precise and provides more uptime than the SP804, and is more portable across ARM platforms. zuzu currently uses it as the primary tick source.
 
 ---
 
 ## Tick and Scheduler Integration
 
-<!-- TODO: explain the tick callback mechanism: -->
-<!-- - register_tick_callback(fn) installs a function called from the timer IRQ handler -->
-<!-- - schedule() is registered as the tick callback in kmain() -->
-<!-- - This means: on every timer tick, the scheduler runs and may switch processes -->
-<!-- - The scheduler can also be triggered by blocking syscalls (IPC send/recv) -->
+`register_tick_callback()` allows the scheduler to run on every timer tick, enabling preemptive multitasking. When a tick occurs, the scheduler can decide to switch to a different process if the current one has exhausted its time slice or if a higher-priority process is ready.
 
-<!-- TODO: explain tick counter (kernel/time/tick.c) — global monotonic counter incremented every tick -->
-<!-- Used by task_sleep to wake processes at a future tick. -->
-
+`kernel/time/tick.c` implements a global tick counter that increments on every timer tick. This allows processes to sleep until a specific future tick, enabling timed waits without busy-waiting.
 ---
 
 ## Interrupt Priority Configuration
 
-<!-- TODO: document what priority levels you've assigned to which interrupts -->
-<!-- GICv2 supports up to 256 priority levels (0 = highest). vexpress-a15 typically implements fewer. -->
-<!-- Currently all interrupts probably use the same priority — note that and say it's fine for now. -->
+GICv2 allows each interrupt to be assigned a priority level. The CPU interface has a priority mask register that determines the minimum priority level the CPU will accept. This allows critical interrupts (e.g., timer) to preempt less critical ones (e.g., UART). In the current build, all interrupts are assigned the same priority, which is sufficient for basic functionality. Future builds may differentiate priorities as needed.
 
 ---
 

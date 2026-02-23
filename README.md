@@ -1,6 +1,6 @@
 # zuzu
 
-![Statistics screen](img/boot_stats.png)
+![Statistics screen](docs/img/boot_stats.png)
 
 Zuzu is a microkernel targeting AArch32 / ARMv7-A. It's written in C and ARM assembly from scratch. The kernel runs on QEMU's `vexpress-a15` machine (Cortex-A15) and is designed from the very first principles around microkernel principles: a minimal kernel, strict process isolation, and I/O through inter-process messaging (IPC).
 
