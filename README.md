@@ -1,4 +1,4 @@
-# zuzu
+# zuzu,  a minimal ARMv7-A microkernel
 
 ![Statistics screen](docs/img/boot_stats.png)
 
