@@ -80,7 +80,7 @@ Negative r0 values indicate errors:
 
 | #    | Name | Arguments            | Returns   | Description                    |
 |------|------|----------------------|-----------|--------------------------------|
-| 0xF0 | log  | r0: msg ptr, r1: len | 0 or err | Print string to kernel console |
+| 0xF0 | log  | r0: msg ptr, r1: len | 0 or err  | Print string to kernel console |
 | 0xF1 | dump | —                    | 0         | Dump caller's register state   |
 
 ---
