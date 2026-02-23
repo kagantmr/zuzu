@@ -45,7 +45,9 @@ When an exception occurs in code execution, the processor jumps to the address s
 | Reserved | `0x14` |
 | IRQ | `0x18` |
 | FIQ | `0x1C` |
-[arch/arm/exceptions/vectors.s](arch/arm/exceptions/vectors.s)
+
+
+You can find the vector table on [../arch/arm/exceptions/vectors.s](arch/arm/exceptions/vectors.s)
 
 zuzu's vector table is placed by the linker script at VA `C0018000` for `vexpress-a15`. It's then set with in `_start.s`:
 
@@ -137,6 +139,6 @@ zuzu's vector table is placed by the linker script at VA `C0018000` for `vexpres
 - [memory.md](memory.md) — physical and virtual layout
 - [interrupts.md](interrupts.md) — GICv2, IRQ dispatch
 - [syscalls.md](syscalls.md) — full syscall ABI
-- `arch/arm/exceptions/entry.s` — exception entry assembly
-- `arch/arm/exceptions/exception.c` — C fault handlers
-- `arch/arm/mmu/mmu.c` — page table management
+- [../arch/arm/exceptions/entry.s](`arch/arm/exceptions/entry.s`) — exception entry assembly
+- [../arch/arm/exceptions/exception.c](`arch/arm/exceptions/exception.c`) — C fault handlers
+- [../arch/arm/mmu/mmu.c](`arch/arm/mmu/mmu.c`) — page table management
