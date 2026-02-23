@@ -61,7 +61,7 @@ arm-none-eabi-addr2line -e build/zuzu.elf 0xC001896C
 
 ## Reading the Panic Screen
 
-![Panic screen](docs/img/panic.png)
+![Panic screen](img/panic.png)
 
 When zuzu panics, it prints an informative screen with the following sections:
 
