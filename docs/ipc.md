@@ -60,14 +60,12 @@ Sends a reply to whoever last called `proc_call` on the current process. Does no
 
 <!-- TODO: document how the kernel tracks the pending caller for proc_reply — is this stored in the PCB? -->
 
+
 ---
 
 ## Endpoints and Ports
 
-<!-- TODO: explain the distinction between endpoints and ports in zuzu's model: -->
-<!-- An endpoint (kernel/ipc/endpoint.h) is the kernel object — it has a sender queue and a receiver queue. -->
-<!-- A port (kernel/ipc/sys_port.h) is... (explain what sys_port.c does vs sys_ipc.c) -->
-<!-- Currently both exist. Clarify which one user processes interact with and which is internal. -->
+An endpoint is a kernel object that represents a communication channel. It has two queues: one for senders waiting for a receiver, and one for receivers waiting for a sender. Processes do not interact with endpoints directly; instead, they get **handles** to endpoints in their handle table. The kernel mediates access to endpoints via these handles.
 
 **`endpoint_t` structure (`kernel/ipc/endpoint.h`):**
 
@@ -127,7 +125,6 @@ This means IPC is a first-class scheduling event — not a spin-wait or a poll. 
 | No current process | `ERR_BADARG` (-6) |
 | Endpoint destroyed while waiting | `ERR_DEAD` (-9) |
 
-<!-- TODO: document the invalid handle test (Test D from the roadmap) and what the kernel actually returns -->
 
 ---
 
@@ -145,9 +142,7 @@ port_destroy — SVC #0x21
 r0: handle
 ```
 
-<!-- TODO: what happens to processes blocked on a destroyed endpoint? They should get ERR_DEAD. -->
-<!-- Document whether this is implemented or planned. -->
-
+Frees the endpoint and clears the handle slot. If there are any processes blocked on the endpoint, they are unblocked with an `ERR_DEAD` error code.
 ---
 
 ## Port Grants
@@ -161,6 +156,7 @@ r1: target PID
 Copies the endpoint reference from the caller's handle table into the target process's handle table. This is the mechanism for sharing endpoints — the kernel atomically manipulates two handle tables.
 
 <!-- TODO: This is the hardest part of the name service (Phase 18). Note current status. -->
+Name service implementation will use this to share service endpoints with clients.
 
 ---
 

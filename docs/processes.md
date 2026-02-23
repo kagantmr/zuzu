@@ -33,13 +33,12 @@ typedef struct process {
 
 ## Process States
 
-```
-<!-- TODO: state machine here -->
-```
+![Statistics screen](docs/img/boot_stats.png)
 
-<!-- TODO: explain ZOMBIE state, process has exited but PCB is kept until parent calls task_wait. -->
-<!-- If parent never calls task_wait, the zombie accumulates (init should reap orphans). -->
-
+- `READY` — process is ready to run, sitting in the scheduler's run queue
+- `RUNNING` — process is currently executing on the CPU
+- `BLOCKED` — process is waiting for an event (e.g., IPC, timer tick) and is not runnable
+- `ZOMBIE` — process has exited but has not been reaped by its parent yet. Its PCB still exists so the parent can query its exit status, but it is not runnable and does not consume resources.
 
 ---
 
@@ -47,9 +46,7 @@ typedef struct process {
 
 Each process has its own kernel stack, separate from its user stack. The kernel stack is used when the process is executing in kernel mode (during a syscall or IRQ that interrupted the process).
 
-<!-- TODO: document kernel stack size and where it comes from (pmm alloc via kstack.c) -->
-<!-- TODO: explain the guard page at the bottom of the kernel stack — an unmapped page that -->
-<!-- causes a Data Abort on stack overflow instead of silent corruption. -->
+The kernel stack is allocated from the PMM as a contiguous chunk of pages. The `kernel_stack_top` field in the PCB records the physical base address of this allocation so it can be freed when the process is destroyed. The `kernel_sp` field is the current stack pointer value, which moves as things are pushed and popped during exceptions. If kernel_sp gets corrupted (e.g., due to a stack overflow), the next exception will likely cause a Data Abort when the kernel tries to use the corrupted stack pointer and cause a panic.
 
 The `kernel_stack_top` field records the physical base of the allocation so it can be freed when the process is destroyed. `kernel_sp` is the current stack pointer value — it moves as things are pushed/popped during exceptions.
 
@@ -65,8 +62,18 @@ Context switching in zuzu works by saving and restoring the **callee-saved regis
 
 For a brand-new process that has never run before, the kernel stack is pre-initialized to look like the result of a context switch. The `lr` in the saved context points to `process_entry_trampoline`, which sets up the exception return frame that transitions to user mode.
 
-<!-- TODO: explain process_entry_trampoline in more detail — it constructs the exception frame -->
-<!-- with CPSR mode=USR and jumps to the user entry point via RFEIA. -->
+
+Before the first context switch, the kernel stack is pre-initialized to look like the result of a context switch. The `lr` in the saved context points to `process_entry_trampoline`, which sets up the exception return frame that transitions to user mode. This allows the scheduler to "return" into the new process's context on the first run, even though it has never actually executed before. This is the one and only time a process can be entered without going through the normal exception entry path. It is also the only usage of the SYS mode.
+
+```armasm
+process_entry_trampoline:
+    ldmia sp!, {r0-r12, lr}
+    cps #0x1F              @ SYS mode (shares SP with USR)
+    mov sp, lr                @ Set User SP from LR
+    mov lr, #0                @ Clear LR (prevent return to nowhere)
+    cps #0x13              @ back to SVC
+    rfeia sp!
+```
 
 ---
 
@@ -79,8 +86,8 @@ Each process has an `addrspace_t *as` pointer. The address space contains:
 
 On a context switch, `TTBR0` is written with the physical address of the new process's L1 table. `TTBR1` (kernel mappings) never changes.
 
-<!-- TODO: document as_create(), vmm_map_user(), as_destroy() -->
-<!-- TODO: note the TLB invalidation that must happen after writing TTBR0 -->
+Address spaces are processor specific and managed through VMM policy code. The functions `as_create()`, `vmm_map_user()`, and `as_destroy()` handle the "algorithm", then delegate to architecture-specific code for the actual page table manipulations.
+the TLB must be invalidated (flushed) after writing TTBR0 to ensure the new address space is used. This is done in `arch/arm/mmu.c` after every context switch.
 
 ---
 
@@ -97,7 +104,7 @@ On a context switch, `TTBR0` is written with the physical address of the new pro
 
 The `magic` parameter is currently used in test processes to identify which test function the process should run.
 
-<!-- TODO: replace the magic-based dispatch with proper ELF loading in Phase 13 -->
+The magic dispatcher will be replaced by an ELF loader in Phase 13, which will read the entry point from the ELF header and set up the initial user stack with arguments and environment variables.
 
 ---
 
@@ -109,8 +116,7 @@ The `magic` parameter is currently used in test processes to identify which test
 2. Frees the kernel stack.
 3. Frees the `process_t` struct itself.
 
-<!-- TODO: document the zombie reaping path — where/when does this get called? -->
-<!-- Currently: scheduler or idle loop? -->
+The scheduler currently reaps (deallocates) zombie processes. Later, this will be done by the "init" process.
 
 ---
 
@@ -118,9 +124,17 @@ The `magic` parameter is currently used in test processes to identify which test
 
 zuzu uses a simple round-robin scheduler. All ready processes sit in a linked list. On each tick, the scheduler picks the next process in the list, performs a context switch, and updates the current process pointer.
 
-<!-- TODO: document sched_init(), sched_add(), sched_remove(), schedule() -->
-<!-- TODO: explain current_process global and why it's important for IPC and syscall handling -->
-<!-- TODO: note the tick_remaining / time_slice mechanism (preemption after N ticks) -->
+sched_init() initializes the scheduler's run queue. sched_add() adds a process to the end of the run queue. sched_remove() removes a process from the run queue (e.g., when it blocks or exits). schedule() performs a context switch to the next ready process.
+
+sched_add() is called when a process is created or unblocked. sched_remove() is called when a process blocks (e.g., on IPC) or exits. schedule() is called on every timer tick and whenever a process voluntarily yields the CPU (e.g., via task_yield or blocking IPC).
+
+sched_remove() is called when a process blocks (e.g., on IPC) or exits. schedule() is called on every timer tick and whenever a process voluntarily yields the CPU (e.g., via task_yield or blocking IPC).
+
+schedule() is the main scheduling function. It picks the next ready process from the run queue and performs a context switch. It also updates the `current_process` global pointer to point to the new process.
+
+current_process is a global pointer that always points to the currently running process. This is important because when an exception (syscall or IRQ) occurs, the kernel needs to know which process was interrupted in order to access its PCB, address space, and other state. The current_process pointer is updated on every context switch to reflect the new running process.
+
+The tick_remaining mechanism is a simple way to implement preemption. Each process has a time_slice (number of ticks it is allowed to run before being preempted) and ticks_remaining (number of ticks left in the current time slice). On each timer tick, the scheduler decrements ticks_remaining for the current process. If ticks_remaining reaches 0, the scheduler will preempt the process and switch to the next one in the run queue. When a process is scheduled, its ticks_remaining is reset to its time_slice.
 
 The scheduler is triggered in two ways:
 - **Timer tick** — `schedule()` is registered as a tick callback, called from the timer IRQ handler.

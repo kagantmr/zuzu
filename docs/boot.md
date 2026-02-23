@@ -1,22 +1,22 @@
 # zuzu Boot Process
 
-This document traces the boot sequence from CPU reset to the kernel idle loop, explaining what happens at each stage and why.
+This document traces the zuzu boot sequence from CPU reset to the kernel idle loop, explaining what happens at each stage and why.
 
 ---
 
 ## Overview
 
-```
-CPU reset
-  └─ _start.s          (physical addresses, MMU off)
-       └─ early.c       (physical addresses, MMU off)
-            └─ kmain.c  (virtual addresses, MMU on, full kernel environment)
-                 └─ idle loop (WFI, scheduler running)
-```
+
+1. CPU reset
+2. Start assembly
+3. Board-specific early boot
+4. Kernel main
+5. Interrupt-driven idle loop (`wfi`, scheduler running)
+
 
 ---
 
-## Stage 1 — Reset (`arch/arm/vexpress-a15/_start.s`)
+## 1. Reset (`arch/arm/vexpress-a15/_start.s`)
 
 The CPU starts executing at the physical address of the kernel image (`0x80010000` on vexpress-a15). The MMU is off. Everything runs at physical addresses.
 
@@ -24,19 +24,18 @@ The CPU starts executing at the physical address of the kernel image (`0x8001000
 
 1. Disables interrupts (`CPSID if`)
 2. Initializes stack pointers for all CPU modes (SVC, IRQ, ABT, UND) — each mode has its own banked SP. Stacks are placed at fixed physical addresses defined in the linker script.
-3. Saves the DTB pointer from `r2` (passed by QEMU/bootloader) into a global variable before any C code runs.
-4. Enables the MMU with an identity mapping and the higher-half kernel mapping simultaneously — the CPU executes through the identity range into the higher-half in a single jump.
-5. After the MMU is on and the CPU is executing from `0xC0xxxxxx`, removes the identity mapping.
+3. Saves the DTB pointer from `r2` (taken from linker script for now, later on raspi is given by the board firmware) into a global variable before any C code runs.
+4. Enables the MMU with an identity mapping and the higher-half kernel mapping simultaneously — the CPU executes through the identity range into the higher-half in a single jump. 
+5. After the MMU is on and the CPU is executing from `0xC001xxxx`, removes the identity mapping.
 6. Sets up the exception vector table base address (VBAR).
 7. Zeroes the BSS segment.
 8. Calls `early_main()`.
 
-<!-- TODO: add a note about the identity→higher-half transition being the trickiest part of boot. -->
-<!-- The window where both mappings are live is intentionally brief — just long enough to make the jump. -->
+The part where the MMU is enabled with identity-mapping code and virtual memory and jumps to virtual memory from identity-mapping is the trickiest part of the whole VM system. If identity mapping is removed too early, the system will likely crash due to a data abort. This is why it's handled in assembly, except the paging itself, which is done in C code.
 
 ---
 
-## Stage 2 — Early Init (`arch/arm/vexpress-a15/early.c`)
+## 2. Early Init (`arch/arm/vexpress-a15/early.c`)
 
 Still in a minimal environment. The heap does not exist yet. No interrupts. `kprintf` works only if `EARLY_UART` is defined (polled UART initialized here).
 
@@ -54,7 +53,7 @@ The heap cannot exist before `early.c` because the PMM must be initialized first
 
 ---
 
-## Stage 3 — Kernel Main (`kernel/kmain.c`)
+## 3. Kernel Main (`kernel/kmain.c`)
 
 By the time `kmain()` runs, the full kernel environment is ready: virtual addresses are valid, the heap exists, and the PMM is operational.
 
