@@ -28,6 +28,7 @@ ARMv7-A classifies processors modes by two rings: PL0 (unprivileged), PL1 (privi
 ## TTBR0 / TTBR1 Address Space Split
 
 ARMv7 exposes two coprocessor registers called Translation Table Base Registers (TTBR0/1). They hold the base pointer to the virtual memory translation page tables. TTBR1 is used by the kernel itself to address its virtual memory, while TTBR0 is used by the currently executed userspace process. With this, zuzu avoids the overhead of copying kernel page tables, however this imposes the limitation of the ARM TTBR split. The two registers are assigned their ranges through the two bits in TTBCR.N, which does not have a 3GB user and 1GB kernel split like Linux does. This is why zuzu goes for an even split of 2GB user and 2GB kernel with N=1.
+
 ---
 
 ## Exception Vector Table
