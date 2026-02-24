@@ -12,6 +12,7 @@ extern process_t *current_process;
 
 void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
 {
+    KDEBUG("Process with PID %d requested SVC #%d", current_process->pid, svc_num);
     current_process->trap_frame = frame;
     switch (svc_num)
     {

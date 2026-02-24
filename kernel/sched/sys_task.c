@@ -3,10 +3,12 @@
 #include "kernel/sched/sched.h"
 #include "kernel/time/tick.h"
 #include "kernel/proc/process.h"
-#include "core/log.h"
 
 extern process_t *current_process;
 extern list_head_t sleep_queue;
+
+#define LOG_FMT(fmt) "(sys_task) " fmt
+#include "core/log.h"
 
 void sys_task_quit(exception_frame_t *frame) {
     current_process->process_state = PROCESS_ZOMBIE;
@@ -14,7 +16,7 @@ void sys_task_quit(exception_frame_t *frame) {
     
     // Defer destruction to the reaper (running in schedule())
     sched_defer_destroy(current_process); 
-    KINFO("Process %d exited with status code %d", current_process->pid, current_process->exit_status);
+    KDEBUG("Process %d exited with status code %d", current_process->pid, current_process->exit_status);
     
     current_process = NULL;
     schedule();
@@ -30,7 +32,7 @@ void sys_log(exception_frame_t *frame) {
     //KDEBUG("sys_log syscall reached");
     size_t len = frame->r[1];
     if (!validate_user_ptr((uintptr_t)msg, len)) {
-        KWARN("Rejected bad pointer 0x%08X", (uint32_t)msg);
+        //KDEBUG("Rejected bad pointer 0x%08X", (uint32_t)msg);
         frame->r[0] = ERR_PTRFAULT;
         return;
     }
