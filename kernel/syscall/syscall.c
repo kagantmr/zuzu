@@ -1,9 +1,12 @@
 #include "syscall.h"
 #include "kernel/sched/sys_task.h" 
-#include "kernel/ipc/sys_port.h" 
-#include "kernel/ipc/sys_ipc.h"
 #include "kernel/sched/sched.h"
 #include "core/log.h"
+
+#include "kernel/ipc/sys_port.h" 
+#include "kernel/ipc/sys_ipc.h"
+#include "kernel/irq/sys_irq.h"
+#include "kernel/vmm/sys_vmm.h"
 
 extern process_t *current_process;
 
@@ -63,37 +66,37 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     {
         sys_port_grant(frame);
     } break; 
-    case SYS_MMAP:
+    case SYS_MEMMAP:
     {
-        frame->r[0] = ERR_NOMATCH;
+        memmap(frame);
     } break; 
-    case SYS_MUNMAP:
+    case SYS_MEMUNMAP:
     {
-        frame->r[0] = ERR_NOMATCH;
+        memunmap(frame);
     } break; 
-    case SYS_MSHARE:
+    case SYS_MEMSHARE:
     {
-        frame->r[0] = ERR_NOMATCH;
+        memshare(frame);
     } break; 
     case SYS_ATTACH:
     {
-        frame->r[0] = ERR_NOMATCH;
+        attach(frame);
     } break; 
     case SYS_MAPDEV:
     {
-        frame->r[0] = ERR_NOMATCH;
+        mapdev(frame);
     } break; 
     case SYS_IRQ_CLAIM:
-    {
-        frame->r[0] = ERR_NOMATCH;
+    {   
+        irq_claim(frame);
     } break; 
     case SYS_IRQ_WAIT:
     {
-        frame->r[0] = ERR_NOMATCH;
+        irq_wait(frame);
     } break; 
     case SYS_IRQ_DONE:
     {
-        frame->r[0] = ERR_NOMATCH;
+        irq_done(frame);
     } break; 
     case SYS_LOG:
     {
@@ -105,7 +108,7 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     } break;
     default:
     {
-        KWARN("System call 0x%X does not exist", svc_num);
+        KERROR("System call 0x%X does not exist", svc_num);
         frame->r[0] = ERR_NOMATCH;
     } break;
     }
