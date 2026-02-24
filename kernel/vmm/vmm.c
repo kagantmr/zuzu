@@ -282,7 +282,7 @@ void vmm_bootstrap(void) {
         };
         vmm_add_region(g_kernel_as, &identity_region);
 
-        KDEBUG("VMM: Bootstrap complete (adopted early_l1)");
+        //KDEBUG("VMM: Bootstrap complete (adopted early_l1)");
     }
 }
 
@@ -353,7 +353,7 @@ void vmm_remove_identity_mapping(void) {
     }
 
 
-    KDEBUG("VMM: Identity mapping removed, running pure higher-half");
+    //KDEBUG("VMM: Identity mapping removed, running pure higher-half");
 }
 
 void vmm_activate(addrspace_t* as) {

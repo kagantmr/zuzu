@@ -8,7 +8,6 @@ static int pool_count = 0;
 
 uintptr_t l2_pool_alloc(void)
 {
-    // 1) Try to find a free slot in an existing page
     for (int i = 0; i < pool_count; i++)
     {
         if (pool[i].used_mask == 0xF)
