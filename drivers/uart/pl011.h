@@ -31,12 +31,9 @@
 #define CR_RXE      (1u << 9)
 
 void pl011_init(uintptr_t base_addr);
-void pl011_init_irq(uintptr_t base_addr);
 void pl011_putc(char c);
 int  pl011_puts(const char *string);
 void pl011_putc(char c);                   // Always polled (fast enough)
-int  pl011_getc(void);                     // Returns -1 if no char available
-bool pl011_has_rx(void);                   // Check if char available
 
 extern const struct uart_driver pl011_driver;
 
