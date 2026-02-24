@@ -38,9 +38,9 @@
 
 /* ---- Memory (0x30-0x3F) ---- */
 
-#define SYS_MMAP    0x30        /* (addr, size, prot) -> addr or -err   */
-#define SYS_MUNMAP  0x31        /* (addr, size) -> 0 or -err            */
-#define SYS_MSHARE  0x32        /* (size) -> id or -err                 */
+#define SYS_MEMMAP    0x30        /* (addr, size, prot) -> addr or -err   */
+#define SYS_MEMUNMAP  0x31        /* (addr, size) -> 0 or -err            */
+#define SYS_MEMSHARE  0x32        /* (size) -> id or -err                 */
 #define SYS_ATTACH  0x33        /* (id, addr) -> addr or -err           */
 #define SYS_MAPDEV  0x34        /* (phys, size) -> addr or -err         */
 
