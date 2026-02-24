@@ -29,6 +29,8 @@ void board_init_devices(void) {
         void *gicd_va = ioremap(gicd, s_d);
         void *gicc_va = ioremap(gicc, s_c);
         
+        KDEBUG("GICv2 (GICD) re-mapped to %p", gicd_va);
+        
         if (!gicd_va || !gicc_va) panic("Failed to ioremap GIC");
         
         gic_init((uintptr_t)gicd_va, (uintptr_t)gicc_va);
@@ -43,9 +45,6 @@ void board_init_devices(void) {
             
             uart_set_driver(&pl011_driver, (uintptr_t)uart_va);
             kprintf_init(uart_putc);
-            
-            // Enable UART RX interrupts
-            pl011_init_irq((uintptr_t)uart_va);
             
             KDEBUG("UART re-mapped to %p", uart_va);
         }
@@ -67,13 +66,13 @@ void board_init_devices(void) {
             sp804_init((uintptr_t)sp804_va, 10000); 
             sp804_start((uintptr_t)sp804_va);
             
-            KINFO("Initialized SP804 timer at %p", sp804_va);
+            KDEBUG("Initialized SP804 timer at %p", sp804_va);
             sp804_found = true;
         }
     }
 
     if (!sp804_found) {
-        KWARN("SP804 requested but not found in DTB. Fallback to Generic Timer.");
+        KDEBUG("SP804 requested but not found in DTB. Fallback to generic timer.");
         generic_timer_init();
     }
 #endif

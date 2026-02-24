@@ -133,7 +133,6 @@ _Noreturn void kmain(void)
     irq_init();
     board_init_devices();
 
-    pl011_init_irq(uart_get_base());
     arch_global_irq_enable();
 
     print_boot_banner();
