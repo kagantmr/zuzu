@@ -36,6 +36,7 @@ typedef struct process {
     addrspace_t *as;
     list_node_t node;  // embedded, not pointers
     int32_t exit_status;
+    uint32_t device_va_next;  // initialized to 0x60000000 in process_create
     exception_frame_t *trap_frame;
     endpoint_t *handle_table[MAX_HANDLE_TABLE];
     ipc_state_t ipc_state;
