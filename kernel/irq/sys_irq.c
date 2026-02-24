@@ -8,7 +8,7 @@ extern process_t *current_process;
 static irq_owner_t irq_owners[MAX_IRQS];
 
 
-#define LOG_FMT(fmt) "(user_irq) " fmt
+#define LOG_FMT(fmt) "(syscall_irq) " fmt
 #include "core/log.h"
 
 static void relay_handler(void *ctx)
