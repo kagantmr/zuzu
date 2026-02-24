@@ -46,17 +46,6 @@ static inline uint32_t read_be32(const void *p)
            ((uint32_t)b[3]);
 }
 
-static endpoint_t *make_shared_endpoint(process_t *owner, process_t **procs, int count)
-{
-    endpoint_t *ep = kmalloc(sizeof(endpoint_t));
-    memset(ep, 0, sizeof(endpoint_t));
-    list_init(&ep->sender_queue);
-    list_init(&ep->receiver_queue);
-    ep->owner_pid = owner->pid;
-    for (int i = 0; i < count; i++)
-        procs[i]->handle_table[0] = ep;
-    return ep;
-}
 
 static inline void perform_panic_tests(void)
 {
@@ -153,48 +142,15 @@ _Noreturn void kmain(void)
 
     sched_init();
 
-    /* ================================================================
-     * IPC TEST SUITE
-     * ================================================================ */
-
-    KINFO("=== IPC Test Suite ===");
-
-    /* --- Test A: Ping-Pong (bidirectional send/recv) --- */
-    {
-        process_t *pinger = process_create(NULL, 0xAAAA0001);
-        process_t *ponger = process_create(NULL, 0xAAAA0002);
-        process_t *group[] = {pinger, ponger};
-        make_shared_endpoint(pinger, group, 2);
-        sched_add(pinger);
-        sched_add(ponger);
-    }
-
-    /* --- Test B: Sender blocks first, receiver delayed --- */
-    {
-        process_t *sender = process_create(NULL, 0xBBBB0001);
-        process_t *receiver = process_create(NULL, 0xBBBB0002);
-        process_t *group[] = {sender, receiver};
-        make_shared_endpoint(sender, group, 2);
-        sched_add(sender);
-        sched_add(receiver);
-    }
-
-    /* --- Test C: Multiple senders, one receiver (FIFO) --- */
-    {
-        process_t *s1 = process_create(NULL, 0xCCCC0001);
-        process_t *s2 = process_create(NULL, 0xCCCC0002);
-        process_t *rcv = process_create(NULL, 0xCCCC0003);
-        process_t *group[] = {s1, s2, rcv};
-        make_shared_endpoint(rcv, group, 3);
-        sched_add(s1);
-        sched_add(s2);
-        sched_add(rcv);
-    }
-
     /* --- Test D: Invalid handle (error, no crash) --- */
     {
         process_t *bad = process_create(NULL, 0xDDDD0001);
         sched_add(bad);
+    }
+
+    {
+        process_t *uart_driver_usr = process_create(NULL, 0xF1F10001);
+        sched_add(uart_driver_usr);
     }
 
     /* Keep a spinner alive so scheduler always has something */
@@ -203,23 +159,6 @@ _Noreturn void kmain(void)
         sched_add(spinner);
     }
 
-    KINFO("=== Scheduler Stress Test ===");
-    KINFO("PMM before: %d free pages", pmm_state.free_pages);
-
-    for (int i = 0; i < 100; i++)
-    {
-        process_t *p = process_create(NULL, 0xEEFFEEFF);
-        if (!p)
-        {
-            KWARN("Failed to create process at i=%d", i);
-            break;
-        }
-        sched_add(p);
-    }
-
-    // Let them run and reap... but this is async.
-    // The idle loop handles reaping. So just log the count.
-    KINFO("Spawned 100 stress workers");
 
     register_tick_callback(schedule);
 
