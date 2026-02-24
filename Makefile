@@ -3,27 +3,27 @@ CC      = $(CROSS)gcc
 LD      = $(CROSS)ld
 OBJDUMP = $(CROSS)objdump
 
+# Build options
+OPTIMIZATION_LEVEL ?= 2
+DEBUG_BUILD ?= 1
+DTB_DEBUG_WALK ?= 0
+EARLY_UART ?= 0
+DEBUG_PRINT ?= 1
+SP804_TIMER ?= 0
+BANNER ?= 1
+STATS_MODE ?= 1
+FANCY_PANIC ?= 1
+
+
 # Board configuration variables
 BOARD_DIR     = arch/arm/vexpress-a15
 LINKER_SCRIPT = $(BOARD_DIR)/linker.ld
 DTB_FILE      = arch/arm/dtb/vexpress-a15/vexpress-v2p-ca15-tc1.dtb
 MAP = build/zuzu.map
 
-OPTIMIZATION_LEVEL = 2
-
 CPUFLAGS = -mcpu=cortex-a15
 CFLAGS   = -ffreestanding -O$(OPTIMIZATION_LEVEL) -fno-omit-frame-pointer -Wall -Wextra -Werror $(CPUFLAGS) -I. -MMD -MP -g
 LDFLAGS  = -T $(LINKER_SCRIPT) -Map=$(MAP)
-
-# Debug options
-DEBUG_BUILD ?= 1
-DTB_DEBUG_WALK ?= 0
-EARLY_UART ?= 0
-SP804_TIMER ?= 0
-BANNER ?= 1
-STATS_MODE ?= 1
-FANCY_PANIC ?= 1
-
 
 
 ifeq ($(BANNER), 0)
@@ -32,13 +32,18 @@ endif
 ifeq ($(FANCY_PANIC), 1)
     CFLAGS += -DPANIC_FULL_SCREEN
 endif
+
+ifeq ($(DEBUG_PRINT), 1)
+    CFLAGS += -DDEBUG_PRINT
+endif
+
 ifeq ($(DEBUG_BUILD), 1)
     # Enable assertions (default C standard for enabling assertions)
     # might also add -DDEBUG_LOGGING for KINFO/KWARN
-    CFLAGS += -UNDEBUG -DDEBUG -DDEBUG_PRINT -DZUZU_BANNER_SHOW_ADDR
+    CFLAGS += -UNDEBUG -DDEBUG -DZUZU_BANNER_SHOW_ADDR
 else
     # Disable assertions for release builds
-    CFLAGS += -DNDEBUG -UDEBUG -UDEBUG_PRINT -UZUZU_BANNER_SHOW_ADDR
+    CFLAGS += -DNDEBUG -UDEBUG -UZUZU_BANNER_SHOW_ADDR
 endif
 
 ifeq ($(DTB_DEBUG_WALK), 0)
