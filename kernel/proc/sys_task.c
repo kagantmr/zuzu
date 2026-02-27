@@ -1,4 +1,4 @@
-#include "kernel/sched/sys_task.h"
+#include "sys_task.h"
 #include "kernel/syscall/syscall.h"
 #include "kernel/sched/sched.h"
 #include "kernel/time/tick.h"
@@ -16,7 +16,7 @@ void sys_task_quit(exception_frame_t *frame) {
     
     // Defer destruction to the reaper (running in schedule())
     sched_defer_destroy(current_process); 
-    KDEBUG("Process %d exited with status code %d", current_process->pid, current_process->exit_status);
+    KINFO("Process %d exited with status code %d", current_process->pid, current_process->exit_status);
     
     current_process = NULL;
     schedule();
@@ -25,21 +25,6 @@ void sys_task_quit(exception_frame_t *frame) {
 void sys_task_yield(exception_frame_t *frame) {
     (void)frame;
     schedule();
-}
-
-void sys_log(exception_frame_t *frame) {
-    const char* msg = (const char *)frame->r[0];
-    
-    size_t len = frame->r[1];
-    if (!validate_user_ptr((uintptr_t)msg, len)) {
-        //KDEBUG("Rejected bad pointer 0x%08X", (uint32_t)msg);
-        KDEBUG("validate_user_ptr REJECTED 0x%08X len=%u", (uint32_t)msg, (unsigned)len);
-        frame->r[0] = ERR_PTRFAULT;
-        return;
-    }
-
-    kprintf("%.*s", (int)len, msg);
-    frame->r[0] = 0; // Success
 }
 
 void sys_task_sleep(exception_frame_t *frame) {
