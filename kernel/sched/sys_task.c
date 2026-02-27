@@ -29,10 +29,6 @@ void sys_task_yield(exception_frame_t *frame) {
 
 void sys_log(exception_frame_t *frame) {
     const char* msg = (const char *)frame->r[0];
-    //KDEBUG("sys_log syscall reached");
-    KDEBUG("sys_log: got pointer %p, ", msg);
-    KDEBUG("sys_log: message is: %s",  msg);
-    KDEBUG("sys_log: length %u", (unsigned)frame->r[1]);
     
     size_t len = frame->r[1];
     if (!validate_user_ptr((uintptr_t)msg, len)) {
