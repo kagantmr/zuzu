@@ -12,11 +12,12 @@
 .global process_entry_trampoline
 
 process_entry_trampoline:
-    ldmia sp!, {r0-r12, lr}
-    cps #0x1F              @ SYS mode (shares SP with USR)
-    mov sp, lr                @ Set User SP from LR
-    mov lr, #0                @ Clear LR (prevent return to nowhere)
-    cps #0x13              @ back to SVC
+    ldmia sp!, {r0-r12, lr}   @ lr_svc = USR_SP
+    mov ip, lr                 @ ip (r12) survives mode switch
+    cps #0x1F                  @ SYS mode
+    mov sp, ip                 @ SP_usr = USR_SP ✓
+    mov lr, #0                 @ LR_usr = 0
+    cps #0x13                  @ back to SVC
     rfeia sp!
 
 .macro exception_entry, lr_adjust
