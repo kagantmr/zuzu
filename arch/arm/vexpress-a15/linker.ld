@@ -20,10 +20,6 @@ SECTIONS
     /* DTB physical address (provided by bootloader at RAM base) */
     __dtb_addr__ = KERNEL_PA_BASE;  /* 0x80000000 */
 
-    /* =========================================================================
-     * Boot Section - Runs at PHYSICAL addresses before MMU is enabled
-     * VMA = LMA = 0x80010000
-     * ========================================================================= */
     . = BOOT_PA;
     _boot_start = .;
 
@@ -68,6 +64,13 @@ SECTIONS
     /* LMA must match VMA offset: if VMA is aligned, LMA must be too */
     .rodata : AT(ALIGN(LOADADDR(.text) + SIZEOF(.text), 4096)) {
         *(.rodata)
+
+        /* Initrd (CPIO archive) — embedded via .incbin in initrd_embed.s.
+         * Placed before the .rodata.* wildcard so we control alignment.
+         * GNU ld won't re-place it when .rodata.* is processed. */
+        . = ALIGN(4);
+        *(.rodata.initrd)
+
         *(.rodata.*)
     } : rodata
 

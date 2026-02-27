@@ -69,3 +69,5 @@ arch/arm/.DS_Store
 kernel/.DS_Store
 build/zuzu.asm
 drivers/.DS_Store
+build/initrd.cpio
+.gitignore

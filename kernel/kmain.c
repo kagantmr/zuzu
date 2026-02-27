@@ -24,6 +24,8 @@
 #include "kernel/sched/sched.h"
 #include "kernel/proc/process.h"
 
+#include "kernel/loader/initrd.h"
+
 #include "lib/mem.h"
 #include "kernel/mm/alloc.h"
 
@@ -141,25 +143,15 @@ _Noreturn void kmain(void)
 
     sched_init();
 
-    /* --- Test D: Invalid handle (error, no crash) --- */
-    {
-        process_t *bad = process_create(NULL, 0xDDDD0001);
-        sched_add(bad);
-    }
-
-    {
-        process_t *uart_driver_usr = process_create(NULL, 0xF1F10001);
-        sched_add(uart_driver_usr);
-    }
-
-    /* Keep a spinner alive so scheduler always has something */
-    {
-        process_t *spinner = process_create(NULL, 0x12345678);
-        sched_add(spinner);
-    }
-
-
     register_tick_callback(schedule);
+
+    initrd_init(_initrd_start, _initrd_end - _initrd_start);
+
+    const void *elf_data;
+    size_t elf_size;
+    if (initrd_find("bin/init", &elf_data, &elf_size)) {
+        KDEBUG("Found bin/init: %u bytes at %p\n", elf_size, elf_data);
+    }
 
     KINFO("Entering idle");
     while (1)

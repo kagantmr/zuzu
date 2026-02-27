@@ -20,6 +20,8 @@ extern char __abt_stack_base__[];
 extern char __abt_stack_top__[];
 extern char __und_stack_base__[];
 extern char __und_stack_top__[];
+extern char _initrd_start[];
+extern char _initrd_end[];
 
 
 #endif
