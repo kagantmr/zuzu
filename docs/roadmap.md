@@ -135,25 +135,25 @@ Phase 12: IPC
 - [ ] Capability transfer through IPC messages
 
 Phase 13: IRQ Forwarding & Userspace Drivers
-- [ ] sys_irq_claim: process claims an IRQ line
-- [ ] sys_irq_wait: block until claimed IRQ fires
-- [ ] sys_irq_done: unmask IRQ line after handling
-- [ ] Kernel IRQ path routes to waiting driver process
-- [ ] sys_mapdev: map MMIO into driver process address space
+- [x] sys_irq_claim: process claims an IRQ line
+- [x] sys_irq_wait: block until claimed IRQ fires
+- [x] sys_irq_done: unmask IRQ line after handling
+- [x] Kernel IRQ path routes to waiting driver process
+- [x] sys_mapdev: map MMIO into driver process address space
 - [ ] Userspace PL011 UART driver
 
 Phase 14: Program Loading
-- [ ] Initrd/ramdisk in kernel image (CPIO or raw)
-- [ ] ELF header parsing (PT_LOAD segments)
+- [x] Initrd/ramdisk in kernel image (CPIO or raw)
+- [x] ELF header parsing (PT_LOAD segments)
 - [ ] BSS zeroing for ELF segments
-- [ ] process_create_from_elf()
-- [ ] User process bootstrap (crt0, _start)
+- [x] process_create_from_elf()
+- [x] User process bootstrap (crt0, _start)
 - [ ] Init process (PID 1)
 
 Phase 15: Userspace C Runtime
-- [ ] crt0.s (_start → main → exit)
+- [x] crt0.s (_start → main → exit)
 - [ ] Syscall wrapper library (SVC #n wrappers)
-- [ ] User-side linker script
+- [x] User-side linker script
 - [ ] Separate build targets for kernel and userspace
 - [ ] "Hello World" user process in C
 
