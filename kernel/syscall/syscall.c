@@ -1,5 +1,5 @@
 #include "syscall.h"
-#include "kernel/sched/sys_task.h" 
+#include "kernel/proc/sys_task.h" 
 #include "kernel/sched/sched.h"
 #include "core/log.h"
 
@@ -99,10 +99,6 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     {
         irq_done(frame);
     } break; 
-    case SYS_LOG:
-    {
-        sys_log(frame);
-    } break;
     case SYS_DUMP:
     {
         frame->r[0] = ERR_NOMATCH;
