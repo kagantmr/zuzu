@@ -25,6 +25,23 @@ CPUFLAGS = -mcpu=cortex-a15
 CFLAGS   = -ffreestanding -O$(OPTIMIZATION_LEVEL) -fno-omit-frame-pointer -Wall -Wextra -Werror $(CPUFLAGS) -I. -MMD -MP -g
 LDFLAGS  = -T $(LINKER_SCRIPT) -Map=$(MAP)
 
+# Userspace build variables
+USER_CC      = $(CROSS)gcc
+USER_LD      = $(CROSS)ld
+USER_OBJCOPY = $(CROSS)objcopy
+
+USER_CFLAGS  = -ffreestanding -nostdlib -O$(OPTIMIZATION_LEVEL) -Wall -Wextra \
+               $(CPUFLAGS) -I user/include -MMD -MP -g
+USER_LDFLAGS = -T user/user.ld
+
+# List every user program directory here (under user/)
+USER_PROGS   = init
+
+# Derived paths
+USER_CRT0    = build/user/crt0.o
+USER_ELFS    = $(foreach p,$(USER_PROGS),build/user/$(p)/$(p).elf)
+INITRD       = build/initrd.cpio
+
 
 ifeq ($(BANNER), 0)
     CFLAGS += -DZUZU_BANNER_DISABLE
@@ -98,6 +115,35 @@ build/%.o: %.c
 build/%.o: %.s
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
+
+# Userspace build rules
+
+# CRT0 is the shared entry stub for all user programs
+$(USER_CRT0): user/crt0.s
+	@mkdir -p $(dir $@)
+	$(USER_CC) $(USER_CFLAGS) -x assembler-with-cpp -c $< -o $@
+
+# compile .c sources and link with crt0
+build/user/init/init.elf: user/init/main.c $(USER_CRT0) user/user.ld
+	@mkdir -p $(dir $@)
+	$(USER_CC) $(USER_CFLAGS) -c user/init/main.c -o build/user/init/main.o
+	$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) build/user/init/main.o -o $@
+
+# Pack all user ELFs into a CPIO newc archive.
+# The directory tree inside the archive becomes the namespace that
+# initrd_find() searches, e.g. "bin/init".
+$(INITRD): $(USER_ELFS)
+	@rm -rf build/initrd
+	@mkdir -p build/initrd/bin
+	cp build/user/init/init.elf build/initrd/bin/init
+	cd build/initrd && find . -not -name '.' | sort | cpio -o -H newc > ../initrd.cpio 2>/dev/null
+	@echo "  CPIO    $@ ($(words $(USER_PROGS)) program(s))"
+
+build/arch/arm/initrd.o: arch/arm/initrd.s $(INITRD)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
+
+# Kernel link
 
 # Link
 $(TARGET): $(OBJS) $(LINKER_SCRIPT)

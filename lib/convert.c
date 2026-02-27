@@ -6,6 +6,37 @@ static inline int is_digit(char c) {
     return (c >= '0' && c <= '9');
 }
 
+static inline int is_hex(char c) {
+    return ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));
+}
+
+int atoh(const char *str) {
+    kassert(str != NULL);
+    int value = 0; 
+    char is_negative = 0;
+    while (*str == ' ' || *str == '\t' || *str == '\n') str++;
+    if (*str == '-') {
+        is_negative = 1; // 2's complement will be applied if is_negative is 1.
+        str++;
+    } else if (*str == '+') {
+        is_negative = 0; 
+        str++;
+    }
+        
+    while (is_hex(*str)) { // omitted null termination because this also covers that case
+        if (is_digit(*str)) {
+            value = value * 16 + (*str - '0'); 
+            
+        } else if (*str >= 'a' && *str <= 'f') {
+            value = value * 16 + (*str - 'a' + 10); 
+        } else if (*str >= 'A' && *str <= 'F') {
+            value = value * 16 + (*str - 'A' + 10);
+        }
+        str++;
+    }
+
+    return is_negative ? -value : value;
+}
 
 int atoi(const char *str) {
     kassert(str != NULL);

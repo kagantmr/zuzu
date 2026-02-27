@@ -2,6 +2,20 @@
 #define CONVERT_H
 
 /**
+ * @file convert.h
+ * @brief Header file for string conversion functions.
+ * This header declares functions for converting strings to integers and vice versa.
+ */
+
+
+ /**
+  * @brief Convert a hexadecimal string to an integer.
+  * @param str Pointer to the null-terminated hexadecimal string.
+  * @return The converted integer value.
+  */
+int atoh(const char *str);
+
+/**
  * @brief Convert a string to an integer.
  * 
  * @param str Pointer to the null-terminated string.
