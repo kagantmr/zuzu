@@ -28,7 +28,7 @@ static inline void _log(const char* str, size_t len)
 {
     register const char *r0 __asm__("r0") = str;
     register size_t r1 __asm__("r1") = len;
-    __asm__ volatile("svc #0xF0" : : "r"(r0), "r"(r1));
+    __asm__ volatile("svc #0xF0" : : "r"(r0), "r"(r1) : "memory");
 }
 
 #endif

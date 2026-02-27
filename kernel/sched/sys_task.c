@@ -30,12 +30,18 @@ void sys_task_yield(exception_frame_t *frame) {
 void sys_log(exception_frame_t *frame) {
     const char* msg = (const char *)frame->r[0];
     //KDEBUG("sys_log syscall reached");
+    KDEBUG("sys_log: got pointer %p, ", msg);
+    KDEBUG("sys_log: message is: %s",  msg);
+    KDEBUG("sys_log: length %u", (unsigned)frame->r[1]);
+    
     size_t len = frame->r[1];
     if (!validate_user_ptr((uintptr_t)msg, len)) {
         //KDEBUG("Rejected bad pointer 0x%08X", (uint32_t)msg);
+        KDEBUG("validate_user_ptr REJECTED 0x%08X len=%u", (uint32_t)msg, (unsigned)len);
         frame->r[0] = ERR_PTRFAULT;
         return;
     }
+
     kprintf("%.*s", (int)len, msg);
     frame->r[0] = 0; // Success
 }
