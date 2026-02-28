@@ -1,6 +1,9 @@
 #include "sys_task.h"
 #include "kernel/syscall/syscall.h"
+#include "lib/mem.h"
 #include "kernel/sched/sched.h"
+#include "kernel/loader/initrd.h"
+#include "kernel/loader/loader.h"
 #include "kernel/time/tick.h"
 #include "kernel/proc/process.h"
 
@@ -13,10 +16,23 @@ extern list_head_t sleep_queue;
 void sys_task_quit(exception_frame_t *frame) {
     current_process->process_state = PROCESS_ZOMBIE;
     current_process->exit_status = frame->r[0];
-    
+    // after marking current process as ZOMBIE:
+    process_t *parent = process_find_by_pid(current_process->parent_pid);
+    if (parent 
+        && parent->process_state == PROCESS_BLOCKED
+        && parent->waiting_for == current_process->pid) {
+        parent->process_state = PROCESS_READY;
+        sched_add(parent);
+        // parent calls process_destroy in sys_task_wait
+    } else {
+        // no one waiting — reaper handles it
+        sched_defer_destroy(current_process);
+    }
+
+
     // Defer destruction to the reaper (running in schedule())
-    sched_defer_destroy(current_process); 
     KINFO("Process %d exited with status code %d", current_process->pid, current_process->exit_status);
+    
     
     current_process = NULL;
     schedule();
@@ -48,4 +64,82 @@ void sys_task_sleep(exception_frame_t *frame) {
 // Add this function
 void sys_get_pid(exception_frame_t *frame) {
     frame->r[0] = current_process->pid;
+}
+
+void sys_task_wait(exception_frame_t *frame) {
+    uint32_t child_pid = frame->r[0];
+
+    // find the child
+    process_t *child = process_find_by_pid(child_pid);
+    if (!child) {
+        frame->r[0] = -ERR_NOENT;
+        return;
+    }
+
+    // verify we're the parent
+    if (child->parent_pid != current_process->pid) {
+        frame->r[0] = -ERR_BADARG;
+        return;
+    }
+
+    // Case A: child already exited
+    if (child->process_state == PROCESS_ZOMBIE) {
+        frame->r[0] = child->exit_status;
+        process_destroy(child);
+        return;
+    }
+
+    // Case B: child still running — block ourselves
+    current_process->waiting_for = child_pid;
+    current_process->process_state = PROCESS_BLOCKED;
+    schedule();
+    
+    // we wake up here after child exits
+    frame->r[0] = child->exit_status;
+    process_destroy(child);
+}
+
+void sys_task_spawn(exception_frame_t *frame) {
+    const char *name = (const char *)frame->r[0];
+    size_t name_len = frame->r[1];
+    if (!validate_user_ptr((uintptr_t)name, name_len)) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+    char kname[64];
+    if (name_len >= sizeof(kname)) {
+        frame->r[0] = -ERR_BADARG;
+        return;
+    }
+    memcpy(kname, name, name_len);
+    kname[name_len] = '\0';
+    const void *elf_data;
+    size_t elf_size;
+    if (!initrd_find(kname, &elf_data, &elf_size)) {
+        frame->r[0] = ERR_NOENT;
+        return;
+    }
+    process_t *process = process_create_from_elf(elf_data, elf_size);
+    if (!process) {
+        frame->r[0] = -ERR_NOMEM;
+        return;
+    }
+    process->parent_pid = current_process->pid;
+    sched_add(process);
+    frame->r[0] = process->pid;
+}
+
+void sys_log(exception_frame_t *frame) {
+    const char* msg = (const char *)frame->r[0];
+    
+    size_t len = frame->r[1];
+    if (!validate_user_ptr((uintptr_t)msg, len)) {
+        //KDEBUG("Rejected bad pointer 0x%08X", (uint32_t)msg);
+        KDEBUG("validate_user_ptr REJECTED 0x%08X len=%u", (uint32_t)msg, (unsigned)len);
+        frame->r[0] = ERR_PTRFAULT;
+        return;
+    }
+
+    kprintf("%.*s", (int)len, msg);
+    frame->r[0] = 0; // Success
 }

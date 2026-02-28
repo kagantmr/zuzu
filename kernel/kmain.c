@@ -146,11 +146,7 @@ _Noreturn void kmain(void)
 
     sched_init();
 
-    register_tick_callback(schedule);
-
     initrd_init(_initrd_start, _initrd_end - _initrd_start);
-
-    
 
     const void *elf_data;
     size_t elf_size;
@@ -161,7 +157,7 @@ _Noreturn void kmain(void)
             sched_add(init);
     }
 
-    initrd_init(_initrd_start, _initrd_end - _initrd_start);
+    register_tick_callback(schedule);
 
     KINFO("Entering idle");
     while (1)

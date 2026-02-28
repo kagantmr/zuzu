@@ -3,11 +3,14 @@
 int big_array[256];  // forces a BSS segment
 
 int main() {
-    const char hello_string[] = "Hello from zuzu ELF!\n";
-    _log(hello_string, sizeof(hello_string) - 1);
-    if (big_array[0] == 0 && big_array[255] == 0)
-        _log("BSS OK!\n", 8);
-    else
-        _log("BSS FAIL\n", 9);
+    _log("init: starting\n", 15);
+
+    int pid = _spawn("bin/hello", 9);
+    _log("init: spawned hello\n", 20);
+
+    int status = _wait(pid);
+    // status has hello's exit code
+
+    _log("init: done\n", 11);
     return 0;
 }
