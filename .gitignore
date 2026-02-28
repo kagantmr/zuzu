@@ -57,7 +57,7 @@ gdb.txt
 *.dts
 
 # vscode dir
-.vscode/*
+.vscode/
 # mac-specific file
 arch/.DS_Store
 arch/.DS_Store
