@@ -135,7 +135,6 @@ void sys_log(exception_frame_t *frame) {
     size_t len = frame->r[1];
     if (!validate_user_ptr((uintptr_t)msg, len)) {
         //KDEBUG("Rejected bad pointer 0x%08X", (uint32_t)msg);
-        KDEBUG("validate_user_ptr REJECTED 0x%08X len=%u", (uint32_t)msg, (unsigned)len);
         frame->r[0] = ERR_PTRFAULT;
         return;
     }
