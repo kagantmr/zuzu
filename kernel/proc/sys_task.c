@@ -102,12 +102,14 @@ void sys_task_spawn(exception_frame_t *frame) {
         frame->r[0] = ERR_NOENT;
         return;
     }
-    process_t *process = process_create_from_elf(elf_data, elf_size);
+    process_t *process = process_create_from_elf(elf_data, elf_size, name);
     if (!process) {
         frame->r[0] = -ERR_NOMEM;
         return;
     }
+    
     process->parent_pid = current_process->pid;
+    
     sched_add(process);
     frame->r[0] = process->pid;
 }

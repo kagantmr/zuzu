@@ -123,7 +123,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
 
         if (from_user && current_process)
         {
-            KERROR("Oops: process PID %d executed an undefined instruction at 0x%08X", current_process->pid, frame->return_pc);
+            KERROR("Process PID %d executed an undefined instruction at 0x%08X", current_process->pid, frame->return_pc);
             process_kill(current_process, -1);
             current_process = NULL;
             schedule();
