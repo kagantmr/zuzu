@@ -50,7 +50,6 @@ typedef struct cpu_context {
     uint32_t lr;   // return address (or entry point for new process)
 } cpu_context_t;
 
-process_t *process_create(void (*entry)(void));
 void process_destroy(process_t *process);
 process_t *process_find_by_pid(uint32_t pid);
 void process_kill(process_t *p, int exit_status);
