@@ -37,6 +37,7 @@ typedef struct process {
     list_node_t node;  // embedded, not pointers
     int32_t exit_status;
     uint32_t waiting_for;
+    char name[16]; // PROCESS name
     uint32_t device_va_next;  // initialized to 0x60000000 in process_create
     exception_frame_t *trap_frame;
     endpoint_t *handle_table[MAX_HANDLE_TABLE];
@@ -52,5 +53,6 @@ typedef struct cpu_context {
 process_t *process_create(void (*entry)(void));
 void process_destroy(process_t *process);
 process_t *process_find_by_pid(uint32_t pid);
+void process_kill(process_t *p, int exit_status);
 
 #endif // KERNEL_PROC_PROCESS_H
