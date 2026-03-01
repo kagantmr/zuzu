@@ -152,6 +152,12 @@ zuzu/
 
 ---
 
+## Credits
+
+- zuzu logo designed by Zoz
+
+---
+
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
