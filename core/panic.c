@@ -526,6 +526,8 @@ static void panic_screen(const char *reason, void *caller_ra)
     backtrace_walk(&bt);
 
     if (panic_fault_ctx.valid) {
+        if (panic_fault_ctx.fault_type)
+            kprintf("Type:  %s\n", panic_fault_ctx.fault_type);
         if (panic_fault_ctx.fault_decoded)
             kprintf("Fault: %s\n", panic_fault_ctx.fault_decoded);
         if (panic_fault_ctx.far)

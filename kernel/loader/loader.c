@@ -135,7 +135,12 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
     process->ticks_remaining = process->time_slice;
     process->node.next = NULL;
     process->node.prev = NULL;
-    strncpy(process->name, name, sizeof(process->name) - 1);
+    const char *short_name = name;
+    for (const char *p = name; *p; p++) {
+        if (*p == '/')
+            short_name = p + 1;
+    }
+    strncpy(process->name, short_name, sizeof(process->name) - 1);
 
     // KDEBUG("Created process with magic %X and PID %d", magic, process->pid);
     return process;

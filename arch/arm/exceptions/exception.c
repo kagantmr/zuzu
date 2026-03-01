@@ -123,7 +123,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
 
         if (from_user && current_process)
         {
-            KERROR("Process PID %d executed an undefined instruction at 0x%08X", current_process->pid, frame->return_pc);
+            KERROR("Oops! '%s' (PID %d) killed - undefined instruction @ 0x%08X", current_process->name, current_process->pid, frame->return_pc);
             process_kill(current_process, -1);
             current_process = NULL;
             schedule();
@@ -173,22 +173,24 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
         __asm__ volatile("mrc p15, 0, %0, c6, c0, 2" : "=r"(ifar));
         __asm__ volatile("mrc p15, 0, %0, c5, c0, 1" : "=r"(ifsr));
 
-        KERROR("=== PREFETCH ABORT ===");
-        KERROR("IFAR: 0x%08X  IFSR: 0x%08X", ifar, ifsr);
-        KERROR("Fault: %s", decode_fault_status(ifsr));
-        KERROR("PC: 0x%08X", frame->return_pc);
-
         bool from_user = (frame->return_cpsr & 0x1F) == 0x10;
 
         if (from_user && current_process)
         {
-            KERROR("Process with ID %d failed at 0x%08X", current_process->pid, frame->return_pc);
+            KERROR("Oops! '%s' (PID %d) killed - prefetch abort @ 0x%08X (%s)",
+                   current_process->name, current_process->pid, ifar, decode_fault_status(ifsr));
             process_kill(current_process, -1);
             current_process = NULL;
             schedule();
         }
         else
         {
+#ifndef PANIC_FULL_SCREEN
+            KERROR("=== PREFETCH ABORT ===");
+            KERROR("IFAR: 0x%08X  IFSR: 0x%08X", ifar, ifsr);
+            KERROR("Fault: %s", decode_fault_status(ifsr));
+            KERROR("PC: 0x%08X", frame->return_pc);
+#endif
             panic_fault_ctx = (panic_fault_context_t){
                 .valid = 1,
                 .far = ifar,
@@ -208,24 +210,13 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
         __asm__ volatile("mrc p15, 0, %0, c6, c0, 0" : "=r"(dfar));
         __asm__ volatile("mrc p15, 0, %0, c5, c0, 0" : "=r"(dfsr));
 
-        KERROR("=== DATA ABORT ===");
-        KERROR("DFAR: 0x%08X  DFSR: 0x%08X", dfar, dfsr);
-        KERROR("Fault: %s", decode_fault_status(dfsr));
-        KERROR("Access: %s, %s",
-               (dfsr & (1 << 11)) ? "Write" : "Read",
-               (dfsr & (1 << 12)) ? "External" : "Internal");
-        KERROR("Domain: %u", (dfsr >> 4) & 0xF);
-
         bool from_user = (frame->return_cpsr & 0x1F) == 0x10;
-
 
         if (from_user && current_process)
         {
-            KERROR("Process with ID %d failed at 0x%08X", current_process->pid, frame->return_pc);
-
+            // Check if it hit a kernel stack guard page (low 4KB of each 8KB slot)
             if (dfar >= KSTACK_REGION_BASE && dfar < KSTACK_REGION_BASE + 64 * 0x2000)
             {
-                // Check if it hit a guard page (low 4KB of each 8KB slot)
                 uint32_t offset_in_slot = (dfar - KSTACK_REGION_BASE) % 0x2000;
                 if (offset_in_slot < 0x1000)
                 {
@@ -241,6 +232,10 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
                     panic("Kernel stack overflow");
                 }
             }
+            KERROR("Oops! '%s' (PID %d) killed - data abort @ 0x%08X (%s %s)",
+                   current_process->name, current_process->pid, dfar,
+                   (dfsr & (1 << 11)) ? "write" : "read",
+                   decode_fault_status(dfsr));
             process_kill(current_process, -1);
             current_process = NULL;
             dump_registers(frame);
@@ -248,6 +243,15 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
         }
         else
         {
+#ifndef PANIC_FULL_SCREEN
+            KERROR("=== DATA ABORT ===");
+            KERROR("DFAR: 0x%08X  DFSR: 0x%08X", dfar, dfsr);
+            KERROR("Fault: %s", decode_fault_status(dfsr));
+            KERROR("Access: %s, %s",
+                   (dfsr & (1 << 11)) ? "Write" : "Read",
+                   (dfsr & (1 << 12)) ? "External" : "Internal");
+            KERROR("Domain: %u", (dfsr >> 4) & 0xF);
+#endif
             panic_fault_ctx = (panic_fault_context_t){
                 .valid = 1,
                 .far = dfar,
