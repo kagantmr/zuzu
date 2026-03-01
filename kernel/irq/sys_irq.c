@@ -17,12 +17,18 @@ static void relay_handler(void *ctx)
     irq_disable_line(irq_num);
     irq_owners[irq_num].pending = true;
 
-    process_t *waiter = irq_owners[irq_num].blocked;
-    if (waiter) {
+    endpoint_t *bound_port = irq_owners[irq_num].bound_port;
+    if (bound_port && !list_empty(&bound_port->receiver_queue)) {
+        list_node_t *waiter_node = list_pop_front(&bound_port->receiver_queue);
+        process_t *waiter = container_of(waiter_node, process_t, node);
         waiter->trap_frame->r[0] = 0;
+        waiter->trap_frame->r[1] = irq_num;
         waiter->process_state = PROCESS_READY;
-        irq_owners[irq_num].blocked = NULL;
+        waiter->blocked_endpoint = NULL;
+        waiter->ipc_state = IPC_NONE;
         sched_add(waiter);
+        irq_owners[irq_num].pending = false;
+
     }
     // If no waiter, pending flag catches it in next irq_wait()
 }
@@ -50,7 +56,7 @@ void irq_claim(exception_frame_t* frame) {
     }
     if (!irq_owners[irq_num].owner) {
         irq_owners[irq_num] = (irq_owner_t){
-            .blocked = NULL,
+            .bound_port = NULL,
             .owner = current_process,
             .pending = false
         };
@@ -63,8 +69,9 @@ void irq_claim(exception_frame_t* frame) {
     return;
 }
 
-void irq_wait(exception_frame_t* frame) {
+void irq_bind(exception_frame_t* frame) {
     uint32_t irq_num = frame->r[0];
+    uint32_t port_handle = frame->r[1];
     if (!valid_irq(irq_num)) {
         frame->r[0] = ERR_BADARG;
         return;
@@ -73,19 +80,19 @@ void irq_wait(exception_frame_t* frame) {
         frame->r[0] = ERR_NOPERM;
         return;
     }
-    if (irq_owners[irq_num].pending) {
-        irq_owners[irq_num].pending = 0;
-        frame->r[0] = 0;
-        return;
-    } else {
-        current_process->process_state = PROCESS_BLOCKED;
-        irq_owners[irq_num].blocked = current_process;
-        current_process->trap_frame = frame;
-        schedule();
+    if (port_handle >= MAX_HANDLE_TABLE) {
+        frame->r[0] = ERR_BADARG;
         return;
     }
-
+    endpoint_t *ep = current_process->handle_table[port_handle];
+    if (!ep) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+    irq_owners[irq_num].bound_port = ep;
+    frame->r[0] = 0;
 }
+
 void irq_done(exception_frame_t* frame) {
     uint32_t irq_num = frame->r[0];
     if (!valid_irq(irq_num)) {
@@ -110,4 +117,13 @@ void irq_release_all(process_t *owner) {
             memset(&irq_owners[i], 0, sizeof(irq_owner_t));
         }
     }
+}
+
+bool irq_check_and_clear_pending(int irq_num) {
+    if (irq_num < 0 || irq_num >= MAX_IRQS) return false;
+    if (irq_owners[irq_num].pending) {
+        irq_owners[irq_num].pending = false;
+        return true;
+    }
+    return false;
 }

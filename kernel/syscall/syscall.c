@@ -91,9 +91,9 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     {   
         irq_claim(frame);
     } break; 
-    case SYS_IRQ_WAIT:
+    case SYS_IRQ_BIND:
     {
-        irq_wait(frame);
+        irq_bind(frame);
     } break; 
     case SYS_IRQ_DONE:
     {

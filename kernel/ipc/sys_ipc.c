@@ -5,6 +5,8 @@
 #include "kernel/mm/alloc.h"
 #include "lib/mem.h"
 
+#include "kernel/irq/sys_irq.h"
+
 extern process_t *current_process;
 
 #define LOG_FMT(fmt) "(ipc) " fmt
@@ -40,7 +42,7 @@ void proc_send(exception_frame_t *frame)
         list_node_t *receiver = list_pop_front(&ep->receiver_queue);
         process_t *rx_proc = container_of(receiver, process_t, node);
         exception_frame_t *rx_frame = (exception_frame_t *)(rx_proc->kernel_sp + 9);
-        KDEBUG("Sending message from process PID %d to process PID %d", current_process->pid,rx_proc->pid);
+        //KDEBUG("Sending message from process PID %d to process PID %d", current_process->pid,rx_proc->pid);
         rx_frame->r[0] = current_process->pid;
         rx_frame->r[1] = frame->r[1];
         rx_frame->r[2] = frame->r[2];
@@ -85,6 +87,12 @@ void proc_recv(exception_frame_t *frame)
         return;
     }
 
+    if (ep->bound_irq >= 0 && irq_check_and_clear_pending(ep->bound_irq)) {
+        frame->r[0] = 0;
+        frame->r[1] = ep->bound_irq;
+        return;
+    }
+
     if (!list_empty(&ep->sender_queue))
     {
         //KDEBUG("sender queue NOT empty");
@@ -93,7 +101,7 @@ void proc_recv(exception_frame_t *frame)
         exception_frame_t *sr_frame = (sr_proc->trap_frame);
 
         // Copy message to receiver 
-        KDEBUG("Got message from process PID %d as process PID %d", sr_proc->pid,current_process->pid);
+        //KDEBUG("Got message from process PID %d as process PID %d", sr_proc->pid,current_process->pid);
         frame->r[0] = sr_proc->pid;
         frame->r[1] = sr_frame->r[1];
         frame->r[2] = sr_frame->r[2];
@@ -111,7 +119,7 @@ void proc_recv(exception_frame_t *frame)
     }
     else
     {
-        KDEBUG("sender queue empty, blocking");
+        //KDEBUG("sender queue empty, blocking");
         current_process->ipc_state = IPC_RECEIVER;
         current_process->blocked_endpoint = ep;
         list_add_tail(&current_process->node, &ep->receiver_queue.node);

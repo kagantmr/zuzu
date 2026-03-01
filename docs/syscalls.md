@@ -70,11 +70,11 @@ Negative r0 values indicate errors:
 
 ## 0x40–0x4F: Interrupts
 
-| #    | Name      | Arguments   | Returns   | Description                      |
-|------|-----------|-------------|-----------|----------------------------------|
-| 0x40 | irq_claim | r0: irq_num | 0 or err | Register as handler for this IRQ |
-| 0x41 | irq_wait  | r0: irq_num | 0 or err | Block until IRQ fires            |
-| 0x42 | irq_done  | r0: irq_num | 0 or err | Acknowledge and unmask IRQ line  |
+| #    | Name      | Arguments              | Returns  | Description                          |
+|------|-----------|------------------------|----------|--------------------------------------|
+| 0x40 | irq_claim | r0: irq_num            | 0 or err | Register as handler for this IRQ     |
+| 0x41 | irq_bind  | r0: irq_num, r1: port  | 0 or err | Bind IRQ delivery to an IPC port     |
+| 0x42 | irq_done  | r0: irq_num            | 0 or err | Acknowledge and unmask IRQ line      |
 
 ## 0xF0–0xFF: Experimental/Debug (temporary)
 
