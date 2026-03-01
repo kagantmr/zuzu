@@ -152,7 +152,7 @@ _Noreturn void kmain(void)
     size_t elf_size;
     if (initrd_find("bin/init", &elf_data, &elf_size)) {
         KDEBUG("Found bin/init: %u bytes at %p\n", elf_size, elf_data);
-        process_t *init = process_create_from_elf(elf_data, elf_size);
+        process_t *init = process_create_from_elf(elf_data, elf_size, "init");
         if (init)
             sched_add(init);
     }

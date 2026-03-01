@@ -1,5 +1,6 @@
 #include "loader.h"
 #include "lib/mem.h"
+#include "lib/string.h"
 #include "kernel/proc/kstack.h"
 #include "kernel/mm/pmm.h"
 #include "kernel/vmm/vmm.h"
@@ -11,7 +12,7 @@
 extern uint32_t next_pid;
 extern process_t *process_table[MAX_PROCESSES];
 
-process_t *process_create_from_elf(const void *elf_data, size_t elf_size)
+process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const char *name)
 {
     uint32_t elf_entry = elf_validate(elf_data, elf_size); // validate ELF and get entry point (also validates that it's an ARM executable)
     if (!elf_entry)
@@ -134,6 +135,7 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size)
     process->ticks_remaining = process->time_slice;
     process->node.next = NULL;
     process->node.prev = NULL;
+    strncpy(process->name, name, sizeof(process->name) - 1);
 
     // KDEBUG("Created process with magic %X and PID %d", magic, process->pid);
     return process;
