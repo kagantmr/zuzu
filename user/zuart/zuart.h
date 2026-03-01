@@ -1,6 +1,8 @@
 #ifndef ZUART_H
 #define ZUART_H
 
+#define ZUART_VER "v1.0"
+
 #include "zuzu.h"
 #include <stdbool.h>
 

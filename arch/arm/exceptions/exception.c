@@ -118,17 +118,14 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
     {
     case EXC_UNDEF:
     {
-        KERROR("=== UNDEFINED INSTRUCTION ===");
 
         bool from_user = (frame->return_cpsr & 0x1F) == 0x10;
 
         if (from_user && current_process)
         {
-            KERROR("Process with ID %d failed at 0x%08X", current_process->pid, frame->return_pc);
-            process_t *dying = current_process;
+            KERROR("Oops: process PID %d executed an undefined instruction at 0x%08X", current_process->pid, frame->return_pc);
+            process_kill(current_process, -1);
             current_process = NULL;
-            dying->process_state = PROCESS_ZOMBIE;
-            sched_defer_destroy(dying);
             schedule();
         }
         else
@@ -186,11 +183,8 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
         if (from_user && current_process)
         {
             KERROR("Process with ID %d failed at 0x%08X", current_process->pid, frame->return_pc);
-            process_t *dying = current_process;
+            process_kill(current_process, -1);
             current_process = NULL;
-            dying->process_state = PROCESS_ZOMBIE;
-            dump_registers(frame);
-            sched_defer_destroy(dying);
             schedule();
         }
         else
@@ -247,11 +241,9 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
                     panic("Kernel stack overflow");
                 }
             }
-            process_t *dying = current_process;
+            process_kill(current_process, -1);
             current_process = NULL;
-            dying->process_state = PROCESS_ZOMBIE;
-            // dump_registers(frame);
-            sched_defer_destroy(dying);
+            dump_registers(frame);
             schedule();
         }
         else
@@ -272,7 +264,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
 
     case EXC_RESERVED:
     {
-        KWARN("=== RESERVED EXCEPTION (Unused) ===");
+        KWARN("=== RESERVED EXCEPTION ===");
         // dump_registers(frame);
         // panic();
     }

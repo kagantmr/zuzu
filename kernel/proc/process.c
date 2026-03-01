@@ -118,6 +118,21 @@ fail_process:
     return NULL;
 }
 
+void process_kill(process_t *p, int exit_status) {
+    p->process_state = PROCESS_ZOMBIE;
+    p->exit_status = exit_status;
+
+    process_t *parent = process_find_by_pid(p->parent_pid);
+    if (parent && parent->process_state == PROCESS_BLOCKED 
+              && parent->waiting_for == p->pid) {
+        parent->process_state = PROCESS_READY;
+        parent->waiting_for = 0;
+        sched_add(parent);
+    } else {
+        sched_defer_destroy(p);
+    }
+}
+
 void process_destroy(process_t *p)
 {
 
