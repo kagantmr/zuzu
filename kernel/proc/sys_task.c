@@ -14,26 +14,9 @@ extern list_head_t sleep_queue;
 #include "core/log.h"
 
 void sys_task_quit(exception_frame_t *frame) {
-    current_process->process_state = PROCESS_ZOMBIE;
-    current_process->exit_status = frame->r[0];
-    // after marking current process as ZOMBIE:
-    process_t *parent = process_find_by_pid(current_process->parent_pid);
-    if (parent 
-        && parent->process_state == PROCESS_BLOCKED
-        && parent->waiting_for == current_process->pid) {
-        parent->process_state = PROCESS_READY;
-        sched_add(parent);
-        // parent calls process_destroy in sys_task_wait
-    } else {
-        // no one waiting — reaper handles it
-        sched_defer_destroy(current_process);
-    }
-
-
-    // Defer destruction to the reaper (running in schedule())
     KINFO("Process %d exited with status code %d", current_process->pid, current_process->exit_status);
     
-    
+    process_kill(current_process, frame->r[0]);
     current_process = NULL;
     schedule();
 }
