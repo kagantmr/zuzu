@@ -51,6 +51,7 @@ int main(void)
                 // RX interrupt
                 while (!(uart->FR & FR_RXFE) && !rb_full(&rxrb))
                 {
+                    // todo: make proper input receiving instead of echoing things back
                     char c = uart->DR;
                     rb_write(&rxrb, uart->DR); // write into rx ringbuf
                     uart->DR = c;          // echo it back immediately
