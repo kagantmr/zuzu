@@ -38,7 +38,7 @@ Phases 0–12 is completed. Synchronous IPC is implemented and tested.
 
 **SVC immediate used as syscall number.** Zuzu encodes the syscall number directly in the lower byte of the `SVC #n` instruction's immediate field, rather than the Linux convention of placing it in `r7`. This was chosen to reduce excess register usage and make use of the 24 bits. Now, due to the incompatibility between ARM mode and Thumb mode (Thumb `SVC #n` immediate is 8 bits), the full 24-bits of the ARM mode `SVC #n` instruction are not used.
 
-**TTBR0 / TTBR1 address space split.** The MMU uses two translation table base registers simultaneously: TTBR1 holds the kernel's page table and never changes, TTBR0 holds the current process's page table and is swapped on every context switch. The split boundary is at `0x80000000` (TTBCR.N = 2). This means kernel mappings are always accessible without any per-process copying.
+**TTBR0 / TTBR1 address space split.** The MMU uses two translation table base registers simultaneously: TTBR1 holds the kernel's page table and never changes, TTBR0 holds the current process's page table and is swapped on every context switch. The split boundary is at `0x80000000` (TTBCR.N = 1). This means kernel mappings are always accessible without any per-process copying.
 
 **Higher-half kernel.** The kernel runs at virtual address `0xC0000000` (physical `0x80000000`). User processes occupy `0x00000000–0x7FFFFFFF` due to the TTBR split.
 
