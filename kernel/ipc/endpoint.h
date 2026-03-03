@@ -6,12 +6,6 @@
 
 #define MAX_HANDLE_TABLE 16
 
-typedef struct {
-    endpoint_t *ep;
-    bool grantable;
-} handle_entry_t;
-
-
 typedef struct endpoint {
     list_head_t sender_queue;
     list_head_t receiver_queue;
@@ -19,6 +13,11 @@ typedef struct endpoint {
     list_node_t node;
     int bound_irq;
 } endpoint_t;
+
+typedef struct {
+    endpoint_t *ep;
+    bool grantable;
+} handle_entry_t;
 
 
 #endif // ENDPOINT_H

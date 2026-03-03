@@ -106,9 +106,9 @@ void strfmt(void (*outc)(char), const char *fstring, ...) ;
  * 
  * @param outc   Function pointer to output a single character.
  * @param fstring Format string.
- * @param args    va_list of arguments matching the format specifiers.
+ * @param args    Pointer to va_list of arguments matching the format specifiers.
  */
-void vstrfmt(void (*outc)(char), const char *fstring, va_list args);
+void vstrfmt(void (*outc)(char), const char *fstring, va_list *args);
 
 
 

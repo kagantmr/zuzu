@@ -17,7 +17,6 @@ void sys_task_quit(exception_frame_t *frame) {
     KINFO("Process %d exited with status code %d", current_process->pid, current_process->exit_status);
     
     process_kill(current_process, frame->r[0]);
-    current_process = NULL;
     schedule();
 }
 

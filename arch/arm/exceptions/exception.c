@@ -100,7 +100,7 @@ static void dump_registers(exception_frame_t *frame)
     kprintf("  r8=%08X  r9=%08X r10=%08X r11=%08X\n",
             frame->r[8], frame->r[9], frame->r[10], frame->r[11]);
     kprintf(" r12=%08X  sp=????????  lr=%08X  pc=%08X\n",
-            frame->r[12], frame->lr, frame->return_pc);
+            frame->r[12], frame->lr_usr, frame->return_pc);
     kprintf("spsr=%08X [%s mode, %s%s%s]\n",
             frame->return_cpsr,
             decode_mode(frame->return_cpsr),
@@ -125,7 +125,6 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
         {
             KERROR("Oops! '%s' (PID %d) killed - undefined instruction @ 0x%08X", current_process->name, current_process->pid, frame->return_pc);
             process_kill(current_process, -1);
-            current_process = NULL;
             schedule();
         }
         else
@@ -162,6 +161,14 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
             uint32_t *arm_instr = (uint32_t *)(frame->return_pc - 4);
             svc_num = (uint8_t)(*arm_instr & 0xFF);
         }
+
+            /*KDEBUG("Process with PID %d requested SVC #%d", current_process->pid, svc_num);
+            KDEBUG("Frame details:");
+            KDEBUG("PC: %P", (void *)(uintptr_t)frame->return_pc);
+            KDEBUG("Instruction at return_pc - 4 is %x", *((uint32_t *)(frame->return_pc - 4)));
+            KDEBUG("Decoded SVC immediate is %u", svc_num);
+            KDEBUG("Doing regdump.");
+            dump_registers(frame);*/
 
         syscall_dispatch(svc_num, frame);
     }
