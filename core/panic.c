@@ -359,7 +359,7 @@ static void panic_screen(const char *reason, void *caller_ra)
             col_line(&_col_left, line);
         }
         snprintf(line, sizeof(line), "  lr =%08X  pc =%08X",
-                 f->lr, f->return_pc);
+                 f->lr_usr, f->return_pc);
         col_line(&_col_left, line);
         snprintf(line, sizeof(line), "  cpsr=%08X", f->return_cpsr);
         col_line(&_col_left, line);
@@ -539,7 +539,7 @@ static void panic_screen(const char *reason, void *caller_ra)
             kprintf("r0=%08X r1=%08X r2=%08X r3=%08X\n", f->r[0], f->r[1], f->r[2], f->r[3]);
             kprintf("r4=%08X r5=%08X r6=%08X r7=%08X\n", f->r[4], f->r[5], f->r[6], f->r[7]);
             kprintf("r8=%08X r9=%08X r10=%08X r11=%08X\n", f->r[8], f->r[9], f->r[10], f->r[11]);
-            kprintf("r12=%08X lr=%08X pc=%08X cpsr=%08X\n", f->r[12], f->lr, f->return_pc, f->return_cpsr);
+            kprintf("r12=%08X lr=%08X pc=%08X cpsr=%08X\n", f->r[12], f->lr_usr, f->return_pc, f->return_cpsr);
         }
     }
 

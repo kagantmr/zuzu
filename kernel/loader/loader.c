@@ -1,6 +1,7 @@
 #include "loader.h"
 #include "lib/mem.h"
 #include "lib/string.h"
+
 #include "kernel/proc/kstack.h"
 #include "kernel/mm/pmm.h"
 #include "kernel/vmm/vmm.h"
@@ -11,6 +12,9 @@
 
 extern uint32_t next_pid;
 extern process_t *process_table[MAX_PROCESSES];
+
+#define LOG_FMT(fmt) "(elf_loader) " fmt
+#include "core/log.h"
 
 process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const char *name)
 {
@@ -107,16 +111,14 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
     }
 
     // write exception frame to the stack
-    stack_top -= 16 * sizeof(uint32_t); // 16 words
+    stack_top -= 17 * sizeof(uint32_t);
     uint32_t *exc_frame = (uint32_t *)stack_top;
-    *(exc_frame++) = 0;
-    for (int i = 0; i < 12; i++)
-    {
-        *(exc_frame++) = 0; // r1-12 = 0  (indices 0-12)
-    }
-    *(exc_frame++) = USR_SP;    // lr = SP_usr              (index 13)
-    *(exc_frame++) = elf_entry; // PC = entry point    (index 14)
-    *(exc_frame++) = 0x10;      // CPSR = 0x10         (index 15)
+    for (int i = 0; i < 13; i++)
+        *(exc_frame++) = 0;          // r0-r12
+    *(exc_frame++) = USR_SP;         // sp_usr
+    *(exc_frame++) = 0;              // lr_usr
+    *(exc_frame++) = elf_entry;      // return_pc
+    *(exc_frame++) = 0x10;           // cpsr = USR mode
 
     // write cpu_context to stack
     stack_top -= sizeof(cpu_context_t);
@@ -142,7 +144,7 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
     }
     strncpy(process->name, short_name, sizeof(process->name) - 1);
 
-    // KDEBUG("Created process with magic %X and PID %d", magic, process->pid);
+    KDEBUG("Created process with name %s PID %u", process->name, process->pid);
     return process;
 
 fail_kstack:

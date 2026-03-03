@@ -19,20 +19,26 @@ static void snprintf_outc(char c)
 
 int vsnprintf(char *buf, size_t size, const char *fmt, va_list args)
 {
+    va_list ap;
+    va_copy(ap, args);
+
     if (!buf || size == 0) {
         // Still need to compute length
         snprintf_ctx.buf = NULL;
         snprintf_ctx.pos = 0;
         snprintf_ctx.max = 0;
-        vstrfmt(snprintf_outc, fmt, args);
-        return (int)snprintf_ctx.pos;
+        vstrfmt(snprintf_outc, fmt, &ap);
+        int ret = (int)snprintf_ctx.pos;
+        va_end(ap);
+        return ret;
     }
 
     snprintf_ctx.buf = buf;
     snprintf_ctx.pos = 0;
     snprintf_ctx.max = size - 1;  // reserve space for null terminator
 
-    vstrfmt(snprintf_outc, fmt, args);
+    vstrfmt(snprintf_outc, fmt, &ap);
+    va_end(ap);
 
     // Null terminate
     size_t term_pos = snprintf_ctx.pos < (size - 1) ? snprintf_ctx.pos : (size - 1);

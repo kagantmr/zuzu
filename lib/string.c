@@ -1,6 +1,7 @@
 #include "lib/string.h"
 #include <stdint.h>
 #include <stdarg.h>
+#include <stddef.h>
 #include "lib/convert.h"
 #include "core/assert.h"
 
@@ -118,7 +119,7 @@ void strfmt(void (*outc)(char), const char *fstring, ...) {
     
 
     va_start(args, fstring);
-    vstrfmt(outc, fstring, args);
+    vstrfmt(outc, fstring, &args);
     va_end(args);
 }
 
@@ -235,12 +236,12 @@ static long long get_signed_arg(va_list *args, length_t len) {
         case LEN_H:  return (short)va_arg(*args, int);
         case LEN_L:  return va_arg(*args, long);
         case LEN_LL: return va_arg(*args, long long);
-        case LEN_Z:  return (long long)va_arg(*args, size_t);
+        case LEN_Z:  return va_arg(*args, ptrdiff_t);
         default:     return va_arg(*args, int);
     }
 }
 
-void vstrfmt(void (*outc)(char), const char *fmt, va_list args) {
+void vstrfmt(void (*outc)(char), const char *fmt, va_list *args) {
     if (!outc || !fmt) return;
 
     while (*fmt) {
@@ -270,7 +271,7 @@ void vstrfmt(void (*outc)(char), const char *fmt, va_list args) {
         int width = 0;
         if (*fmt == '*') {
             fmt++;
-            width = va_arg(args, int);
+            width = va_arg(*args, int);
             if (width < 0) { left = 1; width = -width; }
         } else if (is_digit(*fmt)) {
             width = parse_int(&fmt);
@@ -282,7 +283,7 @@ void vstrfmt(void (*outc)(char), const char *fmt, va_list args) {
             fmt++;
             if (*fmt == '*') {
                 fmt++;
-                prec = va_arg(args, int);
+                prec = va_arg(*args, int);
                 if (prec < 0) prec = -1; // like printf
             } else {
                 prec = is_digit(*fmt) ? parse_int(&fmt) : 0;
@@ -317,7 +318,7 @@ void vstrfmt(void (*outc)(char), const char *fmt, va_list args) {
                 break;
 
             case 'c': {
-                char ch = (char)va_arg(args, int);
+                char ch = (char)va_arg(*args, int);
                 int pad = (width > 1) ? (width - 1) : 0;
                 if (!left) emit_repeat(outc, ' ', pad);
                 outc(ch);
@@ -326,7 +327,7 @@ void vstrfmt(void (*outc)(char), const char *fmt, va_list args) {
             }
 
             case 's': {
-                const char *s = va_arg(args, const char *);
+                const char *s = va_arg(*args, const char *);
                 if (!s) s = "(null)";
 
                 int slen = (int)strlen(s);
@@ -342,7 +343,7 @@ void vstrfmt(void (*outc)(char), const char *fmt, va_list args) {
             case 'd':
             case 'i': {
                 // FIXED: Pass &args (pointer)
-                long long v = get_signed_arg(&args, len);
+                long long v = get_signed_arg(args, len);
                 unsigned long long uv;
                 char signch = 0;
 
@@ -394,7 +395,7 @@ void vstrfmt(void (*outc)(char), const char *fmt, va_list args) {
                 else if (spec == 'b') { base = 2; }
 
                 // FIXED: Pass &args (pointer)
-                unsigned long long v = get_unsigned_arg(&args, len);
+                unsigned long long v = get_unsigned_arg(args, len);
 
                 // conversion (v==0 with precision==0 -> empty per printf)
                 char num[65];
@@ -450,7 +451,7 @@ void vstrfmt(void (*outc)(char), const char *fmt, va_list args) {
             case 'p':
             case 'P': {
                 // Pointer: always prints 0x/0X and defaults precision to pointer width.
-                uintptr_t pv = (uintptr_t)va_arg(args, void *);
+                uintptr_t pv = (uintptr_t)va_arg(*args, void *);
                 int uppercase = (spec == 'P');
 
                 const char *prefix = "0x";

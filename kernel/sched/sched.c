@@ -11,6 +11,8 @@ static list_head_t destroy_queue = LIST_HEAD_INIT(destroy_queue);
 list_head_t sleep_queue = LIST_HEAD_INIT(sleep_queue);
 process_t *current_process;
 
+static process_t idle_proc;  // only kernel_sp is used
+
 #define LOG_FMT(fmt) "(sched) " fmt
 #include "core/log.h"
 
@@ -57,38 +59,32 @@ static void sched_wake_sleepers(void) {
 
 void schedule() {
     sched_wake_sleepers();
-
     sched_reap();
 
+    process_t *prev = current_process;
+    if (!prev) prev = &idle_proc;  // first call: save boot stack into idle_proc
+
     if (current_process != NULL) {
-        // Handle the outgoing process based on its state
         if (current_process->process_state == PROCESS_RUNNING) {
-            // It was running and wasn't blocked/killed
             current_process->process_state = PROCESS_READY;
             list_add_tail(&current_process->node, &run_queue.node);
         }
-        // If ZOMBIE, it's already gone (current_process set to NULL in sys_task_quit usually)
     }
 
     if (list_empty(&run_queue)) {
-        // No process to schedule
         current_process = NULL;
+        context_switch(prev, &idle_proc);
         return;
     }
 
-    process_t *prev = current_process;  // save previous process
-
-    // Pick the next process from the run queue
     list_node_t *next_node = list_pop_front(&run_queue);
     current_process = container_of(next_node, process_t, node);
     current_process->process_state = PROCESS_RUNNING;
 
-    // Context switch to the new processre)
-    //KDEBUG("schedule: prev=%P next=%P", prev, current_process);
     if (current_process->as && (!prev || prev->as != current_process->as)) {
         vmm_activate(current_process->as);
     }
-    context_switch(prev, current_process);  // need to save prev first!
+    context_switch(prev, current_process);
 }
 
 size_t sched_ready_queue_snapshot(process_t **out, size_t max_out) {

@@ -269,6 +269,14 @@ static inline int32_t _dump(void) {
     return r0;
 }
 
+// ---------------- IPC helpers ---------------------
+static inline uint32_t nt_pack(const char *s) {
+    uint32_t v = 0;
+    for (int i = 0; i < 4 && s[i]; i++)
+        v |= (uint32_t)(unsigned char)s[i] << (i * 8);
+    return v;
+}
+
 #ifdef __cplusplus
 }
 #endif

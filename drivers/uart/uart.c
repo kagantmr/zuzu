@@ -63,7 +63,7 @@ int uart_printf(const char *fstring, ...) {
     kassert(fstring != NULL);
     va_list list;
     va_start(list, fstring);
-    vstrfmt(active_driver->putc, fstring, list);
+    vstrfmt(active_driver->putc, fstring, &list);
     va_end(list);
     return UART_OK;
 }

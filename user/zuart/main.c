@@ -1,4 +1,6 @@
 #include "zuart.h"
+#include "zuart_protocol.h"
+#include "nt_protocol.h"
 #include <stdint.h>
 
 volatile pl011_t *uart;
@@ -20,6 +22,10 @@ int zuart_setup(void)
         return ZUART_INIT_FAIL;
     if (_irq_bind(UART0_IRQ_NUM, port))
         return ZUART_INIT_FAIL;
+
+    // grant that port to nametable
+    int32_t slot = _port_grant(port, NAMETABLE_PID);
+    _call(NT_PORT, NT_REGISTER, nt_pack("uart"), slot);
 
     // init rb
     rxrb.head = rxrb.tail = 0;
@@ -53,7 +59,7 @@ int main(void)
                 {
                     // todo: make proper input receiving instead of echoing things back
                     char c = uart->DR;
-                    rb_write(&rxrb, uart->DR); // write into rx ringbuf
+                    rb_write(&rxrb, c); // write into rx ringbuf
                     uart->DR = c;          // echo it back immediately
                 }
                 uart->ICR |= IMSC_RXIM;
@@ -83,8 +89,21 @@ int main(void)
                 char c = returns.r2;
                 size_t l = returns.r3; // not used yet
                 (void)l;
-                rb_write(&txrb, c);
-                uart->IMSC |= IMSC_TXIM;
+
+                // Fast path: if HW TX FIFO can take data now and no backlog exists, send immediately.
+                if (!(uart->FR & FR_TXFF) && rb_empty(&txrb))
+                {
+                    uart->DR = c;
+                }
+                else
+                {
+                    if (!rb_write(&txrb, c))
+                    {
+                        _reply(returns.r0, 0, ZUART_ERR, 0);
+                        break;
+                    }
+                    uart->IMSC |= IMSC_TXIM;
+                }
                 _reply(returns.r0, 0, ZUART_SEND_OK, 0);
             }
             break;

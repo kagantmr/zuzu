@@ -144,5 +144,5 @@ void sys_port_grant(exception_frame_t *frame)
             return;
         }
     }
-    return ERR_NOMEM;
+    frame->r[0] = ERR_NOMEM;
 }
