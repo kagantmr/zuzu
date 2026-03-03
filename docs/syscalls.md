@@ -52,11 +52,11 @@ Negative r0 values indicate errors:
 
 ## 0x20–0x2F: Ports
 
-| #    | Name         | Arguments           | Returns        | Description                      |
-|------|--------------|---------------------|----------------|----------------------------------|
-| 0x20 | port_create  | —                   | handle or err | Create new IPC port              |
-| 0x21 | port_destroy | r0: handle          | 0 or err      | Destroy a port                   |
-| 0x22 | port_grant   | r0: handle, r1: pid | 0 or err      | Give port access to another task |
+| #    | Name         | Arguments           | Returns             | Description                      |
+|------|--------------|---------------------|---------------------|----------------------------------|
+| 0x20 | port_create  | —                   | handle or err       | Create new IPC port              |
+| 0x21 | port_destroy | r0: handle          | 0 or err            | Destroy a port                   |
+| 0x22 | port_grant   | r0: handle, r1: pid | slot_id or err      | Give port access to another task |
 
 ## 0x30–0x3F: Memory
 

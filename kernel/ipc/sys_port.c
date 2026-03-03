@@ -15,7 +15,7 @@ void sys_port_create(exception_frame_t *frame)
     }
     for (int i = 0; i < MAX_HANDLE_TABLE; i++)
     {
-        if (!(current_process->handle_table[i]))
+        if (!(current_process->handle_table[i].ep))
         {
             endpoint_t *new_endpoint = kmalloc(sizeof(endpoint_t));
             if (!new_endpoint)
@@ -28,7 +28,8 @@ void sys_port_create(exception_frame_t *frame)
             list_init(&new_endpoint->receiver_queue);
             new_endpoint->owner_pid = current_process->pid;
             new_endpoint->bound_irq = -1;
-            current_process->handle_table[i] = new_endpoint;
+            current_process->handle_table[i].ep = new_endpoint;
+            current_process->handle_table[i].grantable = true;
             frame->r[0] = i;
             return;
         }
@@ -53,7 +54,7 @@ void sys_port_destroy(exception_frame_t *frame)
         return;
     }
 
-    endpoint_t *ep = current_process->handle_table[handle];
+    endpoint_t *ep = current_process->handle_table[handle].ep;
     if (!ep)
     {
         frame->r[0] = ERR_BADARG;
@@ -91,7 +92,7 @@ void sys_port_destroy(exception_frame_t *frame)
 
     // Clean up
     kfree(ep);
-    current_process->handle_table[handle] = NULL;
+    current_process->handle_table[handle].ep = NULL;
     frame->r[0] = 0;
 }
 
@@ -120,28 +121,26 @@ void sys_port_grant(exception_frame_t *frame)
         return;
     }
 
-    endpoint_t *ep = current_process->handle_table[handle];
+    endpoint_t *ep = current_process->handle_table[handle].ep;
     if (!ep)
     {
         frame->r[0] = ERR_BADARG;
         return;
     }
 
-    // only owner can grant
-    if (ep->owner_pid != current_process->pid)
-    {
+    // only owner OR nameserver (PID 2) can grant
+    if (!current_process->handle_table[handle].grantable) {
         frame->r[0] = ERR_NOPERM;
         return;
     }
 
-
-    // copied this over from port_create, how to edit?
     for (int i = 0; i < MAX_HANDLE_TABLE; i++)
     {
-        if (!(grantee->handle_table[i]))
+        if (!(grantee->handle_table[i].ep))
         {
-            grantee->handle_table[i] = ep;
-            frame->r[0] = 0;
+            grantee->handle_table[i].ep = ep;
+            grantee->handle_table[i].grantable = (grantee->pid == NAMETABLE_PID);
+            frame->r[0] = i;
             return;
         }
     }
