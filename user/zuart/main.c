@@ -5,7 +5,7 @@ volatile pl011_t *uart;
 int port;
 ringbuf_t rxrb, txrb;
 
-int setup(void)
+int zuart_setup(void)
 {
     // first, map the device
     uart = (volatile pl011_t *)_mapdev(VEXPRESS_UART0_PA, 0x1000);
@@ -33,12 +33,12 @@ int setup(void)
 int main(void)
 {
     int exit_code;
-    if ((exit_code = setup()) != 0)
+    if ((exit_code = zuart_setup()) != 0)
     {
         return exit_code;
     }
 
-    zuzu_ret4_t returns;
+    zuzu_ipcmsg_t returns;
 
     while (1)
     {
