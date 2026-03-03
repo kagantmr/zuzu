@@ -40,7 +40,7 @@ typedef struct process {
     char name[16]; // PROCESS name
     uint32_t device_va_next;  // initialized to 0x60000000 in process_create
     exception_frame_t *trap_frame;
-    endpoint_t *handle_table[MAX_HANDLE_TABLE];
+    handle_entry_t handle_table[MAX_HANDLE_TABLE];
     ipc_state_t ipc_state;
     endpoint_t *blocked_endpoint;
 } process_t;

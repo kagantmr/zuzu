@@ -1,6 +1,8 @@
 #ifndef SYS_PORT_H
 #define SYS_PORT_H
 
+#define NAMETABLE_PID 2
+
 #include "arch/arm/include/context.h"
 
 void sys_port_create(exception_frame_t *frame);

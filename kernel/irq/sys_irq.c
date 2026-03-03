@@ -84,7 +84,7 @@ void irq_bind(exception_frame_t* frame) {
         frame->r[0] = ERR_BADARG;
         return;
     }
-    endpoint_t *ep = current_process->handle_table[port_handle];
+    endpoint_t *ep = current_process->handle_table[port_handle].ep;
     if (!ep) {
         frame->r[0] = ERR_BADARG;
         return;
