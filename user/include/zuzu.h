@@ -15,7 +15,9 @@ typedef struct {
     uint32_t r1;
     uint32_t r2;
     uint32_t r3;
-} zuzu_ret4_t;
+} zuzu_ipcmsg_t;
+
+#define NAMETABLE_PID 2
 
 /* ---- Task lifecycle ---- */
 
@@ -92,7 +94,7 @@ static inline int32_t _send(int32_t port, uint32_t w1, uint32_t w2, uint32_t w3)
 }
 
 /* (port) -> sender pid in r0, payload in r1-r3 */
-static inline zuzu_ret4_t _recv(int32_t port) {
+static inline zuzu_ipcmsg_t _recv(int32_t port) {
     register int32_t  r0 __asm__("r0") = port;
     register uint32_t r1 __asm__("r1");
     register uint32_t r2 __asm__("r2");
@@ -101,11 +103,11 @@ static inline zuzu_ret4_t _recv(int32_t port) {
                      : "+r"(r0), "=r"(r1), "=r"(r2), "=r"(r3)
                      : [num] "i"(SYS_PROC_RECV)
                      : "memory");
-    return (zuzu_ret4_t){ .r0 = r0, .r1 = r1, .r2 = r2, .r3 = r3 };
+    return (zuzu_ipcmsg_t){ .r0 = r0, .r1 = r1, .r2 = r2, .r3 = r3 };
 }
 
 /* (port, r1-r3) -> r0-r3 reply */
-static inline zuzu_ret4_t _call(int32_t port, uint32_t w1, uint32_t w2, uint32_t w3) {
+static inline zuzu_ipcmsg_t _call(int32_t port, uint32_t w1, uint32_t w2, uint32_t w3) {
     register int32_t  r0 __asm__("r0") = port;
     register uint32_t r1 __asm__("r1") = w1;
     register uint32_t r2 __asm__("r2") = w2;
@@ -114,7 +116,7 @@ static inline zuzu_ret4_t _call(int32_t port, uint32_t w1, uint32_t w2, uint32_t
                      : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3)
                      : [num] "i"(SYS_PROC_CALL)
                      : "memory");
-    return (zuzu_ret4_t){ .r0 = r0, .r1 = r1, .r2 = r2, .r3 = r3 };
+    return (zuzu_ipcmsg_t){ .r0 = r0, .r1 = r1, .r2 = r2, .r3 = r3 };
 }
 
 /* (r0-r3) -> 0 or -err (r0) */
