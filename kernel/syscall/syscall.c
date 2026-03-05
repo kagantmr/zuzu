@@ -108,6 +108,10 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     {
         sys_log(frame);
     } break;
+    case SYS_PMM_GETFREE:
+    {
+        sys_pmm_getfree(frame);
+    } break;  
     default:
     {
         KERROR("System call 0x%X does not exist", svc_num);

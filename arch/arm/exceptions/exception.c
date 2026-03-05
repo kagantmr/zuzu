@@ -5,7 +5,9 @@
 #include "kernel/proc/process.h"
 #include "kernel/proc/kstack.h"
 #include "kernel/sched/sched.h"
+#include "kernel/mm/pmm.h"
 #include "kernel/syscall/syscall.h"
+#include "lib/mem.h"
 #include <stdint.h>
 
 typedef enum exception_type
@@ -162,13 +164,13 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
             svc_num = (uint8_t)(*arm_instr & 0xFF);
         }
 
-            /*KDEBUG("Process with PID %d requested SVC #%d", current_process->pid, svc_num);
-            KDEBUG("Frame details:");
-            KDEBUG("PC: %P", (void *)(uintptr_t)frame->return_pc);
-            KDEBUG("Instruction at return_pc - 4 is %x", *((uint32_t *)(frame->return_pc - 4)));
-            KDEBUG("Decoded SVC immediate is %u", svc_num);
-            KDEBUG("Doing regdump.");
-            dump_registers(frame);*/
+        /*KDEBUG("Process with PID %d requested SVC #%d", current_process->pid, svc_num);
+        KDEBUG("Frame details:");
+        KDEBUG("PC: %P", (void *)(uintptr_t)frame->return_pc);
+        KDEBUG("Instruction at return_pc - 4 is %x", *((uint32_t *)(frame->return_pc - 4)));
+        KDEBUG("Decoded SVC immediate is %u", svc_num);
+        KDEBUG("Doing regdump.");
+        dump_registers(frame);*/
 
         syscall_dispatch(svc_num, frame);
     }
@@ -219,6 +221,9 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
 
         bool from_user = (frame->return_cpsr & 0x1F) == 0x10;
 
+        uint32_t fault_status = (dfsr & 0xF) | ((dfsr >> 6) & 0x10);
+        bool is_translation = (fault_status == 0x05 || fault_status == 0x07);
+
         if (from_user && current_process)
         {
             // Check if it hit a kernel stack guard page (low 4KB of each 8KB slot)
@@ -237,6 +242,33 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
                         .frame = frame,
                     };
                     panic("Kernel stack overflow");
+                }
+            }
+            if (is_translation)
+            {
+                addrspace_t *as = current_process->as;
+                for (size_t i = 0; i < as->region_count; i++)
+                {
+                    vm_region_t *r = &as->regions[i];
+                    if (dfar >= r->vaddr_start && dfar < r->vaddr_start + r->size)
+                    {
+                        if (r->flags & VM_FLAG_GUARD)
+                            continue;
+                        if (r->memtype == VM_MEM_DEVICE)
+                            continue;
+                        uintptr_t page_va = align_down(dfar, PAGE_SIZE);
+                        uintptr_t pa = pmm_alloc_page();
+                        if (pa == 0)
+                            break; // OOM, fall through to kill
+                        memset((void *)PA_TO_VA(pa), 0, PAGE_SIZE);
+                        if (!vmm_map_range(as, page_va, pa, PAGE_SIZE,
+                                           r->prot, r->memtype, VM_OWNER_ANON, VM_FLAG_NONE))
+                        {
+                            pmm_free_page(pa);
+                            break; // map failed, fall through to kill
+                        }
+                        return; // resume the faulting instruction
+                    }
                 }
             }
             KERROR("Oops! '%s' (PID %d) killed - data abort @ 0x%08X (%s %s)",

@@ -2,6 +2,8 @@
 #include "kernel/syscall/syscall.h"
 #include "kernel/sched/sched.h"
 #include "arch/arm/include/irq.h"
+#include "arch/arm/mmu/mmu.h"
+#include "kernel/mm/pmm.h"
 #include "kernel/layout.h"
 #include "lib/mem.h"
 
@@ -23,12 +25,129 @@ static bool is_device_phys(uintptr_t pa, size_t size)
 
 void memmap(exception_frame_t *frame)
 {
-    (void)frame;
+    uint32_t addr_hint = frame->r[0];
+    uint32_t size = frame->r[1];
+    uint32_t prot = frame->r[2];
+    if (size == 0)
+    {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+    if (size > 1024 * 1024 * 32)
+    { // 32mb is half of the recommended kernel mem anyway
+        frame->r[0] = ERR_NOMEM;
+        return;
+    }
+    if (size % PAGE_SIZE)
+    { // Needs VMM/PMM alignment
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    if (addr_hint != 0)
+    {
+        if (!validate_user_ptr(addr_hint, size))
+        {
+            frame->r[0] = ERR_BADARG;
+            return;
+        }
+    }
+
+    // 1. Pick a VA
+    uintptr_t va;
+    if (addr_hint != 0)
+    {
+        va = addr_hint; // already validated above
+    }
+    else
+    {
+        va = current_process->mmap_va_next;
+    }
+
+    // 2. Bump the cursor
+    current_process->mmap_va_next += size;
+
+    // 3. Register the region — no physical pages allocated yet
+    vm_region_t region = {
+        .vaddr_start = va,
+        .paddr_start = 0, // filled in at fault time, page by page
+        .size = size,
+        .prot = prot | VM_PROT_USER,
+        .memtype = VM_MEM_NORMAL,
+        .owner = VM_OWNER_ANON,
+        .flags = VM_FLAG_NONE,
+    };
+
+    if (!vmm_add_region(current_process->as, &region))
+    {
+        current_process->mmap_va_next -= size; // roll back cursor on failure
+        frame->r[0] = ERR_NOMEM;
+        return;
+    }
+
+    frame->r[0] = va;
 }
+
 void memunmap(exception_frame_t *frame)
 {
-    (void)frame;
+    uintptr_t va = (uintptr_t)frame->r[0];
+    size_t size = (size_t)frame->r[1];
+
+    // Basic validation
+    if (!validate_user_ptr(va, size))
+    {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+    if (size == 0 || size % PAGE_SIZE != 0)
+    {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    addrspace_t *as = current_process->as;
+
+    // Find the region, it must be an exact match to prevent partial-unmap attacks
+    vm_region_t *found = NULL;
+    for (size_t i = 0; i < as->region_count; i++)
+    {
+        if (as->regions[i].vaddr_start == va && as->regions[i].size == size)
+        {
+            found = &as->regions[i];
+            break;
+        }
+    }
+    if (!found)
+    {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    // If we own the pages, free them back to PMM before unmapping
+    if (found->owner == VM_OWNER_ANON)
+    {
+        // Walk page table to find which physical pages are actually backed
+        // (demand paging means not every page in the region may be mapped)
+        for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE)
+        {
+            uintptr_t pa = arch_mmu_translate(as->ttbr0_pa, va + offset);
+            if (pa != 0)
+            {
+                pmm_free_page(pa);
+            }
+        }
+    }
+
+    // Remove from region list and unmap page table entries
+    if (!vmm_remove_region(as, va, size))
+    {
+        frame->r[0] = ERR_NOMEM;
+        return;
+    }
+
+    frame->r[0] = 0;
 }
+
 void memshare(exception_frame_t *frame)
 {
     (void)frame;
@@ -58,4 +177,10 @@ void mapdev(exception_frame_t *frame)
     current_process->device_va_next += size_aligned;
     frame->r[0] = user_va;
     return;
+}
+
+void sys_pmm_getfree(exception_frame_t *frame)
+{
+    extern pmm_state_t pmm_state;
+    frame->r[0] = (uint32_t)pmm_state.free_pages;
 }
