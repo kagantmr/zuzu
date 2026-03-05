@@ -6,6 +6,7 @@
 #include "kernel/sched/sched.h"
 #include "lib/mem.h"
 #include "kstack.h"
+#include "user/include/syscall_nums.h"
 
 uint32_t next_pid = 1;
 process_t *process_table[MAX_PROCESSES];
@@ -21,6 +22,37 @@ process_t *process_find_by_pid(uint32_t pid)
 }
 
 void process_kill(process_t *p, int exit_status) {
+    // Clean up handle table — clear non-owned handles, free owned endpoints
+    for (int i = 0; i < MAX_HANDLE_TABLE; i++) {
+        if (p->handle_table[i].type == HANDLE_ENDPOINT) {
+            endpoint_t *ep = p->handle_table[i].ep;
+            if (ep && ep->owner_pid == p->pid) {
+                // Wake blocked waiters with ERR_DEAD
+                while (!list_empty(&ep->sender_queue)) {
+                    list_node_t *n = list_pop_front(&ep->sender_queue);
+                    process_t *proc = container_of(n, process_t, node);
+                    proc->ipc_state = IPC_NONE;
+                    proc->blocked_endpoint = NULL;
+                    proc->trap_frame->r[0] = ERR_DEAD;
+                    proc->process_state = PROCESS_READY;
+                    sched_add(proc);
+                }
+                while (!list_empty(&ep->receiver_queue)) {
+                    list_node_t *n = list_pop_front(&ep->receiver_queue);
+                    process_t *proc = container_of(n, process_t, node);
+                    proc->ipc_state = IPC_NONE;
+                    proc->blocked_endpoint = NULL;
+                    proc->trap_frame->r[0] = ERR_DEAD;
+                    proc->process_state = PROCESS_READY;
+                    sched_add(proc);
+                }
+                kfree(ep);
+            }
+            p->handle_table[i].ep = NULL;
+            p->handle_table[i].type = HANDLE_FREE;
+        }
+    }
+
     p->process_state = PROCESS_ZOMBIE;
     p->exit_status = exit_status;
 
@@ -34,7 +66,6 @@ void process_kill(process_t *p, int exit_status) {
         sched_defer_destroy(p);
     }
 }
-
 void process_destroy(process_t *p)
 {
 

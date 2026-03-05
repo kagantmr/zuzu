@@ -39,6 +39,7 @@ typedef struct process {
     uint32_t waiting_for;
     char name[16]; // PROCESS name
     uint32_t device_va_next;  // initialized to 0x60000000 in process_create
+    uint32_t mmap_va_next;  // initialized to 0x20000000 in process_create
     exception_frame_t *trap_frame;
     handle_entry_t handle_table[MAX_HANDLE_TABLE];
     ipc_state_t ipc_state;

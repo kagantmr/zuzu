@@ -14,9 +14,32 @@ typedef struct endpoint {
     int bound_irq;
 } endpoint_t;
 
+// stub
 typedef struct {
-    endpoint_t *ep;
+    uint32_t phys_base;
+    uint32_t size;
+} device_cap_t;
+
+// stub
+typedef struct {
+    uint32_t id;
+} shmem_t;
+
+typedef enum {
+    HANDLE_FREE,
+    HANDLE_ENDPOINT,
+    HANDLE_DEVICE,
+    HANDLE_SHMEM,
+} handle_type_t;
+
+typedef struct {
+    handle_type_t type;
     bool grantable;
+    union {
+        endpoint_t  *ep;
+        device_cap_t *dev;
+        shmem_t      *shm;
+    };
 } handle_entry_t;
 
 

@@ -15,7 +15,7 @@ void sys_port_create(exception_frame_t *frame)
     }
     for (int i = 0; i < MAX_HANDLE_TABLE; i++)
     {
-        if (!(current_process->handle_table[i].ep))
+        if (current_process->handle_table[i].type == HANDLE_FREE)
         {
             endpoint_t *new_endpoint = kmalloc(sizeof(endpoint_t));
             if (!new_endpoint)
@@ -30,6 +30,7 @@ void sys_port_create(exception_frame_t *frame)
             new_endpoint->bound_irq = -1;
             current_process->handle_table[i].ep = new_endpoint;
             current_process->handle_table[i].grantable = true;
+            current_process->handle_table[i].type = HANDLE_ENDPOINT;
             frame->r[0] = i;
             return;
         }
@@ -93,6 +94,7 @@ void sys_port_destroy(exception_frame_t *frame)
     // Clean up
     kfree(ep);
     current_process->handle_table[handle].ep = NULL;
+    current_process->handle_table[handle].type = HANDLE_FREE;
     frame->r[0] = 0;
 }
 
@@ -108,7 +110,25 @@ void sys_port_grant(exception_frame_t *frame)
         return;
     }
 
-    // look up the target process, find free slot
+    handle_entry_t entry = current_process->handle_table[handle];
+    if (entry.type != HANDLE_ENDPOINT) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    if (!entry.grantable) {
+        frame->r[0] = ERR_NOPERM;
+        return;
+    }
+
+    endpoint_t *ep = entry.ep;
+    if (!ep)
+    {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    // Look up target process
     process_t *grantee = process_find_by_pid(pid);
     if (!grantee)
     {
@@ -121,25 +141,14 @@ void sys_port_grant(exception_frame_t *frame)
         return;
     }
 
-    endpoint_t *ep = current_process->handle_table[handle].ep;
-    if (!ep)
-    {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-
-    // only owner OR nameserver (PID 2) can grant
-    if (!current_process->handle_table[handle].grantable) {
-        frame->r[0] = ERR_NOPERM;
-        return;
-    }
-
+    // Find free slot in grantee's table
     for (int i = 0; i < MAX_HANDLE_TABLE; i++)
     {
-        if (!(grantee->handle_table[i].ep))
+        if (grantee->handle_table[i].type == HANDLE_FREE)
         {
             grantee->handle_table[i].ep = ep;
             grantee->handle_table[i].grantable = (grantee->pid == NAMETABLE_PID);
+            grantee->handle_table[i].type = HANDLE_ENDPOINT;
             frame->r[0] = i;
             return;
         }
