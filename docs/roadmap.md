@@ -188,7 +188,7 @@ Phase 5: Kernel Heap
 - [x] sys_mapdev: map MMIO into driver process address space
 - [x] Userspace PL011 UART driver
 - [ ] Console IPC protocol (other tasks print by IPC to UART server)
-- [ ] Kernel stops using UART (mostly) after handoff (except early boot)
+- [x] Kernel stops using UART (mostly) after handoff (except early boot)
 
 ---
 
@@ -215,17 +215,17 @@ Phase 5: Kernel Heap
 
 ## Phase 18: Service Registry (Name Server + Name Resolution)
 
-- [ ] Name server process
-- [ ] Handle 0 pre-populated in every process
-- [ ] register / lookup IPC protocol
-- [ ] Capability transfer (port_grant through IPC) *(depends on Phase 13 capability transfer)*
+- [x] Name server process
+- [x] Handle 0 pre-populated in every process
+- [x] register / lookup IPC protocol
+- [x] Capability transfer (port_grant through IPC) *(depends on Phase 13 capability transfer)*
 
 ---
 
 ## Phase 19: Advanced Memory Management
 
-- [ ] sys_mmap / sys_munmap
-- [ ] Demand paging (Data Abort on unmapped user page → allocate)
+- [x] sys_mmap / sys_munmap
+- [x] Demand paging (Data Abort on unmapped user page → allocate)
 - [ ] Shared memory objects (sys_mshare / sys_attach)
 
 ---
