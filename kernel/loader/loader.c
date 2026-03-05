@@ -131,6 +131,7 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
     process->pid = next_pid++;
     process_table[process->pid] = process;
     process->device_va_next = 0x60000000;
+    process->mmap_va_next = 0x20000000;
     process->parent_pid = 0;
     process->priority = 1;
     process->time_slice = 5;

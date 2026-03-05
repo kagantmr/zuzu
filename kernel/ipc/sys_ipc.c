@@ -30,7 +30,13 @@ void proc_send(exception_frame_t *frame)
         return;
     }
 
-    endpoint_t *ep = current_process->handle_table[handle].ep;
+    handle_entry_t entry = current_process->handle_table[handle];
+    if (entry.type != HANDLE_ENDPOINT) {
+        frame->r[0] = ERR_NOPERM;
+        return;
+    }
+
+    endpoint_t *ep = entry.ep;
     if (!ep)
     {
         frame->r[0] = ERR_BADARG;
@@ -80,7 +86,13 @@ void proc_recv(exception_frame_t *frame)
         return;
     }
 
-    endpoint_t *ep = current_process->handle_table[handle].ep;
+    handle_entry_t entry = current_process->handle_table[handle];
+    if (entry.type != HANDLE_ENDPOINT) {
+        frame->r[0] = ERR_NOPERM;
+        return;
+    }
+
+    endpoint_t *ep = entry.ep;
     if (!ep)
     {
         frame->r[0] = ERR_BADARG;
@@ -146,12 +158,19 @@ void proc_call(exception_frame_t *frame)
         return;
     }
 
-    endpoint_t *ep = current_process->handle_table[handle].ep;
+    handle_entry_t entry = current_process->handle_table[handle];
+    if (entry.type != HANDLE_ENDPOINT) {
+        frame->r[0] = ERR_NOPERM;
+        return;
+    }
+
+    endpoint_t *ep = entry.ep;
     if (!ep)
     {
         frame->r[0] = ERR_BADARG;
         return;
     }
+
 
     if (!list_empty(&ep->receiver_queue))
     {
