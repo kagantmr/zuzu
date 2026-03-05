@@ -157,10 +157,6 @@ _Noreturn void kmain(void)
             sched_add(init);
     }
 
-
-    kprintf("VT1 %llu\n", 1ULL);
-    kprintf("VT2 %llu\n", 0x1122334455667788ULL);
-    kprintf("VT3 %u %llu %u\n", 0xAAu, 0x1122334455667788ULL, 0xBBu);
     register_tick_callback(schedule);
 
     KINFO("Entering idle");
