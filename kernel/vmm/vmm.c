@@ -386,10 +386,9 @@ bool vmm_map_range(addrspace_t* as, uintptr_t va, uintptr_t pa, size_t size,
 bool vmm_unmap_range(addrspace_t* as, uintptr_t va, size_t size) {
     if (!as) return false;
     if (size == 0) return false;
-    if ((va % 0x100000) != 0) return false;
-    if ((size % 0x100000) != 0) return false;
+    if ((va % PAGE_SIZE) != 0) return false;    // ← page granularity
+    if ((size % PAGE_SIZE) != 0) return false;  // ← page granularity
 
-    // Delegate to arch layer (walks page tables, clears entries, invalidates TLB)
     return arch_mmu_unmap(as, va, size);
 }
 
