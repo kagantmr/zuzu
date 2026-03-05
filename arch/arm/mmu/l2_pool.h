@@ -4,7 +4,7 @@
 #include "stddef.h"
 #include "stdint.h"
 
-#define MAX_L2_PAGES 32
+#define MAX_L2_PAGES 128
 
 typedef struct {
     uintptr_t page_pa;    // PA of the 4KB page from PMM
