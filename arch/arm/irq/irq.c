@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #define LOG_FMT(fmt) "(irq) " fmt
 #include "core/log.h"
@@ -45,7 +46,7 @@ bool irq_unregister(uint32_t irq_id) {
     if (irq_id >= MAX_IRQS) {
         return false;
     }
-    handler_table[irq_id] = nullptr;
+    handler_table[irq_id] = NULL;
     handler_ctx[irq_id] = NULL;
     return true;    
 }
