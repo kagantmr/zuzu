@@ -138,13 +138,15 @@ _Noreturn void kmain(void)
     irq_init();
     board_init_devices();
 
+    sched_init();
+
     arch_global_irq_enable();
 
     print_boot_banner();
 
     perform_panic_tests();
 
-    sched_init();
+
 
     initrd_init(_initrd_start, _initrd_end - _initrd_start);
 
