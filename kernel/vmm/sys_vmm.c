@@ -1,7 +1,6 @@
 #include "sys_vmm.h"
 #include "kernel/syscall/syscall.h"
 #include "kernel/sched/sched.h"
-#include "arch/arm/include/irq.h"
 #include "arch/arm/mmu/mmu.h"
 #include "kernel/mm/pmm.h"
 #include "kernel/layout.h"

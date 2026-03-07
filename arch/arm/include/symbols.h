@@ -1,13 +1,9 @@
 #ifndef SYMBOLS_H
 #define SYMBOLS_H
 
-#include <stdint.h>
-
-/* Virtual addresses (for code references) */
 extern char _kernel_start[];
 extern char _kernel_end[];
 
-/* Physical addresses (for PMM/memory management) */
 extern char _kernel_phys_start[];
 extern char _kernel_phys_end[];
 extern char _boot_start[];
