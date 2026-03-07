@@ -47,7 +47,6 @@ static inline uint32_t get_sp(void) {
 
 static void emit_logo_line(const char *line)
 {
-    kprintf("DBG_INFO: i=%d sp=%08x\n", i, get_sp());
     kprintf("%s%s%s", ANSI_CYAN, line, ANSI_RESET);
     int pad = LOGO_WIDTH - visible_len(line);
     for (int i = 0; i < pad; i++)
@@ -77,6 +76,7 @@ static void emit_info_kv(const char *label, const char *value)
 
 static void emit_info_line(int i)
 {
+    kprintf("DBG_INFO: i=%d sp=%08x\n", i, get_sp());
     char val[64];
 
     switch (i) {
