@@ -10,7 +10,6 @@ static void zuart_write_str(int handle, const char *s)
     }
 }
 
-
 #define PROT_READ  0x1
 #define PROT_WRITE 0x2
 

@@ -92,7 +92,7 @@ void addrspace_destroy(addrspace_t* as) {
     // If it is active, unmapping and freeing will corrupt the running kernel.
     if (as == g_current_addrspace) {
         panic("Attempted to destroy active addrspace");
-        return;  // For now, silently fail to prevent corruption
+        __builtin_unreachable();
     }
     
     // Phase-2 bring-up policy (section mappings):
@@ -237,7 +237,7 @@ void vmm_bootstrap(void) {
         g_kernel_as = kmalloc(sizeof(addrspace_t));
         if (!g_kernel_as) {
             panic("Failed to create kernel address space");
-            return;
+            __builtin_unreachable();
         }
 
         // early_l1 is in .bss.boot, linked at physical addresses
