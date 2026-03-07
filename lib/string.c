@@ -497,3 +497,18 @@ void vstrfmt(void (*outc)(char), const char *fmt, va_list *args) {
         }
     }
 }
+
+int visible_len(const char *s)
+{
+    int len = 0;
+    while (*s) {
+        if (*s == '\033') {
+            while (*s && *s != 'm') s++;
+            if (*s) s++;
+        } else {
+            len++;
+            s++;
+        }
+    }
+    return len;
+}

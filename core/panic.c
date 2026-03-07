@@ -9,6 +9,7 @@
 #include "kernel/proc/process.h"
 #include "kernel/sched/sched.h"
 #include "lib/snprintf.h"
+#include "lib/string.h"
 
 #include <stdint.h>
 
@@ -40,20 +41,6 @@ static void panic_puts(const char *s)
 }
 
 #ifdef PANIC_FULL_SCREEN
-static int visible_len(const char *s)
-{
-    int len = 0;
-    while (*s) {
-        if (*s == '\033') {
-            while (*s && *s != 'm') s++;
-            if (*s) s++;
-        } else {
-            len++;
-            s++;
-        }
-    }
-    return len;
-}
 
 
 static void panic_pad(int n)
