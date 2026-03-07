@@ -2,6 +2,7 @@
 #define ENDPOINT_H
 
 #include <stdint.h>
+#include <stdbool.h>
 #include "lib/list.h"
 
 #define MAX_HANDLE_TABLE 16
