@@ -140,7 +140,9 @@ _Noreturn void kmain(void)
 
     arch_global_irq_enable();
 
+    arch_global_irq_disable();
     print_boot_banner();
+    arch_global_irq_enable();
 
     perform_panic_tests();
 
