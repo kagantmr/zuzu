@@ -18,9 +18,9 @@ static inline void gicc_write(uint32_t off, uint32_t val)
     gicc_base[off >> 2] = val;
 }
 
-static inline uint32_t gicc_read(uint32_t off)
+static inline uint32_t gicc_read(const uint32_t offset)
 {
-    return gicc_base[off >> 2];
+    return gicc_base[offset >> 2];
 }
 
 void gic_init(uintptr_t gicd_base_addr, uintptr_t gicc_base_addr) {

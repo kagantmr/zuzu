@@ -45,7 +45,7 @@ bool irq_unregister(uint32_t irq_id) {
     if (irq_id >= MAX_IRQS) {
         return false;
     }
-    handler_table[irq_id] = NULL;
+    handler_table[irq_id] = nullptr;
     handler_ctx[irq_id] = NULL;
     return true;    
 }

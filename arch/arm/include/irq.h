@@ -2,9 +2,8 @@
 #define IRQ_H
 
 #include <stdint.h>
-#include <stdbool.h>
 
-typedef void (*irq_handler_t)(void *ctx);
+typedef void (*irq_handler_t)(void *ctx); /* Generic IRQ handler function ptr */
 
 #define MAX_IRQS 128
 

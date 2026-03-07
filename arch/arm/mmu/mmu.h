@@ -124,16 +124,64 @@ void arch_mmu_flush_tlb_va(uintptr_t va);
  */
 uintptr_t arch_mmu_translate(uintptr_t ttbr0_pa, uintptr_t va);
 
+/**
+ *
+ * @return Delegates to pool allocator for an L2 table
+ */
 uintptr_t arch_mmu_alloc_l2_table(void);
+
+/**
+ *
+ * @param l2_pa PA of the table to make an entry to
+ * @return The entry itself
+ */
 uint32_t arch_mmu_make_l1_pte(uintptr_t l2_pa);
+
+/**
+ *
+ * @param pa Physical address to translate
+ * @param memtype Enum for memory type (MMIO, user, kernel)
+ * @param prot Access privilege
+ * @return The correct page table entry
+ */
 uint32_t arch_mmu_make_l2_pte(uintptr_t pa, vm_memtype_t memtype, vm_prot_t prot);
+
+/**
+ *
+ * @param as Address space pointer
+ * @param va Virtual address to map at
+ * @param pa Physical address to map
+* @param memtype Enum for memory type (MMIO, user, kernel)
+ * @param prot Access privilege
+ * @return true if success, false if fail
+ */
 bool arch_mmu_map_page(addrspace_t *as, uintptr_t va, uintptr_t pa, vm_memtype_t memtype, vm_prot_t prot);
+
+/**
+ *
+ * @param as Address space ptr
+ * @param va Virtual address to unmap
+* @return true if success, false if fail
+ */
 bool arch_mmu_unmap_page(addrspace_t *as, uintptr_t va);
 
-// Walk page tables and free all user-space physical pages
+/**
+ *
+ * @return Ptr to page tables
+ */
 uintptr_t arch_mmu_create_user_tables(void);
+
+/**
+ *
+ * @param ttbr0_pa TTBR0 to free from
+ */
 void arch_mmu_free_user_pages(uintptr_t ttbr0_pa);
 
+
+/**
+ *
+ * @param as Address space to switch to TTBR1 in
+ */
 void arch_mmu_init_ttbr1(addrspace_t *as);
 
 /**
