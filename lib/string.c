@@ -498,7 +498,7 @@ void vstrfmt(void (*outc)(char), const char *fmt, va_list *args) {
     }
 }
 
-int visible_len(const char *s)
+__attribute__((noinline)) int visible_len(const char *s)
 {
     int len = 0;
     while (*s) {
