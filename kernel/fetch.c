@@ -36,11 +36,18 @@ static inline uint32_t read_be32(const void *p)
            ((uint32_t)b[3]);
 }
 
+static inline uint32_t get_sp(void) {
+    uint32_t sp;
+    __asm__ volatile ("mov %0, sp" : "=r"(sp));
+    return sp;
+}
+
 // Emit a logo line padded to LOGO_WIDTH visible chars. Does not emit newline.
 #define LOGO_WIDTH 38
 
 static void emit_logo_line(const char *line)
 {
+    kprintf("DBG_INFO: i=%d sp=%08x\n", i, get_sp());
     kprintf("%s%s%s", ANSI_CYAN, line, ANSI_RESET);
     int pad = LOGO_WIDTH - visible_len(line);
     for (int i = 0; i < pad; i++)
@@ -174,11 +181,15 @@ void print_boot_banner(void)
 };
 
     const int lines = (int)(sizeof(logo) / sizeof(logo[0]));
+    kprintf("DBG0: sp=%08x\n", get_sp());
 
     for (int i = 0; i < lines; i++) {
+        kprintf("DBG1: i=%d sp=%08x\n", i, get_sp());
         emit_logo_line(logo[i]);
+        kprintf("DBG2: i=%d sp=%08x\n", i, get_sp());
         kprintf("  ");
         emit_info_line(i);
+        kprintf("DBG3: i=%d sp=%08x\n", i, get_sp());
         kprintf("\n");
     }
 
