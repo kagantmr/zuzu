@@ -110,6 +110,11 @@ void strfmt(void (*outc)(char), const char *fstring, ...) ;
  */
 void vstrfmt(void (*outc)(char), const char *fstring, va_list *args);
 
-
+/**
+ *
+ * @param s String to count visible characters in
+ * @return Amount of visible characters
+ */
+int visible_len(const char *s);
 
 #endif

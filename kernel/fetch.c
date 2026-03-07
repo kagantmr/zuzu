@@ -9,6 +9,7 @@
 #include "core/version.h"
 #include "kernel/mm/pmm.h"
 #include "lib/mem.h"
+#include "lib/string.h"
 #include "lib/snprintf.h"
 #include "layout.h"
 
@@ -33,22 +34,6 @@ static inline uint32_t read_be32(const void *p)
            ((uint32_t)b[1] << 16) |
            ((uint32_t)b[2] << 8) |
            ((uint32_t)b[3]);
-}
-
-// Count visible characters (skip ANSI escape sequences).
-static int visible_len(const char *s)
-{
-    int len = 0;
-    while (*s) {
-        if (*s == '\033') {
-            while (*s && *s != 'm') s++;
-            if (*s) s++;
-        } else {
-            len++;
-            s++;
-        }
-    }
-    return len;
 }
 
 // Emit a logo line padded to LOGO_WIDTH visible chars. Does not emit newline.
