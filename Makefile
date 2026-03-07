@@ -93,12 +93,13 @@ SRC_DIRS = arch core drivers kernel lib
 
 # Find sources
 CSRCS    = $(shell find $(SRC_DIRS) -name '*.c')
-ASRCS    = $(shell find $(SRC_DIRS) -name '*.s')
-SRCS     = $(CSRCS) $(ASRCS)
+ASRCS_ALL = $(shell find $(SRC_DIRS) -name '*.S')
+ASRCS     = $(filter-out arch/arm/crt0.S,$(ASRCS_ALL))
+SRCS      = $(CSRCS) $(ASRCS)
 
 # Object files in build/
 OBJS     = $(CSRCS:%.c=build/%.o) \
-           $(ASRCS:%.s=build/%.o)
+           $(ASRCS:%.S=build/%.o)
 
 DEPS     = $(OBJS:.o=.d)
 
@@ -112,14 +113,14 @@ build/%.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # Compile assembly sources
-build/%.o: %.s
+build/%.o: %.S
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
 
 # Userspace build rules
 
 # CRT0 is the shared entry stub for all user programs
-$(USER_CRT0): user/crt0.s
+$(USER_CRT0): arch/arm/crt0.S
 	@mkdir -p $(dir $@)
 	$(USER_CC) $(USER_CFLAGS) -x assembler-with-cpp -c $< -o $@
 
@@ -157,7 +158,7 @@ $(INITRD): $(USER_ELFS)
 	cd build/initrd && find . -not -name '.' | sort | cpio -o -H newc > ../initrd.cpio 2>/dev/null
 	@echo "  CPIO    $@ ($(words $(USER_PROGS)) program(s))"
 
-build/arch/arm/initrd.o: arch/arm/initrd.s $(INITRD)
+build/arch/arm/initrd.o: arch/arm/initrd.S $(INITRD)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
 
