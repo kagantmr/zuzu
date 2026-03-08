@@ -6,7 +6,7 @@
 
 extern process_t *current_process;
 
-void sys_port_create(exception_frame_t *frame)
+void port_create(exception_frame_t *frame)
 {
     if (!current_process)
     {
@@ -38,7 +38,7 @@ void sys_port_create(exception_frame_t *frame)
     frame->r[0] = ERR_BUSY;
 }
 
-void sys_port_destroy(exception_frame_t *frame)
+void port_destroy(exception_frame_t *frame)
 {
     if (!current_process)
     {
@@ -98,7 +98,7 @@ void sys_port_destroy(exception_frame_t *frame)
     frame->r[0] = 0;
 }
 
-void sys_port_grant(exception_frame_t *frame)
+void port_grant(exception_frame_t *frame)
 {
     int handle = frame->r[0];
     uint32_t pid = frame->r[1];

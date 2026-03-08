@@ -13,19 +13,19 @@ extern list_head_t sleep_queue;
 #define LOG_FMT(fmt) "(sys_task) " fmt
 #include "core/log.h"
 
-void sys_task_quit(exception_frame_t *frame) {
+void quit(exception_frame_t *frame) {
     KINFO("Process %d exited with status code %d", current_process->pid, current_process->exit_status);
     
     process_kill(current_process, frame->r[0]);
     schedule();
 }
 
-void sys_task_yield(exception_frame_t *frame) {
+void yield(exception_frame_t *frame) {
     (void)frame;
     schedule();
 }
 
-void sys_task_sleep(exception_frame_t *frame) {
+void sleep(exception_frame_t *frame) {
     uint32_t ms = frame->r[0]; // Argument 0: Milliseconds to sleep
     
     // Convert ms to ticks (assuming 100Hz timer -> 10ms per tick)
@@ -44,11 +44,11 @@ void sys_task_sleep(exception_frame_t *frame) {
 }
 
 // Add this function
-void sys_get_pid(exception_frame_t *frame) {
+void get_pid(exception_frame_t *frame) {
     frame->r[0] = current_process->pid;
 }
 
-void sys_task_wait(exception_frame_t *frame) {
+void wait(exception_frame_t *frame) {
     uint32_t child_pid = frame->r[0];
 
     // find the child
@@ -81,7 +81,7 @@ void sys_task_wait(exception_frame_t *frame) {
     process_destroy(child);
 }
 
-void sys_task_spawn(exception_frame_t *frame) {
+void spawn(exception_frame_t *frame) {
     const char *name = (const char *)frame->r[0];
     size_t name_len = frame->r[1];
     if (!validate_user_ptr((uintptr_t)name, name_len)) {

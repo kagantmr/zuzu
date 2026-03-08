@@ -218,6 +218,16 @@ static inline void *_mapdev(uintptr_t phys, size_t size) {
     return (void *) r0;
 }
 
+/* (handle) -> 0 or -err */
+static inline int32_t _detach(int32_t handle) {
+    register int32_t r0 __asm__("r0") = handle;
+    __asm__ volatile("svc %[num]"
+        : "+r"(r0)
+        : [num] "i"(SYS_DETACH)
+        : "memory");
+    return r0;
+}
+
 /* ---- Interrupts ---- */
 
 static inline int32_t _irq_claim(uint32_t irq_num) {

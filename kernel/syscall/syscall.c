@@ -19,26 +19,26 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     {
     case SYS_TASK_QUIT:
     {
-        sys_task_quit(frame);
+        quit(frame);
     } break; 
     case SYS_TASK_YIELD:
     {
-        sys_task_yield(frame);
+        yield(frame);
     } break;                   
     case SYS_TASK_SPAWN:
     {
-        sys_task_spawn(frame);
+        spawn(frame);
     } break; 
     case SYS_TASK_WAIT:
     {
-        sys_task_wait(frame);
+        wait(frame);
     } break; 
     case SYS_TASK_SLEEP: {
-        sys_task_sleep(frame);
+        sleep(frame);
     } break;
     case SYS_GET_PID:
     {
-        sys_get_pid(frame);
+        get_pid(frame);
     } break; 
     case SYS_PROC_SEND:
     {
@@ -58,15 +58,15 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     } break; 
     case SYS_PORT_CREATE:
     {
-        sys_port_create(frame);
+        port_create(frame);
     } break; 
     case SYS_PORT_DESTROY:
     {
-        sys_port_destroy(frame);
+        port_destroy(frame);
     } break; 
     case SYS_PORT_GRANT:
     {
-        sys_port_grant(frame);
+        port_grant(frame);
     } break; 
     case SYS_MEMMAP:
     {
@@ -87,6 +87,10 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     case SYS_MAPDEV:
     {
         mapdev(frame);
+    } break; 
+    case SYS_DETACH:
+    {
+        detach(frame);
     } break; 
     case SYS_IRQ_CLAIM:
     {   
