@@ -35,7 +35,7 @@ USER_CFLAGS  = -ffreestanding -nostdlib -O$(OPTIMIZATION_LEVEL) -Wall -Wextra \
 USER_LDFLAGS = -T user/user.ld
 
 # List every user program directory here (under user/)
-USER_PROGS   = init hello zuart nametable
+USER_PROGS   = init hello zuart nametable shmem_test
 
 # Derived paths
 USER_CRT0    = build/user/crt0.o
@@ -145,6 +145,11 @@ build/user/nametable/nametable.elf: user/nametable/main.c $(USER_CRT0) user/user
 	$(USER_CC) $(USER_CFLAGS) -c user/nametable/main.c -o build/user/nametable/main.o
 	$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) build/user/nametable/main.o -o $@
 
+build/user/shmem_test/shmem_test.elf: user/shmem_test/main.c $(USER_CRT0) user/user.ld
+	@mkdir -p $(dir $@)
+	$(USER_CC) $(USER_CFLAGS) -c user/shmem_test/main.c -o build/user/shmem_test/main.o
+	$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) build/user/shmem_test/main.o -o $@
+
 # Pack all user ELFs into a CPIO newc archive.
 # The directory tree inside the archive becomes the namespace that
 # initrd_find() searches, e.g. "bin/init".
@@ -155,6 +160,7 @@ $(INITRD): $(USER_ELFS)
 	cp build/user/hello/hello.elf build/initrd/bin/hello
 	cp build/user/zuart/zuart.elf build/initrd/bin/zuart
 	cp build/user/nametable/nametable.elf build/initrd/bin/nametable
+	cp build/user/shmem_test/shmem_test.elf build/initrd/bin/shmem_test
 	cd build/initrd && find . -not -name '.' | sort | cpio -o -H newc > ../initrd.cpio 2>/dev/null
 	@echo "  CPIO    $@ ($(words $(USER_PROGS)) program(s))"
 

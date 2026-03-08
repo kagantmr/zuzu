@@ -162,8 +162,17 @@ _Noreturn void kmain(void)
     register_tick_callback(schedule);
 
     KINFO("Entering idle");
+    uint64_t idle_ticks = 0;
     while (1)
     {
+        sched_reap();
         __asm__("wfi");
+        idle_ticks++;
+        if ((idle_ticks & 255) == 0)
+        {
+            KINFO("Idle tick: %llu\n", idle_ticks);
+            KINFO("Current page usage: %u\n", pmm_state.total_pages - pmm_state.free_pages);
+            KINFO("Ready queue length: %zu\n", sched_ready_queue_snapshot(NULL, 0));
+        }
     }
 }
