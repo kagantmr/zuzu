@@ -1,7 +1,7 @@
 #include "l2_pool.h"
 #include "kernel/mm/pmm.h"
 #include "arch/arm/mmu/mmu.h"  // for PA_TO_VA
-#include "lib/mem.h"     
+#include <mem.h>
 
 static l2_pool_entry_t pool[MAX_L2_PAGES];
 static int pool_count = 0;

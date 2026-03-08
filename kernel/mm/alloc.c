@@ -3,8 +3,8 @@
 #include "kernel/layout.h"
 #include "kernel/vmm/vmm.h"  // For PA_TO_VA
 #include "stdbool.h"
-#include "lib/mem.h"
-#include "core/assert.h"
+#include <mem.h>
+#include <assert.h>
 #include "core/log.h"
 
 extern kernel_layout_t kernel_layout;

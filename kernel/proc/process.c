@@ -4,9 +4,9 @@
 #include "arch/arm/mmu/mmu.h"
 #include "kernel/irq/sys_irq.h"
 #include "kernel/sched/sched.h"
-#include "lib/mem.h"
+#include <mem.h>
 #include "kstack.h"
-#include "user/include/syscall_nums.h"
+#include "zuzu/syscall_nums.h"
 
 uint32_t next_pid = 1;
 process_t *process_table[MAX_PROCESSES];

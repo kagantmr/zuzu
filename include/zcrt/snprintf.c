@@ -1,6 +1,4 @@
-#include <stdarg.h>
-#include <stddef.h>
-#include "lib/string.h"  // for vstrfmt
+#include "string.h" 
 
 static struct {
     char *buf;

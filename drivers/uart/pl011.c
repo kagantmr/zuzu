@@ -1,7 +1,7 @@
 #include "drivers/uart/pl011.h"
 #include "arch/arm/include/irq.h" 
 #include "drivers/uart/uart.h"
-#include "core/assert.h"
+#include <assert.h>
 
 #include <stdint.h>
 #include <stddef.h>

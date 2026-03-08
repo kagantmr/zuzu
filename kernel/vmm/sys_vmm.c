@@ -4,7 +4,7 @@
 #include "arch/arm/mmu/mmu.h"
 #include "kernel/mm/pmm.h"
 #include "kernel/layout.h"
-#include "lib/mem.h"
+#include <mem.h>
 
 #define LOG_FMT(fmt) "(syscall_vmm) " fmt
 #include "core/log.h"

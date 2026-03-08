@@ -5,11 +5,19 @@
 
 #define ZUART_CMD_WRITE 1
 #define ZUART_CMD_READ 2
+
 /**
+* IPC Contract for ZUART:
+* * ZUART_CMD_WRITE:
 * r0 = port handle (used by IPC)
-* r1 = ZUART_CMD_*
-* r2 = pointer to string
-* r3 = length
+* r1 = ZUART_CMD_WRITE
+* r2 = shmem_handle (containing the string/data to send)
+* r3 = length of the data to write
+* * ZUART_CMD_READ:
+* r0 = port handle (used by IPC)
+* r1 = ZUART_CMD_READ
+* r2 = shmem_handle (allocated by client, to be filled by zuart)
+* r3 = maximum length to read (size of the shared memory buffer)
 */
 
 // -----------------------------------------------------

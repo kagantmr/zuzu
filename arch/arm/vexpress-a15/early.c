@@ -11,11 +11,12 @@
 #include "kernel/mm/alloc.h"
 #include "kernel/vmm/vmm.h"
 
-#include "core/assert.h"
+
 #include "core/panic.h"
 
-#include "lib/mem.h"
-#include "lib/string.h"
+#include <assert.h>
+#include <mem.h>
+#include <string.h>
 
 #include "drivers/uart/uart.h"
 #include "drivers/uart/pl011.h"

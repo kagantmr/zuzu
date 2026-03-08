@@ -1,9 +1,11 @@
 #ifndef MEM_H
 #define MEM_H
-#include "stddef.h"
-#include "stdint.h"
-#include "stdbool.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
+#define align_down(addr, align) ((addr) & ~((align) - 1))
+#define align_up(addr, align)   (((addr) + (align) - 1) & ~((align) - 1))
 
 /**
  * @brief Copy n bytes from source to destination.
@@ -43,27 +45,6 @@ void *memmove(void *dest, const void *src, size_t n);
  * @return An integer less than, equal to, or greater than zero if str1 is found, respectively, to be less than, to match, or be greater than str2.
  */
 int memcmp(const void *str1, const void *str2, size_t count);
-
-/** 
- * @brief Align an address downwards to the nearest multiple of alignment.
- * 
- * @param addr The address to align.
- * @param alignment The alignment boundary (must be a power of two).
- * @return The aligned address.
- * 
-*/
-uintptr_t align_down(uintptr_t addr, size_t alignment);
-
-/** 
- * @brief Align an address upwards to the nearest multiple of alignment.
- * 
- * @param addr The address to align.
- * @param alignment The alignment boundary (must be a power of two).
- * @return The aligned address.
- * 
-*/
-uintptr_t align_up(uintptr_t addr, size_t alignment);
-
 
 
 #endif /* MEM_H */

@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "lib/list.h"
+#include <list.h>
 #include "kernel/vmm/vmm.h"
 
 #define MAX_HANDLE_TABLE 16

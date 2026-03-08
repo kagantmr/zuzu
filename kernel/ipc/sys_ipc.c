@@ -3,7 +3,7 @@
 #include "endpoint.h"
 #include "kernel/sched/sched.h"
 #include "kernel/mm/alloc.h"
-#include "lib/mem.h"
+#include <mem.h>
 
 #include "kernel/irq/sys_irq.h"
 

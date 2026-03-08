@@ -1,6 +1,6 @@
 #include "loader.h"
-#include "lib/mem.h"
-#include "lib/string.h"
+#include <mem.h>
+#include <string.h>
 
 #include "kernel/proc/kstack.h"
 #include "kernel/mm/pmm.h"

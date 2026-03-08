@@ -1,6 +1,6 @@
 #include "sched.h"
 #include "kernel/proc/process.h"
-#include "lib/list.h"
+#include <list.h>
 
 #include "kernel/vmm/vmm.h"
 #include "kernel/mm/alloc.h"

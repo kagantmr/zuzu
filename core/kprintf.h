@@ -1,7 +1,6 @@
 #ifndef KPRINTF_H
 #define KPRINTF_H
 
-#include "drivers/uart/uart.h"
 #include <stddef.h>
 
 void kprintf_init(void (*putc_func)(char));

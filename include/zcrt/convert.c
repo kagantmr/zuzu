@@ -1,6 +1,5 @@
-#include "lib/convert.h"
+#include "convert.h"
 #include "stddef.h"
-#include "core/assert.h"
 
 static inline int is_digit(char c) {
     return (c >= '0' && c <= '9');
@@ -11,7 +10,6 @@ static inline int is_hex(char c) {
 }
 
 int atoh(const char *str) {
-    kassert(str != NULL);
     int value = 0; 
     char is_negative = 0;
     while (*str == ' ' || *str == '\t' || *str == '\n') str++;
@@ -39,7 +37,6 @@ int atoh(const char *str) {
 }
 
 int atoi(const char *str) {
-    kassert(str != NULL);
     int value = 0; 
     char is_negative = 0;
     while (*str == ' ' || *str == '\t' || *str == '\n') str++;
@@ -60,8 +57,6 @@ int atoi(const char *str) {
 
 
 char *itoa(int value, char *str, unsigned int base) {
-    kassert(str != NULL);
-    kassert(base >= 2 && base <= 36);
     char *result = str;
     
     if (value == 0) {
@@ -103,8 +98,6 @@ char *itoa(int value, char *str, unsigned int base) {
 
 
 char *utoa(unsigned int value, char *str, unsigned int base) {
-    kassert(str != NULL);
-    kassert(base >= 2 && base <= 36);
     char *result = str;
     
     if (value == 0) {

@@ -2,7 +2,7 @@
 #include "kernel/syscall/syscall.h"
 #include "kernel/sched/sched.h"
 #include "arch/arm/include/irq.h"
-#include "lib/mem.h"
+#include <mem.h>
 
 extern process_t *current_process;
 static irq_owner_t irq_owners[MAX_IRQS];

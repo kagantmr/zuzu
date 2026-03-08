@@ -1,9 +1,9 @@
 #include "mmu.h"
 #include "kernel/mm/pmm.h"
-#include "lib/mem.h"
-#include "core/assert.h"
 #include "l2_pool.h"
 #include <stdint.h>
+#include <mem.h>
+#include <assert.h>
 
 #define L1_MASK 0x2u
 #define L2_MASK 0x1u

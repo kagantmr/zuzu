@@ -1,9 +1,10 @@
 #include "initrd.h"
-#include "lib/mem.h"
-#include "lib/convert.h"
-#include "lib/string.h"
+#include <mem.h>
+#include <convert.h>
+#include <string.h>
 
-#include "core/assert.h"
+#include <assert.h>
+
 static uint32_t parse_hex8(const char *s) {
     uint32_t val = 0;
     for (int i = 0; i < 8; i++) {

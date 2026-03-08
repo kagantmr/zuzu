@@ -1,6 +1,6 @@
 #include "nametable.h"
 #include "zuzu.h"
-#include "nt_protocol.h"
+#include "zuzu/protocols/nt_protocol.h"
 #include <stdint.h>
 #include <stddef.h>
 
