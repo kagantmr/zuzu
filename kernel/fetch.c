@@ -177,7 +177,7 @@ void print_boot_banner(void)
         "",
     };
 
-    char info[INFO_MAX][INFO_LINE_LEN];
+    static char info[INFO_MAX][INFO_LINE_LEN];
     int info_count = build_info(info);
 
     int logo_count = (int)(sizeof(logo) / sizeof(logo[0]));

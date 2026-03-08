@@ -108,7 +108,7 @@ SECTIONS
 
     /* Per-mode stack sizes */
     __svc_stack_size__   = 0x2000;   /* 8 KB */
-    __irq_stack_size__   = 0x400;    /* 1 KB */
+    __irq_stack_size__   = 0x4000;    /* 16 KB */
     __abt_stack_size__   = 0x400;    /* 1 KB */
     __und_stack_size__   = 0x400;    /* 1 KB */
 
