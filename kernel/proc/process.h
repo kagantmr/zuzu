@@ -2,7 +2,7 @@
 #define KERNEL_PROC_PROCESS_H
 
 #include <stdint.h>
-#include "lib/list.h"
+#include <list.h>
 #include "kernel/ipc/endpoint.h"
 #include "kernel/vmm/vmm.h"
 #include "arch/arm/include/context.h"

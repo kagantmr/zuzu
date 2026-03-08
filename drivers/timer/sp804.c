@@ -1,6 +1,6 @@
 #include "sp804.h"
 #include "arch/arm/include/irq.h"
-#include <lib/io.h>
+#include <io.h>
 #include "core/log.h"
 
 

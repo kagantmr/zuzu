@@ -1,9 +1,10 @@
 #include "core/kprintf.h"
 #include "core/log.h"
 #include "arch/arm/include/irq.h"
-#include "lib/string.h"
-#include "lib/snprintf.h"
+#include <string.h>
+#include <snprintf.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <stddef.h>
 
 static void (*kernel_console_putc)(char);

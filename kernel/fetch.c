@@ -6,8 +6,8 @@
 #include "kernel/time/tick.h"
 #include "kernel/mm/pmm.h"
 #include "arch/arm/include/symbols.h"
-#include "lib/string.h"
-#include "lib/snprintf.h"
+#include <string.h>
+#include <snprintf.h>
 #include "layout.h"
 
 #ifndef ZUZU_BANNER_SHOW_ADDR

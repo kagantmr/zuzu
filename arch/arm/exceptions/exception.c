@@ -7,7 +7,7 @@
 #include "kernel/sched/sched.h"
 #include "kernel/mm/pmm.h"
 #include "kernel/syscall/syscall.h"
-#include "lib/mem.h"
+#include <mem.h>
 #include <stdint.h>
 
 typedef enum exception_type

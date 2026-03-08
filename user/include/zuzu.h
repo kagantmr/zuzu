@@ -1,8 +1,7 @@
 #ifndef ZUZU_H
 #define ZUZU_H
 
-#include "syscall_nums.h"
-
+#include "zuzu/syscall_nums.h"
 #include <stddef.h>
 #include <stdint.h>
 

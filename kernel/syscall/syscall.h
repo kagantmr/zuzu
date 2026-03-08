@@ -6,7 +6,7 @@
 #include "stddef.h"
 #include "kernel/vmm/vmm.h"
 #include "stdint.h"
-#include "user/include/syscall_nums.h"
+#include "zuzu/syscall_nums.h"
 
 /*
  * zuzu Syscall ABI

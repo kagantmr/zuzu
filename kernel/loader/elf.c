@@ -1,5 +1,5 @@
 #include "elf.h"
-#include "lib/mem.h"
+#include <mem.h>
 
 uint32_t elf_validate(const void *data, size_t size) {
     if (size < sizeof(Elf32_Ehdr))

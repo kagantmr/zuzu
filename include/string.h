@@ -111,10 +111,10 @@ void strfmt(void (*outc)(char), const char *fstring, ...) ;
 void vstrfmt(void (*outc)(char), const char *fstring, va_list *args);
 
 /**
- *
+ * @brief Calculate the length of a string in terms of visible characters.
  * @param s String to count visible characters in
  * @return Amount of visible characters
  */
-__attribute__((noinline)) int visible_len(const char *s);
+int visible_len(const char *s);
 
 #endif

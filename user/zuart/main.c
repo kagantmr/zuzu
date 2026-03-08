@@ -1,6 +1,6 @@
 #include "zuart.h"
-#include "zuart_protocol.h"
-#include "nt_protocol.h"
+#include "zuzu/protocols/zuart_protocol.h"
+#include "zuzu/protocols/nt_protocol.h"
 #include <stdint.h>
 
 volatile pl011_t *uart;
@@ -8,7 +8,7 @@ int port;
 ringbuf_t rxrb, txrb;
 
 #define ZUART_WAITQ_MAX 64
-static int32_t read_waitq[ZUART_WAITQ_MAX];
+static zuart_waiting_t read_waitq[ZUART_WAITQ_MAX];
 static uint16_t read_waitq_head, read_waitq_tail;
 
 static inline int waitq_empty(void)
@@ -21,28 +21,46 @@ static inline int waitq_full(void)
     return (uint16_t)((read_waitq_head + 1) % ZUART_WAITQ_MAX) == read_waitq_tail;
 }
 
-static inline int waitq_push(int32_t pid)
+static inline int waitq_push(int32_t pid, int32_t handle, size_t len)
 {
     if (waitq_full())
         return 0;
-    read_waitq[read_waitq_head] = pid;
+    read_waitq[read_waitq_head].pid = pid;
+    read_waitq[read_waitq_head].shmem_handle = handle; // Note: consider changing this to int32_t in the header
+    read_waitq[read_waitq_head].length = len;
     read_waitq_head = (uint16_t)((read_waitq_head + 1) % ZUART_WAITQ_MAX);
     return 1;
 }
 
-static inline int32_t waitq_pop(void)
+static inline zuart_waiting_t waitq_pop(void)
 {
-    int32_t pid = read_waitq[read_waitq_tail];
+    zuart_waiting_t w = read_waitq[read_waitq_tail];
     read_waitq_tail = (uint16_t)((read_waitq_tail + 1) % ZUART_WAITQ_MAX);
-    return pid;
+    return w;
 }
 
 static void service_read_waiters(void)
 {
     while (!waitq_empty() && !rb_empty(&rxrb))
     {
-        int32_t waiter_pid = waitq_pop();
-        _reply((uint32_t)waiter_pid, (uint32_t)rb_read(&rxrb), 0, 0);
+        zuart_waiting_t waiter = waitq_pop();
+        
+        char *buf = (char *)_attach(waiter.shmem_handle);
+        if ((intptr_t)buf >= 0) 
+        {
+            size_t read_count = 0;
+            // Drain rxrb up to the waiter's requested length
+            while (!rb_empty(&rxrb) && read_count < waiter.length) {
+                buf[read_count++] = rb_read(&rxrb);
+            }
+            _memunmap(buf, 4096);
+            _reply(waiter.pid, read_count, 0, 0);
+        }
+        else
+        {
+            // Attachment failed, tell the process it errored out
+            _reply(waiter.pid, 0, ZUART_ERR, 0);
+        }
     }
 }
 
@@ -97,10 +115,9 @@ int main(void)
                 // RX interrupt
                 while (!(uart->FR & FR_RXFE) && !rb_full(&rxrb))
                 {
-                    // todo: make proper input receiving instead of echoing things back
                     char c = uart->DR;
                     rb_write(&rxrb, c); // write into rx ringbuf
-                    uart->DR = c;          // echo it back immediately
+                    uart->DR = c;       // echo it back immediately
                 }
                 service_read_waiters();
                 uart->ICR |= IMSC_RXIM;
@@ -120,40 +137,75 @@ int main(void)
         }
         else if (returns.r0 > 0)
         {
-            // todo: When available, implement shared memory syscalls to get data
-            // process wants to write/read something
-            // we don't have shared memory syscalls YET so zuzu gets payload of one char per ipc message
             switch (returns.r1)
             {
             case ZUART_CMD_WRITE:
             {
-                char c = returns.r2;
-                size_t l = returns.r3; // not used yet
-                (void)l;
+                int32_t handle = (int32_t)returns.r2;
+                size_t len = returns.r3;
 
-                // Fast path: if HW TX FIFO can take data now and no backlog exists, send immediately.
-                if (!(uart->FR & FR_TXFF) && rb_empty(&txrb))
+                // attach to shmem
+                char *buf = (char *)_attach(handle);
+                if ((intptr_t)buf < 0) // Basic error check
                 {
-                    uart->DR = c;
+                    _reply(returns.r0, 0, ZUART_ERR, 0);
+                    break;
                 }
-                else
+
+                // loop & write to txrb until full or done, then enable TX interrupt
+                size_t written = 0;
+                for (size_t i = 0; i < len; i++)
                 {
-                    if (!rb_write(&txrb, c))
+                    char c = buf[i];
+                    if (!(uart->FR & FR_TXFF) && rb_empty(&txrb))
                     {
-                        _reply(returns.r0, 0, ZUART_ERR, 0);
-                        break;
+                        uart->DR = c;
                     }
-                    uart->IMSC |= IMSC_TXIM;
+                    else
+                    {
+                        if (!rb_write(&txrb, c))
+                            break; // tx buffer is full, stop copying early
+                        uart->IMSC |= IMSC_TXIM;
+                    }
+                    written++;
                 }
-                _reply(returns.r0, 0, ZUART_SEND_OK, 0);
+
+                // unmap shmem (assume 4kb)
+                _memunmap(buf, 4096);
+
+                // reply with number of bytes written (or error)
+                _reply(returns.r0, written, ZUART_SEND_OK, 0);
             }
             break;
             case ZUART_CMD_READ:
             {
+                int32_t handle = (int32_t)returns.r2;
+                size_t requested_len = returns.r3;
+
                 if (!rb_empty(&rxrb))
-                    _reply(returns.r0, rb_read(&rxrb), 0, 0);
-                else if (!waitq_push(returns.r0))
-                    _reply(returns.r0, 0, ZUART_ERR, 0);
+                {
+                    char *buf = (char *)_attach(handle);
+                    if ((intptr_t)buf < 0)
+                    {
+                        _reply(returns.r0, 0, ZUART_ERR, 0);
+                        break;
+                    }
+
+                    size_t read_count = 0;
+                    while (!rb_empty(&rxrb) && read_count < requested_len)
+                    {
+                        buf[read_count++] = rb_read(&rxrb);
+                    }
+
+                    _memunmap(buf, 4096);
+                    _reply(returns.r0, read_count, 0, 0);
+                }
+                else
+                {
+                    // Push full context to wait queue
+                    if (!waitq_push(returns.r0, handle, requested_len))
+                        _reply(returns.r0, 0, ZUART_ERR, 0); // Queue full
+                }
             }
             break;
             }

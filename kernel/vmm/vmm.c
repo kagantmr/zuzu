@@ -6,8 +6,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "lib/string.h"
-#include "lib/mem.h"
+#include <string.h>
+#include <mem.h>
 #include "core/panic.h"
 #include "kernel/layout.h"
 

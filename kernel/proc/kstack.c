@@ -1,6 +1,6 @@
 #include "kstack.h"
 #include "kernel/mm/pmm.h"
-#include "core/assert.h"
+#include <assert.h>
 #include "kernel/vmm/vmm.h"
 #include "arch/arm/mmu/mmu.h"
 #include "stdbool.h"

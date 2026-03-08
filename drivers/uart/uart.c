@@ -1,7 +1,7 @@
 #include "drivers/uart/uart.h"
-#include "lib/string.h"
+#include <string.h>
 #include "core/log.h"
-#include "core/assert.h"
+#include <assert.h>
 #include <stddef.h>
 #include <stdarg.h>
 #include <stdint.h>

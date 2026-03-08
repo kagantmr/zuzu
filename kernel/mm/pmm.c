@@ -1,8 +1,8 @@
 #include "kernel/mm/pmm.h"
-#include "core/assert.h"
+#include <assert.h>
 #include "kernel/layout.h"
 #include "arch/arm/include/symbols.h"
-#include "lib/mem.h"
+#include <mem.h>
 #include "kernel/vmm/vmm.h"   // PA_TO_VA / VA_TO_PA helpers
 
 pmm_state_t pmm_state;

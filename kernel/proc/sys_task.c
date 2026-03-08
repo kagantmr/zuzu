@@ -1,6 +1,6 @@
 #include "sys_task.h"
 #include "kernel/syscall/syscall.h"
-#include "lib/mem.h"
+#include <mem.h>
 #include "kernel/sched/sched.h"
 #include "kernel/loader/initrd.h"
 #include "kernel/loader/loader.h"

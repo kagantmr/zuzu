@@ -1,11 +1,7 @@
-#include "lib/mem.h"
-#include "kernel/mm/pmm.h"
-#include "core/assert.h"
-
+#include "mem.h"
 
 void *memcpy(void *dest, const void *src, size_t n)
 {
-    kassert(n == 0 || (dest != NULL && src != NULL));
     void *result = dest;
 
     unsigned char *d = (unsigned char *)dest;
@@ -21,7 +17,6 @@ void *memcpy(void *dest, const void *src, size_t n)
 
 void *memset(void *ptr, char x, size_t n)
 {
-    kassert(n == 0 || (ptr != NULL));
     void *result = ptr;
 
     unsigned char *p = (unsigned char *)ptr;
@@ -36,7 +31,6 @@ void *memset(void *ptr, char x, size_t n)
 
 void *memmove(void *dest, const void *src, size_t n)
 {
-    kassert(n == 0 || (dest != NULL && src != NULL));
     void *result = dest;
 
     unsigned char *d = (unsigned char *)dest;
@@ -77,25 +71,4 @@ int memcmp(const void *str1, const void *str2, size_t count)
             return s1[-1] < s2[-1] ? -1 : 1;
     }
     return 0;
-}
-
-uintptr_t align_down(uintptr_t addr, size_t alignment)
-{
-    kassert(alignment != 0);
-    kassert((alignment & (alignment - 1)) == 0); // power of two
-    return addr & ~(alignment - 1);
-}
-
-uintptr_t align_up(uintptr_t addr, size_t alignment)
-{
-    kassert(alignment != 0);
-    kassert((alignment & (alignment - 1)) == 0); // power of two
-
-    uintptr_t remainder = addr % alignment;
-    if (remainder == 0)
-    {
-        return addr;
-    }
-
-    return addr + (alignment - remainder);
 }

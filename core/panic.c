@@ -8,9 +8,8 @@
 #include "kernel/mm/pmm.h"
 #include "kernel/proc/process.h"
 #include "kernel/sched/sched.h"
-#include "lib/snprintf.h"
-#include "lib/string.h"
-
+#include <string.h>
+#include <snprintf.h>
 #include <stdint.h>
 
 extern kernel_layout_t kernel_layout;

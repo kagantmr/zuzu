@@ -2,9 +2,9 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "lib/mem.h"
-#include "lib/string.h"
-#include "core/assert.h"
+#include <mem.h>
+#include <string.h>
+#include <assert.h>
 #include "core/log.h"
 
 typedef enum FDT_CODE
