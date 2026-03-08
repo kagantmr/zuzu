@@ -134,20 +134,5 @@ int main(void)
     {
         zuart_write_str(uart_handle, "hello: read failed\n");
     }
-
-    
-    // ... rest unchanged
-
-    // periodic writer
-    while (1)
-    {
-        const char *msg = "hello: i'm still awake\n";
-        for (const char *p = msg; *p; p++)
-        {
-            _call(uart_handle, ZUART_CMD_WRITE, *p, 0);
-        }
-        _sleep(1000);
-    }
-
     return 42;
 }
