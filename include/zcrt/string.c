@@ -26,8 +26,6 @@ char *strcat(char *dest, const char *src) {
 
     strcpy(end, src);
 
-    *end = '\0';
-
     return dest;
 }
 
