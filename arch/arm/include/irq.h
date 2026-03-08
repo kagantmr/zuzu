@@ -8,6 +8,17 @@ typedef void (*irq_handler_t)(void *ctx); /* Generic IRQ handler function ptr */
 
 #define MAX_IRQS 128
 
+static inline uint32_t arch_irq_save(void) {
+    uint32_t cpsr;
+    __asm__ volatile("mrs %0, cpsr" : "=r"(cpsr));
+    __asm__ volatile("cpsid i");
+    return cpsr;
+}
+
+static inline void arch_irq_restore(uint32_t state) {
+    __asm__ volatile("msr cpsr_c, %0" :: "r"(state));
+}
+
 /**
  * @brief Disable all interrupts (ARM).
  */ 
