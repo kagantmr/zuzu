@@ -8,26 +8,24 @@ typedef void (*irq_handler_t)(void *ctx); /* Generic IRQ handler function ptr */
 
 #define MAX_IRQS 128
 
+static inline void arch_global_irq_disable(void) {
+    __asm__ volatile("cpsid i" ::: "memory");
+}
+
+static inline void arch_global_irq_enable(void) {
+    __asm__ volatile("cpsie i" ::: "memory");
+}
+
 static inline uint32_t arch_irq_save(void) {
     uint32_t cpsr;
-    __asm__ volatile("mrs %0, cpsr" : "=r"(cpsr));
-    __asm__ volatile("cpsid i");
+    __asm__ volatile("mrs %0, cpsr" : "=r"(cpsr) :: "memory");
+    __asm__ volatile("cpsid i" ::: "memory");
     return cpsr;
 }
 
 static inline void arch_irq_restore(uint32_t state) {
-    __asm__ volatile("msr cpsr_c, %0" :: "r"(state));
+    __asm__ volatile("msr cpsr_c, %0" :: "r"(state) : "memory");
 }
-
-/**
- * @brief Disable all interrupts (ARM).
- */ 
-void arch_global_irq_disable();
-
-/**
- * @brief Enable all interrupts (ARM).
- */
-void arch_global_irq_enable();
 
 /**
  * @brief Initialize the IRQ subsystem and the GIC.

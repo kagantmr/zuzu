@@ -12,18 +12,6 @@
 irq_handler_t handler_table[MAX_IRQS];
 void* handler_ctx[MAX_IRQS];
 
-void arch_global_irq_disable() {
-    __asm__ volatile (
-        "cpsid i\n"
-    );
-};
-
-void arch_global_irq_enable() {
-    __asm__ volatile (
-        "cpsie i\n"
-    );
-}
-
 void irq_init(void) {
     // Clear handler table
     for (uint32_t i = 0; i < MAX_IRQS; i++)
