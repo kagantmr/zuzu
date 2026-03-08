@@ -197,7 +197,7 @@ int main(void)
                         buf[read_count++] = rb_read(&rxrb);
                     }
 
-                    _memunmap(buf, 4096);
+                    _detach(handle);
                     _reply(returns.r0, read_count, 0, 0);
                 }
                 else

@@ -53,10 +53,9 @@ void process_kill(process_t *p, const int exit_status) {
         } else if (p->handle_table[i].type == HANDLE_SHMEM) {
             shmem_t *shm = p->handle_table[i].shm;
             const uintptr_t va = p->handle_table[i].mapped_va;
-            // unmap pages from this process
+            vmm_remove_region(p->as, va, shm->page_count * PAGE_SIZE);
             for (size_t j = 0; j < shm->page_count; j++)
                 vmm_unmap_range(p->as, va + j * PAGE_SIZE, PAGE_SIZE);
-            // decrement ref — if last reference, free everything
             shm->ref_count--;
             if (shm->ref_count == 0) {
                 for (size_t j = 0; j < shm->page_count; j++)
