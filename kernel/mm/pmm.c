@@ -102,10 +102,10 @@ int pmm_mark_range(uintptr_t start, uintptr_t end) {
 int pmm_unmark_range(uintptr_t start, uintptr_t end) {
     if (start >= end) return MARK_FAIL;
 
-    uintptr_t astart = align_down(start, PAGE_SIZE);
-    uintptr_t aend   = align_up(end, PAGE_SIZE);
+    const uintptr_t astart = align_down(start, PAGE_SIZE);
+    const uintptr_t aend   = align_up(end, PAGE_SIZE);
 
-    size_t start_pfn = astart / PAGE_SIZE;
+    const size_t start_pfn = astart / PAGE_SIZE;
     size_t end_pfn   = aend   / PAGE_SIZE;
 
     if (start_pfn < pmm_state.pfn_base || end_pfn > pmm_state.pfn_end) {
@@ -118,14 +118,14 @@ int pmm_unmark_range(uintptr_t start, uintptr_t end) {
     kassert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_pages);
 
     for (size_t pfn = start_pfn; pfn < end_pfn; pfn++) {
-        size_t index = pfn - pmm_state.pfn_base;
-        size_t byte_idx = index / 8;
-        size_t bit_idx  = index % 8;
+        const size_t index = pfn - pmm_state.pfn_base;
+        const size_t byte_idx = index / 8;
+        const size_t bit_idx  = index % 8;
 
         kassert(byte_idx < pmm_state.bitmap_bytes);
         if (byte_idx >= pmm_state.bitmap_bytes) break;
 
-        uint8_t mask = (uint8_t)(1u << bit_idx);
+        const uint8_t mask = (uint8_t)(1u << bit_idx);
 
         /* Only flip and update counters if bit was previously 1 */
         if (pmm_state.bitmap[byte_idx] & mask) {
@@ -157,7 +157,7 @@ uintptr_t pmm_alloc_page(void) {
             size_t index = byte * 8 + bit;
             if (index >= total_pages) break; /* beyond managed pages */
 
-            uint8_t mask = (uint8_t)(1u << bit);
+            const uint8_t mask = (uint8_t)(1u << bit);
 
             if (!(val & mask)) { /* free */
                 /* mark allocated */
@@ -165,8 +165,8 @@ uintptr_t pmm_alloc_page(void) {
                 pmm_state.free_pages--;
                 kassert(pmm_state.free_pages <= pmm_state.total_pages);
 
-                size_t pfn = pmm_state.pfn_base + index;
-                uintptr_t addr = (uintptr_t)pfn * PAGE_SIZE;
+                const size_t pfn = pmm_state.pfn_base + index;
+                const uintptr_t addr = (uintptr_t)pfn * PAGE_SIZE;
                 kassert(addr % PAGE_SIZE == 0);
                 kassert(pfn >= pmm_state.pfn_base && pfn < pmm_state.pfn_end);
                 return addr;
@@ -225,10 +225,10 @@ uintptr_t pmm_alloc_pages(size_t n_pages) {
     return (uintptr_t)0;
 }
 
-int pmm_free_page(uintptr_t addr) {
+int pmm_free_page(const uintptr_t addr) {
     if (addr % PAGE_SIZE != 0) return FREE_FAIL;
 
-    size_t pfn = addr / PAGE_SIZE;
+    const size_t pfn = addr / PAGE_SIZE;
 
     /* bounds: pfn must be inside [pfn_base, pfn_end) */
     if (pfn < pmm_state.pfn_base || pfn >= pmm_state.pfn_end) {
@@ -244,7 +244,7 @@ int pmm_free_page(uintptr_t addr) {
     kassert(pmm_state.bitmap != NULL);
     kassert(pmm_state.free_pages <= pmm_state.total_pages);
 
-    uint8_t mask = (uint8_t)(1u << bit_idx);
+    const uint8_t mask = (uint8_t)(1u << bit_idx);
 
     /* if bit set -> allocated -> free it */
     if (pmm_state.bitmap[byte_idx] & mask) {
@@ -258,7 +258,7 @@ int pmm_free_page(uintptr_t addr) {
     return DOUBLE_FREE;
 }
 
-uintptr_t pmm_alloc_pages_aligned(size_t n_pages, size_t align_pages)
+uintptr_t pmm_alloc_pages_aligned(const size_t n_pages, size_t align_pages)
 {
     if (n_pages == 0) return (uintptr_t)0;
     if (align_pages == 0) align_pages = 1;
@@ -272,7 +272,7 @@ uintptr_t pmm_alloc_pages_aligned(size_t n_pages, size_t align_pages)
     kassert(pmm_state.total_pages == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
     kassert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_pages);
 
-    size_t total_pages = pmm_state.total_pages;
+    const size_t total_pages = pmm_state.total_pages;
     size_t consecutive = 0;
     size_t start_index = 0;
 
@@ -296,8 +296,8 @@ uintptr_t pmm_alloc_pages_aligned(size_t n_pages, size_t align_pages)
             consecutive++;
 
             if (consecutive == n_pages) {
-                uintptr_t start_pa = (uintptr_t)(pmm_state.pfn_base + start_index) * PAGE_SIZE;
-                uintptr_t end_pa   = (uintptr_t)(pmm_state.pfn_base + start_index + n_pages) * PAGE_SIZE;
+                const uintptr_t start_pa = (uintptr_t)(pmm_state.pfn_base + start_index) * PAGE_SIZE;
+                const uintptr_t end_pa   = (uintptr_t)(pmm_state.pfn_base + start_index + n_pages) * PAGE_SIZE;
 
                 if (pmm_mark_range(start_pa, end_pa) != MARK_OK) {
                     return (uintptr_t)0;
@@ -311,4 +311,16 @@ uintptr_t pmm_alloc_pages_aligned(size_t n_pages, size_t align_pages)
     }
 
     return (uintptr_t)0;
+}
+
+size_t pmm_alloc_pages_scattered(const size_t n_pages, uintptr_t *out_addrs) {
+    if (!n_pages || !out_addrs) {
+        return 0;
+    }
+    for (size_t i = 0; i < n_pages; i++) {
+        const uintptr_t new_page = pmm_alloc_page();
+        if (new_page == 0) return i;
+        out_addrs[i] = new_page;
+    }
+    return n_pages;
 }

@@ -2,6 +2,7 @@
 #define SYS_VMM_H
 
 #include "arch/arm/include/context.h"
+#include <stddef.h>
 
 void memmap(exception_frame_t *frame);
 void memunmap(exception_frame_t *frame);

@@ -60,13 +60,13 @@ Negative r0 values indicate errors:
 
 ## 0x30–0x3F: Memory
 
-| #    | Name   | Arguments                     | Returns      | Description                       |
-|------|--------|-------------------------------|--------------|-----------------------------------|
-| 0x30 | memmap   | r0: addr, r1: size, r2: prot  | addr or err | Map pages into caller's space     |
-| 0x31 | memunmap | r0: addr, r1: size            | 0 or err    | Unmap and free pages              |
-| 0x32 | memshare | r0: size                      | id or err   | Create shared memory object       |
-| 0x33 | attach | r0: id, r1: addr              | addr or err | Map shared object into caller     |
-| 0x34 | mapdev | r0: phys, r1: size            | addr or err | Map MMIO region (privileged only) |
+| #    | Name   | Arguments           | Returns      | Description                       |
+|------|--------|---------------------|--------------|-----------------------------------|
+| 0x30 | memmap   | r0: addr, r1: size, r2: prot | addr or err | Map pages into caller's space     |
+| 0x31 | memunmap | r0: addr, r1: size  | 0 or err    | Unmap and free pages              |
+| 0x32 | memshare | r0: size            | id or err   | Create shared memory object       |
+| 0x33 | attach | r0: id              | addr or err | Map shared object into caller     |
+| 0x34 | mapdev | r0: phys, r1: size  | addr or err | Map MMIO region (privileged only) |
 
 ## 0x40–0x4F: Interrupts
 
