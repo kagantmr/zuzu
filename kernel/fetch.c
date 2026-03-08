@@ -1,14 +1,11 @@
 #include <stdint.h>
 
-// include whatever your kernel uses
 #include "core/kprintf.h"
-#include "kernel/dtb/dtb.h"
-#include "arch/arm/timer/generic_timer.h"
-#include "kernel/time/tick.h"
-#include "arch/arm/include/symbols.h"
 #include "core/version.h"
+#include "kernel/dtb/dtb.h"
+#include "kernel/time/tick.h"
 #include "kernel/mm/pmm.h"
-#include "lib/mem.h"
+#include "arch/arm/include/symbols.h"
 #include "lib/string.h"
 #include "lib/snprintf.h"
 #include "layout.h"
@@ -17,182 +14,194 @@
 #define ZUZU_BANNER_SHOW_ADDR 0
 #endif
 
-// ANSI
-#define ANSI_RESET   "\033[0m"
-#define ANSI_WHITE   "\033[1;37m"
-#define ANSI_CYAN    "\033[1;36m"
-#define ANSI_BLUE    "\033[1;34m"
+#define ANSI_RESET "\033[0m"
+#define ANSI_CYAN  "\033[1;36m"
+#define ANSI_BLUE  "\033[1;34m"
+
+#define LOGO_WIDTH    38
+#define INFO_MAX      20
+#define INFO_LINE_LEN 80
+#define LABEL_WIDTH   10
 
 extern kernel_layout_t kernel_layout;
 extern pmm_state_t pmm_state;
-extern phys_region_t phys_region;
 
-static inline uint32_t read_be32(const void *p)
+/* Write "Label:    value" into dst with ANSI color on the label */
+static void fmt_kv(char *dst, size_t cap, const char *label, const char *value)
 {
-    const uint8_t *b = (const uint8_t *)p;
-    return ((uint32_t)b[0] << 24) |
-           ((uint32_t)b[1] << 16) |
-           ((uint32_t)b[2] << 8) |
-           ((uint32_t)b[3]);
+    char padded[LABEL_WIDTH + 1];
+    snprintf(padded, sizeof(padded), "%-*s", LABEL_WIDTH, label);
+    snprintf(dst, cap, ANSI_BLUE "%s" ANSI_RESET "%s", padded, value);
 }
 
-static inline uint32_t get_sp(void) {
-    uint32_t sp;
-    __asm__ volatile ("mov %0, sp" : "=r"(sp));
-    return sp;
+static void emit_tiles(char *dst, size_t cap)
+{
+    snprintf(dst, cap,
+        "\033[40m  \033[0m\033[41m  \033[0m\033[42m  \033[0m\033[43m  \033[0m"
+        "\033[44m  \033[0m\033[45m  \033[0m\033[46m  \033[0m\033[47m  \033[0m");
 }
 
-// Emit a logo line padded to LOGO_WIDTH visible chars. Does not emit newline.
-#define LOGO_WIDTH 38
+/* ── build info lines ────────────────────────────────────────── */
 
-static void emit_logo_line(const char *line)
+/* ── device probe ────────────────────────────────────────────── */
+
+static const struct {
+    const char *compatible;
+    const char *label;      /* left column */
+    const char *name;       /* right column */
+} device_probes[] = {
+    { "smsc,lan9118",       "NIC:",     "SMSC LAN9118"  },
+    { "smsc,lan9220",       "NIC:",     "SMSC LAN9220"  },
+    { "arm,pl111",          "Display:", "PL111 CLCD"     },
+    { "arm,pl050",          "Input:",   "PL050 KMI"      },
+    { "arm,pl041",          "Audio:",   "PL041 AACI"     },
+    { "arm,pl031",          "RTC:",     "PL031"          },
+    { "arm,pl181",          "Storage:", "PL181 MCI"      },
+    { NULL, NULL, NULL }
+};
+
+
+/* ── build info lines ────────────────────────────────────────── */
+
+static int build_info(char info[][INFO_LINE_LEN])
 {
-    kprintf("%s%s%s", ANSI_CYAN, line, ANSI_RESET);
-    int pad = LOGO_WIDTH - visible_len(line);
-    for (int i = 0; i < pad; i++)
-        kprintf(" ");
-}
+    int n = 0;
+    char tmp[64];
 
-static void emit_tiles(void)
-{
-    kprintf("\033[40m  \033[0m");
-    kprintf("\033[41m  \033[0m");
-    kprintf("\033[42m  \033[0m");
-    kprintf("\033[43m  \033[0m");
-    kprintf("\033[44m  \033[0m");
-    kprintf("\033[45m  \033[0m");
-    kprintf("\033[46m  \033[0m");
-    kprintf("\033[47m  \033[0m");
-}
+    /* blank lines to align with logo top */
+    info[n][0] = '\0'; n++;
+    info[n][0] = '\0'; n++;
 
-#define INFO_LABEL_WIDTH 10
+    /* title */
+    snprintf(info[n], INFO_LINE_LEN,
+             ANSI_CYAN "zuzu" ANSI_RESET " %s", ZUZU_VERSION);
+    n++;
 
-static void emit_info_kv(const char *label, const char *value)
-{
-    char padded[INFO_LABEL_WIDTH + 1];
-    snprintf(padded, sizeof(padded), "%-*s", INFO_LABEL_WIDTH, label);
-    kprintf("%s%s%s%s", ANSI_BLUE, padded, ANSI_RESET, value);
-}
+    snprintf(info[n], INFO_LINE_LEN,
+             ANSI_CYAN "----------" ANSI_RESET);
+    n++;
 
-static void emit_info_line(int i)
-{
-    kprintf("DBG_INFO: i=%d sp=%08x\n", i, get_sp());
-    char val[64];
+    /* machine */
+    char machine[64] = "Unknown";
+    dtb_get_string("/", "model", machine, sizeof(machine));
+    fmt_kv(info[n], INFO_LINE_LEN, "Machine:", machine);
+    n++;
 
-    switch (i) {
-        case 0:
-        case 1:
-            break;
+    /* cpu */
+    fmt_kv(info[n], INFO_LINE_LEN, "CPU:", "ARM Cortex-A15");
+    n++;
 
-        case 2:
-            kprintf("%szuzu%s %s", ANSI_CYAN, ANSI_RESET, ZUZU_VERSION);
-            break;
+    /* memory */
+    uint32_t ram_mb  = (uint32_t)((pmm_state.total_pages * (uint64_t)PAGE_SIZE) / 1024 / 1024);
+    uint32_t free_mb = (uint32_t)((pmm_state.free_pages  * (uint64_t)PAGE_SIZE) / 1024 / 1024);
+    snprintf(tmp, sizeof(tmp), "%u MB free / %u MB total", free_mb, ram_mb);
+    fmt_kv(info[n], INFO_LINE_LEN, "Memory:", tmp);
+    n++;
 
-        case 3:
-            kprintf("%s----------%s", ANSI_CYAN, ANSI_RESET);
-            break;
+    /* timer */
+    snprintf(tmp, sizeof(tmp), "%u Hz", get_tick_rate());
+    fmt_kv(info[n], INFO_LINE_LEN, "Timer:", tmp);
+    n++;
 
-        case 4: {
-            char machine[64] = "Unknown";
-            (void)dtb_get_string("/", "model", machine, sizeof(machine));
-            emit_info_kv("Machine:", machine);
-            break;
+    /* build */
+    snprintf(tmp, sizeof(tmp), "%s %s", __DATE__, __TIME__);
+    fmt_kv(info[n], INFO_LINE_LEN, "Build:", tmp);
+    n++;
+
+    /* devices */
+    char path[128];
+    for (int i = 0; device_probes[i].compatible; i++) {
+        if (dtb_find_compatible(device_probes[i].compatible, path, sizeof(path))) {
+            fmt_kv(info[n], INFO_LINE_LEN,
+                   device_probes[i].label,
+                   device_probes[i].name);
+            n++;
         }
-
-        case 5:
-            emit_info_kv("CPU:", "ARM Cortex-A15");
-            break;
-
-        case 6: {
-            uint32_t ram_mb  = (uint32_t)((pmm_state.total_pages * (uint64_t)PAGE_SIZE) / 1024 / 1024);
-            uint32_t free_mb = (uint32_t)((pmm_state.free_pages  * (uint64_t)PAGE_SIZE) / 1024 / 1024);
-            snprintf(val, sizeof(val), "%u MB free / %u MB total", free_mb, ram_mb);
-            emit_info_kv("Memory:", val);
-            break;
-        }
-
-        case 7:
-            snprintf(val, sizeof(val), "%u Hz", get_tick_rate());
-            emit_info_kv("Timer:", val);
-            break;
-
-        case 8:
-            snprintf(val, sizeof(val), "%s %s", __DATE__, __TIME__);
-            emit_info_kv("Build:", val);
-            break;
+    }
 
 #if ZUZU_BANNER_SHOW_ADDR
-        case 9:
-            snprintf(val, sizeof(val), "%P - %P", _kernel_start, _kernel_end);
-            emit_info_kv("Kernel:", val);
-            break;
-        case 10:
-            snprintf(val, sizeof(val), "%P - %P",
-                    (void*)kernel_layout.heap_start_va, (void*)kernel_layout.heap_end_va);
-            emit_info_kv("Heap:", val);
-            break;
-        case 11:
-            snprintf(val, sizeof(val), "%P - %P",
-                    (void*)kernel_layout.stack_base_va, (void*)kernel_layout.stack_top_va);
-            emit_info_kv("Stack:", val);
-            break;
-        case 12:
-            snprintf(val, sizeof(val), "%u free / %u pages",
-                    (unsigned)pmm_state.free_pages, (unsigned)pmm_state.total_pages);
-            emit_info_kv("PMM:", val);
-            break;
-        case 14:
-#else
-        case 9:
-            snprintf(val, sizeof(val), "%u free / %u pages",
-                    (unsigned)pmm_state.free_pages, (unsigned)pmm_state.total_pages);
-            emit_info_kv("PMM:", val);
-            break;
-        case 11:
-#endif
-            emit_tiles();
-            break;
+    snprintf(tmp, sizeof(tmp), "%P - %P", _kernel_start, _kernel_end);
+    fmt_kv(info[n], INFO_LINE_LEN, "Kernel:", tmp);
+    n++;
 
-        default:
-            break;
-    }
+    snprintf(tmp, sizeof(tmp), "%P - %P",
+             (void *)kernel_layout.heap_start_va,
+             (void *)kernel_layout.heap_end_va);
+    fmt_kv(info[n], INFO_LINE_LEN, "Heap:", tmp);
+    n++;
+
+    snprintf(tmp, sizeof(tmp), "%P - %P",
+             (void *)kernel_layout.stack_base_va,
+             (void *)kernel_layout.stack_top_va);
+    fmt_kv(info[n], INFO_LINE_LEN, "Stack:", tmp);
+    n++;
+#endif
+
+    /* pmm */
+    snprintf(tmp, sizeof(tmp), "%u free / %u pages",
+             (unsigned)pmm_state.free_pages,
+             (unsigned)pmm_state.total_pages);
+    fmt_kv(info[n], INFO_LINE_LEN, "PMM:", tmp);
+    n++;
+
+    /* blank spacer */
+    info[n][0] = '\0'; n++;
+
+    /* color tiles */
+    emit_tiles(info[n], INFO_LINE_LEN);
+    n++;
+
+    return n;
 }
+
 
 void print_boot_banner(void)
 {
     static const char *logo[] = {
-    "",
-    "        \033[37m@@@@@@@@\033[0m",
-    "        \033[90m####\033[37m@@@@\033[0m            \033[90m@      -\033[0m",
-    "           \033[37m@@@\033[0m             \033[37m@@@@@\033[0m  \033[90m@@.\033[0m",
-    "          \033[37m@@\033[0m               \033[37m@@\033[0m     \033[37m@@\033[0m",
-    "        \033[37m@@@\033[0m               \033[90m@@@\033[0m    \033[37m@@@\033[0m",
-    "      \033[37m@@@\033[0m                 \033[90m@@\033[0m     \033[37m@@\033[0m",
-    "     \033[37m@@@@@@@@@@@@@@@@@@@\033[90m-\033[0m \033[37m@@\033[0m    \033[90m@@@\033[0m",
-    "                          \033[37m@@@@@@@@\033[0m",
-    "           \033[37m@@\033[0m",
-    "           \033[37m@@\033[0m                 \033[37m@@\033[0m",
-    "           \033[37m@@\033[0m     \033[90m@@@@@@@\033[0m     \033[37m@@\033[0m",
-    "           \033[37m@@\033[0m   \033[37m@@\033[0m      \033[90m-@@@\033[0m  \033[37m@@\033[0m",
-    "           \033[37m@@\033[0m  \033[90m=\033[37m@@\033[0m       \033[90m@@@\033[0m  \033[37m@@\033[0m",
-    "           \033[37m@@\033[0m  \033[90m@@@\033[0m       \033[90m@@@\033[0m  \033[37m@@\033[0m",
-    "           \033[37m@@@@@@\033[0m         \033[37m@@@@@\033[0m",
-    "",
-};
+        "",
+        "        \033[37m@@@@@@@@\033[0m",
+        "        \033[90m####\033[37m@@@@\033[0m            \033[90m@      -\033[0m",
+        "           \033[37m@@@\033[0m             \033[37m@@@@@\033[0m  \033[90m@@.\033[0m",
+        "          \033[37m@@\033[0m               \033[37m@@\033[0m     \033[37m@@\033[0m",
+        "        \033[37m@@@\033[0m               \033[90m@@@\033[0m    \033[37m@@@\033[0m",
+        "      \033[37m@@@\033[0m                 \033[90m@@\033[0m     \033[37m@@\033[0m",
+        "     \033[37m@@@@@@@@@@@@@@@@@@@\033[90m-\033[0m \033[37m@@\033[0m    \033[90m@@@\033[0m",
+        "                          \033[37m@@@@@@@@\033[0m",
+        "           \033[37m@@\033[0m",
+        "           \033[37m@@\033[0m                 \033[37m@@\033[0m",
+        "           \033[37m@@\033[0m     \033[90m@@@@@@@\033[0m     \033[37m@@\033[0m",
+        "           \033[37m@@\033[0m   \033[37m@@\033[0m      \033[90m-@@@\033[0m  \033[37m@@\033[0m",
+        "           \033[37m@@\033[0m  \033[90m=\033[37m@@\033[0m       \033[90m@@@\033[0m  \033[37m@@\033[0m",
+        "           \033[37m@@\033[0m  \033[90m@@@\033[0m       \033[90m@@@\033[0m  \033[37m@@\033[0m",
+        "           \033[37m@@@@@@\033[0m         \033[37m@@@@@\033[0m",
+        "",
+    };
 
-    const int lines = (int)(sizeof(logo) / sizeof(logo[0]));
-    kprintf("DBG0: sp=%08x\n", get_sp());
+    char info[INFO_MAX][INFO_LINE_LEN];
+    int info_count = build_info(info);
+
+    int logo_count = (int)(sizeof(logo) / sizeof(logo[0]));
+    int lines = logo_count > info_count ? logo_count : info_count;
 
     for (int i = 0; i < lines; i++) {
-        kprintf("DBG1: i=%d sp=%08x\n", i, get_sp());
-        emit_logo_line(logo[i]);
-        kprintf("DBG2: i=%d sp=%08x\n", i, get_sp());
+        /* logo column */
+        if (i < logo_count) {
+            kprintf("%s%s%s", ANSI_CYAN, logo[i], ANSI_RESET);
+            int pad = LOGO_WIDTH - visible_len(logo[i]);
+            for (int p = 0; p < pad; p++)
+                kprintf(" ");
+        } else {
+            for (int p = 0; p < LOGO_WIDTH; p++)
+                kprintf(" ");
+        }
+
+        /* info column */
         kprintf("  ");
-        emit_info_line(i);
-        kprintf("DBG3: i=%d sp=%08x\n", i, get_sp());
+        if (i < info_count)
+            kprintf("%s", info[i]);
+
         kprintf("\n");
     }
 
-    // Ensure we reset terminal attributes after the banner
-    kprintf("%s", ANSI_RESET);
+    kprintf(ANSI_RESET);
 }
