@@ -59,7 +59,6 @@ static void sched_wake_sleepers(void) {
 
 void schedule() {
     sched_wake_sleepers();
-    sched_reap();
 
     process_t *prev = current_process;
     if (!prev) prev = &idle_proc;  // first call: save boot stack into idle_proc
