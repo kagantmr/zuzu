@@ -21,7 +21,7 @@ process_t *process_find_by_pid(uint32_t pid)
     return process_table[pid];
 }
 
-void process_kill(process_t *p, int exit_status) {
+void process_kill(process_t *p, const int exit_status) {
     // Clean up handle table — clear non-owned handles, free owned endpoints
     for (int i = 0; i < MAX_HANDLE_TABLE; i++) {
         if (p->handle_table[i].type == HANDLE_ENDPOINT) {
@@ -50,6 +50,23 @@ void process_kill(process_t *p, int exit_status) {
             }
             p->handle_table[i].ep = NULL;
             p->handle_table[i].type = HANDLE_FREE;
+        } else if (p->handle_table[i].type == HANDLE_SHMEM) {
+            shmem_t *shm = p->handle_table[i].shm;
+            const uintptr_t va = p->handle_table[i].mapped_va;
+            // unmap pages from this process
+            for (size_t j = 0; j < shm->page_count; j++)
+                vmm_unmap_range(p->as, va + j * PAGE_SIZE, PAGE_SIZE);
+            // decrement ref — if last reference, free everything
+            shm->ref_count--;
+            if (shm->ref_count == 0) {
+                for (size_t j = 0; j < shm->page_count; j++)
+                    pmm_free_page(shm->page_addrs[j]);
+                kfree(shm->page_addrs);
+                kfree(shm);
+            }
+            p->handle_table[i].shm       = NULL;
+            p->handle_table[i].mapped_va = 0;
+            p->handle_table[i].type      = HANDLE_FREE;
         }
     }
 
@@ -66,6 +83,7 @@ void process_kill(process_t *p, int exit_status) {
         sched_defer_destroy(p);
     }
 }
+
 void process_destroy(process_t *p)
 {
 

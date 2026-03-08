@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "lib/list.h"
+#include "kernel/vmm/vmm.h"
 
 #define MAX_HANDLE_TABLE 16
 
@@ -21,11 +22,6 @@ typedef struct {
     uint32_t size;
 } device_cap_t;
 
-// stub
-typedef struct {
-    uint32_t id;
-} shmem_t;
-
 typedef enum {
     HANDLE_FREE,
     HANDLE_ENDPOINT,
@@ -36,6 +32,7 @@ typedef enum {
 typedef struct {
     handle_type_t type;
     bool grantable;
+    uintptr_t mapped_va;
     union {
         endpoint_t  *ep;
         device_cap_t *dev;

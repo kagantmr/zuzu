@@ -77,6 +77,11 @@ typedef struct addrspace {
     uint8_t          asid;
 } addrspace_t;
 
+typedef struct {
+    uintptr_t *page_addrs;  // array of individual PAs, one per page
+    size_t     page_count; // amount of used pages
+    uint32_t   ref_count;  // how many processes use it?
+} shmem_t;
 
 #define IOREMAP_BASE    0xF0000000
 #define IOREMAP_END     0xFFFFFFFF  

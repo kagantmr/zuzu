@@ -70,4 +70,12 @@ int pmm_free_page(uintptr_t addr);
  */
 uintptr_t pmm_alloc_pages_aligned(size_t n_pages, size_t align_pages);
 
+/**
+ *
+ * @param n_pages Number of pages to allocate.
+ * @param out_addrs Caller-provided array for page addresses
+ * @return Amount of pages found (may not match n_pages if zuzu is OOM)
+ */
+size_t pmm_alloc_pages_scattered(size_t n_pages, uintptr_t *out_addrs);
+
 #endif
