@@ -10,8 +10,23 @@ ringbuf_t rxrb, txrb;
 #define ZUART_WAITQ_MAX 64
 static zuart_waiting_t read_waitq[ZUART_WAITQ_MAX];
 static uint16_t read_waitq_head, read_waitq_tail;
-static char *cached_buf = NULL;
-static int32_t cached_handle = -1;
+static char    *cached_buf    = NULL;
+static int32_t  cached_handle = -1;
+
+// -------------------- TX helper --------------------
+// Safely transmit one byte: write directly to hardware if the TX FIFO has
+// room and txrb is drained, otherwise buffer it and arm the TX interrupt.
+static void uart_txbyte(char c)
+{
+    if (!(uart->FR & FR_TXFF) && rb_empty(&txrb)) {
+        uart->DR = c;
+    } else if (rb_write(&txrb, c)) {
+        uart->IMSC |= IMSC_TXIM;
+    }
+    // if txrb is also full the byte is silently dropped
+}
+
+// ---------------------------------------------------
 
 static inline int waitq_empty(void)
 {
@@ -27,9 +42,9 @@ static inline int waitq_push(int32_t pid, int32_t handle, size_t len)
 {
     if (waitq_full())
         return 0;
-    read_waitq[read_waitq_head].pid = pid;
-    read_waitq[read_waitq_head].shmem_handle = handle; // Note: consider changing this to int32_t in the header
-    read_waitq[read_waitq_head].length = len;
+    read_waitq[read_waitq_head].pid          = (uint32_t)pid;
+    read_waitq[read_waitq_head].shmem_handle = handle;
+    read_waitq[read_waitq_head].length       = len;
     read_waitq_head = (uint16_t)((read_waitq_head + 1) % ZUART_WAITQ_MAX);
     return 1;
 }
@@ -49,23 +64,21 @@ static void service_read_waiters(void)
 
         if (waiter.shmem_handle != cached_handle)
         {
-            cached_buf = (char *)_attach(waiter.shmem_handle);
+            cached_buf    = (char *)_attach(waiter.shmem_handle);
             cached_handle = waiter.shmem_handle;
         }
         char *buf = cached_buf;
         if ((intptr_t)buf >= 0)
         {
-            size_t read_count = 0;
-            // Drain rxrb up to the waiter's requested length
-            while (!rb_empty(&rxrb) && read_count < waiter.length)
-            {
-                buf[read_count++] = rb_read(&rxrb);
-            }
-            _reply(waiter.pid, read_count, 0, 0);
+            size_t n = 0;
+            while (!rb_empty(&rxrb) && n < waiter.length)
+                buf[n++] = rb_read(&rxrb);
+            _reply(waiter.pid, n, 0, 0);
         }
         else
         {
-            // Attachment failed, tell the process it errored out
+            // Attachment failed; invalidate cache and report error
+            cached_handle = -1;
             _reply(waiter.pid, 0, ZUART_ERR, 0);
         }
     }
@@ -73,12 +86,10 @@ static void service_read_waiters(void)
 
 int zuart_setup(void)
 {
-    // first, map the device
     uart = (volatile pl011_t *)_mapdev(VEXPRESS_UART0_PA, 0x1000);
     if (!uart)
         return ZUART_INIT_FAIL;
 
-    // claim irq and bind it to an IPC port
     if (_irq_claim(UART0_IRQ_NUM))
         return ZUART_INIT_FAIL;
     port = _port_create();
@@ -87,16 +98,13 @@ int zuart_setup(void)
     if (_irq_bind(UART0_IRQ_NUM, port))
         return ZUART_INIT_FAIL;
 
-    // grant that port to nametable
     int32_t slot = _port_grant(port, NAMETABLE_PID);
     _call(NT_PORT, NT_REGISTER, nt_pack("uart"), slot);
 
-    // init rb
     rxrb.head = rxrb.tail = 0;
     txrb.head = txrb.tail = 0;
     read_waitq_head = read_waitq_tail = 0;
 
-    // enable RX interrupts
     uart->IMSC |= IMSC_RXIM;
     return ZUART_INIT_OK;
 }
@@ -105,121 +113,105 @@ int main(void)
 {
     int exit_code;
     if ((exit_code = zuart_setup()) != 0)
-    {
         return exit_code;
-    }
 
-    zuzu_ipcmsg_t returns;
+    zuzu_ipcmsg_t msg;
 
     while (1)
     {
-        returns = _recv(port);
-        if (returns.r0 == 0)
+        msg = _recv(port);
+
+        if (msg.r0 == 0)
         {
-            // kernel notified about IRQ, read type of interrupt, acknowledge & process
+            // IRQ notification
             if (uart->MIS & IMSC_RXIM)
             {
-                // RX interrupt
+                // Drain hardware RX FIFO into rxrb.
+                // Only echo printable ASCII so control characters (CR, LF,
+                // backspace/DEL) don't fight with the shell's own display logic.
                 while (!(uart->FR & FR_RXFE) && !rb_full(&rxrb))
                 {
-                    char c = uart->DR;
-                    rb_write(&rxrb, c); // write into rx ringbuf
-                    uart->DR = c;       // echo it back immediately
+                    char c = (char)(uart->DR & 0xFF);
+                    rb_write(&rxrb, c);
+                    if (c >= 0x20 && c < 0x7f)
+                        uart_txbyte(c);
                 }
                 service_read_waiters();
-                uart->ICR |= IMSC_RXIM;
+                uart->ICR = IMSC_RXIM;
             }
             if (uart->MIS & IMSC_TXIM)
             {
-                // TX interrupt
                 while (!(uart->FR & FR_TXFF) && !rb_empty(&txrb))
-                {
-                    uart->DR = rb_read(&txrb); // write FROM buffer TO hardware
-                }
+                    uart->DR = rb_read(&txrb);
                 if (rb_empty(&txrb))
                     uart->IMSC &= ~IMSC_TXIM;
-                uart->ICR |= IMSC_TXIM;
+                uart->ICR = IMSC_TXIM;
             }
             _irq_done(UART0_IRQ_NUM);
         }
-        else if (returns.r0 > 0)
+        else if (msg.r0 > 0)
         {
-            switch (returns.r1)
+            switch (msg.r1)
             {
             case ZUART_CMD_WRITE:
             {
-                int32_t handle = (int32_t)returns.r2;
-                size_t len = returns.r3;
+                int32_t handle = (int32_t)msg.r2;
+                size_t  len    = msg.r3;
 
-                // attach to shmem
                 if (handle != cached_handle)
                 {
-                    cached_buf = (char *)_attach(handle);
+                    cached_buf    = (char *)_attach(handle);
                     cached_handle = handle;
                 }
-                char *buf = cached_buf;
-                if ((intptr_t)buf < 0)
+                if ((intptr_t)cached_buf < 0)
                 {
-                    _reply(returns.r0, 0, ZUART_ERR, 0);
+                    cached_handle = -1;
+                    _reply(msg.r0, 0, ZUART_ERR, 0);
                     break;
                 }
 
-                // loop & write to txrb until full or done, then enable TX interrupt
-                size_t written = 0;
                 for (size_t i = 0; i < len; i++)
-                {
-                    char c = buf[i];
-                    if (!(uart->FR & FR_TXFF) && rb_empty(&txrb))
-                    {
-                        uart->DR = c;
-                    }
-                    else
-                    {
-                        if (!rb_write(&txrb, c))
-                            break; // tx buffer is full, stop copying early
-                        uart->IMSC |= IMSC_TXIM;
-                    }
-                    written++;
-                }
+                    uart_txbyte(cached_buf[i]);
 
-                // reply with number of bytes written (or error)
-                _reply(returns.r0, written, ZUART_SEND_OK, 0);
+                _reply(msg.r0, len, ZUART_SEND_OK, 0);
             }
             break;
+
             case ZUART_CMD_READ:
             {
-                int32_t handle = (int32_t)returns.r2;
-                size_t requested_len = returns.r3;
+                int32_t handle       = (int32_t)msg.r2;
+                size_t  requested    = msg.r3;
 
                 if (!rb_empty(&rxrb))
                 {
                     if (handle != cached_handle)
                     {
-                        cached_buf = (char *)_attach(handle);
+                        cached_buf    = (char *)_attach(handle);
                         cached_handle = handle;
                     }
-                    char *buf = cached_buf;
-                    if ((intptr_t)buf < 0)
+                    if ((intptr_t)cached_buf < 0)
                     {
-                        _reply(returns.r0, 0, ZUART_ERR, 0);
+                        cached_handle = -1;
+                        _reply(msg.r0, 0, ZUART_ERR, 0);
                         break;
                     }
 
-                    size_t read_count = 0;
-                    while (!rb_empty(&rxrb) && read_count < requested_len)
-                    {
-                        buf[read_count++] = rb_read(&rxrb);
-                    }
-
-                    _reply(returns.r0, read_count, 0, 0);
+                    size_t n = 0;
+                    while (!rb_empty(&rxrb) && n < requested)
+                        cached_buf[n++] = rb_read(&rxrb);
+                    _reply(msg.r0, n, 0, 0);
                 }
                 else
                 {
-                    if (!waitq_push(returns.r0, handle, requested_len))
-                        _reply(returns.r0, 0, ZUART_ERR, 0);
+                    if (!waitq_push(msg.r0, handle, requested))
+                        _reply(msg.r0, 0, ZUART_ERR, 0);
                 }
             }
             break;
+
+            default:
+                _reply(msg.r0, 0, ZUART_ERR, 0);
+                break;
             }
         }
     }
