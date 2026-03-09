@@ -10,6 +10,8 @@ ringbuf_t rxrb, txrb;
 #define ZUART_WAITQ_MAX 64
 static zuart_waiting_t read_waitq[ZUART_WAITQ_MAX];
 static uint16_t read_waitq_head, read_waitq_tail;
+static char *cached_buf = NULL;
+static int32_t cached_handle = -1;
 
 static inline int waitq_empty(void)
 {
@@ -44,16 +46,21 @@ static void service_read_waiters(void)
     while (!waitq_empty() && !rb_empty(&rxrb))
     {
         zuart_waiting_t waiter = waitq_pop();
-        
-        char *buf = (char *)_attach(waiter.shmem_handle);
-        if ((intptr_t)buf >= 0) 
+
+        if (waiter.shmem_handle != cached_handle)
+        {
+            cached_buf = (char *)_attach(waiter.shmem_handle);
+            cached_handle = waiter.shmem_handle;
+        }
+        char *buf = cached_buf;
+        if ((intptr_t)buf >= 0)
         {
             size_t read_count = 0;
             // Drain rxrb up to the waiter's requested length
-            while (!rb_empty(&rxrb) && read_count < waiter.length) {
+            while (!rb_empty(&rxrb) && read_count < waiter.length)
+            {
                 buf[read_count++] = rb_read(&rxrb);
             }
-            _memunmap(buf, 4096);
             _reply(waiter.pid, read_count, 0, 0);
         }
         else
@@ -145,8 +152,13 @@ int main(void)
                 size_t len = returns.r3;
 
                 // attach to shmem
-                char *buf = (char *)_attach(handle);
-                if ((intptr_t)buf < 0) // Basic error check
+                if (handle != cached_handle)
+                {
+                    cached_buf = (char *)_attach(handle);
+                    cached_handle = handle;
+                }
+                char *buf = cached_buf;
+                if ((intptr_t)buf < 0)
                 {
                     _reply(returns.r0, 0, ZUART_ERR, 0);
                     break;
@@ -170,9 +182,6 @@ int main(void)
                     written++;
                 }
 
-                // unmap shmem (assume 4kb)
-                _memunmap(buf, 4096);
-
                 // reply with number of bytes written (or error)
                 _reply(returns.r0, written, ZUART_SEND_OK, 0);
             }
@@ -184,7 +193,12 @@ int main(void)
 
                 if (!rb_empty(&rxrb))
                 {
-                    char *buf = (char *)_attach(handle);
+                    if (handle != cached_handle)
+                    {
+                        cached_buf = (char *)_attach(handle);
+                        cached_handle = handle;
+                    }
+                    char *buf = cached_buf;
                     if ((intptr_t)buf < 0)
                     {
                         _reply(returns.r0, 0, ZUART_ERR, 0);
@@ -197,14 +211,12 @@ int main(void)
                         buf[read_count++] = rb_read(&rxrb);
                     }
 
-                    _detach(handle);
                     _reply(returns.r0, read_count, 0, 0);
                 }
                 else
                 {
-                    // Push full context to wait queue
                     if (!waitq_push(returns.r0, handle, requested_len))
-                        _reply(returns.r0, 0, ZUART_ERR, 0); // Queue full
+                        _reply(returns.r0, 0, ZUART_ERR, 0);
                 }
             }
             break;

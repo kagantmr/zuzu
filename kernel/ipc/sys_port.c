@@ -111,7 +111,7 @@ void port_grant(exception_frame_t *frame)
     }
 
     handle_entry_t entry = current_process->handle_table[handle];
-    if (entry.type != HANDLE_ENDPOINT) {
+    if (entry.type == HANDLE_FREE) {
         frame->r[0] = ERR_BADARG;
         return;
     }
@@ -121,12 +121,6 @@ void port_grant(exception_frame_t *frame)
         return;
     }
 
-    endpoint_t *ep = entry.ep;
-    if (!ep)
-    {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
 
     // Look up target process
     process_t *grantee = process_find_by_pid(pid);
@@ -146,9 +140,11 @@ void port_grant(exception_frame_t *frame)
     {
         if (grantee->handle_table[i].type == HANDLE_FREE)
         {
-            grantee->handle_table[i].ep = ep;
+            grantee->handle_table[i] = entry;
             grantee->handle_table[i].grantable = (grantee->pid == NAMETABLE_PID);
-            grantee->handle_table[i].type = HANDLE_ENDPOINT;
+            if (entry.type == HANDLE_SHMEM && entry.shm) {
+                entry.shm->ref_count++;
+            }
             frame->r[0] = i;
             return;
         }

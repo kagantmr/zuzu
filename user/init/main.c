@@ -14,14 +14,11 @@ int main()
     int zuart_pid = _spawn("bin/zuart", 9);
     _port_grant(ns_port, zuart_pid);
 
-    int hello_pid = _spawn("bin/hello", 9);
-    _port_grant(ns_port, hello_pid);
-
-    int shmem_pid = _spawn("bin/shmem_test", 14);
-    _port_grant(ns_port, shmem_pid);
+    int zzsh_pid = _spawn("bin/zzsh", 8);
+    _port_grant(ns_port, zzsh_pid);
 
     int32_t status;
-    _wait(hello_pid, &status);
+    _wait(zzsh_pid, &status);
 
     _log("init: done\n", 11);
 
