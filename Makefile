@@ -69,7 +69,7 @@ USER_LD      = $(CROSS)ld
 USER_OBJCOPY = $(CROSS)objcopy
 
 USER_CFLAGS  = -ffreestanding -nostdlib -O$(OPTIMIZATION_LEVEL) -Wall -Wextra \
-               $(CPUFLAGS) -I user/include -Iinclude -MMD -MP -g
+               $(CPUFLAGS) -I user/include -Iinclude -MMD -MP -g -mfloat-abi=soft
 USER_LDFLAGS = -T user/user.ld
 
 # List every user program directory here

@@ -346,26 +346,26 @@ uint32_t arch_mmu_make_l1_pte(uintptr_t l2_pa)
 
 uint32_t arch_mmu_make_l2_pte(uintptr_t pa, vm_memtype_t memtype, vm_prot_t prot)
 {
-    // Start with PA masked for 4KB alignment, plus type bits
     uint32_t entry = (pa & ALIGNMENT_4KB_MASK) | 0x2;
-    // Set AP bits depending on who's demanding the page (11 means everyone can access, 01 means privileged)
-    if (prot & VM_PROT_USER)
-    {
-        entry |= (3u << 4);
-    }
-    else
-    {
-        entry |= (1u << 4);
+
+    // XN: if not executable, set bit 0
+    if (!(prot & VM_PROT_EXEC))
+        entry |= 0x1;
+
+    // AP bits
+    if (prot & VM_PROT_USER) {
+        if (prot & VM_PROT_WRITE)
+            entry |= (3u << 4);   // AP=11: user RW
+        else
+            entry |= (2u << 4);   // AP=10: user RO
+    } else {
+        entry |= (1u << 4);       // AP=01: kernel only
     }
 
-    // 3. Add memory type bits (TEX/C/B)
-    if (memtype == VM_MEM_DEVICE)
-    {
-        entry |= (1u << 2); // B=1 only → Device
-    }
-    else
-    {
-        entry |= (1u << 6) | (1u << 3) | (1u << 2); // TEX=001, C=1, B=1 → Normal cached
+    if (memtype == VM_MEM_DEVICE) {
+        entry |= (1u << 2);
+    } else {
+        entry |= (1u << 6) | (1u << 3) | (1u << 2);
     }
     return entry;
 }
