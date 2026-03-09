@@ -73,7 +73,7 @@ USER_CFLAGS  = -ffreestanding -nostdlib -O$(OPTIMIZATION_LEVEL) -Wall -Wextra \
 USER_LDFLAGS = -T user/user.ld
 
 # List every user program directory here
-USER_PROGS   = init zuart nametable shmem_test
+USER_PROGS   = init zuart nametable shmem_test zzsh
 
 # ZCRT library objects (compiled from include/zcrt/)
 ZCRT_SRCS    = include/zcrt/string.c include/zcrt/mem.c include/zcrt/snprintf.c include/zcrt/convert.c include/zcrt/list.c

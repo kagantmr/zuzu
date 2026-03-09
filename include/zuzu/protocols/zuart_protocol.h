@@ -7,7 +7,7 @@
 #define ZUART_CMD_READ 2
 
 /**
-* IPC Contract for ZUART:
+* IPC contract for ZUART:
 * * ZUART_CMD_WRITE:
 * r0 = port handle (used by IPC)
 * r1 = ZUART_CMD_WRITE

@@ -306,8 +306,7 @@ void attach(exception_frame_t *frame)
         frame->r[0] = ERR_BADARG;
         return;
     }
-    if (current_process->handle_table[handle_idx].type != HANDLE_SHMEM ||
-        !current_process->handle_table[handle_idx].grantable)
+    if (current_process->handle_table[handle_idx].type != HANDLE_SHMEM)
     {
         frame->r[0] = ERR_BADFORM;
         return;

@@ -5,6 +5,7 @@
 #include "stdbool.h"
 #include <mem.h>
 #include <assert.h>
+#include "core/panic.h"
 #include "core/log.h"
 
 extern kernel_layout_t kernel_layout;
