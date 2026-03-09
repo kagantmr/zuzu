@@ -8,6 +8,27 @@ static int32_t zuart_port;
 static int32_t shmem_handle;
 static char *shmem_buf;
 
+static void strip(char *s) {
+    char *src = s, *dst = s;
+
+    // skip leading spaces
+    while (*src == ' ') src++;
+
+    // collapse interior spaces
+    while (*src) {
+        if (*src == ' ' && (dst == s || *(dst - 1) == ' ')) {
+            src++;
+        } else {
+            *dst++ = *src++;
+        }
+    }
+
+    // trim trailing space
+    if (dst > s && *(dst - 1) == ' ') dst--;
+
+    *dst = '\0';
+}
+
 void zprint(const char *s) {
     size_t len = strlen(s);
     if (len > 4096) len = 4096;
@@ -147,11 +168,11 @@ int main(void)
         }
     line_done:
         line[pos] = '\0';
-
-        if (pos == 0)
+        strip(line);
+        if (line[0] == '\0')
             continue;
-
         command_dispatch(line);
+
     }
 
     return 0;
