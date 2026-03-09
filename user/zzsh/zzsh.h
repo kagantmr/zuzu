@@ -8,6 +8,7 @@
 #include "zuzu/protocols/nt_protocol.h"
 
 #define LINE_BUFFER_SIZE 256
+#define HISTORY_MAX      32
 
 void zprint(const char* s);
 size_t zread(char *dst, size_t max);
