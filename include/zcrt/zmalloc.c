@@ -62,6 +62,14 @@ void *zmalloc(size_t size)
                 prev->next = curr->next;
             else
                 free_list = curr->next;
+
+            if (block->size >= total_size + HEADER_SIZE + 8) {
+                uint32_t old_size = block->size;
+                block->size = total_size;
+                block_header_t *block2 = (block_header_t *)((char *)curr + total_size - HEADER_SIZE);
+                block2->size = old_size - total_size;
+                zfree((char *)block2 + HEADER_SIZE);
+            } 
             return (void *)curr;
         }
         prev = curr;
@@ -119,9 +127,47 @@ void zfree(void *ptr)
 {
     if (!ptr)
         return;
+
+    block_header_t *freed = (block_header_t *)((char *)ptr - HEADER_SIZE);
     free_node_t *node = (free_node_t *)ptr;
-    node->next = free_list;
-    free_list = node;
+
+    // Sorted insert by address
+    free_node_t *prev = NULL;
+    free_node_t *curr = free_list;
+    while (curr && (uintptr_t)curr < (uintptr_t)node)
+    {
+        prev = curr;
+        curr = curr->next;
+    }
+
+    // Insert between prev and curr
+    node->next = curr;
+    if (prev)
+        prev->next = node;
+    else
+        free_list = node;
+
+    // Coalesce with next neighbor
+    if (curr)
+    {
+        block_header_t *next_hdr = (block_header_t *)((char *)curr - HEADER_SIZE);
+        if ((char *)freed + freed->size == (char *)next_hdr)
+        {
+            freed->size += next_hdr->size;
+            node->next = curr->next;
+        }
+    }
+
+    // Coalesce with previous neighbor
+    if (prev)
+    {
+        block_header_t *prev_hdr = (block_header_t *)((char *)prev - HEADER_SIZE);
+        if ((char *)prev_hdr + prev_hdr->size == (char *)freed)
+        {
+            prev_hdr->size += freed->size;
+            prev->next = node->next;
+        }
+    }
 }
 
 #endif /* !__KERNEL__ */
