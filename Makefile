@@ -76,8 +76,8 @@ USER_LDFLAGS = -T user/user.ld
 USER_PROGS   = init zuart nametable shmem_test zzsh
 
 # ZCRT library objects (compiled from include/zcrt/)
-ZCRT_SRCS    = include/zcrt/string.c include/zcrt/mem.c include/zcrt/snprintf.c include/zcrt/convert.c include/zcrt/list.c
-ZCRT_OBJS    = build/user/zcrt/string.o build/user/zcrt/mem.o build/user/zcrt/snprintf.o build/user/zcrt/convert.o build/user/zcrt/list.o
+ZCRT_SRCS = $(wildcard include/zcrt/*.c)
+ZCRT_OBJS = $(patsubst include/zcrt/%.c,build/user/zcrt/%.o,$(ZCRT_SRCS))
 
 # Derived paths
 USER_CRT0    = build/user/crt0.o

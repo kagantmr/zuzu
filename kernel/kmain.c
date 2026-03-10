@@ -153,7 +153,7 @@ _Noreturn void kmain(void)
     const void *elf_data;
     size_t elf_size;
     if (initrd_find("bin/init", &elf_data, &elf_size)) {
-        KDEBUG("Found bin/init: %u bytes at %p\n", elf_size, elf_data);
+        KDEBUG("Found bin/init: %u bytes at %p", elf_size, elf_data);
         process_t *init = process_create_from_elf(elf_data, elf_size, "init");
         if (init)
             sched_add(init);
@@ -161,7 +161,7 @@ _Noreturn void kmain(void)
 
     register_tick_callback(schedule);
 
-    KINFO("Entering idle");
+    KDEBUG("Entering idle");
     //uint64_t idle_ticks = 0;
     while (1)
     {

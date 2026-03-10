@@ -258,7 +258,6 @@ static inline int32_t _irq_done(uint32_t irq_num) {
     return (int32_t) r0;
 }
 
-/* ---- Debug / temporary ---- */
 
 static inline int32_t _log(const char *str, size_t len) {
     register uintptr_t r0 __asm__("r0") = (uintptr_t) str;

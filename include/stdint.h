@@ -1,7 +1,6 @@
 #ifndef ZUZU_STDINT_H
 #define ZUZU_STDINT_H
 
-// These are the actual standard types for a 32-bit ARM (Cortex-A15)
 typedef unsigned char      uint8_t;
 typedef unsigned short     uint16_t;
 typedef unsigned int       uint32_t;
