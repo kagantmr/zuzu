@@ -69,8 +69,14 @@ USER_LD      = $(CROSS)ld
 USER_OBJCOPY = $(CROSS)objcopy
 
 USER_CFLAGS  = -ffreestanding -nostdlib -O$(OPTIMIZATION_LEVEL) -Wall -Wextra \
-               $(CPUFLAGS) -I user/include -Iinclude -MMD -MP -g -mfloat-abi=soft
+               $(CPUFLAGS) -Iuser/include -Iinclude -MMD -MP -g -mfloat-abi=soft
 USER_LDFLAGS = -T user/user.ld
+
+ifeq ($(DEBUG_BUILD), 1)
+	USER_CFLAGS += -UNDEBUG -DDEBUG
+else
+	USER_CFLAGS += -DNDEBUG -UDEBUG
+endif
 
 # List every user program directory here
 USER_PROGS   = init zuart nametable shmem_test zzsh
@@ -79,35 +85,36 @@ USER_PROGS   = init zuart nametable shmem_test zzsh
 ZCRT_SRCS = $(wildcard include/zcrt/*.c)
 ZCRT_OBJS = $(patsubst include/zcrt/%.c,build/user/zcrt/%.o,$(ZCRT_SRCS))
 
+ULIB_SRCS = $(wildcard user/lib/*.c)
+ULIB_OBJS = $(patsubst user/lib/%.c,build/user/lib/%.o,$(ULIB_SRCS))
+
 # Derived paths
 USER_CRT0    = build/user/crt0.o
+USER_MAIN_OBJS = $(foreach p,$(USER_PROGS),build/user/$(p).o)
 USER_ELFS    = $(foreach p,$(USER_PROGS),build/user/$(p).elf)
 INITRD       = build/initrd.cpio
-
-# --- Flags Logic ---
-ifeq ($(DEBUG_BUILD), 1)
-    CFLAGS      += -UNDEBUG -DDEBUG -DZUZU_BANNER_SHOW_ADDR
-    USER_CFLAGS += -UNDEBUG -DDEBUG
-else
-    CFLAGS      += -DNDEBUG -UDEBUG -UZUZU_BANNER_SHOW_ADDR
-    USER_CFLAGS += -DNDEBUG -UDEBUG
-endif
-# (Add other flag checks here as per your snippet...)
 
 SRC_DIRS = arch core drivers kernel include/zcrt
 
 # Find sources
 CSRCS    = $(shell find $(SRC_DIRS) -name '*.c')
+# Userspace has its own allocator; the kernel uses kmalloc/kfree directly.
+CSRCS    := $(filter-out include/zcrt/zmalloc.c,$(CSRCS))
 ASRCS_ALL = $(shell find $(SRC_DIRS) -name '*.S')
 
 # Filter out initrd.S to prevent the "multiple definition of _initrd_start" error
 ASRCS     = $(filter-out arch/arm/crt0.S arch/arm/initrd.S,$(ASRCS_ALL))
 OBJS      = $(CSRCS:%.c=build/%.o) $(ASRCS:%.S=build/%.o)
 DEPS      = $(OBJS:.o=.d)
+USER_DEPS = $(USER_CRT0:.o=.d) $(USER_MAIN_OBJS:.o=.d) $(ZCRT_OBJS:.o=.d) $(ULIB_OBJS:.o=.d)
 
 TARGET   = build/zuzu.elf 
 
 all: $(TARGET)
+
+# Keep userspace objects around; otherwise GNU make may treat them as intermediate
+# and delete them after linking the .elfs.
+.SECONDARY: $(USER_MAIN_OBJS) $(ZCRT_OBJS) $(ULIB_OBJS)
 
 # Kernel Compilation
 build/%.o: %.c
@@ -125,15 +132,23 @@ build/user/zcrt/%.o: include/zcrt/%.c
 
 # --- Userspace Build Rules ---
 
+build/user/lib/%.o: user/lib/%.c
+	@mkdir -p $(dir $@)
+	$(USER_CC) $(USER_CFLAGS) -Iuser/lib -c $< -o $@
+
 $(USER_CRT0): arch/arm/crt0.S
 	@mkdir -p $(dir $@)
 	$(USER_CC) $(USER_CFLAGS) -x assembler-with-cpp -c $< -o $@
 
+# Build user main objects (one per program)
+build/user/%.o: user/%/main.c
+	@mkdir -p $(dir $@)
+	$(USER_CC) $(USER_CFLAGS) -c $< -o $@
+
 # Links User Main + CRT0 + ZCRT Library
-build/user/%.elf: user/%/main.c $(USER_CRT0) $(ZCRT_OBJS) user/user.ld
-	@mkdir -p build/user
-	$(USER_CC) $(USER_CFLAGS) -c $< -o build/user/$*.o
-	$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) build/user/$*.o $(ZCRT_OBJS) -o $@
+build/user/%.elf: build/user/%.o $(USER_CRT0) $(ZCRT_OBJS) $(ULIB_OBJS) user/user.ld
+	@mkdir -p $(dir $@)
+	$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) $< $(ZCRT_OBJS) $(ULIB_OBJS) -o $@
 
 $(INITRD): $(USER_ELFS)
 	@rm -rf build/initrd
@@ -160,4 +175,4 @@ run: $(TARGET)
 clean:
 	rm -rf build
 
--include $(DEPS)
+-include $(DEPS) $(USER_DEPS)
