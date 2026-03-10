@@ -79,7 +79,7 @@ else
 endif
 
 # List every user program directory here
-USER_PROGS   = init zuart nametable shmem_test zzsh
+USER_PROGS   = init zuart nametable malloc_test zzsh
 
 # ZCRT library objects (compiled from include/zcrt/)
 ZCRT_SRCS = $(wildcard include/zcrt/*.c)
