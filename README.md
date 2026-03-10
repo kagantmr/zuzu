@@ -2,7 +2,7 @@
 
 ![Boot screen](docs/img/shell.png)
 
-Zuzu is a microkernel targeting AArch32 / ARMv7-A. It's written in C and ARM assembly from scratch. The kernel runs on QEMU's `vexpress-a15` machine (Cortex-A15) and is designed from the very first principles around microkernel principles: a minimal kernel, strict process isolation, and I/O through inter-process messaging (IPC).
+zuzu is a microkernel targeting AArch32 / ARMv7-A. It's written in C and ARM assembly from scratch. The kernel runs on QEMU's `vexpress-a15` machine (Cortex-A15) and is designed from the very first principles around microkernel principles: a minimal kernel, strict process isolation, and I/O through inter-process messaging (IPC).
 
 This project started as a hobby project and grew into a full systems programming exploration. The goal is a complete, understandable microkernel, something that demonstrates how a real OS kernel works at every level.
 
@@ -35,7 +35,7 @@ Phases 0–12 is completed. Synchronous IPC is implemented and tested.
 ## Design Choices
 
 
-**SVC immediate used as syscall number.** Zuzu encodes the syscall number directly in the lower byte of the `SVC #n` instruction's immediate field, rather than the Linux convention of placing it in `r7`. This was chosen to reduce excess register usage and make use of the 24 bits. Now, due to the incompatibility between ARM mode and Thumb mode (Thumb `SVC #n` immediate is 8 bits), the full 24-bits of the ARM mode `SVC #n` instruction are not used.
+**SVC immediate used as syscall number.** zuzu encodes the syscall number directly in the lower byte of the `SVC #n` instruction's immediate field, rather than the Linux convention of placing it in `r7`. This was chosen to reduce excess register usage and make use of the 24 bits. Now, due to the incompatibility between ARM mode and Thumb mode (Thumb `SVC #n` immediate is 8 bits), the full 24-bits of the ARM mode `SVC #n` instruction are not used.
 
 **TTBR0 / TTBR1 address space split.** The MMU uses two translation table base registers simultaneously: TTBR1 holds the kernel's page table and never changes, TTBR0 holds the current process's page table and is swapped on every context switch. The split boundary is at `0x80000000` (TTBCR.N = 1). This means kernel mappings are always accessible without any per-process copying.
 
