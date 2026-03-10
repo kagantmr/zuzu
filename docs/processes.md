@@ -33,7 +33,7 @@ typedef struct process {
 
 ## Process States
 
-![Statistics screen](img/process_sm.png)
+![Process state diagram](img/process_sm.png)
 
 - `READY` — process is ready to run, sitting in the scheduler's run queue
 - `RUNNING` — process is currently executing on the CPU
