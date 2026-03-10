@@ -2,8 +2,6 @@
 
 int main()
 {
-    _log("init: starting\n", 15);
-
     int pid = _getpid();
 
 
@@ -16,11 +14,6 @@ int main()
 
     int zzsh_pid = _spawn("bin/zzsh", 8);
     _port_grant(ns_port, zzsh_pid);
-
-    int32_t status;
-    _wait(zzsh_pid, &status);
-
-    _log("init: done\n", 11);
 
     while (1)
     {
