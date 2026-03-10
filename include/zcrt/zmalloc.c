@@ -1,8 +1,11 @@
-#include <zmalloc.h>
-#include <zuzu/memprot.h>
-#include "zuzu.h"
+#ifndef __KERNEL__
+
+#include "zmalloc.h"
+
 #include <mem.h>
 #include <stdint.h>
+#include <zuzu/memprot.h>
+#include <zuzu.h>
 
 typedef struct arena
 {
@@ -31,23 +34,23 @@ void *zmalloc(size_t size)
 {
     if (!size)
         return NULL;
+
     // 0. initialize
     if (!arena.base)
     {
         arena.base = (uintptr_t)_memmap(NULL, ARENA_CHUNK_SIZE, VM_PROT_READ | VM_PROT_WRITE);
         if ((intptr_t)arena.base < 0)
-        {
             return NULL;
-        }
         arena.mapped = arena.base + ARENA_CHUNK_SIZE;
         arena.brk = arena.base;
     }
+
     // 1. align
     size_t allocated_size = align_up(size, 8);
     // 2. add room for header
     size_t total_size = HEADER_SIZE + allocated_size;
 
-    // 3. free list check (skip, then come back for zfree)
+    // 3. free list check
     free_node_t *prev = NULL;
     free_node_t *curr = free_list;
     while (curr)
@@ -56,28 +59,22 @@ void *zmalloc(size_t size)
         if (block->size >= total_size)
         {
             if (prev)
-            {
                 prev->next = curr->next;
-            }
             else
-            {
                 free_list = curr->next;
-            }
-
-            // and then
             return (void *)curr;
         }
         prev = curr;
         curr = curr->next;
     }
+
     // 4. if its empty bump the arena
     if (arena.brk + total_size > arena.mapped)
     {
-        uintptr_t result = (uintptr_t)_memmap((void *)arena.mapped, ARENA_CHUNK_SIZE, VM_PROT_READ | VM_PROT_WRITE);
+        uintptr_t result =
+            (uintptr_t)_memmap((void *)arena.mapped, ARENA_CHUNK_SIZE, VM_PROT_READ | VM_PROT_WRITE);
         if ((intptr_t)result < 0)
-        {
             return NULL;
-        }
         arena.mapped += ARENA_CHUNK_SIZE;
     }
 
@@ -92,9 +89,7 @@ void *zcalloc(size_t count, size_t size)
 {
     void *mem = zmalloc(count * size);
     if (!mem)
-    {
         return NULL;
-    }
     memset(mem, 0, size * count);
     return mem;
 }
@@ -108,11 +103,11 @@ void *zrealloc(void *ptr, size_t size)
         zfree(ptr);
         return NULL;
     }
+
     void *new_mem = zmalloc(size);
     if (!new_mem)
-    {
         return ptr;
-    }
+
     size_t old_size = ((block_header_t *)((char *)ptr - HEADER_SIZE))->size - HEADER_SIZE;
     size_t min_size = old_size < size ? old_size : size;
     memcpy(new_mem, ptr, min_size);
@@ -126,5 +121,7 @@ void zfree(void *ptr)
         return;
     free_node_t *node = (free_node_t *)ptr;
     node->next = free_list;
-    free_list = ptr;
+    free_list = node;
 }
+
+#endif /* !__KERNEL__ */
