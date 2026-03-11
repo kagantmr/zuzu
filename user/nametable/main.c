@@ -5,6 +5,7 @@
 #include <stddef.h>
 
 static nt_entry_t registry_table[NT_MAX_SERVICES];
+int32_t port;
 
 static inline void name_u32_to_chars(uint32_t name_u32, char out[NT_NAME_LEN]) {
     // LE packing
@@ -24,6 +25,7 @@ static int name_equals_u32(const char name[NT_NAME_LEN], uint32_t name_u32) {
 }
 
 static void nt_setup(void) {
+    port = _port_create();
     for (int i = 0; i < NT_MAX_SERVICES; i++) {
         registry_table[i].handle = 0;         // 0 == empty slot
         registry_table[i].pid = 0;

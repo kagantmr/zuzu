@@ -44,6 +44,10 @@ char *itoa(int value, char *str, unsigned int base);
 char *utoa(unsigned int value, char *str, unsigned int base);
 
 
-
+static inline unsigned int be32(const void *p) {
+    const unsigned char *b = (const unsigned char *)p;
+    return ((unsigned int)b[0] << 24) | ((unsigned int)b[1] << 16) |
+           ((unsigned int)b[2] << 8)  | (unsigned int)b[3];
+}
 
 #endif

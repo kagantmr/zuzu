@@ -9,6 +9,7 @@
 
 extern process_t *current_process;
 extern list_head_t sleep_queue;
+extern endpoint_t *nametable_endpoint;
 
 #define LOG_FMT(fmt) "(sys_task) " fmt
 #include "core/log.h"
@@ -107,6 +108,12 @@ void spawn(exception_frame_t *frame) {
         return;
     }
     
+    if (nametable_endpoint != NULL) {
+        process->handle_table[0].ep = nametable_endpoint;
+        process->handle_table[0].grantable = true;
+        process->handle_table[0].type = HANDLE_ENDPOINT;
+    }
+
     process->parent_pid = current_process->pid;
     
     sched_add(process);

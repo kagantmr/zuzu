@@ -5,6 +5,7 @@
 #include "kernel/mm/alloc.h"
 
 extern process_t *current_process;
+endpoint_t *nametable_endpoint;
 
 void port_create(exception_frame_t *frame)
 {
@@ -13,6 +14,7 @@ void port_create(exception_frame_t *frame)
         frame->r[0] = ERR_BADARG;
         return;
     }
+
     for (int i = 0; i < MAX_HANDLE_TABLE; i++)
     {
         if (current_process->handle_table[i].type == HANDLE_FREE)
@@ -23,6 +25,9 @@ void port_create(exception_frame_t *frame)
                 frame->r[0] = ERR_NOMEM;
                 return;
             }
+            if (current_process->pid == NAMETABLE_PID && !nametable_endpoint) {
+                nametable_endpoint = new_endpoint;
+            }
             // list_init(&new_endpoint->node);
             list_init(&new_endpoint->sender_queue);
             list_init(&new_endpoint->receiver_queue);
@@ -31,6 +36,8 @@ void port_create(exception_frame_t *frame)
             current_process->handle_table[i].ep = new_endpoint;
             current_process->handle_table[i].grantable = true;
             current_process->handle_table[i].type = HANDLE_ENDPOINT;
+
+
             frame->r[0] = i;
             return;
         }

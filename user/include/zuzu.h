@@ -17,6 +17,7 @@ typedef struct {
     uint32_t r3;
 } zuzu_ipcmsg_t;
 typedef struct { int32_t handle; void *addr; } shmem_result_t;
+typedef struct { int32_t err; uint32_t addr; uint32_t size; } dtb_reg_result_t;
 
 #define NAMETABLE_PID 2
 
@@ -258,6 +259,40 @@ static inline int32_t _irq_done(uint32_t irq_num) {
     return (int32_t) r0;
 }
 
+static inline int32_t _dtb_find(const char *compat, char *path_out, uint32_t path_cap) {
+    register uintptr_t r0 __asm__("r0") = (uintptr_t)compat;
+    register uintptr_t r1 __asm__("r1") = (uintptr_t)path_out;
+    register uint32_t  r2 __asm__("r2") = path_cap;
+    __asm__ volatile("svc %[num]"
+        : "+r"(r0)
+        : "r"(r1), "r"(r2), [num] "i"(SYS_DTB_FIND)
+        : "memory");
+    return (int32_t)r0;
+}
+
+static inline int32_t _dtb_prop(const char *path, const char *prop, void *buf, uint32_t buf_cap) {
+    register uintptr_t r0 __asm__("r0") = (uintptr_t)path;
+    register uintptr_t r1 __asm__("r1") = (uintptr_t)prop;
+    register uintptr_t r2 __asm__("r2") = (uintptr_t)buf;
+    register uint32_t  r3 __asm__("r3") = buf_cap;
+    __asm__ volatile("svc %[num]"
+        : "+r"(r0)
+        : "r"(r1), "r"(r2), "r"(r3), [num] "i"(SYS_DTB_PROP)
+        : "memory");
+    return (int32_t)r0;
+}
+
+static inline dtb_reg_result_t _dtb_reg(const char *path, uint32_t index) {
+    register uintptr_t r0 __asm__("r0") = (uintptr_t)path;
+    register uint32_t  r1 __asm__("r1") = index;
+    register uint32_t  r2 __asm__("r2");
+    register uint32_t  r3 __asm__("r3");
+    __asm__ volatile("svc %[num]"
+        : "+r"(r0), "+r"(r1), "=r"(r2), "=r"(r3)
+        : [num] "i"(SYS_DTB_REG)
+        : "memory");
+    return (dtb_reg_result_t){ .err = (int32_t)r0, .addr = r1, .size = r2 };
+}
 
 static inline int32_t _log(const char *str, size_t len) {
     register uintptr_t r0 __asm__("r0") = (uintptr_t) str;

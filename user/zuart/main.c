@@ -68,7 +68,7 @@ static void service_read_waiters(void)
             cached_handle = waiter.shmem_handle;
         }
         char *buf = cached_buf;
-        if ((intptr_t)buf >= 0)
+        if ((intptr_t)buf > 0)
         {
             size_t n = 0;
             while (!rb_empty(&rxrb) && n < waiter.length)
@@ -86,19 +86,34 @@ static void service_read_waiters(void)
 
 int zuart_setup(void)
 {
-    uart = (volatile pl011_t *)_mapdev(VEXPRESS_UART0_PA, 0x1000);
-    if (!uart)
+    char path[128];
+    int32_t ret = _dtb_find("arm,pl011", path, sizeof(path));
+    if (ret < 0)
+        return ZUART_INIT_FAIL;
+
+    dtb_reg_result_t reg = _dtb_reg(path, 0);
+    if (reg.err < 0)
+        return ZUART_INIT_FAIL;
+
+    uint32_t base = reg.addr;
+    uint32_t size = reg.size;
+
+    uart = (volatile pl011_t *)_mapdev(base, size);
+    if ((intptr_t)uart <= 0)
         return ZUART_INIT_FAIL;
 
     if (_irq_claim(UART0_IRQ_NUM))
         return ZUART_INIT_FAIL;
+
     port = _port_create();
     if (port < 0)
         return ZUART_INIT_FAIL;
+
     if (_irq_bind(UART0_IRQ_NUM, port))
         return ZUART_INIT_FAIL;
 
     int32_t slot = _port_grant(port, NAMETABLE_PID);
+    if (slot < 0) return ZUART_INIT_FAIL;
     _call(NT_PORT, NT_REGISTER, nt_pack("uart"), slot);
 
     rxrb.head = rxrb.tail = 0;
@@ -189,7 +204,7 @@ int main(void)
                         cached_buf    = (char *)_attach(handle);
                         cached_handle = handle;
                     }
-                    if ((intptr_t)cached_buf < 0)
+                    if ((intptr_t)cached_buf <= 0)
                     {
                         cached_handle = -1;
                         _reply(msg.r0, 0, ZUART_ERR, 0);
