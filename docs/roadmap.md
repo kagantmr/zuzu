@@ -169,7 +169,7 @@ Phase 5: Kernel Heap
 - [x] port_grant (SVC #0x22)
 - [x] Blocking send/recv with scheduler integration
 - [x] ERR_DEAD on endpoint destroyed while waiting
-- [ ] Capability transfer through IPC messages *(required for Phase 18)*
+- [x] Capability transfer through IPC messages *(required for Phase 18)*
 
 ---
 
@@ -187,7 +187,7 @@ Phase 5: Kernel Heap
 
 - [x] sys_mapdev: map MMIO into driver process address space
 - [x] Userspace PL011 UART driver
-- [ ] Console IPC protocol (other tasks print by IPC to UART server)
+- [x] Console IPC protocol (other tasks print by IPC to UART server)
 - [x] Kernel stops using UART (mostly) after handoff (except early boot)
 
 ---
@@ -209,7 +209,7 @@ Phase 5: Kernel Heap
 - [x] User-side linker script
 - [x] Separate build targets for kernel and userspace
 - [x] "Hello World" user process in C
-- [ ] Syscall wrapper library (SVC #n wrappers)
+- [x] Syscall wrapper library (SVC #n wrappers)
 
 ---
 
@@ -226,7 +226,7 @@ Phase 5: Kernel Heap
 
 - [x] sys_mmap / sys_munmap
 - [x] Demand paging (Data Abort on unmapped user page → allocate)
-- [ ] Shared memory objects (sys_mshare / sys_attach)
+- [x] Shared memory objects (sys_mshare / sys_attach)
 
 ---
 
@@ -235,7 +235,7 @@ Phase 5: Kernel Heap
 - [x] task_spawn: load ELF from initrd, return child PID
 - [x] task_wait: block until child exits, return exit status
 - [ ] Orphan re-parenting to init
-- [ ] Zombie reaping
+- [x] Zombie reaping
 
 ---
 
