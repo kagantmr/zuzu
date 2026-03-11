@@ -6,6 +6,7 @@
 #include "kernel/sched/sched.h"
 #include <mem.h>
 #include "kstack.h"
+#include "core/panic.h"
 #include "zuzu/syscall_nums.h"
 
 uint32_t next_pid = 1;
@@ -22,6 +23,15 @@ process_t *process_find_by_pid(uint32_t pid)
 }
 
 void process_kill(process_t *p, const int exit_status) {
+    if (p->pid == 1) {
+        panic("Attempted to kill init");
+    }
+    if (p->pid == 2) {
+        panic("Attempted to kill nametable");
+    }
+    if (p->pid == 3) {
+        panic("Attempted to kill devmgr");
+    }
     // Clean up handle table — clear non-owned handles, free owned endpoints
     for (int i = 0; i < MAX_HANDLE_TABLE; i++) {
         if (p->handle_table[i].type == HANDLE_ENDPOINT) {
