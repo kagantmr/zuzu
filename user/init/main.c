@@ -4,6 +4,7 @@
 int main() {
     _spawn("bin/nametable", 13);
     _sleep(50);
+    _spawn("bin/devmgr", 12);
     _spawn("bin/zuart", 9);
     _spawn("bin/zzsh", 8);
     
