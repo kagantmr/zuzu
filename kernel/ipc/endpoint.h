@@ -7,6 +7,7 @@
 #include "kernel/vmm/vmm.h"
 
 #define MAX_HANDLE_TABLE 16
+#define MAX_HANDLE_TABLE 16
 
 typedef struct endpoint {
     list_head_t sender_queue;
@@ -20,6 +21,9 @@ typedef struct endpoint {
 typedef struct {
     uint32_t phys_base;
     uint32_t size;
+    bool mapped; // is this device currently mapped?
+    char compatible[32]; // DTB compatible string
+    uint32_t irq;
 } device_cap_t;
 
 typedef enum {
