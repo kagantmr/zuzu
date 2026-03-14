@@ -7,7 +7,7 @@
 #include "kernel/ipc/sys_ipc.h"
 #include "kernel/irq/sys_irq.h"
 #include "kernel/vmm/sys_vmm.h"
-#include "kernel/dtb/sys_dtb.h"
+#include "kernel/dev/sys_dev.h"
 
 extern process_t *current_process;
 
@@ -93,6 +93,10 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     {
         detach(frame);
     } break; 
+    case SYS_GETDEV:
+    {
+        getdev(frame);
+    } break;
     case SYS_IRQ_CLAIM:
     {   
         irq_claim(frame);
@@ -105,18 +109,6 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     {
         irq_done(frame);
     } break; 
-    case SYS_DTB_FIND:
-    {
-        dtb_find(frame);
-    } break; 
-    case SYS_DTB_PROP:
-    {
-        dtb_prop(frame);
-    } break; 
-    case SYS_DTB_REG:
-    {
-        dtb_reg(frame);
-    } break;
     case SYS_DUMP:
     {
         frame->r[0] = ERR_NOMATCH;

@@ -2,6 +2,7 @@
 #define ZUZU_NT_PROTOCOL_H
 
 #define NT_PORT  0
+#define NT_NAME_SYS "sys"  
 
 #define NT_REGISTER  1
 #define NT_LOOKUP    2

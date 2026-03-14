@@ -48,30 +48,57 @@ static inline bool valid_irq(uint32_t irq_num) {
     return (irq_num < MAX_IRQS) && !irq_is_reserved(irq_num);
 }
 
-void irq_claim(exception_frame_t* frame) {
-    uint32_t irq_num = frame->r[0];
+void irq_claim(exception_frame_t *frame) {
+    uint32_t handle_idx = frame->r[0];
+
+    if (handle_idx == 0 || handle_idx >= MAX_HANDLE_TABLE) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    handle_entry_t *entry = &current_process->handle_table[handle_idx];
+    if (entry->type != HANDLE_DEVICE) {
+        frame->r[0] = ERR_BADFORM;
+        return;
+    }
+
+    device_cap_t *cap = entry->dev;
+    uint32_t irq_num = cap->irq;
+
     if (!valid_irq(irq_num)) {
         frame->r[0] = ERR_BADARG;
         return;
     }
-    if (!irq_owners[irq_num].owner) {
-        irq_owners[irq_num] = (irq_owner_t){
-            .bound_port = NULL,
-            .owner = current_process,
-            .pending = false
-        };
-        irq_register(irq_num, relay_handler, (void*)(uintptr_t)irq_num);
-        irq_enable_line(irq_num);
-        frame->r[0] = 0;
+    if (irq_owners[irq_num].owner) {
+        frame->r[0] = ERR_BUSY;
         return;
     }
-    frame->r[0] = ERR_BUSY;
-    return;
+
+    irq_owners[irq_num] = (irq_owner_t){
+        .bound_port = NULL,
+        .owner = current_process,
+        .pending = false
+    };
+    irq_register(irq_num, relay_handler, (void*)(uintptr_t)irq_num);
+    irq_enable_line(irq_num);
+    frame->r[0] = 0;
 }
 
-void irq_bind(exception_frame_t* frame) {
-    uint32_t irq_num = frame->r[0];
+void irq_bind(exception_frame_t *frame) {
+    uint32_t dev_handle  = frame->r[0];
     uint32_t port_handle = frame->r[1];
+
+    if (dev_handle == 0 || dev_handle >= MAX_HANDLE_TABLE) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+    handle_entry_t *entry = &current_process->handle_table[dev_handle];
+    if (entry->type != HANDLE_DEVICE) {
+        frame->r[0] = ERR_BADFORM;
+        return;
+    }
+
+    uint32_t irq_num = entry->dev->irq;
     if (!valid_irq(irq_num)) {
         frame->r[0] = ERR_BADARG;
         return;
@@ -84,12 +111,15 @@ void irq_bind(exception_frame_t* frame) {
         frame->r[0] = ERR_BADARG;
         return;
     }
+
     endpoint_t *ep = current_process->handle_table[port_handle].ep;
     if (!ep) {
         frame->r[0] = ERR_BADARG;
         return;
     }
+
     irq_owners[irq_num].bound_port = ep;
+    ep->bound_irq = (int)irq_num;
     frame->r[0] = 0;
 }
 

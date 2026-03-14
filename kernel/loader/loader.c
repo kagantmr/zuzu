@@ -138,6 +138,7 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
     process->ticks_remaining = process->time_slice;
     process->node.next = NULL;
     process->node.prev = NULL;
+    process->flags = 0; 
     const char *short_name = name;
     for (const char *p = name; *p; p++) {
         if (*p == '/')

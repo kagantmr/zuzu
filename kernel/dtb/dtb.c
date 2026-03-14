@@ -1132,3 +1132,254 @@ bool dtb_get_reg_phys(const char *path, int index, uint64_t *out_addr, uint64_t 
     *out_size = size;
     return true;
 }
+
+static bool dtb_resolve_irq_via_interrupt_map(const char *path,
+                                              uint32_t child_irq,
+                                              uint32_t *out_irq_num,
+                                              uint32_t *out_flags)
+{
+    char parent_path[128];
+    size_t plen = strlen(path);
+    if (plen == 0 || plen >= sizeof(parent_path))
+        return false;
+    memmove(parent_path, path, plen + 1);
+
+    for (int depth = 0; depth < 8; depth++) {
+        char *last_slash = NULL;
+        for (char *cp = parent_path; *cp; cp++) {
+            if (*cp == '/')
+                last_slash = cp;
+        }
+        if (!last_slash || last_slash == parent_path)
+            break;
+        *last_slash = '\0';
+
+        const void *map_val = NULL;
+        uint32_t map_len = 0;
+        if (!dtb_get_property(parent_path, "interrupt-map", &map_val, &map_len))
+            continue;
+
+        /*
+         * Current vexpress map entry shape:
+         * [child-addr-hi][child-addr-lo][child-irq][phandle][gic-type][gic-num][gic-flags]
+         */
+        if (!map_val || map_len == 0 || (map_len % 28) != 0)
+            return false;
+
+        const uint8_t *p = (const uint8_t *)map_val;
+        uint32_t n_entries = map_len / 28;
+        for (uint32_t i = 0; i < n_entries; i++, p += 28) {
+            if (read_be32(p + 8) != child_irq)
+                continue;
+
+            uint32_t gic_type = read_be32(p + 16);
+            uint32_t gic_num = read_be32(p + 20);
+            *out_flags = read_be32(p + 24);
+            *out_irq_num = (gic_type == 0) ? (gic_num + 32) : (gic_num + 16);
+            return true;
+        }
+
+        return false;
+    }
+
+    return false;
+}
+
+bool dtb_get_irq(const char* path, int index, uint32_t* out_irq_num, uint32_t* out_flags) {
+    if (!path || !out_irq_num || !out_flags || index < 0)
+        return false;
+
+    const void* val = NULL;
+    uint32_t len = 0;
+    if (!dtb_get_property(path, "interrupts", &val, &len))
+        return false;
+
+    if (val == NULL || len == 0)
+        return false;
+
+    if ((len % 12) == 0) {
+        uint32_t off = (uint32_t)index * 12;
+        if (off + 12 > len)
+            return false;
+
+        const uint8_t* p = (const uint8_t*)val + off;
+        uint32_t type   = read_be32(p);
+        uint32_t number = read_be32(p + 4);
+        *out_flags      = read_be32(p + 8);
+
+        // SPI (type=0): hardware IRQ = number + 32
+        // PPI (type=1): hardware IRQ = number + 16
+        *out_irq_num = (type == 0) ? (number + 32) : (number + 16);
+        return true;
+    }
+
+    if ((len % 4) == 0) {
+        uint32_t count = len / 4;
+        if ((uint32_t)index >= count)
+            return false;
+        uint32_t child_irq = read_be32((const uint8_t *)val + ((uint32_t)index * 4));
+        return dtb_resolve_irq_via_interrupt_map(path, child_irq, out_irq_num, out_flags);
+    }
+
+    return false;
+}
+
+void dtb_enum_devices(void (*cb)(const char *compatible,
+                                  uint64_t phys, uint64_t size,
+                                  uint32_t irq))
+{
+    if (!cb || !g_dtb_ready)
+        return;
+
+    const uint8_t *cur = g_dtb.dt_base;
+    uint32_t tok = 0;
+    int depth = 0;
+
+    // path tracking — same approach as dtb_find_compatible
+    char path[128];
+    size_t path_len = 0;
+    path[0] = '\0';
+
+    // per-node state — reset on each BEGIN_NODE
+    char   node_compatible[64];
+    bool   node_has_compatible = false;
+    bool   node_has_reg        = false;
+    uint64_t node_phys         = 0;
+    uint64_t node_size         = 0;
+    uint32_t node_irq          = 0;
+
+    // stack to restore per-node state on END_NODE
+    // we only care about leaf/intermediate device nodes so
+    // a simple depth-indexed save is enough
+    #define ENUM_MAX_DEPTH 64
+    struct {
+        size_t   path_len;
+        bool     has_compatible;
+        bool     has_reg;
+        char     compatible[64];
+        uint64_t phys;
+        uint64_t size;
+        uint32_t irq;
+    } stack[ENUM_MAX_DEPTH];
+
+    while (true) {
+        if (!read_token(&cur, &tok))
+            return;
+
+        switch (tok) {
+        case FDT_BEGIN_NODE: {
+            const char *name = NULL;
+            if (!skip_node_name(&cur, &name))
+                return;
+
+            // save current node state before descending
+            if (depth >= 0 && depth < ENUM_MAX_DEPTH) {
+                stack[depth].path_len        = path_len;
+                stack[depth].has_compatible  = node_has_compatible;
+                stack[depth].has_reg         = node_has_reg;
+                stack[depth].phys            = node_phys;
+                stack[depth].size            = node_size;
+                stack[depth].irq             = node_irq;
+                if (node_has_compatible)
+                    memmove(stack[depth].compatible, node_compatible,
+                            sizeof(node_compatible));
+            }
+
+            // update path — same logic as dtb_find_compatible
+            if (name[0] == '\0') {
+                path[0] = '/'; path[1] = '\0';
+                path_len = 1;
+            } else {
+                size_t name_len = strlen(name);
+                bool at_root = (path_len == 1 && path[0] == '/');
+                size_t extra = at_root ? 0 : 1;
+                if (path_len + extra + name_len + 1 < sizeof(path)) {
+                    if (!at_root) path[path_len++] = '/';
+                    memmove(path + path_len, name, name_len);
+                    path_len += name_len;
+                    path[path_len] = '\0';
+                }
+            }
+
+            // reset per-node state for the new node
+            node_has_compatible = false;
+            node_has_reg        = false;
+            node_phys           = 0;
+            node_size           = 0;
+            node_irq            = 0;
+            node_compatible[0]  = '\0';
+
+            depth++;
+            break;
+        }
+
+        case FDT_PROP: {
+            uint32_t len = 0;
+            const char *pname = NULL;
+            const void *pval  = NULL;
+            if (!read_property(&cur, &len, &pname, &pval))
+                return;
+
+            if (strcmp(pname, "compatible") == 0 && len > 0) {
+                // take the first string in the compatible list
+                size_t slen = strnlen((const char *)pval, len);
+                size_t copy = slen < sizeof(node_compatible) - 1
+                            ? slen : sizeof(node_compatible) - 1;
+                memmove(node_compatible, pval, copy);
+                node_compatible[copy] = '\0';
+                node_has_compatible = true;
+            }
+            // reg is handled after the walk via dtb_get_reg_phys
+            // just flag that we saw it
+            if (strcmp(pname, "reg") == 0 && len > 0) {
+                node_has_reg = true;
+            }
+            if (strcmp(pname, "interrupts") == 0 && len >= 12) {
+                // decode first interrupt entry inline
+                const uint8_t *p = (const uint8_t *)pval;
+                uint32_t type   = read_be32(p);
+                uint32_t number = read_be32(p + 4);
+                node_irq = (type == 0) ? (number + 32) : (number + 16);
+            }
+            break;
+        }
+
+        case FDT_END_NODE: {
+            depth--;
+            if (depth < 0)
+                return;
+
+            // fire callback if this node is a device
+            if (node_has_compatible && node_has_reg) {
+                uint64_t phys, size;
+                if (dtb_get_reg_phys(path, 0, &phys, &size))
+                    cb(node_compatible, phys, size, node_irq);
+            }
+
+            // restore parent node state
+            if (depth >= 0 && depth < ENUM_MAX_DEPTH) {
+                path_len            = stack[depth].path_len;
+                node_has_compatible = stack[depth].has_compatible;
+                node_has_reg        = stack[depth].has_reg;
+                node_phys           = stack[depth].phys;
+                node_size           = stack[depth].size;
+                node_irq            = stack[depth].irq;
+                if (node_has_compatible)
+                    memmove(node_compatible, stack[depth].compatible,
+                            sizeof(node_compatible));
+                path[path_len] = '\0';
+            }
+            break;
+        }
+
+        case FDT_NOP:
+            break;
+
+        case FDT_END:
+            return;
+
+        default:
+            return;
+        }
+    }
+}

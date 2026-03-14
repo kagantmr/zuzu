@@ -3,8 +3,10 @@
 #include "endpoint.h"
 #include "kernel/sched/sched.h"
 #include "kernel/mm/alloc.h"
+#include "kernel/proc/process.h"
 
 extern process_t *current_process;
+extern process_t *process_table[MAX_PROCESSES];
 endpoint_t *nametable_endpoint;
 
 void port_create(exception_frame_t *frame)
@@ -25,8 +27,18 @@ void port_create(exception_frame_t *frame)
                 frame->r[0] = ERR_NOMEM;
                 return;
             }
-            if (current_process->pid == NAMETABLE_PID && !nametable_endpoint) {
+            if (current_process->flags & PROC_FLAG_NAMETABLE && !nametable_endpoint) {
                 nametable_endpoint = new_endpoint;
+                /* Inject NT port into all processes spawned before nametable existed */
+                for (int j = 0; j < MAX_PROCESSES; j++) {
+                    process_t *p = process_table[j];
+                    if (p && p != current_process &&
+                        p->handle_table[0].type == HANDLE_FREE) {
+                        p->handle_table[0].ep       = nametable_endpoint;
+                        p->handle_table[0].grantable = true;
+                        p->handle_table[0].type     = HANDLE_ENDPOINT;
+                    }
+                }
             }
             // list_init(&new_endpoint->node);
             list_init(&new_endpoint->sender_queue);

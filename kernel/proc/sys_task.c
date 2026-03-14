@@ -2,6 +2,7 @@
 #include "kernel/syscall/syscall.h"
 #include <mem.h>
 #include "kernel/sched/sched.h"
+#include "user/include/zuzu.h"
 #include "kernel/loader/initrd.h"
 #include "kernel/loader/loader.h"
 #include "kernel/time/tick.h"
@@ -51,15 +52,15 @@ void get_pid(exception_frame_t *frame) {
 
 void wait(exception_frame_t *frame) {
     uint32_t child_pid = frame->r[0];
+    int32_t *status_out = (int32_t *)frame->r[1];
+    uint32_t flags = frame->r[2];
 
-    // find the child
     process_t *child = process_find_by_pid(child_pid);
     if (!child) {
         frame->r[0] = -ERR_NOENT;
         return;
     }
 
-    // verify we're the parent
     if (child->parent_pid != current_process->pid) {
         frame->r[0] = -ERR_BADARG;
         return;
@@ -67,17 +68,32 @@ void wait(exception_frame_t *frame) {
 
     // Case A: child already exited
     if (child->process_state == PROCESS_ZOMBIE) {
+        if (status_out && validate_user_ptr((uintptr_t)status_out, sizeof(int32_t)))
+            *status_out = child->exit_status;
         frame->r[0] = child->exit_status;
         process_destroy(child);
         return;
     }
 
-    // Case B: child still running — block ourselves
+    // Case B: child still running, non-blocking
+    if (flags & WNOHANG) {
+        frame->r[0] = 0;
+        return;
+    }
+
+    // Case C: block until child exits
     current_process->waiting_for = child_pid;
     current_process->process_state = PROCESS_BLOCKED;
     schedule();
-    
-    // we wake up here after child exits
+
+    // re-fetch after wakeup, pointer may be stale
+    child = process_find_by_pid(child_pid);
+    if (!child) {
+        frame->r[0] = -ERR_NOENT;
+        return;
+    }
+    if (status_out && validate_user_ptr((uintptr_t)status_out, sizeof(int32_t)))
+        *status_out = child->exit_status;
     frame->r[0] = child->exit_status;
     process_destroy(child);
 }

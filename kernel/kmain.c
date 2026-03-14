@@ -152,11 +152,21 @@ _Noreturn void kmain(void)
 
     const void *elf_data;
     size_t elf_size;
-    if (initrd_find("bin/init", &elf_data, &elf_size)) {
-        KDEBUG("Found bin/init: %u bytes at %p", elf_size, elf_data);
-        process_t *init = process_create_from_elf(elf_data, elf_size, "init");
-        if (init)
-            sched_add(init);
+
+    if (initrd_find("bin/zuzusysd", &elf_data, &elf_size)) {
+        process_t *nt = process_create_from_elf(elf_data, elf_size, "zuzusysd");
+        if (nt) {
+            nt->flags |= PROC_FLAG_NAMETABLE | PROC_FLAG_INIT;
+            sched_add(nt);
+        }
+    }
+
+    if (initrd_find("bin/devmgr", &elf_data, &elf_size)) {
+        process_t *dm = process_create_from_elf(elf_data, elf_size, "devmgr");
+        if (dm) {
+            dm->flags |= PROC_FLAG_DEVMGR | PROC_FLAG_HW_ACCESS;
+            sched_add(dm);
+        }
     }
 
     register_tick_callback(schedule);
