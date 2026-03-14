@@ -107,10 +107,12 @@ static int devmgr_register(int32_t dm_port, int32_t dm_pid)
 
     int32_t remote = _port_grant(shm.handle, dm_pid);
     if (remote < 0) {
+        _detach(shm.handle);
         return ZUART_INIT_FAIL;
     }
 
     zuzu_ipcmsg_t r = _call(dm_port, DEV_REGISTER, ZUART_DEV_CLASS, (uint32_t)remote);
+    _detach(shm.handle);
     if ((int32_t)r.r1 != DEV_REG_OK) {
         return ZUART_INIT_FAIL;
     }
