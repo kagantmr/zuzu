@@ -11,7 +11,6 @@
 
 #define PROC_FLAG_INIT      (1 << 0)  // PID 1, zombie reaper
 #define PROC_FLAG_DEVMGR    (1 << 1)  // hardware authority
-#define PROC_FLAG_NAMETABLE (1 << 2)  // service registry
 #define PROC_FLAG_HW_ACCESS (1 << 3)  // allowed to call mapdev/irq_register
 
 

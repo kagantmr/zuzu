@@ -95,6 +95,8 @@ static inline char rb_read(ringbuf_t *rb)
     return c;
 }
 
+int zuart_setup(void);
+
 
 // --------------------------------------------------
 

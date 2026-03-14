@@ -39,7 +39,7 @@ Negative r0 values indicate errors:
 | 0x02 | task_spawn | r0: name ptr, r1: name len | pid or err    | Create new task from initrd ELF      |
 | 0x03 | task_wait  | r0: pid, r1: &status       | 0 or err      | Block until child exits              |
 | 0x04 | get_pid    | —                          | pid           | Return caller's PID                  |
-| 0x06 | task_sleep | r0: duration (ms)          | 0             | Sleep for given duration             |
+| 0x05 | task_sleep | r0: duration (ms)          | 0             | Sleep for given duration             |
 
 ## 0x10–0x1F: IPC
 
@@ -77,12 +77,34 @@ Negative r0 values indicate errors:
 | 0x41 | irq_bind  | r0: irq_num, r1: port | 0 or err | Bind IRQ delivery to an IPC port |
 | 0x42 | irq_done  | r0: irq_num           | 0 or err | Acknowledge and unmask IRQ line  |
 
+## 0x50–0x5F: Devices
+
+| #    | Name    | Arguments                               | Returns                      | Description                                                     |
+| ---- | ------- | --------------------------------------- | ---------------------------- | --------------------------------------------------------------- |
+| 0x50 | getdev  | r0: compatible ptr, r1: compatible len  | device handle or err         | Resolve DTB device by compatible and mint a device capability   |
+| 0x51 | enumdev | r0: out buf, r1: max records, r2: start | r0: count/rerr, r1: next idx | Enumerate DTB devices into caller buffer using paged iteration  |
+
+`enumdev` output record (`zuzu_devinfo_t`):
+
+- `id` (u32): boot-stable ordinal in enumeration order
+- `phys_base` (u32): translated physical MMIO base
+- `size` (u32): MMIO region size
+- `irq` (u32): first IRQ number if present, else 0
+- `compatible[32]`: first DTB compatible string (NUL-terminated, truncated if needed)
+
+Paging contract:
+
+- Call with `start = 0` initially.
+- On success, `r0` is number of records written.
+- `r1` returns next start index, or `0xFFFFFFFF` when enumeration is complete.
+
 ## 0xF0–0xFF: Experimental/Debug (temporary)
 
 | #    | Name | Arguments            | Returns  | Description                    |
 | ---- | ---- | -------------------- | -------- | ------------------------------ |
 | 0xF0 | log  | r0: msg ptr, r1: len | 0 or err | Print string to kernel console |
 | 0xF1 | dump | —                    | 0        | Dump caller's register state   |
+| 0xF2 | pmm_getfree | —             | pages    | Return current free PMM page count |
 
 ---
 

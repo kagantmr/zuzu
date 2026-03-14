@@ -1,5 +1,5 @@
-#ifndef NAMETABLE_H
-#define NAMETABLE_H
+#ifndef ZUZUSYSD_H
+#define ZUZUSYSD_H
 
 #include <stdint.h>
 
@@ -16,5 +16,8 @@ typedef struct
     uint32_t handle; /* slot in OUR handle table */
     uint32_t pid;
 } nt_entry_t;
+
+int nt_setup(void);
+void sysd_loop(void);
 
 #endif

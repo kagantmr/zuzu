@@ -5,7 +5,7 @@
 #include <stddef.h>
 
 static nt_entry_t registry_table[NT_MAX_SERVICES];
-int32_t port;
+static int32_t port;
 
 #define LOG_LIT(s) _log((s), sizeof(s) - 1)
 
@@ -26,13 +26,18 @@ static int name_equals_u32(const char name[NT_NAME_LEN], uint32_t name_u32) {
     return 1;
 }
 
-static void nt_setup(void) {
+int nt_setup(void) {
     port = _port_create();
+    if (port < 0) {
+        return port;
+    }
+
     for (int i = 0; i < NT_MAX_SERVICES; i++) {
         registry_table[i].handle = 0;         // 0 == empty slot
         registry_table[i].pid = 0;
         for (int j = 0; j < NT_NAME_LEN; j++) registry_table[i].name[j] = 0;
     }
+    return 0;
 }
 
 static int nt_register(uint32_t name_u32, uint32_t handle, uint32_t pid) {
@@ -107,26 +112,29 @@ static void wait_for_service(uint32_t name_u32) {
     }
 }
 
+void sysd_loop(void)
+{
+    while (1) {
+        _wait(-1, NULL, WNOHANG);
+        nt_handle_msg(_recv(NT_PORT));
+    }
+}
+
 int main(void) {
-    nt_setup();
+    if (nt_setup() < 0) {
+        return 1;
+    }
 
     nt_register(nt_pack(NT_NAME_SYS), NT_PORT, _getpid());
 
     wait_for_service(nt_pack("devm"));
 
-    if (_spawn("bin/zuart", 9) < 0) {
-        LOG_LIT("zuzusysd: failed to spawn zuart\n");
-    }
     wait_for_service(nt_pack("uart"));
 
     if (_spawn("bin/zzsh", 8) < 0) {
         LOG_LIT("zuzusysd: failed to spawn zzsh\n");
     }
 
-    while (1) {
-        _wait(-1, NULL, WNOHANG);
-        nt_handle_msg(_recv(NT_PORT));
-        _log("hi", 2);
-        _sleep(100);
-    }
+    sysd_loop();
+    return 0;
 }

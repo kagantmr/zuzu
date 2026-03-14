@@ -79,4 +79,8 @@ bool dtb_translate_address(const char *node_path, uint64_t raw_addr, uint64_t *o
  * Get reg property with full address translation to physical.
  */
 bool dtb_get_reg_phys(const char *path, int index, uint64_t *out_addr, uint64_t *out_size);
+
+void dtb_enum_devices(void (*cb)(const char *compatible,
+								 uint64_t phys, uint64_t size,
+								 uint32_t irq));
 #endif
