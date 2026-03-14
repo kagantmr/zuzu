@@ -2,7 +2,6 @@
 #define ZUZU_H
 
 #include "zuzu/syscall_nums.h"
-#include "zuzu/dev_enum.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -235,25 +234,6 @@ static inline int32_t _getdev(const char *compatible, size_t len) {
         : "+r"(r0)
         : "r"(r1), [num] "i"(SYS_GETDEV)
         : "memory");
-    return (int32_t)r0;
-}
-
-/* Enumerate DTB devices into caller-provided buffer. Returns count or -err.
- * next_index_out receives the next start index or ZUZU_ENUMDEV_DONE. */
-static inline int32_t _enumdev(zuzu_devinfo_t *out_buf,
-                               uint32_t max_records,
-                               uint32_t start_index,
-                               uint32_t *next_index_out) {
-    register uintptr_t r0 __asm__("r0") = (uintptr_t)out_buf;
-    register uint32_t  r1 __asm__("r1") = max_records;
-    register uint32_t  r2 __asm__("r2") = start_index;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0), "+r"(r1)
-        : "r"(r2), [num] "i"(SYS_ENUMDEV)
-        : "memory");
-    if (next_index_out) {
-        *next_index_out = r1;
-    }
     return (int32_t)r0;
 }
 

@@ -129,6 +129,10 @@ int main(void) {
 
     wait_for_service(nt_pack("devm"));
 
+    if (_spawn("bin/zuart", 9) < 0) {
+        LOG_LIT("zuzusysd: failed to spawn zuart\n");
+    }
+
     wait_for_service(nt_pack("uart"));
 
     if (_spawn("bin/zzsh", 8) < 0) {

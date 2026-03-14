@@ -1,10 +1,12 @@
 #include "zuart.h"
 #include "zuzu/protocols/zuart_protocol.h"
+#include "zuzu/protocols/devmgr_protocol.h"
 #include "zuzu/protocols/nt_protocol.h"
 #include <stdint.h>
 
 volatile pl011_t *uart;
 int port;
+static int32_t devmgr_port = -1;
 ringbuf_t rxrb, txrb;
 
 #define ZUART_WAITQ_MAX 64
@@ -75,22 +77,36 @@ static void service_read_waiters(void)
     }
 }
 
-static int32_t wait_for_bootstrap_handle(void)
+static int32_t wait_for_devmgr(void)
 {
     while (1) {
-        zuzu_ipcmsg_t msg = _recv(port);
+        zuzu_ipcmsg_t ntmsg = _call(NT_PORT, NT_LOOKUP, nt_pack("devm"), 0);
+        if ((int32_t)ntmsg.r1 == NT_LU_OK) {
+            devmgr_port = (int32_t)ntmsg.r2;
+            return (int32_t)ntmsg.r3;
+        }
+        LOG_LIT("zuart: waiting for devmgr registration\n");
+        _sleep(10);
+    }
+}
 
-        if (msg.r0 > 0 && msg.r1 == ZUART_CMD_BOOTSTRAP) {
-            _reply(msg.r0, ZUART_SEND_OK, 0, 0);
-            return (int32_t)msg.r2;
+static int32_t request_serial_device(void)
+{
+    while (1) {
+        zuzu_ipcmsg_t devmsg = _call(devmgr_port, DEV_REQUEST, DEV_CLASS_SERIAL, 0);
+        if ((int32_t)devmsg.r1 == 0) {
+            return (int32_t)devmsg.r2;
         }
-
-        if (msg.r0 > 0) {
-            _reply(msg.r0, ZUART_ERR, 0, 0);
+        if ((int32_t)devmsg.r1 == ERR_NOENT) {
+            LOG_LIT("zuart: DEV_REQUEST no matching device/tag yet\n");
+        } else if ((int32_t)devmsg.r1 == ERR_NOPERM) {
+            LOG_LIT("zuart: DEV_REQUEST noperm (wrong devmgr instance)\n");
+        } else if ((int32_t)devmsg.r1 == ERR_BUSY) {
+            LOG_LIT("zuart: DEV_REQUEST busy, retrying\n");
+        } else {
+            LOG_LIT("zuart: DEV_REQUEST failed, retrying\n");
         }
-        if (msg.r0 == 0) {
-            _irq_done(UART0_IRQ_NUM);
-        }
+        _sleep(10);
     }
 }
 
@@ -183,7 +199,10 @@ int zuart_setup(void)
         return ZUART_INIT_FAIL;
     }
 
-    int32_t dev_handle = wait_for_bootstrap_handle();
+    int32_t devmgr_pid = wait_for_devmgr();
+    (void)devmgr_pid;
+
+    int32_t dev_handle = request_serial_device();
 
     if (_irq_claim(dev_handle) < 0) {
         LOG_LIT("zuart: _irq_claim failed\n");

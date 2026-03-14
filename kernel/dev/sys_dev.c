@@ -3,57 +3,10 @@
 #include "kernel/syscall/syscall.h"
 #include "kernel/mm/alloc.h"
 #include <zuzu/syscall_nums.h>
-#include <zuzu/dev_enum.h>
 #include "kernel/dtb/dtb.h"
 #include "kernel/proc/process.h"
 
 extern process_t *current_process;
-
-typedef struct {
-    zuzu_devinfo_t *buf;
-    uint32_t start_index;
-    uint32_t max_records;
-    uint32_t seen;
-    uint32_t written;
-} enumdev_state_t;
-
-static enumdev_state_t g_enumdev_state;
-
-static void enumdev_collect_cb(const char *compatible,
-                               uint64_t phys, uint64_t size,
-                               uint32_t irq)
-{
-    enumdev_state_t *state = &g_enumdev_state;
-
-    if (state->seen < state->start_index)
-    {
-        state->seen++;
-        return;
-    }
-
-    if (state->written < state->max_records)
-    {
-        zuzu_devinfo_t *out = &state->buf[state->written];
-        out->id = state->seen;
-        out->phys_base = (uint32_t)phys;
-        out->size = (uint32_t)size;
-        out->irq = irq;
-
-        size_t i = 0;
-        while (compatible[i] != '\0' && i < sizeof(out->compatible) - 1)
-        {
-            out->compatible[i] = compatible[i];
-            i++;
-        }
-        out->compatible[i] = '\0';
-    }
-
-    if (state->written < state->max_records)
-    {
-        state->written++;
-    }
-    state->seen++;
-}
 
 void getdev(exception_frame_t *frame) {
     const char *string = (const char *)frame->r[0];
@@ -111,45 +64,6 @@ void getdev(exception_frame_t *frame) {
     current_process->handle_table[slot].mapped_va = 0;
 
     frame->r[0] = (uint32_t)slot;
-}
-
-void enumdev(exception_frame_t *frame)
-{
-    zuzu_devinfo_t *out_buf = (zuzu_devinfo_t *)frame->r[0];
-    uint32_t max_records = frame->r[1];
-    uint32_t start_index = frame->r[2];
-
-    if (!(current_process->flags & PROC_FLAG_HW_ACCESS)) {
-        frame->r[0] = ERR_NOPERM;
-        return;
-    }
-
-    if (max_records == 0) {
-        frame->r[0] = 0;
-        frame->r[1] = ZUZU_ENUMDEV_DONE;
-        return;
-    }
-
-    size_t bytes = (size_t)max_records * sizeof(zuzu_devinfo_t);
-    if (!validate_user_ptr((uintptr_t)out_buf, bytes)) {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-
-    g_enumdev_state.buf = out_buf;
-    g_enumdev_state.start_index = start_index;
-    g_enumdev_state.max_records = max_records;
-    g_enumdev_state.seen = 0;
-    g_enumdev_state.written = 0;
-
-    dtb_enum_devices(enumdev_collect_cb);
-
-    frame->r[0] = (int32_t)g_enumdev_state.written;
-    if (g_enumdev_state.seen > (start_index + g_enumdev_state.written)) {
-        frame->r[1] = start_index + g_enumdev_state.written;
-    } else {
-        frame->r[1] = ZUZU_ENUMDEV_DONE;
-    }
 }
 
 void mapdev(exception_frame_t *frame)
