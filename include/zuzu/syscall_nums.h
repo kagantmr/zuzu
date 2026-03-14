@@ -38,11 +38,8 @@
 #define SYS_IRQ_BIND 0x41  /* (irq_num) -> 0 or -err              */
 #define SYS_IRQ_DONE 0x42  /* (irq_num) -> 0 or -err              */
 
-/* ---- DTB & Devices (0x50-0x5F) ---- */
-
-#define SYS_DTB_FIND 0x50 /* (compatible, length, buf, len) -> path_len or -err              */
-#define SYS_DTB_PROP 0x51 /* (path, prop_name) -> path_len or -err              */
-#define SYS_DTB_REG  0x52 /* (path, index) -> 0 or -err; addr (r1) size (r2)    */
+/* ---- Devices (0x50-0x5F) ---- */
+#define SYS_GETDEV  0x50  /* (compatible, irq) -> HANDLE_DEVICE or -err  -- devmgr only */
 
 /* ---- Experimental / debugging / temporary (0xF0-0xFF) ---- */
 

@@ -6,8 +6,7 @@
 #include <list.h>
 #include "kernel/vmm/vmm.h"
 
-#define MAX_HANDLE_TABLE 16
-#define MAX_HANDLE_TABLE 16
+#define MAX_HANDLE_TABLE 64
 
 typedef struct endpoint {
     list_head_t sender_queue;

@@ -144,7 +144,7 @@ void command_dispatch(const char *line)
         else
         {
             int32_t status;
-            _wait(child, &status);
+            _wait(child, &status, 0);
         }
     }
 }

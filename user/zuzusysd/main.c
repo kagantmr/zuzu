@@ -1,4 +1,4 @@
-#include "nametable.h"
+#include "zuzusysd.h"
 #include "zuzu.h"
 #include "zuzu/protocols/nt_protocol.h"
 #include <stdint.h>
@@ -6,6 +6,8 @@
 
 static nt_entry_t registry_table[NT_MAX_SERVICES];
 int32_t port;
+
+#define LOG_LIT(s) _log((s), sizeof(s) - 1)
 
 static inline void name_u32_to_chars(uint32_t name_u32, char out[NT_NAME_LEN]) {
     // LE packing
@@ -68,35 +70,63 @@ static int nt_lookup(uint32_t name_u32, uint32_t *out_handle, uint32_t *out_pid)
     return NT_LU_NOMATCH;
 }
 
+static void nt_handle_msg(zuzu_ipcmsg_t msg) {
+    uint32_t sender   = msg.r0;
+    uint32_t command  = msg.r1;
+    uint32_t name_u32 = msg.r2;
+    uint32_t arg      = msg.r3;
+
+    int status = NT_BADCMD;
+    uint32_t out_handle = 0;
+    uint32_t out_pid = 0;
+
+    if (command == NT_REGISTER) {
+        status = nt_register(name_u32, arg, sender);
+    } else if (command == NT_LOOKUP) {
+        status = nt_lookup(name_u32, &out_handle, &out_pid);
+        if (status == NT_LU_OK) {
+            int32_t slot = _port_grant((int32_t)out_handle, (int32_t)sender);
+            if (slot < 0) {
+                status = NT_LU_NOMATCH;
+            } else {
+                out_handle = (uint32_t)slot;
+            }
+        }
+    }
+
+    _reply(sender, (uint32_t)status, out_handle, out_pid);
+}
+
+static void wait_for_service(uint32_t name_u32) {
+    uint32_t handle = 0;
+    uint32_t pid = 0;
+
+    while (nt_lookup(name_u32, &handle, &pid) != NT_LU_OK) {
+        _wait(-1, NULL, WNOHANG);
+        nt_handle_msg(_recv(NT_PORT));
+    }
+}
+
 int main(void) {
     nt_setup();
 
+    nt_register(nt_pack(NT_NAME_SYS), NT_PORT, _getpid());
+
+    wait_for_service(nt_pack("devm"));
+
+    if (_spawn("bin/zuart", 9) < 0) {
+        LOG_LIT("zuzusysd: failed to spawn zuart\n");
+    }
+    wait_for_service(nt_pack("uart"));
+
+    if (_spawn("bin/zzsh", 8) < 0) {
+        LOG_LIT("zuzusysd: failed to spawn zzsh\n");
+    }
+
     while (1) {
-        zuzu_ipcmsg_t msg = _recv(NT_PORT);
-
-        uint32_t sender  = msg.r0;  
-        uint32_t command = msg.r1;
-        uint32_t name_u32 = msg.r2;
-        uint32_t arg      = msg.r3;
-
-        int status = NT_BADCMD;
-        uint32_t out_handle = 0;
-
-        uint32_t out_pid = 0;
-
-        if (command == NT_REGISTER) {
-            status = nt_register(name_u32, arg, sender);
-        } else if (command == NT_LOOKUP) {
-            status = nt_lookup(name_u32, &out_handle, &out_pid);
-            if (status == NT_LU_OK) {
-                int32_t slot = _port_grant(out_handle, sender);
-                if (slot < 0) status = NT_LU_NOMATCH;  // grant failed
-                out_handle = slot;  // tell requester THEIR slot index
-            }
-        }
-
-        // Reply to sender 
-        // Reply payload is r1=status, r2=handle, r3=0
-        _reply(sender, (uint32_t)status, out_handle, out_pid);
+        _wait(-1, NULL, WNOHANG);
+        nt_handle_msg(_recv(NT_PORT));
+        _log("hi", 2);
+        _sleep(100);
     }
 }

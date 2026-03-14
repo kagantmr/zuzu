@@ -23,14 +23,8 @@ process_t *process_find_by_pid(uint32_t pid)
 }
 
 void process_kill(process_t *p, const int exit_status) {
-    if (p->pid == 1) {
-        panic("Attempted to kill init");
-    }
-    if (p->pid == 2) {
-        panic("Attempted to kill nametable");
-    }
-    if (p->pid == 3) {
-        panic("Attempted to kill devmgr");
+    if (p->flags & (PROC_FLAG_INIT | PROC_FLAG_DEVMGR)) {
+        panic("Attempted to kill critical process");
     }
     // Clean up handle table — clear non-owned handles, free owned endpoints
     for (int i = 0; i < MAX_HANDLE_TABLE; i++) {

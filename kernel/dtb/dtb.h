@@ -43,6 +43,16 @@ bool dtb_get_u32(const char* path, const char* prop, uint32_t* out);
 bool dtb_get_reg(const char* path, int index, uint64_t* out_addr, uint64_t* out_size);
 
 /**
+ * Retrieves an IRQ property from the DTB.
+ * @param path The path to the node in the DTB.
+ * @param index The index of the IRQ entry.
+ * @param out_irq_num Pointer to store the retrieved IRQ number.
+ * @param out_flags Pointer to store the retrieved IRQ flags (if any).
+ * @return true on success, false on failure.
+ */
+bool dtb_get_irq(const char* path, int index, uint32_t* out_irq_num, uint32_t* out_flags);
+
+/**
  * Finds a device node compatible with the given string.
  * @param compatible The compatible string to search for.
  * @param out_path Buffer to store the path of the found node.
@@ -50,7 +60,6 @@ bool dtb_get_reg(const char* path, int index, uint64_t* out_addr, uint64_t* out_
  * @return true if a compatible node was found, false otherwise.
  */
 bool dtb_find_compatible(const char* compatible, char* out_path, size_t out_path_cap);
-
 
 #ifdef DTB_DEBUG_WALK
 /**

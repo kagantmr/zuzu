@@ -19,7 +19,8 @@ typedef struct {
 typedef struct { int32_t handle; void *addr; } shmem_result_t;
 typedef struct { int32_t err; uint32_t addr; uint32_t size; } dtb_reg_result_t;
 
-#define NAMETABLE_PID 2
+#define NAMETABLE_PID 1
+#define WNOHANG (1 << 0)
 
 /* ---- Task lifecycle ---- */
 
@@ -51,13 +52,13 @@ static inline int32_t _spawn(const char *name, size_t len) {
     return (int32_t) r0; /* pid or -err */
 }
 
-/* (pid, &status) -> 0 or -err */
-static inline int32_t _wait(int32_t pid, int32_t *status_out) {
+static inline int32_t _wait(int32_t pid, int32_t *status_out, uint32_t flags) {
     register int32_t r0 __asm__("r0") = pid;
     register int32_t *r1 __asm__("r1") = status_out;
+    register uint32_t r2 __asm__("r2") = flags;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
-        : "r"(r1), [num] "i"(SYS_TASK_WAIT)
+        : "r"(r1), "r"(r2), [num] "i"(SYS_TASK_WAIT)
         : "memory");
     return r0;
 }
@@ -208,15 +209,25 @@ static inline void *_attach(int32_t handle_idx) {
     return (void *) (uintptr_t) r0;
 }
 
-/* (phys, size) -> addr or -err */
-static inline void *_mapdev(uintptr_t phys, size_t size) {
-    register uintptr_t r0 __asm__("r0") = phys;
-    register size_t r1 __asm__("r1") = size;
+/* Get a device capability handle by compatible string — devmgr only */
+static inline int32_t _getdev(const char *compatible, size_t len) {
+    register const char *r0 __asm__("r0") = compatible;
+    register size_t      r1 __asm__("r1") = len;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
-        : "r"(r1), [num] "i"(SYS_MAPDEV)
+        : "r"(r1), [num] "i"(SYS_GETDEV)
         : "memory");
-    return (void *) r0;
+    return (int32_t)r0;
+}
+
+/* Map a device handle into the calling process's address space */
+static inline void *_mapdev(uint32_t handle) {
+    register uint32_t r0 __asm__("r0") = handle;
+    __asm__ volatile("svc %[num]"
+        : "+r"(r0)
+        : [num] "i"(SYS_MAPDEV)
+        : "memory");
+    return (void *)r0;
 }
 
 /* (handle) -> 0 or -err */
@@ -231,23 +242,23 @@ static inline int32_t _detach(int32_t handle) {
 
 /* ---- Interrupts ---- */
 
-static inline int32_t _irq_claim(uint32_t irq_num) {
-    register uint32_t r0 __asm__("r0") = irq_num;
+static inline int32_t _irq_claim(uint32_t dev_handle) {
+    register uint32_t r0 __asm__("r0") = dev_handle;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
         : [num] "i"(SYS_IRQ_CLAIM)
         : "memory");
-    return (int32_t) r0;
+    return (int32_t)r0;
 }
 
-static inline int32_t _irq_bind(uint32_t irq_num, int32_t port_handle) {
-    register uint32_t r0 __asm__("r0") = irq_num;
-    register int32_t r1 __asm__("r1") = port_handle;
+static inline int32_t _irq_bind(uint32_t dev_handle, uint32_t port_handle) {
+    register uint32_t r0 __asm__("r0") = dev_handle;
+    register uint32_t r1 __asm__("r1") = port_handle;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
         : "r"(r1), [num] "i"(SYS_IRQ_BIND)
         : "memory");
-    return (int32_t) r0;
+    return (int32_t)r0;
 }
 
 static inline int32_t _irq_done(uint32_t irq_num) {
@@ -257,41 +268,6 @@ static inline int32_t _irq_done(uint32_t irq_num) {
         : [num] "i"(SYS_IRQ_DONE)
         : "memory");
     return (int32_t) r0;
-}
-
-static inline int32_t _dtb_find(const char *compat, char *path_out, uint32_t path_cap) {
-    register uintptr_t r0 __asm__("r0") = (uintptr_t)compat;
-    register uintptr_t r1 __asm__("r1") = (uintptr_t)path_out;
-    register uint32_t  r2 __asm__("r2") = path_cap;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : "r"(r1), "r"(r2), [num] "i"(SYS_DTB_FIND)
-        : "memory");
-    return (int32_t)r0;
-}
-
-static inline int32_t _dtb_prop(const char *path, const char *prop, void *buf, uint32_t buf_cap) {
-    register uintptr_t r0 __asm__("r0") = (uintptr_t)path;
-    register uintptr_t r1 __asm__("r1") = (uintptr_t)prop;
-    register uintptr_t r2 __asm__("r2") = (uintptr_t)buf;
-    register uint32_t  r3 __asm__("r3") = buf_cap;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : "r"(r1), "r"(r2), "r"(r3), [num] "i"(SYS_DTB_PROP)
-        : "memory");
-    return (int32_t)r0;
-}
-
-static inline dtb_reg_result_t _dtb_reg(const char *path, uint32_t index) {
-    register uintptr_t r0 __asm__("r0") = (uintptr_t)path;
-    register uint32_t  r1 __asm__("r1") = index;
-    register uint32_t  r2 __asm__("r2");
-    register uint32_t  r3 __asm__("r3");
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0), "+r"(r1), "=r"(r2), "=r"(r3)
-        : [num] "i"(SYS_DTB_REG)
-        : "memory");
-    return (dtb_reg_result_t){ .err = (int32_t)r0, .addr = r1, .size = r2 };
 }
 
 static inline int32_t _log(const char *str, size_t len) {

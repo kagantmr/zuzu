@@ -9,6 +9,11 @@
 
 #define MAX_PROCESSES 64
 
+#define PROC_FLAG_INIT      (1 << 0)  // PID 1, zombie reaper
+#define PROC_FLAG_DEVMGR    (1 << 1)  // hardware authority
+#define PROC_FLAG_NAMETABLE (1 << 2)  // service registry
+#define PROC_FLAG_HW_ACCESS (1 << 3)  // allowed to call mapdev/irq_register
+
 
 extern void process_entry_trampoline(void);
 
@@ -44,6 +49,7 @@ typedef struct process {
     handle_entry_t handle_table[MAX_HANDLE_TABLE];
     ipc_state_t ipc_state;
     endpoint_t *blocked_endpoint;
+    uint32_t flags; 
 } process_t;
 
 typedef struct cpu_context {
