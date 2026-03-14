@@ -49,23 +49,27 @@ static int request_and_grant_class(uint32_t dev_class, int32_t target_pid, uint3
 static void handle_register(uint32_t sender, uint32_t dev_class, int32_t compat_shm_handle)
 {
     if (find_registration(dev_class)) {
+        _detach(compat_shm_handle);
         _reply(sender, DEV_REG_DUP, 0, 0);
         return;
     }
 
     if (reg_count >= MAX_DRIVERS) {
+        _detach(compat_shm_handle);
         _reply(sender, DEV_REG_FULL, 0, 0);
         return;
     }
 
     char *compat = (char *)_attach(compat_shm_handle);
     if ((intptr_t)compat <= 0) {
+        _detach(compat_shm_handle);
         _reply(sender, ERR_BADARG, 0, 0);
         return;
     }
 
     size_t len = strnlen(compat, sizeof(reg_table[0].compatible));
     if (len == 0 || len >= sizeof(reg_table[0].compatible)) {
+        _detach(compat_shm_handle);
         _reply(sender, ERR_BADARG, 0, 0);
         return;
     }
@@ -75,6 +79,7 @@ static void handle_register(uint32_t sender, uint32_t dev_class, int32_t compat_
     memmove(reg_table[reg_count].compatible, compat, len + 1);
     reg_count++;
 
+    _detach(compat_shm_handle);
     _reply(sender, DEV_REG_OK, 0, 0);
 }
 
