@@ -82,21 +82,6 @@ Negative r0 values indicate errors:
 | #    | Name    | Arguments                               | Returns                      | Description                                                     |
 | ---- | ------- | --------------------------------------- | ---------------------------- | --------------------------------------------------------------- |
 | 0x50 | getdev  | r0: compatible ptr, r1: compatible len  | device handle or err         | Resolve DTB device by compatible and mint a device capability   |
-| 0x51 | enumdev | r0: out buf, r1: max records, r2: start | r0: count/rerr, r1: next idx | Enumerate DTB devices into caller buffer using paged iteration  |
-
-`enumdev` output record (`zuzu_devinfo_t`):
-
-- `id` (u32): boot-stable ordinal in enumeration order
-- `phys_base` (u32): translated physical MMIO base
-- `size` (u32): MMIO region size
-- `irq` (u32): first IRQ number if present, else 0
-- `compatible[32]`: first DTB compatible string (NUL-terminated, truncated if needed)
-
-Paging contract:
-
-- Call with `start = 0` initially.
-- On success, `r0` is number of records written.
-- `r1` returns next start index, or `0xFFFFFFFF` when enumeration is complete.
 
 ## 0xF0–0xFF: Experimental/Debug (temporary)
 

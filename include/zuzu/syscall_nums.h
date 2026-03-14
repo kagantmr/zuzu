@@ -40,7 +40,6 @@
 
 /* ---- Devices (0x50-0x5F) ---- */
 #define SYS_GETDEV  0x50  /* (compatible, irq) -> HANDLE_DEVICE or -err  -- devmgr only */
-#define SYS_ENUMDEV 0x51  /* (buf, max_records, start_index) -> count or -err; next index in r1 */
 
 /* ---- Experimental / debugging / temporary (0xF0-0xFF) ---- */
 
