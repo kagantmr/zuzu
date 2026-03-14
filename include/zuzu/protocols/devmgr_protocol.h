@@ -7,6 +7,16 @@
  */
 #define DEV_REQUEST 1
 
+/*
+ * DEV_REGISTER r2=class, r3=granted shmem handle containing NUL-terminated compatible string
+ * Reply r1=DEV_REG_OK or negative error.
+ */
+#define DEV_REGISTER 2
+
+#define DEV_REG_OK   0
+#define DEV_REG_FULL (-3)
+#define DEV_REG_DUP  (-5)
+
 /* Device classes - clients request by class, devmgr resolves to a concrete device */
 #define DEV_CLASS_SERIAL 1 /* first UART / serial console */
 #define DEV_CLASS_RTC    2 /* real-time clock */

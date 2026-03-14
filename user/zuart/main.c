@@ -3,6 +3,8 @@
 #include "zuzu/protocols/devmgr_protocol.h"
 #include "zuzu/protocols/nt_protocol.h"
 #include <stdint.h>
+#include <string.h>
+#include <mem.h>
 
 volatile pl011_t *uart;
 int port;
@@ -10,6 +12,9 @@ static int32_t devmgr_port = -1;
 ringbuf_t rxrb, txrb;
 
 #define ZUART_WAITQ_MAX 64
+#define ZUART_DEV_CLASS DEV_CLASS_SERIAL
+#define ZUART_COMPATIBLE "arm,pl011"
+
 static zuart_waiting_t read_waitq[ZUART_WAITQ_MAX];
 static uint16_t read_waitq_head, read_waitq_tail;
 static char    *cached_buf    = NULL;
@@ -88,6 +93,29 @@ static int32_t wait_for_devmgr(void)
         LOG_LIT("zuart: waiting for devmgr registration\n");
         _sleep(10);
     }
+}
+
+static int devmgr_register(int32_t dm_port, int32_t dm_pid)
+{
+    shmem_result_t shm = _memshare(4096);
+    if (shm.handle < 0 || !shm.addr) {
+        return ZUART_INIT_FAIL;
+    }
+
+    size_t len = sizeof(ZUART_COMPATIBLE) - 1;
+    memmove((char *)shm.addr, ZUART_COMPATIBLE, len + 1);
+
+    int32_t remote = _port_grant(shm.handle, dm_pid);
+    if (remote < 0) {
+        return ZUART_INIT_FAIL;
+    }
+
+    zuzu_ipcmsg_t r = _call(dm_port, DEV_REGISTER, ZUART_DEV_CLASS, (uint32_t)remote);
+    if ((int32_t)r.r1 != DEV_REG_OK) {
+        return ZUART_INIT_FAIL;
+    }
+
+    return ZUART_INIT_OK;
 }
 
 static int32_t request_serial_device(void)
@@ -200,7 +228,11 @@ int zuart_setup(void)
     }
 
     int32_t devmgr_pid = wait_for_devmgr();
-    (void)devmgr_pid;
+
+    if (devmgr_register(devmgr_port, devmgr_pid) != ZUART_INIT_OK) {
+        LOG_LIT("zuart: DEV_REGISTER failed\n");
+        return ZUART_INIT_FAIL;
+    }
 
     int32_t dev_handle = request_serial_device();
 
