@@ -2,22 +2,38 @@
 #define ZUZU_H
 
 #include "zuzu/syscall_nums.h"
+#include "zuzu/dev_enum.h"
 #include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
-
 #endif
 
-typedef struct {
+/* ---- Common user ABI types ---- */
+
+typedef struct
+{
     int32_t r0;
     uint32_t r1;
     uint32_t r2;
     uint32_t r3;
 } zuzu_ipcmsg_t;
-typedef struct { int32_t handle; void *addr; } shmem_result_t;
-typedef struct { int32_t err; uint32_t addr; uint32_t size; } dtb_reg_result_t;
+
+typedef struct
+{
+    int32_t handle;
+    void *addr;
+} shmem_result_t;
+
+typedef struct
+{
+    int32_t err;
+    uint32_t addr;
+    uint32_t size;
+} dtb_reg_result_t;
+
+/* ---- Process constants ---- */
 
 #define NAMETABLE_PID 1
 #define WNOHANG (1 << 0)
@@ -209,6 +225,8 @@ static inline void *_attach(int32_t handle_idx) {
     return (void *) (uintptr_t) r0;
 }
 
+/* ---- Devices ---- */
+
 /* Get a device capability handle by compatible string — devmgr only */
 static inline int32_t _getdev(const char *compatible, size_t len) {
     register const char *r0 __asm__("r0") = compatible;
@@ -217,6 +235,25 @@ static inline int32_t _getdev(const char *compatible, size_t len) {
         : "+r"(r0)
         : "r"(r1), [num] "i"(SYS_GETDEV)
         : "memory");
+    return (int32_t)r0;
+}
+
+/* Enumerate DTB devices into caller-provided buffer. Returns count or -err.
+ * next_index_out receives the next start index or ZUZU_ENUMDEV_DONE. */
+static inline int32_t _enumdev(zuzu_devinfo_t *out_buf,
+                               uint32_t max_records,
+                               uint32_t start_index,
+                               uint32_t *next_index_out) {
+    register uintptr_t r0 __asm__("r0") = (uintptr_t)out_buf;
+    register uint32_t  r1 __asm__("r1") = max_records;
+    register uint32_t  r2 __asm__("r2") = start_index;
+    __asm__ volatile("svc %[num]"
+        : "+r"(r0), "+r"(r1)
+        : "r"(r2), [num] "i"(SYS_ENUMDEV)
+        : "memory");
+    if (next_index_out) {
+        *next_index_out = r1;
+    }
     return (int32_t)r0;
 }
 
@@ -270,6 +307,8 @@ static inline int32_t _irq_done(uint32_t irq_num) {
     return (int32_t) r0;
 }
 
+/* ---- Debug/diagnostics ---- */
+
 static inline int32_t _log(const char *str, size_t len) {
     register uintptr_t r0 __asm__("r0") = (uintptr_t) str;
     register size_t r1 __asm__("r1") = len;
@@ -298,7 +337,8 @@ static inline uint32_t _pmm_free(void) {
     return r0;
 }
 
-// ---------------- IPC helpers ---------------------
+/* ---- IPC helpers ---- */
+
 static inline uint32_t nt_pack(const char *s) {
     uint32_t v = 0;
     for (int i = 0; i < 4 && s[i]; i++)

@@ -12,5 +12,7 @@
 
 void zprint(const char* s);
 size_t zread(char *dst, size_t max);
+void command_dispatch(const char *line);
+int setup(void);
 
 #endif // ZZSH_H

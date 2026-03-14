@@ -156,7 +156,7 @@ _Noreturn void kmain(void)
     if (initrd_find("bin/zuzusysd", &elf_data, &elf_size)) {
         process_t *nt = process_create_from_elf(elf_data, elf_size, "zuzusysd");
         if (nt) {
-            nt->flags |= PROC_FLAG_NAMETABLE | PROC_FLAG_INIT;
+            nt->flags |= PROC_FLAG_INIT;
             sched_add(nt);
         }
     }

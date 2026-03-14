@@ -27,7 +27,7 @@ void port_create(exception_frame_t *frame)
                 frame->r[0] = ERR_NOMEM;
                 return;
             }
-            if (current_process->flags & PROC_FLAG_NAMETABLE && !nametable_endpoint) {
+            if (current_process->flags & PROC_FLAG_INIT && !nametable_endpoint) {
                 nametable_endpoint = new_endpoint;
                 /* Inject NT port into all processes spawned before nametable existed */
                 for (int j = 0; j < MAX_PROCESSES; j++) {
@@ -155,12 +155,12 @@ void port_grant(exception_frame_t *frame)
     }
 
     // Find free slot in grantee's table
-    for (int i = 0; i < MAX_HANDLE_TABLE; i++)
+    for (int i = 1; i < MAX_HANDLE_TABLE; i++)
     {
         if (grantee->handle_table[i].type == HANDLE_FREE)
         {
             grantee->handle_table[i] = entry;
-            grantee->handle_table[i].grantable = (grantee->pid == NAMETABLE_PID);
+            grantee->handle_table[i].grantable = (grantee->flags & PROC_FLAG_INIT) != 0;
             if (entry.type == HANDLE_SHMEM && entry.shm) {
                 entry.shm->ref_count++;
             }
