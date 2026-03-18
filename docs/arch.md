@@ -8,13 +8,13 @@ This document covers the key ARM-specific design decisions in zuzu: why they wer
 
 ARMv7-A has seven processor modes. zuzu uses four of them (SYS mode is also partially used):
 
-| Mode | Value | Used for |
-|------|-------|----------|
-| USR  | `0x10` | User processes (PL0 — unprivileged) |
+| Mode | Value  | Used for                                |
+| ---- | ------ | --------------------------------------- |
+| USR  | `0x10` | User processes (PL0 — unprivileged)     |
 | SVC  | `0x13` | Kernel, syscall handling, process entry |
-| IRQ  | `0x12` | Hardware interrupt entry |
-| ABT  | `0x17` | Data/Prefetch abort handler entry |
-| UND  | `0x1B` | Undefined instruction handler |
+| IRQ  | `0x12` | Hardware interrupt entry                |
+| ABT  | `0x17` | Data/Prefetch abort handler entry       |
+| UND  | `0x1B` | Undefined instruction handler           |
 
 
 
@@ -35,16 +35,16 @@ ARMv7 exposes two coprocessor registers called **Translation Table Base Register
 
 When an exception occurs in code execution, the processor jumps to the address specified by the Vector Base Address Register (VBAR) with an offset and switches to the appropriate mode, depending on the instruction. 
 
-| Exception | Offset |
-|------|-------|
-| Reset  | `0x00` | 
-| Undefined  | `0x04` | 
-| SVC  | `0x08` | 
-| Prefetch Abort  | `0x0C` |
-| Data Abort  | `0x10` | 
-| Reserved | `0x14` |
-| IRQ | `0x18` |
-| FIQ | `0x1C` |
+| Exception      | Offset |
+| -------------- | ------ |
+| Reset          | `0x00` |
+| Undefined      | `0x04` |
+| SVC            | `0x08` |
+| Prefetch Abort | `0x0C` |
+| Data Abort     | `0x10` |
+| Reserved       | `0x14` |
+| IRQ            | `0x18` |
+| FIQ            | `0x1C` |
 
 
 Find the full vector table on `arch/arm/exceptions/vectors.s`
@@ -76,7 +76,7 @@ typedef struct exception_frame {
 
 ## SVC Syscall ABI 
 
-While most ARM OS projects follow the Linux convention putting the syscall number in `r7` then executing `SVC #0`, zuzu uses `SVC #n` where `n` IS the syscall number, masked as `& 0xFF` from the 24-bit imm field. This means that the syscall number is encoded directly in the lowest byte of the immediate field of the SVC instruction itself, and can be extracted in the handler by reading the instruction at `return_pc - 4`. The 1-byte limitation arises from Thumb mode, where the SVC instruction is only 16 bits with an 8-bit immediate. To use more than 256 syscalls, we would need to switch to ARM mode and use the 32-bit SVC instruction, which has a 24-bit immediate. However, this would require compiling the entire kernel in ARM mode, which is less efficient for code density. By using the SVC immediate field for the syscall number, userspace Thumb programs can be executed.
+While most OS projects follow the Linux convention putting the syscall number in `r7` then executing `SVC #0`, zuzu uses `SVC #n` where `n` IS the syscall number, masked as `& 0xFF` from the 24-bit imm field. This means that the syscall number is encoded directly in the lowest byte of the immediate field of the SVC instruction itself, and can be extracted in the handler by reading the instruction at `return_pc - 4`. The 1-byte limitation arises from Thumb mode, where the SVC instruction is only 16 bits with an 8-bit immediate. To use more than 256 syscalls, we would need to switch to ARM mode and use the 32-bit SVC instruction, which has a 24-bit immediate. However, this would require compiling the entire kernel in ARM mode, which is less efficient for code density. By using the SVC immediate field for the syscall number, userspace Thumb programs can be executed.
 
 ---
 
@@ -84,12 +84,12 @@ While most ARM OS projects follow the Linux convention putting the syscall numbe
 
 Different exception modes require different adjustments to the Link Register (LR) to get the correct return address. This is a subtle  point that is handled in the entry stubs in `entry.s`. The C code then reads `frame->return_pc` which has already been corrected. The table below summarizes the adjustments needed for each exception type:
 
-| Exception Type | LR Value | Adjustment Needed |
-|----------------|----------|-------------------|
-| SVC            | PC of instruction after the SVC | lr = lr (no adjustment)|
-| IRQ            | PC of next instruction + 4 | lr = lr - 4 |
-| Data Abort     | Faulting PC + 8 | lr = lr - 8 |
-| Prefetch Abort | Faulting PC + 4 | lr = lr - 8 |
+| Exception Type | LR Value                        | Adjustment Needed       |
+| -------------- | ------------------------------- | ----------------------- |
+| SVC            | PC of instruction after the SVC | lr = lr (no adjustment) |
+| IRQ            | PC of next instruction + 4      | lr = lr - 4             |
+| Data Abort     | Faulting PC + 8                 | lr = lr - 8             |
+| Prefetch Abort | Faulting PC + 4                 | lr = lr - 8             |
 
 
 ---

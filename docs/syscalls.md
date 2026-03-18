@@ -79,17 +79,18 @@ Negative r0 values indicate errors:
 
 ## 0x50–0x5F: Devices
 
-| #    | Name    | Arguments                               | Returns                      | Description                                                     |
-| ---- | ------- | --------------------------------------- | ---------------------------- | --------------------------------------------------------------- |
-| 0x50 | getdev  | r0: compatible ptr, r1: compatible len  | device handle or err         | Resolve DTB device by compatible and mint a device capability   |
+| #    | Name   | Arguments                              | Returns    
+Description                                                   |
+| ---- | ------ | -------------------------------------- | -------------------- | ------------------------------------------------------------- |
+| 0x50 | getdev | r0: compatible ptr, r1: compatible len | device handle or err | Resolve DTB device by compatible and mint a device capability |
 
 ## 0xF0–0xFF: Experimental/Debug (temporary)
 
-| #    | Name | Arguments            | Returns  | Description                    |
-| ---- | ---- | -------------------- | -------- | ------------------------------ |
-| 0xF0 | log  | r0: msg ptr, r1: len | 0 or err | Print string to kernel console |
-| 0xF1 | dump | —                    | 0        | Dump caller's register state   |
-| 0xF2 | pmm_getfree | —             | pages    | Return current free PMM page count |
+| #    | Name        | Arguments            | Returns  | Description                        |
+| ---- | ----------- | -------------------- | -------- | ---------------------------------- |
+| 0xF0 | log         | r0: msg ptr, r1: len | 0 or err | Print string to kernel console     |
+| 0xF1 | dump        | —                    | 0        | Dump caller's register state       |
+| 0xF2 | pmm_getfree | —                    | pages    | Return current free PMM page count |
 
 ---
 
