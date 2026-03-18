@@ -26,16 +26,16 @@ Per-CPU register interface. The running CPU reads the CPU interface to acknowled
 
 GICv2 uses a flat namespace. Interrupt IDs 0–15 are Software Generated Interrupts (SGIs). IDs 16–31 are Private Peripheral Interrupts (PPIs) — per-CPU, like the generic timer. IDs 32+ are Shared Peripheral Interrupts (SPIs) — the device interrupts.
 
-| IRQ ID | Device | Notes |
-|--------|--------|-------|
-| 27 | ARM Generic Timer (PPI) | Per-CPU, used for preemption tick |
-| 34 | SP804 Timer 0 | Dual-timer module, channel 0 |
-| 35 | SP804 Timer 1 | Dual-timer module, channel 1 |
-| 36 | RTC (PL031) | Real-time clock |
-| 37 | UART0 (PL011) | Primary console UART |
-| 38 | UART1 | |
-| 39 | UART2 | |
-| 40 | UART3 | |
+| IRQ ID | Device                  | Notes                             |
+| ------ | ----------------------- | --------------------------------- |
+| 27     | ARM Generic Timer (PPI) | Per-CPU, used for preemption tick |
+| 34     | SP804 Timer 0           | Dual-timer module, channel 0      |
+| 35     | SP804 Timer 1           | Dual-timer module, channel 1      |
+| 36     | RTC (PL031)             | Real-time clock                   |
+| 37     | UART0 (PL011)           | Primary console UART              |
+| 38     | UART1                   |                                   |
+| 39     | UART2                   |                                   |
+| 40     | UART3                   |                                   |
 
 <!-- TODO: verify these IRQ numbers against your DTB parser output / board.h -->
 

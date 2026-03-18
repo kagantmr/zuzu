@@ -82,16 +82,16 @@ The boot banner is inspired by neofetch, it prints the kernel version, build inf
 
 ## Boot Memory State Timeline
 
-| Point in boot | MMU | Heap | PMM | IRQs |
-|---------------|-----|------|-----|------|
-| `_start.s` begins | off | no | no | Disabled |
-| MMU enable (identity+higher-half) | on | no | no | Disabled |
-| `early.c` begins | on | no | no | Disabled |
-| After `pmm_init()` | on | no | yes | Disabled |
-| After `alloc_init()` | on | yes | yes | Disabled |
-| `kmain()` begins | on | yes | yes | Disabled |
-| After `arch_global_irq_enable()` | on | yes | yes | **Enabled** |
-| After `sched_init()` + `register_tick_callback()` | on | yes | yes | Enabled + ticking |
+| Point in boot                                     | MMU | Heap | PMM | IRQs              |
+| ------------------------------------------------- | --- | ---- | --- | ----------------- |
+| `_start.s` begins                                 | off | no   | no  | Disabled          |
+| MMU enable (identity+higher-half)                 | on  | no   | no  | Disabled          |
+| `early.c` begins                                  | on  | no   | no  | Disabled          |
+| After `pmm_init()`                                | on  | no   | yes | Disabled          |
+| After `alloc_init()`                              | on  | yes  | yes | Disabled          |
+| `kmain()` begins                                  | on  | yes  | yes | Disabled          |
+| After `arch_global_irq_enable()`                  | on  | yes  | yes | **Enabled**       |
+| After `sched_init()` + `register_tick_callback()` | on  | yes  | yes | Enabled + ticking |
 
 ---
 

@@ -149,6 +149,12 @@ zuzu/
 | [docs/processes.md](docs/processes.md) | Process model, PCB layout, context switch, scheduler |
 | [docs/syscalls.md](docs/syscalls.md) | Full syscall ABI reference |
 | [docs/roadmap.md](docs/roadmap.md) | Phase-by-phase development roadmap |
+| [docs/getting-started.md](docs/getting-started.md) | New contributor setup and first-run checklist |
+| [docs/contributing.md](docs/contributing.md) | Contribution workflow, standards, and PR checklist |
+| [docs/fork-guide.md](docs/fork-guide.md) | Fork strategy and project evaluation guide |
+| [docs/decisions.md](docs/decisions.md) | Architecture decision log for long-term project memory |
+| [docs/templates/doc-template.md](docs/templates/doc-template.md) | Reusable page template for new docs |
+| [docs/templates/decision-template.md](docs/templates/decision-template.md) | Reusable decision record template |
 
 ---
 

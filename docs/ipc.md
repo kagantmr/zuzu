@@ -13,7 +13,7 @@ zuzu uses **synchronous blocking IPC**. This means:
 - When both are present, the kernel copies the message and unblocks both in one operation.
 - There are no message queues. There is no heap allocation in the IPC hot path.
 
-This is the same model used by L4, seL4, and QNX. The reason for choosing it over asynchronous IPC is simplicity: no buffer management, no flow control, no partial delivery. The trade-off is that a slow server blocks its clients. For the current stage of zuzu this is fine — proper protocol design handles it at the application level.
+This is the same model used by L4, seL4, and QNX. The reason for choosing it over asynchronous IPC is simplicity: no buffer management, no flow control, no partial delivery. The trade-off is that a slow server blocks its clients. For the current stage of zuzu this is fine, proper protocol design handles it at the application level.
 
 ---
 
@@ -118,12 +118,12 @@ This means IPC is a first-class scheduling event — not a spin-wait or a poll. 
 
 ## Error Cases
 
-| Condition | Return value |
-|-----------|-------------|
-| Handle out of range (≥ 16) | `ERR_BADARG` (-6) |
-| Handle slot is NULL | `ERR_BADARG` (-6) |
-| No current process | `ERR_BADARG` (-6) |
-| Endpoint destroyed while waiting | `ERR_DEAD` (-9) |
+| Condition                        | Return value      |
+| -------------------------------- | ----------------- |
+| Handle out of range (≥ 16)       | `ERR_BADARG` (-6) |
+| Handle slot is NULL              | `ERR_BADARG` (-6) |
+| No current process               | `ERR_BADARG` (-6) |
+| Endpoint destroyed while waiting | `ERR_DEAD` (-9)   |
 
 
 ---
