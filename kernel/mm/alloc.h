@@ -2,7 +2,7 @@
 #include "stdbool.h"
 #include "stdint.h"
 
-#define HEAP_SIZE (32 * 4096)  // 128KB heap
+#define HEAP_SIZE (512 * 4096)  // 2MB heap
 #define ALIGNMENT 16
 #define MIN_PAYLOAD ALIGNMENT
 
