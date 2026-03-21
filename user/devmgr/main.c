@@ -3,15 +3,29 @@
 #include <mem.h>
 
 #define MAX_DRIVERS 64
+#define MAX_HANDLE_SCAN 256
 
 typedef struct {
     uint32_t dev_class;
-    char compatible[32];
-    size_t compat_len;
+    uint32_t injected_handle;
 } reg_entry_t;
 
 static reg_entry_t reg_table[MAX_DRIVERS];
 static size_t reg_count;
+
+static const char *class_to_compat(uint32_t dev_class)
+{
+    switch (dev_class) {
+    case DEV_CLASS_SERIAL:
+        return "arm,pl011";
+    case DEV_CLASS_RTC:
+        return "arm,pl031";
+    case DEV_CLASS_BLOCK:
+        return "virtio";
+    default:
+        return NULL;
+    }
+}
 
 static reg_entry_t *find_registration(uint32_t dev_class)
 {
@@ -30,12 +44,7 @@ static int request_and_grant_class(uint32_t dev_class, int32_t target_pid, uint3
         return ERR_NOENT;
     }
 
-    int32_t dev_handle = _getdev(entry->compatible, entry->compat_len);
-    if (dev_handle < 0) {
-        return dev_handle;
-    }
-
-    int32_t granted_handle = _port_grant(dev_handle, target_pid);
+    int32_t granted_handle = _port_grant((int32_t)entry->injected_handle, target_pid);
     if (granted_handle < 0) {
         return granted_handle;
     }
@@ -46,57 +55,81 @@ static int request_and_grant_class(uint32_t dev_class, int32_t target_pid, uint3
     return 0;
 }
 
-static void handle_register(uint32_t sender, uint32_t dev_class, int32_t compat_shm_handle)
-{
-    if (find_registration(dev_class)) {
-        _detach(compat_shm_handle);
-        _reply(sender, DEV_REG_DUP, 0, 0);
-        return;
+static void build_class_table(void) {
+    char compat[32];
+    reg_count = 0;
+
+    int32_t serial_handle = -1;
+    int32_t serial_irq = -1;
+    int32_t rtc_handle = -1;
+    int32_t rtc_irq = -1;
+    int32_t block_handle = -1;
+
+    for (uint32_t i = 1; i < MAX_HANDLE_SCAN && reg_count < MAX_DRIVERS; i++) {
+        int32_t rc = _querydev(i, compat, sizeof(compat));
+        if (rc < 0)
+            continue;
+
+        if (strncmp(compat, "arm,pl011", 9) == 0) {
+            /* Prefer a UART entry with a real IRQ; IRQ 0 devices are typically unusable for RX interrupts. */
+            if (serial_handle < 0 || (serial_irq <= 0 && rc > 0)) {
+                serial_handle = (int32_t)i;
+                serial_irq = rc;
+            }
+            continue;
+        }
+
+        if (strncmp(compat, "arm,pl031", 9) == 0) {
+            if (rtc_handle < 0 || (rtc_irq <= 0 && rc > 0)) {
+                rtc_handle = (int32_t)i;
+                rtc_irq = rc;
+            }
+            continue;
+        }
+
+        if (strncmp(compat, "virtio", 6) == 0 && block_handle < 0) {
+            block_handle = (int32_t)i;
+        }
     }
 
-    if (reg_count >= MAX_DRIVERS) {
-        _detach(compat_shm_handle);
-        _reply(sender, DEV_REG_FULL, 0, 0);
-        return;
+    if (serial_handle > 0 && reg_count < MAX_DRIVERS) {
+        reg_table[reg_count++] = (reg_entry_t){ DEV_CLASS_SERIAL, (uint32_t)serial_handle };
     }
-
-    char *compat = (char *)_attach(compat_shm_handle);
-    if ((intptr_t)compat <= 0) {
-        _detach(compat_shm_handle);
-        _reply(sender, ERR_BADARG, 0, 0);
-        return;
+    if (rtc_handle > 0 && reg_count < MAX_DRIVERS) {
+        reg_table[reg_count++] = (reg_entry_t){ DEV_CLASS_RTC, (uint32_t)rtc_handle };
     }
-
-    size_t len = strnlen(compat, sizeof(reg_table[0].compatible));
-    if (len == 0 || len >= sizeof(reg_table[0].compatible)) {
-        _detach(compat_shm_handle);
-        _reply(sender, ERR_BADARG, 0, 0);
-        return;
+    if (block_handle > 0 && reg_count < MAX_DRIVERS) {
+        reg_table[reg_count++] = (reg_entry_t){ DEV_CLASS_BLOCK, (uint32_t)block_handle };
     }
-
-    reg_table[reg_count].dev_class = dev_class;
-    reg_table[reg_count].compat_len = len;
-    memmove(reg_table[reg_count].compatible, compat, len + 1);
-    reg_count++;
-
-    _detach(compat_shm_handle);
-    _reply(sender, DEV_REG_OK, 0, 0);
 }
 
-static void handle_dev_request(uint32_t sender, uint32_t dev_class)
+static void handle_register(uint32_t reply_handle, uint32_t dev_class)
 {
-    uint32_t granted_serial = 0;
-    int rc = request_and_grant_class(dev_class, (int32_t)sender, &granted_serial);
-    if (rc < 0) {
-        _reply(sender, (uint32_t)rc, 0, 0);
+    (void)dev_class;
+    _reply(reply_handle, DEV_REG_OK, 0, 0);
+}
+
+static void handle_dev_request(uint32_t reply_handle, uint32_t sender_pid, uint32_t dev_class)
+{
+    const char *compat = class_to_compat(dev_class);
+    if (!compat) {
+        _reply(reply_handle, ERR_BADARG, 0, 0);
         return;
     }
 
-    _reply(sender, 0, granted_serial, 0);
+    uint32_t granted_serial = 0;
+    int rc = request_and_grant_class(dev_class, (int32_t)sender_pid, &granted_serial);
+    if (rc < 0) {
+        _reply(reply_handle, (uint32_t)rc, 0, 0);
+        return;
+    }
+
+    _reply(reply_handle, 0, granted_serial, 0);
 }
 
 int devmgr_setup(void)
 {
+    build_class_table();
     int32_t my_port = _port_create();
     if (my_port < 0) {
         return my_port;
@@ -107,10 +140,7 @@ int devmgr_setup(void)
         return nt_slot;
     }
 
-    zuzu_ipcmsg_t reg = _call(NT_PORT, NT_REGISTER, nt_pack(DEVMGR_NAME), (uint32_t)nt_slot);
-    if ((int32_t)reg.r1 != NT_REG_OK) {
-        return ERR_BUSY;
-    }
+    (void)_send(NT_PORT, NT_REGISTER, nt_pack(DEVMGR_NAME), (uint32_t)nt_slot);
 
     return my_port;
 }
@@ -120,12 +150,17 @@ void devmgr_loop(int32_t port_handle)
     while (1) {
         zuzu_ipcmsg_t msg = _recv(port_handle);
 
-        if (msg.r1 == DEV_REGISTER) {
-            handle_register((uint32_t)msg.r0, msg.r2, (int32_t)msg.r3);
-        } else if (msg.r1 == DEV_REQUEST) {
-            handle_dev_request((uint32_t)msg.r0, msg.r2);
+        uint32_t reply_handle = (uint32_t)msg.r0;
+        uint32_t sender_pid = msg.r1;
+        uint32_t command = msg.r2;
+        uint32_t arg = msg.r3;
+
+        if (command == DEV_REGISTER) {
+            handle_register(reply_handle, arg);
+        } else if (command == DEV_REQUEST) {
+            handle_dev_request(reply_handle, sender_pid, arg);
         } else {
-            _reply((uint32_t)msg.r0, ERR_BADCMD, 0, 0);
+            _reply(reply_handle, ERR_BADCMD, 0, 0);
         }
     }
 }
