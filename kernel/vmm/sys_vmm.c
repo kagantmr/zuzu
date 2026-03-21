@@ -57,6 +57,11 @@ void memmap(exception_frame_t *frame)
     }
 
     // 2. Bump the cursor
+    if (current_process->mmap_va_next > va + size) // check for overflow
+    {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
     current_process->mmap_va_next += size;
 
     // 3. Register the region — no physical pages allocated yet
@@ -133,12 +138,15 @@ void memunmap(exception_frame_t *frame)
     {
         bool found_handle = false;
         // If it's shared memory, we need to decrement the ref count and free if it hits 0
-        for (size_t i = 0; i < MAX_HANDLE_TABLE; i++)
+        for (uint32_t i = 0; i < current_process->handle_table.cap; i++)
         {
-            if (current_process->handle_table[i].type == HANDLE_SHMEM &&
-                current_process->handle_table[i].mapped_va == va)
+            handle_entry_t *entry = handle_vec_get(&current_process->handle_table, i);
+            if (!entry)
+                break;
+
+            if (entry->type == HANDLE_SHMEM && entry->mapped_va == va)
             {
-                shmem_t *shm_obj = current_process->handle_table[i].shm;
+                shmem_t *shm_obj = entry->shm;
                 shm_obj->ref_count--;
                 if (shm_obj->ref_count == 0)
                 {
@@ -147,14 +155,17 @@ void memunmap(exception_frame_t *frame)
                     kfree(shm_obj->page_addrs);
                     kfree(shm_obj);
                 }
-                current_process->handle_table[i].type = HANDLE_FREE;
+                entry->shm = NULL;
+                entry->mapped_va = 0;
+                entry->grantable = false;
+                entry->type = HANDLE_FREE;
                 found_handle = true;
                 break;
             }
-            if (!found_handle)
-            {
-                KWARN("memunmap: shared region @ 0x%08x has no matching handle", va);
-            }
+        }
+        if (!found_handle)
+        {
+            KWARN("memunmap: shared region @ 0x%08x has no matching handle", va);
         }
     }
 
@@ -219,15 +230,7 @@ void memshare(exception_frame_t *frame)
     shmem_obj->page_addrs = page_arr;
 
     // find free handle slot
-    int handle = -1;
-    for (size_t i = 0; i < MAX_HANDLE_TABLE; i++)
-    {
-        if (current_process->handle_table[i].type == HANDLE_FREE)
-        {
-            handle = (int)i;
-            break;
-        }
-    }
+    int handle = handle_vec_find_free(&current_process->handle_table);
     if (handle < 0)
     {
         for (size_t i = 0; i < page_count; i++)
@@ -239,6 +242,15 @@ void memshare(exception_frame_t *frame)
     }
 
     // pick VA base and bump cursor once
+    if (current_process->mmap_va_next > UINTPTR_MAX - size) // check for overflow
+    {
+        for (size_t i = 0; i < page_count; i++)
+            pmm_free_page(page_arr[i]);
+        kfree(page_arr);
+        kfree(shmem_obj);
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
     const uintptr_t va_base = current_process->mmap_va_next;
     current_process->mmap_va_next += size;
 
@@ -279,10 +291,25 @@ void memshare(exception_frame_t *frame)
         }
     }
 
-    current_process->handle_table[handle].mapped_va = va_base;
-    current_process->handle_table[handle].shm = shmem_obj;
-    current_process->handle_table[handle].type = HANDLE_SHMEM;
-    current_process->handle_table[handle].grantable = true;
+    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, (uint32_t)handle);
+    if (!entry)
+    {
+        vmm_remove_region(current_process->as, va_base, size);
+        for (size_t j = 0; j < page_count; j++)
+            vmm_unmap_range(current_process->as, va_base + j * PAGE_SIZE, PAGE_SIZE);
+        current_process->mmap_va_next -= size;
+        for (size_t i = 0; i < page_count; i++)
+            pmm_free_page(page_arr[i]);
+        kfree(page_arr);
+        kfree(shmem_obj);
+        frame->r[0] = ERR_NOMEM;
+        return;
+    }
+
+    entry->mapped_va = va_base;
+    entry->shm = shmem_obj;
+    entry->type = HANDLE_SHMEM;
+    entry->grantable = true;
 
     frame->r[0] = (uint32_t)handle;
     frame->r[1] = (uint32_t)va_base;
@@ -291,17 +318,19 @@ void memshare(exception_frame_t *frame)
 void attach(exception_frame_t *frame)
 {
     const uint32_t handle_idx = frame->r[0];
-    if (handle_idx >= MAX_HANDLE_TABLE)
+
+    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle_idx);
+    if (!entry)
     {
         frame->r[0] = ERR_BADARG;
         return;
     }
-    if (current_process->handle_table[handle_idx].type != HANDLE_SHMEM)
+    if (entry->type != HANDLE_SHMEM)
     {
         frame->r[0] = ERR_BADFORM;
         return;
     }
-    shmem_t *shm_obj = current_process->handle_table[handle_idx].shm;
+    shmem_t *shm_obj = entry->shm;
     const uintptr_t va_base = current_process->mmap_va_next;
     current_process->mmap_va_next += shm_obj->page_count * PAGE_SIZE;
 
@@ -338,7 +367,7 @@ void attach(exception_frame_t *frame)
         }
     }
 
-    current_process->handle_table[handle_idx].mapped_va = va_base;
+    entry->mapped_va = va_base;
     shm_obj->ref_count++;
     frame->r[0] = va_base;
 }
@@ -353,19 +382,20 @@ void detach(exception_frame_t *frame)
 {
     uint32_t handle = frame->r[0];
 
-    if (handle >= MAX_HANDLE_TABLE)
+    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle);
+    if (!entry)
     {
         frame->r[0] = ERR_BADARG;
         return;
     }
-    if (current_process->handle_table[handle].type != HANDLE_SHMEM)
+    if (entry->type != HANDLE_SHMEM)
     {
         frame->r[0] = ERR_BADFORM;
         return;
     }
 
-    shmem_t *shm = current_process->handle_table[handle].shm;
-    const uintptr_t va = current_process->handle_table[handle].mapped_va;
+    shmem_t *shm = entry->shm;
+    const uintptr_t va = entry->mapped_va;
     vmm_remove_region(current_process->as, va, shm->page_count * PAGE_SIZE);
     for (size_t j = 0; j < shm->page_count; j++)
         vmm_unmap_range(current_process->as, va + j * PAGE_SIZE, PAGE_SIZE);
@@ -377,9 +407,10 @@ void detach(exception_frame_t *frame)
         kfree(shm->page_addrs);
         kfree(shm);
     }
-    current_process->handle_table[handle].shm = NULL;
-    current_process->handle_table[handle].mapped_va = 0;
-    current_process->handle_table[handle].type = HANDLE_FREE;
+    entry->shm = NULL;
+    entry->mapped_va = 0;
+    entry->grantable = false;
+    entry->type = HANDLE_FREE;
 
     frame->r[0] = 0;
 }
