@@ -33,6 +33,11 @@ void *memmove(void *dest, const void *src, size_t n)
 {
     void *result = dest;
 
+    if (n == 0 || dest == src)
+    {
+        return result;
+    }
+
     unsigned char *d = (unsigned char *)dest;
     const unsigned char *s = (const unsigned char *)src;
 
@@ -51,10 +56,6 @@ void *memmove(void *dest, const void *src, size_t n)
         {
             *d-- = *s--;
         }
-    }
-    else
-    {
-        return result;
     }
 
     return result;
