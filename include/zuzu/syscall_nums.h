@@ -38,8 +38,6 @@
 #define SYS_IRQ_BIND 0x41  /* (irq_num) -> 0 or -err              */
 #define SYS_IRQ_DONE 0x42  /* (irq_num) -> 0 or -err              */
 
-/* ---- Devices (0x50-0x5F) ---- */
-#define SYS_GETDEV  0x50  /* (compatible, irq) -> HANDLE_DEVICE or -err  -- devmgr only */
 
 /* ---- Experimental / debugging / temporary (0xF0-0xFF) ---- */
 

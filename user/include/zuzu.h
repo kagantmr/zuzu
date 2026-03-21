@@ -226,17 +226,6 @@ static inline void *_attach(int32_t handle_idx) {
 
 /* ---- Devices ---- */
 
-/* Get a device capability handle by compatible string — devmgr only */
-static inline int32_t _getdev(const char *compatible, size_t len) {
-    register const char *r0 __asm__("r0") = compatible;
-    register size_t      r1 __asm__("r1") = len;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : "r"(r1), [num] "i"(SYS_GETDEV)
-        : "memory");
-    return (int32_t)r0;
-}
-
 /* Map a device handle into the calling process's address space */
 static inline void *_mapdev(uint32_t handle) {
     register uint32_t r0 __asm__("r0") = handle;
