@@ -28,6 +28,9 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
         return NULL;
     memset(process, 0, sizeof(process_t));
 
+    if (!handle_vec_init(&process->handle_table))
+        goto fail_process;
+
     // try creating as
     process->as = addrspace_create(ADDRSPACE_USER);
     if (!process->as)
@@ -128,6 +131,12 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
 
     process->kernel_sp = (uint32_t *)stack_top;
     process->process_state = PROCESS_READY;
+    if (next_pid >= MAX_PROCESSES)
+    {
+        // just do nothing for now we have 64 processes allowed
+        KERROR("PID wraparound, no more processes can be created!");
+        goto fail_kstack;
+    }
     process->pid = next_pid++;
     process_table[process->pid] = process;
     process->device_va_next = 0x60000000;
@@ -154,6 +163,7 @@ fail_kstack:
 fail_as:
     addrspace_destroy(process->as);
 fail_process:
+    handle_vec_destroy(&process->handle_table);
     kfree(process);
     return NULL;
 }

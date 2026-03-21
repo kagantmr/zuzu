@@ -11,8 +11,6 @@
 
 #define PROC_FLAG_INIT      (1 << 0)  // PID 1, zombie reaper
 #define PROC_FLAG_DEVMGR    (1 << 1)  // hardware authority
-#define PROC_FLAG_HW_ACCESS (1 << 3)  // allowed to call mapdev/irq_register
-
 
 extern void process_entry_trampoline(void);
 
@@ -45,7 +43,7 @@ typedef struct process {
     uint32_t device_va_next;  // initialized to 0x60000000 in process_create
     uint32_t mmap_va_next;  // initialized to 0x20000000 in process_create
     exception_frame_t *trap_frame;
-    handle_entry_t handle_table[MAX_HANDLE_TABLE];
+    handle_vec_t handle_table;
     ipc_state_t ipc_state;
     endpoint_t *blocked_endpoint;
     uint32_t flags; 

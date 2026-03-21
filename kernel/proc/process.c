@@ -27,9 +27,13 @@ void process_kill(process_t *p, const int exit_status) {
         panic("Attempted to kill critical process");
     }
     // Clean up handle table — clear non-owned handles, free owned endpoints
-    for (int i = 0; i < MAX_HANDLE_TABLE; i++) {
-        if (p->handle_table[i].type == HANDLE_ENDPOINT) {
-            endpoint_t *ep = p->handle_table[i].ep;
+    for (uint32_t i = 0; i < p->handle_table.cap; i++) {
+        handle_entry_t *entry = handle_vec_get(&p->handle_table, i);
+        if (!entry)
+            break;
+
+        if (entry->type == HANDLE_ENDPOINT) {
+            endpoint_t *ep = entry->ep;
             if (ep && ep->owner_pid == p->pid) {
                 // Wake blocked waiters with ERR_DEAD
                 while (!list_empty(&ep->sender_queue)) {
@@ -52,11 +56,12 @@ void process_kill(process_t *p, const int exit_status) {
                 }
                 kfree(ep);
             }
-            p->handle_table[i].ep = NULL;
-            p->handle_table[i].type = HANDLE_FREE;
-        } else if (p->handle_table[i].type == HANDLE_SHMEM) {
-            shmem_t *shm = p->handle_table[i].shm;
-            const uintptr_t va = p->handle_table[i].mapped_va;
+            entry->ep = NULL;
+            entry->grantable = false;
+            entry->type = HANDLE_FREE;
+        } else if (entry->type == HANDLE_SHMEM) {
+            shmem_t *shm = entry->shm;
+            const uintptr_t va = entry->mapped_va;
             vmm_remove_region(p->as, va, shm->page_count * PAGE_SIZE);
             for (size_t j = 0; j < shm->page_count; j++)
                 vmm_unmap_range(p->as, va + j * PAGE_SIZE, PAGE_SIZE);
@@ -67,9 +72,10 @@ void process_kill(process_t *p, const int exit_status) {
                 kfree(shm->page_addrs);
                 kfree(shm);
             }
-            p->handle_table[i].shm       = NULL;
-            p->handle_table[i].mapped_va = 0;
-            p->handle_table[i].type      = HANDLE_FREE;
+            entry->shm = NULL;
+            entry->mapped_va = 0;
+            entry->grantable = false;
+            entry->type = HANDLE_FREE;
         }
     }
 
@@ -103,6 +109,7 @@ void process_destroy(process_t *p)
             kfree(p->as->regions);
         kfree(p->as);
     }
+    handle_vec_destroy(&p->handle_table);
     process_table[pid] = NULL;
     kstack_free(p->kernel_stack_top);
     kfree(p);

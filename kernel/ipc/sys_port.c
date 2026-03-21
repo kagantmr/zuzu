@@ -5,6 +5,9 @@
 #include "kernel/mm/alloc.h"
 #include "kernel/proc/process.h"
 
+#define LOG_FMT(fmt) "(sys_port) " fmt
+#include "core/log.h"
+
 extern process_t *current_process;
 extern process_t *process_table[MAX_PROCESSES];
 endpoint_t *nametable_endpoint;
@@ -17,44 +20,50 @@ void port_create(exception_frame_t *frame)
         return;
     }
 
-    for (int i = 0; i < MAX_HANDLE_TABLE; i++)
+    int handle = handle_vec_find_free(&current_process->handle_table);
+    if (handle == -1)
     {
-        if (current_process->handle_table[i].type == HANDLE_FREE)
+        frame->r[0] = ERR_NOMEM;
+        return;
+    }
+
+    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle);
+
+    endpoint_t *new_endpoint = kmalloc(sizeof(endpoint_t));
+    if (!new_endpoint)
+    {
+        frame->r[0] = ERR_NOMEM;
+        return;
+    }
+    if (current_process->flags & PROC_FLAG_INIT && !nametable_endpoint)
+    {
+        nametable_endpoint = new_endpoint;
+        /* Inject NT port into all processes spawned before nametable existed */
+        for (int j = 0; j < MAX_PROCESSES; j++)
         {
-            endpoint_t *new_endpoint = kmalloc(sizeof(endpoint_t));
-            if (!new_endpoint)
+            process_t *p = process_table[j]; 
+            if (p && p != current_process)
             {
-                frame->r[0] = ERR_NOMEM;
-                return;
-            }
-            if (current_process->flags & PROC_FLAG_INIT && !nametable_endpoint) {
-                nametable_endpoint = new_endpoint;
-                /* Inject NT port into all processes spawned before nametable existed */
-                for (int j = 0; j < MAX_PROCESSES; j++) {
-                    process_t *p = process_table[j];
-                    if (p && p != current_process &&
-                        p->handle_table[0].type == HANDLE_FREE) {
-                        p->handle_table[0].ep       = nametable_endpoint;
-                        p->handle_table[0].grantable = true;
-                        p->handle_table[0].type     = HANDLE_ENDPOINT;
-                    }
+                handle_entry_t *p_entry = handle_vec_get(&p->handle_table, 0);
+                if (p_entry && p_entry->type == HANDLE_FREE) {
+                    p_entry->ep = nametable_endpoint;
+                    p_entry->grantable = true;
+                    p_entry->type = HANDLE_ENDPOINT;
                 }
             }
-            // list_init(&new_endpoint->node);
-            list_init(&new_endpoint->sender_queue);
-            list_init(&new_endpoint->receiver_queue);
-            new_endpoint->owner_pid = current_process->pid;
-            new_endpoint->bound_irq = -1;
-            current_process->handle_table[i].ep = new_endpoint;
-            current_process->handle_table[i].grantable = true;
-            current_process->handle_table[i].type = HANDLE_ENDPOINT;
-
-
-            frame->r[0] = i;
-            return;
         }
     }
-    frame->r[0] = ERR_BUSY;
+    // list_init(&new_endpoint->node);
+    list_init(&new_endpoint->sender_queue);
+    list_init(&new_endpoint->receiver_queue);
+    new_endpoint->owner_pid = current_process->pid;
+    new_endpoint->bound_irq = -1;
+    entry->ep = new_endpoint;
+    entry->grantable = true;
+    entry->type = HANDLE_ENDPOINT;
+
+    frame->r[0] = handle;
+    return;
 }
 
 void port_destroy(exception_frame_t *frame)
@@ -68,13 +77,19 @@ void port_destroy(exception_frame_t *frame)
     int handle = (int)frame->r[0];
 
     // Validate handle
-    if (handle < 0 || handle >= MAX_HANDLE_TABLE)
+    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle);
+    if (!entry)
     {
         frame->r[0] = ERR_BADARG;
         return;
     }
+    if (entry->type != HANDLE_ENDPOINT)
+    {
+        frame->r[0] = ERR_NOPERM;
+        return;
+    }
+    endpoint_t *ep = entry->ep;
 
-    endpoint_t *ep = current_process->handle_table[handle].ep;
     if (!ep)
     {
         frame->r[0] = ERR_BADARG;
@@ -95,7 +110,8 @@ void port_destroy(exception_frame_t *frame)
         process_t *proc = container_of(n, process_t, node);
         proc->ipc_state = IPC_NONE;
         proc->blocked_endpoint = NULL;
-        ((exception_frame_t *)(proc->kernel_sp + 9))->r[0] = ERR_DEAD;
+        proc->trap_frame->r[0] = ERR_DEAD;
+        proc->process_state = PROCESS_READY;
         sched_add(proc);
     }
 
@@ -106,40 +122,43 @@ void port_destroy(exception_frame_t *frame)
         process_t *proc = container_of(n, process_t, node);
         proc->ipc_state = IPC_NONE;
         proc->blocked_endpoint = NULL;
-        ((exception_frame_t *)(proc->kernel_sp + 9))->r[0] = ERR_DEAD;
+        proc->trap_frame->r[0] = ERR_DEAD;
+        proc->process_state = PROCESS_READY;
         sched_add(proc);
     }
 
     // Clean up
     kfree(ep);
-    current_process->handle_table[handle].ep = NULL;
-    current_process->handle_table[handle].type = HANDLE_FREE;
+    entry->ep = NULL;
+    entry->grantable = false;
+    entry->type = HANDLE_FREE;
     frame->r[0] = 0;
 }
 
 void port_grant(exception_frame_t *frame)
 {
-    int handle = frame->r[0];
-    uint32_t pid = frame->r[1];
-
-    // Validate handle
-    if (handle < 0 || handle >= MAX_HANDLE_TABLE)
+    if (!current_process)
     {
         frame->r[0] = ERR_BADARG;
         return;
     }
 
-    handle_entry_t entry = current_process->handle_table[handle];
-    if (entry.type == HANDLE_FREE) {
+    int handle = (int)frame->r[0];
+    uint32_t pid = frame->r[1];
+
+    // Validate handle
+    handle_entry_t *src = handle_vec_get(&current_process->handle_table, (uint32_t)handle);
+    if (!src || src->type == HANDLE_FREE)
+    {
         frame->r[0] = ERR_BADARG;
         return;
     }
 
-    if (!entry.grantable) {
+    if (!src->grantable)
+    {
         frame->r[0] = ERR_NOPERM;
         return;
     }
-
 
     // Look up target process
     process_t *grantee = process_find_by_pid(pid);
@@ -154,19 +173,26 @@ void port_grant(exception_frame_t *frame)
         return;
     }
 
-    // Find free slot in grantee's table
-    for (int i = 1; i < MAX_HANDLE_TABLE; i++)
+    int slot = handle_vec_find_free(&grantee->handle_table);
+    if (slot < 0)
     {
-        if (grantee->handle_table[i].type == HANDLE_FREE)
-        {
-            grantee->handle_table[i] = entry;
-            grantee->handle_table[i].grantable = (grantee->flags & PROC_FLAG_INIT) != 0;
-            if (entry.type == HANDLE_SHMEM && entry.shm) {
-                entry.shm->ref_count++;
-            }
-            frame->r[0] = i;
-            return;
-        }
+        frame->r[0] = ERR_NOMEM;
+        return;
     }
-    frame->r[0] = ERR_NOMEM;
+
+    handle_entry_t *dst = handle_vec_get(&grantee->handle_table, (uint32_t)slot);
+    if (!dst)
+    {
+        frame->r[0] = ERR_NOMEM;
+        return;
+    }
+
+    *dst = *src;
+    dst->grantable = (grantee->flags & PROC_FLAG_INIT) != 0;
+    if (dst->type == HANDLE_SHMEM && dst->shm)
+    {
+        dst->shm->ref_count++;
+    }
+
+    frame->r[0] = (uint32_t)slot;
 }

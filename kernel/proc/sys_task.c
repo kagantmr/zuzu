@@ -118,16 +118,19 @@ void spawn(exception_frame_t *frame) {
         frame->r[0] = ERR_NOENT;
         return;
     }
-    process_t *process = process_create_from_elf(elf_data, elf_size, name);
+    process_t *process = process_create_from_elf(elf_data, elf_size, kname);
     if (!process) {
         frame->r[0] = -ERR_NOMEM;
         return;
     }
     
     if (nametable_endpoint != NULL) {
-        process->handle_table[0].ep = nametable_endpoint;
-        process->handle_table[0].grantable = true;
-        process->handle_table[0].type = HANDLE_ENDPOINT;
+        handle_entry_t *nt_entry = handle_vec_get(&process->handle_table, 0);
+        if (nt_entry) {
+            nt_entry->ep = nametable_endpoint;
+            nt_entry->grantable = true;
+            nt_entry->type = HANDLE_ENDPOINT;
+        }
     }
 
     process->parent_pid = current_process->pid;
