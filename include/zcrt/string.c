@@ -76,14 +76,15 @@ char *strcpy(char *dest, const char *src) {
 char *strncpy(char *dest, const char *src, size_t n) {
     char *ret = dest;
 
-    while (n && (*dest++ = *src++)) {
+    while (n > 0 && *src) {
+        *dest++ = *src++;
         n--;
     }
 
-    // If we stopped because src ended early,
-    // pad with '\0' until n is zero.
-    while (n--) {
+    // Pad remaining bytes with NUL to match strncpy semantics.
+    while (n > 0) {
         *dest++ = '\0';
+        n--;
     }
 
     return ret;
