@@ -58,13 +58,13 @@ void zprint(const char *s)
     size_t len = strlen(s);
     if (len > 4096) len = 4096;
     memcpy(shmem_buf, s, len);
-    _call(zuart_port, ZUART_CMD_WRITE, shmem_handle, len);
+    _call(zuart_port, ZUART_CMD_WRITE, zuart_pack_arg(shmem_handle, (uint32_t)len), 0);
 }
 
 size_t zread(char *dst, size_t max)
 {
     if (max > 4096) max = 4096;
-    zuzu_ipcmsg_t reply = _call(zuart_port, ZUART_CMD_READ, shmem_handle, max);
+    zuzu_ipcmsg_t reply = _call(zuart_port, ZUART_CMD_READ, zuart_pack_arg(shmem_handle, (uint32_t)max), 0);
     size_t got = reply.r1;
     memcpy(dst, shmem_buf, got);
     return got;
