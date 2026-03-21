@@ -58,20 +58,42 @@ addrspace_t* addrspace_create(addrspace_type_t type) {
 
 void vmm_lockdown_kernel_sections(void) {
     uint32_t *l1 = (uint32_t *)PA_TO_VA(g_kernel_as->ttbr0_pa);
-    uint32_t patched = 0;
+    uint32_t patched_sections = 0;
+    uint32_t patched_pages = 0;
 
     for (size_t i = 0; i < 4096; i++) {
         uint32_t entry = l1[i];
-        
-        // Check if it's a section descriptor (bits[1:0] == 0b10)
-        if ((entry & 0x3) != 0x2) continue;
-        
-        // Clear AP[11:10], set to 0b01 (kernel only)
-        entry &= ~(0x3 << 10);   // clear AP[1:0]
-        entry |=  (0x1 << 10);   // set AP = 0b01
-        
-        l1[i] = entry;
-        patched++;
+
+        // Section descriptor (bits[1:0] == 0b10)
+        if ((entry & 0x3) == 0x2) {
+            // Clear AP[11:10], set to 0b01 (kernel only)
+            entry &= ~(0x3u << 10);
+            entry |=  (0x1u << 10);
+            l1[i] = entry;
+            patched_sections++;
+            continue;
+        }
+
+        // Coarse page table (bits[1:0] == 0b01)
+        if ((entry & 0x3) == 0x1) {
+            uint32_t l2_pa = entry & 0xFFFFFC00u;
+            uint32_t *l2 = (uint32_t *)PA_TO_VA(l2_pa);
+
+            for (size_t j = 0; j < 256; j++) {
+                uint32_t pte = l2[j];
+
+                // Small page descriptor has bits[1:0] == 0b10
+                if ((pte & 0x3) != 0x2) {
+                    continue;
+                }
+
+                // Small page AP bits are [5:4]. Force kernel-only AP=01.
+                pte &= ~(0x3u << 4);
+                pte |=  (0x1u << 4);
+                l2[j] = pte;
+                patched_pages++;
+            }
+        }
     }
     
     // Flush TLB so old permissions are gone
@@ -79,7 +101,7 @@ void vmm_lockdown_kernel_sections(void) {
     __asm__ volatile("dsb");
     __asm__ volatile("isb");
 
-    KINFO("Lockdown: patched %u section entries", patched);
+    KINFO("Lockdown: patched %u sections and %u L2 pages", patched_sections, patched_pages);
 }
 
 void addrspace_destroy(addrspace_t* as) {
@@ -376,8 +398,19 @@ bool vmm_map_range(addrspace_t* as, uintptr_t va, uintptr_t pa, size_t size,
     if ((va % 0x1000) != 0) return false;
     if ((pa % 0x1000) != 0) return false;
 
-    (void)owner;  
-    (void)flags;  
+    // check overflow
+    if (va > UINTPTR_MAX - size) return false;
+
+    if (as->type == ADDRSPACE_USER) {
+        // For user address spaces, enforce canonical user VA range [0, USER_VA_TOP).
+        // end is exclusive, so end == USER_VA_TOP is valid.
+        if (va >= USER_VA_TOP || va + size > USER_VA_TOP) {
+            return false;
+        }
+    }
+
+    (void)owner;
+    (void)flags;
 
     // Delegate to arch layer (handles ownership and flags at the architecture level)
     return arch_mmu_map(as, va, pa, size, prot, memtype);
