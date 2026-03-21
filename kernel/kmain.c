@@ -30,6 +30,7 @@
 #include "kernel/loader/initrd.h"
 
 #include <mem.h>
+#include <string.h>
 #include "kernel/mm/alloc.h"
 
 #include "fetch.h"
@@ -51,6 +52,37 @@ static inline uint32_t read_be32(const void *p)
            ((uint32_t)b[3]);
 }
 
+static process_t *s_devmgr; 
+
+static void inject_device_cap(const char *compatible,
+                               uint64_t phys, uint64_t size,
+                               uint32_t irq)
+{
+    if (!s_devmgr) return;
+    device_cap_t *cap = kmalloc(sizeof(device_cap_t));
+    if (!cap) return;
+    strncpy(cap->compatible, compatible, sizeof(cap->compatible) - 1);
+    cap->compatible[sizeof(cap->compatible) - 1] = '\0';
+    cap->phys_base = (uint32_t)phys;
+    cap->size = (uint32_t)size;
+    cap->mapped = false;
+    cap->irq = irq;
+    // 3. handle_vec_find_free on s_devmgr->handle_table
+    int handle = handle_vec_find_free(&s_devmgr->handle_table);
+    if (handle < 0) {
+        kfree(cap);
+        return;
+    }
+    // 4. handle_vec_get that slot, write HANDLE_DEVICE entry
+    handle_entry_t *entry = handle_vec_get(&s_devmgr->handle_table, (uint32_t)handle);
+    if (!entry) {
+        kfree(cap);
+        return;
+    }
+    entry->type = HANDLE_DEVICE;
+    entry->grantable = true;
+    entry->dev = cap;
+}
 
 static inline void perform_panic_tests(void)
 {
@@ -139,8 +171,8 @@ _Noreturn void kmain(void)
     board_init_devices();
 
     sched_init();
-
-    arch_global_irq_enable();
+    // Keep IRQs globally masked during early boot setup and DTB enumeration.
+    // User mode will run with its own CPSR after the first context switch.
 
     print_boot_banner();
 
@@ -164,14 +196,28 @@ _Noreturn void kmain(void)
     if (initrd_find("bin/devmgr", &elf_data, &elf_size)) {
         process_t *dm = process_create_from_elf(elf_data, elf_size, "devmgr");
         if (dm) {
-            dm->flags |= PROC_FLAG_DEVMGR | PROC_FLAG_HW_ACCESS;
+            dm->flags |= PROC_FLAG_DEVMGR;
+            s_devmgr = dm;
+            dtb_enum_devices(inject_device_cap);
             sched_add(dm);
         }
     }
 
+
+    /**
+     * Hacky as hell I know but DTB enumeration is absolutely horrible with
+     * IRQs enabled. Random panics happen left and right. It's not like we'll reach this section
+     * ever again so I'm enabling interrupts as late as possible.
+     */
+    arch_global_irq_enable();
+
     register_tick_callback(schedule);
 
-    KDEBUG("Entering idle");
+    // Kick off the first runnable userspace task; later preemption comes from timer ticks.
+    schedule();
+    
+
+    //KDEBUG("Entering idle");
     //uint64_t idle_ticks = 0;
     while (1)
     {
