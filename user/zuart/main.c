@@ -243,7 +243,16 @@ int zuart_setup(void)
     txrb.head = txrb.tail = 0;
     read_waitq_head = read_waitq_tail = 0;
 
-    uart->IMSC |= (IMSC_RXIM | IMSC_RTIM);
+    // Deterministic UART interrupt setup: mask/clear, configure FIFO threshold,
+    // then enable UART and finally unmask RX sources.
+    uart->IMSC = 0;
+    uart->CR = 0;
+    uart->ICR = ICR_ALL;
+    uart->IFLS = (uart->IFLS & ~IFLS_RX_MASK) | IFLS_RX_1_8;
+    uart->LCRH = LCRH_FEN | LCRH_WLEN_8;
+    uart->CR = CR_UARTEN | CR_TXE | CR_RXE;
+    uart->ICR = ICR_ALL;
+    uart->IMSC = (IMSC_RXIM | IMSC_RTIM);
 
     (void)_send(NT_PORT, NT_REGISTER, nt_pack("uart"), (uint32_t)nt_slot);
     return ZUART_INIT_OK;

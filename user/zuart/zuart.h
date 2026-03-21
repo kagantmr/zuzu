@@ -8,12 +8,6 @@
 
 // zuart is completely based around the pl011 for now. subject to change
 
-// ------------------- vexpress-a15 constants -------------------
-
-// TEMPORARY !!!!!!!! CHANGE WHEN DTBCLIMBER IS HERE!!!!!!! OR ELSE NO PORTING
-#define VEXPRESS_UART0_PA 0x1C090000
-#define UART0_IRQ_NUM 37
-
 // --------------------------------------------------------------
 
 // ------------------- IPC constants -------------------
@@ -48,6 +42,12 @@ typedef struct {
 #define IMSC_RXIM (1u << 4) // RX interrupt mask
 #define IMSC_TXIM (1u << 5) // TX interrupt mask
 #define IMSC_RTIM (1u << 6) // RX timeout interrupt mask
+
+#define ICR_ALL (0x7FFu)
+
+#define IFLS_RX_SHIFT 3
+#define IFLS_RX_MASK (7u << IFLS_RX_SHIFT)
+#define IFLS_RX_1_8 (0u << IFLS_RX_SHIFT)
 
 #define FR_TXFF (1u << 5)
 #define FR_RXFE (1u << 4)
