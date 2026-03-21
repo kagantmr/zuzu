@@ -49,6 +49,16 @@ char *strncat(char *dest, const char *src, size_t n);
  */
 char *strcpy(char *dest, const char *src);
 
+
+/**
+ * @brief Copy a string from src to dest.
+ * 
+ * @param dest Destination buffer.
+ * @param src  Source string.
+ * @return Pointer to dest.
+ */
+char *strncpy(char *dest, const char *src, size_t n);
+
 /**
  * @brief Compare two strings lexicographically.
  * 
