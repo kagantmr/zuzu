@@ -76,10 +76,29 @@ static int nt_lookup(uint32_t name_u32, uint32_t *out_handle, uint32_t *out_pid)
 }
 
 static void nt_handle_msg(zuzu_ipcmsg_t msg) {
-    uint32_t sender   = msg.r0;
-    uint32_t command  = msg.r1;
-    uint32_t name_u32 = msg.r2;
-    uint32_t arg      = msg.r3;
+    uint32_t sender = 0;
+    uint32_t reply_handle = 0;
+    uint32_t command = 0;
+    uint32_t name_u32 = 0;
+    uint32_t arg = 0;
+    int needs_reply = 0;
+
+    // call mode: r0=reply_handle, r1=sender_pid, r2=command, r3=arg
+    if (msg.r2 == NT_LOOKUP || msg.r2 == NT_REGISTER) {
+        reply_handle = (uint32_t)msg.r0;
+        sender = msg.r1;
+        command = msg.r2;
+        name_u32 = msg.r3;
+        arg = 0;
+        needs_reply = 1;
+    } else {
+        // send mode: r0=sender_pid, r1=command, r2=arg0, r3=arg1
+        sender = (uint32_t)msg.r0;
+        command = msg.r1;
+        name_u32 = msg.r2;
+        arg = msg.r3;
+        needs_reply = 0;
+    }
 
     int status = NT_BADCMD;
     uint32_t out_handle = 0;
@@ -99,7 +118,9 @@ static void nt_handle_msg(zuzu_ipcmsg_t msg) {
         }
     }
 
-    _reply(sender, (uint32_t)status, out_handle, out_pid);
+    if (needs_reply) {
+        _reply(reply_handle, (uint32_t)status, out_handle, out_pid);
+    }
 }
 
 static void wait_for_service(uint32_t name_u32) {
@@ -108,7 +129,7 @@ static void wait_for_service(uint32_t name_u32) {
 
     while (nt_lookup(name_u32, &handle, &pid) != NT_LU_OK) {
         _wait(-1, NULL, WNOHANG);
-        nt_handle_msg(_recv(NT_PORT));
+        nt_handle_msg(_recv(port));
     }
 }
 
@@ -116,7 +137,7 @@ void sysd_loop(void)
 {
     while (1) {
         _wait(-1, NULL, WNOHANG);
-        nt_handle_msg(_recv(NT_PORT));
+        nt_handle_msg(_recv(port));
     }
 }
 
@@ -125,7 +146,7 @@ int main(void) {
         return 1;
     }
 
-    nt_register(nt_pack(NT_NAME_SYS), NT_PORT, _getpid());
+    nt_register(nt_pack(NT_NAME_SYS), (uint32_t)port, _getpid());
 
     wait_for_service(nt_pack("devm"));
 
