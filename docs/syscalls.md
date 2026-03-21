@@ -43,12 +43,12 @@ Negative r0 values indicate errors:
 
 ## 0x10–0x1F: IPC
 
-| #    | Name       | Arguments                | Returns                        | Description                        |
-| ---- | ---------- | ------------------------ | ------------------------------ | ---------------------------------- |
-| 0x10 | proc_send  | r0: port, r1–r3: payload | 0 or err                       | Send message, block until received |
-| 0x11 | proc_recv  | r0: port                 | r0: sender pid, r1–r3: payload | Receive message, block until sent  |
-| 0x12 | proc_call  | r0: port, r1–r3: payload | r0–r3: reply                   | Send then block for reply (RPC)    |
-| 0x13 | proc_reply | r0–r3: payload           | 0 or err                       | Reply to last call sender          |
+| #    | Name       | Arguments                | Returns                                | Description                        |
+| ---- | ---------- | ------------------------ | -------------------------------------- | ---------------------------------- |
+| 0x10 | proc_send  | r0: port, r1–r3: payload | 0 or err                               | Send message, block until received |
+| 0x11 | proc_recv  | r0: port                 | IRQ: r0=0,r1=irq; send: r0=pid,r1-r3; call: r0=reply_handle,r1=pid,r2-r3 | Receive message/event              |
+| 0x12 | proc_call  | r0: port, r1–r3: payload | r0–r3: reply                           | Send then block for reply (RPC)    |
+| 0x13 | proc_reply | r0: reply_handle, r1–r3: payload | 0 or err                    | Reply via reply capability handle  |
 
 ## 0x20–0x2F: Ports
 
@@ -60,22 +60,22 @@ Negative r0 values indicate errors:
 
 ## 0x30–0x3F: Memory/Devices
 
-| #    | Name     | Arguments                    | Returns     | Description                       |
-| ---- | -------- | ---------------------------- | ----------- | --------------------------------- |
-| 0x30 | memmap   | r0: addr, r1: size, r2: prot | addr or err | Map pages into caller's space     |
-| 0x31 | memunmap | r0: addr, r1: size           | 0 or err    | Unmap and free pages              |
-| 0x32 | memshare | r0: size                     | id or err   | Create shared memory object       |
-| 0x33 | attach   | r0: id                       | addr or err | Map shared object into caller     |
-| 0x34 | mapdev   | r0: phys, r1: size           | addr or err | Map MMIO region (privileged only) |
-| 0x35 | detach   | r0: handle                   | addr or err | Detaches from shared memory       |
+| #    | Name     | Arguments                    | Returns               | Description                       |
+| ---- | -------- | ---------------------------- | --------------------- | --------------------------------- |
+| 0x30 | memmap   | r0: addr, r1: size, r2: prot | addr or err           | Map pages into caller's space     |
+| 0x31 | memunmap | r0: addr, r1: size           | 0 or err              | Unmap and free pages              |
+| 0x32 | memshare | r0: size                     | r0:handle, r1:addr or err | Create and map shared memory  |
+| 0x33 | attach   | r0: handle                   | addr or err           | Map shared object into caller     |
+| 0x34 | mapdev   | r0: device handle            | addr or err           | Map MMIO region from device cap   |
+| 0x35 | detach   | r0: shmem handle             | 0 or err              | Detach shared memory              |
 
 ## 0x40–0x4F: Interrupts
 
-| #    | Name      | Arguments             | Returns  | Description                      |
-| ---- | --------- | --------------------- | -------- | -------------------------------- |
-| 0x40 | irq_claim | r0: irq_num           | 0 or err | Register as handler for this IRQ |
-| 0x41 | irq_bind  | r0: irq_num, r1: port | 0 or err | Bind IRQ delivery to an IPC port |
-| 0x42 | irq_done  | r0: irq_num           | 0 or err | Acknowledge and unmask IRQ line  |
+| #    | Name      | Arguments                         | Returns  | Description                      |
+| ---- | --------- | --------------------------------- | -------- | -------------------------------- |
+| 0x40 | irq_claim | r0: device handle                | 0 or err | Claim IRQ described by device cap |
+| 0x41 | irq_bind  | r0: device handle, r1: port      | 0 or err | Bind IRQ delivery to an IPC port |
+| 0x42 | irq_done  | r0: device handle                | 0 or err | Acknowledge and unmask IRQ line  |
 
 
 ## 0xF0–0xFF: Experimental/Debug (temporary)
@@ -103,7 +103,7 @@ Tasks interact with it via normal IPC:
 ## Notes
 
 - All pointer arguments must point to user memory (below 0xC0000000). The kernel validates before dereferencing.
-- `mapdev` is restricted to tasks with a privilege flag in their PCB. Normal tasks get err_NOPERM.
-- `proc_recv` returns the sender's PID in r0 so the server knows who it is talking to.
+- `mapdev` maps by device handle, not raw physical ranges.
+- `proc_recv` is multiplexed: IRQ events and IPC messages share one return tuple.
 - `proc_call` = atomic `proc_send` + `proc_recv` on the same port.
-- `proc_reply` does not take a port — it replies to whoever last did `proc_call` to the current task.
+- `proc_reply` takes a reply-handle in r0 and payload in r1-r3.
