@@ -56,6 +56,16 @@ void gic_init(uintptr_t gicd_base_addr, uintptr_t gicc_base_addr) {
 }
 
 void gic_enable_irq(uint32_t irq_id) {
+    // For SPIs, force level-triggered semantics (ICFGR bit[2n+1] = 0)
+    // rather than relying on firmware/reset defaults.
+    if (irq_id >= 32) {
+        uint32_t cfg_off = GICD_ICFGR + (irq_id / 16) * 4;
+        uint32_t shift = ((irq_id % 16) * 2) + 1;
+        uint32_t cfg = gicd_read(cfg_off);
+        cfg &= ~(1u << shift);
+        gicd_write(cfg_off, cfg);
+    }
+
     // Enable the interrupt
     gicd_write(GICD_ISENABLER + (irq_id / 32) * 4, (1 << (irq_id % 32)));
     
