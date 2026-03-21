@@ -19,7 +19,7 @@
 // ------------------- IPC constants -------------------
 
 typedef struct {
-    uint32_t pid;
+    uint32_t reply_handle;
     int32_t shmem_handle;
     size_t length;
 } zuart_waiting_t;
@@ -47,6 +47,7 @@ typedef struct {
 
 #define IMSC_RXIM (1u << 4) // RX interrupt mask
 #define IMSC_TXIM (1u << 5) // TX interrupt mask
+#define IMSC_RTIM (1u << 6) // RX timeout interrupt mask
 
 #define FR_TXFF (1u << 5)
 #define FR_RXFE (1u << 4)
