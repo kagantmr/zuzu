@@ -3,7 +3,7 @@
 
 #include "arch/arm/include/context.h"
 
-void getdev(exception_frame_t *frame);
 void mapdev(exception_frame_t *frame);
+void querydev(exception_frame_t *frame);
 
 #endif

@@ -31,13 +31,13 @@
 #define SYS_ATTACH 0x33   /* (id, addr) -> addr or -err           */
 #define SYS_MAPDEV 0x34   /* (phys, size) -> addr or -err         */
 #define SYS_DETACH 0x35   /* (phys, size) -> addr or -err         */
+#define SYS_QUERYDEV 0x36 /* (handle, out_buf, len) -> irq or -err*/
 
 /* ---- Interrupts (0x40-0x4F) ---- */
 
 #define SYS_IRQ_CLAIM 0x40 /* (irq_num) -> 0 or -err              */
 #define SYS_IRQ_BIND 0x41  /* (irq_num) -> 0 or -err              */
 #define SYS_IRQ_DONE 0x42  /* (irq_num) -> 0 or -err              */
-
 
 /* ---- Experimental / debugging / temporary (0xF0-0xFF) ---- */
 
