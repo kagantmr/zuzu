@@ -14,4 +14,9 @@ typedef signed long long   int64_t;
 typedef uint32_t           uintptr_t;
 typedef int32_t            intptr_t;
 
+#define UINT32_MAX 0xFFFFFFFF
+#define UINTPTR_MAX UINT32_MAX
+#define INT32_MAX 0x7FFFFFFF
+#define INT32_MIN (-INT32_MAX - 1)
+
 #endif
