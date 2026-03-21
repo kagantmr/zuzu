@@ -6,6 +6,9 @@
 #include <string.h>
 #include <assert.h>
 #include "core/log.h"
+#include "core/panic.h"
+#include "kernel/layout.h"
+#include "kernel/mm/alloc.h"
 
 typedef enum FDT_CODE
 {
@@ -26,6 +29,19 @@ typedef struct
 static dtb_data_t g_dtb;
 static bool g_dtb_ready;
 static const void *g_dtb_base_ptr;
+extern kernel_layout_t kernel_layout;
+
+#define DTB_ENUM_MAX_DEPTH 64
+
+typedef struct {
+    size_t   path_len;
+    bool     has_compatible;
+    bool     has_reg;
+    char     compatible[64];
+    uint64_t phys;
+    uint64_t size;
+    uint32_t irq;
+} dtb_enum_frame_t;
 
 static inline uint32_t read_be32(const void *p)
 {
@@ -1231,6 +1247,10 @@ void dtb_enum_devices(void (*cb)(const char *compatible,
     if (!cb || !g_dtb_ready)
         return;
 
+    dtb_enum_frame_t *enum_stack = kmalloc(sizeof(dtb_enum_frame_t) * DTB_ENUM_MAX_DEPTH);
+    if (!enum_stack)
+        return;
+
     const uint8_t *cur = g_dtb.dt_base;
     uint32_t tok = 0;
     int depth = 0;
@@ -1248,40 +1268,26 @@ void dtb_enum_devices(void (*cb)(const char *compatible,
     uint64_t node_size         = 0;
     uint32_t node_irq          = 0;
 
-    // stack to restore per-node state on END_NODE
-    // we only care about leaf/intermediate device nodes so
-    // a simple depth-indexed save is enough
-    #define ENUM_MAX_DEPTH 64
-    struct {
-        size_t   path_len;
-        bool     has_compatible;
-        bool     has_reg;
-        char     compatible[64];
-        uint64_t phys;
-        uint64_t size;
-        uint32_t irq;
-    } stack[ENUM_MAX_DEPTH];
-
     while (true) {
         if (!read_token(&cur, &tok))
-            return;
+            goto out;
 
         switch (tok) {
         case FDT_BEGIN_NODE: {
             const char *name = NULL;
             if (!skip_node_name(&cur, &name))
-                return;
+                goto out;
 
             // save current node state before descending
-            if (depth >= 0 && depth < ENUM_MAX_DEPTH) {
-                stack[depth].path_len        = path_len;
-                stack[depth].has_compatible  = node_has_compatible;
-                stack[depth].has_reg         = node_has_reg;
-                stack[depth].phys            = node_phys;
-                stack[depth].size            = node_size;
-                stack[depth].irq             = node_irq;
+            if (depth >= 0 && depth < DTB_ENUM_MAX_DEPTH) {
+                enum_stack[depth].path_len        = path_len;
+                enum_stack[depth].has_compatible  = node_has_compatible;
+                enum_stack[depth].has_reg         = node_has_reg;
+                enum_stack[depth].phys            = node_phys;
+                enum_stack[depth].size            = node_size;
+                enum_stack[depth].irq             = node_irq;
                 if (node_has_compatible)
-                    memmove(stack[depth].compatible, node_compatible,
+                    memmove(enum_stack[depth].compatible, node_compatible,
                             sizeof(node_compatible));
             }
 
@@ -1318,7 +1324,7 @@ void dtb_enum_devices(void (*cb)(const char *compatible,
             const char *pname = NULL;
             const void *pval  = NULL;
             if (!read_property(&cur, &len, &pname, &pval))
-                return;
+                goto out;
 
             if (strcmp(pname, "compatible") == 0 && len > 0) {
                 // take the first string in the compatible list
@@ -1334,38 +1340,44 @@ void dtb_enum_devices(void (*cb)(const char *compatible,
             if (strcmp(pname, "reg") == 0 && len > 0) {
                 node_has_reg = true;
             }
-            if (strcmp(pname, "interrupts") == 0 && len >= 12) {
-                // decode first interrupt entry inline
-                const uint8_t *p = (const uint8_t *)pval;
-                uint32_t type   = read_be32(p);
-                uint32_t number = read_be32(p + 4);
-                node_irq = (type == 0) ? (number + 32) : (number + 16);
-            }
             break;
         }
 
         case FDT_END_NODE: {
             depth--;
             if (depth < 0)
-                return;
+                goto out;
 
             // fire callback if this node is a device
             if (node_has_compatible && node_has_reg) {
                 uint64_t phys, size;
-                if (dtb_get_reg_phys(path, 0, &phys, &size))
-                    cb(node_compatible, phys, size, node_irq);
+                if (dtb_get_reg_phys(path, 0, &phys, &size)) {
+                    uint32_t irq_num = node_irq;
+                    uint32_t irq_flags = 0;
+                    if (dtb_get_irq(path, 0, &irq_num, &irq_flags)) {
+                        (void)irq_flags;
+                    }
+
+                    uintptr_t cb_addr = (uintptr_t)cb;
+                    if (kernel_layout.kernel_start_va && kernel_layout.kernel_end_va &&
+                        (cb_addr < kernel_layout.kernel_start_va || cb_addr >= kernel_layout.kernel_end_va)) {
+                        KERROR("DTB callback pointer corrupt: cb=%p path=%s compat=%s", cb, path, node_compatible);
+                        panic("Corrupt DTB callback pointer");
+                    }
+                    cb(node_compatible, phys, size, irq_num);
+                }
             }
 
             // restore parent node state
-            if (depth >= 0 && depth < ENUM_MAX_DEPTH) {
-                path_len            = stack[depth].path_len;
-                node_has_compatible = stack[depth].has_compatible;
-                node_has_reg        = stack[depth].has_reg;
-                node_phys           = stack[depth].phys;
-                node_size           = stack[depth].size;
-                node_irq            = stack[depth].irq;
+            if (depth >= 0 && depth < DTB_ENUM_MAX_DEPTH) {
+                path_len            = enum_stack[depth].path_len;
+                node_has_compatible = enum_stack[depth].has_compatible;
+                node_has_reg        = enum_stack[depth].has_reg;
+                node_phys           = enum_stack[depth].phys;
+                node_size           = enum_stack[depth].size;
+                node_irq            = enum_stack[depth].irq;
                 if (node_has_compatible)
-                    memmove(node_compatible, stack[depth].compatible,
+                    memmove(node_compatible, enum_stack[depth].compatible,
                             sizeof(node_compatible));
                 path[path_len] = '\0';
             }
@@ -1376,10 +1388,13 @@ void dtb_enum_devices(void (*cb)(const char *compatible,
             break;
 
         case FDT_END:
-            return;
+            goto out;
 
         default:
-            return;
+            goto out;
         }
     }
+
+out:
+    kfree(enum_stack);
 }
