@@ -58,7 +58,7 @@ Negative r0 values indicate errors:
 | 0x21 | port_destroy | r0: handle          | 0 or err       | Destroy a port                   |
 | 0x22 | port_grant   | r0: handle, r1: pid | slot_id or err | Give port access to another task |
 
-## 0x30–0x3F: Memory
+## 0x30–0x3F: Memory/Devices
 
 | #    | Name     | Arguments                    | Returns     | Description                       |
 | ---- | -------- | ---------------------------- | ----------- | --------------------------------- |
@@ -77,12 +77,6 @@ Negative r0 values indicate errors:
 | 0x41 | irq_bind  | r0: irq_num, r1: port | 0 or err | Bind IRQ delivery to an IPC port |
 | 0x42 | irq_done  | r0: irq_num           | 0 or err | Acknowledge and unmask IRQ line  |
 
-## 0x50–0x5F: Devices
-
-| #    | Name   | Arguments                              | Returns    
-Description                                                   |
-| ---- | ------ | -------------------------------------- | -------------------- | ------------------------------------------------------------- |
-| 0x50 | getdev | r0: compatible ptr, r1: compatible len | device handle or err | Resolve DTB device by compatible and mint a device capability |
 
 ## 0xF0–0xFF: Experimental/Debug (temporary)
 
