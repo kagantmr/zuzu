@@ -93,10 +93,6 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     {
         detach(frame);
     } break; 
-    case SYS_GETDEV:
-    {
-        getdev(frame);
-    } break;
     case SYS_IRQ_CLAIM:
     {   
         irq_claim(frame);
