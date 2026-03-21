@@ -22,7 +22,6 @@ static void relay_handler(void *ctx)
         list_node_t *waiter_node = list_pop_front(&bound_port->receiver_queue);
         process_t *waiter = container_of(waiter_node, process_t, node);
         waiter->trap_frame->r[0] = 0;
-        waiter->trap_frame->r[1] = irq_num;
         waiter->process_state = PROCESS_READY;
         waiter->blocked_endpoint = NULL;
         waiter->ipc_state = IPC_NONE;
@@ -51,12 +50,16 @@ static inline bool valid_irq(uint32_t irq_num) {
 void irq_claim(exception_frame_t *frame) {
     uint32_t handle_idx = frame->r[0];
 
-    if (handle_idx == 0 || handle_idx >= MAX_HANDLE_TABLE) {
+    if (handle_idx == 0) {
         frame->r[0] = ERR_BADARG;
         return;
     }
 
-    handle_entry_t *entry = &current_process->handle_table[handle_idx];
+    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle_idx);
+    if (!entry) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
     if (entry->type != HANDLE_DEVICE) {
         frame->r[0] = ERR_BADFORM;
         return;
@@ -88,11 +91,15 @@ void irq_bind(exception_frame_t *frame) {
     uint32_t dev_handle  = frame->r[0];
     uint32_t port_handle = frame->r[1];
 
-    if (dev_handle == 0 || dev_handle >= MAX_HANDLE_TABLE) {
+    if (dev_handle == 0) {
         frame->r[0] = ERR_BADARG;
         return;
     }
-    handle_entry_t *entry = &current_process->handle_table[dev_handle];
+    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, dev_handle);
+    if (!entry) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
     if (entry->type != HANDLE_DEVICE) {
         frame->r[0] = ERR_BADFORM;
         return;
@@ -107,30 +114,45 @@ void irq_bind(exception_frame_t *frame) {
         frame->r[0] = ERR_NOPERM;
         return;
     }
-    if (port_handle >= MAX_HANDLE_TABLE) {
+    handle_entry_t *port_entry = handle_vec_get(&current_process->handle_table, port_handle);
+    if (!port_entry) {
         frame->r[0] = ERR_BADARG;
         return;
     }
 
-    endpoint_t *ep = current_process->handle_table[port_handle].ep;
-    if (!ep) {
+    if (port_entry->type != HANDLE_ENDPOINT || !port_entry->ep) {
         frame->r[0] = ERR_BADARG;
         return;
     }
 
+    endpoint_t *ep = port_entry->ep;
     irq_owners[irq_num].bound_port = ep;
     ep->bound_irq = (int)irq_num;
     frame->r[0] = 0;
 }
 
 void irq_done(exception_frame_t* frame) {
-    uint32_t irq_num = frame->r[0];
-    if (!valid_irq(irq_num)) {
+    uint32_t dev_handle  = frame->r[0];
+
+    if (dev_handle == 0) {
         frame->r[0] = ERR_BADARG;
         return;
     }
-    if (irq_owners[irq_num].owner == current_process) {
-        irq_enable_line(irq_num);
+    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, dev_handle);
+    if (!entry) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+    if (entry->type != HANDLE_DEVICE) {
+        frame->r[0] = ERR_BADFORM;
+        return;
+    }
+    if (!valid_irq(entry->dev->irq)) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+    if (irq_owners[entry->dev->irq].owner == current_process) {
+        irq_enable_line(entry->dev->irq);
         frame->r[0] = 0;
         return;
     } else {
