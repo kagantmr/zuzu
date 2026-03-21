@@ -2,14 +2,18 @@
 #define DEVMGR_PROTOCOL_H
 
 /*
- * DEV_REQUEST  r2=class -> r1=0 ok, r2=dev_handle
- * Caller does _irq_claim/_irq_bind/_irq_done directly after receiving dev_handle.
+ * DEV_REQUEST (call)
+ *   req:  w1=DEV_REQUEST, w2=class
+ *   resp: r1=0 ok, r2=dev_handle
  */
 #define DEV_REQUEST 1
 
 /*
- * DEV_REGISTER r2=class, r3=granted shmem handle containing NUL-terminated compatible string
- * Reply r1=DEV_REG_OK or negative error.
+ * DEV_REGISTER (call)
+ *   req:  w1=DEV_REGISTER, w2=class
+ *   resp: r1=DEV_REG_OK or negative error
+ *
+ * devmgr binds class -> one injected device capability owned by devmgr.
  */
 #define DEV_REGISTER 2
 
