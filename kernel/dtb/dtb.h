@@ -1,5 +1,5 @@
-#ifndef KERNEL_DTB_DTB_H
-#define KERNEL_DTB_DTB_H
+#ifndef KERNEL_DTB_H
+#define KERNEL_DTB_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -12,7 +12,7 @@
  * @param dtb_base Pointer to the base of the DTB in memory.
  * @return true on success, false on failure.
  */
-bool dtb_init(const void* dtb_base);
+bool dtb_init(const void *dtb_base);
 
 /**
  * Generic DTB accessor
@@ -22,7 +22,7 @@ bool dtb_init(const void* dtb_base);
  * @param out_size Pointer to store the size of the region.
  * @return true on success, false on failure.
  */
-bool dtb_get_property(const char* path, const char* prop, const void** out_value, uint32_t* out_len);
+bool dtb_get_property(const char *path, const char *prop, const void **out_value, uint32_t *out_len);
 
 /**
  * Retrieves a 32-bit unsigned integer property from the DTB.
@@ -31,7 +31,7 @@ bool dtb_get_property(const char* path, const char* prop, const void** out_value
  * @param out Pointer to store the retrieved value.
  * @return true on success, false on failure.
  */
-bool dtb_get_u32(const char* path, const char* prop, uint32_t* out);
+bool dtb_get_u32(const char *path, const char *prop, uint32_t *out);
 
 /**
  * Retrieves a 64-bit unsigned integer property from the DTB.
@@ -40,7 +40,7 @@ bool dtb_get_u32(const char* path, const char* prop, uint32_t* out);
  * @param out Pointer to store the retrieved value.
  * @return true on success, false on failure.
  */
-bool dtb_get_reg(const char* path, int index, uint64_t* out_addr, uint64_t* out_size);
+bool dtb_get_reg(const char *path, int index, uint64_t *out_addr, uint64_t *out_size);
 
 /**
  * Retrieves an IRQ property from the DTB.
@@ -50,7 +50,7 @@ bool dtb_get_reg(const char* path, int index, uint64_t* out_addr, uint64_t* out_
  * @param out_flags Pointer to store the retrieved IRQ flags (if any).
  * @return true on success, false on failure.
  */
-bool dtb_get_irq(const char* path, int index, uint32_t* out_irq_num, uint32_t* out_flags);
+bool dtb_get_irq(const char *path, int index, uint32_t *out_irq_num, uint32_t *out_flags);
 
 /**
  * Finds a device node compatible with the given string.
@@ -59,7 +59,7 @@ bool dtb_get_irq(const char* path, int index, uint32_t* out_irq_num, uint32_t* o
  * @param out_path_cap Capacity of the output buffer.
  * @return true if a compatible node was found, false otherwise.
  */
-bool dtb_find_compatible(const char* compatible, char* out_path, size_t out_path_cap);
+bool dtb_find_compatible(const char *compatible, char *out_path, size_t out_path_cap);
 
 #ifdef DTB_DEBUG_WALK
 /**
@@ -79,4 +79,9 @@ bool dtb_translate_address(const char *node_path, uint64_t raw_addr, uint64_t *o
  * Get reg property with full address translation to physical.
  */
 bool dtb_get_reg_phys(const char *path, int index, uint64_t *out_addr, uint64_t *out_size);
+
+void dtb_enum_devices(void (*cb)(const char *compatible,
+                                 uint64_t phys, uint64_t size,
+                                 uint32_t irq));
+
 #endif
