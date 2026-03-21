@@ -172,6 +172,12 @@ $(TARGET): $(OBJS) build/arch/arm/initrd.o $(LINKER_SCRIPT)
 run: $(TARGET)
 	qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M -kernel $(TARGET) -dtb $(DTB_FILE) -nographic
 
+debug: $(TARGET)
+	qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M -kernel $(TARGET) -dtb $(DTB_FILE) -nographic -S -gdb tcp::1234
+
+dump: $(TARGET)
+	$(OBJDUMP) -D $(TARGET) > build/zuzu.dump
+
 clean:
 	rm -rf build
 
