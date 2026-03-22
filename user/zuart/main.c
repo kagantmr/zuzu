@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <mem.h>
+#include <stdio.h>
 
 volatile pl011_t *uart;
 int port;
@@ -15,13 +16,15 @@ ringbuf_t rxrb, txrb;
 #define ZUART_WAITQ_MAX 64
 #define ZUART_DEV_CLASS DEV_CLASS_SERIAL
 #define ZUART_COMPATIBLE "arm,pl011"
+#define ZUART_TX_SHMEM_SIZE 4096
 
 static zuart_waiting_t read_waitq[ZUART_WAITQ_MAX];
 static uint16_t read_waitq_head, read_waitq_tail;
 static char    *cached_buf    = NULL;
 static int32_t  cached_handle = -1;
+static int32_t tx_shmem_handle = -1;
 
-#define LOG_LIT(s) _log((s), sizeof(s) - 1)
+#define LOG_LIT(s) printf("%s", (s))
 
 static int attach_cached_handle(int32_t handle)
 {
@@ -149,6 +152,7 @@ static void handle_irq_event(void)
 static void handle_client_message(zuzu_ipcmsg_t msg)
 {
     uint32_t reply_handle = (uint32_t)msg.r0;
+    uint32_t sender_pid = msg.r1;
     uint32_t command = msg.r2;
     uint32_t packed = msg.r3;
 
@@ -162,9 +166,27 @@ static void handle_client_message(zuzu_ipcmsg_t msg)
             _reply(reply_handle, 0, ZUART_ERR, 0);
             break;
         }
+        if (len > ZUART_TX_SHMEM_SIZE) {
+            len = ZUART_TX_SHMEM_SIZE;
+        }
         for (size_t i = 0; i < len; i++)
             uart_txbyte(cached_buf[i]);
         _reply(reply_handle, len, ZUART_SEND_OK, 0);
+    }
+    break;
+
+    case ZUART_CMD_GET_SHMEM:
+    {
+        if (tx_shmem_handle < 0) {
+            _reply(reply_handle, ZUART_ERR, 0, 0);
+            break;
+        }
+        int32_t granted = _port_grant(tx_shmem_handle, (int32_t)sender_pid);
+        if (granted < 0) {
+            _reply(reply_handle, ZUART_ERR, 0, 0);
+            break;
+        }
+        _reply(reply_handle, ZUART_SEND_OK, (uint32_t)granted, 0);
     }
     break;
 
@@ -238,6 +260,13 @@ int zuart_setup(void)
         LOG_LIT("zuart: _mapdev failed\n");
         return ZUART_INIT_FAIL;
     }
+
+    shmem_result_t tx_shm = _memshare(ZUART_TX_SHMEM_SIZE);
+    if (tx_shm.handle < 0 || tx_shm.addr == NULL) {
+        LOG_LIT("zuart: _memshare for tx buffer failed\n");
+        return ZUART_INIT_FAIL;
+    }
+    tx_shmem_handle = tx_shm.handle;
 
     rxrb.head = rxrb.tail = 0;
     txrb.head = txrb.tail = 0;

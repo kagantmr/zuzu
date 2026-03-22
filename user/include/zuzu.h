@@ -298,16 +298,6 @@ static inline int32_t _irq_done(uint32_t dev_handle) {
 
 /* ---- Debug/diagnostics ---- */
 
-static inline int32_t _log(const char *str, size_t len) {
-    register uintptr_t r0 __asm__("r0") = (uintptr_t) str;
-    register size_t r1 __asm__("r1") = len;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : "r"(r1), [num] "i"(SYS_LOG)
-        : "memory");
-    return (int32_t) r0;
-}
-
 static inline int32_t _dump(void) {
     register int32_t r0 __asm__("r0");
     __asm__ volatile("svc %[num]"

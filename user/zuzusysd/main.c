@@ -3,11 +3,12 @@
 #include "zuzu/protocols/nt_protocol.h"
 #include <stdint.h>
 #include <stddef.h>
+#include <stdio.h>
 
 static nt_entry_t registry_table[NT_MAX_SERVICES];
 static int32_t port;
 
-#define LOG_LIT(s) _log((s), sizeof(s) - 1)
+#define LOG_LIT(s) printf("%s", (s))
 
 static inline void name_u32_to_chars(uint32_t name_u32, char out[NT_NAME_LEN]) {
     // LE packing

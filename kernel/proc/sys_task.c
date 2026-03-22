@@ -137,17 +137,3 @@ void spawn(exception_frame_t *frame) {
     sched_add(process);
     frame->r[0] = process->pid;
 }
-
-void sys_log(exception_frame_t *frame) {
-    const char* msg = (const char *)frame->r[0];
-    
-    size_t len = frame->r[1];
-    if (!validate_user_ptr((uintptr_t)msg, len)) {
-        //KDEBUG("Rejected bad pointer 0x%08X", (uint32_t)msg);
-        frame->r[0] = ERR_PTRFAULT;
-        return;
-    }
-
-    kprintf("%.*s", (int)len, msg);
-    frame->r[0] = 0; // Success
-}
