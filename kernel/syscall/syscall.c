@@ -142,10 +142,6 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     {
         frame->r[0] = ERR_NOMATCH;
     } break;
-    case SYS_LOG:
-    {
-        sys_log(frame);
-    } break;
     case SYS_PMM_GETFREE:
     {
         sys_pmm_getfree(frame);

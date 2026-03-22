@@ -7,6 +7,7 @@
 
 #define ZUART_CMD_WRITE 1
 #define ZUART_CMD_READ 2
+#define ZUART_CMD_GET_SHMEM 3
 
 /*
  * Call-mode payload now carries only one arg beyond command.
@@ -40,6 +41,11 @@ static inline uint32_t zuart_arg_len(uint32_t packed)
 * r1 = ZUART_CMD_READ
 * r2 = shmem_handle (allocated by client, to be filled by zuart)
 * r3 = maximum length to read (size of the shared memory buffer)
+* * ZUART_CMD_GET_SHMEM:
+* r0 = port handle (used by IPC)
+* r1 = ZUART_CMD_GET_SHMEM
+* r2 = unused
+* r3 = unused
 */
 
 // -----------------------------------------------------

@@ -41,9 +41,8 @@
 
 /* ---- Experimental / debugging / temporary (0xF0-0xFF) ---- */
 
-#define SYS_LOG 0xF0         /* (msg, len) -> 0 or -err             */
 #define SYS_DUMP 0xF1        /* () -> 0                             */
-#define SYS_PMM_GETFREE 0xF2 /* () -> # of free pages               */
+#define SYS_PMM_GETFREE 0xF2 /* () -> # of free pages               */
 
 #define SYS_MAX 0xFF
 

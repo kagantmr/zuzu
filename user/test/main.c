@@ -2,6 +2,7 @@
 #include <zmalloc.h>
 #include <snprintf.h>
 #include "zuzu/protocols/nt_protocol.h"
+#include <stdio.h>
 
 #define TEST_COUNT 1000
 
@@ -15,12 +16,12 @@ int main(void)
             _send(NT_PORT, NT_REGISTER, nt_pack("test"), (uint32_t)nt_slot);
             zuzu_ipcmsg_t reply = _call(NT_PORT, NT_LOOKUP, nt_pack("test"), 0);
             if (reply.r1 == NT_LU_OK) {
-                _log("Lookup successful\n", 18);
+                printf("Lookup successful\n");
             } else {
-                _log("Lookup failed\n", 15);
+                printf("Lookup failed\n");
             }
         }
     }
 
-    _quit(0);
+    return 0;
 }
