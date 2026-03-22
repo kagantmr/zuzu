@@ -21,7 +21,7 @@ static const char *class_to_compat(uint32_t dev_class)
     case DEV_CLASS_RTC:
         return "arm,pl031";
     case DEV_CLASS_BLOCK:
-        return "virtio";
+        return "arm,pl180";
     default:
         return NULL;
     }
@@ -64,6 +64,7 @@ static void build_class_table(void) {
     int32_t rtc_handle = -1;
     int32_t rtc_irq = -1;
     int32_t block_handle = -1;
+    int32_t block_irq = -1;
 
     for (uint32_t i = 1; i < MAX_HANDLE_SCAN && reg_count < MAX_DRIVERS; i++) {
         int32_t rc = _querydev(i, compat, sizeof(compat));
@@ -87,9 +88,14 @@ static void build_class_table(void) {
             continue;
         }
 
-        if (strncmp(compat, "virtio", 6) == 0 && block_handle < 0) {
-            block_handle = (int32_t)i;
+        if (strncmp(compat, "arm,pl180", 9) == 0) {
+            if (block_handle < 0 || (block_irq <= 0 && rc > 0)) {
+                block_handle = (int32_t)i;
+                block_irq = rc;
+            }
+            continue;
         }
+
     }
 
     if (serial_handle > 0 && reg_count < MAX_DRIVERS) {
