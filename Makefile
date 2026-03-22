@@ -79,7 +79,7 @@ else
 endif
 
 # List every user program directory here
-USER_PROGS   = zuart zuzusysd test zzsh devmgr
+USER_PROGS   = zuart zuzusysd test zzsh devmgr zusd
 
 # ZCRT library objects (compiled from include/zcrt/)
 ZCRT_SRCS = $(wildcard include/zcrt/*.c)

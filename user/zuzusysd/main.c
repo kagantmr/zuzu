@@ -156,10 +156,16 @@ int main(void) {
 
     wait_for_service(nt_pack("uart"));
 
+    if (_spawn("bin/zusd", 8) < 0) {
+        LOG_LIT("zuzusysd: failed to spawn zusd\n");
+    }
+
+    wait_for_service(nt_pack("zusd"));
+
     if (_spawn("bin/zzsh", 8) < 0) {
         LOG_LIT("zuzusysd: failed to spawn zzsh\n");
     }
-
+    
     sysd_loop();
     return 0;
 }

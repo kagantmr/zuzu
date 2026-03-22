@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#define NAMETABLE_VERSION "v1.0"
+#define ZUZUSYSD_VERSION "v1.0"
 
 // -------------------  Constraints  -------------------
 #define NT_MAX_SERVICES 64
