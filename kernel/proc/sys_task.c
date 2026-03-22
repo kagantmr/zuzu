@@ -28,7 +28,7 @@ void yield(exception_frame_t *frame) {
 }
 
 void sleep(exception_frame_t *frame) {
-    uint32_t ms = frame->r[0]; // Argument 0: Milliseconds to sleep
+    uint32_t ms = frame->r[0]; // argument 0: Milliseconds to sleep
     
     // Convert ms to ticks (assuming 100Hz timer -> 10ms per tick)
     uint32_t ticks = ms / 10; 
@@ -40,7 +40,6 @@ void sleep(exception_frame_t *frame) {
     // Change state
     current_process->process_state = PROCESS_BLOCKED;
     list_add_tail(&current_process->node, &sleep_queue.node);
-    //KDEBUG("Woke up as process PID %d",current_process->pid);
     // Schedule someone else immediately
     schedule();
 }

@@ -11,6 +11,9 @@ void sched_add(process_t *p);
 void sched_defer_destroy(process_t *p);
 void sched_reap(void);
 void schedule();
+void set_resched_flag(void);
 size_t sched_ready_queue_snapshot(process_t **out, size_t max_out);
+
+extern volatile uint8_t do_resched;
 
 #endif
