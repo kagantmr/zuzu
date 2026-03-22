@@ -211,17 +211,16 @@ _Noreturn void kmain(void)
      */
     arch_global_irq_enable();
 
-    register_tick_callback(schedule);
+    register_tick_callback(set_resched_flag);
 
     // Kick off the first runnable userspace task; later preemption comes from timer ticks.
+    KINFO("Entering idle");
     schedule();
-    
-
-    //KDEBUG("Entering idle");
     //uint64_t idle_ticks = 0;
     while (1)
     {
         sched_reap();
+        arch_global_irq_enable();
         __asm__("wfi");
     }
 }
