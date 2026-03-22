@@ -11,6 +11,8 @@ static list_head_t destroy_queue = LIST_HEAD_INIT(destroy_queue);
 list_head_t sleep_queue = LIST_HEAD_INIT(sleep_queue);
 process_t *current_process;
 
+volatile uint8_t do_resched = 0;
+
 static process_t idle_proc;  // only kernel_sp is used
 
 #define LOG_FMT(fmt) "(sched) " fmt
@@ -99,4 +101,8 @@ size_t sched_ready_queue_snapshot(process_t **out, size_t max_out) {
     }
 
     return total;
+}
+
+void set_resched_flag(void) {
+    do_resched = 1;
 }

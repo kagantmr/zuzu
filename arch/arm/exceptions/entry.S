@@ -11,6 +11,8 @@
 .global fiq_handler
 .global process_entry_trampoline
 
+.extern do_resched
+
 process_entry_trampoline:
     @ frame at SP: r0-r12, sp_usr, lr_usr, return_pc, return_cpsr
 
@@ -73,6 +75,16 @@ reset_handler:
 irq_handler:
     exception_entry 4
     exception_dispatch_call 6
+    @ Check flag to see if we need to call the scheduler
+    ldr r0, =do_resched
+    ldrb r1, [r0]
+    cmp r1, #0
+    beq .no_schedule
+.do_schedule:
+    mov r1, #0
+    strb r1, [r0]          @ Clear flag
+    bl schedule
+.no_schedule:
     exception_exit
 
 reserved_handler:
