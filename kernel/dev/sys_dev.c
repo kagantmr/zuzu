@@ -4,6 +4,7 @@
 #include "kernel/mm/alloc.h"
 #include <zuzu/syscall_nums.h>
 #include "kernel/proc/process.h"
+#include "arch/arm/mmu/mmu.h"
 #include <string.h>
 
 #define LOG_FMT(fmt) "(sys_dev) " fmt
@@ -52,6 +53,10 @@ void mapdev(exception_frame_t *frame)
         frame->r[0] = ERR_NOMEM;
         return;
     }
+
+    // flush TLB for this VA
+    arch_mmu_flush_tlb_va(user_va);
+    arch_mmu_barrier();
 
     current_process->device_va_next += size_aligned;
     cap->mapped = true;

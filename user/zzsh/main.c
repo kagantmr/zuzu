@@ -173,6 +173,7 @@ int main(void)
     if (setup() < 0) return 1;
 
     char line[LINE_BUFFER_SIZE];
+    line[0] = '\0';
     char saved[LINE_BUFFER_SIZE]; // live edit saved during history browse
     size_t pos   = 0;
     int hist_pos = 0; // 0 = live edit, >0 = offset into history
@@ -258,8 +259,9 @@ int main(void)
                     zprint("\b \b");
                 }
             } else if (c >= 0x20 && c < 0x7f && pos < LINE_BUFFER_SIZE - 1) {
-                // printable char — zuart already echoed it to the terminal
                 line[pos++] = c;
+                char echo[2] = { c, '\0' };
+                zprint(echo);
             }
         }
     }

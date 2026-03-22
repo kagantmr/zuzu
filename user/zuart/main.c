@@ -23,6 +23,7 @@ static uint16_t read_waitq_head, read_waitq_tail;
 static char    *cached_buf    = NULL;
 static int32_t  cached_handle = -1;
 static int32_t tx_shmem_handle = -1;
+static char *tx_shmem_buf = NULL;
 
 #define LOG_LIT(s) printf("%s", (s))
 
@@ -40,13 +41,22 @@ static int attach_cached_handle(int32_t handle)
     return 1;
 }
 
-static void uart_txbyte(char c)
+static void uart_txraw(char c)
 {
     if (!(uart->FR & FR_TXFF) && rb_empty(&txrb)) {
         uart->DR = c;
     } else if (rb_write(&txrb, c)) {
         uart->IMSC |= IMSC_TXIM;
     }
+}
+
+static void uart_txbyte(char c)
+{
+    // Console-friendly newline handling: terminals typically expect CRLF.
+    if (c == '\n') {
+        uart_txraw('\r');
+    }
+    uart_txraw(c);
 }
 
 static inline int waitq_empty(void) { return read_waitq_head == read_waitq_tail; }
@@ -91,8 +101,6 @@ static void drain_uart_rx_fifo(void)
     while (!(uart->FR & FR_RXFE) && !rb_full(&rxrb)) {
         char c = (char)(uart->DR & 0xFF);
         rb_write(&rxrb, c);
-        if (c >= 0x20 && c < 0x7f)
-            uart_txbyte(c);
     }
 }
 
@@ -190,6 +198,22 @@ static void handle_client_message(zuzu_ipcmsg_t msg)
     }
     break;
 
+    case ZUART_CMD_WRITE_TXBUF:
+    {
+        size_t len = packed;
+        if (tx_shmem_buf == NULL) {
+            _reply(reply_handle, 0, ZUART_ERR, 0);
+            break;
+        }
+        if (len > ZUART_TX_SHMEM_SIZE) {
+            len = ZUART_TX_SHMEM_SIZE;
+        }
+        for (size_t i = 0; i < len; i++)
+            uart_txbyte(tx_shmem_buf[i]);
+        _reply(reply_handle, len, ZUART_SEND_OK, 0);
+    }
+    break;
+
     case ZUART_CMD_READ:
     {
         int32_t handle = zuart_arg_handle(packed);
@@ -267,6 +291,7 @@ int zuart_setup(void)
         return ZUART_INIT_FAIL;
     }
     tx_shmem_handle = tx_shm.handle;
+    tx_shmem_buf = (char *)tx_shm.addr;
 
     rxrb.head = rxrb.tail = 0;
     txrb.head = txrb.tail = 0;

@@ -170,7 +170,7 @@ $(TARGET): $(OBJS) build/arch/arm/initrd.o $(LINKER_SCRIPT)
 
 # Helpers
 run: $(TARGET)
-	qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M -kernel $(TARGET) -dtb $(DTB_FILE) -nographic
+	qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M -kernel $(TARGET) -dtb $(DTB_FILE) -nographic -drive file=sd.img,if=sd,format=raw
 
 debug: $(TARGET)
 	qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M -kernel $(TARGET) -dtb $(DTB_FILE) -nographic -S -gdb tcp::1234

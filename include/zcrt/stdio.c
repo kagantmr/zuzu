@@ -99,7 +99,7 @@ int vprintf(const char *format, va_list args)
                 out_len = STDIO_ZUART_BUF_SIZE;
             }
             memcpy(shmem_buf, buf, out_len);
-            (void)_call(zuart_port, ZUART_CMD_WRITE, zuart_pack_arg(shmem_handle, (uint32_t)out_len), 0);
+            (void)_call(zuart_port, ZUART_CMD_WRITE_TXBUF, (uint32_t)out_len, 0);
         }
 #endif
     }
