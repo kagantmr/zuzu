@@ -35,6 +35,20 @@ void process_kill(process_t *p, const int exit_status) {
         if (entry->type == HANDLE_ENDPOINT) {
             endpoint_t *ep = entry->ep;
             if (ep && ep->owner_pid == p->pid) {
+                // A process may hold multiple handle slots that alias the same
+                // owned endpoint. Collapse aliases so teardown frees each
+                // endpoint object at most once.
+                for (uint32_t j = i + 1; j < p->handle_table.cap; j++) {
+                    handle_entry_t *alias = handle_vec_get(&p->handle_table, j);
+                    if (!alias)
+                        break;
+                    if (alias->type == HANDLE_ENDPOINT && alias->ep == ep) {
+                        alias->ep = NULL;
+                        alias->grantable = false;
+                        alias->type = HANDLE_FREE;
+                    }
+                }
+
                 // Wake blocked waiters with ERR_DEAD
                 while (!list_empty(&ep->sender_queue)) {
                     list_node_t *n = list_pop_front(&ep->sender_queue);
