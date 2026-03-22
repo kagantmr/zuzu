@@ -33,12 +33,12 @@ typedef struct
 #define DATATIMEOUT (1u << 3)
 #define TXUNDERRUN (1u << 4)
 #define RXOVERRUN (1u << 5)
-#define CMDSENT (1u << 6)
-#define CMDRESPEND (1u << 7)
+#define CMDSENT (1u << 7)
+#define CMDRESPEND (1u << 6)
 #define DATAEND (1u << 8)
 #define DATABLOCKEND (1u << 10)
-#define RXDATAAVLBL (1u << 17)
-#define TXFIFOEMPTY (1u << 21)
+#define RXDATAAVLBL (1u << 21)
+#define TXFIFOEMPTY (1u << 18)
 
 #define MCI_CMD_ENABLE      (1u << 10)   // must be set to send a command
 #define MCI_CMD_RESPONSE    (1u << 6)    // expect a response

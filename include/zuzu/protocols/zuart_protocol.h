@@ -8,6 +8,7 @@
 #define ZUART_CMD_WRITE 1
 #define ZUART_CMD_READ 2
 #define ZUART_CMD_GET_SHMEM 3
+#define ZUART_CMD_WRITE_TXBUF 4
 
 /*
  * Call-mode payload now carries only one arg beyond command.
@@ -45,6 +46,11 @@ static inline uint32_t zuart_arg_len(uint32_t packed)
 * r0 = port handle (used by IPC)
 * r1 = ZUART_CMD_GET_SHMEM
 * r2 = unused
+* r3 = unused
+* * ZUART_CMD_WRITE_TXBUF:
+* r0 = port handle (used by IPC)
+* r1 = ZUART_CMD_WRITE_TXBUF
+* r2 = number of bytes to transmit from server-owned tx shared buffer
 * r3 = unused
 */
 
