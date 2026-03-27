@@ -42,18 +42,33 @@ addrspace_t* as_create(addrspace_type_t type) {
     if (!as) {
         return NULL;
     }
+    as->asid = 0;
+
     if (type == ADDRSPACE_USER) {
         as->ttbr0_pa = arch_mmu_create_user_tables();
-        as->asid = asid_alloc();
     } else {
-        as->asid = 0;
         as->ttbr0_pa = arch_mmu_create_tables();  // full 16KB for kernel
     }
+
     if (as->ttbr0_pa == 0) {
         kfree(as);
         return NULL;
     }
-    vm_region_vec_init(&as->regions);
+
+    if (type == ADDRSPACE_USER) {
+        as->asid = asid_alloc();
+    }
+
+    if (!vm_region_vec_init(&as->regions)) {
+        if (as->asid != 0) {
+            arch_mmu_flush_tlb_asid(as->asid);
+            asid_free(as->asid);
+        }
+        arch_mmu_free_tables(as->ttbr0_pa, type);
+        kfree(as);
+        return NULL;
+    }
+
     as->type = type;
     return as;
 }
@@ -113,8 +128,11 @@ void as_destroy(addrspace_t* as) {
         __builtin_unreachable();
     }
     
-    if (as->asid != 0)          // ← bu satır eksik
-        asid_free(as->asid);    // ← bu satır eksik
+    if (as->asid != 0) {
+        // Prevent stale translations from surviving ASID reuse.
+        arch_mmu_flush_tlb_asid(as->asid);
+        asid_free(as->asid);
+    }
 
     for (uint32_t i = 0; i < as->regions.len; i++) {
         vm_region_t *r = vm_region_vec_get(&as->regions, i);
