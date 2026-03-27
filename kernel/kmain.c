@@ -33,6 +33,8 @@
 #include <string.h>
 #include "kernel/mm/alloc.h"
 
+#include "kernel/syspage.h"
+
 #include "fetch.h"
 
 #define LOG_FMT(fmt) "(main) " fmt
@@ -178,7 +180,7 @@ _Noreturn void kmain(void)
 
     perform_panic_tests();
 
-
+    syspage_init();
 
     initrd_init(_initrd_start, _initrd_end - _initrd_start);
 

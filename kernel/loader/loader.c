@@ -9,6 +9,7 @@
 #include "arch/arm/include/cache.h"
 #include "kernel/loader/elf.h"
 #include "kernel/mm/alloc.h"   
+#include "kernel/syspage.h"
 
 extern uint32_t next_pid;
 extern process_t *process_table[MAX_PROCESSES];
@@ -112,6 +113,9 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
             goto fail_kstack;
         }
     }
+
+    if (!kmap_user_page(process->as, syspage_pa(), 0x1000, VM_PROT_READ))
+        goto fail_kstack;
 
     // write exception frame to the stack
     stack_top -= 17 * sizeof(uint32_t);
