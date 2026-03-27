@@ -46,6 +46,11 @@ void mapdev(exception_frame_t *frame)
     uint32_t size_aligned = align_up(cap->size, 4096);
     uint32_t user_va = current_process->device_va_next;
 
+    if (current_process->mmap_va_next + size_aligned > 0x5FFF0000u) {
+        frame->r[0] = ERR_NOMEM;
+        return;
+    }
+    
     if (!vmm_map_range(current_process->as, user_va, cap->phys_base, size_aligned,
                        VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
                        VM_MEM_DEVICE, VM_OWNER_NONE, VM_FLAG_NONE))
