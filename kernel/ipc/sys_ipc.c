@@ -198,7 +198,7 @@ void proc_recv(exception_frame_t *frame)
             frame->r[0] = slot;
             frame->r[1] = sr_proc->pid;
             frame->r[2] = sr_frame->r[1];
-            frame->r[3] = sr_frame->r[2];
+            frame->r[3] = sr_frame->r[3];
         }
     }
     else
@@ -266,7 +266,7 @@ void proc_call(exception_frame_t *frame)
         rx_frame->r[0] = slot;
         rx_frame->r[1] = current_process->pid;
         rx_frame->r[2] = frame->r[1];
-        rx_frame->r[3] = frame->r[2];
+        rx_frame->r[3] = frame->r[3];
 
         rx_proc->ipc_state = IPC_NONE;
         rx_proc->blocked_endpoint = NULL;
