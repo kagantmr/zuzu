@@ -1,197 +1,404 @@
 #include <zuzu.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdint.h>
 #include "zusd.h"
 #include "zuzu/protocols/nt_protocol.h"
 #include "zuzu/protocols/devmgr_protocol.h"
+#include "zuzu/protocols/zusd_protocol.h"
 
-pl181_t *pl181;
-bool is_v2, is_sdhc;
+static pl181_t *pl181;
+static bool is_sdhc;
 
-static void pl181_delay(uint32_t iterations) {
+static int32_t port = -1;
+static int32_t block_dev_handle = -1;
+static int32_t shmem_handle = -1;
+static uint32_t *shmem_buf = NULL;
+
+static void pl181_delay(uint32_t n)
+{
     volatile uint32_t i;
-    for (i = 0; i < iterations; i++) {
+    for (i = 0; i < n; i++)
         __asm__ volatile("nop");
-    }
 }
 
-int pl181_send_cmd(uint32_t cmd_index, uint32_t arg, uint32_t flags) {
-    const uint32_t cmd_clear_mask = CMDCRCFAIL | CMDTIMEOUT | CMDSENT | CMDRESPEND | DATAEND | DATABLOCKEND;
-    pl181->CLEAR = cmd_clear_mask;
-    uint32_t attempts = 2000;
+static int pl181_send_cmd(uint32_t cmd, uint32_t arg, uint32_t flags)
+{
+    const uint32_t clear_mask = MCI_CMDCRCFAIL | MCI_CMDTIMEOUT | MCI_CMDSENT |
+                                MCI_CMDRESPEND | MCI_DATAEND | MCI_DATABLOCKEND;
+    pl181->CLEAR = clear_mask;
     pl181->ARGUMENT = arg;
-    pl181->COMMAND = (cmd_index & 0x3F) | flags | MCI_CMD_ENABLE;
-    
-    uint32_t wait_mask = (flags & MCI_CMD_RESPONSE) ? CMDRESPEND : (CMDSENT | CMDRESPEND);
+    pl181->COMMAND = (cmd & 0x3F) | flags | MCI_CMD_ENABLE;
 
-    while (attempts-- > 0) {
-        uint32_t status = pl181->STATUS;
-        if (status & wait_mask) {
-            pl181->CLEAR = status & wait_mask;
+    uint32_t wait = (flags & MCI_CMD_RESPONSE) ? MCI_CMDRESPEND : MCI_CMDSENT;
+    uint32_t attempts = 2000;
+
+    while (attempts--)
+    {
+        uint32_t s = pl181->STATUS;
+        if (s & wait)
+        {
+            pl181->CLEAR = s & wait;
             return 0;
         }
-        if (status & CMDTIMEOUT) {
-            printf("zusd: CMD%u timeout, STATUS=0x%08x\n", cmd_index, status);
+        if (s & MCI_CMDTIMEOUT)
+        {
+            printf("zusd: CMD%u timeout\n", cmd);
             return -1;
         }
-        if ((flags & MCI_CMD_RESPONSE) && (status & CMDCRCFAIL)) {
-            // CRC fail is meaningful only for response commands.
-            printf("zusd: CMD%u CRC fail, STATUS=0x%08x\n", cmd_index, status);
+        if ((flags & MCI_CMD_RESPONSE) && (s & MCI_CMDCRCFAIL))
+        {
+            printf("zusd: CMD%u CRC fail\n", cmd);
             return -1;
         }
-
         pl181_delay(200);
     }
 
-    if (!(pl181->STATUS & wait_mask)) {
-        printf("zusd: CMD%u wait bit timeout, STATUS=0x%08x\n", cmd_index, pl181->STATUS);
-        return -1;
-    }
-
-    pl181->CLEAR = pl181->STATUS & wait_mask;
-    return 0;
+    printf("zusd: CMD%u poll timeout\n", cmd);
+    return -1;
 }
 
-int pl181_setup(void) {
-    // PL18x bringup
-    pl181->POWER = MCI_POWER_UP | MCI_POWER_OPENDRAIN; // power up
-    pl181->CLOCK = (1 << 8) | 0x1D; // enable clock, ~400kHz init frequency
-    pl181_delay(1000000); // settle power/clock before first command
-    pl181->POWER = MCI_POWER_ON | MCI_POWER_OPENDRAIN; // power on
-    pl181_delay(500000); // additional stabilization delay
+static int pl181_setup(void)
+{
+    bool is_v2;
 
-    // send cmd0
-    int cmd0 = pl181_send_cmd(0, 0, 0);
-    if (cmd0 == -1) {
-        printf("zusd: CMD0 timed out, STATUS=0x%08x\n", pl181->STATUS);
+    pl181->POWER = MCI_POWER_UP | MCI_POWER_OPENDRAIN;
+    pl181->CLOCK = (1u << 8) | 0x1D; /* enable, ~400 kHz */
+    pl181_delay(1000000);
+    pl181->POWER = MCI_POWER_ON | MCI_POWER_OPENDRAIN;
+    pl181_delay(500000);
+
+    /* CMD0: reset */
+    if (pl181_send_cmd(0, 0, 0) < 0)
         return -1;
-    }
 
-    // send cmd8 to learn supported type and sd card type
-    int cmd8 = pl181_send_cmd(8, 0x000001AA, MCI_CMD_RESPONSE);
-    if (cmd8 == 0) {
-        // card responded, check the echo
-        uint32_t resp = pl181->RESPONSE[0];
-        if ((resp & 0xFFF) != 0x1AA) {
-            printf("zusd: Voltage mismatch or bad card\n");
-            return -1; // voltage mismatch or bad card
+    /* CMD8: interface condition; distinguishes v1 from v2 */
+    if (pl181_send_cmd(8, 0x000001AA, MCI_CMD_RESPONSE) == 0)
+    {
+        if ((pl181->RESPONSE[0] & 0xFFF) != 0x1AA)
+        {
+            printf("zusd: voltage mismatch\n");
+            return -1;
         }
         is_v2 = true;
-    } else {
-        // timeout — v1.x card, no SDHC support
+    }
+    else
+    {
         is_v2 = false;
     }
 
+    /* ACMD41: card power-up; loop until busy bit clears */
     uint32_t acmd41_arg = 0x00FF8000;
-    if (is_v2) acmd41_arg |= (1u << 30);
+    if (is_v2)
+        acmd41_arg |= (1u << 30); /* request SDHC */
 
     uint32_t ocr = 0;
-    int retries = 1000;
-    while (retries-- > 0) {
-        // first send CMD55
-        if (pl181_send_cmd(55, 0, MCI_CMD_RESPONSE) != 0) {
-            printf("zusd: CMD55 failed\n");
+    for (int retries = 1000; retries > 0; retries--)
+    {
+        if (pl181_send_cmd(55, 0, MCI_CMD_RESPONSE) < 0)
             return -1;
-        }
-        // then send ACMD41
-        if (pl181_send_cmd(41, acmd41_arg, MCI_CMD_RESPONSE) != 0) {
-            printf("zusd: ACMD41 failed\n");
+        if (pl181_send_cmd(41, acmd41_arg, MCI_CMD_RESPONSE) < 0)
             return -1;
-        }
         ocr = pl181->RESPONSE[0];
-        if (ocr & (1u << 31)) {
-            break; // card is ready
-        }
-        pl181_delay(50000); // short retry backoff without scheduler dependency
+        if (ocr & (1u << 31))
+            break;
+        pl181_delay(50000);
     }
 
-    if (!(ocr & (1u << 31))) {
-        printf("zusd: Card initialization timed out\n");
-        return -1; // card never became ready
+    if (!(ocr & (1u << 31)))
+    {
+        printf("zusd: card init timeout\n");
+        return -1;
     }
 
     is_sdhc = (ocr & (1u << 30)) != 0;
 
-    // card identification, required wont progress without it. we dont save anything
-    if (pl181_send_cmd(2, 0, MCI_CMD_RESPONSE | MCI_CMD_LONGRESP) != 0) {
-        printf("zusd: Failed to identify card\n");
+    /* CMD2 - CID (required to advance card state machine) */
+    if (pl181_send_cmd(2, 0, MCI_CMD_RESPONSE | MCI_CMD_LONGRESP) < 0)
+        return -1;
+
+    /* CMD3 - get RCA */
+    if (pl181_send_cmd(3, 0, MCI_CMD_RESPONSE) < 0)
+        return -1;
+    uint32_t rca = pl181->RESPONSE[0] >> 16;
+
+    /* CMD7 - select card → transfer state */
+    if (pl181_send_cmd(7, rca << 16, MCI_CMD_RESPONSE) < 0)
+        return -1;
+
+    printf("zusd: card ready, SDHC=%d\n", is_sdhc);
+
+    /* switch to transfer-speed clock */
+    pl181->CLOCK = (1u << 8) | 0x2; /* enable, ~25 MHz */
+    pl181_delay(100000);
+
+    return 0;
+}
+
+/*
+ * Wait for the MCI IRQ to arrive on our port.
+ * Returns 0 on clean IRQ delivery (msg.r0 == 0).
+ * If a client message arrives instead (shouldn't happen), we NACK it and
+ * keep waiting — the port belongs to us until the transfer finishes.
+ */
+static int wait_for_irq(void)
+{
+    while (1)
+    {
+        zuzu_ipcmsg_t msg = _recv(port);
+        if (msg.r0 == 0)
+            return 0; /* IRQ delivery */
+        /* stray client during transfer — NACK and keep waiting */
+        printf("zusd: stray message during transfer, dropping\n");
+        _reply((uint32_t)msg.r0, (uint32_t)-1, 0, 0);
+    }
+}
+
+/*
+ * Block read: arm transfer, sleep until IRQ, drain FIFO, report status.
+ * Result ends up in shmem_buf.
+ */
+static int pl181_read_block(uint32_t block_num)
+{
+    uint32_t addr = is_sdhc ? block_num : block_num * MCI_BLOCK_SIZE;
+
+    /* arm interrupt mask before touching DATACTRL */
+    pl181->MASK[0] = MCI_DATAEND | MCI_DATACRCFAIL | MCI_DATATIMEOUT | MCI_RXOVERRUN;
+
+    pl181->DATATIMER = 0xFFFFFFFF;
+    pl181->DATALENGTH = MCI_BLOCK_SIZE;
+
+    /* CMD17 - single block read (response required) */
+    if (pl181_send_cmd(17, addr, MCI_CMD_RESPONSE) < 0)
+    {
+        pl181->MASK[0] = 0;
         return -1;
     }
 
-    uint32_t rca;
+    /* enable data path, card starts sending immediately */
+    pl181->DATACTRL = MCI_DATACTRL_READ;
 
-    // ask for then save relative address
-    if (pl181_send_cmd(3, 0, MCI_CMD_RESPONSE) == 0) {
-        rca = pl181->RESPONSE[0] >> 16;
-    } else {
-        printf("zusd: Failed to get RCA\n");
+    /* sleep until MCI IRQ fires on DATAEND (or error) */
+    wait_for_irq();
+
+    uint32_t status = pl181->STATUS;
+
+    /* check for transfer errors before draining */
+    if (status & (MCI_DATACRCFAIL | MCI_DATATIMEOUT | MCI_RXOVERRUN))
+    {
+        printf("zusd: read error STATUS=0x%08x\n", status);
+        pl181->CLEAR = 0xFFFFFFFF;
+        pl181->MASK[0] = 0;
+        _irq_done((uint32_t)block_dev_handle);
         return -1;
     }
 
-    // put card to transfer state
-    if (pl181_send_cmd(7, rca << 16, MCI_CMD_RESPONSE) == 0) {
-        printf("zusd: SD card ready for transfer\n");
-    } else {
+    /* drain all 128 words - FIFO holds everything by the time we wake */
+    for (uint32_t i = 0; i < MCI_BLOCK_WORDS; i++)
+    {
+        while (!(pl181->STATUS & MCI_RXDATAAVLBL))
+            ;
+        shmem_buf[i] = pl181->FIFO;
+    }
+
+    pl181->CLEAR = 0xFFFFFFFF;
+    pl181->MASK[0] = 0;
+    _irq_done((uint32_t)block_dev_handle);
+    pl181->DATACTRL = 0;   /* disable data path before next transfer */
+    return 0;
+}
+
+/*
+ * Block write: arm data path, fill FIFO, sleep until IRQ, check status.
+ * Data is read from shmem_buf.
+ */
+static int pl181_write_block(uint32_t block_num)
+{
+    uint32_t addr = is_sdhc ? block_num : block_num * MCI_BLOCK_SIZE;
+
+    pl181->MASK[0] = MCI_DATAEND | MCI_DATACRCFAIL | MCI_DATATIMEOUT | MCI_TXUNDERRUN;
+
+    pl181->DATATIMER = 0xFFFFFFFF;
+    pl181->DATALENGTH = MCI_BLOCK_SIZE;
+    pl181->DATACTRL = MCI_DATACTRL_WRITE;
+
+    /* CMD24 - single block write */
+    if (pl181_send_cmd(24, addr, MCI_CMD_RESPONSE) < 0)
+    {
+        pl181->MASK[0] = 0;
+        return -1;
+    }
+
+    /* push 128 words into FIFO, pacing on TXFIFOEMPTY */
+    for (uint32_t i = 0; i < MCI_BLOCK_WORDS; i++)
+    {
+        while (!(pl181->STATUS & MCI_TXFIFOEMPTY))
+            ;
+        pl181->FIFO = shmem_buf[i];
+    }
+
+    /* sleep until card confirms block received */
+    wait_for_irq();
+
+    uint32_t status = pl181->STATUS;
+
+    pl181->CLEAR = 0xFFFFFFFF;
+    pl181->MASK[0] = 0;
+    _irq_done((uint32_t)block_dev_handle);
+
+    if (status & (MCI_DATACRCFAIL | MCI_DATATIMEOUT | MCI_TXUNDERRUN))
+    {
+        printf("zusd: write error STATUS=0x%08x\n", status);
         return -1;
     }
 
     return 0;
 }
 
-int main() {
-    printf("zusd: starting up\n");
-    // register to name service
-    int32_t reg_port = _port_create();
-    if (reg_port < 0) {
-        printf("zusd: failed to create port\n");
-        return 1;
-    }
-    int32_t nt_slot = _port_grant(reg_port, NAMETABLE_PID);
-    if (nt_slot < 0) {
-        printf("zusd: failed to grant port\n");
-        return 1;
-    }
-    (void)_send(NT_PORT, NT_REGISTER, nt_pack("zusd"), (uint32_t)nt_slot);
+static void handle_client(zuzu_ipcmsg_t msg)
+{
+    uint32_t reply_h = (uint32_t)msg.r0;
+    uint32_t sender = msg.r1;
+    uint32_t cmd = msg.r2;
+    uint32_t arg = msg.r3;
 
-    // grab devmgr handle from name service
-    zuzu_ipcmsg_t reply = _call(NT_PORT, NT_LOOKUP, nt_pack("devm"), 0);
-    if (reply.r1 != NT_LU_OK) {
-        printf("zusd: failed to lookup devmgr\n");
-        return 1;
-    }
-    int32_t devmgr_port = (int32_t)reply.r2;
+    switch (cmd)
+    {
 
-    // query devmgr for block device handle
-    reply = _call(devmgr_port, DEV_REQUEST, DEV_CLASS_BLOCK, 0);
-    if ((int32_t)reply.r1 != 0) {
-        printf("zusd: failed to request block device\n");
-        return 1;
-    }
-    int32_t block_port = (int32_t)reply.r2;
-
-    // map it into memory
-    pl181 = _mapdev(block_port);
-    if ((intptr_t)pl181 <= 0) {
-        printf("zusd: failed to map block device\n");
-        return 1;
+    case ZUSD_CMD_GET_BUF:
+    {
+        /* grant the 512-byte shmem to caller */
+        int32_t granted = _port_grant(shmem_handle, (int32_t)sender);
+        if (granted < 0)
+            _reply(reply_h, (uint32_t)-1, 0, 0);
+        else
+            _reply(reply_h, 0, (uint32_t)granted, 0);
+        break;
     }
 
-    uint32_t id0 = pl181->PERIPHID[0];
-    uint32_t id1 = pl181->PERIPHID[1];
-    // Common variants report PERIPHID0 as 0x80 (PL180) or 0x81 (PL181), with PERIPHID1 = 0x11
-    uint32_t pid0 = id0 & 0xFF;
-    uint32_t pid1 = id1 & 0xFF;
-    if (!((pid0 == 0x80 || pid0 == 0x81) && pid1 == 0x11)) {
-        printf("zusd: unexpected peripheral ID\n");
-        return 1;
+    case ZUSD_CMD_READ:
+    {
+        /* result written into shmem_buf */
+        int rc = pl181_read_block(arg);
+        _reply(reply_h, rc == 0 ? 0 : (uint32_t)-1, 0, 0);
+        break;
     }
 
-    printf("zusd: detected PL18%u variant\n", (pid0 == 0x80) ? 0 : 1);
+    case ZUSD_CMD_WRITE:
+    {
+        /* data read from shmem_buf */
+        int rc = pl181_write_block(arg);
+        _reply(reply_h, rc == 0 ? 0 : (uint32_t)-1, 0, 0);
+        break;
+    }
 
-    if (pl181_setup() == -1) {
-        printf("zusd: failed to setup PL181\n");
+    default:
+        _reply(reply_h, (uint32_t)-1, 0, 0);
+        break;
+    }
+}
+
+static int zusd_setup(void)
+{
+    port = _port_create();
+    if (port < 0)
+    {
+        printf("zusd: port_create failed\n");
         return -1;
     }
 
-    while (1);
+    int32_t nt_slot = _port_grant(port, NAMETABLE_PID);
+    if (nt_slot < 0)
+    {
+        printf("zusd: nt grant failed\n");
+        return -1;
+    }
+
+    /* locate devmgr */
+    zuzu_ipcmsg_t r = _call(NT_PORT, NT_LOOKUP, nt_pack("devm"), 0);
+    if ((int32_t)r.r1 != NT_LU_OK)
+    {
+        printf("zusd: devmgr lookup failed\n");
+        return -1;
+    }
+    int32_t devmgr_port = (int32_t)r.r2;
+
+    /* request the block device capability */
+    r = _call(devmgr_port, DEV_REQUEST, DEV_CLASS_BLOCK, 0);
+    if ((int32_t)r.r1 != 0)
+    {
+        printf("zusd: block device request failed\n");
+        return -1;
+    }
+    block_dev_handle = (int32_t)r.r2;
+
+    /* claim IRQ ownership and bind it to our recv port */
+    if (_irq_claim((uint32_t)block_dev_handle) < 0)
+    {
+        printf("zusd: irq_claim failed\n");
+        return -1;
+    }
+    if (_irq_bind((uint32_t)block_dev_handle, (uint32_t)port) < 0)
+    {
+        printf("zusd: irq_bind failed\n");
+        return -1;
+    }
+
+    /* map hardware registers */
+    pl181 = (pl181_t *)_mapdev((uint32_t)block_dev_handle);
+    if ((intptr_t)pl181 <= 0)
+    {
+        printf("zusd: mapdev failed\n");
+        return -1;
+    }
+
+    /* sanity-check peripheral ID */
+    uint32_t pid0 = pl181->PERIPHID[0] & 0xFF;
+    uint32_t pid1 = pl181->PERIPHID[1] & 0xFF;
+    if (!((pid0 == 0x80 || pid0 == 0x81) && pid1 == 0x11))
+    {
+        printf("zusd: unexpected peripheral ID %02x %02x\n", pid0, pid1);
+        return -1;
+    }
+    printf("zusd: detected PL18%u\n", pid0 == 0x80 ? 0 : 1);
+
+    /* bring up the card */
+    if (pl181_setup() < 0)
+        return -1;
+
+    /* allocate the 512-byte shared data buffer */
+    shmem_result_t shm = _memshare(4096);
+    if (shm.handle < 0 || shm.addr == NULL)
+    {
+        printf("zusd: shmem failed\n");
+        return -1;
+    }
+    shmem_handle = shm.handle;
+    shmem_buf = (uint32_t *)shm.addr;
+
+    /* announce ourselves to the nametable */
+    (void)_send(NT_PORT, NT_REGISTER, nt_pack("zusd"), (uint32_t)nt_slot);
+    printf("zusd: ready\n");
+    return 0;
+}
+
+int main(void)
+{
+    if (zusd_setup() < 0)
+        return 1;
+
+    while (1)
+    {
+        zuzu_ipcmsg_t msg = _recv(port);
+
+        if (msg.r0 == 0)
+        {
+            /* spurious IRQ outside a transfer, just re-enable the line */
+            _irq_done((uint32_t)block_dev_handle);
+        }
+        else if ((int32_t)msg.r0 > 0)
+        {
+            handle_client(msg);
+        }
+    }
 }
