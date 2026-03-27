@@ -4,6 +4,7 @@
 #include "zuzu/protocols/nt_protocol.h"
 #include "zuzu/protocols/zusd_protocol.h"
 #include <stdio.h>
+#include <zuzu/syspage.h>
 
 #define TEST_COUNT 1000
 int main(void)
@@ -76,5 +77,20 @@ int main(void)
            buf[0], buf[1], buf[2], buf[3]);
 
     printf("test: PASS\n");
+
+    const zuzu_syspage_t *sp = (const zuzu_syspage_t *)0x1000;
+
+    printf("Syspage info:\n");
+    printf("  Version: %s\n", sp->version);
+    printf("  Build: %s\n", sp->build);
+    printf("  Machine: %s\n", sp->machine);
+    printf("  CPU: %s\n", sp->cpu);
+    printf("  Memory: %u KB total, %u KB free\n", sp->mem_total_kb, sp->mem_free_kb);
+    printf("  Uptime: %llu ticks\n", sp->uptime_s);
+    printf("  Devices (%u):\n", sp->dev_count);
+    for (uint8_t i = 0; i < sp->dev_count; i++) {
+        printf("    %s\n", sp->devs[i].name);
+    }   
+
     return 0;
 }

@@ -12,40 +12,103 @@ extern kernel_layout_t kernel_layout;
 
 kmem_block_t* heap_head = NULL;
 
+static void heap_append_block(kmem_block_t *block)
+{
+    block->next = NULL;
+    if (!heap_head) {
+        heap_head = block;
+        return;
+    }
+
+    kmem_block_t *tail = heap_head;
+    while (tail->next) {
+        tail = tail->next;
+    }
+    tail->next = block;
+}
+
+static bool kheap_grow(size_t min_payload)
+{
+    size_t wanted = align_up(min_payload + HDR + MIN_PAYLOAD, PAGE_SIZE);
+    size_t pages = wanted / PAGE_SIZE;
+    if (pages < HEAP_GROW_MIN_PAGES) {
+        pages = HEAP_GROW_MIN_PAGES;
+    }
+
+    uintptr_t heap_pa = pmm_alloc_pages(pages);
+    if (!heap_pa) {
+        return false;
+    }
+
+    uintptr_t heap_va = PA_TO_VA(heap_pa);
+    kmem_block_t *block = (kmem_block_t *)heap_va;
+    block->size = align_down(pages * PAGE_SIZE - HDR, ALIGNMENT);
+    block->free = true;
+    block->next = NULL;
+
+    heap_append_block(block);
+
+    uintptr_t seg_end_pa = heap_pa + pages * PAGE_SIZE;
+    uintptr_t seg_end_va = heap_va + pages * PAGE_SIZE;
+
+    if (kernel_layout.heap_start_pa == 0 || heap_pa < kernel_layout.heap_start_pa) {
+        kernel_layout.heap_start_pa = heap_pa;
+        kernel_layout.heap_start_va = (void *)heap_va;
+    }
+    if (seg_end_pa > kernel_layout.heap_end_pa) {
+        kernel_layout.heap_end_pa = seg_end_pa;
+        kernel_layout.heap_end_va = (void *)seg_end_va;
+    }
+
+    return true;
+}
+
+static kmem_block_t *kheap_find_block_by_payload(void *ptr)
+{
+    kmem_block_t *cur = heap_head;
+    while (cur) {
+        if ((void *)((uint8_t *)cur + HDR) == ptr) {
+            return cur;
+        }
+        cur = cur->next;
+    }
+    return NULL;
+}
+
 void* kmalloc(size_t size) {
     if (!size) {
         return NULL;
     }
     size_t req = align_up(size, ALIGNMENT); // align area up
-    kmem_block_t* current_block = heap_head;
-    while (current_block) {
-        if (current_block->free && current_block->size >= req) {    // free block found?
-            size_t leftover = current_block->size - req;
-            if (leftover >= HDR + MIN_PAYLOAD + (ALIGNMENT - 1)) { // split?
-                kmem_block_t* new_block = (kmem_block_t*) ((uint8_t*)current_block + HDR + req);
-                
-                // Sanity check: ensure new_block header fits within heap bounds
-                // Use _va since we're comparing pointers (VAs)
-                if ((uint8_t*)new_block + HDR > (uint8_t*)kernel_layout.heap_end_va) {
-                    KERROR("kmalloc: split would create block outside heap bounds");
-                    return NULL;
+
+    for (int pass = 0; pass < 2; pass++) {
+        kmem_block_t* current_block = heap_head;
+        while (current_block) {
+            if (current_block->free && current_block->size >= req) {    // free block found?
+                size_t leftover = current_block->size - req;
+                if (leftover >= HDR + MIN_PAYLOAD + (ALIGNMENT - 1)) { // split?
+                    kmem_block_t* new_block = (kmem_block_t*) ((uint8_t*)current_block + HDR + req);
+
+                    new_block->size = align_down(leftover - HDR, ALIGNMENT);
+                    new_block->next = current_block->next;
+                    new_block->free = true;
+                    current_block->next = new_block;
+                    current_block->free = false;
+                    current_block->size = req;
+                    return (void*)((uint8_t*)current_block + HDR);
+                } else {    // no split
+                    current_block->free = false;
+                    return (void*)((uint8_t*)current_block + HDR);
                 }
-                
-                new_block->size = align_down(leftover - HDR, ALIGNMENT);
-                new_block->next = current_block->next;
-                new_block->free = true;
-                current_block->next = new_block;
-                current_block->free = false;
-                current_block->size = req;
-                return (void*)((uint8_t*)current_block + HDR);
-            } else {    // no split
-                current_block->free = false;
-                current_block->size = req; // Set to requested size for consistent reporting
-                return (void*)((uint8_t*)current_block + HDR);
             }
+            current_block = current_block->next;
         }
-        current_block = current_block->next; 
+
+        if (!kheap_grow(req)) {
+            break;
+        }
     }
+
     KERROR("No space in kernel heap");
     return NULL;
 }
@@ -62,19 +125,9 @@ void kfree(void* ptr) {
         return;
     }
     
-    // Sanity check: ptr must be within heap bounds (use _va for pointer comparisons)
-    if ((uint8_t*)ptr < (uint8_t*)kernel_layout.heap_start_va || 
-        (uint8_t*)ptr >= (uint8_t*)kernel_layout.heap_end_va) {
-        KERROR("kfree: pointer outside heap bounds");
-        return;
-    }
-    
-    kmem_block_t* header  = (kmem_block_t*)((uint8_t*)ptr - HDR);
-    
-    // Sanity check: header must also be within heap bounds
-    if ((uint8_t*)header < (uint8_t*)kernel_layout.heap_start_va || 
-        (uint8_t*)header >= (uint8_t*)kernel_layout.heap_end_va) {
-        KERROR("kfree: computed header outside heap bounds");
+    kmem_block_t* header = kheap_find_block_by_payload(ptr);
+    if (!header) {
+        KERROR("kfree: pointer does not match any allocated heap block");
         return;
     }
     
@@ -86,13 +139,6 @@ void kfree(void* ptr) {
     
     // Forward merge: merge freed block with its next repeatedly
     while (header->next) {
-        // Sanity check: ensure next is within heap bounds
-        if ((uint8_t*)header->next < (uint8_t*)kernel_layout.heap_start_va ||
-            (uint8_t*)header->next >= (uint8_t*)kernel_layout.heap_end_va) {
-            KERROR("kfree: corrupted next pointer in forward merge");
-            break;
-        }
-        
         if (header->next->free) {
             uint8_t* block_end = (uint8_t*)header + HDR + header->size;
             if (block_end == (uint8_t*)header->next) {
@@ -125,13 +171,6 @@ void kfree(void* ptr) {
             
             // Forward merge again from prev (it might now be adjacent to a free block)
             while (prev->next) {
-                // Sanity check: ensure next is within heap bounds
-                if ((uint8_t*)prev->next < (uint8_t*)kernel_layout.heap_start_va ||
-                    (uint8_t*)prev->next >= (uint8_t*)kernel_layout.heap_end_va) {
-                    KERROR("kfree: corrupted next pointer in backward merge forward pass");
-                    break;
-                }
-                
                 if (prev->next->free) {
                     uint8_t* block_end = (uint8_t*)prev + HDR + prev->size;
                     if (block_end == (uint8_t*)prev->next) {
@@ -150,28 +189,17 @@ void kfree(void* ptr) {
 
 
 void kheap_init(void) {
-    // Request 1 MB of heap (256 pages at 4KB/page)
-    kassert(HEAP_SIZE % PAGE_SIZE == 0);    // Check alignment
-    
-    // PMM returns physical addresses
-    uintptr_t heap_pa = pmm_alloc_pages(HEAP_SIZE/PAGE_SIZE);
-    if (!heap_pa) {
+    kassert(HEAP_INITIAL_SIZE % PAGE_SIZE == 0);
+
+    heap_head = NULL;
+    kernel_layout.heap_start_pa = 0;
+    kernel_layout.heap_end_pa = 0;
+    kernel_layout.heap_start_va = NULL;
+    kernel_layout.heap_end_va = NULL;
+
+    if (!kheap_grow(HEAP_INITIAL_SIZE - HDR)) {
         panic("Heap could not be allocated");
     }
-    
-    // Store PHYSICAL addresses in _pa fields (for debug/bookkeeping)
-    kernel_layout.heap_start_pa = heap_pa;
-    kernel_layout.heap_end_pa   = heap_pa + HEAP_SIZE;
-    
-    // Store VIRTUAL addresses in _va fields (for actual pointer use)
-    kernel_layout.heap_start_va = (void*)PA_TO_VA(heap_pa);
-    kernel_layout.heap_end_va   = (void*)PA_TO_VA(heap_pa + HEAP_SIZE);
-
-    // Use VA for heap_head - this is a dereferenceable pointer!
-    heap_head = (kmem_block_t*) kernel_layout.heap_start_va;
-    heap_head->size = align_down(HEAP_SIZE - HDR, ALIGNMENT);
-    heap_head->next = NULL;
-    heap_head->free = true;
 }
 
 

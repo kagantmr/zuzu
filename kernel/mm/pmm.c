@@ -8,6 +8,7 @@
 pmm_state_t pmm_state;
 extern phys_region_t phys_region;
 extern kernel_layout_t kernel_layout;
+extern void syspage_update_mem(void);
 
 static void pmm_reserve_boot_regions(void) {
     pmm_mark_range(kernel_layout.dtb_start_pa,  kernel_layout.kernel_start_pa);
@@ -169,6 +170,7 @@ uintptr_t pmm_alloc_page(void) {
                 const uintptr_t addr = (uintptr_t)pfn * PAGE_SIZE;
                 kassert(addr % PAGE_SIZE == 0);
                 kassert(pfn >= pmm_state.pfn_base && pfn < pmm_state.pfn_end);
+                syspage_update_mem(); // update free memory info in syspage
                 return addr;
             }
         }
@@ -215,6 +217,7 @@ uintptr_t pmm_alloc_pages(size_t n_pages) {
                 uintptr_t addr = (uintptr_t)pfn * PAGE_SIZE;
                 kassert(addr % PAGE_SIZE == 0);
                 kassert(pfn >= pmm_state.pfn_base && (pfn + n_pages) <= pmm_state.pfn_end);
+                syspage_update_mem(); // update free memory info in syspage
                 return addr;
             }
         } else {
@@ -255,6 +258,7 @@ int pmm_free_page(const uintptr_t addr) {
     }
 
     /* already free -> double free */
+    syspage_update_mem(); // update free memory info in syspage
     return DOUBLE_FREE;
 }
 
@@ -302,7 +306,8 @@ uintptr_t pmm_alloc_pages_aligned(const size_t n_pages, size_t align_pages)
                 if (pmm_mark_range(start_pa, end_pa) != MARK_OK) {
                     return (uintptr_t)0;
                 }
-
+                
+                syspage_update_mem(); // update free memory info in syspage
                 return start_pa;
             }
         } else {
@@ -322,5 +327,6 @@ size_t pmm_alloc_pages_scattered(const size_t n_pages, uintptr_t *out_addrs) {
         if (new_page == 0) return i;
         out_addrs[i] = new_page;
     }
+    syspage_update_mem(); // update free memory info in syspage
     return n_pages;
 }
