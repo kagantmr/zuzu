@@ -9,7 +9,7 @@
 #include "kernel/kmain.h"
 #include "kernel/dtb/dtb.h"
 #include "kernel/mm/alloc.h"
-#include "kernel/vmm/vmm.h"
+#include "kernel/mm/vmm.h"
 
 
 #include "core/panic.h"

@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <list.h>
 #include "kernel/ipc/endpoint.h"
-#include "kernel/vmm/vmm.h"
+#include "kernel/mm/vmm.h"
 #include "arch/arm/include/context.h"
 
 #define MAX_PROCESSES 64

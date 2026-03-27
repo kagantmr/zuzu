@@ -1,7 +1,7 @@
 #include "alloc.h"
 #include "pmm.h"
 #include "kernel/layout.h"
-#include "kernel/vmm/vmm.h"  // For PA_TO_VA
+#include "kernel/mm/vmm.h"  // For PA_TO_VA
 #include "stdbool.h"
 #include <mem.h>
 #include <assert.h>

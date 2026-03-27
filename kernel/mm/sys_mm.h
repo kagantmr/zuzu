@@ -1,5 +1,5 @@
-#ifndef SYS_VMM_H
-#define SYS_VMM_H
+#ifndef SYS_MM_H
+#define SYS_MM_H
 
 #include "arch/arm/include/context.h"
 #include <stddef.h>
@@ -13,4 +13,4 @@ void detach(exception_frame_t *frame);
 void sys_pmm_getfree(exception_frame_t *frame);
 
 
-#endif // SYS_VMM_H
+#endif // SYS_MM_H

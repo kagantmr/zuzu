@@ -65,3 +65,4 @@ gdb.txt
 *.zip
 
 build/
+sd.img

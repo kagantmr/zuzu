@@ -1,4 +1,4 @@
-#include "sys_vmm.h"
+#include "sys_mm.h"
 #include "kernel/syscall/syscall.h"
 #include "kernel/sched/sched.h"
 #include "arch/arm/mmu/mmu.h"
@@ -6,7 +6,7 @@
 #include "kernel/layout.h"
 #include <mem.h>
 
-#define LOG_FMT(fmt) "(syscall_vmm) " fmt
+#define LOG_FMT(fmt) "(syscall_mm) " fmt
 #include "core/log.h"
 #include "kernel/mm/alloc.h"
 
@@ -106,11 +106,12 @@ void memunmap(exception_frame_t *frame)
 
     // Find the region, it must be an exact match to prevent partial-unmap attacks
     vm_region_t *found = NULL;
-    for (size_t i = 0; i < as->region_count; i++)
+    for (uint32_t i = 0; i < as->regions.len; i++)
     {
-        if (as->regions[i].vaddr_start == va && as->regions[i].size == size)
+        vm_region_t *r = vm_region_vec_get(&as->regions, i);
+        if (r && r->vaddr_start == va && r->size == size)
         {
-            found = &as->regions[i];
+            found = r;
             break;
         }
     }
@@ -404,6 +405,7 @@ void detach(exception_frame_t *frame)
     {
         for (size_t j = 0; j < shm->page_count; j++)
             pmm_free_page(shm->page_addrs[j]);
+        entry->shm = NULL;
         kfree(shm->page_addrs);
         kfree(shm);
     }

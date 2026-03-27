@@ -19,7 +19,7 @@
 #include "kernel/layout.h"
 #include "kernel/mm/pmm.h"
 #include "kernel/dtb/dtb.h"
-#include "kernel/vmm/vmm.h"
+#include "kernel/mm/vmm.h"
 #include "kernel/time/tick.h"
 #include "kernel/sched/sched.h"
 #include "kernel/proc/process.h"

@@ -1,5 +1,5 @@
 #include "kernel/dtb/dtb.h"
-#include "kernel/vmm/vmm.h"
+#include "kernel/mm/vmm.h"
 #include "drivers/uart/pl011.h"
 #include "drivers/uart/uart.h"
 #include "arch/arm/include/gicv2.h"
@@ -9,7 +9,7 @@
 
 
 #include "kernel/dtb/dtb.h"
-#include "kernel/vmm/vmm.h"
+#include "kernel/mm/vmm.h"
 #include "core/panic.h"
 #include "core/kprintf.h"
 
