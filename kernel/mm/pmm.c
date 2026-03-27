@@ -3,7 +3,7 @@
 #include "kernel/layout.h"
 #include "arch/arm/include/symbols.h"
 #include <mem.h>
-#include "kernel/vmm/vmm.h"   // PA_TO_VA / VA_TO_PA helpers
+#include "kernel/mm/vmm.h"   // PA_TO_VA / VA_TO_PA helpers
 
 pmm_state_t pmm_state;
 extern phys_region_t phys_region;

@@ -6,7 +6,7 @@
 #include "kernel/ipc/sys_port.h" 
 #include "kernel/ipc/sys_ipc.h"
 #include "kernel/irq/sys_irq.h"
-#include "kernel/vmm/sys_vmm.h"
+#include "kernel/mm/sys_mm.h"
 #include "kernel/dev/sys_dev.h"
 #include "kernel/proc/kstack.h"
 #include "kernel/layout.h"

@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "kernel/vmm/vmm.h"
+#include "kernel/mm/vmm.h"
 
 /**
  * @brief Allocate and initialize an L1 page table.

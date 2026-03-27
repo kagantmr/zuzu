@@ -163,7 +163,7 @@ int main() {
 
     // query devmgr for block device handle
     reply = _call(devmgr_port, DEV_REQUEST, DEV_CLASS_BLOCK, 0);
-    if (reply.r0 != 0) {
+    if ((int32_t)reply.r1 != 0) {
         printf("zusd: failed to request block device\n");
         return 1;
     }
@@ -171,7 +171,7 @@ int main() {
 
     // map it into memory
     pl181 = _mapdev(block_port);
-    if (!pl181) {
+    if ((intptr_t)pl181 <= 0) {
         printf("zusd: failed to map block device\n");
         return 1;
     }

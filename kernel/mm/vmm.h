@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <zuzu/memprot.h>
+#include <vector.h>
 
 #define SECTION_SIZE      0x100000UL     /* 1MB section for ARMv7 */
 
@@ -61,10 +62,11 @@ typedef enum {
     ADDRSPACE_USER   = 1,
 } addrspace_type_t;
 
+DEFINE_VEC(vm_region, vm_region_t);
+
 typedef struct addrspace {
     uintptr_t        ttbr0_pa;   // physical address of level-1 table
-    vm_region_t     *regions;
-    size_t          region_count;
+    vm_region_vec_t     regions;
     //uint32_t         lock;      // placeholder until concurrency is added
     addrspace_type_t type;
     uint8_t          asid;
@@ -90,14 +92,14 @@ addrspace_t* vmm_get_kernel_as(void);
  * @param type ADDRSPACE_KERNEL or ADDRSPACE_USER.
  * @return Pointer to the newly created address space, or NULL on failure.
  */
-addrspace_t* addrspace_create(addrspace_type_t type);
+addrspace_t* as_create(addrspace_type_t type);
 
 /**
  * @brief Destroy an address space.
  * @param as Address space to destroy.
  * Responsibilities: unmap regions, free page tables, release physical memory.
  */
-void addrspace_destroy(addrspace_t* as);
+void as_destroy(addrspace_t* as);
 
 /**
  * @brief Add a region to an address space.

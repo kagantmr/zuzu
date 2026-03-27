@@ -5,7 +5,7 @@
 #include <stdbool.h>
 #include <list.h>
 #include <vector.h>
-#include "kernel/vmm/vmm.h"
+#include "kernel/mm/vmm.h"
 
 struct process;
 

@@ -4,7 +4,7 @@
 #include "arch/arm/include/context.h"
 #include "stdbool.h"
 #include "stddef.h"
-#include "kernel/vmm/vmm.h"
+#include "kernel/mm/vmm.h"
 #include "stdint.h"
 #include "zuzu/syscall_nums.h"
 

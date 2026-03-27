@@ -4,7 +4,7 @@
 
 #include "kernel/proc/kstack.h"
 #include "kernel/mm/pmm.h"
-#include "kernel/vmm/vmm.h"
+#include "kernel/mm/vmm.h"
 #include "arch/arm/mmu/mmu.h"
 #include "arch/arm/include/cache.h"
 #include "kernel/loader/elf.h"
@@ -32,7 +32,7 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
         goto fail_process;
 
     // try creating as
-    process->as = addrspace_create(ADDRSPACE_USER);
+    process->as = as_create(ADDRSPACE_USER);
     if (!process->as)
         goto fail_process;
 
@@ -161,7 +161,7 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
 fail_kstack:
     kstack_free(process->kernel_stack_top);
 fail_as:
-    addrspace_destroy(process->as);
+    as_destroy(process->as);
 fail_process:
     handle_vec_destroy(&process->handle_table);
     kfree(process);

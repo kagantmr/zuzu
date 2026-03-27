@@ -10,6 +10,7 @@
 #include <mem.h>
 #include "core/panic.h"
 #include "kernel/layout.h"
+#include "asid.h"
 
 // Track kernel and current address spaces
 static addrspace_t* g_kernel_as = NULL;
@@ -36,24 +37,25 @@ typedef struct {
 } ioremap_entry_t;
 static ioremap_entry_t ioremap_table[IOREMAP_MAX_ENTRIES];
 
-addrspace_t* addrspace_create(addrspace_type_t type) {
-    addrspace_t* addrspace = kmalloc(sizeof(addrspace_t));
-    if (!addrspace) {
+addrspace_t* as_create(addrspace_type_t type) {
+    addrspace_t* as = kmalloc(sizeof(addrspace_t));
+    if (!as) {
         return NULL;
     }
     if (type == ADDRSPACE_USER) {
-        addrspace->ttbr0_pa = arch_mmu_create_user_tables();
+        as->ttbr0_pa = arch_mmu_create_user_tables();
+        as->asid = asid_alloc();
     } else {
-        addrspace->ttbr0_pa = arch_mmu_create_tables();  // full 16KB for kernel
+        as->asid = 0;
+        as->ttbr0_pa = arch_mmu_create_tables();  // full 16KB for kernel
     }
-    if (addrspace->ttbr0_pa == 0) {
-        kfree(addrspace);
+    if (as->ttbr0_pa == 0) {
+        kfree(as);
         return NULL;
     }
-    addrspace->regions = NULL;
-    addrspace->region_count = 0;
-    addrspace->type = type;
-    return addrspace;
+    vm_region_vec_init(&as->regions);
+    as->type = type;
+    return as;
 }
 
 void vmm_lockdown_kernel_sections(void) {
@@ -104,130 +106,64 @@ void vmm_lockdown_kernel_sections(void) {
     KINFO("Lockdown: patched %u sections and %u L2 pages", patched_sections, patched_pages);
 }
 
-void addrspace_destroy(addrspace_t* as) {
-    if (!as) {
-        return;
-    }
-    
-    // CRITICAL SAFETY REQUIREMENT:
-    // The address space being destroyed must NOT be currently active (TTBR0).
-    // If it is active, unmapping and freeing will corrupt the running kernel.
+void as_destroy(addrspace_t* as) {
+    if (!as) return;
     if (as == g_current_addrspace) {
         panic("Attempted to destroy active addrspace");
         __builtin_unreachable();
     }
     
-    // Phase-2 bring-up policy (section mappings):
-    // Do NOT walk page tables to translate VA->PA or free backing pages here.
-    // The current arch MMU layer is section-only; translate() is coarse and not page-aligned.
-    // We only unmap ranges (best-effort) and then free the page table structures.
-    for (size_t i = 0; i < as->region_count; i++) {
-        vm_region_t* region = &as->regions[i];
-        (void)vmm_unmap_range(as, region->vaddr_start, region->size);
+    if (as->asid != 0)          // ← bu satır eksik
+        asid_free(as->asid);    // ← bu satır eksik
+
+    for (uint32_t i = 0; i < as->regions.len; i++) {
+        vm_region_t *r = vm_region_vec_get(&as->regions, i);
+        vmm_unmap_range(as, r->vaddr_start, r->size);
     }
+    
     
     // Free page tables
     arch_mmu_free_tables(as->ttbr0_pa, as->type);
     
-    // Free regions array
-    if (as->regions) {
-        kfree(as->regions);
-    }
+    // Destroy regions vector
+    vm_region_vec_destroy(&as->regions);
+
     // Free address space struct
     kfree(as);
 }
 
-bool vmm_add_region(addrspace_t* as, const vm_region_t* region) {
-    if (!as || !region) return false;
-    if (region->size == 0) return false;
-    if ((region->vaddr_start % PAGE_SIZE) != 0) return false;
-    if ((region->size % PAGE_SIZE) != 0) return false;
+bool vmm_add_region(addrspace_t *as, const vm_region_t *region) {
+    if (!as || !region || region->size == 0) return false;
 
     uintptr_t new_start = region->vaddr_start;
-    uintptr_t new_end = new_start + region->size;
+    uintptr_t new_end   = new_start + region->size;
 
-    // Check for overlap with existing regions
-    for (size_t i = 0; i < as->region_count; i++) {
-        vm_region_t* r = &as->regions[i];
-        uintptr_t r_start = r->vaddr_start;
-        uintptr_t r_end = r_start + r->size;
-        if (!(new_end <= r_start || new_start >= r_end)) {
-            // Overlap detected
+    // overlap check
+    for (uint32_t i = 0; i < as->regions.len; i++) {
+        vm_region_t *r = vm_region_vec_get(&as->regions, i);
+        if (!(new_end <= r->vaddr_start || new_start >= r->vaddr_start + r->size))
             return false;
-        }
     }
 
-    // Insert region sorted by vaddr_start
-    size_t pos = 0;
-    while (pos < as->region_count && as->regions[pos].vaddr_start < new_start) {
-        pos++;
-    }
-
-    vm_region_t* new_regions = kmalloc(sizeof(vm_region_t) * (as->region_count + 1));
-    if (!new_regions) return false;
-
-    // Copy regions before pos
-    if (pos > 0) {
-        memcpy(new_regions, as->regions, sizeof(vm_region_t) * pos);
-    }
-    // Insert new region
-    new_regions[pos] = *region;
-    // Copy regions after pos
-    if (pos < as->region_count) {
-        memcpy(new_regions + pos + 1, as->regions + pos, sizeof(vm_region_t) * (as->region_count - pos));
-    }
-
-    if (as->regions) {
-        kfree(as->regions);
-    }
-    as->regions = new_regions;
-    as->region_count++;
-
-    return true;
+    return vm_region_vec_push(&as->regions, region);
 }
 
-bool vmm_remove_region(addrspace_t* as, uintptr_t vaddr, size_t size) {
-    if (!as) return false;
-    if (size == 0) return false;
-    if ((vaddr % PAGE_SIZE) != 0) return false;
-    if ((size % PAGE_SIZE) != 0) return false;
+bool vmm_remove_region(addrspace_t *as, uintptr_t vaddr, size_t size) {
+    if (!as || size == 0) return false;
 
-    size_t idx = as->region_count;
-    for (size_t i = 0; i < as->region_count; i++) {
-        vm_region_t* r = &as->regions[i];
-        if (r->vaddr_start == vaddr && r->size == size) {
-            idx = i;
-            break;
-        }
+    uint32_t idx = as->regions.len;
+    for (uint32_t i = 0; i < as->regions.len; i++) {
+        vm_region_t *r = vm_region_vec_get(&as->regions, i);
+        if (r->vaddr_start == vaddr && r->size == size) { idx = i; break; }
     }
-    if (idx == as->region_count) {
-        // Not found
-        return false;
-    }
+    if (idx == as->regions.len) return false;
 
-    // Unmap the region (do not free pages)
-    if (!vmm_unmap_range(as, vaddr, size)) {
-        return false;
-    }
+    vmm_unmap_range(as, vaddr, size);
 
-    // Remove region by shifting tail down
-    for (size_t i = idx; i + 1 < as->region_count; i++) {
-        as->regions[i] = as->regions[i + 1];
-    }
-    as->region_count--;
-
-    if (as->region_count == 0) {
-        kfree(as->regions);
-        as->regions = NULL;
-    } else {
-        vm_region_t* new_regions = kmalloc(sizeof(vm_region_t) * as->region_count);
-        if (new_regions) {
-            memcpy(new_regions, as->regions, sizeof(vm_region_t) * as->region_count);
-            kfree(as->regions);
-            as->regions = new_regions;
-        }
-        // If kmalloc failed, keep old array to avoid losing data
-    }
+    // shift down 
+    for (uint32_t i = idx; i + 1 < as->regions.len; i++)
+        as->regions.data[i] = as->regions.data[i + 1];
+    as->regions.len--;
 
     return true;
 }
@@ -235,18 +171,12 @@ bool vmm_remove_region(addrspace_t* as, uintptr_t vaddr, size_t size) {
 bool vmm_build_page_tables(addrspace_t* as) {
     if (!as) return false;
 
-    for (size_t i = 0; i < as->region_count; i++) {
-        vm_region_t* r = &as->regions[i];
-        if ((r->flags & VM_FLAG_GUARD) != 0) {
-            // Skip guard regions
-            continue;
-        }
-        uintptr_t va = r->vaddr_start;
-        uintptr_t pa = r->paddr_start;
-        size_t size = r->size;
-        if (!vmm_map_range(as, va, pa, size, r->prot, r->memtype, r->owner, r->flags)) {
+    for (uint32_t i = 0; i < as->regions.len; i++) {
+        vm_region_t *r = vm_region_vec_get(&as->regions, i);
+        if (r->flags & VM_FLAG_GUARD) continue;
+        if (!vmm_map_range(as, r->vaddr_start, r->paddr_start, r->size,
+                        r->prot, r->memtype, r->owner, r->flags))
             return false;
-        }
     }
     return true;
 }
@@ -265,8 +195,7 @@ void vmm_bootstrap(void) {
         // early_l1 is in .bss.boot, linked at physical addresses
         // The symbol value IS the physical address
         g_kernel_as->ttbr0_pa = (uintptr_t)early_l1;
-        g_kernel_as->regions = NULL;
-        g_kernel_as->region_count = 0;
+        vm_region_vec_init(&g_kernel_as->regions);
         g_kernel_as->type = ADDRSPACE_KERNEL;
         g_kernel_as->asid = 0;
 
@@ -364,12 +293,11 @@ void vmm_remove_identity_mapping(void) {
 
     vmm_unmap_range(g_kernel_as, map_pa_start, map_size);
 
-    for (size_t i = 0; i < g_kernel_as->region_count; i++) {
-        if (g_kernel_as->regions[i].vaddr_start == map_pa_start) {
-            for (size_t j = i; j + 1 < g_kernel_as->region_count; j++) {
-                g_kernel_as->regions[j] = g_kernel_as->regions[j + 1];
-            }
-            g_kernel_as->region_count--;
+    for (uint32_t i = 0; i < g_kernel_as->regions.len; i++) {
+        if (g_kernel_as->regions.data[i].vaddr_start == map_pa_start) {
+            for (uint32_t j = i; j + 1 < g_kernel_as->regions.len; j++)
+                g_kernel_as->regions.data[j] = g_kernel_as->regions.data[j + 1];
+            g_kernel_as->regions.len--;
             break;
         }
     }

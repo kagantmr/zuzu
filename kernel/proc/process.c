@@ -119,8 +119,7 @@ void process_destroy(process_t *p)
     {
         arch_mmu_free_user_pages(p->as->ttbr0_pa);
         arch_mmu_free_tables(p->as->ttbr0_pa, p->as->type);
-        if (p->as->regions)
-            kfree(p->as->regions);
+        vm_region_vec_destroy(&p->as->regions);
         kfree(p->as);
     }
     handle_vec_destroy(&p->handle_table);

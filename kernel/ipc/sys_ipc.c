@@ -81,7 +81,8 @@ void proc_send(exception_frame_t *frame)
         list_node_t *receiver = list_pop_front(&ep->receiver_queue);
         process_t *rx_proc = container_of(receiver, process_t, node);
         exception_frame_t *rx_frame = rx_proc->trap_frame;
-        if (!trap_frame_sane(rx_frame)) {
+        if (!trap_frame_sane(rx_frame))
+        {
             ipc_panic_bad_trap_frame("proc_send.rx", rx_proc, rx_frame);
         }
         // KDEBUG("Sending message from process PID %d to process PID %d", current_process->pid,rx_proc->pid);
@@ -148,7 +149,8 @@ void proc_recv(exception_frame_t *frame)
         list_node_t *sender = list_pop_front(&ep->sender_queue);
         process_t *sr_proc = container_of(sender, process_t, node);
         exception_frame_t *sr_frame = (sr_proc->trap_frame);
-        if (!trap_frame_sane(sr_frame)) {
+        if (!trap_frame_sane(sr_frame))
+        {
             ipc_panic_bad_trap_frame("proc_recv.sr", sr_proc, sr_frame);
         }
 
@@ -198,7 +200,7 @@ void proc_recv(exception_frame_t *frame)
             frame->r[0] = slot;
             frame->r[1] = sr_proc->pid;
             frame->r[2] = sr_frame->r[1];
-            frame->r[3] = sr_frame->r[3];
+            frame->r[3] = sr_frame->r[2];
         }
     }
     else
@@ -247,16 +249,28 @@ void proc_call(exception_frame_t *frame)
         list_node_t *receiver = list_pop_front(&ep->receiver_queue);
         process_t *rx_proc = container_of(receiver, process_t, node);
         exception_frame_t *rx_frame = rx_proc->trap_frame;
-        if (!trap_frame_sane(rx_frame)) {
+        if (!trap_frame_sane(rx_frame))
+        {
             ipc_panic_bad_trap_frame("proc_call.rx", rx_proc, rx_frame);
         }
         // allocate reply cap in rx_proc's table
         reply_cap_t *rc = kmalloc(sizeof(reply_cap_t));
-        if (!rc) { frame->r[0] = ERR_NOMEM; list_add_tail(&rx_proc->node, &ep->sender_queue.node); return; }
+        if (!rc)
+        {
+            frame->r[0] = ERR_NOMEM;
+            list_add_tail(&rx_proc->node, &ep->sender_queue.node);
+            return;
+        }
         rc->caller = current_process;
 
         int slot = handle_vec_find_free(&rx_proc->handle_table);
-        if (slot < 0) { kfree(rc); list_add_tail(&rx_proc->node, &ep->sender_queue.node); frame->r[0] = ERR_NOMEM; return; }
+        if (slot < 0)
+        {
+            kfree(rc);
+            list_add_tail(&rx_proc->node, &ep->sender_queue.node);
+            frame->r[0] = ERR_NOMEM;
+            return;
+        }
 
         handle_entry_t *rentry = handle_vec_get(&rx_proc->handle_table, slot);
         rentry->type = HANDLE_REPLY;
@@ -266,7 +280,7 @@ void proc_call(exception_frame_t *frame)
         rx_frame->r[0] = slot;
         rx_frame->r[1] = current_process->pid;
         rx_frame->r[2] = frame->r[1];
-        rx_frame->r[3] = frame->r[3];
+        rx_frame->r[3] = frame->r[2];
 
         rx_proc->ipc_state = IPC_NONE;
         rx_proc->blocked_endpoint = NULL;
@@ -307,9 +321,21 @@ void proc_reply(exception_frame_t *frame)
         return;
     }
     handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle_idx);
-    if (!entry) { frame->r[0] = ERR_BADARG; return; }
-    if (entry->type != HANDLE_REPLY) { frame->r[0] = ERR_BADARG; return; }
-    if (!entry->reply || !entry->reply->caller) { frame->r[0] = ERR_BADARG; return; }
+    if (!entry)
+    {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+    if (entry->type != HANDLE_REPLY)
+    {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+    if (!entry->reply || !entry->reply->caller)
+    {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
     process_t *target = entry->reply->caller;
 
     if (target->ipc_state != IPC_WAITING)
@@ -319,9 +345,10 @@ void proc_reply(exception_frame_t *frame)
     }
 
     // Deliver reply into target's saved frame
-    
+
     exception_frame_t *target_frame = target->trap_frame;
-    if (!trap_frame_sane(target_frame)) {
+    if (!trap_frame_sane(target_frame))
+    {
         ipc_panic_bad_trap_frame("proc_reply.target", target, target_frame);
     }
     target_frame->r[0] = 0;           // success

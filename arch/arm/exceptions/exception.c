@@ -245,32 +245,29 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
                 }
             }
             if (is_translation)
-            {
-                addrspace_t *as = current_process->as;
-                for (size_t i = 0; i < as->region_count; i++)
                 {
-                    vm_region_t *r = &as->regions[i];
-                    if (dfar >= r->vaddr_start && dfar < r->vaddr_start + r->size)
+                    addrspace_t *as = current_process->as;
+                    for (uint32_t i = 0; i < as->regions.len; i++)
                     {
-                        if (r->flags & VM_FLAG_GUARD)
-                            continue;
-                        if (r->memtype == VM_MEM_DEVICE)
-                            continue;
-                        uintptr_t page_va = align_down(dfar, PAGE_SIZE);
-                        uintptr_t pa = pmm_alloc_page();
-                        if (pa == 0)
-                            break; // OOM, fall through to kill
-                        memset((void *)PA_TO_VA(pa), 0, PAGE_SIZE);
-                        if (!vmm_map_range(as, page_va, pa, PAGE_SIZE,
-                                           r->prot, r->memtype, VM_OWNER_ANON, VM_FLAG_NONE))
+                        vm_region_t *r = vm_region_vec_get(&as->regions, i);
+                        if (dfar >= r->vaddr_start && dfar < r->vaddr_start + r->size)
                         {
-                            pmm_free_page(pa);
-                            break; // map failed, fall through to kill
+                            if (r->flags & VM_FLAG_GUARD) continue;
+                            if (r->memtype == VM_MEM_DEVICE) continue;
+                            uintptr_t page_va = align_down(dfar, PAGE_SIZE);
+                            uintptr_t pa = pmm_alloc_page();
+                            if (pa == 0) break;
+                            memset((void *)PA_TO_VA(pa), 0, PAGE_SIZE);
+                            if (!vmm_map_range(as, page_va, pa, PAGE_SIZE,
+                                            r->prot, r->memtype, VM_OWNER_ANON, VM_FLAG_NONE))
+                            {
+                                pmm_free_page(pa);
+                                break;
+                            }
+                            return;
                         }
-                        return; // resume the faulting instruction
                     }
                 }
-            }
             KERROR("Oops! '%s' (PID %d) killed - data abort @ 0x%08X (%s %s)",
                    current_process->name, current_process->pid, dfar,
                    (dfsr & (1 << 11)) ? "write" : "read",

@@ -2,7 +2,7 @@
 #include "kernel/proc/process.h"
 #include <list.h>
 
-#include "kernel/vmm/vmm.h"
+#include "kernel/mm/vmm.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/time/tick.h"
 
