@@ -269,7 +269,7 @@ void arch_mmu_switch(addrspace_t *as)
     __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"((uint32_t)as->ttbr0_pa) : "memory");
     __asm__ volatile("mcr p15, 0, %0, c13, c0, 1" :: "r"((uint32_t)as->asid) : "memory");
 
-    arch_mmu_flush_tlb(); // remove when ASID works
+    //arch_mmu_flush_tlb(); // remove when ASID works
     arch_mmu_barrier();
 }
 
@@ -278,6 +278,19 @@ void arch_mmu_flush_tlb(void)
     // Invalidate entire unified TLB (ARMv7-A short-descriptor).
     uint32_t zero = 0;
     __asm__ volatile("mcr p15, 0, %0, c8, c7, 0" ::"r"(zero) : "memory");
+}
+
+void arch_mmu_flush_tlb_asid(uint8_t asid)
+{
+    if (asid == 0)
+    {
+        arch_mmu_flush_tlb();
+        return;
+    }
+
+    // Invalidate unified TLB entries matching ASID (bits [7:0]).
+    uint32_t asid_arg = (uint32_t)asid;
+    __asm__ volatile("mcr p15, 0, %0, c8, c7, 2" :: "r"(asid_arg) : "memory");
 }
 
 void arch_mmu_flush_tlb_va(uintptr_t va)

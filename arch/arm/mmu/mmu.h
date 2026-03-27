@@ -102,6 +102,12 @@ void arch_mmu_switch(addrspace_t* as);
 void arch_mmu_flush_tlb(void);
 
 /**
+ * @brief Invalidate TLB entries for a specific ASID.
+ * @param asid Address-space identifier (0-255).
+ */
+void arch_mmu_flush_tlb_asid(uint8_t asid);
+
+/**
  * @brief Invalidate TLB entry for a single virtual address.
  * @param va Virtual address.
  */
