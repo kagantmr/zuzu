@@ -124,13 +124,16 @@ static void nt_handle_msg(zuzu_ipcmsg_t msg) {
     }
 }
 
+#define WAIT_TIMEOUT 100000000u
 static void wait_for_service(uint32_t name_u32) {
     uint32_t handle = 0;
     uint32_t pid = 0;
+    uint32_t time = 0;
 
-    while (nt_lookup(name_u32, &handle, &pid) != NT_LU_OK) {
+    while (nt_lookup(name_u32, &handle, &pid) != NT_LU_OK && time < WAIT_TIMEOUT) {
         _wait(-1, NULL, WNOHANG);
         nt_handle_msg(_recv(port));
+        time += 1;
     }
 }
 
