@@ -2,6 +2,24 @@
 .global _start
 .type _start, %function
 
+.equ MODE_IRQ,        0x12
+.equ MODE_ABT,        0x17
+.equ MODE_UND,        0x1b
+.equ MODE_SVC,        0x13
+.equ TTBR0_BOOT_ATTRS, 0x6B
+.equ KERNEL_VA_OFFSET, 0x40000000
+
+.macro SET_MODE_STACK_PHYS mode, top_sym
+    cps     #\mode
+    ldr     sp, =\top_sym
+.endm
+
+.macro SET_MODE_STACK_VIRT mode, top_sym
+    cps     #\mode
+    ldr     r0, =\top_sym
+    add     sp, r0, r1
+.endm
+
 _start:
     /* Physical setup */
 
@@ -29,7 +47,7 @@ _start:
     /* Set TTBR0 to our page table base */
     /* TTBR0[31:14] = table base, bits[13:0] = attributes */
     /* Use inner/outer write-back, write-allocate cacheable */
-    orr     r0, r5, #0x6B           @ IRGN=0b11, S=1, RGN=0b01, NOS=1
+    orr     r0, r5, #TTBR0_BOOT_ATTRS @ IRGN=0b11, S=1, RGN=0b01, NOS=1
     mcr     p15, 0, r0, c2, c0, 0   @ TTBR0 = r0
     isb
 
@@ -71,17 +89,10 @@ _start:
 .section .text.boot, "ax"
 .type setup_mode_stacks, %function
 setup_mode_stacks:
-    cps     #0x12
-    ldr     sp, =__irq_stack_top__
-
-    cps     #0x17
-    ldr     sp, =__abt_stack_top__
-
-    cps     #0x1b
-    ldr     sp, =__und_stack_top__
-
-    cps     #0x13
-    ldr     sp, =__svc_stack_top__
+    SET_MODE_STACK_PHYS MODE_IRQ, __irq_stack_top__
+    SET_MODE_STACK_PHYS MODE_ABT, __abt_stack_top__
+    SET_MODE_STACK_PHYS MODE_UND, __und_stack_top__
+    SET_MODE_STACK_PHYS MODE_SVC, __svc_stack_top__
 
     bx      lr
 .size setup_mode_stacks, . - setup_mode_stacks
@@ -91,24 +102,13 @@ setup_mode_stacks:
 .section .text, "ax"
 .type setup_mode_stacks_higher_half, %function
 setup_mode_stacks_higher_half:
-    /* VA = PA + (KERNEL_VA_BASE - KERNEL_PA_BASE) = PA + 0x40000000 */
-    ldr     r1, =0x40000000
+    /* VA = PA + KERNEL_VA_OFFSET */
+    ldr     r1, =KERNEL_VA_OFFSET
 
-    cps     #0x12
-    ldr     r0, =__irq_stack_top__
-    add     sp, r0, r1
-
-    cps     #0x17
-    ldr     r0, =__abt_stack_top__
-    add     sp, r0, r1
-
-    cps     #0x1b
-    ldr     r0, =__und_stack_top__
-    add     sp, r0, r1
-
-    cps     #0x13
-    ldr     r0, =__svc_stack_top__
-    add     sp, r0, r1
+    SET_MODE_STACK_VIRT MODE_IRQ, __irq_stack_top__
+    SET_MODE_STACK_VIRT MODE_ABT, __abt_stack_top__
+    SET_MODE_STACK_VIRT MODE_UND, __und_stack_top__
+    SET_MODE_STACK_VIRT MODE_SVC, __svc_stack_top__
 
     bx      lr
 .size setup_mode_stacks_higher_half, . - setup_mode_stacks_higher_half

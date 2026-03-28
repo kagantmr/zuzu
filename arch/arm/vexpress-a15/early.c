@@ -11,7 +11,6 @@
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/vmm.h"
 
-
 #include "core/panic.h"
 
 #include <assert.h>
@@ -28,7 +27,6 @@ extern addrspace_t *g_kernel_as;
 
 #define LOG_FMT(fmt) "(early) " fmt
 #include "core/log.h"
-
 
 /* =============================================================================
  * Early Boot Page Table (placed in .bss.boot, physical address space)
@@ -207,9 +205,9 @@ _Noreturn void early(void *dtb_ptr)
     //__asm__ volatile(".word 0xffffffff");
 
     // Initialize subsystems
-    pmm_init();     
-    kheap_init();    
-    vmm_bootstrap(); 
+    pmm_init();
+    kheap_init();
+    vmm_bootstrap();
 
     //__asm__ volatile(".word 0xffffffff");
 

@@ -9,7 +9,6 @@ DEBUG_BUILD ?= 1
 DTB_DEBUG_WALK ?= 0
 EARLY_UART ?= 0
 DEBUG_PRINT ?= 1
-SP804_TIMER ?= 0
 BANNER ?= 1
 FANCY_PANIC ?= 1
 
@@ -55,12 +54,6 @@ ifeq ($(EARLY_UART), 0)
 	CFLAGS += -UEARLY_UART
 else
 	CFLAGS += -DEARLY_UART
-endif
-
-ifeq ($(SP804_TIMER), 1)
-    CFLAGS += -DSP804_TIMER
-else
-    CFLAGS += -USP804_TIMER
 endif
 
 # Userspace variables

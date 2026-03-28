@@ -52,28 +52,6 @@ void board_init_devices(void) {
         KDEBUG("No UART in DTB, keeping early boot config");
     }
     
-#ifndef SP804_TIMER
     KDEBUG("Using ARM generic timer as tick source");
     generic_timer_init();
-#else
-    bool sp804_found = false;
-    if (dtb_find_compatible("arm,sp804", path, sizeof(path))) {
-        if (dtb_get_reg_phys(path, 0, &addr, &size)) {
-            void *sp804_va = ioremap((uintptr_t)addr, (size_t)size);
-            if (!sp804_va) panic("Failed to ioremap SP804");
-
-            // Initialize SP804
-            sp804_init((uintptr_t)sp804_va, 10000); 
-            sp804_start((uintptr_t)sp804_va);
-            
-            KDEBUG("Initialized SP804 timer at %p", sp804_va);
-            sp804_found = true;
-        }
-    }
-
-    if (!sp804_found) {
-        KDEBUG("SP804 requested but not found in DTB. Fallback to generic timer.");
-        generic_timer_init();
-    }
-#endif
 }
