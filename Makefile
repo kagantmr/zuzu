@@ -37,7 +37,6 @@ endif
 
 ifeq ($(DEBUG_BUILD), 1)
     # Enable assertions (default C standard for enabling assertions)
-    # might also add -DDEBUG_LOGGING for KINFO/KWARN
     CFLAGS += -UNDEBUG -DDEBUG -DZUZU_BANNER_SHOW_ADDR
 else
     # Disable assertions for release builds

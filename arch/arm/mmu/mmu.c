@@ -266,10 +266,13 @@ void arch_mmu_switch(addrspace_t *as)
 
     arch_mmu_barrier();
 
-    __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"((uint32_t)as->ttbr0_pa) : "memory");
+    
     __asm__ volatile("mcr p15, 0, %0, c13, c0, 1" :: "r"((uint32_t)as->asid) : "memory");
 
-    //arch_mmu_flush_tlb(); // remove when ASID works
+    arch_mmu_barrier();
+
+    __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"((uint32_t)as->ttbr0_pa) : "memory");
+
     arch_mmu_barrier();
 }
 
