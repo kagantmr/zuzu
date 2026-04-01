@@ -6,6 +6,7 @@
 #include "zuzu.h"
 #include "zuzu/protocols/zuart_protocol.h"
 #include "zuzu/protocols/nt_protocol.h"
+#include "zuzu/ipcx.h"
 
 #define LINE_BUFFER_SIZE 256
 #define HISTORY_MAX      32

@@ -2,6 +2,7 @@
 #include "zuzu/protocols/zuart_protocol.h"
 #include "zuzu/protocols/devmgr_protocol.h"
 #include "zuzu/protocols/nt_protocol.h"
+#include "zuzu/ipcx.h"
 #include <stdint.h>
 #include <string.h>
 #include <mem.h>
@@ -13,33 +14,10 @@ static int32_t devmgr_port = -1;
 static int32_t serial_dev_handle = -1;
 ringbuf_t rxrb, txrb;
 
-#define ZUART_WAITQ_MAX 64
 #define ZUART_DEV_CLASS DEV_CLASS_SERIAL
 #define ZUART_COMPATIBLE "arm,pl011"
-#define ZUART_TX_SHMEM_SIZE 4096
-
-static zuart_waiting_t read_waitq[ZUART_WAITQ_MAX];
-static uint16_t read_waitq_head, read_waitq_tail;
-static char    *cached_buf    = NULL;
-static int32_t  cached_handle = -1;
-static int32_t tx_shmem_handle = -1;
-static char *tx_shmem_buf = NULL;
 
 #define LOG_LIT(s) printf("%s", (s))
-
-static int attach_cached_handle(int32_t handle)
-{
-    if (handle != cached_handle) {
-        cached_buf = (char *)_attach(handle);
-        cached_handle = handle;
-    }
-
-    if ((intptr_t)cached_buf <= 0) {
-        cached_handle = -1;
-        return 0;
-    }
-    return 1;
-}
 
 static void uart_txraw(char c)
 {
@@ -59,42 +37,7 @@ static void uart_txbyte(char c)
     uart_txraw(c);
 }
 
-static inline int waitq_empty(void) { return read_waitq_head == read_waitq_tail; }
-static inline int waitq_full(void)  { return (uint16_t)((read_waitq_head + 1) % ZUART_WAITQ_MAX) == read_waitq_tail; }
 
-static inline int waitq_push(uint32_t reply_handle, int32_t handle, size_t len)
-{
-    if (waitq_full()) return 0;
-    read_waitq[read_waitq_head].reply_handle = reply_handle;
-    read_waitq[read_waitq_head].shmem_handle = handle;
-    read_waitq[read_waitq_head].length       = len;
-    read_waitq_head = (uint16_t)((read_waitq_head + 1) % ZUART_WAITQ_MAX);
-    return 1;
-}
-
-static inline zuart_waiting_t waitq_pop(void)
-{
-    zuart_waiting_t w = read_waitq[read_waitq_tail];
-    read_waitq_tail = (uint16_t)((read_waitq_tail + 1) % ZUART_WAITQ_MAX);
-    return w;
-}
-
-static void service_read_waiters(void)
-{
-    while (!waitq_empty() && !rb_empty(&rxrb))
-    {
-        zuart_waiting_t waiter = waitq_pop();
-        if (attach_cached_handle(waiter.shmem_handle)) {
-            char *buf = cached_buf;
-            size_t n = 0;
-            while (!rb_empty(&rxrb) && n < waiter.length)
-                buf[n++] = rb_read(&rxrb);
-            _reply(waiter.reply_handle, n, 0, 0);
-        } else {
-            _reply(waiter.reply_handle, 0, ZUART_ERR, 0);
-        }
-    }
-}
 
 static void drain_uart_rx_fifo(void)
 {
@@ -143,7 +86,6 @@ static void handle_irq_event(void)
     if (uart->MIS & (IMSC_RXIM | IMSC_RTIM))
     {
         drain_uart_rx_fifo();
-        service_read_waiters();
         uart->ICR = (IMSC_RXIM | IMSC_RTIM);
     }
     if (uart->MIS & IMSC_TXIM)
@@ -159,95 +101,41 @@ static void handle_irq_event(void)
 
 static void handle_client_message(zuzu_ipcmsg_t msg)
 {
-    uint32_t reply_handle = (uint32_t)msg.r0;
-    uint32_t sender_pid = msg.r1;
-    uint32_t command = msg.r2;
-    uint32_t packed = msg.r3;
+    if (msg.r2 == 0)
+    {
+        /* One-way IPCX send: r1 carries the byte count. */
+        uint32_t len = msg.r1;
+        if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
 
-    switch (command)
-    {
-    case ZUART_CMD_WRITE:
-    {
-        int32_t handle = zuart_arg_handle(packed);
-        size_t len = zuart_arg_len(packed);
-        if (!attach_cached_handle(handle)) {
-            _reply(reply_handle, 0, ZUART_ERR, 0);
-            break;
-        }
-        if (len > ZUART_TX_SHMEM_SIZE) {
-            len = ZUART_TX_SHMEM_SIZE;
-        }
-        for (size_t i = 0; i < len; i++)
-            uart_txbyte(cached_buf[i]);
-        _reply(reply_handle, len, ZUART_SEND_OK, 0);
+        char *ipcx_buf = (char *)IPCX_BUF_VA;
+        for (uint32_t i = 0; i < len; i++)
+            uart_txbyte(ipcx_buf[i]);
+        return;
     }
-    break;
 
-    case ZUART_CMD_GET_SHMEM:
     {
-        if (tx_shmem_handle < 0) {
-            _reply(reply_handle, ZUART_ERR, 0, 0);
-            break;
-        }
-        int32_t granted = _port_grant(tx_shmem_handle, (int32_t)sender_pid);
-        if (granted < 0) {
-            _reply(reply_handle, ZUART_ERR, 0, 0);
-            break;
-        }
-        _reply(reply_handle, ZUART_SEND_OK, (uint32_t)granted, 0);
-    }
-    break;
-
-    case ZUART_CMD_WRITE_TXBUF:
-    {
-        size_t len = packed;
-        if (tx_shmem_buf == NULL) {
-            _reply(reply_handle, 0, ZUART_ERR, 0);
-            break;
-        }
-        if (len > ZUART_TX_SHMEM_SIZE) {
-            len = ZUART_TX_SHMEM_SIZE;
-        }
-        for (size_t i = 0; i < len; i++)
-            uart_txbyte(tx_shmem_buf[i]);
-        _reply(reply_handle, len, ZUART_SEND_OK, 0);
-    }
-    break;
-
-    case ZUART_CMD_READ:
-    {
-        int32_t handle = zuart_arg_handle(packed);
-        size_t requested = zuart_arg_len(packed);
+        /* IPCX call: r2 carries the requested byte count and r0 is the reply handle. */
+        uint32_t reply_handle = (uint32_t)msg.r0;
+        uint32_t len = msg.r2;
+        if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
 
         if (rb_empty(&rxrb)) {
             drain_uart_rx_fifo();
         }
 
-        // Fallback for setups where RX IRQ delivery is unavailable/unreliable.
-        // Block in the device server until at least one byte arrives.
+        /* Block in server until at least one byte arrives */
         while (rb_empty(&rxrb)) {
             drain_uart_rx_fifo();
         }
 
-        if (!rb_empty(&rxrb)) {
-            if (!attach_cached_handle(handle)) {
-                _reply(reply_handle, 0, ZUART_ERR, 0);
-                break;
-            }
-            size_t n = 0;
-            while (!rb_empty(&rxrb) && n < requested)
-                cached_buf[n++] = rb_read(&rxrb);
-            _reply(reply_handle, n, 0, 0);
-        } else {
-            if (!waitq_push(reply_handle, handle, requested))
-                _reply(reply_handle, 0, ZUART_ERR, 0);
-        }
-    }
-    break;
+        /* Write available data to IPCX buffer (kernel will copy to caller) */
+        char *ipcx_buf = (char *)IPCX_BUF_VA;
+        uint32_t n = 0;
+        while (!rb_empty(&rxrb) && n < len)
+            ipcx_buf[n++] = rb_read(&rxrb);
 
-    default:
-        _reply(reply_handle, 0, ZUART_ERR, 0);
-        break;
+        /* Reply with IPCX buffer contents and byte count. */
+        (void)_replyx(reply_handle, (uint32_t)n);
     }
 }
 
@@ -285,17 +173,8 @@ int zuart_setup(void)
         return ZUART_INIT_FAIL;
     }
 
-    shmem_result_t tx_shm = _memshare(ZUART_TX_SHMEM_SIZE);
-    if (tx_shm.handle < 0 || tx_shm.addr == NULL) {
-        LOG_LIT("zuart: _memshare for tx buffer failed\n");
-        return ZUART_INIT_FAIL;
-    }
-    tx_shmem_handle = tx_shm.handle;
-    tx_shmem_buf = (char *)tx_shm.addr;
-
     rxrb.head = rxrb.tail = 0;
     txrb.head = txrb.tail = 0;
-    read_waitq_head = read_waitq_tail = 0;
 
     // Deterministic UART interrupt setup: mask/clear, configure FIFO threshold,
     // then enable UART and finally unmask RX sources.

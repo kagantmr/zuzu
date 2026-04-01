@@ -5,8 +5,6 @@
 #include <snprintf.h>
 
 static int32_t zuart_port;
-static int32_t shmem_handle;
-static char   *shmem_buf;
 
 // -------------------- Prompt --------------------
 #define PROMPT \
@@ -56,17 +54,22 @@ static void strip(char *s)
 void zprint(const char *s)
 {
     size_t len = strlen(s);
-    if (len > 4096) len = 4096;
-    memcpy(shmem_buf, s, len);
-    _call(zuart_port, ZUART_CMD_WRITE, zuart_pack_arg(shmem_handle, (uint32_t)len), 0);
+    if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
+    memcpy((void *)IPCX_BUF_VA, s, len);
+    _sendx(zuart_port, (uint32_t)len);
 }
 
 size_t zread(char *dst, size_t max)
 {
-    if (max > 4096) max = 4096;
-    zuzu_ipcmsg_t reply = _call(zuart_port, ZUART_CMD_READ, zuart_pack_arg(shmem_handle, (uint32_t)max), 0);
+    if (max > IPCX_BUF_SIZE) max = IPCX_BUF_SIZE;
+    zuzu_ipcmsg_t reply = _callx(zuart_port, (uint32_t)max);
+    if (reply.r0 < 0) {
+        return 0;
+    }
+
     size_t got = reply.r1;
-    memcpy(dst, shmem_buf, got);
+    if (got > max) got = max;
+    memcpy(dst, (void *)IPCX_BUF_VA, got);
     return got;
 }
 
@@ -154,17 +157,6 @@ int setup(void)
     zuzu_ipcmsg_t reply = _call(NT_PORT, NT_LOOKUP, nt_pack("uart"), 0);
     if (reply.r1 != NT_LU_OK) return -1;
     zuart_port = reply.r2;
-    int32_t zuart_pid = reply.r3;
-
-    shmem_result_t shm = _memshare(4096);
-    if (shm.handle < 0) return -1;
-    shmem_handle = shm.handle;
-    shmem_buf    = (char *)shm.addr;
-
-    int32_t remote = _port_grant(shmem_handle, zuart_pid);
-    if (remote < 0) return -1;
-    shmem_handle = remote;
-
     return 0;
 }
 
@@ -252,6 +244,7 @@ int main(void)
                     command_dispatch(line);
                 }
                 pos = 0;
+                zprint("\r\033[K");
                 zprint(PROMPT);
             } else if (c == 127 || c == '\b') {
                 if (pos > 0) {
