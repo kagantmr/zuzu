@@ -156,6 +156,38 @@ static inline int32_t _reply(uint32_t reply_handle, uint32_t w1, uint32_t w2, ui
     return (int32_t) r0;
 }
 
+static inline int32_t _sendx(int32_t port, uint32_t buf_len) {
+    register int32_t  r0 __asm__("r0") = port;
+    register uint32_t r1 __asm__("r1") = buf_len;
+    __asm__ volatile("svc %[num]"
+        : "+r"(r0)
+        : "r"(r1), [num] "i"(SYS_PROC_SENDX)
+        : "memory");
+    return r0;
+}
+
+static inline zuzu_ipcmsg_t _callx(int32_t port, uint32_t buf_len) {
+    register int32_t  r0 __asm__("r0") = port;
+    register uint32_t r1 __asm__("r1") = buf_len;
+    register uint32_t r2 __asm__("r2");
+    register uint32_t r3 __asm__("r3");
+    __asm__ volatile("svc %[num]"
+        : "+r"(r0), "+r"(r1), "=r"(r2), "=r"(r3)
+        : [num] "i"(SYS_PROC_CALLX)
+        : "memory");
+    return (zuzu_ipcmsg_t){.r0 = r0, .r1 = r1, .r2 = r2, .r3 = r3};
+}
+
+static inline int32_t _replyx(uint32_t reply_handle, uint32_t buf_len) {
+    register uint32_t r0 __asm__("r0") = reply_handle;
+    register uint32_t r1 __asm__("r1") = buf_len;
+    __asm__ volatile("svc %[num]"
+        : "+r"(r0)
+        : "r"(r1), [num] "i"(SYS_PROC_REPLYX)
+        : "memory");
+    return (int32_t)r0;
+}
+
 /* ---- Ports ---- */
 
 static inline int32_t _port_create(void) {

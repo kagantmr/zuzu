@@ -85,7 +85,19 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     case SYS_PROC_REPLY:
     {
         proc_reply(frame);
-    } break; 
+    } break;
+    case SYS_PROC_SENDX:
+    {
+        proc_sendx(frame);
+    } break;
+    case SYS_PROC_CALLX:
+    {
+        proc_callx(frame);
+    } break;
+    case SYS_PROC_REPLYX:
+    {
+        proc_replyx(frame);
+    } break;
     case SYS_PORT_CREATE:
     {
         port_create(frame);
