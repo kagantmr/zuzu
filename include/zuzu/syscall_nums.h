@@ -16,6 +16,9 @@
 #define SYS_PROC_RECV 0x11  /* (port) -> sender pid, r1-r3 payload  */
 #define SYS_PROC_CALL 0x12  /* (port, r1-r3) -> r0-r3 reply        */
 #define SYS_PROC_REPLY 0x13 /* (r0-r3) -> 0 or -err                */
+#define SYS_PROC_SENDX 0x14 /* (port, r1-r3, &buf) -> 0 or -err    */
+#define SYS_PROC_CALLX 0x15 /* (port, &buf) -> sender */
+#define SYS_PROC_REPLYX 0x16 /* (port, &buf) -> 0 or -err                */
 
 /* ---- Ports (0x20-0x2F) ---- */
 

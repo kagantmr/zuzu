@@ -44,6 +44,8 @@ typedef struct process {
     uint32_t mmap_va_next;  // initialized to 0x20000000 in process_create
     exception_frame_t *trap_frame;
     handle_vec_t handle_table;
+    uintptr_t ipc_buf_pa;
+    uint32_t  ipc_buf_xfer_len;
     ipc_state_t ipc_state;
     endpoint_t *blocked_endpoint;
     uint32_t flags; 

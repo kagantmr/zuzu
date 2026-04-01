@@ -10,6 +10,7 @@
 #include "kernel/loader/elf.h"
 #include "kernel/mm/alloc.h"   
 #include "kernel/syspage.h"
+#include "zuzu/ipcx.h"
 
 extern uint32_t next_pid;
 extern process_t *process_table[MAX_PROCESSES];
@@ -116,6 +117,16 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
 
     if (!kmap_user_page(process->as, syspage_pa(), 0x1000, VM_PROT_READ))
         goto fail_kstack;
+
+    process->ipc_buf_pa = pmm_alloc_page();
+    if (!process->ipc_buf_pa)
+        goto fail_kstack;
+    if (!kmap_user_page(process->as, process->ipc_buf_pa, IPCX_BUF_VA, VM_PROT_READ | VM_PROT_WRITE))
+    {
+        pmm_free_page(process->ipc_buf_pa);
+        goto fail_kstack;
+    }
+    
 
     // write exception frame to the stack
     stack_top -= 17 * sizeof(uint32_t);
