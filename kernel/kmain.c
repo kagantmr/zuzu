@@ -8,7 +8,6 @@
 
 #include "drivers/uart/uart.h"
 #include "drivers/uart/pl011.h"
-#include "drivers/timer/sp804.h"
 
 #include "core/version.h"
 
