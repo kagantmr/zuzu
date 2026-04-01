@@ -7,15 +7,13 @@
 #include <zuzu.h>
 #include <zuzu/protocols/nt_protocol.h>
 #include <zuzu/protocols/zuart_protocol.h>
+#include <zuzu/ipcx.h>
 #endif
 
 #define STDIO_PRINTF_BUF_SIZE 1024
-#define STDIO_ZUART_BUF_SIZE 4096
 
 #ifndef __KERNEL__
 static int32_t zuart_port = -1;
-static int32_t shmem_handle = -1;
-static char *shmem_buf = NULL;
 #endif
 
 
@@ -29,11 +27,6 @@ static void __attribute__((constructor)) stdio_init(void) {
 
 static void __attribute__((destructor)) stdio_fini(void) {
 #ifndef __KERNEL__
-    if (shmem_handle >= 0) {
-        (void)_detach(shmem_handle);
-    }
-    shmem_handle = -1;
-    shmem_buf = NULL;
     zuart_port = -1;
 #endif
 }
@@ -43,7 +36,7 @@ int stdio_register_zuart(void)
 #ifdef __KERNEL__
     return -1;
 #else
-    if (zuart_port >= 0 && shmem_handle >= 0 && shmem_buf != NULL) {
+    if (zuart_port >= 0) {
         return 0;
     }
 
@@ -53,20 +46,6 @@ int stdio_register_zuart(void)
     }
 
     zuart_port = (int32_t)lu.r2;
-
-    zuzu_ipcmsg_t shm_reply = _call(zuart_port, ZUART_CMD_GET_SHMEM, 0, 0);
-    if ((int32_t)shm_reply.r1 != ZUART_SEND_OK) {
-        return -1;
-    }
-    shmem_handle = (int32_t)shm_reply.r2;
-
-    shmem_buf = (char *)_attach(shmem_handle);
-    if ((intptr_t)shmem_buf <= 0) {
-        shmem_buf = NULL;
-        shmem_handle = -1;
-        return -1;
-    }
-
     return 0;
 #endif
 }
@@ -95,11 +74,11 @@ int vprintf(const char *format, va_list args)
         kprintf("%s", buf);
 #else
         if (stdio_register_zuart() == 0) {
-            if (out_len > STDIO_ZUART_BUF_SIZE) {
-                out_len = STDIO_ZUART_BUF_SIZE;
+            if (out_len > IPCX_BUF_SIZE) {
+                out_len = IPCX_BUF_SIZE;
             }
-            memcpy(shmem_buf, buf, out_len);
-            (void)_call(zuart_port, ZUART_CMD_WRITE_TXBUF, (uint32_t)out_len, 0);
+            memcpy((void *)IPCX_BUF_VA, buf, out_len);
+            (void)_sendx(zuart_port, (uint32_t)out_len);
         }
 #endif
     }

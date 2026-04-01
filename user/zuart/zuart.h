@@ -8,17 +8,10 @@
 
 // zuart is completely based around the pl011 for now. subject to change
 
-// --------------------------------------------------------------
+// ------------------- Constants -------------------
 
-// ------------------- IPC constants -------------------
-
-typedef struct {
-    uint32_t reply_handle;
-    int32_t shmem_handle;
-    size_t length;
-} zuart_waiting_t;
-
-// -----------------------------------------------------
+#define ZUART_INIT_OK 0
+#define ZUART_INIT_FAIL -1
 
 // ------------------- PL011 constants -------------------
 typedef struct {
@@ -97,6 +90,15 @@ static inline char rb_read(ringbuf_t *rb)
 }
 
 int zuart_setup(void);
+
+/* ZUART IPCX API: send/receive via 4KB per-process buffer */
+static inline int32_t zuart_write(int32_t zuart_port, uint32_t len) {
+    return _sendx(zuart_port, len);
+}
+
+static inline zuzu_ipcmsg_t zuart_read(int32_t zuart_port, uint32_t max_len) {
+    return _callx(zuart_port, max_len);
+}
 
 
 // --------------------------------------------------

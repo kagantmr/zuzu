@@ -5,53 +5,24 @@
 
 // ------------------- IPC constants -------------------
 
+/* IPCX-only commands */
 #define ZUART_CMD_WRITE 1
 #define ZUART_CMD_READ 2
-#define ZUART_CMD_GET_SHMEM 3
-#define ZUART_CMD_WRITE_TXBUF 4
-
-/*
- * Call-mode payload now carries only one arg beyond command.
- * Pack shmem handle + length into one 32-bit word:
- *   high 16: shmem handle, low 16: requested length
- */
-static inline uint32_t zuart_pack_arg(int32_t shmem_handle, uint32_t len)
-{
-	return (((uint32_t)shmem_handle & 0xFFFFu) << 16) | (len & 0xFFFFu);
-}
-
-static inline int32_t zuart_arg_handle(uint32_t packed)
-{
-	return (int32_t)((packed >> 16) & 0xFFFFu);
-}
-
-static inline uint32_t zuart_arg_len(uint32_t packed)
-{
-	return packed & 0xFFFFu;
-}
 
 /**
 * IPC contract for ZUART:
-* * ZUART_CMD_WRITE:
-* r0 = port handle (used by IPC)
-* r1 = ZUART_CMD_WRITE
-* r2 = shmem_handle (containing the string/data to send)
-* r3 = length of the data to write
-* * ZUART_CMD_READ:
-* r0 = port handle (used by IPC)
-* r1 = ZUART_CMD_READ
-* r2 = shmem_handle (allocated by client, to be filled by zuart)
-* r3 = maximum length to read (size of the shared memory buffer)
-* * ZUART_CMD_GET_SHMEM:
-* r0 = port handle (used by IPC)
-* r1 = ZUART_CMD_GET_SHMEM
-* r2 = unused
-* r3 = unused
-* * ZUART_CMD_WRITE_TXBUF:
-* r0 = port handle (used by IPC)
-* r1 = ZUART_CMD_WRITE_TXBUF
-* r2 = number of bytes to transmit from server-owned tx shared buffer
-* r3 = unused
+*
+* === IPCX commands ===
+*
+* ZUART_CMD_WRITE:
+*   r1 = ZUART_CMD_WRITE
+*   r2 = length of data in IPCX buffer
+*   returns: r0 = 0 (ok) or error
+*
+* ZUART_CMD_READ:
+*   r1 = ZUART_CMD_READ
+*   r2 = maximum bytes to read into IPCX buffer
+*   returns: r0 = reply_handle, r1 = bytes_read
 */
 
 // -----------------------------------------------------
