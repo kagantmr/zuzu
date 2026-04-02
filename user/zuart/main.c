@@ -107,7 +107,7 @@ static void handle_client_message(zuzu_ipcmsg_t msg)
         uint32_t len = msg.r1;
         if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
 
-        char *ipcx_buf = (char *)IPCX_BUF_VA;
+        char *ipcx_buf = (char *)IPCX_BUF;
         for (uint32_t i = 0; i < len; i++)
             uart_txbyte(ipcx_buf[i]);
         return;
@@ -129,7 +129,7 @@ static void handle_client_message(zuzu_ipcmsg_t msg)
         }
 
         /* Write available data to IPCX buffer (kernel will copy to caller) */
-        char *ipcx_buf = (char *)IPCX_BUF_VA;
+        char *ipcx_buf = (char *)IPCX_BUF;
         uint32_t n = 0;
         while (!rb_empty(&rxrb) && n < len)
             ipcx_buf[n++] = rb_read(&rxrb);
