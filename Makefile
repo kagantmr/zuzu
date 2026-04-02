@@ -82,9 +82,13 @@ ULIB_OBJS = $(patsubst user/lib/%.c,build/user/lib/%.o,$(ULIB_SRCS))
 
 # Derived paths
 USER_CRT0    = build/user/crt0.o
-USER_MAIN_OBJS = $(foreach p,$(USER_PROGS),build/user/$(p).o)
 USER_ELFS    = $(foreach p,$(USER_PROGS),build/user/$(p).elf)
 INITRD       = build/initrd.cpio
+
+# Per-program userspace sources/objects (compile all .c files under user/<prog>/)
+$(foreach p,$(USER_PROGS),$(eval USER_$(p)_SRCS := $(wildcard user/$(p)/*.c)))
+$(foreach p,$(USER_PROGS),$(eval USER_$(p)_OBJS := $(patsubst user/%.c,build/user/%.o,$(USER_$(p)_SRCS))))
+USER_APP_OBJS = $(foreach p,$(USER_PROGS),$(USER_$(p)_OBJS))
 
 SRC_DIRS = arch core drivers kernel include/zcrt
 
@@ -98,7 +102,7 @@ ASRCS_ALL = $(shell find $(SRC_DIRS) -name '*.S')
 ASRCS     = $(filter-out arch/arm/crt0.S arch/arm/initrd.S,$(ASRCS_ALL))
 OBJS      = $(CSRCS:%.c=build/%.o) $(ASRCS:%.S=build/%.o)
 DEPS      = $(OBJS:.o=.d)
-USER_DEPS = $(USER_CRT0:.o=.d) $(USER_MAIN_OBJS:.o=.d) $(ZCRT_OBJS:.o=.d) $(ULIB_OBJS:.o=.d)
+USER_DEPS = $(USER_CRT0:.o=.d) $(USER_APP_OBJS:.o=.d) $(ZCRT_OBJS:.o=.d) $(ULIB_OBJS:.o=.d)
 
 TARGET   = build/zuzu.elf 
 
@@ -106,7 +110,12 @@ all: $(TARGET)
 
 # Keep userspace objects around; otherwise GNU make may treat them as intermediate
 # and delete them after linking the .elfs.
-.SECONDARY: $(USER_MAIN_OBJS) $(ZCRT_OBJS) $(ULIB_OBJS)
+.SECONDARY: $(USER_APP_OBJS) $(ZCRT_OBJS) $(ULIB_OBJS)
+
+# Build user objects (all .c files under user/<prog>/)
+build/user/%.o: user/%.c
+	@mkdir -p $(dir $@)
+	$(USER_CC) $(USER_CFLAGS) -c $< -o $@
 
 # Kernel Compilation
 build/%.o: %.c
@@ -132,15 +141,14 @@ $(USER_CRT0): arch/arm/crt0.S
 	@mkdir -p $(dir $@)
 	$(USER_CC) $(USER_CFLAGS) -x assembler-with-cpp -c $< -o $@
 
-# Build user main objects (one per program)
-build/user/%.o: user/%/main.c
-	@mkdir -p $(dir $@)
-	$(USER_CC) $(USER_CFLAGS) -c $< -o $@
+# Links User Program Objects + CRT0 + ZCRT Library
+define LINK_USER_PROG
+build/user/$(1).elf: $$(USER_$(1)_OBJS) $(USER_CRT0) $(ZCRT_OBJS) $(ULIB_OBJS) user/user.ld
+	@mkdir -p $$(dir $$@)
+	$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) $$(USER_$(1)_OBJS) $(ZCRT_OBJS) $(ULIB_OBJS) -o $$@
+endef
 
-# Links User Main + CRT0 + ZCRT Library
-build/user/%.elf: build/user/%.o $(USER_CRT0) $(ZCRT_OBJS) $(ULIB_OBJS) user/user.ld
-	@mkdir -p $(dir $@)
-	$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) $< $(ZCRT_OBJS) $(ULIB_OBJS) -o $@
+$(foreach p,$(USER_PROGS),$(eval $(call LINK_USER_PROG,$(p))))
 
 $(INITRD): $(USER_ELFS)
 	@rm -rf build/initrd
