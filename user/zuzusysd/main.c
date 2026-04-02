@@ -113,7 +113,7 @@ static void nt_handle_msg(zuzu_ipcmsg_t msg) {
      */
     uint32_t r2_cmd = msg.r2 & 0xFF;
     if (r2_cmd == NT_LOOKUP || r2_cmd == DEN_CREATE ||
-        r2_cmd == DEN_INVITE || r2_cmd == DEN_KICK) {
+        r2_cmd == DEN_INVITE || r2_cmd == DEN_KICK || r2_cmd == DEN_MYDEN) {
         reply_handle = (uint32_t)msg.r0;
         sender       = msg.r1;
         raw_command  = msg.r2;
@@ -173,8 +173,15 @@ static void nt_handle_msg(zuzu_ipcmsg_t msg) {
         } else {
             status = den_remove_member(den_id, target_pid);
         }
+    } else if (command == DEN_MYDEN) {
+        uint32_t did = den_first_for_pid(sender);
+        if (did != 0) {
+            out_handle = did;
+            status = DEN_OK;
+        } else {
+            status = DEN_FAIL;
+        }
     }
-
     if (needs_reply) {
         _reply(reply_handle, (uint32_t)status, out_handle, out_pid);
     }
@@ -216,11 +223,25 @@ int main(void) {
 
     wait_for_service(nt_pack("uart"));
 
-    if (_spawn("bin/zusd", 8) < 0) {
+    int disk_den = den_create(_getpid(), nt_pack("disk"));
+
+    int32_t zusd_pid = _spawn("bin/zusd", 8);
+    if (zusd_pid < 0) {
         printf("zuzusysd: failed to spawn zusd\n");
+    } else {
+        den_add_member(disk_den, zusd_pid);
     }
 
     wait_for_service(nt_pack("zusd"));
+
+    int32_t fat32d_pid = _spawn("bin/fat32d", 10);
+    if (fat32d_pid < 0) {
+        printf("zuzusysd: failed to spawn fat32d\n");
+    } else {
+        den_add_member(disk_den, fat32d_pid);
+    }
+
+    wait_for_service(nt_pack("fat3"));
 
     if (_spawn("bin/zzsh", 8) < 0) {
         printf("zuzusysd: failed to spawn zzsh\n");

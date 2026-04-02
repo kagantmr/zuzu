@@ -1,7 +1,7 @@
 #ifndef ZUZUSYSD_CONSTS_H
 #define ZUZUSYSD_CONSTS_H
 
-#define ZUZUSYSD_VERSION "v1.0"
+#define ZUZUSYSD_VERSION "v2.0"
 
 #define SYSD_MAX_SERVICES 64
 #define SYSD_NAME_LEN 4

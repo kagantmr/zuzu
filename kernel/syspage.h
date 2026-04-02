@@ -1,9 +1,6 @@
 #ifndef KERNEL_SYSPAGE_H
 #define KERNEL_SYSPAGE_H
 
-#define SYSPAGE_VA 0x1000
-
-
 #include <stdint.h>
 
 void     syspage_init(void);        /* call once at boot after PMM + DTB ready */

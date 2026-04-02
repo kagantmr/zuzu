@@ -3,6 +3,7 @@
 #include <mem.h>
 #include <string.h>
 #include <snprintf.h>
+#include <zuzu/syspage.h>
 
 static int32_t zuart_port;
 
@@ -232,7 +233,7 @@ int main(void)
 
             // --- normal character handling ---
             if (c == '\r' || c == '\n') {
-                zprint("\n");
+                zprint("\r\n");
                 line[pos] = '\0';
                 strip(line);
                 hist_pos = 0;
