@@ -88,8 +88,15 @@ int den_remove_member(uint32_t den_id, uint32_t pid) {
     return DEN_FAIL;
 }
 
-// den.c
 int den_is_owner(uint32_t den_id, uint32_t pid) {
     den_t *d = den_find(den_id);
     return d && d->owner_pid == pid;
+}
+
+uint32_t den_first_for_pid(uint32_t pid) {
+    for (int i = 1; i < SYSD_MAX_DENS; i++) {
+        if (den_table[i].active && den_has_member(den_table[i].id, pid))
+            return den_table[i].id;
+    }
+    return 0;
 }
