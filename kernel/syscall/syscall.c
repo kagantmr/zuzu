@@ -149,15 +149,7 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     case SYS_IRQ_DONE:
     {
         irq_done(frame);
-    } break; 
-    case SYS_DUMP:
-    {
-        frame->r[0] = ERR_NOMATCH;
     } break;
-    case SYS_PMM_GETFREE:
-    {
-        sys_pmm_getfree(frame);
-    } break;  
     default:
     {
         KERROR("System call 0x%X does not exist", svc_num);
