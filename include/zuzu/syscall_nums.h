@@ -44,9 +44,6 @@
 
 /* ---- Experimental / debugging / temporary (0xF0-0xFF) ---- */
 
-#define SYS_DUMP 0xF1        /* () -> 0                             */
-#define SYS_PMM_GETFREE 0xF2 /* () -> # of free pages               */
-
 #define SYS_MAX 0xFF
 
 /* ---- Error codes (returned as negative r0) ---- */

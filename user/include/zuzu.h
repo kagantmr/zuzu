@@ -328,26 +328,6 @@ static inline int32_t _irq_done(uint32_t dev_handle) {
     return (int32_t) r0;
 }
 
-/* ---- Debug/diagnostics ---- */
-
-static inline int32_t _dump(void) {
-    register int32_t r0 __asm__("r0");
-    __asm__ volatile("svc %[num]"
-        : "=r"(r0)
-        : [num] "i"(SYS_DUMP)
-        : "memory");
-    return r0;
-}
-
-static inline uint32_t _pmm_free(void) {
-    register uint32_t r0 __asm__("r0");
-    __asm__ volatile("svc %[num]"
-        : "=r"(r0)
-        : [num] "i"(SYS_PMM_GETFREE)
-        : "memory");
-    return r0;
-}
-
 /* ---- IPC helpers ---- */
 
 static inline uint32_t nt_pack(const char *s) {

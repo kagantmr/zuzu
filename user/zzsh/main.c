@@ -93,7 +93,6 @@ void command_dispatch(const char *line)
             ANSI_BOLD "  clear" ANSI_RESET "         clear the screen\n"
             ANSI_BOLD "  free" ANSI_RESET "          show free physical pages\n"
             ANSI_BOLD "  pid" ANSI_RESET "           show shell PID\n"
-            ANSI_BOLD "  dump" ANSI_RESET "          kernel debug dump\n"
             ANSI_BOLD "  sleep <ms>" ANSI_RESET "    sleep for <ms> milliseconds\n"
             ANSI_BOLD "  <name>" ANSI_RESET "        run bin/<name> from initrd\n"
         );
@@ -104,9 +103,11 @@ void command_dispatch(const char *line)
     }
     else if (strcmp(line, "free") == 0)
     {
-        uint32_t fp = _pmm_free();
+        // read info page
+        const zuzu_syspage_t *sp = (const zuzu_syspage_t *)0x1000;
+        uint32_t fp = sp->mem_free_kb; // free pages (4KB each)
         char buf[64];
-        snprintf(buf, sizeof(buf), "%u pages free (%u KB)\n", fp, fp * 4);
+        snprintf(buf, sizeof(buf), "%u pages free (%u KB)\n", fp / 4, fp);
         zprint(buf);
     }
     else if (strcmp(line, "pid") == 0)
@@ -115,10 +116,6 @@ void command_dispatch(const char *line)
         char buf[32];
         snprintf(buf, sizeof(buf), "pid: %u\n", p);
         zprint(buf);
-    }
-    else if (strcmp(line, "dump") == 0)
-    {
-        _dump();
     }
     else if (strncmp(line, "sleep ", 6) == 0)
     {

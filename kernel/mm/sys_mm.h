@@ -10,7 +10,5 @@ void memshare(exception_frame_t *frame);
 void attach(exception_frame_t *frame);
 void detach(exception_frame_t *frame);
 
-void sys_pmm_getfree(exception_frame_t *frame);
-
 
 #endif // SYS_MM_H

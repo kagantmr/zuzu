@@ -373,12 +373,6 @@ void attach(exception_frame_t *frame)
     frame->r[0] = va_base;
 }
 
-void sys_pmm_getfree(exception_frame_t *frame)
-{
-    extern pmm_state_t pmm_state;
-    frame->r[0] = (uint32_t)pmm_state.free_pages;
-}
-
 void detach(exception_frame_t *frame)
 {
     uint32_t handle = frame->r[0];
