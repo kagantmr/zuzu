@@ -50,6 +50,7 @@ void irq_dispatch(void) {
     //KINFO("IRQ received");
     uint32_t iar = gic_acknowledge();
     uint32_t irq_id = iar & 0x3FF;
+    gic_end(iar);
 
     if (irq_id == 1023) {
         return;  // Spurious interrupt, ignore
@@ -60,6 +61,5 @@ void irq_dispatch(void) {
         KERROR("Unhandled IRQ %u", irq_id);
     }
     
-    gic_end(iar);
 
 }
