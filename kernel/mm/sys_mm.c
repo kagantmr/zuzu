@@ -346,10 +346,6 @@ void attach(exception_frame_t *frame)
     if (!vmm_add_region(current_process->as, &region))
     {
         current_process->mmap_va_next -= shm_obj->page_count * PAGE_SIZE;
-        for (size_t i = 0; i < shm_obj->page_count; i++)
-            pmm_free_page(shm_obj->page_addrs[i]);
-        kfree(shm_obj->page_addrs);
-        kfree(shm_obj);
         frame->r[0] = ERR_NOMEM;
         return;
     }
@@ -399,7 +395,6 @@ void detach(exception_frame_t *frame)
     {
         for (size_t j = 0; j < shm->page_count; j++)
             pmm_free_page(shm->page_addrs[j]);
-        entry->shm = NULL;
         kfree(shm->page_addrs);
         kfree(shm);
     }
