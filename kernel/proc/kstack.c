@@ -26,7 +26,7 @@ uintptr_t kstack_alloc(void) {
 
             /* Unmap the guard page (may have been part of a section mapping) */
             arch_mmu_unmap_page(vmm_get_kernel_as(), slot_va);
-            arch_mmu_flush_tlb();
+            arch_mmu_flush_tlb_va(slot_va);
             arch_mmu_barrier();
 
             bitmap |= (1ULL << i);
