@@ -125,8 +125,8 @@ zuzu/
 │   ├── sched/                 # Round-robin scheduler, sys_task syscalls
 │   ├── ipc/                   # Endpoints, ports, send/recv/call/reply
 │   ├── syscall/               # Syscall dispatch table, ABI, pointer validation
-│   ├── time/                  # Global tick counter
-│   └── stats/                 # Runtime statistics
+│   └── time/                  # Global tick counter
+│  
 ├── drivers/
 │   ├── uart/                  # PL011 UART
 │   └── timer/                 # SP804 dual timer
