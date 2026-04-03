@@ -418,24 +418,14 @@ static bool arch_mmu_break_section(uint32_t *l1, uint32_t l1_idx, uint8_t asid)
     /* Extract physical base (bits [31:20]) */
     uintptr_t section_pa = section & 0xFFF00000u;
 
-    /* Determine memory type from the section's TEX/C/B bits.
-     * Section format:  TEX[14:12], C[3], B[2]
-     * We only need to distinguish device vs normal for make_l2_pte. */
-    vm_memtype_t memtype;
-    uint32_t tex = (section >> 12) & 0x7;
-    uint32_t cb  = (section >> 2) & 0x3;
-    if (tex == 0 && cb == 1)
-        memtype = VM_MEM_DEVICE;   /* TEX=000, C=0, B=1 */
-    else
-        memtype = VM_MEM_NORMAL;
-
-    /* Determine access permissions from AP[11:10].
-     * Section AP[1:0] is at bits [11:10].  We map to the prot flags
-     * that make_l2_pte expects. */
-    uint32_t ap = (section >> 10) & 0x3;
-    vm_prot_t prot = VM_PROT_READ | VM_PROT_WRITE;  /* default: kernel RW */
-    if (ap == 3)
-        prot |= VM_PROT_USER;                       /* AP=11 → user RW */
+    /* Preserve key access/attribute bits when converting section->small pages.
+     * Section: XN[4], B[2], C[3], AP[11:10], TEX[14:12], AP2[15]
+     * Small page: XN[0], B[2], C[3], AP[5:4], TEX[8:6], AP2[9] */
+    uint32_t sec_xn = (section >> 4) & 0x1;
+    uint32_t sec_cb = (section >> 2) & 0x3;
+    uint32_t sec_ap = (section >> 10) & 0x3;
+    uint32_t sec_tex = (section >> 12) & 0x7;
+    uint32_t sec_ap2 = (section >> 15) & 0x1;
 
     /* Allocate an L2 table (1KB, from the pool) */
     uintptr_t l2_pa = arch_mmu_alloc_l2_table();
@@ -447,7 +437,15 @@ static bool arch_mmu_break_section(uint32_t *l1, uint32_t l1_idx, uint8_t asid)
     /* Fill all 256 entries to replicate the section mapping at 4KB granularity */
     for (int i = 0; i < 256; i++)
     {
-        l2[i] = arch_mmu_make_l2_pte(section_pa + i * PAGE_SIZE, memtype, prot);
+        uint32_t page_entry = (uint32_t)((section_pa + i * PAGE_SIZE) & ALIGNMENT_4KB_MASK) | 0x2;
+
+        page_entry |= sec_xn;         /* XN -> bit 0 */
+        page_entry |= (sec_cb << 2);  /* B/C -> bits [3:2] */
+        page_entry |= (sec_ap << 4);  /* AP[1:0] -> bits [5:4] */
+        page_entry |= (sec_tex << 6); /* TEX[2:0] -> bits [8:6] */
+        page_entry |= (sec_ap2 << 9); /* AP[2] -> bit 9 */
+
+        l2[i] = page_entry;
     }
 
     /* Replace the section entry with an L1 page-table descriptor */
