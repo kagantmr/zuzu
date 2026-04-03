@@ -55,32 +55,80 @@ static void ipc_panic_bad_trap_frame(const char *where, const process_t *owner, 
     panic("Corrupt trap_frame pointer in IPC path");
 }
 
-void proc_send(exception_frame_t *frame)
+static endpoint_t *validate_endpoint_handle(process_t *proc, int handle, exception_frame_t *frame)
 {
-    if (!current_process)
+    if (!proc)
     {
         frame->r[0] = ERR_BADARG;
-        return;
+        return NULL;
     }
 
-    int handle = (int)frame->r[0];
-
-    // Validate handle
-    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle);
+    handle_entry_t *entry = handle_vec_get(&proc->handle_table, handle);
     if (!entry)
     {
         frame->r[0] = ERR_BADARG;
-        return;
+        return NULL;
     }
     if (entry->type != HANDLE_ENDPOINT)
     {
         frame->r[0] = ERR_NOPERM;
-        return;
+        return NULL;
     }
-    endpoint_t *ep = entry->ep;
-    if (!ep)
+    if (!entry->ep)
     {
         frame->r[0] = ERR_BADARG;
+        return NULL;
+    }
+
+    return entry->ep;
+}
+
+static handle_entry_t *validate_reply_handle(process_t *proc,
+                                             uint32_t handle_idx,
+                                             process_t **target_out,
+                                             exception_frame_t *frame)
+{
+    if (!proc || handle_idx == 0)
+    {
+        frame->r[0] = ERR_BADARG;
+        return NULL;
+    }
+
+    handle_entry_t *entry = handle_vec_get(&proc->handle_table, handle_idx);
+    if (!entry)
+    {
+        frame->r[0] = ERR_BADARG;
+        return NULL;
+    }
+    if (entry->type != HANDLE_REPLY)
+    {
+        frame->r[0] = ERR_BADARG;
+        return NULL;
+    }
+    if (!entry->reply || !entry->reply->caller)
+    {
+        frame->r[0] = ERR_BADARG;
+        return NULL;
+    }
+
+    process_t *target = entry->reply->caller;
+    if (target->ipc_state != IPC_WAITING)
+    {
+        frame->r[0] = ERR_BADARG;
+        return NULL;
+    }
+
+    *target_out = target;
+    return entry;
+}
+
+void proc_send(exception_frame_t *frame)
+{
+    int handle = (int)frame->r[0];
+
+    endpoint_t *ep = validate_endpoint_handle(current_process, handle, frame);
+    if (!ep)
+    {
         return;
     }
 
@@ -116,30 +164,11 @@ void proc_send(exception_frame_t *frame)
 
 void proc_recv(exception_frame_t *frame)
 {
-    if (!current_process)
-    {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-
     int handle = (int)frame->r[0];
 
-    // Validate handle
-    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle);
-    if (!entry)
-    {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-    if (entry->type != HANDLE_ENDPOINT)
-    {
-        frame->r[0] = ERR_NOPERM;
-        return;
-    }
-    endpoint_t *ep = entry->ep;
+    endpoint_t *ep = validate_endpoint_handle(current_process, handle, frame);
     if (!ep)
     {
-        frame->r[0] = ERR_BADARG;
         return;
     }
 
@@ -234,30 +263,11 @@ void proc_recv(exception_frame_t *frame)
 
 void proc_call(exception_frame_t *frame)
 {
-    if (!current_process)
-    {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-
     int handle = (int)frame->r[0];
 
-    // Validate handle
-    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle);
-    if (!entry)
-    {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-    if (entry->type != HANDLE_ENDPOINT)
-    {
-        frame->r[0] = ERR_NOPERM;
-        return;
-    }
-    endpoint_t *ep = entry->ep;
+    endpoint_t *ep = validate_endpoint_handle(current_process, handle, frame);
     if (!ep)
     {
-        frame->r[0] = ERR_BADARG;
         return;
     }
 
@@ -321,42 +331,11 @@ void proc_call(exception_frame_t *frame)
 
 void proc_reply(exception_frame_t *frame)
 {
-    if (!current_process)
-    {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-
-    // Take r[0] as a handle index
     uint32_t handle_idx = frame->r[0];
-
-    // Validate handle
-    if (handle_idx == 0)
-    {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle_idx);
+    process_t *target = NULL;
+    handle_entry_t *entry = validate_reply_handle(current_process, handle_idx, &target, frame);
     if (!entry)
     {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-    if (entry->type != HANDLE_REPLY)
-    {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-    if (!entry->reply || !entry->reply->caller)
-    {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-    process_t *target = entry->reply->caller;
-
-    if (target->ipc_state != IPC_WAITING)
-    {
-        frame->r[0] = ERR_BADARG;
         return;
     }
 
@@ -386,30 +365,11 @@ void proc_reply(exception_frame_t *frame)
 
 void proc_sendx(exception_frame_t *frame)
 {
-    if (!current_process)
-    {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-
     int handle = (int)frame->r[0];
 
-    // Validate handle
-    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle);
-    if (!entry)
-    {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-    if (entry->type != HANDLE_ENDPOINT)
-    {
-        frame->r[0] = ERR_NOPERM;
-        return;
-    }
-    endpoint_t *ep = entry->ep;
+    endpoint_t *ep = validate_endpoint_handle(current_process, handle, frame);
     if (!ep)
     {
-        frame->r[0] = ERR_BADARG;
         return;
     }
 
@@ -447,30 +407,11 @@ void proc_sendx(exception_frame_t *frame)
 
 void proc_callx(exception_frame_t *frame)
 {
-    if (!current_process)
-    {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-
     int handle = (int)frame->r[0];
 
-    // Validate handle
-    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle);
-    if (!entry)
-    {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-    if (entry->type != HANDLE_ENDPOINT)
-    {
-        frame->r[0] = ERR_NOPERM;
-        return;
-    }
-    endpoint_t *ep = entry->ep;
+    endpoint_t *ep = validate_endpoint_handle(current_process, handle, frame);
     if (!ep)
     {
-        frame->r[0] = ERR_BADARG;
         return;
     }
 
@@ -537,42 +478,11 @@ void proc_callx(exception_frame_t *frame)
 
 void proc_replyx(exception_frame_t *frame)
 {
-    if (!current_process)
-    {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-
-    // Take r[0] as a handle index
     uint32_t handle_idx = frame->r[0];
-
-    // Validate handle
-    if (handle_idx == 0)
-    {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle_idx);
+    process_t *target = NULL;
+    handle_entry_t *entry = validate_reply_handle(current_process, handle_idx, &target, frame);
     if (!entry)
     {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-    if (entry->type != HANDLE_REPLY)
-    {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-    if (!entry->reply || !entry->reply->caller)
-    {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-    process_t *target = entry->reply->caller;
-
-    if (target->ipc_state != IPC_WAITING)
-    {
-        frame->r[0] = ERR_BADARG;
         return;
     }
 
