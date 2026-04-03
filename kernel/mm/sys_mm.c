@@ -57,7 +57,7 @@ void memmap(exception_frame_t *frame)
     }
 
     // 2. Bump the cursor
-    if (current_process->mmap_va_next > va + size) // check for overflow
+    if (size > USER_VA_TOP - va) // check for overflow
     {
         frame->r[0] = ERR_BADARG;
         return;
