@@ -392,7 +392,6 @@ int main(void)
 {
     if (zusd_setup() < 0)
         return 1;
-
     while (1)
     {
         zuzu_ipcmsg_t msg = _recv(port);

@@ -26,5 +26,7 @@ int den_add_member(uint32_t den_id, uint32_t pid);
 int den_remove_member(uint32_t den_id, uint32_t pid);
 int den_is_owner(uint32_t den_id, uint32_t pid);
 uint32_t den_first_for_pid(uint32_t pid);
+uint32_t den_count_for_pid(uint32_t pid);
+void den_scrub_pid(uint32_t pid);
 
 #endif

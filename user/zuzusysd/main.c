@@ -53,12 +53,17 @@ static int nt_register(uint32_t name_u32, uint32_t handle,
     if (den_id != 0 && !den_has_member(den_id, pid))
         return NT_REG_FAIL;
 
-    // reject duplicates within the same den
+    // reject duplicates within the same den, but allow same process to refresh handle
     for (int i = 0; i < SYSD_MAX_SERVICES; i++) {
         if (registry_table[i].handle != 0 &&
             registry_table[i].den_id == den_id &&
-            name_equals_u32(registry_table[i].name, name_u32))
+            name_equals_u32(registry_table[i].name, name_u32)) {
+            if (registry_table[i].pid == pid) {
+                registry_table[i].handle = handle;
+                return NT_REG_OK;
+            }
             return NT_REG_FAIL;
+        }
     }
 
     for (int i = 0; i < SYSD_MAX_SERVICES; i++) {
@@ -91,6 +96,26 @@ static int nt_lookup(uint32_t name_u32, uint32_t requester_pid,
     return NT_LU_NOMATCH;
 }
 
+static void scrub_pid(uint32_t pid) {
+    for (int i = 0; i < SYSD_MAX_SERVICES; i++) {
+        if (registry_table[i].handle == 0) {
+            continue;
+        }
+        if (registry_table[i].pid != pid) {
+            continue;
+        }
+
+        registry_table[i].handle = 0;
+        registry_table[i].pid = 0;
+        registry_table[i].den_id = 0;
+        for (int j = 0; j < SYSD_NAME_LEN; j++) {
+            registry_table[i].name[j] = 0;
+        }
+    }
+
+    den_scrub_pid(pid);
+}
+
 static void nt_handle_msg(zuzu_ipcmsg_t msg) {
     uint32_t sender = 0;
     uint32_t reply_handle = 0;
@@ -113,7 +138,8 @@ static void nt_handle_msg(zuzu_ipcmsg_t msg) {
      */
     uint32_t r2_cmd = msg.r2 & 0xFF;
     if (r2_cmd == NT_LOOKUP || r2_cmd == DEN_CREATE ||
-        r2_cmd == DEN_INVITE || r2_cmd == DEN_KICK || r2_cmd == DEN_MYDEN) {
+        r2_cmd == DEN_INVITE || r2_cmd == DEN_KICK ||
+        r2_cmd == DEN_MYDEN || r2_cmd == DEN_MYDEN_COUNT) {
         reply_handle = (uint32_t)msg.r0;
         sender       = msg.r1;
         raw_command  = msg.r2;
@@ -177,10 +203,14 @@ static void nt_handle_msg(zuzu_ipcmsg_t msg) {
         uint32_t did = den_first_for_pid(sender);
         if (did != 0) {
             out_handle = did;
+            out_pid = den_count_for_pid(sender);
             status = DEN_OK;
         } else {
             status = DEN_FAIL;
         }
+    } else if (command == DEN_MYDEN_COUNT) {
+        out_handle = den_count_for_pid(sender);
+        status = DEN_OK;
     }
     if (needs_reply) {
         _reply(reply_handle, (uint32_t)status, out_handle, out_pid);
@@ -194,7 +224,10 @@ static void wait_for_service(uint32_t name_u32) {
     uint32_t time = 0;
 
     while (nt_lookup(name_u32, _getpid(), &handle, &pid) != NT_LU_OK && time < WAIT_TIMEOUT) {
-        _wait(-1, NULL, WNOHANG);
+        int32_t dead = _wait(-1, NULL, WNOHANG);
+        if (dead > 0) {
+            scrub_pid((uint32_t)dead);
+        }
         nt_handle_msg(_recv(port));
         time += 1;
     }
@@ -203,7 +236,10 @@ static void wait_for_service(uint32_t name_u32) {
 void sysd_loop(void)
 {
     while (1) {
-        _wait(-1, NULL, WNOHANG);
+        int32_t dead = _wait(-1, NULL, WNOHANG);
+        if (dead > 0) {
+            scrub_pid((uint32_t)dead);
+        }
         nt_handle_msg(_recv(port));
     }
 }
