@@ -110,7 +110,7 @@ void process_kill(process_t *p, const int exit_status) {
 void process_destroy(process_t *p)
 {
 
-    uint32_t pid = p->pid; // apparently causes an UAF
+    uint32_t pid = p->pid;
     // extern pmm_state_t pmm_state;
     irq_release_all(p);
     // KDEBUG("destroy PID %d, pmm before=%d", pid, pmm_state.free_pages);
