@@ -140,6 +140,8 @@ bool arch_mmu_unmap(addrspace_t *as, uintptr_t va, size_t size)
     }
 
     bool unmapped_any = false;
+    bool page_mode = false;
+    size_t unmapped_pages = 0;
 
     // Section-aligned: use sections
     if ((va % SECTION_SIZE) == 0 && (size % SECTION_SIZE) == 0)
@@ -161,11 +163,19 @@ bool arch_mmu_unmap(addrspace_t *as, uintptr_t va, size_t size)
     // Page-aligned: use pages
     else if ((va % PAGE_SIZE) == 0 && (size % PAGE_SIZE) == 0)
     {
+        page_mode = true;
         for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE)
         {
             if (arch_mmu_unmap_page(as, va + offset))
             {
                 unmapped_any = true;
+                unmapped_pages++;
+
+                // For small unmaps, invalidate only the touched virtual address.
+                if (size <= (16 * PAGE_SIZE))
+                {
+                    arch_mmu_flush_tlb_va(va + offset);
+                }
             }
         }
     }
@@ -176,7 +186,11 @@ bool arch_mmu_unmap(addrspace_t *as, uintptr_t va, size_t size)
 
     if (unmapped_any)
     {
-        arch_mmu_flush_tlb();
+        // For section unmaps and larger page ranges, invalidate by ASID.
+        if (!page_mode || size > (16 * PAGE_SIZE) || unmapped_pages == 0)
+        {
+            arch_mmu_flush_tlb_asid(as->asid);
+        }
         arch_mmu_barrier();
     }
 
@@ -273,6 +287,9 @@ void arch_mmu_switch(addrspace_t *as)
 
     __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"((uint32_t)as->ttbr0_pa) : "memory");
 
+    // Avoid global invalidation on switch; invalidate only the incoming ASID.
+    arch_mmu_flush_tlb_asid(as->asid);
+
     arch_mmu_barrier();
 }
 
@@ -300,7 +317,7 @@ void arch_mmu_flush_tlb_va(uintptr_t va)
 {
     // Invalidate unified TLB entry by MVA.
     // The architecture ignores low bits as appropriate.
-    __asm__ volatile("mcr p15, 0, %0, c8, c7, 1" ::"r"((uint32_t)va) : "memory");
+    __asm__ volatile("mcr p15, 0, %0, c8, c7, 1" ::"r"((uint32_t)(va & ALIGNMENT_4KB_MASK)) : "memory");
 }
 
 uintptr_t arch_mmu_translate(uintptr_t ttbr0_pa, uintptr_t va)
@@ -394,7 +411,7 @@ uint32_t arch_mmu_make_l2_pte(uintptr_t pa, vm_memtype_t memtype, vm_prot_t prot
  * L1 page-table pointer. After this, individual pages can be remapped or
  * unmapped within the former section.
  */
-static bool arch_mmu_break_section(uint32_t *l1, uint32_t l1_idx)
+static bool arch_mmu_break_section(uint32_t *l1, uint32_t l1_idx, uint8_t asid)
 {
     uint32_t section = l1[l1_idx];
 
@@ -437,7 +454,7 @@ static bool arch_mmu_break_section(uint32_t *l1, uint32_t l1_idx)
     l1[l1_idx] = arch_mmu_make_l1_pte(l2_pa);
 
     /* Flush TLB — the old section TLB entries are now stale */
-    arch_mmu_flush_tlb();
+    arch_mmu_flush_tlb_asid(asid);
     arch_mmu_barrier();
 
     return true;
@@ -475,7 +492,7 @@ bool arch_mmu_map_page(addrspace_t *as, uintptr_t va, uintptr_t pa,
     else
     {
         // Section mapping — break it into 256 page entries first
-        if (!arch_mmu_break_section(l1, l1_idx))
+        if (!arch_mmu_break_section(l1, l1_idx, as->asid))
             return false;
 
         uint32_t l2_table_pa = l1[l1_idx] & 0xFFFFFC00;
