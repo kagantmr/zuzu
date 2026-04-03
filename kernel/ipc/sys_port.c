@@ -12,6 +12,13 @@ extern process_t *current_process;
 extern process_t *process_table[MAX_PROCESSES];
 endpoint_t *nametable_endpoint;
 
+static bool can_regrant_received_handle(const process_t *grantee)
+{
+    // only zuzusysd may receive grantable copies.
+    // Everyone else gets a non-grantable copy to prevent unbounded handle propagation.
+    return grantee && ((grantee->flags & PROC_FLAG_INIT) != 0);
+}
+
 void port_create(exception_frame_t *frame)
 {
     if (!current_process)
@@ -37,8 +44,10 @@ void port_create(exception_frame_t *frame)
     }
     if (current_process->flags & PROC_FLAG_INIT && !nametable_endpoint)
     {
+
+        // TODO: move this policy into an explicit bootstrap phase instead of port_create().
         nametable_endpoint = new_endpoint;
-        /* Inject NT port into all processes spawned before nametable existed */
+        /* Inject NT handle into processes spawned before nametable existed. */
         for (int j = 0; j < MAX_PROCESSES; j++)
         {
             process_t *p = process_table[j]; 
@@ -49,6 +58,8 @@ void port_create(exception_frame_t *frame)
                     p_entry->ep = nametable_endpoint;
                     p_entry->grantable = true;
                     p_entry->type = HANDLE_ENDPOINT;
+                } else if (p_entry && p_entry->type != HANDLE_FREE) {
+                    KWARN("nametable bootstrap skipped PID %u: handle slot 0 already in use", p->pid);
                 }
             }
         }
@@ -188,7 +199,7 @@ void port_grant(exception_frame_t *frame)
     }
 
     *dst = *src;
-    dst->grantable = (grantee->flags & PROC_FLAG_INIT) != 0;
+    dst->grantable = can_regrant_received_handle(grantee);
     if (dst->type == HANDLE_SHMEM && dst->shm)
     {
         dst->shm->ref_count++;

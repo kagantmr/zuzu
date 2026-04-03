@@ -70,8 +70,8 @@ DISK_PROGS = test
 USER_PROGS = $(BOOT_PROGS) $(DISK_PROGS)
 
 # zcrt + user lib sources
-ZCRT_SRCS = $(wildcard include/zcrt/*.c)
-ZCRT_OBJS = $(patsubst include/zcrt/%.c,build/user/zcrt/%.o,$(ZCRT_SRCS))
+ZCRT_SRCS = $(wildcard lib/zcrt/*.c)
+ZCRT_OBJS = $(patsubst lib/zcrt/%.c,build/user/zcrt/%.o,$(ZCRT_SRCS))
 
 ULIB_SRCS = $(wildcard user/lib/*.c)
 ULIB_OBJS = $(patsubst user/%.c,build/user/%.o,$(ULIB_SRCS))
@@ -90,11 +90,11 @@ $(foreach p,$(USER_PROGS),$(eval USER_$(p)_SRCS := $(wildcard user/$(p)/*.c)))
 $(foreach p,$(USER_PROGS),$(eval USER_$(p)_OBJS := $(patsubst user/%.c,build/user/%.o,$(USER_$(p)_SRCS))))
 USER_APP_OBJS = $(foreach p,$(USER_PROGS),$(USER_$(p)_OBJS))
 
-SRC_DIRS = arch core drivers kernel include/zcrt
+SRC_DIRS = arch core drivers kernel lib/zcrt
 
 # kernel sources
 CSRCS     = $(shell find $(SRC_DIRS) -name '*.c')
-CSRCS     := $(filter-out include/zcrt/zmalloc.c,$(CSRCS))
+CSRCS     := $(filter-out lib/zcrt/zmalloc.c,$(CSRCS))
 ASRCS_ALL = $(shell find $(SRC_DIRS) -name '*.S')
 ASRCS     = $(filter-out arch/arm/crt0.S arch/arm/initrd.S,$(ASRCS_ALL))
 OBJS      = $(CSRCS:%.c=build/%.o) $(ASRCS:%.S=build/%.o)
@@ -127,7 +127,7 @@ build/%.o: %.S
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
 
-build/user/zcrt/%.o: include/zcrt/%.c
+build/user/zcrt/%.o: lib/zcrt/%.c
 	@mkdir -p $(dir $@)
 	$(USER_CC) $(USER_CFLAGS) -c $< -o $@
 
