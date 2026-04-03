@@ -38,7 +38,7 @@ static bool trap_frame_sane(const exception_frame_t *frame)
 
 void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
 {
-
+    //KDEBUG("syscall: pid=%u svc=0x%X frame=%p", current_process ? current_process->pid : 0, svc_num, frame);
     if (!current_process) { frame->r[0] = ERR_BADARG; return; }
     if (!trap_frame_sane(frame)) {
         KERROR("bad syscall frame: pid=%u svc=%u frame=%p", current_process->pid, svc_num, frame);

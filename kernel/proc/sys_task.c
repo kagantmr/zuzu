@@ -56,12 +56,12 @@ void wait(exception_frame_t *frame) {
 
     process_t *child = process_find_by_pid(child_pid);
     if (!child) {
-        frame->r[0] = -ERR_NOENT;
+        frame->r[0] = ERR_NOENT;
         return;
     }
 
     if (child->parent_pid != current_process->pid) {
-        frame->r[0] = -ERR_BADARG;
+        frame->r[0] = ERR_BADARG;
         return;
     }
 
@@ -88,7 +88,7 @@ void wait(exception_frame_t *frame) {
     // re-fetch after wakeup, pointer may be stale
     child = process_find_by_pid(child_pid);
     if (!child) {
-        frame->r[0] = -ERR_NOENT;
+        frame->r[0] = ERR_NOENT;
         return;
     }
     if (status_out && validate_user_ptr((uintptr_t)status_out, sizeof(int32_t)))
@@ -106,7 +106,7 @@ void spawn(exception_frame_t *frame) {
     }
     char kname[64];
     if (name_len >= sizeof(kname)) {
-        frame->r[0] = -ERR_BADARG;
+        frame->r[0] = ERR_BADARG;
         return;
     }
     memcpy(kname, name, name_len);
@@ -119,7 +119,7 @@ void spawn(exception_frame_t *frame) {
     }
     process_t *process = process_create_from_elf(elf_data, elf_size, kname);
     if (!process) {
-        frame->r[0] = -ERR_NOMEM;
+        frame->r[0] = ERR_NOMEM;
         return;
     }
     

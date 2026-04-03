@@ -57,7 +57,6 @@ static void ipc_panic_bad_trap_frame(const char *where, const process_t *owner, 
 
 void proc_send(exception_frame_t *frame)
 {
-    // KDEBUG("reached proc_send syscall");
     if (!current_process)
     {
         frame->r[0] = ERR_BADARG;
@@ -117,7 +116,6 @@ void proc_send(exception_frame_t *frame)
 
 void proc_recv(exception_frame_t *frame)
 {
-    // KDEBUG("reached proc_recv syscall");
     if (!current_process)
     {
         frame->r[0] = ERR_BADARG;
@@ -225,7 +223,6 @@ void proc_recv(exception_frame_t *frame)
     }
     else
     {
-        // KDEBUG("sender queue empty, blocking");
         current_process->ipc_state = IPC_RECEIVER;
         current_process->blocked_endpoint = ep;
         list_add_tail(&current_process->node, &ep->receiver_queue.node);
@@ -314,7 +311,6 @@ void proc_call(exception_frame_t *frame)
     }
     else
     {
-
         current_process->ipc_state = IPC_WAITING;
         current_process->blocked_endpoint = ep;
         list_add_tail(&current_process->node, &ep->sender_queue.node);

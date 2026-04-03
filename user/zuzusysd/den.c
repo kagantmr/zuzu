@@ -12,15 +12,6 @@ static inline void name_u32_to_chars(uint32_t name_u32, char out[SYSD_NAME_LEN])
     out[3] = (char)((name_u32 >> 24) & 0xFF);
 }
 
-static int name_equals_u32(const char name[SYSD_NAME_LEN], uint32_t name_u32) {
-    char tmp[SYSD_NAME_LEN];
-    name_u32_to_chars(name_u32, tmp);
-    for (int i = 0; i < SYSD_NAME_LEN; i++) {
-        if (name[i] != tmp[i]) return 0;
-    }
-    return 1;
-}
-
 // den.c
 void den_init(uint32_t sysd_pid) {
     for (int i = 0; i < SYSD_MAX_DENS; i++)
@@ -99,4 +90,45 @@ uint32_t den_first_for_pid(uint32_t pid) {
             return den_table[i].id;
     }
     return 0;
+}
+
+uint32_t den_count_for_pid(uint32_t pid) {
+    uint32_t count = 0;
+    for (int i = 1; i < SYSD_MAX_DENS; i++) {
+        if (den_table[i].active && den_has_member(den_table[i].id, pid)) {
+            count++;
+        }
+    }
+    return count;
+}
+
+void den_scrub_pid(uint32_t pid) {
+    for (int i = 0; i < SYSD_MAX_DENS; i++) {
+        den_t *d = &den_table[i];
+        if (!d->active) {
+            continue;
+        }
+
+        for (uint32_t m = 0; m < d->members.len; m++) {
+            if (d->members.data[m] == pid) {
+                d->members.data[m] = d->members.data[d->members.len - 1];
+                d->members.len--;
+                break;
+            }
+        }
+
+        if (d->id != 0 && d->owner_pid == pid) {
+            if (d->members.len == 0) {
+                pid_vec_destroy(&d->members);
+                d->id = 0;
+                d->owner_pid = 0;
+                d->active = 0;
+                for (int j = 0; j < SYSD_NAME_LEN; j++) {
+                    d->name[j] = 0;
+                }
+            } else {
+                d->owner_pid = d->members.data[0];
+            }
+        }
+    }
 }

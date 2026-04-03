@@ -6,7 +6,6 @@
 #include <stdint.h>
 #include <string.h>
 #include <mem.h>
-#include <stdio.h>
 
 volatile pl011_t *uart;
 int port;
@@ -16,8 +15,6 @@ ringbuf_t rxrb, txrb;
 
 #define ZUART_DEV_CLASS DEV_CLASS_SERIAL
 #define ZUART_COMPATIBLE "arm,pl011"
-
-#define LOG_LIT(s) printf("%s", (s))
 
 static void uart_txraw(char c)
 {
@@ -55,7 +52,6 @@ static int32_t wait_for_devmgr(void)
             devmgr_port = (int32_t)ntmsg.r2;
             return (int32_t)ntmsg.r3;
         }
-        LOG_LIT("zuart: waiting for devmgr registration\n");
         _sleep(10);
     }
 }
@@ -67,15 +63,6 @@ static int32_t request_serial_device(void)
         zuzu_ipcmsg_t devmsg = _call(devmgr_port, DEV_REQUEST, DEV_CLASS_SERIAL, 0);
         if ((int32_t)devmsg.r1 == 0) {
             return (int32_t)devmsg.r2;
-        }
-        if ((int32_t)devmsg.r1 == ERR_NOENT) {
-            LOG_LIT("zuart: DEV_REQUEST no matching device/tag yet\n");
-        } else if ((int32_t)devmsg.r1 == ERR_NOPERM) {
-            LOG_LIT("zuart: DEV_REQUEST noperm (wrong devmgr instance)\n");
-        } else if ((int32_t)devmsg.r1 == ERR_BUSY) {
-            LOG_LIT("zuart: DEV_REQUEST busy, retrying\n");
-        } else {
-            LOG_LIT("zuart: DEV_REQUEST failed, retrying\n");
         }
         _sleep(10);
     }
@@ -143,13 +130,11 @@ int zuart_setup(void)
 {
     port = _port_create();
     if (port < 0) {
-        LOG_LIT("zuart: _port_create failed\n");
         return ZUART_INIT_FAIL;
     }
 
     int32_t nt_slot = _port_grant(port, NAMETABLE_PID);
     if (nt_slot < 0) {
-        LOG_LIT("zuart: _port_grant to nametable failed\n");
         return ZUART_INIT_FAIL;
     }
 
@@ -158,18 +143,15 @@ int zuart_setup(void)
     int32_t dev_handle = request_serial_device();
 
     if (_irq_claim(dev_handle) < 0) {
-        LOG_LIT("zuart: _irq_claim failed\n");
         return ZUART_INIT_FAIL;
     }
     if (_irq_bind(dev_handle, (uint32_t)port) < 0) {
-        LOG_LIT("zuart: _irq_bind failed\n");
         return ZUART_INIT_FAIL;
     }
 
     serial_dev_handle = dev_handle;
     uart = (volatile pl011_t *)_mapdev(dev_handle);
     if ((intptr_t)uart <= 0) {
-        LOG_LIT("zuart: _mapdev failed\n");
         return ZUART_INIT_FAIL;
     }
 
