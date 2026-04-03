@@ -81,13 +81,13 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
                     prot |= VM_PROT_EXEC;
                 if (!kmap_user_page(process->as, pa, va, prot))
                 {
-                    // unmap any mapped pages (orphans)
+                    // Roll back any mapped pages for this segment and free all backing pages.
                     for (uint32_t j = 0; j < page; j++)
                     {
                         uintptr_t orphan_va = ph->p_vaddr + j * PAGE_SIZE;
                         vmm_unmap_range(process->as, orphan_va, PAGE_SIZE);
                     }
-                    for (uint32_t j = page; j < pages_needed; j++)
+                    for (uint32_t j = 0; j < pages_needed; j++)
                     {
                         pmm_free_page(segment_pa + j * PAGE_SIZE);
                     }
@@ -176,6 +176,10 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
 fail_kstack:
     kstack_free(process->kernel_stack_top);
 fail_as:
+    // as_destroy() tears down mappings/tables but does not reclaim user backing pages.
+    // Reclaim mapped user pages here for all partially loaded process states.
+    if (process->as)
+        arch_mmu_free_user_pages(process->as->ttbr0_pa);
     as_destroy(process->as);
 fail_process:
     handle_vec_destroy(&process->handle_table);
