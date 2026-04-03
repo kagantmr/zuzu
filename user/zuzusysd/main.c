@@ -139,7 +139,8 @@ static void nt_handle_msg(zuzu_ipcmsg_t msg) {
     uint32_t r2_cmd = msg.r2 & 0xFF;
     if (r2_cmd == NT_LOOKUP || r2_cmd == DEN_CREATE ||
         r2_cmd == DEN_INVITE || r2_cmd == DEN_KICK ||
-        r2_cmd == DEN_MYDEN || r2_cmd == DEN_MYDEN_COUNT) {
+        r2_cmd == DEN_MYDEN || r2_cmd == DEN_MYDEN_COUNT ||
+        r2_cmd == DEN_MYDEN_AT) {
         reply_handle = (uint32_t)msg.r0;
         sender       = msg.r1;
         raw_command  = msg.r2;
@@ -211,6 +212,14 @@ static void nt_handle_msg(zuzu_ipcmsg_t msg) {
     } else if (command == DEN_MYDEN_COUNT) {
         out_handle = den_count_for_pid(sender);
         status = DEN_OK;
+    } else if (command == DEN_MYDEN_AT) {
+        uint32_t did = den_for_pid_at(sender, name_u32);
+        if (did != 0) {
+            out_handle = did;
+            status = DEN_OK;
+        } else {
+            status = DEN_FAIL;
+        }
     }
     if (needs_reply) {
         _reply(reply_handle, (uint32_t)status, out_handle, out_pid);
@@ -254,7 +263,7 @@ int main(void) {
     wait_for_service(nt_pack("devm"));
 
     if (_spawn("bin/zuart", 9) < 0) {
-        printf("zuzusysd: failed to spawn zuart\n");
+        return -1;
     }
 
     wait_for_service(nt_pack("uart"));
@@ -278,6 +287,16 @@ int main(void) {
     }
 
     wait_for_service(nt_pack("fat3"));
+
+
+    int32_t fbox_pid = _spawn("bin/fbox", 8);
+    if (fbox_pid < 0) {
+        printf("zuzusysd: failed to spawn fbox\n");
+    } else {
+        den_add_member(disk_den, fbox_pid);
+    }
+
+    wait_for_service(nt_pack("fbox"));
 
     if (_spawn("bin/zzsh", 8) < 0) {
         printf("zuzusysd: failed to spawn zzsh\n");

@@ -382,9 +382,6 @@ static int zusd_setup(void)
 
     /* announce ourselves */
     (void)_send(NT_PORT, NT_REGISTER | (my_den << 8), nt_pack("zusd"), (uint32_t)nt_slot);
-    printf("zusd: ready (den=%u)\n", my_den);
-
-    printf("zusd: ready\n");
     return 0;
 }
 
