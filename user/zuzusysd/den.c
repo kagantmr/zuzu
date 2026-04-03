@@ -102,6 +102,20 @@ uint32_t den_count_for_pid(uint32_t pid) {
     return count;
 }
 
+uint32_t den_for_pid_at(uint32_t pid, uint32_t index) {
+    uint32_t seen = 0;
+    for (int i = 1; i < SYSD_MAX_DENS; i++) {
+        if (!den_table[i].active || !den_has_member(den_table[i].id, pid)) {
+            continue;
+        }
+        if (seen == index) {
+            return den_table[i].id;
+        }
+        seen++;
+    }
+    return 0;
+}
+
 void den_scrub_pid(uint32_t pid) {
     for (int i = 0; i < SYSD_MAX_DENS; i++) {
         den_t *d = &den_table[i];

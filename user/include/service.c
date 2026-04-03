@@ -2,7 +2,7 @@
 #include "zuzu/protocols/nt_protocol.h"
 #include "zuzu.h"
 
-int32_t zservice_register(const char *name) {
+int32_t register_service(const char *name) {
     int32_t port = _port_create();
     if (port < 0)
         return -1;
@@ -21,7 +21,7 @@ int32_t zservice_register(const char *name) {
     return port;
 }
 
-int32_t zservice_lookup(const char *name) {
+int32_t lookup_service(const char *name) {
     zuzu_ipcmsg_t reply = _call(NT_PORT, NT_LOOKUP, nt_pack(name), 0);
     if (reply.r1 != NT_LU_OK)
         return -1;

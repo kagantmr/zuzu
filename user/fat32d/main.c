@@ -1,13 +1,56 @@
 #include "zuzu.h"
 #include "zuzu/protocols/nt_protocol.h"
-#include "zuzu/ipcx.h"
+#include "zuzu/protocols/fat32d_protocol.h"
+#include <stdbool.h>
 #include <stdio.h>
 #include "ff.h"
 
-static int32_t zuart_port;
+static FATFS fs;
+static shmem_result_t shm;
+
+int handle_readdir(uint32_t arg) {
+    // TODO
+    return -1;
+}
+
+int handle_stat(uint32_t arg) {
+    // TODO
+    return -1;
+}
+
+
+void handle_request(uint32_t reply_h, uint32_t sender, uint32_t cmd, uint32_t arg) {
+
+    int res = 0;
+    switch (cmd) {
+        case FAT32_READDIR:
+            res = handle_readdir(arg);
+            break;
+        case FAT32_STAT:
+            res = handle_stat(arg);
+            break;
+        case FAT32_GET_BUF:
+            int32_t slot = _port_grant(shm.handle, (int32_t)sender);
+            if (slot < 0) {
+                res = -1;
+            } else {
+                // reply with the slot so fbox can _attach it
+                _reply(reply_h, 0, (uint32_t)slot, 0);
+                return;
+            }
+            break;
+        default:
+            res = -1; // unknown command
+    }
+    _reply(reply_h, (uint32_t)res, 0, 0);
+}
+
+FIL fil_table[16];
+DIR dir_table[8];
+bool fil_used[16];
+bool dir_used[8];
 
 int main(void) {
-    // zuart is global, always visible
     zuzu_ipcmsg_t r;
 
     // ask which den we're in
@@ -17,14 +60,11 @@ int main(void) {
         return 1;
     }
     uint32_t my_den = r.r2;
-    printf("fat32d: assigned to den\n");
 
-    // look up zusd — should be in the same den
+    // look up zusd who should be in the same den
     r = _call(NT_PORT, NT_LOOKUP, nt_pack("zusd"), 0);
-    if (r.r1 == NT_LU_OK) {
-        printf("fat32d: PASS - can see zusd\n");
-    } else {
-        printf("fat32d: FAIL - cannot see zusd\n");
+    if (r.r1 != NT_LU_OK) {
+        printf("fat32d: cannot see zusd\n");
         return 1;
     }
 
@@ -32,31 +72,26 @@ int main(void) {
     int32_t my_port = _port_create();
     int32_t nt_slot = _port_grant(my_port, NAMETABLE_PID);
     _send(NT_PORT, NT_REGISTER | (my_den << 8), nt_pack("fat3"), (uint32_t)nt_slot);
-    printf("fat32d: registered in den\n");
 
-    // now verify zzsh can't see us — we can't test that from here,
+    // now verify zzsh can't see us - we can't test that from here,
     // but we can sit and serve
     printf("fat32d: ready\n");
-
-    FATFS fs;
-    FIL fil;
+    
     FRESULT fr;
-    char buf[64];
-    UINT br;
 
     fr = f_mount(&fs, "", 1);
-    printf("fat32d: mount=%d\n", fr);  // 0 = FR_OK
-
-    fr = f_open(&fil, "test.txt", FA_READ);
-    printf("fat32d: open=%d\n", fr);
-
-    f_read(&fil, buf, sizeof(buf)-1, &br);
-    buf[br] = '\0';
-    printf("fat32d: read=%s\n", buf);
-    f_close(&fil);
-
+    if (fr != FR_OK) {
+        printf("f_mount failed: %d\n", fr);
+        return 1;
+    }
+    shm = _memshare(4096);
 
     while (1) {
-        _recv(my_port);
+        zuzu_ipcmsg_t msg = _recv(my_port);
+        uint32_t reply_h = (uint32_t)msg.r0;
+        uint32_t sender  = msg.r1;
+        uint32_t cmd     = msg.r2;
+        uint32_t arg     = msg.r3;
+        handle_request(reply_h, sender, cmd, arg);
     }
 }

@@ -11,6 +11,7 @@
 #define DEN_KICK 5
 #define DEN_MYDEN  6
 #define DEN_MYDEN_COUNT 7
+#define DEN_MYDEN_AT 8
 
 #define NT_LU_OK 0
 #define NT_LU_NOMATCH (-1)
