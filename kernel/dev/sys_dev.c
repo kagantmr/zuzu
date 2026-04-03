@@ -46,7 +46,8 @@ void mapdev(exception_frame_t *frame)
     uint32_t size_aligned = align_up(cap->size, 4096);
     uint32_t user_va = current_process->device_va_next;
 
-    if (current_process->mmap_va_next + size_aligned > 0x5FFF0000u) {
+    // Device mappings are carved from device_va_next; bound-check that cursor.
+    if (user_va >= USER_VA_TOP || size_aligned > USER_VA_TOP - user_va) {
         frame->r[0] = ERR_NOMEM;
         return;
     }
