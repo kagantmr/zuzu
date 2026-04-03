@@ -105,6 +105,10 @@ DEPS      = $(OBJS:.o=.d)
 USER_DEPS = $(USER_CRT0:.o=.d) $(USER_APP_OBJS:.o=.d) $(ZCRT_OBJS:.o=.d) $(ULIB_OBJS:.o=.d)
 
 TARGET   = build/zuzu.elf 
+SD_IMG ?= build/sd.img
+SD_IMG_SIZE_MB ?= 64
+SD_VOL_LABEL ?= ZUZU
+SD_SRC_DIR ?= ZUZUSD
 
 all: $(TARGET)
 
@@ -170,7 +174,37 @@ $(TARGET): $(OBJS) build/arch/arm/initrd.o $(LINKER_SCRIPT)
 
 # Helpers
 run: $(TARGET)
-	qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M -kernel $(TARGET) -dtb $(DTB_FILE) -nographic -drive file=sd.img,if=sd,format=raw
+	qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M -kernel $(TARGET) -dtb $(DTB_FILE) -nographic -drive file=$(SD_IMG),if=sd,format=raw
+
+$(SD_IMG):
+	@mkdir -p $(dir $@)
+	@echo "  IMG     creating $(SD_IMG) ($(SD_IMG_SIZE_MB)MB, FAT32)"
+	@rm -f $(SD_IMG) $(SD_IMG).dmg
+	@hdiutil create -size $(SD_IMG_SIZE_MB)m -fs "MS-DOS FAT32" -volname $(SD_VOL_LABEL) -type UDIF $(SD_IMG) >/dev/null
+	@mv $(SD_IMG).dmg $(SD_IMG)
+
+sdimg: $(SD_IMG)
+
+sdimg-pack:
+	@if [ -z "$(SD_SRC_DIR)" ]; then \
+		echo "usage: make sdimg-pack SD_SRC_DIR=path/to/folder [SD_IMG=sd.img] [SD_IMG_SIZE_MB=64]"; \
+		exit 1; \
+	fi
+	@if [ ! -d "$(SD_SRC_DIR)" ]; then \
+		echo "  IMG     failed: SD_SRC_DIR '$(SD_SRC_DIR)' is not a folder"; \
+		exit 1; \
+	fi
+	@mkdir -p $(dir $(SD_IMG))
+	@echo "  IMG     creating $(SD_IMG) from $(SD_SRC_DIR) ($(SD_IMG_SIZE_MB)MB, FAT32)"
+	@rm -f $(SD_IMG) $(SD_IMG).dmg
+	@hdiutil create -srcfolder "$(SD_SRC_DIR)" -fs "MS-DOS FAT32" -volname $(SD_VOL_LABEL) -format UDIF $(SD_IMG) >/dev/null
+	@mv $(SD_IMG).dmg $(SD_IMG)
+	@echo "  IMG     packed folder into $(SD_IMG)"
+
+sdimg-clean:
+	@rm -f $(SD_IMG)
+
+sdimg-recreate: sdimg-clean sdimg
 
 debug: $(TARGET)
 	qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M -kernel $(TARGET) -dtb $(DTB_FILE) -nographic -S -gdb tcp::1234

@@ -2,6 +2,7 @@
 #include "zuzu/protocols/nt_protocol.h"
 #include "zuzu/ipcx.h"
 #include <stdio.h>
+#include "ff.h"
 
 static int32_t zuart_port;
 
@@ -36,6 +37,24 @@ int main(void) {
     // now verify zzsh can't see us — we can't test that from here,
     // but we can sit and serve
     printf("fat32d: ready\n");
+
+    FATFS fs;
+    FIL fil;
+    FRESULT fr;
+    char buf[64];
+    UINT br;
+
+    fr = f_mount(&fs, "", 1);
+    printf("fat32d: mount=%d\n", fr);  // 0 = FR_OK
+
+    fr = f_open(&fil, "test.txt", FA_READ);
+    printf("fat32d: open=%d\n", fr);
+
+    f_read(&fil, buf, sizeof(buf)-1, &br);
+    buf[br] = '\0';
+    printf("fat32d: read=%s\n", buf);
+    f_close(&fil);
+
 
     while (1) {
         _recv(my_port);
