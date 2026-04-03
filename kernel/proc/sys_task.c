@@ -16,9 +16,10 @@ extern endpoint_t *nametable_endpoint;
 #include "core/log.h"
 
 void quit(exception_frame_t *frame) {
-    KINFO("Process %d exited with status code %d", current_process->pid, current_process->exit_status);
+    int exit_status = (int)frame->r[0];
+    KINFO("Process %d exited with status code %d", current_process->pid, exit_status);
     
-    process_kill(current_process, frame->r[0]);
+    process_kill(current_process, exit_status);
     schedule();
 }
 
@@ -30,8 +31,12 @@ void yield(exception_frame_t *frame) {
 void sleep(exception_frame_t *frame) {
     uint32_t ms = frame->r[0]; // argument 0: Milliseconds to sleep
     
-    // Convert ms to ticks (assuming 100Hz timer -> 10ms per tick)
-    uint32_t ticks = ms / 10; 
+    // Convert ms to ticks using configured tick rate.
+    uint32_t ticks;
+    if (ms > UINT32_MAX / TICK_HZ)
+        ticks = UINT32_MAX;
+    else
+        ticks = (ms * TICK_HZ) / 1000u;
     if (ticks == 0) ticks = 1; // Sleep at least 1 tick
 
     // Calculate wake time
