@@ -1,3 +1,6 @@
+#ifndef KERNEL_MM_ALLOC_H
+#define KERNEL_MM_ALLOC_H
+
 #include "stddef.h"
 #include "stdbool.h"
 #include "stdint.h"
@@ -47,3 +50,5 @@ void kheap_init(void);
  * sizes, free status, and statistics.
  */
 void kheap_dump(void);
+
+#endif // KERNEL_MM_ALLOC_H
