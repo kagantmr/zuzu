@@ -174,6 +174,7 @@ bool arch_mmu_unmap(addrspace_t *as, uintptr_t va, size_t size)
                 // For small unmaps, invalidate only the touched virtual address.
                 if (size <= (16 * PAGE_SIZE))
                 {
+                    arch_mmu_barrier();
                     arch_mmu_flush_tlb_va(va + offset);
                 }
             }
@@ -287,8 +288,6 @@ void arch_mmu_switch(addrspace_t *as)
 
     __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"((uint32_t)as->ttbr0_pa) : "memory");
 
-    // Avoid global invalidation on switch; invalidate only the incoming ASID.
-    arch_mmu_flush_tlb_asid(as->asid);
 
     arch_mmu_barrier();
 }
