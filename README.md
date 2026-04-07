@@ -76,8 +76,9 @@ brew install qemu
 
 ## Building & Running
 
-**Build:**
+**Create SD image & build:**
 ```bash
+make sdimg
 make
 ```
 
