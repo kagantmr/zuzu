@@ -50,11 +50,11 @@ void irq_dispatch(void) {
     //KINFO("IRQ received");
     uint32_t iar = gic_acknowledge();
     uint32_t irq_id = iar & 0x3FF;
-    gic_end(iar);
 
     if (irq_id == 1023) {
         return;  // Spurious interrupt, ignore
     }
+    gic_end(iar);
     if (irq_id < MAX_IRQS && handler_table[irq_id] != NULL) {
         handler_table[irq_id](handler_ctx[irq_id]);
     } else {
