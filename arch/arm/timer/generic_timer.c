@@ -63,7 +63,7 @@ static void generic_timer_handler(void* ctx) {
         timer_dual_source_warned = true;
     }
     
-    write_cntp_tval(tval);
+    //write_cntp_tval(tval);
     write_cntv_tval(tval);
 
     tick_announce();
