@@ -73,10 +73,10 @@ USER_PROGS = $(BOOT_PROGS) $(DISK_PROGS)
 ZCRT_SRCS = $(wildcard lib/zcrt/*.c)
 ZCRT_OBJS = $(patsubst lib/zcrt/%.c,build/user/zcrt/%.o,$(ZCRT_SRCS))
 
-ULIB_SRCS = $(wildcard user/lib/*.c)
+ULIB_SRCS = $(filter-out user/lib/service.c,$(wildcard user/lib/*.c))
 ULIB_OBJS = $(patsubst user/%.c,build/user/%.o,$(ULIB_SRCS))
 
-SERVICE_SRCS = user/include/service.c
+SERVICE_SRCS = user/lib/service.c
 SERVICE_OBJS = $(patsubst user/%.c,build/user/%.o,$(SERVICE_SRCS))
 
 # derived user program sources + objects
