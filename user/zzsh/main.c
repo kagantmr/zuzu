@@ -3,10 +3,16 @@
 #include <mem.h>
 #include <string.h>
 #include <snprintf.h>
+#include <stdbool.h>
 #include <service.h>
+#include <zmalloc.h>
 #include <zuzu/syspage.h>
+#include <zuzu/protocols/fbox_protocol.h>
 
 static int32_t zuart_port;
+static int32_t fbox_port;
+static char   *fbox_buf;   /* shmem shared with fbox */
+static char cwd[256] = "/";
 
 // -------------------- Prompt --------------------
 #define PROMPT \
@@ -79,6 +85,16 @@ int setup(void)
 {
     zuart_port = lookup_service("uart");
     if (zuart_port < 0) return -1;
+
+    fbox_port = lookup_service("fbox");
+    if (fbox_port < 0) return -1;
+
+    zuzu_ipcmsg_t r = _call(fbox_port, FBOX_GET_BUF, 0, 0);
+    if ((int32_t)r.r1 != 0) return -1;
+
+    fbox_buf = (char *)_attach((int32_t)r.r2);
+    if ((intptr_t)fbox_buf <= 0) return -1;
+
     return 0;
 }
 
@@ -91,6 +107,262 @@ static void redraw_line(const char *line)
     zprint("\033[K");
 }
 
+static bool normalize_path(const char *path, char *out, size_t out_size)
+{
+    if (!path || !path[0])
+        path = "/";
+
+    size_t pos = 0;
+    out[pos++] = '/';
+    out[pos] = '\0';
+
+    const char *p = path;
+    while (*p == '/')
+        p++;
+
+    while (*p) {
+        char segment[128];
+        size_t segment_len = 0;
+
+        while (*p && *p != '/') {
+            if (segment_len + 1 >= sizeof(segment))
+                return false;
+            segment[segment_len++] = *p++;
+        }
+        segment[segment_len] = '\0';
+
+        while (*p == '/')
+            p++;
+
+        if (segment_len == 0 || (segment_len == 1 && segment[0] == '.'))
+            continue;
+
+        if (segment_len == 2 && segment[0] == '.' && segment[1] == '.') {
+            if (pos > 1) {
+                pos--;
+                while (pos > 1 && out[pos - 1] != '/')
+                    pos--;
+                out[pos] = '\0';
+            }
+            continue;
+        }
+
+        if (pos > 1) {
+            if (pos + 1 >= out_size)
+                return false;
+            out[pos++] = '/';
+            out[pos] = '\0';
+        }
+
+        if (pos + segment_len >= out_size)
+            return false;
+        memcpy(out + pos, segment, segment_len);
+        pos += segment_len;
+        out[pos] = '\0';
+    }
+
+    return true;
+}
+
+static bool resolve_path(const char *input, char *out, size_t out_size)
+{
+    char raw[512];
+
+    if (!input || !input[0]) {
+        if (strlen(cwd) + 1 > sizeof(raw) || strlen(cwd) + 1 > out_size)
+            return false;
+        memcpy(out, cwd, strlen(cwd) + 1);
+        return true;
+    }
+
+    if (input[0] == '/') {
+        if (strlen(input) + 1 > sizeof(raw))
+            return false;
+        memcpy(raw, input, strlen(input) + 1);
+    } else if (strcmp(cwd, "/") == 0) {
+        if (snprintf(raw, sizeof(raw), "/%s", input) >= (int)sizeof(raw))
+            return false;
+    } else {
+        if (snprintf(raw, sizeof(raw), "%s/%s", cwd, input) >= (int)sizeof(raw))
+            return false;
+    }
+
+    return normalize_path(raw, out, out_size);
+}
+
+static bool stat_path(const char *path, fbox_stat_t *st)
+{
+    size_t plen = strlen(path);
+    if (plen >= 4096)
+        return false;
+
+    memcpy(fbox_buf, path, plen + 1);
+    zuzu_ipcmsg_t r = _call(fbox_port, FBOX_STAT, 0, 0);
+    if ((int32_t)r.r1 != FBOX_OK)
+        return false;
+
+    memcpy(st, fbox_buf, sizeof(*st));
+    return true;
+}
+
+/* ---- ls ---- */
+
+static void cmd_ls(const char *arg)
+{
+    char path[256];
+    if (!resolve_path(arg, path, sizeof(path))) {
+        zprint("path too long\n");
+        return;
+    }
+
+    size_t plen = strlen(path);
+    memcpy(fbox_buf, path, plen + 1);
+
+    zuzu_ipcmsg_t r = _call(fbox_port, FBOX_READDIR, 0, 0);
+    if ((int32_t)r.r1 != FBOX_OK) {
+        zprint(ANSI_RED "ls: cannot read directory\n" ANSI_RESET);
+        return;
+    }
+
+    uint32_t count = r.r2;
+    fbox_dirent_t *entries = (fbox_dirent_t *)fbox_buf;
+    char line[96];
+
+    for (uint32_t i = 0; i < count; i++) {
+        if (entries[i].is_dir) {
+            snprintf(line, sizeof(line), ANSI_BOLD ANSI_CYAN "%-13s" ANSI_RESET "  <DIR>\n",
+                     entries[i].name);
+        } else {
+            snprintf(line, sizeof(line), "%-13s  %u\n",
+                     entries[i].name, entries[i].size);
+        }
+        zprint(line);
+    }
+}
+
+/* ---- cat ---- */
+
+static void cmd_cat(const char *path)
+{
+    if (!path || !path[0]) {
+        zprint("usage: cat <file>\n");
+        return;
+    }
+
+    char abs_path[256];
+    if (!resolve_path(path, abs_path, sizeof(abs_path))) {
+        zprint("cat: path too long\n");
+        return;
+    }
+
+    size_t plen = strlen(abs_path);
+    memcpy(fbox_buf, abs_path, plen + 1);
+
+    zuzu_ipcmsg_t r = _call(fbox_port, FBOX_OPEN, FAT32_MODE_READ, 0);
+    if ((int32_t)r.r1 != FBOX_OK) {
+        zprint(ANSI_RED "cat: file not found\n" ANSI_RESET);
+        return;
+    }
+    uint32_t fd = r.r2;
+
+    while (1) {
+        r = _call(fbox_port, FBOX_READ, FBOX_PACK_RW(fd, 4095), 0);
+        if ((int32_t)r.r1 != FBOX_OK) break;
+        uint32_t got = r.r2;
+        if (got == 0) break;
+
+        /* null-terminate for zprint */
+        fbox_buf[got] = '\0';
+        zprint(fbox_buf);
+    }
+
+    _call(fbox_port, FBOX_CLOSE, fd, 0);
+    zprint("\n");
+}
+
+/* ---- exec from SD ---- */
+
+static void cmd_exec(const char *name)
+{
+    char path[256];
+    if (!resolve_path(name, path, sizeof(path))) {
+        zprint("zzsh: path too long\n");
+        return;
+    }
+
+    /* stat first to get file size */
+    size_t plen = strlen(path);
+    memcpy(fbox_buf, path, plen + 1);
+
+    zuzu_ipcmsg_t r = _call(fbox_port, FBOX_STAT, 0, 0);
+    if ((int32_t)r.r1 != FBOX_OK) {
+        zprint(ANSI_RED "zzsh: not found: " ANSI_RESET);
+        zprint(name);
+        zprint("\n");
+        return;
+    }
+
+    fbox_stat_t *st = (fbox_stat_t *)fbox_buf;
+    uint32_t file_size = st->size;
+
+    if (file_size == 0 || st->is_dir) {
+        zprint(ANSI_RED "zzsh: not an executable\n" ANSI_RESET);
+        return;
+    }
+
+    /* open the file */
+    memcpy(fbox_buf, path, plen + 1);
+    r = _call(fbox_port, FBOX_OPEN, FAT32_MODE_READ, 0);
+    if ((int32_t)r.r1 != FBOX_OK) {
+        zprint(ANSI_RED "zzsh: cannot open file\n" ANSI_RESET);
+        return;
+    }
+    uint32_t fd = r.r2;
+
+    /* allocate buffer for the full ELF */
+    uint8_t *elf = (uint8_t *)zmalloc(file_size);
+    if (!elf) {
+        zprint(ANSI_RED "zzsh: out of memory\n" ANSI_RESET);
+        _call(fbox_port, FBOX_CLOSE, fd, 0);
+        return;
+    }
+
+    /* read the entire file */
+    uint32_t total = 0;
+    while (total < file_size) {
+        uint32_t chunk = file_size - total;
+        if (chunk > 4096) chunk = 4096;
+
+        r = _call(fbox_port, FBOX_READ, FBOX_PACK_RW(fd, chunk), 0);
+        if ((int32_t)r.r1 != FBOX_OK || r.r2 == 0) break;
+
+        memcpy(elf + total, fbox_buf, r.r2);
+        total += r.r2;
+    }
+
+    _call(fbox_port, FBOX_CLOSE, fd, 0);
+
+    if (total < file_size) {
+        zprint(ANSI_RED "zzsh: short read\n" ANSI_RESET);
+        zfree(elf);
+        return;
+    }
+
+    /* spawn */
+    int32_t child = _spawn(elf, total, name, strlen(name));
+    zfree(elf);
+
+    if (child < 0) {
+        zprint(ANSI_RED "zzsh: spawn failed\n" ANSI_RESET);
+        return;
+    }
+
+    int32_t status;
+    _wait(child, &status, 0);
+}
+
+/* ---- dispatch ---- */
+
 void command_dispatch(const char *line)
 {
     if (strcmp(line, "help") == 0)
@@ -101,9 +373,13 @@ void command_dispatch(const char *line)
             ANSI_BOLD "  echo <text>" ANSI_RESET "   print text\n"
             ANSI_BOLD "  clear" ANSI_RESET "         clear the screen\n"
             ANSI_BOLD "  free" ANSI_RESET "          show free physical pages\n"
+            ANSI_BOLD "  pwd" ANSI_RESET "           print current directory\n"
+            ANSI_BOLD "  cd <path>" ANSI_RESET "     change current directory\n"
             ANSI_BOLD "  pid" ANSI_RESET "           show shell PID\n"
             ANSI_BOLD "  sleep <ms>" ANSI_RESET "    sleep for <ms> milliseconds\n"
-            ANSI_BOLD "  <name>" ANSI_RESET "        run bin/<name> from initrd\n"
+            ANSI_BOLD "  ls [path]" ANSI_RESET "     list directory on SD\n"
+            ANSI_BOLD "  cat <file>" ANSI_RESET "    print file contents from SD\n"
+            ANSI_BOLD "  <path>" ANSI_RESET "        run executable from SD\n"
         );
     }
     else if (strcmp(line, "clear") == 0)
@@ -118,6 +394,44 @@ void command_dispatch(const char *line)
         char buf[64];
         snprintf(buf, sizeof(buf), "%u pages free (%u KB)\n", fp / 4, fp);
         zprint(buf);
+    }
+    else if (strcmp(line, "pwd") == 0)
+    {
+        zprint(cwd);
+        zprint("\n");
+    }
+    else if (strcmp(line, "cd") == 0)
+    {
+        zprint("usage: cd <path>\n");
+    }
+    else if (strncmp(line, "cd ", 3) == 0)
+    {
+        char path[256];
+        fbox_stat_t st;
+
+        if (!resolve_path(line + 3, path, sizeof(path))) {
+            zprint("cd: path too long\n");
+            return;
+        }
+
+        if (strcmp(path, "/") == 0) {
+            strncpy(cwd, "/", sizeof(cwd) - 1);
+            cwd[sizeof(cwd) - 1] = '\0';
+            return;
+        }
+
+        if (!stat_path(path, &st)) {
+            zprint(ANSI_RED "cd: not found\n" ANSI_RESET);
+            return;
+        }
+
+        if (!st.is_dir) {
+            zprint(ANSI_RED "cd: not a directory\n" ANSI_RESET);
+            return;
+        }
+
+        strncpy(cwd, path, sizeof(cwd) - 1);
+        cwd[sizeof(cwd) - 1] = '\0';
     }
     else if (strcmp(line, "pid") == 0)
     {
@@ -139,11 +453,22 @@ void command_dispatch(const char *line)
         zprint(line + 5);
         zprint("\n");
     }
+    else if (strncmp(line, "ls", 2) == 0 && (line[2] == '\0' || line[2] == ' '))
+    {
+        const char *arg = (line[2] == ' ') ? line + 3 : NULL;
+        cmd_ls(arg);
+    }
+    else if (strcmp(line, "cat") == 0)
+    {
+        zprint("usage: cat <file>\n");
+    }
+    else if (strncmp(line, "cat ", 4) == 0)
+    {
+        cmd_cat(line + 4);
+    }
     else
     {
-        zprint(ANSI_RED "zzsh: external command execution is not available here: " ANSI_RESET);
-        zprint(line);
-        zprint("\n");
+        cmd_exec(line);
     }
 }
 

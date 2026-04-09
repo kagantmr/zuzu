@@ -1,7 +1,7 @@
 #ifndef ZZSH_H
 #define ZZSH_H
 
-#define ZZSH_VER "v1.1"
+#define ZZSH_VER "v1.2"
 
 #include "zuzu.h"
 #include "zuzu/protocols/zuart_protocol.h"
