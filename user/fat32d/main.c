@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include "ff.h"
+#include <service.h>
 
 static FATFS fs;
 static shmem_result_t shm;
@@ -17,8 +18,6 @@ int handle_stat(uint32_t arg) {
     // TODO
     return -1;
 }
-
-
 void handle_request(uint32_t reply_h, uint32_t sender, uint32_t cmd, uint32_t arg) {
 
     int res = 0;
@@ -55,15 +54,16 @@ int main(void) {
 
     // ask which den we're in
     r = _call(NT_PORT, DEN_MYDEN, 0, 0);
+    uint32_t my_den = 0;
     if (r.r1 != DEN_OK) {
-        printf("fat32d: not in any den\n");
-        return 1;
+        printf("fat32d: not in any den, using global namespace\n");
+    } else {
+        my_den = r.r2;
     }
-    uint32_t my_den = r.r2;
 
     // look up zusd who should be in the same den
-    r = _call(NT_PORT, NT_LOOKUP, nt_pack("zusd"), 0);
-    if (r.r1 != NT_LU_OK) {
+    int32_t zusd_port = lookup_service("zusd");
+    if (zusd_port < 0) {
         printf("fat32d: cannot see zusd\n");
         return 1;
     }

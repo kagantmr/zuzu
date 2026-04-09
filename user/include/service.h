@@ -13,7 +13,7 @@
 // returns the port handle, or -err
 int32_t register_service(const char *name);
 
-// lookup_service("zusd") → port handle in your table, or -err
+// lookup_service("zusd") waits until the service exists and returns the port handle, or -err on transport failure
 int32_t lookup_service(const char *name);
 
 #endif

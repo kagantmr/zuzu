@@ -145,9 +145,9 @@ $(USER_CRT0): arch/arm/crt0.S
 
 # user programs
 define LINK_USER_PROG
-build/user/$(1).elf: $$(USER_$(1)_OBJS) $(USER_CRT0) $(ZCRT_OBJS) $(ULIB_OBJS) $$(if $$(filter fbox,$(1)),$(SERVICE_OBJS)) user/user.ld
+build/user/$(1).elf: $$(USER_$(1)_OBJS) $(USER_CRT0) $(ZCRT_OBJS) $(ULIB_OBJS) $$(if $$(filter fbox fat32d zzsh,$(1)),$(SERVICE_OBJS)) user/user.ld
 	@mkdir -p $$(dir $$@)
-	$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) $$(USER_$(1)_OBJS) $(ZCRT_OBJS) $(ULIB_OBJS) $$(if $$(filter fbox,$(1)),$(SERVICE_OBJS)) -o $$@
+	$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) $$(USER_$(1)_OBJS) $(ZCRT_OBJS) $(ULIB_OBJS) $$(if $$(filter fbox fat32d zzsh,$(1)),$(SERVICE_OBJS)) -o $$@
 endef
 
 $(foreach p,$(USER_PROGS),$(eval $(call LINK_USER_PROG,$(p))))

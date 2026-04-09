@@ -55,6 +55,11 @@ static inline uint32_t read_be32(const void *p)
 
 static process_t *s_devmgr; 
 
+typedef struct boot_program {
+    const char *path;
+    uint32_t flags;
+} boot_program_t;
+
 static void inject_device_cap(const char *compatible,
                                uint64_t phys, uint64_t size,
                                uint32_t irq)
@@ -83,6 +88,32 @@ static void inject_device_cap(const char *compatible,
     entry->type = HANDLE_DEVICE;
     entry->grantable = true;
     entry->dev = cap;
+}
+
+static void boot_program(const char *path, uint32_t flags)
+{
+    const void *elf_data;
+    size_t elf_size;
+
+    if (!initrd_find(path, &elf_data, &elf_size)) {
+        KERROR("Missing boot program %s", path);
+        return;
+    }
+
+    process_t *process = process_create_from_elf(elf_data, elf_size, path);
+    if (!process) {
+        KERROR("Failed to create boot program %s", path);
+        return;
+    }
+
+    process->flags |= flags;
+
+    if (flags & PROC_FLAG_DEVMGR) {
+        s_devmgr = process;
+        dtb_enum_devices(inject_device_cap);
+    }
+
+    sched_add(process);
 }
 
 static inline void perform_panic_tests(void)
@@ -183,26 +214,18 @@ _Noreturn void kmain(void)
 
     initrd_init(_initrd_start, _initrd_end - _initrd_start);
 
-    const void *elf_data;
-    size_t elf_size;
+    static const boot_program_t boot_programs[] = {
+        {"bin/zuzusysd", PROC_FLAG_INIT},
+        {"bin/devmgr", PROC_FLAG_DEVMGR},
+        {"bin/zuart", 0},
+        {"bin/zusd", 0},
+        {"bin/fat32d", 0},
+        {"bin/fbox", 0},
+        {"bin/zzsh", 0},
+    };
 
-    if (initrd_find("bin/zuzusysd", &elf_data, &elf_size)) {
-        process_t *nt = process_create_from_elf(elf_data, elf_size, "zuzusysd");
-        if (nt) {
-            nt->flags |= PROC_FLAG_INIT;
-            sched_add(nt);
-        }
-    }
-
-    if (initrd_find("bin/devmgr", &elf_data, &elf_size)) {
-        process_t *dm = process_create_from_elf(elf_data, elf_size, "devmgr");
-        if (dm) {
-            dm->flags |= PROC_FLAG_DEVMGR;
-            s_devmgr = dm;
-            dtb_enum_devices(inject_device_cap);
-            sched_add(dm);
-        }
-    }
+    for (size_t i = 0; i < sizeof(boot_programs) / sizeof(boot_programs[0]); i++)
+        boot_program(boot_programs[i].path, boot_programs[i].flags);
 
 
     /**

@@ -4,6 +4,7 @@
 #include "zuzu.h"
 #include "zuzu/protocols/nt_protocol.h"
 #include "zuzu/protocols/zusd_protocol.h"
+#include <service.h>
 #include <mem.h>
 #include <stdint.h>
 
@@ -21,14 +22,12 @@ static int disk_backend_init(void)
         return 0;
     }
 
-    zuzu_ipcmsg_t r = _call(NT_PORT, NT_LOOKUP, nt_pack("zusd"), 0);
-    if ((int32_t)r.r1 != NT_LU_OK) {
+    g_zusd_port = lookup_service("zusd");
+    if (g_zusd_port < 0) {
         return -1;
     }
 
-    g_zusd_port = (int32_t)r.r2;
-
-    r = _call(g_zusd_port, ZUSD_CMD_GET_BUF, 0, 0);
+    zuzu_ipcmsg_t r = _call(g_zusd_port, ZUSD_CMD_GET_BUF, 0, 0);
     if ((int32_t)r.r1 != 0) {
         g_zusd_port = -1;
         return -1;
