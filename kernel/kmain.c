@@ -221,7 +221,6 @@ _Noreturn void kmain(void)
         {"bin/zusd", 0},
         {"bin/fat32d", 0},
         {"bin/fbox", 0},
-        {"bin/zzsh", 0},
     };
 
     for (size_t i = 0; i < sizeof(boot_programs) / sizeof(boot_programs[0]); i++)

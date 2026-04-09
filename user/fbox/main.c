@@ -6,11 +6,66 @@
 #include <stdio.h>
 #include <string.h>
 #include <mem.h>
+#include <zmalloc.h>
 
 static int32_t fat32d_port = -1;
 static void *fat32d_buf = NULL;    /* shmem shared with fat32d */
 static shmem_result_t my_shm;     /* shmem shared with clients */
 static char *my_buf = NULL;
+
+static int32_t spawn_from_sd(const char *path, const char *proc_name)
+{
+    size_t plen = strlen(path);
+    if (plen == 0 || plen >= 4096)
+        return -1;
+
+    memcpy(fat32d_buf, path, plen + 1);
+    zuzu_ipcmsg_t r = _call(fat32d_port, FAT32_STAT, 0, 0);
+    if ((int32_t)r.r1 != FAT32_OK)
+        return -1;
+
+    fat32_stat_t *st = (fat32_stat_t *)fat32d_buf;
+    uint32_t file_size = st->size;
+    uint8_t is_dir = st->is_dir;
+    if (is_dir || file_size == 0)
+        return -1;
+
+    memcpy(fat32d_buf, path, plen + 1);
+    r = _call(fat32d_port, FAT32_OPEN, FAT32_MODE_READ, 0);
+    if ((int32_t)r.r1 != FAT32_OK)
+        return -1;
+
+    uint32_t fd = r.r2;
+    uint8_t *elf = (uint8_t *)zmalloc(file_size);
+    if (!elf) {
+        (void)_call(fat32d_port, FAT32_CLOSE, fd, 0);
+        return -1;
+    }
+
+    uint32_t total = 0;
+    while (total < file_size) {
+        uint32_t chunk = file_size - total;
+        if (chunk > 4096)
+            chunk = 4096;
+
+        r = _call(fat32d_port, FAT32_READ, FAT32_PACK_RW(fd, chunk), 0);
+        if ((int32_t)r.r1 != FAT32_OK || r.r2 == 0)
+            break;
+
+        memcpy(elf + total, fat32d_buf, r.r2);
+        total += r.r2;
+    }
+
+    (void)_call(fat32d_port, FAT32_CLOSE, fd, 0);
+    if (total != file_size) {
+        zfree(elf);
+        return -1;
+    }
+
+    int32_t pid = _spawn(elf, total, proc_name, strlen(proc_name));
+    zfree(elf);
+    return pid;
+}
 
 /* Copy client shmem -> fat32d shmem, forward command, copy result back.
  * For commands where the client writes data IN (path, write data):
@@ -165,6 +220,14 @@ int main(void)
     my_buf = (char *)my_shm.addr;
 
     printf("fbox: ready\n");
+
+    int32_t zzsh_pid = spawn_from_sd("bin/zzsh", "zzsh");
+    if (zzsh_pid < 0)
+        zzsh_pid = spawn_from_sd("/bin/zzsh", "zzsh");
+    if (zzsh_pid < 0)
+        printf("fbox: failed to spawn /bin/zzsh\n");
+    else
+        printf("fbox: spawned zzsh pid=%d\n", zzsh_pid);
 
     while (1) {
         zuzu_ipcmsg_t msg = _recv(my_port);
