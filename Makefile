@@ -64,8 +64,8 @@ else
     USER_CFLAGS += -DNDEBUG -UDEBUG
 endif
 
-BOOT_PROGS = zuzusysd devmgr zuart zusd fat32d zzsh fbox
-DISK_PROGS = test
+BOOT_PROGS = zuzusysd devmgr zuart zusd fat32d fbox
+DISK_PROGS = test zzsh
 
 USER_PROGS = $(BOOT_PROGS) $(DISK_PROGS)
 
