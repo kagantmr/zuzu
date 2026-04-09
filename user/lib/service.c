@@ -22,8 +22,10 @@ int32_t register_service(const char *name) {
 }
 
 int32_t lookup_service(const char *name) {
-    zuzu_ipcmsg_t reply = _call(NT_PORT, NT_LOOKUP, nt_pack(name), 0);
-    if (reply.r1 != NT_LU_OK)
-        return -1;
-    return reply.r2;
+    while (1) {
+        zuzu_ipcmsg_t reply = _call(NT_PORT, NT_LOOKUP, nt_pack(name), 0);
+        if (reply.r1 == NT_LU_OK)
+            return (int32_t)reply.r2;
+        _sleep(10);
+    }
 }

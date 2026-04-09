@@ -3,6 +3,7 @@
 #include <mem.h>
 #include <string.h>
 #include <snprintf.h>
+#include <service.h>
 #include <zuzu/syspage.h>
 
 static int32_t zuart_port;
@@ -74,6 +75,13 @@ size_t zread(char *dst, size_t max)
     return got;
 }
 
+int setup(void)
+{
+    zuart_port = lookup_service("uart");
+    if (zuart_port < 0) return -1;
+    return 0;
+}
+
 // Redraws prompt + current line content, clears to end of line.
 // Used when history navigation changes what's displayed.
 static void redraw_line(const char *line)
@@ -133,29 +141,10 @@ void command_dispatch(const char *line)
     }
     else
     {
-        char path[LINE_BUFFER_SIZE + 8];
-        snprintf(path, sizeof(path), "bin/%s", line);
-        int32_t child = _spawn(path, strlen(path));
-        if (child < 0)
-        {
-            zprint(ANSI_RED "zzsh: unknown command: " ANSI_RESET);
-            zprint(line);
-            zprint("\n");
-        }
-        else
-        {
-            int32_t status;
-            _wait(child, &status, 0);
-        }
+        zprint(ANSI_RED "zzsh: external command execution is not available here: " ANSI_RESET);
+        zprint(line);
+        zprint("\n");
     }
-}
-
-int setup(void)
-{
-    zuzu_ipcmsg_t reply = _call(NT_PORT, NT_LOOKUP, nt_pack("uart"), 0);
-    if (reply.r1 != NT_LU_OK) return -1;
-    zuart_port = reply.r2;
-    return 0;
 }
 
 int main(void)

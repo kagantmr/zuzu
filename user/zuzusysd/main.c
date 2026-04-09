@@ -261,46 +261,13 @@ int main(void) {
     nt_register(nt_pack(NT_NAME_SYS), (uint32_t)port, _getpid(), 0);
 
     wait_for_service(nt_pack("devm"));
-
-    if (_spawn("bin/zuart", 9) < 0) {
-        return -1;
-    }
-
     wait_for_service(nt_pack("uart"));
-
-    int disk_den = den_create(_getpid(), nt_pack("disk"));
-
-    int32_t zusd_pid = _spawn("bin/zusd", 8);
-    if (zusd_pid < 0) {
-        printf("zuzusysd: failed to spawn zusd\n");
-    } else {
-        den_add_member(disk_den, zusd_pid);
-    }
 
     wait_for_service(nt_pack("zusd"));
 
-    int32_t fat32d_pid = _spawn("bin/fat32d", 10);
-    if (fat32d_pid < 0) {
-        printf("zuzusysd: failed to spawn fat32d\n");
-    } else {
-        den_add_member(disk_den, fat32d_pid);
-    }
-
     wait_for_service(nt_pack("fat3"));
 
-
-    int32_t fbox_pid = _spawn("bin/fbox", 8);
-    if (fbox_pid < 0) {
-        printf("zuzusysd: failed to spawn fbox\n");
-    } else {
-        den_add_member(disk_den, fbox_pid);
-    }
-
     wait_for_service(nt_pack("fbox"));
-
-    if (_spawn("bin/zzsh", 8) < 0) {
-        printf("zuzusysd: failed to spawn zzsh\n");
-    }
 
     
     sysd_loop();

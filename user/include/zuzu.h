@@ -57,12 +57,14 @@ static inline int32_t _yield(void) {
     return r0;
 }
 
-static inline int32_t _spawn(const char *name, size_t len) {
-    register uintptr_t r0 __asm__("r0") = (uintptr_t) name;
-    register size_t r1 __asm__("r1") = len;
+static inline int32_t _spawn(const void *elf_data, size_t elf_len, const char *name, size_t name_len) {
+    register uintptr_t r0 __asm__("r0") = (uintptr_t) elf_data;
+    register size_t r1 __asm__("r1") = elf_len;
+    register uintptr_t r2 __asm__("r2") = (uintptr_t) name;
+    register size_t r3 __asm__("r3") = name_len;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
-        : "r"(r1), [num] "i"(SYS_TASK_SPAWN)
+        : "r"(r1), "r"(r2), "r"(r3), [num] "i"(SYS_TASK_SPAWN)
         : "memory");
     return (int32_t) r0; /* pid or -err */
 }

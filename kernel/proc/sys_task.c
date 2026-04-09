@@ -1,9 +1,9 @@
 #include "sys_task.h"
 #include "kernel/syscall/syscall.h"
+#include "kernel/mm/alloc.h"
 #include <mem.h>
 #include "kernel/sched/sched.h"
 #include "user/include/zuzu.h"
-#include "kernel/loader/initrd.h"
 #include "kernel/loader/loader.h"
 #include "kernel/time/tick.h"
 #include "kernel/proc/process.h"
@@ -103,26 +103,40 @@ void wait(exception_frame_t *frame) {
 }
 
 void spawn(exception_frame_t *frame) {
-    const char *name = (const char *)frame->r[0];
-    size_t name_len = frame->r[1];
-    if (!validate_user_ptr((uintptr_t)name, name_len)) {
+    const void *elf_data = (const void *)frame->r[0];
+    size_t elf_size = frame->r[1];
+    const char *name = (const char *)frame->r[2];
+    size_t name_len = frame->r[3];
+
+    if (!elf_data || !name || elf_size == 0 || name_len == 0) {
         frame->r[0] = ERR_BADARG;
         return;
     }
+
+    if (!validate_user_ptr((uintptr_t)elf_data, elf_size) ||
+        !validate_user_ptr((uintptr_t)name, name_len)) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
     char kname[64];
     if (name_len >= sizeof(kname)) {
         frame->r[0] = ERR_BADARG;
         return;
     }
-    memcpy(kname, name, name_len);
-    kname[name_len] = '\0';
-    const void *elf_data;
-    size_t elf_size;
-    if (!initrd_find(kname, &elf_data, &elf_size)) {
-        frame->r[0] = ERR_NOENT;
+
+    void *elf_copy = kmalloc(elf_size);
+    if (!elf_copy) {
+        frame->r[0] = ERR_NOMEM;
         return;
     }
-    process_t *process = process_create_from_elf(elf_data, elf_size, kname);
+
+    memcpy(elf_copy, elf_data, elf_size);
+    memcpy(kname, name, name_len);
+    kname[name_len] = '\0';
+
+    process_t *process = process_create_from_elf(elf_copy, elf_size, kname);
+    kfree(elf_copy);
     if (!process) {
         frame->r[0] = ERR_NOMEM;
         return;

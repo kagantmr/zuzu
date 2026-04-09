@@ -5,7 +5,7 @@
 
 #define SYS_TASK_QUIT 0x00  /* (status) -> never returns            */
 #define SYS_TASK_YIELD 0x01 /* () -> 0                              */
-#define SYS_TASK_SPAWN 0x02 /* (name, len) -> pid or -err           */
+#define SYS_TASK_SPAWN 0x02 /* (elf_ptr, elf_len, name, name_len) -> pid or -err */
 #define SYS_TASK_WAIT 0x03  /* (pid, &status) -> 0 or -err          */
 #define SYS_GET_PID 0x04    /* () -> pid                            */
 #define SYS_TASK_SLEEP 0x05 /* (duration) -> 0                      */
