@@ -36,7 +36,7 @@ void port_create(exception_frame_t *frame)
 
     handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle);
 
-    endpoint_t *new_endpoint = kmalloc(sizeof(endpoint_t));
+    endpoint_t *new_endpoint = (endpoint_t *)kalloc_endpoint();
     if (!new_endpoint)
     {
         frame->r[0] = ERR_NOMEM;
@@ -139,7 +139,7 @@ void port_destroy(exception_frame_t *frame)
     }
 
     // Clean up
-    kfree(ep);
+    kfree_endpoint(ep);
     entry->ep = NULL;
     entry->grantable = false;
     entry->type = HANDLE_FREE;

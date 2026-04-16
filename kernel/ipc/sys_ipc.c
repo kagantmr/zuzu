@@ -124,7 +124,7 @@ static handle_entry_t *validate_reply_handle(process_t *proc,
 
     if (!target || target->process_state == PROCESS_ZOMBIE)
     {
-        kfree(entry->reply);
+        kfree_reply_cap(entry->reply);
         entry->reply = NULL;
         entry->grantable = false;
         entry->type = HANDLE_FREE;
@@ -134,7 +134,7 @@ static handle_entry_t *validate_reply_handle(process_t *proc,
 
     if (target->ipc_state != IPC_WAITING)
     {
-        kfree(entry->reply);
+        kfree_reply_cap(entry->reply);
         entry->reply = NULL;
         entry->grantable = false;
         entry->type = HANDLE_FREE;
@@ -240,7 +240,7 @@ void proc_recv(exception_frame_t *frame)
         {
             // allocate reply cap
 
-            reply_cap_t *rc = kmalloc(sizeof(reply_cap_t));
+            reply_cap_t *rc = (reply_cap_t *)kalloc_reply_cap();
             if (!rc)
             {
                 frame->r[0] = ERR_NOMEM;
@@ -252,7 +252,7 @@ void proc_recv(exception_frame_t *frame)
             int slot = handle_vec_find_free(&current_process->handle_table);
             if (slot < 0)
             {
-                kfree(rc);
+                kfree_reply_cap(rc);
                 list_add_tail(&sr_proc->node, &ep->sender_queue.node);
                 frame->r[0] = ERR_NOMEM;
                 return;
@@ -305,7 +305,7 @@ void proc_call(exception_frame_t *frame)
             ipc_panic_bad_trap_frame("proc_call.rx", rx_proc, rx_frame);
         }
         // allocate reply cap in rx_proc's table
-        reply_cap_t *rc = kmalloc(sizeof(reply_cap_t));
+        reply_cap_t *rc = (reply_cap_t *)kalloc_reply_cap();
         if (!rc)
         {
             frame->r[0] = ERR_NOMEM;
@@ -317,7 +317,7 @@ void proc_call(exception_frame_t *frame)
         int slot = handle_vec_find_free(&rx_proc->handle_table);
         if (slot < 0)
         {
-            kfree(rc);
+            kfree_reply_cap(rc);
             list_add_tail(&rx_proc->node, &ep->sender_queue.node);
             frame->r[0] = ERR_NOMEM;
             return;
@@ -381,7 +381,7 @@ void proc_reply(exception_frame_t *frame)
     target->process_state = PROCESS_READY;
     sched_add(target);
 
-    kfree(entry->reply);
+    kfree_reply_cap(entry->reply);
     // mark the slot free
     entry->type = HANDLE_FREE;
     frame->r[0] = 0;
@@ -449,7 +449,7 @@ void proc_callx(exception_frame_t *frame)
             ipc_panic_bad_trap_frame("proc_callx.rx", rx_proc, rx_frame);
         }
         // allocate reply cap in rx_proc's table
-        reply_cap_t *rc = kmalloc(sizeof(reply_cap_t));
+        reply_cap_t *rc = (reply_cap_t *)kalloc_reply_cap();
         if (!rc)
         {
             frame->r[0] = ERR_NOMEM;
@@ -461,7 +461,7 @@ void proc_callx(exception_frame_t *frame)
         int slot = handle_vec_find_free(&rx_proc->handle_table);
         if (slot < 0)
         {
-            kfree(rc);
+            kfree_reply_cap(rc);
             list_add_tail(&rx_proc->node, &ep->sender_queue.node);
             frame->r[0] = ERR_NOMEM;
             return;
@@ -529,7 +529,7 @@ void proc_replyx(exception_frame_t *frame)
     target->process_state = PROCESS_READY;
     sched_add(target);
 
-    kfree(entry->reply);
+    kfree_reply_cap(entry->reply);
     // mark the slot free
     entry->type = HANDLE_FREE;
     frame->r[0] = 0;

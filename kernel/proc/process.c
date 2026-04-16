@@ -127,14 +127,14 @@ void process_kill(process_t *p, const int exit_status) {
                     proc->process_state = PROCESS_READY;
                     sched_add(proc);
                 }
-                kfree(ep);
+                kfree_endpoint(ep);
             }
             entry->ep = NULL;
             entry->grantable = false;
             entry->type = HANDLE_FREE;
         } else if (entry->type == HANDLE_DEVICE) {
             if (entry->dev)
-                kfree(entry->dev);
+                kfree_device_cap(entry->dev);
             entry->dev = NULL;
             entry->mapped_va = 0;
             entry->grantable = false;
@@ -167,7 +167,7 @@ void process_kill(process_t *p, const int exit_status) {
             }
 
             if (rc)
-                kfree(rc);
+                kfree_reply_cap(rc);
 
             entry->reply = NULL;
             entry->grantable = false;
@@ -192,7 +192,7 @@ void process_kill(process_t *p, const int exit_status) {
             if (!rc || rc->caller != p)
                 continue;
 
-            kfree(rc);
+            kfree_reply_cap(rc);
             entry->reply = NULL;
             entry->grantable = false;
             entry->type = HANDLE_FREE;
