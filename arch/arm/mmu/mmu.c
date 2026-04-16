@@ -241,7 +241,7 @@ void arch_mmu_enable(addrspace_t *as)
     // For bring-up we do not set cacheability bits in TTBR0.
     __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"((uint32_t)as->ttbr0_pa) : "memory");
 
-    // Domain Access Control: set domain 0 to Manager (no permission checks during bring-up).
+    // Domain Access Control: set domain 0 to Client (no permission checks during bring-up).
     // Bits [1:0] correspond to domain 0.
     uint32_t dacr = 0x1u;
     __asm__ volatile("mcr p15, 0, %0, c3, c0, 0" ::"r"(dacr) : "memory");
@@ -545,6 +545,8 @@ uintptr_t arch_mmu_create_user_tables(void) {
 void arch_mmu_free_user_pages(uintptr_t ttbr0_pa)
 {
     uint32_t *l1 = (uint32_t *)PA_TO_VA(ttbr0_pa);
+    const uint32_t small_page_attr_mask = (0x7u << 6) | (1u << 3) | (1u << 2);
+    const uint32_t device_attr = (1u << 2); // TEX=000, C=0, B=1
 
     // Walk L1 entries in the user range (0 to 2047 for N=1)
     // Only free the BACKING physical pages, not the page table structures.
@@ -564,6 +566,16 @@ void arch_mmu_free_user_pages(uintptr_t ttbr0_pa)
             {
                 if (l2[j] & 0x2)
                 { // valid small page
+                    uintptr_t va = ((uintptr_t)i << 20) | ((uintptr_t)j << 12);
+
+                    // Keep shared kernel-exported syspage mapped read-only at user VA 0x1000.
+                    if (va == 0x1000u)
+                        continue;
+
+                    // Device mappings are not PMM-owned pages.
+                    if ((l2[j] & small_page_attr_mask) == device_attr)
+                        continue;
+
                     uintptr_t page_pa = l2[j] & 0xFFFFF000;
                     pmm_free_page(page_pa);
                 }

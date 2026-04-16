@@ -13,6 +13,7 @@
 #include "kernel/irq/sys_irq.h"
 
 extern process_t *current_process;
+extern process_t *process_table[MAX_PROCESSES];
 
 #define LOG_FMT(fmt) "(ipc) " fmt
 #include "core/log.h"
@@ -111,10 +112,33 @@ static handle_entry_t *validate_reply_handle(process_t *proc,
         return NULL;
     }
 
-    process_t *target = entry->reply->caller;
+    process_t *target = NULL;
+    for (uint32_t i = 0; i < MAX_PROCESSES; i++)
+    {
+        if (process_table[i] == entry->reply->caller)
+        {
+            target = process_table[i];
+            break;
+        }
+    }
+
+    if (!target || target->process_state == PROCESS_ZOMBIE)
+    {
+        kfree(entry->reply);
+        entry->reply = NULL;
+        entry->grantable = false;
+        entry->type = HANDLE_FREE;
+        frame->r[0] = ERR_DEAD;
+        return NULL;
+    }
+
     if (target->ipc_state != IPC_WAITING)
     {
-        frame->r[0] = ERR_BADARG;
+        kfree(entry->reply);
+        entry->reply = NULL;
+        entry->grantable = false;
+        entry->type = HANDLE_FREE;
+        frame->r[0] = ERR_DEAD;
         return NULL;
     }
 

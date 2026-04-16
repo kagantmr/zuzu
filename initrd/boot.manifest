@@ -1,0 +1,10 @@
+# zuzu initrd boot manifest v1
+# format: <path>|<flags>
+# flags: init, devmgr, none
+
+bin/zuzusysd|init
+bin/devmgr|devmgr
+bin/zuart|none
+bin/zusd|none
+bin/fat32d|none
+bin/fbox|none

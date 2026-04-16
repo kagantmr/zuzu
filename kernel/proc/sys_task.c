@@ -15,6 +15,8 @@ extern endpoint_t *nametable_endpoint;
 #define LOG_FMT(fmt) "(sys_task) " fmt
 #include "core/log.h"
 
+#define WAIT_ANY_PID ((uint32_t)-1)
+
 void quit(exception_frame_t *frame) {
     int exit_status = (int)frame->r[0];
     KINFO("Process %d exited with status code %d", current_process->pid, exit_status);
@@ -32,11 +34,7 @@ void sleep(exception_frame_t *frame) {
     uint32_t ms = frame->r[0]; // argument 0: Milliseconds to sleep
     
     // Convert ms to ticks using configured tick rate.
-    uint32_t ticks;
-    if (ms > UINT32_MAX / TICK_HZ)
-        ticks = UINT32_MAX;
-    else
-        ticks = (ms * TICK_HZ) / 1000u;
+    uint64_t ticks = ((uint64_t)ms * (uint64_t)TICK_HZ) / 1000u;
     if (ticks == 0) ticks = 1; // Sleep at least 1 tick
 
     // Calculate wake time
@@ -55,18 +53,51 @@ void get_pid(exception_frame_t *frame) {
 }
 
 void wait(exception_frame_t *frame) {
-    uint32_t child_pid = frame->r[0];
+    int32_t req_pid = (int32_t)frame->r[0];
     int32_t *status_out = (int32_t *)frame->r[1];
     uint32_t flags = frame->r[2];
+    process_t *child = NULL;
 
-    process_t *child = process_find_by_pid(child_pid);
-    if (!child) {
-        frame->r[0] = ERR_NOENT;
+    if (req_pid == -1) {
+        child = process_find_zombie_child(current_process);
+        if (child) {
+            if (status_out && validate_user_ptr((uintptr_t)status_out, sizeof(int32_t)))
+                *status_out = child->exit_status;
+            frame->r[0] = child->pid;
+            process_destroy(child);
+            return;
+        }
+
+        if (flags & WNOHANG) {
+            frame->r[0] = 0;
+            return;
+        }
+
+        current_process->waiting_for = WAIT_ANY_PID;
+        current_process->process_state = PROCESS_BLOCKED;
+        schedule();
+
+        child = process_find_zombie_child(current_process);
+        if (!child) {
+            frame->r[0] = ERR_NOENT;
+            return;
+        }
+        if (status_out && validate_user_ptr((uintptr_t)status_out, sizeof(int32_t)))
+            *status_out = child->exit_status;
+        frame->r[0] = child->pid;
+        process_destroy(child);
         return;
     }
 
-    if (child->parent_pid != current_process->pid) {
+    if (req_pid < 0) {
         frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    uint32_t child_pid = (uint32_t)req_pid;
+    child = process_find_child_by_pid(current_process, child_pid);
+    if (!child) {
+        frame->r[0] = ERR_NOENT;
         return;
     }
 
@@ -74,7 +105,7 @@ void wait(exception_frame_t *frame) {
     if (child->process_state == PROCESS_ZOMBIE) {
         if (status_out && validate_user_ptr((uintptr_t)status_out, sizeof(int32_t)))
             *status_out = child->exit_status;
-        frame->r[0] = child->exit_status;
+        frame->r[0] = child->pid;
         process_destroy(child);
         return;
     }
@@ -91,14 +122,14 @@ void wait(exception_frame_t *frame) {
     schedule();
 
     // re-fetch after wakeup, pointer may be stale
-    child = process_find_by_pid(child_pid);
+    child = process_find_child_by_pid(current_process, child_pid);
     if (!child) {
         frame->r[0] = ERR_NOENT;
         return;
     }
     if (status_out && validate_user_ptr((uintptr_t)status_out, sizeof(int32_t)))
         *status_out = child->exit_status;
-    frame->r[0] = child->exit_status;
+    frame->r[0] = child->pid;
     process_destroy(child);
 }
 
@@ -151,7 +182,7 @@ void spawn(exception_frame_t *frame) {
         }
     }
 
-    process->parent_pid = current_process->pid;
+    process_set_parent(process, current_process);
     
     sched_add(process);
     frame->r[0] = process->pid;

@@ -54,6 +54,23 @@ void pmm_init(void) {
 
     // Reserve boot-time regions
     pmm_reserve_boot_regions();
+
+    // Build the freelist from all free pages in the bitmap
+    pmm_rebuild_freelist();
+}
+
+void pmm_rebuild_freelist(void) {
+    pmm_state.freelist_head = 0;
+    for (size_t i = 0; i < pmm_state.total_pages; i++) {
+        size_t byte_idx = i / 8;
+        size_t bit_idx  = i % 8;
+        if (!(pmm_state.bitmap[byte_idx] & (1u << bit_idx))) {
+            uintptr_t pa = (pmm_state.pfn_base + i) * PAGE_SIZE;
+            uintptr_t *page_va = (uintptr_t *)PA_TO_VA(pa);
+            *page_va = pmm_state.freelist_head;
+            pmm_state.freelist_head = pa;
+        }
+    }
 }
 
 /* mark: mark pages in [start, end) as USED */
@@ -139,44 +156,30 @@ int pmm_unmark_range(uintptr_t start, uintptr_t end) {
     return MARK_OK;
 }
 
-/* alloc_page: return physical address of one page or 0 on failure */
+/* alloc_page: pop one page from freelist, O(1) */
 uintptr_t pmm_alloc_page(void) {
-    if (pmm_state.free_pages == 0) return (uintptr_t)0;
+    if (pmm_state.freelist_head == 0) return (uintptr_t)0;
 
-    kassert(pmm_state.bitmap != NULL);
-    kassert(pmm_state.total_pages == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
-    kassert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_pages);
+    uintptr_t pa = pmm_state.freelist_head;
+
+    /* Pop: read next pointer stored in the page itself */
+    uintptr_t *page_va = (uintptr_t *)PA_TO_VA(pa);
+    pmm_state.freelist_head = *page_va;
+
+    /* Keep bitmap in sync */
+    size_t index = (pa / PAGE_SIZE) - pmm_state.pfn_base;
+    size_t byte_idx = index / 8;
+    size_t bit_idx  = index % 8;
+
+    kassert(byte_idx < pmm_state.bitmap_bytes);
+    kassert(!(pmm_state.bitmap[byte_idx] & (1u << bit_idx))); /* must be free in bitmap */
+
+    pmm_state.bitmap[byte_idx] |= (uint8_t)(1u << bit_idx);
+    pmm_state.free_pages--;
     kassert(pmm_state.free_pages <= pmm_state.total_pages);
 
-    size_t total_pages = pmm_state.total_pages;
-
-    for (size_t byte = 0; byte < pmm_state.bitmap_bytes; byte++) {
-        uint8_t val = pmm_state.bitmap[byte];
-        if (val == 0xFF) continue; /* all used */
-
-        for (int bit = 0; bit < 8; bit++) {
-            size_t index = byte * 8 + bit;
-            if (index >= total_pages) break; /* beyond managed pages */
-
-            const uint8_t mask = (uint8_t)(1u << bit);
-
-            if (!(val & mask)) { /* free */
-                /* mark allocated */
-                pmm_state.bitmap[byte] |= mask;
-                pmm_state.free_pages--;
-                kassert(pmm_state.free_pages <= pmm_state.total_pages);
-
-                const size_t pfn = pmm_state.pfn_base + index;
-                const uintptr_t addr = (uintptr_t)pfn * PAGE_SIZE;
-                kassert(addr % PAGE_SIZE == 0);
-                kassert(pfn >= pmm_state.pfn_base && pfn < pmm_state.pfn_end);
-                syspage_update_mem(); // update free memory info in syspage
-                return addr;
-            }
-        }
-    }
-
-    return (uintptr_t)0;
+    syspage_update_mem();
+    return pa;
 }
 uintptr_t pmm_alloc_pages(size_t n_pages) {
     if (n_pages == 0 || pmm_state.free_pages < n_pages) return (uintptr_t)0;
@@ -212,6 +215,9 @@ uintptr_t pmm_alloc_pages(size_t n_pages) {
                      (start_index + n_pages) * PAGE_SIZE + pmm_state.pfn_base * PAGE_SIZE) != MARK_OK) {
                         return (uintptr_t)0; /* marking failed */
                 }
+
+                /* Bitmap changed behind the freelist's back, rebuild */
+                pmm_rebuild_freelist();
 
                 size_t pfn = pmm_state.pfn_base + start_index;
                 uintptr_t addr = (uintptr_t)pfn * PAGE_SIZE;
@@ -254,11 +260,17 @@ int pmm_free_page(const uintptr_t addr) {
         pmm_state.bitmap[byte_idx] &= ~mask;
         pmm_state.free_pages++;
         kassert(pmm_state.free_pages <= pmm_state.total_pages);
+
+        /* Push onto freelist */
+        uintptr_t *page_va = (uintptr_t *)PA_TO_VA(addr);
+        *page_va = pmm_state.freelist_head;
+        pmm_state.freelist_head = addr;
+
+        syspage_update_mem();
         return FREE_OK;
     }
 
     /* already free -> double free */
-    syspage_update_mem(); // update free memory info in syspage
     return DOUBLE_FREE;
 }
 
@@ -306,6 +318,9 @@ uintptr_t pmm_alloc_pages_aligned(const size_t n_pages, size_t align_pages)
                 if (pmm_mark_range(start_pa, end_pa) != MARK_OK) {
                     return (uintptr_t)0;
                 }
+
+                /* Bitmap changed behind the freelist's back, rebuild */
+                pmm_rebuild_freelist();
                 
                 syspage_update_mem(); // update free memory info in syspage
                 return start_pa;

@@ -172,6 +172,7 @@ bool vmm_remove_region(addrspace_t *as, uintptr_t vaddr, size_t size) {
     uint32_t idx = as->regions.len;
     for (uint32_t i = 0; i < as->regions.len; i++) {
         vm_region_t *r = vm_region_vec_get(&as->regions, i);
+        if (!r) continue;
         if (r->vaddr_start == vaddr && r->size == size) { idx = i; break; }
     }
     if (idx == as->regions.len) return false;

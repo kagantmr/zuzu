@@ -95,10 +95,14 @@ void *zmalloc(size_t size)
 
 void *zcalloc(size_t count, size_t size)
 {
-    void *mem = zmalloc(count * size);
+    if (count != 0 && size > ((size_t)-1) / count)
+        return NULL;
+
+    size_t total = count * size;
+    void *mem = zmalloc(total);
     if (!mem)
         return NULL;
-    memset(mem, 0, size * count);
+    memset(mem, 0, total);
     return mem;
 }
 

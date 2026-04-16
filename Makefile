@@ -53,6 +53,8 @@ endif
 USER_CC      = $(CROSS)gcc
 USER_LD      = $(CROSS)ld
 USER_OBJCOPY = $(CROSS)objcopy
+KERNEL_LIBGCC = $(shell $(CC) $(CPUFLAGS) -print-libgcc-file-name)
+USER_LIBGCC   = $(shell $(USER_CC) $(CPUFLAGS) -mfloat-abi=soft -print-libgcc-file-name)
 
 USER_CFLAGS  = -ffreestanding -nostdlib -O$(OPTIMIZATION_LEVEL) -Wall -Wextra \
                $(CPUFLAGS) -Iuser/include -Iinclude -MMD -MP -g -mfloat-abi=soft
@@ -85,6 +87,8 @@ BOOT_PROG_ELFS = $(foreach p,$(BOOT_PROGS),build/user/$(p).elf)
 DISK_PROG_ELFS = $(foreach p,$(DISK_PROGS),build/user/$(p).elf)
 USER_ELFS      = $(BOOT_PROG_ELFS) $(DISK_PROG_ELFS)
 INITRD         = build/initrd.cpio
+INITRD_EXTRA_DIR ?= initrd
+INITRD_EXTRA_FILES := $(shell find $(INITRD_EXTRA_DIR) -type f 2>/dev/null)
 
 $(foreach p,$(USER_PROGS),$(eval USER_$(p)_SRCS := $(wildcard user/$(p)/*.c)))
 $(foreach p,$(USER_PROGS),$(eval USER_$(p)_OBJS := $(patsubst user/%.c,build/user/%.o,$(USER_$(p)_SRCS))))
@@ -147,18 +151,21 @@ $(USER_CRT0): arch/arm/crt0.S
 define LINK_USER_PROG
 build/user/$(1).elf: $$(USER_$(1)_OBJS) $(USER_CRT0) $(ZCRT_OBJS) $(ULIB_OBJS) $$(if $$(filter fbox fat32d zzsh,$(1)),$(SERVICE_OBJS)) user/user.ld
 	@mkdir -p $$(dir $$@)
-	$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) $$(USER_$(1)_OBJS) $(ZCRT_OBJS) $(ULIB_OBJS) $$(if $$(filter fbox fat32d zzsh,$(1)),$(SERVICE_OBJS)) -o $$@
+	$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) $$(USER_$(1)_OBJS) $(ZCRT_OBJS) $(ULIB_OBJS) $$(if $$(filter fbox fat32d zzsh,$(1)),$(SERVICE_OBJS)) $(USER_LIBGCC) -o $$@
 endef
 
 $(foreach p,$(USER_PROGS),$(eval $(call LINK_USER_PROG,$(p))))
 
 # initrd
-$(INITRD): $(BOOT_PROG_ELFS)
+$(INITRD): $(BOOT_PROG_ELFS) $(INITRD_EXTRA_FILES)
 	@rm -rf build/initrd
 	@mkdir -p build/initrd/bin
 	@for prog in $(BOOT_PROGS); do \
 		cp build/user/$$prog.elf build/initrd/bin/$$prog; \
 	done
+	@if [ -d "$(INITRD_EXTRA_DIR)" ]; then \
+		cp -R $(INITRD_EXTRA_DIR)/. build/initrd/; \
+	fi
 	cd build/initrd && find . -not -name '.' | sort | cpio -o -H newc > ../initrd.cpio 2>/dev/null
 	@echo "  CPIO    $@ ($(words $(BOOT_PROGS)) boot program(s))"
 
@@ -169,7 +176,7 @@ build/arch/arm/initrd.o: arch/arm/initrd.S $(INITRD)
 # Kernel link
 $(TARGET): $(OBJS) build/arch/arm/initrd.o $(LINKER_SCRIPT)
 	@mkdir -p $(dir $@)
-	$(LD) $(LDFLAGS) $(OBJS) build/arch/arm/initrd.o -o $@
+	$(LD) $(LDFLAGS) $(OBJS) build/arch/arm/initrd.o $(KERNEL_LIBGCC) -o $@
 
 # SD card workflow
 #

@@ -16,9 +16,8 @@
  *
  * Built on top of vstrfmt's callback architecture.
  *
- * Note: uses static context, not reentrant. Safe for single-core
- * kernel use. Do not call from interrupt handlers while another
- * snprintf is in progress.
+ * Note: supports nested calls on the same core using per-call context.
+ * It is not intended as a cross-core synchronization primitive.
  */
 int snprintf(char *buf, size_t size, const char *fmt, ...);
 int vsnprintf(char *buf, size_t size, const char *fmt, va_list args);

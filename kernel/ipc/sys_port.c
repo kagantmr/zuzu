@@ -171,6 +171,12 @@ void port_grant(exception_frame_t *frame)
         return;
     }
 
+    if (src->type == HANDLE_REPLY)
+    {
+        frame->r[0] = ERR_NOPERM;
+        return;
+    }
+
     // Look up target process
     process_t *grantee = process_find_by_pid(pid);
     if (!grantee)
