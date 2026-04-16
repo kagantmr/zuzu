@@ -54,6 +54,7 @@ static inline uint32_t read_be32(const void *p)
 }
 
 static process_t *s_devmgr; 
+extern void arch_reboot(void);
 
 typedef struct boot_program {
     const char *path;
@@ -87,6 +88,7 @@ static void inject_device_cap(const char *compatible,
     }
     entry->type = HANDLE_DEVICE;
     entry->grantable = true;
+    entry->mapped_va = 0;
     entry->dev = cap;
 }
 
@@ -114,6 +116,101 @@ static void boot_program(const char *path, uint32_t flags)
     }
 
     sched_add(process);
+}
+
+static uint32_t parse_flag_string(const char *flag_str)
+{
+    if (!flag_str)
+        return 0;
+    
+    if (strcmp(flag_str, "init") == 0)
+        return PROC_FLAG_INIT;
+    if (strcmp(flag_str, "devmgr") == 0)
+        return PROC_FLAG_DEVMGR;
+    
+    return 0;
+}
+
+static size_t parse_boot_manifest(const char *manifest_data, size_t manifest_size,
+                                   boot_program_t *out_programs, size_t max_programs)
+{
+    if (!manifest_data || !manifest_size || !out_programs || !max_programs)
+        return 0;
+
+    size_t count = 0;
+    const char *line_start = manifest_data;
+    const char *end = manifest_data + manifest_size;
+
+    while (line_start < end && count < max_programs) {
+        const char *line_end = line_start;
+        while (line_end < end && *line_end != '\n')
+            line_end++;
+
+        size_t line_len = line_end - line_start;
+
+        // skip empty lines and comments
+        if (line_len == 0 || line_start[0] == '#' || line_start[0] == '\n') {
+            line_start = line_end + 1;
+            continue;
+        }
+
+        // trim trailing whitespace
+        while (line_len > 0 && (line_start[line_len - 1] == '\r' || 
+                                line_start[line_len - 1] == ' ' ||
+                                line_start[line_len - 1] == '\t'))
+            line_len--;
+
+        // find pipe separator
+        int pipe_idx = -1;
+        for (size_t i = 0; i < line_len; i++) {
+            if (line_start[i] == '|') {
+                pipe_idx = i;
+                break;
+            }
+        }
+
+        if (pipe_idx <= 0) {
+            KWARN("Boot manifest: invalid line format (missing pipe)");
+            line_start = line_end + 1;
+            continue;
+        }
+
+        // extract path
+        const char *path_start = line_start;
+        size_t path_len = pipe_idx;
+        char path_buf[256];
+        if (path_len >= sizeof(path_buf)) {
+            KWARN("Boot manifest: path too long");
+            line_start = line_end + 1;
+            continue;
+        }
+        memcpy(path_buf, path_start, path_len);
+        path_buf[path_len] = '\0';
+
+        // extract flags
+        const char *flags_start = line_start + pipe_idx + 1;
+        size_t flags_len = line_len - pipe_idx - 1;
+        char flags_buf[64];
+        if (flags_len >= sizeof(flags_buf)) {
+            flags_len = sizeof(flags_buf) - 1;
+        }
+        memcpy(flags_buf, flags_start, flags_len);
+        flags_buf[flags_len] = '\0';
+
+        // populate output entry
+        out_programs[count].path = (const char *)kmalloc(strlen(path_buf) + 1);
+        if (!out_programs[count].path) {
+            KERROR("Boot manifest: allocation failed");
+            break;
+        }
+        strcpy((char *)out_programs[count].path, path_buf);
+        out_programs[count].flags = parse_flag_string(flags_buf);
+
+        count++;
+        line_start = line_end + 1;
+    }
+
+    return count;
 }
 
 static inline void perform_panic_tests(void)
@@ -214,16 +311,33 @@ _Noreturn void kmain(void)
 
     initrd_init(_initrd_start, _initrd_end - _initrd_start);
 
-    static const boot_program_t boot_programs[] = {
-        {"bin/zuzusysd", PROC_FLAG_INIT},
-        {"bin/devmgr", PROC_FLAG_DEVMGR},
-        {"bin/zuart", 0},
-        {"bin/zusd", 0},
-        {"bin/fat32d", 0},
-        {"bin/fbox", 0},
-    };
+    // Read and parse boot manifest
+    const void *manifest_data;
+    size_t manifest_size;
+    boot_program_t boot_programs[16];  // max 16 boot programs
+    size_t boot_count = 0;
 
-    for (size_t i = 0; i < sizeof(boot_programs) / sizeof(boot_programs[0]); i++)
+    if (initrd_find("boot.manifest", &manifest_data, &manifest_size)) {
+        boot_count = parse_boot_manifest(manifest_data, manifest_size, 
+                                         boot_programs, sizeof(boot_programs) / sizeof(boot_programs[0]));
+        KINFO("Loaded boot manifest: %u programs", boot_count);
+    } else {
+        KWARN("Boot manifest not found in initrd");
+        // Fallback to hardcoded defaults
+        static const boot_program_t default_programs[] = {
+            {"bin/zuzusysd", PROC_FLAG_INIT},
+            {"bin/devmgr", PROC_FLAG_DEVMGR},
+            {"bin/zuart", 0},
+            {"bin/zusd", 0},
+            {"bin/fat32d", 0},
+            {"bin/fbox", 0},
+        };
+        boot_count = sizeof(default_programs) / sizeof(default_programs[0]);
+        memcpy(boot_programs, default_programs, sizeof(default_programs));
+    }
+
+    // Spawn boot programs from manifest
+    for (size_t i = 0; i < boot_count; i++)
         boot_program(boot_programs[i].path, boot_programs[i].flags);
 
 
@@ -238,6 +352,7 @@ _Noreturn void kmain(void)
 
     // Kick off the first runnable userspace task; later preemption comes from timer ticks.
     KINFO("Entering idle");
+
     schedule();
     //uint64_t idle_ticks = 0;
     while (1)

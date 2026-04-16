@@ -1,6 +1,7 @@
 #ifndef KERNEL_PROC_PROCESS_H
 #define KERNEL_PROC_PROCESS_H
 
+#include <stddef.h>
 #include <stdint.h>
 #include <list.h>
 #include "kernel/ipc/endpoint.h"
@@ -33,7 +34,7 @@ typedef struct process {
     p_state_t process_state;
     uint32_t *kernel_sp;
     uintptr_t kernel_stack_top;   // base of kernel stack for freeing
-    uint32_t wake_tick;
+    uint64_t wake_tick;
     uint32_t priority, time_slice, ticks_remaining;
     addrspace_t *as;
     list_node_t node;  // embedded, not pointers
@@ -49,6 +50,8 @@ typedef struct process {
     ipc_state_t ipc_state;
     endpoint_t *blocked_endpoint;
     uint32_t flags; 
+    list_head_t children;
+    list_node_t sibling_node;
 } process_t;
 
 typedef struct cpu_context {
@@ -56,8 +59,14 @@ typedef struct cpu_context {
     uint32_t lr;   // return address (or entry point for new process)
 } cpu_context_t;
 
+_Static_assert(offsetof(process_t, kernel_sp) == 12,
+               "switch.S expects process->kernel_sp at offset 12");
+
 void process_destroy(process_t *process);
 process_t *process_find_by_pid(uint32_t pid);
 void process_kill(process_t *p, int exit_status);
+void process_set_parent(process_t *child, process_t *parent);
+process_t *process_find_child_by_pid(process_t *parent, uint32_t pid);
+process_t *process_find_zombie_child(process_t *parent);
 
 #endif // KERNEL_PROC_PROCESS_H

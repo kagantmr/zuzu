@@ -179,7 +179,7 @@ Phase 5: Kernel Heap
 - [x] sys_irq_wait: block until claimed IRQ fires
 - [x] sys_irq_done: unmask IRQ line after handling
 - [x] Kernel IRQ path routes to waiting driver process
-- [ ] Which IRQs are kernel-only vs forwardable (timer stays kernel)
+- [x] Which IRQs are kernel-only vs forwardable (timer stays kernel)
 
 ---
 
@@ -233,18 +233,19 @@ Phase 5: Kernel Heap
 ## Phase 20: Process Lifecycle (Spawn/Wait + Cleanup)
 
 - [x] task_spawn: load ELF from initrd, return child PID
-- [x] task_wait: block until child exits, return exit status
-- [ ] Orphan re-parenting to init
+- [x] task_wait: block until child exits, return child PID (+ status via status_out)
+- [x] Orphan re-parenting to init
 - [x] Zombie reaping
+- [x] Parent/child process tree in PCB
 
 ---
 
 ## Phase 21: Filesystem Server (Userspace)
 
-- [ ] In-memory FS server (initrd-backed)
-- [ ] OPEN / READ / CLOSE IPC protocol
-- [ ] Per-client file descriptor state
-- [ ] Register as "fs" with name server
+- [x] In-memory FS server (initrd-backed)
+- [x] OPEN / READ / CLOSE IPC protocol
+- [x] Per-client file descriptor state
+- [x] Register as "fs" with name server
 
 ---
 

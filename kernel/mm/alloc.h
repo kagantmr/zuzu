@@ -19,6 +19,19 @@ typedef struct mem_block {
     bool free;            
 } kmem_block_t;
 
+typedef struct slab {
+    struct slab *next;       // next slab in this cache's list
+    uint16_t    used;        // how many objects are currently allocated
+    uint16_t    capacity;    // total slots in this slab
+    void       *free_head;   // freelist of available slots
+} slab_t;
+
+typedef struct slab_cache {
+    const char *name;        // "endpoint_t", for debugging/kheap_dump
+    size_t      obj_size;    // aligned object size
+    slab_t     *slabs;       // linked list of all slabs
+} slab_cache_t;
+
 // Aligned header size used for all layout calculations
 #define HDR ALIGN_UP_CONST(sizeof(kmem_block_t), ALIGNMENT)
 
@@ -50,5 +63,15 @@ void kheap_init(void);
  * sizes, free status, and statistics.
  */
 void kheap_dump(void);
+
+/* Hot-path object allocators backed by slab caches. */
+void *kalloc_endpoint(void);
+void kfree_endpoint(void *ptr);
+
+void *kalloc_reply_cap(void);
+void kfree_reply_cap(void *ptr);
+
+void *kalloc_device_cap(void);
+void kfree_device_cap(void *ptr);
 
 #endif // KERNEL_MM_ALLOC_H

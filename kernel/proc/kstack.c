@@ -21,11 +21,22 @@ uintptr_t kstack_alloc(void) {
             /* Map the usable stack page */
             bool result = vmm_map_range(vmm_get_kernel_as(), slot_va + 0x1000, page_pa, PAGE_SIZE,
                 VM_PROT_READ | VM_PROT_WRITE, VM_MEM_NORMAL, VM_OWNER_ANON, VM_FLAG_NONE);
-            (void)result;
-            kassert(result);
+            if (!result) {
+                pmm_free_page(page_pa);
+                return 0;
+            }
 
             /* Unmap the guard page (may have been part of a section mapping) */
-            arch_mmu_unmap_page(vmm_get_kernel_as(), slot_va);
+            if (!arch_mmu_unmap_page(vmm_get_kernel_as(), slot_va)) {
+                // If translation is already absent, guard page is already in the
+                // desired state and this is not an allocation failure.
+                if (arch_mmu_translate(vmm_get_kernel_as()->ttbr0_pa, slot_va) != 0) {
+                    vmm_unmap_range(vmm_get_kernel_as(), slot_va + 0x1000, PAGE_SIZE);
+                    pmm_free_page(page_pa);
+                    slot_pa[i] = 0;
+                    return 0;
+                }
+            }
             arch_mmu_flush_tlb_va(slot_va);
             arch_mmu_barrier();
 

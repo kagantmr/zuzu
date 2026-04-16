@@ -157,6 +157,9 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
     process->device_va_next = 0x60000000;
     process->mmap_va_next = 0x20000000;
     process->parent_pid = 0;
+    list_init(&process->children);
+    process->sibling_node.next = NULL;
+    process->sibling_node.prev = NULL;
     process->priority = 1;
     process->time_slice = 5;
     process->ticks_remaining = process->time_slice;

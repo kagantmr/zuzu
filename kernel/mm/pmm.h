@@ -22,6 +22,7 @@ typedef struct {
 
     uint8_t*  bitmap;      // pointer to bitmap memory
     size_t    bitmap_bytes;// size of bitmap in bytes
+    uintptr_t freelist_head; // PA of first free page (or 0 if none)
 } pmm_state_t;
 
 

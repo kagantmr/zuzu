@@ -279,9 +279,8 @@ void memshare(exception_frame_t *frame)
                            PAGE_SIZE, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
                            VM_MEM_NORMAL, VM_OWNER_SHARED, VM_FLAG_NONE))
         {
-            // unmap what we already mapped
-            for (size_t k = 0; k < j; k++)
-                vmm_unmap_range(current_process->as, va_base + k * PAGE_SIZE, PAGE_SIZE);
+            // Remove region and unmap in one pass.
+            vmm_remove_region(current_process->as, va_base, size);
             current_process->mmap_va_next -= size;
             for (size_t i = 0; i < page_count; i++)
                 pmm_free_page(page_arr[i]);
@@ -296,8 +295,6 @@ void memshare(exception_frame_t *frame)
     if (!entry)
     {
         vmm_remove_region(current_process->as, va_base, size);
-        for (size_t j = 0; j < page_count; j++)
-            vmm_unmap_range(current_process->as, va_base + j * PAGE_SIZE, PAGE_SIZE);
         current_process->mmap_va_next -= size;
         for (size_t i = 0; i < page_count; i++)
             pmm_free_page(page_arr[i]);
@@ -355,9 +352,9 @@ void attach(exception_frame_t *frame)
                            PAGE_SIZE, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
                            VM_MEM_NORMAL, VM_OWNER_SHARED, VM_FLAG_NONE))
         {
-            // unmap what we already mapped
-            for (size_t k = 0; k < j; k++)
-                vmm_unmap_range(current_process->as, va_base + k * PAGE_SIZE, PAGE_SIZE);
+            // Remove region and unmap in one pass.
+            vmm_remove_region(current_process->as, va_base,
+                              shm_obj->page_count * PAGE_SIZE);
             current_process->mmap_va_next -= shm_obj->page_count * PAGE_SIZE;
             frame->r[0] = ERR_NOMEM;
             return;
@@ -388,8 +385,6 @@ void detach(exception_frame_t *frame)
     shmem_t *shm = entry->shm;
     const uintptr_t va = entry->mapped_va;
     vmm_remove_region(current_process->as, va, shm->page_count * PAGE_SIZE);
-    for (size_t j = 0; j < shm->page_count; j++)
-        vmm_unmap_range(current_process->as, va + j * PAGE_SIZE, PAGE_SIZE);
     shm->ref_count--;
     if (shm->ref_count == 0)
     {
