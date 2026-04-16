@@ -7,12 +7,29 @@
 #include <assert.h>
 #include "core/panic.h"
 #include "core/log.h"
+#include "kernel/ipc/endpoint.h"
 
 extern kernel_layout_t kernel_layout;
 
 
 
 kmem_block_t* heap_head = NULL;
+
+static slab_cache_t endpoint_cache;
+static slab_cache_t reply_cap_cache;
+static slab_cache_t device_cap_cache;
+static bool hot_caches_ready;
+
+static void alloc_hot_caches_init(void)
+{
+    if (hot_caches_ready)
+        return;
+
+    slab_cache_create(&endpoint_cache, "endpoint_t", sizeof(endpoint_t));
+    slab_cache_create(&reply_cap_cache, "reply_cap_t", sizeof(reply_cap_t));
+    slab_cache_create(&device_cap_cache, "device_cap_t", sizeof(device_cap_t));
+    hot_caches_ready = true;
+}
 
 static void heap_append_block(kmem_block_t *block)
 {
@@ -202,6 +219,47 @@ void kheap_init(void) {
     if (!kheap_grow(HEAP_INITIAL_SIZE - HDR)) {
         panic("Heap could not be allocated");
     }
+
+    alloc_hot_caches_init();
+}
+
+void *kalloc_endpoint(void)
+{
+    alloc_hot_caches_init();
+    return slab_alloc(&endpoint_cache);
+}
+
+void kfree_endpoint(void *ptr)
+{
+    if (!ptr)
+        return;
+    slab_free(&endpoint_cache, ptr);
+}
+
+void *kalloc_reply_cap(void)
+{
+    alloc_hot_caches_init();
+    return slab_alloc(&reply_cap_cache);
+}
+
+void kfree_reply_cap(void *ptr)
+{
+    if (!ptr)
+        return;
+    slab_free(&reply_cap_cache, ptr);
+}
+
+void *kalloc_device_cap(void)
+{
+    alloc_hot_caches_init();
+    return slab_alloc(&device_cap_cache);
+}
+
+void kfree_device_cap(void *ptr)
+{
+    if (!ptr)
+        return;
+    slab_free(&device_cap_cache, ptr);
 }
 
 void slab_cache_create(slab_cache_t *cache, const char *name, size_t obj_size)
@@ -240,6 +298,8 @@ void *slab_alloc(slab_cache_t *cache)
 
 void slab_free(slab_cache_t *cache, void *ptr)
 {
+    (void)cache;
+
     // the slab header is at the page-aligned base of this pointer
     slab_t *slab = (slab_t *)align_down((uintptr_t)ptr, PAGE_SIZE);
 
