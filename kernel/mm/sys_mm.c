@@ -56,6 +56,7 @@ void memmap(exception_frame_t *frame)
         va = current_process->mmap_va_next;
     }
 
+    if (va >= USER_VA_TOP) { frame->r[0] = ERR_BADARG; return; }
     // 2. Bump the cursor
     if (size > USER_VA_TOP - va) // check for overflow
     {
@@ -328,13 +329,26 @@ void attach(exception_frame_t *frame)
         frame->r[0] = ERR_BADFORM;
         return;
     }
+
     shmem_t *shm_obj = entry->shm;
+    if (!shm_obj)
+    {
+        frame->r[0] = ERR_BADFORM;
+        return;
+    }
+    const size_t size = shm_obj->page_count * PAGE_SIZE;
+    if (current_process->mmap_va_next > UINTPTR_MAX - size) // check for overflow
+    {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
     const uintptr_t va_base = current_process->mmap_va_next;
-    current_process->mmap_va_next += shm_obj->page_count * PAGE_SIZE;
+    current_process->mmap_va_next += size;
 
     vm_region_t region = {
         .vaddr_start = va_base,
-        .size = shm_obj->page_count * PAGE_SIZE,
+        .size = size,
         .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
         .memtype = VM_MEM_NORMAL,
         .owner = VM_OWNER_SHARED,
@@ -342,7 +356,7 @@ void attach(exception_frame_t *frame)
     };
     if (!vmm_add_region(current_process->as, &region))
     {
-        current_process->mmap_va_next -= shm_obj->page_count * PAGE_SIZE;
+        current_process->mmap_va_next -= size;
         frame->r[0] = ERR_NOMEM;
         return;
     }
