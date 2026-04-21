@@ -17,6 +17,14 @@ extern endpoint_t *nametable_endpoint;
 
 #define WAIT_ANY_PID ((uint32_t)-1)
 
+static void wait_write_status(int32_t *status_out, int32_t status)
+{
+    if (!status_out)
+        return;
+
+    (void)copy_to_user(status_out, &status, sizeof(status));
+}
+
 void quit(exception_frame_t *frame) {
     int exit_status = (int)frame->r[0];
     KINFO("Process %d exited with status code %d", current_process->pid, exit_status);
@@ -61,8 +69,7 @@ void wait(exception_frame_t *frame) {
     if (req_pid == -1) {
         child = process_find_zombie_child(current_process);
         if (child) {
-            if (status_out && validate_user_ptr((uintptr_t)status_out, sizeof(int32_t)))
-                *status_out = child->exit_status;
+            wait_write_status(status_out, child->exit_status);
             frame->r[0] = child->pid;
             process_destroy(child);
             return;
@@ -82,8 +89,7 @@ void wait(exception_frame_t *frame) {
             frame->r[0] = ERR_NOENT;
             return;
         }
-        if (status_out && validate_user_ptr((uintptr_t)status_out, sizeof(int32_t)))
-            *status_out = child->exit_status;
+        wait_write_status(status_out, child->exit_status);
         frame->r[0] = child->pid;
         process_destroy(child);
         return;
@@ -103,8 +109,7 @@ void wait(exception_frame_t *frame) {
 
     // Case A: child already exited
     if (child->process_state == PROCESS_ZOMBIE) {
-        if (status_out && validate_user_ptr((uintptr_t)status_out, sizeof(int32_t)))
-            *status_out = child->exit_status;
+        wait_write_status(status_out, child->exit_status);
         frame->r[0] = child->pid;
         process_destroy(child);
         return;
@@ -127,8 +132,7 @@ void wait(exception_frame_t *frame) {
         frame->r[0] = ERR_NOENT;
         return;
     }
-    if (status_out && validate_user_ptr((uintptr_t)status_out, sizeof(int32_t)))
-        *status_out = child->exit_status;
+    wait_write_status(status_out, child->exit_status);
     frame->r[0] = child->pid;
     process_destroy(child);
 }
@@ -140,12 +144,6 @@ void spawn(exception_frame_t *frame) {
     size_t name_len = frame->r[3];
 
     if (!elf_data || !name || elf_size == 0 || name_len == 0) {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-
-    if (!validate_user_ptr((uintptr_t)elf_data, elf_size) ||
-        !validate_user_ptr((uintptr_t)name, name_len)) {
         frame->r[0] = ERR_BADARG;
         return;
     }
@@ -162,8 +160,17 @@ void spawn(exception_frame_t *frame) {
         return;
     }
 
-    memcpy(elf_copy, elf_data, elf_size);
-    memcpy(kname, name, name_len);
+    if (!copy_from_user(elf_copy, elf_data, elf_size)) {
+        kfree(elf_copy);
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    if (!copy_from_user(kname, name, name_len)) {
+        kfree(elf_copy);
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
     kname[name_len] = '\0';
 
     process_t *process = process_create_from_elf(elf_copy, elf_size, kname);

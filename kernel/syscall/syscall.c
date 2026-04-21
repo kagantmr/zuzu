@@ -12,6 +12,9 @@
 #include "kernel/layout.h"
 #include "core/panic.h"
 
+#include "kernel/mm/vmm.h"
+
+#include <mem.h>
 #include <stdbool.h>
 
 extern process_t *current_process;
@@ -34,6 +37,34 @@ static bool trap_frame_sane(const exception_frame_t *frame)
         return true;
 
     return false;
+}
+
+bool copy_to_user(void *uaddr, const void *kaddr, size_t len) {
+    if (len == 0)
+        return true;
+    if (!current_process || !current_process->as || !uaddr || !kaddr)
+        return false;
+    if (!validate_user_ptr((uintptr_t)uaddr, len))
+        return false;
+    if (!fault_in_pages(current_process->as, (uintptr_t)uaddr, len, true))
+        return false;
+
+    memcpy(uaddr, kaddr, len);
+    return true;
+}
+
+bool copy_from_user(void *kaddr, const void *uaddr, size_t len) {
+    if (len == 0)
+        return true;
+    if (!current_process || !current_process->as || !uaddr || !kaddr)
+        return false;
+    if (!validate_user_ptr((uintptr_t)uaddr, len))
+        return false;
+    if (!fault_in_pages(current_process->as, (uintptr_t)uaddr, len, false))
+        return false;
+
+    memcpy(kaddr, uaddr, len);
+    return true;
 }
 
 void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
