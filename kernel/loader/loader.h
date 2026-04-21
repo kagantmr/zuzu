@@ -10,6 +10,6 @@
  * - it must have an entry point and PT_LOAD segments). The process will be created in the TASK_READY state.
  * The caller is responsible for eventually calling process_free() on the returned process.
  */
-process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const char *name);
+process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const char *name, const char *argbuf, size_t argbuf_len, uint32_t argc);
 
 #endif // ELF_LOADER_H

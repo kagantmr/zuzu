@@ -8,7 +8,7 @@
 #include "arch/arm/mmu/mmu.h"
 #include "arch/arm/include/cache.h"
 #include "kernel/loader/elf.h"
-#include "kernel/mm/alloc.h"   
+#include "kernel/mm/alloc.h"
 #include "kernel/syspage.h"
 #include "zuzu/ipcx.h"
 
@@ -31,7 +31,7 @@ static bool elf_segment_ranges_overlap(const Elf32_Phdr *a, const Elf32_Phdr *b)
 #define LOG_FMT(fmt) "(elf_loader) " fmt
 #include "core/log.h"
 
-process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const char *name)
+process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const char *name, const char *argbuf, size_t argbuf_len, uint32_t argc)
 {
     uint32_t elf_entry = elf_validate(elf_data, elf_size); // validate ELF and get entry point (also validates that it's an ARM executable)
     if (!elf_entry)
@@ -161,10 +161,21 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
                 }
 
                 cache_flush_code_range((uintptr_t)PA_TO_VA(page_pa), PAGE_SIZE);
+
             }
 
-            kfree(segment_pages);
 
+            vm_region_t seg_region = {
+                .vaddr_start = ph->p_vaddr,
+                .size = pages_needed * PAGE_SIZE,
+                .prot = prot | VM_PROT_USER,
+                .memtype = VM_MEM_NORMAL,
+                .owner = VM_OWNER_ANON,
+                .flags = VM_FLAG_NONE,
+            };
+            vmm_add_region(process->as, &seg_region);
+            
+            kfree(segment_pages);
         }
     }
 
@@ -185,6 +196,16 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
         }
     }
 
+    vm_region_t stack_region = {
+        .vaddr_start = 0x7FFFB000,
+        .size        = 4 * PAGE_SIZE,
+        .prot        = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
+        .memtype     = VM_MEM_NORMAL,
+        .owner       = VM_OWNER_ANON,
+        .flags       = VM_FLAG_NONE,
+    };
+    vmm_add_region(process->as, &stack_region);
+
     if (!kmap_user_page(process->as, syspage_pa(), 0x1000, VM_PROT_READ))
         goto fail_kstack;
 
@@ -196,25 +217,69 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
         pmm_free_page(process->ipc_buf_pa);
         goto fail_kstack;
     }
+    vm_region_t ipc_region = {
+        .vaddr_start = IPCX_BUF_VA,
+        .size = PAGE_SIZE,
+        .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
+        .memtype = VM_MEM_NORMAL,
+        .owner = VM_OWNER_ANON,
+        .flags = VM_FLAG_NONE,
+    };
+    vmm_add_region(process->as, &ipc_region);
     vm_region_t guard = {
         .vaddr_start = 0x7FFFD000,
-        .size        = PAGE_SIZE,
-        .prot        = 0,
-        .memtype     = VM_MEM_NORMAL,
-        .owner       = VM_OWNER_NONE,
-        .flags       = VM_FLAG_GUARD,
+        .size = PAGE_SIZE,
+        .prot = 0,
+        .memtype = VM_MEM_NORMAL,
+        .owner = VM_OWNER_NONE,
+        .flags = VM_FLAG_GUARD,
     };
     vmm_add_region(process->as, &guard);
+    vm_region_t sys_region = {
+        .vaddr_start = 0x1000,
+        .size = PAGE_SIZE,
+        .prot = VM_PROT_READ | VM_PROT_USER,
+        .memtype = VM_MEM_NORMAL,
+        .owner = VM_OWNER_SHARED,
+        .flags = VM_FLAG_NONE,
+    };
+    vmm_add_region(process->as, &sys_region);
+
+    // lay out argc argv on the user stack
+    uintptr_t sp = USR_SP;
+    uintptr_t argv_va = 0;
+
+    if (argbuf && argbuf_len > 0 && argc > 0) {
+        sp -= argbuf_len;
+        sp &= ~3u;
+        uintptr_t strings_va = sp;
+        memcpy((void *)PA_TO_VA(user_stack_pa + (strings_va - 0x7FFFC000)),
+               argbuf, argbuf_len);
+
+        sp -= (argc + 1) * sizeof(uint32_t);
+        sp &= ~7u;
+        argv_va = sp;
+        uint32_t *argv_kern = (uint32_t *)PA_TO_VA(user_stack_pa + (argv_va - 0x7FFFC000));
+
+        uintptr_t str_va = strings_va;
+        for (uint32_t a = 0; a < argc; a++) {
+            argv_kern[a] = (uint32_t)str_va;
+            str_va += strlen((const char *)PA_TO_VA(user_stack_pa + (str_va - 0x7FFFC000))) + 1;
+        }
+        argv_kern[argc] = 0;
+    }
 
     // write exception frame to the stack
     stack_top -= 17 * sizeof(uint32_t);
     uint32_t *exc_frame = (uint32_t *)stack_top;
-    for (int i = 0; i < 13; i++)
-        *(exc_frame++) = 0;          // r0-r12
-    *(exc_frame++) = USR_SP;         // sp_usr
-    *(exc_frame++) = 0;              // lr_usr
-    *(exc_frame++) = elf_entry;      // return_pc
-    *(exc_frame++) = 0x10;           // cpsr = USR mode
+    exc_frame[0]  = argc;
+    exc_frame[1]  = (uint32_t)argv_va;
+    for (int i = 2; i < 13; i++)
+        exc_frame[i] = 0;
+    exc_frame[13] = (uint32_t)sp;      // sp_usr 
+    exc_frame[14] = 0;                  // lr_usr
+    exc_frame[15] = elf_entry;          // return_pc
+    exc_frame[16] = 0x10;               // cpsr = USR mode
 
     // write cpu_context to stack
     stack_top -= sizeof(cpu_context_t);
@@ -244,9 +309,10 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
     process->ticks_remaining = process->time_slice;
     process->node.next = NULL;
     process->node.prev = NULL;
-    process->flags = 0; 
+    process->flags = 0;
     const char *short_name = name;
-    for (const char *p = name; *p; p++) {
+    for (const char *p = name; *p; p++)
+    {
         if (*p == '/')
             short_name = p + 1;
     }

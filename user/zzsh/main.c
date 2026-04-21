@@ -299,10 +299,28 @@ static void cmd_cat(const char *path)
 
 /* ---- exec from SD ---- */
 
-static void cmd_exec(const char *name)
+static void cmd_exec(const char *line)
 {
+    /* ---- tokenize ---- */
+    char buf[LINE_BUFFER_SIZE];
+    strncpy(buf, line, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+
+    char *tokens[16];
+    int token_count = 0;
+    char *p = buf;
+    while (*p && token_count < 16) {
+        while (*p == ' ') p++;
+        if (!*p) break;
+        tokens[token_count++] = p;
+        while (*p && *p != ' ') p++;
+        if (*p) *p++ = '\0';
+    }
+    if (token_count == 0) return;
+
+    /* ---- resolve path from first token ---- */
     char path[256];
-    if (!resolve_path(name, path, sizeof(path))) {
+    if (!resolve_path(tokens[0], path, sizeof(path))) {
         zprint("zzsh: path too long\n");
         return;
     }
@@ -312,14 +330,14 @@ static void cmd_exec(const char *name)
         return;
     }
 
-    /* stat first to get file size */
+    /* ---- stat to get file size ---- */
     size_t plen = strlen(path);
     memcpy(fbox_buf, path, plen + 1);
 
     zuzu_ipcmsg_t r = _call(fbox_port, FBOX_STAT, 0, 0);
     if ((int32_t)r.r1 != FBOX_OK) {
         zprint(ANSI_RED "zzsh: not found: " ANSI_RESET);
-        zprint(name);
+        zprint(tokens[0]);
         zprint("\n");
         return;
     }
@@ -332,7 +350,7 @@ static void cmd_exec(const char *name)
         return;
     }
 
-    /* open the file */
+    /* ---- read ELF ---- */
     memcpy(fbox_buf, path, plen + 1);
     r = _call(fbox_port, FBOX_OPEN, FAT32_MODE_READ, 0);
     if ((int32_t)r.r1 != FBOX_OK) {
@@ -341,7 +359,6 @@ static void cmd_exec(const char *name)
     }
     uint32_t fd = r.r2;
 
-    /* allocate buffer for the full ELF */
     uint8_t *elf = (uint8_t *)zmalloc(file_size);
     if (!elf) {
         zprint(ANSI_RED "zzsh: out of memory\n" ANSI_RESET);
@@ -349,19 +366,15 @@ static void cmd_exec(const char *name)
         return;
     }
 
-    /* read the entire file */
     uint32_t total = 0;
     while (total < file_size) {
         uint32_t chunk = file_size - total;
         if (chunk > 4096) chunk = 4096;
-
         r = _call(fbox_port, FBOX_READ, FBOX_PACK_RW(fd, chunk), 0);
         if ((int32_t)r.r1 != FBOX_OK || r.r2 == 0) break;
-
         memcpy(elf + total, fbox_buf, r.r2);
         total += r.r2;
     }
-
     _call(fbox_port, FBOX_CLOSE, fd, 0);
 
     if (total < file_size) {
@@ -370,8 +383,21 @@ static void cmd_exec(const char *name)
         return;
     }
 
-    /* spawn */
-    int32_t child = _spawn(elf, total, name, strlen(name));
+    /* ---- build argbuf: "tok0\0tok1\0tok2\0" ---- */
+    char argbuf[512];
+    size_t argpos = 0;
+    for (int i = 0; i < token_count; i++) {
+        size_t len = strlen(tokens[i]) + 1;
+        if (argpos + len > sizeof(argbuf)) break;
+        memcpy(argbuf + argpos, tokens[i], len);
+        argpos += len;
+    }
+
+    /* ---- spawn with args ---- */
+    const char *name = path_basename(path);
+    int32_t child = _spawnv(elf, total,
+                            name, strlen(name),
+                            argbuf, argpos, (uint32_t)token_count);
     zfree(elf);
 
     if (child < 0) {
