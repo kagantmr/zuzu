@@ -211,6 +211,20 @@ _Noreturn void early(void *dtb_ptr)
 
     //__asm__ volatile(".word 0xffffffff");
 
+    // turn on FPU (VFPv3)
+   // Enable CP10/CP11 access
+    uint32_t cpacr;
+    __asm__ volatile("mrc p15, 0, %0, c1, c0, 2" : "=r"(cpacr));
+    cpacr |= (0xF << 20);
+    __asm__ volatile("mcr p15, 0, %0, c1, c0, 2" :: "r"(cpacr));
+    __asm__ volatile("isb");
+
+    // Enable VFP
+    __asm__ volatile(
+        ".fpu vfpv4\n\t"
+        "vmsr fpexc, %0"
+        :: "r"(1u << 30)
+    );
     // Hand off to kernel proper
     kmain();
 }
