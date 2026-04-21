@@ -239,7 +239,12 @@ void arch_mmu_enable(addrspace_t *as)
 
     // Set TTBR0 to the L1 table base.
     // For bring-up we do not set cacheability bits in TTBR0.
-    __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"((uint32_t)as->ttbr0_pa) : "memory");
+    uint32_t ttbr0_val = (uint32_t)as->ttbr0_pa;
+    ttbr0_val |= (1u << 0);  
+                           
+    ttbr0_val |= (1u << 3);  
+
+    __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"((uint32_t)ttbr0_val) : "memory");
 
     // Domain Access Control: set domain 0 to Client (no permission checks during bring-up).
     // Bits [1:0] correspond to domain 0.
@@ -279,16 +284,21 @@ void arch_mmu_switch(addrspace_t *as)
         return;
     }
 
-    arch_mmu_flush_tlb_asid(as->asid);
-
-    arch_mmu_barrier();
     
     __asm__ volatile("mcr p15, 0, %0, c13, c0, 1" :: "r"((uint32_t)as->asid) : "memory");
 
     arch_mmu_barrier();
 
-    __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"((uint32_t)as->ttbr0_pa) : "memory");
+    uint32_t ttbr0_val = (uint32_t)as->ttbr0_pa;
+    ttbr0_val |= (1u << 0);  
+                            
+    ttbr0_val |= (1u << 3);  
 
+    __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"((uint32_t)ttbr0_val) : "memory");
+
+    arch_mmu_barrier();
+
+    arch_mmu_flush_tlb_asid(as->asid);
 
     arch_mmu_barrier();
 }
@@ -588,7 +598,11 @@ void arch_mmu_free_user_pages(uintptr_t ttbr0_pa)
 
 void arch_mmu_init_ttbr1(addrspace_t *as)
 {
-    __asm__ volatile("mcr p15, 0, %0, c2, c0, 1" ::"r"((uint32_t)as->ttbr0_pa) : "memory"); // write ttbr0 to ttbr1, final operand 1 because we're writing to ttbr1
+    uint32_t ttbr0_val = (uint32_t)as->ttbr0_pa;
+    ttbr0_val |= (1u << 0); 
+                            
+    ttbr0_val |= (1u << 3);  
+    __asm__ volatile("mcr p15, 0, %0, c2, c0, 1" ::"r"((uint32_t)ttbr0_val) : "memory"); // write ttbr0 to ttbr1, final operand 1 because we're writing to ttbr1
     uint32_t ttbcr;
     __asm__ volatile("mrc p15, 0, %0, c2, c0, 2" : "=r"(ttbcr)::"memory"); // get TTBCR (translation table base control register)
     ttbcr &= 0xFFFFFFE0;                                                   // clear last 5 bits
