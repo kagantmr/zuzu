@@ -60,6 +60,9 @@ static void sched_wake_sleepers(void) {
 }
 
 void schedule() {
+    // Reap deferred zombies even when the idle loop is not reached.
+    sched_reap();
+
     sched_wake_sleepers();
 
     process_t *prev = current_process;
