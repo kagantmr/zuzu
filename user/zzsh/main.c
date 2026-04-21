@@ -205,6 +205,23 @@ static bool stat_path(const char *path, fbox_stat_t *st)
     return true;
 }
 
+static const char *path_basename(const char *path)
+{
+    const char *base = path;
+    while (*path) {
+        if (*path == '/')
+            base = path + 1;
+        path++;
+    }
+    return base;
+}
+
+static bool path_is_zzsh(const char *path)
+{
+    const char *base = path_basename(path);
+    return strcmp(base, "zzsh") == 0 || strcmp(base, "zzsh.elf") == 0;
+}
+
 /* ---- ls ---- */
 
 static void cmd_ls(const char *arg)
@@ -287,6 +304,11 @@ static void cmd_exec(const char *name)
     char path[256];
     if (!resolve_path(name, path, sizeof(path))) {
         zprint("zzsh: path too long\n");
+        return;
+    }
+
+    if (path_is_zzsh(path)) {
+        zprint(ANSI_RED "zzsh: refusing to spawn itself\n" ANSI_RESET);
         return;
     }
 
