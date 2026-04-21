@@ -5,10 +5,21 @@
 #include <mem.h>
 #include "kernel/mm/vmm.h"   // PA_TO_VA / VA_TO_PA helpers
 
+#define LOG_FMT(fmt) "(pmm) " fmt
+#include "core/log.h"
+
 pmm_state_t pmm_state;
 extern phys_region_t phys_region;
 extern kernel_layout_t kernel_layout;
 extern void syspage_update_mem(void);
+
+static bool pmm_is_valid_managed_pa(uintptr_t pa) {
+    if (pa == 0) return true; // freelist terminator
+    if ((pa % PAGE_SIZE) != 0) return false;
+
+    const size_t pfn = pa / PAGE_SIZE;
+    return (pfn >= pmm_state.pfn_base && pfn < pmm_state.pfn_end);
+}
 
 static void pmm_rebuild_freelist(void) {
     pmm_state.freelist_head = 0;
@@ -30,8 +41,22 @@ static void pmm_freelist_remove_range(uintptr_t start_pa, uintptr_t end_pa) {
     uintptr_t curr_pa = pmm_state.freelist_head;
 
     while (curr_pa) {
+        if (!pmm_is_valid_managed_pa(curr_pa)) {
+            pmm_rebuild_freelist();
+            prev_pa = 0;
+            curr_pa = pmm_state.freelist_head;
+            continue;
+        }
+
         uintptr_t *curr_va = (uintptr_t *)PA_TO_VA(curr_pa);
         uintptr_t next_pa = *curr_va;
+
+        if (!pmm_is_valid_managed_pa(next_pa)) {
+            pmm_rebuild_freelist();
+            prev_pa = 0;
+            curr_pa = pmm_state.freelist_head;
+            continue;
+        }
 
         if (curr_pa >= start_pa && curr_pa < end_pa) {
             if (prev_pa == 0) {
@@ -185,11 +210,29 @@ int pmm_unmark_range(uintptr_t start, uintptr_t end) {
 uintptr_t pmm_alloc_page(void) {
     if (pmm_state.freelist_head == 0) return (uintptr_t)0;
 
+    if (!pmm_is_valid_managed_pa(pmm_state.freelist_head)) {
+        pmm_rebuild_freelist();
+        if (pmm_state.freelist_head == 0) return (uintptr_t)0;
+    }
+
     uintptr_t pa = pmm_state.freelist_head;
 
     /* Pop: read next pointer stored in the page itself */
     uintptr_t *page_va = (uintptr_t *)PA_TO_VA(pa);
-    pmm_state.freelist_head = *page_va;
+    uintptr_t next_pa = *page_va;
+    if (!pmm_is_valid_managed_pa(next_pa)) {
+        pmm_rebuild_freelist();
+        if (pmm_state.freelist_head == 0) return (uintptr_t)0;
+        pa = pmm_state.freelist_head;
+        page_va = (uintptr_t *)PA_TO_VA(pa);
+        next_pa = *page_va;
+        if (!pmm_is_valid_managed_pa(next_pa)) {
+
+            pmm_state.freelist_head = 0;
+            return (uintptr_t)0;
+        }
+    }
+    pmm_state.freelist_head = next_pa;
 
     /* Keep bitmap in sync */
     size_t index = (pa / PAGE_SIZE) - pmm_state.pfn_base;
