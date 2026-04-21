@@ -58,12 +58,17 @@ int uart_puts(const char *string) {
     return UART_OK;
 }
 
+static void uart_fmt_outc(void *ctx, char c) {
+    (void)ctx;
+    active_driver->putc(c);
+}
+
 int uart_printf(const char *fstring, ...) {
     ensure_driver();
     kassert(fstring != NULL);
     va_list list;
     va_start(list, fstring);
-    vstrfmt(active_driver->putc, fstring, &list);
+    vstrfmt(uart_fmt_outc, NULL, fstring, &list);
     va_end(list);
     return UART_OK;
 }
