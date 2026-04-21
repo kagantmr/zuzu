@@ -4,6 +4,9 @@
 #include "stdarg.h"
 #include "stddef.h"
 
+typedef void (*strfmt_outc_t)(void *ctx, char c);
+
+
 
 /**
  * @brief Calculate the length of a null-terminated string.
@@ -106,7 +109,7 @@ char *strchr(const char *s, int c);
  * @param ...     Variable arguments matching the format specifiers.
  * @return Pointer to a static or provided buffer containing the formatted string.
  */
-void strfmt(void (*outc)(char), const char *fstring, ...) ;
+void strfmt(strfmt_outc_t outc, void *ctx, const char *fstring, ...);
 
 /**
  * @brief Format a string according to a format specifier list using va_list.
@@ -118,7 +121,7 @@ void strfmt(void (*outc)(char), const char *fstring, ...) ;
  * @param fstring Format string.
  * @param args    Pointer to va_list of arguments matching the format specifiers.
  */
-void vstrfmt(void (*outc)(char), const char *fstring, va_list *args);
+void vstrfmt(strfmt_outc_t outc, void *ctx, const char *fstring, va_list *args);
 
 /**
  * @brief Calculate the length of a string in terms of visible characters.

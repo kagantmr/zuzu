@@ -100,23 +100,22 @@ char *strchr(const char *s, int c) {
     return NULL;
 }
 
-void strfmt(void (*outc)(char), const char *fstring, ...) {
+void strfmt(void (*outc)(void *ctx, char), void *ctx, const char *fstring, ...) {
     va_list args;
-    
-
     va_start(args, fstring);
-    vstrfmt(outc, fstring, &args);
+    vstrfmt(outc, ctx, fstring, &args);
     va_end(args);
 }
 
 // --- helpers for vstrfmt field width and padding ---
-static void emit_repeat(void (*outc)(char), char ch, int count) {
-    while (count-- > 0) outc(ch);
+static void emit_repeat(void (*outc)(void *ctx, char), void *ctx, char ch, int count) {
+    while (count-- > 0) outc(ctx, ch);
 }
 
-static void emit_strn(void (*outc)(char), const char *s, int n) {
-    for (int i = 0; i < n; i++) outc(s[i]);
+static void emit_strn(void (*outc)(void *ctx, char), void *ctx, const char *s, int n) {
+    for (int i = 0; i < n; i++) outc(ctx, s[i]);
 }
+
 
 static int is_digit(char c) { return (c >= '0' && c <= '9'); }
 
@@ -227,12 +226,12 @@ static long long get_signed_arg(va_list *args, length_t len) {
     }
 }
 
-void vstrfmt(void (*outc)(char), const char *fmt, va_list *args) {
+void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list *args) {
     if (!outc || !fmt) return;
 
     while (*fmt) {
         if (*fmt != '%') {
-            outc(*fmt++);
+            outc(ctx, *fmt++);
             continue;
         }
         fmt++; // skip '%'
@@ -300,15 +299,15 @@ void vstrfmt(void (*outc)(char), const char *fmt, va_list *args) {
 
         switch (spec) {
             case '%':
-                outc('%');
+                outc(ctx, '%');
                 break;
 
             case 'c': {
                 char ch = (char)va_arg(*args, int);
                 int pad = (width > 1) ? (width - 1) : 0;
-                if (!left) emit_repeat(outc, ' ', pad);
-                outc(ch);
-                if (left) emit_repeat(outc, ' ', pad);
+                if (!left) emit_repeat(outc, ctx, ' ', pad);
+                outc(ctx, ch);
+                if (left) emit_repeat(outc,ctx, ' ', pad);
                 break;
             }
 
@@ -320,9 +319,9 @@ void vstrfmt(void (*outc)(char), const char *fmt, va_list *args) {
                 if (prec >= 0 && prec < slen) slen = prec;
 
                 int pad = (width > slen) ? (width - slen) : 0;
-                if (!left) emit_repeat(outc, ' ', pad);
-                emit_strn(outc, s, slen);
-                if (left) emit_repeat(outc, ' ', pad);
+                if (!left) emit_repeat(outc, ctx, ' ', pad);
+                emit_strn(outc, ctx, s, slen);
+                if (left) emit_repeat(outc, ctx, ' ', pad);
                 break;
             }
 
@@ -355,14 +354,14 @@ void vstrfmt(void (*outc)(char), const char *fmt, va_list *args) {
                 char padch = (zero && !left) ? '0' : ' ';
                 int wpad = (width > total) ? (width - total) : 0;
 
-                if (!left && padch == ' ') emit_repeat(outc, ' ', wpad);
-                if (signch) outc(signch);
-                if (!left && padch == '0') emit_repeat(outc, '0', wpad);
+                if (!left && padch == ' ') emit_repeat(outc, ctx, ' ', wpad);
+                if (signch) outc(ctx, signch);
+                if (!left && padch == '0') emit_repeat(outc, ctx, '0', wpad);
 
-                emit_repeat(outc, '0', zpad);
-                emit_strn(outc, num, nlen);
+                emit_repeat(outc, ctx, '0', zpad);
+                emit_strn(outc, ctx, num, nlen);
 
-                if (left) emit_repeat(outc, ' ', wpad);
+                if (left) emit_repeat(outc, ctx, ' ', wpad);
                 break;
             }
 
@@ -420,17 +419,17 @@ void vstrfmt(void (*outc)(char), const char *fmt, va_list *args) {
                 char padch = (zero && !left) ? '0' : ' ';
                 int wpad = (width > total) ? (width - total) : 0;
 
-                if (!left && padch == ' ') emit_repeat(outc, ' ', wpad);
+                if (!left && padch == ' ') emit_repeat(outc, ctx, ' ', wpad);
 
-                if (prefix_len) emit_strn(outc, prefix, prefix_len);
+                if (prefix_len) emit_strn(outc, ctx, prefix, prefix_len);
 
                 // width zero-padding goes after prefix
-                if (!left && padch == '0') emit_repeat(outc, '0', wpad);
+                if (!left && padch == '0') emit_repeat(outc, ctx, '0', wpad);
 
-                emit_repeat(outc, '0', zpad);
-                if (nlen) emit_strn(outc, num, nlen);
+                emit_repeat(outc, ctx, '0', zpad);
+                if (nlen) emit_strn(outc, ctx, num, nlen);
 
-                if (left) emit_repeat(outc, ' ', wpad);
+                if (left) emit_repeat(outc, ctx, ' ', wpad);
                 break;
             }
 
@@ -462,23 +461,23 @@ void vstrfmt(void (*outc)(char), const char *fmt, va_list *args) {
                 char padch = (zero && !left) ? '0' : ' ';
                 int wpad = (width > total) ? (width - total) : 0;
 
-                if (!left && padch == ' ') emit_repeat(outc, ' ', wpad);
+                if (!left && padch == ' ') emit_repeat(outc, ctx, ' ', wpad);
 
-                emit_strn(outc, prefix, prefix_len);
+                emit_strn(outc, ctx, prefix, prefix_len);
 
                 // width zero-padding goes after 0x/0X
-                if (!left && padch == '0') emit_repeat(outc, '0', wpad);
+                if (!left && padch == '0') emit_repeat(outc, ctx, '0', wpad);
 
-                emit_repeat(outc, '0', zpad);
-                if (nlen) emit_strn(outc, num, nlen);
+                emit_repeat(outc, ctx, '0', zpad);
+                if (nlen) emit_strn(outc, ctx, num, nlen);
 
-                if (left) emit_repeat(outc, ' ', wpad);
+                if (left) emit_repeat(outc, ctx, ' ', wpad);
                 break;
             }
 
             default:
                 // Unknown spec: print it literally
-                outc(spec);
+                outc(ctx, spec);
                 break;
         }
     }
