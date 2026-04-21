@@ -255,7 +255,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
                         {
                             if (r->flags & VM_FLAG_GUARD) continue;
                             if (r->memtype == VM_MEM_DEVICE) continue;
-                            if (!(dfsr & (1 << 11)) && (r->prot & VM_PROT_READ)) continue;
+                            if (!(dfsr & (1 << 11)) && !(r->prot & VM_PROT_READ)) continue;
                             if ((dfsr & (1 << 11)) && !(r->prot & VM_PROT_WRITE)) continue;
                             uintptr_t page_va = align_down(dfar, PAGE_SIZE);
                             uintptr_t pa = pmm_alloc_page();
@@ -288,6 +288,8 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
                        (dfsr & (1 << 11)) ? "write" : "read",
                        decode_fault_status(dfsr));
                 dump_registers(frame);
+                process_kill(current_process, -1);
+                schedule();
             }
         }
         else
