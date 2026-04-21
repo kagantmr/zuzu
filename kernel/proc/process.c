@@ -142,9 +142,11 @@ void process_kill(process_t *p, const int exit_status) {
         } else if (entry->type == HANDLE_SHMEM) {
             shmem_t *shm = entry->shm;
             const uintptr_t va = entry->mapped_va;
-            vmm_remove_region(p->as, va, shm->page_count * PAGE_SIZE);
-            shm->ref_count--;
-            if (shm->ref_count == 0) {
+            if (shm && va != 0)
+                vmm_remove_region(p->as, va, shm->page_count * PAGE_SIZE);
+            if (shm)
+                shm->ref_count--;
+            if (shm && shm->ref_count == 0) {
                 for (size_t j = 0; j < shm->page_count; j++)
                     pmm_free_page(shm->page_addrs[j]);
                 kfree(shm->page_addrs);
@@ -241,9 +243,7 @@ void process_destroy(process_t *p)
     if (p->as)
     {
         arch_mmu_free_user_pages(p->as->ttbr0_pa);
-        arch_mmu_free_tables(p->as->ttbr0_pa, p->as->type);
-        vm_region_vec_destroy(&p->as->regions);
-        kfree(p->as);
+        as_destroy(p->as);
     }
     handle_vec_destroy(&p->handle_table);
     process_table[pid] = NULL;
