@@ -8,7 +8,7 @@
 #include "kernel/mm/vmm.h"
 #include "arch/arm/include/context.h"
 
-#define MAX_PROCESSES 512
+#define MAX_PROCESSES 16
 
 #define PROC_FLAG_INIT      (1 << 0)  // PID 1, zombie reaper
 #define PROC_FLAG_DEVMGR    (1 << 1)  // hardware authority

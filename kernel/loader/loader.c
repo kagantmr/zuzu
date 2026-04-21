@@ -292,14 +292,22 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
     memset((void *)stack_top, 0, 132);
     process->kernel_sp = (uint32_t *)stack_top;
     process->process_state = PROCESS_READY;
-    if (next_pid >= MAX_PROCESSES)
-    {
-        // just do nothing for now we have 64 processes allowed
-        KERROR("PID wraparound, no more processes can be created!");
+    uint32_t start = next_pid % MAX_PROCESSES;
+    uint32_t slot = start;
+    do {
+        if (process_table[slot] == NULL)
+            break;
+        next_pid++;
+        slot = next_pid % MAX_PROCESSES;
+    } while (slot != start);
+
+    if (process_table[slot] != NULL) {
+        KERROR("All process slots full");
         goto fail_kstack;
     }
+
     process->pid = next_pid++;
-    process_table[process->pid] = process;
+    process_table[slot] = process;
     process->device_va_next = 0x60000000;
     process->mmap_va_next = 0x20000000;
     process->parent_pid = 0;
