@@ -37,6 +37,23 @@ typedef struct {
 } ioremap_entry_t;
 static ioremap_entry_t ioremap_table[IOREMAP_MAX_ENTRIES];
 
+static vm_region_t *vmm_find_region(addrspace_t *as, uintptr_t va)
+{
+    if (!as)
+        return NULL;
+
+    for (uint32_t i = 0; i < as->regions.len; i++) {
+        vm_region_t *r = vm_region_vec_get(&as->regions, i);
+        if (!r)
+            continue;
+        if (va >= r->vaddr_start && (va - r->vaddr_start) < r->size)
+            return r;
+    }
+
+    return NULL;
+}
+
+
 addrspace_t* as_create(addrspace_type_t type) {
     addrspace_t* as = kmalloc(sizeof(addrspace_t));
     if (!as) {
@@ -414,6 +431,63 @@ static int bitmap_find_free(uint32_t n) {
         }
     }
     return -1;
+}
+
+bool fault_in_pages(addrspace_t *as, uintptr_t va, size_t len, bool write) {
+    if (!as)
+        return false;
+    if (len == 0)
+        return true;
+    if (va > UINTPTR_MAX - len)
+        return false;
+
+    const uintptr_t end = va + len;
+    if (as->type == ADDRSPACE_USER && (va >= USER_VA_TOP || end > USER_VA_TOP))
+        return false;
+
+    uintptr_t page_va = align_down(va, PAGE_SIZE);
+    const uintptr_t end_va = align_up(end, PAGE_SIZE);
+
+    while (page_va < end_va) {
+        if (arch_mmu_translate(as->ttbr0_pa, page_va) != 0) {
+            // Already mapped — nothing to do
+            page_va += PAGE_SIZE;
+            continue;
+        }
+        vm_region_t *r = vmm_find_region(as, page_va);
+        if (!r)
+            return false;
+        if (r->flags & VM_FLAG_GUARD)
+            return false;
+        if (!(r->prot & VM_PROT_READ))
+            return false;
+        if (write && !(r->prot & VM_PROT_WRITE))
+            return false;
+
+        if (arch_mmu_translate(as->ttbr0_pa, page_va) == 0) {
+            if (r->memtype == VM_MEM_DEVICE)
+                return false;
+
+            uintptr_t new_pa = pmm_alloc_page();
+            if (new_pa == 0)
+                return false;
+
+            memset((void *)PA_TO_VA(new_pa), 0, PAGE_SIZE);
+
+            if (!vmm_map_range(as, page_va, new_pa, PAGE_SIZE,
+                               r->prot, r->memtype, r->owner, r->flags)) {
+                pmm_free_page(new_pa);
+                return false;
+            }
+
+            arch_mmu_flush_tlb_va(page_va);
+            arch_mmu_barrier();
+        }
+
+        page_va += PAGE_SIZE;
+    }
+
+    return true;
 }
 
 // Mark bits [start, start+count) as used

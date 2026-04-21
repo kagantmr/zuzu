@@ -15,6 +15,9 @@
  * Arguments in r0-r3, return in r0. See docs/syscall.md for full ABI.
  */
 
+bool copy_to_user(void *uaddr, const void *kaddr, size_t len);
+bool copy_from_user(void *kaddr, const void *uaddr, size_t len);
+
 void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame);
 
 static inline bool validate_user_ptr(const uintptr_t addr, const size_t len) {

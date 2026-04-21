@@ -75,9 +75,9 @@ void querydev(exception_frame_t *frame) {
     uint32_t handle_idx = frame->r[0];
     char *out_buf = (char *)frame->r[1];
     uint32_t buf_len = frame->r[2];
+    char compat_buf[sizeof(((device_cap_t *)0)->compatible) + 1];
 
     if (handle_idx == 0 || buf_len == 0) { frame->r[0] = ERR_BADARG; return; }
-    if (!validate_user_ptr((uintptr_t)out_buf, buf_len)) { frame->r[0] = ERR_BADARG; return; }
 
     handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle_idx);
     if (!entry) { frame->r[0] = ERR_BADARG; return; }
@@ -86,7 +86,19 @@ void querydev(exception_frame_t *frame) {
     device_cap_t *cap = entry->dev;
     if (!cap) { frame->r[0] = ERR_BADARG; return; }
 
-    strncpy(out_buf, cap->compatible, buf_len - 1);
-    out_buf[buf_len - 1] = '\0';
+    strncpy(compat_buf, cap->compatible, sizeof(compat_buf) - 1);
+    compat_buf[sizeof(compat_buf) - 1] = '\0';
+
+    size_t copy_len = strlen(compat_buf) + 1;
+    if (copy_len > buf_len) {
+        copy_len = buf_len;
+        compat_buf[copy_len - 1] = '\0';
+    }
+
+    if (!copy_to_user(out_buf, compat_buf, copy_len)) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
     frame->r[0] = cap->irq;  // return irq in r0 as bonus
 }

@@ -229,6 +229,7 @@ void* ioremap(uintptr_t phys, size_t size);
  */
 void iounmap(void* va);
 
+bool fault_in_pages(addrspace_t *as, uintptr_t va, size_t len, bool write);
 
 void vmm_lockdown_kernel_sections(void);
 
