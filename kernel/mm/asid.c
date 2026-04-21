@@ -10,7 +10,7 @@ uint8_t asid_alloc(void) {
             return (uint8_t)i;
         }
     }
-    panic("ASID exhausted");
+    return 0; // no ASIDs available
 }
 
 void asid_free(uint8_t asid) {
