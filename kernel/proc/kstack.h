@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#define USR_SP 0x7FFFF000
+#define USR_SP 0x7FFFE000
 #define KSTACK_REGION_BASE 0xF1000000
 
 uintptr_t kstack_alloc(void);
