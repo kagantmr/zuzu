@@ -198,13 +198,6 @@ bool vmm_unmap_range(addrspace_t* as, uintptr_t va, size_t size);
  */
 bool vmm_protect_range(addrspace_t* as, uintptr_t va, size_t size, vm_prot_t new_prot);
 
-/**
- * @brief Map device memory into kernel VA space.
- * @param pa Physical address of the device.
- * @param size Size in bytes.
- * @return Virtual address of the mapping, or 0 on failure.
- */
-uintptr_t kmap_mmio(uintptr_t pa, size_t size);
 
 /**
  * @brief Map a page into user address space.
