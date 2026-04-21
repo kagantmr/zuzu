@@ -276,10 +276,10 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
     exc_frame[1]  = (uint32_t)argv_va;
     for (int i = 2; i < 13; i++)
         exc_frame[i] = 0;
-    exc_frame[13] = (uint32_t)sp;      // sp_usr 
-    exc_frame[14] = 0;                  // lr_usr
-    exc_frame[15] = elf_entry;          // return_pc
-    exc_frame[16] = 0x10;               // cpsr = USR mode
+    exc_frame[13] = (uint32_t)sp;
+    exc_frame[14] = 0;
+    exc_frame[15] = elf_entry;
+    exc_frame[16] = 0x10;
 
     // write cpu_context to stack
     stack_top -= sizeof(cpu_context_t);
@@ -287,6 +287,9 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
     memset(context, 0, sizeof(cpu_context_t));
     context->lr = (uint32_t)process_entry_trampoline;
 
+    // VFP area: fpscr (4) + d0-d15 (128) = 132 bytes
+    stack_top -= 132;
+    memset((void *)stack_top, 0, 132);
     process->kernel_sp = (uint32_t *)stack_top;
     process->process_state = PROCESS_READY;
     if (next_pid >= MAX_PROCESSES)
