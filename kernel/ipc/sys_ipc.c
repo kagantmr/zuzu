@@ -124,6 +124,7 @@ static handle_entry_t *validate_reply_handle(process_t *proc,
 
     if (!target || target->process_state == PROCESS_ZOMBIE)
     {
+        process_untrack_reply_cap(entry->reply);
         kfree_reply_cap(entry->reply);
         entry->reply = NULL;
         entry->grantable = false;
@@ -134,6 +135,7 @@ static handle_entry_t *validate_reply_handle(process_t *proc,
 
     if (target->ipc_state != IPC_WAITING)
     {
+        process_untrack_reply_cap(entry->reply);
         kfree_reply_cap(entry->reply);
         entry->reply = NULL;
         entry->grantable = false;
@@ -262,6 +264,7 @@ void proc_recv(exception_frame_t *frame)
             rentry->type = HANDLE_REPLY;
             rentry->grantable = false;
             rentry->reply = rc;
+            process_track_reply_cap(sr_proc, current_process, (uint32_t)slot, rc);
 
             frame->r[0] = slot;
             frame->r[1] = sr_proc->pid;
@@ -327,6 +330,7 @@ void proc_call(exception_frame_t *frame)
         rentry->type = HANDLE_REPLY;
         rentry->grantable = false;
         rentry->reply = rc;
+        process_track_reply_cap(current_process, rx_proc, (uint32_t)slot, rc);
 
         rx_frame->r[0] = slot;
         rx_frame->r[1] = current_process->pid;
@@ -381,8 +385,10 @@ void proc_reply(exception_frame_t *frame)
     target->process_state = PROCESS_READY;
     sched_add(target);
 
+    process_untrack_reply_cap(entry->reply);
     kfree_reply_cap(entry->reply);
-    // mark the slot free
+    entry->reply = NULL;
+    entry->grantable = false;
     entry->type = HANDLE_FREE;
     frame->r[0] = 0;
 }
@@ -471,6 +477,7 @@ void proc_callx(exception_frame_t *frame)
         rentry->type = HANDLE_REPLY;
         rentry->grantable = false;
         rentry->reply = rc;
+        process_track_reply_cap(current_process, rx_proc, (uint32_t)slot, rc);
 
         rx_frame->r[0] = slot;
         rx_frame->r[1] = current_process->pid;
@@ -529,8 +536,10 @@ void proc_replyx(exception_frame_t *frame)
     target->process_state = PROCESS_READY;
     sched_add(target);
 
+    process_untrack_reply_cap(entry->reply);
     kfree_reply_cap(entry->reply);
-    // mark the slot free
+    entry->reply = NULL;
+    entry->grantable = false;
     entry->type = HANDLE_FREE;
     frame->r[0] = 0;
 }

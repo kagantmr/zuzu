@@ -29,7 +29,11 @@ typedef struct {
 
 typedef struct {
     struct process *caller;
+    struct process *holder;
+    uint32_t holder_slot;
+    list_node_t caller_link;
 } reply_cap_t;
+
 
 typedef enum {
     HANDLE_FREE,

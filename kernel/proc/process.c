@@ -12,6 +12,61 @@
 uint32_t next_pid = 1;
 process_t *process_table[MAX_PROCESSES];
 
+static process_t *process_resolve_live_ptr(process_t *candidate);
+
+void process_track_reply_cap(process_t *caller, process_t *holder,
+                             uint32_t holder_slot, reply_cap_t *rc)
+{
+    rc->caller = caller;
+    rc->holder = holder;
+    rc->holder_slot = holder_slot;
+    rc->caller_link.prev = NULL;
+    rc->caller_link.next = NULL;
+    list_add_tail(&rc->caller_link, &caller->outstanding_replies.node);
+}
+
+void process_untrack_reply_cap(reply_cap_t *rc)
+{
+    if (!rc)
+        return;
+
+    if (rc->caller_link.prev && rc->caller_link.next)
+        list_remove(&rc->caller_link);
+
+    rc->caller_link.prev = NULL;
+    rc->caller_link.next = NULL;
+    rc->caller = NULL;
+    rc->holder = NULL;
+    rc->holder_slot = 0;
+}
+
+static void process_revoke_outstanding_reply_caps(process_t *caller)
+{
+    while (!list_empty(&caller->outstanding_replies)) {
+        list_node_t *node = list_pop_front(&caller->outstanding_replies);
+        reply_cap_t *rc = container_of(node, reply_cap_t, caller_link);
+
+        process_t *holder = process_resolve_live_ptr(rc->holder);
+        if (holder) {
+            handle_entry_t *entry =
+                handle_vec_get(&holder->handle_table, rc->holder_slot);
+
+            if (entry && entry->type == HANDLE_REPLY && entry->reply == rc) {
+                entry->reply = NULL;
+                entry->grantable = false;
+                entry->type = HANDLE_FREE;
+            }
+        }
+
+        rc->caller_link.prev = NULL;
+        rc->caller_link.next = NULL;
+        rc->caller = NULL;
+        rc->holder = NULL;
+        rc->holder_slot = 0;
+        kfree_reply_cap(rc);
+    }
+}
+
 static process_t *process_resolve_live_ptr(process_t *candidate)
 {
     if (!candidate)
@@ -168,8 +223,10 @@ void process_kill(process_t *p, const int exit_status) {
                 sched_add(caller);
             }
 
-            if (rc)
+            if (rc) {
+                process_untrack_reply_cap(rc);
                 kfree_reply_cap(rc);
+            }
 
             entry->reply = NULL;
             entry->grantable = false;
@@ -177,29 +234,7 @@ void process_kill(process_t *p, const int exit_status) {
         }
     }
 
-    // Revoke outstanding reply capabilities held by other processes for this caller.
-    for (uint32_t owner_pid = 0; owner_pid < MAX_PROCESSES; owner_pid++) {
-        process_t *owner = process_table[owner_pid];
-        if (!owner || owner == p)
-            continue;
-
-        for (uint32_t i = 0; i < owner->handle_table.cap; i++) {
-            handle_entry_t *entry = handle_vec_get(&owner->handle_table, i);
-            if (!entry)
-                break;
-            if (entry->type != HANDLE_REPLY)
-                continue;
-
-            reply_cap_t *rc = entry->reply;
-            if (!rc || rc->caller != p)
-                continue;
-
-            kfree_reply_cap(rc);
-            entry->reply = NULL;
-            entry->grantable = false;
-            entry->type = HANDLE_FREE;
-        }
-    }
+    process_revoke_outstanding_reply_caps(p);
 
     process_t *init_proc = process_find_by_pid(1);
     list_node_t *child_node = p->children.node.next;
