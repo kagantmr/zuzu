@@ -4,6 +4,7 @@
 #include "zuzu/syscall_nums.h"
 #include <stddef.h>
 #include <stdint.h>
+#include <args.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -57,16 +58,46 @@ static inline int32_t _yield(void) {
     return r0;
 }
 
-static inline int32_t _spawn(const void *elf_data, size_t elf_len, const char *name, size_t name_len) {
-    register uintptr_t r0 __asm__("r0") = (uintptr_t) elf_data;
-    register size_t r1 __asm__("r1") = elf_len;
-    register uintptr_t r2 __asm__("r2") = (uintptr_t) name;
-    register size_t r3 __asm__("r3") = name_len;
+static inline int32_t _spawn(const void *elf_data, size_t elf_len,
+                              const char *name, size_t name_len)
+{
+    spawn_args_t args = {
+        .elf_data   = elf_data,
+        .elf_size   = elf_len,
+        .name       = name,
+        .name_len   = name_len,
+        .argbuf     = NULL,
+        .argbuf_len = 0,
+        .argc       = 0,
+    };
+    register uintptr_t r0 __asm__("r0") = (uintptr_t)&args;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
-        : "r"(r1), "r"(r2), "r"(r3), [num] "i"(SYS_TASK_SPAWN)
+        : [num] "i"(SYS_TASK_SPAWN)
         : "memory");
-    return (int32_t) r0; /* pid or -err */
+    return (int32_t)r0;
+}
+
+static inline int32_t _spawnv(const void *elf_data, size_t elf_len,
+                               const char *name, size_t name_len,
+                               const char *argbuf, size_t argbuf_len,
+                               uint32_t argc)
+{
+    spawn_args_t args = {
+        .elf_data   = elf_data,
+        .elf_size   = elf_len,
+        .name       = name,
+        .name_len   = name_len,
+        .argbuf     = argbuf,
+        .argbuf_len = argbuf_len,
+        .argc       = argc,
+    };
+    register uintptr_t r0 __asm__("r0") = (uintptr_t)&args;
+    __asm__ volatile("svc %[num]"
+        : "+r"(r0)
+        : [num] "i"(SYS_TASK_SPAWN)
+        : "memory");
+    return (int32_t)r0;
 }
 
 static inline int32_t _wait(int32_t pid, int32_t *status_out, uint32_t flags) {

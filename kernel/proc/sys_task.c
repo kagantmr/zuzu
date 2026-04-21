@@ -7,6 +7,7 @@
 #include "kernel/loader/loader.h"
 #include "kernel/time/tick.h"
 #include "kernel/proc/process.h"
+#include <args.h>
 
 extern process_t *current_process;
 extern list_head_t sleep_queue;
@@ -138,10 +139,32 @@ void wait(exception_frame_t *frame) {
 }
 
 void spawn(exception_frame_t *frame) {
-    const void *elf_data = (const void *)frame->r[0];
-    size_t elf_size = frame->r[1];
-    const char *name = (const char *)frame->r[2];
-    size_t name_len = frame->r[3];
+    uintptr_t args_ptr = frame->r[0];
+    if (!validate_user_ptr(args_ptr, sizeof(spawn_args_t))) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    spawn_args_t kargs;
+    if (!copy_from_user(&kargs, (const void *)args_ptr, sizeof(spawn_args_t))) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    // validate all pointers from the struct
+    if (!kargs.elf_data || !kargs.name || kargs.elf_size == 0 || kargs.name_len == 0) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    spawn_args_t *args = (spawn_args_t *)args_ptr;
+    const void *elf_data = args->elf_data;
+    size_t elf_size = args->elf_size;
+    const char *name = args->name;
+    size_t name_len =  args->name_len;
+    const char *argbuf = args->argbuf;
+    size_t argbuf_len = args->argbuf_len;
+    uint32_t argc = args->argc;
 
     if (!elf_data || !name || elf_size == 0 || name_len == 0) {
         frame->r[0] = ERR_BADARG;
@@ -173,7 +196,7 @@ void spawn(exception_frame_t *frame) {
     }
     kname[name_len] = '\0';
 
-    process_t *process = process_create_from_elf(elf_copy, elf_size, kname);
+    process_t *process = process_create_from_elf(elf_copy, elf_size, kname, argbuf, argbuf_len, argc);
     kfree(elf_copy);
     if (!process) {
         frame->r[0] = ERR_NOMEM;

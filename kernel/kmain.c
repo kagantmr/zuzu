@@ -103,7 +103,7 @@ static void boot_program(const char *path, uint32_t flags)
         return;
     }
 
-    process_t *process = process_create_from_elf(elf_data, elf_size, path);
+    process_t *process = process_create_from_elf(elf_data, elf_size, path, NULL, 0, 0);
     if (!process) {
         KERROR("Failed to create boot program %s", path);
         return;
