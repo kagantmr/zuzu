@@ -364,7 +364,8 @@ _Noreturn void kmain(void)
     schedule();
     //uint64_t idle_ticks = 0;
     while (1)
-    {
+    {   
+        sched_reap();
         sched_idle_wait();
         schedule();
     }

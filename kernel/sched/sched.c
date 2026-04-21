@@ -89,8 +89,6 @@ void sched_idle_wait(void)
 }
 
 void schedule() {
-    // Reap deferred zombies even when the idle loop is not reached.
-    sched_reap();
 
     sched_wake_sleepers();
 
