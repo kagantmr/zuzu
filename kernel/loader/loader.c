@@ -15,6 +15,19 @@
 extern uint32_t next_pid;
 extern process_t *process_table[MAX_PROCESSES];
 
+static bool elf_segment_ranges_overlap(const Elf32_Phdr *a, const Elf32_Phdr *b)
+{
+    uint32_t a_start = a->p_vaddr;
+    uint32_t b_start = b->p_vaddr;
+    uint32_t a_end = a->p_vaddr + a->p_memsz;
+    uint32_t b_end = b->p_vaddr + b->p_memsz;
+
+    if (a_end < a_start || b_end < b_start)
+        return true;
+
+    return (a_start < b_end) && (b_start < a_end);
+}
+
 #define LOG_FMT(fmt) "(elf_loader) " fmt
 #include "core/log.h"
 
@@ -46,6 +59,29 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
 
     // magic logic removed
 
+    // Reject ELF images with overlapping PT_LOAD ranges before allocating or mapping anything.
+    for (int i = 0; i < elf_phdr_count(elf_data); i++)
+    {
+        Elf32_Phdr *ph_i = elf_phdr_get(elf_data, i);
+        if (ph_i->p_type != PT_LOAD)
+            continue;
+
+        for (int j = i + 1; j < elf_phdr_count(elf_data); j++)
+        {
+            Elf32_Phdr *ph_j = elf_phdr_get(elf_data, j);
+            if (ph_j->p_type != PT_LOAD)
+                continue;
+
+            if (elf_segment_ranges_overlap(ph_i, ph_j))
+            {
+                KERROR("ELF load segments overlap: [%08X, %08X) and [%08X, %08X)",
+                       ph_i->p_vaddr, ph_i->p_vaddr + ph_i->p_memsz,
+                       ph_j->p_vaddr, ph_j->p_vaddr + ph_j->p_memsz);
+                goto fail_kstack;
+            }
+        }
+    }
+
     // for each PT_LOAD segment, copy the data and map it (for now we just assume one segment that covers the whole file, but this should be easy to extend)
     for (int i = 0; i < elf_phdr_count(elf_data); i++)
     {
@@ -56,45 +92,79 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
             { // segment extends past end of file
                 goto fail_kstack;
             }
-            // copy segment data to the page we allocated
             uint32_t pages_needed = (ph->p_memsz + PAGE_SIZE - 1) / PAGE_SIZE;
-            uintptr_t segment_pa = pmm_alloc_pages(pages_needed);
-            if (!segment_pa)
+            uintptr_t *segment_pages = kmalloc(pages_needed * sizeof(uintptr_t));
+            if (!segment_pages)
                 goto fail_kstack;
-            memcpy((void *)PA_TO_VA(segment_pa), (const uint8_t *)elf_data + ph->p_offset, ph->p_filesz);
 
-            if (ph->p_memsz > ph->p_filesz)
-                memset((uint8_t *)PA_TO_VA(segment_pa) + ph->p_filesz,
-                       0,
-                       ph->p_memsz - ph->p_filesz);
-            // map the page (or pages) into the process's address space at the specified virtual address
+            uint32_t prot = 0;
+            if (ph->p_flags & PF_R)
+                prot |= VM_PROT_READ;
+            if (ph->p_flags & PF_W)
+                prot |= VM_PROT_WRITE;
+            if (ph->p_flags & PF_X)
+                prot |= VM_PROT_EXEC;
+
             for (uint32_t page = 0; page < pages_needed; page++)
             {
-                uintptr_t va = ph->p_vaddr + page * PAGE_SIZE;
-                uintptr_t pa = segment_pa + page * PAGE_SIZE;
-                uint32_t prot = 0;
-                if (ph->p_flags & PF_R)
-                    prot |= VM_PROT_READ;
-                if (ph->p_flags & PF_W)
-                    prot |= VM_PROT_WRITE;
-                if (ph->p_flags & PF_X)
-                    prot |= VM_PROT_EXEC;
-                if (!kmap_user_page(process->as, pa, va, prot))
+                uintptr_t page_pa = pmm_alloc_page();
+                if (!page_pa)
                 {
-                    // Roll back any mapped pages for this segment and free all backing pages.
                     for (uint32_t j = 0; j < page; j++)
                     {
                         uintptr_t orphan_va = ph->p_vaddr + j * PAGE_SIZE;
                         vmm_unmap_range(process->as, orphan_va, PAGE_SIZE);
+                        pmm_free_page(segment_pages[j]);
                     }
-                    for (uint32_t j = 0; j < pages_needed; j++)
-                    {
-                        pmm_free_page(segment_pa + j * PAGE_SIZE);
-                    }
+                    kfree(segment_pages);
                     goto fail_kstack;
                 }
+
+                segment_pages[page] = page_pa;
+
+                uintptr_t file_offset = page * PAGE_SIZE;
+                size_t bytes_to_copy = 0;
+                if (file_offset < ph->p_filesz)
+                {
+                    bytes_to_copy = ph->p_filesz - file_offset;
+                    if (bytes_to_copy > PAGE_SIZE)
+                        bytes_to_copy = PAGE_SIZE;
+
+                    memcpy((void *)PA_TO_VA(page_pa),
+                           (const uint8_t *)elf_data + ph->p_offset + file_offset,
+                           bytes_to_copy);
+
+                    if (bytes_to_copy < PAGE_SIZE)
+                    {
+                        memset((uint8_t *)PA_TO_VA(page_pa) + bytes_to_copy,
+                               0,
+                               PAGE_SIZE - bytes_to_copy);
+                    }
+                }
+                else
+                {
+                    memset((void *)PA_TO_VA(page_pa), 0, PAGE_SIZE);
+                }
+
+                uintptr_t va = ph->p_vaddr + page * PAGE_SIZE;
+                if (!kmap_user_page(process->as, page_pa, va, prot))
+                {
+                    pmm_free_page(page_pa);
+                    for (uint32_t j = 0; j < page; j++)
+                    {
+                        uintptr_t orphan_va = ph->p_vaddr + j * PAGE_SIZE;
+                        vmm_unmap_range(process->as, orphan_va, PAGE_SIZE);
+                        pmm_free_page(segment_pages[j]);
+                    }
+                    kfree(segment_pages);
+                    goto fail_kstack;
+                }
+
+                cache_flush_code_range((uintptr_t)PA_TO_VA(page_pa), PAGE_SIZE);
             }
-            cache_flush_code_range((uintptr_t)PA_TO_VA(segment_pa), ph->p_memsz);  // clear cache so it doesnt have stale data
+
+            kfree(segment_pages);
+
         }
     }
 
@@ -126,7 +196,15 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
         pmm_free_page(process->ipc_buf_pa);
         goto fail_kstack;
     }
-    
+    vm_region_t guard = {
+        .vaddr_start = 0x7FFFD000,
+        .size        = PAGE_SIZE,
+        .prot        = 0,
+        .memtype     = VM_MEM_NORMAL,
+        .owner       = VM_OWNER_NONE,
+        .flags       = VM_FLAG_GUARD,
+    };
+    vmm_add_region(process->as, &guard);
 
     // write exception frame to the stack
     stack_top -= 17 * sizeof(uint32_t);
@@ -157,6 +235,7 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
     process->device_va_next = 0x60000000;
     process->mmap_va_next = 0x20000000;
     process->parent_pid = 0;
+    list_init(&process->outstanding_replies);
     list_init(&process->children);
     process->sibling_node.next = NULL;
     process->sibling_node.prev = NULL;
