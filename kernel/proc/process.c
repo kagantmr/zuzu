@@ -85,9 +85,11 @@ static process_t *process_resolve_live_ptr(process_t *candidate)
 
 process_t *process_find_by_pid(uint32_t pid)
 {
-    if (pid >= MAX_PROCESSES)
-        return NULL;
-    return process_table[pid];
+    uint32_t slot = pid % MAX_PROCESSES;
+    process_t *p = process_table[slot];
+    if (p && p->pid == pid)
+        return p;
+    return NULL;
 }
 
 void process_set_parent(process_t *child, process_t *parent)
@@ -283,6 +285,7 @@ void process_destroy(process_t *p)
     handle_vec_destroy(&p->handle_table);
     process_table[pid] = NULL;
     kstack_free(p->kernel_stack_top);
+    process_table[p->pid % MAX_PROCESSES] = NULL;
     kfree(p);
     // KDEBUG("destroy PID %d, pmm after=%d", pid, pmm_state.free_pages);
 }
