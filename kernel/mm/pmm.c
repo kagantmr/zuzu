@@ -10,6 +10,44 @@ extern phys_region_t phys_region;
 extern kernel_layout_t kernel_layout;
 extern void syspage_update_mem(void);
 
+static void pmm_rebuild_freelist(void) {
+    pmm_state.freelist_head = 0;
+    for (size_t i = 0; i < pmm_state.total_pages; i++) {
+        size_t byte_idx = i / 8;
+        size_t bit_idx  = i % 8;
+        if (!(pmm_state.bitmap[byte_idx] & (1u << bit_idx))) {
+            uintptr_t pa = (pmm_state.pfn_base + i) * PAGE_SIZE;
+            uintptr_t *page_va = (uintptr_t *)PA_TO_VA(pa);
+            *page_va = pmm_state.freelist_head;
+            pmm_state.freelist_head = pa;
+        }
+    }
+}
+
+/* Remove any free-list nodes whose PA is within [start_pa, end_pa). */
+static void pmm_freelist_remove_range(uintptr_t start_pa, uintptr_t end_pa) {
+    uintptr_t prev_pa = 0;
+    uintptr_t curr_pa = pmm_state.freelist_head;
+
+    while (curr_pa) {
+        uintptr_t *curr_va = (uintptr_t *)PA_TO_VA(curr_pa);
+        uintptr_t next_pa = *curr_va;
+
+        if (curr_pa >= start_pa && curr_pa < end_pa) {
+            if (prev_pa == 0) {
+                pmm_state.freelist_head = next_pa;
+            } else {
+                uintptr_t *prev_va = (uintptr_t *)PA_TO_VA(prev_pa);
+                *prev_va = next_pa;
+            }
+        } else {
+            prev_pa = curr_pa;
+        }
+
+        curr_pa = next_pa;
+    }
+}
+
 static void pmm_reserve_boot_regions(void) {
     pmm_mark_range(kernel_layout.dtb_start_pa,  kernel_layout.kernel_start_pa);
     pmm_mark_range(kernel_layout.kernel_start_pa, kernel_layout.kernel_end_pa);
@@ -59,19 +97,6 @@ void pmm_init(void) {
     pmm_rebuild_freelist();
 }
 
-void pmm_rebuild_freelist(void) {
-    pmm_state.freelist_head = 0;
-    for (size_t i = 0; i < pmm_state.total_pages; i++) {
-        size_t byte_idx = i / 8;
-        size_t bit_idx  = i % 8;
-        if (!(pmm_state.bitmap[byte_idx] & (1u << bit_idx))) {
-            uintptr_t pa = (pmm_state.pfn_base + i) * PAGE_SIZE;
-            uintptr_t *page_va = (uintptr_t *)PA_TO_VA(pa);
-            *page_va = pmm_state.freelist_head;
-            pmm_state.freelist_head = pa;
-        }
-    }
-}
 
 /* mark: mark pages in [start, end) as USED */
 int pmm_mark_range(uintptr_t start, uintptr_t end) {
@@ -211,13 +236,14 @@ uintptr_t pmm_alloc_pages(size_t n_pages) {
 
             if (consecutive == n_pages) {
                 /* Mark pages as allocated */
-                if (pmm_mark_range(start_index * PAGE_SIZE + pmm_state.pfn_base * PAGE_SIZE,
-                     (start_index + n_pages) * PAGE_SIZE + pmm_state.pfn_base * PAGE_SIZE) != MARK_OK) {
+                uintptr_t start_pa = start_index * PAGE_SIZE + pmm_state.pfn_base * PAGE_SIZE;
+                uintptr_t end_pa = (start_index + n_pages) * PAGE_SIZE + pmm_state.pfn_base * PAGE_SIZE;
+                if (pmm_mark_range(start_pa, end_pa) != MARK_OK) {
                         return (uintptr_t)0; /* marking failed */
                 }
 
-                /* Bitmap changed behind the freelist's back, rebuild */
-                pmm_rebuild_freelist();
+                /* Keep freelist in sync without a full O(total_pages) rebuild. */
+                pmm_freelist_remove_range(start_pa, end_pa);
 
                 size_t pfn = pmm_state.pfn_base + start_index;
                 uintptr_t addr = (uintptr_t)pfn * PAGE_SIZE;
@@ -319,8 +345,8 @@ uintptr_t pmm_alloc_pages_aligned(const size_t n_pages, size_t align_pages)
                     return (uintptr_t)0;
                 }
 
-                /* Bitmap changed behind the freelist's back, rebuild */
-                pmm_rebuild_freelist();
+                /* Keep freelist in sync without a full O(total_pages) rebuild. */
+                pmm_freelist_remove_range(start_pa, end_pa);
                 
                 syspage_update_mem(); // update free memory info in syspage
                 return start_pa;
