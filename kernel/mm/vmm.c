@@ -57,6 +57,11 @@ addrspace_t* as_create(addrspace_type_t type) {
 
     if (type == ADDRSPACE_USER) {
         as->asid = asid_alloc();
+        if (as->asid == 0) {
+            arch_mmu_free_tables(as->ttbr0_pa, type);
+            kfree(as);
+            return NULL;
+        }
     }
 
     if (!vm_region_vec_init(&as->regions)) {
@@ -78,7 +83,8 @@ void vmm_lockdown_kernel_sections(void) {
     uint32_t patched_sections = 0;
     uint32_t patched_pages = 0;
 
-    for (size_t i = 0; i < 4096; i++) {
+    size_t start_idx = (KERNEL_VA_BASE >> 20);  
+    for (size_t i = start_idx; i < 4096; i++) {
         uint32_t entry = l1[i];
 
         // Section descriptor (bits[1:0] == 0b10)
