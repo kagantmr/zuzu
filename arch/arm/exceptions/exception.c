@@ -1,5 +1,6 @@
 #include "arch/arm/include/context.h"
 #include "arch/arm/include/irq.h"
+#include "arch/arm/mmu/mmu.h"
 #include "core/log.h"
 #include "core/panic.h"
 #include "kernel/proc/process.h"
@@ -189,7 +190,6 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
             KERROR("Oops! '%s' (PID %d) killed - prefetch abort @ 0x%08X (%s)",
                    current_process->name, current_process->pid, ifar, decode_fault_status(ifsr));
             process_kill(current_process, -1);
-            current_process = NULL;
             schedule();
         }
         else
@@ -220,11 +220,12 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
         __asm__ volatile("mrc p15, 0, %0, c5, c0, 0" : "=r"(dfsr));
 
         bool from_user = (frame->return_cpsr & 0x1F) == 0x10;
+        bool from_svc = (frame->return_cpsr & 0x1F) == 0x13;
 
         uint32_t fault_status = (dfsr & 0xF) | ((dfsr >> 6) & 0x10);
         bool is_translation = (fault_status == 0x05 || fault_status == 0x07);
 
-        if (from_user && current_process)
+        if ((from_user || from_svc) && current_process && current_process->as && dfar < USER_VA_TOP)
         {
             // Check if it hit a kernel stack guard page (low 4KB of each 8KB slot)
             if (dfar >= KSTACK_REGION_BASE && dfar < KSTACK_REGION_BASE + 64 * 0x2000)
@@ -254,6 +255,8 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
                         {
                             if (r->flags & VM_FLAG_GUARD) continue;
                             if (r->memtype == VM_MEM_DEVICE) continue;
+                            if (!(dfsr & (1 << 11)) && (r->prot & VM_PROT_READ)) continue;
+                            if ((dfsr & (1 << 11)) && !(r->prot & VM_PROT_WRITE)) continue;
                             uintptr_t page_va = align_down(dfar, PAGE_SIZE);
                             uintptr_t pa = pmm_alloc_page();
                             if (pa == 0) break;
@@ -264,18 +267,28 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
                                 pmm_free_page(pa);
                                 break;
                             }
+                            arch_mmu_flush_tlb_va(page_va);
                             return;
                         }
                     }
                 }
+            if (from_user)
+            {
             KERROR("Oops! '%s' (PID %d) killed - data abort @ 0x%08X (%s %s)",
                    current_process->name, current_process->pid, dfar,
                    (dfsr & (1 << 11)) ? "write" : "read",
                    decode_fault_status(dfsr));
             process_kill(current_process, -1);
-            current_process = NULL;
             dump_registers(frame);
             schedule();
+            } else if (from_svc)
+            {
+                KERROR("Data abort in kernel mode while handling SVC from '%s' (PID %d) @ 0x%08X (%s %s)",
+                       current_process->name, current_process->pid, dfar,
+                       (dfsr & (1 << 11)) ? "write" : "read",
+                       decode_fault_status(dfsr));
+                dump_registers(frame);
+            }
         }
         else
         {
