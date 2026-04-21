@@ -205,6 +205,8 @@ void port_grant(exception_frame_t *frame)
     }
 
     *dst = *src;
+    if (dst->type == HANDLE_SHMEM)
+        dst->mapped_va = 0;
     dst->grantable = can_regrant_received_handle(grantee);
     if (dst->type == HANDLE_SHMEM && dst->shm)
     {
