@@ -59,6 +59,7 @@ extern void arch_reboot(void);
 typedef struct boot_program {
     const char *path;
     uint32_t flags;
+    uint8_t owns_path;
 } boot_program_t;
 
 static void inject_device_cap(const char *compatible,
@@ -205,6 +206,7 @@ static size_t parse_boot_manifest(const char *manifest_data, size_t manifest_siz
         }
         strcpy((char *)out_programs[count].path, path_buf);
         out_programs[count].flags = parse_flag_string(flags_buf);
+        out_programs[count].owns_path = 1;
 
         count++;
         line_start = line_end + 1;
@@ -320,25 +322,31 @@ _Noreturn void kmain(void)
     if (initrd_find("boot.manifest", &manifest_data, &manifest_size)) {
         boot_count = parse_boot_manifest(manifest_data, manifest_size, 
                                          boot_programs, sizeof(boot_programs) / sizeof(boot_programs[0]));
-        KINFO("Loaded boot manifest: %u programs", boot_count);
+        KDEBUG("Loaded boot manifest: %u programs", boot_count);
     } else {
         KWARN("Boot manifest not found in initrd");
         // Fallback to hardcoded defaults
         static const boot_program_t default_programs[] = {
-            {"bin/zuzusysd", PROC_FLAG_INIT},
-            {"bin/devmgr", PROC_FLAG_DEVMGR},
-            {"bin/zuart", 0},
-            {"bin/zusd", 0},
-            {"bin/fat32d", 0},
-            {"bin/fbox", 0},
+            {"bin/zuzusysd", PROC_FLAG_INIT, 0},
+            {"bin/devmgr", PROC_FLAG_DEVMGR, 0},
+            {"bin/zuart", 0, 0},
+            {"bin/zusd", 0, 0},
+            {"bin/fat32d", 0, 0},
+            {"bin/fbox", 0, 0},
         };
         boot_count = sizeof(default_programs) / sizeof(default_programs[0]);
         memcpy(boot_programs, default_programs, sizeof(default_programs));
     }
 
     // Spawn boot programs from manifest
-    for (size_t i = 0; i < boot_count; i++)
+    for (size_t i = 0; i < boot_count; i++) {
         boot_program(boot_programs[i].path, boot_programs[i].flags);
+        if (boot_programs[i].owns_path && boot_programs[i].path) {
+            kfree((void *)boot_programs[i].path);
+            boot_programs[i].path = NULL;
+            boot_programs[i].owns_path = 0;
+        }
+    }
 
 
     /**
