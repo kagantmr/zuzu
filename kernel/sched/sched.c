@@ -2,6 +2,7 @@
 #include "kernel/proc/process.h"
 #include <list.h>
 
+#include "arch/arm/include/irq.h"
 #include "kernel/mm/vmm.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/time/tick.h"
@@ -41,6 +42,11 @@ void sched_reap(void) {
     }
 }
 
+static bool sched_work_pending(void)
+{
+    return do_resched || !list_empty(&run_queue) || !list_empty(&destroy_queue);
+}
+
 static void sched_wake_sleepers(void) {
     uint64_t now = get_ticks();
     list_node_t *curr = sleep_queue.node.next;
@@ -56,6 +62,29 @@ static void sched_wake_sleepers(void) {
             list_add_tail(curr, &run_queue.node);
         }
         curr = next;
+    }
+}
+
+void sched_idle_wait(void)
+{
+    for (;;) {
+        arch_global_irq_disable();
+
+        if (sched_work_pending()) {
+            if (do_resched)
+                do_resched = 0;
+            arch_global_irq_enable();
+            return;
+        }
+
+        __asm__ volatile("wfi" ::: "memory");
+        arch_global_irq_enable();
+
+        if (sched_work_pending()) {
+            if (do_resched)
+                do_resched = 0;
+            return;
+        }
     }
 }
 

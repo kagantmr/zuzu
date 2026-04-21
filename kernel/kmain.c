@@ -365,8 +365,7 @@ _Noreturn void kmain(void)
     //uint64_t idle_ticks = 0;
     while (1)
     {
-        sched_reap();
-        arch_global_irq_enable();
-        __asm__("wfi");
+        sched_idle_wait();
+        schedule();
     }
 }
