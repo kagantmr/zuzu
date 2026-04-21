@@ -20,6 +20,83 @@ static slab_cache_t reply_cap_cache;
 static slab_cache_t device_cap_cache;
 static bool hot_caches_ready;
 
+static slab_t *slab_grow(slab_cache_t *cache)
+{
+    uintptr_t pa = pmm_alloc_page();
+    if (!pa) return NULL;
+
+    slab_t *slab = (slab_t *)PA_TO_VA(pa);
+    size_t hdr_size = align_up(sizeof(slab_t), 8);
+    uint8_t *data = (uint8_t *)slab + hdr_size;
+    size_t usable = PAGE_SIZE - hdr_size;
+
+    slab->owner_cache = cache;
+    slab->capacity = usable / cache->obj_size;
+    slab->used = 0;
+    slab->free_head = NULL;
+
+    // build freelist: chain all slots together
+    for (uint16_t i = 0; i < slab->capacity; i++) {
+        void *slot = data + i * cache->obj_size;
+        *(void **)slot = slab->free_head;
+        slab->free_head = slot;
+    }
+
+    // prepend to cache's slab list
+    slab->next = cache->slabs;
+    cache->slabs = slab;
+    return slab;
+}
+
+void slab_cache_create(slab_cache_t *cache, const char *name, size_t obj_size)
+{
+    // enforce minimum: must fit a freelist pointer
+    if (obj_size < sizeof(void *))
+        obj_size = sizeof(void *);
+    // align up to 8 for ARM alignment
+    cache->obj_size = align_up(obj_size, 8);
+    cache->name = name;
+    cache->slabs = NULL;
+}
+
+void *slab_alloc(slab_cache_t *cache)
+{
+    // 1. find a slab with free space
+    slab_t *slab = cache->slabs;
+    while (slab) {
+        if (slab->free_head)
+            break;
+        slab = slab->next;
+    }
+
+    // 2. none found, allocate a new slab page
+    if (!slab) {
+        slab = slab_grow(cache);
+        if (!slab) return NULL;
+    }
+
+    // 3. pop from freelist
+    void *obj = slab->free_head;
+    slab->free_head = *(void **)obj;  // read next pointer from the slot
+    slab->used++;
+    return obj;
+}
+
+void slab_free(slab_cache_t *cache, void *ptr)
+{
+    kassert(cache != NULL);
+    kassert(ptr != NULL);
+
+    // the slab header is at the page-aligned base of this pointer
+    slab_t *slab = (slab_t *)align_down((uintptr_t)ptr, PAGE_SIZE);
+    kassert(slab->owner_cache == cache);
+
+    // push onto freelist
+    *(void **)ptr = slab->free_head;
+    slab->free_head = ptr;
+    slab->used--;
+}
+
 static void alloc_hot_caches_init(void)
 {
     if (hot_caches_ready)
@@ -260,80 +337,6 @@ void kfree_device_cap(void *ptr)
     if (!ptr)
         return;
     slab_free(&device_cap_cache, ptr);
-}
-
-void slab_cache_create(slab_cache_t *cache, const char *name, size_t obj_size)
-{
-    // enforce minimum: must fit a freelist pointer
-    if (obj_size < sizeof(void *))
-        obj_size = sizeof(void *);
-    // align up to 8 for ARM alignment
-    cache->obj_size = align_up(obj_size, 8);
-    cache->name = name;
-    cache->slabs = NULL;
-}
-
-void *slab_alloc(slab_cache_t *cache)
-{
-    // 1. find a slab with free space
-    slab_t *slab = cache->slabs;
-    while (slab) {
-        if (slab->free_head)
-            break;
-        slab = slab->next;
-    }
-
-    // 2. none found, allocate a new slab page
-    if (!slab) {
-        slab = slab_grow(cache); 
-        if (!slab) return NULL;
-    }
-
-    // 3. pop from freelist
-    void *obj = slab->free_head;
-    slab->free_head = *(void **)obj;  // read next pointer from the slot
-    slab->used++;
-    return obj;
-}
-
-void slab_free(slab_cache_t *cache, void *ptr)
-{
-    (void)cache;
-
-    // the slab header is at the page-aligned base of this pointer
-    slab_t *slab = (slab_t *)align_down((uintptr_t)ptr, PAGE_SIZE);
-
-    // push onto freelist
-    *(void **)ptr = slab->free_head;
-    slab->free_head = ptr;
-    slab->used--;
-}
-
-static slab_t *slab_grow(slab_cache_t *cache)
-{
-    uintptr_t pa = pmm_alloc_page();
-    if (!pa) return NULL;
-
-    slab_t *slab = (slab_t *)PA_TO_VA(pa);
-    size_t hdr_size = align_up(sizeof(slab_t), 8);
-    uint8_t *data = (uint8_t *)slab + hdr_size;
-    size_t usable = PAGE_SIZE - hdr_size;
-
-    slab->capacity = usable / cache->obj_size;
-    slab->used = 0;
-    slab->free_head = NULL;
-
-    // build freelist: chain all slots together
-    for (uint16_t i = 0; i < slab->capacity; i++) {
-        void *slot = data + i * cache->obj_size;
-        *(void **)slot = slab->free_head;
-        slab->free_head = slot;
-    }
-
-    // prepend to cache's slab list
-    slab->next = cache->slabs;
-    cache->slabs = slab;
-    return slab;
 }
 
 void kheap_dump(void) {
