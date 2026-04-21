@@ -21,6 +21,7 @@ typedef struct mem_block {
 
 typedef struct slab {
     struct slab *next;       // next slab in this cache's list
+    struct slab_cache *owner_cache; // owning cache for free-time validation
     uint16_t    used;        // how many objects are currently allocated
     uint16_t    capacity;    // total slots in this slab
     void       *free_head;   // freelist of available slots
