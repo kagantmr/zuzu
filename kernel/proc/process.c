@@ -208,6 +208,12 @@ void process_kill(process_t *p, const int exit_status) {
         child_node = next;
     }
 
+    // Remove process from whichever queue currently owns p->node, if any.
+    if (p->node.prev && p->node.next)
+        list_remove(&p->node);
+    p->ipc_state = IPC_NONE;
+    p->blocked_endpoint = NULL;
+
     p->process_state = PROCESS_ZOMBIE;
     p->exit_status = exit_status;
 
