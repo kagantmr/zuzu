@@ -44,6 +44,7 @@ typedef struct process {
     uint32_t device_va_next;  // initialized to 0x60000000 in process_create
     uint32_t mmap_va_next;  // initialized to 0x20000000 in process_create
     exception_frame_t *trap_frame;
+    list_head_t outstanding_replies;
     handle_vec_t handle_table;
     uintptr_t ipc_buf_pa;
     uint32_t  ipc_buf_xfer_len;
@@ -68,5 +69,8 @@ void process_kill(process_t *p, int exit_status);
 void process_set_parent(process_t *child, process_t *parent);
 process_t *process_find_child_by_pid(process_t *parent, uint32_t pid);
 process_t *process_find_zombie_child(process_t *parent);
+void process_track_reply_cap(process_t *caller, process_t *holder,
+                             uint32_t holder_slot, reply_cap_t *rc);
+void process_untrack_reply_cap(reply_cap_t *rc);
 
 #endif // KERNEL_PROC_PROCESS_H
