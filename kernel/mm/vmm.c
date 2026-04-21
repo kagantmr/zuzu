@@ -382,26 +382,6 @@ bool vmm_protect_range(addrspace_t* as, uintptr_t va, size_t size, vm_prot_t new
     return arch_mmu_protect(as, va, size, new_prot);
 }
 
-uintptr_t kmap_mmio(uintptr_t pa, size_t size) {
-    (void )size; // size is unused in section mapping mode
-    if (!g_kernel_as) {
-        vmm_bootstrap();
-        if (!g_kernel_as) {
-            return 0;
-        }
-    }
-
-    uintptr_t section_base = pa & ~(0x100000 - 1);
-
-    if (!vmm_map_range(g_kernel_as, section_base, section_base, 0x100000,
-                       VM_PROT_READ | VM_PROT_WRITE, VM_MEM_DEVICE,
-                       VM_OWNER_NONE, VM_FLAG_PINNED | VM_FLAG_GLOBAL)) {
-        return 0;
-    }
-
-    return pa;
-}
-
 bool kmap_user_page(addrspace_t* as, uintptr_t pa, uintptr_t va, vm_prot_t prot) {
     if (!as) return false;
     if (as->type != ADDRSPACE_USER) return false;
@@ -411,9 +391,6 @@ bool kmap_user_page(addrspace_t* as, uintptr_t pa, uintptr_t va, vm_prot_t prot)
     return vmm_map_range(as, va, pa, PAGE_SIZE, prot | VM_PROT_USER,
                          VM_MEM_NORMAL, VM_OWNER_SHARED, VM_FLAG_NONE);
 }
-
-
-
 
 // Find N contiguous free bits in bitmap, return starting index or -1
 static int bitmap_find_free(uint32_t n) {
