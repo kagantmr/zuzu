@@ -68,7 +68,6 @@ void port_create(exception_frame_t *frame)
     list_init(&new_endpoint->sender_queue);
     list_init(&new_endpoint->receiver_queue);
     new_endpoint->owner_pid = current_process->pid;
-    new_endpoint->bound_irq = -1;
     entry->ep = new_endpoint;
     entry->grantable = true;
     entry->type = HANDLE_ENDPOINT;

@@ -167,6 +167,13 @@ void proc_send(exception_frame_t *frame)
         rx_frame->r[3] = frame->r[3];
         rx_proc->ipc_state = IPC_NONE;
         rx_proc->blocked_endpoint = NULL;
+        // Cancel timeout if receiver had one
+        if (rx_proc->wake_tick != 0 &&
+            rx_proc->timeout_node.prev && rx_proc->timeout_node.next) {
+            list_remove(&rx_proc->timeout_node);
+        }
+        rx_proc->wake_tick = 0;
+        rx_proc->wake_reason = WAKE_IPC;
         rx_proc->process_state = PROCESS_READY;
         sched_add(rx_proc);
         frame->r[0] = 0;
@@ -189,13 +196,6 @@ void proc_recv(exception_frame_t *frame)
     endpoint_t *ep = validate_endpoint_handle(current_process, handle, frame);
     if (!ep)
     {
-        return;
-    }
-
-    if (ep->bound_irq >= 0 && irq_check_and_clear_pending(ep->bound_irq))
-    {
-        frame->r[0] = 0;
-        frame->r[1] = ep->bound_irq;
         return;
     }
 
@@ -223,6 +223,13 @@ void proc_recv(exception_frame_t *frame)
             sr_frame->r[0] = 0;
             sr_proc->ipc_state = IPC_NONE;
             sr_proc->blocked_endpoint = NULL;
+            // Cancel timeout if sender had one
+            if (sr_proc->wake_tick != 0 &&
+                sr_proc->timeout_node.prev && sr_proc->timeout_node.next) {
+                list_remove(&sr_proc->timeout_node);
+            }
+            sr_proc->wake_tick = 0;
+            sr_proc->wake_reason = WAKE_IPC;
             sr_proc->process_state = PROCESS_READY;
             if (sr_proc->ipc_buf_xfer_len > 0) {
                 ipc_buf_copy(sr_proc, current_process, sr_proc->ipc_buf_xfer_len);
@@ -234,20 +241,30 @@ void proc_recv(exception_frame_t *frame)
         }
         else if (sr_proc->ipc_state == IPC_WAITING)
         {
-            // allocate reply cap
+            // Use the pre-allocated reply cap
+            reply_cap_t *rc = sr_proc->pending_reply_cap;
+            sr_proc->pending_reply_cap = NULL;
+            // rc is guaranteed non-NULL — caller pre-allocated it
 
-            reply_cap_t *rc = (reply_cap_t *)kalloc_reply_cap();
-            if (!rc)
-            {
-                frame->r[0] = ERR_NOMEM;
-                list_add_tail(&sr_proc->node, &ep->sender_queue.node);
-                return;
-            }
             int slot = handle_vec_find_free(&current_process->handle_table);
-            if (slot < 0)
-            {
+            if (slot < 0) {
+                // Handle table full - but at least we can report the error
+                // and the caller's rc gets cleaned up
                 kfree_reply_cap(rc);
-                list_add_tail(&sr_proc->node, &ep->sender_queue.node);
+                sr_proc->pending_reply_cap = NULL;
+                // Wake the caller with an error instead of leaving it stuck
+                sr_proc->trap_frame->r[0] = ERR_NOMEM;
+                sr_proc->ipc_state = IPC_NONE;
+                sr_proc->blocked_endpoint = NULL;
+                // Cancel timeout if sender had one
+                if (sr_proc->wake_tick != 0 &&
+                    sr_proc->timeout_node.prev && sr_proc->timeout_node.next) {
+                    list_remove(&sr_proc->timeout_node);
+                }
+                sr_proc->wake_tick = 0;
+                sr_proc->wake_reason = WAKE_IPC;
+                sr_proc->process_state = PROCESS_READY;
+                sched_add(sr_proc);
                 frame->r[0] = ERR_NOMEM;
                 return;
             }
@@ -322,6 +339,13 @@ void proc_call(exception_frame_t *frame)
         return;
     }
 
+    reply_cap_t *rc = kalloc_reply_cap();
+    if (!rc) {
+        frame->r[0] = ERR_NOMEM;
+        return;  // caller gets clean error, never blocked
+    }
+    rc->caller_pid = current_process->pid;
+
     if (!list_empty(&ep->receiver_queue))
     {
         list_node_t *receiver = list_pop_front(&ep->receiver_queue);
@@ -331,14 +355,7 @@ void proc_call(exception_frame_t *frame)
         {
             ipc_panic_bad_trap_frame("proc_call.rx", rx_proc, rx_frame);
         }
-        // allocate reply cap in rx_proc's table
-        reply_cap_t *rc = (reply_cap_t *)kalloc_reply_cap();
-        if (!rc)
-        {
-            frame->r[0] = ERR_NOMEM;
-            list_add_tail(&rx_proc->node, &ep->sender_queue.node);
-            return;
-        }
+        // Use pre-allocated rc from this call
         int slot = handle_vec_find_free(&rx_proc->handle_table);
         if (slot < 0)
         {
@@ -361,6 +378,13 @@ void proc_call(exception_frame_t *frame)
 
         rx_proc->ipc_state = IPC_NONE;
         rx_proc->blocked_endpoint = NULL;
+        // Cancel timeout if receiver had one
+        if (rx_proc->wake_tick != 0 &&
+            rx_proc->timeout_node.prev && rx_proc->timeout_node.next) {
+            list_remove(&rx_proc->timeout_node);
+        }
+        rx_proc->wake_tick = 0;
+        rx_proc->wake_reason = WAKE_IPC;
         rx_proc->process_state = PROCESS_READY;
         sched_add(rx_proc);
 
@@ -373,6 +397,7 @@ void proc_call(exception_frame_t *frame)
     {
         current_process->ipc_state = IPC_WAITING;
         current_process->blocked_endpoint = ep;
+        current_process->pending_reply_cap = rc;
         list_add_tail(&current_process->node, &ep->sender_queue.node);
         current_process->process_state = PROCESS_BLOCKED;
         schedule();
@@ -404,6 +429,13 @@ void proc_reply(exception_frame_t *frame)
     // Wake the caller
     target->ipc_state = IPC_NONE;
     target->blocked_endpoint = NULL;
+    // Cancel timeout if target had one
+    if (target->wake_tick != 0 &&
+        target->timeout_node.prev && target->timeout_node.next) {
+        list_remove(&target->timeout_node);
+    }
+    target->wake_tick = 0;
+    target->wake_reason = WAKE_IPC;
     target->process_state = PROCESS_READY;
     sched_add(target);
 
@@ -442,6 +474,13 @@ void proc_sendx(exception_frame_t *frame)
         ipc_buf_copy(current_process, rx_proc, frame->r[1]);
         rx_proc->ipc_state = IPC_NONE;
         rx_proc->blocked_endpoint = NULL;
+        // Cancel timeout if receiver had one
+        if (rx_proc->wake_tick != 0 &&
+            rx_proc->timeout_node.prev && rx_proc->timeout_node.next) {
+            list_remove(&rx_proc->timeout_node);
+        }
+        rx_proc->wake_tick = 0;
+        rx_proc->wake_reason = WAKE_IPC;
         rx_proc->process_state = PROCESS_READY;
         sched_add(rx_proc);
         frame->r[0] = 0;
@@ -467,6 +506,13 @@ void proc_callx(exception_frame_t *frame)
         return;
     }
 
+    reply_cap_t *rc = kalloc_reply_cap();
+    if (!rc) {
+        frame->r[0] = ERR_NOMEM;
+        return;  // caller gets clean error, never blocked
+    }
+    rc->caller_pid = current_process->pid;
+
     if (!list_empty(&ep->receiver_queue))
     {
         list_node_t *receiver = list_pop_front(&ep->receiver_queue);
@@ -476,14 +522,7 @@ void proc_callx(exception_frame_t *frame)
         {
             ipc_panic_bad_trap_frame("proc_callx.rx", rx_proc, rx_frame);
         }
-        // allocate reply cap in rx_proc's table
-        reply_cap_t *rc = (reply_cap_t *)kalloc_reply_cap();
-        if (!rc)
-        {
-            frame->r[0] = ERR_NOMEM;
-            list_add_tail(&rx_proc->node, &ep->sender_queue.node);
-            return;
-        }
+        // Use pre-allocated rc from this call
         int slot = handle_vec_find_free(&rx_proc->handle_table);
         if (slot < 0)
         {
@@ -507,6 +546,13 @@ void proc_callx(exception_frame_t *frame)
 
         rx_proc->ipc_state = IPC_NONE;
         rx_proc->blocked_endpoint = NULL;
+        // Cancel timeout if receiver had one
+        if (rx_proc->wake_tick != 0 &&
+            rx_proc->timeout_node.prev && rx_proc->timeout_node.next) {
+            list_remove(&rx_proc->timeout_node);
+        }
+        rx_proc->wake_tick = 0;
+        rx_proc->wake_reason = WAKE_IPC;
         rx_proc->process_state = PROCESS_READY;
         sched_add(rx_proc);
 
@@ -517,9 +563,9 @@ void proc_callx(exception_frame_t *frame)
     }
     else
     {
-
         current_process->ipc_state = IPC_WAITING;
         current_process->blocked_endpoint = ep;
+        current_process->pending_reply_cap = rc;
         list_add_tail(&current_process->node, &ep->sender_queue.node);
         current_process->ipc_buf_xfer_len = frame->r[1];
         current_process->process_state = PROCESS_BLOCKED;
@@ -553,6 +599,13 @@ void proc_replyx(exception_frame_t *frame)
     // Wake the caller
     target->ipc_state = IPC_NONE;
     target->blocked_endpoint = NULL;
+    // Cancel timeout if target had one
+    if (target->wake_tick != 0 &&
+        target->timeout_node.prev && target->timeout_node.next) {
+        list_remove(&target->timeout_node);
+    }
+    target->wake_tick = 0;
+    target->wake_reason = WAKE_IPC;
     target->process_state = PROCESS_READY;
     sched_add(target);
 

@@ -196,8 +196,26 @@ void spawn(exception_frame_t *frame) {
     }
     kname[name_len] = '\0';
 
-    process_t *process = process_create_from_elf(elf_copy, elf_size, kname, argbuf, argbuf_len, argc);
+    // Allocate and copy argument buffer if provided
+    void *kargbuf = NULL;
+    if (argbuf && argbuf_len > 0) {
+        kargbuf = kmalloc(argbuf_len);
+        if (!kargbuf) {
+            kfree(elf_copy);
+            frame->r[0] = ERR_NOMEM;
+            return;
+        }
+        if (!copy_from_user(kargbuf, argbuf, argbuf_len)) {
+            kfree(elf_copy);
+            kfree(kargbuf);
+            frame->r[0] = ERR_BADARG;
+            return;
+        }
+    }
+
+    process_t *process = process_create_from_elf(elf_copy, elf_size, kname, kargbuf, argbuf_len, argc);
     kfree(elf_copy);
+    kfree(kargbuf);
     if (!process) {
         frame->r[0] = ERR_NOMEM;
         return;
