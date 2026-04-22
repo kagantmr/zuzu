@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <zuzu/memprot.h>
 #include <vector.h>
+#include "arch/arm/mmu/asid.h"
 
 #define SECTION_SIZE      0x100000UL     /* 1MB section for ARMv7 */
 
@@ -69,7 +70,7 @@ typedef struct addrspace {
     vm_region_vec_t     regions;
     //uint32_t         lock;      // placeholder until concurrency is added
     addrspace_type_t type;
-    uint8_t          asid;
+    asid_token_t          asid_token;
 } addrspace_t;
 
 typedef struct {

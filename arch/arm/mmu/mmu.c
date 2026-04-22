@@ -90,6 +90,11 @@ bool arch_mmu_map(addrspace_t *as, uintptr_t va, uintptr_t pa, size_t size,
             uintptr_t curr_va = va + offset;
             uintptr_t curr_pa = pa + offset;
 
+            size_t idx = (curr_va >> 20) & 0xFFF;
+            size_t max_idx = (as->type == ADDRSPACE_USER) ? 2048 : 4096;
+            if (idx >= max_idx)
+                return false;
+
             // Base section descriptor: section type (bits[1:0] = 0b10)
             uint32_t entry = (uint32_t)(curr_pa & ALIGNMENT_1MB_MASK) | L1_MASK;
 
@@ -112,7 +117,6 @@ bool arch_mmu_map(addrspace_t *as, uintptr_t va, uintptr_t pa, size_t size,
                 entry |= (1u << 12) | (1u << 3) | (1u << 2);
             }
 
-            size_t idx = (curr_va >> 20) & 0xFFF;
             l1_table[idx] = entry;
         }
 
@@ -200,7 +204,7 @@ bool arch_mmu_unmap(addrspace_t *as, uintptr_t va, size_t size)
         // For section unmaps and larger page ranges, invalidate by ASID.
         if (!page_mode || size > (16 * PAGE_SIZE) || unmapped_pages == 0)
         {
-            arch_mmu_flush_tlb_asid(as->asid);
+            arch_mmu_flush_tlb_asid(as->asid_token.asid);
         }
         arch_mmu_barrier();
     }
@@ -294,8 +298,12 @@ void arch_mmu_switch(addrspace_t *as)
         return;
     }
 
+    if (as->asid_token.generation != asid_current_generation()) {
+        asid_free(as->asid_token);  // free the old (no-op if already reclaimed)
+        as->asid_token = asid_alloc();
+    }
     
-    __asm__ volatile("mcr p15, 0, %0, c13, c0, 1" :: "r"((uint32_t)as->asid) : "memory");
+    __asm__ volatile("mcr p15, 0, %0, c13, c0, 1" :: "r"((uint32_t)as->asid_token.asid) : "memory");
 
     arch_mmu_barrier();
 
@@ -308,7 +316,7 @@ void arch_mmu_switch(addrspace_t *as)
 
     arch_mmu_barrier();
 
-    arch_mmu_flush_tlb_asid(as->asid);
+    arch_mmu_flush_tlb_asid(as->asid_token.asid);
 
     arch_mmu_barrier();
 }
@@ -496,7 +504,9 @@ bool arch_mmu_map_page(addrspace_t *as, uintptr_t va, uintptr_t pa,
 
     uint32_t l1_idx = (va >> 20) & 0xFFF; // bits [31:20] → index 0-4095
     uint32_t l2_idx = (va >> 12) & 0xFF;  // bits [19:12] → index 0-255
-
+    uint32_t max_idx = (as->type == ADDRSPACE_USER) ? 2048 : 4096;
+    if (l1_idx >= max_idx)
+        return false;
     uint32_t l1_entry = l1[l1_idx];
     uint32_t type = l1_entry & 0x3;
 
@@ -521,7 +531,7 @@ bool arch_mmu_map_page(addrspace_t *as, uintptr_t va, uintptr_t pa,
     else
     {
         // Section mapping — break it into 256 page entries first
-        if (!arch_mmu_break_section(l1, l1_idx, as->asid))
+        if (!arch_mmu_break_section(l1, l1_idx, as->asid_token.asid))
             return false;
 
         uint32_t l2_table_pa = l1[l1_idx] & 0xFFFFFC00;
