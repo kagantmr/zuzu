@@ -56,6 +56,8 @@ static inline uint32_t read_be32(const void *p)
 static process_t *s_devmgr; 
 extern void arch_reboot(void);
 
+#define BOOT_PROGRAM_PREFIX "bin/"
+
 typedef struct boot_program {
     const char *path;
     uint32_t flags;
@@ -126,10 +128,36 @@ static uint32_t parse_flag_string(const char *flag_str)
     
     if (strcmp(flag_str, "init") == 0)
         return PROC_FLAG_INIT;
-    if (strcmp(flag_str, "devmgr") == 0)
+    if (strcmp(flag_str, "dev") == 0 || strcmp(flag_str, "devmgr") == 0)
         return PROC_FLAG_DEVMGR;
+    if (strcmp(flag_str, "none") == 0)
+        return 0;
     
     return 0;
+}
+
+static const char *normalize_manifest_program_path(const char *path_in)
+{
+    if (!path_in || !path_in[0])
+        return NULL;
+
+    if (strchr(path_in, '/')) {
+        char *path = (char *)kmalloc(strlen(path_in) + 1);
+        if (!path)
+            return NULL;
+        strcpy(path, path_in);
+        return path;
+    }
+
+    size_t path_len = strlen(path_in);
+    size_t full_len = sizeof(BOOT_PROGRAM_PREFIX) - 1 + path_len + 1;
+    char *path = (char *)kmalloc(full_len);
+    if (!path)
+        return NULL;
+
+    strcpy(path, BOOT_PROGRAM_PREFIX);
+    strcpy(path + (sizeof(BOOT_PROGRAM_PREFIX) - 1), path_in);
+    return path;
 }
 
 static size_t parse_boot_manifest(const char *manifest_data, size_t manifest_size,
@@ -179,6 +207,9 @@ static size_t parse_boot_manifest(const char *manifest_data, size_t manifest_siz
         // extract path
         const char *path_start = line_start;
         size_t path_len = pipe_idx;
+        while (path_len > 0 &&
+               (path_start[path_len - 1] == ' ' || path_start[path_len - 1] == '\t'))
+            path_len--;
         char path_buf[256];
         if (path_len >= sizeof(path_buf)) {
             KWARN("Boot manifest: path too long");
@@ -191,6 +222,14 @@ static size_t parse_boot_manifest(const char *manifest_data, size_t manifest_siz
         // extract flags
         const char *flags_start = line_start + pipe_idx + 1;
         size_t flags_len = line_len - pipe_idx - 1;
+        while (flags_len > 0 &&
+               (*flags_start == ' ' || *flags_start == '\t')) {
+            flags_start++;
+            flags_len--;
+        }
+        while (flags_len > 0 &&
+               (flags_start[flags_len - 1] == ' ' || flags_start[flags_len - 1] == '\t'))
+            flags_len--;
         char flags_buf[64];
         if (flags_len >= sizeof(flags_buf)) {
             flags_len = sizeof(flags_buf) - 1;
@@ -199,12 +238,11 @@ static size_t parse_boot_manifest(const char *manifest_data, size_t manifest_siz
         flags_buf[flags_len] = '\0';
 
         // populate output entry
-        out_programs[count].path = (const char *)kmalloc(strlen(path_buf) + 1);
+        out_programs[count].path = normalize_manifest_program_path(path_buf);
         if (!out_programs[count].path) {
             KERROR("Boot manifest: allocation failed");
             break;
         }
-        strcpy((char *)out_programs[count].path, path_buf);
         out_programs[count].flags = parse_flag_string(flags_buf);
         out_programs[count].owns_path = 1;
 
