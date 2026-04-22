@@ -22,6 +22,12 @@ typedef enum process_state {
     PROCESS_ZOMBIE,
 } p_state_t;
 
+typedef enum {
+    WAKE_NONE = 0,
+    WAKE_IPC,       // woken by IPC partner
+    WAKE_TIMEOUT,   // woken by timer
+} wake_reason_t;
+
 typedef enum ipc_state {
     IPC_NONE = 0,
     IPC_SENDER,
@@ -38,6 +44,7 @@ typedef struct process {
     uint32_t priority, time_slice, ticks_remaining;
     addrspace_t *as;
     list_node_t node;  // embedded, not pointers
+    list_node_t timeout_node;
     int32_t exit_status;
     uint32_t waiting_for;
     char name[32]; // PROCESS name
@@ -49,6 +56,7 @@ typedef struct process {
     uintptr_t ipc_buf_pa;
     uint32_t  ipc_buf_xfer_len;
     ipc_state_t ipc_state;
+    wake_reason_t wake_reason;
     endpoint_t *blocked_endpoint;
     uint32_t flags; 
     list_head_t children;

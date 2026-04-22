@@ -16,10 +16,10 @@ uintptr_t kstack_alloc(void) {
                 return 0;
             }
             slot_pa[i] = page_pa;
-            uintptr_t slot_va = KSTACK_REGION_BASE + i * 0x2000;
+            uintptr_t slot_va = kstack_top_from_slot(i) - KSTACK_SLOT_SIZE;
 
             /* Map the usable stack page */
-            bool result = vmm_map_range(vmm_get_kernel_as(), slot_va + 0x1000, page_pa, PAGE_SIZE,
+            bool result = vmm_map_range(vmm_get_kernel_as(), slot_va + KSTACK_GUARD_SIZE, page_pa, PAGE_SIZE,
                 VM_PROT_READ | VM_PROT_WRITE, VM_MEM_NORMAL, VM_OWNER_ANON, VM_FLAG_NONE);
             if (!result) {
                 pmm_free_page(page_pa);
@@ -41,14 +41,14 @@ uintptr_t kstack_alloc(void) {
             arch_mmu_barrier();
 
             bitmap |= (1ULL << i);
-            return slot_va + 0x2000;
+            return kstack_top_from_slot(i);
         }
     }
     return 0;
 }
 void kstack_free(uintptr_t stack_top) {
-    int slot = (stack_top - KSTACK_REGION_BASE) / 0x2000 - 1;
-    uintptr_t mapped_va = KSTACK_REGION_BASE + slot * 0x2000 + 0x1000;
+    int slot = kstack_slot_from_top(stack_top);
+    uintptr_t mapped_va = kstack_top_from_slot(slot) - KSTACK_SLOT_SIZE + KSTACK_GUARD_SIZE;
     vmm_unmap_range(vmm_get_kernel_as(), mapped_va, PAGE_SIZE);
     pmm_free_page(slot_pa[slot]);
     bitmap &= ~(1ULL << slot);

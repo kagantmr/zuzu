@@ -5,6 +5,7 @@
 
 #include "kernel/ipc/sys_port.h" 
 #include "kernel/ipc/sys_ipc.h"
+#include "kernel/ipc/sys_notif.h"
 #include "kernel/irq/sys_irq.h"
 #include "kernel/mm/sys_mm.h"
 #include "kernel/dev/sys_dev.h"
@@ -141,6 +142,22 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     {
         port_grant(frame);
     } break; 
+    case SYS_NTFN_CREATE:
+    {
+        ntfn_create(frame);
+    } break;
+    case SYS_NTFN_SIGNAL:
+    {
+        ntfn_signal(frame);
+    } break;
+    case SYS_NTFN_WAIT:
+    {
+        ntfn_wait(frame);
+    } break;
+    case SYS_NTFN_POLL:
+    {
+        ntfn_poll(frame);
+    } break;
     case SYS_MEMMAP:
     {
         memmap(frame);

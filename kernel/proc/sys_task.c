@@ -48,10 +48,11 @@ void sleep(exception_frame_t *frame) {
 
     // Calculate wake time
     current_process->wake_tick = get_ticks() + ticks;
+    current_process->wake_reason = WAKE_NONE;
     
     // Change state
     current_process->process_state = PROCESS_BLOCKED;
-    list_add_tail(&current_process->node, &sleep_queue.node);
+    list_add_tail(&current_process->timeout_node, &sleep_queue.node);
     // Schedule someone else immediately
     schedule();
 }

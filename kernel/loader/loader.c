@@ -320,6 +320,12 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
     process->ticks_remaining = process->time_slice;
     process->node.next = NULL;
     process->node.prev = NULL;
+    process->timeout_node.next = NULL;
+    process->timeout_node.prev = NULL;
+    process->wake_tick = 0;
+    process->wake_reason = WAKE_NONE;
+    process->blocked_endpoint = NULL;
+    process->ipc_state = IPC_NONE;
     process->flags = 0;
     const char *short_name = name;
     for (const char *p = name; *p; p++)
