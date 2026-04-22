@@ -54,6 +54,7 @@ Phases 0–12 is completed. Synchronous IPC is implemented and tested.
 | QEMU vexpress-a15 | `-M vexpress-a15` | Cortex-A15 | primary |
 | QEMU vexpress-a9 | `-M vexpress-a9` | Cortex-A9 | planned |
 | Raspberry Pi 4 | — | Cortex-A72 (32-bit mode) | planned |
+| Raspberry Pi 4 | — | Cortex-A72 (64-bit mode) | planned |
 | STM32 (MPU) | — | Cortex-M | planned |
 
 ---
