@@ -69,8 +69,13 @@ typedef struct cpu_context {
     uint32_t lr;   // return address (or entry point for new process)
 } cpu_context_t;
 
+#ifdef __cplusplus
+static_assert(offsetof(process_t, kernel_sp) == 12,
+              "switch.S expects process->kernel_sp at offset 12");
+#else
 _Static_assert(offsetof(process_t, kernel_sp) == 12,
                "switch.S expects process->kernel_sp at offset 12");
+#endif
 
 void process_destroy(process_t *process);
 process_t *process_find_by_pid(uint32_t pid);

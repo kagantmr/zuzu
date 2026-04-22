@@ -19,8 +19,6 @@ static uint32_t parse_hex8(const char *s) {
     return val;
 }
 
-
-
 static const void *initrd_base;
 static size_t      initrd_size;
 
