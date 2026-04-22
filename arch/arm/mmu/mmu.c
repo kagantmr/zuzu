@@ -212,33 +212,73 @@ bool arch_mmu_unmap(addrspace_t *as, uintptr_t va, size_t size)
     return unmapped_any;
 }
 
-bool arch_mmu_protect(addrspace_t *as, uintptr_t va, size_t size, vm_prot_t prot)
-{
-    (void)prot;
+bool arch_mmu_protect(addrspace_t *as, uintptr_t va, size_t size, vm_prot_t prot) {
+    if (!as || size == 0) return false;
 
-    // Bring-up policy: sections only. Permissions are currently permissive.
-    if (!as || size == 0 || (va % SECTION_SIZE) != 0 || (size % SECTION_SIZE) != 0)
-    {
-        return false;
-    }
+    uint32_t *l1 = (uint32_t *)PA_TO_VA(as->ttbr0_pa);
+    bool changed = false;
 
-    // For bring-up we do not yet encode per-region permissions (XN/user/RO).
-    // Return true iff the range is currently mapped.
-    uint32_t *l1_table = (uint32_t *)PA_TO_VA(as->ttbr0_pa);
-    bool found_any = false;
-
-    for (uintptr_t offset = 0; offset < size; offset += SECTION_SIZE)
-    {
+    for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE) {
         uintptr_t curr_va = va + offset;
-        size_t idx = (curr_va >> 20) & 0xFFF;
-        if (l1_table[idx] != 0)
-        {
-            found_any = true;
+        uint32_t l1_idx = (curr_va >> 20) & 0xFFF;
+        uint32_t l1_entry = l1[l1_idx];
+        uint32_t type = l1_entry & 0x3;
+
+        if (type == 0x2) {
+            // Section — rewrite AP bits in place
+            uint32_t entry = l1_entry;
+            entry &= ~((0x3u << 10) | (1u << 15) | (1u << 4));  // clear AP[1:0], AP[2], XN
+
+            if (prot & VM_PROT_USER) {
+                if (prot & VM_PROT_WRITE)
+                    entry |= (3u << 10);       // AP=11: user RW
+                else
+                    entry |= (2u << 10);       // AP=10: user RO
+            } else {
+                entry |= (1u << 10);           // AP=01: kernel only
+            }
+            if (!(prot & VM_PROT_EXEC))
+                entry |= (1u << 4);            // XN
+
+            l1[l1_idx] = entry;
+            changed = true;
+            // Skip to next section boundary
+            offset += SECTION_SIZE - PAGE_SIZE;
+            continue;
+        }
+
+        if (type == 0x1) {
+            // Page table — rewrite L2 entry
+            uint32_t l2_pa = l1_entry & 0xFFFFFC00;
+            uint32_t *l2 = (uint32_t *)PA_TO_VA(l2_pa);
+            uint32_t l2_idx = (curr_va >> 12) & 0xFF;
+
+            if (!(l2[l2_idx] & 0x2)) continue;  // not mapped
+
+            uint32_t pte = l2[l2_idx];
+            pte &= ~((0x3u << 4) | (1u << 9) | 0x1u);  // clear AP[1:0], AP[2], XN
+
+            if (prot & VM_PROT_USER) {
+                if (prot & VM_PROT_WRITE)
+                    pte |= (3u << 4);
+                else
+                    pte |= (2u << 4);
+            } else {
+                pte |= (1u << 4);
+            }
+            if (!(prot & VM_PROT_EXEC))
+                pte |= 0x1;                    // XN (bit 0 for small pages)
+
+            l2[l2_idx] = pte;
+            changed = true;
         }
     }
 
-    // No changes applied in bring-up mode.
-    return found_any;
+    if (changed) {
+        arch_mmu_flush_tlb_asid(as->asid_token.asid);
+        arch_mmu_barrier();
+    }
+    return changed;
 }
 
 void arch_mmu_enable(addrspace_t *as)
