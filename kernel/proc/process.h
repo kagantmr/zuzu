@@ -40,7 +40,7 @@ typedef struct process {
     list_node_t node;  // embedded, not pointers
     int32_t exit_status;
     uint32_t waiting_for;
-    char name[16]; // PROCESS name
+    char name[32]; // PROCESS name
     uint32_t device_va_next;  // initialized to 0x60000000 in process_create
     uint32_t mmap_va_next;  // initialized to 0x20000000 in process_create
     exception_frame_t *trap_frame;
