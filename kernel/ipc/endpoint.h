@@ -16,7 +16,6 @@ typedef struct endpoint {
     list_head_t receiver_queue;
     uint32_t owner_pid;
     list_node_t node;
-    int bound_irq;
 } endpoint_t;
 
 // stub

@@ -222,6 +222,21 @@ void process_kill(process_t *p, const int exit_status) {
             entry->reply = NULL;
             entry->grantable = false;
             entry->type = HANDLE_FREE;
+        } else if (entry->type == HANDLE_NOTIFICATION) {
+            notification_t *ntfn = entry->ntfn;
+            if (ntfn) {
+                while (!list_empty(&ntfn->wait_queue)) {
+                    list_node_t *n = list_pop_front(&ntfn->wait_queue);
+                    process_t *proc = container_of(n, process_t, node);
+                    proc->trap_frame->r[0] = ERR_DEAD;
+                    proc->process_state = PROCESS_READY;
+                    sched_add(proc);
+                }
+                kfree(ntfn);
+            }
+            entry->ntfn = NULL;
+            entry->grantable = false;
+            entry->type = HANDLE_FREE;
         }
     }
 

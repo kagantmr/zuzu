@@ -54,6 +54,7 @@ typedef struct process {
     list_head_t outstanding_replies;
     handle_vec_t handle_table;
     uintptr_t ipc_buf_pa;
+    reply_cap_t *pending_reply_cap;
     uint32_t  ipc_buf_xfer_len;
     ipc_state_t ipc_state;
     wake_reason_t wake_reason;
