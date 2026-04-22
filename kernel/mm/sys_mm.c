@@ -15,11 +15,16 @@ extern phys_region_t phys_region;
 
 void memmap(exception_frame_t *frame)
 {
+    
     uint32_t addr_hint = frame->r[0];
     uint32_t size = frame->r[1];
     uint32_t prot = frame->r[2];
     if (size == 0)
     {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+    if ((prot & VM_PROT_WRITE) && (prot & VM_PROT_EXEC)) { // enforce W^X
         frame->r[0] = ERR_BADARG;
         return;
     }
