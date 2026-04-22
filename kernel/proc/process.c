@@ -142,6 +142,10 @@ void process_kill(process_t *p, const int exit_status) {
     if (p->flags & (PROC_FLAG_INIT | PROC_FLAG_DEVMGR)) {
         panic("Attempted to kill critical process");
     }
+
+    p->process_state = PROCESS_ZOMBIE;
+    p->exit_status = exit_status;
+
     // Clean up handle table — clear non-owned handles, free owned endpoints
     for (uint32_t i = 0; i < p->handle_table.cap; i++) {
         handle_entry_t *entry = handle_vec_get(&p->handle_table, i);
@@ -253,9 +257,6 @@ void process_kill(process_t *p, const int exit_status) {
     p->ipc_state = IPC_NONE;
     p->blocked_endpoint = NULL;
 
-    p->process_state = PROCESS_ZOMBIE;
-    p->exit_status = exit_status;
-
     process_t *parent = process_find_by_pid(p->parent_pid);
     if (parent && parent->process_state == PROCESS_BLOCKED 
               && (parent->waiting_for == p->pid || parent->waiting_for == UINT32_MAX)) {
@@ -270,7 +271,6 @@ void process_kill(process_t *p, const int exit_status) {
 void process_destroy(process_t *p)
 {
 
-    uint32_t pid = p->pid;
     // extern pmm_state_t pmm_state;
     irq_release_all(p);
     // KDEBUG("destroy PID %d, pmm before=%d", pid, pmm_state.free_pages);
@@ -283,7 +283,6 @@ void process_destroy(process_t *p)
         as_destroy(p->as);
     }
     handle_vec_destroy(&p->handle_table);
-    process_table[pid] = NULL;
     kstack_free(p->kernel_stack_top);
     process_table[p->pid % MAX_PROCESSES] = NULL;
     kfree(p);
