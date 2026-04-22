@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <list.h>
 #include <vector.h>
+#include "kernel/ipc/notif.h"
 #include "kernel/mm/vmm.h"
 
 struct process;
@@ -28,8 +29,8 @@ typedef struct {
 } device_cap_t;
 
 typedef struct {
-    struct process *caller;
-    struct process *holder;
+    uint32_t caller_pid;       // instead of process_t *caller
+    uint32_t holder_pid;       // instead of process_t *holder
     uint32_t holder_slot;
     list_node_t caller_link;
 } reply_cap_t;
@@ -41,6 +42,7 @@ typedef enum {
     HANDLE_DEVICE,
     HANDLE_SHMEM,
     HANDLE_REPLY,
+    HANDLE_NOTIFICATION,    // <-- new
 } handle_type_t;
 
 typedef struct {
@@ -52,6 +54,7 @@ typedef struct {
         device_cap_t *dev;
         shmem_t      *shm;
         reply_cap_t *reply;
+        notification_t *ntfn;
     };
 } handle_entry_t;
 

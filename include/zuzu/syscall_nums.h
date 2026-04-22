@@ -25,6 +25,10 @@
 #define SYS_PORT_CREATE 0x20  /* () -> handle or -err                 */
 #define SYS_PORT_DESTROY 0x21 /* (handle) -> 0 or -err                */
 #define SYS_PORT_GRANT 0x22   /* (handle, pid) -> 0 or -err           */
+#define SYS_NTFN_CREATE 0x23  /* () -> handle or -err                 */
+#define SYS_NTFN_SIGNAL 0x24  /* (ntfn_handle, bits) -> 0 or -err     */
+#define SYS_NTFN_WAIT 0x25    /* (ntfn_handle) -> bits or -err        */
+#define SYS_NTFN_POLL 0x26    /* (ntfn_handle) -> bits or -err        */
 
 /* ---- Memory (0x30-0x3F) ---- */
 

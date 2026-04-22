@@ -2,15 +2,16 @@
 #define SYS_IRQ_H
 
 #include "arch/arm/include/context.h"
+#include "kernel/ipc/notif.h"
 #include "kernel/ipc/endpoint.h"
 #include "stdbool.h"
 
 typedef struct process process_t;
 
 typedef struct irq_owner {
-    process_t *owner;
-    bool pending;
-    endpoint_t *bound_port;
+    process_t      *owner;
+    bool            pending;
+    notification_t *bound_ntfn;   // was endpoint_t *bound_port
 } irq_owner_t;
 
 void irq_claim(exception_frame_t* frame);
