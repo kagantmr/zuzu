@@ -11,6 +11,7 @@ volatile pl011_t *uart;
 int port;
 static int32_t devmgr_port = -1;
 static int32_t serial_dev_handle = -1;
+static int32_t serial_irq_ntfn = -1;
 ringbuf_t rxrb, txrb;
 
 #define ZUART_DEV_CLASS DEV_CLASS_SERIAL
@@ -142,10 +143,15 @@ int zuart_setup(void)
 
     int32_t dev_handle = request_serial_device();
 
+    serial_irq_ntfn = _ntfn_create();
+    if (serial_irq_ntfn < 0) {
+        return ZUART_INIT_FAIL;
+    }
+
     if (_irq_claim(dev_handle) < 0) {
         return ZUART_INIT_FAIL;
     }
-    if (_irq_bind(dev_handle, (uint32_t)port) < 0) {
+    if (_irq_bind(dev_handle, (uint32_t)serial_irq_ntfn) < 0) {
         return ZUART_INIT_FAIL;
     }
 
@@ -183,11 +189,14 @@ int main(void)
 
     while (1)
     {
+        int32_t bits = _ntfn_poll((uint32_t)serial_irq_ntfn);
+        if (bits > 0) {
+            handle_irq_event();
+        }
+
         msg = _recv(port);
 
-        if (msg.r0 == 0) {
-            handle_irq_event();
-        } else if (msg.r0 > 0) {
+        if (msg.r0 > 0) {
             handle_client_message(msg);
         }
     }

@@ -12,13 +12,11 @@
 uint32_t next_pid = 1;
 process_t *process_table[MAX_PROCESSES];
 
-static process_t *process_resolve_live_ptr(process_t *candidate);
-
 void process_track_reply_cap(process_t *caller, process_t *holder,
                              uint32_t holder_slot, reply_cap_t *rc)
 {
-    rc->caller = caller;
-    rc->holder = holder;
+    rc->caller_pid = caller ? caller->pid : 0;
+    rc->holder_pid = holder ? holder->pid : 0;
     rc->holder_slot = holder_slot;
     rc->caller_link.prev = NULL;
     rc->caller_link.next = NULL;
@@ -35,8 +33,8 @@ void process_untrack_reply_cap(reply_cap_t *rc)
 
     rc->caller_link.prev = NULL;
     rc->caller_link.next = NULL;
-    rc->caller = NULL;
-    rc->holder = NULL;
+    rc->caller_pid = 0;
+    rc->holder_pid = 0;
     rc->holder_slot = 0;
 }
 
@@ -46,7 +44,7 @@ static void process_revoke_outstanding_reply_caps(process_t *caller)
         list_node_t *node = list_pop_front(&caller->outstanding_replies);
         reply_cap_t *rc = container_of(node, reply_cap_t, caller_link);
 
-        process_t *holder = process_resolve_live_ptr(rc->holder);
+        process_t *holder = process_find_by_pid(rc->holder_pid);
         if (holder) {
             handle_entry_t *entry =
                 handle_vec_get(&holder->handle_table, rc->holder_slot);
@@ -60,24 +58,11 @@ static void process_revoke_outstanding_reply_caps(process_t *caller)
 
         rc->caller_link.prev = NULL;
         rc->caller_link.next = NULL;
-        rc->caller = NULL;
-        rc->holder = NULL;
+        rc->caller_pid = 0;
+        rc->holder_pid = 0;
         rc->holder_slot = 0;
         kfree_reply_cap(rc);
     }
-}
-
-static process_t *process_resolve_live_ptr(process_t *candidate)
-{
-    if (!candidate)
-        return NULL;
-
-    for (uint32_t i = 0; i < MAX_PROCESSES; i++) {
-        process_t *live = process_table[i];
-        if (live == candidate)
-            return live;
-    }
-    return NULL;
 }
 
 #define LOG_FMT(fmt) "(proc) " fmt
@@ -219,7 +204,7 @@ void process_kill(process_t *p, const int exit_status) {
             entry->type = HANDLE_FREE;
         } else if (entry->type == HANDLE_REPLY) {
             reply_cap_t *rc = entry->reply;
-            process_t *caller = process_resolve_live_ptr(rc ? rc->caller : NULL);
+            process_t *caller = process_find_by_pid(rc ? rc->caller_pid : 0);
 
             if (caller && caller->ipc_state == IPC_WAITING) {
                 caller->ipc_state = IPC_NONE;

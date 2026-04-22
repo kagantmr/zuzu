@@ -12,6 +12,7 @@ static bool is_sdhc;
 
 static int32_t port = -1;
 static int32_t block_dev_handle = -1;
+static int32_t block_irq_ntfn = -1;
 static int32_t shmem_handle = -1;
 static uint32_t *shmem_buf = NULL;
 
@@ -136,22 +137,13 @@ static int pl181_setup(void)
 }
 
 /*
- * Wait for the MCI IRQ to arrive on our port.
- * Returns 0 on clean IRQ delivery (msg.r0 == 0).
- * If a client message arrives instead (shouldn't happen), we NACK it and
- * keep waiting — the port belongs to us until the transfer finishes.
+ * Wait for the MCI IRQ to arrive on our notification object.
+ * Returns 0 on clean IRQ delivery.
  */
 static int wait_for_irq(void)
 {
-    while (1)
-    {
-        zuzu_ipcmsg_t msg = _recv(port);
-        if (msg.r0 == 0)
-            return 0; /* IRQ delivery */
-        /* stray client during transfer — NACK and keep waiting */
-        printf("zusd: stray message during transfer, dropping\n");
-        _reply((uint32_t)msg.r0, (uint32_t)-1, 0, 0);
-    }
+    int32_t bits = _ntfn_wait((uint32_t)block_irq_ntfn);
+    return (bits < 0) ? -1 : 0;
 }
 
 /*
@@ -332,13 +324,20 @@ static int zusd_setup(void)
     }
     block_dev_handle = (int32_t)r.r2;
 
-    /* claim IRQ ownership and bind it to our recv port */
+    block_irq_ntfn = _ntfn_create();
+    if (block_irq_ntfn < 0)
+    {
+        printf("zusd: ntfn_create failed\n");
+        return -1;
+    }
+
+    /* claim IRQ ownership and bind it to our notification */
     if (_irq_claim((uint32_t)block_dev_handle) < 0)
     {
         printf("zusd: irq_claim failed\n");
         return -1;
     }
-    if (_irq_bind((uint32_t)block_dev_handle, (uint32_t)port) < 0)
+    if (_irq_bind((uint32_t)block_dev_handle, (uint32_t)block_irq_ntfn) < 0)
     {
         printf("zusd: irq_bind failed\n");
         return -1;
@@ -391,14 +390,16 @@ int main(void)
         return 1;
     while (1)
     {
-        zuzu_ipcmsg_t msg = _recv(port);
-
-        if (msg.r0 == 0)
+        int32_t bits = _ntfn_poll((uint32_t)block_irq_ntfn);
+        if (bits > 0)
         {
             /* spurious IRQ outside a transfer, just re-enable the line */
             _irq_done((uint32_t)block_dev_handle);
         }
-        else if ((int32_t)msg.r0 > 0)
+
+        zuzu_ipcmsg_t msg = _recv(port);
+
+        if ((int32_t)msg.r0 > 0)
         {
             handle_client(msg);
         }

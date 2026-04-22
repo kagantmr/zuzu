@@ -2,6 +2,8 @@
 #include "kernel/proc/process.h"
 #include <list.h>
 
+#include "kernel/syscall/syscall.h"
+
 #include "arch/arm/include/irq.h"
 #include "kernel/mm/vmm.h"
 #include "kernel/mm/alloc.h"
@@ -50,16 +52,28 @@ static bool sched_work_pending(void)
 static void sched_wake_sleepers(void) {
     uint64_t now = get_ticks();
     list_node_t *curr = sleep_queue.node.next;
-    
+
     while (curr != &sleep_queue.node) {
-        list_node_t *next = curr->next; // Save next because might move curr
-        process_t *p = container_of(curr, process_t, node);
-        
+        list_node_t *next = curr->next;
+        process_t *p = container_of(curr, process_t, timeout_node);
+
         if (p->wake_tick <= now) {
-            // Wake up
-            list_remove(curr);
-            p->process_state = PROCESS_READY;
-            list_add_tail(curr, &run_queue.node);
+            list_remove(&p->timeout_node);
+
+            if (p->ipc_state == IPC_RECEIVER || p->ipc_state == IPC_SENDER) {
+                // Timed out on IPC — pull off the endpoint queue too
+                list_remove(&p->node);
+                p->ipc_state = IPC_NONE;
+                p->blocked_endpoint = NULL;
+                p->wake_reason = WAKE_TIMEOUT;
+                p->trap_frame->r[0] = ERR_BUSY;
+                p->process_state = PROCESS_READY;
+                sched_add(p);
+            } else {
+                // Regular sleep timeout
+                p->process_state = PROCESS_READY;
+                list_add_tail(&p->node, &run_queue.node);
+            }
         }
         curr = next;
     }

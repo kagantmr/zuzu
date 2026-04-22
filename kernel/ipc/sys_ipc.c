@@ -5,6 +5,7 @@
 #include "kernel/mm/alloc.h"
 #include "kernel/proc/kstack.h"
 #include "kernel/layout.h"
+#include "kernel/time/tick.h"
 #include "core/panic.h"
 #include <mem.h>
 #include <stdbool.h>
@@ -13,7 +14,7 @@
 #include "kernel/irq/sys_irq.h"
 
 extern process_t *current_process;
-extern process_t *process_table[MAX_PROCESSES];
+extern list_head_t sleep_queue;
 
 #define LOG_FMT(fmt) "(ipc) " fmt
 #include "core/log.h"
@@ -106,21 +107,13 @@ static handle_entry_t *validate_reply_handle(process_t *proc,
         frame->r[0] = ERR_BADARG;
         return NULL;
     }
-    if (!entry->reply || !entry->reply->caller)
+    if (!entry->reply || entry->reply->caller_pid == 0)
     {
         frame->r[0] = ERR_BADARG;
         return NULL;
     }
 
-    process_t *target = NULL;
-    for (uint32_t i = 0; i < MAX_PROCESSES; i++)
-    {
-        if (process_table[i] == entry->reply->caller)
-        {
-            target = process_table[i];
-            break;
-        }
-    }
+    process_t *target = process_find_by_pid(entry->reply->caller_pid);
 
     if (!target || target->process_state == PROCESS_ZOMBIE)
     {
@@ -191,6 +184,7 @@ void proc_send(exception_frame_t *frame)
 void proc_recv(exception_frame_t *frame)
 {
     int handle = (int)frame->r[0];
+    uint32_t timeout_ms = frame->r[1]; // 0 = infinite (backward compatible)
 
     endpoint_t *ep = validate_endpoint_handle(current_process, handle, frame);
     if (!ep)
@@ -249,8 +243,6 @@ void proc_recv(exception_frame_t *frame)
                 list_add_tail(&sr_proc->node, &ep->sender_queue.node);
                 return;
             }
-            rc->caller = sr_proc;
-
             int slot = handle_vec_find_free(&current_process->handle_table);
             if (slot < 0)
             {
@@ -279,11 +271,43 @@ void proc_recv(exception_frame_t *frame)
     }
     else
     {
+        if (timeout_ms == UINT32_MAX)
+        {
+            frame->r[0] = ERR_BUSY;
+            return;
+        }
+
         current_process->ipc_state = IPC_RECEIVER;
         current_process->blocked_endpoint = ep;
+        current_process->wake_reason = WAKE_NONE;
         list_add_tail(&current_process->node, &ep->receiver_queue.node);
         current_process->process_state = PROCESS_BLOCKED;
+
+        if (timeout_ms > 0)
+        {
+            uint64_t ticks = ((uint64_t)timeout_ms * (uint64_t)TICK_HZ) / 1000u;
+            if (ticks == 0)
+                ticks = 1;
+            current_process->wake_tick = get_ticks() + ticks;
+            list_add_tail(&current_process->timeout_node, &sleep_queue.node);
+        }
+        else
+        {
+            current_process->wake_tick = 0;
+        }
+
         schedule();
+
+        if (timeout_ms > 0 && current_process->wake_reason != WAKE_TIMEOUT &&
+            current_process->timeout_node.prev && current_process->timeout_node.next)
+        {
+            list_remove(&current_process->timeout_node);
+        }
+
+        if (current_process->wake_reason == WAKE_TIMEOUT)
+        {
+            frame->r[0] = ERR_BUSY;
+        }
         // KDEBUG("Listener woke from recv, PID %d", current_process->pid);
     }
 }
@@ -315,8 +339,6 @@ void proc_call(exception_frame_t *frame)
             list_add_tail(&rx_proc->node, &ep->sender_queue.node);
             return;
         }
-        rc->caller = current_process;
-
         int slot = handle_vec_find_free(&rx_proc->handle_table);
         if (slot < 0)
         {
@@ -462,8 +484,6 @@ void proc_callx(exception_frame_t *frame)
             list_add_tail(&rx_proc->node, &ep->sender_queue.node);
             return;
         }
-        rc->caller = current_process;
-
         int slot = handle_vec_find_free(&rx_proc->handle_table);
         if (slot < 0)
         {
