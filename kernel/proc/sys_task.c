@@ -157,14 +157,13 @@ void spawn(exception_frame_t *frame) {
         return;
     }
 
-    spawn_args_t *args = (spawn_args_t *)args_ptr;
-    const void *elf_data = args->elf_data;
-    size_t elf_size = args->elf_size;
-    const char *name = args->name;
-    size_t name_len =  args->name_len;
-    const char *argbuf = args->argbuf;
-    size_t argbuf_len = args->argbuf_len;
-    uint32_t argc = args->argc;
+    const void *elf_data = kargs.elf_data;
+    size_t elf_size = kargs.elf_size;
+    const char *name = kargs.name;
+    size_t name_len =  kargs.name_len;
+    const char *argbuf = kargs.argbuf;
+    size_t argbuf_len = kargs.argbuf_len;
+    uint32_t argc = kargs.argc;
 
     if (!elf_data || !name || elf_size == 0 || name_len == 0) {
         frame->r[0] = ERR_BADARG;
