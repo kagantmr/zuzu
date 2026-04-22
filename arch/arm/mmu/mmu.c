@@ -69,6 +69,16 @@ bool arch_mmu_map(addrspace_t *as, uintptr_t va, uintptr_t pa, size_t size,
         return false;
     }
 
+    // TTBR0 user tables only cover [0, USER_VA_TOP) when N=1.
+    // Reject ranges that would index beyond the 2048-entry user table.
+    if (as->type == ADDRSPACE_USER)
+    {
+        if (va >= USER_VA_TOP || size > (USER_VA_TOP - va))
+        {
+            return false;
+        }
+    }
+
     // Bring-up policy: sections only.
     if ((va % SECTION_SIZE) == 0 && (pa % SECTION_SIZE) == 0 && (size % SECTION_SIZE) == 0)
     {
@@ -471,6 +481,17 @@ static bool arch_mmu_break_section(uint32_t *l1, uint32_t l1_idx, uint8_t asid)
 bool arch_mmu_map_page(addrspace_t *as, uintptr_t va, uintptr_t pa,
                        vm_memtype_t memtype, vm_prot_t prot)
 {
+    if (!as)
+    {
+        return false;
+    }
+
+    // Single-page user mappings must stay within the TTBR0 user range.
+    if (as->type == ADDRSPACE_USER && va >= USER_VA_TOP)
+    {
+        return false;
+    }
+
     uint32_t *l1 = (uint32_t *)PA_TO_VA(as->ttbr0_pa);
 
     uint32_t l1_idx = (va >> 20) & 0xFFF; // bits [31:20] → index 0-4095
