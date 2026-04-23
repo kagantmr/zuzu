@@ -1,3 +1,5 @@
+// generic_timer.c - ARMv7-A generic timer implementation
+
 #include "arch/arm/include/irq.h"
 #include "arch/arm/timer/generic_timer.h"
 #include "kernel/time/tick.h"
@@ -7,32 +9,58 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-#define TIMER_IRQ_PHYS 30  // CNTP (Physical Non-secure) timer PPI
-#define TIMER_IRQ_VIRT 27  // CNTV (Virtual) timer PPI (some QEMU setups deliver this)
+#define TIMER_IRQ_PHYS 30 // CNTP (Physical Non-secure) timer PPI
+#define TIMER_IRQ_VIRT 27 // CNTV (Virtual) timer PPI (some QEMU setups deliver this)
 
-static inline uint32_t read_cntfrq(void) {
+/**
+ * @brief Read the counter frequency from the CNTFRQ register.
+ * @return Counter frequency in Hz.
+ */
+static inline uint32_t read_cntfrq(void)
+{
     uint32_t v;
     __asm__ volatile("mrc p15, 0, %0, c14, c0, 0" : "=r"(v));
     return v;
 }
 
-static inline void write_cntp_tval(uint32_t v) {
-    __asm__ volatile("mcr p15, 0, %0, c14, c2, 0" :: "r"(v));
+/**
+ * @brief Write to the CNTP_TVAL register to set the timer interval.
+ * @param v Value to write (number of ticks until next interrupt).
+ */
+static inline void write_cntp_tval(uint32_t v)
+{
+    __asm__ volatile("mcr p15, 0, %0, c14, c2, 0" ::"r"(v));
     __asm__ volatile("isb");
 }
 
-static inline void write_cntp_ctl(uint32_t v) {
-    __asm__ volatile("mcr p15, 0, %0, c14, c2, 1" :: "r"(v));
+/**
+ * @brief Write to the CNTP_CTL register to enable/disable the physical timer.
+ * @param v Control value (bit 0 = enable, bit 1 = interrupt mask).
+ */
+static inline void write_cntp_ctl(uint32_t v)
+{
+    __asm__ volatile("mcr p15, 0, %0, c14, c2, 1" ::"r"(v));
     __asm__ volatile("isb");
 }
 
-static inline void write_cntv_tval(uint32_t v) {
-    __asm__ volatile("mcr p15, 0, %0, c14, c3, 0" :: "r"(v));
+/**
+ * @brief Write to the CNTV_TVAL register to set the virtual timer interval.
+ * @param v Value to write (number of ticks until next interrupt).
+ */
+static inline void write_cntv_tval(uint32_t v)
+{
+    __asm__ volatile("mcr p15, 0, %0, c14, c3, 0" ::"r"(v));
     __asm__ volatile("isb");
 }
 
-static inline void write_cntv_ctl(uint32_t v) {
-    __asm__ volatile("mcr p15, 0, %0, c14, c3, 1" :: "r"(v));
+/**
+ * @brief Write to the CNTV_CTL register to enable/disable the virtual timer.
+ * @param v Control value (bit 0 = enable, bit 1 = interrupt mask
+ * Note: enabling the virtual timer may cause it to fire alongside the physical timer if both are present, which can effectively double the tick rate.
+ */
+static inline void write_cntv_ctl(uint32_t v)
+{
+    __asm__ volatile("mcr p15, 0, %0, c14, c3, 1" ::"r"(v));
     __asm__ volatile("isb");
 }
 
@@ -43,7 +71,8 @@ static bool timer_phys_seen = false;
 static bool timer_virt_seen = false;
 static bool timer_dual_source_warned = false;
 
-static void generic_timer_handler(void* ctx) {
+static void generic_timer_handler(void *ctx)
+{
     uint32_t irq_id = (uint32_t)(uintptr_t)ctx;
 
     if (irq_id == TIMER_IRQ_PHYS)
@@ -51,28 +80,31 @@ static void generic_timer_handler(void* ctx) {
     else if (irq_id == TIMER_IRQ_VIRT)
         timer_virt_seen = true;
 
-    if (!timer_first_irq_logged) {
-        const char *src = (irq_id == TIMER_IRQ_PHYS) ? "CNTP (phys)" :
-                          (irq_id == TIMER_IRQ_VIRT) ? "CNTV (virt)" : "unknown";
+    if (!timer_first_irq_logged)
+    {
+        const char *src = (irq_id == TIMER_IRQ_PHYS) ? "CNTP (phys)" : (irq_id == TIMER_IRQ_VIRT) ? "CNTV (virt)"
+                                                                                                  : "unknown";
         KDEBUG("Generic timer first IRQ source: %s (irq=%u)", src, irq_id);
         timer_first_irq_logged = true;
     }
 
-    if (timer_phys_seen && timer_virt_seen && !timer_dual_source_warned) {
+    if (timer_phys_seen && timer_virt_seen && !timer_dual_source_warned)
+    {
         KDEBUG("Both CNTP and CNTV timer IRQs are firing; tick rate may effectively double");
         timer_dual_source_warned = true;
     }
-    
-    //write_cntp_tval(tval);
+
+    // write_cntp_tval(tval);
     write_cntv_tval(tval);
 
     tick_announce();
 }
 
-void generic_timer_init(void) {
+void generic_timer_init(void)
+{
     // Read counter frequency
     freq = read_cntfrq();
-    tval = freq / 100;  // 10ms interval
+    tval = freq / 100; // 10ms interval
 
     // Register handler for both PPIs
     irq_register(TIMER_IRQ_PHYS, generic_timer_handler, (void *)(uintptr_t)TIMER_IRQ_PHYS);
@@ -91,5 +123,5 @@ void generic_timer_init(void) {
     write_cntp_ctl(ctl);
     write_cntv_ctl(ctl);
 
-    //KDEBUG("Generic timer initialized (10ms interval, %u Hz)", freq);
+    // KDEBUG("Generic timer initialized (10ms interval, %u Hz)", freq);
 }

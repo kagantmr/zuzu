@@ -1,3 +1,5 @@
+// log.h - Kernel logging macros with timestamp and color coding
+
 #ifndef LOG_H
 #define LOG_H
 

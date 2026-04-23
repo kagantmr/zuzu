@@ -1,3 +1,5 @@
+// uart.c - UART driver management and generic UART functions
+
 #include "drivers/uart/uart.h"
 #include <string.h>
 #include "core/log.h"

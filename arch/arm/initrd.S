@@ -1,7 +1,4 @@
-/*
- * initrd.s: Embed the CPIO initrd archive into the kernel image.
- * Size in C:  size_t sz = (size_t)(_initrd_end - _initrd_start);
- */
+@ initrd.S - Embedded initrd image for ARMv7-A
 
 .section .rodata.initrd, "a", %progbits
 .align 4

@@ -1,3 +1,5 @@
+// kprintf.c - Kernel printf implementation
+
 #include "core/kprintf.h"
 #include "core/log.h"
 #include "arch/arm/include/irq.h"
