@@ -26,7 +26,7 @@ static void dev_cb(const char *compatible, uint64_t phys, uint64_t size, uint32_
     else
         return;
 
-    if (strncmp(src, "cortex", 6) == 0 || strncmp(src, "vexpress", 8) == 0)
+    if (strncmp(src, "cortex", 6) == 0)
         return;
 
     /* build the display name */

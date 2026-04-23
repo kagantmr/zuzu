@@ -4,7 +4,7 @@
 #include "arch/arm/timer/generic_timer.h"
 
 #include "arch/arm/mmu/mmu.h"
-#include "arch/arm/vexpress-a15/board.h"
+#include "board.h"
 
 #include "drivers/uart/uart.h"
 #include "drivers/uart/pl011.h"
