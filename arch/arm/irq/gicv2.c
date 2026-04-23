@@ -1,23 +1,36 @@
+// gicv2.c - ARM Generic Interrupt Controller v2 implementation
+
 #include "arch/arm/include/gicv2.h"
 
-volatile uint32_t* gicd_base;
-volatile uint32_t* gicc_base;
+volatile uint32_t *gicd_base, *gicc_base;
 
+/**
+ * Helper to write to GICD.
+ */
 static inline void gicd_write(uint32_t off, uint32_t val)
 {
     gicd_base[off >> 2] = val;
 }
 
+/**
+ * Helper to read from GICD.
+ */
 static inline uint32_t gicd_read(uint32_t off)
 {
     return gicd_base[off >> 2];
 }
 
+/**
+ * Helper to write to GICC.
+ */
 static inline void gicc_write(uint32_t off, uint32_t val)
 {
     gicc_base[off >> 2] = val;
 }
 
+/**
+ * Helper to read from GICC.
+ */
 static inline uint32_t gicc_read(const uint32_t offset)
 {
     return gicc_base[offset >> 2];
@@ -83,12 +96,12 @@ void gic_enable_irq(uint32_t irq_id) {
 }
 
 void gic_disable_irq(uint32_t irq_id) {
-    gicd_write(GICD_ICENABLER + (irq_id / 32) * 4, (1 << (irq_id % 32)));
+    gicd_write(GICD_ICENABLER + (irq_id / 32) * 4, (1 << (irq_id % 32)));  // Write 1 to disable
 }
 
 
 uint32_t gic_acknowledge(void) {
-    return gicc_read(GICC_IAR);
+    return gicc_read(GICC_IAR); // Returns raw IAR value, caller must extract INTID and check for spurious (1023)
 }
 
 

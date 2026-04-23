@@ -1,3 +1,8 @@
+// context.h - ARM exception frame definition
+// This file defines the structure of the exception frame that is saved on the stack when an exception
+// occurs. The layout of this structure must match the assembly code in entry.S that saves the registers
+// to the stack. The exception frame includes the general-purpose registers, user SP and LR saved via SRS, and the return PC and CPSR that the exception handler will use to return to user mode.
+
 #ifndef CONTEXT_H
 #define CONTEXT_H
 

@@ -1,12 +1,15 @@
+@ switch.S - context switch implementation for ARMv7 with VFP support
+@ context_switch saves/restores CPU state for process switching.
+
+.fpu vfpv4
+
+.global context_switch
 @ void context_switch(process_t *prev, process_t *next)
 @    1. Save prev's registers onto prev's kernel stack
 @    2. Store stack pointer into prev->kernel_sp
 @    3. Load stack pointer from next->kernel_sp
 @    4. Restore next's registers from next's kernel stack
 @    5. "Return" (which jumps into next)
-.fpu vfpv4
-
-.global context_switch
 context_switch:
     cmp r0, #0
     beq .load_next

@@ -1,7 +1,9 @@
+// l2_pool.c - L2 page pool implementation for ARM MMU
+
 #include "l2_pool.h"
 #include "kernel/mm/pmm.h"
 #include "kernel/mm/alloc.h"
-#include "arch/arm/mmu/mmu.h"  // for PA_TO_VA
+#include "arch/arm/mmu/mmu.h"
 #include <mem.h>
 #include <spinlock.h>
 
@@ -11,12 +13,13 @@ spinlock_t l2_pool_lock = SPINLOCK_INIT;
 uintptr_t l2_pool_alloc(void)
 {
     uint32_t flags;
-    spin_lock_irqsave(&l2_pool_lock, &flags);
+    spin_lock_irqsave(&l2_pool_lock, &flags); // lock the pool for safety
     for (l2_pool_entry_t *entry = pool_head; entry; entry = entry->next)
     {
         if (entry->used_mask == 0xF)
-            continue;  // all 4 slots occupied
+            continue; // all 4 slots occupied
 
+        // Find the first free slot in this page
         for (int slot = 0; slot < 4; slot++)
         {
             if (!(entry->used_mask & (1 << slot)))
@@ -30,35 +33,39 @@ uintptr_t l2_pool_alloc(void)
         }
     }
 
+    // No existing page has free slots, need to allocate a new page
     uintptr_t page_pa = pmm_alloc_page();
-    if (!page_pa) {
+    if (!page_pa)
+    {
         spin_unlock_irqrestore(&l2_pool_lock, flags);
-        return 0;  // out of physical memory
+        return 0; // out of physical memory
     }
 
     l2_pool_entry_t *entry = kmalloc(sizeof(l2_pool_entry_t));
-    if (!entry) {
+    if (!entry)
+    {
         pmm_free_page(page_pa);
         spin_unlock_irqrestore(&l2_pool_lock, flags);
-        return 0;
+        return 0; // out of memory for pool entry
     }
 
-    memset((void *)PA_TO_VA(page_pa), 0, 4096);  // zero whole page
+    memset((void *)PA_TO_VA(page_pa), 0, 4096); // zero whole page
 
     entry->page_pa = page_pa;
-    entry->used_mask = 0x1;  // slot 0 claimed
+    entry->used_mask = 0x1; // slot 0 claimed
     entry->next = pool_head;
     pool_head = entry;
 
-    spin_unlock_irqrestore(&l2_pool_lock, flags);
-    return page_pa;  // slot 0 is at offset 0
+    spin_unlock_irqrestore(&l2_pool_lock, flags); // release lock
+    return page_pa;                               // slot 0 is at offset 0
 }
 
 void l2_pool_free(uintptr_t l2_pa)
 {
     uint32_t flags;
     spin_lock_irqsave(&l2_pool_lock, &flags);
-    if (!l2_pa) {
+    if (!l2_pa)
+    {
         spin_unlock_irqrestore(&l2_pool_lock, flags);
         return;
     }
@@ -71,7 +78,8 @@ void l2_pool_free(uintptr_t l2_pa)
 
     while (entry)
     {
-        if (entry->page_pa != page_pa) {
+        if (entry->page_pa != page_pa)
+        {
             prev = entry;
             entry = entry->next;
             continue;
@@ -83,9 +91,12 @@ void l2_pool_free(uintptr_t l2_pa)
         if (entry->used_mask == 0)
         {
             pmm_free_page(page_pa);
-            if (prev) {
+            if (prev)
+            {
                 prev->next = entry->next;
-            } else {
+            }
+            else
+            {
                 pool_head = entry->next;
             }
             kfree(entry);

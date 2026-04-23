@@ -1,3 +1,7 @@
+// symbols.h - ARM linker symbol declarations
+// This file declares the external symbols that are defined in the linker script (linker.ld) and used in the kernel code. 
+// These symbols represent the start and end addresses of various sections of the kernel in both virtual and physical memory, as well as the stack regions for different CPU modes.
+
 #ifndef SYMBOLS_H
 #define SYMBOLS_H
 
