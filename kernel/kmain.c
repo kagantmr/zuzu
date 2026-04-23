@@ -281,7 +281,7 @@ static inline void perform_panic_tests(void)
     //__asm__ volatile("svc #0");
 
     // test 8: just manually halt the system
-    panic("Test panic triggered (chewed wires)");
+    //panic("Test panic triggered (chewed wires)");
 }
 
 _Noreturn void kmain(void)
