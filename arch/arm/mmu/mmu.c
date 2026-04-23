@@ -1,3 +1,5 @@
+// mmu.c - ARM MMU implementation
+
 #include "mmu.h"
 #include "kernel/mm/pmm.h"
 #include "l2_pool.h"
@@ -27,8 +29,7 @@ uintptr_t arch_mmu_create_tables(void)
 
     kassert((l1_pa & (l1_align - 1)) == 0);
 
-    // If MMU is off or identity mapping exists for this region, this is OK.
-    memset((void *)PA_TO_VA(l1_pa), 0, l1_bytes); // ← goes through kernel mapping
+    memset((void *)PA_TO_VA(l1_pa), 0, l1_bytes); // zero the whole 16 KB region
 
     return l1_pa;
 }
@@ -124,7 +125,6 @@ bool arch_mmu_map(addrspace_t *as, uintptr_t va, uintptr_t pa, size_t size,
     }
     else if ((va % PAGE_SIZE == 0) && (pa % PAGE_SIZE == 0) && (size % PAGE_SIZE == 0))
     {
-        // Loop over each page
         for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE)
         {
             if (!arch_mmu_map_page(as, va + offset, pa + offset, memtype, prot))
@@ -142,7 +142,7 @@ bool arch_mmu_map(addrspace_t *as, uintptr_t va, uintptr_t pa, size_t size,
     }
     else
     {
-        return false; // couldn't map
+        return false; 
     }
 }
 
@@ -225,7 +225,7 @@ bool arch_mmu_protect(addrspace_t *as, uintptr_t va, size_t size, vm_prot_t prot
         uint32_t type = l1_entry & 0x3;
 
         if (type == 0x2) {
-            // Section — rewrite AP bits in place
+            // Section entry, rewrite in place if possible
             uint32_t entry = l1_entry;
             entry &= ~((0x3u << 10) | (1u << 15) | (1u << 4));  // clear AP[1:0], AP[2], XN
 
@@ -248,7 +248,7 @@ bool arch_mmu_protect(addrspace_t *as, uintptr_t va, size_t size, vm_prot_t prot
         }
 
         if (type == 0x1) {
-            // Page table — rewrite L2 entry
+            // Page table, rewrite L2 entry
             uint32_t l2_pa = l1_entry & 0xFFFFFC00;
             uint32_t *l2 = (uint32_t *)PA_TO_VA(l2_pa);
             uint32_t l2_idx = (curr_va >> 12) & 0xFF;
@@ -339,10 +339,11 @@ void arch_mmu_switch(addrspace_t *as)
     }
 
     if (as->asid_token.generation != asid_current_generation()) {
-        asid_free(as->asid_token);  // free the old (no-op if already reclaimed)
+        asid_free(as->asid_token);  // free the old ASID (no-op if already reclaimed)
         as->asid_token = asid_alloc();
     }
     
+    // Write the ASID to the ASID register (ARMv7-A short-descriptor).
     __asm__ volatile("mcr p15, 0, %0, c13, c0, 1" :: "r"((uint32_t)as->asid_token.asid) : "memory");
 
     arch_mmu_barrier();
@@ -352,6 +353,7 @@ void arch_mmu_switch(addrspace_t *as)
                             
     ttbr0_val |= (1u << 3);  
 
+    // Write TTBR0 with the new address space's L1 table base.
     __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"((uint32_t)ttbr0_val) : "memory");
 
     arch_mmu_barrier();

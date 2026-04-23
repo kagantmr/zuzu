@@ -1,3 +1,7 @@
+@ entry.S - exception entry points and trampoline for process entry
+@ Assembly code for the exception entry points for ARMv7. 
+@ Basic handlers for exceptions, they route to exception_dispatch. 
+
 .syntax unified
 .arm
 

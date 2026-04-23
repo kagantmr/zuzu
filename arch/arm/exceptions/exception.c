@@ -1,3 +1,7 @@
+/**
+ * exception.c - ARMv7 exception handling
+ */
+
 #include "arch/arm/include/context.h"
 #include "arch/arm/include/irq.h"
 #include "arch/arm/mmu/mmu.h"
@@ -121,6 +125,9 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
     {
     case EXC_UNDEF:
     {
+        /**
+         * Undefined instruction is NOT returnable. Kill process or panic.
+         */
 
         bool from_user = (frame->return_cpsr & 0x1F) == 0x10;
 
@@ -165,20 +172,19 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
             svc_num = (uint8_t)(*arm_instr & 0xFF);
         }
 
-        /*KDEBUG("Process with PID %d requested SVC #%d", current_process->pid, svc_num);
-        KDEBUG("Frame details:");
-        KDEBUG("PC: %P", (void *)(uintptr_t)frame->return_pc);
-        KDEBUG("Instruction at return_pc - 4 is %x", *((uint32_t *)(frame->return_pc - 4)));
-        KDEBUG("Decoded SVC immediate is %u", svc_num);
-        KDEBUG("Doing regdump.");
-        dump_registers(frame);*/
-
         syscall_dispatch(svc_num, frame);
     }
     break;
 
     case EXC_PREFETCH_ABORT:
     {
+        /**
+         * Prefetch abort is also impossible to return from.
+         * This means either pc is corrupted, or we haven't mapped
+         * whatever text seciton was trying to be executed.
+         * Retrieve IFAR and IFSR and kill process/panic.
+         */
+
         uint32_t ifar, ifsr;
         __asm__ volatile("mrc p15, 0, %0, c6, c0, 2" : "=r"(ifar));
         __asm__ volatile("mrc p15, 0, %0, c5, c0, 1" : "=r"(ifsr));
@@ -215,6 +221,12 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
 
     case EXC_DATA_ABORT:
     {
+
+        /**
+         * Could be anything from a page fault to an alignment issue.
+         * Check who's triggered it, and what the reason was.
+         */
+
         uint32_t dfar, dfsr;
         __asm__ volatile("mrc p15, 0, %0, c6, c0, 0" : "=r"(dfar));
         __asm__ volatile("mrc p15, 0, %0, c5, c0, 0" : "=r"(dfsr));
@@ -246,43 +258,57 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
                 }
             }
             if (is_translation)
+            {
+                /**
+                 * The actual mapping part of the lazy mapping. Retrieve the current as
+                 * then retrieve the region being accessed. If the permissions are correct,
+                 * then allocate a page, map it in, and return to the faulting instruction.
+                 * If those fail, kill the process or panic depending on the source of the fault.
+                 */
+                addrspace_t *as = current_process->as;
+                for (uint32_t i = 0; i < as->regions.len; i++)
                 {
-                    addrspace_t *as = current_process->as;
-                    for (uint32_t i = 0; i < as->regions.len; i++)
+                    vm_region_t *r = vm_region_vec_get(&as->regions, i);
+                    if (dfar >= r->vaddr_start && dfar < r->vaddr_start + r->size)
                     {
-                        vm_region_t *r = vm_region_vec_get(&as->regions, i);
-                        if (dfar >= r->vaddr_start && dfar < r->vaddr_start + r->size)
+                        if (r->flags & VM_FLAG_GUARD)
+                            continue; // guard pages should never be lazily mapped
+                        if (r->memtype == VM_MEM_DEVICE)
+                            continue; // mmio regions should never be lazily mapped
+                        if (!(dfsr & (1 << 11)) && !(r->prot & VM_PROT_READ))
+                            continue; // read fault but region doesn't have read permission
+                        if ((dfsr & (1 << 11)) && !(r->prot & VM_PROT_WRITE))
+                            continue; // write fault but region doesn't have write permission
+                        uintptr_t page_va = align_down(dfar, PAGE_SIZE);
+                        uintptr_t pa = pmm_alloc_page();
+                        if (pa == 0)
+                            break;
+                        memset((void *)PA_TO_VA(pa), 0, PAGE_SIZE);
+                        if (!vmm_map_range(as, page_va, pa, PAGE_SIZE,
+                                           r->prot, r->memtype, VM_OWNER_ANON, VM_FLAG_NONE))
                         {
-                            if (r->flags & VM_FLAG_GUARD) continue;
-                            if (r->memtype == VM_MEM_DEVICE) continue;
-                            if (!(dfsr & (1 << 11)) && !(r->prot & VM_PROT_READ)) continue;
-                            if ((dfsr & (1 << 11)) && !(r->prot & VM_PROT_WRITE)) continue;
-                            uintptr_t page_va = align_down(dfar, PAGE_SIZE);
-                            uintptr_t pa = pmm_alloc_page();
-                            if (pa == 0) break;
-                            memset((void *)PA_TO_VA(pa), 0, PAGE_SIZE);
-                            if (!vmm_map_range(as, page_va, pa, PAGE_SIZE,
-                                            r->prot, r->memtype, VM_OWNER_ANON, VM_FLAG_NONE))
-                            {
-                                pmm_free_page(pa);
-                                break;
-                            }
-                            arch_mmu_flush_tlb_va(page_va);
-                            return;
+                            pmm_free_page(pa);
+                            break;
                         }
+                        arch_mmu_flush_tlb_va(page_va); // flush just the new mapping to avoid evicting other useful entries from the TLB
+                        return;
                     }
                 }
+            }
             if (from_user)
             {
-            KERROR("Oops! '%s' (PID %d) killed - data abort @ 0x%08X (%s %s)",
-                   current_process->name, current_process->pid, dfar,
-                   (dfsr & (1 << 11)) ? "write" : "read",
-                   decode_fault_status(dfsr));
-            process_kill(current_process, -1);
-            dump_registers(frame);
-            schedule();
-            } else if (from_svc)
+                // not translation fault or lazy mapping failed, terminate
+                KERROR("Oops! '%s' (PID %d) killed - data abort @ 0x%08X (%s %s)",
+                       current_process->name, current_process->pid, dfar,
+                       (dfsr & (1 << 11)) ? "write" : "read",
+                       decode_fault_status(dfsr));
+                process_kill(current_process, -1);
+                dump_registers(frame);
+                schedule();
+            }
+            else if (from_svc)
             {
+                // bad pointer in syscall, log and kill process. unlikely to happen since validation and copy functions should catch these.
                 KERROR("Data abort in kernel mode while handling SVC from '%s' (PID %d) @ 0x%08X (%s %s)",
                        current_process->name, current_process->pid, dfar,
                        (dfsr & (1 << 11)) ? "write" : "read",
@@ -339,7 +365,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
             .fault_decoded = "FIQ not supported",
             .frame = frame,
         };
-        panic("No support for FIQ");
+        KERROR("No support for FIQ");
     }
     break;
 
