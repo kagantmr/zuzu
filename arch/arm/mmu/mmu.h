@@ -181,7 +181,7 @@ uintptr_t arch_mmu_create_user_tables(void);
  *
  * @param ttbr0_pa TTBR0 to free from
  */
-void arch_mmu_free_user_pages(uintptr_t ttbr0_pa);
+void arch_mmu_free_user_pages(addrspace_t *as);
 
 
 /**

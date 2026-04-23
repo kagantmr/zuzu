@@ -624,8 +624,36 @@ uintptr_t arch_mmu_create_user_tables(void) {
     return l1_pa;
 }
 
-void arch_mmu_free_user_pages(uintptr_t ttbr0_pa)
+static vm_owner_t mmu_region_owner_for_va(const addrspace_t *as, uintptr_t va)
 {
+    if (!as)
+        return VM_OWNER_ANON;
+
+    for (uint32_t i = 0; i < as->regions.len; i++)
+    {
+        const vm_region_t *r = vm_region_vec_get((vm_region_vec_t *)&as->regions, i);
+        if (!r)
+            continue;
+
+        uintptr_t start = r->vaddr_start;
+        uintptr_t end = start + r->size;
+        if (end < start)
+            continue;
+
+        if (va >= start && va < end)
+            return r->owner;
+    }
+
+    // If region metadata is missing, keep old behavior and reclaim.
+    return VM_OWNER_ANON;
+}
+
+void arch_mmu_free_user_pages(addrspace_t *as)
+{
+    if (!as)
+        return;
+
+    uintptr_t ttbr0_pa = as->ttbr0_pa;
     uint32_t *l1 = (uint32_t *)PA_TO_VA(ttbr0_pa);
     const uint32_t small_page_attr_mask = (0x7u << 6) | (1u << 3) | (1u << 2);
     const uint32_t device_attr = (1u << 2); // TEX=000, C=0, B=1
@@ -652,6 +680,10 @@ void arch_mmu_free_user_pages(uintptr_t ttbr0_pa)
 
                     // Keep shared kernel-exported syspage mapped read-only at user VA 0x1000.
                     if (va == 0x1000u)
+                        continue;
+
+                    // Only reclaim pages owned by this address space.
+                    if (mmu_region_owner_for_va(as, va) != VM_OWNER_ANON)
                         continue;
 
                     // Device mappings are not PMM-owned pages.
