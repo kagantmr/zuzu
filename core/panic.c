@@ -13,19 +13,19 @@
 #include <stdint.h>
 
 extern kernel_layout_t kernel_layout;
-extern process_t *current_process;
-extern pmm_state_t pmm_state;
+extern process_t      *current_process;
+extern pmm_state_t     pmm_state;
 
 panic_fault_context_t panic_fault_ctx;
 
+#define BACKTRACE_MAX_DEPTH       16
+#define PANIC_BOX_WIDTH           76  /* total box width including borders */
+#define PANIC_COL_WIDTH           38  /* each column half-width             */
+#define PANIC_COL_MAX_LINES       24
+#define PANIC_READY_SNAPSHOT_MAX   4
+#define PANIC_BT_SHOWN_MAX         8
 
-#define BACKTRACE_MAX_DEPTH 16
-#define PANIC_BOX_WIDTH 76
-#define PANIC_COL_WIDTH 38
-#define PANIC_COL_MAX_LINES 24
-#define PANIC_READY_SNAPSHOT_MAX 6
-
-// Colors — text only, no background
+/* Colors — text only, no background */
 #define C_GOLD    "\033[33m"
 #define C_WHITE   "\033[97m"
 #define C_GREY    "\033[37m"
@@ -39,8 +39,10 @@ static void panic_puts(const char *s)
         uart_putc(*s++);
 }
 
+/* ============================================================
+ * Full-screen rendering helpers
+ * ============================================================ */
 #ifdef PANIC_FULL_SCREEN
-
 
 static void panic_pad(int n)
 {
@@ -48,11 +50,16 @@ static void panic_pad(int n)
         uart_putc(' ');
 }
 
+/*
+ * Print one line inside the full-width box:
+ *   "| <content><padding> |"
+ * visible_len() skips ANSI escape sequences when measuring.
+ */
 static void panic_box_line(const char *content)
 {
     int inner = PANIC_BOX_WIDTH - 4;
-    int vlen = visible_len(content);
-    int pad = inner - vlen;
+    int vlen  = visible_len(content);
+    int pad   = inner - vlen;
     if (pad < 0) pad = 0;
 
     panic_puts(C_GREY "| " C_RESET);
@@ -61,6 +68,7 @@ static void panic_box_line(const char *content)
     panic_puts(C_GREY " |" C_RESET "\n");
 }
 
+/* Full-width horizontal rule: "+----...----+" */
 static void panic_box_rule(void)
 {
     panic_puts(C_GREY "+");
@@ -69,39 +77,13 @@ static void panic_box_rule(void)
     panic_puts("+" C_RESET "\n");
 }
 
-static void panic_box_empty(void)
-{
-    panic_box_line("");
-}
-
-static void panic_box_header(const char *title)
-{
-    char line[128];
-    snprintf(line, sizeof(line), C_GOLD "%s" C_RESET, title);
-    panic_box_line(line);
-}
-
-// Center a string within the box width
-static void panic_puts_centered(const char *s)
-{
-    int vlen = visible_len(s);
-    int total_pad = PANIC_BOX_WIDTH - vlen;
-    if (total_pad < 0) total_pad = 0;
-    int left_pad = total_pad / 2;
-
-    panic_pad(left_pad);
-    panic_puts(s);
-    panic_puts("\n");
-}
-
-
-// ============================================================
-// Column-based rendering for side-by-side layout
-// ============================================================
+/* ============================================================
+ * Column-based side-by-side rendering
+ * ============================================================ */
 
 typedef struct {
     char lines[PANIC_COL_MAX_LINES][96];
-    int count;
+    int  count;
 } panic_col_t;
 
 static panic_col_t _col_left, _col_right;
@@ -119,7 +101,7 @@ static void col_line(panic_col_t *c, const char *content)
 {
     if (c->count >= PANIC_COL_MAX_LINES) return;
     char *d = c->lines[c->count];
-    int p = 0;
+    int   p = 0;
     p = _col_append(d, p, 96, C_GREY "| " C_RESET);
     p = _col_append(d, p, 96, content);
     int pad = (PANIC_COL_WIDTH - 4) - visible_len(content);
@@ -134,7 +116,7 @@ static void col_rule(panic_col_t *c)
 {
     if (c->count >= PANIC_COL_MAX_LINES) return;
     char *d = c->lines[c->count];
-    int p = 0;
+    int   p = 0;
     p = _col_append(d, p, 96, C_GREY);
     d[p++] = '+';
     for (int i = 0; i < PANIC_COL_WIDTH - 2; i++) d[p++] = '-';
@@ -144,8 +126,6 @@ static void col_rule(panic_col_t *c)
     c->count++;
 }
 
-static void col_empty(panic_col_t *c) { col_line(c, ""); }
-
 static void col_header(panic_col_t *c, const char *title)
 {
     char tmp[64];
@@ -153,37 +133,54 @@ static void col_header(panic_col_t *c, const char *title)
     col_line(c, tmp);
 }
 
+/*
+ * Print left and right column lines side-by-side.
+ * Pads with spaces if one column is shorter than the other.
+ * Each pair of lines totals PANIC_BOX_WIDTH (38+38) characters.
+ */
 static void panic_render_pair(panic_col_t *left, panic_col_t *right)
 {
     int max = left->count > right->count ? left->count : right->count;
     for (int i = 0; i < max; i++) {
-        if (i < left->count)
+        if (i < left->count) {
             panic_puts(left->lines[i]);
-        else
-            panic_pad(PANIC_COL_WIDTH);
-        if (i < right->count)
+        } else {
+            panic_puts(C_GREY "| " C_RESET);
+            panic_pad(PANIC_COL_WIDTH - 4);
+            panic_puts(C_GREY " |" C_RESET);
+        }
+
+        if (i < right->count) {
             panic_puts(right->lines[i]);
+        } else {
+            panic_puts(C_GREY "| " C_RESET);
+            panic_pad(PANIC_COL_WIDTH - 4);
+            panic_puts(C_GREY " |" C_RESET);
+        }
+
         panic_puts("\n");
     }
 }
 
-static void panic_render_single(panic_col_t *col)
-{
-    for (int i = 0; i < col->count; i++) {
-        panic_puts(col->lines[i]);
-        panic_puts("\n");
-    }
-}
-#endif
+#endif /* PANIC_FULL_SCREEN (rendering helpers) */
 
-// ============================================================
-// Backtrace walker
-// ============================================================
+/* ============================================================
+ * Backtrace walker
+ * ============================================================ */
 
 typedef struct {
     uint32_t addresses[BACKTRACE_MAX_DEPTH];
-    int depth;
+    int      depth;
 } backtrace_t;
+
+typedef struct {
+    size_t free_payload_bytes;
+    size_t used_payload_bytes;
+    size_t total_payload_bytes;
+    size_t block_count;
+    size_t free_blocks;
+    size_t used_blocks;
+} panic_heap_stats_t;
 
 static void backtrace_walk(backtrace_t *bt)
 {
@@ -201,28 +198,41 @@ static void backtrace_walk(backtrace_t *bt)
     }
 
     while (bt->depth < BACKTRACE_MAX_DEPTH) {
-        if (fp == 0)
+        if (fp == 0 || (fp & 0x3) || fp < stack_lo || fp >= stack_hi)
             break;
-        if (fp & 0x3)
-            break;
-        if (fp < stack_lo || fp >= stack_hi)
-            break;
-
-        // GCC ARM prologue: [fp] = saved lr, [fp-4] = saved fp
-        uint32_t lr = *(uint32_t *)(fp);
+        /* GCC ARM AAPCS prologue: [fp] = saved lr, [fp-4] = saved fp */
+        uint32_t lr      = *(uint32_t *)(fp);
         bt->addresses[bt->depth++] = lr;
-
         uint32_t prev_fp = *(uint32_t *)(fp - 4);
         if (prev_fp <= fp)
             break;
-
         fp = prev_fp;
     }
 }
 
-// ============================================================
-// Panic logo
-// ============================================================
+static void panic_heap_snapshot(panic_heap_stats_t *st)
+{
+    memset(st, 0, sizeof(*st));
+    kmem_block_t *block = heap_head;
+    size_t seen = 0;
+    while (block && seen < 8192) {
+        st->block_count++;
+        st->total_payload_bytes += block->size;
+        if (block->free) {
+            st->free_payload_bytes += block->size;
+            st->free_blocks++;
+        } else {
+            st->used_payload_bytes += block->size;
+            st->used_blocks++;
+        }
+        block = block->next;
+        seen++;
+    }
+}
+
+/* ============================================================
+ * Logo (unchanged)
+ * ============================================================ */
 
 #ifdef PANIC_FULL_SCREEN
 static const char *panic_logo[] = {
@@ -238,142 +248,218 @@ static const char *panic_logo[] = {
     "        " C_WHITE "@@  @" C_RESET "      " C_WHITE "@@ @@" C_RESET,
     "         " C_WHITE "@@@" C_RESET "        " C_WHITE "@@@" C_RESET,
 };
-#endif
 
 #define PANIC_LOGO_LINES (sizeof(panic_logo) / sizeof(panic_logo[0]))
-#define PANIC_LOGO_WIDTH 30  // approximate visible width of logo
+#define PANIC_LOGO_WIDTH 30  /* approximate visible width */
+#endif
 
+/* ============================================================
+ * Shared helpers
+ * ============================================================ */
 
-// ============================================================
-// Panic screens
-// ============================================================
+static const char *panic_proc_state_str(int state)
+{
+    switch (state) {
+    case PROCESS_READY:   return "READY";
+    case PROCESS_RUNNING: return "RUNNING";
+    case PROCESS_BLOCKED: return "BLOCKED";
+    case PROCESS_ZOMBIE:  return "ZOMBIE";
+    case PROCESS_STOPPED: return "STOPPED";
+    default:              return "UNKNOWN";
+    }
+}
+
+/* ============================================================
+ * Panic screens
+ * ============================================================ */
+
+/*
+ * FULL-SCREEN layout  (PANIC_FULL_SCREEN != 0)
+ * ---------------------------------------------
+ *
+ * [logo + banner — unchanged]
+ *
+ * +------------------------------------------------------------------------+  ← top
+ * | KERNEL PANIC  reason: <reason>                                        |
+ * | caller: 0xXXXXXXXX                                                    |
+ * +------------------------------------------------------------------------+  ← (if fault) divider
+ * | FAULT  type: xxx  fault: xxx  access: xxx                             |
+ * |        far:  0xXXXXXXXX  fsr: 0xXXXXXXXX                             |
+ * +--------------------------------------++---------------------------------+  ← col-rule pair*
+ * | REGISTERS                            || BACKTRACE                      |
+ * |   r0=XXXXXXXX  r1=XXXXXXXX           ||   #0  0xXXXXXXXX              |
+ * |   ...                                ||   addr2line -e build/zuzu.elf  |
+ * +------------------------------------------------------------------------+  ← footer divider
+ * | PROCESS  pid=x ppid=x RUNNING  prio=x  slice=x  left=x               |
+ * |          ptr=0xXXXX  as=0xXXXX  ready=x  pids: 1 2 3                 |
+ * | MEMORY   pmm: x/y pages free                                          |
+ * |          heap: free=x used=x  total=x  blks=x                        |
+ * +------------------------------------------------------------------------+  ← bottom
+ *
+ * * col-rule pair serves as both fault-close and register/backtrace open,
+ *   eliminating a redundant consecutive rule.
+ *
+ * When no fault frame is available (backtrace-only):
+ *   • Backtrace runs full-width, one entry per line.
+ *   • If panic_fault_ctx.frame is set without full fault context,
+ *     registers are printed 4-per-line above the backtrace.
+ */
 
 #if PANIC_FULL_SCREEN
+
 static void panic_screen(const char *reason, void *caller_ra)
 {
     char line[128];
 
-    // Beep! (terminal bell)
     uart_putc('\a');
-
     panic_puts(ANSI_CLEAR);
     panic_puts("\n");
 
-    // Logo centered within full box width
-    int logo_offset = (PANIC_BOX_WIDTH - PANIC_LOGO_WIDTH) / 2;
-    if (logo_offset < 0) logo_offset = 0;
+    /* -- Logo left, intro text right ------------------------------------ */
+    const char *banner_lines[] = {
+        C_WHITE "Oops! zuzu has panicked." C_RESET,
+        C_DIM "An unrecoverable kernel error occurred." C_RESET,
+        C_DIM "System halted to preserve state." C_RESET,
+        C_DIM "https://github.com/kagantmr/zuzu/issues" C_RESET,
+    };
+    const int banner_count = (int)(sizeof(banner_lines) / sizeof(banner_lines[0]));
+    const int logo_left_pad = 2;
+    const int text_col = logo_left_pad + PANIC_LOGO_WIDTH + 2;
 
-    for (unsigned i = 0; i < PANIC_LOGO_LINES; i++) {
-        panic_pad(logo_offset);
+    for (int i = 0; i < (int)PANIC_LOGO_LINES; i++) {
+        panic_pad(logo_left_pad);
         panic_puts(panic_logo[i]);
+
+        int used = logo_left_pad + visible_len(panic_logo[i]);
+        int gap = text_col - used;
+        if (gap < 1) gap = 1;
+        panic_pad(gap);
+
+        if (i < banner_count)
+            panic_puts(banner_lines[i]);
+
         panic_puts("\n");
     }
     panic_puts("\n");
 
-    panic_puts_centered(C_WHITE "Oops! zuzu has panicked." C_RESET);
-    panic_puts_centered(C_DIM "An unrecoverable kernel error occurred and the system was halted." C_RESET);
-    panic_puts_centered(C_DIM "This may be caused by a kernel bug or an operation not yet supported by zuzu." C_RESET);
-    panic_puts_centered(C_DIM "If you believe this is a bug, please report it at:" C_RESET);
-    panic_puts_centered(C_DIM "https://github.com/kagantmr/zuzu/issues" C_RESET);
-    panic_puts("\n");
-
-    // ── Full-width: KERNEL PANIC ──
-    panic_box_rule();
-    panic_box_header("KERNEL PANIC");
-    panic_box_empty();
-    snprintf(line, sizeof(line), "  %s", reason ? reason : "unknown");
-    panic_box_line(line);
-    snprintf(line, sizeof(line), "  Caller: %p", caller_ra);
-    panic_box_line(line);
+    /* KERNEL PANIC header */
     panic_box_rule();
 
-    // ── Full-width: FAULT DETAILS (if present) ──
+    snprintf(line, sizeof(line),
+             C_GOLD "KERNEL PANIC" C_RESET "  reason: %s",
+             reason ? reason : "unknown");
+    panic_box_line(line);
+
+    snprintf(line, sizeof(line), "  caller: %p", caller_ra);
+    panic_box_line(line);
+
+    /* -- Fault details (inline — no extra box, just a divider + lines) -- */
     if (panic_fault_ctx.valid) {
-        panic_box_header("FAULT DETAILS");
-        panic_box_empty();
+        panic_box_rule();
 
-        if (panic_fault_ctx.fault_type) {
-            snprintf(line, sizeof(line), "  Type:   %s", panic_fault_ctx.fault_type);
-            panic_box_line(line);
-        }
-        if (panic_fault_ctx.fault_decoded) {
-            snprintf(line, sizeof(line), "  Fault:  %s", panic_fault_ctx.fault_decoded);
-            panic_box_line(line);
-        }
-        if (panic_fault_ctx.far && panic_fault_ctx.fsr) {
-            snprintf(line, sizeof(line), "  FAR:    0x%08X    FSR:    0x%08X",
+        /* Pack type / decoded / access onto a single line */
+        int pos = snprintf(line, sizeof(line), C_GOLD "FAULT" C_RESET);
+        if (panic_fault_ctx.fault_type)
+            pos += snprintf(line + pos, sizeof(line) - (size_t)pos,
+                            "  type: %s", panic_fault_ctx.fault_type);
+        if (panic_fault_ctx.fault_decoded)
+            pos += snprintf(line + pos, sizeof(line) - (size_t)pos,
+                            "  fault: %s", panic_fault_ctx.fault_decoded);
+        if (panic_fault_ctx.access_type)
+            pos += snprintf(line + pos, sizeof(line) - (size_t)pos,
+                            "  access: %s", panic_fault_ctx.access_type);
+        panic_box_line(line);
+
+        if (panic_fault_ctx.far || panic_fault_ctx.fsr) {
+            snprintf(line, sizeof(line),
+                     "       far:  0x%08X   fsr: 0x%08X",
                      panic_fault_ctx.far, panic_fault_ctx.fsr);
             panic_box_line(line);
-        } else {
-            if (panic_fault_ctx.far) {
-                snprintf(line, sizeof(line), "  FAR:    0x%08X", panic_fault_ctx.far);
-                panic_box_line(line);
-            }
-            if (panic_fault_ctx.fsr) {
-                snprintf(line, sizeof(line), "  FSR:    0x%08X", panic_fault_ctx.fsr);
-                panic_box_line(line);
-            }
         }
-        if (panic_fault_ctx.access_type) {
-            snprintf(line, sizeof(line), "  Access: %s", panic_fault_ctx.access_type);
-            panic_box_line(line);
-        }
-
-        panic_box_rule();
     }
 
-    // Walk the backtrace once
+    /* -- Walk backtrace once, before choosing layout -------------------- */
     backtrace_t bt;
     backtrace_walk(&bt);
 
-    // ── Side-by-side: REGISTERS | BACKTRACE ──
+    /* -- REGISTERS | BACKTRACE (side-by-side columns) ------------------ */
     if (panic_fault_ctx.valid && panic_fault_ctx.frame) {
         exception_frame_t *f = panic_fault_ctx.frame;
 
-        // Left column: REGISTERS
+        /*
+         * Left column: REGISTERS (2/line — fits col width comfortably)
+         * col_rule at the top only; panic_box_rule() closes the section
+         * at the footer, so no redundant trailing col_rule here.
+         */
         col_init(&_col_left);
         col_rule(&_col_left);
         col_header(&_col_left, "REGISTERS");
-        col_empty(&_col_left);
-        for (int i = 0; i < 13; i += 2) {
-            if (i + 1 < 13)
-                snprintf(line, sizeof(line), "  r%-2d=%08X  r%-2d=%08X",
-                         i, f->r[i], i + 1, f->r[i + 1]);
-            else
-                snprintf(line, sizeof(line), "  r%-2d=%08X",
-                         i, f->r[i]);
-            col_line(&_col_left, line);
-        }
-        snprintf(line, sizeof(line), "  lr =%08X  pc =%08X",
-                 f->lr_usr, f->return_pc);
+        snprintf(line, sizeof(line), "  r0=%08X  r1=%08X", f->r[0],  f->r[1]);  col_line(&_col_left, line);
+        snprintf(line, sizeof(line), "  r2=%08X  r3=%08X", f->r[2],  f->r[3]);  col_line(&_col_left, line);
+        snprintf(line, sizeof(line), "  r4=%08X  r5=%08X", f->r[4],  f->r[5]);  col_line(&_col_left, line);
+        snprintf(line, sizeof(line), "  r6=%08X  r7=%08X", f->r[6],  f->r[7]);  col_line(&_col_left, line);
+        snprintf(line, sizeof(line), "  r8=%08X  r9=%08X", f->r[8],  f->r[9]);  col_line(&_col_left, line);
+        snprintf(line, sizeof(line), "  rA=%08X  rB=%08X", f->r[10], f->r[11]); col_line(&_col_left, line);
+        snprintf(line, sizeof(line), "  rC=%08X  lr=%08X", f->r[12], f->lr_usr);col_line(&_col_left, line);
+        snprintf(line, sizeof(line), "  pc=%08X  cpsr=%08X",
+                 f->return_pc, f->return_cpsr);
         col_line(&_col_left, line);
-        snprintf(line, sizeof(line), "  cpsr=%08X", f->return_cpsr);
-        col_line(&_col_left, line);
-        col_rule(&_col_left);
 
-        // Right column: BACKTRACE
+        /* Right column: BACKTRACE */
         col_init(&_col_right);
         col_rule(&_col_right);
         col_header(&_col_right, "BACKTRACE");
-        col_empty(&_col_right);
         if (bt.depth == 0) {
             col_line(&_col_right, "  (no frames)");
         } else {
-            for (int i = 0; i < bt.depth; i++) {
+            int shown = (bt.depth < PANIC_BT_SHOWN_MAX) ? bt.depth : PANIC_BT_SHOWN_MAX;
+            for (int i = 0; i < shown; i++) {
                 snprintf(line, sizeof(line), "  #%-2d 0x%08X", i, bt.addresses[i]);
                 col_line(&_col_right, line);
             }
+            if (bt.depth > shown) {
+                snprintf(line, sizeof(line), "  ... +%d more", bt.depth - shown);
+                col_line(&_col_right, line);
+            }
         }
-        col_empty(&_col_right);
-        snprintf(line, sizeof(line), C_DIM "  addr2line -e zuzu.elf" C_RESET);
+        snprintf(line, sizeof(line), C_DIM "  addr2line -e build/zuzu.elf" C_RESET);
         col_line(&_col_right, line);
-        col_rule(&_col_right);
 
+        /* col_rule pair acts as the visual divider from the fault section */
         panic_render_pair(&_col_left, &_col_right);
+
     } else {
-        // No registers — backtrace full width
-        panic_box_header("BACKTRACE");
-        panic_box_empty();
+        /*
+         * No fault frame, full-width layout.
+         *
+         * If panic_fault_ctx.frame is set without a complete fault context
+         * (e.g. a software-initiated panic after a partial exception setup),
+         * display registers 4-per-line to make better use of the width.
+         */
+        panic_box_rule();
+
+        if (panic_fault_ctx.frame) {
+            exception_frame_t *f = panic_fault_ctx.frame;
+            panic_box_line(C_GOLD "REGISTERS" C_RESET);
+            snprintf(line, sizeof(line),
+                     "  r0=%08X  r1=%08X  r2=%08X  r3=%08X",
+                     f->r[0], f->r[1], f->r[2], f->r[3]);
+            panic_box_line(line);
+            snprintf(line, sizeof(line),
+                     "  r4=%08X  r5=%08X  r6=%08X  r7=%08X",
+                     f->r[4], f->r[5], f->r[6], f->r[7]);
+            panic_box_line(line);
+            snprintf(line, sizeof(line),
+                     "  r8=%08X  r9=%08X  rA=%08X  rB=%08X",
+                     f->r[8], f->r[9], f->r[10], f->r[11]);
+            panic_box_line(line);
+            snprintf(line, sizeof(line),
+                     "  rC=%08X  lr=%08X  pc=%08X  cpsr=%08X",
+                     f->r[12], f->lr_usr, f->return_pc, f->return_cpsr);
+            panic_box_line(line);
+        }
+
+        panic_box_line(C_GOLD "BACKTRACE" C_RESET);
         if (bt.depth == 0) {
             panic_box_line("  (no frames)");
         } else {
@@ -382,163 +468,168 @@ static void panic_screen(const char *reason, void *caller_ra)
                 panic_box_line(line);
             }
         }
-        panic_box_empty();
-        snprintf(line, sizeof(line), C_DIM "  addr2line -e build/zuzu.elf <addr>" C_RESET);
+        snprintf(line, sizeof(line),
+                 C_DIM "  addr2line -e build/zuzu.elf <addr>" C_RESET);
         panic_box_line(line);
-        panic_box_rule();
     }
 
-    // ── Side-by-side: PROCESS | MEMORY ──
+    /* -- PROCESS + MEMORY footer ---------------------------------------- */
+    /*
+     * Single panic_box_rule() closes the register/backtrace section and
+     * opens the footer — no duplicate consecutive rules.
+     */
+    panic_box_rule();
 
-    // Left column: PROCESS
-    col_init(&_col_left);
-    col_rule(&_col_left);
-    col_header(&_col_left, "PROCESS");
+    /* PROCESS */
     if (current_process) {
-        const char *state = "UNKNOWN";
-        switch (current_process->process_state) {
-        case PROCESS_READY:   state = "READY";   break;
-        case PROCESS_RUNNING: state = "RUNNING"; break;
-        case PROCESS_BLOCKED: state = "BLOCKED"; break;
-        case PROCESS_ZOMBIE:  state = "ZOMBIE";  break;
-        case PROCESS_STOPPED: state = "STOPPED"; break;
-        }
-        snprintf(line, sizeof(line), "  pid=%-4u ppid=%-4u %s",
-                 current_process->pid, current_process->parent_pid, state);
-        col_line(&_col_left, line);
-        snprintf(line, sizeof(line), "  ptr=%p", current_process);
-        col_line(&_col_left, line);
-        snprintf(line, sizeof(line), "  as =%p", current_process->as);
-        col_line(&_col_left, line);
-        snprintf(line, sizeof(line), "  prio=%u slice=%u left=%u",
+        snprintf(line, sizeof(line),
+                 C_GOLD "PROCESS" C_RESET
+                 "  pid=%-4u ppid=%-4u %-7s  prio=%u  slice=%u  left=%u",
+                 current_process->pid,
+                 current_process->parent_pid,
+                 panic_proc_state_str(current_process->process_state),
                  current_process->priority,
                  current_process->time_slice,
                  current_process->ticks_remaining);
-        col_line(&_col_left, line);
-    } else {
-        col_line(&_col_left, "  (none)");
-    }
-    col_rule(&_col_left);
+        panic_box_line(line);
 
-    // Right column: MEMORY
-    col_init(&_col_right);
-    col_rule(&_col_right);
-    col_header(&_col_right, "MEMORY");
+        snprintf(line, sizeof(line), "         ptr=%p  as=%p",
+                 current_process, current_process->as);
+        panic_box_line(line);
 
-    size_t pmm_free = pmm_state.free_pages;
-    size_t pmm_total = pmm_state.total_pages;
-    snprintf(line, sizeof(line), "  pmm: %lu/%lu pages free",
-             (unsigned long)pmm_free, (unsigned long)pmm_total);
-    col_line(&_col_right, line);
-
-    if (heap_head && kernel_layout.heap_start_va && kernel_layout.heap_end_va) {
-        size_t heap_free_bytes = 0;
-        size_t heap_free_blocks = 0;
-        size_t heap_used_blocks = 0;
-
-        kmem_block_t *block = heap_head;
-        size_t seen = 0;
-        while (block && seen < 8192) {
-            if (block->free) {
-                heap_free_bytes += block->size;
-                heap_free_blocks++;
-            } else {
-                heap_used_blocks++;
-            }
-            block = block->next;
-            seen++;
+        process_t *ready[PANIC_READY_SNAPSHOT_MAX];
+        size_t ready_total = sched_ready_queue_snapshot(ready, PANIC_READY_SNAPSHOT_MAX);
+        size_t ready_shown = (ready_total < PANIC_READY_SNAPSHOT_MAX)
+                             ? ready_total : PANIC_READY_SNAPSHOT_MAX;
+        if (ready_total > 0) {
+            int pos = snprintf(line, sizeof(line),
+                               "         ready=%lu  pids:",
+                               (unsigned long)ready_total);
+            for (size_t i = 0; i < ready_shown && pos > 0; i++)
+                pos += snprintf(line + pos, sizeof(line) - (size_t)pos,
+                                " %u", ready[i]->pid);
+            if (ready_total > ready_shown)
+                pos += snprintf(line + pos, sizeof(line) - (size_t)pos,
+                                " (+%lu)", (unsigned long)(ready_total - ready_shown));
+            panic_box_line(line);
         }
-
-        size_t heap_total =
-            (size_t)((uintptr_t)kernel_layout.heap_end_va - (uintptr_t)kernel_layout.heap_start_va);
-
-        snprintf(line, sizeof(line), "  heap: %lu/%lu bytes",
-                 (unsigned long)heap_free_bytes, (unsigned long)heap_total);
-        col_line(&_col_right, line);
-        snprintf(line, sizeof(line), "  blks: %lu free %lu used",
-                 (unsigned long)heap_free_blocks, (unsigned long)heap_used_blocks);
-        col_line(&_col_right, line);
     } else {
-        col_line(&_col_right, "  heap: unavailable");
+        panic_box_line(C_GOLD "PROCESS" C_RESET "  (none)");
     }
-    col_rule(&_col_right);
 
-    panic_render_pair(&_col_left, &_col_right);
+    /* MEMORY */
+    {
+        snprintf(line, sizeof(line),
+                 C_GOLD "MEMORY " C_RESET "  pmm: %lu/%lu pages free",
+                 (unsigned long)pmm_state.free_pages,
+                 (unsigned long)pmm_state.total_pages);
+        panic_box_line(line);
 
-    // ── Single column: READY QUEUE ──
-    col_init(&_col_left);
-    col_rule(&_col_left);
-    col_header(&_col_left, "READY QUEUE");
-
-    process_t *ready[PANIC_READY_SNAPSHOT_MAX];
-    size_t ready_total = sched_ready_queue_snapshot(ready, PANIC_READY_SNAPSHOT_MAX);
-    size_t ready_shown = (ready_total < PANIC_READY_SNAPSHOT_MAX) ? ready_total : PANIC_READY_SNAPSHOT_MAX;
-
-    snprintf(line, sizeof(line), "  ready=%lu shown=%lu",
-             (unsigned long)ready_total, (unsigned long)ready_shown);
-    col_line(&_col_left, line);
-
-    if (ready_total == 0) {
-        col_line(&_col_left, "  (empty)");
-    } else {
-        for (size_t i = 0; i < ready_shown; i++) {
-            const char *st = "?";
-            switch (ready[i]->process_state) {
-            case PROCESS_READY:   st = "READY";   break;
-            case PROCESS_RUNNING: st = "RUNNING"; break;
-            case PROCESS_BLOCKED: st = "BLOCKED"; break;
-            case PROCESS_ZOMBIE:  st = "ZOMBIE";  break;
-            case PROCESS_STOPPED: st = "STOPPED"; break;
-            }
-            snprintf(line, sizeof(line), "  #%lu pid=%lu %s",
-                     (unsigned long)i, (unsigned long)ready[i]->pid, st);
-            col_line(&_col_left, line);
+        if (heap_head && kernel_layout.heap_start_va && kernel_layout.heap_end_va) {
+            panic_heap_stats_t hs;
+            panic_heap_snapshot(&hs);
+            snprintf(line, sizeof(line),
+                     "         heap: free=%lu  used=%lu  total=%lu  blks=%lu",
+                     (unsigned long)hs.free_payload_bytes,
+                     (unsigned long)hs.used_payload_bytes,
+                     (unsigned long)hs.total_payload_bytes,
+                     (unsigned long)hs.block_count);
+            panic_box_line(line);
+        } else {
+            panic_box_line("         heap: unavailable");
         }
     }
-    col_rule(&_col_left);
 
-    panic_render_single(&_col_left);
-
+    panic_box_rule();
     panic_puts("\n");
 }
-#else
+
+#else  
+
 static void panic_screen(const char *reason, void *caller_ra)
 {
     uart_putc('\a');
 
-    kprintf("\n\033[1;31m=== KERNEL PANIC: %s ===\033[0m\n",
-            reason ? reason : "unknown");
-    kprintf("Caller: %p\n", caller_ra);
+    kprintf("\n\033[1;31m--- KERNEL PANIC ---\033[0m\n");
+    kprintf("  reason:  %s\n", reason ? reason : "unknown");
+    kprintf("  caller:  %p\n", caller_ra);
 
-    backtrace_t bt;
-    backtrace_walk(&bt);
-
+    /* Fault details */
     if (panic_fault_ctx.valid) {
+        kprintf("  ---\n");
         if (panic_fault_ctx.fault_type)
-            kprintf("Type:  %s\n", panic_fault_ctx.fault_type);
+            kprintf("  type:    %s\n", panic_fault_ctx.fault_type);
         if (panic_fault_ctx.fault_decoded)
-            kprintf("Fault: %s\n", panic_fault_ctx.fault_decoded);
-        if (panic_fault_ctx.far)
-            kprintf("FAR: 0x%08X  FSR: 0x%08X\n", panic_fault_ctx.far, panic_fault_ctx.fsr);
+            kprintf("  fault:   %s\n", panic_fault_ctx.fault_decoded);
         if (panic_fault_ctx.access_type)
-            kprintf("Access: %s\n", panic_fault_ctx.access_type);
+            kprintf("  access:  %s\n", panic_fault_ctx.access_type);
+        if (panic_fault_ctx.far || panic_fault_ctx.fsr)
+            kprintf("  far:     0x%08X   fsr: 0x%08X\n",
+                    panic_fault_ctx.far, panic_fault_ctx.fsr);
+
         if (panic_fault_ctx.frame) {
             exception_frame_t *f = panic_fault_ctx.frame;
-            kprintf("r0=%08X r1=%08X r2=%08X r3=%08X\n", f->r[0], f->r[1], f->r[2], f->r[3]);
-            kprintf("r4=%08X r5=%08X r6=%08X r7=%08X\n", f->r[4], f->r[5], f->r[6], f->r[7]);
-            kprintf("r8=%08X r9=%08X r10=%08X r11=%08X\n", f->r[8], f->r[9], f->r[10], f->r[11]);
-            kprintf("r12=%08X lr=%08X pc=%08X cpsr=%08X\n", f->r[12], f->lr_usr, f->return_pc, f->return_cpsr);
+            kprintf("  ---\n");
+            kprintf("  r0=%08X  r1=%08X  r2=%08X  r3=%08X\n",
+                    f->r[0], f->r[1], f->r[2], f->r[3]);
+            kprintf("  r4=%08X  r5=%08X  r6=%08X  r7=%08X\n",
+                    f->r[4], f->r[5], f->r[6], f->r[7]);
+            kprintf("  r8=%08X  r9=%08X  rA=%08X  rB=%08X\n",
+                    f->r[8], f->r[9], f->r[10], f->r[11]);
+            kprintf("  rC=%08X  lr=%08X  pc=%08X  cpsr=%08X\n",
+                    f->r[12], f->lr_usr, f->return_pc, f->return_cpsr);
         }
     }
 
-    kprintf("Backtrace:\n");
-    for (int i = 0; i < bt.depth; i++)
-        kprintf("  #%d  0x%08X\n", i, bt.addresses[i]);
+    /* Backtrace */
+    backtrace_t bt;
+    backtrace_walk(&bt);
+    kprintf("  ---\n");
+    if (bt.depth == 0) {
+        kprintf("  backtrace: (no frames)\n");
+    } else {
+        kprintf("  backtrace:\n");
+        for (int i = 0; i < bt.depth; i++)
+            kprintf("    #%-2d  0x%08X\n", i, bt.addresses[i]);
+    }
 
-    if (bt.depth == 0)
-        kprintf("  (no frames)\n");
+    /* Process */
+    kprintf("  ---\n");
+    if (current_process) {
+        kprintf("  process: pid=%u ppid=%u %s  prio=%u  slice=%u  left=%u\n",
+                current_process->pid,
+                current_process->parent_pid,
+                panic_proc_state_str(current_process->process_state),
+                current_process->priority,
+                current_process->time_slice,
+                current_process->ticks_remaining);
+    } else {
+        kprintf("  process: (none)\n");
+    }
+
+    /* Memory */
+    kprintf("  memory:  pmm: %lu/%lu pages free",
+            (unsigned long)pmm_state.free_pages,
+            (unsigned long)pmm_state.total_pages);
+    if (heap_head && kernel_layout.heap_start_va) {
+        panic_heap_stats_t hs;
+        panic_heap_snapshot(&hs);
+        kprintf("  heap: free=%lu  used=%lu  blks=%lu\n",
+                (unsigned long)hs.free_payload_bytes,
+                (unsigned long)hs.used_payload_bytes,
+                (unsigned long)hs.block_count);
+    } else {
+        kprintf("  heap: unavailable\n");
+    }
+
+    kprintf("\033[1;31m--- HALTED ---\033[0m\n\n");
 }
-#endif
+
+#endif /* PANIC_FULL_SCREEN */
+
+/* ============================================================
+ * Panic entry point (unchanged)
+ * ============================================================ */
 
 _Noreturn void panic(const char *reason)
 {
