@@ -374,6 +374,12 @@ void process_kill(process_t *p, const int exit_status) {
             entry->ntfn = NULL;
             entry->grantable = false;
             entry->type = HANDLE_FREE;
+        } else if (entry->type == HANDLE_TASK) {
+            // No special cleanup needed for task handles since they don't have kernel objects associated with them
+            entry->task = NULL;
+            entry->mapped_va = 0;
+            entry->grantable = false;
+            entry->type = HANDLE_FREE;
         }
     }
 
