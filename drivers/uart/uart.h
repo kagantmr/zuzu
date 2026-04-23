@@ -1,3 +1,5 @@
+// uart.h - UART driver interface and generic UART functions
+
 #ifndef UART_H
 #define UART_H
 

@@ -1,3 +1,5 @@
+// panic.c - Kernel panic handling and panic screen rendering
+
 #include "core/panic.h"
 #include "core/kprintf.h"
 #include "arch/arm/include/irq.h"

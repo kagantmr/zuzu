@@ -1,3 +1,12 @@
+/**
+ * panic.h - Kernel panic handling and panic screen rendering
+ * 
+ * Kernel panics occur when an unrecoverable error happens in the kernel, such as
+ * corruption of kernel data structures, fatal hardware faults, or failed assertions, 
+ * as well as explicit calls to panic() for critical errors. The panic handler disables interrupts,
+ * gathers diagnostic information, and displays a structured panic screen to help with debugging.
+ * The panic screen includes a backtrace, process information, and memory state.
+ */
 #ifndef PANIC_H
 #define PANIC_H
 

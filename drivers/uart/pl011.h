@@ -1,3 +1,5 @@
+// pl011.h - ARM PL011 UART driver header
+
 #ifndef UART_PL011_H
 #define UART_PL011_H
 

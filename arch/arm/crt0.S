@@ -1,3 +1,5 @@
+@ crt0.s - userspace C runtime startup code for ARMv7-A
+
 .section .text, "ax"
 .global _start
 

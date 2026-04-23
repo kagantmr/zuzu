@@ -1,3 +1,5 @@
+@ _start.s - ARMv7-A boot code for Versatile Express A15
+
 .section .text.boot, "ax"
 .global _start
 .type _start, %function

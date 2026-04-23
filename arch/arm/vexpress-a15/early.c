@@ -1,3 +1,5 @@
+// early.c - Early boot code for Versatile Express A15
+
 #include "arch/arm/include/symbols.h"
 #include "arch/arm/include/irq.h"
 

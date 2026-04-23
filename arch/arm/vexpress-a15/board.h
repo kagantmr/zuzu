@@ -1,3 +1,10 @@
+/**
+ * board.h - Board-specific definitions for Versatile Express A15
+ * Contains the physical addresses of peripherals on the Versatile Express A15 platform, as
+ * well as the prototype for board-specific initialization functions. The A15's peripherals are typically
+ * found on the CS3 (IOFPGA) bus, which is mapped to physical address 0x1C000000. 
+ */
+
 #ifndef VEXPRESS_BOARD_H
 #define VEXPRESS_BOARD_H
 

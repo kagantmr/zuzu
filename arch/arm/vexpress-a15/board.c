@@ -1,3 +1,5 @@
+// board.c - Board-specific initialization for Versatile Express A15
+
 #include "kernel/dtb/dtb.h"
 #include "kernel/mm/vmm.h"
 #include "drivers/uart/pl011.h"

@@ -1,3 +1,5 @@
+// kprintf.h - kernel formatted output interface
+
 #ifndef KPRINTF_H
 #define KPRINTF_H
 
