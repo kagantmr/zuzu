@@ -4,7 +4,7 @@
 #include "zuzu/syscall_nums.h"
 #include <stddef.h>
 #include <stdint.h>
-#include <args.h>
+#include <spawn_args.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,12 +26,10 @@ typedef struct
     void *addr;
 } shmem_result_t;
 
-typedef struct
-{
-    int32_t err;
-    uint32_t addr;
-    uint32_t size;
-} dtb_reg_result_t;
+typedef struct {
+    int32_t task_handle;
+    uint32_t pid;
+} tspawn_result_t;
 
 /* ---- Process constants ---- */
 
@@ -125,6 +123,25 @@ static inline int32_t _sleep(uint32_t ms) {
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
         : [num] "i"(SYS_TASK_SLEEP)
+        : "memory");
+    return (int32_t) r0;
+}
+
+static inline tspawn_result_t _tspawn(const char* name) {
+    register uintptr_t r0 __asm__("r0") = (uintptr_t) name;
+    register uint32_t r1 __asm__("r1");
+    __asm__ volatile("svc %[num]"
+        : "=r"(r0)
+        : [num] "i"(SYS_TASK_TSPAWN)
+        : "memory");
+    return (tspawn_result_t) {.task_handle = (int32_t) r0, .pid = r1};
+}
+
+static inline int32_t _kickstart(const void *args_struct) {
+    register uintptr_t r0 __asm__("r0") = (uintptr_t) args_struct;
+    __asm__ volatile("svc %[num]"
+        : "+r"(r0)
+        : [num] "i"(SYS_TASK_KICKSTART)
         : "memory");
     return (int32_t) r0;
 }
@@ -345,6 +362,15 @@ static inline void *_attach(int32_t handle_idx) {
         : [num] "i"(SYS_ATTACH)
         : "memory");
     return (void *) (uintptr_t) r0;
+}
+
+static inline int32_t _asinject(const void *args_struct) {
+    register uintptr_t r0 __asm__("r0") = (uintptr_t) args_struct;
+    __asm__ volatile("svc %[num]"
+        : "+r"(r0)
+        : [num] "i"(SYS_ASINJECT)
+        : "memory");
+    return (int32_t) r0;
 }
 
 /* ---- Devices ---- */

@@ -1,0 +1,8 @@
+#ifndef ZUZUSYSD_PROTOCOL_H
+#define ZUZUSYSD_PROTOCOL_H
+
+#define ZUZUSYSD_EXEC 9
+
+#define EXEC_SUCCESS 0
+
+#endif

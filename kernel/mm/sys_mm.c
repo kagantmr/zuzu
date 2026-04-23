@@ -2,8 +2,10 @@
 #include "kernel/syscall/syscall.h"
 #include "kernel/sched/sched.h"
 #include "arch/arm/mmu/mmu.h"
+#include "arch/arm/include/cache.h"
 #include "kernel/mm/pmm.h"
 #include "kernel/layout.h"
+#include <spawn_args.h>
 #include <mem.h>
 
 #define LOG_FMT(fmt) "(syscall_mm) " fmt
@@ -418,4 +420,139 @@ void detach(exception_frame_t *frame)
     entry->type = HANDLE_FREE;
 
     frame->r[0] = 0;
+}
+
+void asinject(exception_frame_t *frame) {
+    if (!(current_process->flags & PROC_FLAG_INIT)) {
+        frame->r[0] = ERR_NOPERM;
+        return;
+    }
+
+    asinject_args_t *args = (asinject_args_t *)frame->r[0];
+    if (!validate_user_ptr((uintptr_t)args, sizeof(asinject_args_t)))    {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    asinject_args_t kargs;
+    if (!copy_from_user(&kargs, args, sizeof(asinject_args_t))) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    handle_entry_t *handle = handle_vec_get(&current_process->handle_table, kargs.task_handle);
+    if (!handle || handle->type != HANDLE_TASK) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    process_t *target = handle->task;
+
+    if (!target || target->process_state != PROCESS_STOPPED) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    if (!kargs.src_buf || kargs.len == 0 ||
+        !validate_user_ptr((uintptr_t)kargs.src_buf, kargs.len)) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    if ((kargs.prot & VM_PROT_WRITE) && (kargs.prot & VM_PROT_EXEC)) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    if (kargs.dst_va % PAGE_SIZE != 0 ||
+        kargs.dst_va >= USER_VA_TOP ||
+        kargs.len > USER_VA_TOP - kargs.dst_va) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    size_t page_count = (kargs.len + PAGE_SIZE - 1) / PAGE_SIZE;
+    uintptr_t *page_addrs = kmalloc(page_count * sizeof(uintptr_t));
+    if (!page_addrs) {
+        frame->r[0] = ERR_NOMEM;
+        return;
+    }
+    memset(page_addrs, 0, page_count * sizeof(uintptr_t));
+
+    size_t mapped_pages = 0;
+    for (size_t i = 0; i < page_count; i++) {
+        uintptr_t page = pmm_alloc_page();
+        if (!page) {
+            goto rollback_nomem;
+        }
+        page_addrs[i] = page;
+
+        // copy from user buffer to the new page
+        size_t offset = i * PAGE_SIZE;
+        size_t bytes_to_copy = kargs.len - offset;
+        if (bytes_to_copy > PAGE_SIZE)
+            bytes_to_copy = PAGE_SIZE;
+
+        if (!copy_from_user((void *)PA_TO_VA(page),
+                            (const void *)((uintptr_t)kargs.src_buf + offset),
+                            bytes_to_copy)) {
+            goto rollback_badarg;
+        }
+
+        if (bytes_to_copy < PAGE_SIZE) {
+            memset((void *)(PA_TO_VA(page) + bytes_to_copy), 0,
+                   PAGE_SIZE - bytes_to_copy);
+        }
+
+        if (!kmap_user_page(target->as, page, kargs.dst_va + i * PAGE_SIZE,
+                            kargs.prot)) {
+            goto rollback_nomem;
+        }
+
+        mapped_pages++;
+
+        if (kargs.prot & VM_PROT_EXEC) {
+            cache_flush_code_range((uintptr_t)PA_TO_VA(page), PAGE_SIZE);
+        }
+    }
+
+    vm_region_t region = {
+        .vaddr_start = kargs.dst_va,
+        .size = page_count * PAGE_SIZE,
+        .prot = kargs.prot | VM_PROT_USER,
+        .memtype = VM_MEM_NORMAL,
+        .owner = VM_OWNER_ANON,
+        .flags = VM_FLAG_NONE,
+    };
+    if (!vmm_add_region(target->as, &region))
+        goto rollback_nomem;
+
+    kfree(page_addrs);
+
+    frame->r[0] = 0;
+    return;
+
+rollback_badarg:
+    for (size_t j = 0; j < mapped_pages; j++) {
+        vmm_unmap_range(target->as, kargs.dst_va + j * PAGE_SIZE, PAGE_SIZE);
+    }
+    for (size_t j = 0; j < page_count; j++) {
+        if (page_addrs[j])
+            pmm_free_page(page_addrs[j]);
+    }
+    kfree(page_addrs);
+    frame->r[0] = ERR_BADARG;
+    return;
+
+rollback_nomem:
+    for (size_t j = 0; j < mapped_pages; j++) {
+        vmm_unmap_range(target->as, kargs.dst_va + j * PAGE_SIZE, PAGE_SIZE);
+    }
+    for (size_t j = 0; j < page_count; j++) {
+        if (page_addrs[j])
+            pmm_free_page(page_addrs[j]);
+    }
+    kfree(page_addrs);
+    frame->r[0] = ERR_NOMEM;
+    return;
 }

@@ -10,5 +10,8 @@ void get_pid(exception_frame_t *frame);
 void wait(exception_frame_t *frame);
 void spawn(exception_frame_t *frame);
 
+void tspawn(exception_frame_t *frame);
+void kickstart(exception_frame_t *frame);
+
 
 #endif // SYS_TASK_H

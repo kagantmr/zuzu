@@ -44,7 +44,8 @@ typedef enum {
     HANDLE_DEVICE,
     HANDLE_SHMEM,
     HANDLE_REPLY,
-    HANDLE_NOTIFICATION,    // <-- new
+    HANDLE_NOTIFICATION,
+    HANDLE_TASK
 } handle_type_t;
 
 typedef struct {
@@ -57,6 +58,7 @@ typedef struct {
         shmem_t      *shm;
         reply_cap_t *reply;
         notification_t *ntfn;
+        struct process *task;
     };
 } handle_entry_t;
 

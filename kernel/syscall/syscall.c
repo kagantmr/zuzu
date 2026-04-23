@@ -102,6 +102,14 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     {
         get_pid(frame);
     } break; 
+    case SYS_TASK_TSPAWN:
+    {
+        tspawn(frame);
+    } break;
+    case SYS_TASK_KICKSTART:
+    {
+        kickstart(frame);
+    } break;
     case SYS_PROC_SEND:
     {
         proc_send(frame);
@@ -185,6 +193,10 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     case SYS_QUERYDEV:
     {
         querydev(frame);
+    } break;
+    case SYS_ASINJECT:
+    {
+        asinject(frame);
     } break;
     case SYS_IRQ_CLAIM:
     {   
