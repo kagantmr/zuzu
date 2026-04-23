@@ -5,7 +5,10 @@
 #include <stddef.h>
 #include <stdio.h>
 
+#include "zuzu/protocols/zuzusysd_protocol.h"
+
 #include "den.h"
+#include "exec.h"
 #include "zuzusysd.h"
 
 static nt_entry_t registry_table[SYSD_MAX_SERVICES];
@@ -140,7 +143,7 @@ static void nt_handle_msg(zuzu_ipcmsg_t msg) {
     if (r2_cmd == NT_LOOKUP || r2_cmd == DEN_CREATE ||
         r2_cmd == DEN_INVITE || r2_cmd == DEN_KICK ||
         r2_cmd == DEN_MYDEN || r2_cmd == DEN_MYDEN_COUNT ||
-        r2_cmd == DEN_MYDEN_AT) {
+        r2_cmd == DEN_MYDEN_AT || r2_cmd == ZUZUSYSD_EXEC) {
         reply_handle = (uint32_t)msg.r0;
         sender       = msg.r1;
         raw_command  = msg.r2;
@@ -220,6 +223,9 @@ static void nt_handle_msg(zuzu_ipcmsg_t msg) {
         } else {
             status = DEN_FAIL;
         }
+    } else if (command == ZUZUSYSD_EXEC) {
+        char path[256];
+        
     }
     if (needs_reply) {
         _reply(reply_handle, (uint32_t)status, out_handle, out_pid);

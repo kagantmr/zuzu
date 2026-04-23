@@ -9,6 +9,8 @@
 #define SYS_TASK_WAIT 0x03  /* (pid, &status) -> 0 or -err          */
 #define SYS_GET_PID 0x04    /* () -> pid                            */
 #define SYS_TASK_SLEEP 0x05 /* (duration) -> 0                      */
+#define SYS_TASK_TSPAWN 0x06 /*  */
+#define SYS_TASK_KICKSTART 0x07  /* ()  */
 
 /* ---- IPC (0x10-0x1F) ---- */
 
@@ -39,6 +41,8 @@
 #define SYS_MAPDEV 0x34   /* (phys, size) -> addr or -err         */
 #define SYS_DETACH 0x35   /* (phys, size) -> addr or -err         */
 #define SYS_QUERYDEV 0x36 /* (handle, out_buf, len) -> irq or -err*/
+#define SYS_MPROTECT 0x37 /* (addr, size, prot) -> 0 or -err      */
+#define SYS_ASINJECT 0x38 /* (args_struct_ptr) -> 0 or -err */
 
 /* ---- Interrupts (0x40-0x4F) ---- */
 

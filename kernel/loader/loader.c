@@ -8,7 +8,7 @@
 #include "kernel/mm/vmm.h"
 #include "arch/arm/mmu/mmu.h"
 #include "arch/arm/include/cache.h"
-#include "kernel/loader/elf.h"
+#include <elf.h>
 #include "kernel/mm/alloc.h"
 #include "kernel/syspage.h"
 #include "zuzu/ipcx.h"

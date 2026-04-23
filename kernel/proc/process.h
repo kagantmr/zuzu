@@ -16,20 +16,21 @@
 extern void process_entry_trampoline(void);
 
 typedef enum process_state {
-    PROCESS_READY = 0,
-    PROCESS_RUNNING,
-    PROCESS_BLOCKED,
-    PROCESS_ZOMBIE,
+    PROCESS_READY = 0, // ready to run, in run queue
+    PROCESS_RUNNING, // on CPU
+    PROCESS_BLOCKED, // waiting for IPC or timeout
+    PROCESS_ZOMBIE, // called quit()
+    PROCESS_STOPPED, // not runnable yet
 } p_state_t;
 
 typedef enum {
-    WAKE_NONE = 0,
+    WAKE_NONE = 0,  // not currently sleeping/waiting
     WAKE_IPC,       // woken by IPC partner
     WAKE_TIMEOUT,   // woken by timer
 } wake_reason_t;
 
 typedef enum ipc_state {
-    IPC_NONE = 0,
+    IPC_NONE = 0, 
     IPC_SENDER,
     IPC_RECEIVER,
     IPC_WAITING,
@@ -79,6 +80,7 @@ _Static_assert(offsetof(process_t, kernel_sp) == 12,
 
 void process_destroy(process_t *process);
 process_t *process_find_by_pid(uint32_t pid);
+process_t *process_create(const char* name);
 void process_kill(process_t *p, int exit_status);
 void process_set_parent(process_t *child, process_t *parent);
 process_t *process_find_child_by_pid(process_t *parent, uint32_t pid);

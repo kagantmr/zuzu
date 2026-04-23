@@ -401,6 +401,7 @@ static void panic_screen(const char *reason, void *caller_ra)
         case PROCESS_RUNNING: state = "RUNNING"; break;
         case PROCESS_BLOCKED: state = "BLOCKED"; break;
         case PROCESS_ZOMBIE:  state = "ZOMBIE";  break;
+        case PROCESS_STOPPED: state = "STOPPED"; break;
         }
         snprintf(line, sizeof(line), "  pid=%-4u ppid=%-4u %s",
                  current_process->pid, current_process->parent_pid, state);
@@ -487,6 +488,7 @@ static void panic_screen(const char *reason, void *caller_ra)
             case PROCESS_RUNNING: st = "RUNNING"; break;
             case PROCESS_BLOCKED: st = "BLOCKED"; break;
             case PROCESS_ZOMBIE:  st = "ZOMBIE";  break;
+            case PROCESS_STOPPED: st = "STOPPED"; break;
             }
             snprintf(line, sizeof(line), "  #%lu pid=%lu %s",
                      (unsigned long)i, (unsigned long)ready[i]->pid, st);

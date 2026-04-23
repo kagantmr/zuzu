@@ -7,7 +7,7 @@
 #include "kernel/loader/loader.h"
 #include "kernel/time/tick.h"
 #include "kernel/proc/process.h"
-#include <args.h>
+#include <spawn_args.h>
 
 extern process_t *current_process;
 extern list_head_t sleep_queue;
@@ -234,4 +234,99 @@ void spawn(exception_frame_t *frame) {
     
     sched_add(process);
     frame->r[0] = process->pid;
+}
+
+void tspawn(exception_frame_t *frame) {
+    const char* name = (const char *)frame->r[0];
+    if (!validate_user_ptr((uintptr_t)name, 1)) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    char kname[64];
+    if (!copy_from_user(kname, name, sizeof(kname) - 1)) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    kname[sizeof(kname) - 1] = '\0'; // Ensure null-termination
+
+    process_t *process = process_create(kname);
+    if (!process) {
+        frame->r[0] = ERR_NOMEM;
+        return;
+    }
+
+    process_set_parent(process, current_process);
+
+    // now return a handle 
+    int slot = handle_vec_find_free(&current_process->handle_table);
+    if (slot < 0) {
+        process_destroy(process);
+        frame->r[0] = ERR_NOMEM;
+        return;
+    }
+    handle_vec_get(&current_process->handle_table, slot)->type = HANDLE_TASK;
+    handle_vec_get(&current_process->handle_table, slot)->task = process;
+    handle_vec_get(&current_process->handle_table, slot)->grantable = true;
+
+    frame->r[0] = slot;
+    frame->r[1] = process->pid;
+    return;
+}
+
+void kickstart(exception_frame_t *frame) {
+    kickstart_args_t *args = (kickstart_args_t *)frame->r[0];
+    if (!validate_user_ptr((uintptr_t)args, sizeof(kickstart_args_t))) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    kickstart_args_t kargs;
+    if (!copy_from_user(&kargs, args, sizeof(kickstart_args_t))) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, kargs.task_handle);
+    if (!entry || entry->type != HANDLE_TASK) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    process_t *target = entry->task;
+    if (!target || target->process_state != PROCESS_STOPPED) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    uintptr_t stack_top = target->kernel_stack_top;
+
+    stack_top -= 17 * sizeof(uintptr_t); // make room for exception frame + r0-r1
+    exception_frame_t *target_frame = (exception_frame_t *)stack_top;
+
+    target_frame->r[0] = kargs.r0_val;
+    target_frame->r[1] = kargs.r1_val;
+    for (int i = 2; i < 13; i++) {
+        target_frame->r[i] = 0;
+    }
+    target_frame->sp_usr = kargs.sp;
+    target_frame->lr_usr = 0; // entry point for user code, set to
+    target_frame->return_pc = kargs.entry;
+    target_frame->return_cpsr = 0x10; // user mode, interrupts enabled
+
+    stack_top -= sizeof(cpu_context_t);
+    cpu_context_t *context = (cpu_context_t *)stack_top;
+    memset(context, 0, sizeof(cpu_context_t));
+    context->lr = (uint32_t)process_entry_trampoline;
+    stack_top -= 132; // make room for VFP state
+    memset((void *)stack_top, 0, 132);
+    target->kernel_sp = (uint32_t *)stack_top;
+    target->process_state = PROCESS_READY;
+    sched_add(target);
+    entry->type = HANDLE_FREE;
+    entry->task = NULL;
+    entry->grantable = false;
+    frame->r[0] = 0;
+    return;
 }
