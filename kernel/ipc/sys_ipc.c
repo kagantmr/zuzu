@@ -81,6 +81,11 @@ static endpoint_t *validate_endpoint_handle(process_t *proc, int handle, excepti
         frame->r[0] = ERR_BADARG;
         return NULL;
     }
+    if (!entry->ep->alive)
+    {
+        frame->r[0] = ERR_DEAD;
+        return NULL;
+    }
 
     return entry->ep;
 }
@@ -233,6 +238,7 @@ void proc_recv(exception_frame_t *frame)
             sr_proc->process_state = PROCESS_READY;
             if (sr_proc->ipc_buf_xfer_len > 0) {
                 ipc_buf_copy(sr_proc, current_process, sr_proc->ipc_buf_xfer_len);
+                frame->r[1] = sr_proc->ipc_buf_xfer_len;
                 frame->r[2] = 0;
                 frame->r[3] = 0;
                 sr_proc->ipc_buf_xfer_len = 0;
@@ -281,6 +287,7 @@ void proc_recv(exception_frame_t *frame)
             frame->r[3] = sr_frame->r[2];
             if (sr_proc->ipc_buf_xfer_len > 0) {
                 ipc_buf_copy(sr_proc, current_process, sr_proc->ipc_buf_xfer_len);
+                frame->r[2] = sr_proc->ipc_buf_xfer_len;
                 frame->r[3] = 0;
                 sr_proc->ipc_buf_xfer_len = 0;
             }
@@ -467,11 +474,12 @@ void proc_sendx(exception_frame_t *frame)
             ipc_panic_bad_trap_frame("proc_sendx.rx", rx_proc, rx_frame);
         }
         // KDEBUG("Sending message from process PID %d to process PID %d", current_process->pid,rx_proc->pid);
+        uint32_t xlen = frame->r[1] > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : frame->r[1];
         rx_frame->r[0] = current_process->pid;
-        rx_frame->r[1] = frame->r[1];
+        rx_frame->r[1] = xlen;
         rx_frame->r[2] = 0;
         rx_frame->r[3] = 0;
-        ipc_buf_copy(current_process, rx_proc, frame->r[1]);
+        ipc_buf_copy(current_process, rx_proc, xlen);
         rx_proc->ipc_state = IPC_NONE;
         rx_proc->blocked_endpoint = NULL;
         // Cancel timeout if receiver had one
@@ -490,7 +498,7 @@ void proc_sendx(exception_frame_t *frame)
         current_process->ipc_state = IPC_SENDER;
         current_process->blocked_endpoint = ep;
         list_add_tail(&current_process->node, &ep->sender_queue.node);
-        current_process->ipc_buf_xfer_len = frame->r[1];
+        current_process->ipc_buf_xfer_len = frame->r[1] > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : frame->r[1];
         current_process->process_state = PROCESS_BLOCKED;
         schedule();
     }
@@ -538,11 +546,12 @@ void proc_callx(exception_frame_t *frame)
         rentry->reply = rc;
         process_track_reply_cap(current_process, rx_proc, (uint32_t)slot, rc);
 
+        uint32_t xlen = frame->r[1] > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : frame->r[1];
         rx_frame->r[0] = slot;
         rx_frame->r[1] = current_process->pid;
-        rx_frame->r[2] = frame->r[1];
+        rx_frame->r[2] = xlen;
         rx_frame->r[3] = 0;
-        ipc_buf_copy(current_process, rx_proc, frame->r[1]);
+        ipc_buf_copy(current_process, rx_proc, xlen);
 
         rx_proc->ipc_state = IPC_NONE;
         rx_proc->blocked_endpoint = NULL;
@@ -567,7 +576,7 @@ void proc_callx(exception_frame_t *frame)
         current_process->blocked_endpoint = ep;
         current_process->pending_reply_cap = rc;
         list_add_tail(&current_process->node, &ep->sender_queue.node);
-        current_process->ipc_buf_xfer_len = frame->r[1];
+        current_process->ipc_buf_xfer_len = frame->r[1] > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : frame->r[1];
         current_process->process_state = PROCESS_BLOCKED;
         schedule();
     }
@@ -590,11 +599,12 @@ void proc_replyx(exception_frame_t *frame)
     {
         ipc_panic_bad_trap_frame("proc_replyx.target", target, target_frame);
     }
+    uint32_t xlen = frame->r[1] > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : frame->r[1];
     target_frame->r[0] = 0;           // success
-    target_frame->r[1] = frame->r[1]; // reply payload
+    target_frame->r[1] = xlen;        // reply payload
     target_frame->r[2] = 0;
     target_frame->r[3] = 0;
-    ipc_buf_copy(current_process, target, frame->r[1]);
+    ipc_buf_copy(current_process, target, xlen);
 
     // Wake the caller
     target->ipc_state = IPC_NONE;

@@ -1,6 +1,7 @@
 #include "loader.h"
 #include <mem.h>
 #include <string.h>
+#include <stdint.h>
 
 #include "kernel/proc/kstack.h"
 #include "kernel/mm/pmm.h"
@@ -173,11 +174,18 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
                 .owner = VM_OWNER_ANON,
                 .flags = VM_FLAG_NONE,
             };
-            vmm_add_region(process->as, &seg_region);
+            if (!vmm_add_region(process->as, &seg_region)) {
+                KERROR("Failed to add ELF segment region at VA %08X", ph->p_vaddr);
+                kfree(segment_pages);
+                goto fail_kstack;
+            }
             
             kfree(segment_pages);
         }
     }
+
+    const uintptr_t user_stack_base = 0x7FFFC000;
+    const uintptr_t user_guard_va = user_stack_base - PAGE_SIZE;
 
     uintptr_t user_stack_pa = pmm_alloc_pages(4);
     if (!user_stack_pa)
@@ -186,7 +194,7 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
     for (int i = 0; i < 4; i++)
     {
         if (!kmap_user_page(process->as, user_stack_pa + i * 0x1000,
-                            0x7FFFC000 + i * 0x1000,
+                            user_stack_base + i * 0x1000,
                             VM_PROT_READ | VM_PROT_WRITE))
         {
             // free unmapped remainder (orphans)
@@ -197,14 +205,17 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
     }
 
     vm_region_t stack_region = {
-        .vaddr_start = 0x7FFFB000,
+        .vaddr_start = user_stack_base,
         .size        = 4 * PAGE_SIZE,
         .prot        = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
         .memtype     = VM_MEM_NORMAL,
         .owner       = VM_OWNER_ANON,
         .flags       = VM_FLAG_NONE,
     };
-    vmm_add_region(process->as, &stack_region);
+    if (!vmm_add_region(process->as, &stack_region)) {
+        KERROR("Failed to add user stack region");
+        goto fail_kstack;
+    }
 
     if (!kmap_user_page(process->as, syspage_pa(), 0x1000, VM_PROT_READ))
         goto fail_kstack;
@@ -225,16 +236,22 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
         .owner = VM_OWNER_ANON,
         .flags = VM_FLAG_NONE,
     };
-    vmm_add_region(process->as, &ipc_region);
+    if (!vmm_add_region(process->as, &ipc_region)) {
+        KERROR("Failed to add IPC buffer region");
+        goto fail_kstack;
+    }
     vm_region_t guard = {
-        .vaddr_start = 0x7FFFD000,
+        .vaddr_start = user_guard_va,
         .size = PAGE_SIZE,
         .prot = 0,
         .memtype = VM_MEM_NORMAL,
         .owner = VM_OWNER_NONE,
         .flags = VM_FLAG_GUARD,
     };
-    vmm_add_region(process->as, &guard);
+    if (!vmm_add_region(process->as, &guard)) {
+        KERROR("Failed to add user stack guard region");
+        goto fail_kstack;
+    }
     vm_region_t sys_region = {
         .vaddr_start = 0x1000,
         .size = PAGE_SIZE,
@@ -243,28 +260,89 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
         .owner = VM_OWNER_SHARED,
         .flags = VM_FLAG_NONE,
     };
-    vmm_add_region(process->as, &sys_region);
+    if (!vmm_add_region(process->as, &sys_region)) {
+        KERROR("Failed to add syspage region");
+        goto fail_kstack;
+    }
 
     // lay out argc argv on the user stack
     uintptr_t sp = USR_SP;
     uintptr_t argv_va = 0;
 
+    const size_t user_stack_size = 4 * PAGE_SIZE;
+
+    if ((argc > 0) != (argbuf && argbuf_len > 0)) {
+        KERROR("Invalid argv payload: argc=%u argbuf_len=%u", argc, (unsigned)argbuf_len);
+        goto fail_kstack;
+    }
+
     if (argbuf && argbuf_len > 0 && argc > 0) {
+        if (((const char *)argbuf)[argbuf_len - 1] != '\0') {
+            KERROR("Invalid argv payload: missing trailing NUL");
+            goto fail_kstack;
+        }
+
+        size_t nul_count = 0;
+        for (size_t i = 0; i < argbuf_len; i++) {
+            if (((const char *)argbuf)[i] == '\0') {
+                nul_count++;
+            }
+        }
+        if (nul_count < argc) {
+            KERROR("Invalid argv payload: argc exceeds NUL-delimited strings");
+            goto fail_kstack;
+        }
+
+        size_t argv_slots = (size_t)argc + 1u;
+        if (argv_slots <= (size_t)argc) {
+            KERROR("Invalid argv payload: argc too large");
+            goto fail_kstack;
+        }
+
+        size_t argv_bytes = argv_slots * sizeof(uint32_t);
+        if (argv_bytes / sizeof(uint32_t) != argv_slots) {
+            KERROR("Invalid argv payload: argv bytes overflow");
+            goto fail_kstack;
+        }
+        uintptr_t check_sp = USR_SP;
+
+        if (check_sp - user_stack_base > user_stack_size ||
+            argbuf_len > (size_t)(check_sp - user_stack_base)) {
+            KERROR("argv payload does not fit user stack");
+            goto fail_kstack;
+        }
+
+        check_sp -= argbuf_len;
+        check_sp &= ~((uintptr_t)3u);
+
+        if (argv_bytes > (size_t)(check_sp - user_stack_base)) {
+            KERROR("argv pointer array does not fit user stack");
+            goto fail_kstack;
+        }
+
+        check_sp -= argv_bytes;
+        check_sp &= ~((uintptr_t)7u);
+
+        if (check_sp < user_stack_base) {
+            KERROR("argv layout underflowed user stack");
+            goto fail_kstack;
+        }
+
         sp -= argbuf_len;
         sp &= ~3u;
         uintptr_t strings_va = sp;
-        memcpy((void *)PA_TO_VA(user_stack_pa + (strings_va - 0x7FFFC000)),
+        memcpy((void *)PA_TO_VA(user_stack_pa + (strings_va - user_stack_base)),
                argbuf, argbuf_len);
 
         sp -= (argc + 1) * sizeof(uint32_t);
         sp &= ~7u;
         argv_va = sp;
-        uint32_t *argv_kern = (uint32_t *)PA_TO_VA(user_stack_pa + (argv_va - 0x7FFFC000));
+        uint32_t *argv_kern = (uint32_t *)PA_TO_VA(user_stack_pa + (argv_va - user_stack_base));
 
         uintptr_t str_va = strings_va;
         for (uint32_t a = 0; a < argc; a++) {
             argv_kern[a] = (uint32_t)str_va;
-            str_va += strlen((const char *)PA_TO_VA(user_stack_pa + (str_va - 0x7FFFC000))) + 1;
+            str_va += strlen((const char *)PA_TO_VA(user_stack_pa + (str_va - user_stack_base))) + 1;
         }
         argv_kern[argc] = 0;
     }
@@ -344,7 +422,7 @@ fail_as:
     // as_destroy() tears down mappings/tables but does not reclaim user backing pages.
     // Reclaim mapped user pages here for all partially loaded process states.
     if (process->as)
-        arch_mmu_free_user_pages(process->as->ttbr0_pa);
+        arch_mmu_free_user_pages(process->as);
     as_destroy(process->as);
 fail_process:
     handle_vec_destroy(&process->handle_table);

@@ -15,6 +15,8 @@ typedef struct endpoint {
     list_head_t sender_queue;
     list_head_t receiver_queue;
     uint32_t owner_pid;
+    uint32_t ref_count;
+    bool alive;
     list_node_t node;
 } endpoint_t;
 
@@ -25,6 +27,7 @@ typedef struct {
     bool mapped; // is this device currently mapped?
     char compatible[32]; // DTB compatible string
     uint32_t irq;
+    uint32_t ref_count;
 } device_cap_t;
 
 typedef struct {

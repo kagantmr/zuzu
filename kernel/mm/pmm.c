@@ -330,7 +330,10 @@ uintptr_t pmm_alloc_pages(size_t n_pages) {
 int pmm_free_page(const uintptr_t addr) {
     uint32_t flags;
     spin_lock_irqsave(&pmm_lock, &flags);
-    if (addr % PAGE_SIZE != 0) return FREE_FAIL;
+    if (addr % PAGE_SIZE != 0) {
+        spin_unlock_irqrestore(&pmm_lock, flags);
+        return FREE_FAIL;
+    }
 
     const size_t pfn = addr / PAGE_SIZE;
 

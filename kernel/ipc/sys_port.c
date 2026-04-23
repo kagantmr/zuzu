@@ -68,6 +68,8 @@ void port_create(exception_frame_t *frame)
     list_init(&new_endpoint->sender_queue);
     list_init(&new_endpoint->receiver_queue);
     new_endpoint->owner_pid = current_process->pid;
+    new_endpoint->ref_count = 1;
+    new_endpoint->alive = true;
     entry->ep = new_endpoint;
     entry->grantable = true;
     entry->type = HANDLE_ENDPOINT;
@@ -106,6 +108,15 @@ void port_destroy(exception_frame_t *frame)
         return;
     }
 
+    if (!ep->alive)
+    {
+        entry->ep = NULL;
+        entry->grantable = false;
+        entry->type = HANDLE_FREE;
+        frame->r[0] = ERR_DEAD;
+        return;
+    }
+
     // Only owner can destroy
     if (ep->owner_pid != current_process->pid)
     {
@@ -137,11 +148,17 @@ void port_destroy(exception_frame_t *frame)
         sched_add(proc);
     }
 
-    // Clean up
-    kfree_endpoint(ep);
+    ep->alive = false;
+
     entry->ep = NULL;
     entry->grantable = false;
     entry->type = HANDLE_FREE;
+
+    if (ep->ref_count > 0)
+        ep->ref_count--;
+    if (ep->ref_count == 0)
+        kfree_endpoint(ep);
+
     frame->r[0] = 0;
 }
 
@@ -204,6 +221,37 @@ void port_grant(exception_frame_t *frame)
     }
 
     *dst = *src;
+
+    if (dst->type == HANDLE_ENDPOINT) {
+        if (!dst->ep || !dst->ep->alive) {
+            dst->type = HANDLE_FREE;
+            dst->grantable = false;
+            dst->ep = NULL;
+            frame->r[0] = ERR_DEAD;
+            return;
+        }
+        dst->ep->ref_count++;
+    }
+    if (dst->type == HANDLE_DEVICE) {
+        if (!dst->dev) {
+            dst->type = HANDLE_FREE;
+            dst->grantable = false;
+            frame->r[0] = ERR_BADARG;
+            return;
+        }
+        dst->dev->ref_count++;
+    }
+    if (dst->type == HANDLE_NOTIFICATION) {
+        if (!dst->ntfn || !dst->ntfn->alive) {
+            dst->type = HANDLE_FREE;
+            dst->grantable = false;
+            dst->ntfn = NULL;
+            frame->r[0] = ERR_DEAD;
+            return;
+        }
+        dst->ntfn->ref_count++;
+    }
+
     if (dst->type == HANDLE_SHMEM)
         dst->mapped_va = 0;
     dst->grantable = can_regrant_received_handle(grantee);
