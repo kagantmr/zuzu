@@ -139,21 +139,8 @@ void process_kill(process_t *p, const int exit_status) {
 
         if (entry->type == HANDLE_ENDPOINT) {
             endpoint_t *ep = entry->ep;
-            if (ep && ep->owner_pid == p->pid) {
-                // A process may hold multiple handle slots that alias the same
-                // owned endpoint. Collapse aliases so teardown frees each
-                // endpoint object at most once.
-                for (uint32_t j = i + 1; j < p->handle_table.cap; j++) {
-                    handle_entry_t *alias = handle_vec_get(&p->handle_table, j);
-                    if (!alias)
-                        break;
-                    if (alias->type == HANDLE_ENDPOINT && alias->ep == ep) {
-                        alias->ep = NULL;
-                        alias->grantable = false;
-                        alias->type = HANDLE_FREE;
-                    }
-                }
-
+            if (ep && ep->owner_pid == p->pid && ep->alive) {
+                ep->alive = false;
                 // Wake blocked waiters with ERR_DEAD
                 while (!list_empty(&ep->sender_queue)) {
                     list_node_t *n = list_pop_front(&ep->sender_queue);
@@ -173,14 +160,23 @@ void process_kill(process_t *p, const int exit_status) {
                     proc->process_state = PROCESS_READY;
                     sched_add(proc);
                 }
-                kfree_endpoint(ep);
+            }
+            if (ep) {
+                if (ep->ref_count > 0)
+                    ep->ref_count--;
+                if (ep->ref_count == 0)
+                    kfree_endpoint(ep);
             }
             entry->ep = NULL;
             entry->grantable = false;
             entry->type = HANDLE_FREE;
         } else if (entry->type == HANDLE_DEVICE) {
-            if (entry->dev)
-                kfree_device_cap(entry->dev);
+            if (entry->dev) {
+                if (entry->dev->ref_count > 0)
+                    entry->dev->ref_count--;
+                if (entry->dev->ref_count == 0)
+                    kfree_device_cap(entry->dev);
+            }
             entry->dev = NULL;
             entry->mapped_va = 0;
             entry->grantable = false;
@@ -224,7 +220,8 @@ void process_kill(process_t *p, const int exit_status) {
             entry->type = HANDLE_FREE;
         } else if (entry->type == HANDLE_NOTIFICATION) {
             notification_t *ntfn = entry->ntfn;
-            if (ntfn) {
+            if (ntfn && ntfn->owner_pid == p->pid && ntfn->alive) {
+                ntfn->alive = false;
                 while (!list_empty(&ntfn->wait_queue)) {
                     list_node_t *n = list_pop_front(&ntfn->wait_queue);
                     process_t *proc = container_of(n, process_t, node);
@@ -232,7 +229,12 @@ void process_kill(process_t *p, const int exit_status) {
                     proc->process_state = PROCESS_READY;
                     sched_add(proc);
                 }
-                kfree(ntfn);
+            }
+            if (ntfn) {
+                if (ntfn->ref_count > 0)
+                    ntfn->ref_count--;
+                if (ntfn->ref_count == 0)
+                    kfree(ntfn);
             }
             entry->ntfn = NULL;
             entry->grantable = false;
@@ -279,7 +281,7 @@ void process_destroy(process_t *p)
         list_remove(&p->sibling_node);
     if (p->as)
     {
-        arch_mmu_free_user_pages(p->as->ttbr0_pa);
+        arch_mmu_free_user_pages(p->as);
         as_destroy(p->as);
     }
     handle_vec_destroy(&p->handle_table);

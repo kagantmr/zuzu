@@ -15,6 +15,8 @@ void ntfn_create(exception_frame_t *frame) {
     ntfn->word = 0;
     list_init(&ntfn->wait_queue);
     ntfn->owner_pid = current_process->pid;
+    ntfn->ref_count = 1;
+    ntfn->alive = true;
 
     handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle);
     entry->type = HANDLE_NOTIFICATION;
@@ -33,6 +35,10 @@ void ntfn_signal(exception_frame_t *frame) {
     }
 
     notification_t *ntfn = entry->ntfn;
+    if (!ntfn || !ntfn->alive) {
+        frame->r[0] = ERR_DEAD;
+        return;
+    }
     ntfn->word |= bits;
 
     // Wake one waiter if any
@@ -60,6 +66,10 @@ void ntfn_wait(exception_frame_t *frame) {
     }
 
     notification_t *ntfn = entry->ntfn;
+    if (!ntfn || !ntfn->alive) {
+        frame->r[0] = ERR_DEAD;
+        return;
+    }
 
     if (ntfn->word != 0) {
         // Bits already set, return immediately
@@ -84,6 +94,10 @@ void ntfn_poll(exception_frame_t *frame) {
     }
 
     notification_t *ntfn = entry->ntfn;
+    if (!ntfn || !ntfn->alive) {
+        frame->r[0] = ERR_DEAD;
+        return;
+    }
     frame->r[0] = ntfn->word;
     ntfn->word = 0;
 }

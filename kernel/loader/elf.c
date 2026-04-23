@@ -13,7 +13,10 @@ uint32_t elf_validate(const void *data, size_t size) {
     {
         return 0;
     }
-    uint32_t ph_end = ehdr->e_phoff + (uint32_t)ehdr->e_phnum * ehdr->e_phentsize;
+    if (ehdr->e_phentsize != sizeof(Elf32_Phdr)) {
+        return 0;
+    }
+    uint64_t ph_end = ehdr->e_phoff + (uint64_t)ehdr->e_phnum * ehdr->e_phentsize;
     if (ph_end > size)
         return 0;
     return ehdr->e_entry;

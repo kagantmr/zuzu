@@ -1,6 +1,7 @@
 #include "sys_irq.h"
 #include "kernel/syscall/syscall.h"
 #include "kernel/sched/sched.h"
+#include "kernel/mm/alloc.h"
 #include "arch/arm/include/irq.h"
 #include <mem.h>
 
@@ -19,7 +20,7 @@ static void relay_handler(void *ctx)
     irq_owners[irq_num].pending = true;
 
     notification_t *ntfn = irq_owners[irq_num].bound_ntfn;
-    if (ntfn) {
+    if (ntfn && ntfn->alive) {
         ntfn->word |= (1u << (irq_num & 31));
         irq_owners[irq_num].pending = false;
 
@@ -32,6 +33,8 @@ static void relay_handler(void *ctx)
             waiter->blocked_endpoint = NULL;
             sched_add(waiter);
         }
+    } else if (ntfn && !ntfn->alive) {
+        irq_owners[irq_num].bound_ntfn = NULL;
     }
 }
 
@@ -119,7 +122,21 @@ void irq_bind(exception_frame_t *frame) {
         return;
     }
 
+    if (!ntfn_entry->ntfn->alive) {
+        frame->r[0] = ERR_DEAD;
+        return;
+    }
+
+    if (irq_owners[irq_num].bound_ntfn) {
+        notification_t *old = irq_owners[irq_num].bound_ntfn;
+        if (old->ref_count > 0)
+            old->ref_count--;
+        if (old->ref_count == 0)
+            kfree(old);
+    }
+
     irq_owners[irq_num].bound_ntfn = ntfn_entry->ntfn;
+    irq_owners[irq_num].bound_ntfn->ref_count++;
 
     if (irq_owners[irq_num].pending) {
         notification_t *ntfn = irq_owners[irq_num].bound_ntfn;
@@ -174,6 +191,14 @@ void irq_done(exception_frame_t* frame) {
 void irq_release_all(process_t *owner) {
     for (int i = 0; i < MAX_IRQS; i++) {
         if (irq_owners[i].owner == owner) {
+            if (irq_owners[i].bound_ntfn) {
+                notification_t *ntfn = irq_owners[i].bound_ntfn;
+                if (ntfn->ref_count > 0)
+                    ntfn->ref_count--;
+                if (ntfn->ref_count == 0)
+                    kfree(ntfn);
+                irq_owners[i].bound_ntfn = NULL;
+            }
             irq_disable_line(i);
             irq_unregister(i);
             memset(&irq_owners[i], 0, sizeof(irq_owner_t));
