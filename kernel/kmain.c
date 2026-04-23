@@ -39,7 +39,6 @@
 #define LOG_FMT(fmt) "(main) " fmt
 #include "core/log.h"
 
-
 extern kernel_layout_t kernel_layout;
 extern pmm_state_t pmm_state;
 extern phys_region_t phys_region;
@@ -53,24 +52,27 @@ static inline uint32_t read_be32(const void *p)
            ((uint32_t)b[3]);
 }
 
-static process_t *s_devmgr; 
+static process_t *s_devmgr;
 extern void arch_reboot(void);
 
 #define BOOT_PROGRAM_PREFIX "bin/"
 
-typedef struct boot_program {
+typedef struct boot_program
+{
     const char *path;
     uint32_t flags;
     uint8_t owns_path;
 } boot_program_t;
 
 static void inject_device_cap(const char *compatible,
-                               uint64_t phys, uint64_t size,
-                               uint32_t irq)
+                              uint64_t phys, uint64_t size,
+                              uint32_t irq)
 {
-    if (!s_devmgr) return;
+    if (!s_devmgr)
+        return;
     device_cap_t *cap = (device_cap_t *)kalloc_device_cap();
-    if (!cap) return;
+    if (!cap)
+        return;
     strncpy(cap->compatible, compatible, sizeof(cap->compatible) - 1);
     cap->compatible[sizeof(cap->compatible) - 1] = '\0';
     cap->phys_base = (uint32_t)phys;
@@ -80,13 +82,15 @@ static void inject_device_cap(const char *compatible,
     cap->ref_count = 1;
     // 3. handle_vec_find_free on s_devmgr->handle_table
     int handle = handle_vec_find_free(&s_devmgr->handle_table);
-    if (handle < 0) {
+    if (handle < 0)
+    {
         kfree_device_cap(cap);
         return;
     }
     // 4. handle_vec_get that slot, write HANDLE_DEVICE entry
     handle_entry_t *entry = handle_vec_get(&s_devmgr->handle_table, (uint32_t)handle);
-    if (!entry) {
+    if (!entry)
+    {
         kfree_device_cap(cap);
         return;
     }
@@ -101,20 +105,23 @@ static void boot_program(const char *path, uint32_t flags)
     const void *elf_data;
     size_t elf_size;
 
-    if (!initrd_find(path, &elf_data, &elf_size)) {
+    if (!initrd_find(path, &elf_data, &elf_size))
+    {
         KERROR("Missing boot program %s", path);
         return;
     }
 
     process_t *process = process_create_from_elf(elf_data, elf_size, path, NULL, 0, 0);
-    if (!process) {
+    if (!process)
+    {
         KERROR("Failed to create boot program %s", path);
         return;
     }
 
     process->flags |= flags;
 
-    if (flags & PROC_FLAG_DEVMGR) {
+    if (flags & PROC_FLAG_DEVMGR)
+    {
         s_devmgr = process;
         dtb_enum_devices(inject_device_cap);
     }
@@ -126,14 +133,14 @@ static uint32_t parse_flag_string(const char *flag_str)
 {
     if (!flag_str)
         return 0;
-    
+
     if (strcmp(flag_str, "init") == 0)
         return PROC_FLAG_INIT;
     if (strcmp(flag_str, "dev") == 0 || strcmp(flag_str, "devmgr") == 0)
         return PROC_FLAG_DEVMGR;
     if (strcmp(flag_str, "none") == 0)
         return 0;
-    
+
     return 0;
 }
 
@@ -142,7 +149,8 @@ static const char *normalize_manifest_program_path(const char *path_in)
     if (!path_in || !path_in[0])
         return NULL;
 
-    if (strchr(path_in, '/')) {
+    if (strchr(path_in, '/'))
+    {
         char *path = (char *)kmalloc(strlen(path_in) + 1);
         if (!path)
             return NULL;
@@ -162,7 +170,7 @@ static const char *normalize_manifest_program_path(const char *path_in)
 }
 
 static size_t parse_boot_manifest(const char *manifest_data, size_t manifest_size,
-                                   boot_program_t *out_programs, size_t max_programs)
+                                  boot_program_t *out_programs, size_t max_programs)
 {
     if (!manifest_data || !manifest_size || !out_programs || !max_programs)
         return 0;
@@ -171,7 +179,8 @@ static size_t parse_boot_manifest(const char *manifest_data, size_t manifest_siz
     const char *line_start = manifest_data;
     const char *end = manifest_data + manifest_size;
 
-    while (line_start < end && count < max_programs) {
+    while (line_start < end && count < max_programs)
+    {
         const char *line_end = line_start;
         while (line_end < end && *line_end != '\n')
             line_end++;
@@ -179,27 +188,31 @@ static size_t parse_boot_manifest(const char *manifest_data, size_t manifest_siz
         size_t line_len = line_end - line_start;
 
         // skip empty lines and comments
-        if (line_len == 0 || line_start[0] == '#' || line_start[0] == '\n') {
+        if (line_len == 0 || line_start[0] == '#' || line_start[0] == '\n')
+        {
             line_start = line_end + 1;
             continue;
         }
 
         // trim trailing whitespace
-        while (line_len > 0 && (line_start[line_len - 1] == '\r' || 
+        while (line_len > 0 && (line_start[line_len - 1] == '\r' ||
                                 line_start[line_len - 1] == ' ' ||
                                 line_start[line_len - 1] == '\t'))
             line_len--;
 
         // find pipe separator
         int pipe_idx = -1;
-        for (size_t i = 0; i < line_len; i++) {
-            if (line_start[i] == '|') {
+        for (size_t i = 0; i < line_len; i++)
+        {
+            if (line_start[i] == '|')
+            {
                 pipe_idx = i;
                 break;
             }
         }
 
-        if (pipe_idx <= 0) {
+        if (pipe_idx <= 0)
+        {
             KWARN("Boot manifest: invalid line format (missing pipe)");
             line_start = line_end + 1;
             continue;
@@ -212,7 +225,8 @@ static size_t parse_boot_manifest(const char *manifest_data, size_t manifest_siz
                (path_start[path_len - 1] == ' ' || path_start[path_len - 1] == '\t'))
             path_len--;
         char path_buf[256];
-        if (path_len >= sizeof(path_buf)) {
+        if (path_len >= sizeof(path_buf))
+        {
             KWARN("Boot manifest: path too long");
             line_start = line_end + 1;
             continue;
@@ -224,7 +238,8 @@ static size_t parse_boot_manifest(const char *manifest_data, size_t manifest_siz
         const char *flags_start = line_start + pipe_idx + 1;
         size_t flags_len = line_len - pipe_idx - 1;
         while (flags_len > 0 &&
-               (*flags_start == ' ' || *flags_start == '\t')) {
+               (*flags_start == ' ' || *flags_start == '\t'))
+        {
             flags_start++;
             flags_len--;
         }
@@ -232,7 +247,8 @@ static size_t parse_boot_manifest(const char *manifest_data, size_t manifest_siz
                (flags_start[flags_len - 1] == ' ' || flags_start[flags_len - 1] == '\t'))
             flags_len--;
         char flags_buf[64];
-        if (flags_len >= sizeof(flags_buf)) {
+        if (flags_len >= sizeof(flags_buf))
+        {
             flags_len = sizeof(flags_buf) - 1;
         }
         memcpy(flags_buf, flags_start, flags_len);
@@ -240,7 +256,8 @@ static size_t parse_boot_manifest(const char *manifest_data, size_t manifest_siz
 
         // populate output entry
         out_programs[count].path = normalize_manifest_program_path(path_buf);
-        if (!out_programs[count].path) {
+        if (!out_programs[count].path)
+        {
             KERROR("Boot manifest: allocation failed");
             break;
         }
@@ -275,13 +292,13 @@ static inline void perform_panic_tests(void)
     //__asm__ volatile("cps #0x11\n");
 
     // test 6: a bad access in kernel code should panic with a data abort.
-    // __asm__ volatile("mov r0, #0x0\n" "str r0, [r0]\n");
+    //__asm__ volatile("mov r0, #0x0\n" "str r0, [r0]\n");
 
     // test 7: a syscall should do absolutely nothing in SVC mode, used to crash, fixed by ignoring in SVC mode.
     //__asm__ volatile("svc #0");
 
     // test 8: just manually halt the system
-    //panic("Test panic triggered (chewed wires)");
+    // panic("Test panic triggered (chewed wires)");
 }
 
 _Noreturn void kmain(void)
@@ -355,14 +372,17 @@ _Noreturn void kmain(void)
     // Read and parse boot manifest
     const void *manifest_data;
     size_t manifest_size;
-    boot_program_t boot_programs[16];  // max 16 boot programs
+    boot_program_t boot_programs[16]; // max 16 boot programs
     size_t boot_count = 0;
 
-    if (initrd_find("boot.manifest", &manifest_data, &manifest_size)) {
-        boot_count = parse_boot_manifest(manifest_data, manifest_size, 
+    if (initrd_find("boot.manifest", &manifest_data, &manifest_size))
+    {
+        boot_count = parse_boot_manifest(manifest_data, manifest_size,
                                          boot_programs, sizeof(boot_programs) / sizeof(boot_programs[0]));
         KDEBUG("Loaded boot manifest: %u programs", boot_count);
-    } else {
+    }
+    else
+    {
         KWARN("Boot manifest not found in initrd");
         // Fallback to hardcoded defaults
         static const boot_program_t default_programs[] = {
@@ -378,15 +398,16 @@ _Noreturn void kmain(void)
     }
 
     // Spawn boot programs from manifest
-    for (size_t i = 0; i < boot_count; i++) {
+    for (size_t i = 0; i < boot_count; i++)
+    {
         boot_program(boot_programs[i].path, boot_programs[i].flags);
-        if (boot_programs[i].owns_path && boot_programs[i].path) {
+        if (boot_programs[i].owns_path && boot_programs[i].path)
+        {
             kfree((void *)boot_programs[i].path);
             boot_programs[i].path = NULL;
             boot_programs[i].owns_path = 0;
         }
     }
-
 
     /**
      * Hacky as hell I know but DTB enumeration is absolutely horrible with
@@ -401,9 +422,9 @@ _Noreturn void kmain(void)
     KINFO("Entering idle");
 
     schedule();
-    //uint64_t idle_ticks = 0;
+    // uint64_t idle_ticks = 0;
     while (1)
-    {   
+    {
         sched_reap();
         sched_idle_wait();
         schedule();
