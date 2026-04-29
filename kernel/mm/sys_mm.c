@@ -70,7 +70,9 @@ void memmap(exception_frame_t *frame)
         frame->r[0] = ERR_BADARG;
         return;
     }
-    current_process->mmap_va_next += size;
+    if (addr_hint == 0) {
+        current_process->mmap_va_next += size;
+    }
 
     // 3. Register the region — no physical pages allocated yet
     vm_region_t region = {

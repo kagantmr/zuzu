@@ -86,8 +86,12 @@ static const char *decode_mode(uint32_t spsr)
         return "IRQ";
     case 0x13:
         return "SVC";
+    case 0x16:
+        return "MON";
     case 0x17:
         return "ABT";
+    case 0x1A:
+        return "HYP";
     case 0x1B:
         return "UND";
     case 0x1F:
@@ -237,7 +241,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
         uint32_t fault_status = (dfsr & 0xF) | ((dfsr >> 6) & 0x10);
         bool is_translation = (fault_status == 0x05 || fault_status == 0x07);
 
-        if ((from_user || from_svc) && current_process && current_process->as && dfar < USER_VA_TOP)
+        if ((from_user || from_svc) && current_process && current_process->as && dfar < KSTACK_REGION_BASE)
         {
             // Check if it hit a kernel stack guard page (low 4KB of each 8KB slot)
             if (dfar >= KSTACK_REGION_BASE && dfar < KSTACK_REGION_BASE + 64 * 0x2000)

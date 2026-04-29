@@ -82,9 +82,8 @@ static void generic_timer_handler(void *ctx)
 
     if (!timer_first_irq_logged)
     {
-        const char *src = (irq_id == TIMER_IRQ_PHYS) ? "CNTP (phys)" : (irq_id == TIMER_IRQ_VIRT) ? "CNTV (virt)"
-                                                                                                  : "unknown";
-        KDEBUG("Generic timer first IRQ source: %s (irq=%u)", src, irq_id);
+        KDEBUG("Generic timer first IRQ source: %s (irq=%u)", (irq_id == TIMER_IRQ_PHYS) ? "CNTP (phys)" : (irq_id == TIMER_IRQ_VIRT) ? "CNTV (virt)"
+                                                                                                  : "unknown", irq_id);
         timer_first_irq_logged = true;
     }
 

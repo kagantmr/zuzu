@@ -73,6 +73,7 @@ static void sched_wake_sleepers(void) {
                 // Regular sleep timeout
                 p->process_state = PROCESS_READY;
                 list_add_tail(&p->node, &run_queue.node);
+                p->wake_tick = 0;
             }
         }
         curr = next;

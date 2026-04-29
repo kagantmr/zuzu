@@ -58,6 +58,7 @@ void port_create(exception_frame_t *frame)
                     p_entry->ep = nametable_endpoint;
                     p_entry->grantable = true;
                     p_entry->type = HANDLE_ENDPOINT;
+                    nametable_endpoint->ref_count++;
                 } else if (p_entry && p_entry->type != HANDLE_FREE) {
                     KWARN("nametable bootstrap skipped PID %u: handle slot 0 already in use", p->pid);
                 }

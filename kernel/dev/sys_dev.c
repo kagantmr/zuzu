@@ -60,6 +60,19 @@ void mapdev(exception_frame_t *frame)
         return;
     }
 
+    if (!vmm_add_region(current_process->as, &(vm_region_t){
+        .vaddr_start = user_va,
+        .size = size_aligned,
+        .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
+        .memtype = VM_MEM_DEVICE,
+        .owner = VM_OWNER_NONE,
+        .flags = VM_FLAG_NONE,
+    })) {
+        vmm_unmap_range(current_process->as, user_va, size_aligned);
+        frame->r[0] = ERR_NOMEM;
+        return;
+    }
+
     // flush TLB for this VA
     arch_mmu_flush_tlb_va(user_va);
     arch_mmu_barrier();
