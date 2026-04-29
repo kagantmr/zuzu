@@ -18,12 +18,12 @@ extern endpoint_t *nametable_endpoint;
 
 #define WAIT_ANY_PID ((uint32_t)-1)
 
-static void wait_write_status(int32_t *status_out, int32_t status)
+static bool wait_write_status(int32_t *status_out, int32_t status)
 {
     if (!status_out)
-        return;
+        return true;
 
-    (void)copy_to_user(status_out, &status, sizeof(status));
+    return copy_to_user(status_out, &status, sizeof(status));
 }
 
 void quit(exception_frame_t *frame) {
@@ -35,6 +35,7 @@ void quit(exception_frame_t *frame) {
 }
 
 void yield(exception_frame_t *frame) {
+    frame->r[0] = 0;
     (void)frame;
     schedule();
 }
@@ -51,6 +52,7 @@ void sleep(exception_frame_t *frame) {
     current_process->wake_reason = WAKE_NONE;
     
     // Change state
+    frame->r[0] = 0;
     current_process->process_state = PROCESS_BLOCKED;
     list_add_tail(&current_process->timeout_node, &sleep_queue.node);
     // Schedule someone else immediately
@@ -71,7 +73,10 @@ void wait(exception_frame_t *frame) {
     if (req_pid == -1) {
         child = process_find_zombie_child(current_process);
         if (child) {
-            wait_write_status(status_out, child->exit_status);
+            if (!wait_write_status(status_out, child->exit_status)) {
+                frame->r[0] = ERR_PTRFAULT;
+                return;
+            }
             frame->r[0] = child->pid;
             process_destroy(child);
             return;
@@ -91,7 +96,10 @@ void wait(exception_frame_t *frame) {
             frame->r[0] = ERR_NOENT;
             return;
         }
-        wait_write_status(status_out, child->exit_status);
+        if (!wait_write_status(status_out, child->exit_status)) {
+            frame->r[0] = ERR_PTRFAULT;
+            return;
+        }
         frame->r[0] = child->pid;
         process_destroy(child);
         return;
@@ -111,7 +119,10 @@ void wait(exception_frame_t *frame) {
 
     // Case A: child already exited
     if (child->process_state == PROCESS_ZOMBIE) {
-        wait_write_status(status_out, child->exit_status);
+        if (!wait_write_status(status_out, child->exit_status)) {
+            frame->r[0] = ERR_PTRFAULT;
+            return;
+        }
         frame->r[0] = child->pid;
         process_destroy(child);
         return;
@@ -134,7 +145,10 @@ void wait(exception_frame_t *frame) {
         frame->r[0] = ERR_NOENT;
         return;
     }
-    wait_write_status(status_out, child->exit_status);
+    if (!wait_write_status(status_out, child->exit_status)) {
+        frame->r[0] = ERR_PTRFAULT;
+        return;
+    }
     frame->r[0] = child->pid;
     process_destroy(child);
 }

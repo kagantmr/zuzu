@@ -4,7 +4,7 @@
 #include "arch/arm/timer/generic_timer.h"
 
 #include "arch/arm/mmu/mmu.h"
-#include "board.h"
+#include "arch/arm/vexpress-a15/board.h"
 
 #include "drivers/uart/uart.h"
 #include "drivers/uart/pl011.h"
@@ -388,10 +388,6 @@ _Noreturn void kmain(void)
         static const boot_program_t default_programs[] = {
             {"bin/zuzusysd", PROC_FLAG_INIT, 0},
             {"bin/devmgr", PROC_FLAG_DEVMGR, 0},
-            {"bin/zuart", 0, 0},
-            {"bin/zusd", 0, 0},
-            {"bin/fat32d", 0, 0},
-            {"bin/fbox", 0, 0},
         };
         boot_count = sizeof(default_programs) / sizeof(default_programs[0]);
         memcpy(boot_programs, default_programs, sizeof(default_programs));

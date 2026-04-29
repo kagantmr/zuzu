@@ -42,12 +42,12 @@ process_t *process_create(const char* name) {
 
     uint32_t *kstack = (uint32_t *)kstack_alloc();
     if (!kstack)
-        goto fail_kstack;
+        goto fail_as;
     process->kernel_stack_top = (uintptr_t)kstack;
 
     // map syspage into user space
     if (!kmap_user_page(process->as, syspage_pa(), 0x1000, VM_PROT_READ))
-        goto fail_as;
+        goto fail_kstack;
 
     vm_region_t sys_region = {
         .vaddr_start = 0x1000,
@@ -58,16 +58,16 @@ process_t *process_create(const char* name) {
         .flags = VM_FLAG_NONE,
     };
     if (!vmm_add_region(process->as, &sys_region))
-        goto fail_as;
+        goto fail_kstack;
 
     // map IPCX transfer buffer into as
     process->ipc_buf_pa = pmm_alloc_page();
     if (!process->ipc_buf_pa)
-        goto fail_as;
+        goto fail_kstack;
 
     if (!kmap_user_page(process->as, process->ipc_buf_pa, IPCX_BUF_VA,
                         VM_PROT_READ | VM_PROT_WRITE))
-        goto fail_as;
+        goto fail_kstack;
 
     vm_region_t ipc_region = {
         .vaddr_start = IPCX_BUF_VA,
@@ -78,12 +78,12 @@ process_t *process_create(const char* name) {
         .flags = VM_FLAG_NONE,
     };
     if (!vmm_add_region(process->as, &ipc_region))
-        goto fail_as;
+        goto fail_kstack;
 
     // slot 0 is reserved for nametable endpoint when available
     handle_entry_t *slot0 = handle_vec_get(&process->handle_table, 0);
     if (!slot0)
-        goto fail_as;
+        goto fail_kstack;
 
     if (nametable_endpoint && nametable_endpoint->alive) {
         slot0->type = HANDLE_ENDPOINT;
@@ -363,6 +363,8 @@ void process_kill(process_t *p, const int exit_status) {
                     proc->trap_frame->r[0] = ERR_DEAD;
                     proc->process_state = PROCESS_READY;
                     sched_add(proc);
+                    proc->blocked_endpoint = NULL;
+                    proc->ipc_state = IPC_NONE;
                 }
             }
             if (ntfn) {
