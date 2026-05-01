@@ -118,8 +118,8 @@ static int inject_stack(uint32_t task_handle,
     return 0;
 }
 
-int exec_load(uint32_t task_handle, const void *elf_data, size_t elf_size,
-              const char *argbuf, size_t argbuf_len, uint32_t argc)
+int exec_inject(uint32_t task_handle, const void *elf_data, size_t elf_size,
+              const char *argbuf, size_t argbuf_len, uint32_t argc, exec_reply_t *out)
 {
     uint32_t entry = elf_validate(elf_data, elf_size);
     if (!entry) return -1;
@@ -154,13 +154,17 @@ int exec_load(uint32_t task_handle, const void *elf_data, size_t elf_size,
     int rc = inject_stack(task_handle, argbuf, argbuf_len, argc, &sp, &argv_va);
     if (rc != 0) return rc;
 
-    // start the process
+    /*
     kickstart_args_t ks = {
         .task_handle = task_handle,
         .entry       = entry,
         .sp          = sp,
         .r0_val      = argc,
         .r1_val      = (uint32_t)argv_va,
-    };
-    return _kickstart(&ks);
+    };*/
+    out->entry = entry;
+    out->sp = sp;
+    out->argc = argc;
+    out->argv_va = argv_va;
+    return rc;
 }
