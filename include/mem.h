@@ -46,5 +46,12 @@ void *memmove(void *dest, const void *src, size_t n);
  */
 int memcmp(const void *str1, const void *str2, size_t count);
 
+/**
+ * @brief Scan a memory area for the first occurrence of a specified byte.
+ * @param s Pointer to the memory area to scan.
+ * @param c Byte value to search for (interpreted as an unsigned char).
+ * @param n Number of bytes to scan.
+ */
+void *memchr(const void *s, int c, size_t n);
 
 #endif /* MEM_H */
