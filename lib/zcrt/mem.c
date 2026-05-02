@@ -73,3 +73,14 @@ int memcmp(const void *str1, const void *str2, size_t count)
     }
     return 0;
 }
+
+void *memchr(const void *s, int c, size_t n)
+{
+    const unsigned char *p = s;
+    while (n--) {
+        if (*p == (unsigned char)c)
+            return (void *)p;
+        p++;
+    }
+    return NULL;
+}
