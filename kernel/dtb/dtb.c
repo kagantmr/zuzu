@@ -106,10 +106,10 @@ bool dtb_init(const void *dtb_base)
 
 static bool read_token(const uint8_t **cur, uint32_t *out_token)
 {
-    kassert(cur != NULL);
-    kassert(out_token != NULL);
-    kassert(*cur != NULL);
-    kassert(g_dtb_ready);
+    assert(cur != NULL);
+    assert(out_token != NULL);
+    assert(*cur != NULL);
+    assert(g_dtb_ready);
 
     // Need 4 bytes available to read a u32 token
     if (*cur + 4 > g_dtb.dtb_end)
@@ -124,10 +124,10 @@ static bool read_token(const uint8_t **cur, uint32_t *out_token)
 
 static bool skip_node_name(const uint8_t **cur, const char **out_name)
 {
-    kassert(cur != NULL);
-    kassert(out_name != NULL);
-    kassert(*cur != NULL);
-    kassert(g_dtb_ready);
+    assert(cur != NULL);
+    assert(out_name != NULL);
+    assert(*cur != NULL);
+    assert(g_dtb_ready);
 
     const uint8_t *p = *cur;
 
@@ -161,12 +161,12 @@ static bool read_property(const uint8_t **cur,
                           const char **out_name,
                           const void **out_val)
 {
-    kassert(cur != NULL);
-    kassert(*cur != NULL);
-    kassert(out_len != NULL);
-    kassert(out_name != NULL);
-    kassert(out_val != NULL);
-    kassert(g_dtb_ready);
+    assert(cur != NULL);
+    assert(*cur != NULL);
+    assert(out_len != NULL);
+    assert(out_name != NULL);
+    assert(out_val != NULL);
+    assert(g_dtb_ready);
 
     const uint8_t *p = *cur;
 
@@ -241,7 +241,7 @@ static void dtb_print_indent(int depth)
 
 void dtb_walk(void)
 {
-    kassert(g_dtb_ready);
+    assert(g_dtb_ready);
 
     const uint8_t *cur = g_dtb.dt_base;
     uint32_t tok = 0;

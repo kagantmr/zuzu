@@ -27,7 +27,7 @@ static inline int pl011_tx_full(void) {
 
 
 void pl011_init(uintptr_t base_addr) {
-	kassert(base_addr != 0);
+	assert(base_addr != 0);
 	pl011_base = base_addr;
 
 	// Leave baud divisors as provided by firmware; just ensure 8N1 + FIFO and enable TX/RX.
@@ -38,7 +38,7 @@ void pl011_init(uintptr_t base_addr) {
 }
 
 void pl011_putc(char c) {
-	//kassert(pl011_base != 0);
+	//assert(pl011_base != 0);
 	while (pl011_tx_full()) {
 		// spin
 	}
@@ -46,7 +46,7 @@ void pl011_putc(char c) {
 }
 
 int pl011_puts(const char *string) {
-	//kassert(string != NULL);
+	//assert(string != NULL);
 	while (*string) {
 		pl011_putc(*string++);
 	}

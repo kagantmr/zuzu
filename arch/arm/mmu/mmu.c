@@ -27,7 +27,7 @@ uintptr_t arch_mmu_create_tables(void)
     if (!l1_pa)
         return 0;
 
-    kassert((l1_pa & (l1_align - 1)) == 0);
+    assert((l1_pa & (l1_align - 1)) == 0);
 
     memset((void *)PA_TO_VA(l1_pa), 0, l1_bytes); // zero the whole 16 KB region
 

@@ -12,7 +12,7 @@ static const struct uart_driver *active_driver;
 static uintptr_t active_base;
 
 static inline void ensure_driver(void) {
-    kassert(active_driver != NULL);
+    assert(active_driver != NULL);
 }
 
 const struct uart_driver *uart_get_driver(void) {
@@ -24,10 +24,10 @@ uintptr_t uart_get_base(void) {
 }
 
 void uart_set_driver(const struct uart_driver *driver, uintptr_t base_addr) {
-    kassert(driver != NULL);
-    kassert(driver->init != NULL);
-    kassert(driver->putc != NULL);
-    kassert(base_addr != 0);
+    assert(driver != NULL);
+    assert(driver->init != NULL);
+    assert(driver->putc != NULL);
+    assert(base_addr != 0);
 
     active_driver = driver;
     active_base = base_addr;
@@ -36,7 +36,7 @@ void uart_set_driver(const struct uart_driver *driver, uintptr_t base_addr) {
 
 void uart_init(uintptr_t base_addr) {
     ensure_driver();
-    kassert(base_addr != 0);
+    assert(base_addr != 0);
     active_base = base_addr;
     active_driver->init(base_addr);
 }
@@ -48,7 +48,7 @@ void uart_putc(char c) {
 
 int uart_puts(const char *string) {
     ensure_driver();
-    kassert(string != NULL);
+    assert(string != NULL);
 
     if (active_driver->puts != NULL) {
         return active_driver->puts(string);
@@ -67,7 +67,7 @@ static void uart_fmt_outc(void *ctx, char c) {
 
 int uart_printf(const char *fstring, ...) {
     ensure_driver();
-    kassert(fstring != NULL);
+    assert(fstring != NULL);
     va_list list;
     va_start(list, fstring);
     vstrfmt(uart_fmt_outc, NULL, fstring, &list);
