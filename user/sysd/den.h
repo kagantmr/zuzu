@@ -1,5 +1,5 @@
-#ifndef ZUZUSYSD_DEN_H
-#define ZUZUSYSD_DEN_H
+#ifndef SYSD_DEN_H
+#define SYSD_DEN_H
 
 #include <stdint.h>
 #include <vector.h>

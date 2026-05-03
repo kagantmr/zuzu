@@ -5,11 +5,7 @@
 #include <zmalloc.h>
 #include <elf.h>  // now a header-only or shared header
 #include <zuzu/memprot.h>
-
-#define USER_STACK_BASE  0x7FFFC000
-#define USER_STACK_PAGES 4
-#define USER_STACK_SIZE  (USER_STACK_PAGES * 0x1000)
-#define USER_STACK_TOP   0x80000000
+#include <zuzu/user_layout.h>
 
 static int inject_segment(uint32_t task_handle, const void *elf_data,
                           size_t elf_size, Elf32_Phdr *ph)
