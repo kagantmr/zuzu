@@ -111,12 +111,12 @@ static uintptr_t pmm_alloc_page_locked(void)
     size_t byte_idx = index / 8;
     size_t bit_idx  = index % 8;
 
-    kassert(byte_idx < pmm_state.bitmap_bytes);
-    kassert(!(pmm_state.bitmap[byte_idx] & (1u << bit_idx))); /* must be free in bitmap */
+    assert(byte_idx < pmm_state.bitmap_bytes);
+    assert(!(pmm_state.bitmap[byte_idx] & (1u << bit_idx))); /* must be free in bitmap */
 
     pmm_state.bitmap[byte_idx] |= (uint8_t)(1u << bit_idx);
     pmm_state.free_pages--;
-    kassert(pmm_state.free_pages <= pmm_state.total_pages);
+    assert(pmm_state.free_pages <= pmm_state.total_pages);
 
     return pa;
 }
@@ -147,8 +147,8 @@ void pmm_init(void) {
     uintptr_t bitmap_end_pa   = bitmap_start_pa + bitmap_size;
 
     // Sanity checks
-    kassert(bitmap_end_pa <= kernel_layout.stack_base_pa);
-    kassert(bitmap_end_pa <= phys_region.end);
+    assert(bitmap_end_pa <= kernel_layout.stack_base_pa);
+    assert(bitmap_end_pa <= phys_region.end);
 
     // Record in layout (physical placement)
     kernel_layout.bitmap_start_pa = bitmap_start_pa;
@@ -187,10 +187,10 @@ int pmm_mark_range(uintptr_t start, uintptr_t end) {
         return MARK_FAIL;
     }
 
-    kassert(pmm_state.bitmap != NULL);
-    kassert(pmm_state.pfn_end > pmm_state.pfn_base);
-    kassert(pmm_state.total_pages == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
-    kassert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_pages);
+    assert(pmm_state.bitmap != NULL);
+    assert(pmm_state.pfn_end > pmm_state.pfn_base);
+    assert(pmm_state.total_pages == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
+    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_pages);
 
     for (size_t pfn = start_pfn; pfn < end_pfn; pfn++) {
         size_t index = pfn - pmm_state.pfn_base;
@@ -198,7 +198,7 @@ int pmm_mark_range(uintptr_t start, uintptr_t end) {
         size_t bit_idx  = index % 8;
 
         /* safety: ensure we do not walk past bitmap */
-        kassert(byte_idx < pmm_state.bitmap_bytes);
+        assert(byte_idx < pmm_state.bitmap_bytes);
         if (byte_idx >= pmm_state.bitmap_bytes) break;
 
         uint8_t mask = (uint8_t)(1u << bit_idx);
@@ -207,7 +207,7 @@ int pmm_mark_range(uintptr_t start, uintptr_t end) {
         if (!(pmm_state.bitmap[byte_idx] & mask)) {
             pmm_state.bitmap[byte_idx] |= mask;
             if (pmm_state.free_pages > 0) pmm_state.free_pages--;
-            kassert(pmm_state.free_pages <= pmm_state.total_pages);
+            assert(pmm_state.free_pages <= pmm_state.total_pages);
         }
     }
 
@@ -228,17 +228,17 @@ int pmm_unmark_range(uintptr_t start, uintptr_t end) {
         return MARK_FAIL;
     }
 
-    kassert(pmm_state.bitmap != NULL);
-    kassert(pmm_state.pfn_end > pmm_state.pfn_base);
-    kassert(pmm_state.total_pages == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
-    kassert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_pages);
+    assert(pmm_state.bitmap != NULL);
+    assert(pmm_state.pfn_end > pmm_state.pfn_base);
+    assert(pmm_state.total_pages == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
+    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_pages);
 
     for (size_t pfn = start_pfn; pfn < end_pfn; pfn++) {
         const size_t index = pfn - pmm_state.pfn_base;
         const size_t byte_idx = index / 8;
         const size_t bit_idx  = index % 8;
 
-        kassert(byte_idx < pmm_state.bitmap_bytes);
+        assert(byte_idx < pmm_state.bitmap_bytes);
         if (byte_idx >= pmm_state.bitmap_bytes) break;
 
         const uint8_t mask = (uint8_t)(1u << bit_idx);
@@ -247,7 +247,7 @@ int pmm_unmark_range(uintptr_t start, uintptr_t end) {
         if (pmm_state.bitmap[byte_idx] & mask) {
             pmm_state.bitmap[byte_idx] &= ~mask;
             if (pmm_state.free_pages < pmm_state.total_pages) pmm_state.free_pages++;
-            kassert(pmm_state.free_pages <= pmm_state.total_pages);
+            assert(pmm_state.free_pages <= pmm_state.total_pages);
         }
     }
 
@@ -273,11 +273,11 @@ uintptr_t pmm_alloc_pages(size_t n_pages) {
             return (uintptr_t)0;
     }
 
-    kassert(pmm_state.bitmap != NULL);
-    kassert(pmm_state.total_pages == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
-    kassert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_pages);
-    kassert(pmm_state.free_pages <= pmm_state.total_pages);
-    kassert(n_pages <= pmm_state.total_pages);
+    assert(pmm_state.bitmap != NULL);
+    assert(pmm_state.total_pages == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
+    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_pages);
+    assert(pmm_state.free_pages <= pmm_state.total_pages);
+    assert(n_pages <= pmm_state.total_pages);
 
     size_t total_pages = pmm_state.total_pages;
     size_t consecutive = 0;
@@ -312,8 +312,8 @@ uintptr_t pmm_alloc_pages(size_t n_pages) {
 
                 size_t pfn = pmm_state.pfn_base + start_index;
                 uintptr_t addr = (uintptr_t)pfn * PAGE_SIZE;
-                kassert(addr % PAGE_SIZE == 0);
-                kassert(pfn >= pmm_state.pfn_base && (pfn + n_pages) <= pmm_state.pfn_end);
+                assert(addr % PAGE_SIZE == 0);
+                assert(pfn >= pmm_state.pfn_base && (pfn + n_pages) <= pmm_state.pfn_end);
                 syspage_update_mem(); // update free memory info in syspage
                 spin_unlock_irqrestore(&pmm_lock, flags);
                 return addr;
@@ -352,8 +352,8 @@ int pmm_free_page(const uintptr_t addr) {
         return FREE_FAIL;
     }
 
-    kassert(pmm_state.bitmap != NULL);
-    kassert(pmm_state.free_pages <= pmm_state.total_pages);
+    assert(pmm_state.bitmap != NULL);
+    assert(pmm_state.free_pages <= pmm_state.total_pages);
 
     const uint8_t mask = (uint8_t)(1u << bit_idx);
 
@@ -361,7 +361,7 @@ int pmm_free_page(const uintptr_t addr) {
     if (pmm_state.bitmap[byte_idx] & mask) {
         pmm_state.bitmap[byte_idx] &= ~mask;
         pmm_state.free_pages++;
-        kassert(pmm_state.free_pages <= pmm_state.total_pages);
+        assert(pmm_state.free_pages <= pmm_state.total_pages);
 
         /* Push onto freelist */
         uintptr_t *page_va = (uintptr_t *)PA_TO_VA(addr);
@@ -399,9 +399,9 @@ uintptr_t pmm_alloc_pages_aligned(const size_t n_pages, size_t align_pages)
         return (uintptr_t)0;
     }
 
-    kassert(pmm_state.bitmap != NULL);
-    kassert(pmm_state.total_pages == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
-    kassert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_pages);
+    assert(pmm_state.bitmap != NULL);
+    assert(pmm_state.total_pages == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
+    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_pages);
 
     const size_t total_pages = pmm_state.total_pages;
     size_t consecutive = 0;
@@ -458,11 +458,11 @@ size_t pmm_alloc_pages_scattered(const size_t n_pages, uintptr_t *out_addrs) {
         spin_unlock_irqrestore(&pmm_lock, flags);
         return 0;
     }
-    kassert(pmm_state.bitmap != NULL);
-    kassert(pmm_state.total_pages == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
-    kassert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_pages);
-    kassert(pmm_state.free_pages <= pmm_state.total_pages);
-    kassert(n_pages <= pmm_state.total_pages);
+    assert(pmm_state.bitmap != NULL);
+    assert(pmm_state.total_pages == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
+    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_pages);
+    assert(pmm_state.free_pages <= pmm_state.total_pages);
+    assert(n_pages <= pmm_state.total_pages);
     if (!n_pages || !out_addrs) {
         spin_unlock_irqrestore(&pmm_lock, flags);
         return 0;

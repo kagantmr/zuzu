@@ -84,12 +84,12 @@ void *slab_alloc(slab_cache_t *cache)
 
 void slab_free(slab_cache_t *cache, void *ptr)
 {
-    kassert(cache != NULL);
-    kassert(ptr != NULL);
+    assert(cache != NULL);
+    assert(ptr != NULL);
 
     // the slab header is at the page-aligned base of this pointer
     slab_t *slab = (slab_t *)align_down((uintptr_t)ptr, PAGE_SIZE);
-    kassert(slab->owner_cache == cache);
+    assert(slab->owner_cache == cache);
 
     // push onto freelist
     *(void **)ptr = slab->free_head;
@@ -285,7 +285,7 @@ void kfree(void* ptr) {
 
 
 void kheap_init(void) {
-    kassert(HEAP_INITIAL_SIZE % PAGE_SIZE == 0);
+    assert(HEAP_INITIAL_SIZE % PAGE_SIZE == 0);
 
     heap_head = NULL;
     kernel_layout.heap_start_pa = 0;
