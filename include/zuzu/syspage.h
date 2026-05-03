@@ -23,6 +23,7 @@ typedef struct {
     uint32_t     mem_free_kb;                    // updated 
     uint32_t     uptime_s;                       // updated by tick handler 
     uint8_t      dev_count;
+    uint32_t     initrd_size;
     syspage_dev_t devs[SYSPAGE_MAX_DEVICES];     // filled from DTB walk at boot 
 } zuzu_syspage_t;
 
