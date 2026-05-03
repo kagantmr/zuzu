@@ -120,6 +120,28 @@ static void boot_program(const char *path, uint32_t flags)
 
     process->flags |= flags;
 
+    if (flags & PROC_FLAG_INIT)
+    {
+        uint32_t initrd_pa = VA_TO_PA(_initrd_start);
+        uint32_t initrd_page_count = (_initrd_end - _initrd_start + PAGE_SIZE - 1) / PAGE_SIZE;
+        uintptr_t va = process->mmap_va_next;
+        for (uint32_t i = 0; i < initrd_page_count; i++)
+        {
+            uint32_t page_pa = initrd_pa + i * PAGE_SIZE;
+            kmap_user_page(process->as, page_pa, process->mmap_va_next, VM_PROT_READ );
+            process->mmap_va_next += PAGE_SIZE;
+        }
+        vmm_add_region(process->as, &(vm_region_t){
+                .vaddr_start = va,
+                .size = _initrd_end - _initrd_start,
+                .prot = VM_PROT_READ | VM_PROT_USER,
+                .memtype = VM_MEM_NORMAL,
+                .owner = VM_OWNER_SHARED,
+                .flags = VM_FLAG_NONE
+        });
+
+    }
+
     if (flags & PROC_FLAG_DEVMGR)
     {
         s_devmgr = process;
@@ -314,11 +336,11 @@ _Noreturn void kmain(void)
     void *boot_dtb = kernel_layout.dtb_start_va;
 
     uint32_t magic = read_be32((uint8_t *)boot_dtb + 0x00);
-    kassert(magic == 0xD00DFEED);
+    assert(magic == 0xD00DFEED);
     (void)magic;
 
     uint32_t totalsize = read_be32((uint8_t *)boot_dtb + 0x04);
-    kassert(totalsize >= 0x28 && totalsize < (1024u * 1024u));
+    assert(totalsize >= 0x28 && totalsize < (1024u * 1024u));
 
     uint32_t dtb_pages = (totalsize + PAGE_SIZE - 1) / PAGE_SIZE;
     uintptr_t dtb_pa = pmm_alloc_pages(dtb_pages);
@@ -368,6 +390,7 @@ _Noreturn void kmain(void)
     syspage_init();
 
     initrd_init(_initrd_start, _initrd_end - _initrd_start);
+    syspage_set_initrd_size((uint32_t)(_initrd_end - _initrd_start));
 
     // Read and parse boot manifest
     const void *manifest_data;
@@ -386,7 +409,7 @@ _Noreturn void kmain(void)
         KWARN("Boot manifest not found in initrd");
         // Fallback to hardcoded defaults
         static const boot_program_t default_programs[] = {
-            {"bin/zuzusysd", PROC_FLAG_INIT, 0},
+            {"bin/sysd", PROC_FLAG_INIT, 0},
             {"bin/devmgr", PROC_FLAG_DEVMGR, 0},
         };
         boot_count = sizeof(default_programs) / sizeof(default_programs[0]);
@@ -396,7 +419,8 @@ _Noreturn void kmain(void)
     // Spawn boot programs from manifest
     for (size_t i = 0; i < boot_count; i++)
     {
-        boot_program(boot_programs[i].path, boot_programs[i].flags);
+        if (boot_programs[i].flags & (PROC_FLAG_INIT | PROC_FLAG_DEVMGR))
+            boot_program(boot_programs[i].path, boot_programs[i].flags);
         if (boot_programs[i].owns_path && boot_programs[i].path)
         {
             kfree((void *)boot_programs[i].path);
