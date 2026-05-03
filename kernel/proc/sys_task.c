@@ -180,6 +180,16 @@ void tspawn(exception_frame_t *frame) {
         return;
     }
 
+    for (int i = 0; i < 4; i++) {
+        handle_entry_t *src = handle_vec_get(&current_process->handle_table, i);
+        if (!src || src->type == HANDLE_FREE)
+            continue;
+        handle_entry_t *dst = handle_vec_get(&process->handle_table, i);
+        *dst = *src;
+        if (src->type == HANDLE_ENDPOINT && src->ep)
+            src->ep->ref_count++;
+    }
+    
     process_set_parent(process, current_process);
 
     // now return a handle 

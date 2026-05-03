@@ -7,6 +7,7 @@
 #include "kernel/mm/pmm.h"
 #include "kernel/mm/vmm.h"
 #include "arch/arm/mmu/mmu.h"
+#include <zuzu/user_layout.h>
 #include "arch/arm/include/cache.h"
 #include <elf.h>
 #include "kernel/mm/alloc.h"
@@ -184,21 +185,21 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
         }
     }
 
-    const uintptr_t user_stack_base = 0x7FFFC000;
-    const uintptr_t user_guard_va = user_stack_base - PAGE_SIZE;
+    const uintptr_t user_stack_base = USER_STACK_BASE;
+    const uintptr_t user_guard_va = USER_STACK_GUARD_VA;
 
-    uintptr_t user_stack_pa = pmm_alloc_pages(4);
+    uintptr_t user_stack_pa = pmm_alloc_pages(USER_STACK_PAGES);
     if (!user_stack_pa)
         goto fail_kstack;
 
-    for (int i = 0; i < 4; i++)
+    for (int i = 0; i < (int)USER_STACK_PAGES; i++)
     {
         if (!kmap_user_page(process->as, user_stack_pa + i * 0x1000,
                             user_stack_base + i * 0x1000,
                             VM_PROT_READ | VM_PROT_WRITE))
         {
             // free unmapped remainder (orphans)
-            for (int j = i; j < 4; j++)
+            for (int j = i; j < (int)USER_STACK_PAGES; j++)
                 pmm_free_page(user_stack_pa + j * 0x1000);
             goto fail_kstack;
         }
@@ -206,7 +207,7 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
 
     vm_region_t stack_region = {
         .vaddr_start = user_stack_base,
-        .size        = 4 * PAGE_SIZE,
+        .size        = USER_STACK_SIZE,
         .prot        = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
         .memtype     = VM_MEM_NORMAL,
         .owner       = VM_OWNER_ANON,
@@ -217,7 +218,7 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
         goto fail_kstack;
     }
 
-    if (!kmap_user_page(process->as, syspage_pa(), 0x1000, VM_PROT_READ))
+    if (!kmap_user_page(process->as, syspage_pa(), USER_SYSPAGE_VA, VM_PROT_READ))
         goto fail_kstack;
 
     process->ipc_buf_pa = pmm_alloc_page();
@@ -253,7 +254,7 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
         goto fail_kstack;
     }
     vm_region_t sys_region = {
-        .vaddr_start = 0x1000,
+        .vaddr_start = USER_SYSPAGE_VA,
         .size = PAGE_SIZE,
         .prot = VM_PROT_READ | VM_PROT_USER,
         .memtype = VM_MEM_NORMAL,
@@ -386,8 +387,8 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
 
     process->pid = next_pid++;
     process_table[slot] = process;
-    process->device_va_next = 0x60000000;
-    process->mmap_va_next = 0x20000000;
+    process->device_va_next = USER_DEVICE_BASE;
+    process->mmap_va_next = USER_MMAP_BASE;
     process->parent_pid = 0;
     list_init(&process->outstanding_replies);
     list_init(&process->children);

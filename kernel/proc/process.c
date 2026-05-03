@@ -6,6 +6,7 @@
 #include "kernel/sched/sched.h"
 #include "kernel/syspage.h"
 #include "zuzu/ipcx.h"
+#include <zuzu/user_layout.h>
 #include <mem.h>
 #include <string.h>
 #include "kstack.h"
@@ -46,11 +47,11 @@ process_t *process_create(const char* name) {
     process->kernel_stack_top = (uintptr_t)kstack;
 
     // map syspage into user space
-    if (!kmap_user_page(process->as, syspage_pa(), 0x1000, VM_PROT_READ))
+    if (!kmap_user_page(process->as, syspage_pa(), USER_SYSPAGE_VA, VM_PROT_READ))
         goto fail_kstack;
 
     vm_region_t sys_region = {
-        .vaddr_start = 0x1000,
+        .vaddr_start = USER_SYSPAGE_VA,
         .size = PAGE_SIZE,
         .prot = VM_PROT_READ | VM_PROT_USER,
         .memtype = VM_MEM_NORMAL,
@@ -99,8 +100,8 @@ process_t *process_create(const char* name) {
     }
 
     process->process_state = PROCESS_STOPPED;
-    process->device_va_next = 0x60000000;
-    process->mmap_va_next = 0x20000000;
+    process->device_va_next = USER_DEVICE_BASE;
+    process->mmap_va_next = USER_MMAP_BASE;
     process->parent_pid = 0;
     list_init(&process->outstanding_replies);
     list_init(&process->children);
