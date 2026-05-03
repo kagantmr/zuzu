@@ -1,0 +1,19 @@
+#ifndef ZUZU_USER_LAYOUT_H
+#define ZUZU_USER_LAYOUT_H
+
+#include <stdint.h>
+#include <zuzu/ipcx.h>
+
+#define USER_SYSPAGE_VA      0x00001000UL
+#define USER_ELF_BASE        0x00010000UL
+#define USER_MMAP_BASE       0x20000000UL
+#define USER_DEVICE_BASE     0x7F000000UL
+#define USER_DEVICE_LIMIT    IPCX_BUF_VA
+#define USER_IPC_BUF_VA      IPCX_BUF_VA
+#define USER_STACK_GUARD_VA  0x7FFFB000UL
+#define USER_STACK_BASE      0x7FFFC000UL
+#define USER_STACK_TOP       0x80000000UL
+#define USER_STACK_PAGES     4u
+#define USER_STACK_SIZE      (USER_STACK_PAGES * 0x1000UL)
+
+#endif
