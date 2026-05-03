@@ -90,3 +90,10 @@ void syspage_update_uptime(void)
         return;
     g_sp->uptime_s = (uint32_t)(get_ticks() / TICK_HZ);
 }
+
+void syspage_set_initrd_size(uint32_t size)
+{
+    if (!g_sp)
+        return;
+    g_sp->initrd_size = size;
+}
