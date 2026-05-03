@@ -87,10 +87,6 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     {
         yield(frame);
     } break;                   
-    case SYS_TASK_SPAWN:
-    {
-        spawn(frame);
-    } break; 
     case SYS_TASK_WAIT:
     {
         wait(frame);
@@ -109,6 +105,10 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     case SYS_TASK_KICKSTART:
     {
         kickstart(frame);
+    } break;
+    case SYS_TASK_KILL:
+    {
+        kill(frame);
     } break;
     case SYS_PROC_SEND:
     {

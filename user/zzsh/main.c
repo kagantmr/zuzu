@@ -8,8 +8,11 @@
 #include <zmalloc.h>
 #include <zuzu/syspage.h>
 #include <zuzu/protocols/fbox_protocol.h>
+#include <zuzu/protocols/sysd_protocol.h>
 
 static int32_t zuart_port;
+static int32_t sysd_port;
+static uint32_t sysd_pid;
 static int32_t fbox_port;
 static char   *fbox_buf;   /* shmem shared with fbox */
 static char cwd[256] = "/";
@@ -85,6 +88,12 @@ int setup(void)
 {
     zuart_port = lookup_service("uart");
     if (zuart_port < 0) return -1;
+
+    zuzu_ipcmsg_t sysd = _call(NT_PORT, NT_LOOKUP, nt_pack(NT_NAME_SYS), 0);
+    if (sysd.r1 != NT_LU_OK)
+        return -1;
+    sysd_port = (int32_t)sysd.r2;
+    sysd_pid = sysd.r3;
 
     fbox_port = lookup_service("fbox");
     if (fbox_port < 0) return -1;
@@ -222,6 +231,32 @@ static bool path_is_zzsh(const char *path)
     return strcmp(base, "zzsh") == 0 || strcmp(base, "zzsh.elf") == 0;
 }
 
+static void print_exec_error(int32_t code)
+{
+    switch (code) {
+        case EXEC_ENOENT:
+            zprint(ANSI_RED "zzsh: spawn failed (not found)\n" ANSI_RESET);
+            break;
+        case EXEC_ENOMEM:
+            zprint(ANSI_RED "zzsh: spawn failed (out of memory)\n" ANSI_RESET);
+            break;
+        case EXEC_EBADELF:
+            zprint(ANSI_RED "zzsh: spawn failed (bad ELF)\n" ANSI_RESET);
+            break;
+        case EXEC_EIO:
+            zprint(ANSI_RED "zzsh: spawn failed (I/O error)\n" ANSI_RESET);
+            break;
+        default: {
+            char msg[64];
+            snprintf(msg, sizeof(msg), "zzsh: spawn failed (err %d)\n", code);
+            zprint(ANSI_RED);
+            zprint(msg);
+            zprint(ANSI_RESET);
+            break;
+        }
+    }
+}
+
 /* ---- ls ---- */
 
 static void cmd_ls(const char *arg)
@@ -330,59 +365,6 @@ static void cmd_exec(const char *line)
         return;
     }
 
-    /* ---- stat to get file size ---- */
-    size_t plen = strlen(path);
-    memcpy(fbox_buf, path, plen + 1);
-
-    zuzu_ipcmsg_t r = _call(fbox_port, FBOX_STAT, 0, 0);
-    if ((int32_t)r.r1 != FBOX_OK) {
-        zprint(ANSI_RED "zzsh: not found: " ANSI_RESET);
-        zprint(tokens[0]);
-        zprint("\n");
-        return;
-    }
-
-    fbox_stat_t *st = (fbox_stat_t *)fbox_buf;
-    uint32_t file_size = st->size;
-
-    if (file_size == 0 || st->is_dir) {
-        zprint(ANSI_RED "zzsh: not an executable\n" ANSI_RESET);
-        return;
-    }
-
-    /* ---- read ELF ---- */
-    memcpy(fbox_buf, path, plen + 1);
-    r = _call(fbox_port, FBOX_OPEN, FAT32_MODE_READ, 0);
-    if ((int32_t)r.r1 != FBOX_OK) {
-        zprint(ANSI_RED "zzsh: cannot open file\n" ANSI_RESET);
-        return;
-    }
-    uint32_t fd = r.r2;
-
-    uint8_t *elf = (uint8_t *)zmalloc(file_size);
-    if (!elf) {
-        zprint(ANSI_RED "zzsh: out of memory\n" ANSI_RESET);
-        _call(fbox_port, FBOX_CLOSE, fd, 0);
-        return;
-    }
-
-    uint32_t total = 0;
-    while (total < file_size) {
-        uint32_t chunk = file_size - total;
-        if (chunk > 4096) chunk = 4096;
-        r = _call(fbox_port, FBOX_READ, FBOX_PACK_RW(fd, chunk), 0);
-        if ((int32_t)r.r1 != FBOX_OK || r.r2 == 0) break;
-        memcpy(elf + total, fbox_buf, r.r2);
-        total += r.r2;
-    }
-    _call(fbox_port, FBOX_CLOSE, fd, 0);
-
-    if (total < file_size) {
-        zprint(ANSI_RED "zzsh: short read\n" ANSI_RESET);
-        zfree(elf);
-        return;
-    }
-
     /* ---- build argbuf: "tok0\0tok1\0tok2\0" ---- */
     char argbuf[512];
     size_t argpos = 0;
@@ -393,20 +375,75 @@ static void cmd_exec(const char *line)
         argpos += len;
     }
 
-    /* ---- spawn with args ---- */
+    /* ---- tspawn locally, ask sysd to inject, then kickstart ---- */
+    /* ---- tspawn locally, ask sysd to inject, then kickstart ---- */
     const char *name = path_basename(path);
-    int32_t child = _spawnv(elf, total,
-                            name, strlen(name),
-                            argbuf, argpos, (uint32_t)token_count);
-    zfree(elf);
-
-    if (child < 0) {
+    tspawn_result_t ts = _tspawn(name);
+    if (ts.task_handle < 0) {
         zprint(ANSI_RED "zzsh: spawn failed\n" ANSI_RESET);
         return;
     }
 
+    int32_t sysd_task_handle = _port_grant(ts.task_handle, (int32_t)sysd_pid);
+    if (sysd_task_handle < 0) {
+        _kill(ts.task_handle);                    /* <-- NEW */
+        zprint(ANSI_RED "zzsh: spawn failed\n" ANSI_RESET);
+        return;
+    }
+
+    size_t path_len = strlen(path);
+    size_t req_len = sizeof(exec_request_hdr_t) + path_len + 1 + argpos;
+    if (req_len > IPCX_BUF_SIZE) {
+        _kill(ts.task_handle);                    /* <-- NEW */
+        zprint(ANSI_RED "zzsh: command too long\n" ANSI_RESET);
+        return;
+    }
+
+    exec_request_hdr_t *hdr = (exec_request_hdr_t *)IPCX_BUF_VA;
+    hdr->cmd = SYSD_EXEC;
+    hdr->_pad = 0;
+    hdr->task_handle = (uint16_t)sysd_task_handle;
+    hdr->path_len = (uint16_t)path_len;
+    hdr->argc = (uint16_t)token_count;
+
+    char *payload = (char *)IPCX_BUF_VA + sizeof(*hdr);
+    memcpy(payload, path, path_len + 1);
+    memcpy(payload + path_len + 1, argbuf, argpos);
+
+    zuzu_ipcmsg_t r = _callx(sysd_port, (uint32_t)req_len);
+    if (r.r0 < 0) {
+        _kill(ts.task_handle);                    /* <-- NEW */
+        zprint(ANSI_RED "zzsh: spawn failed\n" ANSI_RESET);
+        return;
+    }
+    if ((int32_t)r.r1 < 0) {
+        _kill(ts.task_handle);                    /* <-- NEW */
+        print_exec_error((int32_t)r.r1);
+        return;
+    }
+
+    if (r.r1 != sizeof(exec_reply_t)) {
+        _kill(ts.task_handle);                    /* <-- NEW */
+        zprint(ANSI_RED "zzsh: bad exec reply\n" ANSI_RESET);
+        return;
+    }
+
+    exec_reply_t *reply = (exec_reply_t *)IPCX_BUF_VA;
+    kickstart_args_t ks = {
+        .task_handle = (uint32_t)ts.task_handle,
+        .entry       = reply->entry,
+        .sp          = reply->sp,
+        .r0_val      = reply->argc,
+        .r1_val      = reply->argv_va,
+    };
+    if (_kickstart(&ks) != 0) {
+        _kill(ts.task_handle);                    /* <-- NEW */
+        zprint(ANSI_RED "zzsh: kickstart failed\n" ANSI_RESET);
+        return;
+    }
+
     int32_t status;
-    _wait(child, &status, 0);
+    _wait((int32_t)ts.pid, &status, 0);
 }
 
 /* ---- dispatch ---- */

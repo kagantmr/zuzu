@@ -14,7 +14,7 @@ endpoint_t *nametable_endpoint;
 
 static bool can_regrant_received_handle(const process_t *grantee)
 {
-    // only zuzusysd may receive grantable copies.
+    // only sysd may receive grantable copies.
     // Everyone else gets a non-grantable copy to prevent unbounded handle propagation.
     return grantee && ((grantee->flags & PROC_FLAG_INIT) != 0);
 }

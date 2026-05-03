@@ -53,8 +53,8 @@ typedef struct process
     int32_t exit_status;
     uint32_t waiting_for;
     char name[32];           // PROCESS name
-    uint32_t device_va_next; // initialized to 0x60000000 in process_create
-    uint32_t mmap_va_next;   // initialized to 0x20000000 in process_create
+    uint32_t device_va_next; // initialized to USER_DEVICE_BASE in process_create
+    uint32_t mmap_va_next;   // initialized to USER_MMAP_BASE in process_create
     exception_frame_t *trap_frame;
     list_head_t outstanding_replies;
     handle_vec_t handle_table;

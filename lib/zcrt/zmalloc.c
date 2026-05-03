@@ -79,11 +79,23 @@ void *zmalloc(size_t size)
     // 4. if its empty bump the arena
     if (arena.brk + total_size > arena.mapped)
     {
+        // try contiguous
         uintptr_t result =
             (uintptr_t)_memmap((void *)arena.mapped, ARENA_CHUNK_SIZE, VM_PROT_READ | VM_PROT_WRITE);
         if ((intptr_t)result < 0)
-            return NULL;
-        arena.mapped += ARENA_CHUNK_SIZE;
+        {
+            size_t needed = total_size > ARENA_CHUNK_SIZE ? total_size : ARENA_CHUNK_SIZE;
+            needed = (needed + 0xFFF) & ~0xFFF; // page-align
+            result = (uintptr_t)_memmap(NULL, needed, VM_PROT_READ | VM_PROT_WRITE);
+            if ((intptr_t)result < 0)
+                return NULL;
+            arena.brk    = result;
+            arena.mapped = result + needed;
+        }
+        else
+        {
+            arena.mapped += ARENA_CHUNK_SIZE;
+        }
     }
 
     uintptr_t old_brk = arena.brk;

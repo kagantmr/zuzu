@@ -6,11 +6,14 @@
 #include "kernel/proc/process.h"
 #include "arch/arm/mmu/mmu.h"
 #include <string.h>
+#include <zuzu/user_layout.h>
 
 #define LOG_FMT(fmt) "(sys_dev) " fmt
 #include "core/log.h"
 
 extern process_t *current_process;
+
+#define DEVICE_VA_LIMIT USER_DEVICE_LIMIT
 
 void mapdev(exception_frame_t *frame)
 {
@@ -47,7 +50,7 @@ void mapdev(exception_frame_t *frame)
     uint32_t user_va = current_process->device_va_next;
 
     // Device mappings are carved from device_va_next; bound-check that cursor.
-    if (user_va >= USER_VA_TOP || size_aligned > USER_VA_TOP - user_va) {
+    if (user_va >= DEVICE_VA_LIMIT || size_aligned > DEVICE_VA_LIMIT - user_va) {
         frame->r[0] = ERR_NOMEM;
         return;
     }

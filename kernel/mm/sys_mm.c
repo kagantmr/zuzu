@@ -87,7 +87,8 @@ void memmap(exception_frame_t *frame)
 
     if (!vmm_add_region(current_process->as, &region))
     {
-        current_process->mmap_va_next -= size; // roll back cursor on failure
+        if (addr_hint == 0)
+            current_process->mmap_va_next -= size; // roll back cursor on failure
         frame->r[0] = ERR_NOMEM;
         return;
     }
