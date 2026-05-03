@@ -68,7 +68,7 @@ SECTIONS
         /* Initrd (CPIO archive) — embedded via .incbin in initrd_embed.s.
          * Placed before the .rodata.* wildcard so we control alignment.
          * GNU ld won't re-place it when .rodata.* is processed. */
-        . = ALIGN(4);
+        . = ALIGN(4096);  /* Align initrd to page boundary */
         *(.rodata.initrd)
 
         *(.rodata.*)
