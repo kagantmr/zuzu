@@ -1,11 +1,12 @@
 # zuzu initrd boot manifest v1
 # format: <program-or-path>|<role>
 # role: init, dev, none
-# examples: zuzusysd|init, devmgr|dev
+# examples: sysd|init, devmgr|dev
 
-bin/zuzusysd|init
+bin/sysd|init
 bin/devmgr|dev
 bin/zuart|none
 bin/zusd|none
 bin/fat32d|none
 bin/fbox|none
+bin/zzsh|none
