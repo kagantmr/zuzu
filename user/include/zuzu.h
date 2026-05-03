@@ -55,48 +55,8 @@ static inline int32_t _yield(void) {
         : "memory");
     return r0;
 }
-
-static inline int32_t _spawn(const void *elf_data, size_t elf_len,
-                              const char *name, size_t name_len)
-{
-    spawn_args_t args = {
-        .elf_data   = elf_data,
-        .elf_size   = elf_len,
-        .name       = name,
-        .name_len   = name_len,
-        .argbuf     = NULL,
-        .argbuf_len = 0,
-        .argc       = 0,
-    };
-    register uintptr_t r0 __asm__("r0") = (uintptr_t)&args;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : [num] "i"(SYS_TASK_SPAWN)
-        : "memory");
-    return (int32_t)r0;
-}
-
-static inline int32_t _spawnv(const void *elf_data, size_t elf_len,
-                               const char *name, size_t name_len,
-                               const char *argbuf, size_t argbuf_len,
-                               uint32_t argc)
-{
-    spawn_args_t args = {
-        .elf_data   = elf_data,
-        .elf_size   = elf_len,
-        .name       = name,
-        .name_len   = name_len,
-        .argbuf     = argbuf,
-        .argbuf_len = argbuf_len,
-        .argc       = argc,
-    };
-    register uintptr_t r0 __asm__("r0") = (uintptr_t)&args;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : [num] "i"(SYS_TASK_SPAWN)
-        : "memory");
-    return (int32_t)r0;
-}
+/* legacy spawn/syscall wrappers removed (use tspawn/kickstart or loader service)
+   _spawn and _spawnv were removed in favor of safer spawn paths */
 
 static inline int32_t _wait(int32_t pid, int32_t *status_out, uint32_t flags) {
     register int32_t r0 __asm__("r0") = pid;
@@ -129,11 +89,11 @@ static inline int32_t _sleep(uint32_t ms) {
 
 static inline tspawn_result_t _tspawn(const char* name) {
     register uintptr_t r0 __asm__("r0") = (uintptr_t) name;
-    register uint32_t r1 __asm__("r1");
+    register uint32_t  r1 __asm__("r1"); // pid
     __asm__ volatile("svc %[num]"
-        : "=r"(r0)
-        : [num] "i"(SYS_TASK_TSPAWN)
-        : "memory");
+    : "+r"(r0), "=r"(r1)
+    : [num] "i"(SYS_TASK_TSPAWN)
+    : "memory");
     return (tspawn_result_t) {.task_handle = (int32_t) r0, .pid = r1};
 }
 
@@ -144,6 +104,15 @@ static inline int32_t _kickstart(const void *args_struct) {
         : [num] "i"(SYS_TASK_KICKSTART)
         : "memory");
     return (int32_t) r0;
+}
+
+static inline int32_t _kill(int32_t task_handle) {
+    register int32_t r0 __asm__("r0") = task_handle;
+    __asm__ volatile("svc %[num]"
+        : "+r"(r0)
+        : [num] "i"(SYS_TASK_KILL)
+        : "memory");
+    return r0;
 }
 
 /* ---- IPC ---- */

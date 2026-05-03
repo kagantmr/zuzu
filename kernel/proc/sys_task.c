@@ -1,6 +1,9 @@
 #include "sys_task.h"
 #include "kernel/syscall/syscall.h"
 #include "kernel/mm/alloc.h"
+#include "kernel/mm/vmm.h"
+#include "kstack.h"
+#include "arch/arm/mmu/mmu.h"
 #include <mem.h>
 #include "kernel/sched/sched.h"
 #include "user/include/zuzu.h"
@@ -12,6 +15,7 @@
 extern process_t *current_process;
 extern list_head_t sleep_queue;
 extern endpoint_t *nametable_endpoint;
+extern process_t *process_table[MAX_PROCESSES];
 
 #define LOG_FMT(fmt) "(sys_task) " fmt
 #include "core/log.h"
@@ -153,102 +157,7 @@ void wait(exception_frame_t *frame) {
     process_destroy(child);
 }
 
-void spawn(exception_frame_t *frame) {
-    uintptr_t args_ptr = frame->r[0];
-    if (!validate_user_ptr(args_ptr, sizeof(spawn_args_t))) {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-
-    spawn_args_t kargs;
-    if (!copy_from_user(&kargs, (const void *)args_ptr, sizeof(spawn_args_t))) {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-
-    // validate all pointers from the struct
-    if (!kargs.elf_data || !kargs.name || kargs.elf_size == 0 || kargs.name_len == 0) {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-
-    const void *elf_data = kargs.elf_data;
-    size_t elf_size = kargs.elf_size;
-    const char *name = kargs.name;
-    size_t name_len =  kargs.name_len;
-    const char *argbuf = kargs.argbuf;
-    size_t argbuf_len = kargs.argbuf_len;
-    uint32_t argc = kargs.argc;
-
-    if (!elf_data || !name || elf_size == 0 || name_len == 0) {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-
-    char kname[64];
-    if (name_len >= sizeof(kname)) {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-
-    void *elf_copy = kmalloc(elf_size);
-    if (!elf_copy) {
-        frame->r[0] = ERR_NOMEM;
-        return;
-    }
-
-    if (!copy_from_user(elf_copy, elf_data, elf_size)) {
-        kfree(elf_copy);
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-
-    if (!copy_from_user(kname, name, name_len)) {
-        kfree(elf_copy);
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-    kname[name_len] = '\0';
-
-    // Allocate and copy argument buffer if provided
-    void *kargbuf = NULL;
-    if (argbuf && argbuf_len > 0) {
-        kargbuf = kmalloc(argbuf_len);
-        if (!kargbuf) {
-            kfree(elf_copy);
-            frame->r[0] = ERR_NOMEM;
-            return;
-        }
-        if (!copy_from_user(kargbuf, argbuf, argbuf_len)) {
-            kfree(elf_copy);
-            kfree(kargbuf);
-            frame->r[0] = ERR_BADARG;
-            return;
-        }
-    }
-
-    process_t *process = process_create_from_elf(elf_copy, elf_size, kname, kargbuf, argbuf_len, argc);
-    kfree(elf_copy);
-    kfree(kargbuf);
-    if (!process) {
-        frame->r[0] = ERR_NOMEM;
-        return;
-    }
-    
-    if (nametable_endpoint != NULL) {
-        handle_entry_t *nt_entry = handle_vec_get(&process->handle_table, 0);
-        if (nt_entry) {
-            nt_entry->ep = nametable_endpoint;
-            nt_entry->grantable = true;
-            nt_entry->type = HANDLE_ENDPOINT;
-        }
-    }
-
-    process_set_parent(process, current_process);
-    
-    sched_add(process);
-    frame->r[0] = process->pid;
-}
+/* spawn syscall removed: use tspawn/kickstart with sysd */
 
 void tspawn(exception_frame_t *frame) {
     const char* name = (const char *)frame->r[0];
@@ -343,4 +252,40 @@ void kickstart(exception_frame_t *frame) {
     entry->grantable = false;
     frame->r[0] = 0;
     return;
+}
+
+void kill(exception_frame_t *frame) {
+    uint32_t handle_idx = frame->r[0];
+
+    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle_idx);
+    if (!entry || entry->type != HANDLE_TASK) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    process_t *target = entry->task;
+    if (!target || target->process_state != PROCESS_STOPPED) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    /* Unlink from parent's child list before destroying */
+    if (target->sibling_node.prev && target->sibling_node.next)
+        list_remove(&target->sibling_node);
+
+    process_table[target->pid % MAX_PROCESSES] = NULL;
+    if (target->as) {
+        arch_mmu_free_user_pages(target->as);
+        as_destroy(target->as);
+    }
+    handle_vec_destroy(&target->handle_table);
+    if (target->kernel_stack_top)
+        kstack_free(target->kernel_stack_top);
+    kfree(target);
+
+    entry->type = HANDLE_FREE;
+    entry->task = NULL;
+    entry->grantable = false;
+
+    frame->r[0] = 0;
 }

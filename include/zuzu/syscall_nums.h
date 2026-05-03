@@ -5,12 +5,12 @@
 
 #define SYS_TASK_QUIT 0x00  /* (status) -> never returns            */
 #define SYS_TASK_YIELD 0x01 /* () -> 0                              */
-#define SYS_TASK_SPAWN 0x02 /* (elf_ptr, elf_len, name, name_len) -> pid or -err */
 #define SYS_TASK_WAIT 0x03  /* (pid, &status) -> 0 or -err          */
 #define SYS_GET_PID 0x04    /* () -> pid                            */
 #define SYS_TASK_SLEEP 0x05 /* (duration) -> 0                      */
 #define SYS_TASK_TSPAWN 0x06 /*  */
 #define SYS_TASK_KICKSTART 0x07  /* ()  */
+#define SYS_TASK_KILL 0x08 /* (task_handle) -> 0 or -err */
 
 /* ---- IPC (0x10-0x1F) ---- */
 
@@ -21,6 +21,7 @@
 #define SYS_PROC_SENDX 0x14 /* (port, buf_len) -> 0 or -err; data in shared buffer */
 #define SYS_PROC_CALLX 0x15 /* (port, buf_len) -> r0=0, r1=recv_len; reply in shared buffer */
 #define SYS_PROC_REPLYX 0x16 /* (reply_handle, buf_len) -> 0 or -err; data in shared buffer */
+
 
 /* ---- Ports (0x20-0x2F) ---- */
 
