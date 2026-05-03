@@ -375,7 +375,7 @@ static int zusd_setup(void)
     shmem_handle = shm.handle;
     shmem_buf = (uint32_t *)shm.addr;
 
-    /* ask zuzusysd which den we belong to */
+    /* ask sysd which den we belong to */
     zuzu_ipcmsg_t den_r = _call(NT_PORT, DEN_MYDEN, 0, 0);
     uint32_t my_den = (den_r.r1 == DEN_OK) ? den_r.r2 : 0;
 

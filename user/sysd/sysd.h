@@ -1,5 +1,5 @@
-#ifndef ZUZUSYSD_H
-#define ZUZUSYSD_H
+#ifndef SYSD_H
+#define SYSD_H
 
 #include <stdint.h>
 
