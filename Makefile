@@ -121,37 +121,45 @@ all: $(TARGET)
 # compilation rules
 build/user/%.o: user/%.c
 	@mkdir -p $(dir $@)
-	$(USER_CC) $(USER_CFLAGS) -c $< -o $@
+	@echo "  CC      $<"
+	@$(USER_CC) $(USER_CFLAGS) -c $< -o $@
 
 build/%.o: %.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	@echo "  CC      $<"
+	@$(CC) $(CFLAGS) -c $< -o $@
 
 build/%.o: %.S
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
+	@echo "  AS      $<"
+	@$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
 
 build/user/zcrt/%.o: lib/zcrt/%.c
 	@mkdir -p $(dir $@)
-	$(USER_CC) $(USER_CFLAGS) -c $< -o $@
+	@echo "  CC      $<"
+	@$(USER_CC) $(USER_CFLAGS) -c $< -o $@
 
 build/user/lib/%.o: user/lib/%.c
 	@mkdir -p $(dir $@)
-	$(USER_CC) $(USER_CFLAGS) -Iuser/lib -c $< -o $@
+	@echo "  CC      $<"
+	@$(USER_CC) $(USER_CFLAGS) -Iuser/lib -c $< -o $@
 
 build/user/include/%.o: user/include/%.c
 	@mkdir -p $(dir $@)
-	$(USER_CC) $(USER_CFLAGS) -c $< -o $@
+	@echo "  CC      $<"
+	@$(USER_CC) $(USER_CFLAGS) -c $< -o $@
 
 $(USER_CRT0): arch/arm/crt0.S
 	@mkdir -p $(dir $@)
-	$(USER_CC) $(USER_CFLAGS) -x assembler-with-cpp -c $< -o $@
+	@echo "  AS      $<"
+	@$(USER_CC) $(USER_CFLAGS) -x assembler-with-cpp -c $< -o $@
 
 # user programs
 define LINK_USER_PROG
 build/user/$(1).elf: $$(USER_$(1)_OBJS) $(USER_CRT0) $(ZCRT_OBJS) $(ULIB_OBJS) $$(if $$(filter fbox fat32d zzsh,$(1)),$(SERVICE_OBJS)) user/user.ld
 	@mkdir -p $$(dir $$@)
-	$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) $$(USER_$(1)_OBJS) $(ZCRT_OBJS) $(ULIB_OBJS) $$(if $$(filter fbox fat32d zzsh,$(1)),$(SERVICE_OBJS)) $(USER_LIBGCC) -o $$@
+	@echo "  LD      $$@"
+	@$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) $$(USER_$(1)_OBJS) $(ZCRT_OBJS) $(ULIB_OBJS) $$(if $$(filter fbox fat32d zzsh,$(1)),$(SERVICE_OBJS)) $(USER_LIBGCC) -o $$@
 endef
 
 $(foreach p,$(USER_PROGS),$(eval $(call LINK_USER_PROG,$(p))))
@@ -166,17 +174,33 @@ $(INITRD): $(BOOT_PROG_ELFS) $(INITRD_EXTRA_FILES)
 	@if [ -d "$(INITRD_EXTRA_DIR)" ]; then \
 		cp -R $(INITRD_EXTRA_DIR)/. build/initrd/; \
 	fi
-	cd build/initrd && find . -not -name '.' | sort | cpio -o -H newc > ../initrd.cpio 2>/dev/null
+	@cd build/initrd && find . -not -name '.' | sort | cpio -o -H newc > ../initrd.cpio 2>/dev/null
 	@echo "  CPIO    $@ ($(words $(BOOT_PROGS)) boot program(s))"
 
 build/arch/arm/initrd.o: arch/arm/initrd.S $(INITRD)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
+	@echo "  AS      $<"
+	@$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
 
-# Kernel link
+# Kernel link: two-pass build to generate kernel symbol table
+# 1) link a first-pass kernel ELF (without ksymtab)
+# 2) run symbol generator to create build/ksymtab.c
+# 3) compile build/ksymtab.c to build/ksymtab.o
+# 4) relink final kernel including build/ksymtab.o
 $(TARGET): $(OBJS) build/arch/arm/initrd.o $(LINKER_SCRIPT)
 	@mkdir -p $(dir $@)
-	$(LD) $(LDFLAGS) $(OBJS) build/arch/arm/initrd.o $(KERNEL_LIBGCC) -o $@
+	@echo "  LD      (pass1) $@"
+	@$(LD) $(LDFLAGS) $(OBJS) build/arch/arm/initrd.o $(KERNEL_LIBGCC) -o $@
+	@echo "  PY      generating build/ksymtab.c"
+	@python3 scripts/symbol.py $@ build/ksymtab.c || true
+	@if [ -f build/ksymtab.c ]; then \
+		echo "  CC      build/ksymtab.o"; \
+		$(CC) $(CFLAGS) -c build/ksymtab.c -o build/ksymtab.o; \
+		echo "  LD      (final) $@"; \
+		$(LD) $(LDFLAGS) $(OBJS) build/arch/arm/initrd.o build/ksymtab.o $(KERNEL_LIBGCC) -o $@; \
+	else \
+		echo "  WARN: build/ksymtab.c not generated; final ELF is first-pass link"; \
+	fi
 
 # SD card workflow
 #
@@ -245,12 +269,14 @@ sdimg-recreate: sdimg-clean sdimg
 .PHONY: run debug
 
 run: $(TARGET)
-	qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M \
+	@echo "  QEMU    $(TARGET)"
+	@qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M \
 	    -kernel $(TARGET) -dtb $(DTB_FILE) -nographic \
 	    -drive file=$(SD_IMG),if=sd,format=raw \
 
 debug: $(TARGET)
-	qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M \
+	@echo "  QEMU    $(TARGET) (debug)"
+	@qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M \
 	    -kernel $(TARGET) -dtb $(DTB_FILE) -nographic \
 	    -S -gdb tcp::1234
 
@@ -258,11 +284,13 @@ debug: $(TARGET)
 .PHONY: all dump clean
 
 dump: $(TARGET)
-	$(OBJDUMP) -D $(TARGET) > build/zuzu.dump
+	@echo "  OBJDUMP $@"
+	@$(OBJDUMP) -D $(TARGET) > build/zuzu.dump
 
 deploy: all sdimg-recreate run
 
 clean:
-	rm -rf build
+	@rm -rf build
+	@echo "  CLEAN   build"
 
 -include $(DEPS) $(USER_DEPS)

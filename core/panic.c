@@ -13,6 +13,7 @@
 #include <string.h>
 #include <snprintf.h>
 #include <stdint.h>
+#include "ksym.h"
 
 extern kernel_layout_t kernel_layout;
 extern process_t      *current_process;
@@ -416,7 +417,8 @@ static void panic_screen(const char *reason, void *caller_ra)
         } else {
             int shown = (bt.depth < PANIC_BT_SHOWN_MAX) ? bt.depth : PANIC_BT_SHOWN_MAX;
             for (int i = 0; i < shown; i++) {
-                snprintf(line, sizeof(line), "  #%-2d 0x%08X", i, bt.addresses[i]);
+                const char *sym = ksym_lookup(bt.addresses[i]);
+                snprintf(line, sizeof(line), "  #%-2d %08X %s", i, bt.addresses[i], sym ? sym : "???");
                 col_line(&_col_right, line);
             }
             if (bt.depth > shown) {
@@ -424,7 +426,6 @@ static void panic_screen(const char *reason, void *caller_ra)
                 col_line(&_col_right, line);
             }
         }
-        snprintf(line, sizeof(line), C_DIM "  addr2line -e build/zuzu.elf" C_RESET);
         col_line(&_col_right, line);
 
         /* col_rule pair acts as the visual divider from the fault section */
