@@ -53,6 +53,7 @@ static inline uint32_t read_be32(const void *p)
 static process_t *s_devmgr;
 extern void arch_reboot(void);
 
+
 #define BOOT_PROGRAM_PREFIX "bin/"
 
 typedef struct boot_program
