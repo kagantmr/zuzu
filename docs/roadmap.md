@@ -288,10 +288,10 @@ Phase 5: Kernel Heap
 
 ## Phase 26: Hardening and Polish
 
-- [ ] ASID support (reduce/eliminate full TLB flushes)
+- [x] ASID support (reduce/eliminate full TLB flushes)
 - [ ] Kernel symbol table embedded in image (panic backtraces with names)
-- [ ] copy_from_user / copy_to_user with page-table walk validation
+- [x] copy_from_user / copy_to_user with page-table walk validation
 - [ ] Watchdog: flag processes that don't yield within N ticks
 - [ ] LDREX/STREX atomic support for userspace
-- [ ] Cache maintenance on ELF code segment load (D-cache clean, I-cache invalidate)
+- [x] Cache maintenance on ELF code segment load (D-cache clean, I-cache invalidate)
 

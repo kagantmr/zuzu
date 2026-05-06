@@ -1,6 +1,6 @@
 # zuzu IPC
 
-Inter-process communication is the defining feature of a microkernel. In zuzu, processes cannot call kernel functions to access services — they send messages to server processes that own those services. The kernel's job in IPC is to be a fast, correct switchboard.
+Inter-process communication is the defining feature of a microkernel. In zuzu, processes reach services through capability handles, not raw kernel pointers. The kernel's job in IPC is to be a fast, correct switchboard.
 
 ---
 
@@ -13,7 +13,7 @@ zuzu uses **synchronous blocking IPC**. This means:
 - When both are present, the kernel copies the message and unblocks both in one operation.
 - There are no message queues. There is no heap allocation in the IPC hot path.
 
-This is the same model used by L4, seL4, and QNX. The reason for choosing it over asynchronous IPC is simplicity: no buffer management, no flow control, no partial delivery. The trade-off is that a slow server blocks its clients. For the current stage of zuzu this is fine, proper protocol design handles it at the application level.
+The same rendezvous model is used for both the fixed 3-word IPC calls and the variable-length IPCX calls. The trade-off is that a slow server blocks its clients, so protocols need to be designed around that behavior.
 
 ---
 
@@ -21,90 +21,73 @@ This is the same model used by L4, seL4, and QNX. The reason for choosing it ove
 
 ### `proc_send` — `SVC #0x10`
 
-```
-r0: handle (index into calling process's handle table)
-r1–r3: message payload (up to 3 words)
-returns r0: 0 on success, negative error on failure
-```
-
-If a receiver is blocked on the target endpoint, the message is copied into the receiver's saved register frame and both processes are made runnable. If no receiver is waiting, the sender is added to the endpoint's sender queue and `schedule()` is called — the sender does not return until a receiver collects it.
+`r0` is the endpoint handle and `r1`-`r3` are the 3-word payload. If a receiver is already waiting, the message is copied into that receiver's saved frame. Otherwise the sender blocks on the endpoint queue.
 
 ### `proc_recv` — `SVC #0x11`
 
-```
-r0: handle
-returns r0: sender's PID
-         r1–r3: message payload
-```
-
-If a sender is already queued on the endpoint, it is dequeued, its payload is copied into the receiver's frame, and both run. If no sender is waiting, the receiver blocks.
+`r0` is the endpoint handle and `r1` is the timeout in milliseconds. If a sender is ready, the receiver gets the sender PID in `r0` and the payload in `r1`-`r3`. If the send was a call, the receiver gets a reply handle in `r0` and the sender PID in `r1`.
 
 ### `proc_call` — `SVC #0x12`
 
-```
-r0: handle
-r1–r3: message payload
-returns r0–r3: reply payload
-```
-
-Atomic send-then-wait-for-reply. Equivalent to `proc_send` followed by immediately blocking for a reply from the same port. Used for request/response patterns (most IPC is request/response). The receiver uses `proc_reply` to unblock the caller.
+`r0` is the endpoint handle and `r1`-`r3` are the request payload. The caller blocks until the callee replies. The receiver uses the reply handle returned by `proc_recv` to answer the call.
 
 ### `proc_reply` — `SVC #0x13`
 
-```
-r0–r3: reply payload
-returns: 0 or error
-```
-
-Sends a reply to whoever last called `proc_call` on the current process. Does not take a handle — the kernel knows who is waiting for a reply because it tracked the caller on `proc_call`.
-
-<!-- TODO: document how the kernel tracks the pending caller for proc_reply — is this stored in the PCB? -->
+`r0` is the reply-handle slot and `r1`-`r3` are the reply payload. Reply handles are temporary capabilities that are destroyed after use.
 
 
 ---
 
 ## Endpoints and Ports
 
-An endpoint is a kernel object that represents a communication channel. It has two queues: one for senders waiting for a receiver, and one for receivers waiting for a sender. Processes do not interact with endpoints directly; instead, they get **handles** to endpoints in their handle table. The kernel mediates access to endpoints via these handles.
+An endpoint is a kernel object that represents a communication channel. It has one queue for senders waiting for a receiver and one queue for receivers waiting for a sender. Processes do not interact with endpoints directly; instead, they get capability handles to endpoints in their handle table.
 
 **`endpoint_t` structure (`kernel/ipc/endpoint.h`):**
 
 ```c
 typedef struct endpoint {
-    list_head_t sender_queue;    // processes blocked on proc_send
-    list_head_t receiver_queue;  // processes blocked on proc_recv
-    uint32_t    owner_pid;
+    list_head_t sender_queue;
+    list_head_t receiver_queue;
+    uint32_t owner_pid;
+    uint32_t ref_count;
+    bool alive;
     list_node_t node;
 } endpoint_t;
 ```
+
+`owner_pid` controls destruction, `ref_count` tracks how many handle slots reference the endpoint, and `alive` tells the kernel whether the endpoint has already been destroyed.
 
 ---
 
 ## Handle Tables
 
-Processes do not hold raw kernel pointers to endpoints. Instead, each process has a **handle table** — a fixed-size array of 16 slots in its PCB:
+Processes do not hold raw kernel pointers to endpoints. Instead, each process has a typed capability vector in its PCB. Syscalls take a handle index, not a pointer, and the kernel validates the slot before touching the object.
 
-```c
-endpoint_t *handle_table[MAX_HANDLE_TABLE];  // MAX_HANDLE_TABLE = 16
-```
+Handle 0 is reserved for the name-table endpoint when one exists. `process_create()` populates it automatically once the name-table endpoint has been bootstrapped.
 
-Syscalls take a handle index (0–15), not a pointer. The kernel looks up `current_process->handle_table[handle]` and validates it before touching the endpoint.
-
-This prevents processes from forging references to endpoints they were never given access to. A process can only reach an endpoint if the kernel placed it in the process's table.
-
-**Handle 0** is reserved: the kernel pre-populates it in every process with a pointer to the name server's endpoint, so any process can look up services without prior coordination.
-
-Handle 0 has not been implemented yet.
+The current capability types are endpoint, device, shared memory, reply, notification, and task handles.
 
 ---
 
-## Message Format
+## IPCX
 
-At present, a message is exactly four 32-bit words: `r0–r3`. This maps directly to the ARM calling convention's argument registers, so there is no translation cost — the sender's registers ARE the message.
+At present, fixed-size IPC messages use `r0`-`r3`. Variable-length IPC uses the IPCX buffer instead. The buffer lives at `0x7FFFA000` and is one page wide (`4096` bytes).
 
-No heap allocation occurs. The kernel copies four words from one saved register frame to another.
+Every process gets the IPCX mapping automatically during creation. The kernel clamps all IPCX transfers to `IPCX_BUF_SIZE`, and the shared buffer is mapped read/write in user space.
 
-Shared memory will be implemented in a future phase, but for now all IPC is by value.
+The variable-length syscalls are:
+
+- `proc_sendx` - send a buffer into the IPCX transfer page
+- `proc_callx` - request/reply using the IPCX page
+- `proc_replyx` - reply using the IPCX page
+
+The receiver sees the payload length in the reply registers. No extra kernel heap allocation is needed.
+
+## Shared Memory
+
+Shared memory is also capability-based. `memshare()` allocates page-aligned backing pages, maps them into the caller, and returns both a handle and the mapped address. `attach()` maps an existing shared-memory object into another process, and `detach()` unmaps the exact region and decrements the refcount.
+
+Shared-memory handles can be transferred with `port_grant()`. When a shared-memory handle is copied, the kernel increments the object's refcount and clears the receiver's `mapped_va` so it can be mapped into the receiver's own address space.
 
 ---
 
@@ -135,7 +118,7 @@ port_create — SVC #0x20
 returns: handle index, or negative error
 ```
 
-Allocates an `endpoint_t` via `kmalloc`, initializes the queues, assigns a slot in the calling process's handle table, and returns the slot index.
+Allocates an `endpoint_t`, initializes the queues, assigns a slot in the calling process's handle table, and returns the slot index.
 
 ```
 port_destroy — SVC #0x21
@@ -153,18 +136,18 @@ r0: handle (in caller's table)
 r1: target PID
 ```
 
-Copies the endpoint reference from the caller's handle table into the target process's handle table. This is the mechanism for sharing endpoints — the kernel atomically manipulates two handle tables.
+Copies the handle from the caller's table into the target process's table. This is the mechanism for sharing endpoints and other grantable capabilities. The kernel updates object refcounts as needed and clears the `grantable` flag for non-init recipients.
 
-<!-- TODO: This is the hardest part of the name service (Phase 18). Note current status. -->
-Name service implementation will use this to share service endpoints with clients.
+Name-service code uses this to distribute service endpoints to client processes.
 
 ---
 
 ## See Also
 
-- `kernel/ipc/endpoint.h` — endpoint structure
-- `kernel/ipc/sys_ipc.c` — proc_send / proc_recv / proc_call / proc_reply implementation
-- `kernel/ipc/sys_port.c` — port_create / port_destroy / port_grant
-- `kernel/proc/process.h` — PCB, handle table, IPC state fields
-- [syscalls.md](syscalls.md) — full ABI for IPC syscalls (0x10–0x22)
-- [processes.md](processes.md) — blocking, unblocking, scheduler integration
+- `kernel/ipc/endpoint.h` - endpoint and capability types
+- `kernel/ipc/sys_ipc.c` - `proc_send` / `proc_recv` / `proc_call` / `proc_reply` and IPCX variants
+- `kernel/ipc/sys_port.c` - `port_create` / `port_destroy` / `port_grant`
+- `kernel/mm/sys_mm.c` - `memshare` / `attach` / `detach`
+- `kernel/proc/process.h` - PCB, capability table, IPC state fields
+- [syscalls.md](syscalls.md) - full ABI for IPC syscalls (0x10-0x38)
+- [processes.md](processes.md) - blocking, unblocking, scheduler integration, and task bootstrap
