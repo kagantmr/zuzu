@@ -52,7 +52,6 @@ static inline uint32_t read_be32(const void *p)
 
 static process_t *s_devmgr;
 
-
 #define BOOT_PROGRAM_PREFIX "bin/"
 
 typedef struct boot_program
@@ -126,18 +125,16 @@ static void boot_program(const char *path, uint32_t flags)
         for (uint32_t i = 0; i < initrd_page_count; i++)
         {
             uint32_t page_pa = initrd_pa + i * PAGE_SIZE;
-            kmap_user_page(process->as, page_pa, process->mmap_va_next, VM_PROT_READ );
+            kmap_user_page(process->as, page_pa, process->mmap_va_next, VM_PROT_READ);
             process->mmap_va_next += PAGE_SIZE;
         }
         vmm_add_region(process->as, &(vm_region_t){
-                .vaddr_start = va,
-                .size = _initrd_end - _initrd_start,
-                .prot = VM_PROT_READ | VM_PROT_USER,
-                .memtype = VM_MEM_NORMAL,
-                .owner = VM_OWNER_SHARED,
-                .flags = VM_FLAG_NONE
-        });
-
+                                        .vaddr_start = va,
+                                        .size = _initrd_end - _initrd_start,
+                                        .prot = VM_PROT_READ | VM_PROT_USER,
+                                        .memtype = VM_MEM_NORMAL,
+                                        .owner = VM_OWNER_SHARED,
+                                        .flags = VM_FLAG_NONE});
     }
 
     if (flags & PROC_FLAG_DEVMGR)
