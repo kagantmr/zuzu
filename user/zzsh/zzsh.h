@@ -3,7 +3,7 @@
 
 #define ZZSH_VER "v1.2"
 
-#include "zuzu.h"
+#include <zuzu/zuzu.h>
 #include "zuzu/protocols/zuart_protocol.h"
 #include "zuzu/protocols/nt_protocol.h"
 #include "zuzu/ipcx.h"

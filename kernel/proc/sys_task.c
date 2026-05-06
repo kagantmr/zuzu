@@ -6,7 +6,7 @@
 #include "arch/arm/mmu/mmu.h"
 #include <mem.h>
 #include "kernel/sched/sched.h"
-#include "user/include/zuzu.h"
+#include "zuzu/zuzu.h"
 #include "kernel/loader/loader.h"
 #include "kernel/time/tick.h"
 #include "kernel/proc/process.h"

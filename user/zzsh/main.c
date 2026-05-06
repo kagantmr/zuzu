@@ -4,7 +4,7 @@
 #include <string.h>
 #include <snprintf.h>
 #include <stdbool.h>
-#include <service.h>
+#include <zuzu/service.h>
 #include <zmalloc.h>
 #include <zuzu/syspage.h>
 #include <zuzu/protocols/fbox_protocol.h>

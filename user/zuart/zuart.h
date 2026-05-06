@@ -3,7 +3,7 @@
 
 #define ZUART_VER "v1.0"
 
-#include "zuzu.h"
+#include <zuzu/zuzu.h>
 #include <stdbool.h>
 
 // zuart is completely based around the pl011 for now. subject to change

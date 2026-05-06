@@ -66,5 +66,6 @@
 #define ERR_NOMATCH (-7)  /* Syscall not implemented              */
 #define ERR_PTRFAULT (-8) /* Bad pointer                          */
 #define ERR_DEAD (-9)     // endpoint destroyed while waiting
+#define ERR_TIMEOUT (-10)
 
 #endif /* SYSCALL_NUMS_H */

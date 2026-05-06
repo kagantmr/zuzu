@@ -8,7 +8,7 @@
         #include <core/panic.h>
         #define assert(cond) if(!(cond)) panic("Assertion failed: " #cond)
     #else
-        #include <zuzu.h>
+        #include <zuzu/zuzu.h>
         // User space assert is just quit for now
         #define assert(cond) if(!(cond)) { _quit(-1); } 
     #endif

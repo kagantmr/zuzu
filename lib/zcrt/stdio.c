@@ -4,7 +4,7 @@
 #ifdef __KERNEL__
 #include "core/kprintf.h"
 #else
-#include <zuzu.h>
+#include <zuzu/zuzu.h>
 #include <zuzu/protocols/nt_protocol.h>
 #include <zuzu/protocols/zuart_protocol.h>
 #include <zuzu/ipcx.h>

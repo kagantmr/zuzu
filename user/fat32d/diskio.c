@@ -1,10 +1,10 @@
 #include "ff.h"
 #include "diskio.h"
 
-#include "zuzu.h"
+#include <zuzu/zuzu.h>
 #include "zuzu/protocols/nt_protocol.h"
 #include "zuzu/protocols/zusd_protocol.h"
-#include <service.h>
+#include <zuzu/service.h>
 #include <mem.h>
 #include <stdint.h>
 

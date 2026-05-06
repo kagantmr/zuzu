@@ -1,8 +1,8 @@
 #include <zuzu/protocols/fat32d_protocol.h>
 #include <zuzu/protocols/fbox_protocol.h>
 #include <zuzu/protocols/nt_protocol.h>
-#include <service.h>
-#include <zuzu.h>
+#include <zuzu/service.h>
+#include <zuzu/zuzu.h>
 #include <stdio.h>
 #include <string.h>
 #include <mem.h>

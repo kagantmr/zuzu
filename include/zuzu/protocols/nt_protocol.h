@@ -13,6 +13,13 @@
 #define DEN_MYDEN_COUNT 7
 #define DEN_MYDEN_AT 8
 
+static inline uint32_t nt_pack(const char name[4]) {
+	return ((uint32_t)(unsigned char)name[0]) |
+		   ((uint32_t)(unsigned char)name[1] << 8) |
+		   ((uint32_t)(unsigned char)name[2] << 16) |
+		   ((uint32_t)(unsigned char)name[3] << 24);
+}
+
 #define NT_LU_OK 0
 #define NT_LU_NOMATCH (-1)
 #define NT_REG_FAIL (-2)

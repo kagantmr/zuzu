@@ -1,4 +1,4 @@
-#include "zuzu.h"
+#include <zuzu/zuzu.h>
 #include "zuzu/protocols/nt_protocol.h"
 #include "zuzu/protocols/fat32d_protocol.h"
 #include <stdbool.h>
@@ -6,7 +6,7 @@
 #include <string.h>
 #include <mem.h>
 #include "ff.h"
-#include <service.h>
+#include <zuzu/service.h>
 
 static FATFS fs;
 static shmem_result_t shm;

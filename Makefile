@@ -57,7 +57,7 @@ KERNEL_LIBGCC = $(shell $(CC) $(CPUFLAGS) -print-libgcc-file-name)
 USER_LIBGCC   = $(shell $(USER_CC) $(CPUFLAGS) -mfloat-abi=soft -print-libgcc-file-name)
 
 USER_CFLAGS  = -ffreestanding -nostdlib -O$(OPTIMIZATION_LEVEL) -Wall -Wextra \
-               $(CPUFLAGS) -Iuser/include -Iinclude -MMD -MP -g -mfloat-abi=hard -mfpu=vfpv4
+			   $(CPUFLAGS) -Iinclude -MMD -MP -g -mfloat-abi=hard -mfpu=vfpv4
 USER_LDFLAGS = -T user/user.ld
 
 ifeq ($(DEBUG_BUILD), 1)
@@ -143,11 +143,6 @@ build/user/lib/%.o: user/lib/%.c
 	@mkdir -p $(dir $@)
 	@echo "  CC      $<"
 	@$(USER_CC) $(USER_CFLAGS) -Iuser/lib -c $< -o $@
-
-build/user/include/%.o: user/include/%.c
-	@mkdir -p $(dir $@)
-	@echo "  CC      $<"
-	@$(USER_CC) $(USER_CFLAGS) -c $< -o $@
 
 $(USER_CRT0): arch/arm/crt0.S
 	@mkdir -p $(dir $@)

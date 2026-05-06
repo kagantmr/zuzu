@@ -1,4 +1,4 @@
-#include <zuzu.h>
+#include <zuzu/zuzu.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdint.h>

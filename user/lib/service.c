@@ -1,6 +1,6 @@
-#include "service.h"
+#include <zuzu/service.h>
 #include "zuzu/protocols/nt_protocol.h"
-#include "zuzu.h"
+#include <zuzu/zuzu.h>
 
 int32_t register_service(const char *name) {
     int32_t port = _port_create();

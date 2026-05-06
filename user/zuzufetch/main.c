@@ -1,6 +1,6 @@
 #include <stdint.h>
 #include <stdio.h>
-#include <zuzu.h>
+#include <zuzu/zuzu.h>
 #include <ansi.h>
 #include "zuzu/syspage.h"
 
