@@ -8,8 +8,8 @@ typedef struct {
     const char *name;
 } ksym_entry_t;
 
+extern volatile const uint32_t ksym_count;
 extern const ksym_entry_t ksym_table[];
-extern const uint32_t ksym_count;
 
 const char *ksym_lookup(uint32_t addr);
 

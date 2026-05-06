@@ -182,11 +182,7 @@ build/arch/arm/initrd.o: arch/arm/initrd.S $(INITRD)
 	@echo "  AS      $<"
 	@$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
 
-# Kernel link: two-pass build to generate kernel symbol table
-# 1) link a first-pass kernel ELF (without ksymtab)
-# 2) run symbol generator to create build/ksymtab.c
-# 3) compile build/ksymtab.c to build/ksymtab.o
-# 4) relink final kernel including build/ksymtab.o
+# two-pass build to generate kernel symbol table
 $(TARGET): $(OBJS) build/arch/arm/initrd.o $(LINKER_SCRIPT)
 	@mkdir -p $(dir $@)
 	@echo "  LD      (pass1) $@"
@@ -197,9 +193,9 @@ $(TARGET): $(OBJS) build/arch/arm/initrd.o $(LINKER_SCRIPT)
 		echo "  CC      build/ksymtab.o"; \
 		$(CC) $(CFLAGS) -c build/ksymtab.c -o build/ksymtab.o; \
 		echo "  LD      (final) $@"; \
-		$(LD) $(LDFLAGS) $(OBJS) build/arch/arm/initrd.o build/ksymtab.o $(KERNEL_LIBGCC) -o $@; \
+		$(LD) $(LDFLAGS) build/ksymtab.o $(OBJS) build/arch/arm/initrd.o $(KERNEL_LIBGCC) -o $@; \
 	else \
-		echo "  WARN: build/ksymtab.c not generated; final ELF is first-pass link"; \
+		echo "  WARN: build/ksymtab.c not generated; final ELF uses empty symbol table"; \
 	fi
 
 # SD card workflow

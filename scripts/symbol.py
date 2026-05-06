@@ -21,4 +21,4 @@ with open(sys.argv[2], 'w') as f:
     for address, name in symbols:
         f.write(f'    {{ 0x{address}, "{name}" }},\n')
     f.write('};\n')
-    f.write(f'const uint32_t ksym_count = {len(symbols)};\n')
+    f.write(f'volatile const uint32_t ksym_count = {len(symbols)};\n')
