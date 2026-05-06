@@ -21,6 +21,7 @@ typedef struct {
     char         cpu[24];                        // from DTB, constant after boot
     uint32_t     mem_total_kb;
     uint32_t     mem_free_kb;                    // updated 
+    uint32_t     time_s;                        // when did the kernel boot?
     uint32_t     uptime_s;                       // updated by tick handler 
     uint8_t      dev_count;
     uint32_t     initrd_size;

@@ -18,6 +18,8 @@
 #define LOG_FMT(fmt) "(board) " fmt
 #include "core/log.h"
 
+uint32_t rtc_epoch;
+
 void board_init_devices(void) {
     char path[128];
     uint64_t addr, size;
@@ -51,9 +53,26 @@ void board_init_devices(void) {
             KDEBUG("UART re-mapped to %p", uart_va);
         }
     } else {
-        KDEBUG("No UART in DTB, keeping early boot config");
+        KDEBUG("Oops! No UART in DTB, keeping early boot config");
     }
     
+    if (dtb_find_compatible("arm,pl031", path, sizeof(path))) {
+        if (dtb_get_reg_phys(path, 0, &addr, &size)) {
+            // map RTC to get epoch then unmap
+            void *rtc_va = ioremap((uintptr_t)addr, (size_t)size);
+            if (!rtc_va) return;
+
+            rtc_epoch = *((volatile uint32_t *)rtc_va);
+            if (rtc_epoch == 0) {
+                KDEBUG("Oops! RTC epoch is 0 (check for anomalies)");
+            }
+            
+            iounmap(rtc_va);
+        }
+    } else {
+        KDEBUG("Oops! No RTC found in DTB, epoch is 0");
+    }
+
     KDEBUG("Using ARM generic timer as tick source");
     generic_timer_init();
 }
