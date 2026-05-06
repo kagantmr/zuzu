@@ -67,7 +67,7 @@ else
 endif
 
 BOOT_PROGS = sysd devmgr zuart zusd fat32d fbox zzsh
-DISK_PROGS = test
+DISK_PROGS = test zuzufetch
 
 USER_PROGS = $(BOOT_PROGS) $(DISK_PROGS)
 
@@ -247,7 +247,7 @@ sdimg-recreate: sdimg-clean sdimg
 run: $(TARGET)
 	qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M \
 	    -kernel $(TARGET) -dtb $(DTB_FILE) -nographic \
-	    -drive file=$(SD_IMG),if=sd,format=raw
+	    -drive file=$(SD_IMG),if=sd,format=raw \
 
 debug: $(TARGET)
 	qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M \

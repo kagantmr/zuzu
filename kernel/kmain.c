@@ -34,8 +34,6 @@
 
 #include "kernel/syspage.h"
 
-#include "fetch.h"
-
 #define LOG_FMT(fmt) "(main) " fmt
 #include "core/log.h"
 
@@ -382,8 +380,6 @@ _Noreturn void kmain(void)
     sched_init();
     // Keep IRQs globally masked during early boot setup and DTB enumeration.
     // User mode will run with its own CPSR after the first context switch.
-
-    print_boot_banner();
 
     perform_panic_tests();
 
