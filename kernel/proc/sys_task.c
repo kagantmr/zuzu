@@ -32,7 +32,7 @@ static bool wait_write_status(int32_t *status_out, int32_t status)
 
 void quit(exception_frame_t *frame) {
     int exit_status = (int)frame->r[0];
-    KINFO("Process %d exited with status code %d", current_process->pid, exit_status);
+    KDEBUG("Process %d exited with status code %d", current_process->pid, exit_status);
     
     process_kill(current_process, exit_status);
     schedule();

@@ -1,6 +1,6 @@
 #ifndef KMAIN_H
 #define KMAIN_H
 
-_Noreturn void kmain(void);
+void kmain(void) __attribute__((noreturn));
 
 #endif
