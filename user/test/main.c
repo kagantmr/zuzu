@@ -4,4 +4,5 @@
 int main(int argc, char *argv[])
 {
     printf("this is a long long long text.\n");
+    return 0;
 }
