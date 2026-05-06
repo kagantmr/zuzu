@@ -14,12 +14,6 @@ Receives interrupt signals from all connected peripherals. Routes each interrupt
 **GICC — CPU Interface** (`0x2C002000` on vexpress-a15)  
 Per-CPU register interface. The running CPU reads the CPU interface to acknowledge an interrupt (getting its ID from the IAR register), and writes to the EOIR register to signal end-of-interrupt. The CPU interface also controls the priority mask — the minimum priority level the CPU will accept.
 
-<!-- TODO: explain how the two components interact: -->
-<!-- GICD asserts a virtual IRQ line to the GICC. The CPU receives the signal as an IRQ exception. -->
-<!-- The CPU reads GICC_IAR to acknowledge — this returns the interrupt ID and marks it as active. -->
-<!-- The CPU handles the interrupt, then writes the same ID to GICC_EOIR. -->
-<!-- Only then does GICD consider the interrupt fully handled and allow re-triggering. -->
-
 ---
 
 ## IRQ Numbers on vexpress-a15
@@ -37,21 +31,15 @@ GICv2 uses a flat namespace. Interrupt IDs 0–15 are Software Generated Interru
 | 39     | UART2                   |                                   |
 | 40     | UART3                   |                                   |
 
-<!-- TODO: verify these IRQ numbers against your DTB parser output / board.h -->
-
 ---
 
 ## IRQ Registration API (`arch/arm/irq/irq.c`)
 
-<!-- TODO: document the irq_register_handler() function signature and semantics -->
-<!-- - takes an IRQ number and a function pointer -->
-<!-- - stores in a dispatch table indexed by IRQ ID -->
-<!-- - called during device init (pl011_init_irq, sp804_init, etc.) -->
+To handle an interrupt, a device driver registers a handler function for the corresponding IRQ ID. When an interrupt fires, the GICv2 CPU interface provides the IRQ ID to the kernel, which looks up the registered handler and calls it. For example, the SP804 timer driver registers handlers for IRQs 34 and 35, and the ARM generic timer driver registers a handler for IRQ 27. The PL011 UART driver registers a handler for IRQ 37 to handle incoming data and transmit completion.
 
-<!-- TODO: document irq_enable(n) / irq_disable(n) — per-line enable/disable via GICD_ISENABLERn -->
+An IRQ line can be enabled or disabled via the GIC distributor's ISENABLER/ICENABLER registers. By default, all IRQ lines are disabled at boot. Drivers must explicitly enable their IRQ lines after registering handlers.
 
-<!-- TODO: document arch_global_irq_enable() / arch_global_irq_disable() — CPSR I-bit -->
-
+To disable all interrupts globally (e.g., during critical sections), the kernel sets the I-bit in the CPSR register. This is a coarse-grained mechanism and should be used sparingly to avoid missing important interrupts.
 ---
 
 ## IRQ Dispatch Flow

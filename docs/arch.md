@@ -31,7 +31,7 @@ ARMv7 exposes two coprocessor registers called **Translation Table Base Register
 
 ---
 
-## Exception Vector Table
+## Exceptions & Interrupts
 
 When an exception occurs in code execution, the processor jumps to the address specified by the Vector Base Address Register (VBAR) with an offset and switches to the appropriate mode, depending on the instruction. 
 
@@ -57,9 +57,6 @@ zuzu's vector table is placed by the linker script at VA `C0018000` for `vexpres
     mcr     p15, 0, r0, c12, c0, 0  @ VBAR = vector_table
     isb
 ```
----
-
-## Exception Entry and the Stack Frame
 
 When an exception occurs, the CPU automatically saves some registers on the stack before jumping to the handler. The exact registers and their order depend on the exception type and the mode it was taken from. For example, for an IRQ taken from SVC mode, the CPU saves the following on the IRQ stack. `entry.s` then saves the rest of the registers to form a complete `exception_frame_t` before calling the C handler. If the C handler returns (it may not due to a panic), the CPU restores the registers and returns from the exception, resuming execution.
 
@@ -71,16 +68,6 @@ typedef struct exception_frame {
     uint32_t return_cpsr; // [15]     saved CPSR
 } exception_frame_t;
 ```
-
----
-
-## SVC Syscall ABI 
-
-While most OS projects follow the Linux convention putting the syscall number in `r7` then executing `SVC #0`, zuzu uses `SVC #n` where `n` IS the syscall number, masked as `& 0xFF` from the 24-bit imm field. This means that the syscall number is encoded directly in the lowest byte of the immediate field of the SVC instruction itself, and can be extracted in the handler by reading the instruction at `return_pc - 4`. The 1-byte limitation arises from Thumb mode, where the SVC instruction is only 16 bits with an 8-bit immediate. To use more than 256 syscalls, we would need to switch to ARM mode and use the 32-bit SVC instruction, which has a 24-bit immediate. However, this would require compiling the entire kernel in ARM mode, which is less efficient for code density. By using the SVC immediate field for the syscall number, userspace Thumb programs can be executed.
-
----
-
-## The LR Adjustment Problem
 
 Different exception modes require different adjustments to the Link Register (LR) to get the correct return address. This is a subtle  point that is handled in the entry stubs in `entry.s`. The C code then reads `frame->return_pc` which has already been corrected. The table below summarizes the adjustments needed for each exception type:
 
@@ -94,11 +81,22 @@ Different exception modes require different adjustments to the Link Register (LR
 
 ---
 
+## SVC Syscall ABI 
+
+While most OS projects follow the Linux convention of putting the syscall number in `r7` and then executing `SVC #0`, zuzu uses `SVC #n` where `n` is the syscall number itself.
+
+The kernel decodes the instruction at the return PC and masks the low 8 bits of the immediate:
+
+- ARM mode: read the 32-bit instruction at `return_pc - 4`
+- Thumb mode: read the 16-bit instruction at `return_pc - 2`
+
+This gives the same 8-bit syscall namespace in both instruction sets. Thumb userspace is supported; the exception handler checks CPSR bit 5 to decide which instruction width to decode.
+
+---
+
 ## Memory Attributes and Cache Configuration
 
 Zuzu enforces two memory safety levels for its virtual memory mappings: Normal cacheable and Device non-cacheable. This is done by setting the appropriate bits in the page table entries. MMIO regions must be mapped as Device non-cacheable to ensure that the CPU does not cache reads and writes to these regions, because there is usually nothing to read/write from, which pollutes the cache and causes stale data manipulation. On the other hand, normal memory can be mapped as cacheable to improve performance. `ioremap()` specifically looks out for VM_MEM_DEVICE.
-
----
 
 ## ARM Access Permissions (AP Bits)
 

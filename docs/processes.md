@@ -6,26 +6,48 @@ This document describes how processes are represented, created, scheduled, and d
 
 ## Process Control Block (`kernel/proc/process.h`)
 
-Every process is represented by a `process_t` struct:
+Every process is represented by a `process_t` struct. The fields that matter most to the runtime are:
+
+- `pid` / `parent_pid`
+- `process_state`
+- `kernel_sp` and `kernel_stack_top`
+- `as` (the process address space)
+- `trap_frame` (saved user register state)
+- `handle_table` (typed capability table)
+- `ipc_buf_pa` and `ipc_buf_xfer_len` (shared IPCX page and active transfer length)
+- `ipc_state`, `blocked_endpoint`, `pending_reply_cap`, and `wake_reason`
+
+The handle table is not an array of raw pointers. It is a capability vector; each slot stores an object type plus the object union for that capability.
 
 ```c
-typedef struct process {
-    uint32_t         pid;               // unique process ID
-    uint32_t         parent_pid;        // PID of parent (0 = kernel)
-    p_state_t        process_state;     // READY / RUNNING / BLOCKED / ZOMBIE
-    uint32_t        *kernel_sp;         // current kernel stack pointer (for context switch)
-    uintptr_t        kernel_stack_top;  // base of kernel stack allocation (for freeing)
-    uint32_t         wake_tick;         // tick at which a sleeping process should wake
-    uint32_t         priority;          // scheduling priority (future use)
-    uint32_t         time_slice;        // ticks per scheduling quantum
-    uint32_t         ticks_remaining;   // ticks remaining in current quantum
-    addrspace_t     *as;                // this process's address space (TTBR0 root)
-    list_node_t      node;              // embedded list node (run queue / endpoint queue)
-    int32_t          exit_status;       // exit code, valid when state == ZOMBIE
-    exception_frame_t *trap_frame;      // saved register state (points into kernel stack)
-    endpoint_t      *handle_table[16];  // IPC handle table (index 0 = name server)
-    ipc_state_t      ipc_state;         // IPC_NONE / IPC_SENDER / IPC_RECEIVER
-    endpoint_t      *blocked_endpoint;  // endpoint this process is waiting on (if any)
+typedef struct process
+{
+    uint32_t pid, parent_pid;
+    p_state_t process_state;
+    uint32_t *kernel_sp;
+    uintptr_t kernel_stack_top; // base of kernel stack for freeing
+    uint64_t wake_tick;
+    uint32_t priority, time_slice, ticks_remaining;
+    addrspace_t *as;
+    list_node_t node; // embedded, not pointers
+    list_node_t timeout_node;
+    int32_t exit_status;
+    uint32_t waiting_for;
+    char name[32];           // PROCESS name
+    uint32_t device_va_next; // initialized to USER_DEVICE_BASE in process_create
+    uint32_t mmap_va_next;   // initialized to USER_MMAP_BASE in process_create
+    exception_frame_t *trap_frame;
+    list_head_t outstanding_replies;
+    handle_vec_t handle_table;
+    uintptr_t ipc_buf_pa;
+    reply_cap_t *pending_reply_cap;
+    uint32_t ipc_buf_xfer_len;
+    ipc_state_t ipc_state;
+    wake_reason_t wake_reason;
+    endpoint_t *blocked_endpoint;
+    uint32_t flags;
+    list_head_t children;
+    list_node_t sibling_node;
 } process_t;
 ```
 
@@ -37,8 +59,27 @@ typedef struct process {
 
 - `READY` — process is ready to run, sitting in the scheduler's run queue
 - `RUNNING` — process is currently executing on the CPU
-- `BLOCKED` — process is waiting for an event (e.g., IPC, timer tick) and is not runnable
+- `BLOCKED` — process is waiting for an event (e.g., IPC or timer tick) and is not runnable
+- `STOPPED` — process has been created but not started yet
 - `ZOMBIE` — process has exited but has not been reaped by its parent yet. Its PCB still exists so the parent can query its exit status, but it is not runnable and does not consume resources.
+
+---
+
+## User-Space Layout
+
+The user address space follows a common layout contract across all processes:
+
+| Virtual Range | Purpose |
+| ------------- | ------- |
+| `0x00001000` | Syspage (`USER_SYSPAGE_VA`) |
+| `0x00010000` | ELF load base (`USER_ELF_BASE`) |
+| `0x20000000` | Anonymous mmap base (`USER_MMAP_BASE`) |
+| `0x7F000000` | Device mapping window (`USER_DEVICE_BASE`) |
+| `0x7FFFA000` | IPCX buffer (`USER_IPC_BUF_VA`) |
+| `0x7FFFB000` | Stack guard page (`USER_STACK_GUARD_VA`) |
+| `0x7FFFC000` - `0x80000000` | User stack (`USER_STACK_BASE` / `USER_STACK_TOP`) |
+
+`process_create_from_elf()` maps the syspage, IPCX buffer, user stack, and stack guard for ELF-loaded tasks. `process_create()` sets up the syspage and IPCX mapping for stopped tasks created at runtime.
 
 ---
 
@@ -46,65 +87,37 @@ typedef struct process {
 
 Each process has its own kernel stack, separate from its user stack. The kernel stack is used when the process is executing in kernel mode (during a syscall or IRQ that interrupted the process).
 
-The kernel stack is allocated from the PMM as a contiguous chunk of pages. The `kernel_stack_top` field in the PCB records the physical base address of this allocation so it can be freed when the process is destroyed. The `kernel_sp` field is the current stack pointer value, which moves as things are pushed and popped during exceptions. If kernel_sp gets corrupted (e.g., due to a stack overflow), the next exception will likely cause a Data Abort when the kernel tries to use the corrupted stack pointer and cause a panic.
+The kernel stack is allocated from the PMM as a contiguous chunk of pages. `kernel_stack_top` records the physical base of that allocation so it can be freed when the process is destroyed. `kernel_sp` is the current stack pointer value; it moves as things are pushed and popped during exceptions.
 
-The `kernel_stack_top` field records the physical base of the allocation so it can be freed when the process is destroyed. `kernel_sp` is the current stack pointer value — it moves as things are pushed/popped during exceptions.
+If `kernel_sp` is corrupted, the next exception will usually fault while the kernel is trying to save or restore context.
 
 ---
 
 ## Context Switch (`arch/arm/exceptions/switch.s`)
 
-Context switching in zuzu works by saving and restoring the **callee-saved registers** (r4–r11 + lr) on the kernel stack. The scheduler calls `context_switch(prev, next)` which:
+Context switching in zuzu saves and restores the callee-saved register set (`r4`-`r11`, VFP registers plus `lr`) on the kernel stack. The scheduler switches by loading `next->kernel_sp` and restoring that saved context.
 
-1. Pushes `{r4–r11, lr}` onto `prev`'s kernel stack. Saves `sp` into `prev->kernel_sp`.
-2. Loads `sp` from `next->kernel_sp`. Pops `{r4–r11, lr}` from `next`'s kernel stack.
-3. Returns — but "returns" into the `next` process's context (wherever it last called `context_switch`).
-
-For a brand-new process that has never run before, the kernel stack is pre-initialized to look like the result of a context switch. The `lr` in the saved context points to `process_entry_trampoline`, which sets up the exception return frame that transitions to user mode.
-
-
-Before the first context switch, the kernel stack is pre-initialized to look like the result of a context switch. The `lr` in the saved context points to `process_entry_trampoline`, which sets up the exception return frame that transitions to user mode. This allows the scheduler to "return" into the new process's context on the first run, even though it has never actually executed before. This is the one and only time a process can be entered without going through the normal exception entry path. It is also the only usage of the SYS mode.
-
-```armasm
-process_entry_trampoline:
-    ldmia sp!, {r0-r12, lr}
-    cps #0x1F              @ SYS mode (shares SP with USR)
-    mov sp, lr                @ Set User SP from LR
-    mov lr, #0                @ Clear LR (prevent return to nowhere)
-    cps #0x13              @ back to SVC
-    rfeia sp!
-```
+For a brand-new process, the kernel stack is pre-initialized so the first return from the scheduler lands in `process_entry_trampoline`. That trampoline installs the user stack pointer and then returns to user mode through the exception frame.
 
 ---
 
 ## Address Spaces
 
-Each process has an `addrspace_t *as` pointer. The address space contains:
+Each process has an `addrspace_t *as` pointer. The address space contains an L1 page table and a vector of `vm_region_t` mappings. On a context switch, `TTBR0` is written with the physical address of the new process's L1 table. `TTBR1` (kernel mappings) never changes.
 
-- An L1 page table (16KB aligned, allocated from PMM)
-- The set of `vm_region_t` mappings (code, stack, heap)
-
-On a context switch, `TTBR0` is written with the physical address of the new process's L1 table. `TTBR1` (kernel mappings) never changes.
-
-Address spaces are processor specific and managed through VMM policy code. The functions `as_create()`, `vmm_map_user()`, and `as_destroy()` handle the "algorithm", then delegate to architecture-specific code for the actual page table manipulations.
-the TLB must be invalidated (flushed) after writing TTBR0 to ensure the new address space is used. This is done in `arch/arm/mmu.c` after every context switch.
+Address spaces are managed through VMM policy code. `as_create()`, `vmm_add_region()`, `vmm_map_range()`, `vmm_remove_region()`, and `as_destroy()` define the policy, while the architecture layer handles the actual page-table writes and TLB maintenance.
 
 ---
 
 ## Process Creation (`kernel/proc/process.c`)
 
-`process_create(entry, magic)` allocates and initializes a new process:
+`process_create_from_elf()` is used by the boot path and service launcher code. It validates the ELF image, maps each `PT_LOAD` segment, installs the user stack and guard page, and maps the syspage plus IPCX buffer.
 
-1. Allocates a `process_t` from the heap.
-2. Allocates and zeroes a kernel stack (via `kstack_alloc()`).
-3. Creates an address space (`as_create()`).
-4. Pre-initializes the kernel stack with a fake context switch frame pointing to `process_entry_trampoline`.
-5. Assigns a PID.
-6. Sets state to `PROCESS_READY`.
+`process_create(name)` is used by `task_tspawn()`. It allocates a blank stopped process, initializes the kernel stack and address space, maps the syspage and IPCX buffer, and sets up the initial handle table. Once the name-table endpoint exists, slot 0 is populated automatically.
 
-The `magic` parameter is currently used in test processes to identify which test function the process should run.
+The stopped task then becomes runnable only after `task_kickstart()` installs the initial user register state and moves the process to `PROCESS_READY`.
 
-The magic dispatcher will be replaced by an ELF loader in Phase 13, which will read the entry point from the ELF header and set up the initial user stack with arguments and environment variables.
+For runtime task bootstrap, the standard pattern is: `task_tspawn` -> `asinject` (init only) -> `task_kickstart`.
 
 ---
 
@@ -112,11 +125,12 @@ The magic dispatcher will be replaced by an ELF loader in Phase 13, which will r
 
 `process_destroy(p)` is called when a ZOMBIE process is reaped:
 
-1. Frees the address space (`as_destroy()` — walks L2 tables, frees pages, frees L1).
+1. Frees the address space (`as_destroy()` — walks page tables and frees mapped pages where appropriate).
 2. Frees the kernel stack.
-3. Frees the `process_t` struct itself.
+3. Frees the IPCX backing page.
+4. Frees the `process_t` struct itself.
 
-The scheduler currently reaps (deallocates) zombie processes. Later, this will be done by the "init" process.
+The scheduler currently reaps zombie processes.
 
 ---
 
@@ -124,17 +138,15 @@ The scheduler currently reaps (deallocates) zombie processes. Later, this will b
 
 zuzu uses a simple round-robin scheduler. All ready processes sit in a linked list. On each tick, the scheduler picks the next process in the list, performs a context switch, and updates the current process pointer.
 
-sched_init() initializes the scheduler's run queue. sched_add() adds a process to the end of the run queue. sched_remove() removes a process from the run queue (e.g., when it blocks or exits). schedule() performs a context switch to the next ready process.
+sched_init() initializes the scheduler's run queue. `sched_add()` adds a process to the end of the run queue. `sched_remove()` removes a process from the run queue (for example when it blocks or exits). `schedule()` performs a context switch to the next ready process.
 
-sched_add() is called when a process is created or unblocked. sched_remove() is called when a process blocks (e.g., on IPC) or exits. schedule() is called on every timer tick and whenever a process voluntarily yields the CPU (e.g., via task_yield or blocking IPC).
-
-sched_remove() is called when a process blocks (e.g., on IPC) or exits. schedule() is called on every timer tick and whenever a process voluntarily yields the CPU (e.g., via task_yield or blocking IPC).
+`sched_add()` is called when a process is created or unblocked. `sched_remove()` is called when a process blocks on IPC or exits. `schedule()` is called on every timer tick and whenever a process voluntarily yields the CPU.
 
 schedule() is the main scheduling function. It picks the next ready process from the run queue and performs a context switch. It also updates the `current_process` global pointer to point to the new process.
 
 current_process is a global pointer that always points to the currently running process. This is important because when an exception (syscall or IRQ) occurs, the kernel needs to know which process was interrupted in order to access its PCB, address space, and other state. The current_process pointer is updated on every context switch to reflect the new running process.
 
-The tick_remaining mechanism is a simple way to implement preemption. Each process has a time_slice (number of ticks it is allowed to run before being preempted) and ticks_remaining (number of ticks left in the current time slice). On each timer tick, the scheduler decrements ticks_remaining for the current process. If ticks_remaining reaches 0, the scheduler will preempt the process and switch to the next one in the run queue. When a process is scheduled, its ticks_remaining is reset to its time_slice.
+The `ticks_remaining` mechanism implements preemption. Each process has a `time_slice` (number of ticks it is allowed to run before being preempted) and `ticks_remaining` (number of ticks left in the current time slice). On each timer tick, the scheduler decrements `ticks_remaining` for the current process. If it reaches 0, the scheduler preempts the process and switches to the next one in the run queue. When a process is scheduled, `ticks_remaining` is reset to `time_slice`.
 
 The scheduler is triggered in two ways:
 - **Timer tick** — `schedule()` is registered as a tick callback, called from the timer IRQ handler.
@@ -144,10 +156,10 @@ The scheduler is triggered in two ways:
 
 ## See Also
 
-- `kernel/proc/process.c` — process_create, process_destroy
-- `kernel/proc/kstack.c` — kernel stack allocation with guard pages
-- `arch/arm/exceptions/switch.s` — context_switch assembly
-- `kernel/sched/sched.c` — scheduler run queue and tick dispatch
-- `kernel/vmm/vmm.c` — address space management
-- [ipc.md](ipc.md) — how blocking IPC interacts with process states
-- [arch.md](arch.md) — TTBR0 switching, USR mode entry
+- `kernel/proc/process.c` - process_create, process_destroy, process_create_from_elf
+- `kernel/proc/kstack.c` - kernel stack allocation with guard pages
+- `arch/arm/exceptions/switch.s` - context switch assembly
+- `kernel/sched/sched.c` - scheduler run queue and tick dispatch
+- `kernel/mm/vmm.c` - address space management
+- [ipc.md](ipc.md) - capability-based IPC, IPCX, and shared memory
+- [arch.md](arch.md) - TTBR0 switching and user-mode entry

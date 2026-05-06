@@ -2,17 +2,11 @@
 
 This document traces the zuzu boot sequence from CPU reset to the kernel idle loop, explaining what happens at each stage and why.
 
----
-
-## Overview
-
-
 1. CPU reset
 2. Start assembly
 3. Board-specific early boot
 4. Kernel main
 5. Interrupt-driven idle loop (`wfi`, scheduler running)
-
 
 ---
 
@@ -23,9 +17,9 @@ The CPU starts executing at the physical address of the kernel image (`0x8001000
 **What `_start.s` does**
 
 1. Disables interrupts (`CPSID if`)
-2. Initializes stack pointers for all CPU modes (SVC, IRQ, ABT, UND) — each mode has its own banked SP. Stacks are placed at fixed physical addresses defined in the linker script.
+2. Initializes stack pointers for all CPU modes (SVC, IRQ, ABT, UND) because each mode has its own banked SP. Stacks are placed at fixed physical addresses defined in the linker script.
 3. Saves the DTB pointer from `r2` (taken from linker script for now, later on raspi is given by the board firmware) into a global variable before any C code runs.
-4. Enables the MMU with an identity mapping and the higher-half kernel mapping simultaneously — the CPU executes through the identity range into the higher-half in a single jump. 
+4. Enables the MMU with an identity mapping and the higher-half kernel mapping simultaneously, the CPU executes through the identity range into the higher-half in a single jump. 
 5. After the MMU is on and the CPU is executing from `0xC001xxxx`, removes the identity mapping.
 6. Sets up the exception vector table base address (VBAR).
 7. Zeroes the BSS segment.
