@@ -1,0 +1,107 @@
+#ifndef ZUZU_MEM_H
+#define ZUZU_MEM_H
+
+#include "zuzu/syscall_nums.h"
+#include <spawn_args.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* ---- Memory management types ---- */
+
+typedef struct
+{
+    int32_t handle;
+    void *addr;
+} shmem_result_t;
+
+/* ---- Memory management syscalls ---- */
+
+static inline shmem_result_t _memshare(uint32_t size) {
+    register uint32_t r0 __asm__("r0") = size;
+    register uint32_t r1 __asm__("r1");
+    __asm__ volatile("svc %[num]"
+        : "+r"(r0), "=r"(r1)
+        : [num] "i"(SYS_MEMSHARE)
+        : "memory");
+    return (shmem_result_t){.handle = (int32_t)r0, .addr = (void *)r1};
+}
+
+static inline void *_attach(int32_t handle) {
+    register int32_t r0 __asm__("r0") = handle;
+    __asm__ volatile("svc %[num]"
+        : "+r"(r0)
+        : [num] "i"(SYS_ATTACH)
+        : "memory");
+    return (void *)r0;
+}
+
+static inline void *_mapdev(uint32_t handle) {
+    register uint32_t r0 __asm__("r0") = handle;
+    __asm__ volatile("svc %[num]"
+        : "+r"(r0)
+        : [num] "i"(SYS_MAPDEV)
+        : "memory");
+    return (void *)r0;
+}
+
+static inline int32_t _querydev(uint32_t handle, void *out_buf, uint32_t len) {
+    register uint32_t r0 __asm__("r0") = handle;
+    register uintptr_t r1 __asm__("r1") = (uintptr_t)out_buf;
+    register uint32_t r2 __asm__("r2") = len;
+    __asm__ volatile("svc %[num]"
+        : "+r"(r0)
+        : "r"(r1), "r"(r2), [num] "i"(SYS_QUERYDEV)
+        : "memory");
+    return (int32_t)r0;
+}
+
+static inline int32_t _asinject(const asinject_args_t *args) {
+    register uintptr_t r0 __asm__("r0") = (uintptr_t)args;
+    __asm__ volatile("svc %[num]"
+        : "+r"(r0)
+        : [num] "i"(SYS_ASINJECT)
+        : "memory");
+    return (int32_t)r0;
+}
+
+static inline void *_memmap(void *addr_hint, size_t size, uint32_t prot) {
+    register uintptr_t r0 __asm__("r0") = (uintptr_t)addr_hint;
+    register size_t r1 __asm__("r1") = size;
+    register uint32_t r2 __asm__("r2") = prot;
+    __asm__ volatile("svc %[num]"
+        : "+r"(r0)
+        : "r"(r1), "r"(r2), [num] "i"(SYS_MEMMAP)
+        : "memory");
+    return (void *)r0;
+}
+
+static inline int32_t _memunmap(void *addr, size_t size) {
+    register uintptr_t r0 __asm__("r0") = (uintptr_t)addr;
+    register size_t r1 __asm__("r1") = size;
+    __asm__ volatile("svc %[num]"
+        : "+r"(r0)
+        : "r"(r1), [num] "i"(SYS_MEMUNMAP)
+        : "memory");
+    return (int32_t)r0;
+}
+
+static inline int32_t _mprotect(void *addr, size_t size, uint32_t prot) {
+    register uintptr_t r0 __asm__("r0") = (uintptr_t)addr;
+    register size_t r1 __asm__("r1") = size;
+    register uint32_t r2 __asm__("r2") = prot;
+    __asm__ volatile("svc %[num]"
+        : "+r"(r0)
+        : "r"(r1), "r"(r2), [num] "i"(SYS_MPROTECT)
+        : "memory");
+    return (int32_t)r0;
+}
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

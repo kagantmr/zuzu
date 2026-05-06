@@ -5,7 +5,7 @@
 #include <mem.h>
 #include <stdint.h>
 #include <zuzu/memprot.h>
-#include <zuzu.h>
+#include <zuzu/zuzu.h>
 
 typedef struct arena
 {

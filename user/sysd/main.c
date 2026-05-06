@@ -1,4 +1,4 @@
-#include "zuzu.h"
+#include <zuzu/zuzu.h>
 #include "zuzu/protocols/nt_protocol.h"
 #include <stdint.h>
 #include <stddef.h>

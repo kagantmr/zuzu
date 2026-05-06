@@ -3,7 +3,7 @@
 
 #define DEVMGR_VER "v1.0"
 
-#include "zuzu.h"
+#include <zuzu/zuzu.h>
 #include <zuzu/protocols/devmgr_protocol.h>
 #include <zuzu/protocols/nt_protocol.h>
 

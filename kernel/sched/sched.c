@@ -14,7 +14,7 @@ static list_head_t destroy_queue = LIST_HEAD_INIT(destroy_queue);
 list_head_t sleep_queue = LIST_HEAD_INIT(sleep_queue);
 process_t *current_process;
 
-volatile uint8_t do_resched = 0;
+volatile uint8_t do_resched = 0; // needs spinlock guard on SMP
 
 static process_t idle_proc;  // only kernel_sp is used
 
@@ -66,7 +66,7 @@ static void sched_wake_sleepers(void) {
                 p->ipc_state = IPC_NONE;
                 p->blocked_endpoint = NULL;
                 p->wake_reason = WAKE_TIMEOUT;
-                p->trap_frame->r[0] = ERR_BUSY;
+                p->trap_frame->r[0] = ERR_TIMEOUT;
                 p->process_state = PROCESS_READY;
                 sched_add(p);
             } else {

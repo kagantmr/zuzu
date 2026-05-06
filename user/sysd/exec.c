@@ -1,5 +1,5 @@
 #include "exec.h"
-#include <zuzu.h>
+#include <zuzu/zuzu.h>
 #include <mem.h>
 #include <string.h>
 #include <zmalloc.h>
