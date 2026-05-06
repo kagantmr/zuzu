@@ -9,6 +9,7 @@ void memunmap(exception_frame_t *frame);
 void memshare(exception_frame_t *frame);
 void attach(exception_frame_t *frame);
 void detach(exception_frame_t *frame);
+void mprotect(exception_frame_t *frame);
 
 void asinject(exception_frame_t *frame);
 

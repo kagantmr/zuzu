@@ -194,6 +194,10 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     {
         querydev(frame);
     } break;
+    case SYS_MPROTECT:
+    {
+        mprotect(frame);
+    } break;
     case SYS_ASINJECT:
     {
         asinject(frame);

@@ -559,3 +559,43 @@ rollback_nomem:
     frame->r[0] = ERR_NOMEM;
     return;
 }
+
+void mprotect(exception_frame_t *frame)
+{
+    const uintptr_t va = (uintptr_t)frame->r[0];
+    const size_t size = (size_t)frame->r[1];
+    const vm_prot_t new_prot = (vm_prot_t)frame->r[2];
+
+    // Basic validation
+    if (size == 0)
+    {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+    if (size % PAGE_SIZE != 0)
+    {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+    if (!validate_user_ptr(va, size))
+    {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    // Enforce W^X policy
+    if ((new_prot & VM_PROT_WRITE) && (new_prot & VM_PROT_EXEC))
+    {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    // The region must exist; use vmm_protect_range to change its protections
+    if (!vmm_protect_range(current_process->as, va, size, new_prot | VM_PROT_USER))
+    {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    frame->r[0] = 0;
+}
