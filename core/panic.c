@@ -322,7 +322,7 @@ static void panic_screen(const char *reason, void *caller_ra)
     const char *banner_lines[] = {
         C_WHITE "Oops! zuzu has panicked." C_RESET,
         C_DIM "An unrecoverable kernel error occurred." C_RESET,
-        C_DIM "System halted to preserve state." C_RESET,
+        C_DIM "If you think this is a bug, report here:" C_RESET,
         C_DIM "https://github.com/kagantmr/zuzu/issues" C_RESET,
     };
     const int banner_count = (int)(sizeof(banner_lines) / sizeof(banner_lines[0]));
