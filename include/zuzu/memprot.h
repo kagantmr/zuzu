@@ -9,6 +9,4 @@ typedef enum {
     VM_PROT_USER  = 1u << 3, // user-accessible (otherwise kernel-only)
 } vm_prot_t;
 
-
-
 #endif

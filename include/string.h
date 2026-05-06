@@ -130,4 +130,8 @@ void vstrfmt(strfmt_outc_t outc, void *ctx, const char *fstring, va_list *args);
  */
 int visible_len(const char *s);
 
+#ifdef __cplusplus
+}
+#endif
+
 #endif

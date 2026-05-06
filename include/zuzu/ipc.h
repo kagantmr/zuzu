@@ -2,27 +2,18 @@
 #define ZUZU_IPC_H
 
 #include "zuzu/syscall_nums.h"
+#include "zuzu/types.h"
 #include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* ---- IPC message types ---- */
-
-typedef struct
-{
-    int32_t r0;
-    uint32_t r1;
-    uint32_t r2;
-    uint32_t r3;
-} zuzu_ipcmsg_t;
-
 /* ---- IPC syscalls ---- */
 
 /* (port, r1-r3) -> 0 or -err */
-static inline int32_t _send(int32_t port, uint32_t w1, uint32_t w2, uint32_t w3) {
-    register int32_t r0 __asm__("r0") = port;
+static inline int32_t _send(handle_t port, uint32_t w1, uint32_t w2, uint32_t w3) {
+    register handle_t r0 __asm__("r0") = port;
     register uint32_t r1 __asm__("r1") = w1;
     register uint32_t r2 __asm__("r2") = w2;
     register uint32_t r3 __asm__("r3") = w3;
@@ -40,8 +31,8 @@ static inline int32_t _send(int32_t port, uint32_t w1, uint32_t w2, uint32_t w3)
  * - proc_send source:  r0 = sender_pid,   r1-r3 = payload
  * - proc_call source:  r0 = reply_handle, r1 = sender_pid, r2-r3 = payload
  */
-static inline zuzu_ipcmsg_t _recv(int32_t port) {
-    register int32_t r0 __asm__("r0") = port;
+static inline zuzu_ipcmsg_t _recv(handle_t port) {
+    register handle_t r0 __asm__("r0") = port;
     register uint32_t r1 __asm__("r1") = 0;
     register uint32_t r2 __asm__("r2");
     register uint32_t r3 __asm__("r3");
@@ -52,8 +43,8 @@ static inline zuzu_ipcmsg_t _recv(int32_t port) {
     return (zuzu_ipcmsg_t){.r0 = r0, .r1 = r1, .r2 = r2, .r3 = r3};
 }
 
-static inline zuzu_ipcmsg_t _recv_timeout(int32_t port, uint32_t timeout_ms) {
-    register int32_t r0 __asm__("r0") = port;
+static inline zuzu_ipcmsg_t _recv_timeout(handle_t port, uint32_t timeout_ms) {
+    register handle_t r0 __asm__("r0") = port;
     register uint32_t r1 __asm__("r1") = timeout_ms;
     register uint32_t r2 __asm__("r2");
     register uint32_t r3 __asm__("r3");
@@ -65,8 +56,8 @@ static inline zuzu_ipcmsg_t _recv_timeout(int32_t port, uint32_t timeout_ms) {
 }
 
 /* (port, r1-r3) -> r0-r3 reply */
-static inline zuzu_ipcmsg_t _call(int32_t port, uint32_t w1, uint32_t w2, uint32_t w3) {
-    register int32_t r0 __asm__("r0") = port;
+static inline zuzu_ipcmsg_t _call(handle_t port, uint32_t w1, uint32_t w2, uint32_t w3) {
+    register handle_t r0 __asm__("r0") = port;
     register uint32_t r1 __asm__("r1") = w1;
     register uint32_t r2 __asm__("r2") = w2;
     register uint32_t r3 __asm__("r3") = w3;
@@ -78,8 +69,8 @@ static inline zuzu_ipcmsg_t _call(int32_t port, uint32_t w1, uint32_t w2, uint32
 }
 
 /* (reply_handle, w1-w3) -> 0 or -err (r0) */
-static inline int32_t _reply(uint32_t reply_handle, uint32_t w1, uint32_t w2, uint32_t w3) {
-    register uint32_t r0 __asm__("r0") = reply_handle;
+static inline int32_t _reply(handle_t reply_handle, uint32_t w1, uint32_t w2, uint32_t w3) {
+    register handle_t r0 __asm__("r0") = reply_handle;
     register uint32_t r1 __asm__("r1") = w1;
     register uint32_t r2 __asm__("r2") = w2;
     register uint32_t r3 __asm__("r3") = w3;
@@ -90,8 +81,8 @@ static inline int32_t _reply(uint32_t reply_handle, uint32_t w1, uint32_t w2, ui
     return (int32_t) r0;
 }
 
-static inline int32_t _sendx(int32_t port, uint32_t buf_len) {
-    register int32_t  r0 __asm__("r0") = port;
+static inline int32_t _sendx(handle_t port, uint32_t buf_len) {
+    register handle_t r0 __asm__("r0") = port;
     register uint32_t r1 __asm__("r1") = buf_len;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
@@ -100,8 +91,8 @@ static inline int32_t _sendx(int32_t port, uint32_t buf_len) {
     return r0;
 }
 
-static inline zuzu_ipcmsg_t _callx(int32_t port, uint32_t buf_len) {
-    register int32_t r0 __asm__("r0") = port;
+static inline zuzu_ipcmsg_t _callx(handle_t port, uint32_t buf_len) {
+    register handle_t r0 __asm__("r0") = port;
     register uint32_t r1 __asm__("r1") = buf_len;
     __asm__ volatile("svc %[num]"
         : "+r"(r0), "+r"(r1)
@@ -110,8 +101,8 @@ static inline zuzu_ipcmsg_t _callx(int32_t port, uint32_t buf_len) {
     return (zuzu_ipcmsg_t){.r0 = r0, .r1 = r1, .r2 = 0, .r3 = 0};
 }
 
-static inline int32_t _replyx(uint32_t reply_handle, uint32_t buf_len) {
-    register uint32_t r0 __asm__("r0") = reply_handle;
+static inline int32_t _replyx(handle_t reply_handle, uint32_t buf_len) {
+    register handle_t r0 __asm__("r0") = reply_handle;
     register uint32_t r1 __asm__("r1") = buf_len;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
@@ -131,9 +122,9 @@ static inline int32_t _port_create(void) {
     return r0;
 }
 
-static inline int32_t _port_grant(int32_t port, int32_t pid) {
-    register int32_t r0 __asm__("r0") = port;
-    register int32_t r1 __asm__("r1") = pid;
+static inline int32_t _port_grant(handle_t port, pid_t pid) {
+    register handle_t r0 __asm__("r0") = port;
+    register pid_t r1 __asm__("r1") = pid;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
         : "r"(r1), [num] "i"(SYS_PORT_GRANT)

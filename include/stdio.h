@@ -6,6 +6,10 @@
 #include <stdint.h>
 #include "snprintf.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 
 int printf(const char *format, ...);
 int vprintf(const char *format, va_list args);
@@ -14,4 +18,8 @@ int vsprintf(char *buf, const char *format, va_list args);
 int stdio_register_zuart(void);
 
 
-#endif 
+#ifdef __cplusplus
+}
+#endif
+
+#endif

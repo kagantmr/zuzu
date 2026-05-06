@@ -1,12 +1,9 @@
 #ifndef CONVERT_H
 #define CONVERT_H
 
-/**
- * @file convert.h
- * @brief Header file for string conversion functions.
- * This header declares functions for converting strings to integers and vice versa.
- */
-
+#ifdef __cplusplus
+extern "C" {
+#endif
 
  /**
   * @brief Convert a hexadecimal string to an integer.
@@ -49,5 +46,9 @@ static inline unsigned int be32(const void *p) {
     return ((unsigned int)b[0] << 24) | ((unsigned int)b[1] << 16) |
            ((unsigned int)b[2] << 8)  | (unsigned int)b[3];
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
