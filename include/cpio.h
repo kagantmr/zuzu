@@ -25,4 +25,8 @@ bool cpio_find(const void *base, size_t size, const char *name,
                const void **data_out, size_t *size_out);
 
 
+#ifdef __cplusplus
+}
+#endif
+
 #endif

@@ -2,6 +2,7 @@
 #define ZUZU_MEM_H
 
 #include "zuzu/syscall_nums.h"
+#include "zuzu/types.h"
 #include <spawn_args.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -9,14 +10,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* ---- Memory management types ---- */
-
-typedef struct
-{
-    int32_t handle;
-    void *addr;
-} shmem_result_t;
 
 /* ---- Memory management syscalls ---- */
 
@@ -30,8 +23,8 @@ static inline shmem_result_t _memshare(uint32_t size) {
     return (shmem_result_t){.handle = (int32_t)r0, .addr = (void *)r1};
 }
 
-static inline void *_attach(int32_t handle) {
-    register int32_t r0 __asm__("r0") = handle;
+static inline void *_attach(handle_t handle) {
+    register handle_t r0 __asm__("r0") = handle;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
         : [num] "i"(SYS_ATTACH)
@@ -39,8 +32,8 @@ static inline void *_attach(int32_t handle) {
     return (void *)r0;
 }
 
-static inline void *_mapdev(uint32_t handle) {
-    register uint32_t r0 __asm__("r0") = handle;
+static inline void *_mapdev(handle_t handle) {
+    register handle_t r0 __asm__("r0") = handle;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
         : [num] "i"(SYS_MAPDEV)
@@ -48,8 +41,8 @@ static inline void *_mapdev(uint32_t handle) {
     return (void *)r0;
 }
 
-static inline int32_t _querydev(uint32_t handle, void *out_buf, uint32_t len) {
-    register uint32_t r0 __asm__("r0") = handle;
+static inline int32_t _querydev(handle_t handle, void *out_buf, uint32_t len) {
+    register handle_t r0 __asm__("r0") = handle;
     register uintptr_t r1 __asm__("r1") = (uintptr_t)out_buf;
     register uint32_t r2 __asm__("r2") = len;
     __asm__ volatile("svc %[num]"

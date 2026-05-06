@@ -4,6 +4,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define align_down(addr, align) ((addr) & ~((align) - 1))
 #define align_up(addr, align)   (((addr) + (align) - 1) & ~((align) - 1))
 
@@ -53,5 +57,9 @@ int memcmp(const void *str1, const void *str2, size_t count);
  * @param n Number of bytes to scan.
  */
 void *memchr(const void *s, int c, size_t n);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* MEM_H */

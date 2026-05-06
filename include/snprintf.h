@@ -4,6 +4,10 @@
 #include <stdarg.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * @brief Format a string into a buffer with size limit.
  * 
@@ -21,5 +25,9 @@
  */
 int snprintf(char *buf, size_t size, const char *fmt, ...);
 int vsnprintf(char *buf, size_t size, const char *fmt, va_list args);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

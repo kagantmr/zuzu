@@ -2,6 +2,7 @@
 #define ZUZU_NTFN_H
 
 #include "zuzu/syscall_nums.h"
+#include "zuzu/types.h"
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -19,8 +20,8 @@ static inline int32_t _ntfn_create(void) {
     return (int32_t)r0;
 }
 
-static inline int32_t _ntfn_signal(uint32_t ntfn_handle, uint32_t bits) {
-    register uint32_t r0 __asm__("r0") = ntfn_handle;
+static inline int32_t _ntfn_signal(handle_t ntfn_handle, uint32_t bits) {
+    register handle_t r0 __asm__("r0") = ntfn_handle;
     register uint32_t r1 __asm__("r1") = bits;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
@@ -29,8 +30,8 @@ static inline int32_t _ntfn_signal(uint32_t ntfn_handle, uint32_t bits) {
     return (int32_t)r0;
 }
 
-static inline int32_t _ntfn_wait(uint32_t ntfn_handle) {
-    register uint32_t r0 __asm__("r0") = ntfn_handle;
+static inline int32_t _ntfn_wait(handle_t ntfn_handle) {
+    register handle_t r0 __asm__("r0") = ntfn_handle;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
         : [num] "i"(SYS_NTFN_WAIT)
@@ -38,8 +39,8 @@ static inline int32_t _ntfn_wait(uint32_t ntfn_handle) {
     return (int32_t)r0;
 }
 
-static inline int32_t _ntfn_poll(uint32_t ntfn_handle) {
-    register uint32_t r0 __asm__("r0") = ntfn_handle;
+static inline int32_t _ntfn_poll(handle_t ntfn_handle) {
+    register handle_t r0 __asm__("r0") = ntfn_handle;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
         : [num] "i"(SYS_NTFN_POLL)
