@@ -184,15 +184,9 @@ int zuart_setup(void)
 
     (void)_send(NT_PORT, NT_REGISTER, nt_pack("uart"), (uint32_t)nt_slot);
 
-    zuzu_ipcmsg_t tty = _call(NT_PORT, NT_LOOKUP, nt_pack("sysd"), 0);
-    handle_t sysd_port = (int32_t)tty.r2;
-    zuzu_ipcmsg_t r = _call(sysd_port, SYSD_GET_TTY, 0, 0);
-    if ((int32_t)r.r0 < 0) {
-        return ZUART_INIT_FAIL;
-    }
-    stdin_slot = (handle_t)r.r1;
-    stdout_slot = (handle_t)r.r2;
-    stderr_slot = (handle_t)r.r3;
+    stdin_slot = 1;
+    stdout_slot = 2;
+    stderr_slot = 3;
 
     return ZUART_INIT_OK;
 }

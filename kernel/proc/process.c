@@ -17,6 +17,9 @@ uint32_t next_pid = 1;
 process_t *process_table[MAX_PROCESSES];
 extern endpoint_t *nametable_endpoint;
 
+#define LOG_FMT(fmt) "(proc) " fmt
+#include "core/log.h"
+
 void process_track_reply_cap(process_t *caller, process_t *holder,
                              handle_t holder_slot, reply_cap_t *rc)
 {
@@ -137,6 +140,7 @@ process_t *process_create(const char* name) {
 
     process->pid = next_pid++;
     process_table[slot] = process;
+    KINFO("Created process %s PID %u", process->name, process->pid);
     return process;
 
 fail_kstack:
@@ -201,8 +205,7 @@ static void process_revoke_outstanding_reply_caps(process_t *caller)
     }
 }
 
-#define LOG_FMT(fmt) "(proc) " fmt
-#include "core/log.h"
+
 
 process_t *process_find_by_pid(pid_t pid)
 {

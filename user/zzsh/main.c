@@ -98,17 +98,9 @@ int setup(void)
         _sleep(10);
     }
 
-    while (1) {
-        zuzu_ipcmsg_t tty = _call(sysd_port, SYSD_GET_TTY, 0, 0);
-        if ((int32_t)tty.r0 >= 0) {
-            stdin_slot = (int32_t)tty.r1;
-            stdout_slot = (int32_t)tty.r2;
-            stderr_slot = (int32_t)tty.r3;
-            if (stdin_slot >= 0 && stdout_slot >= 0 && stderr_slot >= 0)
-                break;
-        }
-        _sleep(10);
-    }
+    stdin_slot = 1;
+    stdout_slot = 2;
+    stderr_slot = 3;
 
     fbox_port = lookup_service("fbox");
     if (fbox_port < 0) return -1;
