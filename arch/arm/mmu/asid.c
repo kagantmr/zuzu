@@ -4,9 +4,9 @@
 #include <string.h>
 #include "arch/arm/mmu/mmu.h"
 
-static uint8_t asid_bitmap[32]; // 256 bits
+static asid_t asid_bitmap[32]; // 256 bits
 static uint32_t current_generation = 1;
-static uint8_t next_asid = 1;
+static asid_t next_asid = 1;
 
 asid_token_t asid_alloc(void)
 {
@@ -17,7 +17,7 @@ asid_token_t asid_alloc(void)
         {
             asid_bitmap[i / 8] |= (1 << (i % 8));
             next_asid = i + 1;
-            return (asid_token_t){.asid = (uint8_t)i, .generation = current_generation};
+            return (asid_token_t){.asid = (asid_t)i, .generation = current_generation};
         }
     }
     // Wrapped around from the beginning too
@@ -27,7 +27,7 @@ asid_token_t asid_alloc(void)
         {
             asid_bitmap[i / 8] |= (1 << (i % 8));
             next_asid = i + 1;
-            return (asid_token_t){.asid = (uint8_t)i, .generation = current_generation};
+            return (asid_token_t){.asid = (asid_t)i, .generation = current_generation};
         }
     }
 
