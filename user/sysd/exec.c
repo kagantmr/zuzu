@@ -2,7 +2,7 @@
 #include <zuzu/zuzu.h>
 #include <mem.h>
 #include <string.h>
-#include <zmalloc.h>
+#include <malloc.h>
 #include <elf.h>  // now a header-only or shared header
 #include <zuzu/memprot.h>
 #include <zuzu/user_layout.h>
@@ -42,7 +42,7 @@ static int inject_segment(uint32_t task_handle, const void *elf_data,
         size_t bss_len = mem_end - bss_start;
         bss_len = (bss_len + 0xFFF) & ~0xFFF;  // round up to page
 
-        void *zeroes = zmalloc(bss_len);
+        void *zeroes = malloc(bss_len);
         if (!zeroes) return -1;
         memset(zeroes, 0, bss_len);
 
@@ -54,7 +54,7 @@ static int inject_segment(uint32_t task_handle, const void *elf_data,
             .prot        = VM_PROT_READ | VM_PROT_WRITE,
         };
         int32_t rc = _asinject(&bss_args);
-        zfree(zeroes);
+        free(zeroes);
         if (rc != 0) return rc;
     }
 
@@ -66,7 +66,7 @@ static int inject_stack(uint32_t task_handle,
                         uint32_t argc,
                         uintptr_t *out_sp, uintptr_t *out_argv)
 {
-    uint8_t *buf = zmalloc(USER_STACK_SIZE);
+    uint8_t *buf = malloc(USER_STACK_SIZE);
     if (!buf) return -1;
     memset(buf, 0, USER_STACK_SIZE);
 
@@ -106,7 +106,7 @@ static int inject_stack(uint32_t task_handle,
         .prot        = VM_PROT_READ | VM_PROT_WRITE,
     };
     int32_t rc = _asinject(&args);
-    zfree(buf);
+    free(buf);
     if (rc != 0) return rc;
 
     *out_sp = sp;

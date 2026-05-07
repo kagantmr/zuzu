@@ -1,6 +1,6 @@
 #ifndef __KERNEL__
 
-#include "zmalloc.h"
+#include "malloc.h"
 
 #include <mem.h>
 #include <stdint.h>
@@ -30,7 +30,7 @@ typedef struct free_node
 static arena_t arena;
 static free_node_t *free_list = NULL;
 
-void *zmalloc(size_t size)
+void *malloc(size_t size)
 {
     if (!size)
         return NULL;
@@ -68,7 +68,7 @@ void *zmalloc(size_t size)
                 block->size = total_size;
                 block_header_t *block2 = (block_header_t *)((char *)curr + total_size - HEADER_SIZE);
                 block2->size = old_size - total_size;
-                zfree((char *)block2 + HEADER_SIZE);
+                free((char *)block2 + HEADER_SIZE);
             } 
             return (void *)curr;
         }
@@ -105,41 +105,41 @@ void *zmalloc(size_t size)
     return (void *)(old_brk + HEADER_SIZE);
 }
 
-void *zcalloc(size_t count, size_t size)
+void *calloc(size_t count, size_t size)
 {
     if (count != 0 && size > ((size_t)-1) / count)
         return NULL;
 
     size_t total = count * size;
-    void *mem = zmalloc(total);
+    void *mem = malloc(total);
     if (!mem)
         return NULL;
     memset(mem, 0, total);
     return mem;
 }
 
-void *zrealloc(void *ptr, size_t size)
+void *realloc(void *ptr, size_t size)
 {
     if (!ptr)
-        return zmalloc(size);
+        return malloc(size);
     if (size == 0)
     {
-        zfree(ptr);
+        free(ptr);
         return NULL;
     }
 
-    void *new_mem = zmalloc(size);
+    void *new_mem = malloc(size);
     if (!new_mem)
         return ptr;
 
     size_t old_size = ((block_header_t *)((char *)ptr - HEADER_SIZE))->size - HEADER_SIZE;
     size_t min_size = old_size < size ? old_size : size;
     memcpy(new_mem, ptr, min_size);
-    zfree(ptr);
+    free(ptr);
     return new_mem;
 }
 
-void zfree(void *ptr)
+void free(void *ptr)
 {
     if (!ptr)
         return;

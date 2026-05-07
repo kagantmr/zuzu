@@ -10,9 +10,9 @@
 #define VEC_ALLOC(sz) kmalloc(sz)
 #define VEC_FREE(ptr) kfree(ptr)
 #else
-#include <zmalloc.h>
-#define VEC_ALLOC(sz) zmalloc(sz)
-#define VEC_FREE(ptr) zfree(ptr)
+#include <malloc.h>
+#define VEC_ALLOC(sz) malloc(sz)
+#define VEC_FREE(ptr) free(ptr)
 #endif
 
 #define VEC_ALLOC_T(type, count) ((type *)VEC_ALLOC((count) * sizeof(type)))

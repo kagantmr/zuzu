@@ -2,7 +2,7 @@
 #define ZUZU_TYPES_H
 
 #include <stdint.h>
-#include "zuzuerr.h"
+#include "err.h"
 
 typedef int32_t handle_t;
 typedef uint32_t pid_t;
