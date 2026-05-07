@@ -72,14 +72,11 @@ DISK_PROGS = test zuzufetch
 USER_PROGS = $(BOOT_PROGS) $(DISK_PROGS)
 
 # zcrt + user lib sources
-ZCRT_SRCS = $(wildcard lib/zuzu/*.c)
-ZCRT_OBJS = $(patsubst lib/zuzu/%.c,build/user/zcrt/%.o,$(ZCRT_SRCS))
+ZCRT_SRCS = $(wildcard lib/*.c lib/zuzu/*.c)
+ZCRT_OBJS = $(patsubst %.c,build/user/zcrt/%.o,$(ZCRT_SRCS))
 
-ULIB_SRCS = $(filter-out user/lib/service.c,$(wildcard user/lib/*.c))
+ULIB_SRCS = $(wildcard user/lib/*.c)
 ULIB_OBJS = $(patsubst user/%.c,build/user/%.o,$(ULIB_SRCS))
-
-SERVICE_SRCS = user/lib/service.c
-SERVICE_OBJS = $(patsubst user/%.c,build/user/%.o,$(SERVICE_SRCS))
 
 # derived user program sources + objects
 USER_CRT0      = build/user/crt0.o
@@ -94,7 +91,7 @@ $(foreach p,$(USER_PROGS),$(eval USER_$(p)_SRCS := $(wildcard user/$(p)/*.c)))
 $(foreach p,$(USER_PROGS),$(eval USER_$(p)_OBJS := $(patsubst user/%.c,build/user/%.o,$(USER_$(p)_SRCS))))
 USER_APP_OBJS = $(foreach p,$(USER_PROGS),$(USER_$(p)_OBJS))
 
-SRC_DIRS = arch core drivers kernel lib/zuzu
+SRC_DIRS = arch core drivers kernel lib
 
 # kernel sources
 CSRCS     = $(shell find $(SRC_DIRS) -name '*.c')
@@ -103,7 +100,7 @@ ASRCS_ALL = $(shell find $(SRC_DIRS) -name '*.S')
 ASRCS     = $(filter-out arch/arm/crt0.S arch/arm/initrd.S,$(ASRCS_ALL))
 OBJS      = $(CSRCS:%.c=build/%.o) $(ASRCS:%.S=build/%.o)
 DEPS      = $(OBJS:.o=.d)
-USER_DEPS = $(USER_CRT0:.o=.d) $(USER_APP_OBJS:.o=.d) $(ZCRT_OBJS:.o=.d) $(ULIB_OBJS:.o=.d) $(SERVICE_OBJS:.o=.d)
+USER_DEPS = $(USER_CRT0:.o=.d) $(USER_APP_OBJS:.o=.d) $(ZCRT_OBJS:.o=.d) $(ULIB_OBJS:.o=.d)
 
 TARGET = build/zuzu.elf
 
@@ -116,7 +113,7 @@ SD_STAGE_DIR   ?= ZUZUSD
 # default
 all: $(TARGET)
 
-.SECONDARY: $(USER_APP_OBJS) $(ZCRT_OBJS) $(ULIB_OBJS) $(SERVICE_OBJS)
+.SECONDARY: $(USER_APP_OBJS) $(ZCRT_OBJS) $(ULIB_OBJS)
 
 # compilation rules
 build/user/%.o: user/%.c
@@ -134,7 +131,7 @@ build/%.o: %.S
 	@echo "  AS      $<"
 	@$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
 
-build/user/zcrt/%.o: lib/zuzu/%.c
+build/user/zcrt/%.o: %.c
 	@mkdir -p $(dir $@)
 	@echo "  CC      $<"
 	@$(USER_CC) $(USER_CFLAGS) -c $< -o $@
@@ -151,10 +148,10 @@ $(USER_CRT0): arch/arm/crt0.S
 
 # user programs
 define LINK_USER_PROG
-build/user/$(1).elf: $$(USER_$(1)_OBJS) $(USER_CRT0) $(ZCRT_OBJS) $(ULIB_OBJS) $$(if $$(filter fbox fat32d zzsh,$(1)),$(SERVICE_OBJS)) user/user.ld
+build/user/$(1).elf: $$(USER_$(1)_OBJS) $(USER_CRT0) $(ZCRT_OBJS) $(ULIB_OBJS) user/user.ld
 	@mkdir -p $$(dir $$@)
 	@echo "  LD      $$@"
-	@$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) $$(USER_$(1)_OBJS) $(ZCRT_OBJS) $(ULIB_OBJS) $$(if $$(filter fbox fat32d zzsh,$(1)),$(SERVICE_OBJS)) $(USER_LIBGCC) -o $$@
+	@$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) $$(USER_$(1)_OBJS) $(ZCRT_OBJS) $(ULIB_OBJS) $(USER_LIBGCC) -o $$@
 endef
 
 $(foreach p,$(USER_PROGS),$(eval $(call LINK_USER_PROG,$(p))))

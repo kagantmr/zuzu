@@ -2,6 +2,7 @@
 #define FAT32D_PROTOCOL_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 /* Commands (passed in r2 / cmd field) */
 #define FAT32_OPEN    1   /* shmem=path, arg=mode      → r1=status, r2=fd          */
@@ -34,7 +35,7 @@
 /* Directory entry returned in shmem by READDIR */
 typedef struct {
     char     name[60];
-    uint32_t size;
+    size_t size;
     uint8_t  is_dir;
     uint8_t  _pad[3];
 } fat32_dirent_t;  /* 68 bytes, ~60 per 4096 page */

@@ -1,6 +1,8 @@
 #ifndef SYSD_PROTOCOL_H
 #define SYSD_PROTOCOL_H
 
+#include <stdint.h>
+
 #define SYSD_EXEC 0xE0   // move out of the 1-9 range to avoid any accidental collision with _call command values
 
 #define EXEC_OK       0

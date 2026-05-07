@@ -2,6 +2,8 @@
 #define SYSPAGE_H
 
 #include "stdint.h"
+#include "stddef.h"
+#include "zuzu/types.h"
 
 #define SYSPAGE_MAX_DEVICES 64
 #define SYSPAGE_DEV_NAME_LEN 32
@@ -21,11 +23,12 @@ typedef struct {
     char         cpu[24];                        // from DTB, constant after boot
     uint32_t     mem_total_kb;
     uint32_t     mem_free_kb;                    // updated 
-    uint32_t     time_s;                        // when did the kernel boot?
-    uint32_t     uptime_s;                       // updated by tick handler 
+    uint32_t     time_s;                         // when did the kernel boot?
+    time_t       uptime_ms;                      // updated by tick handler, in milliseconds
+    time_t       uptime_s;                       // updated by tick handler 
     uint8_t      dev_count;
-    uint32_t     initrd_size;
+    size_t     initrd_size;
     syspage_dev_t devs[SYSPAGE_MAX_DEVICES];     // filled from DTB walk at boot 
-} zuzu_syspage_t;
+} syspage_t;
 
 #endif
