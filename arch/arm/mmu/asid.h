@@ -9,10 +9,12 @@
 
 #include <stdint.h>
 
+typedef uint8_t asid_t;
+
 // ASID token struct to track allocated ASIDs and their generation.
 typedef struct
 {
-    uint8_t asid;
+    asid_t asid;
     uint32_t generation;
 } asid_token_t;
 
