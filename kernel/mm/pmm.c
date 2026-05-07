@@ -5,6 +5,7 @@
 #include <mem.h>
 #include "kernel/mm/vmm.h"   // PA_TO_VA / VA_TO_PA helpers
 #include <spinlock.h>
+#include <zuzu/types.h> 
 
 #define LOG_FMT(fmt) "(pmm) " fmt
 #include "core/log.h"
@@ -15,7 +16,7 @@ extern kernel_layout_t kernel_layout;
 extern void syspage_update_mem(void);
 spinlock_t pmm_lock = SPINLOCK_INIT;
 
-static bool pmm_is_valid_managed_pa(uintptr_t pa) {
+static bool pmm_is_valid_managed_pa(paddr_t pa) {
     if (pa == 0) return true; // freelist terminator
     if ((pa % PAGE_SIZE) != 0) return false;
 
@@ -29,8 +30,8 @@ static void pmm_rebuild_freelist(void) {
         size_t byte_idx = i / 8;
         size_t bit_idx  = i % 8;
         if (!(pmm_state.bitmap[byte_idx] & (1u << bit_idx))) {
-            uintptr_t pa = (pmm_state.pfn_base + i) * PAGE_SIZE;
-            uintptr_t *page_va = (uintptr_t *)PA_TO_VA(pa);
+            paddr_t pa = (pmm_state.pfn_base + i) * PAGE_SIZE;
+            vaddr_t *page_va = (uintptr_t *)PA_TO_VA(pa);
             *page_va = pmm_state.freelist_head;
             pmm_state.freelist_head = pa;
         }
@@ -38,9 +39,9 @@ static void pmm_rebuild_freelist(void) {
 }
 
 /* Remove any free-list nodes whose PA is within [start_pa, end_pa). */
-static void pmm_freelist_remove_range(uintptr_t start_pa, uintptr_t end_pa) {
-    uintptr_t prev_pa = 0;
-    uintptr_t curr_pa = pmm_state.freelist_head;
+static void pmm_freelist_remove_range(paddr_t start_pa, paddr_t end_pa) {
+    paddr_t prev_pa = 0;
+    paddr_t curr_pa = pmm_state.freelist_head;
 
     while (curr_pa) {
         if (!pmm_is_valid_managed_pa(curr_pa)) {
@@ -50,8 +51,8 @@ static void pmm_freelist_remove_range(uintptr_t start_pa, uintptr_t end_pa) {
             continue;
         }
 
-        uintptr_t *curr_va = (uintptr_t *)PA_TO_VA(curr_pa);
-        uintptr_t next_pa = *curr_va;
+        vaddr_t *curr_va = (uintptr_t *)PA_TO_VA(curr_pa);
+        paddr_t next_pa = *curr_va;
 
         if (!pmm_is_valid_managed_pa(next_pa)) {
             pmm_rebuild_freelist();
@@ -64,7 +65,7 @@ static void pmm_freelist_remove_range(uintptr_t start_pa, uintptr_t end_pa) {
             if (prev_pa == 0) {
                 pmm_state.freelist_head = next_pa;
             } else {
-                uintptr_t *prev_va = (uintptr_t *)PA_TO_VA(prev_pa);
+                vaddr_t *prev_va = (uintptr_t *)PA_TO_VA(prev_pa);
                 *prev_va = next_pa;
             }
         } else {
@@ -75,32 +76,32 @@ static void pmm_freelist_remove_range(uintptr_t start_pa, uintptr_t end_pa) {
     }
 }
 
-static uintptr_t pmm_alloc_page_locked(void)
+static paddr_t pmm_alloc_page_locked(void)
 {
     if (pmm_state.freelist_head == 0)
-        return (uintptr_t)0;
+        return (paddr_t)0;
 
     if (!pmm_is_valid_managed_pa(pmm_state.freelist_head)) {
         pmm_rebuild_freelist();
         if (pmm_state.freelist_head == 0)
-            return (uintptr_t)0;
+            return (paddr_t)0;
     }
 
-    uintptr_t pa = pmm_state.freelist_head;
+    paddr_t pa = pmm_state.freelist_head;
 
     /* Pop: read next pointer stored in the page itself */
-    uintptr_t *page_va = (uintptr_t *)PA_TO_VA(pa);
-    uintptr_t next_pa = *page_va;
+    vaddr_t *page_va = (uintptr_t *)PA_TO_VA(pa);
+    paddr_t next_pa = *page_va;
     if (!pmm_is_valid_managed_pa(next_pa)) {
         pmm_rebuild_freelist();
         if (pmm_state.freelist_head == 0)
-            return (uintptr_t)0;
+            return (paddr_t)0;
         pa = pmm_state.freelist_head;
-        page_va = (uintptr_t *)PA_TO_VA(pa);
+        page_va = (vaddr_t *)PA_TO_VA(pa);
         next_pa = *page_va;
         if (!pmm_is_valid_managed_pa(next_pa)) {
             pmm_state.freelist_head = 0;
-            return (uintptr_t)0;
+            return (paddr_t)0;
         }
     }
 
@@ -141,10 +142,10 @@ void pmm_init(void) {
     pmm_state.free_pages  = pmm_state.total_pages;
 
     // Place bitmap after kernel, page-aligned
-    uintptr_t bitmap_start_pa = align_up(kernel_layout.kernel_end_pa, PAGE_SIZE);
+    paddr_t bitmap_start_pa = align_up(kernel_layout.kernel_end_pa, PAGE_SIZE);
     size_t bitmap_bytes    = (pmm_state.total_pages + 7) / 8;
     size_t bitmap_size     = align_up(bitmap_bytes, PAGE_SIZE);
-    uintptr_t bitmap_end_pa   = bitmap_start_pa + bitmap_size;
+    paddr_t bitmap_end_pa   = bitmap_start_pa + bitmap_size;
 
     // Sanity checks
     assert(bitmap_end_pa <= kernel_layout.stack_base_pa);
@@ -172,12 +173,12 @@ void pmm_init(void) {
 
 
 /* mark: mark pages in [start, end) as USED */
-int pmm_mark_range(uintptr_t start, uintptr_t end) {
+int pmm_mark_range(paddr_t start, paddr_t end) {
     if (start >= end) return MARK_FAIL;
 
     /* Align the range to page boundaries */
-    uintptr_t astart = align_down(start, PAGE_SIZE);
-    uintptr_t aend   = align_up(end, PAGE_SIZE);
+    paddr_t astart = align_down(start, PAGE_SIZE);
+    paddr_t aend   = align_up(end, PAGE_SIZE);
 
     size_t start_pfn = astart / PAGE_SIZE;
     size_t end_pfn   = aend   / PAGE_SIZE;
@@ -215,11 +216,11 @@ int pmm_mark_range(uintptr_t start, uintptr_t end) {
 }
 
 /* unmark: mark pages in [start, end) as FREE */
-int pmm_unmark_range(uintptr_t start, uintptr_t end) {
+int pmm_unmark_range(paddr_t start, paddr_t end) {
     if (start >= end) return MARK_FAIL;
 
-    const uintptr_t astart = align_down(start, PAGE_SIZE);
-    const uintptr_t aend   = align_up(end, PAGE_SIZE);
+    const paddr_t astart = align_down(start, PAGE_SIZE);
+    const paddr_t aend   = align_up(end, PAGE_SIZE);
 
     const size_t start_pfn = astart / PAGE_SIZE;
     size_t end_pfn   = aend   / PAGE_SIZE;
@@ -255,22 +256,22 @@ int pmm_unmark_range(uintptr_t start, uintptr_t end) {
 }
 
 /* alloc_page: pop one page from freelist, O(1) */
-uintptr_t pmm_alloc_page(void) {
+paddr_t pmm_alloc_page(void) {
     uint32_t flags;
     spin_lock_irqsave(&pmm_lock, &flags);
-    uintptr_t pa = pmm_alloc_page_locked();
+    paddr_t pa = pmm_alloc_page_locked();
     if (pa != 0) {
         syspage_update_mem();
     }
         spin_unlock_irqrestore(&pmm_lock, flags);
     return pa;
 }
-uintptr_t pmm_alloc_pages(size_t n_pages) {
+paddr_t pmm_alloc_pages(size_t n_pages) {
         uint32_t flags;
         spin_lock_irqsave(&pmm_lock, &flags);
     if (n_pages == 0 || pmm_state.free_pages < n_pages) {
             spin_unlock_irqrestore(&pmm_lock, flags);
-            return (uintptr_t)0;
+            return (paddr_t)0;
     }
 
     assert(pmm_state.bitmap != NULL);
@@ -300,8 +301,8 @@ uintptr_t pmm_alloc_pages(size_t n_pages) {
 
             if (consecutive == n_pages) {
                 /* Mark pages as allocated */
-                uintptr_t start_pa = start_index * PAGE_SIZE + pmm_state.pfn_base * PAGE_SIZE;
-                uintptr_t end_pa = (start_index + n_pages) * PAGE_SIZE + pmm_state.pfn_base * PAGE_SIZE;
+                paddr_t start_pa = start_index * PAGE_SIZE + pmm_state.pfn_base * PAGE_SIZE;
+                paddr_t end_pa = (start_index + n_pages) * PAGE_SIZE + pmm_state.pfn_base * PAGE_SIZE;
                 if (pmm_mark_range(start_pa, end_pa) != MARK_OK) {
                     spin_unlock_irqrestore(&pmm_lock, flags);
                         return (uintptr_t)0; /* marking failed */
@@ -311,7 +312,7 @@ uintptr_t pmm_alloc_pages(size_t n_pages) {
                 pmm_freelist_remove_range(start_pa, end_pa);
 
                 size_t pfn = pmm_state.pfn_base + start_index;
-                uintptr_t addr = (uintptr_t)pfn * PAGE_SIZE;
+                paddr_t addr = (paddr_t)pfn * PAGE_SIZE;
                 assert(addr % PAGE_SIZE == 0);
                 assert(pfn >= pmm_state.pfn_base && (pfn + n_pages) <= pmm_state.pfn_end);
                 syspage_update_mem(); // update free memory info in syspage
@@ -324,10 +325,10 @@ uintptr_t pmm_alloc_pages(size_t n_pages) {
     }
 
     spin_unlock_irqrestore(&pmm_lock, flags);
-    return (uintptr_t)0;
+    return (paddr_t)0;
 }
 
-int pmm_free_page(const uintptr_t addr) {
+int pmm_free_page(const paddr_t addr) {
     uint32_t flags;
     spin_lock_irqsave(&pmm_lock, &flags);
     if (addr % PAGE_SIZE != 0) {
@@ -364,7 +365,7 @@ int pmm_free_page(const uintptr_t addr) {
         assert(pmm_state.free_pages <= pmm_state.total_pages);
 
         /* Push onto freelist */
-        uintptr_t *page_va = (uintptr_t *)PA_TO_VA(addr);
+        vaddr_t *page_va = (uintptr_t *)PA_TO_VA(addr);
         *page_va = pmm_state.freelist_head;
         pmm_state.freelist_head = addr;
 
@@ -391,12 +392,12 @@ uintptr_t pmm_alloc_pages_aligned(const size_t n_pages, size_t align_pages)
     // Require power-of-two alignment (common + cheap)
     if ((align_pages & (align_pages - 1)) != 0) { 
         spin_unlock_irqrestore(&pmm_lock, flags);
-        return (uintptr_t)0;
+        return (paddr_t)0;
      }
 
     if (pmm_state.free_pages < n_pages) { 
         spin_unlock_irqrestore(&pmm_lock, flags);
-        return (uintptr_t)0;
+        return (paddr_t)0;
     }
 
     assert(pmm_state.bitmap != NULL);
@@ -448,10 +449,10 @@ uintptr_t pmm_alloc_pages_aligned(const size_t n_pages, size_t align_pages)
     }
 
     spin_unlock_irqrestore(&pmm_lock, flags);
-    return (uintptr_t)0;
+    return (paddr_t)0;
 }
 
-size_t pmm_alloc_pages_scattered(const size_t n_pages, uintptr_t *out_addrs) {
+size_t pmm_alloc_pages_scattered(const size_t n_pages, paddr_t *out_addrs) {
     uint32_t flags;
     spin_lock_irqsave(&pmm_lock, &flags);
      if (n_pages == 0 || pmm_state.free_pages < n_pages) {
@@ -468,7 +469,7 @@ size_t pmm_alloc_pages_scattered(const size_t n_pages, uintptr_t *out_addrs) {
         return 0;
     }
     for (size_t i = 0; i < n_pages; i++) {
-        const uintptr_t new_page = pmm_alloc_page_locked();
+        const paddr_t new_page = pmm_alloc_page_locked();
         if (new_page == 0) {
             syspage_update_mem();
             spin_unlock_irqrestore(&pmm_lock, flags);

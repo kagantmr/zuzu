@@ -2,6 +2,7 @@
 #define ZUZU_TYPES_H
 
 #include <stdint.h>
+#include <stddef.h>
 #include "err.h"
 
 typedef int32_t handle_t;

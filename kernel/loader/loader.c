@@ -14,7 +14,7 @@
 #include "kernel/syspage.h"
 #include "zuzu/ipcx.h"
 
-extern uint32_t next_pid;
+extern pid_t next_pid;
 extern process_t *process_table[MAX_PROCESSES];
 
 static bool elf_segment_ranges_overlap(const Elf32_Phdr *a, const Elf32_Phdr *b)
@@ -54,7 +54,7 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
         goto fail_process;
 
     // try getting a kstack
-    uintptr_t stack_top = kstack_alloc();
+    vaddr_t stack_top = kstack_alloc();
     if (!stack_top)
         goto fail_as;
     process->kernel_stack_top = stack_top;
@@ -94,7 +94,7 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
             { // segment extends past end of file
                 goto fail_kstack;
             }
-            uint32_t pages_needed = (ph->p_memsz + PAGE_SIZE - 1) / PAGE_SIZE;
+            size_t pages_needed = (ph->p_memsz + PAGE_SIZE - 1) / PAGE_SIZE;
             uintptr_t *segment_pages = kmalloc(pages_needed * sizeof(uintptr_t));
             if (!segment_pages)
                 goto fail_kstack;
@@ -124,7 +124,7 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
 
                 segment_pages[page] = page_pa;
 
-                uintptr_t file_offset = page * PAGE_SIZE;
+                vaddr_t file_offset = page * PAGE_SIZE;
                 size_t bytes_to_copy = 0;
                 if (file_offset < ph->p_filesz)
                 {
@@ -148,13 +148,13 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
                     memset((void *)PA_TO_VA(page_pa), 0, PAGE_SIZE);
                 }
 
-                uintptr_t va = ph->p_vaddr + page * PAGE_SIZE;
+                vaddr_t va = ph->p_vaddr + page * PAGE_SIZE;
                 if (!kmap_user_page(process->as, page_pa, va, prot))
                 {
                     pmm_free_page(page_pa);
                     for (uint32_t j = 0; j < page; j++)
                     {
-                        uintptr_t orphan_va = ph->p_vaddr + j * PAGE_SIZE;
+                        vaddr_t orphan_va = ph->p_vaddr + j * PAGE_SIZE;
                         vmm_unmap_range(process->as, orphan_va, PAGE_SIZE);
                         pmm_free_page(segment_pages[j]);
                     }
@@ -185,10 +185,10 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
         }
     }
 
-    const uintptr_t user_stack_base = USER_STACK_BASE;
-    const uintptr_t user_guard_va = USER_STACK_GUARD_VA;
+    const vaddr_t user_stack_base = USER_STACK_BASE;
+    const vaddr_t user_guard_va = USER_STACK_GUARD_VA;
 
-    uintptr_t user_stack_pa = pmm_alloc_pages(USER_STACK_PAGES);
+    paddr_t user_stack_pa = pmm_alloc_pages(USER_STACK_PAGES);
     if (!user_stack_pa)
         goto fail_kstack;
 
@@ -267,8 +267,8 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
     }
 
     // lay out argc argv on the user stack
-    uintptr_t sp = USR_SP;
-    uintptr_t argv_va = 0;
+    vaddr_t sp = USR_SP;
+    vaddr_t argv_va = 0;
 
     const size_t user_stack_size = 4 * PAGE_SIZE;
 
@@ -305,7 +305,7 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
             KERROR("Invalid argv payload: argv bytes overflow");
             goto fail_kstack;
         }
-        uintptr_t check_sp = USR_SP;
+        vaddr_t check_sp = USR_SP;
 
         if (check_sp - user_stack_base > user_stack_size ||
             argbuf_len > (size_t)(check_sp - user_stack_base)) {
@@ -331,7 +331,7 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
 
         sp -= argbuf_len;
         sp &= ~3u;
-        uintptr_t strings_va = sp;
+        vaddr_t strings_va = sp;
         memcpy((void *)PA_TO_VA(user_stack_pa + (strings_va - user_stack_base)),
                argbuf, argbuf_len);
 
@@ -340,7 +340,7 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
         argv_va = sp;
         uint32_t *argv_kern = (uint32_t *)PA_TO_VA(user_stack_pa + (argv_va - user_stack_base));
 
-        uintptr_t str_va = strings_va;
+        vaddr_t str_va = strings_va;
         for (uint32_t a = 0; a < argc; a++) {
             argv_kern[a] = (uint32_t)str_va;
             str_va += strlen((const char *)PA_TO_VA(user_stack_pa + (str_va - user_stack_base))) + 1;
@@ -352,10 +352,10 @@ process_t *process_create_from_elf(const void *elf_data, size_t elf_size, const 
     stack_top -= 17 * sizeof(uint32_t);
     uint32_t *exc_frame = (uint32_t *)stack_top;
     exc_frame[0]  = argc;
-    exc_frame[1]  = (uint32_t)argv_va;
+    exc_frame[1]  = (vaddr_t)argv_va;
     for (int i = 2; i < 13; i++)
         exc_frame[i] = 0;
-    exc_frame[13] = (uint32_t)sp;
+    exc_frame[13] = (vaddr_t)sp;
     exc_frame[14] = 0;
     exc_frame[15] = elf_entry;
     exc_frame[16] = 0x10;

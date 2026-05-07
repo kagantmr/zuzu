@@ -1,12 +1,14 @@
 #include "sys_dev.h"
-#include <mem.h>
 #include "kernel/syscall/syscall.h"
 #include "kernel/mm/alloc.h"
-#include <zuzu/syscall_nums.h>
 #include "kernel/proc/process.h"
 #include "arch/arm/mmu/mmu.h"
+
+#include <zuzu/syscall_nums.h>
 #include <string.h>
 #include <zuzu/user_layout.h>
+#include <mem.h>
+#include <zuzu/types.h>
 
 #define LOG_FMT(fmt) "(sys_dev) " fmt
 #include "core/log.h"
@@ -18,7 +20,7 @@ extern process_t *current_process;
 void mapdev(exception_frame_t *frame)
 {
     
-    uint32_t handle_idx = frame->r[0];
+    handle_t handle_idx = frame->r[0];
 
     if (handle_idx == 0) {
         frame->r[0] = ERR_BADARG;
@@ -46,8 +48,8 @@ void mapdev(exception_frame_t *frame)
         return;
     }
 
-    uint32_t size_aligned = align_up(cap->size, 4096);
-    uint32_t user_va = current_process->device_va_next;
+    size_t size_aligned = align_up(cap->size, 4096);
+    vaddr_t user_va = current_process->device_va_next;
 
     // Device mappings are carved from device_va_next; bound-check that cursor.
     if (user_va >= DEVICE_VA_LIMIT || size_aligned > DEVICE_VA_LIMIT - user_va) {
@@ -88,9 +90,9 @@ void mapdev(exception_frame_t *frame)
 }
 
 void querydev(exception_frame_t *frame) {
-    uint32_t handle_idx = frame->r[0];
+    handle_t handle_idx = frame->r[0];
     char *out_buf = (char *)frame->r[1];
-    uint32_t buf_len = frame->r[2];
+    size_t buf_len = frame->r[2];
     char compat_buf[sizeof(((device_cap_t *)0)->compatible) + 1];
 
     if (handle_idx == 0 || buf_len == 0) { frame->r[0] = ERR_BADARG; return; }

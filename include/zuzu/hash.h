@@ -3,12 +3,12 @@
 
 #include <stdint.h>
 
-typedef uint32_t hash_t;
+typedef uint32_t hashno_t;
 
 typedef struct hash_entry {
     const char *key;
     void       *val;
-    hash_t    hash;
+    hashno_t    hash;
 } hash_entry_t;
 
 typedef struct {

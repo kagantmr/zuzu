@@ -13,14 +13,13 @@
 
 #include "kernel/irq/sys_irq.h"
 
-extern process_t *current_process;
-extern list_head_t sleep_queue;
-
 #define LOG_FMT(fmt) "(ipc) " fmt
 #include "core/log.h"
 
 #define KSTACK_REGION_TOP (KSTACK_REGION_BASE + (64u * 0x2000u))
 
+extern process_t *current_process;
+extern list_head_t sleep_queue;
 extern kernel_layout_t kernel_layout;
 
 static void ipc_buf_copy(process_t *src, process_t *dst, uint32_t len)
@@ -57,7 +56,7 @@ static void ipc_panic_bad_trap_frame(const char *where, const process_t *owner, 
     panic("Corrupt trap_frame pointer in IPC path");
 }
 
-static endpoint_t *validate_endpoint_handle(process_t *proc, int handle, exception_frame_t *frame)
+static endpoint_t *validate_endpoint_handle(process_t *proc, handle_t handle, exception_frame_t *frame)
 {
     if (!proc)
     {
@@ -91,7 +90,7 @@ static endpoint_t *validate_endpoint_handle(process_t *proc, int handle, excepti
 }
 
 static handle_entry_t *validate_reply_handle(process_t *proc,
-                                             uint32_t handle_idx,
+                                             handle_t handle_idx,
                                              process_t **target_out,
                                              exception_frame_t *frame)
 {
@@ -309,7 +308,7 @@ void proc_recv(exception_frame_t *frame)
 
         if (timeout_ms > 0)
         {
-            uint64_t ticks = ((uint64_t)timeout_ms * (uint64_t)TICK_HZ) / 1000u;
+            tick_t ticks = ((uint64_t)timeout_ms * (uint64_t)TICK_HZ) / 1000u;
             if (ticks == 0)
                 ticks = 1;
             current_process->wake_tick = get_ticks() + ticks;
@@ -413,7 +412,7 @@ void proc_call(exception_frame_t *frame)
 
 void proc_reply(exception_frame_t *frame)
 {
-    uint32_t handle_idx = frame->r[0];
+    handle_t handle_idx = frame->r[0];
     process_t *target = NULL;
     handle_entry_t *entry = validate_reply_handle(current_process, handle_idx, &target, frame);
     if (!entry)
@@ -506,7 +505,7 @@ void proc_sendx(exception_frame_t *frame)
 
 void proc_callx(exception_frame_t *frame)
 {
-    int handle = (int)frame->r[0];
+    handle_t handle = (handle_t)frame->r[0];
 
     endpoint_t *ep = validate_endpoint_handle(current_process, handle, frame);
     if (!ep)
@@ -546,7 +545,7 @@ void proc_callx(exception_frame_t *frame)
         rentry->reply = rc;
         process_track_reply_cap(current_process, rx_proc, (uint32_t)slot, rc);
 
-        uint32_t xlen = frame->r[1] > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : frame->r[1];
+        size_t xlen = frame->r[1] > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : frame->r[1];
         rx_frame->r[0] = slot;
         rx_frame->r[1] = current_process->pid;
         rx_frame->r[2] = xlen;
@@ -584,7 +583,7 @@ void proc_callx(exception_frame_t *frame)
 
 void proc_replyx(exception_frame_t *frame)
 {
-    uint32_t handle_idx = frame->r[0];
+    handle_t handle_idx = frame->r[0];
     process_t *target = NULL;
     handle_entry_t *entry = validate_reply_handle(current_process, handle_idx, &target, frame);
     if (!entry)
@@ -599,7 +598,7 @@ void proc_replyx(exception_frame_t *frame)
     {
         ipc_panic_bad_trap_frame("proc_replyx.target", target, target_frame);
     }
-    uint32_t xlen = frame->r[1] > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : frame->r[1];
+    size_t xlen = frame->r[1] > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : frame->r[1];
     target_frame->r[0] = 0;           // success
     target_frame->r[1] = xlen;        // reply payload
     target_frame->r[2] = 0;

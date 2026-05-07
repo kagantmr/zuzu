@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <zuzu/types.h>
 
 #define PAGE_SIZE 4096 // A page is 4KB
 
@@ -36,32 +37,32 @@ void pmm_init(void);
  * @brief Mark a range of physical pages as used. 
  * @return MARK_OK if successful, MARK_FAIL if the addresses are invalid.
  */
-int pmm_mark_range(uintptr_t start, uintptr_t end);
+int pmm_mark_range(paddr_t start, paddr_t end);
 
 /**
  * @brief Unmark a range of pages.
  * @return UNMARK_OK if successful, UNMARK_FAIL if the addresses are invalid.
  */
-int pmm_unmark_range(uintptr_t start, uintptr_t end);
+int pmm_unmark_range(paddr_t start, paddr_t end);
 
 /**
  * @brief Allocates a physical page, and returns a pointer to it.
  * @return Address of the allocated page.
  */
-uintptr_t pmm_alloc_page(void);
+paddr_t pmm_alloc_page(void);
 
 /**
  * @brief Allocates contiguous physical pages.
  * @param n_pages Number of pages to allocate.
  * @return Address of the first allocated page.
  */
-uintptr_t pmm_alloc_pages(size_t n_pages);
+paddr_t pmm_alloc_pages(size_t n_pages);
 
 /**
  * @brief Marks an allocated page as unallocated.
  * @param addr Address of the allocated page.
  */
-int pmm_free_page(uintptr_t addr);
+int pmm_free_page(paddr_t addr);
 
 /**
  * @brief Allocates contiguous physical pages with specific alignment.
@@ -69,7 +70,7 @@ int pmm_free_page(uintptr_t addr);
  * @param align_pages Alignment in pages (must be power of two).
  * @return Address of the first allocated page.
  */
-uintptr_t pmm_alloc_pages_aligned(size_t n_pages, size_t align_pages);
+paddr_t pmm_alloc_pages_aligned(size_t n_pages, size_t align_pages);
 
 /**
  *
@@ -77,6 +78,6 @@ uintptr_t pmm_alloc_pages_aligned(size_t n_pages, size_t align_pages);
  * @param out_addrs Caller-provided array for page addresses
  * @return Amount of pages found (may not match n_pages if zuzu is OOM)
  */
-size_t pmm_alloc_pages_scattered(size_t n_pages, uintptr_t *out_addrs);
+size_t pmm_alloc_pages_scattered(size_t n_pages, paddr_t *out_addrs);
 
 #endif

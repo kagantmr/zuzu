@@ -41,26 +41,26 @@ typedef enum ipc_state
 
 typedef struct process
 {
-    uint32_t pid, parent_pid;
+    pid_t pid, parent_pid;
     p_state_t process_state;
     uint32_t *kernel_sp;
-    uintptr_t kernel_stack_top; // base of kernel stack for freeing
-    uint64_t wake_tick;
+    vaddr_t kernel_stack_top; // base of kernel stack for freeing
+    tick_t wake_tick;
     uint32_t priority, time_slice, ticks_remaining;
     addrspace_t *as;
     list_node_t node; // embedded, not pointers
     list_node_t timeout_node;
     int32_t exit_status;
-    uint32_t waiting_for;
+    pid_t waiting_for;
     char name[32];           // PROCESS name
-    uint32_t device_va_next; // initialized to USER_DEVICE_BASE in process_create
-    uint32_t mmap_va_next;   // initialized to USER_MMAP_BASE in process_create
+    vaddr_t device_va_next; // initialized to USER_DEVICE_BASE in process_create
+    vaddr_t mmap_va_next;   // initialized to USER_MMAP_BASE in process_create
     exception_frame_t *trap_frame;
     list_head_t outstanding_replies;
     handle_vec_t handle_table;
-    uintptr_t ipc_buf_pa;
+    paddr_t ipc_buf_pa;
     reply_cap_t *pending_reply_cap;
-    uint32_t ipc_buf_xfer_len;
+    size_t ipc_buf_xfer_len;
     ipc_state_t ipc_state;
     wake_reason_t wake_reason;
     endpoint_t *blocked_endpoint;
@@ -84,14 +84,14 @@ _Static_assert(offsetof(process_t, kernel_sp) == 12,
 #endif
 
 void process_destroy(process_t *process);
-process_t *process_find_by_pid(uint32_t pid);
+process_t *process_find_by_pid(pid_t pid);
 process_t *process_create(const char *name);
 void process_kill(process_t *p, int exit_status);
 void process_set_parent(process_t *child, process_t *parent);
-process_t *process_find_child_by_pid(process_t *parent, uint32_t pid);
+process_t *process_find_child_by_pid(process_t *parent, pid_t pid);
 process_t *process_find_zombie_child(process_t *parent);
 void process_track_reply_cap(process_t *caller, process_t *holder,
-                             uint32_t holder_slot, reply_cap_t *rc);
+                             handle_t holder_slot, reply_cap_t *rc);
 void process_untrack_reply_cap(reply_cap_t *rc);
 
 #endif // KERNEL_PROC_PROCESS_H

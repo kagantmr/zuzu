@@ -6,7 +6,7 @@
 extern process_t *current_process;
 
 void ntfn_create(exception_frame_t *frame) {
-    int handle = handle_vec_find_free(&current_process->handle_table);
+    handle_t handle = handle_vec_find_free(&current_process->handle_table);
     if (handle < 0) { frame->r[0] = ERR_NOMEM; return; }
 
     notification_t *ntfn = kmalloc(sizeof(notification_t));  // or slab
@@ -26,7 +26,7 @@ void ntfn_create(exception_frame_t *frame) {
 }
 
 void ntfn_signal(exception_frame_t *frame) {
-    uint32_t handle_idx = frame->r[0];
+    handle_t handle_idx = frame->r[0];
     uint32_t bits = frame->r[1];
 
     handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle_idx);
@@ -58,7 +58,7 @@ void ntfn_signal(exception_frame_t *frame) {
 }
 
 void ntfn_wait(exception_frame_t *frame) {
-    uint32_t handle_idx = frame->r[0];
+    handle_t handle_idx = frame->r[0];
 
     handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle_idx);
     if (!entry || entry->type != HANDLE_NOTIFICATION) {
@@ -86,7 +86,7 @@ void ntfn_wait(exception_frame_t *frame) {
 }
 
 void ntfn_poll(exception_frame_t *frame) {
-    uint32_t handle_idx = frame->r[0];
+    handle_t handle_idx = frame->r[0];
 
     handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle_idx);
     if (!entry || entry->type != HANDLE_NOTIFICATION) {

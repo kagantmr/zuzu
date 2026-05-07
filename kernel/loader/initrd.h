@@ -4,9 +4,6 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-
-
-
 /**
  * @brief Initialize the initrd subsystem with the given archive.
  */
