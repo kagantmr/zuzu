@@ -10,7 +10,7 @@
 #include "zuzu/protocols/fbox_protocol.h"
 #include <zuzu/ipcx.h>
 #include <cpio.h>
-#include <zmalloc.h>
+#include <malloc.h>
 #include "den.h"
 #include <zuzu/syspage.h>
 #include "exec.h"
@@ -189,7 +189,7 @@ static void nt_handle_msg(zuzu_ipcmsg_t msg) {
         }
 
         uint32_t fd = r.r2;
-        uint8_t *elf = (uint8_t *)zmalloc(file_size);
+        uint8_t *elf = (uint8_t *)malloc(file_size);
         if (!elf) {
             _call(cached_fbox_handle, FBOX_CLOSE, fd, 0);
             _reply(reply_handle, (uint32_t)EXEC_ENOMEM, 0, 0);
@@ -212,7 +212,7 @@ static void nt_handle_msg(zuzu_ipcmsg_t msg) {
         _call(cached_fbox_handle, FBOX_CLOSE, fd, 0);
 
         if (total != file_size) {
-            zfree(elf);
+            free(elf);
             _reply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
             return;
         }
@@ -221,7 +221,7 @@ static void nt_handle_msg(zuzu_ipcmsg_t msg) {
         int rc = exec_inject((uint32_t)hdr->task_handle, elf, file_size,
                              argbuf_len ? argbuf : NULL, argbuf_len,
                              hdr->argc, &reply);
-        zfree(elf);
+        free(elf);
         if (rc != 0) {
             _reply(reply_handle, (uint32_t)EXEC_EBADELF, 0, 0);
             return;

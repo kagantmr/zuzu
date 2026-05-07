@@ -7,7 +7,7 @@
 #include <string.h>
 #include <mem.h>
 #include <stdbool.h>
-#include <zmalloc.h>
+#include <malloc.h>
 
 static int32_t fat32d_port = -1;
 static void *fat32d_buf = NULL;    /* shmem shared with fat32d */

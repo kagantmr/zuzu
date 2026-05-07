@@ -72,8 +72,8 @@ DISK_PROGS = test zuzufetch
 USER_PROGS = $(BOOT_PROGS) $(DISK_PROGS)
 
 # zcrt + user lib sources
-ZCRT_SRCS = $(wildcard lib/zcrt/*.c)
-ZCRT_OBJS = $(patsubst lib/zcrt/%.c,build/user/zcrt/%.o,$(ZCRT_SRCS))
+ZCRT_SRCS = $(wildcard lib/zuzu/*.c)
+ZCRT_OBJS = $(patsubst lib/zuzu/%.c,build/user/zcrt/%.o,$(ZCRT_SRCS))
 
 ULIB_SRCS = $(filter-out user/lib/service.c,$(wildcard user/lib/*.c))
 ULIB_OBJS = $(patsubst user/%.c,build/user/%.o,$(ULIB_SRCS))
@@ -94,11 +94,11 @@ $(foreach p,$(USER_PROGS),$(eval USER_$(p)_SRCS := $(wildcard user/$(p)/*.c)))
 $(foreach p,$(USER_PROGS),$(eval USER_$(p)_OBJS := $(patsubst user/%.c,build/user/%.o,$(USER_$(p)_SRCS))))
 USER_APP_OBJS = $(foreach p,$(USER_PROGS),$(USER_$(p)_OBJS))
 
-SRC_DIRS = arch core drivers kernel lib/zcrt
+SRC_DIRS = arch core drivers kernel lib/zuzu
 
 # kernel sources
 CSRCS     = $(shell find $(SRC_DIRS) -name '*.c')
-CSRCS     := $(filter-out lib/zcrt/zmalloc.c,$(CSRCS))
+CSRCS     := $(filter-out lib/zuzu/zmalloc.c,$(CSRCS))
 ASRCS_ALL = $(shell find $(SRC_DIRS) -name '*.S')
 ASRCS     = $(filter-out arch/arm/crt0.S arch/arm/initrd.S,$(ASRCS_ALL))
 OBJS      = $(CSRCS:%.c=build/%.o) $(ASRCS:%.S=build/%.o)
@@ -134,7 +134,7 @@ build/%.o: %.S
 	@echo "  AS      $<"
 	@$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
 
-build/user/zcrt/%.o: lib/zcrt/%.c
+build/user/zcrt/%.o: lib/zuzu/%.c
 	@mkdir -p $(dir $@)
 	@echo "  CC      $<"
 	@$(USER_CC) $(USER_CFLAGS) -c $< -o $@
