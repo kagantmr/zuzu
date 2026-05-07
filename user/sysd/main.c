@@ -20,6 +20,8 @@ static nt_entry_t registry_table[SYSD_MAX_SERVICES];
 static int32_t port;
 static int32_t cached_fbox_handle = -1;
 static char   *cached_fbox_buf    = NULL;
+static handle_t stdin, stdout, stderr;
+
 
 static inline void name_u32_to_chars(uint32_t name_u32, char out[SYSD_NAME_LEN]) {
     out[0] = (char)((name_u32 >> 0)  & 0xFF);
@@ -221,6 +223,9 @@ static void nt_handle_msg(zuzu_ipcmsg_t msg) {
         int rc = exec_inject((uint32_t)hdr->task_handle, elf, file_size,
                              argbuf_len ? argbuf : NULL, argbuf_len,
                              hdr->argc, &reply);
+        _port_grant(stdin, (int32_t)hdr->pid);
+        _port_grant(stdout, (int32_t)hdr->pid);
+        _port_grant(stderr, (int32_t)hdr->pid);
         free(elf);
         if (rc != 0) {
             _reply(reply_handle, (uint32_t)EXEC_EBADELF, 0, 0);
@@ -245,7 +250,7 @@ static void nt_handle_msg(zuzu_ipcmsg_t msg) {
     if (r2_cmd == NT_LOOKUP || r2_cmd == DEN_CREATE ||
         r2_cmd == DEN_INVITE || r2_cmd == DEN_KICK ||
         r2_cmd == DEN_MYDEN || r2_cmd == DEN_MYDEN_COUNT ||
-        r2_cmd == DEN_MYDEN_AT || r2_cmd == SYSD_EXEC) {
+        r2_cmd == DEN_MYDEN_AT || r2_cmd == SYSD_EXEC || r2_cmd == SYSD_GET_TTY) {
         reply_handle = (uint32_t)msg.r0;
         sender       = msg.r1;
         raw_command  = msg.r2;
@@ -325,11 +330,13 @@ static void nt_handle_msg(zuzu_ipcmsg_t msg) {
         } else {
             status = DEN_FAIL;
         }
-
-    } else if (command == SYSD_EXEC) {
-        /* TODO: read ELF from fbox, exec_inject, reply with kickstart args */
+    } else if (command == SYSD_GET_TTY) {
+        handle_t sin  = _port_grant(stdin,  (handle_t)sender);
+        handle_t sout = _port_grant(stdout, (handle_t)sender);
+        handle_t serr = _port_grant(stderr, (handle_t)sender);
+        _reply(reply_handle, (handle_t)sin, (handle_t)sout, (handle_t)serr);
+        return;
     }
-
     if (needs_reply)
         _reply(reply_handle, (uint32_t)status, out_handle, out_pid);
 }
@@ -489,6 +496,11 @@ int main(void)
         return 1;
     nt_register(nt_pack(NT_NAME_SYS), (uint32_t)port, _getpid(), 0);
 
+    // ports 1,2,3 are stdio
+    stdin = _port_create();
+    stdout = _port_create();
+    stderr = _port_create();
+
     /* ---- read boot manifest from CPIO ---- */
 
     const void *mdata;
@@ -497,6 +509,7 @@ int main(void)
         return 1;
 
     parse_manifest((const char *)mdata, msize, initrd, initrd_sz);
+
 
     /* ---- tspawn + inject every CPIO-resident program ---- */
 
@@ -516,6 +529,10 @@ int main(void)
                         e->elf_data, e->elf_size,
                         NULL, 0, 0, &e->reply) != 0)
             continue;
+        // grant the stdio ports to the new task
+        _port_grant(stdin, ts.pid);
+        _port_grant(stdout, ts.pid);
+        _port_grant(stderr, ts.pid);
 
         e->injected = true;
     }

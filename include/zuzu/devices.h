@@ -1,14 +1,19 @@
 #ifndef ZUZU_DEVICES_H
 #define ZUZU_DEVICES_H
 
-#include <stdint.h>
-#include <zuzu/types.h>
+#include <zuzu/syspage.h>
+#include <string.h>
 
-typedef struct {
-    handle_t dev_handle;
-    void *mmio;
-} device_t;
+static inline const syspage_dev_t *device_find(const char *name) {
+    syspage_t *sp = (syspage_t *)SYSPAGE;
+    for (uint8_t i = 0; i < sp->dev_count; i++)
+        if (strncmp(sp->devs[i].name, name, SYSPAGE_DEV_NAME_LEN) == 0)
+            return &sp->devs[i];
+    return NULL;
+}
 
-device_t device_acquire(uint32_t dev_class, int32_t irq_port);
+static inline int device_present(const char *name) {
+    return device_find(name) != NULL;
+}
 
 #endif

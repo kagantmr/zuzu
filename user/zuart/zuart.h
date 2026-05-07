@@ -1,7 +1,7 @@
 #ifndef ZUART_H
 #define ZUART_H
 
-#define ZUART_VER "v1.0"
+#define ZUART_VER "v2.0"
 
 #include <zuzu/zuzu.h>
 #include <stdbool.h>

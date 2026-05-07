@@ -10,7 +10,9 @@
 #include <zuzu/protocols/fbox_protocol.h>
 #include <zuzu/protocols/sysd_protocol.h>
 
-static int32_t zuart_port;
+static int32_t stdin_slot;
+static int32_t stdout_slot;
+static int32_t stderr_slot;
 static int32_t sysd_port;
 static uint32_t sysd_pid;
 static int32_t fbox_port;
@@ -67,13 +69,13 @@ void zprint(const char *s)
     size_t len = strlen(s);
     if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
     memcpy((void *)IPCX_BUF_VA, s, len);
-    _sendx(zuart_port, (uint32_t)len);
+    _sendx(stdout_slot, (uint32_t)len);
 }
 
 size_t zread(char *dst, size_t max)
 {
     if (max > IPCX_BUF_SIZE) max = IPCX_BUF_SIZE;
-    zuzu_ipcmsg_t reply = _callx(zuart_port, (uint32_t)max);
+    zuzu_ipcmsg_t reply = _callx(stdin_slot, (uint32_t)max);
     if (reply.r0 < 0) {
         return 0;
     }
@@ -86,23 +88,40 @@ size_t zread(char *dst, size_t max)
 
 int setup(void)
 {
-    zuart_port = lookup_service("uart");
-    if (zuart_port < 0) return -1;
+    while (1) {
+        zuzu_ipcmsg_t sysd = _call(NT_PORT, NT_LOOKUP, nt_pack(NT_NAME_SYS), 0);
+        if (sysd.r1 == NT_LU_OK) {
+            sysd_port = (int32_t)sysd.r2;
+            sysd_pid = sysd.r3;
+            break;
+        }
+        _sleep(10);
+    }
 
-    zuzu_ipcmsg_t sysd = _call(NT_PORT, NT_LOOKUP, nt_pack(NT_NAME_SYS), 0);
-    if (sysd.r1 != NT_LU_OK)
-        return -1;
-    sysd_port = (int32_t)sysd.r2;
-    sysd_pid = sysd.r3;
+    while (1) {
+        zuzu_ipcmsg_t tty = _call(sysd_port, SYSD_GET_TTY, 0, 0);
+        if ((int32_t)tty.r0 >= 0) {
+            stdin_slot = (int32_t)tty.r1;
+            stdout_slot = (int32_t)tty.r2;
+            stderr_slot = (int32_t)tty.r3;
+            if (stdin_slot >= 0 && stdout_slot >= 0 && stderr_slot >= 0)
+                break;
+        }
+        _sleep(10);
+    }
 
     fbox_port = lookup_service("fbox");
     if (fbox_port < 0) return -1;
 
-    zuzu_ipcmsg_t r = _call(fbox_port, FBOX_GET_BUF, 0, 0);
-    if ((int32_t)r.r1 != 0) return -1;
-
-    fbox_buf = (char *)_attach((int32_t)r.r2);
-    if ((intptr_t)fbox_buf <= 0) return -1;
+    while (1) {
+        zuzu_ipcmsg_t r = _call(fbox_port, FBOX_GET_BUF, 0, 0);
+        if ((int32_t)r.r1 == 0) {
+            fbox_buf = (char *)_attach((int32_t)r.r2);
+            if ((intptr_t)fbox_buf > 0)
+                break;
+        }
+        _sleep(10);
+    }
 
     return 0;
 }
@@ -405,6 +424,7 @@ static void cmd_exec(const char *line)
     hdr->task_handle = (uint16_t)sysd_task_handle;
     hdr->path_len = (uint16_t)path_len;
     hdr->argc = (uint16_t)token_count;
+    hdr->pid = ts.pid;
 
     char *payload = (char *)IPCX_BUF_VA + sizeof(*hdr);
     memcpy(payload, path, path_len + 1);

@@ -1,7 +1,7 @@
 #ifndef SYSD_CONSTS_H
 #define SYSD_CONSTS_H
 
-#define SYSD_VERSION "v3.0"
+#define SYSD_VERSION "v4.0"
 
 #define SYSD_MAX_SERVICES 64
 #define SYSD_NAME_LEN 4
