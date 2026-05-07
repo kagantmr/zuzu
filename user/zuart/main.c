@@ -2,6 +2,7 @@
 #include "zuzu/protocols/zuart_protocol.h"
 #include "zuzu/protocols/devmgr_protocol.h"
 #include "zuzu/protocols/nt_protocol.h"
+#include <zuzu/protocols/sysd_protocol.h>
 #include "zuzu/ipcx.h"
 #include <stdint.h>
 #include <string.h>
@@ -13,6 +14,10 @@ static int32_t devmgr_port = -1;
 static int32_t serial_dev_handle = -1;
 static int32_t serial_irq_ntfn = -1;
 ringbuf_t rxrb, txrb;
+
+static handle_t stdin_slot;
+static handle_t stdout_slot;
+static handle_t stderr_slot;
 
 #define ZUART_DEV_CLASS DEV_CLASS_SERIAL
 #define ZUART_COMPATIBLE "arm,pl011"
@@ -87,11 +92,11 @@ static void handle_irq_event(void)
     _irq_done((uint32_t)serial_dev_handle);
 }
 
-static void handle_client_message(zuzu_ipcmsg_t msg)
+static void handle_client_message(handle_t source_port, zuzu_ipcmsg_t msg)
 {
-    if (msg.r2 == 0)
+    if (source_port == stdout_slot || source_port == stderr_slot)
     {
-        /* One-way IPCX send: r1 carries the byte count. */
+        /* stdout/stderr: one-way write, byte count in r1. */
         uint32_t len = msg.r1;
         if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
 
@@ -101,8 +106,9 @@ static void handle_client_message(zuzu_ipcmsg_t msg)
         return;
     }
 
+    if (source_port == stdin_slot)
     {
-        /* IPCX call: r2 carries the requested byte count and r0 is the reply handle. */
+        /* stdin: blocking read call, requested length in r2. */
         uint32_t reply_handle = (uint32_t)msg.r0;
         uint32_t len = msg.r2;
         if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
@@ -124,6 +130,7 @@ static void handle_client_message(zuzu_ipcmsg_t msg)
 
         /* Reply with IPCX buffer contents and byte count. */
         (void)_replyx(reply_handle, (uint32_t)n);
+        return;
     }
 }
 
@@ -176,6 +183,17 @@ int zuart_setup(void)
     uart->IMSC = (IMSC_RXIM | IMSC_RTIM);
 
     (void)_send(NT_PORT, NT_REGISTER, nt_pack("uart"), (uint32_t)nt_slot);
+
+    zuzu_ipcmsg_t tty = _call(NT_PORT, NT_LOOKUP, nt_pack("sysd"), 0);
+    handle_t sysd_port = (int32_t)tty.r2;
+    zuzu_ipcmsg_t r = _call(sysd_port, SYSD_GET_TTY, 0, 0);
+    if ((int32_t)r.r0 < 0) {
+        return ZUART_INIT_FAIL;
+    }
+    stdin_slot = (handle_t)r.r1;
+    stdout_slot = (handle_t)r.r2;
+    stderr_slot = (handle_t)r.r3;
+
     return ZUART_INIT_OK;
 }
 
@@ -194,10 +212,22 @@ int main(void)
             handle_irq_event();
         }
 
-        msg = _recv(port);
+        msg = _recv_timeout(stdout_slot, UINT32_MAX);
+        if (msg.r0 >= 0) {
+            handle_client_message(stdout_slot, msg);
+            continue;
+        }
 
-        if (msg.r0 > 0) {
-            handle_client_message(msg);
+        msg = _recv_timeout(stderr_slot, UINT32_MAX);
+        if (msg.r0 >= 0) {
+            handle_client_message(stderr_slot, msg);
+            continue;
+        }
+
+        msg = _recv(stdin_slot);
+
+        if (msg.r0 >= 0) {
+            handle_client_message(stdin_slot, msg);
         }
     }
 }

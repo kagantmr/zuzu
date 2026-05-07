@@ -162,5 +162,6 @@ int exec_inject(uint32_t task_handle, const void *elf_data, size_t elf_size,
     out->sp = sp;
     out->argc = argc;
     out->argv_va = argv_va;
+    out->pid = 0; 
     return rc;
 }
