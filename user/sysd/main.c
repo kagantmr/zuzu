@@ -479,7 +479,7 @@ static void parse_manifest(const char *data, size_t size,
 
 int main(void)
 {
-    const zuzu_syspage_t *sp = (const zuzu_syspage_t *)SYSPAGE_VA;
+    const syspage_t *sp = (const syspage_t *)SYSPAGE_VA;
     const void *initrd  = (const void *)INITRD_BASE;
     uint32_t initrd_sz  = sp->initrd_size;
 

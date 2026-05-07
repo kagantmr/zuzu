@@ -9,7 +9,7 @@
 #include "kernel/dtb/dtb.h"
 #include "core/log.h"
 
-zuzu_syspage_t *g_sp;
+syspage_t *g_sp;
 static uintptr_t g_syspage_pa;
 extern pmm_state_t pmm_state;
 extern uint32_t rtc_epoch;
@@ -52,8 +52,8 @@ static void dev_cb(const char *compatible, uint64_t phys, uint64_t size, uint32_
 void syspage_init(void)
 {
     g_syspage_pa = pmm_alloc_page(); // reserve the first page for the syspage
-    g_sp = (zuzu_syspage_t *)PA_TO_VA(g_syspage_pa);
-    memset(g_sp, 0, sizeof(zuzu_syspage_t));
+    g_sp = (syspage_t *)PA_TO_VA(g_syspage_pa);
+    memset(g_sp, 0, sizeof(syspage_t));
     g_sp->magic = 0x50050CA7;
 
     strncpy(g_sp->version, ZUZU_VERSION, sizeof(g_sp->version));
@@ -100,6 +100,7 @@ void syspage_update_uptime(void)
     if (!g_sp)
         return;
     g_sp->uptime_s = (uint32_t)(get_ticks() / TICK_HZ);
+    g_sp->uptime_ms = (uint32_t)((get_ticks() * 1000) / TICK_HZ);
 }
 
 void syspage_set_initrd_size(uint32_t size)

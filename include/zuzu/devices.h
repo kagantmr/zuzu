@@ -2,9 +2,10 @@
 #define ZUZU_DEVICES_H
 
 #include <stdint.h>
+#include <zuzu/types.h>
 
 typedef struct {
-    int32_t dev_handle;
+    handle_t dev_handle;
     void *mmio;
 } device_t;
 
