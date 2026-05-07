@@ -27,7 +27,7 @@ void port_create(exception_frame_t *frame)
         return;
     }
 
-    int handle = handle_vec_find_free(&current_process->handle_table);
+    handle_t handle = handle_vec_find_free(&current_process->handle_table);
     if (handle == -1)
     {
         frame->r[0] = ERR_NOMEM;
@@ -45,7 +45,6 @@ void port_create(exception_frame_t *frame)
     if (current_process->flags & PROC_FLAG_INIT && !nametable_endpoint)
     {
 
-        // TODO: move this policy into an explicit bootstrap phase instead of port_create().
         nametable_endpoint = new_endpoint;
         /* Inject NT handle into processes spawned before nametable existed. */
         for (int j = 0; j < MAX_PROCESSES; j++)
@@ -172,7 +171,7 @@ void port_grant(exception_frame_t *frame)
     }
 
     int handle = (int)frame->r[0];
-    uint32_t pid = frame->r[1];
+    pid_t pid = frame->r[1];
 
     // Validate handle
     handle_entry_t *src = handle_vec_get(&current_process->handle_table, (uint32_t)handle);
@@ -261,5 +260,5 @@ void port_grant(exception_frame_t *frame)
         dst->shm->ref_count++;
     }
 
-    frame->r[0] = (uint32_t)slot;
+    frame->r[0] = (handle_t)slot;
 }

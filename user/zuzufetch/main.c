@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <zuzu/zuzu.h>
 #include <ansi.h>
-#include "zuzu/syspage.h"
+#include <zuzu/syspage.h>
 
 #define LOGO_WIDTH    50
 #define INFO_MAX      20
@@ -47,7 +47,7 @@ static int build_info(char info[][INFO_LINE_LEN])
 {
     int n = 0;
     char tmp[64];
-    zuzu_syspage_t *sp = (zuzu_syspage_t *)SYSPAGE;
+    syspage_t *sp = (syspage_t *)SYSPAGE;
 
     /* blank lines to align with logo top */
     info[n][0] = '\0'; n++;

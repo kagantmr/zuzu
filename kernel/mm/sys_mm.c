@@ -18,8 +18,8 @@ extern phys_region_t phys_region;
 void memmap(exception_frame_t *frame)
 {
     
-    uint32_t addr_hint = frame->r[0];
-    uint32_t size = frame->r[1];
+    vaddr_t addr_hint = frame->r[0];
+    size_t size = frame->r[1];
     uint32_t prot = frame->r[2];
     if (size == 0)
     {
@@ -53,7 +53,7 @@ void memmap(exception_frame_t *frame)
     }
 
     // 1. Pick a VA
-    uintptr_t va;
+    vaddr_t va;
     if (addr_hint != 0)
     {
         va = addr_hint; // already validated above
@@ -98,7 +98,7 @@ void memmap(exception_frame_t *frame)
 
 void memunmap(exception_frame_t *frame)
 {
-    const uintptr_t va = (uintptr_t)frame->r[0];
+    const vaddr_t va = (vaddr_t)frame->r[0];
     size_t size = (size_t)frame->r[1];
 
     // Basic validation
@@ -211,7 +211,7 @@ void memshare(exception_frame_t *frame)
     }
 
     const size_t page_count = size / PAGE_SIZE;
-    uintptr_t *page_arr = kmalloc(sizeof(uintptr_t) * page_count);
+    vaddr_t *page_arr = kmalloc(sizeof(vaddr_t) * page_count);
     if (!page_arr)
     {
         frame->r[0] = ERR_NOMEM;
@@ -263,7 +263,7 @@ void memshare(exception_frame_t *frame)
         frame->r[0] = ERR_BADARG;
         return;
     }
-    const uintptr_t va_base = current_process->mmap_va_next;
+    const vaddr_t va_base = current_process->mmap_va_next;
     current_process->mmap_va_next += size;
 
     vm_region_t region = {
@@ -320,13 +320,13 @@ void memshare(exception_frame_t *frame)
     entry->type = HANDLE_SHMEM;
     entry->grantable = true;
 
-    frame->r[0] = (uint32_t)handle;
-    frame->r[1] = (uint32_t)va_base;
+    frame->r[0] = (handle_t)handle;
+    frame->r[1] = (vaddr_t)va_base;
 }
 
 void attach(exception_frame_t *frame)
 {
-    const uint32_t handle_idx = frame->r[0];
+    const handle_t handle_idx = frame->r[0];
 
     handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle_idx);
     if (!entry)
@@ -353,7 +353,7 @@ void attach(exception_frame_t *frame)
         return;
     }
 
-    const uintptr_t va_base = current_process->mmap_va_next;
+    const vaddr_t va_base = current_process->mmap_va_next;
     current_process->mmap_va_next += size;
 
     vm_region_t region = {
@@ -392,7 +392,7 @@ void attach(exception_frame_t *frame)
 
 void detach(exception_frame_t *frame)
 {
-    uint32_t handle = frame->r[0];
+    handle_t handle = frame->r[0];
 
     handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle);
     if (!entry)
@@ -407,7 +407,7 @@ void detach(exception_frame_t *frame)
     }
 
     shmem_t *shm = entry->shm;
-    const uintptr_t va = entry->mapped_va;
+    const vaddr_t va = entry->mapped_va;
     vmm_remove_region(current_process->as, va, shm->page_count * PAGE_SIZE);
     shm->ref_count--;
     if (shm->ref_count == 0)
@@ -475,16 +475,16 @@ void asinject(exception_frame_t *frame) {
     }
 
     size_t page_count = (kargs.len + PAGE_SIZE - 1) / PAGE_SIZE;
-    uintptr_t *page_addrs = kmalloc(page_count * sizeof(uintptr_t));
+    vaddr_t *page_addrs = kmalloc(page_count * sizeof(vaddr_t));
     if (!page_addrs) {
         frame->r[0] = ERR_NOMEM;
         return;
     }
-    memset(page_addrs, 0, page_count * sizeof(uintptr_t));
+    memset(page_addrs, 0, page_count * sizeof(vaddr_t));
 
     size_t mapped_pages = 0;
     for (size_t i = 0; i < page_count; i++) {
-        uintptr_t page = pmm_alloc_page();
+        paddr_t page = pmm_alloc_page();
         if (!page) {
             goto rollback_nomem;
         }
@@ -515,7 +515,7 @@ void asinject(exception_frame_t *frame) {
         mapped_pages++;
 
         if (kargs.prot & VM_PROT_EXEC) {
-            cache_flush_code_range((uintptr_t)PA_TO_VA(page), PAGE_SIZE);
+            cache_flush_code_range((vaddr_t)PA_TO_VA(page), PAGE_SIZE);
         }
     }
 

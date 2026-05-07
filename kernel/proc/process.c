@@ -18,7 +18,7 @@ process_t *process_table[MAX_PROCESSES];
 extern endpoint_t *nametable_endpoint;
 
 void process_track_reply_cap(process_t *caller, process_t *holder,
-                             uint32_t holder_slot, reply_cap_t *rc)
+                             handle_t holder_slot, reply_cap_t *rc)
 {
     rc->caller_pid = caller ? caller->pid : 0;
     rc->holder_pid = holder ? holder->pid : 0;
@@ -44,7 +44,7 @@ process_t *process_create(const char* name) {
     uint32_t *kstack = (uint32_t *)kstack_alloc();
     if (!kstack)
         goto fail_as;
-    process->kernel_stack_top = (uintptr_t)kstack;
+    process->kernel_stack_top = (vaddr_t)kstack;
 
     // map syspage into user space
     if (!kmap_user_page(process->as, syspage_pa(), USER_SYSPAGE_VA, VM_PROT_READ))
@@ -123,7 +123,7 @@ process_t *process_create(const char* name) {
         strncpy(process->name, short_name, sizeof(process->name) - 1);
     }
 
-    uint32_t start = next_pid % MAX_PROCESSES;
+    pid_t start = next_pid % MAX_PROCESSES;
     uint32_t slot = start;
     do {
         if (process_table[slot] == NULL)
@@ -204,7 +204,7 @@ static void process_revoke_outstanding_reply_caps(process_t *caller)
 #define LOG_FMT(fmt) "(proc) " fmt
 #include "core/log.h"
 
-process_t *process_find_by_pid(uint32_t pid)
+process_t *process_find_by_pid(pid_t pid)
 {
     uint32_t slot = pid % MAX_PROCESSES;
     process_t *p = process_table[slot];
@@ -227,7 +227,7 @@ void process_set_parent(process_t *child, process_t *parent)
         list_add_tail(&child->sibling_node, &parent->children.node);
 }
 
-process_t *process_find_child_by_pid(process_t *parent, uint32_t pid)
+process_t *process_find_child_by_pid(process_t *parent, pid_t pid)
 {
     if (!parent)
         return NULL;

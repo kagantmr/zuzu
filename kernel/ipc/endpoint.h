@@ -2,6 +2,7 @@
 #define ENDPOINT_H
 
 #include <stdint.h>
+#include <stddef.h>
 #include <stdbool.h>
 #include <list.h>
 #include <vector.h>
@@ -14,29 +15,28 @@ struct process;
 typedef struct endpoint {
     list_head_t sender_queue;
     list_head_t receiver_queue;
-    uint32_t owner_pid;
-    uint32_t ref_count;
+    pid_t owner_pid;
+    size_t ref_count;
     bool alive;
     list_node_t node;
 } endpoint_t;
 
 // stub
 typedef struct {
-    uint32_t phys_base;
-    uint32_t size;
+    paddr_t phys_base;
+    size_t size;
     bool mapped; // is this device currently mapped?
     char compatible[32]; // DTB compatible string
-    uint32_t irq;
-    uint32_t ref_count;
+    irq_t irq;
+    size_t ref_count;
 } device_cap_t;
 
 typedef struct {
-    uint32_t caller_pid;       // instead of process_t *caller
-    uint32_t holder_pid;       // instead of process_t *holder
-    uint32_t holder_slot;
+    pid_t caller_pid;       // instead of process_t *caller
+    pid_t holder_pid;       // instead of process_t *holder
+    handle_t holder_slot;
     list_node_t caller_link;
 } reply_cap_t;
-
 
 typedef enum {
     HANDLE_FREE,
@@ -51,7 +51,7 @@ typedef enum {
 typedef struct {
     handle_type_t type;
     bool grantable;
-    uintptr_t mapped_va;
+    vaddr_t mapped_va;
     union {
         endpoint_t  *ep;
         device_cap_t *dev;

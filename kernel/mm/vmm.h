@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <zuzu/memprot.h>
 #include <vector.h>
+#include <zuzu/types.h>
 #include "arch/arm/mmu/asid.h"
 
 #define SECTION_SIZE      0x100000UL     /* 1MB section for ARMv7 */
@@ -66,7 +67,7 @@ typedef enum {
 DEFINE_VEC(vm_region, vm_region_t);
 
 typedef struct addrspace {
-    uintptr_t        ttbr0_pa;   // physical address of level-1 table
+    paddr_t        ttbr0_pa;   // physical address of level-1 table
     vm_region_vec_t     regions;
     //uint32_t         lock;      // placeholder until concurrency is added
     addrspace_type_t type;
@@ -118,7 +119,7 @@ bool vmm_add_region(addrspace_t* as, const vm_region_t* region);
  * @param size Size of the region.
  * @return true on success, false if not found.
  */
-bool vmm_remove_region(addrspace_t* as, uintptr_t vaddr, size_t size);
+bool vmm_remove_region(addrspace_t* as, vaddr_t vaddr, size_t size);
 
 /**
  * @brief Build actual page tables from region descriptions.
@@ -160,7 +161,7 @@ void vmm_activate(addrspace_t* as);
  * @param flags VM_FLAG_* bits (pinned, global, guard, etc.).
  * @return true on success, false on error.
  */
-bool vmm_map_range(addrspace_t* as, uintptr_t va, uintptr_t pa, size_t size,
+bool vmm_map_range(addrspace_t* as, vaddr_t va, paddr_t pa, size_t size,
                    vm_prot_t prot, vm_memtype_t memtype, vm_owner_t owner, vm_flags_t flags);
 
 /**
@@ -187,7 +188,7 @@ bool vmm_map_range(addrspace_t* as, uintptr_t va, uintptr_t pa, size_t size,
  * TLB invalidation. If the addrspace is active (TTBR0), the TLB must
  * be invalidated for this to take effect.
  */
-bool vmm_unmap_range(addrspace_t* as, uintptr_t va, size_t size);
+bool vmm_unmap_range(addrspace_t* as, vaddr_t va, size_t size);
 
 /**
  * @brief Change permissions on a range.
@@ -197,7 +198,7 @@ bool vmm_unmap_range(addrspace_t* as, uintptr_t va, size_t size);
  * @param new_prot New protection flags.
  * @return true on success, false if not found.
  */
-bool vmm_protect_range(addrspace_t* as, uintptr_t va, size_t size, vm_prot_t new_prot);
+bool vmm_protect_range(addrspace_t* as, vaddr_t va, size_t size, vm_prot_t new_prot);
 
 
 /**
@@ -208,7 +209,7 @@ bool vmm_protect_range(addrspace_t* as, uintptr_t va, size_t size, vm_prot_t new
  * @param prot Protection flags.
  * @return true on success, false on error.
  */
-bool kmap_user_page(addrspace_t* as, uintptr_t pa, uintptr_t va, vm_prot_t prot);
+bool kmap_user_page(addrspace_t* as, paddr_t pa, vaddr_t va, vm_prot_t prot);
 
 /**
  * @brief Remove the identity mapping from the kernel address space.
@@ -222,7 +223,7 @@ void vmm_remove_identity_mapping(void);
  * @param size Size of the mapping.
  * @return Virtual address of the mapped region, or NULL on failure.
  */
-void* ioremap(uintptr_t phys, size_t size);
+void* ioremap(paddr_t phys, size_t size);
 
 /**
  * @brief Unmap a previously mapped I/O region.
@@ -230,7 +231,7 @@ void* ioremap(uintptr_t phys, size_t size);
  */
 void iounmap(void* va);
 
-bool fault_in_pages(addrspace_t *as, uintptr_t va, size_t len, bool write);
+bool fault_in_pages(addrspace_t *as, vaddr_t va, size_t len, bool write);
 
 void vmm_lockdown_kernel_sections(void);
 

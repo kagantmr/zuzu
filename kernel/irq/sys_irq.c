@@ -14,7 +14,7 @@ static irq_owner_t irq_owners[MAX_IRQS];
 
 static void relay_handler(void *ctx)
 {
-    uint32_t irq_num = (uint32_t)(uintptr_t)ctx;
+    irq_t irq_num = (irq_t)(vaddr_t)ctx;
     irq_disable_line(irq_num);
 
     irq_owners[irq_num].pending = true;
@@ -38,7 +38,7 @@ static void relay_handler(void *ctx)
     }
 }
 
-static inline bool irq_is_reserved(uint32_t irq_num)
+static inline bool irq_is_reserved(irq_t irq_num)
 {
     switch (irq_num) {
     case 34:   // SP804 timer
@@ -49,7 +49,7 @@ static inline bool irq_is_reserved(uint32_t irq_num)
     }
 }
 
-static inline bool valid_irq(uint32_t irq_num) {
+static inline bool valid_irq(irq_t irq_num) {
     return (irq_num < MAX_IRQS) && !irq_is_reserved(irq_num);
 }
 
@@ -72,7 +72,7 @@ void irq_claim(exception_frame_t *frame) {
     }
 
     device_cap_t *cap = entry->dev;
-    uint32_t irq_num = cap->irq;
+    irq_t irq_num = cap->irq;
 
     if (!valid_irq(irq_num)) {
         frame->r[0] = ERR_BADARG;
@@ -88,13 +88,13 @@ void irq_claim(exception_frame_t *frame) {
         .owner = current_process,
         .pending = false
     };
-    irq_register(irq_num, relay_handler, (void*)(uintptr_t)irq_num);
+    irq_register(irq_num, relay_handler, (void*)(vaddr_t)irq_num);
     frame->r[0] = 0;
 }
 
 void irq_bind(exception_frame_t *frame) {
-    uint32_t dev_handle  = frame->r[0];
-    uint32_t ntfn_handle = frame->r[1];   // was port_handle
+    handle_t dev_handle  = frame->r[0];
+    handle_t ntfn_handle = frame->r[1];   // was port_handle
 
     if (dev_handle == 0) {
         frame->r[0] = ERR_BADARG;
@@ -106,7 +106,7 @@ void irq_bind(exception_frame_t *frame) {
         return;
     }
 
-    uint32_t irq_num = entry->dev->irq;
+    irq_t irq_num = entry->dev->irq;
     if (!valid_irq(irq_num)) {
         frame->r[0] = ERR_BADARG;
         return;
@@ -159,7 +159,7 @@ void irq_bind(exception_frame_t *frame) {
 }
 
 void irq_done(exception_frame_t* frame) {
-    uint32_t dev_handle  = frame->r[0];
+    handle_t dev_handle  = frame->r[0];
 
     if (dev_handle == 0) {
         frame->r[0] = ERR_BADARG;
