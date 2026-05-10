@@ -34,7 +34,6 @@ panic_fault_context_t panic_fault_ctx;
 #define C_GREY    "\033[37m"
 #define C_DIM     "\033[90m"
 #define C_RESET   "\033[0m"
-#define ANSI_CLEAR "\033[2J\033[3J\033[H"
 
 static void panic_puts(const char *s)
 {
@@ -315,7 +314,6 @@ static void panic_screen(const char *reason, void *caller_ra)
     char line[128];
 
     uart_putc('\a');
-    panic_puts(ANSI_CLEAR);
     panic_puts("\n");
 
     /* -- Logo left, intro text right ------------------------------------ */
