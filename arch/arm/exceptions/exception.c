@@ -110,8 +110,8 @@ static void dump_registers(exception_frame_t *frame)
             frame->r[4], frame->r[5], frame->r[6], frame->r[7]);
     kprintf("  r8=%08X  r9=%08X r10=%08X r11=%08X\n",
             frame->r[8], frame->r[9], frame->r[10], frame->r[11]);
-    kprintf(" r12=%08X  sp=????????  lr=%08X  pc=%08X\n",
-            frame->r[12], frame->lr_usr, frame->return_pc);
+        kprintf(" r12=%08X  sp=%08X  lr=%08X  pc=%08X\n",
+            frame->r[12], frame->sp_usr, frame->lr_usr, frame->return_pc);
     kprintf("spsr=%08X [%s mode, %s%s%s]\n",
             frame->return_cpsr,
             decode_mode(frame->return_cpsr),
@@ -200,6 +200,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
             KERROR("Oops! '%s' (PID %d) killed - prefetch abort @ 0x%08X (%s)",
                    current_process->name, current_process->pid, ifar, decode_fault_status(ifsr));
             process_kill(current_process, -1);
+            dump_registers(frame);
             schedule();
         }
         else
