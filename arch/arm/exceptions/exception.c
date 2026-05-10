@@ -204,12 +204,6 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
         }
         else
         {
-#ifndef PANIC_FULL_SCREEN
-            KERROR("=== PREFETCH ABORT ===");
-            KERROR("IFAR: 0x%08X  IFSR: 0x%08X", ifar, ifsr);
-            KERROR("Fault: %s", decode_fault_status(ifsr));
-            KERROR("PC: 0x%08X", frame->return_pc);
-#endif
             panic_fault_ctx = (panic_fault_context_t){
                 .valid = 1,
                 .far = ifar,
@@ -324,15 +318,6 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
         }
         else
         {
-#ifndef PANIC_FULL_SCREEN
-            KERROR("=== DATA ABORT ===");
-            KERROR("DFAR: 0x%08X  DFSR: 0x%08X", dfar, dfsr);
-            KERROR("Fault: %s", decode_fault_status(dfsr));
-            KERROR("Access: %s, %s",
-                   (dfsr & (1 << 11)) ? "Write" : "Read",
-                   (dfsr & (1 << 12)) ? "External" : "Internal");
-            KERROR("Domain: %u", (dfsr >> 4) & 0xF);
-#endif
             panic_fault_ctx = (panic_fault_context_t){
                 .valid = 1,
                 .far = dfar,
@@ -349,9 +334,14 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
 
     case EXC_RESERVED:
     {
-        KWARN("=== RESERVED EXCEPTION ===");
         // dump_registers(frame);
-        // panic();
+        panic_fault_ctx = (panic_fault_context_t){
+            .valid = 1,
+            .fault_type = "Reserved",
+            .fault_decoded = "Reserved exception",
+            .frame = frame,
+        };
+        panic("Why are you here?");
     }
     break;
 
@@ -363,12 +353,6 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
 
     case EXC_FIQ:
     {
-        panic_fault_ctx = (panic_fault_context_t){
-            .valid = 1,
-            .fault_type = "FIQ",
-            .fault_decoded = "FIQ not supported",
-            .frame = frame,
-        };
         KERROR("No support for FIQ");
     }
     break;

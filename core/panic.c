@@ -592,8 +592,10 @@ static void panic_screen(const char *reason, void *caller_ra)
         kprintf("  backtrace: (no frames)\n");
     } else {
         kprintf("  backtrace:\n");
-        for (int i = 0; i < bt.depth; i++)
-            kprintf("    #%-2d  0x%08X\n", i, bt.addresses[i]);
+        for (int i = 0; i < bt.depth; i++) {
+            const char *sym = ksym_lookup(bt.addresses[i]);
+            kprintf("    #%-2d  0x%08X %s\n", i, bt.addresses[i], sym);
+        }
     }
 
     /* Process */
