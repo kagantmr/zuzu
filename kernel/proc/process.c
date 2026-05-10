@@ -140,7 +140,6 @@ process_t *process_create(const char* name) {
 
     process->pid = next_pid++;
     process_table[slot] = process;
-    KINFO("Created process %s PID %u", process->name, process->pid);
     return process;
 
 fail_kstack:
