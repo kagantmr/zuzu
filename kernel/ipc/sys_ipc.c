@@ -312,7 +312,7 @@ void proc_recv(exception_frame_t *frame)
             if (ticks == 0)
                 ticks = 1;
             current_process->wake_tick = get_ticks() + ticks;
-            list_add_tail(&current_process->timeout_node, &sleep_queue.node);
+            sleep_queue_insert(current_process);
         }
         else
         {

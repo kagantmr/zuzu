@@ -11,6 +11,9 @@ typedef struct list_head {
     list_node_t node;  // sentinel node (empty list points to itself)
 } list_head_t;
 
+#define list_for_each(pos, head) \
+    for (pos = (head)->next; pos != (head); pos = pos->next)
+
 #define LIST_HEAD_INIT(name) { { &(name).node, &(name).node } }
 
 void list_add_tail(list_node_t* node, list_node_t* head);
@@ -26,6 +29,13 @@ static inline void list_init(list_head_t *head) {
 
 static inline int list_empty(const list_head_t *head) {
     return head->node.next == &head->node;
+}
+
+static inline void list_insert_before(list_node_t *new, list_node_t *existing) {
+    new->next = existing;
+    new->prev = existing->prev;
+    existing->prev->next = new;
+    existing->prev = new;
 }
 
 static inline list_node_t* list_pop_front(list_head_t *head) {

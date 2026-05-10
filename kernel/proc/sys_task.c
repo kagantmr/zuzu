@@ -59,7 +59,7 @@ void sleep(exception_frame_t *frame) {
     // Change state
     frame->r[0] = 0;
     current_process->process_state = PROCESS_BLOCKED;
-    list_add_tail(&current_process->timeout_node, &sleep_queue.node);
+    sleep_queue_insert(current_process);
     // Schedule someone else immediately
     schedule();
 }
