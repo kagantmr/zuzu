@@ -384,7 +384,6 @@ static void cmd_exec(const char *line)
     }
 
     /* ---- tspawn locally, ask sysd to inject, then kickstart ---- */
-    /* ---- tspawn locally, ask sysd to inject, then kickstart ---- */
     const char *name = path_basename(path);
     tspawn_result_t ts = _tspawn(name);
     if (ts.task_handle < 0) {
