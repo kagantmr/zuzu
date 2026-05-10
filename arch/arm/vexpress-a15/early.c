@@ -105,5 +105,15 @@ _Noreturn void early(void *dtb_ptr)
         "vmsr fpexc, %0"
         :: "r"(1u << 30)
     );
+
+    // set up the PMU 
+    uint32_t pmcr;
+    __asm__ volatile("mrc p15, 0, %0, c9, c12, 0" : "=r"(pmcr));
+    pmcr |= 1; // enable PMU
+    pmcr |= (1 << 2); // reset cycle counter
+    __asm__ volatile("mcr p15, 0, %0, c9, c12, 0" :: "r"(pmcr));
+    __asm__ volatile("mcr p15, 0, %0, c9, c14, 0" :: "r"(0x00000001));
+    __asm__ volatile("mcr p15, 0, %0, c9, c12, 1" :: "r"(0x80000000)); // enable cycle counter
+
     kmain();
 }
