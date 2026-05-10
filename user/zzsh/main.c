@@ -10,9 +10,7 @@
 #include <zuzu/protocols/fbox_protocol.h>
 #include <zuzu/protocols/sysd_protocol.h>
 
-static int32_t stdin_slot;
-static int32_t stdout_slot;
-static int32_t stderr_slot;
+static int32_t tty_port;
 static int32_t sysd_port;
 static uint32_t sysd_pid;
 static int32_t fbox_port;
@@ -69,13 +67,13 @@ void zprint(const char *s)
     size_t len = strlen(s);
     if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
     memcpy((void *)IPCX_BUF_VA, s, len);
-    _sendx(stdout_slot, (uint32_t)len);
+    _sendx(tty_port, (uint32_t)len);
 }
 
 size_t zread(char *dst, size_t max)
 {
     if (max > IPCX_BUF_SIZE) max = IPCX_BUF_SIZE;
-    zuzu_ipcmsg_t reply = _callx(stdin_slot, (uint32_t)max);
+    zuzu_ipcmsg_t reply = _callx(tty_port, (uint32_t)max);
     if (reply.r0 < 0) {
         return 0;
     }
@@ -98,9 +96,8 @@ int setup(void)
         _sleep(10);
     }
 
-    stdin_slot = 1;
-    stdout_slot = 2;
-    stderr_slot = 3;
+    tty_port = lookup_service("tty0");
+    if (tty_port < 0) return -1;
 
     fbox_port = lookup_service("fbox");
     if (fbox_port < 0) return -1;
@@ -591,6 +588,11 @@ int main(void)
     while (1)
     {
         size_t n = zread(tmp, sizeof(tmp));
+        if (n == 0) {
+            _sleep(5);
+            continue;
+        }
+
         for (size_t i = 0; i < n; i++)
         {
             char c = tmp[i];

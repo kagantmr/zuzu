@@ -15,10 +15,6 @@ static int32_t serial_dev_handle = -1;
 static int32_t serial_irq_ntfn = -1;
 ringbuf_t rxrb, txrb;
 
-static handle_t stdin_slot;
-static handle_t stdout_slot;
-static handle_t stderr_slot;
-
 #define ZUART_DEV_CLASS DEV_CLASS_SERIAL
 #define ZUART_COMPATIBLE "arm,pl011"
 
@@ -92,11 +88,17 @@ static void handle_irq_event(void)
     _irq_done((uint32_t)serial_dev_handle);
 }
 
-static void handle_client_message(handle_t source_port, zuzu_ipcmsg_t msg)
+static void service_pending_irq(void)
 {
-    if (source_port == stdout_slot || source_port == stderr_slot)
-    {
-        /* stdout/stderr: one-way write, byte count in r1. */
+    int32_t bits = _ntfn_poll((uint32_t)serial_irq_ntfn);
+    if (bits > 0)
+        handle_irq_event();
+}
+
+static void handle_client_message(zuzu_ipcmsg_t msg)
+{
+    if (msg.r2 == 0) {
+        /* write: one-way _sendx, byte count in r1. */
         uint32_t len = msg.r1;
         if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
 
@@ -106,32 +108,20 @@ static void handle_client_message(handle_t source_port, zuzu_ipcmsg_t msg)
         return;
     }
 
-    if (source_port == stdin_slot)
-    {
-        /* stdin: blocking read call, requested length in r2. */
-        uint32_t reply_handle = (uint32_t)msg.r0;
-        uint32_t len = msg.r2;
-        if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
+    /* read: blocking _callx, requested length in r2. */
+    uint32_t reply_handle = (uint32_t)msg.r0;
+    uint32_t len = msg.r2;
+    if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
 
-        if (rb_empty(&rxrb)) {
-            drain_uart_rx_fifo();
-        }
+    service_pending_irq();
+    drain_uart_rx_fifo();
 
-        /* Block in server until at least one byte arrives */
-        while (rb_empty(&rxrb)) {
-            drain_uart_rx_fifo();
-        }
+    char *ipcx_buf = (char *)IPCX_BUF;
+    uint32_t n = 0;
+    while (!rb_empty(&rxrb) && n < len)
+        ipcx_buf[n++] = rb_read(&rxrb);
 
-        /* Write available data to IPCX buffer (kernel will copy to caller) */
-        char *ipcx_buf = (char *)IPCX_BUF;
-        uint32_t n = 0;
-        while (!rb_empty(&rxrb) && n < len)
-            ipcx_buf[n++] = rb_read(&rxrb);
-
-        /* Reply with IPCX buffer contents and byte count. */
-        (void)_replyx(reply_handle, (uint32_t)n);
-        return;
-    }
+    (void)_replyx(reply_handle, (uint32_t)n);
 }
 
 int zuart_setup(void)
@@ -184,10 +174,6 @@ int zuart_setup(void)
 
     (void)_send(NT_PORT, NT_REGISTER, nt_pack("uart"), (uint32_t)nt_slot);
 
-    stdin_slot = 1;
-    stdout_slot = 2;
-    stderr_slot = 3;
-
     return ZUART_INIT_OK;
 }
 
@@ -206,22 +192,9 @@ int main(void)
             handle_irq_event();
         }
 
-        msg = _recv_timeout(stdout_slot, UINT32_MAX);
+        msg = _recv(port);
         if (msg.r0 >= 0) {
-            handle_client_message(stdout_slot, msg);
-            continue;
-        }
-
-        msg = _recv_timeout(stderr_slot, UINT32_MAX);
-        if (msg.r0 >= 0) {
-            handle_client_message(stderr_slot, msg);
-            continue;
-        }
-
-        msg = _recv(stdin_slot);
-
-        if (msg.r0 >= 0) {
-            handle_client_message(stdin_slot, msg);
+            handle_client_message(msg);
         }
     }
 }
