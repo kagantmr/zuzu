@@ -16,6 +16,8 @@ int vprintf(const char *format, va_list args);
 int sprintf(char *buf, const char *format, ...);
 int vsprintf(char *buf, const char *format, va_list args);
 int stdio_register_zuart(void);
+int stdio_route_tty(const char name[4]);
+int stdio_use_tty(uint32_t index);
 
 
 #ifdef __cplusplus

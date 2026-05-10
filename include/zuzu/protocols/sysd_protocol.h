@@ -11,7 +11,6 @@
 #define EXEC_ENOMEM  (-2)    // alloc or asinject failed
 #define EXEC_EBADELF (-3)    // ELF validation failed
 #define EXEC_EIO     (-4)    // fbox read error
-#define SYSD_GET_TTY 5
 
 // Request layout in IPCX buffer (shell to sysd via _callx):
 typedef struct {

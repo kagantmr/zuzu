@@ -20,7 +20,6 @@ static nt_entry_t registry_table[SYSD_MAX_SERVICES];
 static int32_t port;
 static int32_t cached_fbox_handle = -1;
 static char   *cached_fbox_buf    = NULL;
-static handle_t stdin, stdout, stderr;
 
 
 static inline void name_u32_to_chars(uint32_t name_u32, char out[SYSD_NAME_LEN]) {
@@ -91,6 +90,23 @@ static int nt_lookup(uint32_t name_u32, uint32_t requester_pid,
     for (int i = 0; i < SYSD_MAX_SERVICES; i++) {
         if (registry_table[i].handle == 0) continue;
         if (!name_equals_u32(registry_table[i].name, name_u32)) continue;
+
+        uint32_t did = registry_table[i].den_id;
+        if (did != 0 && !den_has_member(did, requester_pid))
+            continue;
+
+        *out_handle = registry_table[i].handle;
+        *out_pid    = registry_table[i].pid;
+        return NT_LU_OK;
+    }
+    return NT_LU_NOMATCH;
+}
+
+static int nt_lookup_pid(uint32_t pid, uint32_t requester_pid,
+                         uint32_t *out_handle, uint32_t *out_pid) {
+    for (int i = 0; i < SYSD_MAX_SERVICES; i++) {
+        if (registry_table[i].handle == 0) continue;
+        if (registry_table[i].pid != pid) continue;
 
         uint32_t did = registry_table[i].den_id;
         if (did != 0 && !den_has_member(did, requester_pid))
@@ -223,9 +239,6 @@ static void nt_handle_msg(zuzu_ipcmsg_t msg) {
         int rc = exec_inject((uint32_t)hdr->task_handle, elf, file_size,
                              argbuf_len ? argbuf : NULL, argbuf_len,
                              hdr->argc, &reply);
-        _port_grant(stdin, (int32_t)hdr->pid);
-        _port_grant(stdout, (int32_t)hdr->pid);
-        _port_grant(stderr, (int32_t)hdr->pid);
         free(elf);
         if (rc != 0) {
             _reply(reply_handle, (uint32_t)EXEC_EBADELF, 0, 0);
@@ -250,7 +263,7 @@ static void nt_handle_msg(zuzu_ipcmsg_t msg) {
     if (r2_cmd == NT_LOOKUP || r2_cmd == DEN_CREATE ||
         r2_cmd == DEN_INVITE || r2_cmd == DEN_KICK ||
         r2_cmd == DEN_MYDEN || r2_cmd == DEN_MYDEN_COUNT ||
-        r2_cmd == DEN_MYDEN_AT || r2_cmd == SYSD_EXEC || r2_cmd == SYSD_GET_TTY) {
+        r2_cmd == DEN_MYDEN_AT || r2_cmd == SYSD_EXEC) {
         reply_handle = (uint32_t)msg.r0;
         sender       = msg.r1;
         raw_command  = msg.r2;
@@ -330,12 +343,6 @@ static void nt_handle_msg(zuzu_ipcmsg_t msg) {
         } else {
             status = DEN_FAIL;
         }
-    } else if (command == SYSD_GET_TTY) {
-        handle_t sin  = _port_grant(stdin,  (handle_t)sender);
-        handle_t sout = _port_grant(stdout, (handle_t)sender);
-        handle_t serr = _port_grant(stderr, (handle_t)sender);
-        _reply(reply_handle, (handle_t)sin, (handle_t)sout, (handle_t)serr);
-        return;
     }
     if (needs_reply)
         _reply(reply_handle, (uint32_t)status, out_handle, out_pid);
@@ -386,6 +393,8 @@ typedef struct {
     exec_reply_t  reply;
     bool          in_cpio;
     bool          injected;
+    bool          is_tty;
+    uint32_t      tty_index;
 } boot_entry_t;
 
 static boot_entry_t boot_entries[MAX_BOOT_ENTRIES];
@@ -414,6 +423,17 @@ static bool role_is_kernel(const char *r, size_t len)
     return (len == 4 && memcmp(r, "init", 4) == 0) ||
            (len == 3 && memcmp(r, "dev",  3) == 0) ||
            (len == 5 && memcmp(r, "devmgr", 5) == 0);
+}
+
+static bool role_is_tty(const char *r, size_t len)
+{
+    return len == 3 && memcmp(r, "tty", 3) == 0;
+}
+
+static uint32_t pack_tty_name(uint32_t index)
+{
+    char name[SYSD_NAME_LEN] = {'t', 't', 'y', (char)('0' + (index % 10u))};
+    return nt_pack(name);
 }
 
 static void parse_manifest(const char *data, size_t size,
@@ -476,11 +496,52 @@ static void parse_manifest(const char *data, size_t size,
             e->pid         = 0;
             e->in_cpio     = true;
             e->injected    = false;
+            e->is_tty      = role_is_tty(rs, rl);
+            e->tty_index   = 0;
         } else if (deferred_count < MAX_BOOT_ENTRIES) {
             strcpy(deferred_paths[deferred_count++], full);
         }
 
         p = eol + 1;
+    }
+}
+
+static bool wait_for_tty_registration(uint32_t pid,
+                                      uint32_t *out_handle,
+                                      uint32_t *out_pid)
+{
+    uint32_t waited_ms = 0;
+
+    while (nt_lookup_pid(pid, _getpid(), out_handle, out_pid) != NT_LU_OK &&
+           waited_ms < WAIT_TIMEOUT_MS) {
+        int32_t dead = _wait(-1, NULL, WNOHANG);
+        if (dead > 0) scrub_pid((uint32_t)dead);
+
+        zuzu_ipcmsg_t msg = _recv_timeout(port, WAIT_SLICE_MS);
+        if (msg.r0 >= 0)
+            nt_handle_msg(msg);
+        waited_ms += WAIT_SLICE_MS;
+    }
+
+    return nt_lookup_pid(pid, _getpid(), out_handle, out_pid) == NT_LU_OK;
+}
+
+static void register_tty_aliases(void)
+{
+    uint32_t tty_index = 0;
+
+    for (int i = 0; i < boot_count; i++) {
+        boot_entry_t *e = &boot_entries[i];
+        if (!e->injected || !e->is_tty)
+            continue;
+
+        uint32_t handle = 0, pid = 0;
+        if (!wait_for_tty_registration(e->pid, &handle, &pid))
+            continue;
+
+        e->tty_index = tty_index;
+        nt_register(pack_tty_name(tty_index), handle, pid, 0);
+        tty_index++;
     }
 }
 
@@ -495,11 +556,6 @@ int main(void)
     if (nt_setup() < 0)
         return 1;
     nt_register(nt_pack(NT_NAME_SYS), (uint32_t)port, _getpid(), 0);
-
-    // ports 1,2,3 are stdio
-    stdin = _port_create();
-    stdout = _port_create();
-    stderr = _port_create();
 
     /* ---- read boot manifest from CPIO ---- */
 
@@ -529,11 +585,6 @@ int main(void)
                         e->elf_data, e->elf_size,
                         NULL, 0, 0, &e->reply) != 0)
             continue;
-        // grant the stdio ports to the new task
-        _port_grant(stdin, ts.pid);
-        _port_grant(stdout, ts.pid);
-        _port_grant(stderr, ts.pid);
-
         e->injected = true;
     }
 
@@ -567,6 +618,8 @@ int main(void)
     /* devmgr is kernel-spawned and already running; wait for it to
      * register so other services can find it once they start. */
     wait_for_service(nt_pack("devm"));
+
+    register_tty_aliases();
 
     // wait for fbox so we can spawn deferred entries through it once it's ready
     wait_for_service(nt_pack("fbox"));
