@@ -66,13 +66,13 @@ void sched_add(process_t *p) {
 }
 
 void sched_defer_destroy(process_t *p) {
-    list_add_tail(&p->node, &destroy_queue.node);
+    list_add_tail(&p->destroy_node, &destroy_queue.node);
 }
 
 void sched_reap(void) {
     while (!list_empty(&destroy_queue)) {
         list_node_t *node = list_pop_front(&destroy_queue);
-        process_t *p = container_of(node, process_t, node);
+        process_t *p = container_of(node, process_t, destroy_node);
         process_destroy(p);
     }
 }

@@ -49,6 +49,7 @@ typedef struct process
     uint32_t priority, time_slice, ticks_remaining;
     addrspace_t *as;
     list_node_t node; // embedded, not pointers
+    list_node_t destroy_node;
     list_node_t timeout_node;
     int32_t exit_status;
     pid_t waiting_for;

@@ -64,7 +64,6 @@ void sleep(exception_frame_t *frame) {
     schedule();
 }
 
-// Add this function
 void get_pid(exception_frame_t *frame) {
     frame->r[0] = current_process->pid;
 }
