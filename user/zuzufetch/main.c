@@ -78,7 +78,7 @@ static int build_info(char info[][INFO_LINE_LEN])
     n++;
 
     /* uptime */
-    snprintf(tmp, sizeof(tmp), "%u s", sp->uptime_s);
+    snprintf(tmp, sizeof(tmp), "%llu s", sp->uptime_s);
     fmt_kv(info[n], INFO_LINE_LEN, "Uptime:", tmp);
     n++;
 
