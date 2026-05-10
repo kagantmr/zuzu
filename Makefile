@@ -54,7 +54,7 @@ USER_CC      = $(CROSS)gcc
 USER_LD      = $(CROSS)ld
 USER_OBJCOPY = $(CROSS)objcopy
 KERNEL_LIBGCC = $(shell $(CC) $(CPUFLAGS) -print-libgcc-file-name)
-USER_LIBGCC   = $(shell $(USER_CC) $(CPUFLAGS) -mfloat-abi=soft -print-libgcc-file-name)
+USER_LIBGCC   = $(shell $(USER_CC) $(CPUFLAGS) -mfloat-abi=hard -mfpu=vfpv4 -print-libgcc-file-name)
 
 USER_CFLAGS  = -ffreestanding -nostdlib -O$(OPTIMIZATION_LEVEL) -Wall -Wextra \
 			   $(CPUFLAGS) -Iinclude -MMD -MP -g -mfloat-abi=hard -mfpu=vfpv4
@@ -67,7 +67,7 @@ else
 endif
 
 BOOT_PROGS = sysd devmgr zuart zusd fat32d fbox zzsh
-DISK_PROGS = test zuzufetch
+DISK_PROGS = test zuzufetch cycletest 
 
 USER_PROGS = $(BOOT_PROGS) $(DISK_PROGS)
 
