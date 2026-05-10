@@ -8,6 +8,7 @@
 #include "kernel/mm/vmm.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/time/tick.h"
+#include <mem.h>
 
 static list_head_t run_queue = LIST_HEAD_INIT(run_queue); 
 static list_head_t destroy_queue = LIST_HEAD_INIT(destroy_queue);
@@ -17,16 +18,48 @@ process_t *current_process;
 volatile uint8_t do_resched = 0; // needs spinlock guard on SMP
 
 static process_t idle_proc;  // only kernel_sp is used
+static uint8_t idle_stack[4096] __attribute__((aligned(8)));
+static bool on_idle_stack;
 
 #define LOG_FMT(fmt) "(sched) " fmt
 #include "core/log.h"
 
+static void sched_idle_trampoline(void) __attribute__((noreturn));
+
+static void sched_idle_trampoline(void)
+{
+    on_idle_stack = true;
+    for (;;) {
+        sched_reap();
+        sched_idle_wait();
+        schedule();
+    }
+}
+
+static void sched_init_idle_context(void)
+{
+    uintptr_t sp = (uintptr_t)idle_stack + sizeof(idle_stack);
+    sp &= ~(uintptr_t)7u;
+
+    sp -= sizeof(cpu_context_t);
+    cpu_context_t *ctx = (cpu_context_t *)sp;
+    memset(ctx, 0, sizeof(*ctx));
+    ctx->lr = (uint32_t)sched_idle_trampoline;
+
+    sp -= 132;
+    memset((void *)sp, 0, 132);
+
+    idle_proc.kernel_sp = (uint32_t *)sp;
+    idle_proc.process_state = PROCESS_RUNNING;
+}
 
 void sched_init() {
     list_init(&run_queue);
     list_init(&destroy_queue);
     list_init(&sleep_queue);
     current_process = NULL;
+    on_idle_stack = false;
+    sched_init_idle_context();
 }
 void sched_add(process_t *p) {
     list_add_tail(&p->node, &run_queue.node);
@@ -105,10 +138,8 @@ void sched_idle_wait(void)
 
 void schedule() {
 
-    sched_wake_sleepers();
-
     process_t *prev = current_process;
-    if (!prev) prev = &idle_proc;  // first call: save boot stack into idle_proc
+    bool from_idle = (prev == NULL && on_idle_stack);
 
     if (current_process != NULL) {
         if (current_process->process_state == PROCESS_RUNNING) {
@@ -117,8 +148,13 @@ void schedule() {
         }
     }
 
+    sched_wake_sleepers();
+
     if (list_empty(&run_queue)) {
         current_process = NULL;
+        if (from_idle) {
+            return;
+        }
         context_switch(prev, &idle_proc);
         return;
     }
@@ -126,11 +162,12 @@ void schedule() {
     list_node_t *next_node = list_pop_front(&run_queue);
     current_process = container_of(next_node, process_t, node);
     current_process->process_state = PROCESS_RUNNING;
+    on_idle_stack = false;
 
     if (current_process->as && (!prev || prev->as != current_process->as)) {
         vmm_activate(current_process->as);
     }
-    context_switch(prev, current_process);
+    context_switch(from_idle ? &idle_proc : prev, current_process);
 }
 
 size_t sched_ready_queue_snapshot(process_t **out, size_t max_out) {
