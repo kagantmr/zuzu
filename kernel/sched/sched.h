@@ -13,6 +13,7 @@ void sched_reap(void);
 void sched_idle_wait(void);
 void schedule();
 void set_resched_flag(void);
+void sleep_queue_insert(process_t *p);
 size_t sched_ready_queue_snapshot(process_t **out, size_t max_out);
 
 extern volatile uint8_t do_resched;

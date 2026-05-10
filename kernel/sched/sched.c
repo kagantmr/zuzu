@@ -82,34 +82,38 @@ static bool sched_work_pending(void)
     return do_resched || !list_empty(&run_queue) || !list_empty(&destroy_queue);
 }
 
+void sleep_queue_insert(process_t *p) {
+    list_node_t *curr;
+    list_for_each(curr, &sleep_queue.node) {
+        process_t *s = container_of(curr, process_t, timeout_node);
+        if (p->wake_tick < s->wake_tick) {
+            list_insert_before(&p->timeout_node, curr);
+            return;
+        }
+    }
+    list_add_tail(&p->timeout_node, &sleep_queue.node);
+}
+
 static void sched_wake_sleepers(void) {
     uint64_t now = get_ticks();
-    list_node_t *curr = sleep_queue.node.next;
-
-    while (curr != &sleep_queue.node) {
-        list_node_t *next = curr->next;
-        process_t *p = container_of(curr, process_t, timeout_node);
-
-        if (p->wake_tick <= now) {
-            list_remove(&p->timeout_node);
-
-            if (p->ipc_state == IPC_RECEIVER || p->ipc_state == IPC_SENDER) {
-                // Timed out on IPC — pull off the endpoint queue too
-                list_remove(&p->node);
-                p->ipc_state = IPC_NONE;
-                p->blocked_endpoint = NULL;
-                p->wake_reason = WAKE_TIMEOUT;
-                p->trap_frame->r[0] = ERR_TIMEOUT;
-                p->process_state = PROCESS_READY;
-                sched_add(p);
-            } else {
-                // Regular sleep timeout
-                p->process_state = PROCESS_READY;
-                list_add_tail(&p->node, &run_queue.node);
-                p->wake_tick = 0;
-            }
+    while (!list_empty(&sleep_queue)) {
+        list_node_t *head = sleep_queue.node.next;
+        process_t *p = container_of(head, process_t, timeout_node);
+        if (p->wake_tick > now) break;
+        list_remove(&p->timeout_node);
+        if (p->ipc_state == IPC_RECEIVER || p->ipc_state == IPC_SENDER) {
+            list_remove(&p->node);
+            p->ipc_state = IPC_NONE;
+            p->blocked_endpoint = NULL;
+            p->wake_reason = WAKE_TIMEOUT;
+            p->trap_frame->r[0] = ERR_TIMEOUT;
+            p->process_state = PROCESS_READY;
+            sched_add(p);
+        } else {
+            p->process_state = PROCESS_READY;
+            list_add_tail(&p->node, &run_queue.node);
+            p->wake_tick = 0;
         }
-        curr = next;
     }
 }
 
