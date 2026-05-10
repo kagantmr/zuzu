@@ -32,6 +32,9 @@ static void relay_handler(void *ctx)
             waiter->process_state = PROCESS_READY;
             waiter->blocked_endpoint = NULL;
             sched_add(waiter);
+            if (waiter->priority > current_process->priority) {
+                do_resched = 1;
+            }
         }
     } else if (ntfn && !ntfn->alive) {
         irq_owners[irq_num].bound_ntfn = NULL;
