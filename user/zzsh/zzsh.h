@@ -1,7 +1,7 @@
 #ifndef ZZSH_H
 #define ZZSH_H
 
-#define ZZSH_VER "v1.2"
+#define ZZSH_VER "v1.3"
 
 #include <zuzu/zuzu.h>
 #include "zuzu/protocols/zuart_protocol.h"
@@ -12,7 +12,6 @@
 #define HISTORY_MAX      32
 
 void zprint(const char* s);
-size_t zread(char *dst, size_t max);
 void command_dispatch(const char *line);
 int setup(void);
 
