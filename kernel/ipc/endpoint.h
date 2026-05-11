@@ -15,7 +15,7 @@ struct process;
 typedef struct endpoint {
     list_head_t sender_queue;
     list_head_t receiver_queue;
-    pid_t owner_pid;
+    zpid_t owner_pid;
     size_t ref_count;
     bool alive;
     list_node_t node;
@@ -32,8 +32,8 @@ typedef struct {
 } device_cap_t;
 
 typedef struct {
-    pid_t caller_pid;       // instead of process_t *caller
-    pid_t holder_pid;       // instead of process_t *holder
+    zpid_t caller_pid;       // instead of process_t *caller
+    zpid_t holder_pid;       // instead of process_t *holder
     handle_t holder_slot;
     list_node_t caller_link;
 } reply_cap_t;

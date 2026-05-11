@@ -266,6 +266,7 @@ debug: $(TARGET)
 	@echo "  QEMU    $(TARGET) (debug)"
 	@qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M \
 	    -kernel $(TARGET) -dtb $(DTB_FILE) -nographic \
+		-drive file=$(SD_IMG),if=sd,format=raw \
 	    -S -gdb tcp::1234
 
 # Misc targets

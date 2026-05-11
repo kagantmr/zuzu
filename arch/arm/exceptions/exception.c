@@ -301,8 +301,8 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
                        current_process->name, current_process->pid, dfar,
                        (dfsr & (1 << 11)) ? "write" : "read",
                        decode_fault_status(dfsr));
-                process_kill(current_process, -1);
                 dump_registers(frame);
+                process_kill(current_process, -1);
                 schedule();
             }
             else if (from_svc)

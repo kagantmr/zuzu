@@ -30,7 +30,7 @@ typedef struct {
     uint32_t sp;             // user stack pointer after argv layout
     uint32_t argc;           // passed through
     uint32_t argv_va;        // pointer to argv array on user stack
-    pid_t   pid;            // PID of the new process
+    zpid_t   pid;            // PID of the new process
 } exec_reply_t;
 
 #endif

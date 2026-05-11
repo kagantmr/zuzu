@@ -126,7 +126,7 @@ process_t *process_create(const char* name) {
         strncpy(process->name, short_name, sizeof(process->name) - 1);
     }
 
-    pid_t start = next_pid % MAX_PROCESSES;
+    zpid_t start = next_pid % MAX_PROCESSES;
     uint32_t slot = start;
     do {
         if (process_table[slot] == NULL)
@@ -206,7 +206,7 @@ static void process_revoke_outstanding_reply_caps(process_t *caller)
 
 
 
-process_t *process_find_by_pid(pid_t pid)
+process_t *process_find_by_pid(zpid_t pid)
 {
     uint32_t slot = pid % MAX_PROCESSES;
     process_t *p = process_table[slot];
@@ -229,7 +229,7 @@ void process_set_parent(process_t *child, process_t *parent)
         list_add_tail(&child->sibling_node, &parent->children.node);
 }
 
-process_t *process_find_child_by_pid(process_t *parent, pid_t pid)
+process_t *process_find_child_by_pid(process_t *parent, zpid_t pid)
 {
     if (!parent)
         return NULL;
