@@ -138,6 +138,10 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     {
         proc_replyx(frame);
     } break;
+    case SYS_PROC_RECVANY:
+    {
+        proc_recvany(frame);
+    } break;
     case SYS_PORT_CREATE:
     {
         port_create(frame);
