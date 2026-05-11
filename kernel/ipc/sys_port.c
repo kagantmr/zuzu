@@ -171,7 +171,7 @@ void port_grant(exception_frame_t *frame)
     }
 
     int handle = (int)frame->r[0];
-    pid_t pid = frame->r[1];
+    zpid_t pid = frame->r[1];
 
     // Validate handle
     handle_entry_t *src = handle_vec_get(&current_process->handle_table, (uint32_t)handle);

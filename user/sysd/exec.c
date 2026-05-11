@@ -80,6 +80,10 @@ static int inject_stack(uint32_t task_handle,
 
         // copy string data into the local stack buffer
         size_t buf_off = strings_va - USER_STACK_BASE;
+        if (buf_off > USER_STACK_SIZE || argbuf_len > USER_STACK_SIZE - buf_off) {
+            free(buf);
+            return -1;
+        }
         memcpy(buf + buf_off, argbuf, argbuf_len);
 
         // build argv pointer array
@@ -87,7 +91,14 @@ static int inject_stack(uint32_t task_handle,
         sp &= ~7u;
         argv_va = sp;
 
-        uint32_t *argv_arr = (uint32_t *)(buf + (argv_va - USER_STACK_BASE));
+        size_t argv_off = (size_t)(argv_va - USER_STACK_BASE);
+        size_t argv_bytes = (argc + 1) * sizeof(uint32_t);
+        if (argv_off > USER_STACK_SIZE || argv_bytes > USER_STACK_SIZE - argv_off) {
+            free(buf);
+            return -1;
+        }
+
+        uint32_t *argv_arr = (uint32_t *)(buf + argv_off);
         uintptr_t str_va = strings_va;
         for (uint32_t a = 0; a < argc; a++) {
             argv_arr[a] = (uint32_t)str_va;

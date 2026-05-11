@@ -14,7 +14,7 @@
 #include "kernel/syspage.h"
 #include "zuzu/ipcx.h"
 
-extern pid_t next_pid;
+extern zpid_t next_pid;
 extern process_t *process_table[MAX_PROCESSES];
 
 static bool elf_segment_ranges_overlap(const Elf32_Phdr *a, const Elf32_Phdr *b)

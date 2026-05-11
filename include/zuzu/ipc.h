@@ -122,9 +122,9 @@ static inline int32_t _port_create(void) {
     return r0;
 }
 
-static inline int32_t _port_grant(handle_t port, pid_t pid) {
+static inline int32_t _port_grant(handle_t port, zpid_t pid) {
     register handle_t r0 __asm__("r0") = port;
-    register pid_t r1 __asm__("r1") = pid;
+    register zpid_t r1 __asm__("r1") = pid;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
         : "r"(r1), [num] "i"(SYS_PORT_GRANT)

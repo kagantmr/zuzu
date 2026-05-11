@@ -366,7 +366,7 @@ void proc_call(exception_frame_t *frame)
         if (slot < 0)
         {
             kfree_reply_cap(rc);
-            list_add_tail(&rx_proc->node, &ep->sender_queue.node);
+            list_add_tail(&rx_proc->node, &ep->receiver_queue.node);
             frame->r[0] = ERR_NOMEM;
             return;
         }
@@ -534,7 +534,7 @@ void proc_callx(exception_frame_t *frame)
         if (slot < 0)
         {
             kfree_reply_cap(rc);
-            list_add_tail(&rx_proc->node, &ep->sender_queue.node);
+            list_add_tail(&rx_proc->node, &ep->receiver_queue.node);
             frame->r[0] = ERR_NOMEM;
             return;
         }

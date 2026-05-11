@@ -6,7 +6,7 @@
 
 typedef struct {
     handle_t  task_handle;
-    pid_t pid;
+    zpid_t pid;
     int      alive;
 } zprocx_handle_t;
 

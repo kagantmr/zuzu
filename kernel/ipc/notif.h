@@ -10,7 +10,7 @@
 typedef struct notification {
     uint32_t word;              // 32-bit signal mask, atomic-ish (IRQs off)
     list_head_t wait_queue;     // processes blocked in ntfn_wait
-    pid_t owner_pid;
+    zpid_t owner_pid;
     size_t ref_count;
     bool alive;
 } notification_t;

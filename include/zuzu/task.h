@@ -34,8 +34,8 @@ static inline int32_t _yield(void) {
     return r0;
 }
 
-static inline int32_t _wait(pid_t pid, int32_t *status_out, uint32_t flags) {
-    register pid_t r0 __asm__("r0") = pid;
+static inline int32_t _wait(zpid_t pid, int32_t *status_out, uint32_t flags) {
+    register zpid_t r0 __asm__("r0") = pid;
     register int32_t *r1 __asm__("r1") = status_out;
     register uint32_t r2 __asm__("r2") = flags;
     __asm__ volatile("svc %[num]"
@@ -65,7 +65,7 @@ static inline int32_t _sleep(uint32_t ms) {
 
 static inline tspawn_result_t _tspawn(const char* name) {
     register uintptr_t r0 __asm__("r0") = (uintptr_t) name;
-    register pid_t r1 __asm__("r1"); // pid
+    register zpid_t r1 __asm__("r1"); // pid
     __asm__ volatile("svc %[num]"
     : "+r"(r0), "=r"(r1)
     : [num] "i"(SYS_TASK_TSPAWN)

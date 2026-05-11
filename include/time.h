@@ -8,10 +8,10 @@ extern "C" {
 #include <stdint.h>
 #include <zuzu/syspage.h>
 
-typedef uint64_t time_t;
+typedef uint64_t ztime_t;
 
 typedef struct timespec {
-    time_t tv_sec;
+    ztime_t tv_sec;
     long   tv_nsec;
 } timespec_t;
 
@@ -27,7 +27,7 @@ struct tm {
     int tm_isdst; /* daylight savings time flag */
 };
 
-static inline time_t time_now(void) {
+static inline ztime_t time_now(void) {
     syspage_t *sp = (syspage_t *)SYSPAGE;
     return sp->uptime_ms / 1000;
 }

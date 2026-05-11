@@ -41,7 +41,7 @@ typedef enum ipc_state
 
 typedef struct process
 {
-    pid_t pid, parent_pid;
+    zpid_t pid, parent_pid;
     p_state_t process_state;
     uint32_t *kernel_sp;
     vaddr_t kernel_stack_top; // base of kernel stack for freeing
@@ -52,7 +52,7 @@ typedef struct process
     list_node_t destroy_node;
     list_node_t timeout_node;
     int32_t exit_status;
-    pid_t waiting_for;
+    zpid_t waiting_for;
     char name[32];           // PROCESS name
     vaddr_t device_va_next; // initialized to USER_DEVICE_BASE in process_create
     vaddr_t mmap_va_next;   // initialized to USER_MMAP_BASE in process_create
@@ -85,11 +85,11 @@ _Static_assert(offsetof(process_t, kernel_sp) == 12,
 #endif
 
 void process_destroy(process_t *process);
-process_t *process_find_by_pid(pid_t pid);
+process_t *process_find_by_pid(zpid_t pid);
 process_t *process_create(const char *name);
 void process_kill(process_t *p, int exit_status);
 void process_set_parent(process_t *child, process_t *parent);
-process_t *process_find_child_by_pid(process_t *parent, pid_t pid);
+process_t *process_find_child_by_pid(process_t *parent, zpid_t pid);
 process_t *process_find_zombie_child(process_t *parent);
 void process_track_reply_cap(process_t *caller, process_t *holder,
                              handle_t holder_slot, reply_cap_t *rc);
