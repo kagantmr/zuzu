@@ -21,7 +21,7 @@
 #define SYS_PROC_SENDX 0x14 /* (port, buf_len) -> 0 or -err; data in shared buffer */
 #define SYS_PROC_CALLX 0x15 /* (port, buf_len) -> r0=0, r1=recv_len; reply in shared buffer */
 #define SYS_PROC_REPLYX 0x16 /* (reply_handle, buf_len) -> 0 or -err; data in shared buffer */
-
+#define SYS_PROC_RECVANY 0x17 /* (handles_ptr, count, timeout, result_ptr) -> 0 or -err; fills result struct */
 
 /* ---- Ports (0x20-0x2F) ---- */
 

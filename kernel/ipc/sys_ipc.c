@@ -17,10 +17,24 @@
 #include "core/log.h"
 
 #define KSTACK_REGION_TOP (KSTACK_REGION_BASE + (64u * 0x2000u))
+#define RECVANY_MAX_HANDLES 16u
+#define RECVANY_KIND_SEND 0u
+#define RECVANY_KIND_CALL 1u
+#define RECVANY_KIND_IRQ 2u
+#define RECVANY_KIND_TIMEOUT 3u
 
 extern process_t *current_process;
 extern list_head_t sleep_queue;
 extern kernel_layout_t kernel_layout;
+
+typedef struct {
+    uint32_t matched_index;
+    uint32_t kind;
+    uint32_t source;
+    uint32_t r1;
+    uint32_t r2;
+    uint32_t r3;
+} recvany_result_t;
 
 static void ipc_buf_copy(process_t *src, process_t *dst, uint32_t len)
 {
@@ -54,6 +68,25 @@ static void ipc_panic_bad_trap_frame(const char *where, const process_t *owner, 
            tf,
            current_process ? current_process->pid : 0u);
     panic("Corrupt trap_frame pointer in IPC path");
+}
+
+static void ipc_cancel_timeout(process_t *proc)
+{
+    if (proc->wake_tick != 0 &&
+        proc->timeout_node.prev && proc->timeout_node.next) {
+        list_remove(&proc->timeout_node);
+    }
+    proc->wake_tick = 0;
+}
+
+static void ipc_wake_ready(process_t *proc)
+{
+    proc->ipc_state = IPC_NONE;
+    proc->blocked_endpoint = NULL;
+    ipc_cancel_timeout(proc);
+    proc->wake_reason = WAKE_IPC;
+    proc->process_state = PROCESS_READY;
+    sched_add(proc);
 }
 
 static endpoint_t *validate_endpoint_handle(process_t *proc, handle_t handle, exception_frame_t *frame)
@@ -624,4 +657,204 @@ void proc_replyx(exception_frame_t *frame)
     entry->grantable = false;
     entry->type = HANDLE_FREE;
     frame->r[0] = 0;
+}
+
+static int recvany_deliver_sender(uint32_t matched_index,
+                                  process_t *receiver,
+                                  list_node_t *sender_node,
+                                  recvany_result_t *result)
+{
+    process_t *sr_proc = container_of(sender_node, process_t, node);
+    exception_frame_t *sr_frame = sr_proc->trap_frame;
+    if (!trap_frame_sane(sr_frame))
+    {
+        ipc_panic_bad_trap_frame("proc_recvany.sr", sr_proc, sr_frame);
+    }
+
+    memset(result, 0, sizeof(*result));
+    result->matched_index = matched_index;
+
+    if (sr_proc->ipc_state == IPC_SENDER)
+    {
+        result->kind = RECVANY_KIND_SEND;
+        result->source = sr_proc->pid;
+        result->r1 = sr_frame->r[1];
+        result->r2 = sr_frame->r[2];
+        result->r3 = sr_frame->r[3];
+
+        sr_frame->r[0] = 0;
+        sr_proc->ipc_state = IPC_NONE;
+        sr_proc->blocked_endpoint = NULL;
+        ipc_cancel_timeout(sr_proc);
+        sr_proc->wake_reason = WAKE_IPC;
+        sr_proc->process_state = PROCESS_READY;
+
+        if (sr_proc->ipc_buf_xfer_len > 0) {
+            ipc_buf_copy(sr_proc, receiver, sr_proc->ipc_buf_xfer_len);
+            result->r1 = sr_proc->ipc_buf_xfer_len;
+            result->r2 = 0;
+            result->r3 = 0;
+            sr_proc->ipc_buf_xfer_len = 0;
+        }
+
+        sched_add(sr_proc);
+        return 0;
+    }
+
+    if (sr_proc->ipc_state == IPC_WAITING)
+    {
+        reply_cap_t *rc = sr_proc->pending_reply_cap;
+        sr_proc->pending_reply_cap = NULL;
+
+        int slot = handle_vec_find_free(&receiver->handle_table);
+        if (slot < 0) {
+            kfree_reply_cap(rc);
+            sr_frame->r[0] = ERR_NOMEM;
+            ipc_wake_ready(sr_proc);
+            return ERR_NOMEM;
+        }
+
+        handle_entry_t *rentry = handle_vec_get(&receiver->handle_table, slot);
+        rentry->type = HANDLE_REPLY;
+        rentry->grantable = false;
+        rentry->reply = rc;
+        process_track_reply_cap(sr_proc, receiver, (uint32_t)slot, rc);
+
+        result->kind = RECVANY_KIND_CALL;
+        result->source = (uint32_t)slot;
+        result->r1 = sr_proc->pid;
+        result->r2 = sr_frame->r[1];
+        result->r3 = sr_frame->r[2];
+
+        if (sr_proc->ipc_buf_xfer_len > 0) {
+            ipc_buf_copy(sr_proc, receiver, sr_proc->ipc_buf_xfer_len);
+            result->r2 = sr_proc->ipc_buf_xfer_len;
+            result->r3 = 0;
+            sr_proc->ipc_buf_xfer_len = 0;
+        }
+
+        return 0;
+    }
+
+    return ERR_BADARG;
+}
+
+static int recvany_try_once(const handle_t *handles,
+                            uint32_t count,
+                            recvany_result_t *result)
+{
+    endpoint_t *endpoints[RECVANY_MAX_HANDLES];
+
+    for (uint32_t i = 0; i < count; i++) {
+        endpoint_t *ep = validate_endpoint_handle(current_process, handles[i], current_process->trap_frame);
+        if (!ep) {
+            return (int)current_process->trap_frame->r[0];
+        }
+        endpoints[i] = ep;
+    }
+
+    for (uint32_t i = 0; i < count; i++) {
+        if (!list_empty(&endpoints[i]->sender_queue)) {
+            list_node_t *sender = list_pop_front(&endpoints[i]->sender_queue);
+            return recvany_deliver_sender(i, current_process, sender, result);
+        }
+    }
+
+    return ERR_BUSY;
+}
+
+static bool recvany_write_timeout_result(uintptr_t result_ptr)
+{
+    recvany_result_t result;
+    memset(&result, 0, sizeof(result));
+    result.matched_index = UINT32_MAX;
+    result.kind = RECVANY_KIND_TIMEOUT;
+    return copy_to_user((void *)result_ptr, &result, sizeof(result));
+}
+
+void proc_recvany(exception_frame_t *frame)
+{
+    /* r0 = handle array pointer
+     * r1 = count
+     * r2 = timeout_ms
+     * r3 = result struct pointer
+     */
+    uintptr_t handles_ptr = (uintptr_t)frame->r[0];
+    uint32_t count = frame->r[1];
+    uint32_t timeout_ms = frame->r[2];
+    uintptr_t result_ptr = (uintptr_t)frame->r[3];
+
+    if (!current_process || !handles_ptr || !result_ptr ||
+        count == 0 || count > RECVANY_MAX_HANDLES) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    if (!validate_user_ptr(result_ptr, sizeof(recvany_result_t)) ||
+        !fault_in_pages(current_process->as, result_ptr, sizeof(recvany_result_t), true)) {
+        frame->r[0] = ERR_PTRFAULT;
+        return;
+    }
+
+    handle_t handles_local[RECVANY_MAX_HANDLES];
+    size_t copy_size = count * sizeof(handle_t);
+    if (!copy_from_user(handles_local, (const void *)handles_ptr, copy_size)) {
+        frame->r[0] = ERR_PTRFAULT;
+        return;
+    }
+
+    tick_t deadline = 0;
+    if (timeout_ms > 0 && timeout_ms != UINT32_MAX) {
+        tick_t ticks = ((uint64_t)timeout_ms * (uint64_t)TICK_HZ) / 1000u;
+        if (ticks == 0)
+            ticks = 1;
+        deadline = get_ticks() + ticks;
+    }
+
+    for (;;) {
+        recvany_result_t result;
+        int err = recvany_try_once(handles_local, count, &result);
+        if (err == 0) {
+            if (!copy_to_user((void *)result_ptr, &result, sizeof(result))) {
+                frame->r[0] = ERR_PTRFAULT;
+                return;
+            }
+            frame->r[0] = 0;
+            return;
+        }
+
+        if (err != ERR_BUSY) {
+            frame->r[0] = err;
+            return;
+        }
+
+        if (timeout_ms == UINT32_MAX) {
+            frame->r[0] = ERR_BUSY;
+            return;
+        }
+
+        if (timeout_ms > 0) {
+            tick_t now = get_ticks();
+            if (now >= deadline) {
+                if (!recvany_write_timeout_result(result_ptr)) {
+                    frame->r[0] = ERR_PTRFAULT;
+                    return;
+                }
+                frame->r[0] = 0;
+                return;
+            }
+
+            tick_t next_wake = now + 1;
+            if (next_wake > deadline)
+                next_wake = deadline;
+            current_process->wake_tick = next_wake;
+        } else {
+            current_process->wake_tick = get_ticks() + 1;
+        }
+
+        current_process->wake_reason = WAKE_NONE;
+        current_process->process_state = PROCESS_BLOCKED;
+        sleep_queue_insert(current_process);
+        schedule();
+    }
 }

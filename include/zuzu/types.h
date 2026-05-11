@@ -40,4 +40,14 @@ typedef struct
     zpid_t pid;
 } tspawn_result_t;
 
+/* recvany result struct */
+typedef struct {
+    uint32_t matched_index;  /* which handle in the input array */
+    uint32_t kind;           /* 0=send, 1=call, 2=irq, 3=timeout */
+    uint32_t source;         /* send: sender_pid; call: reply_handle */
+    uint32_t r1;             /* send: payload; call: sender_pid */
+    uint32_t r2;             /* send/call: payload or IPCX length */
+    uint32_t r3;             /* send/call: payload */
+} recvany_result_t;
+
 #endif // ZUZU_TYPES_H
