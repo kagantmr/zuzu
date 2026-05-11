@@ -4,6 +4,7 @@
 #include <string.h>
 #include <snprintf.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <zuzu/service.h>
 #include <malloc.h>
 #include <zuzu/syspage.h>
@@ -62,6 +63,9 @@ static void strip(char *s)
     *dst = '\0';
 }
 
+#define zprint printf
+
+/*
 void zprint(const char *s)
 {
     size_t len = strlen(s);
@@ -69,20 +73,7 @@ void zprint(const char *s)
     memcpy((void *)IPCX_BUF_VA, s, len);
     _sendx(tty_port, (uint32_t)len);
 }
-
-size_t zread(char *dst, size_t max)
-{
-    if (max > IPCX_BUF_SIZE) max = IPCX_BUF_SIZE;
-    zuzu_ipcmsg_t reply = _callx(tty_port, (uint32_t)max);
-    if (reply.r0 < 0) {
-        return 0;
-    }
-
-    size_t got = reply.r1;
-    if (got > max) got = max;
-    memcpy(dst, (void *)IPCX_BUF_VA, got);
-    return got;
-}
+*/
 
 int setup(void)
 {
@@ -579,93 +570,88 @@ int main(void)
     typedef enum { ST_NORMAL, ST_ESC, ST_CSI } input_state_t;
     input_state_t state = ST_NORMAL;
 
-    char tmp[64];
-
     zprint(ANSI_BOLD ANSI_CYAN "zzsh " ZZSH_VER "\n" ANSI_RESET);
     zprint(PROMPT);
 
     while (1)
     {
-        size_t n = zread(tmp, sizeof(tmp));
-        if (n == 0) {
+        int ch = getchar();
+        if (ch == EOF) {
             _sleep(5);
             continue;
         }
 
-        for (size_t i = 0; i < n; i++)
-        {
-            char c = tmp[i];
+        char c = (char)ch;
 
-            // --- escape sequence state machine ---
-            if (state == ST_ESC) {
-                if (c == '[') { state = ST_CSI; continue; }
-                state = ST_NORMAL;
-            } else if (state == ST_CSI) {
-                state = ST_NORMAL;
-                if (c == 'A') {
-                    // up arrow: go back in history
-                    if (hist_pos == 0) {
-                        memcpy(saved, line, pos);
-                        saved[pos] = '\0';
+        // --- escape sequence state machine ---
+        if (state == ST_ESC) {
+            if (c == '[') { state = ST_CSI; continue; }
+            state = ST_NORMAL;
+        } else if (state == ST_CSI) {
+            state = ST_NORMAL;
+            if (c == 'A') {
+                // up arrow: go back in history
+                if (hist_pos == 0) {
+                    memcpy(saved, line, pos);
+                    saved[pos] = '\0';
+                }
+                if (hist_pos < hist_count) {
+                    hist_pos++;
+                    const char *h = hist_get(hist_pos);
+                    if (h) {
+                        strncpy(line, h, LINE_BUFFER_SIZE - 1);
+                        line[LINE_BUFFER_SIZE - 1] = '\0';
+                        pos = strlen(line);
+                        redraw_line(line);
                     }
-                    if (hist_pos < hist_count) {
-                        hist_pos++;
+                }
+            } else if (c == 'B') {
+                // down arrow: go forward in history
+                if (hist_pos > 0) {
+                    hist_pos--;
+                    if (hist_pos == 0) {
+                        strncpy(line, saved, LINE_BUFFER_SIZE - 1);
+                        line[LINE_BUFFER_SIZE - 1] = '\0';
+                        pos = strlen(line);
+                    } else {
                         const char *h = hist_get(hist_pos);
                         if (h) {
                             strncpy(line, h, LINE_BUFFER_SIZE - 1);
                             line[LINE_BUFFER_SIZE - 1] = '\0';
                             pos = strlen(line);
-                            redraw_line(line);
                         }
                     }
-                } else if (c == 'B') {
-                    // down arrow: go forward in history
-                    if (hist_pos > 0) {
-                        hist_pos--;
-                        if (hist_pos == 0) {
-                            strncpy(line, saved, LINE_BUFFER_SIZE - 1);
-                            line[LINE_BUFFER_SIZE - 1] = '\0';
-                            pos = strlen(line);
-                        } else {
-                            const char *h = hist_get(hist_pos);
-                            if (h) {
-                                strncpy(line, h, LINE_BUFFER_SIZE - 1);
-                                line[LINE_BUFFER_SIZE - 1] = '\0';
-                                pos = strlen(line);
-                            }
-                        }
-                        redraw_line(line);
-                    }
+                    redraw_line(line);
                 }
-                // left/right/other CSI sequences ignored
-                continue;
             }
+            // left/right/other CSI sequences ignored
+            continue;
+        }
 
-            if (c == '\033') { state = ST_ESC; continue; }
+        if (c == '\033') { state = ST_ESC; continue; }
 
-            // --- normal character handling ---
-            if (c == '\r' || c == '\n') {
-                zprint("\r\n");
-                line[pos] = '\0';
-                strip(line);
-                hist_pos = 0;
-                if (line[0]) {
-                    hist_push(line);
-                    command_dispatch(line);
-                }
-                pos = 0;
-                zprint("\r\033[K");
-                zprint(PROMPT);
-            } else if (c == 127 || c == '\b') {
-                if (pos > 0) {
-                    pos--;
-                    zprint("\b \b");
-                }
-            } else if (c >= 0x20 && c < 0x7f && pos < LINE_BUFFER_SIZE - 1) {
-                line[pos++] = c;
-                char echo[2] = { c, '\0' };
-                zprint(echo);
+        // --- normal character handling ---
+        if (c == '\r' || c == '\n') {
+            zprint("\r\n");
+            line[pos] = '\0';
+            strip(line);
+            hist_pos = 0;
+            if (line[0]) {
+                hist_push(line);
+                command_dispatch(line);
             }
+            pos = 0;
+            zprint("\r\033[K");
+            zprint(PROMPT);
+        } else if (c == 127 || c == '\b') {
+            if (pos > 0) {
+                pos--;
+                zprint("\b \b");
+            }
+        } else if (c >= 0x20 && c < 0x7f && pos < LINE_BUFFER_SIZE - 1) {
+            line[pos++] = c;
+            char echo[2] = { c, '\0' };
+            zprint(echo);
         }
     }
 

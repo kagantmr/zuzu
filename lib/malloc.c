@@ -77,7 +77,7 @@ void *malloc(size_t size)
     }
 
     // 4. if its empty bump the arena
-    if (arena.brk + total_size > arena.mapped)
+    while (arena.brk + total_size > arena.mapped)
     {
         // try contiguous
         uintptr_t result =
