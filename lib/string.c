@@ -1,5 +1,6 @@
 #include "string.h"
 #include <stdint.h>
+#include <mem.h>
 #include "convert.h"
 
 size_t strlen(const char *s) {
