@@ -1,6 +1,7 @@
 #include <zuzu/service.h>
 #include "zuzu/protocols/nt_protocol.h"
 #include <zuzu/zuzu.h>
+#include <string.h>
 
 int32_t register_service(const char *name) {
     int32_t port = _port_create();
@@ -26,6 +27,13 @@ int32_t lookup_service(const char *name) {
         zuzu_ipcmsg_t reply = _call(NT_PORT, NT_LOOKUP, nt_pack(name), 0);
         if (reply.r1 == NT_LU_OK)
             return (int32_t)reply.r2;
+
+        if (strcmp(name, "tty0") == 0) {
+            reply = _call(NT_PORT, NT_LOOKUP, nt_pack("uart"), 0);
+            if (reply.r1 == NT_LU_OK)
+                return (int32_t)reply.r2;
+        }
+
         _sleep(10);
     }
 }

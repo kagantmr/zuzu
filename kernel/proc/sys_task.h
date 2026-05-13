@@ -13,5 +13,8 @@ void tspawn(exception_frame_t *frame);
 void kickstart(exception_frame_t *frame);
 void kill(exception_frame_t *frame);
 
+void makethread(exception_frame_t *frame);
+void join(exception_frame_t *frame);
+
 
 #endif // SYS_TASK_H

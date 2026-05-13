@@ -91,6 +91,39 @@ static inline int32_t _kill(handle_t task_handle) {
     return r0;
 }
 
+static inline tid_t _makethread(void) {
+    register tid_t r0 __asm__("r0");
+    __asm__ volatile("svc %[num]"
+        : "=r"(r0)
+        : [num] "i"(SYS_TASK_MAKETHREAD)
+        : "memory");
+    return r0;
+}
+
+static inline int32_t _join(tid_t tid) {
+    register tid_t r0 __asm__("r0") = tid;
+    __asm__ volatile("svc %[num]"
+        : "+r"(r0)
+        : [num] "i"(SYS_TASK_JOIN)
+        : "memory");
+    return r0;
+}
+
+/* ---- Thread-local storage ---- */
+
+/**
+ * _get_thread_ptr - Read thread pointer from TPIDRUR register
+ * 
+ * Returns the thread pointer set by the kernel via TPIDRUR (cp15, 0, c13, c0, 2).
+ * This is typically the address of the thread_t structure in the kernel,
+ * useful for thread-local storage and identifying the current thread.
+ */
+static inline vaddr_t _get_thread_ptr(void) {
+    register vaddr_t r0 __asm__("r0");
+    __asm__ volatile("mrc p15, 0, %0, c13, c0, 2" : "=r"(r0));
+    return r0;
+}
+
 #ifdef __cplusplus
 }
 #endif

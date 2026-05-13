@@ -11,6 +11,8 @@
 #define SYS_TASK_TSPAWN 0x06 /*  */
 #define SYS_TASK_KICKSTART 0x07  /* ()  */
 #define SYS_TASK_KILL 0x08 /* (task_handle) -> 0 or -err */
+#define SYS_TASK_MAKETHREAD 0x09 /* () -> tid */
+#define SYS_TASK_JOIN 0x0A /* (tid) -> exit_status or -err */
 
 /* ---- IPC (0x10-0x1F) ---- */
 

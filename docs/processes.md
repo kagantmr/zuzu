@@ -119,6 +119,8 @@ The stopped task then becomes runnable only after `task_kickstart()` installs th
 
 For runtime task bootstrap, the standard pattern is: `task_tspawn` -> `asinject` (init only) -> `task_kickstart`.
 
+`task_makethread()` creates an additional joinable thread inside the current process, and `task_join(tid)` waits for that thread to exit and returns its exit status.
+
 ---
 
 ## Process Destruction

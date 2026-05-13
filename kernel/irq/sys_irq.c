@@ -5,7 +5,7 @@
 #include "arch/arm/include/irq.h"
 #include <mem.h>
 
-extern process_t *current_process;
+extern thread_t *current_thread;
 static irq_owner_t irq_owners[MAX_IRQS];
 
 
@@ -26,13 +26,13 @@ static void relay_handler(void *ctx)
 
         if (!list_empty(&ntfn->wait_queue)) {
             list_node_t *node = list_pop_front(&ntfn->wait_queue);
-            process_t *waiter = container_of(node, process_t, node);
+            thread_t *waiter = container_of(node, thread_t, node);
             waiter->trap_frame->r[0] = ntfn->word;
             ntfn->word = 0;
-            waiter->process_state = PROCESS_READY;
+            waiter->state = READY;
             waiter->blocked_endpoint = NULL;
             sched_add(waiter);
-            if (waiter->priority > current_process->priority) {
+            if (waiter->priority > current_thread->priority) {
                 do_resched = 1;
             }
         }
@@ -64,7 +64,7 @@ void irq_claim(exception_frame_t *frame) {
         return;
     }
 
-    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle_idx);
+    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
     if (!entry) {
         frame->r[0] = ERR_BADARG;
         return;
@@ -88,7 +88,7 @@ void irq_claim(exception_frame_t *frame) {
 
     irq_owners[irq_num] = (irq_owner_t){
         .bound_ntfn = NULL,
-        .owner = current_process,
+        .owner = current_thread->owner_process,
         .pending = false
     };
     irq_register(irq_num, relay_handler, (void*)(vaddr_t)irq_num);
@@ -103,7 +103,7 @@ void irq_bind(exception_frame_t *frame) {
         frame->r[0] = ERR_BADARG;
         return;
     }
-    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, dev_handle);
+    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, dev_handle);
     if (!entry || entry->type != HANDLE_DEVICE) {
         frame->r[0] = ERR_BADARG;
         return;
@@ -114,12 +114,12 @@ void irq_bind(exception_frame_t *frame) {
         frame->r[0] = ERR_BADARG;
         return;
     }
-    if (irq_owners[irq_num].owner != current_process) {
+    if (irq_owners[irq_num].owner != current_thread->owner_process) {
         frame->r[0] = ERR_NOPERM;
         return;
     }
 
-    handle_entry_t *ntfn_entry = handle_vec_get(&current_process->handle_table, ntfn_handle);
+    handle_entry_t *ntfn_entry = handle_vec_get(&current_thread->owner_process->handle_table, ntfn_handle);
     if (!ntfn_entry || ntfn_entry->type != HANDLE_NOTIFICATION || !ntfn_entry->ntfn) {
         frame->r[0] = ERR_BADARG;
         return;
@@ -148,10 +148,11 @@ void irq_bind(exception_frame_t *frame) {
 
         if (!list_empty(&ntfn->wait_queue)) {
             list_node_t *node = list_pop_front(&ntfn->wait_queue);
-            process_t *waiter = container_of(node, process_t, node);
-            waiter->trap_frame->r[0] = ntfn->word;
+            thread_t *waiter = container_of(node, thread_t, node);
+            if (waiter->trap_frame)
+                waiter->trap_frame->r[0] = ntfn->word;
             ntfn->word = 0;
-            waiter->process_state = PROCESS_READY;
+            waiter->state = READY;
             waiter->blocked_endpoint = NULL;
             sched_add(waiter);
         }
@@ -168,7 +169,7 @@ void irq_done(exception_frame_t* frame) {
         frame->r[0] = ERR_BADARG;
         return;
     }
-    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, dev_handle);
+    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, dev_handle);
     if (!entry) {
         frame->r[0] = ERR_BADARG;
         return;
@@ -181,7 +182,7 @@ void irq_done(exception_frame_t* frame) {
         frame->r[0] = ERR_BADARG;
         return;
     }
-    if (irq_owners[entry->dev->irq].owner == current_process) {
+    if (irq_owners[entry->dev->irq].owner == current_thread->owner_process) {
         irq_enable_line(entry->dev->irq);
         frame->r[0] = 0;
         return;

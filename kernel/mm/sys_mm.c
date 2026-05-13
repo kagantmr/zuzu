@@ -12,7 +12,7 @@
 #include "core/log.h"
 #include "kernel/mm/alloc.h"
 
-extern process_t *current_process;
+extern thread_t *current_thread;
 extern phys_region_t phys_region;
 
 void memmap(exception_frame_t *frame)
@@ -60,7 +60,7 @@ void memmap(exception_frame_t *frame)
     }
     else
     {
-        va = current_process->mmap_va_next;
+        va = current_thread->owner_process->mmap_va_next;
     }
 
     if (va >= USER_VA_TOP) { frame->r[0] = ERR_BADARG; return; }
@@ -71,7 +71,7 @@ void memmap(exception_frame_t *frame)
         return;
     }
     if (addr_hint == 0) {
-        current_process->mmap_va_next += size;
+        current_thread->owner_process->mmap_va_next += size;
     }
 
     // 3. Register the region — no physical pages allocated yet
@@ -85,10 +85,10 @@ void memmap(exception_frame_t *frame)
         .flags = VM_FLAG_NONE,
     };
 
-    if (!vmm_add_region(current_process->as, &region))
+    if (!vmm_add_region(current_thread->owner_process->as, &region))
     {
         if (addr_hint == 0)
-            current_process->mmap_va_next -= size; // roll back cursor on failure
+            current_thread->owner_process->mmap_va_next -= size; // roll back cursor on failure
         frame->r[0] = ERR_NOMEM;
         return;
     }
@@ -113,7 +113,7 @@ void memunmap(exception_frame_t *frame)
         return;
     }
 
-    addrspace_t *as = current_process->as;
+    addrspace_t *as = current_thread->owner_process->as;
 
     // Find the region, it must be an exact match to prevent partial-unmap attacks
     vm_region_t *found = NULL;
@@ -150,9 +150,9 @@ void memunmap(exception_frame_t *frame)
     {
         bool found_handle = false;
         // If it's shared memory, we need to decrement the ref count and free if it hits 0
-        for (uint32_t i = 0; i < current_process->handle_table.cap; i++)
+        for (uint32_t i = 0; i < current_thread->owner_process->handle_table.cap; i++)
         {
-            handle_entry_t *entry = handle_vec_get(&current_process->handle_table, i);
+            handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, i);
             if (!entry)
                 break;
 
@@ -242,7 +242,7 @@ void memshare(exception_frame_t *frame)
     shmem_obj->page_addrs = page_arr;
 
     // find free handle slot
-    int handle = handle_vec_find_free(&current_process->handle_table);
+    int handle = handle_vec_find_free(&current_thread->owner_process->handle_table);
     if (handle < 0)
     {
         for (size_t i = 0; i < page_count; i++)
@@ -254,7 +254,7 @@ void memshare(exception_frame_t *frame)
     }
 
     // pick VA base and bump cursor once
-    if (current_process->mmap_va_next > UINTPTR_MAX - size) // check for overflow
+    if (current_thread->owner_process->mmap_va_next > UINTPTR_MAX - size) // check for overflow
     {
         for (size_t i = 0; i < page_count; i++)
             pmm_free_page(page_arr[i]);
@@ -263,8 +263,8 @@ void memshare(exception_frame_t *frame)
         frame->r[0] = ERR_BADARG;
         return;
     }
-    const vaddr_t va_base = current_process->mmap_va_next;
-    current_process->mmap_va_next += size;
+    const vaddr_t va_base = current_thread->owner_process->mmap_va_next;
+    current_thread->owner_process->mmap_va_next += size;
 
     vm_region_t region = {
         .vaddr_start = va_base,
@@ -274,9 +274,9 @@ void memshare(exception_frame_t *frame)
         .owner = VM_OWNER_SHARED,
         .flags = VM_FLAG_NONE,
     };
-    if (!vmm_add_region(current_process->as, &region))
+    if (!vmm_add_region(current_thread->owner_process->as, &region))
     {
-        current_process->mmap_va_next -= size;
+        current_thread->owner_process->mmap_va_next -= size;
         for (size_t i = 0; i < page_count; i++)
             pmm_free_page(page_arr[i]);
         kfree(page_arr);
@@ -286,13 +286,13 @@ void memshare(exception_frame_t *frame)
     }
     for (size_t j = 0; j < page_count; j++)
     {
-        if (!vmm_map_range(current_process->as, va_base + j * PAGE_SIZE, page_arr[j],
+        if (!vmm_map_range(current_thread->owner_process->as, va_base + j * PAGE_SIZE, page_arr[j],
                            PAGE_SIZE, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
                            VM_MEM_NORMAL, VM_OWNER_SHARED, VM_FLAG_NONE))
         {
             // Remove region and unmap in one pass.
-            vmm_remove_region(current_process->as, va_base, size);
-            current_process->mmap_va_next -= size;
+            vmm_remove_region(current_thread->owner_process->as, va_base, size);
+            current_thread->owner_process->mmap_va_next -= size;
             for (size_t i = 0; i < page_count; i++)
                 pmm_free_page(page_arr[i]);
             kfree(page_arr);
@@ -302,11 +302,11 @@ void memshare(exception_frame_t *frame)
         }
     }
 
-    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, (uint32_t)handle);
+    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle);
     if (!entry)
     {
-        vmm_remove_region(current_process->as, va_base, size);
-        current_process->mmap_va_next -= size;
+        vmm_remove_region(current_thread->owner_process->as, va_base, size);
+        current_thread->owner_process->mmap_va_next -= size;
         for (size_t i = 0; i < page_count; i++)
             pmm_free_page(page_arr[i]);
         kfree(page_arr);
@@ -328,7 +328,7 @@ void attach(exception_frame_t *frame)
 {
     const handle_t handle_idx = frame->r[0];
 
-    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle_idx);
+    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
     if (!entry)
     {
         frame->r[0] = ERR_BADARG;
@@ -347,14 +347,14 @@ void attach(exception_frame_t *frame)
         return;
     }
     const size_t size = shm_obj->page_count * PAGE_SIZE;
-    if (current_process->mmap_va_next > UINTPTR_MAX - size) // check for overflow
+    if (current_thread->owner_process->mmap_va_next > UINTPTR_MAX - size) // check for overflow
     {
         frame->r[0] = ERR_BADARG;
         return;
     }
 
-    const vaddr_t va_base = current_process->mmap_va_next;
-    current_process->mmap_va_next += size;
+    const vaddr_t va_base = current_thread->owner_process->mmap_va_next;
+    current_thread->owner_process->mmap_va_next += size;
 
     vm_region_t region = {
         .vaddr_start = va_base,
@@ -364,22 +364,22 @@ void attach(exception_frame_t *frame)
         .owner = VM_OWNER_SHARED,
         .flags = VM_FLAG_NONE,
     };
-    if (!vmm_add_region(current_process->as, &region))
+    if (!vmm_add_region(current_thread->owner_process->as, &region))
     {
-        current_process->mmap_va_next -= size;
+        current_thread->owner_process->mmap_va_next -= size;
         frame->r[0] = ERR_NOMEM;
         return;
     }
     for (size_t j = 0; j < shm_obj->page_count; j++)
     {
-        if (!vmm_map_range(current_process->as, va_base + j * PAGE_SIZE, shm_obj->page_addrs[j],
+        if (!vmm_map_range(current_thread->owner_process->as, va_base + j * PAGE_SIZE, shm_obj->page_addrs[j],
                            PAGE_SIZE, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
                            VM_MEM_NORMAL, VM_OWNER_SHARED, VM_FLAG_NONE))
         {
             // Remove region and unmap in one pass.
-            vmm_remove_region(current_process->as, va_base,
+            vmm_remove_region(current_thread->owner_process->as, va_base,
                               shm_obj->page_count * PAGE_SIZE);
-            current_process->mmap_va_next -= shm_obj->page_count * PAGE_SIZE;
+            current_thread->owner_process->mmap_va_next -= shm_obj->page_count * PAGE_SIZE;
             frame->r[0] = ERR_NOMEM;
             return;
         }
@@ -394,7 +394,7 @@ void detach(exception_frame_t *frame)
 {
     handle_t handle = frame->r[0];
 
-    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle);
+    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle);
     if (!entry)
     {
         frame->r[0] = ERR_BADARG;
@@ -408,7 +408,7 @@ void detach(exception_frame_t *frame)
 
     shmem_t *shm = entry->shm;
     const vaddr_t va = entry->mapped_va;
-    vmm_remove_region(current_process->as, va, shm->page_count * PAGE_SIZE);
+    vmm_remove_region(current_thread->owner_process->as, va, shm->page_count * PAGE_SIZE);
     shm->ref_count--;
     if (shm->ref_count == 0)
     {
@@ -426,7 +426,7 @@ void detach(exception_frame_t *frame)
 }
 
 void asinject(exception_frame_t *frame) {
-    if (!(current_process->flags & PROC_FLAG_INIT)) {
+    if (!(current_thread->owner_process->flags & PROC_FLAG_INIT)) {
         frame->r[0] = ERR_NOPERM;
         return;
     }
@@ -443,7 +443,7 @@ void asinject(exception_frame_t *frame) {
         return;
     }
 
-    handle_entry_t *handle = handle_vec_get(&current_process->handle_table, kargs.task_handle);
+    handle_entry_t *handle = handle_vec_get(&current_thread->owner_process->handle_table, kargs.task_handle);
     if (!handle || handle->type != HANDLE_TASK) {
         frame->r[0] = ERR_BADARG;
         return;
@@ -451,7 +451,7 @@ void asinject(exception_frame_t *frame) {
 
     process_t *target = handle->task;
 
-    if (!target || target->process_state != PROCESS_STOPPED) {
+    if (!target || target->thread->state != FROZEN) {
         frame->r[0] = ERR_BADARG;
         return;
     }
@@ -591,7 +591,7 @@ void mprotect(exception_frame_t *frame)
     }
 
     // The region must exist; use vmm_protect_range to change its protections
-    if (!vmm_protect_range(current_process->as, va, size, new_prot | VM_PROT_USER))
+    if (!vmm_protect_range(current_thread->owner_process->as, va, size, new_prot | VM_PROT_USER))
     {
         frame->r[0] = ERR_BADARG;
         return;

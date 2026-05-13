@@ -7,6 +7,7 @@
 
 typedef int32_t handle_t;
 typedef uint32_t zpid_t;
+typedef uint32_t tid_t;
 typedef uint32_t den_id_t;
 typedef uint64_t tick_t;
 typedef uintptr_t paddr_t;
@@ -40,10 +41,23 @@ typedef struct
     zpid_t pid;
 } tspawn_result_t;
 
+enum {
+    RECVANY_KIND_SEND = 0u,
+    RECVANY_KIND_CALL = 1u,
+    RECVANY_KIND_IRQ = 2u,
+    RECVANY_KIND_TIMEOUT = 3u,
+};
+
+#define RECVANY_NO_MATCH UINT32_MAX
+
 /* recvany result struct */
 typedef struct {
     uint32_t matched_index;  /* which handle in the input array */
     uint32_t kind;           /* 0=send, 1=call, 2=irq, 3=timeout */
+    union {
+        zpid_t sender_pid;  /* for send */
+        handle_t reply_handle; /* for call */
+    };
     uint32_t source;         /* send: sender_pid; call: reply_handle */
     uint32_t r1;             /* send: payload; call: sender_pid */
     uint32_t r2;             /* send/call: payload or IPCX length */

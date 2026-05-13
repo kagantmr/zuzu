@@ -183,6 +183,10 @@ int main(void)
     if ((exit_code = zuart_setup()) != 0)
         return exit_code;
 
+    const char *startup_banner = "zuart: online\n";
+    for (const char *p = startup_banner; *p; p++)
+        uart_txbyte(*p);
+
     zuzu_ipcmsg_t msg;
 
     while (1)

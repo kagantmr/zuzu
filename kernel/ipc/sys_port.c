@@ -8,7 +8,7 @@
 #define LOG_FMT(fmt) "(sys_port) " fmt
 #include "core/log.h"
 
-extern process_t *current_process;
+extern thread_t *current_thread;
 extern process_t *process_table[MAX_PROCESSES];
 endpoint_t *nametable_endpoint;
 
@@ -21,20 +21,20 @@ static bool can_regrant_received_handle(const process_t *grantee)
 
 void port_create(exception_frame_t *frame)
 {
-    if (!current_process)
+    if (!current_thread)
     {
         frame->r[0] = ERR_BADARG;
         return;
     }
 
-    handle_t handle = handle_vec_find_free(&current_process->handle_table);
+    handle_t handle = handle_vec_find_free(&current_thread->owner_process->handle_table);
     if (handle == -1)
     {
         frame->r[0] = ERR_NOMEM;
         return;
     }
 
-    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle);
+    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle);
 
     endpoint_t *new_endpoint = (endpoint_t *)kalloc_endpoint();
     if (!new_endpoint)
@@ -42,7 +42,7 @@ void port_create(exception_frame_t *frame)
         frame->r[0] = ERR_NOMEM;
         return;
     }
-    if (current_process->flags & PROC_FLAG_INIT && !nametable_endpoint)
+    if (current_thread->owner_process->flags & PROC_FLAG_INIT && !nametable_endpoint)
     {
 
         nametable_endpoint = new_endpoint;
@@ -50,7 +50,7 @@ void port_create(exception_frame_t *frame)
         for (int j = 0; j < MAX_PROCESSES; j++)
         {
             process_t *p = process_table[j]; 
-            if (p && p != current_process)
+            if (p && p != current_thread->owner_process)
             {
                 handle_entry_t *p_entry = handle_vec_get(&p->handle_table, 0);
                 if (p_entry && p_entry->type == HANDLE_FREE) {
@@ -67,7 +67,7 @@ void port_create(exception_frame_t *frame)
     // list_init(&new_endpoint->node);
     list_init(&new_endpoint->sender_queue);
     list_init(&new_endpoint->receiver_queue);
-    new_endpoint->owner_pid = current_process->pid;
+    new_endpoint->owner_pid = current_thread->owner_process->pid;
     new_endpoint->ref_count = 1;
     new_endpoint->alive = true;
     entry->ep = new_endpoint;
@@ -80,7 +80,7 @@ void port_create(exception_frame_t *frame)
 
 void port_destroy(exception_frame_t *frame)
 {
-    if (!current_process)
+    if (!current_thread)
     {
         frame->r[0] = ERR_BADARG;
         return;
@@ -89,7 +89,7 @@ void port_destroy(exception_frame_t *frame)
     int handle = (int)frame->r[0];
 
     // Validate handle
-    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle);
+    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle);
     if (!entry)
     {
         frame->r[0] = ERR_BADARG;
@@ -118,7 +118,7 @@ void port_destroy(exception_frame_t *frame)
     }
 
     // Only owner can destroy
-    if (ep->owner_pid != current_process->pid)
+    if (ep->owner_pid != current_thread->owner_process->pid)
     {
         frame->r[0] = ERR_NOPERM;
         return;
@@ -128,24 +128,24 @@ void port_destroy(exception_frame_t *frame)
     while (!list_empty(&ep->sender_queue))
     {
         list_node_t *n = list_pop_front(&ep->sender_queue);
-        process_t *proc = container_of(n, process_t, node);
-        proc->ipc_state = IPC_NONE;
-        proc->blocked_endpoint = NULL;
-        proc->trap_frame->r[0] = ERR_DEAD;
-        proc->process_state = PROCESS_READY;
-        sched_add(proc);
+        thread_t *t = container_of(n, thread_t, node);
+        t->ipc_state = IPC_NONE;
+        t->blocked_endpoint = NULL;
+        t->trap_frame->r[0] = ERR_DEAD;
+        t->state = READY;
+        sched_add(t);
     }
 
     // Wake all blocked receivers with error
     while (!list_empty(&ep->receiver_queue))
     {
         list_node_t *n = list_pop_front(&ep->receiver_queue);
-        process_t *proc = container_of(n, process_t, node);
-        proc->ipc_state = IPC_NONE;
-        proc->blocked_endpoint = NULL;
-        proc->trap_frame->r[0] = ERR_DEAD;
-        proc->process_state = PROCESS_READY;
-        sched_add(proc);
+        thread_t *t = container_of(n, thread_t, node);
+        t->ipc_state = IPC_NONE;
+        t->blocked_endpoint = NULL;
+        t->trap_frame->r[0] = ERR_DEAD;
+        t->state = READY;
+        sched_add(t);
     }
 
     ep->alive = false;
@@ -164,7 +164,7 @@ void port_destroy(exception_frame_t *frame)
 
 void port_grant(exception_frame_t *frame)
 {
-    if (!current_process)
+    if (!current_thread)
     {
         frame->r[0] = ERR_BADARG;
         return;
@@ -174,7 +174,7 @@ void port_grant(exception_frame_t *frame)
     zpid_t pid = frame->r[1];
 
     // Validate handle
-    handle_entry_t *src = handle_vec_get(&current_process->handle_table, (uint32_t)handle);
+    handle_entry_t *src = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle);
     if (!src || src->type == HANDLE_FREE)
     {
         frame->r[0] = ERR_BADARG;
@@ -200,7 +200,7 @@ void port_grant(exception_frame_t *frame)
         frame->r[0] = ERR_NOENT;
         return;
     }
-    if (grantee->process_state == PROCESS_ZOMBIE)
+    if (grantee->thread->state == ZOMBIE)
     {
         frame->r[0] = ERR_BUSY;
         return;

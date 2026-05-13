@@ -9,9 +9,12 @@
 #include <zuzu/user_layout.h>
 #include <mem.h>
 #include <string.h>
+#include <stdint.h>
+#include <elf.h>
 #include "kstack.h"
 #include "core/panic.h"
 #include "zuzu/syscall_nums.h"
+#include "arch/arm/include/cache.h"
 
 uint32_t next_pid = 1;
 process_t *process_table[MAX_PROCESSES];
@@ -19,6 +22,342 @@ extern endpoint_t *nametable_endpoint;
 
 #define LOG_FMT(fmt) "(proc) " fmt
 #include "core/log.h"
+
+static bool elf_segment_ranges_overlap(const Elf32_Phdr *a, const Elf32_Phdr *b)
+{
+    uint32_t a_start = a->p_vaddr;
+    uint32_t b_start = b->p_vaddr;
+    uint32_t a_end = a->p_vaddr + a->p_memsz;
+    uint32_t b_end = b->p_vaddr + b->p_memsz;
+
+    if (a_end < a_start || b_end < b_start)
+        return true;
+
+    return (a_start < b_end) && (b_start < a_end);
+}
+
+process_t *process_load(const void *elf_data, size_t elf_size,
+                                   const char *name, const char *argbuf,
+                                   size_t argbuf_len, uint32_t argc)
+{
+    uint32_t elf_entry = elf_validate(elf_data, elf_size);
+    if (!elf_entry)
+        return NULL;
+
+    process_t *p = process_create(name);
+    if (!p)
+        return NULL;
+    thread_t *t = p->thread;
+    if (!t)
+        goto fail_process;
+    vaddr_t stack_top = t->kernel_stack_top;
+
+    for (int i = 0; i < elf_phdr_count(elf_data); i++)
+    {
+        Elf32_Phdr *ph_i = elf_phdr_get(elf_data, i);
+        if (ph_i->p_type != PT_LOAD)
+            continue;
+
+        for (int j = i + 1; j < elf_phdr_count(elf_data); j++)
+        {
+            Elf32_Phdr *ph_j = elf_phdr_get(elf_data, j);
+            if (ph_j->p_type != PT_LOAD)
+                continue;
+
+            if (elf_segment_ranges_overlap(ph_i, ph_j))
+            {
+                KERROR("ELF load segments overlap: [%08X, %08X) and [%08X, %08X)",
+                       ph_i->p_vaddr, ph_i->p_vaddr + ph_i->p_memsz,
+                       ph_j->p_vaddr, ph_j->p_vaddr + ph_j->p_memsz);
+                goto fail_kstack;
+            }
+        }
+    }
+
+    for (int i = 0; i < elf_phdr_count(elf_data); i++)
+    {
+        Elf32_Phdr *ph = elf_phdr_get(elf_data, i);
+        if (ph->p_type == PT_LOAD)
+        {
+            if (ph->p_offset + ph->p_filesz > elf_size)
+            {
+                goto fail_kstack;
+            }
+            size_t pages_needed = (ph->p_memsz + PAGE_SIZE - 1) / PAGE_SIZE;
+            uintptr_t *segment_pages = kmalloc(pages_needed * sizeof(uintptr_t));
+            if (!segment_pages)
+                goto fail_kstack;
+
+            uint32_t prot = 0;
+            if (ph->p_flags & PF_R)
+                prot |= VM_PROT_READ;
+            if (ph->p_flags & PF_W)
+                prot |= VM_PROT_WRITE;
+            if (ph->p_flags & PF_X)
+                prot |= VM_PROT_EXEC;
+
+            for (uint32_t page = 0; page < pages_needed; page++)
+            {
+                uintptr_t page_pa = pmm_alloc_page();
+                if (!page_pa)
+                {
+                    for (uint32_t j = 0; j < page; j++)
+                    {
+                        uintptr_t orphan_va = ph->p_vaddr + j * PAGE_SIZE;
+                        vmm_unmap_range(p->as, orphan_va, PAGE_SIZE);
+                        pmm_free_page(segment_pages[j]);
+                    }
+                    kfree(segment_pages);
+                    goto fail_kstack;
+                }
+
+                segment_pages[page] = page_pa;
+
+                vaddr_t file_offset = page * PAGE_SIZE;
+                size_t bytes_to_copy = 0;
+                if (file_offset < ph->p_filesz)
+                {
+                    bytes_to_copy = ph->p_filesz - file_offset;
+                    if (bytes_to_copy > PAGE_SIZE)
+                        bytes_to_copy = PAGE_SIZE;
+
+                    memcpy((void *)PA_TO_VA(page_pa),
+                           (const uint8_t *)elf_data + ph->p_offset + file_offset,
+                           bytes_to_copy);
+
+                    if (bytes_to_copy < PAGE_SIZE)
+                    {
+                        memset((uint8_t *)PA_TO_VA(page_pa) + bytes_to_copy,
+                               0,
+                               PAGE_SIZE - bytes_to_copy);
+                    }
+                }
+                else
+                {
+                    memset((void *)PA_TO_VA(page_pa), 0, PAGE_SIZE);
+                }
+
+                vaddr_t va = ph->p_vaddr + page * PAGE_SIZE;
+                if (!kmap_user_page(p->as, page_pa, va, prot))
+                {
+                    pmm_free_page(page_pa);
+                    for (uint32_t j = 0; j < page; j++)
+                    {
+                        vaddr_t orphan_va = ph->p_vaddr + j * PAGE_SIZE;
+                        vmm_unmap_range(p->as, orphan_va, PAGE_SIZE);
+                        pmm_free_page(segment_pages[j]);
+                    }
+                    kfree(segment_pages);
+                    goto fail_kstack;
+                }
+
+                cache_flush_code_range((uintptr_t)PA_TO_VA(page_pa), PAGE_SIZE);
+            }
+
+            vm_region_t seg_region = {
+                .vaddr_start = ph->p_vaddr,
+                .size = pages_needed * PAGE_SIZE,
+                .prot = prot | VM_PROT_USER,
+                .memtype = VM_MEM_NORMAL,
+                .owner = VM_OWNER_ANON,
+                .flags = VM_FLAG_NONE,
+            };
+            if (!vmm_add_region(p->as, &seg_region))
+            {
+                KERROR("Failed to add ELF segment region at VA %08X", ph->p_vaddr);
+                kfree(segment_pages);
+                goto fail_kstack;
+            }
+
+            kfree(segment_pages);
+        }
+    }
+
+    const vaddr_t user_stack_base = USER_STACK_BASE;
+    const vaddr_t user_guard_va = USER_STACK_GUARD_VA;
+
+    paddr_t user_stack_pa = pmm_alloc_pages(USER_STACK_PAGES);
+    if (!user_stack_pa)
+        goto fail_kstack;
+
+    for (int i = 0; i < (int)USER_STACK_PAGES; i++)
+    {
+        if (!kmap_user_page(p->as, user_stack_pa + i * 0x1000,
+                            user_stack_base + i * 0x1000,
+                            VM_PROT_READ | VM_PROT_WRITE))
+        {
+            for (int j = i; j < (int)USER_STACK_PAGES; j++)
+                pmm_free_page(user_stack_pa + j * 0x1000);
+            goto fail_kstack;
+        }
+    }
+
+    vm_region_t stack_region = {
+        .vaddr_start = user_stack_base,
+        .size = USER_STACK_SIZE,
+        .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
+        .memtype = VM_MEM_NORMAL,
+        .owner = VM_OWNER_ANON,
+        .flags = VM_FLAG_NONE,
+    };
+    if (!vmm_add_region(p->as, &stack_region))
+    {
+        KERROR("Failed to add user stack region");
+        goto fail_kstack;
+    }
+
+    vm_region_t guard = {
+        .vaddr_start = user_guard_va,
+        .size = PAGE_SIZE,
+        .prot = 0,
+        .memtype = VM_MEM_NORMAL,
+        .owner = VM_OWNER_NONE,
+        .flags = VM_FLAG_GUARD,
+    };
+    if (!vmm_add_region(p->as, &guard))
+    {
+        KERROR("Failed to add user stack guard region");
+        goto fail_kstack;
+    }
+
+    vaddr_t sp = USR_SP;
+    vaddr_t argv_va = 0;
+
+    const size_t user_stack_size = 4 * PAGE_SIZE;
+
+    if ((argc > 0) != (argbuf && argbuf_len > 0))
+    {
+        KERROR("Invalid argv payload: argc=%u argbuf_len=%u", argc, (unsigned)argbuf_len);
+        goto fail_kstack;
+    }
+
+    if (argbuf && argbuf_len > 0 && argc > 0)
+    {
+        if (((const char *)argbuf)[argbuf_len - 1] != '\0')
+        {
+            KERROR("Invalid argv payload: missing trailing NUL");
+            goto fail_kstack;
+        }
+
+        size_t nul_count = 0;
+        for (size_t i = 0; i < argbuf_len; i++)
+        {
+            if (((const char *)argbuf)[i] == '\0')
+            {
+                nul_count++;
+            }
+        }
+        if (nul_count < argc)
+        {
+            KERROR("Invalid argv payload: argc exceeds NUL-delimited strings");
+            goto fail_kstack;
+        }
+
+        size_t argv_slots = (size_t)argc + 1u;
+        if (argv_slots <= (size_t)argc)
+        {
+            KERROR("Invalid argv payload: argc too large");
+            goto fail_kstack;
+        }
+
+        size_t argv_bytes = argv_slots * sizeof(uint32_t);
+        if (argv_bytes / sizeof(uint32_t) != argv_slots)
+        {
+            KERROR("Invalid argv payload: argv bytes overflow");
+            goto fail_kstack;
+        }
+        vaddr_t check_sp = USR_SP;
+
+        if (check_sp - user_stack_base > user_stack_size ||
+            argbuf_len > (size_t)(check_sp - user_stack_base))
+        {
+            KERROR("argv payload does not fit user stack");
+            goto fail_kstack;
+        }
+
+        check_sp -= argbuf_len;
+        check_sp &= ~((uintptr_t)3u);
+
+        if (argv_bytes > (size_t)(check_sp - user_stack_base))
+        {
+            KERROR("argv pointer array does not fit user stack");
+            goto fail_kstack;
+        }
+
+        check_sp -= argv_bytes;
+        check_sp &= ~((uintptr_t)7u);
+
+        if (check_sp < user_stack_base)
+        {
+            KERROR("argv layout underflowed user stack");
+            goto fail_kstack;
+        }
+
+        sp -= argbuf_len;
+        sp &= ~3u;
+        vaddr_t strings_va = sp;
+        memcpy((void *)PA_TO_VA(user_stack_pa + (strings_va - user_stack_base)),
+               argbuf, argbuf_len);
+
+        sp -= (argc + 1) * sizeof(uint32_t);
+        sp &= ~7u;
+        argv_va = sp;
+        uint32_t *argv_kern = (uint32_t *)PA_TO_VA(user_stack_pa + (argv_va - user_stack_base));
+
+        vaddr_t str_va = strings_va;
+        for (uint32_t a = 0; a < argc; a++)
+        {
+            argv_kern[a] = (uint32_t)str_va;
+            str_va += strlen((const char *)PA_TO_VA(user_stack_pa + (str_va - user_stack_base))) + 1;
+        }
+        argv_kern[argc] = 0;
+    }
+
+    stack_top -= 17 * sizeof(uint32_t);
+    uint32_t *exc_frame = (uint32_t *)stack_top;
+    exc_frame[0] = argc;
+    exc_frame[1] = (vaddr_t)argv_va;
+    for (int i = 2; i < 13; i++)
+        exc_frame[i] = 0;
+    exc_frame[13] = (vaddr_t)sp;
+    exc_frame[14] = 0;
+    exc_frame[15] = elf_entry;
+    exc_frame[16] = 0x10;
+
+    stack_top -= sizeof(cpu_context_t);
+    cpu_context_t *context = (cpu_context_t *)stack_top;
+    memset(context, 0, sizeof(cpu_context_t));
+    context->lr = (uint32_t)process_entry_trampoline;
+
+    stack_top -= 132;
+    memset((void *)stack_top, 0, 132);
+    t->kernel_sp = (uint32_t *)stack_top;
+    t->state = READY;
+
+    KDEBUG("Created process with name %s PID %u", p->name, p->pid);
+    return p;
+
+fail_kstack:
+    if (process_table[p->pid % MAX_PROCESSES] == p)
+        process_table[p->pid % MAX_PROCESSES] = NULL;
+
+    if (nametable_endpoint) {
+        handle_entry_t *slot0 = handle_vec_get(&p->handle_table, 0);
+        if (slot0 && slot0->type == HANDLE_ENDPOINT && slot0->ep == nametable_endpoint) {
+            if (nametable_endpoint->ref_count > 0)
+                nametable_endpoint->ref_count--;
+        }
+    }
+
+    if (p->as)
+        arch_mmu_free_user_pages(p->as);
+    as_destroy(p->as);
+    handle_vec_destroy(&p->handle_table);
+    thread_destroy(t);
+fail_process:
+    kfree(p);
+    return NULL;
+}
 
 void process_track_reply_cap(process_t *caller, process_t *holder,
                              handle_t holder_slot, reply_cap_t *rc)
@@ -32,25 +371,29 @@ void process_track_reply_cap(process_t *caller, process_t *holder,
 }
 
 process_t *process_create(const char* name) {
-    process_t *process = kmalloc(sizeof(process_t));
-    if (!process)
+    process_t *p = kmalloc(sizeof(process_t));
+    if (!p)
         return NULL;
-    memset(process, 0, sizeof(process_t));
+    memset(p, 0, sizeof(process_t));
 
-    if (!handle_vec_init(&process->handle_table))
+    list_init(&p->outstanding_replies);
+    list_init(&p->threads);
+    list_init(&p->children);
+
+    thread_t *t = thread_create(p);
+    if (!t)
+        goto fail_process;
+    p->thread = t;
+
+    if (!handle_vec_init(&p->handle_table))
         goto fail_process;
 
-    process->as = as_create(ADDRSPACE_USER);
-    if (!process->as)
+    p->as = as_create(ADDRSPACE_USER);
+    if (!p->as)
         goto fail_handles;
 
-    uint32_t *kstack = (uint32_t *)kstack_alloc();
-    if (!kstack)
-        goto fail_as;
-    process->kernel_stack_top = (vaddr_t)kstack;
-
     // map syspage into user space
-    if (!kmap_user_page(process->as, syspage_pa(), USER_SYSPAGE_VA, VM_PROT_READ))
+    if (!kmap_user_page(p->as, syspage_pa(), USER_SYSPAGE_VA, VM_PROT_READ))
         goto fail_kstack;
 
     vm_region_t sys_region = {
@@ -61,16 +404,16 @@ process_t *process_create(const char* name) {
         .owner = VM_OWNER_SHARED,
         .flags = VM_FLAG_NONE,
     };
-    if (!vmm_add_region(process->as, &sys_region))
+    if (!vmm_add_region(p->as, &sys_region))
         goto fail_kstack;
 
     // map IPCX transfer buffer into as
-    process->ipc_buf_pa = pmm_alloc_page();
-    if (!process->ipc_buf_pa)
+    t->ipc_buf_pa = pmm_alloc_page();
+    if (!t->ipc_buf_pa)
         goto fail_kstack;
 
-    if (!kmap_user_page(process->as, process->ipc_buf_pa, IPCX_BUF_VA,
-                        VM_PROT_READ | VM_PROT_WRITE))
+    if (!kmap_user_page(p->as, t->ipc_buf_pa, IPCX_BUF_VA,
+                        VM_PROT_READ | VM_PROT_WRITE)) // could use a bump pointer instead
         goto fail_kstack;
 
     vm_region_t ipc_region = {
@@ -81,11 +424,11 @@ process_t *process_create(const char* name) {
         .owner = VM_OWNER_ANON,
         .flags = VM_FLAG_NONE,
     };
-    if (!vmm_add_region(process->as, &ipc_region))
+    if (!vmm_add_region(p->as, &ipc_region))
         goto fail_kstack;
 
     // slot 0 is reserved for nametable endpoint when available
-    handle_entry_t *slot0 = handle_vec_get(&process->handle_table, 0);
+    handle_entry_t *slot0 = handle_vec_get(&p->handle_table, 0);
     if (!slot0)
         goto fail_kstack;
 
@@ -102,20 +445,13 @@ process_t *process_create(const char* name) {
         slot0->ep = NULL;
     }
 
-    process->process_state = PROCESS_STOPPED;
-    process->device_va_next = USER_DEVICE_BASE;
-    process->mmap_va_next = USER_MMAP_BASE;
-    process->parent_pid = 0;
-    list_init(&process->outstanding_replies);
-    list_init(&process->children);
-    process->priority = 1;
-    process->time_slice = 5;
-    process->ticks_remaining = process->time_slice;
-    process->wake_tick = 0;
-    process->wake_reason = WAKE_NONE;
-    process->ipc_state = IPC_NONE;
-    process->blocked_endpoint = NULL;
-    process->flags = 0;
+    p->device_va_next = USER_DEVICE_BASE;
+    p->mmap_va_next = USER_MMAP_BASE;
+    p->parent_pid = 0;
+    t->priority = 1;
+    t->time_slice = 5;
+    t->ticks_remaining = t->time_slice;
+    p->flags = 0;
 
     if (name) {
         const char *short_name = name;
@@ -123,7 +459,7 @@ process_t *process_create(const char* name) {
             if (*p == '/')
                 short_name = p + 1;
         }
-        strncpy(process->name, short_name, sizeof(process->name) - 1);
+        strncpy(p->name, short_name, sizeof(p->name) - 1);
     }
 
     zpid_t start = next_pid % MAX_PROCESSES;
@@ -136,29 +472,29 @@ process_t *process_create(const char* name) {
     } while (slot != start);
 
     if (process_table[slot] != NULL)
-        goto fail_as;
+        goto fail_kstack;
 
-    process->pid = next_pid++;
-    process_table[slot] = process;
-    return process;
+    p->pid = next_pid++;
+    process_table[slot] = p;
+    KDEBUG("Created thread with TID %u for process %d", p->thread->tid, p->pid);
+    return p;
 
 fail_kstack:
-    kstack_free(process->kernel_stack_top);
-fail_as:
-    if (process->as)
-        arch_mmu_free_user_pages(process->as);
-    as_destroy(process->as);
+    if (p->as)
+        arch_mmu_free_user_pages(p->as);
+    as_destroy(p->as);
 fail_handles:
     if (nametable_endpoint) {
-        handle_entry_t *maybe_slot0 = handle_vec_get(&process->handle_table, 0);
+        handle_entry_t *maybe_slot0 = handle_vec_get(&p->handle_table, 0);
         if (maybe_slot0 && maybe_slot0->type == HANDLE_ENDPOINT && maybe_slot0->ep == nametable_endpoint) {
             if (nametable_endpoint->ref_count > 0)
                 nametable_endpoint->ref_count--;
         }
     }
-    handle_vec_destroy(&process->handle_table);
+    handle_vec_destroy(&p->handle_table);
+    thread_destroy(t);
 fail_process:
-    kfree(process);
+    kfree(p);
     return NULL;
 }
 
@@ -253,7 +589,7 @@ process_t *process_find_zombie_child(process_t *parent)
     list_node_t *node = parent->children.node.next;
     while (node != &parent->children.node) {
         process_t *child = container_of(node, process_t, sibling_node);
-        if (child->process_state == PROCESS_ZOMBIE)
+        if (child->thread->state == ZOMBIE)
             return child;
         node = node->next;
     }
@@ -261,12 +597,61 @@ process_t *process_find_zombie_child(process_t *parent)
     return NULL;
 }
 
+void process_wake_joiners(tid_t tid, int32_t exit_status)
+{
+    for (uint32_t slot = 0; slot < MAX_PROCESSES; slot++) {
+        process_t *joiner = process_table[slot];
+        if (!joiner || joiner->waiting_for_tid != tid)
+            continue;
+
+        joiner->waiting_for_tid = 0;
+        if (joiner->thread) {
+            joiner->thread->wake_reason = WAKE_IPC;
+            joiner->thread->state = READY;
+            if (joiner->thread->trap_frame)
+                joiner->thread->trap_frame->r[0] = (uint32_t)exit_status;
+            sched_add(joiner->thread);
+        }
+    }
+}
+
+static thread_t *process_find_blocked_thread(process_t *p, endpoint_t *ep)
+{
+    if (!p)
+        return NULL;
+
+    list_node_t *node = p->threads.node.next;
+    while (node != &p->threads.node) {
+        thread_t *thread = container_of(node, thread_t, process_node);
+        if (ep) {
+            if (thread->blocked_endpoint == ep &&
+                (thread->ipc_state == IPC_SENDER || thread->ipc_state == IPC_RECEIVER))
+                return thread;
+        } else if (thread->ipc_state == IPC_WAITING) {
+            return thread;
+        }
+        node = node->next;
+    }
+
+    return p->thread;
+}
+
 void process_kill(process_t *p, const int exit_status) {
+    if (!p)
+        return;
+
     if (p->flags & (PROC_FLAG_INIT | PROC_FLAG_DEVMGR)) {
         panic("Attempted to kill critical process");
     }
 
-    p->process_state = PROCESS_ZOMBIE;
+    list_node_t *thread_node = p->threads.node.next;
+    while (thread_node != &p->threads.node) {
+        list_node_t *next_thread = thread_node->next;
+        thread_t *thread = container_of(thread_node, thread_t, process_node);
+        thread->exit_status = exit_status;
+        thread_kill(thread);
+        thread_node = next_thread;
+    }
     p->exit_status = exit_status;
 
     // Clean up handle table
@@ -283,20 +668,30 @@ void process_kill(process_t *p, const int exit_status) {
                 while (!list_empty(&ep->sender_queue)) {
                     list_node_t *n = list_pop_front(&ep->sender_queue);
                     process_t *proc = container_of(n, process_t, node);
-                    proc->ipc_state = IPC_NONE;
-                    proc->blocked_endpoint = NULL;
-                    proc->trap_frame->r[0] = ERR_DEAD;
-                    proc->process_state = PROCESS_READY;
-                    sched_add(proc);
+                    thread_t *thread = process_find_blocked_thread(proc, ep);
+                    if (thread) {
+                        thread->ipc_state = IPC_NONE;
+                        thread->blocked_endpoint = NULL;
+                        thread->wake_reason = WAKE_IPC;
+                        if (thread->trap_frame)
+                            thread->trap_frame->r[0] = ERR_DEAD;
+                        thread->state = READY;
+                        sched_add(thread);
+                    }
                 }
                 while (!list_empty(&ep->receiver_queue)) {
                     list_node_t *n = list_pop_front(&ep->receiver_queue);
                     process_t *proc = container_of(n, process_t, node);
-                    proc->ipc_state = IPC_NONE;
-                    proc->blocked_endpoint = NULL;
-                    proc->trap_frame->r[0] = ERR_DEAD;
-                    proc->process_state = PROCESS_READY;
-                    sched_add(proc);
+                    thread_t *thread = process_find_blocked_thread(proc, ep);
+                    if (thread) {
+                        thread->ipc_state = IPC_NONE;
+                        thread->blocked_endpoint = NULL;
+                        thread->wake_reason = WAKE_IPC;
+                        if (thread->trap_frame)
+                            thread->trap_frame->r[0] = ERR_DEAD;
+                        thread->state = READY;
+                        sched_add(thread);
+                    }
                 }
             }
             if (ep) {
@@ -340,12 +735,15 @@ void process_kill(process_t *p, const int exit_status) {
             reply_cap_t *rc = entry->reply;
             process_t *caller = process_find_by_pid(rc ? rc->caller_pid : 0);
 
-            if (caller && caller->ipc_state == IPC_WAITING) {
-                caller->ipc_state = IPC_NONE;
-                caller->blocked_endpoint = NULL;
-                caller->trap_frame->r[0] = ERR_DEAD;
-                caller->process_state = PROCESS_READY;
-                sched_add(caller);
+            thread_t *thread = process_find_blocked_thread(caller, NULL);
+            if (thread && thread->ipc_state == IPC_WAITING) {
+                thread->ipc_state = IPC_NONE;
+                thread->blocked_endpoint = NULL;
+                thread->wake_reason = WAKE_IPC;
+                if (thread->trap_frame)
+                    thread->trap_frame->r[0] = ERR_DEAD;
+                thread->state = READY;
+                sched_add(thread);
             }
 
             if (rc) {
@@ -363,11 +761,16 @@ void process_kill(process_t *p, const int exit_status) {
                 while (!list_empty(&ntfn->wait_queue)) {
                     list_node_t *n = list_pop_front(&ntfn->wait_queue);
                     process_t *proc = container_of(n, process_t, node);
-                    proc->trap_frame->r[0] = ERR_DEAD;
-                    proc->process_state = PROCESS_READY;
-                    sched_add(proc);
-                    proc->blocked_endpoint = NULL;
-                    proc->ipc_state = IPC_NONE;
+                    thread_t *thread = process_find_blocked_thread(proc, NULL);
+                    if (thread) {
+                        if (thread->trap_frame)
+                            thread->trap_frame->r[0] = ERR_DEAD;
+                        thread->state = READY;
+                        thread->wake_reason = WAKE_IPC;
+                        thread->blocked_endpoint = NULL;
+                        thread->ipc_state = IPC_NONE;
+                        sched_add(thread);
+                    }
                 }
             }
             if (ntfn) {
@@ -402,15 +805,13 @@ void process_kill(process_t *p, const int exit_status) {
     // Remove process from whichever queue currently owns p->node, if any.
     if (p->node.prev && p->node.next)
         list_remove(&p->node);
-    p->ipc_state = IPC_NONE;
-    p->blocked_endpoint = NULL;
 
     process_t *parent = process_find_by_pid(p->parent_pid);
-    if (parent && parent->process_state == PROCESS_BLOCKED 
+    if (parent && parent->thread && parent->thread->state == BLOCKED
               && (parent->waiting_for == p->pid || parent->waiting_for == UINT32_MAX)) {
-        parent->process_state = PROCESS_READY;
+        parent->thread->state = READY;
         parent->waiting_for = 0;
-        sched_add(parent);
+        sched_add(parent->thread);
     } else {
         sched_defer_destroy(p);
     }
@@ -418,22 +819,29 @@ void process_kill(process_t *p, const int exit_status) {
 
 void process_destroy(process_t *p)
 {
+    if (!p)
+        return;
 
-    // extern pmm_state_t pmm_state;
     irq_release_all(p);
-    // KDEBUG("destroy PID %d, pmm before=%d", pid, pmm_state.free_pages);
-    //(void)pmm_state;
+    if (p->node.prev && p->node.next)
+        list_remove(&p->node);
     if (p->sibling_node.prev && p->sibling_node.next)
         list_remove(&p->sibling_node);
+    if (p->destroy_node.prev && p->destroy_node.next)
+        list_remove(&p->destroy_node);
+    if (p->timeout_node.prev && p->timeout_node.next)
+        list_remove(&p->timeout_node);
+    while (!list_empty(&p->threads)) {
+        list_node_t *node = p->threads.node.next;
+        thread_t *thread = container_of(node, thread_t, process_node);
+        thread_destroy(thread);
+    }
     if (p->as)
     {
         arch_mmu_free_user_pages(p->as);
         as_destroy(p->as);
     }
     handle_vec_destroy(&p->handle_table);
-    if (p->kernel_stack_top)
-        kstack_free(p->kernel_stack_top);
     process_table[p->pid % MAX_PROCESSES] = NULL;
     kfree(p);
-    // KDEBUG("destroy PID %d, pmm after=%d", pid, pmm_state.free_pages);
 }
