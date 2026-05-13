@@ -16,7 +16,6 @@
 #include "ksym.h"
 
 extern kernel_layout_t kernel_layout;
-extern process_t      *current_process;
 extern pmm_state_t     pmm_state;
 
 panic_fault_context_t panic_fault_ctx;
@@ -259,15 +258,15 @@ static const char *panic_logo[] = {
  * Shared helpers
  * ============================================================ */
 
-static const char *panic_proc_state_str(int state)
+static const char *panic_thread_state_str(int state)
 {
     switch (state) {
-    case PROCESS_READY:   return "READY";
-    case PROCESS_RUNNING: return "RUNNING";
-    case PROCESS_BLOCKED: return "BLOCKED";
-    case PROCESS_ZOMBIE:  return "ZOMBIE";
-    case PROCESS_STOPPED: return "STOPPED";
-    default:              return "UNKNOWN";
+    case READY:   return "READY";
+    case RUNNING: return "RUNNING";
+    case BLOCKED: return "BLOCKED";
+    case ZOMBIE:  return "ZOMBIE";
+    case FROZEN:  return "FROZEN";
+    default:      return "UNKNOWN";
     }
 }
 
@@ -474,48 +473,55 @@ static void panic_screen(const char *reason, void *caller_ra)
         panic_box_line(line);
     }
 
-    /* -- PROCESS + MEMORY footer ---------------------------------------- */
+    /* -- THREAD + MEMORY footer ---------------------------------------- */
     /*
      * Single panic_box_rule() closes the register/backtrace section and
      * opens the footer — no duplicate consecutive rules.
      */
     panic_box_rule();
 
-    /* PROCESS */
-    if (current_process) {
+    /* THREAD */
+    if (current_thread) {
         snprintf(line, sizeof(line),
-                 C_GOLD "PROCESS" C_RESET
-                 "  pid=%-4u ppid=%-4u %-7s  prio=%u  slice=%u  left=%u",
-                 current_process->pid,
-                 current_process->parent_pid,
-                 panic_proc_state_str(current_process->process_state),
-                 current_process->priority,
-                 current_process->time_slice,
-                 current_process->ticks_remaining);
+                 C_GOLD "THREAD" C_RESET
+                 "  tid=%-4u %-7s  prio=%u  slice=%u  left=%u",
+                 current_thread->tid,
+                 panic_thread_state_str(current_thread->state),
+                 current_thread->priority,
+                 current_thread->time_slice,
+                 current_thread->ticks_remaining);
         panic_box_line(line);
 
         snprintf(line, sizeof(line), "         ptr=%p  as=%p",
-                 current_process, current_process->as);
+                 current_thread, current_thread->owner_process ? current_thread->owner_process->as : NULL);
         panic_box_line(line);
 
-        process_t *ready[PANIC_READY_SNAPSHOT_MAX];
+        if (current_thread->owner_process) {
+            snprintf(line, sizeof(line),
+                     "         pid=%-4u ppid=%-4u",
+                     current_thread->owner_process->pid,
+                     current_thread->owner_process->parent_pid);
+            panic_box_line(line);
+        }
+
+        thread_t *ready[PANIC_READY_SNAPSHOT_MAX];
         size_t ready_total = sched_ready_queue_snapshot(ready, PANIC_READY_SNAPSHOT_MAX);
         size_t ready_shown = (ready_total < PANIC_READY_SNAPSHOT_MAX)
                              ? ready_total : PANIC_READY_SNAPSHOT_MAX;
         if (ready_total > 0) {
             int pos = snprintf(line, sizeof(line),
-                               "         ready=%lu  pids:",
+                               "         ready=%lu  tids:",
                                (unsigned long)ready_total);
             for (size_t i = 0; i < ready_shown && pos > 0; i++)
                 pos += snprintf(line + pos, sizeof(line) - (size_t)pos,
-                                " %u", ready[i]->pid);
+                                " %u", ready[i]->tid);
             if (ready_total > ready_shown)
                 pos += snprintf(line + pos, sizeof(line) - (size_t)pos,
                                 " (+%lu)", (unsigned long)(ready_total - ready_shown));
             panic_box_line(line);
         }
     } else {
-        panic_box_line(C_GOLD "PROCESS" C_RESET "  (none)");
+        panic_box_line(C_GOLD "THREAD" C_RESET "  (none)");
     }
 
     /* MEMORY */
@@ -596,18 +602,22 @@ static void panic_screen(const char *reason, void *caller_ra)
         }
     }
 
-    /* Process */
+    /* Thread */
     kprintf("  ---\n");
-    if (current_process) {
-        kprintf("  process: pid=%u ppid=%u %s  prio=%u  slice=%u  left=%u\n",
-                current_process->pid,
-                current_process->parent_pid,
-                panic_proc_state_str(current_process->process_state),
-                current_process->priority,
-                current_process->time_slice,
-                current_process->ticks_remaining);
+    if (current_thread) {
+        kprintf("  thread: tid=%u %s  prio=%u  slice=%u  left=%u\n",
+                current_thread->tid,
+                panic_thread_state_str(current_thread->state),
+                current_thread->priority,
+                current_thread->time_slice,
+                current_thread->ticks_remaining);
+        if (current_thread->owner_process) {
+            kprintf("  process: pid=%u ppid=%u\n",
+                    current_thread->owner_process->pid,
+                    current_thread->owner_process->parent_pid);
+        }
     } else {
-        kprintf("  process: (none)\n");
+        kprintf("  thread: (none)\n");
     }
 
     /* Memory */

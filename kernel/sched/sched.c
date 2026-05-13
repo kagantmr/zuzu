@@ -3,6 +3,7 @@
 #include <list.h>
 
 #include "kernel/syscall/syscall.h"
+#include "arch/arm/include/thread.h"
 
 #include "arch/arm/include/irq.h"
 #include "kernel/mm/vmm.h"
@@ -10,16 +11,25 @@
 #include "kernel/time/tick.h"
 #include <mem.h>
 
-static list_head_t run_queue = LIST_HEAD_INIT(run_queue); 
+static inline uint32_t thread_priority(const thread_t *t)
+{
+	if (!t)
+		return 0;
+
+	return t->priority;
+}
+
 static list_head_t destroy_queue = LIST_HEAD_INIT(destroy_queue);
 list_head_t sleep_queue = LIST_HEAD_INIT(sleep_queue);
-process_t *current_process;
+thread_t *current_thread;
 
 volatile uint8_t do_resched = 0; // needs spinlock guard on SMP
 
-static process_t idle_proc;  // only kernel_sp is used
+static thread_t idle_thread;  // only kernel_sp is used
 static uint8_t idle_stack[4096] __attribute__((aligned(8)));
 static bool on_idle_stack;
+
+static list_head_t run_queues[SCHED_PRIORITY_LEVELS];
 
 #define LOG_FMT(fmt) "(sched) " fmt
 #include "core/log.h"
@@ -49,20 +59,28 @@ static void sched_init_idle_context(void)
     sp -= 132;
     memset((void *)sp, 0, 132);
 
-    idle_proc.kernel_sp = (uint32_t *)sp;
-    idle_proc.process_state = PROCESS_RUNNING;
+    idle_thread.kernel_sp = (uint32_t *)sp;
+    idle_thread.state = RUNNING;
 }
 
 void sched_init() {
-    list_init(&run_queue);
+    for (uint32_t level = 0; level < SCHED_PRIORITY_LEVELS; level++)
+        list_init(&run_queues[level]);
     list_init(&destroy_queue);
     list_init(&sleep_queue);
-    current_process = NULL;
+    current_thread = NULL;
     on_idle_stack = false;
     sched_init_idle_context();
 }
-void sched_add(process_t *p) {
-    list_add_tail(&p->node, &run_queue.node);
+void sched_add(thread_t *t) {
+    if (!t)
+        return;
+
+    uint32_t priority = thread_priority(t);
+    if (priority >= SCHED_PRIORITY_LEVELS)
+        priority = SCHED_PRIORITY_LEVELS - 1;
+
+    list_add_tail(&t->node, &run_queues[priority].node);
 }
 
 void sched_defer_destroy(process_t *p) {
@@ -79,40 +97,48 @@ void sched_reap(void) {
 
 static bool sched_work_pending(void)
 {
-    return do_resched || !list_empty(&run_queue) || !list_empty(&destroy_queue);
+    if (do_resched || !list_empty(&destroy_queue))
+        return true;
+
+    for (uint32_t level = 0; level < SCHED_PRIORITY_LEVELS; level++) {
+        if (!list_empty(&run_queues[level]))
+            return true;
+    }
+
+    return false;
 }
 
-void sleep_queue_insert(process_t *p) {
+void sleep_queue_insert(thread_t *t) {
     list_node_t *curr;
     list_for_each(curr, &sleep_queue.node) {
-        process_t *s = container_of(curr, process_t, timeout_node);
-        if (p->wake_tick < s->wake_tick) {
-            list_insert_before(&p->timeout_node, curr);
+        thread_t *s = container_of(curr, thread_t, timeout_node);
+        if (t->wake_tick < s->wake_tick) {
+            list_insert_before(&t->timeout_node, curr);
             return;
         }
     }
-    list_add_tail(&p->timeout_node, &sleep_queue.node);
+    list_add_tail(&t->timeout_node, &sleep_queue.node);
 }
 
 static void sched_wake_sleepers(void) {
     uint64_t now = get_ticks();
     while (!list_empty(&sleep_queue)) {
         list_node_t *head = sleep_queue.node.next;
-        process_t *p = container_of(head, process_t, timeout_node);
-        if (p->wake_tick > now) break;
-        list_remove(&p->timeout_node);
-        if (p->ipc_state == IPC_RECEIVER || p->ipc_state == IPC_SENDER) {
-            list_remove(&p->node);
-            p->ipc_state = IPC_NONE;
-            p->blocked_endpoint = NULL;
-            p->wake_reason = WAKE_TIMEOUT;
-            p->trap_frame->r[0] = ERR_TIMEOUT;
-            p->process_state = PROCESS_READY;
-            sched_add(p);
+        thread_t *t = container_of(head, thread_t, timeout_node);
+        if (t->wake_tick > now) break;
+        list_remove(&t->timeout_node);
+        if (t->ipc_state == IPC_RECEIVER || t->ipc_state == IPC_SENDER) {
+            list_remove(&t->node);
+            t->ipc_state = IPC_NONE;
+            t->blocked_endpoint = NULL;
+            t->wake_reason = WAKE_TIMEOUT;
+            t->trap_frame->r[0] = ERR_TIMEOUT;
+            t->state = READY;
+            sched_add(t);
         } else {
-            p->process_state = PROCESS_READY;
-            list_add_tail(&p->node, &run_queue.node);
-            p->wake_tick = 0;
+            t->state = READY;
+            t->wake_tick = 0;
+            sched_add(t);
         }
     }
 }
@@ -142,48 +168,62 @@ void sched_idle_wait(void)
 
 void schedule() {
 
-    process_t *prev = current_process;
+    thread_t *prev = current_thread;
     bool from_idle = (prev == NULL && on_idle_stack);
 
-    if (current_process != NULL) {
-        if (current_process->process_state == PROCESS_RUNNING) {
-            current_process->process_state = PROCESS_READY;
-            list_add_tail(&current_process->node, &run_queue.node);
+    if (current_thread != NULL) {
+        if (current_thread->state == RUNNING) {
+            current_thread->state = READY;
+            sched_add(current_thread);
         }
     }
 
     sched_wake_sleepers();
 
-    if (list_empty(&run_queue)) {
-        current_process = NULL;
+    list_head_t *selected_queue = NULL;
+    for (int level = SCHED_PRIORITY_LEVELS - 1; level >= 0; level--) {
+        if (!list_empty(&run_queues[level])) {
+            selected_queue = &run_queues[level];
+            break;
+        }
+    }
+
+    if (!selected_queue) {
+        current_thread = NULL;
+        current_thread = NULL;
         if (from_idle) {
             return;
         }
-        context_switch(prev, &idle_proc);
+        context_switch(prev, &idle_thread);
         return;
     }
 
-    list_node_t *next_node = list_pop_front(&run_queue);
-    current_process = container_of(next_node, process_t, node);
-    current_process->process_state = PROCESS_RUNNING;
+    list_node_t *next_node = list_pop_front(selected_queue);
+    current_thread = container_of(next_node, thread_t, node);
+    current_thread->state = RUNNING;
     on_idle_stack = false;
 
-    if (current_process->as && (!prev || prev->as != current_process->as)) {
-        vmm_activate(current_process->as);
+    process_t *prev_proc = prev ? prev->owner_process : NULL;
+    if (current_thread->owner_process->as && (!prev_proc || prev_proc->as != current_thread->owner_process->as)) {
+        vmm_activate(current_thread->owner_process->as);
     }
-    context_switch(from_idle ? &idle_proc : prev, current_process);
+    arch_set_thread_ptr(current_thread);
+    KDEBUG("Switching to thread %d (process %d)", current_thread->tid, current_thread->owner_process->pid);
+    context_switch(prev, current_thread);
 }
 
-size_t sched_ready_queue_snapshot(process_t **out, size_t max_out) {
+size_t sched_ready_queue_snapshot(thread_t **out, size_t max_out) {
     size_t total = 0;
-    list_node_t *node = run_queue.node.next;
+    for (int level = SCHED_PRIORITY_LEVELS - 1; level >= 0; level--) {
+        list_node_t *node = run_queues[level].node.next;
 
-    while (node != &run_queue.node) {
-        if (out && total < max_out) {
-            out[total] = container_of(node, process_t, node);
+        while (node != &run_queues[level].node) {
+            if (out && total < max_out) {
+                out[total] = container_of(node, thread_t, node);
+            }
+            total++;
+            node = node->next;
         }
-        total++;
-        node = node->next;
     }
 
     return total;

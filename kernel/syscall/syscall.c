@@ -18,7 +18,6 @@
 #include <mem.h>
 #include <stdbool.h>
 
-extern process_t *current_process;
 extern kernel_layout_t kernel_layout;
 
 #define KSTACK_REGION_TOP (KSTACK_REGION_BASE + (64u * 0x2000u))
@@ -43,11 +42,11 @@ static bool trap_frame_sane(const exception_frame_t *frame)
 bool copy_to_user(void *uaddr, const void *kaddr, size_t len) {
     if (len == 0)
         return true;
-    if (!current_process || !current_process->as || !uaddr || !kaddr)
+    if (!current_thread || !current_thread->owner_process || !current_thread->owner_process->as || !uaddr || !kaddr)
         return false;
     if (!validate_user_ptr((uintptr_t)uaddr, len))
         return false;
-    if (!fault_in_pages(current_process->as, (uintptr_t)uaddr, len, true))
+    if (!fault_in_pages(current_thread->owner_process->as, (uintptr_t)uaddr, len, true))
         return false;
 
     memcpy(uaddr, kaddr, len);
@@ -57,11 +56,11 @@ bool copy_to_user(void *uaddr, const void *kaddr, size_t len) {
 bool copy_from_user(void *kaddr, const void *uaddr, size_t len) {
     if (len == 0)
         return true;
-    if (!current_process || !current_process->as || !uaddr || !kaddr)
+    if (!current_thread || !current_thread->owner_process || !current_thread->owner_process->as || !uaddr || !kaddr)
         return false;
     if (!validate_user_ptr((uintptr_t)uaddr, len))
         return false;
-    if (!fault_in_pages(current_process->as, (uintptr_t)uaddr, len, false))
+    if (!fault_in_pages(current_thread->owner_process->as, (uintptr_t)uaddr, len, false))
         return false;
 
     memcpy(kaddr, uaddr, len);
@@ -71,12 +70,12 @@ bool copy_from_user(void *kaddr, const void *uaddr, size_t len) {
 void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
 {
     //KDEBUG("syscall: pid=%u svc=0x%X frame=%p", current_process ? current_process->pid : 0, svc_num, frame);
-    if (!current_process) { frame->r[0] = ERR_BADARG; return; }
+    if (!current_thread) { frame->r[0] = ERR_BADARG; return; }
     if (!trap_frame_sane(frame)) {
-        KERROR("bad syscall frame: pid=%u svc=%u frame=%p", current_process->pid, svc_num, frame);
+        KERROR("bad syscall frame: pid=%u svc=%u frame=%p", current_thread->owner_process ? current_thread->owner_process->pid : 0u, svc_num, frame);
         panic("Corrupt trap_frame at syscall dispatch");
     }
-    current_process->trap_frame = frame;
+    current_thread->trap_frame = frame;
     switch (svc_num)
     {
     case SYS_TASK_QUIT:
@@ -109,6 +108,14 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     case SYS_TASK_KILL:
     {
         kill(frame);
+    } break;
+    case SYS_TASK_MAKETHREAD:
+    {
+        makethread(frame);
+    } break;
+    case SYS_TASK_JOIN:
+    {
+        join(frame);
     } break;
     case SYS_PROC_SEND:
     {

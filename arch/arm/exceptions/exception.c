@@ -121,10 +121,10 @@ static void dump_registers(exception_frame_t *frame)
     kprintf("\033[0m"); // Reset
 }
 
-extern process_t *current_process;
-
 void exception_dispatch(exception_type exctype, exception_frame_t *frame)
 {
+    process_t *current_process = current_thread ? current_thread->owner_process : NULL;
+
     switch (exctype)
     {
     case EXC_UNDEF:

@@ -7,13 +7,12 @@
 #include <mem.h>
 #include "kernel/sched/sched.h"
 #include "zuzu/zuzu.h"
-#include "kernel/loader/loader.h"
 #include "kernel/time/tick.h"
 #include "kernel/proc/process.h"
 #include <spawn_args.h>
 
 
-extern process_t *current_process;
+extern thread_t *current_thread;
 extern list_head_t sleep_queue;
 extern endpoint_t *nametable_endpoint;
 extern process_t *process_table[MAX_PROCESSES];
@@ -33,9 +32,11 @@ static bool wait_write_status(int32_t *status_out, int32_t status)
 
 void quit(exception_frame_t *frame) {
     int exit_status = (int)frame->r[0];
-    KDEBUG("Process %d exited with status code %d", current_process->pid, exit_status);
+    KDEBUG("Process %d exited with status code %d", 
+           current_thread->owner_process ? current_thread->owner_process->pid : 0, 
+           exit_status);
     
-    process_kill(current_process, exit_status);
+    process_kill(current_thread->owner_process, exit_status);
     schedule();
 }
 
@@ -53,19 +54,19 @@ void sleep(exception_frame_t *frame) {
     if (ticks == 0) ticks = 1; // Sleep at least 1 tick
 
     // Calculate wake time
-    current_process->wake_tick = get_ticks() + ticks;
-    current_process->wake_reason = WAKE_NONE;
+    current_thread->wake_tick = get_ticks() + ticks;
+    current_thread->wake_reason = WAKE_NONE;
     
     // Change state
     frame->r[0] = 0;
-    current_process->process_state = PROCESS_BLOCKED;
-    sleep_queue_insert(current_process);
+    current_thread->state = BLOCKED;
+    sleep_queue_insert(current_thread);
     // Schedule someone else immediately
     schedule();
 }
 
 void get_pid(exception_frame_t *frame) {
-    frame->r[0] = current_process->pid;
+    frame->r[0] = current_thread->owner_process->pid;
 }
 
 void wait(exception_frame_t *frame) {
@@ -75,7 +76,7 @@ void wait(exception_frame_t *frame) {
     process_t *child = NULL;
 
     if (req_pid == -1) {
-        child = process_find_zombie_child(current_process);
+        child = process_find_zombie_child(current_thread->owner_process);
         if (child) {
             if (!wait_write_status(status_out, child->exit_status)) {
                 frame->r[0] = ERR_PTRFAULT;
@@ -91,11 +92,11 @@ void wait(exception_frame_t *frame) {
             return;
         }
 
-        current_process->waiting_for = WAIT_ANY_PID;
-        current_process->process_state = PROCESS_BLOCKED;
+        current_thread->owner_process->waiting_for = WAIT_ANY_PID;
+        current_thread->state = BLOCKED;
         schedule();
 
-        child = process_find_zombie_child(current_process);
+        child = process_find_zombie_child(current_thread->owner_process);
         if (!child) {
             frame->r[0] = ERR_NOENT;
             return;
@@ -115,14 +116,14 @@ void wait(exception_frame_t *frame) {
     }
 
     uint32_t child_pid = (uint32_t)req_pid;
-    child = process_find_child_by_pid(current_process, child_pid);
+    child = process_find_child_by_pid(current_thread->owner_process, child_pid);
     if (!child) {
         frame->r[0] = ERR_NOENT;
-        return;
+        return; 
     }
 
     // Case A: child already exited
-    if (child->process_state == PROCESS_ZOMBIE) {
+    if (child->thread->state == ZOMBIE) {
         if (!wait_write_status(status_out, child->exit_status)) {
             frame->r[0] = ERR_PTRFAULT;
             return;
@@ -139,12 +140,12 @@ void wait(exception_frame_t *frame) {
     }
 
     // Case C: block until child exits
-    current_process->waiting_for = child_pid;
-    current_process->process_state = PROCESS_BLOCKED;
+    current_thread->owner_process->waiting_for = child_pid;
+    current_thread->state = BLOCKED;
     schedule();
 
     // re-fetch after wakeup, pointer may be stale
-    child = process_find_child_by_pid(current_process, child_pid);
+    child = process_find_child_by_pid(current_thread->owner_process, child_pid);
     if (!child) {
         frame->r[0] = ERR_NOENT;
         return;
@@ -181,7 +182,7 @@ void tspawn(exception_frame_t *frame) {
     }
 
     for (int i = 0; i < 4; i++) {
-        handle_entry_t *src = handle_vec_get(&current_process->handle_table, i);
+        handle_entry_t *src = handle_vec_get(&current_thread->owner_process->handle_table, i);
         if (!src || src->type == HANDLE_FREE)
             continue;
         handle_entry_t *dst = handle_vec_get(&process->handle_table, i);
@@ -190,18 +191,18 @@ void tspawn(exception_frame_t *frame) {
             src->ep->ref_count++;
     }
     
-    process_set_parent(process, current_process);
+    process_set_parent(process, current_thread->owner_process);
 
     // now return a handle 
-    int slot = handle_vec_find_free(&current_process->handle_table);
+    int slot = handle_vec_find_free(&current_thread->owner_process->handle_table);
     if (slot < 0) {
         process_destroy(process);
         frame->r[0] = ERR_NOMEM;
         return;
     }
-    handle_vec_get(&current_process->handle_table, slot)->type = HANDLE_TASK;
-    handle_vec_get(&current_process->handle_table, slot)->task = process;
-    handle_vec_get(&current_process->handle_table, slot)->grantable = true;
+    handle_vec_get(&current_thread->owner_process->handle_table, slot)->type = HANDLE_TASK;
+    handle_vec_get(&current_thread->owner_process->handle_table, slot)->task = process;
+    handle_vec_get(&current_thread->owner_process->handle_table, slot)->grantable = true;
 
     frame->r[0] = slot;
     frame->r[1] = process->pid;
@@ -221,19 +222,19 @@ void kickstart(exception_frame_t *frame) {
         return;
     }
 
-    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, kargs.task_handle);
+    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, kargs.task_handle);
     if (!entry || entry->type != HANDLE_TASK) {
         frame->r[0] = ERR_BADARG;
         return;
     }
 
     process_t *target = entry->task;
-    if (!target || target->process_state != PROCESS_STOPPED) {
+    if (!target || !target->thread || target->thread->state != FROZEN) {
         frame->r[0] = ERR_BADARG;
         return;
     }
 
-    uintptr_t stack_top = target->kernel_stack_top;
+    uintptr_t stack_top = target->thread->kernel_stack_top;
 
     stack_top -= 17 * sizeof(uintptr_t); // make room for exception frame + r0-r1
     exception_frame_t *target_frame = (exception_frame_t *)stack_top;
@@ -254,48 +255,73 @@ void kickstart(exception_frame_t *frame) {
     context->lr = (uint32_t)process_entry_trampoline;
     stack_top -= 132; // make room for VFP state
     memset((void *)stack_top, 0, 132);
-    target->kernel_sp = (uint32_t *)stack_top;
-    target->process_state = PROCESS_READY;
-    sched_add(target);
+    target->thread->kernel_sp = (uint32_t *)stack_top;
+    target->thread->state = READY;
+    sched_add(target->thread);
     entry->type = HANDLE_FREE;
     entry->task = NULL;
     entry->grantable = false;
     frame->r[0] = 0;
+    KDEBUG("Kickstarted process with PID %d", target->pid, kargs.entry);
     return;
 }
 
 void kill(exception_frame_t *frame) {
     uint32_t handle_idx = frame->r[0];
 
-    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle_idx);
+    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
     if (!entry || entry->type != HANDLE_TASK) {
         frame->r[0] = ERR_BADARG;
         return;
     }
 
     process_t *target = entry->task;
-    if (!target || target->process_state != PROCESS_STOPPED) {
+    if (!target || !target->thread || target->thread->state != FROZEN) {
         frame->r[0] = ERR_BADARG;
         return;
     }
-
-    /* Unlink from parent's child list before destroying */
-    if (target->sibling_node.prev && target->sibling_node.next)
-        list_remove(&target->sibling_node);
-
-    process_table[target->pid % MAX_PROCESSES] = NULL;
-    if (target->as) {
-        arch_mmu_free_user_pages(target->as);
-        as_destroy(target->as);
-    }
-    handle_vec_destroy(&target->handle_table);
-    if (target->kernel_stack_top)
-        kstack_free(target->kernel_stack_top);
-    kfree(target);
 
     entry->type = HANDLE_FREE;
     entry->task = NULL;
     entry->grantable = false;
 
+    process_destroy(target);
+
     frame->r[0] = 0;
+}
+
+void makethread(exception_frame_t *frame) {
+    process_t *owner = current_thread->owner_process;
+    thread_t *thread = thread_create(owner);
+    if (!thread) {
+        frame->r[0] = ERR_NOMEM;
+        return;
+    }
+
+    frame->r[0] = thread->tid;
+}
+
+void join(exception_frame_t *frame) {
+    tid_t tid = frame->r[0];
+    thread_t *thread = thread_find_by_tid(tid);
+    if (!thread || thread->owner_process != current_thread->owner_process) {
+        frame->r[0] = ERR_BADARG;
+        return;
+    }
+
+    if (thread->state != ZOMBIE) {
+        current_thread->owner_process->waiting_for_tid = tid;
+        current_thread->state = BLOCKED;
+        schedule();
+
+        thread = thread_find_by_tid(tid);
+        if (!thread) {
+            return;
+        }
+    }
+
+    int exit_status = thread->exit_status;
+    frame->r[0] = exit_status;
+
+    thread_destroy(thread);
 }

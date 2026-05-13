@@ -25,7 +25,6 @@
 
 #include "kernel/loader/initrd.h"
 #include <elf.h>
-#include "kernel/loader/loader.h"
 #include "kernel/loader/initrd.h"
 
 #include <mem.h>
@@ -108,7 +107,7 @@ static void boot_program(const char *path, uint32_t flags)
         return;
     }
 
-    process_t *process = process_create_from_elf(elf_data, elf_size, path, NULL, 0, 0);
+    process_t *process = process_load(elf_data, elf_size, path, NULL, 0, 0);
     if (!process)
     {
         KERROR("Failed to create boot program %s", path);
@@ -143,7 +142,7 @@ static void boot_program(const char *path, uint32_t flags)
         dtb_enum_devices(inject_device_cap);
     }
 
-    sched_add(process);
+    sched_add(process->thread);
 }
 
 static uint32_t parse_flag_string(const char *flag_str)

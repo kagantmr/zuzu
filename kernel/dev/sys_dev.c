@@ -13,7 +13,7 @@
 #define LOG_FMT(fmt) "(sys_dev) " fmt
 #include "core/log.h"
 
-extern process_t *current_process;
+extern thread_t *current_thread;
 
 #define DEVICE_VA_LIMIT USER_DEVICE_LIMIT
 
@@ -27,7 +27,7 @@ void mapdev(exception_frame_t *frame)
         return;
     }
 
-    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle_idx);
+    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
     if (!entry) {
         frame->r[0] = ERR_BADARG;
         return;
@@ -49,7 +49,7 @@ void mapdev(exception_frame_t *frame)
     }
 
     size_t size_aligned = align_up(cap->size, 4096);
-    vaddr_t user_va = current_process->device_va_next;
+    vaddr_t user_va = current_thread->owner_process->device_va_next;
 
     // Device mappings are carved from device_va_next; bound-check that cursor.
     if (user_va >= DEVICE_VA_LIMIT || size_aligned > DEVICE_VA_LIMIT - user_va) {
@@ -57,7 +57,7 @@ void mapdev(exception_frame_t *frame)
         return;
     }
     
-    if (!vmm_map_range(current_process->as, user_va, cap->phys_base, size_aligned,
+    if (!vmm_map_range(current_thread->owner_process->as, user_va, cap->phys_base, size_aligned,
                        VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
                        VM_MEM_DEVICE, VM_OWNER_NONE, VM_FLAG_NONE))
     {
@@ -65,7 +65,7 @@ void mapdev(exception_frame_t *frame)
         return;
     }
 
-    if (!vmm_add_region(current_process->as, &(vm_region_t){
+    if (!vmm_add_region(current_thread->owner_process->as, &(vm_region_t){
         .vaddr_start = user_va,
         .size = size_aligned,
         .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
@@ -73,7 +73,7 @@ void mapdev(exception_frame_t *frame)
         .owner = VM_OWNER_NONE,
         .flags = VM_FLAG_NONE,
     })) {
-        vmm_unmap_range(current_process->as, user_va, size_aligned);
+        vmm_unmap_range(current_thread->owner_process->as, user_va, size_aligned);
         frame->r[0] = ERR_NOMEM;
         return;
     }
@@ -82,7 +82,7 @@ void mapdev(exception_frame_t *frame)
     arch_mmu_flush_tlb_va(user_va);
     arch_mmu_barrier();
 
-    current_process->device_va_next += size_aligned;
+    current_thread->owner_process->device_va_next += size_aligned;
     cap->mapped = true;
     entry->mapped_va = user_va;
 
@@ -97,7 +97,7 @@ void querydev(exception_frame_t *frame) {
 
     if (handle_idx == 0 || buf_len == 0) { frame->r[0] = ERR_BADARG; return; }
 
-    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle_idx);
+    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
     if (!entry) { frame->r[0] = ERR_BADARG; return; }
     if (entry->type != HANDLE_DEVICE) { frame->r[0] = ERR_BADFORM; return; }
 

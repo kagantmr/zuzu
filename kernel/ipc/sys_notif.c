@@ -3,10 +3,10 @@
 #include "kernel/sched/sched.h"
 #include "kernel/syscall/syscall.h"
 
-extern process_t *current_process;
+extern thread_t *current_thread;
 
 void ntfn_create(exception_frame_t *frame) {
-    handle_t handle = handle_vec_find_free(&current_process->handle_table);
+    handle_t handle = handle_vec_find_free(&current_thread->owner_process->handle_table);
     if (handle < 0) { frame->r[0] = ERR_NOMEM; return; }
 
     notification_t *ntfn = kmalloc(sizeof(notification_t));  // or slab
@@ -14,11 +14,11 @@ void ntfn_create(exception_frame_t *frame) {
 
     ntfn->word = 0;
     list_init(&ntfn->wait_queue);
-    ntfn->owner_pid = current_process->pid;
+    ntfn->owner_pid = current_thread->owner_process->pid;
     ntfn->ref_count = 1;
     ntfn->alive = true;
 
-    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle);
+    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle);
     entry->type = HANDLE_NOTIFICATION;
     entry->ntfn = ntfn;
     entry->grantable = true;
@@ -29,7 +29,7 @@ void ntfn_signal(exception_frame_t *frame) {
     handle_t handle_idx = frame->r[0];
     uint32_t bits = frame->r[1];
 
-    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle_idx);
+    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
     if (!entry || entry->type != HANDLE_NOTIFICATION) {
         frame->r[0] = ERR_BADARG; return;
     }
@@ -44,13 +44,13 @@ void ntfn_signal(exception_frame_t *frame) {
     // Wake one waiter if any
     if (!list_empty(&ntfn->wait_queue)) {
         list_node_t *node = list_pop_front(&ntfn->wait_queue);
-        process_t *waiter = container_of(node, process_t, node);
+        thread_t *waiter = container_of(node, thread_t, node);
 
         uint32_t delivered = ntfn->word;
         ntfn->word = 0;  // clear on delivery
 
         waiter->trap_frame->r[0] = delivered;
-        waiter->process_state = PROCESS_READY;
+        waiter->state = READY;
         sched_add(waiter);
     }
 
@@ -60,7 +60,7 @@ void ntfn_signal(exception_frame_t *frame) {
 void ntfn_wait(exception_frame_t *frame) {
     handle_t handle_idx = frame->r[0];
 
-    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle_idx);
+    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
     if (!entry || entry->type != HANDLE_NOTIFICATION) {
         frame->r[0] = ERR_BADARG; return;
     }
@@ -79,8 +79,8 @@ void ntfn_wait(exception_frame_t *frame) {
     }
 
     // Block until someone signals
-    current_process->process_state = PROCESS_BLOCKED;
-    list_add_tail(&current_process->node, &ntfn->wait_queue.node);
+    current_thread->state = BLOCKED;
+    list_add_tail(&current_thread->node, &ntfn->wait_queue.node);
     schedule();
     // When we wake, r[0] is already set by ntfn_signal
 }
@@ -88,7 +88,7 @@ void ntfn_wait(exception_frame_t *frame) {
 void ntfn_poll(exception_frame_t *frame) {
     handle_t handle_idx = frame->r[0];
 
-    handle_entry_t *entry = handle_vec_get(&current_process->handle_table, handle_idx);
+    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
     if (!entry || entry->type != HANDLE_NOTIFICATION) {
         frame->r[0] = ERR_BADARG; return;
     }

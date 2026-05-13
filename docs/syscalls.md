@@ -49,6 +49,8 @@ All syscalls are invoked via `SVC #N` where `N` is the syscall number in the tab
 | 0x06 | task_tspawn    | Task          | `r0: name_ptr`                                | `r0: handle`, `r1: pid`  |
 | 0x07 | task_kickstart | Task          | `r0: kickstart_args_t*`                       | `r0 = 0` or error        |
 | 0x08 | task_kill      | Task          | `r0: task handle`                             | `r0 = 0` or error        |
+| 0x09 | task_makethread | Task         | none                                          | `r0: tid`                |
+| 0x0A | task_join      | Task          | `r0: tid`                                     | `r0: exit_status` or error |
 | 0x10 | proc_send      | IPC           | `r0: port handle`, `r1-r3: payload`          | `r0 = 0` or error        |
 | 0x11 | proc_recv      | IPC           | `r0: port handle`, `r1: timeout_ms`          | sender info or error     |
 | 0x12 | proc_call      | IPC           | `r0: port handle`, `r1-r3: payload`          | later resumes w/ reply   |
@@ -86,3 +88,5 @@ All syscalls are invoked via `SVC #N` where `N` is the syscall number in the tab
 - `proc_recv`, `proc_call`, and the `*x` variants may block and therefore interact with the scheduler.
 - `proc_reply` and `proc_replyx` use reply handles, not port handles.
 - `mapdev` and `querydev` operate on device capabilities, not raw physical addresses.
+- `task_makethread` creates a joinable thread owned by the current process.
+- `task_join` waits for a thread in the current process to exit and returns its exit status.

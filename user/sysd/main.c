@@ -351,17 +351,36 @@ static void nt_handle_msg(zuzu_ipcmsg_t msg) {
 #define WAIT_TIMEOUT_MS 30000u
 #define WAIT_SLICE_MS   10u
 
+static bool recvany_to_ipcmsg(const recvany_result_t *res, zuzu_ipcmsg_t *msg)
+{
+    if (!res || !msg)
+        return false;
+
+    if (res->kind != RECVANY_KIND_SEND && res->kind != RECVANY_KIND_CALL)
+        return false;
+
+    msg->r0 = (int32_t)res->source;
+    msg->r1 = res->r1;
+    msg->r2 = res->r2;
+    msg->r3 = res->r3;
+    return true;
+}
+
 static bool wait_for_service(uint32_t name_u32) {
     uint32_t handle = 0, pid = 0, waited_ms = 0;
+    handle_t recv_handles[1] = {(handle_t)port};
 
     while (nt_lookup(name_u32, _getpid(), &handle, &pid) != NT_LU_OK &&
            waited_ms < WAIT_TIMEOUT_MS) {
         int32_t dead = _wait(-1, NULL, WNOHANG);
         if (dead > 0) scrub_pid((uint32_t)dead);
 
-        zuzu_ipcmsg_t msg = _recv_timeout(port, WAIT_SLICE_MS);
-        if (msg.r0 >= 0)
-            nt_handle_msg(msg);
+        recvany_result_t any = {0};
+        if (_recvany(recv_handles, 1, WAIT_SLICE_MS, &any) == 0) {
+            zuzu_ipcmsg_t msg;
+            if (recvany_to_ipcmsg(&any, &msg))
+                nt_handle_msg(msg);
+        }
         waited_ms += WAIT_SLICE_MS;
     }
 
@@ -511,15 +530,19 @@ static bool wait_for_tty_registration(uint32_t pid,
                                       uint32_t *out_pid)
 {
     uint32_t waited_ms = 0;
+    handle_t recv_handles[1] = {(handle_t)port};
 
     while (nt_lookup_pid(pid, _getpid(), out_handle, out_pid) != NT_LU_OK &&
            waited_ms < WAIT_TIMEOUT_MS) {
         int32_t dead = _wait(-1, NULL, WNOHANG);
         if (dead > 0) scrub_pid((uint32_t)dead);
 
-        zuzu_ipcmsg_t msg = _recv_timeout(port, WAIT_SLICE_MS);
-        if (msg.r0 >= 0)
-            nt_handle_msg(msg);
+        recvany_result_t any = {0};
+        if (_recvany(recv_handles, 1, WAIT_SLICE_MS, &any) == 0) {
+            zuzu_ipcmsg_t msg;
+            if (recvany_to_ipcmsg(&any, &msg))
+                nt_handle_msg(msg);
+        }
         waited_ms += WAIT_SLICE_MS;
     }
 

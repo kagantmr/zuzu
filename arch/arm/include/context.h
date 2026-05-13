@@ -21,4 +21,10 @@ typedef struct exception_frame {
     uint32_t return_cpsr;  /* saved CPSR/SPSR value you return with */
 } exception_frame_t;
 
+typedef struct cpu_context
+{
+    uint32_t r4, r5, r6, r7, r8, r9, r10, r11;
+    uint32_t lr; // return address (or entry point for new process)
+} cpu_context_t;
+
 #endif // CONTEXT_H

@@ -4,17 +4,21 @@
 #include "kernel/proc/process.h"
 #include <stddef.h>
 
-extern void context_switch(process_t *prev, process_t *next);
+#define SCHED_PRIORITY_LEVELS 8
+
+extern void context_switch(thread_t *prev, thread_t *next);
+
+extern thread_t *current_thread;
 
 void sched_init();
-void sched_add(process_t *p);
+void sched_add(thread_t *t);
 void sched_defer_destroy(process_t *p);
 void sched_reap(void);
 void sched_idle_wait(void);
 void schedule();
 void set_resched_flag(void);
-void sleep_queue_insert(process_t *p);
-size_t sched_ready_queue_snapshot(process_t **out, size_t max_out);
+void sleep_queue_insert(thread_t *t);
+size_t sched_ready_queue_snapshot(thread_t **out, size_t max_out);
 
 extern volatile uint8_t do_resched;
 

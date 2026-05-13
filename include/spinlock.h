@@ -29,4 +29,19 @@ static inline void spin_unlock_irqrestore(spinlock_t *lock, uint32_t flags)
     arch_irq_restore(flags);
 }
 
+static inline void spin_lock(spinlock_t *lock)
+{
+    do {
+        while (arch_ldrex(&lock->locked) != 0)
+            ;   /* no-op on single core, wfe loop on multi core */
+    } while (arch_strex(&lock->locked, 1) != 0);
+    arch_dmb();
+}
+
+static inline void spin_unlock(spinlock_t *lock)
+{
+    arch_dmb();
+    lock->locked = 0;
+}
+
 #endif  // SPINLOCK_H

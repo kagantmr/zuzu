@@ -2,6 +2,7 @@
 #define KERNEL_SYSCALL_H
 
 #include "arch/arm/include/context.h"
+#include "kernel/proc/thread.h"
 #include "stdbool.h"
 #include "stddef.h"
 #include "kernel/mm/vmm.h"
@@ -26,5 +27,7 @@ static inline bool validate_user_ptr(const uintptr_t addr, const size_t len) {
     if (addr + len > USER_VA_TOP) return false;
     return true;
 }
+
+extern thread_t *current_thread;
 
 #endif /* KERNEL_SYSCALL_H */
