@@ -46,6 +46,7 @@ typedef struct
     wake_reason_t wake_reason;
     tick_t wake_tick;
     state_t state;
+    list_node_t destroy_node;
     ipc_state_t ipc_state;
     endpoint_t *blocked_endpoint;
     reply_cap_t *pending_reply_cap;

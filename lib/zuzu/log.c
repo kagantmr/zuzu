@@ -1,7 +1,7 @@
-#include <zuzu/log.h>
 #include <stdarg.h>
+#include <zuzu/log.h>
 
-static log_level_t g_min_level = LOG_LEVEL_INFO;
+static log_level_t g_min_level = LOG_LEVEL;
 
 void log_set_level(log_level_t min_level) {
     g_min_level = min_level;

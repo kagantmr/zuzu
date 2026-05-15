@@ -32,7 +32,7 @@ typedef struct {
 } device_cap_t;
 
 typedef struct {
-    zpid_t caller_pid;       // instead of process_t *caller
+    tid_t caller_tid;       // instead of zpid_t caller_pid
     zpid_t holder_pid;       // instead of process_t *holder
     handle_t holder_slot;
     list_node_t caller_link;

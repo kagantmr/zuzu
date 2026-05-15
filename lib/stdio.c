@@ -79,7 +79,7 @@ int stdio_register_zuart(void)
         return 0;
     }
 
-    zuzu_ipcmsg_t lu = _call(NT_PORT, NT_LOOKUP, nt_pack(stdio_tty_name), 0);
+    msg_t lu = _call(NT_PORT, NT_LOOKUP, nt_pack(stdio_tty_name), 0);
     if ((int32_t)lu.r1 != NT_LU_OK) {
         return -1;
     }
@@ -99,7 +99,7 @@ static int __attribute__((unused)) stdio_refill_input(void)
     if (stdio_register_zuart() != 0)
         return EOF;
 
-    zuzu_ipcmsg_t reply = _callx(stdio_tty, IPCX_BUF_SIZE);
+    msg_t reply = _callx(stdio_tty, IPCX_BUF_SIZE);
     if (reply.r0 < 0)
         return EOF;
 

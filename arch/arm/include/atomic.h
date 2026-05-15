@@ -50,4 +50,21 @@ static inline void arch_clrex(void)
     __asm__ volatile("clrex\n" ::: "memory");
 }
 
+static inline int atomic_cas(volatile uint32_t *ptr, uint32_t expected, uint32_t desired) {
+    uint32_t tmp, result;
+    __asm__ volatile(
+        "1: ldrex  %0, [%2]\n"
+        "   cmp    %0, %3\n"
+        "   bne    2f\n"
+        "   strex  %1, %4, [%2]\n"
+        "   cmp    %1, #0\n"
+        "   bne    1b\n"
+        "2:"
+        : "=&r"(tmp), "=&r"(result)
+        : "r"(ptr), "r"(expected), "r"(desired)
+        : "cc", "memory"
+    );
+    return (tmp == expected);
+}
+
 #endif // ARCH_ATOMIC_H

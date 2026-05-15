@@ -9,4 +9,4 @@ bin/zuart|tty
 bin/zusd|none
 bin/fat32d|none
 bin/fbox|none
-bin/zzsh|none
+bin/zzsh|tty:late

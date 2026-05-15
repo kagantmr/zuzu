@@ -21,6 +21,7 @@ static inline uint32_t thread_priority(const thread_t *t)
 
 static list_head_t destroy_queue = LIST_HEAD_INIT(destroy_queue);
 list_head_t sleep_queue = LIST_HEAD_INIT(sleep_queue);
+static list_head_t thread_destroy_queue = LIST_HEAD_INIT(thread_destroy_queue);
 thread_t *current_thread;
 
 volatile uint8_t do_resched = 0; // needs spinlock guard on SMP
@@ -40,6 +41,9 @@ static void sched_idle_trampoline(void)
 {
     on_idle_stack = true;
     for (;;) {
+        /* Ensure we're running on the kernel address space while reaping
+         * deferred destroys so we never free the active user address space. */
+        vmm_activate(vmm_get_kernel_as());
         sched_reap();
         sched_idle_wait();
         schedule();
@@ -87,12 +91,47 @@ void sched_defer_destroy(process_t *p) {
     list_add_tail(&p->destroy_node, &destroy_queue.node);
 }
 
+void sched_defer_destroy_thread(thread_t *t) {
+    if (!t) return;
+    /* Guard against double-enqueue: if node is already linked, skip. */
+    if (t->destroy_node.next || t->destroy_node.prev) {
+        KDEBUG("sched_defer_destroy_thread: tid=%u already queued", t->tid);
+        return;
+    }
+    list_add_tail(&t->destroy_node, &thread_destroy_queue.node);
+}
+
+void sched_reap_thread_destroys(void) {
+    list_head_t deferred = LIST_HEAD_INIT(deferred);
+
+    while (!list_empty(&thread_destroy_queue)) {
+        list_node_t *node = list_pop_front(&thread_destroy_queue);
+        thread_t *t = container_of(node, thread_t, destroy_node);
+
+        if (t == current_thread) {
+            list_add_tail(&t->destroy_node, &deferred.node);
+            continue;
+        }
+
+        thread_destroy(t);
+    }
+
+    while (!list_empty(&deferred)) {
+        list_node_t *node = list_pop_front(&deferred);
+        thread_t *t = container_of(node, thread_t, destroy_node);
+        list_add_tail(&t->destroy_node, &thread_destroy_queue.node);
+    }
+}
+
 void sched_reap(void) {
+    KDEBUG("sched_reap: destroy_q=%d thread_q=%d",
+           !list_empty(&destroy_queue), !list_empty(&thread_destroy_queue));
     while (!list_empty(&destroy_queue)) {
         list_node_t *node = list_pop_front(&destroy_queue);
         process_t *p = container_of(node, process_t, destroy_node);
         process_destroy(p);
     }
+    sched_reap_thread_destroys();
 }
 
 static bool sched_work_pending(void)
@@ -171,6 +210,8 @@ void schedule() {
     thread_t *prev = current_thread;
     bool from_idle = (prev == NULL && on_idle_stack);
 
+    sched_reap_thread_destroys();
+
     if (current_thread != NULL) {
         if (current_thread->state == RUNNING) {
             current_thread->state = READY;
@@ -208,7 +249,7 @@ void schedule() {
         vmm_activate(current_thread->owner_process->as);
     }
     arch_set_thread_ptr(current_thread);
-    KDEBUG("Switching to thread %d (process %d)", current_thread->tid, current_thread->owner_process->pid);
+    //KTRACE("Switching to thread %d (process %d)", current_thread->tid, current_thread->owner_process->pid);
     context_switch(prev, current_thread);
 }
 

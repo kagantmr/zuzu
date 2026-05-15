@@ -45,6 +45,12 @@ tid_t thread_register(thread_t *thread)
     thread->tid = next_tid++;
     thread_table[slot] = thread;
 
+    KTRACE("thread register: tid=%u slot=%d owner_pid=%u owner_name=%s",
+           thread->tid,
+           slot,
+           (thread->owner_process ? thread->owner_process->pid : 0),
+           (thread->owner_process ? thread->owner_process->name : "<none>"));
+
     spin_unlock(&thread_table_lock);
     return thread->tid;
 }
@@ -74,23 +80,16 @@ void thread_kill(thread_t *thread)
     thread->state = ZOMBIE;
 }
 
-void thread_destroy(thread_t *thread)
-{
-    if (!thread)
-        return;
-
-    process_wake_joiners(thread->tid, thread->exit_status);
+void thread_destroy(thread_t *thread) {
+    if (!thread) return;
     thread_unregister(thread);
-
+    // may already be removed by tquit, guard is safe
     if (thread->process_node.prev && thread->process_node.next)
         list_remove(&thread->process_node);
-
     if (thread->owner_process && thread->owner_process->thread == thread)
         thread->owner_process->thread = NULL;
-
     if (thread->kernel_stack_top)
         kstack_free(thread->kernel_stack_top);
-
     kfree(thread);
 }
 
@@ -145,6 +144,13 @@ thread_t *thread_create(process_t *owner_process)
 
     if (!owner_process->thread)
         owner_process->thread = thread;
+
+    KTRACE("thread create: tid=%u owner_pid=%u owner_name=%s state=%u kernel_stack_top=%p",
+           thread->tid,
+           owner_process->pid,
+           owner_process->name,
+           thread->state,
+           (void *)thread->kernel_stack_top);
 
     return thread;
 }

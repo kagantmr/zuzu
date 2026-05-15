@@ -9,6 +9,7 @@
 #include "zuzu/zuzu.h"
 #include "kernel/time/tick.h"
 #include "kernel/proc/process.h"
+#include <zuzu/user_layout.h>
 #include <spawn_args.h>
 
 
@@ -30,7 +31,7 @@ static bool wait_write_status(int32_t *status_out, int32_t status)
     return copy_to_user(status_out, &status, sizeof(status));
 }
 
-void quit(exception_frame_t *frame) {
+void pquit(exception_frame_t *frame) {
     int exit_status = (int)frame->r[0];
     KDEBUG("Process %d exited with status code %d", 
            current_thread->owner_process ? current_thread->owner_process->pid : 0, 
@@ -79,7 +80,7 @@ void wait(exception_frame_t *frame) {
         child = process_find_zombie_child(current_thread->owner_process);
         if (child) {
             if (!wait_write_status(status_out, child->exit_status)) {
-                frame->r[0] = ERR_PTRFAULT;
+                frame->r[0] = ERR_BADPTR;
                 return;
             }
             frame->r[0] = child->pid;
@@ -102,7 +103,7 @@ void wait(exception_frame_t *frame) {
             return;
         }
         if (!wait_write_status(status_out, child->exit_status)) {
-            frame->r[0] = ERR_PTRFAULT;
+            frame->r[0] = ERR_BADPTR;
             return;
         }
         frame->r[0] = child->pid;
@@ -125,7 +126,7 @@ void wait(exception_frame_t *frame) {
     // Case A: child already exited
     if (child->thread->state == ZOMBIE) {
         if (!wait_write_status(status_out, child->exit_status)) {
-            frame->r[0] = ERR_PTRFAULT;
+            frame->r[0] = ERR_BADPTR;
             return;
         }
         frame->r[0] = child->pid;
@@ -151,16 +152,16 @@ void wait(exception_frame_t *frame) {
         return;
     }
     if (!wait_write_status(status_out, child->exit_status)) {
-        frame->r[0] = ERR_PTRFAULT;
+        frame->r[0] = ERR_BADPTR;
         return;
     }
     frame->r[0] = child->pid;
     process_destroy(child);
 }
 
-/* spawn syscall removed: use tspawn/kickstart with sysd */
+/* spawn syscall removed: use pspawn/kickstart with sysd */
 
-void tspawn(exception_frame_t *frame) {
+void pspawn(exception_frame_t *frame) {
     const char* name = (const char *)frame->r[0];
     if (!validate_user_ptr((uintptr_t)name, 1)) {
         frame->r[0] = ERR_BADARG;
@@ -245,7 +246,7 @@ void kickstart(exception_frame_t *frame) {
         target_frame->r[i] = 0;
     }
     target_frame->sp_usr = kargs.sp;
-    target_frame->lr_usr = 0; // entry point for user code, set to
+    target_frame->lr_usr = USER_ELF_BASE;
     target_frame->return_pc = kargs.entry;
     target_frame->return_cpsr = 0x10; // user mode, interrupts enabled
 
@@ -290,18 +291,63 @@ void kill(exception_frame_t *frame) {
     frame->r[0] = 0;
 }
 
-void makethread(exception_frame_t *frame) {
+void tmake(exception_frame_t *frame) {
+    vaddr_t entry  = frame->r[0];
+    vaddr_t usr_sp = frame->r[1];
+    vaddr_t arg    = frame->r[2];
+
+    if (!validate_user_ptr(entry, 1)) {
+        frame->r[0] = ERR_BADPTR;
+        return;
+    }
+    if (!validate_user_ptr(usr_sp, 4)) {
+        frame->r[0] = ERR_BADPTR;
+        return;
+    }
+
     process_t *owner = current_thread->owner_process;
-    thread_t *thread = thread_create(owner);
-    if (!thread) {
+    thread_t *t = thread_create(owner);
+    if (!t) {
         frame->r[0] = ERR_NOMEM;
         return;
     }
 
-    frame->r[0] = thread->tid;
+    // Temporarily share main thread's IPCX buffer until per-thread IPCX is done
+    t->ipc_buf_pa = owner->thread->ipc_buf_pa;
+
+    // Build the kernel stack exactly like kernel/kickstart() does
+    uintptr_t sp = t->kernel_stack_top;
+
+    // Exception frame (17 words)
+    sp -= 17 * sizeof(uint32_t);
+    exception_frame_t *ef = (exception_frame_t *)sp;
+    memset(ef, 0, 17 * sizeof(uint32_t));
+    ef->r[0]        = (uint32_t)arg;
+    ef->sp_usr      = (uint32_t)usr_sp;
+    ef->lr_usr      = USER_ELF_BASE;
+    ef->return_pc   = (uint32_t)entry;
+    ef->return_cpsr = 0x10; // USR mode, IRQs enabled
+
+    t->trap_frame = ef;
+
+    // cpu_context
+    sp -= sizeof(cpu_context_t);
+    cpu_context_t *ctx = (cpu_context_t *)sp;
+    memset(ctx, 0, sizeof(cpu_context_t));
+    ctx->lr = (uint32_t)process_entry_trampoline;
+
+    // VFP area
+    sp -= 132;
+    memset((void *)sp, 0, 132);
+
+    t->kernel_sp = (uint32_t *)sp;
+    t->state     = READY;
+    sched_add(t);
+
+    frame->r[0] = (tid_t)t->tid;
 }
 
-void join(exception_frame_t *frame) {
+void tjoin(exception_frame_t *frame) {
     tid_t tid = frame->r[0];
     thread_t *thread = thread_find_by_tid(tid);
     if (!thread || thread->owner_process != current_thread->owner_process) {
@@ -314,14 +360,41 @@ void join(exception_frame_t *frame) {
         current_thread->state = BLOCKED;
         schedule();
 
-        thread = thread_find_by_tid(tid);
-        if (!thread) {
-            return;
-        }
+        /* `process_wake_joiners` delivered the exit status into our
+         * trap frame before making us READY; do not access `thread`
+         * here since it may have been unregistered/freed by the
+         * reaper. The return value is already placed in `frame->r[0]`.
+         */
+        return;
     }
 
-    int exit_status = thread->exit_status;
-    frame->r[0] = exit_status;
+    /* Thread already a ZOMBIE: read the exit status (no destroy).
+     * Ownership of destruction belongs to the thread that performed
+     * the quit (tquit) and the scheduler reaper. */
+    frame->r[0] = thread->exit_status;
+}
 
-    thread_destroy(thread);
+
+void tquit(exception_frame_t *frame) {
+    int exit_status = (int)frame->r[0];
+    thread_t *t = current_thread;
+    process_t *owner = t->owner_process;
+
+    t->exit_status = exit_status;
+    process_wake_joiners(t->tid, exit_status);
+
+    if (owner->threads.node.next == &t->process_node &&
+        t->process_node.next == &owner->threads.node) {
+        // last thread, kill the process
+        process_kill(owner, exit_status);
+    } else {
+        thread_kill(t);
+        // remove from process thread list NOW so process_destroy won't see it
+        if (t->process_node.prev && t->process_node.next)
+            list_remove(&t->process_node);
+        sched_defer_destroy_thread(t);
+    }
+
+    schedule();
+    __builtin_unreachable();
 }

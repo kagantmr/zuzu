@@ -13,6 +13,8 @@ extern thread_t *current_thread;
 void sched_init();
 void sched_add(thread_t *t);
 void sched_defer_destroy(process_t *p);
+void sched_defer_destroy_thread(thread_t *t);
+void sched_reap_thread_destroys(void);
 void sched_reap(void);
 void sched_idle_wait(void);
 void schedule();

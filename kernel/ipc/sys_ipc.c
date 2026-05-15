@@ -117,7 +117,7 @@ static endpoint_t *validate_endpoint_handle(process_t *proc, handle_t handle, ex
 
 static handle_entry_t *validate_reply_handle(process_t *proc,
                                              handle_t handle_idx,
-                                             process_t **target_out,
+                                             thread_t **target_out,
                                              exception_frame_t *frame)
 {
     if (!proc || handle_idx == 0)
@@ -137,15 +137,15 @@ static handle_entry_t *validate_reply_handle(process_t *proc,
         frame->r[0] = ERR_BADARG;
         return NULL;
     }
-    if (!entry->reply || entry->reply->caller_pid == 0)
+    if (!entry->reply || entry->reply->caller_tid == 0)
     {
         frame->r[0] = ERR_BADARG;
         return NULL;
     }
 
-    process_t *target = process_find_by_pid(entry->reply->caller_pid);
+    thread_t *target = thread_find_by_tid(entry->reply->caller_tid);
 
-    if (!target || !target->thread || target->thread->state == ZOMBIE)
+    if (!target || target->state == ZOMBIE)
     {
         process_untrack_reply_cap(entry->reply);
         kfree_reply_cap(entry->reply);
@@ -156,7 +156,7 @@ static handle_entry_t *validate_reply_handle(process_t *proc,
         return NULL;
     }
 
-    if (target->thread->ipc_state != IPC_WAITING)
+    if (target->ipc_state != IPC_WAITING)
     {
         process_untrack_reply_cap(entry->reply);
         kfree_reply_cap(entry->reply);
@@ -191,7 +191,7 @@ void proc_send(exception_frame_t *frame)
             ipc_panic_bad_trap_frame("proc_send.rx", rx_thread->owner_process, rx_frame);
         }
         // KDEBUG("Sending message from thread %d to thread %d", current_thread->tid, rx_thread->tid);
-        rx_frame->r[0] = current_thread->tid;
+        rx_frame->r[0] = current_thread->owner_process->pid;
         rx_frame->r[1] = frame->r[1];
         rx_frame->r[2] = frame->r[2];
         rx_frame->r[3] = frame->r[3];
@@ -242,7 +242,7 @@ void proc_recv(exception_frame_t *frame)
 
         // Copy message to receiver
         // KDEBUG("Got message from thread %d as thread %d", sr_thread->tid, current_thread->tid);
-        frame->r[0] = sr_thread->tid;
+        frame->r[0] = sr_thread->owner_process->pid;
         frame->r[1] = sr_frame->r[1];
         frame->r[2] = sr_frame->r[2];
         frame->r[3] = sr_frame->r[3];
@@ -307,7 +307,7 @@ void proc_recv(exception_frame_t *frame)
             process_track_reply_cap(sr_thread->owner_process, current_thread->owner_process, (uint32_t)slot, rc);
 
             frame->r[0] = slot;
-            frame->r[1] = sr_thread->tid;
+            frame->r[1] = sr_thread->owner_process->pid;
             frame->r[2] = sr_frame->r[1];
             frame->r[3] = sr_frame->r[2];
             if (sr_thread->ipc_buf_xfer_len > 0) {
@@ -376,7 +376,7 @@ void proc_call(exception_frame_t *frame)
         frame->r[0] = ERR_NOMEM;
         return;  // caller gets clean error, never blocked
     }
-    rc->caller_pid = current_thread->owner_process ? current_thread->owner_process->pid : 0;
+    rc->caller_tid = current_thread ? current_thread->tid : 0;
 
     if (!list_empty(&ep->receiver_queue))
     {
@@ -404,7 +404,7 @@ void proc_call(exception_frame_t *frame)
         process_track_reply_cap(current_thread->owner_process, rx_thread->owner_process, (uint32_t)slot, rc);
 
         rx_frame->r[0] = slot;
-        rx_frame->r[1] = current_thread->tid;
+        rx_frame->r[1] = current_thread->owner_process->pid;
         rx_frame->r[2] = frame->r[1];
         rx_frame->r[3] = frame->r[2];
 
@@ -439,8 +439,8 @@ void proc_call(exception_frame_t *frame)
 void proc_reply(exception_frame_t *frame)
 {
     handle_t handle_idx = frame->r[0];
-    process_t *target = NULL;
-    handle_entry_t *entry = validate_reply_handle(current_thread->owner_process, handle_idx, &target, frame);
+    thread_t *target_thread = NULL;
+    handle_entry_t *entry = validate_reply_handle(current_thread->owner_process, handle_idx, &target_thread, frame);
     if (!entry)
     {
         return;
@@ -448,11 +448,10 @@ void proc_reply(exception_frame_t *frame)
 
     // Deliver reply into target's saved frame
 
-    thread_t *target_thread = target->thread;
     exception_frame_t *target_frame = target_thread->trap_frame;
     if (!trap_frame_sane(target_frame))
     {
-        ipc_panic_bad_trap_frame("proc_reply.target", target, target_frame);
+        ipc_panic_bad_trap_frame("proc_reply.target", target_thread->owner_process, target_frame);
     }
     target_frame->r[0] = 0;           // success
     target_frame->r[1] = frame->r[1]; // reply payload
@@ -501,7 +500,7 @@ void proc_sendx(exception_frame_t *frame)
         }
         // KDEBUG("Sending message from thread %d to thread %d", current_thread->tid, rx_thread->tid);
         uint32_t xlen = frame->r[1] > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : frame->r[1];
-        rx_frame->r[0] = current_thread->tid;
+        rx_frame->r[0] = current_thread->owner_process->pid;
         rx_frame->r[1] = xlen;
         rx_frame->r[2] = 0;
         rx_frame->r[3] = 0;
@@ -516,7 +515,7 @@ void proc_sendx(exception_frame_t *frame)
         rx_thread->wake_tick = 0;
         rx_thread->wake_reason = WAKE_IPC;
         rx_thread->state = READY;
-            current_thread->state = BLOCKED;
+        sched_add(rx_thread);
         frame->r[0] = 0;
     }
     else
@@ -526,6 +525,7 @@ void proc_sendx(exception_frame_t *frame)
         list_add_tail(&current_thread->node, &ep->sender_queue.node);
         current_thread->ipc_buf_xfer_len = frame->r[1] > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : frame->r[1];
         current_thread->state = BLOCKED;
+        schedule();
     }
 }
 
@@ -544,7 +544,7 @@ void proc_callx(exception_frame_t *frame)
         frame->r[0] = ERR_NOMEM;
         return;  // caller gets clean error, never blocked
     }
-    rc->caller_pid = current_thread->owner_process ? current_thread->owner_process->pid : 0;
+    rc->caller_tid = current_thread ? current_thread->tid : 0;
 
     if (!list_empty(&ep->receiver_queue))
     {
@@ -573,7 +573,7 @@ void proc_callx(exception_frame_t *frame)
 
         size_t xlen = frame->r[1] > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : frame->r[1];
         rx_frame->r[0] = slot;
-        rx_frame->r[1] = current_thread->tid;
+        rx_frame->r[1] = current_thread->owner_process->pid;
         rx_frame->r[2] = xlen;
         rx_frame->r[3] = 0;
         ipc_buf_copy(current_thread, rx_thread, xlen);
@@ -610,8 +610,8 @@ void proc_callx(exception_frame_t *frame)
 void proc_replyx(exception_frame_t *frame)
 {
     handle_t handle_idx = frame->r[0];
-    process_t *target = NULL;
-    handle_entry_t *entry = validate_reply_handle(current_thread->owner_process, handle_idx, &target, frame);
+    thread_t *target_thread = NULL;
+    handle_entry_t *entry = validate_reply_handle(current_thread->owner_process, handle_idx, &target_thread, frame);
     if (!entry)
     {
         return;
@@ -619,11 +619,10 @@ void proc_replyx(exception_frame_t *frame)
 
     // Deliver reply into target's saved frame
 
-    thread_t *target_thread = target->thread;
     exception_frame_t *target_frame = target_thread->trap_frame;
     if (!trap_frame_sane(target_frame))
     {
-        ipc_panic_bad_trap_frame("proc_replyx.target", target, target_frame);
+        ipc_panic_bad_trap_frame("proc_replyx.target", target_thread->owner_process, target_frame);
     }
     size_t xlen = frame->r[1] > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : frame->r[1];
     target_frame->r[0] = 0;           // success
@@ -671,7 +670,7 @@ static int recvany_deliver_sender(uint32_t matched_index,
     if (sr_thread->ipc_state == IPC_SENDER)
     {
         result->kind = RECVANY_KIND_SEND;
-        result->source = sr_thread->tid;
+        result->source = sr_thread->owner_process->pid;
         result->r1 = sr_frame->r[1];
         result->r2 = sr_frame->r[2];
         result->r3 = sr_frame->r[3];
@@ -716,7 +715,7 @@ static int recvany_deliver_sender(uint32_t matched_index,
 
         result->kind = RECVANY_KIND_CALL;
         result->source = (uint32_t)slot;
-        result->r1 = sr_thread->tid;
+        result->r1 = sr_thread->owner_process->pid;
         result->r2 = sr_frame->r[1];
         result->r3 = sr_frame->r[2];
 
@@ -786,14 +785,14 @@ void proc_recvany(exception_frame_t *frame)
 
     if (!validate_user_ptr(result_ptr, sizeof(recvany_result_t)) ||
         !fault_in_pages(current_thread->owner_process->as, result_ptr, sizeof(recvany_result_t), true)) {
-        frame->r[0] = ERR_PTRFAULT;
+        frame->r[0] = ERR_BADPTR;
         return;
     }
 
     handle_t handles_local[RECVANY_MAX_HANDLES];
     size_t copy_size = count * sizeof(handle_t);
     if (!copy_from_user(handles_local, (const void *)handles_ptr, copy_size)) {
-        frame->r[0] = ERR_PTRFAULT;
+        frame->r[0] = ERR_BADPTR;
         return;
     }
 
@@ -810,7 +809,7 @@ void proc_recvany(exception_frame_t *frame)
         int err = recvany_try_once(handles_local, count, &result);
         if (err == 0) {
             if (!copy_to_user((void *)result_ptr, &result, sizeof(result))) {
-                frame->r[0] = ERR_PTRFAULT;
+                frame->r[0] = ERR_BADPTR;
                 return;
             }
             frame->r[0] = 0;
@@ -831,7 +830,7 @@ void proc_recvany(exception_frame_t *frame)
             tick_t now = get_ticks();
             if (now >= deadline) {
                 if (!recvany_write_timeout_result(result_ptr)) {
-                    frame->r[0] = ERR_PTRFAULT;
+                    frame->r[0] = ERR_BADPTR;
                     return;
                 }
                 frame->r[0] = 0;

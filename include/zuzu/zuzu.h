@@ -5,7 +5,7 @@
  * zuzu.h - Umbrella header for Zuzu user ABI
  * 
  * Includes all user-space syscall interfaces, organized by functionality:
- * - types.h:  common types (zuzu_ipcmsg_t, tspawn_result_t, etc)
+ * - types.h:  common types (msg_t, tspawn_result_t, etc)
  * - task.h:   process lifecycle management
  * - ipc.h:    inter-process communication and ports
  * - umem.h:   memory management syscalls
