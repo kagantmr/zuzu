@@ -10,7 +10,7 @@
     #else
         #include <zuzu/zuzu.h>
         // User space assert is just quit for now
-        #define assert(cond) if(!(cond)) { _quit(-1); } 
+        #define assert(cond) if(!(cond)) { _pquit(-1); } 
     #endif
 #endif
 

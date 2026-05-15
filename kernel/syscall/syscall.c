@@ -78,9 +78,9 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     current_thread->trap_frame = frame;
     switch (svc_num)
     {
-    case SYS_TASK_QUIT:
+    case SYS_TASK_PQUIT:
     {
-        quit(frame);
+        pquit(frame);
     } break; 
     case SYS_TASK_YIELD:
     {
@@ -97,9 +97,9 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     {
         get_pid(frame);
     } break; 
-    case SYS_TASK_TSPAWN:
+    case SYS_TASK_PSPAWN:
     {
-        tspawn(frame);
+        pspawn(frame);
     } break;
     case SYS_TASK_KICKSTART:
     {
@@ -109,13 +109,17 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     {
         kill(frame);
     } break;
-    case SYS_TASK_MAKETHREAD:
+    case SYS_TASK_TMAKE:
     {
-        makethread(frame);
+        tmake(frame);
     } break;
-    case SYS_TASK_JOIN:
+    case SYS_TASK_TJOIN:
     {
-        join(frame);
+        tjoin(frame);
+    } break;
+    case SYS_TASK_TQUIT:
+    {
+        tquit(frame);
     } break;
     case SYS_PROC_SEND:
     {

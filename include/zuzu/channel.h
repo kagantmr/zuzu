@@ -43,7 +43,7 @@ static inline int32_t chan_call(handle_t port,
     if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
     memcpy(IPCX_BUF, buf, len);
 
-    zuzu_ipcmsg_t msg = _callx(port, len);
+    msg_t msg = _callx(port, len);
     if ((int32_t)msg.r0 < 0)
         return (int32_t)msg.r0;
 

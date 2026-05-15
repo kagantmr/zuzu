@@ -1,28 +1,31 @@
 #ifndef SYSCALL_NUMS_H
 #define SYSCALL_NUMS_H
 
+#include "err.h"
+
 /* ---- Task lifecycle (0x00-0x0F) ---- */
 
-#define SYS_TASK_QUIT 0x00  /* (status) -> never returns            */
-#define SYS_TASK_YIELD 0x01 /* () -> 0                              */
-#define SYS_TASK_WAIT 0x03  /* (pid, &status) -> 0 or -err          */
-#define SYS_GET_PID 0x04    /* () -> pid                            */
-#define SYS_TASK_SLEEP 0x05 /* (duration) -> 0                      */
-#define SYS_TASK_TSPAWN 0x06 /*  */
-#define SYS_TASK_KICKSTART 0x07  /* ()  */
-#define SYS_TASK_KILL 0x08 /* (task_handle) -> 0 or -err */
-#define SYS_TASK_MAKETHREAD 0x09 /* () -> tid */
-#define SYS_TASK_JOIN 0x0A /* (tid) -> exit_status or -err */
+#define SYS_TASK_PQUIT 0x00     /* (status) -> never returns            */
+#define SYS_TASK_YIELD 0x01     /* () -> 0                              */
+#define SYS_TASK_WAIT 0x03      /* (pid, &status) -> 0 or -err          */
+#define SYS_GET_PID 0x04        /* () -> pid                            */
+#define SYS_TASK_SLEEP 0x05     /* (duration) -> 0                      */
+#define SYS_TASK_PSPAWN 0x06    /*  */
+#define SYS_TASK_KICKSTART 0x07 /* ()  */
+#define SYS_TASK_KILL 0x08      /* (task_handle) -> 0 or -err */
+#define SYS_TASK_TMAKE 0x09     /* (entry, user_sp, arg) -> tid */
+#define SYS_TASK_TJOIN 0x0A     /* (tid) -> exit_status or -err */
+#define SYS_TASK_TQUIT 0x0B     /* (status) -> never returns */
 
 /* ---- IPC (0x10-0x1F) ---- */
 
-#define SYS_PROC_SEND 0x10  /* (port, r1-r3) -> 0 or -err          */
-#define SYS_PROC_RECV 0x11  /* (port) -> sender pid, r1-r3 payload  */
-#define SYS_PROC_CALL 0x12  /* (port, r1-r3) -> r0-r3 reply        */
-#define SYS_PROC_REPLY 0x13 /* (r0-r3) -> 0 or -err                */
-#define SYS_PROC_SENDX 0x14 /* (port, buf_len) -> 0 or -err; data in shared buffer */
-#define SYS_PROC_CALLX 0x15 /* (port, buf_len) -> r0=0, r1=recv_len; reply in shared buffer */
-#define SYS_PROC_REPLYX 0x16 /* (reply_handle, buf_len) -> 0 or -err; data in shared buffer */
+#define SYS_PROC_SEND 0x10    /* (port, r1-r3) -> 0 or -err          */
+#define SYS_PROC_RECV 0x11    /* (port) -> sender pid, r1-r3 payload  */
+#define SYS_PROC_CALL 0x12    /* (port, r1-r3) -> r0-r3 reply        */
+#define SYS_PROC_REPLY 0x13   /* (r0-r3) -> 0 or -err                */
+#define SYS_PROC_SENDX 0x14   /* (port, buf_len) -> 0 or -err; data in shared buffer */
+#define SYS_PROC_CALLX 0x15   /* (port, buf_len) -> r0=0, r1=recv_len; reply in shared buffer */
+#define SYS_PROC_REPLYX 0x16  /* (reply_handle, buf_len) -> 0 or -err; data in shared buffer */
 #define SYS_PROC_RECVANY 0x17 /* (handles_ptr, count, timeout, result_ptr) -> 0 or -err; fills result struct */
 
 /* ---- Ports (0x20-0x2F) ---- */
@@ -56,18 +59,5 @@
 /* ---- Experimental / debugging / temporary (0xF0-0xFF) ---- */
 
 #define SYS_MAX 0xFF
-
-/* ---- Error codes (returned as negative r0) ---- */
-
-#define ERR_NOPERM (-1)   /* Operation not permitted              */
-#define ERR_NOENT (-2)    /* Not found                            */
-#define ERR_BUSY (-3)     /* Resource busy, try again             */
-#define ERR_NOMEM (-4)    /* Out of memory                        */
-#define ERR_BADFORM (-5)  /* Bad handle                           */
-#define ERR_BADARG (-6)   /* Invalid argument                     */
-#define ERR_NOMATCH (-7)  /* Syscall not implemented              */
-#define ERR_PTRFAULT (-8) /* Bad pointer                          */
-#define ERR_DEAD (-9)     // endpoint destroyed while waiting
-#define ERR_TIMEOUT (-10)
 
 #endif /* SYSCALL_NUMS_H */

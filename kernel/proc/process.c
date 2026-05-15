@@ -320,7 +320,7 @@ process_t *process_load(const void *elf_data, size_t elf_size,
     for (int i = 2; i < 13; i++)
         exc_frame[i] = 0;
     exc_frame[13] = (vaddr_t)sp;
-    exc_frame[14] = 0;
+    exc_frame[14] = USER_ELF_BASE;
     exc_frame[15] = elf_entry;
     exc_frame[16] = 0x10;
 
@@ -334,7 +334,12 @@ process_t *process_load(const void *elf_data, size_t elf_size,
     t->kernel_sp = (uint32_t *)stack_top;
     t->state = READY;
 
-    KDEBUG("Created process with name %s PID %u", p->name, p->pid);
+    KTRACE("process create: pid=%u name=%s tid=%u owner_thread=%p as=%p",
+        p->pid,
+        p->name,
+        p->thread ? p->thread->tid : 0,
+        (void *)p->thread,
+        (void *)p->as);
     return p;
 
 fail_kstack:
@@ -362,7 +367,6 @@ fail_process:
 void process_track_reply_cap(process_t *caller, process_t *holder,
                              handle_t holder_slot, reply_cap_t *rc)
 {
-    rc->caller_pid = caller ? caller->pid : 0;
     rc->holder_pid = holder ? holder->pid : 0;
     rc->holder_slot = holder_slot;
     rc->caller_link.prev = NULL;
@@ -476,7 +480,6 @@ process_t *process_create(const char* name) {
 
     p->pid = next_pid++;
     process_table[slot] = p;
-    KDEBUG("Created thread with TID %u for process %d", p->thread->tid, p->pid);
     return p;
 
 fail_kstack:
@@ -508,7 +511,7 @@ void process_untrack_reply_cap(reply_cap_t *rc)
 
     rc->caller_link.prev = NULL;
     rc->caller_link.next = NULL;
-    rc->caller_pid = 0;
+    rc->caller_tid = 0;
     rc->holder_pid = 0;
     rc->holder_slot = 0;
 }
@@ -533,7 +536,7 @@ static void process_revoke_outstanding_reply_caps(process_t *caller)
 
         rc->caller_link.prev = NULL;
         rc->caller_link.next = NULL;
-        rc->caller_pid = 0;
+        rc->caller_tid = 0;
         rc->holder_pid = 0;
         rc->holder_slot = 0;
         kfree_reply_cap(rc);
@@ -649,7 +652,14 @@ void process_kill(process_t *p, const int exit_status) {
         list_node_t *next_thread = thread_node->next;
         thread_t *thread = container_of(thread_node, thread_t, process_node);
         thread->exit_status = exit_status;
-        thread_kill(thread);
+
+        // remove from run queue / sleep queue / IPC queue
+        if (thread->node.prev && thread->node.next)
+            list_remove(&thread->node);
+        if (thread->timeout_node.prev && thread->timeout_node.next)
+            list_remove(&thread->timeout_node);
+
+        thread_kill(thread);  // state = ZOMBIE
         thread_node = next_thread;
     }
     p->exit_status = exit_status;
@@ -667,31 +677,25 @@ void process_kill(process_t *p, const int exit_status) {
                 // Wake blocked waiters with ERR_DEAD
                 while (!list_empty(&ep->sender_queue)) {
                     list_node_t *n = list_pop_front(&ep->sender_queue);
-                    process_t *proc = container_of(n, process_t, node);
-                    thread_t *thread = process_find_blocked_thread(proc, ep);
-                    if (thread) {
-                        thread->ipc_state = IPC_NONE;
-                        thread->blocked_endpoint = NULL;
-                        thread->wake_reason = WAKE_IPC;
-                        if (thread->trap_frame)
-                            thread->trap_frame->r[0] = ERR_DEAD;
-                        thread->state = READY;
-                        sched_add(thread);
-                    }
+                    thread_t *thread = container_of(n, thread_t, node);
+                    thread->ipc_state = IPC_NONE;
+                    thread->blocked_endpoint = NULL;
+                    thread->wake_reason = WAKE_IPC;
+                    if (thread->trap_frame)
+                        thread->trap_frame->r[0] = ERR_DEAD;
+                    thread->state = READY;
+                    sched_add(thread);
                 }
                 while (!list_empty(&ep->receiver_queue)) {
                     list_node_t *n = list_pop_front(&ep->receiver_queue);
-                    process_t *proc = container_of(n, process_t, node);
-                    thread_t *thread = process_find_blocked_thread(proc, ep);
-                    if (thread) {
-                        thread->ipc_state = IPC_NONE;
-                        thread->blocked_endpoint = NULL;
-                        thread->wake_reason = WAKE_IPC;
-                        if (thread->trap_frame)
-                            thread->trap_frame->r[0] = ERR_DEAD;
-                        thread->state = READY;
-                        sched_add(thread);
-                    }
+                    thread_t *thread = container_of(n, thread_t, node);
+                    thread->ipc_state = IPC_NONE;
+                    thread->blocked_endpoint = NULL;
+                    thread->wake_reason = WAKE_IPC;
+                    if (thread->trap_frame)
+                        thread->trap_frame->r[0] = ERR_DEAD;
+                    thread->state = READY;
+                    sched_add(thread);
                 }
             }
             if (ep) {
@@ -733,17 +737,16 @@ void process_kill(process_t *p, const int exit_status) {
             entry->type = HANDLE_FREE;
         } else if (entry->type == HANDLE_REPLY) {
             reply_cap_t *rc = entry->reply;
-            process_t *caller = process_find_by_pid(rc ? rc->caller_pid : 0);
+            thread_t *caller_thread = thread_find_by_tid(rc ? rc->caller_tid : 0);
 
-            thread_t *thread = process_find_blocked_thread(caller, NULL);
-            if (thread && thread->ipc_state == IPC_WAITING) {
-                thread->ipc_state = IPC_NONE;
-                thread->blocked_endpoint = NULL;
-                thread->wake_reason = WAKE_IPC;
-                if (thread->trap_frame)
-                    thread->trap_frame->r[0] = ERR_DEAD;
-                thread->state = READY;
-                sched_add(thread);
+            if (caller_thread && caller_thread->ipc_state == IPC_WAITING) {
+                caller_thread->ipc_state = IPC_NONE;
+                caller_thread->blocked_endpoint = NULL;
+                caller_thread->wake_reason = WAKE_IPC;
+                if (caller_thread->trap_frame)
+                    caller_thread->trap_frame->r[0] = ERR_DEAD;
+                caller_thread->state = READY;
+                sched_add(caller_thread);
             }
 
             if (rc) {
@@ -802,10 +805,6 @@ void process_kill(process_t *p, const int exit_status) {
         child_node = next;
     }
 
-    // Remove process from whichever queue currently owns p->node, if any.
-    if (p->node.prev && p->node.next)
-        list_remove(&p->node);
-
     process_t *parent = process_find_by_pid(p->parent_pid);
     if (parent && parent->thread && parent->thread->state == BLOCKED
               && (parent->waiting_for == p->pid || parent->waiting_for == UINT32_MAX)) {
@@ -821,6 +820,8 @@ void process_destroy(process_t *p)
 {
     if (!p)
         return;
+
+    //KDEBUG("process_destroy: pid=%u current_tid=%u", p->pid, current_thread ? current_thread->tid : 0);
 
     irq_release_all(p);
     if (p->node.prev && p->node.next)
