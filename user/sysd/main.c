@@ -135,21 +135,21 @@ static void scrub_pid(uint32_t pid) {
 
 static void nt_handle_msg(msg_t msg) {
     if (msg.r2 >= sizeof(exec_request_hdr_t) && msg.r2 <= IPCX_BUF_SIZE &&
-        ((exec_request_hdr_t *)IPCX_BUF_VA)->cmd == SYSD_EXEC) {
+        ((exec_request_hdr_t *)ipcx_buf())->cmd == SYSD_EXEC) {
         uint32_t reply_handle = (uint32_t)msg.r0;
         uint32_t req_len = msg.r2;
-        exec_request_hdr_t *hdr = (exec_request_hdr_t *)IPCX_BUF_VA;
+        exec_request_hdr_t *hdr = (exec_request_hdr_t *)ipcx_buf();
 
         size_t path_off = sizeof(exec_request_hdr_t);
         size_t path_bytes = (size_t)hdr->path_len + 1;
         if (path_bytes == 0 || path_off + path_bytes > req_len ||
-            ((char *)IPCX_BUF_VA)[path_off + hdr->path_len] != '\0') {
+            ((char *)ipcx_buf())[path_off + hdr->path_len] != '\0') {
             _reply(reply_handle, (uint32_t)EXEC_ENOENT, 0, 0);
             return;
         }
 
-        const char *path = (const char *)IPCX_BUF_VA + path_off;
-        const char *argbuf = (const char *)IPCX_BUF_VA + path_off + path_bytes;
+        const char *path = (const char *)ipcx_buf() + path_off;
+        const char *argbuf = (const char *)ipcx_buf() + path_off + path_bytes;
         size_t argbuf_len = req_len - path_off - path_bytes;
 
         /* --- lazy-init fbox connection (once) --- */
@@ -245,7 +245,7 @@ static void nt_handle_msg(msg_t msg) {
             return;
         }
 
-        memcpy((void *)IPCX_BUF_VA, &reply, sizeof(reply));
+        memcpy(ipcx_buf(), &reply, sizeof(reply));
         _replyx(reply_handle, sizeof(reply));
         return;
     }

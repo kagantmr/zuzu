@@ -69,7 +69,7 @@ void zprint(const char *s)
 {
     size_t len = strlen(s);
     if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
-    memcpy((void *)IPCX_BUF_VA, s, len);
+    memcpy(ipcx_buf(), s, len);
     _sendx(tty_port, (uint32_t)len);
 }
 */
@@ -424,7 +424,7 @@ static void cmd_exec(const char *line)
         return;
     }
 
-    exec_request_hdr_t *hdr = (exec_request_hdr_t *)IPCX_BUF_VA;
+    exec_request_hdr_t *hdr = (exec_request_hdr_t *)ipcx_buf();
     hdr->cmd = SYSD_EXEC;
     hdr->_pad = 0;
     hdr->task_handle = (uint16_t)sysd_task_handle;
@@ -432,7 +432,7 @@ static void cmd_exec(const char *line)
     hdr->argc = (uint16_t)token_count;
     hdr->pid = ts.pid;
 
-    char *payload = (char *)IPCX_BUF_VA + sizeof(*hdr);
+    char *payload = (char *)ipcx_buf() + sizeof(*hdr);
     memcpy(payload, path, path_len + 1);
     memcpy(payload + path_len + 1, argbuf, argpos);
 
@@ -454,7 +454,7 @@ static void cmd_exec(const char *line)
         return;
     }
 
-    exec_reply_t *reply = (exec_reply_t *)IPCX_BUF_VA;
+    exec_reply_t *reply = (exec_reply_t *)ipcx_buf();
     kickstart_args_t ks = {
         .task_handle = (uint32_t)ts.task_handle,
         .entry       = reply->entry,

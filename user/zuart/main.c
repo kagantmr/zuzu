@@ -104,9 +104,9 @@ static void handle_client_message(msg_t msg)
         uint32_t len = msg.r1;
         if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
 
-        char *ipcx_buf = (char *)IPCX_BUF;
+        char *buf = (char *)ipcx_buf();
         for (uint32_t i = 0; i < len; i++)
-            uart_txbyte(ipcx_buf[i]);
+            uart_txbyte(buf[i]);
         return;
     }
 
@@ -117,10 +117,10 @@ static void handle_client_message(msg_t msg)
 
     service_pending_irq();
     drain_uart_rx_fifo();
-    char *ipcx_buf = (char *)IPCX_BUF;
+    char *buf = (char *)ipcx_buf();
     uint32_t n = 0;
     while (!rb_empty(&rxrb) && n < len)
-        ipcx_buf[n++] = rb_read(&rxrb);
+        buf[n++] = rb_read(&rxrb);
 
     (void)_replyx(reply_handle, (uint32_t)n);
 }

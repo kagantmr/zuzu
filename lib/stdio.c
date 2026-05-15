@@ -109,7 +109,7 @@ static int __attribute__((unused)) stdio_refill_input(void)
     if (got == 0)
         return EOF;
 
-    memcpy(stdio_input_buf, (void *)IPCX_BUF_VA, got);
+    memcpy(stdio_input_buf, ipcx_buf(), got);
     stdio_input_len = got;
     stdio_input_pos = 0;
     return 0;

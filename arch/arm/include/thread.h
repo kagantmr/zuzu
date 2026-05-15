@@ -20,7 +20,7 @@ static inline void arch_set_thread_ptr(thread_t *t)
 	 * User-mode can read this via: mrc p15, 0, r0, c13, c0, 2
 	 * This makes the thread pointer accessible to user-space code.
 	 */
-	__asm__ volatile("mcr p15, 0, %0, c13, c0, 2" ::"r"((uintptr_t)t) : "memory");
+	__asm__ volatile("mcr p15, 0, %0, c13, c0, 3" :: "r"(t->thread_info_va) : "memory");
 }
 
 #endif
