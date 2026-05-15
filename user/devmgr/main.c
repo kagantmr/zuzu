@@ -154,7 +154,7 @@ int devmgr_setup(void)
 void devmgr_loop(int32_t port_handle)
 {
     while (1) {
-        zuzu_ipcmsg_t msg = _recv(port_handle);
+        msg_t msg = _recv(port_handle);
 
         uint32_t reply_handle = (uint32_t)msg.r0;
         uint32_t sender_pid = msg.r1;

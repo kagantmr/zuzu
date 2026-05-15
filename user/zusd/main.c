@@ -247,7 +247,7 @@ static int pl181_write_block(uint32_t block_num)
     return 0;
 }
 
-static void handle_client(zuzu_ipcmsg_t msg)
+static void handle_client(msg_t msg)
 {
     uint32_t reply_h = (uint32_t)msg.r0;
     uint32_t sender = msg.r1;
@@ -307,7 +307,7 @@ static int zusd_setup(void)
     }
 
     /* locate devmgr */
-    zuzu_ipcmsg_t r = _call(NT_PORT, NT_LOOKUP, nt_pack("devm"), 0);
+    msg_t r = _call(NT_PORT, NT_LOOKUP, nt_pack("devm"), 0);
     if ((int32_t)r.r1 != NT_LU_OK)
     {
         printf("zusd: devmgr lookup failed\n");
@@ -376,7 +376,7 @@ static int zusd_setup(void)
     shmem_buf = (uint32_t *)shm.addr;
 
     /* ask sysd which den we belong to */
-    zuzu_ipcmsg_t den_r = _call(NT_PORT, DEN_MYDEN, 0, 0);
+    msg_t den_r = _call(NT_PORT, DEN_MYDEN, 0, 0);
     uint32_t my_den = (den_r.r1 == DEN_OK) ? den_r.r2 : 0;
 
     /* announce ourselves */
@@ -397,7 +397,7 @@ int main(void)
             _irq_done((uint32_t)block_dev_handle);
         }
 
-        zuzu_ipcmsg_t msg = _recv(port);
+        msg_t msg = _recv(port);
 
         if ((int32_t)msg.r0 > 0)
         {

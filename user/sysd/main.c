@@ -133,7 +133,7 @@ static void scrub_pid(uint32_t pid) {
     den_scrub_pid(pid);
 }
 
-static void nt_handle_msg(zuzu_ipcmsg_t msg) {
+static void nt_handle_msg(msg_t msg) {
     if (msg.r2 >= sizeof(exec_request_hdr_t) && msg.r2 <= IPCX_BUF_SIZE &&
         ((exec_request_hdr_t *)IPCX_BUF_VA)->cmd == SYSD_EXEC) {
         uint32_t reply_handle = (uint32_t)msg.r0;
@@ -161,7 +161,7 @@ static void nt_handle_msg(zuzu_ipcmsg_t msg) {
             }
             cached_fbox_handle = (int32_t)fbox_h;
 
-            zuzu_ipcmsg_t r = _call(cached_fbox_handle, FBOX_GET_BUF, 0, 0);
+            msg_t r = _call(cached_fbox_handle, FBOX_GET_BUF, 0, 0);
             if ((int32_t)r.r1 != FBOX_OK) {
                 cached_fbox_handle = -1;
                 _reply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
@@ -177,7 +177,7 @@ static void nt_handle_msg(zuzu_ipcmsg_t msg) {
             }
         }
         char *fbox_buf = cached_fbox_buf;
-        zuzu_ipcmsg_t r;
+        msg_t r;
 
         size_t plen = strlen(path);
         if (plen == 0 || plen >= 4096) {
@@ -351,7 +351,7 @@ static void nt_handle_msg(zuzu_ipcmsg_t msg) {
 #define WAIT_TIMEOUT_MS 30000u
 #define WAIT_SLICE_MS   10u
 
-static bool recvany_to_ipcmsg(const recvany_result_t *res, zuzu_ipcmsg_t *msg)
+static bool recvany_to_ipcmsg(const recvany_result_t *res, msg_t *msg)
 {
     if (!res || !msg)
         return false;
@@ -377,7 +377,7 @@ static bool wait_for_service(uint32_t name_u32) {
 
         recvany_result_t any = {0};
         if (_recvany(recv_handles, 1, WAIT_SLICE_MS, &any) == 0) {
-            zuzu_ipcmsg_t msg;
+            msg_t msg;
             if (recvany_to_ipcmsg(&any, &msg))
                 nt_handle_msg(msg);
         }
@@ -414,6 +414,7 @@ typedef struct {
     bool          injected;
     bool          is_tty;
     uint32_t      tty_index;
+    bool          spawn_last;
 } boot_entry_t;
 
 static boot_entry_t boot_entries[MAX_BOOT_ENTRIES];
@@ -517,6 +518,23 @@ static void parse_manifest(const char *data, size_t size,
             e->injected    = false;
             e->is_tty      = role_is_tty(rs, rl);
             e->tty_index   = 0;
+            e->spawn_last  = false;
+
+            /* role field may include flags after a ':' e.g. "tty:late" */
+            const char *colon = memchr(rs, ':', rl);
+            if (colon) {
+                size_t role_len = (size_t)(colon - rs);
+                const char *flags = colon + 1;
+                size_t flags_len = rl - role_len - 1;
+                if (flags_len > 0) {
+                    if (flags_len == 4 && memcmp(flags, "late", 4) == 0)
+                        e->spawn_last = true;
+                    else if (flags_len == 4 && memcmp(flags, "last", 4) == 0)
+                        e->spawn_last = true;
+                    else if (flags_len == 10 && memcmp(flags, "spawn_last", 10) == 0)
+                        e->spawn_last = true;
+                }
+            }
         } else if (deferred_count < MAX_BOOT_ENTRIES) {
             strcpy(deferred_paths[deferred_count++], full);
         }
@@ -539,7 +557,7 @@ static bool wait_for_tty_registration(uint32_t pid,
 
         recvany_result_t any = {0};
         if (_recvany(recv_handles, 1, WAIT_SLICE_MS, &any) == 0) {
-            zuzu_ipcmsg_t msg;
+            msg_t msg;
             if (recvany_to_ipcmsg(&any, &msg))
                 nt_handle_msg(msg);
         }
@@ -590,14 +608,14 @@ int main(void)
     parse_manifest((const char *)mdata, msize, initrd, initrd_sz);
 
 
-    /* ---- tspawn + inject every CPIO-resident program ---- */
+    /* ---- pspawn + inject every CPIO-resident program ---- */
 
     for (int i = 0; i < boot_count; i++) {
         boot_entry_t *e = &boot_entries[i];
-        if (!e->in_cpio)
+        if (!e->in_cpio || e->spawn_last)
             continue;
 
-        tspawn_result_t ts = _tspawn(e->name);
+        tspawn_result_t ts = _pspawn(e->name);
         if (ts.task_handle < 0)
             continue;
 
@@ -646,6 +664,35 @@ int main(void)
 
     // wait for fbox so we can spawn deferred entries through it once it's ready
     wait_for_service(nt_pack("fbox"));
+
+    /* Spawn any entries marked spawn_last after services are available. */
+    for (int i = 0; i < boot_count; i++) {
+        boot_entry_t *e = &boot_entries[i];
+        if (!e->in_cpio || !e->spawn_last)
+            continue;
+
+        tspawn_result_t ts = _pspawn(e->name);
+        if (ts.task_handle < 0)
+            continue;
+
+        e->task_handle = ts.task_handle;
+        e->pid         = ts.pid;
+
+        if (exec_inject((uint32_t)ts.task_handle,
+                        e->elf_data, e->elf_size,
+                        NULL, 0, 0, &e->reply) != 0)
+            continue;
+        e->injected = true;
+
+        kickstart_args_t ks = {
+            .task_handle = (uint32_t)e->task_handle,
+            .entry       = e->reply.entry,
+            .sp          = e->reply.sp,
+            .r0_val      = e->reply.argc,
+            .r1_val      = e->reply.argv_va,
+        };
+        _kickstart(&ks);
+    }
 
     sysd_loop();
     return 0;

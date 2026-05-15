@@ -23,7 +23,7 @@ typedef struct
     uint32_t r1;
     uint32_t r2;
     uint32_t r3;
-} zuzu_ipcmsg_t;
+} msg_t;
 
 /* ---- Memory management types ---- */
 

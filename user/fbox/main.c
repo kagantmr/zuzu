@@ -35,13 +35,13 @@ static void proxy_open(uint32_t reply_h, uint32_t arg, char *client_buf)
     size_t plen = strlen(client_buf);
     memcpy(fat32d_buf, client_buf, plen + 1);
 
-    zuzu_ipcmsg_t r = _call(fat32d_port, FAT32_OPEN, arg, 0);
+    msg_t r = _call(fat32d_port, FAT32_OPEN, arg, 0);
     _reply(reply_h, r.r1, r.r2, 0);
 }
 
 static void proxy_read(uint32_t reply_h, uint32_t arg, char *client_buf)
 {
-    zuzu_ipcmsg_t r = _call(fat32d_port, FAT32_READ, arg, 0);
+    msg_t r = _call(fat32d_port, FAT32_READ, arg, 0);
 
     /* data in fat32d_buf -> my_buf */
     uint32_t count = FAT32_RW_COUNT(arg);
@@ -61,13 +61,13 @@ static void proxy_write(uint32_t reply_h, uint32_t arg, char *client_buf)
     if (count > 4096) count = 4096;
     memcpy(fat32d_buf, client_buf, count);
 
-    zuzu_ipcmsg_t r = _call(fat32d_port, FAT32_WRITE, arg, 0);
+    msg_t r = _call(fat32d_port, FAT32_WRITE, arg, 0);
     _reply(reply_h, r.r1, r.r2, 0);
 }
 
 static void proxy_close(uint32_t reply_h, uint32_t arg)
 {
-    zuzu_ipcmsg_t r = _call(fat32d_port, FAT32_CLOSE, arg, 0);
+    msg_t r = _call(fat32d_port, FAT32_CLOSE, arg, 0);
     _reply(reply_h, r.r1, 0, 0);
 }
 
@@ -77,7 +77,7 @@ static void proxy_readdir(uint32_t reply_h, char *client_buf)
     size_t plen = strlen(client_buf);
     memcpy(fat32d_buf, client_buf, plen + 1);
 
-    zuzu_ipcmsg_t r = _call(fat32d_port, FAT32_READDIR, 0, 0);
+    msg_t r = _call(fat32d_port, FAT32_READDIR, 0, 0);
 
     /* dirents in fat32d_buf -> my_buf */
     if ((int32_t)r.r1 == FAT32_OK && r.r2 > 0) {
@@ -95,7 +95,7 @@ static void proxy_stat(uint32_t reply_h, char *client_buf)
     size_t plen = strlen(client_buf);
     memcpy(fat32d_buf, client_buf, plen + 1);
 
-    zuzu_ipcmsg_t r = _call(fat32d_port, FAT32_STAT, 0, 0);
+    msg_t r = _call(fat32d_port, FAT32_STAT, 0, 0);
 
     /* stat result in fat32d_buf -> my_buf */
     if ((int32_t)r.r1 == FAT32_OK)
@@ -196,7 +196,7 @@ int main(void)
     }
 
     /* get fat32d's shmem buffer */
-    zuzu_ipcmsg_t r = _call(fat32d_port, FAT32_GET_BUF, 0, 0);
+    msg_t r = _call(fat32d_port, FAT32_GET_BUF, 0, 0);
     if ((int32_t)r.r1 != 0) {
         printf("fbox: FAT32_GET_BUF failed\n");
         return 1;
@@ -216,7 +216,7 @@ int main(void)
     _send(NT_PORT, NT_REGISTER | (0 << 8), nt_pack("fbox"), (uint32_t)global_slot);
 
     while (1) {
-        zuzu_ipcmsg_t msg = _recv(my_port);
+        msg_t msg = _recv(my_port);
         uint32_t reply_h = (uint32_t)msg.r0;
         uint32_t sender  = msg.r1;
         uint32_t cmd     = msg.r2;
