@@ -103,7 +103,7 @@ static const char *decode_mode(uint32_t spsr)
 
 static void dump_registers(exception_frame_t *frame)
 {
-    kprintf("\033[31m"); // Red
+    kprintf(ANSI_RED); // Red
     kprintf("  r0=%08X  r1=%08X  r2=%08X  r3=%08X\n",
             frame->r[0], frame->r[1], frame->r[2], frame->r[3]);
     kprintf("  r4=%08X  r5=%08X  r6=%08X  r7=%08X\n",
@@ -118,7 +118,7 @@ static void dump_registers(exception_frame_t *frame)
             (frame->return_cpsr & (1 << 7)) ? "I" : "i",
             (frame->return_cpsr & (1 << 6)) ? "F" : "f",
             (frame->return_cpsr & (1 << 5)) ? " Thumb" : "");
-    kprintf("\033[0m"); // Reset
+    kprintf(ANSI_RESET); // Reset
 }
 
 void exception_dispatch(exception_type exctype, exception_frame_t *frame)
@@ -137,7 +137,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
 
         if (from_user && current_process)
         {
-            KERROR("Oops! '%s' (PID %d) killed - undefined instruction @ 0x%08X", current_process->name, current_process->pid, frame->return_pc);
+            KERROR("Oops! '%s' (PID %d, TID %d) killed - undefined instruction @ 0x%08X", current_process->name, current_process->pid, current_thread->tid, frame->return_pc);
             process_kill(current_process, -1);
             schedule();
         }
@@ -197,8 +197,8 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
 
         if (from_user && current_process)
         {
-            KERROR("Oops! '%s' (PID %d) killed - prefetch abort @ 0x%08X (%s)",
-                   current_process->name, current_process->pid, ifar, decode_fault_status(ifsr));
+            KERROR("Oops! '%s' (PID %d, TID %d) killed - prefetch abort @ 0x%08X (%s)",
+                   current_process->name, current_process->pid, current_thread->tid, ifar, decode_fault_status(ifsr));
             process_kill(current_process, -1);
             dump_registers(frame);
             schedule();
@@ -297,8 +297,8 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
             if (from_user)
             {
                 // not translation fault or lazy mapping failed, terminate
-                KERROR("Oops! '%s' (PID %d) killed - data abort @ 0x%08X (%s %s)",
-                       current_process->name, current_process->pid, dfar,
+                KERROR("Oops! '%s' (PID %d, TID %d) killed - data abort @ 0x%08X (%s %s)",
+                       current_process->name, current_process->pid, current_thread->tid, dfar,
                        (dfsr & (1 << 11)) ? "write" : "read",
                        decode_fault_status(dfsr));
                 dump_registers(frame);
@@ -308,8 +308,8 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
             else if (from_svc)
             {
                 // bad pointer in syscall, log and kill process. unlikely to happen since validation and copy functions should catch these.
-                KERROR("Data abort in kernel mode while handling SVC from '%s' (PID %d) @ 0x%08X (%s %s)",
-                       current_process->name, current_process->pid, dfar,
+                KERROR("Data abort in kernel mode while handling SVC from '%s' (PID %d, TID %d) @ 0x%08X (%s %s)",
+                       current_process->name, current_process->pid, current_thread->tid, dfar,
                        (dfsr & (1 << 11)) ? "write" : "read",
                        decode_fault_status(dfsr));
                 dump_registers(frame);
