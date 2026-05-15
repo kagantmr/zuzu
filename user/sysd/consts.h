@@ -9,6 +9,6 @@
 
 #include <zuzu/user_layout.h>
 
-#define INITRD_BASE USER_MMAP_BASE
+#define INITRD_BASE (USER_MMAP_BASE + 0x1000)
 
 #endif

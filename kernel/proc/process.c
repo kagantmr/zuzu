@@ -419,7 +419,7 @@ process_t *process_create(const char* name) {
     if (!kmap_user_page(p->as, t->ipc_buf_pa, IPCX_BUF_VA,
                         VM_PROT_READ | VM_PROT_WRITE)) // could use a bump pointer instead
         goto fail_kstack;
-
+    
     vm_region_t ipc_region = {
         .vaddr_start = IPCX_BUF_VA,
         .size = PAGE_SIZE,
@@ -430,6 +430,49 @@ process_t *process_create(const char* name) {
     };
     if (!vmm_add_region(p->as, &ipc_region))
         goto fail_kstack;
+
+    /* Initialize per-process mmap bump pointer before allocating the
+     * TCB mapping so we can place the TCB page at the process's
+     * `mmap_va_next` value and then advance it. */
+    p->device_va_next = USER_DEVICE_BASE;
+    p->mmap_va_next = USER_MMAP_BASE;
+
+    paddr_t tcb_page_pa = pmm_alloc_page();
+    if (!tcb_page_pa)
+        goto fail_kstack;
+    p->tcb_page_pa = tcb_page_pa;
+    /* Map the TCB page into the user mmap area at the process's bump
+     * pointer so userspace can read its per-thread slot. */
+    vaddr_t tcb_user_va = p->mmap_va_next;
+    if (!kmap_user_page(p->as, tcb_page_pa, tcb_user_va,
+                        VM_PROT_USER | VM_PROT_READ | VM_PROT_WRITE))
+        goto fail_kstack;
+
+    vm_region_t tcb_region = {
+        .vaddr_start = tcb_user_va,
+        .size = PAGE_SIZE,
+        .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
+        .memtype = VM_MEM_NORMAL,
+        .owner = VM_OWNER_ANON,
+        .flags = VM_FLAG_NONE,
+    };
+    if (!vmm_add_region(p->as, &tcb_region))
+        goto fail_kstack;
+
+    p->tcb_page_va = tcb_user_va; /* user-visible VA */
+
+    /* Advance bump pointer to reserve the TCB page */
+    p->mmap_va_next += PAGE_SIZE;
+
+    /* Initialize the page via the kernel alias (kernel VA). The
+     * initial slot (slot 0) belongs to the main thread and should
+     * point at the process's IPCX fixed VA. */
+    tdata_t *tcb0 = (tdata_t *)PA_TO_VA(tcb_page_pa);
+    tcb0->ipc_buf = (void *)IPCX_BUF_VA;
+    tcb0->tid = t->tid;
+    /* Point the thread's thread-info VA at the first slot in the user TCB page */
+    t->thread_info_va = p->tcb_page_va;
+    
 
     // slot 0 is reserved for nametable endpoint when available
     handle_entry_t *slot0 = handle_vec_get(&p->handle_table, 0);
@@ -449,8 +492,7 @@ process_t *process_create(const char* name) {
         slot0->ep = NULL;
     }
 
-    p->device_va_next = USER_DEVICE_BASE;
-    p->mmap_va_next = USER_MMAP_BASE;
+    /* `device_va_next` and `mmap_va_next` were initialized earlier. */
     p->parent_pid = 0;
     t->priority = 1;
     t->time_slice = 5;
@@ -480,6 +522,7 @@ process_t *process_create(const char* name) {
 
     p->pid = next_pid++;
     process_table[slot] = p;
+    tcb0->pid = p->pid;
     return p;
 
 fail_kstack:

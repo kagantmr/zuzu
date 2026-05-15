@@ -36,6 +36,9 @@ typedef struct process
     list_head_t threads;
     list_head_t children;
     list_node_t sibling_node;
+    paddr_t tcb_page_pa;
+    vaddr_t tcb_page_va;
+    uint32_t tcb_next_slot;
 } process_t;
 
 void process_destroy(process_t *process);

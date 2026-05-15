@@ -28,7 +28,7 @@
 static inline int32_t chan_send(handle_t port, const void *buf, uint32_t len)
 {
     if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
-    memcpy(IPCX_BUF, buf, len);
+    memcpy(ipcx_buf(), buf, len);
     return _sendx(port, len);
 }
 
@@ -41,7 +41,7 @@ static inline int32_t chan_call(handle_t port,
                                 void       *reply,  uint32_t reply_cap)
 {
     if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
-    memcpy(IPCX_BUF, buf, len);
+    memcpy(ipcx_buf(), buf, len);
 
     msg_t msg = _callx(port, len);
     if ((int32_t)msg.r0 < 0)
@@ -50,7 +50,7 @@ static inline int32_t chan_call(handle_t port,
     uint32_t got = msg.r1;
     if (got > reply_cap) got = reply_cap;
     if (got && reply)
-        memcpy(reply, IPCX_BUF, got);
+        memcpy(reply, ipcx_buf(), got);
 
     return (int32_t)got;
 }
@@ -63,7 +63,7 @@ static inline int32_t chan_reply(handle_t reply_handle,
 {
     if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
     if (len && buf)
-        memcpy(IPCX_BUF, buf, len);
+        memcpy(ipcx_buf(), buf, len);
     return _replyx(reply_handle, len);
 }
 
