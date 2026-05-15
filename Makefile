@@ -9,7 +9,7 @@ OPTIMIZATION_LEVEL ?= 2
 DEBUG_BUILD        ?= 1
 DTB_DEBUG_WALK     ?= 0
 EARLY_UART         ?= 0
-DEBUG_PRINT        ?= 1
+LOG_LEVEL          ?= 1
 BANNER             ?= 1
 FANCY_PANIC        ?= 1
 
@@ -31,8 +31,20 @@ endif
 ifeq ($(FANCY_PANIC), 1)
     CFLAGS += -DPANIC_FULL_SCREEN
 endif
-ifeq ($(DEBUG_PRINT), 1)
-    CFLAGS += -DDEBUG_PRINT
+ifeq ($(LOG_LEVEL), 0)
+	CFLAGS += -DLOG_LEVEL=0
+else ifeq ($(LOG_LEVEL), 1)
+	CFLAGS += -DLOG_LEVEL=1
+else ifeq ($(LOG_LEVEL), 2)
+	CFLAGS += -DLOG_LEVEL=2
+else ifeq ($(LOG_LEVEL), 3)
+	CFLAGS += -DLOG_LEVEL=3
+else ifeq ($(LOG_LEVEL), 4)
+	CFLAGS += -DLOG_LEVEL=4
+else ifeq ($(LOG_LEVEL), 5)
+	CFLAGS += -DLOG_LEVEL=5
+else
+	$(error LOG_LEVEL must be an integer from 0 to 5)
 endif
 ifeq ($(DEBUG_BUILD), 1)
     CFLAGS += -UNDEBUG -DDEBUG -DZUZU_BANNER_SHOW_ADDR
@@ -60,6 +72,22 @@ USER_CFLAGS  = -ffreestanding -nostdlib -O$(OPTIMIZATION_LEVEL) -Wall -Wextra \
 			   $(CPUFLAGS) -Iinclude -MMD -MP -g -mfloat-abi=hard -mfpu=vfpv4
 USER_LDFLAGS = -T user/user.ld
 
+ifeq ($(LOG_LEVEL), 0)
+	USER_CFLAGS += -DLOG_LEVEL=0
+else ifeq ($(LOG_LEVEL), 1)
+	USER_CFLAGS += -DLOG_LEVEL=1
+else ifeq ($(LOG_LEVEL), 2)
+	USER_CFLAGS += -DLOG_LEVEL=2
+else ifeq ($(LOG_LEVEL), 3)
+	USER_CFLAGS += -DLOG_LEVEL=3
+else ifeq ($(LOG_LEVEL), 4)
+	USER_CFLAGS += -DLOG_LEVEL=4
+else ifeq ($(LOG_LEVEL), 5)
+	USER_CFLAGS += -DLOG_LEVEL=5
+else
+	$(error LOG_LEVEL must be an integer from 0 to 5)
+endif
+
 ifeq ($(DEBUG_BUILD), 1)
     USER_CFLAGS += -UNDEBUG -DDEBUG
 else
@@ -67,7 +95,7 @@ else
 endif
 
 BOOT_PROGS = sysd devmgr zuart zusd fat32d fbox zzsh
-DISK_PROGS = test zuzufetch cycletest 
+DISK_PROGS = test test_thread zuzufetch cycletest 
 
 USER_PROGS = $(BOOT_PROGS) $(DISK_PROGS)
 
