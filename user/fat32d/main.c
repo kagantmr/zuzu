@@ -201,7 +201,7 @@ static void handle_request(uint32_t reply_h, uint32_t sender,
 
 int main(void)
 {
-    zuzu_ipcmsg_t r;
+    msg_t r;
 
     /* ask which den we're in */
     r = _call(NT_PORT, DEN_MYDEN, 0, 0);
@@ -242,7 +242,7 @@ int main(void)
     printf("fat32d: ready\n");
 
     while (1) {
-        zuzu_ipcmsg_t msg = _recv(my_port);
+        msg_t msg = _recv(my_port);
         uint32_t reply_h = (uint32_t)msg.r0;
         uint32_t sender  = msg.r1;
         uint32_t cmd     = msg.r2;

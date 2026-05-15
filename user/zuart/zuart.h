@@ -96,7 +96,7 @@ static inline int32_t zuart_write(int32_t zuart_port, uint32_t len) {
     return _sendx(zuart_port, len);
 }
 
-static inline zuzu_ipcmsg_t zuart_read(int32_t zuart_port, uint32_t max_len) {
+static inline msg_t zuart_read(int32_t zuart_port, uint32_t max_len) {
     return _callx(zuart_port, max_len);
 }
 

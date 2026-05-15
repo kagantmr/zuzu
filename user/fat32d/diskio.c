@@ -27,7 +27,7 @@ static int disk_backend_init(void)
         return -1;
     }
 
-    zuzu_ipcmsg_t r = _call(g_zusd_port, ZUSD_CMD_GET_BUF, 0, 0);
+    msg_t r = _call(g_zusd_port, ZUSD_CMD_GET_BUF, 0, 0);
     if ((int32_t)r.r1 != 0) {
         g_zusd_port = -1;
         return -1;
@@ -70,7 +70,7 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
     }
 
     for (UINT i = 0; i < count; i++) {
-        zuzu_ipcmsg_t r = _call(g_zusd_port, ZUSD_CMD_READ, (uint32_t)(sector + i), 0);
+        msg_t r = _call(g_zusd_port, ZUSD_CMD_READ, (uint32_t)(sector + i), 0);
         if ((int32_t)r.r1 != 0) {
             return RES_ERROR;
         }
@@ -92,7 +92,7 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 
     for (UINT i = 0; i < count; i++) {
         memcpy(g_sector_buf, buff + (i * FAT32D_SECTOR_SIZE), FAT32D_SECTOR_SIZE);
-        zuzu_ipcmsg_t r = _call(g_zusd_port, ZUSD_CMD_WRITE, (uint32_t)(sector + i), 0);
+        msg_t r = _call(g_zusd_port, ZUSD_CMD_WRITE, (uint32_t)(sector + i), 0);
         if ((int32_t)r.r1 != 0) {
             return RES_ERROR;
         }

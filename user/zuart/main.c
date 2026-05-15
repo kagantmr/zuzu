@@ -17,6 +17,7 @@ ringbuf_t rxrb, txrb;
 
 #define ZUART_DEV_CLASS DEV_CLASS_SERIAL
 #define ZUART_COMPATIBLE "arm,pl011"
+#define ZUART_RECV_SLICE_MS 5u
 
 static void uart_txraw(char c)
 {
@@ -49,7 +50,7 @@ static void drain_uart_rx_fifo(void)
 static int32_t wait_for_devmgr(void)
 {
     while (1) {
-        zuzu_ipcmsg_t ntmsg = _call(NT_PORT, NT_LOOKUP, nt_pack("devm"), 0);
+        msg_t ntmsg = _call(NT_PORT, NT_LOOKUP, nt_pack("devm"), 0);
         if ((int32_t)ntmsg.r1 == NT_LU_OK) {
             devmgr_port = (int32_t)ntmsg.r2;
             return (int32_t)ntmsg.r3;
@@ -62,7 +63,7 @@ static int32_t wait_for_devmgr(void)
 static int32_t request_serial_device(void)
 {
     while (1) {
-        zuzu_ipcmsg_t devmsg = _call(devmgr_port, DEV_REQUEST, DEV_CLASS_SERIAL, 0);
+        msg_t devmsg = _call(devmgr_port, DEV_REQUEST, DEV_CLASS_SERIAL, 0);
         if ((int32_t)devmsg.r1 == 0) {
             return (int32_t)devmsg.r2;
         }
@@ -91,11 +92,12 @@ static void handle_irq_event(void)
 static void service_pending_irq(void)
 {
     int32_t bits = _ntfn_poll((uint32_t)serial_irq_ntfn);
-    if (bits > 0)
+    if (bits > 0) {
         handle_irq_event();
+    }
 }
 
-static void handle_client_message(zuzu_ipcmsg_t msg)
+static void handle_client_message(msg_t msg)
 {
     if (msg.r2 == 0) {
         /* write: one-way _sendx, byte count in r1. */
@@ -115,7 +117,6 @@ static void handle_client_message(zuzu_ipcmsg_t msg)
 
     service_pending_irq();
     drain_uart_rx_fifo();
-
     char *ipcx_buf = (char *)IPCX_BUF;
     uint32_t n = 0;
     while (!rb_empty(&rxrb) && n < len)
@@ -173,7 +174,6 @@ int zuart_setup(void)
     uart->IMSC = (IMSC_RXIM | IMSC_RTIM);
 
     (void)_send(NT_PORT, NT_REGISTER, nt_pack("uart"), (uint32_t)nt_slot);
-
     return ZUART_INIT_OK;
 }
 
@@ -187,16 +187,13 @@ int main(void)
     for (const char *p = startup_banner; *p; p++)
         uart_txbyte(*p);
 
-    zuzu_ipcmsg_t msg;
+    msg_t msg;
 
     while (1)
     {
-        int32_t bits = _ntfn_poll((uint32_t)serial_irq_ntfn);
-        if (bits > 0) {
-            handle_irq_event();
-        }
+        service_pending_irq();
 
-        msg = _recv(port);
+        msg = _recv_timeout(port, ZUART_RECV_SLICE_MS);
         if (msg.r0 >= 0) {
             handle_client_message(msg);
         }

@@ -11,11 +11,10 @@
 #include <zuzu/protocols/fbox_protocol.h>
 #include <zuzu/protocols/sysd_protocol.h>
 
-static int32_t tty_port;
 static int32_t sysd_port;
 static uint32_t sysd_pid;
-static int32_t fbox_port;
-static char   *fbox_buf;   /* shmem shared with fbox */
+static int32_t fbox_port = -1;
+static char   *fbox_buf = NULL;   /* shmem shared with fbox */
 static char cwd[256] = "/";
 
 // -------------------- Prompt --------------------
@@ -77,33 +76,43 @@ void zprint(const char *s)
 
 int setup(void)
 {
-    while (1) {
-        zuzu_ipcmsg_t sysd = _call(NT_PORT, NT_LOOKUP, nt_pack(NT_NAME_SYS), 0);
-        if (sysd.r1 == NT_LU_OK) {
-            sysd_port = (int32_t)sysd.r2;
-            sysd_pid = sysd.r3;
-            break;
-        }
-        _sleep(10);
-    }
+    msg_t sysd = _call(NT_PORT, NT_LOOKUP, nt_pack(NT_NAME_SYS), 0);
+    if (sysd.r1 != NT_LU_OK)
+        return -1;
+    sysd_port = (int32_t)sysd.r2;
+    sysd_pid = sysd.r3;
 
-    tty_port = lookup_service("tty0");
-    if (tty_port < 0) return -1;
-
-    fbox_port = lookup_service("fbox");
-    if (fbox_port < 0) return -1;
-
-    while (1) {
-        zuzu_ipcmsg_t r = _call(fbox_port, FBOX_GET_BUF, 0, 0);
-        if ((int32_t)r.r1 == 0) {
-            fbox_buf = (char *)_attach((int32_t)r.r2);
-            if ((intptr_t)fbox_buf > 0)
-                break;
-        }
-        _sleep(10);
-    }
+    if (stdio_route_tty("uart") < 0)
+        return -1;
 
     return 0;
+}
+
+static bool ensure_fbox(void)
+{
+    if (fbox_port >= 0 && fbox_buf)
+        return true;
+
+    if (fbox_port < 0) {
+        fbox_port = lookup_service("fbox");
+        if (fbox_port < 0) {
+            return false;
+        }
+    }
+
+    if (!fbox_buf) {
+        msg_t r = _call(fbox_port, FBOX_GET_BUF, 0, 0);
+        if ((int32_t)r.r1 != 0) {
+            return false;
+        }
+        fbox_buf = (char *)_attach((int32_t)r.r2);
+        if ((intptr_t)fbox_buf <= 0) {
+            fbox_buf = NULL;
+            return false;
+        }
+    }
+
+    return true;
 }
 
 // Redraws prompt + current line content, clears to end of line.
@@ -200,12 +209,15 @@ static bool resolve_path(const char *input, char *out, size_t out_size)
 
 static bool stat_path(const char *path, fbox_stat_t *st)
 {
+    if (!ensure_fbox())
+        return false;
+
     size_t plen = strlen(path);
     if (plen >= 4096)
         return false;
 
     memcpy(fbox_buf, path, plen + 1);
-    zuzu_ipcmsg_t r = _call(fbox_port, FBOX_STAT, 0, 0);
+    msg_t r = _call(fbox_port, FBOX_STAT, 0, 0);
     if ((int32_t)r.r1 != FBOX_OK)
         return false;
 
@@ -260,6 +272,11 @@ static void print_exec_error(int32_t code)
 
 static void cmd_ls(const char *arg)
 {
+    if (!ensure_fbox()) {
+        zprint(ANSI_RED "ls: fbox unavailable\n" ANSI_RESET);
+        return;
+    }
+
     char path[256];
     if (!resolve_path(arg, path, sizeof(path))) {
         zprint("path too long\n");
@@ -269,7 +286,7 @@ static void cmd_ls(const char *arg)
     size_t plen = strlen(path);
     memcpy(fbox_buf, path, plen + 1);
 
-    zuzu_ipcmsg_t r = _call(fbox_port, FBOX_READDIR, 0, 0);
+    msg_t r = _call(fbox_port, FBOX_READDIR, 0, 0);
     if ((int32_t)r.r1 != FBOX_OK) {
         zprint(ANSI_RED "ls: cannot read directory\n" ANSI_RESET);
         return;
@@ -295,6 +312,11 @@ static void cmd_ls(const char *arg)
 
 static void cmd_cat(const char *path)
 {
+    if (!ensure_fbox()) {
+        zprint(ANSI_RED "cat: fbox unavailable\n" ANSI_RESET);
+        return;
+    }
+
     if (!path || !path[0]) {
         zprint("usage: cat <file>\n");
         return;
@@ -309,7 +331,7 @@ static void cmd_cat(const char *path)
     size_t plen = strlen(abs_path);
     memcpy(fbox_buf, abs_path, plen + 1);
 
-    zuzu_ipcmsg_t r = _call(fbox_port, FBOX_OPEN, FAT32_MODE_READ, 0);
+    msg_t r = _call(fbox_port, FBOX_OPEN, FAT32_MODE_READ, 0);
     if ((int32_t)r.r1 != FBOX_OK) {
         zprint(ANSI_RED "cat: file not found\n" ANSI_RESET);
         return;
@@ -335,6 +357,11 @@ static void cmd_cat(const char *path)
 
 static void cmd_exec(const char *line)
 {
+    if (!ensure_fbox()) {
+        zprint(ANSI_RED "zzsh: fbox unavailable\n" ANSI_RESET);
+        return;
+    }
+
     /* ---- tokenize ---- */
     char buf[LINE_BUFFER_SIZE];
     strncpy(buf, line, sizeof(buf) - 1);
@@ -374,9 +401,9 @@ static void cmd_exec(const char *line)
         argpos += len;
     }
 
-    /* ---- tspawn locally, ask sysd to inject, then kickstart ---- */
+    /* ---- pspawn locally, ask sysd to inject, then kickstart ---- */
     const char *name = path_basename(path);
-    tspawn_result_t ts = _tspawn(name);
+    tspawn_result_t ts = _pspawn(name);
     if (ts.task_handle < 0) {
         zprint(ANSI_RED "zzsh: spawn failed\n" ANSI_RESET);
         return;
@@ -409,7 +436,7 @@ static void cmd_exec(const char *line)
     memcpy(payload, path, path_len + 1);
     memcpy(payload + path_len + 1, argbuf, argpos);
 
-    zuzu_ipcmsg_t r = _callx(sysd_port, (uint32_t)req_len);
+    msg_t r = _callx(sysd_port, (uint32_t)req_len);
     if (r.r0 < 0) {
         _kill(ts.task_handle);                    /* <-- NEW */
         zprint(ANSI_RED "zzsh: spawn failed\n" ANSI_RESET);
@@ -569,6 +596,9 @@ int main(void)
     // Escape sequence parser state
     typedef enum { ST_NORMAL, ST_ESC, ST_CSI } input_state_t;
     input_state_t state = ST_NORMAL;
+
+    if (stdio_register_zuart() != 0)
+        return 1;
 
     zprint(ANSI_BOLD ANSI_CYAN "zzsh " ZZSH_VER "\n" ANSI_RESET);
     zprint(PROMPT);
