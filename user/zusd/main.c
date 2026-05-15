@@ -6,6 +6,8 @@
 #include "zuzu/protocols/nt_protocol.h"
 #include "zuzu/protocols/devmgr_protocol.h"
 #include "zuzu/protocols/zusd_protocol.h"
+#include <malloc.h>
+#include <zuzu/user_layout.h>
 
 static pl181_t *pl181;
 static bool is_sdhc;
@@ -247,6 +249,49 @@ static int pl181_write_block(uint32_t block_num)
     return 0;
 }
 
+/* job queue + worker thread to offload blocking block transfers. */
+
+#define ZUSD_JOB_QUEUE_SZ 16
+typedef struct {
+    uint32_t cmd;
+    uint32_t arg;
+    uint32_t reply_h;
+    uint32_t sender;
+} zusd_job_t;
+
+static zusd_job_t zusd_jobs[ZUSD_JOB_QUEUE_SZ];
+static unsigned zusd_job_head = 0;
+static unsigned zusd_job_tail = 0;
+static int32_t zusd_worker_ntfn = -1;
+
+static void zusd_worker(void *arg)
+{
+    (void)arg;
+    while (1) {
+        _ntfn_wait((uint32_t)zusd_worker_ntfn);
+        while (zusd_job_head != zusd_job_tail) {
+            zusd_job_t job = zusd_jobs[zusd_job_tail];
+            zusd_job_tail = (zusd_job_tail + 1) % ZUSD_JOB_QUEUE_SZ;
+
+            switch (job.cmd) {
+            case ZUSD_CMD_READ: {
+                int rc = pl181_read_block(job.arg);
+                _reply((uint32_t)job.reply_h, rc == 0 ? 0 : (uint32_t)-1, 0, 0);
+                break;
+            }
+            case ZUSD_CMD_WRITE: {
+                int rc = pl181_write_block(job.arg);
+                _reply((uint32_t)job.reply_h, rc == 0 ? 0 : (uint32_t)-1, 0, 0);
+                break;
+            }
+            default:
+                _reply((uint32_t)job.reply_h, (uint32_t)-1, 0, 0);
+                break;
+            }
+        }
+    }
+}
+
 static void handle_client(msg_t msg)
 {
     uint32_t reply_h = (uint32_t)msg.r0;
@@ -270,17 +315,36 @@ static void handle_client(msg_t msg)
 
     case ZUSD_CMD_READ:
     {
-        /* result written into shmem_buf */
-        int rc = pl181_read_block(arg);
-        _reply(reply_h, rc == 0 ? 0 : (uint32_t)-1, 0, 0);
+        /* enqueue read job for worker thread */
+        unsigned next = (zusd_job_head + 1) % ZUSD_JOB_QUEUE_SZ;
+        if (next == zusd_job_tail) {
+            /* queue full */
+            _reply(reply_h, (uint32_t)-1, 0, 0);
+        } else {
+            zusd_jobs[zusd_job_head].cmd = ZUSD_CMD_READ;
+            zusd_jobs[zusd_job_head].arg = arg;
+            zusd_jobs[zusd_job_head].reply_h = reply_h;
+            zusd_jobs[zusd_job_head].sender = sender;
+            zusd_job_head = next;
+            (void)_ntfn_signal((uint32_t)zusd_worker_ntfn, 1);
+        }
         break;
     }
 
     case ZUSD_CMD_WRITE:
     {
-        /* data read from shmem_buf */
-        int rc = pl181_write_block(arg);
-        _reply(reply_h, rc == 0 ? 0 : (uint32_t)-1, 0, 0);
+        /* enqueue write job for worker thread */
+        unsigned nextw = (zusd_job_head + 1) % ZUSD_JOB_QUEUE_SZ;
+        if (nextw == zusd_job_tail) {
+            _reply(reply_h, (uint32_t)-1, 0, 0);
+        } else {
+            zusd_jobs[zusd_job_head].cmd = ZUSD_CMD_WRITE;
+            zusd_jobs[zusd_job_head].arg = arg;
+            zusd_jobs[zusd_job_head].reply_h = reply_h;
+            zusd_jobs[zusd_job_head].sender = sender;
+            zusd_job_head = nextw;
+            (void)_ntfn_signal((uint32_t)zusd_worker_ntfn, 1);
+        }
         break;
     }
 
@@ -289,6 +353,8 @@ static void handle_client(msg_t msg)
         break;
     }
 }
+
+/* duplicate block removed; definitions placed above */
 
 static int zusd_setup(void)
 {
@@ -381,6 +447,25 @@ static int zusd_setup(void)
 
     /* announce ourselves */
     (void)_send(NT_PORT, NT_REGISTER | (my_den << 8), nt_pack("zusd"), (uint32_t)nt_slot);
+
+    /* create worker notification and spawn worker thread */
+    zusd_worker_ntfn = _ntfn_create();
+    if (zusd_worker_ntfn < 0) {
+        printf("zusd: worker ntfn create failed\n");
+        return -1;
+    }
+
+    void *wstack = malloc(USER_STACK_SIZE);
+    if (!wstack) {
+        printf("zusd: worker stack alloc failed\n");
+        return -1;
+    }
+
+    tid_t wt = _tmake(zusd_worker, (void *)((char *)wstack + USER_STACK_SIZE), NULL);
+    if ((int)wt < 0) {
+        printf("zusd: worker spawn failed\n");
+        return -1;
+    }
     return 0;
 }
 

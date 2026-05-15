@@ -8,6 +8,7 @@
 #include <mem.h>
 #include <stdbool.h>
 #include <malloc.h>
+#include <zuzu/user_layout.h>
 
 static int32_t fat32d_port = -1;
 static void *fat32d_buf = NULL;    /* shmem shared with fat32d */
@@ -21,6 +22,74 @@ typedef struct {
 } client_buf_t;
 
 static client_buf_t clients[MAX_FBOX_CLIENTS];
+
+/* forward declarations so worker can call these helpers */
+static void proxy_open(uint32_t reply_h, uint32_t arg, char *client_buf);
+static void proxy_read(uint32_t reply_h, uint32_t arg, char *client_buf);
+static void proxy_write(uint32_t reply_h, uint32_t arg, char *client_buf);
+static void proxy_close(uint32_t reply_h, uint32_t arg);
+static void proxy_readdir(uint32_t reply_h, char *client_buf);
+static void proxy_stat(uint32_t reply_h, char *client_buf);
+
+/* Job queue + worker to offload blocking proxy calls to fat32d. */
+#define FBOX_JOB_QUEUE_SZ 16
+typedef struct {
+    uint32_t cmd;
+    uint32_t arg;
+    uint32_t reply_h;
+    uint32_t sender;
+    int client_idx;
+} fbox_job_t;
+
+static fbox_job_t fbox_jobs[FBOX_JOB_QUEUE_SZ];
+static unsigned fbox_job_head = 0;
+static unsigned fbox_job_tail = 0;
+static int32_t fbox_worker_ntfn = -1;
+
+static void fbox_worker(void *arg)
+{
+    (void)arg;
+    while (1) {
+        _ntfn_wait((uint32_t)fbox_worker_ntfn);
+        while (fbox_job_head != fbox_job_tail) {
+            fbox_job_t job = fbox_jobs[fbox_job_tail];
+            fbox_job_tail = (fbox_job_tail + 1) % FBOX_JOB_QUEUE_SZ;
+
+            client_buf_t *client = NULL;
+            if (job.client_idx >= 0 && job.client_idx < MAX_FBOX_CLIENTS)
+                client = &clients[job.client_idx];
+
+            switch (job.cmd) {
+            case FBOX_OPEN:
+                if (client) proxy_open(job.reply_h, job.arg, client->buf);
+                else _reply(job.reply_h, (uint32_t)-1, 0, 0);
+                break;
+            case FBOX_READ:
+                if (client) proxy_read(job.reply_h, job.arg, client->buf);
+                else _reply(job.reply_h, (uint32_t)-1, 0, 0);
+                break;
+            case FBOX_WRITE:
+                if (client) proxy_write(job.reply_h, job.arg, client->buf);
+                else _reply(job.reply_h, (uint32_t)-1, 0, 0);
+                break;
+            case FBOX_CLOSE:
+                proxy_close(job.reply_h, job.arg);
+                break;
+            case FBOX_READDIR:
+                if (client) proxy_readdir(job.reply_h, client->buf);
+                else _reply(job.reply_h, (uint32_t)-1, 0, 0);
+                break;
+            case FBOX_STAT:
+                if (client) proxy_stat(job.reply_h, client->buf);
+                else _reply(job.reply_h, (uint32_t)-1, 0, 0);
+                break;
+            default:
+                _reply(job.reply_h, (uint32_t)-1, 0, 0);
+                break;
+            }
+        }
+    }
+}
 
 /* Copy client shmem -> fat32d shmem, forward command, copy result back.
  * For commands where the client writes data IN (path, write data):
@@ -214,6 +283,25 @@ int main(void)
         return 1;
     }
     _send(NT_PORT, NT_REGISTER | (0 << 8), nt_pack("fbox"), (uint32_t)global_slot);
+
+    /* create worker notification and spawn worker thread */
+    fbox_worker_ntfn = _ntfn_create();
+    if (fbox_worker_ntfn < 0) {
+        printf("fbox: worker ntfn create failed\n");
+        return 1;
+    }
+
+    void *wstack = malloc(USER_STACK_SIZE);
+    if (!wstack) {
+        printf("fbox: worker stack alloc failed\n");
+        return 1;
+    }
+
+    tid_t wt = _tmake(fbox_worker, (void *)((char *)wstack + USER_STACK_SIZE), NULL);
+    if ((int)wt < 0) {
+        printf("fbox: worker spawn failed\n");
+        return 1;
+    }
 
     while (1) {
         msg_t msg = _recv(my_port);

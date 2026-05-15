@@ -124,8 +124,7 @@ void sched_reap_thread_destroys(void) {
 }
 
 void sched_reap(void) {
-    KDEBUG("sched_reap: destroy_q=%d thread_q=%d",
-           !list_empty(&destroy_queue), !list_empty(&thread_destroy_queue));
+    /* Removed noisy debug logging to avoid flooding the console. */
     while (!list_empty(&destroy_queue)) {
         list_node_t *node = list_pop_front(&destroy_queue);
         process_t *p = container_of(node, process_t, destroy_node);
