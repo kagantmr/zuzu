@@ -57,43 +57,14 @@ typedef struct {
 
 #define UART_RINGBUF_MAX 1024
 
-typedef struct ringbuf
-{
-    char buf[UART_RINGBUF_MAX];
-    uint16_t head, tail;
-} ringbuf_t;
-
-static inline bool rb_full(ringbuf_t *rb)
-{
-    return (rb->head + 1) % UART_RINGBUF_MAX == rb->tail;
-}
-
-static inline bool rb_empty(ringbuf_t *rb)
-{
-    return (rb->head) == rb->tail;
-}
-
-static inline bool rb_write(ringbuf_t *rb, char ch)
-{
-    if (rb_full(rb))
-        return false;
-    rb->buf[rb->head] = ch;
-    rb->head = (rb->head + 1) % UART_RINGBUF_MAX;
-    return true;
-}
-
-static inline char rb_read(ringbuf_t *rb)
-{
-    char c = rb->buf[rb->tail];
-    rb->tail = (rb->tail + 1) % UART_RINGBUF_MAX;
-    return c;
-}
+#include <zuzu/ring.h>
+#include <zuzu/channel.h>
 
 int zuart_setup(void);
 
 /* ZUART IPCX API: send/receive via 4KB per-process buffer */
 static inline int32_t zuart_write(int32_t zuart_port, uint32_t len) {
-    return _sendx(zuart_port, len);
+    return chan_send((handle_t)zuart_port, ipcx_buf(), len);
 }
 
 static inline msg_t zuart_read(int32_t zuart_port, uint32_t max_len) {
