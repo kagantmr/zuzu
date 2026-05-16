@@ -9,6 +9,7 @@
 #include "zuzu/protocols/sysd_protocol.h"
 #include "zuzu/protocols/fbox_protocol.h"
 #include <zuzu/ipcx.h>
+#include <zuzu/channel.h>
 #include <cpio.h>
 #include <malloc.h>
 #include "den.h"
@@ -246,7 +247,7 @@ static void nt_handle_msg(msg_t msg) {
         }
 
         memcpy(ipcx_buf(), &reply, sizeof(reply));
-        _replyx(reply_handle, sizeof(reply));
+        (void)chan_reply((handle_t)reply_handle, ipcx_buf(), sizeof(reply));
         return;
     }
 
