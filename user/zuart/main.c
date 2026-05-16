@@ -4,6 +4,8 @@
 #include "zuzu/protocols/nt_protocol.h"
 #include <zuzu/protocols/sysd_protocol.h>
 #include "zuzu/ipcx.h"
+#include <zuzu/ring.h>
+#include <zuzu/channel.h>
 #include <stdint.h>
 #include <string.h>
 #include <mem.h>
@@ -13,7 +15,9 @@ int port;
 static int32_t devmgr_port = -1;
 static int32_t serial_dev_handle = -1;
 static int32_t serial_irq_ntfn = -1;
-ringbuf_t rxrb, txrb;
+static ring_t rxrb, txrb;
+static uint8_t rxbuf_storage[UART_RINGBUF_MAX];
+static uint8_t txbuf_storage[UART_RINGBUF_MAX];
 
 #define ZUART_DEV_CLASS DEV_CLASS_SERIAL
 #define ZUART_COMPATIBLE "arm,pl011"
@@ -21,29 +25,26 @@ ringbuf_t rxrb, txrb;
 
 static void uart_txraw(char c)
 {
-    if (!(uart->FR & FR_TXFF) && rb_empty(&txrb)) {
-        uart->DR = c;
-    } else if (rb_write(&txrb, c)) {
+    if (!(uart->FR & FR_TXFF) && ring_avail(&txrb) == 0) {
+        uart->DR = (uint32_t)c;
+    } else if (ring_push(&txrb, (uint8_t)c) == 0) {
         uart->IMSC |= IMSC_TXIM;
     }
 }
 
 static void uart_txbyte(char c)
 {
-    // Console-friendly newline handling: terminals typically expect CRLF.
     if (c == '\n') {
         uart_txraw('\r');
     }
     uart_txraw(c);
 }
 
-
-
 static void drain_uart_rx_fifo(void)
 {
-    while (!(uart->FR & FR_RXFE) && !rb_full(&rxrb)) {
-        char c = (char)(uart->DR & 0xFF);
-        rb_write(&rxrb, c);
+    while (!(uart->FR & FR_RXFE) && ring_full(&rxrb) == 0) {
+        uint8_t c = (uint8_t)(uart->DR & 0xFF);
+        (void)ring_push(&rxrb, c);
     }
 }
 
@@ -73,16 +74,19 @@ static int32_t request_serial_device(void)
 
 static void handle_irq_event(void)
 {
-    if (uart->MIS & (IMSC_RXIM | IMSC_RTIM))
-    {
+    if (uart->MIS & (IMSC_RXIM | IMSC_RTIM)) {
         drain_uart_rx_fifo();
         uart->ICR = (IMSC_RXIM | IMSC_RTIM);
     }
-    if (uart->MIS & IMSC_TXIM)
-    {
-        while (!(uart->FR & FR_TXFF) && !rb_empty(&txrb))
-            uart->DR = rb_read(&txrb);
-        if (rb_empty(&txrb))
+    if (uart->MIS & IMSC_TXIM) {
+        while (!(uart->FR & FR_TXFF) && ring_avail(&txrb) > 0) {
+            uint8_t b = 0;
+            if (ring_pop(&txrb, &b) == 0)
+                uart->DR = (uint32_t)b;
+            else
+                break;
+        }
+        if (ring_avail(&txrb) == 0)
             uart->IMSC &= ~IMSC_TXIM;
         uart->ICR = IMSC_TXIM;
     }
@@ -100,7 +104,6 @@ static void service_pending_irq(void)
 static void handle_client_message(msg_t msg)
 {
     if (msg.r2 == 0) {
-        /* write: one-way _sendx, byte count in r1. */
         uint32_t len = msg.r1;
         if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
 
@@ -110,7 +113,6 @@ static void handle_client_message(msg_t msg)
         return;
     }
 
-    /* read: blocking _callx, requested length in r2. */
     uint32_t reply_handle = (uint32_t)msg.r0;
     uint32_t len = msg.r2;
     if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
@@ -119,10 +121,15 @@ static void handle_client_message(msg_t msg)
     drain_uart_rx_fifo();
     char *buf = (char *)ipcx_buf();
     uint32_t n = 0;
-    while (!rb_empty(&rxrb) && n < len)
-        buf[n++] = rb_read(&rxrb);
+    while (ring_avail(&rxrb) > 0 && n < len) {
+        uint8_t b = 0;
+        if (ring_pop(&rxrb, &b) == 0)
+            buf[n++] = (char)b;
+        else
+            break;
+    }
 
-    (void)_replyx(reply_handle, (uint32_t)n);
+    (void)chan_reply((handle_t)reply_handle, buf, (uint32_t)n);
 }
 
 int zuart_setup(void)
@@ -159,11 +166,9 @@ int zuart_setup(void)
         return ZUART_INIT_FAIL;
     }
 
-    rxrb.head = rxrb.tail = 0;
-    txrb.head = txrb.tail = 0;
+    ring_init(&rxrb, rxbuf_storage, UART_RINGBUF_MAX);
+    ring_init(&txrb, txbuf_storage, UART_RINGBUF_MAX);
 
-    // Deterministic UART interrupt setup: mask/clear, configure FIFO threshold,
-    // then enable UART and finally unmask RX sources.
     uart->IMSC = 0;
     uart->CR = 0;
     uart->ICR = ICR_ALL;
@@ -189,8 +194,7 @@ int main(void)
 
     msg_t msg;
 
-    while (1)
-    {
+    while (1) {
         service_pending_irq();
 
         msg = _recv_timeout(port, ZUART_RECV_SLICE_MS);

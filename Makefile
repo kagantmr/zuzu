@@ -95,7 +95,7 @@ else
 endif
 
 BOOT_PROGS = sysd devmgr zuart zusd fat32d fbox zzsh
-DISK_PROGS = test test_thread zuzufetch cycletest 
+DISK_PROGS = test zuzufetch cycletest 
 
 USER_PROGS = $(BOOT_PROGS) $(DISK_PROGS)
 
