@@ -10,6 +10,7 @@
 #include <zuzu/syspage.h>
 #include <zuzu/protocols/fbox_protocol.h>
 #include <zuzu/protocols/sysd_protocol.h>
+#include <zuzu/channel.h>
 
 static int32_t sysd_port;
 static uint32_t sysd_pid;
@@ -436,20 +437,15 @@ static void cmd_exec(const char *line)
     memcpy(payload, path, path_len + 1);
     memcpy(payload + path_len + 1, argbuf, argpos);
 
-    msg_t r = _callx(sysd_port, (uint32_t)req_len);
-    if (r.r0 < 0) {
-        _kill(ts.task_handle);                    /* <-- NEW */
+    int32_t rc = chan_call((handle_t)sysd_port, ipcx_buf(), (uint32_t)req_len,
+                           ipcx_buf(), (uint32_t)sizeof(exec_reply_t));
+    if (rc < 0) {
+        _kill(ts.task_handle);
         zprint(ANSI_RED "zzsh: spawn failed\n" ANSI_RESET);
         return;
     }
-    if ((int32_t)r.r1 < 0) {
-        _kill(ts.task_handle);                    /* <-- NEW */
-        print_exec_error((int32_t)r.r1);
-        return;
-    }
-
-    if (r.r1 != sizeof(exec_reply_t)) {
-        _kill(ts.task_handle);                    /* <-- NEW */
+    if (rc != (int32_t)sizeof(exec_reply_t)) {
+        _kill(ts.task_handle);
         zprint(ANSI_RED "zzsh: bad exec reply\n" ANSI_RESET);
         return;
     }
