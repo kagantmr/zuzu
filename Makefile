@@ -94,7 +94,7 @@ else
     USER_CFLAGS += -DNDEBUG -UDEBUG
 endif
 
-BOOT_PROGS = sysd devmgr zuart zusd fat32d fbox zzsh
+BOOT_PROGS = sysd devmgr pl011drv pl181drv fat32d fbox zzsh
 DISK_PROGS = test zuzufetch cycletest 
 
 USER_PROGS = $(BOOT_PROGS) $(DISK_PROGS)
@@ -289,12 +289,14 @@ run: $(TARGET)
 	@qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M \
 	    -kernel $(TARGET) -dtb $(DTB_FILE) -nographic \
 	    -drive file=$(SD_IMG),if=sd,format=raw \
+		-netdev user,id=net0 \
 
 debug: $(TARGET)
 	@echo "  QEMU    $(TARGET) (debug)"
 	@qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M \
 	    -kernel $(TARGET) -dtb $(DTB_FILE) -nographic \
 		-drive file=$(SD_IMG),if=sd,format=raw \
+		-netdev user,id=net0\
 	    -S -gdb tcp::1234
 
 # Misc targets
