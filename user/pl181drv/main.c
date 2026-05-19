@@ -2,10 +2,10 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdint.h>
-#include "zusd.h"
+#include "pl181drv.h"
 #include "zuzu/protocols/nt_protocol.h"
 #include "zuzu/protocols/devmgr_protocol.h"
-#include "zuzu/protocols/zusd_protocol.h"
+#include "zuzu/protocols/sd_protocol.h"
 #include <malloc.h>
 #include <zuzu/user_layout.h>
 
@@ -46,18 +46,18 @@ static int pl181_send_cmd(uint32_t cmd, uint32_t arg, uint32_t flags)
         }
         if (s & MCI_CMDTIMEOUT)
         {
-            printf("zusd: CMD%u timeout\n", cmd);
+            printf("pl181drv: CMD%u timeout\n", cmd);
             return -1;
         }
         if ((flags & MCI_CMD_RESPONSE) && (s & MCI_CMDCRCFAIL))
         {
-            printf("zusd: CMD%u CRC fail\n", cmd);
+            printf("pl181drv: CMD%u CRC fail\n", cmd);
             return -1;
         }
         pl181_delay(200);
     }
 
-    printf("zusd: CMD%u poll timeout\n", cmd);
+    printf("pl181drv: CMD%u poll timeout\n", cmd);
     return -1;
 }
 
@@ -80,7 +80,7 @@ static int pl181_setup(void)
     {
         if ((pl181->RESPONSE[0] & 0xFFF) != 0x1AA)
         {
-            printf("zusd: voltage mismatch\n");
+            printf("pl181drv: voltage mismatch\n");
             return -1;
         }
         is_v2 = true;
@@ -110,7 +110,7 @@ static int pl181_setup(void)
 
     if (!(ocr & (1u << 31)))
     {
-        printf("zusd: card init timeout\n");
+        printf("pl181drv: card init timeout\n");
         return -1;
     }
 
@@ -129,7 +129,7 @@ static int pl181_setup(void)
     if (pl181_send_cmd(7, rca << 16, MCI_CMD_RESPONSE) < 0)
         return -1;
 
-    printf("zusd: card ready, SDHC=%d\n", is_sdhc);
+    printf("pl181drv: card ready, SDHC=%d\n", is_sdhc);
 
     /* switch to transfer-speed clock */
     pl181->CLOCK = (1u << 8) | 0x2; /* enable, ~25 MHz */
@@ -148,8 +148,9 @@ static int wait_for_irq(void)
     return (bits < 0) ? -1 : 0;
 }
 
-/*
- * Block read: arm transfer, sleep until IRQ, drain FIFO, report status.
+/* ... rest of functions (pl181_read_block, pl181_write_block, worker, handlers) ... */
+
+/* Block read: arm transfer, sleep until IRQ, drain FIFO, report status.
  * Result ends up in shmem_buf.
  */
 static int pl181_read_block(uint32_t block_num)
@@ -180,7 +181,7 @@ static int pl181_read_block(uint32_t block_num)
     /* check for transfer errors before draining */
     if (status & (MCI_DATACRCFAIL | MCI_DATATIMEOUT | MCI_RXOVERRUN))
     {
-        printf("zusd: read error STATUS=0x%08x\n", status);
+        printf("pl181drv: read error STATUS=0x%08x\n", status);
         pl181->CLEAR = 0xFFFFFFFF;
         pl181->MASK[0] = 0;
         _irq_done((uint32_t)block_dev_handle);
@@ -202,8 +203,7 @@ static int pl181_read_block(uint32_t block_num)
     return 0;
 }
 
-/*
- * Block write: arm data path, fill FIFO, sleep until IRQ, check status.
+/* Block write: arm data path, fill FIFO, sleep until IRQ, check status.
  * Data is read from shmem_buf.
  */
 static int pl181_write_block(uint32_t block_num)
@@ -242,7 +242,7 @@ static int pl181_write_block(uint32_t block_num)
 
     if (status & (MCI_DATACRCFAIL | MCI_DATATIMEOUT | MCI_TXUNDERRUN))
     {
-        printf("zusd: write error STATUS=0x%08x\n", status);
+        printf("pl181drv: write error STATUS=0x%08x\n", status);
         return -1;
     }
 
@@ -251,35 +251,39 @@ static int pl181_write_block(uint32_t block_num)
 
 /* job queue + worker thread to offload blocking block transfers. */
 
-#define ZUSD_JOB_QUEUE_SZ 16
+#define PL181DRV_JOB_QUEUE_SZ 16
 typedef struct {
     uint32_t cmd;
     uint32_t arg;
     uint32_t reply_h;
     uint32_t sender;
-} zusd_job_t;
+} pl181drv_job_t;
 
-static zusd_job_t zusd_jobs[ZUSD_JOB_QUEUE_SZ];
-static unsigned zusd_job_head = 0;
-static unsigned zusd_job_tail = 0;
-static int32_t zusd_worker_ntfn = -1;
+static pl181drv_job_t pl181drv_jobs[PL181DRV_JOB_QUEUE_SZ];
+static unsigned pl181drv_job_head = 0;
+static unsigned pl181drv_job_tail = 0;
+static int32_t pl181drv_worker_ntfn = -1;
 
-static void zusd_worker(void *arg)
+/* forward declarations for block transfer helpers */
+static int pl181_read_block(uint32_t block_num);
+static int pl181_write_block(uint32_t block_num);
+
+static void pl181drv_worker(void *arg)
 {
     (void)arg;
     while (1) {
-        _ntfn_wait((uint32_t)zusd_worker_ntfn);
-        while (zusd_job_head != zusd_job_tail) {
-            zusd_job_t job = zusd_jobs[zusd_job_tail];
-            zusd_job_tail = (zusd_job_tail + 1) % ZUSD_JOB_QUEUE_SZ;
+        _ntfn_wait((uint32_t)pl181drv_worker_ntfn);
+        while (pl181drv_job_head != pl181drv_job_tail) {
+            pl181drv_job_t job = pl181drv_jobs[pl181drv_job_tail];
+            pl181drv_job_tail = (pl181drv_job_tail + 1) % PL181DRV_JOB_QUEUE_SZ;
 
             switch (job.cmd) {
-            case ZUSD_CMD_READ: {
+            case SD_CMD_READ: {
                 int rc = pl181_read_block(job.arg);
                 _reply((uint32_t)job.reply_h, rc == 0 ? 0 : (uint32_t)-1, 0, 0);
                 break;
             }
-            case ZUSD_CMD_WRITE: {
+            case SD_CMD_WRITE: {
                 int rc = pl181_write_block(job.arg);
                 _reply((uint32_t)job.reply_h, rc == 0 ? 0 : (uint32_t)-1, 0, 0);
                 break;
@@ -302,9 +306,8 @@ static void handle_client(msg_t msg)
     switch (cmd)
     {
 
-    case ZUSD_CMD_GET_BUF:
+    case SD_CMD_GET_BUF:
     {
-        /* grant the 512-byte shmem to caller */
         int32_t granted = _port_grant(shmem_handle, (int32_t)sender);
         if (granted < 0)
             _reply(reply_h, (uint32_t)-1, 0, 0);
@@ -313,37 +316,34 @@ static void handle_client(msg_t msg)
         break;
     }
 
-    case ZUSD_CMD_READ:
+    case SD_CMD_READ:
     {
-        /* enqueue read job for worker thread */
-        unsigned next = (zusd_job_head + 1) % ZUSD_JOB_QUEUE_SZ;
-        if (next == zusd_job_tail) {
-            /* queue full */
+        unsigned next = (pl181drv_job_head + 1) % PL181DRV_JOB_QUEUE_SZ;
+        if (next == pl181drv_job_tail) {
             _reply(reply_h, (uint32_t)-1, 0, 0);
         } else {
-            zusd_jobs[zusd_job_head].cmd = ZUSD_CMD_READ;
-            zusd_jobs[zusd_job_head].arg = arg;
-            zusd_jobs[zusd_job_head].reply_h = reply_h;
-            zusd_jobs[zusd_job_head].sender = sender;
-            zusd_job_head = next;
-            (void)_ntfn_signal((uint32_t)zusd_worker_ntfn, 1);
+            pl181drv_jobs[pl181drv_job_head].cmd = SD_CMD_READ;
+            pl181drv_jobs[pl181drv_job_head].arg = arg;
+            pl181drv_jobs[pl181drv_job_head].reply_h = reply_h;
+            pl181drv_jobs[pl181drv_job_head].sender = sender;
+            pl181drv_job_head = next;
+            (void)_ntfn_signal((uint32_t)pl181drv_worker_ntfn, 1);
         }
         break;
     }
 
-    case ZUSD_CMD_WRITE:
+    case SD_CMD_WRITE:
     {
-        /* enqueue write job for worker thread */
-        unsigned nextw = (zusd_job_head + 1) % ZUSD_JOB_QUEUE_SZ;
-        if (nextw == zusd_job_tail) {
+        unsigned nextw = (pl181drv_job_head + 1) % PL181DRV_JOB_QUEUE_SZ;
+        if (nextw == pl181drv_job_tail) {
             _reply(reply_h, (uint32_t)-1, 0, 0);
         } else {
-            zusd_jobs[zusd_job_head].cmd = ZUSD_CMD_WRITE;
-            zusd_jobs[zusd_job_head].arg = arg;
-            zusd_jobs[zusd_job_head].reply_h = reply_h;
-            zusd_jobs[zusd_job_head].sender = sender;
-            zusd_job_head = nextw;
-            (void)_ntfn_signal((uint32_t)zusd_worker_ntfn, 1);
+            pl181drv_jobs[pl181drv_job_head].cmd = SD_CMD_WRITE;
+            pl181drv_jobs[pl181drv_job_head].arg = arg;
+            pl181drv_jobs[pl181drv_job_head].reply_h = reply_h;
+            pl181drv_jobs[pl181drv_job_head].sender = sender;
+            pl181drv_job_head = nextw;
+            (void)_ntfn_signal((uint32_t)pl181drv_worker_ntfn, 1);
         }
         break;
     }
@@ -354,21 +354,19 @@ static void handle_client(msg_t msg)
     }
 }
 
-/* duplicate block removed; definitions placed above */
-
-static int zusd_setup(void)
+static int pl181drv_setup(void)
 {
     port = _port_create();
     if (port < 0)
     {
-        printf("zusd: port_create failed\n");
+        printf("pl181drv: port_create failed\n");
         return -1;
     }
 
     int32_t nt_slot = _port_grant(port, NAMETABLE_PID);
     if (nt_slot < 0)
     {
-        printf("zusd: nt grant failed\n");
+        printf("pl181drv: nt grant failed\n");
         return -1;
     }
 
@@ -376,7 +374,7 @@ static int zusd_setup(void)
     msg_t r = _call(NT_PORT, NT_LOOKUP, nt_pack("devm"), 0);
     if ((int32_t)r.r1 != NT_LU_OK)
     {
-        printf("zusd: devmgr lookup failed\n");
+        printf("pl181drv: devmgr lookup failed\n");
         return -1;
     }
     int32_t devmgr_port = (int32_t)r.r2;
@@ -385,7 +383,7 @@ static int zusd_setup(void)
     r = _call(devmgr_port, DEV_REQUEST, DEV_CLASS_BLOCK, 0);
     if ((int32_t)r.r1 != 0)
     {
-        printf("zusd: block device request failed\n");
+        printf("pl181drv: block device request failed\n");
         return -1;
     }
     block_dev_handle = (int32_t)r.r2;
@@ -393,77 +391,69 @@ static int zusd_setup(void)
     block_irq_ntfn = _ntfn_create();
     if (block_irq_ntfn < 0)
     {
-        printf("zusd: ntfn_create failed\n");
+        printf("pl181drv: ntfn_create failed\n");
         return -1;
     }
 
-    /* claim IRQ ownership and bind it to our notification */
     if (_irq_claim((uint32_t)block_dev_handle) < 0)
     {
-        printf("zusd: irq_claim failed\n");
+        printf("pl181drv: irq_claim failed\n");
         return -1;
     }
     if (_irq_bind((uint32_t)block_dev_handle, (uint32_t)block_irq_ntfn) < 0)
     {
-        printf("zusd: irq_bind failed\n");
+        printf("pl181drv: irq_bind failed\n");
         return -1;
     }
 
-    /* map hardware registers */
     pl181 = (pl181_t *)_mapdev((uint32_t)block_dev_handle);
     if ((intptr_t)pl181 <= 0)
     {
-        printf("zusd: mapdev failed\n");
+        printf("pl181drv: mapdev failed\n");
         return -1;
     }
 
-    /* sanity-check peripheral ID */
     uint32_t pid0 = pl181->PERIPHID[0] & 0xFF;
     uint32_t pid1 = pl181->PERIPHID[1] & 0xFF;
     if (!((pid0 == 0x80 || pid0 == 0x81) && pid1 == 0x11))
     {
-        printf("zusd: unexpected peripheral ID %02x %02x\n", pid0, pid1);
+        printf("pl181drv: unexpected peripheral ID %02x %02x\n", pid0, pid1);
         return -1;
     }
-    printf("zusd: detected PL18%u\n", pid0 == 0x80 ? 0 : 1);
+    printf("pl181drv: detected PL18%u\n", pid0 == 0x80 ? 0 : 1);
 
-    /* bring up the card */
     if (pl181_setup() < 0)
         return -1;
 
-    /* allocate the 512-byte shared data buffer */
     shmem_result_t shm = _memshare(4096);
     if (shm.handle < 0 || shm.addr == NULL)
     {
-        printf("zusd: shmem failed\n");
+        printf("pl181drv: shmem failed\n");
         return -1;
     }
     shmem_handle = shm.handle;
     shmem_buf = (uint32_t *)shm.addr;
 
-    /* ask sysd which den we belong to */
     msg_t den_r = _call(NT_PORT, DEN_MYDEN, 0, 0);
     uint32_t my_den = (den_r.r1 == DEN_OK) ? den_r.r2 : 0;
 
-    /* announce ourselves */
-    (void)_send(NT_PORT, NT_REGISTER | (my_den << 8), nt_pack("zusd"), (uint32_t)nt_slot);
+    (void)_send(NT_PORT, NT_REGISTER | (my_den << 8), nt_pack("pl181drv"), (uint32_t)nt_slot);
 
-    /* create worker notification and spawn worker thread */
-    zusd_worker_ntfn = _ntfn_create();
-    if (zusd_worker_ntfn < 0) {
-        printf("zusd: worker ntfn create failed\n");
+    pl181drv_worker_ntfn = _ntfn_create();
+    if (pl181drv_worker_ntfn < 0) {
+        printf("pl181drv: worker ntfn create failed\n");
         return -1;
     }
 
     void *wstack = malloc(USER_STACK_SIZE);
     if (!wstack) {
-        printf("zusd: worker stack alloc failed\n");
+        printf("pl181drv: worker stack alloc failed\n");
         return -1;
     }
 
-    tid_t wt = _tmake(zusd_worker, (void *)((char *)wstack + USER_STACK_SIZE), NULL);
+    tid_t wt = _tmake(pl181drv_worker, (void *)((char *)wstack + USER_STACK_SIZE), NULL);
     if ((int)wt < 0) {
-        printf("zusd: worker spawn failed\n");
+        printf("pl181drv: worker spawn failed\n");
         return -1;
     }
     return 0;
@@ -471,14 +461,13 @@ static int zusd_setup(void)
 
 int main(void)
 {
-    if (zusd_setup() < 0)
+    if (pl181drv_setup() < 0)
         return 1;
     while (1)
     {
         int32_t bits = _ntfn_poll((uint32_t)block_irq_ntfn);
         if (bits > 0)
         {
-            /* spurious IRQ outside a transfer, just re-enable the line */
             _irq_done((uint32_t)block_dev_handle);
         }
 

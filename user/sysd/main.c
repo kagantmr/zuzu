@@ -447,7 +447,7 @@ static const char *basename(const char *path)
 
 static bool is_storage_member(const char *name)
 {
-    return strcmp(name, "zusd")   == 0 ||
+    return strcmp(name, "pl181drv")   == 0 ||
            strcmp(name, "fat32d") == 0 ||
            strcmp(name, "fbox")   == 0;
 }

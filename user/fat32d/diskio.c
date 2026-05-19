@@ -3,7 +3,7 @@
 
 #include <zuzu/zuzu.h>
 #include "zuzu/protocols/nt_protocol.h"
-#include "zuzu/protocols/zusd_protocol.h"
+#include "zuzu/protocols/sd_protocol.h"
 #include <zuzu/service.h>
 #include <mem.h>
 #include <stdint.h>
@@ -13,7 +13,7 @@
 #define FAT32D_SECTOR_COUNT 131072u
 
 static int g_init = 0;
-static int32_t g_zusd_port = -1;
+static int32_t g_sd_port = -1;
 static BYTE *g_sector_buf = NULL;
 
 static int disk_backend_init(void)
@@ -22,20 +22,20 @@ static int disk_backend_init(void)
         return 0;
     }
 
-    g_zusd_port = lookup_service("zusd");
-    if (g_zusd_port < 0) {
+    g_sd_port = lookup_service("pl181drv");
+    if (g_sd_port < 0) {
         return -1;
     }
 
-    msg_t r = _call(g_zusd_port, ZUSD_CMD_GET_BUF, 0, 0);
+    msg_t r = _call(g_sd_port, SD_CMD_GET_BUF, 0, 0);
     if ((int32_t)r.r1 != 0) {
-        g_zusd_port = -1;
+        g_sd_port = -1;
         return -1;
     }
 
     g_sector_buf = (BYTE *)_attach((int32_t)r.r2);
     if ((intptr_t)g_sector_buf <= 0) {
-        g_zusd_port = -1;
+        g_sd_port = -1;
         g_sector_buf = NULL;
         return -1;
     }
@@ -70,7 +70,7 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
     }
 
     for (UINT i = 0; i < count; i++) {
-        msg_t r = _call(g_zusd_port, ZUSD_CMD_READ, (uint32_t)(sector + i), 0);
+        msg_t r = _call(g_sd_port, SD_CMD_READ, (uint32_t)(sector + i), 0);
         if ((int32_t)r.r1 != 0) {
             return RES_ERROR;
         }
@@ -92,7 +92,7 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 
     for (UINT i = 0; i < count; i++) {
         memcpy(g_sector_buf, buff + (i * FAT32D_SECTOR_SIZE), FAT32D_SECTOR_SIZE);
-        msg_t r = _call(g_zusd_port, ZUSD_CMD_WRITE, (uint32_t)(sector + i), 0);
+        msg_t r = _call(g_sd_port, SD_CMD_WRITE, (uint32_t)(sector + i), 0);
         if ((int32_t)r.r1 != 0) {
             return RES_ERROR;
         }

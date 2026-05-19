@@ -5,8 +5,8 @@
 
 bin/sysd|init
 bin/devmgr|dev
-bin/zuart|tty
-bin/zusd|none
+bin/pl011drv|tty
+bin/pl181drv|none
 bin/fat32d|none
 bin/fbox|none
 bin/zzsh|tty:late

@@ -84,7 +84,7 @@ int setup(void)
     sysd_port = (int32_t)sysd.r2;
     sysd_pid = sysd.r3;
 
-    if (stdio_route_tty("uart") < 0)
+    if (stdio_use_tty(0) < 0)
         return -1;
 
     return 0;
@@ -623,7 +623,7 @@ int main(void)
     typedef enum { ST_NORMAL, ST_ESC, ST_CSI } input_state_t;
     input_state_t state = ST_NORMAL;
 
-    if (stdio_register_zuart() != 0)
+    if (stdio_register_uart() != 0)
         return 1;
 
     zprint(ANSI_BOLD ANSI_CYAN "zzsh " ZZSH_VER "\n" ANSI_RESET);
