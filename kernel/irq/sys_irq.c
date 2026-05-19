@@ -28,9 +28,27 @@ static void relay_handler(void *ctx)
             list_node_t *node = list_pop_front(&ntfn->wait_queue);
             thread_t *waiter = container_of(node, thread_t, node);
             waiter->trap_frame->r[0] = ntfn->word;
+            uint32_t match_index = RECVANY_NO_MATCH;
+            if (waiter->recvany_wait_active) {
+                for (uint32_t i = 0; i < waiter->recvany_wait_count; i++) {
+                    if (waiter->recvany_wait_ntfns[i] == ntfn) {
+                        match_index = i;
+                        break;
+                    }
+                }
+            }
+            thread_recvany_clear_waits(waiter);
+            waiter->recvany_wait_match_index = match_index;
+            waiter->recvany_wait_bits = ntfn->word;
+            if (waiter->wake_tick != 0 && waiter->timeout_node.prev && waiter->timeout_node.next) {
+                list_remove(&waiter->timeout_node);
+            }
+            waiter->wake_tick = 0;
             ntfn->word = 0;
-            waiter->state = READY;
+            waiter->wake_reason = WAKE_IPC;
             waiter->blocked_endpoint = NULL;
+            waiter->ipc_state = IPC_NONE;
+            waiter->state = READY;
             sched_add(waiter);
             if (waiter->priority > current_thread->priority) {
                 do_resched = 1;
@@ -151,9 +169,27 @@ void irq_bind(exception_frame_t *frame) {
             thread_t *waiter = container_of(node, thread_t, node);
             if (waiter->trap_frame)
                 waiter->trap_frame->r[0] = ntfn->word;
+            uint32_t match_index = RECVANY_NO_MATCH;
+            if (waiter->recvany_wait_active) {
+                for (uint32_t i = 0; i < waiter->recvany_wait_count; i++) {
+                    if (waiter->recvany_wait_ntfns[i] == ntfn) {
+                        match_index = i;
+                        break;
+                    }
+                }
+            }
+            thread_recvany_clear_waits(waiter);
+            waiter->recvany_wait_match_index = match_index;
+            waiter->recvany_wait_bits = ntfn->word;
+            if (waiter->wake_tick != 0 && waiter->timeout_node.prev && waiter->timeout_node.next) {
+                list_remove(&waiter->timeout_node);
+            }
+            waiter->wake_tick = 0;
             ntfn->word = 0;
-            waiter->state = READY;
+            waiter->wake_reason = WAKE_IPC;
             waiter->blocked_endpoint = NULL;
+            waiter->ipc_state = IPC_NONE;
+            waiter->state = READY;
             sched_add(waiter);
         }
     }

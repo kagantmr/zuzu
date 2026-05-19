@@ -50,6 +50,25 @@ void ntfn_signal(exception_frame_t *frame) {
         ntfn->word = 0;  // clear on delivery
 
         waiter->trap_frame->r[0] = delivered;
+        uint32_t match_index = RECVANY_NO_MATCH;
+        if (waiter->recvany_wait_active) {
+            for (uint32_t i = 0; i < waiter->recvany_wait_count; i++) {
+                if (waiter->recvany_wait_ntfns[i] == ntfn) {
+                    match_index = i;
+                    break;
+                }
+            }
+        }
+        thread_recvany_clear_waits(waiter);
+        waiter->recvany_wait_match_index = match_index;
+        waiter->recvany_wait_bits = delivered;
+        if (waiter->wake_tick != 0 && waiter->timeout_node.prev && waiter->timeout_node.next) {
+            list_remove(&waiter->timeout_node);
+        }
+        waiter->wake_tick = 0;
+        waiter->wake_reason = WAKE_IPC;
+        waiter->blocked_endpoint = NULL;
+        waiter->ipc_state = IPC_NONE;
         waiter->state = READY;
         sched_add(waiter);
     }
@@ -79,6 +98,8 @@ void ntfn_wait(exception_frame_t *frame) {
     }
 
     // Block until someone signals
+    current_thread->wake_reason = WAKE_NONE;
+    current_thread->blocked_endpoint = NULL;
     current_thread->state = BLOCKED;
     list_add_tail(&current_thread->node, &ntfn->wait_queue.node);
     schedule();

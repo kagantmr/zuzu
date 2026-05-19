@@ -11,6 +11,7 @@
 #include <zuzu/protocols/fbox_protocol.h>
 #include <zuzu/protocols/sysd_protocol.h>
 #include <zuzu/channel.h>
+#include <zuzu/user_layout.h>
 
 static int32_t sysd_port;
 static uint32_t sysd_pid;
@@ -269,6 +270,29 @@ static void print_exec_error(int32_t code)
     }
 }
 
+static bool exec_reply_valid(const exec_reply_t *reply)
+{
+    if (reply->entry < USER_ELF_BASE || reply->entry >= USER_STACK_GUARD_VA)
+        return false;
+
+    if (reply->sp < USER_STACK_BASE || reply->sp > USER_STACK_TOP)
+        return false;
+
+    if ((reply->sp & 0x3u) != 0)
+        return false;
+
+    if (reply->argc == 0)
+        return reply->argv_va == 0;
+
+    if (reply->argv_va < USER_STACK_BASE || reply->argv_va >= USER_STACK_TOP)
+        return false;
+
+    if ((reply->argv_va & 0x3u) != 0)
+        return false;
+
+    return true;
+}
+
 /* ---- ls ---- */
 
 static void cmd_ls(const char *arg)
@@ -441,7 +465,7 @@ static void cmd_exec(const char *line)
                            ipcx_buf(), (uint32_t)sizeof(exec_reply_t));
     if (rc < 0) {
         _kill(ts.task_handle);
-        zprint(ANSI_RED "zzsh: spawn failed\n" ANSI_RESET);
+        print_exec_error(rc);
         return;
     }
     if (rc != (int32_t)sizeof(exec_reply_t)) {
@@ -451,6 +475,12 @@ static void cmd_exec(const char *line)
     }
 
     exec_reply_t *reply = (exec_reply_t *)ipcx_buf();
+    if (!exec_reply_valid(reply)) {
+        _kill(ts.task_handle);
+        print_exec_error(EXEC_EBADELF);
+        return;
+    }
+
     kickstart_args_t ks = {
         .task_handle = (uint32_t)ts.task_handle,
         .entry       = reply->entry,

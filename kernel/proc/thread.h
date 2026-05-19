@@ -33,6 +33,10 @@ typedef enum ipc_state
     IPC_WAITING,
 } ipc_state_t;
 
+#ifndef RECVANY_MAX_HANDLES
+#define RECVANY_MAX_HANDLES 16u
+#endif
+
 typedef struct
 {
     vaddr_t kernel_stack_top; // base of kernel stack for freeing (offset 0)
@@ -52,6 +56,12 @@ typedef struct
     reply_cap_t *pending_reply_cap;
     paddr_t ipc_buf_pa;
     size_t ipc_buf_xfer_len;
+    list_node_t recvany_wait_nodes[RECVANY_MAX_HANDLES];
+    notification_t *recvany_wait_ntfns[RECVANY_MAX_HANDLES];
+    uint32_t recvany_wait_count;
+    uint32_t recvany_wait_match_index;
+    uint32_t recvany_wait_bits;
+    bool recvany_wait_active;
     uint32_t priority, time_slice, ticks_remaining;
     process_t *owner_process; // backpointer to owning process
     vaddr_t thread_info_va; 
@@ -69,5 +79,25 @@ void thread_destroy(thread_t *thread);
 thread_t *thread_create(process_t *owner_process);
 void thread_kill(thread_t *thread);
 thread_t *thread_find_by_tid(tid_t tid);
+
+static inline void thread_recvany_clear_waits(thread_t *thread)
+{
+    if (!thread || !thread->recvany_wait_active)
+        return;
+
+    for (uint32_t i = 0; i < thread->recvany_wait_count && i < RECVANY_MAX_HANDLES; i++) {
+        list_node_t *node = &thread->recvany_wait_nodes[i];
+        if (node->prev && node->next)
+            list_remove(node);
+        thread->recvany_wait_ntfns[i] = NULL;
+        node->prev = NULL;
+        node->next = NULL;
+    }
+
+    thread->recvany_wait_count = 0;
+    thread->recvany_wait_match_index = RECVANY_NO_MATCH;
+    thread->recvany_wait_bits = 0;
+    thread->recvany_wait_active = false;
+}
 
 #endif // ZUZU_THREAD_H

@@ -165,7 +165,7 @@ void wait(exception_frame_t *frame) {
 void pspawn(exception_frame_t *frame) {
     const char* name = (const char *)frame->r[0];
     if (!validate_user_ptr((uintptr_t)name, 1)) {
-        frame->r[0] = ERR_BADARG;
+        frame->r[0] = ERR_BADPTR;
         return;
     }
 
@@ -214,7 +214,7 @@ void pspawn(exception_frame_t *frame) {
 void kickstart(exception_frame_t *frame) {
     kickstart_args_t *args = (kickstart_args_t *)frame->r[0];
     if (!validate_user_ptr((uintptr_t)args, sizeof(kickstart_args_t))) {
-        frame->r[0] = ERR_BADARG;
+        frame->r[0] = ERR_BADPTR;
         return;
     }
 
@@ -278,7 +278,7 @@ void kill(exception_frame_t *frame) {
     }
 
     process_t *target = entry->task;
-    if (!target || !target->thread || target->thread->state != FROZEN) {
+    if (!target || !target->thread) {
         frame->r[0] = ERR_BADARG;
         return;
     }
