@@ -1,17 +1,17 @@
-#ifndef ZUART_H
-#define ZUART_H
+#ifndef PL011DRV_H
+#define PL011DRV_H
 
-#define ZUART_VER "v2.0"
+#define PL011DRV_VER "v2.0"
 
 #include <zuzu/zuzu.h>
 #include <stdbool.h>
 
-// zuart is completely based around the pl011 for now. subject to change
+// pl011drv is based around the pl011 hardware
 
 // ------------------- Constants -------------------
 
-#define ZUART_INIT_OK 0
-#define ZUART_INIT_FAIL -1
+#define PL011DRV_INIT_OK 0
+#define PL011DRV_INIT_FAIL -1
 
 // ------------------- PL011 constants -------------------
 typedef struct {
@@ -51,7 +51,6 @@ typedef struct {
 #define CR_UARTEN (1u << 0)
 #define CR_TXE (1u << 8)
 #define CR_RXE (1u << 9)
-// -------------------------------------------------------
 
 // ------------------- Ringbuffer -------------------
 
@@ -60,18 +59,15 @@ typedef struct {
 #include <zuzu/ring.h>
 #include <zuzu/channel.h>
 
-int zuart_setup(void);
+int pl011drv_setup(void);
 
-/* ZUART IPCX API: send/receive via 4KB per-process buffer */
-static inline int32_t zuart_write(int32_t zuart_port, uint32_t len) {
-    return chan_send((handle_t)zuart_port, ipcx_buf(), len);
+/* PL011DRV IPCX API: send/receive via 4KB per-process buffer */
+static inline int32_t pl011drv_write(int32_t port, uint32_t len) {
+    return chan_send((handle_t)port, ipcx_buf(), len);
 }
 
-static inline msg_t zuart_read(int32_t zuart_port, uint32_t max_len) {
-    return _callx(zuart_port, max_len);
+static inline msg_t pl011drv_read(int32_t port, uint32_t max_len) {
+    return _callx(port, max_len);
 }
-
-
-// --------------------------------------------------
 
 #endif

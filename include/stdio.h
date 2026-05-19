@@ -21,7 +21,7 @@ int vsprintf(char *buf, const char *format, va_list args);
 int getchar(void);
 int scanf(const char *format, ...);
 int vscanf(const char *format, va_list args);
-int stdio_register_zuart(void);
+int stdio_register_uart(void);
 int stdio_route_tty(const char name[4]);
 int stdio_use_tty(uint32_t index);
 

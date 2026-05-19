@@ -1,5 +1,5 @@
-#ifndef ZUSD_H
-#define ZUSD_H
+#ifndef PL181DRV_H
+#define PL181DRV_H
 #include <stdint.h>
 
 typedef struct {
@@ -50,10 +50,7 @@ typedef struct {
 #define MCI_POWER_ON        0x03u
 #define MCI_POWER_OPENDRAIN (1u << 6)
 
-/*
- * DATACTRL: bits[7:4]=blocksize(log2), bit[1]=dir(1=read from card), bit[0]=enable
- * 512-byte block = 2^9
- */
+/* DATACTRL: bits[7:4]=blocksize(log2), bit[1]=dir(1=read from card), bit[0]=enable */
 #define MCI_DATACTRL_READ  ((9u << 4) | (1u << 1) | (1u << 0))
 #define MCI_DATACTRL_WRITE ((9u << 4) | (0u << 1) | (1u << 0))
 

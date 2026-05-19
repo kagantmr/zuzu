@@ -1,5 +1,5 @@
-#include "zuart.h"
-#include "zuzu/protocols/zuart_protocol.h"
+#include "pl011drv.h"
+#include "zuzu/protocols/uart_protocol.h"
 #include "zuzu/protocols/devmgr_protocol.h"
 #include "zuzu/protocols/nt_protocol.h"
 #include <zuzu/protocols/sysd_protocol.h>
@@ -19,9 +19,9 @@ static ring_t rxrb, txrb;
 static uint8_t rxbuf_storage[UART_RINGBUF_MAX];
 static uint8_t txbuf_storage[UART_RINGBUF_MAX];
 
-#define ZUART_DEV_CLASS DEV_CLASS_SERIAL
-#define ZUART_COMPATIBLE "arm,pl011"
-#define ZUART_RECV_SLICE_MS 5u
+#define PL011DRV_DEV_CLASS DEV_CLASS_SERIAL
+#define PL011DRV_COMPATIBLE "arm,pl011"
+#define PL011DRV_RECV_SLICE_MS 5u
 
 static void uart_txraw(char c)
 {
@@ -132,16 +132,16 @@ static void handle_client_message(msg_t msg)
     (void)chan_reply((handle_t)reply_handle, buf, (uint32_t)n);
 }
 
-int zuart_setup(void)
+int pl011drv_setup(void)
 {
     port = _port_create();
     if (port < 0) {
-        return ZUART_INIT_FAIL;
+        return PL011DRV_INIT_FAIL;
     }
 
     int32_t nt_slot = _port_grant(port, NAMETABLE_PID);
     if (nt_slot < 0) {
-        return ZUART_INIT_FAIL;
+        return PL011DRV_INIT_FAIL;
     }
 
     (void)wait_for_devmgr();
@@ -150,20 +150,20 @@ int zuart_setup(void)
 
     serial_irq_ntfn = _ntfn_create();
     if (serial_irq_ntfn < 0) {
-        return ZUART_INIT_FAIL;
+        return PL011DRV_INIT_FAIL;
     }
 
     if (_irq_claim(dev_handle) < 0) {
-        return ZUART_INIT_FAIL;
+        return PL011DRV_INIT_FAIL;
     }
     if (_irq_bind(dev_handle, (uint32_t)serial_irq_ntfn) < 0) {
-        return ZUART_INIT_FAIL;
+        return PL011DRV_INIT_FAIL;
     }
 
     serial_dev_handle = dev_handle;
     uart = (volatile pl011_t *)_mapdev(dev_handle);
     if ((intptr_t)uart <= 0) {
-        return ZUART_INIT_FAIL;
+        return PL011DRV_INIT_FAIL;
     }
 
     ring_init(&rxrb, rxbuf_storage, UART_RINGBUF_MAX);
@@ -178,17 +178,17 @@ int zuart_setup(void)
     uart->ICR = ICR_ALL;
     uart->IMSC = (IMSC_RXIM | IMSC_RTIM);
 
-    (void)_send(NT_PORT, NT_REGISTER, nt_pack("uart"), (uint32_t)nt_slot);
-    return ZUART_INIT_OK;
+    (void)_send(NT_PORT, NT_REGISTER, nt_pack("pl011drv"), (uint32_t)nt_slot);
+    return PL011DRV_INIT_OK;
 }
 
 int main(void)
 {
     int exit_code;
-    if ((exit_code = zuart_setup()) != 0)
+    if ((exit_code = pl011drv_setup()) != 0)
         return exit_code;
 
-    const char *startup_banner = "zuart: online\n";
+    const char *startup_banner = "pl011drv: online\n";
     for (const char *p = startup_banner; *p; p++)
         uart_txbyte(*p);
 
@@ -197,7 +197,7 @@ int main(void)
     while (1) {
         service_pending_irq();
 
-        msg = _recv_timeout(port, ZUART_RECV_SLICE_MS);
+        msg = _recv_timeout(port, PL011DRV_RECV_SLICE_MS);
         if (msg.r0 >= 0) {
             handle_client_message(msg);
         }

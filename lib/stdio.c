@@ -27,7 +27,7 @@ static void __attribute__((constructor)) stdio_init(void) {
     // Nothing to do for kernel, kprintf is always available
 #else
     // Lazy initialization: don't look up tty service on startup.
-    // Wait until first printf() or explicit stdio_register_zuart() call.
+    // Wait until first printf() or explicit `stdio_register_uart()` call.
 #endif
 }
 
@@ -55,7 +55,7 @@ int stdio_route_tty(const char name[4])
     stdio_input_len = 0;
     stdio_input_pos = 0;
     stdio_input_pushback = EOF;
-    return stdio_register_zuart();
+    return stdio_register_uart();
 #endif
 }
 
@@ -70,7 +70,7 @@ int stdio_use_tty(uint32_t index)
 #endif
 }
 
-int stdio_register_zuart(void)
+int stdio_register_uart(void)
 {
 #ifdef __KERNEL__
     return -1;
@@ -96,7 +96,7 @@ static int __attribute__((unused)) stdio_refill_input(void)
 #ifdef __KERNEL__
     return EOF;
 #else
-    if (stdio_register_zuart() != 0)
+    if (stdio_register_uart() != 0)
         return EOF;
 
     msg_t reply = _callx(stdio_tty, IPCX_BUF_SIZE);
@@ -458,7 +458,7 @@ int vprintf(const char *format, va_list args)
         (void)out_len;
         kprintf("%s", buf);
 #else
-        if (stdio_register_zuart() == 0) {
+        if (stdio_register_uart() == 0) {
             if (out_len > IPCX_BUF_SIZE) {
                 out_len = IPCX_BUF_SIZE;
             }

@@ -212,10 +212,10 @@ int main(void)
         my_den = r.r2;
     }
 
-    /* look up zusd (should be in same den) */
-    int32_t zusd_port = lookup_service("zusd");
-    if (zusd_port < 0) {
-        printf("fat32d: cannot see zusd\n");
+    /* look up pl181drv (should be in same den) */
+    int32_t sd_port = lookup_service("pl181drv");
+    if (sd_port < 0) {
+        printf("fat32d: cannot see pl181drv\n");
         return 1;
     }
 
