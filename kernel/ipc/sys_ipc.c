@@ -115,6 +115,39 @@ static endpoint_t *validate_endpoint_handle(process_t *proc, handle_t handle, ex
     return entry->ep;
 }
 
+static notification_t *validate_notification_handle(process_t *proc, handle_t handle, exception_frame_t *frame)
+{
+    if (!proc)
+    {
+        frame->r[0] = ERR_BADARG;
+        return NULL;
+    }
+
+    handle_entry_t *entry = handle_vec_get(&proc->handle_table, handle);
+    if (!entry)
+    {
+        frame->r[0] = ERR_BADARG;
+        return NULL;
+    }
+    if (entry->type != HANDLE_NOTIFICATION)
+    {
+        frame->r[0] = ERR_BADARG;
+        return NULL;
+    }
+    if (!entry->ntfn)
+    {
+        frame->r[0] = ERR_BADARG;
+        return NULL;
+    }
+    if (!entry->ntfn->alive)
+    {
+        frame->r[0] = ERR_DEAD;
+        return NULL;
+    }
+
+    return entry->ntfn;
+}
+
 static handle_entry_t *validate_reply_handle(process_t *proc,
                                              handle_t handle_idx,
                                              thread_t **target_out,
@@ -169,6 +202,17 @@ static handle_entry_t *validate_reply_handle(process_t *proc,
 
     *target_out = target;
     return entry;
+}
+
+static void recvany_deliver_notification(uint32_t matched_index,
+                                         uint32_t bits,
+                                         recvany_result_t *result)
+{
+    memset(result, 0, sizeof(*result));
+    result->matched_index = matched_index;
+    result->kind = RECVANY_KIND_IRQ;
+    result->source = bits;
+    result->r1 = bits;
 }
 
 void proc_send(exception_frame_t *frame)
@@ -734,16 +778,46 @@ static int recvany_deliver_sender(uint32_t matched_index,
 
 static int recvany_try_once(const handle_t *handles,
                             uint32_t count,
-                            recvany_result_t *result)
+                            recvany_result_t *result,
+                            notification_t **wait_ntfns,
+                            uint32_t *wait_indices,
+                            uint32_t *wait_count_out)
 {
     endpoint_t *endpoints[RECVANY_MAX_HANDLES];
+    notification_t *notifications[RECVANY_MAX_HANDLES];
+
+    if (wait_count_out)
+        *wait_count_out = 0;
 
     for (uint32_t i = 0; i < count; i++) {
-        endpoint_t *ep = validate_endpoint_handle(current_thread->owner_process, handles[i], current_thread->trap_frame);
-        if (!ep) {
-            return (int)current_thread->trap_frame->r[0];
+        handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handles[i]);
+        if (!entry) {
+            current_thread->trap_frame->r[0] = ERR_BADARG;
+            return ERR_BADARG;
         }
-        endpoints[i] = ep;
+
+        if (entry->type == HANDLE_ENDPOINT) {
+            endpoint_t *ep = validate_endpoint_handle(current_thread->owner_process, handles[i], current_thread->trap_frame);
+            if (!ep) {
+                return (int)current_thread->trap_frame->r[0];
+            }
+            endpoints[i] = ep;
+            notifications[i] = NULL;
+            continue;
+        }
+
+        if (entry->type == HANDLE_NOTIFICATION) {
+            notification_t *ntfn = validate_notification_handle(current_thread->owner_process, handles[i], current_thread->trap_frame);
+            if (!ntfn) {
+                return (int)current_thread->trap_frame->r[0];
+            }
+            endpoints[i] = NULL;
+            notifications[i] = ntfn;
+            continue;
+        }
+
+        current_thread->trap_frame->r[0] = ERR_BADARG;
+        return ERR_BADARG;
     }
 
     for (uint32_t i = 0; i < count; i++) {
@@ -752,6 +826,31 @@ static int recvany_try_once(const handle_t *handles,
             return recvany_deliver_sender(i, current_thread, sender, result);
         }
     }
+
+    for (uint32_t i = 0; i < count; i++) {
+        notification_t *ntfn = notifications[i];
+        if (ntfn && ntfn->word != 0) {
+            uint32_t bits = ntfn->word;
+            ntfn->word = 0;
+            recvany_deliver_notification(i, bits, result);
+            return 0;
+        }
+    }
+
+    uint32_t notif_count = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        if (notifications[i]) {
+            notif_count++;
+            uint32_t slot = notif_count - 1u;
+            if (wait_ntfns)
+                wait_ntfns[slot] = notifications[i];
+            if (wait_indices)
+                wait_indices[slot] = i;
+        }
+    }
+
+    if (wait_count_out)
+        *wait_count_out = notif_count;
 
     return ERR_BUSY;
 }
@@ -805,8 +904,11 @@ void proc_recvany(exception_frame_t *frame)
     }
 
     for (;;) {
+        notification_t *wait_ntfns[RECVANY_MAX_HANDLES];
+        uint32_t wait_indices[RECVANY_MAX_HANDLES];
+        uint32_t wait_count = 0;
         recvany_result_t result;
-        int err = recvany_try_once(handles_local, count, &result);
+        int err = recvany_try_once(handles_local, count, &result, wait_ntfns, wait_indices, &wait_count);
         if (err == 0) {
             if (!copy_to_user((void *)result_ptr, &result, sizeof(result))) {
                 frame->r[0] = ERR_BADPTR;
@@ -823,6 +925,69 @@ void proc_recvany(exception_frame_t *frame)
 
         if (timeout_ms == UINT32_MAX) {
             frame->r[0] = ERR_BUSY;
+            return;
+        }
+
+        if (wait_count > 0) {
+            current_thread->recvany_wait_count = wait_count;
+            current_thread->recvany_wait_match_index = RECVANY_NO_MATCH;
+            current_thread->recvany_wait_bits = 0;
+            current_thread->recvany_wait_active = true;
+
+            for (uint32_t i = 0; i < wait_count; i++) {
+                current_thread->recvany_wait_ntfns[i] = wait_ntfns[i];
+                current_thread->recvany_wait_nodes[i].prev = NULL;
+                current_thread->recvany_wait_nodes[i].next = NULL;
+                list_add_tail(&current_thread->recvany_wait_nodes[i], &wait_ntfns[i]->wait_queue.node);
+            }
+
+            current_thread->wake_reason = WAKE_NONE;
+            current_thread->blocked_endpoint = NULL;
+            current_thread->state = BLOCKED;
+
+            if (timeout_ms > 0) {
+                tick_t now = get_ticks();
+                tick_t ticks = ((uint64_t)timeout_ms * (uint64_t)TICK_HZ) / 1000u;
+                if (ticks == 0)
+                    ticks = 1;
+                current_thread->wake_tick = now + ticks;
+                sleep_queue_insert(current_thread);
+            } else {
+                current_thread->wake_tick = 0;
+            }
+
+            schedule();
+
+            if (timeout_ms > 0 && current_thread->wake_reason != WAKE_TIMEOUT &&
+                current_thread->timeout_node.prev && current_thread->timeout_node.next) {
+                list_remove(&current_thread->timeout_node);
+            }
+
+            if (current_thread->wake_reason == WAKE_TIMEOUT) {
+                thread_recvany_clear_waits(current_thread);
+                continue;
+            }
+
+            if ((int32_t)frame->r[0] == ERR_DEAD) {
+                thread_recvany_clear_waits(current_thread);
+                frame->r[0] = ERR_DEAD;
+                return;
+            }
+
+            if (current_thread->recvany_wait_match_index == RECVANY_NO_MATCH) {
+                thread_recvany_clear_waits(current_thread);
+                continue;
+            }
+
+            recvany_deliver_notification(current_thread->recvany_wait_match_index,
+                                         current_thread->recvany_wait_bits,
+                                         &result);
+            thread_recvany_clear_waits(current_thread);
+            if (!copy_to_user((void *)result_ptr, &result, sizeof(result))) {
+                frame->r[0] = ERR_BADPTR;
+                return;
+            }
+            frame->r[0] = 0;
             return;
         }
 
@@ -849,5 +1014,9 @@ void proc_recvany(exception_frame_t *frame)
         current_thread->state = BLOCKED;
         sleep_queue_insert(current_thread);
         schedule();
+
+        if (wait_count > 0) {
+            thread_recvany_clear_waits(current_thread);
+        }
     }
 }

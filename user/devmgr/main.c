@@ -22,6 +22,8 @@ static const char *class_to_compat(uint32_t dev_class)
         return "arm,pl031";
     case DEV_CLASS_BLOCK:
         return "arm,pl180";
+    case DEV_CLASS_NIC:
+        return "smsc,lan9118";
     default:
         return NULL;
     }

@@ -357,14 +357,27 @@ static bool recvany_to_ipcmsg(const recvany_result_t *res, msg_t *msg)
     if (!res || !msg)
         return false;
 
-    if (res->kind != RECVANY_KIND_SEND && res->kind != RECVANY_KIND_CALL)
-        return false;
+    if (res->kind == RECVANY_KIND_SEND || res->kind == RECVANY_KIND_CALL) {
+        msg->r0 = (int32_t)res->source;
+        msg->r1 = res->r1;
+        msg->r2 = res->r2;
+        msg->r3 = res->r3;
+        return true;
+    }
 
-    msg->r0 = (int32_t)res->source;
-    msg->r1 = res->r1;
-    msg->r2 = res->r2;
-    msg->r3 = res->r3;
-    return true;
+    /* Treat IRQ/notification wakes as a simple event: propagate source and
+     * the notification bitmask in r1. Consumers can interpret `matched_index`
+     * if needed via the recvany_result metadata (not present in msg_t).
+     */
+    if (res->kind == RECVANY_KIND_IRQ) {
+        msg->r0 = (int32_t)res->source;
+        msg->r1 = res->r1; /* notification bits */
+        msg->r2 = res->r2;
+        msg->r3 = res->r3;
+        return true;
+    }
+
+    return false;
 }
 
 static bool wait_for_service(uint32_t name_u32) {

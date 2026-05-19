@@ -25,6 +25,7 @@
 #define DEV_CLASS_SERIAL 1 /* first UART / serial console */
 #define DEV_CLASS_RTC    2 /* real-time clock */
 #define DEV_CLASS_BLOCK  3 /* first block storage device */
+#define DEV_CLASS_NIC    4 /* first network interface controller */
 
 #define ERR_BADCMD (-1)
 #define ERR_NOENT  (-2)

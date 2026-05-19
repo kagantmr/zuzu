@@ -661,27 +661,6 @@ void process_wake_joiners(tid_t tid, int32_t exit_status)
     }
 }
 
-static thread_t *process_find_blocked_thread(process_t *p, endpoint_t *ep)
-{
-    if (!p)
-        return NULL;
-
-    list_node_t *node = p->threads.node.next;
-    while (node != &p->threads.node) {
-        thread_t *thread = container_of(node, thread_t, process_node);
-        if (ep) {
-            if (thread->blocked_endpoint == ep &&
-                (thread->ipc_state == IPC_SENDER || thread->ipc_state == IPC_RECEIVER))
-                return thread;
-        } else if (thread->ipc_state == IPC_WAITING) {
-            return thread;
-        }
-        node = node->next;
-    }
-
-    return p->thread;
-}
-
 void process_kill(process_t *p, const int exit_status) {
     if (!p)
         return;
@@ -806,17 +785,18 @@ void process_kill(process_t *p, const int exit_status) {
                 ntfn->alive = false;
                 while (!list_empty(&ntfn->wait_queue)) {
                     list_node_t *n = list_pop_front(&ntfn->wait_queue);
-                    process_t *proc = container_of(n, process_t, node);
-                    thread_t *thread = process_find_blocked_thread(proc, NULL);
-                    if (thread) {
-                        if (thread->trap_frame)
-                            thread->trap_frame->r[0] = ERR_DEAD;
-                        thread->state = READY;
-                        thread->wake_reason = WAKE_IPC;
-                        thread->blocked_endpoint = NULL;
-                        thread->ipc_state = IPC_NONE;
-                        sched_add(thread);
-                    }
+                    thread_t *thread = container_of(n, thread_t, node);
+                    if (thread->trap_frame)
+                        thread->trap_frame->r[0] = ERR_DEAD;
+                    thread_recvany_clear_waits(thread);
+                    if (thread->wake_tick != 0 && thread->timeout_node.prev && thread->timeout_node.next)
+                        list_remove(&thread->timeout_node);
+                    thread->wake_tick = 0;
+                    thread->state = READY;
+                    thread->wake_reason = WAKE_IPC;
+                    thread->blocked_endpoint = NULL;
+                    thread->ipc_state = IPC_NONE;
+                    sched_add(thread);
                 }
             }
             if (ntfn) {
