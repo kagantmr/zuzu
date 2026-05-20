@@ -218,8 +218,8 @@ static void nt_handle_msg(msg_t msg) {
         uint32_t total = 0;
         while (total < file_size) {
             uint32_t chunk = file_size - total;
-            if (chunk > 4096)
-                chunk = 4096;
+            if (chunk > 32768)
+                chunk = 32768;
 
             r = _call(cached_fbox_handle, FBOX_READ, FBOX_PACK_RW(fd, chunk), 0);
             if ((int32_t)r.r1 != FBOX_OK || r.r2 == 0)

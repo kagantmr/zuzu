@@ -114,7 +114,7 @@ static void proxy_read(uint32_t reply_h, uint32_t arg, char *client_buf)
 
     /* data in fat32d_buf -> my_buf */
     uint32_t count = FAT32_RW_COUNT(arg);
-    if (count > 4096) count = 4096;
+    if (count > 32768) count = 32768;
     uint32_t got = r.r2;
     if (got > count) got = count;
     if ((int32_t)r.r1 == FAT32_OK && got > 0)
@@ -127,7 +127,7 @@ static void proxy_write(uint32_t reply_h, uint32_t arg, char *client_buf)
 {
     /* data in my_buf -> fat32d_buf */
     uint32_t count = FAT32_RW_COUNT(arg);
-    if (count > 4096) count = 4096;
+    if (count > 32768) count = 32768;
     memcpy(fat32d_buf, client_buf, count);
 
     msg_t r = _call(fat32d_port, FAT32_WRITE, arg, 0);
@@ -151,7 +151,7 @@ static void proxy_readdir(uint32_t reply_h, char *client_buf)
     /* dirents in fat32d_buf -> my_buf */
     if ((int32_t)r.r1 == FAT32_OK && r.r2 > 0) {
         uint32_t bytes = r.r2 * sizeof(fat32_dirent_t);
-        if (bytes > 4096) bytes = 4096;
+        if (bytes > 32768) bytes = 32768;
         memcpy(client_buf, fat32d_buf, bytes);
     }
 
@@ -186,7 +186,7 @@ static client_buf_t *client_alloc(uint32_t pid)
 {
     for (int i = 0; i < MAX_FBOX_CLIENTS; i++) {
         if (clients[i].pid == 0) {
-            shmem_result_t shm = _memshare(4096);
+            shmem_result_t shm = _memshare(32768);
             if (shm.handle < 0 || !shm.addr)
                 return NULL;
             clients[i].pid = pid;
