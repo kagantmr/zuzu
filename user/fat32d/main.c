@@ -68,7 +68,7 @@ static void handle_read(uint32_t reply_h, uint32_t arg)
         _reply(reply_h, (uint32_t)FAT32_ERR_BADFD, 0, 0);
         return;
     }
-    if (count > 4096) count = 4096;
+    if (count > 32768) count = 32768;
 
     UINT br = 0;
     FRESULT fr = f_read(&fil_table[fd], buf, count, &br);
@@ -89,7 +89,7 @@ static void handle_write(uint32_t reply_h, uint32_t arg)
         _reply(reply_h, (uint32_t)FAT32_ERR_BADFD, 0, 0);
         return;
     }
-    if (count > 4096) count = 4096;
+    if (count > 32768) count = 32768;
 
     UINT bw = 0;
     FRESULT fr = f_write(&fil_table[fd], buf, count, &bw);
@@ -232,7 +232,7 @@ int main(void)
     }
 
     /* allocate shmem for client data transfer */
-    shm = _memshare(4096);
+    shm = _memshare(32768);
     if (shm.handle < 0 || shm.addr == NULL) {
         printf("fat32d: shmem alloc failed\n");
         return 1;
