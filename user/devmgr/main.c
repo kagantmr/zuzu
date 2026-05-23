@@ -67,6 +67,8 @@ static void build_class_table(void) {
     int32_t rtc_irq = -1;
     int32_t block_handle = -1;
     int32_t block_irq = -1;
+    int32_t nic_handle = -1;
+    int32_t nic_irq = -1;
 
     for (uint32_t i = 1; i < MAX_HANDLE_SCAN && reg_count < MAX_DRIVERS; i++) {
         int32_t rc = _querydev(i, compat, sizeof(compat));
@@ -98,6 +100,13 @@ static void build_class_table(void) {
             continue;
         }
 
+        if (strncmp(compat, "smsc,lan9118", 12) == 0) {
+            if (nic_handle < 0 || (nic_irq <= 0 && rc > 0)) {
+                nic_handle = (int32_t)i;
+                nic_irq = rc;
+            }
+            continue;
+        }
     }
 
     if (serial_handle > 0 && reg_count < MAX_DRIVERS) {
@@ -109,6 +118,9 @@ static void build_class_table(void) {
     if (block_handle > 0 && reg_count < MAX_DRIVERS) {
         reg_table[reg_count++] = (reg_entry_t){ DEV_CLASS_BLOCK, (uint32_t)block_handle };
     }
+       if (nic_handle > 0 && reg_count < MAX_DRIVERS) {
+           reg_table[reg_count++] = (reg_entry_t){ DEV_CLASS_NIC, (uint32_t)nic_handle };
+       }
 }
 
 static void handle_register(uint32_t reply_handle, uint32_t dev_class)

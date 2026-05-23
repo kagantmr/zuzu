@@ -94,8 +94,8 @@ else
     USER_CFLAGS += -DNDEBUG -UDEBUG
 endif
 
-BOOT_PROGS = sysd devmgr pl011drv pl181drv fat32d fbox zzsh
-DISK_PROGS = test zuzufetch cycletest 
+BOOT_PROGS = sysd devmgr pl011drv pl181drv fat32d fbox lan9118drv zzsh
+DISK_PROGS = test zuzufetch cycletest nicsniff
 
 USER_PROGS = $(BOOT_PROGS) $(DISK_PROGS)
 

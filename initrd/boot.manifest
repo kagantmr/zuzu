@@ -9,4 +9,5 @@ bin/pl011drv|tty
 bin/pl181drv|none
 bin/fat32d|none
 bin/fbox|none
+bin/lan9118drv|none
 bin/zzsh|tty:late

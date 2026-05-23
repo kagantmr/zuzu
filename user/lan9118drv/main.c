@@ -1,0 +1,309 @@
+#include <stdio.h>
+#include <zuzu/protocols/devmgr_protocol.h>
+#include <zuzu/protocols/nic_protocol.h>
+#include <zuzu/ipc.h>
+#include <zuzu/irq.h>
+#include <zuzu/ntfn.h>
+#include <zuzu/task.h>
+#include <zuzu/umem.h>
+#include <zuzu/types.h>
+#include <zuzu/syspage.h>
+#include <zuzu/devices.h>
+#include <zuzu/service.h>
+#include <stdlib.h>
+#include <zuzu/packetring.h>
+#include "lan9118.h"
+
+static volatile lan9118_t *nic;
+static uint8_t mac[6];
+static handle_t irq_ntfn;
+static handle_t shmem_handle;
+static handle_t nt_port, devm_port;
+static handle_t dev_handle;
+void  *shmem_addr;
+nic_ring_t *rx_ring, *tx_ring;
+
+static uint16_t tx_tag = 0;
+static volatile uint32_t irq_count = 0;
+
+void nic_tx_frame(nic_frame_t *f) {
+    if ((nic->tx_fifo_inf & 0xFFFF) < f->len + 8) // +8 for the two command words
+        return; // or return ERR_BUFFULL
+    uint32_t cmd_a = (1u << 13) | (1u << 12) | (f->len & 0x7FF); // first, last, do not interrupt, length
+    uint32_t cmd_b = ((uint32_t)tx_tag << 16) | (f->len & 0x7FF);
+    tx_tag++;
+    nic->tx_data_fifo_port = cmd_a;
+    nic->tx_data_fifo_port = cmd_b;
+    for (size_t i = 0; i < (f->len + 3) / 4; i++) {
+        nic->tx_data_fifo_port = ((uint32_t *)f->data)[i];
+    }
+}
+
+static inline uint32_t mac_csr_read(uint8_t index)
+{
+    // write index with read bit
+    while (nic->mac_csr_cmd & MAC_CSR_CMD_BUSY)
+        ;
+    nic->mac_csr_cmd = MAC_CSR_CMD_BUSY | MAC_CSR_CMD_RNW | (index & MAC_CSR_CMD_ADDR_MASK);
+
+    // wait for read to complete
+    while (nic->mac_csr_cmd & MAC_CSR_CMD_BUSY)
+        ;
+    return nic->mac_csr_data;
+}
+
+static inline void mac_csr_write(uint8_t index, uint32_t value)
+{
+    // write index with write bit
+    while (nic->mac_csr_cmd & MAC_CSR_CMD_BUSY)
+        ;
+    nic->mac_csr_data = value;
+    nic->mac_csr_cmd = MAC_CSR_CMD_BUSY | (index & MAC_CSR_CMD_ADDR_MASK);
+
+    // wait for write to complete
+    while (nic->mac_csr_cmd & MAC_CSR_CMD_BUSY)
+        ;
+}
+
+int get_nic(void)
+{
+
+    if (!device_present("LAN9118"))
+    {
+        printf("lan9118drv: device not found\n");
+        return 1;
+    }
+    else
+    {
+        const syspage_dev_t *dev = device_find("LAN9118");
+        printf("lan9118drv: device found at %p\n", (void *)dev);
+    }
+
+    // service is registered after nic_setup() completes so clients don't
+    // find the port before _recvany is running
+    nt_port = -1;
+
+    devm_port = lookup_service("devm");
+
+    msg_t r;
+    while (1) {
+        r = _call(devm_port, DEV_REQUEST, DEV_CLASS_NIC, 0);
+        if ((int32_t)r.r1 == 0)
+            break;
+        printf("lan9118drv: NIC device request failed, retrying\n");
+        _sleep(10);
+    }
+    dev_handle = (handle_t)r.r2;
+    irq_ntfn = _ntfn_create();
+    if (irq_ntfn < 0)
+    {
+        printf("lan9118drv: ntfn_create failed (tx)\n");
+        return 4;
+    }
+
+    _irq_claim((uint32_t)dev_handle);
+    _irq_bind((uint32_t)dev_handle, (uint32_t)irq_ntfn);
+
+    nic = (volatile lan9118_t *)_mapdev(dev_handle);
+    if (!nic)
+    {
+        printf("lan9118drv: device mapping failed\n");
+        return 5;
+    }
+
+    return ZUZU_OK;
+}
+
+int nic_setup(void)
+{
+
+    if (nic->byte_test != BYTE_TEST_VALUE)
+    {
+        printf("lan9118drv: byte test failed (0x%08X instead of 0x%08x)\n", nic->byte_test, BYTE_TEST_VALUE);
+        return 6;
+    }
+
+    nic->hw_cfg |= HW_CFG_SRST;
+    while (nic->hw_cfg & HW_CFG_SRST)
+        ; // poll until clear
+    nic->hw_cfg |= HW_CFG_MBO;
+
+    // read MAC addr
+    uint32_t lo = mac_csr_read(MAC_CSR_ADDRL);
+    uint32_t hi = mac_csr_read(MAC_CSR_ADDRH);
+    mac[0] = (lo >> 0) & 0xFF;
+    mac[1] = (lo >> 8) & 0xFF;
+    mac[2] = (lo >> 16) & 0xFF;
+    mac[3] = (lo >> 24) & 0xFF;
+    mac[4] = (hi >> 0) & 0xFF;
+    mac[5] = (hi >> 8) & 0xFF;
+
+    if (nic->tx_cfg & TX_CFG_STOP_TX)
+    {
+        printf("lan9118drv: TX is stopped\n");
+        return ERR_SYSDOWN;
+    }
+
+    nic->tx_cfg |= TX_CFG_TXS_DUMP | TX_CFG_TXD_DUMP;
+    while ((nic->tx_cfg & (TX_CFG_TXS_DUMP | TX_CFG_TXD_DUMP)))
+        ;
+    nic->rx_cfg |= RX_CFG_RX_DUMP;
+    while (nic->rx_cfg & RX_CFG_RX_DUMP)
+        ;
+    nic->tx_cfg |= TX_CFG_TX_ON;
+
+    uint32_t mac_cr = mac_csr_read(MAC_CSR_MAC_CR);
+    mac_csr_write(MAC_CSR_MAC_CR, mac_cr | MAC_CR_RXEN | MAC_CR_TXEN);
+    // Configure active-high push-pull interrupts so QEMU doesn't permanently
+    // invert the signal. With default irq_cfg=0 QEMU inverts level, making
+    // the GIC line always asserted regardless of int_en.
+    nic->irq_cfg = IRQ_CFG_IRQ_EN | IRQ_CFG_IRQ_POL | IRQ_CFG_IRQ_TYPE;
+    nic->int_en = INT_RSFL;
+
+    printf("lan9118drv: NIC setup OK\n");
+    printf("lan9118drv: MAC address %02X:%02X:%02X:%02X:%02X:%02X\n",
+           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+    //finally, set up shmem
+
+    shmem_result_t shm = _memshare(16384);
+    shmem_handle = shm.handle;
+    shmem_addr = shm.addr;
+
+    packet_ring_init(shmem_addr);
+    rx_ring = (nic_ring_t *)shmem_addr;
+    tx_ring = (nic_ring_t *)((uint8_t *)shmem_addr + 8192);
+
+    return ZUZU_OK;
+}
+
+
+void lan9118_service_loop(void)
+{
+    nt_port = register_service("nic0");
+    if (nt_port < 0) {
+        printf("lan9118drv: service registration failed\n");
+        return;
+    }
+
+    handle_t handles[] = {nt_port, irq_ntfn};
+    handle_t pending_recv_reply = 0;
+
+    while (1)
+    {
+
+        recvany_result_t result;
+        _recvany(handles, 2, 50, &result);
+
+        if (result.kind == RECVANY_KIND_IRQ)
+        {
+            irq_count++;
+            uint32_t sts = nic->int_sts;
+            nic->int_sts = sts; // write back to clear R/WC bits
+            if (sts & INT_RSFL)
+            { 
+                /* drain RX FIFO */
+                while ((nic->rx_fifo_inf >> 16) & 0xFF) {
+                    uint32_t rx_sts = nic->rx_status_fifo_port;
+                    size_t pkt_len = (rx_sts >> 16) & 0x3FFF;
+                    if (rx_sts & (1u << 15)) {
+                        uint32_t dwords = (pkt_len + 3) / 4;
+                        for (uint32_t i = 0; i < dwords; i++)
+                            (void)nic->rx_data_fifo_port;
+                    } else {
+                        uint8_t buf[NIC_FRAME_SIZE];
+                        uint32_t dwords = (pkt_len + 3) / 4;
+                        for (uint32_t i = 0; i < dwords; i++)
+                            buf[i] = nic->rx_data_fifo_port;
+                        packet_ring_push(rx_ring, buf, pkt_len);
+                        if (pending_recv_reply > 0) {
+                            _reply(pending_recv_reply, ZUZU_OK, (uint32_t)pkt_len, 0);
+                            pending_recv_reply = 0;
+                        }
+                    }
+                }
+            }
+            if (sts & INT_TSFL)
+            { 
+                /* drain TX status FIFO */
+                while ((nic->tx_fifo_inf >> 16) & 0xFF) {
+                    uint32_t tx_sts = nic->tx_status_fifo_port;
+                    (void)tx_sts;
+                }
+            }
+            _irq_done(dev_handle);
+        }
+        else if (result.kind == RECVANY_KIND_CALL)
+        {
+            switch (result.r2)
+            {
+            case NIC_CMD_GETMAC: {
+                // check if MAC is non-zero
+                if (mac[0] | mac[1] | mac[2] | mac[3] | mac[4] | mac[5]) {
+                    _reply(result.source, 0, (mac[0] | mac[1]<<8 | mac[2]<<16 | mac[3]<<24), (mac[4] | mac[5]<<8));
+                } else {
+                    _reply(result.source, 0, ERR_SYSDOWN, 0); // we haven't successfully read the MAC address, so treat as system down
+                }
+                break;
+            }
+            case NIC_CMD_GETBUF: {
+                if (shmem_handle < 0 || shmem_addr == NULL) {
+                    _reply(result.source, ERR_SYSDOWN, 0, 0);
+                } else {
+                    int32_t granted = _port_grant(shmem_handle, result.r1);
+                    if (granted < 0) {
+                        _reply(result.source, ERR_NOMEM, 0, 0);
+                    } else {
+                        _reply(result.source, 0, ZUZU_OK, (uint32_t)granted);
+                    }
+                }
+                break;
+            }
+            case NIC_CMD_SEND: {
+                nic_frame_t frame;
+                while (packet_ring_pop(&frame, tx_ring) == 0)
+                    nic_tx_frame(&frame);
+                _reply(result.source, 0, ZUZU_OK, 0);
+                break;
+            }
+            case NIC_CMD_RECV: {
+                if (rx_ring->head != rx_ring->tail)
+                    _reply(result.source, 0, ZUZU_OK, 0);
+                else
+                    pending_recv_reply = result.source;
+                break;
+            }
+            case NIC_CMD_STATS: {
+                _reply(result.source, 0, ZUZU_OK, irq_count);
+                break;
+            }
+            default:
+                _reply(result.source, 0, ERR_BADCMD, 0);
+                break;
+            }
+
+        } else if (result.kind == RECVANY_KIND_TIMEOUT) {
+            uint32_t rx_inf = nic->rx_fifo_inf;
+            uint32_t sts    = nic->int_sts;
+            printf("lan9118drv: int_sts=0x%08X rx_fifo_inf=0x%08X (status=%u data=%u)\n",
+                sts, rx_inf, (rx_inf >> 16) & 0xFF, rx_inf & 0xFFFF);
+        }
+    }
+}
+
+int main(void)
+{
+    if (get_nic() != 0)
+    {
+        return 1;
+    }
+
+    if (nic_setup() != 0)
+    {
+        return 1;
+    }
+
+    lan9118_service_loop();
+
+    __builtin_unreachable();
+}
