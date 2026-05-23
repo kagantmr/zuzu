@@ -2,13 +2,13 @@
 #include <ansi.h>
 #include <mem.h>
 #include <string.h>
-#include <snprintf.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <zuzu/service.h>
 #include <malloc.h>
 #include <zuzu/syspage.h>
 #include <zuzu/protocols/fbox_protocol.h>
+#include <zuzu/protocols/nic_protocol.h>
 #include <zuzu/protocols/sysd_protocol.h>
 #include <zuzu/channel.h>
 #include <zuzu/user_layout.h>
@@ -64,18 +64,6 @@ static void strip(char *s)
     *dst = '\0';
 }
 
-#define zprint printf
-
-/*
-void zprint(const char *s)
-{
-    size_t len = strlen(s);
-    if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
-    memcpy(ipcx_buf(), s, len);
-    _sendx(tty_port, (uint32_t)len);
-}
-*/
-
 int setup(void)
 {
     msg_t sysd = _call(NT_PORT, NT_LOOKUP, nt_pack(NT_NAME_SYS), 0);
@@ -121,9 +109,9 @@ static bool ensure_fbox(void)
 // Used when history navigation changes what's displayed.
 static void redraw_line(const char *line)
 {
-    zprint("\r" PROMPT);
-    zprint(line);
-    zprint("\033[K");
+    printf("\r%s", PROMPT);
+    printf("%s", line);
+    printf("\033[K");
 }
 
 static bool normalize_path(const char *path, char *out, size_t out_size)
@@ -248,23 +236,21 @@ static void print_exec_error(int32_t code)
 {
     switch (code) {
         case EXEC_ENOENT:
-            zprint(ANSI_RED "zzsh: spawn failed (not found)\n" ANSI_RESET);
+            printf("%s", ANSI_RED "zzsh: spawn failed (not found)\n" ANSI_RESET);
             break;
         case EXEC_ENOMEM:
-            zprint(ANSI_RED "zzsh: spawn failed (out of memory)\n" ANSI_RESET);
+            printf("%s", ANSI_RED "zzsh: spawn failed (out of memory)\n" ANSI_RESET);
             break;
         case EXEC_EBADELF:
-            zprint(ANSI_RED "zzsh: spawn failed (bad ELF)\n" ANSI_RESET);
+            printf("%s", ANSI_RED "zzsh: spawn failed (bad ELF)\n" ANSI_RESET);
             break;
         case EXEC_EIO:
-            zprint(ANSI_RED "zzsh: spawn failed (I/O error)\n" ANSI_RESET);
+            printf("%s", ANSI_RED "zzsh: spawn failed (I/O error)\n" ANSI_RESET);
             break;
         default: {
             char msg[64];
             snprintf(msg, sizeof(msg), "zzsh: spawn failed (err %d)\n", code);
-            zprint(ANSI_RED);
-            zprint(msg);
-            zprint(ANSI_RESET);
+            printf("%s%s%s", ANSI_RED, msg, ANSI_RESET);
             break;
         }
     }
@@ -298,13 +284,13 @@ static bool exec_reply_valid(const exec_reply_t *reply)
 static void cmd_ls(const char *arg)
 {
     if (!ensure_fbox()) {
-        zprint(ANSI_RED "ls: fbox unavailable\n" ANSI_RESET);
+        printf("%s", ANSI_RED "ls: fbox unavailable\n" ANSI_RESET);
         return;
     }
 
     char path[256];
     if (!resolve_path(arg, path, sizeof(path))) {
-        zprint("path too long\n");
+        printf("%s", "path too long\n");
         return;
     }
 
@@ -313,7 +299,7 @@ static void cmd_ls(const char *arg)
 
     msg_t r = _call(fbox_port, FBOX_READDIR, 0, 0);
     if ((int32_t)r.r1 != FBOX_OK) {
-        zprint(ANSI_RED "ls: cannot read directory\n" ANSI_RESET);
+        printf("%s", ANSI_RED "ls: cannot read directory\n" ANSI_RESET);
         return;
     }
 
@@ -329,7 +315,7 @@ static void cmd_ls(const char *arg)
             snprintf(line, sizeof(line), "%-13s  %u\n",
                      entries[i].name, entries[i].size);
         }
-        zprint(line);
+        printf("%s", line);
     }
 }
 
@@ -338,18 +324,18 @@ static void cmd_ls(const char *arg)
 static void cmd_cat(const char *path)
 {
     if (!ensure_fbox()) {
-        zprint(ANSI_RED "cat: fbox unavailable\n" ANSI_RESET);
+        printf("%s", ANSI_RED "cat: fbox unavailable\n" ANSI_RESET);
         return;
     }
 
     if (!path || !path[0]) {
-        zprint("usage: cat <file>\n");
+        printf("%s", "usage: cat <file>\n");
         return;
     }
 
     char abs_path[256];
     if (!resolve_path(path, abs_path, sizeof(abs_path))) {
-        zprint("cat: path too long\n");
+        printf("%s", "cat: path too long\n");
         return;
     }
 
@@ -358,7 +344,7 @@ static void cmd_cat(const char *path)
 
     msg_t r = _call(fbox_port, FBOX_OPEN, FAT32_MODE_READ, 0);
     if ((int32_t)r.r1 != FBOX_OK) {
-        zprint(ANSI_RED "cat: file not found\n" ANSI_RESET);
+        printf("%s", ANSI_RED "cat: file not found\n" ANSI_RESET);
         return;
     }
     uint32_t fd = r.r2;
@@ -369,13 +355,13 @@ static void cmd_cat(const char *path)
         uint32_t got = r.r2;
         if (got == 0) break;
 
-        /* null-terminate for zprint */
+        /* null-terminate for printf */
         fbox_buf[got] = '\0';
-        zprint(fbox_buf);
+        printf("%s", fbox_buf);
     }
 
     _call(fbox_port, FBOX_CLOSE, fd, 0);
-    zprint("\n");
+    printf("\n");
 }
 
 /* ---- exec from SD ---- */
@@ -383,7 +369,7 @@ static void cmd_cat(const char *path)
 static void cmd_exec(const char *line)
 {
     if (!ensure_fbox()) {
-        zprint(ANSI_RED "zzsh: fbox unavailable\n" ANSI_RESET);
+        printf("%s", ANSI_RED "zzsh: fbox unavailable\n" ANSI_RESET);
         return;
     }
 
@@ -407,12 +393,12 @@ static void cmd_exec(const char *line)
     /* ---- resolve path from first token ---- */
     char path[256];
     if (!resolve_path(tokens[0], path, sizeof(path))) {
-        zprint("zzsh: path too long\n");
+        printf("%s", "zzsh: path too long\n");
         return;
     }
 
     if (path_is_zzsh(path)) {
-        zprint(ANSI_RED "zzsh: refusing to spawn itself\n" ANSI_RESET);
+        printf("%s", ANSI_RED "zzsh: refusing to spawn itself\n" ANSI_RESET);
         return;
     }
 
@@ -430,14 +416,14 @@ static void cmd_exec(const char *line)
     const char *name = path_basename(path);
     tspawn_result_t ts = _pspawn(name);
     if (ts.task_handle < 0) {
-        zprint(ANSI_RED "zzsh: spawn failed\n" ANSI_RESET);
+        printf("%s", ANSI_RED "zzsh: spawn failed\n" ANSI_RESET);
         return;
     }
 
     int32_t sysd_task_handle = _port_grant(ts.task_handle, (int32_t)sysd_pid);
     if (sysd_task_handle < 0) {
         _kill(ts.task_handle);                    /* <-- NEW */
-        zprint(ANSI_RED "zzsh: spawn failed\n" ANSI_RESET);
+        printf("%s", ANSI_RED "zzsh: spawn failed\n" ANSI_RESET);
         return;
     }
 
@@ -445,7 +431,7 @@ static void cmd_exec(const char *line)
     size_t req_len = sizeof(exec_request_hdr_t) + path_len + 1 + argpos;
     if (req_len > IPCX_BUF_SIZE) {
         _kill(ts.task_handle);                    /* <-- NEW */
-        zprint(ANSI_RED "zzsh: command too long\n" ANSI_RESET);
+        printf("%s", ANSI_RED "zzsh: command too long\n" ANSI_RESET);
         return;
     }
 
@@ -470,7 +456,7 @@ static void cmd_exec(const char *line)
     }
     if (rc != (int32_t)sizeof(exec_reply_t)) {
         _kill(ts.task_handle);
-        zprint(ANSI_RED "zzsh: bad exec reply\n" ANSI_RESET);
+        printf("%s", ANSI_RED "zzsh: bad exec reply\n" ANSI_RESET);
         return;
     }
 
@@ -489,13 +475,13 @@ static void cmd_exec(const char *line)
         .r1_val      = reply->argv_va,
     };
     if (_kickstart(&ks) != 0) {
-        _kill(ts.task_handle);                    /* <-- NEW */
-        zprint(ANSI_RED "zzsh: kickstart failed\n" ANSI_RESET);
+        _kill(ts.task_handle);
+        printf("%s", ANSI_RED "zzsh: kickstart failed\n" ANSI_RESET);
         return;
     }
 
-    int32_t status;
-    _wait((int32_t)ts.pid, &status, 0);
+    int32_t exit_status = 0;
+    _wait(ts.pid, &exit_status, 0);
 }
 
 /* ---- dispatch ---- */
@@ -504,7 +490,7 @@ void command_dispatch(const char *line)
 {
     if (strcmp(line, "help") == 0)
     {
-        zprint(
+        printf("%s",
             ANSI_BOLD ANSI_CYAN "zzsh " ZZSH_VER "\n" ANSI_RESET
             ANSI_BOLD "  help" ANSI_RESET "          show this message\n"
             ANSI_BOLD "  echo <text>" ANSI_RESET "   print text\n"
@@ -521,7 +507,7 @@ void command_dispatch(const char *line)
     }
     else if (strcmp(line, "clear") == 0)
     {
-        zprint(ANSI_CLEAR);
+        printf("%s", ANSI_CLEAR);
     }
     else if (strcmp(line, "free") == 0)
     {
@@ -529,17 +515,17 @@ void command_dispatch(const char *line)
         const syspage_t *sp = (const syspage_t *)0x1000;
         uint32_t fp = sp->mem_free_kb; // free pages (4KB each)
         char buf[64];
-        snprintf(buf, sizeof(buf), "%u pages free (%u KB)\n", fp / 4, fp);
-        zprint(buf);
+        snprintf(buf, sizeof(buf), "%u pages free (%u KB), %u pages full\n", fp / 4, fp, 16384 - fp/4);
+        printf("%s", buf);
     }
     else if (strcmp(line, "pwd") == 0)
     {
-        zprint(cwd);
-        zprint("\n");
+        printf("%s", cwd);
+        printf("\n");
     }
     else if (strcmp(line, "cd") == 0)
     {
-        zprint("usage: cd <path>\n");
+        printf("%s", "usage: cd <path>\n");
     }
     else if (strncmp(line, "cd ", 3) == 0)
     {
@@ -547,7 +533,7 @@ void command_dispatch(const char *line)
         fbox_stat_t st;
 
         if (!resolve_path(line + 3, path, sizeof(path))) {
-            zprint("cd: path too long\n");
+            printf("%s", "cd: path too long\n");
             return;
         }
 
@@ -558,12 +544,12 @@ void command_dispatch(const char *line)
         }
 
         if (!stat_path(path, &st)) {
-            zprint(ANSI_RED "cd: not found\n" ANSI_RESET);
+            printf("%s", ANSI_RED "cd: not found\n" ANSI_RESET);
             return;
         }
 
         if (!st.is_dir) {
-            zprint(ANSI_RED "cd: not a directory\n" ANSI_RESET);
+            printf("%s", ANSI_RED "cd: not a directory\n" ANSI_RESET);
             return;
         }
 
@@ -575,7 +561,7 @@ void command_dispatch(const char *line)
         uint32_t p = _getpid();
         char buf[32];
         snprintf(buf, sizeof(buf), "pid: %u\n", p);
-        zprint(buf);
+        printf("%s", buf);
     }
     else if (strncmp(line, "sleep ", 6) == 0)
     {
@@ -587,8 +573,20 @@ void command_dispatch(const char *line)
     }
     else if (strncmp(line, "echo ", 5) == 0)
     {
-        zprint(line + 5);
-        zprint("\n");
+        printf("%s", line + 5);
+        printf("\n");
+    }
+    else if (strcmp(line, "nicstat") == 0)
+    {
+        int32_t nic_port = lookup_service("nic0");
+        if (nic_port < 0) {
+            printf("%s", "nicstat: nic0 not found\n");
+        } else {
+            msg_t r = _call(nic_port, NIC_CMD_STATS, 0, 0);
+            char buf[48];
+            snprintf(buf, sizeof(buf), "nic0: irq_count=%u\n", (uint32_t)r.r2);
+            printf("%s", buf);
+        }
     }
     else if (strncmp(line, "ls", 2) == 0 && (line[2] == '\0' || line[2] == ' '))
     {
@@ -597,7 +595,7 @@ void command_dispatch(const char *line)
     }
     else if (strcmp(line, "cat") == 0)
     {
-        zprint("usage: cat <file>\n");
+        printf("%s", "usage: cat <file>\n");
     }
     else if (strncmp(line, "cat ", 4) == 0)
     {
@@ -626,8 +624,8 @@ int main(void)
     if (stdio_register_uart() != 0)
         return 1;
 
-    zprint(ANSI_BOLD ANSI_CYAN "zzsh " ZZSH_VER "\n" ANSI_RESET);
-    zprint(PROMPT);
+    printf("%s", ANSI_BOLD ANSI_CYAN "zzsh " ZZSH_VER "\n" ANSI_RESET);
+    printf("%s", PROMPT);
 
     while (1)
     {
@@ -688,7 +686,7 @@ int main(void)
 
         // --- normal character handling ---
         if (c == '\r' || c == '\n') {
-            zprint("\r\n");
+            printf("\r\n");
             line[pos] = '\0';
             strip(line);
             hist_pos = 0;
@@ -697,17 +695,17 @@ int main(void)
                 command_dispatch(line);
             }
             pos = 0;
-            zprint("\r\033[K");
-            zprint(PROMPT);
+            printf("\r\033[K");
+            printf("%s", PROMPT);
         } else if (c == 127 || c == '\b') {
             if (pos > 0) {
                 pos--;
-                zprint("\b \b");
+                printf("\b \b");
             }
         } else if (c >= 0x20 && c < 0x7f && pos < LINE_BUFFER_SIZE - 1) {
             line[pos++] = c;
             char echo[2] = { c, '\0' };
-            zprint(echo);
+            printf("%s", echo);
         }
     }
 
