@@ -33,7 +33,7 @@ void mapdev(exception_frame_t *frame)
         return;
     }
     if (entry->type != HANDLE_DEVICE) {
-        frame->r[0] = ERR_BADFORM;
+        frame->r[0] = ERR_MALFORMED;
         return;
     }
 
@@ -99,7 +99,7 @@ void querydev(exception_frame_t *frame) {
 
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
     if (!entry) { frame->r[0] = ERR_BADARG; return; }
-    if (entry->type != HANDLE_DEVICE) { frame->r[0] = ERR_BADFORM; return; }
+    if (entry->type != HANDLE_DEVICE) { frame->r[0] = ERR_MALFORMED; return; }
 
     device_cap_t *cap = entry->dev;
     if (!cap) { frame->r[0] = ERR_BADARG; return; }
