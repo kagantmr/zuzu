@@ -1,13 +1,11 @@
 #include <zuzu/zuzu.h>
+#include <zuzu/service.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdint.h>
 #include "pl181drv.h"
-#include "zuzu/protocols/nt_protocol.h"
 #include "zuzu/protocols/devmgr_protocol.h"
 #include "zuzu/protocols/sd_protocol.h"
-#include <malloc.h>
-#include <zuzu/user_layout.h>
 
 static pl181_t *pl181;
 static bool is_sdhc;
@@ -138,21 +136,12 @@ static int pl181_setup(void)
     return 0;
 }
 
-/*
- * Wait for the MCI IRQ to arrive on our notification object.
- * Returns 0 on clean IRQ delivery.
- */
 static int wait_for_irq(void)
 {
     int32_t bits = _ntfn_wait((uint32_t)block_irq_ntfn);
     return (bits < 0) ? -1 : 0;
 }
 
-/* ... rest of functions (pl181_read_block, pl181_write_block, worker, handlers) ... */
-
-/* Block read: arm transfer, sleep until IRQ, drain FIFO, report status.
- * Result ends up in shmem_buf.
- */
 static int pl181_read_block(uint32_t block_num)
 {
     uint32_t addr = is_sdhc ? block_num : block_num * MCI_BLOCK_SIZE;
@@ -203,9 +192,6 @@ static int pl181_read_block(uint32_t block_num)
     return 0;
 }
 
-/* Block write: arm data path, fill FIFO, sleep until IRQ, check status.
- * Data is read from shmem_buf.
- */
 static int pl181_write_block(uint32_t block_num)
 {
     uint32_t addr = is_sdhc ? block_num : block_num * MCI_BLOCK_SIZE;
@@ -249,53 +235,6 @@ static int pl181_write_block(uint32_t block_num)
     return 0;
 }
 
-/* job queue + worker thread to offload blocking block transfers. */
-
-#define PL181DRV_JOB_QUEUE_SZ 16
-typedef struct {
-    uint32_t cmd;
-    uint32_t arg;
-    uint32_t reply_h;
-    uint32_t sender;
-} pl181drv_job_t;
-
-static pl181drv_job_t pl181drv_jobs[PL181DRV_JOB_QUEUE_SZ];
-static unsigned pl181drv_job_head = 0;
-static unsigned pl181drv_job_tail = 0;
-static int32_t pl181drv_worker_ntfn = -1;
-
-/* forward declarations for block transfer helpers */
-static int pl181_read_block(uint32_t block_num);
-static int pl181_write_block(uint32_t block_num);
-
-static void pl181drv_worker(void *arg)
-{
-    (void)arg;
-    while (1) {
-        _ntfn_wait((uint32_t)pl181drv_worker_ntfn);
-        while (pl181drv_job_head != pl181drv_job_tail) {
-            pl181drv_job_t job = pl181drv_jobs[pl181drv_job_tail];
-            pl181drv_job_tail = (pl181drv_job_tail + 1) % PL181DRV_JOB_QUEUE_SZ;
-
-            switch (job.cmd) {
-            case SD_CMD_READ: {
-                int rc = pl181_read_block(job.arg);
-                _reply((uint32_t)job.reply_h, rc == 0 ? 0 : (uint32_t)-1, 0, 0);
-                break;
-            }
-            case SD_CMD_WRITE: {
-                int rc = pl181_write_block(job.arg);
-                _reply((uint32_t)job.reply_h, rc == 0 ? 0 : (uint32_t)-1, 0, 0);
-                break;
-            }
-            default:
-                _reply((uint32_t)job.reply_h, (uint32_t)-1, 0, 0);
-                break;
-            }
-        }
-    }
-}
-
 static void handle_client(msg_t msg)
 {
     uint32_t reply_h = (uint32_t)msg.r0;
@@ -318,33 +257,15 @@ static void handle_client(msg_t msg)
 
     case SD_CMD_READ:
     {
-        unsigned next = (pl181drv_job_head + 1) % PL181DRV_JOB_QUEUE_SZ;
-        if (next == pl181drv_job_tail) {
-            _reply(reply_h, (uint32_t)-1, 0, 0);
-        } else {
-            pl181drv_jobs[pl181drv_job_head].cmd = SD_CMD_READ;
-            pl181drv_jobs[pl181drv_job_head].arg = arg;
-            pl181drv_jobs[pl181drv_job_head].reply_h = reply_h;
-            pl181drv_jobs[pl181drv_job_head].sender = sender;
-            pl181drv_job_head = next;
-            (void)_ntfn_signal((uint32_t)pl181drv_worker_ntfn, 1);
-        }
+        int rc = pl181_read_block(arg);
+        _reply(reply_h, rc == 0 ? 0 : (uint32_t)-1, 0, 0);
         break;
     }
 
     case SD_CMD_WRITE:
     {
-        unsigned nextw = (pl181drv_job_head + 1) % PL181DRV_JOB_QUEUE_SZ;
-        if (nextw == pl181drv_job_tail) {
-            _reply(reply_h, (uint32_t)-1, 0, 0);
-        } else {
-            pl181drv_jobs[pl181drv_job_head].cmd = SD_CMD_WRITE;
-            pl181drv_jobs[pl181drv_job_head].arg = arg;
-            pl181drv_jobs[pl181drv_job_head].reply_h = reply_h;
-            pl181drv_jobs[pl181drv_job_head].sender = sender;
-            pl181drv_job_head = nextw;
-            (void)_ntfn_signal((uint32_t)pl181drv_worker_ntfn, 1);
-        }
+        int rc = pl181_write_block(arg);
+        _reply(reply_h, rc == 0 ? 0 : (uint32_t)-1, 0, 0);
         break;
     }
 
@@ -356,31 +277,15 @@ static void handle_client(msg_t msg)
 
 static int pl181drv_setup(void)
 {
-    port = _port_create();
-    if (port < 0)
-    {
-        printf("pl181drv: port_create failed\n");
-        return -1;
-    }
-
-    int32_t nt_slot = _port_grant(port, NAMETABLE_PID);
-    if (nt_slot < 0)
-    {
-        printf("pl181drv: nt grant failed\n");
-        return -1;
-    }
-
-    /* locate devmgr */
-    msg_t r = _call(NT_PORT, NT_LOOKUP, nt_pack("devm"), 0);
-    if ((int32_t)r.r1 != NT_LU_OK)
+    int32_t devmgr_port = lookup_service("devm");
+    if (devmgr_port < 0)
     {
         printf("pl181drv: devmgr lookup failed\n");
         return -1;
     }
-    int32_t devmgr_port = (int32_t)r.r2;
 
     /* request the block device capability */
-    r = _call(devmgr_port, DEV_REQUEST, DEV_CLASS_BLOCK, 0);
+    msg_t r = _call(devmgr_port, DEV_REQUEST, DEV_CLASS_BLOCK, 0);
     if ((int32_t)r.r1 != 0)
     {
         printf("pl181drv: block device request failed\n");
@@ -434,28 +339,14 @@ static int pl181drv_setup(void)
     shmem_handle = shm.handle;
     shmem_buf = (uint32_t *)shm.addr;
 
-    msg_t den_r = _call(NT_PORT, DEN_MYDEN, 0, 0);
-    uint32_t my_den = (den_r.r1 == DEN_OK) ? den_r.r2 : 0;
-
-    (void)_send(NT_PORT, NT_REGISTER | (my_den << 8), nt_pack("pl181drv"), (uint32_t)nt_slot);
-
-    pl181drv_worker_ntfn = _ntfn_create();
-    if (pl181drv_worker_ntfn < 0) {
-        printf("pl181drv: worker ntfn create failed\n");
+    /* register after hardware is ready so clients don't find the port early */
+    port = register_service("pl181drv");
+    if (port < 0)
+    {
+        printf("pl181drv: service registration failed\n");
         return -1;
     }
 
-    void *wstack = malloc(USER_STACK_SIZE);
-    if (!wstack) {
-        printf("pl181drv: worker stack alloc failed\n");
-        return -1;
-    }
-
-    tid_t wt = _tmake(pl181drv_worker, (void *)((char *)wstack + USER_STACK_SIZE), NULL);
-    if ((int)wt < 0) {
-        printf("pl181drv: worker spawn failed\n");
-        return -1;
-    }
     return 0;
 }
 
@@ -463,19 +354,16 @@ int main(void)
 {
     if (pl181drv_setup() < 0)
         return 1;
+
     while (1)
     {
+        /* drain any stray IRQ that arrived between transfers */
         int32_t bits = _ntfn_poll((uint32_t)block_irq_ntfn);
         if (bits > 0)
-        {
             _irq_done((uint32_t)block_dev_handle);
-        }
 
         msg_t msg = _recv(port);
-
         if ((int32_t)msg.r0 > 0)
-        {
             handle_client(msg);
-        }
     }
 }
