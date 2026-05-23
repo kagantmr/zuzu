@@ -105,7 +105,7 @@ static int build_info(char info[][INFO_LINE_LEN])
 }
 
 
-int main(int argc, char *argv[])
+int main()
 {
     static const char *logo[] = {
             "                                                  ",
