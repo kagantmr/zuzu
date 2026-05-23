@@ -1,7 +1,7 @@
 #include <zuzu/zuzu.h>
 #include <stdio.h>
 
-int main(int argc, char *argv[])
+int main()
 {
     printf("this is a long long long text.\n");
     return 0;
