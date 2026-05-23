@@ -44,7 +44,7 @@ typedef struct
 enum {
     RECVANY_KIND_SEND = 0u,
     RECVANY_KIND_CALL = 1u,
-    RECVANY_KIND_IRQ = 2u,
+    RECVANY_KIND_NTFN = 2u,
     RECVANY_KIND_TIMEOUT = 3u,
 };
 

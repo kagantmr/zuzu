@@ -21,7 +21,7 @@
 #define RECVANY_MAX_HANDLES 16u
 #define RECVANY_KIND_SEND 0u
 #define RECVANY_KIND_CALL 1u
-#define RECVANY_KIND_IRQ 2u
+#define RECVANY_KIND_NTFN 2u
 #define RECVANY_KIND_TIMEOUT 3u
 
 extern thread_t *current_thread;
@@ -210,7 +210,7 @@ static void recvany_deliver_notification(uint32_t matched_index,
 {
     memset(result, 0, sizeof(*result));
     result->matched_index = matched_index;
-    result->kind = RECVANY_KIND_IRQ;
+    result->kind = RECVANY_KIND_NTFN;
     result->source = bits;
     result->r1 = bits;
 }
