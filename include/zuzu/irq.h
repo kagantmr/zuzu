@@ -11,8 +11,8 @@ extern "C" {
 
 /* ---- IRQ syscalls ---- */
 
-static inline int32_t _irq_claim(irq_t irq_num) {
-    register irq_t r0 __asm__("r0") = irq_num;
+static inline int32_t _irq_claim(handle_t dev_handle) {
+    register handle_t r0 __asm__("r0") = dev_handle;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
         : [num] "i"(SYS_IRQ_CLAIM)
@@ -20,8 +20,8 @@ static inline int32_t _irq_claim(irq_t irq_num) {
     return (int32_t)r0;
 }
 
-static inline int32_t _irq_bind(irq_t irq_num, handle_t ntfn_handle) {
-    register irq_t r0 __asm__("r0") = irq_num;
+static inline int32_t _irq_bind(handle_t dev_handle, handle_t ntfn_handle) {
+    register handle_t r0 __asm__("r0") = dev_handle;
     register handle_t r1 __asm__("r1") = ntfn_handle;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
@@ -30,8 +30,8 @@ static inline int32_t _irq_bind(irq_t irq_num, handle_t ntfn_handle) {
     return (int32_t)r0;
 }
 
-static inline int32_t _irq_done(irq_t irq_num) {
-    register irq_t r0 __asm__("r0") = irq_num;
+static inline int32_t _irq_done(handle_t dev_handle) {
+    register handle_t r0 __asm__("r0") = dev_handle;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
         : [num] "i"(SYS_IRQ_DONE)
