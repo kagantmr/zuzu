@@ -5,7 +5,7 @@
 #include "stdbool.h"
 #include "stdint.h"
 
-#define HEAP_INITIAL_SIZE (512 * 4096)  // 2MB initial heap
+#define HEAP_INITIAL_SIZE (256 * 4096)  // 1MB initial heap
 #define HEAP_GROW_MIN_PAGES 16          // 64KB minimum grow chunk
 #define ALIGNMENT 16
 #define MIN_PAYLOAD ALIGNMENT
