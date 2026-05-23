@@ -111,6 +111,8 @@ USER_CRT0      = build/user/crt0.o
 BOOT_PROG_ELFS = $(foreach p,$(BOOT_PROGS),build/user/$(p).elf)
 DISK_PROG_ELFS = $(foreach p,$(DISK_PROGS),build/user/$(p).elf)
 USER_ELFS      = $(BOOT_PROG_ELFS) $(DISK_PROG_ELFS)
+BOOT_PROG_PACKED_ELFS = $(foreach p,$(BOOT_PROGS),build/user/$(p).stripped.elf)
+DISK_PROG_PACKED_ELFS = $(foreach p,$(DISK_PROGS),build/user/$(p).stripped.elf)
 INITRD         = build/initrd.cpio
 INITRD_EXTRA_DIR ?= initrd
 INITRD_EXTRA_FILES := $(shell find $(INITRD_EXTRA_DIR) -type f 2>/dev/null)
@@ -184,12 +186,20 @@ endef
 
 $(foreach p,$(USER_PROGS),$(eval $(call LINK_USER_PROG,$(p))))
 
+define STRIP_USER_PROG
+build/user/$(1).stripped.elf: build/user/$(1).elf
+	@echo "  STRIP   $$@"
+	@$(USER_OBJCOPY) --strip-debug $$< $$@
+endef
+
+$(foreach p,$(USER_PROGS),$(eval $(call STRIP_USER_PROG,$(p))))
+
 # initrd
-$(INITRD): $(BOOT_PROG_ELFS) $(INITRD_EXTRA_FILES)
+$(INITRD): $(BOOT_PROG_PACKED_ELFS) $(INITRD_EXTRA_FILES)
 	@rm -rf build/initrd
 	@mkdir -p build/initrd/bin
 	@for prog in $(BOOT_PROGS); do \
-		cp build/user/$$prog.elf build/initrd/bin/$$prog; \
+		cp build/user/$$prog.stripped.elf build/initrd/bin/$$prog; \
 	done
 	@if [ -d "$(INITRD_EXTRA_DIR)" ]; then \
 		cp -R $(INITRD_EXTRA_DIR)/. build/initrd/; \
@@ -239,10 +249,10 @@ $(TARGET): $(OBJS) build/arch/arm/initrd.o $(LINKER_SCRIPT)
 
 .PHONY: sdimg-stage sdimg-clean sdimg-recreate
 
-sdimg-stage: $(DISK_PROG_ELFS)
+sdimg-stage: $(DISK_PROG_PACKED_ELFS)
 	@mkdir -p $(SD_STAGE_DIR)/bin
 	@for prog in $(DISK_PROGS); do \
-		cp build/user/$$prog.elf $(SD_STAGE_DIR)/bin/$$prog; \
+		cp build/user/$$prog.stripped.elf $(SD_STAGE_DIR)/bin/$$prog; \
 		echo "  STAGE   $(SD_STAGE_DIR)/bin/$$prog"; \
 	done
 
@@ -289,14 +299,14 @@ run: $(TARGET)
 	@qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M \
 	    -kernel $(TARGET) -dtb $(DTB_FILE) -nographic \
 	    -drive file=$(SD_IMG),if=sd,format=raw \
-		-netdev user,id=net0 \
+	    -net nic,model=lan9118 -net user
 
 debug: $(TARGET)
 	@echo "  QEMU    $(TARGET) (debug)"
 	@qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M \
 	    -kernel $(TARGET) -dtb $(DTB_FILE) -nographic \
-		-drive file=$(SD_IMG),if=sd,format=raw \
-		-netdev user,id=net0\
+	    -drive file=$(SD_IMG),if=sd,format=raw \
+	    -net nic,model=lan9118 -net user \
 	    -S -gdb tcp::1234
 
 # Misc targets
