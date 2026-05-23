@@ -336,14 +336,14 @@ void attach(exception_frame_t *frame)
     }
     if (entry->type != HANDLE_SHMEM)
     {
-        frame->r[0] = ERR_BADFORM;
+        frame->r[0] = ERR_MALFORMED;
         return;
     }
 
     shmem_t *shm_obj = entry->shm;
     if (!shm_obj)
     {
-        frame->r[0] = ERR_BADFORM;
+        frame->r[0] = ERR_MALFORMED;
         return;
     }
     const size_t size = shm_obj->page_count * PAGE_SIZE;
@@ -402,7 +402,7 @@ void detach(exception_frame_t *frame)
     }
     if (entry->type != HANDLE_SHMEM)
     {
-        frame->r[0] = ERR_BADFORM;
+        frame->r[0] = ERR_MALFORMED;
         return;
     }
 

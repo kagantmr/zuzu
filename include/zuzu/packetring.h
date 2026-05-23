@@ -21,6 +21,5 @@ typedef struct {
 
 int packet_ring_push(nic_ring_t *r, void *src, uint16_t len);
 int packet_ring_pop(nic_frame_t *dst, nic_ring_t *r);
-void packet_ring_init(void *shm);
 
 #endif

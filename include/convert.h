@@ -5,6 +5,8 @@
 extern "C" {
 #endif
 
+#include <stdint.h>
+
  /**
   * @brief Convert a hexadecimal string to an integer.
   * @param str Pointer to the null-terminated hexadecimal string.
@@ -40,6 +42,11 @@ char *itoa(int value, char *str, unsigned int base);
  */
 char *utoa(unsigned int value, char *str, unsigned int base);
 
+static inline uint16_t htons(uint16_t x) { return (x >> 8) | (x << 8); }
+static inline uint32_t htonl(uint32_t x) { return ((x >> 24)) | ((x >> 8) & 0xFF00) | ((x << 8) & 0xFF0000) | (x << 24); }
+
+#define ntohs htons
+#define ntohl htonl
 
 static inline unsigned int be32(const void *p) {
     const unsigned char *b = (const unsigned char *)p;

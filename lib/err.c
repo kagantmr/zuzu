@@ -6,8 +6,8 @@ const char *strerror(err_t err) {
         return "ERR_OK";
     case ERR_BADARG:
         return "ERR_BADARG";
-    case ERR_BADFORM:
-        return "ERR_BADFORM";
+    case ERR_MALFORMED:
+        return "ERR_MALFORMED";
     case ERR_DEAD:
         return "ERR_DEAD";
     case ERR_BUSY:
