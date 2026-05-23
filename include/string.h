@@ -101,23 +101,35 @@ char *strchr(const char *s, int c);
 /**
  * @brief Format a string according to a format specifier list.
  * 
- * Works similarly to sprintf but minimal; typically supports
- * %c, %s, %d, %x, etc.
+ * Supports format specifiers:
+ *   %c, %s, %d, %i, %u, %x, %X, %o, %b, %p, %P, %%
+ * 
+ * Length modifiers: hh, h, l, ll, z (for size_t/ptrdiff_t)
+ * Flags: -, 0, +, space, #
+ * Width and precision are supported.
+ * 
+ * Examples: %zu (unsigned size_t), %zd (signed size_t), %zx (size_t in hex)
  * 
  * @param outc   Function pointer to output a single character.
  * @param fstring Format string.
  * @param ...     Variable arguments matching the format specifiers.
- * @return Pointer to a static or provided buffer containing the formatted string.
  */
 void strfmt(strfmt_outc_t outc, void *ctx, const char *fstring, ...);
 
 /**
  * @brief Format a string according to a format specifier list using va_list.
  * 
- * Works similarly to vprintf but minimal; typically supports
- * %c, %s, %d, %x, etc.
+ * Supports format specifiers:
+ *   %c, %s, %d, %i, %u, %x, %X, %o, %b, %p, %P, %%
  * 
- * @param outc   Function pointer to output a single character.
+ * Length modifiers: hh, h, l, ll, z (for size_t/ptrdiff_t)
+ * Flags: -, 0, +, space, #
+ * Width and precision are supported.
+ * 
+ * Examples: %zu (unsigned size_t), %zd (signed size_t), %zx (size_t in hex)
+ * 
+ * @param outc    Function pointer to output a single character.
+ * @param ctx     Context pointer passed to outc.
  * @param fstring Format string.
  * @param args    Pointer to va_list of arguments matching the format specifiers.
  */
