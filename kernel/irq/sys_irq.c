@@ -88,7 +88,7 @@ void irq_claim(exception_frame_t *frame) {
         return;
     }
     if (entry->type != HANDLE_DEVICE) {
-        frame->r[0] = ERR_BADFORM;
+        frame->r[0] = ERR_MALFORMED;
         return;
     }
 
@@ -211,7 +211,7 @@ void irq_done(exception_frame_t* frame) {
         return;
     }
     if (entry->type != HANDLE_DEVICE) {
-        frame->r[0] = ERR_BADFORM;
+        frame->r[0] = ERR_MALFORMED;
         return;
     }
     if (!valid_irq(entry->dev->irq)) {
