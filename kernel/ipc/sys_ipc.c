@@ -821,7 +821,7 @@ static int recvany_try_once(const handle_t *handles,
     }
 
     for (uint32_t i = 0; i < count; i++) {
-        if (!list_empty(&endpoints[i]->sender_queue)) {
+        if (endpoints[i] && !list_empty(&endpoints[i]->sender_queue)) {
             list_node_t *sender = list_pop_front(&endpoints[i]->sender_queue);
             return recvany_deliver_sender(i, current_thread, sender, result);
         }
