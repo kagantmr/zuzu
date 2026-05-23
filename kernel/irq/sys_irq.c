@@ -26,7 +26,9 @@ static void relay_handler(void *ctx)
 
         if (!list_empty(&ntfn->wait_queue)) {
             list_node_t *node = list_pop_front(&ntfn->wait_queue);
-            thread_t *waiter = container_of(node, thread_t, node);
+            thread_t *waiter = container_of(node, thread_t, recvany_wait_nodes);
+            if (!waiter->trap_frame)
+                return;
             waiter->trap_frame->r[0] = ntfn->word;
             uint32_t match_index = RECVANY_NO_MATCH;
             if (waiter->recvany_wait_active) {
@@ -166,7 +168,7 @@ void irq_bind(exception_frame_t *frame) {
 
         if (!list_empty(&ntfn->wait_queue)) {
             list_node_t *node = list_pop_front(&ntfn->wait_queue);
-            thread_t *waiter = container_of(node, thread_t, node);
+            thread_t *waiter = container_of(node, thread_t, recvany_wait_nodes);
             if (waiter->trap_frame)
                 waiter->trap_frame->r[0] = ntfn->word;
             uint32_t match_index = RECVANY_NO_MATCH;
