@@ -247,7 +247,7 @@ static void handle_client(msg_t msg)
 
     case SD_CMD_GET_BUF:
     {
-        int32_t granted = _port_grant(shmem_handle, (int32_t)sender);
+        int32_t granted = _cap_grant(shmem_handle, (int32_t)sender);
         if (granted < 0)
             _reply(reply_h, (uint32_t)-1, 0, 0);
         else
