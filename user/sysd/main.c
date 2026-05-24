@@ -40,7 +40,7 @@ static int name_equals_u32(const char name[SYSD_NAME_LEN], uint32_t name_u32) {
 }
 
 int nt_setup(void) {
-    port = _port_create();
+    port = _ep_create();
     if (port < 0)
         return port;
 
@@ -292,7 +292,7 @@ static void nt_handle_msg(msg_t msg) {
     } else if (command == NT_LOOKUP) {
         status = nt_lookup(name_u32, sender, &out_handle, &out_pid);
         if (status == NT_LU_OK) {
-            int32_t slot = _port_grant((int32_t)out_handle, (int32_t)sender);
+            int32_t slot = _cap_grant((int32_t)out_handle, (int32_t)sender);
             if (slot < 0)
                 status = NT_LU_NOMATCH;
             else

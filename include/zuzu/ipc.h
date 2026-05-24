@@ -124,23 +124,23 @@ static inline int32_t _recvany(const handle_t *handles, uint32_t count, uint32_t
     return (int32_t) r0;
 }
 
-/* ---- Port syscalls ---- */
+/* ---- Capability syscalls ---- */
 
-static inline int32_t _port_create(void) {
+static inline int32_t _ep_create(void) {
     register int32_t r0 __asm__("r0");
     __asm__ volatile("svc %[num]"
         : "=r"(r0)
-        : [num] "i"(SYS_PORT_CREATE)
+        : [num] "i"(SYS_EP_CREATE)
         : "memory");
     return r0;
 }
 
-static inline int32_t _port_grant(handle_t port, zpid_t pid) {
-    register handle_t r0 __asm__("r0") = port;
+static inline int32_t _cap_grant(handle_t cap, zpid_t pid) {
+    register handle_t r0 __asm__("r0") = cap;
     register zpid_t r1 __asm__("r1") = pid;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
-        : "r"(r1), [num] "i"(SYS_PORT_GRANT)
+        : "r"(r1), [num] "i"(SYS_CAP_GRANT)
         : "memory");
     return r0;
 }

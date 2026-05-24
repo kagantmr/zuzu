@@ -287,8 +287,8 @@ void lan9118_service_loop(void)
                 }
                 else
                 {
-                    int32_t granted = _port_grant(shmem_handle, result.r1);
-                    int32_t ntfn_granted = _port_grant(netd_ntfn, result.r1);
+                    int32_t granted = _cap_grant(shmem_handle, result.r1);
+                    int32_t ntfn_granted = _cap_grant(netd_ntfn, result.r1);
                     if (granted < 0 || ntfn_granted < 0)
                     {
                         _reply(result.source, granted, ntfn_granted, 0);

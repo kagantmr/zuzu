@@ -28,11 +28,11 @@
 #define SYS_PROC_REPLYX 0x16  /* (reply_handle, buf_len) -> 0 or -err; data in shared buffer */
 #define SYS_PROC_RECVANY 0x17 /* (handles_ptr, count, timeout, result_ptr) -> 0 or -err; fills result struct */
 
-/* ---- Ports (0x20-0x2F) ---- */
+/* ---- Capabilities (0x20-0x2F) ---- */
 
-#define SYS_PORT_CREATE 0x20  /* () -> handle or -err                 */
-#define SYS_PORT_DESTROY 0x21 /* (handle) -> 0 or -err                */
-#define SYS_PORT_GRANT 0x22   /* (handle, pid) -> 0 or -err           */
+#define SYS_EP_CREATE 0x20   /* () -> handle or -err                 */
+#define SYS_CAP_DESTROY 0x21 /* (handle) -> 0 or -err                */
+#define SYS_CAP_GRANT 0x22   /* (handle, pid) -> 0 or -err           */
 #define SYS_NTFN_CREATE 0x23  /* () -> handle or -err                 */
 #define SYS_NTFN_SIGNAL 0x24  /* (ntfn_handle, bits) -> 0 or -err     */
 #define SYS_NTFN_WAIT 0x25    /* (ntfn_handle) -> bits or -err        */

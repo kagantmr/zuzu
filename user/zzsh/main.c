@@ -420,7 +420,7 @@ static void cmd_exec(const char *line)
         return;
     }
 
-    int32_t sysd_task_handle = _port_grant(ts.task_handle, (int32_t)sysd_pid);
+    int32_t sysd_task_handle = _cap_grant(ts.task_handle, (int32_t)sysd_pid);
     if (sysd_task_handle < 0) {
         _kill(ts.task_handle);                    /* <-- NEW */
         printf("%s", ANSI_RED "zzsh: spawn failed\n" ANSI_RESET);

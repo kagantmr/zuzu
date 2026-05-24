@@ -175,7 +175,7 @@ static void handle_stat(uint32_t reply_h)
 
 static void handle_get_buf(uint32_t reply_h, uint32_t sender)
 {
-    int32_t slot = _port_grant(shm.handle, (int32_t)sender);
+    int32_t slot = _cap_grant(shm.handle, (int32_t)sender);
     if (slot < 0)
         _reply(reply_h, (uint32_t)-1, 0, 0);
     else
@@ -220,8 +220,8 @@ int main(void)
     }
 
     /* register ourselves */
-    int32_t my_port = _port_create();
-    int32_t nt_slot = _port_grant(my_port, NAMETABLE_PID);
+    int32_t my_port = _ep_create();
+    int32_t nt_slot = _cap_grant(my_port, NAMETABLE_PID);
     _send(NT_PORT, NT_REGISTER | (my_den << 8), nt_pack("fat3"), (uint32_t)nt_slot);
 
     /* mount the filesystem */

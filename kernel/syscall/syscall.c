@@ -153,18 +153,18 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
     {
         proc_recvany(frame);
     } break;
-    case SYS_PORT_CREATE:
+    case SYS_EP_CREATE:
     {
         port_create(frame);
-    } break; 
-    case SYS_PORT_DESTROY:
+    } break;
+    case SYS_CAP_DESTROY:
     {
         port_destroy(frame);
-    } break; 
-    case SYS_PORT_GRANT:
+    } break;
+    case SYS_CAP_GRANT:
     {
         port_grant(frame);
-    } break; 
+    } break;
     case SYS_NTFN_CREATE:
     {
         ntfn_create(frame);
