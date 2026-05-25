@@ -16,6 +16,9 @@
 
 #include <stdint.h>
 
+#define TIMER_IRQ_PHYS  30   /* CNTP PPI */
+#define TIMER_IRQ_VIRT  27   /* CNTV PPI */
+
 /**
  * @brief Initialize the ARM Generic Timer to generate periodic interrupts.
  * Sets up both the physical and virtual timers (if available) to fire every 10ms

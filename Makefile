@@ -15,6 +15,7 @@ FANCY_PANIC        ?= 1
 
 
 BOARD_DIR     = arch/arm/vexpress-a15
+BOARD_LAYOUT_H = $(BOARD_DIR)/layout.h
 LINKER_SCRIPT = $(BOARD_DIR)/linker.ld
 DTB_FILE      = arch/arm/dtb/vexpress-a15/vexpress-v2p-ca15-tc1.dtb
 MAP           = build/zuzu.map
@@ -22,7 +23,7 @@ MAP           = build/zuzu.map
 CPUFLAGS = -mcpu=cortex-a15
 CFLAGS   = -ffreestanding -O$(OPTIMIZATION_LEVEL) -fno-omit-frame-pointer \
            -Wall -Wextra -Werror $(CPUFLAGS) -I. -Iinclude -MMD -MP -g \
-           -D__KERNEL__
+           -D__KERNEL__ -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"'
 LDFLAGS  = -T $(LINKER_SCRIPT) -Map=$(MAP)
 
 ifeq ($(BANNER), 0)
@@ -69,7 +70,8 @@ KERNEL_LIBGCC = $(shell $(CC) $(CPUFLAGS) -print-libgcc-file-name)
 USER_LIBGCC   = $(shell $(USER_CC) $(CPUFLAGS) -mfloat-abi=hard -mfpu=vfpv4 -print-libgcc-file-name)
 
 USER_CFLAGS  = -ffreestanding -nostdlib -O$(OPTIMIZATION_LEVEL) -Wall -Wextra \
-			   $(CPUFLAGS) -Iinclude -MMD -MP -g -mfloat-abi=hard -mfpu=vfpv4
+			   $(CPUFLAGS) -I. -Iinclude -MMD -MP -g -mfloat-abi=hard -mfpu=vfpv4 \
+			   -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"'
 USER_LDFLAGS = -T user/user.ld
 
 ifeq ($(LOG_LEVEL), 0)

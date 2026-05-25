@@ -416,12 +416,12 @@ process_t *process_create(const char* name) {
     if (!t->ipc_buf_pa)
         goto fail_kstack;
 
-    if (!kmap_user_page(p->as, t->ipc_buf_pa, IPCX_BUF_VA,
+    if (!kmap_user_page(p->as, t->ipc_buf_pa, USER_IPC_BUF_VA,
                         VM_PROT_READ | VM_PROT_WRITE)) // could use a bump pointer instead
         goto fail_kstack;
     
     vm_region_t ipc_region = {
-        .vaddr_start = IPCX_BUF_VA,
+        .vaddr_start = USER_IPC_BUF_VA,
         .size = PAGE_SIZE,
         .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
         .memtype = VM_MEM_NORMAL,
@@ -468,7 +468,7 @@ process_t *process_create(const char* name) {
      * initial slot (slot 0) belongs to the main thread and should
      * point at the process's IPCX fixed VA. */
     tdata_t *tcb0 = (tdata_t *)PA_TO_VA(tcb_page_pa);
-    tcb0->ipc_buf = (void *)IPCX_BUF_VA;
+    tcb0->ipc_buf = (void *)USER_IPC_BUF_VA;
     tcb0->tid = t->tid;
     /* Point the thread's thread-info VA at the first slot in the user TCB page */
     t->thread_info_va = p->tcb_page_va;

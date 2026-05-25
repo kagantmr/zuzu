@@ -3,6 +3,7 @@
 #include "kernel/sched/sched.h"
 #include "kernel/mm/alloc.h"
 #include "arch/arm/include/irq.h"
+#include "arch/arm/timer/generic_timer.h"
 #include <mem.h>
 
 extern thread_t *current_thread;
@@ -64,8 +65,9 @@ static void relay_handler(void *ctx)
 static inline bool irq_is_reserved(irq_t irq_num)
 {
     switch (irq_num) {
-    case 34:   // SP804 timer
-    case 27:   // generic timer PPI
+    case 34:   // SP804 timer (vexpress-a15)
+    case TIMER_IRQ_PHYS:
+    case TIMER_IRQ_VIRT:
         return true;
     default:
         return false;
