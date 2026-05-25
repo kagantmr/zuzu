@@ -3,9 +3,7 @@
 
 #include <stdint.h>
 #include <zuzu/types.h>
-
-#define USR_SP 0x7FFFE000
-#define KSTACK_REGION_BASE 0xF1000000
+#include BOARD_LAYOUT_H
 #define KSTACK_SLOT_SIZE  0x2000
 #define KSTACK_GUARD_SIZE 0x1000
 

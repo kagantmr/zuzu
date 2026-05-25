@@ -11,6 +11,7 @@
 #include "kernel/time/tick.h"
 #include "kernel/proc/process.h"
 #include <zuzu/user_layout.h>
+#include <zuzu/ipcx.h>
 #include <spawn_args.h>
 
 

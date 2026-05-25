@@ -9,8 +9,6 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-#define TIMER_IRQ_PHYS 30 // CNTP (Physical Non-secure) timer PPI
-#define TIMER_IRQ_VIRT 27 // CNTV (Virtual) timer PPI (some QEMU setups deliver this)
 
 /**
  * @brief Read the counter frequency from the CNTFRQ register.

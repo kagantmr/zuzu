@@ -8,16 +8,8 @@
 #include <vector.h>
 #include <zuzu/types.h>
 #include "arch/arm/mmu/asid.h"
+#include "arch/arm/mem_layout.h"
 
-#define SECTION_SIZE      0x100000UL     /* 1MB section for ARMv7 */
-
-#define KERNEL_PA_BASE  0x80000000UL
-#define KERNEL_VA_BASE  0xC0000000UL
-#define KERNEL_VA_OFFSET (KERNEL_VA_BASE - KERNEL_PA_BASE)  // 0x40000000
-
-#define USER_VA_TOP  0x80000000UL  // TTBR0/TTBR1 boundary with N=1
-
-// Convert between physical and virtual addresses for kernel memory
 #define PA_TO_VA(pa)  ((uintptr_t)(pa) + KERNEL_VA_OFFSET)
 #define VA_TO_PA(va)  ((uintptr_t)(va) - KERNEL_VA_OFFSET)
 
@@ -80,9 +72,7 @@ typedef struct {
     uint32_t   ref_count;  // how many processes use it?
 } shmem_t;
 
-#define IOREMAP_BASE    0xF0000000
-#define IOREMAP_END     0xFFFFFFFF  
-#define IOREMAP_SIZE    (IOREMAP_END - IOREMAP_BASE + 1)  // 256MB
+#define IOREMAP_SIZE    (IOREMAP_END - IOREMAP_BASE + 1)
 #define IOREMAP_SLOTS   (IOREMAP_SIZE / SECTION_SIZE)     // 256
 
 
