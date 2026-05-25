@@ -24,6 +24,7 @@ CPUFLAGS = -mcpu=cortex-a15
 CFLAGS   = -ffreestanding -O$(OPTIMIZATION_LEVEL) -fno-omit-frame-pointer \
            -Wall -Wextra -Werror $(CPUFLAGS) -I. -Iinclude -MMD -MP -g \
            -D__KERNEL__ -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"'
+CFLAGS  += -Ivendor/libfdt
 LDFLAGS  = -T $(LINKER_SCRIPT) -Map=$(MAP)
 
 ifeq ($(BANNER), 0)
@@ -126,8 +127,17 @@ USER_APP_OBJS = $(foreach p,$(USER_PROGS),$(USER_$(p)_OBJS))
 SRC_DIRS = arch core drivers kernel lib
 
 # kernel sources
+LIBFDT_SRCS = \
+	vendor/libfdt/fdt.c \
+	vendor/libfdt/fdt_ro.c \
+	vendor/libfdt/fdt_addresses.c \
+	vendor/libfdt/fdt_rw.c \
+	vendor/libfdt/fdt_wip.c \
+	vendor/libfdt/fdt_strerror.c
+
 CSRCS     = $(shell find $(SRC_DIRS) -name '*.c')
 CSRCS     := $(filter-out lib/zuzu/zmalloc.c,$(CSRCS))
+CSRCS     += $(LIBFDT_SRCS)
 ASRCS_ALL = $(shell find $(SRC_DIRS) -name '*.S')
 ASRCS     = $(filter-out arch/arm/crt0.S arch/arm/initrd.S,$(ASRCS_ALL))
 OBJS      = $(CSRCS:%.c=build/%.o) $(ASRCS:%.S=build/%.o)

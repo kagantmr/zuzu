@@ -101,6 +101,18 @@ char *strchr(const char *s, int c) {
     return NULL;
 }
 
+char *strrchr(const char *s, int c) {
+    const char *last = NULL;
+
+    do {
+        if (*s == (char)c) {
+            last = s;
+        }
+    } while (*s++);
+
+    return (char *)last;
+}
+
 void strfmt(void (*outc)(void *ctx, char), void *ctx, const char *fstring, ...) {
     va_list args;
     va_start(args, fstring);

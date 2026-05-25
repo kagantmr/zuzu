@@ -1,0 +1,25 @@
+Vendored libfdt
+================
+
+Source: https://github.com/dgibson/dtc
+Upstream commit: f57e7df35df4a301961cbbf9433ba4e85c2ee5ed
+
+Imported from upstream libfdt/:
+
+- fdt.c
+- fdt_ro.c
+- fdt_addresses.c
+- fdt_rw.c
+- fdt_wip.c
+- fdt_strerror.c
+- fdt.h
+- libfdt.h
+- libfdt_env.h
+- libfdt_internal.h
+
+`fdt_rw.c` and `fdt_wip.c` are built because upstream `fdt_addresses.c`
+includes `fdt_appendprop_addrrange()`, which references write-side helpers.
+zuzu's DTB wrapper can still expose only read-only APIs.
+
+The files are dual-licensed GPL-2.0-or-later OR BSD-2-Clause; zuzu uses them
+under the BSD-2-Clause option.

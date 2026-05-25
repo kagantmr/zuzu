@@ -1,6 +1,7 @@
 #ifndef STRING_H
 #define STRING_H
 
+#include "mem.h"
 #include "stdarg.h"
 #include "stddef.h"
 
@@ -98,6 +99,14 @@ char *strncpy(char *dest, const char *src, size_t n);
  * @return Pointer to the first occurrence of c in s, or NULL if not found.
  */
 char *strchr(const char *s, int c);
+
+/**
+ * @brief Locate the last occurrence of a character in a string.
+ * @param s Pointer to the input string.
+ * @param c Character to locate (as an int, but treated as char).
+ * @return Pointer to the last occurrence of c in s, or NULL if not found.
+ */
+char *strrchr(const char *s, int c);
 /**
  * @brief Format a string according to a format specifier list.
  * 
