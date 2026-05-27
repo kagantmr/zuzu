@@ -236,10 +236,19 @@ void lan9118_service_loop(void)
                     else
                     {
                         uint8_t buf[NIC_FRAME_SIZE];
+                        if (pkt_len > NIC_FRAME_SIZE)
+                        {
+                            uint32_t dwords = (pkt_len + 3) / 4;
+                            for (uint32_t i = 0; i < dwords; i++)
+                                (void)nic->rx_data_fifo_port;
+                            continue;
+                        }
                         uint32_t dwords = (pkt_len + 3) / 4;
                         for (uint32_t i = 0; i < dwords; i++)
                             ((uint32_t *)buf)[i] = nic->rx_data_fifo_port;
-                        packet_ring_push(rx_ring, buf, pkt_len);
+                        int push_rc = packet_ring_push(rx_ring, buf, pkt_len);
+                        if (push_rc < 0)
+                            continue;
                         if (pending_recv_reply > 0)
                         {
                             _reply(pending_recv_reply, ZUZU_OK, (uint32_t)pkt_len, 0);

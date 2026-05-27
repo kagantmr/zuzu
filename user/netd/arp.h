@@ -1,6 +1,7 @@
 #ifndef NETD_ARP_H
 #define NETD_ARP_H
 
+#include "globals.h"
 #include <stdint.h>
 #include <vector.h>
 #include <stdbool.h>
@@ -21,13 +22,14 @@ typedef struct __attribute__((packed)) {
 } arp_packet_t;
 
 typedef struct {
-    uint32_t ip;
+    ipv4_addr_t ip;
     uint8_t mac[6];
 } arp_entry_t;
 
 void arp_init();
+void arp_learn(ipv4_addr_t ip, const uint8_t *mac_addr);
 int arp_rx(uint8_t *data, uint16_t len);
-int arp_request(uint32_t ip);
-int arp_lookup(uint32_t ip, uint8_t *mac_out);
+int arp_request(ipv4_addr_t ip);
+int arp_lookup(ipv4_addr_t ip, uint8_t *mac_out);
 
 #endif /* NETD_ARP_H */
