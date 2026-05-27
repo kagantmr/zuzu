@@ -19,7 +19,7 @@ handle_t nic_ntfn;
 handle_t handles[2];
 mac_addr_t mac;
 
-#define NETD_TRACE_RX 1
+#define NETD_TRACE_RX 0
 
 #if NETD_TRACE_RX
 static void dump_packet(const uint8_t *data, uint16_t len)
