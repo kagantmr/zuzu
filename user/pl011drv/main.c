@@ -188,9 +188,11 @@ int main(void)
     if ((exit_code = pl011drv_setup()) != 0)
         return exit_code;
 
+    /*
     const char *startup_banner = "pl011drv: online\n";
     for (const char *p = startup_banner; *p; p++)
         uart_txbyte(*p);
+    */
 
     msg_t msg;
 

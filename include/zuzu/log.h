@@ -17,6 +17,8 @@ typedef enum {
     LOG_LEVEL_FATAL = 5,
 } log_level_t;
 
+#ifndef __KERNEL__
+
 void log_set_level(log_level_t min_level);
 log_level_t log_get_level(void);
 void log_write(log_level_t level, const char *tag, const char *fmt, ...);
@@ -26,11 +28,12 @@ void log_write(log_level_t level, const char *tag, const char *fmt, ...);
 #define LOG_WARN(tag, fmt, ...)  log_write(LOG_LEVEL_WARN,  tag, fmt, ##__VA_ARGS__)
 #define LOG_ERROR(tag, fmt, ...) log_write(LOG_LEVEL_ERROR, tag, fmt, ##__VA_ARGS__)
 
+#else
 #ifndef LOG_LEVEL
 #define LOG_LEVEL LOG_LEVEL_INFO
 #endif
 
-#ifdef __KERNEL__
+
 #include "core/kprintf.h"
 #include "kernel/time/tick.h"
 #include "ansi.h"
