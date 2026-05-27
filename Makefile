@@ -308,17 +308,17 @@ sdimg-recreate: sdimg-clean sdimg
 
 run: $(TARGET)
 	@echo "  QEMU    $(TARGET)"
-	@qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M \
+	@sudo qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M \
 	    -kernel $(TARGET) -dtb $(DTB_FILE) -nographic \
 	    -drive file=$(SD_IMG),if=sd,format=raw \
-	    -net nic,model=lan9118 -net user
+	    -nic vmnet-bridged,ifname=en0,model=lan9118
 
 debug: $(TARGET)
 	@echo "  QEMU    $(TARGET) (debug)"
-	@qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M \
+	@sudo qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M \
 	    -kernel $(TARGET) -dtb $(DTB_FILE) -nographic \
 	    -drive file=$(SD_IMG),if=sd,format=raw \
-	    -net nic,model=lan9118 -net user \
+	    -nic vmnet-shared,model=lan9118 \
 	    -S -gdb tcp::1234
 
 # Misc targets

@@ -17,8 +17,11 @@ nic_ring_t *tx_ring, *rx_ring;
 handle_t nic_port;
 handle_t nic_ntfn;
 handle_t handles[2];
-uint8_t mac[6];
+mac_addr_t mac;
 
+#define NETD_TRACE_RX 1
+
+#if NETD_TRACE_RX
 static void dump_packet(const uint8_t *data, uint16_t len)
 {
     uint16_t limit = len < 64 ? len : 64;
@@ -32,6 +35,7 @@ static void dump_packet(const uint8_t *data, uint16_t len)
         printf(" ...");
     printf("\n");
 }
+#endif
 
 
 int get_shm() {
@@ -94,7 +98,7 @@ int main() {
     arp_init();
 
     printf("Probing gateway for ARP...\n");
-    arp_request(htonl((10 << 24) | (0 << 16) | (2 << 8) | 2)); // probe gateway 10.0.2.2
+    arp_request(htonl((192u << 24) | (168u << 16) | (1u << 8) | 1u)); // probe gateway 192.168.1.1
 
     printf("netd: will start looping\n");
     while (1) {
@@ -107,8 +111,10 @@ int main() {
         switch (result.kind) {
             case RECVANY_KIND_NTFN: {
                 nic_frame_t frame;
-                while (packet_ring_pop(&frame, rx_ring) != -1) {
+                while (packet_ring_pop(&frame, rx_ring) == 0) {
+#if NETD_TRACE_RX
                     dump_packet(frame.data, frame.len);
+#endif
                     eth_rx(frame.data, frame.len);
                 }
                 break;

@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <vector.h>
 #include <stdbool.h>
+#include <mem.h>
 
 DEFINE_VEC(arp_entry, arp_entry_t);
 
@@ -13,11 +14,33 @@ void arp_init() {
     arp_entry_vec_init(&v);
 }
 
+void arp_learn(ipv4_addr_t ip, const uint8_t *mac_addr) {
+    for (size_t i = 0; i < v.len; i++) {
+        arp_entry_t* entry = arp_entry_vec_get(&v, (int)i);
+        if (memcmp(&ip, &entry->ip, 4) == 0) {
+            memcpy(entry->mac, mac_addr, 6);
+            return;
+        }
+    }
+
+    arp_entry_t new_entry;
+    new_entry.ip = ip;
+    memcpy(new_entry.mac, mac_addr, 6);
+    arp_entry_vec_push(&v, &new_entry);
+}
+
 int arp_rx(uint8_t *data, uint16_t len) {
-    uint32_t ip = ZUZU_IP;
+    ipv4_addr_t ip = ZUZU_IP;
     if (len < sizeof(arp_packet_t)) 
         return ERR_MALFORMED;
     arp_packet_t *pkt = (arp_packet_t *)data;
+    if (ntohs(pkt->htype) != 1 || ntohs(pkt->ptype) != ETH_TYPE_IP ||
+        pkt->hlen != 6 || pkt->plen != 4) {
+        return ERR_MALFORMED;
+    }
+
+    arp_learn(*(ipv4_addr_t *)pkt->spa, pkt->sha);
+
     uint16_t op = ntohs(pkt->oper);
     switch (op) {
         case (ARP_OPER_REQST): {
@@ -37,20 +60,6 @@ int arp_rx(uint8_t *data, uint16_t len) {
             break;
         }
         case (ARP_OPER_REPLY): {
-            bool matched = false;
-            for (size_t i = 0; i < v.len; i++) {
-                arp_entry_t* entry = arp_entry_vec_get(&v, (int)i);
-                if (memcmp(pkt->spa, &entry->ip, 4) == 0) {
-                    matched = true;
-                    memcpy(entry->mac, pkt->sha, 6);
-                }
-            }
-            if (!matched) {
-                arp_entry_t new_entry;
-                new_entry.ip = *(uint32_t*)pkt->spa;
-                memcpy(new_entry.mac, pkt->sha, 6);
-                arp_entry_vec_push(&v, &new_entry);
-            }
             break;
         }
     }
@@ -58,24 +67,25 @@ int arp_rx(uint8_t *data, uint16_t len) {
     return ZUZU_OK;
 }
 
-int arp_request(uint32_t ip) {
+int arp_request(ipv4_addr_t ip) {
     arp_packet_t pkt;
+    memset(&pkt, 0, sizeof(pkt));
     pkt.htype = htons(1);
     pkt.ptype = htons(ETH_TYPE_IP);
     pkt.hlen = 6;
     pkt.plen = 4;
-    uint32_t our_ip = ZUZU_IP;
+    ipv4_addr_t our_ip = ZUZU_IP;
     pkt.oper = htons(1); // request
     memcpy(pkt.sha, mac, 6);       // our MAC
     memcpy(pkt.spa, &our_ip, 4);       // our IP
     // broadcast frame, no need to set it
     memcpy(pkt.tpa, &ip, 4);  // their IP
-    uint8_t dst_mac[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    mac_addr_t dst_mac = BROADCAST_MAC;
     eth_tx(dst_mac, ETH_TYPE_ARP, (uint8_t *)&pkt, sizeof(arp_packet_t));
     return ZUZU_OK;
 }
 
-int arp_lookup(uint32_t ip, uint8_t *mac_out) {
+int arp_lookup(ipv4_addr_t ip, uint8_t *mac_out) {
     for (size_t i = 0; i < v.len; i++) {
         if (memcmp(&v.data[i].ip, &ip, 4) == 0) {
             memcpy(mac_out, v.data[i].mac, 6);

@@ -1,6 +1,7 @@
 #include "eth.h"
 #include <zuzu/ipc.h>
 #include <zuzu/protocols/nic_protocol.h>
+#include <stdio.h>
 #include <mem.h>
 #include <stdlib.h>
 #include "globals.h"
@@ -19,6 +20,11 @@ int eth_rx(uint8_t *data, uint16_t len) {
             break;
         }
         case ETH_TYPE_IP: {
+            if (len < sizeof(eth_hdr_t) + sizeof(ip_header_t)) {
+                return ERR_MALFORMED;
+            }
+            ip_header_t *ip_hdr = (ip_header_t *)(data + sizeof(eth_hdr_t));
+            arp_learn(ip_hdr->src_ip, hdr->src_mac);
             ip_rx(data + 14, len - 14);
             break;
         }
@@ -30,7 +36,7 @@ int eth_rx(uint8_t *data, uint16_t len) {
     return ZUZU_OK;
 }
 
-int eth_tx(uint8_t *dst_mac, uint16_t ethertype, uint8_t *payload, uint16_t len) {
+int eth_tx(mac_addr_t dst_mac, uint16_t ethertype, uint8_t *payload, uint16_t len) {
     eth_hdr_t hdr;
     memcpy(hdr.dst_mac, dst_mac, 6);
     memcpy(hdr.src_mac, mac, 6);
@@ -42,7 +48,10 @@ int eth_tx(uint8_t *dst_mac, uint16_t ethertype, uint8_t *payload, uint16_t len)
     memcpy(data, &hdr, sizeof(eth_hdr_t));
     memcpy(data + sizeof(eth_hdr_t), payload, len);
 
-    packet_ring_push(tx_ring, data, total_len);
+    int push_rc = packet_ring_push(tx_ring, data, total_len);
+    free(data);
+    if (push_rc < 0)
+        return push_rc;
 
     msg_t r = _call(drv_port, NIC_CMD_SEND, 0, 0);
     return (int)r.r3;
