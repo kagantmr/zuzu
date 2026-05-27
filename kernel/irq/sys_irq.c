@@ -53,7 +53,7 @@ static void relay_handler(void *ctx)
             waiter->ipc_state = IPC_NONE;
             waiter->state = READY;
             sched_add(waiter);
-            if (waiter->priority > current_thread->priority) {
+            if (!current_thread || waiter->priority > current_thread->priority) {
                 do_resched = 1;
             }
         }
