@@ -1,11 +1,13 @@
 #include <zuzu/zuzu.h>
 #include <zuzu/service.h>
+#include <zuzu/log.h>
 #include <stdbool.h>
-#include <stdio.h>
 #include <stdint.h>
 #include "pl181drv.h"
 #include "zuzu/protocols/devmgr_protocol.h"
 #include "zuzu/protocols/sd_protocol.h"
+
+#define LOG_TAG "pl181drv"
 
 static pl181_t *pl181;
 static bool is_sdhc;
@@ -44,18 +46,18 @@ static int pl181_send_cmd(uint32_t cmd, uint32_t arg, uint32_t flags)
         }
         if (s & MCI_CMDTIMEOUT)
         {
-            printf("pl181drv: CMD%u timeout\n", cmd);
+            LOG_WARN(LOG_TAG, "CMD%u timeout", cmd);
             return -1;
         }
         if ((flags & MCI_CMD_RESPONSE) && (s & MCI_CMDCRCFAIL))
         {
-            printf("pl181drv: CMD%u CRC fail\n", cmd);
+            LOG_WARN(LOG_TAG, "CMD%u CRC fail", cmd);
             return -1;
         }
         pl181_delay(200);
     }
 
-    printf("pl181drv: CMD%u poll timeout\n", cmd);
+    LOG_WARN(LOG_TAG, "CMD%u poll timeout", cmd);
     return -1;
 }
 
@@ -78,7 +80,7 @@ static int pl181_setup(void)
     {
         if ((pl181->RESPONSE[0] & 0xFFF) != 0x1AA)
         {
-            printf("pl181drv: voltage mismatch\n");
+            LOG_ERROR(LOG_TAG, "voltage mismatch");
             return -1;
         }
         is_v2 = true;
@@ -108,7 +110,7 @@ static int pl181_setup(void)
 
     if (!(ocr & (1u << 31)))
     {
-        printf("pl181drv: card init timeout\n");
+        LOG_ERROR(LOG_TAG, "card init timeout");
         return -1;
     }
 
@@ -127,7 +129,7 @@ static int pl181_setup(void)
     if (pl181_send_cmd(7, rca << 16, MCI_CMD_RESPONSE) < 0)
         return -1;
 
-    printf("pl181drv: card ready, SDHC=%d\n", is_sdhc);
+    LOG_INFO(LOG_TAG, "card ready, SDHC=%d", is_sdhc);
 
     /* switch to transfer-speed clock */
     pl181->CLOCK = (1u << 8) | 0x2; /* enable, ~25 MHz */
@@ -170,7 +172,7 @@ static int pl181_read_block(uint32_t block_num)
     /* check for transfer errors before draining */
     if (status & (MCI_DATACRCFAIL | MCI_DATATIMEOUT | MCI_RXOVERRUN))
     {
-        printf("pl181drv: read error STATUS=0x%08x\n", status);
+        LOG_ERROR(LOG_TAG, "read error STATUS=0x%08x", status);
         pl181->CLEAR = 0xFFFFFFFF;
         pl181->MASK[0] = 0;
         _irq_done((uint32_t)block_dev_handle);
@@ -228,7 +230,7 @@ static int pl181_write_block(uint32_t block_num)
 
     if (status & (MCI_DATACRCFAIL | MCI_DATATIMEOUT | MCI_TXUNDERRUN))
     {
-        printf("pl181drv: write error STATUS=0x%08x\n", status);
+        LOG_ERROR(LOG_TAG, "write error STATUS=0x%08x", status);
         return -1;
     }
 
@@ -280,7 +282,7 @@ static int pl181drv_setup(void)
     int32_t devmgr_port = lookup_service("devm");
     if (devmgr_port < 0)
     {
-        printf("pl181drv: devmgr lookup failed\n");
+        LOG_ERROR(LOG_TAG, "devmgr lookup failed");
         return -1;
     }
 
@@ -288,7 +290,7 @@ static int pl181drv_setup(void)
     msg_t r = _call(devmgr_port, DEV_REQUEST, DEV_CLASS_BLOCK, 0);
     if ((int32_t)r.r1 != 0)
     {
-        printf("pl181drv: block device request failed\n");
+        LOG_ERROR(LOG_TAG, "block device request failed");
         return -1;
     }
     block_dev_handle = (int32_t)r.r2;
@@ -296,25 +298,25 @@ static int pl181drv_setup(void)
     block_irq_ntfn = _ntfn_create();
     if (block_irq_ntfn < 0)
     {
-        printf("pl181drv: ntfn_create failed\n");
+        LOG_ERROR(LOG_TAG, "ntfn_create failed");
         return -1;
     }
 
     if (_irq_claim((uint32_t)block_dev_handle) < 0)
     {
-        printf("pl181drv: irq_claim failed\n");
+        LOG_ERROR(LOG_TAG, "irq_claim failed");
         return -1;
     }
     if (_irq_bind((uint32_t)block_dev_handle, (uint32_t)block_irq_ntfn) < 0)
     {
-        printf("pl181drv: irq_bind failed\n");
+        LOG_ERROR(LOG_TAG, "irq_bind failed");
         return -1;
     }
 
     pl181 = (pl181_t *)_mapdev((uint32_t)block_dev_handle);
     if ((intptr_t)pl181 <= 0)
     {
-        printf("pl181drv: mapdev failed\n");
+        LOG_ERROR(LOG_TAG, "mapdev failed");
         return -1;
     }
 
@@ -322,10 +324,10 @@ static int pl181drv_setup(void)
     uint32_t pid1 = pl181->PERIPHID[1] & 0xFF;
     if (!((pid0 == 0x80 || pid0 == 0x81) && pid1 == 0x11))
     {
-        printf("pl181drv: unexpected peripheral ID %02x %02x\n", pid0, pid1);
+        LOG_ERROR(LOG_TAG, "unexpected peripheral ID %02x %02x", pid0, pid1);
         return -1;
     }
-    printf("pl181drv: detected PL18%u\n", pid0 == 0x80 ? 0 : 1);
+    LOG_INFO(LOG_TAG, "detected PL18%u", pid0 == 0x80 ? 0 : 1);
 
     if (pl181_setup() < 0)
         return -1;
@@ -333,7 +335,7 @@ static int pl181drv_setup(void)
     shmem_result_t shm = _memshare(4096);
     if (shm.handle < 0 || shm.addr == NULL)
     {
-        printf("pl181drv: shmem failed\n");
+        LOG_ERROR(LOG_TAG, "shmem failed");
         return -1;
     }
     shmem_handle = shm.handle;
@@ -343,7 +345,7 @@ static int pl181drv_setup(void)
     port = register_service("pl181drv");
     if (port < 0)
     {
-        printf("pl181drv: service registration failed\n");
+        LOG_ERROR(LOG_TAG, "service registration failed");
         return -1;
     }
 

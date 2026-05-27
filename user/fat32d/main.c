@@ -1,12 +1,14 @@
 #include <zuzu/zuzu.h>
 #include "zuzu/protocols/nt_protocol.h"
 #include "zuzu/protocols/fat32d_protocol.h"
+#include <zuzu/log.h>
 #include <stdbool.h>
-#include <stdio.h>
 #include <string.h>
 #include <mem.h>
 #include "ff.h"
 #include <zuzu/service.h>
+
+#define LOG_TAG "fat32d"
 
 static FATFS fs;
 static shmem_result_t shm;
@@ -207,7 +209,7 @@ int main(void)
     r = _call(NT_PORT, DEN_MYDEN, 0, 0);
     uint32_t my_den = 0;
     if (r.r1 != DEN_OK) {
-        printf("fat32d: not in any den, using global namespace\n");
+        LOG_WARN(LOG_TAG, "not in any den, using global namespace");
     } else {
         my_den = r.r2;
     }
@@ -215,7 +217,7 @@ int main(void)
     /* look up pl181drv (should be in same den) */
     int32_t sd_port = lookup_service("pl181drv");
     if (sd_port < 0) {
-        printf("fat32d: cannot see pl181drv\n");
+        LOG_ERROR(LOG_TAG, "cannot see pl181drv");
         return 1;
     }
 
@@ -227,19 +229,19 @@ int main(void)
     /* mount the filesystem */
     FRESULT fr = f_mount(&fs, "", 1);
     if (fr != FR_OK) {
-        printf("fat32d: f_mount failed: %d\n", fr);
+        LOG_ERROR(LOG_TAG, "f_mount failed: %d", fr);
         return 1;
     }
 
     /* allocate shmem for client data transfer */
     shm = _memshare(32768);
     if (shm.handle < 0 || shm.addr == NULL) {
-        printf("fat32d: shmem alloc failed\n");
+        LOG_ERROR(LOG_TAG, "shmem alloc failed");
         return 1;
     }
     buf = (char *)shm.addr;
 
-    printf("fat32d: ready\n");
+    LOG_INFO(LOG_TAG, "ready");
 
     while (1) {
         msg_t msg = _recv(my_port);

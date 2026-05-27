@@ -10,9 +10,12 @@
 #include <zuzu/syspage.h>
 #include <zuzu/devices.h>
 #include <zuzu/service.h>
+#include <zuzu/log.h>
 #include <stdlib.h>
 #include <zuzu/packetring.h>
 #include "lan9118.h"
+
+#define LOG_TAG "lan9118drv"
 
 static volatile lan9118_t *nic;
 static uint8_t mac[6];
@@ -86,7 +89,7 @@ int get_nic(void)
 
     if (!device_present("LAN9118"))
     {
-        printf("lan9118drv: device not found\n");
+        LOG_ERROR(LOG_TAG, "device not found");
         return ERR_NOENT;
     }
     // service is registered after nic_setup() completes so clients don't
@@ -100,14 +103,14 @@ int get_nic(void)
         r = _call(devm_port, DEV_REQUEST, DEV_CLASS_NIC, 0);
         if ((int32_t)r.r1 == 0)
             break;
-        printf("lan9118drv: NIC device request failed, retrying\n");
+        LOG_WARN(LOG_TAG, "NIC device request failed, retrying");
         _sleep(10);
     }
     dev_handle = (handle_t)r.r2;
     irq_ntfn = _ntfn_create();
     if (irq_ntfn < 0)
     {
-        printf("lan9118drv: ntfn_create failed (tx)\n");
+        LOG_ERROR(LOG_TAG, "ntfn_create failed (tx)");
         return 4;
     }
 
@@ -117,7 +120,7 @@ int get_nic(void)
     nic = (volatile lan9118_t *)_mapdev(dev_handle);
     if (!nic)
     {
-        printf("lan9118drv: device mapping failed\n");
+        LOG_ERROR(LOG_TAG, "device mapping failed");
         return ERR_SYSDOWN;
     }
 
@@ -129,7 +132,7 @@ int nic_setup(void)
 
     if (nic->byte_test != BYTE_TEST_VALUE)
     {
-        printf("lan9118drv: byte test failed (0x%08X instead of 0x%08x)\n", nic->byte_test, BYTE_TEST_VALUE);
+        LOG_ERROR(LOG_TAG, "byte test failed (0x%08X instead of 0x%08x)", nic->byte_test, BYTE_TEST_VALUE);
         return ERR_MALFORMED;
     }
 
@@ -150,7 +153,7 @@ int nic_setup(void)
 
     if (nic->tx_cfg & TX_CFG_STOP_TX)
     {
-        printf("lan9118drv: TX is stopped\n");
+        LOG_ERROR(LOG_TAG, "TX is stopped");
         return ERR_SYSDOWN;
     }
 
@@ -170,7 +173,7 @@ int nic_setup(void)
     nic->irq_cfg = IRQ_CFG_IRQ_EN | IRQ_CFG_IRQ_POL | IRQ_CFG_IRQ_TYPE;
     nic->int_en = INT_RSFL;
 
-    printf("lan9118drv: NIC setup OK\n");
+    LOG_INFO(LOG_TAG, "NIC setup OK");
 
     // finally, set up shmem
 
@@ -184,7 +187,7 @@ int nic_setup(void)
 
     netd_ntfn = _ntfn_create();
     if (netd_ntfn < 0) {
-        printf("lan9118drv: notification registration failed\n"); 
+        LOG_ERROR(LOG_TAG, "notification registration failed");
         return ERR_SYSDOWN;
     }
 
@@ -196,7 +199,7 @@ void lan9118_service_loop(void)
     nt_port = register_service("nic0");
     if (nt_port < 0)
     {
-        printf("lan9118drv: service registration failed\n");
+        LOG_ERROR(LOG_TAG, "service registration failed");
         return;
     }
 
