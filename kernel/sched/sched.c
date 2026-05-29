@@ -79,6 +79,9 @@ void sched_init() {
 void sched_add(thread_t *t) {
     if (!t)
         return;
+    if (current_thread && t->priority < current_thread->priority) {
+        return;
+    }
 
     uint32_t priority = thread_priority(t);
     if (priority >= SCHED_PRIORITY_LEVELS)
@@ -270,5 +273,15 @@ size_t sched_ready_queue_snapshot(thread_t **out, size_t max_out) {
 }
 
 void set_resched_flag(void) {
-    do_resched = 1;
+    // decrement current_thread's time slice and set do_resched if it expires
+    if (current_thread) {
+        if (current_thread->ticks_remaining > 0) {
+            current_thread->ticks_remaining--;
+        }
+        if (current_thread->ticks_remaining == 0) {
+            do_resched = 1;
+        }
+    } else {
+        do_resched = 1; // idling
+    }
 }

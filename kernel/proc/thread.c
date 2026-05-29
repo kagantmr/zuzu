@@ -12,7 +12,7 @@
 
 static tid_t next_tid = 1;
 static thread_t *thread_table[MAX_THREADS];
-static spinlock_t thread_table_lock;
+static spinlock_t thread_table_lock = SPINLOCK_INIT;
 
 static int thread_table_find_free_slot(void)
 {

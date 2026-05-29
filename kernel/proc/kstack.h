@@ -6,6 +6,7 @@
 #include BOARD_LAYOUT_H
 #define KSTACK_SLOT_SIZE  0x2000
 #define KSTACK_GUARD_SIZE 0x1000
+#define KSTACK_REGION_TOP (KSTACK_REGION_BASE + (64u * 0x2000u))
 
 static inline int kstack_slot_from_top(vaddr_t stack_top) {
     return (int)((stack_top - KSTACK_REGION_BASE) / KSTACK_SLOT_SIZE) - 1;
