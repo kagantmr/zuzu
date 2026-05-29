@@ -74,7 +74,6 @@ void memmap(exception_frame_t *frame)
         current_thread->owner_process->mmap_va_next += size;
     }
 
-    // 3. Register the region — no physical pages allocated yet
     vm_region_t region = {
         .vaddr_start = va,
         .paddr_start = 0, // filled in at fault time, page by page
@@ -217,22 +216,11 @@ void memshare(exception_frame_t *frame)
         frame->r[0] = ERR_NOMEM;
         return;
     }
-
-    const size_t returned_pages = pmm_alloc_pages_scattered(page_count, page_arr);
-    if (page_count != returned_pages)
-    {
-        for (size_t i = 0; i < returned_pages; i++)
-            pmm_free_page(page_arr[i]);
-        kfree(page_arr);
-        frame->r[0] = ERR_NOMEM;
-        return;
-    }
+    memset(page_arr, 0, sizeof(vaddr_t) * page_count);
 
     shmem_t *shmem_obj = kmalloc(sizeof(shmem_t));
     if (!shmem_obj)
     {
-        for (size_t i = 0; i < page_count; i++)
-            pmm_free_page(page_arr[i]);
         kfree(page_arr);
         frame->r[0] = ERR_NOMEM;
         return;
@@ -240,13 +228,12 @@ void memshare(exception_frame_t *frame)
     shmem_obj->page_count = page_count;
     shmem_obj->ref_count = 1;
     shmem_obj->page_addrs = page_arr;
+    memset(shmem_obj->page_addrs, 0, sizeof(paddr_t) * page_count);
 
     // find free handle slot
     int handle = handle_vec_find_free(&current_thread->owner_process->handle_table);
     if (handle < 0)
     {
-        for (size_t i = 0; i < page_count; i++)
-            pmm_free_page(page_arr[i]);
         kfree(page_arr);
         kfree(shmem_obj);
         frame->r[0] = ERR_NOMEM;
@@ -256,8 +243,6 @@ void memshare(exception_frame_t *frame)
     // pick VA base and bump cursor once
     if (current_thread->owner_process->mmap_va_next > UINTPTR_MAX - size) // check for overflow
     {
-        for (size_t i = 0; i < page_count; i++)
-            pmm_free_page(page_arr[i]);
         kfree(page_arr);
         kfree(shmem_obj);
         frame->r[0] = ERR_BADARG;
@@ -272,34 +257,16 @@ void memshare(exception_frame_t *frame)
         .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
         .memtype = VM_MEM_NORMAL,
         .owner = VM_OWNER_SHARED,
+        .backing = shmem_obj,
         .flags = VM_FLAG_NONE,
     };
     if (!vmm_add_region(current_thread->owner_process->as, &region))
     {
         current_thread->owner_process->mmap_va_next -= size;
-        for (size_t i = 0; i < page_count; i++)
-            pmm_free_page(page_arr[i]);
         kfree(page_arr);
         kfree(shmem_obj);
         frame->r[0] = ERR_NOMEM;
         return;
-    }
-    for (size_t j = 0; j < page_count; j++)
-    {
-        if (!vmm_map_range(current_thread->owner_process->as, va_base + j * PAGE_SIZE, page_arr[j],
-                           PAGE_SIZE, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
-                           VM_MEM_NORMAL, VM_OWNER_SHARED, VM_FLAG_NONE))
-        {
-            // Remove region and unmap in one pass.
-            vmm_remove_region(current_thread->owner_process->as, va_base, size);
-            current_thread->owner_process->mmap_va_next -= size;
-            for (size_t i = 0; i < page_count; i++)
-                pmm_free_page(page_arr[i]);
-            kfree(page_arr);
-            kfree(shmem_obj);
-            frame->r[0] = ERR_NOMEM;
-            return;
-        }
     }
 
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle);
@@ -307,8 +274,6 @@ void memshare(exception_frame_t *frame)
     {
         vmm_remove_region(current_thread->owner_process->as, va_base, size);
         current_thread->owner_process->mmap_va_next -= size;
-        for (size_t i = 0; i < page_count; i++)
-            pmm_free_page(page_arr[i]);
         kfree(page_arr);
         kfree(shmem_obj);
         frame->r[0] = ERR_NOMEM;
@@ -362,6 +327,7 @@ void attach(exception_frame_t *frame)
         .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
         .memtype = VM_MEM_NORMAL,
         .owner = VM_OWNER_SHARED,
+        .backing = shm_obj,
         .flags = VM_FLAG_NONE,
     };
     if (!vmm_add_region(current_thread->owner_process->as, &region))
@@ -370,21 +336,6 @@ void attach(exception_frame_t *frame)
         frame->r[0] = ERR_NOMEM;
         return;
     }
-    for (size_t j = 0; j < shm_obj->page_count; j++)
-    {
-        if (!vmm_map_range(current_thread->owner_process->as, va_base + j * PAGE_SIZE, shm_obj->page_addrs[j],
-                           PAGE_SIZE, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
-                           VM_MEM_NORMAL, VM_OWNER_SHARED, VM_FLAG_NONE))
-        {
-            // Remove region and unmap in one pass.
-            vmm_remove_region(current_thread->owner_process->as, va_base,
-                              shm_obj->page_count * PAGE_SIZE);
-            current_thread->owner_process->mmap_va_next -= shm_obj->page_count * PAGE_SIZE;
-            frame->r[0] = ERR_NOMEM;
-            return;
-        }
-    }
-
     entry->mapped_va = va_base;
     shm_obj->ref_count++;
     frame->r[0] = va_base;
@@ -413,7 +364,8 @@ void detach(exception_frame_t *frame)
     if (shm->ref_count == 0)
     {
         for (size_t j = 0; j < shm->page_count; j++)
-            pmm_free_page(shm->page_addrs[j]);
+            if (shm->page_addrs[j] != 0)
+                pmm_free_page(shm->page_addrs[j]);
         kfree(shm->page_addrs);
         kfree(shm);
     }

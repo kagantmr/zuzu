@@ -56,6 +56,67 @@ static vm_region_t *vmm_find_region(addrspace_t *as, uintptr_t va)
     return NULL;
 }
 
+bool vmm_fault_page(addrspace_t *as, vm_region_t *r, uintptr_t page_va)
+{
+    if (!as || !r)
+        return false;
+
+    if (arch_mmu_translate(as->ttbr0_pa, page_va) != 0)
+        return true;
+
+    if (r->memtype == VM_MEM_DEVICE)
+        return false;
+
+    uintptr_t new_pa = 0;
+    bool allocated_new = false;
+
+    if (r->owner == VM_OWNER_SHARED && r->backing) {
+        shmem_t *shm = (shmem_t *)r->backing;
+        if (page_va < r->vaddr_start)
+            return false;
+
+        size_t page_index = (size_t)((page_va - r->vaddr_start) / PAGE_SIZE);
+        if (page_index >= shm->page_count)
+            return false;
+
+        new_pa = shm->page_addrs[page_index];
+        if (new_pa == 0) {
+            new_pa = pmm_alloc_page();
+            if (new_pa == 0)
+                return false;
+            memset((void *)PA_TO_VA(new_pa), 0, PAGE_SIZE);
+            shm->page_addrs[page_index] = new_pa;
+            allocated_new = true;
+        }
+    } else if (r->owner == VM_OWNER_ANON) {
+        new_pa = pmm_alloc_page();
+        if (new_pa == 0)
+            return false;
+        memset((void *)PA_TO_VA(new_pa), 0, PAGE_SIZE);
+        allocated_new = true;
+    } else {
+        return false;
+    }
+
+    if (!vmm_map_range(as, page_va, new_pa, PAGE_SIZE,
+                       r->prot, r->memtype, r->owner, r->flags)) {
+        if (allocated_new) {
+            if (r->owner == VM_OWNER_SHARED && r->backing) {
+                shmem_t *shm = (shmem_t *)r->backing;
+                size_t page_index = (size_t)((page_va - r->vaddr_start) / PAGE_SIZE);
+                if (page_index < shm->page_count && shm->page_addrs[page_index] == new_pa)
+                    shm->page_addrs[page_index] = 0;
+            }
+            pmm_free_page(new_pa);
+        }
+        return false;
+    }
+
+    arch_mmu_flush_tlb_va(page_va);
+    arch_mmu_barrier();
+    return true;
+}
+
 
 addrspace_t* as_create(addrspace_type_t type) {
     addrspace_t* as = kmalloc(sizeof(addrspace_t));
@@ -392,8 +453,8 @@ bool vmm_map_range(addrspace_t* as, vaddr_t va, paddr_t pa, size_t size,
 bool vmm_unmap_range(addrspace_t* as, vaddr_t va, size_t size) {
     if (!as) return false;
     if (size == 0) return false;
-    if ((va % PAGE_SIZE) != 0) return false;    // ← page granularity
-    if ((size % PAGE_SIZE) != 0) return false;  // ← page granularity
+    if ((va % PAGE_SIZE) != 0) return false;    // page granularity
+    if ((size % PAGE_SIZE) != 0) return false;  // page granularity
 
     return arch_mmu_unmap(as, va, size);
 }
@@ -467,25 +528,8 @@ bool fault_in_pages(addrspace_t *as, vaddr_t va, size_t len, bool write) {
         if (write && !(r->prot & VM_PROT_WRITE))
             return false;
 
-        if (arch_mmu_translate(as->ttbr0_pa, page_va) == 0) {
-            if (r->memtype == VM_MEM_DEVICE)
-                return false;
-
-            uintptr_t new_pa = pmm_alloc_page();
-            if (new_pa == 0)
-                return false;
-
-            memset((void *)PA_TO_VA(new_pa), 0, PAGE_SIZE);
-
-            if (!vmm_map_range(as, page_va, new_pa, PAGE_SIZE,
-                               r->prot, r->memtype, r->owner, r->flags)) {
-                pmm_free_page(new_pa);
-                return false;
-            }
-
-            arch_mmu_flush_tlb_va(page_va);
-            arch_mmu_barrier();
-        }
+        if (!vmm_fault_page(as, r, page_va))
+            return false;
 
         page_va += PAGE_SIZE;
     }

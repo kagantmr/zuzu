@@ -49,6 +49,7 @@ typedef struct vm_region {
     vm_owner_t   owner;        // ownership: who allocated/owns the backing pages
     uintptr_t    paddr_start;
     vm_flags_t   flags;
+    void        *backing;       // optional pointer to backing object (e.g. shmem_t) for shared memory, file mappings, etc.
 } vm_region_t;
 
 typedef enum {
@@ -222,6 +223,7 @@ void* ioremap(paddr_t phys, size_t size);
 void iounmap(void* va);
 
 bool fault_in_pages(addrspace_t *as, vaddr_t va, size_t len, bool write);
+bool vmm_fault_page(addrspace_t *as, vm_region_t *region, uintptr_t page_va);
 
 void vmm_lockdown_kernel_sections(void);
 
