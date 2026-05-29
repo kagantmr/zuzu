@@ -79,15 +79,16 @@ void sched_init() {
 void sched_add(thread_t *t) {
     if (!t)
         return;
-    if (current_thread && t->priority < current_thread->priority) {
-        return;
-    }
 
     uint32_t priority = thread_priority(t);
     if (priority >= SCHED_PRIORITY_LEVELS)
         priority = SCHED_PRIORITY_LEVELS - 1;
 
     list_add_tail(&t->node, &run_queues[priority].node);
+
+    if (current_thread && t->priority < current_thread->priority) {
+        do_resched = 1;
+    }
 }
 
 void sched_defer_destroy(process_t *p) {
@@ -244,6 +245,7 @@ void schedule() {
     list_node_t *next_node = list_pop_front(selected_queue);
     current_thread = container_of(next_node, thread_t, node);
     current_thread->state = RUNNING;
+    current_thread->ticks_remaining = current_thread->time_slice;
     on_idle_stack = false;
 
     process_t *prev_proc = prev ? prev->owner_process : NULL;
