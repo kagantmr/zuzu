@@ -11,6 +11,7 @@
 @    4. Restore next's registers from next's kernel stack
 @    5. "Return" (which jumps into next)
 context_switch:
+    clrex
     cmp r0, #0
     beq .load_next
 
