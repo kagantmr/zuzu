@@ -44,7 +44,8 @@ void ntfn_signal(exception_frame_t *frame) {
     // Wake one waiter if any
     if (!list_empty(&ntfn->wait_queue)) {
         list_node_t *node = list_pop_front(&ntfn->wait_queue);
-        thread_t *waiter = container_of(node, thread_t, recvany_wait_nodes);
+        thread_wait_slot_t *slot = container_of(node, thread_wait_slot_t, node);
+        thread_t *waiter = slot->owner;
         if (!waiter->trap_frame) {
             frame->r[0] = ERR_DEAD;
             return;
@@ -105,7 +106,11 @@ void ntfn_wait(exception_frame_t *frame) {
     current_thread->wake_reason = WAKE_NONE;
     current_thread->blocked_endpoint = NULL;
     current_thread->state = BLOCKED;
-    list_add_tail(&current_thread->node, &ntfn->wait_queue.node);
+    current_thread->ntfn_wait_slot.owner = current_thread;
+    current_thread->ntfn_wait_slot.index = 0;
+    current_thread->ntfn_wait_slot.node.prev = NULL;
+    current_thread->ntfn_wait_slot.node.next = NULL;
+    list_add_tail(&current_thread->ntfn_wait_slot.node, &ntfn->wait_queue.node);
     schedule();
     // When we wake, r[0] is already set by ntfn_signal
 }

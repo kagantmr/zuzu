@@ -37,7 +37,16 @@ typedef enum ipc_state
 #define RECVANY_MAX_HANDLES 16u
 #endif
 
-typedef struct
+typedef struct thread thread_t;
+
+typedef struct thread_wait_slot
+{
+    list_node_t node;
+    thread_t *owner;
+    uint32_t index;
+} thread_wait_slot_t;
+
+struct thread
 {
     vaddr_t kernel_stack_top; // base of kernel stack for freeing (offset 0)
     exception_frame_t *trap_frame; // pointer to saved user registers for IPC and context switching (offset 4)
@@ -56,7 +65,8 @@ typedef struct
     reply_cap_t *pending_reply_cap;
     paddr_t ipc_buf_pa;
     size_t ipc_buf_xfer_len;
-    list_node_t recvany_wait_nodes[RECVANY_MAX_HANDLES];
+    thread_wait_slot_t ntfn_wait_slot;
+    thread_wait_slot_t recvany_wait_slots[RECVANY_MAX_HANDLES];
     notification_t *recvany_wait_ntfns[RECVANY_MAX_HANDLES];
     uint32_t recvany_wait_count;
     uint32_t recvany_wait_match_index;
@@ -65,7 +75,7 @@ typedef struct
     uint32_t priority, time_slice, ticks_remaining;
     process_t *owner_process; // backpointer to owning process
     vaddr_t thread_info_va; 
-} thread_t;
+};
 
 #ifdef __cplusplus
 static_assert(offsetof(thread_t, kernel_sp) == 12,
@@ -86,7 +96,7 @@ static inline void thread_recvany_clear_waits(thread_t *thread)
         return;
 
     for (uint32_t i = 0; i < thread->recvany_wait_count && i < RECVANY_MAX_HANDLES; i++) {
-        list_node_t *node = &thread->recvany_wait_nodes[i];
+        list_node_t *node = &thread->recvany_wait_slots[i].node;
         if (node->prev && node->next)
             list_remove(node);
         thread->recvany_wait_ntfns[i] = NULL;

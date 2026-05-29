@@ -20,8 +20,6 @@
 
 extern kernel_layout_t kernel_layout;
 
-#define KSTACK_REGION_TOP (KSTACK_REGION_BASE + (64u * 0x2000u))
-
 static bool trap_frame_sane(const exception_frame_t *frame)
 {
     uintptr_t p = (uintptr_t)frame;

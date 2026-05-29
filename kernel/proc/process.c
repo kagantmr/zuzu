@@ -785,7 +785,8 @@ void process_kill(process_t *p, const int exit_status) {
                 ntfn->alive = false;
                 while (!list_empty(&ntfn->wait_queue)) {
                     list_node_t *n = list_pop_front(&ntfn->wait_queue);
-                    thread_t *thread = container_of(n, thread_t, node);
+                    thread_wait_slot_t *slot = container_of(n, thread_wait_slot_t, node);
+                    thread_t *thread = slot->owner;
                     if (thread->trap_frame)
                         thread->trap_frame->r[0] = ERR_DEAD;
                     thread_recvany_clear_waits(thread);

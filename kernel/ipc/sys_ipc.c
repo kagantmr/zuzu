@@ -17,7 +17,6 @@
 #define LOG_FMT(fmt) "(ipc) " fmt
 #include "core/log.h"
 
-#define KSTACK_REGION_TOP (KSTACK_REGION_BASE + (64u * 0x2000u))
 #define RECVANY_MAX_HANDLES 16u
 #define RECVANY_KIND_SEND 0u
 #define RECVANY_KIND_CALL 1u
@@ -242,11 +241,7 @@ void proc_send(exception_frame_t *frame)
         rx_thread->ipc_state = IPC_NONE;
         rx_thread->blocked_endpoint = NULL;
         // Cancel timeout if receiver had one
-        if (rx_thread->wake_tick != 0 &&
-            rx_thread->timeout_node.prev && rx_thread->timeout_node.next) {
-            list_remove(&rx_thread->timeout_node);
-        }
-        rx_thread->wake_tick = 0;
+        ipc_cancel_timeout(rx_thread);
         rx_thread->wake_reason = WAKE_IPC;
         rx_thread->state = READY;
         sched_add(rx_thread);
@@ -298,11 +293,7 @@ void proc_recv(exception_frame_t *frame)
             sr_thread->ipc_state = IPC_NONE;
             sr_thread->blocked_endpoint = NULL;
             // Cancel timeout if sender had one
-            if (sr_thread->wake_tick != 0 &&
-                sr_thread->timeout_node.prev && sr_thread->timeout_node.next) {
-                list_remove(&sr_thread->timeout_node);
-            }
-            sr_thread->wake_tick = 0;
+            ipc_cancel_timeout(sr_thread);
             sr_thread->wake_reason = WAKE_IPC;
             sr_thread->state = READY;
             if (sr_thread->ipc_buf_xfer_len > 0) {
@@ -332,11 +323,7 @@ void proc_recv(exception_frame_t *frame)
                 sr_thread->ipc_state = IPC_NONE;
                 sr_thread->blocked_endpoint = NULL;
                 // Cancel timeout if sender had one
-                if (sr_thread->wake_tick != 0 &&
-                    sr_thread->timeout_node.prev && sr_thread->timeout_node.next) {
-                    list_remove(&sr_thread->timeout_node);
-                }
-                sr_thread->wake_tick = 0;
+                ipc_cancel_timeout(sr_thread);
                 sr_thread->wake_reason = WAKE_IPC;
                 sr_thread->state = READY;
                 sched_add(sr_thread);
@@ -455,11 +442,7 @@ void proc_call(exception_frame_t *frame)
         rx_thread->ipc_state = IPC_NONE;
         rx_thread->blocked_endpoint = NULL;
         // Cancel timeout if receiver had one
-        if (rx_thread->wake_tick != 0 &&
-            rx_thread->timeout_node.prev && rx_thread->timeout_node.next) {
-            list_remove(&rx_thread->timeout_node);
-        }
-        rx_thread->wake_tick = 0;
+        ipc_cancel_timeout(rx_thread);
         rx_thread->wake_reason = WAKE_IPC;
         rx_thread->state = READY;
         sched_add(rx_thread);
@@ -506,11 +489,7 @@ void proc_reply(exception_frame_t *frame)
     target_thread->ipc_state = IPC_NONE;
     target_thread->blocked_endpoint = NULL;
     // Cancel timeout if target had one
-    if (target_thread->wake_tick != 0 &&
-        target_thread->timeout_node.prev && target_thread->timeout_node.next) {
-        list_remove(&target_thread->timeout_node);
-    }
-    target_thread->wake_tick = 0;
+    ipc_cancel_timeout(target_thread);
     target_thread->wake_reason = WAKE_IPC;
     target_thread->state = READY;
     sched_add(target_thread);
@@ -552,11 +531,7 @@ void proc_sendx(exception_frame_t *frame)
         rx_thread->ipc_state = IPC_NONE;
         rx_thread->blocked_endpoint = NULL;
         // Cancel timeout if receiver had one
-        if (rx_thread->wake_tick != 0 &&
-            rx_thread->timeout_node.prev && rx_thread->timeout_node.next) {
-            list_remove(&rx_thread->timeout_node);
-        }
-        rx_thread->wake_tick = 0;
+        ipc_cancel_timeout(rx_thread);
         rx_thread->wake_reason = WAKE_IPC;
         rx_thread->state = READY;
         sched_add(rx_thread);
@@ -624,12 +599,7 @@ void proc_callx(exception_frame_t *frame)
 
         rx_thread->ipc_state = IPC_NONE;
         rx_thread->blocked_endpoint = NULL;
-        // Cancel timeout if receiver had one
-        if (rx_thread->wake_tick != 0 &&
-            rx_thread->timeout_node.prev && rx_thread->timeout_node.next) {
-            list_remove(&rx_thread->timeout_node);
-        }
-        rx_thread->wake_tick = 0;
+        ipc_cancel_timeout(rx_thread);
         rx_thread->wake_reason = WAKE_IPC;
         rx_thread->state = READY;
         sched_add(rx_thread);
@@ -679,11 +649,7 @@ void proc_replyx(exception_frame_t *frame)
     target_thread->ipc_state = IPC_NONE;
     target_thread->blocked_endpoint = NULL;
     // Cancel timeout if target had one
-    if (target_thread->wake_tick != 0 &&
-        target_thread->timeout_node.prev && target_thread->timeout_node.next) {
-        list_remove(&target_thread->timeout_node);
-    }
-    target_thread->wake_tick = 0;
+    ipc_cancel_timeout(target_thread);
     target_thread->wake_reason = WAKE_IPC;
     target_thread->state = READY;
     sched_add(target_thread);
@@ -936,9 +902,11 @@ void proc_recvany(exception_frame_t *frame)
 
             for (uint32_t i = 0; i < wait_count; i++) {
                 current_thread->recvany_wait_ntfns[i] = wait_ntfns[i];
-                current_thread->recvany_wait_nodes[i].prev = NULL;
-                current_thread->recvany_wait_nodes[i].next = NULL;
-                list_add_tail(&current_thread->recvany_wait_nodes[i], &wait_ntfns[i]->wait_queue.node);
+                current_thread->recvany_wait_slots[i].owner = current_thread;
+                current_thread->recvany_wait_slots[i].index = i;
+                current_thread->recvany_wait_slots[i].node.prev = NULL;
+                current_thread->recvany_wait_slots[i].node.next = NULL;
+                list_add_tail(&current_thread->recvany_wait_slots[i].node, &wait_ntfns[i]->wait_queue.node);
             }
 
             current_thread->wake_reason = WAKE_NONE;
