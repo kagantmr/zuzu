@@ -137,7 +137,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
 
         if (from_user && current_process)
         {
-            KERROR("Oops! '%s' (PID %d, TID %d) killed - undefined instruction @ 0x%08X", current_process->name, current_process->pid, current_thread->tid, frame->return_pc);
+            KERROR("Oops! '%s' (PID %d, TID %d) killed - undefined instruction @ 0x%08X\n", current_process->name, current_process->pid, current_thread->tid, frame->return_pc);
             process_kill(current_process, -1);
             schedule();
         }
@@ -197,7 +197,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
 
         if (from_user && current_process)
         {
-            KERROR("Oops! '%s' (PID %d, TID %d) killed - prefetch abort @ 0x%08X (%s)",
+            KERROR("Oops! '%s' (PID %d, TID %d) killed - prefetch abort @ 0x%08X (%s)\n",
                    current_process->name, current_process->pid, current_thread->tid, ifar, decode_fault_status(ifsr));
             process_kill(current_process, -1);
             dump_registers(frame);
@@ -279,17 +279,8 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
                         if ((dfsr & (1 << 11)) && !(r->prot & VM_PROT_WRITE))
                             continue; // write fault but region doesn't have write permission
                         uintptr_t page_va = align_down(dfar, PAGE_SIZE);
-                        uintptr_t pa = pmm_alloc_page();
-                        if (pa == 0)
+                        if (!vmm_fault_page(as, r, page_va))
                             break;
-                        memset((void *)PA_TO_VA(pa), 0, PAGE_SIZE);
-                        if (!vmm_map_range(as, page_va, pa, PAGE_SIZE,
-                                           r->prot, r->memtype, VM_OWNER_ANON, VM_FLAG_NONE))
-                        {
-                            pmm_free_page(pa);
-                            break;
-                        }
-                        arch_mmu_flush_tlb_va(page_va); // flush just the new mapping to avoid evicting other useful entries from the TLB
                         return;
                     }
                 }
@@ -297,7 +288,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
             if (from_user)
             {
                 // not translation fault or lazy mapping failed, terminate
-                KERROR("Oops! '%s' (PID %d, TID %d) killed - data abort @ 0x%08X (%s %s)",
+                KERROR("Oops! '%s' (PID %d, TID %d) killed - data abort @ 0x%08X (%s %s)\n",
                        current_process->name, current_process->pid, current_thread->tid, dfar,
                        (dfsr & (1 << 11)) ? "write" : "read",
                        decode_fault_status(dfsr));
@@ -308,7 +299,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
             else if (from_svc)
             {
                 // bad pointer in syscall, log and kill process. unlikely to happen since validation and copy functions should catch these.
-                KERROR("Data abort in kernel mode while handling SVC from '%s' (PID %d, TID %d) @ 0x%08X (%s %s)",
+                KERROR("Data abort in kernel mode while handling SVC from '%s' (PID %d, TID %d) @ 0x%08X (%s %s)\n",
                        current_process->name, current_process->pid, current_thread->tid, dfar,
                        (dfsr & (1 << 11)) ? "write" : "read",
                        decode_fault_status(dfsr));
