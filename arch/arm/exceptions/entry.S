@@ -33,7 +33,6 @@ process_entry_trampoline:
     rfeia sp!                  @ pop return_pc + return_cpsr into PC/CPSR
 
 .macro exception_entry, lr_adjust
-    clrex
     sub lr, lr, #\lr_adjust
     srsdb sp!, #0x13          @ push [return_pc, cpsr]
     cpsid i, #0x13            @ SVC, IRQs off
