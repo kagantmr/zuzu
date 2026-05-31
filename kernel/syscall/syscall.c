@@ -20,6 +20,49 @@
 
 extern kernel_layout_t kernel_layout;
 
+typedef void (*syscall_handler_t)(exception_frame_t*);
+
+static syscall_handler_t syscall_table[SYS_MAX + 1] = {
+    [SYS_TASK_PQUIT] = pquit,
+    [SYS_TASK_YIELD] = yield,
+    [SYS_TASK_WAIT] = wait,
+    [SYS_GET_PID] = get_pid,
+    [SYS_TASK_SLEEP] = sleep,
+    [SYS_TASK_PSPAWN] = pspawn,
+    [SYS_TASK_KICKSTART] = kickstart,
+    [SYS_TASK_KILL] = kill,
+    [SYS_TASK_TMAKE] = tmake,
+    [SYS_TASK_TJOIN] = tjoin,
+    [SYS_TASK_TQUIT] = tquit,
+    [SYS_PROC_SEND] = proc_send,
+    [SYS_PROC_RECV] = proc_recv,
+    [SYS_PROC_CALL] = proc_call,
+    [SYS_PROC_REPLY] = proc_reply,
+    [SYS_PROC_SENDX] = proc_sendx,
+    [SYS_PROC_CALLX] = proc_callx,
+    [SYS_PROC_REPLYX] = proc_replyx,
+    [SYS_PROC_RECVANY] = proc_recvany,
+    [SYS_EP_CREATE] = port_create,
+    [SYS_CAP_DESTROY] = port_destroy,
+    [SYS_CAP_GRANT] = port_grant,
+    [SYS_NTFN_CREATE] = ntfn_create,
+    [SYS_NTFN_SIGNAL] = ntfn_signal,
+    [SYS_NTFN_WAIT] = ntfn_wait,
+    [SYS_NTFN_POLL] = ntfn_poll,
+    [SYS_MEMMAP] = memmap,
+    [SYS_MEMUNMAP] = memunmap,
+    [SYS_MEMSHARE] = memshare,
+    [SYS_ATTACH] = attach,
+    [SYS_MAPDEV] = mapdev,
+    [SYS_DETACH] = detach,
+    [SYS_QUERYDEV] = querydev,
+    [SYS_MPROTECT] = mprotect,
+    [SYS_ASINJECT] = asinject,
+    [SYS_IRQ_CLAIM] = irq_claim, 
+    [SYS_IRQ_BIND] = irq_bind, 
+    [SYS_IRQ_DONE] = irq_done
+};
+
 static bool trap_frame_sane(const exception_frame_t *frame)
 {
     uintptr_t p = (uintptr_t)frame;
@@ -74,163 +117,13 @@ void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
         panic("Corrupt trap_frame at syscall dispatch");
     }
     current_thread->trap_frame = frame;
-    switch (svc_num)
-    {
-    case SYS_TASK_PQUIT:
-    {
-        pquit(frame);
-    } break; 
-    case SYS_TASK_YIELD:
-    {
-        yield(frame);
-    } break;                   
-    case SYS_TASK_WAIT:
-    {
-        wait(frame);
-    } break; 
-    case SYS_TASK_SLEEP: {
-        sleep(frame);
-    } break;
-    case SYS_GET_PID:
-    {
-        get_pid(frame);
-    } break; 
-    case SYS_TASK_PSPAWN:
-    {
-        pspawn(frame);
-    } break;
-    case SYS_TASK_KICKSTART:
-    {
-        kickstart(frame);
-    } break;
-    case SYS_TASK_KILL:
-    {
-        kill(frame);
-    } break;
-    case SYS_TASK_TMAKE:
-    {
-        tmake(frame);
-    } break;
-    case SYS_TASK_TJOIN:
-    {
-        tjoin(frame);
-    } break;
-    case SYS_TASK_TQUIT:
-    {
-        tquit(frame);
-    } break;
-    case SYS_PROC_SEND:
-    {
-        proc_send(frame);
-    } break; 
-    case SYS_PROC_RECV:
-    {
-        proc_recv(frame);
-    } break; 
-    case SYS_PROC_CALL:
-    {
-        proc_call(frame);
-    } break; 
-    case SYS_PROC_REPLY:
-    {
-        proc_reply(frame);
-    } break;
-    case SYS_PROC_SENDX:
-    {
-        proc_sendx(frame);
-    } break;
-    case SYS_PROC_CALLX:
-    {
-        proc_callx(frame);
-    } break;
-    case SYS_PROC_REPLYX:
-    {
-        proc_replyx(frame);
-    } break;
-    case SYS_PROC_RECVANY:
-    {
-        proc_recvany(frame);
-    } break;
-    case SYS_EP_CREATE:
-    {
-        port_create(frame);
-    } break;
-    case SYS_CAP_DESTROY:
-    {
-        port_destroy(frame);
-    } break;
-    case SYS_CAP_GRANT:
-    {
-        port_grant(frame);
-    } break;
-    case SYS_NTFN_CREATE:
-    {
-        ntfn_create(frame);
-    } break;
-    case SYS_NTFN_SIGNAL:
-    {
-        ntfn_signal(frame);
-    } break;
-    case SYS_NTFN_WAIT:
-    {
-        ntfn_wait(frame);
-    } break;
-    case SYS_NTFN_POLL:
-    {
-        ntfn_poll(frame);
-    } break;
-    case SYS_MEMMAP:
-    {
-        memmap(frame);
-    } break; 
-    case SYS_MEMUNMAP:
-    {
-        memunmap(frame);
-    } break; 
-    case SYS_MEMSHARE:
-    {
-        memshare(frame);
-    } break; 
-    case SYS_ATTACH:
-    {
-        attach(frame);
-    } break; 
-    case SYS_MAPDEV:
-    {
-        mapdev(frame);
-    } break; 
-    case SYS_DETACH:
-    {
-        detach(frame);
-    } break; 
-    case SYS_QUERYDEV:
-    {
-        querydev(frame);
-    } break;
-    case SYS_MPROTECT:
-    {
-        mprotect(frame);
-    } break;
-    case SYS_ASINJECT:
-    {
-        asinject(frame);
-    } break;
-    case SYS_IRQ_CLAIM:
-    {   
-        irq_claim(frame);
-    } break; 
-    case SYS_IRQ_BIND:
-    {
-        irq_bind(frame);
-    } break; 
-    case SYS_IRQ_DONE:
-    {
-        irq_done(frame);
-    } break;
-    default:
-    {
+
+    if (syscall_table[svc_num]) {
+        syscall_handler_t handler = syscall_table[svc_num];
+        handler(frame);
+        return;
+    } else {
         KERROR("System call 0x%X does not exist", svc_num);
         frame->r[0] = ERR_NOMATCH;
-    } break;
     }
 };
