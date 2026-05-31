@@ -29,7 +29,7 @@ void *memcpy(void *dest, const void *src, size_t n);
  * @param n   Number of bytes to set.
  * @return Pointer to the memory area.
  */
-void *memset(void *ptr, char x, size_t n);
+void *memset(void *dst, int c, size_t n);
 
 /**
  * @brief Move n bytes from source to destination, handling overlapping regions.
