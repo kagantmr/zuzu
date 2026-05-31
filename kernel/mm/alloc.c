@@ -84,6 +84,7 @@ void slab_free(slab_cache_t *cache, void *ptr)
 {
     assert(cache != NULL);
     assert(ptr != NULL);
+    (void)cache;
 
     // the slab header is at the page-aligned base of this pointer
     slab_t *slab = (slab_t *)align_down((uintptr_t)ptr, PAGE_SIZE);

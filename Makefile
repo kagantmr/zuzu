@@ -2,6 +2,7 @@ CROSS   = arm-none-eabi-
 CC      = $(CROSS)gcc
 LD      = $(CC)
 OBJDUMP = $(CROSS)objdump
+OBJCOPY = $(CROSS)objcopy
 
 UNAME_S := $(shell uname -s)
 
@@ -23,17 +24,12 @@ MAP           = build/zuzu.map
 
 CPUFLAGS = -mcpu=cortex-a15
 CFLAGS   = -ffreestanding -O$(OPTIMIZATION_LEVEL) -flto -fno-omit-frame-pointer \
-           -Wall -Wextra -Werror $(CPUFLAGS) -I. -Iinclude -MMD -MP -g \
+           -Wall -Wextra -Werror $(CPUFLAGS) -I. -Iinclude -MMD -MP \
            -D__KERNEL__ -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"'
 CFLAGS  += -Ivendor/libfdt
 LDFLAGS  = -nostdlib -Wl,-T,$(LINKER_SCRIPT) -Wl,-Map=$(MAP) -flto
 
-ifeq ($(BANNER), 0)
-    CFLAGS += -DZUZU_BANNER_DISABLE
-endif
-ifeq ($(FANCY_PANIC), 1)
-    CFLAGS += -DPANIC_FULL_SCREEN
-endif
+
 ifeq ($(LOG_LEVEL), 0)
 	CFLAGS += -DLOG_LEVEL=0
 else ifeq ($(LOG_LEVEL), 1)
@@ -50,7 +46,7 @@ else
 	$(error LOG_LEVEL must be an integer from 0 to 5)
 endif
 ifeq ($(DEBUG_BUILD), 1)
-    CFLAGS += -UNDEBUG -DDEBUG -DZUZU_BANNER_SHOW_ADDR
+    CFLAGS += -UNDEBUG -DDEBUG -DZUZU_BANNER_SHOW_ADDR -g
 else
     CFLAGS += -DNDEBUG -UDEBUG -UZUZU_BANNER_SHOW_ADDR
 endif
@@ -239,6 +235,10 @@ $(TARGET): $(OBJS) build/arch/arm/initrd.o $(LINKER_SCRIPT)
 		$(LD) $(LDFLAGS) build/ksymtab.o $(OBJS) build/arch/arm/initrd.o $(KERNEL_LIBGCC) -o $@; \
 	else \
 		echo "  WARN: build/ksymtab.c not generated; final ELF uses empty symbol table"; \
+	fi
+	@if [ "$(DEBUG_BUILD)" = "0" ]; then \
+		echo "  STRIP   $@"; \
+		$(OBJCOPY) --strip-debug $@ $@; \
 	fi
 
 # SD card workflow
