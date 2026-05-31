@@ -17,8 +17,9 @@ for entry in result.stdout.splitlines():
 with open(sys.argv[2], 'w') as f:
     f.write('#include <stdint.h>\n')
     f.write('#include "core/ksym.h"\n')
-    f.write('const ksym_entry_t ksym_table[] = {\n')
+    f.write('static const ksym_entry_t ksym_entries[] = {\n')
     for address, name in symbols:
         f.write(f'    {{ 0x{address}, "{name}" }},\n')
     f.write('};\n')
+    f.write('const ksym_entry_t *ksym_table = ksym_entries;\n')
     f.write(f'volatile const uint32_t ksym_count = {len(symbols)};\n')
