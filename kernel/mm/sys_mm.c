@@ -192,7 +192,7 @@ void memunmap(exception_frame_t *frame)
 
 void memshare(exception_frame_t *frame)
 {
-    const size_t size = (size_t)frame->r[0];
+    const size_t size = align_up((size_t)frame->r[0], PAGE_SIZE);
     if (size == 0)
     {
         frame->r[0] = ERR_BADARG;
@@ -203,12 +203,6 @@ void memshare(exception_frame_t *frame)
         frame->r[0] = ERR_NOMEM;
         return;
     }
-    if (size % PAGE_SIZE)
-    {
-        frame->r[0] = ERR_BADARG;
-        return;
-    }
-
     const size_t page_count = size / PAGE_SIZE;
     vaddr_t *page_arr = kmalloc(sizeof(vaddr_t) * page_count);
     if (!page_arr)
