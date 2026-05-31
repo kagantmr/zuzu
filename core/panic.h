@@ -43,6 +43,6 @@ extern panic_fault_context_t panic_fault_ctx;
  *
  * This function does not return.
  */
-_Noreturn void panic(const char *reason);
+_Noreturn void __attribute__((cold)) panic(const char *reason);
 
 #endif

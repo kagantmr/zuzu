@@ -19,7 +19,7 @@
 bool copy_to_user(void *uaddr, const void *kaddr, size_t len);
 bool copy_from_user(void *kaddr, const void *uaddr, size_t len);
 
-void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame);
+void __attribute__((hot)) syscall_dispatch(uint8_t svc_num, exception_frame_t *frame);
 
 static inline bool validate_user_ptr(const uintptr_t addr, const size_t len) {
     if (addr + len < addr) return false;

@@ -214,7 +214,7 @@ static void recvany_deliver_notification(uint32_t matched_index,
     result->r1 = bits;
 }
 
-void proc_send(exception_frame_t *frame)
+void __attribute__((hot)) proc_send(exception_frame_t *frame)
 {
     int handle = (int)frame->r[0];
 
@@ -257,7 +257,7 @@ void proc_send(exception_frame_t *frame)
     }
 }
 
-void proc_recv(exception_frame_t *frame)
+void __attribute__((hot)) proc_recv(exception_frame_t *frame)
 {
     int handle = (int)frame->r[0];
     uint32_t timeout_ms = frame->r[1]; // 0 = infinite (backward compatible)
@@ -392,7 +392,7 @@ void proc_recv(exception_frame_t *frame)
     }
 }
 
-void proc_call(exception_frame_t *frame)
+void __attribute__((hot)) proc_call(exception_frame_t *frame)
 {
     int handle = (int)frame->r[0];
 
@@ -463,7 +463,7 @@ void proc_call(exception_frame_t *frame)
     }
 }
 
-void proc_reply(exception_frame_t *frame)
+void __attribute__((hot)) proc_reply(exception_frame_t *frame)
 {
     handle_t handle_idx = frame->r[0];
     thread_t *target_thread = NULL;
