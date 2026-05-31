@@ -6,7 +6,7 @@
 #include <mem.h>
 
 #define NIC_FRAME_SIZE 1536
-#define NIC_RING_DEPTH 4
+#define NIC_RING_DEPTH 16
 
 typedef struct {
     uint16_t len;
@@ -15,8 +15,8 @@ typedef struct {
 
 typedef struct {
     nic_frame_t slots[NIC_RING_DEPTH];
-    uint32_t    head;
-    uint32_t    tail;
+    volatile uint32_t    head;
+    volatile uint32_t    tail;
 } nic_ring_t;
 
 int packet_ring_push(nic_ring_t *r, void *src, uint16_t len);

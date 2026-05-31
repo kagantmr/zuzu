@@ -22,6 +22,7 @@ handle_t nic_ntfn;
 handle_t handles[2];
 mac_addr_t mac;
 
+#define LOG_LEVEL 0
 
 #if ZUZU_LOG_LEVEL_DEBUG == LOG_LEVEL
 static void dump_packet(const uint8_t *data, uint16_t len)

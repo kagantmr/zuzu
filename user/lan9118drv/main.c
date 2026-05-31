@@ -177,7 +177,7 @@ int nic_setup(void)
 
     // finally, set up shmem
 
-    shmem_result_t shm = _memshare(16384);
+    shmem_result_t shm = _memshare(49152); // packet size = 1536, ring_size = 16 
     shmem_handle = shm.handle;
     shmem_addr = shm.addr;
 
