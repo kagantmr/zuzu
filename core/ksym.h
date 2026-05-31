@@ -9,7 +9,7 @@ typedef struct {
 } ksym_entry_t;
 
 extern volatile const uint32_t ksym_count;
-extern const ksym_entry_t ksym_table[];
+extern const ksym_entry_t *ksym_table;
 
 const char *ksym_lookup(uint32_t addr);
 

@@ -1,11 +1,12 @@
 CROSS   = arm-none-eabi-
 CC      = $(CROSS)gcc
-LD      = $(CROSS)ld
+LD      = $(CC)
 OBJDUMP = $(CROSS)objdump
 
 UNAME_S := $(shell uname -s)
 
 OPTIMIZATION_LEVEL ?= 2
+USER_OPTIMIZATION_LEVEL ?= s
 DEBUG_BUILD        ?= 1
 DTB_DEBUG_WALK     ?= 0
 EARLY_UART         ?= 0
@@ -21,11 +22,11 @@ DTB_FILE      = arch/arm/dtb/vexpress-a15/vexpress-v2p-ca15-tc1.dtb
 MAP           = build/zuzu.map
 
 CPUFLAGS = -mcpu=cortex-a15
-CFLAGS   = -ffreestanding -O$(OPTIMIZATION_LEVEL) -fno-omit-frame-pointer \
+CFLAGS   = -ffreestanding -O$(OPTIMIZATION_LEVEL) -flto -fno-omit-frame-pointer \
            -Wall -Wextra -Werror $(CPUFLAGS) -I. -Iinclude -MMD -MP -g \
            -D__KERNEL__ -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"'
 CFLAGS  += -Ivendor/libfdt
-LDFLAGS  = -T $(LINKER_SCRIPT) -Map=$(MAP)
+LDFLAGS  = -nostdlib -Wl,-T,$(LINKER_SCRIPT) -Wl,-Map=$(MAP) -flto
 
 ifeq ($(BANNER), 0)
     CFLAGS += -DZUZU_BANNER_DISABLE
@@ -65,15 +66,15 @@ else
 endif
 
 USER_CC      = $(CROSS)gcc
-USER_LD      = $(CROSS)ld
+USER_LD      = $(USER_CC)
 USER_OBJCOPY = $(CROSS)objcopy
 KERNEL_LIBGCC = $(shell $(CC) $(CPUFLAGS) -print-libgcc-file-name)
 USER_LIBGCC   = $(shell $(USER_CC) $(CPUFLAGS) -mfloat-abi=hard -mfpu=vfpv4 -print-libgcc-file-name)
 
-USER_CFLAGS  = -ffreestanding -nostdlib -O$(OPTIMIZATION_LEVEL) -Wall -Wextra \
+USER_CFLAGS  = -ffreestanding -nostdlib -O$(USER_OPTIMIZATION_LEVEL) -Wall -Wextra \
 			   $(CPUFLAGS) -I. -Iinclude -MMD -MP -g -mfloat-abi=hard -mfpu=vfpv4 \
 			   -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"'
-USER_LDFLAGS = -T user/user.ld
+USER_LDFLAGS = -nostdlib -Wl,-T,user/user.ld
 
 ifeq ($(LOG_LEVEL), 0)
 	USER_CFLAGS += -DLOG_LEVEL=0
