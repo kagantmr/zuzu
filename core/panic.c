@@ -644,7 +644,7 @@ static void panic_screen(const char *reason, void *caller_ra)
  * Panic entry point (unchanged)
  * ============================================================ */
 
-_Noreturn void panic(const char *reason)
+_Noreturn void __attribute__((cold)) panic(const char *reason)
 {
     panic_puts("\a");
     void *caller_ra = __builtin_return_address(0);

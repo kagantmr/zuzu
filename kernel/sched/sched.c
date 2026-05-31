@@ -208,7 +208,7 @@ void sched_idle_wait(void)
     }
 }
 
-void schedule() {
+void __attribute__((hot)) schedule() {
 
     thread_t *prev = current_thread;
     bool from_idle = (prev == NULL && on_idle_stack);

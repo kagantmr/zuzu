@@ -108,7 +108,8 @@ bool copy_from_user(void *kaddr, const void *uaddr, size_t len) {
     return true;
 }
 
-void syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
+
+void __attribute__((hot)) syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
 {
     //KDEBUG("syscall: pid=%u svc=0x%X frame=%p", current_process ? current_process->pid : 0, svc_num, frame);
     if (!current_thread) { frame->r[0] = ERR_BADARG; return; }
