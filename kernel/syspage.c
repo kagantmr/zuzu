@@ -13,7 +13,6 @@
 syspage_t *g_sp;
 static uintptr_t g_syspage_pa;
 extern pmm_state_t pmm_state;
-extern uint32_t rtc_epoch;
 
 static void dev_cb(const char *compatible, uint64_t phys, uint64_t size, uint32_t irq)
 {
@@ -82,14 +81,6 @@ void syspage_update_mem(void)
         return;
     g_sp->mem_free_kb = (uint32_t)((pmm_state.free_pages * (uint64_t)PAGE_SIZE) / 1024);
 }
-
-void syspage_update_time(void)
-{
-    if (!g_sp)
-        return;
-    g_sp->time_s = rtc_epoch + (uint32_t)(get_ticks() / TICK_HZ);
-}
-
 
 void syspage_update_uptime(void)
 {

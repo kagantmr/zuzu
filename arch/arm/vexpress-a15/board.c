@@ -26,6 +26,29 @@ void board_init_devices(void) {
     (void)0;
     uint64_t addr, size;
 
+    {
+        bool found = false;
+        const dtb_dev_t *arr = boot_info_dev_array();
+        uint32_t cnt = boot_info_dev_count();
+        for (uint32_t i = 0; i < cnt; i++) {
+            const dtb_dev_t *d = &arr[i];
+            if (strcmp(d->compatible, "arm,pl011") == 0) {
+                addr = d->phys;
+                size = d->size;
+                found = true;
+                break;
+            }
+        }
+        if (found) {
+            void *uart_va = ioremap((uintptr_t)addr, (size_t)size);
+            if (!uart_va) panic("Failed to ioremap UART");
+
+            uart_set_driver(&pl011_driver, (uintptr_t)uart_va);
+            kprintf_init(uart_putc);
+
+            KDEBUG("UART re-mapped to %p", uart_va);
+        }
+    }
 
     {
         uint64_t gicd = 0, s_d = 0, gicc = 0, s_c = 0;
@@ -56,32 +79,6 @@ void board_init_devices(void) {
         if (!gicd_va || !gicc_va) panic("Failed to ioremap GIC");
         
         gic_init((uintptr_t)gicd_va, (uintptr_t)gicc_va);
-    }
-
-    {
-        bool found = false;
-        const dtb_dev_t *arr = boot_info_dev_array();
-        uint32_t cnt = boot_info_dev_count();
-        for (uint32_t i = 0; i < cnt; i++) {
-            const dtb_dev_t *d = &arr[i];
-            if (strcmp(d->compatible, "arm,pl011") == 0) {
-                addr = d->phys;
-                size = d->size;
-                found = true;
-                break;
-            }
-        }
-        if (found) {
-            void *uart_va = ioremap((uintptr_t)addr, (size_t)size);
-            if (!uart_va) panic("Failed to ioremap UART");
-
-            uart_set_driver(&pl011_driver, (uintptr_t)uart_va);
-            kprintf_init(uart_putc);
-
-            KDEBUG("UART re-mapped to %p", uart_va);
-        } else {
-            KDEBUG("Oops! No UART in DTB, keeping early boot config");
-        }
     }
     
     {

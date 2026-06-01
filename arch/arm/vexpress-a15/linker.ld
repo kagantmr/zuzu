@@ -43,11 +43,6 @@ SECTIONS
     . = ALIGN(4096);
     _boot_end = .;
 
-    /* =========================================================================
-     * Main Kernel - Linked at VIRTUAL addresses
-     * VMA is computed dynamically: VA = VA_BASE + (PA - PA_BASE)
-     * This ensures the MMU mapping VA_BASE+X -> PA_BASE+X works correctly
-     * ========================================================================= */
     . = KERNEL_VA_BASE + (_boot_end - KERNEL_PA_BASE);
     _kernel_start = .;
 

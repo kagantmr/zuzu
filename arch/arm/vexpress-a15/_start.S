@@ -1,6 +1,49 @@
 @ _start.s - ARMv7-A boot code for Versatile Express A15
 
 .section .text.boot, "ax"
+.global early_paging_init
+.type early_paging_init, %function
+
+.equ RAM_PA_BASE,        0x80000000
+.equ BOOTSTRAP_RAM_MB,   16
+.equ RAM_LOW_IDX_BASE,   0x800
+.equ RAM_HIGH_IDX_BASE,  0xC00
+.equ SECTION_NORMAL_DESC,0x11C0E
+
+early_paging_init:
+    ldr     r4, =early_l1
+
+    /* Zero the full 16KB bootstrap L1 */
+    mov     r5, #0
+    mov     r6, #0
+1:
+    cmp     r5, #4096
+    bge     2f
+    str     r6, [r4, r5, lsl #2]
+    add     r5, r5, #1
+    b       1b
+2:
+    /* Map enough RAM to enter C; early.c expands this from the DTB. */
+    ldr     r7, =RAM_PA_BASE
+    ldr     r8, =SECTION_NORMAL_DESC
+    mov     r5, #0
+    ldr     r10, =BOOTSTRAP_RAM_MB
+3:
+    cmp     r5, r10
+    bge     4f
+    add     r11, r7, r5, lsl #20
+    orr     r11, r11, r8
+    add     r12, r5, #RAM_LOW_IDX_BASE
+    str     r11, [r4, r12, lsl #2]
+    add     r12, r5, #RAM_HIGH_IDX_BASE
+    str     r11, [r4, r12, lsl #2]
+    add     r5, r5, #1
+    b       3b
+4:
+    mov     r0, r4
+    bx      lr
+.size early_paging_init, . - early_paging_init
+
 .global _start
 .type _start, %function
 
