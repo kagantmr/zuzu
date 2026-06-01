@@ -202,7 +202,8 @@ void vmm_lockdown_kernel_sections(void) {
     // Flush TLB so old permissions are gone
     arch_mmu_flush_tlb();
 
-    KINFO("Lockdown: patched %u sections and %u L2 pages", patched_sections, patched_pages);
+    (void)patched_sections;
+    (void)patched_pages;
 }
 
 void as_destroy(addrspace_t* as) {
@@ -294,14 +295,26 @@ void vmm_bootstrap(void) {
             __builtin_unreachable();
         }
 
-        // early_l1 is in .bss.boot, linked at physical addresses
-        // The symbol value IS the physical address
-        g_kernel_as->ttbr0_pa = (uintptr_t)early_l1;
+        // allocate a PMM-backed L1 and copy early_l1 into it
+        uintptr_t new_l1_pa = arch_mmu_create_tables();
+        if (!new_l1_pa) {
+            panic("Failed to allocate kernel L1 from PMM");
+        }
+        const size_t l1_bytes = 16 * 1024;
+        void *new_l1_va = (void *)PA_TO_VA(new_l1_pa);
+        void *early_l1_va = (void *)PA_TO_VA((uintptr_t)early_l1);
+        memcpy(new_l1_va, early_l1_va, l1_bytes); // copy early table
+
+        // assign and switch TTBR to the new table
+        g_kernel_as->ttbr0_pa = new_l1_pa;
+
+        // arch_mmu_switch installs the new TTBR
+        arch_mmu_switch(g_kernel_as);
+
         vm_region_vec_init(&g_kernel_as->regions);
         g_kernel_as->type = ADDRSPACE_KERNEL;
         g_kernel_as->asid_token = (asid_token_t){0};
 
-        // We're already running on early_l1 — no activate needed
         g_mmu_enabled = true;
         g_current_addrspace = g_kernel_as;
 

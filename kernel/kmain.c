@@ -293,8 +293,6 @@ _Noreturn void kmain(void)
     KINFO("Booting zuzu version %s", ZUZU_VERSION);
     /* DTB and boot_info were initialized in early(); do not touch DTB again */
 
-    irq_init();
-    board_init_devices();
 
     sched_init();
     arch_global_irq_enable();
