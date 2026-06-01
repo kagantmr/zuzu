@@ -29,14 +29,15 @@ struct tm {
 
 static inline ztime_t time_now(void) {
     syspage_t *sp = (syspage_t *)SYSPAGE;
-    return sp->uptime_ms / 1000;
+    return sp->boot_time_s + (sp->uptime_ticks / sp->tick_hz);
 }
 
 static inline void clock_gettime(struct timespec *ts) {
     syspage_t *sp = (syspage_t *)SYSPAGE;
-    uint32_t ms = sp->uptime_ms;
-    ts->tv_sec  = ms / 1000;
-    ts->tv_nsec = (ms % 1000) * 1000000;
+    ztime_t ticks = sp->uptime_ticks;
+    uint32_t hz = sp->tick_hz;
+    ts->tv_sec  = ticks / hz;
+    ts->tv_nsec = ((ticks % hz) * 1000000000ULL) / hz;
 }
 
 #ifdef __cplusplus

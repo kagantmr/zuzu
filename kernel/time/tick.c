@@ -5,7 +5,6 @@
 static volatile uint64_t tick_count = 0;
 static tick_callback_t tick_callback = NULL;
 extern void syspage_update_uptime(void);
-extern void syspage_update_time(void);
 
 uint64_t get_ticks(void) {
     return tick_count;
@@ -21,7 +20,6 @@ void register_tick_callback(tick_callback_t cb) {
 
 void tick_announce(void) {
     tick_count++;
-    syspage_update_time(); // update time in syspage on every tick
     syspage_update_uptime(); // update uptime in syspage on every tick
     if (tick_callback) {
         tick_callback();

@@ -298,10 +298,9 @@ _Noreturn void kmain(void)
     arch_global_irq_enable();
 
     syspage_init();
-
-    initrd_init(_initrd_start, _initrd_end - _initrd_start);
     syspage_set_initrd_size((uint32_t)(_initrd_end - _initrd_start));
 
+    initrd_init(_initrd_start, _initrd_end - _initrd_start);
     // Read and parse boot manifest
     const void *manifest_data;
     size_t manifest_size;
@@ -342,6 +341,7 @@ _Noreturn void kmain(void)
     register_tick_callback(set_resched_flag);
 
     KINFO("Entering idle");
+
 
     schedule();
     

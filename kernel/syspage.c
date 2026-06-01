@@ -13,6 +13,7 @@
 syspage_t *g_sp;
 static uintptr_t g_syspage_pa;
 extern pmm_state_t pmm_state;
+extern uint32_t rtc_epoch;
 
 static void dev_cb(const char *compatible, uint64_t phys, uint64_t size, uint32_t irq)
 {
@@ -64,6 +65,8 @@ void syspage_init(void)
     strncpy(g_sp->cpu,     boot_info_cpu_compat(), sizeof(g_sp->cpu)     - 1);
 
     g_sp->mem_total_kb = (uint32_t)((pmm_state.total_pages * (uint64_t)PAGE_SIZE) / 1024);
+    g_sp->tick_hz = get_tick_rate();
+    g_sp->boot_time_s = rtc_epoch;
 
     boot_info_foreach_dev(dev_cb);
 
@@ -86,8 +89,7 @@ void syspage_update_uptime(void)
 {
     if (!g_sp)
         return;
-    g_sp->uptime_s = (uint32_t)(get_ticks() / TICK_HZ);
-    g_sp->uptime_ms = (uint32_t)((get_ticks() * 1000) / TICK_HZ);
+    g_sp->uptime_ticks = get_ticks();
 }
 
 void syspage_set_initrd_size(uint32_t size)
