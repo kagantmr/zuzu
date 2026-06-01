@@ -10,8 +10,8 @@
 #include "arch/arm/mmu/asid.h"
 #include "arch/arm/mem_layout.h"
 
-#define PA_TO_VA(pa)  ((uintptr_t)(pa) + KERNEL_VA_OFFSET)
-#define VA_TO_PA(va)  ((uintptr_t)(va) - KERNEL_VA_OFFSET)
+#define PA_TO_VA(pa)  ((vaddr_t)(pa) + KERNEL_VA_OFFSET)
+#define VA_TO_PA(va)  ((paddr_t)(va) - KERNEL_VA_OFFSET)
 
 #define IOREMAP_MAX_ENTRIES 16    // was 64
 
