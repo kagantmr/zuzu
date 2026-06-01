@@ -7,6 +7,7 @@
 #include "kernel/mm/vmm.h"
 #include "core/version.h"
 #include "kernel/dtb/dtb.h"
+#include "boot_info.h"
 #include "core/log.h"
 
 syspage_t *g_sp;
@@ -60,17 +61,12 @@ void syspage_init(void)
 
     snprintf(g_sp->build, sizeof(g_sp->build), "%s %s", __DATE__, __TIME__);
 
-    char machine[20] = "Unknown";
-    dtb_get_string("/", "model", machine, sizeof(machine));
-    strncpy(g_sp->machine, machine, sizeof(g_sp->machine) - 1);
-
-    char cpu[24] = "Unknown";
-    dtb_get_string("/cpus/cpu@0", "compatible", cpu, sizeof(cpu));
-    strncpy(g_sp->cpu, cpu, sizeof(g_sp->cpu) - 1);
+    strncpy(g_sp->machine, boot_info_model(),      sizeof(g_sp->machine) - 1);
+    strncpy(g_sp->cpu,     boot_info_cpu_compat(), sizeof(g_sp->cpu)     - 1);
 
     g_sp->mem_total_kb = (uint32_t)((pmm_state.total_pages * (uint64_t)PAGE_SIZE) / 1024);
 
-    dtb_enum_devices(dev_cb);
+    boot_info_foreach_dev(dev_cb);
 
     syspage_update_mem();
 

@@ -17,7 +17,6 @@
 static addrspace_t* g_kernel_as = NULL;
 static addrspace_t* g_current_addrspace = NULL;
 static bool g_mmu_enabled = false;
-extern phys_region_t phys_region;
 extern kernel_layout_t kernel_layout;
 extern uint32_t early_l1[];  // from early.c, in .bss.boot (physical address)
 
@@ -307,8 +306,8 @@ void vmm_bootstrap(void) {
         g_current_addrspace = g_kernel_as;
 
         // Record kernel RAM region for bookkeeping
-        paddr_t ram_pa_base = phys_region.start;
-        size_t ram_size = phys_region.end - phys_region.start;
+        paddr_t ram_pa_base = kernel_layout.ram_start;
+        size_t ram_size = kernel_layout.ram_end - kernel_layout.ram_start;
         paddr_t map_pa_start = ram_pa_base & ~(SECTION_SIZE - 1);
         paddr_t map_pa_end = (ram_pa_base + ram_size + SECTION_SIZE - 1) & ~(SECTION_SIZE - 1);
         size_t map_size = map_pa_end - map_pa_start;
@@ -345,8 +344,8 @@ void vmm_remove_identity_mapping(void) {
         return;
     }
 
-    paddr_t ram_pa_base = phys_region.start;
-    size_t ram_size = phys_region.end - phys_region.start;
+    paddr_t ram_pa_base = kernel_layout.ram_start;
+    size_t ram_size = kernel_layout.ram_end - kernel_layout.ram_start;
     paddr_t map_pa_start = ram_pa_base & ~(SECTION_SIZE - 1);
     paddr_t map_pa_end = (ram_pa_base + ram_size + SECTION_SIZE - 1) & ~(SECTION_SIZE - 1);
     size_t map_size = map_pa_end - map_pa_start;

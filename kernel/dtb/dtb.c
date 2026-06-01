@@ -12,6 +12,9 @@
 static const void *g_fdt;
 static bool g_dtb_ready;
 extern kernel_layout_t kernel_layout;
+static char      s_model[64];
+static char      s_cpu[64];
+
 
 static inline uint32_t read_be32(const void *p)
 {
@@ -131,46 +134,8 @@ static int dtb_path_offset(const char *path)
     return parent;
 }
 
-#if defined(DTB_DEBUG_WALK)
-#include "core/kprintf.h"
-
-#ifndef DTB_LOG
-#define DTB_LOG kprintf
-#endif
-
-static void dtb_print_indent(int depth)
-{
-    for (int i = 0; i < depth; i++)
-        kprintf("  ");
-}
-
-void dtb_walk(void)
-{
-    if (!g_dtb_ready)
-        return;
-
-    int depth = -1;
-    int off = -1;
-    while ((off = fdt_next_node(g_fdt, off, &depth)) >= 0) {
-        const char *name = fdt_get_name(g_fdt, off, NULL);
-        dtb_print_indent(depth);
-        DTB_LOG("%s\n", (off == 0) ? "/ (root)" : name);
-
-        int prop;
-        fdt_for_each_property_offset(prop, g_fdt, off) {
-            const char *pname = NULL;
-            int len = 0;
-            if (fdt_getprop_by_offset(g_fdt, prop, &pname, &len)) {
-                dtb_print_indent(depth + 1);
-                DTB_LOG("%s (len=%d)\n", pname, len);
-            }
-        }
-    }
-}
-#endif
-
-bool dtb_get_property(const char *path, const char *prop,
-                      const void **out_value, uint32_t *out_len)
+static bool dtb_get_property(const char *path, const char *prop,
+                             const void **out_value, uint32_t *out_len)
 {
     if (!g_dtb_ready || !path || !prop || !out_value || !out_len)
         return false;
@@ -189,7 +154,7 @@ bool dtb_get_property(const char *path, const char *prop,
     return true;
 }
 
-bool dtb_get_u32(const char *path, const char *prop, uint32_t *out)
+static bool dtb_get_u32(const char *path, const char *prop, uint32_t *out)
 {
     if (!path || !prop || !out || !g_dtb_ready)
         return false;
@@ -286,7 +251,7 @@ bool dtb_find_compatible(const char *compatible, char *out_path, size_t out_path
     return fdt_get_path(g_fdt, off, out_path, (int)out_path_cap) == 0;
 }
 
-bool dtb_get_string(const char *path, const char *prop, char *out, size_t out_cap)
+static bool dtb_get_string(const char *path, const char *prop, char *out, size_t out_cap)
 {
     if (!path || !prop || !out || out_cap == 0 || !g_dtb_ready)
         return false;
@@ -382,7 +347,7 @@ static bool apply_ranges(const char *node_path, uint64_t child_addr, uint64_t *o
     return true;
 }
 
-bool dtb_translate_address(const char *node_path, uint64_t raw_addr, uint64_t *out_phys)
+static bool dtb_translate_address(const char *node_path, uint64_t raw_addr, uint64_t *out_phys)
 {
     if (!node_path || !out_phys || !g_dtb_ready)
         return false;
@@ -428,7 +393,8 @@ bool dtb_get_reg_phys(const char *path, int index, uint64_t *out_addr, uint64_t 
         return false;
 
     uint64_t phys_addr;
-    if (!dtb_translate_address(path, raw_addr, &phys_addr))
+    if (!dtb_translate_address_arch(path, raw_addr, &phys_addr) &&
+        !dtb_translate_address(path, raw_addr, &phys_addr))
         return false;
 
     *out_addr = phys_addr;
@@ -480,7 +446,7 @@ static bool dtb_resolve_irq_via_interrupt_map(const char *path,
     return false;
 }
 
-bool dtb_get_irq(const char *path, int index, uint32_t *out_irq_num, uint32_t *out_flags)
+static bool dtb_get_irq(const char *path, int index, uint32_t *out_irq_num, uint32_t *out_flags)
 {
     if (!path || !out_irq_num || !out_flags || index < 0)
         return false;
@@ -508,6 +474,8 @@ bool dtb_get_irq(const char *path, int index, uint32_t *out_irq_num, uint32_t *o
         if ((uint32_t)index >= count)
             return false;
         uint32_t child_irq = read_be32((const uint8_t *)val + ((uint32_t)index * 4));
+        if (dtb_resolve_irq_arch(path, child_irq, out_irq_num, out_flags))
+            return true;
         return dtb_resolve_irq_via_interrupt_map(path, child_irq, out_irq_num, out_flags);
     }
 
@@ -515,6 +483,7 @@ bool dtb_get_irq(const char *path, int index, uint32_t *out_irq_num, uint32_t *o
 }
 
 void dtb_enum_devices(void (*cb)(const char *compatible,
+                                 const char *path,
                                  uint64_t phys, uint64_t size,
                                  uint32_t irq))
 {
@@ -534,6 +503,7 @@ void dtb_enum_devices(void (*cb)(const char *compatible,
         if (!reg || reg_len <= 0)
             continue;
 
+        /* use a small local copy of the first compatible string */
         char first_compat[64];
         size_t slen = strnlen(compat, (size_t)compat_len);
         if (slen == (size_t)compat_len)
@@ -542,7 +512,7 @@ void dtb_enum_devices(void (*cb)(const char *compatible,
         memcpy(first_compat, compat, copy);
         first_compat[copy] = '\0';
 
-        char path[128];
+        char path[256];
         if (fdt_get_path(g_fdt, off, path, sizeof(path)) < 0)
             continue;
 
@@ -553,16 +523,66 @@ void dtb_enum_devices(void (*cb)(const char *compatible,
 
         uint32_t irq_num = 0;
         uint32_t irq_flags = 0;
-        if (dtb_get_irq(path, 0, &irq_num, &irq_flags))
-            (void)irq_flags;
+        (void)irq_flags;
+        dtb_get_irq(path, 0, &irq_num, &irq_flags);
 
-        uintptr_t cb_addr = (uintptr_t)cb;
-        if (kernel_layout.kernel_start_va && kernel_layout.kernel_end_va &&
-            (cb_addr < kernel_layout.kernel_start_va || cb_addr >= kernel_layout.kernel_end_va)) {
-            KERROR("DTB callback pointer corrupt: cb=%p path=%s compat=%s", cb, path, first_compat);
-            panic("Corrupt DTB callback pointer");
-        }
-
-        cb(first_compat, phys, size, irq_num);
+        cb(first_compat, path, phys, size, irq_num);
     }
+}
+
+uint32_t dtb_count_devices(void)
+{
+    if (!g_dtb_ready)
+        return 0;
+    uint32_t cnt = 0;
+    int depth = -1;
+    int off = -1;
+    while ((off = fdt_next_node(g_fdt, off, &depth)) >= 0) {
+        int compat_len = 0;
+        const char *compat = fdt_getprop(g_fdt, off, "compatible", &compat_len);
+        if (!compat || compat_len <= 0)
+            continue;
+        int reg_len = 0;
+        const void *reg = fdt_getprop(g_fdt, off, "reg", &reg_len);
+        if (!reg || reg_len <= 0)
+            continue;
+        cnt++;
+    }
+    return cnt;
+}
+
+const char *dtb_model(void)
+{
+    if (!g_dtb_ready)
+        return "Unknown";
+    if (dtb_get_string("/", "model", s_model, sizeof(s_model)))
+        return s_model;
+    return "Unknown";
+}
+
+const char *dtb_cpu_compat(void)
+{
+    if (!g_dtb_ready)
+        return "Unknown";
+    if (dtb_get_string("/cpus/cpu@0", "compatible", s_cpu, sizeof(s_cpu)))
+        return s_cpu;
+    return "Unknown";
+}
+
+__attribute__((weak)) bool dtb_translate_address_arch(const char *node_path, uint64_t raw_addr, uint64_t *out_phys)
+{
+    (void)node_path; (void)raw_addr; (void)out_phys;
+    return false;
+}
+
+__attribute__((weak)) bool dtb_resolve_irq_arch(const char *node_path, uint32_t child_irq, uint32_t *out_irq, uint32_t *out_flags)
+{
+    (void)node_path; (void)child_irq; (void)out_irq; (void)out_flags;
+    return false;
+}
+
+void dtb_shutdown(void)
+{
+    g_fdt = NULL;
+    g_dtb_ready = false;
 }

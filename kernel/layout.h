@@ -5,13 +5,10 @@
 #include <stddef.h>
 
 typedef struct {
-    uintptr_t start;   // physical start address of RAM region
-    uintptr_t end;     // physical end address (exclusive)
-} phys_region_t;
 
+    uintptr_t ram_start;
+    uintptr_t ram_end;
 
-
-typedef struct {
     uintptr_t dtb_start_pa;      // provided by bootloader
     void     *dtb_start_va;      // mapped VA used by DTB parser after identity removal
 

@@ -341,8 +341,7 @@ void kfree_device_cap(void *ptr)
 void kheap_dump(void) {
     KINFO("*** HEAP DUMP ***");
     // Print both PA and VA for clarity
-    KINFO("Heap PA: 0x%X - 0x%X", kernel_layout.heap_start_pa, kernel_layout.heap_end_pa);
-    KINFO("Heap VA: %p - %p", kernel_layout.heap_start_va, kernel_layout.heap_end_va);
+    KINFO("Heap: %p - %p", kernel_layout.heap_start_va, kernel_layout.heap_end_va);
     
     kmem_block_t* current = heap_head;
     int block_num = 0;
