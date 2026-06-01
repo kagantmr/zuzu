@@ -14,6 +14,8 @@
 #include "kernel/mm/vmm.h"
 #include "core/panic.h"
 #include "core/kprintf.h"
+#include "kernel/boot_info.h"
+#include <string.h>
 
 #define LOG_FMT(fmt) "(board) " fmt
 #include "core/log.h"
@@ -21,44 +23,82 @@
 uint32_t rtc_epoch;
 
 void board_init_devices(void) {
-    char path[128];
+    (void)0;
     uint64_t addr, size;
 
 
-    if (dtb_find_compatible("arm,cortex-a15-gic", path, sizeof(path))) {
-        uint64_t gicd, gicc, s_d, s_c;
-        dtb_get_reg_phys(path, 0, &gicd, &s_d);
-        dtb_get_reg_phys(path, 1, &gicc, &s_c);
+    {
+        uint64_t gicd = 0, s_d = 0, gicc = 0, s_c = 0;
+        bool found = false;
+        const dtb_dev_t *arr = boot_info_dev_array();
+        uint32_t cnt = boot_info_dev_count();
+        for (uint32_t i = 0; i < cnt; i++) {
+            const dtb_dev_t *d = &arr[i];
+            if (strcmp(d->compatible, "arm,cortex-a15-gic") == 0) {
+                gicd = d->phys;
+                s_d = d->size;
+                if (d->nregs >= 2) {
+                    gicc = d->phys2;
+                    s_c = d->size2;
+                }
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) panic("GIC not found");
 
         void *gicd_va = ioremap(gicd, s_d);
-        void *gicc_va = ioremap(gicc, s_c);
-        
+        void *gicc_va = ioremap(gicc ? gicc : gicd, s_c ? s_c : s_d);
+
         KDEBUG("GICv2 (GICD) re-mapped to %p", gicd_va);
         
         if (!gicd_va || !gicc_va) panic("Failed to ioremap GIC");
         
         gic_init((uintptr_t)gicd_va, (uintptr_t)gicc_va);
-    } else {
-        panic("GIC not found");
     }
 
-    if (dtb_find_compatible("arm,pl011", path, sizeof(path))) {
-        if (dtb_get_reg_phys(path, 0, &addr, &size)) {
+    {
+        bool found = false;
+        const dtb_dev_t *arr = boot_info_dev_array();
+        uint32_t cnt = boot_info_dev_count();
+        for (uint32_t i = 0; i < cnt; i++) {
+            const dtb_dev_t *d = &arr[i];
+            if (strcmp(d->compatible, "arm,pl011") == 0) {
+                addr = d->phys;
+                size = d->size;
+                found = true;
+                break;
+            }
+        }
+        if (found) {
             void *uart_va = ioremap((uintptr_t)addr, (size_t)size);
             if (!uart_va) panic("Failed to ioremap UART");
-            
+
             uart_set_driver(&pl011_driver, (uintptr_t)uart_va);
             kprintf_init(uart_putc);
-            
+
             KDEBUG("UART re-mapped to %p", uart_va);
+        } else {
+            KDEBUG("Oops! No UART in DTB, keeping early boot config");
         }
-    } else {
-        KDEBUG("Oops! No UART in DTB, keeping early boot config");
     }
     
-    if (dtb_find_compatible("arm,pl031", path, sizeof(path))) {
-        if (dtb_get_reg_phys(path, 0, &addr, &size)) {
-            // map RTC to get epoch then unmap
+    {
+        bool found = false;
+        const dtb_dev_t *arr = boot_info_dev_array();
+        uint32_t cnt = boot_info_dev_count();
+        for (uint32_t i = 0; i < cnt; i++) {
+            const dtb_dev_t *d = &arr[i];
+            if (strcmp(d->compatible, "arm,pl031") == 0) {
+                addr = d->phys;
+                size = d->size;
+                found = true;
+                break;
+            }
+        }
+
+        if (found) {
             void *rtc_va = ioremap((uintptr_t)addr, (size_t)size);
             if (!rtc_va) return;
 
@@ -66,11 +106,11 @@ void board_init_devices(void) {
             if (rtc_epoch == 0) {
                 KDEBUG("Oops! RTC epoch is 0 (check for anomalies)");
             }
-            
+
             iounmap(rtc_va);
+        } else {
+            KDEBUG("Oops! No RTC found in DTB, epoch is 0");
         }
-    } else {
-        KDEBUG("Oops! No RTC found in DTB, epoch is 0");
     }
 
     KDEBUG("Using ARM generic timer as tick source");

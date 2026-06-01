@@ -50,6 +50,11 @@ ifeq ($(DEBUG_BUILD), 1)
 else
     CFLAGS += -DNDEBUG -UDEBUG -UZUZU_BANNER_SHOW_ADDR
 endif
+ifeq ($(FANCY_PANIC), 1)
+    CFLAGS += -DFANCY_PANIC
+else
+    CFLAGS += -UFANCY_PANIC
+endif
 ifeq ($(DTB_DEBUG_WALK), 0)
     CFLAGS += -UDTB_DEBUG_WALK
 else

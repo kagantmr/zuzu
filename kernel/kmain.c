@@ -1,7 +1,5 @@
 #include "arch/arm/include/symbols.h"
 #include "arch/arm/include/irq.h"
-#include "arch/arm/include/gicv2.h"
-#include "arch/arm/timer/generic_timer.h"
 
 #include "arch/arm/mmu/mmu.h"
 #include "arch/arm/vexpress-a15/board.h"
@@ -13,11 +11,12 @@
 
 #include "core/kprintf.h"
 #include "core/panic.h"
+#include "core/version.h"
 #include <assert.h>
 
 #include "kernel/layout.h"
 #include "kernel/mm/pmm.h"
-#include "kernel/dtb/dtb.h"
+#include "boot_info.h"
 #include "kernel/mm/vmm.h"
 #include "kernel/time/tick.h"
 #include "kernel/sched/sched.h"
@@ -26,20 +25,22 @@
 #include "kernel/loader/initrd.h"
 #include <elf.h>
 #include "kernel/loader/initrd.h"
-
 #include <mem.h>
 #include <string.h>
 #include "kernel/mm/alloc.h"
 
 #include "kernel/syspage.h"
 
+
+#define STR(x) #x
+#define XSTR(x) STR(x)
+
+
 #define LOG_FMT(fmt) "(main) " fmt
 #include "core/log.h"
 
 extern kernel_layout_t kernel_layout;
 extern pmm_state_t pmm_state;
-extern phys_region_t phys_region;
-
 static inline uint32_t read_be32(const void *p)
 {
     const uint8_t *b = (const uint8_t *)p;
@@ -139,7 +140,7 @@ static void boot_program(const char *path, uint32_t flags)
     if (flags & PROC_FLAG_DEVMGR)
     {
         s_devmgr = process;
-        dtb_enum_devices(inject_device_cap);
+        boot_info_foreach_dev(inject_device_cap);
     }
 
     sched_add(process->thread);
@@ -287,97 +288,16 @@ static size_t parse_boot_manifest(const char *manifest_data, size_t manifest_siz
     return count;
 }
 
-static inline void perform_panic_tests(void)
-{
-    /**
-     * disclaimer: most of these tests will halt the kernel immediately, so don't uncomment ANY of these
-     * if you want your kernel to actually do something instead of saying "Oops! zuzu has halted.".
-     */
-
-    // test 1: undefined instruction panics the kernel with undef.
-    //__asm__ volatile(".word 0xe7f000f0");
-
-    // test 2: should give a prefetch abort, nothing is there to execute in 0.
-    //__asm__ volatile("mov lr, #0x0\n" "bx lr\n");
-
-    // test 3: simulate a reserved exception
-    //__asm__ volatile("ldr r0, =0x14\n" "bx r0\n");
-
-    // test 5: simulate a Fast Interrupt reQuest (FIQ).
-    // test as of 19 Feb 2026: data aborted at FFFFFFFC, because I didn't map the FIQ stack... might as well remove it idk
-    //__asm__ volatile("cps #0x11\n");
-
-    // test 6: a bad access in kernel code should panic with a data abort.
-    //__asm__ volatile("mov r0, #0x0\n" "str r0, [r0]\n");
-
-    // test 7: a syscall should do absolutely nothing in SVC mode, used to crash, fixed by ignoring in SVC mode.
-    //__asm__ volatile("svc #0");
-
-    // test 8: just manually halt the system
-    // panic("Test panic triggered (chewed wires)");
-}
-
 _Noreturn void kmain(void)
 {
-    __asm__ volatile("cpsid if");
-
-    kernel_layout.dtb_start_va = (void *)PA_TO_VA(kernel_layout.dtb_start_pa);
-    kernel_layout.stack_base_va = (uintptr_t)PA_TO_VA(kernel_layout.stack_base_pa);
-    kernel_layout.stack_top_va = (uintptr_t)PA_TO_VA(kernel_layout.stack_top_pa);
-    kernel_layout.kernel_start_va = (uintptr_t)_kernel_start;
-    kernel_layout.kernel_end_va = (uintptr_t)_kernel_end;
-
-    void *boot_dtb = kernel_layout.dtb_start_va;
-
-    uint32_t magic = read_be32((uint8_t *)boot_dtb + 0x00);
-    assert(magic == 0xD00DFEED);
-    (void)magic;
-
-    uint32_t totalsize = read_be32((uint8_t *)boot_dtb + 0x04);
-    assert(totalsize >= 0x28 && totalsize < (1024u * 1024u));
-
-    uint32_t dtb_pages = (totalsize + PAGE_SIZE - 1) / PAGE_SIZE;
-    uintptr_t dtb_pa = pmm_alloc_pages(dtb_pages);
-    if (!dtb_pa)
-    {
-        panic("Failed to allocate pages for DTB");
-    }
-
-    uint8_t *new_dtb = (uint8_t *)PA_TO_VA(dtb_pa);
-    memcpy(new_dtb, boot_dtb, totalsize);
-
-    kernel_layout.dtb_start_va = new_dtb;
-
-    vmm_remove_identity_mapping();
-
-    arch_mmu_init_ttbr1(vmm_get_kernel_as());
-    vmm_lockdown_kernel_sections();
-
-    if (kernel_layout.heap_start_va == NULL)
-    {
-        if (kernel_layout.heap_start_pa >= KERNEL_VA_BASE)
-            kernel_layout.heap_start_va = (void *)kernel_layout.heap_start_pa;
-        else
-            kernel_layout.heap_start_va = (void *)PA_TO_VA(kernel_layout.heap_start_pa);
-    }
-    if (kernel_layout.heap_end_va == NULL)
-    {
-        if (kernel_layout.heap_end_pa >= KERNEL_VA_BASE)
-            kernel_layout.heap_end_va = (void *)kernel_layout.heap_end_pa;
-        else
-            kernel_layout.heap_end_va = (void *)PA_TO_VA(kernel_layout.heap_end_pa);
-    }
-
-    dtb_init(kernel_layout.dtb_start_va);
+    KINFO("Booting zuzu version %s", ZUZU_VERSION);
+    /* DTB and boot_info were initialized in early(); do not touch DTB again */
 
     irq_init();
     board_init_devices();
 
     sched_init();
-    // Keep IRQs globally masked during early boot setup and DTB enumeration.
-    // User mode will run with its own CPSR after the first context switch.
-
-    perform_panic_tests();
+    arch_global_irq_enable();
 
     syspage_init();
 
@@ -421,24 +341,11 @@ _Noreturn void kmain(void)
         }
     }
 
-    /**
-     * Hacky as hell I know but DTB enumeration is absolutely horrible with
-     * IRQs enabled. Random panics happen left and right. It's not like we'll reach this section
-     * ever again so I'm enabling interrupts as late as possible.
-     */
-    arch_global_irq_enable();
-
     register_tick_callback(set_resched_flag);
 
-    // Kick off the first runnable userspace task; later preemption comes from timer ticks.
     KINFO("Entering idle");
 
     schedule();
-    // uint64_t idle_ticks = 0;
-    while (1)
-    {
-        sched_reap();
-        sched_idle_wait();
-        schedule();
-    }
+    
+    panic("Unreachable: " __FILE__ ":" XSTR(__LINE__));
 }

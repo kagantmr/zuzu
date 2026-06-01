@@ -11,7 +11,6 @@
 #include "core/log.h"
 
 pmm_state_t pmm_state;
-extern phys_region_t phys_region;
 extern kernel_layout_t kernel_layout;
 extern void syspage_update_mem(void);
 spinlock_t pmm_lock = SPINLOCK_INIT;
@@ -136,8 +135,8 @@ static void pmm_reserve_boot_regions(void) {
 
 void pmm_init(void) {
     // Compute PFN range from phys_region
-    pmm_state.pfn_base    = phys_region.start / PAGE_SIZE;
-    pmm_state.pfn_end     = phys_region.end / PAGE_SIZE;
+    pmm_state.pfn_base    = kernel_layout.ram_start / PAGE_SIZE;
+    pmm_state.pfn_end     = kernel_layout.ram_end / PAGE_SIZE;
     pmm_state.total_pages = pmm_state.pfn_end - pmm_state.pfn_base;
     pmm_state.free_pages  = pmm_state.total_pages;
 
@@ -149,7 +148,7 @@ void pmm_init(void) {
 
     // Sanity checks
     assert(bitmap_end_pa <= kernel_layout.stack_base_pa);
-    assert(bitmap_end_pa <= phys_region.end);
+    assert(bitmap_end_pa <= kernel_layout.ram_end);
 
     // Record in layout (physical placement)
     kernel_layout.bitmap_start_pa = bitmap_start_pa;

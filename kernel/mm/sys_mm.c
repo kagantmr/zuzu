@@ -13,7 +13,6 @@
 #include "kernel/mm/alloc.h"
 
 extern thread_t *current_thread;
-extern phys_region_t phys_region;
 
 void memmap(exception_frame_t *frame)
 {
