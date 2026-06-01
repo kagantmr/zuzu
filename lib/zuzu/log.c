@@ -46,8 +46,7 @@ void log_write(log_level_t level, const char *tag, const char *fmt, ...) {
     const char *lvl_style = level_to_style(level);
     const char *safe_tag = tag ? tag : "";
     syspage_t *sp = (syspage_t *)SYSPAGE;
-    unsigned long long uptime_ms = (unsigned long long)sp->uptime_ms;
-    unsigned long long uptime_s = uptime_ms / 1000ULL;
+    unsigned long long uptime_s = (unsigned long long)(sp->uptime_ticks / sp->tick_hz);
 
     char msg_buf[192];
     va_list ap;
