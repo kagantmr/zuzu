@@ -160,11 +160,11 @@ addrspace_t* as_create(addrspace_type_t type) {
 
 void vmm_lockdown_kernel_sections(void) {
     vaddr_t *l1 = (vaddr_t *)PA_TO_VA(g_kernel_as->ttbr0_pa);
-    size_t patched_sections = 0;
-    size_t patched_pages = 0;
+ 
+    size_t start_idx = kernel_layout.kernel_start_va >> 20;
+    size_t end_idx   = (kernel_layout.kernel_end_va + (1 << 20) - 1) >> 20;
 
-    size_t start_idx = (KERNEL_VA_BASE >> 20);  
-    for (size_t i = start_idx; i < 4096; i++) {
+    for (size_t i = start_idx; i < end_idx; i++) {
         uint32_t entry = l1[i];
 
         // Section descriptor (bits[1:0] == 0b10)
@@ -173,7 +173,6 @@ void vmm_lockdown_kernel_sections(void) {
             entry &= ~(0x3u << 10);
             entry |=  (0x1u << 10);
             l1[i] = entry;
-            patched_sections++;
             continue;
         }
 
@@ -194,16 +193,16 @@ void vmm_lockdown_kernel_sections(void) {
                 pte &= ~(0x3u << 4);
                 pte |=  (0x1u << 4);
                 l2[j] = pte;
-                patched_pages++;
             }
         }
     }
     
+    arch_mmu_barrier();
+
     // Flush TLB so old permissions are gone
     arch_mmu_flush_tlb();
 
-    (void)patched_sections;
-    (void)patched_pages;
+    arch_mmu_barrier();
 }
 
 void as_destroy(addrspace_t* as) {

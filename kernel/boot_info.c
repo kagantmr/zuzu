@@ -38,10 +38,9 @@ static void collect_dev_cb(const char *compatible, const char *path, uint64_t ph
     g_boot_info.count++;
 }
 
-void boot_info_init_from_dtb(const void *dtb_base)
+void boot_info_init_from_dtb()
 {
-    if (!dtb_base)
-        return;
+
     /* dtb subsystem must already be initialized. */
     uint32_t count = dtb_count_devices();
     if (count == 0)
@@ -68,20 +67,7 @@ void boot_info_init_from_dtb(const void *dtb_base)
         if (g_boot_info.cpu_compat)
             strcpy(g_boot_info.cpu_compat, c);
     }
-
-    /* populate device list by iterating DTB devices */
     dtb_enum_devices(collect_dev_cb);
-
-    paddr_t dtb_pa = (paddr_t)dtb_base;
-    const void *dtb_va = (const void *)PA_TO_VA(dtb_pa);
-    int dtb_totalsz = fdt_totalsize(dtb_va);
-    if (dtb_totalsz > 0) {
-        pmm_unmark_range(dtb_pa, dtb_pa + dtb_totalsz);
-        KDEBUG(LOG_FMT("Unmarked DTB pages at PA [%08x - %08x)"), (unsigned int)dtb_pa, (unsigned int)(dtb_pa + dtb_totalsz));
-    } else {
-        KERROR(LOG_FMT("DTB totalsize invalid, won't unmark DTB pages"));
-    }
-
     /* if fewer devices than predicted, we leave the array sized to count */
     /* Shutdown DTB access to prevent any future libfdt reads */
     dtb_shutdown();
