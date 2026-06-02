@@ -12,6 +12,8 @@ extern char _kernel_phys_start[];
 extern char _kernel_phys_end[];
 extern char _boot_start[];
 extern char _boot_end[];
+extern char __stack_region_base__[];
+extern char __stack_region_end__[];
 extern char __svc_stack_base__[];
 extern char __svc_stack_top__[];
 extern char __irq_stack_base__[];

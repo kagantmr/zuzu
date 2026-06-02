@@ -18,7 +18,6 @@
 kernel_layout_t kernel_layout;
 extern pmm_state_t pmm_state;
 extern addrspace_t *g_kernel_as;
-#define BOOT_PA_END    ((paddr_t)_boot_end)
 #define SECTION_NORMAL_DESC 0x11C0Eu
 
 #define LOG_FMT(fmt) "(early) " fmt
@@ -63,6 +62,12 @@ static void vfp_init() {
         "vmsr fpexc, %0" ::"r"(1u << 30));
 }
 
+int rdcyc() {
+    uint32_t value;
+    __asm__ volatile("mrc p15, 0, %0, c9, c13, 0" : "=r"(value));
+    return value;
+}
+
 _Noreturn void early(void *dtb_ptr)
 {
     dtb_init((const void *)PA_TO_VA((uintptr_t)dtb_ptr));
@@ -92,12 +97,12 @@ _Noreturn void early(void *dtb_ptr)
     kernel_layout.kernel_start_va = (uintptr_t)PA_TO_VA(kernel_layout.kernel_start_pa);
     kernel_layout.kernel_end_va = (uintptr_t)PA_TO_VA(kernel_layout.kernel_end_pa);
 
-    boot_info_init_from_dtb(dtb_ptr);
+    boot_info_init_from_dtb();
 
     /* The boot-only sections are no longer needed once the PMM-backed
      * kernel L1 is live and DTB data has been copied out.
      */
-    pmm_unmark_range(KERNEL_PA_BASE, BOOT_PA_END);
+    pmm_unmark_range(kernel_layout.dtb_start_pa, (paddr_t)_boot_end);
 
     vfp_init();
     pmu_init();
@@ -109,11 +114,8 @@ _Noreturn void early(void *dtb_ptr)
     irq_init();
     board_init_devices();
 
-    KINFO("RAM: [%08x - %08x)", (unsigned int)kernel_layout.ram_start, (unsigned int)kernel_layout.ram_end);
-    KINFO("PMM: %zu total pages, %zu free pages", pmm_state.total_pages, pmm_state.free_pages);
-    KINFO("Boot info initialized from DTB: model=%s cpu_compat=%s dev_count=%u",
-          boot_info_model(), boot_info_cpu_compat(), boot_info_dev_count());
-    KINFO("Freed boot space (%u bytes)", (unsigned int)(BOOT_PA_END - KERNEL_PA_BASE));
+    KINFO("Freed DTB and boot space (%zu KiB)", ((paddr_t)_boot_end - kernel_layout.dtb_start_pa) / 1024);
+    KINFO("Boot info initialized from DTB: dev_count=%u", boot_info_dev_count());
     KINFO("Handoff to kmain");
     kmain();
 }

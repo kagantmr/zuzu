@@ -122,15 +122,13 @@ static paddr_t pmm_alloc_page_locked(void)
 }
 
 static void pmm_reserve_boot_regions(void) {
-    pmm_mark_range(kernel_layout.dtb_start_pa,  kernel_layout.kernel_start_pa);
+    pmm_mark_range((paddr_t)_boot_start, (paddr_t)_boot_end);         
+    pmm_mark_range(kernel_layout.dtb_start_pa, (paddr_t)_boot_start);
     pmm_mark_range(kernel_layout.kernel_start_pa, kernel_layout.kernel_end_pa);
     pmm_mark_range(kernel_layout.bitmap_start_pa, kernel_layout.bitmap_end_pa);
     
     // All mode stacks
-    pmm_mark_range((uintptr_t)__svc_stack_base__, (uintptr_t)__svc_stack_top__);
-    pmm_mark_range((uintptr_t)__irq_stack_base__, (uintptr_t)__irq_stack_top__);
-    pmm_mark_range((uintptr_t)__abt_stack_base__, (uintptr_t)__abt_stack_top__);
-    pmm_mark_range((uintptr_t)__und_stack_base__, (uintptr_t)__und_stack_top__);
+    pmm_mark_range((paddr_t)__stack_region_base__, (paddr_t)__stack_region_end__);
 }
 
 void pmm_init(void) {
