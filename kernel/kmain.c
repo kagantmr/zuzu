@@ -293,7 +293,6 @@ _Noreturn void kmain(void)
     KINFO("Booting zuzu version %s", ZUZU_VERSION);
     /* DTB and boot_info were initialized in early(); do not touch DTB again */
 
-
     sched_init();
     arch_global_irq_enable();
 
@@ -315,14 +314,7 @@ _Noreturn void kmain(void)
     }
     else
     {
-        KWARN("Boot manifest not found in initrd");
-        // Fallback to hardcoded defaults
-        static const boot_program_t default_programs[] = {
-            {"bin/sysd", PROC_FLAG_INIT, 0},
-            {"bin/devmgr", PROC_FLAG_DEVMGR, 0},
-        };
-        boot_count = sizeof(default_programs) / sizeof(default_programs[0]);
-        memcpy(boot_programs, default_programs, sizeof(default_programs));
+        panic("Boot manifest not found");
     }
 
     // Spawn boot programs from manifest
