@@ -12,6 +12,8 @@
 #include <stdbool.h>
 #include "kernel/mm/vmm.h"
 
+#define SECTION_SIZE 0x100000
+
 /**
  * @brief Allocate and initialize an L1 page table.
  * @return Physical address of the L1 table, or 0 on failure.
