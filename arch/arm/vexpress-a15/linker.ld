@@ -2,7 +2,7 @@ ENTRY(_start)
 
 KERNEL_PA_BASE = 0x80000000;        /* Physical RAM base */
 KERNEL_VA_BASE = 0xC0000000;        /* Virtual kernel base (higher-half) */
-BOOT_OFFSET    = 0x10000;           /* Offset from base (64KB for DTB space) */
+BOOT_OFFSET    = 0xC000;           /* Offset from base (48KB for DTB space) */
 
 /* Boot physical address */
 BOOT_PA        = KERNEL_PA_BASE + BOOT_OFFSET;     /* 0x80010000 */
@@ -24,7 +24,6 @@ SECTIONS
     _boot_start = .;
 
     .text.boot : {
-        /* _start MUST come first - it's the entry point */
         KEEP(*_start.o(.text.boot))
         KEEP(*_start.o(.text.boot.*))
         /* Then other boot code */
@@ -98,8 +97,6 @@ SECTIONS
 
     . = ALIGN(16);
 
-    /* Stack base (top of low RAM area) */
-    __stack_region_base__ = 0x80800000;
 
     /* Per-mode stack sizes */
     __svc_stack_size__   = 0x2000;   /* 8 KB */
@@ -107,24 +104,21 @@ SECTIONS
     __abt_stack_size__   = 0x400;    /* 1 KB */
     __und_stack_size__   = 0x400;    /* 1 KB */
 
-    /* SVC stack */
-    __svc_stack_top__  = __stack_region_base__;
+    __stack_region_end__ = 0x80800000;
+
+    __svc_stack_top__  = __stack_region_end__;     /* ← was __stack_region_base__ */
     __svc_stack_base__ = __svc_stack_top__ - __svc_stack_size__;
 
-    /* IRQ stack */
     __irq_stack_top__  = __svc_stack_base__;
     __irq_stack_base__ = __irq_stack_top__ - __irq_stack_size__;
 
-    /* Abort stack */
     __abt_stack_top__  = __irq_stack_base__;
     __abt_stack_base__ = __abt_stack_top__ - __abt_stack_size__;
 
-    /* Undefined stack */
     __und_stack_top__  = __abt_stack_base__;
     __und_stack_base__ = __und_stack_top__ - __und_stack_size__;
 
-    /* Bottom of all stacks (for sanity checks) */
-    __stack_region_end__ = __und_stack_base__;
+    __stack_region_base__ = __und_stack_base__;    /* low end, for pmm_mark_range */
 
     /* Discard unwanted sections */
     /DISCARD/ : {
