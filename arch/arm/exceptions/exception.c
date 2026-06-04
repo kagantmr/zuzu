@@ -231,39 +231,40 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
         __asm__ volatile("mrc p15, 0, %0, c5, c0, 0" : "=r"(dfsr));
 
         bool from_user = (frame->return_cpsr & 0x1F) == 0x10;
-        bool from_svc = (frame->return_cpsr & 0x1F) == 0x13;
+        bool from_svc  = (frame->return_cpsr & 0x1F) == 0x13;
 
         uint32_t fault_status = (dfsr & 0xF) | ((dfsr >> 6) & 0x10);
         bool is_translation = (fault_status == 0x05 || fault_status == 0x07);
 
-        if ((from_user || from_svc) && current_process && current_process->as && dfar < KSTACK_REGION_BASE)
+        /* Kernel stack overflow, guard page hit regardless of source mode */
+        if (dfar >= KSTACK_REGION_BASE && dfar < KSTACK_REGION_TOP)
         {
-            // Check if it hit a kernel stack guard page (low 4KB of each 8KB slot)
-            if (dfar >= KSTACK_REGION_BASE && dfar < KSTACK_REGION_BASE + 64 * 0x2000)
+            uint32_t offset_in_slot = (dfar - KSTACK_REGION_BASE) % KSTACK_SLOT_SIZE;
+            if (offset_in_slot < 0x1000)
             {
-                uint32_t offset_in_slot = (dfar - KSTACK_REGION_BASE) % 0x2000;
-                if (offset_in_slot < 0x1000)
-                {
-                    panic_fault_ctx = (panic_fault_context_t){
-                        .valid = 1,
-                        .far = dfar,
-                        .fsr = dfsr,
-                        .fault_type = "Data abort (kernel stack overflow)",
-                        .fault_decoded = decode_fault_status(dfsr),
-                        .access_type = (dfsr & (1 << 11)) ? "Write" : "Read",
-                        .frame = frame,
-                    };
-                    panic("Kernel stack overflow");
-                }
+                panic_fault_ctx = (panic_fault_context_t){
+                    .valid = 1,
+                    .far = dfar,
+                    .fsr = dfsr,
+                    .fault_type = "Data abort (kernel stack overflow)",
+                    .fault_decoded = decode_fault_status(dfsr),
+                    .access_type = (dfsr & (1 << 11)) ? "Write" : "Read",
+                    .frame = frame,
+                };
+                panic("Kernel stack overflow");
             }
+        }
+
+        /*
+         * User or SVC mode abort where the fault address is in user VA space
+         * (< KERNEL_VA_BASE).  A fault in kernel VA while in SVC mode means
+         * the kernel itself accessed a bad address is always a panic.
+         */
+        if ((from_user || from_svc) && current_process && current_process->as
+            && dfar < KERNEL_VA_BASE)
+        {
             if (is_translation)
             {
-                /**
-                 * The actual mapping part of the lazy mapping. Retrieve the current as
-                 * then retrieve the region being accessed. If the permissions are correct,
-                 * then allocate a page, map it in, and return to the faulting instruction.
-                 * If those fail, kill the process or panic depending on the source of the fault.
-                 */
                 addrspace_t *as = current_process->as;
                 for (uint32_t i = 0; i < as->regions.len; i++)
                 {
@@ -271,13 +272,13 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
                     if (dfar >= r->vaddr_start && dfar < r->vaddr_start + r->size)
                     {
                         if (r->flags & VM_FLAG_GUARD)
-                            continue; // guard pages should never be lazily mapped
+                            continue;
                         if (r->memtype == VM_MEM_DEVICE)
-                            continue; // mmio regions should never be lazily mapped
+                            continue;
                         if (!(dfsr & (1 << 11)) && !(r->prot & VM_PROT_READ))
-                            continue; // read fault but region doesn't have read permission
+                            continue;
                         if ((dfsr & (1 << 11)) && !(r->prot & VM_PROT_WRITE))
-                            continue; // write fault but region doesn't have write permission
+                            continue;
                         uintptr_t page_va = align_down(dfar, PAGE_SIZE);
                         if (!vmm_fault_page(as, r, page_va))
                             break;
@@ -287,7 +288,6 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
             }
             if (from_user)
             {
-                // not translation fault or lazy mapping failed, terminate
                 KERROR("Oops! '%s' (PID %d, TID %d) killed - data abort @ 0x%08X (%s %s)\n",
                        current_process->name, current_process->pid, current_thread->tid, dfar,
                        (dfsr & (1 << 11)) ? "write" : "read",
@@ -296,10 +296,9 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
                 process_kill(current_process, -1);
                 schedule();
             }
-            else if (from_svc)
+            else /* from_svc, dfar in user VA means bad pointer passed to syscall */
             {
-                // bad pointer in syscall, log and kill process. unlikely to happen since validation and copy functions should catch these.
-                KERROR("Data abort in kernel mode while handling SVC from '%s' (PID %d, TID %d) @ 0x%08X (%s %s)\n",
+                KERROR("Bad user pointer in SVC from '%s' (PID %d, TID %d) @ 0x%08X (%s %s)\n",
                        current_process->name, current_process->pid, current_thread->tid, dfar,
                        (dfsr & (1 << 11)) ? "write" : "read",
                        decode_fault_status(dfsr));
@@ -310,6 +309,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
         }
         else
         {
+            /* Kernel VA fault, or no address space, or non-SVC kernel mode: panic */
             panic_fault_ctx = (panic_fault_context_t){
                 .valid = 1,
                 .far = dfar,
