@@ -761,6 +761,10 @@ static void panic_print_irq(void)
         panic_line("  (none)");
 
     /* Pending IRQs: skip SGIs; cross-reference enabled bitmap */
+    uint32_t cpsr;
+    __asm__ volatile("mrs %0, cpsr" : "=r"(cpsr));
+    int in_irq_mode = ((cpsr & 0x1Fu) == 0x12u);
+
     panic_nl();
     panic_line("pending IRQs:");
     int any_pending = 0;
@@ -779,11 +783,11 @@ static void panic_print_irq(void)
             if (!has_handler) {
                 snprintf(line, sizeof(line),
                          "  IRQ %-3u" C_RED "  *** NO HANDLER ***" C_RESET, irq);
-            } else if (also_enabled) {
+            } else if (also_enabled && in_irq_mode) {
                 snprintf(line, sizeof(line),
                          "  IRQ %-3u" C_RED "  *** triggered this panic ***" C_RESET, irq);
             } else {
-                snprintf(line, sizeof(line), "  IRQ %-3u", irq);
+                snprintf(line, sizeof(line), "  IRQ %-3u  (pending, unserviced)", irq);
             }
             panic_line(line);
             any_pending = 1;
