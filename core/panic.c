@@ -1,7 +1,6 @@
-// panic.c - Kernel panic handling and panic screen rendering
+// panic.c - Kernel panic screen
 
 #include "core/panic.h"
-#include "core/kprintf.h"
 #include "arch/arm/include/irq.h"
 #include "arch/arm/include/symbols.h"
 #include "drivers/uart/uart.h"
@@ -10,29 +9,68 @@
 #include "kernel/mm/pmm.h"
 #include "kernel/proc/process.h"
 #include "kernel/sched/sched.h"
+#include "ksym.h"
+#include <list.h>
 #include <string.h>
 #include <snprintf.h>
 #include <stdint.h>
-#include "ksym.h"
+
+#ifdef PANIC_SECTION_IRQ
+#include "arch/arm/include/gicv2.h"
+#include "kernel/irq/sys_irq.h"
+extern volatile uint32_t *gicd_base;
+extern volatile uint32_t *gicc_base;
+extern irq_handler_t      handler_table[MAX_IRQS];
+#endif
 
 extern kernel_layout_t kernel_layout;
 extern pmm_state_t     pmm_state;
+extern list_head_t     sleep_queue;
 
 panic_fault_context_t panic_fault_ctx;
 
-#define BACKTRACE_MAX_DEPTH       16
-#define PANIC_BOX_WIDTH           76  /* total box width including borders */
-#define PANIC_COL_WIDTH           38  /* each column half-width             */
-#define PANIC_COL_MAX_LINES       24
-#define PANIC_READY_SNAPSHOT_MAX   4
-#define PANIC_BT_SHOWN_MAX         8
+/* ------------------------------------------------------------------ */
+/* Constants                                                           */
+/* ------------------------------------------------------------------ */
 
-/* Colors — text only, no background */
-#define C_GOLD    "\033[33m"
-#define C_WHITE   "\033[97m"
-#define C_GREY    "\033[37m"
-#define C_DIM     "\033[90m"
-#define C_RESET   "\033[0m"
+#define BACKTRACE_MAX_DEPTH  16
+#define PANIC_READY_MAX       8
+#define PANIC_SLEEP_MAX       8
+#define PANIC_HANDLE_MAX     16
+#define RULE_COL             72
+#define LINE_BUF            160
+
+/*
+ * Lowest kernel virtual address — used for pointer sanity checks.
+ * Override in arch-specific config if needed.
+ */
+#ifndef KERNEL_VA_BASE
+#define KERNEL_VA_BASE 0xC0000000u
+#endif
+#ifndef MMIO_VA_BASE
+#define MMIO_VA_BASE   0xF0000000u
+#endif
+#ifndef USER_VA_TOP
+#define USER_VA_TOP    0x80000000u
+#endif
+
+/* ------------------------------------------------------------------ */
+/* Colors                                                              */
+/* ------------------------------------------------------------------ */
+
+#define C_YELLOW "\033[33m"   /* section headers */
+#define C_GRAY   "\033[37m"   /* normal content  */
+#define C_DIM    "\033[90m"   /* low-emphasis    */
+#define C_RED    "\033[91m"   /* errors only     */
+#define C_RESET  "\033[0m"
+
+/* Legacy aliases used in the logo */
+#define C_AMBER  C_YELLOW
+#define C_WHITE  C_GRAY
+
+/* ------------------------------------------------------------------ */
+/* Low-level output                                                    */
+/* ------------------------------------------------------------------ */
 
 static void panic_puts(const char *s)
 {
@@ -40,225 +78,101 @@ static void panic_puts(const char *s)
         uart_putc(*s++);
 }
 
-/* ============================================================
- * Full-screen rendering helpers
- * ============================================================ */
-#ifdef PANIC_FULL_SCREEN
-
-static void panic_pad(int n)
+static void panic_nl(void)
 {
-    for (int i = 0; i < n; i++)
-        uart_putc(' ');
+    uart_putc('\n');
 }
 
-/*
- * Print one line inside the full-width box:
- *   "| <content><padding> |"
- * visible_len() skips ANSI escape sequences when measuring.
- */
-static void panic_box_line(const char *content)
+/* Section header: yellow name + dash rule to column RULE_COL */
+static void panic_section(const char *name)
 {
-    int inner = PANIC_BOX_WIDTH - 4;
-    int vlen  = visible_len(content);
-    int pad   = inner - vlen;
-    if (pad < 0) pad = 0;
-
-    panic_puts(C_GREY "| " C_RESET);
-    panic_puts(content);
-    panic_pad(pad);
-    panic_puts(C_GREY " |" C_RESET "\n");
-}
-
-/* Full-width horizontal rule: "+----...----+" */
-static void panic_box_rule(void)
-{
-    panic_puts(C_GREY "+");
-    for (int i = 0; i < PANIC_BOX_WIDTH - 2; i++)
+    panic_puts("\n" C_YELLOW);
+    panic_puts(name);
+    int n = (int)strlen(name);
+    uart_putc(' ');
+    for (int i = n + 1; i < RULE_COL; i++)
         uart_putc('-');
-    panic_puts("+" C_RESET "\n");
+    panic_puts(C_RESET "\n");
 }
 
-/* ============================================================
- * Column-based side-by-side rendering
- * ============================================================ */
-
-typedef struct {
-    char lines[PANIC_COL_MAX_LINES][96];
-    int  count;
-} panic_col_t;
-
-static panic_col_t _col_left, _col_right;
-
-static int _col_append(char *dst, int pos, int max, const char *s)
+/* 2-space indent, gray content */
+static void panic_line(const char *s)
 {
-    while (*s && pos < max - 1)
-        dst[pos++] = *s++;
-    return pos;
+    panic_puts("  " C_GRAY);
+    panic_puts(s);
+    panic_puts(C_RESET "\n");
 }
 
-static void col_init(panic_col_t *c) { c->count = 0; }
+/* ------------------------------------------------------------------ */
+/* CPSR / mode decoding                                                */
+/* ------------------------------------------------------------------ */
 
-static void col_line(panic_col_t *c, const char *content)
+static const char *cpsr_mode_name(uint32_t cpsr)
 {
-    if (c->count >= PANIC_COL_MAX_LINES) return;
-    char *d = c->lines[c->count];
-    int   p = 0;
-    p = _col_append(d, p, 96, C_GREY "| " C_RESET);
-    p = _col_append(d, p, 96, content);
-    int pad = (PANIC_COL_WIDTH - 4) - visible_len(content);
-    if (pad < 0) pad = 0;
-    for (int i = 0; i < pad && p < 93; i++) d[p++] = ' ';
-    p = _col_append(d, p, 96, C_GREY " |" C_RESET);
-    d[p] = '\0';
-    c->count++;
-}
-
-static void col_rule(panic_col_t *c)
-{
-    if (c->count >= PANIC_COL_MAX_LINES) return;
-    char *d = c->lines[c->count];
-    int   p = 0;
-    p = _col_append(d, p, 96, C_GREY);
-    d[p++] = '+';
-    for (int i = 0; i < PANIC_COL_WIDTH - 2; i++) d[p++] = '-';
-    d[p++] = '+';
-    p = _col_append(d, p, 96, C_RESET);
-    d[p] = '\0';
-    c->count++;
-}
-
-static void col_header(panic_col_t *c, const char *title)
-{
-    char tmp[64];
-    snprintf(tmp, sizeof(tmp), C_GOLD "%s" C_RESET, title);
-    col_line(c, tmp);
-}
-
-/*
- * Print left and right column lines side-by-side.
- * Pads with spaces if one column is shorter than the other.
- * Each pair of lines totals PANIC_BOX_WIDTH (38+38) characters.
- */
-static void panic_render_pair(panic_col_t *left, panic_col_t *right)
-{
-    int max = left->count > right->count ? left->count : right->count;
-    for (int i = 0; i < max; i++) {
-        if (i < left->count) {
-            panic_puts(left->lines[i]);
-        } else {
-            panic_puts(C_GREY "| " C_RESET);
-            panic_pad(PANIC_COL_WIDTH - 4);
-            panic_puts(C_GREY " |" C_RESET);
-        }
-
-        if (i < right->count) {
-            panic_puts(right->lines[i]);
-        } else {
-            panic_puts(C_GREY "| " C_RESET);
-            panic_pad(PANIC_COL_WIDTH - 4);
-            panic_puts(C_GREY " |" C_RESET);
-        }
-
-        panic_puts("\n");
+    switch (cpsr & 0x1Fu) {
+    case 0x10u: return "USR";
+    case 0x11u: return "FIQ";
+    case 0x12u: return "IRQ";
+    case 0x13u: return "SVC";
+    case 0x16u: return "MON";
+    case 0x17u: return "ABT";
+    case 0x1Au: return "HYP";
+    case 0x1Bu: return "UND";
+    case 0x1Fu: return "SYS";
+    default:    return "???";
     }
 }
 
-#endif /* PANIC_FULL_SCREEN (rendering helpers) */
-
-/* ============================================================
- * Backtrace walker
- * ============================================================ */
-
-typedef struct {
-    uint32_t addresses[BACKTRACE_MAX_DEPTH];
-    int      depth;
-} backtrace_t;
-
-typedef struct {
-    size_t free_payload_bytes;
-    size_t used_payload_bytes;
-    size_t total_payload_bytes;
-    size_t block_count;
-    size_t free_blocks;
-    size_t used_blocks;
-} panic_heap_stats_t;
-
-static void backtrace_walk(backtrace_t *bt)
+static void cpsr_decode(char *buf, int bufsz, uint32_t cpsr)
 {
-    bt->depth = 0;
-
-    uint32_t fp;
-    __asm__ volatile("mov %0, r11" : "=r"(fp));
-
-    uintptr_t stack_lo = (uintptr_t)__svc_stack_base__;
-    uintptr_t stack_hi = (uintptr_t)__svc_stack_top__;
-
-    if (kernel_layout.stack_base_va != 0 && kernel_layout.stack_top_va != 0) {
-        stack_lo = kernel_layout.stack_base_va;
-        stack_hi = kernel_layout.stack_top_va;
-    }
-
-    while (bt->depth < BACKTRACE_MAX_DEPTH) {
-        if (fp == 0 || (fp & 0x3) || fp < stack_lo || fp >= stack_hi)
-            break;
-        /* GCC ARM AAPCS prologue: [fp] = saved lr, [fp-4] = saved fp */
-        uint32_t lr      = *(uint32_t *)(fp);
-        bt->addresses[bt->depth++] = lr;
-        uint32_t prev_fp = *(uint32_t *)(fp - 4);
-        if (prev_fp <= fp)
-            break;
-        fp = prev_fp;
-    }
+    snprintf(buf, (size_t)bufsz,
+             "[%s %s irq=%s fiq=%s %c%c%c%c]",
+             cpsr_mode_name(cpsr),
+             (cpsr & (1u << 5))  ? "Thumb" : "ARM",
+             (cpsr & (1u << 7))  ? "dis"   : "en",
+             (cpsr & (1u << 6))  ? "dis"   : "en",
+             (cpsr >> 31) & 1u   ? 'N'     : 'n',
+             (cpsr >> 30) & 1u   ? 'Z'     : 'z',
+             (cpsr >> 29) & 1u   ? 'C'     : 'c',
+             (cpsr >> 28) & 1u   ? 'V'     : 'v');
 }
 
-static void panic_heap_snapshot(panic_heap_stats_t *st)
+/* ------------------------------------------------------------------ */
+/* FAR range annotation                                                */
+/* ------------------------------------------------------------------ */
+
+static const char *far_region(uint32_t addr)
 {
-    memset(st, 0, sizeof(*st));
-    kmem_block_t *block = heap_head;
-    size_t seen = 0;
-    while (block && seen < 8192) {
-        st->block_count++;
-        st->total_payload_bytes += block->size;
-        if (block->free) {
-            st->free_payload_bytes += block->size;
-            st->free_blocks++;
-        } else {
-            st->used_payload_bytes += block->size;
-            st->used_blocks++;
-        }
-        block = block->next;
-        seen++;
-    }
+    extern char _kernel_start[], _kernel_end[];
+
+    if (addr >= (uint32_t)(uintptr_t)_kernel_start &&
+        addr <  (uint32_t)(uintptr_t)_kernel_end)
+        return "kernel text/data";
+
+    if (kernel_layout.stack_base_va &&
+        addr >= (uint32_t)kernel_layout.stack_base_va &&
+        addr <  (uint32_t)kernel_layout.stack_top_va)
+        return "kernel stack";
+
+    if (kernel_layout.heap_start_va &&
+        addr >= (uint32_t)(uintptr_t)kernel_layout.heap_start_va &&
+        addr <  (uint32_t)(uintptr_t)kernel_layout.heap_end_va)
+        return "kernel heap";
+
+    if (addr >= MMIO_VA_BASE)
+        return "MMIO / high kernel";
+
+    if (addr < USER_VA_TOP)
+        return "user space";
+
+    return NULL;
 }
 
-/* ============================================================
- * Logo (unchanged)
- * ============================================================ */
+/* ------------------------------------------------------------------ */
+/* State name helpers                                                  */
+/* ------------------------------------------------------------------ */
 
-#ifdef PANIC_FULL_SCREEN
-static const char *panic_logo[] = {
-    "      " C_WHITE "@@@@@@" C_RESET,
-    "        " C_WHITE "%@@" C_RESET "         " C_WHITE "%@@@  @" C_RESET,
-    "       " C_WHITE "@@" C_RESET "           " C_WHITE "@@" C_RESET "   " C_WHITE "@@" C_RESET,
-    "     " C_WHITE "@@" C_RESET "             " C_WHITE "@" C_RESET "    " C_WHITE "@=" C_RESET,
-    "    " C_WHITE "@@@@@@@@@@@@@@" C_RESET " " C_WHITE "@@" C_RESET "   " C_WHITE "@@" C_RESET,
-    "        " C_WHITE "@@" C_RESET "          " C_WHITE "@@@@" C_RESET,
-    "        " C_WHITE "@@" C_RESET "             " C_WHITE "@" C_RESET,
-    "        " C_WHITE "@@  %@@@@@@@  *@" C_RESET,
-    "        " C_WHITE "@@  @" C_RESET "      " C_WHITE "@@ @@" C_RESET,
-    "        " C_WHITE "@@  @" C_RESET "      " C_WHITE "@@ @@" C_RESET,
-    "         " C_WHITE "@@@" C_RESET "        " C_WHITE "@@@" C_RESET,
-};
-
-#define PANIC_LOGO_LINES (sizeof(panic_logo) / sizeof(panic_logo[0]))
-#define PANIC_LOGO_WIDTH 30  /* approximate visible width */
-#endif
-
-/* ============================================================
- * Shared helpers
- * ============================================================ */
-
-static const char *panic_thread_state_str(int state)
+static const char *thread_state_str(int state)
 {
     switch (state) {
     case READY:   return "READY";
@@ -270,383 +184,699 @@ static const char *panic_thread_state_str(int state)
     }
 }
 
-/* ============================================================
- * Panic screens
- * ============================================================ */
-
-/*
- * FULL-SCREEN layout  (PANIC_FULL_SCREEN != 0)
- * ---------------------------------------------
- *
- * [logo + banner — unchanged]
- *
- * +------------------------------------------------------------------------+  ← top
- * | KERNEL PANIC  reason: <reason>                                        |
- * | caller: 0xXXXXXXXX                                                    |
- * +------------------------------------------------------------------------+  ← (if fault) divider
- * | FAULT  type: xxx  fault: xxx  access: xxx                             |
- * |        far:  0xXXXXXXXX  fsr: 0xXXXXXXXX                             |
- * +--------------------------------------++---------------------------------+  ← col-rule pair*
- * | REGISTERS                            || BACKTRACE                      |
- * |   r0=XXXXXXXX  r1=XXXXXXXX           ||   #0  0xXXXXXXXX              |
- * |   ...                                ||   addr2line -e build/zuzu.elf  |
- * +------------------------------------------------------------------------+  ← footer divider
- * | PROCESS  pid=x ppid=x RUNNING  prio=x  slice=x  left=x               |
- * |          ptr=0xXXXX  as=0xXXXX  ready=x  pids: 1 2 3                 |
- * | MEMORY   pmm: x/y pages free                                          |
- * |          heap: free=x used=x  total=x  blks=x                        |
- * +------------------------------------------------------------------------+  ← bottom
- *
- * * col-rule pair serves as both fault-close and register/backtrace open,
- *   eliminating a redundant consecutive rule.
- *
- * When no fault frame is available (backtrace-only):
- *   • Backtrace runs full-width, one entry per line.
- *   • If panic_fault_ctx.frame is set without full fault context,
- *     registers are printed 4-per-line above the backtrace.
- */
-
-#if PANIC_FULL_SCREEN
-
-static void panic_screen(const char *reason, void *caller_ra)
+static const char *handle_type_str(handle_type_t t)
 {
-    char line[128];
-
-    uart_putc('\a');
-    panic_puts("\n");
-
-    /* -- Logo left, intro text right ------------------------------------ */
-    const char *banner_lines[] = {
-        C_WHITE "Oops! zuzu has panicked." C_RESET,
-        C_DIM "An unrecoverable kernel error occurred." C_RESET,
-        C_DIM "If you think this is a bug, report here:" C_RESET,
-        C_DIM "https://github.com/kagantmr/zuzu/issues" C_RESET,
-    };
-    const int banner_count = (int)(sizeof(banner_lines) / sizeof(banner_lines[0]));
-    const int logo_left_pad = 2;
-    const int text_col = logo_left_pad + PANIC_LOGO_WIDTH + 2;
-
-    for (int i = 0; i < (int)PANIC_LOGO_LINES; i++) {
-        panic_pad(logo_left_pad);
-        panic_puts(panic_logo[i]);
-
-        int used = logo_left_pad + visible_len(panic_logo[i]);
-        int gap = text_col - used;
-        if (gap < 1) gap = 1;
-        panic_pad(gap);
-
-        if (i < banner_count)
-            panic_puts(banner_lines[i]);
-
-        panic_puts("\n");
+    switch (t) {
+    case HANDLE_FREE:         return "FREE";
+    case HANDLE_ENDPOINT:     return "ENDPOINT";
+    case HANDLE_DEVICE:       return "DEVICE";
+    case HANDLE_SHMEM:        return "SHMEM";
+    case HANDLE_REPLY:        return "REPLY";
+    case HANDLE_NOTIFICATION: return "NOTIFICATION";
+    case HANDLE_TASK:         return "TASK";
+    default:                  return "UNKNOWN";
     }
-    panic_puts("\n");
+}
 
-    /* KERNEL PANIC header */
-    panic_box_rule();
+static const char *ipc_state_str(ipc_state_t s)
+{
+    switch (s) {
+    case IPC_NONE:     return "NONE";
+    case IPC_SENDER:   return "SENDER";
+    case IPC_RECEIVER: return "RECEIVER";
+    case IPC_WAITING:  return "WAITING";
+    default:           return "UNKNOWN";
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Backtrace                                                           */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+    uint32_t addresses[BACKTRACE_MAX_DEPTH];
+    int      depth;
+} backtrace_t;
+
+static void backtrace_walk(backtrace_t *bt)
+{
+    bt->depth = 0;
+
+    uint32_t fp;
+    if (panic_fault_ctx.frame)
+        fp = panic_fault_ctx.frame->r[11];  /* fp captured at fault time */
+    else
+        __asm__ volatile("mov %0, r11" : "=r"(fp));
+
+    while (bt->depth < BACKTRACE_MAX_DEPTH) {
+        /* Any aligned kernel VA is potentially a valid frame */
+        if (fp == 0 || (fp & 0x3u) || fp < KERNEL_VA_BASE)
+            break;
+        /* GCC ARM AAPCS prologue: [fp] = saved lr, [fp-4] = saved fp */
+        uint32_t lr = *(uint32_t *)(uintptr_t)fp;
+        bt->addresses[bt->depth++] = lr;
+        uint32_t prev_fp = *(uint32_t *)(uintptr_t)(fp - 4);
+        if (prev_fp <= fp)
+            break;
+        fp = prev_fp;
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Heap snapshot                                                       */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+    size_t used_bytes;
+    size_t free_bytes;
+    size_t total_bytes;
+    size_t block_count;
+} panic_heap_stats_t;
+
+static void panic_heap_snapshot(panic_heap_stats_t *st)
+{
+    memset(st, 0, sizeof(*st));
+    kmem_block_t *block = heap_head;
+    size_t seen = 0;
+    while (block && seen < 8192) {
+        st->block_count++;
+        st->total_bytes += block->size;
+        if (block->free)
+            st->free_bytes += block->size;
+        else
+            st->used_bytes += block->size;
+        block = block->next;
+        seen++;
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Symbol helpers                                                      */
+/* ------------------------------------------------------------------ */
+
+static void sym_format(char *buf, int bufsz, uint32_t addr)
+{
+    const char *name = ksym_lookup(addr);
+    uint32_t   base = ksym_lookup_base(addr);
+    if (name && base && addr != base)
+        snprintf(buf, (size_t)bufsz, "%s+0x%X", name, addr - base);
+    else if (name)
+        snprintf(buf, (size_t)bufsz, "%s", name);
+    else
+        snprintf(buf, (size_t)bufsz, "<?>");
+}
+
+/* ------------------------------------------------------------------ */
+/* Logo                                                                */
+/* ------------------------------------------------------------------ */
+
+static const char *panic_logo[] = {
+    "      " C_GRAY "@@@@@@" C_RESET,
+    "        " C_GRAY "%@@" C_RESET "         " C_GRAY "%@@@  @" C_RESET,
+    "       " C_GRAY "@@" C_RESET "           " C_GRAY "@@" C_RESET "   " C_GRAY "@@" C_RESET,
+    "     " C_GRAY "@@" C_RESET "             " C_GRAY "@" C_RESET "    " C_GRAY "@=" C_RESET,
+    "    " C_GRAY "@@@@@@@@@@@@@@" C_RESET " " C_GRAY "@@" C_RESET "   " C_GRAY "@@" C_RESET,
+    "        " C_GRAY "@@" C_RESET "          " C_GRAY "@@@@" C_RESET,
+    "        " C_GRAY "@@" C_RESET "             " C_GRAY "@" C_RESET,
+    "        " C_GRAY "@@  %@@@@@@@  *@" C_RESET,
+    "        " C_GRAY "@@  @" C_RESET "      " C_GRAY "@@ @@" C_RESET,
+    "        " C_GRAY "@@  @" C_RESET "      " C_GRAY "@@ @@" C_RESET,
+    "         " C_GRAY "@@@" C_RESET "        " C_GRAY "@@@" C_RESET,
+};
+#define PANIC_LOGO_LINES (sizeof(panic_logo) / sizeof(panic_logo[0]))
+
+/* ================================================================== */
+/* Sections                                                            */
+/* ================================================================== */
+
+/* ------------------------------------------------------------------ */
+/* HEADER                                                              */
+/* ------------------------------------------------------------------ */
+
+static void panic_print_header(const char *reason, void *caller_ra)
+{
+    char line[LINE_BUF];
+    char sym[80];
+
+    for (size_t i = 0; i < PANIC_LOGO_LINES; i++) {
+        panic_puts("  ");
+        panic_puts(panic_logo[i]);
+        panic_nl();
+    }
+    panic_nl();
+
+    /* Top-level banner — red, same dash-rule format as section headers */
+    panic_puts(C_RED "KERNEL PANIC ");
+    for (int i = 13; i < RULE_COL; i++)
+        uart_putc('-');
+    panic_puts(C_RESET "\n");
+    panic_nl();
+
+    snprintf(line, sizeof(line), "reason:  %s", reason ? reason : "unknown");
+    panic_line(line);
+
+    if (!current_thread) {
+        panic_line("context: BOOT");
+    } else {
+        process_t *p = current_thread->owner_process;
+        if (p)
+            snprintf(line, sizeof(line),
+                     "context: PROCESS  [pid=%u  %s  tid=%u]",
+                     p->pid, p->name, current_thread->tid);
+        else
+            snprintf(line, sizeof(line),
+                     "context: PROCESS  [tid=%u  no owner]",
+                     current_thread->tid);
+        panic_line(line);
+    }
+
+    sym_format(sym, sizeof(sym), (uint32_t)(uintptr_t)caller_ra);
+    snprintf(line, sizeof(line), "caller:  0x%08X  %s",
+             (uint32_t)(uintptr_t)caller_ra, sym);
+    panic_line(line);
+}
+
+/* ------------------------------------------------------------------ */
+/* FAULT                                                               */
+/* ------------------------------------------------------------------ */
+
+static void panic_print_fault(void)
+{
+    if (!panic_fault_ctx.valid)
+        return;
+
+    char line[LINE_BUF];
+    char dec[64];
+
+    panic_section("FAULT");
+
+    if (panic_fault_ctx.fault_type) {
+        snprintf(line, sizeof(line), "type:    %s", panic_fault_ctx.fault_type);
+        panic_line(line);
+    }
+    if (panic_fault_ctx.fault_decoded) {
+        snprintf(line, sizeof(line), "decoded: %s", panic_fault_ctx.fault_decoded);
+        panic_line(line);
+    }
+    if (panic_fault_ctx.access_type) {
+        snprintf(line, sizeof(line), "access:  %s", panic_fault_ctx.access_type);
+        panic_line(line);
+    }
+
+    if (panic_fault_ctx.far || panic_fault_ctx.fsr) {
+        panic_nl();
+        const char *region = far_region(panic_fault_ctx.far);
+        if (region)
+            snprintf(line, sizeof(line), "FAR:   0x%08X  [%s]",
+                     panic_fault_ctx.far, region);
+        else
+            snprintf(line, sizeof(line), "FAR:   0x%08X", panic_fault_ctx.far);
+        panic_line(line);
+
+        snprintf(line, sizeof(line), "FSR:   0x%08X", panic_fault_ctx.fsr);
+        panic_line(line);
+    }
+
+    /* SPSR tells us what mode was running when the fault occurred */
+    if (panic_fault_ctx.frame) {
+        cpsr_decode(dec, sizeof(dec), panic_fault_ctx.frame->return_cpsr);
+        panic_nl();
+        snprintf(line, sizeof(line), "SPSR:  0x%08X  %s  (interrupted context)",
+                 panic_fault_ctx.frame->return_cpsr, dec);
+        panic_line(line);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* CPU STATE                                                           */
+/* ------------------------------------------------------------------ */
+
+static void panic_print_cpu(void)
+{
+    if (!panic_fault_ctx.frame)
+        return;
+
+    char line[LINE_BUF];
+    char sym[80];
+    exception_frame_t *f = panic_fault_ctx.frame;
+
+    panic_section("CPU STATE");
+
+    sym_format(sym, sizeof(sym), f->return_pc);
+    snprintf(line, sizeof(line), "pc:     0x%08X  %s", f->return_pc, sym);
+    panic_line(line);
+
+    sym_format(sym, sizeof(sym), f->lr_usr);
+    snprintf(line, sizeof(line), "lr_usr: 0x%08X  %s", f->lr_usr, sym);
+    panic_line(line);
+
+    {
+        char dec[64];
+        cpsr_decode(dec, sizeof(dec), f->return_cpsr);
+        snprintf(line, sizeof(line), "cpsr:   0x%08X  %s", f->return_cpsr, dec);
+        panic_line(line);
+    }
+
+    panic_nl();
+    snprintf(line, sizeof(line),
+             "r0  = %08X   r1  = %08X   r2  = %08X   r3  = %08X",
+             f->r[0], f->r[1], f->r[2], f->r[3]);
+    panic_line(line);
+    snprintf(line, sizeof(line),
+             "r4  = %08X   r5  = %08X   r6  = %08X   r7  = %08X",
+             f->r[4], f->r[5], f->r[6], f->r[7]);
+    panic_line(line);
+    snprintf(line, sizeof(line),
+             "r8  = %08X   r9  = %08X   r10 = %08X   r11 = %08X",
+             f->r[8], f->r[9], f->r[10], f->r[11]);
+    panic_line(line);
+    snprintf(line, sizeof(line),
+             "r12 = %08X   sp_usr = %08X   lr_usr = %08X",
+             f->r[12], f->sp_usr, f->lr_usr);
+    panic_line(line);
+}
+
+/* ------------------------------------------------------------------ */
+/* BACKTRACE                                                           */
+/* ------------------------------------------------------------------ */
+
+static void panic_print_backtrace(backtrace_t *bt)
+{
+    char line[LINE_BUF];
+    char sym[80];
+
+    panic_section("BACKTRACE");
+
+    if (bt->depth == 0) {
+        panic_line("(no frames)");
+        return;
+    }
+
+    for (int i = 0; i < bt->depth; i++) {
+        uint32_t addr = bt->addresses[i];
+        sym_format(sym, sizeof(sym), addr);
+        snprintf(line, sizeof(line), "#%-2d  0x%08X  %s", i, addr, sym);
+        panic_line(line);
+    }
+
+    /* addr2line hint — print piece-by-piece to avoid buffer constraints */
+    panic_nl();
+    panic_puts("  " C_DIM "addr2line -e build/zuzu.elf");
+    for (int i = 0; i < bt->depth; i++) {
+        char tmp[12];
+        snprintf(tmp, sizeof(tmp), " 0x%08X", bt->addresses[i]);
+        panic_puts(tmp);
+    }
+    panic_puts(C_RESET "\n");
+}
+
+/* ------------------------------------------------------------------ */
+/* CURRENT PROCESS  (PANIC_SECTION_PROCESS)                           */
+/* ------------------------------------------------------------------ */
+
+#ifdef PANIC_SECTION_PROCESS
+static void panic_print_process(void)
+{
+    char line[LINE_BUF];
+
+    panic_section("CURRENT PROCESS");
+
+    if (!current_thread) {
+        panic_line("(no current thread - BOOT context)");
+        return;
+    }
+
+    process_t *p = current_thread->owner_process;
 
     snprintf(line, sizeof(line),
-             C_GOLD "KERNEL PANIC" C_RESET "  reason: %s",
-             reason ? reason : "unknown");
-    panic_box_line(line);
+             "tid=%-4u  state=%-7s  prio=%u  slice=%u  left=%u",
+             current_thread->tid,
+             thread_state_str(current_thread->state),
+             current_thread->priority,
+             current_thread->time_slice,
+             current_thread->ticks_remaining);
+    panic_line(line);
 
-    snprintf(line, sizeof(line), "  caller: %p", caller_ra);
-    panic_box_line(line);
-
-    /* -- Fault details (inline — no extra box, just a divider + lines) -- */
-    if (panic_fault_ctx.valid) {
-        panic_box_rule();
-
-        /* Pack type / decoded / access onto a single line */
-        int pos = snprintf(line, sizeof(line), C_GOLD "FAULT" C_RESET);
-        if (panic_fault_ctx.fault_type)
-            pos += snprintf(line + pos, sizeof(line) - (size_t)pos,
-                            "  type: %s", panic_fault_ctx.fault_type);
-        if (panic_fault_ctx.fault_decoded)
-            pos += snprintf(line + pos, sizeof(line) - (size_t)pos,
-                            "  fault: %s", panic_fault_ctx.fault_decoded);
-        if (panic_fault_ctx.access_type)
-            pos += snprintf(line + pos, sizeof(line) - (size_t)pos,
-                            "  access: %s", panic_fault_ctx.access_type);
-        panic_box_line(line);
-
-        if (panic_fault_ctx.far || panic_fault_ctx.fsr) {
-            snprintf(line, sizeof(line),
-                     "       far:  0x%08X   fsr: 0x%08X",
-                     panic_fault_ctx.far, panic_fault_ctx.fsr);
-            panic_box_line(line);
-        }
-    }
-
-    /* -- Walk backtrace once, before choosing layout -------------------- */
-    backtrace_t bt;
-    backtrace_walk(&bt);
-
-    /* -- REGISTERS | BACKTRACE (side-by-side columns) ------------------ */
-    if (panic_fault_ctx.valid && panic_fault_ctx.frame) {
-        exception_frame_t *f = panic_fault_ctx.frame;
-
-        /*
-         * Left column: REGISTERS (2/line — fits col width comfortably)
-         * col_rule at the top only; panic_box_rule() closes the section
-         * at the footer, so no redundant trailing col_rule here.
-         */
-        col_init(&_col_left);
-        col_rule(&_col_left);
-        col_header(&_col_left, "REGISTERS");
-        snprintf(line, sizeof(line), "  r0=%08X  r1=%08X", f->r[0],  f->r[1]);  col_line(&_col_left, line);
-        snprintf(line, sizeof(line), "  r2=%08X  r3=%08X", f->r[2],  f->r[3]);  col_line(&_col_left, line);
-        snprintf(line, sizeof(line), "  r4=%08X  r5=%08X", f->r[4],  f->r[5]);  col_line(&_col_left, line);
-        snprintf(line, sizeof(line), "  r6=%08X  r7=%08X", f->r[6],  f->r[7]);  col_line(&_col_left, line);
-        snprintf(line, sizeof(line), "  r8=%08X  r9=%08X", f->r[8],  f->r[9]);  col_line(&_col_left, line);
-        snprintf(line, sizeof(line), "  rA=%08X  rB=%08X", f->r[10], f->r[11]); col_line(&_col_left, line);
-        snprintf(line, sizeof(line), "  rC=%08X  lr=%08X", f->r[12], f->lr_usr);col_line(&_col_left, line);
-        snprintf(line, sizeof(line), "  pc=%08X  cpsr=%08X",
-                 f->return_pc, f->return_cpsr);
-        col_line(&_col_left, line);
-
-        /* Right column: BACKTRACE */
-        col_init(&_col_right);
-        col_rule(&_col_right);
-        col_header(&_col_right, "BACKTRACE");
-        if (bt.depth == 0) {
-            col_line(&_col_right, "  (no frames)");
-        } else {
-            int shown = (bt.depth < PANIC_BT_SHOWN_MAX) ? bt.depth : PANIC_BT_SHOWN_MAX;
-            for (int i = 0; i < shown; i++) {
-                const char *sym = ksym_lookup(bt.addresses[i]);
-                snprintf(line, sizeof(line), "  #%-2d %08X %s", i, bt.addresses[i], sym ? sym : "???");
-                col_line(&_col_right, line);
-            }
-            if (bt.depth > shown) {
-                snprintf(line, sizeof(line), "  ... +%d more", bt.depth - shown);
-                col_line(&_col_right, line);
-            }
-        }
-        col_line(&_col_right, line);
-
-        /* col_rule pair acts as the visual divider from the fault section */
-        panic_render_pair(&_col_left, &_col_right);
-
-    } else {
-        /*
-         * No fault frame, full-width layout.
-         *
-         * If panic_fault_ctx.frame is set without a complete fault context
-         * (e.g. a software-initiated panic after a partial exception setup),
-         * display registers 4-per-line to make better use of the width.
-         */
-        panic_box_rule();
-
-        if (panic_fault_ctx.frame) {
-            exception_frame_t *f = panic_fault_ctx.frame;
-            panic_box_line(C_GOLD "REGISTERS" C_RESET);
-            snprintf(line, sizeof(line),
-                     "  r0=%08X  r1=%08X  r2=%08X  r3=%08X",
-                     f->r[0], f->r[1], f->r[2], f->r[3]);
-            panic_box_line(line);
-            snprintf(line, sizeof(line),
-                     "  r4=%08X  r5=%08X  r6=%08X  r7=%08X",
-                     f->r[4], f->r[5], f->r[6], f->r[7]);
-            panic_box_line(line);
-            snprintf(line, sizeof(line),
-                     "  r8=%08X  r9=%08X  rA=%08X  rB=%08X",
-                     f->r[8], f->r[9], f->r[10], f->r[11]);
-            panic_box_line(line);
-            snprintf(line, sizeof(line),
-                     "  rC=%08X  lr=%08X  pc=%08X  cpsr=%08X",
-                     f->r[12], f->lr_usr, f->return_pc, f->return_cpsr);
-            panic_box_line(line);
-        }
-
-        panic_box_line(C_GOLD "BACKTRACE" C_RESET);
-        if (bt.depth == 0) {
-            panic_box_line("  (no frames)");
-        } else {
-            for (int i = 0; i < bt.depth; i++) {
-                snprintf(line, sizeof(line), "  #%-2d  0x%08X", i, bt.addresses[i]);
-                panic_box_line(line);
-            }
-        }
+    if (p) {
         snprintf(line, sizeof(line),
-                 C_DIM "  addr2line -e build/zuzu.elf <addr>" C_RESET);
-        panic_box_line(line);
-    }
+                 "pid=%-4u  ppid=%-4u  name=%s",
+                 p->pid, p->parent_pid, p->name);
+        panic_line(line);
 
-    /* -- THREAD + MEMORY footer ---------------------------------------- */
-    /*
-     * Single panic_box_rule() closes the register/backtrace section and
-     * opens the footer — no duplicate consecutive rules.
-     */
-    panic_box_rule();
-
-    /* THREAD */
-    if (current_thread) {
-        snprintf(line, sizeof(line),
-                 C_GOLD "THREAD" C_RESET
-                 "  tid=%-4u %-7s  prio=%u  slice=%u  left=%u",
-                 current_thread->tid,
-                 panic_thread_state_str(current_thread->state),
-                 current_thread->priority,
-                 current_thread->time_slice,
-                 current_thread->ticks_remaining);
-        panic_box_line(line);
-
-        snprintf(line, sizeof(line), "         ptr=%p  as=%p",
-                 current_thread, current_thread->owner_process ? current_thread->owner_process->as : NULL);
-        panic_box_line(line);
-
-        if (current_thread->owner_process) {
+        if (p->as) {
             snprintf(line, sizeof(line),
-                     "         pid=%-4u ppid=%-4u",
-                     current_thread->owner_process->pid,
-                     current_thread->owner_process->parent_pid);
-            panic_box_line(line);
+                     "asid=%u  ttbr0=0x%08X",
+                     p->as->asid_token.asid, (uint32_t)p->as->ttbr0_pa);
+            panic_line(line);
         }
 
-        thread_t *ready[PANIC_READY_SNAPSHOT_MAX];
-        size_t ready_total = sched_ready_queue_snapshot(ready, PANIC_READY_SNAPSHOT_MAX);
-        size_t ready_shown = (ready_total < PANIC_READY_SNAPSHOT_MAX)
-                             ? ready_total : PANIC_READY_SNAPSHOT_MAX;
-        if (ready_total > 0) {
-            int pos = snprintf(line, sizeof(line),
-                               "         ready=%lu  tids:",
-                               (unsigned long)ready_total);
-            for (size_t i = 0; i < ready_shown && pos > 0; i++)
-                pos += snprintf(line + pos, sizeof(line) - (size_t)pos,
-                                " %u", ready[i]->tid);
-            if (ready_total > ready_shown)
-                pos += snprintf(line + pos, sizeof(line) - (size_t)pos,
-                                " (+%lu)", (unsigned long)(ready_total - ready_shown));
-            panic_box_line(line);
-        }
-    } else {
-        panic_box_line(C_GOLD "THREAD" C_RESET "  (none)");
-    }
-
-    /* MEMORY */
-    {
         snprintf(line, sizeof(line),
-                 C_GOLD "MEMORY " C_RESET "  pmm: %lu/%lu pages free",
-                 (unsigned long)pmm_state.free_pages,
-                 (unsigned long)pmm_state.total_pages);
-        panic_box_line(line);
+                 "user stack: 0x%08X..0x%08X",
+                 (uint32_t)USER_STACK_BASE, (uint32_t)USER_STACK_TOP);
+        panic_line(line);
 
-        if (heap_head && kernel_layout.heap_start_va && kernel_layout.heap_end_va) {
-            panic_heap_stats_t hs;
-            panic_heap_snapshot(&hs);
-            snprintf(line, sizeof(line),
-                     "         heap: free=%lu  used=%lu  total=%lu  blks=%lu",
-                     (unsigned long)hs.free_payload_bytes,
-                     (unsigned long)hs.used_payload_bytes,
-                     (unsigned long)hs.total_payload_bytes,
-                     (unsigned long)hs.block_count);
-            panic_box_line(line);
-        } else {
-            panic_box_line("         heap: unavailable");
+        /* Handle table */
+        handle_vec_t *ht = &p->handle_table;
+        if (ht->data && ht->cap > 0) {
+            int shown = 0;
+            panic_nl();
+            panic_line("handles:");
+            for (uint32_t idx = 1; idx < ht->cap && shown < PANIC_HANDLE_MAX; idx++) {
+                handle_entry_t *e = &ht->data[idx];
+                if (e->type == HANDLE_FREE)
+                    continue;
+                void *ptr = NULL;
+                switch (e->type) {
+                case HANDLE_ENDPOINT:     ptr = e->ep;    break;
+                case HANDLE_DEVICE:       ptr = e->dev;   break;
+                case HANDLE_SHMEM:        ptr = e->shm;   break;
+                case HANDLE_REPLY:        ptr = e->reply; break;
+                case HANDLE_NOTIFICATION: ptr = e->ntfn;  break;
+                case HANDLE_TASK:         ptr = e->task;  break;
+                default:                                   break;
+                }
+                snprintf(line, sizeof(line), "  [%2u]  %-14s  0x%08X",
+                         idx, handle_type_str(e->type),
+                         (uint32_t)(uintptr_t)ptr);
+                panic_line(line);
+                shown++;
+            }
+            if (shown == 0)
+                panic_line("  (empty)");
         }
     }
 
-    panic_box_rule();
-    panic_puts("\n");
+    /* User trapframe (saved at syscall/exception entry) */
+    if (current_thread->trap_frame) {
+        exception_frame_t *tf = current_thread->trap_frame;
+        panic_nl();
+        panic_line("user trapframe:");
+        snprintf(line, sizeof(line),
+                 "  r0  = %08X   r1  = %08X   r2  = %08X   r3  = %08X",
+                 tf->r[0], tf->r[1], tf->r[2], tf->r[3]);
+        panic_line(line);
+        snprintf(line, sizeof(line),
+                 "  r4  = %08X   r5  = %08X   r6  = %08X   r7  = %08X",
+                 tf->r[4], tf->r[5], tf->r[6], tf->r[7]);
+        panic_line(line);
+        snprintf(line, sizeof(line),
+                 "  r8  = %08X   r9  = %08X   r10 = %08X   r11 = %08X",
+                 tf->r[8], tf->r[9], tf->r[10], tf->r[11]);
+        panic_line(line);
+        snprintf(line, sizeof(line),
+                 "  r12 = %08X   sp_usr = %08X   lr_usr = %08X   pc = %08X",
+                 tf->r[12], tf->sp_usr, tf->lr_usr, tf->return_pc);
+        panic_line(line);
+        {
+            char dec[64];
+            cpsr_decode(dec, sizeof(dec), tf->return_cpsr);
+            snprintf(line, sizeof(line), "  cpsr = %08X  %s", tf->return_cpsr, dec);
+            panic_line(line);
+        }
+    }
+
+    /* IPC state */
+    if (current_thread->ipc_state != IPC_NONE) {
+        panic_nl();
+        if (current_thread->blocked_endpoint)
+            snprintf(line, sizeof(line), "IPC: %s  ep=0x%08X",
+                     ipc_state_str(current_thread->ipc_state),
+                     (uint32_t)(uintptr_t)current_thread->blocked_endpoint);
+        else
+            snprintf(line, sizeof(line), "IPC: %s",
+                     ipc_state_str(current_thread->ipc_state));
+        panic_line(line);
+    }
 }
+#endif /* PANIC_SECTION_PROCESS */
 
-#else  
+/* ------------------------------------------------------------------ */
+/* SCHEDULER  (PANIC_SECTION_SCHEDULER)                               */
+/* ------------------------------------------------------------------ */
+
+#ifdef PANIC_SECTION_SCHEDULER
+static void panic_print_sched(void)
+{
+    char line[LINE_BUF];
+
+    panic_section("SCHEDULER");
+
+    if (current_thread) {
+        process_t *p = current_thread->owner_process;
+        snprintf(line, sizeof(line),
+                 "current: tid=%-4u  pid=%-4u  %-16s  %s  prio=%u",
+                 current_thread->tid,
+                 p ? p->pid : 0u,
+                 p ? p->name : "(none)",
+                 thread_state_str(current_thread->state),
+                 current_thread->priority);
+    } else {
+        snprintf(line, sizeof(line), "current: (idle)");
+    }
+    panic_line(line);
+
+    /* Ready queue */
+    thread_t *ready[PANIC_READY_MAX];
+    size_t ready_total = sched_ready_queue_snapshot(ready, PANIC_READY_MAX);
+    panic_nl();
+    snprintf(line, sizeof(line), "ready (%lu):", (unsigned long)ready_total);
+    panic_line(line);
+    if (ready_total == 0) {
+        panic_line("  (empty)");
+    } else {
+        size_t show = ready_total < PANIC_READY_MAX ? ready_total : PANIC_READY_MAX;
+        for (size_t i = 0; i < show; i++) {
+            thread_t *t = ready[i];
+            process_t *p = t->owner_process;
+            snprintf(line, sizeof(line),
+                     "  tid=%-4u  pid=%-4u  %-16s  prio=%u",
+                     t->tid, p ? p->pid : 0u,
+                     p ? p->name : "(none)",
+                     t->priority);
+            panic_line(line);
+        }
+        if (ready_total > PANIC_READY_MAX) {
+            snprintf(line, sizeof(line), "  ... +%lu more",
+                     (unsigned long)(ready_total - PANIC_READY_MAX));
+            panic_line(line);
+        }
+    }
+
+    /* Sleep queue */
+    panic_nl();
+    {
+        int sleep_count = 0;
+        list_node_t *node;
+        list_for_each(node, &sleep_queue.node)
+            sleep_count++;
+
+        snprintf(line, sizeof(line), "sleeping (%d):", sleep_count);
+        panic_line(line);
+
+        if (sleep_count == 0) {
+            panic_line("  (empty)");
+        } else {
+            int shown = 0;
+            list_for_each(node, &sleep_queue.node) {
+                if (shown >= PANIC_SLEEP_MAX) {
+                    snprintf(line, sizeof(line), "  ... +%d more",
+                             sleep_count - shown);
+                    panic_line(line);
+                    break;
+                }
+                thread_t *t = container_of(node, thread_t, timeout_node);
+                process_t *p = t->owner_process;
+                snprintf(line, sizeof(line),
+                         "  tid=%-4u  pid=%-4u  %-16s  wake_tick=%llu",
+                         t->tid, p ? p->pid : 0u,
+                         p ? p->name : "(none)",
+                         (unsigned long long)t->wake_tick);
+                panic_line(line);
+                shown++;
+            }
+        }
+    }
+}
+#endif /* PANIC_SECTION_SCHEDULER */
+
+/* ------------------------------------------------------------------ */
+/* IRQ / GIC  (PANIC_SECTION_IRQ)                                     */
+/* ------------------------------------------------------------------ */
+
+#ifdef PANIC_SECTION_IRQ
+static void panic_print_irq(void)
+{
+    char line[LINE_BUF];
+
+    panic_section("IRQ / GIC");
+
+    if (!gicd_base || !gicc_base) {
+        panic_line("GIC not yet initialized");
+        return;
+    }
+
+    uint32_t pmr = gicc_base[GICC_PMR >> 2];
+    snprintf(line, sizeof(line), "GICC_PMR: 0x%02X  (%s)",
+             pmr, pmr == 0xFFu ? "all priorities pass" : "filtered");
+    panic_line(line);
+
+    const irq_owner_t *owners = irq_panic_owners();
+
+    /*
+     * Snapshot enabled bitmap; used both for the enabled section and
+     * later to identify the likely triggering IRQ in the pending section.
+     * Skip SGIs (0-15) — always enabled in GICv2.
+     */
+    uint32_t enabled_words[4] = {0};
+    for (uint32_t w = 0; w < 4u; w++)
+        enabled_words[w] = gicd_base[(GICD_ISENABLER + w * 4u) >> 2];
+
+    panic_nl();
+    panic_line("enabled IRQs:");
+    int any_enabled = 0;
+    for (uint32_t word = 0; word < 4u; word++) {
+        uint32_t ena = enabled_words[word];
+        if (!ena) continue;
+        for (uint32_t bit = 0; bit < 32u; bit++) {
+            if (!(ena & (1u << bit))) continue;
+            uint32_t irq = word * 32u + bit;
+            if (irq < 16u) continue;  /* SGI — always on, skip */
+
+            if (owners && irq < MAX_IRQS && owners[irq].owner) {
+                snprintf(line, sizeof(line), "  IRQ %-3u  [%s]",
+                         irq, owners[irq].owner->name);
+            } else if (irq < (uint32_t)MAX_IRQS && handler_table[irq]) {
+                char sym[64];
+                sym_format(sym, sizeof(sym),
+                            (uint32_t)(uintptr_t)handler_table[irq]);
+                snprintf(line, sizeof(line), "  IRQ %-3u  [kernel: %s]", irq, sym);
+            } else {
+                snprintf(line, sizeof(line), "  IRQ %-3u  [no handler]", irq);
+            }
+            panic_line(line);
+            any_enabled = 1;
+        }
+    }
+    if (!any_enabled)
+        panic_line("  (none)");
+
+    /* Pending IRQs: skip SGIs; cross-reference enabled bitmap */
+    panic_nl();
+    panic_line("pending IRQs:");
+    int any_pending = 0;
+    for (uint32_t word = 0; word < 4u; word++) {
+        uint32_t pend = gicd_base[(GICD_ISPENDER + word * 4u) >> 2];
+        if (!pend) continue;
+        for (uint32_t bit = 0; bit < 32u; bit++) {
+            if (!(pend & (1u << bit))) continue;
+            uint32_t irq = word * 32u + bit;
+            if (irq < 16u) continue;  /* SGI — skip */
+
+            int has_handler = (irq < (uint32_t)MAX_IRQS &&
+                               handler_table[irq] != NULL);
+            int also_enabled = (enabled_words[word] & (1u << bit)) != 0;
+
+            if (!has_handler) {
+                snprintf(line, sizeof(line),
+                         "  IRQ %-3u" C_RED "  *** NO HANDLER ***" C_RESET, irq);
+            } else if (also_enabled) {
+                snprintf(line, sizeof(line),
+                         "  IRQ %-3u" C_RED "  *** triggered this panic ***" C_RESET, irq);
+            } else {
+                snprintf(line, sizeof(line), "  IRQ %-3u", irq);
+            }
+            panic_line(line);
+            any_pending = 1;
+        }
+    }
+    if (!any_pending)
+        panic_line("  (none)");
+}
+#endif /* PANIC_SECTION_IRQ */
+
+/* ------------------------------------------------------------------ */
+/* MEMORY  (PANIC_SECTION_MEMORY)                                     */
+/* ------------------------------------------------------------------ */
+
+#ifdef PANIC_SECTION_MEMORY
+static void panic_print_memory(void)
+{
+    char line[LINE_BUF];
+
+    panic_section("MEMORY");
+
+    snprintf(line, sizeof(line),
+             "PMM:   %lu / %lu pages free  (%lu KB free)",
+             (unsigned long)pmm_state.free_pages,
+             (unsigned long)pmm_state.total_pages,
+             (unsigned long)(pmm_state.free_pages * 4u));
+    panic_line(line);
+
+    if (heap_head && kernel_layout.heap_start_va && kernel_layout.heap_end_va) {
+        panic_heap_stats_t hs;
+        panic_heap_snapshot(&hs);
+        snprintf(line, sizeof(line),
+                 "heap:  used=%lu  free=%lu  total=%lu  blocks=%lu",
+                 (unsigned long)hs.used_bytes,
+                 (unsigned long)hs.free_bytes,
+                 (unsigned long)hs.total_bytes,
+                 (unsigned long)hs.block_count);
+        panic_line(line);
+    } else {
+        panic_line("heap:  unavailable");
+    }
+
+    if (kernel_layout.stack_base_va && kernel_layout.stack_top_va) {
+        if (!current_thread) {
+            panic_line("kstack: N/A (BOOT context)");
+        } else {
+            snprintf(line, sizeof(line),
+                     "kstack: 0x%08X..0x%08X  (%lu KB)",
+                     (uint32_t)kernel_layout.stack_base_va,
+                     (uint32_t)kernel_layout.stack_top_va,
+                     (unsigned long)((kernel_layout.stack_top_va -
+                                      kernel_layout.stack_base_va) / 1024u));
+            panic_line(line);
+        }
+    }
+}
+#endif /* PANIC_SECTION_MEMORY */
+
+/* ================================================================== */
+/* Entry point                                                         */
+/* ================================================================== */
 
 static void panic_screen(const char *reason, void *caller_ra)
 {
     uart_putc('\a');
+    panic_nl();
 
-    kprintf("\n\033[1;31m--- KERNEL PANIC ---\033[0m\n");
-    kprintf("  reason:  %s\n", reason ? reason : "unknown");
-    kprintf("  caller:  %p\n", caller_ra);
+    panic_print_header(reason, caller_ra);
+    panic_print_fault();
+    panic_print_cpu();
 
-    /* Fault details */
-    if (panic_fault_ctx.valid) {
-        kprintf("  ---\n");
-        if (panic_fault_ctx.fault_type)
-            kprintf("  type:    %s\n", panic_fault_ctx.fault_type);
-        if (panic_fault_ctx.fault_decoded)
-            kprintf("  fault:   %s\n", panic_fault_ctx.fault_decoded);
-        if (panic_fault_ctx.access_type)
-            kprintf("  access:  %s\n", panic_fault_ctx.access_type);
-        if (panic_fault_ctx.far || panic_fault_ctx.fsr)
-            kprintf("  far:     0x%08X   fsr: 0x%08X\n",
-                    panic_fault_ctx.far, panic_fault_ctx.fsr);
-
-        if (panic_fault_ctx.frame) {
-            exception_frame_t *f = panic_fault_ctx.frame;
-            kprintf("  ---\n");
-            kprintf("  r0=%08X  r1=%08X  r2=%08X  r3=%08X\n",
-                    f->r[0], f->r[1], f->r[2], f->r[3]);
-            kprintf("  r4=%08X  r5=%08X  r6=%08X  r7=%08X\n",
-                    f->r[4], f->r[5], f->r[6], f->r[7]);
-            kprintf("  r8=%08X  r9=%08X  rA=%08X  rB=%08X\n",
-                    f->r[8], f->r[9], f->r[10], f->r[11]);
-            kprintf("  rC=%08X  lr=%08X  pc=%08X  cpsr=%08X\n",
-                    f->r[12], f->lr_usr, f->return_pc, f->return_cpsr);
-        }
-    }
-
-    /* Backtrace */
     backtrace_t bt;
     backtrace_walk(&bt);
-    kprintf("  ---\n");
-    if (bt.depth == 0) {
-        kprintf("  backtrace: (no frames)\n");
-    } else {
-        kprintf("  backtrace:\n");
-        for (int i = 0; i < bt.depth; i++) {
-            const char *sym = ksym_lookup(bt.addresses[i]);
-            kprintf("    #%-2d  0x%08X %s\n", i, bt.addresses[i], sym);
-        }
-    }
+    panic_print_backtrace(&bt);
 
-    /* Thread */
-    kprintf("  ---\n");
-    if (current_thread) {
-        kprintf("  thread: tid=%u %s  prio=%u  slice=%u  left=%u\n",
-                current_thread->tid,
-                panic_thread_state_str(current_thread->state),
-                current_thread->priority,
-                current_thread->time_slice,
-                current_thread->ticks_remaining);
-        if (current_thread->owner_process) {
-            kprintf("  process: pid=%u ppid=%u\n",
-                    current_thread->owner_process->pid,
-                    current_thread->owner_process->parent_pid);
-        }
-    } else {
-        kprintf("  thread: (none)\n");
-    }
+#ifdef PANIC_SECTION_PROCESS
+    panic_print_process();
+#endif
+#ifdef PANIC_SECTION_SCHEDULER
+    panic_print_sched();
+#endif
+#ifdef PANIC_SECTION_IRQ
+    panic_print_irq();
+#endif
+#ifdef PANIC_SECTION_MEMORY
+    panic_print_memory();
+#endif
 
-    /* Memory */
-    kprintf("  memory:  pmm: %lu/%lu pages free",
-            (unsigned long)pmm_state.free_pages,
-            (unsigned long)pmm_state.total_pages);
-    if (heap_head && kernel_layout.heap_start_va) {
-        panic_heap_stats_t hs;
-        panic_heap_snapshot(&hs);
-        kprintf("  heap: free=%lu  used=%lu  blks=%lu\n",
-                (unsigned long)hs.free_payload_bytes,
-                (unsigned long)hs.used_payload_bytes,
-                (unsigned long)hs.block_count);
-    } else {
-        kprintf("  heap: unavailable\n");
-    }
-
-    kprintf("\033[1;31m--- HALTED ---\033[0m\n\n");
+    panic_nl();
 }
-
-#endif /* PANIC_FULL_SCREEN */
-
-/* ============================================================
- * Panic entry point (unchanged)
- * ============================================================ */
 
 _Noreturn void __attribute__((cold)) panic(const char *reason)
 {
-    panic_puts("\a");
     void *caller_ra = __builtin_return_address(0);
 
     arch_global_irq_disable();

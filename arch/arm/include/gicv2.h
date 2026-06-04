@@ -12,12 +12,13 @@
 
 /* Distributor */
 #define GICD_CTLR        0x000
-#define GICD_IGROUPR     0x080 
+#define GICD_IGROUPR     0x080
 #define GICD_ISENABLER   0x100
 #define GICD_ICENABLER   0x180
+#define GICD_ISPENDER    0x200
 #define GICD_IPRIORITYR  0x400
-#define GICD_ITARGETSR  0x800
-#define GICD_ICFGR      0xC00
+#define GICD_ITARGETSR   0x800
+#define GICD_ICFGR       0xC00
 
 /* CPU Interface */
 #define GICC_CTLR       0x000

@@ -11,15 +11,36 @@ const char *ksym_lookup(uint32_t addr) {
         return NULL;
     }
 
-    size_t lo = 0; 
+    size_t lo = 0;
     size_t hi = ksym_count - 1;
     const char *result = NULL;
     while (lo <= hi) {
-        size_t mid = (lo + hi) / 2;
+        size_t mid = lo + (hi - lo) / 2;
         if (ksym_table[mid].addr <= addr) {
             result = ksym_table[mid].name;
             lo = mid + 1;
         } else {
+            if (mid == 0) break;
+            hi = mid - 1;
+        }
+    }
+    return result;
+}
+
+uint32_t ksym_lookup_base(uint32_t addr) {
+    if (ksym_count == 0)
+        return 0;
+
+    size_t lo = 0;
+    size_t hi = ksym_count - 1;
+    uint32_t result = 0;
+    while (lo <= hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (ksym_table[mid].addr <= addr) {
+            result = ksym_table[mid].addr;
+            lo = mid + 1;
+        } else {
+            if (mid == 0) break;
             hi = mid - 1;
         }
     }

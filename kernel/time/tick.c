@@ -18,6 +18,7 @@ void register_tick_callback(tick_callback_t cb) {
     tick_callback = cb;
 };
 
+
 void tick_announce(void) {
     tick_count++;
     syspage_update_uptime(); // update uptime in syspage on every tick
