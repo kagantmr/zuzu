@@ -1,47 +1,39 @@
-/**
- * panic.h - Kernel panic handling and panic screen rendering
- * 
- * Kernel panics occur when an unrecoverable error happens in the kernel, such as
- * corruption of kernel data structures, fatal hardware faults, or failed assertions, 
- * as well as explicit calls to panic() for critical errors. The panic handler disables interrupts,
- * gathers diagnostic information, and displays a structured panic screen to help with debugging.
- * The panic screen includes a backtrace, process information, and memory state.
- */
 #ifndef PANIC_H
 #define PANIC_H
 
 #include <stdint.h>
 #include "arch/arm/include/context.h"
 
-/**
- * @brief Fault context filled by exception handlers before calling panic.
- *
- * If valid != 0, the panic renderer displays a FAULT DETAILS section
- * with the captured register and decoded fault information.
+/*
+ * Fault context filled by exception handlers before calling panic().
+ * When valid != 0 the panic renderer shows a FAULT section.
  */
 typedef struct {
     int valid;
-    uint32_t far;                 // DFAR or IFAR
-    uint32_t fsr;                 // DFSR or IFSR
-    const char *fault_type;       // "Data abort" / "Prefetch abort" / etc.
-    const char *fault_decoded;    // decode_fault_status() result
-    const char *access_type;      // "Read" / "Write"
-    exception_frame_t *frame;     // saved registers
+    uint32_t far;               /* DFAR or IFAR */
+    uint32_t fsr;               /* DFSR or IFSR */
+    const char *fault_type;     /* "Data abort" / "Prefetch abort" / etc. */
+    const char *fault_decoded;  /* decode_fault_status() result */
+    const char *access_type;    /* "Read" / "Write" */
+    exception_frame_t *frame;   /* saved registers at exception entry */
 } panic_fault_context_t;
 
 extern panic_fault_context_t panic_fault_ctx;
 
-/**
- * @brief Handle a kernel panic by disabling interrupts and halting.
+/*
+ * Halt the kernel with a structured diagnostic screen.
  *
- * Displays a structured panic screen with backtrace, process info,
- * and memory state. Uses polled UART only — no heap, no interrupts.
+ * Disables interrupts, dumps FAULT / CPU STATE / BACKTRACE and optional
+ * sections controlled by Makefile flags, then spins in WFI.
+ * Uses polled UART only — safe after heap / scheduler corruption.
  *
- * Controlled by PANIC_FULL_SCREEN:
- *   1 = box-drawn screen with logo (default)
- *   0 = compact minimal output (safest)
+ * Optional sections (default all on, disable by passing 0 to make):
+ *   PANIC_SECTION_PROCESS    current process, handles, trapframe, IPC
+ *   PANIC_SECTION_SCHEDULER  run queue, sleep queue
+ *   PANIC_SECTION_IRQ        GIC enabled/pending lines, IRQ owners
+ *   PANIC_SECTION_MEMORY     PMM, heap, kernel stack
  *
- * This function does not return.
+ * Does not return.
  */
 _Noreturn void __attribute__((cold)) panic(const char *reason);
 

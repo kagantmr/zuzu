@@ -21,6 +21,8 @@ void irq_release_all(process_t *owner);
 
 bool irq_check_and_clear_pending(int irq_num);
 
+const irq_owner_t *irq_panic_owners(void);
+
 
 
 #endif // SYS_IRQ_H

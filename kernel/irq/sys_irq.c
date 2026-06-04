@@ -260,3 +260,5 @@ bool irq_check_and_clear_pending(int irq_num) {
     }
     return false;
 }
+
+const irq_owner_t *irq_panic_owners(void) { return irq_owners; }
