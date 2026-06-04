@@ -1,4 +1,4 @@
-@ initrd.S - Embedded initrd image for ARMv7-A
+// initrd.S - Embedded initrd image for ARMv7-A
 
 .section .rodata.initrd, "a", %progbits
 .align 4
