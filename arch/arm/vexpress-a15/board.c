@@ -111,5 +111,6 @@ void board_init_devices(void) {
     }
 
     KDEBUG("Using ARM generic timer as tick source");
+    gic_disable_irq(29); // Disable the hypervisor timer interrupt 
     generic_timer_init();
 }
