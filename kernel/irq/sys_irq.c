@@ -67,7 +67,6 @@ static inline bool irq_is_reserved(irq_t irq_num)
 {
     switch (irq_num) {
     case 34:   // SP804 timer (vexpress-a15)
-    case TIMER_IRQ_PHYS:
     case TIMER_IRQ_VIRT:
         return true;
     default:
