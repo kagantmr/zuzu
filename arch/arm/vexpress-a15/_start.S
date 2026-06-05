@@ -5,7 +5,7 @@
 .type early_paging_init, %function
 
 .equ RAM_PA_BASE,        0x80000000
-.equ BOOTSTRAP_RAM_MB,   16
+.equ BOOTSTRAP_RAM_MB,   8
 .equ RAM_LOW_IDX_BASE,   0x800
 .equ RAM_HIGH_IDX_BASE,  0xC00
 .equ SECTION_NORMAL_DESC,0x11C0E
