@@ -16,7 +16,6 @@
 
 #include <stdint.h>
 
-#define TIMER_IRQ_PHYS  30   /* CNTP PPI */
 #define TIMER_IRQ_VIRT  27   /* CNTV PPI */
 
 /**
@@ -27,10 +26,5 @@
  *
  */
 void generic_timer_init(void);
-/**
- * @brief Get the current tick count from the generic timer.
- * @return Current tick count as a 64-bit value.
- */
-uint64_t generic_timer_get_ticks(void);
 
 #endif // TIMER_H
