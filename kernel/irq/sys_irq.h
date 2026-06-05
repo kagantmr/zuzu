@@ -2,8 +2,8 @@
 #define SYS_IRQ_H
 
 #include "arch/arm/include/context.h"
-#include "kernel/ipc/notif.h"
-#include "kernel/ipc/endpoint.h"
+#include "kernel/ipc/ntfn.h"
+#include "kernel/ipc/port.h"
 #include "stdbool.h"
 
 typedef struct process process_t;
