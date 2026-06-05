@@ -14,48 +14,42 @@ zuzu is like a holy grail of projects for me. I've always wanted to build an OS 
 
 Phases 0–12 is completed. Synchronous IPC is implemented and tested.
 
-| Phase | Name | Status |
-|-------|------|--------|
-| 0–2 | Build system, boot, UART, diagnostics | done |
-| 3–4 | Physical memory manager, DTB parser | done |
-| 5 | Kernel heap (kmalloc/kfree) | done |
-| 6 | Exception vectors, fault decoding | done |
-| 7 | MMU, higher-half kernel, ioremap | done |
-| 8 | GICv2, interrupt subsystem, SP804/generic timer | done |
-| 9 | Preemptive scheduler, tick | done |
-| 10 | Per-process address spaces, L2 tables, context switch | done |
-| 11 | User mode (USR), privilege separation, syscall ABI | done |
-| 12 | Synchronous IPC — send, recv, call, reply | done |
-| 13 | ELF loader, initrd, program loading | next |
-| 14 | Userspace C runtime, crt0, syscall wrappers | planned |
-| 15–17 | Networking (NIC, UDP, TCP) | planned |
+| Phase | Name                                                  | Status  |
+| ----- | ----------------------------------------------------- | ------- |
+| 0–2   | Build system, boot, UART, diagnostics                 | done    |
+| 3–4   | Physical memory manager, DTB parser                   | done    |
+| 5     | Kernel heap (kmalloc/kfree)                           | done    |
+| 6     | Exception vectors, fault decoding                     | done    |
+| 7     | MMU, higher-half kernel, ioremap                      | done    |
+| 8     | GICv2, interrupt subsystem, SP804/generic timer       | done    |
+| 9     | Preemptive scheduler, tick                            | done    |
+| 10    | Per-process address spaces, L2 tables, context switch | done    |
+| 11    | User mode (USR), privilege separation, syscall ABI    | done    |
+| 12    | Synchronous IPC — send, recv, call, reply             | done    |
+| 13    | ELF loader, initrd, program loading                   | next    |
+| 14    | Userspace C runtime, crt0, syscall wrappers           | planned |
+| 15–17 | Networking (NIC, UDP, TCP)                            | planned |
 
 ---
 
 ## Design Choices
 
+- **Microkernel architecture**: The kernel provides only the most essential services (memory management, scheduling, IPC). Drivers and filesystems run in user space as separate processes.
 
-**SVC immediate used as syscall number.** zuzu encodes the syscall number directly in the lower byte of the `SVC #n` instruction's immediate field, rather than the Linux convention of placing it in `r7`. This was chosen to reduce excess register usage and make use of the 24 bits. Now, due to the incompatibility between ARM mode and Thumb mode (Thumb `SVC #n` immediate is 8 bits), the full 24-bits of the ARM mode `SVC #n` instruction are not used.
-
-**TTBR0 / TTBR1 address space split.** The MMU uses two translation table base registers simultaneously: TTBR1 holds the kernel's page table and never changes, TTBR0 holds the current process's page table and is swapped on every context switch. The split boundary is at `0x80000000` (TTBCR.N = 1). This means kernel mappings are always accessible without any per-process copying.
-
-**Higher-half kernel.** The kernel runs at virtual address `0xC0000000` (physical `0x80000000`). User processes occupy `0x00000000–0x7FFFFFFF` due to the TTBR split.
-
-**Synchronous rendezvous IPC.** Message passing uses a blocking rendezvous model: `send` blocks until a receiver is ready, `recv` blocks until a sender arrives. When both are present, the kernel copies four registers (r0-r3) and unblocks both. No queues or heap allocation for performance consistency.
-
-**GICv2 interrupt controller.** Interrupt routing is handled through the ARM Generic Interrupt Controller v2 (GICv2) with a distributor and per-CPU interface. The kernel handles a small set of interrupts in-kernel (timer, UART) with the infrastructure in place for forwarding to userspace drivers.
+(wip)
 
 ---
 
 ## Supported Targets
 
-| Board | Machine | CPU | Status |
-|-------|---------|-----|--------|
-| QEMU vexpress-a15 | `-M vexpress-a15` | Cortex-A15 | primary |
-| QEMU vexpress-a9 | `-M vexpress-a9` | Cortex-A9 | planned |
-| Raspberry Pi 4 | — | Cortex-A72 (32-bit mode) | planned |
-| Raspberry Pi 4 | — | Cortex-A72 (64-bit mode) | planned |
-| STM32 (MPU) | — | Cortex-M | planned |
+| Board             | Machine           | CPU                      | Status  |
+| ----------------- | ----------------- | ------------------------ | ------- |
+| QEMU vexpress-a15 | `-M vexpress-a15` | Cortex-A15               | primary |
+| QEMU vexpress-a9  | `-M vexpress-a9`  | Cortex-A9                | planned |
+| Raspberry Pi 4    | —                 | Cortex-A72 (32-bit mode) | planned |
+| Raspberry Pi 4    | —                 | Cortex-A72 (64-bit mode) | planned |
+| STM32 (MPU)       | —                 | Cortex-M                 | planned |
+| x86_64            | —                 | ?                        | planned |
 
 ---
 
@@ -140,18 +134,18 @@ zuzu/
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [docs/boot.md](docs/boot.md) | Boot sequence from cold reset to the idle loop of `kmain()` |
-| [docs/arch.md](docs/arch.md) | ARM architecture decisions — TTBR split, SVC ABI, exception model |
-| [docs/debugging.md](docs/debugging.md) | Debugging help |
-| [docs/memory.md](docs/memory.md) | Physical and virtual memory layout, page table format |
-| [docs/interrupts.md](docs/interrupts.md) | GICv2, IRQ registration, timer configuration |
-| [docs/ipc.md](docs/ipc.md) | IPC model: endpoints, ports, rendezvous, handle tables |
-| [docs/processes.md](docs/processes.md) | Process model, PCB layout, context switch, scheduler |
-| [docs/syscalls.md](docs/syscalls.md) | Full syscall ABI reference |
-| [docs/roadmap.md](docs/roadmap.md) | Phase-by-phase development roadmap |
-| [docs/contributing.md](docs/contributing.md) | Contribution workflow, standards, and PR checklist |
+| Document                                     | Description                                                       |
+| -------------------------------------------- | ----------------------------------------------------------------- |
+| [docs/boot.md](docs/boot.md)                 | Boot sequence from cold reset to the idle loop of `kmain()`       |
+| [docs/arch.md](docs/arch.md)                 | ARM architecture decisions — TTBR split, SVC ABI, exception model |
+| [docs/debugging.md](docs/debugging.md)       | Debugging help                                                    |
+| [docs/memory.md](docs/memory.md)             | Physical and virtual memory layout, page table format             |
+| [docs/interrupts.md](docs/interrupts.md)     | GICv2, IRQ registration, timer configuration                      |
+| [docs/ipc.md](docs/ipc.md)                   | IPC model: endpoints, ports, rendezvous, handle tables            |
+| [docs/processes.md](docs/processes.md)       | Process model, PCB layout, context switch, scheduler              |
+| [docs/syscalls.md](docs/syscalls.md)         | Full syscall ABI reference                                        |
+| [docs/roadmap.md](docs/roadmap.md)           | Phase-by-phase development roadmap                                |
+| [docs/contributing.md](docs/contributing.md) | Contribution workflow, standards, and PR checklist                |
 
 ---
 
