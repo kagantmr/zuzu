@@ -46,7 +46,7 @@ void log_write(log_level_t level, const char *tag, const char *fmt, ...) {
     const char *lvl_style = level_to_style(level);
     const char *safe_tag = tag ? tag : "";
     syspage_t *sp = (syspage_t *)SYSPAGE;
-    unsigned long long uptime_s = (unsigned long long)(sp->uptime_ticks / sp->tick_hz);
+    unsigned long long ticks = (unsigned long long)sp->uptime_ticks;
 
     char msg_buf[192];
     va_list ap;
@@ -57,10 +57,10 @@ void log_write(log_level_t level, const char *tag, const char *fmt, ...) {
     char line_buf[256];
     if (safe_tag[0] != '\0') {
         snprintf(line_buf, sizeof(line_buf), "%s[%6llu %-5s]" ANSI_RESET " (%s) %s",
-                 lvl_style, uptime_s, lvl_label, safe_tag, msg_buf);
+                 lvl_style, ticks, lvl_label, safe_tag, msg_buf);
     } else {
         snprintf(line_buf, sizeof(line_buf), "%s[%6llu %-5s]" ANSI_RESET " %s",
-                 lvl_style, uptime_s, lvl_label, msg_buf);
+                 lvl_style, ticks, lvl_label, msg_buf);
     }
 
     printf("%s\n", line_buf);
