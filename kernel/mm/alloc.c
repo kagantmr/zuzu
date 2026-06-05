@@ -7,11 +7,11 @@
 #include <assert.h>
 #include "core/panic.h"
 #include "core/log.h"
-#include "kernel/ipc/endpoint.h"
+#include "kernel/ipc/port.h"
 
 extern kernel_layout_t kernel_layout;
 
-static slab_cache_t endpoint_cache;
+static slab_cache_t port_cache;
 static slab_cache_t reply_cap_cache;
 static slab_cache_t device_cap_cache;
 static bool hot_caches_ready;
@@ -101,7 +101,7 @@ static void alloc_hot_caches_init(void)
     if (hot_caches_ready)
         return;
 
-    slab_cache_create(&endpoint_cache, "endpoint_t", sizeof(endpoint_t));
+    slab_cache_create(&port_cache, "endpoint_t", sizeof(endpoint_t));
     slab_cache_create(&reply_cap_cache, "reply_cap_t", sizeof(reply_cap_t));
     slab_cache_create(&device_cap_cache, "device_cap_t", sizeof(device_cap_t));
     hot_caches_ready = true;
@@ -302,14 +302,14 @@ void kheap_init(void) {
 void *kalloc_endpoint(void)
 {
     alloc_hot_caches_init();
-    return slab_alloc(&endpoint_cache);
+    return slab_alloc(&port_cache);
 }
 
 void kfree_endpoint(void *ptr)
 {
     if (!ptr)
         return;
-    slab_free(&endpoint_cache, ptr);
+    slab_free(&port_cache, ptr);
 }
 
 void *kalloc_reply_cap(void)

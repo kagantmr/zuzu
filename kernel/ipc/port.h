@@ -6,7 +6,7 @@
 #include <stdbool.h>
 #include <list.h>
 #include <vector.h>
-#include "kernel/ipc/notif.h"
+#include "kernel/ipc/ntfn.h"
 #include "kernel/mm/vmm.h"
 
 struct process;

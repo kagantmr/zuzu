@@ -1,6 +1,6 @@
 #include "sys_port.h"
 #include "kernel/syscall/syscall.h"
-#include "endpoint.h"
+#include "port.h"
 #include "kernel/sched/sched.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/proc/process.h"
