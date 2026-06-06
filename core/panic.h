@@ -21,11 +21,11 @@ typedef struct {
 extern panic_fault_context_t panic_fault_ctx;
 
 /*
- * Halt the kernel with a structured diagnostic screen.
+ * Halt the kernel to prevent further damage, and provide debugging information about the issue.
  *
  * Disables interrupts, dumps FAULT / CPU STATE / BACKTRACE and optional
  * sections controlled by Makefile flags, then spins in WFI.
- * Uses polled UART only — safe after heap / scheduler corruption.
+ * Uses polled UART only.
  *
  * Optional sections (default all on, disable by passing 0 to make):
  *   PANIC_SECTION_PROCESS    current process, handles, trapframe, IPC
