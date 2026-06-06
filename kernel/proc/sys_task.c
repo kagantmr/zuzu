@@ -324,7 +324,7 @@ void tmake(exception_frame_t *frame) {
     t->ipc_buf_pa = ipcx_buf_pa;
     // map it
     vaddr_t mmap_va = owner->mmap_va_next;
-    if (!kmap_user_page(owner->as, ipcx_buf_pa, mmap_va,
+    if (!vmm_map_user_page(owner->as, ipcx_buf_pa, mmap_va,
                         VM_PROT_USER | VM_PROT_READ | VM_PROT_WRITE)) {
         pmm_free_page(ipcx_buf_pa);
         thread_destroy(t);

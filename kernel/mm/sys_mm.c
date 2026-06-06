@@ -452,7 +452,7 @@ void asinject(exception_frame_t *frame) {
                    PAGE_SIZE - bytes_to_copy);
         }
 
-        if (!kmap_user_page(target->as, page, kargs.dst_va + i * PAGE_SIZE,
+        if (!vmm_map_user_page(target->as, page, kargs.dst_va + i * PAGE_SIZE,
                             kargs.prot)) {
             goto rollback_nomem;
         }
