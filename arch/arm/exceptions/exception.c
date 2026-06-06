@@ -103,7 +103,7 @@ static const char *decode_mode(uint32_t spsr)
 
 static void dump_registers(exception_frame_t *frame)
 {
-    kprintf(ANSI_RED); // Red
+    kprintf("Register dump:\n");
     kprintf("  r0=%08X  r1=%08X  r2=%08X  r3=%08X\n",
             frame->r[0], frame->r[1], frame->r[2], frame->r[3]);
     kprintf("  r4=%08X  r5=%08X  r6=%08X  r7=%08X\n",
@@ -118,7 +118,6 @@ static void dump_registers(exception_frame_t *frame)
             (frame->return_cpsr & (1 << 7)) ? "I" : "i",
             (frame->return_cpsr & (1 << 6)) ? "F" : "f",
             (frame->return_cpsr & (1 << 5)) ? " Thumb" : "");
-    kprintf(ANSI_RESET); // Reset
 }
 
 void exception_dispatch(exception_type exctype, exception_frame_t *frame)
