@@ -288,7 +288,8 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
             }
             if (from_user)
             {
-                KERROR("Oops! '%s' (PID %d, TID %d) killed - data abort @ 0x%08X (%s %s)\n",
+                KERROR("Oops! Segmentation fault");
+                KDEBUG("Oops! '%s' (PID %d, TID %d) killed - data abort @ 0x%08X (%s %s)\n",
                        current_process->name, current_process->pid, current_thread->tid, dfar,
                        (dfsr & (1 << 11)) ? "write" : "read",
                        decode_fault_status(dfsr));
@@ -298,7 +299,8 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
             }
             else /* from_svc, dfar in user VA means bad pointer passed to syscall */
             {
-                KERROR("Bad user pointer in SVC from '%s' (PID %d, TID %d) @ 0x%08X (%s %s)\n",
+                KERROR("Oops! Bad user pointer");
+                KDEBUG("Oops! Bad user pointer in SVC from '%s' (PID %d, TID %d) @ 0x%08X (%s %s)\n",
                        current_process->name, current_process->pid, current_thread->tid, dfar,
                        (dfsr & (1 << 11)) ? "write" : "read",
                        decode_fault_status(dfsr));
@@ -333,7 +335,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
             .fault_decoded = "Reserved exception",
             .frame = frame,
         };
-        panic("Why are you here?");
+        panic("Why are you here? (reserved exception)");
     }
     break;
 
