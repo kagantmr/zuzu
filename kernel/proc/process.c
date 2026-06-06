@@ -138,7 +138,7 @@ process_t *process_load(const void *elf_data, size_t elf_size,
                 }
 
                 vaddr_t va = ph->p_vaddr + page * PAGE_SIZE;
-                if (!kmap_user_page(p->as, page_pa, va, prot))
+                if (!vmm_map_user_page(p->as, page_pa, va, prot))
                 {
                     pmm_free_page(page_pa);
                     for (uint32_t j = 0; j < page; j++)
@@ -182,7 +182,7 @@ process_t *process_load(const void *elf_data, size_t elf_size,
 
     for (int i = 0; i < (int)USER_STACK_PAGES; i++)
     {
-        if (!kmap_user_page(p->as, user_stack_pa + i * 0x1000,
+        if (!vmm_map_user_page(p->as, user_stack_pa + i * 0x1000,
                             user_stack_base + i * 0x1000,
                             VM_PROT_READ | VM_PROT_WRITE))
         {
@@ -397,7 +397,7 @@ process_t *process_create(const char* name) {
         goto fail_handles;
 
     // map syspage into user space
-    if (!kmap_user_page(p->as, syspage_pa(), USER_SYSPAGE_VA, VM_PROT_READ))
+    if (!vmm_map_user_page(p->as, syspage_pa(), USER_SYSPAGE_VA, VM_PROT_READ))
         goto fail_kstack;
 
     vm_region_t sys_region = {
@@ -416,7 +416,7 @@ process_t *process_create(const char* name) {
     if (!t->ipc_buf_pa)
         goto fail_kstack;
 
-    if (!kmap_user_page(p->as, t->ipc_buf_pa, USER_IPC_BUF_VA,
+    if (!vmm_map_user_page(p->as, t->ipc_buf_pa, USER_IPC_BUF_VA,
                         VM_PROT_READ | VM_PROT_WRITE)) // could use a bump pointer instead
         goto fail_kstack;
     
@@ -444,7 +444,7 @@ process_t *process_create(const char* name) {
     /* Map the TCB page into the user mmap area at the process's bump
      * pointer so userspace can read its per-thread slot. */
     vaddr_t tcb_user_va = p->mmap_va_next;
-    if (!kmap_user_page(p->as, tcb_page_pa, tcb_user_va,
+    if (!vmm_map_user_page(p->as, tcb_page_pa, tcb_user_va,
                         VM_PROT_USER | VM_PROT_READ | VM_PROT_WRITE))
         goto fail_kstack;
 

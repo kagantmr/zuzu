@@ -480,7 +480,7 @@ bool vmm_protect_range(addrspace_t* as, vaddr_t va, size_t size, vm_prot_t new_p
     return arch_mmu_protect(as, va, size, new_prot);
 }
 
-bool kmap_user_page(addrspace_t* as, paddr_t pa, vaddr_t va, vm_prot_t prot) {
+bool vmm_map_user_page(addrspace_t* as, paddr_t pa, vaddr_t va, vm_prot_t prot) {
     if (!as) return false;
     if (as->type != ADDRSPACE_USER) return false;
     if ((pa % PAGE_SIZE) != 0) return false;

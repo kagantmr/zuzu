@@ -125,7 +125,7 @@ static void boot_program(const char *path, uint32_t flags)
         for (uint32_t i = 0; i < initrd_page_count; i++)
         {
             uint32_t page_pa = initrd_pa + i * PAGE_SIZE;
-            kmap_user_page(process->as, page_pa, process->mmap_va_next, VM_PROT_READ);
+            vmm_map_user_page(process->as, page_pa, process->mmap_va_next, VM_PROT_READ);
             process->mmap_va_next += PAGE_SIZE;
         }
         vmm_add_region(process->as, &(vm_region_t){
