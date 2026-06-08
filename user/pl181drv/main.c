@@ -140,7 +140,7 @@ static int pl181_setup(void)
 
 static int wait_for_irq(void)
 {
-    int32_t bits = _ntfn_wait((uint32_t)block_irq_ntfn);
+    int32_t bits = _ntfn_wait((uint32_t)block_irq_ntfn, NTFN_WAIT_FOREVER);
     return (bits < 0) ? -1 : 0;
 }
 
@@ -360,7 +360,7 @@ int main(void)
     while (1)
     {
         /* drain any stray IRQ that arrived between transfers */
-        int32_t bits = _ntfn_poll((uint32_t)block_irq_ntfn);
+        int32_t bits = _ntfn_wait((uint32_t)block_irq_ntfn, 0);
         if (bits > 0)
             _irq_done((uint32_t)block_dev_handle);
 

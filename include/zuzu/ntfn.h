@@ -30,20 +30,14 @@ static inline int32_t _ntfn_signal(handle_t ntfn_handle, uint32_t bits) {
     return (int32_t)r0;
 }
 
-static inline int32_t _ntfn_wait(handle_t ntfn_handle) {
-    register handle_t r0 __asm__("r0") = ntfn_handle;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : [num] "i"(SYS_NTFN_WAIT)
-        : "memory");
-    return (int32_t)r0;
-}
+#define NTFN_WAIT_FOREVER UINT32_MAX
 
-static inline int32_t _ntfn_poll(handle_t ntfn_handle) {
+static inline int32_t _ntfn_wait(handle_t ntfn_handle, uint32_t timeout_ms) {
     register handle_t r0 __asm__("r0") = ntfn_handle;
+    register uint32_t r1 __asm__("r1") = timeout_ms;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
-        : [num] "i"(SYS_NTFN_POLL)
+        : "r"(r1), [num] "i"(SYS_NTFN_WAIT)
         : "memory");
     return (int32_t)r0;
 }

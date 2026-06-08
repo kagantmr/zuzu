@@ -48,7 +48,6 @@ static syscall_handler_t syscall_table[SYS_MAX + 1] = {
     [SYS_NTFN_CREATE] = ntfn_create,
     [SYS_NTFN_SIGNAL] = ntfn_signal,
     [SYS_NTFN_WAIT] = ntfn_wait,
-    [SYS_NTFN_POLL] = ntfn_poll,
     [SYS_MEMMAP] = memmap,
     [SYS_MEMUNMAP] = memunmap,
     [SYS_MEMSHARE] = memshare,
