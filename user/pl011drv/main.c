@@ -95,7 +95,7 @@ static void handle_irq_event(void)
 
 static void service_pending_irq(void)
 {
-    int32_t bits = _ntfn_poll((uint32_t)serial_irq_ntfn);
+    int32_t bits = _ntfn_wait((uint32_t)serial_irq_ntfn, 0);
     if (bits > 0) {
         handle_irq_event();
     }

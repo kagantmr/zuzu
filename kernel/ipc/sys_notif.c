@@ -2,6 +2,7 @@
 #include "kernel/proc/process.h"
 #include "kernel/sched/sched.h"
 #include "kernel/syscall/syscall.h"
+#include "kernel/time/tick.h"
 
 extern thread_t *current_thread;
 
@@ -83,6 +84,7 @@ void ntfn_signal(exception_frame_t *frame) {
 
 void ntfn_wait(exception_frame_t *frame) {
     handle_t handle_idx = frame->r[0];
+    uint32_t timeout_ms = frame->r[1];
 
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
     if (!entry || entry->type != HANDLE_NOTIFICATION) {
@@ -96,13 +98,16 @@ void ntfn_wait(exception_frame_t *frame) {
     }
 
     if (ntfn->word != 0) {
-        // Bits already set, return immediately
         frame->r[0] = ntfn->word;
         ntfn->word = 0;
         return;
     }
 
-    // Block until someone signals
+    if (timeout_ms == 0) {
+        frame->r[0] = 0;
+        return;
+    }
+
     current_thread->wake_reason = WAKE_NONE;
     current_thread->blocked_endpoint = NULL;
     current_thread->state = BLOCKED;
@@ -111,23 +116,29 @@ void ntfn_wait(exception_frame_t *frame) {
     current_thread->ntfn_wait_slot.node.prev = NULL;
     current_thread->ntfn_wait_slot.node.next = NULL;
     list_add_tail(&current_thread->ntfn_wait_slot.node, &ntfn->wait_queue.node);
-    schedule();
-    // When we wake, r[0] is already set by ntfn_signal
-}
 
-void ntfn_poll(exception_frame_t *frame) {
-    handle_t handle_idx = frame->r[0];
-
-    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
-    if (!entry || entry->type != HANDLE_NOTIFICATION) {
-        frame->r[0] = ERR_BADARG; return;
+    if (timeout_ms != UINT32_MAX) {
+        tick_t ticks = ((uint64_t)timeout_ms * (uint64_t)TICK_HZ) / 1000u;
+        if (ticks == 0) ticks = 1;
+        current_thread->wake_tick = get_ticks() + ticks;
+        sleep_queue_insert(current_thread);
+    } else {
+        current_thread->wake_tick = 0;
     }
 
-    notification_t *ntfn = entry->ntfn;
-    if (!ntfn || !ntfn->alive) {
-        frame->r[0] = ERR_DEAD;
+    schedule();
+
+    if (timeout_ms != UINT32_MAX && current_thread->wake_reason != WAKE_TIMEOUT &&
+        current_thread->timeout_node.prev && current_thread->timeout_node.next) {
+        list_remove(&current_thread->timeout_node);
+    }
+
+    if (current_thread->wake_reason == WAKE_TIMEOUT) {
+        if (current_thread->ntfn_wait_slot.node.prev && current_thread->ntfn_wait_slot.node.next) {
+            list_remove(&current_thread->ntfn_wait_slot.node);
+        }
+        // r[0] already set to ERR_TIMEOUT by scheduler
         return;
     }
-    frame->r[0] = ntfn->word;
-    ntfn->word = 0;
+    // When woken by ntfn_signal, r[0] is already set by ntfn_signal
 }
