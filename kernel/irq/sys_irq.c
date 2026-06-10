@@ -36,12 +36,13 @@ static void relay_handler(void *ctx)
             if (waiter->recvany_wait_active) {
                 for (uint32_t i = 0; i < waiter->recvany_wait_count; i++) {
                     if (waiter->recvany_wait_ntfns[i] == ntfn) {
-                        match_index = i;
+                        match_index = waiter->recvany_wait_slots[i].index;
                         break;
                     }
                 }
             }
             thread_recvany_clear_waits(waiter);
+            thread_recvany_clear_ep_waits(waiter);
             waiter->recvany_wait_match_index = match_index;
             waiter->recvany_wait_bits = ntfn->word;
             if (waiter->wake_tick != 0 && waiter->timeout_node.prev && waiter->timeout_node.next) {
@@ -178,12 +179,13 @@ void irq_bind(exception_frame_t *frame) {
             if (waiter->recvany_wait_active) {
                 for (uint32_t i = 0; i < waiter->recvany_wait_count; i++) {
                     if (waiter->recvany_wait_ntfns[i] == ntfn) {
-                        match_index = i;
+                        match_index = waiter->recvany_wait_slots[i].index;
                         break;
                     }
                 }
             }
             thread_recvany_clear_waits(waiter);
+            thread_recvany_clear_ep_waits(waiter);
             waiter->recvany_wait_match_index = match_index;
             waiter->recvany_wait_bits = ntfn->word;
             if (waiter->wake_tick != 0 && waiter->timeout_node.prev && waiter->timeout_node.next) {

@@ -172,7 +172,13 @@ static void sched_wake_sleepers(void) {
         if (t->wake_tick > now) break;
         list_remove(&t->timeout_node);
         if (t->ipc_state == IPC_RECEIVER || t->ipc_state == IPC_SENDER) {
-            list_remove(&t->node);
+            if (t->ipc_state == IPC_SENDER) {
+                if (t->node.prev && t->node.next)
+                    list_remove(&t->node);
+            } else {
+                if (t->ep_wait_slot.node.prev && t->ep_wait_slot.node.next)
+                    list_remove(&t->ep_wait_slot.node);
+            }
             t->ipc_state = IPC_NONE;
             t->blocked_endpoint = NULL;
             t->wake_reason = WAKE_TIMEOUT;
@@ -184,6 +190,7 @@ static void sched_wake_sleepers(void) {
             if (t->trap_frame)
                 t->trap_frame->r[0] = ERR_TIMEOUT;
             thread_recvany_clear_waits(t);
+            thread_recvany_clear_ep_waits(t);
             if (t->ntfn_wait_slot.node.prev && t->ntfn_wait_slot.node.next)
                 list_remove(&t->ntfn_wait_slot.node);
             t->state = READY;

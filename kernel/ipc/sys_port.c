@@ -140,10 +140,21 @@ void port_destroy(exception_frame_t *frame)
     while (!list_empty(&ep->receiver_queue))
     {
         list_node_t *n = list_pop_front(&ep->receiver_queue);
-        thread_t *t = container_of(n, thread_t, node);
-        t->ipc_state = IPC_NONE;
-        t->blocked_endpoint = NULL;
-        t->trap_frame->r[0] = ERR_DEAD;
+        thread_wait_slot_t *slot = container_of(n, thread_wait_slot_t, node);
+        thread_t *t = slot->owner;
+        if (t->recvany_ep_wait_active) {
+            thread_recvany_clear_waits(t);
+            thread_recvany_clear_ep_waits(t);
+        } else {
+            t->ipc_state = IPC_NONE;
+            t->blocked_endpoint = NULL;
+        }
+        if (t->trap_frame)
+            t->trap_frame->r[0] = ERR_DEAD;
+        if (t->wake_tick != 0 && t->timeout_node.prev && t->timeout_node.next)
+            list_remove(&t->timeout_node);
+        t->wake_tick = 0;
+        t->wake_reason = WAKE_IPC;
         t->state = READY;
         sched_add(t);
     }

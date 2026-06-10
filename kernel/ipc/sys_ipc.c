@@ -227,24 +227,40 @@ void __attribute__((hot)) proc_send(exception_frame_t *frame)
     if (!list_empty(&ep->receiver_queue))
     {
         list_node_t *receiver = list_pop_front(&ep->receiver_queue);
-        thread_t *rx_thread = container_of(receiver, thread_t, node);
-        exception_frame_t *rx_frame = rx_thread->trap_frame;
-        if (!trap_frame_sane(rx_frame))
-        {
-            ipc_panic_bad_trap_frame("proc_send.rx", rx_thread->owner_process, rx_frame);
+        thread_wait_slot_t *rx_slot = container_of(receiver, thread_wait_slot_t, node);
+        thread_t *rx_thread = rx_slot->owner;
+
+        if (rx_thread->recvany_ep_wait_active) {
+            recvany_result_t *res = &rx_thread->recvany_pending_result;
+            memset(res, 0, sizeof(*res));
+            res->matched_index = rx_slot->index;
+            res->kind = RECVANY_KIND_SEND;
+            res->source = current_thread->owner_process->pid;
+            res->r1 = frame->r[1];
+            res->r2 = frame->r[2];
+            res->r3 = frame->r[3];
+            thread_recvany_clear_waits(rx_thread);
+            thread_recvany_clear_ep_waits(rx_thread);
+            rx_thread->recvany_ep_wait_match_index = rx_slot->index;
+            ipc_cancel_timeout(rx_thread);
+            rx_thread->wake_reason = WAKE_IPC;
+            rx_thread->state = READY;
+            sched_add(rx_thread);
+        } else {
+            exception_frame_t *rx_frame = rx_thread->trap_frame;
+            if (!trap_frame_sane(rx_frame))
+                ipc_panic_bad_trap_frame("proc_send.rx", rx_thread->owner_process, rx_frame);
+            rx_frame->r[0] = current_thread->owner_process->pid;
+            rx_frame->r[1] = frame->r[1];
+            rx_frame->r[2] = frame->r[2];
+            rx_frame->r[3] = frame->r[3];
+            rx_thread->ipc_state = IPC_NONE;
+            rx_thread->blocked_endpoint = NULL;
+            ipc_cancel_timeout(rx_thread);
+            rx_thread->wake_reason = WAKE_IPC;
+            rx_thread->state = READY;
+            sched_add(rx_thread);
         }
-        // KDEBUG("Sending message from thread %d to thread %d", current_thread->tid, rx_thread->tid);
-        rx_frame->r[0] = current_thread->owner_process->pid;
-        rx_frame->r[1] = frame->r[1];
-        rx_frame->r[2] = frame->r[2];
-        rx_frame->r[3] = frame->r[3];
-        rx_thread->ipc_state = IPC_NONE;
-        rx_thread->blocked_endpoint = NULL;
-        // Cancel timeout if receiver had one
-        ipc_cancel_timeout(rx_thread);
-        rx_thread->wake_reason = WAKE_IPC;
-        rx_thread->state = READY;
-        sched_add(rx_thread);
         frame->r[0] = 0;
     }
     else
@@ -357,10 +373,14 @@ void __attribute__((hot)) proc_recv(exception_frame_t *frame)
             return;
         }
 
+        current_thread->ep_wait_slot.owner = current_thread;
+        current_thread->ep_wait_slot.index = 0;
+        current_thread->ep_wait_slot.node.prev = NULL;
+        current_thread->ep_wait_slot.node.next = NULL;
         current_thread->ipc_state = IPC_RECEIVER;
         current_thread->blocked_endpoint = ep;
         current_thread->wake_reason = WAKE_NONE;
-        list_add_tail(&current_thread->node, &ep->receiver_queue.node);
+        list_add_tail(&current_thread->ep_wait_slot.node, &ep->receiver_queue.node);
         current_thread->state = BLOCKED;
 
         if (timeout_ms > 0)
@@ -412,18 +432,17 @@ void __attribute__((hot)) proc_call(exception_frame_t *frame)
     if (!list_empty(&ep->receiver_queue))
     {
         list_node_t *receiver = list_pop_front(&ep->receiver_queue);
-        thread_t *rx_thread = container_of(receiver, thread_t, node);
+        thread_wait_slot_t *rx_slot = container_of(receiver, thread_wait_slot_t, node);
+        thread_t *rx_thread = rx_slot->owner;
         exception_frame_t *rx_frame = rx_thread->trap_frame;
         if (!trap_frame_sane(rx_frame))
-        {
             ipc_panic_bad_trap_frame("proc_call.rx", rx_thread->owner_process, rx_frame);
-        }
-        // Use pre-allocated rc from this call
+
         int slot = handle_vec_find_free(&rx_thread->owner_process->handle_table);
         if (slot < 0)
         {
             kfree_reply_cap(rc);
-            list_add_tail(&rx_thread->node, &ep->receiver_queue.node);
+            list_add_tail(&rx_slot->node, &ep->receiver_queue.node);
             frame->r[0] = ERR_NOMEM;
             return;
         }
@@ -434,18 +453,34 @@ void __attribute__((hot)) proc_call(exception_frame_t *frame)
         rentry->reply = rc;
         process_track_reply_cap(current_thread->owner_process, rx_thread->owner_process, (uint32_t)slot, rc);
 
-        rx_frame->r[0] = slot;
-        rx_frame->r[1] = current_thread->owner_process->pid;
-        rx_frame->r[2] = frame->r[1];
-        rx_frame->r[3] = frame->r[2];
-
-        rx_thread->ipc_state = IPC_NONE;
-        rx_thread->blocked_endpoint = NULL;
-        // Cancel timeout if receiver had one
-        ipc_cancel_timeout(rx_thread);
-        rx_thread->wake_reason = WAKE_IPC;
-        rx_thread->state = READY;
-        sched_add(rx_thread);
+        if (rx_thread->recvany_ep_wait_active) {
+            recvany_result_t *res = &rx_thread->recvany_pending_result;
+            memset(res, 0, sizeof(*res));
+            res->matched_index = rx_slot->index;
+            res->kind = RECVANY_KIND_CALL;
+            res->source = (uint32_t)slot;
+            res->r1 = current_thread->owner_process->pid;
+            res->r2 = frame->r[1];
+            res->r3 = frame->r[2];
+            thread_recvany_clear_waits(rx_thread);
+            thread_recvany_clear_ep_waits(rx_thread);
+            rx_thread->recvany_ep_wait_match_index = rx_slot->index;
+            ipc_cancel_timeout(rx_thread);
+            rx_thread->wake_reason = WAKE_IPC;
+            rx_thread->state = READY;
+            sched_add(rx_thread);
+        } else {
+            rx_frame->r[0] = slot;
+            rx_frame->r[1] = current_thread->owner_process->pid;
+            rx_frame->r[2] = frame->r[1];
+            rx_frame->r[3] = frame->r[2];
+            rx_thread->ipc_state = IPC_NONE;
+            rx_thread->blocked_endpoint = NULL;
+            ipc_cancel_timeout(rx_thread);
+            rx_thread->wake_reason = WAKE_IPC;
+            rx_thread->state = READY;
+            sched_add(rx_thread);
+        }
 
         current_thread->state = BLOCKED;
         current_thread->blocked_endpoint = ep;
@@ -515,26 +550,43 @@ void proc_sendx(exception_frame_t *frame)
     if (!list_empty(&ep->receiver_queue))
     {
         list_node_t *receiver = list_pop_front(&ep->receiver_queue);
-        thread_t *rx_thread = container_of(receiver, thread_t, node);
-        exception_frame_t *rx_frame = rx_thread->trap_frame;
-        if (!trap_frame_sane(rx_frame))
-        {
-            ipc_panic_bad_trap_frame("proc_sendx.rx", rx_thread->owner_process, rx_frame);
-        }
-        // KDEBUG("Sending message from thread %d to thread %d", current_thread->tid, rx_thread->tid);
+        thread_wait_slot_t *rx_slot = container_of(receiver, thread_wait_slot_t, node);
+        thread_t *rx_thread = rx_slot->owner;
         uint32_t xlen = frame->r[1] > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : frame->r[1];
-        rx_frame->r[0] = current_thread->owner_process->pid;
-        rx_frame->r[1] = xlen;
-        rx_frame->r[2] = 0;
-        rx_frame->r[3] = 0;
-        ipc_buf_copy(current_thread, rx_thread, xlen);
-        rx_thread->ipc_state = IPC_NONE;
-        rx_thread->blocked_endpoint = NULL;
-        // Cancel timeout if receiver had one
-        ipc_cancel_timeout(rx_thread);
-        rx_thread->wake_reason = WAKE_IPC;
-        rx_thread->state = READY;
-        sched_add(rx_thread);
+
+        if (rx_thread->recvany_ep_wait_active) {
+            recvany_result_t *res = &rx_thread->recvany_pending_result;
+            memset(res, 0, sizeof(*res));
+            res->matched_index = rx_slot->index;
+            res->kind = RECVANY_KIND_SEND;
+            res->source = current_thread->owner_process->pid;
+            ipc_buf_copy(current_thread, rx_thread, xlen);
+            res->r1 = xlen;
+            res->r2 = 0;
+            res->r3 = 0;
+            thread_recvany_clear_waits(rx_thread);
+            thread_recvany_clear_ep_waits(rx_thread);
+            rx_thread->recvany_ep_wait_match_index = rx_slot->index;
+            ipc_cancel_timeout(rx_thread);
+            rx_thread->wake_reason = WAKE_IPC;
+            rx_thread->state = READY;
+            sched_add(rx_thread);
+        } else {
+            exception_frame_t *rx_frame = rx_thread->trap_frame;
+            if (!trap_frame_sane(rx_frame))
+                ipc_panic_bad_trap_frame("proc_sendx.rx", rx_thread->owner_process, rx_frame);
+            rx_frame->r[0] = current_thread->owner_process->pid;
+            rx_frame->r[1] = xlen;
+            rx_frame->r[2] = 0;
+            rx_frame->r[3] = 0;
+            ipc_buf_copy(current_thread, rx_thread, xlen);
+            rx_thread->ipc_state = IPC_NONE;
+            rx_thread->blocked_endpoint = NULL;
+            ipc_cancel_timeout(rx_thread);
+            rx_thread->wake_reason = WAKE_IPC;
+            rx_thread->state = READY;
+            sched_add(rx_thread);
+        }
         frame->r[0] = 0;
     }
     else
@@ -568,18 +620,17 @@ void proc_callx(exception_frame_t *frame)
     if (!list_empty(&ep->receiver_queue))
     {
         list_node_t *receiver = list_pop_front(&ep->receiver_queue);
-        thread_t *rx_thread = container_of(receiver, thread_t, node);
+        thread_wait_slot_t *rx_slot = container_of(receiver, thread_wait_slot_t, node);
+        thread_t *rx_thread = rx_slot->owner;
         exception_frame_t *rx_frame = rx_thread->trap_frame;
         if (!trap_frame_sane(rx_frame))
-        {
             ipc_panic_bad_trap_frame("proc_callx.rx", rx_thread->owner_process, rx_frame);
-        }
-        // Use pre-allocated rc from this call
+
         int slot = handle_vec_find_free(&rx_thread->owner_process->handle_table);
         if (slot < 0)
         {
             kfree_reply_cap(rc);
-            list_add_tail(&rx_thread->node, &ep->receiver_queue.node);
+            list_add_tail(&rx_slot->node, &ep->receiver_queue.node);
             frame->r[0] = ERR_NOMEM;
             return;
         }
@@ -591,18 +642,37 @@ void proc_callx(exception_frame_t *frame)
         process_track_reply_cap(current_thread->owner_process, rx_thread->owner_process, (uint32_t)slot, rc);
 
         size_t xlen = frame->r[1] > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : frame->r[1];
-        rx_frame->r[0] = slot;
-        rx_frame->r[1] = current_thread->owner_process->pid;
-        rx_frame->r[2] = xlen;
-        rx_frame->r[3] = 0;
-        ipc_buf_copy(current_thread, rx_thread, xlen);
 
-        rx_thread->ipc_state = IPC_NONE;
-        rx_thread->blocked_endpoint = NULL;
-        ipc_cancel_timeout(rx_thread);
-        rx_thread->wake_reason = WAKE_IPC;
-        rx_thread->state = READY;
-        sched_add(rx_thread);
+        if (rx_thread->recvany_ep_wait_active) {
+            recvany_result_t *res = &rx_thread->recvany_pending_result;
+            memset(res, 0, sizeof(*res));
+            res->matched_index = rx_slot->index;
+            res->kind = RECVANY_KIND_CALL;
+            res->source = (uint32_t)slot;
+            res->r1 = current_thread->owner_process->pid;
+            ipc_buf_copy(current_thread, rx_thread, xlen);
+            res->r2 = xlen;
+            res->r3 = 0;
+            thread_recvany_clear_waits(rx_thread);
+            thread_recvany_clear_ep_waits(rx_thread);
+            rx_thread->recvany_ep_wait_match_index = rx_slot->index;
+            ipc_cancel_timeout(rx_thread);
+            rx_thread->wake_reason = WAKE_IPC;
+            rx_thread->state = READY;
+            sched_add(rx_thread);
+        } else {
+            rx_frame->r[0] = slot;
+            rx_frame->r[1] = current_thread->owner_process->pid;
+            rx_frame->r[2] = xlen;
+            rx_frame->r[3] = 0;
+            ipc_buf_copy(current_thread, rx_thread, xlen);
+            rx_thread->ipc_state = IPC_NONE;
+            rx_thread->blocked_endpoint = NULL;
+            ipc_cancel_timeout(rx_thread);
+            rx_thread->wake_reason = WAKE_IPC;
+            rx_thread->state = READY;
+            sched_add(rx_thread);
+        }
 
         current_thread->state = BLOCKED;
         current_thread->blocked_endpoint = ep;
@@ -746,14 +816,19 @@ static int recvany_try_once(const handle_t *handles,
                             uint32_t count,
                             recvany_result_t *result,
                             notification_t **wait_ntfns,
-                            uint32_t *wait_indices,
-                            uint32_t *wait_count_out)
+                            uint32_t *wait_ntfn_indices,
+                            uint32_t *wait_count_out,
+                            endpoint_t **wait_eps,
+                            uint32_t *wait_ep_indices,
+                            uint32_t *wait_ep_count_out)
 {
     endpoint_t *endpoints[RECVANY_MAX_HANDLES];
     notification_t *notifications[RECVANY_MAX_HANDLES];
 
     if (wait_count_out)
         *wait_count_out = 0;
+    if (wait_ep_count_out)
+        *wait_ep_count_out = 0;
 
     for (uint32_t i = 0; i < count; i++) {
         handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handles[i]);
@@ -806,17 +881,28 @@ static int recvany_try_once(const handle_t *handles,
     uint32_t notif_count = 0;
     for (uint32_t i = 0; i < count; i++) {
         if (notifications[i]) {
-            notif_count++;
-            uint32_t slot = notif_count - 1u;
+            uint32_t slot = notif_count++;
             if (wait_ntfns)
                 wait_ntfns[slot] = notifications[i];
-            if (wait_indices)
-                wait_indices[slot] = i;
+            if (wait_ntfn_indices)
+                wait_ntfn_indices[slot] = i;
         }
     }
-
     if (wait_count_out)
         *wait_count_out = notif_count;
+
+    uint32_t ep_count = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        if (endpoints[i]) {
+            uint32_t slot = ep_count++;
+            if (wait_eps)
+                wait_eps[slot] = endpoints[i];
+            if (wait_ep_indices)
+                wait_ep_indices[slot] = i;
+        }
+    }
+    if (wait_ep_count_out)
+        *wait_ep_count_out = ep_count;
 
     return ERR_BUSY;
 }
@@ -871,10 +957,15 @@ void proc_recvany(exception_frame_t *frame)
 
     for (;;) {
         notification_t *wait_ntfns[RECVANY_MAX_HANDLES];
-        uint32_t wait_indices[RECVANY_MAX_HANDLES];
+        uint32_t wait_ntfn_indices[RECVANY_MAX_HANDLES];
         uint32_t wait_count = 0;
+        endpoint_t *wait_eps[RECVANY_MAX_HANDLES];
+        uint32_t wait_ep_indices[RECVANY_MAX_HANDLES];
+        uint32_t ep_wait_count = 0;
         recvany_result_t result;
-        int err = recvany_try_once(handles_local, count, &result, wait_ntfns, wait_indices, &wait_count);
+        int err = recvany_try_once(handles_local, count, &result,
+                                   wait_ntfns, wait_ntfn_indices, &wait_count,
+                                   wait_eps, wait_ep_indices, &ep_wait_count);
         if (err == 0) {
             if (!copy_to_user((void *)result_ptr, &result, sizeof(result))) {
                 frame->r[0] = ERR_BADPTR;
@@ -894,71 +985,7 @@ void proc_recvany(exception_frame_t *frame)
             return;
         }
 
-        if (wait_count > 0) {
-            current_thread->recvany_wait_count = wait_count;
-            current_thread->recvany_wait_match_index = RECVANY_NO_MATCH;
-            current_thread->recvany_wait_bits = 0;
-            current_thread->recvany_wait_active = true;
-
-            for (uint32_t i = 0; i < wait_count; i++) {
-                current_thread->recvany_wait_ntfns[i] = wait_ntfns[i];
-                current_thread->recvany_wait_slots[i].owner = current_thread;
-                current_thread->recvany_wait_slots[i].index = i;
-                current_thread->recvany_wait_slots[i].node.prev = NULL;
-                current_thread->recvany_wait_slots[i].node.next = NULL;
-                list_add_tail(&current_thread->recvany_wait_slots[i].node, &wait_ntfns[i]->wait_queue.node);
-            }
-
-            current_thread->wake_reason = WAKE_NONE;
-            current_thread->blocked_endpoint = NULL;
-            current_thread->state = BLOCKED;
-
-            if (timeout_ms > 0) {
-                tick_t now = get_ticks();
-                tick_t ticks = ((uint64_t)timeout_ms * (uint64_t)TICK_HZ) / 1000u;
-                if (ticks == 0)
-                    ticks = 1;
-                current_thread->wake_tick = now + ticks;
-                sleep_queue_insert(current_thread);
-            } else {
-                current_thread->wake_tick = 0;
-            }
-
-            schedule();
-
-            if (timeout_ms > 0 && current_thread->wake_reason != WAKE_TIMEOUT &&
-                current_thread->timeout_node.prev && current_thread->timeout_node.next) {
-                list_remove(&current_thread->timeout_node);
-            }
-
-            if (current_thread->wake_reason == WAKE_TIMEOUT) {
-                thread_recvany_clear_waits(current_thread);
-                continue;
-            }
-
-            if ((int32_t)frame->r[0] == ERR_DEAD) {
-                thread_recvany_clear_waits(current_thread);
-                frame->r[0] = ERR_DEAD;
-                return;
-            }
-
-            if (current_thread->recvany_wait_match_index == RECVANY_NO_MATCH) {
-                thread_recvany_clear_waits(current_thread);
-                continue;
-            }
-
-            recvany_deliver_notification(current_thread->recvany_wait_match_index,
-                                         current_thread->recvany_wait_bits,
-                                         &result);
-            thread_recvany_clear_waits(current_thread);
-            if (!copy_to_user((void *)result_ptr, &result, sizeof(result))) {
-                frame->r[0] = ERR_BADPTR;
-                return;
-            }
-            frame->r[0] = 0;
-            return;
-        }
-
+        /* Deadline check before blocking */
         if (timeout_ms > 0) {
             tick_t now = get_ticks();
             if (now >= deadline) {
@@ -969,22 +996,107 @@ void proc_recvany(exception_frame_t *frame)
                 frame->r[0] = 0;
                 return;
             }
+        }
 
-            tick_t next_wake = now + 1;
-            if (next_wake > deadline)
-                next_wake = deadline;
-            current_thread->wake_tick = next_wake;
-        } else {
-            current_thread->wake_tick = get_ticks() + 1;
+        /* Enqueue on notification wait queues */
+        if (wait_count > 0) {
+            current_thread->recvany_wait_count = wait_count;
+            current_thread->recvany_wait_match_index = RECVANY_NO_MATCH;
+            current_thread->recvany_wait_bits = 0;
+            current_thread->recvany_wait_active = true;
+
+            for (uint32_t i = 0; i < wait_count; i++) {
+                current_thread->recvany_wait_ntfns[i] = wait_ntfns[i];
+                current_thread->recvany_wait_slots[i].owner = current_thread;
+                current_thread->recvany_wait_slots[i].index = wait_ntfn_indices[i];
+                current_thread->recvany_wait_slots[i].node.prev = NULL;
+                current_thread->recvany_wait_slots[i].node.next = NULL;
+                list_add_tail(&current_thread->recvany_wait_slots[i].node,
+                              &wait_ntfns[i]->wait_queue.node);
+            }
+        }
+
+        /* Enqueue on endpoint receiver queues */
+        if (ep_wait_count > 0) {
+            current_thread->recvany_ep_wait_count = ep_wait_count;
+            current_thread->recvany_ep_wait_match_index = RECVANY_NO_MATCH;
+            current_thread->recvany_ep_wait_active = true;
+
+            for (uint32_t i = 0; i < ep_wait_count; i++) {
+                current_thread->recvany_wait_eps[i] = wait_eps[i];
+                current_thread->recvany_ep_wait_slots[i].owner = current_thread;
+                current_thread->recvany_ep_wait_slots[i].index = wait_ep_indices[i];
+                current_thread->recvany_ep_wait_slots[i].node.prev = NULL;
+                current_thread->recvany_ep_wait_slots[i].node.next = NULL;
+                list_add_tail(&current_thread->recvany_ep_wait_slots[i].node,
+                              &wait_eps[i]->receiver_queue.node);
+            }
         }
 
         current_thread->wake_reason = WAKE_NONE;
+        current_thread->blocked_endpoint = NULL;
         current_thread->state = BLOCKED;
-        sleep_queue_insert(current_thread);
+
+        if (timeout_ms > 0) {
+            current_thread->wake_tick = deadline;
+            sleep_queue_insert(current_thread);
+        } else {
+            current_thread->wake_tick = 0;
+        }
+
         schedule();
 
-        if (wait_count > 0) {
-            thread_recvany_clear_waits(current_thread);
+        /* Cancel sleep queue entry if not timed out */
+        if (timeout_ms > 0 && current_thread->wake_reason != WAKE_TIMEOUT &&
+            current_thread->timeout_node.prev && current_thread->timeout_node.next) {
+            list_remove(&current_thread->timeout_node);
         }
+
+        /* ERR_DEAD from port_destroy */
+        if ((int32_t)frame->r[0] == ERR_DEAD) {
+            thread_recvany_clear_waits(current_thread);
+            thread_recvany_clear_ep_waits(current_thread);
+            frame->r[0] = ERR_DEAD;
+            return;
+        }
+
+        /* Timeout */
+        if (current_thread->wake_reason == WAKE_TIMEOUT) {
+            thread_recvany_clear_waits(current_thread);
+            thread_recvany_clear_ep_waits(current_thread);
+            continue; /* deadline check at top catches expiry */
+        }
+
+        /* Woken by endpoint sender */
+        if (current_thread->recvany_ep_wait_match_index != RECVANY_NO_MATCH) {
+            thread_recvany_clear_waits(current_thread);
+            thread_recvany_clear_ep_waits(current_thread);
+            if (!copy_to_user((void *)result_ptr, &current_thread->recvany_pending_result,
+                              sizeof(recvany_result_t))) {
+                frame->r[0] = ERR_BADPTR;
+                return;
+            }
+            frame->r[0] = 0;
+            return;
+        }
+
+        /* Woken by notification */
+        if (current_thread->recvany_wait_match_index != RECVANY_NO_MATCH) {
+            recvany_deliver_notification(current_thread->recvany_wait_match_index,
+                                         current_thread->recvany_wait_bits,
+                                         &result);
+            thread_recvany_clear_waits(current_thread);
+            thread_recvany_clear_ep_waits(current_thread);
+            if (!copy_to_user((void *)result_ptr, &result, sizeof(result))) {
+                frame->r[0] = ERR_BADPTR;
+                return;
+            }
+            frame->r[0] = 0;
+            return;
+        }
+
+        /* Spurious wakeup — retry */
+        thread_recvany_clear_waits(current_thread);
+        thread_recvany_clear_ep_waits(current_thread);
     }
 }
