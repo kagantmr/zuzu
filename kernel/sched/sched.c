@@ -80,6 +80,8 @@ void sched_add(thread_t *t) {
     if (!t)
         return;
 
+    if (t->node.next||t->node.prev) return; // double enqueue guard
+
     uint32_t priority = thread_priority(t);
     if (priority >= SCHED_PRIORITY_LEVELS)
         priority = SCHED_PRIORITY_LEVELS - 1;
@@ -178,6 +180,12 @@ static void sched_wake_sleepers(void) {
             t->state = READY;
             sched_add(t);
         } else {
+            t->wake_reason = WAKE_TIMEOUT;
+            if (t->trap_frame)
+                t->trap_frame->r[0] = ERR_TIMEOUT;
+            thread_recvany_clear_waits(t);
+            if (t->ntfn_wait_slot.node.prev && t->ntfn_wait_slot.node.next)
+                list_remove(&t->ntfn_wait_slot.node);
             t->state = READY;
             t->wake_tick = 0;
             sched_add(t);
