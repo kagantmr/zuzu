@@ -124,11 +124,7 @@ addrspace_t* as_create(addrspace_type_t type) {
     }
     as->asid_token = (asid_token_t){0};
 
-    if (type == ADDRSPACE_USER) {
-        as->ttbr0_pa = arch_mmu_create_user_tables();
-    } else {
-        as->ttbr0_pa = arch_mmu_create_tables();  // full 16KB for kernel
-    }
+    as->ttbr0_pa = arch_mmu_create_tables(type);
 
     if (as->ttbr0_pa == 0) {
         kfree(as);
@@ -295,7 +291,7 @@ void vmm_bootstrap(void) {
         }
 
         // allocate a PMM-backed L1 and copy early_l1 into it
-        uintptr_t new_l1_pa = arch_mmu_create_tables();
+        uintptr_t new_l1_pa = arch_mmu_create_tables(ADDRSPACE_KERNEL);
         if (!new_l1_pa) {
             panic("Failed to allocate kernel L1 from PMM");
         }
@@ -473,8 +469,6 @@ bool vmm_unmap_range(addrspace_t* as, vaddr_t va, size_t size) {
 bool vmm_protect_range(addrspace_t* as, vaddr_t va, size_t size, vm_prot_t new_prot) {
     if (!as) return false;
     if (size == 0) return false;
-    if ((va % 0x100000) != 0) return false;
-    if ((size % 0x100000) != 0) return false;
 
     // Delegate to arch layer (changes permissions on page table entries)
     return arch_mmu_protect(as, va, size, new_prot);
