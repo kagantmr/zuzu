@@ -16,9 +16,10 @@
 
 /**
  * @brief Allocate and initialize an L1 page table.
+ * @param type ADDRSPACE_USER (8 KB, 2048 entries) or ADDRSPACE_KERNEL (16 KB, 4096 entries).
  * @return Physical address of the L1 table, or 0 on failure.
  */
-uintptr_t arch_mmu_create_tables(void);
+uintptr_t arch_mmu_create_tables(addrspace_type_t type);
 
 /**
  * @brief Free page tables.
@@ -65,12 +66,6 @@ bool arch_mmu_protect(addrspace_t *as, uintptr_t va, size_t size, vm_prot_t prot
 void arch_mmu_enable(addrspace_t *as);
 
 /**
- * @brief Disable the MMU (rare; mostly for shutdown).
- * Disables virtual memory and returns to physical addressing.
- */
-void arch_mmu_disable(void);
-
-/**
  * @brief Switch TTBR0 to another address space (context switch).
  * @param as Address space to activate.
  */
@@ -103,52 +98,12 @@ void arch_mmu_flush_tlb_va(uintptr_t va);
 uintptr_t arch_mmu_translate(uintptr_t ttbr0_pa, uintptr_t va);
 
 /**
- * @brief Allocate a new L2 page table.
- * @return Physical address of the allocated L2 table, or 0 on failure.
- */
-uintptr_t arch_mmu_alloc_l2_table(void);
-
-/**
- * @brief Make an L1 page table entry pointing to the given L2 table physical address.
- * @param l2_pa PA of the table to make an entry to
- * @return The entry itself
- */
-uint32_t arch_mmu_make_l1_pte(uintptr_t l2_pa);
-
-/**
- * Make an L2 page table entry for the given physical address and permissions.
- * @param pa Physical address to translate
- * @param memtype Enum for memory type (MMIO, user, kernel)
- * @param prot Access privilege
- * @return The correct page table entry
- */
-uint32_t arch_mmu_make_l2_pte(uintptr_t pa, vm_memtype_t memtype, vm_prot_t prot);
-
-/**
- * Map a single page at the given virtual address to the given physical address with specified permissions.
- * @param as Address space pointer
- * @param va Virtual address to map at
- * @param pa Physical address to map
- * @param memtype Enum for memory type (MMIO, user, kernel)
- * @param prot Access privilege
- * @return true if success, false if fail
- */
-bool arch_mmu_map_page(addrspace_t *as, uintptr_t va, uintptr_t pa, vm_memtype_t memtype, vm_prot_t prot);
-
-/**
  * Unmap a single page at the given virtual address.
  * @param as Address space ptr
  * @param va Virtual address to unmap
  * @return true if success, false if fail
  */
 bool arch_mmu_unmap_page(addrspace_t *as, uintptr_t va);
-
-/**
- * Create and initialize page tables for a new user address space.
- * Allocates and zeroes an L1 table suitable for TTBR0.
- * @return Pointer to page tables
- */
-uintptr_t arch_mmu_create_user_tables(void);
 
 /**
  * Free all user-mapped pages in the given address space, but keep page tables intact.

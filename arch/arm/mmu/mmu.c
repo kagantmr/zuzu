@@ -16,20 +16,22 @@
 
 // #define SECTION_SIZE 0x100000
 
-uintptr_t arch_mmu_create_tables(void)
+static bool arch_mmu_map_page(addrspace_t *as, uintptr_t va, uintptr_t pa,
+                              vm_memtype_t memtype, vm_prot_t prot);
+
+uintptr_t arch_mmu_create_tables(addrspace_type_t type)
 {
-    const size_t l1_bytes = 16 * 1024;
-    const size_t l1_pages = l1_bytes / PAGE_SIZE;       // 4
-    const uintptr_t l1_align = 16 * 1024;               // TTBR0 alignment requirement
-    const size_t l1_align_pages = l1_align / PAGE_SIZE; // 4
+    const size_t l1_bytes = (type == ADDRSPACE_USER) ? 8 * 1024 : 16 * 1024;
+    const size_t l1_pages = l1_bytes / PAGE_SIZE;
+    const size_t l1_align_pages = l1_pages; // alignment == size for both cases
 
     uintptr_t l1_pa = pmm_alloc_pages_aligned(l1_pages, l1_align_pages);
     if (!l1_pa)
         return 0;
 
-    assert((l1_pa & (l1_align - 1)) == 0);
+    assert((l1_pa & (l1_bytes - 1)) == 0);
 
-    memset((void *)PA_TO_VA(l1_pa), 0, l1_bytes); // zero the whole 16 KB region
+    memset((void *)PA_TO_VA(l1_pa), 0, l1_bytes);
 
     return l1_pa;
 }
@@ -103,8 +105,18 @@ bool arch_mmu_map(addrspace_t *as, uintptr_t va, uintptr_t pa, size_t size,
 
             // Domain = 0 (bits[8:5] left as 0)
 
-            // Bring-up permissions: AP[1:0] = 0b01 (kernel code)
-            entry |= (0x1u << 10);
+            // AP[2] (bit 15) and AP[1:0] (bits[11:10]) from prot
+            if (prot & VM_PROT_USER) {
+                if (prot & VM_PROT_WRITE)
+                    entry |= (3u << 10); // AP=011: user+kernel RW
+                else
+                    entry |= (2u << 10); // AP=010: user RO, kernel RW
+            } else {
+                entry |= (1u << 10);     // AP=001: kernel only
+            }
+            // XN (bit 4): set when mapping is not executable
+            if (!(prot & VM_PROT_EXEC))
+                entry |= (1u << 4);
 
             // Memory attributes (short-descriptor section): TEX[14:12], C[3], B[2]
             // For bring-up we keep NORMAL memory non-cacheable and DEVICE memory as device.
@@ -334,18 +346,6 @@ void arch_mmu_enable(addrspace_t *as)
     arch_mmu_barrier();
 }
 
-void arch_mmu_disable(void)
-{
-    // Disable MMU by clearing SCTLR.M.
-    uint32_t sctlr;
-    __asm__ volatile("mrc p15, 0, %0, c1, c0, 0" : "=r"(sctlr));
-    sctlr &= ~1u;
-    __asm__ volatile("mcr p15, 0, %0, c1, c0, 0" ::"r"(sctlr) : "memory");
-
-    arch_mmu_flush_tlb();
-    arch_mmu_barrier();
-}
-
 void arch_mmu_switch(addrspace_t *as)
 {
     if (!as || as->ttbr0_pa == 0)
@@ -448,7 +448,7 @@ uintptr_t arch_mmu_translate(uintptr_t ttbr0_pa, uintptr_t va)
     return 0;
 }
 
-uintptr_t arch_mmu_alloc_l2_table(void)
+static uintptr_t arch_mmu_alloc_l2_table(void)
 {
     uintptr_t new_page = l2_pool_alloc();
     if (!new_page)
@@ -456,14 +456,14 @@ uintptr_t arch_mmu_alloc_l2_table(void)
     return (uintptr_t)new_page;
 }
 
-uint32_t arch_mmu_make_l1_pte(uintptr_t l2_pa)
+static uint32_t arch_mmu_make_l1_pte(uintptr_t l2_pa)
 {
     if (!l2_pa)
         return 0;
     return (uint32_t)(l2_pa & ALIGNMENT_1KB_MASK) | L2_MASK; // L2 mask
 }
 
-uint32_t arch_mmu_make_l2_pte(uintptr_t pa, vm_memtype_t memtype, vm_prot_t prot)
+static uint32_t arch_mmu_make_l2_pte(uintptr_t pa, vm_memtype_t memtype, vm_prot_t prot)
 {
     uint32_t entry = (pa & ALIGNMENT_4KB_MASK) | 0x2;
 
@@ -549,8 +549,8 @@ static bool arch_mmu_break_section(uint32_t *l1, uint32_t l1_idx, uint8_t asid)
     return true;
 }
 
-bool arch_mmu_map_page(addrspace_t *as, uintptr_t va, uintptr_t pa,
-                       vm_memtype_t memtype, vm_prot_t prot)
+static bool arch_mmu_map_page(addrspace_t *as, uintptr_t va, uintptr_t pa,
+                              vm_memtype_t memtype, vm_prot_t prot)
 {
     if (!as)
     {
@@ -634,19 +634,6 @@ bool arch_mmu_unmap_page(addrspace_t *as, uintptr_t va)
     }
     l2[l2_idx] = 0;
     return true;
-}
-
-uintptr_t arch_mmu_create_user_tables(void)
-{
-    const size_t l1_bytes = 8 * 1024; // 2048 entries for N=1
-    const size_t l1_pages = 2;
-    const size_t l1_align_pages = 2; // 8KB alignment
-
-    uintptr_t l1_pa = pmm_alloc_pages_aligned(l1_pages, l1_align_pages);
-    if (!l1_pa)
-        return 0;
-    memset((void *)PA_TO_VA(l1_pa), 0, l1_bytes);
-    return l1_pa;
 }
 
 static vm_owner_t mmu_region_owner_for_va(const addrspace_t *as, uintptr_t va)
