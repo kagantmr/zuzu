@@ -72,6 +72,13 @@ struct thread
     uint32_t recvany_wait_match_index;
     uint32_t recvany_wait_bits;
     bool recvany_wait_active;
+    thread_wait_slot_t ep_wait_slot;                               /* for proc_recv */
+    thread_wait_slot_t recvany_ep_wait_slots[RECVANY_MAX_HANDLES]; /* for proc_recvany endpoints */
+    endpoint_t *recvany_wait_eps[RECVANY_MAX_HANDLES];
+    uint32_t recvany_ep_wait_count;
+    bool recvany_ep_wait_active;
+    uint32_t recvany_ep_wait_match_index;
+    recvany_result_t recvany_pending_result;
     uint32_t priority, time_slice, ticks_remaining;
     process_t *owner_process; // backpointer to owning process
     vaddr_t thread_info_va; 
@@ -108,6 +115,25 @@ static inline void thread_recvany_clear_waits(thread_t *thread)
     thread->recvany_wait_match_index = RECVANY_NO_MATCH;
     thread->recvany_wait_bits = 0;
     thread->recvany_wait_active = false;
+}
+
+static inline void thread_recvany_clear_ep_waits(thread_t *thread)
+{
+    if (!thread || !thread->recvany_ep_wait_active)
+        return;
+
+    for (uint32_t i = 0; i < thread->recvany_ep_wait_count && i < RECVANY_MAX_HANDLES; i++) {
+        list_node_t *node = &thread->recvany_ep_wait_slots[i].node;
+        if (node->prev && node->next)
+            list_remove(node);
+        thread->recvany_wait_eps[i] = NULL;
+        node->prev = NULL;
+        node->next = NULL;
+    }
+
+    thread->recvany_ep_wait_count = 0;
+    thread->recvany_ep_wait_match_index = RECVANY_NO_MATCH;
+    thread->recvany_ep_wait_active = false;
 }
 
 #endif // ZUZU_THREAD_H
