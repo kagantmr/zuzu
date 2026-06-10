@@ -1,7 +1,7 @@
 /**
  * mmu.h - ARM MMU interface and definitions.
  * The ARMv7 MMU uses a 2-level paging scheme, with a 4 KB page size and 1 MB section size (and optional 16MB supersections that zuzuOS doesn't use).
- * This header defines the interface for managing page tables, mapping/unmapping virtual memory, and handling ASIDs. 
+ * This header defines the interface for managing page tables, mapping/unmapping virtual memory, and handling ASIDs.
  * The implementation will need to handle the specifics of ARM's page table formats, including the encoding of permissions and memory types.
  */
 
@@ -116,6 +116,44 @@ void arch_mmu_free_user_pages(addrspace_t *as);
  * @param as Address space to switch to TTBR1 in preparation for user mode.
  */
 void arch_mmu_init_ttbr1(addrspace_t *as);
+
+static inline void arch_relocate_stacks(size_t offset)
+{
+    __asm__ volatile(
+        // Save current mode (should be SVC)
+        "mrs    r0, cpsr\n\t"
+        "mov    r4, r0\n\t" // r4 = saved CPSR
+
+        // Disable IRQ/FIQ during mode switches (safety)
+        "orr    r0, r0, #0xC0\n\t" // Set I and F bits
+        "msr    cpsr_c, r0\n\t"
+
+        // --- Relocate SVC stack (current mode) ---
+        "add    sp, sp, %0\n\t"
+        "add    fp, fp, %0\n\t"
+
+        // --- Switch to IRQ mode and relocate ---
+        "cps    #0x12\n\t" // IRQ mode
+        "add    sp, sp, %0\n\t"
+
+        // --- Switch to ABT mode and relocate ---
+        "cps    #0x17\n\t" // Abort mode
+        "add    sp, sp, %0\n\t"
+
+        // --- Switch to UND mode and relocate ---
+        "cps    #0x1B\n\t" // Undefined mode
+        "add    sp, sp, %0\n\t"
+
+        // --- Return to SVC mode ---
+        "cps    #0x13\n\t" // Back to SVC
+
+        // Restore original CPSR (re-enables interrupts if they were enabled)
+        "msr    cpsr_c, r4\n\t"
+
+        :
+        : "r"(offset)
+        : "r0", "r4", "memory");
+}
 
 /**
  * @brief Issue memory barriers (ISB, DSB).

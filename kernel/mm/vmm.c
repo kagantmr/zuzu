@@ -12,18 +12,36 @@
 #include "kernel/layout.h"
 #include "arch/arm/mmu/asid.h"
 #include <zuzu/types.h>
+#include <stdlib.h>
 
 // Track kernel and current address spaces
 static addrspace_t* g_kernel_as = NULL;
 static addrspace_t* g_current_addrspace = NULL;
 static bool g_mmu_enabled = false;
 extern kernel_layout_t kernel_layout;
-extern uint32_t early_l1[];  // from early.c, in .bss.boot (physical address)
+extern uint32_t early_l1[]; 
 
 
 #define LOG_FMT(fmt) "(vmm) " fmt
 #include "core/log.h"
 
+static int region_contains_va(const void *key, const void *elem)
+{
+    uintptr_t va = *(const uintptr_t *)key;
+    const vm_region_t *r = (const vm_region_t *)elem;
+    if (va < r->vaddr_start)       return -1;
+    if (va - r->vaddr_start >= r->size) return  1;
+    return 0;
+}
+
+static int region_cmp_start(const void *key, const void *elem)
+{
+    uintptr_t va = *(const uintptr_t *)key;
+    const vm_region_t *r = (const vm_region_t *)elem;
+    if (va < r->vaddr_start) return -1;
+    if (va > r->vaddr_start) return  1;
+    return 0;
+}
 
 addrspace_t* vmm_get_kernel_as(void) {
     return g_kernel_as;
@@ -41,18 +59,10 @@ static ioremap_entry_t ioremap_table[IOREMAP_MAX_ENTRIES];
 
 static vm_region_t *vmm_find_region(addrspace_t *as, uintptr_t va)
 {
-    if (!as)
+    if (!as || as->regions.len == 0)
         return NULL;
-
-    for (uint32_t i = 0; i < as->regions.len; i++) {
-        vm_region_t *r = vm_region_vec_get(&as->regions, i);
-        if (!r)
-            continue;
-        if (va >= r->vaddr_start && (va - r->vaddr_start) < r->size)
-            return r;
-    }
-
-    return NULL;
+    return bsearch(&va, as->regions.data, as->regions.len,
+                   sizeof(vm_region_t), region_contains_va);
 }
 
 bool vmm_fault_page(addrspace_t *as, vm_region_t *r, uintptr_t page_va)
@@ -236,34 +246,51 @@ bool vmm_add_region(addrspace_t *as, const vm_region_t *region) {
     vaddr_t new_start = region->vaddr_start;
     vaddr_t new_end   = new_start + region->size;
 
-    // overlap check
-    for (uint32_t i = 0; i < as->regions.len; i++) {
-        vm_region_t *r = vm_region_vec_get(&as->regions, i);
-        if (!(new_end <= r->vaddr_start || new_start >= r->vaddr_start + r->size))
+    uint32_t lo = 0, hi = as->regions.len;
+    while (lo < hi) {
+        uint32_t mid = lo + (hi - lo) / 2;
+        if (as->regions.data[mid].vaddr_start <= new_start)
+            lo = mid + 1;
+        else
+            hi = mid;
+    }
+    uint32_t ins = lo;
+
+    if (ins > 0) {
+        vm_region_t *left = &as->regions.data[ins - 1];
+        if (left->vaddr_start + left->size > new_start)
+            return false;
+    }
+    if (ins < as->regions.len) {
+        if (new_end > as->regions.data[ins].vaddr_start)
             return false;
     }
 
-    return vm_region_vec_push(&as->regions, region);
+    if (as->regions.len >= as->regions.cap) {
+        if (vm_region_vec_grow(&as->regions) < 0)
+            return false;
+    }
+
+    memmove(&as->regions.data[ins + 1], &as->regions.data[ins],
+            (as->regions.len - ins) * sizeof(vm_region_t));
+    as->regions.data[ins] = *region;
+    as->regions.len++;
+    return true;
 }
 
 bool vmm_remove_region(addrspace_t *as, uintptr_t vaddr, size_t size) {
     if (!as || size == 0) return false;
 
-    uint32_t idx = as->regions.len;
-    for (uint32_t i = 0; i < as->regions.len; i++) {
-        vm_region_t *r = vm_region_vec_get(&as->regions, i);
-        if (!r) continue;
-        if (r->vaddr_start == vaddr && r->size == size) { idx = i; break; }
-    }
-    if (idx == as->regions.len) return false;
+    vm_region_t *r = bsearch(&vaddr, as->regions.data, as->regions.len,
+                              sizeof(vm_region_t), region_cmp_start);
+    if (!r || r->size != size)
+        return false;
 
     vmm_unmap_range(as, vaddr, size);
 
-    // shift down 
-    for (uint32_t i = idx; i + 1 < as->regions.len; i++)
-        as->regions.data[i] = as->regions.data[i + 1];
+    uint32_t idx = (uint32_t)(r - as->regions.data);
+    memmove(r, r + 1, (as->regions.len - idx - 1) * sizeof(vm_region_t));
     as->regions.len--;
-
     return true;
 }
 
@@ -283,7 +310,6 @@ bool vmm_build_page_tables(addrspace_t* as) {
 
 void vmm_bootstrap(void) {
     if (!g_kernel_as) {
-        // Adopt the early boot page table — no new allocation, no page table switch
         g_kernel_as = kmalloc(sizeof(addrspace_t));
         if (!g_kernel_as) {
             panic("Failed to create kernel address space");
@@ -364,52 +390,19 @@ void vmm_remove_identity_mapping(void) {
     if (cur_sp < KERNEL_VA_BASE) {
         uint32_t offset = KERNEL_VA_OFFSET;
 
-        __asm__ volatile(
-            // Save current mode (should be SVC)
-            "mrs    r0, cpsr\n\t"
-            "mov    r4, r0\n\t"             // r4 = saved CPSR
-
-            // Disable IRQ/FIQ during mode switches (safety)
-            "orr    r0, r0, #0xC0\n\t"      // Set I and F bits
-            "msr    cpsr_c, r0\n\t"
-
-            // --- Relocate SVC stack (current mode) ---
-            "add    sp, sp, %0\n\t"
-            "add    fp, fp, %0\n\t"
-
-            // --- Switch to IRQ mode and relocate ---
-            "cps    #0x12\n\t"              // IRQ mode
-            "add    sp, sp, %0\n\t"
-
-            // --- Switch to ABT mode and relocate ---
-            "cps    #0x17\n\t"              // Abort mode
-            "add    sp, sp, %0\n\t"
-
-            // --- Switch to UND mode and relocate ---
-            "cps    #0x1B\n\t"              // Undefined mode
-            "add    sp, sp, %0\n\t"
-
-            // --- Return to SVC mode ---
-            "cps    #0x13\n\t"              // Back to SVC
-
-            // Restore original CPSR (re-enables interrupts if they were enabled)
-            "msr    cpsr_c, r4\n\t"
-
-            :
-            : "r"(offset)
-            : "r0", "r4", "memory"
-        );
+        arch_relocate_stacks(offset);
     }
 
     vmm_unmap_range(g_kernel_as, map_pa_start, map_size);
 
-    for (uint32_t i = 0; i < g_kernel_as->regions.len; i++) {
-        if (g_kernel_as->regions.data[i].vaddr_start == map_pa_start) {
-            for (uint32_t j = i; j + 1 < g_kernel_as->regions.len; j++)
-                g_kernel_as->regions.data[j] = g_kernel_as->regions.data[j + 1];
-            g_kernel_as->regions.len--;
-            break;
-        }
+    vm_region_t *r = bsearch(&map_pa_start, g_kernel_as->regions.data,
+                              g_kernel_as->regions.len,
+                              sizeof(vm_region_t), region_cmp_start);
+    if (r) {
+        uint32_t idx = (uint32_t)(r - g_kernel_as->regions.data);
+        memmove(r, r + 1,
+                (g_kernel_as->regions.len - idx - 1) * sizeof(vm_region_t));
+        g_kernel_as->regions.len--;
     }
 
 
