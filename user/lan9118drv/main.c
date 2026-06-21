@@ -32,9 +32,8 @@ static volatile uint32_t irq_count = 0;
 
 void packet_ring_init(void *shm) {
     // create two offsets
-    uint8_t *buf2 = (uint8_t *)(shm) + 8192; // halfway through shm, if shm not correctly mapped will page fault
-    nic_ring_t *tx_ring = (nic_ring_t *)buf2;
-    nic_ring_t *rx_ring = (nic_ring_t *)shm;
+    rx_ring = (nic_ring_t *)((uint8_t *)shm + NIC_RX_OFFSET);
+    tx_ring = (nic_ring_t *)((uint8_t *)shm + NIC_TX_OFFSET);
 
     tx_ring->head = 0;
     tx_ring->tail = 0;
@@ -177,13 +176,11 @@ int nic_setup(void)
 
     // finally, set up shmem
 
-    shmem_result_t shm = _memshare(49152); // packet size = 1536, ring_size = 16 
+    shmem_result_t shm = _memshare(NIC_SHM_BYTES); // packet size = 1536, ring_size = 16 
     shmem_handle = shm.handle;
     shmem_addr = shm.addr;
 
     packet_ring_init(shmem_addr);
-    rx_ring = (nic_ring_t *)shmem_addr;
-    tx_ring = (nic_ring_t *)((uint8_t *)shmem_addr + 8192);
 
     netd_ntfn = _ntfn_create();
     if (netd_ntfn < 0) {
@@ -238,7 +235,7 @@ void lan9118_service_loop(void)
                     }
                     else
                     {
-                        uint8_t buf[NIC_FRAME_SIZE];
+                        _Alignas(4) uint8_t buf[NIC_FRAME_SIZE];
                         if (pkt_len > NIC_FRAME_SIZE)
                         {
                             uint32_t dwords = (pkt_len + 3) / 4;

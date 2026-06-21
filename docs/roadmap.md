@@ -251,21 +251,22 @@ Phase 5: Kernel Heap
 
 ## Phase 22: NIC Driver Server (Userspace)
 
-- [ ] LAN9118 MMIO discovery from DTB
-- [ ] Userspace NIC driver process
-- [ ] LAN9118 initialization sequence
-- [ ] Ethernet frame TX/RX
-- [ ] Register as "nic0" with name server
+- [x] LAN9118 MMIO discovery from DTB
+- [x] Userspace NIC driver process
+- [x] LAN9118 initialization sequence
+- [x] Ethernet frame TX/RX
+- [x] Register as "nic0" with name server
+- [x] Shared-memory packet ring + notification doorbell (RX)
 
 ---
 
 ## Phase 23: Network Stack Server (L2/L3)
 
-- [ ] Ethernet frame parsing/dispatch
-- [ ] ARP table + ARP request/reply handling
-- [ ] IPv4 send/receive path
-- [ ] ICMP echo (ping)
-- [ ] Register as "net" with name server
+- [x] Ethernet frame parsing/dispatch
+- [x] ARP table + ARP request/reply handling
+- [x] IPv4 send/receive path
+- [x] ICMP echo (ping)
+- [x] Register as "net"/"netd" with name server *(registers, name TBD)*
 
 ---
 
@@ -289,9 +290,8 @@ Phase 5: Kernel Heap
 ## Phase 26: Hardening and Polish
 
 - [x] ASID support (reduce/eliminate full TLB flushes)
-- [ ] Kernel symbol table embedded in image (panic backtraces with names)
+- [x] Kernel symbol table embedded in image (panic backtraces with names)
 - [x] copy_from_user / copy_to_user with page-table walk validation
 - [ ] Watchdog: flag processes that don't yield within N ticks
 - [ ] LDREX/STREX atomic support for userspace
 - [x] Cache maintenance on ELF code segment load (D-cache clean, I-cache invalidate)
-

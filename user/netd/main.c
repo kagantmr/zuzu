@@ -81,9 +81,9 @@ int get_shm() {
     }
     LOG_INFO(LOG_TAG, "Address of shmem: %p", (vaddr_t)addr);
 
-    rx_ring = (nic_ring_t *)addr;
-    tx_ring = (nic_ring_t *)((uint8_t *)addr + 8192);
-
+    rx_ring = (nic_ring_t *)((uint8_t *)addr + NIC_RX_OFFSET);
+    tx_ring = (nic_ring_t *)((uint8_t *)addr + NIC_TX_OFFSET);
+    
     netd_port = port;
     nic_ntfn = (handle_t)r.r2;
     handles[1] = nic_ntfn;
