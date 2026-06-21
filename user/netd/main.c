@@ -60,9 +60,9 @@ int get_shm() {
     }
     LOG_INFO(LOG_TAG, "nic0 port=%d", nic_port);
 
-    // r2 = mac_lo on success, ERR_SYSDOWN (<0) on failure
+    // r1 = status (ZUZU_OK / -err); r2 = mac_lo, r3 = mac_hi carry the MAC bytes
     msg_t r = _call(nic_port, NIC_CMD_GETMAC, 0, 0);
-    if ((int32_t)r.r2 < 0) {
+    if ((int32_t)r.r1 != ZUZU_OK) {
         LOG_ERROR(LOG_TAG, "GETMAC failed");
         return 1;
     }
