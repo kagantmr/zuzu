@@ -26,6 +26,11 @@ void icmp_rx(uint8_t *payload, size_t payload_len, ipv4_addr_t src_ip) {
                 return;
             }
 
+            static rate_limiter_t echo_reply_rl;
+            if (!rate_allow(&echo_reply_rl, 16, 32)) {
+                return; /* flood guard: drop excess echo requests */
+            }
+
             uint8_t *reply = malloc(payload_len);
             if (!reply) {
                 return;

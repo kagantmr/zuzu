@@ -5,7 +5,6 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <mem.h>
-#include <zuzu/syspage.h>
 #include <zuzu/log.h>
 
 #define LOG_TAG "netd"
@@ -15,13 +14,6 @@
                (unsigned)(((x) >> 16) & 0xff), (unsigned)(((x) >> 24) & 0xff)
 
 static arp_entry_t arp_table[ARP_MAX_ENTRIES];
-
-/* Monotonic millisecond clock from the read-only syspage (no syscall). */
-static uint32_t now_ms(void) {
-    syspage_t *sp = (syspage_t *)SYSPAGE;
-    uint32_t hz = sp->tick_hz ? sp->tick_hz : 1000u;
-    return (uint32_t)((sp->uptime_ticks * 1000ull) / hz);
-}
 
 void arp_init() {
     memset(arp_table, 0, sizeof(arp_table)); /* every slot ARP_FREE */
@@ -81,7 +73,7 @@ void arp_learn(ipv4_addr_t ip, const uint8_t *mac_addr) {
     bool was_pending = (e->state != ARP_REACHABLE);
     memcpy(e->mac, mac_addr, 6);
     e->state = ARP_REACHABLE;
-    e->expire_ms = now_ms() + ARP_REACHABLE_MS;
+    e->expire_ms = net_now_ms() + ARP_REACHABLE_MS;
 
     if (was_pending && e->qlen) {
         /* flush everything that was waiting on this address */
@@ -129,13 +121,13 @@ void arp_send_or_queue(ipv4_addr_t ip, uint16_t ethertype, uint8_t *data, uint16
     if (e->probes == 0) { /* kick off resolution exactly once */
         arp_request(ip);
         e->probes = 1;
-        e->last_tx_ms = now_ms();
+        e->last_tx_ms = net_now_ms();
         LOG_INFO(LOG_TAG, "ARP miss %u.%u.%u.%u: queued %u, probing", IP4(ip), e->qlen);
     }
 }
 
 void arp_tick(void) {
-    uint32_t now = now_ms();
+    uint32_t now = net_now_ms();
     for (int i = 0; i < ARP_MAX_ENTRIES; i++) {
         arp_entry_t *e = &arp_table[i];
         if (e->state == ARP_INCOMPLETE) {
@@ -176,7 +168,8 @@ int arp_rx(uint8_t *data, uint16_t len) {
     uint16_t op = ntohs(pkt->oper);
     switch (op) {
         case (ARP_OPER_REQST): {
-            if (memcmp(pkt->tpa, &ip, 4) == 0) {
+            static rate_limiter_t arp_reply_rl;
+            if (memcmp(pkt->tpa, &ip, 4) == 0 && rate_allow(&arp_reply_rl, 16, 16)) {
                 arp_packet_t pkt_out;
                 pkt_out.htype = htons(1);
                 pkt_out.ptype = htons(ETH_TYPE_IP);
