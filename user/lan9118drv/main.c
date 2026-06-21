@@ -28,7 +28,7 @@ void *shmem_addr;
 nic_ring_t *rx_ring, *tx_ring;
 
 static uint16_t tx_tag = 0;
-static volatile uint32_t irq_count = 0;
+static uint32_t nic_stats[NIC_STAT_COUNT];
 
 void packet_ring_init(void *shm) {
     // create two offsets
@@ -44,8 +44,10 @@ void packet_ring_init(void *shm) {
 
 void nic_tx_frame(nic_frame_t *f)
 {
-    if ((nic->tx_fifo_inf & 0xFFFFu) < ((uint32_t)f->len + 8u))                // +8 for the two command words
-        return;                                                  // or return ERR_BUFFULL
+    if ((nic->tx_fifo_inf & 0xFFFFu) < ((uint32_t)f->len + 8u)) { // +8 for the two command words
+        nic_stats[NIC_STAT_TX_DROPS]++;
+        return;                                                  // tx FIFO full
+    }
     uint32_t cmd_a = (1u << 13) | (1u << 12) | (f->len & 0x7FF); // first, last, do not interrupt, length
     uint32_t cmd_b = ((uint32_t)tx_tag << 16) | (f->len & 0x7FF);
     tx_tag++;
@@ -55,6 +57,7 @@ void nic_tx_frame(nic_frame_t *f)
     {
         nic->tx_data_fifo_port = ((uint32_t *)f->data)[i];
     }
+    nic_stats[NIC_STAT_TX_PACKETS]++;
 }
 
 static inline uint32_t mac_csr_read(uint8_t index)
@@ -217,7 +220,7 @@ void lan9118_service_loop(void)
         {
         case RECVANY_KIND_NTFN:
         {
-            irq_count++;
+            nic_stats[NIC_STAT_IRQ]++;
             uint32_t sts = nic->int_sts;
             nic->int_sts = sts; // write back to clear R/WC bits
             if (sts & INT_RSFL)
@@ -229,6 +232,7 @@ void lan9118_service_loop(void)
                     size_t pkt_len = (rx_sts >> 16) & 0x3FFF;
                     if (rx_sts & (1u << 15))
                     {
+                        nic_stats[NIC_STAT_RX_ERRORS]++;
                         uint32_t dwords = (pkt_len + 3) / 4;
                         for (uint32_t i = 0; i < dwords; i++)
                             (void)nic->rx_data_fifo_port;
@@ -238,6 +242,7 @@ void lan9118_service_loop(void)
                         _Alignas(4) uint8_t buf[NIC_FRAME_SIZE];
                         if (pkt_len > NIC_FRAME_SIZE)
                         {
+                            nic_stats[NIC_STAT_RX_OVERSIZE]++;
                             uint32_t dwords = (pkt_len + 3) / 4;
                             for (uint32_t i = 0; i < dwords; i++)
                                 (void)nic->rx_data_fifo_port;
@@ -248,7 +253,11 @@ void lan9118_service_loop(void)
                             ((uint32_t *)buf)[i] = nic->rx_data_fifo_port;
                         int push_rc = packet_ring_push(rx_ring, buf, pkt_len);
                         if (push_rc < 0)
+                        {
+                            nic_stats[NIC_STAT_RX_RING_FULL]++;
                             continue;
+                        }
+                        nic_stats[NIC_STAT_RX_PACKETS]++;
                         if (pending_recv_reply > 0)
                         {
                             _reply(pending_recv_reply, ZUZU_OK, (uint32_t)pkt_len, 0);
@@ -277,15 +286,14 @@ void lan9118_service_loop(void)
             {
             case NIC_CMD_GETMAC:
             {
-                // check if MAC is non-zero
-                if (mac[0] | mac[1] | mac[2] | mac[3] | mac[4] | mac[5])
-                {
-                    _reply(result.source, 0, (mac[0] | mac[1] << 8 | mac[2] << 16 | mac[3] << 24), (mac[4] | mac[5] << 8));
-                }
-                else
-                {
-                    _reply(result.source, 0, ERR_SYSDOWN, 0); // we haven't successfully read the MAC address, so treat as system down
-                }
+                /* Status goes in r1 so the MAC bytes in r2/r3 can never be
+                   misread as an error (a high 4th octet makes mac_lo negative). */
+                int32_t status = (mac[0] | mac[1] | mac[2] | mac[3] | mac[4] | mac[5])
+                                     ? ZUZU_OK
+                                     : ERR_SYSDOWN; // MAC never read -> treat as system down
+                _reply(result.source, status,
+                       (mac[0] | mac[1] << 8 | mac[2] << 16 | mac[3] << 24),
+                       (mac[4] | mac[5] << 8));
                 break;
             }
             case NIC_CMD_GETBUF:
@@ -327,7 +335,11 @@ void lan9118_service_loop(void)
             }
             case NIC_CMD_STATS:
             {
-                _reply(result.source, 0, ZUZU_OK, irq_count);
+                uint32_t idx = result.r3; // NIC_STAT_* selector
+                if (idx < NIC_STAT_COUNT)
+                    _reply(result.source, 0, nic_stats[idx], NIC_STAT_COUNT);
+                else
+                    _reply(result.source, ERR_BADARG, 0, NIC_STAT_COUNT);
                 break;
             }
             default:
@@ -338,6 +350,24 @@ void lan9118_service_loop(void)
         }
         case RECVANY_KIND_TIMEOUT:
         {
+            /* Surface loss when the link goes idle, only when it changed, so
+               bursts don't spam but drops never stay silent. */
+            static uint32_t last_drops = 0;
+            uint32_t drops = nic_stats[NIC_STAT_RX_RING_FULL] +
+                             nic_stats[NIC_STAT_RX_ERRORS] +
+                             nic_stats[NIC_STAT_RX_OVERSIZE] +
+                             nic_stats[NIC_STAT_TX_DROPS];
+            if (drops != last_drops)
+            {
+                last_drops = drops;
+                LOG_WARN(LOG_TAG,
+                         "drops rx_ringfull=%u rx_err=%u rx_oversize=%u tx=%u "
+                         "(ok rx=%u tx=%u irq=%u)",
+                         nic_stats[NIC_STAT_RX_RING_FULL], nic_stats[NIC_STAT_RX_ERRORS],
+                         nic_stats[NIC_STAT_RX_OVERSIZE], nic_stats[NIC_STAT_TX_DROPS],
+                         nic_stats[NIC_STAT_RX_PACKETS], nic_stats[NIC_STAT_TX_PACKETS],
+                         nic_stats[NIC_STAT_IRQ]);
+            }
             break;
         }
         default:
