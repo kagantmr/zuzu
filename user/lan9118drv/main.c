@@ -39,7 +39,6 @@ void packet_ring_init(void *shm) {
     tx_ring->tail = 0;
     rx_ring->head = 0;
     rx_ring->tail = 0;
-    // caller must do the cast
 }
 
 void nic_tx_frame(nic_frame_t *f)
