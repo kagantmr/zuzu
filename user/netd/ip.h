@@ -29,6 +29,6 @@ _Static_assert(sizeof(ip_header_t) == 20, "ip_header_t size wrong");
 
 uint16_t inet_checksum(uint8_t *data, size_t len);
 void ip_rx(uint8_t *data, uint16_t len, const uint8_t *src_mac);
-void ip_tx(uint8_t *payload, uint16_t payload_len, ipv4_addr_t src_ip, ipv4_addr_t dst_ip, uint8_t protocol);
+int ip_tx(uint8_t *payload, uint16_t payload_len, ipv4_addr_t src_ip, ipv4_addr_t dst_ip, uint8_t protocol);
 
 #endif /* IP_H */

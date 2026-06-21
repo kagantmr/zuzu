@@ -7,6 +7,7 @@
 
 #define NIC_FRAME_SIZE 1536
 #define NIC_RING_DEPTH 16
+#define NIC_MTU 1500
 
 typedef struct
 {
