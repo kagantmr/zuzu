@@ -82,18 +82,13 @@ void ip_tx(uint8_t *payload, uint16_t payload_len, ipv4_addr_t src_ip, ipv4_addr
     
     hdr.header_checksum = htons(inet_checksum((uint8_t *)&hdr, 20));
 
-    mac_addr_t dst_mac;
-    if (arp_lookup(dst_ip, dst_mac)) {
-        return;
-    }
-
     uint8_t *frame = (uint8_t *)malloc(sizeof(hdr)+ payload_len);
     if (!frame)
         return;
     memcpy(frame, &hdr, 20);
     memcpy(frame + 20, payload, payload_len);
 
-    eth_tx(dst_mac, ETH_TYPE_IP, frame, sizeof(hdr)+ payload_len);
+    arp_send_or_queue(dst_ip, ETH_TYPE_IP, frame, sizeof(hdr)+ payload_len);
 
     free(frame);
 }
