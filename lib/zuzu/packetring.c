@@ -20,6 +20,7 @@ int packet_ring_pop(nic_frame_t *dst, nic_ring_t *r) {
         return ERR_BADARG;
 
     if (r->head != r->tail) {
+        arch_dmb();
         uint16_t len = r->slots[r->tail].len;
         if (len > NIC_FRAME_SIZE) {
             r->tail = (r->tail+1) % NIC_RING_DEPTH;

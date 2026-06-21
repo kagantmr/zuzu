@@ -82,7 +82,7 @@ int get_shm() {
     }
 
     void *addr = _attach((int32_t)r.r1);
-    if ((int)addr < 0) {
+    if (_ptr_is_err(addr)) {
         LOG_ERROR(LOG_TAG, "shmem attach failed");
         return ERR_SYSDOWN;
     }

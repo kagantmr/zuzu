@@ -23,6 +23,13 @@ static inline shmem_result_t _memshare(uint32_t size) {
     return (shmem_result_t){.handle = (int32_t)r0, .addr = (void *)r1};
 }
 
+/* _attach/_memmap/_mapdev return a mapped VA, or a small negative errno cast
+   to a pointer. The top page of the address space is the error band, so a valid
+   VA (even one with the high bit set) is never misread as an error. */
+static inline int _ptr_is_err(const void *p) {
+    return (uintptr_t)p >= (uintptr_t)(-4095);
+}
+
 static inline void *_attach(handle_t handle) {
     register handle_t r0 __asm__("r0") = handle;
     __asm__ volatile("svc %[num]"

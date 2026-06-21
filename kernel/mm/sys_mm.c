@@ -161,7 +161,8 @@ void memunmap(exception_frame_t *frame)
                 if (shm_obj->ref_count == 0)
                 {
                     for (size_t j = 0; j < shm_obj->page_count; j++)
-                        pmm_free_page(shm_obj->page_addrs[j]);
+                        if (shm_obj->page_addrs[j] != 0) /* demand-paged: skip unfaulted slots */
+                            pmm_free_page(shm_obj->page_addrs[j]);
                     kfree(shm_obj->page_addrs);
                     kfree(shm_obj);
                 }
