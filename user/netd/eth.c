@@ -23,9 +23,7 @@ int eth_rx(uint8_t *data, uint16_t len) {
             if (len < sizeof(eth_hdr_t) + sizeof(ip_header_t)) {
                 return ERR_MALFORMED;
             }
-            ip_header_t *ip_hdr = (ip_header_t *)(data + sizeof(eth_hdr_t));
-            arp_learn(ip_hdr->src_ip, hdr->src_mac);
-            ip_rx(data + 14, len - 14);
+            ip_rx(data + 14, len - 14, hdr->src_mac);
             break;
         }
         default: {

@@ -25,7 +25,7 @@ uint16_t inet_checksum(uint8_t *data, size_t len) {
     return (uint16_t)~accum;
 }
 
-void ip_rx(uint8_t *data, uint16_t len) {
+void ip_rx(uint8_t *data, uint16_t len, const uint8_t *src_mac) {
     if (len < 20) {
         return;
     }
@@ -38,12 +38,16 @@ void ip_rx(uint8_t *data, uint16_t len) {
     if (len < hdr_len || ntohs(hdr->total_length) < hdr_len
          || ntohs(hdr->total_length) > len) {
         return; // anomalies with length?
-    } 
+    }
 
     uint16_t cs = inet_checksum(data, hdr_len);
     if (cs || (hdr->dst_ip != ZUZU_IP && hdr->dst_ip != BROADCAST_IP)) {
         return;
     }
+
+    /* Header is valid and addressed to us so it's safe to cache the L2/L3
+       mapping of the sender. */
+    arp_learn(hdr->src_ip, src_mac);
 
     if (ntohs(hdr->flags_fragment_offset) & IP_FLAG_MF ||
     ntohs(hdr->flags_fragment_offset) & 0x1FFF) {
@@ -52,9 +56,6 @@ void ip_rx(uint8_t *data, uint16_t len) {
 
     uint8_t *payload = data + hdr_len;
     size_t payload_len = ntohs(hdr->total_length) - hdr_len;
-    //printf("IP packet in.\n protocol: %d, total_length: %d, ttl: %d\n", hdr->protocol, ntohs(hdr->total_length), hdr->ttl);
-    //printf("src: %u.%u.%u.%u\n", data[12], data[13], data[14], data[15]);
-    //printf("dst: %u.%u.%u.%u\n", data[16], data[17], data[18], data[19]);
     switch (hdr->protocol)
     {
     case IP_PROTO_ICMP:

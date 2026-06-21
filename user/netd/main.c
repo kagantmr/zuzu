@@ -140,6 +140,9 @@ int main() {
                 break;
             }
             case RECVANY_KIND_CALL: {
+                /* netd exposes no request API yet. Reply so callers never block
+                   forever and the reply capability is released. */
+                _reply(result.source, ERR_BADCMD, 0, 0);
                 break;
             }
             case RECVANY_KIND_TIMEOUT: {
