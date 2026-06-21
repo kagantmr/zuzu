@@ -41,12 +41,15 @@ int eth_tx(mac_addr_t dst_mac, uint16_t ethertype, uint8_t *payload, uint16_t le
     hdr.ethertype = htons(ethertype);
 
     size_t total_len = sizeof(eth_hdr_t) + len;
+    if (total_len > NIC_FRAME_SIZE) /* explicit, before the size_t->uint16 narrowing */
+        return ERR_OVERFLOW;
+
     uint8_t *data = malloc(total_len);
     if (!data) return ERR_NOMEM;
     memcpy(data, &hdr, sizeof(eth_hdr_t));
     memcpy(data + sizeof(eth_hdr_t), payload, len);
 
-    int push_rc = packet_ring_push(tx_ring, data, total_len);
+    int push_rc = packet_ring_push(tx_ring, data, (uint16_t)total_len);
     free(data);
     if (push_rc < 0)
         return push_rc;
