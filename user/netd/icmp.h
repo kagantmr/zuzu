@@ -14,6 +14,7 @@ typedef struct __attribute__((packed)) {
 } icmp_hdr_t;
 
 void icmp_rx(uint8_t *payload, size_t payload_len, ipv4_addr_t src_ip);
+void icmp_echo_request(ipv4_addr_t dst_ip);
 
 #define ICMP_ECHO_REPLY 0
 #define ICMP_ECHO_REQUEST 8

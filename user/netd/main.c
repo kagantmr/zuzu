@@ -13,6 +13,13 @@
 #include "globals.h"
 #include "eth.h"
 #include "arp.h"
+#include "icmp.h"
+
+/* ARP test */
+#define NETD_TEST_PING_A 0
+#define NETD_TEST_PING_B 0
+#define NETD_TEST_PING_C 0
+#define NETD_TEST_PING_D 0
 
 #define LOG_TAG "netd"
 
@@ -98,11 +105,23 @@ int main() {
     
     arp_init();
 
-    LOG_INFO(LOG_TAG, "Probing gateway for ARP...");
-    arp_request(htonl((192u << 24) | (168u << 16) | (1u << 8) | 1u)); // probe gateway 192.168.1.1
+    uint32_t test_ip = htonl(((uint32_t)NETD_TEST_PING_A << 24) |
+                             ((uint32_t)NETD_TEST_PING_B << 16) |
+                             ((uint32_t)NETD_TEST_PING_C << 8)  |
+                             ((uint32_t)NETD_TEST_PING_D));
+    if (test_ip != 0) {
+        LOG_INFO(LOG_TAG, "test: ICMP echo request to %u.%u.%u.%u (unresolved)",
+                 NETD_TEST_PING_A, NETD_TEST_PING_B, NETD_TEST_PING_C, NETD_TEST_PING_D);
+        icmp_echo_request(test_ip);
+    } else {
+        LOG_INFO(LOG_TAG, "Probing gateway for ARP...");
+        arp_request(htonl((192u << 24) | (168u << 16) | (1u << 8) | 1u)); // gateway 192.168.1.1
+    }
 
     LOG_INFO(LOG_TAG, "will start looping");
     while (1) {
+        arp_tick(); /* drive ARP retransmits + cache aging every wake */
+
         recvany_result_t result;
         int32_t recv_rc = _recvany(handles, 2, 10, &result);
         if (recv_rc < 0) {
