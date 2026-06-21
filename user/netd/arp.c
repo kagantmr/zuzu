@@ -39,7 +39,9 @@ int arp_rx(uint8_t *data, uint16_t len) {
         return ERR_MALFORMED;
     }
 
-    arp_learn(*(ipv4_addr_t *)pkt->spa, pkt->sha);
+    ipv4_addr_t spa;
+    memcpy(&spa, pkt->spa, 4);
+    arp_learn(spa, pkt->sha);
 
     uint16_t op = ntohs(pkt->oper);
     switch (op) {

@@ -88,6 +88,8 @@ void ip_tx(uint8_t *payload, uint16_t payload_len, ipv4_addr_t src_ip, ipv4_addr
     }
 
     uint8_t *frame = (uint8_t *)malloc(sizeof(hdr)+ payload_len);
+    if (!frame)
+        return;
     memcpy(frame, &hdr, 20);
     memcpy(frame + 20, payload, payload_len);
 
