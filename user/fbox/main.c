@@ -62,29 +62,29 @@ static void fbox_worker(void *arg)
             switch (job.cmd) {
             case FBOX_OPEN:
                 if (client) proxy_open(job.reply_h, job.arg, client->buf);
-                else _reply(job.reply_h, (uint32_t)-1, 0, 0);
+                else _reply(job.reply_h, (uint32_t)ERR_NOENT, 0, 0);
                 break;
             case FBOX_READ:
                 if (client) proxy_read(job.reply_h, job.arg, client->buf);
-                else _reply(job.reply_h, (uint32_t)-1, 0, 0);
+                else _reply(job.reply_h, (uint32_t)ERR_NOENT, 0, 0);
                 break;
             case FBOX_WRITE:
                 if (client) proxy_write(job.reply_h, job.arg, client->buf);
-                else _reply(job.reply_h, (uint32_t)-1, 0, 0);
+                else _reply(job.reply_h, (uint32_t)ERR_NOENT, 0, 0);
                 break;
             case FBOX_CLOSE:
                 proxy_close(job.reply_h, job.arg);
                 break;
             case FBOX_READDIR:
                 if (client) proxy_readdir(job.reply_h, client->buf);
-                else _reply(job.reply_h, (uint32_t)-1, 0, 0);
+                else _reply(job.reply_h, (uint32_t)ERR_NOENT, 0, 0);
                 break;
             case FBOX_STAT:
                 if (client) proxy_stat(job.reply_h, client->buf);
-                else _reply(job.reply_h, (uint32_t)-1, 0, 0);
+                else _reply(job.reply_h, (uint32_t)ERR_NOENT, 0, 0);
                 break;
             default:
-                _reply(job.reply_h, (uint32_t)-1, 0, 0);
+                _reply(job.reply_h, (uint32_t)ERR_NOMATCH, 0, 0);
                 break;
             }
         }
@@ -117,7 +117,7 @@ static void proxy_read(uint32_t reply_h, uint32_t arg, char *client_buf)
     if (count > 32768) count = 32768;
     uint32_t got = r.r2;
     if (got > count) got = count;
-    if ((int32_t)r.r1 == FAT32_OK && got > 0)
+    if ((int32_t)r.r1 == ZUZU_OK && got > 0)
         memcpy(client_buf, fat32d_buf, got);
 
     _reply(reply_h, r.r1, r.r2, 0);
@@ -149,7 +149,7 @@ static void proxy_readdir(uint32_t reply_h, char *client_buf)
     msg_t r = _call(fat32d_port, FAT32_READDIR, 0, 0);
 
     /* dirents in fat32d_buf -> my_buf */
-    if ((int32_t)r.r1 == FAT32_OK && r.r2 > 0) {
+    if ((int32_t)r.r1 == ZUZU_OK && r.r2 > 0) {
         uint32_t bytes = r.r2 * sizeof(fat32_dirent_t);
         if (bytes > 32768) bytes = 32768;
         memcpy(client_buf, fat32d_buf, bytes);
@@ -167,7 +167,7 @@ static void proxy_stat(uint32_t reply_h, char *client_buf)
     msg_t r = _call(fat32d_port, FAT32_STAT, 0, 0);
 
     /* stat result in fat32d_buf -> my_buf */
-    if ((int32_t)r.r1 == FAT32_OK)
+    if ((int32_t)r.r1 == ZUZU_OK)
         memcpy(client_buf, fat32d_buf, sizeof(fat32_stat_t));
 
     _reply(reply_h, r.r1, 0, 0);
@@ -210,15 +210,15 @@ static void handle_get_buf(uint32_t reply_h, uint32_t sender)
 {
     client_buf_t *client = client_get(sender, true);
     if (!client) {
-        _reply(reply_h, (uint32_t)-1, 0, 0);
+        _reply(reply_h, (uint32_t)ERR_NOMEM, 0, 0);
         return;
     }
 
     int32_t slot = _cap_grant(client->shm.handle, (int32_t)sender);
     if (slot < 0)
-        _reply(reply_h, (uint32_t)-1, 0, 0);
+        _reply(reply_h, (uint32_t)slot, 0, 0);
     else
-        _reply(reply_h, 0, (uint32_t)slot, 0);
+        _reply(reply_h, ZUZU_OK, (uint32_t)slot, 0);
 }
 
 static void handle_request(uint32_t reply_h, uint32_t sender,
@@ -231,7 +231,7 @@ static void handle_request(uint32_t reply_h, uint32_t sender,
 
     client_buf_t *client = client_get(sender, false);
     if (!client || !client->buf) {
-        _reply(reply_h, (uint32_t)-1, 0, 0);
+        _reply(reply_h, (uint32_t)ERR_NOENT, 0, 0);
         return;
     }
 
@@ -243,7 +243,7 @@ static void handle_request(uint32_t reply_h, uint32_t sender,
     case FBOX_READDIR: proxy_readdir(reply_h, client->buf);      break;
     case FBOX_STAT:    proxy_stat(reply_h, client->buf);         break;
     default:
-        _reply(reply_h, (uint32_t)-1, 0, 0);
+        _reply(reply_h, (uint32_t)ERR_NOMATCH, 0, 0);
         break;
     }
 }

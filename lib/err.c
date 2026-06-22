@@ -24,6 +24,14 @@ const char *strerror(err_t err) {
         return "ERR_BADPTR";
     case ERR_TIMEOUT:
         return "ERR_TIMEOUT";
+    case ERR_OVERFLOW:
+        return "ERR_OVERFLOW";
+    case ERR_BUFFULL:
+        return "ERR_BUFFULL";
+    case ERR_SYSDOWN:
+        return "ERR_SYSDOWN";
+    case ERR_DUPLICATE:
+        return "ERR_DUPLICATE";
     default:
         return "ERR_UNKNOWN";
     }

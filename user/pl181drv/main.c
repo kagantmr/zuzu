@@ -158,7 +158,7 @@ static int pl181_read_block(uint32_t block_num)
     if (pl181_send_cmd(17, addr, MCI_CMD_RESPONSE) < 0)
     {
         pl181->MASK[0] = 0;
-        return -1;
+        return SD_ERR_IO;
     }
 
     /* enable data path, card starts sending immediately */
@@ -176,7 +176,7 @@ static int pl181_read_block(uint32_t block_num)
         pl181->CLEAR = 0xFFFFFFFF;
         pl181->MASK[0] = 0;
         _irq_done((uint32_t)block_dev_handle);
-        return -1;
+        return SD_ERR_IO;
     }
 
     /* drain all 128 words - FIFO holds everything by the time we wake */
@@ -191,7 +191,7 @@ static int pl181_read_block(uint32_t block_num)
     pl181->MASK[0] = 0;
     _irq_done((uint32_t)block_dev_handle);
     pl181->DATACTRL = 0;   /* disable data path before next transfer */
-    return 0;
+    return ZUZU_OK;
 }
 
 static int pl181_write_block(uint32_t block_num)
@@ -208,7 +208,7 @@ static int pl181_write_block(uint32_t block_num)
     if (pl181_send_cmd(24, addr, MCI_CMD_RESPONSE) < 0)
     {
         pl181->MASK[0] = 0;
-        return -1;
+        return SD_ERR_IO;
     }
 
     /* push 128 words into FIFO, pacing on TXFIFOEMPTY */
@@ -231,10 +231,10 @@ static int pl181_write_block(uint32_t block_num)
     if (status & (MCI_DATACRCFAIL | MCI_DATATIMEOUT | MCI_TXUNDERRUN))
     {
         LOG_ERROR(LOG_TAG, "write error STATUS=0x%08x", status);
-        return -1;
+        return SD_ERR_IO;
     }
 
-    return 0;
+    return ZUZU_OK;
 }
 
 static void handle_client(msg_t msg)
@@ -251,28 +251,28 @@ static void handle_client(msg_t msg)
     {
         int32_t granted = _cap_grant(shmem_handle, (int32_t)sender);
         if (granted < 0)
-            _reply(reply_h, (uint32_t)-1, 0, 0);
+            _reply(reply_h, (uint32_t)granted, 0, 0);
         else
-            _reply(reply_h, 0, (uint32_t)granted, 0);
+            _reply(reply_h, ZUZU_OK, (uint32_t)granted, 0);
         break;
     }
 
     case SD_CMD_READ:
     {
         int rc = pl181_read_block(arg);
-        _reply(reply_h, rc == 0 ? 0 : (uint32_t)-1, 0, 0);
+        _reply(reply_h, (uint32_t)rc, 0, 0);
         break;
     }
 
     case SD_CMD_WRITE:
     {
         int rc = pl181_write_block(arg);
-        _reply(reply_h, rc == 0 ? 0 : (uint32_t)-1, 0, 0);
+        _reply(reply_h, (uint32_t)rc, 0, 0);
         break;
     }
 
     default:
-        _reply(reply_h, (uint32_t)-1, 0, 0);
+        _reply(reply_h, (uint32_t)ERR_NOMATCH, 0, 0);
         break;
     }
 }

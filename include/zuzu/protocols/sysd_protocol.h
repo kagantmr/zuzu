@@ -6,11 +6,12 @@
 
 #define SYSD_EXEC 0xE0   // move out of the 1-9 range to avoid any accidental collision with _call command values
 
-#define EXEC_OK       0
-#define EXEC_ENOENT  (-1)    // path not found on fbox
-#define EXEC_ENOMEM  (-2)    // alloc or asinject failed
-#define EXEC_EBADELF (-3)    // ELF validation failed
-#define EXEC_EIO     (-4)    // fbox read error
+// Exec status: success replies via the exec_reply_t struct; failures use
+// err_t values from <zuzu/err.h> (ERR_NOENT for a missing path, ERR_NOMEM for
+// alloc/asinject failure) plus two loader-specific codes below, which have no
+// err_t equivalent and live outside the err_t range to avoid collisions.
+#define EXEC_EBADELF (-100)  // ELF validation failed
+#define EXEC_EIO     (-101)  // fbox read error
 
 // Request layout in IPCX buffer (shell to sysd via _callx):
 typedef struct {

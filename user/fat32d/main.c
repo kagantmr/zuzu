@@ -44,7 +44,7 @@ static void handle_open(uint32_t reply_h, uint32_t arg)
 {
     int fd = fd_alloc();
     if (fd < 0) {
-        _reply(reply_h, (uint32_t)FAT32_ERR_MAXFD, 0, 0);
+        _reply(reply_h, (uint32_t)ERR_BUFFULL, 0, 0);
         return;
     }
 
@@ -53,12 +53,12 @@ static void handle_open(uint32_t reply_h, uint32_t arg)
     if (fr != FR_OK) {
         fd_free(fd);
         int err = (fr == FR_NO_FILE || fr == FR_NO_PATH)
-                  ? FAT32_ERR_NOENT : FAT32_ERR_IO;
+                  ? ERR_NOENT : FAT32_ERR_IO;
         _reply(reply_h, (uint32_t)err, 0, 0);
         return;
     }
 
-    _reply(reply_h, FAT32_OK, (uint32_t)fd, 0);
+    _reply(reply_h, ZUZU_OK, (uint32_t)fd, 0);
 }
 
 static void handle_read(uint32_t reply_h, uint32_t arg)
@@ -67,7 +67,7 @@ static void handle_read(uint32_t reply_h, uint32_t arg)
     uint32_t count = FAT32_RW_COUNT(arg);
 
     if (fd >= MAX_FDS || !fil_used[fd]) {
-        _reply(reply_h, (uint32_t)FAT32_ERR_BADFD, 0, 0);
+        _reply(reply_h, (uint32_t)ERR_MALFORMED, 0, 0);
         return;
     }
     if (count > 32768) count = 32768;
@@ -79,7 +79,7 @@ static void handle_read(uint32_t reply_h, uint32_t arg)
         return;
     }
 
-    _reply(reply_h, FAT32_OK, br, 0);
+    _reply(reply_h, ZUZU_OK, br, 0);
 }
 
 static void handle_write(uint32_t reply_h, uint32_t arg)
@@ -88,7 +88,7 @@ static void handle_write(uint32_t reply_h, uint32_t arg)
     uint32_t count = FAT32_RW_COUNT(arg);
 
     if (fd >= MAX_FDS || !fil_used[fd]) {
-        _reply(reply_h, (uint32_t)FAT32_ERR_BADFD, 0, 0);
+        _reply(reply_h, (uint32_t)ERR_MALFORMED, 0, 0);
         return;
     }
     if (count > 32768) count = 32768;
@@ -100,20 +100,20 @@ static void handle_write(uint32_t reply_h, uint32_t arg)
         return;
     }
 
-    _reply(reply_h, FAT32_OK, bw, 0);
+    _reply(reply_h, ZUZU_OK, bw, 0);
 }
 
 static void handle_close(uint32_t reply_h, uint32_t arg)
 {
     uint32_t fd = arg;
     if (fd >= MAX_FDS || !fil_used[fd]) {
-        _reply(reply_h, (uint32_t)FAT32_ERR_BADFD, 0, 0);
+        _reply(reply_h, (uint32_t)ERR_MALFORMED, 0, 0);
         return;
     }
 
     f_close(&fil_table[fd]);
     fd_free((int)fd);
-    _reply(reply_h, FAT32_OK, 0, 0);
+    _reply(reply_h, ZUZU_OK, 0, 0);
 }
 
 static void handle_readdir(uint32_t reply_h)
@@ -126,7 +126,7 @@ static void handle_readdir(uint32_t reply_h)
     DIR dir;
     FRESULT fr = f_opendir(&dir, path);
     if (fr != FR_OK) {
-        int err = (fr == FR_NO_PATH) ? FAT32_ERR_NOENT : FAT32_ERR_IO;
+        int err = (fr == FR_NO_PATH) ? ERR_NOENT : FAT32_ERR_IO;
         _reply(reply_h, (uint32_t)err, 0, 0);
         return;
     }
@@ -149,7 +149,7 @@ static void handle_readdir(uint32_t reply_h)
     }
 
     f_closedir(&dir);
-    _reply(reply_h, FAT32_OK, count, 0);
+    _reply(reply_h, ZUZU_OK, count, 0);
 }
 
 static void handle_stat(uint32_t reply_h)
@@ -163,7 +163,7 @@ static void handle_stat(uint32_t reply_h)
     FRESULT fr = f_stat(path, &fno);
     if (fr != FR_OK) {
         int err = (fr == FR_NO_FILE || fr == FR_NO_PATH)
-                  ? FAT32_ERR_NOENT : FAT32_ERR_IO;
+                  ? ERR_NOENT : FAT32_ERR_IO;
         _reply(reply_h, (uint32_t)err, 0, 0);
         return;
     }
@@ -172,16 +172,16 @@ static void handle_stat(uint32_t reply_h)
     st->size   = (uint32_t)fno.fsize;
     st->is_dir = (fno.fattrib & AM_DIR) ? 1 : 0;
     memset(st->_pad, 0, sizeof(st->_pad));
-    _reply(reply_h, FAT32_OK, 0, 0);
+    _reply(reply_h, ZUZU_OK, 0, 0);
 }
 
 static void handle_get_buf(uint32_t reply_h, uint32_t sender)
 {
     int32_t slot = _cap_grant(shm.handle, (int32_t)sender);
     if (slot < 0)
-        _reply(reply_h, (uint32_t)-1, 0, 0);
+        _reply(reply_h, (uint32_t)slot, 0, 0);
     else
-        _reply(reply_h, 0, (uint32_t)slot, 0);
+        _reply(reply_h, ZUZU_OK, (uint32_t)slot, 0);
 }
 
 static void handle_request(uint32_t reply_h, uint32_t sender,
@@ -196,7 +196,7 @@ static void handle_request(uint32_t reply_h, uint32_t sender,
     case FAT32_STAT:    handle_stat(reply_h);             break;
     case FAT32_GET_BUF: handle_get_buf(reply_h, sender);  break;
     default:
-        _reply(reply_h, (uint32_t)-1, 0, 0);
+        _reply(reply_h, (uint32_t)ERR_NOMATCH, 0, 0);
         break;
     }
 }
