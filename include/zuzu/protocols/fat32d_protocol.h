@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <zuzu/err.h>
 
 /* Commands (passed in r2 / cmd field) */
 #define FAT32_OPEN    1   /* shmem=path, arg=mode      → r1=status, r2=fd          */
@@ -23,14 +24,11 @@
 #define FAT32_RW_FD(arg)          ((arg) & 0xFFFF)
 #define FAT32_RW_COUNT(arg)       ((arg) >> 16)
 
-/* Error codes */
-#define FAT32_OK          0
-#define FAT32_ERR_NOENT  (-1)
-#define FAT32_ERR_ISDIR  (-2)
-#define FAT32_ERR_NOTDIR (-3)
-#define FAT32_ERR_BADFD  (-4)
-#define FAT32_ERR_MAXFD  (-5)
-#define FAT32_ERR_IO     (-6)
+/* Status codes: success is ZUZU_OK; failures use err_t values from
+ * <zuzu/err.h> (ERR_NOENT, ERR_MALFORMED for a bad fd, ERR_BUFFULL when the
+ * fd table is full, ...). The one filesystem-specific code below has no err_t
+ * equivalent and lives outside the err_t range to avoid collisions. */
+#define FAT32_ERR_IO     (-100)  /* backend FatFs / disk I/O failure */
 
 /* Directory entry returned in shmem by READDIR */
 typedef struct {

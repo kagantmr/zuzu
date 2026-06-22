@@ -145,7 +145,7 @@ static void nt_handle_msg(msg_t msg) {
         size_t path_bytes = (size_t)hdr->path_len + 1;
         if (path_bytes == 0 || path_off + path_bytes > req_len ||
             ((char *)ipcx_buf())[path_off + hdr->path_len] != '\0') {
-            _reply(reply_handle, (uint32_t)EXEC_ENOENT, 0, 0);
+            _reply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
             return;
         }
 
@@ -157,13 +157,13 @@ static void nt_handle_msg(msg_t msg) {
         if (cached_fbox_handle < 0) {
             uint32_t fbox_h = 0, fbox_p = 0;
             if (nt_lookup(nt_pack("fbox"), _getpid(), &fbox_h, &fbox_p) != NT_LU_OK) {
-                _reply(reply_handle, (uint32_t)EXEC_ENOENT, 0, 0);
+                _reply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
                 return;
             }
             cached_fbox_handle = (int32_t)fbox_h;
 
             msg_t r = _call(cached_fbox_handle, FBOX_GET_BUF, 0, 0);
-            if ((int32_t)r.r1 != FBOX_OK) {
+            if ((int32_t)r.r1 != ZUZU_OK) {
                 cached_fbox_handle = -1;
                 _reply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
                 return;
@@ -182,14 +182,14 @@ static void nt_handle_msg(msg_t msg) {
 
         size_t plen = strlen(path);
         if (plen == 0 || plen >= 4096) {
-            _reply(reply_handle, (uint32_t)EXEC_ENOENT, 0, 0);
+            _reply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
             return;
         }
 
         memcpy(fbox_buf, path, plen + 1);
         r = _call(cached_fbox_handle, FBOX_STAT, 0, 0);
-        if ((int32_t)r.r1 != FBOX_OK) {
-            _reply(reply_handle, (uint32_t)EXEC_ENOENT, 0, 0);
+        if ((int32_t)r.r1 != ZUZU_OK) {
+            _reply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
             return;
         }
 
@@ -202,7 +202,7 @@ static void nt_handle_msg(msg_t msg) {
 
         memcpy(fbox_buf, path, plen + 1);
         r = _call(cached_fbox_handle, FBOX_OPEN, FAT32_MODE_READ, 0);
-        if ((int32_t)r.r1 != FBOX_OK) {
+        if ((int32_t)r.r1 != ZUZU_OK) {
             _reply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
             return;
         }
@@ -211,7 +211,7 @@ static void nt_handle_msg(msg_t msg) {
         uint8_t *elf = (uint8_t *)malloc(file_size);
         if (!elf) {
             _call(cached_fbox_handle, FBOX_CLOSE, fd, 0);
-            _reply(reply_handle, (uint32_t)EXEC_ENOMEM, 0, 0);
+            _reply(reply_handle, (uint32_t)ERR_NOMEM, 0, 0);
             return;
         }
 
@@ -222,7 +222,7 @@ static void nt_handle_msg(msg_t msg) {
                 chunk = 32768;
 
             r = _call(cached_fbox_handle, FBOX_READ, FBOX_PACK_RW(fd, chunk), 0);
-            if ((int32_t)r.r1 != FBOX_OK || r.r2 == 0)
+            if ((int32_t)r.r1 != ZUZU_OK || r.r2 == 0)
                 break;
 
             memcpy(elf + total, fbox_buf, r.r2);

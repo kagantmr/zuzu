@@ -11,15 +11,11 @@
 /*
  * DEV_REGISTER (call)
  *   req:  w1=DEV_REGISTER, w2=class
- *   resp: r1=DEV_REG_OK or negative error
+ *   resp: r1=ZUZU_OK or negative err_t (see <zuzu/err.h>)
  *
  * devmgr binds class -> one injected device capability owned by devmgr.
  */
 #define DEV_REGISTER 2
-
-#define DEV_REG_OK   0
-#define DEV_REG_FULL (-3)
-#define DEV_REG_DUP  (-5)
 
 /* Device classes - clients request by class, devmgr resolves to a concrete device */
 #define DEV_CLASS_SERIAL 1 /* first UART / serial console */
@@ -27,8 +23,6 @@
 #define DEV_CLASS_BLOCK  3 /* first block storage device */
 #define DEV_CLASS_NIC    4 /* first network interface controller */
 
-#define ERR_BADCMD (-1)
-#define ERR_NOENT  (-2)
-/* ERR_NOMEM is defined as (-4) in <zuzu/syscall_nums.h> */
+/* Error codes (ERR_NOENT, ERR_NOMATCH, ERR_NOMEM, ...) live in <zuzu/err.h> */
 
 #endif

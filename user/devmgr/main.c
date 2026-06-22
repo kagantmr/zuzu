@@ -54,7 +54,7 @@ static int request_and_grant_class(uint32_t dev_class, int32_t target_pid, uint3
     if (out_granted) {
         *out_granted = (uint32_t)granted_handle;
     }
-    return 0;
+    return ZUZU_OK;
 }
 
 static void build_class_table(void) {
@@ -126,7 +126,7 @@ static void build_class_table(void) {
 static void handle_register(uint32_t reply_handle, uint32_t dev_class)
 {
     (void)dev_class;
-    _reply(reply_handle, DEV_REG_OK, 0, 0);
+    _reply(reply_handle, ZUZU_OK, 0, 0);
 }
 
 static void handle_dev_request(uint32_t reply_handle, uint32_t sender_pid, uint32_t dev_class)
@@ -144,7 +144,7 @@ static void handle_dev_request(uint32_t reply_handle, uint32_t sender_pid, uint3
         return;
     }
 
-    _reply(reply_handle, 0, granted_serial, 0);
+    _reply(reply_handle, ZUZU_OK, granted_serial, 0);
 }
 
 int devmgr_setup(void)
@@ -180,7 +180,7 @@ void devmgr_loop(int32_t port_handle)
         } else if (command == DEV_REQUEST) {
             handle_dev_request(reply_handle, sender_pid, arg);
         } else {
-            _reply(reply_handle, ERR_BADCMD, 0, 0);
+            _reply(reply_handle, ERR_NOMATCH, 0, 0);
         }
     }
 }

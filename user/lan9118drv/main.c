@@ -113,7 +113,7 @@ int get_nic(void)
     if (irq_ntfn < 0)
     {
         LOG_ERROR(LOG_TAG, "ntfn_create failed (tx)");
-        return 4;
+        return ERR_SYSDOWN;
     }
 
     _irq_claim((uint32_t)dev_handle);
@@ -365,7 +365,7 @@ void lan9118_service_loop(void)
                 break;
             }
             default:
-                _reply(result.source, 0, ERR_BADCMD, 0);
+                _reply(result.source, 0, ERR_NOMATCH, 0);
                 break;
             }
             break;

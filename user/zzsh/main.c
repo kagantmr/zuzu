@@ -208,7 +208,7 @@ static bool stat_path(const char *path, fbox_stat_t *st)
 
     memcpy(fbox_buf, path, plen + 1);
     msg_t r = _call(fbox_port, FBOX_STAT, 0, 0);
-    if ((int32_t)r.r1 != FBOX_OK)
+    if ((int32_t)r.r1 != ZUZU_OK)
         return false;
 
     memcpy(st, fbox_buf, sizeof(*st));
@@ -235,10 +235,10 @@ static bool path_is_zzsh(const char *path)
 static void print_exec_error(int32_t code)
 {
     switch (code) {
-        case EXEC_ENOENT:
+        case ERR_NOENT:
             printf("%s", ANSI_RED "zzsh: spawn failed (not found)\n" ANSI_RESET);
             break;
-        case EXEC_ENOMEM:
+        case ERR_NOMEM:
             printf("%s", ANSI_RED "zzsh: spawn failed (out of memory)\n" ANSI_RESET);
             break;
         case EXEC_EBADELF:
@@ -298,7 +298,7 @@ static void cmd_ls(const char *arg)
     memcpy(fbox_buf, path, plen + 1);
 
     msg_t r = _call(fbox_port, FBOX_READDIR, 0, 0);
-    if ((int32_t)r.r1 != FBOX_OK) {
+    if ((int32_t)r.r1 != ZUZU_OK) {
         printf("%s", ANSI_RED "ls: cannot read directory\n" ANSI_RESET);
         return;
     }
@@ -343,7 +343,7 @@ static void cmd_cat(const char *path)
     memcpy(fbox_buf, abs_path, plen + 1);
 
     msg_t r = _call(fbox_port, FBOX_OPEN, FAT32_MODE_READ, 0);
-    if ((int32_t)r.r1 != FBOX_OK) {
+    if ((int32_t)r.r1 != ZUZU_OK) {
         printf("%s", ANSI_RED "cat: file not found\n" ANSI_RESET);
         return;
     }
@@ -351,7 +351,7 @@ static void cmd_cat(const char *path)
 
     while (1) {
         r = _call(fbox_port, FBOX_READ, FBOX_PACK_RW(fd, 4095), 0);
-        if ((int32_t)r.r1 != FBOX_OK) break;
+        if ((int32_t)r.r1 != ZUZU_OK) break;
         uint32_t got = r.r2;
         if (got == 0) break;
 

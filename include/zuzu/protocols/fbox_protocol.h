@@ -21,13 +21,7 @@
 typedef fat32_dirent_t fbox_dirent_t;
 typedef fat32_stat_t   fbox_stat_t;
 
-/* Error codes */
-#define FBOX_OK          0
-#define FBOX_ERR_NOENT  (-1)
-#define FBOX_ERR_ISDIR  (-2)
-#define FBOX_ERR_NOTDIR (-3)
-#define FBOX_ERR_BADFD  (-4)
-#define FBOX_ERR_MAXFD  (-5)
-#define FBOX_ERR_IO     (-6)
+/* Status codes mirror fat32d: ZUZU_OK on success, err_t values from
+ * <zuzu/err.h> or FAT32_ERR_IO on failure. */
 
 #endif
