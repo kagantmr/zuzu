@@ -95,20 +95,23 @@ int arp_lookup(ipv4_addr_t ip, uint8_t *mac_out) {
     return ERR_NOENT;
 }
 
-void arp_send_or_queue(ipv4_addr_t ip, uint16_t ethertype, uint8_t *data, uint16_t len) {
+void arp_send_frame(ipv4_addr_t ip, uint16_t ethertype, txframe_t *f) {
     arp_entry_t *e = arp_find_or_create(ip);
     if (!e)
-        return; /* table full, drop */
+        return; /* table full, drop (slot abandoned) */
 
-    if (e->state == ARP_REACHABLE) { /* fast path / resolved while queued */
-        eth_tx(e->mac, ethertype, data, len);
+    if (e->state == ARP_REACHABLE) { /* fast path: commit the slot in place */
+        eth_send_frame(f, e->mac, ethertype);
         return;
     }
 
+    /* Unresolved: we cannot hold a ring slot across an ARP round-trip, so copy
+       the built bytes out into the pending queue and abandon the slot. */
     if (e->qlen < ARP_MAX_QUEUE) { /* bounded enqueue */
+        uint16_t len = txframe_len(f);
         uint8_t *copy = malloc(len);
         if (copy) {
-            memcpy(copy, data, len);
+            memcpy(copy, txframe_data(f), len);
             e->queue[e->qlen].data = copy;
             e->queue[e->qlen].len = len;
             e->queue[e->qlen].ethertype = ethertype;

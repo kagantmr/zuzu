@@ -68,32 +68,48 @@ void ip_rx(uint8_t *data, uint16_t len, const uint8_t *src_mac) {
 
 }
 
-int ip_tx(uint8_t *payload, uint16_t payload_len, ipv4_addr_t src_ip, ipv4_addr_t dst_ip, uint8_t protocol) {
-    if ((size_t)20 + payload_len > NIC_MTU)
+int ip_send(txframe_t *f, ipv4_addr_t src_ip, ipv4_addr_t dst_ip, uint8_t protocol) {
+    /* The L4 header + payload are already in the builder; prepend the IP
+       header in front of them without copying anything. */
+    uint16_t payload_len = txframe_len(f);
+    if ((size_t)sizeof(ip_header_t) + payload_len > NIC_MTU)
         return ERR_OVERFLOW; /* TODO: fragment here when DF is clear */
 
-    ip_header_t hdr;
-    hdr.version_ihl = 0x45;
-    hdr.dscp_ecn = 0;
-    hdr.total_length = htons(20 + payload_len);
-    hdr.identification = htons(id_counter++);
-    hdr.protocol = protocol;
-    hdr.ttl = 64;
-    hdr.header_checksum = 0;
-    hdr.src_ip = src_ip;
-    hdr.dst_ip = dst_ip;
-    hdr.flags_fragment_offset = htons(IP_FLAG_DF);
-    
-    hdr.header_checksum = htons(inet_checksum((uint8_t *)&hdr, 20));
+    ip_header_t *hdr = (ip_header_t *)txframe_prepend(f, sizeof(ip_header_t));
+    if (!hdr)
+        return ERR_OVERFLOW;
 
-    uint8_t *frame = (uint8_t *)malloc(sizeof(hdr)+ payload_len);
-    if (!frame)
-        return ERR_NOMEM;
-    memcpy(frame, &hdr, 20);
-    memcpy(frame + 20, payload, payload_len);
+    hdr->version_ihl = 0x45;
+    hdr->dscp_ecn = 0;
+    hdr->total_length = htons(sizeof(ip_header_t) + payload_len);
+    hdr->identification = htons(id_counter++);
+    hdr->flags_fragment_offset = htons(IP_FLAG_DF);
+    hdr->ttl = 64;
+    hdr->protocol = protocol;
+    hdr->header_checksum = 0;
+    hdr->src_ip = src_ip;
+    hdr->dst_ip = dst_ip;
+    hdr->header_checksum = htons(inet_checksum((uint8_t *)hdr, sizeof(ip_header_t)));
 
-    arp_send_or_queue(dst_ip, ETH_TYPE_IP, frame, sizeof(hdr)+ payload_len);
-
-    free(frame);
+    arp_send_frame(dst_ip, ETH_TYPE_IP, f);
     return ZUZU_OK;
+}
+
+int ip_tx(uint8_t *payload, uint16_t payload_len, ipv4_addr_t src_ip, ipv4_addr_t dst_ip, uint8_t protocol) {
+    if ((size_t)sizeof(ip_header_t) + payload_len > NIC_MTU)
+        return ERR_OVERFLOW; /* TODO: fragment here when DF is clear */
+
+    /* Reserve room for the Ethernet + IP headers in front of the payload, then
+       copy the caller's payload once into its final position in the slot. */
+    txframe_t f;
+    int rc = txframe_init(&f, sizeof(eth_hdr_t) + sizeof(ip_header_t));
+    if (rc != ZUZU_OK)
+        return rc;
+
+    void *dst = txframe_append(&f, payload_len);
+    if (!dst)
+        return ERR_OVERFLOW;
+    memcpy(dst, payload, payload_len);
+
+    return ip_send(&f, src_ip, dst_ip, protocol);
 }

@@ -1,5 +1,6 @@
 #include "eth.h"
 #include <zuzu/ipc.h>
+#include <zuzu/ntfn.h>
 #include <zuzu/protocols/nic_protocol.h>
 #include <stdio.h>
 #include <mem.h>
@@ -35,25 +36,38 @@ int eth_rx(uint8_t *data, uint16_t len) {
 }
 
 int eth_tx(mac_addr_t dst_mac, uint16_t ethertype, uint8_t *payload, uint16_t len) {
-    eth_hdr_t hdr;
-    memcpy(hdr.dst_mac, dst_mac, 6);
-    memcpy(hdr.src_mac, mac, 6);
-    hdr.ethertype = htons(ethertype);
-
     size_t total_len = sizeof(eth_hdr_t) + len;
-    if (total_len > NIC_FRAME_SIZE) /* explicit, before the size_t->uint16 narrowing */
+    if (total_len > NIC_FRAME_SIZE)
         return ERR_OVERFLOW;
 
-    uint8_t *data = malloc(total_len);
-    if (!data) return ERR_NOMEM;
-    memcpy(data, &hdr, sizeof(eth_hdr_t));
-    memcpy(data + sizeof(eth_hdr_t), payload, len);
+    /* Build the frame directly in a tx-ring slot */
+    nic_frame_t *slot = packet_ring_reserve(tx_ring);
+    if (!slot)
+        return ERR_BUFFULL;
 
-    int push_rc = packet_ring_push(tx_ring, data, (uint16_t)total_len);
-    free(data);
-    if (push_rc < 0)
-        return push_rc;
+    eth_hdr_t *hdr = (eth_hdr_t *)slot->data;
+    memcpy(hdr->dst_mac, dst_mac, 6);
+    memcpy(hdr->src_mac, mac, 6);
+    hdr->ethertype = htons(ethertype);
+    memcpy(slot->data + sizeof(eth_hdr_t), payload, len);
+    slot->len = (uint32_t)total_len;
+    packet_ring_commit(tx_ring);
 
-    msg_t r = _call(drv_port, NIC_CMD_SEND, 0, 0);
-    return (int)r.r3;
+    /* Async doorbell */
+    return _ntfn_signal(tx_doorbell, 1);
+}
+
+int eth_send_frame(txframe_t *f, mac_addr_t dst_mac, uint16_t ethertype) {
+    eth_hdr_t *hdr = (eth_hdr_t *)txframe_prepend(f, sizeof(eth_hdr_t));
+    if (!hdr)
+        return ERR_OVERFLOW; /* slot abandoned (uncommitted) */
+
+    memcpy(hdr->dst_mac, dst_mac, 6);
+    memcpy(hdr->src_mac, mac, 6);
+    hdr->ethertype = htons(ethertype);
+
+    /* Header lands at slot->data[0], the whole frame is now contiguous. */
+    f->slot->len = txframe_len(f);
+    packet_ring_commit(tx_ring);
+    return _ntfn_signal(tx_doorbell, 1);
 }

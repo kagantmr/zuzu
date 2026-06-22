@@ -24,6 +24,7 @@ static handle_t shmem_handle;
 static handle_t nt_port, devm_port;
 static handle_t dev_handle;
 static handle_t netd_ntfn;
+static handle_t tx_doorbell_ntfn;
 void *shmem_addr;
 nic_ring_t *rx_ring, *tx_ring;
 
@@ -190,6 +191,12 @@ int nic_setup(void)
         return ERR_SYSDOWN;
     }
 
+    tx_doorbell_ntfn = _ntfn_create();
+    if (tx_doorbell_ntfn < 0) {
+        LOG_ERROR(LOG_TAG, "tx doorbell registration failed");
+        return ERR_SYSDOWN;
+    }
+
     return ZUZU_OK;
 }
 
@@ -202,14 +209,19 @@ void lan9118_service_loop(void)
         return;
     }
 
-    handle_t handles[] = {nt_port, irq_ntfn};
+    enum { H_PORT = 0, H_IRQ = 1, H_TXDOORBELL = 2 };
+    handle_t handles[] = {
+        [H_PORT] = nt_port,
+        [H_IRQ] = irq_ntfn,
+        [H_TXDOORBELL] = tx_doorbell_ntfn,
+    };
     handle_t pending_recv_reply = 0;
 
     while (1)
     {
 
         recvany_result_t result;
-        int32_t recv_rc = _recvany(handles, 2, 50, &result);
+        int32_t recv_rc = _recvany(handles, 3, 50, &result);
         if (recv_rc < 0)
         {
             continue;
@@ -219,6 +231,19 @@ void lan9118_service_loop(void)
         {
         case RECVANY_KIND_NTFN:
         {
+            if (result.matched_index == H_TXDOORBELL)
+            {
+                /* netd queued frames in tx_ring: drain them straight from the
+                   shared slots into the FIFO (zero-copy, batched). */
+                nic_frame_t *slot;
+                while ((slot = packet_ring_peek(tx_ring)) != NULL)
+                {
+                    nic_tx_frame(slot);
+                    packet_ring_consume(tx_ring);
+                }
+                break;
+            }
+
             nic_stats[NIC_STAT_IRQ]++;
             uint32_t sts = nic->int_sts;
             nic->int_sts = sts; // write back to clear R/WC bits
@@ -303,16 +328,14 @@ void lan9118_service_loop(void)
                 }
                 else
                 {
-                    int32_t granted = _cap_grant(shmem_handle, result.r1);
-                    int32_t ntfn_granted = _cap_grant(netd_ntfn, result.r1);
-                    if (granted < 0 || ntfn_granted < 0)
-                    {
-                        _reply(result.source, granted, ntfn_granted, 0);
-                    }
+                    /* r1 = shmem, r2 = rx doorbell, r3 = tx doorbell */
+                    int32_t shm_g = _cap_grant(shmem_handle, result.r1);
+                    int32_t rx_g  = _cap_grant(netd_ntfn, result.r1);
+                    int32_t tx_g  = _cap_grant(tx_doorbell_ntfn, result.r1);
+                    if (shm_g < 0 || rx_g < 0 || tx_g < 0)
+                        _reply(result.source, ERR_SYSDOWN, 0, 0);
                     else
-                    {
-                        _reply(result.source, granted, ntfn_granted, ZUZU_OK);
-                    }
+                        _reply(result.source, shm_g, rx_g, tx_g);
                 }
                 break;
             }

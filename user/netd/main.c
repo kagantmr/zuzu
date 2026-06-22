@@ -26,6 +26,7 @@
 nic_ring_t *tx_ring, *rx_ring;
 handle_t nic_port;
 handle_t nic_ntfn;
+handle_t tx_doorbell;
 handle_t handles[2];
 mac_addr_t mac;
 
@@ -75,8 +76,10 @@ int get_shm() {
     LOG_INFO(LOG_TAG, "MAC %02x:%02x:%02x:%02x:%02x:%02x",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
+    // r1 = shmem handle, r2 = rx doorbell, r3 = tx doorbell (all >= 0 on success)
     r = _call(nic_port, NIC_CMD_GETBUF, 0, 0);
-    if ((int32_t)r.r0 != 0 || (int32_t)r.r3 != ZUZU_OK) {
+    if ((int32_t)r.r0 != 0 || (int32_t)r.r1 < 0 ||
+        (int32_t)r.r2 < 0 || (int32_t)r.r3 < 0) {
         LOG_ERROR(LOG_TAG, "NIC_GETBUF failed");
         return 1;
     }
@@ -93,8 +96,10 @@ int get_shm() {
     
     netd_port = port;
     nic_ntfn = (handle_t)r.r2;
+    tx_doorbell = (handle_t)r.r3;
     handles[1] = nic_ntfn;
-    LOG_INFO(LOG_TAG, "service port=%d nic_ntfn=%d nic_port=%d", netd_port, nic_ntfn, nic_port);
+    LOG_INFO(LOG_TAG, "service port=%d nic_ntfn=%d tx_doorbell=%d nic_port=%d",
+             netd_port, nic_ntfn, tx_doorbell, nic_port);
     return ZUZU_OK;
 }
 
