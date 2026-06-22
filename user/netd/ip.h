@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include "globals.h"
 #include <stdint.h>
+#include "txframe.h"
 
 typedef struct {
     uint8_t version_ihl;
@@ -30,5 +31,9 @@ _Static_assert(sizeof(ip_header_t) == 20, "ip_header_t size wrong");
 uint16_t inet_checksum(uint8_t *data, size_t len);
 void ip_rx(uint8_t *data, uint16_t len, const uint8_t *src_mac);
 int ip_tx(uint8_t *payload, uint16_t payload_len, ipv4_addr_t src_ip, ipv4_addr_t dst_ip, uint8_t protocol);
+/* Zero-copy send: prepend an IP header onto an already-built L4 frame and hand
+   it to ARP/Ethernet. The builder must have reserved headroom for the Ethernet
+   and IP headers (plus whatever L4 header it already prepended). */
+int ip_send(txframe_t *f, ipv4_addr_t src_ip, ipv4_addr_t dst_ip, uint8_t protocol);
 
 #endif /* IP_H */

@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <vector.h>
 #include <stdbool.h>
+#include "txframe.h"
 
 #define ARP_OPER_REQST 1
 #define ARP_OPER_REPLY 2
@@ -59,9 +60,11 @@ void arp_learn(ipv4_addr_t ip, const uint8_t *mac_addr);
 int arp_rx(uint8_t *data, uint16_t len);
 int arp_request(ipv4_addr_t ip);
 int arp_lookup(ipv4_addr_t ip, uint8_t *mac_out);
-/* Send an L2 payload to ip, resolving the MAC first; queues the packet and
-   triggers ARP if the address is not yet known. */
-void arp_send_or_queue(ipv4_addr_t ip, uint16_t ethertype, uint8_t *data, uint16_t len);
+/* Send a zero-copy frame to ip, resolving the MAC first. On a cache hit the
+   frame's tx-ring slot is committed in place; otherwise the built bytes are
+   copied into the pending queue and ARP resolution is triggered. The builder's
+   slot is always either committed or abandoned by this call. */
+void arp_send_frame(ipv4_addr_t ip, uint16_t ethertype, txframe_t *f);
 /* Drive ARP retransmits and cache aging; call once per netd event-loop wake. */
 void arp_tick(void);
 

@@ -35,3 +35,33 @@ int packet_ring_pop(nic_frame_t *dst, nic_ring_t *r) {
     }
     return ERR_NOENT;
 }
+
+/* Producer: reserve the next writable slot (or NULL if full). Caller fills
+   slot->data and slot->len, then calls packet_ring_commit. */
+nic_frame_t *packet_ring_reserve(nic_ring_t *r) {
+    if (!r || (r->head + 1) % NIC_RING_DEPTH == r->tail)
+        return NULL;
+    return &r->slots[r->head];
+}
+
+/* Producer: publish the reserved slot. Release barrier so the consumer never
+   sees the advanced head before the slot contents. */
+void packet_ring_commit(nic_ring_t *r) {
+    arch_dmb();
+    r->head = (r->head + 1) % NIC_RING_DEPTH;
+}
+
+/* Consumer: peek the next readable slot (or NULL if empty). Acquire barrier so
+   slot reads are not hoisted above the head observation. */
+nic_frame_t *packet_ring_peek(nic_ring_t *r) {
+    if (!r || r->head == r->tail)
+        return NULL;
+    arch_dmb();
+    return &r->slots[r->tail];
+}
+
+/* Consumer: release the slot after reading it. */
+void packet_ring_consume(nic_ring_t *r) {
+    arch_dmb();
+    r->tail = (r->tail + 1) % NIC_RING_DEPTH;
+}

@@ -34,4 +34,12 @@ _Static_assert(NIC_SHM_BYTES >= NIC_TX_OFFSET + NIC_RING_BYTES, "shm too small")
 int packet_ring_push(nic_ring_t *r, void *src, uint16_t len);
 int packet_ring_pop(nic_frame_t *dst, nic_ring_t *r);
 
+/* Zero-copy SPSC access: producer fills the reserved slot's data/len then
+   commits; consumer reads the peeked slot then consumes. Both return NULL when
+   the ring is full / empty. */
+nic_frame_t *packet_ring_reserve(nic_ring_t *r);
+void         packet_ring_commit(nic_ring_t *r);
+nic_frame_t *packet_ring_peek(nic_ring_t *r);
+void         packet_ring_consume(nic_ring_t *r);
+
 #endif
