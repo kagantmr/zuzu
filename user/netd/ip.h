@@ -29,6 +29,10 @@ _Static_assert(sizeof(ip_header_t) == 20, "ip_header_t size wrong");
 #define IP_FLAG_MF (1u << 13)
 
 uint16_t inet_checksum(uint8_t *data, size_t len);
+/* Incremental checksum helpers for summing non-contiguous regions (pseudo-header
+   + L4 segment). Pass accum=0 to the first call, chain the result, then fold. */
+uint32_t inet_csum_partial(const uint8_t *data, size_t len, uint32_t accum);
+uint16_t inet_csum_fold(uint32_t accum);
 void ip_rx(uint8_t *data, uint16_t len, const uint8_t *src_mac);
 int ip_tx(uint8_t *payload, uint16_t payload_len, ipv4_addr_t src_ip, ipv4_addr_t dst_ip, uint8_t protocol);
 /* Zero-copy send: prepend an IP header onto an already-built L4 frame and hand
