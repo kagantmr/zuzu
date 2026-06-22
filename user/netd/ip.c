@@ -1,6 +1,7 @@
 #include "ip.h"
 #include "eth.h"
 #include "icmp.h"
+#include "udp.h"
 #include "arp.h"
 #include <stdio.h>
 #include <convert.h>
@@ -9,20 +10,31 @@
 
 static int id_counter = 0;
 
-uint16_t inet_checksum(uint8_t *data, size_t len) {
-    if (len == 0) return 0;
-    uint32_t accum = 0;
-    for (size_t i = 0; i < len - 1; i += 2) {
+/* Accumulate big-endian 16-bit words of "data" into "accum" without folding, so
+   that several non-contiguous regions (e.g. a pseudo-header + segment) can be
+   summed together. Each region passed in must have an even length except the
+   last, otherwise the trailing-byte padding misaligns the following region. */
+uint32_t inet_csum_partial(const uint8_t *data, size_t len, uint32_t accum) {
+    size_t i = 0;
+    for (; i + 1 < len; i += 2) {
         accum += (data[i] << 8) | data[i + 1];
     }
-    if (len % 2) { 
-        accum += (data[len - 1] << 8);
+    if (len & 1) {
+        accum += (uint32_t)data[len - 1] << 8;
     }
+    return accum;
+}
 
+/* Fold a partial sum down to 16 bits and take the one's complement. */
+uint16_t inet_csum_fold(uint32_t accum) {
     while (accum >> 16) {
         accum = (accum & 0xFFFF) + (accum >> 16);
     }
     return (uint16_t)~accum;
+}
+
+uint16_t inet_checksum(uint8_t *data, size_t len) {
+    return inet_csum_fold(inet_csum_partial(data, len, 0));
 }
 
 void ip_rx(uint8_t *data, uint16_t len, const uint8_t *src_mac) {
@@ -61,7 +73,9 @@ void ip_rx(uint8_t *data, uint16_t len, const uint8_t *src_mac) {
     case IP_PROTO_ICMP:
         icmp_rx(payload, payload_len, hdr->src_ip);
         break;
-
+    case IP_PROTO_UDP:
+        udp_rx(payload, payload_len, hdr->src_ip, hdr->dst_ip);
+        break;
     default:
         return;
     }

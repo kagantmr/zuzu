@@ -14,6 +14,7 @@
 #include "eth.h"
 #include "arp.h"
 #include "icmp.h"
+#include "udp.h"
 
 /* ARP test */
 #define NETD_TEST_PING_A 0
@@ -45,6 +46,13 @@ static void dump_packet(const uint8_t *data, uint16_t len)
     printf("\n");
 }
 #endif
+
+static void udp_echo_handler(ipv4_addr_t src_ip, uint16_t src_port,
+                             uint16_t dst_port, const uint8_t *data, uint16_t len)
+{
+    LOG_INFO(LOG_TAG, "UDP packet, from: %d:%d, to: 192.168.1.15:%d", src_ip, src_port, dst_port);
+    udp_tx(src_ip, dst_port, src_port, data, len);
+}
 
 
 int get_shm() {
@@ -109,6 +117,9 @@ int main() {
     }
     
     arp_init();
+    udp_init();
+
+    udp_bind(7, udp_echo_handler);
 
     uint32_t test_ip = htonl(((uint32_t)NETD_TEST_PING_A << 24) |
                              ((uint32_t)NETD_TEST_PING_B << 16) |
@@ -147,7 +158,7 @@ int main() {
             case RECVANY_KIND_CALL: {
                 /* netd exposes no request API yet. Reply so callers never block
                    forever and the reply capability is released. */
-                _reply(result.source, ERR_BADCMD, 0, 0);
+                _reply(result.source, ERR_NOMATCH, 0, 0);
                 break;
             }
             case RECVANY_KIND_TIMEOUT: {
