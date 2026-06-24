@@ -16,20 +16,20 @@
 #include "icmp.h"
 #include "udp.h"
 
+#include "dns.h"
+
 /* ARP test */
 #define NETD_TEST_PING_A 0
 #define NETD_TEST_PING_B 0
 #define NETD_TEST_PING_C 0
 #define NETD_TEST_PING_D 0
 
-#define LOG_TAG "netd"
-
 nic_ring_t *tx_ring, *rx_ring;
 handle_t nic_port;
 handle_t nic_ntfn;
 handle_t tx_doorbell;
 handle_t handles[2];
-mac_addr_t mac;
+netif_t netif; /* filled at startup (htonl isn't constant); DHCP overwrites later */
 
 #if ZUZU_LOG_LEVEL_DEBUG == LOG_LEVEL
 static void dump_packet(const uint8_t *data, uint16_t len)
@@ -54,7 +54,6 @@ static void udp_echo_handler(ipv4_addr_t src_ip, uint16_t src_port,
     udp_tx(src_ip, dst_port, src_port, data, len);
 }
 
-
 int get_shm() {
     handle_t port = register_service("netd");
     if (port < 0) {
@@ -75,14 +74,19 @@ int get_shm() {
         LOG_ERROR(LOG_TAG, "GETMAC failed");
         return 1;
     }
-    mac[0] = (r.r2 >>  0) & 0xff;
-    mac[1] = (r.r2 >>  8) & 0xff;
-    mac[2] = (r.r2 >> 16) & 0xff;
-    mac[3] = (r.r2 >> 24) & 0xff;
-    mac[4] = (r.r3 >>  0) & 0xff;
-    mac[5] = (r.r3 >>  8) & 0xff;
+    netif.ip      = NETIF_DEFAULT_IP;
+    netif.netmask = NETIF_DEFAULT_NETMASK;
+    netif.gateway = NETIF_DEFAULT_GATEWAY;
+    netif.dns     = NETIF_DEFAULT_DNS;
+    netif.mac[0] = (r.r2 >>  0) & 0xff;
+    netif.mac[1] = (r.r2 >>  8) & 0xff;
+    netif.mac[2] = (r.r2 >> 16) & 0xff;
+    netif.mac[3] = (r.r2 >> 24) & 0xff;
+    netif.mac[4] = (r.r3 >>  0) & 0xff;
+    netif.mac[5] = (r.r3 >>  8) & 0xff;
     LOG_INFO(LOG_TAG, "MAC %02x:%02x:%02x:%02x:%02x:%02x",
-             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+             netif.mac[0], netif.mac[1], netif.mac[2],
+             netif.mac[3], netif.mac[4], netif.mac[5]);
 
     // r1 = shmem handle, r2 = rx doorbell, r3 = tx doorbell (all >= 0 on success)
     r = _call(nic_port, NIC_CMD_GETBUF, 0, 0);
@@ -111,6 +115,13 @@ int get_shm() {
     return ZUZU_OK;
 }
 
+static void on_resolved(const char *name, ipv4_addr_t ip, int status) {
+    if (status == ZUZU_OK)
+        LOG_INFO(LOG_TAG, "%s -> %u.%u.%u.%u", name, IP4(ip));
+    else
+        LOG_INFO(LOG_TAG, "%s failed: %d", name, status);
+}
+
 int main() {
     if (get_shm() < 0) {
         return ERR_SYSDOWN;
@@ -118,6 +129,7 @@ int main() {
     
     arp_init();
     udp_init();
+    dns_init();
 
     udp_bind(7, udp_echo_handler);
 
@@ -131,12 +143,15 @@ int main() {
         icmp_echo_request(test_ip);
     } else {
         LOG_INFO(LOG_TAG, "Probing gateway for ARP...");
-        arp_request(htonl((192u << 24) | (168u << 16) | (1u << 8) | 1u)); // gateway 192.168.1.1
+        arp_request(netif.gateway);
     }
+
+    dns_query("example.com", on_resolved);   // <-- fire the test query
 
     LOG_INFO(LOG_TAG, "will start looping");
     while (1) {
         arp_tick(); /* drive ARP retransmits + cache aging every wake */
+        dns_tick();
 
         recvany_result_t result;
         int32_t recv_rc = _recvany(handles, 2, 10, &result);

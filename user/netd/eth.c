@@ -47,7 +47,7 @@ int eth_tx(mac_addr_t dst_mac, uint16_t ethertype, uint8_t *payload, uint16_t le
 
     eth_hdr_t *hdr = (eth_hdr_t *)slot->data;
     memcpy(hdr->dst_mac, dst_mac, 6);
-    memcpy(hdr->src_mac, mac, 6);
+    memcpy(hdr->src_mac, netif.mac, 6);
     hdr->ethertype = htons(ethertype);
     memcpy(slot->data + sizeof(eth_hdr_t), payload, len);
     slot->len = (uint32_t)total_len;
@@ -63,7 +63,7 @@ int eth_send_frame(txframe_t *f, mac_addr_t dst_mac, uint16_t ethertype) {
         return ERR_OVERFLOW; /* slot abandoned (uncommitted) */
 
     memcpy(hdr->dst_mac, dst_mac, 6);
-    memcpy(hdr->src_mac, mac, 6);
+    memcpy(hdr->src_mac, netif.mac, 6);
     hdr->ethertype = htons(ethertype);
 
     /* Header lands at slot->data[0], the whole frame is now contiguous. */

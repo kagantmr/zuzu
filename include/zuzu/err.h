@@ -21,6 +21,7 @@ typedef int32_t err_t;
 #define ERR_BUFFULL (-12)   /* Buffer full (e.g. channel send)      */
 #define ERR_SYSDOWN (-13)   /* System service is down/unavailable   */
 #define ERR_DUPLICATE (-14) /* Rejecting a duplicate request        */
+#define ERR_IO (-15)        /* I/O error */
 
 const char *strerror(err_t err);
 
