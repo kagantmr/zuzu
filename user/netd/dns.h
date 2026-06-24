@@ -17,7 +17,10 @@ _Static_assert(sizeof(dns_hdr_t) == 12, "header size wrong");
 #define DNS_MAX_NAME 253
 #define DNS_CLIENT_PORT 50000
 
-#define DNS_TIMEOUT_MS 5000
+#define DNS_TIMEOUT_MS 2000  /* per-attempt timeout */
+#define DNS_MAX_RETRIES 2    /* extra retransmits after the first send */
+#define DNS_MAX_CNAME 8      /* CNAME redirections to follow before giving up */
+#define DNS_MAX_JUMPS 16     /* compression-pointer follows before giving up */
 
 #define DNS_PORT 53
 #define RCODE_MASK 0x0F
