@@ -55,7 +55,7 @@ typedef struct
     uint8_t qlen;
 } arp_entry_t;
 
-void arp_init();
+void arp_init(void);
 void arp_learn(ipv4_addr_t ip, const uint8_t *mac_addr);
 int arp_rx(uint8_t *data, uint16_t len);
 int arp_request(ipv4_addr_t ip);

@@ -53,7 +53,7 @@ void ip_rx(uint8_t *data, uint16_t len, const uint8_t *src_mac) {
     }
 
     uint16_t cs = inet_checksum(data, hdr_len);
-    if (cs || (hdr->dst_ip != ZUZU_IP && hdr->dst_ip != BROADCAST_IP)) {
+    if (cs || (hdr->dst_ip != netif.ip && hdr->dst_ip != BROADCAST_IP)) {
         return;
     }
 
@@ -105,7 +105,16 @@ int ip_send(txframe_t *f, ipv4_addr_t src_ip, ipv4_addr_t dst_ip, uint8_t protoc
     hdr->dst_ip = dst_ip;
     hdr->header_checksum = htons(inet_checksum((uint8_t *)hdr, sizeof(ip_header_t)));
 
-    arp_send_frame(dst_ip, ETH_TYPE_IP, f);
+    /* Next-hop selection: an on-link destination is resolved (ARPed) directly;
+       anything outside our subnet goes via the default gateway. The L3 dst in
+       the header stays the real destination -- only the L2 target changes.
+       Limited broadcast stays direct. Degenerate one-route case of what becomes
+       a route lookup when multiple interfaces/routes exist. */
+    ipv4_addr_t next_hop = dst_ip;
+    if (dst_ip != BROADCAST_IP && ((dst_ip ^ netif.ip) & netif.netmask))
+        next_hop = netif.gateway;
+
+    arp_send_frame(next_hop, ETH_TYPE_IP, f);
     return ZUZU_OK;
 }
 

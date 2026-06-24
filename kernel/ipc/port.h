@@ -62,7 +62,7 @@ typedef struct {
     };
 } handle_entry_t;
 
-DEFINE_VEC(handle, handle_entry_t);
+DEFINE_VEC(handle, handle_entry_t)
 
 static inline int handle_vec_find_free(handle_vec_t *handles) {
     for (uint32_t i = 1; i < handles->cap; i++) {

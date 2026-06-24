@@ -42,7 +42,7 @@ void icmp_rx(uint8_t *payload, size_t payload_len, ipv4_addr_t src_ip) {
             reply_hdr->checksum = 0;
             reply_hdr->checksum = htons(inet_checksum(reply, payload_len));
 
-            if (ip_tx(reply, payload_len, ZUZU_IP, src_ip, IP_PROTO_ICMP) != ZUZU_OK)
+            if (ip_tx(reply, payload_len, netif.ip, src_ip, IP_PROTO_ICMP) != ZUZU_OK)
                 LOG_WARN(LOG_TAG, "echo reply to %u.%u.%u.%u dropped (oversize?)", IP4(src_ip));
             free(reply);
             break;
@@ -67,5 +67,5 @@ void icmp_echo_request(ipv4_addr_t dst_ip) {
     for (size_t i = 0; i < 32; i++)
         pkt[sizeof(icmp_hdr_t) + i] = (uint8_t)i;
     hdr->checksum = htons(inet_checksum(pkt, sizeof(pkt)));
-    ip_tx(pkt, sizeof(pkt), ZUZU_IP, dst_ip, IP_PROTO_ICMP);
+    ip_tx(pkt, sizeof(pkt), netif.ip, dst_ip, IP_PROTO_ICMP);
 }

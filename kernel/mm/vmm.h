@@ -57,7 +57,7 @@ typedef enum {
     ADDRSPACE_USER   = 1,
 } addrspace_type_t;
 
-DEFINE_VEC(vm_region, vm_region_t);
+DEFINE_VEC(vm_region, vm_region_t)
 
 typedef struct addrspace {
     paddr_t        ttbr0_pa;   // physical address of level-1 table

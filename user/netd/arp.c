@@ -9,9 +9,6 @@
 
 #define LOG_TAG "netd"
 
-/* expand a network-order ipv4_addr_t to four %u args (a.b.c.d) */
-#define IP4(x) (unsigned)((x) & 0xff), (unsigned)(((x) >> 8) & 0xff), \
-               (unsigned)(((x) >> 16) & 0xff), (unsigned)(((x) >> 24) & 0xff)
 
 static arp_entry_t arp_table[ARP_MAX_ENTRIES];
 
@@ -155,7 +152,7 @@ void arp_tick(void) {
 }
 
 int arp_rx(uint8_t *data, uint16_t len) {
-    ipv4_addr_t ip = ZUZU_IP;
+    ipv4_addr_t ip = netif.ip;
     if (len < sizeof(arp_packet_t))
         return ERR_MALFORMED;
     arp_packet_t *pkt = (arp_packet_t *)data;
@@ -179,7 +176,7 @@ int arp_rx(uint8_t *data, uint16_t len) {
                 pkt_out.hlen  = 6;
                 pkt_out.plen  = 4;
                 pkt_out.oper  = htons(2);          // reply
-                memcpy(pkt_out.sha, mac, 6);       // our MAC
+                memcpy(pkt_out.sha, netif.mac, 6); // our MAC
                 memcpy(pkt_out.spa, &ip, 4);       // our IP
                 memcpy(pkt_out.tha, pkt->sha, 6);  // their MAC
                 memcpy(pkt_out.tpa, pkt->spa, 4);  // their IP
@@ -202,9 +199,9 @@ int arp_request(ipv4_addr_t ip) {
     pkt.ptype = htons(ETH_TYPE_IP);
     pkt.hlen = 6;
     pkt.plen = 4;
-    ipv4_addr_t our_ip = ZUZU_IP;
+    ipv4_addr_t our_ip = netif.ip;
     pkt.oper = htons(1); // request
-    memcpy(pkt.sha, mac, 6);       // our MAC
+    memcpy(pkt.sha, netif.mac, 6); // our MAC
     memcpy(pkt.spa, &our_ip, 4);       // our IP
     // broadcast frame, no need to set it
     memcpy(pkt.tpa, &ip, 4);  // their IP

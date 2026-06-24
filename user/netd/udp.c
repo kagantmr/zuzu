@@ -10,9 +10,9 @@
 typedef struct {
     uint16_t port; 
     udp_handler_t handler;
-} udp_table_t;
+} udp_entry_t;
 
-static udp_table_t udp_table[UDP_MAX_TABLE];
+static udp_entry_t udp_table[UDP_MAX_TABLE];
 
 /* Checksum over the UDP pseudo-header + the contiguous UDP segment (header and
    payload). For TX the header's checksum field must be 0 on entry; for RX it
@@ -122,8 +122,8 @@ int  udp_tx(ipv4_addr_t dst_ip, uint16_t src_port, uint16_t dst_port,
     /* Checksum covers the pseudo-header and the whole contiguous segment. A
        computed value of 0 is transmitted as 0xFFFF so the receiver doesn't
        mistake it for "no checksum" (RFC 768). */
-    uint16_t cs = htons(udp_checksum(ZUZU_IP, dst_ip, txframe_data(&f), txframe_len(&f)));
+    uint16_t cs = htons(udp_checksum(netif.ip, dst_ip, txframe_data(&f), txframe_len(&f)));
     hdr->checksum = cs ? cs : 0xFFFF;
 
-    return ip_send(&f, ZUZU_IP, dst_ip, IP_PROTO_UDP);
+    return ip_send(&f, netif.ip, dst_ip, IP_PROTO_UDP);
 }
