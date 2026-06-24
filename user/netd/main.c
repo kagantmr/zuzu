@@ -146,7 +146,7 @@ int main() {
         arp_request(netif.gateway);
     }
 
-    dns_query("example.com", on_resolved);   // <-- fire the test query
+    dns_query("google.com", on_resolved);   // <-- fire the test query
 
     LOG_INFO(LOG_TAG, "will start looping");
     while (1) {
