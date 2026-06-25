@@ -13,16 +13,10 @@
 #include "globals.h"
 #include "eth.h"
 #include "arp.h"
-#include "icmp.h"
 #include "udp.h"
 
 #include "dns.h"
-
-/* ARP test */
-#define NETD_TEST_PING_A 0
-#define NETD_TEST_PING_B 0
-#define NETD_TEST_PING_C 0
-#define NETD_TEST_PING_D 0
+#include "dhcp.h"
 
 nic_ring_t *tx_ring, *rx_ring;
 handle_t nic_port;
@@ -50,8 +44,23 @@ static void dump_packet(const uint8_t *data, uint16_t len)
 static void udp_echo_handler(ipv4_addr_t src_ip, uint16_t src_port,
                              uint16_t dst_port, const uint8_t *data, uint16_t len)
 {
-    LOG_INFO(LOG_TAG, "UDP packet, from: %d:%d, to: 192.168.1.15:%d", src_ip, src_port, dst_port);
+    LOG_INFO(LOG_TAG, "UDP packet, from: %u.%u.%u.%u:%d, to: %u.%u.%u.%u:%d",
+             IP4(src_ip), src_port, IP4(netif.ip), dst_port);
     udp_tx(src_ip, dst_port, src_port, data, len);
+}
+
+static void on_resolved(const char *name, ipv4_addr_t ip, int status) {
+    if (status == ZUZU_OK)
+        LOG_INFO(LOG_TAG, "%s -> %u.%u.%u.%u", name, IP4(ip));
+    else
+        LOG_INFO(LOG_TAG, "%s failed: %d", name, status);
+}
+
+/* Fires once the lease is first acquired: the network is now usable. */
+static void on_dhcp_bound(void) {
+    LOG_INFO(LOG_TAG, "network up: ip %u.%u.%u.%u gw %u.%u.%u.%u dns %u.%u.%u.%u",
+             IP4(netif.ip), IP4(netif.gateway), IP4(netif.dns));
+    dns_query("google.com", on_resolved);   /* smoke test now that we have DNS */
 }
 
 int get_shm() {
@@ -74,10 +83,7 @@ int get_shm() {
         LOG_ERROR(LOG_TAG, "GETMAC failed");
         return 1;
     }
-    netif.ip      = NETIF_DEFAULT_IP;
-    netif.netmask = NETIF_DEFAULT_NETMASK;
-    netif.gateway = NETIF_DEFAULT_GATEWAY;
-    netif.dns     = NETIF_DEFAULT_DNS;
+    /* L3 config (ip/netmask/gateway/dns) stays zero until DHCP binds it. */
     netif.mac[0] = (r.r2 >>  0) & 0xff;
     netif.mac[1] = (r.r2 >>  8) & 0xff;
     netif.mac[2] = (r.r2 >> 16) & 0xff;
@@ -115,12 +121,6 @@ int get_shm() {
     return ZUZU_OK;
 }
 
-static void on_resolved(const char *name, ipv4_addr_t ip, int status) {
-    if (status == ZUZU_OK)
-        LOG_INFO(LOG_TAG, "%s -> %u.%u.%u.%u", name, IP4(ip));
-    else
-        LOG_INFO(LOG_TAG, "%s failed: %d", name, status);
-}
 
 int main() {
     if (get_shm() < 0) {
@@ -130,27 +130,14 @@ int main() {
     arp_init();
     udp_init();
     dns_init();
+    dhcp_init(on_dhcp_bound);   /* kicks off DORA; on_dhcp_bound fires when bound */
 
     udp_bind(7, udp_echo_handler);
-
-    uint32_t test_ip = htonl(((uint32_t)NETD_TEST_PING_A << 24) |
-                             ((uint32_t)NETD_TEST_PING_B << 16) |
-                             ((uint32_t)NETD_TEST_PING_C << 8)  |
-                             ((uint32_t)NETD_TEST_PING_D));
-    if (test_ip != 0) {
-        LOG_INFO(LOG_TAG, "test: ICMP echo request to %u.%u.%u.%u (unresolved)",
-                 NETD_TEST_PING_A, NETD_TEST_PING_B, NETD_TEST_PING_C, NETD_TEST_PING_D);
-        icmp_echo_request(test_ip);
-    } else {
-        LOG_INFO(LOG_TAG, "Probing gateway for ARP...");
-        arp_request(netif.gateway);
-    }
-
-    dns_query("google.com", on_resolved);   // <-- fire the test query
 
     LOG_INFO(LOG_TAG, "will start looping");
     while (1) {
         arp_tick(); /* drive ARP retransmits + cache aging every wake */
+        dhcp_tick();
         dns_tick();
 
         recvany_result_t result;

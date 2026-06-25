@@ -93,6 +93,11 @@ int arp_lookup(ipv4_addr_t ip, uint8_t *mac_out) {
 }
 
 void arp_send_frame(ipv4_addr_t ip, uint16_t ethertype, txframe_t *f) {
+    if (ip == BROADCAST_IP) {
+        mac_addr_t bcast = BROADCAST_MAC;
+        eth_send_frame(f, bcast, ethertype);
+        return;
+    }
     arp_entry_t *e = arp_find_or_create(ip);
     if (!e)
         return; /* table full, drop (slot abandoned) */
