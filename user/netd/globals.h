@@ -11,12 +11,6 @@
 
 #define LOG_TAG "netd"
 
-/* Hardcoded interface config until DHCP supplies it */
-#define NETIF_DEFAULT_IP      ((ipv4_addr_t)htonl((192u << 24) | (168u << 16) | (1u << 8) | 15u))
-#define NETIF_DEFAULT_NETMASK ((ipv4_addr_t)htonl(0xFFFFFF00u))
-#define NETIF_DEFAULT_GATEWAY ((ipv4_addr_t)htonl((192u << 24) | (168u << 16) | (1u << 8) | 1u))
-#define NETIF_DEFAULT_DNS     ((ipv4_addr_t)htonl((8u << 24) | (8u << 16) | (8u << 8) | 8u))
-
 /* expand a network-order ipv4_addr_t to four %u args (a.b.c.d) */
 #define IP4(x) (unsigned)((x) & 0xff), (unsigned)(((x) >> 8) & 0xff), \
                (unsigned)(((x) >> 16) & 0xff), (unsigned)(((x) >> 24) & 0xff)
