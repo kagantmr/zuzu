@@ -12,7 +12,7 @@
 #include "kernel/boot_info.h"
 #include "drivers/uart/pl011.h"
 #include "drivers/uart/uart.h"
-#include "arch/arm/include/board.h"
+#include "arch/arm/include/platform.h"
 #include "arch/arm/include/gicv2.h"
 #include "arch/arm/timer/generic_timer.h"
 #include "core/panic.h"
