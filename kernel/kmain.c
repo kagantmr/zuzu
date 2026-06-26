@@ -2,7 +2,7 @@
 #include "arch/arm/include/irq.h"
 
 #include "arch/arm/mmu/mmu.h"
-#include "arch/arm/vexpress-a15/board.h"
+#include "arch/arm/include/board.h"
 
 #include "drivers/uart/uart.h"
 #include "drivers/uart/pl011.h"
