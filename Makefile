@@ -327,14 +327,14 @@ run: $(TARGET)
 	@sudo qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M \
 	    -kernel $(TARGET) -dtb $(DTB_FILE) -nographic \
 	    -drive file=$(SD_IMG),if=sd,format=raw \
-	    -nic vmnet-bridged,ifname=en0,model=lan9118
+	    -nic user,model=lan9118
 
 debug: $(TARGET)
 	@echo "  QEMU    $(TARGET) (debug)"
 	@sudo qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M \
 	    -kernel $(TARGET) -dtb $(DTB_FILE) -nographic \
 	    -drive file=$(SD_IMG),if=sd,format=raw \
-	    -nic vmnet-bridged,ifname=en0,model=lan9118 \
+	    -nic user,model=lan9118 \
 	    -S -gdb tcp::1234
 
 # Misc targets
