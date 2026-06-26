@@ -7,7 +7,7 @@
 #include <zuzu/memprot.h>
 #include <vector.h>
 #include <zuzu/types.h>
-#include "arch/arm/vexpress-a15/layout.h"
+#include BOARD_LAYOUT_H
 #include "arch/arm/mmu/asid.h"
 
 #define PA_TO_VA(pa)  ((vaddr_t)(pa) + KERNEL_VA_OFFSET)

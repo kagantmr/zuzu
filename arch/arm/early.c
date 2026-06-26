@@ -1,7 +1,13 @@
-// Early boot code for Versatile Express A15
+// Early boot init (board-independent ARM path)
+//
+// Runs in the higher half right after _start.S enables the MMU. The sequence
+// here is the same for every ARM board: parse the DTB, map RAM, bring up the
+// PMM/heap/VMM, tear down the identity mapping, then init IRQs and devices.
+// Anything board-specific is supplied by the DTB and the per-board layout.h /
+// linker.ld / _start.S, so this file does not change when adding a board.
 #include "arch/arm/include/symbols.h"
 #include "arch/arm/include/irq.h"
-#include "arch/arm/vexpress-a15/board.h"
+#include "arch/arm/include/board.h"
 #include "arch/arm/mmu/mmu.h"
 #include "kernel/layout.h"
 #include "kernel/mm/pmm.h"
