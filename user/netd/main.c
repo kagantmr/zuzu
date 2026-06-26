@@ -25,22 +25,6 @@ handle_t tx_doorbell;
 handle_t handles[2];
 netif_t netif; /* filled at startup (htonl isn't constant); DHCP overwrites later */
 
-#if ZUZU_LOG_LEVEL_DEBUG == LOG_LEVEL
-static void dump_packet(const uint8_t *data, uint16_t len)
-{
-    uint16_t limit = len < 64 ? len : 64;
-    LOG_DEBUG(LOG_TAG, "netd: packet dump len=%u", (unsigned)len);
-    for (uint16_t i = 0; i < limit; i++) {
-        if ((i % 16) == 0)
-            printf("\n  %04u:", (unsigned)i);
-        printf(" %02x", data[i]);
-    }
-    if (limit < len)
-        printf(" ...");
-    printf("\n");
-}
-#endif
-
 static void udp_echo_handler(ipv4_addr_t src_ip, uint16_t src_port,
                              uint16_t dst_port, const uint8_t *data, uint16_t len)
 {
@@ -150,9 +134,6 @@ int main() {
             case RECVANY_KIND_NTFN: {
                 nic_frame_t frame;
                 while (packet_ring_pop(&frame, rx_ring) == 0) {
-#if ZUZU_LOG_LEVEL_DEBUG == LOG_LEVEL
-                    dump_packet(frame.data, frame.len);
-#endif
                     eth_rx(frame.data, frame.len);
                 }
                 break;
