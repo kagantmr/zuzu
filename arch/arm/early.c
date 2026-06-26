@@ -7,7 +7,7 @@
 // linker.ld / _start.S, so this file does not change when adding a board.
 #include "arch/arm/include/symbols.h"
 #include "arch/arm/include/irq.h"
-#include "arch/arm/include/board.h"
+#include "arch/arm/include/platform.h"
 #include "arch/arm/mmu/mmu.h"
 #include "kernel/layout.h"
 #include "kernel/mm/pmm.h"
