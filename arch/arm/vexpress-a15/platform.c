@@ -12,9 +12,9 @@
 #include "kernel/boot_info.h"
 #include "drivers/uart/pl011.h"
 #include "drivers/uart/uart.h"
-#include "arch/arm/include/platform.h"
+#include <arch/platform.h>
 #include "arch/arm/include/gicv2.h"
-#include "arch/arm/timer/generic_timer.h"
+#include <arch/timer.h>
 #include "core/panic.h"
 #include "core/kprintf.h"
 #include <string.h>
@@ -44,7 +44,7 @@ static const char *const GIC_COMPAT[]   = { "arm,gic-400", "arm,cortex-a15-gic",
                                             "arm,gic-v2", NULL };
 static const char *const PL031_COMPAT[] = { "arm,pl031", NULL };
 
-void board_init_devices(void) {
+void arch_platform_init_devices(void) {
     const dtb_dev_t *d;
 
     // UART (PL011): present on vexpress and the Pi 4 alike.
@@ -92,5 +92,5 @@ void board_init_devices(void) {
     }
 
     KDEBUG("Using ARM generic timer as tick source");
-    generic_timer_init();
+    arch_timer_init();
 }

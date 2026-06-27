@@ -3,7 +3,7 @@
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/vmm.h"
 #include "kstack.h"
-#include "arch/arm/mmu/mmu.h"
+#include <arch/mmu.h>
 #include "kernel/mm/pmm.h"
 #include <mem.h>
 #include "kernel/sched/sched.h"

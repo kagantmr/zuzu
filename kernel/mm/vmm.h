@@ -8,7 +8,7 @@
 #include <vector.h>
 #include <zuzu/types.h>
 #include BOARD_LAYOUT_H
-#include "arch/arm/mmu/asid.h"
+#include <arch/asid.h>
 
 #define PA_TO_VA(pa)  ((vaddr_t)(pa) + KERNEL_VA_OFFSET)
 #define VA_TO_PA(va)  ((paddr_t)(va) - KERNEL_VA_OFFSET)

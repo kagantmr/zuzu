@@ -10,9 +10,9 @@ typedef struct {
 #define SPINLOCK_INIT { .locked = 0 }
 
 #ifdef __KERNEL__
-#include "arch/arm/include/atomic.h"
+#include <arch/atomic.h>
 #include <barrier.h>
-#include "arch/arm/include/irq.h"
+#include <arch/cpu.h>
 
 static inline void spin_lock_irqsave(spinlock_t *lock, uint32_t *flags)
 {

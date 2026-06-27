@@ -1,8 +1,9 @@
 // panic.c - Kernel panic screen
 
 #include "core/panic.h"
-#include "arch/arm/include/irq.h"
-#include "arch/arm/include/symbols.h"
+#include <arch/cpu.h>
+#include <arch/irq.h>
+#include <arch/symbols.h>
 #include "drivers/uart/uart.h"
 #include "kernel/layout.h"
 #include "kernel/mm/alloc.h"
@@ -16,10 +17,7 @@
 #include <stdint.h>
 
 #ifdef PANIC_SECTION_IRQ
-#include "arch/arm/include/gicv2.h"
 #include "kernel/irq/sys_irq.h"
-extern volatile uint32_t *gicd_base;
-extern volatile uint32_t *gicc_base;
 extern irq_handler_t      handler_table[MAX_IRQS];
 #endif
 
@@ -710,13 +708,15 @@ static void panic_print_irq(void)
 
     panic_section("IRQ / GIC");
 
-    if (!gicd_base || !gicc_base) {
-        panic_line("GIC not yet initialized");
+    if (!arch_irq_ready()) {
+        panic_line("interrupt controller not yet initialized");
         return;
     }
 
-    uint32_t pmr = gicc_base[GICC_PMR >> 2];
-    snprintf(line, sizeof(line), "GICC_PMR: 0x%02X  (%s)",
+#define IRQ_WORDS (MAX_IRQS / 32u)
+
+    uint32_t pmr = arch_irq_priority_mask();
+    snprintf(line, sizeof(line), "priority mask: 0x%02X  (%s)",
              pmr, pmr == 0xFFu ? "all priorities pass" : "filtered");
     panic_line(line);
 
@@ -725,16 +725,16 @@ static void panic_print_irq(void)
     /*
      * Snapshot enabled bitmap; used both for the enabled section and
      * later to identify the likely triggering IRQ in the pending section.
-     * Skip SGIs (0-15) — always enabled in GICv2.
+     * Skip SGIs (0-15) — always enabled on the controller.
      */
-    uint32_t enabled_words[4] = {0};
-    for (uint32_t w = 0; w < 4u; w++)
-        enabled_words[w] = gicd_base[(GICD_ISENABLER + w * 4u) >> 2];
+    uint32_t enabled_words[IRQ_WORDS];
+    for (uint32_t w = 0; w < IRQ_WORDS; w++)
+        enabled_words[w] = arch_irq_enabled_word(w);
 
     panic_nl();
     panic_line("enabled IRQs:");
     int any_enabled = 0;
-    for (uint32_t word = 0; word < 4u; word++) {
+    for (uint32_t word = 0; word < IRQ_WORDS; word++) {
         uint32_t ena = enabled_words[word];
         if (!ena) continue;
         for (uint32_t bit = 0; bit < 32u; bit++) {
@@ -768,8 +768,8 @@ static void panic_print_irq(void)
     panic_nl();
     panic_line("pending IRQs:");
     int any_pending = 0;
-    for (uint32_t word = 0; word < 4u; word++) {
-        uint32_t pend = gicd_base[(GICD_ISPENDER + word * 4u) >> 2];
+    for (uint32_t word = 0; word < IRQ_WORDS; word++) {
+        uint32_t pend = arch_irq_pending_word(word);
         if (!pend) continue;
         for (uint32_t bit = 0; bit < 32u; bit++) {
             if (!(pend & (1u << bit))) continue;

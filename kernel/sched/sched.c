@@ -3,9 +3,9 @@
 #include <list.h>
 
 #include "kernel/syscall/syscall.h"
-#include "arch/arm/include/thread.h"
+#include <arch/thread.h>
 
-#include "arch/arm/include/irq.h"
+#include <arch/cpu.h>
 #include "kernel/mm/vmm.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/time/tick.h"

@@ -1,8 +1,8 @@
 #include "sys_mm.h"
 #include "kernel/syscall/syscall.h"
 #include "kernel/sched/sched.h"
-#include "arch/arm/mmu/mmu.h"
-#include "arch/arm/include/cache.h"
+#include <arch/mmu.h>
+#include <arch/cache.h>
 #include "kernel/mm/pmm.h"
 #include "kernel/layout.h"
 #include <spawn_args.h>
@@ -461,7 +461,7 @@ void asinject(exception_frame_t *frame) {
         mapped_pages++;
 
         if (kargs.prot & VM_PROT_EXEC) {
-            cache_flush_code_range((vaddr_t)PA_TO_VA(page), PAGE_SIZE);
+            arch_cache_flush_code_range((vaddr_t)PA_TO_VA(page), PAGE_SIZE);
         }
     }
 

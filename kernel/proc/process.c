@@ -1,7 +1,7 @@
 #include "process.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm.h"
-#include "arch/arm/mmu/mmu.h"
+#include <arch/mmu.h>
 #include "kernel/irq/sys_irq.h"
 #include "kernel/sched/sched.h"
 #include "kernel/syspage.h"
@@ -14,7 +14,7 @@
 #include "kstack.h"
 #include "core/panic.h"
 #include "zuzu/syscall_nums.h"
-#include "arch/arm/include/cache.h"
+#include <arch/cache.h>
 
 uint32_t next_pid = 1;
 process_t *process_table[MAX_PROCESSES];
@@ -151,7 +151,7 @@ process_t *process_load(const void *elf_data, size_t elf_size,
                     goto fail_kstack;
                 }
 
-                cache_flush_code_range((uintptr_t)PA_TO_VA(page_pa), PAGE_SIZE);
+                arch_cache_flush_code_range((uintptr_t)PA_TO_VA(page_pa), PAGE_SIZE);
             }
 
             vm_region_t seg_region = {

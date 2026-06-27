@@ -1,10 +1,10 @@
 // cache.c - Cache management functions for ARMv7-A
 
-#include "arch/arm/include/cache.h"
+#include <arch/cache.h>
 
 #define CACHE_LINE 64
 
-void cache_clean_dcache_range(uintptr_t start, size_t size)
+void arch_cache_clean_dcache_range(uintptr_t start, size_t size)
 {
     uintptr_t addr = start & ~(CACHE_LINE - 1);
     uintptr_t end = start + size;
@@ -13,7 +13,7 @@ void cache_clean_dcache_range(uintptr_t start, size_t size)
     __asm__ volatile("dsb" ::: "memory");                           // put data sync barrier for pipeline to wait
 }
 
-void cache_invalidate_icache_range(uintptr_t start, size_t size)
+void arch_cache_invalidate_icache_range(uintptr_t start, size_t size)
 {
     uintptr_t addr = start & ~(CACHE_LINE - 1);
     uintptr_t end = start + size;
@@ -23,8 +23,8 @@ void cache_invalidate_icache_range(uintptr_t start, size_t size)
     __asm__ volatile("isb" ::: "memory");
 }
 
-void cache_flush_code_range(uintptr_t start, size_t size)
+void arch_cache_flush_code_range(uintptr_t start, size_t size)
 {
-    cache_clean_dcache_range(start, size);
-    cache_invalidate_icache_range(start, size);
+    arch_cache_clean_dcache_range(start, size);
+    arch_cache_invalidate_icache_range(start, size);
 }

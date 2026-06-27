@@ -1,7 +1,7 @@
 #ifndef SYS_IPC_H
 #define SYS_IPC_H
 
-#include "arch/arm/include/context.h"
+#include <arch/regs.h>
 
 
 void proc_send(exception_frame_t *frame);

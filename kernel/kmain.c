@@ -1,8 +1,8 @@
-#include "arch/arm/include/symbols.h"
-#include "arch/arm/include/irq.h"
+#include <arch/symbols.h>
+#include <arch/cpu.h>
 
-#include "arch/arm/mmu/mmu.h"
-#include "arch/arm/include/platform.h"
+#include <arch/mmu.h>
+#include <arch/platform.h>
 
 #include "drivers/uart/uart.h"
 #include "drivers/uart/pl011.h"

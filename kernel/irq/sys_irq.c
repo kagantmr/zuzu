@@ -2,8 +2,7 @@
 #include "kernel/syscall/syscall.h"
 #include "kernel/sched/sched.h"
 #include "kernel/mm/alloc.h"
-#include "arch/arm/include/irq.h"
-#include "arch/arm/timer/generic_timer.h"
+#include <arch/irq.h>
 #include <mem.h>
 
 extern thread_t *current_thread;
@@ -16,7 +15,7 @@ static irq_owner_t irq_owners[MAX_IRQS];
 static void relay_handler(void *ctx)
 {
     irq_t irq_num = (irq_t)(vaddr_t)ctx;
-    irq_disable_line(irq_num);
+    arch_irq_disable_line(irq_num);
 
     irq_owners[irq_num].pending = true;
 
@@ -64,19 +63,8 @@ static void relay_handler(void *ctx)
     }
 }
 
-static inline bool irq_is_reserved(irq_t irq_num)
-{
-    switch (irq_num) {
-    case 34:   // SP804 timer (vexpress-a15)
-    case TIMER_IRQ_VIRT:
-        return true;
-    default:
-        return false;
-    }
-}
-
 static inline bool valid_irq(irq_t irq_num) {
-    return (irq_num < MAX_IRQS) && !irq_is_reserved(irq_num);
+    return (irq_num < MAX_IRQS) && !arch_irq_is_reserved(irq_num);
 }
 
 void irq_claim(exception_frame_t *frame) {
@@ -114,7 +102,7 @@ void irq_claim(exception_frame_t *frame) {
         .owner = current_thread->owner_process,
         .pending = false
     };
-    irq_register(irq_num, relay_handler, (void*)(vaddr_t)irq_num);
+    arch_irq_register(irq_num, relay_handler, (void*)(vaddr_t)irq_num);
     frame->r[0] = 0;
 }
 
@@ -201,7 +189,7 @@ void irq_bind(exception_frame_t *frame) {
         }
     }
 
-    irq_enable_line(irq_num);
+    arch_irq_enable_line(irq_num);
     frame->r[0] = 0;
 }
 
@@ -226,7 +214,7 @@ void irq_done(exception_frame_t* frame) {
         return;
     }
     if (irq_owners[entry->dev->irq].owner == current_thread->owner_process) {
-        irq_enable_line(entry->dev->irq);
+        arch_irq_enable_line(entry->dev->irq);
         frame->r[0] = 0;
         return;
     } else {
@@ -246,8 +234,8 @@ void irq_release_all(process_t *owner) {
                     kfree(ntfn);
                 irq_owners[i].bound_ntfn = NULL;
             }
-            irq_disable_line(i);
-            irq_unregister(i);
+            arch_irq_disable_line(i);
+            arch_irq_unregister(i);
             memset(&irq_owners[i], 0, sizeof(irq_owner_t));
         }
     }

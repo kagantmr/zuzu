@@ -3,7 +3,7 @@
 
 #define NAMETABLE_PID 1
 
-#include "arch/arm/include/context.h"
+#include <arch/regs.h>
 
 void port_create(exception_frame_t *frame);
 void port_destroy(exception_frame_t *frame);

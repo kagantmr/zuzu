@@ -1,6 +1,7 @@
 // generic_timer.c - ARMv7-A generic timer implementation
 
-#include "arch/arm/include/irq.h"
+#include <arch/irq.h>
+#include <arch/timer.h>
 #include "arch/arm/timer/generic_timer.h"
 #include "kernel/time/tick.h"
 #include <zuzu/types.h>
@@ -69,7 +70,7 @@ static void generic_timer_handler(void *ctx)
     tick_announce();
 }
 
-void generic_timer_init(void)
+void arch_timer_init(void)
 {
     freq = read_cntfrq();
     tval = freq / 100;
@@ -77,8 +78,8 @@ void generic_timer_init(void)
     /* Silence CNTP at the source so its interrupt line stays deasserted */
     write_cntp_ctl(0x2); /* ENABLE=0, IMASK=1 */
 
-    irq_register(TIMER_IRQ_VIRT, generic_timer_handler, NULL);
-    irq_enable_line(TIMER_IRQ_VIRT);
+    arch_irq_register(TIMER_IRQ_VIRT, generic_timer_handler, NULL);
+    arch_irq_enable_line(TIMER_IRQ_VIRT);
 
     write_cntv_tval(tval);
     write_cntv_ctl(1); /* ENABLE=1, IMASK=0 */

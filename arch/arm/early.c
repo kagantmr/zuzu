@@ -5,10 +5,10 @@
 // PMM/heap/VMM, tear down the identity mapping, then init IRQs and devices.
 // Anything board-specific is supplied by the DTB and the per-board layout.h /
 // linker.ld / _start.S, so this file does not change when adding a board.
-#include "arch/arm/include/symbols.h"
-#include "arch/arm/include/irq.h"
-#include "arch/arm/include/platform.h"
-#include "arch/arm/mmu/mmu.h"
+#include <arch/symbols.h>
+#include <arch/irq.h>
+#include <arch/platform.h>
+#include <arch/mmu.h>
 #include "kernel/layout.h"
 #include "kernel/mm/pmm.h"
 #include "kernel/kmain.h"
@@ -117,8 +117,8 @@ _Noreturn void early(void *dtb_ptr)
     arch_mmu_init_ttbr1(vmm_get_kernel_as());
     vmm_lockdown_kernel_sections();
 
-    irq_init();
-    board_init_devices();
+    arch_irq_init();
+    arch_platform_init_devices();
 
     KINFO("Freed DTB and boot space (%zu KiB)", ((paddr_t)_boot_end - kernel_layout.dtb_start_pa) / 1024);
     KINFO("Boot info initialized from DTB: dev_count=%u", boot_info_dev_count());

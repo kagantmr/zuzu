@@ -5,7 +5,7 @@
 #include <list.h>
 #include "kernel/ipc/port.h"
 #include "kernel/mm/vmm.h"
-#include "arch/arm/include/context.h"
+#include <arch/regs.h>
 
 typedef struct process process_t;
 

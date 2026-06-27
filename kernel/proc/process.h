@@ -6,7 +6,7 @@
 #include <list.h>
 #include "kernel/ipc/port.h"
 #include "kernel/mm/vmm.h"
-#include "arch/arm/include/context.h"
+#include <arch/regs.h>
 #include "thread.h"
 
 #define MAX_PROCESSES 512

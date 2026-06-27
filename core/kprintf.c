@@ -2,7 +2,7 @@
 
 #include "core/kprintf.h"
 #include "core/log.h"
-#include "arch/arm/include/irq.h"
+#include <arch/cpu.h>
 #include <string.h>
 #include <snprintf.h>
 #include <stdarg.h>
