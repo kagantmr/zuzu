@@ -1,11 +1,16 @@
-// board.c - Shared ARM platform device bring-up (DTB-driven, board-independent)
+// platform.c - vexpress-a15 device bring-up (arch_platform_init_devices).
 //
-// Every supported board describes its peripherals in the DTB, so device
-// discovery and initialization are identical across boards: walk the device
-// array collected at early boot, match by compatible string, ioremap, and
-// hand off to the relevant driver. Board differences (e.g. GICv2 named
-// "arm,cortex-a15-gic" on vexpress vs "arm,gic-400" on the Pi 4) are absorbed
-// by the compatible-string tables below rather than by separate board code.
+// This is the board's implementation of the platform HAL hook. The *mechanism*
+// is generic (find_dev walks the DTB device array and matches by compatible
+// string), but the *device set* is board/SoC-specific: this board has a PL011
+// UART, a GICv2-family interrupt controller, an optional PL031 RTC, and uses the
+// ARM generic timer as its tick source. A board with different peripherals
+// (e.g. a non-PL011 UART or GICv3) provides its own version of this file.
+//
+// The compatible-string tables absorb naming differences across closely related
+// boards that share these peripherals (e.g. GICv2 named "arm,cortex-a15-gic" on
+// vexpress vs "arm,gic-400" on the Pi 4), but they do not make this file
+// board-independent.
 
 #include "kernel/dtb/dtb.h"
 #include "kernel/mm/vmm.h"
