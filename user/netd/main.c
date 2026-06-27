@@ -11,6 +11,7 @@
 #include <zuzu/log.h>
 
 #include "common/globals.h"
+#include "common/timer.h"
 #include "link/eth.h"
 #include "link/arp.h"
 #include "transport/udp.h"
@@ -25,6 +26,8 @@ handle_t nic_ntfn;
 handle_t tx_doorbell;
 handle_t handles[2];
 netif_t netif; /* filled at startup (htonl isn't constant); DHCP overwrites later */
+
+#define LEGACY_POLL_CAP 50u
 
 static void udp_echo_handler(ipv4_addr_t src_ip, uint16_t src_port,
                              uint16_t dst_port, const uint8_t *data, uint16_t len)
@@ -107,10 +110,13 @@ __attribute__((cold)) int get_shm() {
 }
 
 
+
 int main() {
     if (get_shm() < 0) {
         return ERR_SYSDOWN;
     }
+
+    timer_init();
     
     arp_init();
     udp_init();
@@ -122,34 +128,36 @@ int main() {
 
     LOG_INFO(LOG_TAG, "online");
     while (1) {
-        arp_tick(); /* drive ARP retransmits + cache aging every wake */
-        dhcp_tick();
-        dns_tick();
+        /* 1. size the sleep: until the next timer, but never longer than the
+            cap, so the legacy pollers still get serviced. */
+        uint32_t now  = net_now_ms();
+        uint32_t next = timer_next_deadline();
+        uint32_t sleep_ms;
+        if (next == TIMER_NO_DEADLINE)
+            sleep_ms = LEGACY_POLL_CAP;
+        else if ((int32_t)(next - now) <= 0)
+            sleep_ms = 0;                    /* already overdue: don't block */
+        else
+            sleep_ms = next - now > LEGACY_POLL_CAP ? LEGACY_POLL_CAP : next - now;
 
+        /* 2. sleep until a packet arrives or the deadline elapses */
         recvany_result_t result;
-        int32_t recv_rc = _recvany(handles, 2, 10, &result);
-        if (recv_rc < 0) {
-            continue;
+        int32_t recv_rc = _recvany(handles, 2, sleep_ms, &result);
+
+        /* 3. DRAIN RX FIRST: process inbound before any timer fires */
+        if (recv_rc >= 0 && result.kind == RECVANY_KIND_NTFN) {
+            nic_frame_t frame;
+            while (packet_ring_pop(&frame, rx_ring) == 0)
+                eth_rx(frame.data, frame.len);
+        } else if (recv_rc >= 0 && result.kind == RECVANY_KIND_CALL) {
+            _reply(result.source, ERR_NOMATCH, 0, 0);
         }
 
-        switch (result.kind) {
-            case RECVANY_KIND_NTFN: {
-                nic_frame_t frame;
-                while (packet_ring_pop(&frame, rx_ring) == 0) {
-                    eth_rx(frame.data, frame.len);
-                }
-                break;
-            }
-            case RECVANY_KIND_CALL: {
-                /* netd exposes no request API yet. Reply so callers never block
-                   forever and the reply capability is released. */
-                _reply(result.source, ERR_NOMATCH, 0, 0);
-                break;
-            }
-            case RECVANY_KIND_TIMEOUT: {
-                break;
-            }
-        }
+        /* 4. THEN fire expired timers */
+        timer_run_expired();
+
+        /* 5. legacy pollers, still bounded by the cap above */
+        arp_tick(); dhcp_tick(); dns_tick();
     }
 
     return 0;
