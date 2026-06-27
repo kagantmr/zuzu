@@ -1,11 +1,11 @@
 #ifndef NETD_ETHERNET_H
 #define NETD_ETHERNET_H
 
-#include "globals.h"
+#include "../common/globals.h"
 #include <zuzu/types.h>
 #include <convert.h>
 #include <zuzu/packetring.h>
-#include "txframe.h"
+#include "../common/txframe.h"
 
 #define ETH_TYPE_ARP 0x0806
 #define ETH_TYPE_IP 0x0800

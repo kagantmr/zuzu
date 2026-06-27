@@ -56,7 +56,7 @@ void icmp_rx(uint8_t *payload, size_t payload_len, ipv4_addr_t src_ip) {
 
 /* Build and send an ICMP echo request (ping out). Used to exercise the ARP
    resolve/queue path against a host whose MAC netd hasn't learned yet. */
-void icmp_echo_request(ipv4_addr_t dst_ip) {
+__attribute__((cold)) void icmp_echo_request(ipv4_addr_t dst_ip) {
     uint8_t pkt[sizeof(icmp_hdr_t) + 32];
     icmp_hdr_t *hdr = (icmp_hdr_t *)pkt;
     hdr->type = ICMP_ECHO_REQUEST;

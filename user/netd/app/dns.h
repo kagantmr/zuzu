@@ -2,7 +2,7 @@
 #define DNS_H
 
 #include <zuzu/types.h>
-#include "globals.h"
+#include "../common/globals.h"
 
 typedef struct
 {
@@ -15,7 +15,6 @@ _Static_assert(sizeof(dns_hdr_t) == 12, "header size wrong");
 
 #define DNS_MAX_TABLE 16
 #define DNS_MAX_NAME 253
-#define DNS_CLIENT_PORT 50000
 
 #define DNS_TIMEOUT_MS 2000  /* per-attempt timeout */
 #define DNS_MAX_RETRIES 2    /* extra retransmits after the first send */

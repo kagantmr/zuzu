@@ -1,11 +1,11 @@
 #ifndef NETD_ARP_H
 #define NETD_ARP_H
 
-#include "globals.h"
+#include "../common/globals.h"
 #include <stdint.h>
 #include <vector.h>
 #include <stdbool.h>
-#include "txframe.h"
+#include "../common/txframe.h"
 
 #define ARP_OPER_REQST 1
 #define ARP_OPER_REPLY 2

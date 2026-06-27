@@ -1,8 +1,9 @@
 #include "dns.h"
-#include "globals.h"
+#include "../common/globals.h"
 #include <mem.h>
-#include "txframe.h"
-#include "udp.h"
+#include "../common/txframe.h"
+#include "../transport/udp.h"
+#include "../transport/port.h"
 #include <convert.h>
 #include <string.h>
 #include <zuzu/log.h>
@@ -22,12 +23,13 @@ typedef struct
 
 static dns_entry_t dns_table[DNS_MAX_TABLE];
 static uint16_t dns_next_id = 1;
+static uint16_t dns_client_port; /* ephemeral source port, allocated in dns_init */
 
-static int dns_send_query(uint16_t id, const char *name);
+static __attribute__((cold)) int dns_send_query(uint16_t id, const char *name);
 
 /* (Re)issue the query held in slot->qname under a fresh transaction ID and a
    full retransmit budget. Returns the underlying send result. */
-static int dns_start(dns_entry_t *slot)
+static __attribute__((cold)) int dns_start(dns_entry_t *slot)
 {
     slot->id = dns_next_id++;
     slot->sent_ms = net_now_ms();
@@ -36,7 +38,7 @@ static int dns_start(dns_entry_t *slot)
 }
 
 
-static int dns_skip_name(const uint8_t *pkt, uint16_t len, uint16_t off) {
+static __attribute__((cold)) int dns_skip_name(const uint8_t *pkt, uint16_t len, uint16_t off) {
     while (1) {
         if (off >= len) return ERR_OVERFLOW;
 
@@ -113,7 +115,7 @@ void dns_tick(void) {
     }
 }
 
-static void dns_recv(ipv4_addr_t src_ip, uint16_t src_port,
+static __attribute__((cold)) void dns_recv(ipv4_addr_t src_ip, uint16_t src_port,
                      uint16_t dst_port, const uint8_t *data, uint16_t len)
 {
     (void)src_ip; (void)src_port; (void)dst_port;
@@ -207,7 +209,7 @@ static void dns_recv(ipv4_addr_t src_ip, uint16_t src_port,
     return;
 }
 
-void dns_init(void)
+__attribute__((cold)) void dns_init(void)
 {
     for (int i = 0; i < DNS_MAX_TABLE; i++)
     {
@@ -216,10 +218,15 @@ void dns_init(void)
         memset(dns_table[i].name, 0, DNS_MAX_NAME);
         dns_table[i].sent_ms = 0;
     }
-    udp_bind(DNS_CLIENT_PORT, dns_recv);
+    dns_client_port = port_alloc();
+    if (dns_client_port == 0) {
+        LOG_ERROR(LOG_TAG, "no ephemeral port available for DNS");
+        return;
+    }
+    udp_bind(dns_client_port, dns_recv);
 }
 
-static int encode_name(uint8_t *out, size_t cap, const char *name)
+static __attribute__((cold)) int encode_name(uint8_t *out, size_t cap, const char *name)
 {
     size_t pos = 0;
     const char *p = name;
@@ -252,7 +259,7 @@ static int encode_name(uint8_t *out, size_t cap, const char *name)
     return (int)pos;
 }
 
-static int dns_send_query(uint16_t id, const char *name)
+static __attribute__((cold)) int dns_send_query(uint16_t id, const char *name)
 {
     uint8_t pkt[sizeof(dns_hdr_t) + DNS_MAX_NAME + 1 + 4];
     size_t pos = sizeof(dns_hdr_t);
@@ -274,10 +281,10 @@ static int dns_send_query(uint16_t id, const char *name)
     pkt[pos++] = 0;
     pkt[pos++] = DNS_CLASS_IN;
 
-    return udp_tx(netif.dns, DNS_CLIENT_PORT, DNS_PORT, pkt, pos);
+    return udp_tx(netif.dns, dns_client_port, DNS_PORT, pkt, pos);
 }
 
-void dns_query(const char *name, dns_callback_t cb)
+__attribute__((cold)) void dns_query(const char *name, dns_callback_t cb)
 {
     size_t nlen_host = strlen(name);
     if (nlen_host >= DNS_MAX_NAME)

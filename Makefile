@@ -132,7 +132,7 @@ INITRD         = build/initrd.cpio
 INITRD_EXTRA_DIR ?= initrd
 INITRD_EXTRA_FILES := $(shell find $(INITRD_EXTRA_DIR) -type f 2>/dev/null)
 
-$(foreach p,$(USER_PROGS),$(eval USER_$(p)_SRCS := $(wildcard user/$(p)/*.c)))
+$(foreach p,$(USER_PROGS),$(eval USER_$(p)_SRCS := $(shell find user/$(p) -name '*.c')))
 $(foreach p,$(USER_PROGS),$(eval USER_$(p)_OBJS := $(patsubst user/%.c,build/user/%.o,$(USER_$(p)_SRCS))))
 USER_APP_OBJS = $(foreach p,$(USER_PROGS),$(USER_$(p)_OBJS))
 

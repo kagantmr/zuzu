@@ -2,9 +2,9 @@
 #define IP_H
 
 #include <stddef.h>
-#include "globals.h"
+#include "../common/globals.h"
 #include <stdint.h>
-#include "txframe.h"
+#include "../common/txframe.h"
 
 typedef struct {
     uint8_t version_ihl;

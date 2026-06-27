@@ -1,8 +1,8 @@
-#include "globals.h"
-#include "txframe.h"
+#include "../common/globals.h"
+#include "../common/txframe.h"
 #include "udp.h"
-#include "ip.h"
-#include "eth.h"
+#include "../net/ip.h"
+#include "../link/eth.h"
 #include <convert.h>
 #include <mem.h>
 #include <stddef.h>
@@ -32,14 +32,14 @@ static uint16_t udp_checksum(ipv4_addr_t src_ip, ipv4_addr_t dst_ip,
     return inet_csum_fold(accum);
 }
 
-void udp_init(void) {
+__attribute__((cold)) void udp_init(void) {
     for (size_t i = 0; i < UDP_MAX_TABLE; i++) {
         udp_table[i].port = 0;
         udp_table[i].handler = NULL;
     }
 }
 
-int  udp_bind(uint16_t port, udp_handler_t handler) {
+__attribute__((cold)) int  udp_bind(uint16_t port, udp_handler_t handler) {
     if (!port || !handler) {
         return ERR_NOPERM; // port 0 is reserved
     }

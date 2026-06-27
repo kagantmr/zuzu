@@ -1,8 +1,8 @@
 #include "ip.h"
-#include "eth.h"
+#include "../link/eth.h"
 #include "icmp.h"
-#include "udp.h"
-#include "arp.h"
+#include "../transport/udp.h"
+#include "../link/arp.h"
 #include <stdio.h>
 #include <convert.h>
 #include <malloc.h>

@@ -1,6 +1,7 @@
 #include "dhcp.h"
-#include "globals.h"
-#include "udp.h"
+#include "../common/globals.h"
+#include "../transport/udp.h"
+#include "../transport/port.h"
 #include <stddef.h>
 #include <convert.h>
 #include <zuzu/log.h>
@@ -62,7 +63,7 @@ static size_t dhcp_build(uint8_t *pkt)
     return sizeof(dhcp_msg_t);
 }
 
-static int dhcp_send_discover(void)
+static __attribute__((cold)) int dhcp_send_discover(void)
 {
     uint8_t buf[sizeof(dhcp_msg_t) + 64];
 
@@ -82,7 +83,7 @@ static int dhcp_send_discover(void)
     return rc;
 }
 
-static int dhcp_send_request(void)
+static __attribute__((cold)) int dhcp_send_request(void)
 {
     uint8_t buf[sizeof(dhcp_msg_t) + 64];
 
@@ -108,7 +109,7 @@ static int dhcp_send_request(void)
 /* REQUEST for an existing lease (RENEWING/REBINDING). Unlike the selecting
    REQUEST, ciaddr carries our current address and we omit options 50/54
    (RFC 2131 4.3.2). RENEWING unicasts to the server; REBINDING broadcasts. */
-static int dhcp_send_renew(ipv4_addr_t dst)
+static __attribute__((cold)) int dhcp_send_renew(ipv4_addr_t dst)
 {
     uint8_t buf[sizeof(dhcp_msg_t) + 64];
 
@@ -150,7 +151,7 @@ static const uint8_t *dhcp_find_option(const uint8_t *data, uint16_t len,
     return NULL;
 }
 
-static void dhcp_restart(void)
+static __attribute__((cold)) void dhcp_restart(void)
 {
     dhcp.state    = DHCP_INIT;
     dhcp.xid      = net_now_ms();
@@ -161,7 +162,7 @@ static void dhcp_restart(void)
 
 /* Apply an ACK's parameters and (re)enter BOUND. Shared by the initial
    acquire and by renew/rebind, so the lease clock restarts every ACK. */
-static void dhcp_enter_bound(const uint8_t *data, uint16_t len)
+static __attribute__((cold)) void dhcp_enter_bound(const uint8_t *data, uint16_t len)
 {
     const dhcp_msg_t *m = (const dhcp_msg_t *)data;
     uint8_t optlen;
@@ -200,7 +201,7 @@ static void dhcp_enter_bound(const uint8_t *data, uint16_t len)
     }
 }
 
-static void dhcp_recv(ipv4_addr_t src_ip, uint16_t src_port,
+static __attribute__((cold)) void dhcp_recv(ipv4_addr_t src_ip, uint16_t src_port,
                       uint16_t dst_port, const uint8_t *data, uint16_t len)
 {
     if (len < sizeof(dhcp_msg_t)) return;
@@ -236,11 +237,14 @@ static void dhcp_recv(ipv4_addr_t src_ip, uint16_t src_port,
     }
 }
 
-void dhcp_init(dhcp_bound_cb_t on_bound)
+__attribute__((cold)) void dhcp_init(dhcp_bound_cb_t on_bound)
 {
     memset(&dhcp, 0, sizeof(dhcp));
     dhcp.on_bound = on_bound;
     netif.ip = netif.netmask = netif.gateway = netif.dns = 0;
+    /* DHCP's client port is fixed at 68 (servers reply there), so claim it
+       explicitly rather than allocating an ephemeral one. */
+    port_reserve(DHCP_CLIENT_PORT);
     udp_bind(DHCP_CLIENT_PORT, dhcp_recv);
     dhcp_restart();
 }

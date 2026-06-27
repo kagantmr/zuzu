@@ -5,9 +5,9 @@
 #include <stdio.h>
 #include <mem.h>
 #include <stdlib.h>
-#include "globals.h"
+#include "../common/globals.h"
 #include "arp.h"
-#include "ip.h"
+#include "../net/ip.h"
 
 int eth_rx(uint8_t *data, uint16_t len) {
     eth_hdr_t *hdr = (eth_hdr_t *)data;

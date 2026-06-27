@@ -10,13 +10,14 @@
 #include <zuzu/types.h>
 #include <zuzu/log.h>
 
-#include "globals.h"
-#include "eth.h"
-#include "arp.h"
-#include "udp.h"
+#include "common/globals.h"
+#include "link/eth.h"
+#include "link/arp.h"
+#include "transport/udp.h"
+#include "transport/port.h"
 
-#include "dns.h"
-#include "dhcp.h"
+#include "app/dns.h"
+#include "app/dhcp.h"
 
 nic_ring_t *tx_ring, *rx_ring;
 handle_t nic_port;
@@ -33,7 +34,7 @@ static void udp_echo_handler(ipv4_addr_t src_ip, uint16_t src_port,
     udp_tx(src_ip, dst_port, src_port, data, len);
 }
 
-static void on_resolved(const char *name, ipv4_addr_t ip, int status) {
+static __attribute__((cold)) void on_resolved(const char *name, ipv4_addr_t ip, int status) {
     if (status == ZUZU_OK)
         LOG_INFO(LOG_TAG, "%s -> %u.%u.%u.%u", name, IP4(ip));
     else
@@ -41,13 +42,13 @@ static void on_resolved(const char *name, ipv4_addr_t ip, int status) {
 }
 
 /* Fires once the lease is first acquired: the network is now usable. */
-static void on_dhcp_bound(void) {
+static __attribute__((cold)) void on_dhcp_bound(void) {
     LOG_INFO(LOG_TAG, "network up: ip %u.%u.%u.%u gw %u.%u.%u.%u dns %u.%u.%u.%u",
              IP4(netif.ip), IP4(netif.gateway), IP4(netif.dns));
     dns_query("google.com", on_resolved);   /* smoke test now that we have DNS */
 }
 
-int get_shm() {
+__attribute__((cold)) int get_shm() {
     handle_t port = register_service("netd");
     if (port < 0) {
         LOG_ERROR(LOG_TAG, "registration failed");
@@ -113,12 +114,13 @@ int main() {
     
     arp_init();
     udp_init();
+    port_init();
     dns_init();
     dhcp_init(on_dhcp_bound);   /* kicks off DORA; on_dhcp_bound fires when bound */
 
     udp_bind(7, udp_echo_handler);
 
-    LOG_INFO(LOG_TAG, "will start looping");
+    LOG_INFO(LOG_TAG, "online");
     while (1) {
         arp_tick(); /* drive ARP retransmits + cache aging every wake */
         dhcp_tick();
