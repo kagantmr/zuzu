@@ -1,3 +1,4 @@
+#include <arch/context.h>
 #include "sched.h"
 #include "kernel/proc/process.h"
 #include <list.h>
@@ -55,15 +56,8 @@ static void sched_init_idle_context(void)
     uintptr_t sp = (uintptr_t)idle_stack + sizeof(idle_stack);
     sp &= ~(uintptr_t)7u;
 
-    sp -= sizeof(cpu_context_t);
-    cpu_context_t *ctx = (cpu_context_t *)sp;
-    memset(ctx, 0, sizeof(*ctx));
-    ctx->lr = (uint32_t)sched_idle_trampoline;
-
-    sp -= 132;
-    memset((void *)sp, 0, 132);
-
-    idle_thread.kernel_sp = (uint32_t *)sp;
+    idle_thread.kernel_sp =
+        (uint32_t *)arch_thread_kernel_init((void *)sp, sched_idle_trampoline);
     idle_thread.state = RUNNING;
 }
 

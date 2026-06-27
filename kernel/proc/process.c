@@ -1,3 +1,4 @@
+#include <arch/context.h>
 #include "process.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm.h"
@@ -313,25 +314,9 @@ process_t *process_load(const void *elf_data, size_t elf_size,
         argv_kern[argc] = 0;
     }
 
-    stack_top -= 17 * sizeof(uint32_t);
-    uint32_t *exc_frame = (uint32_t *)stack_top;
-    exc_frame[0] = argc;
-    exc_frame[1] = (vaddr_t)argv_va;
-    for (int i = 2; i < 13; i++)
-        exc_frame[i] = 0;
-    exc_frame[13] = (vaddr_t)sp;
-    exc_frame[14] = USER_ELF_BASE;
-    exc_frame[15] = elf_entry;
-    exc_frame[16] = 0x10;
-
-    stack_top -= sizeof(cpu_context_t);
-    cpu_context_t *context = (cpu_context_t *)stack_top;
-    memset(context, 0, sizeof(cpu_context_t));
-    context->lr = (uint32_t)process_entry_trampoline;
-
-    stack_top -= 132;
-    memset((void *)stack_top, 0, 132);
-    t->kernel_sp = (uint32_t *)stack_top;
+    t->kernel_sp = (uint32_t *)arch_thread_user_init(
+        (void *)stack_top, (uintptr_t)elf_entry, (uintptr_t)sp, USER_ELF_BASE,
+        argc, (uint32_t)(vaddr_t)argv_va, &t->trap_frame);
     t->state = READY;
 
     KTRACE("process create: pid=%u name=%s tid=%u owner_thread=%p as=%p",
