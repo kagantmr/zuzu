@@ -6,12 +6,12 @@
 
 extern thread_t *current_thread;
 
-void ntfn_create(exception_frame_t *frame) {
+void ntfn_create(arch_regs_t *frame) {
     handle_t handle = handle_vec_find_free(&current_thread->owner_process->handle_table);
-    if (handle < 0) { frame->r[0] = ERR_NOMEM; return; }
+    if (handle < 0) { (*arch_reg(frame, 0)) = ERR_NOMEM; return; }
 
     notification_t *ntfn = kmalloc(sizeof(notification_t));  // or slab
-    if (!ntfn) { frame->r[0] = ERR_NOMEM; return; }
+    if (!ntfn) { (*arch_reg(frame, 0)) = ERR_NOMEM; return; }
 
     ntfn->word = 0;
     list_init(&ntfn->wait_queue);
@@ -23,21 +23,21 @@ void ntfn_create(exception_frame_t *frame) {
     entry->type = HANDLE_NOTIFICATION;
     entry->ntfn = ntfn;
     entry->grantable = true;
-    frame->r[0] = handle;
+    (*arch_reg(frame, 0)) = handle;
 }
 
-void ntfn_signal(exception_frame_t *frame) {
-    handle_t handle_idx = frame->r[0];
-    uint32_t bits = frame->r[1];
+void ntfn_signal(arch_regs_t *frame) {
+    handle_t handle_idx = (*arch_reg(frame, 0));
+    uint32_t bits = (*arch_reg(frame, 1));
 
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
     if (!entry || entry->type != HANDLE_NOTIFICATION) {
-        frame->r[0] = ERR_BADARG; return;
+        (*arch_reg(frame, 0)) = ERR_BADARG; return;
     }
 
     notification_t *ntfn = entry->ntfn;
     if (!ntfn || !ntfn->alive) {
-        frame->r[0] = ERR_DEAD;
+        (*arch_reg(frame, 0)) = ERR_DEAD;
         return;
     }
     ntfn->word |= bits;
@@ -48,14 +48,14 @@ void ntfn_signal(exception_frame_t *frame) {
         thread_wait_slot_t *slot = container_of(node, thread_wait_slot_t, node);
         thread_t *waiter = slot->owner;
         if (!waiter->trap_frame) {
-            frame->r[0] = ERR_DEAD;
+            (*arch_reg(frame, 0)) = ERR_DEAD;
             return;
         }
 
         uint32_t delivered = ntfn->word;
         ntfn->word = 0;  // clear on delivery
 
-        waiter->trap_frame->r[0] = delivered;
+        (*arch_reg(waiter->trap_frame, 0)) = delivered;
         uint32_t match_index = RECVANY_NO_MATCH;
         if (waiter->recvany_wait_active) {
             for (uint32_t i = 0; i < waiter->recvany_wait_count; i++) {
@@ -80,32 +80,32 @@ void ntfn_signal(exception_frame_t *frame) {
         sched_add(waiter);
     }
 
-    frame->r[0] = 0;
+    (*arch_reg(frame, 0)) = 0;
 }
 
-void ntfn_wait(exception_frame_t *frame) {
-    handle_t handle_idx = frame->r[0];
-    uint32_t timeout_ms = frame->r[1];
+void ntfn_wait(arch_regs_t *frame) {
+    handle_t handle_idx = (*arch_reg(frame, 0));
+    uint32_t timeout_ms = (*arch_reg(frame, 1));
 
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
     if (!entry || entry->type != HANDLE_NOTIFICATION) {
-        frame->r[0] = ERR_BADARG; return;
+        (*arch_reg(frame, 0)) = ERR_BADARG; return;
     }
 
     notification_t *ntfn = entry->ntfn;
     if (!ntfn || !ntfn->alive) {
-        frame->r[0] = ERR_DEAD;
+        (*arch_reg(frame, 0)) = ERR_DEAD;
         return;
     }
 
     if (ntfn->word != 0) {
-        frame->r[0] = ntfn->word;
+        (*arch_reg(frame, 0)) = ntfn->word;
         ntfn->word = 0;
         return;
     }
 
     if (timeout_ms == 0) {
-        frame->r[0] = 0;
+        (*arch_reg(frame, 0)) = 0;
         return;
     }
 

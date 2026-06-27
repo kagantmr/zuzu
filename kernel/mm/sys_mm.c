@@ -14,31 +14,31 @@
 
 extern thread_t *current_thread;
 
-void memmap(exception_frame_t *frame)
+void memmap(arch_regs_t *frame)
 {
     
-    vaddr_t addr_hint = frame->r[0];
-    size_t size = frame->r[1];
-    uint32_t prot = frame->r[2];
+    vaddr_t addr_hint = (*arch_reg(frame, 0));
+    size_t size = (*arch_reg(frame, 1));
+    uint32_t prot = (*arch_reg(frame, 2));
     if (size == 0)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
     if ((prot & VM_PROT_WRITE) && (prot & VM_PROT_EXEC)) { // enforce W^X
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
     if (size > 1024 * 1024 * 32)
     {
         // 32mb is half of the recommended kernel mem anyway
-        frame->r[0] = ERR_NOMEM;
+        (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
     }
     if (size % PAGE_SIZE)
     {
         // Needs VMM/PMM alignment
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
@@ -46,7 +46,7 @@ void memmap(exception_frame_t *frame)
     {
         if (!validate_user_ptr(addr_hint, size))
         {
-            frame->r[0] = ERR_BADARG;
+            (*arch_reg(frame, 0)) = ERR_BADARG;
             return;
         }
     }
@@ -62,11 +62,11 @@ void memmap(exception_frame_t *frame)
         va = current_thread->owner_process->mmap_va_next;
     }
 
-    if (va >= USER_VA_TOP) { frame->r[0] = ERR_BADARG; return; }
+    if (va >= USER_VA_TOP) { (*arch_reg(frame, 0)) = ERR_BADARG; return; }
     // 2. Bump the cursor
     if (size > USER_VA_TOP - va) // check for overflow
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
     if (addr_hint == 0) {
@@ -87,27 +87,27 @@ void memmap(exception_frame_t *frame)
     {
         if (addr_hint == 0)
             current_thread->owner_process->mmap_va_next -= size; // roll back cursor on failure
-        frame->r[0] = ERR_NOMEM;
+        (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
     }
 
-    frame->r[0] = va;
+    (*arch_reg(frame, 0)) = va;
 }
 
-void memunmap(exception_frame_t *frame)
+void memunmap(arch_regs_t *frame)
 {
-    const vaddr_t va = (vaddr_t)frame->r[0];
-    size_t size = (size_t)frame->r[1];
+    const vaddr_t va = (vaddr_t)(*arch_reg(frame, 0));
+    size_t size = (size_t)(*arch_reg(frame, 1));
 
     // Basic validation
     if (!validate_user_ptr(va, size))
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
     if (size == 0 || size % PAGE_SIZE != 0)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
@@ -126,7 +126,7 @@ void memunmap(exception_frame_t *frame)
     }
     if (!found)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
@@ -183,31 +183,31 @@ void memunmap(exception_frame_t *frame)
     // Remove from region list and unmap page table entries
     if (!vmm_remove_region(as, va, size))
     {
-        frame->r[0] = ERR_NOMEM;
+        (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
     }
 
-    frame->r[0] = 0;
+    (*arch_reg(frame, 0)) = 0;
 }
 
-void memshare(exception_frame_t *frame)
+void memshare(arch_regs_t *frame)
 {
-    const size_t size = align_up((size_t)frame->r[0], PAGE_SIZE);
+    const size_t size = align_up((size_t)(*arch_reg(frame, 0)), PAGE_SIZE);
     if (size == 0)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
     if (size > 1024 * 1024 * 32)
     {
-        frame->r[0] = ERR_NOMEM;
+        (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
     }
     const size_t page_count = size / PAGE_SIZE;
     vaddr_t *page_arr = kmalloc(sizeof(vaddr_t) * page_count);
     if (!page_arr)
     {
-        frame->r[0] = ERR_NOMEM;
+        (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
     }
     memset(page_arr, 0, sizeof(vaddr_t) * page_count);
@@ -216,7 +216,7 @@ void memshare(exception_frame_t *frame)
     if (!shmem_obj)
     {
         kfree(page_arr);
-        frame->r[0] = ERR_NOMEM;
+        (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
     }
     shmem_obj->page_count = page_count;
@@ -230,7 +230,7 @@ void memshare(exception_frame_t *frame)
     {
         kfree(page_arr);
         kfree(shmem_obj);
-        frame->r[0] = ERR_NOMEM;
+        (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
     }
 
@@ -239,7 +239,7 @@ void memshare(exception_frame_t *frame)
     {
         kfree(page_arr);
         kfree(shmem_obj);
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
     const vaddr_t va_base = current_thread->owner_process->mmap_va_next;
@@ -259,7 +259,7 @@ void memshare(exception_frame_t *frame)
         current_thread->owner_process->mmap_va_next -= size;
         kfree(page_arr);
         kfree(shmem_obj);
-        frame->r[0] = ERR_NOMEM;
+        (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
     }
 
@@ -270,7 +270,7 @@ void memshare(exception_frame_t *frame)
         current_thread->owner_process->mmap_va_next -= size;
         kfree(page_arr);
         kfree(shmem_obj);
-        frame->r[0] = ERR_NOMEM;
+        (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
     }
 
@@ -279,36 +279,36 @@ void memshare(exception_frame_t *frame)
     entry->type = HANDLE_SHMEM;
     entry->grantable = true;
 
-    frame->r[0] = (handle_t)handle;
-    frame->r[1] = (vaddr_t)va_base;
+    (*arch_reg(frame, 0)) = (handle_t)handle;
+    (*arch_reg(frame, 1)) = (vaddr_t)va_base;
 }
 
-void attach(exception_frame_t *frame)
+void attach(arch_regs_t *frame)
 {
-    const handle_t handle_idx = frame->r[0];
+    const handle_t handle_idx = (*arch_reg(frame, 0));
 
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
     if (!entry)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
     if (entry->type != HANDLE_SHMEM)
     {
-        frame->r[0] = ERR_MALFORMED;
+        (*arch_reg(frame, 0)) = ERR_MALFORMED;
         return;
     }
 
     shmem_t *shm_obj = entry->shm;
     if (!shm_obj)
     {
-        frame->r[0] = ERR_MALFORMED;
+        (*arch_reg(frame, 0)) = ERR_MALFORMED;
         return;
     }
     const size_t size = shm_obj->page_count * PAGE_SIZE;
     if (current_thread->owner_process->mmap_va_next > UINTPTR_MAX - size) // check for overflow
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
@@ -327,27 +327,27 @@ void attach(exception_frame_t *frame)
     if (!vmm_add_region(current_thread->owner_process->as, &region))
     {
         current_thread->owner_process->mmap_va_next -= size;
-        frame->r[0] = ERR_NOMEM;
+        (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
     }
     entry->mapped_va = va_base;
     shm_obj->ref_count++;
-    frame->r[0] = va_base;
+    (*arch_reg(frame, 0)) = va_base;
 }
 
-void detach(exception_frame_t *frame)
+void detach(arch_regs_t *frame)
 {
-    handle_t handle = frame->r[0];
+    handle_t handle = (*arch_reg(frame, 0));
 
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle);
     if (!entry)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
     if (entry->type != HANDLE_SHMEM)
     {
-        frame->r[0] = ERR_MALFORMED;
+        (*arch_reg(frame, 0)) = ERR_MALFORMED;
         return;
     }
 
@@ -368,62 +368,62 @@ void detach(exception_frame_t *frame)
     entry->grantable = false;
     entry->type = HANDLE_FREE;
 
-    frame->r[0] = 0;
+    (*arch_reg(frame, 0)) = 0;
 }
 
-void asinject(exception_frame_t *frame) {
+void asinject(arch_regs_t *frame) {
     if (!(current_thread->owner_process->flags & PROC_FLAG_INIT)) {
-        frame->r[0] = ERR_NOPERM;
+        (*arch_reg(frame, 0)) = ERR_NOPERM;
         return;
     }
 
-    asinject_args_t *args = (asinject_args_t *)frame->r[0];
+    asinject_args_t *args = (asinject_args_t *)(*arch_reg(frame, 0));
     if (!validate_user_ptr((uintptr_t)args, sizeof(asinject_args_t)))    {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
     asinject_args_t kargs;
     if (!copy_from_user(&kargs, args, sizeof(asinject_args_t))) {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
     handle_entry_t *handle = handle_vec_get(&current_thread->owner_process->handle_table, kargs.task_handle);
     if (!handle || handle->type != HANDLE_TASK) {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
     process_t *target = handle->task;
 
     if (!target || target->thread->state != FROZEN) {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
     if (!kargs.src_buf || kargs.len == 0 ||
         !validate_user_ptr((uintptr_t)kargs.src_buf, kargs.len)) {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
     if ((kargs.prot & VM_PROT_WRITE) && (kargs.prot & VM_PROT_EXEC)) {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
     if (kargs.dst_va % PAGE_SIZE != 0 ||
         kargs.dst_va >= USER_VA_TOP ||
         kargs.len > USER_VA_TOP - kargs.dst_va) {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
     size_t page_count = (kargs.len + PAGE_SIZE - 1) / PAGE_SIZE;
     vaddr_t *page_addrs = kmalloc(page_count * sizeof(vaddr_t));
     if (!page_addrs) {
-        frame->r[0] = ERR_NOMEM;
+        (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
     }
     memset(page_addrs, 0, page_count * sizeof(vaddr_t));
@@ -478,7 +478,7 @@ void asinject(exception_frame_t *frame) {
 
     kfree(page_addrs);
 
-    frame->r[0] = 0;
+    (*arch_reg(frame, 0)) = 0;
     return;
 
 rollback_badarg:
@@ -490,7 +490,7 @@ rollback_badarg:
             pmm_free_page(page_addrs[j]);
     }
     kfree(page_addrs);
-    frame->r[0] = ERR_BADARG;
+    (*arch_reg(frame, 0)) = ERR_BADARG;
     return;
 
 rollback_nomem:
@@ -502,46 +502,46 @@ rollback_nomem:
             pmm_free_page(page_addrs[j]);
     }
     kfree(page_addrs);
-    frame->r[0] = ERR_NOMEM;
+    (*arch_reg(frame, 0)) = ERR_NOMEM;
     return;
 }
 
-void mprotect(exception_frame_t *frame)
+void mprotect(arch_regs_t *frame)
 {
-    const uintptr_t va = (uintptr_t)frame->r[0];
-    const size_t size = (size_t)frame->r[1];
-    const vm_prot_t new_prot = (vm_prot_t)frame->r[2];
+    const uintptr_t va = (uintptr_t)(*arch_reg(frame, 0));
+    const size_t size = (size_t)(*arch_reg(frame, 1));
+    const vm_prot_t new_prot = (vm_prot_t)(*arch_reg(frame, 2));
 
     // Basic validation
     if (size == 0)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
     if (size % PAGE_SIZE != 0)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
     if (!validate_user_ptr(va, size))
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
     // Enforce W^X policy
     if ((new_prot & VM_PROT_WRITE) && (new_prot & VM_PROT_EXEC))
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
     // The region must exist; use vmm_protect_range to change its protections
     if (!vmm_protect_range(current_thread->owner_process->as, va, size, new_prot | VM_PROT_USER))
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
-    frame->r[0] = 0;
+    (*arch_reg(frame, 0)) = 0;
 }

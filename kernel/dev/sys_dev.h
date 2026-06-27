@@ -3,7 +3,7 @@
 
 #include <arch/regs.h>
 
-void mapdev(exception_frame_t *frame);
-void querydev(exception_frame_t *frame);
+void mapdev(arch_regs_t *frame);
+void querydev(arch_regs_t *frame);
 
 #endif

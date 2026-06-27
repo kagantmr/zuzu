@@ -36,7 +36,7 @@ static void ipc_buf_copy(thread_t *src, thread_t *dst, uint32_t len)
            (void *)PA_TO_VA(src->ipc_buf_pa), len);
 }
 
-static bool trap_frame_sane(const exception_frame_t *tf)
+static bool trap_frame_sane(const arch_regs_t *tf)
 {
     uintptr_t p = (uintptr_t)tf;
     if (p == 0 || (p & 0x3u) != 0)
@@ -44,16 +44,16 @@ static bool trap_frame_sane(const exception_frame_t *tf)
 
     if (kernel_layout.stack_base_va && kernel_layout.stack_top_va &&
         p >= kernel_layout.stack_base_va &&
-        p + sizeof(exception_frame_t) <= kernel_layout.stack_top_va)
+        p + sizeof(arch_regs_t) <= kernel_layout.stack_top_va)
         return true;
 
-    if (p >= KSTACK_REGION_BASE && p + sizeof(exception_frame_t) <= KSTACK_REGION_TOP)
+    if (p >= KSTACK_REGION_BASE && p + sizeof(arch_regs_t) <= KSTACK_REGION_TOP)
         return true;
 
     return false;
 }
 
-static void ipc_panic_bad_trap_frame(const char *where, const process_t *owner, const exception_frame_t *tf)
+static void ipc_panic_bad_trap_frame(const char *where, const process_t *owner, const arch_regs_t *tf)
 {
     KERROR("bad trap_frame at %s: owner_pid=%u tf=%p current_pid=%u", where,
            owner ? owner->pid : 0u,
@@ -81,66 +81,66 @@ static void ipc_wake_ready(thread_t *t)
     sched_add(t);
 }
 
-static endpoint_t *validate_endpoint_handle(process_t *proc, handle_t handle, exception_frame_t *frame)
+static endpoint_t *validate_endpoint_handle(process_t *proc, handle_t handle, arch_regs_t *frame)
 {
     if (!proc)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return NULL;
     }
 
     handle_entry_t *entry = handle_vec_get(&proc->handle_table, handle);
     if (!entry)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return NULL;
     }
     if (entry->type != HANDLE_ENDPOINT)
     {
-        frame->r[0] = ERR_NOPERM;
+        (*arch_reg(frame, 0)) = ERR_NOPERM;
         return NULL;
     }
     if (!entry->ep)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return NULL;
     }
     if (!entry->ep->alive)
     {
-        frame->r[0] = ERR_DEAD;
+        (*arch_reg(frame, 0)) = ERR_DEAD;
         return NULL;
     }
 
     return entry->ep;
 }
 
-static notification_t *validate_notification_handle(process_t *proc, handle_t handle, exception_frame_t *frame)
+static notification_t *validate_notification_handle(process_t *proc, handle_t handle, arch_regs_t *frame)
 {
     if (!proc)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return NULL;
     }
 
     handle_entry_t *entry = handle_vec_get(&proc->handle_table, handle);
     if (!entry)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return NULL;
     }
     if (entry->type != HANDLE_NOTIFICATION)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return NULL;
     }
     if (!entry->ntfn)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return NULL;
     }
     if (!entry->ntfn->alive)
     {
-        frame->r[0] = ERR_DEAD;
+        (*arch_reg(frame, 0)) = ERR_DEAD;
         return NULL;
     }
 
@@ -150,28 +150,28 @@ static notification_t *validate_notification_handle(process_t *proc, handle_t ha
 static handle_entry_t *validate_reply_handle(process_t *proc,
                                              handle_t handle_idx,
                                              thread_t **target_out,
-                                             exception_frame_t *frame)
+                                             arch_regs_t *frame)
 {
     if (!proc || handle_idx == 0)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return NULL;
     }
 
     handle_entry_t *entry = handle_vec_get(&proc->handle_table, handle_idx);
     if (!entry)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return NULL;
     }
     if (entry->type != HANDLE_REPLY)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return NULL;
     }
     if (!entry->reply || entry->reply->caller_tid == 0)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return NULL;
     }
 
@@ -184,7 +184,7 @@ static handle_entry_t *validate_reply_handle(process_t *proc,
         entry->reply = NULL;
         entry->grantable = false;
         entry->type = HANDLE_FREE;
-        frame->r[0] = ERR_DEAD;
+        (*arch_reg(frame, 0)) = ERR_DEAD;
         return NULL;
     }
 
@@ -195,7 +195,7 @@ static handle_entry_t *validate_reply_handle(process_t *proc,
         entry->reply = NULL;
         entry->grantable = false;
         entry->type = HANDLE_FREE;
-        frame->r[0] = ERR_DEAD;
+        (*arch_reg(frame, 0)) = ERR_DEAD;
         return NULL;
     }
 
@@ -214,9 +214,9 @@ static void recvany_deliver_notification(uint32_t matched_index,
     result->r1 = bits;
 }
 
-void __attribute__((hot)) proc_send(exception_frame_t *frame)
+void __attribute__((hot)) proc_send(arch_regs_t *frame)
 {
-    int handle = (int)frame->r[0];
+    int handle = (int)(*arch_reg(frame, 0));
 
     endpoint_t *ep = validate_endpoint_handle(current_thread->owner_process, handle, frame);
     if (!ep)
@@ -236,9 +236,9 @@ void __attribute__((hot)) proc_send(exception_frame_t *frame)
             res->matched_index = rx_slot->index;
             res->kind = RECVANY_KIND_SEND;
             res->source = current_thread->owner_process->pid;
-            res->r1 = frame->r[1];
-            res->r2 = frame->r[2];
-            res->r3 = frame->r[3];
+            res->r1 = (*arch_reg(frame, 1));
+            res->r2 = (*arch_reg(frame, 2));
+            res->r3 = (*arch_reg(frame, 3));
             thread_recvany_clear_waits(rx_thread);
             thread_recvany_clear_ep_waits(rx_thread);
             rx_thread->recvany_ep_wait_match_index = rx_slot->index;
@@ -247,13 +247,13 @@ void __attribute__((hot)) proc_send(exception_frame_t *frame)
             rx_thread->state = READY;
             sched_add(rx_thread);
         } else {
-            exception_frame_t *rx_frame = rx_thread->trap_frame;
+            arch_regs_t *rx_frame = rx_thread->trap_frame;
             if (!trap_frame_sane(rx_frame))
                 ipc_panic_bad_trap_frame("proc_send.rx", rx_thread->owner_process, rx_frame);
-            rx_frame->r[0] = current_thread->owner_process->pid;
-            rx_frame->r[1] = frame->r[1];
-            rx_frame->r[2] = frame->r[2];
-            rx_frame->r[3] = frame->r[3];
+            (*arch_reg(rx_frame, 0)) = current_thread->owner_process->pid;
+            (*arch_reg(rx_frame, 1)) = (*arch_reg(frame, 1));
+            (*arch_reg(rx_frame, 2)) = (*arch_reg(frame, 2));
+            (*arch_reg(rx_frame, 3)) = (*arch_reg(frame, 3));
             rx_thread->ipc_state = IPC_NONE;
             rx_thread->blocked_endpoint = NULL;
             ipc_cancel_timeout(rx_thread);
@@ -261,7 +261,7 @@ void __attribute__((hot)) proc_send(exception_frame_t *frame)
             rx_thread->state = READY;
             sched_add(rx_thread);
         }
-        frame->r[0] = 0;
+        (*arch_reg(frame, 0)) = 0;
     }
     else
     {
@@ -273,10 +273,10 @@ void __attribute__((hot)) proc_send(exception_frame_t *frame)
     }
 }
 
-void __attribute__((hot)) proc_recv(exception_frame_t *frame)
+void __attribute__((hot)) proc_recv(arch_regs_t *frame)
 {
-    int handle = (int)frame->r[0];
-    uint32_t timeout_ms = frame->r[1]; // 0 = infinite (backward compatible)
+    int handle = (int)(*arch_reg(frame, 0));
+    uint32_t timeout_ms = (*arch_reg(frame, 1)); // 0 = infinite (backward compatible)
 
     endpoint_t *ep = validate_endpoint_handle(current_thread->owner_process, handle, frame);
     if (!ep)
@@ -289,7 +289,7 @@ void __attribute__((hot)) proc_recv(exception_frame_t *frame)
         // KDEBUG("sender queue NOT empty");
         list_node_t *sender = list_pop_front(&ep->sender_queue);
         thread_t *sr_thread = container_of(sender, thread_t, node);
-        exception_frame_t *sr_frame = sr_thread->trap_frame;
+        arch_regs_t *sr_frame = sr_thread->trap_frame;
         if (!trap_frame_sane(sr_frame))
         {
             ipc_panic_bad_trap_frame("proc_recv.sr", sr_thread->owner_process, sr_frame);
@@ -297,15 +297,15 @@ void __attribute__((hot)) proc_recv(exception_frame_t *frame)
 
         // Copy message to receiver
         // KDEBUG("Got message from thread %d as thread %d", sr_thread->tid, current_thread->tid);
-        frame->r[0] = sr_thread->owner_process->pid;
-        frame->r[1] = sr_frame->r[1];
-        frame->r[2] = sr_frame->r[2];
-        frame->r[3] = sr_frame->r[3];
+        (*arch_reg(frame, 0)) = sr_thread->owner_process->pid;
+        (*arch_reg(frame, 1)) = (*arch_reg(sr_frame, 1));
+        (*arch_reg(frame, 2)) = (*arch_reg(sr_frame, 2));
+        (*arch_reg(frame, 3)) = (*arch_reg(sr_frame, 3));
 
         if (sr_thread->ipc_state == IPC_SENDER)
         {
             // wake the sender, it's done
-            sr_frame->r[0] = 0;
+            (*arch_reg(sr_frame, 0)) = 0;
             sr_thread->ipc_state = IPC_NONE;
             sr_thread->blocked_endpoint = NULL;
             // Cancel timeout if sender had one
@@ -314,9 +314,9 @@ void __attribute__((hot)) proc_recv(exception_frame_t *frame)
             sr_thread->state = READY;
             if (sr_thread->ipc_buf_xfer_len > 0) {
                 ipc_buf_copy(sr_thread, current_thread, sr_thread->ipc_buf_xfer_len);
-                frame->r[1] = sr_thread->ipc_buf_xfer_len;
-                frame->r[2] = 0;
-                frame->r[3] = 0;
+                (*arch_reg(frame, 1)) = sr_thread->ipc_buf_xfer_len;
+                (*arch_reg(frame, 2)) = 0;
+                (*arch_reg(frame, 3)) = 0;
                 sr_thread->ipc_buf_xfer_len = 0;
             }
             sched_add(sr_thread);
@@ -335,7 +335,7 @@ void __attribute__((hot)) proc_recv(exception_frame_t *frame)
                 kfree_reply_cap(rc);
                 sr_thread->pending_reply_cap = NULL;
                 // Wake the caller with an error instead of leaving it stuck
-                sr_thread->trap_frame->r[0] = ERR_NOMEM;
+                (*arch_reg(sr_thread->trap_frame, 0)) = ERR_NOMEM;
                 sr_thread->ipc_state = IPC_NONE;
                 sr_thread->blocked_endpoint = NULL;
                 // Cancel timeout if sender had one
@@ -343,7 +343,7 @@ void __attribute__((hot)) proc_recv(exception_frame_t *frame)
                 sr_thread->wake_reason = WAKE_IPC;
                 sr_thread->state = READY;
                 sched_add(sr_thread);
-                frame->r[0] = ERR_NOMEM;
+                (*arch_reg(frame, 0)) = ERR_NOMEM;
                 return;
             }
 
@@ -353,14 +353,14 @@ void __attribute__((hot)) proc_recv(exception_frame_t *frame)
             rentry->reply = rc;
             process_track_reply_cap(sr_thread->owner_process, current_thread->owner_process, (uint32_t)slot, rc);
 
-            frame->r[0] = slot;
-            frame->r[1] = sr_thread->owner_process->pid;
-            frame->r[2] = sr_frame->r[1];
-            frame->r[3] = sr_frame->r[2];
+            (*arch_reg(frame, 0)) = slot;
+            (*arch_reg(frame, 1)) = sr_thread->owner_process->pid;
+            (*arch_reg(frame, 2)) = (*arch_reg(sr_frame, 1));
+            (*arch_reg(frame, 3)) = (*arch_reg(sr_frame, 2));
             if (sr_thread->ipc_buf_xfer_len > 0) {
                 ipc_buf_copy(sr_thread, current_thread, sr_thread->ipc_buf_xfer_len);
-                frame->r[2] = sr_thread->ipc_buf_xfer_len;
-                frame->r[3] = 0;
+                (*arch_reg(frame, 2)) = sr_thread->ipc_buf_xfer_len;
+                (*arch_reg(frame, 3)) = 0;
                 sr_thread->ipc_buf_xfer_len = 0;
             }
         }
@@ -369,7 +369,7 @@ void __attribute__((hot)) proc_recv(exception_frame_t *frame)
     {
         if (timeout_ms == UINT32_MAX)
         {
-            frame->r[0] = ERR_BUSY;
+            (*arch_reg(frame, 0)) = ERR_BUSY;
             return;
         }
 
@@ -406,15 +406,15 @@ void __attribute__((hot)) proc_recv(exception_frame_t *frame)
 
         if (current_thread->wake_reason == WAKE_TIMEOUT)
         {
-            frame->r[0] = ERR_BUSY;
+            (*arch_reg(frame, 0)) = ERR_BUSY;
         }
         // KDEBUG("Listener woke from recv, PID %d", current_process->pid);
     }
 }
 
-void __attribute__((hot)) proc_call(exception_frame_t *frame)
+void __attribute__((hot)) proc_call(arch_regs_t *frame)
 {
-    int handle = (int)frame->r[0];
+    int handle = (int)(*arch_reg(frame, 0));
 
     endpoint_t *ep = validate_endpoint_handle(current_thread->owner_process, handle, frame);
     if (!ep)
@@ -424,7 +424,7 @@ void __attribute__((hot)) proc_call(exception_frame_t *frame)
 
     reply_cap_t *rc = kalloc_reply_cap();
     if (!rc) {
-        frame->r[0] = ERR_NOMEM;
+        (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;  // caller gets clean error, never blocked
     }
     rc->caller_tid = current_thread ? current_thread->tid : 0;
@@ -434,7 +434,7 @@ void __attribute__((hot)) proc_call(exception_frame_t *frame)
         list_node_t *receiver = list_pop_front(&ep->receiver_queue);
         thread_wait_slot_t *rx_slot = container_of(receiver, thread_wait_slot_t, node);
         thread_t *rx_thread = rx_slot->owner;
-        exception_frame_t *rx_frame = rx_thread->trap_frame;
+        arch_regs_t *rx_frame = rx_thread->trap_frame;
         if (!trap_frame_sane(rx_frame))
             ipc_panic_bad_trap_frame("proc_call.rx", rx_thread->owner_process, rx_frame);
 
@@ -443,7 +443,7 @@ void __attribute__((hot)) proc_call(exception_frame_t *frame)
         {
             kfree_reply_cap(rc);
             list_add_tail(&rx_slot->node, &ep->receiver_queue.node);
-            frame->r[0] = ERR_NOMEM;
+            (*arch_reg(frame, 0)) = ERR_NOMEM;
             return;
         }
 
@@ -460,8 +460,8 @@ void __attribute__((hot)) proc_call(exception_frame_t *frame)
             res->kind = RECVANY_KIND_CALL;
             res->source = (uint32_t)slot;
             res->r1 = current_thread->owner_process->pid;
-            res->r2 = frame->r[1];
-            res->r3 = frame->r[2];
+            res->r2 = (*arch_reg(frame, 1));
+            res->r3 = (*arch_reg(frame, 2));
             thread_recvany_clear_waits(rx_thread);
             thread_recvany_clear_ep_waits(rx_thread);
             rx_thread->recvany_ep_wait_match_index = rx_slot->index;
@@ -470,10 +470,10 @@ void __attribute__((hot)) proc_call(exception_frame_t *frame)
             rx_thread->state = READY;
             sched_add(rx_thread);
         } else {
-            rx_frame->r[0] = slot;
-            rx_frame->r[1] = current_thread->owner_process->pid;
-            rx_frame->r[2] = frame->r[1];
-            rx_frame->r[3] = frame->r[2];
+            (*arch_reg(rx_frame, 0)) = slot;
+            (*arch_reg(rx_frame, 1)) = current_thread->owner_process->pid;
+            (*arch_reg(rx_frame, 2)) = (*arch_reg(frame, 1));
+            (*arch_reg(rx_frame, 3)) = (*arch_reg(frame, 2));
             rx_thread->ipc_state = IPC_NONE;
             rx_thread->blocked_endpoint = NULL;
             ipc_cancel_timeout(rx_thread);
@@ -498,9 +498,9 @@ void __attribute__((hot)) proc_call(exception_frame_t *frame)
     }
 }
 
-void __attribute__((hot)) proc_reply(exception_frame_t *frame)
+void __attribute__((hot)) proc_reply(arch_regs_t *frame)
 {
-    handle_t handle_idx = frame->r[0];
+    handle_t handle_idx = (*arch_reg(frame, 0));
     thread_t *target_thread = NULL;
     handle_entry_t *entry = validate_reply_handle(current_thread->owner_process, handle_idx, &target_thread, frame);
     if (!entry)
@@ -510,15 +510,15 @@ void __attribute__((hot)) proc_reply(exception_frame_t *frame)
 
     // Deliver reply into target's saved frame
 
-    exception_frame_t *target_frame = target_thread->trap_frame;
+    arch_regs_t *target_frame = target_thread->trap_frame;
     if (!trap_frame_sane(target_frame))
     {
         ipc_panic_bad_trap_frame("proc_reply.target", target_thread->owner_process, target_frame);
     }
-    target_frame->r[0] = 0;           // success
-    target_frame->r[1] = frame->r[1]; // reply payload
-    target_frame->r[2] = frame->r[2];
-    target_frame->r[3] = frame->r[3];
+    (*arch_reg(target_frame, 0)) = 0;           // success
+    (*arch_reg(target_frame, 1)) = (*arch_reg(frame, 1)); // reply payload
+    (*arch_reg(target_frame, 2)) = (*arch_reg(frame, 2));
+    (*arch_reg(target_frame, 3)) = (*arch_reg(frame, 3));
 
     // Wake the caller
     target_thread->ipc_state = IPC_NONE;
@@ -534,12 +534,12 @@ void __attribute__((hot)) proc_reply(exception_frame_t *frame)
     entry->reply = NULL;
     entry->grantable = false;
     entry->type = HANDLE_FREE;
-    frame->r[0] = 0;
+    (*arch_reg(frame, 0)) = 0;
 }
 
-void proc_sendx(exception_frame_t *frame)
+void proc_sendx(arch_regs_t *frame)
 {
-    int handle = (int)frame->r[0];
+    int handle = (int)(*arch_reg(frame, 0));
 
     endpoint_t *ep = validate_endpoint_handle(current_thread->owner_process, handle, frame);
     if (!ep)
@@ -552,7 +552,7 @@ void proc_sendx(exception_frame_t *frame)
         list_node_t *receiver = list_pop_front(&ep->receiver_queue);
         thread_wait_slot_t *rx_slot = container_of(receiver, thread_wait_slot_t, node);
         thread_t *rx_thread = rx_slot->owner;
-        uint32_t xlen = frame->r[1] > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : frame->r[1];
+        uint32_t xlen = (*arch_reg(frame, 1)) > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : (*arch_reg(frame, 1));
 
         if (rx_thread->recvany_ep_wait_active) {
             recvany_result_t *res = &rx_thread->recvany_pending_result;
@@ -572,13 +572,13 @@ void proc_sendx(exception_frame_t *frame)
             rx_thread->state = READY;
             sched_add(rx_thread);
         } else {
-            exception_frame_t *rx_frame = rx_thread->trap_frame;
+            arch_regs_t *rx_frame = rx_thread->trap_frame;
             if (!trap_frame_sane(rx_frame))
                 ipc_panic_bad_trap_frame("proc_sendx.rx", rx_thread->owner_process, rx_frame);
-            rx_frame->r[0] = current_thread->owner_process->pid;
-            rx_frame->r[1] = xlen;
-            rx_frame->r[2] = 0;
-            rx_frame->r[3] = 0;
+            (*arch_reg(rx_frame, 0)) = current_thread->owner_process->pid;
+            (*arch_reg(rx_frame, 1)) = xlen;
+            (*arch_reg(rx_frame, 2)) = 0;
+            (*arch_reg(rx_frame, 3)) = 0;
             ipc_buf_copy(current_thread, rx_thread, xlen);
             rx_thread->ipc_state = IPC_NONE;
             rx_thread->blocked_endpoint = NULL;
@@ -587,22 +587,22 @@ void proc_sendx(exception_frame_t *frame)
             rx_thread->state = READY;
             sched_add(rx_thread);
         }
-        frame->r[0] = 0;
+        (*arch_reg(frame, 0)) = 0;
     }
     else
     {
         current_thread->ipc_state = IPC_SENDER;
         current_thread->blocked_endpoint = ep;
         list_add_tail(&current_thread->node, &ep->sender_queue.node);
-        current_thread->ipc_buf_xfer_len = frame->r[1] > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : frame->r[1];
+        current_thread->ipc_buf_xfer_len = (*arch_reg(frame, 1)) > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : (*arch_reg(frame, 1));
         current_thread->state = BLOCKED;
         schedule();
     }
 }
 
-void proc_callx(exception_frame_t *frame)
+void proc_callx(arch_regs_t *frame)
 {
-    handle_t handle = (handle_t)frame->r[0];
+    handle_t handle = (handle_t)(*arch_reg(frame, 0));
 
     endpoint_t *ep = validate_endpoint_handle(current_thread->owner_process, handle, frame);
     if (!ep)
@@ -612,7 +612,7 @@ void proc_callx(exception_frame_t *frame)
 
     reply_cap_t *rc = kalloc_reply_cap();
     if (!rc) {
-        frame->r[0] = ERR_NOMEM;
+        (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;  // caller gets clean error, never blocked
     }
     rc->caller_tid = current_thread ? current_thread->tid : 0;
@@ -622,7 +622,7 @@ void proc_callx(exception_frame_t *frame)
         list_node_t *receiver = list_pop_front(&ep->receiver_queue);
         thread_wait_slot_t *rx_slot = container_of(receiver, thread_wait_slot_t, node);
         thread_t *rx_thread = rx_slot->owner;
-        exception_frame_t *rx_frame = rx_thread->trap_frame;
+        arch_regs_t *rx_frame = rx_thread->trap_frame;
         if (!trap_frame_sane(rx_frame))
             ipc_panic_bad_trap_frame("proc_callx.rx", rx_thread->owner_process, rx_frame);
 
@@ -631,7 +631,7 @@ void proc_callx(exception_frame_t *frame)
         {
             kfree_reply_cap(rc);
             list_add_tail(&rx_slot->node, &ep->receiver_queue.node);
-            frame->r[0] = ERR_NOMEM;
+            (*arch_reg(frame, 0)) = ERR_NOMEM;
             return;
         }
 
@@ -641,7 +641,7 @@ void proc_callx(exception_frame_t *frame)
         rentry->reply = rc;
         process_track_reply_cap(current_thread->owner_process, rx_thread->owner_process, (uint32_t)slot, rc);
 
-        size_t xlen = frame->r[1] > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : frame->r[1];
+        size_t xlen = (*arch_reg(frame, 1)) > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : (*arch_reg(frame, 1));
 
         if (rx_thread->recvany_ep_wait_active) {
             recvany_result_t *res = &rx_thread->recvany_pending_result;
@@ -661,10 +661,10 @@ void proc_callx(exception_frame_t *frame)
             rx_thread->state = READY;
             sched_add(rx_thread);
         } else {
-            rx_frame->r[0] = slot;
-            rx_frame->r[1] = current_thread->owner_process->pid;
-            rx_frame->r[2] = xlen;
-            rx_frame->r[3] = 0;
+            (*arch_reg(rx_frame, 0)) = slot;
+            (*arch_reg(rx_frame, 1)) = current_thread->owner_process->pid;
+            (*arch_reg(rx_frame, 2)) = xlen;
+            (*arch_reg(rx_frame, 3)) = 0;
             ipc_buf_copy(current_thread, rx_thread, xlen);
             rx_thread->ipc_state = IPC_NONE;
             rx_thread->blocked_endpoint = NULL;
@@ -685,15 +685,15 @@ void proc_callx(exception_frame_t *frame)
         current_thread->blocked_endpoint = ep;
         current_thread->pending_reply_cap = rc;
         list_add_tail(&current_thread->node, &ep->sender_queue.node);
-        current_thread->ipc_buf_xfer_len = frame->r[1] > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : frame->r[1];
+        current_thread->ipc_buf_xfer_len = (*arch_reg(frame, 1)) > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : (*arch_reg(frame, 1));
         current_thread->state = BLOCKED;
         schedule();
     }
 }
 
-void proc_replyx(exception_frame_t *frame)
+void proc_replyx(arch_regs_t *frame)
 {
-    handle_t handle_idx = frame->r[0];
+    handle_t handle_idx = (*arch_reg(frame, 0));
     thread_t *target_thread = NULL;
     handle_entry_t *entry = validate_reply_handle(current_thread->owner_process, handle_idx, &target_thread, frame);
     if (!entry)
@@ -703,16 +703,16 @@ void proc_replyx(exception_frame_t *frame)
 
     // Deliver reply into target's saved frame
 
-    exception_frame_t *target_frame = target_thread->trap_frame;
+    arch_regs_t *target_frame = target_thread->trap_frame;
     if (!trap_frame_sane(target_frame))
     {
         ipc_panic_bad_trap_frame("proc_replyx.target", target_thread->owner_process, target_frame);
     }
-    size_t xlen = frame->r[1] > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : frame->r[1];
-    target_frame->r[0] = 0;           // success
-    target_frame->r[1] = xlen;        // reply payload
-    target_frame->r[2] = 0;
-    target_frame->r[3] = 0;
+    size_t xlen = (*arch_reg(frame, 1)) > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : (*arch_reg(frame, 1));
+    (*arch_reg(target_frame, 0)) = 0;           // success
+    (*arch_reg(target_frame, 1)) = xlen;        // reply payload
+    (*arch_reg(target_frame, 2)) = 0;
+    (*arch_reg(target_frame, 3)) = 0;
     ipc_buf_copy(current_thread, target_thread, xlen);
 
     // Wake the caller
@@ -729,7 +729,7 @@ void proc_replyx(exception_frame_t *frame)
     entry->reply = NULL;
     entry->grantable = false;
     entry->type = HANDLE_FREE;
-    frame->r[0] = 0;
+    (*arch_reg(frame, 0)) = 0;
 }
 
 static int recvany_deliver_sender(uint32_t matched_index,
@@ -738,7 +738,7 @@ static int recvany_deliver_sender(uint32_t matched_index,
                                   recvany_result_t *result)
 {
     thread_t *sr_thread = container_of(sender_node, thread_t, node);
-    exception_frame_t *sr_frame = sr_thread->trap_frame;
+    arch_regs_t *sr_frame = sr_thread->trap_frame;
     if (!trap_frame_sane(sr_frame))
     {
         ipc_panic_bad_trap_frame("proc_recvany.sr", sr_thread->owner_process, sr_frame);
@@ -751,11 +751,11 @@ static int recvany_deliver_sender(uint32_t matched_index,
     {
         result->kind = RECVANY_KIND_SEND;
         result->source = sr_thread->owner_process->pid;
-        result->r1 = sr_frame->r[1];
-        result->r2 = sr_frame->r[2];
-        result->r3 = sr_frame->r[3];
+        result->r1 = (*arch_reg(sr_frame, 1));
+        result->r2 = (*arch_reg(sr_frame, 2));
+        result->r3 = (*arch_reg(sr_frame, 3));
 
-        sr_frame->r[0] = 0;
+        (*arch_reg(sr_frame, 0)) = 0;
         sr_thread->ipc_state = IPC_NONE;
         sr_thread->blocked_endpoint = NULL;
         ipc_cancel_timeout(sr_thread);
@@ -782,7 +782,7 @@ static int recvany_deliver_sender(uint32_t matched_index,
         int slot = handle_vec_find_free(&receiver->owner_process->handle_table);
         if (slot < 0) {
             kfree_reply_cap(rc);
-            sr_frame->r[0] = ERR_NOMEM;
+            (*arch_reg(sr_frame, 0)) = ERR_NOMEM;
             ipc_wake_ready(sr_thread);
             return ERR_NOMEM;
         }
@@ -796,8 +796,8 @@ static int recvany_deliver_sender(uint32_t matched_index,
         result->kind = RECVANY_KIND_CALL;
         result->source = (uint32_t)slot;
         result->r1 = sr_thread->owner_process->pid;
-        result->r2 = sr_frame->r[1];
-        result->r3 = sr_frame->r[2];
+        result->r2 = (*arch_reg(sr_frame, 1));
+        result->r3 = (*arch_reg(sr_frame, 2));
 
         if (sr_thread->ipc_buf_xfer_len > 0) {
             ipc_buf_copy(sr_thread, receiver, sr_thread->ipc_buf_xfer_len);
@@ -833,14 +833,14 @@ static int recvany_try_once(const handle_t *handles,
     for (uint32_t i = 0; i < count; i++) {
         handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handles[i]);
         if (!entry) {
-            current_thread->trap_frame->r[0] = ERR_BADARG;
+            (*arch_reg(current_thread->trap_frame, 0)) = ERR_BADARG;
             return ERR_BADARG;
         }
 
         if (entry->type == HANDLE_ENDPOINT) {
             endpoint_t *ep = validate_endpoint_handle(current_thread->owner_process, handles[i], current_thread->trap_frame);
             if (!ep) {
-                return (int)current_thread->trap_frame->r[0];
+                return (int)(*arch_reg(current_thread->trap_frame, 0));
             }
             endpoints[i] = ep;
             notifications[i] = NULL;
@@ -850,14 +850,14 @@ static int recvany_try_once(const handle_t *handles,
         if (entry->type == HANDLE_NOTIFICATION) {
             notification_t *ntfn = validate_notification_handle(current_thread->owner_process, handles[i], current_thread->trap_frame);
             if (!ntfn) {
-                return (int)current_thread->trap_frame->r[0];
+                return (int)(*arch_reg(current_thread->trap_frame, 0));
             }
             endpoints[i] = NULL;
             notifications[i] = ntfn;
             continue;
         }
 
-        current_thread->trap_frame->r[0] = ERR_BADARG;
+        (*arch_reg(current_thread->trap_frame, 0)) = ERR_BADARG;
         return ERR_BADARG;
     }
 
@@ -916,34 +916,34 @@ static bool recvany_write_timeout_result(uintptr_t result_ptr)
     return copy_to_user((void *)result_ptr, &result, sizeof(result));
 }
 
-void proc_recvany(exception_frame_t *frame)
+void proc_recvany(arch_regs_t *frame)
 {
     /* r0 = handle array pointer
      * r1 = count
      * r2 = timeout_ms
      * r3 = result struct pointer
      */
-    uintptr_t handles_ptr = (uintptr_t)frame->r[0];
-    uint32_t count = frame->r[1];
-    uint32_t timeout_ms = frame->r[2];
-    uintptr_t result_ptr = (uintptr_t)frame->r[3];
+    uintptr_t handles_ptr = (uintptr_t)(*arch_reg(frame, 0));
+    uint32_t count = (*arch_reg(frame, 1));
+    uint32_t timeout_ms = (*arch_reg(frame, 2));
+    uintptr_t result_ptr = (uintptr_t)(*arch_reg(frame, 3));
 
     if (!current_thread || !handles_ptr || !result_ptr ||
         count == 0 || count > RECVANY_MAX_HANDLES) {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
     if (!validate_user_ptr(result_ptr, sizeof(recvany_result_t)) ||
         !fault_in_pages(current_thread->owner_process->as, result_ptr, sizeof(recvany_result_t), true)) {
-        frame->r[0] = ERR_BADPTR;
+        (*arch_reg(frame, 0)) = ERR_BADPTR;
         return;
     }
 
     handle_t handles_local[RECVANY_MAX_HANDLES];
     size_t copy_size = count * sizeof(handle_t);
     if (!copy_from_user(handles_local, (const void *)handles_ptr, copy_size)) {
-        frame->r[0] = ERR_BADPTR;
+        (*arch_reg(frame, 0)) = ERR_BADPTR;
         return;
     }
 
@@ -968,20 +968,20 @@ void proc_recvany(exception_frame_t *frame)
                                    wait_eps, wait_ep_indices, &ep_wait_count);
         if (err == 0) {
             if (!copy_to_user((void *)result_ptr, &result, sizeof(result))) {
-                frame->r[0] = ERR_BADPTR;
+                (*arch_reg(frame, 0)) = ERR_BADPTR;
                 return;
             }
-            frame->r[0] = 0;
+            (*arch_reg(frame, 0)) = 0;
             return;
         }
 
         if (err != ERR_BUSY) {
-            frame->r[0] = err;
+            (*arch_reg(frame, 0)) = err;
             return;
         }
 
         if (timeout_ms == UINT32_MAX) {
-            frame->r[0] = ERR_BUSY;
+            (*arch_reg(frame, 0)) = ERR_BUSY;
             return;
         }
 
@@ -990,10 +990,10 @@ void proc_recvany(exception_frame_t *frame)
             tick_t now = get_ticks();
             if (now >= deadline) {
                 if (!recvany_write_timeout_result(result_ptr)) {
-                    frame->r[0] = ERR_BADPTR;
+                    (*arch_reg(frame, 0)) = ERR_BADPTR;
                     return;
                 }
-                frame->r[0] = 0;
+                (*arch_reg(frame, 0)) = 0;
                 return;
             }
         }
@@ -1053,10 +1053,10 @@ void proc_recvany(exception_frame_t *frame)
         }
 
         /* ERR_DEAD from port_destroy */
-        if ((int32_t)frame->r[0] == ERR_DEAD) {
+        if ((int32_t)(*arch_reg(frame, 0)) == ERR_DEAD) {
             thread_recvany_clear_waits(current_thread);
             thread_recvany_clear_ep_waits(current_thread);
-            frame->r[0] = ERR_DEAD;
+            (*arch_reg(frame, 0)) = ERR_DEAD;
             return;
         }
 
@@ -1073,10 +1073,10 @@ void proc_recvany(exception_frame_t *frame)
             thread_recvany_clear_ep_waits(current_thread);
             if (!copy_to_user((void *)result_ptr, &current_thread->recvany_pending_result,
                               sizeof(recvany_result_t))) {
-                frame->r[0] = ERR_BADPTR;
+                (*arch_reg(frame, 0)) = ERR_BADPTR;
                 return;
             }
-            frame->r[0] = 0;
+            (*arch_reg(frame, 0)) = 0;
             return;
         }
 
@@ -1088,10 +1088,10 @@ void proc_recvany(exception_frame_t *frame)
             thread_recvany_clear_waits(current_thread);
             thread_recvany_clear_ep_waits(current_thread);
             if (!copy_to_user((void *)result_ptr, &result, sizeof(result))) {
-                frame->r[0] = ERR_BADPTR;
+                (*arch_reg(frame, 0)) = ERR_BADPTR;
                 return;
             }
-            frame->r[0] = 0;
+            (*arch_reg(frame, 0)) = 0;
             return;
         }
 

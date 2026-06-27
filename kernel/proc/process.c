@@ -655,7 +655,7 @@ void process_wake_joiners(tid_t tid, int32_t exit_status)
             joiner->thread->wake_reason = WAKE_IPC;
             joiner->thread->state = READY;
             if (joiner->thread->trap_frame)
-                joiner->thread->trap_frame->r[0] = (uint32_t)exit_status;
+                (*arch_reg(joiner->thread->trap_frame, 0)) = (uint32_t)exit_status;
             sched_add(joiner->thread);
         }
     }
@@ -704,7 +704,7 @@ void process_kill(process_t *p, const int exit_status) {
                     thread->blocked_endpoint = NULL;
                     thread->wake_reason = WAKE_IPC;
                     if (thread->trap_frame)
-                        thread->trap_frame->r[0] = ERR_DEAD;
+                        (*arch_reg(thread->trap_frame, 0)) = ERR_DEAD;
                     thread->state = READY;
                     sched_add(thread);
                 }
@@ -724,7 +724,7 @@ void process_kill(process_t *p, const int exit_status) {
                     thread->wake_tick = 0;
                     thread->wake_reason = WAKE_IPC;
                     if (thread->trap_frame)
-                        thread->trap_frame->r[0] = ERR_DEAD;
+                        (*arch_reg(thread->trap_frame, 0)) = ERR_DEAD;
                     thread->state = READY;
                     sched_add(thread);
                 }
@@ -775,7 +775,7 @@ void process_kill(process_t *p, const int exit_status) {
                 caller_thread->blocked_endpoint = NULL;
                 caller_thread->wake_reason = WAKE_IPC;
                 if (caller_thread->trap_frame)
-                    caller_thread->trap_frame->r[0] = ERR_DEAD;
+                    (*arch_reg(caller_thread->trap_frame, 0)) = ERR_DEAD;
                 caller_thread->state = READY;
                 sched_add(caller_thread);
             }
@@ -797,7 +797,7 @@ void process_kill(process_t *p, const int exit_status) {
                     thread_wait_slot_t *slot = container_of(n, thread_wait_slot_t, node);
                     thread_t *thread = slot->owner;
                     if (thread->trap_frame)
-                        thread->trap_frame->r[0] = ERR_DEAD;
+                        (*arch_reg(thread->trap_frame, 0)) = ERR_DEAD;
                     thread_recvany_clear_waits(thread);
                     if (thread->wake_tick != 0 && thread->timeout_node.prev && thread->timeout_node.next)
                         list_remove(&thread->timeout_node);

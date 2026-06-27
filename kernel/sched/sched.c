@@ -182,13 +182,13 @@ static void sched_wake_sleepers(void) {
             t->ipc_state = IPC_NONE;
             t->blocked_endpoint = NULL;
             t->wake_reason = WAKE_TIMEOUT;
-            t->trap_frame->r[0] = ERR_TIMEOUT;
+            (*arch_reg(t->trap_frame, 0)) = ERR_TIMEOUT;
             t->state = READY;
             sched_add(t);
         } else {
             t->wake_reason = WAKE_TIMEOUT;
             if (t->trap_frame)
-                t->trap_frame->r[0] = ERR_TIMEOUT;
+                (*arch_reg(t->trap_frame, 0)) = ERR_TIMEOUT;
             thread_recvany_clear_waits(t);
             thread_recvany_clear_ep_waits(t);
             if (t->ntfn_wait_slot.node.prev && t->ntfn_wait_slot.node.next)

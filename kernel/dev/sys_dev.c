@@ -17,34 +17,34 @@ extern thread_t *current_thread;
 
 #define DEVICE_VA_LIMIT USER_DEVICE_LIMIT
 
-void mapdev(exception_frame_t *frame)
+void mapdev(arch_regs_t *frame)
 {
     
-    handle_t handle_idx = frame->r[0];
+    handle_t handle_idx = (*arch_reg(frame, 0));
 
     if (handle_idx == 0) {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
     if (!entry) {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
     if (entry->type != HANDLE_DEVICE) {
-        frame->r[0] = ERR_MALFORMED;
+        (*arch_reg(frame, 0)) = ERR_MALFORMED;
         return;
     }
 
     device_cap_t *cap = entry->dev;
     if (!cap) {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
     if (cap->mapped) {
-        frame->r[0] = ERR_BUSY;
+        (*arch_reg(frame, 0)) = ERR_BUSY;
         return;
     }
 
@@ -53,7 +53,7 @@ void mapdev(exception_frame_t *frame)
 
     // Device mappings are carved from device_va_next; bound-check that cursor.
     if (user_va >= DEVICE_VA_LIMIT || size_aligned > DEVICE_VA_LIMIT - user_va) {
-        frame->r[0] = ERR_NOMEM;
+        (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
     }
     
@@ -61,7 +61,7 @@ void mapdev(exception_frame_t *frame)
                        VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
                        VM_MEM_DEVICE, VM_OWNER_NONE, VM_FLAG_NONE))
     {
-        frame->r[0] = ERR_NOMEM;
+        (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
     }
 
@@ -74,7 +74,7 @@ void mapdev(exception_frame_t *frame)
         .flags = VM_FLAG_NONE,
     })) {
         vmm_unmap_range(current_thread->owner_process->as, user_va, size_aligned);
-        frame->r[0] = ERR_NOMEM;
+        (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
     }
 
@@ -86,23 +86,23 @@ void mapdev(exception_frame_t *frame)
     cap->mapped = true;
     entry->mapped_va = user_va;
 
-    frame->r[0] = user_va;
+    (*arch_reg(frame, 0)) = user_va;
 }
 
-void querydev(exception_frame_t *frame) {
-    handle_t handle_idx = frame->r[0];
-    char *out_buf = (char *)frame->r[1];
-    size_t buf_len = frame->r[2];
+void querydev(arch_regs_t *frame) {
+    handle_t handle_idx = (*arch_reg(frame, 0));
+    char *out_buf = (char *)(*arch_reg(frame, 1));
+    size_t buf_len = (*arch_reg(frame, 2));
     char compat_buf[sizeof(((device_cap_t *)0)->compatible) + 1];
 
-    if (handle_idx == 0 || buf_len == 0) { frame->r[0] = ERR_BADARG; return; }
+    if (handle_idx == 0 || buf_len == 0) { (*arch_reg(frame, 0)) = ERR_BADARG; return; }
 
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
-    if (!entry) { frame->r[0] = ERR_BADARG; return; }
-    if (entry->type != HANDLE_DEVICE) { frame->r[0] = ERR_MALFORMED; return; }
+    if (!entry) { (*arch_reg(frame, 0)) = ERR_BADARG; return; }
+    if (entry->type != HANDLE_DEVICE) { (*arch_reg(frame, 0)) = ERR_MALFORMED; return; }
 
     device_cap_t *cap = entry->dev;
-    if (!cap) { frame->r[0] = ERR_BADARG; return; }
+    if (!cap) { (*arch_reg(frame, 0)) = ERR_BADARG; return; }
 
     strncpy(compat_buf, cap->compatible, sizeof(compat_buf) - 1);
     compat_buf[sizeof(compat_buf) - 1] = '\0';
@@ -114,9 +114,9 @@ void querydev(exception_frame_t *frame) {
     }
 
     if (!copy_to_user(out_buf, compat_buf, copy_len)) {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
-    frame->r[0] = cap->irq;  // return irq in r0 as bonus
+    (*arch_reg(frame, 0)) = cap->irq;  // return irq in r0 as bonus
 }

@@ -222,7 +222,7 @@ static void backtrace_walk(backtrace_t *bt)
 
     uint32_t fp;
     if (panic_fault_ctx.frame)
-        fp = panic_fault_ctx.frame->r[11];  /* fp captured at fault time */
+        fp = (*arch_reg(panic_fault_ctx.frame, 11));  /* fp captured at fault time */
     else
         __asm__ volatile("mov %0, r11" : "=r"(fp));
 
@@ -397,10 +397,10 @@ static void panic_print_fault(void)
 
     /* SPSR tells us what mode was running when the fault occurred */
     if (panic_fault_ctx.frame) {
-        cpsr_decode(dec, sizeof(dec), panic_fault_ctx.frame->return_cpsr);
+        cpsr_decode(dec, sizeof(dec), arch_regs_flags(panic_fault_ctx.frame));
         panic_nl();
         snprintf(line, sizeof(line), "SPSR:  0x%08X  %s  (interrupted context)",
-                 panic_fault_ctx.frame->return_cpsr, dec);
+                 arch_regs_flags(panic_fault_ctx.frame), dec);
         panic_line(line);
     }
 }
@@ -416,41 +416,41 @@ static void panic_print_cpu(void)
 
     char line[LINE_BUF];
     char sym[80];
-    exception_frame_t *f = panic_fault_ctx.frame;
+    arch_regs_t *f = panic_fault_ctx.frame;
 
     panic_section("CPU STATE");
 
-    sym_format(sym, sizeof(sym), f->return_pc);
-    snprintf(line, sizeof(line), "pc:     0x%08X  %s", f->return_pc, sym);
+    sym_format(sym, sizeof(sym), arch_regs_pc(f));
+    snprintf(line, sizeof(line), "pc:     0x%08X  %s", arch_regs_pc(f), sym);
     panic_line(line);
 
-    sym_format(sym, sizeof(sym), f->lr_usr);
-    snprintf(line, sizeof(line), "lr_usr: 0x%08X  %s", f->lr_usr, sym);
+    sym_format(sym, sizeof(sym), arch_regs_lr(f));
+    snprintf(line, sizeof(line), "lr_usr: 0x%08X  %s", arch_regs_lr(f), sym);
     panic_line(line);
 
     {
         char dec[64];
-        cpsr_decode(dec, sizeof(dec), f->return_cpsr);
-        snprintf(line, sizeof(line), "cpsr:   0x%08X  %s", f->return_cpsr, dec);
+        cpsr_decode(dec, sizeof(dec), arch_regs_flags(f));
+        snprintf(line, sizeof(line), "cpsr:   0x%08X  %s", arch_regs_flags(f), dec);
         panic_line(line);
     }
 
     panic_nl();
     snprintf(line, sizeof(line),
              "r0  = %08X   r1  = %08X   r2  = %08X   r3  = %08X",
-             f->r[0], f->r[1], f->r[2], f->r[3]);
+             (*arch_reg(f, 0)), (*arch_reg(f, 1)), (*arch_reg(f, 2)), (*arch_reg(f, 3)));
     panic_line(line);
     snprintf(line, sizeof(line),
              "r4  = %08X   r5  = %08X   r6  = %08X   r7  = %08X",
-             f->r[4], f->r[5], f->r[6], f->r[7]);
+             (*arch_reg(f, 4)), (*arch_reg(f, 5)), (*arch_reg(f, 6)), (*arch_reg(f, 7)));
     panic_line(line);
     snprintf(line, sizeof(line),
              "r8  = %08X   r9  = %08X   r10 = %08X   r11 = %08X",
-             f->r[8], f->r[9], f->r[10], f->r[11]);
+             (*arch_reg(f, 8)), (*arch_reg(f, 9)), (*arch_reg(f, 10)), (*arch_reg(f, 11)));
     panic_line(line);
     snprintf(line, sizeof(line),
              "r12 = %08X   sp_usr = %08X   lr_usr = %08X",
-             f->r[12], f->sp_usr, f->lr_usr);
+             (*arch_reg(f, 12)), arch_regs_sp(f), arch_regs_lr(f));
     panic_line(line);
 }
 
@@ -566,29 +566,29 @@ static void panic_print_process(void)
 
     /* User trapframe (saved at syscall/exception entry) */
     if (current_thread->trap_frame) {
-        exception_frame_t *tf = current_thread->trap_frame;
+        arch_regs_t *tf = current_thread->trap_frame;
         panic_nl();
         panic_line("user trapframe:");
         snprintf(line, sizeof(line),
                  "  r0  = %08X   r1  = %08X   r2  = %08X   r3  = %08X",
-                 tf->r[0], tf->r[1], tf->r[2], tf->r[3]);
+                 (*arch_reg(tf, 0)), (*arch_reg(tf, 1)), (*arch_reg(tf, 2)), (*arch_reg(tf, 3)));
         panic_line(line);
         snprintf(line, sizeof(line),
                  "  r4  = %08X   r5  = %08X   r6  = %08X   r7  = %08X",
-                 tf->r[4], tf->r[5], tf->r[6], tf->r[7]);
+                 (*arch_reg(tf, 4)), (*arch_reg(tf, 5)), (*arch_reg(tf, 6)), (*arch_reg(tf, 7)));
         panic_line(line);
         snprintf(line, sizeof(line),
                  "  r8  = %08X   r9  = %08X   r10 = %08X   r11 = %08X",
-                 tf->r[8], tf->r[9], tf->r[10], tf->r[11]);
+                 (*arch_reg(tf, 8)), (*arch_reg(tf, 9)), (*arch_reg(tf, 10)), (*arch_reg(tf, 11)));
         panic_line(line);
         snprintf(line, sizeof(line),
                  "  r12 = %08X   sp_usr = %08X   lr_usr = %08X   pc = %08X",
-                 tf->r[12], tf->sp_usr, tf->lr_usr, tf->return_pc);
+                 (*arch_reg(tf, 12)), arch_regs_sp(tf), arch_regs_lr(tf), arch_regs_pc(tf));
         panic_line(line);
         {
             char dec[64];
-            cpsr_decode(dec, sizeof(dec), tf->return_cpsr);
-            snprintf(line, sizeof(line), "  cpsr = %08X  %s", tf->return_cpsr, dec);
+            cpsr_decode(dec, sizeof(dec), arch_regs_flags(tf));
+            snprintf(line, sizeof(line), "  cpsr = %08X  %s", arch_regs_flags(tf), dec);
             panic_line(line);
         }
     }

@@ -19,18 +19,18 @@ static bool can_regrant_received_handle(const process_t *grantee)
     return grantee && ((grantee->flags & PROC_FLAG_INIT) != 0);
 }
 
-void port_create(exception_frame_t *frame)
+void port_create(arch_regs_t *frame)
 {
     if (!current_thread)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
     handle_t handle = handle_vec_find_free(&current_thread->owner_process->handle_table);
     if (handle == -1)
     {
-        frame->r[0] = ERR_NOMEM;
+        (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
     }
 
@@ -39,7 +39,7 @@ void port_create(exception_frame_t *frame)
     endpoint_t *new_endpoint = (endpoint_t *)kalloc_endpoint();
     if (!new_endpoint)
     {
-        frame->r[0] = ERR_NOMEM;
+        (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
     }
     if (current_thread->owner_process->flags & PROC_FLAG_INIT && !nametable_endpoint)
@@ -74,37 +74,37 @@ void port_create(exception_frame_t *frame)
     entry->grantable = true;
     entry->type = HANDLE_ENDPOINT;
 
-    frame->r[0] = handle;
+    (*arch_reg(frame, 0)) = handle;
     return;
 }
 
-void port_destroy(exception_frame_t *frame)
+void port_destroy(arch_regs_t *frame)
 {
     if (!current_thread)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
-    int handle = (int)frame->r[0];
+    int handle = (int)(*arch_reg(frame, 0));
 
     // Validate handle
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle);
     if (!entry)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
     if (entry->type != HANDLE_ENDPOINT)
     {
-        frame->r[0] = ERR_NOPERM;
+        (*arch_reg(frame, 0)) = ERR_NOPERM;
         return;
     }
     endpoint_t *ep = entry->ep;
 
     if (!ep)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
@@ -113,14 +113,14 @@ void port_destroy(exception_frame_t *frame)
         entry->ep = NULL;
         entry->grantable = false;
         entry->type = HANDLE_FREE;
-        frame->r[0] = ERR_DEAD;
+        (*arch_reg(frame, 0)) = ERR_DEAD;
         return;
     }
 
     // Only owner can destroy
     if (ep->owner_pid != current_thread->owner_process->pid)
     {
-        frame->r[0] = ERR_NOPERM;
+        (*arch_reg(frame, 0)) = ERR_NOPERM;
         return;
     }
 
@@ -131,7 +131,7 @@ void port_destroy(exception_frame_t *frame)
         thread_t *t = container_of(n, thread_t, node);
         t->ipc_state = IPC_NONE;
         t->blocked_endpoint = NULL;
-        t->trap_frame->r[0] = ERR_DEAD;
+        (*arch_reg(t->trap_frame, 0)) = ERR_DEAD;
         t->state = READY;
         sched_add(t);
     }
@@ -150,7 +150,7 @@ void port_destroy(exception_frame_t *frame)
             t->blocked_endpoint = NULL;
         }
         if (t->trap_frame)
-            t->trap_frame->r[0] = ERR_DEAD;
+            (*arch_reg(t->trap_frame, 0)) = ERR_DEAD;
         if (t->wake_tick != 0 && t->timeout_node.prev && t->timeout_node.next)
             list_remove(&t->timeout_node);
         t->wake_tick = 0;
@@ -170,37 +170,37 @@ void port_destroy(exception_frame_t *frame)
     if (ep->ref_count == 0)
         kfree_endpoint(ep);
 
-    frame->r[0] = 0;
+    (*arch_reg(frame, 0)) = 0;
 }
 
-void port_grant(exception_frame_t *frame)
+void port_grant(arch_regs_t *frame)
 {
     if (!current_thread)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
-    int handle = (int)frame->r[0];
-    zpid_t pid = frame->r[1];
+    int handle = (int)(*arch_reg(frame, 0));
+    zpid_t pid = (*arch_reg(frame, 1));
 
     // Validate handle
     handle_entry_t *src = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle);
     if (!src || src->type == HANDLE_FREE)
     {
-        frame->r[0] = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
     if (!src->grantable)
     {
-        frame->r[0] = ERR_NOPERM;
+        (*arch_reg(frame, 0)) = ERR_NOPERM;
         return;
     }
 
     if (src->type == HANDLE_REPLY)
     {
-        frame->r[0] = ERR_NOPERM;
+        (*arch_reg(frame, 0)) = ERR_NOPERM;
         return;
     }
 
@@ -208,26 +208,26 @@ void port_grant(exception_frame_t *frame)
     process_t *grantee = process_find_by_pid(pid);
     if (!grantee)
     {
-        frame->r[0] = ERR_NOENT;
+        (*arch_reg(frame, 0)) = ERR_NOENT;
         return;
     }
     if (grantee->thread->state == ZOMBIE)
     {
-        frame->r[0] = ERR_BUSY;
+        (*arch_reg(frame, 0)) = ERR_BUSY;
         return;
     }
 
     int slot = handle_vec_find_free(&grantee->handle_table);
     if (slot < 0)
     {
-        frame->r[0] = ERR_NOMEM;
+        (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
     }
 
     handle_entry_t *dst = handle_vec_get(&grantee->handle_table, (uint32_t)slot);
     if (!dst)
     {
-        frame->r[0] = ERR_NOMEM;
+        (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
     }
 
@@ -238,7 +238,7 @@ void port_grant(exception_frame_t *frame)
             dst->type = HANDLE_FREE;
             dst->grantable = false;
             dst->ep = NULL;
-            frame->r[0] = ERR_DEAD;
+            (*arch_reg(frame, 0)) = ERR_DEAD;
             return;
         }
         dst->ep->ref_count++;
@@ -247,7 +247,7 @@ void port_grant(exception_frame_t *frame)
         if (!dst->dev) {
             dst->type = HANDLE_FREE;
             dst->grantable = false;
-            frame->r[0] = ERR_BADARG;
+            (*arch_reg(frame, 0)) = ERR_BADARG;
             return;
         }
         dst->dev->ref_count++;
@@ -257,7 +257,7 @@ void port_grant(exception_frame_t *frame)
             dst->type = HANDLE_FREE;
             dst->grantable = false;
             dst->ntfn = NULL;
-            frame->r[0] = ERR_DEAD;
+            (*arch_reg(frame, 0)) = ERR_DEAD;
             return;
         }
         dst->ntfn->ref_count++;
@@ -266,5 +266,5 @@ void port_grant(exception_frame_t *frame)
     if (dst->type == HANDLE_SHMEM)
         dst->mapped_va = 0;
     dst->grantable = can_regrant_received_handle(grantee);
-    frame->r[0] = (handle_t)slot;
+    (*arch_reg(frame, 0)) = (handle_t)slot;
 }

@@ -20,7 +20,7 @@
 
 extern kernel_layout_t kernel_layout;
 
-typedef void (*syscall_handler_t)(exception_frame_t*);
+typedef void (*syscall_handler_t)(arch_regs_t*);
 
 static syscall_handler_t syscall_table[SYS_MAX + 1] = {
     [SYS_TASK_PQUIT] = pquit,
@@ -62,7 +62,7 @@ static syscall_handler_t syscall_table[SYS_MAX + 1] = {
     [SYS_IRQ_DONE] = irq_done
 };
 
-static bool trap_frame_sane(const exception_frame_t *frame)
+static bool trap_frame_sane(const arch_regs_t *frame)
 {
     uintptr_t p = (uintptr_t)frame;
     if (p == 0 || (p & 0x3u) != 0)
@@ -70,10 +70,10 @@ static bool trap_frame_sane(const exception_frame_t *frame)
 
     if (kernel_layout.stack_base_va && kernel_layout.stack_top_va &&
         p >= kernel_layout.stack_base_va &&
-        p + sizeof(exception_frame_t) <= kernel_layout.stack_top_va)
+        p + sizeof(arch_regs_t) <= kernel_layout.stack_top_va)
         return true;
 
-    if (p >= KSTACK_REGION_BASE && p + sizeof(exception_frame_t) <= KSTACK_REGION_TOP)
+    if (p >= KSTACK_REGION_BASE && p + sizeof(arch_regs_t) <= KSTACK_REGION_TOP)
         return true;
 
     return false;
@@ -108,10 +108,10 @@ bool copy_from_user(void *kaddr, const void *uaddr, size_t len) {
 }
 
 
-void __attribute__((hot)) syscall_dispatch(uint8_t svc_num, exception_frame_t *frame)
+void __attribute__((hot)) syscall_dispatch(uint8_t svc_num, arch_regs_t *frame)
 {
     //KDEBUG("syscall: pid=%u svc=0x%X frame=%p", current_process ? current_process->pid : 0, svc_num, frame);
-    if (!current_thread) { frame->r[0] = ERR_BADARG; return; }
+    if (!current_thread) { (*arch_reg(frame, 0)) = ERR_BADARG; return; }
     if (!trap_frame_sane(frame)) {
         KERROR("bad syscall frame: pid=%u svc=%u frame=%p", current_thread->owner_process ? current_thread->owner_process->pid : 0u, svc_num, frame);
         panic("Corrupt trap_frame at syscall dispatch");
@@ -124,6 +124,6 @@ void __attribute__((hot)) syscall_dispatch(uint8_t svc_num, exception_frame_t *f
         return;
     } else {
         KERROR("System call 0x%X does not exist", svc_num);
-        frame->r[0] = ERR_NOMATCH;
+        (*arch_reg(frame, 0)) = ERR_NOMATCH;
     }
 };
