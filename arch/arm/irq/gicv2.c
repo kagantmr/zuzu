@@ -1,6 +1,8 @@
 // gicv2.c - ARM Generic Interrupt Controller v2 implementation
 
 #include "arch/arm/include/gicv2.h"
+#include <arch/irq.h>
+#include <stdbool.h>
 
 volatile uint32_t *gicd_base, *gicc_base;
 
@@ -34,6 +36,28 @@ static inline void gicc_write(uint32_t off, uint32_t val)
 static inline uint32_t gicc_read(const uint32_t offset)
 {
     return gicc_base[offset >> 2];
+}
+
+/* ---- Controller introspection (arch/irq.h contract) --------------------- */
+
+bool arch_irq_ready(void)
+{
+    return gicd_base && gicc_base;
+}
+
+uint32_t arch_irq_priority_mask(void)
+{
+    return gicc_read(GICC_PMR);
+}
+
+uint32_t arch_irq_enabled_word(uint32_t word)
+{
+    return gicd_read(GICD_ISENABLER + word * 4u);
+}
+
+uint32_t arch_irq_pending_word(uint32_t word)
+{
+    return gicd_read(GICD_ISPENDER + word * 4u);
 }
 
 void gic_init(uintptr_t gicd_base_addr, uintptr_t gicc_base_addr) {

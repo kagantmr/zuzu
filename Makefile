@@ -1,4 +1,17 @@
-CROSS   = arm-none-eabi-
+# Architecture and board selection. Override on the command line, e.g.
+#   make ARCH=arm BOARD=vexpress-a15
+ARCH  ?= arm
+BOARD ?= vexpress-a15
+
+# Per-architecture build settings (toolchain, cpu flags, board list/metadata).
+include arch/$(ARCH)/arch.mk
+
+# Validate the requested board against the arch's supported list.
+ifeq ($(filter $(BOARD),$(BOARDS)),)
+$(error unknown BOARD '$(BOARD)' for ARCH '$(ARCH)'; valid boards: $(BOARDS))
+endif
+
+CROSS   ?= $(ARCH_CROSS)
 CC      = $(CROSS)gcc
 LD      = $(CC)
 OBJDUMP = $(CROSS)objdump
@@ -19,15 +32,17 @@ PANIC_SECTION_IRQ        ?= 1
 PANIC_SECTION_MEMORY     ?= 1
 
 
-BOARD_DIR     = arch/arm/vexpress-a15
+ARCH_DIR      = arch/$(ARCH)
+BOARD_DIR     = $(ARCH_DIR)/$(BOARD)
 BOARD_LAYOUT_H = $(BOARD_DIR)/layout.h
 LINKER_SCRIPT = $(BOARD_DIR)/linker.ld
-DTB_FILE      = arch/arm/dtb/vexpress-a15/vexpress-v2p-ca15-tc1.dtb
+DTB_FILE      = $(DTB_$(BOARD))
 MAP           = build/zuzu.map
 
-CPUFLAGS = -mcpu=cortex-a15
+# Board may override the arch-default cpu flags via CPUFLAGS_<board>.
+CPUFLAGS = $(if $(CPUFLAGS_$(BOARD)),$(CPUFLAGS_$(BOARD)),$(ARCH_CPUFLAGS))
 CFLAGS   = -ffreestanding -O$(OPTIMIZATION_LEVEL) -flto -fno-omit-frame-pointer \
-           -Wall -Wextra -Werror $(CPUFLAGS) -I. -Iinclude -MMD -MP \
+           -Wall -Wextra -Werror $(CPUFLAGS) -I. -Iinclude -Iarch/include -Iarch/$(ARCH)/include -MMD -MP \
            -D__KERNEL__ -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"'
 CFLAGS  += -Ivendor/libfdt
 LDFLAGS  = -nostdlib -Wl,-T,$(LINKER_SCRIPT) -Wl,-Map=$(MAP) -flto
@@ -80,10 +95,10 @@ USER_CC      = $(CROSS)gcc
 USER_LD      = $(USER_CC)
 USER_OBJCOPY = $(CROSS)objcopy
 KERNEL_LIBGCC = $(shell $(CC) $(CPUFLAGS) -print-libgcc-file-name)
-USER_LIBGCC   = $(shell $(USER_CC) $(CPUFLAGS) -mfloat-abi=hard -mfpu=vfpv4 -print-libgcc-file-name)
+USER_LIBGCC   = $(shell $(USER_CC) $(CPUFLAGS) $(ARCH_USER_FP) -print-libgcc-file-name)
 
 USER_CFLAGS  = -ffreestanding -nostdlib -O$(USER_OPTIMIZATION_LEVEL) -Wall -Wextra \
-			   $(CPUFLAGS) -I. -Iinclude -MMD -MP -g -mfloat-abi=hard -mfpu=vfpv4 \
+			   $(CPUFLAGS) -I. -Iinclude -Iarch/include -Iarch/$(ARCH)/include -MMD -MP -g $(ARCH_USER_FP) \
 			   -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"'
 USER_LDFLAGS = -nostdlib -Wl,-T,user/user.ld
 
@@ -129,6 +144,7 @@ USER_ELFS      = $(BOOT_PROG_ELFS) $(DISK_PROG_ELFS)
 BOOT_PROG_PACKED_ELFS = $(foreach p,$(BOOT_PROGS),build/user/$(p).stripped.elf)
 DISK_PROG_PACKED_ELFS = $(foreach p,$(DISK_PROGS),build/user/$(p).stripped.elf)
 INITRD         = build/initrd.cpio
+INITRD_OBJ     = build/$(ARCH_DIR)/initrd.o
 INITRD_EXTRA_DIR ?= initrd
 INITRD_EXTRA_FILES := $(shell find $(INITRD_EXTRA_DIR) -type f 2>/dev/null)
 
@@ -136,7 +152,12 @@ $(foreach p,$(USER_PROGS),$(eval USER_$(p)_SRCS := $(shell find user/$(p) -name 
 $(foreach p,$(USER_PROGS),$(eval USER_$(p)_OBJS := $(patsubst user/%.c,build/user/%.o,$(USER_$(p)_SRCS))))
 USER_APP_OBJS = $(foreach p,$(USER_PROGS),$(USER_$(p)_OBJS))
 
-SRC_DIRS = arch core drivers kernel lib
+# Architecture-neutral source roots.
+NONARCH_DIRS = core drivers kernel lib
+
+# Within arch/$(ARCH), exclude every board's directory, then add back only the
+# selected BOARD_DIR — so unselected boards never get compiled in.
+ARCH_PRUNE_BOARDS = $(foreach b,$(BOARDS),-not -path '$(ARCH_DIR)/$(b)/*')
 
 # kernel sources
 LIBFDT_SRCS = \
@@ -147,11 +168,15 @@ LIBFDT_SRCS = \
 	vendor/libfdt/fdt_wip.c \
 	vendor/libfdt/fdt_strerror.c
 
-CSRCS     = $(shell find $(SRC_DIRS) -name '*.c')
+CSRCS     = $(shell find $(NONARCH_DIRS) -name '*.c')
+CSRCS    += $(shell find $(ARCH_DIR) -name '*.c' $(ARCH_PRUNE_BOARDS))
+CSRCS    += $(shell find $(BOARD_DIR) -name '*.c')
 CSRCS     := $(filter-out lib/zuzu/zmalloc.c,$(CSRCS))
 CSRCS     += $(LIBFDT_SRCS)
-ASRCS_ALL = $(shell find $(SRC_DIRS) -name '*.S')
-ASRCS     = $(filter-out arch/arm/crt0.S arch/arm/initrd.S,$(ASRCS_ALL))
+ASRCS_ALL = $(shell find $(NONARCH_DIRS) -name '*.S') \
+            $(shell find $(ARCH_DIR) -name '*.S' $(ARCH_PRUNE_BOARDS)) \
+            $(shell find $(BOARD_DIR) -name '*.S')
+ASRCS     = $(filter-out $(ARCH_DIR)/crt0.S $(ARCH_DIR)/initrd.S,$(ASRCS_ALL))
 OBJS      = $(CSRCS:%.c=build/%.o) $(ASRCS:%.S=build/%.o)
 DEPS      = $(OBJS:.o=.d)
 USER_DEPS = $(USER_CRT0:.o=.d) $(USER_APP_OBJS:.o=.d) $(ZCRT_OBJS:.o=.d) $(ULIB_OBJS:.o=.d)
@@ -195,7 +220,7 @@ build/user/lib/%.o: user/lib/%.c
 	@echo "  CC      $<"
 	@$(USER_CC) $(USER_CFLAGS) -Iuser/lib -c $< -o $@
 
-$(USER_CRT0): arch/arm/crt0.S
+$(USER_CRT0): $(ARCH_DIR)/crt0.S
 	@mkdir -p $(dir $@)
 	@echo "  AS      $<"
 	@$(USER_CC) $(USER_CFLAGS) -x assembler-with-cpp -c $< -o $@
@@ -231,23 +256,23 @@ $(INITRD): $(BOOT_PROG_PACKED_ELFS) $(INITRD_EXTRA_FILES)
 	@cd build/initrd && find . -not -name '.' | sort | cpio -o -H newc > ../initrd.cpio 2>/dev/null
 	@echo "  CPIO    $@ ($(words $(BOOT_PROGS)) boot program(s))"
 
-build/arch/arm/initrd.o: arch/arm/initrd.S $(INITRD)
+$(INITRD_OBJ): $(ARCH_DIR)/initrd.S $(INITRD)
 	@mkdir -p $(dir $@)
 	@echo "  AS      $<"
 	@$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
 
 # two-pass build to generate kernel symbol table
-$(TARGET): $(OBJS) build/arch/arm/initrd.o $(LINKER_SCRIPT)
+$(TARGET): $(OBJS) $(INITRD_OBJ) $(LINKER_SCRIPT)
 	@mkdir -p $(dir $@)
 	@echo "  LD      (pass1) $@"
-	@$(LD) $(LDFLAGS) $(OBJS) build/arch/arm/initrd.o $(KERNEL_LIBGCC) -o $@
+	@$(LD) $(LDFLAGS) $(OBJS) $(INITRD_OBJ) $(KERNEL_LIBGCC) -o $@
 	@echo "  PY      generating build/ksymtab.c"
 	@python3 scripts/symbol.py $@ build/ksymtab.c || true
 	@if [ -f build/ksymtab.c ]; then \
 		echo "  CC      build/ksymtab.o"; \
 		$(CC) $(CFLAGS) -c build/ksymtab.c -o build/ksymtab.o; \
 		echo "  LD      (final) $@"; \
-		$(LD) $(LDFLAGS) build/ksymtab.o $(OBJS) build/arch/arm/initrd.o $(KERNEL_LIBGCC) -o $@; \
+		$(LD) $(LDFLAGS) build/ksymtab.o $(OBJS) $(INITRD_OBJ) $(KERNEL_LIBGCC) -o $@; \
 	else \
 		echo "  WARN: build/ksymtab.c not generated; final ELF uses empty symbol table"; \
 	fi
@@ -322,16 +347,19 @@ sdimg-recreate: sdimg-clean sdimg
 # Run / debug targets
 .PHONY: run debug
 
+QEMU_MACHINE = $(QEMU_MACH_$(BOARD))
+QEMU_CPU     = $(QEMU_CPU_$(BOARD))
+
 run: $(TARGET)
 	@echo "  QEMU    $(TARGET)"
-	@sudo qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M \
+	@qemu-system-arm -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m 64M \
 	    -kernel $(TARGET) -dtb $(DTB_FILE) -nographic \
 	    -drive file=$(SD_IMG),if=sd,format=raw \
 	    -nic user,model=lan9118
 
 debug: $(TARGET)
 	@echo "  QEMU    $(TARGET) (debug)"
-	@sudo qemu-system-arm -M vexpress-a15 -cpu cortex-a15 -m 64M \
+	@qemu-system-arm -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m 64M \
 	    -kernel $(TARGET) -dtb $(DTB_FILE) -nographic \
 	    -drive file=$(SD_IMG),if=sd,format=raw \
 	    -nic user,model=lan9118 \

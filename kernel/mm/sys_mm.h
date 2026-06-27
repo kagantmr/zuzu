@@ -1,7 +1,7 @@
 #ifndef SYS_MM_H
 #define SYS_MM_H
 
-#include "arch/arm/include/context.h"
+#include <arch/regs.h>
 #include <stddef.h>
 
 void memmap(exception_frame_t *frame);

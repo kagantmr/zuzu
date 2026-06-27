@@ -1,7 +1,7 @@
 #include "kernel/mm/pmm.h"
 #include <assert.h>
 #include "kernel/layout.h"
-#include "arch/arm/include/symbols.h"
+#include <arch/symbols.h>
 #include <mem.h>
 #include "kernel/mm/vmm.h" // PA_TO_VA / VA_TO_PA helpers
 #include <spinlock.h>

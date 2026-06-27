@@ -83,6 +83,13 @@ void ip_rx(uint8_t *data, uint16_t len, const uint8_t *src_mac) {
 }
 
 int ip_send(txframe_t *f, ipv4_addr_t src_ip, ipv4_addr_t dst_ip, uint8_t protocol) {
+    /* RFC 1122 3.2.1.3: never originate a unicast datagram from 0.0.0.0. Until
+       an address is configured (DHCP bound) src_ip is 0, so only broadcast
+       bootstrap traffic (DHCP) may leave. Abandoning the builder's reserved tx
+       slot here costs nothing -- head only advances on commit. */
+    if (dst_ip != BROADCAST_IP && src_ip == 0)
+        return ERR_SYSDOWN;
+
     /* The L4 header + payload are already in the builder; prepend the IP
        header in front of them without copying anything. */
     uint16_t payload_len = txframe_len(f);

@@ -1,7 +1,7 @@
 #ifndef KERNEL_SYSCALL_H
 #define KERNEL_SYSCALL_H
 
-#include "arch/arm/include/context.h"
+#include <arch/regs.h>
 #include "kernel/proc/thread.h"
 #include "stdbool.h"
 #include "stddef.h"

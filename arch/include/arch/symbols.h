@@ -1,9 +1,11 @@
-// symbols.h - ARM linker symbol declarations
-// This file declares the external symbols that are defined in the linker script (linker.ld) and used in the kernel code. 
-// These symbols represent the start and end addresses of various sections of the kernel in both virtual and physical memory, as well as the stack regions for different CPU modes.
+// arch/symbols.h - Neutral linker-symbol contract.
+//
+// These symbols are emitted by the per-board linker script and mark kernel
+// image / stack / initrd boundaries. Names are architecture-neutral; every
+// board's linker.ld must define them.
 
-#ifndef SYMBOLS_H
-#define SYMBOLS_H
+#ifndef ZUZU_ARCH_SYMBOLS_H
+#define ZUZU_ARCH_SYMBOLS_H
 
 extern char _kernel_start[];
 extern char _kernel_end[];
@@ -25,5 +27,4 @@ extern char __und_stack_top__[];
 extern char _initrd_start[];
 extern char _initrd_end[];
 
-
-#endif
+#endif // ZUZU_ARCH_SYMBOLS_H

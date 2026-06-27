@@ -3,9 +3,14 @@
 #include "l2_pool.h"
 #include "kernel/mm/pmm.h"
 #include "kernel/mm/alloc.h"
-#include "arch/arm/mmu/mmu.h"
+#include <arch/mmu.h>
 #include <mem.h>
 #include <spinlock.h>
+
+#define L2_TABLE_SIZE 1024u                 // one ARMv7 L2 table is 1 KB
+#define L2_PER_PAGE (PAGE_SIZE / L2_TABLE_SIZE) // 4 L2 tables packed per 4 KB page
+#define L2_SLOTS_FULL ((1u << L2_PER_PAGE) - 1u) // used_mask value when all slots taken
+#define PAGE_OFFSET_MASK (PAGE_SIZE - 1u)
 
 static l2_pool_entry_t *pool_head = NULL;
 spinlock_t l2_pool_lock = SPINLOCK_INIT;
@@ -16,17 +21,17 @@ uintptr_t l2_pool_alloc(void)
     spin_lock_irqsave(&l2_pool_lock, &flags); // lock the pool for safety
     for (l2_pool_entry_t *entry = pool_head; entry; entry = entry->next)
     {
-        if (entry->used_mask == 0xF)
-            continue; // all 4 slots occupied
+        if (entry->used_mask == L2_SLOTS_FULL)
+            continue; // all slots occupied
 
         // Find the first free slot in this page
-        for (int slot = 0; slot < 4; slot++)
+        for (unsigned slot = 0; slot < L2_PER_PAGE; slot++)
         {
             if (!(entry->used_mask & (1 << slot)))
             {
                 entry->used_mask |= (1 << slot);
-                uintptr_t pa = entry->page_pa + (slot * 1024);
-                memset((void *)PA_TO_VA(pa), 0, 1024);
+                uintptr_t pa = entry->page_pa + (slot * L2_TABLE_SIZE);
+                memset((void *)PA_TO_VA(pa), 0, L2_TABLE_SIZE);
                 spin_unlock_irqrestore(&l2_pool_lock, flags);
                 return pa;
             }
@@ -49,7 +54,7 @@ uintptr_t l2_pool_alloc(void)
         return 0; // out of memory for pool entry
     }
 
-    memset((void *)PA_TO_VA(page_pa), 0, 4096); // zero whole page
+    memset((void *)PA_TO_VA(page_pa), 0, PAGE_SIZE); // zero whole page
 
     entry->page_pa = page_pa;
     entry->used_mask = 0x1; // slot 0 claimed
@@ -70,8 +75,8 @@ void l2_pool_free(uintptr_t l2_pa)
         return;
     }
 
-    uintptr_t page_pa = l2_pa & ~0xFFF;
-    int slot = (l2_pa & 0xFFF) / 1024;
+    uintptr_t page_pa = l2_pa & ~PAGE_OFFSET_MASK;
+    int slot = (l2_pa & PAGE_OFFSET_MASK) / L2_TABLE_SIZE;
 
     l2_pool_entry_t *prev = NULL;
     l2_pool_entry_t *entry = pool_head;

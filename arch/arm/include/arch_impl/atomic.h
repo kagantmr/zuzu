@@ -1,18 +1,13 @@
-#ifndef ARCH_ATOMIC_H
-#define ARCH_ATOMIC_H
+// arch_impl/atomic.h - ARM atomic primitives via LDREX/STREX (architecture-private).
+//
+// Do not include directly from neutral code; include <arch/atomic.h> instead.
 
-/**
- * This file provides atomic synchronization primitives for ARM architecture using LDREX/STREX instructions.
- * These functions can be used to implement higher-level synchronization primitives like mutexes or spinlocks.
- */
+#ifndef ZUZU_ARM_IMPL_ATOMIC_H
+#define ZUZU_ARM_IMPL_ATOMIC_H
 
 #include <stdint.h>
 
-/**
- * @brief Atomically load a 32-bit value from memory.
- * @param addr Pointer to the memory location to load from.
- * @return The value loaded from memory.
- */
+/** Atomically load a 32-bit value, tagging the exclusive monitor. */
 static inline uint32_t arch_ldrex(volatile uint32_t *addr)
 {
     uint32_t val;
@@ -24,12 +19,7 @@ static inline uint32_t arch_ldrex(volatile uint32_t *addr)
     return val;
 }
 
-/**
- * @brief Atomically store a 32-bit value to memory if the location has not been modified since the last LDREX.
- * @param addr Pointer to the memory location to store to.
- * @param val The value to store.
- * @return 0 if the store was successful, non-zero if the location was modified by another processor since the last LDREX.
- */
+/** Conditionally store; returns 0 on success, non-zero if the monitor was lost. */
 static inline uint32_t arch_strex(volatile uint32_t *addr, uint32_t val)
 {
     uint32_t result;
@@ -41,10 +31,7 @@ static inline uint32_t arch_strex(volatile uint32_t *addr, uint32_t val)
     return result;
 }
 
-/**
- * @brief Clear the exclusive monitor, typically called after a failed STREX or when abandoning an atomic operation.
- * This ensures that subsequent LDREX/STREX sequences will not be affected by previous failed attempts.
- */
+/** Clear the exclusive monitor (after a failed/abandoned STREX). */
 static inline void arch_clrex(void)
 {
     __asm__ volatile("clrex\n" ::: "memory");
@@ -67,4 +54,4 @@ static inline int atomic_cas(volatile uint32_t *ptr, uint32_t expected, uint32_t
     return (tmp == expected);
 }
 
-#endif // ARCH_ATOMIC_H
+#endif // ZUZU_ARM_IMPL_ATOMIC_H

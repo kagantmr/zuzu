@@ -1,7 +1,6 @@
 // pl011.c - ARM PL011 UART driver implementation
 
 #include "drivers/uart/pl011.h"
-#include "arch/arm/include/irq.h" 
 #include "drivers/uart/uart.h"
 #include <assert.h>
 

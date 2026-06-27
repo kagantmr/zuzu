@@ -2,7 +2,7 @@
 #define PANIC_H
 
 #include <stdint.h>
-#include "arch/arm/include/context.h"
+#include <arch/regs.h>
 
 /*
  * Fault context filled by exception handlers before calling panic().

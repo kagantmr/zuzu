@@ -2,7 +2,7 @@
 #include "kernel/syscall/syscall.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/proc/process.h"
-#include "arch/arm/mmu/mmu.h"
+#include <arch/mmu.h>
 
 #include <zuzu/syscall_nums.h>
 #include <string.h>

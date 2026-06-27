@@ -1,7 +1,7 @@
 #ifndef SYS_IRQ_H
 #define SYS_IRQ_H
 
-#include "arch/arm/include/context.h"
+#include <arch/regs.h>
 #include "kernel/ipc/ntfn.h"
 #include "kernel/ipc/port.h"
 #include "stdbool.h"

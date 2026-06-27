@@ -1,7 +1,7 @@
 #ifndef SYS_TASK_H
 #define SYS_TASK_H
 
-#include "arch/arm/include/context.h"
+#include <arch/regs.h>
 
 void pquit(exception_frame_t *frame);
 void yield(exception_frame_t *frame);

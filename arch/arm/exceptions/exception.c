@@ -2,9 +2,9 @@
  * exception.c - ARMv7 exception handling
  */
 
-#include "arch/arm/include/context.h"
-#include "arch/arm/include/irq.h"
-#include "arch/arm/mmu/mmu.h"
+#include <arch/regs.h>
+#include <arch/irq.h>
+#include <arch/mmu.h>
 #include "core/log.h"
 #include "core/panic.h"
 #include "kernel/proc/process.h"
@@ -340,7 +340,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
 
     case EXC_IRQ:
     {
-        irq_dispatch();
+        arch_irq_dispatch();
     }
     break;
 

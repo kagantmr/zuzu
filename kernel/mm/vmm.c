@@ -1,8 +1,8 @@
 #include "vmm.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm.h"
-#include "arch/arm/mmu/mmu.h"
-#include "arch/arm/include/symbols.h"
+#include <arch/mmu.h>
+#include <arch/symbols.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -10,7 +10,7 @@
 #include <mem.h>
 #include "core/panic.h"
 #include "kernel/layout.h"
-#include "arch/arm/mmu/asid.h"
+#include <arch/asid.h>
 #include <zuzu/types.h>
 #include <stdlib.h>
 

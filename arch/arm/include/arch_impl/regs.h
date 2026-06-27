@@ -1,10 +1,12 @@
-// context.h - ARM exception frame definition
-// This file defines the structure of the exception frame that is saved on the stack when an exception
-// occurs. The layout of this structure must match the assembly code in entry.S that saves the registers
-// to the stack. The exception frame includes the general-purpose registers, user SP and LR saved via SRS, and the return PC and CPSR that the exception handler will use to return to user mode.
+// arch_impl/regs.h - ARM saved-register layouts (architecture-private).
+//
+// Do not include directly from architecture-neutral code; include <arch/regs.h>
+// instead. The struct layout below must match the stmfd/srs sequence in
+// arch/arm/exceptions/entry.S exactly — the assembly writes these fields by
+// offset.
 
-#ifndef CONTEXT_H
-#define CONTEXT_H
+#ifndef ZUZU_ARM_IMPL_REGS_H
+#define ZUZU_ARM_IMPL_REGS_H
 
 #include <stdint.h>
 
@@ -27,4 +29,4 @@ typedef struct cpu_context
     uint32_t lr; // return address (or entry point for new process)
 } cpu_context_t;
 
-#endif // CONTEXT_H
+#endif // ZUZU_ARM_IMPL_REGS_H
