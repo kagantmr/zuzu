@@ -1,3 +1,4 @@
+#include <arch/context.h>
 #include "sys_task.h"
 #include "kernel/syscall/syscall.h"
 #include "kernel/mm/alloc.h"
@@ -237,28 +238,10 @@ void kickstart(arch_regs_t *frame) {
         return;
     }
 
-    uintptr_t stack_top = target->thread->kernel_stack_top;
-
-    stack_top -= 17 * sizeof(uintptr_t); // make room for exception frame + r0-r1
-    arch_regs_t *target_frame = (arch_regs_t *)stack_top;
-
-    (*arch_reg(target_frame, 0)) = kargs.r0_val;
-    (*arch_reg(target_frame, 1)) = kargs.r1_val;
-    for (int i = 2; i < 13; i++) {
-        (*arch_reg(target_frame, i)) = 0;
-    }
-    target_frame->sp_usr = kargs.sp;
-    target_frame->lr_usr = USER_ELF_BASE;
-    target_frame->return_pc = kargs.entry;
-    target_frame->return_cpsr = 0x10; // user mode, interrupts enabled
-
-    stack_top -= sizeof(cpu_context_t);
-    cpu_context_t *context = (cpu_context_t *)stack_top;
-    memset(context, 0, sizeof(cpu_context_t));
-    context->lr = (uint32_t)process_entry_trampoline;
-    stack_top -= 132; // make room for VFP state
-    memset((void *)stack_top, 0, 132);
-    target->thread->kernel_sp = (uint32_t *)stack_top;
+    target->thread->kernel_sp = (uint32_t *)arch_thread_user_init(
+        (void *)target->thread->kernel_stack_top,
+        kargs.entry, kargs.sp, USER_ELF_BASE,
+        kargs.r0_val, kargs.r1_val, &target->thread->trap_frame);
     target->thread->state = READY;
     sched_add(target->thread);
     entry->type = HANDLE_FREE;
@@ -357,33 +340,11 @@ void tmake(arch_regs_t *frame) {
     t->thread_info_va = owner->tcb_page_va + slot_idx * TCB_SLOT_SIZE;
 
 
-    // Build the kernel stack exactly like kernel/kickstart() does
-    uintptr_t sp = t->kernel_stack_top;
-
-    // Exception frame (17 words)
-    sp -= 17 * sizeof(uint32_t);
-    arch_regs_t *ef = (arch_regs_t *)sp;
-    memset(ef, 0, 17 * sizeof(uint32_t));
-    (*arch_reg(ef, 0))        = (uint32_t)arg;
-    ef->sp_usr      = (uint32_t)usr_sp;
-    ef->lr_usr      = USER_ELF_BASE;
-    ef->return_pc   = (uint32_t)entry;
-    ef->return_cpsr = 0x10; // USR mode, IRQs enabled
-
-    t->trap_frame = ef;
-
-    // cpu_context
-    sp -= sizeof(cpu_context_t);
-    cpu_context_t *ctx = (cpu_context_t *)sp;
-    memset(ctx, 0, sizeof(cpu_context_t));
-    ctx->lr = (uint32_t)process_entry_trampoline;
-
-    // VFP area
-    sp -= 132;
-    memset((void *)sp, 0, 132);
-
-    t->kernel_sp = (uint32_t *)sp;
-    t->state     = READY;
+    // Build the initial kernel stack so the thread enters user mode at `entry`.
+    t->kernel_sp = (uint32_t *)arch_thread_user_init(
+        (void *)t->kernel_stack_top, (uintptr_t)entry, (uintptr_t)usr_sp,
+        USER_ELF_BASE, (uint32_t)arg, 0, &t->trap_frame);
+    t->state = READY;
     sched_add(t);
 
     (*arch_reg(frame, 0)) = (tid_t)t->tid;
