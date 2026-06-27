@@ -4,13 +4,13 @@
 #include <arch/regs.h>
 #include <stddef.h>
 
-void memmap(exception_frame_t *frame);
-void memunmap(exception_frame_t *frame);
-void memshare(exception_frame_t *frame);
-void attach(exception_frame_t *frame);
-void detach(exception_frame_t *frame);
-void mprotect(exception_frame_t *frame);
+void memmap(arch_regs_t *frame);
+void memunmap(arch_regs_t *frame);
+void memshare(arch_regs_t *frame);
+void attach(arch_regs_t *frame);
+void detach(arch_regs_t *frame);
+void mprotect(arch_regs_t *frame);
 
-void asinject(exception_frame_t *frame);
+void asinject(arch_regs_t *frame);
 
 #endif // SYS_MM_H

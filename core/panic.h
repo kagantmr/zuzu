@@ -15,7 +15,7 @@ typedef struct {
     const char *fault_type;     /* "Data abort" / "Prefetch abort" / etc. */
     const char *fault_decoded;  /* decode_fault_status() result */
     const char *access_type;    /* "Read" / "Write" */
-    exception_frame_t *frame;   /* saved registers at exception entry */
+    arch_regs_t *frame;   /* saved registers at exception entry */
 } panic_fault_context_t;
 
 extern panic_fault_context_t panic_fault_ctx;

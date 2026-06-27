@@ -5,8 +5,8 @@
 
 #include <arch/regs.h>
 
-void port_create(exception_frame_t *frame);
-void port_destroy(exception_frame_t *frame);
-void port_grant(exception_frame_t *frame);
+void port_create(arch_regs_t *frame);
+void port_destroy(arch_regs_t *frame);
+void port_grant(arch_regs_t *frame);
 
 #endif

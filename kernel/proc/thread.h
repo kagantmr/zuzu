@@ -49,7 +49,7 @@ typedef struct thread_wait_slot
 struct thread
 {
     vaddr_t kernel_stack_top; // base of kernel stack for freeing (offset 0)
-    exception_frame_t *trap_frame; // pointer to saved user registers for IPC and context switching (offset 4)
+    arch_regs_t *trap_frame; // pointer to saved user registers for IPC and context switching (offset 4)
     tid_t tid; // thread ID (offset 8)
     uint32_t *kernel_sp; // current kernel stack pointer for context switching (offset 12 - CRITICAL: switch.S offset)
     int32_t exit_status;

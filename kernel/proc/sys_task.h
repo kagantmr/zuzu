@@ -3,19 +3,19 @@
 
 #include <arch/regs.h>
 
-void pquit(exception_frame_t *frame);
-void yield(exception_frame_t *frame);
-void sleep(exception_frame_t *frame);
-void get_pid(exception_frame_t *frame);
-void wait(exception_frame_t *frame);
+void pquit(arch_regs_t *frame);
+void yield(arch_regs_t *frame);
+void sleep(arch_regs_t *frame);
+void get_pid(arch_regs_t *frame);
+void wait(arch_regs_t *frame);
 
-void pspawn(exception_frame_t *frame);
-void kickstart(exception_frame_t *frame);
-void kill(exception_frame_t *frame);
+void pspawn(arch_regs_t *frame);
+void kickstart(arch_regs_t *frame);
+void kill(arch_regs_t *frame);
 
-void tmake(exception_frame_t *frame);
-void tjoin(exception_frame_t *frame);
-void tquit(exception_frame_t *frame);
+void tmake(arch_regs_t *frame);
+void tjoin(arch_regs_t *frame);
+void tquit(arch_regs_t *frame);
 
 
 #endif // SYS_TASK_H

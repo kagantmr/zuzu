@@ -3,8 +3,8 @@
 
 #include <arch/regs.h>
 
-void ntfn_create(exception_frame_t *frame);
-void ntfn_signal(exception_frame_t *frame);
-void ntfn_wait(exception_frame_t *frame);
+void ntfn_create(arch_regs_t *frame);
+void ntfn_signal(arch_regs_t *frame);
+void ntfn_wait(arch_regs_t *frame);
 
 #endif // SYS_NOTIF_H

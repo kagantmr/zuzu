@@ -4,15 +4,15 @@
 #include <arch/regs.h>
 
 
-void proc_send(exception_frame_t *frame);
-void proc_recv(exception_frame_t *frame);
-void proc_call(exception_frame_t *frame);
-void proc_reply(exception_frame_t *frame);
+void proc_send(arch_regs_t *frame);
+void proc_recv(arch_regs_t *frame);
+void proc_call(arch_regs_t *frame);
+void proc_reply(arch_regs_t *frame);
 
-void proc_sendx(exception_frame_t *frame);
-void proc_callx(exception_frame_t *frame);
-void proc_replyx(exception_frame_t *frame);
-void proc_recvany(exception_frame_t *frame);
+void proc_sendx(arch_regs_t *frame);
+void proc_callx(arch_regs_t *frame);
+void proc_replyx(arch_regs_t *frame);
+void proc_recvany(arch_regs_t *frame);
 
 
 #endif // SYS_IPC_H
