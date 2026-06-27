@@ -10,6 +10,9 @@
 
 #include <stdint.h>
 
+/* Natural register-width integer for this architecture (32-bit on ARMv7-A). */
+typedef uint32_t reg_t;
+
 /**
  * Represents a process's saved CPU state at the time of an exception.
  * Layout must match the stmfd sequence in entry.S exactly,
@@ -34,11 +37,11 @@ typedef struct exception_frame arch_regs_t;
 
 /* ---- Accessors (the neutral contract; see <arch/regs.h>) ----------------- */
 /* Syscall ABI slots: arg i / return value i map to r[i] on ARM. */
-static inline uint32_t *arch_reg(arch_regs_t *f, unsigned i) { return &f->r[i]; }
+static inline reg_t *arch_reg(arch_regs_t *f, unsigned i) { return &f->r[i]; }
 
-static inline uint32_t arch_regs_pc(const arch_regs_t *f)    { return f->return_pc; }
-static inline uint32_t arch_regs_sp(const arch_regs_t *f)    { return f->sp_usr; }
-static inline uint32_t arch_regs_lr(const arch_regs_t *f)    { return f->lr_usr; }
-static inline uint32_t arch_regs_flags(const arch_regs_t *f) { return f->return_cpsr; }
+static inline reg_t arch_regs_pc(const arch_regs_t *f)    { return f->return_pc; }
+static inline reg_t arch_regs_sp(const arch_regs_t *f)    { return f->sp_usr; }
+static inline reg_t arch_regs_lr(const arch_regs_t *f)    { return f->lr_usr; }
+static inline reg_t arch_regs_flags(const arch_regs_t *f) { return f->return_cpsr; }
 
 #endif // ZUZU_ARM_IMPL_REGS_H
