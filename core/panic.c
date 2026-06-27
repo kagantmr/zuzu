@@ -4,6 +4,7 @@
 #include <arch/cpu.h>
 #include <arch/irq.h>
 #include <arch/symbols.h>
+#include BOARD_LAYOUT_H   /* KERNEL_VA_BASE, USER_VA_TOP, IOREMAP_BASE */
 #include "drivers/uart/uart.h"
 #include "kernel/layout.h"
 #include "kernel/mm/alloc.h"
@@ -39,17 +40,11 @@ panic_fault_context_t panic_fault_ctx;
 #define LINE_BUF            160
 
 /*
- * Lowest kernel virtual address — used for pointer sanity checks.
- * Override in arch-specific config if needed.
+ * Virtual-layout bounds for pointer sanity checks. KERNEL_VA_BASE / USER_VA_TOP
+ * come from the board layout; the MMIO window base maps to IOREMAP_BASE.
  */
-#ifndef KERNEL_VA_BASE
-#define KERNEL_VA_BASE 0xC0000000u
-#endif
 #ifndef MMIO_VA_BASE
-#define MMIO_VA_BASE   0xF0000000u
-#endif
-#ifndef USER_VA_TOP
-#define USER_VA_TOP    0x80000000u
+#define MMIO_VA_BASE   IOREMAP_BASE
 #endif
 
 /* ------------------------------------------------------------------ */
