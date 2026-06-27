@@ -3,7 +3,7 @@
 #define ICMP_H
 
 #include <zuzu/types.h>
-#include "globals.h"
+#include "../common/globals.h"
 
 typedef struct __attribute__((packed)) {
     uint8_t type;

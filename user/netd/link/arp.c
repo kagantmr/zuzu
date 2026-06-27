@@ -1,6 +1,6 @@
 #include "arp.h"
 #include "eth.h"
-#include "globals.h"
+#include "../common/globals.h"
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -12,7 +12,7 @@
 
 static arp_entry_t arp_table[ARP_MAX_ENTRIES];
 
-void arp_init() {
+__attribute__((cold)) void arp_init() {
     memset(arp_table, 0, sizeof(arp_table)); /* every slot ARP_FREE */
 }
 
@@ -197,7 +197,7 @@ int arp_rx(uint8_t *data, uint16_t len) {
     return ZUZU_OK;
 }
 
-int arp_request(ipv4_addr_t ip) {
+__attribute__((cold)) int arp_request(ipv4_addr_t ip) {
     arp_packet_t pkt;
     memset(&pkt, 0, sizeof(pkt));
     pkt.htype = htons(1);

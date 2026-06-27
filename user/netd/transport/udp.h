@@ -2,7 +2,7 @@
 #define UDP_H
 
 #include <zuzu/types.h>
-#include "globals.h"
+#include "../common/globals.h"
 
 typedef struct __attribute__((packed)) {
     uint16_t src_port;
