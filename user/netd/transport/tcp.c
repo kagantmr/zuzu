@@ -111,26 +111,6 @@ static int tcp_output(tcp_pcb_t *pcb, uint8_t flags, const uint8_t *data, uint16
 int tcp_send(int idx, const uint8_t *data, uint16_t len) {
     tcp_pcb_t *pcb = &pcbs[idx];
     if (pcb->state != TCP_ESTABLISHED) return ERR_SYSDOWN;
-    static int dropped_one = 0;
-    uint32_t snd_seq = pcb->snd_nxt;
-    int rc;
-    if (!dropped_one) {
-        dropped_one = 1;
-        rc = 0;                          /* fake loss: don't actually send */
-        pcb->snd_nxt += len;             /* still advance, as if sent */
-        LOG_INFO(LOG_TAG, "FAKE DROP");
-    } else {
-        rc = tcp_output(pcb, TCP_ACK, data, len);
-    }
-    if (rc == 0) {
-        memcpy(pcb->snd_buf, data, len);
-        pcb->snd_len = len;
-        pcb->snd_seq = snd_seq;
-        pcb->rto_timer = timer_arm(net_now_ms() + pcb->rto_ms, rto_cb, pcb);
-        return ZUZU_OK;
-    }
-    return rc;
-    /*
     uint32_t snd_seq = pcb->snd_nxt;
     int rc = tcp_output(pcb, TCP_ACK, data, len);
     if (rc == 0) {
@@ -139,9 +119,8 @@ int tcp_send(int idx, const uint8_t *data, uint16_t len) {
         pcb->snd_seq = snd_seq;
         pcb->rto_timer = timer_arm(net_now_ms() + pcb->rto_ms, rto_cb, pcb);
         return ZUZU_OK;
-    } else {
-        return rc;
-    }*/
+    }
+    return rc;
 }
 
 int tcp_connect(ipv4_addr_t remote_ip, port_t remote_port) {
