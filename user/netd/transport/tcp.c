@@ -53,6 +53,29 @@ static uint16_t tcp_checksum(ipv4_addr_t src_ip, ipv4_addr_t dst_ip,
     return inet_csum_fold(accum);
 }
 
+static int tcp_output(tcp_pcb_t *pcb, uint8_t flags, const uint8_t *data, uint16_t data_len);
+
+void rto_cb(void *arg) {
+    tcp_pcb_t *pcb = (tcp_pcb_t *)arg;
+    if (pcb->snd_len == 0) return;      /* already acked, nothing to resend */
+
+    /* exponential backoff, capped */
+    pcb->rto_ms *= 2;
+    if (pcb->rto_ms > TCP_RTO_MAX) pcb->rto_ms = TCP_RTO_MAX;
+
+    LOG_INFO(LOG_TAG, "RTO fired: retransmit %u bytes @ seq %u (rto now %u ms)",
+             (uint32_t)pcb->snd_len, pcb->snd_seq, pcb->rto_ms);
+
+    /* resend the buffered segment at its ORIGINAL seq, then restore snd_nxt
+     * (tcp_output advances snd_nxt by data_len). */
+    uint32_t saved_nxt = pcb->snd_nxt;
+    pcb->snd_nxt = pcb->snd_seq;
+    tcp_output(pcb, TCP_ACK, pcb->snd_buf, pcb->snd_len);
+    pcb->snd_nxt = saved_nxt;
+
+    pcb->rto_timer = timer_arm(net_now_ms() + pcb->rto_ms, rto_cb, pcb);
+}
+
 static int tcp_output(tcp_pcb_t *pcb, uint8_t flags, const uint8_t *data, uint16_t data_len) {
     uint8_t buf[sizeof(tcp_hdr_t) + 256];      /* header + bit of data */
     tcp_hdr_t *th = (tcp_hdr_t *)buf;
@@ -79,7 +102,8 @@ static int tcp_output(tcp_pcb_t *pcb, uint8_t flags, const uint8_t *data, uint16
         return rc;
 
     /* SYN and FIN each consume one sequence number; data consumes data_len. */
-    pcb->snd_nxt += ((flags & TCP_SYN) ? 1 : 0) + ((flags & TCP_FIN) ? 1 : 0);
+    pcb->snd_nxt += data_len + ((flags & TCP_SYN) ? 1 : 0) + ((flags & TCP_FIN) ? 1 : 0);
+
 
     return ZUZU_OK;
 }
@@ -87,7 +111,37 @@ static int tcp_output(tcp_pcb_t *pcb, uint8_t flags, const uint8_t *data, uint16
 int tcp_send(int idx, const uint8_t *data, uint16_t len) {
     tcp_pcb_t *pcb = &pcbs[idx];
     if (pcb->state != TCP_ESTABLISHED) return ERR_SYSDOWN;
-    return tcp_output(pcb, TCP_ACK, data, len);
+    static int dropped_one = 0;
+    uint32_t snd_seq = pcb->snd_nxt;
+    int rc;
+    if (!dropped_one) {
+        dropped_one = 1;
+        rc = 0;                          /* fake loss: don't actually send */
+        pcb->snd_nxt += len;             /* still advance, as if sent */
+        LOG_INFO(LOG_TAG, "FAKE DROP");
+    } else {
+        rc = tcp_output(pcb, TCP_ACK, data, len);
+    }
+    if (rc == 0) {
+        memcpy(pcb->snd_buf, data, len);
+        pcb->snd_len = len;
+        pcb->snd_seq = snd_seq;
+        pcb->rto_timer = timer_arm(net_now_ms() + pcb->rto_ms, rto_cb, pcb);
+        return ZUZU_OK;
+    }
+    return rc;
+    /*
+    uint32_t snd_seq = pcb->snd_nxt;
+    int rc = tcp_output(pcb, TCP_ACK, data, len);
+    if (rc == 0) {
+        memcpy(pcb->snd_buf, data, len);
+        pcb->snd_len = len;
+        pcb->snd_seq = snd_seq;
+        pcb->rto_timer = timer_arm(net_now_ms() + pcb->rto_ms, rto_cb, pcb);
+        return ZUZU_OK;
+    } else {
+        return rc;
+    }*/
 }
 
 int tcp_connect(ipv4_addr_t remote_ip, port_t remote_port) {
@@ -103,6 +157,7 @@ int tcp_connect(ipv4_addr_t remote_ip, port_t remote_port) {
     pcb->snd_nxt = netrand_u32();
     pcb->snd_una = pcb->snd_nxt;
     pcb->rcv_nxt = 0;
+    pcb->rto_ms = 1000;
     pcb->state = TCP_SYN_SENT;
     int rc = tcp_output(pcb, TCP_SYN, NULL, 0);
     if (rc != ZUZU_OK) { port_release(pcb->local_port); pcb_free(idx); return rc; }
@@ -141,6 +196,15 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
             uint16_t hdr_len = (th->data_offset >> 4) * 4;
             const uint8_t *payload = data + hdr_len;
             uint16_t payload_len = len - hdr_len;
+
+            if ((int32_t)(ack - pcb->snd_una) > 0) {
+                pcb->snd_una = ack;
+                if ((int32_t)(pcb->snd_una - (pcb->snd_seq + pcb->snd_len)) >= 0) {
+                    pcb->snd_len = 0;
+                    timer_cancel(pcb->rto_timer);
+                    LOG_INFO(LOG_TAG, "data acked, RTO cancelled");
+                }
+            }
 
             if (payload_len && their_seq == pcb->rcv_nxt) {   /* in-order data */
                 LOG_INFO(LOG_TAG, "RX %u bytes: %.*s", payload_len, payload_len, payload);
