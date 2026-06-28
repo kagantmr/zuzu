@@ -58,7 +58,7 @@ _Static_assert(sizeof(dhcp_msg_t) == 240, "dhcp_msg_t size");
 #define DHCP_FLAG_BROADCAST 0x8000   /* tell server to broadcast replies */
 
 /* retransmit policy, mirrors DNS's tick-driven backoff */
-#define DHCP_TIMEOUT_MS    3000     /* per-attempt timeout before retransmit */
+#define DHCP_TIMEOUT_MS    1000     /* per-attempt timeout before retransmit */
 #define DHCP_MAX_RETRIES   4        /* retransmits before restarting the DORA */
 #define DHCP_RENEW_RETRY_MS 10000   /* gap between renew/rebind retransmits */
 #define DHCP_DEFAULT_LEASE 3600u    /* fallback when the server omits option 51 */
@@ -66,8 +66,10 @@ _Static_assert(sizeof(dhcp_msg_t) == 240, "dhcp_msg_t size");
 
 /* RENEWING: T1 reached, unicast REQUEST to the leasing server.
    REBINDING: T2 reached, broadcast REQUEST to any server. */
+/* PROBING: ACK received for an initial assignment, running ARP address-conflict
+   detection on the offered IP before committing it (RFC 2131 2.2 / RFC 5227). */
 typedef enum {
-    DHCP_INIT, DHCP_SELECTING, DHCP_REQUESTING,
+    DHCP_INIT, DHCP_SELECTING, DHCP_REQUESTING, DHCP_PROBING,
     DHCP_BOUND, DHCP_RENEWING, DHCP_REBINDING
 } dhcp_state_t;
 

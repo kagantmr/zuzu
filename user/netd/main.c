@@ -12,9 +12,11 @@
 
 #include "common/globals.h"
 #include "common/timer.h"
+#include "common/netrand.h"
 #include "link/eth.h"
 #include "link/arp.h"
 #include "transport/udp.h"
+#include "transport/tcp.h"
 #include "transport/port.h"
 
 #include "app/dns.h"
@@ -29,8 +31,8 @@ netif_t netif; /* filled at startup (htonl isn't constant); DHCP overwrites late
 
 #define LEGACY_POLL_CAP 50u
 
-static void udp_echo_handler(ipv4_addr_t src_ip, uint16_t src_port,
-                             uint16_t dst_port, const uint8_t *data, uint16_t len)
+static void udp_echo_handler(ipv4_addr_t src_ip, port_t src_port,
+                             port_t dst_port, const uint8_t *data, uint16_t len)
 {
     LOG_INFO(LOG_TAG, "UDP packet, from: %u.%u.%u.%u:%d, to: %u.%u.%u.%u:%d",
              IP4(src_ip), src_port, IP4(netif.ip), dst_port);
@@ -38,10 +40,12 @@ static void udp_echo_handler(ipv4_addr_t src_ip, uint16_t src_port,
 }
 
 static __attribute__((cold)) void on_resolved(const char *name, ipv4_addr_t ip, int status) {
-    if (status == ZUZU_OK)
+    if (status == ZUZU_OK) {
         LOG_INFO(LOG_TAG, "%s -> %u.%u.%u.%u", name, IP4(ip));
-    else
+        tcp_connect(ip, 80);
+    } else {
         LOG_INFO(LOG_TAG, "%s failed: %d", name, status);
+    }
 }
 
 /* Fires once the lease is first acquired: the network is now usable. */
@@ -49,6 +53,7 @@ static __attribute__((cold)) void on_dhcp_bound(void) {
     LOG_INFO(LOG_TAG, "network up: ip %u.%u.%u.%u gw %u.%u.%u.%u dns %u.%u.%u.%u",
              IP4(netif.ip), IP4(netif.gateway), IP4(netif.dns));
     dns_query("google.com", on_resolved);   /* smoke test now that we have DNS */
+    
 }
 
 __attribute__((cold)) int get_shm() {
@@ -117,6 +122,7 @@ int main() {
     }
 
     timer_init();
+    netrand_init();
     
     arp_init();
     udp_init();

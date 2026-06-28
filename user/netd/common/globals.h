@@ -17,6 +17,7 @@
 
 
 typedef uint32_t ipv4_addr_t;
+typedef uint16_t port_t;
 typedef uint8_t mac_addr_t[6];
 
 /* One network interface's L2/L3 config. */

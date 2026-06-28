@@ -3,6 +3,7 @@
 
 #include <zuzu/types.h>
 #include <stdbool.h>
+#include "../common/globals.h"   /* port_t */
 
 /* Local UDP port allocator. Owns the namespace of source ports netd binds, so
    ephemeral clients (DNS) and protocol-mandated clients (DHCP's 68) never
@@ -17,12 +18,12 @@ void port_init(void);
 
 /* Claim a specific local port (for protocol-fixed ports like DHCP's 68).
    Returns false if the port is 0 or already held. */
-bool port_reserve(uint16_t port);
+bool port_reserve(port_t port);
 
 /* Claim an unused port from the ephemeral range. Returns 0 if none are free. */
-uint16_t port_alloc(void);
+port_t port_alloc(void);
 
 /* Release a port previously taken via port_reserve()/port_alloc(). */
-void port_release(uint16_t port);
+void port_release(port_t port);
 
 #endif
