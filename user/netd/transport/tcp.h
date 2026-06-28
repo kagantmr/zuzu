@@ -2,6 +2,7 @@
 #define TCP_H
 
 #include "../common/globals.h"
+#include "../common/timer.h"
 #include <zuzu/types.h>
 
 typedef struct __attribute__((packed)) {
@@ -25,6 +26,8 @@ _Static_assert(sizeof(tcp_hdr_t) == 20, "TCP header size");
 #define TCP_ACK 0x10
 
 #define TCP_MAX_PCB 64
+#define TCP_RTO_MAX 1000
+#define TCP_SND_BUF 512
 #define TCP_DEFAULT_WINDOW 8192
 
 typedef enum {
@@ -43,6 +46,11 @@ typedef struct {
     uint32_t snd_una;
     uint32_t rcv_nxt;
     bool active;
+    uint8_t  snd_buf[TCP_SND_BUF];   /* e.g. 512 bytes */
+    uint16_t snd_len;                /* how many bytes held */
+    uint32_t snd_seq;                /* seqno of snd_buf[0] */
+    timer_handle_t rto_timer;
+    uint32_t rto_ms;                 /* current backoff value */
 } tcp_pcb_t;
 
 int tcp_connect(ipv4_addr_t remote_ip, port_t remote_port); // , callback later)
