@@ -12,8 +12,54 @@
 
 static arp_entry_t arp_table[ARP_MAX_ENTRIES];
 
+/* In-flight RFC 5227 conflict detection. Only one tentative address is probed at
+   a time (DHCP validates a single offered lease). */
+static struct {
+    bool        active;
+    ipv4_addr_t ip;                     /* tentative address under test */
+    uint8_t     probes;                 /* probes sent so far */
+    uint32_t    next_ms;                /* when to send the next probe / declare free */
+    void      (*on_result)(bool conflict);
+} acd;
+
 __attribute__((cold)) void arp_init() {
     memset(arp_table, 0, sizeof(arp_table)); /* every slot ARP_FREE */
+    memset(&acd, 0, sizeof(acd));
+}
+
+/* An ACD probe is an ARP request with the sender protocol address left at
+   0.0.0.0 (RFC 5227 2.1.1): it asks "who has ip" without claiming ip ourselves. */
+static __attribute__((cold)) void arp_acd_probe(ipv4_addr_t ip) {
+    arp_packet_t pkt;
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.htype = htons(1);
+    pkt.ptype = htons(ETH_TYPE_IP);
+    pkt.hlen = 6;
+    pkt.plen = 4;
+    pkt.oper = htons(ARP_OPER_REQST);
+    memcpy(pkt.sha, netif.mac, 6); /* our MAC; spa stays 0.0.0.0 */
+    memcpy(pkt.tpa, &ip, 4);
+    mac_addr_t dst_mac = BROADCAST_MAC;
+    eth_tx(dst_mac, ETH_TYPE_ARP, (uint8_t *)&pkt, sizeof(arp_packet_t));
+}
+
+void arp_acd_start(ipv4_addr_t ip, void (*on_result)(bool conflict)) {
+    acd.active    = true;
+    acd.ip        = ip;
+    acd.probes    = 0;
+    acd.next_ms   = net_now_ms();  /* first probe goes out on the next arp_tick */
+    acd.on_result = on_result;
+}
+
+/* End the probe and report the verdict. The callback may start a fresh probe
+   (e.g. DHCP declining and re-running DORA), so snapshot and clear first. */
+static void arp_acd_finish(bool conflict) {
+    if (!acd.active)
+        return;
+    acd.active = false;
+    void (*cb)(bool) = acd.on_result;
+    if (cb)
+        cb(conflict);
 }
 
 static arp_entry_t *arp_find(ipv4_addr_t ip) {
@@ -133,6 +179,22 @@ void arp_send_frame(ipv4_addr_t ip, uint16_t ethertype, txframe_t *f) {
 
 void arp_tick(void) {
     uint32_t now = net_now_ms();
+
+    /* Drive in-flight address-conflict detection: space out the probes, then
+       declare the address free once they all go unanswered. A conflicting reply
+       short-circuits this from arp_rx. */
+    if (acd.active && (int32_t)(now - acd.next_ms) >= 0) {
+        if (acd.probes < ACD_PROBE_NUM) {
+            arp_acd_probe(acd.ip);
+            acd.probes++;
+            acd.next_ms = now + ACD_PROBE_MS;
+            LOG_INFO(LOG_TAG, "ACD probe %u for %u.%u.%u.%u",
+                     acd.probes, IP4(acd.ip));
+        } else {
+            arp_acd_finish(false);     /* no answer: address is free */
+        }
+    }
+
     for (int i = 0; i < ARP_MAX_ENTRIES; i++) {
         arp_entry_t *e = &arp_table[i];
         if (e->state == ARP_INCOMPLETE) {
@@ -168,6 +230,19 @@ int arp_rx(uint8_t *data, uint16_t len) {
 
     ipv4_addr_t spa;
     memcpy(&spa, pkt->spa, 4);
+
+    /* RFC 5227 conflict: while probing a tentative address, any packet from a
+       different host that either sources from it (spa == acd.ip) or simultaneously
+       probes it (spa == 0, tpa == acd.ip) means the address is taken. */
+    if (acd.active && memcmp(pkt->sha, netif.mac, 6) != 0) {
+        ipv4_addr_t tpa;
+        memcpy(&tpa, pkt->tpa, 4);
+        if (spa == acd.ip || (spa == 0 && tpa == acd.ip)) {
+            LOG_WARN(LOG_TAG, "ACD: %u.%u.%u.%u already in use", IP4(acd.ip));
+            arp_acd_finish(true);
+        }
+    }
+
     arp_learn(spa, pkt->sha);
 
     uint16_t op = ntohs(pkt->oper);

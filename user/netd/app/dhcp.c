@@ -1,10 +1,15 @@
 #include "dhcp.h"
 #include "../common/globals.h"
+#include "../link/arp.h"
 #include "../transport/udp.h"
 #include "../transport/port.h"
 #include <stddef.h>
 #include <convert.h>
 #include <zuzu/log.h>
+
+/* RFC 2131 caps the safe DHCP message size at 576 bytes; our ACKs are far
+   smaller. Big enough to stash one while ACD runs against the offered IP. */
+#define DHCP_ACK_BUFSZ 576
 
 static struct {
     dhcp_state_t state;
@@ -20,6 +25,8 @@ static struct {
     uint32_t     t2_secs;        /* rebind threshold (lease*7/8) */
     dhcp_bound_cb_t on_bound;    /* first-bind notification, may be NULL */
     bool         notified;       /* on_bound already fired? */
+    uint8_t      ack_buf[DHCP_ACK_BUFSZ]; /* ACK held while ACD probes offered_ip */
+    uint16_t     ack_len;        /* bytes valid in ack_buf */
 } dhcp;
 
 static size_t dhcp_opt_u8(uint8_t *p, uint8_t code, uint8_t val)
@@ -131,6 +138,24 @@ static __attribute__((cold)) int dhcp_send_renew(ipv4_addr_t dst)
     return rc;
 }
 
+/* DHCPDECLINE (RFC 2131 4.4.4): tell the server the offered address is already
+   in use so it won't hand it out again, then restart the exchange. Broadcast,
+   ciaddr 0, carrying the declined address (option 50) and the server id. */
+static __attribute__((cold)) int dhcp_send_decline(void)
+{
+    uint8_t buf[sizeof(dhcp_msg_t) + 64];
+
+    size_t len = dhcp_build(buf);
+
+    len += dhcp_opt_u8(buf + len, DHCP_OPT_MSGTYPE, DHCP_DECLINE);
+    len += dhcp_opt_u32(buf + len, DHCP_OPT_REQ_IP, dhcp.offered_ip);
+    len += dhcp_opt_u32(buf + len, DHCP_OPT_SERVER_ID, dhcp.server_id);
+
+    buf[len++] = DHCP_OPT_END;
+
+    return udp_tx(BROADCAST_IP, DHCP_CLIENT_PORT, DHCP_SERVER_PORT, buf, len);
+}
+
 static const uint8_t *dhcp_find_option(const uint8_t *data, uint16_t len,
                                        uint8_t code, uint8_t *out_len)
 {
@@ -201,8 +226,34 @@ static __attribute__((cold)) void dhcp_enter_bound(const uint8_t *data, uint16_t
     }
 }
 
-static __attribute__((cold)) void dhcp_recv(ipv4_addr_t src_ip, uint16_t src_port,
-                      uint16_t dst_port, const uint8_t *data, uint16_t len)
+/* ARP conflict-detection verdict for the offered IP. On a conflict, decline the
+   lease and restart DORA so the server picks a different address; otherwise the
+   stashed ACK is now safe to commit. */
+static __attribute__((cold)) void dhcp_acd_done(bool conflict)
+{
+    if (conflict) {
+        LOG_WARN(LOG_TAG, "%u.%u.%u.%u in use, declining lease", IP4(dhcp.offered_ip));
+        dhcp_send_decline();
+        dhcp_restart();
+        return;
+    }
+    dhcp_enter_bound(dhcp.ack_buf, dhcp.ack_len);
+}
+
+/* Stash the ACK (the UDP buffer won't outlive this call) and probe the offered
+   address before committing it. dhcp_acd_done resumes once ACD reports back. */
+static __attribute__((cold)) void dhcp_begin_acd(const uint8_t *data, uint16_t len)
+{
+    if (len > DHCP_ACK_BUFSZ) len = DHCP_ACK_BUFSZ;
+    memcpy(dhcp.ack_buf, data, len);
+    dhcp.ack_len = len;
+    dhcp.state   = DHCP_PROBING;
+    LOG_INFO(LOG_TAG, "probing %u.%u.%u.%u before binding", IP4(dhcp.offered_ip));
+    arp_acd_start(dhcp.offered_ip, dhcp_acd_done);
+}
+
+static __attribute__((cold)) void dhcp_recv(ipv4_addr_t src_ip, port_t src_port,
+                      port_t dst_port, const uint8_t *data, uint16_t len)
 {
     if (len < sizeof(dhcp_msg_t)) return;
     const dhcp_msg_t *m = (const dhcp_msg_t *)data;
@@ -230,7 +281,10 @@ static __attribute__((cold)) void dhcp_recv(ipv4_addr_t src_ip, uint16_t src_por
         /* refresh which server holds the lease (relevant after a rebind) */
         p = dhcp_find_option(data, len, DHCP_OPT_SERVER_ID, &optlen);
         if (p && optlen == 4) memcpy(&dhcp.server_id, p, 4);
-        dhcp_enter_bound(data, len);
+        /* Initial assignment: ARP-probe the offered IP before committing it.
+           Renew/rebind already own the address, so bind straight away. */
+        if (renewing) dhcp_enter_bound(data, len);
+        else          dhcp_begin_acd(data, len);
 
     } else if ((dhcp.state == DHCP_REQUESTING || renewing) && msgtype == DHCP_NAK) {
         dhcp_restart();                              /* lease refused: start over */
@@ -263,6 +317,9 @@ void dhcp_tick(void)
     switch (dhcp.state) {
     case DHCP_INIT:
         return;                                  /* nothing in flight */
+
+    case DHCP_PROBING:
+        return;                                  /* ACD runs on arp_tick's clock */
 
     case DHCP_SELECTING:
     case DHCP_REQUESTING:

@@ -345,7 +345,9 @@ sdimg-clean:
 sdimg-recreate: sdimg-clean sdimg
 
 # Run / debug targets
-.PHONY: run debug
+.PHONY: run run-pcap debug
+
+PCAP_FILE ?= /tmp/zuzu.pcap
 
 QEMU_MACHINE = $(QEMU_MACH_$(BOARD))
 QEMU_CPU     = $(QEMU_CPU_$(BOARD))
@@ -356,6 +358,22 @@ run: $(TARGET)
 	    -kernel $(TARGET) -dtb $(DTB_FILE) -nographic \
 	    -drive file=$(SD_IMG),if=sd,format=raw \
 	    -nic user,model=lan9118
+
+run-bridged: $(TARGET)
+	@echo "  QEMU    $(TARGET) [bridged]"
+	@sudo qemu-system-arm -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m 64M \
+	    -kernel $(TARGET) -dtb $(DTB_FILE) -nographic \
+	    -drive file=$(SD_IMG),if=sd,format=raw \
+	    -nic vmnet-bridged,model=lan9118,ifname=en0,mac=52:54:00:ab:cd:ef
+
+run-pcap: $(TARGET)
+	@echo "  QEMU    $(TARGET) [pcap -> $(PCAP_FILE)]"
+	@qemu-system-arm -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m 64M \
+	    -kernel $(TARGET) -dtb $(DTB_FILE) -nographic \
+	    -drive file=$(SD_IMG),if=sd,format=raw \
+	    -net nic,model=lan9118 -net user,id=n0 \
+	    -object filter-dump,id=f0,netdev=n0,file=$(PCAP_FILE)
+	@echo "  PCAP    wrote $(PCAP_FILE) (read with: tcpdump -nr $(PCAP_FILE))"
 
 debug: $(TARGET)
 	@echo "  QEMU    $(TARGET) (debug)"

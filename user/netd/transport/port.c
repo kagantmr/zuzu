@@ -3,8 +3,8 @@
 /* Sized to the demux table: every held port ends up bound there too. */
 #define PORT_MAX_HELD 64
 
-static uint16_t held[PORT_MAX_HELD];
-static uint16_t next_ephemeral; /* rotating cursor, so freed ports aren't reused at once */
+static port_t held[PORT_MAX_HELD];
+static port_t next_ephemeral; /* rotating cursor, so freed ports aren't reused at once */
 
 __attribute__((cold)) void port_init(void) {
     for (int i = 0; i < PORT_MAX_HELD; i++)
@@ -12,7 +12,7 @@ __attribute__((cold)) void port_init(void) {
     next_ephemeral = PORT_EPHEMERAL_MIN;
 }
 
-static bool is_held(uint16_t port) {
+static bool is_held(port_t port) {
     for (int i = 0; i < PORT_MAX_HELD; i++)
         if (held[i] == port)
             return true;
@@ -20,7 +20,7 @@ static bool is_held(uint16_t port) {
 }
 
 /* Record ownership of an unheld port; false when the table is full. */
-static bool hold(uint16_t port) {
+static bool hold(port_t port) {
     for (int i = 0; i < PORT_MAX_HELD; i++) {
         if (held[i] == 0) {
             held[i] = port;
@@ -30,16 +30,16 @@ static bool hold(uint16_t port) {
     return false;
 }
 
-__attribute__((cold)) bool port_reserve(uint16_t port) {
+__attribute__((cold)) bool port_reserve(port_t port) {
     if (port == 0 || is_held(port))
         return false;
     return hold(port);
 }
 
-__attribute__((cold)) uint16_t port_alloc(void) {
+__attribute__((cold)) port_t port_alloc(void) {
     uint32_t span = PORT_EPHEMERAL_MAX - PORT_EPHEMERAL_MIN + 1;
     for (uint32_t i = 0; i < span; i++) {
-        uint16_t port = next_ephemeral;
+        port_t port = next_ephemeral;
         next_ephemeral = (next_ephemeral == PORT_EPHEMERAL_MAX)
                        ? PORT_EPHEMERAL_MIN : (uint16_t)(next_ephemeral + 1);
         if (!is_held(port) && hold(port))
@@ -48,7 +48,7 @@ __attribute__((cold)) uint16_t port_alloc(void) {
     return 0; /* every ephemeral port is held */
 }
 
-__attribute__((cold)) void port_release(uint16_t port) {
+__attribute__((cold)) void port_release(port_t port) {
     for (int i = 0; i < PORT_MAX_HELD; i++) {
         if (held[i] == port) {
             held[i] = 0;

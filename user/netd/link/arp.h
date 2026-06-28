@@ -29,6 +29,12 @@ typedef struct __attribute__((packed))
 #define ARP_PROBE_MS 1000
 #define ARP_REACHABLE_MS 60000
 
+/* RFC 5227 address-conflict detection: number of probes and their spacing.
+   Total detection window is ACD_PROBE_NUM * ACD_PROBE_MS before an address is
+   declared free. */
+#define ACD_PROBE_NUM 3
+#define ACD_PROBE_MS  1000
+
 typedef enum
 {
     ARP_FREE = 0,
@@ -67,5 +73,14 @@ int arp_lookup(ipv4_addr_t ip, uint8_t *mac_out);
 void arp_send_frame(ipv4_addr_t ip, uint16_t ethertype, txframe_t *f);
 /* Drive ARP retransmits and cache aging; call once per netd event-loop wake. */
 void arp_tick(void);
+
+/* RFC 5227 address-conflict detection. Probe `ip` with gratuitous ARP requests
+   (sender protocol address 0.0.0.0, so caches are not polluted with a yet-to-be
+   -claimed address) and report the verdict via on_result: true if another host
+   already answers for `ip`, false if it appears free after ACD_PROBE_NUM probes.
+   on_result fires asynchronously, driven by arp_tick / arp_rx. DHCP uses this to
+   validate an offered lease before committing it. A new call replaces any probe
+   already in flight. */
+void arp_acd_start(ipv4_addr_t ip, void (*on_result)(bool conflict));
 
 #endif /* NETD_ARP_H */
