@@ -108,6 +108,14 @@ static int tcp_output(tcp_pcb_t *pcb, uint8_t flags, const uint8_t *data, uint16
     return ZUZU_OK;
 }
 
+static void time_wait_cb(void *arg) {
+    tcp_pcb_t *pcb = (tcp_pcb_t *)arg;
+    int idx = pcb - pcbs;              /* pointer → index */
+    port_release(pcb->local_port);
+    pcb_free(idx);
+    LOG_INFO(LOG_TAG, "TIME_WAIT expired, connection freed");
+}
+
 int tcp_send(int idx, const uint8_t *data, uint16_t len) {
     tcp_pcb_t *pcb = &pcbs[idx];
     if (pcb->state != TCP_ESTABLISHED) return ERR_SYSDOWN;
@@ -191,6 +199,60 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
                 pcb->rcv_nxt += payload_len;
                 tcp_output(pcb, TCP_ACK, NULL, 0);            /* ack what we got */
             }
+
+            if (flags & TCP_FIN) {
+                pcb->rcv_nxt += 1;        /* their FIN's phantom byte */
+                tcp_output(pcb, TCP_ACK, NULL, 0);   /* ack their FIN */
+                pcb->state = TCP_CLOSE_WAIT;
+                LOG_INFO(LOG_TAG, "peer closed, now CLOSE_WAIT");
+                tcp_close(slot);
+            }
+        } break;
+        case TCP_FIN_WAIT_1: {
+            if ((int32_t)(ack - pcb->snd_una) > 0)
+                pcb->snd_una = ack;
+
+            bool our_fin_acked = ((int32_t)(pcb->snd_una - pcb->snd_nxt) >= 0);
+
+            if (flags & TCP_FIN) {
+                /* their FIN arrived (with or without acking ours) */
+                pcb->rcv_nxt = their_seq + 1;
+                tcp_output(pcb, TCP_ACK, NULL, 0);
+                pcb->state = TCP_TIME_WAIT;
+                timer_arm(net_now_ms() + TCP_TIME_WAIT_MS, time_wait_cb, pcb);
+            } else if (our_fin_acked) {
+                pcb->state = TCP_FIN_WAIT_2;
+            }
+        } break;
+        case TCP_FIN_WAIT_2: {
+            if (flags & TCP_FIN) {
+                pcb->rcv_nxt = their_seq + 1;
+                tcp_output(pcb, TCP_ACK, NULL, 0);
+                pcb->state = TCP_TIME_WAIT;
+                timer_arm(net_now_ms() + TCP_TIME_WAIT_MS, time_wait_cb, pcb);
+            }
+        } break;
+        case TCP_LAST_ACK: {
+            if ((int32_t)(ack - pcb->snd_una) > 0) {
+                pcb->snd_una = ack;
+                if ((int32_t)(pcb->snd_una - pcb->snd_nxt) >= 0) {   /* our FIN acked */
+                    port_release(pcb->local_port);
+                    pcb_free(slot);
+                    LOG_INFO(LOG_TAG, "LAST_ACK done, connection freed");
+                }
+            }
         } break;
     }
+}
+
+int tcp_close(int idx) {
+    tcp_pcb_t *pcb = &pcbs[idx];
+    int rc = tcp_output(pcb, TCP_FIN | TCP_ACK, NULL, 0);
+    if (rc == 0) {
+        if (pcb->state == TCP_ESTABLISHED)
+            pcb->state = TCP_FIN_WAIT_1;      /* active close */
+        else if (pcb->state == TCP_CLOSE_WAIT)
+            pcb->state = TCP_LAST_ACK;        /* passive close */
+    }
+    return rc;
 }
