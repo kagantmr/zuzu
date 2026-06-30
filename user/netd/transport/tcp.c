@@ -27,6 +27,7 @@ static void pcb_free(int h) {
 }
 
 static int pcb_find(ipv4_addr_t local_ip, port_t local_port, ipv4_addr_t remote_ip, port_t remote_port) {
+    // exact match
     for (int i = 0; i < TCP_MAX_PCB; i++) {
         if (pcbs[i].local_ip == local_ip &&
             pcbs[i].local_port == local_port &&
@@ -37,6 +38,18 @@ static int pcb_find(ipv4_addr_t local_ip, port_t local_port, ipv4_addr_t remote_
     }
     return ERR_NOMATCH;
 } 
+
+static int pcb_find_listener(ipv4_addr_t local_ip, port_t local_port) {
+    for (int i = 0; i < TCP_MAX_PCB; i++) {
+        if (pcbs[i].active &&
+            pcbs[i].state == TCP_LISTENING &&    
+            pcbs[i].local_ip == local_ip &&
+            pcbs[i].local_port == local_port) {
+            return i;
+        }
+    }
+    return ERR_NOMATCH;
+}
 
 static uint16_t tcp_checksum(ipv4_addr_t src_ip, ipv4_addr_t dst_ip,
                              const uint8_t *seg, uint16_t seg_len) {
@@ -111,6 +124,7 @@ static int tcp_output(tcp_pcb_t *pcb, uint8_t flags, const uint8_t *data, uint16
 static void time_wait_cb(void *arg) {
     tcp_pcb_t *pcb = (tcp_pcb_t *)arg;
     int idx = pcb - pcbs;              /* pointer → index */
+    timer_cancel(pcb->rto_timer);
     port_release(pcb->local_port);
     pcb_free(idx);
     LOG_INFO(LOG_TAG, "TIME_WAIT expired, connection freed");
@@ -155,13 +169,19 @@ int tcp_connect(ipv4_addr_t remote_ip, port_t remote_port) {
 void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_t len) {
     if (len < sizeof(tcp_hdr_t)) return;
     if (tcp_checksum(src_ip, dst_ip, data, len)) return;
+
     tcp_hdr_t *th = (tcp_hdr_t *)data;
-    int slot = pcb_find(netif.ip, ntohs(th->dst_port), src_ip, ntohs(th->src_port));
-    if (slot < 0) return; //todo: listener check or rst 
-    tcp_pcb_t *pcb = &pcbs[slot];
     uint32_t their_seq = ntohl(th->seq);
     uint32_t ack = ntohl(th->ack);
     uint8_t flags = th->flags;
+
+    int slot = pcb_find(netif.ip, ntohs(th->dst_port), src_ip, ntohs(th->src_port));
+    if (slot < 0) {
+        if ((flags & TCP_SYN) && !(flags & TCP_ACK))
+            slot = pcb_find_listener(netif.ip, ntohs(th->dst_port));
+        if (slot < 0) return;   /* todo: RST */
+    }
+    tcp_pcb_t *pcb = &pcbs[slot];
 
     switch(pcb->state) {
         case TCP_SYN_SENT: {
@@ -171,12 +191,13 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
                 pcb->state = TCP_ESTABLISHED;
                 tcp_output(pcb, TCP_ACK, NULL, 0);
 
+                /*
                 const char *req =
                     "GET / HTTP/1.0\r\n"
                     "Host: www.google.com\r\n"
                     "User-Agent: ZuzuOS/1.0 (Scottish Fold; netd)\r\n"
                     "\r\n";
-                tcp_send(slot, (const uint8_t *)req, strlen(req));
+                tcp_send(slot, (const uint8_t *)req, strlen(req));*/
             }
         } break;
         case TCP_ESTABLISHED: {
@@ -198,6 +219,17 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
                 /* (later: hand bytes to the app; for now just log/peek) */
                 pcb->rcv_nxt += payload_len;
                 tcp_output(pcb, TCP_ACK, NULL, 0);            /* ack what we got */
+                static const char *resp =
+                    "HTTP/1.0 200 OK\r\n"
+                    "Content-Type: text/html\r\n"
+                    "Connection: close\r\n"
+                    "\r\n"
+                    "<html><body><h1>Hello from ZuzuOS!</h1>"
+                    "<p>Served by netd, powered by the Zuzu microkernel.</p>"
+                    "</body></html>\r\n";
+
+                tcp_send(slot, (const uint8_t *)resp, strlen(resp));
+                tcp_close(slot);                            /* close after responding */
             }
 
             if (flags & TCP_FIN) {
@@ -212,6 +244,11 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
             if ((int32_t)(ack - pcb->snd_una) > 0)
                 pcb->snd_una = ack;
 
+            if (pcb->snd_len && (int32_t)(ack - (pcb->snd_seq + pcb->snd_len)) >= 0) {
+                pcb->snd_len = 0;
+                timer_cancel(pcb->rto_timer);
+                LOG_INFO(LOG_TAG, "response acknowledged");
+            }
             bool our_fin_acked = ((int32_t)(pcb->snd_una - pcb->snd_nxt) >= 0);
 
             if (flags & TCP_FIN) {
@@ -236,13 +273,53 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
             if ((int32_t)(ack - pcb->snd_una) > 0) {
                 pcb->snd_una = ack;
                 if ((int32_t)(pcb->snd_una - pcb->snd_nxt) >= 0) {   /* our FIN acked */
+                    timer_cancel(pcb->rto_timer);
                     port_release(pcb->local_port);
                     pcb_free(slot);
                     LOG_INFO(LOG_TAG, "LAST_ACK done, connection freed");
                 }
             }
         } break;
+        case TCP_LISTENING: {
+            if ((flags & TCP_SYN) && !(flags & TCP_ACK)) {
+                int nidx = pcb_alloc();
+                if (nidx < 0) return;              /* no slot; todo: RST */
+                tcp_pcb_t *np = &pcbs[nidx];
+                memset(np, 0, sizeof(*np));
+                np->active = true;
+                np->local_ip = netif.ip;
+                np->local_port = pcb->local_port;   /* same port we listen on */
+                np->remote_ip = src_ip;
+                np->remote_port = ntohs(th->src_port);
+                np->rcv_nxt = their_seq + 1;        /* their SYN's phantom byte */
+                np->snd_nxt = netrand_u32();        /* our ISN */
+                np->snd_una = np->snd_nxt;
+                np->rto_ms = 1000;
+                np->state = TCP_SYN_RCVD;
+                tcp_output(np, TCP_SYN | TCP_ACK, NULL, 0);   /* SYN-ACK */
+                LOG_INFO(LOG_TAG, "SYN from %u.%u.%u.%u, now SYN_RCVD", IP4(src_ip));
+            }
+        } break;
+        case TCP_SYN_RCVD: {
+            if (flags & TCP_ACK && ack == pcb->snd_nxt) {
+                pcb->snd_una = ack;
+                pcb->state = TCP_ESTABLISHED;
+                LOG_INFO(LOG_TAG, "handshake complete, ESTABLISHED (server)");
+            }
+        } break;
     }
+}
+
+int tcp_listen(int port) {
+    int slot = pcb_alloc();
+    if (slot < 0) return ERR_NOMEM;
+    tcp_pcb_t *pcb = &pcbs[slot];
+    memset(pcb, 0, sizeof(*pcb));     /* clear stale state from prior use */
+    pcb->active = true;               /* memset cleared it, set it back */
+    pcb->local_ip = netif.ip;
+    pcb->local_port = port;
+    pcb->state = TCP_LISTENING;
+    return slot;
 }
 
 int tcp_close(int idx) {
