@@ -39,7 +39,9 @@ typedef enum {
     TCP_FIN_WAIT_2,   /* our FIN acked, waiting for their FIN */
     TCP_TIME_WAIT,    /* got their FIN, linger before close */
     TCP_CLOSE_WAIT,   /* they sent FIN first (passive close) */
-    TCP_LAST_ACK      /* passive close: we sent our FIN, waiting for ack */
+    TCP_LAST_ACK,      /* passive close: we sent our FIN, waiting for ack */
+    TCP_LISTENING,
+    TCP_SYN_RCVD
 } tcp_state_t;
 
 typedef struct {
@@ -62,6 +64,7 @@ typedef struct {
 int tcp_connect(ipv4_addr_t remote_ip, port_t remote_port); // , callback later)
 void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_t len);
 int tcp_send(int idx, const uint8_t *data, uint16_t len);
+int tcp_listen(int port);
 int tcp_close(int idx);
 
 #endif

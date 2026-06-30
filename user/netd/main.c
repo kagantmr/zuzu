@@ -42,7 +42,9 @@ static void udp_echo_handler(ipv4_addr_t src_ip, port_t src_port,
 static __attribute__((cold)) void on_resolved(const char *name, ipv4_addr_t ip, int status) {
     if (status == ZUZU_OK) {
         LOG_INFO(LOG_TAG, "%s -> %u.%u.%u.%u", name, IP4(ip));
-        tcp_connect(ip, 80);
+        //tcp_connect(ip, 80);
+        int s = tcp_listen(80);
+        LOG_INFO(LOG_TAG, "listening on :80 (slot %d)", s);
     } else {
         LOG_INFO(LOG_TAG, "%s failed: %d", name, status);
     }
