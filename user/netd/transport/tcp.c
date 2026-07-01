@@ -67,30 +67,27 @@ static uint16_t tcp_checksum(ipv4_addr_t src_ip, ipv4_addr_t dst_ip,
 }
 
 static int tcp_output(tcp_pcb_t *pcb, uint8_t flags, const uint8_t *data, uint16_t data_len);
+static int tcp_xmit(tcp_pcb_t *pcb);
 
 void rto_cb(void *arg) {
     tcp_pcb_t *pcb = (tcp_pcb_t *)arg;
-    if (pcb->snd_len == 0) return;      /* already acked, nothing to resend */
+    if (pcb->snd_nxt == pcb->snd_una) return; // window empty, don't do anything
 
     /* exponential backoff, capped */
-    pcb->rto_ms *= 2;
+    pcb->rto_ms *= 2; // todo: RTT estimation later
     if (pcb->rto_ms > TCP_RTO_MAX) pcb->rto_ms = TCP_RTO_MAX;
 
-    LOG_INFO(LOG_TAG, "RTO fired: retransmit %u bytes @ seq %u (rto now %u ms)",
-             (uint32_t)pcb->snd_len, pcb->snd_seq, pcb->rto_ms);
+    LOG_INFO(LOG_TAG, "RTO fired: snd_nxt=%u snd_una=%u (rto now %u ms)",
+             (uint32_t)pcb->snd_nxt, pcb->snd_una, pcb->rto_ms);
 
-    /* resend the buffered segment at its ORIGINAL seq, then restore snd_nxt
-     * (tcp_output advances snd_nxt by data_len). */
-    uint32_t saved_nxt = pcb->snd_nxt;
-    pcb->snd_nxt = pcb->snd_seq;
-    tcp_output(pcb, TCP_ACK, pcb->snd_buf, pcb->snd_len);
-    pcb->snd_nxt = saved_nxt;
+    pcb->snd_nxt = pcb->snd_una;
+    tcp_xmit(pcb);
 
     pcb->rto_timer = timer_arm(net_now_ms() + pcb->rto_ms, rto_cb, pcb);
 }
 
 static int tcp_output(tcp_pcb_t *pcb, uint8_t flags, const uint8_t *data, uint16_t data_len) {
-    uint8_t buf[sizeof(tcp_hdr_t) + 256];      /* header + bit of data */
+    uint8_t buf[sizeof(tcp_hdr_t) + TCP_MSS];      /* header + bit of data */
     tcp_hdr_t *th = (tcp_hdr_t *)buf;
 
     th->src_port   = htons(pcb->local_port);
@@ -130,19 +127,49 @@ static void time_wait_cb(void *arg) {
     LOG_INFO(LOG_TAG, "TIME_WAIT expired, connection freed");
 }
 
+static int tcp_xmit(tcp_pcb_t *pcb) {
+    size_t in_flight = pcb->snd_nxt - pcb->snd_una;
+    bool sent = false;
+    while (1) {   
+        size_t unsent = (pcb->snd_una + pcb->buffered_bytes) - pcb->snd_nxt;
+        if (!unsent) break;
+        sent = true;
+        size_t seglen = MIN(unsent, TCP_MSS);
+        uint8_t data[TCP_MSS];
+        size_t off = pcb->snd_nxt & (TCP_SND_BUF - 1);
+        size_t first = MIN(seglen, TCP_SND_BUF - off);                     
+        memcpy(data, pcb->buf + off, first);
+        if (first < seglen) {
+            memcpy(data + first, pcb->buf, seglen - first);
+        }
+        int rc = tcp_output(pcb, TCP_ACK, data, seglen);
+        if (rc != ZUZU_OK) {
+            return rc;
+        }
+    }
+    if (!in_flight && sent) {
+        pcb->rto_timer = timer_arm(net_now_ms() + pcb->rto_ms, rto_cb, pcb);
+    }
+    return ZUZU_OK;
+}
+
+
 int tcp_send(int idx, const uint8_t *data, uint16_t len) {
     tcp_pcb_t *pcb = &pcbs[idx];
     if (pcb->state != TCP_ESTABLISHED) return ERR_SYSDOWN;
-    uint32_t snd_seq = pcb->snd_nxt;
-    int rc = tcp_output(pcb, TCP_ACK, data, len);
-    if (rc == 0) {
-        memcpy(pcb->snd_buf, data, len);
-        pcb->snd_len = len;
-        pcb->snd_seq = snd_seq;
-        pcb->rto_timer = timer_arm(net_now_ms() + pcb->rto_ms, rto_cb, pcb);
-        return ZUZU_OK;
+    LOG_INFO(LOG_TAG, "Buffered bytes: %u", pcb->buffered_bytes);
+    size_t free = TCP_SND_BUF - pcb->buffered_bytes;
+    if (free == 0) return 0; // backpressure
+    size_t n = MIN(len, free);
+    size_t off   = (pcb->snd_una + pcb->buffered_bytes) & (TCP_SND_BUF - 1);   // where the write starts
+    size_t first = MIN(n, TCP_SND_BUF - off);                                  // bytes before hitting the physical end
+    memcpy(pcb->buf + off, data, first);
+    if (first < n) {
+        memcpy(pcb->buf, data + first, n - first);
     }
-    return rc;
+    pcb->buffered_bytes += n;
+    tcp_xmit(pcb);
+    return n;
 }
 
 int tcp_connect(ipv4_addr_t remote_ip, port_t remote_port) {
@@ -206,17 +233,21 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
             uint16_t payload_len = len - hdr_len;
 
             if ((int32_t)(ack - pcb->snd_una) > 0) {
+                size_t delta = ack - pcb->snd_una;   // how many bytes got confirmed
                 pcb->snd_una = ack;
-                if ((int32_t)(pcb->snd_una - (pcb->snd_seq + pcb->snd_len)) >= 0) {
-                    pcb->snd_len = 0;
+                pcb->buffered_bytes -= MIN(delta, pcb->buffered_bytes);
+                if (pcb->snd_nxt == pcb->snd_una) {
                     timer_cancel(pcb->rto_timer);
                     LOG_INFO(LOG_TAG, "data acked, RTO cancelled");
+                } else {
+                    timer_cancel(pcb->rto_timer);
+                    pcb->rto_timer = timer_arm(net_now_ms() + pcb->rto_ms, rto_cb, pcb);
+                    LOG_INFO(LOG_TAG, "partially acked, RTO restarted");
                 }
             }
 
             if (payload_len && their_seq == pcb->rcv_nxt) {   /* in-order data */
                 LOG_INFO(LOG_TAG, "RX %u bytes: %.*s", payload_len, payload_len, payload);
-                /* (later: hand bytes to the app; for now just log/peek) */
                 pcb->rcv_nxt += payload_len;
                 tcp_output(pcb, TCP_ACK, NULL, 0);            /* ack what we got */
                 static const char *resp =
@@ -241,13 +272,15 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
             }
         } break;
         case TCP_FIN_WAIT_1: {
-            if ((int32_t)(ack - pcb->snd_una) > 0)
-                pcb->snd_una = ack;
-
-            if (pcb->snd_len && (int32_t)(ack - (pcb->snd_seq + pcb->snd_len)) >= 0) {
-                pcb->snd_len = 0;
-                timer_cancel(pcb->rto_timer);
-                LOG_INFO(LOG_TAG, "response acknowledged");
+            if ((int32_t)(ack - pcb->snd_una) > 0) {
+                size_t delta = ack - pcb->snd_una;
+                pcb->snd_una = ack;  
+            
+                if (pcb->snd_nxt == pcb->snd_una) {
+                    pcb->buffered_bytes -= MIN(delta, pcb->buffered_bytes);
+                    timer_cancel(pcb->rto_timer);
+                    LOG_INFO(LOG_TAG, "response acknowledged");
+                }
             }
             bool our_fin_acked = ((int32_t)(pcb->snd_una - pcb->snd_nxt) >= 0);
 

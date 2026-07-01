@@ -15,6 +15,7 @@
 #define IP4(x) (unsigned)((x) & 0xff), (unsigned)(((x) >> 8) & 0xff), \
                (unsigned)(((x) >> 16) & 0xff), (unsigned)(((x) >> 24) & 0xff)
 
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 typedef uint32_t ipv4_addr_t;
 typedef uint16_t port_t;
