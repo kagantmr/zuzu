@@ -138,9 +138,9 @@ static int tcp_xmit(tcp_pcb_t *pcb) {
         uint8_t data[TCP_MSS];
         size_t off = pcb->snd_nxt & (TCP_SND_BUF - 1);
         size_t first = MIN(seglen, TCP_SND_BUF - off);                     
-        memcpy(data, pcb->buf + off, first);
+        memcpy(data, pcb->snd_buf + off, first);
         if (first < seglen) {
-            memcpy(data + first, pcb->buf, seglen - first);
+            memcpy(data + first, pcb->snd_buf, seglen - first);
         }
         int rc = tcp_output(pcb, TCP_ACK, data, seglen);
         if (rc != ZUZU_OK) {
@@ -163,9 +163,9 @@ int tcp_send(int idx, const uint8_t *data, uint16_t len) {
     size_t n = MIN(len, free);
     size_t off   = (pcb->snd_una + pcb->buffered_bytes) & (TCP_SND_BUF - 1);   // where the write starts
     size_t first = MIN(n, TCP_SND_BUF - off);                                  // bytes before hitting the physical end
-    memcpy(pcb->buf + off, data, first);
+    memcpy(pcb->snd_buf + off, data, first);
     if (first < n) {
-        memcpy(pcb->buf, data + first, n - first);
+        memcpy(pcb->snd_buf, data + first, n - first);
     }
     pcb->buffered_bytes += n;
     tcp_xmit(pcb);
@@ -185,6 +185,7 @@ int tcp_connect(ipv4_addr_t remote_ip, port_t remote_port) {
     pcb->snd_nxt = netrand_u32();
     pcb->snd_una = pcb->snd_nxt;
     pcb->rcv_nxt = 0;
+    pcb->rcv_rsq = pcb->rcv_nxt;
     pcb->rto_ms = 1000;
     pcb->state = TCP_SYN_SENT;
     int rc = tcp_output(pcb, TCP_SYN, NULL, 0);
@@ -214,6 +215,7 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
         case TCP_SYN_SENT: {
             if (((flags & TCP_SYN) && (flags & TCP_ACK)) && ack == pcb->snd_nxt) {
                 pcb->rcv_nxt = their_seq + 1;
+                pcb->rcv_rsq = pcb->rcv_nxt;
                 pcb->snd_una = ack;
                 pcb->state = TCP_ESTABLISHED;
                 tcp_output(pcb, TCP_ACK, NULL, 0);
@@ -247,8 +249,15 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
             }
 
             if (payload_len && their_seq == pcb->rcv_nxt) {   /* in-order data */
-                LOG_INFO(LOG_TAG, "RX %u bytes: %.*s", payload_len, payload_len, payload);
-                pcb->rcv_nxt += payload_len;
+                size_t used = pcb->rcv_nxt - pcb->rcv_rsq;
+                size_t free = TCP_RCV_BUF - used;
+                size_t n = MIN(payload_len, free);
+                size_t off = pcb->rcv_nxt & (TCP_RCV_BUF - 1);
+                size_t first = MIN(n, TCP_RCV_BUF - off);
+                memcpy(pcb->rcv_buf + off, payload, first);
+                if (first < n)
+                    memcpy(pcb->rcv_buf, payload + first, n - first);
+                pcb->rcv_nxt += n;
                 tcp_output(pcb, TCP_ACK, NULL, 0);            /* ack what we got */
                 static const char *resp =
                     "HTTP/1.0 200 OK\r\n"
@@ -325,6 +334,7 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
                 np->remote_ip = src_ip;
                 np->remote_port = ntohs(th->src_port);
                 np->rcv_nxt = their_seq + 1;        /* their SYN's phantom byte */
+                np->rcv_rsq = np->rcv_nxt;
                 np->snd_nxt = netrand_u32();        /* our ISN */
                 np->snd_una = np->snd_nxt;
                 np->rto_ms = 1000;
