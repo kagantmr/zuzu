@@ -31,7 +31,8 @@ int tcp_output(tcp_pcb_t *pcb, uint8_t flags, const uint8_t *data, uint16_t data
     th->ack        = (flags & TCP_ACK) ? htonl(pcb->rcv_nxt) : 0;
     th->data_offset = (5 << 4);          /* 20-byte header, no options */
     th->flags      = flags;
-    th->window     = htons(TCP_DEFAULT_WINDOW);
+    th->window     = htons(TCP_RCV_BUF - (pcb->rcv_nxt - pcb->rcv_rsq));
+    //th->window = htons(4); // crippled window for test
     th->checksum   = 0;
     th->urgent_ptr = 0;
 
@@ -58,8 +59,11 @@ int tcp_xmit(tcp_pcb_t *pcb) {
     while (1) {
         size_t unsent = (pcb->snd_una + pcb->buffered_bytes) - pcb->snd_nxt;
         if (!unsent) break;
+        size_t window_edge = pcb->snd_una + pcb->snd_wnd;
+        if ((int32_t)(window_edge - pcb->snd_nxt) <= 0) break;
+        size_t sendable = window_edge - pcb->snd_nxt;
         sent = true;
-        size_t seglen = MIN(unsent, TCP_MSS);
+        size_t seglen = MIN(MIN(unsent, sendable), TCP_MSS);
         uint8_t data[TCP_MSS];
         size_t off = pcb->snd_nxt & (TCP_SND_BUF - 1);
         size_t first = MIN(seglen, TCP_SND_BUF - off);
