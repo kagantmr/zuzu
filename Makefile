@@ -41,11 +41,11 @@ MAP           = build/zuzu.map
 
 # Board may override the arch-default cpu flags via CPUFLAGS_<board>.
 CPUFLAGS = $(if $(CPUFLAGS_$(BOARD)),$(CPUFLAGS_$(BOARD)),$(ARCH_CPUFLAGS))
-CFLAGS   = -ffreestanding -O$(OPTIMIZATION_LEVEL) -flto -fno-omit-frame-pointer \
+CFLAGS   = -ffreestanding -O$(OPTIMIZATION_LEVEL) -flto=auto -fno-omit-frame-pointer \
            -Wall -Wextra -Werror $(CPUFLAGS) -I. -Iinclude -Iarch/include -Iarch/$(ARCH)/include -MMD -MP \
            -D__KERNEL__ -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"'
 CFLAGS  += -Ivendor/libfdt
-LDFLAGS  = -nostdlib -Wl,-T,$(LINKER_SCRIPT) -Wl,-Map=$(MAP) -flto
+LDFLAGS  = -nostdlib -Wl,-T,$(LINKER_SCRIPT) -Wl,-Map=$(MAP) -flto=auto
 
 
 ifeq ($(LOG_LEVEL), 0)

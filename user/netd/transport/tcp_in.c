@@ -17,6 +17,7 @@ typedef struct {
     uint8_t        flags;
     const uint8_t *payload;
     uint16_t       payload_len;
+    uint16_t       window;
 } tcp_seg_t;
 
 /* ------------------------------------------------------------------ */
@@ -160,6 +161,8 @@ static void on_listening(tcp_pcb_t *listener, const tcp_seg_t *s) {
     np->remote_port = s->src_port;
     np->rcv_nxt = s->seq + 1;                 /* their SYN's phantom byte */
     np->rcv_rsq = np->rcv_nxt;
+    np->snd_wnd = ntohs(s->window);
+    
     np->snd_nxt = netrand_u32();              /* our ISN */
     np->snd_una = np->snd_nxt;
     np->rto_ms = 1000;
@@ -195,6 +198,7 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
         .flags       = th->flags,
         .payload     = data + hdr_len,
         .payload_len = (uint16_t)(len - hdr_len),
+        .window = ntohs(th->window)
     };
 
     int slot = tcp_pcb_find(netif.ip, ntohs(th->dst_port), src_ip, seg.src_port);
@@ -204,6 +208,7 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
         if (slot < 0) return;   /* todo: RST */
     }
     tcp_pcb_t *pcb = &tcp_pcbs[slot];
+    pcb->snd_wnd = seg.window;
 
     switch (pcb->state) {
         case TCP_SYN_SENT:    on_syn_sent(pcb, &seg);          break;

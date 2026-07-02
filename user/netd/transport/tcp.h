@@ -57,6 +57,7 @@ typedef struct {
     uint32_t snd_una;
     uint32_t rcv_nxt;
     uint32_t rcv_rsq;
+    uint16_t snd_wnd;
     bool active;
     uint8_t snd_buf[TCP_SND_BUF]; // size must be a power of 2
     size_t buffered_bytes; // how many bytes are buffered?
