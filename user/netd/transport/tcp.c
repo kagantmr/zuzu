@@ -172,6 +172,25 @@ int tcp_send(int idx, const uint8_t *data, uint16_t len) {
     return n;
 }
 
+int tcp_recv(int idx, uint8_t *buf, uint16_t sz) {   // dropped const 
+    tcp_pcb_t *pcb = &pcbs[idx];
+    if (pcb->state != TCP_ESTABLISHED) return ERR_SYSDOWN;
+
+    size_t avail = pcb->rcv_nxt - pcb->rcv_rsq;   // readable bytes
+    size_t n = MIN(sz, avail);                    // what actually fits in caller's buf
+    if (!n) return 0;
+
+    size_t off   = pcb->rcv_rsq & (TCP_RCV_BUF - 1);   // offset in the RING (source)
+    size_t first = MIN(n, TCP_RCV_BUF - off);          // bytes before ring wraps
+
+    memcpy(buf, pcb->rcv_buf + off, first);            // ring to caller, first chunk
+    if (first < n)
+        memcpy(buf + first, pcb->rcv_buf, n - first);  // wrap, rest from ring start
+
+    pcb->rcv_rsq += n;   // twin of snd_una += delta, frees buffer space
+    return n;
+}
+
 int tcp_connect(ipv4_addr_t remote_ip, port_t remote_port) {
     if (!dhcp_is_bound()) return ERR_SYSDOWN;
     int idx = pcb_alloc();
