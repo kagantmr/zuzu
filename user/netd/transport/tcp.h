@@ -71,6 +71,7 @@ _Static_assert((TCP_RCV_BUF & (TCP_RCV_BUF - 1)) == 0, "TCP_RCV_BUF must be powe
 int tcp_connect(ipv4_addr_t remote_ip, port_t remote_port); // , callback later)
 void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_t len);
 int tcp_send(int idx, const uint8_t *data, uint16_t len);
+int tcp_recv(int idx, uint8_t *buf, uint16_t sz);
 int tcp_listen(int port);
 int tcp_close(int idx);
 
