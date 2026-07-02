@@ -29,6 +29,7 @@ _Static_assert(sizeof(tcp_hdr_t) == 20, "TCP header size");
 #define TCP_MSS 1460
 #define TCP_RTO_MAX 1000
 #define TCP_SND_BUF 4096
+#define TCP_RCV_BUF 4096
 #define TCP_DEFAULT_WINDOW 8192
 #define TCP_TIME_WAIT_MS 5000   /* linger 5s before freeing (real TCP uses 2*MSL ~minutes) */
 
@@ -55,13 +56,17 @@ typedef struct {
     uint32_t snd_nxt;
     uint32_t snd_una;
     uint32_t rcv_nxt;
+    uint32_t rcv_rsq;
     bool active;
-    uint8_t buf[TCP_SND_BUF]; // size must be a power of 2
+    uint8_t snd_buf[TCP_SND_BUF]; // size must be a power of 2
     size_t buffered_bytes; // how many bytes are buffered?
+    uint8_t rcv_buf[TCP_RCV_BUF]; // size must be a power of 2
     timer_handle_t rto_timer;
     uint32_t rto_ms;                 /* current backoff value */
 } tcp_pcb_t;
 
+_Static_assert((TCP_SND_BUF & (TCP_SND_BUF - 1)) == 0, "TCP_SND_BUF must be power of two");
+_Static_assert((TCP_RCV_BUF & (TCP_RCV_BUF - 1)) == 0, "TCP_RCV_BUF must be power of two");
 
 int tcp_connect(ipv4_addr_t remote_ip, port_t remote_port); // , callback later)
 void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_t len);
