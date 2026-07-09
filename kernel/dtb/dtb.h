@@ -22,6 +22,8 @@ void     dtb_enum_devices(void (*cb)(const char * /* compatible */, const char *
 uint32_t dtb_count_devices(void);
 
 /* Query helpers (intended for early boot / arch use). */
+uint32_t dtb_total_size(void);
+bool dtb_get_memrsv(uint32_t index, uint64_t *out_addr, uint64_t *out_size);
 bool dtb_get_reg(const char *path, int index, uint64_t *out_addr, uint64_t *out_size);
 bool dtb_get_reg_phys(const char *path, int index, uint64_t *out_addr, uint64_t *out_size);
 bool dtb_find_compatible(const char *compatible, char *out_path, size_t out_path_cap);

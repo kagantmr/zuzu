@@ -239,6 +239,25 @@ bool dtb_get_reg(const char *path, int index, uint64_t *out_addr, uint64_t *out_
     return true;
 }
 
+uint32_t dtb_total_size(void)
+{
+    if (!g_dtb_ready)
+        return 0;
+    return fdt_totalsize(g_fdt);
+}
+
+bool dtb_get_memrsv(uint32_t index, uint64_t *out_addr, uint64_t *out_size)
+{
+    if (!out_addr || !out_size || !g_dtb_ready)
+        return false;
+
+    int n = fdt_num_mem_rsv(g_fdt);
+    if (n < 0 || index >= (uint32_t)n)
+        return false;
+
+    return fdt_get_mem_rsv(g_fdt, (int)index, out_addr, out_size) == 0;
+}
+
 bool dtb_find_compatible(const char *compatible, char *out_path, size_t out_path_cap)
 {
     if (!compatible || !out_path || out_path_cap == 0 || !g_dtb_ready)

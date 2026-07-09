@@ -7,6 +7,9 @@
 #include <mem.h>
 #include <assert.h>
 
+#define LOG_FMT(fmt) "(mmu) " fmt
+#include "core/log.h"
+
 // L1 descriptor type bits[1:0]
 #define DESC_FAULT     0x0u   // unmapped
 #define DESC_L2        0x1u   // pointer to an L2 page table
@@ -110,10 +113,16 @@ static uint32_t l2_page_set_prot(uint32_t e, vm_prot_t prot)
     return e;
 }
 
-// Cacheable TTBR value for a translation-table base PA (Inner+Outer cacheable).
+// TTBR value for a translation-table base PA. The walk attributes must match
+// how the table memory is actually mapped (normal WBWA, inner-shareable):
+// IRGN=0b11 (bits 6,0), S (bit 1), RGN=0b01 (bit 3), NOS (bit 5) — the same
+// attributes _start.S boots with. A mismatch (e.g. non-shareable walks) lets
+// the hardware walker read stale DRAM behind dirty shareable D-cache lines;
+// QEMU doesn't model caches, so that only fails on silicon, and only once
+// the first full TLB flush forces real walks of a PMM-built table.
 static inline uint32_t ttbr_value(uintptr_t ttbr_pa)
 {
-    return (uint32_t)ttbr_pa | (1u << 0) | (1u << 3);
+    return (uint32_t)ttbr_pa | 0x6Bu;
 }
 
 uintptr_t arch_mmu_create_tables(addrspace_type_t type)
@@ -240,6 +249,7 @@ bool arch_mmu_unmap(addrspace_t *as, uintptr_t va, size_t size)
     {
         uint32_t *l1_table = (uint32_t *)PA_TO_VA(as->ttbr0_pa);
 
+        KDEBUG("unmap: clearing sections va=%p size=%p", (void *)va, (void *)size);
         for (uintptr_t offset = 0; offset < size; offset += SECTION_SIZE)
         {
             size_t idx = L1_IDX(va + offset);
@@ -250,6 +260,7 @@ bool arch_mmu_unmap(addrspace_t *as, uintptr_t va, size_t size)
                 unmapped_any = true;
             }
         }
+        KDEBUG("unmap: sections cleared");
     }
     // Page-aligned: use pages
     else if ((va % PAGE_SIZE) == 0 && (size % PAGE_SIZE) == 0)
@@ -281,9 +292,12 @@ bool arch_mmu_unmap(addrspace_t *as, uintptr_t va, size_t size)
         // For section unmaps and larger page ranges, invalidate by ASID.
         if (!page_mode || size > (16 * PAGE_SIZE) || unmapped_pages == 0)
         {
+            KDEBUG("unmap: tlb flush (asid=%u)", as->asid_token.asid);
             arch_mmu_flush_tlb_asid(as->asid_token.asid);
         }
+        KDEBUG("unmap: barrier");
         arch_mmu_barrier();
+        KDEBUG("unmap: done");
     }
 
     return unmapped_any;

@@ -42,15 +42,27 @@ static bool trap_frame_sane(const arch_regs_t *tf)
     if (p == 0 || (p & 0x3u) != 0)
         return false;
 
+    bool in_stack = false;
     if (kernel_layout.stack_base_va && kernel_layout.stack_top_va &&
         p >= kernel_layout.stack_base_va &&
         p + sizeof(arch_regs_t) <= kernel_layout.stack_top_va)
-        return true;
+        in_stack = true;
 
     if (p >= KSTACK_REGION_BASE && p + sizeof(arch_regs_t) <= KSTACK_REGION_TOP)
-        return true;
+        in_stack = true;
 
-    return false;
+    if (!in_stack)
+        return false;
+
+    /* Content check: every frame handled by the IPC paths belongs to a user
+     * thread blocked in a syscall, so its saved return PC must be a nonzero
+     * user VA. A zero/kernel PC here means the frame was clobbered (e.g. by
+     * a nested exception) and would resume user mode into a fault. */
+    reg_t pc = arch_regs_pc(tf);
+    if (pc == 0 || pc >= USER_VA_TOP)
+        return false;
+
+    return true;
 }
 
 static void ipc_panic_bad_trap_frame(const char *where, const process_t *owner, const arch_regs_t *tf)
@@ -59,7 +71,11 @@ static void ipc_panic_bad_trap_frame(const char *where, const process_t *owner, 
            owner ? owner->pid : 0u,
            tf,
            current_thread && current_thread->owner_process ? current_thread->owner_process->pid : 0u);
-    panic("Corrupt trap_frame pointer in IPC path");
+    if (tf && ((uintptr_t)tf & 0x3u) == 0)
+        KERROR("  frame: pc=%p lr=%p sp=%p cpsr=%p", (void *)arch_regs_pc(tf),
+               (void *)arch_regs_lr(tf), (void *)arch_regs_sp(tf),
+               (void *)arch_regs_flags(tf));
+    panic("Corrupt trap_frame in IPC path");
 }
 
 static void ipc_cancel_timeout(thread_t *t)
@@ -367,6 +383,13 @@ void __attribute__((hot)) proc_recv(arch_regs_t *frame)
     }
     else
     {
+        static int debug_print_budget2 = 6;
+        if (debug_print_budget2 > 0) {
+            debug_print_budget2--;
+            KDEBUG("proc_recv: pid=%u handle=%d ep=%p timeout_ms=%u blocking",
+                   current_thread->owner_process->pid, handle, (void *)ep, timeout_ms);
+        }
+
         if (timeout_ms == UINT32_MAX)
         {
             (*arch_reg(frame, 0)) = ERR_BUSY;
@@ -397,6 +420,15 @@ void __attribute__((hot)) proc_recv(arch_regs_t *frame)
         }
 
         schedule();
+
+        /* Tripwire for the pc=0 user abort seen on the Pi 4: validate our
+         * own frame on the way back out of a blocking recv, and catch an
+         * impossible timeout wake on an infinite recv. */
+        if (!trap_frame_sane(frame))
+            ipc_panic_bad_trap_frame("proc_recv.wake", current_thread->owner_process, frame);
+        if (timeout_ms == 0 && current_thread->wake_reason == WAKE_TIMEOUT)
+            ipc_panic_bad_trap_frame("proc_recv.wake-timeout-on-infinite",
+                                     current_thread->owner_process, frame);
 
         if (timeout_ms > 0 && current_thread->wake_reason != WAKE_TIMEOUT &&
             current_thread->timeout_node.prev && current_thread->timeout_node.next)
@@ -482,6 +514,8 @@ void __attribute__((hot)) proc_call(arch_regs_t *frame)
             sched_add(rx_thread);
         }
 
+        KDEBUG("proc_call: pid=%u handle=%d ep=%p blocking on reply",
+               current_thread->owner_process->pid, handle, (void *)ep);
         current_thread->state = BLOCKED;
         current_thread->blocked_endpoint = ep;
         current_thread->ipc_state = IPC_WAITING;
@@ -489,6 +523,8 @@ void __attribute__((hot)) proc_call(arch_regs_t *frame)
     }
     else
     {
+        KDEBUG("proc_call: pid=%u handle=%d ep=%p blocking (receiver_queue empty)",
+               current_thread->owner_process->pid, handle, (void *)ep);
         current_thread->ipc_state = IPC_WAITING;
         current_thread->blocked_endpoint = ep;
         current_thread->pending_reply_cap = rc;
@@ -841,6 +877,13 @@ static int recvany_try_once(const handle_t *handles,
             endpoint_t *ep = validate_endpoint_handle(current_thread->owner_process, handles[i], current_thread->trap_frame);
             if (!ep) {
                 return (int)(*arch_reg(current_thread->trap_frame, 0));
+            }
+            static int debug_print_budget = 3;
+            if (debug_print_budget > 0) {
+                debug_print_budget--;
+                KDEBUG("recvany_try_once: pid=%u handle=%d ep=%p sender_queue_empty=%d",
+                       current_thread->owner_process->pid, handles[i], (void *)ep,
+                       list_empty(&ep->sender_queue));
             }
             endpoints[i] = ep;
             notifications[i] = NULL;

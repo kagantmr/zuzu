@@ -49,7 +49,7 @@ void port_create(arch_regs_t *frame)
         /* Inject NT handle into processes spawned before nametable existed. */
         for (int j = 0; j < MAX_PROCESSES; j++)
         {
-            process_t *p = process_table[j]; 
+            process_t *p = process_table[j];
             if (p && p != current_thread->owner_process)
             {
                 handle_entry_t *p_entry = handle_vec_get(&p->handle_table, 0);
@@ -59,7 +59,8 @@ void port_create(arch_regs_t *frame)
                     p_entry->type = HANDLE_ENDPOINT;
                     nametable_endpoint->ref_count++;
                 } else if (p_entry && p_entry->type != HANDLE_FREE) {
-                    KWARN("nametable bootstrap skipped PID %u: handle slot 0 already in use", p->pid);
+                    KWARN("nametable bootstrap skipped PID %u: handle slot 0 already in use (type=%d ep=%p)",
+                          p->pid, p_entry->type, (void *)p_entry->ep);
                 }
             }
         }
@@ -73,6 +74,9 @@ void port_create(arch_regs_t *frame)
     entry->ep = new_endpoint;
     entry->grantable = true;
     entry->type = HANDLE_ENDPOINT;
+
+    KDEBUG("port_create: pid=%u handle=%d ep=%p ref_count=%u", current_thread->owner_process->pid,
+           handle, (void *)new_endpoint, new_endpoint->ref_count);
 
     (*arch_reg(frame, 0)) = handle;
     return;
