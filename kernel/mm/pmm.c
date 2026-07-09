@@ -1,6 +1,7 @@
 #include "kernel/mm/pmm.h"
 #include <assert.h>
 #include "kernel/layout.h"
+#include "kernel/dtb/dtb.h"
 #include <arch/symbols.h>
 #include <mem.h>
 #include "kernel/mm/vmm.h" // PA_TO_VA / VA_TO_PA helpers
@@ -147,12 +148,22 @@ static paddr_t pmm_alloc_page_locked(void)
 static void pmm_reserve_boot_regions(void)
 {
     pmm_mark_range((paddr_t)_boot_start, (paddr_t)_boot_end);
-    pmm_mark_range(kernel_layout.dtb_start_pa, (paddr_t)_boot_start);
+    /* The DTB is wherever the bootloader put it, not necessarily adjacent
+     * to the kernel (QEMU's Linux-boot path and the Pi firmware both place
+     * it independently). Reserve its actual extent. */
+    pmm_mark_range(kernel_layout.dtb_start_pa,
+                   kernel_layout.dtb_start_pa + dtb_total_size());
     pmm_mark_range(kernel_layout.kernel_start_pa, kernel_layout.kernel_end_pa);
     pmm_mark_range(kernel_layout.bitmap_start_pa, kernel_layout.bitmap_end_pa);
 
     // All mode stacks
     pmm_mark_range((paddr_t)__stack_region_base__, (paddr_t)__stack_region_end__);
+
+    /* Firmware /memreserve/ ranges (e.g. secondary-core spin tables on the
+     * Pi 4). Ranges outside managed RAM are rejected by pmm_mark_range. */
+    uint64_t rsv_addr, rsv_size;
+    for (uint32_t i = 0; dtb_get_memrsv(i, &rsv_addr, &rsv_size); i++)
+        pmm_mark_range((paddr_t)rsv_addr, (paddr_t)(rsv_addr + rsv_size));
 }
 
 void pmm_init(void)

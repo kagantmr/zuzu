@@ -36,12 +36,21 @@ void pl011_init(uintptr_t base_addr) {
 	*pl011_reg(PL011_ICR) = 0x7FF; // Clear pending interrupts
 }
 
-void pl011_putc(char c) {
-	//assert(pl011_base != 0);
+static void pl011_putc_raw(char c) {
 	while (pl011_tx_full()) {
 		// spin
 	}
 	*pl011_reg(PL011_DR) = (uint32_t)c;
+}
+
+void pl011_putc(char c) {
+	// assert(pl011_base != 0);
+	// A raw serial line (unlike QEMU's host-terminal pty, which has ONLCR)
+	// has no one to turn LF into CRLF, so do it here or every line after
+	// the first drifts right on the receiving terminal.
+	if (c == '\n')
+		pl011_putc_raw('\r');
+	pl011_putc_raw(c);
 }
 
 int pl011_puts(const char *string) {

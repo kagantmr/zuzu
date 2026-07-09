@@ -1,0 +1,23 @@
+# zuzu config.txt for Raspberry Pi 4 (BCM2711)
+#
+# Copy this over the config.txt on the boot (FAT32) partition, next to the
+# stock firmware files (start4.elf, fixup4.dat, bcm2711-rpi-4-b.dtb) and
+# zuzu.img (built with: make BOARD=rpi4 img).
+
+# 32-bit kernel, loaded at the default 0x8000 (matches linker.ld BOOT_OFFSET)
+arm_64bit=0
+kernel=zuzu.img
+
+# Pin the UARTCLK the PL011 divisors in _start.S assume (115200 = 48e6/16/26.042).
+# 48 MHz is the firmware default on the Pi 4; this makes it explicit.
+init_uart_clock=48000000
+
+# Pin where the firmware puts the DTB (passed to the kernel in r2). The kernel
+# handles any address below the 768 MB linear window; pinning it just makes
+# boots reproducible. 0x03000000 = 48 MB, well clear of kernel + stacks.
+device_tree_address=0x03000000
+device_tree_end=0x03100000
+
+# Keep peripherals in low mode (0xFE000000) — the default, stated explicitly
+# because _start.S and the DTB depend on it.
+arm_peri_high=0

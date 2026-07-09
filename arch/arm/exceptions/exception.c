@@ -362,3 +362,23 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
     break;
     }
 }
+
+/* Called from the exception_exit tripwire in entry.S when the frame about to
+ * be RFE'd has return_pc == 0: the frame was corrupted after the C handlers
+ * released it. Panic here, in kernel context, with the frame contents. */
+_Noreturn void exception_exit_pc0_trap(arch_regs_t *frame)
+{
+    KERROR("exception_exit: frame at %p has return_pc=0 (cpsr=%p sp_usr=%p lr_usr=%p)",
+           frame, (void *)arch_regs_flags(frame), (void *)arch_regs_sp(frame),
+           (void *)arch_regs_lr(frame));
+    KERROR("  r0=%p r1=%p r2=%p r3=%p r12=%p",
+           (void *)*arch_reg(frame, 0), (void *)*arch_reg(frame, 1),
+           (void *)*arch_reg(frame, 2), (void *)*arch_reg(frame, 3),
+           (void *)*arch_reg(frame, 12));
+    panic_fault_ctx = (panic_fault_context_t){
+        .valid = 1,
+        .fault_type = "RFE to pc=0 (frame corrupted in kernel)",
+        .frame = frame,
+    };
+    panic("exception_exit would resume at pc=0");
+}

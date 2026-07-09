@@ -49,6 +49,15 @@ process_entry_trampoline:
 .endm
 
 .macro exception_exit
+    // Bring-up tripwire: never RFE to pc=0. If the frame's return_pc slot
+    // is zero the frame was corrupted after the C handlers finished; panic
+    // in-kernel with the frame instead of letting user mode fault at 0.
+    ldr r0, [sp, #60]         // return_pc
+    cmp r0, #0
+    bne 8f
+    mov r0, sp
+    bl exception_exit_pc0_trap
+8:
     ldr r0, [sp, #52]         // load sp_usr
     ldr r1, [sp, #56]         // load lr_usr
     cps #0x1f

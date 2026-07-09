@@ -394,6 +394,7 @@ void vmm_remove_identity_mapping(void) {
     }
 
     vmm_unmap_range(g_kernel_as, map_pa_start, map_size);
+    KDEBUG("identity unmapped, pruning region");
 
     vm_region_t *r = bsearch(&map_pa_start, g_kernel_as->regions.data,
                               g_kernel_as->regions.len,
@@ -405,8 +406,7 @@ void vmm_remove_identity_mapping(void) {
         g_kernel_as->regions.len--;
     }
 
-
-    //KDEBUG("VMM: Identity mapping removed, running pure higher-half");
+    KDEBUG("identity mapping removed, running pure higher-half");
 }
 
 void vmm_activate(addrspace_t* as) {

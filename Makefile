@@ -124,10 +124,26 @@ else
     USER_CFLAGS += -DNDEBUG -UDEBUG
 endif
 
-BOOT_PROGS = sysd devmgr pl011drv pl181drv fat32d fbox lan9118drv netd zzsh
+BOOT_PROGS = sysd devmgr # pl011drv pl181drv fat32d fbox lan9118drv netd zzsh
 DISK_PROGS = test zuzufetch cycletest
 
 USER_PROGS = $(BOOT_PROGS) $(DISK_PROGS)
+
+# Program name -> source directory (user/ is grouped by role: services/,
+# drivers/, shell/, test_apps/). ELF/initrd naming stays the bare program
+# name regardless of where its sources live.
+USER_DIR_sysd       = user/services/sysd
+USER_DIR_devmgr     = user/services/devmgr
+USER_DIR_fbox       = user/services/fbox
+USER_DIR_pl011drv   = user/drivers/pl011drv
+USER_DIR_pl181drv   = user/drivers/pl181drv
+USER_DIR_fat32d     = user/drivers/fat32d
+USER_DIR_lan9118drv = user/drivers/lan9118drv
+USER_DIR_netd       = user/drivers/netd
+USER_DIR_zzsh       = user/shell/zzsh
+USER_DIR_test       = user/test_apps/test
+USER_DIR_zuzufetch  = user/test_apps/zuzufetch
+USER_DIR_cycletest  = user/test_apps/cycletest
 
 # zcrt + user lib sources
 ZCRT_SRCS = $(wildcard lib/*.c lib/zuzu/*.c)
@@ -148,7 +164,7 @@ INITRD_OBJ     = build/$(ARCH_DIR)/initrd.o
 INITRD_EXTRA_DIR ?= initrd
 INITRD_EXTRA_FILES := $(shell find $(INITRD_EXTRA_DIR) -type f 2>/dev/null)
 
-$(foreach p,$(USER_PROGS),$(eval USER_$(p)_SRCS := $(shell find user/$(p) -name '*.c')))
+$(foreach p,$(USER_PROGS),$(eval USER_$(p)_SRCS := $(shell find $(USER_DIR_$(p)) -name '*.c')))
 $(foreach p,$(USER_PROGS),$(eval USER_$(p)_OBJS := $(patsubst user/%.c,build/user/%.o,$(USER_$(p)_SRCS))))
 USER_APP_OBJS = $(foreach p,$(USER_PROGS),$(USER_$(p)_OBJS))
 
@@ -194,28 +210,38 @@ all: $(TARGET)
 
 .SECONDARY: $(USER_APP_OBJS) $(ZCRT_OBJS) $(ULIB_OBJS)
 
+# Objects bake in per-board flags (BOARD_LAYOUT_H, CPUFLAGS), so a BOARD
+# switch must rebuild everything. The stamp file changes name with the board;
+# every object depends on it, forcing a full rebuild when it (re)appears.
+BOARD_STAMP = build/.board-$(BOARD)
+
+$(BOARD_STAMP):
+	@mkdir -p build
+	@rm -f build/.board-*
+	@touch $@
+
 # compilation rules
-build/user/%.o: user/%.c
+build/user/%.o: user/%.c $(BOARD_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "  CC      $<"
 	@$(USER_CC) $(USER_CFLAGS) -c $< -o $@
 
-build/%.o: %.c
+build/%.o: %.c $(BOARD_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "  CC      $<"
 	@$(CC) $(CFLAGS) -c $< -o $@
 
-build/%.o: %.S
+build/%.o: %.S $(BOARD_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "  AS      $<"
 	@$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
 
-build/user/zcrt/%.o: %.c
+build/user/zcrt/%.o: %.c $(BOARD_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "  CC      $<"
 	@$(USER_CC) $(USER_CFLAGS) -c $< -o $@
 
-build/user/lib/%.o: user/lib/%.c
+build/user/lib/%.o: user/lib/%.c $(BOARD_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "  CC      $<"
 	@$(USER_CC) $(USER_CFLAGS) -Iuser/lib -c $< -o $@
@@ -351,40 +377,62 @@ PCAP_FILE ?= /tmp/zuzu.pcap
 
 QEMU_MACHINE = $(QEMU_MACH_$(BOARD))
 QEMU_CPU     = $(QEMU_CPU_$(BOARD))
+QEMU_BIN     = $(if $(QEMU_BIN_$(BOARD)),$(QEMU_BIN_$(BOARD)),qemu-system-arm)
+QEMU_MEM     = $(if $(QEMU_MEM_$(BOARD)),$(QEMU_MEM_$(BOARD)),64M)
+# Board NIC flags; empty for boards whose NIC QEMU does not emulate.
+QEMU_NET     = $(QEMU_NET_$(BOARD))
+# What QEMU boots: the ELF by default, a raw image where the board needs it.
+QEMU_KERNEL  = $(if $(QEMU_KERNEL_$(BOARD)),$(QEMU_KERNEL_$(BOARD)),$(TARGET))
 
-run: $(TARGET)
-	@echo "  QEMU    $(TARGET)"
-	@qemu-system-arm -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m 64M \
-	    -kernel $(TARGET) -dtb $(DTB_FILE) -nographic \
+run: $(QEMU_KERNEL) $(DTB_FILE)
+	@echo "  QEMU    $(QEMU_KERNEL)"
+	@$(QEMU_BIN) -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m $(QEMU_MEM) \
+	    -kernel $(QEMU_KERNEL) -dtb $(DTB_FILE) -nographic \
 	    -drive file=$(SD_IMG),if=sd,format=raw \
-	    -nic user,model=lan9118
+	    $(QEMU_NET)
 
-run-bridged: $(TARGET)
+run-bridged: $(TARGET) $(DTB_FILE)
 	@echo "  QEMU    $(TARGET) [bridged]"
-	@sudo qemu-system-arm -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m 64M \
+	@sudo $(QEMU_BIN) -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m $(QEMU_MEM) \
 	    -kernel $(TARGET) -dtb $(DTB_FILE) -nographic \
 	    -drive file=$(SD_IMG),if=sd,format=raw \
 	    -nic vmnet-bridged,model=lan9118,ifname=en0,mac=52:54:00:ab:cd:ef
 
-run-pcap: $(TARGET)
+run-pcap: $(TARGET) $(DTB_FILE)
 	@echo "  QEMU    $(TARGET) [pcap -> $(PCAP_FILE)]"
-	@qemu-system-arm -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m 64M \
+	@$(QEMU_BIN) -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m $(QEMU_MEM) \
 	    -kernel $(TARGET) -dtb $(DTB_FILE) -nographic \
 	    -drive file=$(SD_IMG),if=sd,format=raw \
 	    -net nic,model=lan9118 -net user,id=n0 \
 	    -object filter-dump,id=f0,netdev=n0,file=$(PCAP_FILE)
 	@echo "  PCAP    wrote $(PCAP_FILE) (read with: tcpdump -nr $(PCAP_FILE))"
 
-debug: $(TARGET)
+debug: $(TARGET) $(DTB_FILE)
 	@echo "  QEMU    $(TARGET) (debug)"
-	@qemu-system-arm -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m 64M \
+	@$(QEMU_BIN) -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m $(QEMU_MEM) \
 	    -kernel $(TARGET) -dtb $(DTB_FILE) -nographic \
 	    -drive file=$(SD_IMG),if=sd,format=raw \
-	    -nic user,model=lan9118 \
+	    $(QEMU_NET) \
 	    -S -gdb tcp::1234
 
+# Device tree blobs compiled from checked-in sources (QEMU only; real
+# hardware boots with the firmware-provided DTB).
+build/dtb/%.dtb: %.dts
+	@mkdir -p $(dir $@)
+	@echo "  DTC     $@"
+	@dtc -I dts -O dtb -o $@ $<
+
+# Raw kernel image for real hardware (e.g. kernel= in the Pi 4 config.txt).
+IMG = build/zuzu.img
+
+$(IMG): $(TARGET)
+	@echo "  OBJCOPY $@"
+	@$(OBJCOPY) -O binary $(TARGET) $(IMG)
+
+img: $(IMG)
+
 # Misc targets
-.PHONY: all dump clean
+.PHONY: all dump clean img
 
 dump: $(TARGET)
 	@echo "  OBJDUMP $@"
