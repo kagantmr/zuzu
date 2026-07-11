@@ -134,12 +134,12 @@ static void handle_client_message(msg_t msg)
 
 int pl011drv_setup(void)
 {
-    port = _ep_create();
+    port = _port_create();
     if (port < 0) {
         return PL011DRV_INIT_FAIL;
     }
 
-    int32_t nt_slot = _cap_grant(port, NAMETABLE_PID);
+    int32_t nt_slot = _grant(port, NAMETABLE_PID);
     if (nt_slot < 0) {
         return PL011DRV_INIT_FAIL;
     }

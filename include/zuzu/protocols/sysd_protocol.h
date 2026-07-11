@@ -13,7 +13,7 @@
 #define EXEC_EBADELF (-100)  // ELF validation failed
 #define EXEC_EIO     (-101)  // fbox read error
 
-// Request layout in IPCX buffer (shell to sysd via _callx):
+// Request layout in IPCX buffer (shell to sysd via _lcall):
 typedef struct {
     uint8_t  cmd;            // SYSD_EXEC
     uint8_t  _pad;
@@ -25,7 +25,7 @@ typedef struct {
     // followed by char argbuf[...]          (NUL-delimited argv strings)
 } exec_request_hdr_t;
 
-// Reply layout in IPCX buffer (sysd to shell via _replyx):
+// Reply layout in IPCX buffer (sysd to shell via _lreply):
 typedef struct {
     uint32_t entry;          // ELF entry point
     uint32_t sp;             // user stack pointer after argv layout

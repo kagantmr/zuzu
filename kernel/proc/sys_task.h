@@ -11,7 +11,7 @@ void wait(arch_regs_t *frame);
 
 void pspawn(arch_regs_t *frame);
 void kickstart(arch_regs_t *frame);
-void kill(arch_regs_t *frame);
+void pkill(arch_regs_t *frame);
 
 void tmake(arch_regs_t *frame);
 void tjoin(arch_regs_t *frame);

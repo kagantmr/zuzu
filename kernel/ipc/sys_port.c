@@ -174,7 +174,7 @@ void port_destroy(arch_regs_t *frame)
     (*arch_reg(frame, 0)) = 0;
 }
 
-void port_grant(arch_regs_t *frame)
+void grant(arch_regs_t *frame)
 {
     if (!current_thread)
     {

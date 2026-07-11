@@ -67,7 +67,7 @@ static inline int32_t pl011drv_write(int32_t port, uint32_t len) {
 }
 
 static inline msg_t pl011drv_read(int32_t port, uint32_t max_len) {
-    return _callx(port, max_len);
+    return _lcall(port, max_len);
 }
 
 #endif

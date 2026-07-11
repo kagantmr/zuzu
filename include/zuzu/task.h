@@ -20,7 +20,7 @@ static inline void _pquit(int32_t status) {
     register int32_t r0 __asm__("r0") = status;
     __asm__ volatile("svc %[num]"
         :
-        : "r"(r0), [num] "i"(SYS_TASK_PQUIT)
+        : "r"(r0), [num] "i"(SYS_PQUIT)
         : "memory");
     __builtin_unreachable();
 }
@@ -29,7 +29,7 @@ static inline int32_t _yield(void) {
     register int32_t r0 __asm__("r0");
     __asm__ volatile("svc %[num]"
         : "=r"(r0)
-        : [num] "i"(SYS_TASK_YIELD)
+        : [num] "i"(SYS_YIELD)
         : "memory");
     return r0;
 }
@@ -40,7 +40,7 @@ static inline int32_t _wait(zpid_t pid, int32_t *status_out, uint32_t flags) {
     register uint32_t r2 __asm__("r2") = flags;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
-        : "r"(r1), "r"(r2), [num] "i"(SYS_TASK_WAIT)
+        : "r"(r1), "r"(r2), [num] "i"(SYS_WAIT)
         : "memory");
     return r0;
 }
@@ -58,7 +58,7 @@ static inline int32_t _sleep(uint32_t ms) {
     register uint32_t r0 __asm__("r0") = ms;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
-        : [num] "i"(SYS_TASK_SLEEP)
+        : [num] "i"(SYS_SLEEP)
         : "memory");
     return (int32_t) r0;
 }
@@ -68,7 +68,7 @@ static inline tspawn_result_t _pspawn(const char* name) {
     register zpid_t r1 __asm__("r1"); // pid
     __asm__ volatile("svc %[num]"
     : "+r"(r0), "=r"(r1)
-    : [num] "i"(SYS_TASK_PSPAWN)
+    : [num] "i"(SYS_PSPAWN)
     : "memory");
     return (tspawn_result_t) {.task_handle = (handle_t) r0, .pid = r1};
 }
@@ -77,16 +77,16 @@ static inline handle_t _kickstart(const void *args_struct) {
     register uintptr_t r0 __asm__("r0") = (uintptr_t) args_struct;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
-        : [num] "i"(SYS_TASK_KICKSTART)
+        : [num] "i"(SYS_KICKSTART)
         : "memory");
     return (handle_t) r0;
 }
 
-static inline int32_t _kill(handle_t task_handle) {
+static inline int32_t _pkill(handle_t task_handle) {
     register handle_t r0 __asm__("r0") = task_handle;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
-        : [num] "i"(SYS_TASK_KILL)
+        : [num] "i"(SYS_PKILL)
         : "memory");
     return r0;
 }
@@ -97,7 +97,7 @@ static inline tid_t _tmake(void (*entry)(void *), void *user_sp, void *arg) {
     register vaddr_t r2 __asm__("r2") = (vaddr_t)arg;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
-        : "r"(r1), "r"(r2), [num] "i"(SYS_TASK_TMAKE)
+        : "r"(r1), "r"(r2), [num] "i"(SYS_TMAKE)
         : "memory");
     return (tid_t)r0;
 }
@@ -106,7 +106,7 @@ static inline int32_t _tjoin(tid_t tid) {
     register tid_t r0 __asm__("r0") = tid;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
-        : [num] "i"(SYS_TASK_TJOIN)
+        : [num] "i"(SYS_TJOIN)
         : "memory");
     return r0;
 }
@@ -115,7 +115,7 @@ static inline __attribute__((noreturn)) void _tquit(int32_t status) {
     register int32_t r0 __asm__("r0") = status;
     __asm__ volatile("svc %[num]"
         :
-        : "r"(r0), [num] "i"(SYS_TASK_TQUIT)
+        : "r"(r0), [num] "i"(SYS_TQUIT)
         : "memory");
     __builtin_unreachable();
 }

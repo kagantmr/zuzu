@@ -46,7 +46,7 @@ static int request_and_grant_class(uint32_t dev_class, int32_t target_pid, uint3
         return ERR_NOENT;
     }
 
-    int32_t granted_handle = _cap_grant((int32_t)entry->injected_handle, target_pid);
+    int32_t granted_handle = _grant((int32_t)entry->injected_handle, target_pid);
     if (granted_handle < 0) {
         return granted_handle;
     }
@@ -150,12 +150,12 @@ static void handle_dev_request(uint32_t reply_handle, uint32_t sender_pid, uint3
 int devmgr_setup(void)
 {
     build_class_table();
-    int32_t my_port = _ep_create();
+    int32_t my_port = _port_create();
     if (my_port < 0) {
         return my_port;
     }
 
-    int32_t nt_slot = _cap_grant(my_port, NAMETABLE_PID);
+    int32_t nt_slot = _grant(my_port, NAMETABLE_PID);
     if (nt_slot < 0) {
         return nt_slot;
     }

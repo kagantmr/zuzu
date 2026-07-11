@@ -249,7 +249,7 @@ static void handle_client(msg_t msg)
 
     case SD_CMD_GET_BUF:
     {
-        int32_t granted = _cap_grant(shmem_handle, (int32_t)sender);
+        int32_t granted = _grant(shmem_handle, (int32_t)sender);
         if (granted < 0)
             _reply(reply_h, (uint32_t)granted, 0, 0);
         else
@@ -332,7 +332,7 @@ static int pl181drv_setup(void)
     if (pl181_setup() < 0)
         return -1;
 
-    shmem_result_t shm = _memshare(4096);
+    shmem_result_t shm = _shm_create(4096);
     if (shm.handle < 0 || shm.addr == NULL)
     {
         LOG_ERROR(LOG_TAG, "shmem failed");

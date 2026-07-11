@@ -95,7 +95,7 @@ int get_nic(void)
         return ERR_NOENT;
     }
     // service is registered after nic_setup() completes so clients don't
-    // find the port before _recvany is running
+    // find the port before _waitany is running
     nt_port = -1;
 
     devm_port = lookup_service("devm");
@@ -179,7 +179,7 @@ int nic_setup(void)
 
     // finally, set up shmem
 
-    shmem_result_t shm = _memshare(NIC_SHM_BYTES); // packet size = 1536, ring_size = 16 
+    shmem_result_t shm = _shm_create(NIC_SHM_BYTES); // packet size = 1536, ring_size = 16 
     shmem_handle = shm.handle;
     shmem_addr = shm.addr;
 
@@ -221,7 +221,7 @@ void lan9118_service_loop(void)
     {
 
         recvany_result_t result;
-        int32_t recv_rc = _recvany(handles, 3, 50, &result);
+        int32_t recv_rc = _waitany(handles, 3, 50, &result);
         if (recv_rc < 0)
         {
             continue;
@@ -329,9 +329,9 @@ void lan9118_service_loop(void)
                 else
                 {
                     /* r1 = shmem, r2 = rx doorbell, r3 = tx doorbell */
-                    int32_t shm_g = _cap_grant(shmem_handle, result.r1);
-                    int32_t rx_g  = _cap_grant(netd_ntfn, result.r1);
-                    int32_t tx_g  = _cap_grant(tx_doorbell_ntfn, result.r1);
+                    int32_t shm_g = _grant(shmem_handle, result.r1);
+                    int32_t rx_g  = _grant(netd_ntfn, result.r1);
+                    int32_t tx_g  = _grant(tx_doorbell_ntfn, result.r1);
                     if (shm_g < 0 || rx_g < 0 || tx_g < 0)
                         _reply(result.source, ERR_SYSDOWN, 0, 0);
                     else

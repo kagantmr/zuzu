@@ -72,8 +72,8 @@ struct thread
     uint32_t recvany_wait_match_index;
     uint32_t recvany_wait_bits;
     bool recvany_wait_active;
-    thread_wait_slot_t ep_wait_slot;                               /* for proc_recv */
-    thread_wait_slot_t recvany_ep_wait_slots[RECVANY_MAX_HANDLES]; /* for proc_recvany endpoints */
+    thread_wait_slot_t ep_wait_slot;                               /* for msg_recv */
+    thread_wait_slot_t recvany_ep_wait_slots[RECVANY_MAX_HANDLES]; /* for waitany endpoints */
     endpoint_t *recvany_wait_eps[RECVANY_MAX_HANDLES];
     uint32_t recvany_ep_wait_count;
     bool recvany_ep_wait_active;

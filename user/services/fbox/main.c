@@ -186,7 +186,7 @@ static client_buf_t *client_alloc(uint32_t pid)
 {
     for (int i = 0; i < MAX_FBOX_CLIENTS; i++) {
         if (clients[i].pid == 0) {
-            shmem_result_t shm = _memshare(32768);
+            shmem_result_t shm = _shm_create(32768);
             if (shm.handle < 0 || !shm.addr)
                 return NULL;
             clients[i].pid = pid;
@@ -214,7 +214,7 @@ static void handle_get_buf(uint32_t reply_h, uint32_t sender)
         return;
     }
 
-    int32_t slot = _cap_grant(client->shm.handle, (int32_t)sender);
+    int32_t slot = _grant(client->shm.handle, (int32_t)sender);
     if (slot < 0)
         _reply(reply_h, (uint32_t)slot, 0, 0);
     else
@@ -277,7 +277,7 @@ int main(void)
     }
 
     /* publish globally only after all proxied backends and client shmem exist */
-    int32_t global_slot = _cap_grant(my_port, NAMETABLE_PID);
+    int32_t global_slot = _grant(my_port, NAMETABLE_PID);
     if (global_slot < 0) {
         printf("fbox: global grant failed\n");
         return 1;
