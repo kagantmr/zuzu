@@ -252,7 +252,7 @@ void kickstart(arch_regs_t *frame) {
     return;
 }
 
-void kill(arch_regs_t *frame) {
+void pkill(arch_regs_t *frame) {
     uint32_t handle_idx = (*arch_reg(frame, 0));
 
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);

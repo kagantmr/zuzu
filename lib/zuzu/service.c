@@ -4,11 +4,11 @@
 #include <string.h>
 
 int32_t register_service(const char *name) {
-    int32_t port = _ep_create();
+    int32_t port = _port_create();
     if (port < 0)
         return -1;
 
-    int32_t nt_slot = _cap_grant(port, NAMETABLE_PID);
+    int32_t nt_slot = _grant(port, NAMETABLE_PID);
     if (nt_slot < 0)
         return -1;
 

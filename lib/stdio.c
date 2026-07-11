@@ -99,7 +99,7 @@ static int __attribute__((unused)) stdio_refill_input(void)
     if (stdio_register_uart() != 0)
         return EOF;
 
-    msg_t reply = _callx(stdio_tty, IPCX_BUF_SIZE);
+    msg_t reply = _lcall(stdio_tty, IPCX_BUF_SIZE);
     if (reply.r0 < 0)
         return EOF;
 
@@ -463,7 +463,7 @@ int vprintf(const char *format, va_list args)
                 out_len = IPCX_BUF_SIZE;
             }
             ipcx_write(buf, (uint32_t)out_len);
-            (void)_sendx(stdio_tty, (uint32_t)out_len);
+            (void)_lsend(stdio_tty, (uint32_t)out_len);
         }
 #endif
     }

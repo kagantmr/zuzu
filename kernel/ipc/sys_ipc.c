@@ -230,7 +230,7 @@ static void recvany_deliver_notification(uint32_t matched_index,
     result->r1 = bits;
 }
 
-void __attribute__((hot)) proc_send(arch_regs_t *frame)
+void __attribute__((hot)) msg_send(arch_regs_t *frame)
 {
     int handle = (int)(*arch_reg(frame, 0));
 
@@ -265,7 +265,7 @@ void __attribute__((hot)) proc_send(arch_regs_t *frame)
         } else {
             arch_regs_t *rx_frame = rx_thread->trap_frame;
             if (!trap_frame_sane(rx_frame))
-                ipc_panic_bad_trap_frame("proc_send.rx", rx_thread->owner_process, rx_frame);
+                ipc_panic_bad_trap_frame("msg_send.rx", rx_thread->owner_process, rx_frame);
             (*arch_reg(rx_frame, 0)) = current_thread->owner_process->pid;
             (*arch_reg(rx_frame, 1)) = (*arch_reg(frame, 1));
             (*arch_reg(rx_frame, 2)) = (*arch_reg(frame, 2));
@@ -289,7 +289,7 @@ void __attribute__((hot)) proc_send(arch_regs_t *frame)
     }
 }
 
-void __attribute__((hot)) proc_recv(arch_regs_t *frame)
+void __attribute__((hot)) msg_recv(arch_regs_t *frame)
 {
     int handle = (int)(*arch_reg(frame, 0));
     uint32_t timeout_ms = (*arch_reg(frame, 1)); // 0 = infinite (backward compatible)
@@ -308,7 +308,7 @@ void __attribute__((hot)) proc_recv(arch_regs_t *frame)
         arch_regs_t *sr_frame = sr_thread->trap_frame;
         if (!trap_frame_sane(sr_frame))
         {
-            ipc_panic_bad_trap_frame("proc_recv.sr", sr_thread->owner_process, sr_frame);
+            ipc_panic_bad_trap_frame("msg_recv.sr", sr_thread->owner_process, sr_frame);
         }
 
         // Copy message to receiver
@@ -386,7 +386,7 @@ void __attribute__((hot)) proc_recv(arch_regs_t *frame)
         static int debug_print_budget2 = 6;
         if (debug_print_budget2 > 0) {
             debug_print_budget2--;
-            KDEBUG("proc_recv: pid=%u handle=%d ep=%p timeout_ms=%u blocking",
+            KDEBUG("msg_recv: pid=%u handle=%d ep=%p timeout_ms=%u blocking",
                    current_thread->owner_process->pid, handle, (void *)ep, timeout_ms);
         }
 
@@ -425,9 +425,9 @@ void __attribute__((hot)) proc_recv(arch_regs_t *frame)
          * own frame on the way back out of a blocking recv, and catch an
          * impossible timeout wake on an infinite recv. */
         if (!trap_frame_sane(frame))
-            ipc_panic_bad_trap_frame("proc_recv.wake", current_thread->owner_process, frame);
+            ipc_panic_bad_trap_frame("msg_recv.wake", current_thread->owner_process, frame);
         if (timeout_ms == 0 && current_thread->wake_reason == WAKE_TIMEOUT)
-            ipc_panic_bad_trap_frame("proc_recv.wake-timeout-on-infinite",
+            ipc_panic_bad_trap_frame("msg_recv.wake-timeout-on-infinite",
                                      current_thread->owner_process, frame);
 
         if (timeout_ms > 0 && current_thread->wake_reason != WAKE_TIMEOUT &&
@@ -444,7 +444,7 @@ void __attribute__((hot)) proc_recv(arch_regs_t *frame)
     }
 }
 
-void __attribute__((hot)) proc_call(arch_regs_t *frame)
+void __attribute__((hot)) msg_call(arch_regs_t *frame)
 {
     int handle = (int)(*arch_reg(frame, 0));
 
@@ -468,7 +468,7 @@ void __attribute__((hot)) proc_call(arch_regs_t *frame)
         thread_t *rx_thread = rx_slot->owner;
         arch_regs_t *rx_frame = rx_thread->trap_frame;
         if (!trap_frame_sane(rx_frame))
-            ipc_panic_bad_trap_frame("proc_call.rx", rx_thread->owner_process, rx_frame);
+            ipc_panic_bad_trap_frame("msg_call.rx", rx_thread->owner_process, rx_frame);
 
         int slot = handle_vec_find_free(&rx_thread->owner_process->handle_table);
         if (slot < 0)
@@ -514,7 +514,7 @@ void __attribute__((hot)) proc_call(arch_regs_t *frame)
             sched_add(rx_thread);
         }
 
-        KDEBUG("proc_call: pid=%u handle=%d ep=%p blocking on reply",
+        KDEBUG("msg_call: pid=%u handle=%d ep=%p blocking on reply",
                current_thread->owner_process->pid, handle, (void *)ep);
         current_thread->state = BLOCKED;
         current_thread->blocked_endpoint = ep;
@@ -523,7 +523,7 @@ void __attribute__((hot)) proc_call(arch_regs_t *frame)
     }
     else
     {
-        KDEBUG("proc_call: pid=%u handle=%d ep=%p blocking (receiver_queue empty)",
+        KDEBUG("msg_call: pid=%u handle=%d ep=%p blocking (receiver_queue empty)",
                current_thread->owner_process->pid, handle, (void *)ep);
         current_thread->ipc_state = IPC_WAITING;
         current_thread->blocked_endpoint = ep;
@@ -534,7 +534,7 @@ void __attribute__((hot)) proc_call(arch_regs_t *frame)
     }
 }
 
-void __attribute__((hot)) proc_reply(arch_regs_t *frame)
+void __attribute__((hot)) msg_reply(arch_regs_t *frame)
 {
     handle_t handle_idx = (*arch_reg(frame, 0));
     thread_t *target_thread = NULL;
@@ -549,7 +549,7 @@ void __attribute__((hot)) proc_reply(arch_regs_t *frame)
     arch_regs_t *target_frame = target_thread->trap_frame;
     if (!trap_frame_sane(target_frame))
     {
-        ipc_panic_bad_trap_frame("proc_reply.target", target_thread->owner_process, target_frame);
+        ipc_panic_bad_trap_frame("msg_reply.target", target_thread->owner_process, target_frame);
     }
     (*arch_reg(target_frame, 0)) = 0;           // success
     (*arch_reg(target_frame, 1)) = (*arch_reg(frame, 1)); // reply payload
@@ -573,7 +573,7 @@ void __attribute__((hot)) proc_reply(arch_regs_t *frame)
     (*arch_reg(frame, 0)) = 0;
 }
 
-void proc_sendx(arch_regs_t *frame)
+void msg_lsend(arch_regs_t *frame)
 {
     int handle = (int)(*arch_reg(frame, 0));
 
@@ -610,7 +610,7 @@ void proc_sendx(arch_regs_t *frame)
         } else {
             arch_regs_t *rx_frame = rx_thread->trap_frame;
             if (!trap_frame_sane(rx_frame))
-                ipc_panic_bad_trap_frame("proc_sendx.rx", rx_thread->owner_process, rx_frame);
+                ipc_panic_bad_trap_frame("msg_lsend.rx", rx_thread->owner_process, rx_frame);
             (*arch_reg(rx_frame, 0)) = current_thread->owner_process->pid;
             (*arch_reg(rx_frame, 1)) = xlen;
             (*arch_reg(rx_frame, 2)) = 0;
@@ -636,7 +636,7 @@ void proc_sendx(arch_regs_t *frame)
     }
 }
 
-void proc_callx(arch_regs_t *frame)
+void msg_lcall(arch_regs_t *frame)
 {
     handle_t handle = (handle_t)(*arch_reg(frame, 0));
 
@@ -660,7 +660,7 @@ void proc_callx(arch_regs_t *frame)
         thread_t *rx_thread = rx_slot->owner;
         arch_regs_t *rx_frame = rx_thread->trap_frame;
         if (!trap_frame_sane(rx_frame))
-            ipc_panic_bad_trap_frame("proc_callx.rx", rx_thread->owner_process, rx_frame);
+            ipc_panic_bad_trap_frame("msg_lcall.rx", rx_thread->owner_process, rx_frame);
 
         int slot = handle_vec_find_free(&rx_thread->owner_process->handle_table);
         if (slot < 0)
@@ -727,7 +727,7 @@ void proc_callx(arch_regs_t *frame)
     }
 }
 
-void proc_replyx(arch_regs_t *frame)
+void msg_lreply(arch_regs_t *frame)
 {
     handle_t handle_idx = (*arch_reg(frame, 0));
     thread_t *target_thread = NULL;
@@ -742,7 +742,7 @@ void proc_replyx(arch_regs_t *frame)
     arch_regs_t *target_frame = target_thread->trap_frame;
     if (!trap_frame_sane(target_frame))
     {
-        ipc_panic_bad_trap_frame("proc_replyx.target", target_thread->owner_process, target_frame);
+        ipc_panic_bad_trap_frame("msg_lreply.target", target_thread->owner_process, target_frame);
     }
     size_t xlen = (*arch_reg(frame, 1)) > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : (*arch_reg(frame, 1));
     (*arch_reg(target_frame, 0)) = 0;           // success
@@ -777,7 +777,7 @@ static int recvany_deliver_sender(uint32_t matched_index,
     arch_regs_t *sr_frame = sr_thread->trap_frame;
     if (!trap_frame_sane(sr_frame))
     {
-        ipc_panic_bad_trap_frame("proc_recvany.sr", sr_thread->owner_process, sr_frame);
+        ipc_panic_bad_trap_frame("waitany.sr", sr_thread->owner_process, sr_frame);
     }
 
     memset(result, 0, sizeof(*result));
@@ -959,7 +959,7 @@ static bool recvany_write_timeout_result(uintptr_t result_ptr)
     return copy_to_user((void *)result_ptr, &result, sizeof(result));
 }
 
-void proc_recvany(arch_regs_t *frame)
+void waitany(arch_regs_t *frame)
 {
     /* r0 = handle array pointer
      * r1 = count

@@ -19,7 +19,7 @@ int main()
     avg_cycles = 0;
     for (int i = 0; i < 1000; i++) {
         uint32_t start = read_cycle_counter();
-        (void)_ep_create();
+        (void)_port_create();
         uint32_t end = read_cycle_counter();
         avg_cycles += (end - start);
     }

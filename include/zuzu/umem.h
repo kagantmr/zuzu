@@ -13,12 +13,12 @@ extern "C" {
 
 /* ---- Memory management syscalls ---- */
 
-static inline shmem_result_t _memshare(uint32_t size) {
+static inline shmem_result_t _shm_create(uint32_t size) {
     register uint32_t r0 __asm__("r0") = size;
     register uint32_t r1 __asm__("r1");
     __asm__ volatile("svc %[num]"
         : "+r"(r0), "=r"(r1)
-        : [num] "i"(SYS_MEMSHARE)
+        : [num] "i"(SYS_SHM_CREATE)
         : "memory");
     return (shmem_result_t){.handle = (int32_t)r0, .addr = (void *)r1};
 }

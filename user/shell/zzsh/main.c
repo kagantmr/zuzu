@@ -420,9 +420,9 @@ static void cmd_exec(const char *line)
         return;
     }
 
-    int32_t sysd_task_handle = _cap_grant(ts.task_handle, (int32_t)sysd_pid);
+    int32_t sysd_task_handle = _grant(ts.task_handle, (int32_t)sysd_pid);
     if (sysd_task_handle < 0) {
-        _kill(ts.task_handle);                    /* <-- NEW */
+        _pkill(ts.task_handle);                    /* <-- NEW */
         printf("%s", ANSI_RED "zzsh: spawn failed\n" ANSI_RESET);
         return;
     }
@@ -430,7 +430,7 @@ static void cmd_exec(const char *line)
     size_t path_len = strlen(path);
     size_t req_len = sizeof(exec_request_hdr_t) + path_len + 1 + argpos;
     if (req_len > IPCX_BUF_SIZE) {
-        _kill(ts.task_handle);                    /* <-- NEW */
+        _pkill(ts.task_handle);                    /* <-- NEW */
         printf("%s", ANSI_RED "zzsh: command too long\n" ANSI_RESET);
         return;
     }
@@ -450,19 +450,19 @@ static void cmd_exec(const char *line)
     int32_t rc = chan_call((handle_t)sysd_port, ipcx_buf(), (uint32_t)req_len,
                            ipcx_buf(), (uint32_t)sizeof(exec_reply_t));
     if (rc < 0) {
-        _kill(ts.task_handle);
+        _pkill(ts.task_handle);
         print_exec_error(rc);
         return;
     }
     if (rc != (int32_t)sizeof(exec_reply_t)) {
-        _kill(ts.task_handle);
+        _pkill(ts.task_handle);
         printf("%s", ANSI_RED "zzsh: bad exec reply\n" ANSI_RESET);
         return;
     }
 
     exec_reply_t *reply = (exec_reply_t *)ipcx_buf();
     if (!exec_reply_valid(reply)) {
-        _kill(ts.task_handle);
+        _pkill(ts.task_handle);
         print_exec_error(EXEC_EBADELF);
         return;
     }
@@ -475,7 +475,7 @@ static void cmd_exec(const char *line)
         .r1_val      = reply->argv_va,
     };
     if (_kickstart(&ks) != 0) {
-        _kill(ts.task_handle);
+        _pkill(ts.task_handle);
         printf("%s", ANSI_RED "zzsh: kickstart failed\n" ANSI_RESET);
         return;
     }

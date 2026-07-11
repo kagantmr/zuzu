@@ -116,8 +116,6 @@ __attribute__((cold)) int get_shm() {
     return ZUZU_OK;
 }
 
-
-
 int main() {
     if (get_shm() < 0) {
         return ERR_SYSDOWN;
@@ -150,7 +148,7 @@ int main() {
 
         /* 2. sleep until a packet arrives or the deadline elapses */
         recvany_result_t result;
-        int32_t recv_rc = _recvany(handles, 2, sleep_ms, &result);
+        int32_t recv_rc = _waitany(handles, 2, sleep_ms, &result);
 
         /* 3. DRAIN RX FIRST: process inbound before any timer fires */
         if (recv_rc >= 0 && result.kind == RECVANY_KIND_NTFN) {
