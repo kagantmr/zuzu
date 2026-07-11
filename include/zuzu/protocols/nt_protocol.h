@@ -9,13 +9,14 @@
 #define DEN_CREATE 3
 #define DEN_INVITE 4
 #define DEN_KICK 5
-#define DEN_MYDEN  6
+#define DEN_MYDEN 6
 #define DEN_MYDEN_COUNT 7
 #define DEN_MYDEN_AT 8
 
 #include <stdint.h>
 
-static inline uint32_t nt_pack(const char name[4]) {
+static inline uint32_t nt_pack(const char name[4])
+{
 	return ((uint32_t)(unsigned char)name[0]) |
 		   ((uint32_t)(unsigned char)name[1] << 8) |
 		   ((uint32_t)(unsigned char)name[2] << 16) |
@@ -27,8 +28,8 @@ static inline uint32_t nt_pack(const char name[4]) {
 #define NT_REG_FAIL (-2)
 #define NT_REG_OK 0
 #define NT_BADCMD (-3)
-#define DEN_OK         0
-#define DEN_FAIL      (-4)
-#define DEN_FULL      (-5)
+#define DEN_OK 0
+#define DEN_FAIL (-4)
+#define DEN_FULL (-5)
 
 #endif

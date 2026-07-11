@@ -7,11 +7,12 @@
 
 #define SYS_TASK_PQUIT 0x00     /* (status) -> never returns            */
 #define SYS_TASK_YIELD 0x01     /* () -> 0                              */
+#define SYSCALL_RESERVED1 0x02  /* Reserved */
 #define SYS_TASK_WAIT 0x03      /* (pid, &status) -> 0 or -err          */
 #define SYS_GET_PID 0x04        /* () -> pid                            */
 #define SYS_TASK_SLEEP 0x05     /* (duration) -> 0                      */
-#define SYS_TASK_PSPAWN 0x06    /*  */
-#define SYS_TASK_KICKSTART 0x07 /* ()  */
+#define SYS_TASK_PSPAWN 0x06    /* (name) -> empty process (0) or -err  */
+#define SYS_TASK_KICKSTART 0x07 /* (handle, entry, sp, reg1, reg2) -> 0 or -err */
 #define SYS_TASK_KILL 0x08      /* (task_handle) -> 0 or -err */
 #define SYS_TASK_TMAKE 0x09     /* (entry, user_sp, arg) -> tid */
 #define SYS_TASK_TJOIN 0x0A     /* (tid) -> exit_status or -err */
@@ -44,7 +45,7 @@
 #define SYS_MEMSHARE 0x32 /* (size) -> id or -err                 */
 #define SYS_ATTACH 0x33   /* (id, addr) -> addr or -err           */
 #define SYS_MAPDEV 0x34   /* (phys, size) -> addr or -err         */
-#define SYS_DETACH 0x35   /* (phys, size) -> addr or -err         */
+#define SYS_DETACH 0x35   /* (phys, size) -> 0 or -err         */
 #define SYS_QUERYDEV 0x36 /* (handle, out_buf, len) -> irq or -err*/
 #define SYS_MPROTECT 0x37 /* (addr, size, prot) -> 0 or -err      */
 #define SYS_ASINJECT 0x38 /* (args_struct_ptr) -> 0 or -err */
