@@ -292,7 +292,7 @@ void __attribute__((hot)) msg_send(arch_regs_t *frame)
 void __attribute__((hot)) msg_recv(arch_regs_t *frame)
 {
     int handle = (int)(*arch_reg(frame, 0));
-    uint32_t timeout_ms = (*arch_reg(frame, 1)); // 0 = infinite (backward compatible)
+    uint32_t timeout_ms = (*arch_reg(frame, 1)); // TIMEOUT_POLL / TIMEOUT_INFINITE / finite ms
 
     endpoint_t *ep = validate_endpoint_handle(current_thread->owner_process, handle, frame);
     if (!ep)
@@ -390,9 +390,9 @@ void __attribute__((hot)) msg_recv(arch_regs_t *frame)
                    current_thread->owner_process->pid, handle, (void *)ep, timeout_ms);
         }
 
-        if (timeout_ms == UINT32_MAX)
+        if (timeout_ms == TIMEOUT_POLL)
         {
-            (*arch_reg(frame, 0)) = ERR_BUSY;
+            (*arch_reg(frame, 0)) = ERR_TIMEOUT;
             return;
         }
 
@@ -406,7 +406,7 @@ void __attribute__((hot)) msg_recv(arch_regs_t *frame)
         list_add_tail(&current_thread->ep_wait_slot.node, &ep->receiver_queue.node);
         current_thread->state = BLOCKED;
 
-        if (timeout_ms > 0)
+        if (timeout_ms != TIMEOUT_INFINITE)
         {
             tick_t ticks = ((uint64_t)timeout_ms * (uint64_t)TICK_HZ) / 1000u;
             if (ticks == 0)
@@ -426,11 +426,11 @@ void __attribute__((hot)) msg_recv(arch_regs_t *frame)
          * impossible timeout wake on an infinite recv. */
         if (!trap_frame_sane(frame))
             ipc_panic_bad_trap_frame("msg_recv.wake", current_thread->owner_process, frame);
-        if (timeout_ms == 0 && current_thread->wake_reason == WAKE_TIMEOUT)
+        if (timeout_ms == TIMEOUT_INFINITE && current_thread->wake_reason == WAKE_TIMEOUT)
             ipc_panic_bad_trap_frame("msg_recv.wake-timeout-on-infinite",
                                      current_thread->owner_process, frame);
 
-        if (timeout_ms > 0 && current_thread->wake_reason != WAKE_TIMEOUT &&
+        if (timeout_ms != TIMEOUT_INFINITE && current_thread->wake_reason != WAKE_TIMEOUT &&
             current_thread->timeout_node.prev && current_thread->timeout_node.next)
         {
             list_remove(&current_thread->timeout_node);
@@ -438,7 +438,7 @@ void __attribute__((hot)) msg_recv(arch_regs_t *frame)
 
         if (current_thread->wake_reason == WAKE_TIMEOUT)
         {
-            (*arch_reg(frame, 0)) = ERR_BUSY;
+            (*arch_reg(frame, 0)) = ERR_TIMEOUT;
         }
         // KDEBUG("Listener woke from recv, PID %d", current_process->pid);
     }
@@ -991,7 +991,7 @@ void waitany(arch_regs_t *frame)
     }
 
     tick_t deadline = 0;
-    if (timeout_ms > 0 && timeout_ms != UINT32_MAX) {
+    if (timeout_ms != TIMEOUT_POLL && timeout_ms != TIMEOUT_INFINITE) {
         tick_t ticks = ((uint64_t)timeout_ms * (uint64_t)TICK_HZ) / 1000u;
         if (ticks == 0)
             ticks = 1;
@@ -1023,13 +1023,13 @@ void waitany(arch_regs_t *frame)
             return;
         }
 
-        if (timeout_ms == UINT32_MAX) {
-            (*arch_reg(frame, 0)) = ERR_BUSY;
+        if (timeout_ms == TIMEOUT_POLL) {
+            (*arch_reg(frame, 0)) = ERR_TIMEOUT;
             return;
         }
 
         /* Deadline check before blocking */
-        if (timeout_ms > 0) {
+        if (timeout_ms != TIMEOUT_INFINITE) {
             tick_t now = get_ticks();
             if (now >= deadline) {
                 if (!recvany_write_timeout_result(result_ptr)) {
@@ -1080,7 +1080,7 @@ void waitany(arch_regs_t *frame)
         current_thread->blocked_endpoint = NULL;
         current_thread->state = BLOCKED;
 
-        if (timeout_ms > 0) {
+        if (timeout_ms != TIMEOUT_INFINITE) {
             current_thread->wake_tick = deadline;
             sleep_queue_insert(current_thread);
         } else {
@@ -1090,12 +1090,12 @@ void waitany(arch_regs_t *frame)
         schedule();
 
         /* Cancel sleep queue entry if not timed out */
-        if (timeout_ms > 0 && current_thread->wake_reason != WAKE_TIMEOUT &&
+        if (timeout_ms != TIMEOUT_INFINITE && current_thread->wake_reason != WAKE_TIMEOUT &&
             current_thread->timeout_node.prev && current_thread->timeout_node.next) {
             list_remove(&current_thread->timeout_node);
         }
 
-        /* ERR_DEAD from port_destroy */
+        /* ERR_DEAD from cap_destroy */
         if ((int32_t)(*arch_reg(frame, 0)) == ERR_DEAD) {
             thread_recvany_clear_waits(current_thread);
             thread_recvany_clear_ep_waits(current_thread);

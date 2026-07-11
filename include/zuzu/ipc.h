@@ -25,7 +25,7 @@ static inline int32_t _send(handle_t port, uint32_t w1, uint32_t w2, uint32_t w3
 }
 
 /*
- * (port) -> recv tuple in r0-r3
+ * (port) -> recv tuple in r0-r3; blocks until a message arrives
  * Current kernel ABI:
  * - IRQ delivery:      r0 = 0,            r1 = irq_num
  * - msg_send source:   r0 = sender_pid,   r1-r3 = payload
@@ -33,23 +33,24 @@ static inline int32_t _send(handle_t port, uint32_t w1, uint32_t w2, uint32_t w3
  */
 static inline msg_t _recv(handle_t port) {
     register handle_t r0 __asm__("r0") = port;
-    register uint32_t r1 __asm__("r1") = 0;
+    register uint32_t r1 __asm__("r1") = TIMEOUT_INFINITE;
     register uint32_t r2 __asm__("r2");
     register uint32_t r3 __asm__("r3");
     __asm__ volatile("svc %[num]"
-        : "+r"(r0), "=r"(r1), "=r"(r2), "=r"(r3)
+        : "+r"(r0), "+r"(r1), "=r"(r2), "=r"(r3)
         : [num] "i"(SYS_MSG_RECV)
         : "memory");
     return (msg_t){.r0 = r0, .r1 = r1, .r2 = r2, .r3 = r3};
 }
 
+/* (port, timeout_ms) -> recv tuple; TIMEOUT_POLL polls, TIMEOUT_INFINITE blocks */
 static inline msg_t _recv_timeout(handle_t port, uint32_t timeout_ms) {
     register handle_t r0 __asm__("r0") = port;
     register uint32_t r1 __asm__("r1") = timeout_ms;
     register uint32_t r2 __asm__("r2");
     register uint32_t r3 __asm__("r3");
     __asm__ volatile("svc %[num]"
-        : "+r"(r0), "=r"(r1), "=r"(r2), "=r"(r3)
+        : "+r"(r0), "+r"(r1), "=r"(r2), "=r"(r3)
         : [num] "i"(SYS_MSG_RECV)
         : "memory");
     return (msg_t){.r0 = r0, .r1 = r1, .r2 = r2, .r3 = r3};
@@ -111,7 +112,8 @@ static inline int32_t _lreply(handle_t reply_handle, uint32_t buf_len) {
     return (int32_t) r0;
 }
 
-/* (handles_ptr, count, timeout, result_ptr) -> 0 or -err; UINT32_MAX timeout polls */
+/* (handles_ptr, count, timeout, result_ptr) -> 0 or -err;
+ * TIMEOUT_POLL polls, TIMEOUT_INFINITE blocks forever */
 static inline int32_t _waitany(const handle_t *handles, uint32_t count, uint32_t timeout_ms, recvany_result_t *result) {
     register uintptr_t r0 __asm__("r0") = (uintptr_t)handles;
     register uint32_t r1 __asm__("r1") = count;

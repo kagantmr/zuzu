@@ -142,7 +142,7 @@ int main() {
         if (next == TIMER_NO_DEADLINE)
             sleep_ms = LEGACY_POLL_CAP;
         else if ((int32_t)(next - now) <= 0)
-            sleep_ms = 0;                    /* already overdue: don't block */
+            sleep_ms = TIMEOUT_POLL;         /* already overdue: don't block */
         else
             sleep_ms = next - now > LEGACY_POLL_CAP ? LEGACY_POLL_CAP : next - now;
 
