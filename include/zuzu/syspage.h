@@ -5,7 +5,7 @@
 #include "stddef.h"
 #include "zuzu/types.h"
 
-#define SYSPAGE_MAX_DEVICES 64
+#define SYSPAGE_MAX_DEVICES 128
 #define SYSPAGE_DEV_NAME_LEN 32
 #define SYSPAGE_VA 0x1000
 
