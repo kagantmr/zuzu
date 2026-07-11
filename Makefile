@@ -124,7 +124,7 @@ else
     USER_CFLAGS += -DNDEBUG -UDEBUG
 endif
 
-BOOT_PROGS = sysd devmgr # pl011drv pl181drv fat32d fbox lan9118drv netd zzsh
+BOOT_PROGS = sysd devmgr pl011drv pl181drv fat32d fbox lan9118drv netd # zzsh
 DISK_PROGS = test zuzufetch cycletest
 
 USER_PROGS = $(BOOT_PROGS) $(DISK_PROGS)
@@ -139,7 +139,7 @@ USER_DIR_pl011drv   = user/drivers/pl011drv
 USER_DIR_pl181drv   = user/drivers/pl181drv
 USER_DIR_fat32d     = user/drivers/fat32d
 USER_DIR_lan9118drv = user/drivers/lan9118drv
-USER_DIR_netd       = user/drivers/netd
+USER_DIR_netd       = user/services/netd
 USER_DIR_zzsh       = user/shell/zzsh
 USER_DIR_test       = user/test_apps/test
 USER_DIR_zuzufetch  = user/test_apps/zuzufetch
