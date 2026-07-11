@@ -5,7 +5,7 @@
 #include "stddef.h"
 #include "zuzu/types.h"
 
-#define SYSPAGE_MAX_DEVICES 128
+#define SYSPAGE_MAX_DEVICES 120
 #define SYSPAGE_DEV_NAME_LEN 32
 #define SYSPAGE_VA 0x1000
 
@@ -32,5 +32,8 @@ typedef struct
     size_t initrd_size;
     syspage_dev_t devs[SYSPAGE_MAX_DEVICES]; // filled from DTB walk at boot
 } syspage_t;
+
+/* Backed by a single pmm_alloc_page() and mapped into userspace as one page. */
+_Static_assert(sizeof(syspage_t) <= 4096, "syspage_t must fit in one page");
 
 #endif
