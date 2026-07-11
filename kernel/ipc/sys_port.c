@@ -75,9 +75,6 @@ void port_create(arch_regs_t *frame)
     entry->grantable = true;
     entry->type = HANDLE_ENDPOINT;
 
-    KDEBUG("port_create: pid=%u handle=%d ep=%p ref_count=%u", current_thread->owner_process->pid,
-           handle, (void *)new_endpoint, new_endpoint->ref_count);
-
     (*arch_reg(frame, 0)) = handle;
     return;
 }
