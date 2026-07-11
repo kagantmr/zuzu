@@ -28,6 +28,7 @@ _Static_assert(sizeof(tcp_hdr_t) == 20, "TCP header size");
 #define TCP_MAX_PCB 64
 #define TCP_MSS 1460
 #define TCP_RTO_MAX 1000
+#define TCP_OOO_MAX 8
 #define TCP_SND_BUF 4096
 #define TCP_RCV_BUF 4096
 #define TCP_DEFAULT_WINDOW 8192
@@ -48,6 +49,11 @@ typedef enum {
 } tcp_state_t;
 
 typedef struct {
+    uint32_t start;
+    uint32_t end;
+} tcp_ooo_t;
+
+typedef struct {
     ipv4_addr_t local_ip;
     port_t local_port;
     ipv4_addr_t remote_ip;
@@ -58,6 +64,8 @@ typedef struct {
     uint32_t rcv_nxt;
     uint32_t rcv_rsq;
     uint16_t snd_wnd;
+    tcp_ooo_t ooo[TCP_OOO_MAX];
+    size_t ooo_count;
     bool active;
     uint8_t snd_buf[TCP_SND_BUF]; // size must be a power of 2
     size_t buffered_bytes; // how many bytes are buffered?

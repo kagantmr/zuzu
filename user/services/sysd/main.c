@@ -676,8 +676,19 @@ int main(void)
 
     register_tty_aliases();
 
-    // wait for fbox so we can spawn deferred entries through it once it's ready
-    wait_for_service(nt_pack("fbox"));
+    // wait for fbox so we can spawn deferred entries through it once it's ready,
+    // but only if fbox is actually in this boot manifest — otherwise this is a
+    // guaranteed 30s stall waiting for a service that will never register
+    // (e.g. a trimmed boot manifest without fbox/fat32d/pl181drv).
+    bool have_fbox = false;
+    for (int i = 0; i < boot_count; i++) {
+        if (boot_entries[i].in_cpio && strcmp(boot_entries[i].name, "fbox") == 0) {
+            have_fbox = true;
+            break;
+        }
+    }
+    if (have_fbox)
+        wait_for_service(nt_pack("fbox"));
 
     /* Spawn any entries marked spawn_last after services are available. */
     for (int i = 0; i < boot_count; i++) {
