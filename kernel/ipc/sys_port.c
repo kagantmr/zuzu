@@ -1,4 +1,5 @@
 #include "sys_port.h"
+#include "sys_notif.h"
 #include "kernel/syscall/syscall.h"
 #include "port.h"
 #include "kernel/sched/sched.h"
@@ -53,12 +54,15 @@ void port_create(arch_regs_t *frame)
             if (p && p != current_thread->owner_process)
             {
                 handle_entry_t *p_entry = handle_vec_get(&p->handle_table, 0);
-                if (p_entry && p_entry->type == HANDLE_FREE) {
+                if (p_entry && p_entry->type == HANDLE_FREE)
+                {
                     p_entry->ep = nametable_endpoint;
                     p_entry->grantable = true;
                     p_entry->type = HANDLE_ENDPOINT;
                     nametable_endpoint->ref_count++;
-                } else if (p_entry && p_entry->type != HANDLE_FREE) {
+                }
+                else if (p_entry && p_entry->type != HANDLE_FREE)
+                {
                     KWARN("nametable bootstrap skipped PID %u: handle slot 0 already in use (type=%d ep=%p)",
                           p->pid, p_entry->type, (void *)p_entry->ep);
                 }
@@ -79,7 +83,7 @@ void port_create(arch_regs_t *frame)
     return;
 }
 
-void port_destroy(arch_regs_t *frame)
+void cap_destroy(arch_regs_t *frame)
 {
     if (!current_thread)
     {
@@ -96,82 +100,149 @@ void port_destroy(arch_regs_t *frame)
         (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
-    if (entry->type != HANDLE_ENDPOINT)
+    if (entry->type == HANDLE_REPLY || entry->type == HANDLE_TASK)
     {
         (*arch_reg(frame, 0)) = ERR_NOPERM;
         return;
     }
-    endpoint_t *ep = entry->ep;
-
-    if (!ep)
+    if (entry->type == HANDLE_FREE)
     {
         (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
-
-    if (!ep->alive)
+    switch (entry->type)
     {
+    case HANDLE_ENDPOINT:
+    {
+
+        endpoint_t *ep = entry->ep;
+        if (!ep)
+        {
+            (*arch_reg(frame, 0)) = ERR_BADARG;
+            return;
+        }
+
+        if (!ep->alive)
+        {
+            entry->ep = NULL;
+            entry->grantable = false;
+            entry->type = HANDLE_FREE;
+            (*arch_reg(frame, 0)) = ERR_DEAD;
+            return;
+        }
+
+        // Only owner can destroy
+        if (ep->owner_pid != current_thread->owner_process->pid)
+        {
+            (*arch_reg(frame, 0)) = ERR_NOPERM;
+            return;
+        }
+
+        // Wake all blocked senders with error
+        while (!list_empty(&ep->sender_queue))
+        {
+            list_node_t *n = list_pop_front(&ep->sender_queue);
+            thread_t *t = container_of(n, thread_t, node);
+            t->ipc_state = IPC_NONE;
+            t->blocked_endpoint = NULL;
+            (*arch_reg(t->trap_frame, 0)) = ERR_DEAD;
+            t->state = READY;
+            sched_add(t);
+        }
+
+        // Wake all blocked receivers with error
+        while (!list_empty(&ep->receiver_queue))
+        {
+            list_node_t *n = list_pop_front(&ep->receiver_queue);
+            thread_wait_slot_t *slot = container_of(n, thread_wait_slot_t, node);
+            thread_t *t = slot->owner;
+            if (t->recvany_ep_wait_active)
+            {
+                thread_recvany_clear_waits(t);
+                thread_recvany_clear_ep_waits(t);
+            }
+            else
+            {
+                t->ipc_state = IPC_NONE;
+                t->blocked_endpoint = NULL;
+            }
+            if (t->trap_frame)
+                (*arch_reg(t->trap_frame, 0)) = ERR_DEAD;
+            if (t->wake_tick != 0 && t->timeout_node.prev && t->timeout_node.next)
+                list_remove(&t->timeout_node);
+            t->wake_tick = 0;
+            t->wake_reason = WAKE_IPC;
+            t->state = READY;
+            sched_add(t);
+        }
+
+        ep->alive = false;
+
         entry->ep = NULL;
         entry->grantable = false;
         entry->type = HANDLE_FREE;
-        (*arch_reg(frame, 0)) = ERR_DEAD;
-        return;
-    }
 
-    // Only owner can destroy
-    if (ep->owner_pid != current_thread->owner_process->pid)
-    {
-        (*arch_reg(frame, 0)) = ERR_NOPERM;
-        return;
-    }
+        if (ep->ref_count > 0)
+            ep->ref_count--;
+        if (ep->ref_count == 0)
+            kfree_endpoint(ep);
 
-    // Wake all blocked senders with error
-    while (!list_empty(&ep->sender_queue))
-    {
-        list_node_t *n = list_pop_front(&ep->sender_queue);
-        thread_t *t = container_of(n, thread_t, node);
-        t->ipc_state = IPC_NONE;
-        t->blocked_endpoint = NULL;
-        (*arch_reg(t->trap_frame, 0)) = ERR_DEAD;
-        t->state = READY;
-        sched_add(t);
+        (*arch_reg(frame, 0)) = 0;
     }
-
-    // Wake all blocked receivers with error
-    while (!list_empty(&ep->receiver_queue))
-    {
-        list_node_t *n = list_pop_front(&ep->receiver_queue);
-        thread_wait_slot_t *slot = container_of(n, thread_wait_slot_t, node);
-        thread_t *t = slot->owner;
-        if (t->recvany_ep_wait_active) {
-            thread_recvany_clear_waits(t);
-            thread_recvany_clear_ep_waits(t);
-        } else {
-            t->ipc_state = IPC_NONE;
-            t->blocked_endpoint = NULL;
+    break;
+    case HANDLE_NOTIFICATION: {
+        notification_t *ntf = entry->ntfn;
+        if (!ntf)
+        {
+            (*arch_reg(frame, 0)) = ERR_BADARG;
+            return;
         }
-        if (t->trap_frame)
-            (*arch_reg(t->trap_frame, 0)) = ERR_DEAD;
-        if (t->wake_tick != 0 && t->timeout_node.prev && t->timeout_node.next)
-            list_remove(&t->timeout_node);
-        t->wake_tick = 0;
-        t->wake_reason = WAKE_IPC;
-        t->state = READY;
-        sched_add(t);
+
+        if (!ntf->alive)
+        {
+            entry->ntfn = NULL;
+            entry->grantable = false;
+            entry->type = HANDLE_FREE;
+            (*arch_reg(frame, 0)) = ERR_DEAD;
+            return;
+        }
+
+        // Only owner can destroy
+        if (ntf->owner_pid != current_thread->owner_process->pid)
+        {
+            (*arch_reg(frame, 0)) = ERR_NOPERM;
+            return;
+        }
+
+        // Wake all blocked waiters (plain ntfn_wait and waitany) with error
+        while (!list_empty(&ntf->wait_queue))
+        {
+            list_node_t *n = list_pop_front(&ntf->wait_queue);
+            thread_wait_slot_t *slot = container_of(n, thread_wait_slot_t, node);
+            ntfn_wake_waiter(ntf, slot, ERR_DEAD, 0);
+        }
+
+
+        ntf->alive = false;
+
+        entry->ntfn = NULL;
+        entry->grantable = false;
+        entry->type = HANDLE_FREE;
+
+        if (ntf->ref_count > 0)
+            ntf->ref_count--;
+        if (ntf->ref_count == 0)
+            kfree(ntf);
+
+        (*arch_reg(frame, 0)) = 0;
     }
-
-    ep->alive = false;
-
-    entry->ep = NULL;
-    entry->grantable = false;
-    entry->type = HANDLE_FREE;
-
-    if (ep->ref_count > 0)
-        ep->ref_count--;
-    if (ep->ref_count == 0)
-        kfree_endpoint(ep);
-
-    (*arch_reg(frame, 0)) = 0;
+    break;
+    case HANDLE_SHMEM:   /* not implemented yet: refuse if mapped, else drop ref */
+    case HANDLE_DEVICE:  /* not implemented yet: refuse if mapped, else release cap */
+    default: {
+        (*arch_reg(frame, 0)) = ERR_BADARG;
+    }
+    }
 }
 
 void grant(arch_regs_t *frame)
@@ -182,7 +253,7 @@ void grant(arch_regs_t *frame)
         return;
     }
 
-    int handle = (int)(*arch_reg(frame, 0));
+    handle_t handle = (handle_t)(*arch_reg(frame, 0));
     zpid_t pid = (*arch_reg(frame, 1));
 
     // Validate handle
@@ -234,8 +305,10 @@ void grant(arch_regs_t *frame)
 
     *dst = *src;
 
-    if (dst->type == HANDLE_ENDPOINT) {
-        if (!dst->ep || !dst->ep->alive) {
+    if (dst->type == HANDLE_ENDPOINT)
+    {
+        if (!dst->ep || !dst->ep->alive)
+        {
             dst->type = HANDLE_FREE;
             dst->grantable = false;
             dst->ep = NULL;
@@ -244,8 +317,10 @@ void grant(arch_regs_t *frame)
         }
         dst->ep->ref_count++;
     }
-    if (dst->type == HANDLE_DEVICE) {
-        if (!dst->dev) {
+    if (dst->type == HANDLE_DEVICE)
+    {
+        if (!dst->dev)
+        {
             dst->type = HANDLE_FREE;
             dst->grantable = false;
             (*arch_reg(frame, 0)) = ERR_BADARG;
@@ -253,8 +328,10 @@ void grant(arch_regs_t *frame)
         }
         dst->dev->ref_count++;
     }
-    if (dst->type == HANDLE_NOTIFICATION) {
-        if (!dst->ntfn || !dst->ntfn->alive) {
+    if (dst->type == HANDLE_NOTIFICATION)
+    {
+        if (!dst->ntfn || !dst->ntfn->alive)
+        {
             dst->type = HANDLE_FREE;
             dst->grantable = false;
             dst->ntfn = NULL;
