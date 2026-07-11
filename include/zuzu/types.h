@@ -50,6 +50,9 @@ enum {
 
 #define RECVANY_NO_MATCH UINT32_MAX
 
+#define TIMEOUT_POLL     0u
+#define TIMEOUT_INFINITE UINT32_MAX
+
 /* recvany result struct */
 typedef struct {
     uint32_t matched_index;  /* which handle in the input array */

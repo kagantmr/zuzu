@@ -50,7 +50,7 @@ static void fbox_worker(void *arg)
 {
     (void)arg;
     while (1) {
-        _ntfn_wait((uint32_t)fbox_worker_ntfn, NTFN_WAIT_FOREVER);
+        _ntfn_wait((uint32_t)fbox_worker_ntfn, TIMEOUT_INFINITE);
         while (fbox_job_head != fbox_job_tail) {
             fbox_job_t job = fbox_jobs[fbox_job_tail];
             fbox_job_tail = (fbox_job_tail + 1) % FBOX_JOB_QUEUE_SZ;

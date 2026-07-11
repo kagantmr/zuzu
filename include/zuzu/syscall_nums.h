@@ -33,8 +33,8 @@
 #define SYS_DEV_QUERY     0x22  /* (name/class, out*) -> handle or -err */
 #define SYS_GRANT         0x23  /* (handle, pid) -> 0 or -err; any type */
 #define SYS_DESTROY       0x24  /* (handle) -> 0 or -err; refuses REPLY/TASK, ERR_BUSY if mapped */
-#define SYS_NTFN_SIGNAL   0x25  /* (handle, bits) -> 0 or -err */
-#define SYS_NTFN_WAIT     0x26  /* (handle, timeout_ms) -> bits or -err */
+#define SYS_NTFN_SIGNAL   0x25  /* (handle, bits) -> 0 or -err; bits are 31-bit, bit 31 rejected */
+#define SYS_NTFN_WAIT     0x26  /* (handle, timeout_ms) -> bits or -err; bit 31 reserved for errors */
 
 /* ---- Memory (0x30-0x3F) ---- */
 #define SYS_MEMMAP        0x30  /* (handle|HANDLE_ANON, size, prot, flags) -> va or -err */

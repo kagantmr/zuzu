@@ -20,6 +20,8 @@ static inline int32_t _ntfn_create(void) {
     return (int32_t)r0;
 }
 
+/* (handle, bits) -> 0 or -err; bits are 31-bit — bit 31 is rejected with
+ * ERR_BADARG because delivered bits ride in r0 where negatives mean errors */
 static inline int32_t _ntfn_signal(handle_t ntfn_handle, uint32_t bits) {
     register handle_t r0 __asm__("r0") = ntfn_handle;
     register uint32_t r1 __asm__("r1") = bits;
@@ -30,8 +32,7 @@ static inline int32_t _ntfn_signal(handle_t ntfn_handle, uint32_t bits) {
     return (int32_t)r0;
 }
 
-#define NTFN_WAIT_FOREVER UINT32_MAX
-
+/* (handle, timeout_ms) -> bits or -err; TIMEOUT_POLL polls, TIMEOUT_INFINITE blocks */
 static inline int32_t _ntfn_wait(handle_t ntfn_handle, uint32_t timeout_ms) {
     register handle_t r0 __asm__("r0") = ntfn_handle;
     register uint32_t r1 __asm__("r1") = timeout_ms;
