@@ -3,18 +3,23 @@
 #include "kernel/sched/sched.h"
 #include "kernel/syscall/syscall.h"
 #include "kernel/time/tick.h"
+#include "core/panic.h"
 
 #define LOG_FMT(fmt) "(sys_notif) " fmt
 #include "core/log.h"
 
 extern thread_t *current_thread;
 
-bool ntfn_wake_waiter(notification_t *ntfn, thread_wait_slot_t *slot,
+void ntfn_wake_waiter(notification_t *ntfn, thread_wait_slot_t *slot,
                       int32_t r0_value, uint32_t bits)
 {
     thread_t *waiter = slot->owner;
-    if (!waiter || !waiter->trap_frame)
-        return false;
+    if (!waiter || !waiter->trap_frame) {
+        KERROR("ntfn %p wait queue holds slot %p owner=%p trap_frame=%p",
+               (void *)ntfn, (void *)slot, (void *)waiter,
+               waiter ? (void *)waiter->trap_frame : NULL);
+        panic("ntfn_wake_waiter: queued waiter with no trap frame");
+    }
 
     (*arch_reg(waiter->trap_frame, 0)) = (uint32_t)r0_value;
 
@@ -41,7 +46,6 @@ bool ntfn_wake_waiter(notification_t *ntfn, thread_wait_slot_t *slot,
     waiter->ipc_state = IPC_NONE;
     waiter->state = READY;
     sched_add(waiter);
-    return true;
 }
 
 void ntfn_create(arch_regs_t *frame) {
@@ -84,20 +88,14 @@ void ntfn_signal(arch_regs_t *frame) {
     }
     ntfn->word |= bits;
 
-    /* Wake one waiter if any. A slot whose owner has no trap frame is an
-     * invariant violation: skip it and try the next waiter — the signal
-     * itself already succeeded, so the signaler never sees an error here. */
-    while (!list_empty(&ntfn->wait_queue)) {
+    // Wake one waiter if any (ntfn_wake_waiter panics on a corrupt queue)
+    if (!list_empty(&ntfn->wait_queue)) {
         list_node_t *node = list_pop_front(&ntfn->wait_queue);
         thread_wait_slot_t *slot = container_of(node, thread_wait_slot_t, node);
 
         uint32_t delivered = ntfn->word;
-        if (!ntfn_wake_waiter(ntfn, slot, (int32_t)delivered, delivered)) {
-            KERROR("ntfn_signal: waiter without trap frame on ntfn %p, skipping", (void *)ntfn);
-            continue;
-        }
+        ntfn_wake_waiter(ntfn, slot, (int32_t)delivered, delivered);
         ntfn->word = 0;  // clear on delivery
-        break;
     }
 
     (*arch_reg(frame, 0)) = 0;

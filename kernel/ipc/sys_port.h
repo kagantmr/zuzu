@@ -6,7 +6,7 @@
 #include <arch/regs.h>
 
 void port_create(arch_regs_t *frame);
-void port_destroy(arch_regs_t *frame);
+void cap_destroy(arch_regs_t *frame);
 void grant(arch_regs_t *frame);
 
 #endif
