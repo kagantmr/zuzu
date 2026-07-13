@@ -288,67 +288,13 @@ static size_t parse_boot_manifest(const char *manifest_data, size_t manifest_siz
     return count;
 }
 
-/* Bring-up-only observability: the only output channel on the rpi4 port
- * right now is the kernel's own debug console (no pl011drv/tty yet), so
- * userspace running quietly and userspace hung look identical from outside.
- * Print who's running once a second so silence isn't ambiguous. Remove once
- * a real userspace console is online. */
-static const char *bringup_state_name(state_t s)
-{
-    switch (s) {
-    case READY:   return "READY";
-    case RUNNING: return "RUNNING";
-    case BLOCKED: return "BLOCKED";
-    case ZOMBIE:  return "ZOMBIE";
-    case FROZEN:  return "FROZEN";
-    default:      return "?";
-    }
-}
-
 /* register_tick_callback keeps a single slot (see kernel/time/tick.c), so
  * this wraps set_resched_flag rather than being registered alongside it —
  * a second call to register_tick_callback would silently replace the first
  * and stop preemption. */
-/* "current" alone is a weak signal for a mostly-blocked server: it only
- * shows whoever the tick happened to interrupt, so a process parked in an
- * infinite recv is invisible here even though it's alive and fine. Report
- * pid 1/2's actual state directly instead of inferring it from sampling. */
-static void bringup_report_pid(zpid_t pid)
-{
-    process_t *p = process_find_by_pid(pid);
-    if (!p) {
-        KINFO("  pid=%u: <no process>", pid);
-        return;
-    }
-    if (!p->thread) {
-        KINFO("  pid=%u name=%s: <no thread>", pid, p->name);
-        return;
-    }
-    KINFO("  pid=%u name=%s tid=%u state=%s wake_tick=%llu",
-          pid, p->name, p->thread->tid, bringup_state_name(p->thread->state),
-          (unsigned long long)p->thread->wake_tick);
-}
-
-static void bringup_heartbeat_tick(void)
+static void sched_tick(void)
 {
     set_resched_flag();
-
-    static uint64_t next_tick;
-    uint64_t now = get_ticks();
-    if (now < next_tick)
-        return;
-    next_tick = now + TICK_HZ;
-
-    if (current_thread && current_thread->owner_process) {
-        KINFO("heartbeat: tick=%llu current=%s(pid=%u,tid=%u) state=%s",
-              (unsigned long long)now, current_thread->owner_process->name,
-              current_thread->owner_process->pid, current_thread->tid,
-              bringup_state_name(current_thread->state));
-    } else {
-        KINFO("heartbeat: tick=%llu current=<idle>", (unsigned long long)now);
-    }
-    bringup_report_pid(1);
-    bringup_report_pid(2);
 }
 
 _Noreturn void kmain(void)
@@ -393,7 +339,7 @@ _Noreturn void kmain(void)
         }
     }
 
-    register_tick_callback(bringup_heartbeat_tick);
+    register_tick_callback(sched_tick);
 
     KINFO("Entering idle");
 

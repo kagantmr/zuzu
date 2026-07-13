@@ -95,7 +95,6 @@ void sched_defer_destroy_thread(thread_t *t) {
     if (!t) return;
     /* Guard against double-enqueue: if node is already linked, skip. */
     if (t->destroy_node.next || t->destroy_node.prev) {
-        KDEBUG("sched_defer_destroy_thread: tid=%u already queued", t->tid);
         return;
     }
     list_add_tail(&t->destroy_node, &thread_destroy_queue.node);
