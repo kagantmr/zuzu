@@ -74,7 +74,6 @@ static void inject_device_cap(const char *compatible,
     cap->compatible[sizeof(cap->compatible) - 1] = '\0';
     cap->phys_base = (uint32_t)phys;
     cap->size = (uint32_t)size;
-    cap->mapped = false;
     cap->irq = irq;
     cap->ref_count = 1;
     // 3. handle_vec_find_free on s_devmgr->handle_table

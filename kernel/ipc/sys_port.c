@@ -237,8 +237,51 @@ void cap_destroy(arch_regs_t *frame)
         (*arch_reg(frame, 0)) = 0;
     }
     break;
-    case HANDLE_SHMEM:   /* not implemented yet: refuse if mapped, else drop ref */
-    case HANDLE_DEVICE:  /* not implemented yet: refuse if mapped, else release cap */
+    case HANDLE_SHMEM: {
+        // Mapped handles must go through detach/memunmap so the region is torn down
+        if (entry->mapped_va != 0)
+        {
+            (*arch_reg(frame, 0)) = ERR_BUSY;
+            return;
+        }
+
+        // An unmapped shmem handle holds no ref: shm_create/attach take refs,
+        // detach/memunmap drop them. Just release the slot.
+        entry->shm = NULL;
+        entry->grantable = false;
+        entry->type = HANDLE_FREE;
+
+        (*arch_reg(frame, 0)) = 0;
+    }
+    break;
+    case HANDLE_DEVICE: {
+        device_cap_t *dev = entry->dev;
+        if (!dev)
+        {
+            (*arch_reg(frame, 0)) = ERR_BADARG;
+            return;
+        }
+
+        // Refuse while this handle's mapping is live in our address space
+        if (entry->mapped_va != 0)
+        {
+            (*arch_reg(frame, 0)) = ERR_BUSY;
+            return;
+        }
+
+        entry->dev = NULL;
+        entry->mapped_va = 0;
+        entry->grantable = false;
+        entry->type = HANDLE_FREE;
+
+        if (dev->ref_count > 0)
+            dev->ref_count--;
+        if (dev->ref_count == 0)
+            kfree_device_cap(dev);
+
+        (*arch_reg(frame, 0)) = 0;
+    }
+    break;
     default: {
         (*arch_reg(frame, 0)) = ERR_BADARG;
     }

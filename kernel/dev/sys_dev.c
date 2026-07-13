@@ -43,7 +43,7 @@ void mapdev(arch_regs_t *frame)
         return;
     }
 
-    if (cap->mapped) {
+    if (entry->mapped_va != 0) {
         (*arch_reg(frame, 0)) = ERR_BUSY;
         return;
     }
@@ -67,6 +67,8 @@ void mapdev(arch_regs_t *frame)
 
     if (!vmm_add_region(current_thread->owner_process->as, &(vm_region_t){
         .vaddr_start = user_va,
+        .paddr_start = cap->phys_base,
+        .backing = cap,
         .size = size_aligned,
         .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
         .memtype = VM_MEM_DEVICE,
@@ -83,7 +85,6 @@ void mapdev(arch_regs_t *frame)
     arch_mmu_barrier();
 
     current_thread->owner_process->device_va_next += size_aligned;
-    cap->mapped = true;
     entry->mapped_va = user_va;
 
     (*arch_reg(frame, 0)) = user_va;

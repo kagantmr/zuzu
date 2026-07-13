@@ -37,6 +37,29 @@ static bool elf_segment_ranges_overlap(const Elf32_Phdr *a, const Elf32_Phdr *b)
     return (a_start < b_end) && (b_start < a_end);
 }
 
+/* Copy into another address space through the kernel alias of each page.
+ * The target pages must already be faulted in (see fault_in_pages). */
+static bool as_copy_out(addrspace_t *as, vaddr_t va, const void *src, size_t len)
+{
+    const uint8_t *s = src;
+    while (len > 0)
+    {
+        vaddr_t page_va = va & ~(vaddr_t)(PAGE_SIZE - 1);
+        paddr_t pa = arch_mmu_translate(as->ttbr_pa, page_va);
+        if (pa == 0)
+            return false;
+        size_t off = va - page_va;
+        size_t n = PAGE_SIZE - off;
+        if (n > len)
+            n = len;
+        memcpy((void *)(PA_TO_VA(pa) + off), s, n);
+        s += n;
+        va += n;
+        len -= n;
+    }
+    return true;
+}
+
 process_t *process_load(const void *elf_data, size_t elf_size,
                                    const char *name, const char *argbuf,
                                    size_t argbuf_len, uint32_t argc)
@@ -174,57 +197,12 @@ process_t *process_load(const void *elf_data, size_t elf_size,
         }
     }
 
+    /* Stack region + guard were reserved by process_create; pages fault
+     * in on demand. */
     const vaddr_t user_stack_base = USER_STACK_BASE;
-    const vaddr_t user_guard_va = USER_STACK_GUARD_VA;
-
-    paddr_t user_stack_pa = pmm_alloc_pages(USER_STACK_PAGES);
-    if (!user_stack_pa)
-        goto fail_kstack;
-
-    for (int i = 0; i < (int)USER_STACK_PAGES; i++)
-    {
-        if (!vmm_map_user_page(p->as, user_stack_pa + i * 0x1000,
-                            user_stack_base + i * 0x1000,
-                            VM_PROT_READ | VM_PROT_WRITE))
-        {
-            for (int j = i; j < (int)USER_STACK_PAGES; j++)
-                pmm_free_page(user_stack_pa + j * 0x1000);
-            goto fail_kstack;
-        }
-    }
-
-    vm_region_t stack_region = {
-        .vaddr_start = user_stack_base,
-        .size = USER_STACK_SIZE,
-        .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
-        .memtype = VM_MEM_NORMAL,
-        .owner = VM_OWNER_ANON,
-        .flags = VM_FLAG_NONE,
-    };
-    if (!vmm_add_region(p->as, &stack_region))
-    {
-        KERROR("Failed to add user stack region");
-        goto fail_kstack;
-    }
-
-    vm_region_t guard = {
-        .vaddr_start = user_guard_va,
-        .size = PAGE_SIZE,
-        .prot = 0,
-        .memtype = VM_MEM_NORMAL,
-        .owner = VM_OWNER_NONE,
-        .flags = VM_FLAG_GUARD,
-    };
-    if (!vmm_add_region(p->as, &guard))
-    {
-        KERROR("Failed to add user stack guard region");
-        goto fail_kstack;
-    }
 
     vaddr_t sp = USR_SP;
     vaddr_t argv_va = 0;
-
-    const size_t user_stack_size = 4 * PAGE_SIZE;
 
     if ((argc > 0) != (argbuf && argbuf_len > 0))
     {
@@ -269,8 +247,7 @@ process_t *process_load(const void *elf_data, size_t elf_size,
         }
         vaddr_t check_sp = USR_SP;
 
-        if (check_sp - user_stack_base > user_stack_size ||
-            argbuf_len > (size_t)(check_sp - user_stack_base))
+        if (argbuf_len > (size_t)(check_sp - user_stack_base))
         {
             KERROR("argv payload does not fit user stack");
             goto fail_kstack;
@@ -297,21 +274,38 @@ process_t *process_load(const void *elf_data, size_t elf_size,
         sp -= argbuf_len;
         sp &= ~3u;
         vaddr_t strings_va = sp;
-        memcpy((void *)PA_TO_VA(user_stack_pa + (strings_va - user_stack_base)),
-               argbuf, argbuf_len);
 
         sp -= (argc + 1) * sizeof(uint32_t);
         sp &= ~7u;
         argv_va = sp;
-        uint32_t *argv_kern = (uint32_t *)PA_TO_VA(user_stack_pa + (argv_va - user_stack_base));
 
-        vaddr_t str_va = strings_va;
-        for (uint32_t a = 0; a < argc; a++)
+        /* Fault in the stack pages the argv block spans, then write them
+         * through the kernel alias (the target AS is not active here). */
+        if (!fault_in_pages(p->as, argv_va, (size_t)(USR_SP - argv_va), true))
         {
-            argv_kern[a] = (uint32_t)str_va;
-            str_va += strlen((const char *)PA_TO_VA(user_stack_pa + (str_va - user_stack_base))) + 1;
+            KERROR("failed to fault in argv stack pages");
+            goto fail_kstack;
         }
-        argv_kern[argc] = 0;
+
+        if (!as_copy_out(p->as, strings_va, argbuf, argbuf_len))
+            goto fail_kstack;
+
+        /* String offsets in the target stack mirror offsets in argbuf. */
+        vaddr_t str_va = strings_va;
+        const char *str_src = argbuf;
+        for (uint32_t a = 0; a <= argc; a++)
+        {
+            uint32_t slot = (a < argc) ? (uint32_t)str_va : 0;
+            if (!as_copy_out(p->as, argv_va + a * sizeof(uint32_t),
+                             &slot, sizeof(slot)))
+                goto fail_kstack;
+            if (a < argc)
+            {
+                size_t l = strlen(str_src) + 1;
+                str_va += l;
+                str_src += l;
+            }
+        }
     }
 
     t->kernel_sp = (uint32_t *)arch_thread_user_init(
@@ -448,6 +442,31 @@ process_t *process_create(const char* name) {
 
     /* Advance bump pointer to reserve the TCB page */
     p->mmap_va_next += PAGE_SIZE;
+
+    /* Reserve the whole stack window as a demand-paged anon region: no
+     * physical pages up front, the data-abort handler faults them in as
+     * the stack grows down. Guard page below catches overflow. */
+    vm_region_t stack_region = {
+        .vaddr_start = USER_STACK_BASE,
+        .size = USER_STACK_TOP - USER_STACK_BASE,
+        .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
+        .memtype = VM_MEM_NORMAL,
+        .owner = VM_OWNER_ANON,
+        .flags = VM_FLAG_NONE,
+    };
+    if (!vmm_add_region(p->as, &stack_region))
+        goto fail_kstack;
+
+    vm_region_t stack_guard = {
+        .vaddr_start = USER_STACK_GUARD_VA,
+        .size = PAGE_SIZE,
+        .prot = 0,
+        .memtype = VM_MEM_NORMAL,
+        .owner = VM_OWNER_NONE,
+        .flags = VM_FLAG_GUARD,
+    };
+    if (!vmm_add_region(p->as, &stack_guard))
+        goto fail_kstack;
 
     /* Initialize the page via the kernel alias (kernel VA). The
      * initial slot (slot 0) belongs to the main thread and should
@@ -737,15 +756,18 @@ void process_kill(process_t *p, const int exit_status) {
         } else if (entry->type == HANDLE_SHMEM) {
             shmem_t *shm = entry->shm;
             const uintptr_t va = entry->mapped_va;
-            if (shm && va != 0)
+            // Only a mapped handle holds a ref (taken by shm_create/attach);
+            // a granted-but-never-attached handle must not drop one.
+            if (shm && va != 0) {
                 vmm_remove_region(p->as, va, shm->page_count * PAGE_SIZE);
-            if (shm)
                 shm->ref_count--;
-            if (shm && shm->ref_count == 0) {
-                for (size_t j = 0; j < shm->page_count; j++)
-                    pmm_free_page(shm->page_addrs[j]);
-                kfree(shm->page_addrs);
-                kfree(shm);
+                if (shm->ref_count == 0) {
+                    for (size_t j = 0; j < shm->page_count; j++)
+                        if (shm->page_addrs[j] != 0) /* demand-paged: skip unfaulted slots */
+                            pmm_free_page(shm->page_addrs[j]);
+                    kfree(shm->page_addrs);
+                    kfree(shm);
+                }
             }
             entry->shm = NULL;
             entry->mapped_va = 0;

@@ -8,6 +8,7 @@
 #include "kernel/ipc/sys_notif.h"
 #include "kernel/irq/sys_irq.h"
 #include "kernel/mm/sys_mm.h"
+#include "kernel/mm/sys_shm.h"
 #include "kernel/dev/sys_dev.h"
 #include "kernel/proc/kstack.h"
 #include "kernel/layout.h"

@@ -70,7 +70,7 @@ bool vmm_fault_page(addrspace_t *as, vm_region_t *r, uintptr_t page_va)
     if (!as || !r)
         return false;
 
-    if (arch_mmu_translate(as->ttbr0_pa, page_va) != 0)
+    if (arch_mmu_translate(as->ttbr_pa, page_va) != 0)
         return true;
 
     if (r->memtype == VM_MEM_DEVICE)
@@ -134,9 +134,9 @@ addrspace_t* as_create(addrspace_type_t type) {
     }
     as->asid_token = (asid_token_t){0};
 
-    as->ttbr0_pa = arch_mmu_create_tables(type);
+    as->ttbr_pa = arch_mmu_create_tables(type);
 
-    if (as->ttbr0_pa == 0) {
+    if (as->ttbr_pa == 0) {
         kfree(as);
         return NULL;
     }
@@ -144,7 +144,7 @@ addrspace_t* as_create(addrspace_type_t type) {
     if (type == ADDRSPACE_USER) {
         as->asid_token = asid_alloc();
         if (as->asid_token.asid == 0) {
-            arch_mmu_free_tables(as->ttbr0_pa, type);
+            arch_mmu_free_tables(as->ttbr_pa, type);
             kfree(as);
             return NULL;
         }
@@ -155,7 +155,7 @@ addrspace_t* as_create(addrspace_type_t type) {
             arch_mmu_flush_tlb_asid(as->asid_token.asid);
             asid_free(as->asid_token);
         }
-        arch_mmu_free_tables(as->ttbr0_pa, type);
+        arch_mmu_free_tables(as->ttbr_pa, type);
         kfree(as);
         return NULL;
     }
@@ -165,7 +165,7 @@ addrspace_t* as_create(addrspace_type_t type) {
 }
 
 void vmm_lockdown_kernel_sections(void) {
-    vaddr_t *l1 = (vaddr_t *)PA_TO_VA(g_kernel_as->ttbr0_pa);
+    vaddr_t *l1 = (vaddr_t *)PA_TO_VA(g_kernel_as->ttbr_pa);
  
     size_t start_idx = kernel_layout.kernel_start_va >> 20;
     size_t end_idx   = (kernel_layout.kernel_end_va + (1 << 20) - 1) >> 20;
@@ -231,7 +231,7 @@ void as_destroy(addrspace_t* as) {
     
     
     // Free page tables
-    arch_mmu_free_tables(as->ttbr0_pa, as->type);
+    arch_mmu_free_tables(as->ttbr_pa, as->type);
     
     // Destroy regions vector
     vm_region_vec_destroy(&as->regions);
@@ -327,7 +327,7 @@ void vmm_bootstrap(void) {
         memcpy(new_l1_va, early_l1_va, l1_bytes); // copy early table
 
         // assign and switch TTBR to the new table
-        g_kernel_as->ttbr0_pa = new_l1_pa;
+        g_kernel_as->ttbr_pa = new_l1_pa;
 
         // arch_mmu_switch installs the new TTBR
         arch_mmu_switch(g_kernel_as);
@@ -459,12 +459,24 @@ bool vmm_unmap_range(addrspace_t* as, vaddr_t va, size_t size) {
     return arch_mmu_unmap(as, va, size);
 }
 
-bool vmm_protect_range(addrspace_t* as, vaddr_t va, size_t size, vm_prot_t new_prot) {
-    if (!as) return false;
-    if (size == 0) return false;
+bool vmm_protect_range(addrspace_t *as, vaddr_t va, size_t size, vm_prot_t new_prot)
+{
+    if (!as || size == 0) return false;
 
-    // Delegate to arch layer (changes permissions on page table entries)
-    return arch_mmu_protect(as, va, size, new_prot);
+    vm_region_t *r = vmm_find_region(as, va);
+    if (!r) return false;                          /* no region → refuse */
+    if (va + size > r->vaddr_start + r->size)      /* must not span regions */
+        return false;
+    if (r->memtype == VM_MEM_DEVICE && (new_prot & VM_PROT_EXEC))
+        return false;                              /* no executable MMIO */
+    if (r->flags & VM_FLAG_PINNED)                 /* tcb_page/syspage, once you add it */
+        return false;
+
+    if (!arch_mmu_protect(as, va, size, new_prot))
+        return false;
+
+    r->prot = new_prot;                            /* keep region truth in sync */
+    return true;
 }
 
 bool vmm_map_user_page(addrspace_t* as, paddr_t pa, vaddr_t va, vm_prot_t prot) {
@@ -511,7 +523,7 @@ bool fault_in_pages(addrspace_t *as, vaddr_t va, size_t len, bool write) {
     const uintptr_t end_va = align_up(end, PAGE_SIZE);
 
     while (page_va < end_va) {
-        if (arch_mmu_translate(as->ttbr0_pa, page_va) != 0) {
+        if (arch_mmu_translate(as->ttbr_pa, page_va) != 0) {
             // Already mapped — nothing to do
             page_va += PAGE_SIZE;
             continue;

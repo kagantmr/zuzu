@@ -6,9 +6,6 @@
 
 void memmap(arch_regs_t *frame);
 void memunmap(arch_regs_t *frame);
-void shm_create(arch_regs_t *frame);
-void attach(arch_regs_t *frame);
-void detach(arch_regs_t *frame);
 void mprotect(arch_regs_t *frame);
 
 void asinject(arch_regs_t *frame);
