@@ -3,6 +3,7 @@
 
 #include "zuzu/syscall_nums.h"
 #include "zuzu/types.h"
+#include "zuzu/memprot.h"
 #include <spawn_args.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -13,16 +14,6 @@ extern "C" {
 
 /* ---- Memory management syscalls ---- */
 
-static inline shmem_result_t _shm_create(uint32_t size) {
-    register uint32_t r0 __asm__("r0") = size;
-    register uint32_t r1 __asm__("r1");
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0), "=r"(r1)
-        : [num] "i"(SYS_SHM_CREATE)
-        : "memory");
-    return (shmem_result_t){.handle = (int32_t)r0, .addr = (void *)r1};
-}
-
 /* _attach/_memmap/_mapdev return a mapped VA, or a small negative errno cast
    to a pointer. The top page of the address space is the error band, so a valid
    VA (even one with the high bit set) is never misread as an error. */
@@ -30,22 +21,33 @@ static inline int _ptr_is_err(const void *p) {
     return (uintptr_t)p >= (uintptr_t)(-4095);
 }
 
-static inline void *_attach(handle_t handle) {
-    register handle_t r0 __asm__("r0") = handle;
+static inline void *_memmap(handle_t handle, size_t size, uint32_t prot, uint32_t flags) {
+    register handle_t  r0 __asm__("r0") = handle;
+    register size_t    r1 __asm__("r1") = size;
+    register uint32_t  r2 __asm__("r2") = prot;
+    register uint32_t  r3 __asm__("r3") = flags;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
-        : [num] "i"(SYS_ATTACH)
+        : "r"(r1), "r"(r2), "r"(r3), [num] "i"(SYS_MEMMAP)
         : "memory");
     return (void *)r0;
 }
 
-static inline void *_mapdev(handle_t handle) {
-    register handle_t r0 __asm__("r0") = handle;
+static inline handle_t _shm_create(uint32_t size) {
+    register uint32_t r0 __asm__("r0") = size;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
-        : [num] "i"(SYS_MAPDEV)
+        : [num] "i"(SYS_SHM_CREATE)
         : "memory");
-    return (void *)r0;
+    return (handle_t)r0;
+}
+
+static inline void *_attach(handle_t handle, vm_prot_t prot) {
+    return _memmap(handle, 0, prot, 0);
+}
+
+static inline void *_mapdev(handle_t handle, vm_prot_t prot) {
+    return _memmap(handle, 0, prot, 0);
 }
 
 static inline int32_t _querydev(handle_t handle, void *out_buf, uint32_t len) {
@@ -66,17 +68,6 @@ static inline int32_t _asinject(const asinject_args_t *args) {
         : [num] "i"(SYS_ASINJECT)
         : "memory");
     return (int32_t)r0;
-}
-
-static inline void *_memmap(void *addr_hint, size_t size, uint32_t prot) {
-    register uintptr_t r0 __asm__("r0") = (uintptr_t)addr_hint;
-    register size_t r1 __asm__("r1") = size;
-    register uint32_t r2 __asm__("r2") = prot;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : "r"(r1), "r"(r2), [num] "i"(SYS_MEMMAP)
-        : "memory");
-    return (void *)r0;
 }
 
 static inline int32_t _memunmap(void *addr, size_t size) {

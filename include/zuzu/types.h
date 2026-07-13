@@ -15,6 +15,7 @@ typedef uintptr_t vaddr_t;
 typedef uint32_t irq_t;
 typedef uint64_t ztime_t;
 
+
 /* ---- Common IPC types ---- */
 
 typedef struct
@@ -52,6 +53,8 @@ enum {
 
 #define TIMEOUT_POLL     0u
 #define TIMEOUT_INFINITE UINT32_MAX
+
+#define HANDLE_ANON ((handle_t)-1) // Sentinel value, used in memmap() as the handle value
 
 /* recvany result struct */
 typedef struct {

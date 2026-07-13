@@ -14,64 +14,44 @@
 
 extern thread_t *current_thread;
 
-void memmap(arch_regs_t *frame)
+/**
+ * Helper for memmap to map anonymous memory.
+ * Adapted from zuzu v0.1.5-alpha version
+ */
+static int32_t memmap_anon(process_t *p, vaddr_t hint, size_t size, vm_prot_t prot, vaddr_t *out)
 {
-    
-    vaddr_t addr_hint = (*arch_reg(frame, 0));
-    size_t size = (*arch_reg(frame, 1));
-    uint32_t prot = (*arch_reg(frame, 2));
     if (size == 0)
-    {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-    if ((prot & VM_PROT_WRITE) && (prot & VM_PROT_EXEC)) { // enforce W^X
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-    if (size > 1024 * 1024 * 32)
-    {
-        // 32mb is half of the recommended kernel mem anyway
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
-        return;
-    }
-    if (size % PAGE_SIZE)
-    {
-        // Needs VMM/PMM alignment
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
+        return ERR_BADARG;
 
-    if (addr_hint != 0)
+    // Do not enforce W^X here, that is memmap's job
+
+    if (size > 1024 * 1024 * 32)
+        return ERR_NOMEM; // 32mb is half of the recommended kernel mem anyway
+
+    if (size % PAGE_SIZE)
+        return ERR_BADARG; // Needs page/frame alignment
+
+    if (hint != 0)
     {
-        if (!validate_user_ptr(addr_hint, size))
-        {
-            (*arch_reg(frame, 0)) = ERR_BADARG;
-            return;
-        }
+        if (!validate_user_ptr(hint, size))
+            return ERR_BADARG;
     }
 
     // 1. Pick a VA
     vaddr_t va;
-    if (addr_hint != 0)
-    {
-        va = addr_hint; // already validated above
-    }
+    if (hint != 0)
+        va = hint; // already validated above
     else
-    {
-        va = current_thread->owner_process->mmap_va_next;
-    }
+        va = p->mmap_va_next;
 
-    if (va >= USER_VA_TOP) { (*arch_reg(frame, 0)) = ERR_BADARG; return; }
+    if (va >= USER_VA_TOP)
+        return ERR_BADARG;
     // 2. Bump the cursor
     if (size > USER_VA_TOP - va) // check for overflow
-    {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-    if (addr_hint == 0) {
-        current_thread->owner_process->mmap_va_next += size;
-    }
+        return ERR_BADARG;
+
+    if (hint == 0)
+        p->mmap_va_next += size;
 
     vm_region_t region = {
         .vaddr_start = va,
@@ -83,465 +63,509 @@ void memmap(arch_regs_t *frame)
         .flags = VM_FLAG_NONE,
     };
 
-    if (!vmm_add_region(current_thread->owner_process->as, &region))
+    if (!vmm_add_region(p->as, &region))
     {
-        if (addr_hint == 0)
-            current_thread->owner_process->mmap_va_next -= size; // roll back cursor on failure
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
-        return;
+        if (hint == 0)
+            p->mmap_va_next -= size; // roll back cursor on failure
+        return ERR_NOMEM;
     }
 
-    (*arch_reg(frame, 0)) = va;
+    *out = va;
+    return ZUZU_OK;
 }
 
-void memunmap(arch_regs_t *frame)
+/**
+ * Helper for memmap to map shared memory.
+ * Adapted from zuzu v0.1.5-alpha version
+ */
+static int32_t memmap_shm(process_t *p, handle_entry_t *e, vm_prot_t prot, vaddr_t *out)
 {
-    const vaddr_t va = (vaddr_t)(*arch_reg(frame, 0));
-    size_t size = (size_t)(*arch_reg(frame, 1));
 
-    // Basic validation
-    if (!validate_user_ptr(va, size))
-    {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-    if (size == 0 || size % PAGE_SIZE != 0)
-    {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-
-    addrspace_t *as = current_thread->owner_process->as;
-
-    // Find the region, it must be an exact match to prevent partial-unmap attacks
-    vm_region_t *found = NULL;
-    for (uint32_t i = 0; i < as->regions.len; i++)
-    {
-        vm_region_t *r = vm_region_vec_get(&as->regions, i);
-        if (r && r->vaddr_start == va && r->size == size)
-        {
-            found = r;
-            break;
-        }
-    }
-    if (!found)
-    {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-
-    // If we own the pages, free them back to PMM before unmapping
-    if (found->owner == VM_OWNER_ANON)
-    {
-        // Walk page table to find which physical pages are actually backed
-        // (demand paging means not every page in the region may be mapped)
-        for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE)
-        {
-            uintptr_t pa = arch_mmu_translate(as->ttbr0_pa, va + offset);
-            if (pa != 0)
-            {
-                pmm_free_page(pa);
-            }
-        }
-    }
-    else if (found->owner == VM_OWNER_SHARED)
-    {
-        bool found_handle = false;
-        // If it's shared memory, we need to decrement the ref count and free if it hits 0
-        for (uint32_t i = 0; i < current_thread->owner_process->handle_table.cap; i++)
-        {
-            handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, i);
-            if (!entry)
-                break;
-
-            if (entry->type == HANDLE_SHMEM && entry->mapped_va == va)
-            {
-                shmem_t *shm_obj = entry->shm;
-                shm_obj->ref_count--;
-                if (shm_obj->ref_count == 0)
-                {
-                    for (size_t j = 0; j < shm_obj->page_count; j++)
-                        if (shm_obj->page_addrs[j] != 0) /* demand-paged: skip unfaulted slots */
-                            pmm_free_page(shm_obj->page_addrs[j]);
-                    kfree(shm_obj->page_addrs);
-                    kfree(shm_obj);
-                }
-                entry->shm = NULL;
-                entry->mapped_va = 0;
-                entry->grantable = false;
-                entry->type = HANDLE_FREE;
-                found_handle = true;
-                break;
-            }
-        }
-        if (!found_handle)
-        {
-            KWARN("memunmap: shared region @ 0x%08x has no matching handle", va);
-        }
-    }
-
-    // Remove from region list and unmap page table entries
-    if (!vmm_remove_region(as, va, size))
-    {
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
-        return;
-    }
-
-    (*arch_reg(frame, 0)) = 0;
-}
-
-void shm_create(arch_regs_t *frame)
-{
-    const size_t size = align_up((size_t)(*arch_reg(frame, 0)), PAGE_SIZE);
-    if (size == 0)
-    {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-    if (size > 1024 * 1024 * 32)
-    {
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
-        return;
-    }
-    const size_t page_count = size / PAGE_SIZE;
-    vaddr_t *page_arr = kmalloc(sizeof(vaddr_t) * page_count);
-    if (!page_arr)
-    {
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
-        return;
-    }
-    memset(page_arr, 0, sizeof(vaddr_t) * page_count);
-
-    shmem_t *shmem_obj = kmalloc(sizeof(shmem_t));
-    if (!shmem_obj)
-    {
-        kfree(page_arr);
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
-        return;
-    }
-    shmem_obj->page_count = page_count;
-    shmem_obj->ref_count = 1;
-    shmem_obj->page_addrs = page_arr;
-    memset(shmem_obj->page_addrs, 0, sizeof(paddr_t) * page_count);
-
-    // find free handle slot
-    int handle = handle_vec_find_free(&current_thread->owner_process->handle_table);
-    if (handle < 0)
-    {
-        kfree(page_arr);
-        kfree(shmem_obj);
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
-        return;
-    }
+    if (e->mapped_va != 0)
+        return ERR_BUSY;
 
     // pick VA base and bump cursor once
-    if (current_thread->owner_process->mmap_va_next > UINTPTR_MAX - size) // check for overflow
-    {
-        kfree(page_arr);
-        kfree(shmem_obj);
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-    const vaddr_t va_base = current_thread->owner_process->mmap_va_next;
-    current_thread->owner_process->mmap_va_next += size;
+    shmem_t *shmem_obj = e->shm;
 
-    vm_region_t region = {
-        .vaddr_start = va_base,
-        .size = shmem_obj->page_count * PAGE_SIZE,
-        .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
-        .memtype = VM_MEM_NORMAL,
-        .owner = VM_OWNER_SHARED,
-        .backing = shmem_obj,
-        .flags = VM_FLAG_NONE,
-    };
-    if (!vmm_add_region(current_thread->owner_process->as, &region))
-    {
-        current_thread->owner_process->mmap_va_next -= size;
-        kfree(page_arr);
-        kfree(shmem_obj);
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
-        return;
-    }
+    if (!shmem_obj)
+        return ERR_BADARG;
 
-    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle);
-    if (!entry)
-    {
-        vmm_remove_region(current_thread->owner_process->as, va_base, size);
-        current_thread->owner_process->mmap_va_next -= size;
-        kfree(page_arr);
-        kfree(shmem_obj);
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
-        return;
-    }
+    size_t size = shmem_obj->page_count * PAGE_SIZE;
 
-    entry->mapped_va = va_base;
-    entry->shm = shmem_obj;
-    entry->type = HANDLE_SHMEM;
-    entry->grantable = true;
+    if ((p->mmap_va_next > USER_VA_TOP - size) || (size > USER_VA_TOP - p->mmap_va_next)) // check for bump pointer overflow
+        return ERR_BADARG;
 
-    (*arch_reg(frame, 0)) = (handle_t)handle;
-    (*arch_reg(frame, 1)) = (vaddr_t)va_base;
-}
-
-void attach(arch_regs_t *frame)
-{
-    const handle_t handle_idx = (*arch_reg(frame, 0));
-
-    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
-    if (!entry)
-    {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-    if (entry->type != HANDLE_SHMEM)
-    {
-        (*arch_reg(frame, 0)) = ERR_MALFORMED;
-        return;
-    }
-
-    shmem_t *shm_obj = entry->shm;
-    if (!shm_obj)
-    {
-        (*arch_reg(frame, 0)) = ERR_MALFORMED;
-        return;
-    }
-    const size_t size = shm_obj->page_count * PAGE_SIZE;
-    if (current_thread->owner_process->mmap_va_next > UINTPTR_MAX - size) // check for overflow
-    {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-
-    const vaddr_t va_base = current_thread->owner_process->mmap_va_next;
-    current_thread->owner_process->mmap_va_next += size;
+    const vaddr_t va_base = p->mmap_va_next;
+    p->mmap_va_next += size;
 
     vm_region_t region = {
         .vaddr_start = va_base,
         .size = size,
-        .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
+        .prot = prot | VM_PROT_USER,
         .memtype = VM_MEM_NORMAL,
         .owner = VM_OWNER_SHARED,
-        .backing = shm_obj,
-        .flags = VM_FLAG_NONE,
-    };
-    if (!vmm_add_region(current_thread->owner_process->as, &region))
+        .backing = shmem_obj,
+        .flags = VM_FLAG_NONE};
+    if (!vmm_add_region(p->as, &region))
     {
-        current_thread->owner_process->mmap_va_next -= size;
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
-        return;
+        p->mmap_va_next -= size;
+        return ERR_NOMEM; // OOM
     }
-    entry->mapped_va = va_base;
-    shm_obj->ref_count++;
-    (*arch_reg(frame, 0)) = va_base;
+
+    e->mapped_va = va_base;
+    *out = va_base;
+    return ZUZU_OK;
 }
 
-void detach(arch_regs_t *frame)
+/**
+ * Helper for memmap to map memory-mapped I/O (MMIO) ranges.
+ * Adapted from zuzu v0.1.5-alpha version
+ */
+static int32_t memmap_dev(process_t *p, handle_entry_t *e, vm_prot_t prot, vaddr_t *out)
 {
-    handle_t handle = (*arch_reg(frame, 0));
 
-    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle);
-    if (!entry)
+    if (!e)
+        return ERR_BADARG;
+
+    device_cap_t *cap = e->dev;
+    if (!cap)
+        return ERR_BADARG;
+
+    if (e->mapped_va)
+        return ERR_BUSY;
+
+    size_t size_aligned = align_up(cap->size, PAGE_SIZE);
+    vaddr_t user_va = p->device_va_next;
+
+    // Device mappings are carved from device_va_next; bound-check that cursor.
+    if (user_va >= USER_DEVICE_LIMIT || size_aligned > USER_DEVICE_LIMIT - user_va)
     {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-    if (entry->type != HANDLE_SHMEM)
-    {
-        (*arch_reg(frame, 0)) = ERR_MALFORMED;
-        return;
+        return ERR_NOMEM;
     }
 
-    shmem_t *shm = entry->shm;
-    const vaddr_t va = entry->mapped_va;
-    vmm_remove_region(current_thread->owner_process->as, va, shm->page_count * PAGE_SIZE);
-    shm->ref_count--;
-    if (shm->ref_count == 0)
-    {
-        for (size_t j = 0; j < shm->page_count; j++)
-            if (shm->page_addrs[j] != 0)
-                pmm_free_page(shm->page_addrs[j]);
-        kfree(shm->page_addrs);
-        kfree(shm);
-    }
-    entry->shm = NULL;
-    entry->mapped_va = 0;
-    entry->grantable = false;
-    entry->type = HANDLE_FREE;
+    if (!vmm_map_range(p->as, user_va, cap->phys_base, size_aligned,
+                       prot | VM_PROT_USER,
+                       VM_MEM_DEVICE, VM_OWNER_NONE, VM_FLAG_NONE))
+        return ERR_NOMEM;
 
-    (*arch_reg(frame, 0)) = 0;
+    if (!vmm_add_region(p->as, &(vm_region_t){
+                                   .vaddr_start = user_va,
+                                   .paddr_start = cap->phys_base,
+                                   .backing = cap,
+                                   .size = size_aligned,
+                                   .prot = prot | VM_PROT_USER,
+                                   .memtype = VM_MEM_DEVICE,
+                                   .owner = VM_OWNER_NONE,
+                                   .flags = VM_FLAG_NONE,
+                               }))
+    {
+        vmm_unmap_range(p->as, user_va, size_aligned);
+        return ERR_NOMEM;
+    }
+
+    // flush TLB for this VA
+    arch_mmu_flush_tlb_va(user_va);
+    arch_mmu_barrier();
+
+    p->device_va_next += size_aligned;
+    e->mapped_va = user_va;
+
+    *out = user_va;
+    return ZUZU_OK;
 }
 
-void asinject(arch_regs_t *frame) {
-    if (!(current_thread->owner_process->flags & PROC_FLAG_INIT)) {
-        (*arch_reg(frame, 0)) = ERR_NOPERM;
-        return;
+void sys_memmap(arch_regs_t *frame)
+{
+    process_t *p = current_thread->owner_process;
+    handle_t handle = (handle_t)(*arch_reg(frame, 0));
+    size_t size = (size_t)(*arch_reg(frame, 1));
+    vm_prot_t prot = (vm_prot_t)(*arch_reg(frame, 2));
+    uint32_t flags = (*arch_reg(frame, 3));
+
+    if (flags != 0) { *arch_reg(frame, 0) = ERR_BADARG; return;}
+    if (prot & ~(VM_PROT_READ|VM_PROT_WRITE|VM_PROT_EXEC))  { *arch_reg(frame, 0) = ERR_BADARG; return;}   /* rejects VM_PROT_USER */
+    if ((prot & VM_PROT_WRITE) && (prot & VM_PROT_EXEC))  { *arch_reg(frame, 0) = ERR_BADARG; return;}
+
+    vaddr_t va = 0;
+    err_t rc;   
+
+    if (handle == HANDLE_ANON)
+    {
+        rc = memmap_anon(p, 0, size, prot, &va); /* hint dies at step D */
+    }
+    else
+    {
+        handle_entry_t *e = handle_vec_get(&p->handle_table, handle);
+        if (!e)
+        {
+            *arch_reg(frame, 0) = ERR_BADARG;
+            return;
+        }
+        switch (e->type)
+        {
+        case HANDLE_DEVICE:
+        {
+            if (size != 0) {
+                *arch_reg(frame, 0) = ERR_BADARG;
+                return;
+            }
+            if (prot & VM_PROT_EXEC) {
+                *arch_reg(frame, 0) = ERR_BADARG;
+                return;
+            }
+            rc = memmap_dev(p, e, prot, &va);
+        }
+        break;
+
+        case HANDLE_SHMEM:
+        {
+            if (size != 0) {
+                *arch_reg(frame, 0) = ERR_BADARG;
+                return;
+            }
+            rc = memmap_shm(p, e, prot, &va);
+    
+        }
+        break;
+        default:
+        {
+            rc = ERR_MALFORMED;
+        } break;
+        }
     }
 
-    asinject_args_t *args = (asinject_args_t *)(*arch_reg(frame, 0));
-    if (!validate_user_ptr((uintptr_t)args, sizeof(asinject_args_t)))    {
+    (*arch_reg(frame, 0)) = (rc == ZUZU_OK) ? (uint32_t)va : (uint32_t)rc;
+    return;
+}
+
+void memunmap(arch_regs_t *frame)
+{
+        const vaddr_t va = (vaddr_t)(*arch_reg(frame, 0));
+        size_t size = (size_t)(*arch_reg(frame, 1));
+
+        // Basic validation
+        if (!validate_user_ptr(va, size))
+        {
+            (*arch_reg(frame, 0)) = ERR_BADARG;
+            return;
+        }
+        if (size == 0 || size % PAGE_SIZE != 0)
+        {
+            (*arch_reg(frame, 0)) = ERR_BADARG;
+            return;
+        }
+
+        addrspace_t *as = current_thread->owner_process->as;
+
+        // Find the region, it must be an exact match to prevent partial-unmap attacks
+        vm_region_t *found = NULL;
+        for (uint32_t i = 0; i < as->regions.len; i++)
+        {
+            vm_region_t *r = vm_region_vec_get(&as->regions, i);
+            if (r && r->vaddr_start == va && r->size == size)
+            {
+                found = r;
+                break;
+            }
+        }
+        if (!found)
+        {
+            (*arch_reg(frame, 0)) = ERR_BADARG;
+            return;
+        }
+
+        // If we own the pages, free them back to PMM before unmapping
+        if (found->owner == VM_OWNER_ANON)
+        {
+            // Walk page table to find which physical pages are actually backed
+            // (demand paging means not every page in the region may be mapped)
+            for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE)
+            {
+                uintptr_t pa = arch_mmu_translate(as->ttbr_pa, va + offset);
+                if (pa != 0)
+                {
+                    pmm_free_page(pa);
+                }
+            }
+        }
+        else if (found->owner == VM_OWNER_SHARED)
+        {
+            bool found_handle = false;
+            // If it's shared memory, we need to decrement the ref count and free if it hits 0
+            for (uint32_t i = 0; i < current_thread->owner_process->handle_table.cap; i++)
+            {
+                handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, i);
+                if (!entry)
+                    break;
+
+                if (entry->type == HANDLE_SHMEM && entry->mapped_va == va)
+                {
+                    shmem_t *shm_obj = entry->shm;
+                    shm_obj->ref_count--;
+                    if (shm_obj->ref_count == 0)
+                    {
+                        for (size_t j = 0; j < shm_obj->page_count; j++)
+                            if (shm_obj->page_addrs[j] != 0) /* demand-paged: skip unfaulted slots */
+                                pmm_free_page(shm_obj->page_addrs[j]);
+                        kfree(shm_obj->page_addrs);
+                        kfree(shm_obj);
+                    }
+                    entry->shm = NULL;
+                    entry->mapped_va = 0;
+                    entry->grantable = false;
+                    entry->type = HANDLE_FREE;
+                    found_handle = true;
+                    break;
+                }
+            }
+            if (!found_handle)
+            {
+                KWARN("memunmap: shared region @ 0x%08x has no matching handle", va);
+            }
+        }
+
+        // Remove from region list and unmap page table entries
+        if (!vmm_remove_region(as, va, size))
+        {
+            (*arch_reg(frame, 0)) = ERR_NOMEM;
+            return;
+        }
+
+        (*arch_reg(frame, 0)) = 0;
+}
+
+void asinject(arch_regs_t *frame)
+{
+        if (!(current_thread->owner_process->flags & PROC_FLAG_INIT))
+        {
+            (*arch_reg(frame, 0)) = ERR_NOPERM;
+            return;
+        }
+
+        asinject_args_t *args = (asinject_args_t *)(*arch_reg(frame, 0));
+        if (!validate_user_ptr((uintptr_t)args, sizeof(asinject_args_t)))
+        {
+            (*arch_reg(frame, 0)) = ERR_BADARG;
+            return;
+        }
+
+        asinject_args_t kargs;
+        if (!copy_from_user(&kargs, args, sizeof(asinject_args_t)))
+        {
+            (*arch_reg(frame, 0)) = ERR_BADARG;
+            return;
+        }
+
+        handle_entry_t *handle = handle_vec_get(&current_thread->owner_process->handle_table, kargs.task_handle);
+        if (!handle || handle->type != HANDLE_TASK)
+        {
+            (*arch_reg(frame, 0)) = ERR_BADARG;
+            return;
+        }
+
+        process_t *target = handle->task;
+
+        if (!target || target->thread->state != FROZEN)
+        {
+            (*arch_reg(frame, 0)) = ERR_BADARG;
+            return;
+        }
+
+        if (!kargs.src_buf || kargs.len == 0 ||
+            !validate_user_ptr((uintptr_t)kargs.src_buf, kargs.len))
+        {
+            (*arch_reg(frame, 0)) = ERR_BADARG;
+            return;
+        }
+
+        if ((kargs.prot & VM_PROT_WRITE) && (kargs.prot & VM_PROT_EXEC))
+        {
+            (*arch_reg(frame, 0)) = ERR_BADARG;
+            return;
+        }
+
+        if (kargs.dst_va % PAGE_SIZE != 0 ||
+            kargs.dst_va >= USER_VA_TOP ||
+            kargs.len > USER_VA_TOP - kargs.dst_va)
+        {
+            (*arch_reg(frame, 0)) = ERR_BADARG;
+            return;
+        }
+
+        size_t page_count = (kargs.len + PAGE_SIZE - 1) / PAGE_SIZE;
+
+        /* If the destination lies entirely inside an existing anon region
+         * (e.g. the demand-paged stack reserve), fill pages in place instead
+         * of creating a new region. Injected prot must not exceed the
+         * region's prot. */
+        vm_region_t *enclosing = NULL;
+        for (uint32_t i = 0; i < target->as->regions.len; i++)
+        {
+            vm_region_t *r = vm_region_vec_get(&target->as->regions, i);
+            if (kargs.dst_va >= r->vaddr_start &&
+                page_count * PAGE_SIZE <= r->vaddr_start + r->size - kargs.dst_va)
+            {
+                enclosing = r;
+                break;
+            }
+        }
+        if (enclosing)
+        {
+            if ((enclosing->flags & VM_FLAG_GUARD) ||
+                enclosing->owner != VM_OWNER_ANON ||
+                enclosing->memtype != VM_MEM_NORMAL ||
+                ((kargs.prot | VM_PROT_USER) & ~enclosing->prot))
+            {
+                (*arch_reg(frame, 0)) = ERR_BADARG;
+                return;
+            }
+        }
+
+        vaddr_t *page_addrs = kmalloc(page_count * sizeof(vaddr_t));
+        if (!page_addrs)
+        {
+            (*arch_reg(frame, 0)) = ERR_NOMEM;
+            return;
+        }
+        memset(page_addrs, 0, page_count * sizeof(vaddr_t));
+
+        for (size_t i = 0; i < page_count; i++)
+        {
+            vaddr_t dst_page = kargs.dst_va + i * PAGE_SIZE;
+
+            /* Inside an existing region a page may already be faulted in;
+             * write into it instead of remapping. page_addrs[] tracks only
+             * pages we allocated ourselves, for rollback. */
+            paddr_t page = enclosing ? arch_mmu_translate(target->as->ttbr_pa, dst_page) : 0;
+            bool fresh = (page == 0);
+            if (fresh)
+            {
+                page = pmm_alloc_page();
+                if (!page)
+                {
+                    goto rollback_nomem;
+                }
+                page_addrs[i] = page;
+            }
+
+            // copy from user buffer to the new page
+            size_t offset = i * PAGE_SIZE;
+            size_t bytes_to_copy = kargs.len - offset;
+            if (bytes_to_copy > PAGE_SIZE)
+                bytes_to_copy = PAGE_SIZE;
+
+            if (!copy_from_user((void *)PA_TO_VA(page),
+                                (const void *)((uintptr_t)kargs.src_buf + offset),
+                                bytes_to_copy))
+            {
+                goto rollback_badarg;
+            }
+
+            if (fresh && bytes_to_copy < PAGE_SIZE)
+            {
+                memset((void *)(PA_TO_VA(page) + bytes_to_copy), 0,
+                       PAGE_SIZE - bytes_to_copy);
+            }
+
+            if (fresh && !vmm_map_user_page(target->as, page, dst_page, kargs.prot))
+            {
+                pmm_free_page(page);
+                page_addrs[i] = 0;
+                goto rollback_nomem;
+            }
+
+            if (kargs.prot & VM_PROT_EXEC)
+            {
+                arch_cache_flush_code_range((vaddr_t)PA_TO_VA(page), PAGE_SIZE);
+            }
+        }
+
+        if (!enclosing)
+        {
+            vm_region_t region = {
+                .vaddr_start = kargs.dst_va,
+                .size = page_count * PAGE_SIZE,
+                .prot = kargs.prot | VM_PROT_USER,
+                .memtype = VM_MEM_NORMAL,
+                .owner = VM_OWNER_ANON,
+                .flags = VM_FLAG_NONE,
+            };
+            if (!vmm_add_region(target->as, &region))
+                goto rollback_nomem;
+        }
+
+        kfree(page_addrs);
+
+        (*arch_reg(frame, 0)) = 0;
+        return;
+
+    rollback_badarg:
+        for (size_t j = 0; j < page_count; j++)
+        {
+            if (page_addrs[j])
+            {
+                vmm_unmap_range(target->as, kargs.dst_va + j * PAGE_SIZE, PAGE_SIZE);
+                pmm_free_page(page_addrs[j]);
+            }
+        }
+        kfree(page_addrs);
         (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
-    }
 
-    asinject_args_t kargs;
-    if (!copy_from_user(&kargs, args, sizeof(asinject_args_t))) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-
-    handle_entry_t *handle = handle_vec_get(&current_thread->owner_process->handle_table, kargs.task_handle);
-    if (!handle || handle->type != HANDLE_TASK) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-
-    process_t *target = handle->task;
-
-    if (!target || target->thread->state != FROZEN) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-
-    if (!kargs.src_buf || kargs.len == 0 ||
-        !validate_user_ptr((uintptr_t)kargs.src_buf, kargs.len)) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-
-    if ((kargs.prot & VM_PROT_WRITE) && (kargs.prot & VM_PROT_EXEC)) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-
-    if (kargs.dst_va % PAGE_SIZE != 0 ||
-        kargs.dst_va >= USER_VA_TOP ||
-        kargs.len > USER_VA_TOP - kargs.dst_va) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-
-    size_t page_count = (kargs.len + PAGE_SIZE - 1) / PAGE_SIZE;
-    vaddr_t *page_addrs = kmalloc(page_count * sizeof(vaddr_t));
-    if (!page_addrs) {
+    rollback_nomem:
+        for (size_t j = 0; j < page_count; j++)
+        {
+            if (page_addrs[j])
+            {
+                vmm_unmap_range(target->as, kargs.dst_va + j * PAGE_SIZE, PAGE_SIZE);
+                pmm_free_page(page_addrs[j]);
+            }
+        }
+        kfree(page_addrs);
         (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
-    }
-    memset(page_addrs, 0, page_count * sizeof(vaddr_t));
-
-    size_t mapped_pages = 0;
-    for (size_t i = 0; i < page_count; i++) {
-        paddr_t page = pmm_alloc_page();
-        if (!page) {
-            goto rollback_nomem;
-        }
-        page_addrs[i] = page;
-
-        // copy from user buffer to the new page
-        size_t offset = i * PAGE_SIZE;
-        size_t bytes_to_copy = kargs.len - offset;
-        if (bytes_to_copy > PAGE_SIZE)
-            bytes_to_copy = PAGE_SIZE;
-
-        if (!copy_from_user((void *)PA_TO_VA(page),
-                            (const void *)((uintptr_t)kargs.src_buf + offset),
-                            bytes_to_copy)) {
-            goto rollback_badarg;
-        }
-
-        if (bytes_to_copy < PAGE_SIZE) {
-            memset((void *)(PA_TO_VA(page) + bytes_to_copy), 0,
-                   PAGE_SIZE - bytes_to_copy);
-        }
-
-        if (!vmm_map_user_page(target->as, page, kargs.dst_va + i * PAGE_SIZE,
-                            kargs.prot)) {
-            goto rollback_nomem;
-        }
-
-        mapped_pages++;
-
-        if (kargs.prot & VM_PROT_EXEC) {
-            arch_cache_flush_code_range((vaddr_t)PA_TO_VA(page), PAGE_SIZE);
-        }
-    }
-
-    vm_region_t region = {
-        .vaddr_start = kargs.dst_va,
-        .size = page_count * PAGE_SIZE,
-        .prot = kargs.prot | VM_PROT_USER,
-        .memtype = VM_MEM_NORMAL,
-        .owner = VM_OWNER_ANON,
-        .flags = VM_FLAG_NONE,
-    };
-    if (!vmm_add_region(target->as, &region))
-        goto rollback_nomem;
-
-    kfree(page_addrs);
-
-    (*arch_reg(frame, 0)) = 0;
-    return;
-
-rollback_badarg:
-    for (size_t j = 0; j < mapped_pages; j++) {
-        vmm_unmap_range(target->as, kargs.dst_va + j * PAGE_SIZE, PAGE_SIZE);
-    }
-    for (size_t j = 0; j < page_count; j++) {
-        if (page_addrs[j])
-            pmm_free_page(page_addrs[j]);
-    }
-    kfree(page_addrs);
-    (*arch_reg(frame, 0)) = ERR_BADARG;
-    return;
-
-rollback_nomem:
-    for (size_t j = 0; j < mapped_pages; j++) {
-        vmm_unmap_range(target->as, kargs.dst_va + j * PAGE_SIZE, PAGE_SIZE);
-    }
-    for (size_t j = 0; j < page_count; j++) {
-        if (page_addrs[j])
-            pmm_free_page(page_addrs[j]);
-    }
-    kfree(page_addrs);
-    (*arch_reg(frame, 0)) = ERR_NOMEM;
-    return;
 }
 
 void mprotect(arch_regs_t *frame)
 {
-    const uintptr_t va = (uintptr_t)(*arch_reg(frame, 0));
-    const size_t size = (size_t)(*arch_reg(frame, 1));
-    const vm_prot_t new_prot = (vm_prot_t)(*arch_reg(frame, 2));
+        const uintptr_t va = (uintptr_t)(*arch_reg(frame, 0));
+        const size_t size = (size_t)(*arch_reg(frame, 1));
+        const vm_prot_t new_prot = (vm_prot_t)(*arch_reg(frame, 2));
 
-    // Basic validation
-    if (size == 0)
-    {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-    if (size % PAGE_SIZE != 0)
-    {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-    if (!validate_user_ptr(va, size))
-    {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
+        // Basic validation
+        if (size == 0)
+        {
+            (*arch_reg(frame, 0)) = ERR_BADARG;
+            return;
+        }
+        if (size % PAGE_SIZE != 0)
+        {
+            (*arch_reg(frame, 0)) = ERR_BADARG;
+            return;
+        }
+        if (!validate_user_ptr(va, size))
+        {
+            (*arch_reg(frame, 0)) = ERR_BADARG;
+            return;
+        }
+        if (new_prot & ~(VM_PROT_READ|VM_PROT_WRITE|VM_PROT_EXEC)) {
+            (*arch_reg(frame, 0)) = ERR_NOPERM;
+            return;
+        }
 
-    // Enforce W^X policy
-    if ((new_prot & VM_PROT_WRITE) && (new_prot & VM_PROT_EXEC))
-    {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
+        // Enforce W^X policy
+        if ((new_prot & VM_PROT_WRITE) && (new_prot & VM_PROT_EXEC))
+        {
+            (*arch_reg(frame, 0)) = ERR_BADARG;
+            return;
+        }
 
-    // The region must exist; use vmm_protect_range to change its protections
-    if (!vmm_protect_range(current_thread->owner_process->as, va, size, new_prot | VM_PROT_USER))
-    {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
+        // The region must exist; use vmm_protect_range to change its protections
+        if (!vmm_protect_range(current_thread->owner_process->as, va, size, new_prot | VM_PROT_USER))
+        {
+            (*arch_reg(frame, 0)) = ERR_BADARG;
+            return;
+        }
 
-    (*arch_reg(frame, 0)) = 0;
+        (*arch_reg(frame, 0)) = 0;
 }
