@@ -302,7 +302,6 @@ void __attribute__((hot)) msg_recv(arch_regs_t *frame)
 
     if (!list_empty(&ep->sender_queue))
     {
-        // KDEBUG("sender queue NOT empty");
         list_node_t *sender = list_pop_front(&ep->sender_queue);
         thread_t *sr_thread = container_of(sender, thread_t, node);
         arch_regs_t *sr_frame = sr_thread->trap_frame;
@@ -312,7 +311,6 @@ void __attribute__((hot)) msg_recv(arch_regs_t *frame)
         }
 
         // Copy message to receiver
-        // KDEBUG("Got message from thread %d as thread %d", sr_thread->tid, current_thread->tid);
         (*arch_reg(frame, 0)) = sr_thread->owner_process->pid;
         (*arch_reg(frame, 1)) = (*arch_reg(sr_frame, 1));
         (*arch_reg(frame, 2)) = (*arch_reg(sr_frame, 2));
@@ -383,13 +381,6 @@ void __attribute__((hot)) msg_recv(arch_regs_t *frame)
     }
     else
     {
-        static int debug_print_budget2 = 6;
-        if (debug_print_budget2 > 0) {
-            debug_print_budget2--;
-            KDEBUG("msg_recv: pid=%u handle=%d ep=%p timeout_ms=%u blocking",
-                   current_thread->owner_process->pid, handle, (void *)ep, timeout_ms);
-        }
-
         if (timeout_ms == TIMEOUT_POLL)
         {
             (*arch_reg(frame, 0)) = ERR_TIMEOUT;
@@ -440,7 +431,6 @@ void __attribute__((hot)) msg_recv(arch_regs_t *frame)
         {
             (*arch_reg(frame, 0)) = ERR_TIMEOUT;
         }
-        // KDEBUG("Listener woke from recv, PID %d", current_process->pid);
     }
 }
 
@@ -514,8 +504,6 @@ void __attribute__((hot)) msg_call(arch_regs_t *frame)
             sched_add(rx_thread);
         }
 
-        KDEBUG("msg_call: pid=%u handle=%d ep=%p blocking on reply",
-               current_thread->owner_process->pid, handle, (void *)ep);
         current_thread->state = BLOCKED;
         current_thread->blocked_endpoint = ep;
         current_thread->ipc_state = IPC_WAITING;
@@ -523,8 +511,6 @@ void __attribute__((hot)) msg_call(arch_regs_t *frame)
     }
     else
     {
-        KDEBUG("msg_call: pid=%u handle=%d ep=%p blocking (receiver_queue empty)",
-               current_thread->owner_process->pid, handle, (void *)ep);
         current_thread->ipc_state = IPC_WAITING;
         current_thread->blocked_endpoint = ep;
         current_thread->pending_reply_cap = rc;
@@ -877,13 +863,6 @@ static int recvany_try_once(const handle_t *handles,
             endpoint_t *ep = validate_endpoint_handle(current_thread->owner_process, handles[i], current_thread->trap_frame);
             if (!ep) {
                 return (int)(*arch_reg(current_thread->trap_frame, 0));
-            }
-            static int debug_print_budget = 3;
-            if (debug_print_budget > 0) {
-                debug_print_budget--;
-                KDEBUG("recvany_try_once: pid=%u handle=%d ep=%p sender_queue_empty=%d",
-                       current_thread->owner_process->pid, handles[i], (void *)ep,
-                       list_empty(&ep->sender_queue));
             }
             endpoints[i] = ep;
             notifications[i] = NULL;
