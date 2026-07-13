@@ -17,7 +17,7 @@ static void *fat32d_buf = NULL;    /* shmem shared with fat32d */
 
 typedef struct {
     uint32_t pid;
-    shmem_result_t shm;
+    handle_t shm_handle;
     char *buf;
 } client_buf_t;
 
@@ -186,12 +186,15 @@ static client_buf_t *client_alloc(uint32_t pid)
 {
     for (int i = 0; i < MAX_FBOX_CLIENTS; i++) {
         if (clients[i].pid == 0) {
-            shmem_result_t shm = _shm_create(32768);
-            if (shm.handle < 0 || !shm.addr)
+            handle_t shm_h = _shm_create(32768);
+            if (shm_h < 0)
+                return NULL;
+            char *shm_buf = (char *)_attach(shm_h, VM_PROT_READ | VM_PROT_WRITE);
+            if (_ptr_is_err(shm_buf))
                 return NULL;
             clients[i].pid = pid;
-            clients[i].shm = shm;
-            clients[i].buf = (char *)shm.addr;
+            clients[i].shm_handle = shm_h;
+            clients[i].buf = shm_buf;
             return &clients[i];
         }
     }
@@ -214,7 +217,7 @@ static void handle_get_buf(uint32_t reply_h, uint32_t sender)
         return;
     }
 
-    int32_t slot = _grant(client->shm.handle, (int32_t)sender);
+    int32_t slot = _grant(client->shm_handle, (int32_t)sender);
     if (slot < 0)
         _reply(reply_h, (uint32_t)slot, 0, 0);
     else
@@ -270,7 +273,7 @@ int main(void)
         printf("fbox: FAT32_GET_BUF failed\n");
         return 1;
     }
-    fat32d_buf = _attach((int32_t)r.r2);
+    fat32d_buf = _attach((int32_t)r.r2, VM_PROT_READ | VM_PROT_WRITE);
     if ((intptr_t)fat32d_buf <= 0) {
         printf("fbox: attach failed\n");
         return 1;

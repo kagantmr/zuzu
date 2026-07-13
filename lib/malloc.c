@@ -38,7 +38,7 @@ void *malloc(size_t size)
     // 0. initialize
     if (!arena.base)
     {
-        arena.base = (uintptr_t)_memmap(NULL, ARENA_CHUNK_SIZE, VM_PROT_READ | VM_PROT_WRITE);
+        arena.base = (uintptr_t)_memmap(HANDLE_ANON, ARENA_CHUNK_SIZE, VM_PROT_READ | VM_PROT_WRITE, 0);
         if ((intptr_t)arena.base < 0)
             return NULL;
         arena.mapped = arena.base + ARENA_CHUNK_SIZE;
@@ -79,22 +79,21 @@ void *malloc(size_t size)
     // 4. if its empty bump the arena
     while (arena.brk + total_size > arena.mapped)
     {
-        // try contiguous
-        uintptr_t result =
-            (uintptr_t)_memmap((void *)arena.mapped, ARENA_CHUNK_SIZE, VM_PROT_READ | VM_PROT_WRITE);
+        size_t needed = total_size > ARENA_CHUNK_SIZE ? total_size : ARENA_CHUNK_SIZE;
+        needed = (needed + 0xFFF) & ~0xFFF; // page-align
+        uintptr_t result = (uintptr_t)_memmap(HANDLE_ANON, needed, VM_PROT_READ | VM_PROT_WRITE, 0);
         if ((intptr_t)result < 0)
+            return NULL;
+        if (result == arena.mapped)
         {
-            size_t needed = total_size > ARENA_CHUNK_SIZE ? total_size : ARENA_CHUNK_SIZE;
-            needed = (needed + 0xFFF) & ~0xFFF; // page-align
-            result = (uintptr_t)_memmap(NULL, needed, VM_PROT_READ | VM_PROT_WRITE);
-            if ((intptr_t)result < 0)
-                return NULL;
-            arena.brk    = result;
-            arena.mapped = result + needed;
+            arena.mapped += needed; // kernel bump allocator continued our run
         }
         else
         {
-            arena.mapped += ARENA_CHUNK_SIZE;
+            // discontiguous (something else mapped in between): abandon the
+            // tail of the old run and continue from the new chunk
+            arena.brk    = result;
+            arena.mapped = result + needed;
         }
     }
 

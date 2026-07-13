@@ -40,8 +40,7 @@
 #define SYS_MEMMAP        0x30  /* (handle|HANDLE_ANON, size, prot, flags) -> va or -err */
 #define SYS_MEMUNMAP      0x31  /* (addr, size) -> 0 or -err */
 #define SYS_SHM_CREATE    0x32  /* (size) -> handle or -err */
-#define SYS_ATTACH        0x33  /* (shmem handle) -> mapped address or -err */
-#define SYS_MAPDEV        0x34  /* (device handle) -> mapped address or -err */
+/* 0x33 (attach) and 0x34 (mapdev) retired: folded into SYS_MEMMAP */
 #define SYS_DETACH        0x35  /* (shmem handle) -> 0 or -err */
 #define SYS_QUERYDEV      0x36  /* (device handle, out*, len) -> irq or -err */
 #define SYS_MPROTECT      0x37  /* (addr, size, prot) -> 0 or -err */

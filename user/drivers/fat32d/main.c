@@ -11,7 +11,7 @@
 #define LOG_TAG "fat32d"
 
 static FATFS fs;
-static shmem_result_t shm;
+static handle_t shm_handle = -1;
 static char *buf;  /* pointer to shmem region */
 
 /* ---- file descriptor table ---- */
@@ -177,7 +177,7 @@ static void handle_stat(uint32_t reply_h)
 
 static void handle_get_buf(uint32_t reply_h, uint32_t sender)
 {
-    int32_t slot = _grant(shm.handle, (int32_t)sender);
+    int32_t slot = _grant(shm_handle, (int32_t)sender);
     if (slot < 0)
         _reply(reply_h, (uint32_t)slot, 0, 0);
     else
@@ -234,12 +234,16 @@ int main(void)
     }
 
     /* allocate shmem for client data transfer */
-    shm = _shm_create(32768);
-    if (shm.handle < 0 || shm.addr == NULL) {
+    shm_handle = _shm_create(32768);
+    if (shm_handle < 0) {
         LOG_ERROR(LOG_TAG, "shmem alloc failed");
         return 1;
     }
-    buf = (char *)shm.addr;
+    buf = (char *)_attach(shm_handle, VM_PROT_READ | VM_PROT_WRITE);
+    if (_ptr_is_err(buf)) {
+        LOG_ERROR(LOG_TAG, "shmem attach failed");
+        return 1;
+    }
 
     LOG_INFO(LOG_TAG, "ready");
 

@@ -95,7 +95,7 @@ static bool ensure_fbox(void)
         if ((int32_t)r.r1 != 0) {
             return false;
         }
-        fbox_buf = (char *)_attach((int32_t)r.r2);
+        fbox_buf = (char *)_attach((int32_t)r.r2, VM_PROT_READ | VM_PROT_WRITE);
         if ((intptr_t)fbox_buf <= 0) {
             fbox_buf = NULL;
             return false;
