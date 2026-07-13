@@ -147,6 +147,15 @@ static inline int32_t _grant(handle_t cap, zpid_t pid) {
     return r0;
 }
 
+static inline int32_t _destroy(handle_t h) {
+    register handle_t r0 __asm__("r0") = h;
+    __asm__ volatile("svc %[num]"
+        : "+r"(r0)
+        : [num] "i"(SYS_DESTROY)
+        : "memory");
+    return r0;
+}
+
 #ifdef __cplusplus
 }
 #endif
