@@ -26,14 +26,6 @@ typedef struct
     uint32_t r3;
 } msg_t;
 
-/* ---- Memory management types ---- */
-
-typedef struct
-{
-    int32_t handle;
-    void *addr;
-} shmem_result_t;
-
 /* ---- Process spawn types ---- */
 
 typedef struct

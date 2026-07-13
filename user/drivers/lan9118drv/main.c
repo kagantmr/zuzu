@@ -119,7 +119,7 @@ int get_nic(void)
     _irq_claim((uint32_t)dev_handle);
     _irq_bind((uint32_t)dev_handle, (uint32_t)irq_ntfn);
 
-    nic = (volatile lan9118_t *)_mapdev(dev_handle);
+    nic = (volatile lan9118_t *)_mapdev(dev_handle, VM_PROT_READ | VM_PROT_WRITE);
     if (!nic)
     {
         LOG_ERROR(LOG_TAG, "device mapping failed");
@@ -179,9 +179,16 @@ int nic_setup(void)
 
     // finally, set up shmem
 
-    shmem_result_t shm = _shm_create(NIC_SHM_BYTES); // packet size = 1536, ring_size = 16 
-    shmem_handle = shm.handle;
-    shmem_addr = shm.addr;
+    shmem_handle = _shm_create(NIC_SHM_BYTES); // packet size = 1536, ring_size = 16
+    if (shmem_handle < 0) {
+        LOG_ERROR(LOG_TAG, "shmem create failed");
+        return ERR_SYSDOWN;
+    }
+    shmem_addr = _attach(shmem_handle, VM_PROT_READ | VM_PROT_WRITE);
+    if (_ptr_is_err(shmem_addr)) {
+        LOG_ERROR(LOG_TAG, "shmem attach failed");
+        return ERR_SYSDOWN;
+    }
 
     packet_ring_init(shmem_addr);
 

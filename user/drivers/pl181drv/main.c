@@ -313,7 +313,7 @@ static int pl181drv_setup(void)
         return -1;
     }
 
-    pl181 = (pl181_t *)_mapdev((uint32_t)block_dev_handle);
+    pl181 = (pl181_t *)_mapdev((uint32_t)block_dev_handle, VM_PROT_READ | VM_PROT_WRITE);
     if ((intptr_t)pl181 <= 0)
     {
         LOG_ERROR(LOG_TAG, "mapdev failed");
@@ -332,14 +332,20 @@ static int pl181drv_setup(void)
     if (pl181_setup() < 0)
         return -1;
 
-    shmem_result_t shm = _shm_create(4096);
-    if (shm.handle < 0 || shm.addr == NULL)
+    handle_t shm_h = _shm_create(4096);
+    if (shm_h < 0)
     {
         LOG_ERROR(LOG_TAG, "shmem failed");
         return -1;
     }
-    shmem_handle = shm.handle;
-    shmem_buf = (uint32_t *)shm.addr;
+    void *shm_addr = _attach(shm_h, VM_PROT_READ | VM_PROT_WRITE);
+    if (_ptr_is_err(shm_addr))
+    {
+        LOG_ERROR(LOG_TAG, "shmem attach failed");
+        return -1;
+    }
+    shmem_handle = shm_h;
+    shmem_buf = (uint32_t *)shm_addr;
 
     /* register after hardware is ready so clients don't find the port early */
     port = register_service("pl181drv");
