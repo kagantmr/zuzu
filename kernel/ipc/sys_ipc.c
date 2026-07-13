@@ -230,7 +230,7 @@ static void recvany_deliver_notification(uint32_t matched_index,
     result->r1 = bits;
 }
 
-void __attribute__((hot)) msg_send(arch_regs_t *frame)
+void __attribute__((hot)) sys_msg_send(arch_regs_t *frame)
 {
     int handle = (int)(*arch_reg(frame, 0));
 
@@ -289,7 +289,7 @@ void __attribute__((hot)) msg_send(arch_regs_t *frame)
     }
 }
 
-void __attribute__((hot)) msg_recv(arch_regs_t *frame)
+void __attribute__((hot)) sys_msg_recv(arch_regs_t *frame)
 {
     int handle = (int)(*arch_reg(frame, 0));
     uint32_t timeout_ms = (*arch_reg(frame, 1)); // TIMEOUT_POLL / TIMEOUT_INFINITE / finite ms
@@ -434,7 +434,7 @@ void __attribute__((hot)) msg_recv(arch_regs_t *frame)
     }
 }
 
-void __attribute__((hot)) msg_call(arch_regs_t *frame)
+void __attribute__((hot)) sys_msg_call(arch_regs_t *frame)
 {
     int handle = (int)(*arch_reg(frame, 0));
 
@@ -520,7 +520,7 @@ void __attribute__((hot)) msg_call(arch_regs_t *frame)
     }
 }
 
-void __attribute__((hot)) msg_reply(arch_regs_t *frame)
+void __attribute__((hot)) sys_msg_reply(arch_regs_t *frame)
 {
     handle_t handle_idx = (*arch_reg(frame, 0));
     thread_t *target_thread = NULL;
@@ -559,7 +559,7 @@ void __attribute__((hot)) msg_reply(arch_regs_t *frame)
     (*arch_reg(frame, 0)) = 0;
 }
 
-void msg_lsend(arch_regs_t *frame)
+void sys_msg_lsend(arch_regs_t *frame)
 {
     int handle = (int)(*arch_reg(frame, 0));
 
@@ -622,7 +622,7 @@ void msg_lsend(arch_regs_t *frame)
     }
 }
 
-void msg_lcall(arch_regs_t *frame)
+void sys_msg_lcall(arch_regs_t *frame)
 {
     handle_t handle = (handle_t)(*arch_reg(frame, 0));
 
@@ -713,7 +713,7 @@ void msg_lcall(arch_regs_t *frame)
     }
 }
 
-void msg_lreply(arch_regs_t *frame)
+void sys_msg_lreply(arch_regs_t *frame)
 {
     handle_t handle_idx = (*arch_reg(frame, 0));
     thread_t *target_thread = NULL;
@@ -938,7 +938,7 @@ static bool recvany_write_timeout_result(uintptr_t result_ptr)
     return copy_to_user((void *)result_ptr, &result, sizeof(result));
 }
 
-void waitany(arch_regs_t *frame)
+void sys_waitany(arch_regs_t *frame)
 {
     /* r0 = handle array pointer
      * r1 = count

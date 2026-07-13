@@ -48,7 +48,7 @@ void ntfn_wake_waiter(notification_t *ntfn, thread_wait_slot_t *slot,
     sched_add(waiter);
 }
 
-void ntfn_create(arch_regs_t *frame) {
+void sys_ntfn_create(arch_regs_t *frame) {
     handle_t handle = handle_vec_find_free(&current_thread->owner_process->handle_table);
     if (handle < 0) { (*arch_reg(frame, 0)) = ERR_NOMEM; return; }
 
@@ -68,7 +68,7 @@ void ntfn_create(arch_regs_t *frame) {
     (*arch_reg(frame, 0)) = handle;
 }
 
-void ntfn_signal(arch_regs_t *frame) {
+void sys_ntfn_signal(arch_regs_t *frame) {
     handle_t handle_idx = (*arch_reg(frame, 0));
     uint32_t bits = (*arch_reg(frame, 1));
 
@@ -101,7 +101,7 @@ void ntfn_signal(arch_regs_t *frame) {
     (*arch_reg(frame, 0)) = 0;
 }
 
-void ntfn_wait(arch_regs_t *frame) {
+void sys_ntfn_wait(arch_regs_t *frame) {
     handle_t handle_idx = (*arch_reg(frame, 0));
     uint32_t timeout_ms = (*arch_reg(frame, 1));
 

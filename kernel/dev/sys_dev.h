@@ -3,7 +3,6 @@
 
 #include <arch/regs.h>
 
-void mapdev(arch_regs_t *frame);
-void querydev(arch_regs_t *frame);
+void sys_querydev(arch_regs_t *frame);
 
 #endif

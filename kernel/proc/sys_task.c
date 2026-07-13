@@ -34,7 +34,7 @@ static bool wait_write_status(int32_t *status_out, int32_t status)
     return copy_to_user(status_out, &status, sizeof(status));
 }
 
-void pquit(arch_regs_t *frame) {
+void sys_pquit(arch_regs_t *frame) {
     int exit_status = (int)(*arch_reg(frame, 0));
     KDEBUG("Process %d exited with status code %d", 
            current_thread->owner_process ? current_thread->owner_process->pid : 0, 
@@ -44,13 +44,13 @@ void pquit(arch_regs_t *frame) {
     schedule();
 }
 
-void yield(arch_regs_t *frame) {
+void sys_yield(arch_regs_t *frame) {
     (*arch_reg(frame, 0)) = 0;
     (void)frame;
     schedule();
 }
 
-void sleep(arch_regs_t *frame) {
+void sys_sleep(arch_regs_t *frame) {
     uint32_t ms = (*arch_reg(frame, 0)); // argument 0: Milliseconds to sleep
     
     // Convert ms to ticks using configured tick rate.
@@ -69,11 +69,11 @@ void sleep(arch_regs_t *frame) {
     schedule();
 }
 
-void get_pid(arch_regs_t *frame) {
+void sys_getpid(arch_regs_t *frame) {
     (*arch_reg(frame, 0)) = current_thread->owner_process->pid;
 }
 
-void wait(arch_regs_t *frame) {
+void sys_wait(arch_regs_t *frame) {
     int32_t req_pid = (int32_t)(*arch_reg(frame, 0));
     int32_t *status_out = (int32_t *)(*arch_reg(frame, 1));
     uint32_t flags = (*arch_reg(frame, 2));
@@ -164,7 +164,7 @@ void wait(arch_regs_t *frame) {
 
 /* spawn syscall removed: use pspawn/kickstart with sysd */
 
-void pspawn(arch_regs_t *frame) {
+void sys_pspawn(arch_regs_t *frame) {
     const char* name = (const char *)(*arch_reg(frame, 0));
     if (!validate_user_ptr((uintptr_t)name, 1)) {
         (*arch_reg(frame, 0)) = ERR_BADPTR;
@@ -213,7 +213,7 @@ void pspawn(arch_regs_t *frame) {
     return;
 }
 
-void kickstart(arch_regs_t *frame) {
+void sys_kickstart(arch_regs_t *frame) {
     kickstart_args_t *args = (kickstart_args_t *)(*arch_reg(frame, 0));
     if (!validate_user_ptr((uintptr_t)args, sizeof(kickstart_args_t))) {
         (*arch_reg(frame, 0)) = ERR_BADPTR;
@@ -252,7 +252,7 @@ void kickstart(arch_regs_t *frame) {
     return;
 }
 
-void pkill(arch_regs_t *frame) {
+void sys_pkill(arch_regs_t *frame) {
     uint32_t handle_idx = (*arch_reg(frame, 0));
 
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
@@ -276,7 +276,7 @@ void pkill(arch_regs_t *frame) {
     (*arch_reg(frame, 0)) = 0;
 }
 
-void tmake(arch_regs_t *frame) {
+void sys_tmake(arch_regs_t *frame) {
     vaddr_t entry  = (*arch_reg(frame, 0));
     vaddr_t usr_sp = (*arch_reg(frame, 1));
     vaddr_t arg    = (*arch_reg(frame, 2));
@@ -350,7 +350,7 @@ void tmake(arch_regs_t *frame) {
     (*arch_reg(frame, 0)) = (tid_t)t->tid;
 }
 
-void tjoin(arch_regs_t *frame) {
+void sys_tjoin(arch_regs_t *frame) {
     tid_t tid = (*arch_reg(frame, 0));
     thread_t *thread = thread_find_by_tid(tid);
     if (!thread || thread->owner_process != current_thread->owner_process) {
@@ -378,7 +378,7 @@ void tjoin(arch_regs_t *frame) {
 }
 
 
-void tquit(arch_regs_t *frame) {
+void sys_tquit(arch_regs_t *frame) {
     int exit_status = (int)(*arch_reg(frame, 0));
     thread_t *t = current_thread;
     process_t *owner = t->owner_process;
