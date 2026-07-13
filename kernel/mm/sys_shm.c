@@ -12,7 +12,7 @@
 
 extern thread_t *current_thread;
 
-void shm_create(arch_regs_t *frame)
+void sys_shm_create(arch_regs_t *frame)
 {
     const size_t size = align_up((size_t)(*arch_reg(frame, 0)), PAGE_SIZE);
     if (size == 0)
@@ -42,7 +42,9 @@ void shm_create(arch_regs_t *frame)
         return;
     }
     shmem_obj->page_count = page_count;
-    shmem_obj->ref_count = 1;
+    /* ref_count counts live mappings, not handles: memmap/attach take a ref,
+     * memunmap/detach drop it. Creation maps nothing, so it starts at 0. */
+    shmem_obj->ref_count = 0;
     shmem_obj->page_addrs = page_arr;
 
     int handle = handle_vec_find_free(&current_thread->owner_process->handle_table);
@@ -71,59 +73,7 @@ void shm_create(arch_regs_t *frame)
     (*arch_reg(frame, 0)) = (handle_t)handle;
 }
 
-void attach(arch_regs_t *frame)
-{
-    const handle_t handle_idx = (*arch_reg(frame, 0));
-
-    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
-    if (!entry)
-    {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-    if (entry->type != HANDLE_SHMEM)
-    {
-        (*arch_reg(frame, 0)) = ERR_MALFORMED;
-        return;
-    }
-
-    shmem_t *shm_obj = entry->shm;
-    if (!shm_obj)
-    {
-        (*arch_reg(frame, 0)) = ERR_MALFORMED;
-        return;
-    }
-    const size_t size = shm_obj->page_count * PAGE_SIZE;
-    if (current_thread->owner_process->mmap_va_next > UINTPTR_MAX - size)
-    {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-
-    const vaddr_t va_base = current_thread->owner_process->mmap_va_next;
-    current_thread->owner_process->mmap_va_next += size;
-
-    vm_region_t region = {
-        .vaddr_start = va_base,
-        .size = size,
-        .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
-        .memtype = VM_MEM_NORMAL,
-        .owner = VM_OWNER_SHARED,
-        .backing = shm_obj,
-        .flags = VM_FLAG_NONE,
-    };
-    if (!vmm_add_region(current_thread->owner_process->as, &region))
-    {
-        current_thread->owner_process->mmap_va_next -= size;
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
-        return;
-    }
-    entry->mapped_va = va_base;
-    shm_obj->ref_count++;
-    (*arch_reg(frame, 0)) = va_base;
-}
-
-void detach(arch_regs_t *frame)
+void sys_detach(arch_regs_t *frame)
 {
     handle_t handle = (*arch_reg(frame, 0));
 

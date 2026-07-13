@@ -20,7 +20,7 @@ static bool can_regrant_received_handle(const process_t *grantee)
     return grantee && ((grantee->flags & PROC_FLAG_INIT) != 0);
 }
 
-void port_create(arch_regs_t *frame)
+void sys_port_create(arch_regs_t *frame)
 {
     if (!current_thread)
     {
@@ -83,7 +83,7 @@ void port_create(arch_regs_t *frame)
     return;
 }
 
-void cap_destroy(arch_regs_t *frame)
+void sys_destroy(arch_regs_t *frame)
 {
     if (!current_thread)
     {
@@ -245,8 +245,8 @@ void cap_destroy(arch_regs_t *frame)
             return;
         }
 
-        // An unmapped shmem handle holds no ref: shm_create/attach take refs,
-        // detach/memunmap drop them. Just release the slot.
+        // An unmapped shmem handle holds no ref: mappings do (memmap/attach
+        // take refs, memunmap/detach drop them). Just release the slot.
         entry->shm = NULL;
         entry->grantable = false;
         entry->type = HANDLE_FREE;
@@ -288,7 +288,7 @@ void cap_destroy(arch_regs_t *frame)
     }
 }
 
-void grant(arch_regs_t *frame)
+void sys_grant(arch_regs_t *frame)
 {
     if (!current_thread)
     {

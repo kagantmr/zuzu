@@ -6,9 +6,9 @@
 
 struct thread_wait_slot;
 
-void ntfn_create(arch_regs_t *frame);
-void ntfn_signal(arch_regs_t *frame);
-void ntfn_wait(arch_regs_t *frame);
+void sys_ntfn_create(arch_regs_t *frame);
+void sys_ntfn_signal(arch_regs_t *frame);
+void sys_ntfn_wait(arch_regs_t *frame);
 
 /* Wake one waiter whose slot has already been popped from ntfn->wait_queue.
  * r0_value lands in the waiter's r0 (delivered bits from ntfn_signal, or a

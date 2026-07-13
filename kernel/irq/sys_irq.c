@@ -67,7 +67,7 @@ static inline bool valid_irq(irq_t irq_num) {
     return (irq_num < MAX_IRQS) && !arch_irq_is_reserved(irq_num);
 }
 
-void irq_claim(arch_regs_t *frame) {
+void sys_irq_claim(arch_regs_t *frame) {
     uint32_t handle_idx = (*arch_reg(frame, 0));
 
     if (handle_idx == 0) {
@@ -106,7 +106,7 @@ void irq_claim(arch_regs_t *frame) {
     (*arch_reg(frame, 0)) = 0;
 }
 
-void irq_bind(arch_regs_t *frame) {
+void sys_irq_bind(arch_regs_t *frame) {
     handle_t dev_handle  = (*arch_reg(frame, 0));
     handle_t ntfn_handle = (*arch_reg(frame, 1));   // was port_handle
 
@@ -193,7 +193,7 @@ void irq_bind(arch_regs_t *frame) {
     (*arch_reg(frame, 0)) = 0;
 }
 
-void irq_done(arch_regs_t* frame) {
+void sys_irq_done(arch_regs_t* frame) {
     handle_t dev_handle  = (*arch_reg(frame, 0));
 
     if (dev_handle == 0) {

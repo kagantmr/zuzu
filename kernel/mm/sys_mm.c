@@ -113,6 +113,7 @@ static int32_t memmap_shm(process_t *p, handle_entry_t *e, vm_prot_t prot, vaddr
     }
 
     e->mapped_va = va_base;
+    shmem_obj->ref_count++; /* ref_count == live mapping count; sys_memunmap drops it */
     *out = va_base;
     return ZUZU_OK;
 }
@@ -238,7 +239,7 @@ void sys_memmap(arch_regs_t *frame)
     return;
 }
 
-void memunmap(arch_regs_t *frame)
+void sys_memunmap(arch_regs_t *frame)
 {
         const vaddr_t va = (vaddr_t)(*arch_reg(frame, 0));
         size_t size = (size_t)(*arch_reg(frame, 1));
@@ -320,7 +321,7 @@ void memunmap(arch_regs_t *frame)
             }
             if (!found_handle)
             {
-                KWARN("memunmap: shared region @ 0x%08x has no matching handle", va);
+                KWARN("sys_memunmap: shared region @ 0x%08x has no matching handle", va);
             }
         }
 
@@ -334,62 +335,78 @@ void memunmap(arch_regs_t *frame)
         (*arch_reg(frame, 0)) = 0;
 }
 
-void asinject(arch_regs_t *frame)
+void sys_asinject(arch_regs_t *frame)
 {
         if (!(current_thread->owner_process->flags & PROC_FLAG_INIT))
         {
+            {
             (*arch_reg(frame, 0)) = ERR_NOPERM;
             return;
+        }
         }
 
         asinject_args_t *args = (asinject_args_t *)(*arch_reg(frame, 0));
         if (!validate_user_ptr((uintptr_t)args, sizeof(asinject_args_t)))
         {
+            {
             (*arch_reg(frame, 0)) = ERR_BADARG;
             return;
+        }
         }
 
         asinject_args_t kargs;
         if (!copy_from_user(&kargs, args, sizeof(asinject_args_t)))
         {
+            {
             (*arch_reg(frame, 0)) = ERR_BADARG;
             return;
+        }
         }
 
         handle_entry_t *handle = handle_vec_get(&current_thread->owner_process->handle_table, kargs.task_handle);
         if (!handle || handle->type != HANDLE_TASK)
         {
+            {
             (*arch_reg(frame, 0)) = ERR_BADARG;
             return;
+        }
         }
 
         process_t *target = handle->task;
 
         if (!target || target->thread->state != FROZEN)
         {
+            {
             (*arch_reg(frame, 0)) = ERR_BADARG;
             return;
+        }
         }
 
         if (!kargs.src_buf || kargs.len == 0 ||
             !validate_user_ptr((uintptr_t)kargs.src_buf, kargs.len))
         {
+            {
             (*arch_reg(frame, 0)) = ERR_BADARG;
             return;
+        }
         }
 
         if ((kargs.prot & VM_PROT_WRITE) && (kargs.prot & VM_PROT_EXEC))
         {
+            {
             (*arch_reg(frame, 0)) = ERR_BADARG;
             return;
+        }
         }
 
         if (kargs.dst_va % PAGE_SIZE != 0 ||
             kargs.dst_va >= USER_VA_TOP ||
             kargs.len > USER_VA_TOP - kargs.dst_va)
         {
+            {
             (*arch_reg(frame, 0)) = ERR_BADARG;
             return;
+        }
         }
 
         size_t page_count = (kargs.len + PAGE_SIZE - 1) / PAGE_SIZE;
@@ -402,8 +419,12 @@ void asinject(arch_regs_t *frame)
         for (uint32_t i = 0; i < target->as->regions.len; i++)
         {
             vm_region_t *r = vm_region_vec_get(&target->as->regions, i);
+            /* dst must lie inside the region before computing the remaining
+             * space, or the unsigned subtraction below wraps for regions
+             * that end before dst_va. */
             if (kargs.dst_va >= r->vaddr_start &&
-                page_count * PAGE_SIZE <= r->vaddr_start + r->size - kargs.dst_va)
+                kargs.dst_va - r->vaddr_start < r->size &&
+                page_count * PAGE_SIZE <= r->size - (kargs.dst_va - r->vaddr_start))
             {
                 enclosing = r;
                 break;
@@ -416,16 +437,20 @@ void asinject(arch_regs_t *frame)
                 enclosing->memtype != VM_MEM_NORMAL ||
                 ((kargs.prot | VM_PROT_USER) & ~enclosing->prot))
             {
-                (*arch_reg(frame, 0)) = ERR_BADARG;
-                return;
+                {
+            (*arch_reg(frame, 0)) = ERR_BADARG;
+            return;
+        }
             }
         }
 
         vaddr_t *page_addrs = kmalloc(page_count * sizeof(vaddr_t));
         if (!page_addrs)
         {
+            {
             (*arch_reg(frame, 0)) = ERR_NOMEM;
             return;
+        }
         }
         memset(page_addrs, 0, page_count * sizeof(vaddr_t));
 
@@ -509,8 +534,10 @@ void asinject(arch_regs_t *frame)
             }
         }
         kfree(page_addrs);
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
+        {
+            (*arch_reg(frame, 0)) = ERR_BADARG;
+            return;
+        }
 
     rollback_nomem:
         for (size_t j = 0; j < page_count; j++)
@@ -522,11 +549,13 @@ void asinject(arch_regs_t *frame)
             }
         }
         kfree(page_addrs);
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
-        return;
+        {
+            (*arch_reg(frame, 0)) = ERR_NOMEM;
+            return;
+        }
 }
 
-void mprotect(arch_regs_t *frame)
+void sys_memprotect(arch_regs_t *frame)
 {
         const uintptr_t va = (uintptr_t)(*arch_reg(frame, 0));
         const size_t size = (size_t)(*arch_reg(frame, 1));
