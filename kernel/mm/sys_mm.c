@@ -244,12 +244,6 @@ void sys_memunmap(arch_regs_t *frame)
         const vaddr_t va = (vaddr_t)(*arch_reg(frame, 0));
         size_t size = (size_t)(*arch_reg(frame, 1));
 
-        // Basic validation
-        if (!validate_user_ptr(va, size))
-        {
-            (*arch_reg(frame, 0)) = ERR_BADARG;
-            return;
-        }
         if (size == 0 || size % PAGE_SIZE != 0)
         {
             (*arch_reg(frame, 0)) = ERR_BADARG;
@@ -275,63 +269,49 @@ void sys_memunmap(arch_regs_t *frame)
             return;
         }
 
-        // If we own the pages, free them back to PMM before unmapping
-        if (found->owner == VM_OWNER_ANON)
-        {
-            // Walk page table to find which physical pages are actually backed
-            // (demand paging means not every page in the region may be mapped)
-            for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE)
+        switch(found->owner) {
+            // If we own the pages, free them back to PMM before unmapping
+            case VM_OWNER_ANON:
             {
-                uintptr_t pa = arch_mmu_translate(as->ttbr_pa, va + offset);
-                if (pa != 0)
+                // Walk page table to find which physical pages are actually backed
+                // (demand paging means not every page in the region may be mapped)
+                for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE)
                 {
-                    pmm_free_page(pa);
+                    uintptr_t pa = arch_mmu_translate(as->ttbr_pa, va + offset);
+                    if (pa != 0) pmm_free_page(pa);
                 }
-            }
-        }
-        else if (found->owner == VM_OWNER_SHARED)
-        {
-            bool found_handle = false;
-            // If it's shared memory, we need to decrement the ref count and free if it hits 0
-            for (uint32_t i = 0; i < current_thread->owner_process->handle_table.cap; i++)
+            } break;
+            case VM_OWNER_SHARED:
+            case VM_OWNER_NONE:
             {
-                handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, i);
-                if (!entry)
-                    break;
-
-                if (entry->type == HANDLE_SHMEM && entry->mapped_va == va)
+                // Shared or device mapping: clear the owning handle's mapped_va so memmap can remap it
+                bool found_handle = false;
+                for (uint32_t i = 0; i < current_thread->owner_process->handle_table.cap; i++)
                 {
-                    shmem_t *shm_obj = entry->shm;
-                    shm_obj->ref_count--;
-                    if (shm_obj->ref_count == 0)
-                    {
-                        for (size_t j = 0; j < shm_obj->page_count; j++)
-                            if (shm_obj->page_addrs[j] != 0) /* demand-paged: skip unfaulted slots */
-                                pmm_free_page(shm_obj->page_addrs[j]);
-                        kfree(shm_obj->page_addrs);
-                        kfree(shm_obj);
-                    }
-                    entry->shm = NULL;
+                    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, i);
+                    if (!entry || entry->mapped_va != va ||
+                        (entry->type != HANDLE_SHMEM && entry->type != HANDLE_DEVICE))
+                        continue;
+
                     entry->mapped_va = 0;
-                    entry->grantable = false;
-                    entry->type = HANDLE_FREE;
                     found_handle = true;
                     break;
                 }
-            }
-            if (!found_handle)
-            {
-                KWARN("sys_memunmap: shared region @ 0x%08x has no matching handle", va);
-            }
+                if (!found_handle && found->owner == VM_OWNER_SHARED)
+                {
+                    KWARN("sys_memunmap: shared region @ 0x%08x has no matching handle", va);
+                }
+            } break;
+            default:
+                break;
         }
-
         // Remove from region list and unmap page table entries
         if (!vmm_remove_region(as, va, size))
         {
             (*arch_reg(frame, 0)) = ERR_NOMEM;
             return;
         }
-
+    
         (*arch_reg(frame, 0)) = 0;
 }
 
