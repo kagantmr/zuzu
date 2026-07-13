@@ -9,7 +9,7 @@
 #include "core/panic.h"
 #include <mem.h>
 #include <stdbool.h>
-#include <zuzu/ipcx.h>
+#include <zuzu/tcb.h>
 #include <zuzu/types.h>
 
 #include "kernel/irq/sys_irq.h"
@@ -31,7 +31,7 @@ extern kernel_layout_t kernel_layout;
 static void ipc_buf_copy(thread_t *src, thread_t *dst, uint32_t len)
 {
     if (!len || !src->ipc_buf_pa || !dst->ipc_buf_pa) return;
-    if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
+    if (len > LMSG_BUF_SIZE) return;
     memcpy((void *)PA_TO_VA(dst->ipc_buf_pa),
            (void *)PA_TO_VA(src->ipc_buf_pa), len);
 }
@@ -562,10 +562,18 @@ void __attribute__((hot)) sys_msg_reply(arch_regs_t *frame)
 void sys_msg_lsend(arch_regs_t *frame)
 {
     int handle = (int)(*arch_reg(frame, 0));
+    uint32_t xlen = (*arch_reg(frame, 1));
 
     endpoint_t *ep = validate_endpoint_handle(current_thread->owner_process, handle, frame);
     if (!ep)
     {
+        return;
+    }
+
+    /* No truncation: oversized payloads are rejected outright. */
+    if (xlen > LMSG_BUF_SIZE)
+    {
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
@@ -574,7 +582,6 @@ void sys_msg_lsend(arch_regs_t *frame)
         list_node_t *receiver = list_pop_front(&ep->receiver_queue);
         thread_wait_slot_t *rx_slot = container_of(receiver, thread_wait_slot_t, node);
         thread_t *rx_thread = rx_slot->owner;
-        uint32_t xlen = (*arch_reg(frame, 1)) > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : (*arch_reg(frame, 1));
 
         if (rx_thread->recvany_ep_wait_active) {
             recvany_result_t *res = &rx_thread->recvany_pending_result;
@@ -616,7 +623,7 @@ void sys_msg_lsend(arch_regs_t *frame)
         current_thread->ipc_state = IPC_SENDER;
         current_thread->blocked_endpoint = ep;
         list_add_tail(&current_thread->node, &ep->sender_queue.node);
-        current_thread->ipc_buf_xfer_len = (*arch_reg(frame, 1)) > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : (*arch_reg(frame, 1));
+        current_thread->ipc_buf_xfer_len = xlen;
         current_thread->state = BLOCKED;
         schedule();
     }
@@ -625,10 +632,18 @@ void sys_msg_lsend(arch_regs_t *frame)
 void sys_msg_lcall(arch_regs_t *frame)
 {
     handle_t handle = (handle_t)(*arch_reg(frame, 0));
+    uint32_t xlen = (*arch_reg(frame, 1));
 
     endpoint_t *ep = validate_endpoint_handle(current_thread->owner_process, handle, frame);
     if (!ep)
     {
+        return;
+    }
+
+    /* No truncation: oversized payloads are rejected outright. */
+    if (xlen > LMSG_BUF_SIZE)
+    {
+        (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
@@ -662,8 +677,6 @@ void sys_msg_lcall(arch_regs_t *frame)
         rentry->grantable = false;
         rentry->reply = rc;
         process_track_reply_cap(current_thread->owner_process, rx_thread->owner_process, (uint32_t)slot, rc);
-
-        size_t xlen = (*arch_reg(frame, 1)) > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : (*arch_reg(frame, 1));
 
         if (rx_thread->recvany_ep_wait_active) {
             recvany_result_t *res = &rx_thread->recvany_pending_result;
@@ -707,7 +720,7 @@ void sys_msg_lcall(arch_regs_t *frame)
         current_thread->blocked_endpoint = ep;
         current_thread->pending_reply_cap = rc;
         list_add_tail(&current_thread->node, &ep->sender_queue.node);
-        current_thread->ipc_buf_xfer_len = (*arch_reg(frame, 1)) > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : (*arch_reg(frame, 1));
+        current_thread->ipc_buf_xfer_len = xlen;
         current_thread->state = BLOCKED;
         schedule();
     }
@@ -716,6 +729,15 @@ void sys_msg_lcall(arch_regs_t *frame)
 void sys_msg_lreply(arch_regs_t *frame)
 {
     handle_t handle_idx = (*arch_reg(frame, 0));
+    uint32_t xlen = (*arch_reg(frame, 1));
+
+    /* No truncation: oversized payloads are rejected outright. */
+    if (xlen > LMSG_BUF_SIZE)
+    {
+        (*arch_reg(frame, 0)) = ERR_BADARG;
+        return;
+    }
+
     thread_t *target_thread = NULL;
     handle_entry_t *entry = validate_reply_handle(current_thread->owner_process, handle_idx, &target_thread, frame);
     if (!entry)
@@ -730,7 +752,6 @@ void sys_msg_lreply(arch_regs_t *frame)
     {
         ipc_panic_bad_trap_frame("msg_lreply.target", target_thread->owner_process, target_frame);
     }
-    size_t xlen = (*arch_reg(frame, 1)) > IPCX_BUF_SIZE ? IPCX_BUF_SIZE : (*arch_reg(frame, 1));
     (*arch_reg(target_frame, 0)) = 0;           // success
     (*arch_reg(target_frame, 1)) = xlen;        // reply payload
     (*arch_reg(target_frame, 2)) = 0;

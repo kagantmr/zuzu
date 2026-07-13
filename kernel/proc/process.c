@@ -6,7 +6,7 @@
 #include "kernel/irq/sys_irq.h"
 #include "kernel/sched/sched.h"
 #include "kernel/syspage.h"
-#include "zuzu/ipcx.h"
+#include <zuzu/tcb.h>
 #include <zuzu/user_layout.h>
 #include <mem.h>
 #include <string.h>
@@ -336,6 +336,7 @@ fail_kstack:
     if (p->as)
         arch_mmu_free_user_pages(p->as);
     as_destroy(p->as);
+    p->tcb_page_pa = 0; /* page freed above; thread_destroy must not scrub it */
     handle_vec_destroy(&p->handle_table);
     thread_destroy(t);
 fail_process:
@@ -388,26 +389,6 @@ process_t *process_create(const char* name) {
         .flags = VM_FLAG_NONE,
     };
     if (!vmm_add_region(p->as, &sys_region))
-        goto fail_kstack;
-
-    // map IPCX transfer buffer into as
-    t->ipc_buf_pa = pmm_alloc_page();
-    if (!t->ipc_buf_pa)
-        goto fail_kstack;
-
-    if (!vmm_map_user_page(p->as, t->ipc_buf_pa, USER_IPC_BUF_VA,
-                        VM_PROT_READ | VM_PROT_WRITE)) // could use a bump pointer instead
-        goto fail_kstack;
-    
-    vm_region_t ipc_region = {
-        .vaddr_start = USER_IPC_BUF_VA,
-        .size = PAGE_SIZE,
-        .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
-        .memtype = VM_MEM_NORMAL,
-        .owner = VM_OWNER_ANON,
-        .flags = VM_FLAG_NONE,
-    };
-    if (!vmm_add_region(p->as, &ipc_region))
         goto fail_kstack;
 
     /* Initialize per-process mmap bump pointer before allocating the
@@ -468,15 +449,24 @@ process_t *process_create(const char* name) {
     if (!vmm_add_region(p->as, &stack_guard))
         goto fail_kstack;
 
-    /* Initialize the page via the kernel alias (kernel VA). The
-     * initial slot (slot 0) belongs to the main thread and should
-     * point at the process's IPCX fixed VA. */
-    tdata_t *tcb0 = (tdata_t *)PA_TO_VA(tcb_page_pa);
-    tcb0->ipc_buf = (void *)USER_IPC_BUF_VA;
+    /* Initialize the page via the kernel alias (kernel VA). The main
+     * thread takes its slot through the same bitmap allocator as
+     * tmake; its lmsg buffer lives inside the slot itself. */
+    memset((void *)PA_TO_VA(tcb_page_pa), 0, PAGE_SIZE);
+    p->tcb_slot_bitmap = 0;
+    int tcb_slot_idx = tcb_slot_alloc(p);
+    if (tcb_slot_idx < 0)
+        goto fail_kstack;
+    tdata_t *tcb0 = (tdata_t *)(PA_TO_VA(tcb_page_pa) +
+                                (uint32_t)tcb_slot_idx * TCB_SLOT_SIZE);
+    vaddr_t tcb0_va = p->tcb_page_va + (uint32_t)tcb_slot_idx * TCB_SLOT_SIZE;
+    tcb0->lmsg_buf = (void *)(tcb0_va + offsetof(tdata_t, buf));
     tcb0->tid = t->tid;
-    /* Point the thread's thread-info VA at the first slot in the user TCB page */
-    t->thread_info_va = p->tcb_page_va;
-    
+    t->thread_info_va = tcb0_va;
+    t->tcb_slot = (uint8_t)tcb_slot_idx;
+    t->ipc_buf_pa = tcb_page_pa + (uint32_t)tcb_slot_idx * TCB_SLOT_SIZE +
+                    offsetof(tdata_t, buf);
+
 
     // slot 0 is reserved for nametable endpoint when available
     handle_entry_t *slot0 = handle_vec_get(&p->handle_table, 0);
@@ -533,6 +523,7 @@ fail_kstack:
     if (p->as)
         arch_mmu_free_user_pages(p->as);
     as_destroy(p->as);
+    p->tcb_page_pa = 0; /* page freed above; thread_destroy must not scrub it */
 fail_handles:
     if (nametable_endpoint) {
         handle_entry_t *maybe_slot0 = handle_vec_get(&p->handle_table, 0);

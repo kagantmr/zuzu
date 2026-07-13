@@ -4,8 +4,8 @@
 /*
  * channel.h - high-level bulk IPC
  *
- * Wraps the raw ipcx buffer + sendx/callx/replyx syscalls into a clean
- * three-function API. Callers never touch IPCX_BUF directly.
+ * Wraps the raw lmsg buffer + lsend/lcall/lreply syscalls into a clean
+ * three-function API. Callers never touch the lmsg buffer directly.
  *
  * Sender side:
  *   chan_send(port, buf, len)          
@@ -17,18 +17,20 @@
  */
 
 #include <zuzu/ipc.h>
-#include <zuzu/ipcx.h>
+#include <zuzu/lmsg.h>
+#include <zuzu/err.h>
 #include <string.h>
 #include <stdint.h>
 
 /*
- * copy buf into the ipcx buffer and send one-way.
+ * copy buf into the lmsg buffer and send one-way.
  * Returns 0 on success, negative error on failure.
+ * Payloads over LMSG_BUF_SIZE are rejected, never truncated.
  */
 static inline int32_t chan_send(handle_t port, const void *buf, uint32_t len)
 {
-    if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
-    memcpy(ipcx_buf(), buf, len);
+    if (len > LMSG_BUF_SIZE) return ERR_BADARG;
+    memcpy(lmsg_buf(), buf, len);
     return _lsend(port, len);
 }
 
@@ -40,8 +42,8 @@ static inline int32_t chan_call(handle_t port,
                                 const void *buf,    uint32_t len,
                                 void       *reply,  uint32_t reply_cap)
 {
-    if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
-    memcpy(ipcx_buf(), buf, len);
+    if (len > LMSG_BUF_SIZE) return ERR_BADARG;
+    memcpy(lmsg_buf(), buf, len);
 
     msg_t msg = _lcall(port, len);
     if ((int32_t)msg.r0 < 0)
@@ -50,7 +52,7 @@ static inline int32_t chan_call(handle_t port,
     uint32_t got = msg.r1;
     if (got > reply_cap) got = reply_cap;
     if (got && reply)
-        memcpy(reply, ipcx_buf(), got);
+        memcpy(reply, lmsg_buf(), got);
 
     return (int32_t)got;
 }
@@ -61,9 +63,9 @@ static inline int32_t chan_call(handle_t port,
 static inline int32_t chan_reply(handle_t reply_handle,
                                  const void *buf, uint32_t len)
 {
-    if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
+    if (len > LMSG_BUF_SIZE) return ERR_BADARG;
     if (len && buf)
-        memcpy(ipcx_buf(), buf, len);
+        memcpy(lmsg_buf(), buf, len);
     return _lreply(reply_handle, len);
 }
 

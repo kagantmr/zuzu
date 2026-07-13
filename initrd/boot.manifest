@@ -10,5 +10,5 @@ bin/pl181drv|none
 bin/fat32d|none
 bin/fbox|none
 bin/lan9118drv|none
-bin/netd|none
-# bin/zzsh|tty:late
+# bin/netd|none
+bin/zzsh|tty:late

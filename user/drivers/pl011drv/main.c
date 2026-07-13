@@ -3,7 +3,7 @@
 #include "zuzu/protocols/devmgr_protocol.h"
 #include "zuzu/protocols/nt_protocol.h"
 #include <zuzu/protocols/sysd_protocol.h>
-#include "zuzu/ipcx.h"
+#include "zuzu/lmsg.h"
 #include <zuzu/ring.h>
 #include <zuzu/channel.h>
 #include <stdint.h>
@@ -105,9 +105,9 @@ static void handle_client_message(msg_t msg)
 {
     if (msg.r2 == 0) {
         uint32_t len = msg.r1;
-        if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
+        if (len > LMSG_BUF_SIZE) len = LMSG_BUF_SIZE;
 
-        char *buf = (char *)ipcx_buf();
+        char *buf = (char *)lmsg_buf();
         for (uint32_t i = 0; i < len; i++)
             uart_txbyte(buf[i]);
         return;
@@ -115,11 +115,11 @@ static void handle_client_message(msg_t msg)
 
     uint32_t reply_handle = (uint32_t)msg.r0;
     uint32_t len = msg.r2;
-    if (len > IPCX_BUF_SIZE) len = IPCX_BUF_SIZE;
+    if (len > LMSG_BUF_SIZE) len = LMSG_BUF_SIZE;
 
     service_pending_irq();
     drain_uart_rx_fifo();
-    char *buf = (char *)ipcx_buf();
+    char *buf = (char *)lmsg_buf();
     uint32_t n = 0;
     while (ring_avail(&rxrb) > 0 && n < len) {
         uint8_t b = 0;
