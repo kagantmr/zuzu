@@ -39,6 +39,8 @@ typedef enum ipc_state
 
 typedef struct thread thread_t;
 
+#define TCB_SLOT_NONE 0xFFu /* thread holds no TCB slot */
+
 typedef struct thread_wait_slot
 {
     list_node_t node;
@@ -81,7 +83,8 @@ struct thread
     recvany_result_t recvany_pending_result;
     uint32_t priority, time_slice, ticks_remaining;
     process_t *owner_process; // backpointer to owning process
-    vaddr_t thread_info_va; 
+    vaddr_t thread_info_va;
+    uint8_t tcb_slot; // index into owner's TCB page, TCB_SLOT_NONE if unassigned
 };
 
 #ifdef __cplusplus

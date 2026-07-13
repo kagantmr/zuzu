@@ -8,7 +8,7 @@
 
 #include "zuzu/protocols/sysd_protocol.h"
 #include "zuzu/protocols/fbox_protocol.h"
-#include <zuzu/ipcx.h>
+#include <zuzu/lmsg.h>
 #include <zuzu/channel.h>
 #include <cpio.h>
 #include <malloc.h>
@@ -135,22 +135,22 @@ static void scrub_pid(uint32_t pid) {
 }
 
 static void nt_handle_msg(msg_t msg) {
-    if (msg.r2 >= sizeof(exec_request_hdr_t) && msg.r2 <= IPCX_BUF_SIZE &&
-        ((exec_request_hdr_t *)ipcx_buf())->cmd == SYSD_EXEC) {
+    if (msg.r2 >= sizeof(exec_request_hdr_t) && msg.r2 <= LMSG_BUF_SIZE &&
+        ((exec_request_hdr_t *)lmsg_buf())->cmd == SYSD_EXEC) {
         uint32_t reply_handle = (uint32_t)msg.r0;
         uint32_t req_len = msg.r2;
-        exec_request_hdr_t *hdr = (exec_request_hdr_t *)ipcx_buf();
+        exec_request_hdr_t *hdr = (exec_request_hdr_t *)lmsg_buf();
 
         size_t path_off = sizeof(exec_request_hdr_t);
         size_t path_bytes = (size_t)hdr->path_len + 1;
         if (path_bytes == 0 || path_off + path_bytes > req_len ||
-            ((char *)ipcx_buf())[path_off + hdr->path_len] != '\0') {
+            ((char *)lmsg_buf())[path_off + hdr->path_len] != '\0') {
             _reply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
             return;
         }
 
-        const char *path = (const char *)ipcx_buf() + path_off;
-        const char *argbuf = (const char *)ipcx_buf() + path_off + path_bytes;
+        const char *path = (const char *)lmsg_buf() + path_off;
+        const char *argbuf = (const char *)lmsg_buf() + path_off + path_bytes;
         size_t argbuf_len = req_len - path_off - path_bytes;
 
         /* --- lazy-init fbox connection (once) --- */
@@ -246,8 +246,8 @@ static void nt_handle_msg(msg_t msg) {
             return;
         }
 
-        memcpy(ipcx_buf(), &reply, sizeof(reply));
-        (void)chan_reply((handle_t)reply_handle, ipcx_buf(), sizeof(reply));
+        memcpy(lmsg_buf(), &reply, sizeof(reply));
+        (void)chan_reply((handle_t)reply_handle, lmsg_buf(), sizeof(reply));
         return;
     }
 

@@ -1,7 +1,7 @@
 #ifndef ZUZU_SERVICE_H
 #define ZUZU_SERVICE_H
 
-#include <zuzu/ipcx.h>
+#include <zuzu/lmsg.h>
 #include <stdint.h>
 #include <zuzu/protocols/nt_protocol.h>
 

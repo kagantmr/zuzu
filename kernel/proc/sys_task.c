@@ -12,7 +12,7 @@
 #include "kernel/time/tick.h"
 #include "kernel/proc/process.h"
 #include <zuzu/user_layout.h>
-#include <zuzu/ipcx.h>
+#include <zuzu/tcb.h>
 #include <spawn_args.h>
 
 
@@ -297,48 +297,23 @@ void sys_tmake(arch_regs_t *frame) {
         return;
     }
 
-    // Temporarily share main thread's IPCX buffer until per-thread IPCX is done
-    paddr_t ipcx_buf_pa = pmm_alloc_page();
-    if (!ipcx_buf_pa) {
+    int slot_idx = tcb_slot_alloc(owner);
+    if (slot_idx < 0) {
         thread_destroy(t);
         (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
-    }
-    t->ipc_buf_pa = ipcx_buf_pa;
-    // map it
-    vaddr_t mmap_va = owner->mmap_va_next;
-    if (!vmm_map_user_page(owner->as, ipcx_buf_pa, mmap_va,
-                        VM_PROT_USER | VM_PROT_READ | VM_PROT_WRITE)) {
-        pmm_free_page(ipcx_buf_pa);
-        thread_destroy(t);
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
-        return;
-    }
-    // bump owner with overflow check
-    if (UINTPTR_MAX - owner->mmap_va_next < PAGE_SIZE) {
-        pmm_free_page(ipcx_buf_pa);
-        thread_destroy(t);
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
-        return;
-    } else {
-        owner->mmap_va_next += PAGE_SIZE;
     }
 
-    
-    uint32_t slot_idx = owner->tcb_next_slot++;
-    if (slot_idx >= TCB_MAX_SLOTS) {
-        pmm_free_page(ipcx_buf_pa);
-        thread_destroy(t);
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
-        return;
-    }
-    tdata_t *slot = (tdata_t *)(PA_TO_VA(owner->tcb_page_pa) + slot_idx * TCB_SLOT_SIZE);
-    slot->ipc_buf = (void *)mmap_va;
-    slot->tid = t->tid;
-    slot->pid = owner->pid;
+    tdata_t *slot = (tdata_t *)(PA_TO_VA(owner->tcb_page_pa) + (uint32_t)slot_idx * TCB_SLOT_SIZE);
+    vaddr_t slot_va = owner->tcb_page_va + (uint32_t)slot_idx * TCB_SLOT_SIZE;
 
-    t->thread_info_va = owner->tcb_page_va + slot_idx * TCB_SLOT_SIZE;
+    slot->tid     = t->tid;
+    slot->pid     = owner->pid;
+    slot->lmsg_buf = (void *)(slot_va + offsetof(tdata_t, buf));   /* points into itself */
 
+    t->thread_info_va = slot_va;
+    t->tcb_slot = (uint8_t)slot_idx;
+    t->ipc_buf_pa = owner->tcb_page_pa + (uint32_t)slot_idx * TCB_SLOT_SIZE + offsetof(tdata_t, buf);
 
     // Build the initial kernel stack so the thread enters user mode at `entry`.
     t->kernel_sp = (uint32_t *)arch_thread_user_init(

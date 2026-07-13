@@ -429,13 +429,13 @@ static void cmd_exec(const char *line)
 
     size_t path_len = strlen(path);
     size_t req_len = sizeof(exec_request_hdr_t) + path_len + 1 + argpos;
-    if (req_len > IPCX_BUF_SIZE) {
+    if (req_len > LMSG_BUF_SIZE) {
         _pkill(ts.task_handle);                    /* <-- NEW */
         printf("%s", ANSI_RED "zzsh: command too long\n" ANSI_RESET);
         return;
     }
 
-    exec_request_hdr_t *hdr = (exec_request_hdr_t *)ipcx_buf();
+    exec_request_hdr_t *hdr = (exec_request_hdr_t *)lmsg_buf();
     hdr->cmd = SYSD_EXEC;
     hdr->_pad = 0;
     hdr->task_handle = (uint16_t)sysd_task_handle;
@@ -443,12 +443,12 @@ static void cmd_exec(const char *line)
     hdr->argc = (uint16_t)token_count;
     hdr->pid = ts.pid;
 
-    char *payload = (char *)ipcx_buf() + sizeof(*hdr);
+    char *payload = (char *)lmsg_buf() + sizeof(*hdr);
     memcpy(payload, path, path_len + 1);
     memcpy(payload + path_len + 1, argbuf, argpos);
 
-    int32_t rc = chan_call((handle_t)sysd_port, ipcx_buf(), (uint32_t)req_len,
-                           ipcx_buf(), (uint32_t)sizeof(exec_reply_t));
+    int32_t rc = chan_call((handle_t)sysd_port, lmsg_buf(), (uint32_t)req_len,
+                           lmsg_buf(), (uint32_t)sizeof(exec_reply_t));
     if (rc < 0) {
         _pkill(ts.task_handle);
         print_exec_error(rc);
@@ -460,7 +460,7 @@ static void cmd_exec(const char *line)
         return;
     }
 
-    exec_reply_t *reply = (exec_reply_t *)ipcx_buf();
+    exec_reply_t *reply = (exec_reply_t *)lmsg_buf();
     if (!exec_reply_valid(reply)) {
         _pkill(ts.task_handle);
         print_exec_error(EXEC_EBADELF);

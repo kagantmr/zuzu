@@ -6,7 +6,7 @@
 #ifdef __KERNEL__
 #include "core/kprintf.h"
 #else
-#include <zuzu/ipcx.h>
+#include <zuzu/lmsg.h>
 #include <zuzu/protocols/nt_protocol.h>
 #include <zuzu/zuzu.h>
 #endif
@@ -16,7 +16,7 @@
 #ifndef __KERNEL__
 static int32_t stdio_tty = -1;
 static char stdio_tty_name[4] = {'t', 't', 'y', '0'};
-static char stdio_input_buf[IPCX_BUF_SIZE];
+static char stdio_input_buf[LMSG_BUF_SIZE];
 static uint32_t stdio_input_len;
 static uint32_t stdio_input_pos;
 static int stdio_input_pushback = EOF;
@@ -99,17 +99,17 @@ static int __attribute__((unused)) stdio_refill_input(void)
     if (stdio_register_uart() != 0)
         return EOF;
 
-    msg_t reply = _lcall(stdio_tty, IPCX_BUF_SIZE);
+    msg_t reply = _lcall(stdio_tty, LMSG_BUF_SIZE);
     if (reply.r0 < 0)
         return EOF;
 
     uint32_t got = reply.r1;
-    if (got > IPCX_BUF_SIZE)
-        got = IPCX_BUF_SIZE;
+    if (got > LMSG_BUF_SIZE)
+        got = LMSG_BUF_SIZE;
     if (got == 0)
         return EOF;
 
-    memcpy(stdio_input_buf, ipcx_buf(), got);
+    memcpy(stdio_input_buf, lmsg_buf(), got);
     stdio_input_len = got;
     stdio_input_pos = 0;
     return 0;
@@ -427,7 +427,7 @@ int vscanf(const char *format, va_list args)
     (void)args;
     return EOF;
 #else
-    char line[IPCX_BUF_SIZE + 1];
+    char line[LMSG_BUF_SIZE + 1];
     int len = stdio_read_line(line, sizeof(line));
     if (len == EOF)
         return EOF;
@@ -459,11 +459,16 @@ int vprintf(const char *format, va_list args)
         kprintf("%s", buf);
 #else
         if (stdio_register_uart() == 0) {
-            if (out_len > IPCX_BUF_SIZE) {
-                out_len = IPCX_BUF_SIZE;
+            /* buf can exceed the lmsg buffer; send in chunks */
+            size_t off = 0;
+            while (off < out_len) {
+                uint32_t chunk = (uint32_t)(out_len - off);
+                if (chunk > LMSG_BUF_SIZE)
+                    chunk = LMSG_BUF_SIZE;
+                lmsg_write(buf + off, chunk);
+                (void)_lsend(stdio_tty, chunk);
+                off += chunk;
             }
-            ipcx_write(buf, (uint32_t)out_len);
-            (void)_lsend(stdio_tty, (uint32_t)out_len);
         }
 #endif
     }
