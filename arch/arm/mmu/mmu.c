@@ -249,7 +249,7 @@ bool arch_mmu_unmap(addrspace_t *as, uintptr_t va, size_t size)
     {
         uint32_t *l1_table = (uint32_t *)PA_TO_VA(as->ttbr_pa);
 
-        KDEBUG("unmap: clearing sections va=%p size=%p", (void *)va, (void *)size);
+        //KDEBUG("unmap: clearing sections va=%p size=%p", (void *)va, (void *)size);
         for (uintptr_t offset = 0; offset < size; offset += SECTION_SIZE)
         {
             size_t idx = L1_IDX(va + offset);
@@ -260,7 +260,7 @@ bool arch_mmu_unmap(addrspace_t *as, uintptr_t va, size_t size)
                 unmapped_any = true;
             }
         }
-        KDEBUG("unmap: sections cleared");
+        //KDEBUG("unmap: sections cleared");
     }
     // Page-aligned: use pages
     else if ((va % PAGE_SIZE) == 0 && (size % PAGE_SIZE) == 0)
@@ -292,12 +292,12 @@ bool arch_mmu_unmap(addrspace_t *as, uintptr_t va, size_t size)
         // For section unmaps and larger page ranges, invalidate by ASID.
         if (!page_mode || size > (16 * PAGE_SIZE) || unmapped_pages == 0)
         {
-            KDEBUG("unmap: tlb flush (asid=%u)", as->asid_token.asid);
+            //KDEBUG("unmap: tlb flush (asid=%u)", as->asid_token.asid);
             arch_mmu_flush_tlb_asid(as->asid_token.asid);
         }
-        KDEBUG("unmap: barrier");
+        //KDEBUG("unmap: barrier");
         arch_mmu_barrier();
-        KDEBUG("unmap: done");
+        //KDEBUG("unmap: done");
     }
 
     return unmapped_any;
