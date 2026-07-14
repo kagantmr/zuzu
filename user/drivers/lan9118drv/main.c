@@ -119,7 +119,7 @@ int get_nic(void)
     _irq_claim((uint32_t)dev_handle);
     _irq_bind((uint32_t)dev_handle, (uint32_t)irq_ntfn);
 
-    nic = (volatile lan9118_t *)_mapdev(dev_handle, VM_PROT_READ | VM_PROT_WRITE);
+    nic = (volatile lan9118_t *)_memmap(dev_handle, 0, VM_PROT_RW, 0);
     if (!nic)
     {
         LOG_ERROR(LOG_TAG, "device mapping failed");
@@ -184,7 +184,7 @@ int nic_setup(void)
         LOG_ERROR(LOG_TAG, "shmem create failed");
         return ERR_SYSDOWN;
     }
-    shmem_addr = _attach(shmem_handle, VM_PROT_READ | VM_PROT_WRITE);
+    shmem_addr = _memmap(shmem_handle, 0, VM_PROT_RW, 0);
     if (_ptr_is_err(shmem_addr)) {
         LOG_ERROR(LOG_TAG, "shmem attach failed");
         return ERR_SYSDOWN;

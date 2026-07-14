@@ -313,7 +313,7 @@ static int pl181drv_setup(void)
         return -1;
     }
 
-    pl181 = (pl181_t *)_mapdev((uint32_t)block_dev_handle, VM_PROT_READ | VM_PROT_WRITE);
+    pl181 = (pl181_t *)_memmap((uint32_t)block_dev_handle, 0, VM_PROT_RW, 0);
     if ((intptr_t)pl181 <= 0)
     {
         LOG_ERROR(LOG_TAG, "mapdev failed");
@@ -338,7 +338,7 @@ static int pl181drv_setup(void)
         LOG_ERROR(LOG_TAG, "shmem failed");
         return -1;
     }
-    void *shm_addr = _attach(shm_h, VM_PROT_READ | VM_PROT_WRITE);
+    void *shm_addr = _memmap(shm_h, 0, VM_PROT_RW, 0);
     if (_ptr_is_err(shm_addr))
     {
         LOG_ERROR(LOG_TAG, "shmem attach failed");

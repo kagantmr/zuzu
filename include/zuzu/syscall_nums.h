@@ -40,9 +40,7 @@
 #define SYS_MEMMAP        0x30  /* (handle|HANDLE_ANON, size, prot, flags) -> va or -err */
 #define SYS_MEMUNMAP      0x31  /* (addr) -> 0 or -err */
 #define SYS_SHM_CREATE    0x32  /* (size) -> handle or -err */
-/* 0x33 (attach) and 0x34 (mapdev) retired: folded into SYS_MEMMAP */
-#define SYS_DETACH        0x35  /* (shmem handle) -> 0 or -err */
-#define SYS_QUERYDEV      0x36  /* (device handle, out*, len) -> irq or -err */
+/* 0x33 (attach), 0x34 (mapdev) and 0x35 (mapdev) retired: folded into SYS_MEMMAP, SYS_MEMUNMAP and SYS_DESTROY*/
 #define SYS_MPROTECT      0x37  /* (addr, size, prot) -> 0 or -err */
 #define SYS_ASINJECT      0x38  /* (args*) -> 0 or -err; args->size first field */
 
@@ -52,31 +50,6 @@
 #define SYS_IRQ_DONE      0x42
 
 /* ---- Experimental / debugging / temporary (0xF0-0xFF) ---- */
-
-/* --- Temporary labels - delete before merge --- */
-#define SYS_TASK_PQUIT    SYS_PQUIT
-#define SYS_TASK_KILL     SYS_PKILL
-#define SYS_TASK_YIELD    SYS_YIELD
-#define SYS_TASK_WAIT     SYS_WAIT
-#define SYS_TASK_SLEEP    SYS_SLEEP
-#define SYS_TASK_PSPAWN   SYS_PSPAWN
-#define SYS_TASK_KICKSTART SYS_KICKSTART
-#define SYS_TASK_TMAKE    SYS_TMAKE
-#define SYS_TASK_TJOIN    SYS_TJOIN
-#define SYS_TASK_TQUIT    SYS_TQUIT
-#define SYS_PROC_SEND     SYS_MSG_SEND
-#define SYS_PROC_RECV     SYS_MSG_RECV
-#define SYS_PROC_CALL     SYS_MSG_CALL
-#define SYS_PROC_REPLY    SYS_MSG_REPLY
-#define SYS_PROC_SENDX    SYS_MSG_LSEND
-#define SYS_PROC_CALLX    SYS_MSG_LCALL
-#define SYS_PROC_REPLYX   SYS_MSG_LREPLY
-#define SYS_PROC_RECVANY  SYS_WAITANY
-#define SYS_EP_CREATE     SYS_PORT_CREATE
-#define SYS_CAP_DESTROY   SYS_DESTROY
-#define SYS_CAP_GRANT     SYS_GRANT
-#define SYS_MEMSHARE      SYS_SHM_CREATE
-
 
 #define SYS_MAX 0xFF
 

@@ -189,7 +189,7 @@ static client_buf_t *client_alloc(uint32_t pid)
             handle_t shm_h = _shm_create(32768);
             if (shm_h < 0)
                 return NULL;
-            char *shm_buf = (char *)_attach(shm_h, VM_PROT_READ | VM_PROT_WRITE);
+            char *shm_buf = (char *)_memmap(shm_h, 0, VM_PROT_RW, 0);
             if (_ptr_is_err(shm_buf))
                 return NULL;
             clients[i].pid = pid;
@@ -273,7 +273,7 @@ int main(void)
         printf("fbox: FAT32_GET_BUF failed\n");
         return 1;
     }
-    fat32d_buf = _attach((int32_t)r.r2, VM_PROT_READ | VM_PROT_WRITE);
+    fat32d_buf = _memmap((int32_t)r.r2, 0, VM_PROT_RW, 0);
     if ((intptr_t)fat32d_buf <= 0) {
         printf("fbox: attach failed\n");
         return 1;

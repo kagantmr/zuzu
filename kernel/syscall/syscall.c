@@ -47,18 +47,18 @@ static syscall_handler_t syscall_table[SYS_MAX + 1] = {
     [SYS_DESTROY] = sys_destroy,
     [SYS_GRANT] = sys_grant,
     [SYS_NTFN_CREATE] = sys_ntfn_create,
+    [SYS_DEV_QUERY] = sys_dev_query,
     [SYS_NTFN_SIGNAL] = sys_ntfn_signal,
     [SYS_NTFN_WAIT] = sys_ntfn_wait,
     [SYS_MEMMAP] = sys_memmap,
     [SYS_MEMUNMAP] = sys_memunmap,
     [SYS_SHM_CREATE] = sys_shm_create,
-    [SYS_DETACH] = sys_detach,
-    [SYS_QUERYDEV] = sys_querydev,
     [SYS_MPROTECT] = sys_memprotect,
     [SYS_ASINJECT] = sys_asinject,
     [SYS_IRQ_CLAIM] = sys_irq_claim,
     [SYS_IRQ_BIND] = sys_irq_bind,
-    [SYS_IRQ_DONE] = sys_irq_done};
+    [SYS_IRQ_DONE] = sys_irq_done
+};
 
 static bool trap_frame_sane(const arch_regs_t *frame)
 {

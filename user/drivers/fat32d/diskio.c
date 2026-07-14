@@ -33,7 +33,7 @@ static int disk_backend_init(void)
         return -1;
     }
 
-    g_sector_buf = (BYTE *)_attach((int32_t)r.r2, VM_PROT_READ | VM_PROT_WRITE);
+    g_sector_buf = (BYTE *)_memmap((int32_t)r.r2, 0, VM_PROT_RW, 0);
     if ((intptr_t)g_sector_buf <= 0) {
         g_sd_port = -1;
         g_sector_buf = NULL;

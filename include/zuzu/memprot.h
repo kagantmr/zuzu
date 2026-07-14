@@ -8,4 +8,6 @@ typedef enum {
     VM_PROT_EXEC  = 1u << 2
 } vm_prot_t;
 
+#define VM_PROT_RW ((VM_PROT_READ) | (VM_PROT_WRITE))
+
 #endif

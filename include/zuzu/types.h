@@ -58,7 +58,7 @@ typedef struct {
     };
     uint32_t source;         /* send: sender_pid; call: reply_handle */
     uint32_t r1;             /* send: payload; call: sender_pid */
-    uint32_t r2;             /* send/call: payload or IPCX length */
+    uint32_t r2;             /* send/call: payload or lmsg length */
     uint32_t r3;             /* send/call: payload */
 } recvany_result_t;
 
