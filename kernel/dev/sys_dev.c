@@ -15,7 +15,7 @@
 
 extern thread_t *current_thread;
 
-void sys_querydev(arch_regs_t *frame) {
+void sys_dev_query(arch_regs_t *frame) {
     handle_t handle_idx = (*arch_reg(frame, 0));
     char *out_buf = (char *)(*arch_reg(frame, 1));
     size_t buf_len = (*arch_reg(frame, 2));

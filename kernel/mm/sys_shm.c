@@ -72,39 +72,3 @@ void sys_shm_create(arch_regs_t *frame)
 
     (*arch_reg(frame, 0)) = (handle_t)handle;
 }
-
-void sys_detach(arch_regs_t *frame)
-{
-    handle_t handle = (*arch_reg(frame, 0));
-
-    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle);
-    if (!entry)
-    {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-    if (entry->type != HANDLE_SHMEM)
-    {
-        (*arch_reg(frame, 0)) = ERR_MALFORMED;
-        return;
-    }
-
-    shmem_t *shm = entry->shm;
-    const vaddr_t va = entry->mapped_va;
-    vmm_remove_region(current_thread->owner_process->as, va, shm->page_count * PAGE_SIZE);
-    shm->ref_count--;
-    if (shm->ref_count == 0)
-    {
-        for (size_t j = 0; j < shm->page_count; j++)
-            if (shm->page_addrs[j] != 0)
-                pmm_free_page(shm->page_addrs[j]);
-        kfree(shm->page_addrs);
-        kfree(shm);
-    }
-    entry->shm = NULL;
-    entry->mapped_va = 0;
-    entry->grantable = false;
-    entry->type = HANDLE_FREE;
-
-    (*arch_reg(frame, 0)) = 0;
-}

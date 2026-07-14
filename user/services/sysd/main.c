@@ -169,7 +169,7 @@ static void nt_handle_msg(msg_t msg) {
                 return;
             }
 
-            cached_fbox_buf = (char *)_attach((int32_t)r.r2, VM_PROT_READ | VM_PROT_WRITE);
+            cached_fbox_buf = (char *)_memmap((int32_t)r.r2, 0, VM_PROT_RW, 0);
             if ((intptr_t)cached_fbox_buf <= 0) {
                 cached_fbox_handle = -1;
                 cached_fbox_buf = NULL;

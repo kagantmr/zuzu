@@ -97,7 +97,7 @@ __attribute__((cold)) int get_shm() {
         return 1;
     }
 
-    void *addr = _attach((int32_t)r.r1, VM_PROT_READ | VM_PROT_WRITE);
+    void *addr = _memmap((int32_t)r.r1, 0, VM_PROT_RW, 0);
     if (_ptr_is_err(addr)) {
         LOG_ERROR(LOG_TAG, "shmem attach failed");
         return ERR_SYSDOWN;

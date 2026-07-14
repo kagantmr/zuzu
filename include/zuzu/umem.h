@@ -42,21 +42,13 @@ static inline handle_t _shm_create(uint32_t size) {
     return (handle_t)r0;
 }
 
-static inline void *_attach(handle_t handle, vm_prot_t prot) {
-    return _memmap(handle, 0, prot, 0);
-}
-
-static inline void *_mapdev(handle_t handle, vm_prot_t prot) {
-    return _memmap(handle, 0, prot, 0);
-}
-
 static inline int32_t _querydev(handle_t handle, void *out_buf, uint32_t len) {
     register handle_t r0 __asm__("r0") = handle;
     register uintptr_t r1 __asm__("r1") = (uintptr_t)out_buf;
     register uint32_t r2 __asm__("r2") = len;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
-        : "r"(r1), "r"(r2), [num] "i"(SYS_QUERYDEV)
+        : "r"(r1), "r"(r2), [num] "i"(SYS_DEV_QUERY)
         : "memory");
     return (int32_t)r0;
 }

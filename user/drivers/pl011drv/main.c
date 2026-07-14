@@ -161,7 +161,7 @@ int pl011drv_setup(void)
     }
 
     serial_dev_handle = dev_handle;
-    uart = (volatile pl011_t *)_mapdev(dev_handle, VM_PROT_READ | VM_PROT_WRITE);
+    uart = (volatile pl011_t *)_memmap(dev_handle, 0, VM_PROT_RW, 0);
     if ((intptr_t)uart <= 0) {
         return PL011DRV_INIT_FAIL;
     }
