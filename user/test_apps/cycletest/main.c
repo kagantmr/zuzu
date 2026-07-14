@@ -1,7 +1,7 @@
 #include <zuzu/types.h>
 #include <zuzu/perftools.h>
 #include <zuzu/task.h>
-#include <zuzu/ipc.h>
+#include <zuzu/msg.h>
 #include <stdio.h>
 
 int main()

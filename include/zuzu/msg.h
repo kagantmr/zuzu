@@ -114,7 +114,7 @@ static inline int32_t _lreply(handle_t reply_handle, uint32_t buf_len) {
 
 /* (handles_ptr, count, timeout, result_ptr) -> 0 or -err;
  * TIMEOUT_POLL polls, TIMEOUT_INFINITE blocks forever */
-static inline int32_t _waitany(const handle_t *handles, uint32_t count, uint32_t timeout_ms, recvany_result_t *result) {
+static inline int32_t _waitany(const handle_t *handles, uint32_t count, uint32_t timeout_ms, waitany_result_t *result) {
     register uintptr_t r0 __asm__("r0") = (uintptr_t)handles;
     register uint32_t r1 __asm__("r1") = count;
     register uint32_t r2 __asm__("r2") = timeout_ms;

@@ -4,7 +4,7 @@
 #include "zuzu/protocols/nt_protocol.h"
 #include <zuzu/protocols/sysd_protocol.h>
 #include "zuzu/lmsg.h"
-#include <zuzu/ring.h>
+#include <ring.h>
 #include <zuzu/channel.h>
 #include <stdint.h>
 #include <string.h>

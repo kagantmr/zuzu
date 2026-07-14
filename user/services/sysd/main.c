@@ -352,7 +352,7 @@ static void nt_handle_msg(msg_t msg) {
 #define WAIT_TIMEOUT_MS 30000u
 #define WAIT_SLICE_MS   10u
 
-static bool recvany_to_ipcmsg(const recvany_result_t *res, msg_t *msg)
+static bool recvany_to_ipcmsg(const waitany_result_t *res, msg_t *msg)
 {
     if (!res || !msg)
         return false;
@@ -389,7 +389,7 @@ static bool wait_for_service(uint32_t name_u32) {
         int32_t dead = _wait(-1, NULL, WNOHANG);
         if (dead > 0) scrub_pid((uint32_t)dead);
 
-        recvany_result_t any = {0};
+        waitany_result_t any = {0};
         if (_waitany(recv_handles, 1, WAIT_SLICE_MS, &any) == 0) {
             msg_t msg;
             if (recvany_to_ipcmsg(&any, &msg))
@@ -569,7 +569,7 @@ static bool wait_for_tty_registration(uint32_t pid,
         int32_t dead = _wait(-1, NULL, WNOHANG);
         if (dead > 0) scrub_pid((uint32_t)dead);
 
-        recvany_result_t any = {0};
+        waitany_result_t any = {0};
         if (_waitany(recv_handles, 1, WAIT_SLICE_MS, &any) == 0) {
             msg_t msg;
             if (recvany_to_ipcmsg(&any, &msg))

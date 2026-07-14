@@ -1,5 +1,5 @@
 #include "eth.h"
-#include <zuzu/ipc.h>
+#include <zuzu/msg.h>
 #include <zuzu/ntfn.h>
 #include <zuzu/protocols/nic_protocol.h>
 #include <stdio.h>

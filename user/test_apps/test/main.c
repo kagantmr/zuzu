@@ -1,6 +1,6 @@
 #include <zuzu/types.h>
 #include <zuzu/task.h>
-#include <zuzu/ipc.h>      /* or ipc.h, whatever it's called now */
+#include <zuzu/msg.h>  
 #include <zuzu/lmsg.h>
 #include <zuzu/umem.h>
 #include <zuzu/tcb.h>

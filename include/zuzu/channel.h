@@ -16,7 +16,7 @@
  *   chan_reply(reply_handle, buf, len) reply to a _lcall caller
  */
 
-#include <zuzu/ipc.h>
+#include <zuzu/msg.h>
 #include <zuzu/lmsg.h>
 #include <zuzu/err.h>
 #include <string.h>
