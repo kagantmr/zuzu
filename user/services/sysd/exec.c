@@ -20,14 +20,9 @@ static int inject_segment(uint32_t task_handle, const void *elf_data,
 
     // inject file-backed portion
     if (ph->p_filesz > 0) {
-        asinject_args_t args = {
-            .task_handle = task_handle,
-            .dst_va      = ph->p_vaddr,
-            .src_buf     = (const uint8_t *)elf_data + ph->p_offset,
-            .len         = ph->p_filesz,
-            .prot        = prot,
-        };
-        int32_t rc = _asinject(&args);
+        int32_t rc = _asinject(task_handle, ph->p_vaddr,
+                               (const uint8_t *)elf_data + ph->p_offset,
+                               ph->p_filesz, prot);
         if (rc != 0) return rc;
     }
 
@@ -46,14 +41,8 @@ static int inject_segment(uint32_t task_handle, const void *elf_data,
         if (!zeroes) return -1;
         memset(zeroes, 0, bss_len);
 
-        asinject_args_t bss_args = {
-            .task_handle = task_handle,
-            .dst_va      = bss_start,
-            .src_buf     = zeroes,
-            .len         = bss_len,
-            .prot        = VM_PROT_READ | VM_PROT_WRITE,
-        };
-        int32_t rc = _asinject(&bss_args);
+        int32_t rc = _asinject(task_handle, bss_start, zeroes, bss_len,
+                               VM_PROT_READ | VM_PROT_WRITE);
         free(zeroes);
         if (rc != 0) return rc;
     }
@@ -113,14 +102,8 @@ static int inject_stack(uint32_t task_handle,
         argv_arr[argc] = 0;
     }
 
-    asinject_args_t args = {
-        .task_handle = task_handle,
-        .dst_va      = img_base,
-        .src_buf     = buf,
-        .len         = USER_STACK_SIZE,
-        .prot        = VM_PROT_READ | VM_PROT_WRITE,
-    };
-    int32_t rc = _asinject(&args);
+    int32_t rc = _asinject(task_handle, img_base, buf, USER_STACK_SIZE,
+                           VM_PROT_READ | VM_PROT_WRITE);
     free(buf);
     if (rc != 0) return rc;
 

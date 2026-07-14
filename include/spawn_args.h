@@ -10,6 +10,7 @@ extern "C" {
 #endif
 
 typedef struct {
+    uint32_t size;              /* sizeof(spawn_args_t); wrapper sets it */
     const void *elf_data;
     size_t      elf_size;
     const char *name;
@@ -20,6 +21,7 @@ typedef struct {
 } spawn_args_t;
 
 typedef struct {
+    uint32_t size;              /* sizeof(asinject_args_t); wrapper sets it */
     handle_t task_handle;
     uintptr_t dst_va;
     const void *src_buf;
@@ -28,6 +30,7 @@ typedef struct {
 } asinject_args_t;
 
 typedef struct {
+    uint32_t size;              /* sizeof(kickstart_args_t); wrapper sets it */
     handle_t task_handle;
     uintptr_t entry;
     uintptr_t sp;

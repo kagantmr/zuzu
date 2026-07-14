@@ -330,6 +330,14 @@ void sys_asinject(arch_regs_t *frame)
         }
         }
 
+        if (kargs.size < sizeof(asinject_args_t))
+        {
+            {
+            (*arch_reg(frame, 0)) = ERR_BADARG;
+            return;
+        }
+        }
+
         handle_entry_t *handle = handle_vec_get(&current_thread->owner_process->handle_table, kargs.task_handle);
         if (!handle || handle->type != HANDLE_TASK)
         {

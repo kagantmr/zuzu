@@ -165,19 +165,38 @@ void sys_wait(arch_regs_t *frame) {
 /* spawn syscall removed: use pspawn/kickstart with sysd */
 
 void sys_pspawn(arch_regs_t *frame) {
-    const char* name = (const char *)(*arch_reg(frame, 0));
-    if (!validate_user_ptr((uintptr_t)name, 1)) {
+    spawn_args_t *args = (spawn_args_t *)(*arch_reg(frame, 0));
+    if (!validate_user_ptr((uintptr_t)args, sizeof(spawn_args_t))) {
+        (*arch_reg(frame, 0)) = ERR_BADPTR;
+        return;
+    }
+
+    spawn_args_t kargs;
+    if (!copy_from_user(&kargs, args, sizeof(spawn_args_t))) {
+        (*arch_reg(frame, 0)) = ERR_BADARG;
+        return;
+    }
+
+    if (kargs.size < sizeof(spawn_args_t)) {
+        (*arch_reg(frame, 0)) = ERR_BADARG;
+        return;
+    }
+
+    if (!validate_user_ptr((uintptr_t)kargs.name, 1)) {
         (*arch_reg(frame, 0)) = ERR_BADPTR;
         return;
     }
 
     char kname[64];
-    if (!copy_from_user(kname, name, sizeof(kname) - 1)) {
+    size_t nlen = kargs.name_len;
+    if (nlen > sizeof(kname) - 1)
+        nlen = sizeof(kname) - 1;
+    if (nlen > 0 && !copy_from_user(kname, kargs.name, nlen)) {
         (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
-    kname[sizeof(kname) - 1] = '\0'; // Ensure null-termination
+    kname[nlen] = '\0'; // Ensure null-termination
 
     process_t *process = process_create(kname);
     if (!process) {
@@ -222,6 +241,11 @@ void sys_kickstart(arch_regs_t *frame) {
 
     kickstart_args_t kargs;
     if (!copy_from_user(&kargs, args, sizeof(kickstart_args_t))) {
+        (*arch_reg(frame, 0)) = ERR_BADARG;
+        return;
+    }
+
+    if (kargs.size < sizeof(kickstart_args_t)) {
         (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
