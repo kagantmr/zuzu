@@ -1,7 +1,7 @@
 #include <zuzu/den.h>
 
 #include <zuzu/err.h>
-#include <zuzu/ipc.h>
+#include <zuzu/msg.h>
 #include <zuzu/protocols/nt_protocol.h>
 
 static uint32_t den_pack_name(const char *name) {

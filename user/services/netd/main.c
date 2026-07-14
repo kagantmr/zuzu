@@ -1,6 +1,6 @@
 #include <stdio.h>
 
-#include <zuzu/ipc.h>
+#include <zuzu/msg.h>
 #include <zuzu/task.h>
 #include <zuzu/umem.h>
 #include <zuzu/channel.h>
@@ -147,7 +147,7 @@ int main() {
             sleep_ms = next - now > LEGACY_POLL_CAP ? LEGACY_POLL_CAP : next - now;
 
         /* 2. sleep until a packet arrives or the deadline elapses */
-        recvany_result_t result;
+        waitany_result_t result;
         int32_t recv_rc = _waitany(handles, 2, sleep_ms, &result);
 
         /* 3. DRAIN RX FIRST: process inbound before any timer fires */

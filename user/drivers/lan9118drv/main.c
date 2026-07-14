@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <zuzu/protocols/devmgr_protocol.h>
 #include <zuzu/protocols/nic_protocol.h>
-#include <zuzu/ipc.h>
+#include <zuzu/msg.h>
 #include <zuzu/irq.h>
 #include <zuzu/ntfn.h>
 #include <zuzu/task.h>
@@ -227,7 +227,7 @@ void lan9118_service_loop(void)
     while (1)
     {
 
-        recvany_result_t result;
+        waitany_result_t result;
         int32_t recv_rc = _waitany(handles, 3, 50, &result);
         if (recv_rc < 0)
         {

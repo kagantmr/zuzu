@@ -15,7 +15,7 @@
 
 #include "zuzu/types.h"
 #include "zuzu/task.h"
-#include "zuzu/ipc.h"
+#include "zuzu/msg.h"
 #include "zuzu/umem.h"
 #include "zuzu/irq.h"
 #include "zuzu/ntfn.h"
