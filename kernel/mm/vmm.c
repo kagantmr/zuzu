@@ -469,7 +469,7 @@ bool vmm_protect_range(addrspace_t *as, vaddr_t va, size_t size, vm_prot_t new_p
         return false;
     if (r->memtype == VM_MEM_DEVICE && (new_prot & VM_PROT_EXEC))
         return false;                              /* no executable MMIO */
-    if (r->flags & VM_FLAG_PINNED)                 /* tcb_page/syspage, once you add it */
+    if (r->flags & VM_FLAG_PINNED)                 /* tcb_page/syspage */
         return false;
 
     if (!arch_mmu_protect(as, va, size, new_prot))

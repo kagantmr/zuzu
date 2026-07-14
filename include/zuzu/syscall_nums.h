@@ -38,7 +38,7 @@
 
 /* ---- Memory (0x30-0x3F) ---- */
 #define SYS_MEMMAP        0x30  /* (handle|HANDLE_ANON, size, prot, flags) -> va or -err */
-#define SYS_MEMUNMAP      0x31  /* (addr, size) -> 0 or -err */
+#define SYS_MEMUNMAP      0x31  /* (addr) -> 0 or -err */
 #define SYS_SHM_CREATE    0x32  /* (size) -> handle or -err */
 /* 0x33 (attach) and 0x34 (mapdev) retired: folded into SYS_MEMMAP */
 #define SYS_DETACH        0x35  /* (shmem handle) -> 0 or -err */

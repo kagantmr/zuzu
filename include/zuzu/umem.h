@@ -70,12 +70,11 @@ static inline int32_t _asinject(const asinject_args_t *args) {
     return (int32_t)r0;
 }
 
-static inline int32_t _memunmap(void *addr, size_t size) {
+static inline int32_t _memunmap(void *addr) {
     register uintptr_t r0 __asm__("r0") = (uintptr_t)addr;
-    register size_t r1 __asm__("r1") = size;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
-        : "r"(r1), [num] "i"(SYS_MEMUNMAP)
+        : [num] "i"(SYS_MEMUNMAP)
         : "memory");
     return (int32_t)r0;
 }

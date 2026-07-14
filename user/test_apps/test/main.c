@@ -4,6 +4,7 @@
 #include <zuzu/lmsg.h>
 #include <zuzu/umem.h>
 #include <zuzu/tcb.h>
+#include <zuzu/syspage.h>
 #include <mem.h>
 #include <stdio.h>
 
@@ -71,7 +72,11 @@ int main(void)
     lmsg_write(REQ, sizeof(REQ));
     CHECK((int32_t)_lsend(port, LMSG_BUF_SIZE + 1) < 0, "lsend len>512 rejected");
 
-    _memunmap(stack, STACK_SIZE);
+    CHECK(_memunmap((void *)SYSPAGE_VA) == ERR_NOPERM, "syspage unmap refused");
+    CHECK(_memunmap((void *)((uintptr_t)__zuzu_tcb() & ~0xFFFu)) == ERR_NOPERM, "TCB page unmap refused");
+    CHECK(_mprotect((void *)SYSPAGE_VA, PAGE_SIZE, VM_PROT_READ | VM_PROT_WRITE) != 0, "syspage mprotect refused");
+
+    _memunmap(stack);
     _destroy(port);
 
     printf("\n%s (%d failures)\n", fails ? "FAILED" : "ALL PASS", fails);

@@ -386,7 +386,7 @@ process_t *process_create(const char* name) {
         .prot = VM_PROT_READ | VM_PROT_USER,
         .memtype = VM_MEM_NORMAL,
         .owner = VM_OWNER_SHARED,
-        .flags = VM_FLAG_NONE,
+        .flags = VM_FLAG_PINNED | VM_FLAG_GUARD,
     };
     if (!vmm_add_region(p->as, &sys_region))
         goto fail_kstack;
@@ -414,7 +414,7 @@ process_t *process_create(const char* name) {
         .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
         .memtype = VM_MEM_NORMAL,
         .owner = VM_OWNER_ANON,
-        .flags = VM_FLAG_NONE,
+        .flags = VM_FLAG_PINNED | VM_FLAG_GUARD,
     };
     if (!vmm_add_region(p->as, &tcb_region))
         goto fail_kstack;
