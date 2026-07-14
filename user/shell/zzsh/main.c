@@ -467,14 +467,8 @@ static void cmd_exec(const char *line)
         return;
     }
 
-    kickstart_args_t ks = {
-        .task_handle = (uint32_t)ts.task_handle,
-        .entry       = reply->entry,
-        .sp          = reply->sp,
-        .r0_val      = reply->argc,
-        .r1_val      = reply->argv_va,
-    };
-    if (_kickstart(&ks) != 0) {
+    if (_kickstart(ts.task_handle, reply->entry, reply->sp,
+                   reply->argc, reply->argv_va) != 0) {
         _pkill(ts.task_handle);
         printf("%s", ANSI_RED "zzsh: kickstart failed\n" ANSI_RESET);
         return;

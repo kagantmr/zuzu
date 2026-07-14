@@ -660,14 +660,8 @@ int main(void)
         boot_entry_t *e = &boot_entries[i];
         if (!e->injected) continue;
 
-        kickstart_args_t ks = {
-            .task_handle = (uint32_t)e->task_handle,
-            .entry       = e->reply.entry,
-            .sp          = e->reply.sp,
-            .r0_val      = e->reply.argc,
-            .r1_val      = e->reply.argv_va,
-        };
-        _kickstart(&ks);
+        _kickstart(e->task_handle, e->reply.entry, e->reply.sp,
+                   e->reply.argc, e->reply.argv_va);
     }
 
     /* devmgr is kernel-spawned and already running; wait for it to
@@ -709,14 +703,8 @@ int main(void)
             continue;
         e->injected = true;
 
-        kickstart_args_t ks = {
-            .task_handle = (uint32_t)e->task_handle,
-            .entry       = e->reply.entry,
-            .sp          = e->reply.sp,
-            .r0_val      = e->reply.argc,
-            .r1_val      = e->reply.argv_va,
-        };
-        _kickstart(&ks);
+        _kickstart(e->task_handle, e->reply.entry, e->reply.sp,
+                   e->reply.argc, e->reply.argv_va);
     }
 
     sysd_loop();

@@ -3,6 +3,7 @@
 
 #include "zuzu/syscall_nums.h"
 #include "zuzu/types.h"
+#include <spawn_args.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -64,7 +65,15 @@ static inline int32_t _sleep(uint32_t ms) {
 }
 
 static inline tspawn_result_t _pspawn(const char* name) {
-    register uintptr_t r0 __asm__("r0") = (uintptr_t) name;
+    size_t name_len = 0;
+    while (name && name[name_len])
+        name_len++;
+    spawn_args_t args = {
+        .size     = sizeof(spawn_args_t),
+        .name     = name,
+        .name_len = name_len,
+    };
+    register uintptr_t r0 __asm__("r0") = (uintptr_t) &args;
     register zpid_t r1 __asm__("r1"); // pid
     __asm__ volatile("svc %[num]"
     : "+r"(r0), "=r"(r1)
@@ -73,8 +82,17 @@ static inline tspawn_result_t _pspawn(const char* name) {
     return (tspawn_result_t) {.task_handle = (handle_t) r0, .pid = r1};
 }
 
-static inline handle_t _kickstart(const void *args_struct) {
-    register uintptr_t r0 __asm__("r0") = (uintptr_t) args_struct;
+static inline handle_t _kickstart(handle_t task_handle, uintptr_t entry,
+                                  uintptr_t sp, uint32_t r0_val, uint32_t r1_val) {
+    kickstart_args_t args = {
+        .size        = sizeof(kickstart_args_t),
+        .task_handle = task_handle,
+        .entry       = entry,
+        .sp          = sp,
+        .r0_val      = r0_val,
+        .r1_val      = r1_val,
+    };
+    register uintptr_t r0 __asm__("r0") = (uintptr_t) &args;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
         : [num] "i"(SYS_KICKSTART)

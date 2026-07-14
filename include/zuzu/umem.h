@@ -53,8 +53,17 @@ static inline int32_t _querydev(handle_t handle, void *out_buf, uint32_t len) {
     return (int32_t)r0;
 }
 
-static inline int32_t _asinject(const asinject_args_t *args) {
-    register uintptr_t r0 __asm__("r0") = (uintptr_t)args;
+static inline int32_t _asinject(handle_t task_handle, uintptr_t dst_va,
+                                const void *src_buf, size_t len, uint32_t prot) {
+    asinject_args_t args = {
+        .size        = sizeof(asinject_args_t),
+        .task_handle = task_handle,
+        .dst_va      = dst_va,
+        .src_buf     = src_buf,
+        .len         = len,
+        .prot        = prot,
+    };
+    register uintptr_t r0 __asm__("r0") = (uintptr_t)&args;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
         : [num] "i"(SYS_ASINJECT)
