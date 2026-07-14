@@ -51,12 +51,12 @@ static void drain_uart_rx_fifo(void)
 static int32_t wait_for_devmgr(void)
 {
     while (1) {
-        msg_t ntmsg = _call(NT_PORT, NT_LOOKUP, nt_pack("devm"), 0);
+        msg_t ntmsg = zuzu_msg_call(NT_PORT, NT_LOOKUP, nt_pack("devm"), 0);
         if ((int32_t)ntmsg.r1 == NT_LU_OK) {
             devmgr_port = (int32_t)ntmsg.r2;
             return (int32_t)ntmsg.r3;
         }
-        _sleep(10);
+        zuzu_sleep(10);
     }
 }
 
@@ -64,11 +64,11 @@ static int32_t wait_for_devmgr(void)
 static int32_t request_serial_device(void)
 {
     while (1) {
-        msg_t devmsg = _call(devmgr_port, DEV_REQUEST, DEV_CLASS_SERIAL, 0);
+        msg_t devmsg = zuzu_msg_call(devmgr_port, DEV_REQUEST, DEV_CLASS_SERIAL, 0);
         if ((int32_t)devmsg.r1 == 0) {
             return (int32_t)devmsg.r2;
         }
-        _sleep(10);
+        zuzu_sleep(10);
     }
 }
 
@@ -90,12 +90,12 @@ static void handle_irq_event(void)
             uart->IMSC &= ~IMSC_TXIM;
         uart->ICR = IMSC_TXIM;
     }
-    _irq_done((uint32_t)serial_dev_handle);
+    zuzu_irq_done((uint32_t)serial_dev_handle);
 }
 
 static void service_pending_irq(void)
 {
-    int32_t bits = _ntfn_wait((uint32_t)serial_irq_ntfn, TIMEOUT_POLL);
+    int32_t bits = zuzu_ntfn_wait((uint32_t)serial_irq_ntfn, TIMEOUT_POLL);
     if (bits > 0) {
         handle_irq_event();
     }
@@ -134,12 +134,12 @@ static void handle_client_message(msg_t msg)
 
 int pl011drv_setup(void)
 {
-    port = _port_create();
+    port = zuzu_port_create();
     if (port < 0) {
         return PL011DRV_INIT_FAIL;
     }
 
-    int32_t nt_slot = _grant(port, NAMETABLE_PID);
+    int32_t nt_slot = zuzu_grant(port, NAMETABLE_PID);
     if (nt_slot < 0) {
         return PL011DRV_INIT_FAIL;
     }
@@ -148,20 +148,17 @@ int pl011drv_setup(void)
 
     int32_t dev_handle = request_serial_device();
 
-    serial_irq_ntfn = _ntfn_create();
+    serial_irq_ntfn = zuzu_ntfn_create();
     if (serial_irq_ntfn < 0) {
         return PL011DRV_INIT_FAIL;
     }
 
-    if (_irq_claim(dev_handle) < 0) {
-        return PL011DRV_INIT_FAIL;
-    }
-    if (_irq_bind(dev_handle, (uint32_t)serial_irq_ntfn) < 0) {
+    if (zuzu_irq_bind(dev_handle, (uint32_t)serial_irq_ntfn) < 0) {
         return PL011DRV_INIT_FAIL;
     }
 
     serial_dev_handle = dev_handle;
-    uart = (volatile pl011_t *)_memmap(dev_handle, 0, VM_PROT_RW, 0);
+    uart = (volatile pl011_t *)zuzu_memmap(dev_handle, 0, VM_PROT_RW, 0);
     if ((intptr_t)uart <= 0) {
         return PL011DRV_INIT_FAIL;
     }
@@ -178,7 +175,7 @@ int pl011drv_setup(void)
     uart->ICR = ICR_ALL;
     uart->IMSC = (IMSC_RXIM | IMSC_RTIM);
 
-    (void)_send(NT_PORT, NT_REGISTER, nt_pack("pl011drv"), (uint32_t)nt_slot);
+    (void)zuzu_msg_send(NT_PORT, NT_REGISTER, nt_pack("pl011drv"), (uint32_t)nt_slot);
     return PL011DRV_INIT_OK;
 }
 
@@ -199,7 +196,7 @@ int main(void)
     while (1) {
         service_pending_irq();
 
-        msg = _recv_timeout(port, PL011DRV_RECV_SLICE_MS);
+        msg = zuzu_msg_recv(port, PL011DRV_RECV_SLICE_MS);
         if (msg.r0 >= 0) {
             handle_client_message(msg);
         }

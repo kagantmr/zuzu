@@ -44,7 +44,7 @@ static void handle_open(uint32_t reply_h, uint32_t arg)
 {
     int fd = fd_alloc();
     if (fd < 0) {
-        _reply(reply_h, (uint32_t)ERR_BUFFULL, 0, 0);
+        zuzu_msg_reply(reply_h, (uint32_t)ERR_BUFFULL, 0, 0);
         return;
     }
 
@@ -54,11 +54,11 @@ static void handle_open(uint32_t reply_h, uint32_t arg)
         fd_free(fd);
         int err = (fr == FR_NO_FILE || fr == FR_NO_PATH)
                   ? ERR_NOENT : FAT32_ERR_IO;
-        _reply(reply_h, (uint32_t)err, 0, 0);
+        zuzu_msg_reply(reply_h, (uint32_t)err, 0, 0);
         return;
     }
 
-    _reply(reply_h, ZUZU_OK, (uint32_t)fd, 0);
+    zuzu_msg_reply(reply_h, ZUZU_OK, (uint32_t)fd, 0);
 }
 
 static void handle_read(uint32_t reply_h, uint32_t arg)
@@ -67,7 +67,7 @@ static void handle_read(uint32_t reply_h, uint32_t arg)
     uint32_t count = FAT32_RW_COUNT(arg);
 
     if (fd >= MAX_FDS || !fil_used[fd]) {
-        _reply(reply_h, (uint32_t)ERR_MALFORMED, 0, 0);
+        zuzu_msg_reply(reply_h, (uint32_t)ERR_MALFORMED, 0, 0);
         return;
     }
     if (count > 32768) count = 32768;
@@ -75,11 +75,11 @@ static void handle_read(uint32_t reply_h, uint32_t arg)
     UINT br = 0;
     FRESULT fr = f_read(&fil_table[fd], buf, count, &br);
     if (fr != FR_OK) {
-        _reply(reply_h, (uint32_t)FAT32_ERR_IO, 0, 0);
+        zuzu_msg_reply(reply_h, (uint32_t)FAT32_ERR_IO, 0, 0);
         return;
     }
 
-    _reply(reply_h, ZUZU_OK, br, 0);
+    zuzu_msg_reply(reply_h, ZUZU_OK, br, 0);
 }
 
 static void handle_write(uint32_t reply_h, uint32_t arg)
@@ -88,7 +88,7 @@ static void handle_write(uint32_t reply_h, uint32_t arg)
     uint32_t count = FAT32_RW_COUNT(arg);
 
     if (fd >= MAX_FDS || !fil_used[fd]) {
-        _reply(reply_h, (uint32_t)ERR_MALFORMED, 0, 0);
+        zuzu_msg_reply(reply_h, (uint32_t)ERR_MALFORMED, 0, 0);
         return;
     }
     if (count > 32768) count = 32768;
@@ -96,24 +96,24 @@ static void handle_write(uint32_t reply_h, uint32_t arg)
     UINT bw = 0;
     FRESULT fr = f_write(&fil_table[fd], buf, count, &bw);
     if (fr != FR_OK) {
-        _reply(reply_h, (uint32_t)FAT32_ERR_IO, 0, 0);
+        zuzu_msg_reply(reply_h, (uint32_t)FAT32_ERR_IO, 0, 0);
         return;
     }
 
-    _reply(reply_h, ZUZU_OK, bw, 0);
+    zuzu_msg_reply(reply_h, ZUZU_OK, bw, 0);
 }
 
 static void handle_close(uint32_t reply_h, uint32_t arg)
 {
     uint32_t fd = arg;
     if (fd >= MAX_FDS || !fil_used[fd]) {
-        _reply(reply_h, (uint32_t)ERR_MALFORMED, 0, 0);
+        zuzu_msg_reply(reply_h, (uint32_t)ERR_MALFORMED, 0, 0);
         return;
     }
 
     f_close(&fil_table[fd]);
     fd_free((int)fd);
-    _reply(reply_h, ZUZU_OK, 0, 0);
+    zuzu_msg_reply(reply_h, ZUZU_OK, 0, 0);
 }
 
 static void handle_readdir(uint32_t reply_h)
@@ -127,7 +127,7 @@ static void handle_readdir(uint32_t reply_h)
     FRESULT fr = f_opendir(&dir, path);
     if (fr != FR_OK) {
         int err = (fr == FR_NO_PATH) ? ERR_NOENT : FAT32_ERR_IO;
-        _reply(reply_h, (uint32_t)err, 0, 0);
+        zuzu_msg_reply(reply_h, (uint32_t)err, 0, 0);
         return;
     }
 
@@ -149,7 +149,7 @@ static void handle_readdir(uint32_t reply_h)
     }
 
     f_closedir(&dir);
-    _reply(reply_h, ZUZU_OK, count, 0);
+    zuzu_msg_reply(reply_h, ZUZU_OK, count, 0);
 }
 
 static void handle_stat(uint32_t reply_h)
@@ -164,7 +164,7 @@ static void handle_stat(uint32_t reply_h)
     if (fr != FR_OK) {
         int err = (fr == FR_NO_FILE || fr == FR_NO_PATH)
                   ? ERR_NOENT : FAT32_ERR_IO;
-        _reply(reply_h, (uint32_t)err, 0, 0);
+        zuzu_msg_reply(reply_h, (uint32_t)err, 0, 0);
         return;
     }
 
@@ -172,16 +172,16 @@ static void handle_stat(uint32_t reply_h)
     st->size   = (uint32_t)fno.fsize;
     st->is_dir = (fno.fattrib & AM_DIR) ? 1 : 0;
     memset(st->_pad, 0, sizeof(st->_pad));
-    _reply(reply_h, ZUZU_OK, 0, 0);
+    zuzu_msg_reply(reply_h, ZUZU_OK, 0, 0);
 }
 
 static void handle_get_buf(uint32_t reply_h, uint32_t sender)
 {
-    int32_t slot = _grant(shm_handle, (int32_t)sender);
+    int32_t slot = zuzu_grant(shm_handle, (int32_t)sender);
     if (slot < 0)
-        _reply(reply_h, (uint32_t)slot, 0, 0);
+        zuzu_msg_reply(reply_h, (uint32_t)slot, 0, 0);
     else
-        _reply(reply_h, ZUZU_OK, (uint32_t)slot, 0);
+        zuzu_msg_reply(reply_h, ZUZU_OK, (uint32_t)slot, 0);
 }
 
 static void handle_request(uint32_t reply_h, uint32_t sender,
@@ -196,7 +196,7 @@ static void handle_request(uint32_t reply_h, uint32_t sender,
     case FAT32_STAT:    handle_stat(reply_h);             break;
     case FAT32_GET_BUF: handle_get_buf(reply_h, sender);  break;
     default:
-        _reply(reply_h, (uint32_t)ERR_NOSYS, 0, 0);
+        zuzu_msg_reply(reply_h, (uint32_t)ERR_NOSYS, 0, 0);
         break;
     }
 }
@@ -206,7 +206,7 @@ int main(void)
     msg_t r;
 
     /* ask which den we're in */
-    r = _call(NT_PORT, DEN_MYDEN, 0, 0);
+    r = zuzu_msg_call(NT_PORT, DEN_MYDEN, 0, 0);
     uint32_t my_den = 0;
     if (r.r1 != DEN_OK) {
         LOG_WARN(LOG_TAG, "not in any den, using global namespace");
@@ -222,9 +222,9 @@ int main(void)
     }
 
     /* register ourselves */
-    int32_t my_port = _port_create();
-    int32_t nt_slot = _grant(my_port, NAMETABLE_PID);
-    _send(NT_PORT, NT_REGISTER | (my_den << 8), nt_pack("fat3"), (uint32_t)nt_slot);
+    int32_t my_port = zuzu_port_create();
+    int32_t nt_slot = zuzu_grant(my_port, NAMETABLE_PID);
+    zuzu_msg_send(NT_PORT, NT_REGISTER | (my_den << 8), nt_pack("fat3"), (uint32_t)nt_slot);
 
     /* mount the filesystem */
     FRESULT fr = f_mount(&fs, "", 1);
@@ -234,14 +234,14 @@ int main(void)
     }
 
     /* allocate shmem for client data transfer */
-    shm_handle = _shm_create(32768);
+    shm_handle = zuzu_shm_create(32768);
     if (shm_handle < 0) {
         LOG_ERROR(LOG_TAG, "shmem alloc failed");
         return 1;
     }
     // _attach(shm_handle, VM_PROT_READ | VM_PROT_WRITE);
-    buf = (char *)_memmap(shm_handle, 0, VM_PROT_RW, 0);
-    if (_ptr_is_err(buf)) {
+    buf = (char *)zuzu_memmap(shm_handle, 0, VM_PROT_RW, 0);
+    if (zuzu_is_err(buf)) {
         LOG_ERROR(LOG_TAG, "shmem attach failed");
         return 1;
     }
@@ -249,7 +249,7 @@ int main(void)
     LOG_INFO(LOG_TAG, "ready");
 
     while (1) {
-        msg_t msg = _recv(my_port);
+        msg_t msg = zuzu_msg_recv(my_port, TIMEOUT_INFINITE);
         uint32_t reply_h = (uint32_t)msg.r0;
         uint32_t sender  = msg.r1;
         uint32_t cmd     = msg.r2;

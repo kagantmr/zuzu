@@ -66,7 +66,7 @@ static void strip(char *s)
 
 int setup(void)
 {
-    msg_t sysd = _call(NT_PORT, NT_LOOKUP, nt_pack(NT_NAME_SYS), 0);
+    msg_t sysd = zuzu_msg_call(NT_PORT, NT_LOOKUP, nt_pack(NT_NAME_SYS), 0);
     if (sysd.r1 != NT_LU_OK)
         return -1;
     sysd_port = (int32_t)sysd.r2;
@@ -91,11 +91,11 @@ static bool ensure_fbox(void)
     }
 
     if (!fbox_buf) {
-        msg_t r = _call(fbox_port, FBOX_GET_BUF, 0, 0);
+        msg_t r = zuzu_msg_call(fbox_port, FBOX_GET_BUF, 0, 0);
         if ((int32_t)r.r1 != 0) {
             return false;
         }
-        fbox_buf = (char *)_memmap((int32_t)r.r2, 0, VM_PROT_RW, 0);
+        fbox_buf = (char *)zuzu_memmap((int32_t)r.r2, 0, VM_PROT_RW, 0);
         if ((intptr_t)fbox_buf <= 0) {
             fbox_buf = NULL;
             return false;
@@ -207,7 +207,7 @@ static bool stat_path(const char *path, fbox_stat_t *st)
         return false;
 
     memcpy(fbox_buf, path, plen + 1);
-    msg_t r = _call(fbox_port, FBOX_STAT, 0, 0);
+    msg_t r = zuzu_msg_call(fbox_port, FBOX_STAT, 0, 0);
     if ((int32_t)r.r1 != ZUZU_OK)
         return false;
 
@@ -297,7 +297,7 @@ static void cmd_ls(const char *arg)
     size_t plen = strlen(path);
     memcpy(fbox_buf, path, plen + 1);
 
-    msg_t r = _call(fbox_port, FBOX_READDIR, 0, 0);
+    msg_t r = zuzu_msg_call(fbox_port, FBOX_READDIR, 0, 0);
     if ((int32_t)r.r1 != ZUZU_OK) {
         printf("%s", ANSI_RED "ls: cannot read directory\n" ANSI_RESET);
         return;
@@ -342,7 +342,7 @@ static void cmd_cat(const char *path)
     size_t plen = strlen(abs_path);
     memcpy(fbox_buf, abs_path, plen + 1);
 
-    msg_t r = _call(fbox_port, FBOX_OPEN, FAT32_MODE_READ, 0);
+    msg_t r = zuzu_msg_call(fbox_port, FBOX_OPEN, FAT32_MODE_READ, 0);
     if ((int32_t)r.r1 != ZUZU_OK) {
         printf("%s", ANSI_RED "cat: file not found\n" ANSI_RESET);
         return;
@@ -350,7 +350,7 @@ static void cmd_cat(const char *path)
     uint32_t fd = r.r2;
 
     while (1) {
-        r = _call(fbox_port, FBOX_READ, FBOX_PACK_RW(fd, 4095), 0);
+        r = zuzu_msg_call(fbox_port, FBOX_READ, FBOX_PACK_RW(fd, 4095), 0);
         if ((int32_t)r.r1 != ZUZU_OK) break;
         uint32_t got = r.r2;
         if (got == 0) break;
@@ -360,7 +360,7 @@ static void cmd_cat(const char *path)
         printf("%s", fbox_buf);
     }
 
-    _call(fbox_port, FBOX_CLOSE, fd, 0);
+    zuzu_msg_call(fbox_port, FBOX_CLOSE, fd, 0);
     printf("\n");
 }
 
@@ -414,15 +414,15 @@ static void cmd_exec(const char *line)
 
     /* ---- pspawn locally, ask sysd to inject, then kickstart ---- */
     const char *name = path_basename(path);
-    tspawn_result_t ts = _pspawn(name);
+    tspawn_result_t ts = zuzu_pspawn(name);
     if (ts.task_handle < 0) {
         printf("%s", ANSI_RED "zzsh: spawn failed\n" ANSI_RESET);
         return;
     }
 
-    int32_t sysd_task_handle = _grant(ts.task_handle, (int32_t)sysd_pid);
+    int32_t sysd_task_handle = zuzu_grant(ts.task_handle, (int32_t)sysd_pid);
     if (sysd_task_handle < 0) {
-        _pkill(ts.task_handle);                    /* <-- NEW */
+        zuzu_pkill(ts.task_handle);                    /* <-- NEW */
         printf("%s", ANSI_RED "zzsh: spawn failed\n" ANSI_RESET);
         return;
     }
@@ -430,7 +430,7 @@ static void cmd_exec(const char *line)
     size_t path_len = strlen(path);
     size_t req_len = sizeof(exec_request_hdr_t) + path_len + 1 + argpos;
     if (req_len > LMSG_BUF_SIZE) {
-        _pkill(ts.task_handle);                    /* <-- NEW */
+        zuzu_pkill(ts.task_handle);                    /* <-- NEW */
         printf("%s", ANSI_RED "zzsh: command too long\n" ANSI_RESET);
         return;
     }
@@ -450,32 +450,32 @@ static void cmd_exec(const char *line)
     int32_t rc = chan_call((handle_t)sysd_port, lmsg_buf(), (uint32_t)req_len,
                            lmsg_buf(), (uint32_t)sizeof(exec_reply_t));
     if (rc < 0) {
-        _pkill(ts.task_handle);
+        zuzu_pkill(ts.task_handle);
         print_exec_error(rc);
         return;
     }
     if (rc != (int32_t)sizeof(exec_reply_t)) {
-        _pkill(ts.task_handle);
+        zuzu_pkill(ts.task_handle);
         printf("%s", ANSI_RED "zzsh: bad exec reply\n" ANSI_RESET);
         return;
     }
 
     exec_reply_t *reply = (exec_reply_t *)lmsg_buf();
     if (!exec_reply_valid(reply)) {
-        _pkill(ts.task_handle);
+        zuzu_pkill(ts.task_handle);
         print_exec_error(EXEC_EBADELF);
         return;
     }
 
-    if (_kickstart(ts.task_handle, reply->entry, reply->sp,
+    if (zuzu_kickstart(ts.task_handle, reply->entry, reply->sp,
                    reply->argc, reply->argv_va) != 0) {
-        _pkill(ts.task_handle);
+        zuzu_pkill(ts.task_handle);
         printf("%s", ANSI_RED "zzsh: kickstart failed\n" ANSI_RESET);
         return;
     }
 
     int32_t exit_status = 0;
-    _wait(ts.pid, &exit_status, 0);
+    zuzu_wait(ts.pid, &exit_status, 0);
 }
 
 /* ---- dispatch ---- */
@@ -552,7 +552,7 @@ void command_dispatch(const char *line)
     }
     else if (strcmp(line, "pid") == 0)
     {
-        uint32_t p = _getpid();
+        uint32_t p = zuzu_getpid();
         char buf[32];
         snprintf(buf, sizeof(buf), "pid: %u\n", p);
         printf("%s", buf);
@@ -563,7 +563,7 @@ void command_dispatch(const char *line)
         const char *p = line + 6;
         while (*p >= '0' && *p <= '9')
             ms = ms * 10 + (uint32_t)(*p++ - '0');
-        _sleep(ms);
+        zuzu_sleep(ms);
     }
     else if (strncmp(line, "echo ", 5) == 0)
     {
@@ -576,7 +576,7 @@ void command_dispatch(const char *line)
         if (nic_port < 0) {
             printf("%s", "nicstat: nic0 not found\n");
         } else {
-            msg_t r = _call(nic_port, NIC_CMD_STATS, 0, 0);
+            msg_t r = zuzu_msg_call(nic_port, NIC_CMD_STATS, 0, 0);
             char buf[48];
             snprintf(buf, sizeof(buf), "nic0: irq_count=%u\n", (uint32_t)r.r2);
             printf("%s", buf);
@@ -625,7 +625,7 @@ int main(void)
     {
         int ch = getchar();
         if (ch == EOF) {
-            _sleep(5);
+            zuzu_sleep(5);
             continue;
         }
 

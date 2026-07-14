@@ -73,7 +73,7 @@ __attribute__((cold)) int get_shm() {
     LOG_INFO(LOG_TAG, "nic0 port=%d", nic_port);
 
     // r1 = status (ZUZU_OK / -err); r2 = mac_lo, r3 = mac_hi carry the MAC bytes
-    msg_t r = _call(nic_port, NIC_CMD_GETMAC, 0, 0);
+    msg_t r = zuzu_msg_call(nic_port, NIC_CMD_GETMAC, 0, 0);
     if ((int32_t)r.r1 != ZUZU_OK) {
         LOG_ERROR(LOG_TAG, "GETMAC failed");
         return 1;
@@ -90,15 +90,15 @@ __attribute__((cold)) int get_shm() {
              netif.mac[3], netif.mac[4], netif.mac[5]);
 
     // r1 = shmem handle, r2 = rx doorbell, r3 = tx doorbell (all >= 0 on success)
-    r = _call(nic_port, NIC_CMD_GETBUF, 0, 0);
+    r = zuzu_msg_call(nic_port, NIC_CMD_GETBUF, 0, 0);
     if ((int32_t)r.r0 != 0 || (int32_t)r.r1 < 0 ||
         (int32_t)r.r2 < 0 || (int32_t)r.r3 < 0) {
         LOG_ERROR(LOG_TAG, "NIC_GETBUF failed");
         return 1;
     }
 
-    void *addr = _memmap((int32_t)r.r1, 0, VM_PROT_RW, 0);
-    if (_ptr_is_err(addr)) {
+    void *addr = zuzu_memmap((int32_t)r.r1, 0, VM_PROT_RW, 0);
+    if (zuzu_is_err(addr)) {
         LOG_ERROR(LOG_TAG, "shmem attach failed");
         return ERR_SYSDOWN;
     }
@@ -148,7 +148,7 @@ int main() {
 
         /* 2. sleep until a packet arrives or the deadline elapses */
         waitany_result_t result;
-        int32_t recv_rc = _waitany(handles, 2, sleep_ms, &result);
+        int32_t recv_rc = zuzu_waitany(handles, 2, sleep_ms, &result);
 
         /* 3. DRAIN RX FIRST: process inbound before any timer fires */
         if (recv_rc >= 0 && result.kind == WAITANY_KIND_NTFN) {
@@ -156,7 +156,7 @@ int main() {
             while (packet_ring_pop(&frame, rx_ring) == 0)
                 eth_rx(frame.data, frame.len);
         } else if (recv_rc >= 0 && result.kind == WAITANY_KIND_CALL) {
-            _reply(result.source, ERR_NOSYS, 0, 0);
+            zuzu_msg_reply(result.source, ERR_NOSYS, 0, 0);
         }
 
         /* 4. THEN fire expired timers */

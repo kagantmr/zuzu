@@ -11,7 +11,7 @@ extern "C" {
 
 /* ---- Notification syscalls ---- */
 
-static inline int32_t _ntfn_create(void) {
+static inline int32_t zuzu_ntfn_create(void) {
     register uint32_t r0 __asm__("r0");
     __asm__ volatile("svc %[num]"
         : "=r"(r0)
@@ -22,7 +22,7 @@ static inline int32_t _ntfn_create(void) {
 
 /* (handle, bits) -> 0 or -err; bits are 31-bit — bit 31 is rejected with
  * ERR_BADARG because delivered bits ride in r0 where negatives mean errors */
-static inline int32_t _ntfn_signal(handle_t ntfn_handle, uint32_t bits) {
+static inline int32_t zuzu_ntfn_signal(handle_t ntfn_handle, uint32_t bits) {
     register handle_t r0 __asm__("r0") = ntfn_handle;
     register uint32_t r1 __asm__("r1") = bits;
     __asm__ volatile("svc %[num]"
@@ -33,7 +33,7 @@ static inline int32_t _ntfn_signal(handle_t ntfn_handle, uint32_t bits) {
 }
 
 /* (handle, timeout_ms) -> bits or -err; TIMEOUT_POLL polls, TIMEOUT_INFINITE blocks */
-static inline int32_t _ntfn_wait(handle_t ntfn_handle, uint32_t timeout_ms) {
+static inline int32_t zuzu_ntfn_wait(handle_t ntfn_handle, uint32_t timeout_ms) {
     register handle_t r0 __asm__("r0") = ntfn_handle;
     register uint32_t r1 __asm__("r1") = timeout_ms;
     __asm__ volatile("svc %[num]"

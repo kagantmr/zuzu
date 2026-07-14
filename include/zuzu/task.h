@@ -17,7 +17,7 @@ extern "C" {
 
 /* ---- Task lifecycle syscalls ---- */
 
-static inline void _pquit(int32_t status) {
+static inline void zuzu_pquit(int32_t status) {
     register int32_t r0 __asm__("r0") = status;
     __asm__ volatile("svc %[num]"
         :
@@ -26,7 +26,7 @@ static inline void _pquit(int32_t status) {
     __builtin_unreachable();
 }
 
-static inline int32_t _yield(void) {
+static inline int32_t zuzu_yield(void) {
     register int32_t r0 __asm__("r0");
     __asm__ volatile("svc %[num]"
         : "=r"(r0)
@@ -35,7 +35,7 @@ static inline int32_t _yield(void) {
     return r0;
 }
 
-static inline int32_t _wait(zpid_t pid, int32_t *status_out, uint32_t flags) {
+static inline int32_t zuzu_wait(zpid_t pid, int32_t *status_out, uint32_t flags) {
     register zpid_t r0 __asm__("r0") = pid;
     register int32_t *r1 __asm__("r1") = status_out;
     register uint32_t r2 __asm__("r2") = flags;
@@ -46,7 +46,7 @@ static inline int32_t _wait(zpid_t pid, int32_t *status_out, uint32_t flags) {
     return r0;
 }
 
-static inline int32_t _getpid(void) {
+static inline int32_t zuzu_getpid(void) {
     register int32_t r0 __asm__("r0");
     __asm__ volatile("svc %[num]"
         : "=r"(r0)
@@ -55,7 +55,7 @@ static inline int32_t _getpid(void) {
     return r0;
 }
 
-static inline int32_t _sleep(uint32_t ms) {
+static inline int32_t zuzu_sleep(uint32_t ms) {
     register uint32_t r0 __asm__("r0") = ms;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
@@ -64,7 +64,7 @@ static inline int32_t _sleep(uint32_t ms) {
     return (int32_t) r0;
 }
 
-static inline tspawn_result_t _pspawn(const char* name) {
+static inline tspawn_result_t zuzu_pspawn(const char* name) {
     size_t name_len = 0;
     while (name && name[name_len])
         name_len++;
@@ -82,7 +82,7 @@ static inline tspawn_result_t _pspawn(const char* name) {
     return (tspawn_result_t) {.task_handle = (handle_t) r0, .pid = r1};
 }
 
-static inline handle_t _kickstart(handle_t task_handle, uintptr_t entry,
+static inline handle_t zuzu_kickstart(handle_t task_handle, uintptr_t entry,
                                   uintptr_t sp, uint32_t r0_val, uint32_t r1_val) {
     kickstart_args_t args = {
         .size        = sizeof(kickstart_args_t),
@@ -100,7 +100,7 @@ static inline handle_t _kickstart(handle_t task_handle, uintptr_t entry,
     return (handle_t) r0;
 }
 
-static inline int32_t _pkill(handle_t task_handle) {
+static inline int32_t zuzu_pkill(handle_t task_handle) {
     register handle_t r0 __asm__("r0") = task_handle;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
@@ -109,7 +109,7 @@ static inline int32_t _pkill(handle_t task_handle) {
     return r0;
 }
 
-static inline tid_t _tmake(void (*entry)(void *), void *user_sp, void *arg) {
+static inline tid_t zuzu_tmake(void (*entry)(void *), void *user_sp, void *arg) {
     register vaddr_t r0 __asm__("r0") = (vaddr_t)entry;
     register vaddr_t r1 __asm__("r1") = (vaddr_t)user_sp;
     register vaddr_t r2 __asm__("r2") = (vaddr_t)arg;
@@ -120,7 +120,7 @@ static inline tid_t _tmake(void (*entry)(void *), void *user_sp, void *arg) {
     return (tid_t)r0;
 }
 
-static inline int32_t _tjoin(tid_t tid) {
+static inline int32_t zuzu_tjoin(tid_t tid) {
     register tid_t r0 __asm__("r0") = tid;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
@@ -129,7 +129,7 @@ static inline int32_t _tjoin(tid_t tid) {
     return r0;
 }
 
-static inline __attribute__((noreturn)) void _tquit(int32_t status) {
+static inline __attribute__((noreturn)) void zuzu_tquit(int32_t status) {
     register int32_t r0 __asm__("r0") = status;
     __asm__ volatile("svc %[num]"
         :

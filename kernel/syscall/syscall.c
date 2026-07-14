@@ -53,9 +53,8 @@ static syscall_handler_t syscall_table[SYS_MAX + 1] = {
     [SYS_MEMMAP] = sys_memmap,
     [SYS_MEMUNMAP] = sys_memunmap,
     [SYS_SHM_CREATE] = sys_shm_create,
-    [SYS_MPROTECT] = sys_memprotect,
+    [SYS_MEMPROTECT] = sys_memprotect,
     [SYS_ASINJECT] = sys_asinject,
-    [SYS_IRQ_CLAIM] = sys_irq_claim,
     [SYS_IRQ_BIND] = sys_irq_bind,
     [SYS_IRQ_DONE] = sys_irq_done
 };

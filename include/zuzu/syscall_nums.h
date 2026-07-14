@@ -41,11 +41,11 @@
 #define SYS_MEMUNMAP      0x31  /* (addr) -> 0 or -err */
 #define SYS_SHM_CREATE    0x32  /* (size) -> handle or -err */
 /* 0x33 (attach), 0x34 (mapdev) and 0x35 (mapdev) retired: folded into SYS_MEMMAP, SYS_MEMUNMAP and SYS_DESTROY*/
-#define SYS_MPROTECT      0x37  /* (addr, size, prot) -> 0 or -err */
+#define SYS_MEMPROTECT      0x37  /* (addr, size, prot) -> 0 or -err */
 #define SYS_ASINJECT      0x38  /* (args*) -> 0 or -err; args->size first field */
 
 /* ---- Interrupts (0x40-0x4F) ---- */
-#define SYS_IRQ_CLAIM     0x40
+/* 0x40 (irq_claim) retired: folded into SYS_IRQ_BIND */
 #define SYS_IRQ_BIND      0x41
 #define SYS_IRQ_DONE      0x42
 

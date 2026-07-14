@@ -16,7 +16,7 @@ static uint32_t den_pack_name(const char *name) {
 }
 
 __attribute__((weak)) den_id_t den_create(const char *name, uint32_t cap) {
-    msg_t reply = _call(NT_PORT, DEN_CREATE, den_pack_name(name), cap);
+    msg_t reply = zuzu_msg_call(NT_PORT, DEN_CREATE, den_pack_name(name), cap);
     if (reply.r1 == DEN_OK)
         return (den_id_t)reply.r2;
     return (den_id_t)reply.r1;
@@ -29,7 +29,7 @@ __attribute__((weak)) int den_destroy(den_id_t id) {
 
 __attribute__((weak)) den_id_t den_myden(const char *name) {
     (void)name;
-    msg_t reply = _call(NT_PORT, DEN_MYDEN, 0, 0);
+    msg_t reply = zuzu_msg_call(NT_PORT, DEN_MYDEN, 0, 0);
     if (reply.r1 == DEN_OK)
         return (den_id_t)reply.r2;
     return 0;

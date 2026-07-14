@@ -9,9 +9,9 @@ static arena_t heap;   /* the single owner of heap VA in this process */
 void *sbrk(intptr_t incr)
 {
     if (!heap.base) {
-        vaddr_t p = (vaddr_t)_memmap(HANDLE_ANON, HEAP_RESERVE,
+        vaddr_t p = (vaddr_t)zuzu_memmap(HANDLE_ANON, HEAP_RESERVE,
                                      VM_PROT_READ | VM_PROT_WRITE, 0);
-        if (_ptr_is_err((void *)p))
+        if (zuzu_is_err((void *)p))
             return (void *)-1;
         heap.base   = p;
         heap.brk    = p;
