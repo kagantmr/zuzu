@@ -1,6 +1,10 @@
 #ifndef LIMITS_H
 #define LIMITS_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "stdint.h"
 
 #define CHAR_BIT 8
@@ -27,5 +31,9 @@
 #define LLONG_MIN (-0x7FFFFFFFFFFFFFFFLL - 1)
 #define LLONG_MAX 0x7FFFFFFFFFFFFFFFLL
 #define ULLONG_MAX 0xFFFFFFFFFFFFFFFFULL
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* LIMITS_H */

@@ -1,6 +1,10 @@
 #ifndef TCB_H
 #define TCB_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 #include <stddef.h>
 
@@ -24,10 +28,17 @@ typedef struct {
 _Static_assert(sizeof(tdata_t) == TCB_SLOT_SIZE, "tdata_t must fill its slot");
 _Static_assert(TCB_SLOT_SIZE * TCB_MAX_SLOTS <= PAGE_SIZE, "slots overflow page");
 
+/**
+ * TLS accessor for the current thread's TCB.
+ */
 static inline tdata_t *zuzu_tcb(void) {
     tdata_t *tcb;
     __asm__ volatile("mrc p15, 0, %0, c13, c0, 3" : "=r"(tcb));
     return tcb;
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // TCB_H

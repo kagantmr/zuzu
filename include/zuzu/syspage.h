@@ -1,6 +1,10 @@
 #ifndef SYSPAGE_H
 #define SYSPAGE_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "stdint.h"
 #include "stddef.h"
 #include "zuzu/types.h"
@@ -35,5 +39,9 @@ typedef struct
 
 /* Backed by a single pmm_alloc_page() and mapped into userspace as one page. */
 _Static_assert(sizeof(syspage_t) <= 4096, "syspage_t must fit in one page");
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

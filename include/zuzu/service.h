@@ -1,19 +1,32 @@
 #ifndef ZUZU_SERVICE_H
 #define ZUZU_SERVICE_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <zuzu/lmsg.h>
 #include <stdint.h>
 #include <zuzu/protocols/nt_protocol.h>
 
-// register_service("zusd") does:
-// 1. _port_create()
-// 2. _grant(port, NAMETABLE_PID) → nt_slot
-// 3. DEN_MYDEN to find which den we're in
-// 4. NT_REGISTER | (den << 8) with packed name + nt_slot
-// returns the port handle, or -err on transport failure
+/**
+ * @brief Registers a service with the specified name with sysd.
+ * 
+ * @param name The name of the service to register.
+ * @return int32_t Returns 0 on success, or a negative error code on failure.
+ */
 int32_t register_service(const char *name);
 
-// lookup_service("zusd") waits until the service exists and returns the port handle, or -err on transport failure
+/**
+ * @brief Looks up a service by name and returns its handle.
+ * 
+ * @param name The name of the service to look up.
+ * @return int32_t Returns the handle of the service on success, or a negative error code on failure.
+ */
 int32_t lookup_service(const char *name);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

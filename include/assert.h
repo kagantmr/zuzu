@@ -1,6 +1,10 @@
 #ifndef ZCRT_ASSERT_H
 #define ZCRT_ASSERT_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifdef NDEBUG
     #define assert(cond) ((void)0)
 #else
@@ -12,6 +16,10 @@
         // User space assert is just quit for now
         #define assert(cond) if(!(cond)) { _pquit(-1); } 
     #endif
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif

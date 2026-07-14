@@ -1,6 +1,10 @@
 #ifndef SD_PROTOCOL_H
 #define SD_PROTOCOL_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <zuzu/err.h>
 
 /* Generic SD/block-device driver protocol
@@ -30,5 +34,9 @@
  *   req:  r2=SD_CMD_WRITE, r3=block_num
  *   resp: r1=ZUZU_OK or SD_ERR_IO  - data read from shared buffer
  */
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* SD_PROTOCOL_H */

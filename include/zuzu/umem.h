@@ -21,6 +21,14 @@ static inline int zuzu_is_err(const void *p) {
     return (uintptr_t)p >= (uintptr_t)(-4095);
 }
 
+/**
+ * @brief Maps a memory region into the calling process's address space.
+ * 
+ * @param handle The handle of the memory object to map.
+ * @param size The size of the memory region to map, in bytes.
+ * @param prot The desired memory protection flags (e.g., PROT_READ, PROT_WRITE).
+ * @return void* Returns a pointer to the mapped virtual address, or NULL on failure.
+ */
 static inline void *zuzu_memmap(handle_t handle, size_t size, uint32_t prot, uint32_t flags) {
     register handle_t  r0 __asm__("r0") = handle;
     register size_t    r1 __asm__("r1") = size;
@@ -33,6 +41,12 @@ static inline void *zuzu_memmap(handle_t handle, size_t size, uint32_t prot, uin
     return (void *)r0;
 }
 
+/**
+ * @brief Creates a shared memory region of the specified size.
+ * 
+ * @param size The size of the shared memory region to create, in bytes.
+ * @return handle_t Returns a handle to the newly created shared memory region, or a negative value on error.
+ */
 static inline handle_t zuzu_shm_create(uint32_t size) {
     register uint32_t r0 __asm__("r0") = size;
     __asm__ volatile("svc %[num]"
@@ -42,6 +56,15 @@ static inline handle_t zuzu_shm_create(uint32_t size) {
     return (handle_t)r0;
 }
 
+/**
+ * @brief Queries information about a device associated with the specified handle.
+ * 
+ * @param handle The handle of the device to query.
+ * @param out_buf Pointer to the buffer where the device information will be written.
+ * @param len The length of the output buffer in bytes.
+ * 
+ * @return int32_t Returns 0 on success, or a negative error code on failure.
+ */
 static inline int32_t zuzu_dev_query(handle_t handle, void *out_buf, uint32_t len) {
     register handle_t r0 __asm__("r0") = handle;
     register uintptr_t r1 __asm__("r1") = (uintptr_t)out_buf;
@@ -53,6 +76,18 @@ static inline int32_t zuzu_dev_query(handle_t handle, void *out_buf, uint32_t le
     return (int32_t)r0;
 }
 
+/**
+ * @brief Injects a memory region from the current process into the address space of another process.
+ * @note This syscall is only callable by the init process.
+ * 
+ * @param task_handle The handle of the target process.
+ * @param dst_va The destination virtual address in the target process's address space.
+ * @param src_buf Pointer to the source buffer in the current process's address space.
+ * @param len The length of the source buffer in bytes.
+ * @param prot The desired memory protection flags for the injected region (e.g., PROT_READ, PROT_WRITE).
+ * 
+ * @return int32_t Returns 0 on success, or a negative error code on failure.
+ */
 static inline int32_t zuzu_asinject(handle_t task_handle, uintptr_t dst_va,
                                 const void *src_buf, size_t len, uint32_t prot) {
     asinject_args_t args = {
@@ -71,6 +106,9 @@ static inline int32_t zuzu_asinject(handle_t task_handle, uintptr_t dst_va,
     return (int32_t)r0;
 }
 
+/**
+ * @brief Unmaps a memory region from the calling process's address space.
+ */
 static inline int32_t zuzu_memunmap(void *addr) {
     register uintptr_t r0 __asm__("r0") = (uintptr_t)addr;
     __asm__ volatile("svc %[num]"
@@ -80,6 +118,9 @@ static inline int32_t zuzu_memunmap(void *addr) {
     return (int32_t)r0;
 }
 
+/**
+ * @brief Changes the memory protection of a specified memory region.
+ */
 static inline int32_t zuzu_memprotect(void *addr, size_t size, uint32_t prot) {
     register uintptr_t r0 __asm__("r0") = (uintptr_t)addr;
     register size_t r1 __asm__("r1") = size;

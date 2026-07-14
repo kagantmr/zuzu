@@ -1,6 +1,10 @@
 #ifndef ZUZU_CHANNEL_H
 #define ZUZU_CHANNEL_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*
  * channel.h - high-level bulk IPC
  *
@@ -22,10 +26,13 @@
 #include <string.h>
 #include <stdint.h>
 
-/*
- * copy buf into the lmsg buffer and send one-way.
- * Returns 0 on success, negative error on failure.
- * Payloads over LMSG_BUF_SIZE are rejected, never truncated.
+/**
+ * @brief Sends a long message to the specified port. Needn't call lmsg functions.
+ * 
+ * @param port The handle of the port to send the lmessage to.
+ * @param buf Pointer to the buffer containing the lmessage data to send.
+ * @param len The length of the message data in bytes.
+ * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
 static inline int32_t chan_send(handle_t port, const void *buf, uint32_t len)
 {
@@ -34,9 +41,16 @@ static inline int32_t chan_send(handle_t port, const void *buf, uint32_t len)
     return zuzu_msg_lsend(port, len);
 }
 
-/*
- * Returns the number of reply bytes written into reply_buf, or a negative
- * error code if the call failed.
+/**
+ * @brief Sends a long message to the specified port and waits for a reply. Needn't call lmsg functions.
+ * 
+ * @param port The handle of the port to send the lmessage to.
+ * @param buf Pointer to the buffer containing the lmessage data to send.
+ * @param len The length of the message data in bytes.
+ * @param reply Pointer to the buffer that will receive the reply data.
+ * @param reply_cap The maximum length of the reply buffer in bytes.
+ * 
+ * @return int32_t Returns the number of bytes received in the reply on success, or a negative error code on failure.
  */
 static inline int32_t chan_call(handle_t port,
                                 const void *buf,    uint32_t len,
@@ -57,8 +71,14 @@ static inline int32_t chan_call(handle_t port,
     return (int32_t)got;
 }
 
-/*
- * Returns 0 on success, negative error on failure.
+/**
+ * @brief Replies to a long message call with the specified reply data. Needn't call lmsg functions.
+ * 
+ * @param reply_handle The handle received from a zuzu_msg_lcall that is being replied to.
+ * @param buf Pointer to the buffer containing the reply data to send.
+ * @param len The length of the reply data in bytes.
+ * 
+ * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
 static inline int32_t chan_reply(handle_t reply_handle,
                                  const void *buf, uint32_t len)
@@ -68,5 +88,9 @@ static inline int32_t chan_reply(handle_t reply_handle,
         memcpy(lmsg_buf(), buf, len);
     return zuzu_msg_lreply(reply_handle, len);
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* ZUZU_CHANNEL_H */

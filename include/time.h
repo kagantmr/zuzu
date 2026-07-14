@@ -27,11 +27,21 @@ struct tm {
     int tm_isdst; /* daylight savings time flag */
 };
 
+/**
+ * @brief Returns the current time in seconds since the epoch (January 1, 1970).
+ * 
+ * @return ztime_t The current time in seconds since the epoch.
+ */
 static inline ztime_t time_now(void) {
     syspage_t *sp = (syspage_t *)SYSPAGE;
     return sp->boot_time_s + (sp->uptime_ticks / sp->tick_hz);
 }
 
+/**
+ * @brief Fills the provided timespec structure with the current time.
+ * 
+ * @param ts Pointer to a timespec structure that will be filled with the current time.
+ */
 static inline void clock_gettime(struct timespec *ts) {
     syspage_t *sp = (syspage_t *)SYSPAGE;
     ztime_t ticks = sp->uptime_ticks;
