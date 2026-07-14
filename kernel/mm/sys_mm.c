@@ -114,7 +114,6 @@ static int32_t memmap_shm(process_t *p, handle_entry_t *e, vm_prot_t prot, vaddr
     }
 
     e->mapped_va = va_base;
-    shmem_obj->ref_count++; /* ref_count == live mapping count; sys_memunmap drops it */
     *out = va_base;
     return ZUZU_OK;
 }
