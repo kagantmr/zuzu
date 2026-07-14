@@ -3,6 +3,7 @@
 #include "kernel/sched/sched.h"
 #include <arch/mmu.h>
 #include <arch/cache.h>
+#include "core/panic.h"
 #include "kernel/mm/pmm.h"
 #include "kernel/layout.h"
 #include <spawn_args.h>
@@ -242,32 +243,19 @@ void sys_memmap(arch_regs_t *frame)
 void sys_memunmap(arch_regs_t *frame)
 {
         const vaddr_t va = (vaddr_t)(*arch_reg(frame, 0));
-        size_t size = (size_t)(*arch_reg(frame, 1));
-
-        if (size == 0 || size % PAGE_SIZE != 0)
-        {
-            (*arch_reg(frame, 0)) = ERR_BADARG;
-            return;
-        }
 
         addrspace_t *as = current_thread->owner_process->as;
 
         // Find the region, it must be an exact match to prevent partial-unmap attacks
         vm_region_t *found = NULL;
-        for (uint32_t i = 0; i < as->regions.len; i++)
-        {
+        for (uint32_t i = 0; i < as->regions.len; i++) {
             vm_region_t *r = vm_region_vec_get(&as->regions, i);
-            if (r && r->vaddr_start == va && r->size == size)
-            {
-                found = r;
-                break;
-            }
+            if (r && r->vaddr_start == va) { found = r; break; }   /* base match only */
         }
-        if (!found)
-        {
-            (*arch_reg(frame, 0)) = ERR_BADARG;
-            return;
-        }
+        if (!found) { (*arch_reg(frame, 0)) = ERR_BADARG; return; }
+        if (found->flags & VM_FLAG_PINNED) { (*arch_reg(frame, 0)) = ERR_NOPERM; return; }
+
+        size_t size = found->size;
 
         switch(found->owner) {
             // If we own the pages, free them back to PMM before unmapping
@@ -297,9 +285,9 @@ void sys_memunmap(arch_regs_t *frame)
                     found_handle = true;
                     break;
                 }
-                if (!found_handle && found->owner == VM_OWNER_SHARED)
+                if (!found_handle)
                 {
-                    KWARN("sys_memunmap: shared region @ 0x%08x has no matching handle", va);
+                    KWARN("sys_memunmap: region @ 0x%08x has no matching handle", va);
                 }
             } break;
             default:
@@ -308,8 +296,8 @@ void sys_memunmap(arch_regs_t *frame)
         // Remove from region list and unmap page table entries
         if (!vmm_remove_region(as, va, size))
         {
-            (*arch_reg(frame, 0)) = ERR_NOMEM;
-            return;
+            panic("found region but could not remove it");
+            __builtin_unreachable();
         }
     
         (*arch_reg(frame, 0)) = 0;
