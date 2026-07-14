@@ -1,6 +1,10 @@
 #ifndef ZUZU_TYPES_H
 #define ZUZU_TYPES_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 #include <stddef.h>
 #include "err.h"
@@ -58,5 +62,9 @@ typedef struct {
     uint32_t r2;             /* send/call: payload or lmsg length */
     uint32_t r3;             /* send/call: payload */
 } waitany_result_t;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ZUZU_TYPES_H

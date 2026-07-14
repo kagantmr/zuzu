@@ -11,7 +11,15 @@ extern "C" {
 
 /* ---- IPC syscalls ---- */
 
-/* (port, r1-r3) -> 0 or -err */
+/**
+ * @brief Sends a message to the specified port with the given payload.
+ * 
+ * @param port The handle of the port to send the message to.
+ * @param w1 The first word of the message payload.
+ * @param w2 The second word of the message payload.
+ * @param w3 The third word of the message payload.
+ * @return int32_t Returns 0 on success, or a negative error code on failure.
+ */
 static inline int32_t zuzu_msg_send(handle_t port, uint32_t w1, uint32_t w2, uint32_t w3) {
     register handle_t r0 __asm__("r0") = port;
     register uint32_t r1 __asm__("r1") = w1;
@@ -24,13 +32,12 @@ static inline int32_t zuzu_msg_send(handle_t port, uint32_t w1, uint32_t w2, uin
     return r0;
 }
 
-/*
- * (port, timeout_ms) -> recv tuple in r0-r3; TIMEOUT_POLL polls,
- * TIMEOUT_INFINITE blocks until a message arrives.
- * Current kernel ABI:
- * - IRQ delivery:      r0 = 0,            r1 = irq_num
- * - zuzu_msg_send source:   r0 = sender_pid,   r1-r3 = payload
- * - zuzu_msg_call source:   r0 = reply_handle, r1 = sender_pid, r2-r3 = payload
+/**
+ * @brief Receives a message from the specified port, with an optional timeout.
+ * 
+ * @param port The handle of the port to receive the message from.
+ * @param timeout_ms The timeout in milliseconds to wait for a message. Use TIMEOUT_INFINITE for blocking indefinitely, or TIMEOUT_POLL for non-blocking.
+ * @return msg_t Returns a msg_t structure containing the received message. If the receive operation fails or times out, the r0 field of the returned msg_t will contain a negative error code.
  */
 static inline msg_t zuzu_msg_recv(handle_t port, uint32_t timeout_ms) {
     register handle_t r0 __asm__("r0") = port;
@@ -44,7 +51,16 @@ static inline msg_t zuzu_msg_recv(handle_t port, uint32_t timeout_ms) {
     return (msg_t){.r0 = r0, .r1 = r1, .r2 = r2, .r3 = r3};
 }
 
-/* (port, r1-r3) -> r0-r3 reply */
+/**
+ * @brief Sends a message to the specified port and waits for a reply, with the given payload.
+ * 
+ * @param port The handle of the port to send the message to.
+ * @param w1 The first word of the message payload.
+ * @param w2 The second word of the message payload.
+ * @param w3 The third word of the message payload.
+ * 
+ * @return msg_t Returns a msg_t structure containing the reply message. If the call operation fails, the r0 field of the returned msg_t will contain a negative error code.
+ */
 static inline msg_t zuzu_msg_call(handle_t port, uint32_t w1, uint32_t w2, uint32_t w3) {
     register handle_t r0 __asm__("r0") = port;
     register uint32_t r1 __asm__("r1") = w1;
@@ -57,7 +73,16 @@ static inline msg_t zuzu_msg_call(handle_t port, uint32_t w1, uint32_t w2, uint3
     return (msg_t){.r0 = r0, .r1 = r1, .r2 = r2, .r3 = r3};
 }
 
-/* (reply_handle, w1-w3) -> 0 or -err (r0) */
+/**
+ * @brief Replies to a message with the specified reply handle and payload.
+ * 
+ * @param reply_handle The handle of the reply to send.
+ * @param w1 The first word of the reply payload.
+ * @param w2 The second word of the reply payload.
+ * @param w3 The third word of the reply payload.
+ * 
+ * @return int32_t Returns 0 on success, or a negative error code on failure.
+ */
 static inline int32_t zuzu_msg_reply(handle_t reply_handle, uint32_t w1, uint32_t w2, uint32_t w3) {
     register handle_t r0 __asm__("r0") = reply_handle;
     register uint32_t r1 __asm__("r1") = w1;
@@ -70,6 +95,14 @@ static inline int32_t zuzu_msg_reply(handle_t reply_handle, uint32_t w1, uint32_
     return (int32_t) r0;
 }
 
+/**
+ * @brief Sends a message with a local buffer to the specified port.
+ * 
+ * @param port The handle of the port to send the message to.
+ * @param buf_len The length of the local buffer to send.
+ * 
+ * @return int32_t Returns 0 on success, or a negative error code on failure.
+ */
 static inline int32_t zuzu_msg_lsend(handle_t port, uint32_t buf_len) {
     register handle_t r0 __asm__("r0") = port;
     register uint32_t r1 __asm__("r1") = buf_len;
@@ -80,6 +113,14 @@ static inline int32_t zuzu_msg_lsend(handle_t port, uint32_t buf_len) {
     return r0;
 }
 
+/**
+ * @brief Performs a local call to the specified port with a local buffer.
+ * 
+ * @param port The handle of the port to call.
+ * @param buf_len The length of the local buffer to send.
+ * 
+ * @return msg_t Returns a msg_t structure containing the reply message. If the call operation fails, the r0 field of the returned msg_t will contain a negative error code.
+ */
 static inline msg_t zuzu_msg_lcall(handle_t port, uint32_t buf_len) {
     register handle_t r0 __asm__("r0") = port;
     register uint32_t r1 __asm__("r1") = buf_len;
@@ -90,6 +131,14 @@ static inline msg_t zuzu_msg_lcall(handle_t port, uint32_t buf_len) {
     return (msg_t){.r0 = r0, .r1 = r1, .r2 = 0, .r3 = 0};
 }
 
+/**
+ * @brief Replies to a local call with the specified reply handle and local buffer length.
+ * 
+ * @param reply_handle The handle of the reply to send.
+ * @param buf_len The length of the local buffer to send.
+ * 
+ * @return int32_t Returns 0 on success, or a negative error code on failure.
+ */
 static inline int32_t zuzu_msg_lreply(handle_t reply_handle, uint32_t buf_len) {
     register handle_t r0 __asm__("r0") = reply_handle;
     register uint32_t r1 __asm__("r1") = buf_len;
@@ -100,8 +149,15 @@ static inline int32_t zuzu_msg_lreply(handle_t reply_handle, uint32_t buf_len) {
     return (int32_t) r0;
 }
 
-/* (handles_ptr, count, timeout, result_ptr) -> 0 or -err;
- * TIMEOUT_POLL polls, TIMEOUT_INFINITE blocks forever */
+/**
+ * @brief Waits for any message from a set of handles, with an optional timeout.
+ * 
+ * @param handles Pointer to an array of handles to wait on.
+ * @param count The number of handles in the array.
+ * @param timeout_ms The timeout in milliseconds to wait for a message. Use TIMEOUT_INFINITE for blocking indefinitely, or TIMEOUT_POLL for non-blocking.
+ * 
+ * @return int32_t Returns 0 on success, or a negative error code on failure. The result of the waitany operation is stored in the provided waitany_result_t structure.
+ */
 static inline int32_t zuzu_waitany(const handle_t *handles, uint32_t count,
                                uint32_t timeout_ms, waitany_result_t *result)
 {
@@ -120,6 +176,11 @@ static inline int32_t zuzu_waitany(const handle_t *handles, uint32_t count,
 
 /* ---- Capability syscalls ---- */
 
+/**
+ * @brief Creates a new port and returns its handle.
+ * 
+ * @return int32_t Returns the handle of the newly created port on success, or a negative error code on failure.
+ */
 static inline int32_t zuzu_port_create(void) {
     register int32_t r0 __asm__("r0");
     __asm__ volatile("svc %[num]"
@@ -129,6 +190,14 @@ static inline int32_t zuzu_port_create(void) {
     return r0;
 }
 
+/**
+ * @brief Grants a capability to the specified process.
+ * 
+ * @param cap The handle of the capability to grant.
+ * @param pid The process ID of the target process to grant the capability to.
+ * 
+ * @return int32_t Returns 0 on success, or a negative error code on failure.
+ */
 static inline int32_t zuzu_grant(handle_t cap, zpid_t pid) {
     register handle_t r0 __asm__("r0") = cap;
     register zpid_t r1 __asm__("r1") = pid;
@@ -139,6 +208,13 @@ static inline int32_t zuzu_grant(handle_t cap, zpid_t pid) {
     return r0;
 }
 
+/**
+ * @brief Destroys the specified handle, revoking its capability.
+ * 
+ * @param h The handle to destroy.
+ * 
+ * @return int32_t Returns 0 on success, or a negative error code on failure.
+ */
 static inline int32_t zuzu_destroy(handle_t h) {
     register handle_t r0 __asm__("r0") = h;
     __asm__ volatile("svc %[num]"

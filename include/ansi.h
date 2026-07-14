@@ -1,6 +1,10 @@
 #ifndef ANSI_H
 #define ANSI_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define ANSI_RESET   "\033[0m"
 #define ANSI_BOLD    "\033[1m"
 #define ANSI_DIM     "\033[2m"
@@ -25,5 +29,9 @@
 #define ANSI_BG_WHITE   "\033[47m"
 
 #define ANSI_CLEAR   "\033[2J\033[H"
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

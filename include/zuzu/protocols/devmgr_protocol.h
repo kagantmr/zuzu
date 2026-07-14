@@ -1,6 +1,10 @@
 #ifndef DEVMGR_PROTOCOL_H
 #define DEVMGR_PROTOCOL_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*
  * DEV_REQUEST (call)
  *   req:  w1=DEV_REQUEST, w2=class
@@ -24,5 +28,9 @@
 #define DEV_CLASS_NIC    4 /* first network interface controller */
 
 /* Error codes (ERR_NOENT, ERR_NOSYS, ERR_NOMEM, ...) live in <zuzu/err.h> */
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

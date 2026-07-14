@@ -1,6 +1,10 @@
 #ifndef UART_PROTOCOL_H
 #define UART_PROTOCOL_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 
 /* Generic UART driver protocol (used by any UART driver process)
@@ -30,5 +34,9 @@
 #define UART_SEND_OK 0
 #define UART_RECV_OK 0
 #define UART_ERR -1
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* UART_PROTOCOL_H */

@@ -1,6 +1,10 @@
 #ifndef NIC_PROTOCOL_H
 #define NIC_PROTOCOL_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define NIC_CMD_SEND 1
 #define NIC_CMD_GETMAC 2
 #define NIC_CMD_GETBUF 3
@@ -21,5 +25,9 @@ enum nic_stat {
 };
 
 // zuzu error types...
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // NIC_PROTOCOL_H

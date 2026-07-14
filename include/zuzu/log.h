@@ -1,6 +1,10 @@
 #ifndef ZUZU_LOG_H
 #define ZUZU_LOG_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define ZUZU_LOG_LEVEL_TRACE 0
 #define ZUZU_LOG_LEVEL_DEBUG 1
 #define ZUZU_LOG_LEVEL_INFO  2
@@ -43,7 +47,7 @@ void log_write(log_level_t level, const char *tag, const char *fmt, ...);
 #endif
 
 #if LOG_LEVEL <= ZUZU_LOG_LEVEL_TRACE
-#define KTRACE(fmt, ...) kprintf(ANSI_BOLD ANSI_CYAN "[%6llu TRACE] " ANSI_RESET LOG_FMT(fmt) "\n", (unsigned long long)get_ticks(), ##__VA_ARGS__)
+#define KTRACE(fmt, ...) kprintf(ANSI_BOLD ANSI_CYAN "[%6llu TRACE] " ANSI_RESET LOG_FMT(fmt) "\n", (unsigned long long)get_ticks(), ##__VA_ARGS__) /* very verbose */
 #else
 #define KTRACE(fmt, ...) do {} while (0)
 #endif
@@ -77,6 +81,10 @@ void log_write(log_level_t level, const char *tag, const char *fmt, ...);
 #else
 #define KFATAL(fmt, ...) do {} while (0)
 #endif
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif // ZUZU_LOG_H

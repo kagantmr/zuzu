@@ -1,6 +1,10 @@
 #ifndef FBOX_PROTOCOL_H
 #define FBOX_PROTOCOL_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 #include <zuzu/protocols/fat32d_protocol.h>
 
@@ -23,5 +27,9 @@ typedef fat32_stat_t   fbox_stat_t;
 
 /* Status codes mirror fat32d: ZUZU_OK on success, err_t values from
  * <zuzu/err.h> or FAT32_ERR_IO on failure. */
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

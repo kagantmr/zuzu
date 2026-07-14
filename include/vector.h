@@ -1,6 +1,10 @@
 #ifndef VECTOR_H
 #define VECTOR_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 #include <stdbool.h>
 #include <mem.h>
@@ -78,4 +82,9 @@
         v->data[v->len++] = *item;                                        \
         return true;                                                      \
     }
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif /* VECTOR_H */

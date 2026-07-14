@@ -1,6 +1,10 @@
 #ifndef ZUZU_STDINT_H
 #define ZUZU_STDINT_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef unsigned char      uint8_t;
 typedef unsigned short     uint16_t;
 typedef unsigned int       uint32_t;
@@ -18,5 +22,9 @@ typedef int32_t            intptr_t;
 #define UINTPTR_MAX UINT32_MAX
 #define INT32_MAX 0x7FFFFFFF
 #define INT32_MIN (-INT32_MAX - 1)
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

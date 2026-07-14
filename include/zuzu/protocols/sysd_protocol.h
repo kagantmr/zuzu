@@ -1,6 +1,10 @@
 #ifndef SYSD_PROTOCOL_H
 #define SYSD_PROTOCOL_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 #include <zuzu/types.h>
 
@@ -16,10 +20,10 @@
 // Request layout in IPCX buffer (shell to sysd via _lcall):
 typedef struct {
     uint8_t  cmd;            // SYSD_EXEC
-    uint8_t  _pad;
+    uint8_t  _pad;           // padding for alignment
     uint16_t task_handle;    // slot in sysd's handle table (from _port_grant)
     uint16_t path_len;       // excluding NUL
-    uint16_t argc;
+    uint16_t argc;           // number of argv strings
     uint32_t pid;            // PID returned by caller's _tspawn
     // followed by char path[path_len + 1]  (NUL-terminated)
     // followed by char argbuf[...]          (NUL-delimited argv strings)
@@ -33,5 +37,9 @@ typedef struct {
     uint32_t argv_va;        // pointer to argv array on user stack
     zpid_t   pid;            // PID of the new process
 } exec_reply_t;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -1,6 +1,10 @@
 #ifndef ZUZU_H
 #define ZUZU_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* 
  * zuzu.h - Umbrella header for Zuzu user ABI
  * 
@@ -19,5 +23,9 @@
 #include "zuzu/umem.h"
 #include "zuzu/irq.h"
 #include "zuzu/ntfn.h"
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

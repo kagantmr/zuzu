@@ -1,6 +1,10 @@
 #ifndef ZUZU_ERR_H
 #define ZUZU_ERR_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 
 typedef int32_t err_t;
@@ -40,6 +44,16 @@ typedef int32_t err_t;
 #define ERR_MALFORMED (-105)  /* received bytes fail to parse (wire/packet)     */
 #define ERR_IO        (-106)  /* device or filesystem I/O error                 */
 
+/**
+ * @brief Returns a human-readable string describing the given error code.
+ * 
+ * @param err The error code to describe.
+ * @return const char* A pointer to a string describing the error code.
+ */
 const char *strerror(err_t err);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ZUZU_ERR_H

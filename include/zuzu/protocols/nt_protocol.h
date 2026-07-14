@@ -1,6 +1,10 @@
 #ifndef ZUZU_NT_PROTOCOL_H
 #define ZUZU_NT_PROTOCOL_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define NT_PORT 0
 #define NT_NAME_SYS "sys"
 
@@ -15,6 +19,12 @@
 
 #include <stdint.h>
 
+/**
+ * @brief Packs a 4-character name into a 32-bit unsigned integer.
+ * 
+ * @param name A 4-character array representing the name to be packed.
+ * @return uint32_t The packed 32-bit unsigned integer representation of the name.
+ */
 static inline uint32_t nt_pack(const char name[4])
 {
 	return ((uint32_t)(unsigned char)name[0]) |
@@ -31,5 +41,9 @@ static inline uint32_t nt_pack(const char name[4])
 #define DEN_OK 0
 #define DEN_FAIL (-4)
 #define DEN_FULL (-5)
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
