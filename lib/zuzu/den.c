@@ -24,7 +24,7 @@ __attribute__((weak)) den_id_t den_create(const char *name, uint32_t cap) {
 
 __attribute__((weak)) int den_destroy(den_id_t id) {
     (void)id;
-    return ERR_NOMATCH;
+    return ERR_NOSYS;
 }
 
 __attribute__((weak)) den_id_t den_myden(const char *name) {

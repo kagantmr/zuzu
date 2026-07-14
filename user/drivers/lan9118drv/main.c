@@ -372,7 +372,7 @@ void lan9118_service_loop(void)
                 break;
             }
             default:
-                _reply(result.source, 0, ERR_NOMATCH, 0);
+                _reply(result.source, 0, ERR_NOSYS, 0);
                 break;
             }
             break;

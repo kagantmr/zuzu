@@ -180,7 +180,7 @@ void devmgr_loop(int32_t port_handle)
         } else if (command == DEV_REQUEST) {
             handle_dev_request(reply_handle, sender_pid, arg);
         } else {
-            _reply(reply_handle, ERR_NOMATCH, 0, 0);
+            _reply(reply_handle, ERR_NOSYS, 0, 0);
         }
     }
 }

@@ -173,7 +173,7 @@ void sys_pspawn(arch_regs_t *frame) {
 
     spawn_args_t kargs;
     if (!copy_from_user(&kargs, args, sizeof(spawn_args_t))) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADPTR;
         return;
     }
 
@@ -192,7 +192,7 @@ void sys_pspawn(arch_regs_t *frame) {
     if (nlen > sizeof(kname) - 1)
         nlen = sizeof(kname) - 1;
     if (nlen > 0 && !copy_from_user(kname, kargs.name, nlen)) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADPTR;
         return;
     }
 
@@ -241,7 +241,7 @@ void sys_kickstart(arch_regs_t *frame) {
 
     kickstart_args_t kargs;
     if (!copy_from_user(&kargs, args, sizeof(kickstart_args_t))) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADPTR;
         return;
     }
 
@@ -251,14 +251,22 @@ void sys_kickstart(arch_regs_t *frame) {
     }
 
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, kargs.task_handle);
-    if (!entry || entry->type != HANDLE_TASK) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+    if (!entry) {
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+        return;
+    }
+    if (entry->type != HANDLE_TASK) {
+        (*arch_reg(frame, 0)) = ERR_BADTYPE;
         return;
     }
 
     process_t *target = entry->task;
-    if (!target || !target->thread || target->thread->state != FROZEN) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+    if (!target || !target->thread) {
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+        return;
+    }
+    if (target->thread->state != FROZEN) {
+        (*arch_reg(frame, 0)) = ERR_BUSY;
         return;
     }
 
@@ -280,14 +288,18 @@ void sys_pkill(arch_regs_t *frame) {
     uint32_t handle_idx = (*arch_reg(frame, 0));
 
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
-    if (!entry || entry->type != HANDLE_TASK) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+    if (!entry) {
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+        return;
+    }
+    if (entry->type != HANDLE_TASK) {
+        (*arch_reg(frame, 0)) = ERR_BADTYPE;
         return;
     }
 
     process_t *target = entry->task;
     if (!target || !target->thread) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;
     }
 
@@ -352,8 +364,12 @@ void sys_tmake(arch_regs_t *frame) {
 void sys_tjoin(arch_regs_t *frame) {
     tid_t tid = (*arch_reg(frame, 0));
     thread_t *thread = thread_find_by_tid(tid);
-    if (!thread || thread->owner_process != current_thread->owner_process) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+    if (!thread) {
+        (*arch_reg(frame, 0)) = ERR_NOENT;
+        return;
+    }
+    if (thread->owner_process != current_thread->owner_process) {
+        (*arch_reg(frame, 0)) = ERR_NOPERM;
         return;
     }
 

@@ -503,7 +503,7 @@ process_t *process_create(const char* name) {
     }
 
     zpid_t start = next_pid % MAX_PROCESSES;
-    uint32_t slot = start;
+    tid_t slot = start;
     do {
         if (process_table[slot] == NULL)
             break;
@@ -838,7 +838,7 @@ void process_kill(process_t *p, const int exit_status) {
 
     process_t *parent = process_find_by_pid(p->parent_pid);
     if (parent && parent->thread && parent->thread->state == BLOCKED
-              && (parent->waiting_for == p->pid || parent->waiting_for == UINT32_MAX)) {
+              && (parent->waiting_for == p->pid || parent->waiting_for == -1)) {
         parent->thread->state = READY;
         parent->waiting_for = 0;
         sched_add(parent->thread);

@@ -6,8 +6,8 @@
 #include "err.h"
 
 typedef int32_t handle_t;
-typedef uint32_t zpid_t;
-typedef uint32_t tid_t;
+typedef int32_t zpid_t;
+typedef int32_t tid_t;
 typedef uint32_t den_id_t;
 typedef uint64_t tick_t;
 typedef uintptr_t paddr_t;

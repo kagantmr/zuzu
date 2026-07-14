@@ -23,6 +23,6 @@
 #define DEV_CLASS_BLOCK  3 /* first block storage device */
 #define DEV_CLASS_NIC    4 /* first network interface controller */
 
-/* Error codes (ERR_NOENT, ERR_NOMATCH, ERR_NOMEM, ...) live in <zuzu/err.h> */
+/* Error codes (ERR_NOENT, ERR_NOSYS, ERR_NOMEM, ...) live in <zuzu/err.h> */
 
 #endif

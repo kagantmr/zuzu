@@ -22,7 +22,7 @@ void sys_shm_create(arch_regs_t *frame)
     }
     if (size > 1024 * 1024 * 32)
     {
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
+        (*arch_reg(frame, 0)) = ERR_OVERFLOW; // 32mb static cap
         return;
     }
     const size_t page_count = size / PAGE_SIZE;

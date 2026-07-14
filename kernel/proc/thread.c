@@ -17,7 +17,7 @@ static spinlock_t thread_table_lock = SPINLOCK_INIT;
 static int thread_table_find_free_slot(void)
 {
     tid_t start = next_tid % MAX_THREADS;
-    uint32_t slot = start;
+    tid_t slot = start;
 
     do {
         if (thread_table[slot] == NULL)

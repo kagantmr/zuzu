@@ -71,17 +71,17 @@ void sys_irq_claim(arch_regs_t *frame) {
     uint32_t handle_idx = (*arch_reg(frame, 0));
 
     if (handle_idx == 0) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;
     }
 
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
     if (!entry) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;
     }
     if (entry->type != HANDLE_DEVICE) {
-        (*arch_reg(frame, 0)) = ERR_MALFORMED;
+        (*arch_reg(frame, 0)) = ERR_BADTYPE;
         return;
     }
 
@@ -111,12 +111,16 @@ void sys_irq_bind(arch_regs_t *frame) {
     handle_t ntfn_handle = (*arch_reg(frame, 1));   // was port_handle
 
     if (dev_handle == 0) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;
     }
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, dev_handle);
-    if (!entry || entry->type != HANDLE_DEVICE) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+    if (!entry) {
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+        return;
+    }
+    if (entry->type != HANDLE_DEVICE) {
+        (*arch_reg(frame, 0)) = ERR_BADTYPE;
         return;
     }
 
@@ -131,8 +135,12 @@ void sys_irq_bind(arch_regs_t *frame) {
     }
 
     handle_entry_t *ntfn_entry = handle_vec_get(&current_thread->owner_process->handle_table, ntfn_handle);
-    if (!ntfn_entry || ntfn_entry->type != HANDLE_NOTIFICATION || !ntfn_entry->ntfn) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+    if (!ntfn_entry || !ntfn_entry->ntfn) {
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+        return;
+    }
+    if (ntfn_entry->type != HANDLE_NOTIFICATION) {
+        (*arch_reg(frame, 0)) = ERR_BADTYPE;
         return;
     }
 
@@ -197,16 +205,16 @@ void sys_irq_done(arch_regs_t* frame) {
     handle_t dev_handle  = (*arch_reg(frame, 0));
 
     if (dev_handle == 0) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;
     }
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, dev_handle);
     if (!entry) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;
     }
     if (entry->type != HANDLE_DEVICE) {
-        (*arch_reg(frame, 0)) = ERR_MALFORMED;
+        (*arch_reg(frame, 0)) = ERR_BADTYPE;
         return;
     }
     if (!valid_irq(entry->dev->irq)) {
