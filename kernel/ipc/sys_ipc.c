@@ -264,7 +264,7 @@ void __attribute__((hot)) sys_msg_send(arch_regs_t *frame)
         } else {
             arch_regs_t *rx_frame = rx_thread->trap_frame;
             if (!trap_frame_sane(rx_frame))
-                ipc_panic_bad_trap_frame("msg_send.rx", rx_thread->owner_process, rx_frame);
+                ipc_panic_bad_trap_frame("zuzu_msg_send.rx", rx_thread->owner_process, rx_frame);
             (*arch_reg(rx_frame, 0)) = current_thread->owner_process->pid;
             (*arch_reg(rx_frame, 1)) = (*arch_reg(frame, 1));
             (*arch_reg(rx_frame, 2)) = (*arch_reg(frame, 2));
@@ -306,7 +306,7 @@ void __attribute__((hot)) sys_msg_recv(arch_regs_t *frame)
         arch_regs_t *sr_frame = sr_thread->trap_frame;
         if (!trap_frame_sane(sr_frame))
         {
-            ipc_panic_bad_trap_frame("msg_recv.sr", sr_thread->owner_process, sr_frame);
+            ipc_panic_bad_trap_frame("zuzu_msg_recv.sr", sr_thread->owner_process, sr_frame);
         }
 
         // Copy message to receiver
@@ -415,9 +415,9 @@ void __attribute__((hot)) sys_msg_recv(arch_regs_t *frame)
          * own frame on the way back out of a blocking recv, and catch an
          * impossible timeout wake on an infinite recv. */
         if (!trap_frame_sane(frame))
-            ipc_panic_bad_trap_frame("msg_recv.wake", current_thread->owner_process, frame);
+            ipc_panic_bad_trap_frame("zuzu_msg_recv.wake", current_thread->owner_process, frame);
         if (timeout_ms == TIMEOUT_INFINITE && current_thread->wake_reason == WAKE_TIMEOUT)
-            ipc_panic_bad_trap_frame("msg_recv.wake-timeout-on-infinite",
+            ipc_panic_bad_trap_frame("zuzu_msg_recv.wake-timeout-on-infinite",
                                      current_thread->owner_process, frame);
 
         if (timeout_ms != TIMEOUT_INFINITE && current_thread->wake_reason != WAKE_TIMEOUT &&
@@ -457,7 +457,7 @@ void __attribute__((hot)) sys_msg_call(arch_regs_t *frame)
         thread_t *rx_thread = rx_slot->owner;
         arch_regs_t *rx_frame = rx_thread->trap_frame;
         if (!trap_frame_sane(rx_frame))
-            ipc_panic_bad_trap_frame("msg_call.rx", rx_thread->owner_process, rx_frame);
+            ipc_panic_bad_trap_frame("zuzu_msg_call.rx", rx_thread->owner_process, rx_frame);
 
         int slot = handle_vec_find_free(&rx_thread->owner_process->handle_table);
         if (slot < 0)
@@ -535,7 +535,7 @@ void __attribute__((hot)) sys_msg_reply(arch_regs_t *frame)
     arch_regs_t *target_frame = target_thread->trap_frame;
     if (!trap_frame_sane(target_frame))
     {
-        ipc_panic_bad_trap_frame("msg_reply.target", target_thread->owner_process, target_frame);
+        ipc_panic_bad_trap_frame("zuzu_msg_reply.target", target_thread->owner_process, target_frame);
     }
     (*arch_reg(target_frame, 0)) = 0;           // success
     (*arch_reg(target_frame, 1)) = (*arch_reg(frame, 1)); // reply payload
@@ -604,7 +604,7 @@ void sys_msg_lsend(arch_regs_t *frame)
         } else {
             arch_regs_t *rx_frame = rx_thread->trap_frame;
             if (!trap_frame_sane(rx_frame))
-                ipc_panic_bad_trap_frame("msg_lsend.rx", rx_thread->owner_process, rx_frame);
+                ipc_panic_bad_trap_frame("zuzu_msg_lsend.rx", rx_thread->owner_process, rx_frame);
             (*arch_reg(rx_frame, 0)) = current_thread->owner_process->pid;
             (*arch_reg(rx_frame, 1)) = xlen;
             (*arch_reg(rx_frame, 2)) = 0;
@@ -662,7 +662,7 @@ void sys_msg_lcall(arch_regs_t *frame)
         thread_t *rx_thread = rx_slot->owner;
         arch_regs_t *rx_frame = rx_thread->trap_frame;
         if (!trap_frame_sane(rx_frame))
-            ipc_panic_bad_trap_frame("msg_lcall.rx", rx_thread->owner_process, rx_frame);
+            ipc_panic_bad_trap_frame("zuzu_msg_lcall.rx", rx_thread->owner_process, rx_frame);
 
         int slot = handle_vec_find_free(&rx_thread->owner_process->handle_table);
         if (slot < 0)
@@ -752,7 +752,7 @@ void sys_msg_lreply(arch_regs_t *frame)
     arch_regs_t *target_frame = target_thread->trap_frame;
     if (!trap_frame_sane(target_frame))
     {
-        ipc_panic_bad_trap_frame("msg_lreply.target", target_thread->owner_process, target_frame);
+        ipc_panic_bad_trap_frame("zuzu_msg_lreply.target", target_thread->owner_process, target_frame);
     }
     (*arch_reg(target_frame, 0)) = 0;           // success
     (*arch_reg(target_frame, 1)) = xlen;        // reply payload

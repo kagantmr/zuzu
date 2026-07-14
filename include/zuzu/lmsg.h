@@ -7,7 +7,7 @@
 #include <zuzu/types.h>
 
 static inline void *lmsg_buf(void) {
-    return __zuzu_tcb()->lmsg_buf;
+    return zuzu_tcb()->lmsg_buf;
 }
 
 /* No truncation: oversized payloads are rejected (return 0), matching the

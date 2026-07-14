@@ -14,7 +14,6 @@ typedef struct irq_owner {
     notification_t *bound_ntfn;   // was endpoint_t *bound_port
 } irq_owner_t;
 
-void sys_irq_claim(arch_regs_t* frame);
 void sys_irq_bind(arch_regs_t* frame);
 void sys_irq_done(arch_regs_t* frame);
 void irq_release_all(process_t *owner);

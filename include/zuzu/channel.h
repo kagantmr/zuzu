@@ -13,7 +13,7 @@
  *             reply, reply_len)
  *
  * Server side:
- *   chan_reply(reply_handle, buf, len) reply to a _lcall caller
+ *   chan_reply(reply_handle, buf, len) reply to a zuzu_msg_lcall caller
  */
 
 #include <zuzu/msg.h>
@@ -31,7 +31,7 @@ static inline int32_t chan_send(handle_t port, const void *buf, uint32_t len)
 {
     if (len > LMSG_BUF_SIZE) return ERR_BADARG;
     memcpy(lmsg_buf(), buf, len);
-    return _lsend(port, len);
+    return zuzu_msg_lsend(port, len);
 }
 
 /*
@@ -45,7 +45,7 @@ static inline int32_t chan_call(handle_t port,
     if (len > LMSG_BUF_SIZE) return ERR_BADARG;
     memcpy(lmsg_buf(), buf, len);
 
-    msg_t msg = _lcall(port, len);
+    msg_t msg = zuzu_msg_lcall(port, len);
     if ((int32_t)msg.r0 < 0)
         return (int32_t)msg.r0;
 
@@ -66,7 +66,7 @@ static inline int32_t chan_reply(handle_t reply_handle,
     if (len > LMSG_BUF_SIZE) return ERR_BADARG;
     if (len && buf)
         memcpy(lmsg_buf(), buf, len);
-    return _lreply(reply_handle, len);
+    return zuzu_msg_lreply(reply_handle, len);
 }
 
 #endif /* ZUZU_CHANNEL_H */

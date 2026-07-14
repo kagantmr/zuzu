@@ -20,7 +20,7 @@ static int inject_segment(uint32_t task_handle, const void *elf_data,
 
     // inject file-backed portion
     if (ph->p_filesz > 0) {
-        int32_t rc = _asinject(task_handle, ph->p_vaddr,
+        int32_t rc = zuzu_asinject(task_handle, ph->p_vaddr,
                                (const uint8_t *)elf_data + ph->p_offset,
                                ph->p_filesz, prot);
         if (rc != 0) return rc;
@@ -41,7 +41,7 @@ static int inject_segment(uint32_t task_handle, const void *elf_data,
         if (!zeroes) return -1;
         memset(zeroes, 0, bss_len);
 
-        int32_t rc = _asinject(task_handle, bss_start, zeroes, bss_len,
+        int32_t rc = zuzu_asinject(task_handle, bss_start, zeroes, bss_len,
                                VM_PROT_READ | VM_PROT_WRITE);
         free(zeroes);
         if (rc != 0) return rc;
@@ -102,7 +102,7 @@ static int inject_stack(uint32_t task_handle,
         argv_arr[argc] = 0;
     }
 
-    int32_t rc = _asinject(task_handle, img_base, buf, USER_STACK_SIZE,
+    int32_t rc = zuzu_asinject(task_handle, img_base, buf, USER_STACK_SIZE,
                            VM_PROT_READ | VM_PROT_WRITE);
     free(buf);
     if (rc != 0) return rc;

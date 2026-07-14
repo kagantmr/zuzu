@@ -46,7 +46,7 @@ static int request_and_grant_class(uint32_t dev_class, int32_t target_pid, uint3
         return ERR_NOENT;
     }
 
-    int32_t granted_handle = _grant((int32_t)entry->injected_handle, target_pid);
+    int32_t granted_handle = zuzu_grant((int32_t)entry->injected_handle, target_pid);
     if (granted_handle < 0) {
         return granted_handle;
     }
@@ -71,7 +71,7 @@ static void build_class_table(void) {
     int32_t nic_irq = -1;
 
     for (uint32_t i = 1; i < MAX_HANDLE_SCAN && reg_count < MAX_DRIVERS; i++) {
-        int32_t rc = _querydev(i, compat, sizeof(compat));
+        int32_t rc = zuzu_dev_query(i, compat, sizeof(compat));
         if (rc < 0)
             continue;
 
@@ -126,41 +126,41 @@ static void build_class_table(void) {
 static void handle_register(uint32_t reply_handle, uint32_t dev_class)
 {
     (void)dev_class;
-    _reply(reply_handle, ZUZU_OK, 0, 0);
+    zuzu_msg_reply(reply_handle, ZUZU_OK, 0, 0);
 }
 
 static void handle_dev_request(uint32_t reply_handle, uint32_t sender_pid, uint32_t dev_class)
 {
     const char *compat = class_to_compat(dev_class);
     if (!compat) {
-        _reply(reply_handle, ERR_BADARG, 0, 0);
+        zuzu_msg_reply(reply_handle, ERR_BADARG, 0, 0);
         return;
     }
 
     uint32_t granted_serial = 0;
     int rc = request_and_grant_class(dev_class, (int32_t)sender_pid, &granted_serial);
     if (rc < 0) {
-        _reply(reply_handle, (uint32_t)rc, 0, 0);
+        zuzu_msg_reply(reply_handle, (uint32_t)rc, 0, 0);
         return;
     }
 
-    _reply(reply_handle, ZUZU_OK, granted_serial, 0);
+    zuzu_msg_reply(reply_handle, ZUZU_OK, granted_serial, 0);
 }
 
 int devmgr_setup(void)
 {
     build_class_table();
-    int32_t my_port = _port_create();
+    int32_t my_port = zuzu_port_create();
     if (my_port < 0) {
         return my_port;
     }
 
-    int32_t nt_slot = _grant(my_port, NAMETABLE_PID);
+    int32_t nt_slot = zuzu_grant(my_port, NAMETABLE_PID);
     if (nt_slot < 0) {
         return nt_slot;
     }
 
-    (void)_send(NT_PORT, NT_REGISTER, nt_pack(DEVMGR_NAME), (uint32_t)nt_slot);
+    (void)zuzu_msg_send(NT_PORT, NT_REGISTER, nt_pack(DEVMGR_NAME), (uint32_t)nt_slot);
 
     return my_port;
 }
@@ -168,7 +168,7 @@ int devmgr_setup(void)
 void devmgr_loop(int32_t port_handle)
 {
     while (1) {
-        msg_t msg = _recv(port_handle);
+        msg_t msg = zuzu_msg_recv(port_handle, TIMEOUT_INFINITE);
 
         uint32_t reply_handle = (uint32_t)msg.r0;
         uint32_t sender_pid = msg.r1;
@@ -180,7 +180,7 @@ void devmgr_loop(int32_t port_handle)
         } else if (command == DEV_REQUEST) {
             handle_dev_request(reply_handle, sender_pid, arg);
         } else {
-            _reply(reply_handle, ERR_NOSYS, 0, 0);
+            zuzu_msg_reply(reply_handle, ERR_NOSYS, 0, 0);
         }
     }
 }

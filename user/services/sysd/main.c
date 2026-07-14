@@ -40,7 +40,7 @@ static int name_equals_u32(const char name[SYSD_NAME_LEN], uint32_t name_u32) {
 }
 
 int nt_setup(void) {
-    port = _port_create();
+    port = zuzu_port_create();
     if (port < 0)
         return port;
 
@@ -50,7 +50,7 @@ int nt_setup(void) {
         for (int j = 0; j < SYSD_NAME_LEN; j++) registry_table[i].name[j] = 0;
     }
 
-    den_init(_getpid());
+    den_init(zuzu_getpid());
     return 0;
 }
 
@@ -145,7 +145,7 @@ static void nt_handle_msg(msg_t msg) {
         size_t path_bytes = (size_t)hdr->path_len + 1;
         if (path_bytes == 0 || path_off + path_bytes > req_len ||
             ((char *)lmsg_buf())[path_off + hdr->path_len] != '\0') {
-            _reply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
+            zuzu_msg_reply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
             return;
         }
 
@@ -156,24 +156,24 @@ static void nt_handle_msg(msg_t msg) {
         /* --- lazy-init fbox connection (once) --- */
         if (cached_fbox_handle < 0) {
             uint32_t fbox_h = 0, fbox_p = 0;
-            if (nt_lookup(nt_pack("fbox"), _getpid(), &fbox_h, &fbox_p) != NT_LU_OK) {
-                _reply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
+            if (nt_lookup(nt_pack("fbox"), zuzu_getpid(), &fbox_h, &fbox_p) != NT_LU_OK) {
+                zuzu_msg_reply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
                 return;
             }
             cached_fbox_handle = (int32_t)fbox_h;
 
-            msg_t r = _call(cached_fbox_handle, FBOX_GET_BUF, 0, 0);
+            msg_t r = zuzu_msg_call(cached_fbox_handle, FBOX_GET_BUF, 0, 0);
             if ((int32_t)r.r1 != ZUZU_OK) {
                 cached_fbox_handle = -1;
-                _reply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
+                zuzu_msg_reply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
                 return;
             }
 
-            cached_fbox_buf = (char *)_memmap((int32_t)r.r2, 0, VM_PROT_RW, 0);
+            cached_fbox_buf = (char *)zuzu_memmap((int32_t)r.r2, 0, VM_PROT_RW, 0);
             if ((intptr_t)cached_fbox_buf <= 0) {
                 cached_fbox_handle = -1;
                 cached_fbox_buf = NULL;
-                _reply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
+                zuzu_msg_reply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
                 return;
             }
         }
@@ -182,36 +182,36 @@ static void nt_handle_msg(msg_t msg) {
 
         size_t plen = strlen(path);
         if (plen == 0 || plen >= 4096) {
-            _reply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
+            zuzu_msg_reply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
             return;
         }
 
         memcpy(fbox_buf, path, plen + 1);
-        r = _call(cached_fbox_handle, FBOX_STAT, 0, 0);
+        r = zuzu_msg_call(cached_fbox_handle, FBOX_STAT, 0, 0);
         if ((int32_t)r.r1 != ZUZU_OK) {
-            _reply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
+            zuzu_msg_reply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
             return;
         }
 
         fbox_stat_t *st = (fbox_stat_t *)fbox_buf;
         uint32_t file_size = st->size;
         if (file_size == 0 || st->is_dir) {
-            _reply(reply_handle, (uint32_t)EXEC_EBADELF, 0, 0);
+            zuzu_msg_reply(reply_handle, (uint32_t)EXEC_EBADELF, 0, 0);
             return;
         }
 
         memcpy(fbox_buf, path, plen + 1);
-        r = _call(cached_fbox_handle, FBOX_OPEN, FAT32_MODE_READ, 0);
+        r = zuzu_msg_call(cached_fbox_handle, FBOX_OPEN, FAT32_MODE_READ, 0);
         if ((int32_t)r.r1 != ZUZU_OK) {
-            _reply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
+            zuzu_msg_reply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
             return;
         }
 
         uint32_t fd = r.r2;
         uint8_t *elf = (uint8_t *)malloc(file_size);
         if (!elf) {
-            _call(cached_fbox_handle, FBOX_CLOSE, fd, 0);
-            _reply(reply_handle, (uint32_t)ERR_NOMEM, 0, 0);
+            zuzu_msg_call(cached_fbox_handle, FBOX_CLOSE, fd, 0);
+            zuzu_msg_reply(reply_handle, (uint32_t)ERR_NOMEM, 0, 0);
             return;
         }
 
@@ -221,18 +221,18 @@ static void nt_handle_msg(msg_t msg) {
             if (chunk > 32768)
                 chunk = 32768;
 
-            r = _call(cached_fbox_handle, FBOX_READ, FBOX_PACK_RW(fd, chunk), 0);
+            r = zuzu_msg_call(cached_fbox_handle, FBOX_READ, FBOX_PACK_RW(fd, chunk), 0);
             if ((int32_t)r.r1 != ZUZU_OK || r.r2 == 0)
                 break;
 
             memcpy(elf + total, fbox_buf, r.r2);
             total += r.r2;
         }
-        _call(cached_fbox_handle, FBOX_CLOSE, fd, 0);
+        zuzu_msg_call(cached_fbox_handle, FBOX_CLOSE, fd, 0);
 
         if (total != file_size) {
             free(elf);
-            _reply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
+            zuzu_msg_reply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
             return;
         }
 
@@ -242,7 +242,7 @@ static void nt_handle_msg(msg_t msg) {
                              hdr->argc, &reply);
         free(elf);
         if (rc != 0) {
-            _reply(reply_handle, (uint32_t)EXEC_EBADELF, 0, 0);
+            zuzu_msg_reply(reply_handle, (uint32_t)EXEC_EBADELF, 0, 0);
             return;
         }
 
@@ -292,7 +292,7 @@ static void nt_handle_msg(msg_t msg) {
     } else if (command == NT_LOOKUP) {
         status = nt_lookup(name_u32, sender, &out_handle, &out_pid);
         if (status == NT_LU_OK) {
-            int32_t slot = _grant((int32_t)out_handle, (int32_t)sender);
+            int32_t slot = zuzu_grant((int32_t)out_handle, (int32_t)sender);
             if (slot < 0)
                 status = NT_LU_NOMATCH;
             else
@@ -346,7 +346,7 @@ static void nt_handle_msg(msg_t msg) {
         }
     }
     if (needs_reply)
-        _reply(reply_handle, (uint32_t)status, out_handle, out_pid);
+        zuzu_msg_reply(reply_handle, (uint32_t)status, out_handle, out_pid);
 }
 
 #define WAIT_TIMEOUT_MS 30000u
@@ -384,13 +384,13 @@ static bool wait_for_service(uint32_t name_u32) {
     uint32_t handle = 0, pid = 0, waited_ms = 0;
     handle_t recv_handles[1] = {(handle_t)port};
 
-    while (nt_lookup(name_u32, _getpid(), &handle, &pid) != NT_LU_OK &&
+    while (nt_lookup(name_u32, zuzu_getpid(), &handle, &pid) != NT_LU_OK &&
            waited_ms < WAIT_TIMEOUT_MS) {
-        int32_t dead = _wait(-1, NULL, WNOHANG);
+        int32_t dead = zuzu_wait(-1, NULL, WNOHANG);
         if (dead > 0) scrub_pid((uint32_t)dead);
 
         waitany_result_t any = {0};
-        if (_waitany(recv_handles, 1, WAIT_SLICE_MS, &any) == 0) {
+        if (zuzu_waitany(recv_handles, 1, WAIT_SLICE_MS, &any) == 0) {
             msg_t msg;
             if (recvany_to_ipcmsg(&any, &msg))
                 nt_handle_msg(msg);
@@ -398,15 +398,15 @@ static bool wait_for_service(uint32_t name_u32) {
         waited_ms += WAIT_SLICE_MS;
     }
 
-    return nt_lookup(name_u32, _getpid(), &handle, &pid) == NT_LU_OK;
+    return nt_lookup(name_u32, zuzu_getpid(), &handle, &pid) == NT_LU_OK;
 }
 
 void sysd_loop(void)
 {
     while (1) {
-        int32_t dead = _wait(-1, NULL, WNOHANG);
+        int32_t dead = zuzu_wait(-1, NULL, WNOHANG);
         if (dead > 0) scrub_pid((uint32_t)dead);
-        nt_handle_msg(_recv(port));
+        nt_handle_msg(zuzu_msg_recv(port, TIMEOUT_INFINITE));
     }
 }
 
@@ -564,13 +564,13 @@ static bool wait_for_tty_registration(uint32_t pid,
     uint32_t waited_ms = 0;
     handle_t recv_handles[1] = {(handle_t)port};
 
-    while (nt_lookup_pid(pid, _getpid(), out_handle, out_pid) != NT_LU_OK &&
+    while (nt_lookup_pid(pid, zuzu_getpid(), out_handle, out_pid) != NT_LU_OK &&
            waited_ms < WAIT_TIMEOUT_MS) {
-        int32_t dead = _wait(-1, NULL, WNOHANG);
+        int32_t dead = zuzu_wait(-1, NULL, WNOHANG);
         if (dead > 0) scrub_pid((uint32_t)dead);
 
         waitany_result_t any = {0};
-        if (_waitany(recv_handles, 1, WAIT_SLICE_MS, &any) == 0) {
+        if (zuzu_waitany(recv_handles, 1, WAIT_SLICE_MS, &any) == 0) {
             msg_t msg;
             if (recvany_to_ipcmsg(&any, &msg))
                 nt_handle_msg(msg);
@@ -578,7 +578,7 @@ static bool wait_for_tty_registration(uint32_t pid,
         waited_ms += WAIT_SLICE_MS;
     }
 
-    return nt_lookup_pid(pid, _getpid(), out_handle, out_pid) == NT_LU_OK;
+    return nt_lookup_pid(pid, zuzu_getpid(), out_handle, out_pid) == NT_LU_OK;
 }
 
 static void register_tty_aliases(void)
@@ -610,7 +610,7 @@ int main(void)
 
     if (nt_setup() < 0)
         return 1;
-    nt_register(nt_pack(NT_NAME_SYS), (uint32_t)port, _getpid(), 0);
+    nt_register(nt_pack(NT_NAME_SYS), (uint32_t)port, zuzu_getpid(), 0);
 
     /* ---- read boot manifest from CPIO ---- */
 
@@ -629,7 +629,7 @@ int main(void)
         if (!e->in_cpio || e->spawn_last)
             continue;
 
-        tspawn_result_t ts = _pspawn(e->name);
+        tspawn_result_t ts = zuzu_pspawn(e->name);
         if (ts.task_handle < 0)
             continue;
 
@@ -645,7 +645,7 @@ int main(void)
 
     /* ---- storage den ---- */
 
-    int disk_den = den_create(_getpid(), nt_pack("disk"));
+    int disk_den = den_create(zuzu_getpid(), nt_pack("disk"));
     if (disk_den >= 0) {
         for (int i = 0; i < boot_count; i++) {
             if (!boot_entries[i].injected) continue;
@@ -660,7 +660,7 @@ int main(void)
         boot_entry_t *e = &boot_entries[i];
         if (!e->injected) continue;
 
-        _kickstart(e->task_handle, e->reply.entry, e->reply.sp,
+        zuzu_kickstart(e->task_handle, e->reply.entry, e->reply.sp,
                    e->reply.argc, e->reply.argv_va);
     }
 
@@ -690,7 +690,7 @@ int main(void)
         if (!e->in_cpio || !e->spawn_last)
             continue;
 
-        tspawn_result_t ts = _pspawn(e->name);
+        tspawn_result_t ts = zuzu_pspawn(e->name);
         if (ts.task_handle < 0)
             continue;
 
@@ -703,7 +703,7 @@ int main(void)
             continue;
         e->injected = true;
 
-        _kickstart(e->task_handle, e->reply.entry, e->reply.sp,
+        zuzu_kickstart(e->task_handle, e->reply.entry, e->reply.sp,
                    e->reply.argc, e->reply.argv_va);
     }
 

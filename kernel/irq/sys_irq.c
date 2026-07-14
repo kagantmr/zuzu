@@ -67,48 +67,14 @@ static inline bool valid_irq(irq_t irq_num) {
     return (irq_num < MAX_IRQS) && !arch_irq_is_reserved(irq_num);
 }
 
-void sys_irq_claim(arch_regs_t *frame) {
-    uint32_t handle_idx = (*arch_reg(frame, 0));
-
-    if (handle_idx == 0) {
-        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
-        return;
-    }
-
-    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
-    if (!entry) {
-        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
-        return;
-    }
-    if (entry->type != HANDLE_DEVICE) {
-        (*arch_reg(frame, 0)) = ERR_BADTYPE;
-        return;
-    }
-
-    device_cap_t *cap = entry->dev;
-    irq_t irq_num = cap->irq;
-
-    if (!valid_irq(irq_num)) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-    if (irq_owners[irq_num].owner) {
-        (*arch_reg(frame, 0)) = ERR_BUSY;
-        return;
-    }
-
-    irq_owners[irq_num] = (irq_owner_t){
-        .bound_ntfn = NULL,
-        .owner = current_thread->owner_process,
-        .pending = false
-    };
-    arch_irq_register(irq_num, relay_handler, (void*)(vaddr_t)irq_num);
-    (*arch_reg(frame, 0)) = 0;
-}
-
+/*
+ * zuzu_irq_bind: claim ownership of a device's IRQ line (if not already owned by
+ * the caller) and bind a notification to it in a single syscall. Formerly two
+ * syscalls, irq_claim + zuzu_irq_bind, which every caller invoked back-to-back.
+ */
 void sys_irq_bind(arch_regs_t *frame) {
     handle_t dev_handle  = (*arch_reg(frame, 0));
-    handle_t ntfn_handle = (*arch_reg(frame, 1));   // was port_handle
+    handle_t ntfn_handle = (*arch_reg(frame, 1));
 
     if (dev_handle == 0) {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE;
@@ -129,11 +95,16 @@ void sys_irq_bind(arch_regs_t *frame) {
         (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
-    if (irq_owners[irq_num].owner != current_thread->owner_process) {
-        (*arch_reg(frame, 0)) = ERR_NOPERM;
+
+    /* Ownership: free line is ours to claim; a line owned by someone else is busy. */
+    process_t *owner = irq_owners[irq_num].owner;
+    if (owner && owner != current_thread->owner_process) {
+        (*arch_reg(frame, 0)) = ERR_BUSY;
         return;
     }
 
+    /* Validate the notification before mutating any state so a bad ntfn handle
+     * does not leave the line claimed-but-unbound. */
     handle_entry_t *ntfn_entry = handle_vec_get(&current_thread->owner_process->handle_table, ntfn_handle);
     if (!ntfn_entry || !ntfn_entry->ntfn) {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE;
@@ -143,10 +114,19 @@ void sys_irq_bind(arch_regs_t *frame) {
         (*arch_reg(frame, 0)) = ERR_BADTYPE;
         return;
     }
-
     if (!ntfn_entry->ntfn->alive) {
         (*arch_reg(frame, 0)) = ERR_DEAD;
         return;
+    }
+
+    /* Claim the line on first bind. */
+    if (!owner) {
+        irq_owners[irq_num] = (irq_owner_t){
+            .bound_ntfn = NULL,
+            .owner = current_thread->owner_process,
+            .pending = false
+        };
+        arch_irq_register(irq_num, relay_handler, (void*)(vaddr_t)irq_num);
     }
 
     if (irq_owners[irq_num].bound_ntfn) {

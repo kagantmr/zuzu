@@ -11,16 +11,9 @@ extern "C" {
 
 /* ---- IRQ syscalls ---- */
 
-static inline int32_t _irq_claim(handle_t dev_handle) {
-    register handle_t r0 __asm__("r0") = dev_handle;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : [num] "i"(SYS_IRQ_CLAIM)
-        : "memory");
-    return (int32_t)r0;
-}
-
-static inline int32_t _irq_bind(handle_t dev_handle, handle_t ntfn_handle) {
+/* Claims the device's IRQ line (if not already owned by the caller) and binds
+ * the notification to it in one call. */
+static inline int32_t zuzu_irq_bind(handle_t dev_handle, handle_t ntfn_handle) {
     register handle_t r0 __asm__("r0") = dev_handle;
     register handle_t r1 __asm__("r1") = ntfn_handle;
     __asm__ volatile("svc %[num]"
@@ -30,7 +23,7 @@ static inline int32_t _irq_bind(handle_t dev_handle, handle_t ntfn_handle) {
     return (int32_t)r0;
 }
 
-static inline int32_t _irq_done(handle_t dev_handle) {
+static inline int32_t zuzu_irq_done(handle_t dev_handle) {
     register handle_t r0 __asm__("r0") = dev_handle;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
