@@ -17,11 +17,8 @@
 #define LOG_FMT(fmt) "(ipc) " fmt
 #include "core/log.h"
 
-#define RECVANY_MAX_HANDLES 16u
-#define RECVANY_KIND_SEND 0u
-#define RECVANY_KIND_CALL 1u
-#define RECVANY_KIND_NTFN 2u
-#define RECVANY_KIND_TIMEOUT 3u
+#define WAITANY_MAX_HANDLES 16u
+
 
 extern thread_t *current_thread;
 extern list_head_t sleep_queue;
@@ -219,14 +216,15 @@ static handle_entry_t *validate_reply_handle(process_t *proc,
     return entry;
 }
 
-static void recvany_deliver_notification(uint32_t matched_index,
+static void waitany_deliver_notification(uint32_t matched_index,
                                          uint32_t bits,
-                                         recvany_result_t *result)
+                                         waitany_result_t *result)
 {
     memset(result, 0, sizeof(*result));
+    result->size = sizeof(*result);
     result->matched_index = matched_index;
-    result->kind = RECVANY_KIND_NTFN;
-    result->source = bits;
+    result->kind = WAITANY_KIND_NTFN;
+    result->source = 0;
     result->r1 = bits;
 }
 
@@ -246,18 +244,19 @@ void __attribute__((hot)) sys_msg_send(arch_regs_t *frame)
         thread_wait_slot_t *rx_slot = container_of(receiver, thread_wait_slot_t, node);
         thread_t *rx_thread = rx_slot->owner;
 
-        if (rx_thread->recvany_ep_wait_active) {
-            recvany_result_t *res = &rx_thread->recvany_pending_result;
+        if (rx_thread->waitany_ep_wait_active) {
+            waitany_result_t *res = &rx_thread->waitany_pending_result;
             memset(res, 0, sizeof(*res));
             res->matched_index = rx_slot->index;
-            res->kind = RECVANY_KIND_SEND;
+            res->kind = WAITANY_KIND_SEND;
             res->source = current_thread->owner_process->pid;
             res->r1 = (*arch_reg(frame, 1));
             res->r2 = (*arch_reg(frame, 2));
             res->r3 = (*arch_reg(frame, 3));
-            thread_recvany_clear_waits(rx_thread);
-            thread_recvany_clear_ep_waits(rx_thread);
-            rx_thread->recvany_ep_wait_match_index = rx_slot->index;
+            res->size = sizeof(*res);
+            thread_waitany_clear_waits(rx_thread);
+            thread_waitany_clear_ep_waits(rx_thread);
+            rx_thread->waitany_ep_wait_match_index = rx_slot->index;
             ipc_cancel_timeout(rx_thread);
             rx_thread->wake_reason = WAKE_IPC;
             rx_thread->state = READY;
@@ -475,18 +474,19 @@ void __attribute__((hot)) sys_msg_call(arch_regs_t *frame)
         rentry->reply = rc;
         process_track_reply_cap(current_thread->owner_process, rx_thread->owner_process, (uint32_t)slot, rc);
 
-        if (rx_thread->recvany_ep_wait_active) {
-            recvany_result_t *res = &rx_thread->recvany_pending_result;
+        if (rx_thread->waitany_ep_wait_active) {
+            waitany_result_t *res = &rx_thread->waitany_pending_result;
             memset(res, 0, sizeof(*res));
+            res->size = sizeof(*res);
             res->matched_index = rx_slot->index;
-            res->kind = RECVANY_KIND_CALL;
+            res->kind = WAITANY_KIND_CALL;
             res->source = (uint32_t)slot;
             res->r1 = current_thread->owner_process->pid;
             res->r2 = (*arch_reg(frame, 1));
             res->r3 = (*arch_reg(frame, 2));
-            thread_recvany_clear_waits(rx_thread);
-            thread_recvany_clear_ep_waits(rx_thread);
-            rx_thread->recvany_ep_wait_match_index = rx_slot->index;
+            thread_waitany_clear_waits(rx_thread);
+            thread_waitany_clear_ep_waits(rx_thread);
+            rx_thread->waitany_ep_wait_match_index = rx_slot->index;
             ipc_cancel_timeout(rx_thread);
             rx_thread->wake_reason = WAKE_IPC;
             rx_thread->state = READY;
@@ -583,19 +583,20 @@ void sys_msg_lsend(arch_regs_t *frame)
         thread_wait_slot_t *rx_slot = container_of(receiver, thread_wait_slot_t, node);
         thread_t *rx_thread = rx_slot->owner;
 
-        if (rx_thread->recvany_ep_wait_active) {
-            recvany_result_t *res = &rx_thread->recvany_pending_result;
+        if (rx_thread->waitany_ep_wait_active) {
+            waitany_result_t *res = &rx_thread->waitany_pending_result;
             memset(res, 0, sizeof(*res));
+            res->size = sizeof(*res);
             res->matched_index = rx_slot->index;
-            res->kind = RECVANY_KIND_SEND;
+            res->kind = WAITANY_KIND_SEND;
             res->source = current_thread->owner_process->pid;
             ipc_buf_copy(current_thread, rx_thread, xlen);
             res->r1 = xlen;
             res->r2 = 0;
             res->r3 = 0;
-            thread_recvany_clear_waits(rx_thread);
-            thread_recvany_clear_ep_waits(rx_thread);
-            rx_thread->recvany_ep_wait_match_index = rx_slot->index;
+            thread_waitany_clear_waits(rx_thread);
+            thread_waitany_clear_ep_waits(rx_thread);
+            rx_thread->waitany_ep_wait_match_index = rx_slot->index;
             ipc_cancel_timeout(rx_thread);
             rx_thread->wake_reason = WAKE_IPC;
             rx_thread->state = READY;
@@ -678,19 +679,20 @@ void sys_msg_lcall(arch_regs_t *frame)
         rentry->reply = rc;
         process_track_reply_cap(current_thread->owner_process, rx_thread->owner_process, (uint32_t)slot, rc);
 
-        if (rx_thread->recvany_ep_wait_active) {
-            recvany_result_t *res = &rx_thread->recvany_pending_result;
+        if (rx_thread->waitany_ep_wait_active) {
+            waitany_result_t *res = &rx_thread->waitany_pending_result;
             memset(res, 0, sizeof(*res));
+            res->size = sizeof(*res);
             res->matched_index = rx_slot->index;
-            res->kind = RECVANY_KIND_CALL;
+            res->kind = WAITANY_KIND_CALL;
             res->source = (uint32_t)slot;
             res->r1 = current_thread->owner_process->pid;
             ipc_buf_copy(current_thread, rx_thread, xlen);
             res->r2 = xlen;
             res->r3 = 0;
-            thread_recvany_clear_waits(rx_thread);
-            thread_recvany_clear_ep_waits(rx_thread);
-            rx_thread->recvany_ep_wait_match_index = rx_slot->index;
+            thread_waitany_clear_waits(rx_thread);
+            thread_waitany_clear_ep_waits(rx_thread);
+            rx_thread->waitany_ep_wait_match_index = rx_slot->index;
             ipc_cancel_timeout(rx_thread);
             rx_thread->wake_reason = WAKE_IPC;
             rx_thread->state = READY;
@@ -775,10 +777,10 @@ void sys_msg_lreply(arch_regs_t *frame)
     (*arch_reg(frame, 0)) = 0;
 }
 
-static int recvany_deliver_sender(uint32_t matched_index,
+static int waitany_deliver_sender(uint32_t matched_index,
                                   thread_t *receiver,
                                   list_node_t *sender_node,
-                                  recvany_result_t *result)
+                                  waitany_result_t *result)
 {
     thread_t *sr_thread = container_of(sender_node, thread_t, node);
     arch_regs_t *sr_frame = sr_thread->trap_frame;
@@ -788,11 +790,12 @@ static int recvany_deliver_sender(uint32_t matched_index,
     }
 
     memset(result, 0, sizeof(*result));
+    result->size = sizeof(*result);
     result->matched_index = matched_index;
 
     if (sr_thread->ipc_state == IPC_SENDER)
     {
-        result->kind = RECVANY_KIND_SEND;
+        result->kind = WAITANY_KIND_SEND;
         result->source = sr_thread->owner_process->pid;
         result->r1 = (*arch_reg(sr_frame, 1));
         result->r2 = (*arch_reg(sr_frame, 2));
@@ -836,7 +839,7 @@ static int recvany_deliver_sender(uint32_t matched_index,
         rentry->reply = rc;
         process_track_reply_cap(sr_thread->owner_process, receiver->owner_process, (uint32_t)slot, rc);
 
-        result->kind = RECVANY_KIND_CALL;
+        result->kind = WAITANY_KIND_CALL;
         result->source = (uint32_t)slot;
         result->r1 = sr_thread->owner_process->pid;
         result->r2 = (*arch_reg(sr_frame, 1));
@@ -855,9 +858,9 @@ static int recvany_deliver_sender(uint32_t matched_index,
     return ERR_BADARG;
 }
 
-static int recvany_try_once(const handle_t *handles,
+static int waitany_try_once(const handle_t *handles,
                             uint32_t count,
-                            recvany_result_t *result,
+                            waitany_result_t *result,
                             notification_t **wait_ntfns,
                             uint32_t *wait_ntfn_indices,
                             uint32_t *wait_count_out,
@@ -865,8 +868,8 @@ static int recvany_try_once(const handle_t *handles,
                             uint32_t *wait_ep_indices,
                             uint32_t *wait_ep_count_out)
 {
-    endpoint_t *endpoints[RECVANY_MAX_HANDLES];
-    notification_t *notifications[RECVANY_MAX_HANDLES];
+    endpoint_t *endpoints[WAITANY_MAX_HANDLES];
+    notification_t *notifications[WAITANY_MAX_HANDLES];
 
     if (wait_count_out)
         *wait_count_out = 0;
@@ -907,7 +910,7 @@ static int recvany_try_once(const handle_t *handles,
     for (uint32_t i = 0; i < count; i++) {
         if (endpoints[i] && !list_empty(&endpoints[i]->sender_queue)) {
             list_node_t *sender = list_pop_front(&endpoints[i]->sender_queue);
-            return recvany_deliver_sender(i, current_thread, sender, result);
+            return waitany_deliver_sender(i, current_thread, sender, result);
         }
     }
 
@@ -916,7 +919,7 @@ static int recvany_try_once(const handle_t *handles,
         if (ntfn && ntfn->word != 0) {
             uint32_t bits = ntfn->word;
             ntfn->word = 0;
-            recvany_deliver_notification(i, bits, result);
+            waitany_deliver_notification(i, bits, result);
             return 0;
         }
     }
@@ -950,13 +953,14 @@ static int recvany_try_once(const handle_t *handles,
     return ERR_BUSY;
 }
 
-static bool recvany_write_timeout_result(uintptr_t result_ptr)
+static bool waitany_write_timeout_result(uintptr_t result_ptr, uint32_t size)
 {
-    recvany_result_t result;
+    waitany_result_t result;
     memset(&result, 0, sizeof(result));
+    result.size = sizeof(result);
     result.matched_index = UINT32_MAX;
-    result.kind = RECVANY_KIND_TIMEOUT;
-    return copy_to_user((void *)result_ptr, &result, sizeof(result));
+    result.kind = WAITANY_KIND_TIMEOUT;
+    return copy_to_user((void *)result_ptr, &result, size);
 }
 
 void sys_waitany(arch_regs_t *frame)
@@ -972,18 +976,30 @@ void sys_waitany(arch_regs_t *frame)
     uintptr_t result_ptr = (uintptr_t)(*arch_reg(frame, 3));
 
     if (!current_thread || !handles_ptr || !result_ptr ||
-        count == 0 || count > RECVANY_MAX_HANDLES) {
+        count == 0 || count > WAITANY_MAX_HANDLES) {
         (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
-    if (!validate_user_ptr(result_ptr, sizeof(recvany_result_t)) ||
-        !fault_in_pages(current_thread->owner_process->as, result_ptr, sizeof(recvany_result_t), true)) {
+    if (!validate_user_ptr(result_ptr, sizeof(waitany_result_t)) ||
+        !fault_in_pages(current_thread->owner_process->as, result_ptr, sizeof(waitany_result_t), true)) {
         (*arch_reg(frame, 0)) = ERR_BADPTR;
         return;
     }
 
-    handle_t handles_local[RECVANY_MAX_HANDLES];
+    uint32_t caller_size;
+    if (!copy_from_user(&caller_size, (const void *)result_ptr, sizeof(uint32_t))) {
+        (*arch_reg(frame, 0)) = ERR_BADPTR;
+        return;
+    }
+    if (caller_size < sizeof(waitany_result_t)) {   /* v1: exact; later: >= v1 size */
+        (*arch_reg(frame, 0)) = ERR_BADARG;
+        return;
+    }
+    size_t wlen = caller_size < sizeof(waitany_result_t)
+                ? caller_size : sizeof(waitany_result_t);
+
+    handle_t handles_local[WAITANY_MAX_HANDLES];
     size_t copy_size = count * sizeof(handle_t);
     if (!copy_from_user(handles_local, (const void *)handles_ptr, copy_size)) {
         (*arch_reg(frame, 0)) = ERR_BADPTR;
@@ -999,18 +1015,18 @@ void sys_waitany(arch_regs_t *frame)
     }
 
     for (;;) {
-        notification_t *wait_ntfns[RECVANY_MAX_HANDLES];
-        uint32_t wait_ntfn_indices[RECVANY_MAX_HANDLES];
+        notification_t *wait_ntfns[WAITANY_MAX_HANDLES];
+        uint32_t wait_ntfn_indices[WAITANY_MAX_HANDLES];
         uint32_t wait_count = 0;
-        endpoint_t *wait_eps[RECVANY_MAX_HANDLES];
-        uint32_t wait_ep_indices[RECVANY_MAX_HANDLES];
+        endpoint_t *wait_eps[WAITANY_MAX_HANDLES];
+        uint32_t wait_ep_indices[WAITANY_MAX_HANDLES];
         uint32_t ep_wait_count = 0;
-        recvany_result_t result;
-        int err = recvany_try_once(handles_local, count, &result,
+        waitany_result_t result;
+        int err = waitany_try_once(handles_local, count, &result,
                                    wait_ntfns, wait_ntfn_indices, &wait_count,
                                    wait_eps, wait_ep_indices, &ep_wait_count);
         if (err == 0) {
-            if (!copy_to_user((void *)result_ptr, &result, sizeof(result))) {
+            if (!copy_to_user((void *)result_ptr, &result, wlen)) {
                 (*arch_reg(frame, 0)) = ERR_BADPTR;
                 return;
             }
@@ -1032,7 +1048,7 @@ void sys_waitany(arch_regs_t *frame)
         if (timeout_ms != TIMEOUT_INFINITE) {
             tick_t now = get_ticks();
             if (now >= deadline) {
-                if (!recvany_write_timeout_result(result_ptr)) {
+                if (!waitany_write_timeout_result(result_ptr, wlen)) {
                     (*arch_reg(frame, 0)) = ERR_BADPTR;
                     return;
                 }
@@ -1043,35 +1059,35 @@ void sys_waitany(arch_regs_t *frame)
 
         /* Enqueue on notification wait queues */
         if (wait_count > 0) {
-            current_thread->recvany_wait_count = wait_count;
-            current_thread->recvany_wait_match_index = RECVANY_NO_MATCH;
-            current_thread->recvany_wait_bits = 0;
-            current_thread->recvany_wait_active = true;
+            current_thread->waitany_wait_count = wait_count;
+            current_thread->waitany_wait_match_index = WAITANY_NO_MATCH;
+            current_thread->waitany_wait_bits = 0;
+            current_thread->waitany_active = true;
 
             for (uint32_t i = 0; i < wait_count; i++) {
-                current_thread->recvany_wait_ntfns[i] = wait_ntfns[i];
-                current_thread->recvany_wait_slots[i].owner = current_thread;
-                current_thread->recvany_wait_slots[i].index = wait_ntfn_indices[i];
-                current_thread->recvany_wait_slots[i].node.prev = NULL;
-                current_thread->recvany_wait_slots[i].node.next = NULL;
-                list_add_tail(&current_thread->recvany_wait_slots[i].node,
+                current_thread->waitany_wait_ntfns[i] = wait_ntfns[i];
+                current_thread->waitany_wait_slots[i].owner = current_thread;
+                current_thread->waitany_wait_slots[i].index = wait_ntfn_indices[i];
+                current_thread->waitany_wait_slots[i].node.prev = NULL;
+                current_thread->waitany_wait_slots[i].node.next = NULL;
+                list_add_tail(&current_thread->waitany_wait_slots[i].node,
                               &wait_ntfns[i]->wait_queue.node);
             }
         }
 
         /* Enqueue on endpoint receiver queues */
         if (ep_wait_count > 0) {
-            current_thread->recvany_ep_wait_count = ep_wait_count;
-            current_thread->recvany_ep_wait_match_index = RECVANY_NO_MATCH;
-            current_thread->recvany_ep_wait_active = true;
+            current_thread->waitany_ep_wait_count = ep_wait_count;
+            current_thread->waitany_ep_wait_match_index = WAITANY_NO_MATCH;
+            current_thread->waitany_ep_wait_active = true;
 
             for (uint32_t i = 0; i < ep_wait_count; i++) {
-                current_thread->recvany_wait_eps[i] = wait_eps[i];
-                current_thread->recvany_ep_wait_slots[i].owner = current_thread;
-                current_thread->recvany_ep_wait_slots[i].index = wait_ep_indices[i];
-                current_thread->recvany_ep_wait_slots[i].node.prev = NULL;
-                current_thread->recvany_ep_wait_slots[i].node.next = NULL;
-                list_add_tail(&current_thread->recvany_ep_wait_slots[i].node,
+                current_thread->waitany_wait_eps[i] = wait_eps[i];
+                current_thread->waitany_ep_wait_slots[i].owner = current_thread;
+                current_thread->waitany_ep_wait_slots[i].index = wait_ep_indices[i];
+                current_thread->waitany_ep_wait_slots[i].node.prev = NULL;
+                current_thread->waitany_ep_wait_slots[i].node.next = NULL;
+                list_add_tail(&current_thread->waitany_ep_wait_slots[i].node,
                               &wait_eps[i]->receiver_queue.node);
             }
         }
@@ -1097,25 +1113,25 @@ void sys_waitany(arch_regs_t *frame)
 
         /* ERR_DEAD from cap_destroy */
         if ((int32_t)(*arch_reg(frame, 0)) == ERR_DEAD) {
-            thread_recvany_clear_waits(current_thread);
-            thread_recvany_clear_ep_waits(current_thread);
+            thread_waitany_clear_waits(current_thread);
+            thread_waitany_clear_ep_waits(current_thread);
             (*arch_reg(frame, 0)) = ERR_DEAD;
             return;
         }
 
         /* Timeout */
         if (current_thread->wake_reason == WAKE_TIMEOUT) {
-            thread_recvany_clear_waits(current_thread);
-            thread_recvany_clear_ep_waits(current_thread);
+            thread_waitany_clear_waits(current_thread);
+            thread_waitany_clear_ep_waits(current_thread);
             continue; /* deadline check at top catches expiry */
         }
 
         /* Woken by endpoint sender */
-        if (current_thread->recvany_ep_wait_match_index != RECVANY_NO_MATCH) {
-            thread_recvany_clear_waits(current_thread);
-            thread_recvany_clear_ep_waits(current_thread);
-            if (!copy_to_user((void *)result_ptr, &current_thread->recvany_pending_result,
-                              sizeof(recvany_result_t))) {
+        if (current_thread->waitany_ep_wait_match_index != WAITANY_NO_MATCH) {
+            thread_waitany_clear_waits(current_thread);
+            thread_waitany_clear_ep_waits(current_thread);
+            if (!copy_to_user((void *)result_ptr, &current_thread->waitany_pending_result,
+                              wlen)) {
                 (*arch_reg(frame, 0)) = ERR_BADPTR;
                 return;
             }
@@ -1124,13 +1140,13 @@ void sys_waitany(arch_regs_t *frame)
         }
 
         /* Woken by notification */
-        if (current_thread->recvany_wait_match_index != RECVANY_NO_MATCH) {
-            recvany_deliver_notification(current_thread->recvany_wait_match_index,
-                                         current_thread->recvany_wait_bits,
+        if (current_thread->waitany_wait_match_index != WAITANY_NO_MATCH) {
+            waitany_deliver_notification(current_thread->waitany_wait_match_index,
+                                         current_thread->waitany_wait_bits,
                                          &result);
-            thread_recvany_clear_waits(current_thread);
-            thread_recvany_clear_ep_waits(current_thread);
-            if (!copy_to_user((void *)result_ptr, &result, sizeof(result))) {
+            thread_waitany_clear_waits(current_thread);
+            thread_waitany_clear_ep_waits(current_thread);
+            if (!copy_to_user((void *)result_ptr, &result, wlen)) {
                 (*arch_reg(frame, 0)) = ERR_BADPTR;
                 return;
             }
@@ -1138,8 +1154,8 @@ void sys_waitany(arch_regs_t *frame)
             return;
         }
 
-        /* Spurious wakeup — retry */
-        thread_recvany_clear_waits(current_thread);
-        thread_recvany_clear_ep_waits(current_thread);
+        /* Spurious wakeup, retry */
+        thread_waitany_clear_waits(current_thread);
+        thread_waitany_clear_ep_waits(current_thread);
     }
 }

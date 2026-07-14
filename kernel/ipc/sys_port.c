@@ -156,10 +156,10 @@ void sys_destroy(arch_regs_t *frame)
             list_node_t *n = list_pop_front(&ep->receiver_queue);
             thread_wait_slot_t *slot = container_of(n, thread_wait_slot_t, node);
             thread_t *t = slot->owner;
-            if (t->recvany_ep_wait_active)
+            if (t->waitany_ep_wait_active)
             {
-                thread_recvany_clear_waits(t);
-                thread_recvany_clear_ep_waits(t);
+                thread_waitany_clear_waits(t);
+                thread_waitany_clear_ep_waits(t);
             }
             else
             {

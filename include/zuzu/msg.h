@@ -114,16 +114,20 @@ static inline int32_t _lreply(handle_t reply_handle, uint32_t buf_len) {
 
 /* (handles_ptr, count, timeout, result_ptr) -> 0 or -err;
  * TIMEOUT_POLL polls, TIMEOUT_INFINITE blocks forever */
-static inline int32_t _waitany(const handle_t *handles, uint32_t count, uint32_t timeout_ms, waitany_result_t *result) {
+static inline int32_t _waitany(const handle_t *handles, uint32_t count,
+                               uint32_t timeout_ms, waitany_result_t *result)
+{
+    result->size = sizeof(*result);   /* versioning handshake, owned by the wrapper */
+
     register uintptr_t r0 __asm__("r0") = (uintptr_t)handles;
-    register uint32_t r1 __asm__("r1") = count;
-    register uint32_t r2 __asm__("r2") = timeout_ms;
+    register uint32_t  r1 __asm__("r1") = count;
+    register uint32_t  r2 __asm__("r2") = timeout_ms;
     register uintptr_t r3 __asm__("r3") = (uintptr_t)result;
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
         : "r"(r1), "r"(r2), "r"(r3), [num] "i"(SYS_WAITANY)
         : "memory");
-    return (int32_t) r0;
+    return (int32_t)r0;
 }
 
 /* ---- Capability syscalls ---- */

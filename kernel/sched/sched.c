@@ -182,8 +182,8 @@ static void sched_wake_sleepers(void) {
             t->wake_reason = WAKE_TIMEOUT;
             if (t->trap_frame)
                 (*arch_reg(t->trap_frame, 0)) = ERR_TIMEOUT;
-            thread_recvany_clear_waits(t);
-            thread_recvany_clear_ep_waits(t);
+            thread_waitany_clear_waits(t);
+            thread_waitany_clear_ep_waits(t);
             if (t->ntfn_wait_slot.node.prev && t->ntfn_wait_slot.node.next)
                 list_remove(&t->ntfn_wait_slot.node);
             t->state = READY;
