@@ -84,7 +84,7 @@ static void fbox_worker(void *arg)
                 else _reply(job.reply_h, (uint32_t)ERR_NOENT, 0, 0);
                 break;
             default:
-                _reply(job.reply_h, (uint32_t)ERR_NOMATCH, 0, 0);
+                _reply(job.reply_h, (uint32_t)ERR_NOSYS, 0, 0);
                 break;
             }
         }
@@ -246,7 +246,7 @@ static void handle_request(uint32_t reply_h, uint32_t sender,
     case FBOX_READDIR: proxy_readdir(reply_h, client->buf);      break;
     case FBOX_STAT:    proxy_stat(reply_h, client->buf);         break;
     default:
-        _reply(reply_h, (uint32_t)ERR_NOMATCH, 0, 0);
+        _reply(reply_h, (uint32_t)ERR_NOSYS, 0, 0);
         break;
     }
 }

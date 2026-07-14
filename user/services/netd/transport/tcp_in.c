@@ -225,7 +225,7 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
 
 int tcp_recv(int idx, uint8_t *buf, uint16_t sz) {
     tcp_pcb_t *pcb = &tcp_pcbs[idx];
-    if (pcb->state != TCP_ESTABLISHED) return ERR_SYSDOWN;
+    if (pcb->state != TCP_ESTABLISHED) return ERR_NOTCONN;
 
     size_t avail = pcb->rcv_nxt - pcb->rcv_rsq;   // readable bytes
     size_t n = MIN(sz, avail);                    // what actually fits in caller's buf

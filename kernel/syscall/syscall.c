@@ -117,7 +117,7 @@ void __attribute__((hot)) syscall_dispatch(uint8_t svc_num, arch_regs_t *frame)
     }
     if (!trap_frame_sane(frame))
     {
-        KERROR("bad syscall frame: pid=%u svc=%u frame=%p", current_thread->owner_process ? current_thread->owner_process->pid : 0u, svc_num, frame);
+        KERROR("bad syscall frame: pid=%u svc=%u frame=%p", current_thread->owner_process ? current_thread->owner_process->pid : 0, svc_num, frame);
         panic("Corrupt trap_frame at syscall dispatch");
     }
     current_thread->trap_frame = frame;
@@ -131,6 +131,6 @@ void __attribute__((hot)) syscall_dispatch(uint8_t svc_num, arch_regs_t *frame)
     else
     {
         KERROR("System call 0x%X does not exist", svc_num);
-        (*arch_reg(frame, 0)) = ERR_NOMATCH;
+        (*arch_reg(frame, 0)) = ERR_NOSYS;
     }
 };

@@ -619,7 +619,7 @@ static void panic_print_sched(void)
         snprintf(line, sizeof(line),
                  "current: tid=%-4u  pid=%-4u  %-16s  %s  prio=%u",
                  current_thread->tid,
-                 p ? p->pid : 0u,
+                 p ? p->pid : 0,
                  p ? p->name : "(none)",
                  thread_state_str(current_thread->state),
                  current_thread->priority);
@@ -643,7 +643,7 @@ static void panic_print_sched(void)
             process_t *p = t->owner_process;
             snprintf(line, sizeof(line),
                      "  tid=%-4u  pid=%-4u  %-16s  prio=%u",
-                     t->tid, p ? p->pid : 0u,
+                     t->tid, p ? p->pid : 0,
                      p ? p->name : "(none)",
                      t->priority);
             panic_line(line);
@@ -681,7 +681,7 @@ static void panic_print_sched(void)
                 process_t *p = t->owner_process;
                 snprintf(line, sizeof(line),
                          "  tid=%-4u  pid=%-4u  %-16s  wake_tick=%llu",
-                         t->tid, p ? p->pid : 0u,
+                         t->tid, p ? p->pid : 0,
                          p ? p->name : "(none)",
                          (unsigned long long)t->wake_tick);
                 panic_line(line);

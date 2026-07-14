@@ -272,7 +272,7 @@ static void handle_client(msg_t msg)
     }
 
     default:
-        _reply(reply_h, (uint32_t)ERR_NOMATCH, 0, 0);
+        _reply(reply_h, (uint32_t)ERR_NOSYS, 0, 0);
         break;
     }
 }

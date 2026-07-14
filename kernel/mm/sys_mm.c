@@ -27,7 +27,7 @@ static int32_t memmap_anon(process_t *p, vaddr_t hint, size_t size, vm_prot_t pr
     // Do not enforce W^X here, that is memmap's job
 
     if (size > 1024 * 1024 * 32)
-        return ERR_NOMEM; // 32mb is half of the recommended kernel mem anyway
+        return ERR_OVERFLOW; // 32mb static cap; half the recommended kernel mem
 
     if (size % PAGE_SIZE)
         return ERR_BADARG; // Needs page/frame alignment
@@ -46,10 +46,10 @@ static int32_t memmap_anon(process_t *p, vaddr_t hint, size_t size, vm_prot_t pr
         va = p->mmap_va_next;
 
     if (va >= USER_VA_TOP)
-        return ERR_BADARG;
+        return ERR_NOMEM; // user VA space exhausted
     // 2. Bump the cursor
-    if (size > USER_VA_TOP - va) // check for overflow
-        return ERR_BADARG;
+    if (size > USER_VA_TOP - va) // no contiguous VA left
+        return ERR_NOMEM;
 
     if (hint == 0)
         p->mmap_va_next += size;
@@ -89,12 +89,12 @@ static int32_t memmap_shm(process_t *p, handle_entry_t *e, vm_prot_t prot, vaddr
     shmem_t *shmem_obj = e->shm;
 
     if (!shmem_obj)
-        return ERR_BADARG;
+        return ERR_BADHANDLE;
 
     size_t size = shmem_obj->page_count * PAGE_SIZE;
 
-    if ((p->mmap_va_next > USER_VA_TOP - size) || (size > USER_VA_TOP - p->mmap_va_next)) // check for bump pointer overflow
-        return ERR_BADARG;
+    if ((p->mmap_va_next > USER_VA_TOP - size) || (size > USER_VA_TOP - p->mmap_va_next)) // user VA space exhausted
+        return ERR_NOMEM;
 
     const vaddr_t va_base = p->mmap_va_next;
     p->mmap_va_next += size;
@@ -126,11 +126,11 @@ static int32_t memmap_dev(process_t *p, handle_entry_t *e, vm_prot_t prot, vaddr
 {
 
     if (!e)
-        return ERR_BADARG;
+        return ERR_BADHANDLE;
 
     device_cap_t *cap = e->dev;
     if (!cap)
-        return ERR_BADARG;
+        return ERR_BADHANDLE;
 
     if (e->mapped_va)
         return ERR_BUSY;
@@ -199,7 +199,7 @@ void sys_memmap(arch_regs_t *frame)
         handle_entry_t *e = handle_vec_get(&p->handle_table, handle);
         if (!e)
         {
-            *arch_reg(frame, 0) = ERR_BADARG;
+            *arch_reg(frame, 0) = ERR_BADHANDLE;
             return;
         }
         switch (e->type)
@@ -230,7 +230,7 @@ void sys_memmap(arch_regs_t *frame)
         break;
         default:
         {
-            rc = ERR_MALFORMED;
+            rc = ERR_BADTYPE;
         } break;
         }
     }
@@ -316,7 +316,7 @@ void sys_asinject(arch_regs_t *frame)
         if (!validate_user_ptr((uintptr_t)args, sizeof(asinject_args_t)))
         {
             {
-            (*arch_reg(frame, 0)) = ERR_BADARG;
+            (*arch_reg(frame, 0)) = ERR_BADPTR;
             return;
         }
         }
@@ -325,7 +325,7 @@ void sys_asinject(arch_regs_t *frame)
         if (!copy_from_user(&kargs, args, sizeof(asinject_args_t)))
         {
             {
-            (*arch_reg(frame, 0)) = ERR_BADARG;
+            (*arch_reg(frame, 0)) = ERR_BADPTR;
             return;
         }
         }
@@ -339,31 +339,39 @@ void sys_asinject(arch_regs_t *frame)
         }
 
         handle_entry_t *handle = handle_vec_get(&current_thread->owner_process->handle_table, kargs.task_handle);
-        if (!handle || handle->type != HANDLE_TASK)
+        if (!handle)
         {
-            {
-            (*arch_reg(frame, 0)) = ERR_BADARG;
+            (*arch_reg(frame, 0)) = ERR_BADHANDLE;
             return;
         }
+        if (handle->type != HANDLE_TASK)
+        {
+            (*arch_reg(frame, 0)) = ERR_BADTYPE;
+            return;
         }
 
         process_t *target = handle->task;
 
-        if (!target || target->thread->state != FROZEN)
+        if (!target)
         {
-            {
-            (*arch_reg(frame, 0)) = ERR_BADARG;
+            (*arch_reg(frame, 0)) = ERR_BADHANDLE;
             return;
         }
+        if (target->thread->state != FROZEN)
+        {
+            (*arch_reg(frame, 0)) = ERR_BUSY;
+            return;
         }
 
-        if (!kargs.src_buf || kargs.len == 0 ||
-            !validate_user_ptr((uintptr_t)kargs.src_buf, kargs.len))
+        if (!kargs.src_buf || kargs.len == 0)
         {
-            {
             (*arch_reg(frame, 0)) = ERR_BADARG;
             return;
         }
+        if (!validate_user_ptr((uintptr_t)kargs.src_buf, kargs.len))
+        {
+            (*arch_reg(frame, 0)) = ERR_BADPTR;
+            return;
         }
 
         if ((kargs.prot & VM_PROT_WRITE) && (kargs.prot & VM_PROT_EXEC))

@@ -65,9 +65,9 @@ static bool trap_frame_sane(const arch_regs_t *tf)
 static void ipc_panic_bad_trap_frame(const char *where, const process_t *owner, const arch_regs_t *tf)
 {
     KERROR("bad trap_frame at %s: owner_pid=%u tf=%p current_pid=%u", where,
-           owner ? owner->pid : 0u,
+           owner ? owner->pid : 0,
            tf,
-           current_thread && current_thread->owner_process ? current_thread->owner_process->pid : 0u);
+           current_thread && current_thread->owner_process ? current_thread->owner_process->pid : 0);
     if (tf && ((uintptr_t)tf & 0x3u) == 0)
         KERROR("  frame: pc=%p lr=%p sp=%p cpsr=%p", (void *)arch_regs_pc(tf),
                (void *)arch_regs_lr(tf), (void *)arch_regs_sp(tf),
@@ -105,17 +105,17 @@ static endpoint_t *validate_endpoint_handle(process_t *proc, handle_t handle, ar
     handle_entry_t *entry = handle_vec_get(&proc->handle_table, handle);
     if (!entry)
     {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return NULL;
     }
     if (entry->type != HANDLE_ENDPOINT)
     {
-        (*arch_reg(frame, 0)) = ERR_NOPERM;
+        (*arch_reg(frame, 0)) = ERR_BADTYPE;
         return NULL;
     }
     if (!entry->ep)
     {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return NULL;
     }
     if (!entry->ep->alive)
@@ -138,17 +138,17 @@ static notification_t *validate_notification_handle(process_t *proc, handle_t ha
     handle_entry_t *entry = handle_vec_get(&proc->handle_table, handle);
     if (!entry)
     {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return NULL;
     }
     if (entry->type != HANDLE_NOTIFICATION)
     {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADTYPE;
         return NULL;
     }
     if (!entry->ntfn)
     {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return NULL;
     }
     if (!entry->ntfn->alive)
@@ -167,24 +167,24 @@ static handle_entry_t *validate_reply_handle(process_t *proc,
 {
     if (!proc || handle_idx == 0)
     {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return NULL;
     }
 
     handle_entry_t *entry = handle_vec_get(&proc->handle_table, handle_idx);
     if (!entry)
     {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return NULL;
     }
     if (entry->type != HANDLE_REPLY)
     {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADTYPE;
         return NULL;
     }
     if (!entry->reply || entry->reply->caller_tid == 0)
     {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return NULL;
     }
 
@@ -573,7 +573,7 @@ void sys_msg_lsend(arch_regs_t *frame)
     /* No truncation: oversized payloads are rejected outright. */
     if (xlen > LMSG_BUF_SIZE)
     {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_OVERFLOW;
         return;
     }
 
@@ -644,7 +644,7 @@ void sys_msg_lcall(arch_regs_t *frame)
     /* No truncation: oversized payloads are rejected outright. */
     if (xlen > LMSG_BUF_SIZE)
     {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_OVERFLOW;
         return;
     }
 
@@ -736,7 +736,7 @@ void sys_msg_lreply(arch_regs_t *frame)
     /* No truncation: oversized payloads are rejected outright. */
     if (xlen > LMSG_BUF_SIZE)
     {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_OVERFLOW;
         return;
     }
 
@@ -879,8 +879,8 @@ static int waitany_try_once(const handle_t *handles,
     for (uint32_t i = 0; i < count; i++) {
         handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handles[i]);
         if (!entry) {
-            (*arch_reg(current_thread->trap_frame, 0)) = ERR_BADARG;
-            return ERR_BADARG;
+            (*arch_reg(current_thread->trap_frame, 0)) = ERR_BADHANDLE;
+            return ERR_BADHANDLE;
         }
 
         if (entry->type == HANDLE_ENDPOINT) {
@@ -903,8 +903,8 @@ static int waitany_try_once(const handle_t *handles,
             continue;
         }
 
-        (*arch_reg(current_thread->trap_frame, 0)) = ERR_BADARG;
-        return ERR_BADARG;
+        (*arch_reg(current_thread->trap_frame, 0)) = ERR_BADTYPE;
+        return ERR_BADTYPE;
     }
 
     for (uint32_t i = 0; i < count; i++) {

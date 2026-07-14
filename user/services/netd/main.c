@@ -156,7 +156,7 @@ int main() {
             while (packet_ring_pop(&frame, rx_ring) == 0)
                 eth_rx(frame.data, frame.len);
         } else if (recv_rc >= 0 && result.kind == WAITANY_KIND_CALL) {
-            _reply(result.source, ERR_NOMATCH, 0, 0);
+            _reply(result.source, ERR_NOSYS, 0, 0);
         }
 
         /* 4. THEN fire expired timers */

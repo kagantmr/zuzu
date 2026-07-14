@@ -196,7 +196,7 @@ static void handle_request(uint32_t reply_h, uint32_t sender,
     case FAT32_STAT:    handle_stat(reply_h);             break;
     case FAT32_GET_BUF: handle_get_buf(reply_h, sender);  break;
     default:
-        _reply(reply_h, (uint32_t)ERR_NOMATCH, 0, 0);
+        _reply(reply_h, (uint32_t)ERR_NOSYS, 0, 0);
         break;
     }
 }

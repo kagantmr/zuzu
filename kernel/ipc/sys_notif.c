@@ -73,8 +73,11 @@ void sys_ntfn_signal(arch_regs_t *frame) {
     uint32_t bits = (*arch_reg(frame, 1));
 
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
-    if (!entry || entry->type != HANDLE_NOTIFICATION) {
-        (*arch_reg(frame, 0)) = ERR_BADARG; return;
+    if (!entry) {
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE; return;
+    }
+    if (entry->type != HANDLE_NOTIFICATION) {
+        (*arch_reg(frame, 0)) = ERR_BADTYPE; return;
     }
 
     notification_t *ntfn = entry->ntfn;
@@ -106,8 +109,11 @@ void sys_ntfn_wait(arch_regs_t *frame) {
     uint32_t timeout_ms = (*arch_reg(frame, 1));
 
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
-    if (!entry || entry->type != HANDLE_NOTIFICATION) {
-        (*arch_reg(frame, 0)) = ERR_BADARG; return;
+    if (!entry) {
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE; return;
+    }
+    if (entry->type != HANDLE_NOTIFICATION) {
+        (*arch_reg(frame, 0)) = ERR_BADTYPE; return;
     }
 
     notification_t *ntfn = entry->ntfn;

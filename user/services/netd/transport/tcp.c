@@ -9,7 +9,7 @@
 #include <string.h>
 
 int tcp_connect(ipv4_addr_t remote_ip, port_t remote_port) {
-    if (!dhcp_is_bound()) return ERR_SYSDOWN;
+    if (!dhcp_is_bound()) return ERR_NOTCONN;
     int idx = tcp_pcb_alloc();
     if (idx < 0) return ERR_NOMEM;
     tcp_pcb_t *pcb = &tcp_pcbs[idx];

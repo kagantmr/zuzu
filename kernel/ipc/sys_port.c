@@ -97,17 +97,17 @@ void sys_destroy(arch_regs_t *frame)
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle);
     if (!entry)
     {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-    if (entry->type == HANDLE_REPLY || entry->type == HANDLE_TASK)
-    {
-        (*arch_reg(frame, 0)) = ERR_NOPERM;
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;
     }
     if (entry->type == HANDLE_FREE)
     {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+        return;
+    }
+    if (entry->type == HANDLE_REPLY || entry->type == HANDLE_TASK)
+    {
+        (*arch_reg(frame, 0)) = ERR_BADTYPE;
         return;
     }
     switch (entry->type)
@@ -194,7 +194,7 @@ void sys_destroy(arch_regs_t *frame)
         notification_t *ntf = entry->ntfn;
         if (!ntf)
         {
-            (*arch_reg(frame, 0)) = ERR_BADARG;
+            (*arch_reg(frame, 0)) = ERR_BADHANDLE;
             return;
         }
 
@@ -258,7 +258,7 @@ void sys_destroy(arch_regs_t *frame)
         device_cap_t *dev = entry->dev;
         if (!dev)
         {
-            (*arch_reg(frame, 0)) = ERR_BADARG;
+            (*arch_reg(frame, 0)) = ERR_BADHANDLE;
             return;
         }
 
@@ -283,7 +283,7 @@ void sys_destroy(arch_regs_t *frame)
     }
     break;
     default: {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADTYPE;
     }
     }
 }
@@ -303,7 +303,7 @@ void sys_grant(arch_regs_t *frame)
     handle_entry_t *src = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle);
     if (!src || src->type == HANDLE_FREE)
     {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;
     }
 
@@ -328,7 +328,7 @@ void sys_grant(arch_regs_t *frame)
     }
     if (grantee->thread->state == ZOMBIE)
     {
-        (*arch_reg(frame, 0)) = ERR_BUSY;
+        (*arch_reg(frame, 0)) = ERR_DEAD;
         return;
     }
 
