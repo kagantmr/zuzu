@@ -23,19 +23,19 @@ void ntfn_wake_waiter(notification_t *ntfn, thread_wait_slot_t *slot,
 
     (*arch_reg(waiter->trap_frame, 0)) = (uint32_t)r0_value;
 
-    uint32_t match_index = RECVANY_NO_MATCH;
-    if (waiter->recvany_wait_active) {
-        for (uint32_t i = 0; i < waiter->recvany_wait_count; i++) {
-            if (waiter->recvany_wait_ntfns[i] == ntfn) {
-                match_index = waiter->recvany_wait_slots[i].index;
+    uint32_t match_index = WAITANY_NO_MATCH;
+    if (waiter->waitany_active) {
+        for (uint32_t i = 0; i < waiter->waitany_wait_count; i++) {
+            if (waiter->waitany_wait_ntfns[i] == ntfn) {
+                match_index = waiter->waitany_wait_slots[i].index;
                 break;
             }
         }
     }
-    thread_recvany_clear_waits(waiter);
-    thread_recvany_clear_ep_waits(waiter);
-    waiter->recvany_wait_match_index = match_index;
-    waiter->recvany_wait_bits = bits;
+    thread_waitany_clear_waits(waiter);
+    thread_waitany_clear_ep_waits(waiter);
+    waiter->waitany_wait_match_index = match_index;
+    waiter->waitany_wait_bits = bits;
 
     if (waiter->wake_tick != 0 && waiter->timeout_node.prev && waiter->timeout_node.next) {
         list_remove(&waiter->timeout_node);

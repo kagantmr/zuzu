@@ -707,9 +707,9 @@ void process_kill(process_t *p, const int exit_status) {
                     list_node_t *n = list_pop_front(&ep->receiver_queue);
                     thread_wait_slot_t *slot = container_of(n, thread_wait_slot_t, node);
                     thread_t *thread = slot->owner;
-                    if (thread->recvany_ep_wait_active) {
-                        thread_recvany_clear_waits(thread);
-                        thread_recvany_clear_ep_waits(thread);
+                    if (thread->waitany_ep_wait_active) {
+                        thread_waitany_clear_waits(thread);
+                        thread_waitany_clear_ep_waits(thread);
                     } else {
                         thread->ipc_state = IPC_NONE;
                         thread->blocked_endpoint = NULL;
@@ -796,7 +796,7 @@ void process_kill(process_t *p, const int exit_status) {
                     thread_t *thread = slot->owner;
                     if (thread->trap_frame)
                         (*arch_reg(thread->trap_frame, 0)) = ERR_DEAD;
-                    thread_recvany_clear_waits(thread);
+                    thread_waitany_clear_waits(thread);
                     if (thread->wake_tick != 0 && thread->timeout_node.prev && thread->timeout_node.next)
                         list_remove(&thread->timeout_node);
                     thread->wake_tick = 0;

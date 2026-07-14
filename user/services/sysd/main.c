@@ -357,7 +357,7 @@ static bool recvany_to_ipcmsg(const waitany_result_t *res, msg_t *msg)
     if (!res || !msg)
         return false;
 
-    if (res->kind == RECVANY_KIND_SEND || res->kind == RECVANY_KIND_CALL) {
+    if (res->kind == WAITANY_KIND_SEND || res->kind == WAITANY_KIND_CALL) {
         msg->r0 = (int32_t)res->source;
         msg->r1 = res->r1;
         msg->r2 = res->r2;
@@ -369,7 +369,7 @@ static bool recvany_to_ipcmsg(const waitany_result_t *res, msg_t *msg)
      * the notification bitmask in r1. Consumers can interpret `matched_index`
      * if needed via the recvany_result metadata (not present in msg_t).
      */
-    if (res->kind == RECVANY_KIND_NTFN) {
+    if (res->kind == WAITANY_KIND_NTFN) {
         msg->r0 = (int32_t)res->source;
         msg->r1 = res->r1; /* notification bits */
         msg->r2 = res->r2;

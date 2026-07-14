@@ -151,11 +151,11 @@ int main() {
         int32_t recv_rc = _waitany(handles, 2, sleep_ms, &result);
 
         /* 3. DRAIN RX FIRST: process inbound before any timer fires */
-        if (recv_rc >= 0 && result.kind == RECVANY_KIND_NTFN) {
+        if (recv_rc >= 0 && result.kind == WAITANY_KIND_NTFN) {
             nic_frame_t frame;
             while (packet_ring_pop(&frame, rx_ring) == 0)
                 eth_rx(frame.data, frame.len);
-        } else if (recv_rc >= 0 && result.kind == RECVANY_KIND_CALL) {
+        } else if (recv_rc >= 0 && result.kind == WAITANY_KIND_CALL) {
             _reply(result.source, ERR_NOMATCH, 0, 0);
         }
 

@@ -34,30 +34,27 @@ typedef struct
     zpid_t pid;
 } tspawn_result_t;
 
-enum {
-    RECVANY_KIND_SEND = 0u,
-    RECVANY_KIND_CALL = 1u,
-    RECVANY_KIND_NTFN = 2u,
-    RECVANY_KIND_TIMEOUT = 3u,
-};
+typedef enum {
+    WAITANY_KIND_SEND = 0u,
+    WAITANY_KIND_CALL = 1u,
+    WAITANY_KIND_NTFN = 2u,
+    WAITANY_KIND_TIMEOUT = 3u,
+} waitany_type_t;
 
-#define RECVANY_NO_MATCH UINT32_MAX
+#define WAITANY_NO_MATCH UINT32_MAX
 
 #define TIMEOUT_POLL     0u
 #define TIMEOUT_INFINITE UINT32_MAX
 
 #define HANDLE_ANON ((handle_t)-1) // Sentinel value, used in memmap() as the handle value
 
-/* recvany result struct */
+/* waitany result struct */
 typedef struct {
-    uint32_t matched_index;  /* which handle in the input array */
-    uint32_t kind;           /* 0=send, 1=call, 2=irq, 3=timeout */
-    union {
-        zpid_t sender_pid;  /* for send */
-        handle_t reply_handle; /* for call */
-    };
-    uint32_t source;         /* send: sender_pid; call: reply_handle */
-    uint32_t r1;             /* send: payload; call: sender_pid */
+    uint32_t size;           /* sizeof(waitany_result_t); caller sets, kernel honors */
+    uint32_t matched_index;  /* index into the caller's handle array; WAITANY_NO_MATCH on timeout */
+    uint32_t kind;           /* WAITANY_KIND_* */
+    uint32_t source;         /* send: sender pid | call: reply handle | ntfn: 0 */
+    uint32_t r1;             /* send: payload/lmsg len | call: sender pid | ntfn: bits */
     uint32_t r2;             /* send/call: payload or lmsg length */
     uint32_t r3;             /* send/call: payload */
 } waitany_result_t;

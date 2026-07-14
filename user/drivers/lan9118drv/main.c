@@ -236,7 +236,7 @@ void lan9118_service_loop(void)
 
         switch (result.kind)
         {
-        case RECVANY_KIND_NTFN:
+        case WAITANY_KIND_NTFN:
         {
             if (result.matched_index == H_TXDOORBELL)
             {
@@ -311,7 +311,7 @@ void lan9118_service_loop(void)
             _irq_done(dev_handle);
             break;
         }
-        case RECVANY_KIND_CALL:
+        case WAITANY_KIND_CALL:
         {
             switch (result.r2)
             {
@@ -377,7 +377,7 @@ void lan9118_service_loop(void)
             }
             break;
         }
-        case RECVANY_KIND_TIMEOUT:
+        case WAITANY_KIND_TIMEOUT:
         {
             /* Surface loss when the link goes idle, only when it changed, so
                bursts don't spam but drops never stay silent. */
