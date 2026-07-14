@@ -5,6 +5,7 @@
 #include <zuzu/umem.h>
 #include <zuzu/tcb.h>
 #include <zuzu/syspage.h>
+#include <malloc.h>
 #include <mem.h>
 #include <stdio.h>
 
@@ -75,6 +76,14 @@ int main(void)
     CHECK(_memunmap((void *)SYSPAGE_VA) == ERR_NOPERM, "syspage unmap refused");
     CHECK(_memunmap((void *)((uintptr_t)__zuzu_tcb() & ~0xFFFu)) == ERR_NOPERM, "TCB page unmap refused");
     CHECK(_mprotect((void *)SYSPAGE_VA, PAGE_SIZE, VM_PROT_READ | VM_PROT_WRITE) != 0, "syspage mprotect refused");
+
+    /* force multiple sbrk growths + tail donation */
+    void *p[200];
+    for (int i = 0; i < 200; i++) { p[i] = malloc(1024); CHECK(p[i] != NULL, "..."); }
+    for (int i = 0; i < 200; i++) free(p[i]);
+    void *big = malloc(100000);   /* > ARENA_CHUNK_SIZE, single sbrk */
+    CHECK(big != NULL, "large alloc");
+    free(big);
 
     _memunmap(stack);
     _destroy(port);
