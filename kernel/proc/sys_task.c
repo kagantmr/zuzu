@@ -61,12 +61,13 @@ void sys_sleep(arch_regs_t *frame) {
     current_thread->wake_tick = get_ticks() + ticks;
     current_thread->wake_reason = WAKE_NONE;
     
-    // Change state
-    (*arch_reg(frame, 0)) = 0;
+    // Change state to BLOCKED and insert into sleep queue
     current_thread->state = BLOCKED;
     sleep_queue_insert(current_thread);
     // Schedule someone else immediately
     schedule();
+
+    (*arch_reg(frame, 0)) = 0;
 }
 
 void sys_getpid(arch_regs_t *frame) {
@@ -414,5 +415,4 @@ void sys_tquit(arch_regs_t *frame) {
     }
 
     schedule();
-    __builtin_unreachable();
 }

@@ -746,19 +746,13 @@ void process_kill(process_t *p, const int exit_status) {
             entry->type = HANDLE_FREE;
         } else if (entry->type == HANDLE_SHMEM) {
             shmem_t *shm = entry->shm;
-            const uintptr_t va = entry->mapped_va;
-            // Only a mapped handle holds a ref (taken by shm_create/attach);
-            // a granted-but-never-attached handle must not drop one.
-            if (shm && va != 0) {
-                vmm_remove_region(p->as, va, shm->page_count * PAGE_SIZE);
-                shm->ref_count--;
-                if (shm->ref_count == 0) {
-                    for (size_t j = 0; j < shm->page_count; j++)
-                        if (shm->page_addrs[j] != 0) /* demand-paged: skip unfaulted slots */
-                            pmm_free_page(shm->page_addrs[j]);
-                    kfree(shm->page_addrs);
-                    kfree(shm);
-                }
+            // Every shm handle holds one reference (create/grant), regardless
+            // of whether it is currently mapped. Tear down the mapping if any,
+            // then drop this handle's reference (frees the object at zero).
+            if (shm) {
+                if (entry->mapped_va != 0)
+                    vmm_remove_region(p->as, entry->mapped_va, shm->page_count * PAGE_SIZE);
+                shmem_drop_ref(shm);
             }
             entry->shm = NULL;
             entry->mapped_va = 0;
@@ -867,6 +861,25 @@ void process_destroy(process_t *p)
         list_node_t *node = p->threads.node.next;
         thread_t *thread = container_of(node, thread_t, process_node);
         thread_destroy(thread);
+    }
+    /* Drop shm handle references still live here. The normal exit path
+     * (process_kill) already cleared these, so this is a no-op there; it
+     * catches the direct-destroy path (sys_pkill) that bypasses process_kill
+     * and would otherwise leak the shm object and its pages. Runs before
+     * as_destroy so the address space is still valid for unmapping. */
+    for (uint32_t i = 0; i < p->handle_table.cap; i++) {
+        handle_entry_t *entry = handle_vec_get(&p->handle_table, i);
+        if (!entry)
+            break;
+        if (entry->type == HANDLE_SHMEM && entry->shm) {
+            if (p->as && entry->mapped_va != 0)
+                vmm_remove_region(p->as, entry->mapped_va,
+                                  entry->shm->page_count * PAGE_SIZE);
+            shmem_drop_ref(entry->shm);
+            entry->shm = NULL;
+            entry->mapped_va = 0;
+            entry->type = HANDLE_FREE;
+        }
     }
     if (p->as)
     {
