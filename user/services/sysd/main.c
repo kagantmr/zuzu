@@ -14,6 +14,8 @@
 #include <malloc.h>
 #include "den.h"
 #include <zuzu/syspage.h>
+#include <zuzu/err.h>
+#include <zuzu/version.h>
 #include "exec.h"
 #include "sysd.h"
 
@@ -603,6 +605,24 @@ static void register_tty_aliases(void)
 int main(void)
 {
     const syspage_t *sp = (const syspage_t *)SYSPAGE_VA;
+
+    /**
+     * before ANYTHING happens, check if the kernel version is compatible with this sysd
+     * 
+     * sysd will pull ZUZUOS_MIN_KERNEL_MAJOR from <zuzu/version.h> and compare it to its own.
+     * Later on, we can embed sysd its own version, but for now since the userspace is scaling
+     * altogether instead of seperately versioned binaries, we can check kernel version and assume
+     * it will not work.
+     * 
+     * Later on, sysd could check against old binaries and warn the user that their programs are
+     * outdated.
+     * 
+     */
+    if (((sp->kernel_ver & 0x00FF0000) >> 16) < ZUZUOS_MIN_KERNEL_MAJOR) {
+        zuzu_pquit(FATAL_TAG | FATAL_KERNEL_OUTDATED);
+    }
+    zuzu_pquit((sp->kernel_ver & 0x00FF0000));
+
     const void *initrd  = (const void *)INITRD_BASE;
     uint32_t initrd_sz  = sp->initrd_size;
 

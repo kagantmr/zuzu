@@ -43,10 +43,23 @@ typedef int32_t err_t;
 #define ERR_DUPLICATE (-104)  /* duplicate registration/request rejected        */
 #define ERR_MALFORMED (-105)  /* received bytes fail to parse (wire/packet)     */
 #define ERR_IO        (-106)  /* device or filesystem I/O error                 */
+#define ERR_OUTDATED  (-107)  /* this feature is deprecated or there is a version mismatch between binaries    */
+
+/**
+ * Fatal error codes (comes from critical processes and is delivered to the kernel)
+ * 
+ * Do NOT use these codes as the exit code.
+ */
+#define FATAL_TAG        0xFA7A0000u
+#define FATAL_TAG_MASK   0xFFFF0000u
+#define FATAL_REASON_MASK 0x0000FFFFu
+#define FATAL_KERNEL_OUTDATED 1
+#define FATAL_KERNEL_REFERLMSG 1
+
 
 /**
  * @brief Returns a human-readable string describing the given error code.
- * 
+ *
  * @param err The error code to describe.
  * @return const char* A pointer to a string describing the error code.
  */

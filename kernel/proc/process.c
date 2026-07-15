@@ -657,6 +657,15 @@ void process_wake_joiners(tid_t tid, int32_t exit_status)
     }
 }
 
+static const char* fatal_reason_str(int reason)
+{
+    switch (reason) {
+        case FATAL_KERNEL_OUTDATED:
+            return "kernel and sysd version don't match";
+        default:
+            return "no reason specified";
+    }
+}
 
 void process_kill(process_t *p, const int exit_status) {
     if (!p)

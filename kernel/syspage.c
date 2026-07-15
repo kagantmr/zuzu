@@ -56,8 +56,9 @@ void syspage_init(void)
     g_sp = (syspage_t *)PA_TO_VA(g_syspage_pa);
     memset(g_sp, 0, sizeof(syspage_t));
     g_sp->magic = 0x50050CA7;
+    g_sp->kernel_ver = (ZUZU_VERSION_MAJOR << 16) | (ZUZU_VERSION_MINOR << 8) | ZUZU_VERSION_PATCH;
 
-    strncpy(g_sp->version, ZUZU_VERSION, sizeof(g_sp->version));
+    strncpy(g_sp->version, "zuzu-" ZUZU_CODENAME "-" ZUZU_VERSION, sizeof(g_sp->version));
 
     snprintf(g_sp->build, sizeof(g_sp->build), "%s %s", __DATE__, __TIME__);
 

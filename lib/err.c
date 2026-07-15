@@ -74,12 +74,3 @@ const char *strerror(err_t err) {
     buf[p] = '\0';
     return buf;
 }
-
-const char *fatal_reason_str(uint32_t reason) {
-    switch (reason) {
-    case FATAL_KERNEL_MISMATCH:
-        return "kernel/user version mismatch";
-    default:
-        return "unknown fatal reason";
-    }
-}
