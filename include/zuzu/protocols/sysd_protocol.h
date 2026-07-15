@@ -14,10 +14,10 @@ extern "C" {
 // err_t values from <zuzu/err.h> (ERR_NOENT for a missing path, ERR_NOMEM for
 // alloc/asinject failure) plus two loader-specific codes below, which have no
 // err_t equivalent and live outside the err_t range to avoid collisions.
-#define EXEC_EBADELF (-100)  // ELF validation failed
-#define EXEC_EIO     (-101)  // fbox read error
+#define EXEC_EBADELF ERR_MALFORMED  // ELF validation failed
+#define EXEC_EIO     ERR_IO // fbox read error
 
-// Request layout in IPCX buffer (shell to sysd via _lcall):
+// Request layout in LMSG buffer (shell to sysd via _lcall):
 typedef struct {
     uint8_t  cmd;            // SYSD_EXEC
     uint8_t  _pad;           // padding for alignment
@@ -29,7 +29,9 @@ typedef struct {
     // followed by char argbuf[...]          (NUL-delimited argv strings)
 } exec_request_hdr_t;
 
-// Reply layout in IPCX buffer (sysd to shell via _lreply):
+_Static_assert(sizeof(exec_request_hdr_t) <= LMSG_BUF_SIZE, "exec request exceeds lmsg buffer");
+
+// Reply layout in LMSG buffer (sysd to shell via _lreply):
 typedef struct {
     uint32_t entry;          // ELF entry point
     uint32_t sp;             // user stack pointer after argv layout
@@ -37,6 +39,8 @@ typedef struct {
     uint32_t argv_va;        // pointer to argv array on user stack
     zpid_t   pid;            // PID of the new process
 } exec_reply_t;
+
+_Static_assert(sizeof(exec_reply_t) <= LMSG_BUF_SIZE, "exec reply exceeds lmsg buffer");
 
 #ifdef __cplusplus
 }
