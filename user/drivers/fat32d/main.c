@@ -118,7 +118,6 @@ static void handle_close(uint32_t reply_h, uint32_t arg)
 
 static void handle_readdir(uint32_t reply_h)
 {
-    /* path is in shmem — save before we overwrite buf with results */
     char path[128];
     strncpy(path, buf, sizeof(path) - 1);
     path[sizeof(path) - 1] = '\0';
@@ -132,14 +131,13 @@ static void handle_readdir(uint32_t reply_h)
     }
 
     fat32_dirent_t *out = (fat32_dirent_t *)buf;
-    uint32_t max_entries = 4096 / sizeof(fat32_dirent_t);
     uint32_t count = 0;
 
-    FILINFO fno;
-    while (count < max_entries) {
+    FILINFO fno; 
+    for (;;) {
+        if (count >= MAX_DIRENTS) break;              /* truncate, don't overflow */
         fr = f_readdir(&dir, &fno);
-        if (fr != FR_OK || fno.fname[0] == '\0')
-            break;
+        if (fr != FR_OK || fno.fname[0] == '\0') break;
 
         memset(&out[count], 0, sizeof(fat32_dirent_t));
         strncpy(out[count].name, fno.fname, sizeof(out[count].name) - 1);

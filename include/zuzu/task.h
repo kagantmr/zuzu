@@ -72,7 +72,7 @@ static inline int32_t zuzu_getpid(void) {
     register int32_t r0 __asm__("r0");
     __asm__ volatile("svc %[num]"
         : "=r"(r0)
-        : [num] "i"(SYS_GET_PID)
+        : [num] "i"(SYS_GETPID)
         : "memory");
     return r0;
 }

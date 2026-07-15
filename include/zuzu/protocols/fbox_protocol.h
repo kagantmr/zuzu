@@ -8,7 +8,7 @@ extern "C" {
 #include <stdint.h>
 #include <zuzu/protocols/fat32d_protocol.h>
 
-/* Commands — same numbering as fat32d for simplicity */
+/* Commands, same numbering as fat32d for simplicity */
 #define FBOX_OPEN    1
 #define FBOX_READ    2
 #define FBOX_WRITE   3
