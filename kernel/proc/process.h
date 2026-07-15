@@ -12,7 +12,7 @@
 
 #define MAX_PROCESSES 512
 
-#define PROC_FLAG_INIT (1 << 0)   // PID 1, zombie reaper
+#define PROC_FLAG_INIT (1 << 0)   // PID 1
 #define PROC_FLAG_DEVMGR (1 << 1) // hardware authority
 
 extern void process_entry_trampoline(void);

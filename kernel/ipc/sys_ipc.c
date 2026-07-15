@@ -64,15 +64,13 @@ static bool trap_frame_sane(const arch_regs_t *tf)
 
 static void ipc_panic_bad_trap_frame(const char *where, const process_t *owner, const arch_regs_t *tf)
 {
-    KERROR("bad trap_frame at %s: owner_pid=%u tf=%p current_pid=%u", where,
-           owner ? owner->pid : 0,
-           tf,
-           current_thread && current_thread->owner_process ? current_thread->owner_process->pid : 0);
     if (tf && ((uintptr_t)tf & 0x3u) == 0)
         KERROR("  frame: pc=%p lr=%p sp=%p cpsr=%p", (void *)arch_regs_pc(tf),
                (void *)arch_regs_lr(tf), (void *)arch_regs_sp(tf),
                (void *)arch_regs_flags(tf));
-    panic("Corrupt trap_frame in IPC path");
+    panic("Corrupt trap_frame in IPC path at %s: owner_pid=%u tf=%p current_pid=%u",
+          where, owner ? owner->pid : 0, (const void *)tf,
+          current_thread && current_thread->owner_process ? current_thread->owner_process->pid : 0);
 }
 
 static void ipc_cancel_timeout(thread_t *t)

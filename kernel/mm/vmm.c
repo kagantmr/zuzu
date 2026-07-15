@@ -214,7 +214,8 @@ void vmm_lockdown_kernel_sections(void) {
 void as_destroy(addrspace_t* as) {
     if (!as) return;
     if (as == g_current_addrspace) {
-        panic("Attempted to destroy active addrspace");
+        panic("Attempted to destroy active addrspace %p (asid=%u)",
+              (void *)as, as->asid_token.asid);
         __builtin_unreachable();
     }
     

@@ -345,5 +345,5 @@ _Noreturn void kmain(void)
 
     schedule();
     
-    panic("Unreachable: " __FILE__ ":" XSTR(__LINE__));
+    panic("Unreachable: %s:%d", __FILE__, __LINE__);
 }

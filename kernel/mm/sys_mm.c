@@ -295,7 +295,8 @@ void sys_memunmap(arch_regs_t *frame)
         // Remove from region list and unmap page table entries
         if (!vmm_remove_region(as, va, size))
         {
-            panic("found region but could not remove it");
+            panic("sys_memunmap: found region @ 0x%08X (size=%u) but could not remove it",
+                  (uint32_t)va, (unsigned)size);
             __builtin_unreachable();
         }
     

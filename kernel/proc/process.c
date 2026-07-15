@@ -14,6 +14,7 @@
 #include <elf.h>
 #include "kstack.h"
 #include "core/panic.h"
+#include <zuzu/err.h>
 #include "zuzu/syscall_nums.h"
 #include <arch/cache.h>
 
@@ -656,12 +657,21 @@ void process_wake_joiners(tid_t tid, int32_t exit_status)
     }
 }
 
+
 void process_kill(process_t *p, const int exit_status) {
     if (!p)
         return;
 
     if (p->flags & (PROC_FLAG_INIT | PROC_FLAG_DEVMGR)) {
-        panic("Attempted to kill critical process");
+        if ((exit_status & FATAL_TAG_MASK) == FATAL_TAG) {
+            /* deliberate fatal exit carrying a reason code */
+            panic("critical process '%s' (pid %u) exited: %s",
+                  p->name, p->pid, fatal_reason_str(exit_status & FATAL_REASON_MASK));
+        } else {
+            /* unexpected death, or exit with no reason */
+            panic("critical process '%s' (pid %u) died unexpectedly (status %d)",
+                  p->name, p->pid, exit_status);
+        }
     }
 
     list_node_t *thread_node = p->threads.node.next;
