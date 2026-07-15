@@ -10,7 +10,7 @@ extern "C" {
 #else
     #ifdef __KERNEL__
         #include <core/panic.h>
-        #define assert(cond) if(!(cond)) panic("Assertion failed: " #cond)
+        #define assert(cond) if(!(cond)) panic("Assertion failed: %s (%s:%d)", #cond, __FILE__, __LINE__)
     #else
         #include <zuzu/zuzu.h>
         // User space assert is just quit for now
