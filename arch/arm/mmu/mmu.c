@@ -254,10 +254,23 @@ bool arch_mmu_unmap(addrspace_t *as, uintptr_t va, size_t size)
         {
             size_t idx = L1_IDX(va + offset);
 
-            if (l1_table[idx] != 0)
+            uint32_t entry = l1_table[idx];
+            if (entry == 0)
+                continue;
+
+            /* Break-before-make: invalidate the L1 descriptor and make the
+             * change visible to the walker BEFORE releasing the L2 table it
+             * pointed to, so no concurrent or speculative walk can read a
+             * freed (and possibly reallocated) table. */
+            l1_table[idx] = 0;
+            unmapped_any = true;
+
+            if ((entry & DESC_TYPE_MASK) == DESC_L2)
             {
-                l1_table[idx] = 0;
-                unmapped_any = true;
+                arch_mmu_barrier();                           /* DSB: zero visible */
+                arch_mmu_flush_tlb_asid(as->asid_token.asid); /* drop cached walks */
+                arch_mmu_barrier();
+                l2_pool_free(entry & ALIGNMENT_1KB_MASK);     /* now safe to free  */
             }
         }
         //KDEBUG("unmap: sections cleared");

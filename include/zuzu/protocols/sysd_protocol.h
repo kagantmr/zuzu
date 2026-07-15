@@ -7,6 +7,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <zuzu/types.h>
+#include <zuzu/tcb.h>
 
 #define SYSD_EXEC 0xE0   // move out of the 1-9 range to avoid any accidental collision with _call command values
 
