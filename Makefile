@@ -125,7 +125,7 @@ else
 endif
 
 BOOT_PROGS = sysd devmgr pl011drv pl181drv fat32d fbox lan9118drv netd zzsh
-DISK_PROGS = test zuzufetch
+DISK_PROGS = test zuzufetch zztest zztest_child
 
 USER_PROGS = $(BOOT_PROGS) $(DISK_PROGS)
 
@@ -143,7 +143,9 @@ USER_DIR_netd       = user/services/netd
 USER_DIR_zzsh       = user/shell/zzsh
 USER_DIR_test       = user/test_apps/test
 USER_DIR_zuzufetch  = user/test_apps/zuzufetch
-USER_DIR_cycletest  = user/test_apps/cycletest
+USER_DIR_zztest  = user/test_apps/zztest
+USER_DIR_zztest_child  = user/test_apps/zztest_child
+
 
 # zcrt + user lib sources
 ZCRT_SRCS = $(wildcard lib/*.c lib/zuzu/*.c)
