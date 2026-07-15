@@ -5,6 +5,8 @@
 extern "C" {
 #endif
 
+#include <zuzu/err.h>
+
 #define NT_PORT 0
 #define NT_NAME_SYS "sys"
 
@@ -33,14 +35,14 @@ static inline uint32_t nt_pack(const char name[4])
 		   ((uint32_t)(unsigned char)name[3] << 24);
 }
 
-#define NT_LU_OK 0
-#define NT_LU_NOMATCH (-1)
-#define NT_REG_FAIL (-2)
-#define NT_REG_OK 0
-#define NT_BADCMD (-3)
-#define DEN_OK 0
-#define DEN_FAIL (-4)
-#define DEN_FULL (-5)
+#define NT_LU_OK ZUZU_OK
+#define NT_LU_NOMATCH ERR_NOSYS
+#define NT_REG_FAIL ERR_BUSY
+#define NT_REG_OK ZUZU_OK
+#define NT_BADCMD ERR_BADARG
+#define DEN_OK ZUZU_OK
+#define DEN_FAIL ERR_TIMEOUT
+#define DEN_FULL ERR_BUSY
 
 #ifdef __cplusplus
 }

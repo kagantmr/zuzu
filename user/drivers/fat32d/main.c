@@ -237,7 +237,6 @@ int main(void)
         LOG_ERROR(LOG_TAG, "shmem alloc failed");
         return 1;
     }
-    // _attach(shm_handle, VM_PROT_READ | VM_PROT_WRITE);
     buf = (char *)zuzu_memmap(shm_handle, 0, VM_PROT_RW, 0);
     if (zuzu_is_err(buf)) {
         LOG_ERROR(LOG_TAG, "shmem attach failed");

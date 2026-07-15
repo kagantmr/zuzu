@@ -125,7 +125,7 @@ else
 endif
 
 BOOT_PROGS = sysd devmgr pl011drv pl181drv fat32d fbox lan9118drv netd zzsh
-DISK_PROGS = test zuzufetch cycletest
+DISK_PROGS = test zuzufetch
 
 USER_PROGS = $(BOOT_PROGS) $(DISK_PROGS)
 

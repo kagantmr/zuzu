@@ -14,9 +14,9 @@ extern "C" {
 
 /* ---- Memory management syscalls ---- */
 
-/* _attach/_memmap/_mapdev return a mapped VA, or a small negative errno cast
-   to a pointer. The top page of the address space is the error band, so a valid
-   VA (even one with the high bit set) is never misread as an error. */
+/* zuzu_memmap returns a mapped VA, or a small negative errno cast to a pointer.
+   The top page of the address space is the error band, so a valid VA (even one
+   with the high bit set) is never misread as an error. */
 static inline int zuzu_is_err(const void *p) {
     return (uintptr_t)p >= (uintptr_t)(-4095);
 }

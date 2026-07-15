@@ -18,7 +18,7 @@ extern "C" {
 
 /* Block transfer failure (CRC / timeout / FIFO over- or under-run). Has no
  * err_t equivalent, so it lives outside the err_t range to avoid collisions. */
-#define SD_ERR_IO (-100)
+#define SD_ERR_IO ERR_IO
 
 /* SD command semantics. Replies use ZUZU_OK on success; failures use err_t
  * values from <zuzu/err.h> or SD_ERR_IO for a block transfer error.

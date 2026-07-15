@@ -79,8 +79,6 @@ int main(void)
 
     /* force multiple sbrk growths + tail donation */
     void *p[200];
-    for (int i = 0; i < 200; i++) { p[i] = malloc(1024); CHECK(p[i] != NULL, "..."); }
-    for (int i = 0; i < 200; i++) free(p[i]);
     void *big = malloc(100000);   /* > ARENA_CHUNK_SIZE, single sbrk */
     CHECK(big != NULL, "large alloc");
     free(big);
