@@ -12,6 +12,21 @@
 
 extern thread_t *current_thread;
 
+void shmem_drop_ref(shmem_t *shm)
+{
+    if (!shm)
+        return;
+    if (shm->ref_count > 0)
+        shm->ref_count--;
+    if (shm->ref_count == 0) {
+        for (size_t j = 0; j < shm->page_count; j++)
+            if (shm->page_addrs[j] != 0) /* demand-paged: skip unfaulted slots */
+                pmm_free_page(shm->page_addrs[j]);
+        kfree(shm->page_addrs);
+        kfree(shm);
+    }
+}
+
 void sys_shm_create(arch_regs_t *frame)
 {
     const size_t size = align_up((size_t)(*arch_reg(frame, 0)), PAGE_SIZE);
@@ -42,9 +57,10 @@ void sys_shm_create(arch_regs_t *frame)
         return;
     }
     shmem_obj->page_count = page_count;
-    /* ref_count counts live mappings, not handles: memmap/attach take a ref,
-     * memunmap/detach drop it. Creation maps nothing, so it starts at 0. */
-    shmem_obj->ref_count = 0;
+    /* ref_count counts live HANDLE references, not mappings. The creating
+     * handle installed below holds the first reference; each grant adds one,
+     * each destroy/teardown drops one. Mappings never touch it. */
+    shmem_obj->ref_count = 1;
     shmem_obj->page_addrs = page_arr;
 
     int handle = handle_vec_find_free(&current_thread->owner_process->handle_table);

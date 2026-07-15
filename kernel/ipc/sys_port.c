@@ -245,8 +245,8 @@ void sys_destroy(arch_regs_t *frame)
             return;
         }
 
-        // An unmapped shmem handle holds no ref: mappings do (memmap/attach
-        // take refs, memunmap/detach drop them). Just release the slot.
+        // Drop this handle's reference; frees the object when it was the last.
+        shmem_drop_ref(entry->shm);
         entry->shm = NULL;
         entry->grantable = false;
         entry->type = HANDLE_FREE;
@@ -385,7 +385,11 @@ void sys_grant(arch_regs_t *frame)
     }
 
     if (dst->type == HANDLE_SHMEM)
-        dst->mapped_va = 0;
+    {
+        dst->mapped_va = 0;         // the grantee has its own (unmapped) handle
+        if (dst->shm)
+            dst->shm->ref_count++;  // new handle reference to the same object
+    }
     dst->grantable = can_regrant_received_handle(grantee);
     (*arch_reg(frame, 0)) = (handle_t)slot;
 }
