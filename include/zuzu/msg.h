@@ -1,5 +1,5 @@
-#ifndef ZUZU_IPC_H
-#define ZUZU_IPC_H
+#ifndef ZUZU_MSG_H
+#define ZUZU_MSG_H
 
 #include "zuzu/syscall_nums.h"
 #include "zuzu/types.h"
