@@ -140,7 +140,7 @@ static int pl181_setup(void)
 
 static int wait_for_irq(void)
 {
-    int32_t bits = _ntfn_wait((uint32_t)block_irq_ntfn, NTFN_WAIT_FOREVER);
+    int32_t bits = zuzu_ntfn_wait((uint32_t)block_irq_ntfn, TIMEOUT_INFINITE);
     return (bits < 0) ? -1 : 0;
 }
 
@@ -175,7 +175,7 @@ static int pl181_read_block(uint32_t block_num)
         LOG_ERROR(LOG_TAG, "read error STATUS=0x%08x", status);
         pl181->CLEAR = 0xFFFFFFFF;
         pl181->MASK[0] = 0;
-        _irq_done((uint32_t)block_dev_handle);
+        zuzu_irq_done((uint32_t)block_dev_handle);
         return SD_ERR_IO;
     }
 
@@ -189,7 +189,7 @@ static int pl181_read_block(uint32_t block_num)
 
     pl181->CLEAR = 0xFFFFFFFF;
     pl181->MASK[0] = 0;
-    _irq_done((uint32_t)block_dev_handle);
+    zuzu_irq_done((uint32_t)block_dev_handle);
     pl181->DATACTRL = 0;   /* disable data path before next transfer */
     return ZUZU_OK;
 }
@@ -226,7 +226,7 @@ static int pl181_write_block(uint32_t block_num)
 
     pl181->CLEAR = 0xFFFFFFFF;
     pl181->MASK[0] = 0;
-    _irq_done((uint32_t)block_dev_handle);
+    zuzu_irq_done((uint32_t)block_dev_handle);
 
     if (status & (MCI_DATACRCFAIL | MCI_DATATIMEOUT | MCI_TXUNDERRUN))
     {
@@ -249,30 +249,30 @@ static void handle_client(msg_t msg)
 
     case SD_CMD_GET_BUF:
     {
-        int32_t granted = _cap_grant(shmem_handle, (int32_t)sender);
+        int32_t granted = zuzu_grant(shmem_handle, (int32_t)sender);
         if (granted < 0)
-            _reply(reply_h, (uint32_t)granted, 0, 0);
+            zuzu_msg_reply(reply_h, (uint32_t)granted, 0, 0);
         else
-            _reply(reply_h, ZUZU_OK, (uint32_t)granted, 0);
+            zuzu_msg_reply(reply_h, ZUZU_OK, (uint32_t)granted, 0);
         break;
     }
 
     case SD_CMD_READ:
     {
         int rc = pl181_read_block(arg);
-        _reply(reply_h, (uint32_t)rc, 0, 0);
+        zuzu_msg_reply(reply_h, (uint32_t)rc, 0, 0);
         break;
     }
 
     case SD_CMD_WRITE:
     {
         int rc = pl181_write_block(arg);
-        _reply(reply_h, (uint32_t)rc, 0, 0);
+        zuzu_msg_reply(reply_h, (uint32_t)rc, 0, 0);
         break;
     }
 
     default:
-        _reply(reply_h, (uint32_t)ERR_NOMATCH, 0, 0);
+        zuzu_msg_reply(reply_h, (uint32_t)ERR_NOSYS, 0, 0);
         break;
     }
 }
@@ -287,7 +287,7 @@ static int pl181drv_setup(void)
     }
 
     /* request the block device capability */
-    msg_t r = _call(devmgr_port, DEV_REQUEST, DEV_CLASS_BLOCK, 0);
+    msg_t r = zuzu_msg_call(devmgr_port, DEV_REQUEST, DEV_CLASS_BLOCK, 0);
     if ((int32_t)r.r1 != 0)
     {
         LOG_ERROR(LOG_TAG, "block device request failed");
@@ -295,25 +295,20 @@ static int pl181drv_setup(void)
     }
     block_dev_handle = (int32_t)r.r2;
 
-    block_irq_ntfn = _ntfn_create();
+    block_irq_ntfn = zuzu_ntfn_create();
     if (block_irq_ntfn < 0)
     {
         LOG_ERROR(LOG_TAG, "ntfn_create failed");
         return -1;
     }
 
-    if (_irq_claim((uint32_t)block_dev_handle) < 0)
-    {
-        LOG_ERROR(LOG_TAG, "irq_claim failed");
-        return -1;
-    }
-    if (_irq_bind((uint32_t)block_dev_handle, (uint32_t)block_irq_ntfn) < 0)
+    if (zuzu_irq_bind((uint32_t)block_dev_handle, (uint32_t)block_irq_ntfn) < 0)
     {
         LOG_ERROR(LOG_TAG, "irq_bind failed");
         return -1;
     }
 
-    pl181 = (pl181_t *)_mapdev((uint32_t)block_dev_handle);
+    pl181 = (pl181_t *)zuzu_memmap((uint32_t)block_dev_handle, 0, VM_PROT_RW, 0);
     if ((intptr_t)pl181 <= 0)
     {
         LOG_ERROR(LOG_TAG, "mapdev failed");
@@ -332,14 +327,20 @@ static int pl181drv_setup(void)
     if (pl181_setup() < 0)
         return -1;
 
-    shmem_result_t shm = _memshare(4096);
-    if (shm.handle < 0 || shm.addr == NULL)
+    handle_t shm_h = zuzu_shm_create(4096);
+    if (shm_h < 0)
     {
         LOG_ERROR(LOG_TAG, "shmem failed");
         return -1;
     }
-    shmem_handle = shm.handle;
-    shmem_buf = (uint32_t *)shm.addr;
+    void *shm_addr = zuzu_memmap(shm_h, 0, VM_PROT_RW, 0);
+    if (zuzu_is_err(shm_addr))
+    {
+        LOG_ERROR(LOG_TAG, "shmem attach failed");
+        return -1;
+    }
+    shmem_handle = shm_h;
+    shmem_buf = (uint32_t *)shm_addr;
 
     /* register after hardware is ready so clients don't find the port early */
     port = register_service("pl181drv");
@@ -360,11 +361,11 @@ int main(void)
     while (1)
     {
         /* drain any stray IRQ that arrived between transfers */
-        int32_t bits = _ntfn_wait((uint32_t)block_irq_ntfn, 0);
+        int32_t bits = zuzu_ntfn_wait((uint32_t)block_irq_ntfn, TIMEOUT_POLL);
         if (bits > 0)
-            _irq_done((uint32_t)block_dev_handle);
+            zuzu_irq_done((uint32_t)block_dev_handle);
 
-        msg_t msg = _recv(port);
+        msg_t msg = zuzu_msg_recv(port, TIMEOUT_INFINITE);
         if ((int32_t)msg.r0 > 0)
             handle_client(msg);
     }

@@ -1,5 +1,5 @@
 #include "eth.h"
-#include <zuzu/ipc.h>
+#include <zuzu/msg.h>
 #include <zuzu/ntfn.h>
 #include <zuzu/protocols/nic_protocol.h>
 #include <stdio.h>
@@ -54,7 +54,7 @@ int eth_tx(mac_addr_t dst_mac, uint16_t ethertype, uint8_t *payload, uint16_t le
     packet_ring_commit(tx_ring);
 
     /* Async doorbell */
-    return _ntfn_signal(tx_doorbell, 1);
+    return zuzu_ntfn_signal(tx_doorbell, 1);
 }
 
 int eth_send_frame(txframe_t *f, mac_addr_t dst_mac, uint16_t ethertype) {
@@ -69,5 +69,5 @@ int eth_send_frame(txframe_t *f, mac_addr_t dst_mac, uint16_t ethertype) {
     /* Header lands at slot->data[0], the whole frame is now contiguous. */
     f->slot->len = txframe_len(f);
     packet_ring_commit(tx_ring);
-    return _ntfn_signal(tx_doorbell, 1);
+    return zuzu_ntfn_signal(tx_doorbell, 1);
 }

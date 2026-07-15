@@ -1,6 +1,10 @@
 #ifndef INTTYPES_H
 #define INTTYPES_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 #include <limits.h>
 
@@ -204,5 +208,9 @@
 
 #define SCNxMAX "jx" /* uintmax_t */
 #define SCNxPTR "lx" /* uintptr_t */
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* INTTYPES_H */

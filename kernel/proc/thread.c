@@ -17,7 +17,7 @@ static spinlock_t thread_table_lock = SPINLOCK_INIT;
 static int thread_table_find_free_slot(void)
 {
     tid_t start = next_tid % MAX_THREADS;
-    uint32_t slot = start;
+    tid_t slot = start;
 
     do {
         if (thread_table[slot] == NULL)
@@ -86,8 +86,18 @@ void thread_destroy(thread_t *thread) {
     // may already be removed by tquit, guard is safe
     if (thread->process_node.prev && thread->process_node.next)
         list_remove(&thread->process_node);
-    if (thread->owner_process && thread->owner_process->thread == thread)
-        thread->owner_process->thread = NULL;
+    process_t *owner = thread->owner_process;
+    /* Release the TCB slot; scrub it so a reused slot never shows a
+     * previous thread's tid/pid. tcb_page_pa == 0 means the page is
+     * already gone (process teardown fail paths). */
+    if (owner && thread->tcb_slot < TCB_MAX_SLOTS && owner->tcb_page_pa) {
+        memset((void *)(PA_TO_VA(owner->tcb_page_pa) +
+                        thread->tcb_slot * TCB_SLOT_SIZE),
+               0, TCB_SLOT_SIZE);
+        tcb_slot_free(owner, thread->tcb_slot);
+    }
+    if (owner && owner->thread == thread)
+        owner->thread = NULL;
     if (thread->kernel_stack_top)
         kstack_free(thread->kernel_stack_top);
     kfree(thread);
@@ -139,6 +149,7 @@ thread_t *thread_create(process_t *owner_process)
     thread->time_slice = 5;
     thread->ticks_remaining = thread->time_slice;
     thread->thread_info_va = 0;
+    thread->tcb_slot = TCB_SLOT_NONE;
 
     list_add_tail(&thread->process_node, &owner_process->threads.node);
 

@@ -25,7 +25,7 @@
 uintptr_t arch_mmu_create_tables(addrspace_type_t type);
 
 /** @brief Free page tables for an address space. */
-void arch_mmu_free_tables(uintptr_t ttbr0_pa, addrspace_type_t type);
+void arch_mmu_free_tables(uintptr_t ttbr_pa, addrspace_type_t type);
 
 /**
  * @brief Map [va, va+size) -> [pa, pa+size) with the given protection/memtype.
@@ -59,7 +59,7 @@ void arch_mmu_flush_tlb_va(uintptr_t va);
  * @brief Walk page tables to translate a VA to its PA.
  * @return Physical address, or 0 if unmapped.
  */
-uintptr_t arch_mmu_translate(uintptr_t ttbr0_pa, uintptr_t va);
+uintptr_t arch_mmu_translate(uintptr_t ttbr_pa, uintptr_t va);
 
 /** @brief Unmap a single page. */
 bool arch_mmu_unmap_page(addrspace_t *as, uintptr_t va);

@@ -15,6 +15,7 @@
 #include <list.h>
 #include <string.h>
 #include <snprintf.h>
+#include <stdarg.h>
 #include <stdint.h>
 
 #ifdef PANIC_SECTION_IRQ
@@ -519,7 +520,7 @@ static void panic_print_process(void)
         if (p->as) {
             snprintf(line, sizeof(line),
                      "asid=%u  ttbr0=0x%08X",
-                     p->as->asid_token.asid, (uint32_t)p->as->ttbr0_pa);
+                     p->as->asid_token.asid, (uint32_t)p->as->ttbr_pa);
             panic_line(line);
         }
 
@@ -619,7 +620,7 @@ static void panic_print_sched(void)
         snprintf(line, sizeof(line),
                  "current: tid=%-4u  pid=%-4u  %-16s  %s  prio=%u",
                  current_thread->tid,
-                 p ? p->pid : 0u,
+                 p ? p->pid : 0,
                  p ? p->name : "(none)",
                  thread_state_str(current_thread->state),
                  current_thread->priority);
@@ -643,7 +644,7 @@ static void panic_print_sched(void)
             process_t *p = t->owner_process;
             snprintf(line, sizeof(line),
                      "  tid=%-4u  pid=%-4u  %-16s  prio=%u",
-                     t->tid, p ? p->pid : 0u,
+                     t->tid, p ? p->pid : 0,
                      p ? p->name : "(none)",
                      t->priority);
             panic_line(line);
@@ -681,7 +682,7 @@ static void panic_print_sched(void)
                 process_t *p = t->owner_process;
                 snprintf(line, sizeof(line),
                          "  tid=%-4u  pid=%-4u  %-16s  wake_tick=%llu",
-                         t->tid, p ? p->pid : 0u,
+                         t->tid, p ? p->pid : 0,
                          p ? p->name : "(none)",
                          (unsigned long long)t->wake_tick);
                 panic_line(line);
@@ -874,13 +875,23 @@ static void panic_screen(const char *reason, void *caller_ra)
     panic_nl();
 }
 
-_Noreturn void __attribute__((cold)) panic(const char *reason)
+_Noreturn void __attribute__((cold)) panic(const char *fmt, ...)
 {
+    /* Static: panic is terminal and runs with IRQs off, so no reentrancy */
+    static char reason[LINE_BUF];
+
     void *caller_ra = __builtin_return_address(0);
 
     arch_global_irq_disable();
 
-    panic_screen(reason, caller_ra);
+    if (fmt) {
+        va_list ap;
+        va_start(ap, fmt);
+        vsnprintf(reason, sizeof(reason), fmt, ap);
+        va_end(ap);
+    }
+
+    panic_screen(fmt ? reason : NULL, caller_ra);
 
     __asm__ volatile(
         "1:\n"

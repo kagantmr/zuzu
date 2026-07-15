@@ -28,7 +28,7 @@ int tcp_pcb_find(ipv4_addr_t local_ip, port_t local_port,
             return i;
         }
     }
-    return ERR_NOMATCH;
+    return ERR_NOENT;
 }
 
 int tcp_pcb_find_listener(ipv4_addr_t local_ip, port_t local_port) {
@@ -40,5 +40,5 @@ int tcp_pcb_find_listener(ipv4_addr_t local_ip, port_t local_port) {
             return i;
         }
     }
-    return ERR_NOMATCH;
+    return ERR_NOENT;
 }

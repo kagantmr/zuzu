@@ -16,7 +16,6 @@ void* handler_ctx[MAX_IRQS];
 
 bool arch_irq_is_reserved(uint32_t irq_id) {
     switch (irq_id) {
-    case 34:               // SP804 timer (vexpress-a15)
     case TIMER_IRQ_VIRT:   // ARM generic timer CNTV PPI
         return true;
     default:

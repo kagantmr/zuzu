@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <zuzu/protocols/devmgr_protocol.h>
 #include <zuzu/protocols/nic_protocol.h>
-#include <zuzu/ipc.h>
+#include <zuzu/msg.h>
 #include <zuzu/irq.h>
 #include <zuzu/ntfn.h>
 #include <zuzu/task.h>
@@ -95,31 +95,30 @@ int get_nic(void)
         return ERR_NOENT;
     }
     // service is registered after nic_setup() completes so clients don't
-    // find the port before _recvany is running
+    // find the port before waitany is running
     nt_port = -1;
 
     devm_port = lookup_service("devm");
     msg_t r;
     while (1)
     {
-        r = _call(devm_port, DEV_REQUEST, DEV_CLASS_NIC, 0);
+        r = zuzu_msg_call(devm_port, DEV_REQUEST, DEV_CLASS_NIC, 0);
         if ((int32_t)r.r1 == 0)
             break;
         LOG_WARN(LOG_TAG, "NIC device request failed, retrying");
-        _sleep(10);
+        zuzu_sleep(10);
     }
     dev_handle = (handle_t)r.r2;
-    irq_ntfn = _ntfn_create();
+    irq_ntfn = zuzu_ntfn_create();
     if (irq_ntfn < 0)
     {
         LOG_ERROR(LOG_TAG, "ntfn_create failed (tx)");
         return ERR_SYSDOWN;
     }
 
-    _irq_claim((uint32_t)dev_handle);
-    _irq_bind((uint32_t)dev_handle, (uint32_t)irq_ntfn);
+    zuzu_irq_bind((uint32_t)dev_handle, (uint32_t)irq_ntfn);
 
-    nic = (volatile lan9118_t *)_mapdev(dev_handle);
+    nic = (volatile lan9118_t *)zuzu_memmap(dev_handle, 0, VM_PROT_RW, 0);
     if (!nic)
     {
         LOG_ERROR(LOG_TAG, "device mapping failed");
@@ -179,19 +178,26 @@ int nic_setup(void)
 
     // finally, set up shmem
 
-    shmem_result_t shm = _memshare(NIC_SHM_BYTES); // packet size = 1536, ring_size = 16 
-    shmem_handle = shm.handle;
-    shmem_addr = shm.addr;
+    shmem_handle = zuzu_shm_create(NIC_SHM_BYTES); // packet size = 1536, ring_size = 16
+    if (shmem_handle < 0) {
+        LOG_ERROR(LOG_TAG, "shmem create failed");
+        return ERR_SYSDOWN;
+    }
+    shmem_addr = zuzu_memmap(shmem_handle, 0, VM_PROT_RW, 0);
+    if (zuzu_is_err(shmem_addr)) {
+        LOG_ERROR(LOG_TAG, "shmem attach failed");
+        return ERR_SYSDOWN;
+    }
 
     packet_ring_init(shmem_addr);
 
-    netd_ntfn = _ntfn_create();
+    netd_ntfn = zuzu_ntfn_create();
     if (netd_ntfn < 0) {
         LOG_ERROR(LOG_TAG, "notification registration failed");
         return ERR_SYSDOWN;
     }
 
-    tx_doorbell_ntfn = _ntfn_create();
+    tx_doorbell_ntfn = zuzu_ntfn_create();
     if (tx_doorbell_ntfn < 0) {
         LOG_ERROR(LOG_TAG, "tx doorbell registration failed");
         return ERR_SYSDOWN;
@@ -220,8 +226,8 @@ void lan9118_service_loop(void)
     while (1)
     {
 
-        recvany_result_t result;
-        int32_t recv_rc = _recvany(handles, 3, 50, &result);
+        waitany_result_t result;
+        int32_t recv_rc = zuzu_waitany(handles, 3, 50, &result);
         if (recv_rc < 0)
         {
             continue;
@@ -229,7 +235,7 @@ void lan9118_service_loop(void)
 
         switch (result.kind)
         {
-        case RECVANY_KIND_NTFN:
+        case WAITANY_KIND_NTFN:
         {
             if (result.matched_index == H_TXDOORBELL)
             {
@@ -284,10 +290,10 @@ void lan9118_service_loop(void)
                         nic_stats[NIC_STAT_RX_PACKETS]++;
                         if (pending_recv_reply > 0)
                         {
-                            _reply(pending_recv_reply, ZUZU_OK, (uint32_t)pkt_len, 0);
+                            zuzu_msg_reply(pending_recv_reply, ZUZU_OK, (uint32_t)pkt_len, 0);
                             pending_recv_reply = 0;
                         }
-                        _ntfn_signal(netd_ntfn, 1);
+                        zuzu_ntfn_signal(netd_ntfn, 1);
                     }
                 }
             }
@@ -301,10 +307,10 @@ void lan9118_service_loop(void)
                 }
             }
 
-            _irq_done(dev_handle);
+            zuzu_irq_done(dev_handle);
             break;
         }
-        case RECVANY_KIND_CALL:
+        case WAITANY_KIND_CALL:
         {
             switch (result.r2)
             {
@@ -315,7 +321,7 @@ void lan9118_service_loop(void)
                 int32_t status = (mac[0] | mac[1] | mac[2] | mac[3] | mac[4] | mac[5])
                                      ? ZUZU_OK
                                      : ERR_SYSDOWN; // MAC never read -> treat as system down
-                _reply(result.source, status,
+                zuzu_msg_reply(result.source, status,
                        (mac[0] | mac[1] << 8 | mac[2] << 16 | mac[3] << 24),
                        (mac[4] | mac[5] << 8));
                 break;
@@ -324,18 +330,18 @@ void lan9118_service_loop(void)
             {
                 if (shmem_handle < 0 || shmem_addr == NULL)
                 {
-                    _reply(result.source, ERR_SYSDOWN, 0, 0);
+                    zuzu_msg_reply(result.source, ERR_SYSDOWN, 0, 0);
                 }
                 else
                 {
                     /* r1 = shmem, r2 = rx doorbell, r3 = tx doorbell */
-                    int32_t shm_g = _cap_grant(shmem_handle, result.r1);
-                    int32_t rx_g  = _cap_grant(netd_ntfn, result.r1);
-                    int32_t tx_g  = _cap_grant(tx_doorbell_ntfn, result.r1);
+                    int32_t shm_g = zuzu_grant(shmem_handle, result.r1);
+                    int32_t rx_g  = zuzu_grant(netd_ntfn, result.r1);
+                    int32_t tx_g  = zuzu_grant(tx_doorbell_ntfn, result.r1);
                     if (shm_g < 0 || rx_g < 0 || tx_g < 0)
-                        _reply(result.source, ERR_SYSDOWN, 0, 0);
+                        zuzu_msg_reply(result.source, ERR_SYSDOWN, 0, 0);
                     else
-                        _reply(result.source, shm_g, rx_g, tx_g);
+                        zuzu_msg_reply(result.source, shm_g, rx_g, tx_g);
                 }
                 break;
             }
@@ -344,13 +350,13 @@ void lan9118_service_loop(void)
                 nic_frame_t frame;
                 while (packet_ring_pop(&frame, tx_ring) == 0)
                     nic_tx_frame(&frame);
-                _reply(result.source, 0, ZUZU_OK, 0);
+                zuzu_msg_reply(result.source, 0, ZUZU_OK, 0);
                 break;
             }
             case NIC_CMD_RECV:
             {
                 if (rx_ring->head != rx_ring->tail)
-                    _reply(result.source, 0, ZUZU_OK, 0);
+                    zuzu_msg_reply(result.source, 0, ZUZU_OK, 0);
                 else
                     pending_recv_reply = result.source;
                 break;
@@ -359,18 +365,18 @@ void lan9118_service_loop(void)
             {
                 uint32_t idx = result.r3; // NIC_STAT_* selector
                 if (idx < NIC_STAT_COUNT)
-                    _reply(result.source, 0, nic_stats[idx], NIC_STAT_COUNT);
+                    zuzu_msg_reply(result.source, 0, nic_stats[idx], NIC_STAT_COUNT);
                 else
-                    _reply(result.source, ERR_BADARG, 0, NIC_STAT_COUNT);
+                    zuzu_msg_reply(result.source, ERR_BADARG, 0, NIC_STAT_COUNT);
                 break;
             }
             default:
-                _reply(result.source, 0, ERR_NOMATCH, 0);
+                zuzu_msg_reply(result.source, 0, ERR_NOSYS, 0);
                 break;
             }
             break;
         }
-        case RECVANY_KIND_TIMEOUT:
+        case WAITANY_KIND_TIMEOUT:
         {
             /* Surface loss when the link goes idle, only when it changed, so
                bursts don't spam but drops never stay silent. */

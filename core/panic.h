@@ -23,6 +23,9 @@ extern panic_fault_context_t panic_fault_ctx;
 /*
  * Halt the kernel to prevent further damage, and provide debugging information about the issue.
  *
+ * The reason is a printf-style format string (rendered with vsnprintf,
+ * truncated to one screen line).
+ *
  * Disables interrupts, dumps FAULT / CPU STATE / BACKTRACE and optional
  * sections controlled by Makefile flags, then spins in WFI.
  * Uses polled UART only.
@@ -35,6 +38,6 @@ extern panic_fault_context_t panic_fault_ctx;
  *
  * Does not return.
  */
-_Noreturn void __attribute__((cold)) panic(const char *reason);
+_Noreturn void __attribute__((cold, format(printf, 1, 2))) panic(const char *fmt, ...);
 
 #endif

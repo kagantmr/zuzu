@@ -95,7 +95,6 @@ void sched_defer_destroy_thread(thread_t *t) {
     if (!t) return;
     /* Guard against double-enqueue: if node is already linked, skip. */
     if (t->destroy_node.next || t->destroy_node.prev) {
-        KDEBUG("sched_defer_destroy_thread: tid=%u already queued", t->tid);
         return;
     }
     list_add_tail(&t->destroy_node, &thread_destroy_queue.node);
@@ -183,8 +182,8 @@ static void sched_wake_sleepers(void) {
             t->wake_reason = WAKE_TIMEOUT;
             if (t->trap_frame)
                 (*arch_reg(t->trap_frame, 0)) = ERR_TIMEOUT;
-            thread_recvany_clear_waits(t);
-            thread_recvany_clear_ep_waits(t);
+            thread_waitany_clear_waits(t);
+            thread_waitany_clear_ep_waits(t);
             if (t->ntfn_wait_slot.node.prev && t->ntfn_wait_slot.node.next)
                 list_remove(&t->ntfn_wait_slot.node);
             t->state = READY;

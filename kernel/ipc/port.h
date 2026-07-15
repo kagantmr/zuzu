@@ -25,7 +25,7 @@ typedef struct endpoint {
 typedef struct {
     paddr_t phys_base;
     size_t size;
-    bool mapped; // is this device currently mapped?
+    //bool mapped; // is this device currently mapped?
     char compatible[32]; // DTB compatible string
     irq_t irq;
     size_t ref_count;
@@ -37,6 +37,8 @@ typedef struct {
     handle_t holder_slot;
     list_node_t caller_link;
 } reply_cap_t;
+
+
 
 typedef enum {
     HANDLE_FREE,

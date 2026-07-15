@@ -7,11 +7,12 @@
 #include "kernel/ipc/port.h"
 #include "kernel/mm/vmm.h"
 #include <arch/regs.h>
+#include <zuzu/tcb.h>
 #include "thread.h"
 
 #define MAX_PROCESSES 512
 
-#define PROC_FLAG_INIT (1 << 0)   // PID 1, zombie reaper
+#define PROC_FLAG_INIT (1 << 0)   // PID 1
 #define PROC_FLAG_DEVMGR (1 << 1) // hardware authority
 
 extern void process_entry_trampoline(void);
@@ -38,8 +39,27 @@ typedef struct process
     list_node_t sibling_node;
     paddr_t tcb_page_pa;
     vaddr_t tcb_page_va;
-    uint32_t tcb_next_slot;
+    uint8_t tcb_slot_bitmap; /* bit N set = TCB slot N in use */
 } process_t;
+
+_Static_assert(TCB_MAX_SLOTS <= 8, "tcb_slot_bitmap is 8 bits wide");
+
+/* Returns the allocated slot index, or -1 if all slots are taken. */
+static inline int tcb_slot_alloc(process_t *p)
+{
+    for (uint32_t i = 0; i < TCB_MAX_SLOTS; i++) {
+        if (!(p->tcb_slot_bitmap & (1u << i))) {
+            p->tcb_slot_bitmap |= (uint8_t)(1u << i);
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+static inline void tcb_slot_free(process_t *p, uint8_t slot)
+{
+    p->tcb_slot_bitmap &= (uint8_t)~(1u << slot);
+}
 
 void process_destroy(process_t *process);
 process_t *process_find_by_pid(zpid_t pid);
