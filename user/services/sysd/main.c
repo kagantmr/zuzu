@@ -621,7 +621,6 @@ int main(void)
     if (((sp->kernel_ver & 0x00FF0000) >> 16) < ZUZUOS_MIN_KERNEL_MAJOR) {
         zuzu_pquit(FATAL_TAG | FATAL_KERNEL_OUTDATED);
     }
-    zuzu_pquit((sp->kernel_ver & 0x00FF0000));
 
     const void *initrd  = (const void *)INITRD_BASE;
     uint32_t initrd_sz  = sp->initrd_size;
