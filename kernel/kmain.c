@@ -298,7 +298,7 @@ static void sched_tick(void)
 
 _Noreturn void kmain(void)
 {
-    KINFO("Booting zuzu version %s", ZUZU_VERSION);
+    KINFO("Booting %s", "zuzu-" ZUZU_CODENAME "-" ZUZU_VERSION);
     /* DTB and boot_info were initialized in early(); do not touch DTB again */
 
     sched_init();
