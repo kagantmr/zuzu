@@ -1,5 +1,10 @@
 #ifndef FLOAT_H
 #define FLOAT_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define FLT_RADIX 2
 
 /* float (single precision) */
@@ -37,5 +42,9 @@
 #define LDBL_MIN DBL_MIN
 #define LDBL_EPSILON DBL_EPSILON
 #define LDBL_TRUE_MIN DBL_TRUE_MIN
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* FLOAT_H */

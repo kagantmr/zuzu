@@ -33,7 +33,7 @@ int packet_ring_pop(nic_frame_t *dst, nic_ring_t *r) {
         r->tail = (r->tail+1) % NIC_RING_DEPTH;
         return 0;
     }
-    return ERR_NOENT;
+    return ERR_BUFEMPTY;
 }
 
 /* Producer: reserve the next writable slot (or NULL if full). Caller fills

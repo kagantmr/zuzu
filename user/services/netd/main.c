@@ -1,6 +1,6 @@
 #include <stdio.h>
 
-#include <zuzu/ipc.h>
+#include <zuzu/msg.h>
 #include <zuzu/task.h>
 #include <zuzu/umem.h>
 #include <zuzu/channel.h>
@@ -73,7 +73,7 @@ __attribute__((cold)) int get_shm() {
     LOG_INFO(LOG_TAG, "nic0 port=%d", nic_port);
 
     // r1 = status (ZUZU_OK / -err); r2 = mac_lo, r3 = mac_hi carry the MAC bytes
-    msg_t r = _call(nic_port, NIC_CMD_GETMAC, 0, 0);
+    msg_t r = zuzu_msg_call(nic_port, NIC_CMD_GETMAC, 0, 0);
     if ((int32_t)r.r1 != ZUZU_OK) {
         LOG_ERROR(LOG_TAG, "GETMAC failed");
         return 1;
@@ -90,15 +90,15 @@ __attribute__((cold)) int get_shm() {
              netif.mac[3], netif.mac[4], netif.mac[5]);
 
     // r1 = shmem handle, r2 = rx doorbell, r3 = tx doorbell (all >= 0 on success)
-    r = _call(nic_port, NIC_CMD_GETBUF, 0, 0);
+    r = zuzu_msg_call(nic_port, NIC_CMD_GETBUF, 0, 0);
     if ((int32_t)r.r0 != 0 || (int32_t)r.r1 < 0 ||
         (int32_t)r.r2 < 0 || (int32_t)r.r3 < 0) {
         LOG_ERROR(LOG_TAG, "NIC_GETBUF failed");
         return 1;
     }
 
-    void *addr = _attach((int32_t)r.r1);
-    if (_ptr_is_err(addr)) {
+    void *addr = zuzu_memmap((int32_t)r.r1, 0, VM_PROT_RW, 0);
+    if (zuzu_is_err(addr)) {
         LOG_ERROR(LOG_TAG, "shmem attach failed");
         return ERR_SYSDOWN;
     }
@@ -115,8 +115,6 @@ __attribute__((cold)) int get_shm() {
              netd_port, nic_ntfn, tx_doorbell, nic_port);
     return ZUZU_OK;
 }
-
-
 
 int main() {
     if (get_shm() < 0) {
@@ -144,21 +142,21 @@ int main() {
         if (next == TIMER_NO_DEADLINE)
             sleep_ms = LEGACY_POLL_CAP;
         else if ((int32_t)(next - now) <= 0)
-            sleep_ms = 0;                    /* already overdue: don't block */
+            sleep_ms = TIMEOUT_POLL;         /* already overdue: don't block */
         else
             sleep_ms = next - now > LEGACY_POLL_CAP ? LEGACY_POLL_CAP : next - now;
 
         /* 2. sleep until a packet arrives or the deadline elapses */
-        recvany_result_t result;
-        int32_t recv_rc = _recvany(handles, 2, sleep_ms, &result);
+        waitany_result_t result;
+        int32_t recv_rc = zuzu_waitany(handles, 2, sleep_ms, &result);
 
         /* 3. DRAIN RX FIRST: process inbound before any timer fires */
-        if (recv_rc >= 0 && result.kind == RECVANY_KIND_NTFN) {
+        if (recv_rc >= 0 && result.kind == WAITANY_KIND_NTFN) {
             nic_frame_t frame;
             while (packet_ring_pop(&frame, rx_ring) == 0)
                 eth_rx(frame.data, frame.len);
-        } else if (recv_rc >= 0 && result.kind == RECVANY_KIND_CALL) {
-            _reply(result.source, ERR_NOMATCH, 0, 0);
+        } else if (recv_rc >= 0 && result.kind == WAITANY_KIND_CALL) {
+            zuzu_msg_reply(result.source, ERR_NOSYS, 0, 0);
         }
 
         /* 4. THEN fire expired timers */

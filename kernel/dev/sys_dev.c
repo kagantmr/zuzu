@@ -15,81 +15,7 @@
 
 extern thread_t *current_thread;
 
-#define DEVICE_VA_LIMIT USER_DEVICE_LIMIT
-
-void mapdev(arch_regs_t *frame)
-{
-    
-    handle_t handle_idx = (*arch_reg(frame, 0));
-
-    if (handle_idx == 0) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-
-    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
-    if (!entry) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-    if (entry->type != HANDLE_DEVICE) {
-        (*arch_reg(frame, 0)) = ERR_MALFORMED;
-        return;
-    }
-
-    device_cap_t *cap = entry->dev;
-    if (!cap) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-
-    if (cap->mapped) {
-        (*arch_reg(frame, 0)) = ERR_BUSY;
-        return;
-    }
-
-    size_t size_aligned = align_up(cap->size, 4096);
-    vaddr_t user_va = current_thread->owner_process->device_va_next;
-
-    // Device mappings are carved from device_va_next; bound-check that cursor.
-    if (user_va >= DEVICE_VA_LIMIT || size_aligned > DEVICE_VA_LIMIT - user_va) {
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
-        return;
-    }
-    
-    if (!vmm_map_range(current_thread->owner_process->as, user_va, cap->phys_base, size_aligned,
-                       VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
-                       VM_MEM_DEVICE, VM_OWNER_NONE, VM_FLAG_NONE))
-    {
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
-        return;
-    }
-
-    if (!vmm_add_region(current_thread->owner_process->as, &(vm_region_t){
-        .vaddr_start = user_va,
-        .size = size_aligned,
-        .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
-        .memtype = VM_MEM_DEVICE,
-        .owner = VM_OWNER_NONE,
-        .flags = VM_FLAG_NONE,
-    })) {
-        vmm_unmap_range(current_thread->owner_process->as, user_va, size_aligned);
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
-        return;
-    }
-
-    // flush TLB for this VA
-    arch_mmu_flush_tlb_va(user_va);
-    arch_mmu_barrier();
-
-    current_thread->owner_process->device_va_next += size_aligned;
-    cap->mapped = true;
-    entry->mapped_va = user_va;
-
-    (*arch_reg(frame, 0)) = user_va;
-}
-
-void querydev(arch_regs_t *frame) {
+void sys_dev_query(arch_regs_t *frame) {
     handle_t handle_idx = (*arch_reg(frame, 0));
     char *out_buf = (char *)(*arch_reg(frame, 1));
     size_t buf_len = (*arch_reg(frame, 2));
@@ -98,11 +24,11 @@ void querydev(arch_regs_t *frame) {
     if (handle_idx == 0 || buf_len == 0) { (*arch_reg(frame, 0)) = ERR_BADARG; return; }
 
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
-    if (!entry) { (*arch_reg(frame, 0)) = ERR_BADARG; return; }
-    if (entry->type != HANDLE_DEVICE) { (*arch_reg(frame, 0)) = ERR_MALFORMED; return; }
+    if (!entry) { (*arch_reg(frame, 0)) = ERR_BADHANDLE; return; }
+    if (entry->type != HANDLE_DEVICE) { (*arch_reg(frame, 0)) = ERR_BADTYPE; return; }
 
     device_cap_t *cap = entry->dev;
-    if (!cap) { (*arch_reg(frame, 0)) = ERR_BADARG; return; }
+    if (!cap) { (*arch_reg(frame, 0)) = ERR_BADHANDLE; return; }
 
     strncpy(compat_buf, cap->compatible, sizeof(compat_buf) - 1);
     compat_buf[sizeof(compat_buf) - 1] = '\0';
@@ -114,7 +40,7 @@ void querydev(arch_regs_t *frame) {
     }
 
     if (!copy_to_user(out_buf, compat_buf, copy_len)) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADPTR;
         return;
     }
 

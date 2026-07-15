@@ -27,13 +27,13 @@ static int disk_backend_init(void)
         return -1;
     }
 
-    msg_t r = _call(g_sd_port, SD_CMD_GET_BUF, 0, 0);
+    msg_t r = zuzu_msg_call(g_sd_port, SD_CMD_GET_BUF, 0, 0);
     if ((int32_t)r.r1 != 0) {
         g_sd_port = -1;
         return -1;
     }
 
-    g_sector_buf = (BYTE *)_attach((int32_t)r.r2);
+    g_sector_buf = (BYTE *)zuzu_memmap((int32_t)r.r2, 0, VM_PROT_RW, 0);
     if ((intptr_t)g_sector_buf <= 0) {
         g_sd_port = -1;
         g_sector_buf = NULL;
@@ -70,7 +70,7 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
     }
 
     for (UINT i = 0; i < count; i++) {
-        msg_t r = _call(g_sd_port, SD_CMD_READ, (uint32_t)(sector + i), 0);
+        msg_t r = zuzu_msg_call(g_sd_port, SD_CMD_READ, (uint32_t)(sector + i), 0);
         if ((int32_t)r.r1 != 0) {
             return RES_ERROR;
         }
@@ -92,7 +92,7 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 
     for (UINT i = 0; i < count; i++) {
         memcpy(g_sector_buf, buff + (i * FAT32D_SECTOR_SIZE), FAT32D_SECTOR_SIZE);
-        msg_t r = _call(g_sd_port, SD_CMD_WRITE, (uint32_t)(sector + i), 0);
+        msg_t r = zuzu_msg_call(g_sd_port, SD_CMD_WRITE, (uint32_t)(sector + i), 0);
         if ((int32_t)r.r1 != 0) {
             return RES_ERROR;
         }

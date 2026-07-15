@@ -17,7 +17,7 @@ static void *fat32d_buf = NULL;    /* shmem shared with fat32d */
 
 typedef struct {
     uint32_t pid;
-    shmem_result_t shm;
+    handle_t shm_handle;
     char *buf;
 } client_buf_t;
 
@@ -50,7 +50,7 @@ static void fbox_worker(void *arg)
 {
     (void)arg;
     while (1) {
-        _ntfn_wait((uint32_t)fbox_worker_ntfn, NTFN_WAIT_FOREVER);
+        zuzu_ntfn_wait((uint32_t)fbox_worker_ntfn, TIMEOUT_INFINITE);
         while (fbox_job_head != fbox_job_tail) {
             fbox_job_t job = fbox_jobs[fbox_job_tail];
             fbox_job_tail = (fbox_job_tail + 1) % FBOX_JOB_QUEUE_SZ;
@@ -62,29 +62,29 @@ static void fbox_worker(void *arg)
             switch (job.cmd) {
             case FBOX_OPEN:
                 if (client) proxy_open(job.reply_h, job.arg, client->buf);
-                else _reply(job.reply_h, (uint32_t)ERR_NOENT, 0, 0);
+                else zuzu_msg_reply(job.reply_h, (uint32_t)ERR_NOENT, 0, 0);
                 break;
             case FBOX_READ:
                 if (client) proxy_read(job.reply_h, job.arg, client->buf);
-                else _reply(job.reply_h, (uint32_t)ERR_NOENT, 0, 0);
+                else zuzu_msg_reply(job.reply_h, (uint32_t)ERR_NOENT, 0, 0);
                 break;
             case FBOX_WRITE:
                 if (client) proxy_write(job.reply_h, job.arg, client->buf);
-                else _reply(job.reply_h, (uint32_t)ERR_NOENT, 0, 0);
+                else zuzu_msg_reply(job.reply_h, (uint32_t)ERR_NOENT, 0, 0);
                 break;
             case FBOX_CLOSE:
                 proxy_close(job.reply_h, job.arg);
                 break;
             case FBOX_READDIR:
                 if (client) proxy_readdir(job.reply_h, client->buf);
-                else _reply(job.reply_h, (uint32_t)ERR_NOENT, 0, 0);
+                else zuzu_msg_reply(job.reply_h, (uint32_t)ERR_NOENT, 0, 0);
                 break;
             case FBOX_STAT:
                 if (client) proxy_stat(job.reply_h, client->buf);
-                else _reply(job.reply_h, (uint32_t)ERR_NOENT, 0, 0);
+                else zuzu_msg_reply(job.reply_h, (uint32_t)ERR_NOENT, 0, 0);
                 break;
             default:
-                _reply(job.reply_h, (uint32_t)ERR_NOMATCH, 0, 0);
+                zuzu_msg_reply(job.reply_h, (uint32_t)ERR_NOSYS, 0, 0);
                 break;
             }
         }
@@ -104,13 +104,13 @@ static void proxy_open(uint32_t reply_h, uint32_t arg, char *client_buf)
     size_t plen = strlen(client_buf);
     memcpy(fat32d_buf, client_buf, plen + 1);
 
-    msg_t r = _call(fat32d_port, FAT32_OPEN, arg, 0);
-    _reply(reply_h, r.r1, r.r2, 0);
+    msg_t r = zuzu_msg_call(fat32d_port, FAT32_OPEN, arg, 0);
+    zuzu_msg_reply(reply_h, r.r1, r.r2, 0);
 }
 
 static void proxy_read(uint32_t reply_h, uint32_t arg, char *client_buf)
 {
-    msg_t r = _call(fat32d_port, FAT32_READ, arg, 0);
+    msg_t r = zuzu_msg_call(fat32d_port, FAT32_READ, arg, 0);
 
     /* data in fat32d_buf -> my_buf */
     uint32_t count = FAT32_RW_COUNT(arg);
@@ -120,7 +120,7 @@ static void proxy_read(uint32_t reply_h, uint32_t arg, char *client_buf)
     if ((int32_t)r.r1 == ZUZU_OK && got > 0)
         memcpy(client_buf, fat32d_buf, got);
 
-    _reply(reply_h, r.r1, r.r2, 0);
+    zuzu_msg_reply(reply_h, r.r1, r.r2, 0);
 }
 
 static void proxy_write(uint32_t reply_h, uint32_t arg, char *client_buf)
@@ -130,14 +130,14 @@ static void proxy_write(uint32_t reply_h, uint32_t arg, char *client_buf)
     if (count > 32768) count = 32768;
     memcpy(fat32d_buf, client_buf, count);
 
-    msg_t r = _call(fat32d_port, FAT32_WRITE, arg, 0);
-    _reply(reply_h, r.r1, r.r2, 0);
+    msg_t r = zuzu_msg_call(fat32d_port, FAT32_WRITE, arg, 0);
+    zuzu_msg_reply(reply_h, r.r1, r.r2, 0);
 }
 
 static void proxy_close(uint32_t reply_h, uint32_t arg)
 {
-    msg_t r = _call(fat32d_port, FAT32_CLOSE, arg, 0);
-    _reply(reply_h, r.r1, 0, 0);
+    msg_t r = zuzu_msg_call(fat32d_port, FAT32_CLOSE, arg, 0);
+    zuzu_msg_reply(reply_h, r.r1, 0, 0);
 }
 
 static void proxy_readdir(uint32_t reply_h, char *client_buf)
@@ -146,7 +146,7 @@ static void proxy_readdir(uint32_t reply_h, char *client_buf)
     size_t plen = strlen(client_buf);
     memcpy(fat32d_buf, client_buf, plen + 1);
 
-    msg_t r = _call(fat32d_port, FAT32_READDIR, 0, 0);
+    msg_t r = zuzu_msg_call(fat32d_port, FAT32_READDIR, 0, 0);
 
     /* dirents in fat32d_buf -> my_buf */
     if ((int32_t)r.r1 == ZUZU_OK && r.r2 > 0) {
@@ -155,7 +155,7 @@ static void proxy_readdir(uint32_t reply_h, char *client_buf)
         memcpy(client_buf, fat32d_buf, bytes);
     }
 
-    _reply(reply_h, r.r1, r.r2, 0);
+    zuzu_msg_reply(reply_h, r.r1, r.r2, 0);
 }
 
 static void proxy_stat(uint32_t reply_h, char *client_buf)
@@ -164,13 +164,13 @@ static void proxy_stat(uint32_t reply_h, char *client_buf)
     size_t plen = strlen(client_buf);
     memcpy(fat32d_buf, client_buf, plen + 1);
 
-    msg_t r = _call(fat32d_port, FAT32_STAT, 0, 0);
+    msg_t r = zuzu_msg_call(fat32d_port, FAT32_STAT, 0, 0);
 
     /* stat result in fat32d_buf -> my_buf */
     if ((int32_t)r.r1 == ZUZU_OK)
         memcpy(client_buf, fat32d_buf, sizeof(fat32_stat_t));
 
-    _reply(reply_h, r.r1, 0, 0);
+    zuzu_msg_reply(reply_h, r.r1, 0, 0);
 }
 
 static client_buf_t *client_find(uint32_t pid)
@@ -186,12 +186,15 @@ static client_buf_t *client_alloc(uint32_t pid)
 {
     for (int i = 0; i < MAX_FBOX_CLIENTS; i++) {
         if (clients[i].pid == 0) {
-            shmem_result_t shm = _memshare(32768);
-            if (shm.handle < 0 || !shm.addr)
+            handle_t shm_h = zuzu_shm_create(32768);
+            if (shm_h < 0)
+                return NULL;
+            char *shm_buf = (char *)zuzu_memmap(shm_h, 0, VM_PROT_RW, 0);
+            if (zuzu_is_err(shm_buf))
                 return NULL;
             clients[i].pid = pid;
-            clients[i].shm = shm;
-            clients[i].buf = (char *)shm.addr;
+            clients[i].shm_handle = shm_h;
+            clients[i].buf = shm_buf;
             return &clients[i];
         }
     }
@@ -210,15 +213,15 @@ static void handle_get_buf(uint32_t reply_h, uint32_t sender)
 {
     client_buf_t *client = client_get(sender, true);
     if (!client) {
-        _reply(reply_h, (uint32_t)ERR_NOMEM, 0, 0);
+        zuzu_msg_reply(reply_h, (uint32_t)ERR_NOMEM, 0, 0);
         return;
     }
 
-    int32_t slot = _cap_grant(client->shm.handle, (int32_t)sender);
+    int32_t slot = zuzu_grant(client->shm_handle, (int32_t)sender);
     if (slot < 0)
-        _reply(reply_h, (uint32_t)slot, 0, 0);
+        zuzu_msg_reply(reply_h, (uint32_t)slot, 0, 0);
     else
-        _reply(reply_h, ZUZU_OK, (uint32_t)slot, 0);
+        zuzu_msg_reply(reply_h, ZUZU_OK, (uint32_t)slot, 0);
 }
 
 static void handle_request(uint32_t reply_h, uint32_t sender,
@@ -231,7 +234,7 @@ static void handle_request(uint32_t reply_h, uint32_t sender,
 
     client_buf_t *client = client_get(sender, false);
     if (!client || !client->buf) {
-        _reply(reply_h, (uint32_t)ERR_NOENT, 0, 0);
+        zuzu_msg_reply(reply_h, (uint32_t)ERR_NOENT, 0, 0);
         return;
     }
 
@@ -243,7 +246,7 @@ static void handle_request(uint32_t reply_h, uint32_t sender,
     case FBOX_READDIR: proxy_readdir(reply_h, client->buf);      break;
     case FBOX_STAT:    proxy_stat(reply_h, client->buf);         break;
     default:
-        _reply(reply_h, (uint32_t)ERR_NOMATCH, 0, 0);
+        zuzu_msg_reply(reply_h, (uint32_t)ERR_NOSYS, 0, 0);
         break;
     }
 }
@@ -265,27 +268,27 @@ int main(void)
     }
 
     /* get fat32d's shmem buffer */
-    msg_t r = _call(fat32d_port, FAT32_GET_BUF, 0, 0);
+    msg_t r = zuzu_msg_call(fat32d_port, FAT32_GET_BUF, 0, 0);
     if ((int32_t)r.r1 != 0) {
         printf("fbox: FAT32_GET_BUF failed\n");
         return 1;
     }
-    fat32d_buf = _attach((int32_t)r.r2);
+    fat32d_buf = zuzu_memmap((int32_t)r.r2, 0, VM_PROT_RW, 0);
     if ((intptr_t)fat32d_buf <= 0) {
         printf("fbox: attach failed\n");
         return 1;
     }
 
     /* publish globally only after all proxied backends and client shmem exist */
-    int32_t global_slot = _cap_grant(my_port, NAMETABLE_PID);
+    int32_t global_slot = zuzu_grant(my_port, NAMETABLE_PID);
     if (global_slot < 0) {
         printf("fbox: global grant failed\n");
         return 1;
     }
-    _send(NT_PORT, NT_REGISTER | (0 << 8), nt_pack("fbox"), (uint32_t)global_slot);
+    zuzu_msg_send(NT_PORT, NT_REGISTER | (0 << 8), nt_pack("fbox"), (uint32_t)global_slot);
 
     /* create worker notification and spawn worker thread */
-    fbox_worker_ntfn = _ntfn_create();
+    fbox_worker_ntfn = zuzu_ntfn_create();
     if (fbox_worker_ntfn < 0) {
         printf("fbox: worker ntfn create failed\n");
         return 1;
@@ -297,14 +300,14 @@ int main(void)
         return 1;
     }
 
-    tid_t wt = _tmake(fbox_worker, (void *)((char *)wstack + USER_STACK_SIZE), NULL);
+    tid_t wt = zuzu_tmake(fbox_worker, (void *)((char *)wstack + USER_STACK_SIZE), NULL);
     if ((int)wt < 0) {
         printf("fbox: worker spawn failed\n");
         return 1;
     }
 
     while (1) {
-        msg_t msg = _recv(my_port);
+        msg_t msg = zuzu_msg_recv(my_port, TIMEOUT_INFINITE);
         uint32_t reply_h = (uint32_t)msg.r0;
         uint32_t sender  = msg.r1;
         uint32_t cmd     = msg.r2;

@@ -6,7 +6,7 @@
 #include "kernel/irq/sys_irq.h"
 #include "kernel/sched/sched.h"
 #include "kernel/syspage.h"
-#include "zuzu/ipcx.h"
+#include <zuzu/tcb.h>
 #include <zuzu/user_layout.h>
 #include <mem.h>
 #include <string.h>
@@ -14,6 +14,7 @@
 #include <elf.h>
 #include "kstack.h"
 #include "core/panic.h"
+#include <zuzu/err.h>
 #include "zuzu/syscall_nums.h"
 #include <arch/cache.h>
 
@@ -35,6 +36,29 @@ static bool elf_segment_ranges_overlap(const Elf32_Phdr *a, const Elf32_Phdr *b)
         return true;
 
     return (a_start < b_end) && (b_start < a_end);
+}
+
+/* Copy into another address space through the kernel alias of each page.
+ * The target pages must already be faulted in (see fault_in_pages). */
+static bool as_copy_out(addrspace_t *as, vaddr_t va, const void *src, size_t len)
+{
+    const uint8_t *s = src;
+    while (len > 0)
+    {
+        vaddr_t page_va = va & ~(vaddr_t)(PAGE_SIZE - 1);
+        paddr_t pa = arch_mmu_translate(as->ttbr_pa, page_va);
+        if (pa == 0)
+            return false;
+        size_t off = va - page_va;
+        size_t n = PAGE_SIZE - off;
+        if (n > len)
+            n = len;
+        memcpy((void *)(PA_TO_VA(pa) + off), s, n);
+        s += n;
+        va += n;
+        len -= n;
+    }
+    return true;
 }
 
 process_t *process_load(const void *elf_data, size_t elf_size,
@@ -174,57 +198,12 @@ process_t *process_load(const void *elf_data, size_t elf_size,
         }
     }
 
+    /* Stack region + guard were reserved by process_create; pages fault
+     * in on demand. */
     const vaddr_t user_stack_base = USER_STACK_BASE;
-    const vaddr_t user_guard_va = USER_STACK_GUARD_VA;
-
-    paddr_t user_stack_pa = pmm_alloc_pages(USER_STACK_PAGES);
-    if (!user_stack_pa)
-        goto fail_kstack;
-
-    for (int i = 0; i < (int)USER_STACK_PAGES; i++)
-    {
-        if (!vmm_map_user_page(p->as, user_stack_pa + i * 0x1000,
-                            user_stack_base + i * 0x1000,
-                            VM_PROT_READ | VM_PROT_WRITE))
-        {
-            for (int j = i; j < (int)USER_STACK_PAGES; j++)
-                pmm_free_page(user_stack_pa + j * 0x1000);
-            goto fail_kstack;
-        }
-    }
-
-    vm_region_t stack_region = {
-        .vaddr_start = user_stack_base,
-        .size = USER_STACK_SIZE,
-        .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
-        .memtype = VM_MEM_NORMAL,
-        .owner = VM_OWNER_ANON,
-        .flags = VM_FLAG_NONE,
-    };
-    if (!vmm_add_region(p->as, &stack_region))
-    {
-        KERROR("Failed to add user stack region");
-        goto fail_kstack;
-    }
-
-    vm_region_t guard = {
-        .vaddr_start = user_guard_va,
-        .size = PAGE_SIZE,
-        .prot = 0,
-        .memtype = VM_MEM_NORMAL,
-        .owner = VM_OWNER_NONE,
-        .flags = VM_FLAG_GUARD,
-    };
-    if (!vmm_add_region(p->as, &guard))
-    {
-        KERROR("Failed to add user stack guard region");
-        goto fail_kstack;
-    }
 
     vaddr_t sp = USR_SP;
     vaddr_t argv_va = 0;
-
-    const size_t user_stack_size = 4 * PAGE_SIZE;
 
     if ((argc > 0) != (argbuf && argbuf_len > 0))
     {
@@ -269,8 +248,7 @@ process_t *process_load(const void *elf_data, size_t elf_size,
         }
         vaddr_t check_sp = USR_SP;
 
-        if (check_sp - user_stack_base > user_stack_size ||
-            argbuf_len > (size_t)(check_sp - user_stack_base))
+        if (argbuf_len > (size_t)(check_sp - user_stack_base))
         {
             KERROR("argv payload does not fit user stack");
             goto fail_kstack;
@@ -297,21 +275,38 @@ process_t *process_load(const void *elf_data, size_t elf_size,
         sp -= argbuf_len;
         sp &= ~3u;
         vaddr_t strings_va = sp;
-        memcpy((void *)PA_TO_VA(user_stack_pa + (strings_va - user_stack_base)),
-               argbuf, argbuf_len);
 
         sp -= (argc + 1) * sizeof(uint32_t);
         sp &= ~7u;
         argv_va = sp;
-        uint32_t *argv_kern = (uint32_t *)PA_TO_VA(user_stack_pa + (argv_va - user_stack_base));
 
-        vaddr_t str_va = strings_va;
-        for (uint32_t a = 0; a < argc; a++)
+        /* Fault in the stack pages the argv block spans, then write them
+         * through the kernel alias (the target AS is not active here). */
+        if (!fault_in_pages(p->as, argv_va, (size_t)(USR_SP - argv_va), true))
         {
-            argv_kern[a] = (uint32_t)str_va;
-            str_va += strlen((const char *)PA_TO_VA(user_stack_pa + (str_va - user_stack_base))) + 1;
+            KERROR("failed to fault in argv stack pages");
+            goto fail_kstack;
         }
-        argv_kern[argc] = 0;
+
+        if (!as_copy_out(p->as, strings_va, argbuf, argbuf_len))
+            goto fail_kstack;
+
+        /* String offsets in the target stack mirror offsets in argbuf. */
+        vaddr_t str_va = strings_va;
+        const char *str_src = argbuf;
+        for (uint32_t a = 0; a <= argc; a++)
+        {
+            uint32_t slot = (a < argc) ? (uint32_t)str_va : 0;
+            if (!as_copy_out(p->as, argv_va + a * sizeof(uint32_t),
+                             &slot, sizeof(slot)))
+                goto fail_kstack;
+            if (a < argc)
+            {
+                size_t l = strlen(str_src) + 1;
+                str_va += l;
+                str_src += l;
+            }
+        }
     }
 
     t->kernel_sp = (uint32_t *)arch_thread_user_init(
@@ -342,6 +337,7 @@ fail_kstack:
     if (p->as)
         arch_mmu_free_user_pages(p->as);
     as_destroy(p->as);
+    p->tcb_page_pa = 0; /* page freed above; thread_destroy must not scrub it */
     handle_vec_destroy(&p->handle_table);
     thread_destroy(t);
 fail_process:
@@ -391,29 +387,9 @@ process_t *process_create(const char* name) {
         .prot = VM_PROT_READ | VM_PROT_USER,
         .memtype = VM_MEM_NORMAL,
         .owner = VM_OWNER_SHARED,
-        .flags = VM_FLAG_NONE,
+        .flags = VM_FLAG_PINNED | VM_FLAG_GUARD,
     };
     if (!vmm_add_region(p->as, &sys_region))
-        goto fail_kstack;
-
-    // map IPCX transfer buffer into as
-    t->ipc_buf_pa = pmm_alloc_page();
-    if (!t->ipc_buf_pa)
-        goto fail_kstack;
-
-    if (!vmm_map_user_page(p->as, t->ipc_buf_pa, USER_IPC_BUF_VA,
-                        VM_PROT_READ | VM_PROT_WRITE)) // could use a bump pointer instead
-        goto fail_kstack;
-    
-    vm_region_t ipc_region = {
-        .vaddr_start = USER_IPC_BUF_VA,
-        .size = PAGE_SIZE,
-        .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
-        .memtype = VM_MEM_NORMAL,
-        .owner = VM_OWNER_ANON,
-        .flags = VM_FLAG_NONE,
-    };
-    if (!vmm_add_region(p->as, &ipc_region))
         goto fail_kstack;
 
     /* Initialize per-process mmap bump pointer before allocating the
@@ -439,7 +415,7 @@ process_t *process_create(const char* name) {
         .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
         .memtype = VM_MEM_NORMAL,
         .owner = VM_OWNER_ANON,
-        .flags = VM_FLAG_NONE,
+        .flags = VM_FLAG_PINNED | VM_FLAG_GUARD,
     };
     if (!vmm_add_region(p->as, &tcb_region))
         goto fail_kstack;
@@ -449,15 +425,49 @@ process_t *process_create(const char* name) {
     /* Advance bump pointer to reserve the TCB page */
     p->mmap_va_next += PAGE_SIZE;
 
-    /* Initialize the page via the kernel alias (kernel VA). The
-     * initial slot (slot 0) belongs to the main thread and should
-     * point at the process's IPCX fixed VA. */
-    tdata_t *tcb0 = (tdata_t *)PA_TO_VA(tcb_page_pa);
-    tcb0->ipc_buf = (void *)USER_IPC_BUF_VA;
+    /* Reserve the whole stack window as a demand-paged anon region: no
+     * physical pages up front, the data-abort handler faults them in as
+     * the stack grows down. Guard page below catches overflow. */
+    vm_region_t stack_region = {
+        .vaddr_start = USER_STACK_BASE,
+        .size = USER_STACK_TOP - USER_STACK_BASE,
+        .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
+        .memtype = VM_MEM_NORMAL,
+        .owner = VM_OWNER_ANON,
+        .flags = VM_FLAG_NONE,
+    };
+    if (!vmm_add_region(p->as, &stack_region))
+        goto fail_kstack;
+
+    vm_region_t stack_guard = {
+        .vaddr_start = USER_STACK_GUARD_VA,
+        .size = PAGE_SIZE,
+        .prot = 0,
+        .memtype = VM_MEM_NORMAL,
+        .owner = VM_OWNER_NONE,
+        .flags = VM_FLAG_GUARD,
+    };
+    if (!vmm_add_region(p->as, &stack_guard))
+        goto fail_kstack;
+
+    /* Initialize the page via the kernel alias (kernel VA). The main
+     * thread takes its slot through the same bitmap allocator as
+     * tmake; its lmsg buffer lives inside the slot itself. */
+    memset((void *)PA_TO_VA(tcb_page_pa), 0, PAGE_SIZE);
+    p->tcb_slot_bitmap = 0;
+    int tcb_slot_idx = tcb_slot_alloc(p);
+    if (tcb_slot_idx < 0)
+        goto fail_kstack;
+    tdata_t *tcb0 = (tdata_t *)(PA_TO_VA(tcb_page_pa) +
+                                (uint32_t)tcb_slot_idx * TCB_SLOT_SIZE);
+    vaddr_t tcb0_va = p->tcb_page_va + (uint32_t)tcb_slot_idx * TCB_SLOT_SIZE;
+    tcb0->lmsg_buf = (void *)(tcb0_va + offsetof(tdata_t, buf));
     tcb0->tid = t->tid;
-    /* Point the thread's thread-info VA at the first slot in the user TCB page */
-    t->thread_info_va = p->tcb_page_va;
-    
+    t->thread_info_va = tcb0_va;
+    t->tcb_slot = (uint8_t)tcb_slot_idx;
+    t->ipc_buf_pa = tcb_page_pa + (uint32_t)tcb_slot_idx * TCB_SLOT_SIZE +
+                    offsetof(tdata_t, buf);
+
 
     // slot 0 is reserved for nametable endpoint when available
     handle_entry_t *slot0 = handle_vec_get(&p->handle_table, 0);
@@ -494,7 +504,7 @@ process_t *process_create(const char* name) {
     }
 
     zpid_t start = next_pid % MAX_PROCESSES;
-    uint32_t slot = start;
+    tid_t slot = start;
     do {
         if (process_table[slot] == NULL)
             break;
@@ -514,6 +524,7 @@ fail_kstack:
     if (p->as)
         arch_mmu_free_user_pages(p->as);
     as_destroy(p->as);
+    p->tcb_page_pa = 0; /* page freed above; thread_destroy must not scrub it */
 fail_handles:
     if (nametable_endpoint) {
         handle_entry_t *maybe_slot0 = handle_vec_get(&p->handle_table, 0);
@@ -646,12 +657,30 @@ void process_wake_joiners(tid_t tid, int32_t exit_status)
     }
 }
 
+static const char* fatal_reason_str(int reason)
+{
+    switch (reason) {
+        case FATAL_KERNEL_OUTDATED:
+            return "kernel and sysd version don't match";
+        default:
+            return "no reason specified";
+    }
+}
+
 void process_kill(process_t *p, const int exit_status) {
     if (!p)
         return;
 
     if (p->flags & (PROC_FLAG_INIT | PROC_FLAG_DEVMGR)) {
-        panic("Attempted to kill critical process");
+        if ((exit_status & FATAL_TAG_MASK) == FATAL_TAG) {
+            /* deliberate fatal exit carrying a reason code */
+            panic("critical process '%s' (pid %u) exited: %s",
+                  p->name, p->pid, fatal_reason_str(exit_status & FATAL_REASON_MASK));
+        } else {
+            /* unexpected death, or exit with no reason */
+            panic("critical process '%s' (pid %u) died unexpectedly (status %d)",
+                  p->name, p->pid, exit_status);
+        }
     }
 
     list_node_t *thread_node = p->threads.node.next;
@@ -697,9 +726,9 @@ void process_kill(process_t *p, const int exit_status) {
                     list_node_t *n = list_pop_front(&ep->receiver_queue);
                     thread_wait_slot_t *slot = container_of(n, thread_wait_slot_t, node);
                     thread_t *thread = slot->owner;
-                    if (thread->recvany_ep_wait_active) {
-                        thread_recvany_clear_waits(thread);
-                        thread_recvany_clear_ep_waits(thread);
+                    if (thread->waitany_ep_wait_active) {
+                        thread_waitany_clear_waits(thread);
+                        thread_waitany_clear_ep_waits(thread);
                     } else {
                         thread->ipc_state = IPC_NONE;
                         thread->blocked_endpoint = NULL;
@@ -736,16 +765,13 @@ void process_kill(process_t *p, const int exit_status) {
             entry->type = HANDLE_FREE;
         } else if (entry->type == HANDLE_SHMEM) {
             shmem_t *shm = entry->shm;
-            const uintptr_t va = entry->mapped_va;
-            if (shm && va != 0)
-                vmm_remove_region(p->as, va, shm->page_count * PAGE_SIZE);
-            if (shm)
-                shm->ref_count--;
-            if (shm && shm->ref_count == 0) {
-                for (size_t j = 0; j < shm->page_count; j++)
-                    pmm_free_page(shm->page_addrs[j]);
-                kfree(shm->page_addrs);
-                kfree(shm);
+            // Every shm handle holds one reference (create/grant), regardless
+            // of whether it is currently mapped. Tear down the mapping if any,
+            // then drop this handle's reference (frees the object at zero).
+            if (shm) {
+                if (entry->mapped_va != 0)
+                    vmm_remove_region(p->as, entry->mapped_va, shm->page_count * PAGE_SIZE);
+                shmem_drop_ref(shm);
             }
             entry->shm = NULL;
             entry->mapped_va = 0;
@@ -783,7 +809,7 @@ void process_kill(process_t *p, const int exit_status) {
                     thread_t *thread = slot->owner;
                     if (thread->trap_frame)
                         (*arch_reg(thread->trap_frame, 0)) = ERR_DEAD;
-                    thread_recvany_clear_waits(thread);
+                    thread_waitany_clear_waits(thread);
                     if (thread->wake_tick != 0 && thread->timeout_node.prev && thread->timeout_node.next)
                         list_remove(&thread->timeout_node);
                     thread->wake_tick = 0;
@@ -825,7 +851,7 @@ void process_kill(process_t *p, const int exit_status) {
 
     process_t *parent = process_find_by_pid(p->parent_pid);
     if (parent && parent->thread && parent->thread->state == BLOCKED
-              && (parent->waiting_for == p->pid || parent->waiting_for == UINT32_MAX)) {
+              && (parent->waiting_for == p->pid || parent->waiting_for == -1)) {
         parent->thread->state = READY;
         parent->waiting_for = 0;
         sched_add(parent->thread);
@@ -854,6 +880,25 @@ void process_destroy(process_t *p)
         list_node_t *node = p->threads.node.next;
         thread_t *thread = container_of(node, thread_t, process_node);
         thread_destroy(thread);
+    }
+    /* Drop shm handle references still live here. The normal exit path
+     * (process_kill) already cleared these, so this is a no-op there; it
+     * catches the direct-destroy path (sys_pkill) that bypasses process_kill
+     * and would otherwise leak the shm object and its pages. Runs before
+     * as_destroy so the address space is still valid for unmapping. */
+    for (uint32_t i = 0; i < p->handle_table.cap; i++) {
+        handle_entry_t *entry = handle_vec_get(&p->handle_table, i);
+        if (!entry)
+            break;
+        if (entry->type == HANDLE_SHMEM && entry->shm) {
+            if (p->as && entry->mapped_va != 0)
+                vmm_remove_region(p->as, entry->mapped_va,
+                                  entry->shm->page_count * PAGE_SIZE);
+            shmem_drop_ref(entry->shm);
+            entry->shm = NULL;
+            entry->mapped_va = 0;
+            entry->type = HANDLE_FREE;
+        }
     }
     if (p->as)
     {

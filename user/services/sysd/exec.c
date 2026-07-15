@@ -20,14 +20,9 @@ static int inject_segment(uint32_t task_handle, const void *elf_data,
 
     // inject file-backed portion
     if (ph->p_filesz > 0) {
-        asinject_args_t args = {
-            .task_handle = task_handle,
-            .dst_va      = ph->p_vaddr,
-            .src_buf     = (const uint8_t *)elf_data + ph->p_offset,
-            .len         = ph->p_filesz,
-            .prot        = prot,
-        };
-        int32_t rc = _asinject(&args);
+        int32_t rc = zuzu_asinject(task_handle, ph->p_vaddr,
+                               (const uint8_t *)elf_data + ph->p_offset,
+                               ph->p_filesz, prot);
         if (rc != 0) return rc;
     }
 
@@ -46,14 +41,8 @@ static int inject_segment(uint32_t task_handle, const void *elf_data,
         if (!zeroes) return -1;
         memset(zeroes, 0, bss_len);
 
-        asinject_args_t bss_args = {
-            .task_handle = task_handle,
-            .dst_va      = bss_start,
-            .src_buf     = zeroes,
-            .len         = bss_len,
-            .prot        = VM_PROT_READ | VM_PROT_WRITE,
-        };
-        int32_t rc = _asinject(&bss_args);
+        int32_t rc = zuzu_asinject(task_handle, bss_start, zeroes, bss_len,
+                               VM_PROT_READ | VM_PROT_WRITE);
         free(zeroes);
         if (rc != 0) return rc;
     }
@@ -66,6 +55,10 @@ static int inject_stack(uint32_t task_handle,
                         uint32_t argc,
                         uintptr_t *out_sp, uintptr_t *out_argv)
 {
+    /* The kernel reserves the full demand-paged stack window; we only
+     * inject an initial image at the top of it holding argv. */
+    const uintptr_t img_base = USER_STACK_TOP - USER_STACK_SIZE;
+
     uint8_t *buf = malloc(USER_STACK_SIZE);
     if (!buf) return -1;
     memset(buf, 0, USER_STACK_SIZE);
@@ -79,7 +72,7 @@ static int inject_stack(uint32_t task_handle,
         uintptr_t strings_va = sp;
 
         // copy string data into the local stack buffer
-        size_t buf_off = strings_va - USER_STACK_BASE;
+        size_t buf_off = strings_va - img_base;
         if (buf_off > USER_STACK_SIZE || argbuf_len > USER_STACK_SIZE - buf_off) {
             free(buf);
             return -1;
@@ -91,7 +84,7 @@ static int inject_stack(uint32_t task_handle,
         sp &= ~7u;
         argv_va = sp;
 
-        size_t argv_off = (size_t)(argv_va - USER_STACK_BASE);
+        size_t argv_off = (size_t)(argv_va - img_base);
         size_t argv_bytes = (argc + 1) * sizeof(uint32_t);
         if (argv_off > USER_STACK_SIZE || argv_bytes > USER_STACK_SIZE - argv_off) {
             free(buf);
@@ -103,20 +96,14 @@ static int inject_stack(uint32_t task_handle,
         for (uint32_t a = 0; a < argc; a++) {
             argv_arr[a] = (uint32_t)str_va;
             // walk past this string's NUL
-            size_t soff = str_va - USER_STACK_BASE;
+            size_t soff = str_va - img_base;
             str_va += strlen((const char *)(buf + soff)) + 1;
         }
         argv_arr[argc] = 0;
     }
 
-    asinject_args_t args = {
-        .task_handle = task_handle,
-        .dst_va      = USER_STACK_BASE,
-        .src_buf     = buf,
-        .len         = USER_STACK_SIZE,
-        .prot        = VM_PROT_READ | VM_PROT_WRITE,
-    };
-    int32_t rc = _asinject(&args);
+    int32_t rc = zuzu_asinject(task_handle, img_base, buf, USER_STACK_SIZE,
+                           VM_PROT_READ | VM_PROT_WRITE);
     free(buf);
     if (rc != 0) return rc;
 

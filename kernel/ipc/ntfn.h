@@ -8,7 +8,7 @@
 #include <stdbool.h>
 
 typedef struct notification {
-    uint32_t word;              // 32-bit signal mask, atomic-ish (IRQs off)
+    uint32_t word;              // 31-bit signal mask (bit 31 reserved), atomic-ish (IRQs off)
     list_head_t wait_queue;     // processes blocked in ntfn_wait
     zpid_t owner_pid;
     size_t ref_count;

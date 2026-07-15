@@ -101,7 +101,7 @@ void tcp_rto_cb(void *arg) {
 
 int tcp_send(int idx, const uint8_t *data, uint16_t len) {
     tcp_pcb_t *pcb = &tcp_pcbs[idx];
-    if (pcb->state != TCP_ESTABLISHED) return ERR_SYSDOWN;
+    if (pcb->state != TCP_ESTABLISHED) return ERR_NOTCONN;
     LOG_INFO(LOG_TAG, "Buffered bytes: %u", pcb->buffered_bytes);
     size_t free = TCP_SND_BUF - pcb->buffered_bytes;
     if (free == 0) return 0; // backpressure

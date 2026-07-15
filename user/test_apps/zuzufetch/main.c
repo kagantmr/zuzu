@@ -3,6 +3,7 @@
 #include <zuzu/zuzu.h>
 #include <ansi.h>
 #include <zuzu/syspage.h>
+#include <zuzu/version.h>
 
 #define LOGO_WIDTH    50
 #define INFO_MAX      20
@@ -55,11 +56,15 @@ static int build_info(char info[][INFO_LINE_LEN])
 
     /* title */
     snprintf(info[n], INFO_LINE_LEN,
-             ANSI_CYAN "zuzu" ANSI_RESET " %s", sp->version);
+             ANSI_CYAN "zuzuOS" ANSI_RESET " %s", ZUZUOS_VERSION);
     n++;
 
     snprintf(info[n], INFO_LINE_LEN,
              ANSI_CYAN "----------" ANSI_RESET);
+    n++;
+
+    /* kernel version */
+    fmt_kv(info[n], INFO_LINE_LEN, "Kernel:", sp->version);
     n++;
 
     /* machine */

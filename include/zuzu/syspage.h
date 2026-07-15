@@ -1,6 +1,11 @@
 #ifndef SYSPAGE_H
 #define SYSPAGE_H
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
 #include "stdint.h"
 #include "stddef.h"
 #include "zuzu/types.h"
@@ -18,11 +23,12 @@ typedef struct
 
 typedef struct
 {
-    uint32_t magic;   // Must be 0x50050CA7 "zoozoo cat"
-    char version[24]; // version string, constant after boot
-    char build[24];   // build timestamp, constant after boot
-    char machine[20]; // from DTB, constant after boot
-    char cpu[24];     // from DTB, constant after boot
+    uint32_t magic;          // Must be 0x50050CA7 "zoozoo cat"
+    uint32_t kernel_ver;     // Top byte reserved, next 3 bytes are kernel version (major, minor, patch)
+    char version[24];        // version string, constant after boot
+    char build[24];          // build timestamp, constant after boot
+    char machine[20];        // from DTB, constant after boot
+    char cpu[24];            // from DTB, constant after boot
     uint32_t mem_total_kb;
     uint32_t mem_free_kb; // updated
     ztime_t boot_time_s;  // when did the kernel boot?
@@ -32,8 +38,5 @@ typedef struct
     size_t initrd_size;
     syspage_dev_t devs[SYSPAGE_MAX_DEVICES]; // filled from DTB walk at boot
 } syspage_t;
-
-/* Backed by a single pmm_alloc_page() and mapped into userspace as one page. */
-_Static_assert(sizeof(syspage_t) <= 4096, "syspage_t must fit in one page");
 
 #endif

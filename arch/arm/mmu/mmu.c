@@ -142,16 +142,16 @@ uintptr_t arch_mmu_create_tables(addrspace_type_t type)
     return l1_pa;
 }
 
-void arch_mmu_free_tables(uintptr_t ttbr0_pa, addrspace_type_t type)
+void arch_mmu_free_tables(uintptr_t ttbr_pa, addrspace_type_t type)
 {
-    if (ttbr0_pa == 0)
+    if (ttbr_pa == 0)
     {
         return;
     }
 
     // Free every L2 table referenced by the L1, then the L1 pages themselves.
     // The L1 occupies l1_table_pages() contiguous PMM pages.
-    uint32_t *l1 = (uint32_t *)PA_TO_VA(ttbr0_pa);
+    uint32_t *l1 = (uint32_t *)PA_TO_VA(ttbr_pa);
     size_t entries = l1_entry_count(type);
     size_t pages = l1_table_pages(type);
 
@@ -166,7 +166,7 @@ void arch_mmu_free_tables(uintptr_t ttbr0_pa, addrspace_type_t type)
 
     for (size_t i = 0; i < pages; i++)
     {
-        pmm_free_page(ttbr0_pa + i * PAGE_SIZE);
+        pmm_free_page(ttbr_pa + i * PAGE_SIZE);
     }
 }
 
@@ -193,7 +193,7 @@ bool arch_mmu_map(addrspace_t *as, uintptr_t va, uintptr_t pa, size_t size,
     if ((va % SECTION_SIZE) == 0 && (pa % SECTION_SIZE) == 0 && (size % SECTION_SIZE) == 0)
     {
         // During identity-map bring-up, TTBR0 PA is directly addressable (MMU off / identity).
-        uint32_t *l1_table = (uint32_t *)PA_TO_VA(as->ttbr0_pa);
+        uint32_t *l1_table = (uint32_t *)PA_TO_VA(as->ttbr_pa);
         size_t max_idx = l1_entry_count(as->type);
 
         for (uintptr_t offset = 0; offset < size; offset += SECTION_SIZE)
@@ -247,20 +247,33 @@ bool arch_mmu_unmap(addrspace_t *as, uintptr_t va, size_t size)
     // Section-aligned: use sections
     if ((va % SECTION_SIZE) == 0 && (size % SECTION_SIZE) == 0)
     {
-        uint32_t *l1_table = (uint32_t *)PA_TO_VA(as->ttbr0_pa);
+        uint32_t *l1_table = (uint32_t *)PA_TO_VA(as->ttbr_pa);
 
-        KDEBUG("unmap: clearing sections va=%p size=%p", (void *)va, (void *)size);
+        //KDEBUG("unmap: clearing sections va=%p size=%p", (void *)va, (void *)size);
         for (uintptr_t offset = 0; offset < size; offset += SECTION_SIZE)
         {
             size_t idx = L1_IDX(va + offset);
 
-            if (l1_table[idx] != 0)
+            uint32_t entry = l1_table[idx];
+            if (entry == 0)
+                continue;
+
+            /* Break-before-make: invalidate the L1 descriptor and make the
+             * change visible to the walker BEFORE releasing the L2 table it
+             * pointed to, so no concurrent or speculative walk can read a
+             * freed (and possibly reallocated) table. */
+            l1_table[idx] = 0;
+            unmapped_any = true;
+
+            if ((entry & DESC_TYPE_MASK) == DESC_L2)
             {
-                l1_table[idx] = 0;
-                unmapped_any = true;
+                arch_mmu_barrier();                           /* DSB: zero visible */
+                arch_mmu_flush_tlb_asid(as->asid_token.asid); /* drop cached walks */
+                arch_mmu_barrier();
+                l2_pool_free(entry & ALIGNMENT_1KB_MASK);     /* now safe to free  */
             }
         }
-        KDEBUG("unmap: sections cleared");
+        //KDEBUG("unmap: sections cleared");
     }
     // Page-aligned: use pages
     else if ((va % PAGE_SIZE) == 0 && (size % PAGE_SIZE) == 0)
@@ -292,12 +305,12 @@ bool arch_mmu_unmap(addrspace_t *as, uintptr_t va, size_t size)
         // For section unmaps and larger page ranges, invalidate by ASID.
         if (!page_mode || size > (16 * PAGE_SIZE) || unmapped_pages == 0)
         {
-            KDEBUG("unmap: tlb flush (asid=%u)", as->asid_token.asid);
+            //KDEBUG("unmap: tlb flush (asid=%u)", as->asid_token.asid);
             arch_mmu_flush_tlb_asid(as->asid_token.asid);
         }
-        KDEBUG("unmap: barrier");
+        //KDEBUG("unmap: barrier");
         arch_mmu_barrier();
-        KDEBUG("unmap: done");
+        //KDEBUG("unmap: done");
     }
 
     return unmapped_any;
@@ -308,7 +321,7 @@ bool arch_mmu_protect(addrspace_t *as, uintptr_t va, size_t size, vm_prot_t prot
     if (!as || size == 0)
         return false;
 
-    uint32_t *l1 = (uint32_t *)PA_TO_VA(as->ttbr0_pa);
+    uint32_t *l1 = (uint32_t *)PA_TO_VA(as->ttbr_pa);
     bool changed = false;
 
     for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE)
@@ -353,7 +366,7 @@ bool arch_mmu_protect(addrspace_t *as, uintptr_t va, size_t size, vm_prot_t prot
 
 void arch_mmu_enable(addrspace_t *as)
 {
-    if (!as || as->ttbr0_pa == 0)
+    if (!as || as->ttbr_pa == 0)
     {
         return;
     }
@@ -362,7 +375,7 @@ void arch_mmu_enable(addrspace_t *as)
     arch_mmu_barrier();
 
     // Set TTBR0 to the L1 table base (cacheable).
-    __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"(ttbr_value(as->ttbr0_pa)) : "memory");
+    __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"(ttbr_value(as->ttbr_pa)) : "memory");
 
     // Domain Access Control: set domain 0 to Client (no permission checks during bring-up).
     // Bits [1:0] correspond to domain 0.
@@ -385,7 +398,7 @@ void arch_mmu_enable(addrspace_t *as)
 
 void arch_mmu_switch(addrspace_t *as)
 {
-    if (!as || as->ttbr0_pa == 0)
+    if (!as || as->ttbr_pa == 0)
     {
         return;
     }
@@ -402,7 +415,7 @@ void arch_mmu_switch(addrspace_t *as)
     arch_mmu_barrier();
 
     // Write TTBR0 with the new address space's L1 table base.
-    __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"(ttbr_value(as->ttbr0_pa)) : "memory");
+    __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"(ttbr_value(as->ttbr_pa)) : "memory");
 
     arch_mmu_barrier();
 
@@ -438,14 +451,14 @@ void arch_mmu_flush_tlb_va(uintptr_t va)
     __asm__ volatile("mcr p15, 0, %0, c8, c7, 1" ::"r"((uint32_t)(va & ALIGNMENT_4KB_MASK)) : "memory");
 }
 
-uintptr_t arch_mmu_translate(uintptr_t ttbr0_pa, uintptr_t va)
+uintptr_t arch_mmu_translate(uintptr_t ttbr_pa, uintptr_t va)
 {
-    if (ttbr0_pa == 0)
+    if (ttbr_pa == 0)
     {
         return 0;
     }
 
-    uint32_t *l1_table = (uint32_t *)PA_TO_VA(ttbr0_pa);
+    uint32_t *l1_table = (uint32_t *)PA_TO_VA(ttbr_pa);
     uint32_t l1_entry = l1_table[L1_IDX(va)];
     uint32_t type = l1_entry & DESC_TYPE_MASK;
 
@@ -559,7 +572,7 @@ static bool arch_mmu_map_page(addrspace_t *as, uintptr_t va, uintptr_t pa,
         return false;
     }
 
-    uint32_t *l1 = (uint32_t *)PA_TO_VA(as->ttbr0_pa);
+    uint32_t *l1 = (uint32_t *)PA_TO_VA(as->ttbr_pa);
 
     uint32_t l1_idx = L1_IDX(va);
     uint32_t l2_idx = L2_IDX(va);
@@ -603,7 +616,7 @@ static bool arch_mmu_map_page(addrspace_t *as, uintptr_t va, uintptr_t pa,
 
 bool arch_mmu_unmap_page(addrspace_t *as, uintptr_t va)
 {
-    uint32_t *l1 = (uint32_t *)PA_TO_VA(as->ttbr0_pa);
+    uint32_t *l1 = (uint32_t *)PA_TO_VA(as->ttbr_pa);
 
     uint32_t l1_idx = L1_IDX(va);
     uint32_t l2_idx = L2_IDX(va);
@@ -660,8 +673,8 @@ void arch_mmu_free_user_pages(addrspace_t *as)
     if (!as)
         return;
 
-    uintptr_t ttbr0_pa = as->ttbr0_pa;
-    uint32_t *l1 = (uint32_t *)PA_TO_VA(ttbr0_pa);
+    uintptr_t ttbr_pa = as->ttbr_pa;
+    uint32_t *l1 = (uint32_t *)PA_TO_VA(ttbr_pa);
     const uint32_t small_page_attr_mask = (0x7u << 6) | (1u << 3) | (1u << 2);
     const uint32_t device_attr = (1u << 2); // TEX=000, C=0, B=1
 
@@ -709,7 +722,7 @@ void arch_mmu_free_user_pages(addrspace_t *as)
 void arch_mmu_init_ttbr1(addrspace_t *as)
 {
     // Mirror the kernel L1 into TTBR1, then set TTBCR.N=1 to split at 0x80000000.
-    __asm__ volatile("mcr p15, 0, %0, c2, c0, 1" ::"r"(ttbr_value(as->ttbr0_pa)) : "memory");
+    __asm__ volatile("mcr p15, 0, %0, c2, c0, 1" ::"r"(ttbr_value(as->ttbr_pa)) : "memory");
     uint32_t ttbcr;
     __asm__ volatile("mrc p15, 0, %0, c2, c0, 2" : "=r"(ttbcr)::"memory"); // get TTBCR (translation table base control register)
     ttbcr &= 0xFFFFFFE0;                                                   // clear last 5 bits

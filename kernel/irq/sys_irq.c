@@ -31,19 +31,19 @@ static void relay_handler(void *ctx)
             if (!waiter->trap_frame)
                 return;
             (*arch_reg(waiter->trap_frame, 0)) = ntfn->word;
-            uint32_t match_index = RECVANY_NO_MATCH;
-            if (waiter->recvany_wait_active) {
-                for (uint32_t i = 0; i < waiter->recvany_wait_count; i++) {
-                    if (waiter->recvany_wait_ntfns[i] == ntfn) {
-                        match_index = waiter->recvany_wait_slots[i].index;
+            uint32_t match_index = WAITANY_NO_MATCH;
+            if (waiter->waitany_active) {
+                for (uint32_t i = 0; i < waiter->waitany_wait_count; i++) {
+                    if (waiter->waitany_wait_ntfns[i] == ntfn) {
+                        match_index = waiter->waitany_wait_slots[i].index;
                         break;
                     }
                 }
             }
-            thread_recvany_clear_waits(waiter);
-            thread_recvany_clear_ep_waits(waiter);
-            waiter->recvany_wait_match_index = match_index;
-            waiter->recvany_wait_bits = ntfn->word;
+            thread_waitany_clear_waits(waiter);
+            thread_waitany_clear_ep_waits(waiter);
+            waiter->waitany_wait_match_index = match_index;
+            waiter->waitany_wait_bits = ntfn->word;
             if (waiter->wake_tick != 0 && waiter->timeout_node.prev && waiter->timeout_node.next) {
                 list_remove(&waiter->timeout_node);
             }
@@ -67,56 +67,26 @@ static inline bool valid_irq(irq_t irq_num) {
     return (irq_num < MAX_IRQS) && !arch_irq_is_reserved(irq_num);
 }
 
-void irq_claim(arch_regs_t *frame) {
-    uint32_t handle_idx = (*arch_reg(frame, 0));
-
-    if (handle_idx == 0) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-
-    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
-    if (!entry) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-    if (entry->type != HANDLE_DEVICE) {
-        (*arch_reg(frame, 0)) = ERR_MALFORMED;
-        return;
-    }
-
-    device_cap_t *cap = entry->dev;
-    irq_t irq_num = cap->irq;
-
-    if (!valid_irq(irq_num)) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
-        return;
-    }
-    if (irq_owners[irq_num].owner) {
-        (*arch_reg(frame, 0)) = ERR_BUSY;
-        return;
-    }
-
-    irq_owners[irq_num] = (irq_owner_t){
-        .bound_ntfn = NULL,
-        .owner = current_thread->owner_process,
-        .pending = false
-    };
-    arch_irq_register(irq_num, relay_handler, (void*)(vaddr_t)irq_num);
-    (*arch_reg(frame, 0)) = 0;
-}
-
-void irq_bind(arch_regs_t *frame) {
+/*
+ * zuzu_irq_bind: claim ownership of a device's IRQ line (if not already owned by
+ * the caller) and bind a notification to it in a single syscall. Formerly two
+ * syscalls, irq_claim + zuzu_irq_bind, which every caller invoked back-to-back.
+ */
+void sys_irq_bind(arch_regs_t *frame) {
     handle_t dev_handle  = (*arch_reg(frame, 0));
-    handle_t ntfn_handle = (*arch_reg(frame, 1));   // was port_handle
+    handle_t ntfn_handle = (*arch_reg(frame, 1));
 
     if (dev_handle == 0) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;
     }
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, dev_handle);
-    if (!entry || entry->type != HANDLE_DEVICE) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+    if (!entry) {
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+        return;
+    }
+    if (entry->type != HANDLE_DEVICE) {
+        (*arch_reg(frame, 0)) = ERR_BADTYPE;
         return;
     }
 
@@ -125,20 +95,38 @@ void irq_bind(arch_regs_t *frame) {
         (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
-    if (irq_owners[irq_num].owner != current_thread->owner_process) {
-        (*arch_reg(frame, 0)) = ERR_NOPERM;
+
+    /* Ownership: free line is ours to claim; a line owned by someone else is busy. */
+    process_t *owner = irq_owners[irq_num].owner;
+    if (owner && owner != current_thread->owner_process) {
+        (*arch_reg(frame, 0)) = ERR_BUSY;
         return;
     }
 
+    /* Validate the notification before mutating any state so a bad ntfn handle
+     * does not leave the line claimed-but-unbound. */
     handle_entry_t *ntfn_entry = handle_vec_get(&current_thread->owner_process->handle_table, ntfn_handle);
-    if (!ntfn_entry || ntfn_entry->type != HANDLE_NOTIFICATION || !ntfn_entry->ntfn) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+    if (!ntfn_entry || !ntfn_entry->ntfn) {
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;
     }
-
+    if (ntfn_entry->type != HANDLE_NOTIFICATION) {
+        (*arch_reg(frame, 0)) = ERR_BADTYPE;
+        return;
+    }
     if (!ntfn_entry->ntfn->alive) {
         (*arch_reg(frame, 0)) = ERR_DEAD;
         return;
+    }
+
+    /* Claim the line on first bind. */
+    if (!owner) {
+        irq_owners[irq_num] = (irq_owner_t){
+            .bound_ntfn = NULL,
+            .owner = current_thread->owner_process,
+            .pending = false
+        };
+        arch_irq_register(irq_num, relay_handler, (void*)(vaddr_t)irq_num);
     }
 
     if (irq_owners[irq_num].bound_ntfn) {
@@ -163,19 +151,19 @@ void irq_bind(arch_regs_t *frame) {
             thread_t *waiter = slot->owner;
             if (waiter->trap_frame)
                 (*arch_reg(waiter->trap_frame, 0)) = ntfn->word;
-            uint32_t match_index = RECVANY_NO_MATCH;
-            if (waiter->recvany_wait_active) {
-                for (uint32_t i = 0; i < waiter->recvany_wait_count; i++) {
-                    if (waiter->recvany_wait_ntfns[i] == ntfn) {
-                        match_index = waiter->recvany_wait_slots[i].index;
+            uint32_t match_index = WAITANY_NO_MATCH;
+            if (waiter->waitany_active) {
+                for (uint32_t i = 0; i < waiter->waitany_wait_count; i++) {
+                    if (waiter->waitany_wait_ntfns[i] == ntfn) {
+                        match_index = waiter->waitany_wait_slots[i].index;
                         break;
                     }
                 }
             }
-            thread_recvany_clear_waits(waiter);
-            thread_recvany_clear_ep_waits(waiter);
-            waiter->recvany_wait_match_index = match_index;
-            waiter->recvany_wait_bits = ntfn->word;
+            thread_waitany_clear_waits(waiter);
+            thread_waitany_clear_ep_waits(waiter);
+            waiter->waitany_wait_match_index = match_index;
+            waiter->waitany_wait_bits = ntfn->word;
             if (waiter->wake_tick != 0 && waiter->timeout_node.prev && waiter->timeout_node.next) {
                 list_remove(&waiter->timeout_node);
             }
@@ -193,20 +181,20 @@ void irq_bind(arch_regs_t *frame) {
     (*arch_reg(frame, 0)) = 0;
 }
 
-void irq_done(arch_regs_t* frame) {
+void sys_irq_done(arch_regs_t* frame) {
     handle_t dev_handle  = (*arch_reg(frame, 0));
 
     if (dev_handle == 0) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;
     }
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, dev_handle);
     if (!entry) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;
     }
     if (entry->type != HANDLE_DEVICE) {
-        (*arch_reg(frame, 0)) = ERR_MALFORMED;
+        (*arch_reg(frame, 0)) = ERR_BADTYPE;
         return;
     }
     if (!valid_irq(entry->dev->irq)) {

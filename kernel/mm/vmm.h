@@ -10,89 +10,100 @@
 #include BOARD_LAYOUT_H
 #include <arch/asid.h>
 
-#define PA_TO_VA(pa)  ((vaddr_t)(pa) + KERNEL_VA_OFFSET)
-#define VA_TO_PA(va)  ((paddr_t)(va) - KERNEL_VA_OFFSET)
+#define PA_TO_VA(pa) ((vaddr_t)(pa) + KERNEL_VA_OFFSET)
+#define VA_TO_PA(va) ((paddr_t)(va) - KERNEL_VA_OFFSET)
 
-#define IOREMAP_MAX_ENTRIES 16    // was 64
+#define IOREMAP_MAX_ENTRIES 16 // was 64
 
+#define VM_PROT_USER 1u << 3 // user-accessible (otherwise kernel-only)
 
-typedef enum {
+typedef enum
+{
     VM_MEM_NORMAL = 0,
     VM_MEM_DEVICE = 1,
 } vm_memtype_t;
 
-typedef enum {
-    VM_OWNER_NONE    = 0, // Physical pages NOT owned by this addrspace.
-                           // Used for MMIO, device memory, external allocations.
-                           // On destroy: unmap only, do NOT free pages.
-    VM_OWNER_ANON    = 1, // Physical pages allocated by PMM for this addrspace.
-                           // Used for anonymous memory (heap, stack, user allocations).
-                           // On destroy: must walk page tables, translate VA→PA, free pages to PMM.
-    VM_OWNER_SHARED  = 2, // Physical pages owned by a different addrspace or subsystem.
-                           // Used for shared kernel mappings, copy-on-write, etc.
-                           // On destroy: unmap only, do NOT free pages.
+typedef enum
+{
+    VM_OWNER_NONE = 0,   // Physical pages NOT owned by this addrspace.
+                         // Used for MMIO, device memory, external allocations.
+                         // On destroy: unmap only, do NOT free pages.
+    VM_OWNER_ANON = 1,   // Physical pages allocated by PMM for this addrspace.
+                         // Used for anonymous memory (heap, stack, user allocations).
+                         // On destroy: must walk page tables, translate VA→PA, free pages to PMM.
+    VM_OWNER_SHARED = 2, // Physical pages owned by a different addrspace or subsystem.
+                         // Used for shared kernel mappings, copy-on-write, etc.
+                         // On destroy: unmap only, do NOT free pages.
 } vm_owner_t;
 
-typedef enum {
-    VM_FLAG_NONE   = 0,
-    VM_FLAG_PINNED = 1u << 0, // must stay mapped
-    VM_FLAG_GLOBAL = 1u << 1, // global TLB entry where supported
-    VM_FLAG_GUARD  = 1u << 2, // guard page/region
+typedef enum
+{
+    VM_FLAG_NONE = 0,
+    VM_FLAG_PINNED = 1u << 0,    // must stay mapped
+    VM_FLAG_GLOBAL = 1u << 1,    // global TLB entry where supported
+    VM_FLAG_GUARD = 1u << 2,     // guard page/region
     VM_FLAG_TEMPORARY = 1u << 3, // temporary mapping (e.g. identity map during boot)
 } vm_flags_t;
 
-typedef struct vm_region {
-    uintptr_t    vaddr_start;
-    size_t       size;
-    vm_prot_t    prot;
+typedef struct vm_region
+{
+    uintptr_t vaddr_start;
+    size_t size;
+    vm_prot_t prot;
     vm_memtype_t memtype;
-    vm_owner_t   owner;        // ownership: who allocated/owns the backing pages
-    uintptr_t    paddr_start;
-    vm_flags_t   flags;
-    void        *backing;       // optional pointer to backing object (e.g. shmem_t) for shared memory, file mappings, etc.
+    vm_owner_t owner; // ownership: who allocated/owns the backing pages
+    uintptr_t paddr_start;
+    vm_flags_t flags;
+    void *backing; // optional pointer to backing object (e.g. shmem_t) for shared memory, file mappings, etc.
 } vm_region_t;
 
-typedef enum {
+typedef enum
+{
     ADDRSPACE_KERNEL = 0,
-    ADDRSPACE_USER   = 1,
+    ADDRSPACE_USER = 1,
 } addrspace_type_t;
 
 DEFINE_VEC(vm_region, vm_region_t)
 
-typedef struct addrspace {
-    paddr_t        ttbr0_pa;   // physical address of level-1 table
-    vm_region_vec_t     regions;
-    //uint32_t         lock;      // placeholder until concurrency is added
+typedef struct addrspace
+{
+    paddr_t ttbr_pa; // physical address of level-1 table
+    vm_region_vec_t regions;
+    // uint32_t         lock;      // placeholder until concurrency is added
     addrspace_type_t type;
-    asid_token_t          asid_token;
+    asid_token_t asid_token;
 } addrspace_t;
 
-typedef struct {
-    uintptr_t *page_addrs;  // array of individual PAs, one per page
-    size_t     page_count; // amount of used pages
-    uint32_t   ref_count;  // how many processes use it?
+typedef struct
+{
+    uintptr_t *page_addrs; // array of individual PAs, one per page
+    size_t page_count;     // amount of used pages
+    uint32_t ref_count;    // live HANDLE references (shm_create + each grant);
+                           // NOT mappings. Object frees when this hits zero.
 } shmem_t;
 
-#define IOREMAP_SIZE    (IOREMAP_END - IOREMAP_BASE + 1)
-#define IOREMAP_SLOTS   (IOREMAP_SIZE / SECTION_SIZE)     // 256
+/* Drop one handle reference to a shmem object. shm_create and each grant add
+ * one; sys_destroy and process teardown drop one. */
+void shmem_drop_ref(shmem_t *shm);
 
+#define IOREMAP_SIZE (IOREMAP_END - IOREMAP_BASE + 1)
+#define IOREMAP_SLOTS (IOREMAP_SIZE / SECTION_SIZE) // 256
 
-
-addrspace_t* vmm_get_kernel_as(void);
+addrspace_t *vmm_get_kernel_as(void);
 
 /**
  * @brief Create a new address space.
  * @param type ADDRSPACE_KERNEL or ADDRSPACE_USER.
  * @return Pointer to the newly created address space, or NULL on failure.
  */
-addrspace_t* as_create(addrspace_type_t type);
+addrspace_t *as_create(addrspace_type_t type);
 
 /**
  * @brief Destroy an address space.
  * @param as Address space to destroy.
  * Responsibilities: unmap regions, free page tables, release physical memory.
  */
-void as_destroy(addrspace_t* as);
+void as_destroy(addrspace_t *as);
 
 /**
  * @brief Add a region to an address space.
@@ -101,7 +112,7 @@ void as_destroy(addrspace_t* as);
  * @return true on success, false if overlap or alignment error.
  * Does not touch page tables; only validates and appends to as->regions.
  */
-bool vmm_add_region(addrspace_t* as, const vm_region_t* region);
+bool vmm_add_region(addrspace_t *as, const vm_region_t *region);
 
 /**
  * @brief Remove a region from an address space.
@@ -110,7 +121,7 @@ bool vmm_add_region(addrspace_t* as, const vm_region_t* region);
  * @param size Size of the region.
  * @return true on success, false if not found.
  */
-bool vmm_remove_region(addrspace_t* as, vaddr_t vaddr, size_t size);
+bool vmm_remove_region(addrspace_t *as, vaddr_t vaddr, size_t size);
 
 /**
  * @brief Build actual page tables from region descriptions.
@@ -118,7 +129,7 @@ bool vmm_remove_region(addrspace_t* as, vaddr_t vaddr, size_t size);
  * Iterates over all vm_region_t in as->regions and calls arch_mmu_map().
  * @return true on success, false on page table allocation failure.
  */
-bool vmm_build_page_tables(addrspace_t* as);
+bool vmm_build_page_tables(addrspace_t *as);
 
 /**
  * @brief Bootstrap the virtual memory system (early boot).
@@ -138,7 +149,7 @@ void vmm_bootstrap(void);
  * Calls arch layer to load TTBR0 and flush TLB.
  * Used for context switching and userspace entry.
  */
-void vmm_activate(addrspace_t* as);
+void vmm_activate(addrspace_t *as);
 
 /**
  * @brief High-level mapping API: add a single mapping to an address space.
@@ -152,7 +163,7 @@ void vmm_activate(addrspace_t* as);
  * @param flags VM_FLAG_* bits (pinned, global, guard, etc.).
  * @return true on success, false on error.
  */
-bool vmm_map_range(addrspace_t* as, vaddr_t va, paddr_t pa, size_t size,
+bool vmm_map_range(addrspace_t *as, vaddr_t va, paddr_t pa, size_t size,
                    vm_prot_t prot, vm_memtype_t memtype, vm_owner_t owner, vm_flags_t flags);
 
 /**
@@ -179,7 +190,7 @@ bool vmm_map_range(addrspace_t* as, vaddr_t va, paddr_t pa, size_t size,
  * TLB invalidation. If the addrspace is active (TTBR0), the TLB must
  * be invalidated for this to take effect.
  */
-bool vmm_unmap_range(addrspace_t* as, vaddr_t va, size_t size);
+bool vmm_unmap_range(addrspace_t *as, vaddr_t va, size_t size);
 
 /**
  * @brief Change permissions on a range.
@@ -189,8 +200,7 @@ bool vmm_unmap_range(addrspace_t* as, vaddr_t va, size_t size);
  * @param new_prot New protection flags.
  * @return true on success, false if not found.
  */
-bool vmm_protect_range(addrspace_t* as, vaddr_t va, size_t size, vm_prot_t new_prot);
-
+bool vmm_protect_range(addrspace_t *as, vaddr_t va, size_t size, vm_prot_t new_prot);
 
 /**
  * @brief Map a page into user address space.
@@ -200,7 +210,7 @@ bool vmm_protect_range(addrspace_t* as, vaddr_t va, size_t size, vm_prot_t new_p
  * @param prot Protection flags.
  * @return true on success, false on error.
  */
-bool vmm_map_user_page(addrspace_t* as, paddr_t pa, vaddr_t va, vm_prot_t prot);
+bool vmm_map_user_page(addrspace_t *as, paddr_t pa, vaddr_t va, vm_prot_t prot);
 
 /**
  * @brief Remove the identity mapping from the kernel address space.
@@ -214,13 +224,13 @@ void vmm_remove_identity_mapping(void);
  * @param size Size of the mapping.
  * @return Virtual address of the mapped region, or NULL on failure.
  */
-void* ioremap(paddr_t phys, size_t size);
+void *ioremap(paddr_t phys, size_t size);
 
 /**
  * @brief Unmap a previously mapped I/O region.
  * @param va Virtual address returned by ioremap.
  */
-void iounmap(void* va);
+void iounmap(void *va);
 
 bool fault_in_pages(addrspace_t *as, vaddr_t va, size_t len, bool write);
 bool vmm_fault_page(addrspace_t *as, vm_region_t *region, uintptr_t page_va);

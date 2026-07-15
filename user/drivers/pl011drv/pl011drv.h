@@ -56,18 +56,18 @@ typedef struct {
 
 #define UART_RINGBUF_MAX 1024
 
-#include <zuzu/ring.h>
+#include <ring.h>
 #include <zuzu/channel.h>
 
 int pl011drv_setup(void);
 
-/* PL011DRV IPCX API: send/receive via 4KB per-process buffer */
+/* PL011DRV lmsg API: send/receive via the per-thread lmsg buffer */
 static inline int32_t pl011drv_write(int32_t port, uint32_t len) {
-    return chan_send((handle_t)port, ipcx_buf(), len);
+    return chan_send((handle_t)port, lmsg_buf(), len);
 }
 
 static inline msg_t pl011drv_read(int32_t port, uint32_t max_len) {
-    return _callx(port, max_len);
+    return zuzu_msg_lcall(port, max_len);
 }
 
 #endif

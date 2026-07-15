@@ -1,6 +1,10 @@
 #ifndef LAN9118_DRV_RING_H
 #define LAN9118_DRV_RING_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 #include <barrier.h>
 #include <mem.h>
@@ -11,15 +15,15 @@
 
 typedef struct
 {
-    uint32_t len;
-    uint8_t data[NIC_FRAME_SIZE];
+    uint32_t len; // length of the data in the frame (in bytes)
+    uint8_t data[NIC_FRAME_SIZE]; // data buffer for the frame
 } nic_frame_t;
 
 typedef struct
 {
-    nic_frame_t slots[NIC_RING_DEPTH];
-    volatile uint32_t head;
-    volatile uint32_t tail;
+    nic_frame_t slots[NIC_RING_DEPTH]; // array of slots in the ring buffer
+    volatile uint32_t head; // index of the next slot to be written by the producer
+    volatile uint32_t tail; // index of the next slot to be read by the consumer
 } nic_ring_t;
 
 #define NIC_RING_BYTES sizeof(nic_ring_t)                         /* 24648 */
@@ -31,15 +35,32 @@ typedef struct
 _Static_assert(NIC_TX_OFFSET >= NIC_RING_BYTES, "rings overlap");
 _Static_assert(NIC_SHM_BYTES >= NIC_TX_OFFSET + NIC_RING_BYTES, "shm too small");
 
+/**
+ * @brief Pushes a packet into the NIC ring buffer.
+ * 
+ * @param r Pointer to the NIC ring buffer.
+ * @param src Pointer to the source data to be pushed into the ring buffer.
+ * @param len Length of the data to be pushed into the ring buffer (in bytes).
+ * 
+ * @return int Returns 0 on success, otherwise ERR_BUFFULL or ERR_BUFEMPTY.
+ */
 int packet_ring_push(nic_ring_t *r, void *src, uint16_t len);
 int packet_ring_pop(nic_frame_t *dst, nic_ring_t *r);
 
-/* Zero-copy SPSC access: producer fills the reserved slot's data/len then
-   commits; consumer reads the peeked slot then consumes. Both return NULL when
-   the ring is full / empty. */
+/**
+ * @brief Reserves a slot in the NIC ring buffer for writing a packet.
+ * 
+ * @param r Pointer to the NIC ring buffer.
+ * @return nic_frame_t* Returns a pointer to the reserved slot in the ring buffer, or NULL if the buffer is full.
+ * 
+ */
 nic_frame_t *packet_ring_reserve(nic_ring_t *r);
 void         packet_ring_commit(nic_ring_t *r);
 nic_frame_t *packet_ring_peek(nic_ring_t *r);
 void         packet_ring_consume(nic_ring_t *r);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

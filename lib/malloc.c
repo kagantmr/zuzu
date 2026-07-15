@@ -5,14 +5,9 @@
 #include <mem.h>
 #include <stdint.h>
 #include <zuzu/memprot.h>
+#include <zuzu/types.h>
 #include <zuzu/zuzu.h>
-
-typedef struct arena
-{
-    uintptr_t base;   // start of arena VA range
-    uintptr_t brk;    // current allocation frontier
-    uintptr_t mapped; // how far _memmap has been called
-} arena_t;
+#include <sbrk.h>
 
 typedef struct
 {
@@ -27,7 +22,9 @@ typedef struct free_node
 
 #define HEADER_SIZE sizeof(block_header_t)
 #define ARENA_CHUNK_SIZE (64 * 1024)
-static arena_t arena;
+
+static uintptr_t brk   = 0;   /* frontier within the current sbrk block */
+static uintptr_t limit = 0;   /* end of that block */
 static free_node_t *free_list = NULL;
 
 void *malloc(size_t size)
@@ -35,15 +32,6 @@ void *malloc(size_t size)
     if (!size)
         return NULL;
 
-    // 0. initialize
-    if (!arena.base)
-    {
-        arena.base = (uintptr_t)_memmap(NULL, ARENA_CHUNK_SIZE, VM_PROT_READ | VM_PROT_WRITE);
-        if ((intptr_t)arena.base < 0)
-            return NULL;
-        arena.mapped = arena.base + ARENA_CHUNK_SIZE;
-        arena.brk = arena.base;
-    }
 
     // 1. align
     size_t allocated_size = align_up(size, 8);
@@ -64,7 +52,7 @@ void *malloc(size_t size)
                 free_list = curr->next;
 
             if (block->size >= total_size + HEADER_SIZE + 8) {
-                uint32_t old_size = block->size;
+                size_t old_size = block->size;
                 block->size = total_size;
                 block_header_t *block2 = (block_header_t *)((char *)curr + total_size - HEADER_SIZE);
                 block2->size = old_size - total_size;
@@ -76,33 +64,34 @@ void *malloc(size_t size)
         curr = curr->next;
     }
 
-    // 4. if its empty bump the arena
-    while (arena.brk + total_size > arena.mapped)
-    {
-        // try contiguous
-        uintptr_t result =
-            (uintptr_t)_memmap((void *)arena.mapped, ARENA_CHUNK_SIZE, VM_PROT_READ | VM_PROT_WRITE);
-        if ((intptr_t)result < 0)
+    if (brk + total_size > limit)
         {
-            size_t needed = total_size > ARENA_CHUNK_SIZE ? total_size : ARENA_CHUNK_SIZE;
-            needed = (needed + 0xFFF) & ~0xFFF; // page-align
-            result = (uintptr_t)_memmap(NULL, needed, VM_PROT_READ | VM_PROT_WRITE);
-            if ((intptr_t)result < 0)
-                return NULL;
-            arena.brk    = result;
-            arena.mapped = result + needed;
-        }
-        else
-        {
-            arena.mapped += ARENA_CHUNK_SIZE;
-        }
-    }
+            size_t want = total_size > ARENA_CHUNK_SIZE ? total_size : ARENA_CHUNK_SIZE;
+            void *chunk = sbrk((intptr_t)want);
+            if (chunk == (void *)-1) return NULL;
 
-    uintptr_t old_brk = arena.brk;
-    block_header_t *brk = (block_header_t *)arena.brk;
-    *brk = (block_header_t){.size = total_size, ._pad = 0};
-    arena.brk += total_size;
-    return (void *)(old_brk + HEADER_SIZE);
+            /* Donate the tail of the previous block to the free list rather than
+            * abandoning it. sbrk is contiguous, so the new block starts exactly
+            * at the old limit — but don't rely on that; just bank the leftover. */
+            size_t tail = limit - brk;
+            if (tail >= HEADER_SIZE + 8) {
+                block_header_t *h = (block_header_t *)brk;
+                h->size = tail;
+                h->_pad = 0;
+                free((char *)h + HEADER_SIZE);
+            }
+
+            brk   = (uintptr_t)chunk;
+            limit = brk + want;
+        }
+
+        /* 3. bump */
+        block_header_t *h = (block_header_t *)brk;
+        h->size = total_size;
+        h->_pad = 0;
+        uintptr_t old = brk;
+        brk += total_size;
+        return (void *)(old + HEADER_SIZE);
 }
 
 void *calloc(size_t count, size_t size)

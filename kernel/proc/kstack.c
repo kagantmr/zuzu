@@ -31,7 +31,7 @@ uintptr_t kstack_alloc(void) {
             if (!arch_mmu_unmap_page(vmm_get_kernel_as(), slot_va)) {
                 // If translation is already absent, guard page is already in the
                 // desired state and this is not an allocation failure.
-                if (arch_mmu_translate(vmm_get_kernel_as()->ttbr0_pa, slot_va) != 0) {
+                if (arch_mmu_translate(vmm_get_kernel_as()->ttbr_pa, slot_va) != 0) {
                     vmm_unmap_range(vmm_get_kernel_as(), slot_va + 0x1000, PAGE_SIZE);
                     pmm_free_page(page_pa);
                     slot_pa[i] = 0;

@@ -1,10 +1,14 @@
 #ifndef FBOX_PROTOCOL_H
 #define FBOX_PROTOCOL_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 #include <zuzu/protocols/fat32d_protocol.h>
 
-/* Commands — same numbering as fat32d for simplicity */
+/* Commands, same numbering as fat32d for simplicity */
 #define FBOX_OPEN    1
 #define FBOX_READ    2
 #define FBOX_WRITE   3
@@ -23,5 +27,9 @@ typedef fat32_stat_t   fbox_stat_t;
 
 /* Status codes mirror fat32d: ZUZU_OK on success, err_t values from
  * <zuzu/err.h> or FAT32_ERR_IO on failure. */
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
