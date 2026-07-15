@@ -13,9 +13,5 @@ void sys_pspawn(arch_regs_t *frame);
 void sys_kickstart(arch_regs_t *frame);
 void sys_pkill(arch_regs_t *frame);
 
-void sys_tmake(arch_regs_t *frame);
-void sys_tjoin(arch_regs_t *frame);
-void sys_tquit(arch_regs_t *frame);
-
 
 #endif // SYS_TASK_H

@@ -1,5 +1,5 @@
 #include "syscall.h"
-#include "kernel/proc/sys_task.h"
+
 #include "kernel/sched/sched.h"
 #include "core/log.h"
 
@@ -12,6 +12,8 @@
 #include "kernel/dev/sys_dev.h"
 #include "kernel/proc/kstack.h"
 #include "kernel/layout.h"
+#include "kernel/proc/sys_proc.h"
+#include "kernel/proc/sys_thread.h"
 #include "core/panic.h"
 
 #include "kernel/mm/vmm.h"
@@ -116,8 +118,9 @@ void __attribute__((hot)) syscall_dispatch(uint8_t svc_num, arch_regs_t *frame)
     }
     if (!trap_frame_sane(frame))
     {
-        KERROR("bad syscall frame: pid=%u svc=%u frame=%p", current_thread->owner_process ? current_thread->owner_process->pid : 0, svc_num, frame);
-        panic("Corrupt trap_frame at syscall dispatch");
+        panic("Corrupt trap_frame at syscall dispatch: pid=%u svc=%u frame=%p",
+              current_thread->owner_process ? current_thread->owner_process->pid : 0,
+              svc_num, (void *)frame);
     }
     current_thread->trap_frame = frame;
 

@@ -15,6 +15,7 @@
 #include <list.h>
 #include <string.h>
 #include <snprintf.h>
+#include <stdarg.h>
 #include <stdint.h>
 
 #ifdef PANIC_SECTION_IRQ
@@ -874,13 +875,23 @@ static void panic_screen(const char *reason, void *caller_ra)
     panic_nl();
 }
 
-_Noreturn void __attribute__((cold)) panic(const char *reason)
+_Noreturn void __attribute__((cold)) panic(const char *fmt, ...)
 {
+    /* Static: panic is terminal and runs with IRQs off, so no reentrancy */
+    static char reason[LINE_BUF];
+
     void *caller_ra = __builtin_return_address(0);
 
     arch_global_irq_disable();
 
-    panic_screen(reason, caller_ra);
+    if (fmt) {
+        va_list ap;
+        va_start(ap, fmt);
+        vsnprintf(reason, sizeof(reason), fmt, ap);
+        va_end(ap);
+    }
+
+    panic_screen(fmt ? reason : NULL, caller_ra);
 
     __asm__ volatile(
         "1:\n"

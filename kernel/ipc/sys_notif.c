@@ -15,10 +15,10 @@ void ntfn_wake_waiter(notification_t *ntfn, thread_wait_slot_t *slot,
 {
     thread_t *waiter = slot->owner;
     if (!waiter || !waiter->trap_frame) {
-        KERROR("ntfn %p wait queue holds slot %p owner=%p trap_frame=%p",
-               (void *)ntfn, (void *)slot, (void *)waiter,
-               waiter ? (void *)waiter->trap_frame : NULL);
-        panic("ntfn_wake_waiter: queued waiter with no trap frame");
+        panic("ntfn_wake_waiter: queued waiter with no trap frame "
+              "(ntfn=%p slot=%p owner=%p trap_frame=%p)",
+              (void *)ntfn, (void *)slot, (void *)waiter,
+              waiter ? (void *)waiter->trap_frame : NULL);
     }
 
     (*arch_reg(waiter->trap_frame, 0)) = (uint32_t)r0_value;
