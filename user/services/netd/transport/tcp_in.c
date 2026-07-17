@@ -27,7 +27,7 @@ typedef struct {
 
 static void time_wait_cb(void *arg) {
     tcp_pcb_t *pcb = (tcp_pcb_t *)arg;
-    timer_cancel(pcb->rto_timer);
+    rto_stop(pcb);
     port_release(pcb->local_port);
     tcp_pcb_free(tcp_pcb_index(pcb));
     LOG_INFO(LOG_TAG, "TIME_WAIT expired, connection freed");
@@ -66,11 +66,11 @@ static void on_established(int slot, tcp_pcb_t *pcb, const tcp_seg_t *s) {
         pcb->snd_una = s->ack;
         pcb->buffered_bytes -= MIN(delta, pcb->buffered_bytes);
         if (pcb->snd_nxt == pcb->snd_una) {
-            timer_cancel(pcb->rto_timer);
+            rto_stop(pcb);
             LOG_INFO(LOG_TAG, "data acked, RTO cancelled");
         } else {
-            timer_cancel(pcb->rto_timer);
-            pcb->rto_timer = timer_arm(net_now_ms() + pcb->rto_ms, tcp_rto_cb, pcb);
+            rto_stop(pcb);
+            rto_start(pcb);
             LOG_INFO(LOG_TAG, "partially acked, RTO restarted");
         }
     }
@@ -95,11 +95,19 @@ static void on_established(int slot, tcp_pcb_t *pcb, const tcp_seg_t *s) {
     }
 
     if (s->flags & TCP_FIN) {
-        pcb->rcv_nxt += 1;                    /* their FIN's phantom byte */
-        tcp_output(pcb, TCP_ACK, NULL, 0);   /* ack their FIN */
-        pcb->state = TCP_CLOSE_WAIT;
-        LOG_INFO(LOG_TAG, "peer closed, now CLOSE_WAIT");
-        tcp_close(slot);
+        pcb->rcv_nxt += 1;
+        tcp_output(pcb, TCP_ACK, NULL, 0);
+        if (pcb->state == TCP_ESTABLISHED) {
+            /* they closed first — the normal passive-close path */
+            pcb->state = TCP_CLOSE_WAIT;
+            tcp_close(slot);
+        } else if (pcb->state == TCP_FIN_WAIT_1) {
+            /* we ALSO just closed (writer #1) — both FINs crossed.
+            This is simultaneous close: don't send another FIN,
+            ours is already on the wire. Just wait it out. */
+            pcb->state = TCP_TIME_WAIT;
+            timer_arm(net_now_ms() + TCP_TIME_WAIT_MS, time_wait_cb, pcb);
+        }
     }
 }
 
@@ -110,7 +118,7 @@ static void on_fin_wait_1(tcp_pcb_t *pcb, const tcp_seg_t *s) {
 
         if (pcb->snd_nxt == pcb->snd_una) {
             pcb->buffered_bytes -= MIN(delta, pcb->buffered_bytes);
-            timer_cancel(pcb->rto_timer);
+            rto_stop(pcb);
             LOG_INFO(LOG_TAG, "response acknowledged");
         }
     }
@@ -140,7 +148,7 @@ static void on_last_ack(int slot, tcp_pcb_t *pcb, const tcp_seg_t *s) {
     if ((int32_t)(s->ack - pcb->snd_una) > 0) {
         pcb->snd_una = s->ack;
         if ((int32_t)(pcb->snd_una - pcb->snd_nxt) >= 0) {   /* our FIN acked */
-            timer_cancel(pcb->rto_timer);
+            rto_stop(pcb);
             port_release(pcb->local_port);
             tcp_pcb_free(slot);
             LOG_INFO(LOG_TAG, "LAST_ACK done, connection freed");
@@ -190,6 +198,8 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
 
     tcp_hdr_t *th = (tcp_hdr_t *)data;
     uint16_t hdr_len = (th->data_offset >> 4) * 4;
+
+    if (hdr_len >= 20 || hdr_len <= len) return;
 
     tcp_seg_t seg = {
         .src_ip      = src_ip,

@@ -20,4 +20,7 @@ int tcp_xmit(tcp_pcb_t *pcb);
 /* Retransmission timeout callback. arg is the owning tcp_pcb_t *. */
 void tcp_rto_cb(void *arg);
 
+void rto_stop(tcp_pcb_t *pcb);
+void rto_start(tcp_pcb_t *pcb);
+
 #endif
