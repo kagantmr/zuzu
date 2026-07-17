@@ -83,13 +83,20 @@ int tcp_xmit(tcp_pcb_t *pcb) {
         size_t off = pcb->snd_nxt & (TCP_SND_BUF - 1);
         size_t first = MIN(seglen, TCP_SND_BUF - off);
         memcpy(data, pcb->snd_buf + off, first);
-        if (first < seglen) {
+        if (first < seglen)
             memcpy(data + first, pcb->snd_buf, seglen - first);
-        }
-        int rc = tcp_output(pcb, TCP_ACK, data, seglen);
-        if (rc != ZUZU_OK) {
-            return rc;
-        }
+        uint8_t flags = TCP_ACK;
+        if (pcb->fin_pending &&
+            pcb->snd_nxt + seglen == pcb->snd_una + pcb->buffered_bytes)
+            flags |= TCP_FIN;                 /* this is the last data segment */
+        int rc = tcp_output(pcb, flags, data, seglen);
+        if (rc != ZUZU_OK) return rc;
+    }
+    /* all data sent; emit the FIN alone if it hasn't gone out yet */
+    if (pcb->fin_pending &&
+        (int32_t)(pcb->snd_nxt - (pcb->snd_una + pcb->buffered_bytes)) <= 0) {
+        int rc = tcp_output(pcb, TCP_FIN | TCP_ACK, NULL, 0);
+        if (rc == ZUZU_OK) sent = true;
     }
     if (sent)
         rto_start(pcb);

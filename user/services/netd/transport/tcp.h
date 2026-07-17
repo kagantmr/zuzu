@@ -67,6 +67,7 @@ typedef struct {
     tcp_ooo_t ooo[TCP_OOO_MAX];
     size_t ooo_count;
     bool active;
+    bool fin_pending;
     uint8_t snd_buf[TCP_SND_BUF]; // size must be a power of 2
     size_t buffered_bytes; // how many bytes are buffered?
     uint8_t rcv_buf[TCP_RCV_BUF]; // size must be a power of 2
