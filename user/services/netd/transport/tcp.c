@@ -34,7 +34,6 @@ int tcp_listen(int port) {
     int slot = tcp_pcb_alloc();
     if (slot < 0) return ERR_NOMEM;
     tcp_pcb_t *pcb = &tcp_pcbs[slot];
-    memset(pcb, 0, sizeof(*pcb));     /* clear stale state from prior use */
     pcb->active = true;               /* memset cleared it, set it back */
     pcb->local_ip = netif.ip;
     pcb->local_port = port;

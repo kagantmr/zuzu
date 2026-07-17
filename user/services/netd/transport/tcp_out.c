@@ -21,6 +21,22 @@ uint16_t tcp_checksum(ipv4_addr_t src_ip, ipv4_addr_t dst_ip,
     return inet_csum_fold(accum);
 }
 
+/* arm if not armed; set flag   */
+void rto_start(tcp_pcb_t *pcb) {
+
+    if (pcb->rto_timer != TIMER_NONE)
+        return;
+    pcb->rto_timer = timer_arm(net_now_ms() + pcb->rto_ms, tcp_rto_cb, pcb);
+}
+
+/* cancel if armed; clear flag  */
+void rto_stop(tcp_pcb_t *pcb) {
+    if (pcb->rto_timer == TIMER_NONE)
+        return;
+    timer_cancel(pcb->rto_timer);
+    pcb->rto_timer = TIMER_NONE;
+}    
+
 int tcp_output(tcp_pcb_t *pcb, uint8_t flags, const uint8_t *data, uint16_t data_len) {
     uint8_t buf[sizeof(tcp_hdr_t) + TCP_MSS];      /* header + bit of data */
     tcp_hdr_t *th = (tcp_hdr_t *)buf;
@@ -54,7 +70,6 @@ int tcp_output(tcp_pcb_t *pcb, uint8_t flags, const uint8_t *data, uint16_t data
 }
 
 int tcp_xmit(tcp_pcb_t *pcb) {
-    size_t in_flight = pcb->snd_nxt - pcb->snd_una;
     bool sent = false;
     while (1) {
         size_t unsent = (pcb->snd_una + pcb->buffered_bytes) - pcb->snd_nxt;
@@ -76,14 +91,15 @@ int tcp_xmit(tcp_pcb_t *pcb) {
             return rc;
         }
     }
-    if (!in_flight && sent) {
-        pcb->rto_timer = timer_arm(net_now_ms() + pcb->rto_ms, tcp_rto_cb, pcb);
-    }
+    if (sent)
+        rto_start(pcb);
+
     return ZUZU_OK;
 }
 
 void tcp_rto_cb(void *arg) {
     tcp_pcb_t *pcb = (tcp_pcb_t *)arg;
+    pcb->rto_timer = TIMER_NONE;
     if (pcb->snd_nxt == pcb->snd_una) return; // window empty, don't do anything
 
     /* exponential backoff, capped */
@@ -96,7 +112,6 @@ void tcp_rto_cb(void *arg) {
     pcb->snd_nxt = pcb->snd_una;
     tcp_xmit(pcb);
 
-    pcb->rto_timer = timer_arm(net_now_ms() + pcb->rto_ms, tcp_rto_cb, pcb);
 }
 
 int tcp_send(int idx, const uint8_t *data, uint16_t len) {

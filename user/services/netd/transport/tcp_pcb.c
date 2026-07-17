@@ -5,7 +5,9 @@ tcp_pcb_t tcp_pcbs[TCP_MAX_PCB];
 int tcp_pcb_alloc(void) {
     for (int i = 0; i < TCP_MAX_PCB; i++) {
         if (!tcp_pcbs[i].active) {
+            memset(&tcp_pcbs[i], 0, sizeof(tcp_pcb_t));
             tcp_pcbs[i].active = true;
+            tcp_pcbs[i].rto_timer = TIMER_NONE;
             return i;
         }
     }
