@@ -75,6 +75,18 @@ typedef struct {
     uint32_t rto_ms;                 /* current backoff value */
 } tcp_pcb_t;
 
+typedef struct {
+    ipv4_addr_t    src_ip;
+    port_t         src_port;
+    port_t         dst_port;
+    uint32_t       seq;          /* their sequence number */
+    uint32_t       ack;          /* their acknowledgement number */
+    uint8_t        flags;
+    const uint8_t *payload;
+    uint16_t       payload_len;
+    uint16_t       window;
+} tcp_seg_t;
+
 _Static_assert((TCP_SND_BUF & (TCP_SND_BUF - 1)) == 0, "TCP_SND_BUF must be power of two");
 _Static_assert((TCP_RCV_BUF & (TCP_RCV_BUF - 1)) == 0, "TCP_RCV_BUF must be power of two");
 

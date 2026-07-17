@@ -23,4 +23,6 @@ void tcp_rto_cb(void *arg);
 void rto_stop(tcp_pcb_t *pcb);
 void rto_start(tcp_pcb_t *pcb);
 
+void tcp_send_rst(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const tcp_seg_t *seg);
+
 #endif

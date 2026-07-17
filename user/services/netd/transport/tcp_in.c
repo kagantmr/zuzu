@@ -9,18 +9,6 @@
 #include <string.h>
 
 /* A received segment, parsed once and passed to the per-state handlers. */
-typedef struct {
-    ipv4_addr_t    src_ip;
-    port_t         src_port;
-    uint32_t       seq;          /* their sequence number */
-    uint32_t       ack;          /* their acknowledgement number */
-    uint8_t        flags;
-    const uint8_t *payload;
-    uint16_t       payload_len;
-    uint16_t       window;
-} tcp_seg_t;
-
-
 /* ------------------------------------------------------------------ */
 /* helpers                                                            */
 /* ------------------------------------------------------------------ */
@@ -199,11 +187,12 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
     tcp_hdr_t *th = (tcp_hdr_t *)data;
     uint16_t hdr_len = (th->data_offset >> 4) * 4;
 
-    if (hdr_len >= 20 || hdr_len <= len) return;
+    if (hdr_len < 20 || hdr_len > len) return;
 
     tcp_seg_t seg = {
         .src_ip      = src_ip,
         .src_port    = ntohs(th->src_port),
+        .dst_port    = ntohs(th->dst_port),
         .seq         = ntohl(th->seq),
         .ack         = ntohl(th->ack),
         .flags       = th->flags,
@@ -216,9 +205,32 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
     if (slot < 0) {
         if ((seg.flags & TCP_SYN) && !(seg.flags & TCP_ACK))
             slot = tcp_pcb_find_listener(netif.ip, ntohs(th->dst_port));
-        if (slot < 0) return;   /* todo: RST */
+        if (slot < 0) {
+            if (!(seg.flags & TCP_RST)) {
+                tcp_send_rst(src_ip, dst_ip, &seg);  
+            }
+            return;
+        }
     }
     tcp_pcb_t *pcb = &tcp_pcbs[slot];
+
+    if (seg.flags & TCP_RST) {
+        bool accept;
+        if (pcb->state == TCP_SYN_SENT)
+            accept = (seg.flags & TCP_ACK) && seg.ack == pcb->snd_nxt;  /* RST must ack our SYN */
+        else
+            accept = (seg.seq == pcb->rcv_nxt);                          /* in-window */
+
+        if (accept) {
+            if (pcb->state == TCP_SYN_SENT)
+                LOG_INFO(LOG_TAG, "connection refused");
+            rto_stop(pcb);
+            port_release(pcb->local_port);
+            tcp_pcb_free(slot);
+        }
+        return;
+    }
+
     pcb->snd_wnd = seg.window;
 
     switch (pcb->state) {
