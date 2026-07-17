@@ -138,3 +138,31 @@ int tcp_send(int idx, const uint8_t *data, uint16_t len) {
     tcp_xmit(pcb);
     return n;
 }
+
+void tcp_send_rst(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const tcp_seg_t *seg) {
+    uint8_t buf[sizeof(tcp_hdr_t)];        /* bare header, no payload */
+    tcp_hdr_t *th = (tcp_hdr_t *)buf;
+
+    th->src_port    = htons(seg->dst_port);  
+    th->dst_port    = htons(seg->src_port);  
+    th->data_offset = (5 << 4);               /* 20 bytes, no options */
+    th->window      = 0;                       /* RST carries no window */
+    th->urgent_ptr  = 0;
+    th->checksum    = 0;
+
+    if (seg->flags & TCP_ACK) {
+        th->flags = TCP_RST;
+        th->seq   = htonl(seg->ack);          /* sit where they expect */
+        th->ack   = 0;
+    } else {
+        uint32_t seg_len = seg->payload_len
+                         + ((seg->flags & TCP_SYN) ? 1 : 0)
+                         + ((seg->flags & TCP_FIN) ? 1 : 0);
+        th->flags = TCP_RST | TCP_ACK;
+        th->seq   = 0;
+        th->ack   = htonl(seg->seq + seg_len);  /* acknowledge their span */
+    }
+
+    th->checksum = htons(tcp_checksum(dst_ip, src_ip, buf, sizeof(buf)));
+    ip_tx(buf, sizeof(buf), dst_ip, src_ip, IP_PROTO_TCP); 
+}
