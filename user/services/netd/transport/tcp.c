@@ -43,12 +43,14 @@ int tcp_listen(int port) {
 
 int tcp_close(int idx) {
     tcp_pcb_t *pcb = &tcp_pcbs[idx];
-    int rc = tcp_output(pcb, TCP_FIN | TCP_ACK, NULL, 0);
-    if (rc == 0) {
-        if (pcb->state == TCP_ESTABLISHED)
-            pcb->state = TCP_FIN_WAIT_1;      /* active close */
-        else if (pcb->state == TCP_CLOSE_WAIT)
-            pcb->state = TCP_LAST_ACK;        /* passive close */
-    }
-    return rc;
+
+    pcb->fin_pending = true;                  /* stream ends after last buffered byte */
+
+    if (pcb->state == TCP_ESTABLISHED)
+        pcb->state = TCP_FIN_WAIT_1;          /* active close */
+    else if (pcb->state == TCP_CLOSE_WAIT)
+        pcb->state = TCP_LAST_ACK;            /* passive close */
+
+    tcp_xmit(pcb);                            /* emits FIN (piggybacked or bare) */
+    return ZUZU_OK;
 }
