@@ -30,6 +30,29 @@ int tcp_connect(ipv4_addr_t remote_ip, port_t remote_port) {
     return idx;
 }
 
+static void http_on_data(int slot) {
+    tcp_pcb_t *pcb = &tcp_pcbs[slot];
+    uint8_t chunk[256];
+    int n;
+    while ((n = tcp_recv(slot, chunk, sizeof(chunk) - 1)) > 0) {
+        chunk[n] = '\0';
+        LOG_INFO(LOG_TAG, "app read %d: %s", n, chunk);
+    }
+    /* the resp string + tcp_send + tcp_close, moved verbatim */
+    static const char *resp =
+        "HTTP/1.0 200 OK\r\n"
+        "Content-Type: text/html\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+        "<html><body><h1>Hello from ZuzuOS!</h1>"
+        "<p>Served by netd, powered by the Zuzu microkernel.</p>"
+        "</body></html>\r\n";
+
+    tcp_send(slot, (const uint8_t *)resp, strlen(resp));
+    tcp_close(slot);                            /* close after responding */
+}
+
+
 int tcp_listen(int port) {
     int slot = tcp_pcb_alloc();
     if (slot < 0) return ERR_NOMEM;
@@ -38,6 +61,7 @@ int tcp_listen(int port) {
     pcb->local_ip = netif.ip;
     pcb->local_port = port;
     pcb->state = TCP_LISTENING;
+    pcb->on_data = http_on_data;
     return slot;
 }
 

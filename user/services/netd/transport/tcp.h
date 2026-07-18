@@ -71,6 +71,7 @@ typedef struct {
     uint8_t snd_buf[TCP_SND_BUF]; // size must be a power of 2
     size_t buffered_bytes; // how many bytes are buffered?
     uint8_t rcv_buf[TCP_RCV_BUF]; // size must be a power of 2
+    void (*on_data)(int slot); // data arrival callback
     timer_handle_t rto_timer;
     uint32_t rto_ms;                 /* current backoff value */
 } tcp_pcb_t;
