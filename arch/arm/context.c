@@ -17,8 +17,9 @@
 
 /* Initial CPSR for a user thread: USR mode (0x10), IRQs enabled. */
 #define ARM_CPSR_USER     0x10u
-/* Bytes reserved on the kernel stack for the VFP/FP register save area. */
-#define ARM_VFP_SAVE_SIZE 132u
+/* Bytes reserved on the kernel stack for the VFP/FP register save area:
+ * d0-d31 (32 doubles) + FPSCR, matching the switch.S save/restore layout. */
+#define ARM_VFP_SAVE_SIZE 260u
 
 /* Entry trampoline that pops the exception frame and returns to user mode. */
 extern void process_entry_trampoline(void);

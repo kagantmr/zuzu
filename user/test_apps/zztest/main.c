@@ -5,7 +5,7 @@
  * syscall_nums.h. Supersedes the old cycletest; the thread/lmsg round-trip
  * coverage from test/main.c is folded into the IPC section.
  *
- * Sections: mem, ipc, handles, tasks, version, leaks.
+ * Sections: mem, ipc, handles, tasks, vfp, version, security, leaks.
  * Output: ok/FAIL per assertion, per-section summary table.
  * Exit status = total failure count.
  *
@@ -45,7 +45,7 @@
 
 /* ---------------- harness ---------------- */
 
-#define MAX_SECTIONS 8
+#define MAX_SECTIONS 10
 static struct { const char *name; int pass, fail; } sections[MAX_SECTIONS];
 static int cur_sec = -1;
 
@@ -677,6 +677,36 @@ static void sec_tasks(void)
     CHECK(dt < 1000, "sleep(100) did not oversleep grossly");
 }
 
+static void sec_vfp(void)
+{
+    section("vfp");
+
+    /* Upper-bank VFP (d16-d31) context-switch integrity. Two child
+     * processes spin write-sentinel -> yield -> readback -> assert with
+     * distinct per-process patterns (see zztest_child mode_vfp); with the
+     * parent blocked in wait they ping-pong on yield, so every iteration
+     * crosses a process switch. One assertion catches both a switch path
+     * that skips the upper bank and one that swaps state between
+     * processes — either way a foreign/stale value reads back. */
+    child_t ca, cb;
+    int32_t ra = child_spawn("vfpa", -1, &ca);
+    CHECK_EQ(ra, 0, "spawn vfpa child");
+    int32_t rb = child_spawn("vfpb", -1, &cb);
+    CHECK_EQ(rb, 0, "spawn vfpb child");
+
+    int32_t status;
+    if (ra == 0) {
+        status = -1;
+        CHECK(zuzu_wait(ca.pid, &status, 0) == ca.pid, "wait vfpa child");
+        CHECK_EQ(status, 0, "vfpa: d16/d31 sentinels survive 400 yields");
+    }
+    if (rb == 0) {
+        status = -1;
+        CHECK(zuzu_wait(cb.pid, &status, 0) == cb.pid, "wait vfpb child");
+        CHECK_EQ(status, 0, "vfpb: d16/d31 sentinels survive 400 yields");
+    }
+}
+
 static void sec_version(void)
 {
     section("version");
@@ -908,6 +938,7 @@ int main(void)
     sec_ipc();
     sec_handles();
     sec_tasks();
+    sec_vfp();
     sec_version();
     sec_security();
     sec_leaks();
