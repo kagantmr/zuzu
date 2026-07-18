@@ -16,6 +16,10 @@
  *   regrant <slot>   confinement: a *received* (granted) cap must be
  *                    non-grantable and non-destroyable by the receiver.
  *                    Both must be refused (ERR_NOPERM); exit 0 on success.
+ *   vfpa / vfpb      upper-bank VFP context-switch integrity: spin writing
+ *                    per-process sentinels into d16/d31, yield, read back,
+ *                    assert. Two instances with distinct sentinels run
+ *                    concurrently; 117 = d16 corrupted, 118 = d31 corrupted.
  *
  * Exit codes 100+ are child-side failures; zztest reports them.
  */
@@ -107,6 +111,40 @@ static int mode_regrant(handle_t slot)
     return 0;
 }
 
+/* Upper-bank (d16-d31) registers only exist in the VFP context the kernel
+ * saves/restores in context_switch; a switch path that handles just d0-d15
+ * corrupts them silently. Write/yield/readback is a single asm block so the
+ * compiler cannot cache anything in the probed registers in between; the
+ * yield svc clobbers only r0 (same contract as zuzu_yield). Patterns vary
+ * per iteration so a stale value from an earlier switch also mismatches. */
+static int mode_vfp(uint32_t sent)
+{
+    zuzu_sleep(20);   /* barrier: let the sibling instance get spawned */
+
+    for (uint32_t i = 0; i < 400; i++) {
+        uint32_t a = sent ^ i;
+        uint32_t b = ~sent + i;
+        uint32_t c = sent + (i * 0x01010101u);
+        uint32_t d = ~(sent ^ (i << 16));
+        uint32_t ra, rb, rc, rd;
+        __asm__ volatile(
+            "vmov d16, %[a], %[b]\n\t"
+            "vmov d31, %[c], %[d]\n\t"
+            "svc %[num]\n\t"
+            "vmov %[ra], %[rb], d16\n\t"
+            "vmov %[rc], %[rd], d31"
+            : [ra] "=&r"(ra), [rb] "=&r"(rb), [rc] "=&r"(rc), [rd] "=&r"(rd)
+            : [a] "r"(a), [b] "r"(b), [c] "r"(c), [d] "r"(d),
+              [num] "i"(SYS_YIELD)
+            : "r0", "memory", "d16", "d31");
+        if (ra != a || rb != b)
+            return 117;
+        if (rc != c || rd != d)
+            return 118;
+    }
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 2)
@@ -120,6 +158,10 @@ int main(int argc, char **argv)
         return 42;
     if (strcmp(mode, "dirty") == 0)
         return mode_dirty();
+    if (strcmp(mode, "vfpa") == 0)
+        return mode_vfp(0xA5A5F00Du);
+    if (strcmp(mode, "vfpb") == 0)
+        return mode_vfp(0x5A5ABEEFu);
 
     if (argc >= 3) {
         handle_t slot = (handle_t)strtol(argv[2], NULL, 10);
