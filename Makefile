@@ -124,27 +124,23 @@ else
     USER_CFLAGS += -DNDEBUG -UDEBUG
 endif
 
-BOOT_PROGS = sysd devmgr pl011drv pl181drv fat32d fbox lan9118drv netd zzsh
-DISK_PROGS = test zuzufetch zztest zztest_child
+# User programs are auto-discovered: every directory under a role dir is one
+# program, named after its directory (sources inside may nest arbitrarily).
+# Role decides packaging: BOOT_ROLES go into the initrd, DISK_ROLES onto the
+# SD card image. ELF/initrd naming stays the bare program name regardless of
+# where its sources live.
+BOOT_ROLES = services drivers shell
+DISK_ROLES = test_apps
+
+BOOT_PROG_DIRS := $(shell find $(foreach r,$(BOOT_ROLES),user/$(r)) -mindepth 1 -maxdepth 1 -type d)
+DISK_PROG_DIRS := $(shell find $(foreach r,$(DISK_ROLES),user/$(r)) -mindepth 1 -maxdepth 1 -type d)
+
+BOOT_PROGS = $(notdir $(BOOT_PROG_DIRS))
+DISK_PROGS = $(notdir $(DISK_PROG_DIRS))
 
 USER_PROGS = $(BOOT_PROGS) $(DISK_PROGS)
 
-# Program name -> source directory (user/ is grouped by role: services/,
-# drivers/, shell/, test_apps/). ELF/initrd naming stays the bare program
-# name regardless of where its sources live.
-USER_DIR_sysd       = user/services/sysd
-USER_DIR_devmgr     = user/services/devmgr
-USER_DIR_fbox       = user/services/fbox
-USER_DIR_pl011drv   = user/drivers/pl011drv
-USER_DIR_pl181drv   = user/drivers/pl181drv
-USER_DIR_fat32d     = user/drivers/fat32d
-USER_DIR_lan9118drv = user/drivers/lan9118drv
-USER_DIR_netd       = user/services/netd
-USER_DIR_zzsh       = user/shell/zzsh
-USER_DIR_test       = user/test_apps/test
-USER_DIR_zuzufetch  = user/test_apps/zuzufetch
-USER_DIR_zztest  = user/test_apps/zztest
-USER_DIR_zztest_child  = user/test_apps/zztest_child
+$(foreach d,$(BOOT_PROG_DIRS) $(DISK_PROG_DIRS),$(eval USER_DIR_$(notdir $(d)) := $(d)))
 
 
 # zcrt + user lib sources
