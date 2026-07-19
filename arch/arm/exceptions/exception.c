@@ -137,6 +137,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
         if (from_user && current_process)
         {
             KERROR("Oops! '%s' (PID %d, TID %d) killed - undefined instruction @ 0x%08X\n", current_process->name, current_process->pid, current_thread->tid, frame->return_pc);
+            dump_registers(frame);
             process_kill(current_process, -1);
             schedule();
         }

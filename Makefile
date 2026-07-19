@@ -130,16 +130,18 @@ $(foreach p,$(USER_PROGS),$(eval USER_$(p)_SRCS := $(shell find $(USER_DIR_$(p))
 $(foreach p,$(USER_PROGS),$(eval USER_$(p)_OBJS := $(patsubst user/%.c,build/user/%.o,$(USER_$(p)_SRCS))))
 USER_APP_OBJS = $(foreach p,$(USER_PROGS),$(USER_$(p)_OBJS))
 
-# zcrt: the shared user-side runtime (libc + IPC).
-ZCRT_SRCS = $(wildcard lib/*.c lib/zuzu/*.c)
+# zcrt: the user-side runtime for tier-1 — klib rebuilt with user flags,
+# the ZCRT libc (lib/), and the IPC runtime (lib/zuzu/).
+ZCRT_SRCS = $(wildcard klib/*.c lib/*.c lib/zuzu/*.c)
 ZCRT_OBJS = $(patsubst %.c,build/user/zcrt/%.o,$(ZCRT_SRCS))
-# Tier-2 links only the IPC runtime lib/*.c would shadow newlib's libc.
-ZCRT_ZUZU_OBJS = $(filter build/user/zcrt/lib/zuzu/%,$(ZCRT_OBJS))
-# ...except sbrk: the _sbrk stub calls sbrk() expecting zuzu's arena
-# allocator. Without this object the linker pulls newlib's sbrk() from
+# Tier-2 zcrt allowlist: the IPC runtime plus zuzu's sbrk arena — and
+# nothing else, so newlib owns every libc symbol (string/mem/stdio/...)
+# unambiguously. sbrk.c must be here explicitly: the _sbrk stub calls
+# sbrk(), and without this object the linker pulls newlib's sbrk() from
 # libc.a, which calls _sbrk_r -> _sbrk -> sbrk: unbounded recursion that
 # runs the stack into the guard page on the first malloc.
-ZCRT_SBRK_OBJ = build/user/zcrt/lib/sbrk.o
+NEWLIB_ZCRT_SRCS = $(wildcard lib/zuzu/*.c) lib/sbrk.c
+NEWLIB_ZCRT_OBJS = $(patsubst %.c,build/user/zcrt/%.o,$(NEWLIB_ZCRT_SRCS))
 NEWLIB_STUB_SRCS = $(wildcard user/lib/posix/*.c)
 NEWLIB_STUB_OBJS = $(patsubst user/%.c,build/user/%.o,$(NEWLIB_STUB_SRCS))
 
@@ -157,8 +159,11 @@ INITRD_EXTRA_DIR  ?= initrd
 INITRD_EXTRA_FILES := $(shell find $(INITRD_EXTRA_DIR) -type f 2>/dev/null)
 
 # ---- kernel sources ------------------------------------------------------
-# Architecture-neutral source roots.
-NONARCH_DIRS = core drivers kernel lib
+# Architecture-neutral source roots. klib/ is the freestanding shared
+# library (libkern model): compiled here with kernel CFLAGS and again
+# into ZCRT with USER_CFLAGS. lib/ is userspace-only libc — the kernel
+# never compiles it.
+NONARCH_DIRS = core drivers kernel klib
 
 # Within arch/$(ARCH), exclude every board's directory, then add back only the
 # selected BOARD_DIR — so unselected boards never get compiled in.
@@ -175,7 +180,6 @@ LIBFDT_SRCS = \
 CSRCS     = $(shell find $(NONARCH_DIRS) -name '*.c')
 CSRCS    += $(shell find $(ARCH_DIR) -name '*.c' $(ARCH_PRUNE_BOARDS))
 CSRCS    += $(shell find $(BOARD_DIR) -name '*.c')
-CSRCS    := $(filter-out lib/zuzu/zmalloc.c,$(CSRCS))
 CSRCS    += $(LIBFDT_SRCS)
 ASRCS_ALL = $(shell find $(NONARCH_DIRS) -name '*.S') \
             $(shell find $(ARCH_DIR) -name '*.S' $(ARCH_PRUNE_BOARDS)) \
@@ -264,10 +268,10 @@ endef
 $(foreach p,$(BOOT_PROGS) $(DISK_PROGS),$(eval $(call LINK_USER_PROG,$(p))))
 
 define LINK_NEWLIB_PROG
-build/user/$(1).elf: $$(USER_$(1)_OBJS) $(NEWLIB_CRT0) $(NEWLIB_STUB_OBJS) $(ZCRT_ZUZU_OBJS) $(ZCRT_SBRK_OBJ) user/user.ld
+build/user/$(1).elf: $$(USER_$(1)_OBJS) $(NEWLIB_CRT0) $(NEWLIB_STUB_OBJS) $(NEWLIB_ZCRT_OBJS) user/user.ld
 	@mkdir -p $$(dir $$@)
 	@echo "  LD[nl]  $$@"
-	@$(NEWLIB_LD) $(NEWLIB_USER_LDFLAGS) $(NEWLIB_CRT0) $$(USER_$(1)_OBJS) $(NEWLIB_STUB_OBJS) $(ZCRT_ZUZU_OBJS) $(ZCRT_SBRK_OBJ) -o $$@
+	@$(NEWLIB_LD) $(NEWLIB_USER_LDFLAGS) $(NEWLIB_CRT0) $$(USER_$(1)_OBJS) $(NEWLIB_STUB_OBJS) $(NEWLIB_ZCRT_OBJS) -o $$@
 endef
 
 $(foreach p,$(NEWLIB_PROGS),$(eval $(call LINK_NEWLIB_PROG,$(p))))
