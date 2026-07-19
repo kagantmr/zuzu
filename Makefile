@@ -95,7 +95,7 @@ NEWLIB_LD = $(NEWLIB_CC)
 # This dir exposes zuzu/ alone. (Goes away with the klib/ split.)
 NEWLIB_INC = build/newlib-include
 
-NEWLIB_USER_CFLAGS = -O$(USER_OPTIMIZATION_LEVEL) -Wall -Wextra \
+NEWLIB_USER_CFLAGS = -O$(USER_OPTIMIZATION_LEVEL) -Wall -Wextra -mthumb \
                      $(CPUFLAGS) -I. -I$(NEWLIB_INC) -Iarch/include -Iarch/$(ARCH)/include \
                      -MMD -MP -g $(ARCH_USER_FP) \
                      -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"'

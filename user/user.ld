@@ -2,6 +2,11 @@ ENTRY(_start)
 
 USER_BASE = 0x10000;
 
+/* Newlib lite-exit only registers __libc_fini_array (the .fini_array walk)
+ * via atexit when the weak symbol __libc_fini is defined. Point it at _fini
+ * so tier-2 destructors run; tier-1 never references it. */
+PROVIDE(__libc_fini = _fini);
+
 PHDRS
 {
     text PT_LOAD FLAGS(5); /* PF_R | PF_X */

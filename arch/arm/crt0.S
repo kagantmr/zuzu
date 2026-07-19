@@ -1,6 +1,9 @@
 // crt0.s - userspace C runtime startup code for ARMv7-A
 
 .section .text, "ax"
+// The kernel kickstarts _start in ARM state, so crt0 must assemble as ARM
+// even when the rest of the program is Thumb (-mthumb tier-2 builds).
+.arm
 .global _start
 
 _start:
