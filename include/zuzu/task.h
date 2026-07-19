@@ -3,7 +3,7 @@
 
 #include "zuzu/syscall_nums.h"
 #include "zuzu/types.h"
-#include <spawn_args.h>
+#include <zuzu/spawn_args.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -22,7 +22,7 @@ extern "C" {
  * 
  * @param status The exit status of the process.
  */
-static inline void zuzu_pquit(int32_t status) {
+static inline void __attribute__((noreturn)) zuzu_pquit(int32_t status) {
     register int32_t r0 __asm__("r0") = status;
     __asm__ volatile("svc %[num]"
         :

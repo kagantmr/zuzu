@@ -4,7 +4,7 @@
 #include "zuzu/syscall_nums.h"
 #include "zuzu/types.h"
 #include "zuzu/memprot.h"
-#include <spawn_args.h>
+#include <zuzu/spawn_args.h>
 #include <stddef.h>
 #include <stdint.h>
 

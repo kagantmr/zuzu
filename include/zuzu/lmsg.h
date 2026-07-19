@@ -6,7 +6,7 @@ extern "C" {
 #endif
 
 #include <stdint.h>
-#include <mem.h>
+#include <string.h>
 #include "tcb.h"
 #include <zuzu/types.h>
 

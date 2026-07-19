@@ -63,7 +63,7 @@ typedef int32_t err_t;
  * @param err The error code to describe.
  * @return const char* A pointer to a string describing the error code.
  */
-const char *strerror(err_t err);
+const char *strtoerror(err_t err);
 
 #ifdef __cplusplus
 }

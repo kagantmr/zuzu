@@ -19,78 +19,41 @@ OBJCOPY = $(CROSS)objcopy
 
 UNAME_S := $(shell uname -s)
 
-OPTIMIZATION_LEVEL ?= 2
+# ---- build knobs ---------------------------------------------------------
+OPTIMIZATION_LEVEL      ?= 2
 USER_OPTIMIZATION_LEVEL ?= s
-DEBUG_BUILD        ?= 1
-DTB_DEBUG_WALK     ?= 0
-EARLY_UART         ?= 0
-LOG_LEVEL          ?= 1
-BANNER             ?= 1
-PANIC_SECTION_PROCESS    ?= 1
-PANIC_SECTION_SCHEDULER  ?= 1
-PANIC_SECTION_IRQ        ?= 1
-PANIC_SECTION_MEMORY     ?= 1
+DEBUG_BUILD             ?= 1
+DTB_DEBUG_WALK          ?= 0
+EARLY_UART              ?= 0
+LOG_LEVEL               ?= 1
+PANIC_SECTION_PROCESS   ?= 1
+PANIC_SECTION_SCHEDULER ?= 1
+PANIC_SECTION_IRQ       ?= 1
+PANIC_SECTION_MEMORY    ?= 1
 
+ifeq ($(filter $(LOG_LEVEL),0 1 2 3 4 5),)
+$(error LOG_LEVEL must be an integer from 0 to 5)
+endif
 
-ARCH_DIR      = arch/$(ARCH)
-BOARD_DIR     = $(ARCH_DIR)/$(BOARD)
+ARCH_DIR       = arch/$(ARCH)
+BOARD_DIR      = $(ARCH_DIR)/$(BOARD)
 BOARD_LAYOUT_H = $(BOARD_DIR)/layout.h
-LINKER_SCRIPT = $(BOARD_DIR)/linker.ld
-DTB_FILE      = $(DTB_$(BOARD))
-MAP           = build/zuzu.map
+LINKER_SCRIPT  = $(BOARD_DIR)/linker.ld
+DTB_FILE       = $(DTB_$(BOARD))
+MAP            = build/zuzu.map
+TARGET         = build/zuzu.elf
 
+# ---- kernel flags --------------------------------------------------------
 # Board may override the arch-default cpu flags via CPUFLAGS_<board>.
 CPUFLAGS = $(if $(CPUFLAGS_$(BOARD)),$(CPUFLAGS_$(BOARD)),$(ARCH_CPUFLAGS))
+INCLUDES = -I. -Iinclude -Iarch/include -Iarch/$(ARCH)/include
+
 CFLAGS   = -ffreestanding -O$(OPTIMIZATION_LEVEL) -flto=auto -fno-omit-frame-pointer \
-           -Wall -Wextra -Werror $(CPUFLAGS) -I. -Iinclude -Iarch/include -Iarch/$(ARCH)/include -MMD -MP \
-           -D__KERNEL__ -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"'
-CFLAGS  += -Ivendor/libfdt
+           -Wall -Wextra -Werror $(CPUFLAGS) $(INCLUDES) -Ivendor/libfdt -MMD -MP \
+           -D__KERNEL__ -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"' -DLOG_LEVEL=$(LOG_LEVEL)
 LDFLAGS  = -nostdlib -Wl,-T,$(LINKER_SCRIPT) -Wl,-Map=$(MAP) -flto=auto
 
-
-ifeq ($(LOG_LEVEL), 0)
-	CFLAGS += -DLOG_LEVEL=0
-else ifeq ($(LOG_LEVEL), 1)
-	CFLAGS += -DLOG_LEVEL=1
-else ifeq ($(LOG_LEVEL), 2)
-	CFLAGS += -DLOG_LEVEL=2
-else ifeq ($(LOG_LEVEL), 3)
-	CFLAGS += -DLOG_LEVEL=3
-else ifeq ($(LOG_LEVEL), 4)
-	CFLAGS += -DLOG_LEVEL=4
-else ifeq ($(LOG_LEVEL), 5)
-	CFLAGS += -DLOG_LEVEL=5
-else
-	$(error LOG_LEVEL must be an integer from 0 to 5)
-endif
-ifeq ($(DEBUG_BUILD), 1)
-    CFLAGS += -UNDEBUG -DDEBUG -DZUZU_BANNER_SHOW_ADDR -g
-else
-    CFLAGS += -DNDEBUG -UDEBUG -UZUZU_BANNER_SHOW_ADDR
-endif
-ifeq ($(PANIC_SECTION_PROCESS), 1)
-    CFLAGS += -DPANIC_SECTION_PROCESS
-endif
-ifeq ($(PANIC_SECTION_SCHEDULER), 1)
-    CFLAGS += -DPANIC_SECTION_SCHEDULER
-endif
-ifeq ($(PANIC_SECTION_IRQ), 1)
-    CFLAGS += -DPANIC_SECTION_IRQ
-endif
-ifeq ($(PANIC_SECTION_MEMORY), 1)
-    CFLAGS += -DPANIC_SECTION_MEMORY
-endif
-ifeq ($(DTB_DEBUG_WALK), 0)
-    CFLAGS += -UDTB_DEBUG_WALK
-else
-    CFLAGS += -DDTB_DEBUG_WALK
-endif
-ifeq ($(EARLY_UART), 0)
-    CFLAGS += -UEARLY_UART
-else
-    CFLAGS += -DEARLY_UART
-endif
-
+# ---- user (tier-1, zuzu libc) flags --------------------------------------
 USER_CC      = $(CROSS)gcc
 USER_LD      = $(USER_CC)
 USER_OBJCOPY = $(CROSS)objcopy
@@ -98,74 +61,96 @@ KERNEL_LIBGCC = $(shell $(CC) $(CPUFLAGS) -print-libgcc-file-name)
 USER_LIBGCC   = $(shell $(USER_CC) $(CPUFLAGS) $(ARCH_USER_FP) -print-libgcc-file-name)
 
 USER_CFLAGS  = -ffreestanding -nostdlib -O$(USER_OPTIMIZATION_LEVEL) -Wall -Wextra \
-			   $(CPUFLAGS) -I. -Iinclude -Iarch/include -Iarch/$(ARCH)/include -MMD -MP -g $(ARCH_USER_FP) \
-			   -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"'
+               $(CPUFLAGS) $(INCLUDES) -MMD -MP -g $(ARCH_USER_FP) \
+               -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"' -DLOG_LEVEL=$(LOG_LEVEL)
 USER_LDFLAGS = -nostdlib -Wl,-T,user/user.ld
 
-ifeq ($(LOG_LEVEL), 0)
-	USER_CFLAGS += -DLOG_LEVEL=0
-else ifeq ($(LOG_LEVEL), 1)
-	USER_CFLAGS += -DLOG_LEVEL=1
-else ifeq ($(LOG_LEVEL), 2)
-	USER_CFLAGS += -DLOG_LEVEL=2
-else ifeq ($(LOG_LEVEL), 3)
-	USER_CFLAGS += -DLOG_LEVEL=3
-else ifeq ($(LOG_LEVEL), 4)
-	USER_CFLAGS += -DLOG_LEVEL=4
-else ifeq ($(LOG_LEVEL), 5)
-	USER_CFLAGS += -DLOG_LEVEL=5
-else
-	$(error LOG_LEVEL must be an integer from 0 to 5)
-endif
-
 ifeq ($(DEBUG_BUILD), 1)
-    USER_CFLAGS += -UNDEBUG -DDEBUG
+    CFLAGS      += -DDEBUG -DZUZU_BANNER_SHOW_ADDR -g
+    USER_CFLAGS += -DDEBUG
 else
-    USER_CFLAGS += -DNDEBUG -UDEBUG
+    CFLAGS      += -DNDEBUG
+    USER_CFLAGS += -DNDEBUG
 endif
 
-# User programs are auto-discovered: every directory under a role dir is one
-# program, named after its directory (sources inside may nest arbitrarily).
-# Role decides packaging: BOOT_ROLES go into the initrd, DISK_ROLES onto the
-# SD card image. ELF/initrd naming stays the bare program name regardless of
-# where its sources live.
-BOOT_ROLES = services drivers shell
-DISK_ROLES = test_apps
+# Each PANIC_SECTION_<name>=1 knob becomes a -DPANIC_SECTION_<name> define.
+CFLAGS += $(foreach s,PROCESS SCHEDULER IRQ MEMORY,\
+            $(if $(filter 1,$(PANIC_SECTION_$(s))),-DPANIC_SECTION_$(s)))
+ifneq ($(DTB_DEBUG_WALK), 0)
+    CFLAGS += -DDTB_DEBUG_WALK
+endif
+ifneq ($(EARLY_UART), 0)
+    CFLAGS += -DEARLY_UART
+endif
 
-BOOT_PROG_DIRS := $(shell find $(foreach r,$(BOOT_ROLES),user/$(r)) -mindepth 1 -maxdepth 1 -type d)
-DISK_PROG_DIRS := $(shell find $(foreach r,$(DISK_ROLES),user/$(r)) -mindepth 1 -maxdepth 1 -type d)
+# ---- tier-2 (newlib) flags -----------------------------------------------
+# Homebrew's arm-none-eabi-gcc ships no newlib at all (no libc.a for any
+# multilib), so tier-2 compiles and links with the Arm GNU toolchain, which
+# bundles it. Override NEWLIB_CROSS if yours lives elsewhere.
+NEWLIB_CROSS ?= /Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/bin/arm-none-eabi-
+NEWLIB_CC = $(NEWLIB_CROSS)gcc
+NEWLIB_LD = $(NEWLIB_CC)
 
-BOOT_PROGS = $(notdir $(BOOT_PROG_DIRS))
-DISK_PROGS = $(notdir $(DISK_PROG_DIRS))
+# Newlib's headers must win over include/, but <zuzu/...> must still resolve.
+# This dir exposes zuzu/ alone. (Goes away with the klib/ split.)
+NEWLIB_INC = build/newlib-include
 
-USER_PROGS = $(BOOT_PROGS) $(DISK_PROGS)
+NEWLIB_USER_CFLAGS = -O$(USER_OPTIMIZATION_LEVEL) -Wall -Wextra \
+                     $(CPUFLAGS) -I. -I$(NEWLIB_INC) -Iarch/include -Iarch/$(ARCH)/include \
+                     -MMD -MP -g $(ARCH_USER_FP) \
+                     -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"'
 
-$(foreach d,$(BOOT_PROG_DIRS) $(DISK_PROG_DIRS),$(eval USER_DIR_$(notdir $(d)) := $(d)))
+NEWLIB_USER_LDFLAGS = -nostartfiles -Wl,-T,user/user.ld \
+                      -mthumb -mcpu=cortex-a15 -mfloat-abi=hard -mfpu=vfpv4
 
+# ---- user programs -------------------------------------------------------
+# Auto-discovered: every directory under a role dir is one program, named
+# after its directory (sources inside may nest arbitrarily). ELF/initrd
+# naming stays the bare program name regardless of where its sources live.
+# Role decides packaging and libc tier:
+#   BOOT_ROLES   -> initrd, tier-1
+#   DISK_ROLES   -> SD card image, tier-1
+#   NEWLIB_ROLES -> SD card image, tier-2 (newlib)
+BOOT_ROLES   = services drivers shell
+DISK_ROLES   = test_apps
+NEWLIB_ROLES = newlib_apps
 
-# zcrt + user lib sources
-ZCRT_SRCS = $(wildcard lib/*.c lib/zuzu/*.c)
-ZCRT_OBJS = $(patsubst %.c,build/user/zcrt/%.o,$(ZCRT_SRCS))
+prog_dirs = $(shell find $(foreach r,$(1),user/$(r)) -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
+BOOT_PROG_DIRS   := $(call prog_dirs,$(BOOT_ROLES))
+DISK_PROG_DIRS   := $(call prog_dirs,$(DISK_ROLES))
+NEWLIB_PROG_DIRS := $(call prog_dirs,$(NEWLIB_ROLES))
 
-ULIB_SRCS = $(wildcard user/lib/*.c)
-ULIB_OBJS = $(patsubst user/%.c,build/user/%.o,$(ULIB_SRCS))
+BOOT_PROGS   = $(notdir $(BOOT_PROG_DIRS))
+DISK_PROGS   = $(notdir $(DISK_PROG_DIRS))
+NEWLIB_PROGS = $(notdir $(NEWLIB_PROG_DIRS))
+USER_PROGS   = $(BOOT_PROGS) $(DISK_PROGS) $(NEWLIB_PROGS)
 
-# derived user program sources + objects
-USER_CRT0      = build/user/crt0.o
-BOOT_PROG_ELFS = $(foreach p,$(BOOT_PROGS),build/user/$(p).elf)
-DISK_PROG_ELFS = $(foreach p,$(DISK_PROGS),build/user/$(p).elf)
-USER_ELFS      = $(BOOT_PROG_ELFS) $(DISK_PROG_ELFS)
-BOOT_PROG_PACKED_ELFS = $(foreach p,$(BOOT_PROGS),build/user/$(p).stripped.elf)
-DISK_PROG_PACKED_ELFS = $(foreach p,$(DISK_PROGS),build/user/$(p).stripped.elf)
-INITRD         = build/initrd.cpio
-INITRD_OBJ     = build/$(ARCH_DIR)/initrd.o
-INITRD_EXTRA_DIR ?= initrd
-INITRD_EXTRA_FILES := $(shell find $(INITRD_EXTRA_DIR) -type f 2>/dev/null)
-
+$(foreach d,$(BOOT_PROG_DIRS) $(DISK_PROG_DIRS) $(NEWLIB_PROG_DIRS),$(eval USER_DIR_$(notdir $(d)) := $(d)))
 $(foreach p,$(USER_PROGS),$(eval USER_$(p)_SRCS := $(shell find $(USER_DIR_$(p)) -name '*.c')))
 $(foreach p,$(USER_PROGS),$(eval USER_$(p)_OBJS := $(patsubst user/%.c,build/user/%.o,$(USER_$(p)_SRCS))))
 USER_APP_OBJS = $(foreach p,$(USER_PROGS),$(USER_$(p)_OBJS))
 
+# zcrt: the shared user-side runtime (libc + IPC).
+ZCRT_SRCS = $(wildcard lib/*.c lib/zuzu/*.c)
+ZCRT_OBJS = $(patsubst %.c,build/user/zcrt/%.o,$(ZCRT_SRCS))
+# Tier-2 links only the IPC runtime lib/*.c would shadow newlib's libc.
+ZCRT_ZUZU_OBJS = $(filter build/user/zcrt/lib/zuzu/%,$(ZCRT_OBJS))
+NEWLIB_STUB_SRCS = $(wildcard user/lib/posix/*.c)
+NEWLIB_STUB_OBJS = $(patsubst user/%.c,build/user/%.o,$(NEWLIB_STUB_SRCS))
+
+USER_CRT0             = build/user/crt0.o
+BOOT_PROG_PACKED_ELFS = $(BOOT_PROGS:%=build/user/%.stripped.elf)
+# Everything staged into the SD image: tier-1 disk apps + tier-2 newlib apps.
+SD_PROGS              = $(DISK_PROGS) $(NEWLIB_PROGS)
+SD_PROG_PACKED_ELFS   = $(SD_PROGS:%=build/user/%.stripped.elf)
+
+# ---- initrd --------------------------------------------------------------
+INITRD             = build/initrd.cpio
+INITRD_OBJ         = build/$(ARCH_DIR)/initrd.o
+INITRD_EXTRA_DIR  ?= initrd
+INITRD_EXTRA_FILES := $(shell find $(INITRD_EXTRA_DIR) -type f 2>/dev/null)
+
+# ---- kernel sources ------------------------------------------------------
 # Architecture-neutral source roots.
 NONARCH_DIRS = core drivers kernel lib
 
@@ -173,7 +158,6 @@ NONARCH_DIRS = core drivers kernel lib
 # selected BOARD_DIR — so unselected boards never get compiled in.
 ARCH_PRUNE_BOARDS = $(foreach b,$(BOARDS),-not -path '$(ARCH_DIR)/$(b)/*')
 
-# kernel sources
 LIBFDT_SRCS = \
 	vendor/libfdt/fdt.c \
 	vendor/libfdt/fdt_ro.c \
@@ -185,17 +169,15 @@ LIBFDT_SRCS = \
 CSRCS     = $(shell find $(NONARCH_DIRS) -name '*.c')
 CSRCS    += $(shell find $(ARCH_DIR) -name '*.c' $(ARCH_PRUNE_BOARDS))
 CSRCS    += $(shell find $(BOARD_DIR) -name '*.c')
-CSRCS     := $(filter-out lib/zuzu/zmalloc.c,$(CSRCS))
-CSRCS     += $(LIBFDT_SRCS)
+CSRCS    := $(filter-out lib/zuzu/zmalloc.c,$(CSRCS))
+CSRCS    += $(LIBFDT_SRCS)
 ASRCS_ALL = $(shell find $(NONARCH_DIRS) -name '*.S') \
             $(shell find $(ARCH_DIR) -name '*.S' $(ARCH_PRUNE_BOARDS)) \
             $(shell find $(BOARD_DIR) -name '*.S')
 ASRCS     = $(filter-out $(ARCH_DIR)/crt0.S $(ARCH_DIR)/initrd.S,$(ASRCS_ALL))
 OBJS      = $(CSRCS:%.c=build/%.o) $(ASRCS:%.S=build/%.o)
 DEPS      = $(OBJS:.o=.d)
-USER_DEPS = $(USER_CRT0:.o=.d) $(USER_APP_OBJS:.o=.d) $(ZCRT_OBJS:.o=.d) $(ULIB_OBJS:.o=.d)
-
-TARGET = build/zuzu.elf
+USER_DEPS = $(USER_CRT0:.o=.d) $(USER_APP_OBJS:.o=.d) $(ZCRT_OBJS:.o=.d) $(NEWLIB_STUB_OBJS:.o=.d)
 
 # sd card image configuration
 SD_IMG         ?= build/sd.img
@@ -204,9 +186,9 @@ SD_VOL_LABEL   ?= ZUZU
 SD_STAGE_DIR   ?= ZUZUSD
 
 # default
-all: $(TARGET) 
+all: $(TARGET)
 
-.SECONDARY: $(USER_APP_OBJS) $(ZCRT_OBJS) $(ULIB_OBJS)
+.SECONDARY: $(USER_APP_OBJS) $(ZCRT_OBJS)
 
 # Objects bake in per-board flags (BOARD_LAYOUT_H, CPUFLAGS), so a BOARD
 # switch must rebuild everything. The stamp file changes name with the board;
@@ -218,7 +200,23 @@ $(BOARD_STAMP):
 	@rm -f build/.board-*
 	@touch $@
 
-# compilation rules
+# ---- compilation rules ---------------------------------------------------
+$(NEWLIB_INC)/zuzu:
+	@mkdir -p $(NEWLIB_INC)
+	@ln -sfn ../../include/zuzu $(NEWLIB_INC)/zuzu
+
+# Must precede the generic build/user/%.o rule: make 3.81 picks the first
+# matching pattern rule, not the most specific one.
+build/user/newlib_apps/%.o: user/newlib_apps/%.c $(BOARD_STAMP) $(NEWLIB_INC)/zuzu
+	@mkdir -p $(dir $@)
+	@echo "  CC[nl]  $<"
+	@$(NEWLIB_CC) $(NEWLIB_USER_CFLAGS) -c $< -o $@
+
+build/user/lib/posix/%.o: user/lib/posix/%.c $(BOARD_STAMP) $(NEWLIB_INC)/zuzu
+	@mkdir -p $(dir $@)
+	@echo "  CC[nl]  $<"
+	@$(NEWLIB_CC) $(NEWLIB_USER_CFLAGS) -c $< -o $@
+
 build/user/%.o: user/%.c $(BOARD_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "  CC      $<"
@@ -239,35 +237,35 @@ build/user/zcrt/%.o: %.c $(BOARD_STAMP)
 	@echo "  CC      $<"
 	@$(USER_CC) $(USER_CFLAGS) -c $< -o $@
 
-build/user/lib/%.o: user/lib/%.c $(BOARD_STAMP)
-	@mkdir -p $(dir $@)
-	@echo "  CC      $<"
-	@$(USER_CC) $(USER_CFLAGS) -Iuser/lib -c $< -o $@
-
 $(USER_CRT0): $(ARCH_DIR)/crt0.S
 	@mkdir -p $(dir $@)
 	@echo "  AS      $<"
 	@$(USER_CC) $(USER_CFLAGS) -x assembler-with-cpp -c $< -o $@
 
-# user programs
+# ---- user program link rules ---------------------------------------------
 define LINK_USER_PROG
-build/user/$(1).elf: $$(USER_$(1)_OBJS) $(USER_CRT0) $(ZCRT_OBJS) $(ULIB_OBJS) user/user.ld
+build/user/$(1).elf: $$(USER_$(1)_OBJS) $(USER_CRT0) $(ZCRT_OBJS) user/user.ld
 	@mkdir -p $$(dir $$@)
 	@echo "  LD      $$@"
-	@$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) $$(USER_$(1)_OBJS) $(ZCRT_OBJS) $(ULIB_OBJS) $(USER_LIBGCC) -o $$@
+	@$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) $$(USER_$(1)_OBJS) $(ZCRT_OBJS) $(USER_LIBGCC) -o $$@
 endef
 
-$(foreach p,$(USER_PROGS),$(eval $(call LINK_USER_PROG,$(p))))
+$(foreach p,$(BOOT_PROGS) $(DISK_PROGS),$(eval $(call LINK_USER_PROG,$(p))))
 
-define STRIP_USER_PROG
-build/user/$(1).stripped.elf: build/user/$(1).elf
-	@echo "  STRIP   $$@"
-	@$(USER_OBJCOPY) --strip-debug $$< $$@
+define LINK_NEWLIB_PROG
+build/user/$(1).elf: $$(USER_$(1)_OBJS) $(USER_CRT0) $(NEWLIB_STUB_OBJS) $(ZCRT_ZUZU_OBJS) user/user.ld
+	@mkdir -p $$(dir $$@)
+	@echo "  LD[nl]  $$@"
+	@$(NEWLIB_LD) $(NEWLIB_USER_LDFLAGS) $(USER_CRT0) $$(USER_$(1)_OBJS) $(NEWLIB_STUB_OBJS) $(ZCRT_ZUZU_OBJS) -o $$@
 endef
 
-$(foreach p,$(USER_PROGS),$(eval $(call STRIP_USER_PROG,$(p))))
+$(foreach p,$(NEWLIB_PROGS),$(eval $(call LINK_NEWLIB_PROG,$(p))))
 
-# initrd
+build/user/%.stripped.elf: build/user/%.elf
+	@echo "  STRIP   $@"
+	@$(USER_OBJCOPY) --strip-debug $< $@
+
+# ---- initrd + kernel link ------------------------------------------------
 $(INITRD): $(BOOT_PROG_PACKED_ELFS) $(INITRD_EXTRA_FILES)
 	@rm -rf build/initrd
 	@mkdir -p build/initrd/bin
@@ -305,7 +303,7 @@ $(TARGET): $(OBJS) $(INITRD_OBJ) $(LINKER_SCRIPT)
 		$(OBJCOPY) --strip-debug $@ $@; \
 	fi
 
-# SD card workflow
+# ---- SD card workflow ----------------------------------------------------
 #
 #  Typical workflow:
 #    make                  — build kernel + all programs
@@ -318,17 +316,12 @@ $(TARGET): $(OBJS) $(INITRD_OBJ) $(LINKER_SCRIPT)
 #
 #  To update the SD card after code changes:
 #    make sdimg-recreate && make run
-#
-#  sdimg-stage: copy DISK_PROGS ELFs into ZUZUSD/bin/
-#  sdimg:       create sd.img from ZUZUSD/ (runs sdimg-stage first)
-#  sdimg-clean: delete sd.img
-#  sdimg-recreate: clean + rebuild
 
-.PHONY: sdimg-stage sdimg-clean sdimg-recreate
+.PHONY: sdimg sdimg-stage sdimg-clean sdimg-recreate
 
-sdimg-stage: $(DISK_PROG_PACKED_ELFS)
+sdimg-stage: $(SD_PROG_PACKED_ELFS)
 	@mkdir -p $(SD_STAGE_DIR)/bin
-	@for prog in $(DISK_PROGS); do \
+	@for prog in $(SD_PROGS); do \
 		cp build/user/$$prog.stripped.elf $(SD_STAGE_DIR)/bin/$$prog; \
 		echo "  STAGE   $(SD_STAGE_DIR)/bin/$$prog"; \
 	done
@@ -368,8 +361,8 @@ sdimg-clean:
 
 sdimg-recreate: sdimg-clean sdimg
 
-# Run / debug targets
-.PHONY: run run-pcap debug
+# ---- run / debug targets -------------------------------------------------
+.PHONY: run run-bridged run-pcap debug
 
 PCAP_FILE ?= /tmp/zuzu.pcap
 
@@ -382,37 +375,31 @@ QEMU_NET     = $(QEMU_NET_$(BOARD))
 # What QEMU boots: the ELF by default, a raw image where the board needs it.
 QEMU_KERNEL  = $(if $(QEMU_KERNEL_$(BOARD)),$(QEMU_KERNEL_$(BOARD)),$(TARGET))
 
+# Flags shared by every run/debug variant; each target adds -kernel + extras.
+QEMU_ARGS = -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m $(QEMU_MEM) \
+            -dtb $(DTB_FILE) -nographic -drive file=$(SD_IMG),if=sd,format=raw
+
 run: $(QEMU_KERNEL) $(DTB_FILE)
 	@echo "  QEMU    $(QEMU_KERNEL)"
-	@$(QEMU_BIN) -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m $(QEMU_MEM) \
-	    -kernel $(QEMU_KERNEL) -dtb $(DTB_FILE) -nographic \
-	    -drive file=$(SD_IMG),if=sd,format=raw \
-	    $(QEMU_NET)
+	@$(QEMU_BIN) $(QEMU_ARGS) -kernel $(QEMU_KERNEL) $(QEMU_NET)
 
 run-bridged: $(TARGET) $(DTB_FILE)
 	@echo "  QEMU    $(TARGET) [bridged]"
-	@sudo $(QEMU_BIN) -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m $(QEMU_MEM) \
-	    -kernel $(TARGET) -dtb $(DTB_FILE) -nographic \
-	    -drive file=$(SD_IMG),if=sd,format=raw \
+	@sudo $(QEMU_BIN) $(QEMU_ARGS) -kernel $(TARGET) \
 	    -nic vmnet-bridged,model=lan9118,ifname=en0,mac=52:54:00:ab:cd:ef
 
 run-pcap: $(TARGET) $(DTB_FILE)
 	@echo "  QEMU    $(TARGET) [pcap -> $(PCAP_FILE)]"
-	@$(QEMU_BIN) -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m $(QEMU_MEM) \
-	    -kernel $(TARGET) -dtb $(DTB_FILE) -nographic \
-	    -drive file=$(SD_IMG),if=sd,format=raw \
+	@$(QEMU_BIN) $(QEMU_ARGS) -kernel $(TARGET) \
 	    -net nic,model=lan9118 -net user,id=n0 \
 	    -object filter-dump,id=f0,netdev=n0,file=$(PCAP_FILE)
 	@echo "  PCAP    wrote $(PCAP_FILE) (read with: tcpdump -nr $(PCAP_FILE))"
 
 debug: $(TARGET) $(DTB_FILE)
 	@echo "  QEMU    $(TARGET) (debug)"
-	@$(QEMU_BIN) -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m $(QEMU_MEM) \
-	    -kernel $(TARGET) -dtb $(DTB_FILE) -nographic \
-	    -drive file=$(SD_IMG),if=sd,format=raw \
-	    $(QEMU_NET) \
-	    -S -gdb tcp::1234
+	@$(QEMU_BIN) $(QEMU_ARGS) -kernel $(TARGET) $(QEMU_NET) -S -gdb tcp::1234
 
+# ---- misc targets --------------------------------------------------------
 # Device tree blobs compiled from checked-in sources (QEMU only; real
 # hardware boots with the firmware-provided DTB).
 build/dtb/%.dtb: %.dts
@@ -427,10 +414,9 @@ $(IMG): $(TARGET)
 	@echo "  OBJCOPY $@"
 	@$(OBJCOPY) -O binary $(TARGET) $(IMG)
 
-img: $(IMG)
+.PHONY: all dump clean img deploy
 
-# Misc targets
-.PHONY: all dump clean img
+img: $(IMG)
 
 dump: $(TARGET)
 	@echo "  OBJDUMP $@"
