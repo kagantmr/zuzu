@@ -135,10 +135,16 @@ ZCRT_SRCS = $(wildcard lib/*.c lib/zuzu/*.c)
 ZCRT_OBJS = $(patsubst %.c,build/user/zcrt/%.o,$(ZCRT_SRCS))
 # Tier-2 links only the IPC runtime lib/*.c would shadow newlib's libc.
 ZCRT_ZUZU_OBJS = $(filter build/user/zcrt/lib/zuzu/%,$(ZCRT_OBJS))
+# ...except sbrk: the _sbrk stub calls sbrk() expecting zuzu's arena
+# allocator. Without this object the linker pulls newlib's sbrk() from
+# libc.a, which calls _sbrk_r -> _sbrk -> sbrk: unbounded recursion that
+# runs the stack into the guard page on the first malloc.
+ZCRT_SBRK_OBJ = build/user/zcrt/lib/sbrk.o
 NEWLIB_STUB_SRCS = $(wildcard user/lib/posix/*.c)
 NEWLIB_STUB_OBJS = $(patsubst user/%.c,build/user/%.o,$(NEWLIB_STUB_SRCS))
 
 USER_CRT0             = build/user/crt0.o
+NEWLIB_CRT0           = build/user/crt0-newlib.o
 BOOT_PROG_PACKED_ELFS = $(BOOT_PROGS:%=build/user/%.stripped.elf)
 # Everything staged into the SD image: tier-1 disk apps + tier-2 newlib apps.
 SD_PROGS              = $(DISK_PROGS) $(NEWLIB_PROGS)
@@ -177,7 +183,7 @@ ASRCS_ALL = $(shell find $(NONARCH_DIRS) -name '*.S') \
 ASRCS     = $(filter-out $(ARCH_DIR)/crt0.S $(ARCH_DIR)/initrd.S,$(ASRCS_ALL))
 OBJS      = $(CSRCS:%.c=build/%.o) $(ASRCS:%.S=build/%.o)
 DEPS      = $(OBJS:.o=.d)
-USER_DEPS = $(USER_CRT0:.o=.d) $(USER_APP_OBJS:.o=.d) $(ZCRT_OBJS:.o=.d) $(NEWLIB_STUB_OBJS:.o=.d)
+USER_DEPS = $(USER_CRT0:.o=.d) $(NEWLIB_CRT0:.o=.d) $(USER_APP_OBJS:.o=.d) $(ZCRT_OBJS:.o=.d) $(NEWLIB_STUB_OBJS:.o=.d)
 
 # sd card image configuration
 SD_IMG         ?= build/sd.img
@@ -242,6 +248,11 @@ $(USER_CRT0): $(ARCH_DIR)/crt0.S
 	@echo "  AS      $<"
 	@$(USER_CC) $(USER_CFLAGS) -x assembler-with-cpp -c $< -o $@
 
+$(NEWLIB_CRT0): $(ARCH_DIR)/crt0.S
+	@mkdir -p $(dir $@)
+	@echo "  AS[nl]  $<"
+	@$(NEWLIB_CC) $(NEWLIB_USER_CFLAGS) -DZUZU_NEWLIB -x assembler-with-cpp -c $< -o $@
+
 # ---- user program link rules ---------------------------------------------
 define LINK_USER_PROG
 build/user/$(1).elf: $$(USER_$(1)_OBJS) $(USER_CRT0) $(ZCRT_OBJS) user/user.ld
@@ -253,10 +264,10 @@ endef
 $(foreach p,$(BOOT_PROGS) $(DISK_PROGS),$(eval $(call LINK_USER_PROG,$(p))))
 
 define LINK_NEWLIB_PROG
-build/user/$(1).elf: $$(USER_$(1)_OBJS) $(USER_CRT0) $(NEWLIB_STUB_OBJS) $(ZCRT_ZUZU_OBJS) user/user.ld
+build/user/$(1).elf: $$(USER_$(1)_OBJS) $(NEWLIB_CRT0) $(NEWLIB_STUB_OBJS) $(ZCRT_ZUZU_OBJS) $(ZCRT_SBRK_OBJ) user/user.ld
 	@mkdir -p $$(dir $$@)
 	@echo "  LD[nl]  $$@"
-	@$(NEWLIB_LD) $(NEWLIB_USER_LDFLAGS) $(USER_CRT0) $$(USER_$(1)_OBJS) $(NEWLIB_STUB_OBJS) $(ZCRT_ZUZU_OBJS) -o $$@
+	@$(NEWLIB_LD) $(NEWLIB_USER_LDFLAGS) $(NEWLIB_CRT0) $$(USER_$(1)_OBJS) $(NEWLIB_STUB_OBJS) $(ZCRT_ZUZU_OBJS) $(ZCRT_SBRK_OBJ) -o $$@
 endef
 
 $(foreach p,$(NEWLIB_PROGS),$(eval $(call LINK_NEWLIB_PROG,$(p))))
