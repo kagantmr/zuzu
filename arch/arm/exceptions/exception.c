@@ -132,6 +132,11 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
          * Undefined instruction is NOT returnable. Kill process or panic.
          */
 
+        /* Undef sets LR = faulting PC + 4 in ARM state but + 2 in Thumb;
+         * entry.S subtracts 4 unconditionally, so nudge Thumb faults back. */
+        if (frame->return_cpsr & (1 << 5))
+            frame->return_pc += 2;
+
         bool from_user = (frame->return_cpsr & 0x1F) == 0x10;
 
         if (from_user && current_process)
