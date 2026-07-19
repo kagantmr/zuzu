@@ -138,18 +138,8 @@ void qsort(void *base, size_t nmemb, size_t size, int (*compar)(const void *, co
     qsort_inner((char *)base, nmemb, size, compar);
 }
 
-void *bsearch(const void *key, const void *base, size_t nmemb, size_t size,
-              int (*compar)(const void *, const void *)) {
-    size_t lo = 0, hi = nmemb;
-    while (lo < hi) {
-        size_t mid = (lo + hi) / 2;
-        const void *elem = (const char *)base + mid * size;
-        int c = compar(key, elem);
-        if (c == 0) return (void *)elem;
-        if (c < 0) hi = mid; else lo = mid + 1;
-    }
-    return NULL;
-}
+/* bsearch lives in klib/bsearch.c: the kernel's region lookup
+ * (kernel/mm/vmm.c) shares it. */
 
 /* rand/srand: minimal LCG */
 static unsigned long rand_state = 1;
