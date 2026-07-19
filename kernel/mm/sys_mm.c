@@ -6,7 +6,7 @@
 #include "core/panic.h"
 #include "kernel/mm/pmm.h"
 #include "kernel/layout.h"
-#include <spawn_args.h>
+#include <zuzu/spawn_args.h>
 #include <mem.h>
 
 #define LOG_FMT(fmt) "(syscall_mm) " fmt

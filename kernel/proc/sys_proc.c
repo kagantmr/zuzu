@@ -13,7 +13,7 @@
 #include "kernel/proc/process.h"
 #include <zuzu/user_layout.h>
 #include <zuzu/tcb.h>
-#include <spawn_args.h>
+#include <zuzu/spawn_args.h>
 
 
 extern thread_t *current_thread;
