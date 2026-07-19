@@ -366,9 +366,10 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
         tail.seq += half;
         tail.payload += half;
         tail.payload_len -= half;
-        head.payload_len = half;
-        LOG_INFO(LOG_TAG, "TEST: splitting seq=%u len=%u, dispatching tail first",
-                 seg.seq, seg.payload_len);
+        uint16_t overlap = MIN(12, seg.payload_len - half);
+        head.payload_len = half + overlap;
+        LOG_INFO(LOG_TAG, "TEST: splitting seq=%u len=%u head=%u tail=%u overlap=%u",
+                seg.seq, seg.payload_len, head.payload_len, tail.payload_len, overlap);
         tcp_dispatch(src_ip, dst_ip, &tail);
         tcp_dispatch(src_ip, dst_ip, &head);
         return;
