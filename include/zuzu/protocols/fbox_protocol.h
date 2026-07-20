@@ -16,6 +16,7 @@ extern "C" {
 #define FBOX_READDIR 5
 #define FBOX_STAT    6
 #define FBOX_GET_BUF 7
+#define FBOX_SEEK    8
 
 /* Reuse fat32d packing macros and types */
 #define FBOX_PACK_RW  FAT32_PACK_RW
