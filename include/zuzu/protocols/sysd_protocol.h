@@ -16,7 +16,7 @@ extern "C" {
 // alloc/asinject failure) plus two loader-specific codes below, which have no
 // err_t equivalent and live outside the err_t range to avoid collisions.
 #define EXEC_EBADELF ERR_MALFORMED  // ELF validation failed
-#define EXEC_EIO     ERR_IO // fbox read error
+#define EXEC_EIO     ERR_IO // fsd read error
 
 // Request layout in LMSG buffer (shell to sysd via _lcall):
 typedef struct {

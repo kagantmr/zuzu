@@ -7,7 +7,7 @@
 #include <mem.h>
 
 #include "zuzu/protocols/sysd_protocol.h"
-#include "zuzu/protocols/fbox_protocol.h"
+#include <zuzu/fsd_client.h>
 #include <zuzu/lmsg.h>
 #include <zuzu/channel.h>
 #include <cpio.h>
@@ -21,8 +21,7 @@
 
 static nt_entry_t registry_table[SYSD_MAX_SERVICES];
 static int32_t port;
-static int32_t cached_fbox_handle = -1;
-static char   *cached_fbox_buf    = NULL;
+static fsd_conn_t fsd_conn;
 
 
 static inline void name_u32_to_chars(uint32_t name_u32, char out[SYSD_NAME_LEN]) {
@@ -155,32 +154,20 @@ static void nt_handle_msg(msg_t msg) {
         const char *argbuf = (const char *)lmsg_buf() + path_off + path_bytes;
         size_t argbuf_len = req_len - path_off - path_bytes;
 
-        /* --- lazy-init fbox connection (once) --- */
-        if (cached_fbox_handle < 0) {
-            uint32_t fbox_h = 0, fbox_p = 0;
-            if (nt_lookup(nt_pack("fbox"), zuzu_getpid(), &fbox_h, &fbox_p) != NT_LU_OK) {
+        /* --- lazy-connect to fsd (once) --- *
+         * sysd is the nametable, so it resolves fsd from its own registry (a
+         * plain C call) rather than RPC-ing NT_PORT, which is itself. */
+        if (!fsd_conn.ready) {
+            uint32_t fsd_h = 0, fsd_p = 0;
+            if (nt_lookup(nt_pack("fsd"), zuzu_getpid(), &fsd_h, &fsd_p) != NT_LU_OK) {
                 zuzu_msg_reply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
                 return;
             }
-            cached_fbox_handle = (int32_t)fbox_h;
-
-            msg_t r = zuzu_msg_call(cached_fbox_handle, FBOX_GET_BUF, 0, 0);
-            if ((int32_t)r.r1 != ZUZU_OK) {
-                cached_fbox_handle = -1;
-                zuzu_msg_reply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
-                return;
-            }
-
-            cached_fbox_buf = (char *)zuzu_memmap((int32_t)r.r2, 0, VM_PROT_RW, 0);
-            if ((intptr_t)cached_fbox_buf <= 0) {
-                cached_fbox_handle = -1;
-                cached_fbox_buf = NULL;
+            if (fsd_attach(&fsd_conn, (int32_t)fsd_h, fsd_p, FSD_SHM_DEFAULT) != ZUZU_OK) {
                 zuzu_msg_reply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
                 return;
             }
         }
-        char *fbox_buf = cached_fbox_buf;
-        msg_t r;
 
         size_t plen = strlen(path);
         if (plen == 0 || plen >= 4096) {
@@ -188,49 +175,40 @@ static void nt_handle_msg(msg_t msg) {
             return;
         }
 
-        memcpy(fbox_buf, path, plen + 1);
-        r = zuzu_msg_call(cached_fbox_handle, FBOX_STAT, 0, 0);
-        if ((int32_t)r.r1 != ZUZU_OK) {
+        fsd_stat_t st;
+        if (fsd_stat(&fsd_conn, path, &st) != ZUZU_OK) {
             zuzu_msg_reply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
             return;
         }
 
-        fbox_stat_t *st = (fbox_stat_t *)fbox_buf;
-        uint32_t file_size = st->size;
-        if (file_size == 0 || st->is_dir) {
+        uint32_t file_size = st.size;
+        if (file_size == 0 || st.type == FSD_TYPE_DIR) {
             zuzu_msg_reply(reply_handle, (uint32_t)EXEC_EBADELF, 0, 0);
             return;
         }
 
-        memcpy(fbox_buf, path, plen + 1);
-        r = zuzu_msg_call(cached_fbox_handle, FBOX_OPEN, FAT32_MODE_READ, 0);
-        if ((int32_t)r.r1 != ZUZU_OK) {
+        uint32_t fd = 0;
+        if (fsd_open(&fsd_conn, path, FSD_MODE_READ, &fd) != ZUZU_OK) {
             zuzu_msg_reply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
             return;
         }
 
-        uint32_t fd = r.r2;
         uint8_t *elf = (uint8_t *)malloc(file_size);
         if (!elf) {
-            zuzu_msg_call(cached_fbox_handle, FBOX_CLOSE, fd, 0);
+            fsd_close(&fsd_conn, fd);
             zuzu_msg_reply(reply_handle, (uint32_t)ERR_NOMEM, 0, 0);
             return;
         }
 
         uint32_t total = 0;
         while (total < file_size) {
-            uint32_t chunk = file_size - total;
-            if (chunk > 32768)
-                chunk = 32768;
-
-            r = zuzu_msg_call(cached_fbox_handle, FBOX_READ, FBOX_PACK_RW(fd, chunk), 0);
-            if ((int32_t)r.r1 != ZUZU_OK || r.r2 == 0)
+            uint32_t got = 0;
+            if (fsd_read(&fsd_conn, fd, elf + total, file_size - total, &got) != ZUZU_OK
+                || got == 0)
                 break;
-
-            memcpy(elf + total, fbox_buf, r.r2);
-            total += r.r2;
+            total += got;
         }
-        zuzu_msg_call(cached_fbox_handle, FBOX_CLOSE, fd, 0);
+        fsd_close(&fsd_conn, fd);
 
         if (total != file_size) {
             free(elf);
@@ -449,9 +427,8 @@ static const char *basename(const char *path)
 
 static bool is_storage_member(const char *name)
 {
-    return strcmp(name, "pl181drv")   == 0 ||
-           strcmp(name, "fat32d") == 0 ||
-           strcmp(name, "fbox")   == 0;
+    return strcmp(name, "pl181drv") == 0 ||
+           strcmp(name, "fsd")      == 0;
 }
 
 static bool role_is_kernel(const char *r, size_t len)
@@ -689,19 +666,19 @@ int main(void)
 
     register_tty_aliases();
 
-    // wait for fbox so we can spawn deferred entries through it once it's ready,
-    // but only if fbox is actually in this boot manifest — otherwise this is a
+    // wait for fsd so we can spawn deferred entries through it once it's ready,
+    // but only if fsd is actually in this boot manifest — otherwise this is a
     // guaranteed 30s stall waiting for a service that will never register
-    // (e.g. a trimmed boot manifest without fbox/fat32d/pl181drv).
-    bool have_fbox = false;
+    // (e.g. a trimmed boot manifest without fsd/pl181drv).
+    bool have_fsd = false;
     for (int i = 0; i < boot_count; i++) {
-        if (boot_entries[i].in_cpio && strcmp(boot_entries[i].name, "fbox") == 0) {
-            have_fbox = true;
+        if (boot_entries[i].in_cpio && strcmp(boot_entries[i].name, "fsd") == 0) {
+            have_fsd = true;
             break;
         }
     }
-    if (have_fbox)
-        wait_for_service(nt_pack("fbox"));
+    if (have_fsd)
+        wait_for_service(nt_pack("fsd"));
 
     /* Spawn any entries marked spawn_last after services are available. */
     for (int i = 0; i < boot_count; i++) {
