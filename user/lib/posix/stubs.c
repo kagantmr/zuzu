@@ -190,13 +190,31 @@ int _read(int file, char *ptr, int len)
         uint32_t want = (uint32_t)len;
         if (want > LMSG_BUF_SIZE) want = LMSG_BUF_SIZE;
 
-        msg_t r = zuzu_msg_lcall(tty, want);
-        if ((int32_t)r.r0 < 0) { errno = EIO; return -1; }
 
-        uint32_t got = r.r1;
-        if (got > want) got = want;
-        if (got) memcpy(ptr, lmsg_buf(), got);
-        return (int)got;                     /* 0 = EOF */
+        /* The console driver's read is non-blocking: it replies with whatever
+         * is in its RX ring, which is usually nothing. read(2) on a terminal
+         * must block until at least one byte arrives -- returning 0 here would
+         * mean EOF, and newlib latches EOF on the stream, so the first scanf()
+         * would fail and every later one would too. Poll until a byte lands. */
+        for (int spin = 0; spin < 400; spin++) {   /* DEBUG: bounded */
+            msg_t r = zuzu_msg_lcall(tty, want);
+            if ((int32_t)r.r0 < 0) { errno = EIO; return -1; }
+
+            uint32_t got = r.r1;
+            if (got > want) got = want;
+            if (got) {
+                memcpy(ptr, lmsg_buf(), got);
+                /* ICRNL: Enter on a serial console sends CR. scanf() would
+                 * cope -- CR is whitespace -- but fgets/getline look for LF
+                 * specifically and would never see a line end. The TX side
+                 * already expands LF to CRLF in pl011drv, so translating on
+                 * the way in just completes the pair. */
+                for (uint32_t i = 0; i < got; i++)
+                    if (ptr[i] == '\r') ptr[i] = '\n';
+                return (int)got;
+            }
+            zuzu_sleep(5);
+        }
     }
 
     if (!fsd_buf || file < 3 || file >= MAX_FD || fsd_fd[file] < 0) { errno = EBADF; return -1; }
