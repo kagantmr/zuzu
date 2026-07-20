@@ -270,13 +270,17 @@ static void nt_handle_msg(msg_t msg) {
         status = nt_register(name_u32, arg, sender, den_id);
 
     } else if (command == NT_LOOKUP) {
+        /* nt_lookup fills out_pid with the owner's pid; it rides back in r3. */
         status = nt_lookup(name_u32, sender, &out_handle, &out_pid);
         if (status == NT_LU_OK) {
             int32_t slot = zuzu_grant((int32_t)out_handle, (int32_t)sender);
-            if (slot < 0)
+            if (slot < 0) {
                 status = NT_LU_NOMATCH;
-            else
+                out_handle = 0;
+                out_pid = 0;
+            } else {
                 out_handle = (uint32_t)slot;
+            }
         }
 
     } else if (command == DEN_CREATE) {
