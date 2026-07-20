@@ -11,6 +11,19 @@ extern "C" {
 #define NT_NAME_SYS "sys"
 
 #define NT_REGISTER 1
+
+/**
+ * NT_LOOKUP: resolve a registered name to a port.
+ *
+ * Request  (zuzu_msg_call): w1 = NT_LOOKUP | (den_id << 8), w2 = nt_pack(name)
+ * Reply    (zuzu_msg_reply): r1 = NT_LU_OK or NT_LU_NOMATCH
+ *                            r2 = port handle, granted into the caller's table
+ *                            r3 = pid of the process that registered the name
+ *
+ * r2/r3 are only meaningful when r1 == NT_LU_OK; both are 0 otherwise.
+ * The owner pid in r3 lets a client match later messages against the service
+ * it actually resolved, rather than trusting whoever happens to reply.
+ */
 #define NT_LOOKUP 2
 #define DEN_CREATE 3
 #define DEN_INVITE 4
