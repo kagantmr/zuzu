@@ -60,9 +60,9 @@ USER_OBJCOPY = $(CROSS)objcopy
 KERNEL_LIBGCC = $(shell $(CC) $(CPUFLAGS) -print-libgcc-file-name)
 USER_LIBGCC   = $(shell $(USER_CC) $(CPUFLAGS) $(ARCH_USER_FP) -print-libgcc-file-name)
 
-USER_CFLAGS  = -ffreestanding -nostdlib -O$(USER_OPTIMIZATION_LEVEL) -Wall -Wextra \
+USER_CFLAGS  = -ffreestanding -nostdlib -O$(USER_OPTIMIZATION_LEVEL) -Wall -Wextra -Wshadow \
                $(CPUFLAGS) $(INCLUDES) -MMD -MP -g $(ARCH_USER_FP) \
-               -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"' -DLOG_LEVEL=$(LOG_LEVEL)
+               -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"' -DLOG_LEVEL=$(LOG_LEVEL) 
 USER_LDFLAGS = -nostdlib -Wl,-T,user/user.ld
 
 ifeq ($(DEBUG_BUILD), 1)
