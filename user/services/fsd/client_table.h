@@ -2,7 +2,7 @@
 #define FSD_CLIENT_TABLE_H
 
 #include <zuzu/types.h>
-#include "ff.h"
+#include "backend/backend.h"
 
 #define FSD_MAX_CLIENTS 32
 
@@ -17,9 +17,9 @@ typedef struct {
 #define FSD_MAX_FILES_PER_CLIENT 16
 
 typedef struct {
-    uint32_t pid;      /* 0 = free */
-    uint32_t fd;       /* client-visible fd */
-    FIL      fil;
+    uint32_t pid;                              /* 0 = free */
+    uint32_t fd;
+    uint8_t  backend_file[MAX_BACKEND_FILE_SIZE];
 } fsd_file_t;
 
 #endif // FSD_CLIENT_TABLE_H
