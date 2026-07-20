@@ -152,6 +152,29 @@ static const char * __attribute__((unused)) stdio_skip_ws(const char *s)
     return s;
 }
 
+/* Blocking counterpart to stdio_stream_getc.
+ *
+ * The tty driver's read is non-blocking: it replies with whatever is in its
+ * RX ring, which between keystrokes is nothing, and stdio_refill_input turns
+ * that empty reply into EOF. getchar() keeps those non-blocking semantics --
+ * zzsh's input loop is built on polling it and sleeping on EOF -- but a
+ * line-oriented reader must not treat "nothing typed yet" as end of input, or
+ * scanf() returns EOF the moment it is called rather than waiting for a line.
+ */
+static int __attribute__((unused)) stdio_stream_getc_blocking(void)
+{
+#ifdef __KERNEL__
+    return EOF;
+#else
+    for (;;) {
+        int c = stdio_stream_getc();
+        if (c != EOF)
+            return c;
+        zuzu_sleep(5);
+    }
+#endif
+}
+
 static int __attribute__((unused)) stdio_read_line(char *dst, size_t max)
 {
     if (!dst || max == 0)
@@ -160,9 +183,19 @@ static int __attribute__((unused)) stdio_read_line(char *dst, size_t max)
     size_t len = 0;
     int c = EOF;
 
-    while ((c = stdio_stream_getc()) != EOF) {
-        if (c == '\r')
-            continue;
+    while ((c = stdio_stream_getc_blocking()) != EOF) {
+        /* Enter on a serial console sends CR, and nothing downstream turns
+         * it into LF, so CR has to end the line as well -- discarding it and
+         * waiting for a LF that never arrives hangs the read. A CRLF pair
+         * must still count as one line ending, so swallow the LF; the peek
+         * is the non-blocking getc because a lone CR must not wait around
+         * for a companion that is never coming. */
+        if (c == '\r') {
+            int nc = stdio_stream_getc();
+            if (nc != EOF && nc != '\n')
+                stdio_input_pushback = nc;
+            break;
+        }
         if (c == '\n')
             break;
         if (len + 1 < max)

@@ -18,7 +18,7 @@ extern "C" {
 #define TCB_MAX_SLOTS   (PAGE_SIZE / TCB_SLOT_SIZE)      /* 7 */
 
 typedef struct {
-    void    *lmsg_buf;      /* → this slot's buf; kernel owns the location */
+    void    *lmsg_buf;      /* this slot's buf; kernel owns the location */
     uint32_t tid;
     uint32_t pid;
     uint8_t  _pad[TCB_HDR_SIZE - 12];

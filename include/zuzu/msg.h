@@ -109,7 +109,7 @@ static inline int32_t zuzu_msg_lsend(handle_t port, uint32_t buf_len) {
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
         : "r"(r1), [num] "i"(SYS_MSG_LSEND)
-        : "memory");
+        : "r2", "r3", "memory");
     return r0;
 }
 
@@ -127,7 +127,7 @@ static inline msg_t zuzu_msg_lcall(handle_t port, uint32_t buf_len) {
     __asm__ volatile("svc %[num]"
         : "+r"(r0), "+r"(r1)
         : [num] "i"(SYS_MSG_LCALL)
-        : "memory");
+        : "r2", "r3", "memory");
     return (msg_t){.r0 = r0, .r1 = r1, .r2 = 0, .r3 = 0};
 }
 
@@ -145,7 +145,7 @@ static inline int32_t zuzu_msg_lreply(handle_t reply_handle, uint32_t buf_len) {
     __asm__ volatile("svc %[num]"
         : "+r"(r0)
         : "r"(r1), [num] "i"(SYS_MSG_LREPLY)
-        : "memory");
+        : "r2", "r3", "memory");
     return (int32_t) r0;
 }
 
