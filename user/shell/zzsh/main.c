@@ -7,7 +7,7 @@
 #include <zuzu/service.h>
 #include <malloc.h>
 #include <zuzu/syspage.h>
-#include <zuzu/protocols/fbox_protocol.h>
+#include <zuzu/fsd_client.h>
 #include <zuzu/protocols/nic_protocol.h>
 #include <zuzu/protocols/sysd_protocol.h>
 #include <zuzu/channel.h>
@@ -15,8 +15,7 @@
 
 static int32_t sysd_port;
 static uint32_t sysd_pid;
-static int32_t fbox_port = -1;
-static char   *fbox_buf = NULL;   /* shmem shared with fbox */
+static fsd_conn_t fsd_conn;   /* session with the filesystem daemon */
 static char cwd[256] = "/";
 
 // -------------------- Prompt --------------------
@@ -78,31 +77,9 @@ int setup(void)
     return 0;
 }
 
-static bool ensure_fbox(void)
+static bool ensure_fsd(void)
 {
-    if (fbox_port >= 0 && fbox_buf)
-        return true;
-
-    if (fbox_port < 0) {
-        fbox_port = lookup_service("fbox");
-        if (fbox_port < 0) {
-            return false;
-        }
-    }
-
-    if (!fbox_buf) {
-        msg_t r = zuzu_msg_call(fbox_port, FBOX_GET_BUF, 0, 0);
-        if ((int32_t)r.r1 != 0) {
-            return false;
-        }
-        fbox_buf = (char *)zuzu_memmap((int32_t)r.r2, 0, VM_PROT_RW, 0);
-        if ((intptr_t)fbox_buf <= 0) {
-            fbox_buf = NULL;
-            return false;
-        }
-    }
-
-    return true;
+    return fsd_connect(&fsd_conn, FSD_SHM_DEFAULT) == ZUZU_OK;
 }
 
 // Redraws prompt + current line content, clears to end of line.
@@ -197,22 +174,15 @@ static bool resolve_path(const char *input, char *out, size_t out_size)
     return normalize_path(raw, out, out_size);
 }
 
-static bool stat_path(const char *path, fbox_stat_t *st)
+static bool stat_path(const char *path, fsd_stat_t *st)
 {
-    if (!ensure_fbox())
+    if (!ensure_fsd())
         return false;
 
-    size_t plen = strlen(path);
-    if (plen >= 4096)
+    if (strlen(path) >= 4096)
         return false;
 
-    memcpy(fbox_buf, path, plen + 1);
-    msg_t r = zuzu_msg_call(fbox_port, FBOX_STAT, 0, 0);
-    if ((int32_t)r.r1 != ZUZU_OK)
-        return false;
-
-    memcpy(st, fbox_buf, sizeof(*st));
-    return true;
+    return fsd_stat(&fsd_conn, path, st) == ZUZU_OK;
 }
 
 static const char *path_basename(const char *path)
@@ -283,8 +253,8 @@ static bool exec_reply_valid(const exec_reply_t *reply)
 
 static void cmd_ls(const char *arg)
 {
-    if (!ensure_fbox()) {
-        printf("%s", ANSI_RED "ls: fbox unavailable\n" ANSI_RESET);
+    if (!ensure_fsd()) {
+        printf("%s", ANSI_RED "ls: fsd unavailable\n" ANSI_RESET);
         return;
     }
 
@@ -294,28 +264,35 @@ static void cmd_ls(const char *arg)
         return;
     }
 
-    size_t plen = strlen(path);
-    memcpy(fbox_buf, path, plen + 1);
-
-    msg_t r = zuzu_msg_call(fbox_port, FBOX_READDIR, 0, 0);
-    if ((int32_t)r.r1 != ZUZU_OK) {
-        printf("%s", ANSI_RED "ls: cannot read directory\n" ANSI_RESET);
-        return;
-    }
-
-    uint32_t count = r.r2;
-    fbox_dirent_t *entries = (fbox_dirent_t *)fbox_buf;
     char line[96];
+    uint32_t start = 0;
 
-    for (uint32_t i = 0; i < count; i++) {
-        if (entries[i].is_dir) {
-            snprintf(line, sizeof(line), ANSI_BOLD ANSI_CYAN "%-13s" ANSI_RESET "  <DIR>\n",
-                     entries[i].name);
-        } else {
-            snprintf(line, sizeof(line), "%-13s  %u\n",
-                     entries[i].name, entries[i].size);
+    /* fsd returns at most a bufferful of dirents per call; page through the
+     * directory by advancing `start` until a short batch ends it. */
+    for (;;) {
+        fsd_dirent_t entries[32];
+        uint32_t count = 0;
+        if (fsd_readdir(&fsd_conn, path, start, entries,
+                        sizeof(entries) / sizeof(entries[0]), &count) != ZUZU_OK) {
+            if (start == 0)
+                printf("%s", ANSI_RED "ls: cannot read directory\n" ANSI_RESET);
+            return;
         }
-        printf("%s", line);
+
+        for (uint32_t i = 0; i < count; i++) {
+            if (entries[i].type == FSD_TYPE_DIR) {
+                snprintf(line, sizeof(line), ANSI_BOLD ANSI_CYAN "%-13s" ANSI_RESET "  <DIR>\n",
+                         entries[i].name);
+            } else {
+                snprintf(line, sizeof(line), "%-13s  %u\n",
+                         entries[i].name, entries[i].size);
+            }
+            printf("%s", line);
+        }
+
+        if (count < sizeof(entries) / sizeof(entries[0]))
+            break;
+        start += count;
     }
 }
 
@@ -323,8 +300,8 @@ static void cmd_ls(const char *arg)
 
 static void cmd_cat(const char *path)
 {
-    if (!ensure_fbox()) {
-        printf("%s", ANSI_RED "cat: fbox unavailable\n" ANSI_RESET);
+    if (!ensure_fsd()) {
+        printf("%s", ANSI_RED "cat: fsd unavailable\n" ANSI_RESET);
         return;
     }
 
@@ -339,28 +316,24 @@ static void cmd_cat(const char *path)
         return;
     }
 
-    size_t plen = strlen(abs_path);
-    memcpy(fbox_buf, abs_path, plen + 1);
-
-    msg_t r = zuzu_msg_call(fbox_port, FBOX_OPEN, FAT32_MODE_READ, 0);
-    if ((int32_t)r.r1 != ZUZU_OK) {
+    uint32_t fd = 0;
+    if (fsd_open(&fsd_conn, abs_path, FSD_MODE_READ, &fd) != ZUZU_OK) {
         printf("%s", ANSI_RED "cat: file not found\n" ANSI_RESET);
         return;
     }
-    uint32_t fd = r.r2;
 
+    char chunk[4096];
     while (1) {
-        r = zuzu_msg_call(fbox_port, FBOX_READ, FBOX_PACK_RW(fd, 4095), 0);
-        if ((int32_t)r.r1 != ZUZU_OK) break;
-        uint32_t got = r.r2;
+        uint32_t got = 0;
+        if (fsd_read(&fsd_conn, fd, chunk, sizeof(chunk) - 1, &got) != ZUZU_OK)
+            break;
         if (got == 0) break;
 
-        /* null-terminate for printf */
-        fbox_buf[got] = '\0';
-        printf("%s", fbox_buf);
+        chunk[got] = '\0';  /* null-terminate for printf */
+        printf("%s", chunk);
     }
 
-    zuzu_msg_call(fbox_port, FBOX_CLOSE, fd, 0);
+    fsd_close(&fsd_conn, fd);
     printf("\n");
 }
 
@@ -368,8 +341,8 @@ static void cmd_cat(const char *path)
 
 static void cmd_exec(const char *line)
 {
-    if (!ensure_fbox()) {
-        printf("%s", ANSI_RED "zzsh: fbox unavailable\n" ANSI_RESET);
+    if (!ensure_fsd()) {
+        printf("%s", ANSI_RED "zzsh: fsd unavailable\n" ANSI_RESET);
         return;
     }
 
@@ -423,7 +396,7 @@ static void cmd_exec(const char *line)
     int32_t sysd_task_handle = zuzu_grant(ts.task_handle, (int32_t)sysd_pid);
     if (sysd_task_handle < 0) {
         zuzu_pkill(ts.task_handle);                    /* <-- NEW */
-        printf("%s", ANSI_RED "zzsh: spawn failed\n" ANSI_RESET);
+        printf("%s", ANSI_RED "zzsh: spawn failed (sysd reject)\n" ANSI_RESET);
         return;
     }
 
@@ -524,7 +497,7 @@ void command_dispatch(const char *line)
     else if (strncmp(line, "cd ", 3) == 0)
     {
         char path[256];
-        fbox_stat_t st;
+        fsd_stat_t st;
 
         if (!resolve_path(line + 3, path, sizeof(path))) {
             printf("%s", "cd: path too long\n");
@@ -542,7 +515,7 @@ void command_dispatch(const char *line)
             return;
         }
 
-        if (!st.is_dir) {
+        if (st.type != FSD_TYPE_DIR) {
             printf("%s", ANSI_RED "cd: not a directory\n" ANSI_RESET);
             return;
         }
