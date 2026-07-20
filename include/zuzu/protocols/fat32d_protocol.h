@@ -18,6 +18,7 @@ extern "C"
 #define FAT32_READDIR 5 /* shmem=path                     -> r1=status, r2=count; shmem=dirents */
 #define FAT32_STAT 6    /* shmem=path                     -> r1=status; shmem=fat32_stat_t */
 #define FAT32_GET_BUF 7 /*                                -> r1=status, r2=shmem_handle */
+#define FAT32_SEEK 8
 
 /* Open modes (match FatFs FA_* for simplicity) */
 #define FAT32_MODE_READ 0x01
@@ -32,28 +33,11 @@ extern "C"
 #define FAT32_ERR_IO ERR_IO /* backend FatFs / disk I/O failure */
 
 /* Directory entry returned in shmem by READDIR */
-typedef struct
-{
-    char name[56];   //  null-terminated UTF-8 string
-    uint32_t size;   // file size in bytes
-    uint8_t is_dir;  // 1 if directory, 0 if file
-    uint8_t _pad[3]; // padding for alignment
-} fat32_dirent_t;    /* 68 bytes, ~60 per 4096 page */
-
-/* Stat result returned in shmem by STAT */
-typedef struct
-{
-    uint32_t size;   // file size in bytes
-    uint8_t is_dir;  // 1 if directory, 0 if file
-    uint8_t _pad[3]; // padding for alignment
-} fat32_stat_t;
-
-_Static_assert(sizeof(fat32_dirent_t) <= 64, "dirent should stay cache-line-ish");
 
 #define FAT32_SHM_SIZE 32768   /* must match the _shm_create size */
 #define MAX_DIRENTS (FAT32_SHM_SIZE / sizeof(fat32_dirent_t))   /* 481 */
 
-_Static_assert(MAX_DIRENTS * sizeof(fat32_dirent_t) <= FAT32_SHM_SIZE, "readdir overflow");
+
 
 #ifdef __cplusplus
 }
