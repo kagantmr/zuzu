@@ -37,7 +37,7 @@ static inline int32_t zuzu_msg_send(handle_t port, uint32_t w1, uint32_t w2, uin
  * 
  * @param port The handle of the port to receive the message from.
  * @param timeout_ms The timeout in milliseconds to wait for a message. Use TIMEOUT_INFINITE for blocking indefinitely, or TIMEOUT_POLL for non-blocking.
- * @return msg_t Returns a msg_t structure containing the received message. If the receive operation fails or times out, the r0 field of the returned msg_t will contain a negative error code.
+ * @return msg_t Returns 2 of the caller's 3 payload words, r1 is sender's PID.
  */
 static inline msg_t zuzu_msg_recv(handle_t port, uint32_t timeout_ms) {
     register handle_t r0 __asm__("r0") = port;
@@ -79,7 +79,7 @@ static inline msg_t zuzu_msg_call(handle_t port, uint32_t w1, uint32_t w2, uint3
  * @param reply_handle The handle of the reply to send.
  * @param w1 The first word of the reply payload.
  * @param w2 The second word of the reply payload.
- * @param w3 The third word of the reply payload.
+ * @param w3 The third word of the reply payload. (dropped)
  * 
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */

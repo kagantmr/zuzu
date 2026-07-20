@@ -13,7 +13,7 @@ extern "C" {
  * @brief Registers a service with the specified name with sysd.
  * 
  * @param name The name of the service to register.
- * @return int32_t Returns 0 on success, or a negative error code on failure.
+ * @return int32_t Returns the registered port on success, or a negative error code on failure.
  */
 int32_t register_service(const char *name);
 
