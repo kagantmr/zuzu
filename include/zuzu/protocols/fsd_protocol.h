@@ -98,6 +98,26 @@ typedef enum
 #define FSD_SHM_DEFAULT (64 * 1024) /* suggested size; client chooses, fsd enforces MIN/MAX */
 #define FSD_SHM_MAX (4 * 1024 * 1024)
 
+/*
+ * FSD_SET_BUF argument encoding.
+ *
+ * A msg_call delivers only two payload words to the receiver: the command in r2
+ * and a single argument in r3 (the kernel overwrites the sender's third word
+ * with its pid). FSD_SET_BUF must convey both the granted shm handle slot and
+ * the buffer's byte size, so the two are packed into that one argument word.
+ *
+ * shm sizes are page-aligned (zuzu_shm_create rounds up to PAGE_SIZE), so the
+ * low FSD_PAGE_SHIFT bits of the size are always zero and carry the handle slot
+ * instead. A grantee handle slot is a small handle-table index and fits easily
+ * in the 12 freed bits.
+ */
+#define FSD_PAGE_SHIFT 12u
+#define FSD_SETBUF_MASK ((1u << FSD_PAGE_SHIFT) - 1u)
+#define FSD_SETBUF_PACK(slot, size) \
+    (((uint32_t)(size) & ~FSD_SETBUF_MASK) | ((uint32_t)(slot) & FSD_SETBUF_MASK))
+#define FSD_SETBUF_SLOT(arg) ((uint32_t)(arg) & FSD_SETBUF_MASK)
+#define FSD_SETBUF_SIZE(arg) ((uint32_t)(arg) & ~FSD_SETBUF_MASK)
+
 #define FSD_MODE_READ 0x01          /* FA_READ */
 #define FSD_MODE_WRITE 0x02         /* FA_WRITE */
 #define FSD_MODE_CREATE_NEW 0x04    /* fails if exists */
