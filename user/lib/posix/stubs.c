@@ -72,7 +72,7 @@ static int err_to_errno(err_t e)
 static handle_t console_port(void) {
     if (console_tty < 0) {
         msg_t lu = zuzu_msg_call(NT_PORT, NT_LOOKUP, nt_pack("tty0"), 0);
-        if ((handle_t)lu.r1 != ZUZU_OK)
+        if ((err_t)lu.r1 != NT_LU_OK)
             return -1;
         console_tty = (handle_t)lu.r2;
     }
