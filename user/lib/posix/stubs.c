@@ -214,6 +214,15 @@ int _read(int file, char *ptr, int len)
             }
             zuzu_sleep(5);
         }
+
+        /* TODO(console-blocking-read): temporary. The poll loop above is a
+         * stand-in until the console server grows a blocking read; the whole
+         * loop is being reworked separately. For now a terminal read that
+         * turned up nothing must terminate here -- falling through to the fsd
+         * path below would trip the `file < 3` guard and wrongly report EBADF
+         * on fd 0. Report "would block" instead. */
+        errno = EAGAIN;
+        return -1;
     }
 
     if (!fsd_buf || file < 3 || file >= MAX_FD || fsd_fd[file] < 0) { errno = EBADF; return -1; }
