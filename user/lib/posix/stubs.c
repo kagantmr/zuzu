@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <zuzu/zuzu.h>
 #include <zuzu/lmsg.h>
+#include <zuzu/uspin.h>
 #include <zuzu/syspage.h>
 #include <zuzu/protocols/nt_protocol.h>
 #include <zuzu/protocols/fsd_protocol.h>
@@ -85,6 +86,39 @@ static handle_t console_port(void) {
 static void    *fsd_buf  = NULL;
 static uint32_t fsd_size = 0;
 
+/*
+ * fsd_buf is a single-transaction resource shared by every thread: each
+ * request is staged into it at fixed offsets and the reply is read back
+ * from it after the (blocking) msg_call. Two threads staging at once would
+ * corrupt each other, so a transaction must own the buffer from staging
+ * through reply.
+ *
+ * That ownership window spans a blocking msg_call, so it cannot be a lock:
+ * fsd_gate (a zzuspin spin lock) is held only long enough to flip fsd_busy,
+ * never across the call. A thread that finds the buffer busy drops the gate
+ * and yields, so fsd and everything else keep running while the owner is
+ * blocked. One fsd transaction is in flight at a time.
+ */
+static zzuspin_t fsd_gate = ZZUSPIN_INIT;
+static int       fsd_busy = 0;
+
+static void fsd_claim(void)
+{
+    for (;;) {
+        zzuspin_lock(&fsd_gate);
+        if (!fsd_busy) { fsd_busy = 1; zzuspin_unlock(&fsd_gate); return; }
+        zzuspin_unlock(&fsd_gate);
+        zuzu_yield();
+    }
+}
+
+static void fsd_release(void)
+{
+    zzuspin_lock(&fsd_gate);
+    fsd_busy = 0;
+    zzuspin_unlock(&fsd_gate);
+}
+
 static int fsd_connect(void) {
     if (fsd_buf) return 0;
     msg_t lu = zuzu_msg_call(NT_PORT, NT_LOOKUP, nt_pack("fsd\0"), 0);
@@ -150,6 +184,7 @@ int _write(int file, char *ptr, int len)
     if (cap > 0xFFFFu) cap = 0xFFFFu;        /* count is 16 bits in the packing */
     size_t off = 0;
 
+    fsd_claim();
     while (off < (size_t)len) {
         uint32_t chunk = (uint32_t)((size_t)len - off);
         if (chunk > cap) chunk = cap;
@@ -160,6 +195,7 @@ int _write(int file, char *ptr, int len)
                                 ((uint32_t)fsd_fd[file] & 0xFFFFu) | (chunk << 16), 0);
         if ((err_t)r.r1 != ZUZU_OK) {
             if (off) break;                  /* partial write wins */
+            fsd_release();
             errno = err_to_errno((err_t)r.r1);
             return -1;
         }
@@ -170,6 +206,7 @@ int _write(int file, char *ptr, int len)
 
         if (put < chunk) break;              /* disk full or short write */
     }
+    fsd_release();
 
     return (int)off;
 }
@@ -233,6 +270,7 @@ int _read(int file, char *ptr, int len)
     uint32_t cap = fsd_size - FSD_DATA_OFF;
     size_t   off = 0;
 
+    fsd_claim();
     while (off < (size_t)len) {
         uint32_t chunk = (uint32_t)((size_t)len - off);
         if (chunk > cap) chunk = cap;
@@ -241,6 +279,7 @@ int _read(int file, char *ptr, int len)
                                 ((uint32_t)fsd_fd[file] & 0xFFFFu) | (chunk << 16), 0);
         if ((err_t)r.r1 != ZUZU_OK) {
             if (off) break;                  /* partial success wins */
+            fsd_release();
             errno = err_to_errno((err_t)r.r1);
             return -1;
         }
@@ -252,6 +291,7 @@ int _read(int file, char *ptr, int len)
 
         if (got < chunk) break;              /* short read = EOF */
     }
+    fsd_release();
 
     return (int)off;
 }
@@ -282,11 +322,13 @@ int _lseek(int file, int ptr, int dir)
     req.offset   = (int64_t)ptr;
     req.whence   = (uint32_t)dir;  /* SEEK_SET/CUR/END == FSD_SEEK_* */
 
+    fsd_claim();
     memcpy((uint8_t *)fsd_buf + FSD_REQ_OFF, &req, sizeof(req));
 
     msg_t r = zuzu_msg_call(fsd_handle, FSD_SEEK, 0, 0);
-    if ((err_t)r.r1 != ZUZU_OK) { errno = err_to_errno((err_t)r.r1); return -1; }
+    if ((err_t)r.r1 != ZUZU_OK) { fsd_release(); errno = err_to_errno((err_t)r.r1); return -1; }
 
+    fsd_release();
     return (int)r.r2;   /* new absolute offset (truncated to 32 bits) */
 }
 
@@ -313,12 +355,14 @@ int _fstat(int file, struct stat *st)
 
     if (!fsd_buf || file < 3 || file >= MAX_FD || fsd_fd[file] < 0) { errno = EBADF; return -1; }
 
+    fsd_claim();
     msg_t r = zuzu_msg_call(fsd_handle, FSD_FSTAT,
                             (uint32_t)fsd_fd[file], 0);
-    if ((err_t)r.r1 != ZUZU_OK) { errno = err_to_errno((err_t)r.r1); return -1; }
+    if ((err_t)r.r1 != ZUZU_OK) { fsd_release(); errno = err_to_errno((err_t)r.r1); return -1; }
 
     fsd_stat_t fst;
     memcpy(&fst, (const uint8_t *)fsd_buf + FSD_DATA_OFF, sizeof(fst));
+    fsd_release();
 
     st->st_mode  = (fst.type == FSD_TYPE_DIR) ? S_IFDIR : S_IFREG;
     st->st_size  = (off_t)fst.size;
@@ -327,16 +371,20 @@ int _fstat(int file, struct stat *st)
 }
 
 int _open(const char *name, int flags, ...) {
-    if (fsd_connect() < 0) { errno = EIO; return -1; }
+    /* Held across connect + slot allocation too: fsd_connect() and the
+     * fsd_fd[] scan both touch shared state, and the request stages into
+     * the shared buffer. */
+    fsd_claim();
+    if (fsd_connect() < 0) { fsd_release(); errno = EIO; return -1; }
 
     /* find a free POSIX fd, 3 and up */
     int pfd = 3;
     while (pfd < MAX_FD && fsd_fd[pfd] >= 0) pfd++;
-    if (pfd == MAX_FD) { errno = EMFILE; return -1; }
+    if (pfd == MAX_FD) { fsd_release(); errno = EMFILE; return -1; }
 
     /* path into the payload region */
     size_t plen = strlen(name);
-    if (plen + 1 > fsd_size - FSD_DATA_OFF) { errno = ENAMETOOLONG; return -1; }
+    if (plen + 1 > fsd_size - FSD_DATA_OFF) { fsd_release(); errno = ENAMETOOLONG; return -1; }
     memcpy((uint8_t *)fsd_buf + FSD_DATA_OFF, name, plen + 1);
 
     /* request struct */
@@ -350,9 +398,10 @@ int _open(const char *name, int flags, ...) {
     memcpy((uint8_t *)fsd_buf + FSD_REQ_OFF, &req, sizeof(req));
 
     msg_t r = zuzu_msg_call(fsd_handle, FSD_OPEN, 0, 0);
-    if ((err_t)r.r1 != ZUZU_OK) { errno = err_to_errno((err_t)r.r1); return -1; }
+    if ((err_t)r.r1 != ZUZU_OK) { fsd_release(); errno = err_to_errno((err_t)r.r1); return -1; }
 
     fsd_fd[pfd] = (int)r.r2;
+    fsd_release();
     return pfd;
 }
 
@@ -396,10 +445,12 @@ clock_t _times(struct tms *buf)
 int _stat(const char *name, struct stat *st)
 {
     if (!name || !st) { errno = EFAULT; return -1; }
-    if (fsd_connect() < 0) { errno = EIO; return -1; }
+
+    fsd_claim();
+    if (fsd_connect() < 0) { fsd_release(); errno = EIO; return -1; }
 
     size_t plen = strlen(name);
-    if (plen + 1 > fsd_size - FSD_DATA_OFF) { errno = ENAMETOOLONG; return -1; }
+    if (plen + 1 > fsd_size - FSD_DATA_OFF) { fsd_release(); errno = ENAMETOOLONG; return -1; }
     memcpy((uint8_t *)fsd_buf + FSD_DATA_OFF, name, plen + 1);
 
     fsd_req_t req;
@@ -411,10 +462,11 @@ int _stat(const char *name, struct stat *st)
     memcpy((uint8_t *)fsd_buf + FSD_REQ_OFF, &req, sizeof(req));
 
     msg_t r = zuzu_msg_call(fsd_handle, FSD_STAT, 0, 0);
-    if ((err_t)r.r1 != ZUZU_OK) { errno = err_to_errno((err_t)r.r1); return -1; }
+    if ((err_t)r.r1 != ZUZU_OK) { fsd_release(); errno = err_to_errno((err_t)r.r1); return -1; }
 
     fsd_stat_t fst;
     memcpy(&fst, (const uint8_t *)fsd_buf + FSD_DATA_OFF, sizeof(fst));
+    fsd_release();
 
     memset(st, 0, sizeof(*st));
     st->st_mode    = (fst.type == FSD_TYPE_DIR) ? S_IFDIR : S_IFREG;
@@ -426,10 +478,12 @@ int _stat(const char *name, struct stat *st)
 int _unlink(const char *name)
 {
     if (!name) { errno = EFAULT; return -1; }
-    if (fsd_connect() < 0) { errno = EIO; return -1; }
+
+    fsd_claim();
+    if (fsd_connect() < 0) { fsd_release(); errno = EIO; return -1; }
 
     size_t plen = strlen(name);
-    if (plen + 1 > fsd_size - FSD_DATA_OFF) { errno = ENAMETOOLONG; return -1; }
+    if (plen + 1 > fsd_size - FSD_DATA_OFF) { fsd_release(); errno = ENAMETOOLONG; return -1; }
     memcpy((uint8_t *)fsd_buf + FSD_DATA_OFF, name, plen + 1);
 
     fsd_req_t req;
@@ -441,7 +495,8 @@ int _unlink(const char *name)
     memcpy((uint8_t *)fsd_buf + FSD_REQ_OFF, &req, sizeof(req));
 
     msg_t r = zuzu_msg_call(fsd_handle, FSD_UNLINK, 0, 0);
-    if ((err_t)r.r1 != ZUZU_OK) { errno = err_to_errno((err_t)r.r1); return -1; }
+    if ((err_t)r.r1 != ZUZU_OK) { fsd_release(); errno = err_to_errno((err_t)r.r1); return -1; }
+    fsd_release();
     return 0;
 }
 
