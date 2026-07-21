@@ -12,7 +12,7 @@
 
 static handle_t console_tty = -1;
 extern void *sbrk(intptr_t incr);
-static int fsd_fd[MAX_FD];   
+static int fsd_fd[MAX_FD] = { [0 ... MAX_FD - 1] = -1 };
 static handle_t fsd_handle = -1;
 
 /* POSIX open flags -> FSD_MODE_* bits.
@@ -84,7 +84,6 @@ static uint32_t fsd_size = 0;
 
 static int fsd_connect(void) {
     if (fsd_buf) return 0;
-    for (int i = 0; i < MAX_FD; i++) fsd_fd[i] = -1;
     msg_t lu = zuzu_msg_call(NT_PORT, NT_LOOKUP, nt_pack("fsd\0"), 0);
     if ((err_t)lu.r1 != NT_LU_OK) return -1;
     fsd_handle = (handle_t)lu.r2;
