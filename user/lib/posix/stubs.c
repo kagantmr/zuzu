@@ -1,9 +1,12 @@
-#include <unistd.h>      
-#include <sys/stat.h>    
+#include <unistd.h>
+#include <sys/stat.h>
+#include <sys/time.h>
+#include <sys/times.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <zuzu/zuzu.h>
 #include <zuzu/lmsg.h>
+#include <zuzu/syspage.h>
 #include <zuzu/protocols/nt_protocol.h>
 #include <zuzu/protocols/fsd_protocol.h>
 #include <string.h>
@@ -351,4 +354,101 @@ int _open(const char *name, int flags, ...) {
 
     fsd_fd[pfd] = (int)r.r2;
     return pfd;
+}
+
+/* No spawn hands us an environment yet; newlib's getenv() still needs the
+ * symbol to exist and terminate cleanly. */
+static char *__env[1] = { NULL };
+char **environ = __env;
+
+/* Wall clock derived from the syspage tick source: boot epoch plus uptime.
+ * If the kernel never learned the wall time boot_time_s is 0 and this reads
+ * as seconds since boot, which is still monotonic. */
+int _gettimeofday(struct timeval *tv, void *tz)
+{
+    (void)tz;
+    if (!tv) { errno = EFAULT; return -1; }
+
+    const syspage_t *sp = (const syspage_t *)SYSPAGE_VA;
+    uint32_t hz    = sp->tick_hz ? sp->tick_hz : 1000u;
+    uint64_t ticks = sp->uptime_ticks;
+
+    tv->tv_sec  = (time_t)(sp->boot_time_s + ticks / hz);
+    tv->tv_usec = (suseconds_t)((ticks % hz) * 1000000ull / hz);
+    return 0;
+}
+
+/* Elapsed real time in scheduler ticks; no user/kernel split is tracked. */
+clock_t _times(struct tms *buf)
+{
+    const syspage_t *sp = (const syspage_t *)SYSPAGE_VA;
+    clock_t ticks = (clock_t)sp->uptime_ticks;
+
+    if (buf) {
+        buf->tms_utime  = ticks;
+        buf->tms_stime  = 0;
+        buf->tms_cutime = 0;
+        buf->tms_cstime = 0;
+    }
+    return ticks;
+}
+
+int _stat(const char *name, struct stat *st)
+{
+    if (!name || !st) { errno = EFAULT; return -1; }
+    if (fsd_connect() < 0) { errno = EIO; return -1; }
+
+    size_t plen = strlen(name);
+    if (plen + 1 > fsd_size - FSD_DATA_OFF) { errno = ENAMETOOLONG; return -1; }
+    memcpy((uint8_t *)fsd_buf + FSD_DATA_OFF, name, plen + 1);
+
+    fsd_req_t req;
+    memset(&req, 0, sizeof(req));
+    req.size     = sizeof(req);
+    req.cmd      = FSD_STAT;
+    req.data_off = FSD_DATA_OFF;
+    req.data_len = plen + 1;
+    memcpy((uint8_t *)fsd_buf + FSD_REQ_OFF, &req, sizeof(req));
+
+    msg_t r = zuzu_msg_call(fsd_handle, FSD_STAT, 0, 0);
+    if ((err_t)r.r1 != ZUZU_OK) { errno = err_to_errno((err_t)r.r1); return -1; }
+
+    fsd_stat_t fst;
+    memcpy(&fst, (const uint8_t *)fsd_buf + FSD_DATA_OFF, sizeof(fst));
+
+    memset(st, 0, sizeof(*st));
+    st->st_mode    = (fst.type == FSD_TYPE_DIR) ? S_IFDIR : S_IFREG;
+    st->st_size    = (off_t)fst.size;
+    st->st_blksize = 512;
+    return 0;
+}
+
+int _unlink(const char *name)
+{
+    if (!name) { errno = EFAULT; return -1; }
+    if (fsd_connect() < 0) { errno = EIO; return -1; }
+
+    size_t plen = strlen(name);
+    if (plen + 1 > fsd_size - FSD_DATA_OFF) { errno = ENAMETOOLONG; return -1; }
+    memcpy((uint8_t *)fsd_buf + FSD_DATA_OFF, name, plen + 1);
+
+    fsd_req_t req;
+    memset(&req, 0, sizeof(req));
+    req.size     = sizeof(req);
+    req.cmd      = FSD_UNLINK;
+    req.data_off = FSD_DATA_OFF;
+    req.data_len = plen + 1;
+    memcpy((uint8_t *)fsd_buf + FSD_REQ_OFF, &req, sizeof(req));
+
+    msg_t r = zuzu_msg_call(fsd_handle, FSD_UNLINK, 0, 0);
+    if ((err_t)r.r1 != ZUZU_OK) { errno = err_to_errno((err_t)r.r1); return -1; }
+    return 0;
+}
+
+/* fsd exposes rename but no hard-link command, so there is nothing to call. */
+int _link(const char *existing, const char *newpath)
+{
+    (void)existing; (void)newpath;
+    errno = ENOSYS;
+    return -1;
 }
