@@ -118,7 +118,7 @@ void sys_destroy(arch_regs_t *frame)
         endpoint_t *ep = entry->ep;
         if (!ep)
         {
-            (*arch_reg(frame, 0)) = ERR_BADARG;
+            (*arch_reg(frame, 0)) = ERR_BADHANDLE;
             return;
         }
 
@@ -307,13 +307,13 @@ void sys_grant(arch_regs_t *frame)
         return;
     }
 
-    if (!src->grantable)
+    if (!src->grantable || current_thread->owner_process->pid == pid)
     {
         (*arch_reg(frame, 0)) = ERR_NOPERM;
         return;
     }
 
-    if (src->type == HANDLE_REPLY)
+    if (src->type == HANDLE_REPLY || src->type == HANDLE_TASK)
     {
         (*arch_reg(frame, 0)) = ERR_NOPERM;
         return;
