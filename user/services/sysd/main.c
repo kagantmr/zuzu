@@ -333,6 +333,29 @@ static void nt_handle_msg(msg_t msg) {
         zuzu_msg_reply(reply_handle, (uint32_t)status, out_handle, out_pid);
 }
 
+#define MAX_BOOT_ENTRIES 16
+
+typedef struct {
+    char          path[64];
+    char          name[32];
+    const void   *elf_data;     /* into CPIO mapping; NULL if SD-only */
+    size_t        elf_size;
+    int32_t       task_handle;
+    uint32_t      pid;
+    exec_reply_t  reply;
+    bool          in_cpio;
+    bool          injected;
+    bool          is_tty;
+    uint32_t      tty_index;
+    bool          spawn_last;
+} boot_entry_t;
+
+static boot_entry_t boot_entries[MAX_BOOT_ENTRIES];
+static int           boot_count;
+
+static char deferred_paths[MAX_BOOT_ENTRIES][64];
+static int  deferred_count;
+
 #define WAIT_TIMEOUT_MS 30000u
 #define WAIT_SLICE_MS   10u
 
@@ -364,14 +387,79 @@ static bool recvany_to_ipcmsg(const waitany_result_t *res, msg_t *msg)
     return false;
 }
 
+static boot_entry_t *find_boot_entry_by_pid(uint32_t pid)
+{
+    for (int i = 0; i < boot_count; i++) {
+        if (boot_entries[i].injected && boot_entries[i].pid == pid)
+            return &boot_entries[i];
+    }
+    return NULL;
+}
+
+/* Crash-looking deaths (faults, OOM) get respawned; a clean exit or an
+ * explicit pkill from another process (KILL_BY_PARENT) means someone
+ * wanted this process gone, so leave it dead. */
+static bool should_respawn(int32_t status)
+{
+    if (!WAS_KILLED(status))
+        return false;
+
+    switch (KILL_REASON(status)) {
+    case KILL_FAULT_DATA:
+    case KILL_FAULT_PREFETCH:
+    case KILL_FAULT_UNDEF:
+    case KILL_FAULT_ALIGN:
+    case KILL_OOM:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static void respawn_entry(boot_entry_t *e)
+{
+    tspawn_result_t ts = zuzu_pspawn(e->name);
+    if (ts.task_handle < 0)
+        return;
+
+    e->task_handle = ts.task_handle;
+    e->pid         = ts.pid;
+    e->injected    = false;
+
+    if (exec_inject((uint32_t)ts.task_handle, e->elf_data, e->elf_size,
+                    NULL, 0, 0, &e->reply) != 0)
+        return;
+
+    e->injected = true;
+    zuzu_kickstart(e->task_handle, e->reply.entry, e->reply.sp,
+               e->reply.argc, e->reply.argv_va);
+}
+
+/* Drains every zombie currently on our child list. Supervised children
+ * (tracked in boot_entries) are checked against the respawn policy;
+ * everything else is an orphan reparented to us (sysd is pid 1) and is
+ * just reaped and discarded. */
+static void reap_all(void)
+{
+    int32_t status;
+    int32_t pid;
+
+    while ((pid = zuzu_wait(-1, &status, WNOHANG)) > 0) {
+        boot_entry_t *e = find_boot_entry_by_pid((uint32_t)pid);
+        scrub_pid((uint32_t)pid);
+
+        if (e && should_respawn(status))
+            respawn_entry(e);
+    }
+}
+
 static bool wait_for_service(uint32_t name_u32) {
     uint32_t handle = 0, pid = 0, waited_ms = 0;
     handle_t recv_handles[1] = {(handle_t)port};
 
     while (nt_lookup(name_u32, zuzu_getpid(), &handle, &pid) != NT_LU_OK &&
            waited_ms < WAIT_TIMEOUT_MS) {
-        int32_t dead = zuzu_wait(-1, NULL, WNOHANG);
-        if (dead > 0) scrub_pid((uint32_t)dead);
+        reap_all();
 
         waitany_result_t any = {0};
         if (zuzu_waitany(recv_handles, 1, WAIT_SLICE_MS, &any) == 0) {
@@ -388,8 +476,7 @@ static bool wait_for_service(uint32_t name_u32) {
 void sysd_loop(void)
 {
     while (1) {
-        int32_t dead = zuzu_wait(-1, NULL, WNOHANG);
-        if (dead > 0) scrub_pid((uint32_t)dead);
+        reap_all();
         nt_handle_msg(zuzu_msg_recv(port, TIMEOUT_INFINITE));
     }
 }
@@ -397,29 +484,6 @@ void sysd_loop(void)
 /* ================================================================
  *  Boot sequence
  * ================================================================ */
-
-#define MAX_BOOT_ENTRIES 16
-
-typedef struct {
-    char          path[64];
-    char          name[32];
-    const void   *elf_data;     /* into CPIO mapping; NULL if SD-only */
-    size_t        elf_size;
-    int32_t       task_handle;
-    uint32_t      pid;
-    exec_reply_t  reply;
-    bool          in_cpio;
-    bool          injected;
-    bool          is_tty;
-    uint32_t      tty_index;
-    bool          spawn_last;
-} boot_entry_t;
-
-static boot_entry_t boot_entries[MAX_BOOT_ENTRIES];
-static int           boot_count;
-
-static char deferred_paths[MAX_BOOT_ENTRIES][64];
-static int  deferred_count;
 
 static const char *basename(const char *path)
 {
@@ -549,8 +613,7 @@ static bool wait_for_tty_registration(uint32_t pid,
 
     while (nt_lookup_pid(pid, zuzu_getpid(), out_handle, out_pid) != NT_LU_OK &&
            waited_ms < WAIT_TIMEOUT_MS) {
-        int32_t dead = zuzu_wait(-1, NULL, WNOHANG);
-        if (dead > 0) scrub_pid((uint32_t)dead);
+        reap_all();
 
         waitany_result_t any = {0};
         if (zuzu_waitany(recv_handles, 1, WAIT_SLICE_MS, &any) == 0) {
