@@ -855,7 +855,11 @@ void process_kill(process_t *p, const int exit_status) {
         parent->thread->state = READY;
         parent->waiting_for = 0;
         sched_add(parent->thread);
+    } else if (parent && parent->thread) {
+        /* Parent is alive but not blocked in wait() right now.
+        * Leave p as a zombie on the child list; a later wait() reaps it. */
     } else {
+        /* No parent left to reap us. Destroy now. */
         sched_defer_destroy(p);
     }
 }
