@@ -282,6 +282,25 @@ void sys_destroy(arch_regs_t *frame)
         (*arch_reg(frame, 0)) = 0;
     }
     break;
+    case HANDLE_TASK: {
+        process_t *task = entry->task;
+        if (!task) {
+            (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+            return;
+        }
+        // Refuse while the process is still alive; it must exit or be pkill'd first.
+        if (task->thread && task->thread->state != ZOMBIE) {
+            (*arch_reg(frame, 0)) = ERR_BUSY;
+            return;
+        }
+
+        entry->task = NULL;
+        entry->grantable = false;
+        entry->type = HANDLE_FREE;
+        // reap: drop the parent's reference / free the process_t
+        (*arch_reg(frame, 0)) = 0;
+    }
+    break;
     default: {
         (*arch_reg(frame, 0)) = ERR_BADTYPE;
     }
