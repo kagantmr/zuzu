@@ -301,11 +301,15 @@ void sys_pkill(arch_regs_t *frame) {
         return;
     }
 
+    if (target == current_thread->owner_process) {
+        (*arch_reg(frame, 0)) = ERR_BADARG;   /* use pquit */
+        return;
+    }
     entry->type = HANDLE_FREE;
     entry->task = NULL;
     entry->grantable = false;
 
-    process_destroy(target);
-
+    process_kill(target, KILLED_TAG | KILL_BY_PARENT);
+    
     (*arch_reg(frame, 0)) = 0;
 }

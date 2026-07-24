@@ -54,8 +54,26 @@ typedef int32_t err_t;
 #define FATAL_TAG_MASK   0xFFFF0000u
 #define FATAL_REASON_MASK 0x0000FFFFu
 #define FATAL_KERNEL_OUTDATED 1
-#define FATAL_KERNEL_REFERLMSG 1
+#define FATAL_KERNEL_REFERLMSG 2
 
+/**
+ * Killed exit codes.
+ * 
+ * Delivered when a process suddenly exits.
+ */
+#define KILLED_TAG        0x20050000   /* "-kill" */
+#define KILLED_TAG_MASK   0xFFFF0000u
+#define KILLED_REASON_MASK 0x0000FFFFu
+#define KILL_BY_PARENT      1    /* pkill */
+#define KILL_FAULT_DATA     16   /* data abort */
+#define KILL_FAULT_PREFETCH 17   /* prefetch abort */
+#define KILL_FAULT_UNDEF    18   /* undefined instruction */
+#define KILL_FAULT_ALIGN    19   /* alignment */
+#define KILL_OOM            32   /* couldn't fault in a page */
+
+
+#define WAS_KILLED(s)   (((s) & KILLED_TAG_MASK) == KILLED_TAG)
+#define KILL_REASON(s)  ((s) & KILLED_REASON_MASK)
 
 /**
  * @brief Returns a human-readable string describing the given error code.
