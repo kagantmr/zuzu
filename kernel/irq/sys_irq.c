@@ -197,6 +197,10 @@ void sys_irq_done(arch_regs_t* frame) {
         (*arch_reg(frame, 0)) = ERR_BADTYPE;
         return;
     }
+    if (!entry->dev) {
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+        return;
+    }
     if (!valid_irq(entry->dev->irq)) {
         (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
