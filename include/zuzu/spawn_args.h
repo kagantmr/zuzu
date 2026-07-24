@@ -29,7 +29,7 @@ typedef struct
     uintptr_t dst_va;     // destination virtual address in the target task's address space
     const void *src_buf;  // pointer to the source buffer in the current task's address space
     size_t len;           // length of the source buffer in bytes
-    uint32_t prot;        // memory protection flags for the destination mapping (e.g., PROT_READ | PROT_WRITE)
+    uint32_t prot;        // memory protection flags for the destination mapping (e.g., VM_PROT_READ | VM_PROT_WRITE)
 } asinject_args_t;
 
 typedef struct
