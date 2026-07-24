@@ -277,9 +277,6 @@ void sys_kickstart(arch_regs_t *frame) {
         kargs.r0_val, kargs.r1_val, &target->thread->trap_frame);
     target->thread->state = READY;
     sched_add(target->thread);
-    entry->type = HANDLE_FREE;
-    entry->task = NULL;
-    entry->grantable = false;
     (*arch_reg(frame, 0)) = 0;
     KDEBUG("Kickstarted process with PID %d", target->pid, kargs.entry);
     return;
