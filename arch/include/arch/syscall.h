@@ -22,8 +22,8 @@ int32_t syscall(uint32_t svc_num, uint32_t a0, uint32_t a1, uint32_t a2, uint32_
     register uint32_t r2 __asm__("r2") = a2;
     register uint32_t r3 __asm__("r3") = a3;
     __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : "r"(r1), "r"(r2), "r"(r3), [num] "i"(svc_num)
+        : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3)
+        : [num] "i"(svc_num)
         : "memory");
     return (int32_t)r0;
 }
