@@ -21,14 +21,22 @@ void sys_dev_query(arch_regs_t *frame) {
     size_t buf_len = (*arch_reg(frame, 2));
     char compat_buf[sizeof(((device_cap_t *)0)->compatible) + 1];
 
-    if (handle_idx == 0 || buf_len == 0) { (*arch_reg(frame, 0)) = ERR_BADARG; return; }
+    if (handle_idx == 0 || buf_len == 0) {
+        (*arch_reg(frame, 0)) = ERR_BADARG; return;
+    }
 
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
-    if (!entry) { (*arch_reg(frame, 0)) = ERR_BADHANDLE; return; }
-    if (entry->type != HANDLE_DEVICE) { (*arch_reg(frame, 0)) = ERR_BADTYPE; return; }
+    if (!entry) {
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE; return;
+    }
+    if (entry->type != HANDLE_DEVICE) {
+        (*arch_reg(frame, 0)) = ERR_BADTYPE; return;
+    }
 
     device_cap_t *cap = entry->dev;
-    if (!cap) { (*arch_reg(frame, 0)) = ERR_BADHANDLE; return; }
+    if (!cap) {
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE; return;
+    }
 
     strncpy(compat_buf, cap->compatible, sizeof(compat_buf) - 1);
     compat_buf[sizeof(compat_buf) - 1] = '\0';
@@ -43,6 +51,10 @@ void sys_dev_query(arch_regs_t *frame) {
         (*arch_reg(frame, 0)) = ERR_BADPTR;
         return;
     }
+
+    KDEBUG("query: pid=%d handle=%d out_buf=%p buf_len=%u compat=\"%s\" copy_len=%u irq=%d",
+           current_thread->owner_process->pid, handle_idx, (void *)out_buf,
+           (unsigned)buf_len, compat_buf, (unsigned)copy_len, cap->irq);
 
     (*arch_reg(frame, 0)) = cap->irq;  // return irq in r0 as bonus
 }
