@@ -136,12 +136,12 @@ int pl011drv_setup(void)
 {
     port = zuzu_port_create();
     if (port < 0) {
-        return PL011DRV_INIT_FAIL;
+        return port;
     }
 
     int32_t nt_slot = zuzu_grant(port, NAMETABLE_PID);
     if (nt_slot < 0) {
-        return PL011DRV_INIT_FAIL;
+        return nt_slot;
     }
 
     (void)wait_for_devmgr();
@@ -150,17 +150,18 @@ int pl011drv_setup(void)
 
     serial_irq_ntfn = zuzu_ntfn_create();
     if (serial_irq_ntfn < 0) {
-        return PL011DRV_INIT_FAIL;
+        return serial_irq_ntfn;
     }
 
-    if (zuzu_irq_bind(dev_handle, (uint32_t)serial_irq_ntfn) < 0) {
-        return PL011DRV_INIT_FAIL;
+    int32_t bind_rc = zuzu_irq_bind(dev_handle, (uint32_t)serial_irq_ntfn);
+    if (bind_rc < 0) {
+        return bind_rc;
     }
 
     serial_dev_handle = dev_handle;
     uart = (volatile pl011_t *)zuzu_memmap(dev_handle, 0, VM_PROT_RW, 0);
     if ((intptr_t)uart <= 0) {
-        return PL011DRV_INIT_FAIL;
+        return (int)(intptr_t)uart;
     }
 
     ring_init(&rxrb, rxbuf_storage, UART_RINGBUF_MAX);
