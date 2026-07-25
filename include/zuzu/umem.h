@@ -4,6 +4,7 @@
 #include "zuzu/syscall_nums.h"
 #include "zuzu/types.h"
 #include "zuzu/memprot.h"
+#include <arch/syscall.h>
 #include <zuzu/spawn_args.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -30,15 +31,7 @@ static inline int zuzu_is_err(const void *p) {
  * @return void* Returns a pointer to the mapped virtual address, or NULL on failure.
  */
 static inline void *zuzu_memmap(handle_t handle, size_t size, uint32_t prot, uint32_t flags) {
-    register handle_t  r0 __asm__("r0") = handle;
-    register size_t    r1 __asm__("r1") = size;
-    register uint32_t  r2 __asm__("r2") = prot;
-    register uint32_t  r3 __asm__("r3") = flags;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : "r"(r1), "r"(r2), "r"(r3), [num] "i"(SYS_MEMMAP)
-        : "memory");
-    return (void *)r0;
+    return (void *)(uintptr_t)syscall(SYS_MEMMAP, handle, size, prot, flags);
 }
 
 /**
@@ -48,12 +41,7 @@ static inline void *zuzu_memmap(handle_t handle, size_t size, uint32_t prot, uin
  * @return handle_t Returns a handle to the newly created shared memory region, or a negative value on error.
  */
 static inline handle_t zuzu_shm_create(uint32_t size) {
-    register uint32_t r0 __asm__("r0") = size;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : [num] "i"(SYS_SHM_CREATE)
-        : "memory");
-    return (handle_t)r0;
+    return (handle_t)syscall(SYS_SHM_CREATE, size, 0, 0, 0);
 }
 
 /**
@@ -66,14 +54,7 @@ static inline handle_t zuzu_shm_create(uint32_t size) {
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
 static inline int32_t zuzu_dev_query(handle_t handle, void *out_buf, uint32_t len) {
-    register handle_t r0 __asm__("r0") = handle;
-    register uintptr_t r1 __asm__("r1") = (uintptr_t)out_buf;
-    register uint32_t r2 __asm__("r2") = len;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : "r"(r1), "r"(r2), [num] "i"(SYS_DEV_QUERY)
-        : "memory");
-    return (int32_t)r0;
+    return syscall(SYS_DEV_QUERY, handle, (uint32_t)(uintptr_t)out_buf, len, 0);
 }
 
 /**
@@ -98,38 +79,21 @@ static inline int32_t zuzu_asinject(handle_t task_handle, uintptr_t dst_va,
         .len         = len,
         .prot        = prot,
     };
-    register uintptr_t r0 __asm__("r0") = (uintptr_t)&args;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : [num] "i"(SYS_ASINJECT)
-        : "memory");
-    return (int32_t)r0;
+    return syscall(SYS_ASINJECT, (uint32_t)(uintptr_t)&args, 0, 0, 0);
 }
 
 /**
  * @brief Unmaps a memory region from the calling process's address space.
  */
 static inline int32_t zuzu_memunmap(void *addr) {
-    register uintptr_t r0 __asm__("r0") = (uintptr_t)addr;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : [num] "i"(SYS_MEMUNMAP)
-        : "memory");
-    return (int32_t)r0;
+    return syscall(SYS_MEMUNMAP, (uint32_t)(uintptr_t)addr, 0, 0, 0);
 }
 
 /**
  * @brief Changes the memory protection of a specified memory region.
  */
 static inline int32_t zuzu_memprotect(void *addr, size_t size, uint32_t prot) {
-    register uintptr_t r0 __asm__("r0") = (uintptr_t)addr;
-    register size_t r1 __asm__("r1") = size;
-    register uint32_t r2 __asm__("r2") = prot;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : "r"(r1), "r"(r2), [num] "i"(SYS_MEMPROTECT)
-        : "memory");
-    return (int32_t)r0;
+    return syscall(SYS_MEMPROTECT, (uint32_t)(uintptr_t)addr, size, prot, 0);
 }
 
 #ifdef __cplusplus

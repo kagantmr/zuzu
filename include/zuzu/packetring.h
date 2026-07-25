@@ -6,7 +6,7 @@ extern "C" {
 #endif
 
 #include <stdint.h>
-#include <barrier.h>
+#include <arch/barrier.h>
 #include <mem.h>
 
 #define NIC_FRAME_SIZE 1536
