@@ -110,7 +110,6 @@ bool copy_from_user(void *kaddr, const void *uaddr, size_t len)
 
 void __attribute__((hot)) syscall_dispatch(uint8_t svc_num, arch_regs_t *frame)
 {
-    //KDEBUG("syscall: pid=%u svc=0x%X frame=%p", current_thread->owner_process->pid ? current_thread->owner_process->pid : 0, svc_num, frame);
     if (!current_thread)
     {
         (*arch_reg(frame, 0)) = ERR_BADARG;
