@@ -15,7 +15,7 @@ typedef struct {
 
 #ifdef __KERNEL__
 #include <arch/atomic.h>
-#include <barrier.h>
+#include <arch/barrier.h>
 #include <arch/cpu.h>
 
 /**

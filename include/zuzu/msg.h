@@ -3,6 +3,7 @@
 
 #include "zuzu/syscall_nums.h"
 #include "zuzu/types.h"
+#include <arch/syscall.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -21,15 +22,7 @@ extern "C" {
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
 static inline int32_t zuzu_msg_send(handle_t port, uint32_t w1, uint32_t w2, uint32_t w3) {
-    register handle_t r0 __asm__("r0") = port;
-    register uint32_t r1 __asm__("r1") = w1;
-    register uint32_t r2 __asm__("r2") = w2;
-    register uint32_t r3 __asm__("r3") = w3;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : "r"(r1), "r"(r2), "r"(r3), [num] "i"(SYS_MSG_SEND)
-        : "memory");
-    return r0;
+    return syscall(SYS_MSG_SEND, port, w1, w2, w3);
 }
 
 /**
@@ -40,15 +33,7 @@ static inline int32_t zuzu_msg_send(handle_t port, uint32_t w1, uint32_t w2, uin
  * @return msg_t Returns 2 of the caller's 3 payload words, r1 is sender's PID.
  */
 static inline msg_t zuzu_msg_recv(handle_t port, uint32_t timeout_ms) {
-    register handle_t r0 __asm__("r0") = port;
-    register uint32_t r1 __asm__("r1") = timeout_ms;
-    register uint32_t r2 __asm__("r2");
-    register uint32_t r3 __asm__("r3");
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0), "+r"(r1), "=r"(r2), "=r"(r3)
-        : [num] "i"(SYS_MSG_RECV)
-        : "memory");
-    return (msg_t){.r0 = r0, .r1 = r1, .r2 = r2, .r3 = r3};
+    return syscall_msg(SYS_MSG_RECV, port, timeout_ms, 0, 0);
 }
 
 /**
@@ -62,15 +47,7 @@ static inline msg_t zuzu_msg_recv(handle_t port, uint32_t timeout_ms) {
  * @return msg_t Returns a msg_t structure containing the reply message. If the call operation fails, the r0 field of the returned msg_t will contain a negative error code.
  */
 static inline msg_t zuzu_msg_call(handle_t port, uint32_t w1, uint32_t w2, uint32_t w3) {
-    register handle_t r0 __asm__("r0") = port;
-    register uint32_t r1 __asm__("r1") = w1;
-    register uint32_t r2 __asm__("r2") = w2;
-    register uint32_t r3 __asm__("r3") = w3;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3)
-        : [num] "i"(SYS_MSG_CALL)
-        : "memory");
-    return (msg_t){.r0 = r0, .r1 = r1, .r2 = r2, .r3 = r3};
+    return syscall_msg(SYS_MSG_CALL, port, w1, w2, w3);
 }
 
 /**
@@ -84,15 +61,7 @@ static inline msg_t zuzu_msg_call(handle_t port, uint32_t w1, uint32_t w2, uint3
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
 static inline int32_t zuzu_msg_reply(handle_t reply_handle, uint32_t w1, uint32_t w2, uint32_t w3) {
-    register handle_t r0 __asm__("r0") = reply_handle;
-    register uint32_t r1 __asm__("r1") = w1;
-    register uint32_t r2 __asm__("r2") = w2;
-    register uint32_t r3 __asm__("r3") = w3;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : "r"(r1), "r"(r2), "r"(r3), [num] "i"(SYS_MSG_REPLY)
-        : "memory");
-    return (int32_t) r0;
+    return syscall(SYS_MSG_REPLY, reply_handle, w1, w2, w3);
 }
 
 /**
@@ -104,13 +73,7 @@ static inline int32_t zuzu_msg_reply(handle_t reply_handle, uint32_t w1, uint32_
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
 static inline int32_t zuzu_msg_lsend(handle_t port, uint32_t buf_len) {
-    register handle_t r0 __asm__("r0") = port;
-    register uint32_t r1 __asm__("r1") = buf_len;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : "r"(r1), [num] "i"(SYS_MSG_LSEND)
-        : "r2", "r3", "memory");
-    return r0;
+    return syscall(SYS_MSG_LSEND, port, buf_len, 0, 0);
 }
 
 /**
@@ -122,13 +85,7 @@ static inline int32_t zuzu_msg_lsend(handle_t port, uint32_t buf_len) {
  * @return msg_t Returns a msg_t structure containing the reply message. If the call operation fails, the r0 field of the returned msg_t will contain a negative error code.
  */
 static inline msg_t zuzu_msg_lcall(handle_t port, uint32_t buf_len) {
-    register handle_t r0 __asm__("r0") = port;
-    register uint32_t r1 __asm__("r1") = buf_len;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0), "+r"(r1)
-        : [num] "i"(SYS_MSG_LCALL)
-        : "r2", "r3", "memory");
-    return (msg_t){.r0 = r0, .r1 = r1, .r2 = 0, .r3 = 0};
+    return syscall_msg(SYS_MSG_LCALL, port, buf_len, 0, 0);
 }
 
 /**
@@ -140,13 +97,7 @@ static inline msg_t zuzu_msg_lcall(handle_t port, uint32_t buf_len) {
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
 static inline int32_t zuzu_msg_lreply(handle_t reply_handle, uint32_t buf_len) {
-    register handle_t r0 __asm__("r0") = reply_handle;
-    register uint32_t r1 __asm__("r1") = buf_len;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : "r"(r1), [num] "i"(SYS_MSG_LREPLY)
-        : "r2", "r3", "memory");
-    return (int32_t) r0;
+    return syscall(SYS_MSG_LREPLY, reply_handle, buf_len, 0, 0);
 }
 
 /**
@@ -163,15 +114,8 @@ static inline int32_t zuzu_waitany(const handle_t *handles, uint32_t count,
 {
     result->size = sizeof(*result);   /* versioning handshake, owned by the wrapper */
 
-    register uintptr_t r0 __asm__("r0") = (uintptr_t)handles;
-    register uint32_t  r1 __asm__("r1") = count;
-    register uint32_t  r2 __asm__("r2") = timeout_ms;
-    register uintptr_t r3 __asm__("r3") = (uintptr_t)result;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : "r"(r1), "r"(r2), "r"(r3), [num] "i"(SYS_WAITANY)
-        : "memory");
-    return (int32_t)r0;
+    return syscall(SYS_WAITANY, (uint32_t)(uintptr_t)handles, count, timeout_ms,
+                    (uint32_t)(uintptr_t)result);
 }
 
 /* ---- Capability syscalls ---- */
@@ -182,12 +126,7 @@ static inline int32_t zuzu_waitany(const handle_t *handles, uint32_t count,
  * @return int32_t Returns the handle of the newly created port on success, or a negative error code on failure.
  */
 static inline int32_t zuzu_port_create(void) {
-    register int32_t r0 __asm__("r0");
-    __asm__ volatile("svc %[num]"
-        : "=r"(r0)
-        : [num] "i"(SYS_PORT_CREATE)
-        : "memory");
-    return r0;
+    return syscall(SYS_PORT_CREATE, 0, 0, 0, 0);
 }
 
 /**
@@ -199,13 +138,7 @@ static inline int32_t zuzu_port_create(void) {
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
 static inline int32_t zuzu_grant(handle_t cap, zpid_t pid) {
-    register handle_t r0 __asm__("r0") = cap;
-    register zpid_t r1 __asm__("r1") = pid;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : "r"(r1), [num] "i"(SYS_GRANT)
-        : "memory");
-    return r0;
+    return syscall(SYS_GRANT, cap, pid, 0, 0);
 }
 
 /**
@@ -216,12 +149,7 @@ static inline int32_t zuzu_grant(handle_t cap, zpid_t pid) {
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
 static inline int32_t zuzu_destroy(handle_t h) {
-    register handle_t r0 __asm__("r0") = h;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : [num] "i"(SYS_DESTROY)
-        : "memory");
-    return r0;
+    return syscall(SYS_DESTROY, h, 0, 0, 0);
 }
 
 #ifdef __cplusplus

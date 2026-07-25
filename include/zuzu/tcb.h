@@ -5,6 +5,7 @@
 extern "C" {
 #endif
 
+#include <arch/tls.h>
 #include <stdint.h>
 #include <stddef.h>
 
@@ -32,9 +33,7 @@ _Static_assert(TCB_SLOT_SIZE * TCB_MAX_SLOTS <= PAGE_SIZE, "slots overflow page"
  * TLS accessor for the current thread's TCB.
  */
 static inline tdata_t *zuzu_tcb(void) {
-    tdata_t *tcb;
-    __asm__ volatile("mrc p15, 0, %0, c13, c0, 3" : "=r"(tcb));
-    return tcb;
+    return (tdata_t *)arch_get_thread_ptr();
 }
 
 #ifdef __cplusplus

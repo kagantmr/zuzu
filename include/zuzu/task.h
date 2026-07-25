@@ -3,6 +3,7 @@
 
 #include "zuzu/syscall_nums.h"
 #include "zuzu/types.h"
+#include <arch/syscall.h>
 #include <zuzu/spawn_args.h>
 #include <stdint.h>
 
@@ -23,11 +24,7 @@ extern "C" {
  * @param status The exit status of the process.
  */
 static inline void __attribute__((noreturn)) zuzu_pquit(int32_t status) {
-    register int32_t r0 __asm__("r0") = status;
-    __asm__ volatile("svc %[num]"
-        :
-        : "r"(r0), [num] "i"(SYS_PQUIT)
-        : "memory");
+    syscall(SYS_PQUIT, (uint32_t)status, 0, 0, 0);
     __builtin_unreachable();
 }
 
@@ -37,12 +34,7 @@ static inline void __attribute__((noreturn)) zuzu_pquit(int32_t status) {
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
 static inline int32_t zuzu_yield(void) {
-    register int32_t r0 __asm__("r0");
-    __asm__ volatile("svc %[num]"
-        : "=r"(r0)
-        : [num] "i"(SYS_YIELD)
-        : "memory");
-    return r0;
+    return syscall(SYS_YIELD, 0, 0, 0, 0);
 }
 
 /**
@@ -55,38 +47,21 @@ static inline int32_t zuzu_yield(void) {
  * @return int32_t 
  */
 static inline int32_t zuzu_wait(zpid_t pid, int32_t *status_out, uint32_t flags) {
-    register zpid_t r0 __asm__("r0") = pid;
-    register int32_t *r1 __asm__("r1") = status_out;
-    register uint32_t r2 __asm__("r2") = flags;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : "r"(r1), "r"(r2), [num] "i"(SYS_WAIT)
-        : "memory");
-    return r0;
+    return syscall(SYS_WAIT, (uint32_t)pid, (uint32_t)(uintptr_t)status_out, flags, 0);
 }
 
 /**
  *  @brief Retrieves the process ID of the calling process.
  */
 static inline int32_t zuzu_getpid(void) {
-    register int32_t r0 __asm__("r0");
-    __asm__ volatile("svc %[num]"
-        : "=r"(r0)
-        : [num] "i"(SYS_GETPID)
-        : "memory");
-    return r0;
+    return syscall(SYS_GETPID, 0, 0, 0, 0);
 }
 
 /**
  * @brief Suspends the calling process for a specified number of milliseconds.
  */
 static inline int32_t zuzu_sleep(uint32_t ms) {
-    register uint32_t r0 __asm__("r0") = ms;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : [num] "i"(SYS_SLEEP)
-        : "memory");
-    return (int32_t) r0;
+    return syscall(SYS_SLEEP, ms, 0, 0, 0);
 }
 
 /**
@@ -104,13 +79,8 @@ static inline tspawn_result_t zuzu_pspawn(const char* name) {
         .name     = name,
         .name_len = name_len,
     };
-    register uintptr_t r0 __asm__("r0") = (uintptr_t) &args;
-    register zpid_t r1 __asm__("r1"); // pid
-    __asm__ volatile("svc %[num]"
-    : "+r"(r0), "=r"(r1)
-    : [num] "i"(SYS_PSPAWN)
-    : "memory");
-    return (tspawn_result_t) {.task_handle = (handle_t) r0, .pid = r1};
+    msg_t result = syscall_msg(SYS_PSPAWN, (uint32_t)(uintptr_t)&args, 0, 0, 0);
+    return (tspawn_result_t) {.task_handle = (handle_t) result.r0, .pid = (zpid_t) result.r1};
 }
 
 /**
@@ -130,61 +100,36 @@ static inline handle_t zuzu_kickstart(handle_t task_handle, uintptr_t entry,
         .r0_val      = r0_val,
         .r1_val      = r1_val,
     };
-    register uintptr_t r0 __asm__("r0") = (uintptr_t) &args;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : [num] "i"(SYS_KICKSTART)
-        : "memory");
-    return (handle_t) r0;
+    return (handle_t) syscall(SYS_KICKSTART, (uint32_t)(uintptr_t)&args, 0, 0, 0);
 }
 
 /**
  * @brief Kills the process associated with the specified task handle.
  */
 static inline int32_t zuzu_pkill(handle_t task_handle) {
-    register handle_t r0 __asm__("r0") = task_handle;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : [num] "i"(SYS_PKILL)
-        : "memory");
-    return r0;
+    return syscall(SYS_PKILL, task_handle, 0, 0, 0);
 }
 
 /**
  * @brief Creates a new thread in the current process with the specified entry point, stack pointer, and argument.
  */
 static inline tid_t zuzu_tmake(void (*entry)(void *), void *user_sp, void *arg) {
-    register vaddr_t r0 __asm__("r0") = (vaddr_t)entry;
-    register vaddr_t r1 __asm__("r1") = (vaddr_t)user_sp;
-    register vaddr_t r2 __asm__("r2") = (vaddr_t)arg;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : "r"(r1), "r"(r2), [num] "i"(SYS_TMAKE)
-        : "memory");
-    return (tid_t)r0;
+    return (tid_t)syscall(SYS_TMAKE, (uint32_t)(vaddr_t)entry, (uint32_t)(vaddr_t)user_sp,
+                           (uint32_t)(vaddr_t)arg, 0);
 }
 
 /**
  * @brief Waits for the specified thread to terminate and retrieves its exit status.
  */
 static inline int32_t zuzu_tjoin(tid_t tid) {
-    register tid_t r0 __asm__("r0") = tid;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0)
-        : [num] "i"(SYS_TJOIN)
-        : "memory");
-    return r0;
+    return syscall(SYS_TJOIN, tid, 0, 0, 0);
 }
 
 /**
  * @brief Terminates the calling thread with the specified exit status.
  */
 static inline __attribute__((noreturn)) void zuzu_tquit(int32_t status) {
-    register int32_t r0 __asm__("r0") = status;
-    __asm__ volatile("svc %[num]"
-        :
-        : "r"(r0), [num] "i"(SYS_TQUIT)
-        : "memory");
+    syscall(SYS_TQUIT, (uint32_t)status, 0, 0, 0);
     __builtin_unreachable();
 }
 
