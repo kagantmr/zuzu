@@ -332,7 +332,7 @@ void sys_grant(arch_regs_t *frame)
         return;
     }
 
-    if (src->type == HANDLE_REPLY || src->type == HANDLE_TASK)
+    if (src->type == HANDLE_REPLY)
     {
         (*arch_reg(frame, 0)) = ERR_NOPERM;
         return;
