@@ -19,11 +19,9 @@
 
 #define WAITANY_MAX_HANDLES 16u
 
-
 extern thread_t *current_thread;
 extern list_head_t sleep_queue;
 extern kernel_layout_t kernel_layout;
-
 
 static void ipc_buf_copy(thread_t *src, thread_t *dst, uint32_t len)
 {
@@ -33,6 +31,7 @@ static void ipc_buf_copy(thread_t *src, thread_t *dst, uint32_t len)
            (void *)PA_TO_VA(src->ipc_buf_pa), len);
 }
 
+#ifdef DEBUG
 static bool trap_frame_sane(const arch_regs_t *tf)
 {
     uintptr_t p = (uintptr_t)tf;
@@ -62,6 +61,7 @@ static bool trap_frame_sane(const arch_regs_t *tf)
     return true;
 }
 
+
 static void ipc_panic_bad_trap_frame(const char *where, const process_t *owner, const arch_regs_t *tf)
 {
     if (tf && ((uintptr_t)tf & 0x3u) == 0)
@@ -72,6 +72,7 @@ static void ipc_panic_bad_trap_frame(const char *where, const process_t *owner, 
           where, owner ? owner->pid : 0, (const void *)tf,
           current_thread && current_thread->owner_process ? current_thread->owner_process->pid : 0);
 }
+#endif
 
 static void ipc_cancel_timeout(thread_t *t)
 {
@@ -261,8 +262,10 @@ void __attribute__((hot)) sys_msg_send(arch_regs_t *frame)
             sched_add(rx_thread);
         } else {
             arch_regs_t *rx_frame = rx_thread->trap_frame;
+#ifdef DEBUG
             if (!trap_frame_sane(rx_frame))
                 ipc_panic_bad_trap_frame("zuzu_msg_send.rx", rx_thread->owner_process, rx_frame);
+#endif
             (*arch_reg(rx_frame, 0)) = current_thread->owner_process->pid;
             (*arch_reg(rx_frame, 1)) = (*arch_reg(frame, 1));
             (*arch_reg(rx_frame, 2)) = (*arch_reg(frame, 2));
@@ -302,11 +305,12 @@ void __attribute__((hot)) sys_msg_recv(arch_regs_t *frame)
         list_node_t *sender = list_pop_front(&ep->sender_queue);
         thread_t *sr_thread = container_of(sender, thread_t, node);
         arch_regs_t *sr_frame = sr_thread->trap_frame;
+#ifdef DEBUG
         if (!trap_frame_sane(sr_frame))
         {
             ipc_panic_bad_trap_frame("zuzu_msg_recv.sr", sr_thread->owner_process, sr_frame);
         }
-
+#endif
         // Copy message to receiver
         (*arch_reg(frame, 0)) = sr_thread->owner_process->pid;
         (*arch_reg(frame, 1)) = (*arch_reg(sr_frame, 1));
@@ -412,12 +416,13 @@ void __attribute__((hot)) sys_msg_recv(arch_regs_t *frame)
         /* Tripwire for the pc=0 user abort seen on the Pi 4: validate our
          * own frame on the way back out of a blocking recv, and catch an
          * impossible timeout wake on an infinite recv. */
+#ifdef DEBUG
         if (!trap_frame_sane(frame))
             ipc_panic_bad_trap_frame("zuzu_msg_recv.wake", current_thread->owner_process, frame);
         if (timeout_ms == TIMEOUT_INFINITE && current_thread->wake_reason == WAKE_TIMEOUT)
             ipc_panic_bad_trap_frame("zuzu_msg_recv.wake-timeout-on-infinite",
                                      current_thread->owner_process, frame);
-
+#endif
         if (timeout_ms != TIMEOUT_INFINITE && current_thread->wake_reason != WAKE_TIMEOUT &&
             current_thread->timeout_node.prev && current_thread->timeout_node.next)
         {
@@ -454,9 +459,10 @@ void __attribute__((hot)) sys_msg_call(arch_regs_t *frame)
         thread_wait_slot_t *rx_slot = container_of(receiver, thread_wait_slot_t, node);
         thread_t *rx_thread = rx_slot->owner;
         arch_regs_t *rx_frame = rx_thread->trap_frame;
+#ifdef DEBUG
         if (!trap_frame_sane(rx_frame))
             ipc_panic_bad_trap_frame("zuzu_msg_call.rx", rx_thread->owner_process, rx_frame);
-
+#endif
         int slot = handle_vec_find_free(&rx_thread->owner_process->handle_table);
         if (slot < 0)
         {
@@ -485,10 +491,6 @@ void __attribute__((hot)) sys_msg_call(arch_regs_t *frame)
             thread_waitany_clear_waits(rx_thread);
             thread_waitany_clear_ep_waits(rx_thread);
             rx_thread->waitany_ep_wait_match_index = rx_slot->index;
-            ipc_cancel_timeout(rx_thread);
-            rx_thread->wake_reason = WAKE_IPC;
-            rx_thread->state = READY;
-            sched_add(rx_thread);
         } else {
             (*arch_reg(rx_frame, 0)) = slot;
             (*arch_reg(rx_frame, 1)) = current_thread->owner_process->pid;
@@ -496,16 +498,27 @@ void __attribute__((hot)) sys_msg_call(arch_regs_t *frame)
             (*arch_reg(rx_frame, 3)) = (*arch_reg(frame, 2));
             rx_thread->ipc_state = IPC_NONE;
             rx_thread->blocked_endpoint = NULL;
-            ipc_cancel_timeout(rx_thread);
-            rx_thread->wake_reason = WAKE_IPC;
-            rx_thread->state = READY;
-            sched_add(rx_thread);
         }
+        ipc_cancel_timeout(rx_thread);
+        rx_thread->wake_reason = WAKE_IPC;
 
         current_thread->state = BLOCKED;
         current_thread->blocked_endpoint = ep;
         current_thread->ipc_state = IPC_WAITING;
-        schedule();
+
+        /* Direct handoff: skip the run-queue round trip and switch straight
+         * to the receiver we just woke, as long as doing so wouldn't jump
+         * ahead of a thread that's already waiting at rx_thread's priority
+         * or higher (sched_has_ready_at_or_above) -- in that case the full
+         * scheduler wouldn't have picked rx_thread next anyway, so fall back
+         * to the normal sched_add()+schedule() path. */
+        if (sched_has_ready_at_or_above(rx_thread)) {
+            rx_thread->state = READY;
+            sched_add(rx_thread);
+            schedule();
+        } else {
+            switch_to_thread(rx_thread);
+        }
     }
     else
     {
@@ -520,21 +533,23 @@ void __attribute__((hot)) sys_msg_call(arch_regs_t *frame)
 
 void __attribute__((hot)) sys_msg_reply(arch_regs_t *frame)
 {
-    handle_t handle_idx = (*arch_reg(frame, 0));
-    thread_t *target_thread = NULL;
-    handle_entry_t *entry = validate_reply_handle(current_thread->owner_process, handle_idx, &target_thread, frame);
-    if (!entry)
-    {
-        return;
-    }
+        handle_t handle_idx = (*arch_reg(frame, 0));
+        thread_t *target_thread = NULL;
+        handle_entry_t *entry = validate_reply_handle(current_thread->owner_process, handle_idx, &target_thread, frame);
+        if (!entry)
+        {
+            return;
+        }
 
-    // Deliver reply into target's saved frame
+        // Deliver reply into target's saved frame
 
-    arch_regs_t *target_frame = target_thread->trap_frame;
-    if (!trap_frame_sane(target_frame))
-    {
-        ipc_panic_bad_trap_frame("zuzu_msg_reply.target", target_thread->owner_process, target_frame);
-    }
+        arch_regs_t *target_frame = target_thread->trap_frame;
+#ifdef DEBUG
+        if (!trap_frame_sane(target_frame))
+        {
+            ipc_panic_bad_trap_frame("zuzu_msg_reply.target", target_thread->owner_process, target_frame);
+        }
+#endif
     (*arch_reg(target_frame, 0)) = 0;           // success
     (*arch_reg(target_frame, 1)) = (*arch_reg(frame, 1)); // reply payload
     (*arch_reg(target_frame, 2)) = (*arch_reg(frame, 2));
@@ -601,8 +616,10 @@ void sys_msg_lsend(arch_regs_t *frame)
             sched_add(rx_thread);
         } else {
             arch_regs_t *rx_frame = rx_thread->trap_frame;
+#ifdef DEBUG
             if (!trap_frame_sane(rx_frame))
                 ipc_panic_bad_trap_frame("zuzu_msg_lsend.rx", rx_thread->owner_process, rx_frame);
+#endif
             (*arch_reg(rx_frame, 0)) = current_thread->owner_process->pid;
             (*arch_reg(rx_frame, 1)) = xlen;
             (*arch_reg(rx_frame, 2)) = 0;
@@ -659,9 +676,11 @@ void sys_msg_lcall(arch_regs_t *frame)
         thread_wait_slot_t *rx_slot = container_of(receiver, thread_wait_slot_t, node);
         thread_t *rx_thread = rx_slot->owner;
         arch_regs_t *rx_frame = rx_thread->trap_frame;
+        (void)rx_frame;
+#ifdef DEBUG
         if (!trap_frame_sane(rx_frame))
             ipc_panic_bad_trap_frame("zuzu_msg_lcall.rx", rx_thread->owner_process, rx_frame);
-
+#endif
         int slot = handle_vec_find_free(&rx_thread->owner_process->handle_table);
         if (slot < 0)
         {
@@ -691,10 +710,6 @@ void sys_msg_lcall(arch_regs_t *frame)
             thread_waitany_clear_waits(rx_thread);
             thread_waitany_clear_ep_waits(rx_thread);
             rx_thread->waitany_ep_wait_match_index = rx_slot->index;
-            ipc_cancel_timeout(rx_thread);
-            rx_thread->wake_reason = WAKE_IPC;
-            rx_thread->state = READY;
-            sched_add(rx_thread);
         } else {
             (*arch_reg(rx_frame, 0)) = slot;
             (*arch_reg(rx_frame, 1)) = current_thread->owner_process->pid;
@@ -703,16 +718,22 @@ void sys_msg_lcall(arch_regs_t *frame)
             ipc_buf_copy(current_thread, rx_thread, xlen);
             rx_thread->ipc_state = IPC_NONE;
             rx_thread->blocked_endpoint = NULL;
-            ipc_cancel_timeout(rx_thread);
-            rx_thread->wake_reason = WAKE_IPC;
-            rx_thread->state = READY;
-            sched_add(rx_thread);
         }
+        ipc_cancel_timeout(rx_thread);
+        rx_thread->wake_reason = WAKE_IPC;
 
         current_thread->state = BLOCKED;
         current_thread->blocked_endpoint = ep;
         current_thread->ipc_state = IPC_WAITING;
-        schedule();
+
+        /* Direct handoff -- see the identical comment in sys_msg_call(). */
+        if (sched_has_ready_at_or_above(rx_thread)) {
+            rx_thread->state = READY;
+            sched_add(rx_thread);
+            schedule();
+        } else {
+            switch_to_thread(rx_thread);
+        }
     }
     else
     {
@@ -748,10 +769,12 @@ void sys_msg_lreply(arch_regs_t *frame)
     // Deliver reply into target's saved frame
 
     arch_regs_t *target_frame = target_thread->trap_frame;
+#ifdef DEBUG
     if (!trap_frame_sane(target_frame))
     {
         ipc_panic_bad_trap_frame("zuzu_msg_lreply.target", target_thread->owner_process, target_frame);
     }
+#endif
     (*arch_reg(target_frame, 0)) = 0;           // success
     (*arch_reg(target_frame, 1)) = xlen;        // reply payload
     (*arch_reg(target_frame, 2)) = 0;
@@ -782,11 +805,12 @@ static int waitany_deliver_sender(uint32_t matched_index,
 {
     thread_t *sr_thread = container_of(sender_node, thread_t, node);
     arch_regs_t *sr_frame = sr_thread->trap_frame;
+#ifdef DEBUG
     if (!trap_frame_sane(sr_frame))
     {
         ipc_panic_bad_trap_frame("waitany.sr", sr_thread->owner_process, sr_frame);
     }
-
+#endif
     memset(result, 0, sizeof(*result));
     result->size = sizeof(*result);
     result->matched_index = matched_index;
