@@ -5,6 +5,11 @@
 
 #define TICK_HZ 100  // 100 ticks per second
 
+#ifdef CTX_SWITCH_MEASURE
+extern uint32_t ctx_switch_start;
+extern uint32_t ctx_switch_cost;
+#endif
+
 // Get current tick count (monotonic, starts at 0)
 uint64_t get_ticks(void);
 

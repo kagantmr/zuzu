@@ -37,6 +37,14 @@ static bool on_idle_stack;
 
 static list_head_t run_queues[SCHED_PRIORITY_LEVELS];
 
+// Bit `level` set iff run_queues[level] is non-empty. Kept in sync by the
+// only two call sites that ever add to or remove from a run queue
+// (sched_add, sched_pick_next), so anything that needs to know "is level L
+// or higher occupied" can answer in O(1) instead of scanning list_empty()
+// across every level.
+_Static_assert(SCHED_PRIORITY_LEVELS <= 32, "ready_mask is a uint32_t");
+static uint32_t ready_mask = 0;
+
 #define LOG_FMT(fmt) "(sched) " fmt
 #include "core/log.h"
 
@@ -85,6 +93,7 @@ void sched_add(thread_t *t) {
         priority = SCHED_PRIORITY_LEVELS - 1;
 
     list_add_tail(&t->node, &run_queues[priority].node);
+    ready_mask |= (1u << priority);
 
     if (current_thread && t->priority < current_thread->priority) {
         do_resched = 1;
@@ -221,31 +230,69 @@ void sched_idle_wait(void)
 }
 
 
-void __attribute__((hot)) schedule() {
-    thread_t *prev = current_thread;
-    bool from_idle = (prev == NULL && on_idle_stack);
-
+/*
+ * sched_housekeeping - generic bookkeeping that must happen before picking
+ * a thread to run: reap threads whose destruction was deferred, then wake
+ * any sleepers whose timeout has elapsed (moving them onto the run queues).
+ *
+ * Order matters: this must run after the outgoing thread (if any) has
+ * already been re-added to its run queue, so that a sleeper waking up at
+ * the same priority is queued *after* it (FIFO fairness) rather than
+ * jumping the line. schedule() enforces that ordering by requeuing the
+ * outgoing thread before calling this.
+ */
+static void sched_housekeeping(void) {
     sched_reap_thread_destroys();
-
-    if (current_thread != NULL) {
-        if (current_thread->state == RUNNING) {
-            current_thread->state = READY;
-            sched_add(current_thread);
-        }
-    }
-
     sched_wake_sleepers();
+}
 
-    list_head_t *selected_queue = NULL;
+/*
+ * sched_pick_next - pure selection: scan the priority run queues
+ * highest-first and return the winning thread, or &idle_thread if every
+ * queue is empty. Popping the winner off its run queue is the one
+ * necessary side effect of "selecting" it; this never touches current_thread,
+ * on_idle_stack, thread state, or performs any switching.
+ */
+static thread_t *sched_pick_next(void) {
     for (int level = SCHED_PRIORITY_LEVELS - 1; level >= 0; level--) {
-        if (!list_empty(&run_queues[level])) {
-            selected_queue = &run_queues[level];
-            break;
+        if (ready_mask & (1u << level)) {
+            list_node_t *next_node = list_pop_front(&run_queues[level]);
+            if (list_empty(&run_queues[level]))
+                ready_mask &= ~(1u << level);
+            return container_of(next_node, thread_t, node);
         }
     }
+    return &idle_thread;
+}
 
-    if (!selected_queue) {
-        current_thread = NULL;
+/*
+ * sched_has_ready_at_or_above - true if some thread at t's priority level or
+ * higher is already sitting in a run queue. Used by direct-switch callers
+ * (e.g. the IPC handoff path) to decide whether it's safe to switch straight
+ * to a newly-woken thread `t` without going through sched_add()+schedule():
+ * it is, exactly when nothing at t's level or above is already waiting,
+ * since that's the only case where the full scheduler would have picked `t`
+ * next anyway (a same-level thread queued earlier would win on FIFO order;
+ * a higher-level thread would win on priority).
+ *
+ * O(1) via ready_mask rather than scanning list_empty() per level -- this
+ * sits on the IPC fast path, so its own cost has to stay negligible next to
+ * whatever it's saving.
+ */
+bool sched_has_ready_at_or_above(const thread_t *t) {
+    uint32_t priority = thread_priority(t);
+    if (priority >= SCHED_PRIORITY_LEVELS)
+        priority = SCHED_PRIORITY_LEVELS - 1;
+
+    uint32_t at_or_above = ready_mask & ~((1u << priority) - 1u);
+    return at_or_above != 0;
+}
+
+void switch_to_thread(thread_t *next) {
+    thread_t *prev = current_thread;
+
+    if (next == &idle_thread) {
+        bool from_idle = (prev == NULL && on_idle_stack);
         current_thread = NULL;
         if (from_idle) {
             return;
@@ -254,11 +301,12 @@ void __attribute__((hot)) schedule() {
         return;
     }
 
-    list_node_t *next_node = list_pop_front(selected_queue);
-    current_thread = container_of(next_node, thread_t, node);
+    current_thread = next;
     current_thread->state = RUNNING;
-    current_thread->ticks_remaining = current_thread->time_slice;
     on_idle_stack = false;
+
+    if (next == prev)
+        return;
 
     if (current_thread != fpu_owner) {
         arch_fpu_trap_disable();
@@ -271,6 +319,19 @@ void __attribute__((hot)) schedule() {
     arch_set_thread_ptr(current_thread);
     //KTRACE("Switching to thread %d (process %d)", current_thread->tid, current_thread->owner_process->pid);
     context_switch(prev, current_thread);
+}
+
+void __attribute__((hot)) schedule(void) {
+    if (current_thread != NULL && current_thread->state == RUNNING) {
+        current_thread->state = READY;
+        sched_add(current_thread);
+    }
+
+    sched_housekeeping();
+
+    thread_t *next = sched_pick_next();
+    next->ticks_remaining = next->time_slice;
+    switch_to_thread(next);
 }
 
 size_t sched_ready_queue_snapshot(thread_t **out, size_t max_out) {

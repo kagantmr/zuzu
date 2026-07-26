@@ -52,15 +52,15 @@ static void early_map_ram_sections(uintptr_t ram_base, size_t ram_size) {
     arch_mmu_barrier();
 }
 
-static void pmu_init() {
+static void pmu_init(void) {
     uint32_t pmcr;
     __asm__ volatile("mrc p15, 0, %0, c9, c12, 0" : "=r"(pmcr));
-    pmcr |= 1;        // enable PMU
-    pmcr |= (1 << 2); // reset cycle counter
-    __asm__ volatile("mcr p15, 0, %0, c9, c12, 0" ::"r"(pmcr));
-    __asm__ volatile("mcr p15, 0, %0, c9, c14, 0" ::"r"(0x00000001));
-    __asm__ volatile("mcr p15, 0, %0, c9, c12, 1" ::"r"(0x80000000)); // enable cycle counter
-
+    pmcr |=  (1 << 0);   // E: enable all counters
+    pmcr |=  (1 << 2);   // C: reset cycle counter to 0
+    pmcr &= ~(1 << 3);   // D: CLEAR divider — count every cycle, not every 64th
+    __asm__ volatile("mcr p15, 0, %0, c9, c12, 0" :: "r"(pmcr));
+    __asm__ volatile("mcr p15, 0, %0, c9, c14, 0" :: "r"(0x00000001)); // PMUSERENR: user read
+    __asm__ volatile("mcr p15, 0, %0, c9, c12, 1" :: "r"(0x80000000)); // PMCNTENSET: enable CCNT
 }
 
 static void vfp_init() {
