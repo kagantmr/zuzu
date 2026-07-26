@@ -71,6 +71,8 @@ static uint32_t l1_section_desc(uintptr_t pa, vm_prot_t prot, vm_memtype_t memty
     e |= ap_bits(prot) << 10;
     if (!(prot & VM_PROT_EXEC))
         e |= (1u << 4); // XN
+    if (prot & VM_PROT_USER)
+        e |= (1u << 17); // nG: ASID-tagged, not visible across address spaces
     if (memtype == VM_MEM_DEVICE)
         e |= (1u << 2); // Device: TEX=0, C=0, B=1
     else
@@ -86,6 +88,8 @@ static uint32_t l2_page_desc(uintptr_t pa, vm_prot_t prot, vm_memtype_t memtype)
     if (!(prot & VM_PROT_EXEC))
         e |= 0x1u; // XN
     e |= ap_bits(prot) << 4;
+    if (prot & VM_PROT_USER)
+        e |= (1u << 11); // nG: ASID-tagged, not visible across address spaces
     if (memtype == VM_MEM_DEVICE)
         e |= (1u << 2); // Device: TEX=0, C=0, B=1
     else
@@ -519,13 +523,14 @@ static bool arch_mmu_break_section(uint32_t *l1, uint32_t l1_idx, uint8_t asid)
     uintptr_t section_pa = section & ALIGNMENT_1MB_MASK;
 
     /* Transcode access/attribute bits from section to small-page positions.
-     * Section: XN[4], B/C[3:2], AP[11:10], TEX[14:12], AP2[15]
-     * Small page: XN[0], B/C[3:2], AP[5:4], TEX[8:6], AP2[9] */
+     * Section: XN[4], B/C[3:2], AP[11:10], TEX[14:12], AP2[15], nG[17]
+     * Small page: XN[0], B/C[3:2], AP[5:4], TEX[8:6], AP2[9], nG[11] */
     uint32_t sec_xn = (section >> 4) & 0x1;
     uint32_t sec_cb = (section >> 2) & 0x3;
     uint32_t sec_ap = (section >> 10) & 0x3;
     uint32_t sec_tex = (section >> 12) & 0x7;
     uint32_t sec_ap2 = (section >> 15) & 0x1;
+    uint32_t sec_ng = (section >> 17) & 0x1;
 
     /* Allocate an L2 table (1KB, from the pool) */
     uintptr_t l2_pa = arch_mmu_alloc_l2_table();
@@ -544,6 +549,7 @@ static bool arch_mmu_break_section(uint32_t *l1, uint32_t l1_idx, uint8_t asid)
         page_entry |= (sec_ap << 4);  /* AP[1:0] -> bits [5:4] */
         page_entry |= (sec_tex << 6); /* TEX[2:0] -> bits [8:6] */
         page_entry |= (sec_ap2 << 9); /* AP[2] -> bit 9 */
+        page_entry |= (sec_ng << 11); /* nG -> bit 11 */
 
         l2[i] = page_entry;
     }
@@ -611,6 +617,14 @@ static bool arch_mmu_map_page(addrspace_t *as, uintptr_t va, uintptr_t pa,
 
     // Now install the page entry
     l2[l2_idx] = l2_page_desc(pa, prot, memtype);
+
+    // A freshly installed entry must be visible before anything walks it —
+    // matches what vmm_fault_page() already does per page for the lazy path.
+    // Without this, a stale/absent TLB state for this VA on real hardware can
+    // let the first access race ahead of the table write (invisible on QEMU's
+    // simpler TLB model).
+    arch_mmu_flush_tlb_va(va);
+    arch_mmu_barrier();
     return true;
 }
 
