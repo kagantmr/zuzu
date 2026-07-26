@@ -37,6 +37,14 @@ static bool on_idle_stack;
 
 static list_head_t run_queues[SCHED_PRIORITY_LEVELS];
 
+// Bit `level` set iff run_queues[level] is non-empty. Kept in sync by the
+// only two call sites that ever add to or remove from a run queue
+// (sched_add, sched_pick_next), so anything that needs to know "is level L
+// or higher occupied" can answer in O(1) instead of scanning list_empty()
+// across every level.
+_Static_assert(SCHED_PRIORITY_LEVELS <= 32, "ready_mask is a uint32_t");
+static uint32_t ready_mask = 0;
+
 #define LOG_FMT(fmt) "(sched) " fmt
 #include "core/log.h"
 
@@ -85,6 +93,7 @@ void sched_add(thread_t *t) {
         priority = SCHED_PRIORITY_LEVELS - 1;
 
     list_add_tail(&t->node, &run_queues[priority].node);
+    ready_mask |= (1u << priority);
 
     if (current_thread && t->priority < current_thread->priority) {
         do_resched = 1;
@@ -246,8 +255,10 @@ static void sched_housekeeping(void) {
  */
 static thread_t *sched_pick_next(void) {
     for (int level = SCHED_PRIORITY_LEVELS - 1; level >= 0; level--) {
-        if (!list_empty(&run_queues[level])) {
+        if (ready_mask & (1u << level)) {
             list_node_t *next_node = list_pop_front(&run_queues[level]);
+            if (list_empty(&run_queues[level]))
+                ready_mask &= ~(1u << level);
             return container_of(next_node, thread_t, node);
         }
     }
@@ -255,19 +266,29 @@ static thread_t *sched_pick_next(void) {
 }
 
 /*
- * switch_to_thread - perform the mechanics of switching onto `next`:
- * address-space activation (if the address space differs), thread-pointer
- * update, lazy-VFP trap disable, current_thread update, and the
- * context_switch() asm call.
+ * sched_has_ready_at_or_above - true if some thread at t's priority level or
+ * higher is already sitting in a run queue. Used by direct-switch callers
+ * (e.g. the IPC handoff path) to decide whether it's safe to switch straight
+ * to a newly-woken thread `t` without going through sched_add()+schedule():
+ * it is, exactly when nothing at t's level or above is already waiting,
+ * since that's the only case where the full scheduler would have picked `t`
+ * next anyway (a same-level thread queued earlier would win on FIFO order;
+ * a higher-level thread would win on priority).
  *
- * State-ownership contract: the caller must set the OUTGOING thread's
- * state (READY, BLOCKED, ...) before calling this. switch_to_thread only
- * ever sets next->state = RUNNING; it never reads or writes prev's state,
- * since different callers retire the outgoing thread differently (schedule()
- * requeues it as READY, a future direct-switch IPC path would leave it
- * BLOCKED instead).
+ * O(1) via ready_mask rather than scanning list_empty() per level -- this
+ * sits on the IPC fast path, so its own cost has to stay negligible next to
+ * whatever it's saving.
  */
-static void switch_to_thread(thread_t *next) {
+bool sched_has_ready_at_or_above(const thread_t *t) {
+    uint32_t priority = thread_priority(t);
+    if (priority >= SCHED_PRIORITY_LEVELS)
+        priority = SCHED_PRIORITY_LEVELS - 1;
+
+    uint32_t at_or_above = ready_mask & ~((1u << priority) - 1u);
+    return at_or_above != 0;
+}
+
+void switch_to_thread(thread_t *next) {
     thread_t *prev = current_thread;
 
     if (next == &idle_thread) {
