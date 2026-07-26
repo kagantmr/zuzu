@@ -5,6 +5,7 @@
 #include <arch/regs.h>
 #include <arch/irq.h>
 #include <arch/mmu.h>
+#include <arch/fpu.h>
 #include "core/log.h"
 #include "core/panic.h"
 #include "kernel/proc/process.h"
@@ -128,15 +129,39 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
     {
     case EXC_UNDEF:
     {
-        /**
-         * Undefined instruction is NOT returnable. Kill process or panic.
-         */
-
         /* Undef sets LR = faulting PC + 4 in ARM state but + 2 in Thumb;
          * entry.S subtracts 4 unconditionally, so nudge Thumb faults back. */
         if (frame->return_cpsr & (1 << 5))
             frame->return_pc += 2;
 
+        /*
+         * Lazy FPU switch. The scheduler traps FPU access for every thread
+         * that isn't the current owner (kernel/sched/sched.c, fpu_owner).
+         * The first FPU instruction a newly-scheduled thread executes lands
+         * here: hand it the FPU and retry the faulting instruction instead
+         * of killing/panicking below.
+         *
+         * If current_thread is already fpu_owner, access was never trapped
+         * off for it, so a fault here can't be an FPU-ownership trap -- it's
+         * a genuine undefined instruction and falls through to the usual
+         * handling. This also bounds a real bad opcode to at most one extra
+         * trap: the retry below re-faults, but by then current_thread ==
+         * fpu_owner, so the second pass takes this fallthrough path.
+         */
+        if (current_thread && current_thread != fpu_owner)
+        {
+            arch_fpu_trap_enable();
+            if (fpu_owner)
+                arch_fpu_save(&fpu_owner->fpu_state);
+            arch_fpu_restore(&current_thread->fpu_state);
+            fpu_owner = current_thread;
+            break;
+        }
+
+        /**
+         * Any other undefined instruction is NOT returnable. Kill process or
+         * panic.
+         */
         bool from_user = (frame->return_cpsr & 0x1F) == 0x10;
 
         if (from_user && current_process)

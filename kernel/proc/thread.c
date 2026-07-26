@@ -1,6 +1,7 @@
 #include "thread.h"
 #include "process.h"
 #include "kernel/mm/alloc.h"
+#include "kernel/sched/sched.h"
 #include "kstack.h"
 #include <mem.h>
 #include <spinlock.h>
@@ -83,6 +84,8 @@ void thread_kill(thread_t *thread)
 void thread_destroy(thread_t *thread) {
     if (!thread) return;
     thread_unregister(thread);
+    if (fpu_owner == thread)
+        fpu_owner = NULL;
     // may already be removed by tquit, guard is safe
     if (thread->process_node.prev && thread->process_node.next)
         list_remove(&thread->process_node);
