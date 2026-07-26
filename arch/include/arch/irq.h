@@ -12,7 +12,9 @@
 
 typedef void (*irq_handler_t)(void *ctx); /* generic IRQ handler */
 
-#define MAX_IRQS 128
+// Must cover the GIC's configured SPI range (gic_init() sets up 256 lines);
+// real hardware (e.g. rpi4/BCM2711) uses SPI numbers well past 128.
+#define MAX_IRQS 256
 
 /** Initialize the interrupt subsystem (handler table + controller). */
 void arch_irq_init(void);
