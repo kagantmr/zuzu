@@ -221,31 +221,60 @@ void sched_idle_wait(void)
 }
 
 
-void __attribute__((hot)) schedule() {
-    thread_t *prev = current_thread;
-    bool from_idle = (prev == NULL && on_idle_stack);
-
+/*
+ * sched_housekeeping - generic bookkeeping that must happen before picking
+ * a thread to run: reap threads whose destruction was deferred, then wake
+ * any sleepers whose timeout has elapsed (moving them onto the run queues).
+ *
+ * Order matters: this must run after the outgoing thread (if any) has
+ * already been re-added to its run queue, so that a sleeper waking up at
+ * the same priority is queued *after* it (FIFO fairness) rather than
+ * jumping the line. schedule() enforces that ordering by requeuing the
+ * outgoing thread before calling this.
+ */
+static void sched_housekeeping(void) {
     sched_reap_thread_destroys();
-
-    if (current_thread != NULL) {
-        if (current_thread->state == RUNNING) {
-            current_thread->state = READY;
-            sched_add(current_thread);
-        }
-    }
-
     sched_wake_sleepers();
+}
 
-    list_head_t *selected_queue = NULL;
+/*
+ * sched_pick_next - pure selection: scan the priority run queues
+ * highest-first and return the winning thread, or &idle_thread if every
+ * queue is empty. Popping the winner off its run queue is the one
+ * necessary side effect of "selecting" it; this never touches current_thread,
+ * on_idle_stack, thread state, or performs any switching.
+ */
+static thread_t *sched_pick_next(void) {
     for (int level = SCHED_PRIORITY_LEVELS - 1; level >= 0; level--) {
         if (!list_empty(&run_queues[level])) {
-            selected_queue = &run_queues[level];
-            break;
+            list_node_t *next_node = list_pop_front(&run_queues[level]);
+            return container_of(next_node, thread_t, node);
         }
     }
+    return &idle_thread;
+}
 
-    if (!selected_queue) {
-        current_thread = NULL;
+/*
+ * switch_to_thread - perform the mechanics of switching onto `next`:
+ * address-space activation (if the address space differs), thread-pointer
+ * update, lazy-VFP trap disable, current_thread update, and the
+ * context_switch() asm call.
+ *
+ * State-ownership contract: the caller must set the OUTGOING thread's
+ * state (READY, BLOCKED, ...) before calling this. switch_to_thread only
+ * ever sets next->state = RUNNING; it never reads or writes prev's state,
+ * since different callers retire the outgoing thread differently (schedule()
+ * requeues it as READY, a future direct-switch IPC path would leave it
+ * BLOCKED instead).
+ */
+static void switch_to_thread(thread_t *next) {
+    thread_t *prev = current_thread;
+
+    if (next == current_thread)
+        return;
+
+    if (next == &idle_thread) {
+        bool from_idle = (prev == NULL && on_idle_stack);
         current_thread = NULL;
         if (from_idle) {
             return;
@@ -254,8 +283,7 @@ void __attribute__((hot)) schedule() {
         return;
     }
 
-    list_node_t *next_node = list_pop_front(selected_queue);
-    current_thread = container_of(next_node, thread_t, node);
+    current_thread = next;
     current_thread->state = RUNNING;
     current_thread->ticks_remaining = current_thread->time_slice;
     on_idle_stack = false;
@@ -271,6 +299,18 @@ void __attribute__((hot)) schedule() {
     arch_set_thread_ptr(current_thread);
     //KTRACE("Switching to thread %d (process %d)", current_thread->tid, current_thread->owner_process->pid);
     context_switch(prev, current_thread);
+}
+
+void __attribute__((hot)) schedule() {
+    if (current_thread != NULL && current_thread->state == RUNNING) {
+        current_thread->state = READY;
+        sched_add(current_thread);
+    }
+
+    sched_housekeeping();
+
+    thread_t *next = sched_pick_next();
+    switch_to_thread(next);
 }
 
 size_t sched_ready_queue_snapshot(thread_t **out, size_t max_out) {
