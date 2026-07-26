@@ -270,9 +270,6 @@ static thread_t *sched_pick_next(void) {
 static void switch_to_thread(thread_t *next) {
     thread_t *prev = current_thread;
 
-    if (next == current_thread)
-        return;
-
     if (next == &idle_thread) {
         bool from_idle = (prev == NULL && on_idle_stack);
         current_thread = NULL;
@@ -285,8 +282,10 @@ static void switch_to_thread(thread_t *next) {
 
     current_thread = next;
     current_thread->state = RUNNING;
-    current_thread->ticks_remaining = current_thread->time_slice;
     on_idle_stack = false;
+
+    if (next == prev)
+        return;
 
     if (current_thread != fpu_owner) {
         arch_fpu_trap_disable();
@@ -301,7 +300,7 @@ static void switch_to_thread(thread_t *next) {
     context_switch(prev, current_thread);
 }
 
-void __attribute__((hot)) schedule() {
+void __attribute__((hot)) schedule(void) {
     if (current_thread != NULL && current_thread->state == RUNNING) {
         current_thread->state = READY;
         sched_add(current_thread);
@@ -310,6 +309,7 @@ void __attribute__((hot)) schedule() {
     sched_housekeeping();
 
     thread_t *next = sched_pick_next();
+    next->ticks_remaining = next->time_slice;
     switch_to_thread(next);
 }
 
