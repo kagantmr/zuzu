@@ -288,7 +288,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
         /*
          * User or SVC mode abort where the fault address is in user VA space
          * (< KERNEL_VA_BASE).  A fault in kernel VA while in SVC mode means
-         * the kernel itself accessed a bad address is always a panic.
+         * the kernel itself accessed a bad address which is always a panic.
          */
         if ((from_user || from_svc) && current_process && current_process->as
             && dfar < KERNEL_VA_BASE)
