@@ -1,0 +1,13 @@
+#ifndef SPEEDTEST_GLOBALS_H
+#define SPEEDTEST_GLOBALS_H
+
+#define BENCHMARK_ITERATIONS 1000
+#define WARMUP_ITERATIONS    5
+#define THREAD_STACK_SIZE    4096
+#define CALIBRATION_MS       500
+
+#define MSG_QUIT 0xFFFFFFFFu
+#define MSG_PING 0u
+
+
+#endif
