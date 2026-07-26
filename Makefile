@@ -157,6 +157,10 @@ INITRD             = build/initrd.cpio
 INITRD_OBJ         = build/$(ARCH_DIR)/initrd.o
 INITRD_EXTRA_DIR  ?= initrd
 INITRD_EXTRA_FILES := $(shell find $(INITRD_EXTRA_DIR) -type f 2>/dev/null)
+# DISK_ROLES programs staged into the initrd too, in addition to the SD card
+# image - for boards (rpi4) that have no working SD driver yet.
+INITRD_EXTRA_PROGS     = speedtest
+INITRD_EXTRA_PROG_ELFS = $(INITRD_EXTRA_PROGS:%=build/user/%.stripped.elf)
 
 # ---- kernel sources ------------------------------------------------------
 # Architecture-neutral source roots. klib/ is the freestanding shared
@@ -281,17 +285,17 @@ build/user/%.stripped.elf: build/user/%.elf
 	@$(USER_OBJCOPY) --strip-debug $< $@
 
 # ---- initrd + kernel link ------------------------------------------------
-$(INITRD): $(BOOT_PROG_PACKED_ELFS) $(INITRD_EXTRA_FILES)
+$(INITRD): $(BOOT_PROG_PACKED_ELFS) $(INITRD_EXTRA_PROG_ELFS) $(INITRD_EXTRA_FILES)
 	@rm -rf build/initrd
 	@mkdir -p build/initrd/bin
-	@for prog in $(BOOT_PROGS); do \
+	@for prog in $(BOOT_PROGS) $(INITRD_EXTRA_PROGS); do \
 		cp build/user/$$prog.stripped.elf build/initrd/bin/$$prog; \
 	done
 	@if [ -d "$(INITRD_EXTRA_DIR)" ]; then \
 		cp -R $(INITRD_EXTRA_DIR)/. build/initrd/; \
 	fi
 	@cd build/initrd && find . -not -name '.' | sort | cpio -o -H newc > ../initrd.cpio 2>/dev/null
-	@echo "  CPIO    $@ ($(words $(BOOT_PROGS)) boot program(s))"
+	@echo "  CPIO    $@ ($(words $(BOOT_PROGS) $(INITRD_EXTRA_PROGS)) boot program(s))"
 
 $(INITRD_OBJ): $(ARCH_DIR)/initrd.S $(INITRD)
 	@mkdir -p $(dir $@)
