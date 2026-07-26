@@ -6,6 +6,7 @@
 #include "kernel/ipc/port.h"
 #include "kernel/mm/vmm.h"
 #include <arch/regs.h>
+#include <arch/fpu.h>
 
 typedef struct process process_t;
 
@@ -85,6 +86,7 @@ struct thread
     process_t *owner_process; // backpointer to owning process
     vaddr_t thread_info_va;
     uint8_t tcb_slot; // index into owner's TCB page, TCB_SLOT_NONE if unassigned
+    fpu_state_t fpu_state; // lazily saved/restored, see kernel/sched/sched.c fpu_owner
 };
 
 #ifdef __cplusplus

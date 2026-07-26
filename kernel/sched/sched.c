@@ -5,11 +5,13 @@
 
 #include "kernel/syscall/syscall.h"
 #include <arch/thread.h>
+#include <arch/fpu.h>
 
 #include <arch/cpu.h>
 #include "kernel/mm/vmm.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/time/tick.h"
+
 #include <mem.h>
 
 static inline uint32_t thread_priority(const thread_t *t)
@@ -24,6 +26,8 @@ static list_head_t destroy_queue = LIST_HEAD_INIT(destroy_queue);
 list_head_t sleep_queue = LIST_HEAD_INIT(sleep_queue);
 static list_head_t thread_destroy_queue = LIST_HEAD_INIT(thread_destroy_queue);
 thread_t *current_thread;
+
+thread_t *fpu_owner = NULL;
 
 volatile uint8_t do_resched = 0; // needs spinlock guard on SMP
 
@@ -255,6 +259,10 @@ void __attribute__((hot)) schedule() {
     current_thread->state = RUNNING;
     current_thread->ticks_remaining = current_thread->time_slice;
     on_idle_stack = false;
+
+    if (current_thread != fpu_owner) {
+        arch_fpu_trap_disable();
+    }
 
     process_t *prev_proc = prev ? prev->owner_process : NULL;
     if (current_thread->owner_process->as && (!prev_proc || prev_proc->as != current_thread->owner_process->as)) {
