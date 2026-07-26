@@ -7,9 +7,10 @@
 //                │ exception frame (arch_regs_t) │  (user-entry threads only)
 //                ├─────────────────────────┤
 //                │ switch context (cpu_context_t) │  lr = trampoline / entry
-//                ├─────────────────────────┤
-//                │ VFP/FP save area        │
 //   lower addr   └─────────────────────────┘  <- returned kernel_sp
+//
+// FPU state is not part of the kernel stack: it's saved lazily into
+// thread_t::fpu_state (see arch/fpu.h), so context_switch never touches it.
 
 #include <arch/context.h>
 #include <arch/regs.h>
@@ -17,9 +18,6 @@
 
 /* Initial CPSR for a user thread: USR mode (0x10), IRQs enabled. */
 #define ARM_CPSR_USER     0x10u
-/* Bytes reserved on the kernel stack for the VFP/FP register save area:
- * d0-d31 (32 doubles) + FPSCR, matching the switch.S save/restore layout. */
-#define ARM_VFP_SAVE_SIZE 260u
 
 /* Entry trampoline that pops the exception frame and returns to user mode. */
 extern void process_entry_trampoline(void);
@@ -47,9 +45,6 @@ void *arch_thread_user_init(void *kstack_top, uintptr_t entry, uintptr_t user_sp
     memset(ctx, 0, sizeof(*ctx));
     ctx->lr = (uint32_t)process_entry_trampoline;
 
-    sp -= ARM_VFP_SAVE_SIZE;
-    memset((void *)sp, 0, ARM_VFP_SAVE_SIZE);
-
     return (void *)sp;
 }
 
@@ -61,9 +56,6 @@ void *arch_thread_kernel_init(void *kstack_top, void (*entry)(void))
     cpu_context_t *ctx = (cpu_context_t *)sp;
     memset(ctx, 0, sizeof(*ctx));
     ctx->lr = (uint32_t)entry;
-
-    sp -= ARM_VFP_SAVE_SIZE;
-    memset((void *)sp, 0, ARM_VFP_SAVE_SIZE);
 
     return (void *)sp;
 }

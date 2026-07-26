@@ -17,22 +17,11 @@ context_switch:
 
     push {r4-r11, lr}
 
-    // save VFP: 32 double regs + FPSCR = 260 bytes
-    vpush {d0-d15}
-    vpush {d16-d31}
-    vmrs r2, fpscr
-    push {r2}
-
     str sp, [r0, #12]
 
 .load_next:
     ldr sp, [r1, #12]
 
-    // restore VFP
-    pop {r2}
-    vmsr fpscr, r2
-    vpop {d16-d31}
-    vpop {d0-d15}
-
     pop {r4-r11, lr}
+
     bx lr

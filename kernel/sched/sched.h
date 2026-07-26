@@ -10,6 +10,11 @@ extern void __attribute__((hot)) context_switch(thread_t *prev, thread_t *next);
 
 extern thread_t *current_thread;
 
+// Thread whose registers currently live in the FPU hardware, or NULL if none.
+// Cleared by thread_destroy() when the owning thread is freed. See
+// arch/include/arch/fpu.h for the lazy-switch contract.
+extern thread_t *fpu_owner;
+
 void sched_init();
 void sched_add(thread_t *t);
 void sched_defer_destroy(process_t *p);
