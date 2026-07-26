@@ -25,6 +25,7 @@ USER_OPTIMIZATION_LEVEL ?= s
 DEBUG_BUILD             ?= 1
 DTB_DEBUG_WALK          ?= 0
 EARLY_UART              ?= 0
+CTX_SWITCH_MEASURE      ?= 0
 LOG_LEVEL               ?= 1
 PANIC_SECTION_PROCESS   ?= 1
 PANIC_SECTION_SCHEDULER ?= 1
@@ -81,6 +82,9 @@ ifneq ($(DTB_DEBUG_WALK), 0)
 endif
 ifneq ($(EARLY_UART), 0)
     CFLAGS += -DEARLY_UART
+endif
+ifneq ($(CTX_SWITCH_MEASURE), 0)
+    CFLAGS += -DCTX_SWITCH_MEASURE
 endif
 
 # ---- tier-2 (newlib) flags -----------------------------------------------
