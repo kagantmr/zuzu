@@ -108,10 +108,20 @@ process_t *process_load(const void *elf_data, size_t elf_size,
             {
                 goto fail_kstack;
             }
-            size_t pages_needed = (ph->p_memsz + PAGE_SIZE - 1) / PAGE_SIZE;
-            uintptr_t *segment_pages = kmalloc(pages_needed * sizeof(uintptr_t));
-            if (!segment_pages)
-                goto fail_kstack;
+            /* [filesz, memsz) is BSS: zero by definition, with no file
+             * content behind it. Only [0, page_align_up(filesz)) needs an
+             * eager alloc+copy; the rest is registered as anon and faults
+             * in lazily via vmm_fault_page(), same as the stack reserve. */
+            size_t file_pages = (ph->p_filesz + PAGE_SIZE - 1) / PAGE_SIZE;
+            size_t mem_pages = (ph->p_memsz + PAGE_SIZE - 1) / PAGE_SIZE;
+
+            uintptr_t *segment_pages = NULL;
+            if (file_pages > 0)
+            {
+                segment_pages = kmalloc(file_pages * sizeof(uintptr_t));
+                if (!segment_pages)
+                    goto fail_kstack;
+            }
 
             uint32_t prot = 0;
             if (ph->p_flags & PF_R)
@@ -121,7 +131,7 @@ process_t *process_load(const void *elf_data, size_t elf_size,
             if (ph->p_flags & PF_X)
                 prot |= VM_PROT_EXEC;
 
-            for (uint32_t page = 0; page < pages_needed; page++)
+            for (uint32_t page = 0; page < file_pages; page++)
             {
                 uintptr_t page_pa = pmm_alloc_page();
                 if (!page_pa)
@@ -138,28 +148,25 @@ process_t *process_load(const void *elf_data, size_t elf_size,
 
                 segment_pages[page] = page_pa;
 
+                /* Every page here is < file_pages, so file_offset < p_filesz
+                 * always holds; the page containing p_filesz (the boundary
+                 * page) is part file content, part BSS, so the tail past
+                 * p_filesz must be explicitly zeroed - pmm_alloc_page() can
+                 * return a recycled frame with arbitrary contents. */
                 vaddr_t file_offset = page * PAGE_SIZE;
-                size_t bytes_to_copy = 0;
-                if (file_offset < ph->p_filesz)
-                {
-                    bytes_to_copy = ph->p_filesz - file_offset;
-                    if (bytes_to_copy > PAGE_SIZE)
-                        bytes_to_copy = PAGE_SIZE;
+                size_t bytes_to_copy = ph->p_filesz - file_offset;
+                if (bytes_to_copy > PAGE_SIZE)
+                    bytes_to_copy = PAGE_SIZE;
 
-                    memcpy((void *)PA_TO_VA(page_pa),
-                           (const uint8_t *)elf_data + ph->p_offset + file_offset,
-                           bytes_to_copy);
+                memcpy((void *)PA_TO_VA(page_pa),
+                       (const uint8_t *)elf_data + ph->p_offset + file_offset,
+                       bytes_to_copy);
 
-                    if (bytes_to_copy < PAGE_SIZE)
-                    {
-                        memset((uint8_t *)PA_TO_VA(page_pa) + bytes_to_copy,
-                               0,
-                               PAGE_SIZE - bytes_to_copy);
-                    }
-                }
-                else
+                if (bytes_to_copy < PAGE_SIZE)
                 {
-                    memset((void *)PA_TO_VA(page_pa), 0, PAGE_SIZE);
+                    memset((uint8_t *)PA_TO_VA(page_pa) + bytes_to_copy,
+                           0,
+                           PAGE_SIZE - bytes_to_copy);
                 }
 
                 vaddr_t va = ph->p_vaddr + page * PAGE_SIZE;
@@ -179,22 +186,48 @@ process_t *process_load(const void *elf_data, size_t elf_size,
                 arch_cache_flush_code_range((uintptr_t)PA_TO_VA(page_pa), PAGE_SIZE);
             }
 
-            vm_region_t seg_region = {
-                .vaddr_start = ph->p_vaddr,
-                .size = pages_needed * PAGE_SIZE,
-                .prot = prot | VM_PROT_USER,
-                .memtype = VM_MEM_NORMAL,
-                .owner = VM_OWNER_ANON,
-                .flags = VM_FLAG_NONE,
-            };
-            if (!vmm_add_region(p->as, &seg_region))
+            if (file_pages > 0)
             {
-                KERROR("Failed to add ELF segment region at VA %08X", ph->p_vaddr);
+                vm_region_t seg_region = {
+                    .vaddr_start = ph->p_vaddr,
+                    .size = file_pages * PAGE_SIZE,
+                    .prot = prot | VM_PROT_USER,
+                    .memtype = VM_MEM_NORMAL,
+                    .owner = VM_OWNER_ANON,
+                    .flags = VM_FLAG_NONE,
+                };
+                if (!vmm_add_region(p->as, &seg_region))
+                {
+                    KERROR("Failed to add ELF segment region at VA %08X", ph->p_vaddr);
+                    for (uint32_t j = 0; j < file_pages; j++)
+                    {
+                        vaddr_t orphan_va = ph->p_vaddr + j * PAGE_SIZE;
+                        vmm_unmap_range(p->as, orphan_va, PAGE_SIZE);
+                        pmm_free_page(segment_pages[j]);
+                    }
+                    kfree(segment_pages);
+                    goto fail_kstack;
+                }
+
                 kfree(segment_pages);
-                goto fail_kstack;
             }
 
-            kfree(segment_pages);
+            if (mem_pages > file_pages)
+            {
+                vm_region_t bss_region = {
+                    .vaddr_start = ph->p_vaddr + file_pages * PAGE_SIZE,
+                    .size = (mem_pages - file_pages) * PAGE_SIZE,
+                    .prot = prot | VM_PROT_USER,
+                    .memtype = VM_MEM_NORMAL,
+                    .owner = VM_OWNER_ANON,
+                    .flags = VM_FLAG_NONE,
+                };
+                if (!vmm_add_region(p->as, &bss_region))
+                {
+                    KERROR("Failed to add BSS region at VA %08X", bss_region.vaddr_start);
+                    goto fail_kstack;
+                }
+            }
         }
     }
 

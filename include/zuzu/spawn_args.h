@@ -22,6 +22,11 @@ typedef struct
     uint32_t argc;        // number of arguments in argbuf
 } spawn_args_t;
 
+/* asinject_args_t.flags */
+#define ASINJECT_FLAG_RESERVE 0x1u /* reserve [dst_va, dst_va+len) as demand-zero
+                                     * anon memory in the target AS; src_buf must
+                                     * be NULL, no bytes are copied up front. */
+
 typedef struct
 {
     uint32_t size;        /* sizeof(asinject_args_t); wrapper sets it */
@@ -30,6 +35,7 @@ typedef struct
     const void *src_buf;  // pointer to the source buffer in the current task's address space
     size_t len;           // length of the source buffer in bytes
     uint32_t prot;        // memory protection flags for the destination mapping (e.g., VM_PROT_READ | VM_PROT_WRITE)
+    uint32_t flags;       // ASINJECT_FLAG_* bits; 0 for the original copy-in behavior
 } asinject_args_t;
 
 typedef struct

@@ -413,9 +413,6 @@ void __attribute__((hot)) sys_msg_recv(arch_regs_t *frame)
 
         schedule();
 
-        /* Tripwire for the pc=0 user abort seen on the Pi 4: validate our
-         * own frame on the way back out of a blocking recv, and catch an
-         * impossible timeout wake on an infinite recv. */
 #ifdef DEBUG
         if (!trap_frame_sane(frame))
             ipc_panic_bad_trap_frame("zuzu_msg_recv.wake", current_thread->owner_process, frame);

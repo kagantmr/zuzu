@@ -78,6 +78,38 @@ static inline int32_t zuzu_asinject(handle_t task_handle, uintptr_t dst_va,
         .src_buf     = src_buf,
         .len         = len,
         .prot        = prot,
+        .flags       = 0,
+    };
+    return syscall(SYS_ASINJECT, (uint32_t)(uintptr_t)&args, 0, 0, 0);
+}
+
+/**
+ * @brief Reserves demand-zero anonymous memory in another task's address
+ * space, without copying any bytes up front.
+ * @note This syscall is only callable by the init process.
+ *
+ * Registers [dst_va, dst_va+len) as anonymous memory; pages are allocated
+ * and zeroed lazily on first touch by the target task's own fault handler.
+ * Use this instead of zuzu_asinject() for BSS-style tails where the source
+ * would just be a buffer of zeroes.
+ *
+ * @param task_handle The handle of the target process.
+ * @param dst_va The destination virtual address in the target process's address space.
+ * @param len The length of the region to reserve, in bytes (must be page-aligned).
+ * @param prot The desired memory protection flags for the reserved region.
+ *
+ * @return int32_t Returns 0 on success, or a negative error code on failure.
+ */
+static inline int32_t zuzu_asinject_reserve(handle_t task_handle, uintptr_t dst_va,
+                                        size_t len, uint32_t prot) {
+    asinject_args_t args = {
+        .size        = sizeof(asinject_args_t),
+        .task_handle = task_handle,
+        .dst_va      = dst_va,
+        .src_buf     = NULL,
+        .len         = len,
+        .prot        = prot,
+        .flags       = ASINJECT_FLAG_RESERVE,
     };
     return syscall(SYS_ASINJECT, (uint32_t)(uintptr_t)&args, 0, 0, 0);
 }
