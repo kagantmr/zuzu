@@ -97,7 +97,7 @@ static void on_syn_sent(tcp_pcb_t *pcb, const tcp_seg_t *s)
 
 static void on_established(int slot, tcp_pcb_t *pcb, const tcp_seg_t *s)
 {
-    if ((int32_t)(s->ack - pcb->snd_una) > 0)
+    if ((int32_t)(s->ack - pcb->snd_una) > 0 && ((int32_t)(s->ack - pcb->snd_nxt) <= 0))
     {
         size_t delta = s->ack - pcb->snd_una; // how many bytes got confirmed
         pcb->snd_una = s->ack;
