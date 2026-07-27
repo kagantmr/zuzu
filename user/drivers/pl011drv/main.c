@@ -10,18 +10,17 @@
 #include <string.h>
 #include <mem.h>
 
-volatile pl011_t *uart;
-int port;
-static int32_t devmgr_port = -1;
-static int32_t serial_dev_handle = -1;
-static int32_t serial_irq_ntfn = -1;
+#define PL011DRV_DEV_CLASS DEV_CLASS_SERIAL
+#define PL011DRV_COMPATIBLE "arm,pl011"
+
+static volatile pl011_t *uart;
+static handle_t client_port = -1;
+static handle_t devmgr_port = -1;
+static handle_t serial_dev_handle = -1;
+static handle_t serial_irq_ntfn = -1;
 static ring_t rxrb, txrb;
 static uint8_t rxbuf_storage[UART_RINGBUF_MAX];
 static uint8_t txbuf_storage[UART_RINGBUF_MAX];
-
-#define PL011DRV_DEV_CLASS DEV_CLASS_SERIAL
-#define PL011DRV_COMPATIBLE "arm,pl011"
-#define PL011DRV_RECV_SLICE_MS 5u
 
 static void uart_txraw(char c)
 {
@@ -60,7 +59,6 @@ static int32_t wait_for_devmgr(void)
     }
 }
 
-
 static int32_t request_serial_device(void)
 {
     while (1) {
@@ -93,53 +91,47 @@ static void handle_irq_event(void)
     zuzu_irq_done((uint32_t)serial_dev_handle);
 }
 
-static void service_pending_irq(void)
+/* zuzu_msg_lsend(client_port, len): fire-and-forget write, payload in lmsg_buf(). */
+static void handle_write(uint32_t len)
 {
-    int32_t bits = zuzu_ntfn_wait((uint32_t)serial_irq_ntfn, TIMEOUT_POLL);
-    if (bits > 0) {
-        handle_irq_event();
-    }
+    if (len > LMSG_BUF_SIZE)
+        len = LMSG_BUF_SIZE;
+
+    const char *buf = lmsg_buf();
+    for (uint32_t i = 0; i < len; i++)
+        uart_txbyte(buf[i]);
 }
 
-static void handle_client_message(msg_t msg)
+/* zuzu_msg_lcall(client_port, max_len): read up to max_len bytes already
+ * buffered from the UART; replies immediately with however many are
+ * available (possibly zero) rather than blocking for more. */
+static void handle_read(handle_t reply_handle, uint32_t max_len)
 {
-    if (msg.r2 == 0) {
-        uint32_t len = msg.r1;
-        if (len > LMSG_BUF_SIZE) len = LMSG_BUF_SIZE;
+    if (max_len > LMSG_BUF_SIZE)
+        max_len = LMSG_BUF_SIZE;
 
-        char *buf = (char *)lmsg_buf();
-        for (uint32_t i = 0; i < len; i++)
-            uart_txbyte(buf[i]);
-        return;
-    }
-
-    uint32_t reply_handle = (uint32_t)msg.r0;
-    uint32_t len = msg.r2;
-    if (len > LMSG_BUF_SIZE) len = LMSG_BUF_SIZE;
-
-    service_pending_irq();
     drain_uart_rx_fifo();
+
     char *buf = (char *)lmsg_buf();
     uint32_t n = 0;
-    while (ring_avail(&rxrb) > 0 && n < len) {
+    while (n < max_len && ring_avail(&rxrb) > 0) {
         uint8_t b = 0;
-        if (ring_pop(&rxrb, &b) == 0)
-            buf[n++] = (char)b;
-        else
+        if (ring_pop(&rxrb, &b) != 0)
             break;
+        buf[n++] = (char)b;
     }
 
-    (void)chan_reply((handle_t)reply_handle, buf, (uint32_t)n);
+    (void)chan_reply(reply_handle, buf, n);
 }
 
 int pl011drv_setup(void)
 {
-    port = zuzu_port_create();
-    if (port < 0) {
-        return port;
+    client_port = zuzu_port_create();
+    if (client_port < 0) {
+        return client_port;
     }
 
-    int32_t nt_slot = zuzu_grant(port, NAMETABLE_PID);
+    int32_t nt_slot = zuzu_grant(client_port, NAMETABLE_PID);
     if (nt_slot < 0) {
         return nt_slot;
     }
@@ -186,20 +178,29 @@ int main(void)
     if ((exit_code = pl011drv_setup()) != 0)
         return exit_code;
 
-    /*
-    const char *startup_banner = "pl011drv: online\n";
-    for (const char *p = startup_banner; *p; p++)
-        uart_txbyte(*p);
-    */
-
-    msg_t msg;
+    enum { H_IRQ = 0, H_PORT = 1 };
+    handle_t handles[] = {
+        [H_IRQ]  = serial_irq_ntfn,
+        [H_PORT] = client_port,
+    };
 
     while (1) {
-        service_pending_irq();
+        waitany_result_t r;
+        if (zuzu_waitany(handles, 2, TIMEOUT_INFINITE, &r) != 0)
+            continue;
 
-        msg = zuzu_msg_recv(port, PL011DRV_RECV_SLICE_MS);
-        if (msg.r0 >= 0) {
-            handle_client_message(msg);
+        switch (r.kind) {
+        case WAITANY_KIND_NTFN:
+            handle_irq_event();
+            break;
+        case WAITANY_KIND_SEND:
+            handle_write(r.r1);
+            break;
+        case WAITANY_KIND_CALL:
+            handle_read((handle_t)r.source, r.r2);
+            break;
+        default:
+            break;
         }
     }
 }
