@@ -364,14 +364,9 @@ void sys_asinject(arch_regs_t *frame)
             return;
         }
 
-        if (!kargs.src_buf || kargs.len == 0)
+        if (kargs.len == 0)
         {
             (*arch_reg(frame, 0)) = ERR_BADARG;
-            return;
-        }
-        if (!validate_user_ptr((uintptr_t)kargs.src_buf, kargs.len))
-        {
-            (*arch_reg(frame, 0)) = ERR_BADPTR;
             return;
         }
 
@@ -391,6 +386,47 @@ void sys_asinject(arch_regs_t *frame)
             (*arch_reg(frame, 0)) = ERR_BADARG;
             return;
         }
+        }
+
+        if (kargs.flags & ASINJECT_FLAG_RESERVE)
+        {
+            /* Reserve-only mode: register anon memory in the target AS with
+             * no pages allocated or copied. vmm_fault_page() (the same path
+             * process_create() uses for the stack reserve) allocates,
+             * zeroes, and maps each page lazily on first touch. */
+            if (kargs.src_buf != NULL || kargs.len % PAGE_SIZE != 0)
+            {
+                (*arch_reg(frame, 0)) = ERR_BADARG;
+                return;
+            }
+
+            vm_region_t region = {
+                .vaddr_start = kargs.dst_va,
+                .size = kargs.len,
+                .prot = kargs.prot | VM_PROT_USER,
+                .memtype = VM_MEM_NORMAL,
+                .owner = VM_OWNER_ANON,
+                .flags = VM_FLAG_NONE,
+            };
+            if (!vmm_add_region(target->as, &region))
+            {
+                (*arch_reg(frame, 0)) = ERR_NOMEM;
+                return;
+            }
+
+            (*arch_reg(frame, 0)) = 0;
+            return;
+        }
+
+        if (!kargs.src_buf)
+        {
+            (*arch_reg(frame, 0)) = ERR_BADARG;
+            return;
+        }
+        if (!validate_user_ptr((uintptr_t)kargs.src_buf, kargs.len))
+        {
+            (*arch_reg(frame, 0)) = ERR_BADPTR;
+            return;
         }
 
         size_t page_count = (kargs.len + PAGE_SIZE - 1) / PAGE_SIZE;

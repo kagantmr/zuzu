@@ -26,9 +26,11 @@ static int inject_segment(uint32_t task_handle, const void *elf_data,
         if (rc != 0) return rc;
     }
 
-    // BSS: memsz > filesz means zero-filled pages beyond the file data.
-    // asinject already zeroes partial page tails, so we only need to handle
-    // additional whole pages.
+    // BSS: memsz > filesz means zero-filled pages beyond the file data,
+    // with no file content behind them. asinject already zeroes the
+    // partial tail of the boundary page (the one holding p_filesz), so the
+    // rest just needs to be reserved as demand-zero anon memory - no bytes
+    // to copy, so no need to materialize a zero buffer.
     uint32_t file_end = ph->p_vaddr + ph->p_filesz;
     uint32_t mem_end  = ph->p_vaddr + ph->p_memsz;
     uint32_t bss_start = (file_end + 0xFFF) & ~0xFFF;  // next page boundary
@@ -37,13 +39,7 @@ static int inject_segment(uint32_t task_handle, const void *elf_data,
         size_t bss_len = mem_end - bss_start;
         bss_len = (bss_len + 0xFFF) & ~0xFFF;  // round up to page
 
-        void *zeroes = malloc(bss_len);
-        if (!zeroes) return -1;
-        memset(zeroes, 0, bss_len);
-
-        int32_t rc = zuzu_asinject(task_handle, bss_start, zeroes, bss_len,
-                               VM_PROT_READ | VM_PROT_WRITE);
-        free(zeroes);
+        int32_t rc = zuzu_asinject_reserve(task_handle, bss_start, bss_len, prot);
         if (rc != 0) return rc;
     }
 
