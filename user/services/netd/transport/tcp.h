@@ -27,11 +27,10 @@ _Static_assert(sizeof(tcp_hdr_t) == 20, "TCP header size");
 
 #define TCP_MAX_PCB 64
 #define TCP_MSS 1460
-#define TCP_RTO_MAX 1000
+#define TCP_RTO_MAX 60000
 #define TCP_OOO_MAX 8
-#define TCP_SND_BUF 4096
-#define TCP_RCV_BUF 4096
-#define TCP_DEFAULT_WINDOW 8192
+#define TCP_SND_BUF (1024 * 32)
+#define TCP_RCV_BUF (1024 * 32)
 #define TCP_TIME_WAIT_MS 5000   /* linger 5s before freeing (real TCP uses 2*MSL ~minutes) */
 
 

@@ -52,9 +52,5 @@ void sys_dev_query(arch_regs_t *frame) {
         return;
     }
 
-    KDEBUG("query: pid=%d handle=%d out_buf=%p buf_len=%u compat=\"%s\" copy_len=%u irq=%d",
-           current_thread->owner_process->pid, handle_idx, (void *)out_buf,
-           (unsigned)buf_len, compat_buf, (unsigned)copy_len, cap->irq);
-
     (*arch_reg(frame, 0)) = cap->irq;  // return irq in r0 as bonus
 }
