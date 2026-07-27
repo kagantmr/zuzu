@@ -115,6 +115,11 @@ static void on_established(int slot, tcp_pcb_t *pcb, const tcp_seg_t *s)
         }
     }
 
+    if ((int32_t)(s->ack - pcb->snd_nxt) > 0) {
+        tcp_output(pcb, TCP_ACK, NULL, 0);
+        return;
+    }
+    
     if (s->payload_len)
     {
         if (s->seq == pcb->rcv_nxt)
