@@ -74,6 +74,8 @@ typedef struct {
     void (*on_data)(int slot); // data arrival callback
     timer_handle_t rto_timer;
     uint32_t rto_ms;                 /* current backoff value */
+    uint32_t fin_seq;    /* the FIN's position in sequence space */
+    bool     fin_seen;   /* have we been told about a FIN at all? */
 } tcp_pcb_t;
 
 typedef struct {

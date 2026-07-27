@@ -79,6 +79,24 @@ static void forward_merge(tcp_pcb_t *pcb)
     }
 }
 
+static void consume_fin(int slot, tcp_pcb_t *pcb) {
+    if (!pcb->fin_seen) return;
+    if (pcb->rcv_nxt != pcb->fin_seq) return;
+    pcb->rcv_nxt += 1;
+    tcp_output(pcb, TCP_ACK, NULL, 0);
+
+    if (pcb->state == TCP_ESTABLISHED)
+    {
+        pcb->state = TCP_CLOSE_WAIT;
+        tcp_close(slot);
+    }
+    else if (pcb->state == TCP_FIN_WAIT_1)
+    {
+        pcb->state = TCP_TIME_WAIT;
+        timer_arm(net_now_ms() + TCP_TIME_WAIT_MS, time_wait_cb, pcb);
+    }
+}
+
 /* ------------------------------------------------------------------ */
 /* per-state handlers                                                 */
 /* ------------------------------------------------------------------ */
@@ -119,7 +137,7 @@ static void on_established(int slot, tcp_pcb_t *pcb, const tcp_seg_t *s)
         tcp_output(pcb, TCP_ACK, NULL, 0);
         return;
     }
-    
+
     if (s->payload_len)
     {
         if (s->seq == pcb->rcv_nxt)
@@ -132,6 +150,8 @@ static void on_established(int slot, tcp_pcb_t *pcb, const tcp_seg_t *s)
              * This canned HTTP reply should move behind an app-layer callback. */
             if (pcb->on_data)
                 pcb->on_data(slot);
+            
+            consume_fin(slot, pcb);
         }
         else if ((int32_t)(s->seq - pcb->rcv_nxt) > 0)
         {
@@ -151,18 +171,12 @@ static void on_established(int slot, tcp_pcb_t *pcb, const tcp_seg_t *s)
 
     if (s->flags & TCP_FIN)
     {
-        pcb->rcv_nxt += 1; /* todo: fix this (may break OOO)*/
+        if (!pcb->fin_seen) {
+            pcb->fin_seq  = s->seq + s->payload_len;
+            pcb->fin_seen = true;
+        }
         tcp_output(pcb, TCP_ACK, NULL, 0);
-        if (pcb->state == TCP_ESTABLISHED)
-        {
-            pcb->state = TCP_CLOSE_WAIT;
-            tcp_close(slot);
-        }
-        else if (pcb->state == TCP_FIN_WAIT_1)
-        {
-            pcb->state = TCP_TIME_WAIT;
-            timer_arm(net_now_ms() + TCP_TIME_WAIT_MS, time_wait_cb, pcb);
-        }
+        consume_fin(slot, pcb);
     }
 }
 
