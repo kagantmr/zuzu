@@ -8,6 +8,14 @@
 #include <zuzu/log.h>
 #include <string.h>
 
+/**
+ * OOO helpers
+ */
+
+static bool ranges_fuse(uint32_t a_start, uint32_t a_end,
+                        uint32_t b_start, uint32_t b_end);
+
+
 /* A received segment, parsed once and passed to the per-state handlers. */
 /* ------------------------------------------------------------------ */
 /* helpers                                                            */

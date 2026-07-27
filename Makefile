@@ -26,6 +26,7 @@ DEBUG_BUILD             ?= 1
 DTB_DEBUG_WALK          ?= 0
 EARLY_UART              ?= 0
 CTX_SWITCH_MEASURE      ?= 0
+PMM_TRACE               ?= 0
 LOG_LEVEL               ?= 1
 PANIC_SECTION_PROCESS   ?= 1
 PANIC_SECTION_SCHEDULER ?= 1
@@ -85,6 +86,9 @@ ifneq ($(EARLY_UART), 0)
 endif
 ifneq ($(CTX_SWITCH_MEASURE), 0)
     CFLAGS += -DCTX_SWITCH_MEASURE
+endif
+ifneq ($(PMM_TRACE), 0)
+    CFLAGS += -DPMM_TRACE
 endif
 
 # ---- tier-2 (newlib) flags -----------------------------------------------
@@ -163,7 +167,7 @@ INITRD_EXTRA_DIR  ?= initrd
 INITRD_EXTRA_FILES := $(shell find $(INITRD_EXTRA_DIR) -type f 2>/dev/null)
 # DISK_ROLES programs staged into the initrd too, in addition to the SD card
 # image - for boards (rpi4) that have no working SD driver yet.
-INITRD_EXTRA_PROGS     = speedtest
+INITRD_EXTRA_PROGS     =
 INITRD_EXTRA_PROG_ELFS = $(INITRD_EXTRA_PROGS:%=build/user/%.stripped.elf)
 
 # ---- kernel sources ------------------------------------------------------
