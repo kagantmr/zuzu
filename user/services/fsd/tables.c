@@ -15,7 +15,7 @@ void tables_init(const fs_backend_t *b, void *ctx) {
     g_ctx = ctx;
 }
 
-err_t client_register(uint32_t pid, Handle shm, uint32_t size)
+Err client_register(uint32_t pid, Handle shm, uint32_t size)
 {
     if (client_find(pid) != NULL) return ERR_DUPLICATE; /* already registered */
     if (size < FSD_SHM_MIN || size > FSD_SHM_MAX) return ERR_MALFORMED;
@@ -56,7 +56,7 @@ void client_drop(uint32_t pid)
 }
 
 /* files */
-err_t file_open(uint32_t pid, const char *path, uint32_t mode, uint32_t *fd_out) {
+Err file_open(uint32_t pid, const char *path, uint32_t mode, uint32_t *fd_out) {
     fsd_client_t *client = client_find(pid);
     if (!client)
         return ERR_NOENT;
@@ -78,7 +78,7 @@ err_t file_open(uint32_t pid, const char *path, uint32_t mode, uint32_t *fd_out)
         if (file_table[i].pid == 0) { slot = i; break; }
     if (slot < 0) return ERR_BUFFULL;
 
-    err_t rc = g_backend->open(g_ctx, file_table[slot].backend_file, path, mode);
+    Err rc = g_backend->open(g_ctx, file_table[slot].backend_file, path, mode);
     if (rc != ZUZU_OK) return rc;
 
     file_table[slot].pid = pid;
@@ -94,10 +94,10 @@ void *file_get(uint32_t pid, uint32_t fd) {
     return NULL;
 }
 
-err_t file_close(uint32_t pid, uint32_t fd) {
+Err file_close(uint32_t pid, uint32_t fd) {
     for (int i = 0; i < FSD_MAX_FILES; i++) {
         if (file_table[i].pid == pid && file_table[i].fd == fd) {
-            err_t rc = g_backend->close(g_ctx, file_table[i].backend_file);
+            Err rc = g_backend->close(g_ctx, file_table[i].backend_file);
             memset(&file_table[i], 0, sizeof(file_table[i]));
             return rc;
         }

@@ -17,10 +17,10 @@ extern "C" {
 #define SD_CMD_WRITE   3
 
 /* Block transfer failure (CRC / timeout / FIFO over- or under-run). Has no
- * err_t equivalent, so it lives outside the err_t range to avoid collisions. */
+ * Err equivalent, so it lives outside the Err range to avoid collisions. */
 #define SD_ERR_IO ERR_IO
 
-/* SD command semantics. Replies use ZUZU_OK on success; failures use err_t
+/* SD command semantics. Replies use ZUZU_OK on success; failures use Err
  * values from <zuzu/err.h> or SD_ERR_IO for a block transfer error.
  * SD_CMD_GET_BUF (call)
  *   req:  r2=SD_CMD_GET_BUF

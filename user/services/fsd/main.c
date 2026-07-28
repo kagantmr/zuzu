@@ -39,7 +39,7 @@ static void               *g_ctx     = NULL;
  * us (TOCTOU). Every field we later act on comes from this private copy, never a
  * second read of shm.
  */
-static err_t load_req(fsd_client_t *c, uint32_t cmd, fsd_req_t *out)
+static Err load_req(fsd_client_t *c, uint32_t cmd, fsd_req_t *out)
 {
     if (!c->buf) return ERR_NOTCONN;
 
@@ -84,7 +84,7 @@ static void handle_set_buf(uint32_t reply_h, uint32_t sender, uint32_t arg)
     uint32_t slot = FSD_SETBUF_SLOT(arg);
     uint32_t size = FSD_SETBUF_SIZE(arg);
 
-    err_t rc = client_register(sender, (Handle)slot, size);
+    Err rc = client_register(sender, (Handle)slot, size);
     zuzu_msg_reply(reply_h, (uint32_t)rc, 0, 0);
 }
 
@@ -94,7 +94,7 @@ static void handle_open(uint32_t reply_h, uint32_t sender, fsd_client_t *c, cons
     shm_copy_str(c, req->data_off, path, sizeof(path));
 
     uint32_t fd = 0;
-    err_t rc = file_open(sender, path, req->mode, &fd);
+    Err rc = file_open(sender, path, req->mode, &fd);
 
     fsd_resp_t resp;
     memset(&resp, 0, sizeof(resp));
@@ -112,7 +112,7 @@ static void handle_seek(uint32_t reply_h, uint32_t sender, fsd_client_t *c, cons
     if (!file) { zuzu_msg_reply(reply_h, (uint32_t)ERR_NOENT, 0, 0); return; }
 
     int64_t newpos = 0;
-    err_t rc = g_backend->seek(g_ctx, file, req->offset, req->whence, &newpos);
+    Err rc = g_backend->seek(g_ctx, file, req->offset, req->whence, &newpos);
 
     fsd_resp_t resp;
     memset(&resp, 0, sizeof(resp));
@@ -131,7 +131,7 @@ static void handle_stat(uint32_t reply_h, fsd_client_t *c, const fsd_req_t *req)
 
     fsd_stat_t st;
     memset(&st, 0, sizeof(st));
-    err_t rc = g_backend->stat(g_ctx, path, &st);
+    Err rc = g_backend->stat(g_ctx, path, &st);
 
     fsd_resp_t resp;
     memset(&resp, 0, sizeof(resp));
@@ -155,7 +155,7 @@ static void handle_fstat(uint32_t reply_h, uint32_t sender, fsd_client_t *c, uin
     /* The backend has no fstat(file); derive the size by seeking to END and
      * restoring the position. An open fd is always a regular file. */
     int64_t cur = 0, end = 0, tmp = 0;
-    err_t rc = g_backend->seek(g_ctx, file, 0, FSD_SEEK_CUR, &cur);
+    Err rc = g_backend->seek(g_ctx, file, 0, FSD_SEEK_CUR, &cur);
     if (rc == ZUZU_OK) rc = g_backend->seek(g_ctx, file, 0, FSD_SEEK_END, &end);
     if (rc == ZUZU_OK) rc = g_backend->seek(g_ctx, file, cur, FSD_SEEK_SET, &tmp);
 
@@ -192,7 +192,7 @@ static void handle_readdir(uint32_t reply_h, fsd_client_t *c, const fsd_req_t *r
     uint32_t start = (uint32_t)req->offset;
 
     uint32_t count = 0;
-    err_t rc = g_backend->readdir(g_ctx, path, start, out, max, &count);
+    Err rc = g_backend->readdir(g_ctx, path, start, out, max, &count);
 
     fsd_resp_t resp;
     memset(&resp, 0, sizeof(resp));
@@ -213,7 +213,7 @@ static void handle_unlink(uint32_t reply_h, fsd_client_t *c, const fsd_req_t *re
     char path[FSD_PATH_MAX];
     shm_copy_str(c, req->data_off, path, sizeof(path));
 
-    err_t rc = g_backend->unlink(g_ctx, path);
+    Err rc = g_backend->unlink(g_ctx, path);
     zuzu_msg_reply(reply_h, (uint32_t)rc, 0, 0);
 }
 
@@ -236,13 +236,13 @@ static void handle_rename(uint32_t reply_h, fsd_client_t *c, const fsd_req_t *re
     const char *to   = buf + flen + 1;
     if (*to == '\0')  { zuzu_msg_reply(reply_h, (uint32_t)ERR_MALFORMED, 0, 0); return; }
 
-    err_t rc = g_backend->rename(g_ctx, from, to);
+    Err rc = g_backend->rename(g_ctx, from, to);
     zuzu_msg_reply(reply_h, (uint32_t)rc, 0, 0);
 }
 
 static void handle_close(uint32_t reply_h, uint32_t sender, uint32_t fd)
 {
-    err_t rc = file_close(sender, fd);
+    Err rc = file_close(sender, fd);
     zuzu_msg_reply(reply_h, (uint32_t)rc, 0, 0);
 }
 
@@ -258,7 +258,7 @@ static void handle_read(uint32_t reply_h, uint32_t sender, fsd_client_t *c, uint
     if (count > cap) count = cap;
 
     uint32_t got = 0;
-    err_t rc = g_backend->read(g_ctx, file, (uint8_t *)c->buf + FSD_DATA_OFF, count, &got);
+    Err rc = g_backend->read(g_ctx, file, (uint8_t *)c->buf + FSD_DATA_OFF, count, &got);
 
     fsd_resp_t resp;
     memset(&resp, 0, sizeof(resp));
@@ -286,7 +286,7 @@ static void handle_write(uint32_t reply_h, uint32_t sender, fsd_client_t *c, uin
     if (count > cap) count = cap;
 
     uint32_t put = 0;
-    err_t rc = g_backend->write(g_ctx, file, (const uint8_t *)c->buf + FSD_DATA_OFF, count, &put);
+    Err rc = g_backend->write(g_ctx, file, (const uint8_t *)c->buf + FSD_DATA_OFF, count, &put);
 
     fsd_resp_t resp;
     memset(&resp, 0, sizeof(resp));
@@ -306,7 +306,7 @@ static void handle_write(uint32_t reply_h, uint32_t sender, fsd_client_t *c, uin
 #define DISPATCH_SHM(fn, ...)                                             \
     do {                                                                 \
         fsd_req_t req;                                                    \
-        err_t lrc = load_req(c, cmd, &req);                              \
+        Err lrc = load_req(c, cmd, &req);                              \
         if (lrc != ZUZU_OK) { zuzu_msg_reply(reply_h, (uint32_t)lrc, 0, 0); return; } \
         fn(__VA_ARGS__);                                                 \
     } while (0)
@@ -349,7 +349,7 @@ static void dispatch(uint32_t reply_h, uint32_t sender, uint32_t cmd, uint32_t a
 int main(void)
 {
     /* 1. mount the backend before anything else can reach us. */
-    err_t rc = g_backend->mount(&g_ctx);
+    Err rc = g_backend->mount(&g_ctx);
     if (rc != ZUZU_OK) {
         LOG_ERROR(LOG_TAG, "mount failed: %d", (int)rc);
         return 1;

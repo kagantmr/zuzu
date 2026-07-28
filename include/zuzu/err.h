@@ -7,7 +7,7 @@ extern "C" {
 
 #include <stdint.h>
 
-typedef int32_t err_t;
+typedef int32_t Err;
 
 /*
  * These codes are part of the syscall contract: the number
@@ -81,7 +81,7 @@ typedef int32_t err_t;
  * @param err The error code to describe.
  * @return const char* A pointer to a string describing the error code.
  */
-const char *strtoerror(err_t err);
+const char *strtoerror(Err errcode);
 
 #ifdef __cplusplus
 }

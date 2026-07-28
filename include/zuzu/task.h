@@ -68,9 +68,9 @@ static inline int32_t zuzu_sleep(uint32_t ms) {
  * @brief Spawns a new process with the specified name.
  * 
  * @param name The name of the process to spawn.
- * @return tspawn_result_t Returns a structure containing the task handle and process ID of the newly spawned process.
+ * @return TSpawnResult Returns a structure containing the task handle and process ID of the newly spawned process.
  */
-static inline tspawn_result_t zuzu_pspawn(const char* name) {
+static inline TSpawnResult zuzu_pspawn(const char* name) {
     size_t name_len = 0;
     while (name && name[name_len])
         name_len++;
@@ -80,7 +80,7 @@ static inline tspawn_result_t zuzu_pspawn(const char* name) {
         .name_len = name_len,
     };
     Message result = syscall_msg(SYS_PSPAWN, (uint32_t)(uintptr_t)&args, 0, 0, 0);
-    return (tspawn_result_t) {.taskHandle = (Handle) result.w0, .pid = (Pid) result.w1};
+    return (TSpawnResult) {.taskHandle = (Handle) result.w0, .pid = (Pid) result.w1};
 }
 
 /**

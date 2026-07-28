@@ -46,8 +46,8 @@ static uint32_t flags_to_fsd_mode(int flags)
     return mode;
 }
 
-/* zuzu err_t -> POSIX errno. */
-static int err_to_errno(err_t e)
+/* zuzu Err -> POSIX errno. */
+static int err_to_errno(Err e)
 {
     switch (e) {
     case ZUZU_OK:        return 0;
@@ -77,7 +77,7 @@ static int err_to_errno(err_t e)
 static Handle console_port(void) {
     if (console_tty < 0) {
         Message lu = zuzu_msg_call(NT_PORT, NT_LOOKUP, nt_pack("tty0"), 0);
-        if ((err_t)lu.w1 != NT_LU_OK)
+        if ((Err)lu.w1 != NT_LU_OK)
             return -1;
         console_tty = (Handle)lu.w2;
     }
@@ -123,7 +123,7 @@ static void fsd_release(void)
 static int fsd_connect(void) {
     if (fsd_buf) return 0;
     Message lu = zuzu_msg_call(NT_PORT, NT_LOOKUP, nt_pack("fsd\0"), 0);
-    if ((err_t)lu.w1 != NT_LU_OK) return -1;
+    if ((Err)lu.w1 != NT_LU_OK) return -1;
     fsd_handle = (Handle)lu.w2;
     uint32_t fsd_pid = lu.w3;
 
@@ -138,7 +138,7 @@ static int fsd_connect(void) {
 
     Message r = zuzu_msg_call(fsd_handle, FSD_SET_BUF,
                             FSD_SETBUF_PACK(slot, FSD_SHM_DEFAULT), 0);
-    if ((err_t)r.w1 != ZUZU_OK) return -1;
+    if ((Err)r.w1 != ZUZU_OK) return -1;
 
     fsd_buf  = p;
     fsd_size = FSD_SHM_DEFAULT;
@@ -203,10 +203,10 @@ int _write(int file, char *ptr, int len)
 
         Message r = zuzu_msg_call(fsd_handle, FSD_WRITE,
                                 ((uint32_t)fsd_fd[file] & 0xFFFFu) | (chunk << 16), 0);
-        if ((err_t)r.w1 != ZUZU_OK) {
+        if ((Err)r.w1 != ZUZU_OK) {
             if (off) break;                  /* partial write wins */
             fsd_release();
-            errno = err_to_errno((err_t)r.w1);
+            errno = err_to_errno((Err)r.w1);
             return -1;
         }
 
@@ -289,10 +289,10 @@ int _read(int file, char *ptr, int len)
 
         Message r = zuzu_msg_call(fsd_handle, FSD_READ,
                                 ((uint32_t)fsd_fd[file] & 0xFFFFu) | (chunk << 16), 0);
-        if ((err_t)r.w1 != ZUZU_OK) {
+        if ((Err)r.w1 != ZUZU_OK) {
             if (off) break;                  /* partial success wins */
             fsd_release();
-            errno = err_to_errno((err_t)r.w1);
+            errno = err_to_errno((Err)r.w1);
             return -1;
         }
 
@@ -315,7 +315,7 @@ int _close(int file) {
     Message r = zuzu_msg_call(fsd_handle, FSD_CLOSE, (uint32_t)fsd_fd[file], 0);
     fsd_fd[file] = -1;                     /* free the slot regardless */
 
-    if ((err_t)r.w1 != ZUZU_OK) { errno = err_to_errno((err_t)r.w1); return -1; }
+    if ((Err)r.w1 != ZUZU_OK) { errno = err_to_errno((Err)r.w1); return -1; }
     return 0;
 }
 
@@ -338,7 +338,7 @@ int _lseek(int file, int ptr, int dir)
     memcpy((uint8_t *)fsd_buf + FSD_REQ_OFF, &req, sizeof(req));
 
     Message r = zuzu_msg_call(fsd_handle, FSD_SEEK, 0, 0);
-    if ((err_t)r.w1 != ZUZU_OK) { fsd_release(); errno = err_to_errno((err_t)r.w1); return -1; }
+    if ((Err)r.w1 != ZUZU_OK) { fsd_release(); errno = err_to_errno((Err)r.w1); return -1; }
 
     fsd_release();
     return (int)r.w2;   /* new absolute offset (truncated to 32 bits) */
@@ -370,7 +370,7 @@ int _fstat(int file, struct stat *st)
     fsd_claim();
     Message r = zuzu_msg_call(fsd_handle, FSD_FSTAT,
                             (uint32_t)fsd_fd[file], 0);
-    if ((err_t)r.w1 != ZUZU_OK) { fsd_release(); errno = err_to_errno((err_t)r.w1); return -1; }
+    if ((Err)r.w1 != ZUZU_OK) { fsd_release(); errno = err_to_errno((Err)r.w1); return -1; }
 
     fsd_stat_t fst;
     memcpy(&fst, (const uint8_t *)fsd_buf + FSD_DATA_OFF, sizeof(fst));
@@ -410,7 +410,7 @@ int _open(const char *name, int flags, ...) {
     memcpy((uint8_t *)fsd_buf + FSD_REQ_OFF, &req, sizeof(req));
 
     Message r = zuzu_msg_call(fsd_handle, FSD_OPEN, 0, 0);
-    if ((err_t)r.w1 != ZUZU_OK) { fsd_release(); errno = err_to_errno((err_t)r.w1); return -1; }
+    if ((Err)r.w1 != ZUZU_OK) { fsd_release(); errno = err_to_errno((Err)r.w1); return -1; }
 
     fsd_fd[pfd] = (int)r.w2;
     fsd_release();
@@ -474,7 +474,7 @@ int _stat(const char *name, struct stat *st)
     memcpy((uint8_t *)fsd_buf + FSD_REQ_OFF, &req, sizeof(req));
 
     Message r = zuzu_msg_call(fsd_handle, FSD_STAT, 0, 0);
-    if ((err_t)r.w1 != ZUZU_OK) { fsd_release(); errno = err_to_errno((err_t)r.w1); return -1; }
+    if ((Err)r.w1 != ZUZU_OK) { fsd_release(); errno = err_to_errno((Err)r.w1); return -1; }
 
     fsd_stat_t fst;
     memcpy(&fst, (const uint8_t *)fsd_buf + FSD_DATA_OFF, sizeof(fst));
@@ -507,7 +507,7 @@ int _unlink(const char *name)
     memcpy((uint8_t *)fsd_buf + FSD_REQ_OFF, &req, sizeof(req));
 
     Message r = zuzu_msg_call(fsd_handle, FSD_UNLINK, 0, 0);
-    if ((err_t)r.w1 != ZUZU_OK) { fsd_release(); errno = err_to_errno((err_t)r.w1); return -1; }
+    if ((Err)r.w1 != ZUZU_OK) { fsd_release(); errno = err_to_errno((Err)r.w1); return -1; }
     fsd_release();
     return 0;
 }

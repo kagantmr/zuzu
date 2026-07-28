@@ -112,7 +112,7 @@ static Pid  g_sysd_pid;
 static int sysd_setup(void)
 {
     Message r = zuzu_msg_call(NT_PORT, NT_LOOKUP, nt_pack(NT_NAME_SYS), 0);
-    if ((err_t)r.w1 != NT_LU_OK)
+    if ((Err)r.w1 != NT_LU_OK)
         return -1;
     g_sysd_port = (int32_t)r.w2;
     g_sysd_pid  = (Pid)r.w3;
@@ -127,7 +127,7 @@ typedef struct { Handle task; Pid pid; } child_t;
  * Returns 0, or a negative err. */
 static int32_t child_spawn(const char *arg1, Handle grant_h, child_t *out)
 {
-    tspawn_result_t ts = zuzu_pspawn(CHILD_NAME);
+    TSpawnResult ts = zuzu_pspawn(CHILD_NAME);
     if (ts.taskHandle < 0)
         return ts.taskHandle;
 
@@ -522,7 +522,7 @@ static void sec_handles(void)
     CHECK(g_worker_ok, "caller unaffected");
 
     /* destroy TASK handle -> rejected */
-    tspawn_result_t ts = zuzu_pspawn("zzt_dummy");
+    TSpawnResult ts = zuzu_pspawn("zzt_dummy");
     CHECK(ts.taskHandle >= 0, "pspawn empty process");
     CHECK_EQ(zuzu_destroy(ts.taskHandle), ERR_BADTYPE, "destroy TASK handle -> ERR_BADTYPE");
     CHECK_EQ(zuzu_pkill(ts.taskHandle), 0, "pkill empty process");
