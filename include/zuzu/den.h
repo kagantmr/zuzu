@@ -15,7 +15,7 @@ extern "C" {
  * 
  * @return den_id_t Returns the ID of the newly created den, or a negative value on error.
  */
-den_id_t den_create(const char *name, uint32_t cap);
+DenID den_create(const char *name, uint32_t cap);
 
 /**
  * @brief Destroys the den with the specified ID.
@@ -24,7 +24,7 @@ den_id_t den_create(const char *name, uint32_t cap);
  * 
  * @return int Returns 0 on success, or a negative value on error.
  */
-int den_destroy(den_id_t id);
+int den_destroy(DenID id);
 
 /**
  * @brief Retrieves the ID of the den with the specified name.
@@ -33,7 +33,7 @@ int den_destroy(den_id_t id);
  * 
  * @return den_id_t Returns the ID of the den if found, or a negative value if not found.
  */
-den_id_t den_myden(const char *name);
+DenID den_myden(const char *name);
 
 #ifdef __cplusplus
 }

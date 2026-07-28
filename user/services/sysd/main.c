@@ -228,7 +228,7 @@ static void nt_handle_msg(msg_t msg) {
         }
 
         memcpy(lmsg_buf(), &reply, sizeof(reply));
-        (void)chan_reply((handle_t)reply_handle, lmsg_buf(), sizeof(reply));
+        (void)chan_reply((Handle)reply_handle, lmsg_buf(), sizeof(reply));
         return;
     }
 
@@ -456,7 +456,7 @@ static void reap_all(void)
 
 static bool wait_for_service(uint32_t name_u32) {
     uint32_t handle = 0, pid = 0, waited_ms = 0;
-    handle_t recv_handles[1] = {(handle_t)port};
+    Handle recv_handles[1] = {(Handle)port};
 
     while (nt_lookup(name_u32, zuzu_getpid(), &handle, &pid) != NT_LU_OK &&
            waited_ms < WAIT_TIMEOUT_MS) {
@@ -610,7 +610,7 @@ static bool wait_for_tty_registration(uint32_t pid,
                                       uint32_t *out_pid)
 {
     uint32_t waited_ms = 0;
-    handle_t recv_handles[1] = {(handle_t)port};
+    Handle recv_handles[1] = {(Handle)port};
 
     while (nt_lookup_pid(pid, zuzu_getpid(), out_handle, out_pid) != NT_LU_OK &&
            waited_ms < WAIT_TIMEOUT_MS) {

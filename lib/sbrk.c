@@ -9,7 +9,7 @@ static arena_t heap;   /* the single owner of heap VA in this process */
 void *sbrk(intptr_t incr)
 {
     if (!heap.base) {
-        vaddr_t p = (vaddr_t)zuzu_memmap(HANDLE_ANON, HEAP_RESERVE,
+        VirtAddr p = (VirtAddr)zuzu_memmap(HANDLE_ANON, HEAP_RESERVE,
                                      VM_PROT_READ | VM_PROT_WRITE, 0);
         if (zuzu_is_err((void *)p))
             return (void *)-1;
@@ -18,7 +18,7 @@ void *sbrk(intptr_t incr)
         heap.mapped = p + HEAP_RESERVE;
     }
 
-    vaddr_t old = heap.brk;
+    VirtAddr old = heap.brk;
 
     if (incr > 0 && (size_t)incr > heap.mapped - heap.brk)
         return (void *)-1;                       /* out of reservation */

@@ -15,7 +15,7 @@ void tables_init(const fs_backend_t *b, void *ctx) {
     g_ctx = ctx;
 }
 
-err_t client_register(uint32_t pid, handle_t shm, uint32_t size)
+err_t client_register(uint32_t pid, Handle shm, uint32_t size)
 {
     if (client_find(pid) != NULL) return ERR_DUPLICATE; /* already registered */
     if (size < FSD_SHM_MIN || size > FSD_SHM_MAX) return ERR_MALFORMED;

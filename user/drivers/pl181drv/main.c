@@ -327,7 +327,7 @@ static int pl181drv_setup(void)
     if (pl181_setup() < 0)
         return -1;
 
-    handle_t shm_h = zuzu_shm_create(4096);
+    Handle shm_h = zuzu_shm_create(4096);
     if (shm_h < 0)
     {
         LOG_ERROR(LOG_TAG, "shmem failed");

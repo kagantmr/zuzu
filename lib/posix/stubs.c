@@ -14,11 +14,11 @@
 
 #define MAX_FD 32
 
-static handle_t console_tty = -1;
+static Handle console_tty = -1;
 static int console_raw_mode = 0;
 extern void *sbrk(intptr_t incr);
 static int fsd_fd[MAX_FD] = { [0 ... MAX_FD - 1] = -1 };
-static handle_t fsd_handle = -1;
+static Handle fsd_handle = -1;
 
 /* POSIX open flags -> FSD_MODE_* bits.
  * O_RDONLY is 0, so the access mode must be masked, not bit-tested. */
@@ -74,12 +74,12 @@ static int err_to_errno(err_t e)
     }
 }
 
-static handle_t console_port(void) {
+static Handle console_port(void) {
     if (console_tty < 0) {
         msg_t lu = zuzu_msg_call(NT_PORT, NT_LOOKUP, nt_pack("tty0"), 0);
         if ((err_t)lu.r1 != NT_LU_OK)
             return -1;
-        console_tty = (handle_t)lu.r2;
+        console_tty = (Handle)lu.r2;
     }
     return console_tty;
 }
@@ -124,10 +124,10 @@ static int fsd_connect(void) {
     if (fsd_buf) return 0;
     msg_t lu = zuzu_msg_call(NT_PORT, NT_LOOKUP, nt_pack("fsd\0"), 0);
     if ((err_t)lu.r1 != NT_LU_OK) return -1;
-    fsd_handle = (handle_t)lu.r2;
+    fsd_handle = (Handle)lu.r2;
     uint32_t fsd_pid = lu.r3;
 
-    handle_t shm = zuzu_shm_create(FSD_SHM_DEFAULT);
+    Handle shm = zuzu_shm_create(FSD_SHM_DEFAULT);
     if (shm < 0) return -1;
 
     void *p = zuzu_memmap(shm, 0, VM_PROT_RW, 0);
@@ -174,7 +174,7 @@ int _write(int file, char *ptr, int len)
 
     /* stdout/stderr -> console */
     if (file == 1 || file == 2) {
-        handle_t tty = console_port();
+        Handle tty = console_port();
         if (tty < 0) { errno = EIO; return -1; }
 
         size_t off = 0;
@@ -233,7 +233,7 @@ int _read(int file, char *ptr, int len)
 
 
     if (file == 0) {
-        handle_t tty = console_port();
+        Handle tty = console_port();
         if (tty < 0) { errno = EIO; return -1; }
 
         uint32_t want = (uint32_t)len;

@@ -14,7 +14,7 @@ static irq_owner_t irq_owners[MAX_IRQS];
 
 static void relay_handler(void *ctx)
 {
-    irq_t irq_num = (irq_t)(vaddr_t)ctx;
+    Irq irq_num = (Irq)(VirtAddr)ctx;
     arch_irq_disable_line(irq_num);
 
     irq_owners[irq_num].pending = true;
@@ -63,7 +63,7 @@ static void relay_handler(void *ctx)
     }
 }
 
-static inline bool valid_irq(irq_t irq_num) {
+static inline bool valid_irq(Irq irq_num) {
     return (irq_num < MAX_IRQS) && !arch_irq_is_reserved(irq_num);
 }
 
@@ -73,8 +73,8 @@ static inline bool valid_irq(irq_t irq_num) {
  * syscalls, irq_claim + zuzu_irq_bind, which every caller invoked back-to-back.
  */
 void sys_irq_bind(arch_regs_t *frame) {
-    handle_t dev_handle  = (*arch_reg(frame, 0));
-    handle_t ntfn_handle = (*arch_reg(frame, 1));
+    Handle dev_handle  = (*arch_reg(frame, 0));
+    Handle ntfn_handle = (*arch_reg(frame, 1));
 
     if (dev_handle == 0) {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE;
@@ -90,7 +90,7 @@ void sys_irq_bind(arch_regs_t *frame) {
         return;
     }
 
-    irq_t irq_num = entry->dev->irq;
+    Irq irq_num = entry->dev->irq;
     if (!valid_irq(irq_num)) {
         (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
@@ -126,7 +126,7 @@ void sys_irq_bind(arch_regs_t *frame) {
             .owner = current_thread->owner_process,
             .pending = false
         };
-        arch_irq_register(irq_num, relay_handler, (void*)(vaddr_t)irq_num);
+        arch_irq_register(irq_num, relay_handler, (void*)(VirtAddr)irq_num);
     }
 
     if (irq_owners[irq_num].bound_ntfn) {
@@ -182,7 +182,7 @@ void sys_irq_bind(arch_regs_t *frame) {
 }
 
 void sys_irq_done(arch_regs_t* frame) {
-    handle_t dev_handle  = (*arch_reg(frame, 0));
+    Handle dev_handle  = (*arch_reg(frame, 0));
 
     if (dev_handle == 0) {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE;

@@ -28,7 +28,7 @@ void sys_port_create(arch_regs_t *frame)
         return;
     }
 
-    handle_t handle = handle_vec_find_free(&current_thread->owner_process->handle_table);
+    Handle handle = handle_vec_find_free(&current_thread->owner_process->handle_table);
     if (handle == -1)
     {
         (*arch_reg(frame, 0)) = ERR_NOMEM;
@@ -315,8 +315,8 @@ void sys_grant(arch_regs_t *frame)
         return;
     }
 
-    handle_t handle = (handle_t)(*arch_reg(frame, 0));
-    zpid_t pid = (*arch_reg(frame, 1));
+    Handle handle = (Handle)(*arch_reg(frame, 0));
+    Pid pid = (*arch_reg(frame, 1));
 
     // Validate handle
     handle_entry_t *src = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle);
@@ -410,5 +410,5 @@ void sys_grant(arch_regs_t *frame)
             dst->shm->ref_count++;  // new handle reference to the same object
     }
     dst->grantable = can_regrant_received_handle(grantee);
-    (*arch_reg(frame, 0)) = (handle_t)slot;
+    (*arch_reg(frame, 0)) = (Handle)slot;
 }

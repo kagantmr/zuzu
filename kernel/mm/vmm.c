@@ -51,8 +51,8 @@ addrspace_t* vmm_get_kernel_as(void) {
 static uint32_t ioremap_bitmap[8];  // Bit N = slot N allocated
 
 typedef struct {
-    vaddr_t va;       // Base VA (0 = unused entry)
-    paddr_t pa;       // Physical address  
+    VirtAddr va;       // Base VA (0 = unused entry)
+    PhysAddr pa;       // Physical address  
     uint32_t sections;  // Number of 1MB sections
 } ioremap_entry_t;
 static ioremap_entry_t ioremap_table[IOREMAP_MAX_ENTRIES];
@@ -165,7 +165,7 @@ addrspace_t* as_create(addrspace_type_t type) {
 }
 
 void vmm_lockdown_kernel_sections(void) {
-    vaddr_t *l1 = (vaddr_t *)PA_TO_VA(g_kernel_as->ttbr_pa);
+    VirtAddr *l1 = (VirtAddr *)PA_TO_VA(g_kernel_as->ttbr_pa);
  
     size_t start_idx = kernel_layout.kernel_start_va >> 20;
     size_t end_idx   = (kernel_layout.kernel_end_va + (1 << 20) - 1) >> 20;
@@ -184,8 +184,8 @@ void vmm_lockdown_kernel_sections(void) {
 
         // Coarse page table (bits[1:0] == 0b01)
         if ((entry & 0x3) == 0x1) {
-            paddr_t l2_pa = entry & 0xFFFFFC00u;
-            vaddr_t *l2 = (uint32_t *)PA_TO_VA(l2_pa);
+            PhysAddr l2_pa = entry & 0xFFFFFC00u;
+            VirtAddr *l2 = (uint32_t *)PA_TO_VA(l2_pa);
 
             for (size_t j = 0; j < 256; j++) {
                 uint32_t pte = l2[j];
@@ -244,8 +244,8 @@ void as_destroy(addrspace_t* as) {
 bool vmm_add_region(addrspace_t *as, const vm_region_t *region) {
     if (!as || !region || region->size == 0) return false;
 
-    vaddr_t new_start = region->vaddr_start;
-    vaddr_t new_end   = new_start + region->size;
+    VirtAddr new_start = region->vaddr_start;
+    VirtAddr new_end   = new_start + region->size;
 
     uint32_t lo = 0, hi = as->regions.len;
     while (lo < hi) {
@@ -341,10 +341,10 @@ void vmm_bootstrap(void) {
         g_current_addrspace = g_kernel_as;
 
         // Record kernel RAM region for bookkeeping
-        paddr_t ram_pa_base = kernel_layout.ram_start;
+        PhysAddr ram_pa_base = kernel_layout.ram_start;
         size_t ram_size = kernel_layout.ram_end - kernel_layout.ram_start;
-        paddr_t map_pa_start = ram_pa_base & ~(SECTION_SIZE - 1);
-        paddr_t map_pa_end = (ram_pa_base + ram_size + SECTION_SIZE - 1) & ~(SECTION_SIZE - 1);
+        PhysAddr map_pa_start = ram_pa_base & ~(SECTION_SIZE - 1);
+        PhysAddr map_pa_end = (ram_pa_base + ram_size + SECTION_SIZE - 1) & ~(SECTION_SIZE - 1);
         size_t map_size = map_pa_end - map_pa_start;
 
         vm_region_t kernel_region = {
@@ -379,13 +379,13 @@ void vmm_remove_identity_mapping(void) {
         return;
     }
 
-    paddr_t ram_pa_base = kernel_layout.ram_start;
+    PhysAddr ram_pa_base = kernel_layout.ram_start;
     size_t ram_size = kernel_layout.ram_end - kernel_layout.ram_start;
-    paddr_t map_pa_start = ram_pa_base & ~(SECTION_SIZE - 1);
-    paddr_t map_pa_end = (ram_pa_base + ram_size + SECTION_SIZE - 1) & ~(SECTION_SIZE - 1);
+    PhysAddr map_pa_start = ram_pa_base & ~(SECTION_SIZE - 1);
+    PhysAddr map_pa_end = (ram_pa_base + ram_size + SECTION_SIZE - 1) & ~(SECTION_SIZE - 1);
     size_t map_size = map_pa_end - map_pa_start;
 
-    paddr_t cur_sp = 0;
+    PhysAddr cur_sp = 0;
     __asm__ volatile("mov %0, sp" : "=r"(cur_sp));
 
     if (cur_sp < KERNEL_VA_BASE) {
@@ -423,7 +423,7 @@ void vmm_activate(addrspace_t* as) {
     g_current_addrspace = as;
 }
 
-bool vmm_map_range(addrspace_t* as, vaddr_t va, paddr_t pa, size_t size,
+bool vmm_map_range(addrspace_t* as, VirtAddr va, PhysAddr pa, size_t size,
                    vm_prot_t prot, vm_memtype_t memtype, vm_owner_t owner, vm_flags_t flags) {
     if (!as) return false;
     if (size == 0) return false;
@@ -451,7 +451,7 @@ bool vmm_map_range(addrspace_t* as, vaddr_t va, paddr_t pa, size_t size,
     return arch_mmu_map(as, va, pa, size, prot, memtype);
 }
 
-bool vmm_unmap_range(addrspace_t* as, vaddr_t va, size_t size) {
+bool vmm_unmap_range(addrspace_t* as, VirtAddr va, size_t size) {
     if (!as) return false;
     if (size == 0) return false;
     if ((va % PAGE_SIZE) != 0) return false;    // page granularity
@@ -460,7 +460,7 @@ bool vmm_unmap_range(addrspace_t* as, vaddr_t va, size_t size) {
     return arch_mmu_unmap(as, va, size);
 }
 
-bool vmm_protect_range(addrspace_t *as, vaddr_t va, size_t size, vm_prot_t new_prot)
+bool vmm_protect_range(addrspace_t *as, VirtAddr va, size_t size, vm_prot_t new_prot)
 {
     if (!as || size == 0) return false;
 
@@ -480,7 +480,7 @@ bool vmm_protect_range(addrspace_t *as, vaddr_t va, size_t size, vm_prot_t new_p
     return true;
 }
 
-bool vmm_map_user_page(addrspace_t* as, paddr_t pa, vaddr_t va, vm_prot_t prot) {
+bool vmm_map_user_page(addrspace_t* as, PhysAddr pa, VirtAddr va, vm_prot_t prot) {
     if (!as) return false;
     if (as->type != ADDRSPACE_USER) return false;
     if ((pa % PAGE_SIZE) != 0) return false;
@@ -508,7 +508,7 @@ static int bitmap_find_free(uint32_t n) {
     return -1;
 }
 
-bool fault_in_pages(addrspace_t *as, vaddr_t va, size_t len, bool write) {
+bool fault_in_pages(addrspace_t *as, VirtAddr va, size_t len, bool write) {
     if (!as)
         return false;
     if (len == 0)
@@ -567,7 +567,7 @@ static void bitmap_free(uint32_t start, uint32_t count) {
 }
 
 // Find ioremap_table entry by VA
-static ioremap_entry_t* ioremap_find(vaddr_t va) {
+static ioremap_entry_t* ioremap_find(VirtAddr va) {
     for (size_t i = 0; i < IOREMAP_MAX_ENTRIES; i++) {
         if (ioremap_table[i].va == va) {
             return &ioremap_table[i];
@@ -586,7 +586,7 @@ static ioremap_entry_t* ioremap_alloc_entry(void) {
     return NULL;
 }
 
-void* ioremap(paddr_t phys, size_t size) {
+void* ioremap(PhysAddr phys, size_t size) {
     if (size == 0) {
         return NULL;
     }

@@ -8,7 +8,7 @@
 
 typedef struct {
     uint32_t pid;          /* 0 = free */
-    handle_t shm_handle;
+    Handle shm_handle;
     void    *buf;
     uint32_t shm_size;
 } fsd_client_t;

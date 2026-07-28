@@ -14,7 +14,7 @@ void tables_init(const fs_backend_t *b, void *ctx);
  /**
   * Register a new client with the given PID and shared memory handle.
   */
-err_t          client_register(uint32_t pid, handle_t shm, uint32_t size);
+err_t          client_register(uint32_t pid, Handle shm, uint32_t size);
 
 /**
  * Find a client by (pid). Returns NULL if not found.

@@ -30,7 +30,7 @@ typedef struct
 typedef struct
 {
     uint32_t size;        /* sizeof(asinject_args_t); wrapper sets it */
-    handle_t task_handle; // handle of the target task
+    Handle task_handle; // handle of the target task
     uintptr_t dst_va;     // destination virtual address in the target task's address space
     const void *src_buf;  // pointer to the source buffer in the current task's address space
     size_t len;           // length of the source buffer in bytes
@@ -41,7 +41,7 @@ typedef struct
 typedef struct
 {
     uint32_t size;        /* sizeof(kickstart_args_t); wrapper sets it */
-    handle_t task_handle; // handle of the target task
+    Handle task_handle; // handle of the target task
     uintptr_t entry;      // entry point address in the target task's address space
     uintptr_t sp;         // stack pointer value for the target task
     uint32_t r0_val;      // value to set in register r0 of the target task

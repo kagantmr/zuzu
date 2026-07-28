@@ -34,7 +34,7 @@ extern "C" {
  * @param len The length of the message data in bytes.
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t chan_send(handle_t port, const void *buf, uint32_t len)
+static inline int32_t chan_send(Handle port, const void *buf, uint32_t len)
 {
     if (len > LMSG_BUF_SIZE) return ERR_BADARG;
     memcpy(lmsg_buf(), buf, len);
@@ -52,7 +52,7 @@ static inline int32_t chan_send(handle_t port, const void *buf, uint32_t len)
  * 
  * @return int32_t Returns the number of bytes received in the reply on success, or a negative error code on failure.
  */
-static inline int32_t chan_call(handle_t port,
+static inline int32_t chan_call(Handle port,
                                 const void *buf,    uint32_t len,
                                 void       *reply,  uint32_t reply_cap)
 {
@@ -80,7 +80,7 @@ static inline int32_t chan_call(handle_t port,
  * 
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t chan_reply(handle_t reply_handle,
+static inline int32_t chan_reply(Handle reply_handle,
                                  const void *buf, uint32_t len)
 {
     if (len > LMSG_BUF_SIZE) return ERR_BADARG;

@@ -58,10 +58,10 @@ static inline bool rate_allow(rate_limiter_t *rl, uint32_t rate, uint32_t burst)
 }
 
 extern nic_ring_t *tx_ring, *rx_ring;
-extern handle_t nic_port;
-extern handle_t nic_ntfn;
-extern handle_t tx_doorbell; /* notification netd signals to kick the driver's TX drain */
-extern handle_t handles[2];
+extern Handle nic_port;
+extern Handle nic_ntfn;
+extern Handle tx_doorbell; /* notification netd signals to kick the driver's TX drain */
+extern Handle handles[2];
 extern netif_t netif;
 
 #define drv_port nic_port

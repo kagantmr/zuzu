@@ -51,22 +51,22 @@ typedef struct thread_wait_slot
 
 struct thread
 {
-    vaddr_t kernel_stack_top; // base of kernel stack for freeing (offset 0)
+    VirtAddr kernel_stack_top; // base of kernel stack for freeing (offset 0)
     arch_regs_t *trap_frame;  // pointer to saved user registers for IPC and context switching (offset 4)
-    tid_t tid;                // thread ID (offset 8)
+    Tid tid;                // thread ID (offset 8)
     uint32_t *kernel_sp;      // current kernel stack pointer for context switching (offset 12 - CRITICAL: switch.S offset)
     int32_t exit_status;
     list_node_t node;         // embedded, not pointers
     list_node_t process_node; // membership in owner process thread list
     list_node_t timeout_node;
     wake_reason_t wake_reason;
-    tick_t wake_tick;
+    Tick wake_tick;
     state_t state;
     list_node_t destroy_node;
     ipc_state_t ipc_state;
     endpoint_t *blocked_endpoint;
     reply_cap_t *pending_reply_cap;
-    paddr_t ipc_buf_pa;
+    PhysAddr ipc_buf_pa;
     size_t ipc_buf_xfer_len;
     thread_wait_slot_t ntfn_wait_slot;
     thread_wait_slot_t waitany_wait_slots[WAITANY_MAX_HANDLES];
@@ -84,7 +84,7 @@ struct thread
     waitany_result_t waitany_pending_result;
     uint32_t priority, time_slice, ticks_remaining;
     process_t *owner_process; // backpointer to owning process
-    vaddr_t thread_info_va;
+    VirtAddr thread_info_va;
     uint8_t tcb_slot; // index into owner's TCB page, TCB_SLOT_NONE if unassigned
     fpu_state_t fpu_state; // lazily saved/restored, see kernel/sched/sched.c fpu_owner
 };
@@ -100,7 +100,7 @@ _Static_assert(offsetof(thread_t, kernel_sp) == 12,
 void thread_destroy(thread_t *thread);
 thread_t *thread_create(process_t *owner_process);
 void thread_kill(thread_t *thread);
-thread_t *thread_find_by_tid(tid_t tid);
+thread_t *thread_find_by_tid(Tid tid);
 
 static inline void thread_waitany_clear_waits(thread_t *thread)
 {

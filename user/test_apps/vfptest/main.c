@@ -48,7 +48,7 @@ int main(void)
     for (int i = 0; i < NTHREADS; i++)
         expected[i] = compute(seeds[i], ITERS);
 
-    tid_t tids[NTHREADS];
+    Tid tids[NTHREADS];
     worker_arg_t args[NTHREADS];
 
     for (int i = 0; i < NTHREADS; i++) {
