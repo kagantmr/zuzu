@@ -7,8 +7,4 @@
 #define SYSD_NAME_LEN 4
 #define SYSD_MAX_DENS 64
 
-#include <zuzu/user_layout.h>
-
-#define INITRD_BASE (USER_MMAP_BASE + 0x1000)
-
 #endif

@@ -177,8 +177,10 @@ SD_PROGS              = $(DISK_PROGS) $(NEWLIB_PROGS)
 SD_PROG_PACKED_ELFS   = $(SD_PROGS:%=build/user/%.stripped.elf)
 
 # ---- initrd --------------------------------------------------------------
+# build/initrd.cpio is shipped to a bootloader/firmware as a standalone
+# file (U-Boot's initrd.uImage, or a board's own firmware-loaded
+# initramfs) — it is never linked into the kernel ELF.
 INITRD             = build/initrd.cpio
-INITRD_OBJ         = build/$(ARCH_DIR)/initrd.o
 INITRD_EXTRA_DIR  ?= initrd
 INITRD_EXTRA_FILES := $(shell find $(INITRD_EXTRA_DIR) -type f 2>/dev/null)
 # DISK_ROLES programs staged into the initrd too, in addition to the SD card
@@ -212,7 +214,7 @@ CSRCS    += $(LIBFDT_SRCS)
 ASRCS_ALL = $(shell find $(NONARCH_DIRS) -name '*.S') \
             $(shell find $(ARCH_DIR) -name '*.S' $(ARCH_PRUNE_BOARDS)) \
             $(shell find $(BOARD_DIR) -name '*.S')
-ASRCS     = $(filter-out $(ARCH_DIR)/crt0.S $(ARCH_DIR)/initrd.S,$(ASRCS_ALL))
+ASRCS     = $(filter-out $(ARCH_DIR)/crt0.S,$(ASRCS_ALL))
 OBJS      = $(CSRCS:%.c=build/%.o) $(ASRCS:%.S=build/%.o)
 DEPS      = $(OBJS:.o=.d)
 USER_DEPS = $(USER_CRT0:.o=.d) $(NEWLIB_CRT0:.o=.d) $(USER_APP_OBJS:.o=.d) $(ZCRT_OBJS:.o=.d) $(NEWLIB_STUB_OBJS:.o=.d)
@@ -321,23 +323,18 @@ $(INITRD): $(BOOT_PROG_PACKED_ELFS) $(INITRD_EXTRA_PROG_ELFS) $(INITRD_EXTRA_FIL
 	@cd build/initrd && find . -not -name '.' | sort | cpio -o -H newc > ../initrd.cpio 2>/dev/null
 	@echo "  CPIO    $@ ($(words $(BOOT_PROGS) $(INITRD_EXTRA_PROGS)) boot program(s))"
 
-$(INITRD_OBJ): $(ARCH_DIR)/initrd.S $(INITRD)
-	@mkdir -p $(dir $@)
-	@echo "  AS      $<"
-	@$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
-
 # two-pass build to generate kernel symbol table
-$(TARGET): $(OBJS) $(INITRD_OBJ) $(LINKER_SCRIPT)
+$(TARGET): $(OBJS) $(LINKER_SCRIPT)
 	@mkdir -p $(dir $@)
 	@echo "  LD      (pass1) $@"
-	@$(LD) $(LDFLAGS) $(OBJS) $(INITRD_OBJ) $(KERNEL_LIBGCC) -o $@
+	@$(LD) $(LDFLAGS) $(OBJS) $(KERNEL_LIBGCC) -o $@
 	@echo "  PY      generating build/ksymtab.c"
 	@python3 scripts/symbol.py $@ build/ksymtab.c || true
 	@if [ -f build/ksymtab.c ]; then \
 		echo "  CC      build/ksymtab.o"; \
 		$(CC) $(CFLAGS) -c build/ksymtab.c -o build/ksymtab.o; \
 		echo "  LD      (final) $@"; \
-		$(LD) $(LDFLAGS) build/ksymtab.o $(OBJS) $(INITRD_OBJ) $(KERNEL_LIBGCC) -o $@; \
+		$(LD) $(LDFLAGS) build/ksymtab.o $(OBJS) $(KERNEL_LIBGCC) -o $@; \
 	else \
 		echo "  WARN: build/ksymtab.c not generated; final ELF uses empty symbol table"; \
 	fi
@@ -405,12 +402,14 @@ sdimg-clean:
 sdimg-recreate: sdimg-clean sdimg
 
 # ---- run / debug targets -------------------------------------------------
-# `run` boots through U-Boot on boards that have it wired up (vexpress-a15);
-# other boards (rpi4) have no U-Boot integration yet and keep booting
-# straight off the ELF/raw image via QEMU's -kernel. `run-direct` always
-# takes the no-bootloader path — useful on vexpress too, e.g. to exercise
-# the embedded-initrd fallback that only that path takes.
-.PHONY: run run-direct run-bridged run-pcap debug
+# vexpress-a15 always boots through U-Boot: the kernel no longer supports a
+# no-bootloader path (real vexpress hardware wouldn't have one either — a
+# board with its own firmware, like rpi4, hands off DTB/initrd directly and
+# never needed this). run/run-bridged/run-pcap/debug all resolve to their
+# *-uboot variants for it. Boards without a U-Boot integration keep booting
+# straight off the ELF/raw image via QEMU's -kernel (the *-direct variants).
+.PHONY: run run-bridged run-pcap debug
+.PHONY: run-direct run-direct-bridged run-direct-pcap debug-direct
 
 PCAP_FILE ?= /tmp/zuzu.pcap
 
@@ -423,33 +422,40 @@ QEMU_NET     = $(QEMU_NET_$(BOARD))
 # What QEMU boots: the ELF by default, a raw image where the board needs it.
 QEMU_KERNEL  = $(if $(QEMU_KERNEL_$(BOARD)),$(QEMU_KERNEL_$(BOARD)),$(TARGET))
 
-# Flags shared by every run/debug variant; each target adds -kernel + extras.
+# Flags shared by every direct-boot run/debug variant; each target adds
+# -kernel + extras.
 QEMU_ARGS = -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m $(QEMU_MEM) \
             -dtb $(DTB_FILE) -nographic -drive file=$(SD_IMG),if=sd,format=raw
 
 ifeq ($(BOARD),vexpress-a15)
-run: run-uboot
+run:         run-uboot
+run-bridged: run-uboot-bridged
+run-pcap:    run-uboot-pcap
+debug:       debug-uboot
 else
-run: run-direct
+run:         run-direct
+run-bridged: run-direct-bridged
+run-pcap:    run-direct-pcap
+debug:       debug-direct
 endif
 
 run-direct: $(QEMU_KERNEL) $(DTB_FILE)
 	@echo "  QEMU    $(QEMU_KERNEL)"
 	@$(QEMU_BIN) $(QEMU_ARGS) -kernel $(QEMU_KERNEL) $(QEMU_NET)
 
-run-bridged: $(TARGET) $(DTB_FILE)
+run-direct-bridged: $(TARGET) $(DTB_FILE)
 	@echo "  QEMU    $(TARGET) [bridged]"
 	@sudo $(QEMU_BIN) $(QEMU_ARGS) -kernel $(TARGET) \
 	    -nic vmnet-bridged,model=lan9118,ifname=en0,mac=52:54:00:ab:cd:ef
 
-run-pcap: $(TARGET) $(DTB_FILE)
+run-direct-pcap: $(TARGET) $(DTB_FILE)
 	@echo "  QEMU    $(TARGET) [pcap -> $(PCAP_FILE)]"
 	@$(QEMU_BIN) $(QEMU_ARGS) -kernel $(TARGET) \
 	    -net nic,model=lan9118 -net user,id=n0 \
 	    -object filter-dump,id=f0,netdev=n0,file=$(PCAP_FILE)
 	@echo "  PCAP    wrote $(PCAP_FILE) (read with: tcpdump -nr $(PCAP_FILE))"
 
-debug: $(TARGET) $(DTB_FILE)
+debug-direct: $(TARGET) $(DTB_FILE)
 	@echo "  QEMU    $(TARGET) (debug)"
 	@$(QEMU_BIN) $(QEMU_ARGS) -kernel $(TARGET) $(QEMU_NET) -S -gdb tcp::1234
 
@@ -552,15 +558,29 @@ $(UBOOT_SD_IMG): uboot-stage
 
 sdimg-uboot: $(UBOOT_SD_IMG)
 
+# Flags shared by every U-Boot run/debug variant; each target adds net +
+# extras (mirrors QEMU_ARGS's split for the direct-boot variants above).
 QEMU_UBOOT_ARGS = -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m $(QEMU_MEM) \
                   -nographic -kernel $(UBOOT_BIN) \
-                  -drive file=$(UBOOT_SD_IMG),if=sd,format=raw $(QEMU_NET)
+                  -drive file=$(UBOOT_SD_IMG),if=sd,format=raw
 
 run-uboot: sdimg-uboot $(UBOOT_BIN)
 	@echo "  QEMU    $(UBOOT_BIN) -> $(UBOOT_SD_IMG)"
-	@$(QEMU_BIN) $(QEMU_UBOOT_ARGS)
+	@$(QEMU_BIN) $(QEMU_UBOOT_ARGS) $(QEMU_NET)
 
-.PHONY: debug-uboot
+run-uboot-bridged: sdimg-uboot $(UBOOT_BIN)
+	@echo "  QEMU    $(UBOOT_BIN) -> $(UBOOT_SD_IMG) [bridged]"
+	@sudo $(QEMU_BIN) $(QEMU_UBOOT_ARGS) \
+	    -nic vmnet-bridged,model=lan9118,ifname=en0,mac=52:54:00:ab:cd:ef
+
+run-uboot-pcap: sdimg-uboot $(UBOOT_BIN)
+	@echo "  QEMU    $(UBOOT_BIN) -> $(UBOOT_SD_IMG) [pcap -> $(PCAP_FILE)]"
+	@$(QEMU_BIN) $(QEMU_UBOOT_ARGS) \
+	    -net nic,model=lan9118 -net user,id=n0 \
+	    -object filter-dump,id=f0,netdev=n0,file=$(PCAP_FILE)
+	@echo "  PCAP    wrote $(PCAP_FILE) (read with: tcpdump -nr $(PCAP_FILE))"
+
+.PHONY: debug-uboot run-uboot-bridged run-uboot-pcap
 
 # GDB won't survive a plain breakpoint on kernel code here: U-Boot's bootm
 # copies the raw zuzu.img over that RAM *after* GDB attaches, silently
@@ -570,7 +590,7 @@ run-uboot: sdimg-uboot $(UBOOT_BIN)
 # survives the copy regardless of when it was set.
 debug-uboot: sdimg-uboot $(UBOOT_BIN)
 	@echo "  QEMU    $(UBOOT_BIN) -> $(UBOOT_SD_IMG) (debug)"
-	@$(QEMU_BIN) $(QEMU_UBOOT_ARGS) -S -gdb tcp::1234
+	@$(QEMU_BIN) $(QEMU_UBOOT_ARGS) $(QEMU_NET) -S -gdb tcp::1234
 
 # ---- misc targets --------------------------------------------------------
 # Device tree blobs compiled from checked-in sources (QEMU only; real

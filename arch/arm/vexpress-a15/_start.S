@@ -79,7 +79,6 @@ early_paging_init:
 .equ MODE_HYP,        0x1a
 .equ TTBR0_BOOT_ATTRS, 0x6B
 .equ KERNEL_VA_OFFSET, 0x40000000
-.equ FDT_MAGIC_LE,    0xEDFE0DD0     @ 0xD00DFEED read little-endian
 
 .macro SET_MODE_STACK_PHYS mode, top_sym
     cps     #\mode
@@ -125,27 +124,13 @@ _start:
 svc_entry:
     /* Stash the bootloader's DTB pointer (Linux/u-boot ARM boot protocol:
      * r2 = DTB physical address) before r0-r3 get clobbered. r4 is
-     * callee-saved through everything below. */
+     * callee-saved through everything below. u-boot's bootm always
+     * populates this correctly — no fallback needed. */
     mov     r4, r2
 
     /* Set up stacks for all modes (at physical addresses) */
     bl      setup_mode_stacks
 
-    /* Validate it: a real bootloader sets r2, but QEMU's direct -kernel/
-     * -dtb ELF boot (no bootloader, `make run`) never populates the Linux
-     * boot registers for an ELF load, leaving r2 == 0 — guard against that
-     * before dereferencing it (no exception vectors exist yet to catch a
-     * fault on address 0), then fall back to the link-time address that
-     * path is known to drop the DTB at instead. */
-    cmp     r4, #0
-    beq     2f
-    ldr     r1, =FDT_MAGIC_LE
-    ldr     r0, [r4]
-    cmp     r0, r1
-    beq     1f
-2:
-    ldr     r4, =__dtb_fallback__
-1:
     /* Do page table init in C code */
     mov     r0, r4                  @ Pass DTB physical address
     bl      early_paging_init       @ Returns L1 table physical address in r0
