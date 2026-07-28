@@ -59,11 +59,11 @@ static inline int32_t chan_call(Handle port,
     if (len > LMSG_BUF_SIZE) return ERR_BADARG;
     memcpy(lmsg_buf(), buf, len);
 
-    msg_t msg = zuzu_msg_lcall(port, len);
-    if ((int32_t)msg.r0 < 0)
-        return (int32_t)msg.r0;
+    Message msg = zuzu_msg_lcall(port, len);
+    if (msg.w0 < 0)
+        return msg.w0;
 
-    uint32_t got = msg.r1;
+    uint32_t got = msg.w1;
     if (got > reply_cap) got = reply_cap;
     if (got && reply)
         memcpy(reply, lmsg_buf(), got);

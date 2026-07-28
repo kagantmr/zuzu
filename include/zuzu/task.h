@@ -79,8 +79,8 @@ static inline tspawn_result_t zuzu_pspawn(const char* name) {
         .name     = name,
         .name_len = name_len,
     };
-    msg_t result = syscall_msg(SYS_PSPAWN, (uint32_t)(uintptr_t)&args, 0, 0, 0);
-    return (tspawn_result_t) {.task_handle = (Handle) result.r0, .pid = (Pid) result.r1};
+    Message result = syscall_msg(SYS_PSPAWN, (uint32_t)(uintptr_t)&args, 0, 0, 0);
+    return (tspawn_result_t) {.taskHandle = (Handle) result.w0, .pid = (Pid) result.w1};
 }
 
 /**
@@ -90,11 +90,11 @@ static inline tspawn_result_t zuzu_pspawn(const char* name) {
  * @param elf_size Size of the ELF file data in bytes.
  * @param name Name of the process (null-terminated string).
  */
-static inline Handle zuzu_kickstart(Handle task_handle, uintptr_t entry,
+static inline Handle zuzu_kickstart(Handle taskHandle, uintptr_t entry,
                                   uintptr_t sp, uint32_t r0_val, uint32_t r1_val) {
     kickstart_args_t args = {
         .size        = sizeof(kickstart_args_t),
-        .task_handle = task_handle,
+        .taskHandle = taskHandle,
         .entry       = entry,
         .sp          = sp,
         .r0_val      = r0_val,
@@ -106,8 +106,8 @@ static inline Handle zuzu_kickstart(Handle task_handle, uintptr_t entry,
 /**
  * @brief Kills the process associated with the specified task handle.
  */
-static inline int32_t zuzu_pkill(Handle task_handle) {
-    return syscall(SYS_PKILL, task_handle, 0, 0, 0);
+static inline int32_t zuzu_pkill(Handle taskHandle) {
+    return syscall(SYS_PKILL, taskHandle, 0, 0, 0);
 }
 
 /**

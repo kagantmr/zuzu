@@ -33,7 +33,7 @@ static void               *g_ctx     = NULL;
  * ------------------------------------------------------------------ */
 
 /*
- * Copy the fsd_req_t out of the client's shm and validate it. r2 (cmd) is
+ * Copy the fsd_req_t out of the client's shm and validate it. w2 (cmd) is
  * authoritative: we copy the struct once, then reject if its cmd field does not
  * match, so a concurrently-mutating client cannot slip a different command past
  * us (TOCTOU). Every field we later act on comes from this private copy, never a
@@ -46,7 +46,7 @@ static err_t load_req(fsd_client_t *c, uint32_t cmd, fsd_req_t *out)
     memcpy(out, (const uint8_t *)c->buf + FSD_REQ_OFF, sizeof(*out)); /* copy first */
 
     if (out->size < sizeof(*out) || out->size > FSD_RESP_OFF) return ERR_MALFORMED;
-    if (out->cmd != cmd) return ERR_MALFORMED;                /* r2 authoritative */
+    if (out->cmd != cmd) return ERR_MALFORMED;                /* w2 authoritative */
     if (out->data_off < FSD_DATA_OFF) return ERR_MALFORMED;
     if (out->data_off > c->shm_size) return ERR_MALFORMED;
     if (out->data_len > c->shm_size - out->data_off) return ERR_MALFORMED; /* overflow-safe */
@@ -376,13 +376,13 @@ int main(void)
     /* 3. serve. */
     Handle handles[1] = { (Handle)g_port };
     while (1) {
-        waitany_result_t res;
+        WaitanyResult res;
         if (zuzu_waitany(handles, 1, TIMEOUT_INFINITE, &res) < 0)
             continue;
         if (res.kind != WAITANY_KIND_CALL)
             continue;   /* fsd is call-only; ignore stray sends/notifications */
 
-        dispatch(res.source, res.r1, res.r2, res.r3);
+        dispatch(res.source, res.w1, res.w2, res.w3);
     }
 
     return 0;

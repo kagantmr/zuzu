@@ -168,12 +168,12 @@ int devmgr_setup(void)
 void devmgr_loop(int32_t port_handle)
 {
     while (1) {
-        msg_t msg = zuzu_msg_recv(port_handle, TIMEOUT_INFINITE);
+        Message msg = zuzu_msg_recv(port_handle, TIMEOUT_INFINITE);
 
-        uint32_t reply_handle = (uint32_t)msg.r0;
-        uint32_t sender_pid = msg.r1;
-        uint32_t command = msg.r2;
-        uint32_t arg = msg.r3;
+        uint32_t reply_handle = (uint32_t)msg.w0;
+        uint32_t sender_pid = msg.w1;
+        uint32_t command = msg.w2;
+        uint32_t arg = msg.w3;
 
         if (command == DEV_REGISTER) {
             handle_register(reply_handle, arg);

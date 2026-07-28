@@ -4,7 +4,7 @@
 zprocx_handle_t zprocx_spawn(const char *name, const spawn_args_t *args) {
     (void)name; (void)args;
     zprocx_handle_t h;
-    h.task_handle = -1;
+    h.taskHandle = -1;
     h.pid = 0;
     h.alive = 0;
     return h;

@@ -22,7 +22,7 @@ extern "C" {
 typedef struct {
     uint8_t  cmd;            // SYSD_EXEC
     uint8_t  _pad;           // padding for alignment
-    uint16_t task_handle;    // slot in sysd's handle table (from _port_grant)
+    uint16_t taskHandle;    // slot in sysd's handle table (from _port_grant)
     uint16_t path_len;       // excluding NUL
     uint16_t argc;           // number of argv strings
     uint32_t pid;            // PID returned by caller's _tspawn

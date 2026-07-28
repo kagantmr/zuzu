@@ -7,7 +7,7 @@
 #include <zuzu/memprot.h>
 #include <zuzu/user_layout.h>
 
-static int inject_segment(uint32_t task_handle, const void *elf_data,
+static int inject_segment(uint32_t taskHandle, const void *elf_data,
                           size_t elf_size, Elf32_Phdr *ph)
 {
     if (ph->p_offset + ph->p_filesz > elf_size)
@@ -20,7 +20,7 @@ static int inject_segment(uint32_t task_handle, const void *elf_data,
 
     // inject file-backed portion
     if (ph->p_filesz > 0) {
-        int32_t rc = zuzu_asinject(task_handle, ph->p_vaddr,
+        int32_t rc = zuzu_asinject(taskHandle, ph->p_vaddr,
                                (const uint8_t *)elf_data + ph->p_offset,
                                ph->p_filesz, prot);
         if (rc != 0) return rc;
@@ -39,14 +39,14 @@ static int inject_segment(uint32_t task_handle, const void *elf_data,
         size_t bss_len = mem_end - bss_start;
         bss_len = (bss_len + 0xFFF) & ~0xFFF;  // round up to page
 
-        int32_t rc = zuzu_asinject_reserve(task_handle, bss_start, bss_len, prot);
+        int32_t rc = zuzu_asinject_reserve(taskHandle, bss_start, bss_len, prot);
         if (rc != 0) return rc;
     }
 
     return 0;
 }
 
-static int inject_stack(uint32_t task_handle,
+static int inject_stack(uint32_t taskHandle,
                         const char *argbuf, size_t argbuf_len,
                         uint32_t argc,
                         uintptr_t *out_sp, uintptr_t *out_argv)
@@ -98,7 +98,7 @@ static int inject_stack(uint32_t task_handle,
         argv_arr[argc] = 0;
     }
 
-    int32_t rc = zuzu_asinject(task_handle, img_base, buf, USER_STACK_SIZE,
+    int32_t rc = zuzu_asinject(taskHandle, img_base, buf, USER_STACK_SIZE,
                            VM_PROT_READ | VM_PROT_WRITE);
     free(buf);
     if (rc != 0) return rc;
@@ -108,7 +108,7 @@ static int inject_stack(uint32_t task_handle,
     return 0;
 }
 
-int exec_inject(uint32_t task_handle, const void *elf_data, size_t elf_size,
+int exec_inject(uint32_t taskHandle, const void *elf_data, size_t elf_size,
               const char *argbuf, size_t argbuf_len, uint32_t argc, exec_reply_t *out)
 {
     uint32_t entry = elf_validate(elf_data, elf_size);
@@ -134,19 +134,19 @@ int exec_inject(uint32_t task_handle, const void *elf_data, size_t elf_size,
     for (int i = 0; i < phdr_count; i++) {
         Elf32_Phdr *ph = elf_phdr_get(elf_data, i);
         if (ph->p_type != PT_LOAD) continue;
-        int rc = inject_segment(task_handle, elf_data, elf_size, ph);
+        int rc = inject_segment(taskHandle, elf_data, elf_size, ph);
         if (rc != 0) return rc;
     }
 
     // inject user stack with argv
     uintptr_t sp = USER_STACK_TOP;
     uintptr_t argv_va = 0;
-    int rc = inject_stack(task_handle, argbuf, argbuf_len, argc, &sp, &argv_va);
+    int rc = inject_stack(taskHandle, argbuf, argbuf_len, argc, &sp, &argv_va);
     if (rc != 0) return rc;
 
     /*
     kickstart_args_t ks = {
-        .task_handle = task_handle,
+        .taskHandle = taskHandle,
         .entry       = entry,
         .sp          = sp,
         .r0_val      = argc,

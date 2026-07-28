@@ -217,14 +217,14 @@ static handle_entry_t *validate_reply_handle(process_t *proc,
 
 static void waitany_deliver_notification(uint32_t matched_index,
                                          uint32_t bits,
-                                         waitany_result_t *result)
+                                         WaitanyResult *result)
 {
     memset(result, 0, sizeof(*result));
     result->size = sizeof(*result);
     result->matched_index = matched_index;
     result->kind = WAITANY_KIND_NTFN;
     result->source = 0;
-    result->r1 = bits;
+    result->w1 = bits;
 }
 
 void __attribute__((hot)) sys_msg_send(arch_regs_t *frame)
@@ -244,14 +244,14 @@ void __attribute__((hot)) sys_msg_send(arch_regs_t *frame)
         thread_t *rx_thread = rx_slot->owner;
 
         if (rx_thread->waitany_ep_wait_active) {
-            waitany_result_t *res = &rx_thread->waitany_pending_result;
+            WaitanyResult *res = &rx_thread->waitany_pending_result;
             memset(res, 0, sizeof(*res));
             res->matched_index = rx_slot->index;
             res->kind = WAITANY_KIND_SEND;
             res->source = current_thread->owner_process->pid;
-            res->r1 = (*arch_reg(frame, 1));
-            res->r2 = (*arch_reg(frame, 2));
-            res->r3 = (*arch_reg(frame, 3));
+            res->w1 = (*arch_reg(frame, 1));
+            res->w2 = (*arch_reg(frame, 2));
+            res->w3 = (*arch_reg(frame, 3));
             res->size = sizeof(*res);
             thread_waitany_clear_waits(rx_thread);
             thread_waitany_clear_ep_waits(rx_thread);
@@ -476,15 +476,15 @@ void __attribute__((hot)) sys_msg_call(arch_regs_t *frame)
         process_track_reply_cap(current_thread->owner_process, rx_thread->owner_process, (uint32_t)slot, rc);
 
         if (rx_thread->waitany_ep_wait_active) {
-            waitany_result_t *res = &rx_thread->waitany_pending_result;
+            WaitanyResult *res = &rx_thread->waitany_pending_result;
             memset(res, 0, sizeof(*res));
             res->size = sizeof(*res);
             res->matched_index = rx_slot->index;
             res->kind = WAITANY_KIND_CALL;
             res->source = (uint32_t)slot;
-            res->r1 = current_thread->owner_process->pid;
-            res->r2 = (*arch_reg(frame, 1));
-            res->r3 = (*arch_reg(frame, 2));
+            res->w1 = current_thread->owner_process->pid;
+            res->w2 = (*arch_reg(frame, 1));
+            res->w3 = (*arch_reg(frame, 2));
             thread_waitany_clear_waits(rx_thread);
             thread_waitany_clear_ep_waits(rx_thread);
             rx_thread->waitany_ep_wait_match_index = rx_slot->index;
@@ -594,16 +594,16 @@ void sys_msg_lsend(arch_regs_t *frame)
         thread_t *rx_thread = rx_slot->owner;
 
         if (rx_thread->waitany_ep_wait_active) {
-            waitany_result_t *res = &rx_thread->waitany_pending_result;
+            WaitanyResult *res = &rx_thread->waitany_pending_result;
             memset(res, 0, sizeof(*res));
             res->size = sizeof(*res);
             res->matched_index = rx_slot->index;
             res->kind = WAITANY_KIND_SEND;
             res->source = current_thread->owner_process->pid;
             ipc_buf_copy(current_thread, rx_thread, xlen);
-            res->r1 = xlen;
-            res->r2 = 0;
-            res->r3 = 0;
+            res->w1 = xlen;
+            res->w2 = 0;
+            res->w3 = 0;
             thread_waitany_clear_waits(rx_thread);
             thread_waitany_clear_ep_waits(rx_thread);
             rx_thread->waitany_ep_wait_match_index = rx_slot->index;
@@ -694,16 +694,16 @@ void sys_msg_lcall(arch_regs_t *frame)
         process_track_reply_cap(current_thread->owner_process, rx_thread->owner_process, (uint32_t)slot, rc);
 
         if (rx_thread->waitany_ep_wait_active) {
-            waitany_result_t *res = &rx_thread->waitany_pending_result;
+            WaitanyResult *res = &rx_thread->waitany_pending_result;
             memset(res, 0, sizeof(*res));
             res->size = sizeof(*res);
             res->matched_index = rx_slot->index;
             res->kind = WAITANY_KIND_CALL;
             res->source = (uint32_t)slot;
-            res->r1 = current_thread->owner_process->pid;
+            res->w1 = current_thread->owner_process->pid;
             ipc_buf_copy(current_thread, rx_thread, xlen);
-            res->r2 = xlen;
-            res->r3 = 0;
+            res->w2 = xlen;
+            res->w3 = 0;
             thread_waitany_clear_waits(rx_thread);
             thread_waitany_clear_ep_waits(rx_thread);
             rx_thread->waitany_ep_wait_match_index = rx_slot->index;
@@ -798,7 +798,7 @@ void sys_msg_lreply(arch_regs_t *frame)
 static int waitany_deliver_sender(uint32_t matched_index,
                                   thread_t *receiver,
                                   list_node_t *sender_node,
-                                  waitany_result_t *result)
+                                  WaitanyResult *result)
 {
     thread_t *sr_thread = container_of(sender_node, thread_t, node);
     arch_regs_t *sr_frame = sr_thread->trap_frame;
@@ -816,9 +816,9 @@ static int waitany_deliver_sender(uint32_t matched_index,
     {
         result->kind = WAITANY_KIND_SEND;
         result->source = sr_thread->owner_process->pid;
-        result->r1 = (*arch_reg(sr_frame, 1));
-        result->r2 = (*arch_reg(sr_frame, 2));
-        result->r3 = (*arch_reg(sr_frame, 3));
+        result->w1 = (*arch_reg(sr_frame, 1));
+        result->w2 = (*arch_reg(sr_frame, 2));
+        result->w3 = (*arch_reg(sr_frame, 3));
 
         (*arch_reg(sr_frame, 0)) = 0;
         sr_thread->ipc_state = IPC_NONE;
@@ -829,9 +829,9 @@ static int waitany_deliver_sender(uint32_t matched_index,
 
         if (sr_thread->ipc_buf_xfer_len > 0) {
             ipc_buf_copy(sr_thread, receiver, sr_thread->ipc_buf_xfer_len);
-            result->r1 = sr_thread->ipc_buf_xfer_len;
-            result->r2 = 0;
-            result->r3 = 0;
+            result->w1 = sr_thread->ipc_buf_xfer_len;
+            result->w2 = 0;
+            result->w3 = 0;
             sr_thread->ipc_buf_xfer_len = 0;
         }
 
@@ -860,14 +860,14 @@ static int waitany_deliver_sender(uint32_t matched_index,
 
         result->kind = WAITANY_KIND_CALL;
         result->source = (uint32_t)slot;
-        result->r1 = sr_thread->owner_process->pid;
-        result->r2 = (*arch_reg(sr_frame, 1));
-        result->r3 = (*arch_reg(sr_frame, 2));
+        result->w1 = sr_thread->owner_process->pid;
+        result->w2 = (*arch_reg(sr_frame, 1));
+        result->w3 = (*arch_reg(sr_frame, 2));
 
         if (sr_thread->ipc_buf_xfer_len > 0) {
             ipc_buf_copy(sr_thread, receiver, sr_thread->ipc_buf_xfer_len);
-            result->r2 = sr_thread->ipc_buf_xfer_len;
-            result->r3 = 0;
+            result->w2 = sr_thread->ipc_buf_xfer_len;
+            result->w3 = 0;
             sr_thread->ipc_buf_xfer_len = 0;
         }
 
@@ -879,7 +879,7 @@ static int waitany_deliver_sender(uint32_t matched_index,
 
 static int waitany_try_once(const Handle *handles,
                             uint32_t count,
-                            waitany_result_t *result,
+                            WaitanyResult *result,
                             notification_t **wait_ntfns,
                             uint32_t *wait_ntfn_indices,
                             uint32_t *wait_count_out,
@@ -974,7 +974,7 @@ static int waitany_try_once(const Handle *handles,
 
 static bool waitany_write_timeout_result(uintptr_t result_ptr, uint32_t size)
 {
-    waitany_result_t result;
+    WaitanyResult result;
     memset(&result, 0, sizeof(result));
     result.size = sizeof(result);
     result.matched_index = UINT32_MAX;
@@ -985,9 +985,9 @@ static bool waitany_write_timeout_result(uintptr_t result_ptr, uint32_t size)
 void sys_waitany(arch_regs_t *frame)
 {
     /* r0 = handle array pointer
-     * r1 = count
-     * r2 = timeout_ms
-     * r3 = result struct pointer
+     * w1 = count
+     * w2 = timeout_ms
+     * w3 = result struct pointer
      */
     uintptr_t handles_ptr = (uintptr_t)(*arch_reg(frame, 0));
     uint32_t count = (*arch_reg(frame, 1));
@@ -1000,8 +1000,8 @@ void sys_waitany(arch_regs_t *frame)
         return;
     }
 
-    if (!validate_user_ptr(result_ptr, sizeof(waitany_result_t)) ||
-        !fault_in_pages(current_thread->owner_process->as, result_ptr, sizeof(waitany_result_t), true)) {
+    if (!validate_user_ptr(result_ptr, sizeof(WaitanyResult)) ||
+        !fault_in_pages(current_thread->owner_process->as, result_ptr, sizeof(WaitanyResult), true)) {
         (*arch_reg(frame, 0)) = ERR_BADPTR;
         return;
     }
@@ -1011,12 +1011,12 @@ void sys_waitany(arch_regs_t *frame)
         (*arch_reg(frame, 0)) = ERR_BADPTR;
         return;
     }
-    if (caller_size < sizeof(waitany_result_t)) {   /* v1: exact; later: >= v1 size */
+    if (caller_size < sizeof(WaitanyResult)) {   /* v1: exact; later: >= v1 size */
         (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
-    size_t wlen = caller_size < sizeof(waitany_result_t)
-                ? caller_size : sizeof(waitany_result_t);
+    size_t wlen = caller_size < sizeof(WaitanyResult)
+                ? caller_size : sizeof(WaitanyResult);
 
     Handle handles_local[WAITANY_MAX_HANDLES];
     size_t copy_size = count * sizeof(Handle);
@@ -1040,7 +1040,7 @@ void sys_waitany(arch_regs_t *frame)
         endpoint_t *wait_eps[WAITANY_MAX_HANDLES];
         uint32_t wait_ep_indices[WAITANY_MAX_HANDLES];
         uint32_t ep_wait_count = 0;
-        waitany_result_t result;
+        WaitanyResult result;
         int err = waitany_try_once(handles_local, count, &result,
                                    wait_ntfns, wait_ntfn_indices, &wait_count,
                                    wait_eps, wait_ep_indices, &ep_wait_count);
