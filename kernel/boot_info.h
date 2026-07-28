@@ -11,6 +11,9 @@ typedef struct {
     dtb_dev_t *devs; /* allocated with kmalloc */
     char *model;
     char *cpu_compat;
+    uint64_t initrd_pa;
+    uint64_t initrd_size;
+    bool has_initrd;
 } boot_info_t;
 
 /* Initialize boot info from an already-initialized DTB base. */
@@ -21,6 +24,9 @@ const char *boot_info_model(void);
 const char *boot_info_cpu_compat(void);
 void boot_info_foreach_dev(void (*cb)(const char *, uint64_t, uint64_t, uint32_t));
 uint32_t boot_info_dev_count(void);
+
+/* Bootloader-supplied initrd from the DTB's /chosen node, if present. */
+bool boot_info_initrd(uint64_t *out_pa, uint64_t *out_size);
 
 /* Returns pointer to internal array (read-only) */
 const dtb_dev_t *boot_info_dev_array(void);

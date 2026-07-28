@@ -258,6 +258,42 @@ bool dtb_get_memrsv(uint32_t index, uint64_t *out_addr, uint64_t *out_size)
     return fdt_get_mem_rsv(g_fdt, (int)index, out_addr, out_size) == 0;
 }
 
+static bool read_be_cells(const void *val, uint32_t len, uint64_t *out)
+{
+    if (len == 4) {
+        *out = read_be32(val);
+        return true;
+    }
+    if (len == 8) {
+        *out = ((uint64_t)read_be32(val) << 32) | read_be32((const uint8_t *)val + 4);
+        return true;
+    }
+    return false;
+}
+
+bool dtb_get_chosen_initrd(uint64_t *out_start, uint64_t *out_end)
+{
+    if (!out_start || !out_end || !g_dtb_ready)
+        return false;
+
+    const void *sval = NULL, *eval = NULL;
+    uint32_t slen = 0, elen = 0;
+    if (!dtb_get_property("/chosen", "linux,initrd-start", &sval, &slen) ||
+        !dtb_get_property("/chosen", "linux,initrd-end", &eval, &elen))
+        return false;
+
+    uint64_t start, end;
+    if (!read_be_cells(sval, slen, &start) || !read_be_cells(eval, elen, &end))
+        return false;
+
+    if (end <= start)
+        return false;
+
+    *out_start = start;
+    *out_end = end;
+    return true;
+}
+
 bool dtb_find_compatible(const char *compatible, char *out_path, size_t out_path_cap)
 {
     if (!compatible || !out_path || out_path_cap == 0 || !g_dtb_ready)

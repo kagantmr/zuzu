@@ -55,6 +55,7 @@ dkms.conf
 *.dwo
 gdb.txt
 *.dts
+!scripts/uboot-vexpress.cmd
 
 # vscode dir
 .vscode/
@@ -67,3 +68,6 @@ gdb.txt
 build/
 sd.img
 ZUZUSD/
+
+# vendored U-Boot source tree (clone locally, see README)
+uboot-src/

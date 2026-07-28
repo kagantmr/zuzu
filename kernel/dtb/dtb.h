@@ -25,6 +25,9 @@ uint32_t dtb_count_devices(void);
 uint32_t dtb_total_size(void);
 bool dtb_get_memrsv(uint32_t index, uint64_t *out_addr, uint64_t *out_size);
 bool dtb_get_reg(const char *path, int index, uint64_t *out_addr, uint64_t *out_size);
+/* /chosen linux,initrd-start / linux,initrd-end, as set by a bootloader
+ * (e.g. u-boot's bootm/booti or `fdt chosen`). Returns false if absent. */
+bool dtb_get_chosen_initrd(uint64_t *out_start, uint64_t *out_end);
 bool dtb_get_reg_phys(const char *path, int index, uint64_t *out_addr, uint64_t *out_size);
 bool dtb_find_compatible(const char *compatible, char *out_path, size_t out_path_cap);
 

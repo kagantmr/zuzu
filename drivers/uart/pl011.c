@@ -26,7 +26,6 @@ static inline int pl011_tx_full(void) {
 
 
 void pl011_init(uintptr_t base_addr) {
-	assert(base_addr != 0);
 	pl011_base = base_addr;
 
 	// Leave baud divisors as provided by firmware; just ensure 8N1 + FIFO and enable TX/RX.

@@ -12,7 +12,13 @@ static const struct uart_driver *active_driver;
 static uintptr_t active_base;
 
 static inline void ensure_driver(void) {
-    assert(active_driver != NULL);
+    if (!active_driver) {
+        __asm__ volatile(
+            "1:\n"
+            "    wfi\n"
+            "    b 1b\n");
+        __builtin_unreachable();
+    }
 }
 
 const struct uart_driver *uart_get_driver(void) {
@@ -24,11 +30,6 @@ uintptr_t uart_get_base(void) {
 }
 
 void uart_set_driver(const struct uart_driver *driver, uintptr_t base_addr) {
-    assert(driver != NULL);
-    assert(driver->init != NULL);
-    assert(driver->putc != NULL);
-    assert(base_addr != 0);
-
     active_driver = driver;
     active_base = base_addr;
     active_driver->init(base_addr);

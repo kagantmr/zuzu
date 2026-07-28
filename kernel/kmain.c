@@ -52,6 +52,11 @@ static inline uint32_t read_be32(const void *p)
 
 static process_t *s_devmgr;
 
+/* Set once in kmain(): either the bootloader-supplied initrd (DTB
+ * /chosen) or the embedded fallback, as a physical address + size. */
+static uint32_t g_initrd_pa;
+static size_t g_initrd_size;
+
 #define BOOT_PROGRAM_PREFIX "bin/"
 
 typedef struct boot_program
@@ -118,18 +123,17 @@ static void boot_program(const char *path, uint32_t flags)
 
     if (flags & PROC_FLAG_INIT)
     {
-        uint32_t initrd_pa = VA_TO_PA(_initrd_start);
-        uint32_t initrd_page_count = (_initrd_end - _initrd_start + PAGE_SIZE - 1) / PAGE_SIZE;
+        uint32_t initrd_page_count = ((uint32_t)g_initrd_size + PAGE_SIZE - 1) / PAGE_SIZE;
         uintptr_t va = process->mmap_va_next;
         for (uint32_t i = 0; i < initrd_page_count; i++)
         {
-            uint32_t page_pa = initrd_pa + i * PAGE_SIZE;
+            uint32_t page_pa = g_initrd_pa + i * PAGE_SIZE;
             vmm_map_user_page(process->as, page_pa, process->mmap_va_next, VM_PROT_READ);
             process->mmap_va_next += PAGE_SIZE;
         }
         vmm_add_region(process->as, &(vm_region_t){
                                         .vaddr_start = va,
-                                        .size = _initrd_end - _initrd_start,
+                                        .size = g_initrd_size,
                                         .prot = VM_PROT_READ | VM_PROT_USER,
                                         .memtype = VM_MEM_NORMAL,
                                         .owner = VM_OWNER_SHARED,
@@ -305,9 +309,28 @@ _Noreturn void kmain(void)
     arch_global_irq_enable();
 
     syspage_init();
-    syspage_set_initrd_size((uint32_t)(_initrd_end - _initrd_start));
 
-    initrd_init(_initrd_start, _initrd_end - _initrd_start);
+    /* Prefer a bootloader-supplied initrd (u-boot etc., via DTB /chosen)
+     * over the one embedded in the kernel image at link time; the latter
+     * only exists so QEMU's direct -kernel/-dtb boot (`make run`, no
+     * bootloader) has something to run without extra QEMU-side wiring. */
+    uint64_t chosen_pa, chosen_size;
+    if (boot_info_initrd(&chosen_pa, &chosen_size))
+    {
+        g_initrd_pa = (uint32_t)chosen_pa;
+        g_initrd_size = (size_t)chosen_size;
+        KINFO("initrd: bootloader-supplied at pa=%p size=%zu",
+              (void *)(uintptr_t)g_initrd_pa, g_initrd_size);
+    }
+    else
+    {
+        g_initrd_pa = VA_TO_PA(_initrd_start);
+        g_initrd_size = (size_t)(_initrd_end - _initrd_start);
+        KINFO("initrd: using embedded image, size=%zu", g_initrd_size);
+    }
+    syspage_set_initrd_size((uint32_t)g_initrd_size);
+
+    initrd_init((const void *)PA_TO_VA((uintptr_t)g_initrd_pa), g_initrd_size);
     // Read and parse boot manifest
     const void *manifest_data;
     size_t manifest_size;

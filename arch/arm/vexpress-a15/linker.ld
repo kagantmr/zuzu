@@ -17,8 +17,9 @@ PHDRS
 
 SECTIONS
 {
-    /* DTB physical address (provided by bootloader at RAM base) */
-    __dtb_addr__ = KERNEL_PA_BASE;  /* 0x80000000 */
+    /* Fallback DTB physical address, used only when no bootloader passes
+     * one in r2 (QEMU's direct -kernel/-dtb ELF boot drops it at RAM base). */
+    __dtb_fallback__ = KERNEL_PA_BASE;  /* 0x80000000 */
 
     . = BOOT_PA;
     _boot_start = .;
