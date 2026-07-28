@@ -15,6 +15,7 @@
 #define MAX_FD 32
 
 static handle_t console_tty = -1;
+static int console_raw_mode = 0;
 extern void *sbrk(intptr_t incr);
 static int fsd_fd[MAX_FD] = { [0 ... MAX_FD - 1] = -1 };
 static handle_t fsd_handle = -1;
@@ -155,6 +156,15 @@ int _isatty(int file) {
     return (file >= 0 && file <= 2) ? 1 : 0;
 }
 
+/* There is no real termios layer here (no tcgetattr/tcsetattr), just this one
+ * bit: raw-mode readers that do their own line editing (e.g. a full-screen
+ * editor reading one keystroke at a time) call this to stop _read() from
+ * rewriting their input, see the ICRNL comment in _read() below. */
+int zuzu_console_set_raw(int enable) {
+    console_raw_mode = enable ? 1 : 0;
+    return 0;
+}
+
 
 int _write(int file, char *ptr, int len)
 {
@@ -234,8 +244,12 @@ int _read(int file, char *ptr, int len)
          * is in its RX ring, which is usually nothing. read(2) on a terminal
          * must block until at least one byte arrives -- returning 0 here would
          * mean EOF, and newlib latches EOF on the stream, so the first scanf()
-         * would fail and every later one would too. Poll until a byte lands. */
-        for (int spin = 0; spin < 400; spin++) {   /* DEBUG: bounded */
+         * would fail and every later one would too. Poll until a byte lands;
+         * a real terminal read blocks indefinitely, so this must too -- a
+         * caller idle for more than a few seconds between keystrokes is not
+         * an error (raw-mode readers like a full-screen editor treat any
+         * negative return as fatal and exit()). */
+        for (;;) {
             msg_t r = zuzu_msg_lcall(tty, want);
             if ((int32_t)r.r0 < 0) { errno = EIO; return -1; }
 
@@ -247,22 +261,20 @@ int _read(int file, char *ptr, int len)
                  * cope -- CR is whitespace -- but fgets/getline look for LF
                  * specifically and would never see a line end. The TX side
                  * already expands LF to CRLF in pl011drv, so translating on
-                 * the way in just completes the pair. */
-                for (uint32_t i = 0; i < got; i++)
-                    if (ptr[i] == '\r') ptr[i] = '\n';
+                 * the way in just completes the pair.
+                 *
+                 * Raw-mode readers (single-keystroke editors) want the literal
+                 * byte a terminal's Enter key sends and do their own line
+                 * handling, so this translation must not run for them --
+                 * doing so silently turns their Enter into an ordinary
+                 * character instead of a line break. */
+                if (!console_raw_mode)
+                    for (uint32_t i = 0; i < got; i++)
+                        if (ptr[i] == '\r') ptr[i] = '\n';
                 return (int)got;
             }
             zuzu_sleep(5);
         }
-
-        /* TODO(console-blocking-read): temporary. The poll loop above is a
-         * stand-in until the console server grows a blocking read; the whole
-         * loop is being reworked separately. For now a terminal read that
-         * turned up nothing must terminate here -- falling through to the fsd
-         * path below would trip the `file < 3` guard and wrongly report EBADF
-         * on fd 0. Report "would block" instead. */
-        errno = EAGAIN;
-        return -1;
     }
 
     if (!fsd_buf || file < 3 || file >= MAX_FD || fsd_fd[file] < 0) { errno = EBADF; return -1; }
