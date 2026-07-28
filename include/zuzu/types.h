@@ -18,7 +18,7 @@ typedef uintptr_t paddr_t;
 typedef uintptr_t vaddr_t;
 typedef uint32_t irq_t;
 typedef uint64_t ztime_t;
-
+typedef volatile uint32_t MMIORegister;
 
 /* ---- Common IPC types ---- */
 
