@@ -81,7 +81,7 @@ struct thread
     uint32_t waitany_ep_wait_count;
     bool waitany_ep_wait_active;
     uint32_t waitany_ep_wait_match_index;
-    waitany_result_t waitany_pending_result;
+    WaitanyResult waitany_pending_result;
     uint32_t priority, time_slice, ticks_remaining;
     process_t *owner_process; // backpointer to owning process
     VirtAddr thread_info_va;

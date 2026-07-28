@@ -11,14 +11,14 @@
 
 
 /* First payload word (w1) the client sends to ask the echo thread to exit.
- * zuzu_msg_recv() of a call hands the receiver: r0 = reply handle,
- * r1 = caller pid, r2/r3 = the caller's w1/w2 - so the sentinel must be
- * checked against r2, not r1. */
+ * zuzu_msg_recv() of a call hands the receiver: w0 = reply handle,
+ * w1 = caller pid, w2/w3 = the caller's w1/w2 - so the sentinel must be
+ * checked against w2, not w1. */
 #define MSG_QUIT 0xFFFFFFFFu
 #define MSG_PING 0u
 
 /* zuzu_msg_lcall has no w1/w2 word arguments -- the only thing sys_msg_recv
- * hands the receiver for an lcall is the transferred buffer length in r2
+ * hands the receiver for an lcall is the transferred buffer length in w2
  * (see kernel/ipc/sys_ipc.c). LCALL_QUIT_LEN just needs to be distinct from
  * LCALL_PAYLOAD_LEN so the server can tell "shut down" from "echo this". */
 #define LCALL_PAYLOAD_LEN 32u
@@ -31,14 +31,14 @@ static void echo_server_thread(void *arg) {
     Handle port = *(Handle *)arg;
 
     for (;;) {
-        msg_t cmd = zuzu_msg_recv(port, TIMEOUT_INFINITE);
+        Message cmd = zuzu_msg_recv(port, TIMEOUT_INFINITE);
 
-        if (cmd.r2 == MSG_QUIT) {
-            zuzu_msg_reply(cmd.r0, 1, 0, 0);
+        if (cmd.w2 == MSG_QUIT) {
+            zuzu_msg_reply(cmd.w0, 1, 0, 0);
             zuzu_tquit(ZUZU_OK);
         }
 
-        zuzu_msg_reply(cmd.r0, 1, 0, 0);
+        zuzu_msg_reply(cmd.w0, 1, 0, 0);
     }
 }
 
@@ -51,17 +51,17 @@ static void lcall_echo_server_thread(void *arg) {
     static uint8_t buf[LMSG_BUF_SIZE];
 
     for (;;) {
-        msg_t cmd = zuzu_msg_recv(port, TIMEOUT_INFINITE);
-        uint32_t len = cmd.r2;
+        Message cmd = zuzu_msg_recv(port, TIMEOUT_INFINITE);
+        uint32_t len = cmd.w2;
 
         if (len == LCALL_QUIT_LEN) {
-            zuzu_msg_lreply(cmd.r0, 0);
+            zuzu_msg_lreply(cmd.w0, 0);
             zuzu_tquit(ZUZU_OK);
         }
 
         lmsg_read(buf, len);
         lmsg_write(buf, len);
-        zuzu_msg_lreply(cmd.r0, len);
+        zuzu_msg_lreply(cmd.w0, len);
     }
 }
 
@@ -100,7 +100,7 @@ static void run_benchmark(Handle port) {
         uint32_t start = read_pmccntr();
         barrier();
 
-        msg_t r = zuzu_msg_call(port, MSG_PING, 0, 0);
+        Message r = zuzu_msg_call(port, MSG_PING, 0, 0);
 
         barrier();
         uint32_t end = read_pmccntr();
@@ -110,11 +110,11 @@ static void run_benchmark(Handle port) {
          * between the two reads. */
         g_samples[i] = end - start;
 
-        if ((r.r0 != 0 || r.r1 != 1) && errors == 0) {
-            first_err_r0 = r.r0;
-            first_err_r1 = r.r1;
+        if ((r.w0 != 0 || r.w1 != 1) && errors == 0) {
+            first_err_r0 = r.w0;
+            first_err_r1 = r.w1;
         }
-        if (r.r0 != 0 || r.r1 != 1) {
+        if (r.w0 != 0 || r.w1 != 1) {
             errors++;
         }
     }
@@ -133,7 +133,7 @@ static void run_benchmark(Handle port) {
            (unsigned)BENCHMARK_ITERATIONS, (unsigned)WARMUP_ITERATIONS);
 
     if (errors) {
-        printf("  %u/%u replies were unexpected (first: r0=%d r1=%u)\n",
+        printf("  %u/%u replies were unexpected (first: w0=%d w1=%u)\n",
                errors, (unsigned)BENCHMARK_ITERATIONS, first_err_r0, first_err_r1);
     }
 
@@ -170,7 +170,7 @@ static void run_lcall_benchmark(Handle port) {
         uint32_t start = read_pmccntr();
         barrier();
 
-        msg_t r = zuzu_msg_lcall(port, sizeof(payload));
+        Message r = zuzu_msg_lcall(port, sizeof(payload));
 
         barrier();
         uint32_t end = read_pmccntr();
@@ -180,11 +180,11 @@ static void run_lcall_benchmark(Handle port) {
          * between the two reads. */
         g_samples[i] = end - start;
 
-        if ((r.r0 != 0 || r.r1 != sizeof(payload)) && errors == 0) {
-            first_err_r0 = r.r0;
-            first_err_r1 = r.r1;
+        if ((r.w0 != 0 || r.w1 != sizeof(payload)) && errors == 0) {
+            first_err_r0 = r.w0;
+            first_err_r1 = r.w1;
         }
-        if (r.r0 != 0 || r.r1 != sizeof(payload)) {
+        if (r.w0 != 0 || r.w1 != sizeof(payload)) {
             errors++;
         }
     }
@@ -203,7 +203,7 @@ static void run_lcall_benchmark(Handle port) {
            (unsigned)LCALL_PAYLOAD_LEN, (unsigned)BENCHMARK_ITERATIONS, (unsigned)WARMUP_ITERATIONS);
 
     if (errors) {
-        printf("  %u/%u replies were unexpected (first: r0=%d r1=%u)\n",
+        printf("  %u/%u replies were unexpected (first: w0=%d w1=%u)\n",
                errors, (unsigned)BENCHMARK_ITERATIONS, first_err_r0, first_err_r1);
     }
 

@@ -136,11 +136,11 @@ static void scrub_pid(uint32_t pid) {
     den_scrub_pid(pid);
 }
 
-static void nt_handle_msg(msg_t msg) {
-    if (msg.r2 >= sizeof(exec_request_hdr_t) && msg.r2 <= LMSG_BUF_SIZE &&
+static void nt_handle_msg(Message msg) {
+    if (msg.w2 >= sizeof(exec_request_hdr_t) && msg.w2 <= LMSG_BUF_SIZE &&
         ((exec_request_hdr_t *)lmsg_buf())->cmd == SYSD_EXEC) {
-        uint32_t reply_handle = (uint32_t)msg.r0;
-        uint32_t req_len = msg.r2;
+        uint32_t reply_handle = (uint32_t)msg.w0;
+        uint32_t req_len = msg.w2;
         exec_request_hdr_t *hdr = (exec_request_hdr_t *)lmsg_buf();
 
         size_t path_off = sizeof(exec_request_hdr_t);
@@ -218,7 +218,7 @@ static void nt_handle_msg(msg_t msg) {
         }
 
         exec_reply_t reply;
-        int rc = exec_inject((uint32_t)hdr->task_handle, elf, file_size,
+        int rc = exec_inject((uint32_t)hdr->taskHandle, elf, file_size,
                              argbuf_len ? argbuf : NULL, argbuf_len,
                              hdr->argc, &reply);
         free(elf);
@@ -241,22 +241,22 @@ static void nt_handle_msg(msg_t msg) {
     uint32_t arg = 0;
     int needs_reply = 0;
 
-    uint32_t r2_cmd = msg.r2 & 0xFF;
+    uint32_t r2_cmd = msg.w2 & 0xFF;
     if (r2_cmd == NT_LOOKUP || r2_cmd == DEN_CREATE ||
         r2_cmd == DEN_INVITE || r2_cmd == DEN_KICK ||
         r2_cmd == DEN_MYDEN || r2_cmd == DEN_MYDEN_COUNT ||
         r2_cmd == DEN_MYDEN_AT || r2_cmd == SYSD_EXEC) {
-        reply_handle = (uint32_t)msg.r0;
-        sender       = msg.r1;
-        raw_command  = msg.r2;
-        name_u32     = msg.r3;
-        arg          = msg.r3;
+        reply_handle = (uint32_t)msg.w0;
+        sender       = msg.w1;
+        raw_command  = msg.w2;
+        name_u32     = msg.w3;
+        arg          = msg.w3;
         needs_reply  = 1;
     } else {
-        sender      = (uint32_t)msg.r0;
-        raw_command = msg.r1;
-        name_u32    = msg.r2;
-        arg         = msg.r3;
+        sender      = (uint32_t)msg.w0;
+        raw_command = msg.w1;
+        name_u32    = msg.w2;
+        arg         = msg.w3;
         needs_reply = 0;
     }
 
@@ -271,7 +271,7 @@ static void nt_handle_msg(msg_t msg) {
         status = nt_register(name_u32, arg, sender, den_id);
 
     } else if (command == NT_LOOKUP) {
-        /* nt_lookup fills out_pid with the owner's pid; it rides back in r3. */
+        /* nt_lookup fills out_pid with the owner's pid; it rides back in w3. */
         status = nt_lookup(name_u32, sender, &out_handle, &out_pid);
         if (status == NT_LU_OK) {
             int32_t slot = zuzu_grant((int32_t)out_handle, (int32_t)sender);
@@ -341,7 +341,7 @@ typedef struct {
     char          name[32];
     const void   *elf_data;     /* into CPIO mapping; NULL if SD-only */
     size_t        elf_size;
-    int32_t       task_handle;
+    int32_t       taskHandle;
     uint32_t      pid;
     exec_reply_t  reply;
     bool          in_cpio;
@@ -360,28 +360,28 @@ static int  deferred_count;
 #define WAIT_TIMEOUT_MS 30000u
 #define WAIT_SLICE_MS   10u
 
-static bool recvany_to_ipcmsg(const waitany_result_t *res, msg_t *msg)
+static bool recvany_to_ipcmsg(const WaitanyResult *res, Message *msg)
 {
     if (!res || !msg)
         return false;
 
     if (res->kind == WAITANY_KIND_SEND || res->kind == WAITANY_KIND_CALL) {
-        msg->r0 = (int32_t)res->source;
-        msg->r1 = res->r1;
-        msg->r2 = res->r2;
-        msg->r3 = res->r3;
+        msg->w0 = res->source;
+        msg->w1 = res->w1;
+        msg->w2 = res->w2;
+        msg->w3 = res->w3;
         return true;
     }
 
     /* Treat IRQ/notification wakes as a simple event: propagate source and
-     * the notification bitmask in r1. Consumers can interpret `matched_index`
-     * if needed via the recvany_result metadata (not present in msg_t).
+     * the notification bitmask in w1. Consumers can interpret `matched_index`
+     * if needed via the recvany_result metadata (not present in Message).
      */
     if (res->kind == WAITANY_KIND_NTFN) {
-        msg->r0 = (int32_t)res->source;
-        msg->r1 = res->r1; /* notification bits */
-        msg->r2 = res->r2;
-        msg->r3 = res->r3;
+        msg->w0 = (int32_t)res->source;
+        msg->w1 = res->w1; /* notification bits */
+        msg->w2 = res->w2;
+        msg->w3 = res->w3;
         return true;
     }
 
@@ -420,19 +420,19 @@ static bool should_respawn(int32_t status)
 static void respawn_entry(boot_entry_t *e)
 {
     tspawn_result_t ts = zuzu_pspawn(e->name);
-    if (ts.task_handle < 0)
+    if (ts.taskHandle < 0)
         return;
 
-    e->task_handle = ts.task_handle;
+    e->taskHandle = ts.taskHandle;
     e->pid         = ts.pid;
     e->injected    = false;
 
-    if (exec_inject((uint32_t)ts.task_handle, e->elf_data, e->elf_size,
+    if (exec_inject((uint32_t)ts.taskHandle, e->elf_data, e->elf_size,
                     NULL, 0, 0, &e->reply) != 0)
         return;
 
     e->injected = true;
-    zuzu_kickstart(e->task_handle, e->reply.entry, e->reply.sp,
+    zuzu_kickstart(e->taskHandle, e->reply.entry, e->reply.sp,
                e->reply.argc, e->reply.argv_va);
 }
 
@@ -462,9 +462,9 @@ static bool wait_for_service(uint32_t name_u32) {
            waited_ms < WAIT_TIMEOUT_MS) {
         reap_all();
 
-        waitany_result_t any = {0};
+        WaitanyResult any = {0};
         if (zuzu_waitany(recv_handles, 1, WAIT_SLICE_MS, &any) == 0) {
-            msg_t msg;
+            Message msg;
             if (recvany_to_ipcmsg(&any, &msg))
                 nt_handle_msg(msg);
         }
@@ -574,7 +574,7 @@ static void parse_manifest(const char *data, size_t size,
             e->name[sizeof(e->name) - 1] = '\0';
             e->elf_data    = elf;
             e->elf_size    = esz;
-            e->task_handle = -1;
+            e->taskHandle = -1;
             e->pid         = 0;
             e->in_cpio     = true;
             e->injected    = false;
@@ -616,9 +616,9 @@ static bool wait_for_tty_registration(uint32_t pid,
            waited_ms < WAIT_TIMEOUT_MS) {
         reap_all();
 
-        waitany_result_t any = {0};
+        WaitanyResult any = {0};
         if (zuzu_waitany(recv_handles, 1, WAIT_SLICE_MS, &any) == 0) {
-            msg_t msg;
+            Message msg;
             if (recvany_to_ipcmsg(&any, &msg))
                 nt_handle_msg(msg);
         }
@@ -702,13 +702,13 @@ int main(int argc, char **argv)
             continue;
 
         tspawn_result_t ts = zuzu_pspawn(e->name);
-        if (ts.task_handle < 0)
+        if (ts.taskHandle < 0)
             continue;
 
-        e->task_handle = ts.task_handle;
+        e->taskHandle = ts.taskHandle;
         e->pid         = ts.pid;
 
-        if (exec_inject((uint32_t)ts.task_handle,
+        if (exec_inject((uint32_t)ts.taskHandle,
                         e->elf_data, e->elf_size,
                         NULL, 0, 0, &e->reply) != 0)
             continue;
@@ -732,7 +732,7 @@ int main(int argc, char **argv)
         boot_entry_t *e = &boot_entries[i];
         if (!e->injected) continue;
 
-        zuzu_kickstart(e->task_handle, e->reply.entry, e->reply.sp,
+        zuzu_kickstart(e->taskHandle, e->reply.entry, e->reply.sp,
                    e->reply.argc, e->reply.argv_va);
     }
 
@@ -763,19 +763,19 @@ int main(int argc, char **argv)
             continue;
 
         tspawn_result_t ts = zuzu_pspawn(e->name);
-        if (ts.task_handle < 0)
+        if (ts.taskHandle < 0)
             continue;
 
-        e->task_handle = ts.task_handle;
+        e->taskHandle = ts.taskHandle;
         e->pid         = ts.pid;
 
-        if (exec_inject((uint32_t)ts.task_handle,
+        if (exec_inject((uint32_t)ts.taskHandle,
                         e->elf_data, e->elf_size,
                         NULL, 0, 0, &e->reply) != 0)
             continue;
         e->injected = true;
 
-        zuzu_kickstart(e->task_handle, e->reply.entry, e->reply.sp,
+        zuzu_kickstart(e->taskHandle, e->reply.entry, e->reply.sp,
                    e->reply.argc, e->reply.argv_va);
     }
 

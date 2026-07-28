@@ -237,12 +237,12 @@ static int pl181_write_block(uint32_t block_num)
     return ZUZU_OK;
 }
 
-static void handle_client(msg_t msg)
+static void handle_client(Message msg)
 {
-    uint32_t reply_h = (uint32_t)msg.r0;
-    uint32_t sender = msg.r1;
-    uint32_t cmd = msg.r2;
-    uint32_t arg = msg.r3;
+    uint32_t reply_h = (uint32_t)msg.w0;
+    uint32_t sender = msg.w1;
+    uint32_t cmd = msg.w2;
+    uint32_t arg = msg.w3;
 
     switch (cmd)
     {
@@ -287,13 +287,13 @@ static int pl181drv_setup(void)
     }
 
     /* request the block device capability */
-    msg_t r = zuzu_msg_call(devmgr_port, DEV_REQUEST, DEV_CLASS_BLOCK, 0);
-    if ((int32_t)r.r1 != 0)
+    Message r = zuzu_msg_call(devmgr_port, DEV_REQUEST, DEV_CLASS_BLOCK, 0);
+    if ((int32_t)r.w1 != 0)
     {
         LOG_ERROR(LOG_TAG, "block device request failed");
         return -1;
     }
-    block_dev_handle = (int32_t)r.r2;
+    block_dev_handle = (int32_t)r.w2;
 
     block_irq_ntfn = zuzu_ntfn_create();
     if (block_irq_ntfn < 0)
@@ -365,8 +365,8 @@ int main(void)
         if (bits > 0)
             zuzu_irq_done((uint32_t)block_dev_handle);
 
-        msg_t msg = zuzu_msg_recv(port, TIMEOUT_INFINITE);
-        if ((int32_t)msg.r0 > 0)
+        Message msg = zuzu_msg_recv(port, TIMEOUT_INFINITE);
+        if ((int32_t)msg.w0 > 0)
             handle_client(msg);
     }
 }

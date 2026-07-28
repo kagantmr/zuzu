@@ -251,7 +251,7 @@ void sys_kickstart(arch_regs_t *frame) {
         return;
     }
 
-    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, kargs.task_handle);
+    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, kargs.taskHandle);
     if (!entry) {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;

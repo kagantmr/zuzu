@@ -79,12 +79,12 @@ int stdio_register_uart(void)
         return 0;
     }
 
-    msg_t lu = zuzu_msg_call(NT_PORT, NT_LOOKUP, nt_pack(stdio_tty_name), 0);
-    if ((int32_t)lu.r1 != NT_LU_OK) {
+    Message lu = zuzu_msg_call(NT_PORT, NT_LOOKUP, nt_pack(stdio_tty_name), 0);
+    if ((int32_t)lu.w1 != NT_LU_OK) {
         return -1;
     }
 
-    stdio_tty = (int32_t)lu.r2;
+    stdio_tty = (int32_t)lu.w2;
     if (stdio_tty < 0)
         return -1;
     return 0;
@@ -99,11 +99,11 @@ static int __attribute__((unused)) stdio_refill_input(void)
     if (stdio_register_uart() != 0)
         return EOF;
 
-    msg_t reply = zuzu_msg_lcall(stdio_tty, LMSG_BUF_SIZE);
-    if (reply.r0 < 0)
+    Message reply = zuzu_msg_lcall(stdio_tty, LMSG_BUF_SIZE);
+    if (reply.w0 < 0)
         return EOF;
 
-    uint32_t got = reply.r1;
+    uint32_t got = reply.w1;
     if (got > LMSG_BUF_SIZE)
         got = LMSG_BUF_SIZE;
     if (got == 0)

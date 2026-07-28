@@ -61,7 +61,7 @@ static inline int32_t zuzu_dev_query(Handle handle, void *out_buf, uint32_t len)
  * @brief Injects a memory region from the current process into the address space of another process.
  * @note This syscall is only callable by the init process.
  * 
- * @param task_handle The handle of the target process.
+ * @param taskHandle The handle of the target process.
  * @param dst_va The destination virtual address in the target process's address space.
  * @param src_buf Pointer to the source buffer in the current process's address space.
  * @param len The length of the source buffer in bytes.
@@ -69,11 +69,11 @@ static inline int32_t zuzu_dev_query(Handle handle, void *out_buf, uint32_t len)
  * 
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t zuzu_asinject(Handle task_handle, uintptr_t dst_va,
+static inline int32_t zuzu_asinject(Handle taskHandle, uintptr_t dst_va,
                                 const void *src_buf, size_t len, uint32_t prot) {
     asinject_args_t args = {
         .size        = sizeof(asinject_args_t),
-        .task_handle = task_handle,
+        .taskHandle = taskHandle,
         .dst_va      = dst_va,
         .src_buf     = src_buf,
         .len         = len,
@@ -93,18 +93,18 @@ static inline int32_t zuzu_asinject(Handle task_handle, uintptr_t dst_va,
  * Use this instead of zuzu_asinject() for BSS-style tails where the source
  * would just be a buffer of zeroes.
  *
- * @param task_handle The handle of the target process.
+ * @param taskHandle The handle of the target process.
  * @param dst_va The destination virtual address in the target process's address space.
  * @param len The length of the region to reserve, in bytes (must be page-aligned).
  * @param prot The desired memory protection flags for the reserved region.
  *
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t zuzu_asinject_reserve(Handle task_handle, uintptr_t dst_va,
+static inline int32_t zuzu_asinject_reserve(Handle taskHandle, uintptr_t dst_va,
                                         size_t len, uint32_t prot) {
     asinject_args_t args = {
         .size        = sizeof(asinject_args_t),
-        .task_handle = task_handle,
+        .taskHandle = taskHandle,
         .dst_va      = dst_va,
         .src_buf     = NULL,
         .len         = len,

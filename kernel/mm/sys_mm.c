@@ -339,7 +339,7 @@ void sys_asinject(arch_regs_t *frame)
         }
         }
 
-        handle_entry_t *handle = handle_vec_get(&current_thread->owner_process->handle_table, kargs.task_handle);
+        handle_entry_t *handle = handle_vec_get(&current_thread->owner_process->handle_table, kargs.taskHandle);
         if (!handle)
         {
             (*arch_reg(frame, 0)) = ERR_BADHANDLE;

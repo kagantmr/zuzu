@@ -115,7 +115,7 @@ static int mode_regrant(Handle slot)
  * saves/restores in context_switch; a switch path that handles just d0-d15
  * corrupts them silently. Write/yield/readback is a single asm block so the
  * compiler cannot cache anything in the probed registers in between; the
- * yield svc clobbers only r0 (same contract as zuzu_yield). Patterns vary
+ * yield svc clobbers only w0 (same contract as zuzu_yield). Patterns vary
  * per iteration so a stale value from an earlier switch also mismatches. */
 static int mode_vfp(uint32_t sent)
 {

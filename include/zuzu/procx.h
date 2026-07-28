@@ -9,7 +9,7 @@ extern "C" {
 #include <stdint.h>
 
 typedef struct {
-    Handle  task_handle;
+    Handle  taskHandle;
     Pid pid;
     int      alive;
 } zprocx_handle_t;

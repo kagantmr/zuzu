@@ -12,7 +12,7 @@
 #define SYS_SLEEP 0x05         /* (duration_ms) -> 0, no infinite sleep or polling */
 #define SYS_PSPAWN 0x06        /* (name) -> empty process (0) or -err */
 #define SYS_KICKSTART 0x07     /* (args*) -> 0 or -err */
-#define SYS_PKILL 0x08         /* (task_handle) -> 0 or -err */
+#define SYS_PKILL 0x08         /* (taskHandle) -> 0 or -err */
 #define SYS_TMAKE 0x09         /* (entry, user_sp, arg) -> tid */
 #define SYS_TJOIN 0x0A         /* (tid) -> exit_status or -err */
 #define SYS_TQUIT 0x0B         /* (status) -> never returns */

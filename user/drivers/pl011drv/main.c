@@ -50,10 +50,10 @@ static void drain_uart_rx_fifo(void)
 static int32_t wait_for_devmgr(void)
 {
     while (1) {
-        msg_t ntmsg = zuzu_msg_call(NT_PORT, NT_LOOKUP, nt_pack("devm"), 0);
-        if ((int32_t)ntmsg.r1 == NT_LU_OK) {
-            devmgr_port = (int32_t)ntmsg.r2;
-            return (int32_t)ntmsg.r3;
+        Message ntmsg = zuzu_msg_call(NT_PORT, NT_LOOKUP, nt_pack("devm"), 0);
+        if ((int32_t)ntmsg.w1 == NT_LU_OK) {
+            devmgr_port = (int32_t)ntmsg.w2;
+            return (int32_t)ntmsg.w3;
         }
         zuzu_sleep(10);
     }
@@ -62,9 +62,9 @@ static int32_t wait_for_devmgr(void)
 static int32_t request_serial_device(void)
 {
     while (1) {
-        msg_t devmsg = zuzu_msg_call(devmgr_port, DEV_REQUEST, DEV_CLASS_SERIAL, 0);
-        if ((int32_t)devmsg.r1 == 0) {
-            return (int32_t)devmsg.r2;
+        Message devmsg = zuzu_msg_call(devmgr_port, DEV_REQUEST, DEV_CLASS_SERIAL, 0);
+        if ((int32_t)devmsg.w1 == 0) {
+            return (int32_t)devmsg.w2;
         }
         zuzu_sleep(10);
     }
@@ -185,7 +185,7 @@ int main(void)
     };
 
     while (1) {
-        waitany_result_t r;
+        WaitanyResult r;
         if (zuzu_waitany(handles, 2, TIMEOUT_INFINITE, &r) != 0)
             continue;
 
@@ -194,10 +194,10 @@ int main(void)
             handle_irq_event();
             break;
         case WAITANY_KIND_SEND:
-            handle_write(r.r1);
+            handle_write(r.w1);
             break;
         case WAITANY_KIND_CALL:
-            handle_read((Handle)r.source, r.r2);
+            handle_read((Handle)r.source, r.w2);
             break;
         default:
             break;

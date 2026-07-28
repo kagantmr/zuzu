@@ -99,16 +99,16 @@ int get_nic(void)
     nt_port = -1;
 
     devm_port = lookup_service("devm");
-    msg_t r;
+    Message r;
     while (1)
     {
         r = zuzu_msg_call(devm_port, DEV_REQUEST, DEV_CLASS_NIC, 0);
-        if ((int32_t)r.r1 == 0)
+        if ((int32_t)r.w1 == 0)
             break;
         LOG_WARN(LOG_TAG, "NIC device request failed, retrying");
         zuzu_sleep(10);
     }
-    dev_handle = (Handle)r.r2;
+    dev_handle = (Handle)r.w2;
     irq_ntfn = zuzu_ntfn_create();
     if (irq_ntfn < 0)
     {
@@ -226,7 +226,7 @@ void lan9118_service_loop(void)
     while (1)
     {
 
-        waitany_result_t result;
+        WaitanyResult result;
         int32_t recv_rc = zuzu_waitany(handles, 3, 50, &result);
         if (recv_rc < 0)
         {
@@ -312,11 +312,11 @@ void lan9118_service_loop(void)
         }
         case WAITANY_KIND_CALL:
         {
-            switch (result.r2)
+            switch (result.w2)
             {
             case NIC_CMD_GETMAC:
             {
-                /* Status goes in r1 so the MAC bytes in r2/r3 can never be
+                /* Status goes in w1 so the MAC bytes in w2/w3 can never be
                    misread as an error (a high 4th octet makes mac_lo negative). */
                 int32_t status = (mac[0] | mac[1] | mac[2] | mac[3] | mac[4] | mac[5])
                                      ? ZUZU_OK
@@ -334,10 +334,10 @@ void lan9118_service_loop(void)
                 }
                 else
                 {
-                    /* r1 = shmem, r2 = rx doorbell, r3 = tx doorbell */
-                    int32_t shm_g = zuzu_grant(shmem_handle, result.r1);
-                    int32_t rx_g  = zuzu_grant(netd_ntfn, result.r1);
-                    int32_t tx_g  = zuzu_grant(tx_doorbell_ntfn, result.r1);
+                    /* w1 = shmem, w2 = rx doorbell, w3 = tx doorbell */
+                    int32_t shm_g = zuzu_grant(shmem_handle, result.w1);
+                    int32_t rx_g  = zuzu_grant(netd_ntfn, result.w1);
+                    int32_t tx_g  = zuzu_grant(tx_doorbell_ntfn, result.w1);
                     if (shm_g < 0 || rx_g < 0 || tx_g < 0)
                         zuzu_msg_reply(result.source, ERR_SYSDOWN, 0, 0);
                     else
@@ -363,7 +363,7 @@ void lan9118_service_loop(void)
             }
             case NIC_CMD_STATS:
             {
-                uint32_t idx = result.r3; // NIC_STAT_* selector
+                uint32_t idx = result.w3; // NIC_STAT_* selector
                 if (idx < NIC_STAT_COUNT)
                     zuzu_msg_reply(result.source, 0, nic_stats[idx], NIC_STAT_COUNT);
                 else

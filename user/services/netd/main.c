@@ -72,32 +72,32 @@ __attribute__((cold)) int get_shm() {
     }
     LOG_INFO(LOG_TAG, "nic0 port=%d", nic_port);
 
-    // r1 = status (ZUZU_OK / -err); r2 = mac_lo, r3 = mac_hi carry the MAC bytes
-    msg_t r = zuzu_msg_call(nic_port, NIC_CMD_GETMAC, 0, 0);
-    if ((int32_t)r.r1 != ZUZU_OK) {
+    // w1 = status (ZUZU_OK / -err); w2 = mac_lo, w3 = mac_hi carry the MAC bytes
+    Message r = zuzu_msg_call(nic_port, NIC_CMD_GETMAC, 0, 0);
+    if ((int32_t)r.w1 != ZUZU_OK) {
         LOG_ERROR(LOG_TAG, "GETMAC failed");
         return 1;
     }
     /* L3 config (ip/netmask/gateway/dns) stays zero until DHCP binds it. */
-    netif.mac[0] = (r.r2 >>  0) & 0xff;
-    netif.mac[1] = (r.r2 >>  8) & 0xff;
-    netif.mac[2] = (r.r2 >> 16) & 0xff;
-    netif.mac[3] = (r.r2 >> 24) & 0xff;
-    netif.mac[4] = (r.r3 >>  0) & 0xff;
-    netif.mac[5] = (r.r3 >>  8) & 0xff;
+    netif.mac[0] = (r.w2 >>  0) & 0xff;
+    netif.mac[1] = (r.w2 >>  8) & 0xff;
+    netif.mac[2] = (r.w2 >> 16) & 0xff;
+    netif.mac[3] = (r.w2 >> 24) & 0xff;
+    netif.mac[4] = (r.w3 >>  0) & 0xff;
+    netif.mac[5] = (r.w3 >>  8) & 0xff;
     LOG_INFO(LOG_TAG, "MAC %02x:%02x:%02x:%02x:%02x:%02x",
              netif.mac[0], netif.mac[1], netif.mac[2],
              netif.mac[3], netif.mac[4], netif.mac[5]);
 
-    // r1 = shmem handle, r2 = rx doorbell, r3 = tx doorbell (all >= 0 on success)
+    // w1 = shmem handle, w2 = rx doorbell, w3 = tx doorbell (all >= 0 on success)
     r = zuzu_msg_call(nic_port, NIC_CMD_GETBUF, 0, 0);
-    if ((int32_t)r.r0 != 0 || (int32_t)r.r1 < 0 ||
-        (int32_t)r.r2 < 0 || (int32_t)r.r3 < 0) {
+    if ((int32_t)r.w0 != 0 || (int32_t)r.w1 < 0 ||
+        (int32_t)r.w2 < 0 || (int32_t)r.w3 < 0) {
         LOG_ERROR(LOG_TAG, "NIC_GETBUF failed");
         return 1;
     }
 
-    void *addr = zuzu_memmap((int32_t)r.r1, 0, VM_PROT_RW, 0);
+    void *addr = zuzu_memmap((int32_t)r.w1, 0, VM_PROT_RW, 0);
     if (zuzu_is_err(addr)) {
         LOG_ERROR(LOG_TAG, "shmem attach failed");
         return ERR_SYSDOWN;
@@ -108,8 +108,8 @@ __attribute__((cold)) int get_shm() {
     tx_ring = (nic_ring_t *)((uint8_t *)addr + NIC_TX_OFFSET);
     
     netd_port = port;
-    nic_ntfn = (Handle)r.r2;
-    tx_doorbell = (Handle)r.r3;
+    nic_ntfn = (Handle)r.w2;
+    tx_doorbell = (Handle)r.w3;
     handles[1] = nic_ntfn;
     LOG_INFO(LOG_TAG, "service port=%d nic_ntfn=%d tx_doorbell=%d nic_port=%d",
              netd_port, nic_ntfn, tx_doorbell, nic_port);
@@ -147,7 +147,7 @@ int main() {
             sleep_ms = next - now > LEGACY_POLL_CAP ? LEGACY_POLL_CAP : next - now;
 
         /* 2. sleep until a packet arrives or the deadline elapses */
-        waitany_result_t result;
+        WaitanyResult result;
         int32_t recv_rc = zuzu_waitany(handles, 2, sleep_ms, &result);
 
         /* 3. DRAIN RX FIRST: process inbound before any timer fires */

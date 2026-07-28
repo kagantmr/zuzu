@@ -13,7 +13,7 @@
  * zuzu Syscall ABI
  *
  * Syscall numbers encoded in the lower 8 bits of SVC immediate.
- * Arguments in r0-r3, return in r0. See docs/syscall.md for full ABI.
+ * Arguments in r0-w3, return in r0. See docs/syscall.md for full ABI.
  */
 
 bool copy_to_user(void *uaddr, const void *kaddr, size_t len);

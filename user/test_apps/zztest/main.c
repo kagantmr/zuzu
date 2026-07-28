@@ -91,7 +91,7 @@ static int32_t mm_err(void *p) { return (int32_t)(uintptr_t)p; }
 /* raw waitany svc: the zuzu_waitany wrapper owns result->size, so the
  * struct-versioning test must issue the svc itself. */
 static int32_t raw_waitany(const Handle *handles, uint32_t count,
-                           uint32_t timeout_ms, waitany_result_t *result)
+                           uint32_t timeout_ms, WaitanyResult *result)
 {
     register uintptr_t r0 __asm__("r0") = (uintptr_t)handles;
     register uint32_t  r1 __asm__("r1") = count;
@@ -106,16 +106,16 @@ static int32_t raw_waitany(const Handle *handles, uint32_t count,
 
 /* ---------------- child spawn plumbing (mirrors zzsh cmd_exec) -------- */
 
-static int32_t g_sysd_port = -1;
+static Handle g_sysd_port = -1;
 static Pid  g_sysd_pid;
 
 static int sysd_setup(void)
 {
-    msg_t r = zuzu_msg_call(NT_PORT, NT_LOOKUP, nt_pack(NT_NAME_SYS), 0);
-    if ((int32_t)r.r1 != NT_LU_OK)
+    Message r = zuzu_msg_call(NT_PORT, NT_LOOKUP, nt_pack(NT_NAME_SYS), 0);
+    if ((err_t)r.w1 != NT_LU_OK)
         return -1;
-    g_sysd_port = (int32_t)r.r2;
-    g_sysd_pid  = (Pid)r.r3;
+    g_sysd_port = (int32_t)r.w2;
+    g_sysd_pid  = (Pid)r.w3;
     return 0;
 }
 
@@ -128,24 +128,24 @@ typedef struct { Handle task; Pid pid; } child_t;
 static int32_t child_spawn(const char *arg1, Handle grant_h, child_t *out)
 {
     tspawn_result_t ts = zuzu_pspawn(CHILD_NAME);
-    if (ts.task_handle < 0)
-        return ts.task_handle;
+    if (ts.taskHandle < 0)
+        return ts.taskHandle;
 
     char arg2[16];
     int argc = 2;
     if (grant_h >= 0) {
         int32_t child_slot = zuzu_grant(grant_h, ts.pid);
         if (child_slot < 0) {
-            zuzu_pkill(ts.task_handle);
+            zuzu_pkill(ts.taskHandle);
             return child_slot;
         }
         snprintf(arg2, sizeof(arg2), "%d", (int)child_slot);
         argc = 3;
     }
 
-    int32_t sysd_task = zuzu_grant(ts.task_handle, g_sysd_pid);
+    int32_t sysd_task = zuzu_grant(ts.taskHandle, g_sysd_pid);
     if (sysd_task < 0) {
-        zuzu_pkill(ts.task_handle);
+        zuzu_pkill(ts.taskHandle);
         return sysd_task;
     }
 
@@ -166,7 +166,7 @@ static int32_t child_spawn(const char *arg1, Handle grant_h, child_t *out)
     exec_request_hdr_t *hdr = (exec_request_hdr_t *)req;
     hdr->cmd = SYSD_EXEC;
     hdr->_pad = 0;
-    hdr->task_handle = (uint16_t)sysd_task;
+    hdr->taskHandle = (uint16_t)sysd_task;
     hdr->path_len = (uint16_t)path_len;
     hdr->argc = (uint16_t)argc;
     hdr->pid = ts.pid;
@@ -178,22 +178,22 @@ static int32_t child_spawn(const char *arg1, Handle grant_h, child_t *out)
                            (uint32_t)(sizeof(*hdr) + path_len + 1 + argpos),
                            &reply, sizeof(reply));
     if (rc < 0) {
-        zuzu_pkill(ts.task_handle);
+        zuzu_pkill(ts.taskHandle);
         return rc;
     }
     if (rc != (int32_t)sizeof(exec_reply_t)) {
-        zuzu_pkill(ts.task_handle);
+        zuzu_pkill(ts.taskHandle);
         return ERR_MALFORMED;
     }
 
-    rc = zuzu_kickstart(ts.task_handle, reply.entry, reply.sp,
+    rc = zuzu_kickstart(ts.taskHandle, reply.entry, reply.sp,
                         (uint32_t)argc, reply.argv_va);
     if (rc != 0) {
-        zuzu_pkill(ts.task_handle);
+        zuzu_pkill(ts.taskHandle);
         return rc;
     }
 
-    out->task = ts.task_handle;   /* consumed by kickstart (slot freed) */
+    out->task = ts.taskHandle;   /* consumed by kickstart (slot freed) */
     out->pid = ts.pid;
     return 0;
 }
@@ -222,10 +222,10 @@ static void lcall_worker(void *arg)
     (void)arg;
     char buf[LMSG_BUF_SIZE];
     lmsg_write(REQ, sizeof(REQ));
-    msg_t r = zuzu_msg_lcall(g_port, sizeof(REQ));
-    if ((int32_t)r.r0 == 0) {
-        lmsg_read(buf, r.r1);
-        g_worker_ok = (r.r1 == sizeof(RESP) &&
+    Message r = zuzu_msg_lcall(g_port, sizeof(REQ));
+    if ((int32_t)r.w0 == 0) {
+        lmsg_read(buf, r.w1);
+        g_worker_ok = (r.w1 == sizeof(RESP) &&
                        memcmp(buf, RESP, sizeof(RESP)) == 0);
     }
     zuzu_tquit(0);
@@ -234,9 +234,9 @@ static void lcall_worker(void *arg)
 static void call_worker(void *arg)
 {
     (void)arg;
-    msg_t r = zuzu_msg_call(g_port, 0x11, 0x22, 0x33);
-    g_worker_ok = ((int32_t)r.r0 == 0 &&
-                   r.r1 == 0xA1 && r.r2 == 0xA2 && r.r3 == 0xA3);
+    Message r = zuzu_msg_call(g_port, 0x11, 0x22, 0x33);
+    g_worker_ok = ((int32_t)r.w0 == 0 &&
+                   r.w1 == 0xA1 && r.w2 == 0xA2 && r.w3 == 0xA3);
     zuzu_tquit(0);
 }
 
@@ -251,8 +251,8 @@ static void send_worker(void *arg)
 static void recv_dead_worker(void *arg)
 {
     (void)arg;
-    msg_t r = zuzu_msg_recv(g_port, TIMEOUT_INFINITE);
-    g_worker_ok = ((int32_t)r.r0 == ERR_DEAD);
+    Message r = zuzu_msg_recv(g_port, TIMEOUT_INFINITE);
+    g_worker_ok = ((int32_t)r.w0 == ERR_DEAD);
     zuzu_tquit(0);
 }
 
@@ -374,8 +374,8 @@ static void sec_ipc(void)
     CHECK(g_port >= 0, "port_create");
 
     /* recv poll on empty port */
-    msg_t e = zuzu_msg_recv(g_port, TIMEOUT_POLL);
-    CHECK_EQ(e.r0, ERR_TIMEOUT, "recv poll empty -> ERR_TIMEOUT");
+    Message e = zuzu_msg_recv(g_port, TIMEOUT_POLL);
+    CHECK_EQ(e.w0, ERR_TIMEOUT, "recv poll empty -> ERR_TIMEOUT");
 
     /* send/recv round trip (worker sends after we block) */
     void *st = stack_alloc();
@@ -383,10 +383,10 @@ static void sec_ipc(void)
     g_worker_ok = 0;
     Tid t = zuzu_tmake(send_worker, (char *)st + STACK_SIZE, NULL);
     CHECK(t > 0, "tmake send_worker");
-    msg_t m = zuzu_msg_recv(g_port, TIMEOUT_INFINITE);
-    CHECK((int32_t)m.r0 > 0, "recv: r0 = sender pid");
-    CHECK((int32_t)m.r0 == zuzu_getpid(), "sender pid is this process (thread sender)");
-    CHECK(m.r1 == 0x51 && m.r2 == 0x52 && m.r3 == 0x53, "send payload w1..w3 intact");
+    Message m = zuzu_msg_recv(g_port, TIMEOUT_INFINITE);
+    CHECK((int32_t)m.w0 > 0, "recv: r0 = sender pid");
+    CHECK((int32_t)m.w0 == zuzu_getpid(), "sender pid is this process (thread sender)");
+    CHECK(m.w1 == 0x51 && m.w2 == 0x52 && m.w3 == 0x53, "send payload w1-3 intact");
     zuzu_tjoin(t);
     CHECK(g_worker_ok, "sender saw rc=0");
 
@@ -394,10 +394,10 @@ static void sec_ipc(void)
     g_worker_ok = 0;
     t = zuzu_tmake(call_worker, (char *)st + STACK_SIZE, NULL);
     m = zuzu_msg_recv(g_port, TIMEOUT_INFINITE);
-    CHECK((int32_t)m.r0 >= 0, "recv of call: r0 = reply handle");
-    CHECK((int32_t)m.r1 == zuzu_getpid(), "recv of call: r1 = caller pid");
-    CHECK(m.r2 == 0x11 && m.r3 == 0x22, "recv of call: r2/r3 = payload w1/w2");
-    CHECK_EQ(zuzu_msg_reply((Handle)m.r0, 0xA1, 0xA2, 0xA3), 0, "reply");
+    CHECK((int32_t)m.w0 >= 0, "recv of call: r0 = reply handle");
+    CHECK((int32_t)m.w1 == zuzu_getpid(), "recv of call: r1 = caller pid");
+    CHECK(m.w2 == 0x11 && m.w3 == 0x22, "recv of call: r2/r3 = payload r1/r2");
+    CHECK_EQ(zuzu_msg_reply((Handle)m.w0, 0xA1, 0xA2, 0xA3), 0, "reply");
     zuzu_tjoin(t);
     CHECK(g_worker_ok, "caller got reply words r1..r3");
 
@@ -407,8 +407,8 @@ static void sec_ipc(void)
     m = zuzu_msg_recv(g_port, TIMEOUT_INFINITE);
     char early[sizeof(REQ)];
     lmsg_read(early, sizeof(REQ));            /* FIRST - before any printf */
-    CHECK((int32_t)m.r0 >= 0, "recv got the lcall");
-    CHECK(m.r2 == sizeof(REQ), "lcall payload length");
+    CHECK((int32_t)m.w0 >= 0, "recv got the lcall");
+    CHECK(m.w2 == sizeof(REQ), "lcall payload length");
     CHECK(memcmp(early, REQ, sizeof(REQ)) == 0, "lmsg payload intact when read first");
     printf("      (volatile-buffer probe: this printf reuses the lmsg buffer)\n");
     char late[sizeof(REQ)];
@@ -416,7 +416,7 @@ static void sec_ipc(void)
     CHECK(memcmp(late, REQ, sizeof(REQ)) != 0,
           "VOLATILE CONTRACT: printf clobbered lmsg buffer - must lmsg_read before printing");
     lmsg_write(RESP, sizeof(RESP));
-    CHECK_EQ(zuzu_msg_lreply((Handle)m.r0, sizeof(RESP)), 0, "lreply");
+    CHECK_EQ(zuzu_msg_lreply((Handle)m.w0, sizeof(RESP)), 0, "lreply");
     zuzu_tjoin(t);
     CHECK(g_worker_ok, "lcall caller got reply payload intact");
 
@@ -432,7 +432,7 @@ static void sec_ipc(void)
 
     /* waitany over [port, ntfn] */
     Handle set[2] = { g_port, (Handle)nt };
-    waitany_result_t res;
+    WaitanyResult res;
 
     CHECK_EQ(zuzu_waitany(set, 2, TIMEOUT_POLL, &res), ERR_TIMEOUT,
              "waitany poll empty -> ERR_TIMEOUT");
@@ -441,7 +441,7 @@ static void sec_ipc(void)
     CHECK_EQ(zuzu_waitany(set, 2, TIMEOUT_POLL, &res), 0, "waitany: ntfn delivers");
     CHECK(res.kind == WAITANY_KIND_NTFN, "waitany ntfn: kind=NTFN");
     CHECK(res.matched_index == 1, "waitany ntfn: matched_index=1");
-    CHECK(res.r1 == 0x9, "waitany ntfn: bits in r1");
+    CHECK(res.w1 == 0x9, "waitany ntfn: bits in r1");
 
     g_worker_ok = 0;
     t = zuzu_tmake(send_worker, (char *)st + STACK_SIZE, NULL);
@@ -449,7 +449,7 @@ static void sec_ipc(void)
     CHECK(res.kind == WAITANY_KIND_SEND, "waitany send: kind=SEND");
     CHECK(res.matched_index == 0, "waitany send: matched_index=0");
     CHECK((int32_t)res.source == zuzu_getpid(), "waitany send: source = sender pid");
-    CHECK(res.r1 == 0x51 && res.r2 == 0x52 && res.r3 == 0x53, "waitany send: payload");
+    CHECK(res.w1 == 0x51 && res.w2 == 0x52 && res.w3 == 0x53, "waitany send: payload");
     zuzu_tjoin(t);
 
     /* timed waitany expiry. Frozen ABI nuance: only POLL returns
@@ -511,21 +511,21 @@ static void sec_handles(void)
     CHECK(st != NULL, "worker stack");
     g_worker_ok = 0;
     Tid t = zuzu_tmake(lcall_worker, (char *)st + STACK_SIZE, NULL);
-    msg_t m = zuzu_msg_recv(g_port, TIMEOUT_INFINITE);
+    Message m = zuzu_msg_recv(g_port, TIMEOUT_INFINITE);
     char sink[sizeof(REQ)];
     lmsg_read(sink, sizeof(REQ));
-    CHECK((int32_t)m.r0 >= 0, "recv reply handle");
-    CHECK_EQ(zuzu_destroy((Handle)m.r0), ERR_BADTYPE, "destroy REPLY handle -> ERR_BADTYPE");
+    CHECK((int32_t)m.w0 >= 0, "recv reply handle");
+    CHECK_EQ(zuzu_destroy((Handle)m.w0), ERR_BADTYPE, "destroy REPLY handle -> ERR_BADTYPE");
     lmsg_write(RESP, sizeof(RESP));
-    CHECK_EQ(zuzu_msg_lreply((Handle)m.r0, sizeof(RESP)), 0, "reply handle survives destroy attempt");
+    CHECK_EQ(zuzu_msg_lreply((Handle)m.w0, sizeof(RESP)), 0, "reply handle survives destroy attempt");
     zuzu_tjoin(t);
     CHECK(g_worker_ok, "caller unaffected");
 
     /* destroy TASK handle -> rejected */
     tspawn_result_t ts = zuzu_pspawn("zzt_dummy");
-    CHECK(ts.task_handle >= 0, "pspawn empty process");
-    CHECK_EQ(zuzu_destroy(ts.task_handle), ERR_BADTYPE, "destroy TASK handle -> ERR_BADTYPE");
-    CHECK_EQ(zuzu_pkill(ts.task_handle), 0, "pkill empty process");
+    CHECK(ts.taskHandle >= 0, "pspawn empty process");
+    CHECK_EQ(zuzu_destroy(ts.taskHandle), ERR_BADTYPE, "destroy TASK handle -> ERR_BADTYPE");
+    CHECK_EQ(zuzu_pkill(ts.taskHandle), 0, "pkill empty process");
 
     /* cross-process grant: child sends on a port we granted it */
     Pid self = zuzu_getpid();
@@ -534,8 +534,8 @@ static void sec_handles(void)
     CHECK_EQ(rc, 0, "spawn sendport child (grant pre-kickstart)");
     if (rc == 0) {
         m = zuzu_msg_recv(g_port, TIMEOUT_INFINITE);
-        CHECK((int32_t)m.r0 > 0 && (int32_t)m.r0 != self, "recv: sender is the child pid");
-        CHECK(m.r1 == 0xCAFE && m.r2 == 0xBEEF && m.r3 == 0x1234,
+        CHECK((int32_t)m.w0 > 0 && (int32_t)m.w0 != self, "recv: sender is the child pid");
+        CHECK(m.w1 == 0xCAFE && m.w2 == 0xBEEF && m.w3 == 0x1234,
               "granted port usable in child (payload intact)");
         int32_t status = -1;
         CHECK(zuzu_wait(c.pid, &status, 0) == c.pid && status == 0, "sendport child exit 0");
@@ -713,11 +713,11 @@ static void sec_version(void)
 
     int32_t n = zuzu_ntfn_create();
     Handle set[1] = { (Handle)n };
-    waitany_result_t res;
+    WaitanyResult res;
 
     /* too-small size must be rejected before anything else happens */
     memset(&res, 0, sizeof(res));
-    res.size = sizeof(waitany_result_t) - 4;
+    res.size = sizeof(WaitanyResult) - 4;
     CHECK_EQ(raw_waitany(set, 1, TIMEOUT_POLL, &res), ERR_BADARG,
              "waitany result.size too small -> ERR_BADARG");
     res.size = 0;
@@ -727,10 +727,10 @@ static void sec_version(void)
     /* correct size accepted (raw svc, no wrapper help) */
     zuzu_ntfn_signal(n, 0x3);
     memset(&res, 0, sizeof(res));
-    res.size = sizeof(waitany_result_t);
+    res.size = sizeof(WaitanyResult);
     CHECK_EQ(raw_waitany(set, 1, TIMEOUT_POLL, &res), 0,
              "waitany correct result.size -> success");
-    CHECK(res.kind == WAITANY_KIND_NTFN && res.r1 == 0x3,
+    CHECK(res.kind == WAITANY_KIND_NTFN && res.w1 == 0x3,
           "result delivered through raw svc");
     zuzu_destroy(n);
 }
@@ -745,14 +745,14 @@ static void sec_security(void)
     CHECK(nt >= 0, "ntfn_create (probe)");
     Handle one[1] = { (Handle)nt };
 
-    CHECK_EQ(raw_waitany(one, 1, TIMEOUT_POLL, (waitany_result_t *)0x90000000u), ERR_BADPTR,
+    CHECK_EQ(raw_waitany(one, 1, TIMEOUT_POLL, (WaitanyResult *)0x90000000u), ERR_BADPTR,
              "waitany result ptr in kernel range -> ERR_BADPTR (no kernel write)");
-    waitany_result_t vr; vr.size = sizeof(vr);
+    WaitanyResult vr; vr.size = sizeof(vr);
     CHECK_EQ(raw_waitany((Handle *)0x90000000u, 1, TIMEOUT_POLL, &vr), ERR_BADPTR,
              "waitany handles ptr in kernel range -> ERR_BADPTR (no kernel read)");
 
     /* --- waitany argument bounds (DoS / OOB guards) --- */
-    waitany_result_t res;
+    WaitanyResult res;
     CHECK_EQ(zuzu_waitany(NULL, 1, TIMEOUT_POLL, &res), ERR_BADARG,
              "waitany NULL handles -> ERR_BADARG");
     CHECK_EQ(zuzu_waitany(one, 0, TIMEOUT_POLL, &res), ERR_BADARG,
@@ -794,21 +794,21 @@ static void sec_security(void)
     CHECK(st != NULL, "worker stack");
     g_worker_ok = 0;
     Tid t = zuzu_tmake(lcall_worker, (char *)st + STACK_SIZE, NULL);
-    msg_t m = zuzu_msg_recv(g_port, TIMEOUT_INFINITE);
+    Message m = zuzu_msg_recv(g_port, TIMEOUT_INFINITE);
     char sink[sizeof(REQ)];
     lmsg_read(sink, sizeof(REQ));
-    CHECK((int32_t)m.r0 >= 0, "recv reply handle");
+    CHECK((int32_t)m.w0 >= 0, "recv reply handle");
     CHECK_EQ(zuzu_msg_reply(g_port, 0, 0, 0), ERR_BADTYPE,
              "reply on a port handle -> ERR_BADTYPE (no cap forgery from endpoint)");
     CHECK_EQ(zuzu_msg_reply(9999, 0, 0, 0), ERR_BADHANDLE,
              "reply on bogus handle -> ERR_BADHANDLE");
     CHECK_EQ(zuzu_msg_reply(0, 0, 0, 0), ERR_BADHANDLE,
              "reply on handle 0 -> ERR_BADHANDLE");
-    CHECK_EQ(zuzu_grant((Handle)m.r0, g_sysd_pid), ERR_NOPERM,
+    CHECK_EQ(zuzu_grant((Handle)m.w0, g_sysd_pid), ERR_NOPERM,
              "cannot grant a REPLY handle (no cap leak)");
     lmsg_write(RESP, sizeof(RESP));
-    CHECK_EQ(zuzu_msg_lreply((Handle)m.r0, sizeof(RESP)), 0, "genuine reply succeeds");
-    CHECK_EQ(zuzu_msg_reply((Handle)m.r0, 0, 0, 0), ERR_BADTYPE,
+    CHECK_EQ(zuzu_msg_lreply((Handle)m.w0, sizeof(RESP)), 0, "genuine reply succeeds");
+    CHECK_EQ(zuzu_msg_reply((Handle)m.w0, 0, 0, 0), ERR_BADTYPE,
              "double-reply on spent reply handle -> ERR_BADTYPE (no replay)");
     zuzu_tjoin(t);
     CHECK(g_worker_ok, "caller unaffected by forgery attempts");
@@ -835,7 +835,7 @@ static void sec_security(void)
     CHECK_EQ(rc, 0, "spawn regrant child (grant pre-kickstart)");
     if (rc == 0) {
         m = zuzu_msg_recv(g_port, TIMEOUT_INFINITE);  /* unblocks child's send */
-        CHECK(m.r1 == 0xF00D, "received cap still usable for its purpose (send)");
+        CHECK(m.w1 == 0xF00D, "received cap still usable for its purpose (send)");
         int32_t status = -1;
         CHECK(zuzu_wait(c.pid, &status, 0) == c.pid && status == 0,
               "child: re-grant AND destroy of received cap both refused (ERR_NOPERM)");

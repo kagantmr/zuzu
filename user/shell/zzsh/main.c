@@ -65,11 +65,11 @@ static void strip(char *s)
 
 int setup(void)
 {
-    msg_t sysd = zuzu_msg_call(NT_PORT, NT_LOOKUP, nt_pack(NT_NAME_SYS), 0);
-    if (sysd.r1 != NT_LU_OK)
+    Message sysd = zuzu_msg_call(NT_PORT, NT_LOOKUP, nt_pack(NT_NAME_SYS), 0);
+    if (sysd.w1 != NT_LU_OK)
         return -1;
-    sysd_port = (int32_t)sysd.r2;
-    sysd_pid = sysd.r3;
+    sysd_port = (int32_t)sysd.w2;
+    sysd_pid = sysd.w3;
 
     if (stdio_use_tty(0) < 0)
         return -1;
@@ -388,14 +388,14 @@ static void cmd_exec(const char *line)
     /* ---- pspawn locally, ask sysd to inject, then kickstart ---- */
     const char *name = path_basename(path);
     tspawn_result_t ts = zuzu_pspawn(name);
-    if (ts.task_handle < 0) {
+    if (ts.taskHandle < 0) {
         printf("%s", ANSI_RED "zzsh: spawn failed\n" ANSI_RESET);
         return;
     }
 
-    int32_t sysd_task_handle = zuzu_grant(ts.task_handle, (int32_t)sysd_pid);
+    int32_t sysd_task_handle = zuzu_grant(ts.taskHandle, (int32_t)sysd_pid);
     if (sysd_task_handle < 0) {
-        zuzu_pkill(ts.task_handle);                    /* <-- NEW */
+        zuzu_pkill(ts.taskHandle);                    /* <-- NEW */
         printf("%s", ANSI_RED "zzsh: spawn failed (sysd reject)\n" ANSI_RESET);
         return;
     }
@@ -403,7 +403,7 @@ static void cmd_exec(const char *line)
     size_t path_len = strlen(path);
     size_t req_len = sizeof(exec_request_hdr_t) + path_len + 1 + argpos;
     if (req_len > LMSG_BUF_SIZE) {
-        zuzu_pkill(ts.task_handle);                    /* <-- NEW */
+        zuzu_pkill(ts.taskHandle);                    /* <-- NEW */
         printf("%s", ANSI_RED "zzsh: command too long\n" ANSI_RESET);
         return;
     }
@@ -411,7 +411,7 @@ static void cmd_exec(const char *line)
     exec_request_hdr_t *hdr = (exec_request_hdr_t *)lmsg_buf();
     hdr->cmd = SYSD_EXEC;
     hdr->_pad = 0;
-    hdr->task_handle = (uint16_t)sysd_task_handle;
+    hdr->taskHandle = (uint16_t)sysd_task_handle;
     hdr->path_len = (uint16_t)path_len;
     hdr->argc = (uint16_t)token_count;
     hdr->pid = ts.pid;
@@ -423,26 +423,26 @@ static void cmd_exec(const char *line)
     int32_t rc = chan_call((Handle)sysd_port, lmsg_buf(), (uint32_t)req_len,
                            lmsg_buf(), (uint32_t)sizeof(exec_reply_t));
     if (rc < 0) {
-        zuzu_pkill(ts.task_handle);
+        zuzu_pkill(ts.taskHandle);
         print_exec_error(rc);
         return;
     }
     if (rc != (int32_t)sizeof(exec_reply_t)) {
-        zuzu_pkill(ts.task_handle);
+        zuzu_pkill(ts.taskHandle);
         printf("%s", ANSI_RED "zzsh: bad exec reply\n" ANSI_RESET);
         return;
     }
 
     exec_reply_t *reply = (exec_reply_t *)lmsg_buf();
     if (!exec_reply_valid(reply)) {
-        zuzu_pkill(ts.task_handle);
+        zuzu_pkill(ts.taskHandle);
         print_exec_error(EXEC_EBADELF);
         return;
     }
 
-    if (zuzu_kickstart(ts.task_handle, reply->entry, reply->sp,
+    if (zuzu_kickstart(ts.taskHandle, reply->entry, reply->sp,
                    reply->argc, reply->argv_va) != 0) {
-        zuzu_pkill(ts.task_handle);
+        zuzu_pkill(ts.taskHandle);
         printf("%s", ANSI_RED "zzsh: kickstart failed\n" ANSI_RESET);
         return;
     }
@@ -549,9 +549,9 @@ void command_dispatch(const char *line)
         if (nic_port < 0) {
             printf("%s", "nicstat: nic0 not found\n");
         } else {
-            msg_t r = zuzu_msg_call(nic_port, NIC_CMD_STATS, 0, 0);
+            Message r = zuzu_msg_call(nic_port, NIC_CMD_STATS, 0, 0);
             char buf[48];
-            snprintf(buf, sizeof(buf), "nic0: irq_count=%u\n", (uint32_t)r.r2);
+            snprintf(buf, sizeof(buf), "nic0: irq_count=%u\n", (uint32_t)r.w2);
             printf("%s", buf);
         }
     }
