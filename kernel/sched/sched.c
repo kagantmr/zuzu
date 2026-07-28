@@ -308,7 +308,16 @@ void switch_to_thread(thread_t *next) {
     if (next == prev)
         return;
 
-    if (current_thread != fpu_owner) {
+    /* CPACR must track fpu_owner exactly, not just get disabled on the way
+     * out: if some other thread ran in between and this thread is still
+     * fpu_owner, access was disabled for that thread and never re-enabled
+     * on the way back, so the owner's next FPU instruction would trap with
+     * fpu_owner already == current_thread -- the undef handler treats that
+     * as a genuine bad opcode and kills the process instead of granting
+     * access (see arch/arm/exceptions/exception.c). */
+    if (current_thread == fpu_owner) {
+        arch_fpu_trap_enable();
+    } else {
         arch_fpu_trap_disable();
     }
 

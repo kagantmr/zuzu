@@ -131,6 +131,11 @@ Required extra fields for kernelspace PRs:
 Not a good first contribution:
 - Kernel scheduler, MMU, exception entry, or syscall ABI refactors
 
+## Naming convention
+
+zuzu and zuzuOS will start to follow camelCase for functions and types. Legacy code may use snake_case;
+when touching a subsystem, modernize its naming as part of that refactor.
+
 ## Questions and design proposals
 For larger changes:
 - Write a short design note first
