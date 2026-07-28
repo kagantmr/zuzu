@@ -15,7 +15,7 @@ extern "C" {
 /*
  * DEV_REGISTER (call)
  *   req:  w1=DEV_REGISTER, w2=class
- *   resp: r1=ZUZU_OK or negative err_t (see <zuzu/err.h>)
+ *   resp: r1=ZUZU_OK or negative Err (see <zuzu/err.h>)
  *
  * devmgr binds class -> one injected device capability owned by devmgr.
  */

@@ -387,7 +387,7 @@ static void cmd_exec(const char *line)
 
     /* ---- pspawn locally, ask sysd to inject, then kickstart ---- */
     const char *name = path_basename(path);
-    tspawn_result_t ts = zuzu_pspawn(name);
+    TSpawnResult ts = zuzu_pspawn(name);
     if (ts.taskHandle < 0) {
         printf("%s", ANSI_RED "zzsh: spawn failed\n" ANSI_RESET);
         return;

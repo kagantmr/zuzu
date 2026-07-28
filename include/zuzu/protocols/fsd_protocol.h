@@ -43,7 +43,7 @@ _Static_assert(sizeof(fsd_req_t) == 40, "fsd_req_t layout changed");
 typedef struct
 {
     uint32_t size;     /* sizeof(fsd_resp_t); fsd sets */
-    err_t status;      /* ZUZU_OK or err_t */
+    Err status;      /* ZUZU_OK or Err */
     uint32_t data_off; /* where fsd put the payload */
     uint32_t data_len; /* how much */
     int64_t offset;    /* SEEK: new absolute position */

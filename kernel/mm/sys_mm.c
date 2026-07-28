@@ -188,7 +188,7 @@ void sys_memmap(arch_regs_t *frame)
     if ((prot & VM_PROT_WRITE) && (prot & VM_PROT_EXEC))  { *arch_reg(frame, 0) = ERR_BADARG; return;}
 
     VirtAddr va = 0;
-    err_t rc;   
+    Err rc;   
 
     if (handle == HANDLE_ANON)
     {

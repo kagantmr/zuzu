@@ -19,7 +19,7 @@ extern "C" {
    The top page of the address space is the error band, so a valid VA (even one
    with the high bit set) is never misread as an error. */
 static inline int zuzu_is_err(const void *p) {
-    return (uintptr_t)p >= (uintptr_t)(-4095);
+    return (VirtAddr)p >= (VirtAddr)(-4095);
 }
 
 /**
@@ -31,7 +31,7 @@ static inline int zuzu_is_err(const void *p) {
  * @return void* Returns a pointer to the mapped virtual address, or NULL on failure.
  */
 static inline void *zuzu_memmap(Handle handle, size_t size, uint32_t prot, uint32_t flags) {
-    return (void *)(uintptr_t)syscall(SYS_MEMMAP, handle, size, prot, flags);
+    return (void *)(VirtAddr)syscall(SYS_MEMMAP, handle, size, prot, flags);
 }
 
 /**
@@ -54,7 +54,7 @@ static inline Handle zuzu_shm_create(uint32_t size) {
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
 static inline int32_t zuzu_dev_query(Handle handle, void *out_buf, uint32_t len) {
-    return syscall(SYS_DEV_QUERY, handle, (uint32_t)(uintptr_t)out_buf, len, 0);
+    return syscall(SYS_DEV_QUERY, handle, (uint32_t)(VirtAddr)out_buf, len, 0);
 }
 
 /**
@@ -69,7 +69,7 @@ static inline int32_t zuzu_dev_query(Handle handle, void *out_buf, uint32_t len)
  * 
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t zuzu_asinject(Handle taskHandle, uintptr_t dst_va,
+static inline int32_t zuzu_asinject(Handle taskHandle, VirtAddr dst_va,
                                 const void *src_buf, size_t len, uint32_t prot) {
     asinject_args_t args = {
         .size        = sizeof(asinject_args_t),
@@ -100,7 +100,7 @@ static inline int32_t zuzu_asinject(Handle taskHandle, uintptr_t dst_va,
  *
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t zuzu_asinject_reserve(Handle taskHandle, uintptr_t dst_va,
+static inline int32_t zuzu_asinject_reserve(Handle taskHandle, VirtAddr dst_va,
                                         size_t len, uint32_t prot) {
     asinject_args_t args = {
         .size        = sizeof(asinject_args_t),
@@ -111,21 +111,21 @@ static inline int32_t zuzu_asinject_reserve(Handle taskHandle, uintptr_t dst_va,
         .prot        = prot,
         .flags       = ASINJECT_FLAG_RESERVE,
     };
-    return syscall(SYS_ASINJECT, (uint32_t)(uintptr_t)&args, 0, 0, 0);
+    return syscall(SYS_ASINJECT, (uint32_t)(VirtAddr)&args, 0, 0, 0);
 }
 
 /**
  * @brief Unmaps a memory region from the calling process's address space.
  */
 static inline int32_t zuzu_memunmap(void *addr) {
-    return syscall(SYS_MEMUNMAP, (uint32_t)(uintptr_t)addr, 0, 0, 0);
+    return syscall(SYS_MEMUNMAP, (uint32_t)(VirtAddr)addr, 0, 0, 0);
 }
 
 /**
  * @brief Changes the memory protection of a specified memory region.
  */
 static inline int32_t zuzu_memprotect(void *addr, size_t size, uint32_t prot) {
-    return syscall(SYS_MEMPROTECT, (uint32_t)(uintptr_t)addr, size, prot, 0);
+    return syscall(SYS_MEMPROTECT, (uint32_t)(VirtAddr)addr, size, prot, 0);
 }
 
 #ifdef __cplusplus

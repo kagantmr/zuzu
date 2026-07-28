@@ -33,16 +33,18 @@ typedef struct
     MsgWord w3;
 } Message;
 
+#define TIMEOUT_POLL 0u
+#define TIMEOUT_INFINITE UINT32_MAX
+
 /* ---- Process spawn types ---- */
 
 typedef struct
 {
     Handle taskHandle;
     Pid pid;
-} tspawn_result_t;
+} TSpawnResult;
 
-#define TIMEOUT_POLL 0u
-#define TIMEOUT_INFINITE UINT32_MAX
+/* --- Handle sentinels */
 
 #define HANDLE_ANON ((Handle) -1) // Sentinel value, used in memmap() as the handle value
 

@@ -419,7 +419,7 @@ static bool should_respawn(int32_t status)
 
 static void respawn_entry(boot_entry_t *e)
 {
-    tspawn_result_t ts = zuzu_pspawn(e->name);
+    TSpawnResult ts = zuzu_pspawn(e->name);
     if (ts.taskHandle < 0)
         return;
 
@@ -701,7 +701,7 @@ int main(int argc, char **argv)
         if (!e->in_cpio || e->spawn_last)
             continue;
 
-        tspawn_result_t ts = zuzu_pspawn(e->name);
+        TSpawnResult ts = zuzu_pspawn(e->name);
         if (ts.taskHandle < 0)
             continue;
 
@@ -762,7 +762,7 @@ int main(int argc, char **argv)
         if (!e->in_cpio || !e->spawn_last)
             continue;
 
-        tspawn_result_t ts = zuzu_pspawn(e->name);
+        TSpawnResult ts = zuzu_pspawn(e->name);
         if (ts.taskHandle < 0)
             continue;
 

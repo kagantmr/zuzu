@@ -2,7 +2,7 @@
 #include "backend.h"
 #include <string.h>
 
-static err_t fres_to_err(FRESULT fr)
+static Err fres_to_err(FRESULT fr)
 {
     switch (fr) {
     case FR_OK:                    return ZUZU_OK;
@@ -25,18 +25,18 @@ static err_t fres_to_err(FRESULT fr)
 
 static FATFS fs;
 
-static err_t fat_open(void *ctx, void *file, const char *path, uint32_t mode)
+static Err fat_open(void *ctx, void *file, const char *path, uint32_t mode)
 {
     (void)ctx;
     return fres_to_err(f_open((FIL *)file, path, (BYTE)mode));
 }
 
-static err_t fat_close(void *ctx, void *file) {
+static Err fat_close(void *ctx, void *file) {
     (void)ctx;
     return fres_to_err(f_close((FIL *)file));
 }
 
-static err_t fat_read(void *ctx, void *file, void *buf, uint32_t count, uint32_t *got) {
+static Err fat_read(void *ctx, void *file, void *buf, uint32_t count, uint32_t *got) {
     (void)ctx;
     UINT br = 0;
     FRESULT rc = f_read((FIL *)file, buf, count, &br);
@@ -45,7 +45,7 @@ static err_t fat_read(void *ctx, void *file, void *buf, uint32_t count, uint32_t
     return ZUZU_OK;
 }
 
-static err_t fat_write(void *ctx, void *file, const void *buf, uint32_t count, uint32_t *put) {
+static Err fat_write(void *ctx, void *file, const void *buf, uint32_t count, uint32_t *put) {
     
     (void)ctx;
     UINT bw = 0;
@@ -55,7 +55,7 @@ static err_t fat_write(void *ctx, void *file, const void *buf, uint32_t count, u
     return ZUZU_OK;
 }
 
-static err_t fat_seek(void *ctx, void *file, int64_t off, uint32_t whence, int64_t *newpos) {
+static Err fat_seek(void *ctx, void *file, int64_t off, uint32_t whence, int64_t *newpos) {
     (void)ctx;
     switch (whence) {
     case FSD_SEEK_SET:
@@ -77,7 +77,7 @@ static err_t fat_seek(void *ctx, void *file, int64_t off, uint32_t whence, int64
     return ZUZU_OK;
 }
 
-static err_t fat_stat(void *ctx, const char *path, fsd_stat_t *out) {
+static Err fat_stat(void *ctx, const char *path, fsd_stat_t *out) {
     (void)ctx;
     FILINFO fno;
     FRESULT rc = f_stat(path, &fno);
@@ -87,7 +87,7 @@ static err_t fat_stat(void *ctx, const char *path, fsd_stat_t *out) {
     return ZUZU_OK;
 }
 
-static err_t fat_readdir(void *ctx, const char *path, uint32_t start,
+static Err fat_readdir(void *ctx, const char *path, uint32_t start,
                          fsd_dirent_t *out, uint32_t max, uint32_t *count)
 {
     (void)ctx;
@@ -124,24 +124,24 @@ static err_t fat_readdir(void *ctx, const char *path, uint32_t start,
     return ZUZU_OK;
 }
 
-static err_t fat_unlink(void *ctx, const char *path) {
+static Err fat_unlink(void *ctx, const char *path) {
     (void)ctx;
     FRESULT rc = f_unlink(path);
     return fres_to_err(rc);
 }
 
-static err_t fat_rename(void *ctx, const char *from, const char *to) {
+static Err fat_rename(void *ctx, const char *from, const char *to) {
     (void)ctx;
     FRESULT rc = f_rename(from, to);
     return fres_to_err(rc);
 }
 
-static err_t fat_mount(void **ctx_out) {
+static Err fat_mount(void **ctx_out) {
     FRESULT rc = f_mount(&fs, "", 1);
     *ctx_out = &fs;
     return fres_to_err(rc);
 }
-static err_t fat_unmount(void *ctx) {
+static Err fat_unmount(void *ctx) {
     (void)ctx;
     return fres_to_err(f_unmount(""));
 }

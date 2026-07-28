@@ -9,7 +9,7 @@ extern "C" {
  * zuzu.h - Umbrella header for Zuzu user ABI
  * 
  * Includes all user-space syscall interfaces, organized by functionality:
- * - types.h:  common types (Message, tspawn_result_t, etc)
+ * - types.h:  common types (Message, TSpawnResult, etc)
  * - task.h:   process lifecycle management
  * - ipc.h:    inter-process communication and ports
  * - umem.h:   memory management syscalls
