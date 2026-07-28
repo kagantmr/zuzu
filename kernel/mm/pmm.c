@@ -20,7 +20,7 @@ extern kernel_layout_t kernel_layout;
 extern void syspage_update_mem(void);
 spinlock_t pmm_lock = SPINLOCK_INIT;
 
-static bool pmm_is_valid_managed_pa(paddr_t pa)
+static bool pmm_is_valid_managed_pa(PhysAddr pa)
 {
     if (pa == 0)
         return true; // freelist terminator
@@ -40,8 +40,8 @@ static void pmm_rebuild_freelist(void)
         size_t bit_idx = i % 8;
         if (!(pmm_state.bitmap[byte_idx] & (1u << bit_idx)))
         {
-            paddr_t pa = (pmm_state.pfn_base + i) * PAGE_SIZE;
-            vaddr_t *page_va = (uintptr_t *)PA_TO_VA(pa);
+            PhysAddr pa = (pmm_state.pfn_base + i) * PAGE_SIZE;
+            VirtAddr *page_va = (uintptr_t *)PA_TO_VA(pa);
             *page_va = pmm_state.freelist_head;
             pmm_state.freelist_head = pa;
         }
@@ -49,10 +49,10 @@ static void pmm_rebuild_freelist(void)
 }
 
 /* Remove any free-list nodes whose PA is within [start_pa, end_pa). */
-static void pmm_freelist_remove_range(paddr_t start_pa, paddr_t end_pa)
+static void pmm_freelist_remove_range(PhysAddr start_pa, PhysAddr end_pa)
 {
-    paddr_t prev_pa = 0;
-    paddr_t curr_pa = pmm_state.freelist_head;
+    PhysAddr prev_pa = 0;
+    PhysAddr curr_pa = pmm_state.freelist_head;
 
     while (curr_pa)
     {
@@ -64,8 +64,8 @@ static void pmm_freelist_remove_range(paddr_t start_pa, paddr_t end_pa)
             continue;
         }
 
-        vaddr_t *curr_va = (uintptr_t *)PA_TO_VA(curr_pa);
-        paddr_t next_pa = *curr_va;
+        VirtAddr *curr_va = (uintptr_t *)PA_TO_VA(curr_pa);
+        PhysAddr next_pa = *curr_va;
 
         if (!pmm_is_valid_managed_pa(next_pa))
         {
@@ -83,7 +83,7 @@ static void pmm_freelist_remove_range(paddr_t start_pa, paddr_t end_pa)
             }
             else
             {
-                vaddr_t *prev_va = (uintptr_t *)PA_TO_VA(prev_pa);
+                VirtAddr *prev_va = (uintptr_t *)PA_TO_VA(prev_pa);
                 *prev_va = next_pa;
             }
         }
@@ -96,35 +96,35 @@ static void pmm_freelist_remove_range(paddr_t start_pa, paddr_t end_pa)
     }
 }
 
-static paddr_t pmm_alloc_page_locked(void)
+static PhysAddr pmm_alloc_page_locked(void)
 {
     if (pmm_state.freelist_head == 0)
-        return (paddr_t)0;
+        return (PhysAddr)0;
 
     if (!pmm_is_valid_managed_pa(pmm_state.freelist_head))
     {
         pmm_rebuild_freelist();
         if (pmm_state.freelist_head == 0)
-            return (paddr_t)0;
+            return (PhysAddr)0;
     }
 
-    paddr_t pa = pmm_state.freelist_head;
+    PhysAddr pa = pmm_state.freelist_head;
 
     /* Pop: read next pointer stored in the page itself */
-    vaddr_t *page_va = (uintptr_t *)PA_TO_VA(pa);
-    paddr_t next_pa = *page_va;
+    VirtAddr *page_va = (uintptr_t *)PA_TO_VA(pa);
+    PhysAddr next_pa = *page_va;
     if (!pmm_is_valid_managed_pa(next_pa))
     {
         pmm_rebuild_freelist();
         if (pmm_state.freelist_head == 0)
-            return (paddr_t)0;
+            return (PhysAddr)0;
         pa = pmm_state.freelist_head;
-        page_va = (vaddr_t *)PA_TO_VA(pa);
+        page_va = (VirtAddr *)PA_TO_VA(pa);
         next_pa = *page_va;
         if (!pmm_is_valid_managed_pa(next_pa))
         {
             pmm_state.freelist_head = 0;
-            return (paddr_t)0;
+            return (PhysAddr)0;
         }
     }
 
@@ -147,7 +147,7 @@ static paddr_t pmm_alloc_page_locked(void)
 
 static void pmm_reserve_boot_regions(void)
 {
-    pmm_mark_range((paddr_t)_boot_start, (paddr_t)_boot_end);
+    pmm_mark_range((PhysAddr)_boot_start, (PhysAddr)_boot_end);
     /* The DTB is wherever the bootloader put it, not necessarily adjacent
      * to the kernel (QEMU's Linux-boot path and the Pi firmware both place
      * it independently). Reserve its actual extent. */
@@ -157,19 +157,19 @@ static void pmm_reserve_boot_regions(void)
     pmm_mark_range(kernel_layout.bitmap_start_pa, kernel_layout.bitmap_end_pa);
 
     // All mode stacks
-    pmm_mark_range((paddr_t)__stack_region_base__, (paddr_t)__stack_region_end__);
+    pmm_mark_range((PhysAddr)__stack_region_base__, (PhysAddr)__stack_region_end__);
 
     /* Firmware /memreserve/ ranges (e.g. secondary-core spin tables on the
      * Pi 4). Ranges outside managed RAM are rejected by pmm_mark_range. */
     uint64_t rsv_addr, rsv_size;
     for (uint32_t i = 0; dtb_get_memrsv(i, &rsv_addr, &rsv_size); i++)
-        pmm_mark_range((paddr_t)rsv_addr, (paddr_t)(rsv_addr + rsv_size));
+        pmm_mark_range((PhysAddr)rsv_addr, (PhysAddr)(rsv_addr + rsv_size));
 
     /* A bootloader-supplied initrd (DTB /chosen) lives outside the kernel
      * image, wherever it was loaded, so it needs its own reservation. */
     uint64_t initrd_start, initrd_end;
     if (dtb_get_chosen_initrd(&initrd_start, &initrd_end))
-        pmm_mark_range((paddr_t)initrd_start, (paddr_t)initrd_end);
+        pmm_mark_range((PhysAddr)initrd_start, (PhysAddr)initrd_end);
 }
 
 void pmm_init(void)
@@ -181,10 +181,10 @@ void pmm_init(void)
     pmm_state.free_pages = pmm_state.total_pages;
 
     // Place bitmap after kernel, page-aligned
-    paddr_t bitmap_start_pa = align_up(kernel_layout.kernel_end_pa, PAGE_SIZE);
+    PhysAddr bitmap_start_pa = align_up(kernel_layout.kernel_end_pa, PAGE_SIZE);
     size_t bitmap_bytes = (pmm_state.total_pages + 7) / 8;
     size_t bitmap_size = align_up(bitmap_bytes, PAGE_SIZE);
-    paddr_t bitmap_end_pa = bitmap_start_pa + bitmap_size;
+    PhysAddr bitmap_end_pa = bitmap_start_pa + bitmap_size;
 
     // Sanity checks
     assert(bitmap_end_pa <= kernel_layout.stack_base_pa);
@@ -211,14 +211,14 @@ void pmm_init(void)
 }
 
 /* mark: mark pages in [start, end) as USED */
-int pmm_mark_range(paddr_t start, paddr_t end)
+int pmm_mark_range(PhysAddr start, PhysAddr end)
 {
     if (start >= end)
         return MARK_FAIL;
 
     /* Align the range to page boundaries */
-    paddr_t astart = align_down(start, PAGE_SIZE);
-    paddr_t aend = align_up(end, PAGE_SIZE);
+    PhysAddr astart = align_down(start, PAGE_SIZE);
+    PhysAddr aend = align_up(end, PAGE_SIZE);
 
     size_t start_pfn = astart / PAGE_SIZE;
     size_t end_pfn = aend / PAGE_SIZE;
@@ -261,13 +261,13 @@ int pmm_mark_range(paddr_t start, paddr_t end)
 }
 
 /* unmark: mark pages in [start, end) as FREE */
-int pmm_unmark_range(paddr_t start, paddr_t end)
+int pmm_unmark_range(PhysAddr start, PhysAddr end)
 {
     if (start >= end)
         return MARK_FAIL;
 
-    const paddr_t astart = align_down(start, PAGE_SIZE);
-    const paddr_t aend = align_up(end, PAGE_SIZE);
+    const PhysAddr astart = align_down(start, PAGE_SIZE);
+    const PhysAddr aend = align_up(end, PAGE_SIZE);
 
     const size_t start_pfn = astart / PAGE_SIZE;
     size_t end_pfn = aend / PAGE_SIZE;
@@ -307,11 +307,11 @@ int pmm_unmark_range(paddr_t start, paddr_t end)
     return MARK_OK;
 }
 
-paddr_t pmm_alloc_page(void)
+PhysAddr pmm_alloc_page(void)
 {
     uint32_t flags;
     spin_lock_irqsave(&pmm_lock, &flags);
-    paddr_t pa = pmm_alloc_page_locked();
+    PhysAddr pa = pmm_alloc_page_locked();
     if (pa != 0)
     {
         syspage_update_mem();
@@ -322,14 +322,14 @@ paddr_t pmm_alloc_page(void)
 #endif
     return pa;
 }
-paddr_t pmm_alloc_pages(size_t n_pages)
+PhysAddr pmm_alloc_pages(size_t n_pages)
 {
     uint32_t flags;
     spin_lock_irqsave(&pmm_lock, &flags);
     if (n_pages == 0 || pmm_state.free_pages < n_pages)
     {
         spin_unlock_irqrestore(&pmm_lock, flags);
-        return (paddr_t)0;
+        return (PhysAddr)0;
     }
 
     assert(pmm_state.bitmap != NULL);
@@ -364,8 +364,8 @@ paddr_t pmm_alloc_pages(size_t n_pages)
             if (consecutive == n_pages)
             {
                 /* Mark pages as allocated */
-                paddr_t start_pa = start_index * PAGE_SIZE + pmm_state.pfn_base * PAGE_SIZE;
-                paddr_t end_pa = (start_index + n_pages) * PAGE_SIZE + pmm_state.pfn_base * PAGE_SIZE;
+                PhysAddr start_pa = start_index * PAGE_SIZE + pmm_state.pfn_base * PAGE_SIZE;
+                PhysAddr end_pa = (start_index + n_pages) * PAGE_SIZE + pmm_state.pfn_base * PAGE_SIZE;
                 if (pmm_mark_range(start_pa, end_pa) != MARK_OK)
                 {
                     spin_unlock_irqrestore(&pmm_lock, flags);
@@ -376,7 +376,7 @@ paddr_t pmm_alloc_pages(size_t n_pages)
                 pmm_freelist_remove_range(start_pa, end_pa);
 
                 size_t pfn = pmm_state.pfn_base + start_index;
-                paddr_t addr = (paddr_t)pfn * PAGE_SIZE;
+                PhysAddr addr = (PhysAddr)pfn * PAGE_SIZE;
                 assert(addr % PAGE_SIZE == 0);
                 assert(pfn >= pmm_state.pfn_base && (pfn + n_pages) <= pmm_state.pfn_end);
                 syspage_update_mem(); // update free memory info in syspage
@@ -394,10 +394,10 @@ paddr_t pmm_alloc_pages(size_t n_pages)
     }
 
     spin_unlock_irqrestore(&pmm_lock, flags);
-    return (paddr_t)0;
+    return (PhysAddr)0;
 }
 
-int pmm_free_page(const paddr_t addr)
+int pmm_free_page(const PhysAddr addr)
 {
     uint32_t flags;
 #ifdef PMM_TRACE
@@ -442,7 +442,7 @@ int pmm_free_page(const paddr_t addr)
         assert(pmm_state.free_pages <= pmm_state.total_pages);
 
         /* Push onto freelist */
-        vaddr_t *page_va = (uintptr_t *)PA_TO_VA(addr);
+        VirtAddr *page_va = (uintptr_t *)PA_TO_VA(addr);
         *page_va = pmm_state.freelist_head;
         pmm_state.freelist_head = addr;
 
@@ -474,13 +474,13 @@ uintptr_t pmm_alloc_pages_aligned(const size_t n_pages, size_t align_pages)
     if ((align_pages & (align_pages - 1)) != 0)
     {
         spin_unlock_irqrestore(&pmm_lock, flags);
-        return (paddr_t)0;
+        return (PhysAddr)0;
     }
 
     if (pmm_state.free_pages < n_pages)
     {
         spin_unlock_irqrestore(&pmm_lock, flags);
-        return (paddr_t)0;
+        return (PhysAddr)0;
     }
 
     assert(pmm_state.bitmap != NULL);
@@ -542,10 +542,10 @@ uintptr_t pmm_alloc_pages_aligned(const size_t n_pages, size_t align_pages)
     }
 
     spin_unlock_irqrestore(&pmm_lock, flags);
-    return (paddr_t)0;
+    return (PhysAddr)0;
 }
 
-size_t pmm_alloc_pages_scattered(const size_t n_pages, paddr_t *out_addrs)
+size_t pmm_alloc_pages_scattered(const size_t n_pages, PhysAddr *out_addrs)
 {
 #ifdef PMM_TRACE
     KTRACE("alloc_pages_scattered n=%zu caller: %s", n_pages, ksym_lookup((uint32_t)__builtin_return_address(0)));
@@ -569,7 +569,7 @@ size_t pmm_alloc_pages_scattered(const size_t n_pages, paddr_t *out_addrs)
     }
     for (size_t i = 0; i < n_pages; i++)
     {
-        const paddr_t new_page = pmm_alloc_page_locked();
+        const PhysAddr new_page = pmm_alloc_page_locked();
         if (new_page == 0)
         {
             syspage_update_mem();

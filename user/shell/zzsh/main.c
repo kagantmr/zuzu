@@ -420,7 +420,7 @@ static void cmd_exec(const char *line)
     memcpy(payload, path, path_len + 1);
     memcpy(payload + path_len + 1, argbuf, argpos);
 
-    int32_t rc = chan_call((handle_t)sysd_port, lmsg_buf(), (uint32_t)req_len,
+    int32_t rc = chan_call((Handle)sysd_port, lmsg_buf(), (uint32_t)req_len,
                            lmsg_buf(), (uint32_t)sizeof(exec_reply_t));
     if (rc < 0) {
         zuzu_pkill(ts.task_handle);

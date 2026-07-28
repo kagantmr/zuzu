@@ -46,7 +46,7 @@ static inline int32_t zuzu_yield(void) {
  * 
  * @return int32_t 
  */
-static inline int32_t zuzu_wait(zpid_t pid, int32_t *status_out, uint32_t flags) {
+static inline int32_t zuzu_wait(Pid pid, int32_t *status_out, uint32_t flags) {
     return syscall(SYS_WAIT, (uint32_t)pid, (uint32_t)(uintptr_t)status_out, flags, 0);
 }
 
@@ -80,7 +80,7 @@ static inline tspawn_result_t zuzu_pspawn(const char* name) {
         .name_len = name_len,
     };
     msg_t result = syscall_msg(SYS_PSPAWN, (uint32_t)(uintptr_t)&args, 0, 0, 0);
-    return (tspawn_result_t) {.task_handle = (handle_t) result.r0, .pid = (zpid_t) result.r1};
+    return (tspawn_result_t) {.task_handle = (Handle) result.r0, .pid = (Pid) result.r1};
 }
 
 /**
@@ -90,7 +90,7 @@ static inline tspawn_result_t zuzu_pspawn(const char* name) {
  * @param elf_size Size of the ELF file data in bytes.
  * @param name Name of the process (null-terminated string).
  */
-static inline handle_t zuzu_kickstart(handle_t task_handle, uintptr_t entry,
+static inline Handle zuzu_kickstart(Handle task_handle, uintptr_t entry,
                                   uintptr_t sp, uint32_t r0_val, uint32_t r1_val) {
     kickstart_args_t args = {
         .size        = sizeof(kickstart_args_t),
@@ -100,28 +100,28 @@ static inline handle_t zuzu_kickstart(handle_t task_handle, uintptr_t entry,
         .r0_val      = r0_val,
         .r1_val      = r1_val,
     };
-    return (handle_t) syscall(SYS_KICKSTART, (uint32_t)(uintptr_t)&args, 0, 0, 0);
+    return (Handle) syscall(SYS_KICKSTART, (uint32_t)(uintptr_t)&args, 0, 0, 0);
 }
 
 /**
  * @brief Kills the process associated with the specified task handle.
  */
-static inline int32_t zuzu_pkill(handle_t task_handle) {
+static inline int32_t zuzu_pkill(Handle task_handle) {
     return syscall(SYS_PKILL, task_handle, 0, 0, 0);
 }
 
 /**
  * @brief Creates a new thread in the current process with the specified entry point, stack pointer, and argument.
  */
-static inline tid_t zuzu_tmake(void (*entry)(void *), void *user_sp, void *arg) {
-    return (tid_t)syscall(SYS_TMAKE, (uint32_t)(vaddr_t)entry, (uint32_t)(vaddr_t)user_sp,
-                           (uint32_t)(vaddr_t)arg, 0);
+static inline Tid zuzu_tmake(void (*entry)(void *), void *user_sp, void *arg) {
+    return (Tid)syscall(SYS_TMAKE, (uint32_t)(VirtAddr)entry, (uint32_t)(VirtAddr)user_sp,
+                           (uint32_t)(VirtAddr)arg, 0);
 }
 
 /**
  * @brief Waits for the specified thread to terminate and retrieves its exit status.
  */
-static inline int32_t zuzu_tjoin(tid_t tid) {
+static inline int32_t zuzu_tjoin(Tid tid) {
     return syscall(SYS_TJOIN, tid, 0, 0, 0);
 }
 

@@ -40,13 +40,13 @@ static bool elf_segment_ranges_overlap(const Elf32_Phdr *a, const Elf32_Phdr *b)
 
 /* Copy into another address space through the kernel alias of each page.
  * The target pages must already be faulted in (see fault_in_pages). */
-static bool as_copy_out(addrspace_t *as, vaddr_t va, const void *src, size_t len)
+static bool as_copy_out(addrspace_t *as, VirtAddr va, const void *src, size_t len)
 {
     const uint8_t *s = src;
     while (len > 0)
     {
-        vaddr_t page_va = va & ~(vaddr_t)(PAGE_SIZE - 1);
-        paddr_t pa = arch_mmu_translate(as->ttbr_pa, page_va);
+        VirtAddr page_va = va & ~(VirtAddr)(PAGE_SIZE - 1);
+        PhysAddr pa = arch_mmu_translate(as->ttbr_pa, page_va);
         if (pa == 0)
             return false;
         size_t off = va - page_va;
@@ -75,7 +75,7 @@ process_t *process_load(const void *elf_data, size_t elf_size,
     thread_t *t = p->thread;
     if (!t)
         goto fail_process;
-    vaddr_t stack_top = t->kernel_stack_top;
+    VirtAddr stack_top = t->kernel_stack_top;
 
     for (int i = 0; i < elf_phdr_count(elf_data); i++)
     {
@@ -153,7 +153,7 @@ process_t *process_load(const void *elf_data, size_t elf_size,
                  * page) is part file content, part BSS, so the tail past
                  * p_filesz must be explicitly zeroed - pmm_alloc_page() can
                  * return a recycled frame with arbitrary contents. */
-                vaddr_t file_offset = page * PAGE_SIZE;
+                VirtAddr file_offset = page * PAGE_SIZE;
                 size_t bytes_to_copy = ph->p_filesz - file_offset;
                 if (bytes_to_copy > PAGE_SIZE)
                     bytes_to_copy = PAGE_SIZE;
@@ -169,13 +169,13 @@ process_t *process_load(const void *elf_data, size_t elf_size,
                            PAGE_SIZE - bytes_to_copy);
                 }
 
-                vaddr_t va = ph->p_vaddr + page * PAGE_SIZE;
+                VirtAddr va = ph->p_vaddr + page * PAGE_SIZE;
                 if (!vmm_map_user_page(p->as, page_pa, va, prot))
                 {
                     pmm_free_page(page_pa);
                     for (uint32_t j = 0; j < page; j++)
                     {
-                        vaddr_t orphan_va = ph->p_vaddr + j * PAGE_SIZE;
+                        VirtAddr orphan_va = ph->p_vaddr + j * PAGE_SIZE;
                         vmm_unmap_range(p->as, orphan_va, PAGE_SIZE);
                         pmm_free_page(segment_pages[j]);
                     }
@@ -201,7 +201,7 @@ process_t *process_load(const void *elf_data, size_t elf_size,
                     KERROR("Failed to add ELF segment region at VA %08X", ph->p_vaddr);
                     for (uint32_t j = 0; j < file_pages; j++)
                     {
-                        vaddr_t orphan_va = ph->p_vaddr + j * PAGE_SIZE;
+                        VirtAddr orphan_va = ph->p_vaddr + j * PAGE_SIZE;
                         vmm_unmap_range(p->as, orphan_va, PAGE_SIZE);
                         pmm_free_page(segment_pages[j]);
                     }
@@ -233,10 +233,10 @@ process_t *process_load(const void *elf_data, size_t elf_size,
 
     /* Stack region + guard were reserved by process_create; pages fault
      * in on demand. */
-    const vaddr_t user_stack_base = USER_STACK_BASE;
+    const VirtAddr user_stack_base = USER_STACK_BASE;
 
-    vaddr_t sp = USR_SP;
-    vaddr_t argv_va = 0;
+    VirtAddr sp = USR_SP;
+    VirtAddr argv_va = 0;
 
     if ((argc > 0) != (argbuf && argbuf_len > 0))
     {
@@ -279,7 +279,7 @@ process_t *process_load(const void *elf_data, size_t elf_size,
             KERROR("Invalid argv payload: argv bytes overflow");
             goto fail_kstack;
         }
-        vaddr_t check_sp = USR_SP;
+        VirtAddr check_sp = USR_SP;
 
         if (argbuf_len > (size_t)(check_sp - user_stack_base))
         {
@@ -307,7 +307,7 @@ process_t *process_load(const void *elf_data, size_t elf_size,
 
         sp -= argbuf_len;
         sp &= ~3u;
-        vaddr_t strings_va = sp;
+        VirtAddr strings_va = sp;
 
         sp -= (argc + 1) * sizeof(uint32_t);
         sp &= ~7u;
@@ -325,7 +325,7 @@ process_t *process_load(const void *elf_data, size_t elf_size,
             goto fail_kstack;
 
         /* String offsets in the target stack mirror offsets in argbuf. */
-        vaddr_t str_va = strings_va;
+        VirtAddr str_va = strings_va;
         const char *str_src = argbuf;
         for (uint32_t a = 0; a <= argc; a++)
         {
@@ -344,7 +344,7 @@ process_t *process_load(const void *elf_data, size_t elf_size,
 
     t->kernel_sp = (uint32_t *)arch_thread_user_init(
         (void *)stack_top, (uintptr_t)elf_entry, (uintptr_t)sp, USER_ELF_BASE,
-        argc, (uint32_t)(vaddr_t)argv_va, &t->trap_frame);
+        argc, (uint32_t)(VirtAddr)argv_va, &t->trap_frame);
     t->state = READY;
 
     KTRACE("process create: pid=%u name=%s tid=%u owner_thread=%p as=%p",
@@ -379,7 +379,7 @@ fail_process:
 }
 
 void process_track_reply_cap(process_t *caller, process_t *holder,
-                             handle_t holder_slot, reply_cap_t *rc)
+                             Handle holder_slot, reply_cap_t *rc)
 {
     rc->holder_pid = holder ? holder->pid : 0;
     rc->holder_slot = holder_slot;
@@ -431,13 +431,13 @@ process_t *process_create(const char* name) {
     p->device_va_next = USER_DEVICE_BASE;
     p->mmap_va_next = USER_MMAP_BASE;
 
-    paddr_t tcb_page_pa = pmm_alloc_page();
+    PhysAddr tcb_page_pa = pmm_alloc_page();
     if (!tcb_page_pa)
         goto fail_kstack;
     p->tcb_page_pa = tcb_page_pa;
     /* Map the TCB page into the user mmap area at the process's bump
      * pointer so userspace can read its per-thread slot. */
-    vaddr_t tcb_user_va = p->mmap_va_next;
+    VirtAddr tcb_user_va = p->mmap_va_next;
     if (!vmm_map_user_page(p->as, tcb_page_pa, tcb_user_va,
                         VM_PROT_USER | VM_PROT_READ | VM_PROT_WRITE))
         goto fail_kstack;
@@ -493,7 +493,7 @@ process_t *process_create(const char* name) {
         goto fail_kstack;
     tdata_t *tcb0 = (tdata_t *)(PA_TO_VA(tcb_page_pa) +
                                 (uint32_t)tcb_slot_idx * TCB_SLOT_SIZE);
-    vaddr_t tcb0_va = p->tcb_page_va + (uint32_t)tcb_slot_idx * TCB_SLOT_SIZE;
+    VirtAddr tcb0_va = p->tcb_page_va + (uint32_t)tcb_slot_idx * TCB_SLOT_SIZE;
     tcb0->lmsg_buf = (void *)(tcb0_va + offsetof(tdata_t, buf));
     tcb0->tid = t->tid;
     t->thread_info_va = tcb0_va;
@@ -536,8 +536,8 @@ process_t *process_create(const char* name) {
         strncpy(p->name, short_name, sizeof(p->name) - 1);
     }
 
-    zpid_t start = next_pid % MAX_PROCESSES;
-    tid_t slot = start;
+    Pid start = next_pid % MAX_PROCESSES;
+    Tid slot = start;
     do {
         if (process_table[slot] == NULL)
             break;
@@ -617,7 +617,7 @@ static void process_revoke_outstanding_reply_caps(process_t *caller)
 
 
 
-process_t *process_find_by_pid(zpid_t pid)
+process_t *process_find_by_pid(Pid pid)
 {
     uint32_t slot = pid % MAX_PROCESSES;
     process_t *p = process_table[slot];
@@ -640,7 +640,7 @@ void process_set_parent(process_t *child, process_t *parent)
         list_add_tail(&child->sibling_node, &parent->children.node);
 }
 
-process_t *process_find_child_by_pid(process_t *parent, zpid_t pid)
+process_t *process_find_child_by_pid(process_t *parent, Pid pid)
 {
     if (!parent)
         return NULL;
@@ -672,7 +672,7 @@ process_t *process_find_zombie_child(process_t *parent)
     return NULL;
 }
 
-void process_wake_joiners(tid_t tid, int32_t exit_status)
+void process_wake_joiners(Tid tid, int32_t exit_status)
 {
     for (uint32_t slot = 0; slot < MAX_PROCESSES; slot++) {
         process_t *joiner = process_table[slot];

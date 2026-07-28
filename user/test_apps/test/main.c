@@ -17,7 +17,7 @@ static int fails = 0;
 #define CHECK(c, m) do { if (!(c)) { printf("FAIL: %s\n", m); fails++; } \
                          else      { printf("ok:   %s\n", m); } } while (0)
 
-static handle_t port;
+static Handle port;
 static volatile int worker_done = 0;
 static volatile int worker_ok   = 0;
 
@@ -48,7 +48,7 @@ int main(void)
     void *stack = zuzu_memmap(HANDLE_ANON, STACK_SIZE, VM_PROT_READ | VM_PROT_WRITE, 0);
     CHECK(!zuzu_is_err(stack), "worker stack");
 
-    tid_t tid = zuzu_tmake(worker, (char *)stack + STACK_SIZE, NULL);
+    Tid tid = zuzu_tmake(worker, (char *)stack + STACK_SIZE, NULL);
 
     msg_t m = zuzu_msg_recv(port, TIMEOUT_INFINITE);
     char got[LMSG_BUF_SIZE];
@@ -64,7 +64,7 @@ int main(void)
         lmsg_buf(), zuzu_tcb()->tid, zuzu_tcb()->pid);
 
     lmsg_write(RESP, sizeof(RESP));
-    CHECK(zuzu_msg_lreply((handle_t)m.r0, sizeof(RESP)) == 0, "lreply");
+    CHECK(zuzu_msg_lreply((Handle)m.r0, sizeof(RESP)) == 0, "lreply");
 
     zuzu_tjoin(tid);
     CHECK(worker_ok, "worker received the lreply payload intact");

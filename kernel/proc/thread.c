@@ -11,14 +11,14 @@
 #define LOG_FMT(fmt) "(thread) " fmt
 #include "core/log.h"
 
-static tid_t next_tid = 1;
+static Tid next_tid = 1;
 static thread_t *thread_table[MAX_THREADS];
 static spinlock_t thread_table_lock = SPINLOCK_INIT;
 
 static int thread_table_find_free_slot(void)
 {
-    tid_t start = next_tid % MAX_THREADS;
-    tid_t slot = start;
+    Tid start = next_tid % MAX_THREADS;
+    Tid slot = start;
 
     do {
         if (thread_table[slot] == NULL)
@@ -30,7 +30,7 @@ static int thread_table_find_free_slot(void)
     return -1;
 }
 
-tid_t thread_register(thread_t *thread)
+Tid thread_register(thread_t *thread)
 {
     if (!thread)
         return 0;
@@ -169,7 +169,7 @@ thread_t *thread_create(process_t *owner_process)
     return thread;
 }
 
-thread_t *thread_find_by_tid(tid_t tid)
+thread_t *thread_find_by_tid(Tid tid)
 {
     if (tid == 0)
         return NULL;

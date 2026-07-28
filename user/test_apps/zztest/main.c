@@ -90,7 +90,7 @@ static int32_t mm_err(void *p) { return (int32_t)(uintptr_t)p; }
 
 /* raw waitany svc: the zuzu_waitany wrapper owns result->size, so the
  * struct-versioning test must issue the svc itself. */
-static int32_t raw_waitany(const handle_t *handles, uint32_t count,
+static int32_t raw_waitany(const Handle *handles, uint32_t count,
                            uint32_t timeout_ms, waitany_result_t *result)
 {
     register uintptr_t r0 __asm__("r0") = (uintptr_t)handles;
@@ -107,7 +107,7 @@ static int32_t raw_waitany(const handle_t *handles, uint32_t count,
 /* ---------------- child spawn plumbing (mirrors zzsh cmd_exec) -------- */
 
 static int32_t g_sysd_port = -1;
-static zpid_t  g_sysd_pid;
+static Pid  g_sysd_pid;
 
 static int sysd_setup(void)
 {
@@ -115,17 +115,17 @@ static int sysd_setup(void)
     if ((int32_t)r.r1 != NT_LU_OK)
         return -1;
     g_sysd_port = (int32_t)r.r2;
-    g_sysd_pid  = (zpid_t)r.r3;
+    g_sysd_pid  = (Pid)r.r3;
     return 0;
 }
 
-typedef struct { handle_t task; zpid_t pid; } child_t;
+typedef struct { Handle task; Pid pid; } child_t;
 
 /* Spawn CHILD_PATH with argv = {CHILD_NAME, arg1[, arg2]}.
  * grant_h >= 0: granted into the child pre-kickstart; the child-side slot
  * number is passed as argv[2] (arg2 must then be NULL).
  * Returns 0, or a negative err. */
-static int32_t child_spawn(const char *arg1, handle_t grant_h, child_t *out)
+static int32_t child_spawn(const char *arg1, Handle grant_h, child_t *out)
 {
     tspawn_result_t ts = zuzu_pspawn(CHILD_NAME);
     if (ts.task_handle < 0)
@@ -174,7 +174,7 @@ static int32_t child_spawn(const char *arg1, handle_t grant_h, child_t *out)
     memcpy(req + sizeof(*hdr) + path_len + 1, argbuf, argpos);
 
     exec_reply_t reply;
-    int32_t rc = chan_call((handle_t)g_sysd_port, req,
+    int32_t rc = chan_call((Handle)g_sysd_port, req,
                            (uint32_t)(sizeof(*hdr) + path_len + 1 + argpos),
                            &reply, sizeof(reply));
     if (rc < 0) {
@@ -199,7 +199,7 @@ static int32_t child_spawn(const char *arg1, handle_t grant_h, child_t *out)
 }
 
 /* spawn + wait; returns wait()'s rc, exit status in *status */
-static int32_t child_run(const char *arg1, handle_t grant_h, int32_t *status)
+static int32_t child_run(const char *arg1, Handle grant_h, int32_t *status)
 {
     child_t c;
     int32_t rc = child_spawn(arg1, grant_h, &c);
@@ -211,7 +211,7 @@ static int32_t child_run(const char *arg1, handle_t grant_h, int32_t *status)
 
 /* ---------------- IPC worker threads ---------------- */
 
-static handle_t g_port = -1;
+static Handle g_port = -1;
 #define REQ  "zztest lmsg request payload"
 #define RESP "zztest lmsg reply payload"
 
@@ -311,14 +311,14 @@ static void sec_mem(void)
              "memmap bogus handle -> ERR_BADHANDLE");
 
     /* memmap on a non-mappable handle type */
-    handle_t p = zuzu_port_create();
+    Handle p = zuzu_port_create();
     CHECK(p >= 0, "port_create (for BADTYPE probe)");
     CHECK_EQ(mm_err(zuzu_memmap(p, 0, VM_PROT_RW, 0)), ERR_BADTYPE,
              "memmap on port handle -> ERR_BADTYPE");
     CHECK_EQ(zuzu_destroy(p), 0, "destroy probe port");
 
     /* shm lifecycle (same-process part; cross-proc in handles section) */
-    handle_t sh = zuzu_shm_create(4096);
+    Handle sh = zuzu_shm_create(4096);
     CHECK(sh >= 0, "shm_create 4KB");
     CHECK_EQ(mm_err(zuzu_memmap(sh, 4096, VM_PROT_RW, 0)), ERR_BADARG,
              "shm memmap with size!=0 -> ERR_BADARG");
@@ -381,7 +381,7 @@ static void sec_ipc(void)
     void *st = stack_alloc();
     CHECK(st != NULL, "worker stack");
     g_worker_ok = 0;
-    tid_t t = zuzu_tmake(send_worker, (char *)st + STACK_SIZE, NULL);
+    Tid t = zuzu_tmake(send_worker, (char *)st + STACK_SIZE, NULL);
     CHECK(t > 0, "tmake send_worker");
     msg_t m = zuzu_msg_recv(g_port, TIMEOUT_INFINITE);
     CHECK((int32_t)m.r0 > 0, "recv: r0 = sender pid");
@@ -397,7 +397,7 @@ static void sec_ipc(void)
     CHECK((int32_t)m.r0 >= 0, "recv of call: r0 = reply handle");
     CHECK((int32_t)m.r1 == zuzu_getpid(), "recv of call: r1 = caller pid");
     CHECK(m.r2 == 0x11 && m.r3 == 0x22, "recv of call: r2/r3 = payload w1/w2");
-    CHECK_EQ(zuzu_msg_reply((handle_t)m.r0, 0xA1, 0xA2, 0xA3), 0, "reply");
+    CHECK_EQ(zuzu_msg_reply((Handle)m.r0, 0xA1, 0xA2, 0xA3), 0, "reply");
     zuzu_tjoin(t);
     CHECK(g_worker_ok, "caller got reply words r1..r3");
 
@@ -416,7 +416,7 @@ static void sec_ipc(void)
     CHECK(memcmp(late, REQ, sizeof(REQ)) != 0,
           "VOLATILE CONTRACT: printf clobbered lmsg buffer - must lmsg_read before printing");
     lmsg_write(RESP, sizeof(RESP));
-    CHECK_EQ(zuzu_msg_lreply((handle_t)m.r0, sizeof(RESP)), 0, "lreply");
+    CHECK_EQ(zuzu_msg_lreply((Handle)m.r0, sizeof(RESP)), 0, "lreply");
     zuzu_tjoin(t);
     CHECK(g_worker_ok, "lcall caller got reply payload intact");
 
@@ -431,7 +431,7 @@ static void sec_ipc(void)
     CHECK_EQ(zuzu_msg_send(9999, 1, 2, 3), ERR_BADHANDLE, "send on bogus handle -> ERR_BADHANDLE");
 
     /* waitany over [port, ntfn] */
-    handle_t set[2] = { g_port, (handle_t)nt };
+    Handle set[2] = { g_port, (Handle)nt };
     waitany_result_t res;
 
     CHECK_EQ(zuzu_waitany(set, 2, TIMEOUT_POLL, &res), ERR_TIMEOUT,
@@ -480,7 +480,7 @@ static void sec_handles(void)
     section("handles");
 
     /* port create -> use -> destroy; double destroy */
-    handle_t p = zuzu_port_create();
+    Handle p = zuzu_port_create();
     CHECK(p >= 0, "port_create");
     CHECK_EQ(zuzu_destroy(p), 0, "port destroy");
     CHECK_EQ(zuzu_destroy(p), ERR_BADHANDLE, "destroy freed slot -> ERR_BADHANDLE");
@@ -510,14 +510,14 @@ static void sec_handles(void)
     void *st = stack_alloc();
     CHECK(st != NULL, "worker stack");
     g_worker_ok = 0;
-    tid_t t = zuzu_tmake(lcall_worker, (char *)st + STACK_SIZE, NULL);
+    Tid t = zuzu_tmake(lcall_worker, (char *)st + STACK_SIZE, NULL);
     msg_t m = zuzu_msg_recv(g_port, TIMEOUT_INFINITE);
     char sink[sizeof(REQ)];
     lmsg_read(sink, sizeof(REQ));
     CHECK((int32_t)m.r0 >= 0, "recv reply handle");
-    CHECK_EQ(zuzu_destroy((handle_t)m.r0), ERR_BADTYPE, "destroy REPLY handle -> ERR_BADTYPE");
+    CHECK_EQ(zuzu_destroy((Handle)m.r0), ERR_BADTYPE, "destroy REPLY handle -> ERR_BADTYPE");
     lmsg_write(RESP, sizeof(RESP));
-    CHECK_EQ(zuzu_msg_lreply((handle_t)m.r0, sizeof(RESP)), 0, "reply handle survives destroy attempt");
+    CHECK_EQ(zuzu_msg_lreply((Handle)m.r0, sizeof(RESP)), 0, "reply handle survives destroy attempt");
     zuzu_tjoin(t);
     CHECK(g_worker_ok, "caller unaffected");
 
@@ -528,7 +528,7 @@ static void sec_handles(void)
     CHECK_EQ(zuzu_pkill(ts.task_handle), 0, "pkill empty process");
 
     /* cross-process grant: child sends on a port we granted it */
-    zpid_t self = zuzu_getpid();
+    Pid self = zuzu_getpid();
     child_t c;
     int32_t rc = child_spawn("sendport", g_port, &c);
     CHECK_EQ(rc, 0, "spawn sendport child (grant pre-kickstart)");
@@ -544,7 +544,7 @@ static void sec_handles(void)
     g_port = -1;
 
     /* cross-process shm: parent pattern -> child verifies+rewrites -> parent verifies */
-    handle_t sh = zuzu_shm_create(4096);
+    Handle sh = zuzu_shm_create(4096);
     CHECK(sh >= 0, "shm_create (cross-proc)");
     uint8_t *pm = (uint8_t *)zuzu_memmap(sh, 0, VM_PROT_RW, 0);
     CHECK(!zuzu_is_err(pm), "parent maps shm");
@@ -563,7 +563,7 @@ static void sec_handles(void)
     /* Lifetime ordering: A creates + grants to B, A destroys its OWN handle
      * while B still holds one, then B must still read intact data (no UAF),
      * and B's exit drops the last reference (no leak). */
-    handle_t sh2 = zuzu_shm_create(4096);
+    Handle sh2 = zuzu_shm_create(4096);
     CHECK(sh2 >= 0, "shm_create (lifetime ordering)");
     uint8_t *pm2 = (uint8_t *)zuzu_memmap(sh2, 0, VM_PROT_RW, 0);
     CHECK(!zuzu_is_err(pm2), "parent maps (lifetime ordering)");
@@ -593,10 +593,10 @@ static void sec_tasks(void)
      * is range-only, so tmake(NULL) actually spawns a thread at pc=0 whose
      * prefetch abort kills the whole process — flagged as a kernel finding,
      * deliberately not exercised here. */
-    tid_t bad = zuzu_tmake((void (*)(void *))0x90000000u, NULL, NULL);
+    Tid bad = zuzu_tmake((void (*)(void *))0x90000000u, NULL, NULL);
     CHECK(bad < 0, "tid_t is signed: tmake(bad entry) < 0");
     CHECK_EQ(bad, ERR_BADPTR, "tmake kernel-range entry -> ERR_BADPTR");
-    int32_t jrc = zuzu_tjoin((tid_t)999999);
+    int32_t jrc = zuzu_tjoin((Tid)999999);
     CHECK(jrc < 0, "tjoin error detectable as < 0");
     CHECK_EQ(jrc, ERR_NOENT, "tjoin bogus tid -> ERR_NOENT");
     int32_t dummy;
@@ -610,7 +610,7 @@ static void sec_tasks(void)
     void *st = stack_alloc();
     CHECK(st != NULL, "worker stack");
     g_spin_quit[1] = 0;
-    tid_t t = zuzu_tmake(spin_worker, (char *)st + STACK_SIZE, (void *)1);
+    Tid t = zuzu_tmake(spin_worker, (char *)st + STACK_SIZE, (void *)1);
     CHECK(t > 0, "tmake spin worker");
     g_spin_quit[1] = 1;
     CHECK_EQ(zuzu_tjoin(t), 0x41, "tjoin returns exit status");
@@ -620,7 +620,7 @@ static void sec_tasks(void)
      * reaper, so slots from earlier sections may still be held briefly. */
     zuzu_sleep(20);
     void *stacks[TCB_MAX_SLOTS];
-    tid_t tids[TCB_MAX_SLOTS];
+    Tid tids[TCB_MAX_SLOTS];
     int made = 0;
     for (int i = 0; i < TCB_MAX_SLOTS - 1; i++) {
         stacks[i] = stack_alloc();
@@ -634,7 +634,7 @@ static void sec_tasks(void)
     CHECK(made == TCB_MAX_SLOTS - 1, "created TCB_MAX_SLOTS-1 (6) worker threads");
     void *xs = stack_alloc();
     CHECK(xs != NULL, "stack for overflow probe");
-    tid_t over = zuzu_tmake(spin_worker, (char *)xs + STACK_SIZE, (void *)6);
+    Tid over = zuzu_tmake(spin_worker, (char *)xs + STACK_SIZE, (void *)6);
     CHECK_EQ(over, ERR_NOMEM, "tmake past TCB_MAX_SLOTS -> ERR_NOMEM");
     if (over > 0) { /* defensive: don't leave a stray spinner if it slipped in */
         g_spin_quit[6] = 1;
@@ -645,7 +645,7 @@ static void sec_tasks(void)
     CHECK_EQ(zuzu_tjoin(tids[0]), 0x40, "join frees a slot");
     zuzu_sleep(10);   /* deferred thread reaper releases the TCB slot */
     g_spin_quit[6] = 0;
-    tid_t again = zuzu_tmake(spin_worker, (char *)xs + STACK_SIZE, (void *)6);
+    Tid again = zuzu_tmake(spin_worker, (char *)xs + STACK_SIZE, (void *)6);
     CHECK(again > 0, "tmake succeeds again after join");
     g_spin_quit[6] = 1;
     zuzu_tjoin(again);
@@ -712,7 +712,7 @@ static void sec_version(void)
     section("version");
 
     int32_t n = zuzu_ntfn_create();
-    handle_t set[1] = { (handle_t)n };
+    Handle set[1] = { (Handle)n };
     waitany_result_t res;
 
     /* too-small size must be rejected before anything else happens */
@@ -743,12 +743,12 @@ static void sec_security(void)
      * on the caller's behalf. All go through validate_user_ptr. --- */
     int32_t nt = zuzu_ntfn_create();
     CHECK(nt >= 0, "ntfn_create (probe)");
-    handle_t one[1] = { (handle_t)nt };
+    Handle one[1] = { (Handle)nt };
 
     CHECK_EQ(raw_waitany(one, 1, TIMEOUT_POLL, (waitany_result_t *)0x90000000u), ERR_BADPTR,
              "waitany result ptr in kernel range -> ERR_BADPTR (no kernel write)");
     waitany_result_t vr; vr.size = sizeof(vr);
-    CHECK_EQ(raw_waitany((handle_t *)0x90000000u, 1, TIMEOUT_POLL, &vr), ERR_BADPTR,
+    CHECK_EQ(raw_waitany((Handle *)0x90000000u, 1, TIMEOUT_POLL, &vr), ERR_BADPTR,
              "waitany handles ptr in kernel range -> ERR_BADPTR (no kernel read)");
 
     /* --- waitany argument bounds (DoS / OOB guards) --- */
@@ -759,9 +759,9 @@ static void sec_security(void)
              "waitany count=0 -> ERR_BADARG");
     CHECK_EQ(zuzu_waitany(one, 17, TIMEOUT_POLL, &res), ERR_BADARG,
              "waitany count>WAITANY_MAX(16) -> ERR_BADARG");
-    handle_t sh = zuzu_shm_create(4096);
+    Handle sh = zuzu_shm_create(4096);
     CHECK(sh >= 0, "shm_create (waitany type probe)");
-    handle_t badset[1] = { sh };
+    Handle badset[1] = { sh };
     CHECK_EQ(zuzu_waitany(badset, 1, TIMEOUT_POLL, &res), ERR_BADTYPE,
              "waitany on non-waitable (shm) handle -> ERR_BADTYPE");
     CHECK_EQ(zuzu_destroy(sh), 0, "destroy waitany-probe shm");
@@ -773,7 +773,7 @@ static void sec_security(void)
              "asinject from unprivileged process -> ERR_NOPERM");
 
     /* --- kickstart / pkill type confinement: can't drive arbitrary objects --- */
-    handle_t kp = zuzu_port_create();
+    Handle kp = zuzu_port_create();
     CHECK(kp >= 0, "port_create (kickstart/pkill probe)");
     CHECK_EQ(zuzu_kickstart(kp, 0x10000u, 0x1000u, 0, 0), ERR_BADTYPE,
              "kickstart on port handle -> ERR_BADTYPE");
@@ -793,7 +793,7 @@ static void sec_security(void)
     void *st = stack_alloc();
     CHECK(st != NULL, "worker stack");
     g_worker_ok = 0;
-    tid_t t = zuzu_tmake(lcall_worker, (char *)st + STACK_SIZE, NULL);
+    Tid t = zuzu_tmake(lcall_worker, (char *)st + STACK_SIZE, NULL);
     msg_t m = zuzu_msg_recv(g_port, TIMEOUT_INFINITE);
     char sink[sizeof(REQ)];
     lmsg_read(sink, sizeof(REQ));
@@ -804,11 +804,11 @@ static void sec_security(void)
              "reply on bogus handle -> ERR_BADHANDLE");
     CHECK_EQ(zuzu_msg_reply(0, 0, 0, 0), ERR_BADHANDLE,
              "reply on handle 0 -> ERR_BADHANDLE");
-    CHECK_EQ(zuzu_grant((handle_t)m.r0, g_sysd_pid), ERR_NOPERM,
+    CHECK_EQ(zuzu_grant((Handle)m.r0, g_sysd_pid), ERR_NOPERM,
              "cannot grant a REPLY handle (no cap leak)");
     lmsg_write(RESP, sizeof(RESP));
-    CHECK_EQ(zuzu_msg_lreply((handle_t)m.r0, sizeof(RESP)), 0, "genuine reply succeeds");
-    CHECK_EQ(zuzu_msg_reply((handle_t)m.r0, 0, 0, 0), ERR_BADTYPE,
+    CHECK_EQ(zuzu_msg_lreply((Handle)m.r0, sizeof(RESP)), 0, "genuine reply succeeds");
+    CHECK_EQ(zuzu_msg_reply((Handle)m.r0, 0, 0, 0), ERR_BADTYPE,
              "double-reply on spent reply handle -> ERR_BADTYPE (no replay)");
     zuzu_tjoin(t);
     CHECK(g_worker_ok, "caller unaffected by forgery attempts");
@@ -857,7 +857,7 @@ static void leak_loop_anon(void)
 
 static void leak_loop_shm(void)
 {
-    handle_t sh = zuzu_shm_create(4096);
+    Handle sh = zuzu_shm_create(4096);
     if (sh < 0) return;
     uint8_t *m = (uint8_t *)zuzu_memmap(sh, 0, VM_PROT_RW, 0);
     if (!zuzu_is_err(m)) {
@@ -871,7 +871,7 @@ static void leak_loop_thread(void)
 {
     void *st = stack_alloc();
     if (!st) return;
-    tid_t t = zuzu_tmake(trivial_worker, (char *)st + STACK_SIZE, NULL);
+    Tid t = zuzu_tmake(trivial_worker, (char *)st + STACK_SIZE, NULL);
     if (t > 0) zuzu_tjoin(t);
     zuzu_sleep(5);               /* deferred reaper frees kstack+TCB slot */
     zuzu_memunmap(st);

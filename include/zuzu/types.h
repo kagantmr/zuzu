@@ -9,16 +9,16 @@ extern "C" {
 #include <stddef.h>
 #include "err.h"
 
-typedef int32_t handle_t;
-typedef int32_t zpid_t;
-typedef int32_t tid_t;
-typedef uint32_t den_id_t;
-typedef uint64_t tick_t;
-typedef uintptr_t paddr_t;
-typedef uintptr_t vaddr_t;
-typedef uint32_t irq_t;
-typedef uint64_t ztime_t;
-typedef volatile uint32_t MMIORegister;
+
+typedef int32_t Handle; /* Index into kernel-managed handle table */
+typedef int32_t Pid; /* zuzu Process ID or -err */
+typedef int32_t Tid; /* zuzu Thread ID or -err */
+typedef uint32_t DenID; /* sysd den ID */
+typedef uint64_t Tick; /* Monotonic tick counts */
+typedef uintptr_t PhysAddr; /* Physical memory address */
+typedef uintptr_t VirtAddr; /* Virtual memory address */
+typedef uint32_t Irq; /* IRQ number*/
+typedef uint64_t Time; /* wall-clock time */
 
 /* ---- Common IPC types ---- */
 
@@ -34,8 +34,8 @@ typedef struct
 
 typedef struct
 {
-    handle_t task_handle;
-    zpid_t pid;
+    Handle task_handle;
+    Pid pid;
 } tspawn_result_t;
 
 typedef enum {
@@ -50,7 +50,7 @@ typedef enum {
 #define TIMEOUT_POLL     0u
 #define TIMEOUT_INFINITE UINT32_MAX
 
-#define HANDLE_ANON ((handle_t)-1) // Sentinel value, used in memmap() as the handle value
+#define HANDLE_ANON ((Handle)-1) // Sentinel value, used in memmap() as the handle value
 
 /* waitany result struct */
 typedef struct {

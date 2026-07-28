@@ -15,7 +15,7 @@ struct process;
 typedef struct endpoint {
     list_head_t sender_queue;
     list_head_t receiver_queue;
-    zpid_t owner_pid;
+    Pid owner_pid;
     size_t ref_count;
     bool alive;
     list_node_t node;
@@ -23,18 +23,18 @@ typedef struct endpoint {
 
 // stub
 typedef struct {
-    paddr_t phys_base;
+    PhysAddr phys_base;
     size_t size;
     //bool mapped; // is this device currently mapped?
     char compatible[32]; // DTB compatible string
-    irq_t irq;
+    Irq irq;
     size_t ref_count;
 } device_cap_t;
 
 typedef struct {
-    tid_t caller_tid;       // instead of zpid_t caller_pid
-    zpid_t holder_pid;       // instead of process_t *holder
-    handle_t holder_slot;
+    Tid caller_tid;       // instead of zpid_t caller_pid
+    Pid holder_pid;       // instead of process_t *holder
+    Handle holder_slot;
     list_node_t caller_link;
 } reply_cap_t;
 
@@ -53,7 +53,7 @@ typedef enum {
 typedef struct {
     handle_type_t type;
     bool grantable;
-    vaddr_t mapped_va;
+    VirtAddr mapped_va;
     union {
         endpoint_t  *ep;
         device_cap_t *dev;

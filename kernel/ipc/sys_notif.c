@@ -49,7 +49,7 @@ void ntfn_wake_waiter(notification_t *ntfn, thread_wait_slot_t *slot,
 }
 
 void sys_ntfn_create(arch_regs_t *frame) {
-    handle_t handle = handle_vec_find_free(&current_thread->owner_process->handle_table);
+    Handle handle = handle_vec_find_free(&current_thread->owner_process->handle_table);
     if (handle < 0) { (*arch_reg(frame, 0)) = ERR_NOMEM; return; }
 
     notification_t *ntfn = kmalloc(sizeof(notification_t));  // or slab
@@ -69,7 +69,7 @@ void sys_ntfn_create(arch_regs_t *frame) {
 }
 
 void sys_ntfn_signal(arch_regs_t *frame) {
-    handle_t handle_idx = (*arch_reg(frame, 0));
+    Handle handle_idx = (*arch_reg(frame, 0));
     uint32_t bits = (*arch_reg(frame, 1));
 
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
@@ -105,7 +105,7 @@ void sys_ntfn_signal(arch_regs_t *frame) {
 }
 
 void sys_ntfn_wait(arch_regs_t *frame) {
-    handle_t handle_idx = (*arch_reg(frame, 0));
+    Handle handle_idx = (*arch_reg(frame, 0));
     uint32_t timeout_ms = (*arch_reg(frame, 1));
 
     handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
@@ -144,7 +144,7 @@ void sys_ntfn_wait(arch_regs_t *frame) {
     list_add_tail(&current_thread->ntfn_wait_slot.node, &ntfn->wait_queue.node);
 
     if (timeout_ms != TIMEOUT_INFINITE) {
-        tick_t ticks = ((uint64_t)timeout_ms * (uint64_t)TICK_HZ) / 1000u;
+        Tick ticks = ((uint64_t)timeout_ms * (uint64_t)TICK_HZ) / 1000u;
         if (ticks == 0) ticks = 1;
         current_thread->wake_tick = get_ticks() + ticks;
         sleep_queue_insert(current_thread);

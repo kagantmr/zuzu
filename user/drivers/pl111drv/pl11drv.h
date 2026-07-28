@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <zuzu/types.h>
 
+typedef volatile uint32_t MMIORegister;
+
 typedef struct __attribute__((packed)) {
     MMIORegister TIMING[4];
     MMIORegister UPBASE;

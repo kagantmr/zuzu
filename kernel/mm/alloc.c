@@ -20,7 +20,7 @@ kmem_block_t* heap_head = NULL;
 
 static slab_t *slab_grow(slab_cache_t *cache)
 {
-    paddr_t pa = pmm_alloc_page();
+    PhysAddr pa = pmm_alloc_page();
     if (!pa) return NULL;
 
     slab_t *slab = (slab_t *)PA_TO_VA(pa);
@@ -130,12 +130,12 @@ static bool kheap_grow(size_t min_payload)
         pages = HEAP_GROW_MIN_PAGES;
     }
 
-    paddr_t heap_pa = pmm_alloc_pages(pages);
+    PhysAddr heap_pa = pmm_alloc_pages(pages);
     if (!heap_pa) {
         return false;
     }
 
-    vaddr_t heap_va = PA_TO_VA(heap_pa);
+    VirtAddr heap_va = PA_TO_VA(heap_pa);
     kmem_block_t *block = (kmem_block_t *)heap_va;
     block->size = align_down(pages * PAGE_SIZE - HDR, ALIGNMENT);
     block->free = true;
@@ -143,8 +143,8 @@ static bool kheap_grow(size_t min_payload)
 
     heap_append_block(block);
 
-    paddr_t seg_end_pa = heap_pa + pages * PAGE_SIZE;
-    vaddr_t seg_end_va = heap_va + pages * PAGE_SIZE;
+    PhysAddr seg_end_pa = heap_pa + pages * PAGE_SIZE;
+    VirtAddr seg_end_va = heap_va + pages * PAGE_SIZE;
 
     if (kernel_layout.heap_start_pa == 0 || heap_pa < kernel_layout.heap_start_pa) {
         kernel_layout.heap_start_pa = heap_pa;

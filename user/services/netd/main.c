@@ -23,10 +23,10 @@
 #include "app/dhcp.h"
 
 nic_ring_t *tx_ring, *rx_ring;
-handle_t nic_port;
-handle_t nic_ntfn;
-handle_t tx_doorbell;
-handle_t handles[2];
+Handle nic_port;
+Handle nic_ntfn;
+Handle tx_doorbell;
+Handle handles[2];
 netif_t netif; /* filled at startup (htonl isn't constant); DHCP overwrites later */
 
 #define LEGACY_POLL_CAP 50u
@@ -59,7 +59,7 @@ static __attribute__((cold)) void on_dhcp_bound(void) {
 }
 
 __attribute__((cold)) int get_shm() {
-    handle_t port = register_service("netd");
+    Handle port = register_service("netd");
     if (port < 0) {
         LOG_ERROR(LOG_TAG, "registration failed");
         return ERR_SYSDOWN;
@@ -102,14 +102,14 @@ __attribute__((cold)) int get_shm() {
         LOG_ERROR(LOG_TAG, "shmem attach failed");
         return ERR_SYSDOWN;
     }
-    LOG_INFO(LOG_TAG, "Address of shmem: %p", (vaddr_t)addr);
+    LOG_INFO(LOG_TAG, "Address of shmem: %p", (VirtAddr)addr);
 
     rx_ring = (nic_ring_t *)((uint8_t *)addr + NIC_RX_OFFSET);
     tx_ring = (nic_ring_t *)((uint8_t *)addr + NIC_TX_OFFSET);
     
     netd_port = port;
-    nic_ntfn = (handle_t)r.r2;
-    tx_doorbell = (handle_t)r.r3;
+    nic_ntfn = (Handle)r.r2;
+    tx_doorbell = (Handle)r.r3;
     handles[1] = nic_ntfn;
     LOG_INFO(LOG_TAG, "service port=%d nic_ntfn=%d tx_doorbell=%d nic_port=%d",
              netd_port, nic_ntfn, tx_doorbell, nic_port);

@@ -6,9 +6,9 @@
 #include <zuzu/tcb.h>
 
 void sys_tmake(arch_regs_t *frame) {
-    vaddr_t entry  = (*arch_reg(frame, 0));
-    vaddr_t usr_sp = (*arch_reg(frame, 1));
-    vaddr_t arg    = (*arch_reg(frame, 2));
+    VirtAddr entry  = (*arch_reg(frame, 0));
+    VirtAddr usr_sp = (*arch_reg(frame, 1));
+    VirtAddr arg    = (*arch_reg(frame, 2));
 
     if (!validate_user_ptr(entry, 1)) {
         (*arch_reg(frame, 0)) = ERR_BADPTR;
@@ -34,7 +34,7 @@ void sys_tmake(arch_regs_t *frame) {
     }
 
     tdata_t *slot = (tdata_t *)(PA_TO_VA(owner->tcb_page_pa) + (uint32_t)slot_idx * TCB_SLOT_SIZE);
-    vaddr_t slot_va = owner->tcb_page_va + (uint32_t)slot_idx * TCB_SLOT_SIZE;
+    VirtAddr slot_va = owner->tcb_page_va + (uint32_t)slot_idx * TCB_SLOT_SIZE;
 
     slot->tid     = t->tid;
     slot->pid     = owner->pid;
@@ -51,11 +51,11 @@ void sys_tmake(arch_regs_t *frame) {
     t->state = READY;
     sched_add(t);
 
-    (*arch_reg(frame, 0)) = (tid_t)t->tid;
+    (*arch_reg(frame, 0)) = (Tid)t->tid;
 }
 
 void sys_tjoin(arch_regs_t *frame) {
-    tid_t tid = (*arch_reg(frame, 0));
+    Tid tid = (*arch_reg(frame, 0));
     thread_t *thread = thread_find_by_tid(tid);
     if (!thread) {
         (*arch_reg(frame, 0)) = ERR_NOENT;

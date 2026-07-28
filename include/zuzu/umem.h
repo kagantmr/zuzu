@@ -30,7 +30,7 @@ static inline int zuzu_is_err(const void *p) {
  * @param prot The desired memory protection flags (e.g., PROT_READ, PROT_WRITE).
  * @return void* Returns a pointer to the mapped virtual address, or NULL on failure.
  */
-static inline void *zuzu_memmap(handle_t handle, size_t size, uint32_t prot, uint32_t flags) {
+static inline void *zuzu_memmap(Handle handle, size_t size, uint32_t prot, uint32_t flags) {
     return (void *)(uintptr_t)syscall(SYS_MEMMAP, handle, size, prot, flags);
 }
 
@@ -40,8 +40,8 @@ static inline void *zuzu_memmap(handle_t handle, size_t size, uint32_t prot, uin
  * @param size The size of the shared memory region to create, in bytes.
  * @return handle_t Returns a handle to the newly created shared memory region, or a negative value on error.
  */
-static inline handle_t zuzu_shm_create(uint32_t size) {
-    return (handle_t)syscall(SYS_SHM_CREATE, size, 0, 0, 0);
+static inline Handle zuzu_shm_create(uint32_t size) {
+    return (Handle)syscall(SYS_SHM_CREATE, size, 0, 0, 0);
 }
 
 /**
@@ -53,7 +53,7 @@ static inline handle_t zuzu_shm_create(uint32_t size) {
  * 
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t zuzu_dev_query(handle_t handle, void *out_buf, uint32_t len) {
+static inline int32_t zuzu_dev_query(Handle handle, void *out_buf, uint32_t len) {
     return syscall(SYS_DEV_QUERY, handle, (uint32_t)(uintptr_t)out_buf, len, 0);
 }
 
@@ -69,7 +69,7 @@ static inline int32_t zuzu_dev_query(handle_t handle, void *out_buf, uint32_t le
  * 
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t zuzu_asinject(handle_t task_handle, uintptr_t dst_va,
+static inline int32_t zuzu_asinject(Handle task_handle, uintptr_t dst_va,
                                 const void *src_buf, size_t len, uint32_t prot) {
     asinject_args_t args = {
         .size        = sizeof(asinject_args_t),
@@ -100,7 +100,7 @@ static inline int32_t zuzu_asinject(handle_t task_handle, uintptr_t dst_va,
  *
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t zuzu_asinject_reserve(handle_t task_handle, uintptr_t dst_va,
+static inline int32_t zuzu_asinject_reserve(Handle task_handle, uintptr_t dst_va,
                                         size_t len, uint32_t prot) {
     asinject_args_t args = {
         .size        = sizeof(asinject_args_t),

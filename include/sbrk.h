@@ -4,9 +4,9 @@
 #include <zuzu/types.h>
 
 typedef struct arena {
-    vaddr_t base;    // heap_base
-    vaddr_t brk;     // heap_brk
-    vaddr_t mapped;  // heap_end
+    VirtAddr base;    // heap_base
+    VirtAddr brk;     // heap_brk
+    VirtAddr mapped;  // heap_end
 } arena_t;
 
 /**

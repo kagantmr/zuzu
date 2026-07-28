@@ -14,10 +14,10 @@
 #define PL011DRV_COMPATIBLE "arm,pl011"
 
 static volatile pl011_t *uart;
-static handle_t client_port = -1;
-static handle_t devmgr_port = -1;
-static handle_t serial_dev_handle = -1;
-static handle_t serial_irq_ntfn = -1;
+static Handle client_port = -1;
+static Handle devmgr_port = -1;
+static Handle serial_dev_handle = -1;
+static Handle serial_irq_ntfn = -1;
 static ring_t rxrb, txrb;
 static uint8_t rxbuf_storage[UART_RINGBUF_MAX];
 static uint8_t txbuf_storage[UART_RINGBUF_MAX];
@@ -105,7 +105,7 @@ static void handle_write(uint32_t len)
 /* zuzu_msg_lcall(client_port, max_len): read up to max_len bytes already
  * buffered from the UART; replies immediately with however many are
  * available (possibly zero) rather than blocking for more. */
-static void handle_read(handle_t reply_handle, uint32_t max_len)
+static void handle_read(Handle reply_handle, uint32_t max_len)
 {
     if (max_len > LMSG_BUF_SIZE)
         max_len = LMSG_BUF_SIZE;
@@ -179,7 +179,7 @@ int main(void)
         return exit_code;
 
     enum { H_IRQ = 0, H_PORT = 1 };
-    handle_t handles[] = {
+    Handle handles[] = {
         [H_IRQ]  = serial_irq_ntfn,
         [H_PORT] = client_port,
     };
@@ -197,7 +197,7 @@ int main(void)
             handle_write(r.r1);
             break;
         case WAITANY_KIND_CALL:
-            handle_read((handle_t)r.source, r.r2);
+            handle_read((Handle)r.source, r.r2);
             break;
         default:
             break;

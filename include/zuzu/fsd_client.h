@@ -20,7 +20,7 @@
 typedef struct {
     int32_t  port;   /* granted handle to fsd's port                */
     uint32_t pid;    /* fsd's pid, needed to grant our buffer to it  */
-    handle_t shm;    /* our shm handle                               */
+    Handle shm;    /* our shm handle                               */
     uint8_t *buf;    /* mapped base of the shared buffer             */
     uint32_t size;   /* buffer size (page-aligned)                   */
     bool     ready;

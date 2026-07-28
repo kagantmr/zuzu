@@ -28,7 +28,7 @@
  * and opened up for PL0 access at boot (see pmu_init() in arch/arm/early.c),
  * so no setup is needed here. */
 static void echo_server_thread(void *arg) {
-    handle_t port = *(handle_t *)arg;
+    Handle port = *(Handle *)arg;
 
     for (;;) {
         msg_t cmd = zuzu_msg_recv(port, TIMEOUT_INFINITE);
@@ -47,7 +47,7 @@ static void echo_server_thread(void *arg) {
  * zuzu_msg_lreply so the round trip actually exercises the lmsg_buf copy
  * on both legs, not just the register-passing fast path. */
 static void lcall_echo_server_thread(void *arg) {
-    handle_t port = *(handle_t *)arg;
+    Handle port = *(Handle *)arg;
     static uint8_t buf[LMSG_BUF_SIZE];
 
     for (;;) {
@@ -86,7 +86,7 @@ static uint32_t calibrate_cycles_per_us(void) {
 
 static uint32_t g_samples[BENCHMARK_ITERATIONS];
 
-static void run_benchmark(handle_t port) {
+static void run_benchmark(Handle port) {
     for (int i = 0; i < WARMUP_ITERATIONS; i++) {
         zuzu_msg_call(port, MSG_PING, 0, 0);
     }
@@ -150,7 +150,7 @@ static void run_benchmark(handle_t port) {
     }
 }
 
-static void run_lcall_benchmark(handle_t port) {
+static void run_lcall_benchmark(Handle port) {
     uint8_t payload[LCALL_PAYLOAD_LEN];
     memset(payload, 0xA5, sizeof(payload));
 
@@ -230,7 +230,7 @@ static void run_getpid_benchmark() {
         uint32_t start = read_pmccntr();
         barrier();
 
-        zpid_t pid = zuzu_getpid();
+        Pid pid = zuzu_getpid();
 
         barrier();
         uint32_t end = read_pmccntr();
@@ -275,7 +275,7 @@ int main(void) {
 
     run_getpid_benchmark();
 
-    handle_t port = zuzu_port_create();
+    Handle port = zuzu_port_create();
     if (port < 0) {
         printf("Couldn't get handle: %s\n", strtoerror(port));
         return 1;
@@ -289,7 +289,7 @@ int main(void) {
     }
 
     /* Descending frame model: stack pointer starts at the top of the block. */
-    tid_t tid = zuzu_tmake(echo_server_thread, stack + THREAD_STACK_SIZE, &port);
+    Tid tid = zuzu_tmake(echo_server_thread, stack + THREAD_STACK_SIZE, &port);
     if (tid < 0) {
         printf("Couldn't make thread: %s\n", strtoerror(tid));
         free(stack);
@@ -305,7 +305,7 @@ int main(void) {
     free(stack);
     zuzu_destroy(port);
 
-    handle_t lport = zuzu_port_create();
+    Handle lport = zuzu_port_create();
     if (lport < 0) {
         printf("Couldn't get lcall handle: %s\n", strtoerror(lport));
         return 1;
@@ -318,7 +318,7 @@ int main(void) {
         return 1;
     }
 
-    tid_t ltid = zuzu_tmake(lcall_echo_server_thread, lstack + THREAD_STACK_SIZE, &lport);
+    Tid ltid = zuzu_tmake(lcall_echo_server_thread, lstack + THREAD_STACK_SIZE, &lport);
     if (ltid < 0) {
         printf("Couldn't make lcall thread: %s\n", strtoerror(ltid));
         free(lstack);

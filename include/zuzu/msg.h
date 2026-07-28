@@ -21,7 +21,7 @@ extern "C" {
  * @param w3 The third word of the message payload.
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t zuzu_msg_send(handle_t port, uint32_t w1, uint32_t w2, uint32_t w3) {
+static inline int32_t zuzu_msg_send(Handle port, uint32_t w1, uint32_t w2, uint32_t w3) {
     return syscall(SYS_MSG_SEND, port, w1, w2, w3);
 }
 
@@ -32,7 +32,7 @@ static inline int32_t zuzu_msg_send(handle_t port, uint32_t w1, uint32_t w2, uin
  * @param timeout_ms The timeout in milliseconds to wait for a message. Use TIMEOUT_INFINITE for blocking indefinitely, or TIMEOUT_POLL for non-blocking.
  * @return msg_t Returns 2 of the caller's 3 payload words, r1 is sender's PID.
  */
-static inline msg_t zuzu_msg_recv(handle_t port, uint32_t timeout_ms) {
+static inline msg_t zuzu_msg_recv(Handle port, uint32_t timeout_ms) {
     return syscall_msg(SYS_MSG_RECV, port, timeout_ms, 0, 0);
 }
 
@@ -46,7 +46,7 @@ static inline msg_t zuzu_msg_recv(handle_t port, uint32_t timeout_ms) {
  * 
  * @return msg_t Returns a msg_t structure containing the reply message. If the call operation fails, the r0 field of the returned msg_t will contain a negative error code.
  */
-static inline msg_t zuzu_msg_call(handle_t port, uint32_t w1, uint32_t w2, uint32_t w3) {
+static inline msg_t zuzu_msg_call(Handle port, uint32_t w1, uint32_t w2, uint32_t w3) {
     return syscall_msg(SYS_MSG_CALL, port, w1, w2, w3);
 }
 
@@ -60,7 +60,7 @@ static inline msg_t zuzu_msg_call(handle_t port, uint32_t w1, uint32_t w2, uint3
  * 
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t zuzu_msg_reply(handle_t reply_handle, uint32_t w1, uint32_t w2, uint32_t w3) {
+static inline int32_t zuzu_msg_reply(Handle reply_handle, uint32_t w1, uint32_t w2, uint32_t w3) {
     return syscall(SYS_MSG_REPLY, reply_handle, w1, w2, w3);
 }
 
@@ -72,7 +72,7 @@ static inline int32_t zuzu_msg_reply(handle_t reply_handle, uint32_t w1, uint32_
  * 
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t zuzu_msg_lsend(handle_t port, uint32_t buf_len) {
+static inline int32_t zuzu_msg_lsend(Handle port, uint32_t buf_len) {
     return syscall(SYS_MSG_LSEND, port, buf_len, 0, 0);
 }
 
@@ -84,7 +84,7 @@ static inline int32_t zuzu_msg_lsend(handle_t port, uint32_t buf_len) {
  * 
  * @return msg_t Returns a msg_t structure containing the reply message. If the call operation fails, the r0 field of the returned msg_t will contain a negative error code.
  */
-static inline msg_t zuzu_msg_lcall(handle_t port, uint32_t buf_len) {
+static inline msg_t zuzu_msg_lcall(Handle port, uint32_t buf_len) {
     return syscall_msg(SYS_MSG_LCALL, port, buf_len, 0, 0);
 }
 
@@ -96,7 +96,7 @@ static inline msg_t zuzu_msg_lcall(handle_t port, uint32_t buf_len) {
  * 
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t zuzu_msg_lreply(handle_t reply_handle, uint32_t buf_len) {
+static inline int32_t zuzu_msg_lreply(Handle reply_handle, uint32_t buf_len) {
     return syscall(SYS_MSG_LREPLY, reply_handle, buf_len, 0, 0);
 }
 
@@ -109,7 +109,7 @@ static inline int32_t zuzu_msg_lreply(handle_t reply_handle, uint32_t buf_len) {
  * 
  * @return int32_t Returns 0 on success, or a negative error code on failure. The result of the waitany operation is stored in the provided waitany_result_t structure.
  */
-static inline int32_t zuzu_waitany(const handle_t *handles, uint32_t count,
+static inline int32_t zuzu_waitany(const Handle *handles, uint32_t count,
                                uint32_t timeout_ms, waitany_result_t *result)
 {
     result->size = sizeof(*result);   /* versioning handshake, owned by the wrapper */
@@ -137,7 +137,7 @@ static inline int32_t zuzu_port_create(void) {
  * 
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t zuzu_grant(handle_t cap, zpid_t pid) {
+static inline int32_t zuzu_grant(Handle cap, Pid pid) {
     return syscall(SYS_GRANT, cap, pid, 0, 0);
 }
 
@@ -148,7 +148,7 @@ static inline int32_t zuzu_grant(handle_t cap, zpid_t pid) {
  * 
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t zuzu_destroy(handle_t h) {
+static inline int32_t zuzu_destroy(Handle h) {
     return syscall(SYS_DESTROY, h, 0, 0, 0);
 }
 

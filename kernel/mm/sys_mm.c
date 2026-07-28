@@ -19,7 +19,7 @@ extern thread_t *current_thread;
  * Helper for memmap to map anonymous memory.
  * Adapted from zuzu v0.1.5-alpha version
  */
-static int32_t memmap_anon(process_t *p, vaddr_t hint, size_t size, vm_prot_t prot, vaddr_t *out)
+static int32_t memmap_anon(process_t *p, VirtAddr hint, size_t size, vm_prot_t prot, VirtAddr *out)
 {
     if (size == 0)
         return ERR_BADARG;
@@ -39,7 +39,7 @@ static int32_t memmap_anon(process_t *p, vaddr_t hint, size_t size, vm_prot_t pr
     }
 
     // 1. Pick a VA
-    vaddr_t va;
+    VirtAddr va;
     if (hint != 0)
         va = hint; // already validated above
     else
@@ -79,7 +79,7 @@ static int32_t memmap_anon(process_t *p, vaddr_t hint, size_t size, vm_prot_t pr
  * Helper for memmap to map shared memory.
  * Adapted from zuzu v0.1.5-alpha version
  */
-static int32_t memmap_shm(process_t *p, handle_entry_t *e, vm_prot_t prot, vaddr_t *out)
+static int32_t memmap_shm(process_t *p, handle_entry_t *e, vm_prot_t prot, VirtAddr *out)
 {
 
     if (e->mapped_va != 0)
@@ -96,7 +96,7 @@ static int32_t memmap_shm(process_t *p, handle_entry_t *e, vm_prot_t prot, vaddr
     if ((p->mmap_va_next > USER_VA_TOP - size) || (size > USER_VA_TOP - p->mmap_va_next)) // user VA space exhausted
         return ERR_NOMEM;
 
-    const vaddr_t va_base = p->mmap_va_next;
+    const VirtAddr va_base = p->mmap_va_next;
     p->mmap_va_next += size;
 
     vm_region_t region = {
@@ -122,7 +122,7 @@ static int32_t memmap_shm(process_t *p, handle_entry_t *e, vm_prot_t prot, vaddr
  * Helper for memmap to map memory-mapped I/O (MMIO) ranges.
  * Adapted from zuzu v0.1.5-alpha version
  */
-static int32_t memmap_dev(process_t *p, handle_entry_t *e, vm_prot_t prot, vaddr_t *out)
+static int32_t memmap_dev(process_t *p, handle_entry_t *e, vm_prot_t prot, VirtAddr *out)
 {
 
     if (!e)
@@ -136,7 +136,7 @@ static int32_t memmap_dev(process_t *p, handle_entry_t *e, vm_prot_t prot, vaddr
         return ERR_BUSY;
 
     size_t size_aligned = align_up(cap->size, PAGE_SIZE);
-    vaddr_t user_va = p->device_va_next;
+    VirtAddr user_va = p->device_va_next;
 
     // Device mappings are carved from device_va_next; bound-check that cursor.
     if (user_va >= USER_DEVICE_LIMIT || size_aligned > USER_DEVICE_LIMIT - user_va)
@@ -178,7 +178,7 @@ static int32_t memmap_dev(process_t *p, handle_entry_t *e, vm_prot_t prot, vaddr
 void sys_memmap(arch_regs_t *frame)
 {
     process_t *p = current_thread->owner_process;
-    handle_t handle = (handle_t)(*arch_reg(frame, 0));
+    Handle handle = (Handle)(*arch_reg(frame, 0));
     size_t size = (size_t)(*arch_reg(frame, 1));
     vm_prot_t prot = (vm_prot_t)(*arch_reg(frame, 2));
     uint32_t flags = (*arch_reg(frame, 3));
@@ -187,7 +187,7 @@ void sys_memmap(arch_regs_t *frame)
     if (prot & ~(VM_PROT_READ|VM_PROT_WRITE|VM_PROT_EXEC))  { *arch_reg(frame, 0) = ERR_BADARG; return;}   /* rejects VM_PROT_USER */
     if ((prot & VM_PROT_WRITE) && (prot & VM_PROT_EXEC))  { *arch_reg(frame, 0) = ERR_BADARG; return;}
 
-    vaddr_t va = 0;
+    VirtAddr va = 0;
     err_t rc;   
 
     if (handle == HANDLE_ANON)
@@ -241,7 +241,7 @@ void sys_memmap(arch_regs_t *frame)
 
 void sys_memunmap(arch_regs_t *frame)
 {
-        const vaddr_t va = (vaddr_t)(*arch_reg(frame, 0));
+        const VirtAddr va = (VirtAddr)(*arch_reg(frame, 0));
 
         addrspace_t *as = current_thread->owner_process->as;
 
@@ -464,7 +464,7 @@ void sys_asinject(arch_regs_t *frame)
             }
         }
 
-        vaddr_t *page_addrs = kmalloc(page_count * sizeof(vaddr_t));
+        VirtAddr *page_addrs = kmalloc(page_count * sizeof(VirtAddr));
         if (!page_addrs)
         {
             {
@@ -472,16 +472,16 @@ void sys_asinject(arch_regs_t *frame)
             return;
         }
         }
-        memset(page_addrs, 0, page_count * sizeof(vaddr_t));
+        memset(page_addrs, 0, page_count * sizeof(VirtAddr));
 
         for (size_t i = 0; i < page_count; i++)
         {
-            vaddr_t dst_page = kargs.dst_va + i * PAGE_SIZE;
+            VirtAddr dst_page = kargs.dst_va + i * PAGE_SIZE;
 
             /* Inside an existing region a page may already be faulted in;
              * write into it instead of remapping. page_addrs[] tracks only
              * pages we allocated ourselves, for rollback. */
-            paddr_t page = enclosing ? arch_mmu_translate(target->as->ttbr_pa, dst_page) : 0;
+            PhysAddr page = enclosing ? arch_mmu_translate(target->as->ttbr_pa, dst_page) : 0;
             bool fresh = (page == 0);
             if (fresh)
             {
@@ -521,7 +521,7 @@ void sys_asinject(arch_regs_t *frame)
 
             if (kargs.prot & VM_PROT_EXEC)
             {
-                arch_cache_flush_code_range((vaddr_t)PA_TO_VA(page), PAGE_SIZE);
+                arch_cache_flush_code_range((VirtAddr)PA_TO_VA(page), PAGE_SIZE);
             }
         }
 

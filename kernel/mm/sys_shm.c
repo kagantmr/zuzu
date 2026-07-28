@@ -41,13 +41,13 @@ void sys_shm_create(arch_regs_t *frame)
         return;
     }
     const size_t page_count = size / PAGE_SIZE;
-    paddr_t *page_arr = kmalloc(sizeof(paddr_t) * page_count);
+    PhysAddr *page_arr = kmalloc(sizeof(PhysAddr) * page_count);
     if (!page_arr)
     {
         (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
     }
-    memset(page_arr, 0, sizeof(paddr_t) * page_count);
+    memset(page_arr, 0, sizeof(PhysAddr) * page_count);
 
     shmem_t *shmem_obj = kmalloc(sizeof(shmem_t));
     if (!shmem_obj)
@@ -86,5 +86,5 @@ void sys_shm_create(arch_regs_t *frame)
     entry->type = HANDLE_SHMEM;
     entry->grantable = true;
 
-    (*arch_reg(frame, 0)) = (handle_t)handle;
+    (*arch_reg(frame, 0)) = (Handle)handle;
 }

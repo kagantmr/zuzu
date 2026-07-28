@@ -19,12 +19,12 @@
 
 static volatile lan9118_t *nic;
 static uint8_t mac[6];
-static handle_t irq_ntfn;
-static handle_t shmem_handle;
-static handle_t nt_port, devm_port;
-static handle_t dev_handle;
-static handle_t netd_ntfn;
-static handle_t tx_doorbell_ntfn;
+static Handle irq_ntfn;
+static Handle shmem_handle;
+static Handle nt_port, devm_port;
+static Handle dev_handle;
+static Handle netd_ntfn;
+static Handle tx_doorbell_ntfn;
 void *shmem_addr;
 nic_ring_t *rx_ring, *tx_ring;
 
@@ -108,7 +108,7 @@ int get_nic(void)
         LOG_WARN(LOG_TAG, "NIC device request failed, retrying");
         zuzu_sleep(10);
     }
-    dev_handle = (handle_t)r.r2;
+    dev_handle = (Handle)r.r2;
     irq_ntfn = zuzu_ntfn_create();
     if (irq_ntfn < 0)
     {
@@ -216,12 +216,12 @@ void lan9118_service_loop(void)
     }
 
     enum { H_PORT = 0, H_IRQ = 1, H_TXDOORBELL = 2 };
-    handle_t handles[] = {
+    Handle handles[] = {
         [H_PORT] = nt_port,
         [H_IRQ] = irq_ntfn,
         [H_TXDOORBELL] = tx_doorbell_ntfn,
     };
-    handle_t pending_recv_reply = 0;
+    Handle pending_recv_reply = 0;
 
     while (1)
     {

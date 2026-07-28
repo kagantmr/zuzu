@@ -53,7 +53,7 @@ static int mode_dirty(void)
         return 103;
     (void)zuzu_ntfn_signal(n, 0x1); /* leave a pending signal behind */
 
-    handle_t sh = zuzu_shm_create(SHM_TEST_SIZE);
+    Handle sh = zuzu_shm_create(SHM_TEST_SIZE);
     if (sh < 0)
         return 104;
     void *m = zuzu_memmap(sh, 0, VM_PROT_RW, 0);
@@ -72,7 +72,7 @@ static int mode_dirty(void)
     return 7;        /* unreachable; pquit does not return */
 }
 
-static int mode_shm(handle_t slot)
+static int mode_shm(Handle slot)
 {
     uint8_t *m = (uint8_t *)zuzu_memmap(slot, 0, VM_PROT_RW, 0);
     if (zuzu_is_err(m))
@@ -90,13 +90,13 @@ static int mode_shm(handle_t slot)
     return 0;
 }
 
-static int mode_sendport(handle_t slot)
+static int mode_sendport(Handle slot)
 {
     int32_t rc = zuzu_msg_send(slot, 0xCAFE, 0xBEEF, 0x1234);
     return (rc == 0) ? 0 : 113;
 }
 
-static int mode_regrant(handle_t slot)
+static int mode_regrant(Handle slot)
 {
     /* A received capability must not be re-grantable (prevents unbounded
      * propagation), and we must not be able to destroy an object we don't
@@ -164,7 +164,7 @@ int main(int argc, char **argv)
         return mode_vfp(0x5A5ABEEFu);
 
     if (argc >= 3) {
-        handle_t slot = (handle_t)strtol(argv[2], NULL, 10);
+        Handle slot = (Handle)strtol(argv[2], NULL, 10);
         if (strcmp(mode, "shm") == 0)
             return mode_shm(slot);
         if (strcmp(mode, "sendport") == 0)

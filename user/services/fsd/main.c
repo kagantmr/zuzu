@@ -84,7 +84,7 @@ static void handle_set_buf(uint32_t reply_h, uint32_t sender, uint32_t arg)
     uint32_t slot = FSD_SETBUF_SLOT(arg);
     uint32_t size = FSD_SETBUF_SIZE(arg);
 
-    err_t rc = client_register(sender, (handle_t)slot, size);
+    err_t rc = client_register(sender, (Handle)slot, size);
     zuzu_msg_reply(reply_h, (uint32_t)rc, 0, 0);
 }
 
@@ -374,7 +374,7 @@ int main(void)
     LOG_INFO(LOG_TAG, "ready");
 
     /* 3. serve. */
-    handle_t handles[1] = { (handle_t)g_port };
+    Handle handles[1] = { (Handle)g_port };
     while (1) {
         waitany_result_t res;
         if (zuzu_waitany(handles, 1, TIMEOUT_INFINITE, &res) < 0)

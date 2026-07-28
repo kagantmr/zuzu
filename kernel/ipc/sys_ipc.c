@@ -93,7 +93,7 @@ static void ipc_wake_ready(thread_t *t)
     sched_add(t);
 }
 
-static endpoint_t *validate_endpoint_handle(process_t *proc, handle_t handle, arch_regs_t *frame)
+static endpoint_t *validate_endpoint_handle(process_t *proc, Handle handle, arch_regs_t *frame)
 {
     if (!proc)
     {
@@ -126,7 +126,7 @@ static endpoint_t *validate_endpoint_handle(process_t *proc, handle_t handle, ar
     return entry->ep;
 }
 
-static notification_t *validate_notification_handle(process_t *proc, handle_t handle, arch_regs_t *frame)
+static notification_t *validate_notification_handle(process_t *proc, Handle handle, arch_regs_t *frame)
 {
     if (!proc)
     {
@@ -160,7 +160,7 @@ static notification_t *validate_notification_handle(process_t *proc, handle_t ha
 }
 
 static handle_entry_t *validate_reply_handle(process_t *proc,
-                                             handle_t handle_idx,
+                                             Handle handle_idx,
                                              thread_t **target_out,
                                              arch_regs_t *frame)
 {
@@ -400,7 +400,7 @@ void __attribute__((hot)) sys_msg_recv(arch_regs_t *frame)
 
         if (timeout_ms != TIMEOUT_INFINITE)
         {
-            tick_t ticks = ((uint64_t)timeout_ms * (uint64_t)TICK_HZ) / 1000u;
+            Tick ticks = ((uint64_t)timeout_ms * (uint64_t)TICK_HZ) / 1000u;
             if (ticks == 0)
                 ticks = 1;
             current_thread->wake_tick = get_ticks() + ticks;
@@ -530,7 +530,7 @@ void __attribute__((hot)) sys_msg_call(arch_regs_t *frame)
 
 void __attribute__((hot)) sys_msg_reply(arch_regs_t *frame)
 {
-        handle_t handle_idx = (*arch_reg(frame, 0));
+        Handle handle_idx = (*arch_reg(frame, 0));
         thread_t *target_thread = NULL;
         handle_entry_t *entry = validate_reply_handle(current_thread->owner_process, handle_idx, &target_thread, frame);
         if (!entry)
@@ -644,7 +644,7 @@ void sys_msg_lsend(arch_regs_t *frame)
 
 void sys_msg_lcall(arch_regs_t *frame)
 {
-    handle_t handle = (handle_t)(*arch_reg(frame, 0));
+    Handle handle = (Handle)(*arch_reg(frame, 0));
     uint32_t xlen = (*arch_reg(frame, 1));
 
     endpoint_t *ep = validate_endpoint_handle(current_thread->owner_process, handle, frame);
@@ -746,7 +746,7 @@ void sys_msg_lcall(arch_regs_t *frame)
 
 void sys_msg_lreply(arch_regs_t *frame)
 {
-    handle_t handle_idx = (*arch_reg(frame, 0));
+    Handle handle_idx = (*arch_reg(frame, 0));
     uint32_t xlen = (*arch_reg(frame, 1));
 
     /* No truncation: oversized payloads are rejected outright. */
@@ -877,7 +877,7 @@ static int waitany_deliver_sender(uint32_t matched_index,
     return ERR_BADARG;
 }
 
-static int waitany_try_once(const handle_t *handles,
+static int waitany_try_once(const Handle *handles,
                             uint32_t count,
                             waitany_result_t *result,
                             notification_t **wait_ntfns,
@@ -1018,16 +1018,16 @@ void sys_waitany(arch_regs_t *frame)
     size_t wlen = caller_size < sizeof(waitany_result_t)
                 ? caller_size : sizeof(waitany_result_t);
 
-    handle_t handles_local[WAITANY_MAX_HANDLES];
-    size_t copy_size = count * sizeof(handle_t);
+    Handle handles_local[WAITANY_MAX_HANDLES];
+    size_t copy_size = count * sizeof(Handle);
     if (!copy_from_user(handles_local, (const void *)handles_ptr, copy_size)) {
         (*arch_reg(frame, 0)) = ERR_BADPTR;
         return;
     }
 
-    tick_t deadline = 0;
+    Tick deadline = 0;
     if (timeout_ms != TIMEOUT_POLL && timeout_ms != TIMEOUT_INFINITE) {
-        tick_t ticks = ((uint64_t)timeout_ms * (uint64_t)TICK_HZ) / 1000u;
+        Tick ticks = ((uint64_t)timeout_ms * (uint64_t)TICK_HZ) / 1000u;
         if (ticks == 0)
             ticks = 1;
         deadline = get_ticks() + ticks;
@@ -1065,7 +1065,7 @@ void sys_waitany(arch_regs_t *frame)
 
         /* Deadline check before blocking */
         if (timeout_ms != TIMEOUT_INFINITE) {
-            tick_t now = get_ticks();
+            Tick now = get_ticks();
             if (now >= deadline) {
                 if (!waitany_write_timeout_result(result_ptr, wlen)) {
                     (*arch_reg(frame, 0)) = ERR_BADPTR;

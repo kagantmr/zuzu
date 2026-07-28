@@ -129,7 +129,7 @@ _Noreturn void early(void *dtb_ptr)
 
     /* boot_info_init_from_dtb() copies everything out of the DTB and shuts
      * down libfdt access, so capture what the cleanup below needs first. */
-    paddr_t dtb_end_pa = kernel_layout.dtb_start_pa + dtb_total_size();
+    PhysAddr dtb_end_pa = kernel_layout.dtb_start_pa + dtb_total_size();
     struct { uint64_t addr, size; } rsv[8];
     uint32_t rsv_cnt = 0;
     while (rsv_cnt < 8 && dtb_get_memrsv(rsv_cnt, &rsv[rsv_cnt].addr, &rsv[rsv_cnt].size))
@@ -142,12 +142,12 @@ _Noreturn void early(void *dtb_ptr)
      * is freed by its own extent: it need not be adjacent to the kernel.
      */
     pmm_unmark_range(kernel_layout.dtb_start_pa, dtb_end_pa);
-    pmm_unmark_range((paddr_t)_boot_start, (paddr_t)_boot_end);
+    pmm_unmark_range((PhysAddr)_boot_start, (PhysAddr)_boot_end);
 
     /* Re-assert firmware-reserved ranges in case they overlap what was just
      * freed (e.g. spin tables sharing a page with a low-memory DTB). */
     for (uint32_t i = 0; i < rsv_cnt; i++)
-        pmm_mark_range((paddr_t)rsv[i].addr, (paddr_t)(rsv[i].addr + rsv[i].size));
+        pmm_mark_range((PhysAddr)rsv[i].addr, (PhysAddr)(rsv[i].addr + rsv[i].size));
 
     KINFO("early: boot_info done (%u devs), vfp/pmu", boot_info_dev_count());
     vfp_init();
@@ -165,7 +165,7 @@ _Noreturn void early(void *dtb_ptr)
     arch_platform_init_devices();
 
     KINFO("Freed DTB and boot space (%zu KiB)",
-          ((paddr_t)_boot_end - (paddr_t)_boot_start + dtb_end_pa - kernel_layout.dtb_start_pa) / 1024);
+          ((PhysAddr)_boot_end - (PhysAddr)_boot_start + dtb_end_pa - kernel_layout.dtb_start_pa) / 1024);
     KINFO("Boot info initialized from DTB: dev_count=%u", boot_info_dev_count());
     KINFO("Handoff to kmain");
     kmain();

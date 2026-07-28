@@ -38,7 +38,7 @@ typedef struct {
     uint32_t sp;             // user stack pointer after argv layout
     uint32_t argc;           // passed through
     uint32_t argv_va;        // pointer to argv array on user stack
-    zpid_t   pid;            // PID of the new process
+    Pid   pid;            // PID of the new process
 } exec_reply_t;
 
 _Static_assert(sizeof(exec_reply_t) <= LMSG_BUF_SIZE, "exec reply exceeds lmsg buffer");

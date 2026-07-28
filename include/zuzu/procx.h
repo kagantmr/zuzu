@@ -9,8 +9,8 @@ extern "C" {
 #include <stdint.h>
 
 typedef struct {
-    handle_t  task_handle;
-    zpid_t pid;
+    Handle  task_handle;
+    Pid pid;
     int      alive;
 } zprocx_handle_t;
 

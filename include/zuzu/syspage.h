@@ -31,8 +31,8 @@ typedef struct
     char cpu[24];            // from DTB, constant after boot
     uint32_t mem_total_kb;
     uint32_t mem_free_kb; // updated
-    ztime_t boot_time_s;  // when did the kernel boot?
-    ztime_t uptime_ticks; // raw scheduler ticks since timer start
+    Time boot_time_s;  // when did the kernel boot?
+    Time uptime_ticks; // raw scheduler ticks since timer start
     uint32_t tick_hz;     // ticks per second
     uint8_t dev_count;
     size_t initrd_size;
