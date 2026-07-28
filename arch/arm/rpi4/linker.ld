@@ -19,10 +19,6 @@ PHDRS
 
 SECTIONS
 {
-    /* Fallback DTB probe address if the boot protocol did not hand one over
-     * in r2 (QEMU's non-Linux ELF boot places the DTB at the base of RAM). */
-    __dtb_fallback__ = KERNEL_PA_BASE;
-
     . = BOOT_PA;
     _boot_start = .;
 
@@ -61,13 +57,6 @@ SECTIONS
     /* LMA must match VMA offset: if VMA is aligned, LMA must be too */
     .rodata : AT(ALIGN(LOADADDR(.text) + SIZEOF(.text), 4096)) {
         *(.rodata)
-
-        /* Initrd (CPIO archive) — embedded via .incbin in initrd_embed.s.
-         * Placed before the .rodata.* wildcard so we control alignment.
-         * GNU ld won't re-place it when .rodata.* is processed. */
-        . = ALIGN(4096);  /* Align initrd to page boundary */
-        *(.rodata.initrd)
-
         *(.rodata.*)
     } : rodata
 

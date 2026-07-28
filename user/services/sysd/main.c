@@ -16,6 +16,7 @@
 #include <zuzu/syspage.h>
 #include <zuzu/err.h>
 #include <zuzu/version.h>
+#include <stdlib.h>
 #include "exec.h"
 #include "sysd.h"
 
@@ -646,7 +647,7 @@ static void register_tty_aliases(void)
     }
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
     const syspage_t *sp = (const syspage_t *)SYSPAGE_VA;
 
@@ -666,8 +667,16 @@ int main(void)
         zuzu_pquit(FATAL_TAG | FATAL_KERNEL_OUTDATED);
     }
 
-    const void *initrd  = (const void *)INITRD_BASE;
-    uint32_t initrd_sz  = sp->initrd_size;
+    /* argv[1]/argv[2] = initrd VA + size, set by the kernel in
+     * boot_program() (kernel/kmain.c). Passed explicitly rather than
+     * assumed at a fixed address: the initrd's physical source isn't
+     * necessarily page-aligned (a bootloader-supplied ramdisk can start
+     * partway into a page), so the kernel tells us exactly where the real
+     * data begins instead of us guessing. */
+    if (argc < 3)
+        return 1;
+    const void *initrd = (const void *)strtoul(argv[1], NULL, 16);
+    uint32_t initrd_sz  = (uint32_t)strtoul(argv[2], NULL, 10);
 
     /* ---- nametable ---- */
 

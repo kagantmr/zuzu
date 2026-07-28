@@ -81,20 +81,15 @@ make
 ```bash
 make run
 ```
-On `vexpress-a15` (the default board), this boots through U-Boot: it
-builds `build/zuzu.uImage`, `build/initrd.uImage`, and a U-Boot `boot.scr`,
-stages them into `build/sd-uboot.img`, and starts QEMU with `uboot-src/u-boot`
+Every board boots through a real bootloader/firmware, which is the only
+source of the DTB and initrd (there is no embedded/fallback path). On
+`vexpress-a15` (the default board) that's U-Boot: `make run` builds
+`build/zuzu.uImage`, `build/initrd.uImage`, and a U-Boot `boot.scr`, stages
+them into `build/sd-uboot.img`, and starts QEMU with `uboot-src/u-boot`
 (clone U-Boot into `uboot-src/` and run `make uboot` first — see below).
-Boards without U-Boot integration (e.g. `rpi4`) boot straight off the
-ELF/raw image instead.
-
-**Run without a bootloader:**
-```bash
-make run-direct
-```
-Boots the ELF/raw image directly via QEMU's `-kernel`, skipping U-Boot even
-on `vexpress-a15`. Useful for exercising the embedded-initrd fallback path,
-which only this boot route takes.
+Boards with their own firmware (e.g. `rpi4`) boot straight off the ELF/raw
+image via QEMU's `-kernel`, which supplies the DTB/initrd the same way real
+firmware would.
 
 **Build U-Boot (vexpress-a15):**
 ```bash

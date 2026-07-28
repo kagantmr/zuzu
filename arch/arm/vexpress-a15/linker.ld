@@ -17,10 +17,6 @@ PHDRS
 
 SECTIONS
 {
-    /* Fallback DTB physical address, used only when no bootloader passes
-     * one in r2 (QEMU's direct -kernel/-dtb ELF boot drops it at RAM base). */
-    __dtb_fallback__ = KERNEL_PA_BASE;  /* 0x80000000 */
-
     . = BOOT_PA;
     _boot_start = .;
 
@@ -59,13 +55,6 @@ SECTIONS
     /* LMA must match VMA offset: if VMA is aligned, LMA must be too */
     .rodata : AT(ALIGN(LOADADDR(.text) + SIZEOF(.text), 4096)) {
         *(.rodata)
-
-        /* Initrd (CPIO archive) — embedded via .incbin in initrd_embed.s.
-         * Placed before the .rodata.* wildcard so we control alignment.
-         * GNU ld won't re-place it when .rodata.* is processed. */
-        . = ALIGN(4096);  /* Align initrd to page boundary */
-        *(.rodata.initrd)
-
         *(.rodata.*)
     } : rodata
 

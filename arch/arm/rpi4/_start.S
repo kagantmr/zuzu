@@ -7,8 +7,8 @@
 @    spin table), but a MPIDR guard parks any straggler as insurance.
 @  - The firmware enters 32-bit kernels in HYP mode; we do per-core timer
 @    setup there (CNTVOFF/CNTHCTL are HYP-only) and drop to SVC.
-@  - The DTB address arrives in r2 (validated by FDT magic) instead of being
-@    a link-time constant.
+@  - The DTB address arrives in r2 from the firmware instead of being a
+@    link-time constant.
 @  - The PL011 console is brought up here in software: GPIO14/15 to ALT0,
 @    pulls off, mini-UART held off, divisors for 115200 @ 48 MHz UARTCLK.
 
@@ -21,8 +21,6 @@
 .equ MODE_HYP,        0x1a
 .equ TTBR0_BOOT_ATTRS, 0x6B
 .equ KERNEL_VA_OFFSET, 0xC0000000
-
-.equ FDT_MAGIC_LE,    0xEDFE0DD0     @ 0xD00DFEED read little-endian
 
 @ BCM2711 in "low peripheral" mode
 .equ GPIO_BASE,       0xFE200000
@@ -108,7 +106,8 @@ _start:
 
 svc_entry:
     /* Stash the firmware's DTB pointer before r0-r3 get clobbered
-     * (r4 is callee-saved through every call below). */
+     * (r4 is callee-saved through every call below). Real Pi firmware
+     * always populates this correctly — no fallback needed. */
     mov     r4, r2
 
     /* Set up stacks for all modes (at physical addresses) */
@@ -118,25 +117,6 @@ svc_entry:
     bl      early_uart_init
     mov     r0, #'z'
     bl      early_uart_putc
-
-    /* Validate the DTB pointer: firmware passes it in r2; QEMU's non-Linux
-     * ELF boot leaves r2 unset but drops the DTB at __dtb_fallback__. */
-    ldr     r1, =FDT_MAGIC_LE
-    ldr     r0, [r4]
-    cmp     r0, r1
-    beq     dtb_ok
-    ldr     r4, =__dtb_fallback__
-    ldr     r0, [r4]
-    cmp     r0, r1
-    beq     dtb_ok
-    /* No DTB anywhere we know of: say so and park. */
-    mov     r0, #'?'
-    bl      early_uart_putc
-2:
-    wfe
-    b       2b
-
-dtb_ok:
     mov     r0, #'u'
     bl      early_uart_putc
 
