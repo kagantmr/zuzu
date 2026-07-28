@@ -164,6 +164,12 @@ static void pmm_reserve_boot_regions(void)
     uint64_t rsv_addr, rsv_size;
     for (uint32_t i = 0; dtb_get_memrsv(i, &rsv_addr, &rsv_size); i++)
         pmm_mark_range((paddr_t)rsv_addr, (paddr_t)(rsv_addr + rsv_size));
+
+    /* A bootloader-supplied initrd (DTB /chosen) lives outside the kernel
+     * image, wherever it was loaded, so it needs its own reservation. */
+    uint64_t initrd_start, initrd_end;
+    if (dtb_get_chosen_initrd(&initrd_start, &initrd_end))
+        pmm_mark_range((paddr_t)initrd_start, (paddr_t)initrd_end);
 }
 
 void pmm_init(void)

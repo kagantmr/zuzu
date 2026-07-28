@@ -9,9 +9,14 @@
 .equ RAM_LOW_IDX_BASE,   0x800
 .equ RAM_HIGH_IDX_BASE,  0xC00
 .equ SECTION_NORMAL_DESC,0x11C0E
+.equ VA_OFFSET_IDX,      0x400     @ KERNEL_VA_OFFSET (0x40000000) >> 20
 
+/* In: r0 = DTB physical address. Out: r0 = L1 table physical address.
+ * r4 is never touched here (the caller relies on it surviving this call
+ * unmodified — see svc_entry) — r2 is this function's own table-base
+ * scratch register instead. */
 early_paging_init:
-    ldr     r4, =early_l1
+    ldr     r2, =early_l1
 
     /* Zero the full 16KB bootstrap L1 */
     mov     r5, #0
@@ -19,7 +24,7 @@ early_paging_init:
 1:
     cmp     r5, #4096
     bge     2f
-    str     r6, [r4, r5, lsl #2]
+    str     r6, [r2, r5, lsl #2]
     add     r5, r5, #1
     b       1b
 2:
@@ -34,13 +39,33 @@ early_paging_init:
     add     r11, r7, r5, lsl #20
     orr     r11, r11, r8
     add     r12, r5, #RAM_LOW_IDX_BASE
-    str     r11, [r4, r12, lsl #2]
+    str     r11, [r2, r12, lsl #2]
     add     r12, r5, #RAM_HIGH_IDX_BASE
-    str     r11, [r4, r12, lsl #2]
+    str     r11, [r2, r12, lsl #2]
     add     r5, r5, #1
     b       3b
 4:
-    mov     r0, r4
+    /* Map two sections at the DTB (may straddle a 1MB boundary), identity
+     * and higher-half, so early() can parse it before the full RAM map.
+     * A real bootloader can place (or, as u-boot's bootm does, relocate)
+     * the DTB anywhere in RAM, not just within the first BOOTSTRAP_RAM_MB,
+     * e.g. near the top of RAM. */
+    lsr     r11, r0, #20            @ DTB megabyte index (physical)
+    mov     r5, #0
+5:
+    cmp     r5, #2
+    bge     6f
+    add     r12, r11, r5            @ L1 index = PA >> 20
+    lsl     r6, r12, #20
+    orr     r6, r6, r8              @ normal memory descriptor
+    str     r6, [r2, r12, lsl #2]
+    add     r12, r12, #VA_OFFSET_IDX
+    bic     r12, r12, #0x1000       @ wrap L1 index to 4096 entries
+    str     r6, [r2, r12, lsl #2]
+    add     r5, r5, #1
+    b       5b
+6:
+    mov     r0, r2
     bx      lr
 .size early_paging_init, . - early_paging_init
 
@@ -51,8 +76,10 @@ early_paging_init:
 .equ MODE_ABT,        0x17
 .equ MODE_UND,        0x1b
 .equ MODE_SVC,        0x13
+.equ MODE_HYP,        0x1a
 .equ TTBR0_BOOT_ATTRS, 0x6B
 .equ KERNEL_VA_OFFSET, 0x40000000
+.equ FDT_MAGIC_LE,    0xEDFE0DD0     @ 0xD00DFEED read little-endian
 
 .macro SET_MODE_STACK_PHYS mode, top_sym
     cps     #\mode
@@ -71,12 +98,54 @@ _start:
     /* Disable interrupts */
     cpsid   if
 
+    /* Leave hyp */
+    mrs     r0, cpsr
+    and     r1, r0, #0x1F
+    cmp     r1, #MODE_HYP
+    bne     svc_entry
+
+    mrc     p15, 4, r1, c14, c1, 0  @ CNTHCTL
+    orr     r1, r1, #0x3            @ PL1PCTEN | PL1PCEN: PL1 may use timers
+    mcr     p15, 4, r1, c14, c1, 0
+    mov     r1, #0
+    mcrr    p15, 4, r1, r1, c14     @ CNTVOFF = 0
+
+    mcr     p15, 4, r1, c1, c1, 0   @ no hypercalls/traps
+    mcr     p15, 4, r1, c1, c1, 1   @ no debug/PMU traps
+    mcr     p15, 4, r1, c1, c1, 2   @ no coprocessor/VFP traps
+    mcr     p15, 4, r1, c1, c1, 3   @ no CP15 traps
+
+    bic     r0, r0, #0x1F
+    orr     r0, r0, #(MODE_SVC | 0xC0)
+    msr     spsr_cxsf, r0           @ SPSR_hyp
+    ldr     r1, =svc_entry
+    msr     elr_hyp, r1
+    eret
+
+svc_entry:
+    /* Stash the bootloader's DTB pointer (Linux/u-boot ARM boot protocol:
+     * r2 = DTB physical address) before r0-r3 get clobbered. r4 is
+     * callee-saved through everything below. */
+    mov     r4, r2
+
     /* Set up stacks for all modes (at physical addresses) */
     bl      setup_mode_stacks
 
-    /* Save DTB physical address (r4 is callee-saved) */
-    ldr     r4, =__dtb_addr__
-
+    /* Validate it: a real bootloader sets r2, but QEMU's direct -kernel/
+     * -dtb ELF boot (no bootloader, `make run`) never populates the Linux
+     * boot registers for an ELF load, leaving r2 == 0 — guard against that
+     * before dereferencing it (no exception vectors exist yet to catch a
+     * fault on address 0), then fall back to the link-time address that
+     * path is known to drop the DTB at instead. */
+    cmp     r4, #0
+    beq     2f
+    ldr     r1, =FDT_MAGIC_LE
+    ldr     r0, [r4]
+    cmp     r0, r1
+    beq     1f
+2:
+    ldr     r4, =__dtb_fallback__
+1:
     /* Do page table init in C code */
     mov     r0, r4                  @ Pass DTB physical address
     bl      early_paging_init       @ Returns L1 table physical address in r0
@@ -191,11 +260,11 @@ higher_half_entry:
 
     /* Keep interrupts disabled until kernel IRQ/GIC init is complete */
 
-    /* early call */
-    ldr     r0, =__dtb_addr__       @ DTB physical address
+    /* early call: r4 has held the DTB physical address since _start */
+    mov     r0, r4
     bl      early                   @ Jump to C code
 3:
     wfi
-    b       3b
+    b    3b
 
 .size higher_half_entry, . - higher_half_entry

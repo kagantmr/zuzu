@@ -875,14 +875,23 @@ static void panic_screen(const char *reason, void *caller_ra)
     panic_nl();
 }
 
+bool entered_panic = false;
+
 _Noreturn void __attribute__((cold)) panic(const char *fmt, ...)
 {
+
+    arch_global_irq_disable();
+
+    if (entered_panic)
+        goto panic_loop;
+        
+    entered_panic = true;
+
     /* Static: panic is terminal and runs with IRQs off, so no reentrancy */
     static char reason[LINE_BUF];
 
     void *caller_ra = __builtin_return_address(0);
 
-    arch_global_irq_disable();
 
     if (fmt) {
         va_list ap;
@@ -893,6 +902,7 @@ _Noreturn void __attribute__((cold)) panic(const char *fmt, ...)
 
     panic_screen(fmt ? reason : NULL, caller_ra);
 
+panic_loop:
     __asm__ volatile(
         "1:\n"
         "    wfi\n"

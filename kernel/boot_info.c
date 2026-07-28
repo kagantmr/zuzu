@@ -69,6 +69,14 @@ void boot_info_init_from_dtb()
     }
     dtb_enum_devices(collect_dev_cb);
     /* if fewer devices than predicted, we leave the array sized to count */
+
+    uint64_t initrd_start = 0, initrd_end = 0;
+    if (dtb_get_chosen_initrd(&initrd_start, &initrd_end)) {
+        g_boot_info.initrd_pa = initrd_start;
+        g_boot_info.initrd_size = initrd_end - initrd_start;
+        g_boot_info.has_initrd = true;
+    }
+
     /* Shutdown DTB access to prevent any future libfdt reads */
     dtb_shutdown();
 }
@@ -96,6 +104,15 @@ void boot_info_foreach_dev(void (*cb)(const char *, uint64_t, uint64_t, uint32_t
 uint32_t boot_info_dev_count(void)
 {
     return g_boot_info.count;
+}
+
+bool boot_info_initrd(uint64_t *out_pa, uint64_t *out_size)
+{
+    if (!g_boot_info.has_initrd || !out_pa || !out_size)
+        return false;
+    *out_pa = g_boot_info.initrd_pa;
+    *out_size = g_boot_info.initrd_size;
+    return true;
 }
 
 const dtb_dev_t *boot_info_dev_array(void)
