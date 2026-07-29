@@ -76,7 +76,7 @@ static int err_to_errno(Err e)
 
 static Handle console_port(void) {
     if (console_tty < 0) {
-        Message lu = zuzu_msg_call(NT_PORT, NT_LOOKUP, nt_pack("tty0"), 0);
+        Message lu = ZuzuMsgCall(NT_PORT, NT_LOOKUP, nt_pack("tty0"), 0);
         if ((Err)lu.w1 != NT_LU_OK)
             return -1;
         console_tty = (Handle)lu.w2;
@@ -100,29 +100,29 @@ static uint32_t fsd_size = 0;
  * and yields, so fsd and everything else keep running while the owner is
  * blocked. One fsd transaction is in flight at a time.
  */
-static zzuspin_t fsd_gate = ZZUSPIN_INIT;
+static ZuzuUSpin fsd_gate = ZUZUUSPIN_INIT;
 static int       fsd_busy = 0;
 
 static void fsd_claim(void)
 {
     for (;;) {
-        zzuspin_lock(&fsd_gate);
-        if (!fsd_busy) { fsd_busy = 1; zzuspin_unlock(&fsd_gate); return; }
-        zzuspin_unlock(&fsd_gate);
+        ZuzuUSpinLock(&fsd_gate);
+        if (!fsd_busy) { fsd_busy = 1; ZuzuUSpinUnlock(&fsd_gate); return; }
+        ZuzuUSpinUnlock(&fsd_gate);
         ZuzuYield();
     }
 }
 
 static void fsd_release(void)
 {
-    zzuspin_lock(&fsd_gate);
+    ZuzuUSpinLock(&fsd_gate);
     fsd_busy = 0;
-    zzuspin_unlock(&fsd_gate);
+    ZuzuUSpinUnlock(&fsd_gate);
 }
 
 static int fsd_connect(void) {
     if (fsd_buf) return 0;
-    Message lu = zuzu_msg_call(NT_PORT, NT_LOOKUP, nt_pack("fsd\0"), 0);
+    Message lu = ZuzuMsgCall(NT_PORT, NT_LOOKUP, nt_pack("fsd\0"), 0);
     if ((Err)lu.w1 != NT_LU_OK) return -1;
     fsd_handle = (Handle)lu.w2;
     uint32_t fsd_pid = lu.w3;
@@ -133,10 +133,10 @@ static int fsd_connect(void) {
     void *p = ZuzuMemMap(shm, 0, PROT_RW, 0);
     if (ZuzuPtrIsErr(p)) return -1;
 
-    int32_t slot = zuzu_grant(shm, (int32_t)fsd_pid);
+    int32_t slot = ZuzuGrant(shm, (int32_t)fsd_pid);
     if (slot < 0) return -1;
 
-    Message r = zuzu_msg_call(fsd_handle, FSD_SET_BUF,
+    Message r = ZuzuMsgCall(fsd_handle, FSD_SET_BUF,
                             FSD_SETBUF_PACK(slot, FSD_SHM_DEFAULT), 0);
     if ((Err)r.w1 != ZUZU_OK) return -1;
 
@@ -181,8 +181,8 @@ int _write(int file, char *ptr, int len)
         while (off < (size_t)len) {
             uint32_t chunk = (uint32_t)((size_t)len - off);
             if (chunk > LMSG_BUF_SIZE) chunk = LMSG_BUF_SIZE;
-            lmsg_write(ptr + off, chunk);
-            zuzu_msg_lsend(tty, chunk);
+            LmsgWrite(ptr + off, chunk);
+            ZuzuMsgLsend(tty, chunk);
             off += chunk;
         }
         return len;
@@ -201,7 +201,7 @@ int _write(int file, char *ptr, int len)
 
         memcpy((uint8_t *)fsd_buf + FSD_DATA_OFF, ptr + off, chunk);
 
-        Message r = zuzu_msg_call(fsd_handle, FSD_WRITE,
+        Message r = ZuzuMsgCall(fsd_handle, FSD_WRITE,
                                 ((uint32_t)fsd_fd[file] & 0xFFFFu) | (chunk << 16), 0);
         if ((Err)r.w1 != ZUZU_OK) {
             if (off) break;                  /* partial write wins */
@@ -250,13 +250,13 @@ int _read(int file, char *ptr, int len)
          * an error (raw-mode readers like a full-screen editor treat any
          * negative return as fatal and exit()). */
         for (;;) {
-            Message r = zuzu_msg_lcall(tty, want);
+            Message r = ZuzuMsgLcall(tty, want);
             if ((int32_t)r.w0 < 0) { errno = EIO; return -1; }
 
             uint32_t got = r.w1;
             if (got > want) got = want;
             if (got) {
-                memcpy(ptr, lmsg_buf(), got);
+                memcpy(ptr, LmsgBuf(), got);
                 /* ICRNL: Enter on a serial console sends CR. scanf() would
                  * cope -- CR is whitespace -- but fgets/getline look for LF
                  * specifically and would never see a line end. The TX side
@@ -287,7 +287,7 @@ int _read(int file, char *ptr, int len)
         uint32_t chunk = (uint32_t)((size_t)len - off);
         if (chunk > cap) chunk = cap;
 
-        Message r = zuzu_msg_call(fsd_handle, FSD_READ,
+        Message r = ZuzuMsgCall(fsd_handle, FSD_READ,
                                 ((uint32_t)fsd_fd[file] & 0xFFFFu) | (chunk << 16), 0);
         if ((Err)r.w1 != ZUZU_OK) {
             if (off) break;                  /* partial success wins */
@@ -312,7 +312,7 @@ int _close(int file) {
     if (file >= 0 && file <= 2) return 0;
     if (!fsd_buf || file < 3 || file >= MAX_FD || fsd_fd[file] < 0) { errno = EBADF; return -1; }
 
-    Message r = zuzu_msg_call(fsd_handle, FSD_CLOSE, (uint32_t)fsd_fd[file], 0);
+    Message r = ZuzuMsgCall(fsd_handle, FSD_CLOSE, (uint32_t)fsd_fd[file], 0);
     fsd_fd[file] = -1;                     /* free the slot regardless */
 
     if ((Err)r.w1 != ZUZU_OK) { errno = err_to_errno((Err)r.w1); return -1; }
@@ -324,7 +324,7 @@ int _lseek(int file, int ptr, int dir)
 
     if (file >= 0 && file <= 2) { errno = ESPIPE; return -1; }   /* terminals don't seek */
     if (!fsd_buf || file < 3 || file >= MAX_FD || fsd_fd[file] < 0) { errno = EBADF; return -1; }
-    fsd_req_t req;
+    FsdRequest req;
     memset(&req, 0, sizeof(req));
     req.size     = sizeof(req);
     req.cmd      = FSD_SEEK;
@@ -337,7 +337,7 @@ int _lseek(int file, int ptr, int dir)
     fsd_claim();
     memcpy((uint8_t *)fsd_buf + FSD_REQ_OFF, &req, sizeof(req));
 
-    Message r = zuzu_msg_call(fsd_handle, FSD_SEEK, 0, 0);
+    Message r = ZuzuMsgCall(fsd_handle, FSD_SEEK, 0, 0);
     if ((Err)r.w1 != ZUZU_OK) { fsd_release(); errno = err_to_errno((Err)r.w1); return -1; }
 
     fsd_release();
@@ -368,11 +368,11 @@ int _fstat(int file, struct stat *st)
     if (!fsd_buf || file < 3 || file >= MAX_FD || fsd_fd[file] < 0) { errno = EBADF; return -1; }
 
     fsd_claim();
-    Message r = zuzu_msg_call(fsd_handle, FSD_FSTAT,
+    Message r = ZuzuMsgCall(fsd_handle, FSD_FSTAT,
                             (uint32_t)fsd_fd[file], 0);
     if ((Err)r.w1 != ZUZU_OK) { fsd_release(); errno = err_to_errno((Err)r.w1); return -1; }
 
-    fsd_stat_t fst;
+    FsdStat fst;
     memcpy(&fst, (const uint8_t *)fsd_buf + FSD_DATA_OFF, sizeof(fst));
     fsd_release();
 
@@ -400,7 +400,7 @@ int _open(const char *name, int flags, ...) {
     memcpy((uint8_t *)fsd_buf + FSD_DATA_OFF, name, plen + 1);
 
     /* request struct */
-    fsd_req_t req;
+    FsdRequest req;
     memset(&req, 0, sizeof(req));
     req.size     = sizeof(req);
     req.cmd      = FSD_OPEN;
@@ -409,7 +409,7 @@ int _open(const char *name, int flags, ...) {
     req.mode     = flags_to_fsd_mode(flags);
     memcpy((uint8_t *)fsd_buf + FSD_REQ_OFF, &req, sizeof(req));
 
-    Message r = zuzu_msg_call(fsd_handle, FSD_OPEN, 0, 0);
+    Message r = ZuzuMsgCall(fsd_handle, FSD_OPEN, 0, 0);
     if ((Err)r.w1 != ZUZU_OK) { fsd_release(); errno = err_to_errno((Err)r.w1); return -1; }
 
     fsd_fd[pfd] = (int)r.w2;
@@ -465,7 +465,7 @@ int _stat(const char *name, struct stat *st)
     if (plen + 1 > fsd_size - FSD_DATA_OFF) { fsd_release(); errno = ENAMETOOLONG; return -1; }
     memcpy((uint8_t *)fsd_buf + FSD_DATA_OFF, name, plen + 1);
 
-    fsd_req_t req;
+    FsdRequest req;
     memset(&req, 0, sizeof(req));
     req.size     = sizeof(req);
     req.cmd      = FSD_STAT;
@@ -473,10 +473,10 @@ int _stat(const char *name, struct stat *st)
     req.data_len = plen + 1;
     memcpy((uint8_t *)fsd_buf + FSD_REQ_OFF, &req, sizeof(req));
 
-    Message r = zuzu_msg_call(fsd_handle, FSD_STAT, 0, 0);
+    Message r = ZuzuMsgCall(fsd_handle, FSD_STAT, 0, 0);
     if ((Err)r.w1 != ZUZU_OK) { fsd_release(); errno = err_to_errno((Err)r.w1); return -1; }
 
-    fsd_stat_t fst;
+    FsdStat fst;
     memcpy(&fst, (const uint8_t *)fsd_buf + FSD_DATA_OFF, sizeof(fst));
     fsd_release();
 
@@ -498,7 +498,7 @@ int _unlink(const char *name)
     if (plen + 1 > fsd_size - FSD_DATA_OFF) { fsd_release(); errno = ENAMETOOLONG; return -1; }
     memcpy((uint8_t *)fsd_buf + FSD_DATA_OFF, name, plen + 1);
 
-    fsd_req_t req;
+    FsdRequest req;
     memset(&req, 0, sizeof(req));
     req.size     = sizeof(req);
     req.cmd      = FSD_UNLINK;
@@ -506,7 +506,7 @@ int _unlink(const char *name)
     req.data_len = plen + 1;
     memcpy((uint8_t *)fsd_buf + FSD_REQ_OFF, &req, sizeof(req));
 
-    Message r = zuzu_msg_call(fsd_handle, FSD_UNLINK, 0, 0);
+    Message r = ZuzuMsgCall(fsd_handle, FSD_UNLINK, 0, 0);
     if ((Err)r.w1 != ZUZU_OK) { fsd_release(); errno = err_to_errno((Err)r.w1); return -1; }
     fsd_release();
     return 0;

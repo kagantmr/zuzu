@@ -102,7 +102,7 @@ int get_nic(void)
     Message r;
     while (1)
     {
-        r = zuzu_msg_call(devm_port, DEV_REQUEST, DEV_CLASS_NIC, 0);
+        r = ZuzuMsgCall(devm_port, DEV_REQUEST, DEV_CLASS_NIC, 0);
         if ((int32_t)r.w1 == 0)
             break;
         LOG_WARN(LOG_TAG, "NIC device request failed, retrying");
@@ -116,7 +116,7 @@ int get_nic(void)
         return ERR_SYSDOWN;
     }
 
-    zuzu_irq_bind((uint32_t)dev_handle, (uint32_t)irq_ntfn);
+    ZuzuIrqBind((uint32_t)dev_handle, (uint32_t)irq_ntfn);
 
     nic = (volatile lan9118_t *)ZuzuMemMap(dev_handle, 0, PROT_RW, 0);
     if (!nic)
@@ -227,7 +227,7 @@ void lan9118_service_loop(void)
     {
 
         WaitanyResult result;
-        int32_t recv_rc = zuzu_waitany(handles, 3, 50, &result);
+        int32_t recv_rc = ZuzuWaitany(handles, 3, 50, &result);
         if (recv_rc < 0)
         {
             continue;
@@ -290,7 +290,7 @@ void lan9118_service_loop(void)
                         nic_stats[NIC_STAT_RX_PACKETS]++;
                         if (pending_recv_reply > 0)
                         {
-                            zuzu_msg_reply(pending_recv_reply, ZUZU_OK, (uint32_t)pkt_len, 0);
+                            ZuzuMsgReply(pending_recv_reply, ZUZU_OK, (uint32_t)pkt_len, 0);
                             pending_recv_reply = 0;
                         }
                         ZuzuNtfnSignal(netd_ntfn, 1);
@@ -307,7 +307,7 @@ void lan9118_service_loop(void)
                 }
             }
 
-            zuzu_irq_done(dev_handle);
+            ZuzuIrqDone(dev_handle);
             break;
         }
         case WAITANY_KIND_CALL:
@@ -321,7 +321,7 @@ void lan9118_service_loop(void)
                 int32_t status = (mac[0] | mac[1] | mac[2] | mac[3] | mac[4] | mac[5])
                                      ? ZUZU_OK
                                      : ERR_SYSDOWN; // MAC never read -> treat as system down
-                zuzu_msg_reply(result.source, status,
+                ZuzuMsgReply(result.source, status,
                        (mac[0] | mac[1] << 8 | mac[2] << 16 | mac[3] << 24),
                        (mac[4] | mac[5] << 8));
                 break;
@@ -330,18 +330,18 @@ void lan9118_service_loop(void)
             {
                 if (shmem_handle < 0 || shmem_addr == NULL)
                 {
-                    zuzu_msg_reply(result.source, ERR_SYSDOWN, 0, 0);
+                    ZuzuMsgReply(result.source, ERR_SYSDOWN, 0, 0);
                 }
                 else
                 {
                     /* w1 = shmem, w2 = rx doorbell, w3 = tx doorbell */
-                    int32_t shm_g = zuzu_grant(shmem_handle, result.w1);
-                    int32_t rx_g  = zuzu_grant(netd_ntfn, result.w1);
-                    int32_t tx_g  = zuzu_grant(tx_doorbell_ntfn, result.w1);
+                    int32_t shm_g = ZuzuGrant(shmem_handle, result.w1);
+                    int32_t rx_g  = ZuzuGrant(netd_ntfn, result.w1);
+                    int32_t tx_g  = ZuzuGrant(tx_doorbell_ntfn, result.w1);
                     if (shm_g < 0 || rx_g < 0 || tx_g < 0)
-                        zuzu_msg_reply(result.source, ERR_SYSDOWN, 0, 0);
+                        ZuzuMsgReply(result.source, ERR_SYSDOWN, 0, 0);
                     else
-                        zuzu_msg_reply(result.source, shm_g, rx_g, tx_g);
+                        ZuzuMsgReply(result.source, shm_g, rx_g, tx_g);
                 }
                 break;
             }
@@ -350,13 +350,13 @@ void lan9118_service_loop(void)
                 nic_frame_t frame;
                 while (packet_ring_pop(&frame, tx_ring) == 0)
                     nic_tx_frame(&frame);
-                zuzu_msg_reply(result.source, 0, ZUZU_OK, 0);
+                ZuzuMsgReply(result.source, 0, ZUZU_OK, 0);
                 break;
             }
             case NIC_CMD_RECV:
             {
                 if (rx_ring->head != rx_ring->tail)
-                    zuzu_msg_reply(result.source, 0, ZUZU_OK, 0);
+                    ZuzuMsgReply(result.source, 0, ZUZU_OK, 0);
                 else
                     pending_recv_reply = result.source;
                 break;
@@ -365,13 +365,13 @@ void lan9118_service_loop(void)
             {
                 uint32_t idx = result.w3; // NIC_STAT_* selector
                 if (idx < NIC_STAT_COUNT)
-                    zuzu_msg_reply(result.source, 0, nic_stats[idx], NIC_STAT_COUNT);
+                    ZuzuMsgReply(result.source, 0, nic_stats[idx], NIC_STAT_COUNT);
                 else
-                    zuzu_msg_reply(result.source, ERR_BADARG, 0, NIC_STAT_COUNT);
+                    ZuzuMsgReply(result.source, ERR_BADARG, 0, NIC_STAT_COUNT);
                 break;
             }
             default:
-                zuzu_msg_reply(result.source, 0, ERR_NOSYS, 0);
+                ZuzuMsgReply(result.source, 0, ERR_NOSYS, 0);
                 break;
             }
             break;

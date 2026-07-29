@@ -11,7 +11,7 @@
  *   shm <slot>       map the granted shm handle in <slot>, verify the
  *                    parent's 0xA5+i pattern, overwrite with 0x5A^i,
  *                    unmap, exit 0 (nonzero exit = which step failed)
- *   sendport <slot>  zuzu_msg_send(0xCAFE, 0xBEEF, 0x1234) on the granted
+ *   sendport <slot>  ZuzuMsgSend(0xCAFE, 0xBEEF, 0x1234) on the granted
  *                    port handle in <slot>, exit 0 on success
  *   regrant <slot>   confinement: a *received* (granted) cap must be
  *                    non-grantable and non-destroyable by the receiver.
@@ -45,7 +45,7 @@ static int mode_dirty(void)
         return 101;
     memset(a, 0xDD, 8192);
 
-    if (zuzu_port_create() < 0)
+    if (ZuzuPortCreate() < 0)
         return 102;
 
     int32_t n = ZuzuNtfnCreate();
@@ -92,7 +92,7 @@ static int mode_shm(Handle slot)
 
 static int mode_sendport(Handle slot)
 {
-    int32_t rc = zuzu_msg_send(slot, 0xCAFE, 0xBEEF, 0x1234);
+    int32_t rc = ZuzuMsgSend(slot, 0xCAFE, 0xBEEF, 0x1234);
     return (rc == 0) ? 0 : 113;
 }
 
@@ -101,12 +101,12 @@ static int mode_regrant(Handle slot)
     /* A received capability must not be re-grantable (prevents unbounded
      * propagation), and we must not be able to destroy an object we don't
      * own. Both must be refused with ERR_NOPERM. */
-    if (zuzu_grant(slot, NAMETABLE_PID) != ERR_NOPERM)
+    if (ZuzuGrant(slot, NAMETABLE_PID) != ERR_NOPERM)
         return 114;
-    if (zuzu_destroy(slot) != ERR_NOPERM)
+    if (ZuzuDestroy(slot) != ERR_NOPERM)
         return 115;
     /* the cap must still work for its intended use (send) */
-    if (zuzu_msg_send(slot, 0xF00D, 0, 0) != 0)
+    if (ZuzuMsgSend(slot, 0xF00D, 0, 0) != 0)
         return 116;
     return 0;
 }

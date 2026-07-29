@@ -73,7 +73,7 @@ __attribute__((cold)) int get_shm() {
     LOG_INFO(LOG_TAG, "nic0 port=%d", nic_port);
 
     // w1 = status (ZUZU_OK / -err); w2 = mac_lo, w3 = mac_hi carry the MAC bytes
-    Message r = zuzu_msg_call(nic_port, NIC_CMD_GETMAC, 0, 0);
+    Message r = ZuzuMsgCall(nic_port, NIC_CMD_GETMAC, 0, 0);
     if ((int32_t)r.w1 != ZUZU_OK) {
         LOG_ERROR(LOG_TAG, "GETMAC failed");
         return 1;
@@ -90,7 +90,7 @@ __attribute__((cold)) int get_shm() {
              netif.mac[3], netif.mac[4], netif.mac[5]);
 
     // w1 = shmem handle, w2 = rx doorbell, w3 = tx doorbell (all >= 0 on success)
-    r = zuzu_msg_call(nic_port, NIC_CMD_GETBUF, 0, 0);
+    r = ZuzuMsgCall(nic_port, NIC_CMD_GETBUF, 0, 0);
     if ((int32_t)r.w0 != 0 || (int32_t)r.w1 < 0 ||
         (int32_t)r.w2 < 0 || (int32_t)r.w3 < 0) {
         LOG_ERROR(LOG_TAG, "NIC_GETBUF failed");
@@ -148,7 +148,7 @@ int main() {
 
         /* 2. sleep until a packet arrives or the deadline elapses */
         WaitanyResult result;
-        int32_t recv_rc = zuzu_waitany(handles, 2, sleep_ms, &result);
+        int32_t recv_rc = ZuzuWaitany(handles, 2, sleep_ms, &result);
 
         /* 3. DRAIN RX FIRST: process inbound before any timer fires */
         if (recv_rc >= 0 && result.kind == WAITANY_KIND_NTFN) {
@@ -156,7 +156,7 @@ int main() {
             while (packet_ring_pop(&frame, rx_ring) == 0)
                 eth_rx(frame.data, frame.len);
         } else if (recv_rc >= 0 && result.kind == WAITANY_KIND_CALL) {
-            zuzu_msg_reply(result.source, ERR_NOSYS, 0, 0);
+            ZuzuMsgReply(result.source, ERR_NOSYS, 0, 0);
         }
 
         /* 4. THEN fire expired timers */

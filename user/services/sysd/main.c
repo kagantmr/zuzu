@@ -42,7 +42,7 @@ static int name_equals_u32(const char name[SYSD_NAME_LEN], uint32_t name_u32) {
 }
 
 int nt_setup(void) {
-    port = zuzu_port_create();
+    port = ZuzuPortCreate();
     if (port < 0)
         return port;
 
@@ -137,22 +137,22 @@ static void scrub_pid(uint32_t pid) {
 }
 
 static void nt_handle_msg(Message msg) {
-    if (msg.w2 >= sizeof(exec_request_hdr_t) && msg.w2 <= LMSG_BUF_SIZE &&
-        ((exec_request_hdr_t *)lmsg_buf())->cmd == SYSD_EXEC) {
+    if (msg.w2 >= sizeof(ExecRequestHeader) && msg.w2 <= LMSG_BUF_SIZE &&
+        ((ExecRequestHeader *)LmsgBuf())->cmd == SYSD_EXEC) {
         uint32_t reply_handle = (uint32_t)msg.w0;
         uint32_t req_len = msg.w2;
-        exec_request_hdr_t *hdr = (exec_request_hdr_t *)lmsg_buf();
+        ExecRequestHeader *hdr = (ExecRequestHeader *)LmsgBuf();
 
-        size_t path_off = sizeof(exec_request_hdr_t);
+        size_t path_off = sizeof(ExecRequestHeader);
         size_t path_bytes = (size_t)hdr->path_len + 1;
         if (path_bytes == 0 || path_off + path_bytes > req_len ||
-            ((char *)lmsg_buf())[path_off + hdr->path_len] != '\0') {
-            zuzu_msg_reply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
+            ((char *)LmsgBuf())[path_off + hdr->path_len] != '\0') {
+            ZuzuMsgReply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
             return;
         }
 
-        const char *path = (const char *)lmsg_buf() + path_off;
-        const char *argbuf = (const char *)lmsg_buf() + path_off + path_bytes;
+        const char *path = (const char *)LmsgBuf() + path_off;
+        const char *argbuf = (const char *)LmsgBuf() + path_off + path_bytes;
         size_t argbuf_len = req_len - path_off - path_bytes;
 
         /* --- lazy-connect to fsd (once) --- *
@@ -161,43 +161,43 @@ static void nt_handle_msg(Message msg) {
         if (!fsd_conn.ready) {
             uint32_t fsd_h = 0, fsd_p = 0;
             if (nt_lookup(nt_pack("fsd"), ZuzuGetPid(), &fsd_h, &fsd_p) != NT_LU_OK) {
-                zuzu_msg_reply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
+                ZuzuMsgReply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
                 return;
             }
             if (fsd_attach(&fsd_conn, (int32_t)fsd_h, fsd_p, FSD_SHM_DEFAULT) != ZUZU_OK) {
-                zuzu_msg_reply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
+                ZuzuMsgReply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
                 return;
             }
         }
 
         size_t plen = strlen(path);
         if (plen == 0 || plen >= 4096) {
-            zuzu_msg_reply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
+            ZuzuMsgReply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
             return;
         }
 
-        fsd_stat_t st;
+        FsdStat st;
         if (fsd_stat(&fsd_conn, path, &st) != ZUZU_OK) {
-            zuzu_msg_reply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
+            ZuzuMsgReply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
             return;
         }
 
         uint32_t file_size = st.size;
         if (file_size == 0 || st.type == FSD_TYPE_DIR) {
-            zuzu_msg_reply(reply_handle, (uint32_t)EXEC_EBADELF, 0, 0);
+            ZuzuMsgReply(reply_handle, (uint32_t)EXEC_EBADELF, 0, 0);
             return;
         }
 
         uint32_t fd = 0;
         if (fsd_open(&fsd_conn, path, FSD_MODE_READ, &fd) != ZUZU_OK) {
-            zuzu_msg_reply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
+            ZuzuMsgReply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
             return;
         }
 
         uint8_t *elf = (uint8_t *)malloc(file_size);
         if (!elf) {
             fsd_close(&fsd_conn, fd);
-            zuzu_msg_reply(reply_handle, (uint32_t)ERR_NOMEM, 0, 0);
+            ZuzuMsgReply(reply_handle, (uint32_t)ERR_NOMEM, 0, 0);
             return;
         }
 
@@ -213,22 +213,22 @@ static void nt_handle_msg(Message msg) {
 
         if (total != file_size) {
             free(elf);
-            zuzu_msg_reply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
+            ZuzuMsgReply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
             return;
         }
 
-        exec_reply_t reply;
+        ExecReply reply;
         int rc = exec_inject((uint32_t)hdr->taskHandle, elf, file_size,
                              argbuf_len ? argbuf : NULL, argbuf_len,
                              hdr->argc, &reply);
         free(elf);
         if (rc != 0) {
-            zuzu_msg_reply(reply_handle, (uint32_t)EXEC_EBADELF, 0, 0);
+            ZuzuMsgReply(reply_handle, (uint32_t)EXEC_EBADELF, 0, 0);
             return;
         }
 
-        memcpy(lmsg_buf(), &reply, sizeof(reply));
-        (void)ChannelReply((Handle)reply_handle, lmsg_buf(), sizeof(reply));
+        memcpy(LmsgBuf(), &reply, sizeof(reply));
+        (void)ChannelReply((Handle)reply_handle, LmsgBuf(), sizeof(reply));
         return;
     }
 
@@ -274,7 +274,7 @@ static void nt_handle_msg(Message msg) {
         /* nt_lookup fills out_pid with the owner's pid; it rides back in w3. */
         status = nt_lookup(name_u32, sender, &out_handle, &out_pid);
         if (status == NT_LU_OK) {
-            int32_t slot = zuzu_grant((int32_t)out_handle, (int32_t)sender);
+            int32_t slot = ZuzuGrant((int32_t)out_handle, (int32_t)sender);
             if (slot < 0) {
                 status = NT_LU_NOMATCH;
                 out_handle = 0;
@@ -331,7 +331,7 @@ static void nt_handle_msg(Message msg) {
         }
     }
     if (needs_reply)
-        zuzu_msg_reply(reply_handle, (uint32_t)status, out_handle, out_pid);
+        ZuzuMsgReply(reply_handle, (uint32_t)status, out_handle, out_pid);
 }
 
 #define MAX_BOOT_ENTRIES 16
@@ -343,7 +343,7 @@ typedef struct {
     size_t        elf_size;
     int32_t       taskHandle;
     uint32_t      pid;
-    exec_reply_t  reply;
+    ExecReply  reply;
     bool          in_cpio;
     bool          injected;
     bool          is_tty;
@@ -463,7 +463,7 @@ static bool wait_for_service(uint32_t name_u32) {
         reap_all();
 
         WaitanyResult any = {0};
-        if (zuzu_waitany(recv_handles, 1, WAIT_SLICE_MS, &any) == 0) {
+        if (ZuzuWaitany(recv_handles, 1, WAIT_SLICE_MS, &any) == 0) {
             Message msg;
             if (recvany_to_ipcmsg(&any, &msg))
                 nt_handle_msg(msg);
@@ -478,7 +478,7 @@ void sysd_loop(void)
 {
     while (1) {
         reap_all();
-        nt_handle_msg(zuzu_msg_recv(port, TIMEOUT_INFINITE));
+        nt_handle_msg(ZuzuMsgRecv(port, TIMEOUT_INFINITE));
     }
 }
 
@@ -617,7 +617,7 @@ static bool wait_for_tty_registration(uint32_t pid,
         reap_all();
 
         WaitanyResult any = {0};
-        if (zuzu_waitany(recv_handles, 1, WAIT_SLICE_MS, &any) == 0) {
+        if (ZuzuWaitany(recv_handles, 1, WAIT_SLICE_MS, &any) == 0) {
             Message msg;
             if (recvany_to_ipcmsg(&any, &msg))
                 nt_handle_msg(msg);

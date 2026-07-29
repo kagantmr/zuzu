@@ -16,8 +16,8 @@ extern "C" {
  * @return void* Pointer to the local message buffer.
  * 
  */
-static inline void *lmsg_buf(void) {
-    return ZuzuTLS()->lmsg_buf;
+static inline void *LmsgBuf(void) {
+    return ZuzuTLS()->LmsgBuf;
 }
 
 /**
@@ -26,12 +26,12 @@ static inline void *lmsg_buf(void) {
  * @param src Pointer to the source data to write.
  * @param len Length of the data to write in bytes.
  * 
- * @return int32_t Returns the number of bytes written on success, or a negative error code on failure (e.g., ERR_OVERFLOW if len exceeds LMSG_BUF_SIZE).
+ * @return Err Returns the number of bytes written on success, or a negative error code on failure (e.g., ERR_OVERFLOW if len exceeds LMSG_BUF_SIZE).
  */
-static inline int32_t lmsg_write(const void *src, uint32_t len) {
+static inline Err LmsgWrite(const void *src, size_t len) {
     if (len > LMSG_BUF_SIZE)
         return ERR_OVERFLOW;
-    memcpy(lmsg_buf(), src, len);
+    memcpy(LmsgBuf(), src, len);
     return len;
 }
 
@@ -41,12 +41,12 @@ static inline int32_t lmsg_write(const void *src, uint32_t len) {
  * @param dst Pointer to the destination buffer where the data will be read into.
  * @param len Length of the data to read in bytes.
  * 
- * @return int32_t Returns the number of bytes read on success, or a negative error code on failure (e.g., ERR_OVERFLOW if len exceeds LMSG_BUF_SIZE).
+ * @return Err Returns the number of bytes read on success, or a negative error code on failure (e.g., ERR_OVERFLOW if len exceeds LMSG_BUF_SIZE).
  */
-static inline int32_t lmsg_read(void *dst, uint32_t len) {
+static inline Err LmsgRead(void *dst, size_t len) {
     if (len > LMSG_BUF_SIZE)
         return ERR_OVERFLOW;
-    memcpy(dst, lmsg_buf(), len);
+    memcpy(dst, LmsgBuf(), len);
     return len;
 }
 

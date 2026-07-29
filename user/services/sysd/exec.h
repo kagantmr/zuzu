@@ -7,6 +7,6 @@
 
 int exec_inject(uint32_t taskHandle, const void *elf_data, size_t elf_size,
                 const char *argbuf, size_t argbuf_len, uint32_t argc,
-                exec_reply_t *out);
+                ExecReply *out);
 
 #endif

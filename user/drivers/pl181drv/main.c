@@ -175,7 +175,7 @@ static int pl181_read_block(uint32_t block_num)
         LOG_ERROR(LOG_TAG, "read error STATUS=0x%08x", status);
         pl181->CLEAR = 0xFFFFFFFF;
         pl181->MASK[0] = 0;
-        zuzu_irq_done((uint32_t)block_dev_handle);
+        ZuzuIrqDone((uint32_t)block_dev_handle);
         return SD_ERR_IO;
     }
 
@@ -189,7 +189,7 @@ static int pl181_read_block(uint32_t block_num)
 
     pl181->CLEAR = 0xFFFFFFFF;
     pl181->MASK[0] = 0;
-    zuzu_irq_done((uint32_t)block_dev_handle);
+    ZuzuIrqDone((uint32_t)block_dev_handle);
     pl181->DATACTRL = 0;   /* disable data path before next transfer */
     return ZUZU_OK;
 }
@@ -226,7 +226,7 @@ static int pl181_write_block(uint32_t block_num)
 
     pl181->CLEAR = 0xFFFFFFFF;
     pl181->MASK[0] = 0;
-    zuzu_irq_done((uint32_t)block_dev_handle);
+    ZuzuIrqDone((uint32_t)block_dev_handle);
 
     if (status & (MCI_DATACRCFAIL | MCI_DATATIMEOUT | MCI_TXUNDERRUN))
     {
@@ -249,30 +249,30 @@ static void handle_client(Message msg)
 
     case SD_CMD_GET_BUF:
     {
-        int32_t granted = zuzu_grant(shmem_handle, (int32_t)sender);
+        int32_t granted = ZuzuGrant(shmem_handle, (int32_t)sender);
         if (granted < 0)
-            zuzu_msg_reply(reply_h, (uint32_t)granted, 0, 0);
+            ZuzuMsgReply(reply_h, (uint32_t)granted, 0, 0);
         else
-            zuzu_msg_reply(reply_h, ZUZU_OK, (uint32_t)granted, 0);
+            ZuzuMsgReply(reply_h, ZUZU_OK, (uint32_t)granted, 0);
         break;
     }
 
     case SD_CMD_READ:
     {
         int rc = pl181_read_block(arg);
-        zuzu_msg_reply(reply_h, (uint32_t)rc, 0, 0);
+        ZuzuMsgReply(reply_h, (uint32_t)rc, 0, 0);
         break;
     }
 
     case SD_CMD_WRITE:
     {
         int rc = pl181_write_block(arg);
-        zuzu_msg_reply(reply_h, (uint32_t)rc, 0, 0);
+        ZuzuMsgReply(reply_h, (uint32_t)rc, 0, 0);
         break;
     }
 
     default:
-        zuzu_msg_reply(reply_h, (uint32_t)ERR_NOSYS, 0, 0);
+        ZuzuMsgReply(reply_h, (uint32_t)ERR_NOSYS, 0, 0);
         break;
     }
 }
@@ -287,7 +287,7 @@ static int pl181drv_setup(void)
     }
 
     /* request the block device capability */
-    Message r = zuzu_msg_call(devmgr_port, DEV_REQUEST, DEV_CLASS_BLOCK, 0);
+    Message r = ZuzuMsgCall(devmgr_port, DEV_REQUEST, DEV_CLASS_BLOCK, 0);
     if ((int32_t)r.w1 != 0)
     {
         LOG_ERROR(LOG_TAG, "block device request failed");
@@ -302,7 +302,7 @@ static int pl181drv_setup(void)
         return -1;
     }
 
-    if (zuzu_irq_bind((uint32_t)block_dev_handle, (uint32_t)block_irq_ntfn) < 0)
+    if (ZuzuIrqBind((uint32_t)block_dev_handle, (uint32_t)block_irq_ntfn) < 0)
     {
         LOG_ERROR(LOG_TAG, "irq_bind failed");
         return -1;
@@ -363,9 +363,9 @@ int main(void)
         /* drain any stray IRQ that arrived between transfers */
         int32_t bits = ZuzuNtfnBits((uint32_t)block_irq_ntfn, TIMEOUT_POLL);
         if (bits > 0)
-            zuzu_irq_done((uint32_t)block_dev_handle);
+            ZuzuIrqDone((uint32_t)block_dev_handle);
 
-        Message msg = zuzu_msg_recv(port, TIMEOUT_INFINITE);
+        Message msg = ZuzuMsgRecv(port, TIMEOUT_INFINITE);
         if ((int32_t)msg.w0 > 0)
             handle_client(msg);
     }

@@ -50,7 +50,7 @@ static void drain_uart_rx_fifo(void)
 static int32_t wait_for_devmgr(void)
 {
     while (1) {
-        Message ntmsg = zuzu_msg_call(NT_PORT, NT_LOOKUP, nt_pack("devm"), 0);
+        Message ntmsg = ZuzuMsgCall(NT_PORT, NT_LOOKUP, nt_pack("devm"), 0);
         if ((int32_t)ntmsg.w1 == NT_LU_OK) {
             devmgr_port = (int32_t)ntmsg.w2;
             return (int32_t)ntmsg.w3;
@@ -62,7 +62,7 @@ static int32_t wait_for_devmgr(void)
 static int32_t request_serial_device(void)
 {
     while (1) {
-        Message devmsg = zuzu_msg_call(devmgr_port, DEV_REQUEST, DEV_CLASS_SERIAL, 0);
+        Message devmsg = ZuzuMsgCall(devmgr_port, DEV_REQUEST, DEV_CLASS_SERIAL, 0);
         if ((int32_t)devmsg.w1 == 0) {
             return (int32_t)devmsg.w2;
         }
@@ -88,21 +88,21 @@ static void handle_irq_event(void)
             uart->IMSC &= ~IMSC_TXIM;
         uart->ICR = IMSC_TXIM;
     }
-    zuzu_irq_done((uint32_t)serial_dev_handle);
+    ZuzuIrqDone((uint32_t)serial_dev_handle);
 }
 
-/* zuzu_msg_lsend(client_port, len): fire-and-forget write, payload in lmsg_buf(). */
+/* ZuzuMsgLsend(client_port, len): fire-and-forget write, payload in lmsg_buf(). */
 static void handle_write(uint32_t len)
 {
     if (len > LMSG_BUF_SIZE)
         len = LMSG_BUF_SIZE;
 
-    const char *buf = lmsg_buf();
+    const char *buf = LmsgBuf();
     for (uint32_t i = 0; i < len; i++)
         uart_txbyte(buf[i]);
 }
 
-/* zuzu_msg_lcall(client_port, max_len): read up to max_len bytes already
+/* ZuzuMsgLcall(client_port, max_len): read up to max_len bytes already
  * buffered from the UART; replies immediately with however many are
  * available (possibly zero) rather than blocking for more. */
 static void handle_read(Handle reply_handle, uint32_t max_len)
@@ -112,7 +112,7 @@ static void handle_read(Handle reply_handle, uint32_t max_len)
 
     drain_uart_rx_fifo();
 
-    char *buf = (char *)lmsg_buf();
+    char *buf = (char *)LmsgBuf();
     uint32_t n = 0;
     while (n < max_len && ring_avail(&rxrb) > 0) {
         uint8_t b = 0;
@@ -126,12 +126,12 @@ static void handle_read(Handle reply_handle, uint32_t max_len)
 
 int pl011drv_setup(void)
 {
-    client_port = zuzu_port_create();
+    client_port = ZuzuPortCreate();
     if (client_port < 0) {
         return client_port;
     }
 
-    int32_t nt_slot = zuzu_grant(client_port, NAMETABLE_PID);
+    int32_t nt_slot = ZuzuGrant(client_port, NAMETABLE_PID);
     if (nt_slot < 0) {
         return nt_slot;
     }
@@ -145,7 +145,7 @@ int pl011drv_setup(void)
         return serial_irq_ntfn;
     }
 
-    int32_t bind_rc = zuzu_irq_bind(dev_handle, (uint32_t)serial_irq_ntfn);
+    int32_t bind_rc = ZuzuIrqBind(dev_handle, (uint32_t)serial_irq_ntfn);
     if (bind_rc < 0) {
         return bind_rc;
     }
@@ -168,7 +168,7 @@ int pl011drv_setup(void)
     uart->ICR = ICR_ALL;
     uart->IMSC = (IMSC_RXIM | IMSC_RTIM);
 
-    (void)zuzu_msg_send(NT_PORT, NT_REGISTER, nt_pack("pl011drv"), (uint32_t)nt_slot);
+    (void)ZuzuMsgSend(NT_PORT, NT_REGISTER, nt_pack("pl011drv"), (uint32_t)nt_slot);
     return PL011DRV_INIT_OK;
 }
 
@@ -186,7 +186,7 @@ int main(void)
 
     while (1) {
         WaitanyResult r;
-        if (zuzu_waitany(handles, 2, TIMEOUT_INFINITE, &r) != 0)
+        if (ZuzuWaitany(handles, 2, TIMEOUT_INFINITE, &r) != 0)
             continue;
 
         switch (r.kind) {

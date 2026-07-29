@@ -17,7 +17,7 @@
 #define MSG_QUIT 0xFFFFFFFFu
 #define MSG_PING 0u
 
-/* zuzu_msg_lcall has no w1/w2 word arguments -- the only thing sys_msg_recv
+/* ZuzuMsgLcall has no w1/w2 word arguments -- the only thing sys_msg_recv
  * hands the receiver for an lcall is the transferred buffer length in w2
  * (see kernel/ipc/sys_ipc.c). LCALL_QUIT_LEN just needs to be distinct from
  * LCALL_PAYLOAD_LEN so the server can tell "shut down" from "echo this". */
@@ -31,37 +31,37 @@ static void echo_server_thread(void *arg) {
     Handle port = *(Handle *)arg;
 
     for (;;) {
-        Message cmd = zuzu_msg_recv(port, TIMEOUT_INFINITE);
+        Message cmd = ZuzuMsgRecv(port, TIMEOUT_INFINITE);
 
         if (cmd.w2 == MSG_QUIT) {
-            zuzu_msg_reply(cmd.w0, 1, 0, 0);
+            ZuzuMsgReply(cmd.w0, 1, 0, 0);
             ZuzuTQuit(ZUZU_OK);
         }
 
-        zuzu_msg_reply(cmd.w0, 1, 0, 0);
+        ZuzuMsgReply(cmd.w0, 1, 0, 0);
     }
 }
 
-/* Same shape as echo_server_thread, but for zuzu_msg_lcall: reads the
+/* Same shape as echo_server_thread, but for ZuzuMsgLcall: reads the
  * caller's buffer, writes it straight back, and replies via
- * zuzu_msg_lreply so the round trip actually exercises the lmsg_buf copy
+ * ZuzuMsgLreply so the round trip actually exercises the lmsg_buf copy
  * on both legs, not just the register-passing fast path. */
 static void lcall_echo_server_thread(void *arg) {
     Handle port = *(Handle *)arg;
     static uint8_t buf[LMSG_BUF_SIZE];
 
     for (;;) {
-        Message cmd = zuzu_msg_recv(port, TIMEOUT_INFINITE);
+        Message cmd = ZuzuMsgRecv(port, TIMEOUT_INFINITE);
         uint32_t len = cmd.w2;
 
         if (len == LCALL_QUIT_LEN) {
-            zuzu_msg_lreply(cmd.w0, 0);
+            ZuzuMsgLreply(cmd.w0, 0);
             ZuzuTQuit(ZUZU_OK);
         }
 
-        lmsg_read(buf, len);
-        lmsg_write(buf, len);
-        zuzu_msg_lreply(cmd.w0, len);
+        LmsgRead(buf, len);
+        LmsgWrite(buf, len);
+        ZuzuMsgLreply(cmd.w0, len);
     }
 }
 
@@ -88,7 +88,7 @@ static uint32_t g_samples[BENCHMARK_ITERATIONS];
 
 static void run_benchmark(Handle port) {
     for (int i = 0; i < WARMUP_ITERATIONS; i++) {
-        zuzu_msg_call(port, MSG_PING, 0, 0);
+        ZuzuMsgCall(port, MSG_PING, 0, 0);
     }
 
     uint32_t errors = 0;
@@ -100,7 +100,7 @@ static void run_benchmark(Handle port) {
         uint32_t start = read_pmccntr();
         barrier();
 
-        Message r = zuzu_msg_call(port, MSG_PING, 0, 0);
+        Message r = ZuzuMsgCall(port, MSG_PING, 0, 0);
 
         barrier();
         uint32_t end = read_pmccntr();
@@ -155,8 +155,8 @@ static void run_lcall_benchmark(Handle port) {
     memset(payload, 0xA5, sizeof(payload));
 
     for (int i = 0; i < WARMUP_ITERATIONS; i++) {
-        lmsg_write(payload, sizeof(payload));
-        zuzu_msg_lcall(port, sizeof(payload));
+        LmsgWrite(payload, sizeof(payload));
+        ZuzuMsgLcall(port, sizeof(payload));
     }
 
     uint32_t errors = 0;
@@ -164,13 +164,13 @@ static void run_lcall_benchmark(Handle port) {
     uint32_t first_err_r1 = 0;
 
     for (uint32_t i = 0; i < BENCHMARK_ITERATIONS; i++) {
-        lmsg_write(payload, sizeof(payload));
+        LmsgWrite(payload, sizeof(payload));
 
         barrier();
         uint32_t start = read_pmccntr();
         barrier();
 
-        Message r = zuzu_msg_lcall(port, sizeof(payload));
+        Message r = ZuzuMsgLcall(port, sizeof(payload));
 
         barrier();
         uint32_t end = read_pmccntr();
@@ -199,7 +199,7 @@ static void run_lcall_benchmark(Handle port) {
     }
     uint64_t mean_x100 = (sum * 100) / BENCHMARK_ITERATIONS;
 
-    printf("IPC LRTT (zuzu_msg_lcall round trip, %u-byte payload), %u iterations (+%u warm-up)\n",
+    printf("IPC LRTT (ZuzuMsgLcall round trip, %u-byte payload), %u iterations (+%u warm-up)\n",
            (unsigned)LCALL_PAYLOAD_LEN, (unsigned)BENCHMARK_ITERATIONS, (unsigned)WARMUP_ITERATIONS);
 
     if (errors) {
@@ -275,7 +275,7 @@ int main(void) {
 
     run_getpid_benchmark();
 
-    Handle port = zuzu_port_create();
+    Handle port = ZuzuPortCreate();
     if (port < 0) {
         printf("Couldn't get handle: %s\n", StrToError(port));
         return 1;
@@ -284,7 +284,7 @@ int main(void) {
     uint8_t *stack = malloc(THREAD_STACK_SIZE);
     if (!stack) {
         printf("Couldn't allocate thread stack\n");
-        zuzu_destroy(port);
+        ZuzuDestroy(port);
         return 1;
     }
 
@@ -293,19 +293,19 @@ int main(void) {
     if (tid < 0) {
         printf("Couldn't make thread: %s\n", StrToError(tid));
         free(stack);
-        zuzu_destroy(port);
+        ZuzuDestroy(port);
         return 1;
     }
 
     run_benchmark(port);
 
-    zuzu_msg_call(port, MSG_QUIT, 0, 0);
+    ZuzuMsgCall(port, MSG_QUIT, 0, 0);
     ZuzuTJoin(tid);
 
     free(stack);
-    zuzu_destroy(port);
+    ZuzuDestroy(port);
 
-    Handle lport = zuzu_port_create();
+    Handle lport = ZuzuPortCreate();
     if (lport < 0) {
         printf("Couldn't get lcall handle: %s\n", StrToError(lport));
         return 1;
@@ -314,7 +314,7 @@ int main(void) {
     uint8_t *lstack = malloc(THREAD_STACK_SIZE);
     if (!lstack) {
         printf("Couldn't allocate lcall thread stack\n");
-        zuzu_destroy(lport);
+        ZuzuDestroy(lport);
         return 1;
     }
 
@@ -322,16 +322,16 @@ int main(void) {
     if (ltid < 0) {
         printf("Couldn't make lcall thread: %s\n", StrToError(ltid));
         free(lstack);
-        zuzu_destroy(lport);
+        ZuzuDestroy(lport);
         return 1;
     }
 
     run_lcall_benchmark(lport);
 
-    zuzu_msg_lcall(lport, LCALL_QUIT_LEN);
+    ZuzuMsgLcall(lport, LCALL_QUIT_LEN);
     ZuzuTJoin(ltid);
 
     free(lstack);
-    zuzu_destroy(lport);
+    ZuzuDestroy(lport);
     return 0;
 }

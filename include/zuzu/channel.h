@@ -10,7 +10,7 @@
  *             reply, reply_len)
  *
  * Server side:
- *   chan_reply(reply_handle, buf, len) reply to a zuzu_msg_lcall caller
+ *   chan_reply(reply_handle, buf, len) reply to a ZuzuMsgLcall caller
  */
 
 
@@ -39,8 +39,8 @@ extern "C" {
 static inline Err ChannelSend(Handle port, const void *buf, size_t len)
 {
     if (len > LMSG_BUF_SIZE) return ERR_BADARG;
-    memcpy(lmsg_buf(), buf, len);
-    return zuzu_msg_lsend(port, len);
+    memcpy(LmsgBuf(), buf, len);
+    return ZuzuMsgLsend(port, len);
 }
 
 /**
@@ -59,16 +59,16 @@ static inline Err ChannelCall(Handle port,
                                 void       *reply,  size_t reply_cap)
 {
     if (len > LMSG_BUF_SIZE) return ERR_BADARG;
-    memcpy(lmsg_buf(), buf, len);
+    memcpy(LmsgBuf(), buf, len);
 
-    Message msg = zuzu_msg_lcall(port, len);
+    Message msg = ZuzuMsgLcall(port, len);
     if (msg.w0 < 0)
         return msg.w0;
 
     uint32_t got = msg.w1;
     if (got > reply_cap) got = reply_cap;
     if (got && reply)
-        memcpy(reply, lmsg_buf(), got);
+        memcpy(reply, LmsgBuf(), got);
 
     return (Err)got;
 }
@@ -76,7 +76,7 @@ static inline Err ChannelCall(Handle port,
 /**
  * @brief Replies to a long message call with the specified reply data. Needn't call lmsg functions.
  * 
- * @param reply_handle The handle received from a zuzu_msg_lcall that is being replied to.
+ * @param reply_handle The handle received from a ZuzuMsgLcall that is being replied to.
  * @param buf Pointer to the buffer containing the reply data to send.
  * @param len The length of the reply data in bytes.
  * 
@@ -87,8 +87,8 @@ static inline Err ChannelReply(Handle reply_handle,
 {
     if (len > LMSG_BUF_SIZE) return ERR_OVERFLOW;
     if (len && buf)
-        memcpy(lmsg_buf(), buf, len);
-    return zuzu_msg_lreply(reply_handle, len);
+        memcpy(LmsgBuf(), buf, len);
+    return ZuzuMsgLreply(reply_handle, len);
 }
 
 #ifdef __cplusplus

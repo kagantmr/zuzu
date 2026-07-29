@@ -15,8 +15,8 @@ extern "C" {
 /**
  * NT_LOOKUP: resolve a registered name to a port.
  *
- * Request  (zuzu_msg_call): w1 = NT_LOOKUP | (den_id << 8), w2 = nt_pack(name)
- * Reply    (zuzu_msg_reply): r1 = NT_LU_OK or NT_LU_NOMATCH
+ * Request  (ZuzuMsgCall): w1 = NT_LOOKUP | (den_id << 8), w2 = nt_pack(name)
+ * Reply    (ZuzuMsgReply): r1 = NT_LU_OK or NT_LU_NOMATCH
  *                            r2 = port handle, granted into the caller's table
  *                            r3 = pid of the process that registered the name
  *

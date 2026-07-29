@@ -4,9 +4,9 @@
 #include <zuzu/syspage.h>
 #include "ansi.h"
 
-static log_level_t g_min_level = LOG_LEVEL;
+static LogLevel g_min_level = LOG_LEVEL;
 
-static const char *level_to_label(log_level_t level) {
+static const char *level_to_label(LogLevel level) {
     switch (level) {
         case LOG_LEVEL_TRACE: return "TRACE";
         case LOG_LEVEL_DEBUG: return "DEBUG";
@@ -18,7 +18,7 @@ static const char *level_to_label(log_level_t level) {
     }
 }
 
-static const char *level_to_style(log_level_t level) {
+static const char *level_to_style(LogLevel level) {
     switch (level) {
         case LOG_LEVEL_TRACE: return ANSI_BOLD ANSI_CYAN;
         case LOG_LEVEL_DEBUG: return ANSI_BOLD ANSI_GREEN;
@@ -30,15 +30,15 @@ static const char *level_to_style(log_level_t level) {
     }
 }
 
-void log_set_level(log_level_t min_level) {
+void log_set_level(LogLevel min_level) {
     g_min_level = min_level;
 }
 
-log_level_t log_get_level(void) {
+LogLevel log_get_level(void) {
     return g_min_level;
 }
 
-void log_write(log_level_t level, const char *tag, const char *fmt, ...) {
+void log_write(LogLevel level, const char *tag, const char *fmt, ...) {
     if (level < g_min_level) return;
     if (!fmt) return;
 

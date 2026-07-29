@@ -13,7 +13,7 @@ extern "C" {
 
 /* Counters exposed by NIC_CMD_STATS. Call once per index (0..NIC_STAT_COUNT-1);
    the reply also returns NIC_STAT_COUNT in r3 so callers can iterate. */
-enum nic_stat {
+enum NicStat {
     NIC_STAT_IRQ = 0,      // interrupts serviced
     NIC_STAT_RX_PACKETS,   // frames delivered to the rx ring
     NIC_STAT_TX_PACKETS,   // frames written to the tx FIFO
