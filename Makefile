@@ -75,6 +75,7 @@ LDFLAGS  = -nostdlib -Wl,-T,$(LINKER_SCRIPT) -Wl,-Map=$(MAP) $(LTO_FLAG)
 USER_CC      = $(CROSS)gcc
 USER_LD      = $(USER_CC)
 USER_OBJCOPY = $(CROSS)objcopy
+USER_AR      = $(CROSS)ar
 KERNEL_LIBGCC = $(shell $(CC) $(CPUFLAGS) -print-libgcc-file-name)
 USER_LIBGCC   = $(shell $(USER_CC) $(CPUFLAGS) $(ARCH_USER_FP) -print-libgcc-file-name)
 
@@ -138,21 +139,27 @@ NEWLIB_USER_LDFLAGS = -nostartfiles -Wl,-T,user/user.ld \
 BOOT_ROLES   = services drivers shell
 DISK_ROLES   = test_apps
 NEWLIB_ROLES = newlib_apps
+# Static .a libraries staged onto the SD card (headers/config alongside them
+# go straight into ZUZUSD/ — see the "SD card workflow" comment below).
+LIB_ROLES    = libs
 
 prog_dirs = $(shell find $(foreach r,$(1),user/$(r)) -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
 BOOT_PROG_DIRS   := $(call prog_dirs,$(BOOT_ROLES))
 DISK_PROG_DIRS   := $(call prog_dirs,$(DISK_ROLES))
 NEWLIB_PROG_DIRS := $(call prog_dirs,$(NEWLIB_ROLES))
+LIB_PROG_DIRS    := $(call prog_dirs,$(LIB_ROLES))
 
 BOOT_PROGS   = $(notdir $(BOOT_PROG_DIRS))
 DISK_PROGS   = $(notdir $(DISK_PROG_DIRS))
 NEWLIB_PROGS = $(notdir $(NEWLIB_PROG_DIRS))
-USER_PROGS   = $(BOOT_PROGS) $(DISK_PROGS) $(NEWLIB_PROGS)
+LIB_PROGS    = $(notdir $(LIB_PROG_DIRS))
+USER_PROGS   = $(BOOT_PROGS) $(DISK_PROGS) $(NEWLIB_PROGS) $(LIB_PROGS)
 
-$(foreach d,$(BOOT_PROG_DIRS) $(DISK_PROG_DIRS) $(NEWLIB_PROG_DIRS),$(eval USER_DIR_$(notdir $(d)) := $(d)))
+$(foreach d,$(BOOT_PROG_DIRS) $(DISK_PROG_DIRS) $(NEWLIB_PROG_DIRS) $(LIB_PROG_DIRS),$(eval USER_DIR_$(notdir $(d)) := $(d)))
 $(foreach p,$(USER_PROGS),$(eval USER_$(p)_SRCS := $(shell find $(USER_DIR_$(p)) -name '*.c')))
 $(foreach p,$(USER_PROGS),$(eval USER_$(p)_OBJS := $(patsubst user/%.c,build/user/%.o,$(USER_$(p)_SRCS))))
-USER_APP_OBJS = $(foreach p,$(USER_PROGS),$(USER_$(p)_OBJS))
+USER_APP_OBJS = $(foreach p,$(BOOT_PROGS) $(DISK_PROGS) $(NEWLIB_PROGS),$(USER_$(p)_OBJS))
+LIB_PROG_OBJS = $(foreach p,$(LIB_PROGS),$(USER_$(p)_OBJS))
 
 # zcrt: the user-side runtime for tier-1 — klib rebuilt with user flags,
 # the ZCRT libc (lib/), and the IPC runtime (lib/zuzu/).
@@ -175,6 +182,9 @@ BOOT_PROG_PACKED_ELFS = $(BOOT_PROGS:%=build/user/%.stripped.elf)
 # Everything staged into the SD image: tier-1 disk apps + tier-2 newlib apps.
 SD_PROGS              = $(DISK_PROGS) $(NEWLIB_PROGS)
 SD_PROG_PACKED_ELFS   = $(SD_PROGS:%=build/user/%.stripped.elf)
+# Static libraries (user/libs/<name>/*.c) staged into ZUZUSD/lib/.
+SD_LIBS               = $(LIB_PROGS)
+SD_LIB_ARCHIVES       = $(SD_LIBS:%=build/user/lib/%.a)
 
 # ---- initrd --------------------------------------------------------------
 # build/initrd.cpio is shipped to a bootloader/firmware as a standalone
@@ -217,7 +227,7 @@ ASRCS_ALL = $(shell find $(NONARCH_DIRS) -name '*.S') \
 ASRCS     = $(filter-out $(ARCH_DIR)/crt0.S,$(ASRCS_ALL))
 OBJS      = $(CSRCS:%.c=build/%.o) $(ASRCS:%.S=build/%.o)
 DEPS      = $(OBJS:.o=.d)
-USER_DEPS = $(USER_CRT0:.o=.d) $(NEWLIB_CRT0:.o=.d) $(USER_APP_OBJS:.o=.d) $(ZCRT_OBJS:.o=.d) $(NEWLIB_STUB_OBJS:.o=.d)
+USER_DEPS = $(USER_CRT0:.o=.d) $(NEWLIB_CRT0:.o=.d) $(USER_APP_OBJS:.o=.d) $(LIB_PROG_OBJS:.o=.d) $(ZCRT_OBJS:.o=.d) $(NEWLIB_STUB_OBJS:.o=.d)
 
 # sd card image configuration
 SD_IMG         ?= build/sd.img
@@ -228,7 +238,7 @@ SD_STAGE_DIR   ?= ZUZUSD
 # default
 all: $(TARGET)
 
-.SECONDARY: $(USER_APP_OBJS) $(ZCRT_OBJS)
+.SECONDARY: $(USER_APP_OBJS) $(LIB_PROG_OBJS) $(ZCRT_OBJS)
 
 # Objects bake in per-board flags (BOARD_LAYOUT_H, CPUFLAGS), so a BOARD
 # switch must rebuild everything. The stamp file changes name with the board;
@@ -306,6 +316,16 @@ endef
 
 $(foreach p,$(NEWLIB_PROGS),$(eval $(call LINK_NEWLIB_PROG,$(p))))
 
+define LINK_USER_LIB
+build/user/lib/$(1).a: $$(USER_$(1)_OBJS)
+	@mkdir -p $$(dir $$@)
+	@echo "  AR      $$@"
+	@rm -f $$@
+	@$(USER_AR) rcs $$@ $$(USER_$(1)_OBJS)
+endef
+
+$(foreach p,$(LIB_PROGS),$(eval $(call LINK_USER_LIB,$(p))))
+
 build/user/%.stripped.elf: build/user/%.elf
 	@echo "  STRIP   $@"
 	@$(USER_OBJCOPY) --strip-debug $< $@
@@ -350,20 +370,27 @@ $(TARGET): $(OBJS) $(LINKER_SCRIPT)
 #    make sdimg            — stage DISK_PROGS and create sd.img from ZUZUSD/
 #    make run              — launch QEMU
 #
-#  ZUZUSD/ is the staging directory tracked in git.
-#  Put user data, config files, and non-boot resources there directly.
-#  Binaries land in ZUZUSD/bin/ — add that path to .gitignore.
+#  ZUZUSD/ is the staging directory. Put non-generated resources (headers,
+#  config files, vendored data) there directly and they'll be tracked in
+#  git and shipped on the SD card. Compiled output (ZUZUSD/bin/ ELFs,
+#  ZUZUSD/lib/*.a, ZUZUSD/boot/) is regenerated from source by this target
+#  and gitignored — see .gitignore.
 #
 #  To update the SD card after code changes:
 #    make sdimg-recreate && make run
 
 .PHONY: sdimg sdimg-stage sdimg-clean sdimg-recreate
 
-sdimg-stage: $(SD_PROG_PACKED_ELFS)
+sdimg-stage: $(SD_PROG_PACKED_ELFS) $(SD_LIB_ARCHIVES)
 	@mkdir -p $(SD_STAGE_DIR)/bin
 	@for prog in $(SD_PROGS); do \
 		cp build/user/$$prog.stripped.elf $(SD_STAGE_DIR)/bin/$$prog; \
 		echo "  STAGE   $(SD_STAGE_DIR)/bin/$$prog"; \
+	done
+	@if [ -n "$(SD_LIBS)" ]; then mkdir -p $(SD_STAGE_DIR)/lib; fi
+	@for lib in $(SD_LIBS); do \
+		cp build/user/lib/$$lib.a $(SD_STAGE_DIR)/lib/$$lib.a; \
+		echo "  STAGE   $(SD_STAGE_DIR)/lib/$$lib.a"; \
 	done
 
 # Creates a FAT32 image ($(1)) from a staging directory ($(2)). macOS uses
@@ -373,10 +400,15 @@ define MAKE_FAT_IMAGE
 	@rm -f $(1) $(1).dmg
 	@echo "  IMG     $(1) from $(2)/ ($(SD_IMG_SIZE_MB)MB, FAT32)"
 	@if [ "$(UNAME_S)" = "Darwin" ]; then \
-	    hdiutil create -srcfolder "$(2)" -fs "MS-DOS FAT32" \
+	    COPYFILE_DISABLE=1 hdiutil create -srcfolder "$(2)" -fs "MS-DOS FAT32" \
 	        -volname $(SD_VOL_LABEL) -size $(SD_IMG_SIZE_MB)m \
 	        -format UDIF $(1) >/dev/null; \
 	    mv $(1).dmg $(1); \
+	    MNT=$$(mktemp -d); \
+	    hdiutil attach $(1) -mountpoint "$$MNT" -nobrowse >/dev/null; \
+	    dot_clean -m "$$MNT"; \
+	    hdiutil detach "$$MNT" >/dev/null; \
+	    rmdir "$$MNT"; \
 	else \
 	    if ! command -v mkfs.fat >/dev/null 2>&1; then \
 	        echo "  IMG     failed: install dosfstools  (sudo apt install dosfstools)"; exit 1; \
