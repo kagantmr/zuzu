@@ -6,7 +6,7 @@
 #include "kernel/irq/sys_irq.h"
 #include "kernel/sched/sched.h"
 #include "kernel/syspage.h"
-#include <zuzu/tcb.h>
+#include <zuzu/tls.h>
 #include <zuzu/user_layout.h>
 #include <mem.h>
 #include <string.h>
@@ -491,15 +491,15 @@ process_t *process_create(const char* name) {
     int tcb_slot_idx = tcb_slot_alloc(p);
     if (tcb_slot_idx < 0)
         goto fail_kstack;
-    tdata_t *tcb0 = (tdata_t *)(PA_TO_VA(tcb_page_pa) +
+    ThreadData *tcb0 = (ThreadData *)(PA_TO_VA(tcb_page_pa) +
                                 (uint32_t)tcb_slot_idx * TCB_SLOT_SIZE);
     VirtAddr tcb0_va = p->tcb_page_va + (uint32_t)tcb_slot_idx * TCB_SLOT_SIZE;
-    tcb0->lmsg_buf = (void *)(tcb0_va + offsetof(tdata_t, buf));
+    tcb0->lmsg_buf = (void *)(tcb0_va + offsetof(ThreadData, buf));
     tcb0->tid = t->tid;
     t->thread_info_va = tcb0_va;
     t->tcb_slot = (uint8_t)tcb_slot_idx;
     t->ipc_buf_pa = tcb_page_pa + (uint32_t)tcb_slot_idx * TCB_SLOT_SIZE +
-                    offsetof(tdata_t, buf);
+                    offsetof(ThreadData, buf);
 
 
     // slot 0 is reserved for nametable endpoint when available

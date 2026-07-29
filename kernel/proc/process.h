@@ -7,7 +7,7 @@
 #include "kernel/ipc/port.h"
 #include "kernel/mm/vmm.h"
 #include <arch/regs.h>
-#include <zuzu/tcb.h>
+#include <zuzu/tls.h>
 #include "thread.h"
 
 #define MAX_PROCESSES 512

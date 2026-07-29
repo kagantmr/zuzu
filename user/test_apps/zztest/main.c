@@ -28,7 +28,7 @@
 #include <zuzu/lmsg.h>
 #include <zuzu/channel.h>
 #include <zuzu/memprot.h>
-#include <zuzu/tcb.h>
+#include <zuzu/tls.h>
 #include <zuzu/syspage.h>
 #include <zuzu/protocols/nt_protocol.h>
 #include <zuzu/protocols/sysd_protocol.h>
@@ -343,7 +343,7 @@ static void sec_mem(void)
     CHECK_EQ(ZuzuMemUnmap(b), 0, "probe region unmapped at base");
     CHECK_EQ(ZuzuMemUnmap((void *)SYSPAGE_VA), ERR_NOPERM,
              "syspage (pinned) unmap -> ERR_NOPERM");
-    CHECK_EQ(ZuzuMemUnmap((void *)((uintptr_t)zuzu_tcb() & ~0xFFFu)), ERR_NOPERM,
+    CHECK_EQ(ZuzuMemUnmap((void *)((uintptr_t)ZuzuTLS() & ~0xFFFu)), ERR_NOPERM,
              "TCB page (pinned) unmap -> ERR_NOPERM");
 
     /* memprotect */

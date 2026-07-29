@@ -3,7 +3,7 @@
 #include <mem.h>
 #include <stdio.h>
 
-int args_parse(args_t *out, int argc, char **argv, const arg_spec_t *spec) {
+int ArgsParse(Args *out, int argc, char **argv, const ArgSpec *spec) {
     memset(out, 0, sizeof(*out));
     out->argc = argc;
     out->argv = argv;
@@ -12,7 +12,7 @@ int args_parse(args_t *out, int argc, char **argv, const arg_spec_t *spec) {
         char *s = argv[i];
         if (s[0] == '-' && s[1] == '-') {
             const char *name = s + 2;
-            const arg_spec_t *p = spec;
+            const ArgSpec *p = spec;
             int matched = 0;
             while (p && p->name) {
                 if (strcmp(p->name, name) == 0) {
@@ -32,7 +32,7 @@ int args_parse(args_t *out, int argc, char **argv, const arg_spec_t *spec) {
             // short flags, handle each char
             for (int j = 1; s[j]; ++j) {
                 char c = s[j];
-                const arg_spec_t *p = spec;
+                const ArgSpec *p = spec;
                 while (p && p->name) {
                     if (p->shortname == c) {
                         if (p->has_arg) {
@@ -58,7 +58,7 @@ int args_parse(args_t *out, int argc, char **argv, const arg_spec_t *spec) {
     return 0;
 }
 
-int args_has(const args_t *args, const char *name) {
+int ArgsHas(const Args *args, const char *name) {
     for (int i = 0; i < args->argc; ++i) {
         if (args->argv[i] && strcmp(args->argv[i], name) == 0)
             return 1;
@@ -66,7 +66,7 @@ int args_has(const args_t *args, const char *name) {
     return 0;
 }
 
-const char *args_get(const args_t *args, const char *name) {
+const char *ArgsGet(const Args *args, const char *name) {
     for (int i = 0; i < args->argc - 1; ++i) {
         if (args->argv[i] && strcmp(args->argv[i], name) == 0)
             return args->argv[i+1];
@@ -74,9 +74,9 @@ const char *args_get(const args_t *args, const char *name) {
     return NULL;
 }
 
-void args_usage(const char *progname, const arg_spec_t *spec) {
+void ArgsUsage(const char *progname, const ArgSpec *spec) {
     printf("Usage: %s [options]\n", progname);
-    const arg_spec_t *p = spec;
+    const ArgSpec *p = spec;
     while (p && p->name) {
         if (p->shortname)
             printf("  -%c, --%s\t%s\n", p->shortname, p->name, p->help);

@@ -3,7 +3,7 @@
 #include "kernel/syscall/syscall.h"
 #include "kernel/sched/sched.h"
 #include "zuzu/zuzu.h"
-#include <zuzu/tcb.h>
+#include <zuzu/tls.h>
 
 void sys_tmake(arch_regs_t *frame) {
     VirtAddr entry  = (*arch_reg(frame, 0));
@@ -33,16 +33,16 @@ void sys_tmake(arch_regs_t *frame) {
         return;
     }
 
-    tdata_t *slot = (tdata_t *)(PA_TO_VA(owner->tcb_page_pa) + (uint32_t)slot_idx * TCB_SLOT_SIZE);
+    ThreadData *slot = (ThreadData *)(PA_TO_VA(owner->tcb_page_pa) + (uint32_t)slot_idx * TCB_SLOT_SIZE);
     VirtAddr slot_va = owner->tcb_page_va + (uint32_t)slot_idx * TCB_SLOT_SIZE;
 
     slot->tid     = t->tid;
     slot->pid     = owner->pid;
-    slot->lmsg_buf = (void *)(slot_va + offsetof(tdata_t, buf));   /* points into itself */
+    slot->lmsg_buf = (void *)(slot_va + offsetof(ThreadData, buf));   /* points into itself */
 
     t->thread_info_va = slot_va;
     t->tcb_slot = (uint8_t)slot_idx;
-    t->ipc_buf_pa = owner->tcb_page_pa + (uint32_t)slot_idx * TCB_SLOT_SIZE + offsetof(tdata_t, buf);
+    t->ipc_buf_pa = owner->tcb_page_pa + (uint32_t)slot_idx * TCB_SLOT_SIZE + offsetof(ThreadData, buf);
 
     // Build the initial kernel stack so the thread enters user mode at `entry`.
     t->kernel_sp = (uint32_t *)arch_thread_user_init(

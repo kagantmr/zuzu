@@ -7,6 +7,10 @@ extern "C" {
 
 #include <stdint.h>
 
+typedef volatile uint32_t MMIORegister32;
+typedef volatile uint8_t MMIORegister8;
+typedef volatile uint16_t MMIORegister16;
+
 /**
  * @brief Reads a 32-bit value from the specified memory-mapped I/O address.
  */

@@ -12,7 +12,7 @@
 #include "kernel/time/tick.h"
 #include "kernel/proc/process.h"
 #include <zuzu/user_layout.h>
-#include <zuzu/tcb.h>
+#include <zuzu/tls.h>
 #include <zuzu/spawn_args.h>
 
 

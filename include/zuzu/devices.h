@@ -15,7 +15,7 @@ extern "C" {
  * 
  * @return const SyspageDevEntry* Returns a pointer to the device structure if found, or NULL if not found.
  */
-static inline const SyspageDevEntry *device_find(const char *name) {
+static inline const SyspageDevEntry *FindDeviceInSyspage(const char *name) {
     Syspage *sp = (Syspage *)SYSPAGE;
     for (uint8_t i = 0; i < sp->dev_count; i++)
         if (strncmp(sp->devs[i].name, name, SYSPAGE_DEV_NAME_LEN) == 0)
@@ -30,8 +30,8 @@ static inline const SyspageDevEntry *device_find(const char *name) {
  * 
  * @return int Returns 1 if the device is present, 0 otherwise.
  */
-static inline int device_present(const char *name) {
-    return device_find(name) != NULL;
+static inline int DevicePresentInSyspage(const char *name) {
+    return FindDeviceInSyspage(name) != NULL;
 }
 
 #ifdef __cplusplus
