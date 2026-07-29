@@ -106,7 +106,7 @@ typedef enum
  * with its pid). FSD_SET_BUF must convey both the granted shm handle slot and
  * the buffer's byte size, so the two are packed into that one argument word.
  *
- * shm sizes are page-aligned (zuzu_shm_create rounds up to PAGE_SIZE), so the
+ * shm sizes are page-aligned (ZuzuShmemCreate rounds up to PAGE_SIZE), so the
  * low FSD_PAGE_SHIFT bits of the size are always zero and carry the handle slot
  * instead. A grantee handle slot is a small handle-table index and fits easily
  * in the 12 freed bits.

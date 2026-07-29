@@ -22,7 +22,7 @@ extern "C" {
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
 static inline int32_t zuzu_msg_send(Handle port, uint32_t w1, uint32_t w2, uint32_t w3) {
-    return syscall(SYS_MSG_SEND, port, w1, w2, w3);
+    return Syscall(SYS_MSG_SEND, port, w1, w2, w3);
 }
 
 /**
@@ -61,7 +61,7 @@ static inline Message zuzu_msg_call(Handle port, uint32_t w1, uint32_t w2, uint3
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
 static inline int32_t zuzu_msg_reply(Handle reply_handle, uint32_t w1, uint32_t w2, uint32_t w3) {
-    return syscall(SYS_MSG_REPLY, reply_handle, w1, w2, w3);
+    return Syscall(SYS_MSG_REPLY, reply_handle, w1, w2, w3);
 }
 
 /**
@@ -73,7 +73,7 @@ static inline int32_t zuzu_msg_reply(Handle reply_handle, uint32_t w1, uint32_t 
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
 static inline int32_t zuzu_msg_lsend(Handle port, uint32_t buf_len) {
-    return syscall(SYS_MSG_LSEND, port, buf_len, 0, 0);
+    return Syscall(SYS_MSG_LSEND, port, buf_len, 0, 0);
 }
 
 /**
@@ -97,7 +97,7 @@ static inline Message zuzu_msg_lcall(Handle port, uint32_t buf_len) {
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
 static inline int32_t zuzu_msg_lreply(Handle reply_handle, uint32_t buf_len) {
-    return syscall(SYS_MSG_LREPLY, reply_handle, buf_len, 0, 0);
+    return Syscall(SYS_MSG_LREPLY, reply_handle, buf_len, 0, 0);
 }
 
 /**
@@ -114,7 +114,7 @@ static inline int32_t zuzu_waitany(const Handle *handles, uint32_t count,
 {
     result->size = sizeof(*result);   /* versioning handshake, owned by the wrapper */
 
-    return syscall(SYS_WAITANY, (uint32_t)(uintptr_t)handles, count, timeout_ms,
+    return Syscall(SYS_WAITANY, (uint32_t)(uintptr_t)handles, count, timeout_ms,
                     (uint32_t)(uintptr_t)result);
 }
 
@@ -126,7 +126,7 @@ static inline int32_t zuzu_waitany(const Handle *handles, uint32_t count,
  * @return int32_t Returns the handle of the newly created port on success, or a negative error code on failure.
  */
 static inline int32_t zuzu_port_create(void) {
-    return syscall(SYS_PORT_CREATE, 0, 0, 0, 0);
+    return Syscall(SYS_PORT_CREATE, 0, 0, 0, 0);
 }
 
 /**
@@ -138,7 +138,7 @@ static inline int32_t zuzu_port_create(void) {
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
 static inline int32_t zuzu_grant(Handle cap, Pid pid) {
-    return syscall(SYS_GRANT, cap, pid, 0, 0);
+    return Syscall(SYS_GRANT, cap, pid, 0, 0);
 }
 
 /**
@@ -149,7 +149,7 @@ static inline int32_t zuzu_grant(Handle cap, Pid pid) {
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
 static inline int32_t zuzu_destroy(Handle h) {
-    return syscall(SYS_DESTROY, h, 0, 0, 0);
+    return Syscall(SYS_DESTROY, h, 0, 0, 0);
 }
 
 #ifdef __cplusplus

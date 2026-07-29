@@ -20,7 +20,7 @@ static int inject_segment(uint32_t taskHandle, const void *elf_data,
 
     // inject file-backed portion
     if (ph->p_filesz > 0) {
-        int32_t rc = zuzu_asinject(taskHandle, ph->p_vaddr,
+        int32_t rc = ZuzuAsInject(taskHandle, ph->p_vaddr,
                                (const uint8_t *)elf_data + ph->p_offset,
                                ph->p_filesz, prot);
         if (rc != 0) return rc;
@@ -39,7 +39,7 @@ static int inject_segment(uint32_t taskHandle, const void *elf_data,
         size_t bss_len = mem_end - bss_start;
         bss_len = (bss_len + 0xFFF) & ~0xFFF;  // round up to page
 
-        int32_t rc = zuzu_asinject_reserve(taskHandle, bss_start, bss_len, prot);
+        int32_t rc = ZuzuAsInjectReserve(taskHandle, bss_start, bss_len, prot);
         if (rc != 0) return rc;
     }
 
@@ -98,7 +98,7 @@ static int inject_stack(uint32_t taskHandle,
         argv_arr[argc] = 0;
     }
 
-    int32_t rc = zuzu_asinject(taskHandle, img_base, buf, USER_STACK_SIZE,
+    int32_t rc = ZuzuAsInject(taskHandle, img_base, buf, USER_STACK_SIZE,
                            PROT_READ | PROT_WRITE);
     free(buf);
     if (rc != 0) return rc;

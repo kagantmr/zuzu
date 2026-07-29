@@ -118,7 +118,7 @@ int get_nic(void)
 
     zuzu_irq_bind((uint32_t)dev_handle, (uint32_t)irq_ntfn);
 
-    nic = (volatile lan9118_t *)zuzu_memmap(dev_handle, 0, PROT_RW, 0);
+    nic = (volatile lan9118_t *)ZuzuMemMap(dev_handle, 0, PROT_RW, 0);
     if (!nic)
     {
         LOG_ERROR(LOG_TAG, "device mapping failed");
@@ -178,13 +178,13 @@ int nic_setup(void)
 
     // finally, set up shmem
 
-    shmem_handle = zuzu_shm_create(NIC_SHM_BYTES); // packet size = 1536, ring_size = 16
+    shmem_handle = ZuzuShmemCreate(NIC_SHM_BYTES); // packet size = 1536, ring_size = 16
     if (shmem_handle < 0) {
         LOG_ERROR(LOG_TAG, "shmem create failed");
         return ERR_SYSDOWN;
     }
-    shmem_addr = zuzu_memmap(shmem_handle, 0, PROT_RW, 0);
-    if (zuzu_is_err(shmem_addr)) {
+    shmem_addr = ZuzuMemMap(shmem_handle, 0, PROT_RW, 0);
+    if (ZuzuPtrIsErr(shmem_addr)) {
         LOG_ERROR(LOG_TAG, "shmem attach failed");
         return ERR_SYSDOWN;
     }

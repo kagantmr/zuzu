@@ -40,8 +40,8 @@ static void dirty_worker(void *arg)
 
 static int mode_dirty(void)
 {
-    void *a = zuzu_memmap(HANDLE_ANON, 8192, PROT_RW, 0);
-    if (zuzu_is_err(a))
+    void *a = ZuzuMemMap(HANDLE_ANON, 8192, PROT_RW, 0);
+    if (ZuzuPtrIsErr(a))
         return 101;
     memset(a, 0xDD, 8192);
 
@@ -53,16 +53,16 @@ static int mode_dirty(void)
         return 103;
     (void)zuzu_ntfn_signal(n, 0x1); /* leave a pending signal behind */
 
-    Handle sh = zuzu_shm_create(SHM_TEST_SIZE);
+    Handle sh = ZuzuShmemCreate(SHM_TEST_SIZE);
     if (sh < 0)
         return 104;
-    void *m = zuzu_memmap(sh, 0, PROT_RW, 0);
-    if (zuzu_is_err(m))
+    void *m = ZuzuMemMap(sh, 0, PROT_RW, 0);
+    if (ZuzuPtrIsErr(m))
         return 105;
     memset(m, 0xEE, SHM_TEST_SIZE);
 
-    void *stack = zuzu_memmap(HANDLE_ANON, 4096, PROT_RW, 0);
-    if (zuzu_is_err(stack))
+    void *stack = ZuzuMemMap(HANDLE_ANON, 4096, PROT_RW, 0);
+    if (ZuzuPtrIsErr(stack))
         return 106;
     if (ZuzuTMake(dirty_worker, (char *)stack + 4096, NULL) < 0)
         return 107;
@@ -74,8 +74,8 @@ static int mode_dirty(void)
 
 static int mode_shm(Handle slot)
 {
-    uint8_t *m = (uint8_t *)zuzu_memmap(slot, 0, PROT_RW, 0);
-    if (zuzu_is_err(m))
+    uint8_t *m = (uint8_t *)ZuzuMemMap(slot, 0, PROT_RW, 0);
+    if (ZuzuPtrIsErr(m))
         return 110;
 
     for (uint32_t i = 0; i < SHM_TEST_SIZE; i++) {
@@ -85,7 +85,7 @@ static int mode_shm(Handle slot)
     for (uint32_t i = 0; i < SHM_TEST_SIZE; i++)
         m[i] = (uint8_t)(0x5A ^ i);
 
-    if (zuzu_memunmap(m) != 0)
+    if (ZuzuMemUnmap(m) != 0)
         return 112;
     return 0;
 }

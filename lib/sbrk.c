@@ -9,9 +9,9 @@ static arena_t heap;   /* the single owner of heap VA in this process */
 void *sbrk(intptr_t incr)
 {
     if (!heap.base) {
-        VirtAddr p = (VirtAddr)zuzu_memmap(HANDLE_ANON, HEAP_RESERVE,
+        VirtAddr p = (VirtAddr)ZuzuMemMap(HANDLE_ANON, HEAP_RESERVE,
                                      PROT_READ | PROT_WRITE, 0);
-        if (zuzu_is_err((void *)p))
+        if (ZuzuPtrIsErr((void *)p))
             return (void *)-1;
         heap.base   = p;
         heap.brk    = p;

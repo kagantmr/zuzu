@@ -18,7 +18,7 @@ extern "C" {
  * @return int32_t Returns the handle of the newly created notification object on success, or a negative error code on failure.
  */
 static inline int32_t zuzu_ntfn_create(void) {
-    return syscall(SYS_NTFN_CREATE, 0, 0, 0, 0);
+    return Syscall(SYS_NTFN_CREATE, 0, 0, 0, 0);
 }
 
 /**
@@ -30,7 +30,7 @@ static inline int32_t zuzu_ntfn_create(void) {
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
 static inline int32_t zuzu_ntfn_signal(Handle ntfn_handle, uint32_t bits) {
-    return syscall(SYS_NTFN_SIGNAL, ntfn_handle, bits, 0, 0);
+    return Syscall(SYS_NTFN_SIGNAL, ntfn_handle, bits, 0, 0);
 }
 
 /**
@@ -42,7 +42,7 @@ static inline int32_t zuzu_ntfn_signal(Handle ntfn_handle, uint32_t bits) {
  * @return int32_t Returns the signaled bits on success, or a negative error code on failure. If the wait times out, returns ERR_TIMEOUT.
  */
 static inline int32_t zuzu_ntfn_wait(Handle ntfn_handle, uint32_t timeout_ms) {
-    return syscall(SYS_NTFN_WAIT, ntfn_handle, timeout_ms, 0, 0);
+    return Syscall(SYS_NTFN_WAIT, ntfn_handle, timeout_ms, 0, 0);
 }
 
 #ifdef __cplusplus

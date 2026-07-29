@@ -127,11 +127,11 @@ static int fsd_connect(void) {
     fsd_handle = (Handle)lu.w2;
     uint32_t fsd_pid = lu.w3;
 
-    Handle shm = zuzu_shm_create(FSD_SHM_DEFAULT);
+    Handle shm = ZuzuShmemCreate(FSD_SHM_DEFAULT);
     if (shm < 0) return -1;
 
-    void *p = zuzu_memmap(shm, 0, PROT_RW, 0);
-    if (zuzu_is_err(p)) return -1;
+    void *p = ZuzuMemMap(shm, 0, PROT_RW, 0);
+    if (ZuzuPtrIsErr(p)) return -1;
 
     int32_t slot = zuzu_grant(shm, (int32_t)fsd_pid);
     if (slot < 0) return -1;
