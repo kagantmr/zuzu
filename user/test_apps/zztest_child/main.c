@@ -48,10 +48,10 @@ static int mode_dirty(void)
     if (zuzu_port_create() < 0)
         return 102;
 
-    int32_t n = zuzu_ntfn_create();
+    int32_t n = ZuzuNtfnCreate();
     if (n < 0)
         return 103;
-    (void)zuzu_ntfn_signal(n, 0x1); /* leave a pending signal behind */
+    (void)ZuzuNtfnSignal(n, 0x1); /* leave a pending signal behind */
 
     Handle sh = ZuzuShmemCreate(SHM_TEST_SIZE);
     if (sh < 0)

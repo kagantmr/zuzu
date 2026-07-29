@@ -33,7 +33,7 @@ struct tm {
  * @return ztime_t The current time in seconds since the epoch.
  */
 static inline Time time_now(void) {
-    syspage_t *sp = (syspage_t *)SYSPAGE;
+    Syspage *sp = (Syspage *)SYSPAGE;
     return sp->boot_time_s + (sp->uptime_ticks / sp->tick_hz);
 }
 
@@ -43,7 +43,7 @@ static inline Time time_now(void) {
  * @param ts Pointer to a timespec structure that will be filled with the current time.
  */
 static inline void clock_gettime(struct timespec *ts) {
-    syspage_t *sp = (syspage_t *)SYSPAGE;
+    Syspage *sp = (Syspage *)SYSPAGE;
     Time ticks = sp->uptime_ticks;
     uint32_t hz = sp->tick_hz;
     ts->tv_sec  = ticks / hz;

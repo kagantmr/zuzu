@@ -45,7 +45,7 @@ void log_write(log_level_t level, const char *tag, const char *fmt, ...) {
     const char *lvl_label = level_to_label(level);
     const char *lvl_style = level_to_style(level);
     const char *safe_tag = tag ? tag : "";
-    syspage_t *sp = (syspage_t *)SYSPAGE;
+    Syspage *sp = (Syspage *)SYSPAGE;
     unsigned long long ticks = (unsigned long long)sp->uptime_ticks;
 
     char msg_buf[192];

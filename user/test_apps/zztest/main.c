@@ -76,13 +76,13 @@ static void section(const char *name)
 
 static uint32_t pages_free(void)
 {
-    const syspage_t *sp = (const syspage_t *)SYSPAGE;
+    const Syspage *sp = (const Syspage *)SYSPAGE;
     return sp->mem_free_kb / 4;   /* exactly what zzsh `free` prints */
 }
 
 static uint32_t uptime_ms(void)
 {
-    const syspage_t *sp = (const syspage_t *)SYSPAGE;
+    const Syspage *sp = (const Syspage *)SYSPAGE;
     return (uint32_t)((sp->uptime_ticks * 1000u) / sp->tick_hz);
 }
 
@@ -425,7 +425,7 @@ static void sec_ipc(void)
              "lsend len>512 -> ERR_OVERFLOW");
 
     /* type confusion */
-    int32_t nt = zuzu_ntfn_create();
+    int32_t nt = ZuzuNtfnCreate();
     CHECK(nt >= 0, "ntfn_create (type probe)");
     CHECK_EQ(zuzu_msg_send(nt, 1, 2, 3), ERR_BADTYPE, "send on ntfn handle -> ERR_BADTYPE");
     CHECK_EQ(zuzu_msg_send(9999, 1, 2, 3), ERR_BADHANDLE, "send on bogus handle -> ERR_BADHANDLE");
@@ -437,7 +437,7 @@ static void sec_ipc(void)
     CHECK_EQ(zuzu_waitany(set, 2, TIMEOUT_POLL, &res), ERR_TIMEOUT,
              "waitany poll empty -> ERR_TIMEOUT");
 
-    CHECK_EQ(zuzu_ntfn_signal(nt, 0x9), 0, "signal ntfn");
+    CHECK_EQ(ZuzuNtfnSignal(nt, 0x9), 0, "signal ntfn");
     CHECK_EQ(zuzu_waitany(set, 2, TIMEOUT_POLL, &res), 0, "waitany: ntfn delivers");
     CHECK(res.kind == WAITANY_KIND_NTFN, "waitany ntfn: kind=NTFN");
     CHECK(res.matched_index == 1, "waitany ntfn: matched_index=1");
@@ -486,23 +486,23 @@ static void sec_handles(void)
     CHECK_EQ(zuzu_destroy(p), ERR_BADHANDLE, "destroy freed slot -> ERR_BADHANDLE");
 
     /* ntfn semantics */
-    int32_t n = zuzu_ntfn_create();
+    int32_t n = ZuzuNtfnCreate();
     CHECK(n >= 0, "ntfn_create");
-    CHECK_EQ(zuzu_ntfn_wait(n, TIMEOUT_POLL), ERR_TIMEOUT, "ntfn poll empty -> ERR_TIMEOUT");
-    CHECK_EQ(zuzu_ntfn_signal(n, 0x5), 0, "ntfn signal 0x5");
-    CHECK_EQ(zuzu_ntfn_signal(n, 0x2), 0, "ntfn signal 0x2 (accumulates)");
-    CHECK_EQ(zuzu_ntfn_wait(n, TIMEOUT_POLL), 0x7, "ntfn wait returns OR of bits");
-    CHECK_EQ(zuzu_ntfn_wait(n, TIMEOUT_POLL), ERR_TIMEOUT, "bits cleared on delivery");
-    CHECK_EQ(zuzu_ntfn_signal(n, 1u << 31), ERR_BADARG, "signal bit 31 -> ERR_BADARG");
+    CHECK_EQ(ZuzuNtfnBits(n, TIMEOUT_POLL), ERR_TIMEOUT, "ntfn poll empty -> ERR_TIMEOUT");
+    CHECK_EQ(ZuzuNtfnSignal(n, 0x5), 0, "ntfn signal 0x5");
+    CHECK_EQ(ZuzuNtfnSignal(n, 0x2), 0, "ntfn signal 0x2 (accumulates)");
+    CHECK_EQ(ZuzuNtfnBits(n, TIMEOUT_POLL), 0x7, "ntfn wait returns OR of bits");
+    CHECK_EQ(ZuzuNtfnBits(n, TIMEOUT_POLL), ERR_TIMEOUT, "bits cleared on delivery");
+    CHECK_EQ(ZuzuNtfnSignal(n, 1u << 31), ERR_BADARG, "signal bit 31 -> ERR_BADARG");
     uint32_t t0 = uptime_ms();
-    CHECK_EQ(zuzu_ntfn_wait(n, 50), ERR_TIMEOUT, "timed ntfn wait empty -> ERR_TIMEOUT");
+    CHECK_EQ(ZuzuNtfnBits(n, 50), ERR_TIMEOUT, "timed ntfn wait empty -> ERR_TIMEOUT");
     CHECK(uptime_ms() - t0 >= 50, "ntfn timed wait honored >=50ms");
-    CHECK_EQ(zuzu_ntfn_signal(n, 0), 0, "signal bits=0 accepted (no-op)");
+    CHECK_EQ(ZuzuNtfnSignal(n, 0), 0, "signal bits=0 accepted (no-op)");
     CHECK_EQ(zuzu_destroy(n), 0, "ntfn destroy");
     /* Freed-but-in-range slot: the type check fires before liveness, so
      * non-destroy syscalls report ERR_BADTYPE (destroy itself special-cases
      * FREE to ERR_BADHANDLE). Inconsistent but frozen; flagged in review. */
-    CHECK_EQ(zuzu_ntfn_signal(n, 1), ERR_BADTYPE, "signal after destroy -> ERR_BADTYPE (freed slot)");
+    CHECK_EQ(ZuzuNtfnSignal(n, 1), ERR_BADTYPE, "signal after destroy -> ERR_BADTYPE (freed slot)");
 
     /* destroy REPLY handle -> rejected, and the handle still works after */
     g_port = zuzu_port_create();
@@ -711,7 +711,7 @@ static void sec_version(void)
 {
     section("version");
 
-    int32_t n = zuzu_ntfn_create();
+    int32_t n = ZuzuNtfnCreate();
     Handle set[1] = { (Handle)n };
     WaitanyResult res;
 
@@ -725,7 +725,7 @@ static void sec_version(void)
              "waitany result.size=0 -> ERR_BADARG");
 
     /* correct size accepted (raw svc, no wrapper help) */
-    zuzu_ntfn_signal(n, 0x3);
+    ZuzuNtfnSignal(n, 0x3);
     memset(&res, 0, sizeof(res));
     res.size = sizeof(WaitanyResult);
     CHECK_EQ(raw_waitany(set, 1, TIMEOUT_POLL, &res), 0,
@@ -741,7 +741,7 @@ static void sec_security(void)
 
     /* --- confused-deputy: kernel must never read/write a kernel address
      * on the caller's behalf. All go through validate_user_ptr. --- */
-    int32_t nt = zuzu_ntfn_create();
+    int32_t nt = ZuzuNtfnCreate();
     CHECK(nt >= 0, "ntfn_create (probe)");
     Handle one[1] = { (Handle)nt };
 

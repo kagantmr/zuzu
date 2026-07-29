@@ -430,7 +430,7 @@ int _gettimeofday(struct timeval *tv, void *tz)
     (void)tz;
     if (!tv) { errno = EFAULT; return -1; }
 
-    const syspage_t *sp = (const syspage_t *)SYSPAGE_VA;
+    const Syspage *sp = (const Syspage *)SYSPAGE_VA;
     uint32_t hz    = sp->tick_hz ? sp->tick_hz : 1000u;
     uint64_t ticks = sp->uptime_ticks;
 
@@ -442,7 +442,7 @@ int _gettimeofday(struct timeval *tv, void *tz)
 /* Elapsed real time in scheduler ticks; no user/kernel split is tracked. */
 clock_t _times(struct tms *buf)
 {
-    const syspage_t *sp = (const syspage_t *)SYSPAGE_VA;
+    const Syspage *sp = (const Syspage *)SYSPAGE_VA;
     clock_t ticks = (clock_t)sp->uptime_ticks;
 
     if (buf) {

@@ -140,7 +140,7 @@ static int pl181_setup(void)
 
 static int wait_for_irq(void)
 {
-    int32_t bits = zuzu_ntfn_wait((uint32_t)block_irq_ntfn, TIMEOUT_INFINITE);
+    int32_t bits = ZuzuNtfnBits((uint32_t)block_irq_ntfn, TIMEOUT_INFINITE);
     return (bits < 0) ? -1 : 0;
 }
 
@@ -295,7 +295,7 @@ static int pl181drv_setup(void)
     }
     block_dev_handle = (int32_t)r.w2;
 
-    block_irq_ntfn = zuzu_ntfn_create();
+    block_irq_ntfn = ZuzuNtfnCreate();
     if (block_irq_ntfn < 0)
     {
         LOG_ERROR(LOG_TAG, "ntfn_create failed");
@@ -361,7 +361,7 @@ int main(void)
     while (1)
     {
         /* drain any stray IRQ that arrived between transfers */
-        int32_t bits = zuzu_ntfn_wait((uint32_t)block_irq_ntfn, TIMEOUT_POLL);
+        int32_t bits = ZuzuNtfnBits((uint32_t)block_irq_ntfn, TIMEOUT_POLL);
         if (bits > 0)
             zuzu_irq_done((uint32_t)block_dev_handle);
 
