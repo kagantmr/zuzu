@@ -7,7 +7,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <string.h>
-#include "tcb.h"
+#include "tls.h"
 #include <zuzu/types.h>
 
 /**
@@ -17,7 +17,7 @@ extern "C" {
  * 
  */
 static inline void *lmsg_buf(void) {
-    return zuzu_tcb()->lmsg_buf;
+    return ZuzuTLS()->lmsg_buf;
 }
 
 /**

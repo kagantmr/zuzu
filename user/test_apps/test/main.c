@@ -3,7 +3,7 @@
 #include <zuzu/msg.h>  
 #include <zuzu/lmsg.h>
 #include <zuzu/umem.h>
-#include <zuzu/tcb.h>
+#include <zuzu/tls.h>
 #include <zuzu/syspage.h>
 #include <malloc.h>
 #include <mem.h>
@@ -26,7 +26,7 @@ static void worker(void *arg)
     (void)arg;
     char buf[LMSG_BUF_SIZE];
 
-    printf("tid = %d lmsg_buf = %p", zuzu_tcb()->tid, lmsg_buf());
+    printf("tid = %d lmsg_buf = %p", ZuzuTLS()->tid, lmsg_buf());
 
     lmsg_write(REQ, sizeof(REQ));
     Message r = zuzu_msg_lcall(port, sizeof(REQ));
@@ -61,7 +61,7 @@ int main(void)
     printf("got: '%s' (first bytes %02x %02x %02x %02x)\n",
         got, got[0], got[1], got[2], got[3]);
     printf("main lmsg_buf VA = %p, tid=%u pid=%u\n",
-        lmsg_buf(), zuzu_tcb()->tid, zuzu_tcb()->pid);
+        lmsg_buf(), ZuzuTLS()->tid, ZuzuTLS()->pid);
 
     lmsg_write(RESP, sizeof(RESP));
     CHECK(zuzu_msg_lreply((Handle)m.w0, sizeof(RESP)) == 0, "lreply");
@@ -74,7 +74,7 @@ int main(void)
     CHECK((int32_t)zuzu_msg_lsend(port, LMSG_BUF_SIZE + 1) < 0, "lsend len>512 rejected");
 
     CHECK(ZuzuMemUnmap((void *)SYSPAGE_VA) == ERR_NOPERM, "syspage unmap refused");
-    CHECK(ZuzuMemUnmap((void *)((uintptr_t)zuzu_tcb() & ~0xFFFu)) == ERR_NOPERM, "TCB page unmap refused");
+    CHECK(ZuzuMemUnmap((void *)((uintptr_t)ZuzuTLS() & ~0xFFFu)) == ERR_NOPERM, "TCB page unmap refused");
     CHECK(ZuzuMemProtect((void *)SYSPAGE_VA, PAGE_SIZE, PROT_READ | PROT_WRITE) != 0, "syspage mprotect refused");
 
     /* force multiple sbrk growths + tail donation */

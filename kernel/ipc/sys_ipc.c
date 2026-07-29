@@ -9,7 +9,7 @@
 #include "core/panic.h"
 #include <mem.h>
 #include <stdbool.h>
-#include <zuzu/tcb.h>
+#include <zuzu/tls.h>
 #include <zuzu/types.h>
 
 #include "kernel/irq/sys_irq.h"

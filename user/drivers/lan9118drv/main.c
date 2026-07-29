@@ -89,7 +89,7 @@ static inline void mac_csr_write(uint8_t index, uint32_t value)
 int get_nic(void)
 {
 
-    if (!device_present("LAN9118"))
+    if (!DevicePresentInSyspage("LAN9118"))
     {
         LOG_ERROR(LOG_TAG, "device not found");
         return ERR_NOENT;

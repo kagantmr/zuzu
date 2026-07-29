@@ -277,7 +277,7 @@ int main(void) {
 
     Handle port = zuzu_port_create();
     if (port < 0) {
-        printf("Couldn't get handle: %s\n", strtoerror(port));
+        printf("Couldn't get handle: %s\n", StrToError(port));
         return 1;
     }
 
@@ -291,7 +291,7 @@ int main(void) {
     /* Descending frame model: stack pointer starts at the top of the block. */
     Tid tid = ZuzuTMake(echo_server_thread, stack + THREAD_STACK_SIZE, &port);
     if (tid < 0) {
-        printf("Couldn't make thread: %s\n", strtoerror(tid));
+        printf("Couldn't make thread: %s\n", StrToError(tid));
         free(stack);
         zuzu_destroy(port);
         return 1;
@@ -307,7 +307,7 @@ int main(void) {
 
     Handle lport = zuzu_port_create();
     if (lport < 0) {
-        printf("Couldn't get lcall handle: %s\n", strtoerror(lport));
+        printf("Couldn't get lcall handle: %s\n", StrToError(lport));
         return 1;
     }
 
@@ -320,7 +320,7 @@ int main(void) {
 
     Tid ltid = ZuzuTMake(lcall_echo_server_thread, lstack + THREAD_STACK_SIZE, &lport);
     if (ltid < 0) {
-        printf("Couldn't make lcall thread: %s\n", strtoerror(ltid));
+        printf("Couldn't make lcall thread: %s\n", StrToError(ltid));
         free(lstack);
         zuzu_destroy(lport);
         return 1;
