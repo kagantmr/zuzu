@@ -174,7 +174,7 @@ static int32_t child_spawn(const char *arg1, Handle grant_h, child_t *out)
     memcpy(req + sizeof(*hdr) + path_len + 1, argbuf, argpos);
 
     exec_reply_t reply;
-    int32_t rc = chan_call((Handle)g_sysd_port, req,
+    int32_t rc = ChannelCall((Handle)g_sysd_port, req,
                            (uint32_t)(sizeof(*hdr) + path_len + 1 + argpos),
                            &reply, sizeof(reply));
     if (rc < 0) {

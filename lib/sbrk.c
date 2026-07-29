@@ -4,7 +4,7 @@
 
 #define HEAP_RESERVE (32 * 1024 * 1024)   /* VA reservation; demand-paged, costs no RAM until touched */
 
-static arena_t heap;   /* the single owner of heap VA in this process */
+static Arena heap;   /* the single owner of heap VA in this process */
 
 void *sbrk(intptr_t incr)
 {

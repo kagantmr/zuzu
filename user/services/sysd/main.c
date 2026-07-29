@@ -228,7 +228,7 @@ static void nt_handle_msg(Message msg) {
         }
 
         memcpy(lmsg_buf(), &reply, sizeof(reply));
-        (void)chan_reply((Handle)reply_handle, lmsg_buf(), sizeof(reply));
+        (void)ChannelReply((Handle)reply_handle, lmsg_buf(), sizeof(reply));
         return;
     }
 

@@ -7,7 +7,7 @@ typedef struct arena {
     VirtAddr base;    // heap_base
     VirtAddr brk;     // heap_brk
     VirtAddr mapped;  // heap_end
-} arena_t;
+} Arena;
 
 /**
  * @brief Adjusts the program's data segment size by the specified increment.

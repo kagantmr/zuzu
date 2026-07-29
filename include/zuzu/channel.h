@@ -1,10 +1,3 @@
-#ifndef ZUZU_CHANNEL_H
-#define ZUZU_CHANNEL_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /*
  * channel.h - high-level bulk IPC
  *
@@ -12,13 +5,21 @@ extern "C" {
  * three-function API. Callers never touch the lmsg buffer directly.
  *
  * Sender side:
- *   chan_send(port, buf, len)          
- *   chan_call(port, buf, len,          
+ *   ChannelSend(port, buf, len)          
+ *   ChannelCall(port, buf, len,          
  *             reply, reply_len)
  *
  * Server side:
  *   chan_reply(reply_handle, buf, len) reply to a zuzu_msg_lcall caller
  */
+
+
+#ifndef ZUZU_CHANNEL_H
+#define ZUZU_CHANNEL_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #include <zuzu/msg.h>
 #include <zuzu/lmsg.h>
@@ -32,9 +33,10 @@ extern "C" {
  * @param port The handle of the port to send the lmessage to.
  * @param buf Pointer to the buffer containing the lmessage data to send.
  * @param len The length of the message data in bytes.
+ * 
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t chan_send(Handle port, const void *buf, uint32_t len)
+static inline Err ChannelSend(Handle port, const void *buf, size_t len)
 {
     if (len > LMSG_BUF_SIZE) return ERR_BADARG;
     memcpy(lmsg_buf(), buf, len);
@@ -50,11 +52,11 @@ static inline int32_t chan_send(Handle port, const void *buf, uint32_t len)
  * @param reply Pointer to the buffer that will receive the reply data.
  * @param reply_cap The maximum length of the reply buffer in bytes.
  * 
- * @return int32_t Returns the number of bytes received in the reply on success, or a negative error code on failure.
+ * @return Err Returns the number of bytes received in the reply on success, or a negative error code on failure.
  */
-static inline int32_t chan_call(Handle port,
-                                const void *buf,    uint32_t len,
-                                void       *reply,  uint32_t reply_cap)
+static inline Err ChannelCall(Handle port,
+                                const void *buf,    size_t len,
+                                void       *reply,  size_t reply_cap)
 {
     if (len > LMSG_BUF_SIZE) return ERR_BADARG;
     memcpy(lmsg_buf(), buf, len);
@@ -68,7 +70,7 @@ static inline int32_t chan_call(Handle port,
     if (got && reply)
         memcpy(reply, lmsg_buf(), got);
 
-    return (int32_t)got;
+    return (Err)got;
 }
 
 /**
@@ -78,12 +80,12 @@ static inline int32_t chan_call(Handle port,
  * @param buf Pointer to the buffer containing the reply data to send.
  * @param len The length of the reply data in bytes.
  * 
- * @return int32_t Returns 0 on success, or a negative error code on failure.
+ * @return Err Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t chan_reply(Handle reply_handle,
-                                 const void *buf, uint32_t len)
+static inline Err ChannelReply(Handle reply_handle,
+                                 const void *buf, size_t len)
 {
-    if (len > LMSG_BUF_SIZE) return ERR_BADARG;
+    if (len > LMSG_BUF_SIZE) return ERR_OVERFLOW;
     if (len && buf)
         memcpy(lmsg_buf(), buf, len);
     return zuzu_msg_lreply(reply_handle, len);

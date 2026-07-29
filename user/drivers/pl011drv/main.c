@@ -121,7 +121,7 @@ static void handle_read(Handle reply_handle, uint32_t max_len)
         buf[n++] = (char)b;
     }
 
-    (void)chan_reply(reply_handle, buf, n);
+    (void)ChannelReply(reply_handle, buf, n);
 }
 
 int pl011drv_setup(void)
