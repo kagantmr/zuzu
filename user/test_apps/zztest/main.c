@@ -275,8 +275,8 @@ static void spin_worker(void *arg)
 /* memmap a worker stack or die */
 static void *stack_alloc(void)
 {
-    void *s = zuzu_memmap(HANDLE_ANON, STACK_SIZE, PROT_RW, 0);
-    return zuzu_is_err(s) ? NULL : s;
+    void *s = ZuzuMemMap(HANDLE_ANON, STACK_SIZE, PROT_RW, 0);
+    return ZuzuPtrIsErr(s) ? NULL : s;
 }
 
 /* ---------------- sections ---------------- */
@@ -286,83 +286,83 @@ static void sec_mem(void)
     section("mem");
 
     /* anon success path: alloc / write / readback / unmap */
-    uint8_t *a = (uint8_t *)zuzu_memmap(HANDLE_ANON, 8192, PROT_RW, 0);
-    CHECK(!zuzu_is_err(a), "anon memmap 8KB");
+    uint8_t *a = (uint8_t *)ZuzuMemMap(HANDLE_ANON, 8192, PROT_RW, 0);
+    CHECK(!ZuzuPtrIsErr(a), "anon memmap 8KB");
     for (uint32_t i = 0; i < 8192; i++) a[i] = (uint8_t)(i * 7);
     int ok = 1;
     for (uint32_t i = 0; i < 8192; i++) if (a[i] != (uint8_t)(i * 7)) { ok = 0; break; }
     CHECK(ok, "anon write/readback intact");
-    CHECK_EQ(zuzu_memunmap(a), 0, "anon memunmap");
+    CHECK_EQ(ZuzuMemUnmap(a), 0, "anon memunmap");
 
     /* anon documented rejections */
-    CHECK_EQ(mm_err(zuzu_memmap(HANDLE_ANON, 0, PROT_RW, 0)), ERR_BADARG,
+    CHECK_EQ(mm_err(ZuzuMemMap(HANDLE_ANON, 0, PROT_RW, 0)), ERR_BADARG,
              "anon size=0 -> ERR_BADARG");
-    CHECK_EQ(mm_err(zuzu_memmap(HANDLE_ANON, 4095, PROT_RW, 0)), ERR_BADARG,
+    CHECK_EQ(mm_err(ZuzuMemMap(HANDLE_ANON, 4095, PROT_RW, 0)), ERR_BADARG,
              "anon size not page-multiple -> ERR_BADARG");
-    CHECK_EQ(mm_err(zuzu_memmap(HANDLE_ANON, 33u * 1024 * 1024, PROT_RW, 0)), ERR_OVERFLOW,
+    CHECK_EQ(mm_err(ZuzuMemMap(HANDLE_ANON, 33u * 1024 * 1024, PROT_RW, 0)), ERR_OVERFLOW,
              "anon >32MB -> ERR_OVERFLOW");
-    CHECK_EQ(mm_err(zuzu_memmap(HANDLE_ANON, 4096, PROT_WRITE | PROT_EXEC, 0)), ERR_BADARG,
+    CHECK_EQ(mm_err(ZuzuMemMap(HANDLE_ANON, 4096, PROT_WRITE | PROT_EXEC, 0)), ERR_BADARG,
              "W+X prot -> ERR_BADARG");
-    CHECK_EQ(mm_err(zuzu_memmap(HANDLE_ANON, 4096, VM_PROT_USER_BIT, 0)), ERR_BADARG,
+    CHECK_EQ(mm_err(ZuzuMemMap(HANDLE_ANON, 4096, VM_PROT_USER_BIT, 0)), ERR_BADARG,
              "VM_PROT_USER bit -> ERR_BADARG");
-    CHECK_EQ(mm_err(zuzu_memmap(HANDLE_ANON, 4096, PROT_RW, 1)), ERR_BADARG,
+    CHECK_EQ(mm_err(ZuzuMemMap(HANDLE_ANON, 4096, PROT_RW, 1)), ERR_BADARG,
              "flags!=0 -> ERR_BADARG");
-    CHECK_EQ(mm_err(zuzu_memmap(9999, 0, PROT_RW, 0)), ERR_BADHANDLE,
+    CHECK_EQ(mm_err(ZuzuMemMap(9999, 0, PROT_RW, 0)), ERR_BADHANDLE,
              "memmap bogus handle -> ERR_BADHANDLE");
 
     /* memmap on a non-mappable handle type */
     Handle p = zuzu_port_create();
     CHECK(p >= 0, "port_create (for BADTYPE probe)");
-    CHECK_EQ(mm_err(zuzu_memmap(p, 0, PROT_RW, 0)), ERR_BADTYPE,
+    CHECK_EQ(mm_err(ZuzuMemMap(p, 0, PROT_RW, 0)), ERR_BADTYPE,
              "memmap on port handle -> ERR_BADTYPE");
     CHECK_EQ(zuzu_destroy(p), 0, "destroy probe port");
 
     /* shm lifecycle (same-process part; cross-proc in handles section) */
-    Handle sh = zuzu_shm_create(4096);
+    Handle sh = ZuzuShmemCreate(4096);
     CHECK(sh >= 0, "shm_create 4KB");
-    CHECK_EQ(mm_err(zuzu_memmap(sh, 4096, PROT_RW, 0)), ERR_BADARG,
+    CHECK_EQ(mm_err(ZuzuMemMap(sh, 4096, PROT_RW, 0)), ERR_BADARG,
              "shm memmap with size!=0 -> ERR_BADARG");
-    uint8_t *m1 = (uint8_t *)zuzu_memmap(sh, 0, PROT_RW, 0);
-    CHECK(!zuzu_is_err(m1), "shm memmap");
+    uint8_t *m1 = (uint8_t *)ZuzuMemMap(sh, 0, PROT_RW, 0);
+    CHECK(!ZuzuPtrIsErr(m1), "shm memmap");
     m1[0] = 0x77; m1[4095] = 0x88;
     CHECK_EQ(zuzu_destroy(sh), ERR_BUSY, "destroy-while-mapped -> ERR_BUSY");
-    CHECK_EQ(zuzu_memunmap(m1), 0, "shm memunmap");
-    uint8_t *m2 = (uint8_t *)zuzu_memmap(sh, 0, PROT_RW, 0);
-    CHECK(!zuzu_is_err(m2), "shm REMAP after unmap works");
+    CHECK_EQ(ZuzuMemUnmap(m1), 0, "shm memunmap");
+    uint8_t *m2 = (uint8_t *)ZuzuMemMap(sh, 0, PROT_RW, 0);
+    CHECK(!ZuzuPtrIsErr(m2), "shm REMAP after unmap works");
     CHECK(m2[0] == 0x77 && m2[4095] == 0x88, "shm contents persist across remap");
-    CHECK_EQ(zuzu_memunmap(m2), 0, "shm memunmap (2nd)");
+    CHECK_EQ(ZuzuMemUnmap(m2), 0, "shm memunmap (2nd)");
     CHECK_EQ(zuzu_destroy(sh), 0, "shm destroy after unmap");
 
     /* memunmap rejections */
-    CHECK_EQ(zuzu_memunmap((void *)0x30000000), ERR_BADARG,
+    CHECK_EQ(ZuzuMemUnmap((void *)0x30000000), ERR_BADARG,
              "memunmap of non-region addr -> ERR_BADARG");
-    uint8_t *b = (uint8_t *)zuzu_memmap(HANDLE_ANON, 8192, PROT_RW, 0);
-    CHECK(!zuzu_is_err(b), "anon memmap (base-match probe)");
-    CHECK_EQ(zuzu_memunmap(b + 4096), ERR_BADARG,
+    uint8_t *b = (uint8_t *)ZuzuMemMap(HANDLE_ANON, 8192, PROT_RW, 0);
+    CHECK(!ZuzuPtrIsErr(b), "anon memmap (base-match probe)");
+    CHECK_EQ(ZuzuMemUnmap(b + 4096), ERR_BADARG,
              "memunmap of non-base addr inside region -> ERR_BADARG");
-    CHECK_EQ(zuzu_memunmap(b), 0, "probe region unmapped at base");
-    CHECK_EQ(zuzu_memunmap((void *)SYSPAGE_VA), ERR_NOPERM,
+    CHECK_EQ(ZuzuMemUnmap(b), 0, "probe region unmapped at base");
+    CHECK_EQ(ZuzuMemUnmap((void *)SYSPAGE_VA), ERR_NOPERM,
              "syspage (pinned) unmap -> ERR_NOPERM");
-    CHECK_EQ(zuzu_memunmap((void *)((uintptr_t)zuzu_tcb() & ~0xFFFu)), ERR_NOPERM,
+    CHECK_EQ(ZuzuMemUnmap((void *)((uintptr_t)zuzu_tcb() & ~0xFFFu)), ERR_NOPERM,
              "TCB page (pinned) unmap -> ERR_NOPERM");
 
     /* memprotect */
-    uint8_t *c = (uint8_t *)zuzu_memmap(HANDLE_ANON, 4096, PROT_RW, 0);
-    CHECK(!zuzu_is_err(c), "anon memmap (memprotect probe)");
+    uint8_t *c = (uint8_t *)ZuzuMemMap(HANDLE_ANON, 4096, PROT_RW, 0);
+    CHECK(!ZuzuPtrIsErr(c), "anon memmap (memprotect probe)");
     c[0] = 1; /* fault the page in while writable */
-    CHECK_EQ(zuzu_memprotect(c, 4096, PROT_READ), 0, "memprotect RW -> R");
-    CHECK_EQ(zuzu_memprotect(c, 4096, PROT_RW), 0, "memprotect R -> RW");
+    CHECK_EQ(ZuzuMemProtect(c, 4096, PROT_READ), 0, "memprotect RW -> R");
+    CHECK_EQ(ZuzuMemProtect(c, 4096, PROT_RW), 0, "memprotect R -> RW");
     c[0] = 2;
     CHECK(c[0] == 2, "write works after re-protect");
-    CHECK_EQ(zuzu_memprotect(c, 4096, PROT_WRITE | PROT_EXEC), ERR_BADARG,
+    CHECK_EQ(ZuzuMemProtect(c, 4096, PROT_WRITE | PROT_EXEC), ERR_BADARG,
              "memprotect W+X -> ERR_BADARG");
-    CHECK_EQ(zuzu_memprotect(c, 4096, VM_PROT_USER_BIT), ERR_NOPERM,
+    CHECK_EQ(ZuzuMemProtect(c, 4096, VM_PROT_USER_BIT), ERR_NOPERM,
              "memprotect with USER bit -> ERR_NOPERM");
-    CHECK_EQ(zuzu_memprotect((void *)SYSPAGE_VA, 4096, PROT_RW), ERR_BADARG,
+    CHECK_EQ(ZuzuMemProtect((void *)SYSPAGE_VA, 4096, PROT_RW), ERR_BADARG,
              "memprotect pinned syspage -> rejected");
-    CHECK_EQ(zuzu_memprotect((void *)0x30000000, 4096, PROT_READ), ERR_BADARG,
+    CHECK_EQ(ZuzuMemProtect((void *)0x30000000, 4096, PROT_READ), ERR_BADARG,
              "memprotect non-region -> ERR_BADARG");
-    CHECK_EQ(zuzu_memunmap(c), 0, "memprotect probe unmapped");
+    CHECK_EQ(ZuzuMemUnmap(c), 0, "memprotect probe unmapped");
     /* EXEC-on-device rejection: untestable without a device cap (see header) */
 }
 
@@ -472,7 +472,7 @@ static void sec_ipc(void)
     CHECK(g_worker_ok, "blocked receiver woke with ERR_DEAD");
     g_port = -1;
 
-    zuzu_memunmap(st);
+    ZuzuMemUnmap(st);
 }
 
 static void sec_handles(void)
@@ -544,10 +544,10 @@ static void sec_handles(void)
     g_port = -1;
 
     /* cross-process shm: parent pattern -> child verifies+rewrites -> parent verifies */
-    Handle sh = zuzu_shm_create(4096);
+    Handle sh = ZuzuShmemCreate(4096);
     CHECK(sh >= 0, "shm_create (cross-proc)");
-    uint8_t *pm = (uint8_t *)zuzu_memmap(sh, 0, PROT_RW, 0);
-    CHECK(!zuzu_is_err(pm), "parent maps shm");
+    uint8_t *pm = (uint8_t *)ZuzuMemMap(sh, 0, PROT_RW, 0);
+    CHECK(!ZuzuPtrIsErr(pm), "parent maps shm");
     for (uint32_t i = 0; i < 4096; i++) pm[i] = (uint8_t)(0xA5 + i);
     int32_t status = -1;
     rc = child_run("shm", sh, &status);
@@ -557,18 +557,18 @@ static void sec_handles(void)
     for (uint32_t i = 0; i < 4096; i++)
         if (pm[i] != (uint8_t)(0x5A ^ i)) { ok = 0; break; }
     CHECK(ok, "parent sees child's writes (shared mapping)");
-    CHECK_EQ(zuzu_memunmap(pm), 0, "parent unmaps shm");
+    CHECK_EQ(ZuzuMemUnmap(pm), 0, "parent unmaps shm");
     CHECK_EQ(zuzu_destroy(sh), 0, "cross-proc shm destroyed");
 
     /* Lifetime ordering: A creates + grants to B, A destroys its OWN handle
      * while B still holds one, then B must still read intact data (no UAF),
      * and B's exit drops the last reference (no leak). */
-    Handle sh2 = zuzu_shm_create(4096);
+    Handle sh2 = ZuzuShmemCreate(4096);
     CHECK(sh2 >= 0, "shm_create (lifetime ordering)");
-    uint8_t *pm2 = (uint8_t *)zuzu_memmap(sh2, 0, PROT_RW, 0);
-    CHECK(!zuzu_is_err(pm2), "parent maps (lifetime ordering)");
+    uint8_t *pm2 = (uint8_t *)ZuzuMemMap(sh2, 0, PROT_RW, 0);
+    CHECK(!ZuzuPtrIsErr(pm2), "parent maps (lifetime ordering)");
     for (uint32_t i = 0; i < 4096; i++) pm2[i] = (uint8_t)(0xA5 + i);
-    CHECK_EQ(zuzu_memunmap(pm2), 0, "parent unmaps before grant+destroy");
+    CHECK_EQ(ZuzuMemUnmap(pm2), 0, "parent unmaps before grant+destroy");
     child_t c2;
     int32_t rc2 = child_spawn("shm", sh2, &c2);   /* grants sh2 -> ref 2 */
     CHECK_EQ(rc2, 0, "spawn shm child (lifetime ordering)");
@@ -581,7 +581,7 @@ static void sec_handles(void)
                  "B reads intact data after A's destroy (no UAF); B exit frees object");
     }
 
-    zuzu_memunmap(st);
+    ZuzuMemUnmap(st);
 }
 
 static void sec_tasks(void)
@@ -654,9 +654,9 @@ static void sec_tasks(void)
         ZuzuTJoin(tids[i]);
     }
     ZuzuSleep(10);
-    for (int i = 0; i < made; i++) zuzu_memunmap(stacks[i]);
-    zuzu_memunmap(xs);
-    zuzu_memunmap(st);
+    for (int i = 0; i < made; i++) ZuzuMemUnmap(stacks[i]);
+    ZuzuMemUnmap(xs);
+    ZuzuMemUnmap(st);
 
     /* pspawn -> kickstart -> wait lifecycle through sysd exec */
     int32_t status = -1;
@@ -759,7 +759,7 @@ static void sec_security(void)
              "waitany count=0 -> ERR_BADARG");
     CHECK_EQ(zuzu_waitany(one, 17, TIMEOUT_POLL, &res), ERR_BADARG,
              "waitany count>WAITANY_MAX(16) -> ERR_BADARG");
-    Handle sh = zuzu_shm_create(4096);
+    Handle sh = ZuzuShmemCreate(4096);
     CHECK(sh >= 0, "shm_create (waitany type probe)");
     Handle badset[1] = { sh };
     CHECK_EQ(zuzu_waitany(badset, 1, TIMEOUT_POLL, &res), ERR_BADTYPE,
@@ -769,7 +769,7 @@ static void sec_security(void)
 
     /* --- privilege gate: asinject is init-only --- */
     uint8_t src[64];
-    CHECK_EQ(zuzu_asinject(0, 0x10000000u, src, sizeof(src), PROT_READ), ERR_NOPERM,
+    CHECK_EQ(ZuzuAsInject(0, 0x10000000u, src, sizeof(src), PROT_READ), ERR_NOPERM,
              "asinject from unprivileged process -> ERR_NOPERM");
 
     /* --- kickstart / pkill type confinement: can't drive arbitrary objects --- */
@@ -843,26 +843,26 @@ static void sec_security(void)
     CHECK_EQ(zuzu_destroy(g_port), 0, "destroy confinement-probe port");
     g_port = -1;
 
-    zuzu_memunmap(st);
+    ZuzuMemUnmap(st);
 }
 
 static void leak_loop_anon(void)
 {
-    uint8_t *a = (uint8_t *)zuzu_memmap(HANDLE_ANON, 8192, PROT_RW, 0);
-    if (!zuzu_is_err(a)) {
+    uint8_t *a = (uint8_t *)ZuzuMemMap(HANDLE_ANON, 8192, PROT_RW, 0);
+    if (!ZuzuPtrIsErr(a)) {
         a[0] = 1; a[8191] = 2;   /* fault both pages in */
-        zuzu_memunmap(a);
+        ZuzuMemUnmap(a);
     }
 }
 
 static void leak_loop_shm(void)
 {
-    Handle sh = zuzu_shm_create(4096);
+    Handle sh = ZuzuShmemCreate(4096);
     if (sh < 0) return;
-    uint8_t *m = (uint8_t *)zuzu_memmap(sh, 0, PROT_RW, 0);
-    if (!zuzu_is_err(m)) {
+    uint8_t *m = (uint8_t *)ZuzuMemMap(sh, 0, PROT_RW, 0);
+    if (!ZuzuPtrIsErr(m)) {
         m[0] = 1;                /* fault the page in */
-        zuzu_memunmap(m);
+        ZuzuMemUnmap(m);
     }
     zuzu_destroy(sh);
 }
@@ -874,7 +874,7 @@ static void leak_loop_thread(void)
     Tid t = ZuzuTMake(trivial_worker, (char *)st + STACK_SIZE, NULL);
     if (t > 0) ZuzuTJoin(t);
     ZuzuSleep(5);               /* deferred reaper frees kstack+TCB slot */
-    zuzu_memunmap(st);
+    ZuzuMemUnmap(st);
 }
 
 static void leak_loop_spawn(int i)

@@ -20,7 +20,7 @@ extern "C" {
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
 static inline int32_t zuzu_irq_bind(Handle dev_handle, Handle ntfn_handle) {
-    return syscall(SYS_IRQ_BIND, dev_handle, ntfn_handle, 0, 0);
+    return Syscall(SYS_IRQ_BIND, dev_handle, ntfn_handle, 0, 0);
 }
 
 /**
@@ -30,7 +30,7 @@ static inline int32_t zuzu_irq_bind(Handle dev_handle, Handle ntfn_handle) {
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
 static inline int32_t zuzu_irq_done(Handle dev_handle) {
-    return syscall(SYS_IRQ_DONE, dev_handle, 0, 0, 0);
+    return Syscall(SYS_IRQ_DONE, dev_handle, 0, 0, 0);
 }
 
 #ifdef __cplusplus

@@ -45,8 +45,8 @@ int main(void)
     port = zuzu_port_create();
     CHECK(port >= 0, "port_create");
 
-    void *stack = zuzu_memmap(HANDLE_ANON, STACK_SIZE, PROT_READ | PROT_WRITE, 0);
-    CHECK(!zuzu_is_err(stack), "worker stack");
+    void *stack = ZuzuMemMap(HANDLE_ANON, STACK_SIZE, PROT_READ | PROT_WRITE, 0);
+    CHECK(!ZuzuPtrIsErr(stack), "worker stack");
 
     Tid tid = ZuzuTMake(worker, (char *)stack + STACK_SIZE, NULL);
 
@@ -73,9 +73,9 @@ int main(void)
     lmsg_write(REQ, sizeof(REQ));
     CHECK((int32_t)zuzu_msg_lsend(port, LMSG_BUF_SIZE + 1) < 0, "lsend len>512 rejected");
 
-    CHECK(zuzu_memunmap((void *)SYSPAGE_VA) == ERR_NOPERM, "syspage unmap refused");
-    CHECK(zuzu_memunmap((void *)((uintptr_t)zuzu_tcb() & ~0xFFFu)) == ERR_NOPERM, "TCB page unmap refused");
-    CHECK(zuzu_memprotect((void *)SYSPAGE_VA, PAGE_SIZE, PROT_READ | PROT_WRITE) != 0, "syspage mprotect refused");
+    CHECK(ZuzuMemUnmap((void *)SYSPAGE_VA) == ERR_NOPERM, "syspage unmap refused");
+    CHECK(ZuzuMemUnmap((void *)((uintptr_t)zuzu_tcb() & ~0xFFFu)) == ERR_NOPERM, "TCB page unmap refused");
+    CHECK(ZuzuMemProtect((void *)SYSPAGE_VA, PAGE_SIZE, PROT_READ | PROT_WRITE) != 0, "syspage mprotect refused");
 
     /* force multiple sbrk growths + tail donation */
     void *p[200];
@@ -83,7 +83,7 @@ int main(void)
     CHECK(big != NULL, "large alloc");
     free(big);
 
-    zuzu_memunmap(stack);
+    ZuzuMemUnmap(stack);
     zuzu_destroy(port);
 
     printf("\n%s (%d failures)\n", fails ? "FAILED" : "ALL PASS", fails);

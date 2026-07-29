@@ -308,7 +308,7 @@ static int pl181drv_setup(void)
         return -1;
     }
 
-    pl181 = (pl181_t *)zuzu_memmap((uint32_t)block_dev_handle, 0, PROT_RW, 0);
+    pl181 = (pl181_t *)ZuzuMemMap((uint32_t)block_dev_handle, 0, PROT_RW, 0);
     if ((intptr_t)pl181 <= 0)
     {
         LOG_ERROR(LOG_TAG, "mapdev failed");
@@ -327,14 +327,14 @@ static int pl181drv_setup(void)
     if (pl181_setup() < 0)
         return -1;
 
-    Handle shm_h = zuzu_shm_create(4096);
+    Handle shm_h = ZuzuShmemCreate(4096);
     if (shm_h < 0)
     {
         LOG_ERROR(LOG_TAG, "shmem failed");
         return -1;
     }
-    void *shm_addr = zuzu_memmap(shm_h, 0, PROT_RW, 0);
-    if (zuzu_is_err(shm_addr))
+    void *shm_addr = ZuzuMemMap(shm_h, 0, PROT_RW, 0);
+    if (ZuzuPtrIsErr(shm_addr))
     {
         LOG_ERROR(LOG_TAG, "shmem attach failed");
         return -1;

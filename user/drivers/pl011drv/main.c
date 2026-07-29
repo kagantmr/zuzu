@@ -151,7 +151,7 @@ int pl011drv_setup(void)
     }
 
     serial_dev_handle = dev_handle;
-    uart = (volatile pl011_t *)zuzu_memmap(dev_handle, 0, PROT_RW, 0);
+    uart = (volatile pl011_t *)ZuzuMemMap(dev_handle, 0, PROT_RW, 0);
     if ((intptr_t)uart <= 0) {
         return (int)(intptr_t)uart;
     }

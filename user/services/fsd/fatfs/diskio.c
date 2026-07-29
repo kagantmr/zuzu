@@ -33,7 +33,7 @@ static int disk_backend_init(void)
         return -1;
     }
 
-    g_sector_buf = (BYTE *)zuzu_memmap((int32_t)r.w2, 0, PROT_RW, 0);
+    g_sector_buf = (BYTE *)ZuzuMemMap((int32_t)r.w2, 0, PROT_RW, 0);
     if ((intptr_t)g_sector_buf <= 0) {
         g_sd_port = -1;
         g_sector_buf = NULL;

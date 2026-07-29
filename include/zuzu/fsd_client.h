@@ -44,12 +44,12 @@ static inline int32_t fsd_attach(fsd_conn_t *c, int32_t port, uint32_t pid,
     c->port = port;
     c->pid  = pid;
 
-    c->shm = zuzu_shm_create(want_size);
+    c->shm = ZuzuShmemCreate(want_size);
     if (c->shm < 0)
         return (int32_t)c->shm;
 
-    void *p = zuzu_memmap(c->shm, 0, PROT_RW, 0);
-    if (zuzu_is_err(p))
+    void *p = ZuzuMemMap(c->shm, 0, PROT_RW, 0);
+    if (ZuzuPtrIsErr(p))
         return (int32_t)(intptr_t)p;
     c->buf  = (uint8_t *)p;
     c->size = want_size;

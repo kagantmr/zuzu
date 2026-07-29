@@ -52,7 +52,7 @@ int main(void)
     worker_arg_t args[NTHREADS];
 
     for (int i = 0; i < NTHREADS; i++) {
-        void *stack = zuzu_memmap(HANDLE_ANON, STACK_SIZE, PROT_READ | PROT_WRITE, 0);
+        void *stack = ZuzuMemMap(HANDLE_ANON, STACK_SIZE, PROT_READ | PROT_WRITE, 0);
         args[i] = (worker_arg_t){ .stack = stack, .idx = i };
         tids[i] = ZuzuTMake(worker, (char *)stack + STACK_SIZE, &args[i]);
     }
@@ -70,7 +70,7 @@ int main(void)
     }
 
     for (int i = 0; i < NTHREADS; i++)
-        zuzu_memunmap(args[i].stack);
+        ZuzuMemUnmap(args[i].stack);
 
     printf("\n%s (%d failures)\n", fails ? "FAILED" : "ALL PASS", fails);
     return fails;

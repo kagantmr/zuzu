@@ -71,7 +71,7 @@ static void build_class_table(void) {
     int32_t nic_irq = -1;
 
     for (uint32_t i = 1; i < MAX_HANDLE_SCAN && reg_count < MAX_DRIVERS; i++) {
-        int32_t rc = zuzu_dev_query(i, compat, sizeof(compat));
+        int32_t rc = ZuzuDeviceQuery(i, compat, sizeof(compat));
         if (rc < 0)
             continue;
 

@@ -23,8 +23,8 @@ Err client_register(uint32_t pid, Handle shm, uint32_t size)
     {
         if (client_table[i].pid == 0)
         {
-            void *p = zuzu_memmap(shm, 0, PROT_RW, 0);
-            if (zuzu_is_err(p)) return ERR_NOMEM;
+            void *p = ZuzuMemMap(shm, 0, PROT_RW, 0);
+            if (ZuzuPtrIsErr(p)) return ERR_NOMEM;
             client_table[i].pid = pid;
             client_table[i].shm_handle = shm;
             client_table[i].buf = p;
@@ -51,7 +51,7 @@ void client_drop(uint32_t pid)
     for (uint32_t fd = 0; fd < FSD_MAX_FILES; fd++)
         if (file_get(pid, fd)) file_close(pid, fd);
 
-    if (c->buf) zuzu_memunmap(c->buf);
+    if (c->buf) ZuzuMemUnmap(c->buf);
     memset(c, 0, sizeof(*c));
 }
 
