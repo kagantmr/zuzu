@@ -67,7 +67,15 @@ gdb.txt
 
 build/
 sd.img
-ZUZUSD/
 
 # vendored U-Boot source tree (clone locally, see README)
 uboot-src/
+
+# ZUZUSD/ is the SD-card staging directory (see Makefile's "SD card
+# workflow" section). bin/, boot/, and lib/*.a are all regenerated from
+# source by `make sdimg-stage`/`uboot-stage`, so they're ignored like any
+# other build output (lib/*.a is already caught by the blanket *.a rule
+# above). Non-generated resources placed directly under ZUZUSD/ (headers,
+# config files, vendored non-build assets) are tracked normally.
+ZUZUSD/bin/
+ZUZUSD/boot/
