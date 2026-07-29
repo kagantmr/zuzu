@@ -65,7 +65,7 @@ static void strip(char *s)
 
 int setup(void)
 {
-    Message sysd = zuzu_msg_call(NT_PORT, NT_LOOKUP, nt_pack(NT_NAME_SYS), 0);
+    Message sysd = ZuzuMsgCall(NT_PORT, NT_LOOKUP, nt_pack(NT_NAME_SYS), 0);
     if (sysd.w1 != NT_LU_OK)
         return -1;
     sysd_port = (int32_t)sysd.w2;
@@ -226,7 +226,7 @@ static void print_exec_error(int32_t code)
     }
 }
 
-static bool exec_reply_valid(const exec_reply_t *reply)
+static bool exec_reply_valid(const ExecReply *reply)
 {
     if (reply->entry < USER_ELF_BASE || reply->entry >= USER_STACK_GUARD_VA)
         return false;
@@ -270,7 +270,7 @@ static void cmd_ls(const char *arg)
     /* fsd returns at most a bufferful of dirents per call; page through the
      * directory by advancing `start` until a short batch ends it. */
     for (;;) {
-        fsd_dirent_t entries[32];
+        FsdDirEntry entries[32];
         uint32_t count = 0;
         if (fsd_readdir(&fsd_conn, path, start, entries,
                         sizeof(entries) / sizeof(entries[0]), &count) != ZUZU_OK) {
@@ -393,7 +393,7 @@ static void cmd_exec(const char *line)
         return;
     }
 
-    int32_t sysd_task_handle = zuzu_grant(ts.taskHandle, (int32_t)sysd_pid);
+    int32_t sysd_task_handle = ZuzuGrant(ts.taskHandle, (int32_t)sysd_pid);
     if (sysd_task_handle < 0) {
         ZuzuPKill(ts.taskHandle);                    /* <-- NEW */
         printf("%s", ANSI_RED "zzsh: spawn failed (sysd reject)\n" ANSI_RESET);
@@ -401,14 +401,14 @@ static void cmd_exec(const char *line)
     }
 
     size_t path_len = strlen(path);
-    size_t req_len = sizeof(exec_request_hdr_t) + path_len + 1 + argpos;
+    size_t req_len = sizeof(ExecRequestHeader) + path_len + 1 + argpos;
     if (req_len > LMSG_BUF_SIZE) {
         ZuzuPKill(ts.taskHandle);                    /* <-- NEW */
         printf("%s", ANSI_RED "zzsh: command too long\n" ANSI_RESET);
         return;
     }
 
-    exec_request_hdr_t *hdr = (exec_request_hdr_t *)lmsg_buf();
+    ExecRequestHeader *hdr = (ExecRequestHeader *)LmsgBuf();
     hdr->cmd = SYSD_EXEC;
     hdr->_pad = 0;
     hdr->taskHandle = (uint16_t)sysd_task_handle;
@@ -416,24 +416,24 @@ static void cmd_exec(const char *line)
     hdr->argc = (uint16_t)token_count;
     hdr->pid = ts.pid;
 
-    char *payload = (char *)lmsg_buf() + sizeof(*hdr);
+    char *payload = (char *)LmsgBuf() + sizeof(*hdr);
     memcpy(payload, path, path_len + 1);
     memcpy(payload + path_len + 1, argbuf, argpos);
 
-    int32_t rc = ChannelCall((Handle)sysd_port, lmsg_buf(), (uint32_t)req_len,
-                           lmsg_buf(), (uint32_t)sizeof(exec_reply_t));
+    int32_t rc = ChannelCall((Handle)sysd_port, LmsgBuf(), (uint32_t)req_len,
+                           LmsgBuf(), (uint32_t)sizeof(ExecReply));
     if (rc < 0) {
         ZuzuPKill(ts.taskHandle);
         print_exec_error(rc);
         return;
     }
-    if (rc != (int32_t)sizeof(exec_reply_t)) {
+    if (rc != (int32_t)sizeof(ExecReply)) {
         ZuzuPKill(ts.taskHandle);
         printf("%s", ANSI_RED "zzsh: bad exec reply\n" ANSI_RESET);
         return;
     }
 
-    exec_reply_t *reply = (exec_reply_t *)lmsg_buf();
+    ExecReply *reply = (ExecReply *)LmsgBuf();
     if (!exec_reply_valid(reply)) {
         ZuzuPKill(ts.taskHandle);
         print_exec_error(EXEC_EBADELF);
@@ -549,7 +549,7 @@ void command_dispatch(const char *line)
         if (nic_port < 0) {
             printf("%s", "nicstat: nic0 not found\n");
         } else {
-            Message r = zuzu_msg_call(nic_port, NIC_CMD_STATS, 0, 0);
+            Message r = ZuzuMsgCall(nic_port, NIC_CMD_STATS, 0, 0);
             char buf[48];
             snprintf(buf, sizeof(buf), "nic0: irq_count=%u\n", (uint32_t)r.w2);
             printf("%s", buf);

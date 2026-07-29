@@ -26,10 +26,10 @@ extern "C" {
  * quantum.
  */
 /* TEMPORARY: Loaf backend only. Deleted at Prowl. */
-typedef _Atomic uint32_t zzuspin_t;   /* 0 = free, 1 = held */
-#define ZZUSPIN_INIT 0u
+typedef _Atomic uint32_t ZuzuUSpin;   /* 0 = free, 1 = held */
+#define ZUZUUSPIN_INIT 0u
 
-static inline void zzuspin_lock(zzuspin_t *lk)
+static inline void ZuzuUSpinLock(ZuzuUSpin *lk)
 {
     volatile uint32_t *word = (volatile uint32_t *)lk;
     for (;;) {
@@ -44,7 +44,7 @@ static inline void zzuspin_lock(zzuspin_t *lk)
     arch_dmb();
 }
 
-static inline void zzuspin_unlock(zzuspin_t *lk)
+static inline void ZuzuUSpinUnlock(ZuzuUSpin *lk)
 {
     arch_dmb();
     *lk = 0u;

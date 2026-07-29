@@ -79,7 +79,7 @@ int stdio_register_uart(void)
         return 0;
     }
 
-    Message lu = zuzu_msg_call(NT_PORT, NT_LOOKUP, nt_pack(stdio_tty_name), 0);
+    Message lu = ZuzuMsgCall(NT_PORT, NT_LOOKUP, nt_pack(stdio_tty_name), 0);
     if ((int32_t)lu.w1 != NT_LU_OK) {
         return -1;
     }
@@ -99,7 +99,7 @@ static int __attribute__((unused)) stdio_refill_input(void)
     if (stdio_register_uart() != 0)
         return EOF;
 
-    Message reply = zuzu_msg_lcall(stdio_tty, LMSG_BUF_SIZE);
+    Message reply = ZuzuMsgLcall(stdio_tty, LMSG_BUF_SIZE);
     if (reply.w0 < 0)
         return EOF;
 
@@ -109,7 +109,7 @@ static int __attribute__((unused)) stdio_refill_input(void)
     if (got == 0)
         return EOF;
 
-    memcpy(stdio_input_buf, lmsg_buf(), got);
+    memcpy(stdio_input_buf, LmsgBuf(), got);
     stdio_input_len = got;
     stdio_input_pos = 0;
     return 0;
@@ -498,8 +498,8 @@ int vprintf(const char *format, va_list args)
                 uint32_t chunk = (uint32_t)(out_len - off);
                 if (chunk > LMSG_BUF_SIZE)
                     chunk = LMSG_BUF_SIZE;
-                lmsg_write(buf + off, chunk);
-                (void)zuzu_msg_lsend(stdio_tty, chunk);
+                LmsgWrite(buf + off, chunk);
+                (void)ZuzuMsgLsend(stdio_tty, chunk);
                 off += chunk;
             }
         }

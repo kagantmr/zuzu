@@ -54,11 +54,11 @@ static inline int32_t fsd_attach(fsd_conn_t *c, int32_t port, uint32_t pid,
     c->buf  = (uint8_t *)p;
     c->size = want_size;
 
-    int32_t slot = zuzu_grant(c->shm, (int32_t)c->pid);
+    int32_t slot = ZuzuGrant(c->shm, (int32_t)c->pid);
     if (slot < 0)
         return slot;
 
-    Message s = zuzu_msg_call(c->port, FSD_SET_BUF, FSD_SETBUF_PACK(slot, want_size), 0);
+    Message s = ZuzuMsgCall(c->port, FSD_SET_BUF, FSD_SETBUF_PACK(slot, want_size), 0);
     if ((int32_t)s.w1 != ZUZU_OK)
         return (int32_t)s.w1;
 
@@ -74,7 +74,7 @@ static inline int32_t fsd_connect(fsd_conn_t *c, uint32_t want_size)
         return ZUZU_OK;
 
     /* lookup returns the granted port slot in.w2 and fsd's pid in.w3 */
-    Message l = zuzu_msg_call(NT_PORT, NT_LOOKUP, nt_pack("fsd"), 0);
+    Message l = ZuzuMsgCall(NT_PORT, NT_LOOKUP, nt_pack("fsd"), 0);
     if (l.w1 != NT_LU_OK)
         return (int32_t)l.w1;
 
@@ -82,9 +82,9 @@ static inline int32_t fsd_connect(fsd_conn_t *c, uint32_t want_size)
 }
 
 /* Fill the request header at FSD_REQ_OFF; returns the payload cursor. */
-static inline fsd_req_t *fsd__req(fsd_conn_t *c, uint32_t cmd)
+static inline FsdRequest *fsd__req(fsd_conn_t *c, uint32_t cmd)
 {
-    fsd_req_t *r = (fsd_req_t *)(c->buf + FSD_REQ_OFF);
+    FsdRequest *r = (FsdRequest *)(c->buf + FSD_REQ_OFF);
     memset(r, 0, sizeof(*r));
     r->size     = sizeof(*r);
     r->cmd      = cmd;
@@ -98,12 +98,12 @@ static inline int32_t fsd_open(fsd_conn_t *c, const char *path, uint32_t mode, u
     if (FSD_DATA_OFF + n + 1 > c->size)
         return ERR_OVERFLOW;
 
-    fsd_req_t *r = fsd__req(c, FSD_OPEN);
+    FsdRequest *r = fsd__req(c, FSD_OPEN);
     r->mode     = mode;
     r->data_len = (uint32_t)n + 1;
     memcpy(c->buf + FSD_DATA_OFF, path, n + 1);
 
-    Message m = zuzu_msg_call(c->port, FSD_OPEN, 0, 0);
+    Message m = ZuzuMsgCall(c->port, FSD_OPEN, 0, 0);
     if ((int32_t)m.w1 != ZUZU_OK)
         return (int32_t)m.w1;
     if (fd) *fd = m.w2;
@@ -112,7 +112,7 @@ static inline int32_t fsd_open(fsd_conn_t *c, const char *path, uint32_t mode, u
 
 static inline int32_t fsd_close(fsd_conn_t *c, uint32_t fd)
 {
-    Message m = zuzu_msg_call(c->port, FSD_CLOSE, fd, 0);
+    Message m = ZuzuMsgCall(c->port, FSD_CLOSE, fd, 0);
     return (int32_t)m.w1;
 }
 
@@ -124,7 +124,7 @@ static inline int32_t fsd_read(fsd_conn_t *c, uint32_t fd, void *dst,
     if (count > cap)      count = cap;
     if (count > 0xFFFFu)  count = 0xFFFFu;   /* count rides the high 16 bits of arg */
 
-    Message m = zuzu_msg_call(c->port, FSD_READ, (fd & 0xFFFFu) | (count << 16), 0);
+    Message m = ZuzuMsgCall(c->port, FSD_READ, (fd & 0xFFFFu) | (count << 16), 0);
     if ((int32_t)m.w1 != ZUZU_OK)
         return (int32_t)m.w1;
 
@@ -143,28 +143,28 @@ static inline int32_t fsd_write(fsd_conn_t *c, uint32_t fd, const void *src,
     if (count > 0xFFFFu)  count = 0xFFFFu;
 
     if (count) memcpy(c->buf + FSD_DATA_OFF, src, count);
-    Message m = zuzu_msg_call(c->port, FSD_WRITE, (fd & 0xFFFFu) | (count << 16), 0);
+    Message m = ZuzuMsgCall(c->port, FSD_WRITE, (fd & 0xFFFFu) | (count << 16), 0);
     if ((int32_t)m.w1 != ZUZU_OK)
         return (int32_t)m.w1;
     if (put) *put = m.w2;
     return ZUZU_OK;
 }
 
-static inline int32_t fsd_stat(fsd_conn_t *c, const char *path, fsd_stat_t *st)
+static inline int32_t fsd_stat(fsd_conn_t *c, const char *path, FsdStat *st)
 {
     size_t n = strlen(path);
     if (FSD_DATA_OFF + n + 1 > c->size)
         return ERR_OVERFLOW;
 
-    fsd_req_t *r = fsd__req(c, FSD_STAT);
+    FsdRequest *r = fsd__req(c, FSD_STAT);
     r->data_len = (uint32_t)n + 1;
     memcpy(c->buf + FSD_DATA_OFF, path, n + 1);
 
-    Message m = zuzu_msg_call(c->port, FSD_STAT, 0, 0);
+    Message m = ZuzuMsgCall(c->port, FSD_STAT, 0, 0);
     if ((int32_t)m.w1 != ZUZU_OK)
         return (int32_t)m.w1;
 
-    const fsd_resp_t *resp = (const fsd_resp_t *)(c->buf + FSD_RESP_OFF);
+    const FsdResponse *resp = (const FsdResponse *)(c->buf + FSD_RESP_OFF);
     if (st && resp->data_len >= sizeof(*st) && resp->data_off + sizeof(*st) <= c->size)
         memcpy(st, c->buf + resp->data_off, sizeof(*st));
     return ZUZU_OK;
@@ -172,27 +172,27 @@ static inline int32_t fsd_stat(fsd_conn_t *c, const char *path, fsd_stat_t *st)
 
 /* Read directory entries starting at `start`; *count set to entries returned. */
 static inline int32_t fsd_readdir(fsd_conn_t *c, const char *path, uint32_t start,
-                                  fsd_dirent_t *out, uint32_t max, uint32_t *count)
+                                  FsdDirEntry *out, uint32_t max, uint32_t *count)
 {
     size_t n = strlen(path);
     if (FSD_DATA_OFF + n + 1 > c->size)
         return ERR_OVERFLOW;
 
-    fsd_req_t *r = fsd__req(c, FSD_READDIR);
+    FsdRequest *r = fsd__req(c, FSD_READDIR);
     r->offset   = (int64_t)start;
     r->data_len = (uint32_t)n + 1;
     memcpy(c->buf + FSD_DATA_OFF, path, n + 1);
 
-    Message m = zuzu_msg_call(c->port, FSD_READDIR, 0, 0);
+    Message m = ZuzuMsgCall(c->port, FSD_READDIR, 0, 0);
     if ((int32_t)m.w1 != ZUZU_OK)
         return (int32_t)m.w1;
 
     uint32_t got = m.w2;
     if (got > max) got = max;
-    const fsd_resp_t *resp = (const fsd_resp_t *)(c->buf + FSD_RESP_OFF);
+    const FsdResponse *resp = (const FsdResponse *)(c->buf + FSD_RESP_OFF);
     if (out && got &&
-        (uint64_t)resp->data_off + (uint64_t)got * sizeof(fsd_dirent_t) <= c->size)
-        memcpy(out, c->buf + resp->data_off, (size_t)got * sizeof(fsd_dirent_t));
+        (uint64_t)resp->data_off + (uint64_t)got * sizeof(FsdDirEntry) <= c->size)
+        memcpy(out, c->buf + resp->data_off, (size_t)got * sizeof(FsdDirEntry));
     if (count) *count = got;
     return ZUZU_OK;
 }

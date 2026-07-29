@@ -68,9 +68,9 @@ static inline bool valid_irq(Irq irq_num) {
 }
 
 /*
- * zuzu_irq_bind: claim ownership of a device's IRQ line (if not already owned by
+ * ZuzuIrqBind: claim ownership of a device's IRQ line (if not already owned by
  * the caller) and bind a notification to it in a single syscall. Formerly two
- * syscalls, irq_claim + zuzu_irq_bind, which every caller invoked back-to-back.
+ * syscalls, irq_claim + ZuzuIrqBind, which every caller invoked back-to-back.
  */
 void sys_irq_bind(arch_regs_t *frame) {
     Handle dev_handle  = (*arch_reg(frame, 0));

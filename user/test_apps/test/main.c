@@ -26,13 +26,13 @@ static void worker(void *arg)
     (void)arg;
     char buf[LMSG_BUF_SIZE];
 
-    printf("tid = %d lmsg_buf = %p", ZuzuTLS()->tid, lmsg_buf());
+    printf("tid = %d lmsg_buf = %p", ZuzuTLS()->tid, LmsgBuf());
 
-    lmsg_write(REQ, sizeof(REQ));
-    Message r = zuzu_msg_lcall(port, sizeof(REQ));
+    LmsgWrite(REQ, sizeof(REQ));
+    Message r = ZuzuMsgLcall(port, sizeof(REQ));
 
     if ((int32_t)r.w0 == 0) {
-        lmsg_read(buf, r.w1);              /* w1 = reply length */
+        LmsgRead(buf, r.w1);              /* w1 = reply length */
         worker_ok = (r.w1 == sizeof(RESP) &&
                      memcmp(buf, RESP, sizeof(RESP)) == 0);
     }
@@ -42,7 +42,7 @@ static void worker(void *arg)
 
 int main(void)
 {
-    port = zuzu_port_create();
+    port = ZuzuPortCreate();
     CHECK(port >= 0, "port_create");
 
     void *stack = ZuzuMemMap(HANDLE_ANON, STACK_SIZE, PROT_READ | PROT_WRITE, 0);
@@ -50,10 +50,10 @@ int main(void)
 
     Tid tid = ZuzuTMake(worker, (char *)stack + STACK_SIZE, NULL);
 
-    Message m = zuzu_msg_recv(port, TIMEOUT_INFINITE);
+    Message m = ZuzuMsgRecv(port, TIMEOUT_INFINITE);
     char got[LMSG_BUF_SIZE];
     uint32_t len = m.w2;
-    lmsg_read(got, len);              /* FIRST — before any printf */
+    LmsgRead(got, len);              /* FIRST — before any printf */
 
     CHECK((int32_t)m.w0 >= 0, "recv got the lcall");
     CHECK(len == sizeof(REQ), "payload length matches");
@@ -61,17 +61,17 @@ int main(void)
     printf("got: '%s' (first bytes %02x %02x %02x %02x)\n",
         got, got[0], got[1], got[2], got[3]);
     printf("main lmsg_buf VA = %p, tid=%u pid=%u\n",
-        lmsg_buf(), ZuzuTLS()->tid, ZuzuTLS()->pid);
+        LmsgBuf(), ZuzuTLS()->tid, ZuzuTLS()->pid);
 
-    lmsg_write(RESP, sizeof(RESP));
-    CHECK(zuzu_msg_lreply((Handle)m.w0, sizeof(RESP)) == 0, "lreply");
+    LmsgWrite(RESP, sizeof(RESP));
+    CHECK(ZuzuMsgLreply((Handle)m.w0, sizeof(RESP)) == 0, "lreply");
 
     ZuzuTJoin(tid);
     CHECK(worker_ok, "worker received the lreply payload intact");
     
 
-    lmsg_write(REQ, sizeof(REQ));
-    CHECK((int32_t)zuzu_msg_lsend(port, LMSG_BUF_SIZE + 1) < 0, "lsend len>512 rejected");
+    LmsgWrite(REQ, sizeof(REQ));
+    CHECK((int32_t)ZuzuMsgLsend(port, LMSG_BUF_SIZE + 1) < 0, "lsend len>512 rejected");
 
     CHECK(ZuzuMemUnmap((void *)SYSPAGE_VA) == ERR_NOPERM, "syspage unmap refused");
     CHECK(ZuzuMemUnmap((void *)((uintptr_t)ZuzuTLS() & ~0xFFFu)) == ERR_NOPERM, "TCB page unmap refused");
@@ -84,7 +84,7 @@ int main(void)
     free(big);
 
     ZuzuMemUnmap(stack);
-    zuzu_destroy(port);
+    ZuzuDestroy(port);
 
     printf("\n%s (%d failures)\n", fails ? "FAILED" : "ALL PASS", fails);
     return fails;

@@ -63,11 +63,11 @@ int pl011drv_setup(void);
 
 /* PL011DRV lmsg API: send/receive via the per-thread lmsg buffer */
 static inline int32_t pl011drv_write(int32_t port, uint32_t len) {
-    return ChannelSend((Handle)port, lmsg_buf(), len);
+    return ChannelSend((Handle)port, LmsgBuf(), len);
 }
 
 static inline Message pl011drv_read(int32_t port, uint32_t max_len) {
-    return zuzu_msg_lcall(port, max_len);
+    return ZuzuMsgLcall(port, max_len);
 }
 
 #endif

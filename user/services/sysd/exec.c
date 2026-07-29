@@ -109,7 +109,7 @@ static int inject_stack(uint32_t taskHandle,
 }
 
 int exec_inject(uint32_t taskHandle, const void *elf_data, size_t elf_size,
-              const char *argbuf, size_t argbuf_len, uint32_t argc, exec_reply_t *out)
+              const char *argbuf, size_t argbuf_len, uint32_t argc, ExecReply *out)
 {
     uint32_t entry = elf_validate(elf_data, elf_size);
     if (!entry) return -1;

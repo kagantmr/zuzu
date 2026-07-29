@@ -19,13 +19,13 @@ typedef enum {
     LOG_LEVEL_WARN = 3,
     LOG_LEVEL_ERROR = 4,
     LOG_LEVEL_FATAL = 5,
-} log_level_t;
+} LogLevel;
 
 #ifndef __KERNEL__
 
-void log_set_level(log_level_t min_level);
-log_level_t log_get_level(void);
-void log_write(log_level_t level, const char *tag, const char *fmt, ...);
+void log_set_level(LogLevel min_level);
+LogLevel log_get_level(void);
+void log_write(LogLevel level, const char *tag, const char *fmt, ...);
 
 #define LOG_DEBUG(tag, fmt, ...) log_write(LOG_LEVEL_DEBUG, tag, fmt, ##__VA_ARGS__)
 #define LOG_INFO(tag, fmt, ...)  log_write(LOG_LEVEL_INFO,  tag, fmt, ##__VA_ARGS__)

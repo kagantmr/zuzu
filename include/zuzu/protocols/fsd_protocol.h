@@ -27,7 +27,7 @@
 
 typedef struct
 {
-    uint32_t size; /* sizeof(fsd_req_t); client sets, fsd honors */
+    uint32_t size; /* sizeof(FsdRequest); client sets, fsd honors */
     uint32_t cmd;
     uint32_t data_off; /* byte offset into shm where payload begins */
     uint32_t data_len;
@@ -36,14 +36,14 @@ typedef struct
     uint32_t whence; /* SEEK */
     uint32_t mode;   /* OPEN */
     uint32_t flags;
-} fsd_req_t;
+} FsdRequest;
 
-_Static_assert(sizeof(fsd_req_t) == 40, "fsd_req_t layout changed");
+_Static_assert(sizeof(FsdRequest) == 40, "FsdRequest layout changed");
 
 typedef struct
 {
-    uint32_t size;     /* sizeof(fsd_resp_t); fsd sets */
-    Err status;      /* ZUZU_OK or Err */
+    uint32_t size;     /* sizeof(FsdResponse); fsd sets */
+    Err status;        /* ZUZU_OK or Err */
     uint32_t data_off; /* where fsd put the payload */
     uint32_t data_len; /* how much */
     int64_t offset;    /* SEEK: new absolute position */
@@ -51,30 +51,41 @@ typedef struct
     uint32_t fd;       /* OPEN */
     uint32_t flags;
     uint32_t _rsv;
-} fsd_resp_t;
+} FsdResponse;
 
-_Static_assert(sizeof(fsd_resp_t) == 40, "fsd_resp_t layout changed");
+_Static_assert(sizeof(FsdResponse) == 40, "FsdResponse layout changed");
 
-typedef enum { FSD_SEEK_SET = 0, FSD_SEEK_CUR = 1, FSD_SEEK_END = 2 } fsd_whence_t;
-typedef enum { FSD_TYPE_FILE = 0, FSD_TYPE_DIR = 1, FSD_TYPE_SYMLINK = 2 } fsd_ftype_t;
+typedef enum
+{
+    FSD_SEEK_SET = 0,
+    FSD_SEEK_CUR = 1,
+    FSD_SEEK_END = 2
+} FsdWhence;
+
+typedef enum
+{
+    FSD_TYPE_FILE = 0,
+    FSD_TYPE_DIR = 1,
+    FSD_TYPE_SYMLINK = 2
+} FsdFileType;
 
 typedef struct
 {
     char name[56];   //  null-terminated UTF-8 string
     uint32_t size;   // file size in bytes
-    uint8_t type;    /* fsd_ftype_t value */
+    uint8_t type;    /* FsdFileType value */
     uint8_t _pad[3]; // padding for alignment
-} fsd_dirent_t;       /* 64 bytes */
+} FsdDirEntry;      /* 64 bytes */
 
 /* Stat result returned in shmem by STAT */
 typedef struct
 {
     uint32_t size;   // file size in bytes
-    uint8_t type;    /* fsd_ftype_t value */
+    uint8_t type;    /* FsdFileType value */
     uint8_t _pad[3]; // padding for alignment
-} fsd_stat_t;
+} FsdStat;
 
-_Static_assert(sizeof(fsd_dirent_t) <= 64, "dirent should stay cache-line-ish");
+_Static_assert(sizeof(FsdDirEntry) <= 64, "dirent should stay cache-line-ish");
 
 typedef enum
 {
@@ -89,7 +100,7 @@ typedef enum
     FSD_READDIR,     /* shm: path -> dirents in shm, count        */
     FSD_UNLINK,      /* shm: path                                 */
     FSD_RENAME,      /* shm: two paths                            */
-} fsd_cmd_t;
+} FsdCommand;
 
 #define FSD_REQ_OFF 0u
 #define FSD_RESP_OFF 64u

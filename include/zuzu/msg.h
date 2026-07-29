@@ -19,9 +19,9 @@ extern "C" {
  * @param w1 The first word of the message payload.
  * @param w2 The second word of the message payload.
  * @param w3 The third word of the message payload.
- * @return int32_t Returns 0 on success, or a negative error code on failure.
+ * @return Err Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t zuzu_msg_send(Handle port, uint32_t w1, uint32_t w2, uint32_t w3) {
+static inline Err ZuzuMsgSend(Handle port, MsgWord w1, MsgWord w2, MsgWord w3) {
     return Syscall(SYS_MSG_SEND, port, w1, w2, w3);
 }
 
@@ -30,9 +30,10 @@ static inline int32_t zuzu_msg_send(Handle port, uint32_t w1, uint32_t w2, uint3
  * 
  * @param port The handle of the port to receive the message from.
  * @param timeout_ms The timeout in milliseconds to wait for a message. Use TIMEOUT_INFINITE for blocking indefinitely, or TIMEOUT_POLL for non-blocking.
+ * 
  * @return Message Returns 2 of the caller's 3 payload words, r1 is sender's PID.
  */
-static inline Message zuzu_msg_recv(Handle port, uint32_t timeout_ms) {
+static inline Message ZuzuMsgRecv(Handle port, Duration timeout_ms) {
     return syscall_msg(SYS_MSG_RECV, port, timeout_ms, 0, 0);
 }
 
@@ -46,7 +47,7 @@ static inline Message zuzu_msg_recv(Handle port, uint32_t timeout_ms) {
  * 
  * @return Message Returns a Message structure containing the reply message. If the call operation fails, the r0 field of the returned Message will contain a negative error code.
  */
-static inline Message zuzu_msg_call(Handle port, uint32_t w1, uint32_t w2, uint32_t w3) {
+static inline Message ZuzuMsgCall(Handle port, MsgWord w1, MsgWord w2, MsgWord w3) {
     return syscall_msg(SYS_MSG_CALL, port, w1, w2, w3);
 }
 
@@ -58,9 +59,9 @@ static inline Message zuzu_msg_call(Handle port, uint32_t w1, uint32_t w2, uint3
  * @param w2 The second word of the reply payload.
  * @param w3 The third word of the reply payload. (dropped)
  * 
- * @return int32_t Returns 0 on success, or a negative error code on failure.
+ * @return Err Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t zuzu_msg_reply(Handle reply_handle, uint32_t w1, uint32_t w2, uint32_t w3) {
+static inline Err ZuzuMsgReply(Handle reply_handle, MsgWord w1, MsgWord w2, MsgWord w3) {
     return Syscall(SYS_MSG_REPLY, reply_handle, w1, w2, w3);
 }
 
@@ -70,9 +71,9 @@ static inline int32_t zuzu_msg_reply(Handle reply_handle, uint32_t w1, uint32_t 
  * @param port The handle of the port to send the message to.
  * @param buf_len The length of the local buffer to send.
  * 
- * @return int32_t Returns 0 on success, or a negative error code on failure.
+ * @return Err Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t zuzu_msg_lsend(Handle port, uint32_t buf_len) {
+static inline Err ZuzuMsgLsend(Handle port, size_t buf_len) {
     return Syscall(SYS_MSG_LSEND, port, buf_len, 0, 0);
 }
 
@@ -84,7 +85,7 @@ static inline int32_t zuzu_msg_lsend(Handle port, uint32_t buf_len) {
  * 
  * @return Message Returns a Message structure containing the reply message. If the call operation fails, the r0 field of the returned Message will contain a negative error code.
  */
-static inline Message zuzu_msg_lcall(Handle port, uint32_t buf_len) {
+static inline Message ZuzuMsgLcall(Handle port, size_t buf_len) {
     return syscall_msg(SYS_MSG_LCALL, port, buf_len, 0, 0);
 }
 
@@ -94,9 +95,9 @@ static inline Message zuzu_msg_lcall(Handle port, uint32_t buf_len) {
  * @param reply_handle The handle of the reply to send.
  * @param buf_len The length of the local buffer to send.
  * 
- * @return int32_t Returns 0 on success, or a negative error code on failure.
+ * @return Err Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t zuzu_msg_lreply(Handle reply_handle, uint32_t buf_len) {
+static inline Err ZuzuMsgLreply(Handle reply_handle, size_t buf_len) {
     return Syscall(SYS_MSG_LREPLY, reply_handle, buf_len, 0, 0);
 }
 
@@ -107,15 +108,15 @@ static inline int32_t zuzu_msg_lreply(Handle reply_handle, uint32_t buf_len) {
  * @param count The number of handles in the array.
  * @param timeout_ms The timeout in milliseconds to wait for a message. Use TIMEOUT_INFINITE for blocking indefinitely, or TIMEOUT_POLL for non-blocking.
  * 
- * @return int32_t Returns 0 on success, or a negative error code on failure. The result of the waitany operation is stored in the provided WaitanyResult structure.
+ * @return Err Returns 0 on success, or a negative error code on failure. The result of the waitany operation is stored in the provided WaitanyResult structure.
  */
-static inline int32_t zuzu_waitany(const Handle *handles, uint32_t count,
-                               uint32_t timeout_ms, WaitanyResult *result)
+static inline Err ZuzuWaitany(const Handle *handles, size_t count,
+                               Duration timeout_ms, WaitanyResult *result)
 {
     result->size = sizeof(*result);   /* versioning handshake, owned by the wrapper */
 
-    return Syscall(SYS_WAITANY, (uint32_t)(uintptr_t)handles, count, timeout_ms,
-                    (uint32_t)(uintptr_t)result);
+    return Syscall(SYS_WAITANY, (uint32_t)(VirtAddr)handles, count, timeout_ms,
+                    (uint32_t)(VirtAddr)result);
 }
 
 /* ---- Capability syscalls ---- */
@@ -123,9 +124,9 @@ static inline int32_t zuzu_waitany(const Handle *handles, uint32_t count,
 /**
  * @brief Creates a new port and returns its handle.
  * 
- * @return int32_t Returns the handle of the newly created port on success, or a negative error code on failure.
+ * @return Err Returns the handle of the newly created port on success, or a negative error code on failure.
  */
-static inline int32_t zuzu_port_create(void) {
+static inline Err ZuzuPortCreate(void) {
     return Syscall(SYS_PORT_CREATE, 0, 0, 0, 0);
 }
 
@@ -135,9 +136,9 @@ static inline int32_t zuzu_port_create(void) {
  * @param cap The handle of the capability to grant.
  * @param pid The process ID of the target process to grant the capability to.
  * 
- * @return int32_t Returns 0 on success, or a negative error code on failure.
+ * @return Err Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t zuzu_grant(Handle cap, Pid pid) {
+static inline Err ZuzuGrant(Handle cap, Pid pid) {
     return Syscall(SYS_GRANT, cap, pid, 0, 0);
 }
 
@@ -146,9 +147,9 @@ static inline int32_t zuzu_grant(Handle cap, Pid pid) {
  * 
  * @param h The handle to destroy.
  * 
- * @return int32_t Returns 0 on success, or a negative error code on failure.
+ * @return Err Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t zuzu_destroy(Handle h) {
+static inline Err ZuzuDestroy(Handle h) {
     return Syscall(SYS_DESTROY, h, 0, 0, 0);
 }
 

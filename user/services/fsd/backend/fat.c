@@ -77,7 +77,7 @@ static Err fat_seek(void *ctx, void *file, int64_t off, uint32_t whence, int64_t
     return ZUZU_OK;
 }
 
-static Err fat_stat(void *ctx, const char *path, fsd_stat_t *out) {
+static Err fat_stat(void *ctx, const char *path, FsdStat *out) {
     (void)ctx;
     FILINFO fno;
     FRESULT rc = f_stat(path, &fno);
@@ -88,7 +88,7 @@ static Err fat_stat(void *ctx, const char *path, fsd_stat_t *out) {
 }
 
 static Err fat_readdir(void *ctx, const char *path, uint32_t start,
-                         fsd_dirent_t *out, uint32_t max, uint32_t *count)
+                         FsdDirEntry *out, uint32_t max, uint32_t *count)
 {
     (void)ctx;
     *count = 0;
@@ -112,7 +112,7 @@ static Err fat_readdir(void *ctx, const char *path, uint32_t start,
         if (rc != FR_OK) { f_closedir(&dir); return fres_to_err(rc); }
         if (fno.fname[0] == '\0') break;   /* end of directory */
 
-        fsd_dirent_t *e = &out[*count];
+        FsdDirEntry *e = &out[*count];
         memset(e, 0, sizeof(*e));
         strncpy(e->name, fno.fname, sizeof(e->name) - 1);
         e->size = (uint32_t)fno.fsize;

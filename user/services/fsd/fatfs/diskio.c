@@ -27,7 +27,7 @@ static int disk_backend_init(void)
         return -1;
     }
 
-    Message r = zuzu_msg_call(g_sd_port, SD_CMD_GET_BUF, 0, 0);
+    Message r = ZuzuMsgCall(g_sd_port, SD_CMD_GET_BUF, 0, 0);
     if ((int32_t)r.w1 != 0) {
         g_sd_port = -1;
         return -1;
@@ -70,7 +70,7 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
     }
 
     for (UINT i = 0; i < count; i++) {
-        Message r = zuzu_msg_call(g_sd_port, SD_CMD_READ, (uint32_t)(sector + i), 0);
+        Message r = ZuzuMsgCall(g_sd_port, SD_CMD_READ, (uint32_t)(sector + i), 0);
         if ((int32_t)r.w1 != 0) {
             return RES_ERROR;
         }
@@ -92,7 +92,7 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 
     for (UINT i = 0; i < count; i++) {
         memcpy(g_sector_buf, buff + (i * FAT32D_SECTOR_SIZE), FAT32D_SECTOR_SIZE);
-        Message r = zuzu_msg_call(g_sd_port, SD_CMD_WRITE, (uint32_t)(sector + i), 0);
+        Message r = ZuzuMsgCall(g_sd_port, SD_CMD_WRITE, (uint32_t)(sector + i), 0);
         if ((int32_t)r.w1 != 0) {
             return RES_ERROR;
         }

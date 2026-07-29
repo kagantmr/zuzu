@@ -16,31 +16,31 @@ extern "C"
 
 #define SYSPAGE (void *)SYSPAGE_VA
 
-    typedef struct
-    {
-        char name[SYSPAGE_DEV_NAME_LEN]; /* "PL111 CLCD", "SMSC LAN9118", etc */
-    } SyspageDevEntry;
+typedef struct
+{
+    char name[SYSPAGE_DEV_NAME_LEN]; /* "PL111 CLCD", "SMSC LAN9118", etc */
+} SyspageDevEntry;
 
-    typedef struct
-    {
-        uint32_t magic;      // Must be 0x50050CA7 "zoozoo cat"
-        uint32_t kernel_ver; // Top byte reserved, next 3 bytes are kernel version (major, minor, patch)
-        char version[24];    // version string, constant after boot
-        char build[24];      // build timestamp, constant after boot
-        char machine[20];    // from DTB, constant after boot
-        char cpu[24];        // from DTB, constant after boot
-        size_t mem_total_kb;                       // set at early()
-        size_t mem_free_kb;                        // updated
-        Time boot_time_s;                          // when did the kernel boot?
-        Tick uptime_ticks;                         // raw scheduler ticks since timer start
-        uint32_t tick_hz;                          // ticks per second
-        uint8_t dev_count;                         // how many devices are in the devs[] array
-        size_t initrd_size;                        // size of initrd (for sysd and likely fsd in the future)
-        SyspageDevEntry devs[SYSPAGE_MAX_DEVICES]; // filled from DTB walk at boot
-    } Syspage;
+typedef struct
+{
+    uint32_t magic;      // Must be 0x50050CA7 "zoozoo cat"
+    uint32_t kernel_ver; // Top byte reserved, next 3 bytes are kernel version (major, minor, patch)
+    char version[24];    // version string, constant after boot
+    char build[24];      // build timestamp, constant after boot
+    char machine[20];    // from DTB, constant after boot
+    char cpu[24];        // from DTB, constant after boot
+    size_t mem_total_kb;                       // set at early()
+    size_t mem_free_kb;                        // updated
+    Time boot_time_s;                          // when did the kernel boot?
+    Tick uptime_ticks;                         // raw scheduler ticks since timer start
+    uint32_t tick_hz;                          // ticks per second
+    uint8_t dev_count;                         // how many devices are in the devs[] array
+    size_t initrd_size;                        // size of initrd (for sysd and likely fsd in the future)
+    SyspageDevEntry devs[SYSPAGE_MAX_DEVICES]; // filled from DTB walk at boot
+} Syspage;
 
-    /* Backed by a single pmm_alloc_page() and mapped into userspace as one page. */
-    _Static_assert(sizeof(Syspage) <= 4096, "Syspage must fit in one page");
+/* Backed by a single pmm_alloc_page() and mapped into userspace as one page. */
+_Static_assert(sizeof(Syspage) <= 4096, "Syspage must fit in one page");
 
 #ifdef __cplusplus
 }
