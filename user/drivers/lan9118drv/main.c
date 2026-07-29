@@ -106,7 +106,7 @@ int get_nic(void)
         if ((int32_t)r.w1 == 0)
             break;
         LOG_WARN(LOG_TAG, "NIC device request failed, retrying");
-        zuzu_sleep(10);
+        ZuzuSleep(10);
     }
     dev_handle = (Handle)r.w2;
     irq_ntfn = zuzu_ntfn_create();
@@ -118,7 +118,7 @@ int get_nic(void)
 
     zuzu_irq_bind((uint32_t)dev_handle, (uint32_t)irq_ntfn);
 
-    nic = (volatile lan9118_t *)zuzu_memmap(dev_handle, 0, VM_PROT_RW, 0);
+    nic = (volatile lan9118_t *)zuzu_memmap(dev_handle, 0, PROT_RW, 0);
     if (!nic)
     {
         LOG_ERROR(LOG_TAG, "device mapping failed");
@@ -183,7 +183,7 @@ int nic_setup(void)
         LOG_ERROR(LOG_TAG, "shmem create failed");
         return ERR_SYSDOWN;
     }
-    shmem_addr = zuzu_memmap(shmem_handle, 0, VM_PROT_RW, 0);
+    shmem_addr = zuzu_memmap(shmem_handle, 0, PROT_RW, 0);
     if (zuzu_is_err(shmem_addr)) {
         LOG_ERROR(LOG_TAG, "shmem attach failed");
         return ERR_SYSDOWN;

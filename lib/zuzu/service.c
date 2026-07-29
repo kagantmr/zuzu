@@ -34,6 +34,6 @@ int32_t lookup_service(const char *name) {
                 return (int32_t)reply.w2;
         }
 
-        zuzu_sleep(10);
+        ZuzuSleep(10);
     }
 }

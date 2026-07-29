@@ -21,7 +21,7 @@ uintptr_t kstack_alloc(void) {
 
             /* Map the usable stack page */
             bool result = vmm_map_range(vmm_get_kernel_as(), slot_va + KSTACK_GUARD_SIZE, page_pa, PAGE_SIZE,
-                VM_PROT_READ | VM_PROT_WRITE, VM_MEM_NORMAL, VM_OWNER_ANON, VM_FLAG_NONE);
+                PROT_READ | PROT_WRITE, VM_MEM_NORMAL, VM_OWNER_ANON, VM_FLAG_NONE);
             if (!result) {
                 pmm_free_page(page_pa);
                 return 0;

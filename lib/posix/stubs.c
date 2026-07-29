@@ -109,7 +109,7 @@ static void fsd_claim(void)
         zzuspin_lock(&fsd_gate);
         if (!fsd_busy) { fsd_busy = 1; zzuspin_unlock(&fsd_gate); return; }
         zzuspin_unlock(&fsd_gate);
-        zuzu_yield();
+        ZuzuYield();
     }
 }
 
@@ -130,7 +130,7 @@ static int fsd_connect(void) {
     Handle shm = zuzu_shm_create(FSD_SHM_DEFAULT);
     if (shm < 0) return -1;
 
-    void *p = zuzu_memmap(shm, 0, VM_PROT_RW, 0);
+    void *p = zuzu_memmap(shm, 0, PROT_RW, 0);
     if (zuzu_is_err(p)) return -1;
 
     int32_t slot = zuzu_grant(shm, (int32_t)fsd_pid);
@@ -222,7 +222,7 @@ int _write(int file, char *ptr, int len)
 }
 
 void __attribute__((noreturn)) _exit(int status) {
-    zuzu_pquit(status);
+    ZuzuPQuit(status);
     for(;;);
 }
 
@@ -273,7 +273,7 @@ int _read(int file, char *ptr, int len)
                         if (ptr[i] == '\r') ptr[i] = '\n';
                 return (int)got;
             }
-            zuzu_sleep(5);
+            ZuzuSleep(5);
         }
     }
 
@@ -345,12 +345,12 @@ int _lseek(int file, int ptr, int dir)
 }
 
 int _getpid(void) {
-    return zuzu_getpid();
+    return ZuzuGetPid();
 }
 
 int _kill(int pid, int sig) {
-    if (pid == zuzu_getpid())
-        zuzu_pquit(sig);
+    if (pid == ZuzuGetPid())
+        ZuzuPQuit(sig);
     errno = EINVAL; return -1;
 }
 

@@ -10,7 +10,7 @@ void *sbrk(intptr_t incr)
 {
     if (!heap.base) {
         VirtAddr p = (VirtAddr)zuzu_memmap(HANDLE_ANON, HEAP_RESERVE,
-                                     VM_PROT_READ | VM_PROT_WRITE, 0);
+                                     PROT_READ | PROT_WRITE, 0);
         if (zuzu_is_err((void *)p))
             return (void *)-1;
         heap.base   = p;

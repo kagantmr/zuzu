@@ -170,7 +170,7 @@ static int __attribute__((unused)) stdio_stream_getc_blocking(void)
         int c = stdio_stream_getc();
         if (c != EOF)
             return c;
-        zuzu_sleep(5);
+        ZuzuSleep(5);
     }
 #endif
 }

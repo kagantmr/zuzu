@@ -19,7 +19,7 @@ extern thread_t *current_thread;
  * Helper for memmap to map anonymous memory.
  * Adapted from zuzu v0.1.5-alpha version
  */
-static int32_t memmap_anon(process_t *p, VirtAddr hint, size_t size, vm_prot_t prot, VirtAddr *out)
+static int32_t memmap_anon(process_t *p, VirtAddr hint, size_t size, MemProt prot, VirtAddr *out)
 {
     if (size == 0)
         return ERR_BADARG;
@@ -79,7 +79,7 @@ static int32_t memmap_anon(process_t *p, VirtAddr hint, size_t size, vm_prot_t p
  * Helper for memmap to map shared memory.
  * Adapted from zuzu v0.1.5-alpha version
  */
-static int32_t memmap_shm(process_t *p, handle_entry_t *e, vm_prot_t prot, VirtAddr *out)
+static int32_t memmap_shm(process_t *p, handle_entry_t *e, MemProt prot, VirtAddr *out)
 {
 
     if (e->mapped_va != 0)
@@ -122,7 +122,7 @@ static int32_t memmap_shm(process_t *p, handle_entry_t *e, vm_prot_t prot, VirtA
  * Helper for memmap to map memory-mapped I/O (MMIO) ranges.
  * Adapted from zuzu v0.1.5-alpha version
  */
-static int32_t memmap_dev(process_t *p, handle_entry_t *e, vm_prot_t prot, VirtAddr *out)
+static int32_t memmap_dev(process_t *p, handle_entry_t *e, MemProt prot, VirtAddr *out)
 {
 
     if (!e)
@@ -180,12 +180,12 @@ void sys_memmap(arch_regs_t *frame)
     process_t *p = current_thread->owner_process;
     Handle handle = (Handle)(*arch_reg(frame, 0));
     size_t size = (size_t)(*arch_reg(frame, 1));
-    vm_prot_t prot = (vm_prot_t)(*arch_reg(frame, 2));
+    MemProt prot = (MemProt)(*arch_reg(frame, 2));
     uint32_t flags = (*arch_reg(frame, 3));
 
     if (flags != 0) { *arch_reg(frame, 0) = ERR_BADARG; return;}
-    if (prot & ~(VM_PROT_READ|VM_PROT_WRITE|VM_PROT_EXEC))  { *arch_reg(frame, 0) = ERR_BADARG; return;}   /* rejects VM_PROT_USER */
-    if ((prot & VM_PROT_WRITE) && (prot & VM_PROT_EXEC))  { *arch_reg(frame, 0) = ERR_BADARG; return;}
+    if (prot & ~(PROT_READ|PROT_WRITE|PROT_EXEC))  { *arch_reg(frame, 0) = ERR_BADARG; return;}   /* rejects VM_PROT_USER */
+    if ((prot & PROT_WRITE) && (prot & PROT_EXEC))  { *arch_reg(frame, 0) = ERR_BADARG; return;}
 
     VirtAddr va = 0;
     Err rc;   
@@ -210,7 +210,7 @@ void sys_memmap(arch_regs_t *frame)
                 *arch_reg(frame, 0) = ERR_BADARG;
                 return;
             }
-            if (prot & VM_PROT_EXEC) {
+            if (prot & PROT_EXEC) {
                 *arch_reg(frame, 0) = ERR_BADARG;
                 return;
             }
@@ -313,8 +313,8 @@ void sys_asinject(arch_regs_t *frame)
         }
         }
 
-        asinject_args_t *args = (asinject_args_t *)(*arch_reg(frame, 0));
-        if (!validate_user_ptr((uintptr_t)args, sizeof(asinject_args_t)))
+        AsInjectArgs *args = (AsInjectArgs *)(*arch_reg(frame, 0));
+        if (!validate_user_ptr((uintptr_t)args, sizeof(AsInjectArgs)))
         {
             {
             (*arch_reg(frame, 0)) = ERR_BADPTR;
@@ -322,8 +322,8 @@ void sys_asinject(arch_regs_t *frame)
         }
         }
 
-        asinject_args_t kargs;
-        if (!copy_from_user(&kargs, args, sizeof(asinject_args_t)))
+        AsInjectArgs kargs;
+        if (!copy_from_user(&kargs, args, sizeof(AsInjectArgs)))
         {
             {
             (*arch_reg(frame, 0)) = ERR_BADPTR;
@@ -331,7 +331,7 @@ void sys_asinject(arch_regs_t *frame)
         }
         }
 
-        if (kargs.size < sizeof(asinject_args_t))
+        if (kargs.size < sizeof(AsInjectArgs))
         {
             {
             (*arch_reg(frame, 0)) = ERR_BADARG;
@@ -370,7 +370,7 @@ void sys_asinject(arch_regs_t *frame)
             return;
         }
 
-        if ((kargs.prot & VM_PROT_WRITE) && (kargs.prot & VM_PROT_EXEC))
+        if ((kargs.prot & PROT_WRITE) && (kargs.prot & PROT_EXEC))
         {
             {
             (*arch_reg(frame, 0)) = ERR_BADARG;
@@ -378,9 +378,9 @@ void sys_asinject(arch_regs_t *frame)
         }
         }
 
-        if (kargs.dst_va % PAGE_SIZE != 0 ||
-            kargs.dst_va >= USER_VA_TOP ||
-            kargs.len > USER_VA_TOP - kargs.dst_va)
+        if (kargs.DestVAddr % PAGE_SIZE != 0 ||
+            kargs.DestVAddr >= USER_VA_TOP ||
+            kargs.len > USER_VA_TOP - kargs.DestVAddr)
         {
             {
             (*arch_reg(frame, 0)) = ERR_BADARG;
@@ -401,7 +401,7 @@ void sys_asinject(arch_regs_t *frame)
             }
 
             vm_region_t region = {
-                .vaddr_start = kargs.dst_va,
+                .vaddr_start = kargs.DestVAddr,
                 .size = kargs.len,
                 .prot = kargs.prot | VM_PROT_USER,
                 .memtype = VM_MEM_NORMAL,
@@ -441,10 +441,10 @@ void sys_asinject(arch_regs_t *frame)
             vm_region_t *r = vm_region_vec_get(&target->as->regions, i);
             /* dst must lie inside the region before computing the remaining
              * space, or the unsigned subtraction below wraps for regions
-             * that end before dst_va. */
-            if (kargs.dst_va >= r->vaddr_start &&
-                kargs.dst_va - r->vaddr_start < r->size &&
-                page_count * PAGE_SIZE <= r->size - (kargs.dst_va - r->vaddr_start))
+             * that end before DestVAddr. */
+            if (kargs.DestVAddr >= r->vaddr_start &&
+                kargs.DestVAddr - r->vaddr_start < r->size &&
+                page_count * PAGE_SIZE <= r->size - (kargs.DestVAddr - r->vaddr_start))
             {
                 enclosing = r;
                 break;
@@ -476,7 +476,7 @@ void sys_asinject(arch_regs_t *frame)
 
         for (size_t i = 0; i < page_count; i++)
         {
-            VirtAddr dst_page = kargs.dst_va + i * PAGE_SIZE;
+            VirtAddr dst_page = kargs.DestVAddr + i * PAGE_SIZE;
 
             /* Inside an existing region a page may already be faulted in;
              * write into it instead of remapping. page_addrs[] tracks only
@@ -519,7 +519,7 @@ void sys_asinject(arch_regs_t *frame)
                 goto rollback_nomem;
             }
 
-            if (kargs.prot & VM_PROT_EXEC)
+            if (kargs.prot & PROT_EXEC)
             {
                 arch_cache_flush_code_range((VirtAddr)PA_TO_VA(page), PAGE_SIZE);
             }
@@ -528,7 +528,7 @@ void sys_asinject(arch_regs_t *frame)
         if (!enclosing)
         {
             vm_region_t region = {
-                .vaddr_start = kargs.dst_va,
+                .vaddr_start = kargs.DestVAddr,
                 .size = page_count * PAGE_SIZE,
                 .prot = kargs.prot | VM_PROT_USER,
                 .memtype = VM_MEM_NORMAL,
@@ -549,7 +549,7 @@ void sys_asinject(arch_regs_t *frame)
         {
             if (page_addrs[j])
             {
-                vmm_unmap_range(target->as, kargs.dst_va + j * PAGE_SIZE, PAGE_SIZE);
+                vmm_unmap_range(target->as, kargs.DestVAddr + j * PAGE_SIZE, PAGE_SIZE);
                 pmm_free_page(page_addrs[j]);
             }
         }
@@ -564,7 +564,7 @@ void sys_asinject(arch_regs_t *frame)
         {
             if (page_addrs[j])
             {
-                vmm_unmap_range(target->as, kargs.dst_va + j * PAGE_SIZE, PAGE_SIZE);
+                vmm_unmap_range(target->as, kargs.DestVAddr + j * PAGE_SIZE, PAGE_SIZE);
                 pmm_free_page(page_addrs[j]);
             }
         }
@@ -579,7 +579,7 @@ void sys_memprotect(arch_regs_t *frame)
 {
         const uintptr_t va = (uintptr_t)(*arch_reg(frame, 0));
         const size_t size = (size_t)(*arch_reg(frame, 1));
-        const vm_prot_t new_prot = (vm_prot_t)(*arch_reg(frame, 2));
+        const MemProt new_prot = (MemProt)(*arch_reg(frame, 2));
 
         // Basic validation
         if (size == 0)
@@ -597,13 +597,13 @@ void sys_memprotect(arch_regs_t *frame)
             (*arch_reg(frame, 0)) = ERR_BADARG;
             return;
         }
-        if (new_prot & ~(VM_PROT_READ|VM_PROT_WRITE|VM_PROT_EXEC)) {
+        if (new_prot & ~(PROT_READ|PROT_WRITE|PROT_EXEC)) {
             (*arch_reg(frame, 0)) = ERR_NOPERM;
             return;
         }
 
         // Enforce W^X policy
-        if ((new_prot & VM_PROT_WRITE) && (new_prot & VM_PROT_EXEC))
+        if ((new_prot & PROT_WRITE) && (new_prot & PROT_EXEC))
         {
             (*arch_reg(frame, 0)) = ERR_BADARG;
             return;

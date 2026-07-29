@@ -305,9 +305,9 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
                             continue;
                         if (r->memtype == VM_MEM_DEVICE)
                             continue;
-                        if (!(dfsr & (1 << 11)) && !(r->prot & VM_PROT_READ))
+                        if (!(dfsr & (1 << 11)) && !(r->prot & PROT_READ))
                             continue;
-                        if ((dfsr & (1 << 11)) && !(r->prot & VM_PROT_WRITE))
+                        if ((dfsr & (1 << 11)) && !(r->prot & PROT_WRITE))
                             continue;
                         uintptr_t page_va = align_down(dfar, PAGE_SIZE);
                         if (!vmm_fault_page(as, r, page_va))

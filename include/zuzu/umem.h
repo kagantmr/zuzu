@@ -62,19 +62,19 @@ static inline int32_t zuzu_dev_query(Handle handle, void *out_buf, uint32_t len)
  * @note This syscall is only callable by the init process.
  * 
  * @param taskHandle The handle of the target process.
- * @param dst_va The destination virtual address in the target process's address space.
+ * @param DestVAddr The destination virtual address in the target process's address space.
  * @param src_buf Pointer to the source buffer in the current process's address space.
  * @param len The length of the source buffer in bytes.
  * @param prot The desired memory protection flags for the injected region (e.g., PROT_READ, PROT_WRITE).
  * 
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t zuzu_asinject(Handle taskHandle, VirtAddr dst_va,
+static inline int32_t zuzu_asinject(Handle taskHandle, VirtAddr DestVAddr,
                                 const void *src_buf, size_t len, uint32_t prot) {
-    asinject_args_t args = {
-        .size        = sizeof(asinject_args_t),
+    AsInjectArgs args = {
+        .size        = sizeof(AsInjectArgs),
         .taskHandle = taskHandle,
-        .dst_va      = dst_va,
+        .DestVAddr      = DestVAddr,
         .src_buf     = src_buf,
         .len         = len,
         .prot        = prot,
@@ -88,24 +88,24 @@ static inline int32_t zuzu_asinject(Handle taskHandle, VirtAddr dst_va,
  * space, without copying any bytes up front.
  * @note This syscall is only callable by the init process.
  *
- * Registers [dst_va, dst_va+len) as anonymous memory; pages are allocated
+ * Registers [DestVAddr, DestVAddr+len) as anonymous memory; pages are allocated
  * and zeroed lazily on first touch by the target task's own fault handler.
  * Use this instead of zuzu_asinject() for BSS-style tails where the source
  * would just be a buffer of zeroes.
  *
  * @param taskHandle The handle of the target process.
- * @param dst_va The destination virtual address in the target process's address space.
+ * @param DestVAddr The destination virtual address in the target process's address space.
  * @param len The length of the region to reserve, in bytes (must be page-aligned).
  * @param prot The desired memory protection flags for the reserved region.
  *
  * @return int32_t Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t zuzu_asinject_reserve(Handle taskHandle, VirtAddr dst_va,
+static inline int32_t zuzu_asinject_reserve(Handle taskHandle, VirtAddr DestVAddr,
                                         size_t len, uint32_t prot) {
-    asinject_args_t args = {
-        .size        = sizeof(asinject_args_t),
+    AsInjectArgs args = {
+        .size        = sizeof(AsInjectArgs),
         .taskHandle = taskHandle,
-        .dst_va      = dst_va,
+        .DestVAddr      = DestVAddr,
         .src_buf     = NULL,
         .len         = len,
         .prot        = prot,

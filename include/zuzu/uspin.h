@@ -35,7 +35,7 @@ static inline void zzuspin_lock(zzuspin_t *lk)
     for (;;) {
         uint32_t old = arch_ldrex(word);
         if (old != 0u) {
-            zuzu_yield();              /* held; let the holder run */
+            ZuzuYield();              /* held; let the holder run */
             continue;
         }
         if (arch_strex(word, 1u) == 0u)

@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "zuzu/types.h"
+#include "memprot.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -12,41 +13,41 @@ extern "C"
 
 typedef struct
 {
-    uint32_t size;        /* sizeof(spawn_args_t); wrapper sets it */
+    uint32_t size;        /* sizeof(SpawnArgs); wrapper sets it */
     const void *elf_data; // pointer to ELF file data in memory
     size_t elf_size;      // size of ELF file data in bytes
     const char *name;     // name of the process (null-terminated string)
     size_t name_len;      // length of the name string (excluding null terminator)
     const char *argbuf;   // "arg0\0arg1\0arg2\0"
     size_t argbuf_len;    // length of the argbuf (including null terminators)
-    uint32_t argc;        // number of arguments in argbuf
-} spawn_args_t;
+    size_t argc;        // number of arguments in argbuf
+} SpawnArgs;
 
-/* asinject_args_t.flags */
-#define ASINJECT_FLAG_RESERVE 0x1u /* reserve [dst_va, dst_va+len) as demand-zero
+/* AsInjectArgs.flags */
+#define ASINJECT_FLAG_RESERVE 0x1u /* reserve [DestVAddr, DestVAddr+len) as demand-zero
                                      * anon memory in the target AS; src_buf must
                                      * be NULL, no bytes are copied up front. */
 
 typedef struct
 {
-    uint32_t size;        /* sizeof(asinject_args_t); wrapper sets it */
-    Handle taskHandle; // handle of the target task
-    uintptr_t dst_va;     // destination virtual address in the target task's address space
+    uint32_t size;        /* sizeof(AsInjectArgs); wrapper sets it */
+    Handle taskHandle;     // handle of the target task
+    VirtAddr DestVAddr;     // destination virtual address in the target task's address space
     const void *src_buf;  // pointer to the source buffer in the current task's address space
     size_t len;           // length of the source buffer in bytes
-    uint32_t prot;        // memory protection flags for the destination mapping (e.g., VM_PROT_READ | VM_PROT_WRITE)
+    MemProt prot;         // memory protection flags for the destination mapping (e.g., PROT_READ | PROT_WRITE)
     uint32_t flags;       // ASINJECT_FLAG_* bits; 0 for the original copy-in behavior
-} asinject_args_t;
+} AsInjectArgs;
 
 typedef struct
 {
-    uint32_t size;        /* sizeof(kickstart_args_t); wrapper sets it */
+    uint32_t size;        /* sizeof(KickstartArgs); wrapper sets it */
     Handle taskHandle; // handle of the target task
-    uintptr_t entry;      // entry point address in the target task's address space
-    uintptr_t sp;         // stack pointer value for the target task
+    VirtAddr entry;      // entry point address in the target task's address space
+    VirtAddr sp;         // stack pointer value for the target task
     uint32_t r0_val;      // value to set in register r0 of the target task
     uint32_t r1_val;      // value to set in register r1 of the target task
-} kickstart_args_t;
+} KickstartArgs;
 
 #ifdef __cplusplus
 }

@@ -387,7 +387,7 @@ static void cmd_exec(const char *line)
 
     /* ---- pspawn locally, ask sysd to inject, then kickstart ---- */
     const char *name = path_basename(path);
-    TSpawnResult ts = zuzu_pspawn(name);
+    TSpawnResult ts = ZuzuPSpawn(name);
     if (ts.taskHandle < 0) {
         printf("%s", ANSI_RED "zzsh: spawn failed\n" ANSI_RESET);
         return;
@@ -395,7 +395,7 @@ static void cmd_exec(const char *line)
 
     int32_t sysd_task_handle = zuzu_grant(ts.taskHandle, (int32_t)sysd_pid);
     if (sysd_task_handle < 0) {
-        zuzu_pkill(ts.taskHandle);                    /* <-- NEW */
+        ZuzuPKill(ts.taskHandle);                    /* <-- NEW */
         printf("%s", ANSI_RED "zzsh: spawn failed (sysd reject)\n" ANSI_RESET);
         return;
     }
@@ -403,7 +403,7 @@ static void cmd_exec(const char *line)
     size_t path_len = strlen(path);
     size_t req_len = sizeof(exec_request_hdr_t) + path_len + 1 + argpos;
     if (req_len > LMSG_BUF_SIZE) {
-        zuzu_pkill(ts.taskHandle);                    /* <-- NEW */
+        ZuzuPKill(ts.taskHandle);                    /* <-- NEW */
         printf("%s", ANSI_RED "zzsh: command too long\n" ANSI_RESET);
         return;
     }
@@ -423,32 +423,32 @@ static void cmd_exec(const char *line)
     int32_t rc = chan_call((Handle)sysd_port, lmsg_buf(), (uint32_t)req_len,
                            lmsg_buf(), (uint32_t)sizeof(exec_reply_t));
     if (rc < 0) {
-        zuzu_pkill(ts.taskHandle);
+        ZuzuPKill(ts.taskHandle);
         print_exec_error(rc);
         return;
     }
     if (rc != (int32_t)sizeof(exec_reply_t)) {
-        zuzu_pkill(ts.taskHandle);
+        ZuzuPKill(ts.taskHandle);
         printf("%s", ANSI_RED "zzsh: bad exec reply\n" ANSI_RESET);
         return;
     }
 
     exec_reply_t *reply = (exec_reply_t *)lmsg_buf();
     if (!exec_reply_valid(reply)) {
-        zuzu_pkill(ts.taskHandle);
+        ZuzuPKill(ts.taskHandle);
         print_exec_error(EXEC_EBADELF);
         return;
     }
 
-    if (zuzu_kickstart(ts.taskHandle, reply->entry, reply->sp,
+    if (ZuzuKickstart(ts.taskHandle, reply->entry, reply->sp,
                    reply->argc, reply->argv_va) != 0) {
-        zuzu_pkill(ts.taskHandle);
+        ZuzuPKill(ts.taskHandle);
         printf("%s", ANSI_RED "zzsh: kickstart failed\n" ANSI_RESET);
         return;
     }
 
     int32_t exit_status = 0;
-    zuzu_wait(ts.pid, &exit_status, 0);
+    ZuzuWait(ts.pid, &exit_status, 0);
 }
 
 /* ---- dispatch ---- */
@@ -525,7 +525,7 @@ void command_dispatch(const char *line)
     }
     else if (strcmp(line, "pid") == 0)
     {
-        uint32_t p = zuzu_getpid();
+        uint32_t p = ZuzuGetPid();
         char buf[32];
         snprintf(buf, sizeof(buf), "pid: %u\n", p);
         printf("%s", buf);
@@ -536,7 +536,7 @@ void command_dispatch(const char *line)
         const char *p = line + 6;
         while (*p >= '0' && *p <= '9')
             ms = ms * 10 + (uint32_t)(*p++ - '0');
-        zuzu_sleep(ms);
+        ZuzuSleep(ms);
     }
     else if (strncmp(line, "echo ", 5) == 0)
     {
@@ -598,7 +598,7 @@ int main(void)
     {
         int ch = getchar();
         if (ch == EOF) {
-            zuzu_sleep(5);
+            ZuzuSleep(5);
             continue;
         }
 

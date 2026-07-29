@@ -14,9 +14,9 @@ static int inject_segment(uint32_t taskHandle, const void *elf_data,
         return -1;
 
     uint32_t prot = 0;
-    if (ph->p_flags & PF_R) prot |= VM_PROT_READ;
-    if (ph->p_flags & PF_W) prot |= VM_PROT_WRITE;
-    if (ph->p_flags & PF_X) prot |= VM_PROT_EXEC;
+    if (ph->p_flags & PF_R) prot |= PROT_READ;
+    if (ph->p_flags & PF_W) prot |= PROT_WRITE;
+    if (ph->p_flags & PF_X) prot |= PROT_EXEC;
 
     // inject file-backed portion
     if (ph->p_filesz > 0) {
@@ -99,7 +99,7 @@ static int inject_stack(uint32_t taskHandle,
     }
 
     int32_t rc = zuzu_asinject(taskHandle, img_base, buf, USER_STACK_SIZE,
-                           VM_PROT_READ | VM_PROT_WRITE);
+                           PROT_READ | PROT_WRITE);
     free(buf);
     if (rc != 0) return rc;
 
@@ -145,7 +145,7 @@ int exec_inject(uint32_t taskHandle, const void *elf_data, size_t elf_size,
     if (rc != 0) return rc;
 
     /*
-    kickstart_args_t ks = {
+    KickstartArgs ks = {
         .taskHandle = taskHandle,
         .entry       = entry,
         .sp          = sp,

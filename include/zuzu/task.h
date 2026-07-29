@@ -21,9 +21,9 @@ extern "C" {
 /** 
  * @brief Terminates the current process with the specified exit status.
  * 
- * @param status The exit status of the process.
+ * @param status The exit status of the process, visible by the parent.
  */
-static inline void __attribute__((noreturn)) zuzu_pquit(int32_t status) {
+static inline void __attribute__((noreturn)) ZuzuPQuit(Err status) {
     syscall(SYS_PQUIT, (uint32_t)status, 0, 0, 0);
     __builtin_unreachable();
 }
@@ -31,9 +31,9 @@ static inline void __attribute__((noreturn)) zuzu_pquit(int32_t status) {
 /**
  * @brief Yields the CPU to allow other tasks to run.
  * 
- * @return int32_t Returns 0 on success, or a negative error code on failure.
+ * @return int32_t Returns 0 on success. Cannot fail
  */
-static inline int32_t zuzu_yield(void) {
+static inline Err ZuzuYield(void) {
     return syscall(SYS_YIELD, 0, 0, 0, 0);
 }
 
@@ -41,26 +41,26 @@ static inline int32_t zuzu_yield(void) {
  * @brief Waits for a child process to change state, with optional flags.
  * 
  * @param pid The process ID of the child to wait for, or -1 to wait for any child.
- * @param status_out Pointer to an integer where the exit status will be stored.
+ * @param statusOut Pointer to an integer where the exit status will be stored.
  * @param flags Flags to modify the behavior of the wait (e.g., WNOHANG).
  * 
- * @return int32_t 
+ * @return Err  
  */
-static inline int32_t zuzu_wait(Pid pid, int32_t *status_out, uint32_t flags) {
-    return syscall(SYS_WAIT, (uint32_t)pid, (uint32_t)(uintptr_t)status_out, flags, 0);
+static inline Err ZuzuWait(Pid pid, Err *statusOut, uint32_t flags) {
+    return syscall(SYS_WAIT, (uint32_t)pid, (uint32_t)(VirtAddr)statusOut, flags, 0);
 }
 
 /**
  *  @brief Retrieves the process ID of the calling process.
  */
-static inline int32_t zuzu_getpid(void) {
+static inline Pid ZuzuGetPid(void) {
     return syscall(SYS_GETPID, 0, 0, 0, 0);
 }
 
 /**
  * @brief Suspends the calling process for a specified number of milliseconds.
  */
-static inline int32_t zuzu_sleep(uint32_t ms) {
+static inline Err ZuzuSleep(Duration ms) {
     return syscall(SYS_SLEEP, ms, 0, 0, 0);
 }
 
@@ -68,18 +68,19 @@ static inline int32_t zuzu_sleep(uint32_t ms) {
  * @brief Spawns a new process with the specified name.
  * 
  * @param name The name of the process to spawn.
- * @return TSpawnResult Returns a structure containing the task handle and process ID of the newly spawned process.
+ * 
+ * @return `TSpawnResult` Returns a structure containing the task handle and process ID of the newly spawned process.
  */
-static inline TSpawnResult zuzu_pspawn(const char* name) {
+static inline TSpawnResult ZuzuPSpawn(const char* name) {
     size_t name_len = 0;
     while (name && name[name_len])
         name_len++;
-    spawn_args_t args = {
-        .size     = sizeof(spawn_args_t),
+    SpawnArgs args = {
+        .size     = sizeof(SpawnArgs),
         .name     = name,
         .name_len = name_len,
     };
-    Message result = syscall_msg(SYS_PSPAWN, (uint32_t)(uintptr_t)&args, 0, 0, 0);
+    Message result = syscall_msg(SYS_PSPAWN, (uint32_t)(VirtAddr)&args, 0, 0, 0);
     return (TSpawnResult) {.taskHandle = (Handle) result.w0, .pid = (Pid) result.w1};
 }
 
@@ -89,31 +90,33 @@ static inline TSpawnResult zuzu_pspawn(const char* name) {
  * @param elf_data Pointer to the ELF file data in memory.
  * @param elf_size Size of the ELF file data in bytes.
  * @param name Name of the process (null-terminated string).
+ * 
+ * @return 0 on success, negative error code on faiure.
  */
-static inline Handle zuzu_kickstart(Handle taskHandle, uintptr_t entry,
-                                  uintptr_t sp, uint32_t r0_val, uint32_t r1_val) {
-    kickstart_args_t args = {
-        .size        = sizeof(kickstart_args_t),
-        .taskHandle = taskHandle,
+static inline Err ZuzuKickstart(Handle taskHandle, VirtAddr entry,
+                                  VirtAddr sp, uint32_t r0_val, uint32_t r1_val) {
+    KickstartArgs args = {
+        .size        = sizeof(KickstartArgs),
+        .taskHandle  = taskHandle,
         .entry       = entry,
         .sp          = sp,
         .r0_val      = r0_val,
         .r1_val      = r1_val,
     };
-    return (Handle) syscall(SYS_KICKSTART, (uint32_t)(uintptr_t)&args, 0, 0, 0);
+    return (Err) syscall(SYS_KICKSTART, (uint32_t)(VirtAddr)&args, 0, 0, 0);
 }
 
 /**
  * @brief Kills the process associated with the specified task handle.
  */
-static inline int32_t zuzu_pkill(Handle taskHandle) {
+static inline Err ZuzuPKill(Handle taskHandle) {
     return syscall(SYS_PKILL, taskHandle, 0, 0, 0);
 }
 
 /**
  * @brief Creates a new thread in the current process with the specified entry point, stack pointer, and argument.
  */
-static inline Tid zuzu_tmake(void (*entry)(void *), void *user_sp, void *arg) {
+static inline Tid ZuzuTMake(void (*entry)(void *), void *user_sp, void *arg) {
     return (Tid)syscall(SYS_TMAKE, (uint32_t)(VirtAddr)entry, (uint32_t)(VirtAddr)user_sp,
                            (uint32_t)(VirtAddr)arg, 0);
 }
@@ -121,14 +124,14 @@ static inline Tid zuzu_tmake(void (*entry)(void *), void *user_sp, void *arg) {
 /**
  * @brief Waits for the specified thread to terminate and retrieves its exit status.
  */
-static inline int32_t zuzu_tjoin(Tid tid) {
+static inline Err ZuzuTJoin(Tid tid) {
     return syscall(SYS_TJOIN, tid, 0, 0, 0);
 }
 
 /**
  * @brief Terminates the calling thread with the specified exit status.
  */
-static inline __attribute__((noreturn)) void zuzu_tquit(int32_t status) {
+static inline __attribute__((noreturn)) void ZuzuTQuit(Err status) {
     syscall(SYS_TQUIT, (uint32_t)status, 0, 0, 0);
     __builtin_unreachable();
 }

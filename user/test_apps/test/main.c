@@ -37,7 +37,7 @@ static void worker(void *arg)
                      memcmp(buf, RESP, sizeof(RESP)) == 0);
     }
     worker_done = 1;
-    zuzu_tquit(0);
+    ZuzuTQuit(0);
 }
 
 int main(void)
@@ -45,10 +45,10 @@ int main(void)
     port = zuzu_port_create();
     CHECK(port >= 0, "port_create");
 
-    void *stack = zuzu_memmap(HANDLE_ANON, STACK_SIZE, VM_PROT_READ | VM_PROT_WRITE, 0);
+    void *stack = zuzu_memmap(HANDLE_ANON, STACK_SIZE, PROT_READ | PROT_WRITE, 0);
     CHECK(!zuzu_is_err(stack), "worker stack");
 
-    Tid tid = zuzu_tmake(worker, (char *)stack + STACK_SIZE, NULL);
+    Tid tid = ZuzuTMake(worker, (char *)stack + STACK_SIZE, NULL);
 
     Message m = zuzu_msg_recv(port, TIMEOUT_INFINITE);
     char got[LMSG_BUF_SIZE];
@@ -66,7 +66,7 @@ int main(void)
     lmsg_write(RESP, sizeof(RESP));
     CHECK(zuzu_msg_lreply((Handle)m.w0, sizeof(RESP)) == 0, "lreply");
 
-    zuzu_tjoin(tid);
+    ZuzuTJoin(tid);
     CHECK(worker_ok, "worker received the lreply payload intact");
     
 
@@ -75,7 +75,7 @@ int main(void)
 
     CHECK(zuzu_memunmap((void *)SYSPAGE_VA) == ERR_NOPERM, "syspage unmap refused");
     CHECK(zuzu_memunmap((void *)((uintptr_t)zuzu_tcb() & ~0xFFFu)) == ERR_NOPERM, "TCB page unmap refused");
-    CHECK(zuzu_memprotect((void *)SYSPAGE_VA, PAGE_SIZE, VM_PROT_READ | VM_PROT_WRITE) != 0, "syspage mprotect refused");
+    CHECK(zuzu_memprotect((void *)SYSPAGE_VA, PAGE_SIZE, PROT_READ | PROT_WRITE) != 0, "syspage mprotect refused");
 
     /* force multiple sbrk growths + tail donation */
     void *p[200];

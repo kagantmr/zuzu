@@ -49,7 +49,7 @@ typedef struct vm_region
 {
     uintptr_t vaddr_start;
     size_t size;
-    vm_prot_t prot;
+    MemProt prot;
     vm_memtype_t memtype;
     vm_owner_t owner; // ownership: who allocated/owns the backing pages
     uintptr_t paddr_start;
@@ -164,7 +164,7 @@ void vmm_activate(addrspace_t *as);
  * @return true on success, false on error.
  */
 bool vmm_map_range(addrspace_t *as, VirtAddr va, PhysAddr pa, size_t size,
-                   vm_prot_t prot, vm_memtype_t memtype, vm_owner_t owner, vm_flags_t flags);
+                   MemProt prot, vm_memtype_t memtype, vm_owner_t owner, vm_flags_t flags);
 
 /**
  * @brief Remove mappings from an address space.
@@ -200,7 +200,7 @@ bool vmm_unmap_range(addrspace_t *as, VirtAddr va, size_t size);
  * @param new_prot New protection flags.
  * @return true on success, false if not found.
  */
-bool vmm_protect_range(addrspace_t *as, VirtAddr va, size_t size, vm_prot_t new_prot);
+bool vmm_protect_range(addrspace_t *as, VirtAddr va, size_t size, MemProt new_prot);
 
 /**
  * @brief Map a page into user address space.
@@ -210,7 +210,7 @@ bool vmm_protect_range(addrspace_t *as, VirtAddr va, size_t size, vm_prot_t new_
  * @param prot Protection flags.
  * @return true on success, false on error.
  */
-bool vmm_map_user_page(addrspace_t *as, PhysAddr pa, VirtAddr va, vm_prot_t prot);
+bool vmm_map_user_page(addrspace_t *as, PhysAddr pa, VirtAddr va, MemProt prot);
 
 /**
  * @brief Remove the identity mapping from the kernel address space.

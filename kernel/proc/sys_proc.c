@@ -166,19 +166,19 @@ void sys_wait(arch_regs_t *frame) {
 /* spawn syscall removed: use pspawn/kickstart with sysd */
 
 void sys_pspawn(arch_regs_t *frame) {
-    spawn_args_t *args = (spawn_args_t *)(*arch_reg(frame, 0));
-    if (!validate_user_ptr((uintptr_t)args, sizeof(spawn_args_t))) {
+    SpawnArgs *args = (SpawnArgs *)(*arch_reg(frame, 0));
+    if (!validate_user_ptr((uintptr_t)args, sizeof(SpawnArgs))) {
         (*arch_reg(frame, 0)) = ERR_BADPTR;
         return;
     }
 
-    spawn_args_t kargs;
-    if (!copy_from_user(&kargs, args, sizeof(spawn_args_t))) {
+    SpawnArgs kargs;
+    if (!copy_from_user(&kargs, args, sizeof(SpawnArgs))) {
         (*arch_reg(frame, 0)) = ERR_BADPTR;
         return;
     }
 
-    if (kargs.size < sizeof(spawn_args_t)) {
+    if (kargs.size < sizeof(SpawnArgs)) {
         (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
@@ -234,19 +234,19 @@ void sys_pspawn(arch_regs_t *frame) {
 }
 
 void sys_kickstart(arch_regs_t *frame) {
-    kickstart_args_t *args = (kickstart_args_t *)(*arch_reg(frame, 0));
-    if (!validate_user_ptr((uintptr_t)args, sizeof(kickstart_args_t))) {
+    KickstartArgs *args = (KickstartArgs *)(*arch_reg(frame, 0));
+    if (!validate_user_ptr((uintptr_t)args, sizeof(KickstartArgs))) {
         (*arch_reg(frame, 0)) = ERR_BADPTR;
         return;
     }
 
-    kickstart_args_t kargs;
-    if (!copy_from_user(&kargs, args, sizeof(kickstart_args_t))) {
+    KickstartArgs kargs;
+    if (!copy_from_user(&kargs, args, sizeof(KickstartArgs))) {
         (*arch_reg(frame, 0)) = ERR_BADPTR;
         return;
     }
 
-    if (kargs.size < sizeof(kickstart_args_t)) {
+    if (kargs.size < sizeof(KickstartArgs)) {
         (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }

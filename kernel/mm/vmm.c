@@ -351,7 +351,7 @@ void vmm_bootstrap(void) {
             .vaddr_start = PA_TO_VA(map_pa_start),
             .paddr_start = map_pa_start,
             .size = map_size,
-            .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXEC,
+            .prot = PROT_READ | PROT_WRITE | PROT_EXEC,
             .memtype = VM_MEM_NORMAL,
             .owner = VM_OWNER_SHARED,
             .flags = VM_FLAG_GLOBAL | VM_FLAG_PINNED,
@@ -363,7 +363,7 @@ void vmm_bootstrap(void) {
             .vaddr_start = map_pa_start,
             .paddr_start = map_pa_start,
             .size = map_size,
-            .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXEC,
+            .prot = PROT_READ | PROT_WRITE | PROT_EXEC,
             .memtype = VM_MEM_NORMAL,
             .owner = VM_OWNER_NONE,
             .flags = VM_FLAG_NONE,
@@ -424,7 +424,7 @@ void vmm_activate(addrspace_t* as) {
 }
 
 bool vmm_map_range(addrspace_t* as, VirtAddr va, PhysAddr pa, size_t size,
-                   vm_prot_t prot, vm_memtype_t memtype, vm_owner_t owner, vm_flags_t flags) {
+                   MemProt prot, vm_memtype_t memtype, vm_owner_t owner, vm_flags_t flags) {
     if (!as) return false;
     if (size == 0) return false;
     if ((va % 0x1000) != 0) return false;
@@ -433,7 +433,7 @@ bool vmm_map_range(addrspace_t* as, VirtAddr va, PhysAddr pa, size_t size,
     // check overflow
     if (va > UINTPTR_MAX - size) return false;
 
-    if (as->type == ADDRSPACE_USER && (prot & VM_PROT_WRITE) && (prot & VM_PROT_EXEC))
+    if (as->type == ADDRSPACE_USER && (prot & PROT_WRITE) && (prot & PROT_EXEC))
         return false;
 
     if (as->type == ADDRSPACE_USER) {
@@ -460,7 +460,7 @@ bool vmm_unmap_range(addrspace_t* as, VirtAddr va, size_t size) {
     return arch_mmu_unmap(as, va, size);
 }
 
-bool vmm_protect_range(addrspace_t *as, VirtAddr va, size_t size, vm_prot_t new_prot)
+bool vmm_protect_range(addrspace_t *as, VirtAddr va, size_t size, MemProt new_prot)
 {
     if (!as || size == 0) return false;
 
@@ -468,7 +468,7 @@ bool vmm_protect_range(addrspace_t *as, VirtAddr va, size_t size, vm_prot_t new_
     if (!r) return false;                          /* no region → refuse */
     if (va + size > r->vaddr_start + r->size)      /* must not span regions */
         return false;
-    if (r->memtype == VM_MEM_DEVICE && (new_prot & VM_PROT_EXEC))
+    if (r->memtype == VM_MEM_DEVICE && (new_prot & PROT_EXEC))
         return false;                              /* no executable MMIO */
     if (r->flags & VM_FLAG_PINNED)                 /* tcb_page/syspage */
         return false;
@@ -480,7 +480,7 @@ bool vmm_protect_range(addrspace_t *as, VirtAddr va, size_t size, vm_prot_t new_
     return true;
 }
 
-bool vmm_map_user_page(addrspace_t* as, PhysAddr pa, VirtAddr va, vm_prot_t prot) {
+bool vmm_map_user_page(addrspace_t* as, PhysAddr pa, VirtAddr va, MemProt prot) {
     if (!as) return false;
     if (as->type != ADDRSPACE_USER) return false;
     if ((pa % PAGE_SIZE) != 0) return false;
@@ -534,9 +534,9 @@ bool fault_in_pages(addrspace_t *as, VirtAddr va, size_t len, bool write) {
             return false;
         if (r->flags & VM_FLAG_GUARD)
             return false;
-        if (!(r->prot & VM_PROT_READ))
+        if (!(r->prot & PROT_READ))
             return false;
-        if (write && !(r->prot & VM_PROT_WRITE))
+        if (write && !(r->prot & PROT_WRITE))
             return false;
 
         if (!vmm_fault_page(as, r, page_va))
@@ -605,7 +605,7 @@ void* ioremap(PhysAddr phys, size_t size) {
     uintptr_t va = IOREMAP_BASE + (slot * SECTION_SIZE);
 
     if (!vmm_map_range(g_kernel_as, va, phys_aligned, aligned_size, 
-                       VM_PROT_READ | VM_PROT_WRITE,
+                       PROT_READ | PROT_WRITE,
                        VM_MEM_DEVICE, VM_OWNER_NONE,
                        VM_FLAG_PINNED | VM_FLAG_GLOBAL)) {
         return NULL;
