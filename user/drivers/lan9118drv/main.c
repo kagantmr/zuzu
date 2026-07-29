@@ -109,7 +109,7 @@ int get_nic(void)
         ZuzuSleep(10);
     }
     dev_handle = (Handle)r.w2;
-    irq_ntfn = zuzu_ntfn_create();
+    irq_ntfn = ZuzuNtfnCreate();
     if (irq_ntfn < 0)
     {
         LOG_ERROR(LOG_TAG, "ntfn_create failed (tx)");
@@ -191,13 +191,13 @@ int nic_setup(void)
 
     packet_ring_init(shmem_addr);
 
-    netd_ntfn = zuzu_ntfn_create();
+    netd_ntfn = ZuzuNtfnCreate();
     if (netd_ntfn < 0) {
         LOG_ERROR(LOG_TAG, "notification registration failed");
         return ERR_SYSDOWN;
     }
 
-    tx_doorbell_ntfn = zuzu_ntfn_create();
+    tx_doorbell_ntfn = ZuzuNtfnCreate();
     if (tx_doorbell_ntfn < 0) {
         LOG_ERROR(LOG_TAG, "tx doorbell registration failed");
         return ERR_SYSDOWN;
@@ -293,7 +293,7 @@ void lan9118_service_loop(void)
                             zuzu_msg_reply(pending_recv_reply, ZUZU_OK, (uint32_t)pkt_len, 0);
                             pending_recv_reply = 0;
                         }
-                        zuzu_ntfn_signal(netd_ntfn, 1);
+                        ZuzuNtfnSignal(netd_ntfn, 1);
                     }
                 }
             }

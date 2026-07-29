@@ -140,7 +140,7 @@ int pl011drv_setup(void)
 
     int32_t dev_handle = request_serial_device();
 
-    serial_irq_ntfn = zuzu_ntfn_create();
+    serial_irq_ntfn = ZuzuNtfnCreate();
     if (serial_irq_ntfn < 0) {
         return serial_irq_ntfn;
     }

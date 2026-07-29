@@ -1,3 +1,8 @@
+/** ntfn.h -- zuzu kernel notification syscalls
+ * 
+ * Wraps the raw syscalls over a clean API.
+ */
+
 #ifndef ZUZU_NTFN_H
 #define ZUZU_NTFN_H
 
@@ -10,14 +15,14 @@
 extern "C" {
 #endif
 
-/* ---- Notification syscalls ---- */
+typedef uint32_t NtfnBits;  /* bitfield of pending signals */
 
 /**
  * @brief Creates a new notification object and returns its handle.
  *
- * @return int32_t Returns the handle of the newly created notification object on success, or a negative error code on failure.
+ * @return `Handle` Returns the handle of the newly created notification object on success, or a negative error code on failure.
  */
-static inline int32_t zuzu_ntfn_create(void) {
+static inline Handle ZuzuNtfnCreate(void) {
     return Syscall(SYS_NTFN_CREATE, 0, 0, 0, 0);
 }
 
@@ -27,9 +32,9 @@ static inline int32_t zuzu_ntfn_create(void) {
  * @param ntfn_handle The handle of the notification object to signal.
  * @param bits The bits to signal the notification object with.
  *
- * @return int32_t Returns 0 on success, or a negative error code on failure.
+ * @return `Err` Returns 0 on success, or a negative error code on failure.
  */
-static inline int32_t zuzu_ntfn_signal(Handle ntfn_handle, uint32_t bits) {
+static inline Err ZuzuNtfnSignal(Handle ntfn_handle, uint32_t bits) {
     return Syscall(SYS_NTFN_SIGNAL, ntfn_handle, bits, 0, 0);
 }
 
@@ -39,9 +44,9 @@ static inline int32_t zuzu_ntfn_signal(Handle ntfn_handle, uint32_t bits) {
  * @param ntfn_handle The handle of the notification object to wait on.
  * @param timeout_ms The timeout in milliseconds to wait for the notification. Use TIMEOUT_INFINITE for blocking indefinitely, or TIMEOUT_POLL for non-blocking.
  *
- * @return int32_t Returns the signaled bits on success, or a negative error code on failure. If the wait times out, returns ERR_TIMEOUT.
+ * @return `NtfnBits` Returns the signaled bits on success, or a negative error code on failure. If the wait times out, returns ERR_TIMEOUT.
  */
-static inline int32_t zuzu_ntfn_wait(Handle ntfn_handle, uint32_t timeout_ms) {
+static inline NtfnBits ZuzuNtfnBits(Handle ntfn_handle, Duration timeout_ms) {
     return Syscall(SYS_NTFN_WAIT, ntfn_handle, timeout_ms, 0, 0);
 }
 

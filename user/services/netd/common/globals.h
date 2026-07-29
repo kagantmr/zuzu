@@ -31,7 +31,7 @@ typedef struct {
 } netif_t;
 
 static inline uint32_t net_now_ms(void) {
-    syspage_t *sp = (syspage_t *)SYSPAGE;
+    Syspage *sp = (Syspage *)SYSPAGE;
     uint32_t hz = sp->tick_hz ? sp->tick_hz : 1000u;
     return (uint32_t)((sp->uptime_ticks * 1000ull) / hz);
 }

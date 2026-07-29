@@ -39,7 +39,7 @@
 /* ---- Memory (0x30-0x3F) ---- */
 #define SYS_MEMMAP 0x30        /* (handle|HANDLE_ANON, size, prot, flags) -> va or -err. ANON: size>0, <=32MB. DEVICE/SHM: size must be 0. prot=R/W/X only, W^X enforced, EXEC rejected on device. flags must be 0. */
 #define SYS_MEMUNMAP 0x31      /* (addr) -> 0 or -err */
-#define SYS_SHMEM_CREATE 0x32    /* (size) -> handle or -err */
+#define SYS_SHMEM_CREATE 0x32  /* (size) -> handle or -err */
 #define SYSCALL_RESERVED2 0x33 /* Reserved, used to be shm_attach() */
 #define SYSCALL_RESERVED3 0x34 /* Reserved, used to be mapdev() */
 #define SYSCALL_RESERVED4 0x35 /* Reserved, used to be shm_detach() */

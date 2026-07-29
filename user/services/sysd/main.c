@@ -649,7 +649,7 @@ static void register_tty_aliases(void)
 
 int main(int argc, char **argv)
 {
-    const syspage_t *sp = (const syspage_t *)SYSPAGE_VA;
+    const Syspage *sp = (const Syspage *)SYSPAGE_VA;
 
     /**
      * before ANYTHING happens, check if the kernel version is compatible with this sysd

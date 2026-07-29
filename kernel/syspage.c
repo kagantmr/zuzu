@@ -10,7 +10,7 @@
 #include "boot_info.h"
 #include "core/log.h"
 
-syspage_t *g_sp;
+Syspage *g_sp;
 static uintptr_t g_syspage_pa;
 extern pmm_state_t pmm_state;
 extern uint32_t rtc_epoch;
@@ -53,8 +53,8 @@ static void dev_cb(const char *compatible, uint64_t phys, uint64_t size, uint32_
 void syspage_init(void)
 {
     g_syspage_pa = pmm_alloc_page(); // reserve the first page for the syspage
-    g_sp = (syspage_t *)PA_TO_VA(g_syspage_pa);
-    memset(g_sp, 0, sizeof(syspage_t));
+    g_sp = (Syspage *)PA_TO_VA(g_syspage_pa);
+    memset(g_sp, 0, sizeof(Syspage));
     g_sp->magic = 0x50050CA7;
     g_sp->kernel_ver = (ZUZU_VERSION_MAJOR << 16) | (ZUZU_VERSION_MINOR << 8) | ZUZU_VERSION_PATCH;
 

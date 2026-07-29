@@ -479,7 +479,7 @@ void command_dispatch(const char *line)
     else if (strcmp(line, "free") == 0)
     {
         // read info page
-        const syspage_t *sp = (const syspage_t *)0x1000;
+        const Syspage *sp = (const Syspage *)0x1000;
         uint32_t fp = sp->mem_free_kb; // free pages (4KB each)
         char buf[64];
         snprintf(buf, sizeof(buf), "%u pages free (%u KB), %u pages full\n", fp / 4, fp, 16384 - fp/4);
