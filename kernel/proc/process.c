@@ -125,11 +125,11 @@ process_t *process_load(const void *elf_data, size_t elf_size,
 
             uint32_t prot = 0;
             if (ph->p_flags & PF_R)
-                prot |= VM_PROT_READ;
+                prot |= PROT_READ;
             if (ph->p_flags & PF_W)
-                prot |= VM_PROT_WRITE;
+                prot |= PROT_WRITE;
             if (ph->p_flags & PF_X)
-                prot |= VM_PROT_EXEC;
+                prot |= PROT_EXEC;
 
             for (uint32_t page = 0; page < file_pages; page++)
             {
@@ -411,13 +411,13 @@ process_t *process_create(const char* name) {
         goto fail_handles;
 
     // map syspage into user space
-    if (!vmm_map_user_page(p->as, syspage_pa(), USER_SYSPAGE_VA, VM_PROT_READ))
+    if (!vmm_map_user_page(p->as, syspage_pa(), USER_SYSPAGE_VA, PROT_READ))
         goto fail_kstack;
 
     vm_region_t sys_region = {
         .vaddr_start = USER_SYSPAGE_VA,
         .size = PAGE_SIZE,
-        .prot = VM_PROT_READ | VM_PROT_USER,
+        .prot = PROT_READ | VM_PROT_USER,
         .memtype = VM_MEM_NORMAL,
         .owner = VM_OWNER_SHARED,
         .flags = VM_FLAG_PINNED | VM_FLAG_GUARD,
@@ -439,13 +439,13 @@ process_t *process_create(const char* name) {
      * pointer so userspace can read its per-thread slot. */
     VirtAddr tcb_user_va = p->mmap_va_next;
     if (!vmm_map_user_page(p->as, tcb_page_pa, tcb_user_va,
-                        VM_PROT_USER | VM_PROT_READ | VM_PROT_WRITE))
+                        VM_PROT_USER | PROT_READ | PROT_WRITE))
         goto fail_kstack;
 
     vm_region_t tcb_region = {
         .vaddr_start = tcb_user_va,
         .size = PAGE_SIZE,
-        .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
+        .prot = PROT_READ | PROT_WRITE | VM_PROT_USER,
         .memtype = VM_MEM_NORMAL,
         .owner = VM_OWNER_ANON,
         .flags = VM_FLAG_PINNED | VM_FLAG_GUARD,
@@ -464,7 +464,7 @@ process_t *process_create(const char* name) {
     vm_region_t stack_region = {
         .vaddr_start = USER_STACK_BASE,
         .size = USER_STACK_TOP - USER_STACK_BASE,
-        .prot = VM_PROT_READ | VM_PROT_WRITE | VM_PROT_USER,
+        .prot = PROT_READ | PROT_WRITE | VM_PROT_USER,
         .memtype = VM_MEM_NORMAL,
         .owner = VM_OWNER_ANON,
         .flags = VM_FLAG_NONE,

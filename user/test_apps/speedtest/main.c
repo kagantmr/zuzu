@@ -35,7 +35,7 @@ static void echo_server_thread(void *arg) {
 
         if (cmd.w2 == MSG_QUIT) {
             zuzu_msg_reply(cmd.w0, 1, 0, 0);
-            zuzu_tquit(ZUZU_OK);
+            ZuzuTQuit(ZUZU_OK);
         }
 
         zuzu_msg_reply(cmd.w0, 1, 0, 0);
@@ -56,7 +56,7 @@ static void lcall_echo_server_thread(void *arg) {
 
         if (len == LCALL_QUIT_LEN) {
             zuzu_msg_lreply(cmd.w0, 0);
-            zuzu_tquit(ZUZU_OK);
+            ZuzuTQuit(ZUZU_OK);
         }
 
         lmsg_read(buf, len);
@@ -75,7 +75,7 @@ static uint32_t calibrate_cycles_per_us(void) {
     uint32_t start = read_pmccntr();
     barrier();
 
-    zuzu_sleep(CALIBRATION_MS);
+    ZuzuSleep(CALIBRATION_MS);
 
     barrier();
     uint32_t end = read_pmccntr();
@@ -222,7 +222,7 @@ static void run_lcall_benchmark(Handle port) {
 
 static void run_getpid_benchmark() {
     for (int i = 0; i < WARMUP_ITERATIONS; i++) {
-       (void)zuzu_getpid();
+       (void)ZuzuGetPid();
     }
 
     for (uint32_t i = 0; i < BENCHMARK_ITERATIONS; i++) {
@@ -230,7 +230,7 @@ static void run_getpid_benchmark() {
         uint32_t start = read_pmccntr();
         barrier();
 
-        Pid pid = zuzu_getpid();
+        (void)ZuzuGetPid();
 
         barrier();
         uint32_t end = read_pmccntr();
@@ -289,7 +289,7 @@ int main(void) {
     }
 
     /* Descending frame model: stack pointer starts at the top of the block. */
-    Tid tid = zuzu_tmake(echo_server_thread, stack + THREAD_STACK_SIZE, &port);
+    Tid tid = ZuzuTMake(echo_server_thread, stack + THREAD_STACK_SIZE, &port);
     if (tid < 0) {
         printf("Couldn't make thread: %s\n", strtoerror(tid));
         free(stack);
@@ -300,7 +300,7 @@ int main(void) {
     run_benchmark(port);
 
     zuzu_msg_call(port, MSG_QUIT, 0, 0);
-    zuzu_tjoin(tid);
+    ZuzuTJoin(tid);
 
     free(stack);
     zuzu_destroy(port);
@@ -318,7 +318,7 @@ int main(void) {
         return 1;
     }
 
-    Tid ltid = zuzu_tmake(lcall_echo_server_thread, lstack + THREAD_STACK_SIZE, &lport);
+    Tid ltid = ZuzuTMake(lcall_echo_server_thread, lstack + THREAD_STACK_SIZE, &lport);
     if (ltid < 0) {
         printf("Couldn't make lcall thread: %s\n", strtoerror(ltid));
         free(lstack);
@@ -329,7 +329,7 @@ int main(void) {
     run_lcall_benchmark(lport);
 
     zuzu_msg_lcall(lport, LCALL_QUIT_LEN);
-    zuzu_tjoin(ltid);
+    ZuzuTJoin(ltid);
 
     free(lstack);
     zuzu_destroy(lport);

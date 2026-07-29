@@ -14,7 +14,7 @@ extern "C" {
     #else
         #include <zuzu/zuzu.h>
         // User space assert is just quit for now
-        #define assert(cond) if(!(cond)) { zuzu_pquit(-1); }
+        #define assert(cond) if(!(cond)) { ZuzuPQuit(-1); }
     #endif
 #endif
 

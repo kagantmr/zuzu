@@ -32,7 +32,7 @@
 #define L2_IDX(va) (((va) >> 12) & 0xFFu)   // bits[19:12]
 
 static bool arch_mmu_map_page(addrspace_t *as, uintptr_t va, uintptr_t pa,
-                              vm_memtype_t memtype, vm_prot_t prot);
+                              vm_memtype_t memtype, MemProt prot);
 
 // ---- Address-space geometry ----------------------------------------------
 // With TTBCR.N=1 the user L1 covers [0, USER_VA_TOP) with 2048 entries (8 KB);
@@ -56,20 +56,20 @@ static inline size_t l1_table_pages(addrspace_type_t type)
 // ---- Descriptor attribute encoding ---------------------------------------
 // AP[1:0] field value. AP[2] stays 0 for every mapping zuzu creates.
 //   0b01 kernel RW / no user, 0b10 user RO, 0b11 user RW.
-static inline uint32_t ap_bits(vm_prot_t prot)
+static inline uint32_t ap_bits(MemProt prot)
 {
     if (prot & VM_PROT_USER)
-        return (prot & VM_PROT_WRITE) ? 0x3u : 0x2u;
+        return (prot & PROT_WRITE) ? 0x3u : 0x2u;
     return 0x1u;
 }
 
 // Build a 1 MB section descriptor.
 //   AP[1:0] -> bits[11:10], XN -> bit4, memtype -> TEX[14:12]/C[3]/B[2].
-static uint32_t l1_section_desc(uintptr_t pa, vm_prot_t prot, vm_memtype_t memtype)
+static uint32_t l1_section_desc(uintptr_t pa, MemProt prot, vm_memtype_t memtype)
 {
     uint32_t e = (uint32_t)(pa & ALIGNMENT_1MB_MASK) | L1_SECTION_TAG;
     e |= ap_bits(prot) << 10;
-    if (!(prot & VM_PROT_EXEC))
+    if (!(prot & PROT_EXEC))
         e |= (1u << 4); // XN
     if (prot & VM_PROT_USER)
         e |= (1u << 17); // nG: ASID-tagged, not visible across address spaces
@@ -82,10 +82,10 @@ static uint32_t l1_section_desc(uintptr_t pa, vm_prot_t prot, vm_memtype_t memty
 
 // Build a 4 KB small-page descriptor.
 //   AP[1:0] -> bits[5:4], XN -> bit0, memtype -> TEX[8:6]/C[3]/B[2].
-static uint32_t l2_page_desc(uintptr_t pa, vm_prot_t prot, vm_memtype_t memtype)
+static uint32_t l2_page_desc(uintptr_t pa, MemProt prot, vm_memtype_t memtype)
 {
     uint32_t e = (uint32_t)(pa & ALIGNMENT_4KB_MASK) | L2_SMALL_TAG;
-    if (!(prot & VM_PROT_EXEC))
+    if (!(prot & PROT_EXEC))
         e |= 0x1u; // XN
     e |= ap_bits(prot) << 4;
     if (prot & VM_PROT_USER)
@@ -99,20 +99,20 @@ static uint32_t l2_page_desc(uintptr_t pa, vm_prot_t prot, vm_memtype_t memtype)
 
 // Rewrite only the permission bits of an existing section/page descriptor,
 // preserving its physical base and memory-type attributes.
-static uint32_t l1_section_set_prot(uint32_t e, vm_prot_t prot)
+static uint32_t l1_section_set_prot(uint32_t e, MemProt prot)
 {
     e &= ~((0x3u << 10) | (1u << 15) | (1u << 4)); // clear AP[1:0], AP[2], XN
     e |= ap_bits(prot) << 10;
-    if (!(prot & VM_PROT_EXEC))
+    if (!(prot & PROT_EXEC))
         e |= (1u << 4);
     return e;
 }
 
-static uint32_t l2_page_set_prot(uint32_t e, vm_prot_t prot)
+static uint32_t l2_page_set_prot(uint32_t e, MemProt prot)
 {
     e &= ~((0x3u << 4) | (1u << 9) | 0x1u); // clear AP[1:0], AP[2], XN
     e |= ap_bits(prot) << 4;
-    if (!(prot & VM_PROT_EXEC))
+    if (!(prot & PROT_EXEC))
         e |= 0x1u;
     return e;
 }
@@ -175,7 +175,7 @@ void arch_mmu_free_tables(uintptr_t ttbr_pa, addrspace_type_t type)
 }
 
 bool arch_mmu_map(addrspace_t *as, uintptr_t va, uintptr_t pa, size_t size,
-                  vm_prot_t prot, vm_memtype_t memtype)
+                  MemProt prot, vm_memtype_t memtype)
 {
 
     if (!as || size == 0)
@@ -320,7 +320,7 @@ bool arch_mmu_unmap(addrspace_t *as, uintptr_t va, size_t size)
     return unmapped_any;
 }
 
-bool arch_mmu_protect(addrspace_t *as, uintptr_t va, size_t size, vm_prot_t prot)
+bool arch_mmu_protect(addrspace_t *as, uintptr_t va, size_t size, MemProt prot)
 {
     if (!as || size == 0)
         return false;
@@ -565,7 +565,7 @@ static bool arch_mmu_break_section(uint32_t *l1, uint32_t l1_idx, uint8_t asid)
 }
 
 static bool arch_mmu_map_page(addrspace_t *as, uintptr_t va, uintptr_t pa,
-                              vm_memtype_t memtype, vm_prot_t prot)
+                              vm_memtype_t memtype, MemProt prot)
 {
     if (!as)
     {

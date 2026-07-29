@@ -4,7 +4,7 @@
  * The kernel VMM drives address spaces through this interface; the active
  * architecture implements the page-table format behind it (ARMv7-A short
  * descriptor: 2-level tables, 4 KB pages, 1 MB sections). Neutral types
- * (addrspace_t, vm_prot_t, vm_memtype_t) come from kernel/mm/vmm.h.
+ * (addrspace_t, MemProt, vm_memtype_t) come from kernel/mm/vmm.h.
  */
 
 #ifndef ZUZU_ARCH_MMU_H
@@ -32,13 +32,13 @@ void arch_mmu_free_tables(uintptr_t ttbr_pa, addrspace_type_t type);
  * @return true on success, false on allocation failure or bad arguments.
  */
 bool arch_mmu_map(addrspace_t *as, uintptr_t va, uintptr_t pa, size_t size,
-                  vm_prot_t prot, vm_memtype_t memtype);
+                  MemProt prot, vm_memtype_t memtype);
 
 /** @brief Remove mappings over [va, va+size). */
 bool arch_mmu_unmap(addrspace_t *as, uintptr_t va, size_t size);
 
 /** @brief Change protection over [va, va+size). */
-bool arch_mmu_protect(addrspace_t *as, uintptr_t va, size_t size, vm_prot_t prot);
+bool arch_mmu_protect(addrspace_t *as, uintptr_t va, size_t size, MemProt prot);
 
 /** @brief Enable the MMU using the given (kernel) address space. */
 void arch_mmu_enable(addrspace_t *as);

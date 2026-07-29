@@ -35,12 +35,12 @@ static void dirty_worker(void *arg)
 {
     (void)arg;
     for (;;)
-        zuzu_sleep(50);
+        ZuzuSleep(50);
 }
 
 static int mode_dirty(void)
 {
-    void *a = zuzu_memmap(HANDLE_ANON, 8192, VM_PROT_RW, 0);
+    void *a = zuzu_memmap(HANDLE_ANON, 8192, PROT_RW, 0);
     if (zuzu_is_err(a))
         return 101;
     memset(a, 0xDD, 8192);
@@ -56,25 +56,25 @@ static int mode_dirty(void)
     Handle sh = zuzu_shm_create(SHM_TEST_SIZE);
     if (sh < 0)
         return 104;
-    void *m = zuzu_memmap(sh, 0, VM_PROT_RW, 0);
+    void *m = zuzu_memmap(sh, 0, PROT_RW, 0);
     if (zuzu_is_err(m))
         return 105;
     memset(m, 0xEE, SHM_TEST_SIZE);
 
-    void *stack = zuzu_memmap(HANDLE_ANON, 4096, VM_PROT_RW, 0);
+    void *stack = zuzu_memmap(HANDLE_ANON, 4096, PROT_RW, 0);
     if (zuzu_is_err(stack))
         return 106;
-    if (zuzu_tmake(dirty_worker, (char *)stack + 4096, NULL) < 0)
+    if (ZuzuTMake(dirty_worker, (char *)stack + 4096, NULL) < 0)
         return 107;
 
-    zuzu_sleep(5);   /* let the worker reach its sleep loop */
-    zuzu_pquit(7);   /* dirty exit: everything above still live */
+    ZuzuSleep(5);   /* let the worker reach its sleep loop */
+    ZuzuPQuit(7);   /* dirty exit: everything above still live */
     return 7;        /* unreachable; pquit does not return */
 }
 
 static int mode_shm(Handle slot)
 {
-    uint8_t *m = (uint8_t *)zuzu_memmap(slot, 0, VM_PROT_RW, 0);
+    uint8_t *m = (uint8_t *)zuzu_memmap(slot, 0, PROT_RW, 0);
     if (zuzu_is_err(m))
         return 110;
 
@@ -115,11 +115,11 @@ static int mode_regrant(Handle slot)
  * saves/restores in context_switch; a switch path that handles just d0-d15
  * corrupts them silently. Write/yield/readback is a single asm block so the
  * compiler cannot cache anything in the probed registers in between; the
- * yield svc clobbers only w0 (same contract as zuzu_yield). Patterns vary
+ * yield svc clobbers only w0 (same contract as ZuzuYield). Patterns vary
  * per iteration so a stale value from an earlier switch also mismatches. */
 static int mode_vfp(uint32_t sent)
 {
-    zuzu_sleep(20);   /* barrier: let the sibling instance get spawned */
+    ZuzuSleep(20);   /* barrier: let the sibling instance get spawned */
 
     for (uint32_t i = 0; i < 400; i++) {
         uint32_t a = sent ^ i;

@@ -97,7 +97,7 @@ __attribute__((cold)) int get_shm() {
         return 1;
     }
 
-    void *addr = zuzu_memmap((int32_t)r.w1, 0, VM_PROT_RW, 0);
+    void *addr = zuzu_memmap((int32_t)r.w1, 0, PROT_RW, 0);
     if (zuzu_is_err(addr)) {
         LOG_ERROR(LOG_TAG, "shmem attach failed");
         return ERR_SYSDOWN;

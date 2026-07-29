@@ -55,7 +55,7 @@ static int32_t wait_for_devmgr(void)
             devmgr_port = (int32_t)ntmsg.w2;
             return (int32_t)ntmsg.w3;
         }
-        zuzu_sleep(10);
+        ZuzuSleep(10);
     }
 }
 
@@ -66,7 +66,7 @@ static int32_t request_serial_device(void)
         if ((int32_t)devmsg.w1 == 0) {
             return (int32_t)devmsg.w2;
         }
-        zuzu_sleep(10);
+        ZuzuSleep(10);
     }
 }
 
@@ -151,7 +151,7 @@ int pl011drv_setup(void)
     }
 
     serial_dev_handle = dev_handle;
-    uart = (volatile pl011_t *)zuzu_memmap(dev_handle, 0, VM_PROT_RW, 0);
+    uart = (volatile pl011_t *)zuzu_memmap(dev_handle, 0, PROT_RW, 0);
     if ((intptr_t)uart <= 0) {
         return (int)(intptr_t)uart;
     }

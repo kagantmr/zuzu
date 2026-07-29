@@ -18,6 +18,7 @@ typedef uint64_t Tick;      /* Monotonic tick counts */
 typedef uintptr_t PhysAddr; /* Physical memory address */
 typedef uintptr_t VirtAddr; /* Virtual memory address */
 typedef uint32_t Irq;       /* IRQ number*/
+typedef uint32_t Duration;  /* for sleep and waitany syscalls */
 typedef uint64_t Time;      /* wall-clock time */
 
 /* ---- Common IPC types ---- */
@@ -36,41 +37,40 @@ typedef struct
 #define TIMEOUT_POLL 0u
 #define TIMEOUT_INFINITE UINT32_MAX
 
-/* ---- Process spawn types ---- */
+    /*  Process spawn types  */
 
-typedef struct
-{
-    Handle taskHandle;
-    Pid pid;
-} TSpawnResult;
+    typedef struct
+    {
+        Handle taskHandle;
+        Pid pid;
+    } TSpawnResult;
 
-/* --- Handle sentinels */
+    /* Handle sentinels  */
 
-#define HANDLE_ANON ((Handle) -1) // Sentinel value, used in memmap() as the handle value
+#define HANDLE_ANON ((Handle) - 1) // Sentinel value used in memmap() as the handle value
 
-/* waitany */
+    /* Waitany sentinels, enums and structs */
 
 #define WAITANY_NO_MATCH UINT32_MAX
 
-typedef enum
-{
-    WAITANY_KIND_SEND = 0u,
-    WAITANY_KIND_CALL = 1u,
-    WAITANY_KIND_NTFN = 2u,
-    WAITANY_KIND_TIMEOUT = 3u,
-} WaitanyType;
+    typedef enum
+    {
+        WAITANY_KIND_SEND = 0u,
+        WAITANY_KIND_CALL = 1u,
+        WAITANY_KIND_NTFN = 2u,
+        WAITANY_KIND_TIMEOUT = 3u,
+    } WaitanyType;
 
-
-typedef struct
-{
-    uint32_t size;        /* sizeof(WaitanyResult); caller sets, kernel honors */
-    Handle matched_index; /* index into the caller's handle array; WAITANY_NO_MATCH on timeout */
-    WaitanyType kind;     /* WAITANY_KIND_* */
-    uint32_t source;      /* send: sender pid | call: reply handle | ntfn: 0 */
-    MsgWord w1;           /* send: payload/lmsg len | call: sender pid | ntfn: bits */
-    MsgWord w2;           /* send/call: payload or lmsg length */
-    MsgWord w3;           /* send/call: payload */
-} WaitanyResult;
+    typedef struct
+    {
+        uint32_t size;        /* sizeof(WaitanyResult); caller sets, kernel honors */
+        Handle matched_index; /* index into the caller's handle array; WAITANY_NO_MATCH on timeout */
+        WaitanyType kind;     /* WAITANY_KIND_* */
+        uint32_t source;      /* send: sender pid | call: reply handle | ntfn: 0 */
+        MsgWord w1;           /* send: payload/lmsg len | call: sender pid | ntfn: bits */
+        MsgWord w2;           /* send/call: payload or lmsg length */
+        MsgWord w3;           /* send/call: payload */
+    } WaitanyResult;
 
 #ifdef __cplusplus
 }

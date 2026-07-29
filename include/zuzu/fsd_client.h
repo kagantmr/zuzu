@@ -48,7 +48,7 @@ static inline int32_t fsd_attach(fsd_conn_t *c, int32_t port, uint32_t pid,
     if (c->shm < 0)
         return (int32_t)c->shm;
 
-    void *p = zuzu_memmap(c->shm, 0, VM_PROT_RW, 0);
+    void *p = zuzu_memmap(c->shm, 0, PROT_RW, 0);
     if (zuzu_is_err(p))
         return (int32_t)(intptr_t)p;
     c->buf  = (uint8_t *)p;

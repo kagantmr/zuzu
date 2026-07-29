@@ -23,7 +23,7 @@ Err client_register(uint32_t pid, Handle shm, uint32_t size)
     {
         if (client_table[i].pid == 0)
         {
-            void *p = zuzu_memmap(shm, 0, VM_PROT_RW, 0);
+            void *p = zuzu_memmap(shm, 0, PROT_RW, 0);
             if (zuzu_is_err(p)) return ERR_NOMEM;
             client_table[i].pid = pid;
             client_table[i].shm_handle = shm;

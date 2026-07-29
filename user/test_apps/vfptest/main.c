@@ -20,7 +20,7 @@ static double compute(double seed, int iters)
         x = x * 1.0000003 + 0.0000001;
         if (i % 7 == 0)
             x = x - 0.0000002;
-        zuzu_yield();
+        ZuzuYield();
     }
     return x;
 }
@@ -38,7 +38,7 @@ static void worker(void *arg)
     worker_arg_t *w = (worker_arg_t *)arg;
     got[w->idx] = compute(seeds[w->idx], ITERS);
     done[w->idx] = 1;
-    zuzu_tquit(0);
+    ZuzuTQuit(0);
 }
 
 int main(void)
@@ -52,13 +52,13 @@ int main(void)
     worker_arg_t args[NTHREADS];
 
     for (int i = 0; i < NTHREADS; i++) {
-        void *stack = zuzu_memmap(HANDLE_ANON, STACK_SIZE, VM_PROT_READ | VM_PROT_WRITE, 0);
+        void *stack = zuzu_memmap(HANDLE_ANON, STACK_SIZE, PROT_READ | PROT_WRITE, 0);
         args[i] = (worker_arg_t){ .stack = stack, .idx = i };
-        tids[i] = zuzu_tmake(worker, (char *)stack + STACK_SIZE, &args[i]);
+        tids[i] = ZuzuTMake(worker, (char *)stack + STACK_SIZE, &args[i]);
     }
 
     for (int i = 0; i < NTHREADS; i++)
-        zuzu_tjoin(tids[i]);
+        ZuzuTJoin(tids[i]);
 
     int fails = 0;
     for (int i = 0; i < NTHREADS; i++) {

@@ -6,13 +6,13 @@ extern "C" {
 #endif
 
 typedef enum {
-    VM_PROT_NONE  = 0, // no access
-    VM_PROT_READ  = 1u << 0, // read access
-    VM_PROT_WRITE = 1u << 1, // write access
-    VM_PROT_EXEC  = 1u << 2 // execute access
-} vm_prot_t;
+    PROT_NONE  = 0, // no access
+    PROT_READ  = 1u << 0, // read access
+    PROT_WRITE = 1u << 1, // write access
+    PROT_EXEC  = 1u << 2 // execute access
+} MemProt;
 
-#define VM_PROT_RW ((VM_PROT_READ) | (VM_PROT_WRITE))
+#define PROT_RW ((PROT_READ) | (PROT_WRITE))
 
 #ifdef __cplusplus
 }

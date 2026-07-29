@@ -52,7 +52,7 @@ int nt_setup(void) {
         for (int j = 0; j < SYSD_NAME_LEN; j++) registry_table[i].name[j] = 0;
     }
 
-    den_init(zuzu_getpid());
+    den_init(ZuzuGetPid());
     return 0;
 }
 
@@ -160,7 +160,7 @@ static void nt_handle_msg(Message msg) {
          * plain C call) rather than RPC-ing NT_PORT, which is itself. */
         if (!fsd_conn.ready) {
             uint32_t fsd_h = 0, fsd_p = 0;
-            if (nt_lookup(nt_pack("fsd"), zuzu_getpid(), &fsd_h, &fsd_p) != NT_LU_OK) {
+            if (nt_lookup(nt_pack("fsd"), ZuzuGetPid(), &fsd_h, &fsd_p) != NT_LU_OK) {
                 zuzu_msg_reply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
                 return;
             }
@@ -419,7 +419,7 @@ static bool should_respawn(int32_t status)
 
 static void respawn_entry(boot_entry_t *e)
 {
-    TSpawnResult ts = zuzu_pspawn(e->name);
+    TSpawnResult ts = ZuzuPSpawn(e->name);
     if (ts.taskHandle < 0)
         return;
 
@@ -432,7 +432,7 @@ static void respawn_entry(boot_entry_t *e)
         return;
 
     e->injected = true;
-    zuzu_kickstart(e->taskHandle, e->reply.entry, e->reply.sp,
+    ZuzuKickstart(e->taskHandle, e->reply.entry, e->reply.sp,
                e->reply.argc, e->reply.argv_va);
 }
 
@@ -445,7 +445,7 @@ static void reap_all(void)
     int32_t status;
     int32_t pid;
 
-    while ((pid = zuzu_wait(-1, &status, WNOHANG)) > 0) {
+    while ((pid = ZuzuWait(-1, &status, WNOHANG)) > 0) {
         boot_entry_t *e = find_boot_entry_by_pid((uint32_t)pid);
         scrub_pid((uint32_t)pid);
 
@@ -458,7 +458,7 @@ static bool wait_for_service(uint32_t name_u32) {
     uint32_t handle = 0, pid = 0, waited_ms = 0;
     Handle recv_handles[1] = {(Handle)port};
 
-    while (nt_lookup(name_u32, zuzu_getpid(), &handle, &pid) != NT_LU_OK &&
+    while (nt_lookup(name_u32, ZuzuGetPid(), &handle, &pid) != NT_LU_OK &&
            waited_ms < WAIT_TIMEOUT_MS) {
         reap_all();
 
@@ -471,7 +471,7 @@ static bool wait_for_service(uint32_t name_u32) {
         waited_ms += WAIT_SLICE_MS;
     }
 
-    return nt_lookup(name_u32, zuzu_getpid(), &handle, &pid) == NT_LU_OK;
+    return nt_lookup(name_u32, ZuzuGetPid(), &handle, &pid) == NT_LU_OK;
 }
 
 void sysd_loop(void)
@@ -612,7 +612,7 @@ static bool wait_for_tty_registration(uint32_t pid,
     uint32_t waited_ms = 0;
     Handle recv_handles[1] = {(Handle)port};
 
-    while (nt_lookup_pid(pid, zuzu_getpid(), out_handle, out_pid) != NT_LU_OK &&
+    while (nt_lookup_pid(pid, ZuzuGetPid(), out_handle, out_pid) != NT_LU_OK &&
            waited_ms < WAIT_TIMEOUT_MS) {
         reap_all();
 
@@ -625,7 +625,7 @@ static bool wait_for_tty_registration(uint32_t pid,
         waited_ms += WAIT_SLICE_MS;
     }
 
-    return nt_lookup_pid(pid, zuzu_getpid(), out_handle, out_pid) == NT_LU_OK;
+    return nt_lookup_pid(pid, ZuzuGetPid(), out_handle, out_pid) == NT_LU_OK;
 }
 
 static void register_tty_aliases(void)
@@ -664,7 +664,7 @@ int main(int argc, char **argv)
      * 
      */
     if (((sp->kernel_ver & 0x00FF0000) >> 16) < ZUZUOS_MIN_KERNEL_MAJOR) {
-        zuzu_pquit(FATAL_TAG | FATAL_KERNEL_OUTDATED);
+        ZuzuPQuit(FATAL_TAG | FATAL_KERNEL_OUTDATED);
     }
 
     /* argv[1]/argv[2] = initrd VA + size, set by the kernel in
@@ -682,7 +682,7 @@ int main(int argc, char **argv)
 
     if (nt_setup() < 0)
         return 1;
-    nt_register(nt_pack(NT_NAME_SYS), (uint32_t)port, zuzu_getpid(), 0);
+    nt_register(nt_pack(NT_NAME_SYS), (uint32_t)port, ZuzuGetPid(), 0);
 
     /* ---- read boot manifest from CPIO ---- */
 
@@ -701,7 +701,7 @@ int main(int argc, char **argv)
         if (!e->in_cpio || e->spawn_last)
             continue;
 
-        TSpawnResult ts = zuzu_pspawn(e->name);
+        TSpawnResult ts = ZuzuPSpawn(e->name);
         if (ts.taskHandle < 0)
             continue;
 
@@ -717,7 +717,7 @@ int main(int argc, char **argv)
 
     /* ---- storage den ---- */
 
-    int disk_den = den_create(zuzu_getpid(), nt_pack("disk"));
+    int disk_den = den_create(ZuzuGetPid(), nt_pack("disk"));
     if (disk_den >= 0) {
         for (int i = 0; i < boot_count; i++) {
             if (!boot_entries[i].injected) continue;
@@ -732,7 +732,7 @@ int main(int argc, char **argv)
         boot_entry_t *e = &boot_entries[i];
         if (!e->injected) continue;
 
-        zuzu_kickstart(e->taskHandle, e->reply.entry, e->reply.sp,
+        ZuzuKickstart(e->taskHandle, e->reply.entry, e->reply.sp,
                    e->reply.argc, e->reply.argv_va);
     }
 
@@ -762,7 +762,7 @@ int main(int argc, char **argv)
         if (!e->in_cpio || !e->spawn_last)
             continue;
 
-        TSpawnResult ts = zuzu_pspawn(e->name);
+        TSpawnResult ts = ZuzuPSpawn(e->name);
         if (ts.taskHandle < 0)
             continue;
 
@@ -775,7 +775,7 @@ int main(int argc, char **argv)
             continue;
         e->injected = true;
 
-        zuzu_kickstart(e->taskHandle, e->reply.entry, e->reply.sp,
+        ZuzuKickstart(e->taskHandle, e->reply.entry, e->reply.sp,
                    e->reply.argc, e->reply.argv_va);
     }
 
