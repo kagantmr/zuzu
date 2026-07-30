@@ -77,5 +77,4 @@ uboot-src/
 # other build output (lib/*.a is already caught by the blanket *.a rule
 # above). Non-generated resources placed directly under ZUZUSD/ (headers,
 # config files, vendored non-build assets) are tracked normally.
-ZUZUSD/bin/
-ZUZUSD/boot/
+ZUZUSD/*

@@ -4,8 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "pl181drv.h"
-#include "zuzu/protocols/devmgr_protocol.h"
-#include "zuzu/protocols/sd_protocol.h"
+#include "zuzu/protocols/devm.h"
+#include "zuzu/protocols/mmcdrv.h"
 
 #define LOG_TAG "pl181drv"
 
@@ -287,13 +287,12 @@ static int pl181drv_setup(void)
     }
 
     /* request the block device capability */
-    Message r = ZuzuMsgCall(devmgr_port, DEV_REQUEST, DEV_CLASS_BLOCK, 0);
-    if ((int32_t)r.w1 != 0)
-    {
-        LOG_ERROR(LOG_TAG, "block device request failed");
-        return -1;
+    static const char *const block_compat[] = { "arm,pl180" };   /* note: pl180, the PL18x primecell */
+    block_dev_handle = DevmRequestDevice(devmgr_port, block_compat, 1, NULL);
+    if (block_dev_handle < 0) {
+        LOG_ERROR(LOG_TAG, "block device not present");
+        return block_dev_handle;
     }
-    block_dev_handle = (int32_t)r.w2;
 
     block_irq_ntfn = ZuzuNtfnCreate();
     if (block_irq_ntfn < 0)

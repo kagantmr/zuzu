@@ -4,8 +4,8 @@
 #define ZZSH_VER "v1.3"
 
 #include <zuzu/zuzu.h>
-#include "zuzu/protocols/uart_protocol.h"
-#include "zuzu/protocols/nt_protocol.h"
+#include "zuzu/protocols/uart.h"
+#include "zuzu/protocols/nametable.h"
 #include "zuzu/lmsg.h"
 
 #define LINE_BUFFER_SIZE 256

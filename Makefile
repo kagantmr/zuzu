@@ -20,7 +20,7 @@ OBJCOPY = $(CROSS)objcopy
 UNAME_S := $(shell uname -s)
 
 # ---- build knobs ---------------------------------------------------------
-OPTIMIZATION_LEVEL      ?= 0
+OPTIMIZATION_LEVEL      ?= 2
 USER_OPTIMIZATION_LEVEL ?= s
 DEBUG_BUILD             ?= 1
 # LTO does cross-TU whole-program inlining at link time, independent of
@@ -165,6 +165,15 @@ LIB_PROG_OBJS = $(foreach p,$(LIB_PROGS),$(USER_$(p)_OBJS))
 # the ZCRT libc (lib/), and the IPC runtime (lib/zuzu/).
 ZCRT_SRCS = $(wildcard klib/*.c lib/*.c lib/zuzu/*.c)
 ZCRT_OBJS = $(patsubst %.c,build/user/zcrt/%.o,$(ZCRT_SRCS))
+
+ZCRT_ARCHIVE = build/user/libc.a
+$(ZCRT_ARCHIVE): $(ZCRT_OBJS)
+	@mkdir -p $(dir $@)
+	@echo "  AR      $@"
+	@rm -f $@
+	@$(USER_AR) rcs $@ $(ZCRT_OBJS)
+
+
 # Tier-2 zcrt allowlist: the IPC runtime plus zuzu's sbrk arena — and
 # nothing else, so newlib owns every libc symbol (string/mem/stdio/...)
 # unambiguously. sbrk.c must be here explicitly: the _sbrk stub calls
@@ -381,17 +390,23 @@ $(TARGET): $(OBJS) $(LINKER_SCRIPT)
 
 .PHONY: sdimg sdimg-stage sdimg-clean sdimg-recreate
 
-sdimg-stage: $(SD_PROG_PACKED_ELFS) $(SD_LIB_ARCHIVES)
+sdimg-stage: $(SD_PROG_PACKED_ELFS) $(SD_LIB_ARCHIVES) $(USER_CRT0) $(ZCRT_ARCHIVE)
 	@mkdir -p $(SD_STAGE_DIR)/bin
+	@mkdir -p $(SD_STAGE_DIR)/lib
+	@mkdir -p $(SD_STAGE_DIR)/include
 	@for prog in $(SD_PROGS); do \
 		cp build/user/$$prog.stripped.elf $(SD_STAGE_DIR)/bin/$$prog; \
 		echo "  STAGE   $(SD_STAGE_DIR)/bin/$$prog"; \
 	done
-	@if [ -n "$(SD_LIBS)" ]; then mkdir -p $(SD_STAGE_DIR)/lib; fi
 	@for lib in $(SD_LIBS); do \
 		cp build/user/lib/$$lib.a $(SD_STAGE_DIR)/lib/$$lib.a; \
 		echo "  STAGE   $(SD_STAGE_DIR)/lib/$$lib.a"; \
 	done
+	@# NEW: Stage system headers and runtime binaries for TCC
+	@cp -r include/* $(SD_STAGE_DIR)/include/
+	@cp $(USER_CRT0) $(SD_STAGE_DIR)/lib/crt0.o
+	@cp $(ZCRT_ARCHIVE) $(SD_STAGE_DIR)/lib/libc.a
+	@echo "  STAGE   $(SD_STAGE_DIR)/include/ and $(SD_STAGE_DIR)/lib/libc.a"
 
 # Creates a FAT32 image ($(1)) from a staging directory ($(2)). macOS uses
 # hdiutil; everywhere else uses mkfs.fat + mtools (dosfstools/mtools).

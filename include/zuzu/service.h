@@ -7,7 +7,7 @@ extern "C" {
 
 #include <zuzu/lmsg.h>
 #include <stdint.h>
-#include <zuzu/protocols/nt_protocol.h>
+#include <zuzu/protocols/nametable.h>
 
 /**
  * @brief Registers a service with the specified name with sysd.

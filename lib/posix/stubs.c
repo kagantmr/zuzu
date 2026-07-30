@@ -8,8 +8,8 @@
 #include <zuzu/lmsg.h>
 #include <zuzu/uspin.h>
 #include <zuzu/syspage.h>
-#include <zuzu/protocols/nt_protocol.h>
-#include <zuzu/protocols/fsd_protocol.h>
+#include <zuzu/protocols/nametable.h>
+#include <zuzu/protocols/fsd.h>
 #include <string.h>
 
 #define MAX_FD 32

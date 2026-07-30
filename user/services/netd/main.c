@@ -4,8 +4,8 @@
 #include <zuzu/task.h>
 #include <zuzu/umem.h>
 #include <zuzu/channel.h>
-#include <zuzu/protocols/devmgr_protocol.h>
-#include <zuzu/protocols/nic_protocol.h>
+#include <zuzu/protocols/devm.h>
+#include <zuzu/protocols/nic.h>
 #include <zuzu/service.h>
 #include <zuzu/types.h>
 #include <zuzu/log.h>
@@ -133,6 +133,7 @@ int main() {
     udp_bind(7, udp_echo_handler);
 
     LOG_INFO(LOG_TAG, "online");
+    
     while (1) {
         /* 1. size the sleep: until the next timer, but never longer than the
             cap, so the legacy pollers still get serviced. */
