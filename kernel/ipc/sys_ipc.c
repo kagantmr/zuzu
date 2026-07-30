@@ -7,7 +7,7 @@
 #include "kernel/layout.h"
 #include "kernel/time/tick.h"
 #include "core/panic.h"
-#include <mem.h>
+#include <string.h>
 #include <stdbool.h>
 #include <zuzu/tls.h>
 #include <zuzu/types.h>
@@ -69,8 +69,8 @@ static void ipc_panic_bad_trap_frame(const char *where, const process_t *owner, 
                (void *)arch_regs_lr(tf), (void *)arch_regs_sp(tf),
                (void *)arch_regs_flags(tf));
     panic("Corrupt trap_frame in IPC path at %s: owner_pid=%u tf=%p current_pid=%u",
-          where, owner ? owner->pid : 0, (const void *)tf,
-          current_thread && current_thread->owner_process ? current_thread->owner_process->pid : 0);
+          where, (unsigned)(owner ? owner->pid : 0), (const void *)tf,
+          (unsigned)(current_thread && current_thread->owner_process ? current_thread->owner_process->pid : 0));
 }
 #endif
 

@@ -18,7 +18,7 @@
 
 #include "kernel/mm/vmm.h"
 
-#include <mem.h>
+#include <string.h>
 #include <stdbool.h>
 
 extern kernel_layout_t kernel_layout;
@@ -118,7 +118,7 @@ void __attribute__((hot)) syscall_dispatch(uint8_t svc_num, arch_regs_t *frame)
     if (!trap_frame_sane(frame))
     {
         panic("Corrupt trap_frame at syscall dispatch: pid=%u svc=%u frame=%p",
-              current_thread->owner_process ? current_thread->owner_process->pid : 0,
+              (unsigned)(current_thread->owner_process ? current_thread->owner_process->pid : 0),
               svc_num, (void *)frame);
     }
     current_thread->trap_frame = frame;

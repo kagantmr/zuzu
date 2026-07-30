@@ -7,7 +7,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
-#include <mem.h>
 #include "core/panic.h"
 #include "kernel/layout.h"
 #include <arch/asid.h>
@@ -185,7 +184,7 @@ void vmm_lockdown_kernel_sections(void) {
         // Coarse page table (bits[1:0] == 0b01)
         if ((entry & 0x3) == 0x1) {
             PhysAddr l2_pa = entry & 0xFFFFFC00u;
-            VirtAddr *l2 = (uint32_t *)PA_TO_VA(l2_pa);
+            VirtAddr *l2 = (VirtAddr *)PA_TO_VA(l2_pa);
 
             for (size_t j = 0; j < 256; j++) {
                 uint32_t pte = l2[j];
