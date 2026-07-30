@@ -1,6 +1,6 @@
 #include "timer.h"
 #include "globals.h"
-#include <mem.h>
+#include <string.h>
 
 static timer_t timers[TIMER_MAX];
 

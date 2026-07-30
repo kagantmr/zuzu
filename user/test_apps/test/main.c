@@ -6,7 +6,7 @@
 #include <zuzu/tls.h>
 #include <zuzu/syspage.h>
 #include <malloc.h>
-#include <mem.h>
+#include <string.h>
 #include <stdio.h>
 
 #define STACK_SIZE 4096

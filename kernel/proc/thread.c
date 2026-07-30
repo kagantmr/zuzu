@@ -3,7 +3,7 @@
 #include "kernel/mm/alloc.h"
 #include "kernel/sched/sched.h"
 #include "kstack.h"
-#include <mem.h>
+#include <string.h>
 #include <spinlock.h>
 
 #define MAX_THREADS 1024

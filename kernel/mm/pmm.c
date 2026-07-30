@@ -3,7 +3,7 @@
 #include "kernel/layout.h"
 #include "kernel/dtb/dtb.h"
 #include <arch/symbols.h>
-#include <mem.h>
+#include <string.h>
 #include "kernel/mm/vmm.h" // PA_TO_VA / VA_TO_PA helpers
 #include <spinlock.h>
 #include <zuzu/types.h>

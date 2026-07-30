@@ -2,7 +2,7 @@
 
 #include "malloc.h"
 
-#include <mem.h>
+#include <string.h>
 #include <stdint.h>
 #include <zuzu/memprot.h>
 #include <zuzu/types.h>

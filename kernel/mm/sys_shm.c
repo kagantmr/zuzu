@@ -3,7 +3,7 @@
 #include "kernel/sched/sched.h"
 #include <arch/cache.h>
 #include <arch/mmu.h>
-#include <mem.h>
+#include <string.h>
 
 #include "core/log.h"
 #include "kernel/layout.h"

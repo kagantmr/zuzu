@@ -1,4 +1,5 @@
-#include "mem.h"
+#include "string.h"
+#include <stdint.h>
 
 typedef struct { uint32_t w[8]; } __attribute__((aligned(4))) chunk32_t;
 

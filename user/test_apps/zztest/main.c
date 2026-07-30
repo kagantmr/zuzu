@@ -35,7 +35,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <mem.h>
 
 #define STACK_SIZE      4096u
 #define LEAK_ITERS      50

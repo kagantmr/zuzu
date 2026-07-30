@@ -14,7 +14,7 @@
 
 #include <arch/context.h>
 #include <arch/regs.h>
-#include <mem.h>
+#include <string.h>
 
 /* Initial CPSR for a user thread: USR mode (0x10), IRQs enabled. */
 #define ARM_CPSR_USER     0x10u

@@ -4,7 +4,6 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <string.h>
-#include <mem.h>
 
 #include "zuzu/protocols/exec.h"
 #include <zuzu/fsd_client.h>

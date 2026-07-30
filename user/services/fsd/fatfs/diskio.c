@@ -5,7 +5,7 @@
 #include "zuzu/protocols/nametable.h"
 #include "zuzu/protocols/mmcdrv.h"
 #include <zuzu/service.h>
-#include <mem.h>
+#include <string.h>
 #include <stdint.h>
 
 #define FAT32D_DRIVE 0

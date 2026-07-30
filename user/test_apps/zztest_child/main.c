@@ -27,7 +27,6 @@
 #include <zuzu/memprot.h>
 #include <stdlib.h>
 #include <string.h>
-#include <mem.h>
 
 #define SHM_TEST_SIZE 4096u
 

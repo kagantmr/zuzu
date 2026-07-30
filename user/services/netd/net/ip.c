@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include <convert.h>
 #include <malloc.h>
-#include <mem.h>
+#include <string.h>
 
 static int id_counter = 0;
 

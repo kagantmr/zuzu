@@ -2,7 +2,6 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <mem.h>
 #include <string.h>
 #include <libfdt.h>
 #include "core/log.h"

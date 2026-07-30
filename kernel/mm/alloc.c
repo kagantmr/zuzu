@@ -3,7 +3,7 @@
 #include "kernel/layout.h"
 #include "kernel/mm/vmm.h"  // For PA_TO_VA
 #include "stdbool.h"
-#include <mem.h>
+#include <string.h>
 #include <assert.h>
 #include "core/panic.h"
 #include "core/log.h"
