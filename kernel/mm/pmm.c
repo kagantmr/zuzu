@@ -43,7 +43,7 @@ static void PmmRebuildFreelist(void)
         if (!(pmm_state.bitmap[byte_idx] & (1u << bit_idx)))
         {
             PhysAddr pa = (pmm_state.pfn_base + i) * PAGE_SIZE;
-            PhysAddr *page_va = (uintptr_t *)PA_TO_VA(pa);
+            PhysAddr *page_va = (PhysAddr *)PA_TO_VA(pa);
             *page_va = pmm_state.freelist_head;
             pmm_state.freelist_head = pa;
         }
@@ -66,7 +66,7 @@ static void PmmFreelistRemoveRange(PhysAddr start_pa, PhysAddr end_pa)
             continue;
         }
 
-        PhysAddr next_pa = *(VirtAddr *)PA_TO_VA(curr_pa);;
+        PhysAddr next_pa = *(PhysAddr *)PA_TO_VA(curr_pa);;
 
         if (!pmm_is_valid_managed_pa(next_pa))
         {
@@ -84,7 +84,7 @@ static void PmmFreelistRemoveRange(PhysAddr start_pa, PhysAddr end_pa)
             }
             else
             {
-                *(uintptr_t *)PA_TO_VA(prev_pa) = next_pa;
+                *(PhysAddr *)PA_TO_VA(prev_pa) = next_pa;
             }
         }
         else
@@ -111,7 +111,7 @@ static PhysAddr PmmAllocPageLocked(void)
     PhysAddr pa = pmm_state.freelist_head;
 
     /* Pop: read next pointer stored in the page itself */
-    VirtAddr *page_va = (uintptr_t *)PA_TO_VA(pa);
+    PhysAddr *page_va = (PhysAddr *)PA_TO_VA(pa);
     PhysAddr next_pa = *page_va;
     if (!pmm_is_valid_managed_pa(next_pa))
     {
@@ -119,7 +119,7 @@ static PhysAddr PmmAllocPageLocked(void)
         if (pmm_state.freelist_head == 0)
             return (PhysAddr)0;
         pa = pmm_state.freelist_head;
-        page_va = (VirtAddr *)PA_TO_VA(pa);
+        page_va = (PhysAddr *)PA_TO_VA(pa);
         next_pa = *page_va;
         if (!pmm_is_valid_managed_pa(next_pa))
         {
@@ -442,7 +442,7 @@ Err PmmFreeFrame(const PhysAddr addr)
         assert(pmm_state.free_pages <= pmm_state.total_pages);
 
         /* Push onto freelist */
-        PhysAddr *page_va = (uintptr_t *)PA_TO_VA(addr);
+        PhysAddr *page_va = (PhysAddr *)PA_TO_VA(addr);
         *page_va = pmm_state.freelist_head;
         pmm_state.freelist_head = addr;
 
