@@ -8,7 +8,6 @@
 #include "kernel/syspage.h"
 #include <zuzu/tls.h>
 #include <zuzu/user_layout.h>
-#include <mem.h>
 #include <string.h>
 #include <stdint.h>
 #include <elf.h>
@@ -708,11 +707,11 @@ void process_kill(process_t *p, const int exit_status) {
         if ((exit_status & FATAL_TAG_MASK) == FATAL_TAG) {
             /* deliberate fatal exit carrying a reason code */
             panic("critical process '%s' (pid %u) exited: %s",
-                  p->name, p->pid, fatal_reason_str(exit_status & FATAL_REASON_MASK));
+                  p->name, (unsigned)p->pid, fatal_reason_str(exit_status & FATAL_REASON_MASK));
         } else {
             /* unexpected death, or exit with no reason */
             panic("critical process '%s' (pid %u) died unexpectedly (status %d)",
-                  p->name, p->pid, exit_status);
+                  p->name, (unsigned)p->pid, exit_status);
         }
     }
 

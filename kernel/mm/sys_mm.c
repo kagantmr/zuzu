@@ -7,7 +7,7 @@
 #include "kernel/mm/pmm.h"
 #include "kernel/layout.h"
 #include <zuzu/spawn_args.h>
-#include <mem.h>
+#include <string.h>
 
 #define LOG_FMT(fmt) "(syscall_mm) " fmt
 #include "core/log.h"
@@ -296,7 +296,7 @@ void sys_memunmap(arch_regs_t *frame)
         if (!vmm_remove_region(as, va, size))
         {
             panic("sys_memunmap: found region @ 0x%08X (size=%u) but could not remove it",
-                  (uint32_t)va, (unsigned)size);
+                  (unsigned)va, (unsigned)size);
             __builtin_unreachable();
         }
     
