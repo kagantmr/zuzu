@@ -1,6 +1,5 @@
 #include <zuzu/arena.h>
 #include <string.h>
-#include <mem.h>
 
 void ArenaInit(Arena *a, void *buf, size_t size) {
     a->base = (uint8_t *)buf;

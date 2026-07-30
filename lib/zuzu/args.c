@@ -1,6 +1,5 @@
 #include <zuzu/args.h>
 #include <string.h>
-#include <mem.h>
 #include <stdio.h>
 
 int ArgsParse(Args *out, int argc, char **argv, const ArgSpec *spec) {

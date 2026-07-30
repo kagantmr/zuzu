@@ -3,7 +3,7 @@
 #include <zuzu/ntfn.h>
 #include <zuzu/protocols/nic.h>
 #include <stdio.h>
-#include <mem.h>
+#include <string.h>
 #include <stdlib.h>
 #include "../common/globals.h"
 #include "arp.h"

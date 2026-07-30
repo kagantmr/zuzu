@@ -3,7 +3,7 @@
 #include "kernel/sched/sched.h"
 #include "kernel/mm/alloc.h"
 #include <arch/irq.h>
-#include <mem.h>
+#include <string.h>
 
 extern thread_t *current_thread;
 static irq_owner_t irq_owners[MAX_IRQS];

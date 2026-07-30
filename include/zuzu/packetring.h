@@ -7,7 +7,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <arch/barrier.h>
-#include <mem.h>
+#include <string.h>
 
 #define NIC_FRAME_SIZE 1536
 #define NIC_RING_DEPTH 16

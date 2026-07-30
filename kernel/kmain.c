@@ -25,7 +25,6 @@
 #include "kernel/loader/initrd.h"
 #include <elf.h>
 #include "kernel/loader/initrd.h"
-#include <mem.h>
 #include <string.h>
 #include "kernel/mm/alloc.h"
 

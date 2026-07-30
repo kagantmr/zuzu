@@ -6,7 +6,7 @@
 #include "kstack.h"
 #include <arch/mmu.h>
 #include "kernel/mm/pmm.h"
-#include <mem.h>
+#include <string.h>
 #include "kernel/sched/sched.h"
 #include "zuzu/zuzu.h"
 #include "kernel/time/tick.h"

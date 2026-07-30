@@ -12,7 +12,7 @@
 #include "kernel/mm/alloc.h"
 #include "kernel/time/tick.h"
 
-#include <mem.h>
+#include <string.h>
 
 static inline uint32_t thread_priority(const thread_t *t)
 {

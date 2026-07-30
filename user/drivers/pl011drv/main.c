@@ -8,7 +8,6 @@
 #include <zuzu/channel.h>
 #include <stdint.h>
 #include <string.h>
-#include <mem.h>
 
 #define PL011DRV_DEV_CLASS DEV_CLASS_SERIAL
 #define PL011DRV_COMPATIBLE "arm,pl011"

@@ -4,7 +4,7 @@
 #include "kernel/mm/pmm.h"
 #include "l2_pool.h"
 #include <stdint.h>
-#include <mem.h>
+#include <string.h>
 #include <assert.h>
 
 #define LOG_FMT(fmt) "(mmu) " fmt

@@ -1,7 +1,6 @@
 
 #include <cpio.h>
 #include <string.h>
-#include <mem.h>
 #include <stdint.h>
 
 static uint32_t parse_hex8(const char *s) {

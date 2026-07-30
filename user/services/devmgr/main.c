@@ -3,7 +3,6 @@
 #include <zuzu/lmsg.h>
 #include <zuzu/channel.h>
 #include <zuzu/types.h>
-#include <mem.h>
 
 #define MAX_DRIVERS 64
 #define MAX_HANDLE_SCAN 256

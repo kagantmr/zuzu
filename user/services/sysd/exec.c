@@ -1,6 +1,5 @@
 #include "exec.h"
 #include <zuzu/zuzu.h>
-#include <mem.h>
 #include <string.h>
 #include <malloc.h>
 #include <elf.h>  // now a header-only or shared header

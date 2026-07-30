@@ -4,7 +4,7 @@
 #include "kernel/mm/pmm.h"
 #include "kernel/mm/alloc.h"
 #include <arch/mmu.h>
-#include <mem.h>
+#include <string.h>
 #include <spinlock.h>
 
 #define L2_TABLE_SIZE 1024u                 // one ARMv7 L2 table is 1 KB

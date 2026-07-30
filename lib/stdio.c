@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <ctype.h>
-#include <mem.h>
+#include <string.h>
 #include <stdlib.h>
 
 #ifdef __KERNEL__

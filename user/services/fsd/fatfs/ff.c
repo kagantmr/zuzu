@@ -22,7 +22,6 @@
 #include <string.h>
 #include "ff.h"			/* Basic definitions and declarations of API */
 #include "diskio.h"		/* Declarations of MAI */
-#include <mem.h>
 
 /*--------------------------------------------------------------------------
 

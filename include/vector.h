@@ -7,7 +7,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <mem.h>
+#include <string.h>
 
 #ifdef __KERNEL__
 #include "kernel/mm/alloc.h"

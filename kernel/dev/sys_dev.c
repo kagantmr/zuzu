@@ -7,7 +7,6 @@
 #include <zuzu/syscall_nums.h>
 #include <string.h>
 #include <zuzu/user_layout.h>
-#include <mem.h>
 #include <zuzu/types.h>
 
 #define LOG_FMT(fmt) "(sys_dev) " fmt

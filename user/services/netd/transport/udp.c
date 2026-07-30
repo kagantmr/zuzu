@@ -4,7 +4,7 @@
 #include "../net/ip.h"
 #include "../link/eth.h"
 #include <convert.h>
-#include <mem.h>
+#include <string.h>
 #include <stddef.h>
 
 typedef struct {

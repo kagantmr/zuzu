@@ -1,6 +1,5 @@
 #include "dns.h"
 #include "../common/globals.h"
-#include <mem.h>
 #include "../common/txframe.h"
 #include "../transport/udp.h"
 #include "../transport/port.h"

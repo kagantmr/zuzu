@@ -1,6 +1,5 @@
 #include "zzsh.h"
 #include <ansi.h>
-#include <mem.h>
 #include <string.h>
 #include <stdbool.h>
 #include <stdio.h>

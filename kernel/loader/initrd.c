@@ -1,5 +1,4 @@
 #include "initrd.h"
-#include <mem.h>
 #include <convert.h>
 #include <string.h>
 #include <cpio.h>
