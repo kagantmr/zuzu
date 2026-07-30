@@ -497,7 +497,7 @@ uintptr_t PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames
         // Enforce alignment on the start of a run
         if (consecutive == 0)
         {
-            if ((index & (align_frames - 1)) != 0)
+            if (((pmm_state.pfn_base + index) & (align_frames - 1)) != 0)
             {
                 continue;
             }
