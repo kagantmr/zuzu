@@ -1,6 +1,5 @@
 #include "string.h"
 #include <stdint.h>
-#include <mem.h>
 #include "convert.h"
 
 size_t strlen(const char *s) {
@@ -237,6 +236,59 @@ static long long get_signed_arg(va_list *args, length_t len) {
         case LEN_Z:  return va_arg(*args, ptrdiff_t);
         default:     return va_arg(*args, int);
     }
+}
+
+// ---- helpers for %f/%e/%g ----
+// All double math below stays in floating point (no 64-bit integer divide,
+// which utoa_ull's own comment avoids relying on) -- only the final
+// truncating cast to unsigned long long is used to pull out decimal digits.
+
+// Fills `digits[0..prec-1]` with frac's decimal expansion (frac in [0,1)),
+// rounding the last digit half-up. *carry_out is 1 if the rounding rippled
+// past the first digit (caller must then bump the integer part by one).
+static void format_fixed_digits(double frac, int prec, char *digits, int *carry_out) {
+    for (int i = 0; i < prec; i++) {
+        frac *= 10.0;
+        int d = (int)frac;
+        if (d > 9) d = 9;
+        if (d < 0) d = 0;
+        digits[i] = (char)('0' + d);
+        frac -= d;
+    }
+    *carry_out = 0;
+    if (frac >= 0.5) {
+        int i = prec - 1;
+        while (i >= 0) {
+            if (digits[i] == '9') { digits[i] = '0'; i--; }
+            else { digits[i] = (char)(digits[i] + 1); break; }
+        }
+        if (i < 0) *carry_out = 1;
+    }
+}
+
+// Normalizes av (> 0) to `sigdigits` significant decimal digits (rounded)
+// plus a base-10 exponent, i.e. av == 0.d0d1...d(sigdigits-1) * 10^(exp+1).
+static void format_efmt_digits(double av, int sigdigits, char *digits, int *exp_out) {
+    int exp = 0;
+    while (av >= 10.0) { av /= 10.0; exp++; }
+    while (av < 1.0)   { av *= 10.0; exp--; }
+
+    double scale = 1.0;
+    for (int i = 0; i < sigdigits - 1; i++) scale *= 10.0;
+
+    double rounded = av + 0.5 / scale;
+    if (rounded >= 10.0) { rounded /= 10.0; exp++; }
+
+    unsigned long long scaled = (unsigned long long)(rounded * scale);
+
+    char tmp[24];
+    int n = utoa_ull(tmp, scaled, 10, 0);
+    int pad = sigdigits - n;
+    if (pad < 0) pad = 0;
+    for (int i = 0; i < pad; i++) digits[i] = '0';
+    for (int i = 0; i < n && (pad + i) < sigdigits; i++) digits[pad + i] = tmp[i];
+
+    *exp_out = exp;
 }
 
 void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list *args) {
@@ -484,6 +536,141 @@ void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list 
                 emit_repeat(outc, ctx, '0', zpad);
                 if (nlen) emit_strn(outc, ctx, num, nlen);
 
+                if (left) emit_repeat(outc, ctx, ' ', wpad);
+                break;
+            }
+
+            case 'f': case 'F':
+            case 'e': case 'E':
+            case 'g': case 'G': {
+                double val = va_arg(*args, double);
+                int uppercase = (spec == 'F' || spec == 'E' || spec == 'G');
+                char base_spec = (char)(spec | 0x20); // 'f', 'e' or 'g'
+
+                char signch = 0;
+                if (__builtin_signbit(val)) signch = '-';
+                else if (plus) signch = '+';
+                else if (space) signch = ' ';
+
+                double av = __builtin_fabs(val);
+                char numbuf[64];
+                int nlen = 0;
+
+                if (__builtin_isnan(val)) {
+                    const char *s = uppercase ? "NAN" : "nan";
+                    numbuf[0] = s[0]; numbuf[1] = s[1]; numbuf[2] = s[2];
+                    nlen = 3;
+                    signch = 0; // NaN never carries a sign
+                } else if (__builtin_isinf(val)) {
+                    const char *s = uppercase ? "INF" : "inf";
+                    numbuf[0] = s[0]; numbuf[1] = s[1]; numbuf[2] = s[2];
+                    nlen = 3;
+                } else if (base_spec == 'f') {
+                    int p = (prec < 0) ? 6 : prec;
+                    if (p > 40) p = 40;
+
+                    unsigned long long ip = (unsigned long long)av;
+                    double frac = av - (double)ip;
+
+                    char fdigits[41];
+                    int carry = 0;
+                    format_fixed_digits(frac, p, fdigits, &carry);
+                    if (carry) ip += 1;
+
+                    char ibuf[24];
+                    int ilen = utoa_ull(ibuf, ip, 10, 0);
+                    for (int i = 0; i < ilen; i++) numbuf[nlen++] = ibuf[i];
+                    if (p > 0 || alt) numbuf[nlen++] = '.';
+                    for (int i = 0; i < p; i++) numbuf[nlen++] = fdigits[i];
+                } else if (base_spec == 'e') {
+                    int p = (prec < 0) ? 6 : prec;
+                    int sig = p + 1;
+                    if (sig > 17) sig = 17;
+
+                    int exp10 = 0;
+                    char mdigits[17];
+                    if (av == 0.0) {
+                        for (int i = 0; i < sig; i++) mdigits[i] = '0';
+                    } else {
+                        format_efmt_digits(av, sig, mdigits, &exp10);
+                    }
+
+                    numbuf[nlen++] = mdigits[0];
+                    if (p > 0 || alt) {
+                        numbuf[nlen++] = '.';
+                        for (int i = 1; i < sig; i++) numbuf[nlen++] = mdigits[i];
+                    }
+                    numbuf[nlen++] = uppercase ? 'E' : 'e';
+                    numbuf[nlen++] = (exp10 < 0) ? '-' : '+';
+                    int aexp = (exp10 < 0) ? -exp10 : exp10;
+                    char ebuf[8];
+                    int elen = utoa_ull(ebuf, (unsigned long long)aexp, 10, 0);
+                    if (elen < 2) numbuf[nlen++] = '0';
+                    for (int i = 0; i < elen; i++) numbuf[nlen++] = ebuf[i];
+                } else { // 'g'/'G'
+                    int p = (prec < 0) ? 6 : (prec == 0 ? 1 : prec);
+                    if (p > 17) p = 17;
+
+                    int exp10 = 0;
+                    char mdigits[17];
+                    if (av == 0.0) {
+                        for (int i = 0; i < p; i++) mdigits[i] = '0';
+                    } else {
+                        format_efmt_digits(av, p, mdigits, &exp10);
+                    }
+
+                    if (exp10 < -4 || exp10 >= p) {
+                        // %e-style, precision p-1, trailing mantissa zeros trimmed
+                        int fdig = p - 1;
+                        if (!alt) {
+                            while (fdig > 0 && mdigits[fdig] == '0') fdig--;
+                        }
+                        numbuf[nlen++] = mdigits[0];
+                        if (fdig > 0 || alt) {
+                            numbuf[nlen++] = '.';
+                            for (int i = 1; i <= fdig; i++) numbuf[nlen++] = mdigits[i];
+                        }
+                        numbuf[nlen++] = uppercase ? 'E' : 'e';
+                        numbuf[nlen++] = (exp10 < 0) ? '-' : '+';
+                        int aexp = (exp10 < 0) ? -exp10 : exp10;
+                        char ebuf[8];
+                        int elen = utoa_ull(ebuf, (unsigned long long)aexp, 10, 0);
+                        if (elen < 2) numbuf[nlen++] = '0';
+                        for (int i = 0; i < elen; i++) numbuf[nlen++] = ebuf[i];
+                    } else {
+                        // %f-style, p - 1 - exp10 digits after the point
+                        int fracdigits = p - 1 - exp10;
+                        if (fracdigits < 0) fracdigits = 0;
+
+                        if (exp10 >= 0) {
+                            for (int i = 0; i <= exp10; i++) numbuf[nlen++] = mdigits[i];
+                        } else {
+                            numbuf[nlen++] = '0';
+                        }
+                        if (fracdigits > 0 || alt) {
+                            numbuf[nlen++] = '.';
+                            if (exp10 < 0) {
+                                for (int i = 0; i < (-exp10 - 1); i++) numbuf[nlen++] = '0';
+                                for (int i = 0; i < p; i++) numbuf[nlen++] = mdigits[i];
+                            } else {
+                                for (int i = exp10 + 1; i < p; i++) numbuf[nlen++] = mdigits[i];
+                            }
+                            if (!alt) {
+                                while (nlen > 0 && numbuf[nlen - 1] == '0') nlen--;
+                                if (nlen > 0 && numbuf[nlen - 1] == '.') nlen--;
+                            }
+                        }
+                    }
+                }
+
+                int total = nlen + (signch ? 1 : 0);
+                char padch = (zero && !left) ? '0' : ' ';
+                int wpad = (width > total) ? (width - total) : 0;
+
+                if (!left && padch == ' ') emit_repeat(outc, ctx, ' ', wpad);
+                if (signch) outc(ctx, signch);
+                if (!left && padch == '0') emit_repeat(outc, ctx, '0', wpad);
+                emit_strn(outc, ctx, numbuf, nlen);
                 if (left) emit_repeat(outc, ctx, ' ', wpad);
                 break;
             }
