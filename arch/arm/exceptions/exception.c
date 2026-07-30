@@ -121,6 +121,32 @@ static void dump_registers(exception_frame_t *frame)
             (frame->return_cpsr & (1 << 5)) ? " Thumb" : "");
 }
 
+// Attempts to service a translation-fault dfar via demand paging against
+// the process's VM regions. Returns true if handled (caller should return
+// immediately without killing/panicking).
+static bool try_demand_page(process_t *current_process, uint32_t dfar, uint32_t dfsr)
+{
+    addrspace_t *as = current_process->as;
+    for (uint32_t i = 0; i < as->regions.len; i++)
+    {
+        vm_region_t *r = vm_region_vec_get(&as->regions, i);
+        if (dfar >= r->vaddr_start && dfar < r->vaddr_start + r->size)
+        {
+            if (r->flags & VM_FLAG_GUARD)
+                continue;
+            if (r->memtype == VM_MEM_DEVICE)
+                continue;
+            if (!(dfsr & (1 << 11)) && !(r->prot & PROT_READ))
+                continue;
+            if ((dfsr & (1 << 11)) && !(r->prot & PROT_WRITE))
+                continue;
+            uintptr_t page_va = align_down(dfar, PAGE_SIZE);
+            return vmm_fault_page(as, r, page_va);
+        }
+    }
+    return false;
+}
+
 void exception_dispatch(exception_type exctype, exception_frame_t *frame)
 {
     process_t *current_process = current_thread ? current_thread->owner_process : NULL;
@@ -134,20 +160,6 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
         if (frame->return_cpsr & (1 << 5))
             frame->return_pc += 2;
 
-        /*
-         * Lazy FPU switch. The scheduler traps FPU access for every thread
-         * that isn't the current owner (kernel/sched/sched.c, fpu_owner).
-         * The first FPU instruction a newly-scheduled thread executes lands
-         * here: hand it the FPU and retry the faulting instruction instead
-         * of killing/panicking below.
-         *
-         * If current_thread is already fpu_owner, access was never trapped
-         * off for it, so a fault here can't be an FPU-ownership trap -- it's
-         * a genuine undefined instruction and falls through to the usual
-         * handling. This also bounds a real bad opcode to at most one extra
-         * trap: the retry below re-faults, but by then current_thread ==
-         * fpu_owner, so the second pass takes this fallthrough path.
-         */
         if (current_thread && current_thread != fpu_owner)
         {
             arch_fpu_trap_enable();
@@ -285,63 +297,40 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
             }
         }
 
-        /*
-         * User or SVC mode abort where the fault address is in user VA space
-         * (< KERNEL_VA_BASE).  A fault in kernel VA while in SVC mode means
-         * the kernel itself accessed a bad address which is always a panic.
-         */
-        if ((from_user || from_svc) && current_process && current_process->as
-            && dfar < KERNEL_VA_BASE)
+
+        if (from_user && current_process && current_process->as)
         {
-            if (is_translation)
-            {
-                addrspace_t *as = current_process->as;
-                for (uint32_t i = 0; i < as->regions.len; i++)
-                {
-                    vm_region_t *r = vm_region_vec_get(&as->regions, i);
-                    if (dfar >= r->vaddr_start && dfar < r->vaddr_start + r->size)
-                    {
-                        if (r->flags & VM_FLAG_GUARD)
-                            continue;
-                        if (r->memtype == VM_MEM_DEVICE)
-                            continue;
-                        if (!(dfsr & (1 << 11)) && !(r->prot & PROT_READ))
-                            continue;
-                        if ((dfsr & (1 << 11)) && !(r->prot & PROT_WRITE))
-                            continue;
-                        uintptr_t page_va = align_down(dfar, PAGE_SIZE);
-                        if (!vmm_fault_page(as, r, page_va))
-                            break;
-                        return;
-                    }
-                }
-            }
-            if (from_user)
-            {
-                KERROR("Oops! Segmentation fault");
-                KDEBUG("Oops! '%s' (PID %d, TID %d) killed: data abort @ 0x%08X (%s %s)\n",
-                       current_process->name, current_process->pid, current_thread->tid, dfar,
-                       (dfsr & (1 << 11)) ? "write" : "read",
-                       decode_fault_status(dfsr));
-                dump_registers(frame);
-                process_kill(current_process, KILLED_TAG | KILL_FAULT_DATA);
-                schedule();
-            }
-            else /* from_svc, dfar in user VA means bad pointer passed to syscall */
-            {
-                KERROR("Oops! Bad user pointer");
-                KDEBUG("Oops! Bad user pointer in SVC from '%s' (PID %d, TID %d) @ 0x%08X (%s %s)\n",
-                       current_process->name, current_process->pid, current_thread->tid, dfar,
-                       (dfsr & (1 << 11)) ? "write" : "read",
-                       decode_fault_status(dfsr));
-                dump_registers(frame);
-                process_kill(current_process, KILLED_TAG | KILL_FAULT_DATA);
-                schedule();
-            }
+            if (is_translation && dfar < KERNEL_VA_BASE
+                && try_demand_page(current_process, dfar, dfsr))
+                return;
+
+            KERROR("Oops! Segmentation fault");
+            KDEBUG("Oops! '%s' (PID %d, TID %d) killed: data abort @ 0x%08X (%s %s)\n",
+                   current_process->name, current_process->pid, current_thread->tid, dfar,
+                   (dfsr & (1 << 11)) ? "write" : "read",
+                   decode_fault_status(dfsr));
+            dump_registers(frame);
+            process_kill(current_process, KILLED_TAG | KILL_FAULT_DATA);
+            schedule();
+        }
+        else if (from_svc && current_process && current_process->as
+                 && dfar < KERNEL_VA_BASE)
+        {
+            if (is_translation && try_demand_page(current_process, dfar, dfsr))
+                return;
+
+            KDEBUG("Oops! Bad user pointer in SVC from '%s' (PID %d, TID %d) @ 0x%08X (%s %s)\n",
+                   current_process->name, current_process->pid, current_thread->tid, dfar,
+                   (dfsr & (1 << 11)) ? "write" : "read",
+                   decode_fault_status(dfsr));
+            dump_registers(frame);
+            process_kill(current_process, KILLED_TAG | KILL_FAULT_DATA);
+            schedule();
         }
         else
         {
-            /* Kernel VA fault, or no address space, or non-SVC kernel mode: panic */
+            /* Kernel VA fault while in SVC mode, or no address space, or
+             * any other non-user/non-SVC kernel-mode abort: panic. */
             panic_fault_ctx = (panic_fault_context_t){
                 .valid = 1,
                 .far = dfar,
