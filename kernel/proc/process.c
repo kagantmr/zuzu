@@ -132,14 +132,14 @@ process_t *process_load(const void *elf_data, size_t elf_size,
 
             for (uint32_t page = 0; page < file_pages; page++)
             {
-                uintptr_t page_pa = pmm_alloc_page();
+                uintptr_t page_pa = PmmAllocFrame();
                 if (!page_pa)
                 {
                     for (uint32_t j = 0; j < page; j++)
                     {
                         uintptr_t orphan_va = ph->p_vaddr + j * PAGE_SIZE;
                         vmm_unmap_range(p->as, orphan_va, PAGE_SIZE);
-                        pmm_free_page(segment_pages[j]);
+                        PmmFreeFrame(segment_pages[j]);
                     }
                     kfree(segment_pages);
                     goto fail_kstack;
@@ -150,7 +150,7 @@ process_t *process_load(const void *elf_data, size_t elf_size,
                 /* Every page here is < file_pages, so file_offset < p_filesz
                  * always holds; the page containing p_filesz (the boundary
                  * page) is part file content, part BSS, so the tail past
-                 * p_filesz must be explicitly zeroed - pmm_alloc_page() can
+                 * p_filesz must be explicitly zeroed - PmmAllocPage() can
                  * return a recycled frame with arbitrary contents. */
                 VirtAddr file_offset = page * PAGE_SIZE;
                 size_t bytes_to_copy = ph->p_filesz - file_offset;
@@ -171,12 +171,12 @@ process_t *process_load(const void *elf_data, size_t elf_size,
                 VirtAddr va = ph->p_vaddr + page * PAGE_SIZE;
                 if (!vmm_map_user_page(p->as, page_pa, va, prot))
                 {
-                    pmm_free_page(page_pa);
+                    PmmFreeFrame(page_pa);
                     for (uint32_t j = 0; j < page; j++)
                     {
                         VirtAddr orphan_va = ph->p_vaddr + j * PAGE_SIZE;
                         vmm_unmap_range(p->as, orphan_va, PAGE_SIZE);
-                        pmm_free_page(segment_pages[j]);
+                        PmmFreeFrame(segment_pages[j]);
                     }
                     kfree(segment_pages);
                     goto fail_kstack;
@@ -202,7 +202,7 @@ process_t *process_load(const void *elf_data, size_t elf_size,
                     {
                         VirtAddr orphan_va = ph->p_vaddr + j * PAGE_SIZE;
                         vmm_unmap_range(p->as, orphan_va, PAGE_SIZE);
-                        pmm_free_page(segment_pages[j]);
+                        PmmFreeFrame(segment_pages[j]);
                     }
                     kfree(segment_pages);
                     goto fail_kstack;
@@ -430,7 +430,7 @@ process_t *process_create(const char* name) {
     p->device_va_next = USER_DEVICE_BASE;
     p->mmap_va_next = USER_MMAP_BASE;
 
-    PhysAddr tcb_page_pa = pmm_alloc_page();
+    PhysAddr tcb_page_pa = PmmAllocFrame();
     if (!tcb_page_pa)
         goto fail_kstack;
     p->tcb_page_pa = tcb_page_pa;

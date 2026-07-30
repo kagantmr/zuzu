@@ -21,7 +21,7 @@ void shmem_drop_ref(shmem_t *shm)
     if (shm->ref_count == 0) {
         for (size_t j = 0; j < shm->page_count; j++)
             if (shm->page_addrs[j] != 0) /* demand-paged: skip unfaulted slots */
-                pmm_free_page(shm->page_addrs[j]);
+                PmmFreeFrame(shm->page_addrs[j]);
         kfree(shm->page_addrs);
         kfree(shm);
     }

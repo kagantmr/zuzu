@@ -7,77 +7,83 @@
 
 #define PAGE_SIZE 4096 // A page is 4KB
 
-#define MARK_OK 0
-#define MARK_FAIL -1
-#define UNMARK_OK 0
-#define UNMARK_FAIL -1
-#define DOUBLE_FREE -1
-#define FREE_OK 0
-#define FREE_FAIL 1
+typedef uint32_t Pfn;
 
-typedef struct {
-    uintptr_t pfn_base;    // lowest page frame number
-    uintptr_t pfn_end;     // highest page frame number (exclusive)
-    size_t    total_pages; // total number of pages
-    size_t    free_pages;  // updated at runtime
+typedef struct
+{
+    Pfn pfn_base;      // lowest page frame number
+    Pfn pfn_end;       // highest page frame number (exclusive)
+    size_t total_pages;     // total number of pages
+    size_t free_pages;      // updated at runtime
+    uint8_t *bitmap;        // pointer to bitmap memory
+    size_t bitmap_bytes;    // size of bitmap in bytes
+    PhysAddr freelist_head; // PA of first free page (or 0 if none)
+} PmmState;
 
-    uint8_t*  bitmap;      // pointer to bitmap memory
-    size_t    bitmap_bytes;// size of bitmap in bytes
-    uintptr_t freelist_head; // PA of first free page (or 0 if none)
-} pmm_state_t;
-
+#define PAGE_SHIFT 12
+static inline PhysAddr PfnToPhys(Pfn pfn) { return (PhysAddr)pfn << PAGE_SHIFT; }
+static inline Pfn PhysToPfn(PhysAddr pa)  { return (Pfn)(pa >> PAGE_SHIFT); }
 
 /**
  * @brief Initialize the physical memory manager.
  * This sets up the bitmap and marks reserved regions.
  */
-void pmm_init(void);
+void PmmInit(void);
 
 /**
- * @brief Mark a range of physical pages as used. 
- * @return MARK_OK if successful, MARK_FAIL if the addresses are invalid.
+ * @brief Mark a range of physical frames as used.
+ * @return ZUZU_OK if successful, ERR_BADARG if the range is invalid.
  */
-int pmm_mark_range(PhysAddr start, PhysAddr end);
+Err PmmMarkRange(const PhysAddr start, const PhysAddr end);
 
 /**
- * @brief Unmark a range of pages.
- * @return UNMARK_OK if successful, UNMARK_FAIL if the addresses are invalid.
+ * @brief Unmark a range of frames.
+ * @return ZUZU_OK if successful, ERR_BADARG if the range is invalid.
  */
-int pmm_unmark_range(PhysAddr start, PhysAddr end);
+Err PmmUnmarkRange(const PhysAddr start, const PhysAddr end);
 
 /**
- * @brief Allocates a physical page, and returns a pointer to it.
- * @return Address of the allocated page.
+ * @brief Allocates a physical frame, and returns a pointer to it.
+ * @return Address of the allocated frame.
  */
-PhysAddr pmm_alloc_page(void);
+PhysAddr PmmAllocFrame(void);
 
 /**
- * @brief Allocates contiguous physical pages.
- * @param n_pages Number of pages to allocate.
- * @return Address of the first allocated page.
- */
-PhysAddr pmm_alloc_pages(size_t n_pages);
-
-/**
- * @brief Marks an allocated page as unallocated.
- * @param addr Address of the allocated page.
- */
-int pmm_free_page(PhysAddr addr);
-
-/**
- * @brief Allocates contiguous physical pages with specific alignment.
- * @param n_pages Number of pages to allocate.
- * @param align_pages Alignment in pages (must be power of two).
- * @return Address of the first allocated page.
- */
-PhysAddr pmm_alloc_pages_aligned(size_t n_pages, size_t align_pages);
-
-/**
+ * @brief Allocates contiguous physical frames.
  *
- * @param n_pages Number of pages to allocate.
- * @param out_addrs Caller-provided array for page addresses
- * @return Amount of pages found (may not match n_pages if zuzu is OOM)
+ * @param n_frames Number of frames to allocate.
+ *
+ * @return Address of the first allocated frame.
  */
-size_t pmm_alloc_pages_scattered(size_t n_pages, PhysAddr *out_addrs);
+PhysAddr PmmAllocFramesContig(const size_t n_frames);
+
+/**
+ * @brief Marks an allocated frame as unallocated.
+ *
+ * @param addr Address of the allocated frame.
+ *
+ * @return ZUZU_OK if successful, ERR_BADARG if addr is invalid. Panics on double free.
+ */
+Err PmmFreeFrame(const PhysAddr addr);
+
+/**
+ * @brief Allocates contiguous physical frames with specific alignment.
+ *
+ * @param n_frames Number of pages to allocate.
+ * @param align_frames Alignment in pages (must be power of two).
+ *
+ * @return Address of the first allocated page.
+ */
+PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, const size_t align_frames);
+
+/**
+ * @brief Allocates scattered physical frames and returns their addresses.
+ *
+ * @param n_frames Number of frame to allocate.
+ * @param out_addrs Caller-provided array for frame addresses
+ *
+ * @return Amount of frame found (may not match n_frames if zuzu is OOM)
+ */
+size_t PmmAllocFramesScattered(const size_t n_frames, PhysAddr *out_addrs);
 
 #endif

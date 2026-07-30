@@ -39,7 +39,7 @@ uintptr_t l2_pool_alloc(void)
     }
 
     // No existing page has free slots, need to allocate a new page
-    uintptr_t page_pa = pmm_alloc_page();
+    uintptr_t page_pa = PmmAllocFrame();
     if (!page_pa)
     {
         spin_unlock_irqrestore(&l2_pool_lock, flags);
@@ -49,7 +49,7 @@ uintptr_t l2_pool_alloc(void)
     l2_pool_entry_t *entry = kmalloc(sizeof(l2_pool_entry_t));
     if (!entry)
     {
-        pmm_free_page(page_pa);
+        PmmFreeFrame(page_pa);
         spin_unlock_irqrestore(&l2_pool_lock, flags);
         return 0; // out of memory for pool entry
     }
@@ -95,7 +95,7 @@ void l2_pool_free(uintptr_t l2_pa)
         // If all 4 slots free, return page to PMM
         if (entry->used_mask == 0)
         {
-            pmm_free_page(page_pa);
+            PmmFreeFrame(page_pa);
             if (prev)
             {
                 prev->next = entry->next;

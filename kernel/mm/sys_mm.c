@@ -265,7 +265,7 @@ void sys_memunmap(arch_regs_t *frame)
                 for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE)
                 {
                     uintptr_t pa = arch_mmu_translate(as->ttbr_pa, va + offset);
-                    if (pa != 0) pmm_free_page(pa);
+                    if (pa != 0) PmmFreeFrame(pa);
                 }
             } break;
             case VM_OWNER_SHARED:
@@ -485,7 +485,7 @@ void sys_asinject(arch_regs_t *frame)
             bool fresh = (page == 0);
             if (fresh)
             {
-                page = pmm_alloc_page();
+                page = PmmAllocFrame();
                 if (!page)
                 {
                     goto rollback_nomem;
@@ -514,7 +514,7 @@ void sys_asinject(arch_regs_t *frame)
 
             if (fresh && !vmm_map_user_page(target->as, page, dst_page, kargs.prot))
             {
-                pmm_free_page(page);
+                PmmFreeFrame(page);
                 page_addrs[i] = 0;
                 goto rollback_nomem;
             }
@@ -550,7 +550,7 @@ void sys_asinject(arch_regs_t *frame)
             if (page_addrs[j])
             {
                 vmm_unmap_range(target->as, kargs.DestVAddr + j * PAGE_SIZE, PAGE_SIZE);
-                pmm_free_page(page_addrs[j]);
+                PmmFreeFrame(page_addrs[j]);
             }
         }
         kfree(page_addrs);
@@ -565,7 +565,7 @@ void sys_asinject(arch_regs_t *frame)
             if (page_addrs[j])
             {
                 vmm_unmap_range(target->as, kargs.DestVAddr + j * PAGE_SIZE, PAGE_SIZE);
-                pmm_free_page(page_addrs[j]);
+                PmmFreeFrame(page_addrs[j]);
             }
         }
         kfree(page_addrs);

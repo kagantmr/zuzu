@@ -135,7 +135,7 @@ uintptr_t arch_mmu_create_tables(addrspace_type_t type)
     const size_t l1_pages = l1_table_pages(type);
 
     // Alignment must equal table size for both user (8 KB) and kernel (16 KB).
-    uintptr_t l1_pa = pmm_alloc_pages_aligned(l1_pages, l1_pages);
+    uintptr_t l1_pa = PmmAllocFramesContigAligned(l1_pages, l1_pages);
     if (!l1_pa)
         return 0;
 
@@ -170,7 +170,7 @@ void arch_mmu_free_tables(uintptr_t ttbr_pa, addrspace_type_t type)
 
     for (size_t i = 0; i < pages; i++)
     {
-        pmm_free_page(ttbr_pa + i * PAGE_SIZE);
+        PmmFreeFrame(ttbr_pa + i * PAGE_SIZE);
     }
 }
 
@@ -725,7 +725,7 @@ void arch_mmu_free_user_pages(addrspace_t *as)
                         continue;
 
                     uintptr_t page_pa = l2[j] & ALIGNMENT_4KB_MASK;
-                    pmm_free_page(page_pa);
+                    PmmFreeFrame(page_pa);
                 }
             }
         }
