@@ -20,7 +20,7 @@ kmem_block_t* heap_head = NULL;
 
 static slab_t *slab_grow(slab_cache_t *cache)
 {
-    PhysAddr pa = pmm_alloc_page();
+    PhysAddr pa = PmmAllocFrame();
     if (!pa) return NULL;
 
     slab_t *slab = (slab_t *)PA_TO_VA(pa);
@@ -130,7 +130,7 @@ static bool kheap_grow(size_t min_payload)
         pages = HEAP_GROW_MIN_PAGES;
     }
 
-    PhysAddr heap_pa = pmm_alloc_pages(pages);
+    PhysAddr heap_pa = PmmAllocFramesContig(pages);
     if (!heap_pa) {
         return false;
     }

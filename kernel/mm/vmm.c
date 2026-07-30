@@ -89,7 +89,7 @@ bool vmm_fault_page(addrspace_t *as, vm_region_t *r, uintptr_t page_va)
 
         new_pa = shm->page_addrs[page_index];
         if (new_pa == 0) {
-            new_pa = pmm_alloc_page();
+            new_pa = PmmAllocFrame();
             if (new_pa == 0)
                 return false;
             memset((void *)PA_TO_VA(new_pa), 0, PAGE_SIZE);
@@ -97,7 +97,7 @@ bool vmm_fault_page(addrspace_t *as, vm_region_t *r, uintptr_t page_va)
             allocated_new = true;
         }
     } else if (r->owner == VM_OWNER_ANON) {
-        new_pa = pmm_alloc_page();
+        new_pa = PmmAllocFrame();
         if (new_pa == 0)
             return false;
         memset((void *)PA_TO_VA(new_pa), 0, PAGE_SIZE);
@@ -115,7 +115,7 @@ bool vmm_fault_page(addrspace_t *as, vm_region_t *r, uintptr_t page_va)
                 if (page_index < shm->page_count && shm->page_addrs[page_index] == new_pa)
                     shm->page_addrs[page_index] = 0;
             }
-            pmm_free_page(new_pa);
+            PmmFreeFrame(new_pa);
         }
         return false;
     }

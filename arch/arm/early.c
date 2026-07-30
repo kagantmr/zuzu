@@ -22,7 +22,7 @@
 #include <string.h>
 
 kernel_layout_t kernel_layout;
-extern pmm_state_t pmm_state;
+extern PmmState pmm_state;
 extern addrspace_t *g_kernel_as;
 #define SECTION_NORMAL_DESC 0x11C0Eu
 
@@ -113,7 +113,7 @@ _Noreturn void early(void *dtb_ptr)
     early_map_ram_sections(kernel_layout.ram_start, (size_t)ram_size);
 
     KINFO("early: pmm");
-    pmm_init();
+    PmmInit();
     KINFO("early: kheap");
     kheap_init();
     KINFO("early: vmm bootstrap");
@@ -140,13 +140,13 @@ _Noreturn void early(void *dtb_ptr)
      * PMM-backed kernel L1 is live and DTB data has been copied out. The DTB
      * is freed by its own extent: it need not be adjacent to the kernel.
      */
-    pmm_unmark_range(kernel_layout.dtb_start_pa, dtb_end_pa);
-    pmm_unmark_range((PhysAddr)_boot_start, (PhysAddr)_boot_end);
+    PmmUnmarkRange(kernel_layout.dtb_start_pa, dtb_end_pa);
+    PmmUnmarkRange((PhysAddr)_boot_start, (PhysAddr)_boot_end);
 
     /* Re-assert firmware-reserved ranges in case they overlap what was just
      * freed (e.g. spin tables sharing a page with a low-memory DTB). */
     for (uint32_t i = 0; i < rsv_cnt; i++)
-        pmm_mark_range((PhysAddr)rsv[i].addr, (PhysAddr)(rsv[i].addr + rsv[i].size));
+        PmmMarkRange((PhysAddr)rsv[i].addr, (PhysAddr)(rsv[i].addr + rsv[i].size));
 
     KINFO("early: boot_info done (%u devs), vfp/pmu", boot_info_dev_count());
     vfp_init();

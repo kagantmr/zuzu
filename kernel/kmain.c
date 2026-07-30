@@ -41,7 +41,7 @@
 #include "core/log.h"
 
 extern kernel_layout_t kernel_layout;
-extern pmm_state_t pmm_state;
+extern PmmState pmm_state;
 static inline uint32_t read_be32(const void *p)
 {
     const uint8_t *b = (const uint8_t *)p;

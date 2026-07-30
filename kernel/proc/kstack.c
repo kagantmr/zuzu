@@ -12,7 +12,7 @@ static PhysAddr slot_pa[64];
 uintptr_t kstack_alloc(void) {
     for (int i = 0; i < 64; i++) {
         if (!(bitmap & (1ULL << i))) {
-            PhysAddr page_pa = pmm_alloc_page();
+            PhysAddr page_pa = PmmAllocFrame();
             if (!page_pa) {
                 return 0;
             }
@@ -23,7 +23,7 @@ uintptr_t kstack_alloc(void) {
             bool result = vmm_map_range(vmm_get_kernel_as(), slot_va + KSTACK_GUARD_SIZE, page_pa, PAGE_SIZE,
                 PROT_READ | PROT_WRITE, VM_MEM_NORMAL, VM_OWNER_ANON, VM_FLAG_NONE);
             if (!result) {
-                pmm_free_page(page_pa);
+                PmmFreeFrame(page_pa);
                 return 0;
             }
 
@@ -33,7 +33,7 @@ uintptr_t kstack_alloc(void) {
                 // desired state and this is not an allocation failure.
                 if (arch_mmu_translate(vmm_get_kernel_as()->ttbr_pa, slot_va) != 0) {
                     vmm_unmap_range(vmm_get_kernel_as(), slot_va + 0x1000, PAGE_SIZE);
-                    pmm_free_page(page_pa);
+                    PmmFreeFrame(page_pa);
                     slot_pa[i] = 0;
                     return 0;
                 }
@@ -51,6 +51,6 @@ void kstack_free(VirtAddr stack_top) {
     int slot = kstack_slot_from_top(stack_top);
     VirtAddr mapped_va = kstack_top_from_slot(slot) - KSTACK_SLOT_SIZE + KSTACK_GUARD_SIZE;
     vmm_unmap_range(vmm_get_kernel_as(), mapped_va, PAGE_SIZE);
-    pmm_free_page(slot_pa[slot]);
+    PmmFreeFrame(slot_pa[slot]);
     bitmap &= ~(1ULL << slot);
 }

@@ -39,7 +39,7 @@ typedef struct
     SyspageDevEntry devs[SYSPAGE_MAX_DEVICES]; // filled from DTB walk at boot
 } Syspage;
 
-/* Backed by a single pmm_alloc_page() and mapped into userspace as one page. */
+/* Backed by a single PmmAllocFrame() and mapped into userspace as one page. */
 _Static_assert(sizeof(Syspage) <= 4096, "Syspage must fit in one page");
 
 #ifdef __cplusplus
