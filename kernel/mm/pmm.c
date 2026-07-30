@@ -33,7 +33,7 @@ static bool pmm_is_valid_managed_pa(PhysAddr pa)
     return (pfn >= pmm_state.pfn_base && pfn < pmm_state.pfn_end);
 }
 
-static void PmmRebuildFreelist(void)
+static void pmm_rebuild_freelist(void)
 {
     pmm_state.freelist_head = 0;
     for (size_t i = 0; i < pmm_state.total_pages; i++)
@@ -51,7 +51,7 @@ static void PmmRebuildFreelist(void)
 }
 
 /* Remove any free-list nodes whose PA is within [start_pa, end_pa). */
-static void PmmFreelistRemoveRange(PhysAddr start_pa, PhysAddr end_pa)
+static void pmm_freelist_remove_range(PhysAddr start_pa, PhysAddr end_pa)
 {
     PhysAddr prev_pa = 0;
     PhysAddr curr_pa = pmm_state.freelist_head;
@@ -60,7 +60,7 @@ static void PmmFreelistRemoveRange(PhysAddr start_pa, PhysAddr end_pa)
     {
         if (!pmm_is_valid_managed_pa(curr_pa))
         {
-            PmmRebuildFreelist();
+            pmm_rebuild_freelist();
             prev_pa = 0;
             curr_pa = pmm_state.freelist_head;
             continue;
@@ -70,7 +70,7 @@ static void PmmFreelistRemoveRange(PhysAddr start_pa, PhysAddr end_pa)
 
         if (!pmm_is_valid_managed_pa(next_pa))
         {
-            PmmRebuildFreelist();
+            pmm_rebuild_freelist();
             prev_pa = 0;
             curr_pa = pmm_state.freelist_head;
             continue;
@@ -96,14 +96,14 @@ static void PmmFreelistRemoveRange(PhysAddr start_pa, PhysAddr end_pa)
     }
 }
 
-static PhysAddr PmmAllocPageLocked(void)
+static PhysAddr pmm_alloc_frame_locked(void)
 {
     if (pmm_state.freelist_head == 0)
         return (PhysAddr)0;
 
     if (!pmm_is_valid_managed_pa(pmm_state.freelist_head))
     {
-        PmmRebuildFreelist();
+        pmm_rebuild_freelist();
         if (pmm_state.freelist_head == 0)
             return (PhysAddr)0;
     }
@@ -115,7 +115,7 @@ static PhysAddr PmmAllocPageLocked(void)
     PhysAddr next_pa = *page_va;
     if (!pmm_is_valid_managed_pa(next_pa))
     {
-        PmmRebuildFreelist();
+        pmm_rebuild_freelist();
         if (pmm_state.freelist_head == 0)
             return (PhysAddr)0;
         pa = pmm_state.freelist_head;
@@ -145,7 +145,7 @@ static PhysAddr PmmAllocPageLocked(void)
     return pa;
 }
 
-static void PmmReserveBootRegions(void)
+static void pmm_reserve_boot_regions(void)
 {
     PmmMarkRange((PhysAddr)_boot_start, (PhysAddr)_boot_end);
     /* The DTB is wherever the bootloader put it, not necessarily adjacent
@@ -204,10 +204,10 @@ void PmmInit(void)
     memset(pmm_state.bitmap, 0, bitmap_size);
 
     // Reserve boot-time regions
-    PmmReserveBootRegions();
+    pmm_reserve_boot_regions();
 
     // Build the freelist from all free pages in the bitmap
-    PmmRebuildFreelist();
+    pmm_rebuild_freelist();
 }
 
 /* mark: mark pages in [start, end) as USED */
@@ -311,7 +311,7 @@ PhysAddr PmmAllocFrame(void)
 {
     uint32_t flags;
     spin_lock_irqsave(&pmm_lock, &flags);
-    PhysAddr pa = PmmAllocPageLocked();
+    PhysAddr pa = pmm_alloc_frame_locked();
     if (pa != 0)
     {
         syspage_update_mem();
@@ -373,7 +373,7 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
                 }
 
                 /* Keep freelist in sync without a full O(total_pages) rebuild. */
-                PmmFreelistRemoveRange(start_pa, end_pa);
+                pmm_freelist_remove_range(start_pa, end_pa);
 
                 size_t pfn = pmm_state.pfn_base + start_index;
                 PhysAddr addr = (PhysAddr)pfn * PAGE_SIZE;
@@ -528,7 +528,7 @@ uintptr_t PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames
                 }
 
                 /* Keep freelist in sync without a full O(total_pages) rebuild. */
-                PmmFreelistRemoveRange(start_pa, end_pa);
+                pmm_freelist_remove_range(start_pa, end_pa);
 
                 syspage_update_mem(); // update free memory info in syspage
                 spin_unlock_irqrestore(&pmm_lock, flags);
@@ -569,7 +569,7 @@ size_t PmmAllocFramesScattered(const size_t n_frames, PhysAddr *out_addrs)
     }
     for (size_t i = 0; i < n_frames; i++)
     {
-        const PhysAddr new_page = PmmAllocPageLocked();
+        const PhysAddr new_page = pmm_alloc_frame_locked();
         if (new_page == 0)
         {
             syspage_update_mem();
