@@ -30,8 +30,8 @@
 #include <zuzu/memprot.h>
 #include <zuzu/tls.h>
 #include <zuzu/syspage.h>
-#include <zuzu/protocols/nt_protocol.h>
-#include <zuzu/protocols/sysd_protocol.h>
+#include <zuzu/protocols/nametable.h>
+#include <zuzu/protocols/exec.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

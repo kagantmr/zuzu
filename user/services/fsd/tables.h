@@ -1,7 +1,7 @@
 #ifndef FSD_TABLES_H
 #define FSD_TABLES_H
 
-#include <zuzu/protocols/fsd_protocol.h>
+#include <zuzu/protocols/fsd.h>
 #include "client_table.h"
 
 

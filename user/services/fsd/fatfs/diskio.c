@@ -2,8 +2,8 @@
 #include "diskio.h"
 
 #include <zuzu/zuzu.h>
-#include "zuzu/protocols/nt_protocol.h"
-#include "zuzu/protocols/sd_protocol.h"
+#include "zuzu/protocols/nametable.h"
+#include "zuzu/protocols/mmcdrv.h"
 #include <zuzu/service.h>
 #include <mem.h>
 #include <stdint.h>

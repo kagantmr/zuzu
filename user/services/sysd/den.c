@@ -1,5 +1,5 @@
 #include "den.h"
-#include <zuzu/protocols/nt_protocol.h>
+#include <zuzu/protocols/nametable.h>
 
 static den_t den_table[SYSD_MAX_DENS];
 static uint32_t den_next_id = 1;  // 0 is reserved for global

@@ -1,12 +1,12 @@
 #include <zuzu/zuzu.h>
-#include "zuzu/protocols/nt_protocol.h"
+#include "zuzu/protocols/nametable.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
 #include <string.h>
 #include <mem.h>
 
-#include "zuzu/protocols/sysd_protocol.h"
+#include "zuzu/protocols/exec.h"
 #include <zuzu/fsd_client.h>
 #include <zuzu/lmsg.h>
 #include <zuzu/channel.h>

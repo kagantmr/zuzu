@@ -1,8 +1,8 @@
 #include "pl011drv.h"
-#include "zuzu/protocols/uart_protocol.h"
-#include "zuzu/protocols/devmgr_protocol.h"
-#include "zuzu/protocols/nt_protocol.h"
-#include <zuzu/protocols/sysd_protocol.h>
+#include "zuzu/protocols/uart.h"
+#include "zuzu/protocols/devm.h"
+#include "zuzu/protocols/nametable.h"
+#include <zuzu/protocols/exec.h>
 #include "zuzu/lmsg.h"
 #include <ring.h>
 #include <zuzu/channel.h>
@@ -59,15 +59,10 @@ static int32_t wait_for_devmgr(void)
     }
 }
 
-static int32_t request_serial_device(void)
+static Handle request_serial_device(void)
 {
-    while (1) {
-        Message devmsg = ZuzuMsgCall(devmgr_port, DEV_REQUEST, DEV_CLASS_SERIAL, 0);
-        if ((int32_t)devmsg.w1 == 0) {
-            return (int32_t)devmsg.w2;
-        }
-        ZuzuSleep(10);
-    }
+    static const char *const compat[] = { PL011DRV_COMPATIBLE };
+    return DevmRequestDevice(devmgr_port, compat, 1, NULL);
 }
 
 static void handle_irq_event(void)

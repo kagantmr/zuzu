@@ -61,7 +61,7 @@ typedef int32_t Err;
  * 
  * Delivered when a process suddenly exits.
  */
-#define KILLED_TAG        0x20050000   /* "-kill" */
+#define KILLED_TAG        0x20050000  
 #define KILLED_TAG_MASK   0xFFFF0000u
 #define KILLED_REASON_MASK 0x0000FFFFu
 #define KILL_BY_PARENT      1    /* pkill */

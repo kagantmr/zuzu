@@ -1,197 +1,142 @@
 #include "devmgr.h"
 #include <string.h>
+#include <zuzu/lmsg.h>
+#include <zuzu/channel.h>
+#include <zuzu/types.h>
 #include <mem.h>
 
 #define MAX_DRIVERS 64
 #define MAX_HANDLE_SCAN 256
 
-typedef struct {
-    uint32_t dev_class;
-    uint32_t injected_handle;
-} reg_entry_t;
+Handle port = -1;
 
-static reg_entry_t reg_table[MAX_DRIVERS];
-static size_t reg_count;
 
-static const char *class_to_compat(uint32_t dev_class)
+static int DevmUnpack(const char *buf, uint32_t xlen, DevmRequest *out)
 {
-    switch (dev_class) {
-    case DEV_CLASS_SERIAL:
-        return "arm,pl011";
-    case DEV_CLASS_RTC:
-        return "arm,pl031";
-    case DEV_CLASS_BLOCK:
-        return "arm,pl180";
-    case DEV_CLASS_NIC:
-        return "smsc,lan9118";
-    default:
-        return NULL;
+    /* 1. Header must fit: cmd(4) + count(4). */
+    if (xlen < 8) {
+        return ERR_BADARG;
     }
+
+    uint32_t cmd;
+    uint32_t count;
+    memcpy(&cmd,   buf,     4);   /* alignment- and aliasing-safe */
+    memcpy(&count, buf + 4, 4);
+
+    /* 2. Bound count before it indexes strings[]. */
+    if (count == 0 || count > DEVM_MAX_COMPAT) {
+        return ERR_BADARG;
+    }
+
+    /* 3. Bounded walk of `count` NUL-terminated strings. */
+    uint32_t off = 8;
+    for (uint32_t i = 0; i < count; i++) {
+        if (off >= xlen) {
+            return ERR_BADARG;              /* ran out before string i */
+        }
+
+        uint32_t remaining = xlen - off;
+        size_t   len       = strnlen(buf + off, remaining);
+        if (len == remaining) {
+            return ERR_BADARG;              /* no NUL within bounds */
+        }
+
+        out->strings[i] = buf + off;
+        off += (uint32_t)len + 1;           /* +1 steps over the NUL */
+    }
+
+
+    if (off != xlen) {
+        return ERR_BADARG;
+    }
+
+    out->cmd   = (DevmRequestType)cmd;
+    out->count = count;
+    return ZUZU_OK;   
 }
 
-static reg_entry_t *find_registration(uint32_t dev_class)
+
+static void HandleDevRequest(Handle reply_handle, Pid sender_pid,
+                             const DevmRequest *req)
 {
-    for (size_t i = 0; i < reg_count; i++) {
-        if (reg_table[i].dev_class == dev_class) {
-            return &reg_table[i];
+    char compat_buf[DEVM_COMPAT_MAX];   /* our own out-buffer; NOT the lmsg */
+
+    for (uint32_t i = 0; i < req->count; i++) {
+        for (Handle h = 1; h < MAX_HANDLE_SCAN; h++) {
+            int rc = ZuzuDeviceQuery(h, compat_buf, sizeof(compat_buf));
+            if (rc < 0) {
+                continue;               /* not a device handle / empty slot */
+            }
+            /* rc >= 0 is the device's IRQ (query returns irq in r0). */
+
+            if (strcmp(compat_buf, req->strings[i]) != 0) {
+                continue;
+            }
+
+            /* Match. Grant the device cap to the requesting driver. */
+            Handle granted = ZuzuGrant(h, sender_pid);
+            if (granted < 0) {
+                ZuzuMsgReply(reply_handle, granted, 0, 0);
+                return;
+            }
+
+            ZuzuMsgReply(reply_handle, ZUZU_OK, (MsgWord)granted, (MsgWord)i);
+            return;
         }
     }
-    return NULL;
+
+    /* No driver string matched any device. */
+    ZuzuMsgReply(reply_handle, ERR_NOENT, 0, 0);
 }
 
-static int request_and_grant_class(uint32_t dev_class, int32_t target_pid, uint32_t *out_granted)
+int DevmgrSetup(void)
 {
-    reg_entry_t *entry = find_registration(dev_class);
-    if (!entry) {
-        return ERR_NOENT;
+    //build_class_table();
+    port = ZuzuPortCreate();
+    if (port < 0)
+    {
+        return port;
     }
 
-    int32_t granted_handle = ZuzuGrant((int32_t)entry->injected_handle, target_pid);
-    if (granted_handle < 0) {
-        return granted_handle;
+    Handle ntSlot = ZuzuGrant(port, NAMETABLE_PID);
+    if (ntSlot < 0)
+    {
+        return ntSlot;
     }
 
-    if (out_granted) {
-        *out_granted = (uint32_t)granted_handle;
-    }
+    (void)ZuzuMsgSend(NT_PORT, NT_REGISTER, nt_pack(DEVMGR_NAME), (MsgWord)ntSlot);
+
     return ZUZU_OK;
-}
-
-static void build_class_table(void) {
-    char compat[32];
-    reg_count = 0;
-
-    int32_t serial_handle = -1;
-    int32_t serial_irq = -1;
-    int32_t rtc_handle = -1;
-    int32_t rtc_irq = -1;
-    int32_t block_handle = -1;
-    int32_t block_irq = -1;
-    int32_t nic_handle = -1;
-    int32_t nic_irq = -1;
-
-    for (uint32_t i = 1; i < MAX_HANDLE_SCAN && reg_count < MAX_DRIVERS; i++) {
-        int32_t rc = ZuzuDeviceQuery(i, compat, sizeof(compat));
-        if (rc < 0)
-            continue;
-
-        if (strncmp(compat, "arm,pl011", 9) == 0) {
-            /* Prefer a UART entry with a real IRQ; IRQ 0 devices are typically unusable for RX interrupts. */
-            if (serial_handle < 0 || (serial_irq <= 0 && rc > 0)) {
-                serial_handle = (int32_t)i;
-                serial_irq = rc;
-            }
-            continue;
-        }
-
-        if (strncmp(compat, "arm,pl031", 9) == 0) {
-            if (rtc_handle < 0 || (rtc_irq <= 0 && rc > 0)) {
-                rtc_handle = (int32_t)i;
-                rtc_irq = rc;
-            }
-            continue;
-        }
-
-        if (strncmp(compat, "arm,pl180", 9) == 0) {
-            if (block_handle < 0 || (block_irq <= 0 && rc > 0)) {
-                block_handle = (int32_t)i;
-                block_irq = rc;
-            }
-            continue;
-        }
-
-        if (strncmp(compat, "smsc,lan9118", 12) == 0) {
-            if (nic_handle < 0 || (nic_irq <= 0 && rc > 0)) {
-                nic_handle = (int32_t)i;
-                nic_irq = rc;
-            }
-            continue;
-        }
-    }
-
-    if (serial_handle > 0 && reg_count < MAX_DRIVERS) {
-        reg_table[reg_count++] = (reg_entry_t){ DEV_CLASS_SERIAL, (uint32_t)serial_handle };
-    }
-    if (rtc_handle > 0 && reg_count < MAX_DRIVERS) {
-        reg_table[reg_count++] = (reg_entry_t){ DEV_CLASS_RTC, (uint32_t)rtc_handle };
-    }
-    if (block_handle > 0 && reg_count < MAX_DRIVERS) {
-        reg_table[reg_count++] = (reg_entry_t){ DEV_CLASS_BLOCK, (uint32_t)block_handle };
-    }
-       if (nic_handle > 0 && reg_count < MAX_DRIVERS) {
-           reg_table[reg_count++] = (reg_entry_t){ DEV_CLASS_NIC, (uint32_t)nic_handle };
-       }
-}
-
-static void handle_register(uint32_t reply_handle, uint32_t dev_class)
-{
-    (void)dev_class;
-    ZuzuMsgReply(reply_handle, ZUZU_OK, 0, 0);
-}
-
-static void handle_dev_request(uint32_t reply_handle, uint32_t sender_pid, uint32_t dev_class)
-{
-    const char *compat = class_to_compat(dev_class);
-    if (!compat) {
-        ZuzuMsgReply(reply_handle, ERR_BADARG, 0, 0);
-        return;
-    }
-
-    uint32_t granted_serial = 0;
-    int rc = request_and_grant_class(dev_class, (int32_t)sender_pid, &granted_serial);
-    if (rc < 0) {
-        ZuzuMsgReply(reply_handle, (uint32_t)rc, 0, 0);
-        return;
-    }
-
-    ZuzuMsgReply(reply_handle, ZUZU_OK, granted_serial, 0);
-}
-
-int devmgr_setup(void)
-{
-    build_class_table();
-    int32_t my_port = ZuzuPortCreate();
-    if (my_port < 0) {
-        return my_port;
-    }
-
-    int32_t nt_slot = ZuzuGrant(my_port, NAMETABLE_PID);
-    if (nt_slot < 0) {
-        return nt_slot;
-    }
-
-    (void)ZuzuMsgSend(NT_PORT, NT_REGISTER, nt_pack(DEVMGR_NAME), (uint32_t)nt_slot);
-
-    return my_port;
-}
-
-void devmgr_loop(int32_t port_handle)
-{
-    while (1) {
-        Message msg = ZuzuMsgRecv(port_handle, TIMEOUT_INFINITE);
-
-        uint32_t reply_handle = (uint32_t)msg.w0;
-        uint32_t sender_pid = msg.w1;
-        uint32_t command = msg.w2;
-        uint32_t arg = msg.w3;
-
-        if (command == DEV_REGISTER) {
-            handle_register(reply_handle, arg);
-        } else if (command == DEV_REQUEST) {
-            handle_dev_request(reply_handle, sender_pid, arg);
-        } else {
-            ZuzuMsgReply(reply_handle, ERR_NOSYS, 0, 0);
-        }
-    }
 }
 
 int main(void)
 {
-    int32_t port = devmgr_setup();
-    if (port < 0) {
-        return 1;
+    if (DevmgrSetup() != 0)
+    {
+        return ERR_SYSDOWN;
     }
 
-    devmgr_loop(port);
+    while (1)
+    {
+        Message msg = ZuzuMsgRecv(port, TIMEOUT_INFINITE);
+
+        Handle   reply_handle = msg.w0;   // kernel-assigned reply-cap slot
+        Pid      sender_pid   = msg.w1;   // kernel-stamped, trustworthy
+        size_t xlen         = msg.w2;   // buffer length = your bounds ceiling
+
+        DevmRequest req;
+        if (DevmUnpack(LmsgBuf(), xlen, &req) != 0) {
+            ZuzuMsgReply(reply_handle, ERR_BADARG, 0, 0);
+            continue;
+        }
+        switch (req.cmd) {
+            case DEVM_REQUEST:
+                HandleDevRequest(reply_handle, sender_pid, &req);
+                break;
+            default:
+                ZuzuMsgReply(reply_handle, ERR_NOSYS, 0, 0);
+        }
+    }
+
     return 0;
 }

@@ -17,7 +17,7 @@
 
 #include <zuzu/zuzu.h>
 #include <zuzu/log.h>
-#include <zuzu/protocols/nt_protocol.h>
+#include <zuzu/protocols/nametable.h>
 #include <string.h>
 
 #define LOG_TAG "fsd"

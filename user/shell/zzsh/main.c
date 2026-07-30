@@ -8,8 +8,8 @@
 #include <malloc.h>
 #include <zuzu/syspage.h>
 #include <zuzu/fsd_client.h>
-#include <zuzu/protocols/nic_protocol.h>
-#include <zuzu/protocols/sysd_protocol.h>
+#include <zuzu/protocols/nic.h>
+#include <zuzu/protocols/exec.h>
 #include <zuzu/channel.h>
 #include <zuzu/user_layout.h>
 
@@ -174,7 +174,7 @@ static bool resolve_path(const char *input, char *out, size_t out_size)
     return normalize_path(raw, out, out_size);
 }
 
-static bool stat_path(const char *path, fsd_stat_t *st)
+static bool stat_path(const char *path, FsdStat *st)
 {
     if (!ensure_fsd())
         return false;
@@ -337,6 +337,34 @@ static void cmd_cat(const char *path)
     printf("\n");
 }
 
+/* ---- resolve ---- */
+
+static void cmd_resolve(const char *name)
+{
+    if (!name || !name[0]) {
+        printf("%s", "usage: resolve <name>\n");
+        return;
+    }
+
+    if (strlen(name) > 4) {
+        printf("%s", ANSI_RED "resolve: name too long (max 4 chars)\n" ANSI_RESET);
+        return;
+    }
+
+    char packed[4] = { 0 };
+    strncpy(packed, name, sizeof(packed));
+
+    Message reply = ZuzuMsgCall(NT_PORT, NT_LOOKUP, nt_pack(packed), 0);
+    if (reply.w1 != NT_LU_OK) {
+        printf("%s", ANSI_RED "resolve: not found\n" ANSI_RESET);
+        return;
+    }
+
+    char buf[64];
+    snprintf(buf, sizeof(buf), "port=%d pid=%u\n", (int32_t)reply.w2, reply.w3);
+    printf("%s", buf);
+}
+
 /* ---- exec from SD ---- */
 
 static void cmd_exec(const char *line)
@@ -469,6 +497,7 @@ void command_dispatch(const char *line)
             ANSI_BOLD "  sleep <ms>" ANSI_RESET "    sleep for <ms> milliseconds\n"
             ANSI_BOLD "  ls [path]" ANSI_RESET "     list directory on SD\n"
             ANSI_BOLD "  cat <file>" ANSI_RESET "    print file contents from SD\n"
+            ANSI_BOLD "  resolve <name>" ANSI_RESET " look up a nametable entry\n"
             ANSI_BOLD "  <path>" ANSI_RESET "        run executable from SD\n"
         );
     }
@@ -497,7 +526,7 @@ void command_dispatch(const char *line)
     else if (strncmp(line, "cd ", 3) == 0)
     {
         char path[256];
-        fsd_stat_t st;
+        FsdStat st;
 
         if (!resolve_path(line + 3, path, sizeof(path))) {
             printf("%s", "cd: path too long\n");
@@ -567,6 +596,14 @@ void command_dispatch(const char *line)
     else if (strncmp(line, "cat ", 4) == 0)
     {
         cmd_cat(line + 4);
+    }
+    else if (strcmp(line, "resolve") == 0)
+    {
+        printf("%s", "usage: resolve <name>\n");
+    }
+    else if (strncmp(line, "resolve ", 8) == 0)
+    {
+        cmd_resolve(line + 8);
     }
     else
     {

@@ -1,6 +1,6 @@
 #include <stdio.h>
-#include <zuzu/protocols/devmgr_protocol.h>
-#include <zuzu/protocols/nic_protocol.h>
+#include <zuzu/protocols/devm.h>
+#include <zuzu/protocols/nic.h>
 #include <zuzu/msg.h>
 #include <zuzu/irq.h>
 #include <zuzu/ntfn.h>
@@ -89,26 +89,16 @@ static inline void mac_csr_write(uint8_t index, uint32_t value)
 int get_nic(void)
 {
 
-    if (!DevicePresentInSyspage("LAN9118"))
-    {
-        LOG_ERROR(LOG_TAG, "device not found");
-        return ERR_NOENT;
-    }
-    // service is registered after nic_setup() completes so clients don't
-    // find the port before waitany is running
-    nt_port = -1;
-
     devm_port = lookup_service("devm");
-    Message r;
-    while (1)
-    {
-        r = ZuzuMsgCall(devm_port, DEV_REQUEST, DEV_CLASS_NIC, 0);
-        if ((int32_t)r.w1 == 0)
-            break;
-        LOG_WARN(LOG_TAG, "NIC device request failed, retrying");
-        ZuzuSleep(10);
+    
+    static const char *const nic_compat[] = { "smsc,lan9118" };
+    uint32_t matched; 
+    dev_handle = DevmRequestDevice(devm_port, nic_compat, 1, &matched);
+    if (dev_handle < 0) {
+        LOG_ERROR(LOG_TAG, "NIC device request failed");
+        return dev_handle;   /* ERR_NOENT — no LAN9118 on this board */
     }
-    dev_handle = (Handle)r.w2;
+
     irq_ntfn = ZuzuNtfnCreate();
     if (irq_ntfn < 0)
     {

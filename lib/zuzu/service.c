@@ -1,5 +1,5 @@
 #include <zuzu/service.h>
-#include "zuzu/protocols/nt_protocol.h"
+#include "zuzu/protocols/nametable.h"
 #include <zuzu/zuzu.h>
 #include <string.h>
 
