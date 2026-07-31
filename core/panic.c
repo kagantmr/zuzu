@@ -24,7 +24,7 @@ extern irq_handler_t      handler_table[MAX_IRQS];
 #endif
 
 extern kernel_layout_t kernel_layout;
-extern PmmState     pmm_state;
+extern PmmState     pmmState;
 extern list_head_t     sleep_queue;
 
 panic_fault_context_t panic_fault_ctx;
@@ -807,9 +807,9 @@ static void panic_print_memory(void)
 
     snprintf(line, sizeof(line),
              "PMM:   %lu / %lu pages free  (%lu KB free)",
-             (unsigned long)pmm_state.free_pages,
-             (unsigned long)pmm_state.total_pages,
-             (unsigned long)(pmm_state.free_pages * 4u));
+             (unsigned long)pmmState.free_pages,
+             (unsigned long)pmmState.total_pages,
+             (unsigned long)(pmmState.free_pages * 4u));
     panic_line(line);
 
     if (heap_head && kernel_layout.heap_start_va && kernel_layout.heap_end_va) {
