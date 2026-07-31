@@ -807,9 +807,9 @@ static void panic_print_memory(void)
 
     snprintf(line, sizeof(line),
              "PMM:   %lu / %lu pages free  (%lu KB free)",
-             (unsigned long)pmmState.free_pages,
-             (unsigned long)pmmState.total_pages,
-             (unsigned long)(pmmState.free_pages * 4u));
+             (unsigned long)pmmState.free_frames,
+             (unsigned long)pmmState.total_frames,
+             (unsigned long)(pmmState.free_frames * 4u));
     panic_line(line);
 
     if (heap_head && kernel_layout.heap_start_va && kernel_layout.heap_end_va) {
