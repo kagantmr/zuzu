@@ -37,9 +37,10 @@ typedef struct
     uint8_t dev_count;                         // how many devices are in the devs[] array
     size_t initrd_size;                        // size of initrd (for sysd and likely fsd in the future)
     SyspageDevEntry devs[SYSPAGE_MAX_DEVICES]; // filled from DTB walk at boot
+    uint32_t features;                         // bitfield of SYSPAGE_FEATURE_* flags
 } Syspage;
 
-/* Backed by a single PmmAllocFrame() and mapped into userspace as one page. */
+_Static_assert(offsetof(Syspage, features) == 3980, "syspage ABI");
 _Static_assert(sizeof(Syspage) <= 4096, "Syspage must fit in one page");
 
 #ifdef __cplusplus
