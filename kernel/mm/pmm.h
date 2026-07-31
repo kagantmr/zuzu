@@ -12,27 +12,24 @@
 
 typedef uint32_t Pfn;
 
-typedef struct
-{
-    Pfn pfn_base;      // lowest page frame number
-    Pfn pfn_end;       // highest page frame number (exclusive)
-    size_t total_frames;     // total number of pages
-    size_t free_frames;      // updated at runtime
-    uint8_t *bitmap;        // pointer to bitmap memory
-    size_t bitmap_bytes;    // size of bitmap in bytes
-    PhysAddr freelist_head; // PA of first free page (or 0 if none)
-} PmmState;
-
 static inline PhysAddr PfnToPhys(Pfn pfn) { return (PhysAddr)pfn << PAGE_SHIFT; }
 static inline Pfn PhysToPfn(PhysAddr pa)  { return (Pfn)(pa >> PAGE_SHIFT); }
 
 #define PHYS_NULL ((PhysAddr)0)
+
+typedef struct
+{
+    size_t total_frames;
+    size_t free_frames;
+} PmmStats;
 
 /**
  * @brief Initialize the physical memory manager.
  * This sets up the bitmap and marks reserved regions.
  */
 void PmmInit(void);
+
+PmmStats PmmGetStats(void);
 
 /**
  * @brief Mark a range of physical frames as used.
