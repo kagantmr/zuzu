@@ -29,6 +29,10 @@ DTB_vexpress-a15       = arch/arm/dtb/vexpress-a15/vexpress-v2p-ca15-tc1.dtb
 QEMU_MACH_vexpress-a15 = vexpress-a15
 QEMU_CPU_vexpress-a15  = cortex-a15
 QEMU_NET_vexpress-a15  = -nic user,model=lan9118
+# Matches the committed DTB's memory@80000000 node (reg size 0x40000000 =
+# 1GB) — without this, QEMU only backs its qemu.mk default (64M) while the
+# kernel's DTB walk at boot believes it has the full 1GB.
+QEMU_MEM_vexpress-a15  = 1G
 
 # Raspberry Pi 4 (BCM2711, Cortex-A72 running AArch32). The DTB is compiled
 # from the checked-in rpi4.dts for QEMU; on real hardware the firmware loads
