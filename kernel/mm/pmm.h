@@ -5,7 +5,10 @@
 #include <stddef.h>
 #include <zuzu/types.h>
 
-#define PAGE_SIZE 4096 // A page is 4KB
+#define PAGE_SHIFT 12
+#ifndef PAGE_SIZE
+#define PAGE_SIZE (1u << PAGE_SHIFT) // A page is 4KB
+#endif
 
 typedef uint32_t Pfn;
 
@@ -13,16 +16,17 @@ typedef struct
 {
     Pfn pfn_base;      // lowest page frame number
     Pfn pfn_end;       // highest page frame number (exclusive)
-    size_t total_pages;     // total number of pages
-    size_t free_pages;      // updated at runtime
+    size_t total_frames;     // total number of pages
+    size_t free_frames;      // updated at runtime
     uint8_t *bitmap;        // pointer to bitmap memory
     size_t bitmap_bytes;    // size of bitmap in bytes
     PhysAddr freelist_head; // PA of first free page (or 0 if none)
 } PmmState;
 
-#define PAGE_SHIFT 12
 static inline PhysAddr PfnToPhys(Pfn pfn) { return (PhysAddr)pfn << PAGE_SHIFT; }
 static inline Pfn PhysToPfn(PhysAddr pa)  { return (Pfn)(pa >> PAGE_SHIFT); }
+
+#define PHYS_NULL ((PhysAddr)0)
 
 /**
  * @brief Initialize the physical memory manager.
