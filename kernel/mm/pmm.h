@@ -35,17 +35,17 @@ PmmStats PmmGetStats(void);
  * @brief Mark a range of physical frames as used.
  * @return ZUZU_OK if successful, ERR_BADARG if the range is invalid.
  */
-Err PmmMarkRange(const PhysAddr start, const PhysAddr end);
+Err PmmMarkRange(PhysAddr start, PhysAddr end);
 
 /**
  * @brief Unmark a range of frames.
  * @return ZUZU_OK if successful, ERR_BADARG if the range is invalid.
  */
-Err PmmUnmarkRange(const PhysAddr start, const PhysAddr end);
+Err PmmUnmarkRange(PhysAddr start, PhysAddr end);
 
 /**
  * @brief Allocates a physical frame, and returns a pointer to it.
- * @return Address of the allocated frame.
+ * @return Address of the allocated frame, or PHYS_NULL if none are free.
  */
 PhysAddr PmmAllocFrame(void);
 
@@ -54,28 +54,28 @@ PhysAddr PmmAllocFrame(void);
  *
  * @param n_frames Number of frames to allocate.
  *
- * @return Address of the first allocated frame.
+ * @return Address of the first allocated frame, or PHYS_NULL if none are free.
  */
-PhysAddr PmmAllocFramesContig(const size_t n_frames);
+PhysAddr PmmAllocFramesContig(size_t n_frames);
 
 /**
  * @brief Marks an allocated frame as unallocated.
  *
  * @param addr Address of the allocated frame.
  *
- * @return ZUZU_OK if successful, ERR_BADARG if addr is invalid. Panics on double free.
+ * Panics on double free.
  */
-void PmmFreeFrame(const PhysAddr addr);
+void PmmFreeFrame(PhysAddr addr);
 
 /**
  * @brief Allocates contiguous physical frames with specific alignment.
  *
- * @param n_frames Number of pages to allocate.
- * @param align_frames Alignment in pages (must be power of two).
+ * @param n_frames Number of frames to allocate.
+ * @param align_frames Alignment in frames (must be power of two).
  *
- * @return Address of the first allocated page.
+ * @return Address of the first allocated frame, or PHYS_NULL if none are free.
  */
-PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, const size_t align_frames);
+PhysAddr PmmAllocFramesContigAligned(size_t n_frames, size_t align_frames);
 
 /**
  * @brief Allocates scattered physical frames and returns their addresses.
@@ -83,8 +83,10 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, const size_t align_f
  * @param n_frames Number of frame to allocate.
  * @param out_addrs Caller-provided array for frame addresses
  *
- * @return Amount of frame found (may not match n_frames if zuzu is OOM)
+ * @return Amount of frame found (may not match n_frames if zuzu is OOM). On a
+ * short return, the caller owns the frames already written to out_addrs and
+ * must free them.
  */
-size_t PmmAllocFramesScattered(const size_t n_frames, PhysAddr *out_addrs);
+size_t PmmAllocFramesScattered(size_t n_frames, PhysAddr *out_addrs);
 
 #endif

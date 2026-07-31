@@ -460,7 +460,7 @@ void PmmFreeFrame(const PhysAddr addr)
     panic("pmm: double free of frame %#lx", pfn);
 }
 
-uintptr_t PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
+PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
 {
     uint32_t flags;
     spin_lock_irqsave(&pmm_lock, &flags);
@@ -556,7 +556,7 @@ size_t PmmAllocFramesScattered(const size_t n_frames, PhysAddr *out_addrs)
 #endif
     uint32_t flags;
     spin_lock_irqsave(&pmm_lock, &flags);
-    if (n_frames == 0 || pmmState.free_frames < n_frames)
+    if (n_frames == 0 || !out_addrs || pmmState.free_frames < n_frames)
     {
         spin_unlock_irqrestore(&pmm_lock, flags);
         return 0;
@@ -566,11 +566,6 @@ size_t PmmAllocFramesScattered(const size_t n_frames, PhysAddr *out_addrs)
     assert(pmmState.bitmap_bytes * 8ULL >= pmmState.total_frames);
     assert(pmmState.free_frames <= pmmState.total_frames);
     assert(n_frames <= pmmState.total_frames);
-    if (!n_frames || !out_addrs)
-    {
-        spin_unlock_irqrestore(&pmm_lock, flags);
-        return 0;
-    }
     for (size_t i = 0; i < n_frames; i++)
     {
         const PhysAddr new_page = pmm_alloc_frame_locked();
