@@ -17,7 +17,7 @@
 #include "core/log.h"
 
 
-PmmState pmm_state;
+PmmState pmmState;
 extern kernel_layout_t kernel_layout;
 extern void syspage_update_mem(void);
 spinlock_t pmm_lock = SPINLOCK_INIT;
@@ -30,22 +30,22 @@ static bool pmm_is_valid_managed_pa(PhysAddr pa)
         return false;
 
     const size_t pfn = pa / PAGE_SIZE;
-    return (pfn >= pmm_state.pfn_base && pfn < pmm_state.pfn_end);
+    return (pfn >= pmmState.pfn_base && pfn < pmmState.pfn_end);
 }
 
 static void pmm_rebuild_freelist(void)
 {
-    pmm_state.freelist_head = 0;
-    for (size_t i = 0; i < pmm_state.total_pages; i++)
+    pmmState.freelist_head = 0;
+    for (size_t i = 0; i < pmmState.total_pages; i++)
     {
         size_t byte_idx = i / 8;
         size_t bit_idx = i % 8;
-        if (!(pmm_state.bitmap[byte_idx] & (1u << bit_idx)))
+        if (!(pmmState.bitmap[byte_idx] & (1u << bit_idx)))
         {
-            PhysAddr pa = (pmm_state.pfn_base + i) * PAGE_SIZE;
+            PhysAddr pa = (pmmState.pfn_base + i) * PAGE_SIZE;
             PhysAddr *page_va = (PhysAddr *)PA_TO_VA(pa);
-            *page_va = pmm_state.freelist_head;
-            pmm_state.freelist_head = pa;
+            *page_va = pmmState.freelist_head;
+            pmmState.freelist_head = pa;
         }
     }
 }
@@ -54,7 +54,7 @@ static void pmm_rebuild_freelist(void)
 static void pmm_freelist_remove_range(PhysAddr start_pa, PhysAddr end_pa)
 {
     PhysAddr prev_pa = 0;
-    PhysAddr curr_pa = pmm_state.freelist_head;
+    PhysAddr curr_pa = pmmState.freelist_head;
 
     while (curr_pa)
     {
@@ -62,7 +62,7 @@ static void pmm_freelist_remove_range(PhysAddr start_pa, PhysAddr end_pa)
         {
             pmm_rebuild_freelist();
             prev_pa = 0;
-            curr_pa = pmm_state.freelist_head;
+            curr_pa = pmmState.freelist_head;
             continue;
         }
 
@@ -72,7 +72,7 @@ static void pmm_freelist_remove_range(PhysAddr start_pa, PhysAddr end_pa)
         {
             pmm_rebuild_freelist();
             prev_pa = 0;
-            curr_pa = pmm_state.freelist_head;
+            curr_pa = pmmState.freelist_head;
             continue;
         }
 
@@ -80,7 +80,7 @@ static void pmm_freelist_remove_range(PhysAddr start_pa, PhysAddr end_pa)
         {
             if (prev_pa == 0)
             {
-                pmm_state.freelist_head = next_pa;
+                pmmState.freelist_head = next_pa;
             }
             else
             {
@@ -98,17 +98,17 @@ static void pmm_freelist_remove_range(PhysAddr start_pa, PhysAddr end_pa)
 
 static PhysAddr pmm_alloc_frame_locked(void)
 {
-    if (pmm_state.freelist_head == 0)
+    if (pmmState.freelist_head == 0)
         return (PhysAddr)0;
 
-    if (!pmm_is_valid_managed_pa(pmm_state.freelist_head))
+    if (!pmm_is_valid_managed_pa(pmmState.freelist_head))
     {
         pmm_rebuild_freelist();
-        if (pmm_state.freelist_head == 0)
+        if (pmmState.freelist_head == 0)
             return (PhysAddr)0;
     }
 
-    PhysAddr pa = pmm_state.freelist_head;
+    PhysAddr pa = pmmState.freelist_head;
 
     /* Pop: read next pointer stored in the page itself */
     PhysAddr *page_va = (PhysAddr *)PA_TO_VA(pa);
@@ -116,31 +116,31 @@ static PhysAddr pmm_alloc_frame_locked(void)
     if (!pmm_is_valid_managed_pa(next_pa))
     {
         pmm_rebuild_freelist();
-        if (pmm_state.freelist_head == 0)
+        if (pmmState.freelist_head == 0)
             return (PhysAddr)0;
-        pa = pmm_state.freelist_head;
+        pa = pmmState.freelist_head;
         page_va = (PhysAddr *)PA_TO_VA(pa);
         next_pa = *page_va;
         if (!pmm_is_valid_managed_pa(next_pa))
         {
-            pmm_state.freelist_head = 0;
+            pmmState.freelist_head = 0;
             return (PhysAddr)0;
         }
     }
 
-    pmm_state.freelist_head = next_pa;
+    pmmState.freelist_head = next_pa;
 
     /* Keep bitmap in sync */
-    size_t index = (pa / PAGE_SIZE) - pmm_state.pfn_base;
+    size_t index = (pa / PAGE_SIZE) - pmmState.pfn_base;
     size_t byte_idx = index / 8;
     size_t bit_idx = index % 8;
 
-    assert(byte_idx < pmm_state.bitmap_bytes);
-    assert(!(pmm_state.bitmap[byte_idx] & (1u << bit_idx))); /* must be free in bitmap */
+    assert(byte_idx < pmmState.bitmap_bytes);
+    assert(!(pmmState.bitmap[byte_idx] & (1u << bit_idx))); /* must be free in bitmap */
 
-    pmm_state.bitmap[byte_idx] |= (uint8_t)(1u << bit_idx);
-    pmm_state.free_pages--;
-    assert(pmm_state.free_pages <= pmm_state.total_pages);
+    pmmState.bitmap[byte_idx] |= (uint8_t)(1u << bit_idx);
+    pmmState.free_pages--;
+    assert(pmmState.free_pages <= pmmState.total_pages);
 
     return pa;
 }
@@ -175,14 +175,14 @@ static void pmm_reserve_boot_regions(void)
 void PmmInit(void)
 {
     // Compute PFN range from phys_region
-    pmm_state.pfn_base = kernel_layout.ram_start / PAGE_SIZE;
-    pmm_state.pfn_end = kernel_layout.ram_end / PAGE_SIZE;
-    pmm_state.total_pages = pmm_state.pfn_end - pmm_state.pfn_base;
-    pmm_state.free_pages = pmm_state.total_pages;
+    pmmState.pfn_base = kernel_layout.ram_start / PAGE_SIZE;
+    pmmState.pfn_end = kernel_layout.ram_end / PAGE_SIZE;
+    pmmState.total_pages = pmmState.pfn_end - pmmState.pfn_base;
+    pmmState.free_pages = pmmState.total_pages;
 
     // Place bitmap after kernel, page-aligned
     PhysAddr bitmap_start_pa = align_up(kernel_layout.kernel_end_pa, PAGE_SIZE);
-    size_t bitmap_bytes = (pmm_state.total_pages + 7) / 8;
+    size_t bitmap_bytes = (pmmState.total_pages + 7) / 8;
     size_t bitmap_size = align_up(bitmap_bytes, PAGE_SIZE);
     PhysAddr bitmap_end_pa = bitmap_start_pa + bitmap_size;
 
@@ -199,9 +199,9 @@ void PmmInit(void)
     kernel_layout.bitmap_va = (uint8_t *)PA_TO_VA(kernel_layout.bitmap_start_pa);
 
     // Install and zero (use VA pointer)
-    pmm_state.bitmap = kernel_layout.bitmap_va;
-    pmm_state.bitmap_bytes = bitmap_bytes;
-    memset(pmm_state.bitmap, 0, bitmap_size);
+    pmmState.bitmap = kernel_layout.bitmap_va;
+    pmmState.bitmap_bytes = bitmap_bytes;
+    memset(pmmState.bitmap, 0, bitmap_size);
 
     // Reserve boot-time regions
     pmm_reserve_boot_regions();
@@ -224,36 +224,36 @@ Err PmmMarkRange(PhysAddr start, PhysAddr end)
     size_t end_pfn = aend / PAGE_SIZE;
 
     /* PFN bounds check (pfn_end is exclusive) */
-    if (start_pfn < pmm_state.pfn_base || end_pfn > pmm_state.pfn_end)
+    if (start_pfn < pmmState.pfn_base || end_pfn > pmmState.pfn_end)
     {
         return ERR_BADARG;
     }
 
-    assert(pmm_state.bitmap != NULL);
-    assert(pmm_state.pfn_end > pmm_state.pfn_base);
-    assert(pmm_state.total_pages == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
-    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_pages);
+    assert(pmmState.bitmap != NULL);
+    assert(pmmState.pfn_end > pmmState.pfn_base);
+    assert(pmmState.total_pages == (size_t)(pmmState.pfn_end - pmmState.pfn_base));
+    assert(pmmState.bitmap_bytes * 8ULL >= pmmState.total_pages);
 
     for (size_t pfn = start_pfn; pfn < end_pfn; pfn++)
     {
-        size_t index = pfn - pmm_state.pfn_base;
+        size_t index = pfn - pmmState.pfn_base;
         size_t byte_idx = index / 8;
         size_t bit_idx = index % 8;
 
         /* safety: ensure we do not walk past bitmap */
-        assert(byte_idx < pmm_state.bitmap_bytes);
-        if (byte_idx >= pmm_state.bitmap_bytes)
+        assert(byte_idx < pmmState.bitmap_bytes);
+        if (byte_idx >= pmmState.bitmap_bytes)
             break;
 
         uint8_t mask = (uint8_t)(1u << bit_idx);
 
         /* Only flip and update counters if bit was previously 0 */
-        if (!(pmm_state.bitmap[byte_idx] & mask))
+        if (!(pmmState.bitmap[byte_idx] & mask))
         {
-            pmm_state.bitmap[byte_idx] |= mask;
-            if (pmm_state.free_pages > 0)
-                pmm_state.free_pages--;
-            assert(pmm_state.free_pages <= pmm_state.total_pages);
+            pmmState.bitmap[byte_idx] |= mask;
+            if (pmmState.free_pages > 0)
+                pmmState.free_pages--;
+            assert(pmmState.free_pages <= pmmState.total_pages);
         }
     }
 
@@ -261,7 +261,7 @@ Err PmmMarkRange(PhysAddr start, PhysAddr end)
 }
 
 /* unmark: mark pages in [start, end) as FREE */
-Err PmmUnmarkRange(PhysAddr start, PhysAddr end)
+Err PmmUnmarkRange(const PhysAddr start, const PhysAddr end)
 {
     if (start >= end)
         return ERR_BADARG;
@@ -272,35 +272,35 @@ Err PmmUnmarkRange(PhysAddr start, PhysAddr end)
     const size_t start_pfn = astart / PAGE_SIZE;
     size_t end_pfn = aend / PAGE_SIZE;
 
-    if (start_pfn < pmm_state.pfn_base || end_pfn > pmm_state.pfn_end)
+    if (start_pfn < pmmState.pfn_base || end_pfn > pmmState.pfn_end)
     {
         return ERR_BADARG;
     }
 
-    assert(pmm_state.bitmap != NULL);
-    assert(pmm_state.pfn_end > pmm_state.pfn_base);
-    assert(pmm_state.total_pages == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
-    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_pages);
+    assert(pmmState.bitmap != NULL);
+    assert(pmmState.pfn_end > pmmState.pfn_base);
+    assert(pmmState.total_pages == (size_t)(pmmState.pfn_end - pmmState.pfn_base));
+    assert(pmmState.bitmap_bytes * 8ULL >= pmmState.total_pages);
 
     for (size_t pfn = start_pfn; pfn < end_pfn; pfn++)
     {
-        const size_t index = pfn - pmm_state.pfn_base;
+        const size_t index = pfn - pmmState.pfn_base;
         const size_t byte_idx = index / 8;
         const size_t bit_idx = index % 8;
 
-        assert(byte_idx < pmm_state.bitmap_bytes);
-        if (byte_idx >= pmm_state.bitmap_bytes)
+        assert(byte_idx < pmmState.bitmap_bytes);
+        if (byte_idx >= pmmState.bitmap_bytes)
             break;
 
         const uint8_t mask = (uint8_t)(1u << bit_idx);
 
         /* Only flip and update counters if bit was previously 1 */
-        if (pmm_state.bitmap[byte_idx] & mask)
+        if (pmmState.bitmap[byte_idx] & mask)
         {
-            pmm_state.bitmap[byte_idx] &= ~mask;
-            if (pmm_state.free_pages < pmm_state.total_pages)
-                pmm_state.free_pages++;
-            assert(pmm_state.free_pages <= pmm_state.total_pages);
+            pmmState.bitmap[byte_idx] &= ~mask;
+            if (pmmState.free_pages < pmmState.total_pages)
+                pmmState.free_pages++;
+            assert(pmmState.free_pages <= pmmState.total_pages);
         }
     }
 
@@ -326,19 +326,19 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
 {
     uint32_t flags;
     spin_lock_irqsave(&pmm_lock, &flags);
-    if (n_frames == 0 || pmm_state.free_pages < n_frames)
+    if (n_frames == 0 || pmmState.free_pages < n_frames)
     {
         spin_unlock_irqrestore(&pmm_lock, flags);
         return (PhysAddr)0;
     }
 
-    assert(pmm_state.bitmap != NULL);
-    assert(pmm_state.total_pages == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
-    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_pages);
-    assert(pmm_state.free_pages <= pmm_state.total_pages);
-    assert(n_frames <= pmm_state.total_pages);
+    assert(pmmState.bitmap != NULL);
+    assert(pmmState.total_pages == (size_t)(pmmState.pfn_end - pmmState.pfn_base));
+    assert(pmmState.bitmap_bytes * 8ULL >= pmmState.total_pages);
+    assert(pmmState.free_pages <= pmmState.total_pages);
+    assert(n_frames <= pmmState.total_pages);
 
-    size_t total_pages = pmm_state.total_pages;
+    size_t total_pages = pmmState.total_pages;
     size_t consecutive = 0;
     size_t start_index = 0;
 
@@ -348,12 +348,12 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
         size_t bit_idx = index % 8;
         uint8_t mask = (uint8_t)(1u << bit_idx);
 
-        if (byte_idx >= pmm_state.bitmap_bytes)
+        if (byte_idx >= pmmState.bitmap_bytes)
         {
             break; /* beyond managed pages */
         }
 
-        if (!(pmm_state.bitmap[byte_idx] & mask))
+        if (!(pmmState.bitmap[byte_idx] & mask))
         { /* free */
             if (consecutive == 0)
             {
@@ -364,8 +364,8 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
             if (consecutive == n_frames)
             {
                 /* Mark pages as allocated */
-                PhysAddr start_pa = start_index * PAGE_SIZE + pmm_state.pfn_base * PAGE_SIZE;
-                PhysAddr end_pa = (start_index + n_frames) * PAGE_SIZE + pmm_state.pfn_base * PAGE_SIZE;
+                PhysAddr start_pa = start_index * PAGE_SIZE + pmmState.pfn_base * PAGE_SIZE;
+                PhysAddr end_pa = (start_index + n_frames) * PAGE_SIZE + pmmState.pfn_base * PAGE_SIZE;
                 if (PmmMarkRange(start_pa, end_pa) != ZUZU_OK)
                 {
                     spin_unlock_irqrestore(&pmm_lock, flags);
@@ -375,10 +375,10 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
                 /* Keep freelist in sync without a full O(total_pages) rebuild. */
                 pmm_freelist_remove_range(start_pa, end_pa);
 
-                size_t pfn = pmm_state.pfn_base + start_index;
+                size_t pfn = pmmState.pfn_base + start_index;
                 PhysAddr addr = (PhysAddr)pfn * PAGE_SIZE;
                 assert(addr % PAGE_SIZE == 0);
-                assert(pfn >= pmm_state.pfn_base && (pfn + n_frames) <= pmm_state.pfn_end);
+                assert(pfn >= pmmState.pfn_base && (pfn + n_frames) <= pmmState.pfn_end);
                 syspage_update_mem(); // update free memory info in syspage
                 spin_unlock_irqrestore(&pmm_lock, flags);
 #ifdef PMM_TRACE
@@ -413,38 +413,38 @@ Err PmmFreeFrame(const PhysAddr addr)
     const size_t pfn = addr / PAGE_SIZE;
 
     /* bounds: pfn must be inside [pfn_base, pfn_end) */
-    if (pfn < pmm_state.pfn_base || pfn >= pmm_state.pfn_end)
+    if (pfn < pmmState.pfn_base || pfn >= pmmState.pfn_end)
     {
         spin_unlock_irqrestore(&pmm_lock, flags);
         return ERR_BADARG;
     }
 
-    size_t index = pfn - pmm_state.pfn_base;
+    size_t index = pfn - pmmState.pfn_base;
     size_t byte_idx = index / 8;
     size_t bit_idx = index % 8;
 
-    if (byte_idx >= pmm_state.bitmap_bytes)
+    if (byte_idx >= pmmState.bitmap_bytes)
     {
         spin_unlock_irqrestore(&pmm_lock, flags);
         return ERR_BADARG;
     }
 
-    assert(pmm_state.bitmap != NULL);
-    assert(pmm_state.free_pages <= pmm_state.total_pages);
+    assert(pmmState.bitmap != NULL);
+    assert(pmmState.free_pages <= pmmState.total_pages);
 
     const uint8_t mask = (uint8_t)(1u << bit_idx);
 
     /* if bit set -> allocated -> free it */
-    if (pmm_state.bitmap[byte_idx] & mask)
+    if (pmmState.bitmap[byte_idx] & mask)
     {
-        pmm_state.bitmap[byte_idx] &= ~mask;
-        pmm_state.free_pages++;
-        assert(pmm_state.free_pages <= pmm_state.total_pages);
+        pmmState.bitmap[byte_idx] &= ~mask;
+        pmmState.free_pages++;
+        assert(pmmState.free_pages <= pmmState.total_pages);
 
         /* Push onto freelist */
         PhysAddr *page_va = (PhysAddr *)PA_TO_VA(addr);
-        *page_va = pmm_state.freelist_head;
-        pmm_state.freelist_head = addr;
+        *page_va = pmmState.freelist_head;
+        pmmState.freelist_head = addr;
 
         syspage_update_mem();
         spin_unlock_irqrestore(&pmm_lock, flags);
@@ -477,17 +477,17 @@ uintptr_t PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames
         return (PhysAddr)0;
     }
 
-    if (pmm_state.free_pages < n_frames)
+    if (pmmState.free_pages < n_frames)
     {
         spin_unlock_irqrestore(&pmm_lock, flags);
         return (PhysAddr)0;
     }
 
-    assert(pmm_state.bitmap != NULL);
-    assert(pmm_state.total_pages == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
-    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_pages);
+    assert(pmmState.bitmap != NULL);
+    assert(pmmState.total_pages == (size_t)(pmmState.pfn_end - pmmState.pfn_base));
+    assert(pmmState.bitmap_bytes * 8ULL >= pmmState.total_pages);
 
-    const size_t total_pages = pmm_state.total_pages;
+    const size_t total_pages = pmmState.total_pages;
     size_t consecutive = 0;
     size_t start_index = 0;
 
@@ -497,7 +497,7 @@ uintptr_t PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames
         // Enforce alignment on the start of a run
         if (consecutive == 0)
         {
-            if (((pmm_state.pfn_base + index) & (align_frames - 1)) != 0)
+            if (((pmmState.pfn_base + index) & (align_frames - 1)) != 0)
             {
                 continue;
             }
@@ -507,10 +507,10 @@ uintptr_t PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames
         size_t bit_idx = index % 8;
         uint8_t mask = (uint8_t)(1u << bit_idx);
 
-        if (byte_idx >= pmm_state.bitmap_bytes)
+        if (byte_idx >= pmmState.bitmap_bytes)
             break;
 
-        if (!(pmm_state.bitmap[byte_idx] & mask))
+        if (!(pmmState.bitmap[byte_idx] & mask))
         { // free
             if (consecutive == 0)
                 start_index = index;
@@ -518,8 +518,8 @@ uintptr_t PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames
 
             if (consecutive == n_frames)
             {
-                const uintptr_t start_pa = (uintptr_t)(pmm_state.pfn_base + start_index) * PAGE_SIZE;
-                const uintptr_t end_pa = (uintptr_t)(pmm_state.pfn_base + start_index + n_frames) * PAGE_SIZE;
+                const uintptr_t start_pa = (uintptr_t)(pmmState.pfn_base + start_index) * PAGE_SIZE;
+                const uintptr_t end_pa = (uintptr_t)(pmmState.pfn_base + start_index + n_frames) * PAGE_SIZE;
 
                 if (PmmMarkRange(start_pa, end_pa) != ZUZU_OK)
                 {
@@ -552,16 +552,16 @@ size_t PmmAllocFramesScattered(const size_t n_frames, PhysAddr *out_addrs)
 #endif
     uint32_t flags;
     spin_lock_irqsave(&pmm_lock, &flags);
-    if (n_frames == 0 || pmm_state.free_pages < n_frames)
+    if (n_frames == 0 || pmmState.free_pages < n_frames)
     {
         spin_unlock_irqrestore(&pmm_lock, flags);
         return 0;
     }
-    assert(pmm_state.bitmap != NULL);
-    assert(pmm_state.total_pages == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
-    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_pages);
-    assert(pmm_state.free_pages <= pmm_state.total_pages);
-    assert(n_frames <= pmm_state.total_pages);
+    assert(pmmState.bitmap != NULL);
+    assert(pmmState.total_pages == (size_t)(pmmState.pfn_end - pmmState.pfn_base));
+    assert(pmmState.bitmap_bytes * 8ULL >= pmmState.total_pages);
+    assert(pmmState.free_pages <= pmmState.total_pages);
+    assert(n_frames <= pmmState.total_pages);
     if (!n_frames || !out_addrs)
     {
         spin_unlock_irqrestore(&pmm_lock, flags);

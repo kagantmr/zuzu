@@ -22,7 +22,7 @@
 #include <string.h>
 
 kernel_layout_t kernel_layout;
-extern PmmState pmm_state;
+extern PmmState pmmState;
 extern addrspace_t *g_kernel_as;
 #define SECTION_NORMAL_DESC 0x11C0Eu
 
