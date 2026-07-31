@@ -65,7 +65,7 @@ void syspage_init(void)
     strncpy(g_sp->machine, boot_info_model(),      sizeof(g_sp->machine) - 1);
     strncpy(g_sp->cpu,     boot_info_cpu_compat(), sizeof(g_sp->cpu)     - 1);
 
-    g_sp->mem_total_kb = (uint32_t)((pmmState.total_pages * (uint64_t)PAGE_SIZE) / 1024);
+    g_sp->mem_total_kb = (uint32_t)((pmmState.total_frames * (uint64_t)PAGE_SIZE) / 1024);
     g_sp->tick_hz = get_tick_rate();
     g_sp->boot_time_s = rtc_epoch;
 
@@ -83,7 +83,7 @@ void syspage_update_mem(void)
 {
     if (!g_sp)
         return;
-    g_sp->mem_free_kb = (uint32_t)((pmmState.free_pages * (uint64_t)PAGE_SIZE) / 1024);
+    g_sp->mem_free_kb = (uint32_t)((pmmState.free_frames * (uint64_t)PAGE_SIZE) / 1024);
 }
 
 void syspage_update_uptime(void)
