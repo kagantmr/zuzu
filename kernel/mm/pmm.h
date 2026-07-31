@@ -68,7 +68,7 @@ PhysAddr PmmAllocFramesContig(const size_t n_frames);
  *
  * @return ZUZU_OK if successful, ERR_BADARG if addr is invalid. Panics on double free.
  */
-Err PmmFreeFrame(const PhysAddr addr);
+void PmmFreeFrame(const PhysAddr addr);
 
 /**
  * @brief Allocates contiguous physical frames with specific alignment.
