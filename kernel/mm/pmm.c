@@ -397,37 +397,25 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
     return PHYS_NULL;
 }
 
-Err PmmFreeFrame(const PhysAddr addr)
+void PmmFreeFrame(const PhysAddr addr)
 {
     uint32_t flags;
 #ifdef PMM_TRACE
     KTRACE("free_page pa=%p caller: %s", (void *)addr, ksym_lookup((uint32_t)__builtin_return_address(0)));
 #endif
     spin_lock_irqsave(&pmm_lock, &flags);
-    if (addr % PAGE_SIZE != 0)
-    {
-        spin_unlock_irqrestore(&pmm_lock, flags);
-        return ERR_BADARG;
-    }
+    assert(addr % PAGE_SIZE == 0);
 
     const Pfn pfn = PhysToPfn(addr);
 
     /* bounds: pfn must be inside [pfn_base, pfn_end) */
-    if (pfn < pmmState.pfn_base || pfn >= pmmState.pfn_end)
-    {
-        spin_unlock_irqrestore(&pmm_lock, flags);
-        return ERR_BADARG;
-    }
+    assert(pfn >= pmmState.pfn_base && pfn < pmmState.pfn_end);
 
     size_t index = pfn - pmmState.pfn_base;
     size_t byte_idx = index / 8;
     size_t bit_idx = index % 8;
 
-    if (byte_idx >= pmmState.bitmap_bytes)
-    {
-        spin_unlock_irqrestore(&pmm_lock, flags);
-        return ERR_BADARG;
-    }
+    assert(byte_idx < pmmState.bitmap_bytes);
 
     assert(pmmState.bitmap != NULL);
     assert(pmmState.free_frames <= pmmState.total_frames);
@@ -448,12 +436,12 @@ Err PmmFreeFrame(const PhysAddr addr)
 
         syspage_update_mem();
         spin_unlock_irqrestore(&pmm_lock, flags);
-        return ZUZU_OK;
+        return;
     }
 
     /* already free -> double free: a live bug, not a bad argument */
     spin_unlock_irqrestore(&pmm_lock, flags);
-    panic("PmmFreeFrame: double free of pa=0x%08X", addr);
+    panic("pmm: double free of frame %#lx", pfn);
 }
 
 uintptr_t PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
