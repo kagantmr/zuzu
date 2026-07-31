@@ -17,10 +17,21 @@
 #include "core/log.h"
 
 
-PmmState pmmState;
+typedef struct
+{
+    Pfn pfn_base;      // lowest page frame number
+    Pfn pfn_end;       // highest page frame number (exclusive)
+    size_t total_frames;     // total number of pages
+    size_t free_frames;      // updated at runtime
+    uint8_t *bitmap;        // pointer to bitmap memory
+    size_t bitmap_bytes;    // size of bitmap in bytes
+    PhysAddr freelist_head; // PA of first free page (or 0 if none)
+} PmmState;
+
+static PmmState pmmState;
 extern kernel_layout_t kernel_layout;
 extern void syspage_update_mem(void);
-spinlock_t pmm_lock = SPINLOCK_INIT;
+static spinlock_t pmm_lock = SPINLOCK_INIT;
 
 static bool pmm_is_valid_managed_pa(PhysAddr pa)
 {
@@ -208,6 +219,11 @@ void PmmInit(void)
 
     // Build the freelist from all free pages in the bitmap
     pmm_rebuild_freelist();
+}
+
+PmmStats PmmGetStats(void)
+{
+    return (PmmStats){ .total_frames = pmmState.total_frames, .free_frames = pmmState.free_frames };
 }
 
 /* mark: mark pages in [start, end) as USED */
