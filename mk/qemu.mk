@@ -12,7 +12,7 @@
 # real-bootloader path this replaces as the default.
 #
 # Requires: arch.mk (per-board QEMU_*), config.mk (TARGET/IMG/DTB_FILE),
-# sdcard.mk (SD_IMG).
+# sdcard.mk (SD_IMG), initrd.mk (INITRD).
 
 .PHONY: run run-bridged run-pcap debug
 .PHONY: run-direct run-direct-bridged run-direct-pcap debug-direct
@@ -31,25 +31,31 @@ QEMU_NET     = $(QEMU_NET_$(BOARD))
 QEMU_KERNEL  = $(if $(QEMU_KERNEL_$(BOARD)),$(QEMU_KERNEL_$(BOARD)),$(IMG))
 
 # Flags shared by every direct-boot run/debug variant; each target adds
-# -kernel + extras.
+# -kernel + extras. -initrd is what actually gets the kernel an initrd on
+# this path: QEMU patches the DTB it hands the guest with /chosen
+# linux,initrd-start/-end pointing at wherever it placed the file (verified
+# by reading guest memory: it sits right before the DTB, no overlap), and
+# dtb_get_chosen_initrd() (kernel/dtb/dtb.c) already reads exactly that --
+# it just never had anything to read on this path before.
 QEMU_ARGS = -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m $(QEMU_MEM) \
-            -dtb $(DTB_FILE) -nographic -drive file=$(SD_IMG),if=sd,format=raw
+            -dtb $(DTB_FILE) -initrd $(INITRD) -nographic \
+            -drive file=$(SD_IMG),if=sd,format=raw
 
 run:         run-direct
 run-bridged: run-direct-bridged
 run-pcap:    run-direct-pcap
 debug:       debug-direct
 
-run-direct: $(QEMU_KERNEL) $(DTB_FILE)
+run-direct: $(QEMU_KERNEL) $(DTB_FILE) $(INITRD)
 	@echo "  QEMU    $(QEMU_KERNEL)"
 	@$(QEMU_BIN) $(QEMU_ARGS) -kernel $(QEMU_KERNEL) $(QEMU_NET)
 
-run-direct-bridged: $(QEMU_KERNEL) $(DTB_FILE)
+run-direct-bridged: $(QEMU_KERNEL) $(DTB_FILE) $(INITRD)
 	@echo "  QEMU    $(QEMU_KERNEL) [bridged]"
 	@sudo $(QEMU_BIN) $(QEMU_ARGS) -kernel $(QEMU_KERNEL) \
 	    -nic vmnet-bridged,model=lan9118,ifname=en0,mac=52:54:00:ab:cd:ef
 
-run-direct-pcap: $(QEMU_KERNEL) $(DTB_FILE)
+run-direct-pcap: $(QEMU_KERNEL) $(DTB_FILE) $(INITRD)
 	@echo "  QEMU    $(QEMU_KERNEL) [pcap -> $(PCAP_FILE)]"
 	@$(QEMU_BIN) $(QEMU_ARGS) -kernel $(QEMU_KERNEL) \
 	    -net nic,model=lan9118 -net user,id=n0 \
@@ -60,6 +66,6 @@ run-direct-pcap: $(QEMU_KERNEL) $(DTB_FILE)
 # ARM boot protocol to raw images -- but it's kept as a prerequisite so
 # it's on disk for `arm-none-eabi-gdb build/zuzu.elf` to pull symbols from
 # before attaching (see README's Debug section).
-debug-direct: $(QEMU_KERNEL) $(TARGET) $(DTB_FILE)
+debug-direct: $(QEMU_KERNEL) $(TARGET) $(DTB_FILE) $(INITRD)
 	@echo "  QEMU    $(QEMU_KERNEL) (debug)"
 	@$(QEMU_BIN) $(QEMU_ARGS) -kernel $(QEMU_KERNEL) $(QEMU_NET) -S -gdb tcp::1234
