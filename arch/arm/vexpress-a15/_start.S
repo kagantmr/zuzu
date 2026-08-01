@@ -1,76 +1,12 @@
 @ _start.s - ARMv7-A boot code for Versatile Express A15
+@
+@ _start must be the very first thing in .text.boot: QEMU's raw-kernel
+@ direct-boot loader jumps to the first byte of the loaded image, not to
+@ any symbol (U-Boot's bootm, by contrast, reads the ELF's real entry
+@ point, so this ordering never mattered until direct boot became the
+@ default — see mk/qemu.mk).
 
 .section .text.boot, "ax"
-.global early_paging_init
-.type early_paging_init, %function
-
-.equ RAM_PA_BASE,        0x80000000
-.equ BOOTSTRAP_RAM_MB,   8
-.equ RAM_LOW_IDX_BASE,   0x800
-.equ RAM_HIGH_IDX_BASE,  0xC00
-.equ SECTION_NORMAL_DESC,0x11C0E
-.equ VA_OFFSET_IDX,      0x400     @ KERNEL_VA_OFFSET (0x40000000) >> 20
-
-/* In: r0 = DTB physical address. Out: r0 = L1 table physical address.
- * r4 is never touched here (the caller relies on it surviving this call
- * unmodified — see svc_entry) — r2 is this function's own table-base
- * scratch register instead. */
-early_paging_init:
-    ldr     r2, =early_l1
-
-    /* Zero the full 16KB bootstrap L1 */
-    mov     r5, #0
-    mov     r6, #0
-1:
-    cmp     r5, #4096
-    bge     2f
-    str     r6, [r2, r5, lsl #2]
-    add     r5, r5, #1
-    b       1b
-2:
-    /* Map enough RAM to enter C; early.c expands this from the DTB. */
-    ldr     r7, =RAM_PA_BASE
-    ldr     r8, =SECTION_NORMAL_DESC
-    mov     r5, #0
-    ldr     r10, =BOOTSTRAP_RAM_MB
-3:
-    cmp     r5, r10
-    bge     4f
-    add     r11, r7, r5, lsl #20
-    orr     r11, r11, r8
-    add     r12, r5, #RAM_LOW_IDX_BASE
-    str     r11, [r2, r12, lsl #2]
-    add     r12, r5, #RAM_HIGH_IDX_BASE
-    str     r11, [r2, r12, lsl #2]
-    add     r5, r5, #1
-    b       3b
-4:
-    /* Map two sections at the DTB (may straddle a 1MB boundary), identity
-     * and higher-half, so early() can parse it before the full RAM map.
-     * A real bootloader can place (or, as u-boot's bootm does, relocate)
-     * the DTB anywhere in RAM, not just within the first BOOTSTRAP_RAM_MB,
-     * e.g. near the top of RAM. */
-    lsr     r11, r0, #20            @ DTB megabyte index (physical)
-    mov     r5, #0
-5:
-    cmp     r5, #2
-    bge     6f
-    add     r12, r11, r5            @ L1 index = PA >> 20
-    lsl     r6, r12, #20
-    orr     r6, r6, r8              @ normal memory descriptor
-    str     r6, [r2, r12, lsl #2]
-    add     r12, r12, #VA_OFFSET_IDX
-    bic     r12, r12, #0x1000       @ wrap L1 index to 4096 entries
-    str     r6, [r2, r12, lsl #2]
-    add     r5, r5, #1
-    b       5b
-6:
-    mov     r0, r2
-    bx      lr
-.size early_paging_init, . - early_paging_init
-
-.global _start
-.type _start, %function
 
 .equ MODE_IRQ,        0x12
 .equ MODE_ABT,        0x17
@@ -90,6 +26,9 @@ early_paging_init:
     ldr     r0, =\top_sym
     add     sp, r0, r1
 .endm
+
+.global _start
+.type _start, %function
 
 _start:
     /* Physical setup */
@@ -122,11 +61,26 @@ _start:
     eret
 
 svc_entry:
-    /* Stash the bootloader's DTB pointer (Linux/u-boot ARM boot protocol:
-     * r2 = DTB physical address) before r0-r3 get clobbered. r4 is
-     * callee-saved through everything below. u-boot's bootm always
-     * populates this correctly — no fallback needed. */
+    /* Stash the bootloader's DTB pointer (ARM Linux boot protocol: r2 =
+     * DTB physical address) before r0-r3 get clobbered. r4 is
+     * callee-saved through everything below. */
     mov     r4, r2
+
+    /* Console up first so a bad DTB pointer can say so instead of
+     * silently mapping garbage. */
+    bl      early_uart_init
+
+    /* Sanity-check r4 before trusting it as a DTB pointer: without -dtb,
+     * QEMU synthesizes an ATAG list at RAM+0x100 instead of a DTB, and
+     * walking that as an FDT gives a garbage memory map and a crash three
+     * functions later in early.c. Fail loud immediately instead. */
+    ldr     r0, [r4]
+    ldr     r1, =0xedfe0dd0         @ FDT magic 0xd00dfeed, byte-swapped
+                                     @ for a little-endian word load
+    cmp     r0, r1
+    beq     1f
+    bl      dtb_panic
+1:
 
     /* Set up stacks for all modes (at physical addresses) */
     bl      setup_mode_stacks
@@ -182,6 +136,171 @@ svc_entry:
     bx      r0
 
 .size _start, . - _start
+
+
+/* Bootstrap L1: identity + higher-half sections for the first
+ * BOOTSTRAP_RAM_MB of RAM, the megabyte holding the DTB (which a real
+ * bootloader can relocate anywhere in RAM, not just within the first
+ * BOOTSTRAP_RAM_MB), and the peripheral block (identity only, for the
+ * early console). In: r0 = DTB physical address. Out: r0 = L1 table
+ * physical address. r4 is never touched here (the caller relies on it
+ * surviving this call unmodified — see svc_entry) — r2 is this function's
+ * own table-base scratch register instead. */
+.global early_paging_init
+.type early_paging_init, %function
+
+.equ RAM_PA_BASE,        0x80000000
+.equ BOOTSTRAP_RAM_MB,   8
+.equ RAM_LOW_IDX_BASE,   0x800
+.equ RAM_HIGH_IDX_BASE,  0xC00
+.equ SECTION_NORMAL_DESC,0x11C0E
+.equ SECTION_DEVICE_DESC,0xC16      @ shared device, AP=RW(PL1), XN
+.equ VA_OFFSET_IDX,      0x400     @ KERNEL_VA_OFFSET (0x40000000) >> 20
+.equ PERIPH_PA_BASE,     0x1C000000 @ smb chip-select 3 (iofpga: uarts, etc.)
+.equ PERIPH_MB,          2
+
+early_paging_init:
+    ldr     r2, =early_l1
+
+    /* Zero the full 16KB bootstrap L1 */
+    mov     r5, #0
+    mov     r6, #0
+1:
+    cmp     r5, #4096
+    bge     2f
+    str     r6, [r2, r5, lsl #2]
+    add     r5, r5, #1
+    b       1b
+2:
+    /* Map enough RAM to enter C; early.c expands this from the DTB. */
+    ldr     r7, =RAM_PA_BASE
+    ldr     r8, =SECTION_NORMAL_DESC
+    mov     r5, #0
+    ldr     r10, =BOOTSTRAP_RAM_MB
+3:
+    cmp     r5, r10
+    bge     4f
+    add     r11, r7, r5, lsl #20
+    orr     r11, r11, r8
+    add     r12, r5, #RAM_LOW_IDX_BASE
+    str     r11, [r2, r12, lsl #2]
+    add     r12, r5, #RAM_HIGH_IDX_BASE
+    str     r11, [r2, r12, lsl #2]
+    add     r5, r5, #1
+    b       3b
+4:
+    /* Map two sections at the DTB (may straddle a 1MB boundary), identity
+     * and higher-half, so early() can parse it before the full RAM map.
+     * A real bootloader can place (or, as u-boot's bootm does, relocate)
+     * the DTB anywhere in RAM, not just within the first BOOTSTRAP_RAM_MB,
+     * e.g. near the top of RAM. */
+    lsr     r11, r0, #20            @ DTB megabyte index (physical)
+    mov     r5, #0
+5:
+    cmp     r5, #2
+    bge     6f
+    add     r12, r11, r5            @ L1 index = PA >> 20
+    lsl     r6, r12, #20
+    orr     r6, r6, r8              @ normal memory descriptor
+    str     r6, [r2, r12, lsl #2]
+    add     r12, r12, #VA_OFFSET_IDX
+    bic     r12, r12, #0x1000       @ wrap L1 index to 4096 entries
+    str     r6, [r2, r12, lsl #2]
+    add     r5, r5, #1
+    b       5b
+6:
+    /* Identity-map the peripheral block (device memory) so a C-level
+     * arch_early_putc override can poke the UART directly at its physical
+     * address after the MMU is on — this L1 entry survives the RAM
+     * identity unmap (which only clears RAM sections) and is carried into
+     * the kernel L1 by vmm_bootstrap. */
+    ldr     r7, =PERIPH_PA_BASE
+    ldr     r8, =SECTION_DEVICE_DESC
+    mov     r5, #0
+    ldr     r10, =PERIPH_MB
+7:
+    cmp     r5, r10
+    bge     8f
+    add     r11, r7, r5, lsl #20
+    orr     r11, r11, r8
+    lsr     r12, r11, #20           @ identity: index = PA >> 20
+    str     r11, [r2, r12, lsl #2]
+    add     r5, r5, #1
+    b       7b
+8:
+    mov     r0, r2
+    bx      lr
+.size early_paging_init, . - early_paging_init
+
+
+/* Minimal early PL011 console, physical/identity addressing only (MMU is
+ * off here). Only exists to report a bad DTB pointer before anything else
+ * can run; the real driver (drivers/uart/pl011.c) takes over post-MMU.
+ * Address/clock are QEMU's vexpress-a15 model values (chip-select 3 base
+ * 0x1c000000 + uart0 offset 0x90000; clk24mhz), not real hardware — this
+ * board has none (see README's Supported Targets). */
+.section .text.boot, "ax"
+
+.equ UART0_BASE, 0x1c090000
+.equ UART_DR,    0x00
+.equ UART_FR,    0x18
+.equ UART_IBRD,  0x24
+.equ UART_FBRD,  0x28
+.equ UART_LCRH,  0x2C
+.equ UART_CR,    0x30
+.equ UART_ICR,   0x44
+
+.type early_uart_init, %function
+early_uart_init:
+    ldr     r1, =UART0_BASE
+    mov     r0, #0
+    str     r0, [r1, #UART_CR]
+    ldr     r0, =0x7FF
+    str     r0, [r1, #UART_ICR]
+    mov     r0, #13                 @ IBRD: 24e6 / (16 * 115200) = 13.02
+    str     r0, [r1, #UART_IBRD]
+    mov     r0, #1                  @ FBRD: round(0.02 * 64)
+    str     r0, [r1, #UART_FBRD]
+    mov     r0, #0x70               @ LCRH: FEN | WLEN 8 (latches divisors)
+    str     r0, [r1, #UART_LCRH]
+    ldr     r0, =0x301              @ CR: UARTEN | TXE | RXE
+    str     r0, [r1, #UART_CR]
+    bx      lr
+.size early_uart_init, . - early_uart_init
+
+/* r0 = character. Clobbers r1, r2. */
+.type early_uart_putc, %function
+early_uart_putc:
+    ldr     r1, =UART0_BASE
+1:
+    ldr     r2, [r1, #UART_FR]
+    tst     r2, #(1 << 5)           @ TXFF
+    bne     1b
+    str     r0, [r1, #UART_DR]
+    bx      lr
+.size early_uart_putc, . - early_uart_putc
+
+/* Prints dtb_panic_msg and hangs. Never returns. Uses r5/r6 (not r0-r4:
+ * r4 holds the DTB pointer and early_uart_putc's argument/clobbers use
+ * r0-r2) so it survives being called mid-boot without extra save/restore. */
+.type dtb_panic, %function
+dtb_panic:
+    ldr     r5, =dtb_panic_msg
+1:
+    ldrb    r6, [r5], #1
+    cmp     r6, #0
+    beq     2f
+    mov     r0, r6
+    bl      early_uart_putc
+    b       1b
+2:
+    wfe
+    b       2b
+.size dtb_panic, . - dtb_panic
+
+dtb_panic_msg:
+    .asciz "\r\nPANIC: r2 is not a DTB (missing -dtb?)\r\n"
+.balign 4
 
 
 /* physical SP setup */

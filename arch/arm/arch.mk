@@ -43,8 +43,7 @@ QEMU_MACH_rpi4  = raspi4b
 QEMU_CPU_rpi4   = cortex-a72
 QEMU_BIN_rpi4   = qemu-system-aarch64
 QEMU_MEM_rpi4   = 2G
-# qemu-system-aarch64 rejects 32-bit ELFs; boot the raw image (Linux boot
-# protocol: loaded at 0x8000, DTB address in r2 — same contract as the
-# Pi firmware).
-QEMU_KERNEL_rpi4 = build/zuzu.img
+# qemu-system-aarch64 additionally refuses 32-bit ELFs outright, so raw
+# boot (mk/qemu.mk's default for every board) isn't just preferred here,
+# it's the only option.
 CPUFLAGS_rpi4   = -mcpu=cortex-a72

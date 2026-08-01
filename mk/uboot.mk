@@ -20,7 +20,10 @@ UBOOT_INITRD_IMG  ?= build/initrd.uImage
 UBOOT_BOOT_CMD    ?= scripts/uboot-vexpress.cmd
 UBOOT_BOOT_SCR    ?= build/boot.scr
 UBOOT_SD_IMG      ?= build/sd-uboot.img
-UBOOT_KERNEL_LOAD ?= 0x8000c000
+# Must match arch/arm/vexpress-a15/linker.ld's BOOT_PA — that's where the
+# kernel is linked to actually run from, and bootm copies the uImage
+# payload there from wherever `load` staged it (scripts/uboot-vexpress.cmd).
+UBOOT_KERNEL_LOAD ?= 0x80010000
 
 .PHONY: uboot uimage uboot-stage sdimg-uboot run-uboot
 .PHONY: debug-uboot run-uboot-bridged run-uboot-pcap
