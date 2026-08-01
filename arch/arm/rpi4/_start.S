@@ -120,6 +120,18 @@ svc_entry:
     mov     r0, #'u'
     bl      early_uart_putc
 
+    /* Sanity-check r4 before trusting it as a DTB pointer: without -dtb,
+     * QEMU synthesizes an ATAG list at RAM+0x100 instead of a DTB, and
+     * walking that as an FDT gives a garbage memory map and a crash three
+     * functions later in early.c. Fail loud immediately instead. */
+    ldr     r0, [r4]
+    ldr     r1, =0xedfe0dd0         @ FDT magic 0xd00dfeed, byte-swapped
+                                     @ for a little-endian word load
+    cmp     r0, r1
+    beq     1f
+    bl      dtb_panic
+1:
+
     /* Do page table init (r0 = DTB PA so its megabyte gets mapped) */
     mov     r0, r4
     bl      early_paging_init       @ Returns L1 table physical address in r0
@@ -315,6 +327,28 @@ early_uart_putc:
     str     r0, [r1, #UART_DR]
     bx      lr
 .size early_uart_putc, . - early_uart_putc
+
+/* Prints dtb_panic_msg and hangs. Never returns. Uses r5/r6 (not r0-r4:
+ * r4 holds the DTB pointer and early_uart_putc's argument/clobbers use
+ * r0-r2) so it survives being called mid-boot without extra save/restore. */
+.type dtb_panic, %function
+dtb_panic:
+    ldr     r5, =dtb_panic_msg
+1:
+    ldrb    r6, [r5], #1
+    cmp     r6, #0
+    beq     2f
+    mov     r0, r6
+    bl      early_uart_putc
+    b       1b
+2:
+    wfe
+    b       2b
+.size dtb_panic, . - dtb_panic
+
+dtb_panic_msg:
+    .asciz "\r\nPANIC: r2 is not a DTB (missing -dtb?)\r\n"
+.balign 4
 
 
 /* HYP canary vector table (see HVBAR install in _start). Each entry floods
