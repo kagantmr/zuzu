@@ -1,4 +1,14 @@
-# mk/uboot.mk - U-Boot integration (vexpress-a15).
+# mk/uboot.mk - U-Boot integration (opt-in, off by default).
+#
+# This is the *unfavorable* path. QEMU's own direct -kernel loader already
+# hands a raw-booted kernel a correct DTB and initrd handoff via the ARM
+# Linux boot registers on every board (see mk/qemu.mk) -- there is no
+# register-setup problem left for U-Boot to solve. It is kept only because
+# vexpress-a15 has no on-board firmware of its own, so this is the one
+# place the project exercises a *real* bootloader handoff the way actual
+# hardware would need one. `make run` never reaches this file; only the
+# explicit run-uboot/uboot/etc. targets do, and only for boards that opt
+# in via UBOOT_<board>=y in arch.mk (enforced by the ifeq below).
 #
 # U-Boot's bootm loads the legacy "uImage" payload at its embedded load
 # address and jumps to its embedded entry address using the ARM Linux boot
@@ -10,6 +20,13 @@
 # Requires: host.mk (HOST_OS/NPROC), config.mk (TARGET/IMG), initrd.mk
 # (INITRD), qemu.mk (QEMU_MACHINE/CPU/MEM/NET/BIN), sdcard.mk (sdimg-stage,
 # SD_STAGE_DIR, MAKE_FAT_IMAGE).
+
+ifneq ($(UBOOT_$(BOARD)),y)
+.PHONY: uboot uimage uboot-stage sdimg-uboot run-uboot
+.PHONY: debug-uboot run-uboot-bridged run-uboot-pcap
+uboot uimage uboot-stage sdimg-uboot run-uboot debug-uboot run-uboot-bridged run-uboot-pcap:
+	$(error U-Boot is not enabled for BOARD '$(BOARD)' -- set UBOOT_$(BOARD)=y in arch/arm/arch.mk to opt in; direct boot (`make run`) works without it)
+else
 
 UBOOT_SRC_DIR     ?= uboot-src
 UBOOT_DEFCONFIG   ?= vexpress_ca15_tc2_defconfig
@@ -139,3 +156,5 @@ run-uboot-pcap: sdimg-uboot $(UBOOT_BIN)
 debug-uboot: sdimg-uboot $(UBOOT_BIN)
 	@echo "  QEMU    $(UBOOT_BIN) -> $(UBOOT_SD_IMG) (debug)"
 	@$(QEMU_BIN) $(QEMU_UBOOT_ARGS) $(QEMU_NET) -S -gdb tcp::1234
+
+endif
