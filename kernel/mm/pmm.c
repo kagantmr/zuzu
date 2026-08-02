@@ -11,6 +11,23 @@
 
 #ifdef PMM_TRACE
 #include <core/ksym.h>
+
+/* Attributes a trace line to the process making the call. Declared here
+ * rather than pulled in via thread.h/process.h to keep pmm.c out of that
+ * dependency chain; see kernel/sched/sched.c. */
+extern uint32_t current_pid_or_zero(void);
+
+/* Cheap cycle-accurate measurement of the full-bitmap scan cost in
+ * PmmAllocFramesContig[Aligned], reusing the PMCCNTR cycle counter that
+ * pmu_init() (arch/arm/early.c) already enables at boot for
+ * CTX_SWITCH_MEASURE. Exists to empirically confirm/quantify the scan-time
+ * blowup at large RAM sizes, not for permanent use. */
+static inline uint32_t pmm_read_cycles(void)
+{
+    uint32_t v;
+    __asm__ volatile("mrc p15, 0, %0, c9, c13, 0" : "=r"(v));
+    return v;
+}
 #endif
 
 #define LOG_FMT(fmt) "(pmm) " fmt
@@ -334,7 +351,7 @@ PhysAddr PmmAllocFrame(void)
     }
     spin_unlock_irqrestore(&pmm_lock, flags);
 #ifdef PMM_TRACE
-    KTRACE("alloc_page pa=%p caller: %s", (void *)pa, ksym_lookup((uint32_t)__builtin_return_address(0)));
+    KTRACE("alloc_page pa=%p pid=%u caller: %s", (void *)pa, current_pid_or_zero(), ksym_lookup((uint32_t)__builtin_return_address(0)));
 #endif
     return pa;
 }
@@ -357,6 +374,9 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
     size_t total_pages = pmmState.total_frames;
     size_t consecutive = 0;
     size_t start_index = 0;
+#ifdef PMM_TRACE
+    uint32_t scan_start_cyc = pmm_read_cycles();
+#endif
 
     for (size_t index = 0; index < total_pages; index++)
     {
@@ -398,7 +418,8 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
                 syspage_update_mem(); // update free memory info in syspage
                 spin_unlock_irqrestore(&pmm_lock, flags);
 #ifdef PMM_TRACE
-                KTRACE("alloc_pages n=%zu pa=%p caller: %s", n_frames, (void *)addr, ksym_lookup((uint32_t)__builtin_return_address(0)));
+                KTRACE("alloc_pages n=%zu pa=%p pid=%u scanned=%zu cycles=%u caller: %s", n_frames, (void *)addr,
+                       current_pid_or_zero(), index + 1, pmm_read_cycles() - scan_start_cyc, ksym_lookup((uint32_t)__builtin_return_address(0)));
 #endif
                 return addr;
             }
@@ -410,6 +431,10 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
     }
 
     spin_unlock_irqrestore(&pmm_lock, flags);
+#ifdef PMM_TRACE
+    KTRACE("alloc_pages n=%zu FAILED pid=%u scanned=%zu cycles=%u caller: %s", n_frames,
+           current_pid_or_zero(), total_pages, pmm_read_cycles() - scan_start_cyc, ksym_lookup((uint32_t)__builtin_return_address(0)));
+#endif
     return PHYS_NULL;
 }
 
@@ -417,7 +442,7 @@ void PmmFreeFrame(const PhysAddr addr)
 {
     uint32_t flags;
 #ifdef PMM_TRACE
-    KTRACE("free_page pa=%p caller: %s", (void *)addr, ksym_lookup((uint32_t)__builtin_return_address(0)));
+    KTRACE("free_page pa=%p pid=%u caller: %s", (void *)addr, current_pid_or_zero(), ksym_lookup((uint32_t)__builtin_return_address(0)));
 #endif
     spin_lock_irqsave(&pmm_lock, &flags);
     assert(addr % PAGE_SIZE == 0);
@@ -472,7 +497,7 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
     if (align_frames == 0)
         align_frames = 1;
 #ifdef PMM_TRACE
-    KTRACE("alloc_pages_aligned n=%zu align=%zu caller: %s", n_frames, align_frames, ksym_lookup((uint32_t)__builtin_return_address(0)));
+    KTRACE("alloc_pages_aligned n=%zu align=%zu pid=%u caller: %s", n_frames, align_frames, current_pid_or_zero(), ksym_lookup((uint32_t)__builtin_return_address(0)));
 #endif
     // Require power-of-two alignment (common + cheap)
     if ((align_frames & (align_frames - 1)) != 0)
@@ -494,6 +519,9 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
     const size_t total_pages = pmmState.total_frames;
     size_t consecutive = 0;
     size_t start_index = 0;
+#ifdef PMM_TRACE
+    uint32_t scan_start_cyc = pmm_read_cycles();
+#endif
 
     for (size_t index = 0; index < total_pages; index++)
     {
@@ -536,6 +564,10 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
 
                 syspage_update_mem(); // update free memory info in syspage
                 spin_unlock_irqrestore(&pmm_lock, flags);
+#ifdef PMM_TRACE
+                KTRACE("alloc_pages_aligned n=%zu pa=%p pid=%u scanned=%zu cycles=%u caller: %s", n_frames, (void *)start_pa,
+                       current_pid_or_zero(), index + 1, pmm_read_cycles() - scan_start_cyc, ksym_lookup((uint32_t)__builtin_return_address(0)));
+#endif
                 return start_pa;
             }
         }
@@ -546,13 +578,17 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
     }
 
     spin_unlock_irqrestore(&pmm_lock, flags);
+#ifdef PMM_TRACE
+    KTRACE("alloc_pages_aligned n=%zu FAILED pid=%u scanned=%zu cycles=%u caller: %s", n_frames,
+           current_pid_or_zero(), total_pages, pmm_read_cycles() - scan_start_cyc, ksym_lookup((uint32_t)__builtin_return_address(0)));
+#endif
     return PHYS_NULL;
 }
 
 size_t PmmAllocFramesScattered(const size_t n_frames, PhysAddr *out_addrs)
 {
 #ifdef PMM_TRACE
-    KTRACE("alloc_pages_scattered n=%zu caller: %s", n_frames, ksym_lookup((uint32_t)__builtin_return_address(0)));
+    KTRACE("alloc_pages_scattered n=%zu pid=%u caller: %s", n_frames, current_pid_or_zero(), ksym_lookup((uint32_t)__builtin_return_address(0)));
 #endif
     uint32_t flags;
     spin_lock_irqsave(&pmm_lock, &flags);
