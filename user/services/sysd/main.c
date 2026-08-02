@@ -473,11 +473,19 @@ static bool wait_for_service(uint32_t name_u32) {
     return nt_lookup(name_u32, ZuzuGetPid(), &handle, &pid) == NT_LU_OK;
 }
 
+/* A process that dies with zombie children reparents them to us (see
+ * process_kill, kernel/proc/process.c), relying on reap_all() to actually
+ * free them. A blocking TIMEOUT_INFINITE recv only re-runs reap_all() when
+ * new traffic happens to arrive, so an orphan reparented to us during a
+ * quiet stretch would sit un-reaped (leaking its kstack + L1 table)
+ * indefinitely. Poll instead, bounding that window. */
+#define REAP_POLL_MS 1000u
+
 void sysd_loop(void)
 {
     while (1) {
         reap_all();
-        nt_handle_msg(ZuzuMsgRecv(port, TIMEOUT_INFINITE));
+        nt_handle_msg(ZuzuMsgRecv(port, REAP_POLL_MS));
     }
 }
 

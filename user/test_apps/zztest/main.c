@@ -525,6 +525,12 @@ static void sec_handles(void)
     CHECK(ts.taskHandle >= 0, "pspawn empty process");
     CHECK_EQ(ZuzuDestroy(ts.taskHandle), ERR_BADTYPE, "destroy TASK handle -> ERR_BADTYPE");
     CHECK_EQ(ZuzuPKill(ts.taskHandle), 0, "pkill empty process");
+    /* pkill only zombifies; nothing reaps a zombie except wait(). Without
+     * this the process (kstack + L1 table) leaks for the rest of the boot -
+     * it's parented to zztest, not init, and zztest never wait(-1)s. */
+    int32_t dummy_status = -1;
+    CHECK_EQ(ZuzuWait(ts.pid, &dummy_status, 0), ts.pid,
+             "wait reaps the pkilled process (no leak)");
 
     /* cross-process grant: child sends on a port we granted it */
     Pid self = ZuzuGetPid();
