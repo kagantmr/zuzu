@@ -27,6 +27,14 @@ list_head_t sleep_queue = LIST_HEAD_INIT(sleep_queue);
 static list_head_t thread_destroy_queue = LIST_HEAD_INIT(thread_destroy_queue);
 thread_t *current_thread;
 
+/* Diagnostic-only: lets low-level modules (e.g. PMM_TRACE) attribute an
+ * allocation to a process without taking on a thread.h/process.h
+ * dependency themselves. */
+uint32_t current_pid_or_zero(void)
+{
+	return (current_thread && current_thread->owner_process) ? current_thread->owner_process->pid : 0;
+}
+
 thread_t *fpu_owner = NULL;
 
 volatile uint8_t do_resched = 0; // needs spinlock guard on SMP
