@@ -29,6 +29,13 @@ QEMU_NET     = $(QEMU_NET_$(BOARD))
 # protocol registers to raw images, not ELFs), a board-specific override
 # only if one is ever actually needed.
 QEMU_KERNEL  = $(if $(QEMU_KERNEL_$(BOARD)),$(QEMU_KERNEL_$(BOARD)),$(IMG))
+# SD card drive; skipped for boards with no matching disk interface (e.g.
+# virt has no SD/MMC controller QEMU exposes as if=sd here).
+ifeq ($(QEMU_NO_DRIVE_$(BOARD)),y)
+QEMU_DRIVE =
+else
+QEMU_DRIVE = -drive file=$(SD_IMG),if=sd,format=raw
+endif
 
 # Flags shared by every direct-boot run/debug variant; each target adds
 # -kernel + extras. -initrd is what actually gets the kernel an initrd on
@@ -38,8 +45,7 @@ QEMU_KERNEL  = $(if $(QEMU_KERNEL_$(BOARD)),$(QEMU_KERNEL_$(BOARD)),$(IMG))
 # dtb_get_chosen_initrd() (kernel/dtb/dtb.c) already reads exactly that --
 # it just never had anything to read on this path before.
 QEMU_ARGS = -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m $(QEMU_MEM) \
-            -dtb $(DTB_FILE) -initrd $(INITRD) -nographic \
-            -drive file=$(SD_IMG),if=sd,format=raw
+            -dtb $(DTB_FILE) -initrd $(INITRD) -nographic $(QEMU_DRIVE)
 
 run:         run-direct
 run-bridged: run-direct-bridged

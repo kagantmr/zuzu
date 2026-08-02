@@ -14,7 +14,7 @@ ARCH_CPUFLAGS ?= -mcpu=cortex-a15
 ARCH_USER_FP  ?= -mfloat-abi=hard -mfpu=vfpv4
 
 # Supported boards for this architecture.
-BOARDS = vexpress-a15 rpi4
+BOARDS = vexpress-a15 rpi4 virt
 
 # ---- Per-board metadata --------------------------------------------------
 # DTB_<board>        : device tree blob passed to QEMU / consumed at boot
@@ -23,6 +23,8 @@ BOARDS = vexpress-a15 rpi4
 # QEMU_BIN_<board>   : (optional) QEMU binary, default qemu-system-arm
 # QEMU_MEM_<board>   : (optional) QEMU -m, default 64M
 # QEMU_NET_<board>   : (optional) QEMU NIC flags, default none
+# QEMU_NO_DRIVE_<board> : (optional) set to y to skip the SD card -drive
+#                       (boards with no matching disk interface)
 # CPUFLAGS_<board>   : (optional) override ARCH_CPUFLAGS for this board
 # UBOOT_<board>      : (optional) set to y to enable this board's U-Boot
 #                       targets (mk/uboot.mk) — off by default; direct boot
@@ -53,3 +55,14 @@ QEMU_MEM_rpi4   = 2G
 # boot (mk/qemu.mk's default for every board) isn't just preferred here,
 # it's the only option.
 CPUFLAGS_rpi4   = -mcpu=cortex-a72
+
+# QEMU's `virt` machine: a synthetic, QEMU-only platform with no on-board
+# firmware. gic-version=2 is pinned explicitly since it happens to match
+# cortex-a15's default here, but a future -cpu change on this board could
+# silently switch to a GICv3, which this kernel has no driver for.
+DTB_virt        = arch/arm/dtb/virt/virt.dtb
+QEMU_MACH_virt  = virt,gic-version=2
+QEMU_CPU_virt   = cortex-a15
+QEMU_MEM_virt   = 1G
+# No SD/MMC controller on this machine -- the SD card image doesn't apply.
+QEMU_NO_DRIVE_virt = y
