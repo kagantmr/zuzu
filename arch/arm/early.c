@@ -85,14 +85,14 @@ _Noreturn void early(void *dtb_ptr)
     kprintf_init(arch_early_putc);
 
     KINFO("early: dtb pa=%p", dtb_ptr);
-    dtb_init((const void *)PA_TO_VA((uintptr_t)dtb_ptr));
+    dtb_init((const void *)PA_TO_VA((PhysAddr)dtb_ptr));
     KINFO("early: dtb parsed (%u bytes)", dtb_total_size());
 
-    kernel_layout.dtb_start_pa = (uintptr_t)dtb_ptr;
-    kernel_layout.kernel_start_pa = (uintptr_t)_kernel_phys_start;
-    kernel_layout.kernel_end_pa = (uintptr_t)_kernel_phys_end;
-    kernel_layout.stack_base_pa = (uintptr_t)__svc_stack_base__;
-    kernel_layout.stack_top_pa = (uintptr_t)__svc_stack_top__;
+    kernel_layout.dtb_start_pa = (PhysAddr)dtb_ptr;
+    kernel_layout.kernel_start_pa = (PhysAddr)_kernel_phys_start;
+    kernel_layout.kernel_end_pa = (PhysAddr)_kernel_phys_end;
+    kernel_layout.stack_base_pa = (PhysAddr)__svc_stack_base__;
+    kernel_layout.stack_top_pa = (PhysAddr)__svc_stack_top__;
 
     uint64_t ram_base, ram_size;
     if (!dtb_get_reg("/memory", 0, &ram_base, &ram_size))
@@ -101,12 +101,12 @@ _Noreturn void early(void *dtb_ptr)
     /* The kernel linear map covers [PA_TO_VA(ram_base), IOREMAP_BASE); RAM
      * beyond that window (e.g. the Pi 4's 2-8 GiB) is unusable without
      * highmem support, and mapping it would wrap into the ioremap region. */
-    uint64_t linear_max = (uint64_t)(IOREMAP_BASE - PA_TO_VA((uintptr_t)ram_base));
+    uint64_t linear_max = (uint64_t)(IOREMAP_BASE - PA_TO_VA((PhysAddr)ram_base));
     if (ram_size > linear_max)
         ram_size = linear_max;
 
-    kernel_layout.ram_start = (uintptr_t)ram_base;
-    kernel_layout.ram_end = (uintptr_t)(ram_base + ram_size);
+    kernel_layout.ram_start = (PhysAddr)ram_base;
+    kernel_layout.ram_end = (PhysAddr)(ram_base + ram_size);
     KINFO("early: ram [%p..%p)", (void *)kernel_layout.ram_start,
           (void *)kernel_layout.ram_end);
     early_map_ram_sections(kernel_layout.ram_start, (size_t)ram_size);
