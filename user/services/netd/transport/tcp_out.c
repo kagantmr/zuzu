@@ -47,7 +47,10 @@ int tcp_output(TcpPcb *pcb, uint8_t flags, const uint8_t *data, uint16_t data_le
     th->ack        = (flags & TCP_ACK) ? htonl(pcb->rcv_nxt) : 0;
     th->data_offset = (5 << 4);          /* 20-byte header, no options */
     th->flags      = flags;
-    th->window     = htons(TCP_RCV_BUF - (pcb->rcv_nxt - pcb->rcv_rsq));
+
+    size_t occupied = (pcb->nranges ? pcb->ranges[pcb->nranges-1].end : pcb->rcv_nxt) - pcb->rcv_rsq;
+    uint16_t win = occupied < TCP_RCV_BUF ? TCP_RCV_BUF - occupied : 0;
+    th->window = htons(win);
     //th->window = htons(4); // crippled window for test
     th->checksum   = 0;
     th->urgent_ptr = 0;
@@ -89,8 +92,16 @@ int tcp_xmit(TcpPcb *pcb) {
         if (pcb->fin_pending &&
             pcb->snd_nxt + seglen == pcb->snd_una + pcb->buffered_bytes)
             flags |= TCP_FIN;                 /* this is the last data segment */
+
+        uint32_t seg_seq = pcb->snd_nxt;              /* before tcp_output advances it */
         int rc = tcp_output(pcb, flags, data, seglen);
         if (rc != ZUZU_OK) return rc;
+
+        if (!pcb->rtt_timing) {                        /* only one measurement in flight */
+            pcb->rtt_timing = true;
+            pcb->rtt_start  = net_now_ms();
+            pcb->rtt_seq    = seg_seq + seglen;        /* ACK must pass the segment's end */
+        }
     }
     /* all data sent; emit the FIN alone if it hasn't gone out yet */
     if (pcb->fin_pending &&
@@ -110,7 +121,8 @@ void tcp_rto_cb(void *arg) {
     if (pcb->snd_nxt == pcb->snd_una) return; // window empty, don't do anything
 
     /* exponential backoff, capped */
-    pcb->rto_ms *= 2; // todo: RTT estimation later
+    pcb->rtt_timing = false;   /* Karn: timed segment now ambiguous, drop the sample */
+    pcb->rto_ms *= 2;
     if (pcb->rto_ms > TCP_RTO_MAX) pcb->rto_ms = TCP_RTO_MAX;
 
     LOG_INFO(LOG_TAG, "RTO fired: snd_nxt=%u snd_una=%u (rto now %u ms)",
