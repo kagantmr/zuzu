@@ -15,9 +15,14 @@ typedef struct __attribute__((packed)) {
     uint16_t window;
     uint16_t checksum;
     uint16_t urgent_ptr;
-} tcp_hdr_t;
+} TcpHdr;
 
-_Static_assert(sizeof(tcp_hdr_t) == 20, "TCP header size");
+_Static_assert(sizeof(TcpHdr) == 20, "TCP header size");
+
+/* wraparound-safe sequence number comparisons (RFC 1323 style) */
+#define seq_lt(a, b)   ((int32_t)((a) - (b)) < 0)
+#define seq_leq(a, b)  ((int32_t)((a) - (b)) <= 0)
+#define seq_max(a, b)  (seq_lt((a), (b)) ? (b) : (a))
 
 #define TCP_FIN 0x01
 #define TCP_SYN 0x02
@@ -50,7 +55,7 @@ typedef enum {
 typedef struct {
     uint32_t start;
     uint32_t end;
-} tcp_ooo_t;
+} TcpOooRange;
 
 typedef struct {
     ipv4_addr_t local_ip;
@@ -63,8 +68,8 @@ typedef struct {
     uint32_t rcv_nxt;
     uint32_t rcv_rsq;
     uint16_t snd_wnd;
-    tcp_ooo_t ooo[TCP_OOO_MAX];
-    size_t ooo_count;
+    TcpOooRange ranges[TCP_OOO_MAX];
+    size_t nranges;
     bool active;
     bool fin_pending;
     uint8_t snd_buf[TCP_SND_BUF]; // size must be a power of 2
@@ -75,7 +80,7 @@ typedef struct {
     uint32_t rto_ms;                 /* current backoff value */
     uint32_t fin_seq;    /* the FIN's position in sequence space */
     bool     fin_seen;   /* have we been told about a FIN at all? */
-} tcp_pcb_t;
+} TcpPcb;
 
 typedef struct {
     ipv4_addr_t    src_ip;

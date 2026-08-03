@@ -12,8 +12,75 @@
  * OOO helpers
  */
 
-static bool ranges_fuse(uint32_t a_start, uint32_t a_end,
-                        uint32_t b_start, uint32_t b_end);
+/* delete ranges[i], slide the tail down */
+static void RangesDelete(TcpPcb *pcb, size_t i)
+{
+    memmove(&pcb->ranges[i], &pcb->ranges[i + 1],
+            (pcb->nranges - i - 1) * sizeof(pcb->ranges[0]));
+    pcb->nranges--;
+}
+
+static void FwdMerge(TcpPcb *pcb)
+{
+    while (pcb->nranges > 0 &&
+           seq_leq(pcb->ranges[0].start, pcb->rcv_nxt))
+    {
+        pcb->rcv_nxt = seq_max(pcb->rcv_nxt, pcb->ranges[0].end);
+        RangesDelete(pcb, 0);
+    }
+}
+
+
+static void StoreOoo(TcpPcb *pcb, const tcp_seg_t *s)
+{
+    uint32_t seg_start = s->seq;
+    uint32_t seg_end   = s->seq + s->payload_len;
+
+    /* left-truncate the SEGMENT against rcv_nxt */
+    if (seq_leq(seg_end, pcb->rcv_nxt)) return;        // wholly old, drop
+    if (seq_lt(seg_start, pcb->rcv_nxt))               // partially old
+        seg_start = pcb->rcv_nxt;                       // clip left edge forward
+
+    /* case 2: future data (hole before it)  */
+    uint32_t reach = seg_end - pcb->rcv_rsq;
+    if (reach > TCP_RCV_BUF)
+    {
+        LOG_INFO(LOG_TAG, "OOO seg beyond window, dropping: reach=%u", reach);
+        return; /* peer will retransmit */
+    }
+
+    if (pcb->nranges >= TCP_OOO_MAX) return;   /* full, drop for backpressure */
+
+    uint16_t clip     = seg_start - s->seq;              // bytes trimmed off the front (0 if no truncation)
+    uint16_t seg_len  = s->payload_len - clip;           // bytes we actually store
+    const uint8_t *p  = s->payload + clip;               // source, shifted past the trimmed part
+
+    size_t off   = seg_start & (TCP_RCV_BUF - 1);
+    size_t first = MIN(seg_len, TCP_RCV_BUF - off);
+    memcpy(pcb->rcv_buf + off, p, first);
+    if (first < seg_len)
+        memcpy(pcb->rcv_buf, p + first, seg_len - first);
+
+    size_t i = 0;
+    while (i < pcb->nranges && seq_lt(pcb->ranges[i].start, seg_start))
+        i++;
+
+    memmove(&pcb->ranges[i+1], &pcb->ranges[i],
+            (pcb->nranges - i) * sizeof(pcb->ranges[0]));
+    pcb->ranges[i].start = seg_start;
+    pcb->ranges[i].end   = seg_end;
+    pcb->nranges++;
+
+    /* phase 2: fuse touching neighbors in one pass */
+    for (size_t k = 0; k + 1 < pcb->nranges; ) {
+        if (seq_leq(pcb->ranges[k+1].start, pcb->ranges[k].end)) {
+            pcb->ranges[k].end = seq_max(pcb->ranges[k].end, pcb->ranges[k+1].end);
+            RangesDelete(pcb, k+1);        /* don't advance k, re-check new neighbor */
+        } else {
+            k++;
+        }
+    }
+}
 
 
 /* A received segment, parsed once and passed to the per-state handlers. */
@@ -23,7 +90,7 @@ static bool ranges_fuse(uint32_t a_start, uint32_t a_end,
 
 static void time_wait_cb(void *arg)
 {
-    tcp_pcb_t *pcb = (tcp_pcb_t *)arg;
+    TcpPcb *pcb = (TcpPcb *)arg;
     rto_stop(pcb);
     port_release(pcb->local_port);
     tcp_pcb_free(tcp_pcb_index(pcb));
@@ -31,7 +98,7 @@ static void time_wait_cb(void *arg)
 }
 
 /* Copy in-order payload into the receive ring and advance rcv_nxt. */
-static void deliver_data(tcp_pcb_t *pcb, const uint8_t *payload, uint16_t payload_len)
+static void deliver_data(TcpPcb *pcb, const uint8_t *payload, uint16_t payload_len)
 {
     size_t used = pcb->rcv_nxt - pcb->rcv_rsq;
     size_t free = TCP_RCV_BUF - used;
@@ -44,50 +111,8 @@ static void deliver_data(tcp_pcb_t *pcb, const uint8_t *payload, uint16_t payloa
     pcb->rcv_nxt += n;
 }
 
-static void store_ooo(tcp_pcb_t *pcb, const tcp_seg_t *s)
-{
-    /* case 2: future data (hole before it)  */
-    uint32_t reach = s->seq + s->payload_len - pcb->rcv_rsq;
-    if (reach > TCP_RCV_BUF)
-    {
-        LOG_INFO(LOG_TAG, "OOO seg beyond window, dropping: reach=%u", reach);
-        return; /* peer will retransmit */
-    }
-    if (pcb->ooo_count == 0)
-    {
-        pcb->ooo[0].start = s->seq;
-        pcb->ooo[0].end = s->seq + s->payload_len;
-        pcb->ooo_count = 1;
-    }
-    else
-    {
-        LOG_INFO(LOG_TAG, "second OOO range, dropping (no merge yet)");
-        return;
-    }
-    size_t off = s->seq & (TCP_RCV_BUF - 1);
-    size_t first = MIN(s->payload_len, TCP_RCV_BUF - off);
-    memcpy(pcb->rcv_buf + off, s->payload, first);
-    if (first < s->payload_len)
-        memcpy(pcb->rcv_buf, s->payload + first, s->payload_len - first);
-}
 
-/* After rcv_nxt advances, absorb any OOO range it now connects with. */
-static void forward_merge(tcp_pcb_t *pcb)
-{
-    if (pcb->ooo_count == 0)
-        return;
-
-    /* does rcv_nxt now fall inside (or at the start of) the stored range? */
-    if ((int32_t)(pcb->rcv_nxt - pcb->ooo[0].start) >= 0 &&
-        (int32_t)(pcb->ooo[0].end - pcb->rcv_nxt) > 0)
-    {
-        pcb->rcv_nxt = pcb->ooo[0].end;
-        pcb->ooo_count = 0;
-        LOG_INFO(LOG_TAG, "hole closed, rcv_nxt advanced to %u", pcb->rcv_nxt);
-    }
-}
-
-static void consume_fin(int slot, tcp_pcb_t *pcb) {
+static void consume_fin(int slot, TcpPcb *pcb) {
     if (!pcb->fin_seen) return;
     if (pcb->rcv_nxt != pcb->fin_seq) return;
     pcb->rcv_nxt += 1;
@@ -109,7 +134,7 @@ static void consume_fin(int slot, tcp_pcb_t *pcb) {
 /* per-state handlers                                                 */
 /* ------------------------------------------------------------------ */
 
-static void on_syn_sent(tcp_pcb_t *pcb, const tcp_seg_t *s)
+static void on_syn_sent(TcpPcb *pcb, const tcp_seg_t *s)
 {
     if (((s->flags & TCP_SYN) && (s->flags & TCP_ACK)) && s->ack == pcb->snd_nxt)
     {
@@ -121,9 +146,9 @@ static void on_syn_sent(tcp_pcb_t *pcb, const tcp_seg_t *s)
     }
 }
 
-static void on_established(int slot, tcp_pcb_t *pcb, const tcp_seg_t *s)
+static void on_established(int slot, TcpPcb *pcb, const tcp_seg_t *s)
 {
-    if ((int32_t)(s->ack - pcb->snd_una) > 0 && ((int32_t)(s->ack - pcb->snd_nxt) <= 0))
+    if (seq_lt(pcb->snd_una, s->ack) && seq_leq(s->ack, pcb->snd_nxt))
     {
         size_t delta = s->ack - pcb->snd_una; // how many bytes got confirmed
         pcb->snd_una = s->ack;
@@ -141,7 +166,7 @@ static void on_established(int slot, tcp_pcb_t *pcb, const tcp_seg_t *s)
         }
     }
 
-    if ((int32_t)(s->ack - pcb->snd_nxt) > 0) {
+    if (seq_lt(pcb->snd_nxt, s->ack)) {
         tcp_output(pcb, TCP_ACK, NULL, 0);
         return;
     }
@@ -151,7 +176,7 @@ static void on_established(int slot, tcp_pcb_t *pcb, const tcp_seg_t *s)
         if (s->seq == pcb->rcv_nxt)
         {
             deliver_data(pcb, s->payload, s->payload_len);
-            forward_merge(pcb);
+            FwdMerge(pcb);
             tcp_output(pcb, TCP_ACK, NULL, 0); /* ack what we got */
 
             /* TODO: application logic wired directly into the transport.
@@ -161,9 +186,9 @@ static void on_established(int slot, tcp_pcb_t *pcb, const tcp_seg_t *s)
             
             consume_fin(slot, pcb);
         }
-        else if ((int32_t)(s->seq - pcb->rcv_nxt) > 0)
+        else if (seq_lt(pcb->rcv_nxt, s->seq))
         {
-            store_ooo(pcb, s);
+            StoreOoo(pcb, s);
             LOG_INFO(LOG_TAG, "OOO seg: seq=%u rcv_nxt=%u len=%u",
                      s->seq, pcb->rcv_nxt, s->payload_len);
             tcp_output(pcb, TCP_ACK, NULL, 0); /* dup-ACK: still want rcv_nxt */
@@ -188,9 +213,9 @@ static void on_established(int slot, tcp_pcb_t *pcb, const tcp_seg_t *s)
     }
 }
 
-static void on_fin_wait_1(tcp_pcb_t *pcb, const tcp_seg_t *s)
+static void on_fin_wait_1(TcpPcb *pcb, const tcp_seg_t *s)
 {
-    if (((int32_t)(s->ack - pcb->snd_una) > 0) && ((int32_t)(s->ack - pcb->snd_nxt) <= 0))
+    if (seq_lt(pcb->snd_una, s->ack) && seq_leq(s->ack, pcb->snd_nxt))
     {
         size_t delta = s->ack - pcb->snd_una;
         pcb->snd_una = s->ack;
@@ -202,7 +227,7 @@ static void on_fin_wait_1(tcp_pcb_t *pcb, const tcp_seg_t *s)
             LOG_INFO(LOG_TAG, "response acknowledged");
         }
     }
-    bool our_fin_acked = ((int32_t)(pcb->snd_una - pcb->snd_nxt) >= 0);
+    bool our_fin_acked = seq_leq(pcb->snd_nxt, pcb->snd_una);
 
     if (s->flags & TCP_FIN)
     {
@@ -218,7 +243,7 @@ static void on_fin_wait_1(tcp_pcb_t *pcb, const tcp_seg_t *s)
     }
 }
 
-static void on_fin_wait_2(tcp_pcb_t *pcb, const tcp_seg_t *s)
+static void on_fin_wait_2(TcpPcb *pcb, const tcp_seg_t *s)
 {
     if (s->flags & TCP_FIN)
     {
@@ -229,12 +254,12 @@ static void on_fin_wait_2(tcp_pcb_t *pcb, const tcp_seg_t *s)
     }
 }
 
-static void on_last_ack(int slot, tcp_pcb_t *pcb, const tcp_seg_t *s)
+static void on_last_ack(int slot, TcpPcb *pcb, const tcp_seg_t *s)
 {
-    if ((int32_t)(s->ack - pcb->snd_una) > 0)
+    if (seq_lt(pcb->snd_una, s->ack))
     {
         pcb->snd_una = s->ack;
-        if ((int32_t)(pcb->snd_una - pcb->snd_nxt) >= 0)
+        if (seq_leq(pcb->snd_nxt, pcb->snd_una))
         { /* our FIN acked */
             rto_stop(pcb);
             port_release(pcb->local_port);
@@ -244,7 +269,7 @@ static void on_last_ack(int slot, tcp_pcb_t *pcb, const tcp_seg_t *s)
     }
 }
 
-static void on_listening(tcp_pcb_t *listener, const tcp_seg_t *s)
+static void on_listening(TcpPcb *listener, const tcp_seg_t *s)
 {
     if (!((s->flags & TCP_SYN) && !(s->flags & TCP_ACK)))
         return;
@@ -252,7 +277,7 @@ static void on_listening(tcp_pcb_t *listener, const tcp_seg_t *s)
     int nidx = tcp_pcb_alloc();
     if (nidx < 0)
         return; /* no slot; todo: RST */
-    tcp_pcb_t *np = &tcp_pcbs[nidx];
+    TcpPcb *np = &tcp_pcbs[nidx];
     memset(np, 0, sizeof(*np));
     np->on_data = listener->on_data;
     np->active = true;
@@ -272,7 +297,7 @@ static void on_listening(tcp_pcb_t *listener, const tcp_seg_t *s)
     LOG_INFO(LOG_TAG, "SYN from %u.%u.%u.%u, now SYN_RCVD", IP4(s->src_ip));
 }
 
-static void on_syn_rcvd(tcp_pcb_t *pcb, const tcp_seg_t *s)
+static void on_syn_rcvd(TcpPcb *pcb, const tcp_seg_t *s)
 {
     if (s->flags & TCP_ACK && s->ack == pcb->snd_nxt)
     {
@@ -302,7 +327,7 @@ static void tcp_dispatch(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const tcp_seg_t
             return;
         }
     }
-    tcp_pcb_t *pcb = &tcp_pcbs[slot];
+    TcpPcb *pcb = &tcp_pcbs[slot];
 
     if (seg->flags & TCP_RST)
     {
@@ -356,14 +381,14 @@ static void tcp_dispatch(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const tcp_seg_t
 void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_t len)
 {
 
-    if (len < sizeof(tcp_hdr_t))
+    if (len < sizeof(TcpHdr))
         return;
     if (tcp_checksum(src_ip, dst_ip, data, len))
         return;
 
     LOG_INFO(LOG_TAG, "tcp_rx: len=%u", len);
 
-    tcp_hdr_t *th = (tcp_hdr_t *)data;
+    TcpHdr *th = (TcpHdr *)data;
     uint16_t hdr_len = (th->data_offset >> 4) * 4;
 
     if (hdr_len < 20 || hdr_len > len)
@@ -382,8 +407,8 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
 
     /* TEST HOOK: deliver the first data segment in two halves, tail half
      * first, forcing the reordering no real sender will give us. The tail
-     * lands past rcv_nxt (store_ooo), the head then fills the hole
-     * (forward_merge). Remove after both log lines are seen. */
+     * lands past rcv_nxt (StoreOoo), the head then fills the hole
+     * (FwdMerge). Remove after both log lines are seen. */
     static bool hook_done = false;
     if (!hook_done && seg.payload_len >= 2 && !(seg.flags & TCP_FIN))
     {
@@ -407,7 +432,7 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
 
 int tcp_recv(int idx, uint8_t *buf, uint16_t sz)
 {
-    tcp_pcb_t *pcb = &tcp_pcbs[idx];
+    TcpPcb *pcb = &tcp_pcbs[idx];
     if (pcb->state != TCP_ESTABLISHED)
         return ERR_NOTCONN;
 

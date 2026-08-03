@@ -22,7 +22,7 @@ uint16_t tcp_checksum(ipv4_addr_t src_ip, ipv4_addr_t dst_ip,
 }
 
 /* arm if not armed; set flag   */
-void rto_start(tcp_pcb_t *pcb) {
+void rto_start(TcpPcb *pcb) {
 
     if (pcb->rto_timer != TIMER_NONE)
         return;
@@ -30,16 +30,16 @@ void rto_start(tcp_pcb_t *pcb) {
 }
 
 /* cancel if armed; clear flag  */
-void rto_stop(tcp_pcb_t *pcb) {
+void rto_stop(TcpPcb *pcb) {
     if (pcb->rto_timer == TIMER_NONE)
         return;
     timer_cancel(pcb->rto_timer);
     pcb->rto_timer = TIMER_NONE;
 }    
 
-int tcp_output(tcp_pcb_t *pcb, uint8_t flags, const uint8_t *data, uint16_t data_len) {
-    uint8_t buf[sizeof(tcp_hdr_t) + TCP_MSS];      /* header + bit of data */
-    tcp_hdr_t *th = (tcp_hdr_t *)buf;
+int tcp_output(TcpPcb *pcb, uint8_t flags, const uint8_t *data, uint16_t data_len) {
+    uint8_t buf[sizeof(TcpHdr) + TCP_MSS];      /* header + bit of data */
+    TcpHdr *th = (TcpHdr *)buf;
 
     th->src_port   = htons(pcb->local_port);
     th->dst_port   = htons(pcb->remote_port);
@@ -53,9 +53,9 @@ int tcp_output(tcp_pcb_t *pcb, uint8_t flags, const uint8_t *data, uint16_t data
     th->urgent_ptr = 0;
 
     if (data_len)
-        memcpy(buf + sizeof(tcp_hdr_t), data, data_len);
+        memcpy(buf + sizeof(TcpHdr), data, data_len);
 
-    uint16_t seg_len = sizeof(tcp_hdr_t) + data_len;
+    uint16_t seg_len = sizeof(TcpHdr) + data_len;
     th->checksum = htons(tcp_checksum(pcb->local_ip, pcb->remote_ip, buf, seg_len));
 
     int rc = ip_tx(buf, seg_len, pcb->local_ip, pcb->remote_ip, IP_PROTO_TCP);
@@ -69,13 +69,13 @@ int tcp_output(tcp_pcb_t *pcb, uint8_t flags, const uint8_t *data, uint16_t data
     return ZUZU_OK;
 }
 
-int tcp_xmit(tcp_pcb_t *pcb) {
+int tcp_xmit(TcpPcb *pcb) {
     bool sent = false;
     while (1) {
         size_t unsent = (pcb->snd_una + pcb->buffered_bytes) - pcb->snd_nxt;
         if (!unsent) break;
         size_t window_edge = pcb->snd_una + pcb->snd_wnd;
-        if ((int32_t)(window_edge - pcb->snd_nxt) <= 0) break;
+        if (seq_leq(window_edge, pcb->snd_nxt)) break;
         size_t sendable = window_edge - pcb->snd_nxt;
         sent = true;
         size_t seglen = MIN(MIN(unsent, sendable), TCP_MSS);
@@ -94,7 +94,7 @@ int tcp_xmit(tcp_pcb_t *pcb) {
     }
     /* all data sent; emit the FIN alone if it hasn't gone out yet */
     if (pcb->fin_pending &&
-        (int32_t)(pcb->snd_nxt - (pcb->snd_una + pcb->buffered_bytes)) <= 0) {
+        seq_leq(pcb->snd_nxt, pcb->snd_una + pcb->buffered_bytes)) {
         int rc = tcp_output(pcb, TCP_FIN | TCP_ACK, NULL, 0);
         if (rc == ZUZU_OK) sent = true;
     }
@@ -105,7 +105,7 @@ int tcp_xmit(tcp_pcb_t *pcb) {
 }
 
 void tcp_rto_cb(void *arg) {
-    tcp_pcb_t *pcb = (tcp_pcb_t *)arg;
+    TcpPcb *pcb = (TcpPcb *)arg;
     pcb->rto_timer = TIMER_NONE;
     if (pcb->snd_nxt == pcb->snd_una) return; // window empty, don't do anything
 
@@ -122,7 +122,7 @@ void tcp_rto_cb(void *arg) {
 }
 
 int tcp_send(int idx, const uint8_t *data, uint16_t len) {
-    tcp_pcb_t *pcb = &tcp_pcbs[idx];
+    TcpPcb *pcb = &tcp_pcbs[idx];
     if (pcb->state != TCP_ESTABLISHED) return ERR_NOTCONN;
     LOG_INFO(LOG_TAG, "Buffered bytes: %u", pcb->buffered_bytes);
     size_t free = TCP_SND_BUF - pcb->buffered_bytes;
@@ -140,8 +140,8 @@ int tcp_send(int idx, const uint8_t *data, uint16_t len) {
 }
 
 void tcp_send_rst(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const tcp_seg_t *seg) {
-    uint8_t buf[sizeof(tcp_hdr_t)];        /* bare header, no payload */
-    tcp_hdr_t *th = (tcp_hdr_t *)buf;
+    uint8_t buf[sizeof(TcpHdr)];        /* bare header, no payload */
+    TcpHdr *th = (TcpHdr *)buf;
 
     th->src_port    = htons(seg->dst_port);  
     th->dst_port    = htons(seg->src_port);  
