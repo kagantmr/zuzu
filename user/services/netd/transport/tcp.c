@@ -12,7 +12,7 @@ int tcp_connect(ipv4_addr_t remote_ip, port_t remote_port) {
     if (!dhcp_is_bound()) return ERR_NOTCONN;
     int idx = tcp_pcb_alloc();
     if (idx < 0) return ERR_NOMEM;
-    tcp_pcb_t *pcb = &tcp_pcbs[idx];
+    TcpPcb *pcb = &tcp_pcbs[idx];
     pcb->remote_ip = remote_ip;
     pcb->remote_port = remote_port;
     pcb->local_ip = netif.ip;
@@ -31,7 +31,7 @@ int tcp_connect(ipv4_addr_t remote_ip, port_t remote_port) {
 }
 
 static void http_on_data(int slot) {
-    tcp_pcb_t *pcb = &tcp_pcbs[slot];
+    TcpPcb *pcb = &tcp_pcbs[slot];
     uint8_t chunk[256];
     int n;
     while ((n = tcp_recv(slot, chunk, sizeof(chunk) - 1)) > 0) {
@@ -56,7 +56,7 @@ static void http_on_data(int slot) {
 int tcp_listen(int port) {
     int slot = tcp_pcb_alloc();
     if (slot < 0) return ERR_NOMEM;
-    tcp_pcb_t *pcb = &tcp_pcbs[slot];
+    TcpPcb *pcb = &tcp_pcbs[slot];
     pcb->active = true;               /* memset cleared it, set it back */
     pcb->local_ip = netif.ip;
     pcb->local_port = port;
@@ -66,7 +66,7 @@ int tcp_listen(int port) {
 }
 
 int tcp_close(int idx) {
-    tcp_pcb_t *pcb = &tcp_pcbs[idx];
+    TcpPcb *pcb = &tcp_pcbs[idx];
 
     pcb->fin_pending = true;                  /* stream ends after last buffered byte */
 
