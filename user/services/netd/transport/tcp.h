@@ -76,10 +76,16 @@ typedef struct {
     size_t buffered_bytes; // how many bytes are buffered?
     uint8_t rcv_buf[TCP_RCV_BUF]; // size must be a power of 2
     void (*on_data)(int slot); // data arrival callback
-    timer_handle_t rto_timer;
-    uint32_t rto_ms;                 /* current backoff value */
+    TimerHandle rto_timer;
+    Duration rto_ms;                 /* current backoff value */
     uint32_t fin_seq;    /* the FIN's position in sequence space */
     bool     fin_seen;   /* have we been told about a FIN at all? */
+    Duration srtt;
+    Duration rttvar;
+    bool rtt_valid;   /* have we taken the first RTT sample? */
+    Duration rtt_start;   /* when we sent the timed segment (net_now_ms) */
+    uint32_t rtt_seq;     /* which byte we're waiting for the ACK to pass */
+    bool     rtt_timing;  /* is a stopwatch currently running? */
 } TcpPcb;
 
 typedef struct {

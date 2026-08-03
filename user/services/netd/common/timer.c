@@ -8,7 +8,7 @@ void timer_init(void) {
     memset(timers, 0, sizeof(timer_t) * TIMER_MAX);
 }
 
-timer_handle_t timer_arm(uint32_t deadline_ms, void (*cb)(void *arg), void *arg)
+TimerHandle timer_arm(uint32_t deadline_ms, void (*cb)(void *arg), void *arg)
 {
     for (int i = 0; i < TIMER_MAX; i++)
     {
@@ -24,7 +24,7 @@ timer_handle_t timer_arm(uint32_t deadline_ms, void (*cb)(void *arg), void *arg)
     return TIMER_NONE;
 }
 
-void timer_cancel(timer_handle_t h)
+void timer_cancel(TimerHandle h)
 {
     if (h < 0 || h >= TIMER_MAX)
         return;                     /* TIMER_NONE and garbage: harmless no-op */

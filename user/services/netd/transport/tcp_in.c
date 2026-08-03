@@ -146,11 +146,42 @@ static void on_syn_sent(TcpPcb *pcb, const tcp_seg_t *s)
     }
 }
 
+static void TcpRttUpdate(TcpPcb *pcb, uint32_t R)
+{
+    if (!pcb->rtt_valid) {
+        /* first sample ever: seed directly */
+        pcb->srtt   = R;
+        pcb->rttvar = R / 2;
+        pcb->rtt_valid = true;
+    } else {
+        /* |srtt - R| without signed trouble */
+        uint32_t diff = (pcb->srtt > R) ? (pcb->srtt - R) : (R - pcb->srtt);
+        pcb->rttvar = (3 * pcb->rttvar + diff) / 4;      /* 3/4 old + 1/4 new */
+        pcb->srtt   = (7 * pcb->srtt + R) / 8;           /* 7/8 old + 1/8 new */
+    }
+
+    /* RTO = srtt + 4*rttvar, clamped to a sane floor and your existing cap */
+    Duration rto = pcb->srtt + 4 * pcb->rttvar;
+    if (rto < 1000)         rto = 1000;          /* granularity floor */
+    if (rto > TCP_RTO_MAX)  rto = TCP_RTO_MAX;
+    pcb->rto_ms = rto;
+
+    LOG_INFO(LOG_TAG, "RTT sample R=%u srtt=%u rttvar=%u rto=%u",
+           R, pcb->srtt, pcb->rttvar, pcb->rto_ms);
+}
+
 static void on_established(int slot, TcpPcb *pcb, const tcp_seg_t *s)
 {
     if (seq_lt(pcb->snd_una, s->ack) && seq_leq(s->ack, pcb->snd_nxt))
     {
         size_t delta = s->ack - pcb->snd_una; // how many bytes got confirmed
+
+        if (pcb->rtt_timing && seq_leq(pcb->rtt_seq, s->ack)) {
+            uint32_t R = net_now_ms() - pcb->rtt_start;
+            TcpRttUpdate(pcb, R);
+            pcb->rtt_timing = false;
+        }
+
         pcb->snd_una = s->ack;
         pcb->buffered_bytes -= MIN(delta, pcb->buffered_bytes);
         if (pcb->snd_nxt == pcb->snd_una)
@@ -218,6 +249,13 @@ static void on_fin_wait_1(TcpPcb *pcb, const tcp_seg_t *s)
     if (seq_lt(pcb->snd_una, s->ack) && seq_leq(s->ack, pcb->snd_nxt))
     {
         size_t delta = s->ack - pcb->snd_una;
+
+        if (pcb->rtt_timing && seq_leq(pcb->rtt_seq, s->ack)) {
+            uint32_t R = net_now_ms() - pcb->rtt_start;
+            TcpRttUpdate(pcb, R);
+            pcb->rtt_timing = false;
+        }
+
         pcb->snd_una = s->ack;
 
         if (pcb->snd_nxt == pcb->snd_una)
@@ -287,7 +325,7 @@ static void on_listening(TcpPcb *listener, const tcp_seg_t *s)
     np->remote_port = s->src_port;
     np->rcv_nxt = s->seq + 1; /* their SYN's phantom byte */
     np->rcv_rsq = np->rcv_nxt;
-    np->snd_wnd = ntohs(s->window);
+    np->snd_wnd = s->window;
 
     np->snd_nxt = netrand_u32(); /* our ISN */
     np->snd_una = np->snd_nxt;

@@ -8,7 +8,7 @@
 #define TIMER_NONE (-1)
 #define TIMER_NO_DEADLINE UINT32_MAX
 
-typedef int timer_handle_t;
+typedef int TimerHandle;
 
 /* TODO: generation counter if reuse races appear */
 typedef struct {
@@ -19,8 +19,8 @@ typedef struct {
 } timer_t;
 
 void timer_init(void);
-timer_handle_t timer_arm(uint32_t deadline_ms, void (*cb)(void *arg), void *arg);
-void           timer_cancel(timer_handle_t h);
+TimerHandle timer_arm(uint32_t deadline_ms, void (*cb)(void *arg), void *arg);
+void           timer_cancel(TimerHandle h);
 uint32_t timer_next_deadline(void);
 void     timer_run_expired(void);  
 
