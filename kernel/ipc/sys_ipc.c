@@ -93,7 +93,7 @@ static void ipc_wake_ready(thread_t *t)
     sched_add(t);
 }
 
-static endpoint_t *validate_endpoint_handle(process_t *proc, Handle handle, arch_regs_t *frame)
+static handle_entry_t *validate_endpoint_handle(process_t *proc, Handle handle, arch_regs_t *frame)
 {
     if (!proc)
     {
@@ -123,10 +123,10 @@ static endpoint_t *validate_endpoint_handle(process_t *proc, Handle handle, arch
         return NULL;
     }
 
-    return entry->ep;
+    return entry;
 }
 
-static Notification *validate_notification_handle(process_t *proc, Handle handle, arch_regs_t *frame)
+static handle_entry_t *validate_notification_handle(process_t *proc, Handle handle, arch_regs_t *frame)
 {
     if (!proc)
     {
@@ -156,7 +156,7 @@ static Notification *validate_notification_handle(process_t *proc, Handle handle
         return NULL;
     }
 
-    return entry->ntfn;
+    return entry;
 }
 
 static handle_entry_t *validate_reply_handle(process_t *proc,
@@ -231,7 +231,10 @@ void __attribute__((hot)) sys_msg_send(arch_regs_t *frame)
 {
     int handle = (int)(*arch_reg(frame, 0));
 
-    endpoint_t *ep = validate_endpoint_handle(current_thread->owner_process, handle, frame);
+    handle_entry_t *entry = validate_endpoint_handle(current_thread->owner_process, handle, frame);
+    if (!entry)
+        return;
+    endpoint_t *ep = entry->ep;
     if (!ep)
     {
         return;
@@ -249,6 +252,7 @@ void __attribute__((hot)) sys_msg_send(arch_regs_t *frame)
             res->matched_index = rx_slot->index;
             res->kind = WAITANY_KIND_SEND;
             res->source = current_thread->owner_process->pid;
+            res->marker = entry->marker;
             res->w1 = (*arch_reg(frame, 1));
             res->w2 = (*arch_reg(frame, 2));
             res->w3 = (*arch_reg(frame, 3));
@@ -283,6 +287,7 @@ void __attribute__((hot)) sys_msg_send(arch_regs_t *frame)
     {
         current_thread->ipc_state = IPC_SENDER;
         current_thread->blocked_endpoint = ep;
+        current_thread->ipc_marker = entry->marker;
         list_add_tail(&current_thread->node, &ep->sender_queue.node);
         current_thread->state = BLOCKED;
         schedule();
@@ -294,7 +299,10 @@ void __attribute__((hot)) sys_msg_recv(arch_regs_t *frame)
     int handle = (int)(*arch_reg(frame, 0));
     uint32_t timeout_ms = (*arch_reg(frame, 1)); // TIMEOUT_POLL / TIMEOUT_INFINITE / finite ms
 
-    endpoint_t *ep = validate_endpoint_handle(current_thread->owner_process, handle, frame);
+    handle_entry_t *entry = validate_endpoint_handle(current_thread->owner_process, handle, frame);
+    if (!entry)
+        return;
+    endpoint_t *ep = entry->ep;
     if (!ep)
     {
         return;
@@ -437,7 +445,10 @@ void __attribute__((hot)) sys_msg_call(arch_regs_t *frame)
 {
     int handle = (int)(*arch_reg(frame, 0));
 
-    endpoint_t *ep = validate_endpoint_handle(current_thread->owner_process, handle, frame);
+    handle_entry_t *entry = validate_endpoint_handle(current_thread->owner_process, handle, frame);
+    if (!entry)
+        return;
+    endpoint_t *ep = entry->ep;
     if (!ep)
     {
         return;
@@ -482,6 +493,7 @@ void __attribute__((hot)) sys_msg_call(arch_regs_t *frame)
             res->matched_index = rx_slot->index;
             res->kind = WAITANY_KIND_CALL;
             res->source = (uint32_t)slot;
+            res->marker = entry->marker;
             res->w1 = current_thread->owner_process->pid;
             res->w2 = (*arch_reg(frame, 1));
             res->w3 = (*arch_reg(frame, 2));
@@ -522,6 +534,7 @@ void __attribute__((hot)) sys_msg_call(arch_regs_t *frame)
         current_thread->ipc_state = IPC_WAITING;
         current_thread->blocked_endpoint = ep;
         current_thread->pending_reply_cap = rc;
+        current_thread->ipc_marker = entry->marker;
         list_add_tail(&current_thread->node, &ep->sender_queue.node);
         current_thread->state = BLOCKED;
         schedule();
@@ -574,7 +587,10 @@ void sys_msg_lsend(arch_regs_t *frame)
     int handle = (int)(*arch_reg(frame, 0));
     uint32_t xlen = (*arch_reg(frame, 1));
 
-    endpoint_t *ep = validate_endpoint_handle(current_thread->owner_process, handle, frame);
+    handle_entry_t *entry = validate_endpoint_handle(current_thread->owner_process, handle, frame);
+    if (!entry)
+        return;
+    endpoint_t *ep = entry->ep;
     if (!ep)
     {
         return;
@@ -600,6 +616,7 @@ void sys_msg_lsend(arch_regs_t *frame)
             res->matched_index = rx_slot->index;
             res->kind = WAITANY_KIND_SEND;
             res->source = current_thread->owner_process->pid;
+            res->marker = entry->marker;
             ipc_buf_copy(current_thread, rx_thread, xlen);
             res->w1 = xlen;
             res->w2 = 0;
@@ -635,6 +652,7 @@ void sys_msg_lsend(arch_regs_t *frame)
     {
         current_thread->ipc_state = IPC_SENDER;
         current_thread->blocked_endpoint = ep;
+        current_thread->ipc_marker = entry->marker;
         list_add_tail(&current_thread->node, &ep->sender_queue.node);
         current_thread->ipc_buf_xfer_len = xlen;
         current_thread->state = BLOCKED;
@@ -647,7 +665,10 @@ void sys_msg_lcall(arch_regs_t *frame)
     Handle handle = (Handle)(*arch_reg(frame, 0));
     uint32_t xlen = (*arch_reg(frame, 1));
 
-    endpoint_t *ep = validate_endpoint_handle(current_thread->owner_process, handle, frame);
+    handle_entry_t *entry = validate_endpoint_handle(current_thread->owner_process, handle, frame);
+    if (!entry)
+        return;
+    endpoint_t *ep = entry->ep;
     if (!ep)
     {
         return;
@@ -700,6 +721,7 @@ void sys_msg_lcall(arch_regs_t *frame)
             res->matched_index = rx_slot->index;
             res->kind = WAITANY_KIND_CALL;
             res->source = (uint32_t)slot;
+            res->marker = entry->marker;
             res->w1 = current_thread->owner_process->pid;
             ipc_buf_copy(current_thread, rx_thread, xlen);
             res->w2 = xlen;
@@ -737,6 +759,7 @@ void sys_msg_lcall(arch_regs_t *frame)
         current_thread->ipc_state = IPC_WAITING;
         current_thread->blocked_endpoint = ep;
         current_thread->pending_reply_cap = rc;
+        current_thread->ipc_marker = entry->marker;
         list_add_tail(&current_thread->node, &ep->sender_queue.node);
         current_thread->ipc_buf_xfer_len = xlen;
         current_thread->state = BLOCKED;
@@ -816,6 +839,7 @@ static int waitany_deliver_sender(uint32_t matched_index,
     {
         result->kind = WAITANY_KIND_SEND;
         result->source = sr_thread->owner_process->pid;
+        result->marker = sr_thread->ipc_marker;
         result->w1 = (*arch_reg(sr_frame, 1));
         result->w2 = (*arch_reg(sr_frame, 2));
         result->w3 = (*arch_reg(sr_frame, 3));
@@ -860,6 +884,7 @@ static int waitany_deliver_sender(uint32_t matched_index,
 
         result->kind = WAITANY_KIND_CALL;
         result->source = (uint32_t)slot;
+        result->marker = sr_thread->ipc_marker;
         result->w1 = sr_thread->owner_process->pid;
         result->w2 = (*arch_reg(sr_frame, 1));
         result->w3 = (*arch_reg(sr_frame, 2));
@@ -903,7 +928,10 @@ static int waitany_try_once(const Handle *handles,
         }
 
         if (entry->type == HANDLE_ENDPOINT) {
-            endpoint_t *ep = validate_endpoint_handle(current_thread->owner_process, handles[i], current_thread->trap_frame);
+            handle_entry_t *ep_entry = validate_endpoint_handle(current_thread->owner_process, handles[i], current_thread->trap_frame);
+            if (!ep_entry)
+                return (int)(*arch_reg(current_thread->trap_frame, 0));
+            endpoint_t *ep = ep_entry->ep;
             if (!ep) {
                 return (int)(*arch_reg(current_thread->trap_frame, 0));
             }
@@ -913,7 +941,11 @@ static int waitany_try_once(const Handle *handles,
         }
 
         if (entry->type == HANDLE_NOTIFICATION) {
-            Notification *ntfn = validate_notification_handle(current_thread->owner_process, handles[i], current_thread->trap_frame);
+            handle_entry_t *n_entry = validate_notification_handle(current_thread->owner_process, handles[i], current_thread->trap_frame);
+            if (!n_entry) {
+                return (int)(*arch_reg(current_thread->trap_frame, 0));
+            }
+            Notification *ntfn = n_entry->ntfn;
             if (!ntfn) {
                 return (int)(*arch_reg(current_thread->trap_frame, 0));
             }
