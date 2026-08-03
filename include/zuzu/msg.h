@@ -144,13 +144,29 @@ static inline Err ZuzuGrant(Handle cap, Pid pid) {
 
 /**
  * @brief Destroys the specified handle, revoking its capability.
- * 
+ *
  * @param h The handle to destroy.
- * 
+ *
  * @return Err Returns 0 on success, or a negative error code on failure.
  */
 static inline Err ZuzuDestroy(Handle h) {
     return Syscall(SYS_DESTROY, h, 0, 0, 0);
+}
+
+/**
+ * @brief Stamps (badges) an endpoint handle, minting a new handle to the same
+ * endpoint that carries the given marker. The source handle is left
+ * untouched (non-consuming) and can be stamped again with a different
+ * marker to mint additional badges. A handle that is already marked cannot
+ * itself be re-stamped.
+ *
+ * @param handle The endpoint handle to stamp. Must be unmarked (marker == MARKER_NONE).
+ * @param marker The marker to stamp with. Must be nonzero (0 is the reserved unmarked sentinel).
+ *
+ * @return Err Returns the new (marked) handle on success, or a negative error code on failure.
+ */
+static inline Err ZuzuStamp(Handle handle, uint32_t marker) {
+    return Syscall(SYS_STAMP, handle, marker, 0, 0);
 }
 
 #ifdef __cplusplus
