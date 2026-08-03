@@ -24,6 +24,13 @@
 ARCH  ?= arm
 BOARD ?= vexpress-a15
 
+# Pin the default goal to `all` explicitly. Without this, GNU Make falls
+# back to the first target rule encountered anywhere in the include chain
+# below (e.g. mk/config.mk's $(BOARD_STAMP) rule) as the default goal, which
+# silently breaks a bare `make` — and with it, VSCode Makefile Tools' dry-run
+# IntelliSense parse, which builds whatever the default goal is.
+.DEFAULT_GOAL := all
+
 include arch/$(ARCH)/arch.mk
 include mk/host.mk
 include mk/config.mk

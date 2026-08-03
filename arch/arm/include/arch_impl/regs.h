@@ -44,4 +44,19 @@ static inline reg_t arch_regs_sp(const arch_regs_t *f)    { return f->sp_usr; }
 static inline reg_t arch_regs_lr(const arch_regs_t *f)    { return f->lr_usr; }
 static inline reg_t arch_regs_flags(const arch_regs_t *f) { return f->return_cpsr; }
 
+/* Live reads of current CPU state (see <arch/regs.h>). */
+static inline reg_t arch_current_fp(void)
+{
+    reg_t fp;
+    __asm__ volatile("mov %0, r11" : "=r"(fp));
+    return fp;
+}
+
+static inline reg_t arch_current_flags(void)
+{
+    reg_t cpsr;
+    __asm__ volatile("mrs %0, cpsr" : "=r"(cpsr));
+    return cpsr;
+}
+
 #endif // ZUZU_ARM_IMPL_REGS_H
