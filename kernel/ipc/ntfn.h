@@ -13,7 +13,7 @@ typedef struct notification {
     Pid owner_pid;
     size_t ref_count;
     bool alive;
-} notification_t;
+} Notification;
 
 
 

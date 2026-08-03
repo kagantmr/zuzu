@@ -21,7 +21,6 @@ typedef struct endpoint {
     list_node_t node;
 } endpoint_t;
 
-// stub
 typedef struct {
     PhysAddr phys_base;
     size_t size;
@@ -37,7 +36,6 @@ typedef struct {
     Handle holder_slot;
     list_node_t caller_link;
 } reply_cap_t;
-
 
 
 typedef enum {
@@ -59,7 +57,7 @@ typedef struct {
         device_cap_t *dev;
         shmem_t      *shm;
         reply_cap_t *reply;
-        notification_t *ntfn;
+        Notification *ntfn;
         struct process *task;
     };
 } handle_entry_t;

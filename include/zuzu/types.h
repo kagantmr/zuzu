@@ -53,24 +53,24 @@ typedef struct
 
 #define WAITANY_NO_MATCH UINT32_MAX
 
-    typedef enum
-    {
-        WAITANY_KIND_SEND = 0u,
-        WAITANY_KIND_CALL = 1u,
-        WAITANY_KIND_NTFN = 2u,
-        WAITANY_KIND_TIMEOUT = 3u,
-    } WaitanyType;
+typedef enum
+{
+    WAITANY_KIND_SEND = 0u,
+    WAITANY_KIND_CALL = 1u,
+    WAITANY_KIND_NTFN = 2u,
+    WAITANY_KIND_TIMEOUT = 3u,
+} WaitanyType;
 
-    typedef struct
-    {
-        uint32_t size;        /* sizeof(WaitanyResult); caller sets, kernel honors */
-        Handle matched_index; /* index into the caller's handle array; WAITANY_NO_MATCH on timeout */
-        WaitanyType kind;     /* WAITANY_KIND_* */
-        uint32_t source;      /* send: sender pid | call: reply handle | ntfn: 0 */
-        MsgWord w1;           /* send: payload/lmsg len | call: sender pid | ntfn: bits */
-        MsgWord w2;           /* send/call: payload or lmsg length */
-        MsgWord w3;           /* send/call: payload */
-    } WaitanyResult;
+typedef struct
+{
+    uint32_t size;        /* sizeof(WaitanyResult); caller sets, kernel honors */
+    Handle matched_index; /* index into the caller's handle array; WAITANY_NO_MATCH on timeout */
+    WaitanyType kind;     /* WAITANY_KIND_* */
+    uint32_t source;      /* send: sender pid | call: reply handle | ntfn: 0 */
+    MsgWord w1;           /* send: payload/lmsg len | call: sender pid | ntfn: bits */
+    MsgWord w2;           /* send/call: payload or lmsg length */
+    MsgWord w3;           /* send/call: payload */
+} WaitanyResult;
 
 #ifdef __cplusplus
 }

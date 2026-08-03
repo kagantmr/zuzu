@@ -832,7 +832,7 @@ void process_kill(process_t *p, const int exit_status) {
             entry->grantable = false;
             entry->type = HANDLE_FREE;
         } else if (entry->type == HANDLE_NOTIFICATION) {
-            notification_t *ntfn = entry->ntfn;
+            Notification *ntfn = entry->ntfn;
             if (ntfn && ntfn->owner_pid == p->pid && ntfn->alive) {
                 ntfn->alive = false;
                 while (!list_empty(&ntfn->wait_queue)) {

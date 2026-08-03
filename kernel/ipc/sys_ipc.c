@@ -126,7 +126,7 @@ static endpoint_t *validate_endpoint_handle(process_t *proc, Handle handle, arch
     return entry->ep;
 }
 
-static notification_t *validate_notification_handle(process_t *proc, Handle handle, arch_regs_t *frame)
+static Notification *validate_notification_handle(process_t *proc, Handle handle, arch_regs_t *frame)
 {
     if (!proc)
     {
@@ -880,7 +880,7 @@ static int waitany_deliver_sender(uint32_t matched_index,
 static int waitany_try_once(const Handle *handles,
                             uint32_t count,
                             WaitanyResult *result,
-                            notification_t **wait_ntfns,
+                            Notification **wait_ntfns,
                             uint32_t *wait_ntfn_indices,
                             uint32_t *wait_count_out,
                             endpoint_t **wait_eps,
@@ -888,7 +888,7 @@ static int waitany_try_once(const Handle *handles,
                             uint32_t *wait_ep_count_out)
 {
     endpoint_t *endpoints[WAITANY_MAX_HANDLES];
-    notification_t *notifications[WAITANY_MAX_HANDLES];
+    Notification *notifications[WAITANY_MAX_HANDLES];
 
     if (wait_count_out)
         *wait_count_out = 0;
@@ -913,7 +913,7 @@ static int waitany_try_once(const Handle *handles,
         }
 
         if (entry->type == HANDLE_NOTIFICATION) {
-            notification_t *ntfn = validate_notification_handle(current_thread->owner_process, handles[i], current_thread->trap_frame);
+            Notification *ntfn = validate_notification_handle(current_thread->owner_process, handles[i], current_thread->trap_frame);
             if (!ntfn) {
                 return (int)(*arch_reg(current_thread->trap_frame, 0));
             }
@@ -934,7 +934,7 @@ static int waitany_try_once(const Handle *handles,
     }
 
     for (uint32_t i = 0; i < count; i++) {
-        notification_t *ntfn = notifications[i];
+        Notification *ntfn = notifications[i];
         if (ntfn && ntfn->word != 0) {
             uint32_t bits = ntfn->word;
             ntfn->word = 0;
@@ -1034,7 +1034,7 @@ void sys_waitany(arch_regs_t *frame)
     }
 
     for (;;) {
-        notification_t *wait_ntfns[WAITANY_MAX_HANDLES];
+        Notification *wait_ntfns[WAITANY_MAX_HANDLES];
         uint32_t wait_ntfn_indices[WAITANY_MAX_HANDLES];
         uint32_t wait_count = 0;
         endpoint_t *wait_eps[WAITANY_MAX_HANDLES];

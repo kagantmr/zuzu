@@ -10,7 +10,7 @@
 
 extern thread_t *current_thread;
 
-void ntfn_wake_waiter(notification_t *ntfn, thread_wait_slot_t *slot,
+void ntfn_wake_waiter(Notification *ntfn, thread_wait_slot_t *slot,
                       int32_t r0_value, uint32_t bits)
 {
     thread_t *waiter = slot->owner;
@@ -52,7 +52,7 @@ void sys_ntfn_create(arch_regs_t *frame) {
     Handle handle = handle_vec_find_free(&current_thread->owner_process->handle_table);
     if (handle < 0) { (*arch_reg(frame, 0)) = ERR_NOMEM; return; }
 
-    notification_t *ntfn = kmalloc(sizeof(notification_t));  // or slab
+    Notification *ntfn = kmalloc(sizeof(Notification));  // or slab
     if (!ntfn) { (*arch_reg(frame, 0)) = ERR_NOMEM; return; }
 
     ntfn->word = 0;
@@ -80,7 +80,7 @@ void sys_ntfn_signal(arch_regs_t *frame) {
         (*arch_reg(frame, 0)) = ERR_BADTYPE; return;
     }
 
-    notification_t *ntfn = entry->ntfn;
+    Notification *ntfn = entry->ntfn;
     if (!ntfn || !ntfn->alive) {
         (*arch_reg(frame, 0)) = ERR_DEAD;
         return;
@@ -116,7 +116,7 @@ void sys_ntfn_wait(arch_regs_t *frame) {
         (*arch_reg(frame, 0)) = ERR_BADTYPE; return;
     }
 
-    notification_t *ntfn = entry->ntfn;
+    Notification *ntfn = entry->ntfn;
     if (!ntfn || !ntfn->alive) {
         (*arch_reg(frame, 0)) = ERR_DEAD;
         return;
