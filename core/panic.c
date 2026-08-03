@@ -3,6 +3,7 @@
 #include "core/panic.h"
 #include <arch/cpu.h>
 #include <arch/irq.h>
+#include <arch/regs.h>
 #include <arch/symbols.h>
 #include BOARD_LAYOUT_H   /* KERNEL_VA_BASE, USER_VA_TOP, IOREMAP_BASE */
 #include "drivers/uart/uart.h"
@@ -219,7 +220,7 @@ static void backtrace_walk(backtrace_t *bt)
     if (panic_fault_ctx.frame)
         fp = (*arch_reg(panic_fault_ctx.frame, 11));  /* fp captured at fault time */
     else
-        __asm__ volatile("mov %0, r11" : "=r"(fp));
+        fp = arch_current_fp();
 
     while (bt->depth < BACKTRACE_MAX_DEPTH) {
         /* Any aligned kernel VA is potentially a valid frame */
@@ -756,8 +757,7 @@ static void panic_print_irq(void)
         panic_line("  (none)");
 
     /* Pending IRQs: skip SGIs; cross-reference enabled bitmap */
-    uint32_t cpsr;
-    __asm__ volatile("mrs %0, cpsr" : "=r"(cpsr));
+    uint32_t cpsr = arch_current_flags();
     int in_irq_mode = ((cpsr & 0x1Fu) == 0x12u);
 
     panic_nl();

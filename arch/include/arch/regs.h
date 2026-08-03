@@ -9,6 +9,13 @@
 //   reg_t  arch_regs_sp(const arch_regs_t *f);     -- saved user SP
 //   reg_t  arch_regs_lr(const arch_regs_t *f);     -- saved user LR
 //   reg_t  arch_regs_flags(const arch_regs_t *f);  -- saved status/flags
+//
+// The two below read live CPU state (not a saved frame) — for diagnostics
+// (e.g. core/panic.c) that need "where are we right now" rather than "where
+// did we trap from".
+//
+//   reg_t  arch_current_fp(void);                  -- live frame-pointer register
+//   reg_t  arch_current_flags(void);                -- live status/flags register
 
 #ifndef ZUZU_ARCH_REGS_H
 #define ZUZU_ARCH_REGS_H
