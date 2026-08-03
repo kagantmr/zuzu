@@ -4,7 +4,7 @@
 #include "core/log.h"
 
 #include "kernel/ipc/sys_port.h"
-#include "kernel/ipc/sys_ipc.h"
+#include "kernel/ipc/sys_msg.h"
 #include "kernel/ipc/sys_notif.h"
 #include "kernel/irq/sys_irq.h"
 #include "kernel/mm/sys_mm.h"

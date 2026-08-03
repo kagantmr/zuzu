@@ -125,7 +125,7 @@ void sched_reap_thread_destroys(void) {
     list_head_t deferred = LIST_HEAD_INIT(deferred);
 
     while (!list_empty(&thread_destroy_queue)) {
-        list_node_t *node = list_pop_front(&thread_destroy_queue);
+        ListNode *node = list_pop_front(&thread_destroy_queue);
         thread_t *t = container_of(node, thread_t, destroy_node);
 
         if (t == current_thread) {
@@ -137,7 +137,7 @@ void sched_reap_thread_destroys(void) {
     }
 
     while (!list_empty(&deferred)) {
-        list_node_t *node = list_pop_front(&deferred);
+        ListNode *node = list_pop_front(&deferred);
         thread_t *t = container_of(node, thread_t, destroy_node);
         list_add_tail(&t->destroy_node, &thread_destroy_queue.node);
     }
@@ -146,7 +146,7 @@ void sched_reap_thread_destroys(void) {
 void sched_reap(void) {
     /* Removed noisy debug logging to avoid flooding the console. */
     while (!list_empty(&destroy_queue)) {
-        list_node_t *node = list_pop_front(&destroy_queue);
+        ListNode *node = list_pop_front(&destroy_queue);
         process_t *p = container_of(node, process_t, destroy_node);
         process_destroy(p);
     }
@@ -167,7 +167,7 @@ static bool sched_work_pending(void)
 }
 
 void sleep_queue_insert(thread_t *t) {
-    list_node_t *curr;
+    ListNode *curr;
     list_for_each(curr, &sleep_queue.node) {
         thread_t *s = container_of(curr, thread_t, timeout_node);
         if (t->wake_tick < s->wake_tick) {
@@ -181,7 +181,7 @@ void sleep_queue_insert(thread_t *t) {
 static void sched_wake_sleepers(void) {
     uint64_t now = get_ticks();
     while (!list_empty(&sleep_queue)) {
-        list_node_t *head = sleep_queue.node.next;
+        ListNode *head = sleep_queue.node.next;
         thread_t *t = container_of(head, thread_t, timeout_node);
         if (t->wake_tick > now) break;
         list_remove(&t->timeout_node);
@@ -264,7 +264,7 @@ static void sched_housekeeping(void) {
 static thread_t *sched_pick_next(void) {
     for (int level = SCHED_PRIORITY_LEVELS - 1; level >= 0; level--) {
         if (ready_mask & (1u << level)) {
-            list_node_t *next_node = list_pop_front(&run_queues[level]);
+            ListNode *next_node = list_pop_front(&run_queues[level]);
             if (list_empty(&run_queues[level]))
                 ready_mask &= ~(1u << level);
             return container_of(next_node, thread_t, node);
@@ -354,7 +354,7 @@ void __attribute__((hot)) schedule(void) {
 size_t sched_ready_queue_snapshot(thread_t **out, size_t max_out) {
     size_t total = 0;
     for (int level = SCHED_PRIORITY_LEVELS - 1; level >= 0; level--) {
-        list_node_t *node = run_queues[level].node.next;
+        ListNode *node = run_queues[level].node.next;
 
         while (node != &run_queues[level].node) {
             if (out && total < max_out) {

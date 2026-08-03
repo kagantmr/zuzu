@@ -11,68 +11,21 @@
 
 struct process;
 
-
 typedef struct endpoint {
     list_head_t sender_queue;
     list_head_t receiver_queue;
     Pid owner_pid;
     size_t ref_count;
     bool alive;
-    list_node_t node;
-} endpoint_t;
-
-typedef struct {
-    PhysAddr phys_base;
-    size_t size;
-    //bool mapped; // is this device currently mapped?
-    char compatible[32]; // DTB compatible string
-    Irq irq;
-    size_t ref_count;
-} device_cap_t;
+    ListNode node;
+} Port;
 
 typedef struct {
     Tid caller_tid;       // instead of zpid_t caller_pid
     Pid holder_pid;       // instead of process_t *holder
     Handle holder_slot;
-    list_node_t caller_link;
-} reply_cap_t;
+    ListNode caller_link;
+} ReplyCap;
 
-
-typedef enum {
-    HANDLE_FREE,
-    HANDLE_ENDPOINT,
-    HANDLE_DEVICE,
-    HANDLE_SHMEM,
-    HANDLE_REPLY,
-    HANDLE_NOTIFICATION,
-    HANDLE_TASK
-} handle_type_t;
-
-typedef struct {
-    handle_type_t type;
-    bool grantable;
-    VirtAddr mapped_va;
-    union {
-        endpoint_t  *ep;
-        device_cap_t *dev;
-        shmem_t      *shm;
-        reply_cap_t *reply;
-        Notification *ntfn;
-        struct process *task;
-    };
-    uint32_t marker;
-} handle_entry_t;
-
-DEFINE_VEC(handle, handle_entry_t)
-
-static inline int handle_vec_find_free(handle_vec_t *handles) {
-    for (uint32_t i = 1; i < handles->cap; i++) {
-        if (handles->data[i].type == HANDLE_FREE)
-            return i;
-    }
-    uint32_t old_cap = handles->cap;
-    if (handle_vec_grow(handles) < 0) return -1;
-    return (int)old_cap;
-}
 
 #endif // ENDPOINT_H

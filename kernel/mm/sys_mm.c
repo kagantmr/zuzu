@@ -79,7 +79,7 @@ static int32_t memmap_anon(process_t *p, VirtAddr hint, size_t size, MemProt pro
  * Helper for memmap to map shared memory.
  * Adapted from zuzu v0.1.5-alpha version
  */
-static int32_t memmap_shm(process_t *p, handle_entry_t *e, MemProt prot, VirtAddr *out)
+static int32_t memmap_shm(process_t *p, HandleEntry *e, MemProt prot, VirtAddr *out)
 {
 
     if (e->mapped_va != 0)
@@ -122,13 +122,13 @@ static int32_t memmap_shm(process_t *p, handle_entry_t *e, MemProt prot, VirtAdd
  * Helper for memmap to map memory-mapped I/O (MMIO) ranges.
  * Adapted from zuzu v0.1.5-alpha version
  */
-static int32_t memmap_dev(process_t *p, handle_entry_t *e, MemProt prot, VirtAddr *out)
+static int32_t memmap_dev(process_t *p, HandleEntry *e, MemProt prot, VirtAddr *out)
 {
 
     if (!e)
         return ERR_BADHANDLE;
 
-    device_cap_t *cap = e->dev;
+    DeviceCap *cap = e->dev;
     if (!cap)
         return ERR_BADHANDLE;
 
@@ -196,7 +196,7 @@ void sys_memmap(arch_regs_t *frame)
     }
     else
     {
-        handle_entry_t *e = handle_vec_get(&p->handle_table, handle);
+        HandleEntry *e = handle_vec_get(&p->handle_table, handle);
         if (!e)
         {
             *arch_reg(frame, 0) = ERR_BADHANDLE;
@@ -275,7 +275,7 @@ void sys_memunmap(arch_regs_t *frame)
                 bool found_handle = false;
                 for (uint32_t i = 0; i < current_thread->owner_process->handle_table.cap; i++)
                 {
-                    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, i);
+                    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, i);
                     if (!entry || entry->mapped_va != va ||
                         (entry->type != HANDLE_SHMEM && entry->type != HANDLE_DEVICE))
                         continue;
@@ -339,7 +339,7 @@ void sys_asinject(arch_regs_t *frame)
         }
         }
 
-        handle_entry_t *handle = handle_vec_get(&current_thread->owner_process->handle_table, kargs.taskHandle);
+        HandleEntry *handle = handle_vec_get(&current_thread->owner_process->handle_table, kargs.taskHandle);
         if (!handle)
         {
             (*arch_reg(frame, 0)) = ERR_BADHANDLE;

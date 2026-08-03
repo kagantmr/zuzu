@@ -10,6 +10,7 @@
 #include "kernel/layout.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm.h"
+#include "kernel/ipc/handle.h"
 #include "kernel/proc/process.h"
 #include "kernel/sched/sched.h"
 #include "ksym.h"
@@ -178,7 +179,7 @@ static const char *thread_state_str(int state)
     }
 }
 
-static const char *handle_type_str(handle_type_t t)
+static const char *handle_type_str(HandleType t)
 {
     switch (t) {
     case HANDLE_FREE:         return "FREE";
@@ -536,12 +537,12 @@ static void panic_print_process(void)
             panic_nl();
             panic_line("handles:");
             for (uint32_t idx = 1; idx < ht->cap && shown < PANIC_HANDLE_MAX; idx++) {
-                handle_entry_t *e = &ht->data[idx];
+                HandleEntry *e = &ht->data[idx];
                 if (e->type == HANDLE_FREE)
                     continue;
                 void *ptr = NULL;
                 switch (e->type) {
-                case HANDLE_ENDPOINT:     ptr = e->ep;    break;
+                case HANDLE_ENDPOINT:     ptr = e->port;    break;
                 case HANDLE_DEVICE:       ptr = e->dev;   break;
                 case HANDLE_SHMEM:        ptr = e->shm;   break;
                 case HANDLE_REPLY:        ptr = e->reply; break;
@@ -593,7 +594,7 @@ static void panic_print_process(void)
     if (current_thread->ipc_state != IPC_NONE) {
         panic_nl();
         if (current_thread->blocked_endpoint)
-            snprintf(line, sizeof(line), "IPC: %s  ep=0x%08X",
+            snprintf(line, sizeof(line), "IPC: %s  port=0x%08X",
                      ipc_state_str(current_thread->ipc_state),
                      (uint32_t)(uintptr_t)current_thread->blocked_endpoint);
         else
@@ -660,7 +661,7 @@ static void panic_print_sched(void)
     panic_nl();
     {
         int sleep_count = 0;
-        list_node_t *node;
+        ListNode *node;
         list_for_each(node, &sleep_queue.node)
             sleep_count++;
 

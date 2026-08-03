@@ -18,13 +18,13 @@ void sys_dev_query(arch_regs_t *frame) {
     Handle handle_idx = (*arch_reg(frame, 0));
     char *out_buf = (char *)(*arch_reg(frame, 1));
     size_t buf_len = (*arch_reg(frame, 2));
-    char compat_buf[sizeof(((device_cap_t *)0)->compatible) + 1];
+    char compat_buf[sizeof(((DeviceCap *)0)->compatible) + 1];
 
     if (handle_idx == 0 || buf_len == 0) {
         (*arch_reg(frame, 0)) = ERR_BADARG; return;
     }
 
-    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
+    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
     if (!entry) {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE; return;
     }
@@ -32,7 +32,7 @@ void sys_dev_query(arch_regs_t *frame) {
         (*arch_reg(frame, 0)) = ERR_BADTYPE; return;
     }
 
-    device_cap_t *cap = entry->dev;
+    DeviceCap *cap = entry->dev;
     if (!cap) {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE; return;
     }

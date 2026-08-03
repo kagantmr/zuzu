@@ -19,7 +19,7 @@
 
 uint32_t next_pid = 1;
 process_t *process_table[MAX_PROCESSES];
-extern endpoint_t *nametable_endpoint;
+extern Port *nametable_endpoint;
 
 #define LOG_FMT(fmt) "(proc) " fmt
 #include "core/log.h"
@@ -359,8 +359,8 @@ fail_kstack:
         process_table[p->pid % MAX_PROCESSES] = NULL;
 
     if (nametable_endpoint) {
-        handle_entry_t *slot0 = handle_vec_get(&p->handle_table, 0);
-        if (slot0 && slot0->type == HANDLE_ENDPOINT && slot0->ep == nametable_endpoint) {
+        HandleEntry *slot0 = handle_vec_get(&p->handle_table, 0);
+        if (slot0 && slot0->type == HANDLE_ENDPOINT && slot0->port == nametable_endpoint) {
             if (nametable_endpoint->ref_count > 0)
                 nametable_endpoint->ref_count--;
         }
@@ -378,7 +378,7 @@ fail_process:
 }
 
 void process_track_reply_cap(process_t *caller, process_t *holder,
-                             Handle holder_slot, reply_cap_t *rc)
+                             Handle holder_slot, ReplyCap *rc)
 {
     rc->holder_pid = holder ? holder->pid : 0;
     rc->holder_slot = holder_slot;
@@ -502,7 +502,7 @@ process_t *process_create(const char* name) {
 
 
     // slot 0 is reserved for nametable endpoint when available
-    handle_entry_t *slot0 = handle_vec_get(&p->handle_table, 0);
+    HandleEntry *slot0 = handle_vec_get(&p->handle_table, 0);
     if (!slot0)
         goto fail_kstack;
 
@@ -510,13 +510,13 @@ process_t *process_create(const char* name) {
         slot0->type = HANDLE_ENDPOINT;
         slot0->grantable = true;
         slot0->mapped_va = 0;
-        slot0->ep = nametable_endpoint;
+        slot0->port = nametable_endpoint;
         nametable_endpoint->ref_count++;
     } else {
         slot0->type = HANDLE_FREE;
         slot0->grantable = false;
         slot0->mapped_va = 0;
-        slot0->ep = NULL;
+        slot0->port = NULL;
     }
 
     /* `device_va_next` and `mmap_va_next` were initialized earlier. */
@@ -559,8 +559,8 @@ fail_kstack:
     p->tcb_page_pa = 0; /* page freed above; thread_destroy must not scrub it */
 fail_handles:
     if (nametable_endpoint) {
-        handle_entry_t *maybe_slot0 = handle_vec_get(&p->handle_table, 0);
-        if (maybe_slot0 && maybe_slot0->type == HANDLE_ENDPOINT && maybe_slot0->ep == nametable_endpoint) {
+        HandleEntry *maybe_slot0 = handle_vec_get(&p->handle_table, 0);
+        if (maybe_slot0 && maybe_slot0->type == HANDLE_ENDPOINT && maybe_slot0->port == nametable_endpoint) {
             if (nametable_endpoint->ref_count > 0)
                 nametable_endpoint->ref_count--;
         }
@@ -572,7 +572,7 @@ fail_process:
     return NULL;
 }
 
-void process_untrack_reply_cap(reply_cap_t *rc)
+void process_untrack_reply_cap(ReplyCap *rc)
 {
     if (!rc)
         return;
@@ -590,12 +590,12 @@ void process_untrack_reply_cap(reply_cap_t *rc)
 static void process_revoke_outstanding_reply_caps(process_t *caller)
 {
     while (!list_empty(&caller->outstanding_replies)) {
-        list_node_t *node = list_pop_front(&caller->outstanding_replies);
-        reply_cap_t *rc = container_of(node, reply_cap_t, caller_link);
+        ListNode *node = list_pop_front(&caller->outstanding_replies);
+        ReplyCap *rc = container_of(node, ReplyCap, caller_link);
 
         process_t *holder = process_find_by_pid(rc->holder_pid);
         if (holder) {
-            handle_entry_t *entry =
+            HandleEntry *entry =
                 handle_vec_get(&holder->handle_table, rc->holder_slot);
 
             if (entry && entry->type == HANDLE_REPLY && entry->reply == rc) {
@@ -644,7 +644,7 @@ process_t *process_find_child_by_pid(process_t *parent, Pid pid)
     if (!parent)
         return NULL;
 
-    list_node_t *node = parent->children.node.next;
+    ListNode *node = parent->children.node.next;
     while (node != &parent->children.node) {
         process_t *child = container_of(node, process_t, sibling_node);
         if (child->pid == pid)
@@ -660,7 +660,7 @@ process_t *process_find_zombie_child(process_t *parent)
     if (!parent)
         return NULL;
 
-    list_node_t *node = parent->children.node.next;
+    ListNode *node = parent->children.node.next;
     while (node != &parent->children.node) {
         process_t *child = container_of(node, process_t, sibling_node);
         if (child->thread->state == ZOMBIE)
@@ -715,9 +715,9 @@ void process_kill(process_t *p, const int exit_status) {
         }
     }
 
-    list_node_t *thread_node = p->threads.node.next;
+    ListNode *thread_node = p->threads.node.next;
     while (thread_node != &p->threads.node) {
-        list_node_t *next_thread = thread_node->next;
+        ListNode *next_thread = thread_node->next;
         thread_t *thread = container_of(thread_node, thread_t, process_node);
         thread->exit_status = exit_status;
 
@@ -734,17 +734,17 @@ void process_kill(process_t *p, const int exit_status) {
 
     // Clean up handle table
     for (uint32_t i = 0; i < p->handle_table.cap; i++) {
-        handle_entry_t *entry = handle_vec_get(&p->handle_table, i);
+        HandleEntry *entry = handle_vec_get(&p->handle_table, i);
         if (!entry)
             break;
 
         if (entry->type == HANDLE_ENDPOINT) {
-            endpoint_t *ep = entry->ep;
-            if (ep && ep->owner_pid == p->pid && ep->alive) {
-                ep->alive = false;
+            Port *port = entry->port;
+            if (port && port->owner_pid == p->pid && port->alive) {
+                port->alive = false;
                 // Wake blocked waiters with ERR_DEAD
-                while (!list_empty(&ep->sender_queue)) {
-                    list_node_t *n = list_pop_front(&ep->sender_queue);
+                while (!list_empty(&port->sender_queue)) {
+                    ListNode *n = list_pop_front(&port->sender_queue);
                     thread_t *thread = container_of(n, thread_t, node);
                     thread->ipc_state = IPC_NONE;
                     thread->blocked_endpoint = NULL;
@@ -754,8 +754,8 @@ void process_kill(process_t *p, const int exit_status) {
                     thread->state = READY;
                     sched_add(thread);
                 }
-                while (!list_empty(&ep->receiver_queue)) {
-                    list_node_t *n = list_pop_front(&ep->receiver_queue);
+                while (!list_empty(&port->receiver_queue)) {
+                    ListNode *n = list_pop_front(&port->receiver_queue);
                     thread_wait_slot_t *slot = container_of(n, thread_wait_slot_t, node);
                     thread_t *thread = slot->owner;
                     if (thread->waitany_ep_wait_active) {
@@ -775,13 +775,13 @@ void process_kill(process_t *p, const int exit_status) {
                     sched_add(thread);
                 }
             }
-            if (ep) {
-                if (ep->ref_count > 0)
-                    ep->ref_count--;
-                if (ep->ref_count == 0)
-                    kfree_endpoint(ep);
+            if (port) {
+                if (port->ref_count > 0)
+                    port->ref_count--;
+                if (port->ref_count == 0)
+                    kfree_endpoint(port);
             }
-            entry->ep = NULL;
+            entry->port = NULL;
             entry->grantable = false;
             entry->type = HANDLE_FREE;
         } else if (entry->type == HANDLE_DEVICE) {
@@ -810,7 +810,7 @@ void process_kill(process_t *p, const int exit_status) {
             entry->grantable = false;
             entry->type = HANDLE_FREE;
         } else if (entry->type == HANDLE_REPLY) {
-            reply_cap_t *rc = entry->reply;
+            ReplyCap *rc = entry->reply;
             thread_t *caller_thread = thread_find_by_tid(rc ? rc->caller_tid : 0);
 
             if (caller_thread && caller_thread->ipc_state == IPC_WAITING) {
@@ -836,7 +836,7 @@ void process_kill(process_t *p, const int exit_status) {
             if (ntfn && ntfn->owner_pid == p->pid && ntfn->alive) {
                 ntfn->alive = false;
                 while (!list_empty(&ntfn->wait_queue)) {
-                    list_node_t *n = list_pop_front(&ntfn->wait_queue);
+                    ListNode *n = list_pop_front(&ntfn->wait_queue);
                     thread_wait_slot_t *slot = container_of(n, thread_wait_slot_t, node);
                     thread_t *thread = slot->owner;
                     if (thread->trap_frame)
@@ -873,9 +873,9 @@ void process_kill(process_t *p, const int exit_status) {
     process_revoke_outstanding_reply_caps(p);
 
     process_t *init_proc = process_find_by_pid(1);
-    list_node_t *child_node = p->children.node.next;
+    ListNode *child_node = p->children.node.next;
     while (child_node != &p->children.node) {
-        list_node_t *next = child_node->next;
+        ListNode *next = child_node->next;
         process_t *child = container_of(child_node, process_t, sibling_node);
         process_set_parent(child, init_proc);
         child_node = next;
@@ -913,7 +913,7 @@ void process_destroy(process_t *p)
     if (p->timeout_node.prev && p->timeout_node.next)
         list_remove(&p->timeout_node);
     while (!list_empty(&p->threads)) {
-        list_node_t *node = p->threads.node.next;
+        ListNode *node = p->threads.node.next;
         thread_t *thread = container_of(node, thread_t, process_node);
         thread_destroy(thread);
     }
@@ -923,7 +923,7 @@ void process_destroy(process_t *p)
      * and would otherwise leak the shm object and its pages. Runs before
      * as_destroy so the address space is still valid for unmapping. */
     for (uint32_t i = 0; i < p->handle_table.cap; i++) {
-        handle_entry_t *entry = handle_vec_get(&p->handle_table, i);
+        HandleEntry *entry = handle_vec_get(&p->handle_table, i);
         if (!entry)
             break;
         if (entry->type == HANDLE_SHMEM && entry->shm) {
