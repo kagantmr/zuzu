@@ -247,6 +247,26 @@ static void send_worker(void *arg)
     ZuzuTQuit(0);
 }
 
+/* Like send_worker/call_worker, but the target handle is passed in (used to
+ * send/call through a specific badge rather than always g_port), so the
+ * marker tests can exercise several handles to the same endpoint. */
+static void send_marked_worker(void *arg)
+{
+    Handle h = (Handle)(uintptr_t)arg;
+    ZuzuSleep(20);   /* let main block in waitany first */
+    g_worker_ok = (ZuzuMsgSend(h, 0x61, 0x62, 0x63) == 0);
+    ZuzuTQuit(0);
+}
+
+static void call_marked_worker(void *arg)
+{
+    Handle h = (Handle)(uintptr_t)arg;
+    Message r = ZuzuMsgCall(h, 0x71, 0x72, 0x73);
+    g_worker_ok = ((int32_t)r.w0 == 0 &&
+                   r.w1 == 0xB1 && r.w2 == 0xB2 && r.w3 == 0xB3);
+    ZuzuTQuit(0);
+}
+
 static void recv_dead_worker(void *arg)
 {
     (void)arg;
@@ -470,6 +490,97 @@ static void sec_ipc(void)
     ZuzuTJoin(t);
     CHECK(g_worker_ok, "blocked receiver woke with ERR_DEAD");
     g_port = -1;
+
+    ZuzuMemUnmap(st);
+}
+
+static void sec_markers(void)
+{
+    section("markers");
+
+    /* --- SysStamp argument/type validation --- */
+    Handle ep = ZuzuPortCreate();
+    CHECK(ep >= 0, "port_create (stamp probe)");
+
+    CHECK_EQ(ZuzuStamp(ep, MARKER_NONE), ERR_BADARG,
+             "stamp value=0 (MARKER_NONE) -> ERR_BADARG");
+    CHECK_EQ(ZuzuStamp(9999, 0x1), ERR_BADHANDLE,
+             "stamp bogus handle -> ERR_BADHANDLE");
+
+    int32_t nt = ZuzuNtfnCreate();
+    CHECK(nt >= 0, "ntfn_create (stamp type probe)");
+    CHECK_EQ(ZuzuStamp((Handle)nt, 0x1), ERR_BADTYPE,
+             "stamp on ntfn handle -> ERR_BADTYPE");
+    CHECK_EQ(ZuzuDestroy(nt), 0, "destroy stamp-type-probe ntfn");
+
+    /* --- successful stamp: mints a new, distinct handle to the same endpoint --- */
+    Handle badge1 = ZuzuStamp(ep, 0xAAAA);
+    CHECK(badge1 >= 0, "stamp ep with 0xAAAA succeeds");
+    CHECK(badge1 != ep, "stamped handle is a new handle, distinct from source");
+
+    /* --- immutability: an already-marked cap cannot itself be re-stamped --- */
+    CHECK_EQ(ZuzuStamp(badge1, 0xBBBB), ERR_DUPLICATE,
+             "re-stamp of an already-marked cap -> ERR_DUPLICATE");
+
+    /* --- but the original UNMARKED cap can be minted again for another badge --- */
+    Handle badge2 = ZuzuStamp(ep, 0xBBBB);
+    CHECK(badge2 >= 0, "stamp original ep again with 0xBBBB succeeds (source untouched)");
+    CHECK(badge2 != ep && badge2 != badge1,
+          "second badge is yet another distinct handle from the first");
+
+    /* --- the marker rides along on send/call, but is observable ONLY through
+     * waitany's WaitanyResult.marker (plain recv/call carry no marker word) --- */
+    void *st = stack_alloc();
+    CHECK(st != NULL, "worker stack (markers)");
+    Handle set[1] = { ep };
+    WaitanyResult res;
+
+    /* send through the unbadged original -> marker reads back MARKER_NONE */
+    g_worker_ok = 0;
+    Tid t = ZuzuTMake(send_marked_worker, (char *)st + STACK_SIZE, (void *)(uintptr_t)ep);
+    CHECK_EQ(ZuzuWaitany(set, 1, TIMEOUT_INFINITE, &res), 0, "waitany: send via unbadged ep");
+    CHECK(res.kind == WAITANY_KIND_SEND, "unbadged send: kind=SEND");
+    CHECK(res.marker == MARKER_NONE, "unbadged send: marker=MARKER_NONE");
+    ZuzuTJoin(t);
+    CHECK(g_worker_ok, "unbadged sender saw rc=0");
+
+    /* send through badge1 -> marker reads back 0xAAAA */
+    g_worker_ok = 0;
+    t = ZuzuTMake(send_marked_worker, (char *)st + STACK_SIZE, (void *)(uintptr_t)badge1);
+    CHECK_EQ(ZuzuWaitany(set, 1, TIMEOUT_INFINITE, &res), 0, "waitany: send via badge1");
+    CHECK(res.kind == WAITANY_KIND_SEND, "badge1 send: kind=SEND");
+    CHECK(res.marker == 0xAAAA, "badge1 send: marker=0xAAAA");
+    ZuzuTJoin(t);
+    CHECK(g_worker_ok, "badge1 sender saw rc=0");
+
+    /* send through badge2 -> marker reads back 0xBBBB (distinct badge, same endpoint) */
+    g_worker_ok = 0;
+    t = ZuzuTMake(send_marked_worker, (char *)st + STACK_SIZE, (void *)(uintptr_t)badge2);
+    CHECK_EQ(ZuzuWaitany(set, 1, TIMEOUT_INFINITE, &res), 0, "waitany: send via badge2");
+    CHECK(res.kind == WAITANY_KIND_SEND, "badge2 send: kind=SEND");
+    CHECK(res.marker == 0xBBBB, "badge2 send: marker=0xBBBB");
+    ZuzuTJoin(t);
+    CHECK(g_worker_ok, "badge2 sender saw rc=0");
+
+    /* call through badge1 -> marker rides along on the CALL kind too */
+    g_worker_ok = 0;
+    t = ZuzuTMake(call_marked_worker, (char *)st + STACK_SIZE, (void *)(uintptr_t)badge1);
+    CHECK_EQ(ZuzuWaitany(set, 1, TIMEOUT_INFINITE, &res), 0, "waitany: call via badge1");
+    CHECK(res.kind == WAITANY_KIND_CALL, "badge1 call: kind=CALL");
+    CHECK(res.marker == 0xAAAA, "badge1 call: marker=0xAAAA");
+    CHECK_EQ(ZuzuMsgReply((Handle)res.source, 0xB1, 0xB2, 0xB3), 0, "reply to badge1 call");
+    ZuzuTJoin(t);
+    CHECK(g_worker_ok, "badge1 caller got reply payload");
+
+    /* --- destroying any one badge kills the underlying endpoint for every
+     * holder (badging shares the object; it doesn't isolate lifetime) --- */
+    CHECK_EQ(ZuzuDestroy(badge2), 0, "destroy badge2 (kills shared endpoint)");
+    CHECK_EQ(ZuzuMsgSend(ep, 1, 2, 3), ERR_DEAD,
+             "original ep handle dead after a badge sibling destroyed it");
+    CHECK_EQ(ZuzuMsgSend(badge1, 1, 2, 3), ERR_DEAD,
+             "surviving badge1 handle also dead (shared endpoint)");
+    CHECK_EQ(ZuzuDestroy(ep), ERR_DEAD, "destroy already-dead ep entry -> ERR_DEAD (frees slot)");
+    CHECK_EQ(ZuzuDestroy(badge1), ERR_DEAD, "destroy already-dead badge1 entry -> ERR_DEAD (frees slot)");
 
     ZuzuMemUnmap(st);
 }
@@ -941,6 +1052,7 @@ int main(void)
 
     sec_mem();
     sec_ipc();
+    sec_markers();
     sec_handles();
     sec_tasks();
     sec_vfp();

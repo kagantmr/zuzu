@@ -1043,10 +1043,13 @@ void sys_waitany(arch_regs_t *frame)
         (*arch_reg(frame, 0)) = ERR_BADPTR;
         return;
     }
+
     if (caller_size < sizeof(WaitanyResult)) {   /* v1: exact; later: >= v1 size */
+        KERROR("I hit here, there's a struct size mismatch, caller_size: %u, WaitanyResult: %u", caller_size, sizeof(WaitanyResult));
         (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
+
     size_t wlen = caller_size < sizeof(WaitanyResult)
                 ? caller_size : sizeof(WaitanyResult);
 
