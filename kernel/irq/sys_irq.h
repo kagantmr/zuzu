@@ -11,7 +11,7 @@ typedef struct process process_t;
 typedef struct irq_owner {
     process_t      *owner;
     bool            pending;
-    notification_t *bound_ntfn;   // was endpoint_t *bound_port
+    Notification *bound_ntfn;   // was endpoint_t *bound_port
 } irq_owner_t;
 
 void sys_irq_bind(arch_regs_t* frame);

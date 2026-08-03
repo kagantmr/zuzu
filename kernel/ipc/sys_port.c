@@ -191,7 +191,7 @@ void sys_destroy(arch_regs_t *frame)
     }
     break;
     case HANDLE_NOTIFICATION: {
-        notification_t *ntf = entry->ntfn;
+        Notification *ntf = entry->ntfn;
         if (!ntf)
         {
             (*arch_reg(frame, 0)) = ERR_BADHANDLE;
