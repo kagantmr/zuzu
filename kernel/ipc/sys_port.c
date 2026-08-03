@@ -412,3 +412,56 @@ void sys_grant(arch_regs_t *frame)
     dst->grantable = can_regrant_received_handle(grantee);
     (*arch_reg(frame, 0)) = (Handle)slot;
 }
+
+void SysStamp(arch_regs_t *frame)
+{
+    Handle   src_handle = (*arch_reg(frame, 0));
+    uint32_t value      = (*arch_reg(frame, 1));
+
+    // 1. value != 0  (0 is the reserved unmarked sentinel)
+    if (value == MARKER_NONE) {
+        (*arch_reg(frame, 0)) = ERR_BADARG;
+        return;
+    }
+
+    // 2. resolve the source handle
+    handle_entry_t *src = handle_vec_get(&current_thread->owner_process->handle_table, src_handle);
+    if (!src) {
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+        return;
+    }
+
+    // 3. must be an endpoint cap
+    if (src->type != HANDLE_ENDPOINT) {
+        (*arch_reg(frame, 0)) = ERR_BADTYPE;
+        return;
+    }
+    if (!src->ep || !src->ep->alive) {
+        (*arch_reg(frame, 0)) = ERR_DEAD;   // or ERR_BADHANDLE for !ep
+        return;
+    }
+
+    // 4. IMMUTABILITY: can only stamp an UNMARKERD cap
+    if (src->marker != MARKER_NONE) {
+        (*arch_reg(frame, 0)) = ERR_DUPLICATE;   // already markerd, won't re-stamp
+        return;
+    }
+
+    // 5. allocate a new slot in the CALLER's table
+    int slot = handle_vec_find_free(&current_thread->owner_process->handle_table);
+    if (slot < 0) {
+        (*arch_reg(frame, 0)) = ERR_NOMEM;
+        return;
+    }
+
+    // 6. new entry: SAME endpoint, marker = value
+    handle_entry_t *ne = handle_vec_get(&current_thread->owner_process->handle_table, slot);
+    ne->type      = HANDLE_ENDPOINT;
+    ne->ep        = src->ep;      // same underlying endpoint object
+    ne->marker     = value;        // the stamp
+    ne->grantable = src->grantable;   // inherit grantability (see note)
+    src->ep->ref_count++;
+
+    // 7. return the new handle; src is UNTOUCHED (non-consuming)
+    (*arch_reg(frame, 0)) = slot;
+}

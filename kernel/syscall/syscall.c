@@ -52,6 +52,7 @@ static syscall_handler_t syscall_table[SYS_MAX + 1] = {
     [SYS_DEV_QUERY] = sys_dev_query,
     [SYS_NTFN_SIGNAL] = sys_ntfn_signal,
     [SYS_NTFN_WAIT] = sys_ntfn_wait,
+    [SYS_STAMP] = SysStamp,
     [SYS_MEMMAP] = sys_memmap,
     [SYS_MEMUNMAP] = sys_memunmap,
     [SYS_SHMEM_CREATE] = sys_shm_create,
