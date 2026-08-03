@@ -37,17 +37,18 @@ typedef struct
 #define TIMEOUT_POLL 0u
 #define TIMEOUT_INFINITE UINT32_MAX
 
-    /*  Process spawn types  */
+/*  Process spawn types  */
 
-    typedef struct
-    {
-        Handle taskHandle;
-        Pid pid;
-    } TSpawnResult;
+typedef struct
+{
+    Handle taskHandle;
+    Pid pid;
+} TSpawnResult;
 
-    /* Handle sentinels  */
+/* Handle sentinels  */
 
 #define HANDLE_ANON ((Handle) - 1) // Sentinel value used in memmap() as the handle value
+#define MARKER_NONE 0 /* Means unbadged */
 
     /* Waitany sentinels, enums and structs */
 
@@ -70,6 +71,7 @@ typedef struct
     MsgWord w1;           /* send: payload/lmsg len | call: sender pid | ntfn: bits */
     MsgWord w2;           /* send/call: payload or lmsg length */
     MsgWord w3;           /* send/call: payload */
+    MsgWord marker;        /* Added in 1.1: waitany on 32-bit architectures is the only syscall that can use markers */
 } WaitanyResult;
 
 #ifdef __cplusplus

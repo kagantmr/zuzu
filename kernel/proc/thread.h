@@ -68,6 +68,7 @@ struct thread
     reply_cap_t *pending_reply_cap;
     PhysAddr ipc_buf_pa;
     size_t ipc_buf_xfer_len;
+    uint32_t ipc_marker;
     thread_wait_slot_t ntfn_wait_slot;
     thread_wait_slot_t waitany_wait_slots[WAITANY_MAX_HANDLES];
     Notification *waitany_wait_ntfns[WAITANY_MAX_HANDLES];

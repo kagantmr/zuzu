@@ -35,6 +35,7 @@
 #define SYS_DESTROY 0x24     /* (handle) -> 0 or -err; refuses REPLY/TASK, ERR_BUSY if mapped */
 #define SYS_NTFN_SIGNAL 0x25 /* (ntfn_handle, bits) -> 0 or -err; bits are 31-bit, bit 31 rejected */
 #define SYS_NTFN_WAIT 0x26   /* (ntfn_handle, timeout_ms) -> bits or -err; bit 31 reserved for errors */
+#define SYS_STAMP 0x27       /* (handle, value) -> stamped_handle or -err*/
 
 /* ---- Memory (0x30-0x3F) ---- */
 #define SYS_MEMMAP 0x30        /* (handle|HANDLE_ANON, size, prot, flags) -> va or -err. ANON: size>0, <=32MB. DEVICE/SHM: size must be 0. prot=R/W/X only, W^X enforced, EXEC rejected on device. flags must be 0. */
