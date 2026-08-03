@@ -9,10 +9,10 @@ extern "C" {
 
 typedef struct list_node {
     struct list_node *prev, *next;
-} list_node_t;
+} ListNode;
 
 typedef struct list_head {
-    list_node_t node;  // sentinel node (empty list points to itself)
+    ListNode node;  // sentinel node (empty list points to itself)
 } list_head_t;
 
 #define list_for_each(pos, head) \
@@ -26,14 +26,14 @@ typedef struct list_head {
  * @param node Pointer to the new node to be added.
  * @param head Pointer to the head of the list.
  */
-void list_add_tail(list_node_t* node, list_node_t* head);
+void list_add_tail(ListNode* node, ListNode* head);
 
 /**
  * @brief Removes a node from the list.
  * 
  * @param node Pointer to the node to be removed.
  */
-void list_remove(list_node_t* node);
+void list_remove(ListNode* node);
 
 #define container_of(ptr, type, member) \
     ((type*)((char*)(ptr) - offsetof(type, member)))
@@ -64,7 +64,7 @@ static inline int list_empty(const list_head_t *head) {
  * @param new Pointer to the new node to be inserted.
  * @param existing Pointer to the existing node before which the new node will be inserted.
  */
-static inline void list_insert_before(list_node_t *new, list_node_t *existing) {
+static inline void list_insert_before(ListNode *new, ListNode *existing) {
     new->next = existing;
     new->prev = existing->prev;
     existing->prev->next = new;
@@ -77,11 +77,11 @@ static inline void list_insert_before(list_node_t *new, list_node_t *existing) {
  * @param head Pointer to the list head.
  * @return list_node_t* Pointer to the popped node, or NULL if the list is empty.
  */
-static inline list_node_t* list_pop_front(list_head_t *head) {
+static inline ListNode* list_pop_front(list_head_t *head) {
     if (list_empty(head)) {
         return NULL;
     }
-    list_node_t *first = head->node.next;
+    ListNode *first = head->node.next;
     list_remove(first);
     return first;
 }

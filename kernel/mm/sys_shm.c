@@ -72,7 +72,7 @@ void sys_shm_create(arch_regs_t *frame)
         return;
     }
 
-    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle);
+    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle);
     if (!entry)
     {
         kfree(page_arr);

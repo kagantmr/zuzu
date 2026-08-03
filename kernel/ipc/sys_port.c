@@ -3,6 +3,7 @@
 #include "kernel/syscall/syscall.h"
 #include "port.h"
 #include "kernel/sched/sched.h"
+#include "handle.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/proc/process.h"
 
@@ -11,7 +12,7 @@
 
 extern thread_t *current_thread;
 extern process_t *process_table[MAX_PROCESSES];
-endpoint_t *nametable_endpoint;
+Port *nametable_endpoint;
 
 static bool can_regrant_received_handle(const process_t *grantee)
 {
@@ -35,9 +36,9 @@ void sys_port_create(arch_regs_t *frame)
         return;
     }
 
-    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle);
+    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle);
 
-    endpoint_t *new_endpoint = (endpoint_t *)kalloc_endpoint();
+    Port *new_endpoint = (Port *)kalloc_endpoint();
     if (!new_endpoint)
     {
         (*arch_reg(frame, 0)) = ERR_NOMEM;
@@ -53,18 +54,18 @@ void sys_port_create(arch_regs_t *frame)
             process_t *p = process_table[j];
             if (p && p != current_thread->owner_process)
             {
-                handle_entry_t *p_entry = handle_vec_get(&p->handle_table, 0);
+                HandleEntry *p_entry = handle_vec_get(&p->handle_table, 0);
                 if (p_entry && p_entry->type == HANDLE_FREE)
                 {
-                    p_entry->ep = nametable_endpoint;
+                    p_entry->port = nametable_endpoint;
                     p_entry->grantable = true;
                     p_entry->type = HANDLE_ENDPOINT;
                     nametable_endpoint->ref_count++;
                 }
                 else if (p_entry && p_entry->type != HANDLE_FREE)
                 {
-                    KWARN("nametable bootstrap skipped PID %u: handle slot 0 already in use (type=%d ep=%p)",
-                          p->pid, p_entry->type, (void *)p_entry->ep);
+                    KWARN("nametable bootstrap skipped PID %u: handle slot 0 already in use (type=%d port=%p)",
+                          p->pid, p_entry->type, (void *)p_entry->port);
                 }
             }
         }
@@ -75,7 +76,7 @@ void sys_port_create(arch_regs_t *frame)
     new_endpoint->owner_pid = current_thread->owner_process->pid;
     new_endpoint->ref_count = 1;
     new_endpoint->alive = true;
-    entry->ep = new_endpoint;
+    entry->port = new_endpoint;
     entry->grantable = true;
     entry->type = HANDLE_ENDPOINT;
 
@@ -94,7 +95,7 @@ void sys_destroy(arch_regs_t *frame)
     int handle = (int)(*arch_reg(frame, 0));
 
     // Validate handle
-    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle);
+    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle);
     if (!entry)
     {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE;
@@ -115,16 +116,16 @@ void sys_destroy(arch_regs_t *frame)
     case HANDLE_ENDPOINT:
     {
 
-        endpoint_t *ep = entry->ep;
-        if (!ep)
+        Port *port = entry->port;
+        if (!port)
         {
             (*arch_reg(frame, 0)) = ERR_BADHANDLE;
             return;
         }
 
-        if (!ep->alive)
+        if (!port->alive)
         {
-            entry->ep = NULL;
+            entry->port = NULL;
             entry->grantable = false;
             entry->type = HANDLE_FREE;
             (*arch_reg(frame, 0)) = ERR_DEAD;
@@ -132,16 +133,16 @@ void sys_destroy(arch_regs_t *frame)
         }
 
         // Only owner can destroy
-        if (ep->owner_pid != current_thread->owner_process->pid)
+        if (port->owner_pid != current_thread->owner_process->pid)
         {
             (*arch_reg(frame, 0)) = ERR_NOPERM;
             return;
         }
 
         // Wake all blocked senders with error
-        while (!list_empty(&ep->sender_queue))
+        while (!list_empty(&port->sender_queue))
         {
-            list_node_t *n = list_pop_front(&ep->sender_queue);
+            ListNode *n = list_pop_front(&port->sender_queue);
             thread_t *t = container_of(n, thread_t, node);
             t->ipc_state = IPC_NONE;
             t->blocked_endpoint = NULL;
@@ -151,9 +152,9 @@ void sys_destroy(arch_regs_t *frame)
         }
 
         // Wake all blocked receivers with error
-        while (!list_empty(&ep->receiver_queue))
+        while (!list_empty(&port->receiver_queue))
         {
-            list_node_t *n = list_pop_front(&ep->receiver_queue);
+            ListNode *n = list_pop_front(&port->receiver_queue);
             thread_wait_slot_t *slot = container_of(n, thread_wait_slot_t, node);
             thread_t *t = slot->owner;
             if (t->waitany_ep_wait_active)
@@ -176,16 +177,16 @@ void sys_destroy(arch_regs_t *frame)
             sched_add(t);
         }
 
-        ep->alive = false;
+        port->alive = false;
 
-        entry->ep = NULL;
+        entry->port = NULL;
         entry->grantable = false;
         entry->type = HANDLE_FREE;
 
-        if (ep->ref_count > 0)
-            ep->ref_count--;
-        if (ep->ref_count == 0)
-            kfree_endpoint(ep);
+        if (port->ref_count > 0)
+            port->ref_count--;
+        if (port->ref_count == 0)
+            kfree_endpoint(port);
 
         (*arch_reg(frame, 0)) = 0;
     }
@@ -217,7 +218,7 @@ void sys_destroy(arch_regs_t *frame)
         // Wake all blocked waiters (plain ntfn_wait and waitany) with error
         while (!list_empty(&ntf->wait_queue))
         {
-            list_node_t *n = list_pop_front(&ntf->wait_queue);
+            ListNode *n = list_pop_front(&ntf->wait_queue);
             thread_wait_slot_t *slot = container_of(n, thread_wait_slot_t, node);
             ntfn_wake_waiter(ntf, slot, ERR_DEAD, 0);
         }
@@ -255,7 +256,7 @@ void sys_destroy(arch_regs_t *frame)
     }
     break;
     case HANDLE_DEVICE: {
-        device_cap_t *dev = entry->dev;
+        DeviceCap *dev = entry->dev;
         if (!dev)
         {
             (*arch_reg(frame, 0)) = ERR_BADHANDLE;
@@ -319,7 +320,7 @@ void sys_grant(arch_regs_t *frame)
     Pid pid = (*arch_reg(frame, 1));
 
     // Validate handle
-    handle_entry_t *src = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle);
+    HandleEntry *src = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle);
     if (!src || src->type == HANDLE_FREE)
     {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE;
@@ -358,7 +359,7 @@ void sys_grant(arch_regs_t *frame)
         return;
     }
 
-    handle_entry_t *dst = handle_vec_get(&grantee->handle_table, (uint32_t)slot);
+    HandleEntry *dst = handle_vec_get(&grantee->handle_table, (uint32_t)slot);
     if (!dst)
     {
         (*arch_reg(frame, 0)) = ERR_NOMEM;
@@ -369,15 +370,15 @@ void sys_grant(arch_regs_t *frame)
 
     if (dst->type == HANDLE_ENDPOINT)
     {
-        if (!dst->ep || !dst->ep->alive)
+        if (!dst->port || !dst->port->alive)
         {
             dst->type = HANDLE_FREE;
             dst->grantable = false;
-            dst->ep = NULL;
+            dst->port = NULL;
             (*arch_reg(frame, 0)) = ERR_DEAD;
             return;
         }
-        dst->ep->ref_count++;
+        dst->port->ref_count++;
     }
     if (dst->type == HANDLE_DEVICE)
     {
@@ -425,7 +426,7 @@ void SysStamp(arch_regs_t *frame)
     }
 
     // 2. resolve the source handle
-    handle_entry_t *src = handle_vec_get(&current_thread->owner_process->handle_table, src_handle);
+    HandleEntry *src = handle_vec_get(&current_thread->owner_process->handle_table, src_handle);
     if (!src) {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;
@@ -436,8 +437,8 @@ void SysStamp(arch_regs_t *frame)
         (*arch_reg(frame, 0)) = ERR_BADTYPE;
         return;
     }
-    if (!src->ep || !src->ep->alive) {
-        (*arch_reg(frame, 0)) = ERR_DEAD;   // or ERR_BADHANDLE for !ep
+    if (!src->port || !src->port->alive) {
+        (*arch_reg(frame, 0)) = ERR_DEAD;   // or ERR_BADHANDLE for !port
         return;
     }
 
@@ -455,12 +456,12 @@ void SysStamp(arch_regs_t *frame)
     }
 
     // 6. new entry: SAME endpoint, marker = value
-    handle_entry_t *ne = handle_vec_get(&current_thread->owner_process->handle_table, slot);
+    HandleEntry *ne = handle_vec_get(&current_thread->owner_process->handle_table, slot);
     ne->type      = HANDLE_ENDPOINT;
-    ne->ep        = src->ep;      // same underlying endpoint object
+    ne->port        = src->port;      // same underlying endpoint object
     ne->marker     = value;        // the stamp
     ne->grantable = src->grantable;   // inherit grantability (see note)
-    src->ep->ref_count++;
+    src->port->ref_count++;
 
     // 7. return the new handle; src is UNTOUCHED (non-consuming)
     (*arch_reg(frame, 0)) = slot;

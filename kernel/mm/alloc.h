@@ -28,7 +28,7 @@ typedef struct slab {
 } slab_t;
 
 typedef struct slab_cache {
-    const char *name;        // "endpoint_t", for debugging/kheap_dump
+    const char *name;        // "Port", for debugging/kheap_dump
     size_t      obj_size;    // aligned object size
     slab_t     *slabs;       // linked list of all slabs
 } slab_cache_t;

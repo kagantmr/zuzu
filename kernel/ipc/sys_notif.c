@@ -1,6 +1,7 @@
 #include "sys_notif.h"
 #include "kernel/proc/process.h"
 #include "kernel/sched/sched.h"
+#include "handle.h"
 #include "kernel/syscall/syscall.h"
 #include "kernel/time/tick.h"
 #include "core/panic.h"
@@ -61,7 +62,7 @@ void sys_ntfn_create(arch_regs_t *frame) {
     ntfn->ref_count = 1;
     ntfn->alive = true;
 
-    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle);
+    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle);
     entry->type = HANDLE_NOTIFICATION;
     entry->ntfn = ntfn;
     entry->grantable = true;
@@ -72,7 +73,7 @@ void sys_ntfn_signal(arch_regs_t *frame) {
     Handle handle_idx = (*arch_reg(frame, 0));
     uint32_t bits = (*arch_reg(frame, 1));
 
-    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
+    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
     if (!entry) {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE; return;
     }
@@ -93,7 +94,7 @@ void sys_ntfn_signal(arch_regs_t *frame) {
 
     // Wake one waiter if any (ntfn_wake_waiter panics on a corrupt queue)
     if (!list_empty(&ntfn->wait_queue)) {
-        list_node_t *node = list_pop_front(&ntfn->wait_queue);
+        ListNode *node = list_pop_front(&ntfn->wait_queue);
         thread_wait_slot_t *slot = container_of(node, thread_wait_slot_t, node);
 
         uint32_t delivered = ntfn->word;
@@ -108,7 +109,7 @@ void sys_ntfn_wait(arch_regs_t *frame) {
     Handle handle_idx = (*arch_reg(frame, 0));
     uint32_t timeout_ms = (*arch_reg(frame, 1));
 
-    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
+    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
     if (!entry) {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE; return;
     }

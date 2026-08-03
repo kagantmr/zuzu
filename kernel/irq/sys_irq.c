@@ -25,7 +25,7 @@ static void relay_handler(void *ctx)
         irq_owners[irq_num].pending = false;
 
         if (!list_empty(&ntfn->wait_queue)) {
-            list_node_t *node = list_pop_front(&ntfn->wait_queue);
+            ListNode *node = list_pop_front(&ntfn->wait_queue);
             thread_wait_slot_t *slot = container_of(node, thread_wait_slot_t, node);
             thread_t *waiter = slot->owner;
             if (!waiter->trap_frame)
@@ -80,7 +80,7 @@ void sys_irq_bind(arch_regs_t *frame) {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;
     }
-    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, dev_handle);
+    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, dev_handle);
     if (!entry) {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;
@@ -105,7 +105,7 @@ void sys_irq_bind(arch_regs_t *frame) {
 
     /* Validate the notification before mutating any state so a bad ntfn handle
      * does not leave the line claimed-but-unbound. */
-    handle_entry_t *ntfn_entry = handle_vec_get(&current_thread->owner_process->handle_table, ntfn_handle);
+    HandleEntry *ntfn_entry = handle_vec_get(&current_thread->owner_process->handle_table, ntfn_handle);
     if (!ntfn_entry || !ntfn_entry->ntfn) {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;
@@ -146,7 +146,7 @@ void sys_irq_bind(arch_regs_t *frame) {
         irq_owners[irq_num].pending = false;
 
         if (!list_empty(&ntfn->wait_queue)) {
-            list_node_t *node = list_pop_front(&ntfn->wait_queue);
+            ListNode *node = list_pop_front(&ntfn->wait_queue);
             thread_wait_slot_t *slot = container_of(node, thread_wait_slot_t, node);
             thread_t *waiter = slot->owner;
             if (waiter->trap_frame)
@@ -188,7 +188,7 @@ void sys_irq_done(arch_regs_t* frame) {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;
     }
-    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, dev_handle);
+    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, dev_handle);
     if (!entry) {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;

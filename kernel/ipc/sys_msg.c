@@ -1,6 +1,7 @@
-#include "sys_ipc.h"
+#include "sys_msg.h"
 #include "kernel/syscall/syscall.h"
 #include "port.h"
+#include "handle.h"
 #include "kernel/sched/sched.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/proc/kstack.h"
@@ -93,7 +94,7 @@ static void ipc_wake_ready(thread_t *t)
     sched_add(t);
 }
 
-static handle_entry_t *validate_endpoint_handle(process_t *proc, Handle handle, arch_regs_t *frame)
+static HandleEntry *validate_endpoint_handle(process_t *proc, Handle handle, arch_regs_t *frame)
 {
     if (!proc)
     {
@@ -101,7 +102,7 @@ static handle_entry_t *validate_endpoint_handle(process_t *proc, Handle handle, 
         return NULL;
     }
 
-    handle_entry_t *entry = handle_vec_get(&proc->handle_table, handle);
+    HandleEntry *entry = handle_vec_get(&proc->handle_table, handle);
     if (!entry)
     {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE;
@@ -112,12 +113,12 @@ static handle_entry_t *validate_endpoint_handle(process_t *proc, Handle handle, 
         (*arch_reg(frame, 0)) = ERR_BADTYPE;
         return NULL;
     }
-    if (!entry->ep)
+    if (!entry->port)
     {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return NULL;
     }
-    if (!entry->ep->alive)
+    if (!entry->port->alive)
     {
         (*arch_reg(frame, 0)) = ERR_DEAD;
         return NULL;
@@ -126,7 +127,7 @@ static handle_entry_t *validate_endpoint_handle(process_t *proc, Handle handle, 
     return entry;
 }
 
-static handle_entry_t *validate_notification_handle(process_t *proc, Handle handle, arch_regs_t *frame)
+static HandleEntry *validate_notification_handle(process_t *proc, Handle handle, arch_regs_t *frame)
 {
     if (!proc)
     {
@@ -134,7 +135,7 @@ static handle_entry_t *validate_notification_handle(process_t *proc, Handle hand
         return NULL;
     }
 
-    handle_entry_t *entry = handle_vec_get(&proc->handle_table, handle);
+    HandleEntry *entry = handle_vec_get(&proc->handle_table, handle);
     if (!entry)
     {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE;
@@ -159,7 +160,7 @@ static handle_entry_t *validate_notification_handle(process_t *proc, Handle hand
     return entry;
 }
 
-static handle_entry_t *validate_reply_handle(process_t *proc,
+static HandleEntry *validate_reply_handle(process_t *proc,
                                              Handle handle_idx,
                                              thread_t **target_out,
                                              arch_regs_t *frame)
@@ -170,7 +171,7 @@ static handle_entry_t *validate_reply_handle(process_t *proc,
         return NULL;
     }
 
-    handle_entry_t *entry = handle_vec_get(&proc->handle_table, handle_idx);
+    HandleEntry *entry = handle_vec_get(&proc->handle_table, handle_idx);
     if (!entry)
     {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE;
@@ -231,18 +232,18 @@ void __attribute__((hot)) sys_msg_send(arch_regs_t *frame)
 {
     int handle = (int)(*arch_reg(frame, 0));
 
-    handle_entry_t *entry = validate_endpoint_handle(current_thread->owner_process, handle, frame);
+    HandleEntry *entry = validate_endpoint_handle(current_thread->owner_process, handle, frame);
     if (!entry)
         return;
-    endpoint_t *ep = entry->ep;
-    if (!ep)
+    Port *port = entry->port;
+    if (!port)
     {
         return;
     }
 
-    if (!list_empty(&ep->receiver_queue))
+    if (!list_empty(&port->receiver_queue))
     {
-        list_node_t *receiver = list_pop_front(&ep->receiver_queue);
+        ListNode *receiver = list_pop_front(&port->receiver_queue);
         thread_wait_slot_t *rx_slot = container_of(receiver, thread_wait_slot_t, node);
         thread_t *rx_thread = rx_slot->owner;
 
@@ -286,9 +287,9 @@ void __attribute__((hot)) sys_msg_send(arch_regs_t *frame)
     else
     {
         current_thread->ipc_state = IPC_SENDER;
-        current_thread->blocked_endpoint = ep;
+        current_thread->blocked_endpoint = port;
         current_thread->ipc_marker = entry->marker;
-        list_add_tail(&current_thread->node, &ep->sender_queue.node);
+        list_add_tail(&current_thread->node, &port->sender_queue.node);
         current_thread->state = BLOCKED;
         schedule();
     }
@@ -299,18 +300,18 @@ void __attribute__((hot)) sys_msg_recv(arch_regs_t *frame)
     int handle = (int)(*arch_reg(frame, 0));
     uint32_t timeout_ms = (*arch_reg(frame, 1)); // TIMEOUT_POLL / TIMEOUT_INFINITE / finite ms
 
-    handle_entry_t *entry = validate_endpoint_handle(current_thread->owner_process, handle, frame);
+    HandleEntry *entry = validate_endpoint_handle(current_thread->owner_process, handle, frame);
     if (!entry)
         return;
-    endpoint_t *ep = entry->ep;
-    if (!ep)
+    Port *port = entry->port;
+    if (!port)
     {
         return;
     }
 
-    if (!list_empty(&ep->sender_queue))
+    if (!list_empty(&port->sender_queue))
     {
-        list_node_t *sender = list_pop_front(&ep->sender_queue);
+        ListNode *sender = list_pop_front(&port->sender_queue);
         thread_t *sr_thread = container_of(sender, thread_t, node);
         arch_regs_t *sr_frame = sr_thread->trap_frame;
 #ifdef DEBUG
@@ -347,7 +348,7 @@ void __attribute__((hot)) sys_msg_recv(arch_regs_t *frame)
         else if (sr_thread->ipc_state == IPC_WAITING)
         {
             // Use the pre-allocated reply cap
-            reply_cap_t *rc = sr_thread->pending_reply_cap;
+            ReplyCap *rc = sr_thread->pending_reply_cap;
             sr_thread->pending_reply_cap = NULL;
             // rc is guaranteed non-NULL — caller pre-allocated it
 
@@ -370,7 +371,7 @@ void __attribute__((hot)) sys_msg_recv(arch_regs_t *frame)
                 return;
             }
 
-            handle_entry_t *rentry = handle_vec_get(&current_thread->owner_process->handle_table, slot);
+            HandleEntry *rentry = handle_vec_get(&current_thread->owner_process->handle_table, slot);
             rentry->type = HANDLE_REPLY;
             rentry->grantable = false;
             rentry->reply = rc;
@@ -401,9 +402,9 @@ void __attribute__((hot)) sys_msg_recv(arch_regs_t *frame)
         current_thread->ep_wait_slot.node.prev = NULL;
         current_thread->ep_wait_slot.node.next = NULL;
         current_thread->ipc_state = IPC_RECEIVER;
-        current_thread->blocked_endpoint = ep;
+        current_thread->blocked_endpoint = port;
         current_thread->wake_reason = WAKE_NONE;
-        list_add_tail(&current_thread->ep_wait_slot.node, &ep->receiver_queue.node);
+        list_add_tail(&current_thread->ep_wait_slot.node, &port->receiver_queue.node);
         current_thread->state = BLOCKED;
 
         if (timeout_ms != TIMEOUT_INFINITE)
@@ -445,25 +446,25 @@ void __attribute__((hot)) sys_msg_call(arch_regs_t *frame)
 {
     int handle = (int)(*arch_reg(frame, 0));
 
-    handle_entry_t *entry = validate_endpoint_handle(current_thread->owner_process, handle, frame);
+    HandleEntry *entry = validate_endpoint_handle(current_thread->owner_process, handle, frame);
     if (!entry)
         return;
-    endpoint_t *ep = entry->ep;
-    if (!ep)
+    Port *port = entry->port;
+    if (!port)
     {
         return;
     }
 
-    reply_cap_t *rc = kalloc_reply_cap();
+    ReplyCap *rc = kalloc_reply_cap();
     if (!rc) {
         (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;  // caller gets clean error, never blocked
     }
     rc->caller_tid = current_thread ? current_thread->tid : 0;
 
-    if (!list_empty(&ep->receiver_queue))
+    if (!list_empty(&port->receiver_queue))
     {
-        list_node_t *receiver = list_pop_front(&ep->receiver_queue);
+        ListNode *receiver = list_pop_front(&port->receiver_queue);
         thread_wait_slot_t *rx_slot = container_of(receiver, thread_wait_slot_t, node);
         thread_t *rx_thread = rx_slot->owner;
         arch_regs_t *rx_frame = rx_thread->trap_frame;
@@ -475,12 +476,12 @@ void __attribute__((hot)) sys_msg_call(arch_regs_t *frame)
         if (slot < 0)
         {
             kfree_reply_cap(rc);
-            list_add_tail(&rx_slot->node, &ep->receiver_queue.node);
+            list_add_tail(&rx_slot->node, &port->receiver_queue.node);
             (*arch_reg(frame, 0)) = ERR_NOMEM;
             return;
         }
 
-        handle_entry_t *rentry = handle_vec_get(&rx_thread->owner_process->handle_table, slot);
+        HandleEntry *rentry = handle_vec_get(&rx_thread->owner_process->handle_table, slot);
         rentry->type = HANDLE_REPLY;
         rentry->grantable = false;
         rentry->reply = rc;
@@ -512,7 +513,7 @@ void __attribute__((hot)) sys_msg_call(arch_regs_t *frame)
         rx_thread->wake_reason = WAKE_IPC;
 
         current_thread->state = BLOCKED;
-        current_thread->blocked_endpoint = ep;
+        current_thread->blocked_endpoint = port;
         current_thread->ipc_state = IPC_WAITING;
 
         /* Direct handoff: skip the run-queue round trip and switch straight
@@ -532,10 +533,10 @@ void __attribute__((hot)) sys_msg_call(arch_regs_t *frame)
     else
     {
         current_thread->ipc_state = IPC_WAITING;
-        current_thread->blocked_endpoint = ep;
+        current_thread->blocked_endpoint = port;
         current_thread->pending_reply_cap = rc;
         current_thread->ipc_marker = entry->marker;
-        list_add_tail(&current_thread->node, &ep->sender_queue.node);
+        list_add_tail(&current_thread->node, &port->sender_queue.node);
         current_thread->state = BLOCKED;
         schedule();
     }
@@ -545,7 +546,7 @@ void __attribute__((hot)) sys_msg_reply(arch_regs_t *frame)
 {
         Handle handle_idx = (*arch_reg(frame, 0));
         thread_t *target_thread = NULL;
-        handle_entry_t *entry = validate_reply_handle(current_thread->owner_process, handle_idx, &target_thread, frame);
+        HandleEntry *entry = validate_reply_handle(current_thread->owner_process, handle_idx, &target_thread, frame);
         if (!entry)
         {
             return;
@@ -587,11 +588,11 @@ void sys_msg_lsend(arch_regs_t *frame)
     int handle = (int)(*arch_reg(frame, 0));
     uint32_t xlen = (*arch_reg(frame, 1));
 
-    handle_entry_t *entry = validate_endpoint_handle(current_thread->owner_process, handle, frame);
+    HandleEntry *entry = validate_endpoint_handle(current_thread->owner_process, handle, frame);
     if (!entry)
         return;
-    endpoint_t *ep = entry->ep;
-    if (!ep)
+    Port *port = entry->port;
+    if (!port)
     {
         return;
     }
@@ -603,9 +604,9 @@ void sys_msg_lsend(arch_regs_t *frame)
         return;
     }
 
-    if (!list_empty(&ep->receiver_queue))
+    if (!list_empty(&port->receiver_queue))
     {
-        list_node_t *receiver = list_pop_front(&ep->receiver_queue);
+        ListNode *receiver = list_pop_front(&port->receiver_queue);
         thread_wait_slot_t *rx_slot = container_of(receiver, thread_wait_slot_t, node);
         thread_t *rx_thread = rx_slot->owner;
 
@@ -651,9 +652,9 @@ void sys_msg_lsend(arch_regs_t *frame)
     else
     {
         current_thread->ipc_state = IPC_SENDER;
-        current_thread->blocked_endpoint = ep;
+        current_thread->blocked_endpoint = port;
         current_thread->ipc_marker = entry->marker;
-        list_add_tail(&current_thread->node, &ep->sender_queue.node);
+        list_add_tail(&current_thread->node, &port->sender_queue.node);
         current_thread->ipc_buf_xfer_len = xlen;
         current_thread->state = BLOCKED;
         schedule();
@@ -665,11 +666,11 @@ void sys_msg_lcall(arch_regs_t *frame)
     Handle handle = (Handle)(*arch_reg(frame, 0));
     uint32_t xlen = (*arch_reg(frame, 1));
 
-    handle_entry_t *entry = validate_endpoint_handle(current_thread->owner_process, handle, frame);
+    HandleEntry *entry = validate_endpoint_handle(current_thread->owner_process, handle, frame);
     if (!entry)
         return;
-    endpoint_t *ep = entry->ep;
-    if (!ep)
+    Port *port = entry->port;
+    if (!port)
     {
         return;
     }
@@ -681,16 +682,16 @@ void sys_msg_lcall(arch_regs_t *frame)
         return;
     }
 
-    reply_cap_t *rc = kalloc_reply_cap();
+    ReplyCap *rc = kalloc_reply_cap();
     if (!rc) {
         (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;  // caller gets clean error, never blocked
     }
     rc->caller_tid = current_thread ? current_thread->tid : 0;
 
-    if (!list_empty(&ep->receiver_queue))
+    if (!list_empty(&port->receiver_queue))
     {
-        list_node_t *receiver = list_pop_front(&ep->receiver_queue);
+        ListNode *receiver = list_pop_front(&port->receiver_queue);
         thread_wait_slot_t *rx_slot = container_of(receiver, thread_wait_slot_t, node);
         thread_t *rx_thread = rx_slot->owner;
         arch_regs_t *rx_frame = rx_thread->trap_frame;
@@ -703,12 +704,12 @@ void sys_msg_lcall(arch_regs_t *frame)
         if (slot < 0)
         {
             kfree_reply_cap(rc);
-            list_add_tail(&rx_slot->node, &ep->receiver_queue.node);
+            list_add_tail(&rx_slot->node, &port->receiver_queue.node);
             (*arch_reg(frame, 0)) = ERR_NOMEM;
             return;
         }
 
-        handle_entry_t *rentry = handle_vec_get(&rx_thread->owner_process->handle_table, slot);
+        HandleEntry *rentry = handle_vec_get(&rx_thread->owner_process->handle_table, slot);
         rentry->type = HANDLE_REPLY;
         rentry->grantable = false;
         rentry->reply = rc;
@@ -742,7 +743,7 @@ void sys_msg_lcall(arch_regs_t *frame)
         rx_thread->wake_reason = WAKE_IPC;
 
         current_thread->state = BLOCKED;
-        current_thread->blocked_endpoint = ep;
+        current_thread->blocked_endpoint = port;
         current_thread->ipc_state = IPC_WAITING;
 
         /* Direct handoff -- see the identical comment in sys_msg_call(). */
@@ -757,10 +758,10 @@ void sys_msg_lcall(arch_regs_t *frame)
     else
     {
         current_thread->ipc_state = IPC_WAITING;
-        current_thread->blocked_endpoint = ep;
+        current_thread->blocked_endpoint = port;
         current_thread->pending_reply_cap = rc;
         current_thread->ipc_marker = entry->marker;
-        list_add_tail(&current_thread->node, &ep->sender_queue.node);
+        list_add_tail(&current_thread->node, &port->sender_queue.node);
         current_thread->ipc_buf_xfer_len = xlen;
         current_thread->state = BLOCKED;
         schedule();
@@ -780,7 +781,7 @@ void sys_msg_lreply(arch_regs_t *frame)
     }
 
     thread_t *target_thread = NULL;
-    handle_entry_t *entry = validate_reply_handle(current_thread->owner_process, handle_idx, &target_thread, frame);
+    HandleEntry *entry = validate_reply_handle(current_thread->owner_process, handle_idx, &target_thread, frame);
     if (!entry)
     {
         return;
@@ -820,7 +821,7 @@ void sys_msg_lreply(arch_regs_t *frame)
 
 static int waitany_deliver_sender(uint32_t matched_index,
                                   thread_t *receiver,
-                                  list_node_t *sender_node,
+                                  ListNode *sender_node,
                                   WaitanyResult *result)
 {
     thread_t *sr_thread = container_of(sender_node, thread_t, node);
@@ -865,7 +866,7 @@ static int waitany_deliver_sender(uint32_t matched_index,
 
     if (sr_thread->ipc_state == IPC_WAITING)
     {
-        reply_cap_t *rc = sr_thread->pending_reply_cap;
+        ReplyCap *rc = sr_thread->pending_reply_cap;
         sr_thread->pending_reply_cap = NULL;
 
         int slot = handle_vec_find_free(&receiver->owner_process->handle_table);
@@ -876,7 +877,7 @@ static int waitany_deliver_sender(uint32_t matched_index,
             return ERR_NOMEM;
         }
 
-        handle_entry_t *rentry = handle_vec_get(&receiver->owner_process->handle_table, slot);
+        HandleEntry *rentry = handle_vec_get(&receiver->owner_process->handle_table, slot);
         rentry->type = HANDLE_REPLY;
         rentry->grantable = false;
         rentry->reply = rc;
@@ -908,11 +909,11 @@ static int waitany_try_once(const Handle *handles,
                             Notification **wait_ntfns,
                             uint32_t *wait_ntfn_indices,
                             uint32_t *wait_count_out,
-                            endpoint_t **wait_eps,
+                            Port **wait_eps,
                             uint32_t *wait_ep_indices,
                             uint32_t *wait_ep_count_out)
 {
-    endpoint_t *endpoints[WAITANY_MAX_HANDLES];
+    Port *endpoints[WAITANY_MAX_HANDLES];
     Notification *notifications[WAITANY_MAX_HANDLES];
 
     if (wait_count_out)
@@ -921,27 +922,27 @@ static int waitany_try_once(const Handle *handles,
         *wait_ep_count_out = 0;
 
     for (uint32_t i = 0; i < count; i++) {
-        handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handles[i]);
+        HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, handles[i]);
         if (!entry) {
             (*arch_reg(current_thread->trap_frame, 0)) = ERR_BADHANDLE;
             return ERR_BADHANDLE;
         }
 
         if (entry->type == HANDLE_ENDPOINT) {
-            handle_entry_t *ep_entry = validate_endpoint_handle(current_thread->owner_process, handles[i], current_thread->trap_frame);
+            HandleEntry *ep_entry = validate_endpoint_handle(current_thread->owner_process, handles[i], current_thread->trap_frame);
             if (!ep_entry)
                 return (int)(*arch_reg(current_thread->trap_frame, 0));
-            endpoint_t *ep = ep_entry->ep;
-            if (!ep) {
+            Port *port = ep_entry->port;
+            if (!port) {
                 return (int)(*arch_reg(current_thread->trap_frame, 0));
             }
-            endpoints[i] = ep;
+            endpoints[i] = port;
             notifications[i] = NULL;
             continue;
         }
 
         if (entry->type == HANDLE_NOTIFICATION) {
-            handle_entry_t *n_entry = validate_notification_handle(current_thread->owner_process, handles[i], current_thread->trap_frame);
+            HandleEntry *n_entry = validate_notification_handle(current_thread->owner_process, handles[i], current_thread->trap_frame);
             if (!n_entry) {
                 return (int)(*arch_reg(current_thread->trap_frame, 0));
             }
@@ -960,7 +961,7 @@ static int waitany_try_once(const Handle *handles,
 
     for (uint32_t i = 0; i < count; i++) {
         if (endpoints[i] && !list_empty(&endpoints[i]->sender_queue)) {
-            list_node_t *sender = list_pop_front(&endpoints[i]->sender_queue);
+            ListNode *sender = list_pop_front(&endpoints[i]->sender_queue);
             return waitany_deliver_sender(i, current_thread, sender, result);
         }
     }
@@ -1072,7 +1073,7 @@ void sys_waitany(arch_regs_t *frame)
         Notification *wait_ntfns[WAITANY_MAX_HANDLES];
         uint32_t wait_ntfn_indices[WAITANY_MAX_HANDLES];
         uint32_t wait_count = 0;
-        endpoint_t *wait_eps[WAITANY_MAX_HANDLES];
+        Port *wait_eps[WAITANY_MAX_HANDLES];
         uint32_t wait_ep_indices[WAITANY_MAX_HANDLES];
         uint32_t ep_wait_count = 0;
         WaitanyResult result;

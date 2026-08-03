@@ -44,7 +44,7 @@ typedef struct thread thread_t;
 
 typedef struct thread_wait_slot
 {
-    list_node_t node;
+    ListNode node;
     thread_t *owner;
     uint32_t index;
 } thread_wait_slot_t;
@@ -56,16 +56,16 @@ struct thread
     Tid tid;                // thread ID (offset 8)
     uint32_t *kernel_sp;      // current kernel stack pointer for context switching (offset 12 - CRITICAL: switch.S offset)
     int32_t exit_status;
-    list_node_t node;         // embedded, not pointers
-    list_node_t process_node; // membership in owner process thread list
-    list_node_t timeout_node;
+    ListNode node;         // embedded, not pointers
+    ListNode process_node; // membership in owner process thread list
+    ListNode timeout_node;
     wake_reason_t wake_reason;
     Tick wake_tick;
     state_t state;
-    list_node_t destroy_node;
+    ListNode destroy_node;
     ipc_state_t ipc_state;
-    endpoint_t *blocked_endpoint;
-    reply_cap_t *pending_reply_cap;
+    Port *blocked_endpoint;
+    ReplyCap *pending_reply_cap;
     PhysAddr ipc_buf_pa;
     size_t ipc_buf_xfer_len;
     uint32_t ipc_marker;
@@ -78,7 +78,7 @@ struct thread
     bool waitany_active;
     thread_wait_slot_t ep_wait_slot;                               /* for msg_recv */
     thread_wait_slot_t waitany_ep_wait_slots[WAITANY_MAX_HANDLES]; /* for waitany endpoints */
-    endpoint_t *waitany_wait_eps[WAITANY_MAX_HANDLES];
+    Port *waitany_wait_eps[WAITANY_MAX_HANDLES];
     uint32_t waitany_ep_wait_count;
     bool waitany_ep_wait_active;
     uint32_t waitany_ep_wait_match_index;
@@ -110,7 +110,7 @@ static inline void thread_waitany_clear_waits(thread_t *thread)
 
     for (uint32_t i = 0; i < thread->waitany_wait_count && i < WAITANY_MAX_HANDLES; i++)
     {
-        list_node_t *node = &thread->waitany_wait_slots[i].node;
+        ListNode *node = &thread->waitany_wait_slots[i].node;
         if (node->prev && node->next)
             list_remove(node);
         thread->waitany_wait_ntfns[i] = NULL;
@@ -131,7 +131,7 @@ static inline void thread_waitany_clear_ep_waits(thread_t *thread)
 
     for (uint32_t i = 0; i < thread->waitany_ep_wait_count && i < WAITANY_MAX_HANDLES; i++)
     {
-        list_node_t *node = &thread->waitany_ep_wait_slots[i].node;
+        ListNode *node = &thread->waitany_ep_wait_slots[i].node;
         if (node->prev && node->next)
             list_remove(node);
         thread->waitany_wait_eps[i] = NULL;

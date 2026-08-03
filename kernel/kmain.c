@@ -72,7 +72,7 @@ static void inject_device_cap(const char *compatible,
 {
     if (!s_devmgr)
         return;
-    device_cap_t *cap = (device_cap_t *)kalloc_device_cap();
+    DeviceCap *cap = (DeviceCap *)kalloc_device_cap();
     if (!cap)
         return;
     strncpy(cap->compatible, compatible, sizeof(cap->compatible) - 1);
@@ -89,7 +89,7 @@ static void inject_device_cap(const char *compatible,
         return;
     }
     // 4. handle_vec_get that slot, write HANDLE_DEVICE entry
-    handle_entry_t *entry = handle_vec_get(&s_devmgr->handle_table, (uint32_t)handle);
+    HandleEntry *entry = handle_vec_get(&s_devmgr->handle_table, (uint32_t)handle);
     if (!entry)
     {
         kfree_device_cap(cap);

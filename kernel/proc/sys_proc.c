@@ -6,6 +6,7 @@
 #include "kstack.h"
 #include <arch/mmu.h>
 #include "kernel/mm/pmm.h"
+#include "kernel/ipc/handle.h"
 #include <string.h>
 #include "kernel/sched/sched.h"
 #include "zuzu/zuzu.h"
@@ -18,7 +19,7 @@
 
 extern thread_t *current_thread;
 extern list_head_t sleep_queue;
-extern endpoint_t *nametable_endpoint;
+extern Port *nametable_endpoint;
 extern process_t *process_table[MAX_PROCESSES];
 
 #define LOG_FMT(fmt) "(sys_task) " fmt
@@ -206,13 +207,13 @@ void sys_pspawn(arch_regs_t *frame) {
     }
 
     for (int i = 0; i < 4; i++) {
-        handle_entry_t *src = handle_vec_get(&current_thread->owner_process->handle_table, i);
+        HandleEntry *src = handle_vec_get(&current_thread->owner_process->handle_table, i);
         if (!src || src->type == HANDLE_FREE)
             continue;
-        handle_entry_t *dst = handle_vec_get(&process->handle_table, i);
+        HandleEntry *dst = handle_vec_get(&process->handle_table, i);
         *dst = *src;
-        if (src->type == HANDLE_ENDPOINT && src->ep)
-            src->ep->ref_count++;
+        if (src->type == HANDLE_ENDPOINT && src->port)
+            src->port->ref_count++;
     }
     
     process_set_parent(process, current_thread->owner_process);
@@ -251,7 +252,7 @@ void sys_kickstart(arch_regs_t *frame) {
         return;
     }
 
-    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, kargs.taskHandle);
+    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, kargs.taskHandle);
     if (!entry) {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;
@@ -285,7 +286,7 @@ void sys_kickstart(arch_regs_t *frame) {
 void sys_pkill(arch_regs_t *frame) {
     uint32_t handle_idx = (*arch_reg(frame, 0));
 
-    handle_entry_t *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
+    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
     if (!entry) {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;

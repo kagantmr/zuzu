@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <list.h>
 #include "kernel/ipc/port.h"
+#include "kernel/ipc/handle.h"
 #include "kernel/mm/vmm.h"
 #include <arch/regs.h>
 #include <zuzu/tls.h>
@@ -21,9 +22,9 @@ typedef struct process
 {
     Pid pid, parent_pid;
     addrspace_t *as;
-    list_node_t node; // embedded, not pointers
-    list_node_t destroy_node;
-    list_node_t timeout_node;
+    ListNode node; // embedded, not pointers
+    ListNode destroy_node;
+    ListNode timeout_node;
     int32_t exit_status;
     Pid waiting_for;
     char name[32];           // PROCESS name
@@ -36,7 +37,7 @@ typedef struct process
     Tid waiting_for_tid;
     list_head_t threads;
     list_head_t children;
-    list_node_t sibling_node;
+    ListNode sibling_node;
     PhysAddr tcb_page_pa;
     VirtAddr tcb_page_va;
     uint8_t tcb_slot_bitmap; /* bit N set = TCB slot N in use */
@@ -73,7 +74,7 @@ void process_set_parent(process_t *child, process_t *parent);
 process_t *process_find_child_by_pid(process_t *parent, Pid pid);
 process_t *process_find_zombie_child(process_t *parent);
 void process_track_reply_cap(process_t *caller, process_t *holder,
-                             Handle holder_slot, reply_cap_t *rc);
-void process_untrack_reply_cap(reply_cap_t *rc);
+                             Handle holder_slot, ReplyCap *rc);
+void process_untrack_reply_cap(ReplyCap *rc);
 
 #endif // KERNEL_PROC_PROCESS_H

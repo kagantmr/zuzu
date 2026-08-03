@@ -5,6 +5,7 @@
 #include "stdbool.h"
 #include <string.h>
 #include <assert.h>
+#include "kernel/dev/devcap.h"
 #include "core/panic.h"
 #include "core/log.h"
 #include "kernel/ipc/port.h"
@@ -101,9 +102,9 @@ static void alloc_hot_caches_init(void)
     if (hot_caches_ready)
         return;
 
-    slab_cache_create(&port_cache, "endpoint_t", sizeof(endpoint_t));
-    slab_cache_create(&reply_cap_cache, "reply_cap_t", sizeof(reply_cap_t));
-    slab_cache_create(&device_cap_cache, "device_cap_t", sizeof(device_cap_t));
+    slab_cache_create(&port_cache, "Port", sizeof(Port));
+    slab_cache_create(&reply_cap_cache, "ReplyCap", sizeof(ReplyCap));
+    slab_cache_create(&device_cap_cache, "DeviceCap", sizeof(DeviceCap));
     hot_caches_ready = true;
 }
 
