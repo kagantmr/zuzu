@@ -60,6 +60,7 @@ typedef struct {
         Notification *ntfn;
         struct process *task;
     };
+    uint32_t marker;
 } handle_entry_t;
 
 DEFINE_VEC(handle, handle_entry_t)
