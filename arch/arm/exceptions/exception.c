@@ -102,16 +102,15 @@ static const char *decode_mode(uint32_t spsr)
     }
 }
 
-static void dump_registers(exception_frame_t *frame)
+static void dump_registers(ExceptionFrame *frame)
 {
-    kprintf("Register dump:\n");
     kprintf("  r0=%08X  r1=%08X  r2=%08X  r3=%08X\n",
             frame->r[0], frame->r[1], frame->r[2], frame->r[3]);
     kprintf("  r4=%08X  r5=%08X  r6=%08X  r7=%08X\n",
             frame->r[4], frame->r[5], frame->r[6], frame->r[7]);
     kprintf("  r8=%08X  r9=%08X r10=%08X r11=%08X\n",
             frame->r[8], frame->r[9], frame->r[10], frame->r[11]);
-        kprintf(" r12=%08X  sp=%08X  lr=%08X  pc=%08X\n",
+    kprintf(" r12=%08X  sp=%08X  lr=%08X  pc=%08X\n",
             frame->r[12], frame->sp_usr, frame->lr_usr, frame->return_pc);
     kprintf("spsr=%08X [%s mode, %s%s%s]\n",
             frame->return_cpsr,
@@ -147,7 +146,7 @@ static bool try_demand_page(process_t *current_process, uint32_t dfar, uint32_t 
     return false;
 }
 
-void exception_dispatch(exception_type exctype, exception_frame_t *frame)
+void exception_dispatch(exception_type exctype, ExceptionFrame *frame)
 {
     process_t *current_process = current_thread ? current_thread->owner_process : NULL;
 

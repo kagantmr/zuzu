@@ -7,6 +7,8 @@
 
 #include <stdint.h>
 
+typedef uint32_t CPSR;
+
 /** Disable global IRQs (cpsid i). */
 static inline void arch_global_irq_disable(void) {
     __asm__ volatile("cpsid i" ::: "memory");
@@ -21,7 +23,7 @@ static inline void arch_global_irq_enable(void) {
  * Save CPSR and disable IRQs, returning the previous state for restoration.
  * @return The previous CPSR value before disabling IRQs.
  */
-static inline uint32_t arch_irq_save(void) {
+static inline CPSR arch_irq_save(void) {
     uint32_t cpsr;
     __asm__ volatile("mrs %0, cpsr" : "=r"(cpsr) :: "memory");
     __asm__ volatile("cpsid i" ::: "memory");
@@ -32,7 +34,7 @@ static inline uint32_t arch_irq_save(void) {
  * Restore the CPSR to re-enable IRQs if they were previously enabled.
  * @param state The CPSR value to restore, typically from arch_irq_save().
  */
-static inline void arch_irq_restore(uint32_t state) {
+static inline void arch_irq_restore(CPSR state) {
     __asm__ volatile("msr cpsr_c, %0" :: "r"(state) : "memory");
 }
 

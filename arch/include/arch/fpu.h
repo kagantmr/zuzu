@@ -7,11 +7,11 @@
 // arch trap, which the arch exception handler turns into a save-of-owner /
 // restore-of-current / retry sequence before handing control back.
 //
-//   typedef /* opaque */ fpu_state_t;        -- one thread's saved FPU regs
+//   typedef /* opaque */ FpuState;        -- one thread's saved FPU regs
 //   void arch_fpu_trap_disable(void);        -- next FPU access traps
 //   void arch_fpu_trap_enable(void);         -- FPU instructions run normally
-//   void arch_fpu_save(fpu_state_t *state);      -- save live FPU regs
-//   void arch_fpu_restore(const fpu_state_t *state); -- load live FPU regs
+//   void arch_fpu_save(FpuState *state);      -- save live FPU regs
+//   void arch_fpu_restore(const FpuState *state); -- load live FPU regs
 
 #ifndef ZUZU_ARCH_FPU_H
 #define ZUZU_ARCH_FPU_H

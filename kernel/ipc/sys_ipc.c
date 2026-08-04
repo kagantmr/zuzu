@@ -57,7 +57,7 @@ static bool trap_frame_sane(const CpuState *tf)
      * thread blocked in a syscall, so its saved return PC must be a nonzero
      * user VA. A zero/kernel PC here means the frame was clobbered (e.g. by
      * a nested exception) and would resume user mode into a fault. */
-    reg_t pc = arch_regs_pc(tf);
+    Register pc = arch_regs_pc(tf);
     if (pc == 0 || pc >= USER_VA_TOP)
         return false;
 
