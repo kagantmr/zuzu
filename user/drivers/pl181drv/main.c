@@ -140,7 +140,7 @@ static int pl181_setup(void)
 
 static int wait_for_irq(void)
 {
-    int32_t bits = ZuzuNtfnBits((uint32_t)block_irq_ntfn, TIMEOUT_INFINITE);
+    int32_t bits = ZuzuNtfnWait((uint32_t)block_irq_ntfn, TIMEOUT_INFINITE);
     return (bits < 0) ? -1 : 0;
 }
 
@@ -360,7 +360,7 @@ int main(void)
     while (1)
     {
         /* drain any stray IRQ that arrived between transfers */
-        int32_t bits = ZuzuNtfnBits((uint32_t)block_irq_ntfn, TIMEOUT_POLL);
+        int32_t bits = ZuzuNtfnWait((uint32_t)block_irq_ntfn, TIMEOUT_POLL);
         if (bits > 0)
             ZuzuIrqDone((uint32_t)block_dev_handle);
 

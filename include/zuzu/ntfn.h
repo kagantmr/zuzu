@@ -46,7 +46,7 @@ static inline Err ZuzuNtfnSignal(Handle ntfn_handle, uint32_t bits) {
  *
  * @return `NtfnBits` Returns the signaled bits on success, or a negative error code on failure. If the wait times out, returns ERR_TIMEOUT.
  */
-static inline NtfnBits ZuzuNtfnBits(Handle ntfn_handle, Duration timeout_ms) {
+static inline NtfnBits ZuzuNtfnWait(Handle ntfn_handle, Duration timeout_ms) {
     return Syscall(SYS_NTFN_WAIT, ntfn_handle, timeout_ms, 0, 0);
 }
 
