@@ -58,8 +58,8 @@ _Static_assert(sizeof(dhcp_msg_t) == 240, "dhcp_msg_t size");
 #define DHCP_FLAG_BROADCAST 0x8000   /* tell server to broadcast replies */
 
 /* retransmit policy, mirrors DNS's tick-driven backoff */
-#define DHCP_TIMEOUT_MS    1000     /* per-attempt timeout before retransmit */
-#define DHCP_MAX_RETRIES   4        /* retransmits before restarting the DORA */
+#define DHCP_TIMEOUT_MS    500     /* per-attempt timeout before retransmit */
+#define DHCP_MAX_RETRIES   5        /* retransmits before restarting the DORA */
 #define DHCP_RENEW_RETRY_MS 10000   /* gap between renew/rebind retransmits */
 #define DHCP_DEFAULT_LEASE 3600u    /* fallback when the server omits option 51 */
 #define DHCP_LEASE_INFINITE 0xFFFFFFFFu

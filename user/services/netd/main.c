@@ -1,4 +1,4 @@
-#include <stdio.h>
+//#include <stdio.h>
 
 #include <zuzu/msg.h>
 #include <zuzu/task.h>
@@ -26,11 +26,14 @@ nic_ring_t *tx_ring, *rx_ring;
 Handle nic_port;
 Handle nic_ntfn;
 Handle tx_doorbell;
-Handle handles[2];
+Handle netd_handles[2];
 netif_t netif; /* filled at startup (htonl isn't constant); DHCP overwrites later */
 
 #define LEGACY_POLL_CAP 50u
 
+/**
+ * UDP echo handler
+ */
 static void udp_echo_handler(ipv4_addr_t src_ip, port_t src_port,
                              port_t dst_port, const uint8_t *data, uint16_t len)
 {
@@ -110,7 +113,7 @@ __attribute__((cold)) int get_shm() {
     netd_port = port;
     nic_ntfn = (Handle)r.w2;
     tx_doorbell = (Handle)r.w3;
-    handles[1] = nic_ntfn;
+    netd_handles[1] = nic_ntfn;
     LOG_INFO(LOG_TAG, "service port=%d nic_ntfn=%d tx_doorbell=%d nic_port=%d",
              netd_port, nic_ntfn, tx_doorbell, nic_port);
     return ZUZU_OK;
@@ -149,7 +152,7 @@ int main() {
 
         /* 2. sleep until a packet arrives or the deadline elapses */
         WaitanyResult result;
-        int32_t recv_rc = ZuzuWaitany(handles, 2, sleep_ms, &result);
+        int32_t recv_rc = ZuzuWaitany(netd_handles, 2, sleep_ms, &result);
 
         /* 3. DRAIN RX FIRST: process inbound before any timer fires */
         if (recv_rc >= 0 && result.kind == WAITANY_KIND_NTFN) {

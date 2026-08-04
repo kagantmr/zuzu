@@ -7,9 +7,6 @@
 #include "drivers/uart/uart.h"
 #include "drivers/uart/pl011.h"
 
-#include "core/version.h"
-
-#include "core/kprintf.h"
 #include "core/panic.h"
 #include "core/version.h"
 #include <assert.h>

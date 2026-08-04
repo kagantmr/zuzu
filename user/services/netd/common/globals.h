@@ -61,11 +61,11 @@ extern nic_ring_t *tx_ring, *rx_ring;
 extern Handle nic_port;
 extern Handle nic_ntfn;
 extern Handle tx_doorbell; /* notification netd signals to kick the driver's TX drain */
-extern Handle handles[2];
+extern Handle netd_handles[2];
 extern netif_t netif;
 
 #define drv_port nic_port
-#define netd_port handles[0]
+#define netd_port netd_handles[0]
 
 
 #endif
