@@ -11,7 +11,7 @@
 #include <stdint.h>
 
 /* Natural register-width integer for this architecture (32-bit on ARMv7-A). */
-typedef uint32_t reg_t;
+typedef uint32_t Register;
 
 /**
  * Represents a process's saved CPU state at the time of an exception.
@@ -19,42 +19,42 @@ typedef uint32_t reg_t;
  * the assembly writes directly into this struct by offset.
  */
 typedef struct exception_frame {
-    uint32_t r[13];        /* r0-r12 */
-    uint32_t sp_usr;       /* user SP saved via SRS */
-    uint32_t lr_usr;       /* user LR saved via SRS */
-    uint32_t return_pc;    /* adjusted return address (LR - offset) */
-    uint32_t return_cpsr;  /* saved CPSR/SPSR value you return with */
-} exception_frame_t;
+    Register r[13];        /* r0-r12 */
+    Register sp_usr;       /* user SP saved via SRS */
+    Register lr_usr;       /* user LR saved via SRS */
+    Register return_pc;    /* adjusted return address (LR - offset) */
+    Register return_cpsr;  /* saved CPSR/SPSR value you return with */
+} ExceptionFrame;
 
 typedef struct cpu_context
 {
-    uint32_t r4, r5, r6, r7, r8, r9, r10, r11;
-    uint32_t lr; // return address (or entry point for new process)
-} cpu_context_t;
+    Register r4, r5, r6, r7, r8, r9, r10, r11;
+    Register lr; // return address (or entry point for new process)
+} CpuContext;
 
 /* Neutral alias used by architecture-independent code. */
 typedef struct exception_frame CpuState;
 
 /* ---- Accessors (the neutral contract; see <arch/regs.h>) ----------------- */
 /* Syscall ABI slots: arg i / return value i map to r[i] on ARM. */
-static inline reg_t *arch_reg(CpuState *f, unsigned i) { return &f->r[i]; }
+static inline Register *arch_reg(CpuState *f, unsigned i) { return &f->r[i]; }
 
-static inline reg_t arch_regs_pc(const CpuState *f)    { return f->return_pc; }
-static inline reg_t arch_regs_sp(const CpuState *f)    { return f->sp_usr; }
-static inline reg_t arch_regs_lr(const CpuState *f)    { return f->lr_usr; }
-static inline reg_t arch_regs_flags(const CpuState *f) { return f->return_cpsr; }
+static inline Register arch_regs_pc(const CpuState *f)    { return f->return_pc; }
+static inline Register arch_regs_sp(const CpuState *f)    { return f->sp_usr; }
+static inline Register arch_regs_lr(const CpuState *f)    { return f->lr_usr; }
+static inline Register arch_regs_flags(const CpuState *f) { return f->return_cpsr; }
 
 /* Live reads of current CPU state (see <arch/regs.h>). */
-static inline reg_t arch_current_fp(void)
+static inline Register arch_current_fp(void)
 {
-    reg_t fp;
+    Register fp;
     __asm__ volatile("mov %0, r11" : "=r"(fp));
     return fp;
 }
 
-static inline reg_t arch_current_flags(void)
+static inline Register arch_current_flags(void)
 {
-    reg_t cpsr;
+    Register cpsr;
     __asm__ volatile("mrs %0, cpsr" : "=r"(cpsr));
     return cpsr;
 }

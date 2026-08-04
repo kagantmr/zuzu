@@ -6,7 +6,7 @@
 //   higher addr  ┌─────────────────────────┐  kstack_top
 //                │ exception frame (CpuState) │  (user-entry threads only)
 //                ├─────────────────────────┤
-//                │ switch context (cpu_context_t) │  lr = trampoline / entry
+//                │ switch context (CpuContext) │  lr = trampoline / entry
 //   lower addr   └─────────────────────────┘  <- returned kernel_sp
 //
 // FPU state is not part of the kernel stack: it's saved lazily into
@@ -40,8 +40,8 @@ void *arch_thread_user_init(void *kstack_top, uintptr_t entry, uintptr_t user_sp
     if (trap_frame_out)
         *trap_frame_out = f;
 
-    sp -= sizeof(cpu_context_t);
-    cpu_context_t *ctx = (cpu_context_t *)sp;
+    sp -= sizeof(CpuContext);
+    CpuContext *ctx = (CpuContext *)sp;
     memset(ctx, 0, sizeof(*ctx));
     ctx->lr = (uint32_t)process_entry_trampoline;
 
@@ -52,8 +52,8 @@ void *arch_thread_kernel_init(void *kstack_top, void (*entry)(void))
 {
     uintptr_t sp = (uintptr_t)kstack_top;
 
-    sp -= sizeof(cpu_context_t);
-    cpu_context_t *ctx = (cpu_context_t *)sp;
+    sp -= sizeof(CpuContext);
+    CpuContext *ctx = (CpuContext *)sp;
     memset(ctx, 0, sizeof(*ctx));
     ctx->lr = (uint32_t)entry;
 

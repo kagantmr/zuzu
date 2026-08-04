@@ -16,11 +16,11 @@
 // word-aligned base address; a plain uint8_t array has alignment 1, which
 // lets the compiler pack it at an odd offset next to preceding narrow
 // fields (see thread_t::fpu_state) and fault on first use.
-typedef uint8_t fpu_state_t[32 * 8 + 4] __attribute__((aligned(8)));
+typedef uint8_t FpuState[32 * 8 + 4] __attribute__((aligned(8)));
 
 // Implemented in arch/arm/vfp.S.
-void arch_fpu_save(fpu_state_t *state);
-void arch_fpu_restore(const fpu_state_t *state);
+void arch_fpu_save(FpuState *state);
+void arch_fpu_restore(const FpuState *state);
 
 static inline void arch_fpu_trap_disable(void)
 {

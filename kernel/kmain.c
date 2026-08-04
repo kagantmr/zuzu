@@ -352,7 +352,7 @@ _Noreturn void kmain(void)
     if (!boot_info_initrd(&chosen_pa, &chosen_size))
         panic("No bootloader-supplied initrd (DTB /chosen)");
 
-    g_initrd_pa = (uint32_t)chosen_pa;
+    g_initrd_pa = (PhysAddr)chosen_pa;
     g_initrd_size = (size_t)chosen_size;
     KINFO("initrd: bootloader-supplied at pa=%p size=%zu",
           (void *)(uintptr_t)g_initrd_pa, g_initrd_size);
