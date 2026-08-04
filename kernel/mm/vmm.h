@@ -76,15 +76,14 @@ typedef struct addrspace
 
 typedef struct
 {
-    uintptr_t *page_addrs; // array of individual PAs, one per page
+    PhysAddr *page_addrs; // array of individual PAs, one per page
     size_t page_count;     // amount of used pages
-    uint32_t ref_count;    // live HANDLE references (shm_create + each grant);
-                           // NOT mappings. Object frees when this hits zero.
+    size_t ref_count;    // live HANDLE references (shm_create + each grant). NOT mappings. Object frees when this hits zero.
 } ShmCap;
 
 /* Drop one handle reference to a shmem object. shm_create and each grant add
- * one; sys_destroy and process teardown drop one. */
-void shmem_drop_ref(shmem_t *shm);
+ * one; SysDestroy and process teardown drop one. */
+void shmem_drop_ref(ShmCap *shm);
 
 #define IOREMAP_SIZE (IOREMAP_END - IOREMAP_BASE + 1)
 #define IOREMAP_SLOTS (IOREMAP_SIZE / SECTION_SIZE) // 256

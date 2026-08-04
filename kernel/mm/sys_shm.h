@@ -3,6 +3,6 @@
 
 #include <arch/regs.h>
 
-void sys_shm_create(arch_regs_t *frame);
+void sys_shm_create(CpuState *frame);
 
 #endif // SYS_SHM_H

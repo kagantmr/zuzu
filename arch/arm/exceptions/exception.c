@@ -386,7 +386,7 @@ void exception_dispatch(exception_type exctype, exception_frame_t *frame)
 /* Called from the exception_exit tripwire in entry.S when the frame about to
  * be RFE'd has return_pc == 0: the frame was corrupted after the C handlers
  * released it. Panic here, in kernel context, with the frame contents. */
-_Noreturn void exception_exit_pc0_trap(arch_regs_t *frame)
+_Noreturn void exception_exit_pc0_trap(CpuState *frame)
 {
     KERROR("exception_exit: frame at %p has return_pc=0 (cpsr=%p sp_usr=%p lr_usr=%p)",
            frame, (void *)arch_regs_flags(frame), (void *)arch_regs_sp(frame),

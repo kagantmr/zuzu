@@ -12,41 +12,57 @@
 #include "port.h"
 #include "kernel/dev/devcap.h"
 
-typedef enum {
+typedef enum
+{
     HANDLE_FREE,
-    HANDLE_ENDPOINT,
+    HANDLE_PORT,
     HANDLE_DEVICE,
-    HANDLE_SHMEM,
+    HANDLE_SHM,
     HANDLE_REPLY,
-    HANDLE_NOTIFICATION,
+    HANDLE_NTFN,
     HANDLE_TASK
 } HandleType;
 
-typedef struct {
-    HandleType type;
-    bool grantable;
-    VirtAddr mapped_va;
-    union {
-        Port  *port;
+typedef struct
+{
+    HandleType type;    /* HANDLE_* */
+    bool grantable;     /* Will grant() work on this handle? */
+    VirtAddr mapped_va; /* For shm and device: destroy() checks before freeing */
+    union
+    {
+        Port *port;
         DeviceCap *dev;
-        ShmCap      *shm;
+        ShmCap *shm;
         ReplyCap *reply;
         Ntfn *ntfn;
         struct process *task;
     };
-    Marker marker;
+    Marker marker;      /* Added in zuzu 1.1: Same handle can be stamped with a marker to demux clients in waitany() */
 } HandleEntry;
 
 DEFINE_VEC(handle, HandleEntry)
 
-static inline int handle_vec_find_free(handle_vec_t *handles) {
-    for (uint32_t i = 1; i < handles->cap; i++) {
+/**
+ * @brief Inline helper to find a free spot.
+ * 
+ * @param handles Vector of handles.
+ * 
+ * @return Index of free spot
+ * 
+ * zuzu 1.0 Loaf used a handle vector O(n), and inlining reduces perforamance
+ * todo: change data structure in zuzu 2.0 Prowl
+ */
+static inline int handle_vec_find_free(handle_vec_t *handles)
+{
+    for (uint32_t i = 1; i < handles->cap; i++)
+    {
         if (handles->data[i].type == HANDLE_FREE)
             return i;
     }
     uint32_t old_cap = handles->cap;
-    if (handle_vec_grow(handles) < 0) return -1;
+    if (handle_vec_grow(handles) < 0)
+        return -1;
     return (int)old_cap;
 }
 
-#endif 
+#endif

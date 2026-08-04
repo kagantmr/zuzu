@@ -4,7 +4,7 @@
 // user-entry trampoline (entry.S) expect for a freshly created thread:
 //
 //   higher addr  ┌─────────────────────────┐  kstack_top
-//                │ exception frame (arch_regs_t) │  (user-entry threads only)
+//                │ exception frame (CpuState) │  (user-entry threads only)
 //                ├─────────────────────────┤
 //                │ switch context (cpu_context_t) │  lr = trampoline / entry
 //   lower addr   └─────────────────────────┘  <- returned kernel_sp
@@ -24,12 +24,12 @@ extern void process_entry_trampoline(void);
 
 void *arch_thread_user_init(void *kstack_top, uintptr_t entry, uintptr_t user_sp,
                             uintptr_t user_lr, uint32_t a0, uint32_t a1,
-                            arch_regs_t **trap_frame_out)
+                            CpuState **trap_frame_out)
 {
     uintptr_t sp = (uintptr_t)kstack_top;
 
-    sp -= sizeof(arch_regs_t);
-    arch_regs_t *f = (arch_regs_t *)sp;
+    sp -= sizeof(CpuState);
+    CpuState *f = (CpuState *)sp;
     memset(f, 0, sizeof(*f));
     *arch_reg(f, 0) = a0;
     *arch_reg(f, 1) = a1;

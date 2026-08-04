@@ -175,7 +175,7 @@ static int32_t memmap_dev(process_t *p, HandleEntry *e, MemProt prot, VirtAddr *
     return ZUZU_OK;
 }
 
-void sys_memmap(arch_regs_t *frame)
+void sys_memmap(CpuState *frame)
 {
     process_t *p = current_thread->owner_process;
     Handle handle = (Handle)(*arch_reg(frame, 0));
@@ -218,7 +218,7 @@ void sys_memmap(arch_regs_t *frame)
         }
         break;
 
-        case HANDLE_SHMEM:
+        case HANDLE_SHM:
         {
             if (size != 0) {
                 *arch_reg(frame, 0) = ERR_BADARG;
@@ -239,7 +239,7 @@ void sys_memmap(arch_regs_t *frame)
     return;
 }
 
-void sys_memunmap(arch_regs_t *frame)
+void sys_memunmap(CpuState *frame)
 {
         const VirtAddr va = (VirtAddr)(*arch_reg(frame, 0));
 
@@ -277,7 +277,7 @@ void sys_memunmap(arch_regs_t *frame)
                 {
                     HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, i);
                     if (!entry || entry->mapped_va != va ||
-                        (entry->type != HANDLE_SHMEM && entry->type != HANDLE_DEVICE))
+                        (entry->type != HANDLE_SHM && entry->type != HANDLE_DEVICE))
                         continue;
 
                     entry->mapped_va = 0;
@@ -303,7 +303,7 @@ void sys_memunmap(arch_regs_t *frame)
         (*arch_reg(frame, 0)) = 0;
 }
 
-void sys_asinject(arch_regs_t *frame)
+void sys_asinject(CpuState *frame)
 {
         if (!(current_thread->owner_process->flags & PROC_FLAG_INIT))
         {
@@ -575,7 +575,7 @@ void sys_asinject(arch_regs_t *frame)
         }
 }
 
-void sys_memprotect(arch_regs_t *frame)
+void sys_memprotect(CpuState *frame)
 {
         const uintptr_t va = (uintptr_t)(*arch_reg(frame, 0));
         const size_t size = (size_t)(*arch_reg(frame, 1));

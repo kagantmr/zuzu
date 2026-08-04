@@ -300,13 +300,13 @@ void kheap_init(void) {
     alloc_hot_caches_init();
 }
 
-void *kalloc_endpoint(void)
+void *kalloc_portobj(void)
 {
     alloc_hot_caches_init();
     return slab_alloc(&port_cache);
 }
 
-void kfree_endpoint(void *ptr)
+void kfree_portobj(void *ptr)
 {
     if (!ptr)
         return;

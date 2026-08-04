@@ -23,7 +23,7 @@
 
 extern kernel_layout_t kernel_layout;
 
-typedef void (*syscall_handler_t)(arch_regs_t *);
+typedef void (*syscall_handler_t)(CpuState *);
 
 static syscall_handler_t syscall_table[SYS_MAX + 1] = {
     [SYS_PQUIT] = sys_pquit,
@@ -37,21 +37,21 @@ static syscall_handler_t syscall_table[SYS_MAX + 1] = {
     [SYS_TMAKE] = sys_tmake,
     [SYS_TJOIN] = sys_tjoin,
     [SYS_TQUIT] = sys_tquit,
-    [SYS_MSG_SEND] = sys_msg_send,
-    [SYS_MSG_RECV] = sys_msg_recv,
-    [SYS_MSG_CALL] = sys_msg_call,
-    [SYS_MSG_REPLY] = sys_msg_reply,
-    [SYS_MSG_LSEND] = sys_msg_lsend,
-    [SYS_MSG_LCALL] = sys_msg_lcall,
-    [SYS_MSG_LREPLY] = sys_msg_lreply,
-    [SYS_WAITANY] = sys_waitany,
-    [SYS_PORT_CREATE] = sys_port_create,
-    [SYS_DESTROY] = sys_destroy,
-    [SYS_GRANT] = sys_grant,
-    [SYS_NTFN_CREATE] = sys_ntfn_create,
+    [SYS_MSG_SEND] = SysMsgSend,
+    [SYS_MSG_RECV] = SysMsgRecv,
+    [SYS_MSG_CALL] = SysMsgCall,
+    [SYS_MSG_REPLY] = SysMsgReply,
+    [SYS_MSG_LSEND] = SysMsgLsend,
+    [SYS_MSG_LCALL] = SysMsgLcall,
+    [SYS_MSG_LREPLY] = SysMsgLreply,
+    [SYS_WAITANY] = SysWaitAny,
+    [SYS_PORT_CREATE] = SysPortCreate,
+    [SYS_DESTROY] = SysDestroy,
+    [SYS_GRANT] = SysGrant,
+    [SYS_NTFN_CREATE] = SysNtfnCreate,
     [SYS_DEV_QUERY] = sys_dev_query,
-    [SYS_NTFN_SIGNAL] = sys_ntfn_signal,
-    [SYS_NTFN_WAIT] = sys_ntfn_wait,
+    [SYS_NTFN_SIGNAL] = SysNtfnSignal,
+    [SYS_NTFN_WAIT] = SysNtfnWait,
     [SYS_STAMP] = SysStamp,
     [SYS_MEMMAP] = sys_memmap,
     [SYS_MEMUNMAP] = sys_memunmap,
@@ -62,7 +62,7 @@ static syscall_handler_t syscall_table[SYS_MAX + 1] = {
     [SYS_IRQ_DONE] = sys_irq_done
 };
 
-static bool trap_frame_sane(const arch_regs_t *frame)
+static bool trap_frame_sane(const CpuState *frame)
 {
     uintptr_t p = (uintptr_t)frame;
     if (p == 0 || (p & 0x3u) != 0)
@@ -70,10 +70,10 @@ static bool trap_frame_sane(const arch_regs_t *frame)
 
     if (kernel_layout.stack_base_va && kernel_layout.stack_top_va &&
         p >= kernel_layout.stack_base_va &&
-        p + sizeof(arch_regs_t) <= kernel_layout.stack_top_va)
+        p + sizeof(CpuState) <= kernel_layout.stack_top_va)
         return true;
 
-    if (p >= KSTACK_REGION_BASE && p + sizeof(arch_regs_t) <= KSTACK_REGION_TOP)
+    if (p >= KSTACK_REGION_BASE && p + sizeof(CpuState) <= KSTACK_REGION_TOP)
         return true;
 
     return false;
@@ -109,7 +109,7 @@ bool copy_from_user(void *kaddr, const void *uaddr, size_t len)
     return true;
 }
 
-void __attribute__((hot)) syscall_dispatch(uint8_t svc_num, arch_regs_t *frame)
+void __attribute__((hot)) syscall_dispatch(uint8_t svc_num, CpuState *frame)
 {
     if (!current_thread)
     {

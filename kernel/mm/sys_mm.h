@@ -4,9 +4,9 @@
 #include <arch/regs.h>
 #include <stddef.h>
 
-void sys_memmap(arch_regs_t *frame);
-void sys_memunmap(arch_regs_t *frame);
-void sys_memprotect(arch_regs_t *frame);
-void sys_asinject(arch_regs_t *frame);
+void sys_memmap(CpuState *frame);
+void sys_memunmap(CpuState *frame);
+void sys_memprotect(CpuState *frame);
+void sys_asinject(CpuState *frame);
 
 #endif // SYS_MM_H

@@ -183,11 +183,11 @@ static const char *handle_type_str(HandleType t)
 {
     switch (t) {
     case HANDLE_FREE:         return "FREE";
-    case HANDLE_ENDPOINT:     return "ENDPOINT";
+    case HANDLE_PORT:     return "ENDPOINT";
     case HANDLE_DEVICE:       return "DEVICE";
-    case HANDLE_SHMEM:        return "SHMEM";
+    case HANDLE_SHM:        return "SHMEM";
     case HANDLE_REPLY:        return "REPLY";
-    case HANDLE_NOTIFICATION: return "NOTIFICATION";
+    case HANDLE_NTFN: return "NOTIFICATION";
     case HANDLE_TASK:         return "TASK";
     default:                  return "UNKNOWN";
     }
@@ -413,7 +413,7 @@ static void panic_print_cpu(void)
 
     char line[LINE_BUF];
     char sym[80];
-    arch_regs_t *f = panic_fault_ctx.frame;
+    CpuState *f = panic_fault_ctx.frame;
 
     panic_section("CPU STATE");
 
@@ -542,11 +542,11 @@ static void panic_print_process(void)
                     continue;
                 void *ptr = NULL;
                 switch (e->type) {
-                case HANDLE_ENDPOINT:     ptr = e->port;    break;
+                case HANDLE_PORT:     ptr = e->port;    break;
                 case HANDLE_DEVICE:       ptr = e->dev;   break;
-                case HANDLE_SHMEM:        ptr = e->shm;   break;
+                case HANDLE_SHM:        ptr = e->shm;   break;
                 case HANDLE_REPLY:        ptr = e->reply; break;
-                case HANDLE_NOTIFICATION: ptr = e->ntfn;  break;
+                case HANDLE_NTFN: ptr = e->ntfn;  break;
                 case HANDLE_TASK:         ptr = e->task;  break;
                 default:                                   break;
                 }
@@ -563,7 +563,7 @@ static void panic_print_process(void)
 
     /* User trapframe (saved at syscall/exception entry) */
     if (current_thread->trap_frame) {
-        arch_regs_t *tf = current_thread->trap_frame;
+        CpuState *tf = current_thread->trap_frame;
         panic_nl();
         panic_line("user trapframe:");
         snprintf(line, sizeof(line),
@@ -593,10 +593,10 @@ static void panic_print_process(void)
     /* IPC state */
     if (current_thread->ipc_state != IPC_NONE) {
         panic_nl();
-        if (current_thread->blocked_endpoint)
+        if (current_thread->blocked_port)
             snprintf(line, sizeof(line), "IPC: %s  port=0x%08X",
                      ipc_state_str(current_thread->ipc_state),
-                     (uint32_t)(uintptr_t)current_thread->blocked_endpoint);
+                     (uint32_t)(uintptr_t)current_thread->blocked_port);
         else
             snprintf(line, sizeof(line), "IPC: %s",
                      ipc_state_str(current_thread->ipc_state));
