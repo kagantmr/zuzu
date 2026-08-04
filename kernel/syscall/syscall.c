@@ -79,7 +79,7 @@ static bool trap_frame_sane(const CpuState *frame)
     return false;
 }
 
-bool copy_to_user(void *uaddr, const void *kaddr, size_t len)
+bool CopyToUser(void *uaddr, const void *kaddr, size_t len)
 {
     if (len == 0)
         return true;
@@ -94,7 +94,7 @@ bool copy_to_user(void *uaddr, const void *kaddr, size_t len)
     return true;
 }
 
-bool copy_from_user(void *kaddr, const void *uaddr, size_t len)
+bool CopyFromUser(void *kaddr, const void *uaddr, size_t len)
 {
     if (len == 0)
         return true;
@@ -109,7 +109,7 @@ bool copy_from_user(void *kaddr, const void *uaddr, size_t len)
     return true;
 }
 
-void __attribute__((hot)) syscall_dispatch(uint8_t svc_num, CpuState *frame)
+void __attribute__((hot)) SyscallDispatch(uint8_t svc_num, CpuState *frame)
 {
     if (!current_thread)
     {

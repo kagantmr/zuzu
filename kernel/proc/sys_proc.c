@@ -32,7 +32,7 @@ static bool wait_write_status(int32_t *status_out, int32_t status)
     if (!status_out)
         return true;
 
-    return copy_to_user(status_out, &status, sizeof(status));
+    return CopyToUser(status_out, &status, sizeof(status));
 }
 
 void sys_pquit(CpuState *frame) {
@@ -174,7 +174,7 @@ void sys_pspawn(CpuState *frame) {
     }
 
     SpawnArgs kargs;
-    if (!copy_from_user(&kargs, args, sizeof(SpawnArgs))) {
+    if (!CopyFromUser(&kargs, args, sizeof(SpawnArgs))) {
         (*arch_reg(frame, 0)) = ERR_BADPTR;
         return;
     }
@@ -193,7 +193,7 @@ void sys_pspawn(CpuState *frame) {
     size_t nlen = kargs.name_len;
     if (nlen > sizeof(kname) - 1)
         nlen = sizeof(kname) - 1;
-    if (nlen > 0 && !copy_from_user(kname, kargs.name, nlen)) {
+    if (nlen > 0 && !CopyFromUser(kname, kargs.name, nlen)) {
         (*arch_reg(frame, 0)) = ERR_BADPTR;
         return;
     }
@@ -242,7 +242,7 @@ void sys_kickstart(CpuState *frame) {
     }
 
     KickstartArgs kargs;
-    if (!copy_from_user(&kargs, args, sizeof(KickstartArgs))) {
+    if (!CopyFromUser(&kargs, args, sizeof(KickstartArgs))) {
         (*arch_reg(frame, 0)) = ERR_BADPTR;
         return;
     }

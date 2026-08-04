@@ -323,7 +323,7 @@ void sys_asinject(CpuState *frame)
         }
 
         AsInjectArgs kargs;
-        if (!copy_from_user(&kargs, args, sizeof(AsInjectArgs)))
+        if (!CopyFromUser(&kargs, args, sizeof(AsInjectArgs)))
         {
             {
             (*arch_reg(frame, 0)) = ERR_BADPTR;
@@ -499,7 +499,7 @@ void sys_asinject(CpuState *frame)
             if (bytes_to_copy > PAGE_SIZE)
                 bytes_to_copy = PAGE_SIZE;
 
-            if (!copy_from_user((void *)PA_TO_VA(page),
+            if (!CopyFromUser((void *)PA_TO_VA(page),
                                 (const void *)((uintptr_t)kargs.src_buf + offset),
                                 bytes_to_copy))
             {

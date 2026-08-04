@@ -16,10 +16,12 @@
  * Arguments in r0-w3, return in r0. See docs/syscall.md for full ABI.
  */
 
-bool copy_to_user(void *uaddr, const void *kaddr, size_t len);
-bool copy_from_user(void *kaddr, const void *uaddr, size_t len);
+typedef uint8_t Svc;
 
-void __attribute__((hot)) syscall_dispatch(uint8_t svc_num, CpuState *frame);
+bool CopyToUser(void *uaddr, const void *kaddr, size_t len);
+bool CopyFromUser(void *kaddr, const void *uaddr, size_t len);
+
+void __attribute__((hot)) SyscallDispatch(Svc svc_num, CpuState *frame);
 
 static inline bool validate_user_ptr(const uintptr_t addr, const size_t len) {
     if (addr + len < addr) return false;
