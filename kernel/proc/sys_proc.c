@@ -19,7 +19,7 @@
 
 extern thread_t *current_thread;
 extern ListHead sleep_queue;
-extern Port *nametable_endpoint;
+extern Port *nametable_port;
 extern process_t *process_table[MAX_PROCESSES];
 
 #define LOG_FMT(fmt) "(sys_task) " fmt
@@ -35,7 +35,7 @@ static bool wait_write_status(int32_t *status_out, int32_t status)
     return copy_to_user(status_out, &status, sizeof(status));
 }
 
-void sys_pquit(arch_regs_t *frame) {
+void sys_pquit(CpuState *frame) {
     int exit_status = (int)(*arch_reg(frame, 0));
     KDEBUG("Process %d exited with status code %d", 
            current_thread->owner_process ? current_thread->owner_process->pid : 0, 
@@ -45,13 +45,13 @@ void sys_pquit(arch_regs_t *frame) {
     schedule();
 }
 
-void sys_yield(arch_regs_t *frame) {
+void sys_yield(CpuState *frame) {
     (*arch_reg(frame, 0)) = 0;
     (void)frame;
     schedule();
 }
 
-void sys_sleep(arch_regs_t *frame) {
+void sys_sleep(CpuState *frame) {
     uint32_t ms = (*arch_reg(frame, 0)); // argument 0: Milliseconds to sleep
     
     // Convert ms to ticks using configured tick rate.
@@ -71,11 +71,11 @@ void sys_sleep(arch_regs_t *frame) {
     (*arch_reg(frame, 0)) = 0;
 }
 
-void sys_getpid(arch_regs_t *frame) {
+void sys_getpid(CpuState *frame) {
     (*arch_reg(frame, 0)) = current_thread->owner_process->pid;
 }
 
-void sys_wait(arch_regs_t *frame) {
+void sys_wait(CpuState *frame) {
     int32_t req_pid = (int32_t)(*arch_reg(frame, 0));
     int32_t *status_out = (int32_t *)(*arch_reg(frame, 1));
     uint32_t flags = (*arch_reg(frame, 2));
@@ -166,7 +166,7 @@ void sys_wait(arch_regs_t *frame) {
 
 /* spawn syscall removed: use pspawn/kickstart with sysd */
 
-void sys_pspawn(arch_regs_t *frame) {
+void sys_pspawn(CpuState *frame) {
     SpawnArgs *args = (SpawnArgs *)(*arch_reg(frame, 0));
     if (!validate_user_ptr((uintptr_t)args, sizeof(SpawnArgs))) {
         (*arch_reg(frame, 0)) = ERR_BADPTR;
@@ -212,7 +212,7 @@ void sys_pspawn(arch_regs_t *frame) {
             continue;
         HandleEntry *dst = handle_vec_get(&process->handle_table, i);
         *dst = *src;
-        if (src->type == HANDLE_ENDPOINT && src->port)
+        if (src->type == HANDLE_PORT && src->port)
             src->port->ref_count++;
     }
     
@@ -234,7 +234,7 @@ void sys_pspawn(arch_regs_t *frame) {
     return;
 }
 
-void sys_kickstart(arch_regs_t *frame) {
+void sys_kickstart(CpuState *frame) {
     KickstartArgs *args = (KickstartArgs *)(*arch_reg(frame, 0));
     if (!validate_user_ptr((uintptr_t)args, sizeof(KickstartArgs))) {
         (*arch_reg(frame, 0)) = ERR_BADPTR;
@@ -283,7 +283,7 @@ void sys_kickstart(arch_regs_t *frame) {
     return;
 }
 
-void sys_pkill(arch_regs_t *frame) {
+void sys_pkill(CpuState *frame) {
     uint32_t handle_idx = (*arch_reg(frame, 0));
 
     HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);

@@ -17,7 +17,7 @@
 #define MSG_QUIT 0xFFFFFFFFu
 #define MSG_PING 0u
 
-/* ZuzuMsgLcall has no w1/w2 word arguments -- the only thing sys_msg_recv
+/* ZuzuMsgLcall has no w1/w2 word arguments -- the only thing SysMsgRecv
  * hands the receiver for an lcall is the transferred buffer length in w2
  * (see kernel/ipc/sys_ipc.c). LCALL_QUIT_LEN just needs to be distinct from
  * LCALL_PAYLOAD_LEN so the server can tell "shut down" from "echo this". */

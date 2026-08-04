@@ -3,9 +3,9 @@
 
 #include <arch/regs.h>
 
-void sys_tmake(arch_regs_t *frame);
-void sys_tjoin(arch_regs_t *frame);
-void sys_tquit(arch_regs_t *frame);
+void sys_tmake(CpuState *frame);
+void sys_tjoin(CpuState *frame);
+void sys_tquit(CpuState *frame);
 
 
 #endif // SYS_THREAD_H

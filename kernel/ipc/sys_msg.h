@@ -4,15 +4,15 @@
 #include <arch/regs.h>
 
 
-void sys_msg_send(arch_regs_t *frame);
-void sys_msg_recv(arch_regs_t *frame);
-void sys_msg_call(arch_regs_t *frame);
-void sys_msg_reply(arch_regs_t *frame);
+void SysMsgSend(CpuState *frame);
+void SysMsgRecv(CpuState *frame);
+void SysMsgCall(CpuState *frame);
+void SysMsgReply(CpuState *frame);
 
-void sys_msg_lsend(arch_regs_t *frame);
-void sys_msg_lcall(arch_regs_t *frame);
-void sys_msg_lreply(arch_regs_t *frame);
-void sys_waitany(arch_regs_t *frame);
+void SysMsgLsend(CpuState *frame);
+void SysMsgLcall(CpuState *frame);
+void SysMsgLreply(CpuState *frame);
+void SysWaitAny(CpuState *frame);
 
 
 #endif // SYS_IPC_H

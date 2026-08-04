@@ -21,8 +21,8 @@ typedef struct endpoint {
 } Port;
 
 typedef struct {
-    Tid caller_tid;       // instead of zpid_t caller_pid
-    Pid holder_pid;       // instead of process_t *holder
+    Tid caller_tid;     
+    Pid holder_pid;       
     Handle holder_slot;
     ListNode caller_link;
 } ReplyCap;

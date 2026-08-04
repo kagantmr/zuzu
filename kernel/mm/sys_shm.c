@@ -27,7 +27,7 @@ void shmem_drop_ref(ShmCap *shm)
     }
 }
 
-void sys_shm_create(arch_regs_t *frame)
+void sys_shm_create(CpuState *frame)
 {
     const size_t size = align_up((size_t)(*arch_reg(frame, 0)), PAGE_SIZE);
     if (size == 0)
@@ -83,7 +83,7 @@ void sys_shm_create(arch_regs_t *frame)
 
     entry->mapped_va = 0;
     entry->shm = shmem_obj;
-    entry->type = HANDLE_SHMEM;
+    entry->type = HANDLE_SHM;
     entry->grantable = true;
 
     (*arch_reg(frame, 0)) = (Handle)handle;

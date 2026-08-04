@@ -12,7 +12,7 @@
 
 extern thread_t *current_thread;
 extern process_t *process_table[MAX_PROCESSES];
-Port *nametable_endpoint;
+Port *nametable_port;
 
 static bool can_regrant_received_handle(const process_t *grantee)
 {
@@ -21,7 +21,7 @@ static bool can_regrant_received_handle(const process_t *grantee)
     return grantee && ((grantee->flags & PROC_FLAG_INIT) != 0);
 }
 
-void sys_port_create(arch_regs_t *frame)
+void SysPortCreate(CpuState *frame)
 {
     if (!current_thread)
     {
@@ -38,16 +38,16 @@ void sys_port_create(arch_regs_t *frame)
 
     HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle);
 
-    Port *new_endpoint = (Port *)kalloc_endpoint();
-    if (!new_endpoint)
+    Port *new_port = (Port *)kalloc_portobj();
+    if (!new_port)
     {
         (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
     }
-    if (current_thread->owner_process->flags & PROC_FLAG_INIT && !nametable_endpoint)
+    if (current_thread->owner_process->flags & PROC_FLAG_INIT && !nametable_port)
     {
 
-        nametable_endpoint = new_endpoint;
+        nametable_port = new_port;
         /* Inject NT handle into processes spawned before nametable existed. */
         for (int j = 0; j < MAX_PROCESSES; j++)
         {
@@ -57,10 +57,10 @@ void sys_port_create(arch_regs_t *frame)
                 HandleEntry *p_entry = handle_vec_get(&p->handle_table, 0);
                 if (p_entry && p_entry->type == HANDLE_FREE)
                 {
-                    p_entry->port = nametable_endpoint;
+                    p_entry->port = nametable_port;
                     p_entry->grantable = true;
-                    p_entry->type = HANDLE_ENDPOINT;
-                    nametable_endpoint->ref_count++;
+                    p_entry->type = HANDLE_PORT;
+                    nametable_port->ref_count++;
                 }
                 else if (p_entry && p_entry->type != HANDLE_FREE)
                 {
@@ -70,21 +70,21 @@ void sys_port_create(arch_regs_t *frame)
             }
         }
     }
-    // list_init(&new_endpoint->node);
-    list_init(&new_endpoint->sender_queue);
-    list_init(&new_endpoint->receiver_queue);
-    new_endpoint->owner_pid = current_thread->owner_process->pid;
-    new_endpoint->ref_count = 1;
-    new_endpoint->alive = true;
-    entry->port = new_endpoint;
+    // list_init(&new_port->node);
+    list_init(&new_port->sender_queue);
+    list_init(&new_port->receiver_queue);
+    new_port->owner_pid = current_thread->owner_process->pid;
+    new_port->ref_count = 1;
+    new_port->alive = true;
+    entry->port = new_port;
     entry->grantable = true;
-    entry->type = HANDLE_ENDPOINT;
+    entry->type = HANDLE_PORT;
 
     (*arch_reg(frame, 0)) = handle;
     return;
 }
 
-void sys_destroy(arch_regs_t *frame)
+void SysDestroy(CpuState *frame)
 {
     if (!current_thread)
     {
@@ -113,7 +113,7 @@ void sys_destroy(arch_regs_t *frame)
     }
     switch (entry->type)
     {
-    case HANDLE_ENDPOINT:
+    case HANDLE_PORT:
     {
 
         Port *port = entry->port;
@@ -145,7 +145,7 @@ void sys_destroy(arch_regs_t *frame)
             ListNode *n = list_pop_front(&port->sender_queue);
             thread_t *t = container_of(n, thread_t, node);
             t->ipc_state = IPC_NONE;
-            t->blocked_endpoint = NULL;
+            t->blocked_port = NULL;
             (*arch_reg(t->trap_frame, 0)) = ERR_DEAD;
             t->state = READY;
             sched_add(t);
@@ -165,7 +165,7 @@ void sys_destroy(arch_regs_t *frame)
             else
             {
                 t->ipc_state = IPC_NONE;
-                t->blocked_endpoint = NULL;
+                t->blocked_port = NULL;
             }
             if (t->trap_frame)
                 (*arch_reg(t->trap_frame, 0)) = ERR_DEAD;
@@ -186,12 +186,12 @@ void sys_destroy(arch_regs_t *frame)
         if (port->ref_count > 0)
             port->ref_count--;
         if (port->ref_count == 0)
-            kfree_endpoint(port);
+            kfree_portobj(port);
 
         (*arch_reg(frame, 0)) = 0;
     }
     break;
-    case HANDLE_NOTIFICATION: {
+    case HANDLE_NTFN: {
         Ntfn *ntf = entry->ntfn;
         if (!ntf)
         {
@@ -220,7 +220,7 @@ void sys_destroy(arch_regs_t *frame)
         {
             ListNode *n = list_pop_front(&ntf->wait_queue);
             thread_wait_slot_t *slot = container_of(n, thread_wait_slot_t, node);
-            ntfn_wake_waiter(ntf, slot, ERR_DEAD, 0);
+            NtfnWakeWaiter(ntf, slot, ERR_DEAD, 0);
         }
 
 
@@ -238,7 +238,7 @@ void sys_destroy(arch_regs_t *frame)
         (*arch_reg(frame, 0)) = 0;
     }
     break;
-    case HANDLE_SHMEM: {
+    case HANDLE_SHM: {
         // Mapped handles must go through detach/memunmap so the region is torn down
         if (entry->mapped_va != 0)
         {
@@ -308,7 +308,7 @@ void sys_destroy(arch_regs_t *frame)
     }
 }
 
-void sys_grant(arch_regs_t *frame)
+void SysGrant(CpuState *frame)
 {
     if (!current_thread)
     {
@@ -368,7 +368,7 @@ void sys_grant(arch_regs_t *frame)
 
     *dst = *src;
 
-    if (dst->type == HANDLE_ENDPOINT)
+    if (dst->type == HANDLE_PORT)
     {
         if (!dst->port || !dst->port->alive)
         {
@@ -391,7 +391,7 @@ void sys_grant(arch_regs_t *frame)
         }
         dst->dev->ref_count++;
     }
-    if (dst->type == HANDLE_NOTIFICATION)
+    if (dst->type == HANDLE_NTFN)
     {
         if (!dst->ntfn || !dst->ntfn->alive)
         {
@@ -404,7 +404,7 @@ void sys_grant(arch_regs_t *frame)
         dst->ntfn->ref_count++;
     }
 
-    if (dst->type == HANDLE_SHMEM)
+    if (dst->type == HANDLE_SHM)
     {
         dst->mapped_va = 0;         // the grantee has its own (unmapped) handle
         if (dst->shm)
@@ -414,7 +414,7 @@ void sys_grant(arch_regs_t *frame)
     (*arch_reg(frame, 0)) = (Handle)slot;
 }
 
-void SysStamp(arch_regs_t *frame)
+void SysStamp(CpuState *frame)
 {
     Handle   src_handle = (*arch_reg(frame, 0));
     uint32_t value      = (*arch_reg(frame, 1));
@@ -433,7 +433,7 @@ void SysStamp(arch_regs_t *frame)
     }
 
     // 3. must be an endpoint cap
-    if (src->type != HANDLE_ENDPOINT) {
+    if (src->type != HANDLE_PORT) {
         (*arch_reg(frame, 0)) = ERR_BADTYPE;
         return;
     }
@@ -457,8 +457,8 @@ void SysStamp(arch_regs_t *frame)
 
     // 6. new entry: SAME endpoint, marker = value
     HandleEntry *ne = handle_vec_get(&current_thread->owner_process->handle_table, slot);
-    ne->type      = HANDLE_ENDPOINT;
-    ne->port        = src->port;      // same underlying endpoint object
+    ne->type      = HANDLE_PORT;
+    ne->port        = src->port;      // same underlying port object
     ne->marker     = value;        // the stamp
     ne->grantable = src->grantable;   // inherit grantability (see note)
     src->port->ref_count++;

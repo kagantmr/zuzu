@@ -66,8 +66,8 @@ void kheap_init(void);
 void kheap_dump(void);
 
 /* Hot-path object allocators backed by slab caches. */
-void *kalloc_endpoint(void);
-void kfree_endpoint(void *ptr);
+void *kalloc_portobj(void);
+void kfree_portobj(void *ptr);
 
 void *kalloc_reply_cap(void);
 void kfree_reply_cap(void *ptr);

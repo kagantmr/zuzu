@@ -144,7 +144,7 @@ thread_t *thread_create(process_t *owner_process)
     thread->wake_tick = 0;
     thread->state = FROZEN;
     thread->ipc_state = IPC_NONE;
-    thread->blocked_endpoint = NULL;
+    thread->blocked_port = NULL;
     thread->pending_reply_cap = NULL;
     thread->ipc_buf_pa = 0;
     thread->ipc_buf_xfer_len = 0;

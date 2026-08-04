@@ -19,7 +19,7 @@
 
 uint32_t next_pid = 1;
 process_t *process_table[MAX_PROCESSES];
-extern Port *nametable_endpoint;
+extern Port *nametable_port;
 
 #define LOG_FMT(fmt) "(proc) " fmt
 #include "core/log.h"
@@ -358,11 +358,11 @@ fail_kstack:
     if (process_table[p->pid % MAX_PROCESSES] == p)
         process_table[p->pid % MAX_PROCESSES] = NULL;
 
-    if (nametable_endpoint) {
+    if (nametable_port) {
         HandleEntry *slot0 = handle_vec_get(&p->handle_table, 0);
-        if (slot0 && slot0->type == HANDLE_ENDPOINT && slot0->port == nametable_endpoint) {
-            if (nametable_endpoint->ref_count > 0)
-                nametable_endpoint->ref_count--;
+        if (slot0 && slot0->type == HANDLE_PORT && slot0->port == nametable_port) {
+            if (nametable_port->ref_count > 0)
+                nametable_port->ref_count--;
         }
     }
 
@@ -506,12 +506,12 @@ process_t *process_create(const char* name) {
     if (!slot0)
         goto fail_kstack;
 
-    if (nametable_endpoint && nametable_endpoint->alive) {
-        slot0->type = HANDLE_ENDPOINT;
+    if (nametable_port && nametable_port->alive) {
+        slot0->type = HANDLE_PORT;
         slot0->grantable = true;
         slot0->mapped_va = 0;
-        slot0->port = nametable_endpoint;
-        nametable_endpoint->ref_count++;
+        slot0->port = nametable_port;
+        nametable_port->ref_count++;
     } else {
         slot0->type = HANDLE_FREE;
         slot0->grantable = false;
@@ -558,11 +558,11 @@ fail_kstack:
     as_destroy(p->as);
     p->tcb_page_pa = 0; /* page freed above; thread_destroy must not scrub it */
 fail_handles:
-    if (nametable_endpoint) {
+    if (nametable_port) {
         HandleEntry *maybe_slot0 = handle_vec_get(&p->handle_table, 0);
-        if (maybe_slot0 && maybe_slot0->type == HANDLE_ENDPOINT && maybe_slot0->port == nametable_endpoint) {
-            if (nametable_endpoint->ref_count > 0)
-                nametable_endpoint->ref_count--;
+        if (maybe_slot0 && maybe_slot0->type == HANDLE_PORT && maybe_slot0->port == nametable_port) {
+            if (nametable_port->ref_count > 0)
+                nametable_port->ref_count--;
         }
     }
     handle_vec_destroy(&p->handle_table);
@@ -738,7 +738,7 @@ void process_kill(process_t *p, const int exit_status) {
         if (!entry)
             break;
 
-        if (entry->type == HANDLE_ENDPOINT) {
+        if (entry->type == HANDLE_PORT) {
             Port *port = entry->port;
             if (port && port->owner_pid == p->pid && port->alive) {
                 port->alive = false;
@@ -747,7 +747,7 @@ void process_kill(process_t *p, const int exit_status) {
                     ListNode *n = list_pop_front(&port->sender_queue);
                     thread_t *thread = container_of(n, thread_t, node);
                     thread->ipc_state = IPC_NONE;
-                    thread->blocked_endpoint = NULL;
+                    thread->blocked_port = NULL;
                     thread->wake_reason = WAKE_IPC;
                     if (thread->trap_frame)
                         (*arch_reg(thread->trap_frame, 0)) = ERR_DEAD;
@@ -763,7 +763,7 @@ void process_kill(process_t *p, const int exit_status) {
                         thread_waitany_clear_ep_waits(thread);
                     } else {
                         thread->ipc_state = IPC_NONE;
-                        thread->blocked_endpoint = NULL;
+                        thread->blocked_port = NULL;
                     }
                     if (thread->wake_tick != 0 && thread->timeout_node.prev && thread->timeout_node.next)
                         list_remove(&thread->timeout_node);
@@ -779,7 +779,7 @@ void process_kill(process_t *p, const int exit_status) {
                 if (port->ref_count > 0)
                     port->ref_count--;
                 if (port->ref_count == 0)
-                    kfree_endpoint(port);
+                    kfree_portobj(port);
             }
             entry->port = NULL;
             entry->grantable = false;
@@ -795,7 +795,7 @@ void process_kill(process_t *p, const int exit_status) {
             entry->mapped_va = 0;
             entry->grantable = false;
             entry->type = HANDLE_FREE;
-        } else if (entry->type == HANDLE_SHMEM) {
+        } else if (entry->type == HANDLE_SHM) {
             ShmCap *shm = entry->shm;
             // Every shm handle holds one reference (create/grant), regardless
             // of whether it is currently mapped. Tear down the mapping if any,
@@ -815,7 +815,7 @@ void process_kill(process_t *p, const int exit_status) {
 
             if (caller_thread && caller_thread->ipc_state == IPC_WAITING) {
                 caller_thread->ipc_state = IPC_NONE;
-                caller_thread->blocked_endpoint = NULL;
+                caller_thread->blocked_port = NULL;
                 caller_thread->wake_reason = WAKE_IPC;
                 if (caller_thread->trap_frame)
                     (*arch_reg(caller_thread->trap_frame, 0)) = ERR_DEAD;
@@ -831,7 +831,7 @@ void process_kill(process_t *p, const int exit_status) {
             entry->reply = NULL;
             entry->grantable = false;
             entry->type = HANDLE_FREE;
-        } else if (entry->type == HANDLE_NOTIFICATION) {
+        } else if (entry->type == HANDLE_NTFN) {
             Ntfn *ntfn = entry->ntfn;
             if (ntfn && ntfn->owner_pid == p->pid && ntfn->alive) {
                 ntfn->alive = false;
@@ -847,7 +847,7 @@ void process_kill(process_t *p, const int exit_status) {
                     thread->wake_tick = 0;
                     thread->state = READY;
                     thread->wake_reason = WAKE_IPC;
-                    thread->blocked_endpoint = NULL;
+                    thread->blocked_port = NULL;
                     thread->ipc_state = IPC_NONE;
                     sched_add(thread);
                 }
@@ -926,7 +926,7 @@ void process_destroy(process_t *p)
         HandleEntry *entry = handle_vec_get(&p->handle_table, i);
         if (!entry)
             break;
-        if (entry->type == HANDLE_SHMEM && entry->shm) {
+        if (entry->type == HANDLE_SHM && entry->shm) {
             if (p->as && entry->mapped_va != 0)
                 vmm_remove_region(p->as, entry->mapped_va,
                                   entry->shm->page_count * PAGE_SIZE);

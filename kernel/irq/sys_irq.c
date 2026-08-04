@@ -50,7 +50,7 @@ static void relay_handler(void *ctx)
             waiter->wake_tick = 0;
             ntfn->word = 0;
             waiter->wake_reason = WAKE_IPC;
-            waiter->blocked_endpoint = NULL;
+            waiter->blocked_port = NULL;
             waiter->ipc_state = IPC_NONE;
             waiter->state = READY;
             sched_add(waiter);
@@ -72,7 +72,7 @@ static inline bool valid_irq(Irq irq_num) {
  * the caller) and bind a notification to it in a single syscall. Formerly two
  * syscalls, irq_claim + ZuzuIrqBind, which every caller invoked back-to-back.
  */
-void sys_irq_bind(arch_regs_t *frame) {
+void sys_irq_bind(CpuState *frame) {
     Handle dev_handle  = (*arch_reg(frame, 0));
     Handle ntfn_handle = (*arch_reg(frame, 1));
 
@@ -110,7 +110,7 @@ void sys_irq_bind(arch_regs_t *frame) {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;
     }
-    if (ntfn_entry->type != HANDLE_NOTIFICATION) {
+    if (ntfn_entry->type != HANDLE_NTFN) {
         (*arch_reg(frame, 0)) = ERR_BADTYPE;
         return;
     }
@@ -170,7 +170,7 @@ void sys_irq_bind(arch_regs_t *frame) {
             waiter->wake_tick = 0;
             ntfn->word = 0;
             waiter->wake_reason = WAKE_IPC;
-            waiter->blocked_endpoint = NULL;
+            waiter->blocked_port = NULL;
             waiter->ipc_state = IPC_NONE;
             waiter->state = READY;
             sched_add(waiter);
@@ -181,7 +181,7 @@ void sys_irq_bind(arch_regs_t *frame) {
     (*arch_reg(frame, 0)) = 0;
 }
 
-void sys_irq_done(arch_regs_t* frame) {
+void sys_irq_done(CpuState* frame) {
     Handle dev_handle  = (*arch_reg(frame, 0));
 
     if (dev_handle == 0) {

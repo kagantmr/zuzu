@@ -194,7 +194,7 @@ static void sched_wake_sleepers(void) {
                     list_remove(&t->ep_wait_slot.node);
             }
             t->ipc_state = IPC_NONE;
-            t->blocked_endpoint = NULL;
+            t->blocked_port = NULL;
             t->wake_reason = WAKE_TIMEOUT;
             (*arch_reg(t->trap_frame, 0)) = ERR_TIMEOUT;
             t->state = READY;
