@@ -71,7 +71,7 @@ struct thread
     uint32_t ipc_marker;
     thread_wait_slot_t ntfn_wait_slot;
     thread_wait_slot_t waitany_wait_slots[WAITANY_MAX_HANDLES];
-    Notification *waitany_wait_ntfns[WAITANY_MAX_HANDLES];
+    Ntfn *waitany_wait_ntfns[WAITANY_MAX_HANDLES];
     uint32_t waitany_wait_count;
     uint32_t waitany_wait_match_index;
     uint32_t waitany_wait_bits;

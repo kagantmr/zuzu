@@ -12,7 +12,7 @@
 
 extern thread_t *current_thread;
 
-void shmem_drop_ref(shmem_t *shm)
+void shmem_drop_ref(ShmCap *shm)
 {
     if (!shm)
         return;
@@ -49,7 +49,7 @@ void sys_shm_create(arch_regs_t *frame)
     }
     memset(page_arr, 0, sizeof(PhysAddr) * page_count);
 
-    shmem_t *shmem_obj = kmalloc(sizeof(shmem_t));
+    ShmCap *shmem_obj = kmalloc(sizeof(ShmCap));
     if (!shmem_obj)
     {
         kfree(page_arr);

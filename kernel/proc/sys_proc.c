@@ -18,7 +18,7 @@
 
 
 extern thread_t *current_thread;
-extern list_head_t sleep_queue;
+extern ListHead sleep_queue;
 extern Port *nametable_endpoint;
 extern process_t *process_table[MAX_PROCESSES];
 

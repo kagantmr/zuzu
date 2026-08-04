@@ -1,7 +1,6 @@
 #include "sys_msg.h"
 #include "kernel/syscall/syscall.h"
 #include "port.h"
-#include "handle.h"
 #include "kernel/sched/sched.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/proc/kstack.h"
@@ -10,6 +9,7 @@
 #include "core/panic.h"
 #include <string.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <zuzu/tls.h>
 #include <zuzu/types.h>
 

@@ -19,7 +19,7 @@ static void relay_handler(void *ctx)
 
     irq_owners[irq_num].pending = true;
 
-    Notification *ntfn = irq_owners[irq_num].bound_ntfn;
+    Ntfn *ntfn = irq_owners[irq_num].bound_ntfn;
     if (ntfn && ntfn->alive) {
         ntfn->word |= (1u << (irq_num & 31));
         irq_owners[irq_num].pending = false;
@@ -130,7 +130,7 @@ void sys_irq_bind(arch_regs_t *frame) {
     }
 
     if (irq_owners[irq_num].bound_ntfn) {
-        Notification *old = irq_owners[irq_num].bound_ntfn;
+        Ntfn *old = irq_owners[irq_num].bound_ntfn;
         if (old->ref_count > 0)
             old->ref_count--;
         if (old->ref_count == 0)
@@ -141,7 +141,7 @@ void sys_irq_bind(arch_regs_t *frame) {
     irq_owners[irq_num].bound_ntfn->ref_count++;
 
     if (irq_owners[irq_num].pending) {
-        Notification *ntfn = irq_owners[irq_num].bound_ntfn;
+        Ntfn *ntfn = irq_owners[irq_num].bound_ntfn;
         ntfn->word |= (1u << (irq_num & 31));
         irq_owners[irq_num].pending = false;
 
@@ -219,7 +219,7 @@ void irq_release_all(process_t *owner) {
     for (int i = 0; i < MAX_IRQS; i++) {
         if (irq_owners[i].owner == owner) {
             if (irq_owners[i].bound_ntfn) {
-                Notification *ntfn = irq_owners[i].bound_ntfn;
+                Ntfn *ntfn = irq_owners[i].bound_ntfn;
                 if (ntfn->ref_count > 0)
                     ntfn->ref_count--;
                 if (ntfn->ref_count == 0)

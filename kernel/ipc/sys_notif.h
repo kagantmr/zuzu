@@ -15,7 +15,7 @@ void sys_ntfn_wait(arch_regs_t *frame);
  * negative error from cap_destroy); bits is what a waitany waiter sees in
  * its result. A queued waiter without a trap frame is a corrupt wait queue:
  * panics rather than limp past it. */
-void ntfn_wake_waiter(Notification *ntfn, struct thread_wait_slot *slot,
+void ntfn_wake_waiter(Ntfn *ntfn, struct thread_wait_slot *slot,
                       int32_t r0_value, uint32_t bits);
 
 #endif // SYS_NOTIF_H

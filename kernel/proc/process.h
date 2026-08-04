@@ -30,13 +30,13 @@ typedef struct process
     char name[32];           // PROCESS name
     VirtAddr device_va_next; // initialized to USER_DEVICE_BASE in process_create
     VirtAddr mmap_va_next;   // initialized to USER_MMAP_BASE in process_create
-    list_head_t outstanding_replies;
+    ListHead outstanding_replies;
     handle_vec_t handle_table;    
     uint32_t flags;
     thread_t *thread;
     Tid waiting_for_tid;
-    list_head_t threads;
-    list_head_t children;
+    ListHead threads;
+    ListHead children;
     ListNode sibling_node;
     PhysAddr tcb_page_pa;
     VirtAddr tcb_page_va;

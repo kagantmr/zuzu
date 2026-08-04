@@ -54,7 +54,7 @@ typedef struct vm_region
     vm_owner_t owner; // ownership: who allocated/owns the backing pages
     uintptr_t paddr_start;
     vm_flags_t flags;
-    void *backing; // optional pointer to backing object (e.g. shmem_t) for shared memory, file mappings, etc.
+    void *backing; // optional pointer to backing object (e.g. ShmCap) for shared memory, file mappings, etc.
 } vm_region_t;
 
 typedef enum
@@ -80,7 +80,7 @@ typedef struct
     size_t page_count;     // amount of used pages
     uint32_t ref_count;    // live HANDLE references (shm_create + each grant);
                            // NOT mappings. Object frees when this hits zero.
-} shmem_t;
+} ShmCap;
 
 /* Drop one handle reference to a shmem object. shm_create and each grant add
  * one; sys_destroy and process teardown drop one. */

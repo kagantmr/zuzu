@@ -796,7 +796,7 @@ void process_kill(process_t *p, const int exit_status) {
             entry->grantable = false;
             entry->type = HANDLE_FREE;
         } else if (entry->type == HANDLE_SHMEM) {
-            shmem_t *shm = entry->shm;
+            ShmCap *shm = entry->shm;
             // Every shm handle holds one reference (create/grant), regardless
             // of whether it is currently mapped. Tear down the mapping if any,
             // then drop this handle's reference (frees the object at zero).
@@ -832,7 +832,7 @@ void process_kill(process_t *p, const int exit_status) {
             entry->grantable = false;
             entry->type = HANDLE_FREE;
         } else if (entry->type == HANDLE_NOTIFICATION) {
-            Notification *ntfn = entry->ntfn;
+            Ntfn *ntfn = entry->ntfn;
             if (ntfn && ntfn->owner_pid == p->pid && ntfn->alive) {
                 ntfn->alive = false;
                 while (!list_empty(&ntfn->wait_queue)) {

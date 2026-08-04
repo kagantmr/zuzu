@@ -26,7 +26,7 @@ extern irq_handler_t      handler_table[MAX_IRQS];
 #endif
 
 extern kernel_layout_t kernel_layout;
-extern list_head_t     sleep_queue;
+extern ListHead     sleep_queue;
 
 panic_fault_context_t panic_fault_ctx;
 
