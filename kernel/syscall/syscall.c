@@ -23,20 +23,20 @@
 
 extern kernel_layout_t kernel_layout;
 
-typedef void (*syscall_handler_t)(CpuState *);
+typedef void (*SyscallEntryPoint)(CpuState *);
 
-static syscall_handler_t syscall_table[SYS_MAX + 1] = {
-    [SYS_PQUIT] = sys_pquit,
-    [SYS_YIELD] = sys_yield,
-    [SYS_WAIT] = sys_wait,
-    [SYS_GETPID] = sys_getpid,
-    [SYS_SLEEP] = sys_sleep,
-    [SYS_PSPAWN] = sys_pspawn,
-    [SYS_KICKSTART] = sys_kickstart,
-    [SYS_PKILL] = sys_pkill,
-    [SYS_TMAKE] = sys_tmake,
-    [SYS_TJOIN] = sys_tjoin,
-    [SYS_TQUIT] = sys_tquit,
+static SyscallEntryPoint SyscallTable[SYS_MAX + 1] = {
+    [SYS_PQUIT] = SysPQuit,
+    [SYS_YIELD] = SysYield,
+    [SYS_WAIT] = SysWait,
+    [SYS_GETPID] = SysGetPid,
+    [SYS_SLEEP] = SysSleep,
+    [SYS_PSPAWN] = SysPSpawn,
+    [SYS_KICKSTART] = SysKickstart,
+    [SYS_PKILL] = SysPKill,
+    [SYS_TMAKE] = SysTMake,
+    [SYS_TJOIN] = SysTJoin,
+    [SYS_TQUIT] = SysTQuit,
     [SYS_MSG_SEND] = SysMsgSend,
     [SYS_MSG_RECV] = SysMsgRecv,
     [SYS_MSG_CALL] = SysMsgCall,
@@ -49,17 +49,17 @@ static syscall_handler_t syscall_table[SYS_MAX + 1] = {
     [SYS_DESTROY] = SysDestroy,
     [SYS_GRANT] = SysGrant,
     [SYS_NTFN_CREATE] = SysNtfnCreate,
-    [SYS_DEV_QUERY] = sys_dev_query,
+    [SYS_DEV_QUERY] = SysDevQuery,
     [SYS_NTFN_SIGNAL] = SysNtfnSignal,
     [SYS_NTFN_WAIT] = SysNtfnWait,
     [SYS_STAMP] = SysStamp,
-    [SYS_MEMMAP] = sys_memmap,
-    [SYS_MEMUNMAP] = sys_memunmap,
-    [SYS_SHMEM_CREATE] = sys_shm_create,
-    [SYS_MEMPROTECT] = sys_memprotect,
-    [SYS_ASINJECT] = sys_asinject,
-    [SYS_IRQ_BIND] = sys_irq_bind,
-    [SYS_IRQ_DONE] = sys_irq_done
+    [SYS_MEMMAP] = SysMemMap,
+    [SYS_MEMUNMAP] = SysMemUnmap,
+    [SYS_SHMEM_CREATE] = SysShmCreate,
+    [SYS_MEMPROTECT] = SysMemProtect,
+    [SYS_ASINJECT] = SysAsInject,
+    [SYS_IRQ_BIND] = SysIrqBind,
+    [SYS_IRQ_DONE] = SysIrqDone
 };
 
 static bool trap_frame_sane(const CpuState *frame)
@@ -109,7 +109,7 @@ bool CopyFromUser(void *kaddr, const void *uaddr, size_t len)
     return true;
 }
 
-void __attribute__((hot)) SyscallDispatch(uint8_t svc_num, CpuState *frame)
+void __attribute__((hot)) SyscallDispatch(Svc svc_num, CpuState *frame)
 {
     if (!current_thread)
     {
@@ -124,9 +124,9 @@ void __attribute__((hot)) SyscallDispatch(uint8_t svc_num, CpuState *frame)
     }
     current_thread->trap_frame = frame;
 
-    if (syscall_table[svc_num])
+    if (SyscallTable[svc_num])
     {
-        syscall_handler_t handler = syscall_table[svc_num];
+        SyscallEntryPoint handler = SyscallTable[svc_num];
         handler(frame);
         return;
     }

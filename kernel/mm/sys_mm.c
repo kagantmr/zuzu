@@ -175,7 +175,7 @@ static int32_t memmap_dev(process_t *p, HandleEntry *e, MemProt prot, VirtAddr *
     return ZUZU_OK;
 }
 
-void sys_memmap(CpuState *frame)
+void SysMemMap(CpuState *frame)
 {
     process_t *p = current_thread->owner_process;
     Handle handle = (Handle)(*arch_reg(frame, 0));
@@ -239,7 +239,7 @@ void sys_memmap(CpuState *frame)
     return;
 }
 
-void sys_memunmap(CpuState *frame)
+void SysMemUnmap(CpuState *frame)
 {
         const VirtAddr va = (VirtAddr)(*arch_reg(frame, 0));
 
@@ -286,7 +286,7 @@ void sys_memunmap(CpuState *frame)
                 }
                 if (!found_handle)
                 {
-                    KWARN("sys_memunmap: region @ 0x%08x has no matching handle", va);
+                    KWARN("SysMemUnmap: region @ 0x%08x has no matching handle", va);
                 }
             } break;
             default:
@@ -295,7 +295,7 @@ void sys_memunmap(CpuState *frame)
         // Remove from region list and unmap page table entries
         if (!vmm_remove_region(as, va, size))
         {
-            panic("sys_memunmap: found region @ 0x%08X (size=%u) but could not remove it",
+            panic("SysMemUnmap: found region @ 0x%08X (size=%u) but could not remove it",
                   (unsigned)va, (unsigned)size);
             __builtin_unreachable();
         }
@@ -303,7 +303,7 @@ void sys_memunmap(CpuState *frame)
         (*arch_reg(frame, 0)) = 0;
 }
 
-void sys_asinject(CpuState *frame)
+void SysAsInject(CpuState *frame)
 {
         if (!(current_thread->owner_process->flags & PROC_FLAG_INIT))
         {
@@ -575,7 +575,7 @@ void sys_asinject(CpuState *frame)
         }
 }
 
-void sys_memprotect(CpuState *frame)
+void SysMemProtect(CpuState *frame)
 {
         const uintptr_t va = (uintptr_t)(*arch_reg(frame, 0));
         const size_t size = (size_t)(*arch_reg(frame, 1));

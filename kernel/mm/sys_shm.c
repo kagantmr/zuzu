@@ -27,7 +27,7 @@ void shmem_drop_ref(ShmCap *shm)
     }
 }
 
-void sys_shm_create(CpuState *frame)
+void SysShmCreate(CpuState *frame)
 {
     const size_t size = align_up((size_t)(*arch_reg(frame, 0)), PAGE_SIZE);
     if (size == 0)

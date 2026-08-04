@@ -10,7 +10,7 @@
 #include "zuzu/syscall_nums.h"
 
 /*
- * zuzu Syscall ABI
+ * zuzu Syscall ABI (ARMv7-A)
  *
  * Syscall numbers encoded in the lower 8 bits of SVC immediate.
  * Arguments in r0-w3, return in r0. See docs/syscall.md for full ABI.

@@ -35,7 +35,7 @@ static bool wait_write_status(int32_t *status_out, int32_t status)
     return CopyToUser(status_out, &status, sizeof(status));
 }
 
-void sys_pquit(CpuState *frame) {
+void SysPQuit(CpuState *frame) {
     int exit_status = (int)(*arch_reg(frame, 0));
     KDEBUG("Process %d exited with status code %d", 
            current_thread->owner_process ? current_thread->owner_process->pid : 0, 
@@ -45,13 +45,13 @@ void sys_pquit(CpuState *frame) {
     schedule();
 }
 
-void sys_yield(CpuState *frame) {
+void SysYield(CpuState *frame) {
     (*arch_reg(frame, 0)) = 0;
     (void)frame;
     schedule();
 }
 
-void sys_sleep(CpuState *frame) {
+void SysSleep(CpuState *frame) {
     uint32_t ms = (*arch_reg(frame, 0)); // argument 0: Milliseconds to sleep
     
     // Convert ms to ticks using configured tick rate.
@@ -71,11 +71,11 @@ void sys_sleep(CpuState *frame) {
     (*arch_reg(frame, 0)) = 0;
 }
 
-void sys_getpid(CpuState *frame) {
+void SysGetPid(CpuState *frame) {
     (*arch_reg(frame, 0)) = current_thread->owner_process->pid;
 }
 
-void sys_wait(CpuState *frame) {
+void SysWait(CpuState *frame) {
     int32_t req_pid = (int32_t)(*arch_reg(frame, 0));
     int32_t *status_out = (int32_t *)(*arch_reg(frame, 1));
     uint32_t flags = (*arch_reg(frame, 2));
@@ -166,7 +166,7 @@ void sys_wait(CpuState *frame) {
 
 /* spawn syscall removed: use pspawn/kickstart with sysd */
 
-void sys_pspawn(CpuState *frame) {
+void SysPSpawn(CpuState *frame) {
     SpawnArgs *args = (SpawnArgs *)(*arch_reg(frame, 0));
     if (!validate_user_ptr((uintptr_t)args, sizeof(SpawnArgs))) {
         (*arch_reg(frame, 0)) = ERR_BADPTR;
@@ -234,7 +234,7 @@ void sys_pspawn(CpuState *frame) {
     return;
 }
 
-void sys_kickstart(CpuState *frame) {
+void SysKickstart(CpuState *frame) {
     KickstartArgs *args = (KickstartArgs *)(*arch_reg(frame, 0));
     if (!validate_user_ptr((uintptr_t)args, sizeof(KickstartArgs))) {
         (*arch_reg(frame, 0)) = ERR_BADPTR;
@@ -283,7 +283,7 @@ void sys_kickstart(CpuState *frame) {
     return;
 }
 
-void sys_pkill(CpuState *frame) {
+void SysPKill(CpuState *frame) {
     uint32_t handle_idx = (*arch_reg(frame, 0));
 
     HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);

@@ -919,7 +919,7 @@ void process_destroy(process_t *p)
     }
     /* Drop shm handle references still live here. The normal exit path
      * (process_kill) already cleared these, so this is a no-op there; it
-     * catches the direct-destroy path (sys_pkill) that bypasses process_kill
+     * catches the direct-destroy path (SysPKill) that bypasses process_kill
      * and would otherwise leak the shm object and its pages. Runs before
      * as_destroy so the address space is still valid for unmapping. */
     for (uint32_t i = 0; i < p->handle_table.cap; i++) {
