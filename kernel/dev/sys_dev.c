@@ -46,7 +46,7 @@ void sys_dev_query(CpuState *frame) {
         compat_buf[copy_len - 1] = '\0';
     }
 
-    if (!copy_to_user(out_buf, compat_buf, copy_len)) {
+    if (!CopyToUser(out_buf, compat_buf, copy_len)) {
         (*arch_reg(frame, 0)) = ERR_BADPTR;
         return;
     }

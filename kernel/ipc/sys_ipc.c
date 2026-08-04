@@ -1056,7 +1056,7 @@ static bool waitany_write_timeout_result(uintptr_t result_ptr, uint32_t size)
     result.size = sizeof(result);
     result.matched_index = UINT32_MAX;
     result.kind = WAITANY_KIND_TIMEOUT;
-    return copy_to_user((void *)result_ptr, &result, size);
+    return CopyToUser((void *)result_ptr, &result, size);
 }
 
 void SysWaitAny(CpuState *frame)
@@ -1086,7 +1086,7 @@ void SysWaitAny(CpuState *frame)
     }
 
     uint32_t caller_size;
-    if (!copy_from_user(&caller_size, (const void *)result_ptr, sizeof(uint32_t)))
+    if (!CopyFromUser(&caller_size, (const void *)result_ptr, sizeof(uint32_t)))
     {
         (*arch_reg(frame, 0)) = ERR_BADPTR;
         return;
@@ -1105,7 +1105,7 @@ void SysWaitAny(CpuState *frame)
 
     Handle handles_local[WAITANY_MAX_HANDLES];
     size_t copy_size = count * sizeof(Handle);
-    if (!copy_from_user(handles_local, (const void *)handles_ptr, copy_size))
+    if (!CopyFromUser(handles_local, (const void *)handles_ptr, copy_size))
     {
         (*arch_reg(frame, 0)) = ERR_BADPTR;
         return;
@@ -1134,7 +1134,7 @@ void SysWaitAny(CpuState *frame)
                                    wait_eps, wait_ep_indices, &ep_wait_count);
         if (err == 0)
         {
-            if (!copy_to_user((void *)result_ptr, &result, wlen))
+            if (!CopyToUser((void *)result_ptr, &result, wlen))
             {
                 (*arch_reg(frame, 0)) = ERR_BADPTR;
                 return;
@@ -1255,7 +1255,7 @@ void SysWaitAny(CpuState *frame)
         {
             thread_waitany_clear_waits(current_thread);
             thread_waitany_clear_ep_waits(current_thread);
-            if (!copy_to_user((void *)result_ptr, &current_thread->waitany_pending_result,
+            if (!CopyToUser((void *)result_ptr, &current_thread->waitany_pending_result,
                               wlen))
             {
                 (*arch_reg(frame, 0)) = ERR_BADPTR;
@@ -1273,7 +1273,7 @@ void SysWaitAny(CpuState *frame)
                                          &result);
             thread_waitany_clear_waits(current_thread);
             thread_waitany_clear_ep_waits(current_thread);
-            if (!copy_to_user((void *)result_ptr, &result, wlen))
+            if (!CopyToUser((void *)result_ptr, &result, wlen))
             {
                 (*arch_reg(frame, 0)) = ERR_BADPTR;
                 return;
