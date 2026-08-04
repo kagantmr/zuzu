@@ -12,8 +12,8 @@
 struct process;
 
 typedef struct endpoint {
-    list_head_t sender_queue;
-    list_head_t receiver_queue;
+    ListHead sender_queue;
+    ListHead receiver_queue;
     Pid owner_pid;
     size_t ref_count;
     bool alive;

@@ -29,12 +29,12 @@ typedef struct {
     union {
         Port  *port;
         DeviceCap *dev;
-        shmem_t      *shm;
+        ShmCap      *shm;
         ReplyCap *reply;
-        Notification *ntfn;
+        Ntfn *ntfn;
         struct process *task;
     };
-    uint32_t marker;
+    Marker marker;
 } HandleEntry;
 
 DEFINE_VEC(handle, HandleEntry)

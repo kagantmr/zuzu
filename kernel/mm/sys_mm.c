@@ -86,7 +86,7 @@ static int32_t memmap_shm(process_t *p, HandleEntry *e, MemProt prot, VirtAddr *
         return ERR_BUSY;
 
     // pick VA base and bump cursor once
-    shmem_t *shmem_obj = e->shm;
+    ShmCap *shmem_obj = e->shm;
 
     if (!shmem_obj)
         return ERR_BADHANDLE;

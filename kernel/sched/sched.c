@@ -22,9 +22,9 @@ static inline uint32_t thread_priority(const thread_t *t)
 	return t->priority;
 }
 
-static list_head_t destroy_queue = LIST_HEAD_INIT(destroy_queue);
-list_head_t sleep_queue = LIST_HEAD_INIT(sleep_queue);
-static list_head_t thread_destroy_queue = LIST_HEAD_INIT(thread_destroy_queue);
+static ListHead destroy_queue = LIST_HEAD_INIT(destroy_queue);
+ListHead sleep_queue = LIST_HEAD_INIT(sleep_queue);
+static ListHead thread_destroy_queue = LIST_HEAD_INIT(thread_destroy_queue);
 thread_t *current_thread;
 
 /* Diagnostic-only: lets low-level modules (e.g. PMM_TRACE) attribute an
@@ -43,7 +43,7 @@ static thread_t idle_thread;  // only kernel_sp is used
 static uint8_t idle_stack[4096] __attribute__((aligned(8)));
 static bool on_idle_stack;
 
-static list_head_t run_queues[SCHED_PRIORITY_LEVELS];
+static ListHead run_queues[SCHED_PRIORITY_LEVELS];
 
 // Bit `level` set iff run_queues[level] is non-empty. Kept in sync by the
 // only two call sites that ever add to or remove from a run queue
@@ -122,7 +122,7 @@ void sched_defer_destroy_thread(thread_t *t) {
 }
 
 void sched_reap_thread_destroys(void) {
-    list_head_t deferred = LIST_HEAD_INIT(deferred);
+    ListHead deferred = LIST_HEAD_INIT(deferred);
 
     while (!list_empty(&thread_destroy_queue)) {
         ListNode *node = list_pop_front(&thread_destroy_queue);

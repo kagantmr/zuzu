@@ -8,12 +8,12 @@
 #include <stdbool.h>
 
 typedef struct notification {
-    uint32_t word;              // 31-bit signal mask (bit 31 reserved), atomic-ish (IRQs off)
-    list_head_t wait_queue;     // processes blocked in ntfn_wait
+    NtfnBits word;              // 31-bit signal mask (bit 31 reserved), atomic-ish (IRQs off)
+    ListHead wait_queue;     // processes blocked in ntfn_wait
     Pid owner_pid;
     size_t ref_count;
     bool alive;
-} Notification;
+} Ntfn;
 
 
 

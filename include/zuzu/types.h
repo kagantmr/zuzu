@@ -21,6 +21,9 @@ typedef uint32_t Irq;       /* IRQ number*/
 typedef uint32_t Duration;  /* for sleep and waitany syscalls */
 typedef uint64_t Time;      /* wall-clock time */
 
+typedef uint32_t Marker;
+typedef uint32_t NtfnBits;
+
 /* ---- Common IPC types ---- */
 
 typedef int32_t MsgWordSigned;

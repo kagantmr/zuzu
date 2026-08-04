@@ -13,7 +13,7 @@ typedef struct list_node {
 
 typedef struct list_head {
     ListNode node;  // sentinel node (empty list points to itself)
-} list_head_t;
+} ListHead;
 
 #define list_for_each(pos, head) \
     for (pos = (head)->next; pos != (head); pos = pos->next)
@@ -43,7 +43,7 @@ void list_remove(ListNode* node);
  * 
  * @param head Pointer to the list head to be initialized.
  */
-static inline void list_init(list_head_t *head) {
+static inline void list_init(ListHead *head) {
     head->node.next = &head->node;
     head->node.prev = &head->node;
 }
@@ -54,7 +54,7 @@ static inline void list_init(list_head_t *head) {
  * @param head Pointer to the list head.
  * @return int Returns 1 if the list is empty, 0 otherwise.
  */
-static inline int list_empty(const list_head_t *head) {
+static inline int list_empty(const ListHead *head) {
     return head->node.next == &head->node;
 }
 
@@ -77,7 +77,7 @@ static inline void list_insert_before(ListNode *new, ListNode *existing) {
  * @param head Pointer to the list head.
  * @return list_node_t* Pointer to the popped node, or NULL if the list is empty.
  */
-static inline ListNode* list_pop_front(list_head_t *head) {
+static inline ListNode* list_pop_front(ListHead *head) {
     if (list_empty(head)) {
         return NULL;
     }
