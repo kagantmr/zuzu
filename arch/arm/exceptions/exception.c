@@ -8,6 +8,7 @@
 #include <arch/fpu.h>
 #include "core/log.h"
 #include "core/panic.h"
+#include "core/ksym.h"
 #include "kernel/proc/process.h"
 #include "kernel/proc/kstack.h"
 #include "kernel/sched/sched.h"
@@ -15,6 +16,7 @@
 #include "kernel/syscall/syscall.h"
 #include <string.h>
 #include <stdint.h>
+#include <snprintf.h>
 
 typedef enum exception_type
 {
@@ -102,22 +104,101 @@ static const char *decode_mode(uint32_t spsr)
     }
 }
 
+/* addr annotated with its containing kernel symbol, e.g. "0x8012340 (schedule+0x18)". */
+static void sym_annotate(char *buf, size_t bufsz, uint32_t addr)
+{
+    const char *name = ksym_lookup(addr);
+    uint32_t base = ksym_lookup_base(addr);
+    if (name && base && addr != base)
+        snprintf(buf, bufsz, "0x%08X (%s+0x%X)", addr, name, addr - base);
+    else if (name)
+        snprintf(buf, bufsz, "0x%08X (%s)", addr, name);
+    else
+        snprintf(buf, bufsz, "0x%08X (<?>)", addr);
+}
+
+/* d0-d31 + FPSCR, laid out exactly as arch_fpu_save() (arch/arm/vfp.S) writes them. */
+static void dump_vfp(const FpuState *fpu)
+{
+    const uint8_t *p = (const uint8_t *)fpu;
+
+    for (int i = 0; i < 32; i += 2)
+    {
+        uint64_t d0, d1;
+        memcpy(&d0, p + (size_t)i * 8, 8);
+        memcpy(&d1, p + (size_t)(i + 1) * 8, 8);
+        kprintf(" d%-2d=%016llX  d%-2d=%016llX\n",
+                i, (unsigned long long)d0, i + 1, (unsigned long long)d1);
+    }
+
+    uint32_t fpscr;
+    memcpy(&fpscr, p + 32 * 8, sizeof(fpscr));
+    kprintf(" fpscr=%08X\n", fpscr);
+}
+
 static void dump_registers(ExceptionFrame *frame)
 {
+    char pc_sym[80], lr_sym[80];
+    sym_annotate(pc_sym, sizeof(pc_sym), frame->return_pc);
+    sym_annotate(lr_sym, sizeof(lr_sym), frame->lr_usr);
+
+    process_t *p = current_thread ? current_thread->owner_process : NULL;
+
+    kprintf("-- register dump --------------------------------------------\n");
+    if (p)
+        kprintf("  ctx: pid=%u tid=%u '%s'\n", p->pid, current_thread->tid, p->name);
+    else if (current_thread)
+        kprintf("  ctx: tid=%u (no owner process)\n", current_thread->tid);
+    else
+        kprintf("  ctx: kernel/boot (no current thread)\n");
+
     kprintf("  r0=%08X  r1=%08X  r2=%08X  r3=%08X\n",
             frame->r[0], frame->r[1], frame->r[2], frame->r[3]);
     kprintf("  r4=%08X  r5=%08X  r6=%08X  r7=%08X\n",
             frame->r[4], frame->r[5], frame->r[6], frame->r[7]);
     kprintf("  r8=%08X  r9=%08X r10=%08X r11=%08X\n",
             frame->r[8], frame->r[9], frame->r[10], frame->r[11]);
-    kprintf(" r12=%08X  sp=%08X  lr=%08X  pc=%08X\n",
-            frame->r[12], frame->sp_usr, frame->lr_usr, frame->return_pc);
-    kprintf("spsr=%08X [%s mode, %s%s%s]\n",
+    kprintf(" r12=%08X  sp=%08X\n", frame->r[12], frame->sp_usr);
+    kprintf("  lr=%s\n", lr_sym);
+    kprintf("  pc=%s\n", pc_sym);
+    kprintf("spsr=%08X [%s mode, %s%s%s %c%c%c%c]  frame=%p\n",
             frame->return_cpsr,
             decode_mode(frame->return_cpsr),
             (frame->return_cpsr & (1 << 7)) ? "I" : "i",
             (frame->return_cpsr & (1 << 6)) ? "F" : "f",
-            (frame->return_cpsr & (1 << 5)) ? " Thumb" : "");
+            (frame->return_cpsr & (1 << 5)) ? " Thumb" : "",
+            (frame->return_cpsr & (1u << 31)) ? 'N' : 'n',
+            (frame->return_cpsr & (1u << 30)) ? 'Z' : 'z',
+            (frame->return_cpsr & (1u << 29)) ? 'C' : 'c',
+            (frame->return_cpsr & (1u << 28)) ? 'V' : 'v',
+            (void *)frame);
+
+    uint32_t dfar, dfsr, ifar, ifsr;
+    __asm__ volatile("mrc p15, 0, %0, c6, c0, 0" : "=r"(dfar));
+    __asm__ volatile("mrc p15, 0, %0, c5, c0, 0" : "=r"(dfsr));
+    __asm__ volatile("mrc p15, 0, %0, c6, c0, 2" : "=r"(ifar));
+    __asm__ volatile("mrc p15, 0, %0, c5, c0, 1" : "=r"(ifsr));
+    kprintf(" DFAR=%08X  DFSR=%08X  (%s)\n", dfar, dfsr, decode_fault_status(dfsr));
+    kprintf(" IFAR=%08X  IFSR=%08X  (%s)\n", ifar, ifsr, decode_fault_status(ifsr));
+
+    /* current_thread == fpu_owner is the only state where CPACR access is
+     * enabled for this thread (sched.c keeps the two in lockstep on every
+     * switch), so it's the only state where touching the live d0-d31 here
+     * won't itself raise an undefined-instruction exception. Otherwise the
+     * thread's FPU state (if it has any) is what was last saved into
+     * fpu_state on the switch away from it. */
+    if (current_thread && current_thread == fpu_owner)
+    {
+        FpuState live;
+        arch_fpu_save(&live);
+        kprintf("-- vfp state (live) -------------------------------------------\n");
+        dump_vfp(&live);
+    }
+    else if (current_thread)
+    {
+        kprintf("-- vfp state (saved, thread is not current fpu owner) --------\n");
+        dump_vfp(&current_thread->fpu_state);
+    }
 }
 
 // Attempts to service a translation-fault dfar via demand paging against
