@@ -598,14 +598,14 @@ static void sec_handles(void)
     /* ntfn semantics */
     int32_t n = ZuzuNtfnCreate();
     CHECK(n >= 0, "ntfn_create");
-    CHECK_EQ(ZuzuNtfnBits(n, TIMEOUT_POLL), ERR_TIMEOUT, "ntfn poll empty -> ERR_TIMEOUT");
+    CHECK_EQ(ZuzuNtfnWait(n, TIMEOUT_POLL), ERR_TIMEOUT, "ntfn poll empty -> ERR_TIMEOUT");
     CHECK_EQ(ZuzuNtfnSignal(n, 0x5), 0, "ntfn signal 0x5");
     CHECK_EQ(ZuzuNtfnSignal(n, 0x2), 0, "ntfn signal 0x2 (accumulates)");
-    CHECK_EQ(ZuzuNtfnBits(n, TIMEOUT_POLL), 0x7, "ntfn wait returns OR of bits");
-    CHECK_EQ(ZuzuNtfnBits(n, TIMEOUT_POLL), ERR_TIMEOUT, "bits cleared on delivery");
+    CHECK_EQ(ZuzuNtfnWait(n, TIMEOUT_POLL), 0x7, "ntfn wait returns OR of bits");
+    CHECK_EQ(ZuzuNtfnWait(n, TIMEOUT_POLL), ERR_TIMEOUT, "bits cleared on delivery");
     CHECK_EQ(ZuzuNtfnSignal(n, 1u << 31), ERR_BADARG, "signal bit 31 -> ERR_BADARG");
     uint32_t t0 = uptime_ms();
-    CHECK_EQ(ZuzuNtfnBits(n, 50), ERR_TIMEOUT, "timed ntfn wait empty -> ERR_TIMEOUT");
+    CHECK_EQ(ZuzuNtfnWait(n, 50), ERR_TIMEOUT, "timed ntfn wait empty -> ERR_TIMEOUT");
     CHECK(uptime_ms() - t0 >= 50, "ntfn timed wait honored >=50ms");
     CHECK_EQ(ZuzuNtfnSignal(n, 0), 0, "signal bits=0 accepted (no-op)");
     CHECK_EQ(ZuzuDestroy(n), 0, "ntfn destroy");
