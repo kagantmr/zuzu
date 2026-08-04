@@ -53,6 +53,7 @@
 #include <stdarg.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <sys/stat.h>
 
 /* Syntax highlight types */
 #define HL_NORMAL 0
@@ -834,6 +835,18 @@ int editorOpen(char *filename) {
         return 1;
     }
 
+    struct stat dbg_st;
+    int dbg_errno_before = errno;
+    errno = 0;
+    int dbg_rc = fstat(fileno(fp), &dbg_st);
+    int dbg_errno = errno;
+    errno = dbg_errno_before;
+    char dbg_buf[128];
+    int dbg_len = snprintf(dbg_buf, sizeof(dbg_buf),
+        "kilo: fd=%d fstat_rc=%d size=%ld errno=%d\r\n",
+        fileno(fp), dbg_rc, (long)dbg_st.st_size, dbg_errno);
+    write(2, dbg_buf, (size_t)dbg_len);
+
     char *line = NULL;
     size_t linecap = 0;
     ssize_t linelen;
@@ -1310,6 +1323,15 @@ void initEditor(void) {
 }
 
 int main(int argc, char **argv) {
+    {
+        char dbg_buf[192];
+        int dbg_len = snprintf(dbg_buf, sizeof(dbg_buf),
+            "kilo: argc=%d argv[0]=%p argv[1]=%p val=[%s]\r\n",
+            argc, (void *)argv[0], (void *)(argc > 1 ? argv[1] : 0),
+            (argc > 1 && argv[1]) ? argv[1] : "(null)");
+        write(2, dbg_buf, (size_t)dbg_len);
+    }
+
     if (argc != 2) {
         fprintf(stderr,"Usage: kilo <filename>\n");
         exit(1);

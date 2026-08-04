@@ -2,6 +2,7 @@
 #include <zuzu/task.h>
 #include <zuzu/umem.h>
 #include <stdio.h>
+#include <stdbool.h>
 
 /* Exercises the lazy VFP context switch: N threads each run a deterministic
  * double-precision recurrence, yielding after every step so the scheduler

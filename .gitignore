@@ -57,8 +57,14 @@ gdb.txt
 *.dts
 !scripts/uboot-vexpress.cmd
 
-# vscode dir
+# editor stuff
 .vscode/
+.dir-locals.el
+.dir-locals.el.save
+.project
+compile_commands.json
+.cache/*e
+
 # mac-specific file
 .DS_Store
 

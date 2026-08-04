@@ -25,8 +25,8 @@ typedef struct __attribute__((packed))
 
 #define ARP_MAX_ENTRIES 64 /* bound the table itself (this is also fix #6) */
 #define ARP_MAX_QUEUE 3    /* pending packets per unresolved IP */
-#define ARP_MAX_PROBES 3
-#define ARP_PROBE_MS 1000
+#define ARP_MAX_PROBES 2
+#define ARP_PROBE_MS 500
 #define ARP_REACHABLE_MS 60000
 
 /* RFC 5227 address-conflict detection: number of probes and their spacing.
