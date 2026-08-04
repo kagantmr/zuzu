@@ -72,7 +72,7 @@ static inline bool valid_irq(Irq irq_num) {
  * the caller) and bind a notification to it in a single syscall. Formerly two
  * syscalls, irq_claim + ZuzuIrqBind, which every caller invoked back-to-back.
  */
-void sys_irq_bind(CpuState *frame) {
+void SysIrqBind(CpuState *frame) {
     Handle dev_handle  = (*arch_reg(frame, 0));
     Handle ntfn_handle = (*arch_reg(frame, 1));
 
@@ -181,7 +181,7 @@ void sys_irq_bind(CpuState *frame) {
     (*arch_reg(frame, 0)) = 0;
 }
 
-void sys_irq_done(CpuState* frame) {
+void SysIrqDone(CpuState* frame) {
     Handle dev_handle  = (*arch_reg(frame, 0));
 
     if (dev_handle == 0) {

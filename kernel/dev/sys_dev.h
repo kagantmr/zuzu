@@ -3,6 +3,6 @@
 
 #include <arch/regs.h>
 
-void sys_dev_query(CpuState *frame);
+void SysDevQuery(CpuState *frame);
 
 #endif

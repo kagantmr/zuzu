@@ -5,7 +5,7 @@
 #include "zuzu/zuzu.h"
 #include <zuzu/tls.h>
 
-void sys_tmake(CpuState *frame) {
+void SysTMake(CpuState *frame) {
     VirtAddr entry  = (*arch_reg(frame, 0));
     VirtAddr usr_sp = (*arch_reg(frame, 1));
     VirtAddr arg    = (*arch_reg(frame, 2));
@@ -54,7 +54,7 @@ void sys_tmake(CpuState *frame) {
     (*arch_reg(frame, 0)) = (Tid)t->tid;
 }
 
-void sys_tjoin(CpuState *frame) {
+void SysTJoin(CpuState *frame) {
     Tid tid = (*arch_reg(frame, 0));
     thread_t *thread = thread_find_by_tid(tid);
     if (!thread) {
@@ -86,7 +86,7 @@ void sys_tjoin(CpuState *frame) {
 }
 
 
-void sys_tquit(CpuState *frame) {
+void SysTQuit(CpuState *frame) {
     int exit_status = (int)(*arch_reg(frame, 0));
     thread_t *t = current_thread;
     process_t *owner = t->owner_process;

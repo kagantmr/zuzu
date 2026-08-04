@@ -14,8 +14,8 @@ typedef struct irq_owner {
     Ntfn *bound_ntfn;   // was Endpoint *bound_port
 } irq_owner_t;
 
-void sys_irq_bind(CpuState* frame);
-void sys_irq_done(CpuState* frame);
+void SysIrqBind(CpuState* frame);
+void SysIrqDone(CpuState* frame);
 void irq_release_all(process_t *owner);
 
 bool irq_check_and_clear_pending(int irq_num);
