@@ -26,6 +26,7 @@
 #include "kernel/mm/alloc.h"
 
 #include "kernel/syspage.h"
+#include "zuzu/types.h"
 #include <snprintf.h>
 #include <zuzu/user_layout.h>
 
@@ -51,7 +52,7 @@ static ProcessObj *s_devmgr;
 
 /* Set once in kmain(): the bootloader-supplied initrd (DTB /chosen), as a
  * physical address + size. */
-static uint32_t g_initrd_pa;
+static PhysAddr g_initrd_pa;
 static size_t g_initrd_size;
 
 #define BOOT_PROGRAM_PREFIX "bin/"
@@ -341,7 +342,7 @@ _Noreturn void kmain(void)
     sched_init();
     arch_global_irq_enable();
 
-    syspage_init();
+    SyspageInit();
 
     /* The initrd always comes from the bootloader/firmware now (u-boot's
      * bootm, or the Pi firmware on rpi4), via the DTB /chosen node. */
@@ -353,7 +354,7 @@ _Noreturn void kmain(void)
     g_initrd_size = (size_t)chosen_size;
     KINFO("initrd: bootloader-supplied at pa=%p size=%zu",
           (void *)(uintptr_t)g_initrd_pa, g_initrd_size);
-    syspage_set_initrd_size((uint32_t)g_initrd_size);
+    SyspageSetInitrdSz((uint32_t)g_initrd_size);
 
     initrd_init((const void *)PA_TO_VA((uintptr_t)g_initrd_pa), g_initrd_size);
     // Read and parse boot manifest

@@ -41,7 +41,7 @@ void SysPQuit(CpuState *frame) {
            current_thread->owner_process ? current_thread->owner_process->pid : 0, 
            exit_status);
     
-    KillProcess(current_thread->owner_process, exit_status);
+    ProcessKill(current_thread->owner_process, exit_status);
     schedule();
 }
 
@@ -310,7 +310,7 @@ void SysPKill(CpuState *frame) {
     entry->task = NULL;
     entry->grantable = false;
 
-    KillProcess(target, KILLED_TAG | KILL_BY_PARENT);
-    
+    ProcessKill(target, KILLED_TAG | KILL_BY_PARENT);
+ 
     (*arch_reg(frame, 0)) = 0;
 }

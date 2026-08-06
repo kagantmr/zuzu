@@ -6,12 +6,10 @@
 #include "kernel/time/tick.h"
 #include "kernel/mm/vmm.h"
 #include "core/version.h"
-#include "kernel/dtb/dtb.h"
 #include "boot_info.h"
-#include "core/log.h"
 
 Syspage *g_sp;
-static uintptr_t g_syspage_pa;
+static PhysAddr g_syspage_pa;
 extern uint32_t rtc_epoch;
 
 static void dev_cb(const char *compatible, uint64_t phys, uint64_t size, uint32_t irq)
@@ -49,7 +47,7 @@ static void dev_cb(const char *compatible, uint64_t phys, uint64_t size, uint32_
     g_sp->dev_count++;
 }
 
-void syspage_init(void)
+void SyspageInit(void)
 {
     g_syspage_pa = PmmAllocFrame(); // reserve the first page for the syspage
     g_sp = (Syspage *)PA_TO_VA(g_syspage_pa);
@@ -70,29 +68,29 @@ void syspage_init(void)
 
     boot_info_foreach_dev(dev_cb);
 
-    syspage_update_mem();
+    SyspageUpdateMem();
 
     // g_sp->mem_free_kb = (uint32_t)((pmmState.free_pages  * (uint64_t)PAGE_SIZE) / 1024);
 }
-uintptr_t syspage_pa(void)
+PhysAddr SyspagePhysAddr(void)
 {
     return g_syspage_pa;
 }
-void syspage_update_mem(void)
+void SyspageUpdateMem(void)
 {
     if (!g_sp)
         return;
     g_sp->mem_free_kb = (uint32_t)((PmmGetStats().free_frames * (uint64_t)PAGE_SIZE) / 1024);
 }
 
-void syspage_update_uptime(void)
+void SyspageUpdateUptime(void)
 {
     if (!g_sp)
         return;
     g_sp->uptime_ticks = get_ticks();
 }
 
-void syspage_set_initrd_size(uint32_t size)
+void SyspageSetInitrdSz(uint32_t size)
 {
     if (!g_sp)
         return;
