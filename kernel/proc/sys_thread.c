@@ -93,12 +93,12 @@ void SysTQuit(CpuState *frame) {
     ProcessObj *owner = t->owner_process;
 
     t->exit_status = exit_status;
-    process_wake_joiners(t->tid, exit_status);
+    ProcessWakeJoiners(t->tid, exit_status);
 
     if (owner->threads.node.next == &t->process_node &&
         t->process_node.next == &owner->threads.node) {
         // last thread, kill the process
-        process_kill(owner, exit_status);
+        KillProcess(owner, exit_status);
     } else {
         ThreadKill(t);
         // remove from process thread list NOW so process_destroy won't see it

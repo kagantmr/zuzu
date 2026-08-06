@@ -97,7 +97,7 @@ void ThreadDestroy(Thread *thread) {
         memset((void *)(PA_TO_VA(owner->tcb_page_pa) +
                         thread->tcb_slot * TCB_SLOT_SIZE),
                0, TCB_SLOT_SIZE);
-        tcb_slot_free(owner, thread->tcb_slot);
+        TcbSlotFree(owner, thread->tcb_slot);
     }
     if (owner && owner->thread == thread)
         owner->thread = NULL;

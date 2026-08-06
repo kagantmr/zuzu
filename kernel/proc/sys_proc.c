@@ -41,7 +41,7 @@ void SysPQuit(CpuState *frame) {
            current_thread->owner_process ? current_thread->owner_process->pid : 0, 
            exit_status);
     
-    process_kill(current_thread->owner_process, exit_status);
+    KillProcess(current_thread->owner_process, exit_status);
     schedule();
 }
 
@@ -82,14 +82,14 @@ void SysWait(CpuState *frame) {
     ProcessObj *child = NULL;
 
     if (req_pid == -1) {
-        child = process_find_zombie_child(current_thread->owner_process);
+        child = ProcessFindZombieChild(current_thread->owner_process);
         if (child) {
             if (!wait_write_status(status_out, child->exit_status)) {
                 (*arch_reg(frame, 0)) = ERR_BADPTR;
                 return;
             }
             (*arch_reg(frame, 0)) = child->pid;
-            process_destroy(child);
+            ProcessDestroy(child);
             return;
         }
 
@@ -102,7 +102,7 @@ void SysWait(CpuState *frame) {
         current_thread->state = BLOCKED;
         schedule();
 
-        child = process_find_zombie_child(current_thread->owner_process);
+        child = ProcessFindZombieChild(current_thread->owner_process);
         if (!child) {
             (*arch_reg(frame, 0)) = ERR_NOENT;
             return;
@@ -112,7 +112,7 @@ void SysWait(CpuState *frame) {
             return;
         }
         (*arch_reg(frame, 0)) = child->pid;
-        process_destroy(child);
+        ProcessDestroy(child);
         return;
     }
 
@@ -122,7 +122,7 @@ void SysWait(CpuState *frame) {
     }
 
     uint32_t child_pid = (uint32_t)req_pid;
-    child = process_find_child_by_pid(current_thread->owner_process, child_pid);
+    child = ProcessFindChildFromPid(current_thread->owner_process, child_pid);
     if (!child) {
         (*arch_reg(frame, 0)) = ERR_NOENT;
         return; 
@@ -135,7 +135,7 @@ void SysWait(CpuState *frame) {
             return;
         }
         (*arch_reg(frame, 0)) = child->pid;
-        process_destroy(child);
+        ProcessDestroy(child);
         return;
     }
 
@@ -151,7 +151,7 @@ void SysWait(CpuState *frame) {
     schedule();
 
     // re-fetch after wakeup, pointer may be stale
-    child = process_find_child_by_pid(current_thread->owner_process, child_pid);
+    child = ProcessFindChildFromPid(current_thread->owner_process, child_pid);
     if (!child) {
         (*arch_reg(frame, 0)) = ERR_NOENT;
         return;
@@ -161,7 +161,7 @@ void SysWait(CpuState *frame) {
         return;
     }
     (*arch_reg(frame, 0)) = child->pid;
-    process_destroy(child);
+    ProcessDestroy(child);
 }
 
 /* spawn syscall removed: use pspawn/kickstart with sysd */
@@ -200,7 +200,7 @@ void SysPSpawn(CpuState *frame) {
 
     kname[nlen] = '\0'; // Ensure null-termination
 
-    ProcessObj *process = process_create(kname);
+    ProcessObj *process = ProcessCreate(kname);
     if (!process) {
         (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
@@ -216,12 +216,12 @@ void SysPSpawn(CpuState *frame) {
             src->port->ref_count++;
     }
     
-    process_set_parent(process, current_thread->owner_process);
+    ProcessSetParent(process, current_thread->owner_process);
 
     // now return a handle 
     int slot = handle_vec_find_free(&current_thread->owner_process->handle_table);
     if (slot < 0) {
-        process_destroy(process);
+        ProcessDestroy(process);
         (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
     }
@@ -310,7 +310,7 @@ void SysPKill(CpuState *frame) {
     entry->task = NULL;
     entry->grantable = false;
 
-    process_kill(target, KILLED_TAG | KILL_BY_PARENT);
+    KillProcess(target, KILLED_TAG | KILL_BY_PARENT);
     
     (*arch_reg(frame, 0)) = 0;
 }

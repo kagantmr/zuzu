@@ -270,7 +270,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
         {
             KERROR("Oops! '%s' (PID %d, TID %d) killed: undefined instruction @ 0x%08X\n", current_process->name, current_process->pid, current_thread->tid, frame->return_pc);
             dump_registers(frame);
-            process_kill(current_process, KILLED_TAG | KILL_FAULT_UNDEF);
+            KillProcess(current_process, KILLED_TAG | KILL_FAULT_UNDEF);
             schedule();
         }
         else
@@ -331,7 +331,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
         {
             KERROR("Oops! '%s' (PID %d, TID %d) killed: prefetch abort @ 0x%08X (%s)\n",
                    current_process->name, current_process->pid, current_thread->tid, ifar, decode_fault_status(ifsr));
-            process_kill(current_process, KILLED_TAG | KILL_FAULT_PREFETCH);
+            KillProcess(current_process, KILLED_TAG | KILL_FAULT_PREFETCH);
             dump_registers(frame);
             schedule();
         }
@@ -409,7 +409,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
                    (dfsr & (1 << 11)) ? "write" : "read",
                    decode_fault_status(dfsr));
             dump_registers(frame);
-            process_kill(current_process, KILLED_TAG | KILL_FAULT_DATA);
+            KillProcess(current_process, KILLED_TAG | KILL_FAULT_DATA);
             schedule();
         }
         else if (from_svc && current_process && current_process->as
@@ -427,7 +427,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
                    (dfsr & (1 << 11)) ? "write" : "read",
                    decode_fault_status(dfsr));
             dump_registers(frame);
-            process_kill(current_process, KILLED_TAG | KILL_FAULT_DATA);
+            KillProcess(current_process, KILLED_TAG | KILL_FAULT_DATA);
             schedule();
         }
         else

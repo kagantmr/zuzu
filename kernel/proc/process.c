@@ -61,7 +61,7 @@ static bool as_copy_out(addrspace_t *as, VirtAddr va, const void *src, size_t le
     return true;
 }
 
-ProcessObj *process_load(const void *elf_data, size_t elf_size,
+ProcessObj *KernelProcessLoad(const void *elf_data, size_t elf_size,
                                    const char *name, const char *argbuf,
                                    size_t argbuf_len, uint32_t argc)
 {
@@ -69,7 +69,7 @@ ProcessObj *process_load(const void *elf_data, size_t elf_size,
     if (!elf_entry)
         return NULL;
 
-    ProcessObj *p = process_create(name);
+    ProcessObj *p = ProcessCreate(name);
     if (!p)
         return NULL;
     Thread *t = p->thread;
@@ -378,7 +378,7 @@ fail_process:
     return NULL;
 }
 
-void process_track_reply_cap(ProcessObj *restrict caller, ProcessObj *restrict holder,
+void ProcessTrackReplyCap(ProcessObj *restrict caller, ProcessObj *restrict holder,
                              Handle holder_slot, ReplyCap *restrict rc)
 {
     rc->holder_pid = holder ? holder->pid : 0;
@@ -388,7 +388,7 @@ void process_track_reply_cap(ProcessObj *restrict caller, ProcessObj *restrict h
     list_add_tail(&rc->caller_link, &caller->outstanding_replies.node);
 }
 
-ProcessObj *process_create(const char* name) {
+ProcessObj *ProcessCreate(const char* name) {
     ProcessObj *p = kmalloc(sizeof(ProcessObj));
     if (!p)
         return NULL;
@@ -573,7 +573,7 @@ fail_process:
     return NULL;
 }
 
-void process_untrack_reply_cap(ReplyCap *rc)
+void ProcessUntrackReplyCap(ReplyCap *rc)
 {
     if (!rc)
         return;
@@ -594,7 +594,7 @@ static void process_revoke_outstanding_reply_caps(ProcessObj *caller)
         ListNode *node = list_pop_front(&caller->outstanding_replies);
         ReplyCap *rc = container_of(node, ReplyCap, caller_link);
 
-        ProcessObj *holder = process_find_by_pid(rc->holder_pid);
+        ProcessObj *holder = ProcessFindByPid(rc->holder_pid);
         if (holder) {
             HandleEntry *entry =
                 handle_vec_get(&holder->handle_table, rc->holder_slot);
@@ -617,7 +617,7 @@ static void process_revoke_outstanding_reply_caps(ProcessObj *caller)
 
 
 
-ProcessObj *process_find_by_pid(Pid pid)
+ProcessObj *ProcessFindByPid(Pid pid)
 {
     uint32_t slot = pid % MAX_PROCESSES;
     ProcessObj *p = process_table[slot];
@@ -626,7 +626,7 @@ ProcessObj *process_find_by_pid(Pid pid)
     return NULL;
 }
 
-void process_set_parent(ProcessObj *child, ProcessObj *parent)
+void ProcessSetParent(ProcessObj *child, ProcessObj *parent)
 {
     if (!child)
         return;
@@ -640,7 +640,7 @@ void process_set_parent(ProcessObj *child, ProcessObj *parent)
         list_add_tail(&child->sibling_node, &parent->children.node);
 }
 
-ProcessObj *process_find_child_by_pid(ProcessObj *parent, Pid pid)
+ProcessObj *ProcessFindChildFromPid(ProcessObj *parent, Pid pid)
 {
     if (!parent)
         return NULL;
@@ -656,7 +656,7 @@ ProcessObj *process_find_child_by_pid(ProcessObj *parent, Pid pid)
     return NULL;
 }
 
-ProcessObj *process_find_zombie_child(ProcessObj *parent)
+ProcessObj *ProcessFindZombieChild(ProcessObj *parent)
 {
     if (!parent)
         return NULL;
@@ -672,7 +672,7 @@ ProcessObj *process_find_zombie_child(ProcessObj *parent)
     return NULL;
 }
 
-void process_wake_joiners(Tid tid, int32_t exit_status)
+void ProcessWakeJoiners(Tid tid, int32_t exit_status)
 {
     for (uint32_t slot = 0; slot < MAX_PROCESSES; slot++) {
         ProcessObj *joiner = process_table[slot];
@@ -700,7 +700,7 @@ static const char* fatal_reason_str(int reason)
     }
 }
 
-void process_kill(ProcessObj *p, const int exit_status) {
+void KillProcess(ProcessObj *p, const int exit_status) {
     if (!p)
         return;
 
@@ -825,7 +825,7 @@ void process_kill(ProcessObj *p, const int exit_status) {
             }
 
             if (rc) {
-                process_untrack_reply_cap(rc);
+                ProcessUntrackReplyCap(rc);
                 kfree_reply_cap(rc);
             }
 
@@ -873,16 +873,16 @@ void process_kill(ProcessObj *p, const int exit_status) {
 
     process_revoke_outstanding_reply_caps(p);
 
-    ProcessObj *init_proc = process_find_by_pid(1);
+    ProcessObj *init_proc = ProcessFindByPid(1);
     ListNode *child_node = p->children.node.next;
     while (child_node != &p->children.node) {
         ListNode *next = child_node->next;
         ProcessObj *child = container_of(child_node, ProcessObj, sibling_node);
-        process_set_parent(child, init_proc);
+        ProcessSetParent(child, init_proc);
         child_node = next;
     }
 
-    ProcessObj *parent = process_find_by_pid(p->parent_pid);
+    ProcessObj *parent = ProcessFindByPid(p->parent_pid);
     if (parent && parent->thread && parent->thread->state == BLOCKED
               && (parent->waiting_for == p->pid || parent->waiting_for == -1)) {
         parent->thread->state = READY;
@@ -897,7 +897,7 @@ void process_kill(ProcessObj *p, const int exit_status) {
     }
 }
 
-void process_destroy(ProcessObj *p)
+void ProcessDestroy(ProcessObj *p)
 {
     if (!p)
         return;
