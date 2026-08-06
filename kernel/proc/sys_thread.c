@@ -1,5 +1,6 @@
 #include "sys_thread.h"
 #include <arch/context.h>
+#include "kernel/proc/thread.h"
 #include "kernel/syscall/syscall.h"
 #include "kernel/sched/sched.h"
 #include "zuzu/zuzu.h"
@@ -19,16 +20,16 @@ void SysTMake(CpuState *frame) {
         return;
     }
 
-    process_t *owner = current_thread->owner_process;
-    thread_t *t = thread_create(owner);
+    ProcessObj *owner = current_thread->owner_process;
+    Thread *t = ThreadCreate(owner);
     if (!t) {
         (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
     }
 
-    int slot_idx = tcb_slot_alloc(owner);
+    int slot_idx = TcbSlotAlloc(owner);
     if (slot_idx < 0) {
-        thread_destroy(t);
+        ThreadDestroy(t);
         (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
     }
@@ -42,7 +43,7 @@ void SysTMake(CpuState *frame) {
 
     t->thread_info_va = slot_va;
     t->tcb_slot = (uint8_t)slot_idx;
-    t->ipc_buf_pa = owner->tcb_page_pa + (uint32_t)slot_idx * TCB_SLOT_SIZE + offsetof(ThreadData, buf);
+    t->lmsg_buf_phys_addr = owner->tcb_page_pa + (uint32_t)slot_idx * TCB_SLOT_SIZE + offsetof(ThreadData, buf);
 
     // Build the initial kernel stack so the thread enters user mode at `entry`.
     t->kernel_sp = (uint32_t *)arch_thread_user_init(
@@ -56,7 +57,7 @@ void SysTMake(CpuState *frame) {
 
 void SysTJoin(CpuState *frame) {
     Tid tid = (*arch_reg(frame, 0));
-    thread_t *thread = thread_find_by_tid(tid);
+    Thread *thread = ThreadFindByTid(tid);
     if (!thread) {
         (*arch_reg(frame, 0)) = ERR_NOENT;
         return;
@@ -88,8 +89,8 @@ void SysTJoin(CpuState *frame) {
 
 void SysTQuit(CpuState *frame) {
     int exit_status = (int)(*arch_reg(frame, 0));
-    thread_t *t = current_thread;
-    process_t *owner = t->owner_process;
+    Thread *t = current_thread;
+    ProcessObj *owner = t->owner_process;
 
     t->exit_status = exit_status;
     process_wake_joiners(t->tid, exit_status);
@@ -99,7 +100,7 @@ void SysTQuit(CpuState *frame) {
         // last thread, kill the process
         process_kill(owner, exit_status);
     } else {
-        thread_kill(t);
+        ThreadKill(t);
         // remove from process thread list NOW so process_destroy won't see it
         if (t->process_node.prev && t->process_node.next)
             list_remove(&t->process_node);

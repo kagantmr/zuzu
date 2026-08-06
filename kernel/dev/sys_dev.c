@@ -12,7 +12,7 @@
 #define LOG_FMT(fmt) "(sys_dev) " fmt
 #include "core/log.h"
 
-extern thread_t *current_thread;
+extern Thread *current_thread;
 
 void SysDevQuery(CpuState *frame) {
     Handle handle_idx = (*arch_reg(frame, 0));

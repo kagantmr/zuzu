@@ -17,10 +17,10 @@
 #include <zuzu/spawn_args.h>
 
 
-extern thread_t *current_thread;
+extern Thread *current_thread;
 extern ListHead sleep_queue;
 extern Port *nametable_port;
-extern process_t *process_table[MAX_PROCESSES];
+extern ProcessObj *process_table[MAX_PROCESSES];
 
 #define LOG_FMT(fmt) "(sys_task) " fmt
 #include "core/log.h"
@@ -79,7 +79,7 @@ void SysWait(CpuState *frame) {
     int32_t req_pid = (int32_t)(*arch_reg(frame, 0));
     int32_t *status_out = (int32_t *)(*arch_reg(frame, 1));
     uint32_t flags = (*arch_reg(frame, 2));
-    process_t *child = NULL;
+    ProcessObj *child = NULL;
 
     if (req_pid == -1) {
         child = process_find_zombie_child(current_thread->owner_process);
@@ -200,7 +200,7 @@ void SysPSpawn(CpuState *frame) {
 
     kname[nlen] = '\0'; // Ensure null-termination
 
-    process_t *process = process_create(kname);
+    ProcessObj *process = process_create(kname);
     if (!process) {
         (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
@@ -262,7 +262,7 @@ void SysKickstart(CpuState *frame) {
         return;
     }
 
-    process_t *target = entry->task;
+    ProcessObj *target = entry->task;
     if (!target || !target->thread) {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;
@@ -296,7 +296,7 @@ void SysPKill(CpuState *frame) {
         return;
     }
 
-    process_t *target = entry->task;
+    ProcessObj *target = entry->task;
     if (!target || !target->thread) {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;

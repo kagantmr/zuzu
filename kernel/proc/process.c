@@ -4,6 +4,7 @@
 #include "kernel/mm/pmm.h"
 #include <arch/mmu.h>
 #include "kernel/irq/sys_irq.h"
+#include "kernel/proc/thread.h"
 #include "kernel/sched/sched.h"
 #include "kernel/syspage.h"
 #include <zuzu/tls.h>
@@ -14,11 +15,11 @@
 #include "kstack.h"
 #include "core/panic.h"
 #include <zuzu/err.h>
-#include "zuzu/syscall_nums.h"
+#include <zuzu/syscall_nums.h>
 #include <arch/cache.h>
 
 uint32_t next_pid = 1;
-process_t *process_table[MAX_PROCESSES];
+ProcessObj *process_table[MAX_PROCESSES];
 extern Port *nametable_port;
 
 #define LOG_FMT(fmt) "(proc) " fmt
@@ -60,7 +61,7 @@ static bool as_copy_out(addrspace_t *as, VirtAddr va, const void *src, size_t le
     return true;
 }
 
-process_t *process_load(const void *elf_data, size_t elf_size,
+ProcessObj *process_load(const void *elf_data, size_t elf_size,
                                    const char *name, const char *argbuf,
                                    size_t argbuf_len, uint32_t argc)
 {
@@ -68,10 +69,10 @@ process_t *process_load(const void *elf_data, size_t elf_size,
     if (!elf_entry)
         return NULL;
 
-    process_t *p = process_create(name);
+    ProcessObj *p = process_create(name);
     if (!p)
         return NULL;
-    thread_t *t = p->thread;
+    Thread *t = p->thread;
     if (!t)
         goto fail_process;
     VirtAddr stack_top = t->kernel_stack_top;
@@ -371,13 +372,13 @@ fail_kstack:
     as_destroy(p->as);
     p->tcb_page_pa = 0; /* page freed above; thread_destroy must not scrub it */
     handle_vec_destroy(&p->handle_table);
-    thread_destroy(t);
+    ThreadDestroy(t);
 fail_process:
     kfree(p);
     return NULL;
 }
 
-void process_track_reply_cap(process_t *restrict caller, process_t *restrict holder,
+void process_track_reply_cap(ProcessObj *restrict caller, ProcessObj *restrict holder,
                              Handle holder_slot, ReplyCap *restrict rc)
 {
     rc->holder_pid = holder ? holder->pid : 0;
@@ -387,17 +388,17 @@ void process_track_reply_cap(process_t *restrict caller, process_t *restrict hol
     list_add_tail(&rc->caller_link, &caller->outstanding_replies.node);
 }
 
-process_t *process_create(const char* name) {
-    process_t *p = kmalloc(sizeof(process_t));
+ProcessObj *process_create(const char* name) {
+    ProcessObj *p = kmalloc(sizeof(ProcessObj));
     if (!p)
         return NULL;
-    memset(p, 0, sizeof(process_t));
+    memset(p, 0, sizeof(ProcessObj));
 
     list_init(&p->outstanding_replies);
     list_init(&p->threads);
     list_init(&p->children);
 
-    thread_t *t = thread_create(p);
+    Thread *t = ThreadCreate(p);
     if (!t)
         goto fail_process;
     p->thread = t;
@@ -487,7 +488,7 @@ process_t *process_create(const char* name) {
      * tmake; its lmsg buffer lives inside the slot itself. */
     memset((void *)PA_TO_VA(tcb_page_pa), 0, PAGE_SIZE);
     p->tcb_slot_bitmap = 0;
-    int tcb_slot_idx = tcb_slot_alloc(p);
+    int tcb_slot_idx = TcbSlotAlloc(p);
     if (tcb_slot_idx < 0)
         goto fail_kstack;
     ThreadData *tcb0 = (ThreadData *)(PA_TO_VA(tcb_page_pa) +
@@ -497,7 +498,7 @@ process_t *process_create(const char* name) {
     tcb0->tid = t->tid;
     t->thread_info_va = tcb0_va;
     t->tcb_slot = (uint8_t)tcb_slot_idx;
-    t->ipc_buf_pa = tcb_page_pa + (uint32_t)tcb_slot_idx * TCB_SLOT_SIZE +
+    t->lmsg_buf_phys_addr = tcb_page_pa + (uint32_t)tcb_slot_idx * TCB_SLOT_SIZE +
                     offsetof(ThreadData, buf);
 
 
@@ -566,7 +567,7 @@ fail_handles:
         }
     }
     handle_vec_destroy(&p->handle_table);
-    thread_destroy(t);
+    ThreadDestroy(t);
 fail_process:
     kfree(p);
     return NULL;
@@ -587,13 +588,13 @@ void process_untrack_reply_cap(ReplyCap *rc)
     rc->holder_slot = 0;
 }
 
-static void process_revoke_outstanding_reply_caps(process_t *caller)
+static void process_revoke_outstanding_reply_caps(ProcessObj *caller)
 {
     while (!list_empty(&caller->outstanding_replies)) {
         ListNode *node = list_pop_front(&caller->outstanding_replies);
         ReplyCap *rc = container_of(node, ReplyCap, caller_link);
 
-        process_t *holder = process_find_by_pid(rc->holder_pid);
+        ProcessObj *holder = process_find_by_pid(rc->holder_pid);
         if (holder) {
             HandleEntry *entry =
                 handle_vec_get(&holder->handle_table, rc->holder_slot);
@@ -616,16 +617,16 @@ static void process_revoke_outstanding_reply_caps(process_t *caller)
 
 
 
-process_t *process_find_by_pid(Pid pid)
+ProcessObj *process_find_by_pid(Pid pid)
 {
     uint32_t slot = pid % MAX_PROCESSES;
-    process_t *p = process_table[slot];
+    ProcessObj *p = process_table[slot];
     if (p && p->pid == pid)
         return p;
     return NULL;
 }
 
-void process_set_parent(process_t *child, process_t *parent)
+void process_set_parent(ProcessObj *child, ProcessObj *parent)
 {
     if (!child)
         return;
@@ -639,14 +640,14 @@ void process_set_parent(process_t *child, process_t *parent)
         list_add_tail(&child->sibling_node, &parent->children.node);
 }
 
-process_t *process_find_child_by_pid(process_t *parent, Pid pid)
+ProcessObj *process_find_child_by_pid(ProcessObj *parent, Pid pid)
 {
     if (!parent)
         return NULL;
 
     ListNode *node = parent->children.node.next;
     while (node != &parent->children.node) {
-        process_t *child = container_of(node, process_t, sibling_node);
+        ProcessObj *child = container_of(node, ProcessObj, sibling_node);
         if (child->pid == pid)
             return child;
         node = node->next;
@@ -655,14 +656,14 @@ process_t *process_find_child_by_pid(process_t *parent, Pid pid)
     return NULL;
 }
 
-process_t *process_find_zombie_child(process_t *parent)
+ProcessObj *process_find_zombie_child(ProcessObj *parent)
 {
     if (!parent)
         return NULL;
 
     ListNode *node = parent->children.node.next;
     while (node != &parent->children.node) {
-        process_t *child = container_of(node, process_t, sibling_node);
+        ProcessObj *child = container_of(node, ProcessObj, sibling_node);
         if (child->thread->state == ZOMBIE)
             return child;
         node = node->next;
@@ -674,7 +675,7 @@ process_t *process_find_zombie_child(process_t *parent)
 void process_wake_joiners(Tid tid, int32_t exit_status)
 {
     for (uint32_t slot = 0; slot < MAX_PROCESSES; slot++) {
-        process_t *joiner = process_table[slot];
+        ProcessObj *joiner = process_table[slot];
         if (!joiner || joiner->waiting_for_tid != tid)
             continue;
 
@@ -699,7 +700,7 @@ static const char* fatal_reason_str(int reason)
     }
 }
 
-void process_kill(process_t *p, const int exit_status) {
+void process_kill(ProcessObj *p, const int exit_status) {
     if (!p)
         return;
 
@@ -718,7 +719,7 @@ void process_kill(process_t *p, const int exit_status) {
     ListNode *thread_node = p->threads.node.next;
     while (thread_node != &p->threads.node) {
         ListNode *next_thread = thread_node->next;
-        thread_t *thread = container_of(thread_node, thread_t, process_node);
+        Thread *thread = container_of(thread_node, Thread, process_node);
         thread->exit_status = exit_status;
 
         // remove from run queue / sleep queue / IPC queue
@@ -727,7 +728,7 @@ void process_kill(process_t *p, const int exit_status) {
         if (thread->timeout_node.prev && thread->timeout_node.next)
             list_remove(&thread->timeout_node);
 
-        thread_kill(thread);  // state = ZOMBIE
+        ThreadKill(thread);  // state = ZOMBIE
         thread_node = next_thread;
     }
     p->exit_status = exit_status;
@@ -745,7 +746,7 @@ void process_kill(process_t *p, const int exit_status) {
                 // Wake blocked waiters with ERR_DEAD
                 while (!list_empty(&port->sender_queue)) {
                     ListNode *n = list_pop_front(&port->sender_queue);
-                    thread_t *thread = container_of(n, thread_t, node);
+                    Thread *thread = container_of(n, Thread, node);
                     thread->ipc_state = IPC_NONE;
                     thread->blocked_port = NULL;
                     thread->wake_reason = WAKE_IPC;
@@ -756,11 +757,11 @@ void process_kill(process_t *p, const int exit_status) {
                 }
                 while (!list_empty(&port->receiver_queue)) {
                     ListNode *n = list_pop_front(&port->receiver_queue);
-                    thread_wait_slot_t *slot = container_of(n, thread_wait_slot_t, node);
-                    thread_t *thread = slot->owner;
-                    if (thread->waitany_ep_wait_active) {
-                        thread_waitany_clear_waits(thread);
-                        thread_waitany_clear_ep_waits(thread);
+                    ThreadWaitSlot *slot = container_of(n, ThreadWaitSlot, node);
+                    Thread *thread = slot->owner;
+                    if (thread->waitany_port_wait_active) {
+                        ThreadWaitanyClearWaits(thread);
+                        ThreadWaitanyClearPortWaits(thread);
                     } else {
                         thread->ipc_state = IPC_NONE;
                         thread->blocked_port = NULL;
@@ -811,7 +812,7 @@ void process_kill(process_t *p, const int exit_status) {
             entry->type = HANDLE_FREE;
         } else if (entry->type == HANDLE_REPLY) {
             ReplyCap *rc = entry->reply;
-            thread_t *caller_thread = thread_find_by_tid(rc ? rc->caller_tid : 0);
+            Thread *caller_thread = ThreadFindByTid(rc ? rc->caller_tid : 0);
 
             if (caller_thread && caller_thread->ipc_state == IPC_WAITING) {
                 caller_thread->ipc_state = IPC_NONE;
@@ -837,11 +838,11 @@ void process_kill(process_t *p, const int exit_status) {
                 ntfn->alive = false;
                 while (!list_empty(&ntfn->wait_queue)) {
                     ListNode *n = list_pop_front(&ntfn->wait_queue);
-                    thread_wait_slot_t *slot = container_of(n, thread_wait_slot_t, node);
-                    thread_t *thread = slot->owner;
+                    ThreadWaitSlot *slot = container_of(n, ThreadWaitSlot, node);
+                    Thread *thread = slot->owner;
                     if (thread->trap_frame)
                         (*arch_reg(thread->trap_frame, 0)) = ERR_DEAD;
-                    thread_waitany_clear_waits(thread);
+                    ThreadWaitanyClearWaits(thread);
                     if (thread->wake_tick != 0 && thread->timeout_node.prev && thread->timeout_node.next)
                         list_remove(&thread->timeout_node);
                     thread->wake_tick = 0;
@@ -872,16 +873,16 @@ void process_kill(process_t *p, const int exit_status) {
 
     process_revoke_outstanding_reply_caps(p);
 
-    process_t *init_proc = process_find_by_pid(1);
+    ProcessObj *init_proc = process_find_by_pid(1);
     ListNode *child_node = p->children.node.next;
     while (child_node != &p->children.node) {
         ListNode *next = child_node->next;
-        process_t *child = container_of(child_node, process_t, sibling_node);
+        ProcessObj *child = container_of(child_node, ProcessObj, sibling_node);
         process_set_parent(child, init_proc);
         child_node = next;
     }
 
-    process_t *parent = process_find_by_pid(p->parent_pid);
+    ProcessObj *parent = process_find_by_pid(p->parent_pid);
     if (parent && parent->thread && parent->thread->state == BLOCKED
               && (parent->waiting_for == p->pid || parent->waiting_for == -1)) {
         parent->thread->state = READY;
@@ -896,7 +897,7 @@ void process_kill(process_t *p, const int exit_status) {
     }
 }
 
-void process_destroy(process_t *p)
+void process_destroy(ProcessObj *p)
 {
     if (!p)
         return;
@@ -914,8 +915,8 @@ void process_destroy(process_t *p)
         list_remove(&p->timeout_node);
     while (!list_empty(&p->threads)) {
         ListNode *node = p->threads.node.next;
-        thread_t *thread = container_of(node, thread_t, process_node);
-        thread_destroy(thread);
+        Thread *thread = container_of(node, Thread, process_node);
+        ThreadDestroy(thread);
     }
     /* Drop shm handle references still live here. The normal exit path
      * (process_kill) already cleared these, so this is a no-op there; it

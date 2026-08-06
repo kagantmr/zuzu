@@ -10,11 +10,11 @@
 #define LOG_FMT(fmt) "(sys_port) " fmt
 #include "core/log.h"
 
-extern thread_t *current_thread;
-extern process_t *process_table[MAX_PROCESSES];
+extern Thread *current_thread;
+extern ProcessObj *process_table[MAX_PROCESSES];
 Port *nametable_port;
 
-static bool can_regrant_received_handle(const process_t *grantee)
+static bool can_regrant_received_handle(const ProcessObj *grantee)
 {
     // only sysd may receive grantable copies.
     // Everyone else gets a non-grantable copy to prevent unbounded handle propagation.
@@ -51,7 +51,7 @@ void SysPortCreate(CpuState *frame)
         /* Inject NT handle into processes spawned before nametable existed. */
         for (int j = 0; j < MAX_PROCESSES; j++)
         {
-            process_t *p = process_table[j];
+            ProcessObj *p = process_table[j];
             if (p && p != current_thread->owner_process)
             {
                 HandleEntry *p_entry = handle_vec_get(&p->handle_table, 0);
@@ -143,7 +143,7 @@ void SysDestroy(CpuState *frame)
         while (!list_empty(&port->sender_queue))
         {
             ListNode *n = list_pop_front(&port->sender_queue);
-            thread_t *t = container_of(n, thread_t, node);
+            Thread *t = container_of(n, Thread, node);
             t->ipc_state = IPC_NONE;
             t->blocked_port = NULL;
             (*arch_reg(t->trap_frame, 0)) = ERR_DEAD;
@@ -155,12 +155,12 @@ void SysDestroy(CpuState *frame)
         while (!list_empty(&port->receiver_queue))
         {
             ListNode *n = list_pop_front(&port->receiver_queue);
-            thread_wait_slot_t *slot = container_of(n, thread_wait_slot_t, node);
-            thread_t *t = slot->owner;
-            if (t->waitany_ep_wait_active)
+            ThreadWaitSlot *slot = container_of(n, ThreadWaitSlot, node);
+            Thread *t = slot->owner;
+            if (t->waitany_port_wait_active)
             {
-                thread_waitany_clear_waits(t);
-                thread_waitany_clear_ep_waits(t);
+                ThreadWaitanyClearWaits(t);
+                ThreadWaitanyClearPortWaits(t);
             }
             else
             {
@@ -219,7 +219,7 @@ void SysDestroy(CpuState *frame)
         while (!list_empty(&ntf->wait_queue))
         {
             ListNode *n = list_pop_front(&ntf->wait_queue);
-            thread_wait_slot_t *slot = container_of(n, thread_wait_slot_t, node);
+            ThreadWaitSlot *slot = container_of(n, ThreadWaitSlot, node);
             NtfnWakeWaiter(ntf, slot, ERR_DEAD, 0);
         }
 
@@ -284,7 +284,7 @@ void SysDestroy(CpuState *frame)
     }
     break;
     case HANDLE_TASK: {
-        process_t *task = entry->task;
+        ProcessObj *task = entry->task;
         if (!task) {
             (*arch_reg(frame, 0)) = ERR_BADHANDLE;
             return;
@@ -340,7 +340,7 @@ void SysGrant(CpuState *frame)
     }
 
     // Look up target process
-    process_t *grantee = process_find_by_pid(pid);
+    ProcessObj *grantee = process_find_by_pid(pid);
     if (!grantee)
     {
         (*arch_reg(frame, 0)) = ERR_NOENT;

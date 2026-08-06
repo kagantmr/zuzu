@@ -17,7 +17,7 @@
 
 /* Leaf: one branch, one field read. Called from sched_has_ready_at_or_above
  * on every direct-handoff decision. */
-static __always_inline uint32_t thread_priority(const thread_t *t)
+static __always_inline uint32_t thread_priority(const Thread *t)
 {
 	if (unlikely(!t))
 		return 0;
@@ -28,7 +28,7 @@ static __always_inline uint32_t thread_priority(const thread_t *t)
 static ListHead destroy_queue = LIST_HEAD_INIT(destroy_queue);
 ListHead sleep_queue = LIST_HEAD_INIT(sleep_queue);
 static ListHead thread_destroy_queue = LIST_HEAD_INIT(thread_destroy_queue);
-thread_t *current_thread;
+Thread *current_thread;
 
 /* Diagnostic-only: lets low-level modules (e.g. PMM_TRACE) attribute an
  * allocation to a process without taking on a thread.h/process.h
@@ -38,11 +38,11 @@ uint32_t current_pid_or_zero(void)
 	return (current_thread && current_thread->owner_process) ? current_thread->owner_process->pid : 0;
 }
 
-thread_t *fpu_owner = NULL;
+Thread *fpu_owner = NULL;
 
 volatile uint8_t do_resched = 0; // needs spinlock guard on SMP
 
-static thread_t idle_thread;  // only kernel_sp is used
+static Thread idle_thread;  // only kernel_sp is used
 static uint8_t idle_stack[4096] __attribute__((aligned(8)));
 static bool on_idle_stack;
 
@@ -93,7 +93,7 @@ void sched_init() {
     on_idle_stack = false;
     sched_init_idle_context();
 }
-void sched_add(thread_t *t) {
+void sched_add(Thread *t) {
     if (!t)
         return;
 
@@ -111,11 +111,11 @@ void sched_add(thread_t *t) {
     }
 }
 
-void sched_defer_destroy(process_t *p) {
+void sched_defer_destroy(ProcessObj *p) {
     list_add_tail(&p->destroy_node, &destroy_queue.node);
 }
 
-void sched_defer_destroy_thread(thread_t *t) {
+void sched_defer_destroy_thread(Thread *t) {
     if (!t) return;
     /* Guard against double-enqueue: if node is already linked, skip. */
     if (t->destroy_node.next || t->destroy_node.prev) {
@@ -129,19 +129,19 @@ void sched_reap_thread_destroys(void) {
 
     while (!list_empty(&thread_destroy_queue)) {
         ListNode *node = list_pop_front(&thread_destroy_queue);
-        thread_t *t = container_of(node, thread_t, destroy_node);
+        Thread *t = container_of(node, Thread, destroy_node);
 
         if (t == current_thread) {
             list_add_tail(&t->destroy_node, &deferred.node);
             continue;
         }
 
-        thread_destroy(t);
+        ThreadDestroy(t);
     }
 
     while (!list_empty(&deferred)) {
         ListNode *node = list_pop_front(&deferred);
-        thread_t *t = container_of(node, thread_t, destroy_node);
+        Thread *t = container_of(node, Thread, destroy_node);
         list_add_tail(&t->destroy_node, &thread_destroy_queue.node);
     }
 }
@@ -150,7 +150,7 @@ void sched_reap(void) {
     /* Removed noisy debug logging to avoid flooding the console. */
     while (!list_empty(&destroy_queue)) {
         ListNode *node = list_pop_front(&destroy_queue);
-        process_t *p = container_of(node, process_t, destroy_node);
+        ProcessObj *p = container_of(node, ProcessObj, destroy_node);
         process_destroy(p);
     }
     sched_reap_thread_destroys();
@@ -169,10 +169,10 @@ static bool sched_work_pending(void)
     return false;
 }
 
-void sleep_queue_insert(thread_t *t) {
+void sleep_queue_insert(Thread *t) {
     ListNode *curr;
     list_for_each(curr, &sleep_queue.node) {
-        thread_t *s = container_of(curr, thread_t, timeout_node);
+        Thread *s = container_of(curr, Thread, timeout_node);
         if (t->wake_tick < s->wake_tick) {
             list_insert_before(&t->timeout_node, curr);
             return;
@@ -185,7 +185,7 @@ static void sched_wake_sleepers(void) {
     uint64_t now = get_ticks();
     while (!list_empty(&sleep_queue)) {
         ListNode *head = sleep_queue.node.next;
-        thread_t *t = container_of(head, thread_t, timeout_node);
+        Thread *t = container_of(head, Thread, timeout_node);
         if (t->wake_tick > now) break;
         list_remove(&t->timeout_node);
         if (t->ipc_state == IPC_RECEIVER || t->ipc_state == IPC_SENDER) {
@@ -193,8 +193,8 @@ static void sched_wake_sleepers(void) {
                 if (t->node.prev && t->node.next)
                     list_remove(&t->node);
             } else {
-                if (t->ep_wait_slot.node.prev && t->ep_wait_slot.node.next)
-                    list_remove(&t->ep_wait_slot.node);
+                if (t->port_wait_slot.node.prev && t->port_wait_slot.node.next)
+                    list_remove(&t->port_wait_slot.node);
             }
             t->ipc_state = IPC_NONE;
             t->blocked_port = NULL;
@@ -206,8 +206,8 @@ static void sched_wake_sleepers(void) {
             t->wake_reason = WAKE_TIMEOUT;
             if (t->trap_frame)
                 (*arch_reg(t->trap_frame, 0)) = ERR_TIMEOUT;
-            thread_waitany_clear_waits(t);
-            thread_waitany_clear_ep_waits(t);
+            ThreadWaitanyClearWaits(t);
+            ThreadWaitanyClearPortWaits(t);
             if (t->ntfn_wait_slot.node.prev && t->ntfn_wait_slot.node.next)
                 list_remove(&t->ntfn_wait_slot.node);
             t->state = READY;
@@ -264,13 +264,13 @@ static void sched_housekeeping(void) {
  * necessary side effect of "selecting" it; this never touches current_thread,
  * on_idle_stack, thread state, or performs any switching.
  */
-static thread_t *sched_pick_next(void) {
+static Thread *sched_pick_next(void) {
     for (int level = SCHED_PRIORITY_LEVELS - 1; level >= 0; level--) {
         if (ready_mask & (1u << level)) {
             ListNode *next_node = list_pop_front(&run_queues[level]);
             if (list_empty(&run_queues[level]))
                 ready_mask &= ~(1u << level);
-            return container_of(next_node, thread_t, node);
+            return container_of(next_node, Thread, node);
         }
     }
     return &idle_thread;
@@ -290,7 +290,7 @@ static thread_t *sched_pick_next(void) {
  * sits on the IPC fast path, so its own cost has to stay negligible next to
  * whatever it's saving.
  */
-bool __hot sched_has_ready_at_or_above(const thread_t *t) {
+bool __hot sched_has_ready_at_or_above(const Thread *t) {
     uint32_t priority = thread_priority(t);
     if (unlikely(priority >= SCHED_PRIORITY_LEVELS))
         priority = SCHED_PRIORITY_LEVELS - 1;
@@ -302,8 +302,8 @@ bool __hot sched_has_ready_at_or_above(const thread_t *t) {
 /* Called from schedule() (every voluntary reschedule) and directly from
  * SysMsgCall's/SysMsgLcall's direct-handoff path -- one of the hottest
  * functions in the kernel. */
-void __hot switch_to_thread(thread_t *next) {
-    thread_t *prev = current_thread;
+void __hot switch_to_thread(Thread *next) {
+    Thread *prev = current_thread;
 
     if (unlikely(next == &idle_thread)) {
         bool from_idle = (prev == NULL && on_idle_stack);
@@ -339,7 +339,7 @@ void __hot switch_to_thread(thread_t *next) {
     /* Benchmark-relevant common case: sender/receiver are two threads in
      * the same process (e.g. speedtest's echo-server pattern), so the
      * address space is already active and vmm_activate() can be skipped. */
-    process_t *prev_proc = prev ? prev->owner_process : NULL;
+    ProcessObj *prev_proc = prev ? prev->owner_process : NULL;
     if (unlikely(current_thread->owner_process->as &&
 		 (!prev_proc || prev_proc->as != current_thread->owner_process->as))) {
         vmm_activate(current_thread->owner_process->as);
@@ -357,19 +357,19 @@ void __attribute__((hot)) schedule(void) {
 
     sched_housekeeping();
 
-    thread_t *next = sched_pick_next();
+    Thread *next = sched_pick_next();
     next->ticks_remaining = next->time_slice;
     switch_to_thread(next);
 }
 
-size_t sched_ready_queue_snapshot(thread_t **out, size_t max_out) {
+size_t sched_ready_queue_snapshot(Thread **out, size_t max_out) {
     size_t total = 0;
     for (int level = SCHED_PRIORITY_LEVELS - 1; level >= 0; level--) {
         ListNode *node = run_queues[level].node.next;
 
         while (node != &run_queues[level].node) {
             if (out && total < max_out) {
-                out[total] = container_of(node, thread_t, node);
+                out[total] = container_of(node, Thread, node);
             }
             total++;
             node = node->next;

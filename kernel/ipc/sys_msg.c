@@ -21,20 +21,20 @@
 
 #define WAITANY_MAX_HANDLES 16u
 
-extern thread_t *current_thread;
+extern Thread *current_thread;
 extern ListHead sleep_queue;
 extern kernel_layout_t kernel_layout;
 
 /* Every call site passes a sender and a receiver -- never the same thread
  * (and their ipc_buf_pa pages are always separate physical frames), so
  * the memcpy below is genuinely non-overlapping. */
-static void ipc_buf_copy(thread_t *restrict src, thread_t *restrict dst, uint32_t len)
+static void ipc_buf_copy(Thread *restrict src, Thread *restrict dst, uint32_t len)
 {
-	if (!len || !src->ipc_buf_pa || !dst->ipc_buf_pa)
+	if (!len || !src->lmsg_buf_phys_addr || !dst->lmsg_buf_phys_addr)
 		return;
 	if (len > LMSG_BUF_SIZE)
 		return;
-	memcpy((void *)PA_TO_VA(dst->ipc_buf_pa), (void *)PA_TO_VA(src->ipc_buf_pa), len);
+	memcpy((void *)PA_TO_VA(dst->lmsg_buf_phys_addr), (void *)PA_TO_VA(src->lmsg_buf_phys_addr), len);
 }
 
 #ifdef DEBUG
@@ -69,7 +69,7 @@ static bool trap_frame_sane(const CpuState *tf)
 /* Only ever called right before a panic() -- never let it (or the KERROR
  * formatting call inside it) get pulled into a hot IPC caller's icache
  * footprint. */
-static __cold __noinline void ipc_panic_bad_trap_frame(const char *where, const process_t *owner,
+static __cold __noinline void ipc_panic_bad_trap_frame(const char *where, const ProcessObj *owner,
 							  const CpuState *tf)
 {
 	if (tf && ((uintptr_t)tf & 0x3u) == 0)
@@ -86,7 +86,7 @@ static __cold __noinline void ipc_panic_bad_trap_frame(const char *where, const 
 
 /* Leaf: a couple of field reads plus (rarely) one always_inline
  * list_remove(). Called on every IPC wake, direct-handoff, and reply. */
-static __always_inline void ipc_cancel_timeout(thread_t *t)
+static __always_inline void ipc_cancel_timeout(Thread *t)
 {
 	if (unlikely(t->wake_tick != 0 && t->timeout_node.prev && t->timeout_node.next)) {
 		list_remove(&t->timeout_node);
@@ -94,7 +94,7 @@ static __always_inline void ipc_cancel_timeout(thread_t *t)
 	t->wake_tick = 0;
 }
 
-static __hot inline void ipc_wake_ready(thread_t *t)
+static __hot inline void ipc_wake_ready(Thread *t)
 {
 	t->ipc_state = IPC_NONE;
 	t->blocked_port = NULL;
@@ -116,7 +116,7 @@ BENCH_STAT(g_bench_direct_handoff, "IPC direct-switch handoff");
  * traffic a client hammers a port it already validated once, so all four
  * are marked unlikely to keep the fall-through (the success return) as
  * the straight-line path. */
-HandleEntry *__hot ValidatePortHandle(process_t *proc, Handle handle, CpuState *frame)
+HandleEntry *__hot ValidatePortHandle(ProcessObj *proc, Handle handle, CpuState *frame)
 {
 	if (unlikely(!proc)) {
 		(*arch_reg(frame, 0)) = ERR_BADARG;
@@ -149,7 +149,7 @@ HandleEntry *__hot ValidatePortHandle(process_t *proc, Handle handle, CpuState *
 	return entry;
 }
 
-static HandleEntry *validate_notification_handle(process_t *proc, Handle handle, CpuState *frame)
+static HandleEntry *validate_notification_handle(ProcessObj *proc, Handle handle, CpuState *frame)
 {
 	if (!proc) {
 		(*arch_reg(frame, 0)) = ERR_BADARG;
@@ -177,7 +177,7 @@ static HandleEntry *validate_notification_handle(process_t *proc, Handle handle,
 	return entry;
 }
 
-static HandleEntry *validate_reply_handle(process_t *proc, Handle handle_idx, thread_t **target_out,
+static HandleEntry *validate_reply_handle(ProcessObj *proc, Handle handle_idx, Thread **target_out,
 					  CpuState *frame)
 {
 	if (!proc || handle_idx == 0) {
@@ -199,7 +199,7 @@ static HandleEntry *validate_reply_handle(process_t *proc, Handle handle_idx, th
 		return NULL;
 	}
 
-	thread_t *target = thread_find_by_tid(entry->reply->caller_tid);
+	Thread *target = ThreadFindByTid(entry->reply->caller_tid);
 
 	if (!target || target->state == ZOMBIE) {
 		process_untrack_reply_cap(entry->reply);
@@ -250,10 +250,10 @@ void __attribute__((hot)) SysMsgSend(CpuState *frame)
 
 	if (likely(!list_empty(&port->receiver_queue))) {
 		ListNode *receiver = list_pop_front(&port->receiver_queue);
-		thread_wait_slot_t *rx_slot = container_of(receiver, thread_wait_slot_t, node);
-		thread_t *rx_thread = rx_slot->owner;
+		ThreadWaitSlot *rx_slot = container_of(receiver, ThreadWaitSlot, node);
+		Thread *rx_thread = rx_slot->owner;
 
-		if (unlikely(rx_thread->waitany_ep_wait_active)) {
+		if (unlikely(rx_thread->waitany_port_wait_active)) {
 			WaitanyResult *res = &rx_thread->waitany_pending_result;
 			memset(res, 0, sizeof(*res));
 			res->matched_index = rx_slot->index;
@@ -264,9 +264,9 @@ void __attribute__((hot)) SysMsgSend(CpuState *frame)
 			res->w2 = (*arch_reg(frame, 2));
 			res->w3 = (*arch_reg(frame, 3));
 			res->size = sizeof(*res);
-			thread_waitany_clear_waits(rx_thread);
-			thread_waitany_clear_ep_waits(rx_thread);
-			rx_thread->waitany_ep_wait_match_index = rx_slot->index;
+			ThreadWaitanyClearWaits(rx_thread);
+			ThreadWaitanyClearPortWaits(rx_thread);
+			rx_thread->waitany_port_wait_match_index = rx_slot->index;
 			ipc_cancel_timeout(rx_thread);
 			rx_thread->wake_reason = WAKE_IPC;
 			rx_thread->state = READY;
@@ -293,7 +293,7 @@ void __attribute__((hot)) SysMsgSend(CpuState *frame)
 	} else {
 		current_thread->ipc_state = IPC_SENDER;
 		current_thread->blocked_port = port;
-		current_thread->ipc_marker = entry->marker;
+		current_thread->port_marker = entry->marker;
 		list_add_tail(&current_thread->node, &port->sender_queue.node);
 		current_thread->state = BLOCKED;
 		schedule();
@@ -320,7 +320,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 	 * pairing) sender_queue is essentially always empty when this runs. */
 	if (unlikely(!list_empty(&port->sender_queue))) {
 		ListNode *sender = list_pop_front(&port->sender_queue);
-		thread_t *sr_thread = container_of(sender, thread_t, node);
+		Thread *sr_thread = container_of(sender, Thread, node);
 		CpuState *sr_frame = sr_thread->trap_frame;
 #ifdef DEBUG
 		if (!trap_frame_sane(sr_frame)) {
@@ -343,13 +343,13 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			ipc_cancel_timeout(sr_thread);
 			sr_thread->wake_reason = WAKE_IPC;
 			sr_thread->state = READY;
-			if (sr_thread->ipc_buf_xfer_len > 0) {
+			if (sr_thread->lmsg_buf_xfer_len > 0) {
 				ipc_buf_copy(sr_thread, current_thread,
-					     sr_thread->ipc_buf_xfer_len);
-				(*arch_reg(frame, 1)) = sr_thread->ipc_buf_xfer_len;
+					     sr_thread->lmsg_buf_xfer_len);
+				(*arch_reg(frame, 1)) = sr_thread->lmsg_buf_xfer_len;
 				(*arch_reg(frame, 2)) = 0;
 				(*arch_reg(frame, 3)) = 0;
-				sr_thread->ipc_buf_xfer_len = 0;
+				sr_thread->lmsg_buf_xfer_len = 0;
 			}
 			sched_add(sr_thread);
 		} else if (sr_thread->ipc_state == IPC_WAITING) {
@@ -390,12 +390,12 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			(*arch_reg(frame, 1)) = sr_thread->owner_process->pid;
 			(*arch_reg(frame, 2)) = (*arch_reg(sr_frame, 1));
 			(*arch_reg(frame, 3)) = (*arch_reg(sr_frame, 2));
-			if (sr_thread->ipc_buf_xfer_len > 0) {
+			if (sr_thread->lmsg_buf_xfer_len > 0) {
 				ipc_buf_copy(sr_thread, current_thread,
-					     sr_thread->ipc_buf_xfer_len);
-				(*arch_reg(frame, 2)) = sr_thread->ipc_buf_xfer_len;
+					     sr_thread->lmsg_buf_xfer_len);
+				(*arch_reg(frame, 2)) = sr_thread->lmsg_buf_xfer_len;
 				(*arch_reg(frame, 3)) = 0;
-				sr_thread->ipc_buf_xfer_len = 0;
+				sr_thread->lmsg_buf_xfer_len = 0;
 			}
 		}
 	} else {
@@ -404,14 +404,14 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			return;
 		}
 
-		current_thread->ep_wait_slot.owner = current_thread;
-		current_thread->ep_wait_slot.index = 0;
-		current_thread->ep_wait_slot.node.prev = NULL;
-		current_thread->ep_wait_slot.node.next = NULL;
+		current_thread->port_wait_slot.owner = current_thread;
+		current_thread->port_wait_slot.index = 0;
+		current_thread->port_wait_slot.node.prev = NULL;
+		current_thread->port_wait_slot.node.next = NULL;
 		current_thread->ipc_state = IPC_RECEIVER;
 		current_thread->blocked_port = port;
 		current_thread->wake_reason = WAKE_NONE;
-		list_add_tail(&current_thread->ep_wait_slot.node, &port->receiver_queue.node);
+		list_add_tail(&current_thread->port_wait_slot.node, &port->receiver_queue.node);
 		current_thread->state = BLOCKED;
 
 		if (unlikely(timeout_ms != TIMEOUT_INFINITE)) {
@@ -476,8 +476,8 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		uint32_t bench_start = BENCH_BEGIN();
 #endif
 		ListNode *receiver = list_pop_front(&port->receiver_queue);
-		thread_wait_slot_t *rx_slot = container_of(receiver, thread_wait_slot_t, node);
-		thread_t *rx_thread = rx_slot->owner;
+		ThreadWaitSlot *rx_slot = container_of(receiver, ThreadWaitSlot, node);
+		Thread *rx_thread = rx_slot->owner;
 		CpuState *rx_frame = rx_thread->trap_frame;
 #ifdef DEBUG
 		if (!trap_frame_sane(rx_frame))
@@ -500,7 +500,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		process_track_reply_cap(current_thread->owner_process, rx_thread->owner_process,
 					(uint32_t)slot, rc);
 
-		if (unlikely(rx_thread->waitany_ep_wait_active)) {
+		if (unlikely(rx_thread->waitany_port_wait_active)) {
 			WaitanyResult *res = &rx_thread->waitany_pending_result;
 			memset(res, 0, sizeof(*res));
 			res->size = sizeof(*res);
@@ -511,9 +511,9 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 			res->w1 = current_thread->owner_process->pid;
 			res->w2 = (*arch_reg(frame, 1));
 			res->w3 = (*arch_reg(frame, 2));
-			thread_waitany_clear_waits(rx_thread);
-			thread_waitany_clear_ep_waits(rx_thread);
-			rx_thread->waitany_ep_wait_match_index = rx_slot->index;
+			ThreadWaitanyClearWaits(rx_thread);
+			ThreadWaitanyClearPortWaits(rx_thread);
+			rx_thread->waitany_port_wait_match_index = rx_slot->index;
 		} else {
 			(*arch_reg(rx_frame, 0)) = slot;
 			(*arch_reg(rx_frame, 1)) = current_thread->owner_process->pid;
@@ -549,7 +549,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		current_thread->ipc_state = IPC_WAITING;
 		current_thread->blocked_port = port;
 		current_thread->pending_reply_cap = rc;
-		current_thread->ipc_marker = entry->marker;
+		current_thread->port_marker = entry->marker;
 		list_add_tail(&current_thread->node, &port->sender_queue.node);
 		current_thread->state = BLOCKED;
 		schedule();
@@ -559,7 +559,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 void __attribute__((hot)) SysMsgReply(CpuState *frame)
 {
 	Handle handle_idx = (*arch_reg(frame, 0));
-	thread_t *target_thread = NULL;
+	Thread *target_thread = NULL;
 	HandleEntry *entry =
 	    validate_reply_handle(current_thread->owner_process, handle_idx, &target_thread, frame);
 	if (!entry) {
@@ -618,10 +618,10 @@ void __attribute__((hot)) SysMsgLsend(CpuState *frame)
 
 	if (!list_empty(&port->receiver_queue)) {
 		ListNode *receiver = list_pop_front(&port->receiver_queue);
-		thread_wait_slot_t *rx_slot = container_of(receiver, thread_wait_slot_t, node);
-		thread_t *rx_thread = rx_slot->owner;
+		ThreadWaitSlot *rx_slot = container_of(receiver, ThreadWaitSlot, node);
+		Thread *rx_thread = rx_slot->owner;
 
-		if (rx_thread->waitany_ep_wait_active) {
+		if (rx_thread->waitany_port_wait_active) {
 			WaitanyResult *res = &rx_thread->waitany_pending_result;
 			memset(res, 0, sizeof(*res));
 			res->size = sizeof(*res);
@@ -633,9 +633,9 @@ void __attribute__((hot)) SysMsgLsend(CpuState *frame)
 			res->w1 = xlen;
 			res->w2 = 0;
 			res->w3 = 0;
-			thread_waitany_clear_waits(rx_thread);
-			thread_waitany_clear_ep_waits(rx_thread);
-			rx_thread->waitany_ep_wait_match_index = rx_slot->index;
+			ThreadWaitanyClearWaits(rx_thread);
+			ThreadWaitanyClearPortWaits(rx_thread);
+			rx_thread->waitany_port_wait_match_index = rx_slot->index;
 			ipc_cancel_timeout(rx_thread);
 			rx_thread->wake_reason = WAKE_IPC;
 			rx_thread->state = READY;
@@ -663,9 +663,9 @@ void __attribute__((hot)) SysMsgLsend(CpuState *frame)
 	} else {
 		current_thread->ipc_state = IPC_SENDER;
 		current_thread->blocked_port = port;
-		current_thread->ipc_marker = entry->marker;
+		current_thread->port_marker = entry->marker;
 		list_add_tail(&current_thread->node, &port->sender_queue.node);
-		current_thread->ipc_buf_xfer_len = xlen;
+		current_thread->lmsg_buf_xfer_len = xlen;
 		current_thread->state = BLOCKED;
 		schedule();
 	}
@@ -700,8 +700,8 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 
 	if (!list_empty(&port->receiver_queue)) {
 		ListNode *receiver = list_pop_front(&port->receiver_queue);
-		thread_wait_slot_t *rx_slot = container_of(receiver, thread_wait_slot_t, node);
-		thread_t *rx_thread = rx_slot->owner;
+		ThreadWaitSlot *rx_slot = container_of(receiver, ThreadWaitSlot, node);
+		Thread *rx_thread = rx_slot->owner;
 		CpuState *rx_frame = rx_thread->trap_frame;
 		(void)rx_frame;
 #ifdef DEBUG
@@ -724,7 +724,7 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 		process_track_reply_cap(current_thread->owner_process, rx_thread->owner_process,
 					(uint32_t)slot, rc);
 
-		if (unlikely(rx_thread->waitany_ep_wait_active)) {
+		if (unlikely(rx_thread->waitany_port_wait_active)) {
 			WaitanyResult *res = &rx_thread->waitany_pending_result;
 			memset(res, 0, sizeof(*res));
 			res->size = sizeof(*res);
@@ -736,9 +736,9 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 			ipc_buf_copy(current_thread, rx_thread, xlen);
 			res->w2 = xlen;
 			res->w3 = 0;
-			thread_waitany_clear_waits(rx_thread);
-			thread_waitany_clear_ep_waits(rx_thread);
-			rx_thread->waitany_ep_wait_match_index = rx_slot->index;
+			ThreadWaitanyClearWaits(rx_thread);
+			ThreadWaitanyClearPortWaits(rx_thread);
+			rx_thread->waitany_port_wait_match_index = rx_slot->index;
 		} else {
 			(*arch_reg(rx_frame, 0)) = slot;
 			(*arch_reg(rx_frame, 1)) = current_thread->owner_process->pid;
@@ -767,9 +767,9 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 		current_thread->ipc_state = IPC_WAITING;
 		current_thread->blocked_port = port;
 		current_thread->pending_reply_cap = rc;
-		current_thread->ipc_marker = entry->marker;
+		current_thread->port_marker = entry->marker;
 		list_add_tail(&current_thread->node, &port->sender_queue.node);
-		current_thread->ipc_buf_xfer_len = xlen;
+		current_thread->lmsg_buf_xfer_len = xlen;
 		current_thread->state = BLOCKED;
 		schedule();
 	}
@@ -786,7 +786,7 @@ void __attribute__((hot)) SysMsgLreply(CpuState *frame)
 		return;
 	}
 
-	thread_t *target_thread = NULL;
+	Thread *target_thread = NULL;
 	HandleEntry *entry =
 	    validate_reply_handle(current_thread->owner_process, handle_idx, &target_thread, frame);
 	if (!entry) {
@@ -825,10 +825,10 @@ void __attribute__((hot)) SysMsgLreply(CpuState *frame)
 	(*arch_reg(frame, 0)) = 0;
 }
 
-static int waitany_deliver_sender(uint32_t matched_index, thread_t *receiver, ListNode *sender_node,
+static int waitany_deliver_sender(uint32_t matched_index, Thread *receiver, ListNode *sender_node,
 				  WaitanyResult *result)
 {
-	thread_t *sr_thread = container_of(sender_node, thread_t, node);
+	Thread *sr_thread = container_of(sender_node, Thread, node);
 	CpuState *sr_frame = sr_thread->trap_frame;
 #ifdef DEBUG
 	if (!trap_frame_sane(sr_frame)) {
@@ -842,7 +842,7 @@ static int waitany_deliver_sender(uint32_t matched_index, thread_t *receiver, Li
 	if (sr_thread->ipc_state == IPC_SENDER) {
 		result->kind = WAITANY_KIND_SEND;
 		result->source = sr_thread->owner_process->pid;
-		result->marker = sr_thread->ipc_marker;
+		result->marker = sr_thread->port_marker;
 		result->w1 = (*arch_reg(sr_frame, 1));
 		result->w2 = (*arch_reg(sr_frame, 2));
 		result->w3 = (*arch_reg(sr_frame, 3));
@@ -854,12 +854,12 @@ static int waitany_deliver_sender(uint32_t matched_index, thread_t *receiver, Li
 		sr_thread->wake_reason = WAKE_IPC;
 		sr_thread->state = READY;
 
-		if (sr_thread->ipc_buf_xfer_len > 0) {
-			ipc_buf_copy(sr_thread, receiver, sr_thread->ipc_buf_xfer_len);
-			result->w1 = sr_thread->ipc_buf_xfer_len;
+		if (sr_thread->lmsg_buf_xfer_len > 0) {
+			ipc_buf_copy(sr_thread, receiver, sr_thread->lmsg_buf_xfer_len);
+			result->w1 = sr_thread->lmsg_buf_xfer_len;
 			result->w2 = 0;
 			result->w3 = 0;
-			sr_thread->ipc_buf_xfer_len = 0;
+			sr_thread->lmsg_buf_xfer_len = 0;
 		}
 
 		sched_add(sr_thread);
@@ -887,16 +887,16 @@ static int waitany_deliver_sender(uint32_t matched_index, thread_t *receiver, Li
 
 		result->kind = WAITANY_KIND_CALL;
 		result->source = (uint32_t)slot;
-		result->marker = sr_thread->ipc_marker;
+		result->marker = sr_thread->port_marker;
 		result->w1 = sr_thread->owner_process->pid;
 		result->w2 = (*arch_reg(sr_frame, 1));
 		result->w3 = (*arch_reg(sr_frame, 2));
 
-		if (sr_thread->ipc_buf_xfer_len > 0) {
-			ipc_buf_copy(sr_thread, receiver, sr_thread->ipc_buf_xfer_len);
-			result->w2 = sr_thread->ipc_buf_xfer_len;
+		if (sr_thread->lmsg_buf_xfer_len > 0) {
+			ipc_buf_copy(sr_thread, receiver, sr_thread->lmsg_buf_xfer_len);
+			result->w2 = sr_thread->lmsg_buf_xfer_len;
 			result->w3 = 0;
-			sr_thread->ipc_buf_xfer_len = 0;
+			sr_thread->lmsg_buf_xfer_len = 0;
 		}
 
 		return 0;
@@ -1131,17 +1131,17 @@ void SysWaitAny(CpuState *frame)
 
 		/* Enqueue on endpoint receiver queues */
 		if (ep_wait_count > 0) {
-			current_thread->waitany_ep_wait_count = ep_wait_count;
-			current_thread->waitany_ep_wait_match_index = WAITANY_NO_MATCH;
-			current_thread->waitany_ep_wait_active = true;
+			current_thread->waitany_port_wait_count = ep_wait_count;
+			current_thread->waitany_port_wait_match_index = WAITANY_NO_MATCH;
+			current_thread->waitany_port_wait_active = true;
 
 			for (uint32_t i = 0; i < ep_wait_count; i++) {
-				current_thread->waitany_wait_eps[i] = wait_eps[i];
-				current_thread->waitany_ep_wait_slots[i].owner = current_thread;
-				current_thread->waitany_ep_wait_slots[i].index = wait_ep_indices[i];
-				current_thread->waitany_ep_wait_slots[i].node.prev = NULL;
-				current_thread->waitany_ep_wait_slots[i].node.next = NULL;
-				list_add_tail(&current_thread->waitany_ep_wait_slots[i].node,
+				current_thread->waitany_wait_ports[i] = wait_eps[i];
+				current_thread->waitany_port_wait_slots[i].owner = current_thread;
+				current_thread->waitany_port_wait_slots[i].index = wait_ep_indices[i];
+				current_thread->waitany_port_wait_slots[i].node.prev = NULL;
+				current_thread->waitany_port_wait_slots[i].node.next = NULL;
+				list_add_tail(&current_thread->waitany_port_wait_slots[i].node,
 					      &wait_eps[i]->receiver_queue.node);
 			}
 		}
@@ -1174,23 +1174,23 @@ void SysWaitAny(CpuState *frame)
 
 		/* ERR_DEAD from cap_destroy */
 		if ((int32_t)(*arch_reg(frame, 0)) == ERR_DEAD) {
-			thread_waitany_clear_waits(current_thread);
-			thread_waitany_clear_ep_waits(current_thread);
+			ThreadWaitanyClearWaits(current_thread);
+			ThreadWaitanyClearPortWaits(current_thread);
 			(*arch_reg(frame, 0)) = ERR_DEAD;
 			return;
 		}
 
 		/* Timeout */
 		if (current_thread->wake_reason == WAKE_TIMEOUT) {
-			thread_waitany_clear_waits(current_thread);
-			thread_waitany_clear_ep_waits(current_thread);
+			ThreadWaitanyClearWaits(current_thread);
+			ThreadWaitanyClearPortWaits(current_thread);
 			continue; /* deadline check at top catches expiry */
 		}
 
 		/* Woken by endpoint sender */
-		if (current_thread->waitany_ep_wait_match_index != WAITANY_NO_MATCH) {
-			thread_waitany_clear_waits(current_thread);
-			thread_waitany_clear_ep_waits(current_thread);
+		if (current_thread->waitany_port_wait_match_index != WAITANY_NO_MATCH) {
+			ThreadWaitanyClearWaits(current_thread);
+			ThreadWaitanyClearPortWaits(current_thread);
 			if (!CopyToUser((void *)result_ptr, &current_thread->waitany_pending_result,
 					wlen)) {
 				(*arch_reg(frame, 0)) = ERR_BADPTR;
@@ -1204,8 +1204,8 @@ void SysWaitAny(CpuState *frame)
 		if (current_thread->waitany_wait_match_index != WAITANY_NO_MATCH) {
 			waitany_deliver_notification(current_thread->waitany_wait_match_index,
 						     current_thread->waitany_wait_bits, &result);
-			thread_waitany_clear_waits(current_thread);
-			thread_waitany_clear_ep_waits(current_thread);
+			ThreadWaitanyClearWaits(current_thread);
+			ThreadWaitanyClearPortWaits(current_thread);
 			if (!CopyToUser((void *)result_ptr, &result, wlen)) {
 				(*arch_reg(frame, 0)) = ERR_BADPTR;
 				return;
@@ -1215,7 +1215,7 @@ void SysWaitAny(CpuState *frame)
 		}
 
 		/* Spurious wakeup, retry */
-		thread_waitany_clear_waits(current_thread);
-		thread_waitany_clear_ep_waits(current_thread);
+		ThreadWaitanyClearWaits(current_thread);
+		ThreadWaitanyClearPortWaits(current_thread);
 	}
 }

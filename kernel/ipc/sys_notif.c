@@ -10,12 +10,12 @@
 #define LOG_FMT(fmt) "(sys_notif) " fmt
 #include "core/log.h"
 
-extern thread_t *current_thread;
+extern Thread *current_thread;
 
-void NtfnWakeWaiter(Ntfn *ntfn, thread_wait_slot_t *slot,
+void NtfnWakeWaiter(Ntfn *ntfn, ThreadWaitSlot *slot,
                       int32_t r0_value, NtfnBits bits)
 {
-    thread_t *waiter = slot->owner;
+    Thread *waiter = slot->owner;
     if (!waiter || !waiter->trap_frame) {
         panic("NtfnWakeWaiter: queued waiter with no trap frame "
               "(ntfn=%p slot=%p owner=%p trap_frame=%p)",
@@ -34,8 +34,8 @@ void NtfnWakeWaiter(Ntfn *ntfn, thread_wait_slot_t *slot,
             }
         }
     }
-    thread_waitany_clear_waits(waiter);
-    thread_waitany_clear_ep_waits(waiter);
+    ThreadWaitanyClearWaits(waiter);
+    ThreadWaitanyClearPortWaits(waiter);
     waiter->waitany_wait_match_index = match_index;
     waiter->waitany_wait_bits = bits;
 
@@ -96,7 +96,7 @@ void SysNtfnSignal(CpuState *frame) {
     // Wake one waiter if any (NtfnWakeWaiter panics on a corrupt queue)
     if (!list_empty(&ntfn->wait_queue)) {
         ListNode *node = list_pop_front(&ntfn->wait_queue);
-        thread_wait_slot_t *slot = container_of(node, thread_wait_slot_t, node);
+        ThreadWaitSlot *slot = container_of(node, ThreadWaitSlot, node);
 
         uint32_t delivered = ntfn->word;
         NtfnWakeWaiter(ntfn, slot, (int32_t)delivered, delivered);

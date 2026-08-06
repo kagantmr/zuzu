@@ -15,7 +15,7 @@
 #include "kernel/bench.h"
 #include <compiler.h>
 
-extern thread_t *current_thread;
+extern Thread *current_thread;
 
 #ifdef ZUZU_BENCH
 BENCH_STAT(g_bench_memmap, "SysMemMap call->return");
@@ -27,7 +27,7 @@ BENCH_STAT(g_bench_memmap, "SysMemMap call->return");
  */
 /* p (the owning process) and out (the caller's VA-result slot) are never
  * the same object -- out always points at a local in SysMemMap's frame. */
-static int32_t memmap_anon(process_t *restrict p, VirtAddr hint, size_t size, MemProt prot,
+static int32_t memmap_anon(ProcessObj *restrict p, VirtAddr hint, size_t size, MemProt prot,
 			   VirtAddr *restrict out)
 {
     if (size == 0)
@@ -89,7 +89,7 @@ static int32_t memmap_anon(process_t *restrict p, VirtAddr hint, size_t size, Me
  * Adapted from zuzu v0.1.5-alpha version
  */
 /* p, e (the handle-table entry), and out are three distinct objects. */
-static int32_t memmap_shm(process_t *restrict p, HandleEntry *restrict e, MemProt prot,
+static int32_t memmap_shm(ProcessObj *restrict p, HandleEntry *restrict e, MemProt prot,
 			  VirtAddr *restrict out)
 {
 
@@ -135,7 +135,7 @@ static int32_t memmap_shm(process_t *restrict p, HandleEntry *restrict e, MemPro
  */
 /* Same non-aliasing shape as memmap_shm: p, e, and out are always three
  * distinct objects. */
-static int32_t memmap_dev(process_t *restrict p, HandleEntry *restrict e, MemProt prot,
+static int32_t memmap_dev(ProcessObj *restrict p, HandleEntry *restrict e, MemProt prot,
 			  VirtAddr *restrict out)
 {
 
@@ -194,7 +194,7 @@ void __hot SysMemMap(CpuState *frame)
 #ifdef ZUZU_BENCH
     uint32_t bench_start = BENCH_BEGIN();
 #endif
-    process_t *p = current_thread->owner_process;
+    ProcessObj *p = current_thread->owner_process;
     Handle handle = (Handle)(*arch_reg(frame, 0));
     size_t size = (size_t)(*arch_reg(frame, 1));
     MemProt prot = (MemProt)(*arch_reg(frame, 2));
@@ -371,7 +371,7 @@ void SysAsInject(CpuState *frame)
             return;
         }
 
-        process_t *target = handle->task;
+        ProcessObj *target = handle->task;
 
         if (!target)
         {

@@ -147,7 +147,7 @@ static void dump_registers(ExceptionFrame *frame)
     sym_annotate(pc_sym, sizeof(pc_sym), frame->return_pc);
     sym_annotate(lr_sym, sizeof(lr_sym), frame->lr_usr);
 
-    process_t *p = current_thread ? current_thread->owner_process : NULL;
+    ProcessObj *p = current_thread ? current_thread->owner_process : NULL;
 
     kprintf("-- register dump --------------------------------------------\n");
     if (p)
@@ -209,7 +209,7 @@ static void dump_registers(ExceptionFrame *frame)
 // Attempts to service a translation-fault dfar via demand paging against
 // the process's VM regions. Returns true if handled (caller should return
 // immediately without killing/panicking).
-static bool __hot try_demand_page(process_t *current_process, uint32_t dfar, uint32_t dfsr)
+static bool __hot try_demand_page(ProcessObj *current_process, uint32_t dfar, uint32_t dfsr)
 {
     addrspace_t *as = current_process->as;
     for (uint32_t i = 0; i < as->regions.len; i++)
@@ -239,7 +239,7 @@ static bool __hot try_demand_page(process_t *current_process, uint32_t dfar, uin
  * the traffic in any workload that isn't fault-heavy. */
 void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
 {
-    process_t *current_process = current_thread ? current_thread->owner_process : NULL;
+    ProcessObj *current_process = current_thread ? current_thread->owner_process : NULL;
 
     switch (exctype)
     {

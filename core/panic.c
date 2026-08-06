@@ -1,6 +1,7 @@
 // panic.c - Kernel panic screen
 
 #include "core/panic.h"
+#include "kernel/proc/thread.h"
 #include <arch/cpu.h>
 #include <arch/irq.h>
 #include <arch/regs.h>
@@ -193,7 +194,7 @@ static const char *handle_type_str(HandleType t)
     }
 }
 
-static const char *ipc_state_str(ipc_state_t s)
+static const char *ipc_state_str(MsgState s)
 {
     switch (s) {
     case IPC_NONE:     return "NONE";
@@ -333,7 +334,7 @@ static void panic_print_header(const char *reason, void *caller_ra)
     if (!current_thread) {
         panic_line("context: BOOT");
     } else {
-        process_t *p = current_thread->owner_process;
+        ProcessObj *p = current_thread->owner_process;
         if (p)
             snprintf(line, sizeof(line),
                      "context: PROCESS  [pid=%u  %s  tid=%u]",
@@ -501,7 +502,7 @@ static void panic_print_process(void)
         return;
     }
 
-    process_t *p = current_thread->owner_process;
+    ProcessObj *p = current_thread->owner_process;
 
     snprintf(line, sizeof(line),
              "tid=%-4u  state=%-7s  prio=%u  slice=%u  left=%u",
@@ -617,7 +618,7 @@ static void panic_print_sched(void)
     panic_section("SCHEDULER");
 
     if (current_thread) {
-        process_t *p = current_thread->owner_process;
+        ProcessObj *p = current_thread->owner_process;
         snprintf(line, sizeof(line),
                  "current: tid=%-4u  pid=%-4u  %-16s  %s  prio=%u",
                  current_thread->tid,
@@ -631,7 +632,7 @@ static void panic_print_sched(void)
     panic_line(line);
 
     /* Ready queue */
-    thread_t *ready[PANIC_READY_MAX];
+    Thread *ready[PANIC_READY_MAX];
     size_t ready_total = sched_ready_queue_snapshot(ready, PANIC_READY_MAX);
     panic_nl();
     snprintf(line, sizeof(line), "ready (%lu):", (unsigned long)ready_total);
@@ -641,8 +642,8 @@ static void panic_print_sched(void)
     } else {
         size_t show = ready_total < PANIC_READY_MAX ? ready_total : PANIC_READY_MAX;
         for (size_t i = 0; i < show; i++) {
-            thread_t *t = ready[i];
-            process_t *p = t->owner_process;
+            Thread *t = ready[i];
+            ProcessObj *p = t->owner_process;
             snprintf(line, sizeof(line),
                      "  tid=%-4u  pid=%-4u  %-16s  prio=%u",
                      t->tid, p ? p->pid : 0,
@@ -679,8 +680,8 @@ static void panic_print_sched(void)
                     panic_line(line);
                     break;
                 }
-                thread_t *t = container_of(node, thread_t, timeout_node);
-                process_t *p = t->owner_process;
+                Thread *t = container_of(node, Thread, timeout_node);
+                ProcessObj *p = t->owner_process;
                 snprintf(line, sizeof(line),
                          "  tid=%-4u  pid=%-4u  %-16s  wake_tick=%llu",
                          t->tid, p ? p->pid : 0,
