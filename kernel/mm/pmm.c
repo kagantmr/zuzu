@@ -35,7 +35,7 @@ typedef struct
 
 static PmmState pmmState;
 extern kernel_layout_t kernel_layout;
-extern void syspage_update_mem(void);
+extern void SyspageUpdateMem(void);
 static spinlock_t pmm_lock = SPINLOCK_INIT;
 
 static bool pmm_is_valid_managed_pa(PhysAddr pa)
@@ -335,7 +335,7 @@ PhysAddr PmmAllocFrame(void)
     PhysAddr pa = pmm_alloc_frame_locked();
     if (pa != 0)
     {
-        syspage_update_mem();
+        SyspageUpdateMem();
     }
     spin_unlock_irqrestore(&pmm_lock, flags);
 #ifdef PMM_TRACE
@@ -400,7 +400,7 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
                 PhysAddr addr = PfnToPhys(pfn);
                 assert(addr % PAGE_SIZE == 0);
                 assert(pfn >= pmmState.pfn_base && (pfn + n_frames) <= pmmState.pfn_end);
-                syspage_update_mem(); // update free memory info in syspage
+                SyspageUpdateMem(); // update free memory info in syspage
                 spin_unlock_irqrestore(&pmm_lock, flags);
 #ifdef PMM_TRACE
                 KTRACE("alloc_pages n=%zu pa=%p pid=%u scanned=%zu caller: %s", n_frames, (void *)addr,
@@ -460,7 +460,7 @@ void PmmFreeFrame(const PhysAddr addr)
         *page_va = pmmState.freelist_head;
         pmmState.freelist_head = addr;
 
-        syspage_update_mem();
+        SyspageUpdateMem();
         spin_unlock_irqrestore(&pmm_lock, flags);
         return;
     }
@@ -544,7 +544,7 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
                 /* Keep freelist in sync without a full O(total_pages) rebuild. */
                 pmm_freelist_remove_range(start_pa, end_pa);
 
-                syspage_update_mem(); // update free memory info in syspage
+                SyspageUpdateMem(); // update free memory info in syspage
                 spin_unlock_irqrestore(&pmm_lock, flags);
 #ifdef PMM_TRACE
                 KTRACE("alloc_pages_aligned n=%zu pa=%p pid=%u scanned=%zu caller: %s", n_frames, (void *)start_pa,
@@ -589,13 +589,13 @@ size_t PmmAllocFramesScattered(const size_t n_frames, PhysAddr *out_addrs)
         const PhysAddr new_page = pmm_alloc_frame_locked();
         if (new_page == 0)
         {
-            syspage_update_mem();
+            SyspageUpdateMem();
             spin_unlock_irqrestore(&pmm_lock, flags);
             return i;
         }
         out_addrs[i] = new_page;
     }
-    syspage_update_mem(); // update free memory info in syspage
+    SyspageUpdateMem(); // update free memory info in syspage
     spin_unlock_irqrestore(&pmm_lock, flags);
     return n_frames;
 }

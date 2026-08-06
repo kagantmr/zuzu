@@ -9,8 +9,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <zuzu/bench.h>
+#include <zuzu/channel.h>
 #include <zuzu/lmsg.h>
 #include <zuzu/msg.h>
+#include <zuzu/protocols/exec.h>
 #include <zuzu/protocols/nametable.h>
 #include <zuzu/task.h>
 #include <zuzu/types.h>
@@ -35,6 +37,12 @@
  * see run_cross_process_benchmark()'s own comment for why it needs a
  * longer warm-up than the same-process variant. */
 #define XPROC_WARMUP_ITERATIONS 500u
+
+/* speedtest_ipc_child lives on the SD card next to speedtest itself (see
+ * that file) and is spawned on demand -- there's no boot-time instance to
+ * find, so speedtest has to bring its own copy up for every run. */
+#define CHILD_PATH "/bin/speedtest_ipc_child"
+#define CHILD_NAME "speedtest_ipc_child"
 
 /* Every value this suite reports (min-of-N, so *_x100 carries two decimal
  * digits of fixed-point precision for the average). ok = false means the
@@ -186,20 +194,99 @@ static BenchmarkResult run_benchmark(Handle port)
 	return (BenchmarkResult){ .min = min, .avg_x100 = mean_x100, .max = max, .ok = true };
 }
 
-/* speedtest_ipc_child (see that file) registers its port under nametable
- * name "sipc" at boot, well before speedtest itself runs (it isn't
- * :late in initrd/boot.manifest). Still poll rather than assume it has
- * already registered by the time we get here -- same defensive pattern
- * pl011drv's wait_for_devmgr() uses for devmgr. */
-static Handle lookup_ipc_child(void)
+/* sysd rendezvous + spawn plumbing for speedtest_ipc_child, mirroring
+ * zztest's child_spawn (user/test_apps/zztest/main.c) via the same
+ * pspawn -> grant -> SYSD_EXEC -> kickstart path zzsh uses -- minus the
+ * mode-string argv this suite doesn't need. */
+static Handle g_sysd_port = -1;
+static Pid g_sysd_pid;
+
+static int sysd_setup(void)
 {
-	for (int tries = 0; tries < 200; tries++) {
-		Message r = ZuzuMsgCall(NT_PORT, NT_LOOKUP, nt_pack("sipc"), 0);
-		if ((int32_t)r.w1 == NT_LU_OK)
-			return (Handle)r.w2;
-		ZuzuSleep(10);
+	Message r = ZuzuMsgCall(NT_PORT, NT_LOOKUP, nt_pack(NT_NAME_SYS), 0);
+	if ((Err)r.w1 != NT_LU_OK)
+		return -1;
+	g_sysd_port = (Handle)r.w2;
+	g_sysd_pid = (Pid)r.w3;
+	return 0;
+}
+
+typedef struct {
+	Handle task;
+	Pid pid;
+} ChildProc;
+
+/* Spawns speedtest_ipc_child with `port` granted into its handle table
+ * pre-kickstart; the child-side slot is passed as its sole argv[1]. That
+ * hands the child a live, already-shared port before it ever runs, so
+ * there's no rendezvous step on the far side (no nametable lookup, no
+ * polling) -- the first ZuzuMsgRecv in the child and the first
+ * ZuzuMsgCall in run_cross_process_benchmark() just meet on the port.
+ * Returns 0, or a negative err. */
+static int32_t spawn_ipc_child(Handle port, ChildProc *out)
+{
+	TSpawnResult ts = ZuzuPSpawn(CHILD_NAME);
+	if (ts.taskHandle < 0)
+		return ts.taskHandle;
+
+	int32_t child_slot = ZuzuGrant(port, ts.pid);
+	if (child_slot < 0) {
+		ZuzuPKill(ts.taskHandle);
+		return child_slot;
 	}
-	return -1;
+
+	int32_t sysd_task = ZuzuGrant(ts.taskHandle, g_sysd_pid);
+	if (sysd_task < 0) {
+		ZuzuPKill(ts.taskHandle);
+		return sysd_task;
+	}
+
+	char slot_arg[16];
+	snprintf(slot_arg, sizeof(slot_arg), "%d", (int)child_slot);
+
+	/* argbuf = "speedtest_ipc_child\0<slot>\0" */
+	char argbuf[sizeof(CHILD_NAME) + sizeof(slot_arg)];
+	size_t argpos = 0;
+	memcpy(argbuf + argpos, CHILD_NAME, strlen(CHILD_NAME) + 1);
+	argpos += strlen(CHILD_NAME) + 1;
+	memcpy(argbuf + argpos, slot_arg, strlen(slot_arg) + 1);
+	argpos += strlen(slot_arg) + 1;
+
+	/* request = header + "path\0" + argbuf */
+	size_t path_len = strlen(CHILD_PATH);
+	uint8_t req[sizeof(ExecRequestHeader) + sizeof(CHILD_PATH) + sizeof(argbuf)];
+	ExecRequestHeader *hdr = (ExecRequestHeader *)req;
+	hdr->cmd = SYSD_EXEC;
+	hdr->_pad = 0;
+	hdr->taskHandle = (uint16_t)sysd_task;
+	hdr->path_len = (uint16_t)path_len;
+	hdr->argc = 2;
+	hdr->pid = ts.pid;
+	memcpy(req + sizeof(*hdr), CHILD_PATH, path_len + 1);
+	memcpy(req + sizeof(*hdr) + path_len + 1, argbuf, argpos);
+
+	ExecReply reply;
+	int32_t rc = ChannelCall(g_sysd_port, req,
+				 (uint32_t)(sizeof(*hdr) + path_len + 1 + argpos), &reply,
+				 sizeof(reply));
+	if (rc < 0) {
+		ZuzuPKill(ts.taskHandle);
+		return rc;
+	}
+	if (rc != (int32_t)sizeof(ExecReply)) {
+		ZuzuPKill(ts.taskHandle);
+		return ERR_MALFORMED;
+	}
+
+	rc = ZuzuKickstart(ts.taskHandle, reply.entry, reply.sp, 2, reply.argv_va);
+	if (rc != 0) {
+		ZuzuPKill(ts.taskHandle);
+		return rc;
+	}
+
+	out->task = ts.taskHandle; /* consumed by kickstart (slot freed) */
+	out->pid = ts.pid;
+	return 0;
 }
 
 /* Cross-process counterpart to run_benchmark(): identical ping-pong
@@ -219,10 +306,26 @@ static Handle lookup_ipc_child(void)
  * cover. */
 static BenchmarkResult run_cross_process_benchmark(void)
 {
-	Handle port = lookup_ipc_child();
+	if (sysd_setup() != 0) {
+		printf("IPC RTT (cross-process; zuzu_msg_call round trip): "
+		       "sysd (\"sys\") not registered, skipping\n");
+		return (BenchmarkResult){ .ok = false };
+	}
+
+	Handle port = ZuzuPortCreate();
 	if (port < 0) {
 		printf("IPC RTT (cross-process; zuzu_msg_call round trip): "
-		       "speedtest_ipc_child never registered, skipping\n");
+		       "couldn't create echo port, skipping\n");
+		return (BenchmarkResult){ .ok = false };
+	}
+
+	ChildProc child = { 0 };
+	int32_t spawn_rc = spawn_ipc_child(port, &child);
+	if (spawn_rc < 0) {
+		printf("IPC RTT (cross-process; zuzu_msg_call round trip): "
+		       "speedtest_ipc_child failed to spawn (%s), skipping\n",
+		       StrToError(spawn_rc));
+		ZuzuDestroy(port);
 		return (BenchmarkResult){ .ok = false };
 	}
 
@@ -290,6 +393,11 @@ static BenchmarkResult run_cross_process_benchmark(void)
 		printf("  approx (sleep-calibrated @ ~%u cycles/us): min %llu ns, avg %llu ns\n",
 		       cycles_per_us, (unsigned long long)min_ns, (unsigned long long)avg_ns);
 	}
+
+	ZuzuMsgCall(port, MSG_QUIT, 0, 0);
+	int32_t exit_status;
+	ZuzuWait(child.pid, &exit_status, 0);
+	ZuzuDestroy(port);
 
 	return (BenchmarkResult){ .min = min, .avg_x100 = mean_x100, .max = max, .ok = true };
 }
@@ -563,9 +671,9 @@ int main(void)
 	free(stack);
 	ZuzuDestroy(port);
 
-	/* speedtest_ipc_child is a permanent boot service (see that file's
-	 * header comment), not something this process spawns/tears down --
-	 * nothing to clean up here beyond the benchmark itself. */
+	/* run_cross_process_benchmark() owns speedtest_ipc_child's full
+	 * lifecycle -- spawn, benchmark, MSG_QUIT, ZuzuWait -- nothing to
+	 * clean up here. */
 	BenchmarkResult r_ipc_xproc = run_cross_process_benchmark();
 
 	Handle lport = ZuzuPortCreate();
