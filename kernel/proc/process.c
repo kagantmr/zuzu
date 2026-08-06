@@ -377,8 +377,8 @@ fail_process:
     return NULL;
 }
 
-void process_track_reply_cap(process_t *caller, process_t *holder,
-                             Handle holder_slot, ReplyCap *rc)
+void process_track_reply_cap(process_t *restrict caller, process_t *restrict holder,
+                             Handle holder_slot, ReplyCap *restrict rc)
 {
     rc->holder_pid = holder ? holder->pid : 0;
     rc->holder_slot = holder_slot;

@@ -64,7 +64,7 @@ static vm_region_t *vmm_find_region(addrspace_t *as, uintptr_t va)
                    sizeof(vm_region_t), region_contains_va);
 }
 
-bool vmm_fault_page(addrspace_t *as, vm_region_t *r, uintptr_t page_va)
+bool vmm_fault_page(addrspace_t *restrict as, vm_region_t *restrict r, uintptr_t page_va)
 {
     if (!as || !r)
         return false;
@@ -240,7 +240,7 @@ void as_destroy(addrspace_t* as) {
     kfree(as);
 }
 
-bool vmm_add_region(addrspace_t *as, const vm_region_t *region) {
+bool vmm_add_region(addrspace_t *restrict as, const vm_region_t *restrict region) {
     if (!as || !region || region->size == 0) return false;
 
     VirtAddr new_start = region->vaddr_start;

@@ -3,6 +3,7 @@
 #include "zuzu/umem.h"
 
 #include <arch/cycles.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,6 +11,7 @@
 #include <zuzu/bench.h>
 #include <zuzu/lmsg.h>
 #include <zuzu/msg.h>
+#include <zuzu/protocols/nametable.h>
 #include <zuzu/task.h>
 #include <zuzu/types.h>
 
@@ -26,6 +28,25 @@
  * LCALL_PAYLOAD_LEN so the server can tell "shut down" from "echo this". */
 #define LCALL_PAYLOAD_LEN 32u
 #define LCALL_QUIT_LEN 4u
+
+/* Cross-process IPC RTT: same protocol, same iteration count as the
+ * existing thread-based run_benchmark(), but a dedicated 500-sample
+ * warm-up rather than the shared (5-iteration) WARMUP_ITERATIONS --
+ * see run_cross_process_benchmark()'s own comment for why it needs a
+ * longer warm-up than the same-process variant. */
+#define XPROC_WARMUP_ITERATIONS 500u
+
+/* Every value this suite reports (min-of-N, so *_x100 carries two decimal
+ * digits of fixed-point precision for the average). ok = false means the
+ * benchmark couldn't run at all (e.g. the cross-process child never
+ * registered) -- its row in the Markdown table prints "n/a" rather than a
+ * misleading zero. */
+typedef struct {
+	uint32_t min;
+	uint64_t avg_x100;
+	uint32_t max;
+	bool ok;
+} BenchmarkResult;
 
 /* Direct read of the ARMv7 32-bit cycle counter. The PMU is already enabled
  * and opened up for PL0 access at boot (see pmu_init() in arch/arm/early.c),
@@ -92,7 +113,7 @@ static uint32_t calibrate_cycles_per_us(void)
 
 static uint32_t g_samples[BENCHMARK_ITERATIONS];
 
-static void run_benchmark(Handle port)
+static BenchmarkResult run_benchmark(Handle port)
 {
 	for (int i = 0; i < WARMUP_ITERATIONS; i++) {
 		ZuzuMsgCall(port, MSG_PING, 0, 0);
@@ -138,7 +159,10 @@ static void run_benchmark(Handle port)
 	}
 	uint64_t mean_x100 = (sum * 100) / BENCHMARK_ITERATIONS;
 
-	printf("IPC RTT (zuzu_msg_call round trip), %u iterations (+%u warm-up)\n",
+	/* "same-process, thread" is the disambiguating half of this label --
+	 * see run_cross_process_benchmark() for the counterpart that spawns
+	 * sender and receiver as separate processes instead. */
+	printf("IPC RTT (same-process, thread; zuzu_msg_call round trip), %u iterations (+%u warm-up)\n",
 	       (unsigned)BENCHMARK_ITERATIONS, (unsigned)WARMUP_ITERATIONS);
 
 	if (errors) {
@@ -158,9 +182,119 @@ static void run_benchmark(Handle port)
 		printf("  approx (sleep-calibrated @ ~%u cycles/us): min %llu ns, avg %llu ns\n",
 		       cycles_per_us, (unsigned long long)min_ns, (unsigned long long)avg_ns);
 	}
+
+	return (BenchmarkResult){ .min = min, .avg_x100 = mean_x100, .max = max, .ok = true };
 }
 
-static void run_lcall_benchmark(Handle port)
+/* speedtest_ipc_child (see that file) registers its port under nametable
+ * name "sipc" at boot, well before speedtest itself runs (it isn't
+ * :late in initrd/boot.manifest). Still poll rather than assume it has
+ * already registered by the time we get here -- same defensive pattern
+ * pl011drv's wait_for_devmgr() uses for devmgr. */
+static Handle lookup_ipc_child(void)
+{
+	for (int tries = 0; tries < 200; tries++) {
+		Message r = ZuzuMsgCall(NT_PORT, NT_LOOKUP, nt_pack("sipc"), 0);
+		if ((int32_t)r.w1 == NT_LU_OK)
+			return (Handle)r.w2;
+		ZuzuSleep(10);
+	}
+	return -1;
+}
+
+/* Cross-process counterpart to run_benchmark(): identical ping-pong
+ * protocol, identical iteration count, against speedtest_ipc_child
+ * instead of an in-process thread -- so every extra cycle this reports
+ * over the same-process number is the cost of the full context-switch
+ * path (TTBR0 write, ASID/TLB handling) that a thread-to-thread handoff
+ * never pays, not scheduler-pick-and-register-copy cost.
+ *
+ * The warm-up is 500 iterations rather than the same-process variant's
+ * WARMUP_ITERATIONS (5): the first handful of cross-process round trips
+ * also pay for one-time costs a thread-to-thread handoff doesn't have
+ * to (the TLB/ASID entries for the child's address space aren't resident
+ * until something actually switches into it), and those need to be
+ * amortized out of the measured window, not just the branch
+ * predictor/icache warm-up the same-process benchmark's 5 iterations
+ * cover. */
+static BenchmarkResult run_cross_process_benchmark(void)
+{
+	Handle port = lookup_ipc_child();
+	if (port < 0) {
+		printf("IPC RTT (cross-process; zuzu_msg_call round trip): "
+		       "speedtest_ipc_child never registered, skipping\n");
+		return (BenchmarkResult){ .ok = false };
+	}
+
+	for (uint32_t i = 0; i < XPROC_WARMUP_ITERATIONS; i++) {
+		ZuzuMsgCall(port, MSG_PING, 0, 0);
+	}
+
+	uint32_t errors = 0;
+	int32_t first_err_r0 = 0;
+	uint32_t first_err_r1 = 0;
+
+	for (uint32_t i = 0; i < BENCHMARK_ITERATIONS; i++) {
+		ArchIsb();
+		uint32_t start = ArchMeasure();
+		ArchIsb();
+
+		Message r = ZuzuMsgCall(port, MSG_PING, 0, 0);
+
+		ArchIsb();
+		uint32_t end = ArchMeasure();
+		ArchIsb();
+
+		/* Unsigned subtraction: correct mod-2^32 even if PMCCNTR wrapped
+		 * between the two reads. */
+		g_samples[i] = end - start;
+
+		if ((r.w0 != 0 || r.w1 != 1) && errors == 0) {
+			first_err_r0 = r.w0;
+			first_err_r1 = r.w1;
+		}
+		if (r.w0 != 0 || r.w1 != 1) {
+			errors++;
+		}
+	}
+
+	uint32_t min = UINT32_MAX, max = 0;
+	uint64_t sum = 0;
+	for (uint32_t i = 0; i < BENCHMARK_ITERATIONS; i++) {
+		uint32_t c = g_samples[i];
+		if (c < min)
+			min = c;
+		if (c > max)
+			max = c;
+		sum += c;
+	}
+	uint64_t mean_x100 = (sum * 100) / BENCHMARK_ITERATIONS;
+
+	printf("IPC RTT (cross-process; zuzu_msg_call round trip), %u iterations (+%u warm-up)\n",
+	       (unsigned)BENCHMARK_ITERATIONS, (unsigned)XPROC_WARMUP_ITERATIONS);
+
+	if (errors) {
+		printf("  %u/%u replies were unexpected (first: w0=%d w1=%u)\n", errors,
+		       (unsigned)BENCHMARK_ITERATIONS, first_err_r0, first_err_r1);
+	}
+
+	printf("  min: %u cycles\n", min);
+	printf("  avg: %u.%02u cycles\n", (unsigned)(mean_x100 / 100), (unsigned)(mean_x100 % 100));
+	printf("  max: %u cycles  (max includes scheduler/IRQ jitter; min is the best-case cost)\n",
+	       max);
+
+	uint32_t cycles_per_us = calibrate_cycles_per_us();
+	if (cycles_per_us > 0) {
+		uint64_t min_ns = ((uint64_t)min * 1000) / cycles_per_us;
+		uint64_t avg_ns = ((uint64_t)(sum / BENCHMARK_ITERATIONS) * 1000) / cycles_per_us;
+		printf("  approx (sleep-calibrated @ ~%u cycles/us): min %llu ns, avg %llu ns\n",
+		       cycles_per_us, (unsigned long long)min_ns, (unsigned long long)avg_ns);
+	}
+
+	return (BenchmarkResult){ .min = min, .avg_x100 = mean_x100, .max = max, .ok = true };
+}
+
+static BenchmarkResult run_lcall_benchmark(Handle port)
 {
 	uint8_t payload[LCALL_PAYLOAD_LEN];
 	memset(payload, 0xA5, sizeof(payload));
@@ -233,9 +367,11 @@ static void run_lcall_benchmark(Handle port)
 		printf("  approx (sleep-calibrated @ ~%u cycles/us): min %llu ns, avg %llu ns\n",
 		       cycles_per_us, (unsigned long long)min_ns, (unsigned long long)avg_ns);
 	}
+
+	return (BenchmarkResult){ .min = min, .avg_x100 = mean_x100, .max = max, .ok = true };
 }
 
-static void run_getpid_benchmark()
+static BenchmarkResult run_getpid_benchmark(void)
 {
 	for (int i = 0; i < WARMUP_ITERATIONS; i++) {
 		(void)ZuzuGetPid();
@@ -284,6 +420,46 @@ static void run_getpid_benchmark()
 		printf("  approx (sleep-calibrated @ ~%u cycles/us): min %llu ns, avg %llu ns\n",
 		       cycles_per_us, (unsigned long long)min_ns, (unsigned long long)avg_ns);
 	}
+
+	return (BenchmarkResult){ .min = min, .avg_x100 = mean_x100, .max = max, .ok = true };
+}
+
+/* Prints one copy-pasteable Markdown table row covering every column this
+ * binary itself measures (min-of-N cycles, matching the "Control (1.1)
+ * none" baseline row's convention) -- paste straight into BENCHMARKS.md,
+ * fill in the leading label cell for whatever config this run was built
+ * with. Kernel-side ZUZU_BENCH counters print their own [BENCH] lines
+ * separately on the kernel console; they aren't part of this row since
+ * this process has no way to read them back. */
+static void print_markdown_row(BenchmarkResult getpid, BenchmarkResult ipc_thread,
+			       BenchmarkResult ipc_xproc, BenchmarkResult lmsg)
+{
+	char getpid_s[16], thread_s[16], xproc_s[16], lmsg_s[16];
+
+	if (getpid.ok)
+		snprintf(getpid_s, sizeof(getpid_s), "%u", getpid.min);
+	else
+		snprintf(getpid_s, sizeof(getpid_s), "n/a");
+
+	if (ipc_thread.ok)
+		snprintf(thread_s, sizeof(thread_s), "%u", ipc_thread.min);
+	else
+		snprintf(thread_s, sizeof(thread_s), "n/a");
+
+	if (ipc_xproc.ok)
+		snprintf(xproc_s, sizeof(xproc_s), "%u", ipc_xproc.min);
+	else
+		snprintf(xproc_s, sizeof(xproc_s), "n/a");
+
+	if (lmsg.ok)
+		snprintf(lmsg_s, sizeof(lmsg_s), "%u", lmsg.min);
+	else
+		snprintf(lmsg_s, sizeof(lmsg_s), "n/a");
+
+	printf("\nMarkdown row for BENCHMARKS.md (min cycles; fill in the label):\n");
+	printf("| <label> | %s | %s | %s | %s |\n", getpid_s, thread_s, xproc_s, lmsg_s);
+	printf("(columns: getpid | IPC RTT same-process,thread | "
+	       "IPC RTT cross-process | Lmsg RTT)\n");
 }
 
 #ifdef ZUZU_BENCH
@@ -347,7 +523,7 @@ int main(void)
 
 	printf("getpid():");
 
-	run_getpid_benchmark();
+	BenchmarkResult r_getpid = run_getpid_benchmark();
 
 #ifdef ZUZU_BENCH
 	run_svc_entry_exit_benchmark();
@@ -375,7 +551,7 @@ int main(void)
 		return 1;
 	}
 
-	run_benchmark(port);
+	BenchmarkResult r_ipc_thread = run_benchmark(port);
 
 #ifdef ZUZU_BENCH
 	run_kernel_ipc_bench_driver(port);
@@ -386,6 +562,11 @@ int main(void)
 
 	free(stack);
 	ZuzuDestroy(port);
+
+	/* speedtest_ipc_child is a permanent boot service (see that file's
+	 * header comment), not something this process spawns/tears down --
+	 * nothing to clean up here beyond the benchmark itself. */
+	BenchmarkResult r_ipc_xproc = run_cross_process_benchmark();
 
 	Handle lport = ZuzuPortCreate();
 	if (lport < 0) {
@@ -408,7 +589,7 @@ int main(void)
 		return 1;
 	}
 
-	run_lcall_benchmark(lport);
+	BenchmarkResult r_lmsg = run_lcall_benchmark(lport);
 
 	ZuzuMsgLcall(lport, LCALL_QUIT_LEN);
 	ZuzuTJoin(ltid);
@@ -421,6 +602,8 @@ int main(void)
 	 * self-report on the kernel console once their warm-up clears. */
 	run_kernel_memmap_bench_driver();
 #endif
+
+	print_markdown_row(r_getpid, r_ipc_thread, r_ipc_xproc, r_lmsg);
 
 	return 0;
 }

@@ -64,6 +64,7 @@ gdb.txt
 .project
 compile_commands.json
 .cache/*e
+.clang-format
 
 # mac-specific file
 .DS_Store

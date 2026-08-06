@@ -31,7 +31,7 @@ static inline void spin_lock_irqsave(spinlock_t *lock, uint32_t *flags)
         while (arch_ldrex(&lock->locked) != 0)
             ;
     } while (arch_strex(&lock->locked, 1) != 0);
-    arch_dmb();
+    ArchDmb();
 }
 
 /**
@@ -42,7 +42,7 @@ static inline void spin_lock_irqsave(spinlock_t *lock, uint32_t *flags)
  */
 static inline void spin_unlock_irqrestore(spinlock_t *lock, uint32_t flags)
 {
-    arch_dmb();
+    ArchDmb();
     lock->locked = 0;
     arch_irq_restore(flags);
 }
@@ -58,7 +58,7 @@ static inline void spin_lock(spinlock_t *lock)
         while (arch_ldrex(&lock->locked) != 0)
             ;
     } while (arch_strex(&lock->locked, 1) != 0);
-    arch_dmb();
+    ArchDmb();
 }
 
 /**
@@ -68,7 +68,7 @@ static inline void spin_lock(spinlock_t *lock)
  */
 static inline void spin_unlock(spinlock_t *lock)
 {
-    arch_dmb();
+    ArchDmb();
     lock->locked = 0;
 }
 

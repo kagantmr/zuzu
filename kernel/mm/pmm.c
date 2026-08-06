@@ -467,7 +467,7 @@ void PmmFreeFrame(const PhysAddr addr)
 
     /* already free -> double free: a live bug, not a bad argument */
     spin_unlock_irqrestore(&pmm_lock, flags);
-    panic("pmm: double free of frame %#lx", pfn);
+    panic("pmm: double free of frame %x", pfn);
 }
 
 PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
