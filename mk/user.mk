@@ -15,6 +15,9 @@ ifeq ($(DEBUG_BUILD), 1)
 else
     USER_CFLAGS += -DNDEBUG
 endif
+ifneq ($(ZUZU_BENCH), 0)
+    USER_CFLAGS += -DZUZU_BENCH
+endif
 
 # ---- tier-2 (newlib) flags --------------------------------------------------
 # Newlib's headers must win over include/, but <zuzu/...> must still resolve.

@@ -9,8 +9,21 @@
 #include <stdint.h>
 #include <string.h>
 
+#ifdef ZUZU_BENCH
+#include <arch/cycles.h>
+#include <snprintf.h>
+#include <zuzu/bench.h>
+#endif
+
 #define PL011DRV_DEV_CLASS DEV_CLASS_SERIAL
 #define PL011DRV_COMPATIBLE "arm,pl011"
+/* rpi4's DTB lists "arm,pl011-axi" as the UART's *first* compatible string
+ * (compatible = "arm,pl011-axi", "arm,pl011", "arm,primecell";), and the
+ * kernel's DTB enumeration only keeps that first string per device (see
+ * dtb_enum_devices() in kernel/dtb/dtb.c) -- so devmgr's exact strcmp
+ * against just "arm,pl011" never matches on rpi4. Mirror the alias list
+ * arch/arm/rpi4/platform.c already uses for the early console lookup. */
+#define PL011DRV_COMPATIBLE_AXI "arm,pl011-axi"
 
 static volatile pl011_t *uart;
 static Handle client_port = -1;
@@ -60,8 +73,8 @@ static int32_t wait_for_devmgr(void)
 
 static Handle request_serial_device(void)
 {
-    static const char *const compat[] = { PL011DRV_COMPATIBLE };
-    return DevmRequestDevice(devmgr_port, compat, 1, NULL);
+    static const char *const compat[] = { PL011DRV_COMPATIBLE, PL011DRV_COMPATIBLE_AXI };
+    return DevmRequestDevice(devmgr_port, compat, 2, NULL);
 }
 
 static void handle_irq_event(void)
@@ -118,6 +131,55 @@ static void handle_read(Handle reply_handle, uint32_t max_len)
     (void)ChannelReply(reply_handle, buf, n);
 }
 
+#ifdef ZUZU_BENCH
+static void uart_bench_print(const char *label, const BenchResult *r)
+{
+    uint64_t avg_x100 = r->count ? (r->sum * 100) / r->count : 0;
+    char line[96];
+    int n = snprintf(line, sizeof(line),
+                      "[BENCH] %-32s min=%-8u avg=%u.%02u max=%-8u (cycles, n=%u)\n", label,
+                      r->min, (uint32_t)(avg_x100 / 100), (uint32_t)(avg_x100 % 100), r->max,
+                      r->count);
+    if (n < 0)
+        return;
+    if ((size_t)n >= sizeof(line))
+        n = (int)sizeof(line) - 1;
+    for (int i = 0; i < n; i++)
+        uart_txbyte(line[i]);
+}
+
+/* Exercises the kernel's IRQ-wait block->unblock bracket (SysNtfnWait's
+ * block point / relay_handler's unblock point, kernel/irq/sys_irq.c) using
+ * our own TX-empty interrupt as a real, self-triggerable hardware IRQ
+ * source. No bytes ever go on the wire: the FIFO is already empty, so
+ * unmasking IMSC_TXIM alone makes the PL011 assert the interrupt. Run
+ * once, before this driver takes client traffic. */
+static void run_irq_wait_bench(void)
+{
+    BenchResult r = { 0 };
+    uint32_t total = ZUZU_BENCH_WARMUP_ITERS + ZUZU_BENCH_ITERS;
+
+    for (uint32_t i = 0; i < total; i++) {
+        uart->ICR = IMSC_TXIM;
+
+        uint32_t start = ArchMeasure();
+        uart->IMSC |= IMSC_TXIM;
+
+        (void)ZuzuNtfnWait(serial_irq_ntfn, TIMEOUT_INFINITE);
+        uint32_t end = ArchMeasure();
+
+        uart->IMSC &= ~IMSC_TXIM;
+        uart->ICR = IMSC_TXIM;
+        ZuzuIrqDone((uint32_t)serial_dev_handle);
+
+        if (i >= ZUZU_BENCH_WARMUP_ITERS)
+            bench_result_record(&r, end - start);
+    }
+
+    uart_bench_print("IRQ wait block->unblock", &r);
+}
+#endif /* ZUZU_BENCH */
+
 int pl011drv_setup(void)
 {
     client_port = ZuzuPortCreate();
@@ -133,6 +195,9 @@ int pl011drv_setup(void)
     (void)wait_for_devmgr();
 
     int32_t dev_handle = request_serial_device();
+    if (dev_handle < 0) {
+        return dev_handle;
+    }
 
     serial_irq_ntfn = ZuzuNtfnCreate();
     if (serial_irq_ntfn < 0) {
@@ -161,6 +226,10 @@ int pl011drv_setup(void)
     uart->CR = CR_UARTEN | CR_TXE | CR_RXE;
     uart->ICR = ICR_ALL;
     uart->IMSC = (IMSC_RXIM | IMSC_RTIM);
+
+#ifdef ZUZU_BENCH
+    run_irq_wait_bench();
+#endif
 
     (void)ZuzuMsgSend(NT_PORT, NT_REGISTER, nt_pack("pl011drv"), (uint32_t)nt_slot);
     return PL011DRV_INIT_OK;

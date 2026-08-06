@@ -5,6 +5,7 @@
 #include "kernel/syscall/syscall.h"
 #include "kernel/time/tick.h"
 #include "core/panic.h"
+#include "kernel/bench.h"
 
 #define LOG_FMT(fmt) "(sys_notif) " fmt
 #include "core/log.h"
@@ -143,6 +144,13 @@ void SysNtfnWait(CpuState *frame) {
     current_thread->ntfn_wait_slot.node.prev = NULL;
     current_thread->ntfn_wait_slot.node.next = NULL;
     list_add_tail(&current_thread->ntfn_wait_slot.node, &ntfn->wait_queue.node);
+#ifdef ZUZU_BENCH
+    /* Stashed on the thread, not a local: schedule() below may not return
+     * to this stack frame for a long time (other threads run first), so
+     * the matching read has to happen wherever this thread is actually
+     * unblocked (kernel/irq/sys_irq.c's relay_handler), not here. */
+    current_thread->bench_irq_wait_start = BENCH_BEGIN();
+#endif
 
     if (timeout_ms != TIMEOUT_INFINITE) {
         Tick ticks = ((uint64_t)timeout_ms * (uint64_t)TICK_HZ) / 1000u;

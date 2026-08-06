@@ -2,7 +2,7 @@
 #
 # Requires: config.mk (CPUFLAGS/INCLUDES/LTO_FLAG/dirs), toolchain.mk (CC/LD).
 
-CFLAGS   = -ffreestanding -O$(OPTIMIZATION_LEVEL) $(LTO_FLAG) -fno-omit-frame-pointer \
+CFLAGS   = -ffreestanding -O$(OPTIMIZATION_LEVEL) $(LTO_FLAG)  -fno-omit-frame-pointer \
            -Wall -Wextra -Werror $(CPUFLAGS) $(INCLUDES) -Ivendor/libfdt -MMD -MP \
            -D__KERNEL__ -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"' -DLOG_LEVEL=$(LOG_LEVEL)
 LDFLAGS  = -nostdlib -Wl,-T,$(LINKER_SCRIPT) -Wl,-Map=$(MAP) $(LTO_FLAG)
@@ -22,11 +22,14 @@ endif
 ifneq ($(EARLY_UART), 0)
     CFLAGS += -DEARLY_UART
 endif
-ifneq ($(CTX_SWITCH_MEASURE), 0)
-    CFLAGS += -DCTX_SWITCH_MEASURE
+ifneq ($(TIME_MEASURE), 0)
+    CFLAGS += -DTIME_MEASURE
 endif
 ifneq ($(PMM_TRACE), 0)
     CFLAGS += -DPMM_TRACE
+endif
+ifneq ($(ZUZU_BENCH), 0)
+    CFLAGS += -DZUZU_BENCH
 endif
 
 KERNEL_LIBGCC = $(shell $(CC) $(CPUFLAGS) -print-libgcc-file-name)

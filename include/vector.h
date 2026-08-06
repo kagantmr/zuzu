@@ -5,6 +5,7 @@
 extern "C" {
 #endif
 
+#include <compiler.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
@@ -43,9 +44,13 @@ extern "C" {
         return true;                                                      \
     }                                                                     \
                                                                           \
-    static inline type *name##_vec_get(name##_vec_t *v, uint32_t i)       \
+    /* Bounds check + array index, called on every handle-table touch     \
+     * (every send/recv/call/reply/notify/irq/memmap syscall) -- a leaf   \
+     * in the always_inline sense: no loop, no calls, nothing to gain     \
+     * by keeping it out-of-line. */                                      \
+    static __always_inline type *name##_vec_get(name##_vec_t *v, uint32_t i) \
     {                                                                     \
-        if (i >= v->cap)                                                  \
+        if (unlikely(i >= v->cap))                                        \
             return NULL;                                                  \
         return &v->data[i];                                               \
     }                                                                     \

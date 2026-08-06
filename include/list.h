@@ -5,6 +5,7 @@
 extern "C" {
 #endif
 
+#include <compiler.h>
 #include <stddef.h>
 
 typedef struct list_node {
@@ -22,18 +23,38 @@ typedef struct list_head {
 
 /**
  * @brief Adds a new node to the end of the list.
- * 
+ *
+ * On the IPC hot path this runs on every SysMsgSend/Recv/Call
+ * block-and-enqueue and every waitany registration -- a true leaf (no
+ * loop, no calls), so always_inline turns it back into straight-line
+ * pointer stores instead of a call/ret across TUs.
+ *
  * @param node Pointer to the new node to be added.
  * @param head Pointer to the head of the list.
  */
-void list_add_tail(ListNode* node, ListNode* head);
+static __always_inline void list_add_tail(ListNode* node, ListNode* head) {
+    ListNode* tail = head->prev;
+    tail->next = node;
+    node->prev = tail;
+    node->next = head;
+    head->prev = node;
+}
 
 /**
  * @brief Removes a node from the list.
- * 
+ *
+ * Same leaf shape as list_add_tail: called from list_pop_front on every
+ * IPC dequeue and from every timeout-cancel path.
+ *
  * @param node Pointer to the node to be removed.
  */
-void list_remove(ListNode* node);
+static __always_inline void list_remove(ListNode* node) {
+    ListNode* prev = node->prev;
+    ListNode* next = node->next;
+    prev->next = next;
+    next->prev = prev;
+    node->next = node->prev = NULL;
+}
 
 #define container_of(ptr, type, member) \
     ((type*)((char*)(ptr) - offsetof(type, member)))

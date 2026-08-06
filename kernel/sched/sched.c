@@ -1,6 +1,7 @@
 #include <arch/context.h>
 #include "sched.h"
 #include "kernel/proc/process.h"
+#include <compiler.h>
 #include <list.h>
 
 #include "kernel/syscall/syscall.h"
@@ -14,9 +15,11 @@
 
 #include <string.h>
 
-static inline uint32_t thread_priority(const thread_t *t)
+/* Leaf: one branch, one field read. Called from sched_has_ready_at_or_above
+ * on every direct-handoff decision. */
+static __always_inline uint32_t thread_priority(const thread_t *t)
 {
-	if (!t)
+	if (unlikely(!t))
 		return 0;
 
 	return t->priority;
@@ -287,19 +290,22 @@ static thread_t *sched_pick_next(void) {
  * sits on the IPC fast path, so its own cost has to stay negligible next to
  * whatever it's saving.
  */
-bool sched_has_ready_at_or_above(const thread_t *t) {
+bool __hot sched_has_ready_at_or_above(const thread_t *t) {
     uint32_t priority = thread_priority(t);
-    if (priority >= SCHED_PRIORITY_LEVELS)
+    if (unlikely(priority >= SCHED_PRIORITY_LEVELS))
         priority = SCHED_PRIORITY_LEVELS - 1;
 
     uint32_t at_or_above = ready_mask & ~((1u << priority) - 1u);
     return at_or_above != 0;
 }
 
-void switch_to_thread(thread_t *next) {
+/* Called from schedule() (every voluntary reschedule) and directly from
+ * SysMsgCall's/SysMsgLcall's direct-handoff path -- one of the hottest
+ * functions in the kernel. */
+void __hot switch_to_thread(thread_t *next) {
     thread_t *prev = current_thread;
 
-    if (next == &idle_thread) {
+    if (unlikely(next == &idle_thread)) {
         bool from_idle = (prev == NULL && on_idle_stack);
         current_thread = NULL;
         if (from_idle) {
@@ -313,7 +319,7 @@ void switch_to_thread(thread_t *next) {
     current_thread->state = RUNNING;
     on_idle_stack = false;
 
-    if (next == prev)
+    if (unlikely(next == prev))
         return;
 
     /* CPACR must track fpu_owner exactly, not just get disabled on the way
@@ -322,15 +328,20 @@ void switch_to_thread(thread_t *next) {
      * on the way back, so the owner's next FPU instruction would trap with
      * fpu_owner already == current_thread -- the undef handler treats that
      * as a genuine bad opcode and kills the process instead of granting
-     * access (see arch/arm/exceptions/exception.c). */
-    if (current_thread == fpu_owner) {
+     * access (see arch/arm/exceptions/exception.c). Most threads never
+     * touch the FPU, so "this thread owns it" is the rare case. */
+    if (unlikely(current_thread == fpu_owner)) {
         arch_fpu_trap_enable();
     } else {
         arch_fpu_trap_disable();
     }
 
+    /* Benchmark-relevant common case: sender/receiver are two threads in
+     * the same process (e.g. speedtest's echo-server pattern), so the
+     * address space is already active and vmm_activate() can be skipped. */
     process_t *prev_proc = prev ? prev->owner_process : NULL;
-    if (current_thread->owner_process->as && (!prev_proc || prev_proc->as != current_thread->owner_process->as)) {
+    if (unlikely(current_thread->owner_process->as &&
+		 (!prev_proc || prev_proc->as != current_thread->owner_process->as))) {
         vmm_activate(current_thread->owner_process->as);
     }
     arch_set_thread_ptr(current_thread);

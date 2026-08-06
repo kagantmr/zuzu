@@ -6,8 +6,9 @@
 bin/sysd|init
 bin/devmgr|dev
 bin/pl011drv|tty
-bin/pl181drv|none
-bin/fsd|none
-bin/lan9118drv|none
-bin/netd|none
+# bin/pl181drv|none
+# bin/fsd|none
+# bin/lan9118drv|none
+# bin/netd|none
 bin/zzsh|tty:late
+bin/speedtest|none:late

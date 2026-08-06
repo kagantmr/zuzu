@@ -8,6 +8,7 @@
 #ifndef ZUZU_ARM_IMPL_REGS_H
 #define ZUZU_ARM_IMPL_REGS_H
 
+#include <compiler.h>
 #include <stdint.h>
 
 /* Natural register-width integer for this architecture (32-bit on ARMv7-A). */
@@ -36,13 +37,16 @@ typedef struct cpu_context
 typedef struct exception_frame CpuState;
 
 /* ---- Accessors (the neutral contract; see <arch/regs.h>) ----------------- */
-/* Syscall ABI slots: arg i / return value i map to r[i] on ARM. */
-static inline Register *arch_reg(CpuState *f, unsigned i) { return &f->r[i]; }
+/* Syscall ABI slots: arg i / return value i map to r[i] on ARM. Called many
+ * times per syscall (every arg read, every return-value write); always_inline
+ * guarantees the pointer arithmetic never survives as a real call even if a
+ * caller is judged too large to inline into otherwise. */
+static __always_inline Register *arch_reg(CpuState *f, unsigned i) { return &f->r[i]; }
 
-static inline Register arch_regs_pc(const CpuState *f)    { return f->return_pc; }
-static inline Register arch_regs_sp(const CpuState *f)    { return f->sp_usr; }
-static inline Register arch_regs_lr(const CpuState *f)    { return f->lr_usr; }
-static inline Register arch_regs_flags(const CpuState *f) { return f->return_cpsr; }
+static __always_inline Register arch_regs_pc(const CpuState *f)    { return f->return_pc; }
+static __always_inline Register arch_regs_sp(const CpuState *f)    { return f->sp_usr; }
+static __always_inline Register arch_regs_lr(const CpuState *f)    { return f->lr_usr; }
+static __always_inline Register arch_regs_flags(const CpuState *f) { return f->return_cpsr; }
 
 /* Live reads of current CPU state (see <arch/regs.h>). */
 static inline Register arch_current_fp(void)
