@@ -2,7 +2,7 @@
 #
 # Requires: config.mk (CPUFLAGS/INCLUDES/LTO_FLAG/dirs), toolchain.mk (CC/LD).
 
-CFLAGS   = -ffreestanding -O$(OPTIMIZATION_LEVEL) $(LTO_FLAG) -falign-functions=64 -fno-omit-frame-pointer \
+CFLAGS   = -ffreestanding -O$(OPTIMIZATION_LEVEL) $(LTO_FLAG) -fno-omit-frame-pointer \
            -Wall -Wextra -Werror $(CPUFLAGS) $(INCLUDES) -Ivendor/libfdt -MMD -MP \
            -D__KERNEL__ -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"' -DLOG_LEVEL=$(LOG_LEVEL)
 LDFLAGS  = -nostdlib -Wl,-T,$(LINKER_SCRIPT) -Wl,-Map=$(MAP) $(LTO_FLAG)
