@@ -25,7 +25,10 @@ extern thread_t *current_thread;
 extern ListHead sleep_queue;
 extern kernel_layout_t kernel_layout;
 
-static void ipc_buf_copy(thread_t *src, thread_t *dst, uint32_t len)
+/* Every call site passes a sender and a receiver -- never the same thread
+ * (and their ipc_buf_pa pages are always separate physical frames), so
+ * the memcpy below is genuinely non-overlapping. */
+static void ipc_buf_copy(thread_t *restrict src, thread_t *restrict dst, uint32_t len)
 {
 	if (!len || !src->ipc_buf_pa || !dst->ipc_buf_pa)
 		return;

@@ -73,8 +73,10 @@ void process_kill(process_t *p, int exit_status);
 void process_set_parent(process_t *child, process_t *parent);
 process_t *process_find_child_by_pid(process_t *parent, Pid pid);
 process_t *process_find_zombie_child(process_t *parent);
-void process_track_reply_cap(process_t *caller, process_t *holder,
-                             Handle holder_slot, ReplyCap *rc);
+/* caller/holder/rc are always three distinct objects (never the same
+ * process, never a process aliased with the reply-cap slab object). */
+void process_track_reply_cap(process_t *restrict caller, process_t *restrict holder,
+                             Handle holder_slot, ReplyCap *restrict rc);
 void process_untrack_reply_cap(ReplyCap *rc);
 
 #endif // KERNEL_PROC_PROCESS_H

@@ -111,7 +111,10 @@ void as_destroy(addrspace_t *as);
  * @return true on success, false if overlap or alignment error.
  * Does not touch page tables; only validates and appends to as->regions.
  */
-bool vmm_add_region(addrspace_t *as, const vm_region_t *region);
+/* region is always a stack/global compound literal, never an alias of
+ * anything reachable through as (in particular never a pointer into
+ * as->regions.data itself). */
+bool vmm_add_region(addrspace_t *restrict as, const vm_region_t *restrict region);
 
 /**
  * @brief Remove a region from an address space.
@@ -232,7 +235,11 @@ void *ioremap(PhysAddr phys, size_t size);
 void iounmap(void *va);
 
 bool fault_in_pages(addrspace_t *as, VirtAddr va, size_t len, bool write);
-bool vmm_fault_page(addrspace_t *as, vm_region_t *region, uintptr_t page_va);
+/* region always points into as->regions.data, but the struct addrspace_t
+ * bytes themselves (ttbr_pa, the regions vector header) and the
+ * vm_region_t bytes region points at never overlap -- on the lazy-mapping
+ * hot path (try_demand_page -> here), this is what makes it safe. */
+bool vmm_fault_page(addrspace_t *restrict as, vm_region_t *restrict region, uintptr_t page_va);
 
 void vmm_lockdown_kernel_sections(void);
 

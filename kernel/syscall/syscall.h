@@ -18,8 +18,10 @@
 
 typedef uint8_t Svc;
 
-bool CopyToUser(void *uaddr, const void *kaddr, size_t len);
-bool CopyFromUser(void *kaddr, const void *uaddr, size_t len);
+/* uaddr (userspace) and kaddr (kernel buffer) are always separate
+ * allocations -- the memcpy behind each of these never overlaps. */
+bool CopyToUser(void *restrict uaddr, const void *restrict kaddr, size_t len);
+bool CopyFromUser(void *restrict kaddr, const void *restrict uaddr, size_t len);
 
 void __attribute__((hot)) SyscallDispatch(Svc svc_num, CpuState *frame);
 

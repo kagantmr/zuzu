@@ -38,6 +38,14 @@ endif
 # ---- derived paths ---------------------------------------------------------
 ARCH_DIR       = arch/$(ARCH)
 BOARD_DIR      = $(ARCH_DIR)/$(BOARD)
+
+# Board-specific metadata (CPUFLAGS_<board>, DTB_<board>, QEMU_*_<board>,
+# UBOOT_<board>, ...) lives in the board's own directory — see
+# arch/$(ARCH)/arch.mk's header comment for the variable list a board.mk
+# may define. Not -include: a board without one is misconfigured and
+# should fail loudly rather than silently fall back to arch-wide defaults.
+include $(BOARD_DIR)/board.mk
+
 BOARD_LAYOUT_H = $(BOARD_DIR)/layout.h
 LINKER_SCRIPT  = $(BOARD_DIR)/linker.ld
 DTB_FILE       = $(DTB_$(BOARD))

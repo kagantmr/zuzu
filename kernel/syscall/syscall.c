@@ -84,7 +84,7 @@ static __hot bool trap_frame_sane(const CpuState *frame)
     return false;
 }
 
-bool CopyToUser(void *uaddr, const void *kaddr, size_t len)
+bool CopyToUser(void *restrict uaddr, const void *restrict kaddr, size_t len)
 {
     if (len == 0)
         return true;
@@ -99,7 +99,7 @@ bool CopyToUser(void *uaddr, const void *kaddr, size_t len)
     return true;
 }
 
-bool CopyFromUser(void *kaddr, const void *uaddr, size_t len)
+bool CopyFromUser(void *restrict kaddr, const void *restrict uaddr, size_t len)
 {
     if (len == 0)
         return true;

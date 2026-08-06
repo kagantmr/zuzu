@@ -1,22 +1,27 @@
 # arch/arm/arch.mk - ARM (AArch32 / ARMv7-A) architecture build settings.
 #
 # Included by the top-level Makefile after ARCH is resolved. Defines the
-# toolchain, code-generation flags, the list of supported boards, and per-board
-# metadata (DTB, QEMU machine/cpu). A new ARM board is added by appending to
-# BOARDS and providing its DTB_/QEMU_* entries below plus a board directory
-# (arch/arm/<board>/ with _start.S, layout.h, linker.ld, platform.c).
+# toolchain, arch-wide default code-generation flags, and the list of
+# supported boards. Per-board metadata (DTB, QEMU machine/cpu, CPUFLAGS
+# override, ...) lives in each board's own directory, not here — see
+# arch/arm/<board>/board.mk, pulled in by mk/config.mk once BOARD is
+# resolved. A new ARM board is added by appending to BOARDS below and
+# providing a board directory (arch/arm/<board>/ with _start.S, layout.h,
+# linker.ld, platform.c, board.mk) — nothing in this file needs to change
+# beyond the BOARDS line.
 
 # Toolchain (overridable from the environment / command line via CROSS).
 ARCH_CROSS    ?= arm-none-eabi-
 
-# Code generation. CPUFLAGS may be overridden per board (see CPUFLAGS_<board>).
+# Code generation. CPUFLAGS may be overridden per board (see CPUFLAGS_<board>
+# in that board's board.mk).
 ARCH_CPUFLAGS ?= -mcpu=cortex-a15
 ARCH_USER_FP  ?= -mfloat-abi=hard -mfpu=vfpv4
 
 # Supported boards for this architecture.
 BOARDS = vexpress-a15 rpi4 virt
 
-# ---- Per-board metadata --------------------------------------------------
+# ---- Per-board metadata (arch/arm/<board>/board.mk) ------------------------
 # DTB_<board>        : device tree blob passed to QEMU / consumed at boot
 # QEMU_MACH_<board>  : QEMU -M machine
 # QEMU_CPU_<board>   : QEMU -cpu
@@ -29,40 +34,3 @@ BOARDS = vexpress-a15 rpi4 virt
 # UBOOT_<board>      : (optional) set to y to enable this board's U-Boot
 #                       targets (mk/uboot.mk) — off by default; direct boot
 #                       (mk/qemu.mk) works on every board without it
-
-DTB_vexpress-a15       = arch/arm/dtb/vexpress-a15/vexpress-v2p-ca15-tc1.dtb
-QEMU_MACH_vexpress-a15 = vexpress-a15
-QEMU_CPU_vexpress-a15  = cortex-a15
-QEMU_NET_vexpress-a15  = -nic user,model=lan9118
-# Matches the committed DTB's memory@80000000 node (reg size 0x40000000 =
-# 1GB) — without this, QEMU only backs its qemu.mk default (64M) while the
-# kernel's DTB walk at boot believes it has the full 1GB.
-QEMU_MEM_vexpress-a15  = 1G
-# Opt-in only: exercises a real bootloader handoff via `make run-uboot`.
-# Not needed for `make run` — see mk/uboot.mk's header for why.
-UBOOT_vexpress-a15     = y
-
-# Raspberry Pi 4 (BCM2711, Cortex-A72 running AArch32). The DTB is compiled
-# from the checked-in rpi4.dts for QEMU; on real hardware the firmware loads
-# bcm2711-rpi-4-b.dtb itself and passes its address in r2. QEMU's raspi4b
-# machine has fixed 2G RAM and lives in qemu-system-aarch64.
-DTB_rpi4        = build/dtb/rpi4.dtb
-QEMU_MACH_rpi4  = raspi4b
-QEMU_CPU_rpi4   = cortex-a72
-QEMU_BIN_rpi4   = qemu-system-aarch64
-QEMU_MEM_rpi4   = 2G
-# qemu-system-aarch64 additionally refuses 32-bit ELFs outright, so raw
-# boot (mk/qemu.mk's default for every board) isn't just preferred here,
-# it's the only option.
-CPUFLAGS_rpi4   = -mcpu=cortex-a72
-
-# QEMU's `virt` machine: a synthetic, QEMU-only platform with no on-board
-# firmware. gic-version=2 is pinned explicitly since it happens to match
-# cortex-a15's default here, but a future -cpu change on this board could
-# silently switch to a GICv3, which this kernel has no driver for.
-DTB_virt        = arch/arm/dtb/virt/virt.dtb
-QEMU_MACH_virt  = virt,gic-version=2
-QEMU_CPU_virt   = cortex-a15
-QEMU_MEM_virt   = 1G
-# No SD/MMC controller on this machine -- the SD card image doesn't apply.
-QEMU_NO_DRIVE_virt = y

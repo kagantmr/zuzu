@@ -121,7 +121,7 @@ int main(void)
 
         Handle   reply_handle = msg.w0;   // kernel-assigned reply-cap slot
         Pid      sender_pid   = msg.w1;   // kernel-stamped, trustworthy
-        size_t xlen         = msg.w2;   // buffer length = your bounds ceiling
+        size_t   xlen         = msg.w2;   // buffer length = your bounds ceiling
 
         DevmRequest req;
         if (DevmUnpack(LmsgBuf(), xlen, &req) != 0) {

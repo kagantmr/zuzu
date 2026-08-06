@@ -25,7 +25,10 @@ BENCH_STAT(g_bench_memmap, "SysMemMap call->return");
  * Helper for memmap to map anonymous memory.
  * Adapted from zuzu v0.1.5-alpha version
  */
-static int32_t memmap_anon(process_t *p, VirtAddr hint, size_t size, MemProt prot, VirtAddr *out)
+/* p (the owning process) and out (the caller's VA-result slot) are never
+ * the same object -- out always points at a local in SysMemMap's frame. */
+static int32_t memmap_anon(process_t *restrict p, VirtAddr hint, size_t size, MemProt prot,
+			   VirtAddr *restrict out)
 {
     if (size == 0)
         return ERR_BADARG;
@@ -85,7 +88,9 @@ static int32_t memmap_anon(process_t *p, VirtAddr hint, size_t size, MemProt pro
  * Helper for memmap to map shared memory.
  * Adapted from zuzu v0.1.5-alpha version
  */
-static int32_t memmap_shm(process_t *p, HandleEntry *e, MemProt prot, VirtAddr *out)
+/* p, e (the handle-table entry), and out are three distinct objects. */
+static int32_t memmap_shm(process_t *restrict p, HandleEntry *restrict e, MemProt prot,
+			  VirtAddr *restrict out)
 {
 
     if (e->mapped_va != 0)
@@ -128,7 +133,10 @@ static int32_t memmap_shm(process_t *p, HandleEntry *e, MemProt prot, VirtAddr *
  * Helper for memmap to map memory-mapped I/O (MMIO) ranges.
  * Adapted from zuzu v0.1.5-alpha version
  */
-static int32_t memmap_dev(process_t *p, HandleEntry *e, MemProt prot, VirtAddr *out)
+/* Same non-aliasing shape as memmap_shm: p, e, and out are always three
+ * distinct objects. */
+static int32_t memmap_dev(process_t *restrict p, HandleEntry *restrict e, MemProt prot,
+			  VirtAddr *restrict out)
 {
 
     if (!e)
