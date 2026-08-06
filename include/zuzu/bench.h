@@ -1,6 +1,6 @@
 // zuzu/bench.h - shared running min/avg/max accumulator for userspace
 // ZUZU_BENCH instrumentation (see kernel/bench.h for the kernel-side
-// counterpart). Callers own printing: user/services/speedtest uses printf,
+// counterpart). Callers own printing: user/test_apps/speedtest uses printf,
 // user/drivers/pl011drv can't (it *is* the console), so there's no
 // print-on-completion baked in here.
 

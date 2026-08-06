@@ -37,28 +37,50 @@ typedef struct process {
 	ListHead threads;
 	ListHead children;
 	ListNode sibling_node;
-	PhysAddr tcb_page_pa;
-	VirtAddr tcb_page_va;
-	uint8_t tcb_slot_bitmap; /* bit N set = TCB slot N in use */
+    PhysAddr tcb_page_pa[MAX_TCB_PAGES];    /* 37 entries */
+    VirtAddr tcb_page_va;                   /* singular: contiguous window base */
+    uint64_t tcb_slot_bitmap[4];            /* 256 bits */
 } ProcessObj;
 
-_Static_assert(TCB_MAX_SLOTS <= 8, "tcb_slot_bitmap is 8 bits wide");
+_Static_assert(TCB_MAX_SLOTS <= 256, "tcb_slot_bitmap is 256 bits wide");
 
-/* Returns the allocated slot index, or -1 if all slots are taken. */
 static inline int TcbSlotAlloc(ProcessObj *p)
 {
-	for (uint32_t i = 0; i < TCB_MAX_SLOTS; i++) {
-		if (!(p->tcb_slot_bitmap & (1u << i))) {
-			p->tcb_slot_bitmap |= (uint8_t)(1u << i);
-			return (int)i;
-		}
-	}
-	return -1;
+    for (uint32_t w = 0; w < 4; w++) {
+        uint64_t free = ~p->tcb_slot_bitmap[w];
+        if (!free) continue;                       // this word full, next
+        uint32_t bit = __builtin_ctzll(free);      // lowest free bit in this word
+        uint32_t slot = w * 64 + bit;
+        if (slot >= TCB_MAX_SLOTS) return -1;       // past the cap
+        p->tcb_slot_bitmap[w] |= (1ull << bit);
+        return (int)slot;
+    }
+    return -1;
 }
 
 static inline void TcbSlotFree(ProcessObj *p, uint8_t slot)
 {
-	p->tcb_slot_bitmap &= (uint8_t)~(1u << slot);
+    p->tcb_slot_bitmap[slot / 64] &= ~(1ull << (slot % 64));
+}
+
+/* Physical base of the frame backing this slot's TCB page. */
+static inline PhysAddr TcbSlotPhysAddr(ProcessObj *p, uint32_t slot)
+{
+    return p->tcb_page_pa[slot / SLOTS_PER_PAGE]
+         + (slot % SLOTS_PER_PAGE) * TCB_SLOT_SIZE;
+}
+
+/* Kernel VA of this slot. */
+static inline VirtAddr TcbSlotKVirtAddr(ProcessObj *p, uint32_t slot)
+{
+    return PA_TO_VA(p->tcb_page_pa[slot / SLOTS_PER_PAGE])
+         + (slot % SLOTS_PER_PAGE) * TCB_SLOT_SIZE;
+}
+
+/* User VA of this slot. */
+static inline VirtAddr TcbSlotUVirtAddr(ProcessObj *p, uint32_t slot)
+{
+    return p->tcb_page_va + slot * TCB_SLOT_SIZE;
 }
 
 void ProcessDestroy(ProcessObj *process);

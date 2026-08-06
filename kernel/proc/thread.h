@@ -73,7 +73,7 @@ struct thread {
 	uint32_t waitany_wait_match_index;
 	uint32_t waitany_wait_bits;
 	bool waitany_active;
-	ThreadWaitSlot port_wait_slot;			       /* for msg_recv */
+	ThreadWaitSlot port_wait_slot;				     /* for msg_recv */
 	ThreadWaitSlot waitany_port_wait_slots[WAITANY_MAX_HANDLES]; /* for waitany endpoints */
 	Port *waitany_wait_ports[WAITANY_MAX_HANDLES];
 	size_t waitany_port_wait_count;

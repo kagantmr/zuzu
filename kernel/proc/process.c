@@ -370,7 +370,7 @@ fail_kstack:
     if (p->as)
         arch_mmu_free_user_pages(p->as);
     as_destroy(p->as);
-    p->tcb_page_pa = 0; /* page freed above; thread_destroy must not scrub it */
+    memset(p->tcb_page_pa, 0, sizeof(p->tcb_page_pa));
     handle_vec_destroy(&p->handle_table);
     ThreadDestroy(t);
 fail_process:
@@ -411,7 +411,7 @@ ProcessObj *ProcessCreate(const char* name) {
         goto fail_handles;
 
     // map syspage into user space
-    if (!vmm_map_user_page(p->as, syspage_pa(), USER_SYSPAGE_VA, PROT_READ))
+    if (!vmm_map_user_page(p->as, SyspagePhysAddr(), USER_SYSPAGE_VA, PROT_READ))
         goto fail_kstack;
 
     vm_region_t sys_region = {
@@ -431,14 +431,14 @@ ProcessObj *ProcessCreate(const char* name) {
     p->device_va_next = USER_DEVICE_BASE;
     p->mmap_va_next = USER_MMAP_BASE;
 
-    PhysAddr tcb_page_pa = PmmAllocFrame();
-    if (!tcb_page_pa)
+    PhysAddr tcb_page0_phys_addr = PmmAllocFrame();
+    if (!tcb_page0_phys_addr)
         goto fail_kstack;
-    p->tcb_page_pa = tcb_page_pa;
+    p->tcb_page_pa[0] = tcb_page0_phys_addr;
     /* Map the TCB page into the user mmap area at the process's bump
      * pointer so userspace can read its per-thread slot. */
     VirtAddr tcb_user_va = p->mmap_va_next;
-    if (!vmm_map_user_page(p->as, tcb_page_pa, tcb_user_va,
+    if (!vmm_map_user_page(p->as, tcb_page0_phys_addr, tcb_user_va,
                         VM_PROT_USER | PROT_READ | PROT_WRITE))
         goto fail_kstack;
 
@@ -486,20 +486,18 @@ ProcessObj *ProcessCreate(const char* name) {
     /* Initialize the page via the kernel alias (kernel VA). The main
      * thread takes its slot through the same bitmap allocator as
      * tmake; its lmsg buffer lives inside the slot itself. */
-    memset((void *)PA_TO_VA(tcb_page_pa), 0, PAGE_SIZE);
-    p->tcb_slot_bitmap = 0;
+    memset((void *)PA_TO_VA(tcb_page0_phys_addr), 0, PAGE_SIZE);
+    memset(p->tcb_slot_bitmap, 0, sizeof(p->tcb_slot_bitmap));
     int tcb_slot_idx = TcbSlotAlloc(p);
     if (tcb_slot_idx < 0)
         goto fail_kstack;
-    ThreadData *tcb0 = (ThreadData *)(PA_TO_VA(tcb_page_pa) +
-                                (uint32_t)tcb_slot_idx * TCB_SLOT_SIZE);
-    VirtAddr tcb0_va = p->tcb_page_va + (uint32_t)tcb_slot_idx * TCB_SLOT_SIZE;
+    ThreadData *tcb0 = (ThreadData *)TcbSlotKVirtAddr(p, tcb_slot_idx);
+    VirtAddr tcb0_va = TcbSlotUVirtAddr(p, tcb_slot_idx);
     tcb0->LmsgBuf = (void *)(tcb0_va + offsetof(ThreadData, buf));
     tcb0->tid = t->tid;
     t->thread_info_va = tcb0_va;
     t->tcb_slot = (uint8_t)tcb_slot_idx;
-    t->lmsg_buf_phys_addr = tcb_page_pa + (uint32_t)tcb_slot_idx * TCB_SLOT_SIZE +
-                    offsetof(ThreadData, buf);
+    t->lmsg_buf_phys_addr = TcbSlotPhysAddr(p, tcb_slot_idx) + offsetof(ThreadData, buf);
 
 
     // slot 0 is reserved for nametable endpoint when available
@@ -557,7 +555,7 @@ fail_kstack:
     if (p->as)
         arch_mmu_free_user_pages(p->as);
     as_destroy(p->as);
-    p->tcb_page_pa = 0; /* page freed above; thread_destroy must not scrub it */
+    memset(p->tcb_page_pa, 0, sizeof(p->tcb_page_pa));
 fail_handles:
     if (nametable_port) {
         HandleEntry *maybe_slot0 = handle_vec_get(&p->handle_table, 0);
@@ -700,7 +698,7 @@ static const char* fatal_reason_str(int reason)
     }
 }
 
-void KillProcess(ProcessObj *p, const int exit_status) {
+void ProcessKill(ProcessObj *p, const int exit_status) {
     if (!p)
         return;
 
