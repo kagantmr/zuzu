@@ -2,17 +2,27 @@
 #include "kernel/syscall/syscall.h"
 #include "kernel/sched/sched.h"
 #include "kernel/mm/alloc.h"
+#include "kernel/bench.h"
 #include <arch/irq.h>
+#include <compiler.h>
 #include <string.h>
 
 extern thread_t *current_thread;
 static irq_owner_t irq_owners[MAX_IRQS];
 
+#ifdef ZUZU_BENCH
+BENCH_STAT(g_bench_irq_wait, "IRQ wait block->unblock");
+#endif
+
 
 #define LOG_FMT(fmt) "(syscall_irq) " fmt
 #include "core/log.h"
 
-static void relay_handler(void *ctx)
+/* Runs in interrupt context on every IRQ this process owns -- a driver's
+ * hottest function by definition. A device with no live, bound, waited-on
+ * notification is the misconfigured/shutdown-race case, not the steady
+ * state, so all three guards below are marked unlikely-to-bail. */
+static void __hot relay_handler(void *ctx)
 {
     Irq irq_num = (Irq)(VirtAddr)ctx;
     arch_irq_disable_line(irq_num);
@@ -20,15 +30,15 @@ static void relay_handler(void *ctx)
     irq_owners[irq_num].pending = true;
 
     Ntfn *ntfn = irq_owners[irq_num].bound_ntfn;
-    if (ntfn && ntfn->alive) {
+    if (likely(ntfn && ntfn->alive)) {
         ntfn->word |= (1u << (irq_num & 31));
         irq_owners[irq_num].pending = false;
 
-        if (!list_empty(&ntfn->wait_queue)) {
+        if (likely(!list_empty(&ntfn->wait_queue))) {
             ListNode *node = list_pop_front(&ntfn->wait_queue);
             thread_wait_slot_t *slot = container_of(node, thread_wait_slot_t, node);
             thread_t *waiter = slot->owner;
-            if (!waiter->trap_frame)
+            if (unlikely(!waiter->trap_frame))
                 return;
             (*arch_reg(waiter->trap_frame, 0)) = ntfn->word;
             uint32_t match_index = WAITANY_NO_MATCH;
@@ -44,7 +54,8 @@ static void relay_handler(void *ctx)
             thread_waitany_clear_ep_waits(waiter);
             waiter->waitany_wait_match_index = match_index;
             waiter->waitany_wait_bits = ntfn->word;
-            if (waiter->wake_tick != 0 && waiter->timeout_node.prev && waiter->timeout_node.next) {
+            if (unlikely(waiter->wake_tick != 0 && waiter->timeout_node.prev &&
+			 waiter->timeout_node.next)) {
                 list_remove(&waiter->timeout_node);
             }
             waiter->wake_tick = 0;
@@ -53,6 +64,9 @@ static void relay_handler(void *ctx)
             waiter->blocked_port = NULL;
             waiter->ipc_state = IPC_NONE;
             waiter->state = READY;
+#ifdef ZUZU_BENCH
+            BENCH_END(g_bench_irq_wait, waiter->bench_irq_wait_start);
+#endif
             sched_add(waiter);
             if (!current_thread || waiter->priority > current_thread->priority) {
                 do_resched = 1;
@@ -164,7 +178,8 @@ void SysIrqBind(CpuState *frame) {
             thread_waitany_clear_ep_waits(waiter);
             waiter->waitany_wait_match_index = match_index;
             waiter->waitany_wait_bits = ntfn->word;
-            if (waiter->wake_tick != 0 && waiter->timeout_node.prev && waiter->timeout_node.next) {
+            if (unlikely(waiter->wake_tick != 0 && waiter->timeout_node.prev &&
+			 waiter->timeout_node.next)) {
                 list_remove(&waiter->timeout_node);
             }
             waiter->wake_tick = 0;

@@ -14,9 +14,14 @@
 #include "kernel/sched/sched.h"
 #include "kernel/mm/pmm.h"
 #include "kernel/syscall/syscall.h"
+#include "kernel/bench.h"
 #include <string.h>
 #include <stdint.h>
 #include <snprintf.h>
+
+#ifdef ZUZU_BENCH
+BENCH_STAT(g_bench_lazy_map_fault, "lazy-map translation fault");
+#endif
 
 typedef enum exception_type
 {
@@ -204,21 +209,24 @@ static void dump_registers(ExceptionFrame *frame)
 // Attempts to service a translation-fault dfar via demand paging against
 // the process's VM regions. Returns true if handled (caller should return
 // immediately without killing/panicking).
-static bool try_demand_page(process_t *current_process, uint32_t dfar, uint32_t dfsr)
+static bool __hot try_demand_page(process_t *current_process, uint32_t dfar, uint32_t dfsr)
 {
     addrspace_t *as = current_process->as;
     for (uint32_t i = 0; i < as->regions.len; i++)
     {
         vm_region_t *r = vm_region_vec_get(&as->regions, i);
+        /* Not hinted: which region matches depends on where in the
+         * regions list the faulting VA happens to fall, which varies by
+         * workload -- no honest "usual" answer here. */
         if (dfar >= r->vaddr_start && dfar < r->vaddr_start + r->size)
         {
-            if (r->flags & VM_FLAG_GUARD)
+            if (unlikely(r->flags & VM_FLAG_GUARD))
                 continue;
-            if (r->memtype == VM_MEM_DEVICE)
+            if (unlikely(r->memtype == VM_MEM_DEVICE))
                 continue;
-            if (!(dfsr & (1 << 11)) && !(r->prot & PROT_READ))
+            if (unlikely(!(dfsr & (1 << 11)) && !(r->prot & PROT_READ)))
                 continue;
-            if ((dfsr & (1 << 11)) && !(r->prot & PROT_WRITE))
+            if (unlikely((dfsr & (1 << 11)) && !(r->prot & PROT_WRITE)))
                 continue;
             uintptr_t page_va = align_down(dfar, PAGE_SIZE);
             return vmm_fault_page(as, r, page_va);
@@ -227,7 +235,9 @@ static bool try_demand_page(process_t *current_process, uint32_t dfar, uint32_t 
     return false;
 }
 
-void exception_dispatch(exception_type exctype, ExceptionFrame *frame)
+/* Every syscall and every fault funnels through here; EXC_SVC dominates
+ * the traffic in any workload that isn't fault-heavy. */
+void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
 {
     process_t *current_process = current_thread ? current_thread->owner_process : NULL;
 
@@ -278,14 +288,14 @@ void exception_dispatch(exception_type exctype, ExceptionFrame *frame)
 
     case EXC_SVC:
     {
-        if ((frame->return_cpsr & 0x1F) != 0x10)
+        if (unlikely((frame->return_cpsr & 0x1F) != 0x10))
         {
             break;
         }
 
         uint8_t svc_num;
 
-        if (frame->return_cpsr & (1 << 5))
+        if (unlikely(frame->return_cpsr & (1 << 5)))
         {
             // Thumb mode: SVC instruction is 2 bytes, at return_pc - 2
             uint16_t *thumb_instr = (uint16_t *)(frame->return_pc - 2);
@@ -342,12 +352,14 @@ void exception_dispatch(exception_type exctype, ExceptionFrame *frame)
 
     case EXC_DATA_ABORT:
     {
+#ifdef ZUZU_BENCH
+        uint32_t bench_start = BENCH_BEGIN();
+#endif
 
         /**
          * Could be anything from a page fault to an alignment issue.
          * Check who's triggered it, and what the reason was.
          */
-
         uint32_t dfar, dfsr;
         __asm__ volatile("mrc p15, 0, %0, c6, c0, 0" : "=r"(dfar));
         __asm__ volatile("mrc p15, 0, %0, c5, c0, 0" : "=r"(dfsr));
@@ -378,11 +390,18 @@ void exception_dispatch(exception_type exctype, ExceptionFrame *frame)
         }
 
 
-        if (from_user && current_process && current_process->as)
+        if (likely(from_user && current_process && current_process->as))
         {
-            if (is_translation && dfar < KERNEL_VA_BASE
-                && try_demand_page(current_process, dfar, dfsr))
+            /* Lazy mapping is the intended, expected reason userspace
+             * takes a data abort at all -- the segfault/kill fallthrough
+             * below is the actually-unlikely case. */
+            if (likely(is_translation && dfar < KERNEL_VA_BASE)
+                && try_demand_page(current_process, dfar, dfsr)) {
+#ifdef ZUZU_BENCH
+                BENCH_END(g_bench_lazy_map_fault, bench_start);
+#endif
                 return;
+            }
 
             KERROR("Oops! Segmentation fault");
             KDEBUG("Oops! '%s' (PID %d, TID %d) killed: data abort @ 0x%08X (%s %s)\n",
@@ -396,8 +415,12 @@ void exception_dispatch(exception_type exctype, ExceptionFrame *frame)
         else if (from_svc && current_process && current_process->as
                  && dfar < KERNEL_VA_BASE)
         {
-            if (is_translation && try_demand_page(current_process, dfar, dfsr))
+            if (is_translation && try_demand_page(current_process, dfar, dfsr)) {
+#ifdef ZUZU_BENCH
+                BENCH_END(g_bench_lazy_map_fault, bench_start);
+#endif
                 return;
+            }
 
             KDEBUG("Oops! Bad user pointer in SVC from '%s' (PID %d, TID %d) @ 0x%08X (%s %s)\n",
                    current_process->name, current_process->pid, current_thread->tid, dfar,

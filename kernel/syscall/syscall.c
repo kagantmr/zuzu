@@ -18,6 +18,7 @@
 
 #include "kernel/mm/vmm.h"
 
+#include <compiler.h>
 #include <string.h>
 #include <stdbool.h>
 
@@ -62,15 +63,19 @@ static SyscallEntryPoint SyscallTable[SYS_MAX + 1] = {
     [SYS_IRQ_DONE] = SysIrqDone
 };
 
-static bool trap_frame_sane(const CpuState *frame)
+/* Runs on every syscall. The two "in bounds" checks below are the normal
+ * case (a syscall from an intact, correctly-placed kernel stack); a miss
+ * on both means a corrupted trap frame, which is fatal (panic below) --
+ * genuinely rare, so the false-return tail is the cold path. */
+static __hot bool trap_frame_sane(const CpuState *frame)
 {
     uintptr_t p = (uintptr_t)frame;
-    if (p == 0 || (p & 0x3u) != 0)
+    if (unlikely(p == 0 || (p & 0x3u) != 0))
         return false;
 
-    if (kernel_layout.stack_base_va && kernel_layout.stack_top_va &&
-        p >= kernel_layout.stack_base_va &&
-        p + sizeof(CpuState) <= kernel_layout.stack_top_va)
+    if (likely(kernel_layout.stack_base_va && kernel_layout.stack_top_va &&
+	       p >= kernel_layout.stack_base_va &&
+	       p + sizeof(CpuState) <= kernel_layout.stack_top_va))
         return true;
 
     if (p >= KSTACK_REGION_BASE && p + sizeof(CpuState) <= KSTACK_REGION_TOP)
@@ -111,12 +116,12 @@ bool CopyFromUser(void *kaddr, const void *uaddr, size_t len)
 
 void __attribute__((hot)) SyscallDispatch(Svc svc_num, CpuState *frame)
 {
-    if (!current_thread)
+    if (unlikely(!current_thread))
     {
         (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
-    if (!trap_frame_sane(frame))
+    if (unlikely(!trap_frame_sane(frame)))
     {
         panic("Corrupt trap_frame at syscall dispatch: pid=%u svc=%u frame=%p",
               (unsigned)(current_thread->owner_process ? current_thread->owner_process->pid : 0),
@@ -124,7 +129,7 @@ void __attribute__((hot)) SyscallDispatch(Svc svc_num, CpuState *frame)
     }
     current_thread->trap_frame = frame;
 
-    if (SyscallTable[svc_num])
+    if (likely(SyscallTable[svc_num]))
     {
         SyscallEntryPoint handler = SyscallTable[svc_num];
         handler(frame);

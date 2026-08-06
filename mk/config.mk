@@ -8,7 +8,7 @@ $(error unknown BOARD '$(BOARD)' for ARCH '$(ARCH)'; valid boards: $(BOARDS))
 endif
 
 # ---- build knobs ----------------------------------------------------------
-OPTIMIZATION_LEVEL      ?= 2
+OPTIMIZATION_LEVEL      ?= 3
 USER_OPTIMIZATION_LEVEL ?= s
 DEBUG_BUILD             ?= 1
 # LTO does cross-TU whole-program inlining at link time, independent of
@@ -19,8 +19,12 @@ DEBUG_BUILD             ?= 1
 LTO                     ?= 1
 DTB_DEBUG_WALK          ?= 0
 EARLY_UART              ?= 0
-CTX_SWITCH_MEASURE      ?= 0
+TIME_MEASURE            ?= 0
 PMM_TRACE               ?= 0
+# PMCCNTR-based min/avg/max instrumentation at fixed measurement points
+# (see kernel/bench.h). Off by default: compiled out entirely, zero
+# footprint in production builds.
+ZUZU_BENCH              ?= 0
 LOG_LEVEL               ?= 1
 PANIC_SECTION_PROCESS   ?= 1
 PANIC_SECTION_SCHEDULER ?= 1

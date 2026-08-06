@@ -88,6 +88,9 @@ struct thread
     VirtAddr thread_info_va;
     uint8_t tcb_slot; // index into owner's TCB page, TCB_SLOT_NONE if unassigned
     FpuState fpu_state; // lazily saved/restored, see kernel/sched/sched.c fpu_owner
+#ifdef ZUZU_BENCH
+    uint32_t bench_irq_wait_start; // PMCCNTR at SysNtfnWait block, for the IRQ-wait bench
+#endif
 };
 
 #ifdef __cplusplus

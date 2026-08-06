@@ -12,8 +12,14 @@
 #define LOG_FMT(fmt) "(syscall_mm) " fmt
 #include "core/log.h"
 #include "kernel/mm/alloc.h"
+#include "kernel/bench.h"
+#include <compiler.h>
 
 extern thread_t *current_thread;
+
+#ifdef ZUZU_BENCH
+BENCH_STAT(g_bench_memmap, "SysMemMap call->return");
+#endif
 
 /**
  * Helper for memmap to map anonymous memory.
@@ -175,29 +181,32 @@ static int32_t memmap_dev(process_t *p, HandleEntry *e, MemProt prot, VirtAddr *
     return ZUZU_OK;
 }
 
-void SysMemMap(CpuState *frame)
+void __hot SysMemMap(CpuState *frame)
 {
+#ifdef ZUZU_BENCH
+    uint32_t bench_start = BENCH_BEGIN();
+#endif
     process_t *p = current_thread->owner_process;
     Handle handle = (Handle)(*arch_reg(frame, 0));
     size_t size = (size_t)(*arch_reg(frame, 1));
     MemProt prot = (MemProt)(*arch_reg(frame, 2));
     uint32_t flags = (*arch_reg(frame, 3));
 
-    if (flags != 0) { *arch_reg(frame, 0) = ERR_BADARG; return;}
-    if (prot & ~(PROT_READ|PROT_WRITE|PROT_EXEC))  { *arch_reg(frame, 0) = ERR_BADARG; return;}   /* rejects VM_PROT_USER */
-    if ((prot & PROT_WRITE) && (prot & PROT_EXEC))  { *arch_reg(frame, 0) = ERR_BADARG; return;}
+    if (unlikely(flags != 0)) { *arch_reg(frame, 0) = ERR_BADARG; return;}
+    if (unlikely(prot & ~(PROT_READ|PROT_WRITE|PROT_EXEC)))  { *arch_reg(frame, 0) = ERR_BADARG; return;}   /* rejects VM_PROT_USER */
+    if (unlikely((prot & PROT_WRITE) && (prot & PROT_EXEC)))  { *arch_reg(frame, 0) = ERR_BADARG; return;}
 
     VirtAddr va = 0;
-    Err rc;   
+    Err rc;
 
-    if (handle == HANDLE_ANON)
+    if (likely(handle == HANDLE_ANON))
     {
         rc = memmap_anon(p, 0, size, prot, &va); /* hint dies at step D */
     }
     else
     {
         HandleEntry *e = handle_vec_get(&p->handle_table, handle);
-        if (!e)
+        if (unlikely(!e))
         {
             *arch_reg(frame, 0) = ERR_BADHANDLE;
             return;
@@ -236,6 +245,9 @@ void SysMemMap(CpuState *frame)
     }
 
     (*arch_reg(frame, 0)) = (rc == ZUZU_OK) ? (uint32_t)va : (uint32_t)rc;
+#ifdef ZUZU_BENCH
+    BENCH_END(g_bench_memmap, bench_start);
+#endif
     return;
 }
 

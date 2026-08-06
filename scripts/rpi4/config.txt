@@ -8,6 +8,8 @@
 arm_64bit=0
 kernel=zuzu.img
 
+initramfs initrd.cpio followkernel
+
 # Pin the UARTCLK the PL011 divisors in _start.S assume (115200 = 48e6/16/26.042).
 # 48 MHz is the firmware default on the Pi 4; this makes it explicit.
 init_uart_clock=48000000

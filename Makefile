@@ -57,7 +57,7 @@ include mk/uboot.mk
 # IntelliSense works without switching targets. `make kernel` (mk/kernel.mk)
 # remains for a kernel-only fast iteration loop.
 .PHONY: all deploy clean
-all: $(TARGET) $(ALL_USER_ELFS) $(SD_LIB_ARCHIVES)
+all: $(TARGET) $(ALL_USER_ELFS) $(SD_LIB_ARCHIVES) $(INITRD)
 
 deploy: all sdimg-recreate run
 

@@ -9,8 +9,15 @@
 #include "core/panic.h"
 #include "core/log.h"
 #include "kernel/ipc/port.h"
+#include "kernel/bench.h"
+#include <compiler.h>
 
 extern kernel_layout_t kernel_layout;
+
+#ifdef ZUZU_BENCH
+BENCH_STAT(g_bench_reply_cap_alloc, "reply-cap alloc");
+BENCH_STAT(g_bench_reply_cap_free, "reply-cap free");
+#endif
 
 static slab_cache_t port_cache;
 static slab_cache_t reply_cap_cache;
@@ -58,20 +65,25 @@ void slab_cache_create(slab_cache_t *cache, const char *name, size_t obj_size)
     cache->slabs = NULL;
 }
 
-void *slab_alloc(slab_cache_t *cache)
+/* Reached on every reply-cap/port/device-cap alloc, i.e. every IPC call.
+ * The common case is "first slab already has free space" (0-iteration
+ * loop) -- hot biases the compiler/LTO toward keeping this warm and
+ * favoring that path; it still has a loop and a cold slab_grow() call so
+ * it's not an always_inline leaf. */
+void *__hot slab_alloc(slab_cache_t *cache)
 {
     // 1. find a slab with free space
     slab_t *slab = cache->slabs;
     while (slab) {
-        if (slab->free_head)
+        if (likely(slab->free_head))
             break;
         slab = slab->next;
     }
 
     // 2. none found, allocate a new slab page
-    if (!slab) {
+    if (unlikely(!slab)) {
         slab = slab_grow(cache);
-        if (!slab) return NULL;
+        if (unlikely(!slab)) return NULL;
     }
 
     // 3. pop from freelist
@@ -81,7 +93,9 @@ void *slab_alloc(slab_cache_t *cache)
     return obj;
 }
 
-void slab_free(slab_cache_t *cache, void *ptr)
+/* No loop, no calls (assert() compiles out under NDEBUG) -- a genuine
+ * leaf on the same hot free path as kfree_reply_cap. */
+static __always_inline void slab_free(slab_cache_t *cache, void *ptr)
 {
     assert(cache != NULL);
     assert(ptr != NULL);
@@ -97,9 +111,12 @@ void slab_free(slab_cache_t *cache, void *ptr)
     slab->used--;
 }
 
-static void alloc_hot_caches_init(void)
+/* Called at the top of every kalloc_ and kfree_ helper -- after boot, the
+ * branch below is always taken, so mark the init-once body as the
+ * unlikely leg. */
+static __always_inline void alloc_hot_caches_init(void)
 {
-    if (hot_caches_ready)
+    if (likely(hot_caches_ready))
         return;
 
     slab_cache_create(&port_cache, "Port", sizeof(Port));
@@ -313,17 +330,30 @@ void kfree_portobj(void *ptr)
     slab_free(&port_cache, ptr);
 }
 
-void *kalloc_reply_cap(void)
+void *__hot kalloc_reply_cap(void)
 {
+#ifdef ZUZU_BENCH
+    uint32_t bench_start = BENCH_BEGIN();
+#endif
     alloc_hot_caches_init();
-    return slab_alloc(&reply_cap_cache);
+    void *ptr = slab_alloc(&reply_cap_cache);
+#ifdef ZUZU_BENCH
+    BENCH_END(g_bench_reply_cap_alloc, bench_start);
+#endif
+    return ptr;
 }
 
-void kfree_reply_cap(void *ptr)
+void __hot kfree_reply_cap(void *ptr)
 {
-    if (!ptr)
+#ifdef ZUZU_BENCH
+    uint32_t bench_start = BENCH_BEGIN();
+#endif
+    if (unlikely(!ptr))
         return;
     slab_free(&reply_cap_cache, ptr);
+#ifdef ZUZU_BENCH
+    BENCH_END(g_bench_reply_cap_free, bench_start);
+#endif
 }
 
 void *kalloc_device_cap(void)
