@@ -340,7 +340,7 @@ void SysGrant(CpuState *frame)
     }
 
     // Look up target process
-    ProcessObj *grantee = process_find_by_pid(pid);
+    ProcessObj *grantee = ProcessFindByPid(pid);
     if (!grantee)
     {
         (*arch_reg(frame, 0)) = ERR_NOENT;

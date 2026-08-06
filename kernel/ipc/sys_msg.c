@@ -202,7 +202,7 @@ static HandleEntry *validate_reply_handle(ProcessObj *proc, Handle handle_idx, T
 	Thread *target = ThreadFindByTid(entry->reply->caller_tid);
 
 	if (!target || target->state == ZOMBIE) {
-		process_untrack_reply_cap(entry->reply);
+		ProcessUntrackReplyCap(entry->reply);
 		kfree_reply_cap(entry->reply);
 		entry->reply = NULL;
 		entry->grantable = false;
@@ -212,7 +212,7 @@ static HandleEntry *validate_reply_handle(ProcessObj *proc, Handle handle_idx, T
 	}
 
 	if (target->ipc_state != IPC_WAITING) {
-		process_untrack_reply_cap(entry->reply);
+		ProcessUntrackReplyCap(entry->reply);
 		kfree_reply_cap(entry->reply);
 		entry->reply = NULL;
 		entry->grantable = false;
@@ -383,7 +383,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			rentry->type = HANDLE_REPLY;
 			rentry->grantable = false;
 			rentry->reply = rc;
-			process_track_reply_cap(sr_thread->owner_process,
+			ProcessTrackReplyCap(sr_thread->owner_process,
 						current_thread->owner_process, (uint32_t)slot, rc);
 
 			(*arch_reg(frame, 0)) = slot;
@@ -497,7 +497,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		rentry->type = HANDLE_REPLY;
 		rentry->grantable = false;
 		rentry->reply = rc;
-		process_track_reply_cap(current_thread->owner_process, rx_thread->owner_process,
+		ProcessTrackReplyCap(current_thread->owner_process, rx_thread->owner_process,
 					(uint32_t)slot, rc);
 
 		if (unlikely(rx_thread->waitany_port_wait_active)) {
@@ -589,7 +589,7 @@ void __attribute__((hot)) SysMsgReply(CpuState *frame)
 	target_thread->state = READY;
 	sched_add(target_thread);
 
-	process_untrack_reply_cap(entry->reply);
+	ProcessUntrackReplyCap(entry->reply);
 	kfree_reply_cap(entry->reply);
 	entry->reply = NULL;
 	entry->grantable = false;
@@ -721,7 +721,7 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 		rentry->type = HANDLE_REPLY;
 		rentry->grantable = false;
 		rentry->reply = rc;
-		process_track_reply_cap(current_thread->owner_process, rx_thread->owner_process,
+		ProcessTrackReplyCap(current_thread->owner_process, rx_thread->owner_process,
 					(uint32_t)slot, rc);
 
 		if (unlikely(rx_thread->waitany_port_wait_active)) {
@@ -817,7 +817,7 @@ void __attribute__((hot)) SysMsgLreply(CpuState *frame)
 	target_thread->state = READY;
 	sched_add(target_thread);
 
-	process_untrack_reply_cap(entry->reply);
+	ProcessUntrackReplyCap(entry->reply);
 	kfree_reply_cap(entry->reply);
 	entry->reply = NULL;
 	entry->grantable = false;
@@ -882,7 +882,7 @@ static int waitany_deliver_sender(uint32_t matched_index, Thread *receiver, List
 		rentry->type = HANDLE_REPLY;
 		rentry->grantable = false;
 		rentry->reply = rc;
-		process_track_reply_cap(sr_thread->owner_process, receiver->owner_process,
+		ProcessTrackReplyCap(sr_thread->owner_process, receiver->owner_process,
 					(uint32_t)slot, rc);
 
 		result->kind = WAITANY_KIND_CALL;

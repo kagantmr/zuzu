@@ -142,7 +142,7 @@ static void boot_program(const char *path, uint32_t flags)
         argc = 3;
     }
 
-    ProcessObj *process = process_load(elf_data, elf_size, path,
+    ProcessObj *process = KernelProcessLoad(elf_data, elf_size, path,
                                        argc ? argbuf : NULL, argbuf_len, argc);
     if (!process)
     {

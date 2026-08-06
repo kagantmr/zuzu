@@ -151,7 +151,7 @@ void sched_reap(void) {
     while (!list_empty(&destroy_queue)) {
         ListNode *node = list_pop_front(&destroy_queue);
         ProcessObj *p = container_of(node, ProcessObj, destroy_node);
-        process_destroy(p);
+        ProcessDestroy(p);
     }
     sched_reap_thread_destroys();
 }
