@@ -3,7 +3,7 @@
 
 .fpu vfpv4
 
-#ifdef CTX_SWITCH_MEASURE
+#ifdef TIME_MEASURE
 .global ctx_switch_start
 .global ctx_switch_cost
 #endif
@@ -17,7 +17,7 @@
 //    5. "Return" (which jumps into next)
 context_switch:
 
-#ifdef CTX_SWITCH_MEASURE
+#ifdef TIME_MEASURE
     isb
     mrc p15, 0, r12, c9, c13, 0   // Read PMCCNTR
     ldr r2, =ctx_switch_start     // Load address of global start variable
@@ -38,7 +38,7 @@ context_switch:
 
     pop {r4-r11, lr}
 
-#ifdef CTX_SWITCH_MEASURE
+#ifdef TIME_MEASURE
     isb
     mrc p15, 0, r3, c9, c13, 0    // Read PMCCNTR end time into r3
     ldr r12, =ctx_switch_start

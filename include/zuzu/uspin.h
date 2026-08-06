@@ -41,15 +41,15 @@ static inline void ZuzuUSpinLock(ZuzuUSpin *lk)
         if (arch_strex(word, 1u) == 0u)
             break;                     /* won the store; we own it */
     }
-    arch_dmb();
+    ArchDmb();
 }
 
 static inline void ZuzuUSpinUnlock(ZuzuUSpin *lk)
 {
-    arch_dmb();
+    ArchDmb();
     *lk = 0u;
-    arch_dsb();
-    arch_sev();
+    ArchDsb();
+    ArchSev();
 }
 
 #ifdef __cplusplus
