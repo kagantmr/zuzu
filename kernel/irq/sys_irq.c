@@ -7,7 +7,7 @@
 #include <compiler.h>
 #include <string.h>
 
-extern thread_t *current_thread;
+extern Thread *current_thread;
 static irq_owner_t irq_owners[MAX_IRQS];
 
 #ifdef ZUZU_BENCH
@@ -36,8 +36,8 @@ static void __hot relay_handler(void *ctx)
 
         if (likely(!list_empty(&ntfn->wait_queue))) {
             ListNode *node = list_pop_front(&ntfn->wait_queue);
-            thread_wait_slot_t *slot = container_of(node, thread_wait_slot_t, node);
-            thread_t *waiter = slot->owner;
+            ThreadWaitSlot *slot = container_of(node, ThreadWaitSlot, node);
+            Thread *waiter = slot->owner;
             if (unlikely(!waiter->trap_frame))
                 return;
             (*arch_reg(waiter->trap_frame, 0)) = ntfn->word;
@@ -50,8 +50,8 @@ static void __hot relay_handler(void *ctx)
                     }
                 }
             }
-            thread_waitany_clear_waits(waiter);
-            thread_waitany_clear_ep_waits(waiter);
+            ThreadWaitanyClearWaits(waiter);
+            ThreadWaitanyClearPortWaits(waiter);
             waiter->waitany_wait_match_index = match_index;
             waiter->waitany_wait_bits = ntfn->word;
             if (unlikely(waiter->wake_tick != 0 && waiter->timeout_node.prev &&
@@ -111,7 +111,7 @@ void SysIrqBind(CpuState *frame) {
     }
 
     /* Ownership: free line is ours to claim; a line owned by someone else is busy. */
-    process_t *owner = irq_owners[irq_num].owner;
+    Process *owner = irq_owners[irq_num].owner;
     if (owner && owner != current_thread->owner_process) {
         (*arch_reg(frame, 0)) = ERR_BUSY;
         return;
@@ -161,8 +161,8 @@ void SysIrqBind(CpuState *frame) {
 
         if (!list_empty(&ntfn->wait_queue)) {
             ListNode *node = list_pop_front(&ntfn->wait_queue);
-            thread_wait_slot_t *slot = container_of(node, thread_wait_slot_t, node);
-            thread_t *waiter = slot->owner;
+            ThreadWaitSlot *slot = container_of(node, ThreadWaitSlot, node);
+            Thread *waiter = slot->owner;
             if (waiter->trap_frame)
                 (*arch_reg(waiter->trap_frame, 0)) = ntfn->word;
             uint32_t match_index = WAITANY_NO_MATCH;
@@ -174,8 +174,8 @@ void SysIrqBind(CpuState *frame) {
                     }
                 }
             }
-            thread_waitany_clear_waits(waiter);
-            thread_waitany_clear_ep_waits(waiter);
+            ThreadWaitanyClearWaits(waiter);
+            ThreadWaitanyClearPortWaits(waiter);
             waiter->waitany_wait_match_index = match_index;
             waiter->waitany_wait_bits = ntfn->word;
             if (unlikely(waiter->wake_tick != 0 && waiter->timeout_node.prev &&
@@ -230,7 +230,7 @@ void SysIrqDone(CpuState* frame) {
     }
 }
 
-void irq_release_all(process_t *owner) {
+void irq_release_all(Process *owner) {
     for (int i = 0; i < MAX_IRQS; i++) {
         if (irq_owners[i].owner == owner) {
             if (irq_owners[i].bound_ntfn) {

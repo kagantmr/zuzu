@@ -15,7 +15,7 @@ QEMU_MEM_vexpress-a15  = 1G
 # Not needed for `make run` — see mk/uboot.mk's header for why.
 UBOOT_vexpress-a15     = y
 
-CPUFLAGS_vexpress-a15  = -falign-functions=64
+CPUFLAGS_vexpress-a15  = -mcpu=cortex-a15 -falign-functions=64
 
 # No CPUFLAGS_vexpress-a15 override: this board uses ARCH_CPUFLAGS
 # (-mcpu=cortex-a15) unmodified.

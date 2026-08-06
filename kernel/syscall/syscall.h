@@ -32,6 +32,6 @@ static inline bool validate_user_ptr(const uintptr_t addr, const size_t len) {
     return true;
 }
 
-extern thread_t *current_thread;
+extern Thread *current_thread;
 
 #endif /* KERNEL_SYSCALL_H */

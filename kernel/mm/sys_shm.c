@@ -10,7 +10,7 @@
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm.h"
 
-extern thread_t *current_thread;
+extern Thread *current_thread;
 
 void shmem_drop_ref(ShmCap *shm)
 {

@@ -47,7 +47,7 @@ static inline uint32_t read_be32(const void *p)
            ((uint32_t)b[3]);
 }
 
-static process_t *s_devmgr;
+static ProcessObj *s_devmgr;
 
 /* Set once in kmain(): the bootloader-supplied initrd (DTB /chosen), as a
  * physical address + size. */
@@ -142,7 +142,7 @@ static void boot_program(const char *path, uint32_t flags)
         argc = 3;
     }
 
-    process_t *process = process_load(elf_data, elf_size, path,
+    ProcessObj *process = process_load(elf_data, elf_size, path,
                                        argc ? argbuf : NULL, argbuf_len, argc);
     if (!process)
     {

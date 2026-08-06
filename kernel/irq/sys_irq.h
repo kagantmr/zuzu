@@ -6,17 +6,17 @@
 #include "kernel/ipc/port.h"
 #include "stdbool.h"
 
-typedef struct process process_t;
+typedef struct process ProcessObj;
 
 typedef struct irq_owner {
-    process_t      *owner;
+    ProcessObj      *owner;
     bool            pending;
     Ntfn *bound_ntfn;   // was Endpoint *bound_port
 } irq_owner_t;
 
 void SysIrqBind(CpuState* frame);
 void SysIrqDone(CpuState* frame);
-void irq_release_all(process_t *owner);
+void irq_release_all(ProcessObj *owner);
 
 bool irq_check_and_clear_pending(int irq_num);
 

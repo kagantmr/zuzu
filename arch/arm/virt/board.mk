@@ -13,6 +13,6 @@ QEMU_MEM_virt   = 1G
 # No SD/MMC controller on this machine -- the SD card image doesn't apply.
 QEMU_NO_DRIVE_virt = y
 
-CPUFLAGS_vexpress-a15  = -falign-functions=64
+CPUFLAGS_vexpress-a15  = -mcpu=cortex-a15  -falign-functions=64
 # No CPUFLAGS_virt override: this board uses ARCH_CPUFLAGS (-mcpu=cortex-a15)
 # unmodified.

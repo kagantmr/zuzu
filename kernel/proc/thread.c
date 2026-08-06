@@ -12,7 +12,7 @@
 #include "core/log.h"
 
 static Tid next_tid = 1;
-static thread_t *thread_table[MAX_THREADS];
+static Thread *thread_table[MAX_THREADS];
 static spinlock_t thread_table_lock = SPINLOCK_INIT;
 
 static int thread_table_find_free_slot(void)
@@ -30,7 +30,7 @@ static int thread_table_find_free_slot(void)
     return -1;
 }
 
-Tid thread_register(thread_t *thread)
+Tid thread_register(Thread *thread)
 {
     if (!thread)
         return 0;
@@ -56,7 +56,7 @@ Tid thread_register(thread_t *thread)
     return thread->tid;
 }
 
-void thread_unregister(thread_t *thread)
+void thread_unregister(Thread *thread)
 {
     if (!thread || thread->tid == 0)
         return;
@@ -73,7 +73,7 @@ void thread_unregister(thread_t *thread)
     spin_unlock(&thread_table_lock);
 }
 
-void thread_kill(thread_t *thread)
+void ThreadKill(Thread *thread)
 {
     if (!thread)
         return;
@@ -81,7 +81,7 @@ void thread_kill(thread_t *thread)
     thread->state = ZOMBIE;
 }
 
-void thread_destroy(thread_t *thread) {
+void ThreadDestroy(Thread *thread) {
     if (!thread) return;
     thread_unregister(thread);
     if (fpu_owner == thread)
@@ -89,7 +89,7 @@ void thread_destroy(thread_t *thread) {
     // may already be removed by tquit, guard is safe
     if (thread->process_node.prev && thread->process_node.next)
         list_remove(&thread->process_node);
-    process_t *owner = thread->owner_process;
+    ProcessObj *owner = thread->owner_process;
     /* Release the TCB slot; scrub it so a reused slot never shows a
      * previous thread's tid/pid. tcb_page_pa == 0 means the page is
      * already gone (process teardown fail paths). */
@@ -106,12 +106,12 @@ void thread_destroy(thread_t *thread) {
     kfree(thread);
 }
 
-thread_t *thread_create(process_t *owner_process)
+Thread *ThreadCreate(ProcessObj *owner_process)
 {
     if (!owner_process)
         return NULL;
 
-    thread_t *thread = kmalloc(sizeof(*thread));
+    Thread *thread = kmalloc(sizeof(*thread));
     if (!thread)
         return NULL;
 
@@ -146,8 +146,8 @@ thread_t *thread_create(process_t *owner_process)
     thread->ipc_state = IPC_NONE;
     thread->blocked_port = NULL;
     thread->pending_reply_cap = NULL;
-    thread->ipc_buf_pa = 0;
-    thread->ipc_buf_xfer_len = 0;
+    thread->lmsg_buf_phys_addr = 0;
+    thread->lmsg_buf_xfer_len = 0;
     thread->priority = 1;
     thread->time_slice = 5;
     thread->ticks_remaining = thread->time_slice;
@@ -169,14 +169,14 @@ thread_t *thread_create(process_t *owner_process)
     return thread;
 }
 
-thread_t *thread_find_by_tid(Tid tid)
+Thread *ThreadFindByTid(Tid tid)
 {
     if (tid == 0)
         return NULL;
 
     spin_lock(&thread_table_lock);
     for (uint32_t slot = 0; slot < MAX_THREADS; slot++) {
-        thread_t *thread = thread_table[slot];
+        Thread *thread = thread_table[slot];
         if (thread && thread->tid == tid) {
             spin_unlock(&thread_table_lock);
             return thread;
