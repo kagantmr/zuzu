@@ -509,8 +509,9 @@ void command_dispatch(const char *line)
         // read info page
         const Syspage *sp = (const Syspage *)0x1000;
         uint32_t fp = sp->mem_free_kb; // free pages (4KB each)
+        uint32_t tp = sp->mem_total_kb / 4;
         char buf[64];
-        snprintf(buf, sizeof(buf), "%u pages free (%u KB), %u pages full\n", fp / 4, fp, 16384 - fp/4);
+        snprintf(buf, sizeof(buf), "%u pages free (%u KB), %u pages full\n", fp / 4, fp, tp - fp / 4);
         printf("%s", buf);
     }
     else if (strcmp(line, "pwd") == 0)

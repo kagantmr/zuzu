@@ -49,6 +49,13 @@ addrspace_t* vmm_get_kernel_as(void) {
 // Bitmap: 256 bits = 8 x uint32_t
 static uint32_t ioremap_bitmap[8];  // Bit N = slot N allocated
 
+/* IOREMAP_MAX_SLOT is defined in vmm.h as pure text substitution (SECTION_SIZE
+ * isn't visible there yet, see the comment at its definition); this is the
+ * first point in this TU where both arch/mmu.h (SECTION_SIZE) and vmm.h
+ * (KSTACK_REGION_BASE, IOREMAP_BASE, IOREMAP_SLOTS) are in scope together. */
+_Static_assert(IOREMAP_MAX_SLOT <= IOREMAP_SLOTS,
+	       "kstack region base falls outside the ioremap window");
+
 typedef struct {
     VirtAddr va;       // Base VA (0 = unused entry)
     PhysAddr pa;       // Physical address  
@@ -489,10 +496,12 @@ bool vmm_map_user_page(addrspace_t* as, PhysAddr pa, VirtAddr va, MemProt prot) 
                          VM_MEM_NORMAL, VM_OWNER_SHARED, VM_FLAG_NONE);
 }
 
-// Find N contiguous free bits in bitmap, return starting index or -1
+// Find N contiguous free bits in bitmap, return starting index or -1.
+// Bounded to IOREMAP_MAX_SLOT, not IOREMAP_SLOTS: slots beyond that would
+// land on the kstack region (see IOREMAP_MAX_SLOT in vmm.h).
 static int bitmap_find_free(uint32_t n) {
     uint32_t count = 0;
-    for (uint32_t i = 0; i < IOREMAP_SLOTS; i++) {
+    for (uint32_t i = 0; i < IOREMAP_MAX_SLOT; i++) {
         uint32_t word = ioremap_bitmap[i / 32];
         uint32_t bit = 1u << (i % 32);
         if ((word & bit) == 0) {
@@ -598,6 +607,12 @@ void* ioremap(PhysAddr phys, size_t size) {
 
     int slot = bitmap_find_free(sections_needed);
     if (slot < 0) {
+        return NULL;
+    }
+    /* Belt-and-suspenders: bitmap_find_free is already bounded to
+     * IOREMAP_MAX_SLOT, but a mapping must never be allowed to land on the
+     * kstack region even if that bound is ever loosened by mistake. */
+    if ((uint32_t)slot + sections_needed > IOREMAP_MAX_SLOT) {
         return NULL;
     }
 

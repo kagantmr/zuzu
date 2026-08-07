@@ -80,7 +80,8 @@ static inline VirtAddr TcbSlotKVirtAddr(ProcessObj *p, uint32_t slot)
 /* User VA of this slot. */
 static inline VirtAddr TcbSlotUVirtAddr(ProcessObj *p, uint32_t slot)
 {
-    return p->tcb_page_va + slot * TCB_SLOT_SIZE;
+    return p->tcb_page_va + (slot / SLOTS_PER_PAGE) * PAGE_SIZE
+         + (slot % SLOTS_PER_PAGE) * TCB_SLOT_SIZE;
 }
 
 void ProcessDestroy(ProcessObj *process);
