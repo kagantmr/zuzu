@@ -6,7 +6,6 @@
 #include "kernel/proc/thread.h"
 #include "kernel/sched/sched.h"
 #include "kernel/syspage.h"
-#include "kstack.h"
 #include <arch/cache.h>
 #include <arch/context.h>
 #include <arch/mmu.h>
@@ -409,10 +408,10 @@ ProcessObj *ProcessCreate(const char *name)
 
 	vm_region_t tcb_region = {
 	    .vaddr_start = tcb_user_va,
-	    .size = MAX_TCB_PAGES * PAGE_SIZE, // ← was PAGE_SIZE
+	    .size = MAX_TCB_PAGES * PAGE_SIZE,
 	    .prot = PROT_READ | PROT_WRITE | VM_PROT_USER,
-	    .owner = VM_OWNER_ANON,
-	    .flags = VM_FLAG_PINNED | VM_FLAG_GUARD,
+	    .owner = VM_OWNER_ANON, // GUARD dropped so pages 1..N demand-back; PINNED still blocks user unmap.
+	    .flags = VM_FLAG_PINNED,
 	};
 	if (!vmm_add_region(p->as, &tcb_region))
 		goto fail_kstack;

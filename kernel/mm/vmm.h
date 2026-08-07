@@ -88,6 +88,18 @@ void shmem_drop_ref(ShmCap *shm);
 #define IOREMAP_SIZE (IOREMAP_END - IOREMAP_BASE + 1)
 #define IOREMAP_SLOTS (IOREMAP_SIZE / SECTION_SIZE) // 256
 
+/* ioremap and the kernel-stack pool share the same [IOREMAP_BASE, IOREMAP_END]
+ * window: ioremap grows up from IOREMAP_BASE in 1MB sections, kstack owns
+ * [KSTACK_REGION_BASE, KSTACK_REGION_TOP). Slots at/after this bound would
+ * place a device mapping on top of live kernel stacks, so ioremap must never
+ * hand one out.
+ * SECTION_SIZE comes from arch/mmu.h, which itself includes this header, so
+ * it isn't visible yet at this point in the first (defining) pass over this
+ * file — this macro is fine as pure text substitution (same as IOREMAP_SLOTS
+ * above), but a _Static_assert here would evaluate too early. See vmm.c for
+ * the assert once both headers are actually in scope. */
+#define IOREMAP_MAX_SLOT ((KSTACK_REGION_BASE - IOREMAP_BASE) / SECTION_SIZE)
+
 addrspace_t *vmm_get_kernel_as(void);
 
 /**

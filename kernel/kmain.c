@@ -117,10 +117,10 @@ static void boot_program(const char *path, uint32_t flags)
      * the mapping has to start at the containing page and the process
      * needs to be told exactly where the real data begins within it —
      * hence passing it via argv rather than a fixed/assumed address.
-     * mmap_va_next always starts at USER_MMAP_BASE and process_load()
-     * always claims the first page for the TCB before returning, so the
-     * mapping loop below is guaranteed to start at
-     * USER_MMAP_BASE + PAGE_SIZE. */
+     * mmap_va_next always starts at USER_MMAP_BASE and process_create()
+     * always reserves MAX_TCB_PAGES worth of TCB slots before returning,
+     * so the mapping loop below is guaranteed to start at
+     * USER_MMAP_BASE + MAX_TCB_PAGES * PAGE_SIZE. */
     char argbuf[320];
     size_t argbuf_len = 0;
     uint32_t argc = 0;
@@ -133,7 +133,7 @@ static void boot_program(const char *path, uint32_t flags)
         initrd_page_offset = g_initrd_pa & (PAGE_SIZE - 1);
         initrd_aligned_pa = g_initrd_pa - initrd_page_offset;
         initrd_page_count = (initrd_page_offset + (uint32_t)g_initrd_size + PAGE_SIZE - 1) / PAGE_SIZE;
-        initrd_real_va = USER_MMAP_BASE + PAGE_SIZE + initrd_page_offset;
+        initrd_real_va = USER_MMAP_BASE + MAX_TCB_PAGES * PAGE_SIZE + initrd_page_offset;
 
         size_t off = 0;
         off += snprintf(argbuf + off, sizeof(argbuf) - off, "%s", path) + 1;

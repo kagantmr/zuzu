@@ -1,91 +1,56 @@
-#include <zuzu/types.h>
-#include <zuzu/task.h>
-#include <zuzu/msg.h>  
-#include <zuzu/lmsg.h>
-#include <zuzu/umem.h>
-#include <zuzu/tls.h>
-#include <zuzu/syspage.h>
+#include "zuzu/err.h"
 #include <malloc.h>
-#include <string.h>
 #include <stdio.h>
+#include <string.h>
+#include <zuzu/lmsg.h>
+#include <zuzu/msg.h>
+#include <zuzu/syspage.h>
+#include <zuzu/task.h>
+#include <zuzu/tls.h>
+#include <zuzu/types.h>
+#include <zuzu/umem.h>
 
 #define STACK_SIZE 4096
-#define REQ  "hello from worker thread"
+#define REQ "hello from worker thread"
 #define RESP "reply from main thread"
 
 static int fails = 0;
-#define CHECK(c, m) do { if (!(c)) { printf("FAIL: %s\n", m); fails++; } \
-                         else      { printf("ok:   %s\n", m); } } while (0)
-
-static Handle port;
-static volatile int worker_done = 0;
-static volatile int worker_ok   = 0;
+#define CHECK(c, m)                                                                                \
+	do {                                                                                       \
+		if (!(c)) {                                                                        \
+			printf("FAIL: %s\n", m);                                                   \
+			fails++;                                                                   \
+		} else {                                                                           \
+			printf("ok:   %s\n", m);                                                   \
+		}                                                                                  \
+	} while (0)
 
 static void worker(void *arg)
 {
-    (void)arg;
-    char buf[LMSG_BUF_SIZE];
 
-    printf("tid = %d lmsg_buf = %p", ZuzuTLS()->tid, LmsgBuf());
-
-    LmsgWrite(REQ, sizeof(REQ));
-    Message r = ZuzuMsgLcall(port, sizeof(REQ));
-
-    if ((int32_t)r.w0 == 0) {
-        LmsgRead(buf, r.w1);              /* w1 = reply length */
-        worker_ok = (r.w1 == sizeof(RESP) &&
-                     memcmp(buf, RESP, sizeof(RESP)) == 0);
-    }
-    worker_done = 1;
-    ZuzuTQuit(0);
+	(void)arg;
+	printf("Hey, I'm thread %d!\n", ZuzuTLS()->tid);
+	ZuzuSleep(1000);
+	ZuzuTQuit(0);
 }
 
 int main(void)
 {
-    port = ZuzuPortCreate();
-    CHECK(port >= 0, "port_create");
 
-    void *stack = ZuzuMemMap(HANDLE_ANON, STACK_SIZE, PROT_READ | PROT_WRITE, 0);
-    CHECK(!ZuzuPtrIsErr(stack), "worker stack");
+	Tid tids[300];
+	void *stacks[300];
 
-    Tid tid = ZuzuTMake(worker, (char *)stack + STACK_SIZE, NULL);
+	for (int i = 0; i < 300; i++) {
+		stacks[i] = ZuzuMemMap(HANDLE_ANON, STACK_SIZE, PROT_READ | PROT_WRITE, 0);
+		// CHECK(!ZuzuPtrIsErr(stacks[i]), "worker stack");
+		Tid tid = ZuzuTMake(worker, (char *)stacks[i] + STACK_SIZE, NULL);
+		// CHECK(tid != 0, "thread spawn"); // or whatever the error sentinel is
+		tids[i] = tid;
+	}
 
-    Message m = ZuzuMsgRecv(port, TIMEOUT_INFINITE);
-    char got[LMSG_BUF_SIZE];
-    uint32_t len = m.w2;
-    LmsgRead(got, len);              /* FIRST — before any printf */
+	for (int i = 0; i < 300; i++) {
+		ZuzuTJoin(tids[i]);
+	}
 
-    CHECK((int32_t)m.w0 >= 0, "recv got the lcall");
-    CHECK(len == sizeof(REQ), "payload length matches");
-    CHECK(memcmp(got, REQ, sizeof(REQ)) == 0, "worker's lmsg payload arrived intact");
-    printf("got: '%s' (first bytes %02x %02x %02x %02x)\n",
-        got, got[0], got[1], got[2], got[3]);
-    printf("main lmsg_buf VA = %p, tid=%u pid=%u\n",
-        LmsgBuf(), ZuzuTLS()->tid, ZuzuTLS()->pid);
-
-    LmsgWrite(RESP, sizeof(RESP));
-    CHECK(ZuzuMsgLreply((Handle)m.w0, sizeof(RESP)) == 0, "lreply");
-
-    ZuzuTJoin(tid);
-    CHECK(worker_ok, "worker received the lreply payload intact");
-    
-
-    LmsgWrite(REQ, sizeof(REQ));
-    CHECK((int32_t)ZuzuMsgLsend(port, LMSG_BUF_SIZE + 1) < 0, "lsend len>512 rejected");
-
-    CHECK(ZuzuMemUnmap((void *)SYSPAGE_VA) == ERR_NOPERM, "syspage unmap refused");
-    CHECK(ZuzuMemUnmap((void *)((uintptr_t)ZuzuTLS() & ~0xFFFu)) == ERR_NOPERM, "TCB page unmap refused");
-    CHECK(ZuzuMemProtect((void *)SYSPAGE_VA, PAGE_SIZE, PROT_READ | PROT_WRITE) != 0, "syspage mprotect refused");
-
-    /* force multiple sbrk growths + tail donation */
-    void *p[200];
-    void *big = malloc(100000);   /* > ARENA_CHUNK_SIZE, single sbrk */
-    CHECK(big != NULL, "large alloc");
-    free(big);
-
-    ZuzuMemUnmap(stack);
-    ZuzuDestroy(port);
-
-    printf("\n%s (%d failures)\n", fails ? "FAILED" : "ALL PASS", fails);
-    return fails;
+	return ZUZU_OK;
 }

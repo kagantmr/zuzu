@@ -2,6 +2,7 @@
 #include "kernel/proc/thread.h"
 #include "kernel/sched/sched.h"
 #include "kernel/syscall/syscall.h"
+#include "kernel/mm/pmm.h"
 #include "process.h"
 #include <arch/context.h>
 #include <zuzu/tls.h>
@@ -35,7 +36,30 @@ void SysTMake(CpuState *frame)
 		return;
 	}
 
-	ThreadData *slot = (ThreadData *)TcbSlotKVirtAddr(owner, slot_idx);
+    /* Lazy-back the TCB page this slot lives on, if not already mapped. */
+    uint32_t tcb_page = (uint32_t)slot_idx / SLOTS_PER_PAGE;
+    if (owner->tcb_page_pa[tcb_page] == 0) {
+        PhysAddr new_frame = PmmAllocFrame();
+        if (!new_frame) {
+            TcbSlotFree(owner, slot_idx);
+            ThreadDestroy(t);
+            (*arch_reg(frame, 0)) = ERR_NOMEM;
+            return;
+        }
+        VirtAddr page_va = owner->tcb_page_va + tcb_page * PAGE_SIZE;
+        if (!vmm_map_user_page(owner->as, new_frame, page_va,
+                               VM_PROT_USER | PROT_READ | PROT_WRITE)) {
+            PmmFreeFrame(new_frame);
+            TcbSlotFree(owner, slot_idx);
+            ThreadDestroy(t);
+            (*arch_reg(frame, 0)) = ERR_NOMEM;
+            return;
+        }
+        memset((void *)PA_TO_VA(new_frame), 0, PAGE_SIZE);
+        owner->tcb_page_pa[tcb_page] = new_frame;
+    }
+
+    ThreadData *slot = (ThreadData *)TcbSlotKVirtAddr(owner, slot_idx);
 	VirtAddr slot_va = TcbSlotUVirtAddr(owner, slot_idx);
 
 	slot->tid = t->tid;
