@@ -67,7 +67,7 @@ static void sched_idle_trampoline(void)
     for (;;) {
         /* Ensure we're running on the kernel address space while reaping
          * deferred destroys so we never free the active user address space. */
-        vmm_activate(vmm_get_kernel_as());
+        VmmActivateAddrspace(VmmGetKernelAddrspace());
         sched_reap();
         sched_idle_wait();
         schedule();
@@ -342,7 +342,7 @@ void __hot switch_to_thread(Thread *next) {
     ProcessObj *prev_proc = prev ? prev->owner_process : NULL;
     if (unlikely(current_thread->owner_process->as &&
 		 (!prev_proc || prev_proc->as != current_thread->owner_process->as))) {
-        vmm_activate(current_thread->owner_process->as);
+        VmmActivateAddrspace(current_thread->owner_process->as);
     }
     arch_set_thread_ptr(current_thread);
     //KTRACE("Switching to thread %d (process %d)", current_thread->tid, current_thread->owner_process->pid);

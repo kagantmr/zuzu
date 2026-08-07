@@ -247,7 +247,7 @@ void SysDestroy(CpuState *frame)
         }
 
         // Drop this handle's reference; frees the object when it was the last.
-        shmem_drop_ref(entry->shm);
+        ShmemDropReference(entry->shm);
         entry->shm = NULL;
         entry->grantable = false;
         entry->type = HANDLE_FREE;

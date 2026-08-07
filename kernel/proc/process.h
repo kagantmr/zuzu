@@ -20,7 +20,7 @@ extern void process_entry_trampoline(void);
 
 typedef struct process {
 	Pid pid, parent_pid;
-	addrspace_t *as;
+	AddressSpace *as;
 	ListNode node; // embedded, not pointers
 	ListNode destroy_node;
 	ListNode timeout_node;

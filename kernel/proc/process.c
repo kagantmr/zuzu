@@ -39,12 +39,12 @@ static bool elf_segment_ranges_overlap(const Elf32_Phdr *a, const Elf32_Phdr *b)
 
 /* Copy into another address space through the kernel alias of each page.
  * The target pages must already be faulted in (see fault_in_pages). */
-static bool as_copy_out(addrspace_t *as, VirtAddr va, const void *src, size_t len)
+static bool as_copy_out(AddressSpace *as, VirtAddr va, const void *src, size_t len)
 {
 	const uint8_t *s = src;
 	while (len > 0) {
 		VirtAddr page_va = va & ~(VirtAddr)(PAGE_SIZE - 1);
-		PhysAddr pa = arch_mmu_translate(as->ttbr_pa, page_va);
+		PhysAddr pa = arch_mmu_translate(as->pt_root_physaddr, page_va);
 		if (pa == 0)
 			return false;
 		size_t off = va - page_va;
@@ -126,7 +126,7 @@ ProcessObj *KernelProcessLoad(const void *elf_data, size_t elf_size, const char 
 				if (!page_pa) {
 					for (uint32_t j = 0; j < page; j++) {
 						uintptr_t orphan_va = ph->p_vaddr + j * PAGE_SIZE;
-						vmm_unmap_range(p->as, orphan_va, PAGE_SIZE);
+						VmmUnmapRange(p->as, orphan_va, PAGE_SIZE);
 						PmmFreeFrame(segment_pages[j]);
 					}
 					kfree(segment_pages);
@@ -155,11 +155,11 @@ ProcessObj *KernelProcessLoad(const void *elf_data, size_t elf_size, const char 
 				}
 
 				VirtAddr va = ph->p_vaddr + page * PAGE_SIZE;
-				if (!vmm_map_user_page(p->as, page_pa, va, prot)) {
+				if (!VmmMapUserPage(p->as, page_pa, va, prot)) {
 					PmmFreeFrame(page_pa);
 					for (uint32_t j = 0; j < page; j++) {
 						VirtAddr orphan_va = ph->p_vaddr + j * PAGE_SIZE;
-						vmm_unmap_range(p->as, orphan_va, PAGE_SIZE);
+						VmmUnmapRange(p->as, orphan_va, PAGE_SIZE);
 						PmmFreeFrame(segment_pages[j]);
 					}
 					kfree(segment_pages);
@@ -171,7 +171,7 @@ ProcessObj *KernelProcessLoad(const void *elf_data, size_t elf_size, const char 
 			}
 
 			if (file_pages > 0) {
-				vm_region_t seg_region = {
+				VirtMemRegion seg_region = {
 				    .vaddr_start = ph->p_vaddr,
 				    .size = file_pages * PAGE_SIZE,
 				    .prot = prot | VM_PROT_USER,
@@ -179,12 +179,12 @@ ProcessObj *KernelProcessLoad(const void *elf_data, size_t elf_size, const char 
 				    .owner = VM_OWNER_ANON,
 				    .flags = VM_FLAG_NONE,
 				};
-				if (!vmm_add_region(p->as, &seg_region)) {
+				if (!VmmAddRegion(p->as, &seg_region)) {
 					KERROR("Failed to add ELF segment region at VA %08X",
 					       ph->p_vaddr);
 					for (uint32_t j = 0; j < file_pages; j++) {
 						VirtAddr orphan_va = ph->p_vaddr + j * PAGE_SIZE;
-						vmm_unmap_range(p->as, orphan_va, PAGE_SIZE);
+						VmmUnmapRange(p->as, orphan_va, PAGE_SIZE);
 						PmmFreeFrame(segment_pages[j]);
 					}
 					kfree(segment_pages);
@@ -195,7 +195,7 @@ ProcessObj *KernelProcessLoad(const void *elf_data, size_t elf_size, const char 
 			}
 
 			if (mem_pages > file_pages) {
-				vm_region_t bss_region = {
+				VirtMemRegion bss_region = {
 				    .vaddr_start = ph->p_vaddr + file_pages * PAGE_SIZE,
 				    .size = (mem_pages - file_pages) * PAGE_SIZE,
 				    .prot = prot | VM_PROT_USER,
@@ -203,7 +203,7 @@ ProcessObj *KernelProcessLoad(const void *elf_data, size_t elf_size, const char 
 				    .owner = VM_OWNER_ANON,
 				    .flags = VM_FLAG_NONE,
 				};
-				if (!vmm_add_region(p->as, &bss_region)) {
+				if (!VmmAddRegion(p->as, &bss_region)) {
 					KERROR("Failed to add BSS region at VA %08X",
 					       bss_region.vaddr_start);
 					goto fail_kstack;
@@ -285,7 +285,7 @@ ProcessObj *KernelProcessLoad(const void *elf_data, size_t elf_size, const char 
 
 		/* Fault in the stack pages the argv block spans, then write them
 		 * through the kernel alias (the target AS is not active here). */
-		if (!fault_in_pages(p->as, argv_va, (size_t)(USR_SP - argv_va), true)) {
+		if (!VmmCheckUserFault(p->as, argv_va, (size_t)(USR_SP - argv_va), true)) {
 			KERROR("failed to fault in argv stack pages");
 			goto fail_kstack;
 		}
@@ -332,7 +332,7 @@ fail_kstack:
 
 	if (p->as)
 		arch_mmu_free_user_pages(p->as);
-	as_destroy(p->as);
+	AddrspaceDestroy(p->as);
 	memset(p->tcb_page_pa, 0, sizeof(p->tcb_page_pa));
 	handle_vec_destroy(&p->handle_table);
 	ThreadDestroy(t);
@@ -370,15 +370,15 @@ ProcessObj *ProcessCreate(const char *name)
 	if (!handle_vec_init(&p->handle_table))
 		goto fail_process;
 
-	p->as = as_create(ADDRSPACE_USER);
+	p->as = AddrspaceCreate(ADDRSPACE_USER);
 	if (!p->as)
 		goto fail_handles;
 
 	// map syspage into user space
-	if (!vmm_map_user_page(p->as, SyspagePhysAddr(), USER_SYSPAGE_VA, PROT_READ))
+	if (!VmmMapUserPage(p->as, SyspagePhysAddr(), USER_SYSPAGE_VA, PROT_READ))
 		goto fail_kstack;
 
-	vm_region_t sys_region = {
+	VirtMemRegion sys_region = {
 	    .vaddr_start = USER_SYSPAGE_VA,
 	    .size = PAGE_SIZE,
 	    .prot = PROT_READ | VM_PROT_USER,
@@ -386,7 +386,7 @@ ProcessObj *ProcessCreate(const char *name)
 	    .owner = VM_OWNER_SHARED,
 	    .flags = VM_FLAG_PINNED | VM_FLAG_GUARD,
 	};
-	if (!vmm_add_region(p->as, &sys_region))
+	if (!VmmAddRegion(p->as, &sys_region))
 		goto fail_kstack;
 
 	/* Initialize per-process mmap bump pointer before allocating the
@@ -402,18 +402,18 @@ ProcessObj *ProcessCreate(const char *name)
 	/* Map the TCB page into the user mmap area at the process's bump
 	 * pointer so userspace can read its per-thread slot. */
 	VirtAddr tcb_user_va = p->mmap_va_next;
-	if (!vmm_map_user_page(p->as, tcb_page0_phys_addr, tcb_user_va,
+	if (!VmmMapUserPage(p->as, tcb_page0_phys_addr, tcb_user_va,
 			       VM_PROT_USER | PROT_READ | PROT_WRITE))
 		goto fail_kstack;
 
-	vm_region_t tcb_region = {
+	VirtMemRegion tcb_region = {
 	    .vaddr_start = tcb_user_va,
 	    .size = MAX_TCB_PAGES * PAGE_SIZE,
 	    .prot = PROT_READ | PROT_WRITE | VM_PROT_USER,
 	    .owner = VM_OWNER_ANON, // GUARD dropped so pages 1..N demand-back; PINNED still blocks user unmap.
 	    .flags = VM_FLAG_PINNED,
 	};
-	if (!vmm_add_region(p->as, &tcb_region))
+	if (!VmmAddRegion(p->as, &tcb_region))
 		goto fail_kstack;
 
 	p->tcb_page_va = tcb_user_va; /* user-visible VA */
@@ -424,7 +424,7 @@ ProcessObj *ProcessCreate(const char *name)
 	/* Reserve the whole stack window as a demand-paged anon region: no
 	 * physical pages up front, the data-abort handler faults them in as
 	 * the stack grows down. Guard page below catches overflow. */
-	vm_region_t stack_region = {
+	VirtMemRegion stack_region = {
 	    .vaddr_start = USER_STACK_BASE,
 	    .size = USER_STACK_TOP - USER_STACK_BASE,
 	    .prot = PROT_READ | PROT_WRITE | VM_PROT_USER,
@@ -432,10 +432,10 @@ ProcessObj *ProcessCreate(const char *name)
 	    .owner = VM_OWNER_ANON,
 	    .flags = VM_FLAG_NONE,
 	};
-	if (!vmm_add_region(p->as, &stack_region))
+	if (!VmmAddRegion(p->as, &stack_region))
 		goto fail_kstack;
 
-	vm_region_t stack_guard = {
+	VirtMemRegion stack_guard = {
 	    .vaddr_start = USER_STACK_GUARD_VA,
 	    .size = PAGE_SIZE,
 	    .prot = 0,
@@ -443,7 +443,7 @@ ProcessObj *ProcessCreate(const char *name)
 	    .owner = VM_OWNER_NONE,
 	    .flags = VM_FLAG_GUARD,
 	};
-	if (!vmm_add_region(p->as, &stack_guard))
+	if (!VmmAddRegion(p->as, &stack_guard))
 		goto fail_kstack;
 
 	/* Initialize the page via the kernel alias (kernel VA). The main
@@ -516,7 +516,7 @@ ProcessObj *ProcessCreate(const char *name)
 fail_kstack:
 	if (p->as)
 		arch_mmu_free_user_pages(p->as);
-	as_destroy(p->as);
+	AddrspaceDestroy(p->as);
 	memset(p->tcb_page_pa, 0, sizeof(p->tcb_page_pa));
 fail_handles:
 	if (nametable_port) {
@@ -764,9 +764,9 @@ void ProcessKill(ProcessObj *p, const int exit_status)
 			// then drop this handle's reference (frees the object at zero).
 			if (shm) {
 				if (entry->mapped_va != 0)
-					vmm_remove_region(p->as, entry->mapped_va,
+					VmmRemoveRegion(p->as, entry->mapped_va,
 							  shm->page_count * PAGE_SIZE);
-				shmem_drop_ref(shm);
+				ShmemDropReference(shm);
 			}
 			entry->shm = NULL;
 			entry->mapped_va = 0;
@@ -895,9 +895,9 @@ void ProcessDestroy(ProcessObj *p)
 			break;
 		if (entry->type == HANDLE_SHM && entry->shm) {
 			if (p->as && entry->mapped_va != 0)
-				vmm_remove_region(p->as, entry->mapped_va,
+				VmmRemoveRegion(p->as, entry->mapped_va,
 						  entry->shm->page_count * PAGE_SIZE);
-			shmem_drop_ref(entry->shm);
+			ShmemDropReference(entry->shm);
 			entry->shm = NULL;
 			entry->mapped_va = 0;
 			entry->type = HANDLE_FREE;
@@ -905,7 +905,7 @@ void ProcessDestroy(ProcessObj *p)
 	}
 	if (p->as) {
 		arch_mmu_free_user_pages(p->as);
-		as_destroy(p->as);
+		AddrspaceDestroy(p->as);
 	}
 	handle_vec_destroy(&p->handle_table);
 	process_table[p->pid % MAX_PROCESSES] = NULL;

@@ -158,14 +158,14 @@ static void boot_program(const char *path, uint32_t flags)
         for (uint32_t i = 0; i < initrd_page_count; i++)
         {
             uint32_t page_pa = initrd_aligned_pa + i * PAGE_SIZE;
-            if (!vmm_map_user_page(process->as, page_pa, process->mmap_va_next, PROT_READ))
+            if (!VmmMapUserPage(process->as, page_pa, process->mmap_va_next, PROT_READ))
             {
                 KERROR("Failed to map initrd page %u for %s", i, path);
                 return;
             }
             process->mmap_va_next += PAGE_SIZE;
         }
-        vmm_add_region(process->as, &(vm_region_t){
+        VmmAddRegion(process->as, &(VirtMemRegion){
                                         .vaddr_start = initrd_real_va,
                                         .size = g_initrd_size,
                                         .prot = PROT_READ | VM_PROT_USER,

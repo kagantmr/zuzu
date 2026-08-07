@@ -22,7 +22,7 @@
 #include <string.h>
 
 kernel_layout_t kernel_layout;
-extern addrspace_t *g_kernel_as;
+extern AddressSpace *g_kernel_as;
 #define SECTION_NORMAL_DESC 0x11C0Eu
 
 #define LOG_FMT(fmt) "(early) " fmt
@@ -152,11 +152,11 @@ _Noreturn void early(void *dtb_ptr)
     pmu_init();
 
     KINFO("early: dropping identity map");
-    vmm_remove_identity_mapping();
+    VmmRemoveIdentityMapping();
     KINFO("early: ttbr1 split");
-    arch_mmu_init_ttbr1(vmm_get_kernel_as());
+    arch_mmu_init_ttbr1(VmmGetKernelAddrspace());
     KINFO("early: kernel lockdown");
-    vmm_lockdown_kernel_sections();
+    VmmLockdownKernelMapping();
 
     KINFO("early: irq + platform devices");
     arch_irq_init();

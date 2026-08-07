@@ -12,7 +12,7 @@
 
 extern Thread *current_thread;
 
-void shmem_drop_ref(ShmCap *shm)
+void ShmemDropReference(ShmCap *shm)
 {
     if (!shm)
         return;
