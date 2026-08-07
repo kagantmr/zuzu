@@ -522,7 +522,7 @@ static void panic_print_process(void)
         if (p->as) {
             snprintf(line, sizeof(line),
                      "asid=%u  ttbr0=0x%08X",
-                     p->as->asid_token.asid, (uint32_t)p->as->ttbr_pa);
+                     p->as->asid_token.asid, (uint32_t)p->as->pt_root_physaddr);
             panic_line(line);
         }
 

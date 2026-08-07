@@ -101,7 +101,7 @@ void ThreadDestroy(Thread *thread)
 	if (owner && owner->thread == thread)
 		owner->thread = NULL;
 	if (thread->kernel_stack_top)
-		kstack_free(thread->kernel_stack_top);
+		KernelStackFree(thread->kernel_stack_top);
 	kfree(thread);
 }
 
@@ -116,7 +116,7 @@ Thread *ThreadCreate(ProcessObj *owner_process)
 
 	memset(thread, 0, sizeof(*thread));
 
-	thread->kernel_stack_top = kstack_alloc();
+	thread->kernel_stack_top = KernelStackAlloc();
 	if (!thread->kernel_stack_top) {
 		kfree(thread);
 		return NULL;
@@ -124,7 +124,7 @@ Thread *ThreadCreate(ProcessObj *owner_process)
 
 	thread->tid = thread_register(thread);
 	if (thread->tid == 0) {
-		kstack_free(thread->kernel_stack_top);
+		KernelStackFree(thread->kernel_stack_top);
 		kfree(thread);
 		return NULL;
 	}

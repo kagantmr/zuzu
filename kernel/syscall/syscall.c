@@ -92,7 +92,7 @@ bool CopyToUser(void *restrict uaddr, const void *restrict kaddr, size_t len)
         return false;
     if (!validate_user_ptr((uintptr_t)uaddr, len))
         return false;
-    if (!fault_in_pages(current_thread->owner_process->as, (uintptr_t)uaddr, len, true))
+    if (!VmmCheckUserFault(current_thread->owner_process->as, (uintptr_t)uaddr, len, true))
         return false;
 
     memcpy(uaddr, kaddr, len);
@@ -107,7 +107,7 @@ bool CopyFromUser(void *restrict kaddr, const void *restrict uaddr, size_t len)
         return false;
     if (!validate_user_ptr((uintptr_t)uaddr, len))
         return false;
-    if (!fault_in_pages(current_thread->owner_process->as, (uintptr_t)uaddr, len, false))
+    if (!VmmCheckUserFault(current_thread->owner_process->as, (uintptr_t)uaddr, len, false))
         return false;
 
     memcpy(kaddr, uaddr, len);

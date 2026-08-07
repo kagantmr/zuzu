@@ -73,7 +73,7 @@ void arch_platform_init_devices(void) {
 
     // UART (PL011): present on vexpress and the Pi 4 alike.
     if ((d = find_dev(PL011_COMPAT))) {
-        void *uart_va = ioremap((uintptr_t)d->phys, (size_t)d->size);
+        void *uart_va = IoRemap((uintptr_t)d->phys, (size_t)d->size);
         if (!uart_va) panic("Failed to ioremap UART");
 
         uart_set_driver(&pl011_driver, (uintptr_t)uart_va);
@@ -92,8 +92,8 @@ void arch_platform_init_devices(void) {
             s_c = d->size2;
         }
 
-        void *gicd_va = ioremap(gicd, s_d);
-        void *gicc_va = ioremap(gicc ? gicc : gicd, s_c ? s_c : s_d);
+        void *gicd_va = IoRemap(gicd, s_d);
+        void *gicc_va = IoRemap(gicc ? gicc : gicd, s_c ? s_c : s_d);
 
         KDEBUG("GICv2 (GICD) re-mapped to %p", gicd_va);
 
@@ -104,12 +104,12 @@ void arch_platform_init_devices(void) {
 
     // RTC (PL031): optional. The Pi 4 has no RTC, so its absence is fine.
     if ((d = find_dev(PL031_COMPAT))) {
-        void *rtc_va = ioremap((uintptr_t)d->phys, (size_t)d->size);
+        void *rtc_va = IoRemap((uintptr_t)d->phys, (size_t)d->size);
         if (rtc_va) {
             rtc_epoch = *((volatile uint32_t *)rtc_va);
             if (rtc_epoch == 0)
                 KDEBUG("Oops! RTC epoch is 0 (check for anomalies)");
-            iounmap(rtc_va);
+            IoUnmap(rtc_va);
         }
     } else {
         KDEBUG("No RTC found in DTB, epoch is 0");

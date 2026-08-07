@@ -18,17 +18,17 @@ _Static_assert(MAX_KSTACKS % 64 == 0,
 /* The kstack VA window must fit under IOREMAP_END. */
 _Static_assert(KSTACK_REGION_TOP <= IOREMAP_END, "kstack region overflows the ioremap window");
 
-static inline int kstack_slot_from_top(VirtAddr stack_top)
+static inline int KernelStackSlotFromTop(VirtAddr stack_top)
 {
 	return (int)((stack_top - KSTACK_REGION_BASE) / KSTACK_SLOT_SIZE) - 1;
 }
 
-static inline VirtAddr kstack_top_from_slot(int slot)
+static inline VirtAddr KernelStackTopFromSlot(int slot)
 {
 	return KSTACK_REGION_BASE + (slot + 1) * KSTACK_SLOT_SIZE;
 }
 
-VirtAddr kstack_alloc(void);
-void kstack_free(VirtAddr stack_top);
+VirtAddr KernelStackAlloc(void);
+void KernelStackFree(VirtAddr stack_top);
 
 #endif

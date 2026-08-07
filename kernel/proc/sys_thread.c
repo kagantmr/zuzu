@@ -47,7 +47,7 @@ void SysTMake(CpuState *frame)
             return;
         }
         VirtAddr page_va = owner->tcb_page_va + tcb_page * PAGE_SIZE;
-        if (!vmm_map_user_page(owner->as, new_frame, page_va,
+        if (!VmmMapUserPage(owner->as, new_frame, page_va,
                                VM_PROT_USER | PROT_READ | PROT_WRITE)) {
             PmmFreeFrame(new_frame);
             TcbSlotFree(owner, slot_idx);

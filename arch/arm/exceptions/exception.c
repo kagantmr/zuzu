@@ -211,10 +211,10 @@ static void dump_registers(ExceptionFrame *frame)
 // immediately without killing/panicking).
 static bool __hot try_demand_page(ProcessObj *current_process, uint32_t dfar, uint32_t dfsr)
 {
-    addrspace_t *as = current_process->as;
+    AddressSpace *as = current_process->as;
     for (uint32_t i = 0; i < as->regions.len; i++)
     {
-        vm_region_t *r = vm_region_vec_get(&as->regions, i);
+        VirtMemRegion *r = vm_region_vec_get(&as->regions, i);
         /* Not hinted: which region matches depends on where in the
          * regions list the faulting VA happens to fall, which varies by
          * workload -- no honest "usual" answer here. */
@@ -229,7 +229,7 @@ static bool __hot try_demand_page(ProcessObj *current_process, uint32_t dfar, ui
             if (unlikely((dfsr & (1 << 11)) && !(r->prot & PROT_WRITE)))
                 continue;
             uintptr_t page_va = align_down(dfar, PAGE_SIZE);
-            return vmm_fault_page(as, r, page_va);
+            return VmmPageFaultHandle(as, r, page_va);
         }
     }
     return false;

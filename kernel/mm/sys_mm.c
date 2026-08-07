@@ -63,7 +63,7 @@ static int32_t memmap_anon(ProcessObj *restrict p, VirtAddr hint, size_t size, M
     if (hint == 0)
         p->mmap_va_next += size;
 
-    vm_region_t region = {
+    VirtMemRegion region = {
         .vaddr_start = va,
         .paddr_start = 0, // filled in at fault time, page by page
         .size = size,
@@ -73,7 +73,7 @@ static int32_t memmap_anon(ProcessObj *restrict p, VirtAddr hint, size_t size, M
         .flags = VM_FLAG_NONE,
     };
 
-    if (!vmm_add_region(p->as, &region))
+    if (!VmmAddRegion(p->as, &region))
     {
         if (hint == 0)
             p->mmap_va_next -= size; // roll back cursor on failure
@@ -110,7 +110,7 @@ static int32_t memmap_shm(ProcessObj *restrict p, HandleEntry *restrict e, MemPr
     const VirtAddr va_base = p->mmap_va_next;
     p->mmap_va_next += size;
 
-    vm_region_t region = {
+    VirtMemRegion region = {
         .vaddr_start = va_base,
         .size = size,
         .prot = prot | VM_PROT_USER,
@@ -118,7 +118,7 @@ static int32_t memmap_shm(ProcessObj *restrict p, HandleEntry *restrict e, MemPr
         .owner = VM_OWNER_SHARED,
         .backing = shmem_obj,
         .flags = VM_FLAG_NONE};
-    if (!vmm_add_region(p->as, &region))
+    if (!VmmAddRegion(p->as, &region))
     {
         p->mmap_va_next -= size;
         return ERR_NOMEM; // OOM
@@ -158,12 +158,12 @@ static int32_t memmap_dev(ProcessObj *restrict p, HandleEntry *restrict e, MemPr
         return ERR_NOMEM;
     }
 
-    if (!vmm_map_range(p->as, user_va, cap->phys_base, size_aligned,
+    if (!VmmMapRange(p->as, user_va, cap->phys_base, size_aligned,
                        prot | VM_PROT_USER,
                        VM_MEM_DEVICE, VM_OWNER_NONE, VM_FLAG_NONE))
         return ERR_NOMEM;
 
-    if (!vmm_add_region(p->as, &(vm_region_t){
+    if (!VmmAddRegion(p->as, &(VirtMemRegion){
                                    .vaddr_start = user_va,
                                    .paddr_start = cap->phys_base,
                                    .backing = cap,
@@ -174,7 +174,7 @@ static int32_t memmap_dev(ProcessObj *restrict p, HandleEntry *restrict e, MemPr
                                    .flags = VM_FLAG_NONE,
                                }))
     {
-        vmm_unmap_range(p->as, user_va, size_aligned);
+        VmmUnmapRange(p->as, user_va, size_aligned);
         return ERR_NOMEM;
     }
 
@@ -263,12 +263,12 @@ void SysMemUnmap(CpuState *frame)
 {
         const VirtAddr va = (VirtAddr)(*arch_reg(frame, 0));
 
-        addrspace_t *as = current_thread->owner_process->as;
+        AddressSpace *as = current_thread->owner_process->as;
 
         // Find the region, it must be an exact match to prevent partial-unmap attacks
-        vm_region_t *found = NULL;
+        VirtMemRegion *found = NULL;
         for (uint32_t i = 0; i < as->regions.len; i++) {
-            vm_region_t *r = vm_region_vec_get(&as->regions, i);
+            VirtMemRegion *r = vm_region_vec_get(&as->regions, i);
             if (r && r->vaddr_start == va) { found = r; break; }   /* base match only */
         }
         if (!found) { (*arch_reg(frame, 0)) = ERR_BADARG; return; }
@@ -284,7 +284,7 @@ void SysMemUnmap(CpuState *frame)
                 // (demand paging means not every page in the region may be mapped)
                 for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE)
                 {
-                    uintptr_t pa = arch_mmu_translate(as->ttbr_pa, va + offset);
+                    uintptr_t pa = arch_mmu_translate(as->pt_root_physaddr, va + offset);
                     if (pa != 0) PmmFreeFrame(pa);
                 }
             } break;
@@ -313,7 +313,7 @@ void SysMemUnmap(CpuState *frame)
                 break;
         }
         // Remove from region list and unmap page table entries
-        if (!vmm_remove_region(as, va, size))
+        if (!VmmRemoveRegion(as, va, size))
         {
             panic("SysMemUnmap: found region @ 0x%08X (size=%u) but could not remove it",
                   (unsigned)va, (unsigned)size);
@@ -420,7 +420,7 @@ void SysAsInject(CpuState *frame)
                 return;
             }
 
-            vm_region_t region = {
+            VirtMemRegion region = {
                 .vaddr_start = kargs.DestVAddr,
                 .size = kargs.len,
                 .prot = kargs.prot | VM_PROT_USER,
@@ -428,7 +428,7 @@ void SysAsInject(CpuState *frame)
                 .owner = VM_OWNER_ANON,
                 .flags = VM_FLAG_NONE,
             };
-            if (!vmm_add_region(target->as, &region))
+            if (!VmmAddRegion(target->as, &region))
             {
                 (*arch_reg(frame, 0)) = ERR_NOMEM;
                 return;
@@ -455,10 +455,10 @@ void SysAsInject(CpuState *frame)
          * (e.g. the demand-paged stack reserve), fill pages in place instead
          * of creating a new region. Injected prot must not exceed the
          * region's prot. */
-        vm_region_t *enclosing = NULL;
+        VirtMemRegion *enclosing = NULL;
         for (uint32_t i = 0; i < target->as->regions.len; i++)
         {
-            vm_region_t *r = vm_region_vec_get(&target->as->regions, i);
+            VirtMemRegion *r = vm_region_vec_get(&target->as->regions, i);
             /* dst must lie inside the region before computing the remaining
              * space, or the unsigned subtraction below wraps for regions
              * that end before DestVAddr. */
@@ -501,7 +501,7 @@ void SysAsInject(CpuState *frame)
             /* Inside an existing region a page may already be faulted in;
              * write into it instead of remapping. page_addrs[] tracks only
              * pages we allocated ourselves, for rollback. */
-            PhysAddr page = enclosing ? arch_mmu_translate(target->as->ttbr_pa, dst_page) : 0;
+            PhysAddr page = enclosing ? arch_mmu_translate(target->as->pt_root_physaddr, dst_page) : 0;
             bool fresh = (page == 0);
             if (fresh)
             {
@@ -532,7 +532,7 @@ void SysAsInject(CpuState *frame)
                        PAGE_SIZE - bytes_to_copy);
             }
 
-            if (fresh && !vmm_map_user_page(target->as, page, dst_page, kargs.prot))
+            if (fresh && !VmmMapUserPage(target->as, page, dst_page, kargs.prot))
             {
                 PmmFreeFrame(page);
                 page_addrs[i] = 0;
@@ -547,7 +547,7 @@ void SysAsInject(CpuState *frame)
 
         if (!enclosing)
         {
-            vm_region_t region = {
+            VirtMemRegion region = {
                 .vaddr_start = kargs.DestVAddr,
                 .size = page_count * PAGE_SIZE,
                 .prot = kargs.prot | VM_PROT_USER,
@@ -555,7 +555,7 @@ void SysAsInject(CpuState *frame)
                 .owner = VM_OWNER_ANON,
                 .flags = VM_FLAG_NONE,
             };
-            if (!vmm_add_region(target->as, &region))
+            if (!VmmAddRegion(target->as, &region))
                 goto rollback_nomem;
         }
 
@@ -569,7 +569,7 @@ void SysAsInject(CpuState *frame)
         {
             if (page_addrs[j])
             {
-                vmm_unmap_range(target->as, kargs.DestVAddr + j * PAGE_SIZE, PAGE_SIZE);
+                VmmUnmapRange(target->as, kargs.DestVAddr + j * PAGE_SIZE, PAGE_SIZE);
                 PmmFreeFrame(page_addrs[j]);
             }
         }
@@ -584,7 +584,7 @@ void SysAsInject(CpuState *frame)
         {
             if (page_addrs[j])
             {
-                vmm_unmap_range(target->as, kargs.DestVAddr + j * PAGE_SIZE, PAGE_SIZE);
+                VmmUnmapRange(target->as, kargs.DestVAddr + j * PAGE_SIZE, PAGE_SIZE);
                 PmmFreeFrame(page_addrs[j]);
             }
         }
@@ -630,7 +630,7 @@ void SysMemProtect(CpuState *frame)
         }
 
         // The region must exist; use vmm_protect_range to change its protections
-        if (!vmm_protect_range(current_thread->owner_process->as, va, size, new_prot | VM_PROT_USER))
+        if (!VmmProtectPage(current_thread->owner_process->as, va, size, new_prot | VM_PROT_USER))
         {
             (*arch_reg(frame, 0)) = ERR_BADARG;
             return;

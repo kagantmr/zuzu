@@ -22,29 +22,29 @@
  * @param type ADDRSPACE_USER or ADDRSPACE_KERNEL.
  * @return Physical address of the table, or 0 on failure.
  */
-uintptr_t arch_mmu_create_tables(addrspace_type_t type);
+uintptr_t arch_mmu_create_tables(AsType type);
 
 /** @brief Free page tables for an address space. */
-void arch_mmu_free_tables(uintptr_t ttbr_pa, addrspace_type_t type);
+void arch_mmu_free_tables(uintptr_t ttbr_pa, AsType type);
 
 /**
  * @brief Map [va, va+size) -> [pa, pa+size) with the given protection/memtype.
  * @return true on success, false on allocation failure or bad arguments.
  */
-bool arch_mmu_map(addrspace_t *as, uintptr_t va, uintptr_t pa, size_t size,
-                  MemProt prot, vm_memtype_t memtype);
+bool arch_mmu_map(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size,
+                  MemProt prot, VirtMemType memtype);
 
 /** @brief Remove mappings over [va, va+size). */
-bool arch_mmu_unmap(addrspace_t *as, uintptr_t va, size_t size);
+bool arch_mmu_unmap(AddressSpace *as, uintptr_t va, size_t size);
 
 /** @brief Change protection over [va, va+size). */
-bool arch_mmu_protect(addrspace_t *as, uintptr_t va, size_t size, MemProt prot);
+bool arch_mmu_protect(AddressSpace *as, uintptr_t va, size_t size, MemProt prot);
 
 /** @brief Enable the MMU using the given (kernel) address space. */
-void arch_mmu_enable(addrspace_t *as);
+void arch_mmu_enable(AddressSpace *as);
 
 /** @brief Switch the active user address space (context switch). */
-void arch_mmu_switch(addrspace_t *as);
+void arch_mmu_switch(AddressSpace *as);
 
 /** @brief Invalidate the entire TLB. */
 void arch_mmu_flush_tlb(void);
@@ -62,13 +62,13 @@ void arch_mmu_flush_tlb_va(uintptr_t va);
 uintptr_t arch_mmu_translate(uintptr_t ttbr_pa, uintptr_t va);
 
 /** @brief Unmap a single page. */
-bool arch_mmu_unmap_page(addrspace_t *as, uintptr_t va);
+bool arch_mmu_unmap_page(AddressSpace *as, uintptr_t va);
 
 /** @brief Free all user-mapped backing pages, leaving page tables intact. */
-void arch_mmu_free_user_pages(addrspace_t *as);
+void arch_mmu_free_user_pages(AddressSpace *as);
 
 /** @brief Initialize the kernel translation base (TTBR1 on ARM) for user mode. */
-void arch_mmu_init_ttbr1(addrspace_t *as);
+void arch_mmu_init_ttbr1(AddressSpace *as);
 
 /** @brief Issue memory/instruction barriers after MMU state changes. */
 void arch_mmu_barrier(void);

@@ -12,7 +12,7 @@
 static uint64_t bitmap[KSTACK_WORDS];
 static PhysAddr slot_pa[MAX_KSTACKS];
 
-VirtAddr kstack_alloc(void)
+VirtAddr KernelStackAlloc(void)
 {
 	/* Scan word by word for a free bit, exactly like TcbSlotAlloc. */
 	for (uint32_t w = 0; w < KSTACK_WORDS; w++) {
@@ -29,10 +29,10 @@ VirtAddr kstack_alloc(void)
 			return 0;
 		slot_pa[slot] = page_pa;
 
-		VirtAddr slot_va = kstack_top_from_slot((int)slot) - KSTACK_SLOT_SIZE;
+		VirtAddr slot_va = KernelStackTopFromSlot((int)slot) - KSTACK_SLOT_SIZE;
 
 		/* Map the usable stack page (above the guard). */
-		bool result = vmm_map_range(vmm_get_kernel_as(), slot_va + KSTACK_GUARD_SIZE,
+		bool result = VmmMapRange(VmmGetKernelAddrspace(), slot_va + KSTACK_GUARD_SIZE,
 					    page_pa, PAGE_SIZE, PROT_READ | PROT_WRITE,
 					    VM_MEM_NORMAL, VM_OWNER_ANON, VM_FLAG_NONE);
 		if (!result) {
@@ -42,11 +42,11 @@ VirtAddr kstack_alloc(void)
 		}
 
 		/* Unmap the guard page (may have been part of a section mapping). */
-		if (!arch_mmu_unmap_page(vmm_get_kernel_as(), slot_va)) {
+		if (!arch_mmu_unmap_page(VmmGetKernelAddrspace(), slot_va)) {
 			/* If translation is already absent, the guard page is already in
 			 * the desired state and this is not an allocation failure. */
-			if (arch_mmu_translate(vmm_get_kernel_as()->ttbr_pa, slot_va) != 0) {
-				vmm_unmap_range(vmm_get_kernel_as(), slot_va + KSTACK_GUARD_SIZE,
+			if (arch_mmu_translate(VmmGetKernelAddrspace()->pt_root_physaddr, slot_va) != 0) {
+				VmmUnmapRange(VmmGetKernelAddrspace(), slot_va + KSTACK_GUARD_SIZE,
 						PAGE_SIZE);
 				PmmFreeFrame(page_pa);
 				slot_pa[slot] = 0;
@@ -57,16 +57,16 @@ VirtAddr kstack_alloc(void)
 		arch_mmu_barrier();
 
 		bitmap[w] |= (1ULL << bit);
-		return kstack_top_from_slot((int)slot);
+		return KernelStackTopFromSlot((int)slot);
 	}
 	return 0; /* pool exhausted */
 }
 
-void kstack_free(VirtAddr stack_top)
+void KernelStackFree(VirtAddr stack_top)
 {
-	int slot = kstack_slot_from_top(stack_top);
-	VirtAddr mapped_va = kstack_top_from_slot(slot) - KSTACK_SLOT_SIZE + KSTACK_GUARD_SIZE;
-	vmm_unmap_range(vmm_get_kernel_as(), mapped_va, PAGE_SIZE);
+	int slot = KernelStackSlotFromTop(stack_top);
+	VirtAddr mapped_va = KernelStackTopFromSlot(slot) - KSTACK_SLOT_SIZE + KSTACK_GUARD_SIZE;
+	VmmUnmapRange(VmmGetKernelAddrspace(), mapped_va, PAGE_SIZE);
 	PmmFreeFrame(slot_pa[slot]);
 	slot_pa[slot] = 0;
 	bitmap[slot / 64] &= ~(1ULL << (slot % 64));

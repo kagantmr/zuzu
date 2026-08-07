@@ -1034,7 +1034,7 @@ void SysWaitAny(CpuState *frame)
 	}
 
 	if (!validate_user_ptr(result_ptr, sizeof(WaitanyResult)) ||
-	    !fault_in_pages(current_thread->owner_process->as, result_ptr, sizeof(WaitanyResult),
+	    !VmmCheckUserFault(current_thread->owner_process->as, result_ptr, sizeof(WaitanyResult),
 			    true)) {
 		(*arch_reg(frame, 0)) = ERR_BADPTR;
 		return;

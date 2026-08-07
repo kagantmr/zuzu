@@ -14,8 +14,8 @@
 #include <stdlib.h>
 
 // Track kernel and current address spaces
-static addrspace_t* g_kernel_as = NULL;
-static addrspace_t* g_current_addrspace = NULL;
+static AddressSpace* g_kernel_as = NULL;
+static AddressSpace* g_current_addrspace = NULL;
 static bool g_mmu_enabled = false;
 extern kernel_layout_t kernel_layout;
 extern uint32_t early_l1[]; 
@@ -27,7 +27,7 @@ extern uint32_t early_l1[];
 static int region_contains_va(const void *key, const void *elem)
 {
     uintptr_t va = *(const uintptr_t *)key;
-    const vm_region_t *r = (const vm_region_t *)elem;
+    const VirtMemRegion *r = (const VirtMemRegion *)elem;
     if (va < r->vaddr_start)       return -1;
     if (va - r->vaddr_start >= r->size) return  1;
     return 0;
@@ -36,13 +36,13 @@ static int region_contains_va(const void *key, const void *elem)
 static int region_cmp_start(const void *key, const void *elem)
 {
     uintptr_t va = *(const uintptr_t *)key;
-    const vm_region_t *r = (const vm_region_t *)elem;
+    const VirtMemRegion *r = (const VirtMemRegion *)elem;
     if (va < r->vaddr_start) return -1;
     if (va > r->vaddr_start) return  1;
     return 0;
 }
 
-addrspace_t* vmm_get_kernel_as(void) {
+AddressSpace* VmmGetKernelAddrspace(void) {
     return g_kernel_as;
 }
 
@@ -63,20 +63,20 @@ typedef struct {
 } ioremap_entry_t;
 static ioremap_entry_t ioremap_table[IOREMAP_MAX_ENTRIES];
 
-static vm_region_t *vmm_find_region(addrspace_t *as, uintptr_t va)
+static VirtMemRegion *vmm_find_region(AddressSpace *as, uintptr_t va)
 {
     if (!as || as->regions.len == 0)
         return NULL;
     return bsearch(&va, as->regions.data, as->regions.len,
-                   sizeof(vm_region_t), region_contains_va);
+                   sizeof(VirtMemRegion), region_contains_va);
 }
 
-bool vmm_fault_page(addrspace_t *restrict as, vm_region_t *restrict r, uintptr_t page_va)
+bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, uintptr_t page_va)
 {
     if (!as || !r)
         return false;
 
-    if (arch_mmu_translate(as->ttbr_pa, page_va) != 0)
+    if (arch_mmu_translate(as->pt_root_physaddr, page_va) != 0)
         return true;
 
     if (r->memtype == VM_MEM_DEVICE)
@@ -113,7 +113,7 @@ bool vmm_fault_page(addrspace_t *restrict as, vm_region_t *restrict r, uintptr_t
         return false;
     }
 
-    if (!vmm_map_range(as, page_va, new_pa, PAGE_SIZE,
+    if (!VmmMapRange(as, page_va, new_pa, PAGE_SIZE,
                        r->prot, r->memtype, r->owner, r->flags)) {
         if (allocated_new) {
             if (r->owner == VM_OWNER_SHARED && r->backing) {
@@ -133,16 +133,16 @@ bool vmm_fault_page(addrspace_t *restrict as, vm_region_t *restrict r, uintptr_t
 }
 
 
-addrspace_t* as_create(addrspace_type_t type) {
-    addrspace_t* as = kmalloc(sizeof(addrspace_t));
+AddressSpace* AddrspaceCreate(AsType type) {
+    AddressSpace* as = kmalloc(sizeof(AddressSpace));
     if (!as) {
         return NULL;
     }
     as->asid_token = (asid_token_t){0};
 
-    as->ttbr_pa = arch_mmu_create_tables(type);
+    as->pt_root_physaddr = arch_mmu_create_tables(type);
 
-    if (as->ttbr_pa == 0) {
+    if (as->pt_root_physaddr == 0) {
         kfree(as);
         return NULL;
     }
@@ -150,7 +150,7 @@ addrspace_t* as_create(addrspace_type_t type) {
     if (type == ADDRSPACE_USER) {
         as->asid_token = asid_alloc();
         if (as->asid_token.asid == 0) {
-            arch_mmu_free_tables(as->ttbr_pa, type);
+            arch_mmu_free_tables(as->pt_root_physaddr, type);
             kfree(as);
             return NULL;
         }
@@ -161,7 +161,7 @@ addrspace_t* as_create(addrspace_type_t type) {
             arch_mmu_flush_tlb_asid(as->asid_token.asid);
             asid_free(as->asid_token);
         }
-        arch_mmu_free_tables(as->ttbr_pa, type);
+        arch_mmu_free_tables(as->pt_root_physaddr, type);
         kfree(as);
         return NULL;
     }
@@ -170,8 +170,8 @@ addrspace_t* as_create(addrspace_type_t type) {
     return as;
 }
 
-void vmm_lockdown_kernel_sections(void) {
-    VirtAddr *l1 = (VirtAddr *)PA_TO_VA(g_kernel_as->ttbr_pa);
+void VmmLockdownKernelMapping(void) {
+    VirtAddr *l1 = (VirtAddr *)PA_TO_VA(g_kernel_as->pt_root_physaddr);
  
     size_t start_idx = kernel_layout.kernel_start_va >> 20;
     size_t end_idx   = (kernel_layout.kernel_end_va + (1 << 20) - 1) >> 20;
@@ -217,7 +217,7 @@ void vmm_lockdown_kernel_sections(void) {
     arch_mmu_barrier();
 }
 
-void as_destroy(addrspace_t* as) {
+void AddrspaceDestroy(AddressSpace* as) {
     if (!as) return;
     if (as == g_current_addrspace) {
         panic("Attempted to destroy active addrspace %p (asid=%u)",
@@ -232,13 +232,13 @@ void as_destroy(addrspace_t* as) {
     }
 
     for (uint32_t i = 0; i < as->regions.len; i++) {
-        vm_region_t *r = vm_region_vec_get(&as->regions, i);
-        vmm_unmap_range(as, r->vaddr_start, r->size);
+        VirtMemRegion *r = vm_region_vec_get(&as->regions, i);
+        VmmUnmapRange(as, r->vaddr_start, r->size);
     }
     
     
     // Free page tables
-    arch_mmu_free_tables(as->ttbr_pa, as->type);
+    arch_mmu_free_tables(as->pt_root_physaddr, as->type);
     
     // Destroy regions vector
     vm_region_vec_destroy(&as->regions);
@@ -247,7 +247,7 @@ void as_destroy(addrspace_t* as) {
     kfree(as);
 }
 
-bool vmm_add_region(addrspace_t *restrict as, const vm_region_t *restrict region) {
+bool VmmAddRegion(AddressSpace *restrict as, const VirtMemRegion *restrict region) {
     if (!as || !region || region->size == 0) return false;
 
     VirtAddr new_start = region->vaddr_start;
@@ -264,7 +264,7 @@ bool vmm_add_region(addrspace_t *restrict as, const vm_region_t *restrict region
     uint32_t ins = lo;
 
     if (ins > 0) {
-        vm_region_t *left = &as->regions.data[ins - 1];
+        VirtMemRegion *left = &as->regions.data[ins - 1];
         if (left->vaddr_start + left->size > new_start)
             return false;
     }
@@ -279,35 +279,35 @@ bool vmm_add_region(addrspace_t *restrict as, const vm_region_t *restrict region
     }
 
     memmove(&as->regions.data[ins + 1], &as->regions.data[ins],
-            (as->regions.len - ins) * sizeof(vm_region_t));
+            (as->regions.len - ins) * sizeof(VirtMemRegion));
     as->regions.data[ins] = *region;
     as->regions.len++;
     return true;
 }
 
-bool vmm_remove_region(addrspace_t *as, uintptr_t vaddr, size_t size) {
+bool VmmRemoveRegion(AddressSpace *as, uintptr_t vaddr, size_t size) {
     if (!as || size == 0) return false;
 
-    vm_region_t *r = bsearch(&vaddr, as->regions.data, as->regions.len,
-                              sizeof(vm_region_t), region_cmp_start);
+    VirtMemRegion *r = bsearch(&vaddr, as->regions.data, as->regions.len,
+                              sizeof(VirtMemRegion), region_cmp_start);
     if (!r || r->size != size)
         return false;
 
-    vmm_unmap_range(as, vaddr, size);
+    VmmUnmapRange(as, vaddr, size);
 
     uint32_t idx = (uint32_t)(r - as->regions.data);
-    memmove(r, r + 1, (as->regions.len - idx - 1) * sizeof(vm_region_t));
+    memmove(r, r + 1, (as->regions.len - idx - 1) * sizeof(VirtMemRegion));
     as->regions.len--;
     return true;
 }
 
-bool vmm_build_page_tables(addrspace_t* as) {
+bool VmmBuildPts(AddressSpace* as) {
     if (!as) return false;
 
     for (uint32_t i = 0; i < as->regions.len; i++) {
-        vm_region_t *r = vm_region_vec_get(&as->regions, i);
+        VirtMemRegion *r = vm_region_vec_get(&as->regions, i);
         if (r->flags & VM_FLAG_GUARD) continue;
-        if (!vmm_map_range(as, r->vaddr_start, r->paddr_start, r->size,
+        if (!VmmMapRange(as, r->vaddr_start, r->paddr_start, r->size,
                         r->prot, r->memtype, r->owner, r->flags))
             return false;
     }
@@ -317,7 +317,7 @@ bool vmm_build_page_tables(addrspace_t* as) {
 
 void vmm_bootstrap(void) {
     if (!g_kernel_as) {
-        g_kernel_as = kmalloc(sizeof(addrspace_t));
+        g_kernel_as = kmalloc(sizeof(AddressSpace));
         if (!g_kernel_as) {
             panic("Failed to create kernel address space");
             __builtin_unreachable();
@@ -334,7 +334,7 @@ void vmm_bootstrap(void) {
         memcpy(new_l1_va, early_l1_va, l1_bytes); // copy early table
 
         // assign and switch TTBR to the new table
-        g_kernel_as->ttbr_pa = new_l1_pa;
+        g_kernel_as->pt_root_physaddr = new_l1_pa;
 
         // arch_mmu_switch installs the new TTBR
         arch_mmu_switch(g_kernel_as);
@@ -353,7 +353,7 @@ void vmm_bootstrap(void) {
         PhysAddr map_pa_end = (ram_pa_base + ram_size + SECTION_SIZE - 1) & ~(SECTION_SIZE - 1);
         size_t map_size = map_pa_end - map_pa_start;
 
-        vm_region_t kernel_region = {
+        VirtMemRegion kernel_region = {
             .vaddr_start = PA_TO_VA(map_pa_start),
             .paddr_start = map_pa_start,
             .size = map_size,
@@ -362,10 +362,10 @@ void vmm_bootstrap(void) {
             .owner = VM_OWNER_SHARED,
             .flags = VM_FLAG_GLOBAL | VM_FLAG_PINNED,
         };
-        vmm_add_region(g_kernel_as, &kernel_region);
+        VmmAddRegion(g_kernel_as, &kernel_region);
 
         // Record identity mapping so vmm_remove_identity_mapping can find it
-        vm_region_t identity_region = {
+        VirtMemRegion identity_region = {
             .vaddr_start = map_pa_start,
             .paddr_start = map_pa_start,
             .size = map_size,
@@ -374,13 +374,13 @@ void vmm_bootstrap(void) {
             .owner = VM_OWNER_NONE,
             .flags = VM_FLAG_NONE,
         };
-        vmm_add_region(g_kernel_as, &identity_region);
+        VmmAddRegion(g_kernel_as, &identity_region);
 
         //KDEBUG("VMM: Bootstrap complete (adopted early_l1)");
     }
 }
 
-void vmm_remove_identity_mapping(void) {
+void VmmRemoveIdentityMapping(void) {
     if (!g_kernel_as) {
         return;
     }
@@ -400,23 +400,23 @@ void vmm_remove_identity_mapping(void) {
         arch_relocate_stacks(offset);
     }
 
-    vmm_unmap_range(g_kernel_as, map_pa_start, map_size);
+    VmmUnmapRange(g_kernel_as, map_pa_start, map_size);
     KDEBUG("identity unmapped, pruning region");
 
-    vm_region_t *r = bsearch(&map_pa_start, g_kernel_as->regions.data,
+    VirtMemRegion *r = bsearch(&map_pa_start, g_kernel_as->regions.data,
                               g_kernel_as->regions.len,
-                              sizeof(vm_region_t), region_cmp_start);
+                              sizeof(VirtMemRegion), region_cmp_start);
     if (r) {
         uint32_t idx = (uint32_t)(r - g_kernel_as->regions.data);
         memmove(r, r + 1,
-                (g_kernel_as->regions.len - idx - 1) * sizeof(vm_region_t));
+                (g_kernel_as->regions.len - idx - 1) * sizeof(VirtMemRegion));
         g_kernel_as->regions.len--;
     }
 
     KDEBUG("identity mapping removed, running pure higher-half");
 }
 
-void vmm_activate(addrspace_t* as) {
+void VmmActivateAddrspace(AddressSpace* as) {
     if (!as) return;
 
     if (!g_mmu_enabled) {
@@ -429,8 +429,8 @@ void vmm_activate(addrspace_t* as) {
     g_current_addrspace = as;
 }
 
-bool vmm_map_range(addrspace_t* as, VirtAddr va, PhysAddr pa, size_t size,
-                   MemProt prot, vm_memtype_t memtype, vm_owner_t owner, vm_flags_t flags) {
+bool VmmMapRange(AddressSpace* as, VirtAddr va, PhysAddr pa, size_t size,
+                   MemProt prot, VirtMemType memtype, VirtMemOwner owner, VirtMemFlags flags) {
     if (!as) return false;
     if (size == 0) return false;
     if ((va % 0x1000) != 0) return false;
@@ -457,7 +457,7 @@ bool vmm_map_range(addrspace_t* as, VirtAddr va, PhysAddr pa, size_t size,
     return arch_mmu_map(as, va, pa, size, prot, memtype);
 }
 
-bool vmm_unmap_range(addrspace_t* as, VirtAddr va, size_t size) {
+bool VmmUnmapRange(AddressSpace* as, VirtAddr va, size_t size) {
     if (!as) return false;
     if (size == 0) return false;
     if ((va % PAGE_SIZE) != 0) return false;    // page granularity
@@ -466,11 +466,11 @@ bool vmm_unmap_range(addrspace_t* as, VirtAddr va, size_t size) {
     return arch_mmu_unmap(as, va, size);
 }
 
-bool vmm_protect_range(addrspace_t *as, VirtAddr va, size_t size, MemProt new_prot)
+bool VmmProtectPage(AddressSpace *as, VirtAddr va, size_t size, MemProt new_prot)
 {
     if (!as || size == 0) return false;
 
-    vm_region_t *r = vmm_find_region(as, va);
+    VirtMemRegion *r = vmm_find_region(as, va);
     if (!r) return false;                          /* no region → refuse */
     if (va + size > r->vaddr_start + r->size)      /* must not span regions */
         return false;
@@ -486,13 +486,13 @@ bool vmm_protect_range(addrspace_t *as, VirtAddr va, size_t size, MemProt new_pr
     return true;
 }
 
-bool vmm_map_user_page(addrspace_t* as, PhysAddr pa, VirtAddr va, MemProt prot) {
+bool VmmMapUserPage(AddressSpace* as, PhysAddr pa, VirtAddr va, MemProt prot) {
     if (!as) return false;
     if (as->type != ADDRSPACE_USER) return false;
     if ((pa % PAGE_SIZE) != 0) return false;
     if ((va % PAGE_SIZE) != 0) return false;
 
-    return vmm_map_range(as, va, pa, PAGE_SIZE, prot | VM_PROT_USER,
+    return VmmMapRange(as, va, pa, PAGE_SIZE, prot | VM_PROT_USER,
                          VM_MEM_NORMAL, VM_OWNER_SHARED, VM_FLAG_NONE);
 }
 
@@ -516,7 +516,7 @@ static int bitmap_find_free(uint32_t n) {
     return -1;
 }
 
-bool fault_in_pages(addrspace_t *as, VirtAddr va, size_t len, bool write) {
+bool VmmCheckUserFault(AddressSpace *as, VirtAddr va, size_t len, bool write) {
     if (!as)
         return false;
     if (len == 0)
@@ -532,12 +532,12 @@ bool fault_in_pages(addrspace_t *as, VirtAddr va, size_t len, bool write) {
     const uintptr_t end_va = align_up(end, PAGE_SIZE);
 
     while (page_va < end_va) {
-        if (arch_mmu_translate(as->ttbr_pa, page_va) != 0) {
+        if (arch_mmu_translate(as->pt_root_physaddr, page_va) != 0) {
             // Already mapped — nothing to do
             page_va += PAGE_SIZE;
             continue;
         }
-        vm_region_t *r = vmm_find_region(as, page_va);
+        VirtMemRegion *r = vmm_find_region(as, page_va);
         if (!r)
             return false;
         if (r->flags & VM_FLAG_GUARD)
@@ -547,7 +547,7 @@ bool fault_in_pages(addrspace_t *as, VirtAddr va, size_t len, bool write) {
         if (write && !(r->prot & PROT_WRITE))
             return false;
 
-        if (!vmm_fault_page(as, r, page_va))
+        if (!VmmPageFaultHandle(as, r, page_va))
             return false;
 
         page_va += PAGE_SIZE;
@@ -594,7 +594,7 @@ static ioremap_entry_t* ioremap_alloc_entry(void) {
     return NULL;
 }
 
-void* ioremap(PhysAddr phys, size_t size) {
+void* IoRemap(PhysAddr phys, size_t size) {
     if (size == 0) {
         return NULL;
     }
@@ -618,7 +618,7 @@ void* ioremap(PhysAddr phys, size_t size) {
 
     uintptr_t va = IOREMAP_BASE + (slot * SECTION_SIZE);
 
-    if (!vmm_map_range(g_kernel_as, va, phys_aligned, aligned_size, 
+    if (!VmmMapRange(g_kernel_as, va, phys_aligned, aligned_size, 
                        PROT_READ | PROT_WRITE,
                        VM_MEM_DEVICE, VM_OWNER_NONE,
                        VM_FLAG_PINNED | VM_FLAG_GLOBAL)) {
@@ -629,7 +629,7 @@ void* ioremap(PhysAddr phys, size_t size) {
 
     ioremap_entry_t* entry = ioremap_alloc_entry();
     if (!entry) {
-        vmm_unmap_range(g_kernel_as, va, aligned_size);
+        VmmUnmapRange(g_kernel_as, va, aligned_size);
         bitmap_free(slot, sections_needed);
         return NULL;
     }
@@ -640,7 +640,7 @@ void* ioremap(PhysAddr phys, size_t size) {
     return (void*)(va + offset);
 }
 
-void iounmap(void* va) {
+void IoUnmap(void* va) {
     if (!va) {
         return;
     }
@@ -652,7 +652,7 @@ void iounmap(void* va) {
     }
 
     size_t size = entry->sections * SECTION_SIZE;
-    vmm_unmap_range(g_kernel_as, entry->va, size);
+    VmmUnmapRange(g_kernel_as, entry->va, size);
 
     uint32_t slot_start = (entry->va - IOREMAP_BASE) / SECTION_SIZE;
     bitmap_free(slot_start, entry->sections);
