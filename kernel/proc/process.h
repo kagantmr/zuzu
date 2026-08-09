@@ -10,6 +10,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <zuzu/tls.h>
+#include <zuzu/types.h>
 
 #define MAX_PROCESSES 512
 
@@ -39,7 +40,8 @@ typedef struct process {
 	ListNode sibling_node;
     PhysAddr tcb_page_pa[MAX_TCB_PAGES];    /* 37 entries */
     VirtAddr tcb_page_va;                   /* singular: contiguous window base */
-    uint64_t tcb_slot_bitmap[4];            /* 256 bits */
+    uint64_t tcb_slot_bitmap[4];	        /* 256 bits */
+    Label label;
 } ProcessObj;
 
 _Static_assert(TCB_MAX_SLOTS <= 256, "tcb_slot_bitmap is 256 bits wide");

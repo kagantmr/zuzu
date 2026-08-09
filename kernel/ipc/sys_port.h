@@ -9,5 +9,6 @@ void SysPortCreate(CpuState *frame);
 void SysDestroy(CpuState *frame);
 void SysGrant(CpuState *frame);
 void SysStamp(CpuState *frame);
+void SysSetLabel(CpuState *frame);
 
 #endif

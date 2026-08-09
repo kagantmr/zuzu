@@ -1,11 +1,13 @@
 #include "sys_port.h"
-#include "sys_notif.h"
-#include "kernel/syscall/syscall.h"
-#include "port.h"
-#include "kernel/sched/sched.h"
 #include "handle.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/proc/process.h"
+#include "kernel/proc/thread.h"
+#include "kernel/sched/sched.h"
+#include "kernel/syscall/syscall.h"
+#include "port.h"
+#include "sys_notif.h"
+#include "zuzu/err.h"
 
 #define LOG_FMT(fmt) "(sys_port) " fmt
 #include "core/log.h"
@@ -164,7 +166,8 @@ void SysDestroy(CpuState *frame)
         (*arch_reg(frame, 0)) = 0;
     }
     break;
-    case HANDLE_NTFN: {
+    case HANDLE_NTFN:
+    {
         Ntfn *ntf = entry->ntfn;
         if (!ntf)
         {
@@ -196,7 +199,6 @@ void SysDestroy(CpuState *frame)
             NtfnWakeWaiter(ntf, slot, ERR_DEAD, 0);
         }
 
-
         ntf->alive = false;
 
         entry->ntfn = NULL;
@@ -211,7 +213,8 @@ void SysDestroy(CpuState *frame)
         (*arch_reg(frame, 0)) = 0;
     }
     break;
-    case HANDLE_SHM: {
+    case HANDLE_SHM:
+    {
         // Mapped handles must go through detach/memunmap so the region is torn down
         if (entry->mapped_va != 0)
         {
@@ -228,7 +231,8 @@ void SysDestroy(CpuState *frame)
         (*arch_reg(frame, 0)) = 0;
     }
     break;
-    case HANDLE_DEVICE: {
+    case HANDLE_DEVICE:
+    {
         DeviceCap *dev = entry->dev;
         if (!dev)
         {
@@ -256,14 +260,17 @@ void SysDestroy(CpuState *frame)
         (*arch_reg(frame, 0)) = 0;
     }
     break;
-    case HANDLE_TASK: {
+    case HANDLE_TASK:
+    {
         ProcessObj *task = entry->task;
-        if (!task) {
+        if (!task)
+        {
             (*arch_reg(frame, 0)) = ERR_BADHANDLE;
             return;
         }
         // Refuse while the process is still alive; it must exit or be pkill'd first.
-        if (task->thread && task->thread->state != ZOMBIE) {
+        if (task->thread && task->thread->state != ZOMBIE)
+        {
             (*arch_reg(frame, 0)) = ERR_BUSY;
             return;
         }
@@ -275,7 +282,8 @@ void SysDestroy(CpuState *frame)
         (*arch_reg(frame, 0)) = 0;
     }
     break;
-    default: {
+    default:
+    {
         (*arch_reg(frame, 0)) = ERR_BADTYPE;
     }
     }
@@ -293,7 +301,8 @@ void SysGrant(CpuState *frame)
     Pid pid = (*arch_reg(frame, 1));
 
     // Validate handle
-    HandleEntry *src = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle);
+    HandleEntry *src =
+        handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle);
     if (!src || src->type == HANDLE_FREE)
     {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE;
@@ -379,9 +388,9 @@ void SysGrant(CpuState *frame)
 
     if (dst->type == HANDLE_SHM)
     {
-        dst->mapped_va = 0;         // the grantee has its own (unmapped) handle
+        dst->mapped_va = 0; // the grantee has its own (unmapped) handle
         if (dst->shm)
-            dst->shm->ref_count++;  // new handle reference to the same object
+            dst->shm->ref_count++; // new handle reference to the same object
     }
     dst->grantable = can_regrant_received_handle(grantee);
     (*arch_reg(frame, 0)) = (Handle)slot;
@@ -389,53 +398,115 @@ void SysGrant(CpuState *frame)
 
 void SysStamp(CpuState *frame)
 {
-    Handle   src_handle = (*arch_reg(frame, 0));
-    uint32_t value      = (*arch_reg(frame, 1));
+    Handle src_handle = (*arch_reg(frame, 0));
+    uint32_t value = (*arch_reg(frame, 1));
 
     // 1. value != 0  (0 is the reserved unmarked sentinel)
-    if (value == MARKER_NONE) {
+    if (value == MARKER_NONE)
+    {
         (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
 
     // 2. resolve the source handle
     HandleEntry *src = handle_vec_get(&current_thread->owner_process->handle_table, src_handle);
-    if (!src) {
+    if (!src)
+    {
         (*arch_reg(frame, 0)) = ERR_BADHANDLE;
         return;
     }
 
     // 3. must be an endpoint cap
-    if (src->type != HANDLE_PORT) {
+    if (src->type != HANDLE_PORT)
+    {
         (*arch_reg(frame, 0)) = ERR_BADTYPE;
         return;
     }
-    if (!src->port || !src->port->alive) {
-        (*arch_reg(frame, 0)) = ERR_DEAD;   // or ERR_BADHANDLE for !port
+    if (!src->port || !src->port->alive)
+    {
+        (*arch_reg(frame, 0)) = ERR_DEAD; // or ERR_BADHANDLE for !port
         return;
     }
 
     // 4. IMMUTABILITY: can only stamp an UNMARKERD cap
-    if (src->marker != MARKER_NONE) {
-        (*arch_reg(frame, 0)) = ERR_DUPLICATE;   // already markerd, won't re-stamp
+    if (src->marker != MARKER_NONE)
+    {
+        (*arch_reg(frame, 0)) = ERR_DUPLICATE; // already markerd, won't re-stamp
         return;
     }
 
     // 5. allocate a new slot in the CALLER's table
     int slot = handle_vec_find_free(&current_thread->owner_process->handle_table);
-    if (slot < 0) {
+    if (slot < 0)
+    {
         (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
     }
 
     // 6. new entry: SAME endpoint, marker = value
     HandleEntry *ne = handle_vec_get(&current_thread->owner_process->handle_table, slot);
-    ne->type      = HANDLE_PORT;
-    ne->port        = src->port;      // same underlying port object
-    ne->marker     = value;        // the stamp
-    ne->grantable = src->grantable;   // inherit grantability (see note)
+    ne->type = HANDLE_PORT;
+    ne->port = src->port;           // same underlying port object
+    ne->marker = value;             // the stamp
+    ne->grantable = src->grantable; // inherit grantability (see note)
     src->port->ref_count++;
 
     // 7. return the new handle; src is UNTOUCHED (non-consuming)
     (*arch_reg(frame, 0)) = slot;
+}
+
+void SysSetLabel(CpuState *frame)
+{
+    Handle src_handle = (*arch_reg(frame, 0));
+    Label value = (*arch_reg(frame, 1));
+
+    if (!(current_thread->owner_process->flags & PROC_FLAG_INIT))
+    {
+        (*arch_reg(frame, 0)) = ERR_NOPERM;
+        return;
+    }
+
+    // 1. value != 0  (0 is the reserved unmarked sentinel)
+    if (value == LABEL_NONE)
+    {
+        (*arch_reg(frame, 0)) = ERR_BADARG;
+        return;
+    }
+
+    HandleEntry *src = handle_vec_get(&current_thread->owner_process->handle_table, src_handle);
+    if (!src)
+    {
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+        return;
+    }
+
+    if (src->type != HANDLE_TASK)
+    {
+        (*arch_reg(frame, 0)) = ERR_BADTYPE;
+        return;
+    }
+
+    ProcessObj *target = src->task;
+
+    if (!target || !target->thread)
+    {
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+        return;
+    }
+
+    if (target->thread->state != FROZEN)
+    {
+        (*arch_reg(frame, 0)) = ERR_BUSY;
+        return;
+    }
+
+    if (src->task->label != LABEL_NONE)
+    {
+        (*arch_reg(frame, 0)) = ERR_DUPLICATE;
+        return;
+    }
+
+    target->label = value;
+
+    (*arch_reg(frame, 0)) = ZUZU_OK;
 }
