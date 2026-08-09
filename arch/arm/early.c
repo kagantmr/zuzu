@@ -12,7 +12,7 @@
 #include "kernel/layout.h"
 #include "kernel/mm/pmm.h"
 #include "kernel/kmain.h"
-#include "kernel/dtb/dtb.h"
+#include "kernel/dev/fdt_wrappers.h"
 #include "kernel/boot_info.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/vmm.h"
@@ -85,8 +85,8 @@ _Noreturn void early(void *dtb_ptr)
     kprintf_init(arch_early_putc);
 
     KINFO("early: dtb pa=%p", dtb_ptr);
-    dtb_init((const void *)PA_TO_VA((PhysAddr)dtb_ptr));
-    KINFO("early: dtb parsed (%u bytes)", dtb_total_size());
+    FdtInit((const void *)PA_TO_VA((PhysAddr)dtb_ptr));
+    KINFO("early: dtb parsed (%u bytes)", FdtTotalSize());
 
     kernel_layout.dtb_start_pa = (PhysAddr)dtb_ptr;
     kernel_layout.kernel_start_pa = (PhysAddr)_kernel_phys_start;
@@ -95,7 +95,7 @@ _Noreturn void early(void *dtb_ptr)
     kernel_layout.stack_top_pa = (PhysAddr)__svc_stack_top__;
 
     uint64_t ram_base, ram_size;
-    if (!dtb_get_reg("/memory", 0, &ram_base, &ram_size))
+    if (!FdtGetReg("/memory", 0, &ram_base, &ram_size))
         panic("Failed to find memory cell in DTB");
 
     /* The kernel linear map covers [PA_TO_VA(ram_base), IOREMAP_BASE); RAM
@@ -127,10 +127,10 @@ _Noreturn void early(void *dtb_ptr)
 
     /* boot_info_init_from_dtb() copies everything out of the DTB and shuts
      * down libfdt access, so capture what the cleanup below needs first. */
-    PhysAddr dtb_end_pa = kernel_layout.dtb_start_pa + dtb_total_size();
+    PhysAddr dtb_end_pa = kernel_layout.dtb_start_pa + FdtTotalSize();
     struct { uint64_t addr, size; } rsv[8];
     uint32_t rsv_cnt = 0;
-    while (rsv_cnt < 8 && dtb_get_memrsv(rsv_cnt, &rsv[rsv_cnt].addr, &rsv[rsv_cnt].size))
+    while (rsv_cnt < 8 && FdtGetReservedMem(rsv_cnt, &rsv[rsv_cnt].addr, &rsv[rsv_cnt].size))
         rsv_cnt++;
 
     boot_info_init_from_dtb();

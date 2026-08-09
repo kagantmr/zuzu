@@ -12,7 +12,7 @@
 // vexpress vs "arm,gic-400" on the Pi 4), but they do not make this file
 // board-independent.
 
-#include "kernel/dtb/dtb.h"
+#include "kernel/dev/fdt_wrappers.h"
 #include "kernel/mm/vmm.h"
 #include "kernel/boot_info.h"
 #include "drivers/uart/pl011.h"
@@ -50,8 +50,8 @@ void arch_early_putc(char c) {
 
 // Find the first DTB device whose compatible string matches any entry in the
 // NULL-terminated list. Returns the device, or NULL if none matched.
-static const dtb_dev_t *find_dev(const char *const *compat) {
-    const dtb_dev_t *arr = boot_info_dev_array();
+static const FdtDevice *find_dev(const char *const *compat) {
+    const FdtDevice *arr = boot_info_dev_array();
     uint32_t cnt = boot_info_dev_count();
     for (uint32_t i = 0; i < cnt; i++) {
         for (const char *const *c = compat; *c; c++) {
@@ -69,7 +69,7 @@ static const char *const GIC_COMPAT[]   = { "arm,gic-400", "arm,cortex-a15-gic",
 static const char *const PL031_COMPAT[] = { "arm,pl031", NULL };
 
 void arch_platform_init_devices(void) {
-    const dtb_dev_t *d;
+    const FdtDevice *d;
 
     // UART (PL011): present on vexpress and the Pi 4 alike.
     if ((d = find_dev(PL011_COMPAT))) {

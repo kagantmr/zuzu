@@ -19,7 +19,6 @@
 
 extern Thread *current_thread;
 extern ListHead sleep_queue;
-extern Port *nametable_port;
 extern ProcessObj *process_table[MAX_PROCESSES];
 
 #define LOG_FMT(fmt) "(sys_task) " fmt

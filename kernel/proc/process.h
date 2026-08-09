@@ -89,7 +89,8 @@ ProcessObj *ProcessFindByPid(Pid pid);
 ProcessObj *ProcessCreate(const char *name);
 void ProcessWakeJoiners(Tid tid, Err exit_status);
 ProcessObj *KernelProcessLoad(const void *elf_data, size_t elf_size, const char *name,
-			      const char *argbuf, size_t argbuf_len, uint32_t argc);
+			      const char *argbuf, size_t argbuf_len, uint32_t argc,
+			      bool leave_frozen);
 void ProcessKill(ProcessObj *p, int exit_status);
 void ProcessSetParent(ProcessObj *child, ProcessObj *parent);
 ProcessObj *ProcessFindChildFromPid(ProcessObj *parent, Pid pid);

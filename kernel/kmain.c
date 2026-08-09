@@ -28,6 +28,7 @@
 #include "kernel/syspage.h"
 #include "zuzu/types.h"
 #include <snprintf.h>
+#include <zuzu/boot.h>
 #include <zuzu/user_layout.h>
 
 
@@ -49,6 +50,7 @@ static inline uint32_t read_be32(const void *p)
 }
 
 static ProcessObj *s_devmgr;
+static ProcessObj *s_sysd;
 
 /* Set once in kmain(): the bootloader-supplied initrd (DTB /chosen), as a
  * physical address + size. */
@@ -99,7 +101,14 @@ static void inject_device_cap(const char *compatible,
     entry->dev = cap;
 }
 
-static void boot_program(const char *path, uint32_t flags)
+/* devmgr's entry point/sp as computed by a parse-only peek at its ELF
+ * before sysd is created (see kmain()) — passed through so sysd's own argv
+ * (PROC_FLAG_INIT branch below) can carry them. devmgr is loaded for real,
+ * FROZEN, later in the same boot_programs[] loop; sysd later reads these
+ * same values back out of its argv to SysKickstart devmgr once it has
+ * granted it what it needs. */
+static void boot_program(const char *path, uint32_t flags,
+                          uint32_t devmgr_entry_peek, uint32_t devmgr_sp_peek)
 {
     const void *elf_data;
     size_t elf_size;
@@ -139,12 +148,16 @@ static void boot_program(const char *path, uint32_t flags)
         off += snprintf(argbuf + off, sizeof(argbuf) - off, "%s", path) + 1;
         off += snprintf(argbuf + off, sizeof(argbuf) - off, "%#x", (unsigned)initrd_real_va) + 1;
         off += snprintf(argbuf + off, sizeof(argbuf) - off, "%u", (unsigned)g_initrd_size) + 1;
+        off += snprintf(argbuf + off, sizeof(argbuf) - off, "%#x", (unsigned)devmgr_entry_peek) + 1;
+        off += snprintf(argbuf + off, sizeof(argbuf) - off, "%#x", (unsigned)devmgr_sp_peek) + 1;
         argbuf_len = off;
-        argc = 3;
+        argc = 5;
     }
 
+    bool leave_frozen = (flags & PROC_FLAG_DEVMGR) != 0;
     ProcessObj *process = KernelProcessLoad(elf_data, elf_size, path,
-                                       argc ? argbuf : NULL, argbuf_len, argc);
+                                       argc ? argbuf : NULL, argbuf_len, argc,
+                                       leave_frozen);
     if (!process)
     {
         KERROR("Failed to create boot program %s", path);
@@ -155,6 +168,7 @@ static void boot_program(const char *path, uint32_t flags)
 
     if (flags & PROC_FLAG_INIT)
     {
+        s_sysd = process;
         for (uint32_t i = 0; i < initrd_page_count; i++)
         {
             uint32_t page_pa = initrd_aligned_pa + i * PAGE_SIZE;
@@ -180,7 +194,12 @@ static void boot_program(const char *path, uint32_t flags)
         boot_info_foreach_dev(inject_device_cap);
     }
 
-    sched_add(process->thread);
+    /* devmgr stays FROZEN until sysd grants it what it needs and
+     * SysKickstarts it (which calls sched_add itself once it flips the
+     * thread to READY) — scheduling it now would run it with no valid
+     * trap frame. */
+    if (!leave_frozen)
+        sched_add(process->thread);
 }
 
 static uint32_t parse_flag_string(const char *flag_str)
@@ -374,16 +393,66 @@ _Noreturn void kmain(void)
         panic("Boot manifest not found");
     }
 
+    /* Peek devmgr's ELF entry point (header-only: elf_validate, no
+     * ProcessCreate/segment loading/address space) before sysd is created,
+     * so sysd's own argv can carry it — sysd will later SysKickstart devmgr
+     * with these same values once it has granted devmgr what it needs.
+     * devmgr is still loaded for real, FROZEN, in its normal manifest-order
+     * position in the loop below, so PID assignment (sysd=1, devmgr=2) is
+     * unaffected — only this header peek happens early. devmgr's stack
+     * pointer is always the fixed USR_SP constant: KernelProcessLoad only
+     * deviates from it to lay out argv, and devmgr never receives one. */
+    uint32_t devmgr_entry_peek = 0;
+    uint32_t devmgr_sp_peek = 0;
+    for (size_t i = 0; i < boot_count; i++)
+    {
+        if (!(boot_programs[i].flags & PROC_FLAG_DEVMGR))
+            continue;
+        const void *devmgr_elf_data;
+        size_t devmgr_elf_size;
+        if (!initrd_find(boot_programs[i].path, &devmgr_elf_data, &devmgr_elf_size))
+        {
+            KERROR("Missing boot program %s", boot_programs[i].path);
+            break;
+        }
+        devmgr_entry_peek = elf_validate(devmgr_elf_data, devmgr_elf_size);
+        devmgr_sp_peek = USR_SP;
+        break;
+    }
+
     // Spawn boot programs from manifest
     for (size_t i = 0; i < boot_count; i++)
     {
         if (boot_programs[i].flags & (PROC_FLAG_INIT | PROC_FLAG_DEVMGR))
-            boot_program(boot_programs[i].path, boot_programs[i].flags);
+            boot_program(boot_programs[i].path, boot_programs[i].flags,
+                         devmgr_entry_peek, devmgr_sp_peek);
         if (boot_programs[i].owns_path && boot_programs[i].path)
         {
             kfree((void *)boot_programs[i].path);
             boot_programs[i].path = NULL;
             boot_programs[i].owns_path = 0;
+        }
+    }
+
+    /* Seed devmgr's task handle directly into sysd's own handle table, at a
+     * fixed slot sysd's userspace code already knows by constant, so sysd
+     * can SysKickstart devmgr without ever calling SysPSpawn for it. Same
+     * direct-write pattern as inject_device_cap() above, just at a fixed
+     * slot instead of one returned by handle_vec_find_free. */
+    if (s_sysd && s_devmgr)
+    {
+        HandleEntry *devmgr_task_slot =
+            handle_vec_get(&s_sysd->handle_table, SYSD_DEVMGR_TASK_HANDLE_SLOT);
+        if (devmgr_task_slot)
+        {
+            devmgr_task_slot->type = HANDLE_TASK;
+            devmgr_task_slot->grantable = true;
+            devmgr_task_slot->mapped_va = 0;
+            devmgr_task_slot->task = s_devmgr;
+        }
+        else
+        {
+            KERROR("Failed to seed devmgr task handle into sysd's handle table");
         }
     }
 

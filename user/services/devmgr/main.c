@@ -88,7 +88,18 @@ static void HandleDevRequest(Handle reply_handle, Pid sender_pid,
     ZuzuMsgReply(reply_handle, ERR_NOENT, 0, 0);
 }
 
-int DevmgrSetup(void)
+/* devmgr is kernel-loaded, not spawned through the ordinary SysPSpawn
+ * chain, so it never inherits anything at slot 0 — sysd grants it a
+ * handle to nameserver's port before kickstart and hands over the two
+ * values needed to use it, in the kickstart r0/r1 registers crt0 forwards
+ * straight into main()'s argc/argv (see arch/arm/crt0.S: _start moves r0,
+ * r1 verbatim into main's first two args, no wrapping/reinterpretation).
+ * nameserver_port_slot is which slot in OUR OWN table the granted port
+ * landed at — not necessarily 0, since device-cap injection at boot may
+ * already occupy slot 0 by the time sysd's grant runs. nameserver_pid is
+ * nameserver's real (dynamically-assigned) pid, needed as the ZuzuGrant
+ * target below since there's no compile-time constant for it. */
+int DevmgrSetup(Handle nameserver_port_slot, Pid nameserver_pid)
 {
     //build_class_table();
     port = ZuzuPortCreate();
@@ -97,20 +108,23 @@ int DevmgrSetup(void)
         return port;
     }
 
-    Handle ntSlot = ZuzuGrant(port, NAMETABLE_PID);
+    Handle ntSlot = ZuzuGrant(port, nameserver_pid);
     if (ntSlot < 0)
     {
         return ntSlot;
     }
 
-    (void)ZuzuMsgSend(NT_PORT, NT_REGISTER, nt_pack(DEVMGR_NAME), (MsgWord)ntSlot);
+    (void)ZuzuMsgSend(nameserver_port_slot, NT_REGISTER, nt_pack(DEVMGR_NAME), (MsgWord)ntSlot);
 
     return ZUZU_OK;
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
-    if (DevmgrSetup() != 0)
+    Handle nameserver_port_slot = (Handle)argc;
+    Pid nameserver_pid = (Pid)(uintptr_t)argv;
+
+    if (DevmgrSetup(nameserver_port_slot, nameserver_pid) != 0)
     {
         return ERR_SYSDOWN;
     }

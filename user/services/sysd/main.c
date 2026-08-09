@@ -9,9 +9,9 @@
 #include <zuzu/fsd_client.h>
 #include <zuzu/lmsg.h>
 #include <zuzu/channel.h>
+#include <zuzu/boot.h>
 #include <cpio.h>
 #include <malloc.h>
-#include "den.h"
 #include <zuzu/syspage.h>
 #include <zuzu/err.h>
 #include <zuzu/version.h>
@@ -19,122 +19,94 @@
 #include "exec.h"
 #include "sysd.h"
 
-static nt_entry_t registry_table[SYSD_MAX_SERVICES];
+/* sysd's own "sys" service port (SYSD_EXEC only, see nt_handle_msg below) —
+ * distinct from nameserver_port, which is nameserver's serving port that
+ * sysd created and placed in its own handle slot 0 (see nameserver_setup).
+ * Every child sysd spawns thereafter inherits that slot automatically
+ * (SysPSpawn copies handle slots 0-3 from parent to child). */
 static int32_t port;
+static int32_t nameserver_port;
+static uint32_t nameserver_pid;
 static fsd_conn_t fsd_conn;
 
+/* sysd is spawned via KernelProcessLoad, not the ordinary SysPSpawn chain,
+ * so it never inherits anything at slot 0 — it creates nameserver's port
+ * itself and must place it there by construction: this must be the very
+ * first handle-allocating call sysd ever makes (ZuzuPortCreate lands at the
+ * first free slot, which is 0 only if nothing else has allocated yet). */
+static int nameserver_setup(const void *initrd, uint32_t initrd_sz)
+{
+    nameserver_port = ZuzuPortCreate();
+    if (nameserver_port < 0)
+        return nameserver_port;
 
-static inline void name_u32_to_chars(uint32_t name_u32, char out[SYSD_NAME_LEN]) {
-    out[0] = (char)((name_u32 >> 0)  & 0xFF);
-    out[1] = (char)((name_u32 >> 8)  & 0xFF);
-    out[2] = (char)((name_u32 >> 16) & 0xFF);
-    out[3] = (char)((name_u32 >> 24) & 0xFF);
+    const void *elf_data;
+    size_t elf_size;
+    if (!cpio_find(initrd, initrd_sz, NAMESERVER_ELF_PATH, &elf_data, &elf_size))
+        return ERR_NOENT;
+
+    TSpawnResult ts = ZuzuPSpawn("nameserver");
+    if (ts.taskHandle < 0)
+        return ts.taskHandle;
+    nameserver_pid = (uint32_t)ts.pid;
+
+    /* Pre-kickstart grant, same as any other spawned child — nameserver's
+     * table is still empty (FROZEN, hasn't executed a single instruction),
+     * so this lands at its own slot 0 too. */
+    if (ZuzuGrant(nameserver_port, (Pid)nameserver_pid) < 0)
+        return ERR_NOPERM;
+
+    ExecReply reply;
+    if (exec_inject((uint32_t)ts.taskHandle, elf_data, elf_size, NULL, 0, 0, &reply) != 0)
+        return EXEC_EBADELF;
+
+    ZuzuKickstart(ts.taskHandle, reply.entry, reply.sp, reply.argc, reply.argv_va);
+    return ZUZU_OK;
 }
 
-static int name_equals_u32(const char name[SYSD_NAME_LEN], uint32_t name_u32) {
-    char tmp[SYSD_NAME_LEN];
-    name_u32_to_chars(name_u32, tmp);
-    for (int i = 0; i < SYSD_NAME_LEN; i++) {
-        if (name[i] != tmp[i]) return 0;
-    }
-    return 1;
-}
-
-int nt_setup(void) {
+/* sysd is an ordinary nameserver client for its own "sys" service, exactly
+ * like devmgr or any other registrant — no special-casing on nameserver's
+ * side. */
+static int sysd_register_self(void)
+{
     port = ZuzuPortCreate();
     if (port < 0)
         return port;
 
-    for (int i = 0; i < SYSD_MAX_SERVICES; i++) {
-        registry_table[i].handle = 0;
-        registry_table[i].pid = 0;
-        for (int j = 0; j < SYSD_NAME_LEN; j++) registry_table[i].name[j] = 0;
-    }
+    int32_t slot = ZuzuGrant(port, (Pid)nameserver_pid);
+    if (slot < 0)
+        return slot;
 
-    den_init(ZuzuGetPid());
-    return 0;
+    (void)ZuzuMsgSend((Handle)nameserver_port, NT_REGISTER, nt_pack(NT_NAME_SYS),
+                      (uint32_t)slot);
+    return ZUZU_OK;
 }
 
-static int nt_register(uint32_t name_u32, uint32_t handle,
-                       uint32_t pid, uint32_t den_id) {
-    if (handle == 0) return NT_REG_FAIL;
-
-    if (den_id != 0 && !den_has_member(den_id, pid))
-        return NT_REG_FAIL;
-
-    for (int i = 0; i < SYSD_MAX_SERVICES; i++) {
-        if (registry_table[i].handle != 0 &&
-            registry_table[i].den_id == den_id &&
-            name_equals_u32(registry_table[i].name, name_u32)) {
-            if (registry_table[i].pid == pid) {
-                registry_table[i].handle = handle;
-                return NT_REG_OK;
-            }
-            return NT_REG_FAIL;
-        }
-    }
-
-    for (int i = 0; i < SYSD_MAX_SERVICES; i++) {
-        if (registry_table[i].handle == 0) {
-            name_u32_to_chars(name_u32, registry_table[i].name);
-            registry_table[i].handle = handle;
-            registry_table[i].pid = pid;
-            registry_table[i].den_id = den_id;
-            return NT_REG_OK;
-        }
-    }
-
-    return NT_REG_FAIL;
+static int remote_nt_lookup(uint32_t name_u32, uint32_t *out_handle, uint32_t *out_pid) {
+    Message reply = ZuzuMsgCall((Handle)nameserver_port, NT_LOOKUP, name_u32, 0);
+    if ((int32_t)reply.w1 != NT_LU_OK)
+        return (int)reply.w1;
+    *out_handle = reply.w2;
+    *out_pid    = reply.w3;
+    return NT_LU_OK;
 }
 
-static int nt_lookup(uint32_t name_u32, uint32_t requester_pid,
-                     uint32_t *out_handle, uint32_t *out_pid) {
-    for (int i = 0; i < SYSD_MAX_SERVICES; i++) {
-        if (registry_table[i].handle == 0) continue;
-        if (!name_equals_u32(registry_table[i].name, name_u32)) continue;
-
-        uint32_t did = registry_table[i].den_id;
-        if (did != 0 && !den_has_member(did, requester_pid))
-            continue;
-
-        *out_handle = registry_table[i].handle;
-        *out_pid    = registry_table[i].pid;
-        return NT_LU_OK;
-    }
-    return NT_LU_NOMATCH;
+static int remote_nt_lookup_pid(uint32_t pid, uint32_t *out_handle, uint32_t *out_pid) {
+    Message reply = ZuzuMsgCall((Handle)nameserver_port, NT_LOOKUP_PID, pid, 0);
+    if ((int32_t)reply.w1 != NT_LU_OK)
+        return (int)reply.w1;
+    *out_handle = reply.w2;
+    *out_pid    = reply.w3;
+    return NT_LU_OK;
 }
 
-static int nt_lookup_pid(uint32_t pid, uint32_t requester_pid,
-                         uint32_t *out_handle, uint32_t *out_pid) {
-    for (int i = 0; i < SYSD_MAX_SERVICES; i++) {
-        if (registry_table[i].handle == 0) continue;
-        if (registry_table[i].pid != pid) continue;
-
-        uint32_t did = registry_table[i].den_id;
-        if (did != 0 && !den_has_member(did, requester_pid))
-            continue;
-
-        *out_handle = registry_table[i].handle;
-        *out_pid    = registry_table[i].pid;
-        return NT_LU_OK;
-    }
-    return NT_LU_NOMATCH;
+static void remote_scrub_pid(uint32_t pid) {
+    (void)ZuzuMsgSend((Handle)nameserver_port, NT_SCRUB_PID, 0, pid);
 }
 
-static void scrub_pid(uint32_t pid) {
-    for (int i = 0; i < SYSD_MAX_SERVICES; i++) {
-        if (registry_table[i].handle == 0) continue;
-        if (registry_table[i].pid != pid) continue;
-
-        registry_table[i].handle = 0;
-        registry_table[i].pid = 0;
-        registry_table[i].den_id = 0;
-        for (int j = 0; j < SYSD_NAME_LEN; j++)
-            registry_table[i].name[j] = 0;
-    }
-    den_scrub_pid(pid);
-}
-
+/* Only SYSD_EXEC arrives on sysd's own port now — NT_REGISTER/NT_LOOKUP go
+ * straight to nameserver (NT_PORT), which every process either inherits
+ * from sysd (SysPSpawn's slot 0-3 copy) or is granted directly (devmgr). */
 static void nt_handle_msg(Message msg) {
     if (msg.w2 >= sizeof(ExecRequestHeader) && msg.w2 <= LMSG_BUF_SIZE &&
         ((ExecRequestHeader *)LmsgBuf())->cmd == SYSD_EXEC) {
@@ -154,12 +126,10 @@ static void nt_handle_msg(Message msg) {
         const char *argbuf = (const char *)LmsgBuf() + path_off + path_bytes;
         size_t argbuf_len = req_len - path_off - path_bytes;
 
-        /* --- lazy-connect to fsd (once) --- *
-         * sysd is the nametable, so it resolves fsd from its own registry (a
-         * plain C call) rather than RPC-ing NT_PORT, which is itself. */
+        /* --- lazy-connect to fsd (once) --- */
         if (!fsd_conn.ready) {
             uint32_t fsd_h = 0, fsd_p = 0;
-            if (nt_lookup(nt_pack("fsd"), ZuzuGetPid(), &fsd_h, &fsd_p) != NT_LU_OK) {
+            if (remote_nt_lookup(nt_pack("fsd"), &fsd_h, &fsd_p) != NT_LU_OK) {
                 ZuzuMsgReply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
                 return;
             }
@@ -230,107 +200,6 @@ static void nt_handle_msg(Message msg) {
         (void)ChannelReply((Handle)reply_handle, LmsgBuf(), sizeof(reply));
         return;
     }
-
-    uint32_t sender = 0;
-    uint32_t reply_handle = 0;
-    uint32_t raw_command = 0;
-    uint32_t command = 0;
-    uint32_t den_id = 0;
-    uint32_t name_u32 = 0;
-    uint32_t arg = 0;
-    int needs_reply = 0;
-
-    uint32_t r2_cmd = msg.w2 & 0xFF;
-    if (r2_cmd == NT_LOOKUP || r2_cmd == DEN_CREATE ||
-        r2_cmd == DEN_INVITE || r2_cmd == DEN_KICK ||
-        r2_cmd == DEN_MYDEN || r2_cmd == DEN_MYDEN_COUNT ||
-        r2_cmd == DEN_MYDEN_AT || r2_cmd == SYSD_EXEC) {
-        reply_handle = (uint32_t)msg.w0;
-        sender       = msg.w1;
-        raw_command  = msg.w2;
-        name_u32     = msg.w3;
-        arg          = msg.w3;
-        needs_reply  = 1;
-    } else {
-        sender      = (uint32_t)msg.w0;
-        raw_command = msg.w1;
-        name_u32    = msg.w2;
-        arg         = msg.w3;
-        needs_reply = 0;
-    }
-
-    command = raw_command & 0xFF;
-    den_id  = raw_command >> 8;
-
-    int status = NT_BADCMD;
-    uint32_t out_handle = 0;
-    uint32_t out_pid = 0;
-
-    if (command == NT_REGISTER) {
-        status = nt_register(name_u32, arg, sender, den_id);
-
-    } else if (command == NT_LOOKUP) {
-        /* nt_lookup fills out_pid with the owner's pid; it rides back in w3. */
-        status = nt_lookup(name_u32, sender, &out_handle, &out_pid);
-        if (status == NT_LU_OK) {
-            int32_t slot = ZuzuGrant((int32_t)out_handle, (int32_t)sender);
-            if (slot < 0) {
-                status = NT_LU_NOMATCH;
-                out_handle = 0;
-                out_pid = 0;
-            } else {
-                out_handle = (uint32_t)slot;
-            }
-        }
-
-    } else if (command == DEN_CREATE) {
-        int rc = den_create(sender, name_u32);
-        if (rc >= 0) {
-            out_handle = (uint32_t)rc;
-            status = DEN_OK;
-        } else {
-            status = rc;
-        }
-
-    } else if (command == DEN_INVITE) {
-        uint32_t target_pid = name_u32;
-        if (!den_is_owner(den_id, sender))
-            status = DEN_FAIL;
-        else
-            status = den_add_member(den_id, target_pid);
-
-    } else if (command == DEN_KICK) {
-        uint32_t target_pid = name_u32;
-        if (!den_is_owner(den_id, sender))
-            status = DEN_FAIL;
-        else
-            status = den_remove_member(den_id, target_pid);
-
-    } else if (command == DEN_MYDEN) {
-        uint32_t did = den_first_for_pid(sender);
-        if (did != 0) {
-            out_handle = did;
-            out_pid = den_count_for_pid(sender);
-            status = DEN_OK;
-        } else {
-            status = DEN_FAIL;
-        }
-
-    } else if (command == DEN_MYDEN_COUNT) {
-        out_handle = den_count_for_pid(sender);
-        status = DEN_OK;
-
-    } else if (command == DEN_MYDEN_AT) {
-        uint32_t did = den_for_pid_at(sender, name_u32);
-        if (did != 0) {
-            out_handle = did;
-            status = DEN_OK;
-        } else {
-            status = DEN_FAIL;
-        }
-    }
-    if (needs_reply)
-        ZuzuMsgReply(reply_handle, (uint32_t)status, out_handle, out_pid);
 }
 
 #define MAX_BOOT_ENTRIES 16
@@ -446,7 +315,7 @@ static void reap_all(void)
 
     while ((pid = ZuzuWait(-1, &status, WNOHANG)) > 0) {
         boot_entry_t *e = find_boot_entry_by_pid((uint32_t)pid);
-        scrub_pid((uint32_t)pid);
+        remote_scrub_pid((uint32_t)pid);
 
         if (e && should_respawn(status))
             respawn_entry(e);
@@ -457,7 +326,7 @@ static bool wait_for_service(uint32_t name_u32) {
     uint32_t handle = 0, pid = 0, waited_ms = 0;
     Handle recv_handles[1] = {(Handle)port};
 
-    while (nt_lookup(name_u32, ZuzuGetPid(), &handle, &pid) != NT_LU_OK &&
+    while (remote_nt_lookup(name_u32, &handle, &pid) != NT_LU_OK &&
            waited_ms < WAIT_TIMEOUT_MS) {
         reap_all();
 
@@ -470,7 +339,7 @@ static bool wait_for_service(uint32_t name_u32) {
         waited_ms += WAIT_SLICE_MS;
     }
 
-    return nt_lookup(name_u32, ZuzuGetPid(), &handle, &pid) == NT_LU_OK;
+    return remote_nt_lookup(name_u32, &handle, &pid) == NT_LU_OK;
 }
 
 /* A process that dies with zombie children reparents them to us (see
@@ -499,12 +368,6 @@ static const char *basename(const char *path)
     for (const char *p = path; *p; p++)
         if (*p == '/') b = p + 1;
     return b;
-}
-
-static bool is_storage_member(const char *name)
-{
-    return strcmp(name, "pl181drv") == 0 ||
-           strcmp(name, "fsd")      == 0;
 }
 
 static bool role_is_kernel(const char *r, size_t len)
@@ -619,7 +482,7 @@ static bool wait_for_tty_registration(uint32_t pid,
     uint32_t waited_ms = 0;
     Handle recv_handles[1] = {(Handle)port};
 
-    while (nt_lookup_pid(pid, ZuzuGetPid(), out_handle, out_pid) != NT_LU_OK &&
+    while (remote_nt_lookup_pid(pid, out_handle, out_pid) != NT_LU_OK &&
            waited_ms < WAIT_TIMEOUT_MS) {
         reap_all();
 
@@ -632,7 +495,7 @@ static bool wait_for_tty_registration(uint32_t pid,
         waited_ms += WAIT_SLICE_MS;
     }
 
-    return nt_lookup_pid(pid, ZuzuGetPid(), out_handle, out_pid) == NT_LU_OK;
+    return remote_nt_lookup_pid(pid, out_handle, out_pid) == NT_LU_OK;
 }
 
 static void register_tty_aliases(void)
@@ -649,7 +512,13 @@ static void register_tty_aliases(void)
             continue;
 
         e->tty_index = tty_index;
-        nt_register(pack_tty_name(tty_index), handle, pid, 0);
+        /* NT_REGISTER's sender is always kernel-stamped to whoever sends
+         * it, so this alias ends up attributed to sysd's own pid rather
+         * than e->pid — a latent gap from moving the registry out of
+         * process, harmless today since no tty driver is in this boot's
+         * manifest yet. */
+        (void)ZuzuMsgSend((Handle)nameserver_port, NT_REGISTER,
+                          pack_tty_name(tty_index), handle);
         tty_index++;
     }
 }
@@ -660,36 +529,54 @@ int main(int argc, char **argv)
 
     /**
      * before ANYTHING happens, check if the kernel version is compatible with this sysd
-     * 
+     *
      * sysd will pull ZUZUOS_MIN_KERNEL_MAJOR from <zuzu/version.h> and compare it to its own.
      * Later on, we can embed sysd its own version, but for now since the userspace is scaling
      * altogether instead of seperately versioned binaries, we can check kernel version and assume
      * it will not work.
-     * 
+     *
      * Later on, sysd could check against old binaries and warn the user that their programs are
      * outdated.
-     * 
+     *
      */
     if (((sp->kernel_ver & 0x00FF0000) >> 16) < ZUZUOS_MIN_KERNEL_MAJOR) {
         ZuzuPQuit(FATAL_TAG | FATAL_KERNEL_OUTDATED);
     }
 
-    /* argv[1]/argv[2] = initrd VA + size, set by the kernel in
-     * boot_program() (kernel/kmain.c). Passed explicitly rather than
-     * assumed at a fixed address: the initrd's physical source isn't
-     * necessarily page-aligned (a bootloader-supplied ramdisk can start
-     * partway into a page), so the kernel tells us exactly where the real
-     * data begins instead of us guessing. */
-    if (argc < 3)
+    /* argv[1]/argv[2] = initrd VA + size; argv[3]/argv[4] = devmgr's entry
+     * point/stack pointer, peeked from its ELF header by the kernel before
+     * devmgr existed (see kernel/kmain.c's two-pass devmgr boot) — all set
+     * by the kernel in boot_program() (kernel/kmain.c). Passed explicitly
+     * rather than assumed at a fixed address/value: the initrd's physical
+     * source isn't necessarily page-aligned, and devmgr's entry/sp depend
+     * on its actual ELF contents. */
+    if (argc < 5)
         return 1;
     const void *initrd = (const void *)strtoul(argv[1], NULL, 16);
     uint32_t initrd_sz  = (uint32_t)strtoul(argv[2], NULL, 10);
+    VirtAddr devmgr_entry = (VirtAddr)strtoul(argv[3], NULL, 16);
+    VirtAddr devmgr_sp    = (VirtAddr)strtoul(argv[4], NULL, 16);
 
-    /* ---- nametable ---- */
+    /* ---- nameserver: spawn, grant it its own port, place that port in
+     * our own slot 0 ---- */
 
-    if (nt_setup() < 0)
+    if (nameserver_setup(initrd, initrd_sz) != 0)
         return 1;
-    nt_register(nt_pack(NT_NAME_SYS), (uint32_t)port, ZuzuGetPid(), 0);
+
+    /* ---- sysd's own "sys" service ---- */
+
+    if (sysd_register_self() != 0)
+        return 1;
+
+    /* ---- grant devmgr the nameserver port, then kickstart it ---- */
+
+    {
+        int32_t devmgr_ns_slot = ZuzuGrant(nameserver_port, DEVMGR_PID);
+        if (devmgr_ns_slot >= 0) {
+            ZuzuKickstart(SYSD_DEVMGR_TASK_HANDLE_SLOT, devmgr_entry, devmgr_sp,
+                          (uint32_t)devmgr_ns_slot, nameserver_pid);
+        }
+    }
 
     /* ---- read boot manifest from CPIO ---- */
 
@@ -722,17 +609,6 @@ int main(int argc, char **argv)
         e->injected = true;
     }
 
-    /* ---- storage den ---- */
-
-    int disk_den = den_create(ZuzuGetPid(), nt_pack("disk"));
-    if (disk_den >= 0) {
-        for (int i = 0; i < boot_count; i++) {
-            if (!boot_entries[i].injected) continue;
-            if (is_storage_member(boot_entries[i].name))
-                den_add_member((uint32_t)disk_den, boot_entries[i].pid);
-        }
-    }
-
     /* ---- kickstart ---- */
 
     for (int i = 0; i < boot_count; i++) {
@@ -743,8 +619,8 @@ int main(int argc, char **argv)
                    e->reply.argc, e->reply.argv_va);
     }
 
-    /* devmgr is kernel-spawned and already running; wait for it to
-     * register so other services can find it once they start. */
+    /* devmgr was explicitly kickstarted above; wait for it to register so
+     * other services can find it once they start. */
     wait_for_service(nt_pack("devm"));
 
     register_tty_aliases();

@@ -12,7 +12,6 @@
 
 extern Thread *current_thread;
 extern ProcessObj *process_table[MAX_PROCESSES];
-Port *nametable_port;
 
 static bool can_regrant_received_handle(const ProcessObj *grantee)
 {
@@ -43,32 +42,6 @@ void SysPortCreate(CpuState *frame)
     {
         (*arch_reg(frame, 0)) = ERR_NOMEM;
         return;
-    }
-    if (current_thread->owner_process->flags & PROC_FLAG_INIT && !nametable_port)
-    {
-
-        nametable_port = new_port;
-        /* Inject NT handle into processes spawned before nametable existed. */
-        for (int j = 0; j < MAX_PROCESSES; j++)
-        {
-            ProcessObj *p = process_table[j];
-            if (p && p != current_thread->owner_process)
-            {
-                HandleEntry *p_entry = handle_vec_get(&p->handle_table, 0);
-                if (p_entry && p_entry->type == HANDLE_FREE)
-                {
-                    p_entry->port = nametable_port;
-                    p_entry->grantable = true;
-                    p_entry->type = HANDLE_PORT;
-                    nametable_port->ref_count++;
-                }
-                else if (p_entry && p_entry->type != HANDLE_FREE)
-                {
-                    KWARN("nametable bootstrap skipped PID %u: handle slot 0 already in use (type=%d port=%p)",
-                          p->pid, p_entry->type, (void *)p_entry->port);
-                }
-            }
-        }
     }
     // list_init(&new_port->node);
     list_init(&new_port->sender_queue);

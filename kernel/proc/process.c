@@ -19,7 +19,6 @@
 
 uint32_t next_pid = 1;
 ProcessObj *process_table[MAX_PROCESSES];
-extern Port *nametable_port;
 
 #define LOG_FMT(fmt) "(proc) " fmt
 #include "core/log.h"
@@ -60,7 +59,8 @@ static bool as_copy_out(AddressSpace *as, VirtAddr va, const void *src, size_t l
 }
 
 ProcessObj *KernelProcessLoad(const void *elf_data, size_t elf_size, const char *name,
-			      const char *argbuf, size_t argbuf_len, uint32_t argc)
+			      const char *argbuf, size_t argbuf_len, uint32_t argc,
+			      bool leave_frozen)
 {
 	uint32_t elf_entry = elf_validate(elf_data, elf_size);
 	if (!elf_entry)
@@ -309,10 +309,16 @@ ProcessObj *KernelProcessLoad(const void *elf_data, size_t elf_size, const char 
 		}
 	}
 
-	t->kernel_sp = (uint32_t *)arch_thread_user_init(
-	    (void *)stack_top, (uintptr_t)elf_entry, (uintptr_t)sp, USER_ELF_BASE, argc,
-	    (uint32_t)(VirtAddr)argv_va, &t->trap_frame);
-	t->state = READY;
+	if (!leave_frozen) {
+		t->kernel_sp = (uint32_t *)arch_thread_user_init(
+		    (void *)stack_top, (uintptr_t)elf_entry, (uintptr_t)sp, USER_ELF_BASE, argc,
+		    (uint32_t)(VirtAddr)argv_va, &t->trap_frame);
+		t->state = READY;
+	}
+	/* leave_frozen: thread stays FROZEN (ThreadCreate's default) with no
+	 * trap frame set up yet. The caller is expected to SysKickstart this
+	 * process later, which performs the deferred arch_thread_user_init
+	 * call with the entry/sp it supplies at that time. */
 
 	KTRACE("process create: pid=%u name=%s tid=%u owner_thread=%p as=%p", p->pid, p->name,
 	       p->thread ? p->thread->tid : 0, (void *)p->thread, (void *)p->as);
@@ -321,14 +327,6 @@ ProcessObj *KernelProcessLoad(const void *elf_data, size_t elf_size, const char 
 fail_kstack:
 	if (process_table[p->pid % MAX_PROCESSES] == p)
 		process_table[p->pid % MAX_PROCESSES] = NULL;
-
-	if (nametable_port) {
-		HandleEntry *slot0 = handle_vec_get(&p->handle_table, 0);
-		if (slot0 && slot0->type == HANDLE_PORT && slot0->port == nametable_port) {
-			if (nametable_port->ref_count > 0)
-				nametable_port->ref_count--;
-		}
-	}
 
 	if (p->as)
 		arch_mmu_free_user_pages(p->as);
@@ -462,24 +460,6 @@ ProcessObj *ProcessCreate(const char *name)
 	t->tcb_slot = (uint8_t)tcb_slot_idx;
 	t->lmsg_buf_phys_addr = TcbSlotPhysAddr(p, tcb_slot_idx) + offsetof(ThreadData, buf);
 
-	// slot 0 is reserved for nametable endpoint when available
-	HandleEntry *slot0 = handle_vec_get(&p->handle_table, 0);
-	if (!slot0)
-		goto fail_kstack;
-
-	if (nametable_port && nametable_port->alive) {
-		slot0->type = HANDLE_PORT;
-		slot0->grantable = true;
-		slot0->mapped_va = 0;
-		slot0->port = nametable_port;
-		nametable_port->ref_count++;
-	} else {
-		slot0->type = HANDLE_FREE;
-		slot0->grantable = false;
-		slot0->mapped_va = 0;
-		slot0->port = NULL;
-	}
-
 	/* `device_va_next` and `mmap_va_next` were initialized earlier. */
 	p->parent_pid = 0;
 	t->priority = 1;
@@ -519,14 +499,6 @@ fail_kstack:
 	AddrspaceDestroy(p->as);
 	memset(p->tcb_page_pa, 0, sizeof(p->tcb_page_pa));
 fail_handles:
-	if (nametable_port) {
-		HandleEntry *maybe_slot0 = handle_vec_get(&p->handle_table, 0);
-		if (maybe_slot0 && maybe_slot0->type == HANDLE_PORT &&
-		    maybe_slot0->port == nametable_port) {
-			if (nametable_port->ref_count > 0)
-				nametable_port->ref_count--;
-		}
-	}
 	handle_vec_destroy(&p->handle_table);
 	ThreadDestroy(t);
 fail_process:

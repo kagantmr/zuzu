@@ -25,12 +25,30 @@ extern "C" {
  * it actually resolved, rather than trusting whoever happens to reply.
  */
 #define NT_LOOKUP 2
-#define DEN_CREATE 3
-#define DEN_INVITE 4
-#define DEN_KICK 5
-#define DEN_MYDEN 6
-#define DEN_MYDEN_COUNT 7
-#define DEN_MYDEN_AT 8
+
+/**
+ * NT_LOOKUP_PID: resolve a registered pid back to its stored (handle, pid)
+ * entry. sysd-internal use only (tty aliasing). unlike NT_LOOKUP, no
+ * re-grant is performed, since the returned handle is only ever
+ * re-registered under an alias name in nameserver's own table, never held
+ * by the caller directly.
+ *
+ * Request  (ZuzuMsgCall): w1 = NT_LOOKUP_PID, w2 = target pid, w3 = 0
+ * Reply    (ZuzuMsgReply): r1 = NT_LU_OK or NT_LU_NOMATCH
+ *                            r2 = stored handle (slot in nameserver's table)
+ *                            r3 = pid (echoes the input on success)
+ */
+#define NT_LOOKUP_PID 3
+
+/**
+ * NT_SCRUB_PID: notifies nameserver that a process died, so any
+ * registrations under that pid are dropped. Fire-and-forget, sent by sysd
+ * from its reap loop.
+ *
+ * Request (ZuzuMsgSend): w1 = NT_SCRUB_PID, w2 = 0 (unused),
+ *                          w3 = pid to scrub
+ */
+#define NT_SCRUB_PID 4
 
 #include <stdint.h>
 
@@ -53,9 +71,6 @@ static inline uint32_t nt_pack(const char name[4])
 #define NT_REG_FAIL ERR_BUSY
 #define NT_REG_OK ZUZU_OK
 #define NT_BADCMD ERR_BADARG
-#define DEN_OK ZUZU_OK
-#define DEN_FAIL ERR_TIMEOUT
-#define DEN_FULL ERR_BUSY
 
 #ifdef __cplusplus
 }
