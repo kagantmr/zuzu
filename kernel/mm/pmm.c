@@ -1,7 +1,7 @@
 #include "kernel/mm/pmm.h"
 #include <assert.h>
 #include "kernel/layout.h"
-#include "kernel/dtb/dtb.h"
+#include "kernel/dev/fdt_wrappers.h"
 #include <arch/symbols.h>
 #include <string.h>
 #include "kernel/mm/vmm.h" // PA_TO_VA / VA_TO_PA helpers
@@ -168,7 +168,7 @@ static void pmm_reserve_boot_regions(void)
      * to the kernel (QEMU's Linux-boot path and the Pi firmware both place
      * it independently). Reserve its actual extent. */
     PmmMarkRange(kernel_layout.dtb_start_pa,
-                   kernel_layout.dtb_start_pa + dtb_total_size());
+                   kernel_layout.dtb_start_pa + FdtTotalSize());
     PmmMarkRange(kernel_layout.kernel_start_pa, kernel_layout.kernel_end_pa);
     PmmMarkRange(kernel_layout.bitmap_start_pa, kernel_layout.bitmap_end_pa);
 
@@ -178,13 +178,13 @@ static void pmm_reserve_boot_regions(void)
     /* Firmware /memreserve/ ranges (e.g. secondary-core spin tables on the
      * Pi 4). Ranges outside managed RAM are rejected by pmm_mark_range. */
     uint64_t rsv_addr, rsv_size;
-    for (uint32_t i = 0; dtb_get_memrsv(i, &rsv_addr, &rsv_size); i++)
+    for (uint32_t i = 0; FdtGetReservedMem(i, &rsv_addr, &rsv_size); i++)
         PmmMarkRange((PhysAddr)rsv_addr, (PhysAddr)(rsv_addr + rsv_size));
 
     /* A bootloader-supplied initrd (DTB /chosen) lives outside the kernel
      * image, wherever it was loaded, so it needs its own reservation. */
     uint64_t initrd_start, initrd_end;
-    if (dtb_get_chosen_initrd(&initrd_start, &initrd_end))
+    if (FdtGetInitrd(&initrd_start, &initrd_end))
         PmmMarkRange((PhysAddr)initrd_start, (PhysAddr)initrd_end);
 }
 

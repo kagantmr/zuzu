@@ -1,4 +1,4 @@
-#include "kernel/dtb/dtb.h"
+#include "fdt_wrappers.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -9,7 +9,7 @@
 #include "kernel/layout.h"
 
 static const void *g_fdt;
-static bool g_dtb_ready;
+static bool g_fdt_ready;
 extern kernel_layout_t kernel_layout;
 static char      s_model[64];
 static char      s_cpu[64];
@@ -24,19 +24,19 @@ static inline uint32_t read_be32(const void *p)
            ((uint32_t)b[3]);
 }
 
-bool dtb_init(const void *dtb_base)
+bool FdtInit(const void *base)
 {
-    if (!dtb_base)
+    if (!base)
         return false;
 
-    int rc = fdt_check_header(dtb_base);
+    int rc = fdt_check_header(base);
     if (rc < 0) {
         KERROR("Invalid DTB: %s", fdt_strerror(rc));
         return false;
     }
 
-    g_fdt = dtb_base;
-    g_dtb_ready = true;
+    g_fdt = base;
+    g_fdt_ready = true;
     return true;
 }
 
@@ -95,7 +95,7 @@ static inline bool segment_matches_node(const char *seg, int seg_len, const char
 
 static int dtb_path_offset(const char *path)
 {
-    if (!g_dtb_ready || !path || path[0] != '/')
+    if (!g_fdt_ready || !path || path[0] != '/')
         return -FDT_ERR_BADPATH;
 
     int off = fdt_path_offset(g_fdt, path);
@@ -136,7 +136,7 @@ static int dtb_path_offset(const char *path)
 static bool dtb_get_property(const char *path, const char *prop,
                              const void **out_value, uint32_t *out_len)
 {
-    if (!g_dtb_ready || !path || !prop || !out_value || !out_len)
+    if (!g_fdt_ready || !path || !prop || !out_value || !out_len)
         return false;
 
     int node = dtb_path_offset(path);
@@ -155,7 +155,7 @@ static bool dtb_get_property(const char *path, const char *prop,
 
 static bool dtb_get_u32(const char *path, const char *prop, uint32_t *out)
 {
-    if (!path || !prop || !out || !g_dtb_ready)
+    if (!path || !prop || !out || !g_fdt_ready)
         return false;
 
     const void *val = NULL;
@@ -194,9 +194,9 @@ static bool get_parent_path(const char *path, char *parent, size_t parent_cap)
     return true;
 }
 
-bool dtb_get_reg(const char *path, int index, uint64_t *out_addr, uint64_t *out_size)
+bool FdtGetReg(const char *path, int index, uint64_t *out_addr, uint64_t *out_size)
 {
-    if (!path || !out_addr || !out_size || index < 0 || !g_dtb_ready)
+    if (!path || !out_addr || !out_size || index < 0 || !g_fdt_ready)
         return false;
 
     const void *val = NULL;
@@ -238,16 +238,16 @@ bool dtb_get_reg(const char *path, int index, uint64_t *out_addr, uint64_t *out_
     return true;
 }
 
-uint32_t dtb_total_size(void)
+size_t FdtTotalSize(void)
 {
-    if (!g_dtb_ready)
+    if (!g_fdt_ready)
         return 0;
     return fdt_totalsize(g_fdt);
 }
 
-bool dtb_get_memrsv(uint32_t index, uint64_t *out_addr, uint64_t *out_size)
+bool FdtGetReservedMem(uint32_t index, uint64_t *out_addr, uint64_t *out_size)
 {
-    if (!out_addr || !out_size || !g_dtb_ready)
+    if (!out_addr || !out_size || !g_fdt_ready)
         return false;
 
     int n = fdt_num_mem_rsv(g_fdt);
@@ -270,9 +270,9 @@ static bool read_be_cells(const void *val, uint32_t len, uint64_t *out)
     return false;
 }
 
-bool dtb_get_chosen_initrd(uint64_t *out_start, uint64_t *out_end)
+bool FdtGetInitrd(uint64_t *out_start, uint64_t *out_end)
 {
-    if (!out_start || !out_end || !g_dtb_ready)
+    if (!out_start || !out_end || !g_fdt_ready)
         return false;
 
     const void *sval = NULL, *eval = NULL;
@@ -293,9 +293,9 @@ bool dtb_get_chosen_initrd(uint64_t *out_start, uint64_t *out_end)
     return true;
 }
 
-bool dtb_find_compatible(const char *compatible, char *out_path, size_t out_path_cap)
+bool FdtFindCompatible(const char *compatible, char *out_path, size_t out_path_cap)
 {
-    if (!compatible || !out_path || out_path_cap == 0 || !g_dtb_ready)
+    if (!compatible || !out_path || out_path_cap == 0 || !g_fdt_ready)
         return false;
 
     int off = fdt_node_offset_by_compatible(g_fdt, -1, compatible);
@@ -307,7 +307,7 @@ bool dtb_find_compatible(const char *compatible, char *out_path, size_t out_path
 
 static bool dtb_get_string(const char *path, const char *prop, char *out, size_t out_cap)
 {
-    if (!path || !prop || !out || out_cap == 0 || !g_dtb_ready)
+    if (!path || !prop || !out || out_cap == 0 || !g_fdt_ready)
         return false;
 
     out[0] = '\0';
@@ -403,7 +403,7 @@ static bool apply_ranges(const char *node_path, uint64_t child_addr, uint64_t *o
 
 static bool dtb_translate_address(const char *node_path, uint64_t raw_addr, uint64_t *out_phys)
 {
-    if (!node_path || !out_phys || !g_dtb_ready)
+    if (!node_path || !out_phys || !g_fdt_ready)
         return false;
 
     char current_path[256];
@@ -436,18 +436,18 @@ static bool dtb_translate_address(const char *node_path, uint64_t raw_addr, uint
     return true;
 }
 
-bool dtb_get_reg_phys(const char *path, int index, uint64_t *out_addr, uint64_t *out_size)
+bool FdtGetRegPhysAddr(const char *path, int index, uint64_t *out_addr, uint64_t *out_size)
 {
     if (!path || !out_addr || !out_size)
         return false;
 
     uint64_t raw_addr;
     uint64_t size;
-    if (!dtb_get_reg(path, index, &raw_addr, &size))
+    if (!FdtGetReg(path, index, &raw_addr, &size))
         return false;
 
     uint64_t phys_addr;
-    if (!dtb_translate_address_arch(path, raw_addr, &phys_addr) &&
+    if (!FdtTranslateAddressArch(path, raw_addr, &phys_addr) &&
         !dtb_translate_address(path, raw_addr, &phys_addr))
         return false;
 
@@ -528,7 +528,7 @@ static bool dtb_get_irq(const char *path, int index, uint32_t *out_irq_num, uint
         if ((uint32_t)index >= count)
             return false;
         uint32_t child_irq = read_be32((const uint8_t *)val + ((uint32_t)index * 4));
-        if (dtb_resolve_irq_arch(path, child_irq, out_irq_num, out_flags))
+        if (FdtResolveIrqArch(path, child_irq, out_irq_num, out_flags))
             return true;
         return dtb_resolve_irq_via_interrupt_map(path, child_irq, out_irq_num, out_flags);
     }
@@ -536,12 +536,12 @@ static bool dtb_get_irq(const char *path, int index, uint32_t *out_irq_num, uint
     return false;
 }
 
-void dtb_enum_devices(void (*cb)(const char *compatible,
+void FdtEnumerateDevices(void (*cb)(const char *compatible,
                                  const char *path,
                                  uint64_t phys, uint64_t size,
                                  uint32_t irq))
 {
-    if (!cb || !g_dtb_ready)
+    if (!cb || !g_fdt_ready)
         return;
 
     int depth = -1;
@@ -572,7 +572,7 @@ void dtb_enum_devices(void (*cb)(const char *compatible,
 
         uint64_t phys = 0;
         uint64_t size = 0;
-        if (!dtb_get_reg_phys(path, 0, &phys, &size))
+        if (!FdtGetRegPhysAddr(path, 0, &phys, &size))
             continue;
 
         uint32_t irq_num = 0;
@@ -584,9 +584,9 @@ void dtb_enum_devices(void (*cb)(const char *compatible,
     }
 }
 
-uint32_t dtb_count_devices(void)
+size_t FdtDeviceCount(void)
 {
-    if (!g_dtb_ready)
+    if (!g_fdt_ready)
         return 0;
     uint32_t cnt = 0;
     int depth = -1;
@@ -605,38 +605,38 @@ uint32_t dtb_count_devices(void)
     return cnt;
 }
 
-const char *dtb_model(void)
+const char *FdtModel(void)
 {
-    if (!g_dtb_ready)
+    if (!g_fdt_ready)
         return "Unknown";
     if (dtb_get_string("/", "model", s_model, sizeof(s_model)))
         return s_model;
     return "Unknown";
 }
 
-const char *dtb_cpu_compat(void)
+const char *FdtCpuCompat(void)
 {
-    if (!g_dtb_ready)
+    if (!g_fdt_ready)
         return "Unknown";
     if (dtb_get_string("/cpus/cpu@0", "compatible", s_cpu, sizeof(s_cpu)))
         return s_cpu;
     return "Unknown";
 }
 
-__attribute__((weak)) bool dtb_translate_address_arch(const char *node_path, uint64_t raw_addr, uint64_t *out_phys)
+__attribute__((weak)) bool FdtTranslateAddressArch(const char *node_path, uint64_t raw_addr, uint64_t *out_phys)
 {
     (void)node_path; (void)raw_addr; (void)out_phys;
     return false;
 }
 
-__attribute__((weak)) bool dtb_resolve_irq_arch(const char *node_path, uint32_t child_irq, uint32_t *out_irq, uint32_t *out_flags)
+__attribute__((weak)) bool FdtResolveIrqArch(const char *node_path, uint32_t child_irq, uint32_t *out_irq, uint32_t *out_flags)
 {
     (void)node_path; (void)child_irq; (void)out_irq; (void)out_flags;
     return false;
 }
 
-void dtb_shutdown(void)
+void FdtShutdown(void)
 {
     g_fdt = NULL;
-    g_dtb_ready = false;
+    g_fdt_ready = false;
 }

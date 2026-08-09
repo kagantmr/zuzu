@@ -12,12 +12,8 @@ int32_t register_service(const char *name) {
     if (nt_slot < 0)
         return -1;
 
-    /* ask sysd which den we belong to */
-    Message den_r = ZuzuMsgCall(NT_PORT, DEN_MYDEN, 0, 0);
-    uint32_t my_den = (den_r.w1 == DEN_OK) ? den_r.w2 : 0;
-
     /* announce ourselves */
-    (void)ZuzuMsgSend(NT_PORT, NT_REGISTER | (my_den << 8), nt_pack(name), (uint32_t)nt_slot);
+    (void)ZuzuMsgSend(NT_PORT, NT_REGISTER, nt_pack(name), (uint32_t)nt_slot);
 
     return port;
 }
