@@ -165,8 +165,20 @@ static inline Err ZuzuDestroy(Handle h) {
  *
  * @return Err Returns the new (marked) handle on success, or a negative error code on failure.
  */
-static inline Err ZuzuStamp(Handle handle, uint32_t marker) {
+static inline Err ZuzuStamp(Handle handle, Marker marker) {
     return Syscall(SYS_STAMP, handle, marker, 0, 0);
+}
+
+/**
+ * @brief Labels a process with an 32-bit label (sysd only)
+ *
+ * @param handle The handle to the task to assign the label to. 
+ * @param marker The The value to assign to the label
+ *
+ * @return Err 0 or negative error code.
+ */
+static inline Err ZuzuSetLabel(Handle task_handle, Label label) {
+    return Syscall(SYS_SET_LABEL, task_handle, label, 0, 0);
 }
 
 #ifdef __cplusplus

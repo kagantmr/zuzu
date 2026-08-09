@@ -17,6 +17,7 @@
 #include "core/panic.h"
 
 #include "kernel/mm/vmm.h"
+#include "zuzu/syscall_nums.h"
 
 #include <compiler.h>
 #include <string.h>
@@ -54,6 +55,7 @@ static SyscallEntryPoint SyscallTable[SYS_MAX + 1] = {
     [SYS_NTFN_SIGNAL] = SysNtfnSignal,
     [SYS_NTFN_WAIT] = SysNtfnWait,
     [SYS_STAMP] = SysStamp,
+    [SYS_SET_LABEL] = SysSetLabel,
     [SYS_MEMMAP] = SysMemMap,
     [SYS_MEMUNMAP] = SysMemUnmap,
     [SYS_SHMEM_CREATE] = SysShmCreate,

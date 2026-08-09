@@ -34,7 +34,8 @@ static void ipc_buf_copy(Thread *restrict src, Thread *restrict dst, uint32_t le
 		return;
 	if (len > LMSG_BUF_SIZE)
 		return;
-	memcpy((void *)PA_TO_VA(dst->lmsg_buf_phys_addr), (void *)PA_TO_VA(src->lmsg_buf_phys_addr), len);
+	memcpy((void *)PA_TO_VA(dst->lmsg_buf_phys_addr), (void *)PA_TO_VA(src->lmsg_buf_phys_addr),
+	       len);
 }
 
 #ifdef DEBUG
@@ -70,7 +71,7 @@ static bool trap_frame_sane(const CpuState *tf)
  * formatting call inside it) get pulled into a hot IPC caller's icache
  * footprint. */
 static __cold __noinline void ipc_panic_bad_trap_frame(const char *where, const ProcessObj *owner,
-							  const CpuState *tf)
+						       const CpuState *tf)
 {
 	if (tf && ((uintptr_t)tf & 0x3u) == 0)
 		KERROR("  frame: pc=%p lr=%p sp=%p cpsr=%p", (void *)arch_regs_pc(tf),
@@ -260,6 +261,7 @@ void __attribute__((hot)) SysMsgSend(CpuState *frame)
 			res->kind = WAITANY_KIND_SEND;
 			res->source = current_thread->owner_process->pid;
 			res->marker = entry->marker;
+			res->label = current_thread->owner_process->label;
 			res->w1 = (*arch_reg(frame, 1));
 			res->w2 = (*arch_reg(frame, 2));
 			res->w3 = (*arch_reg(frame, 3));
@@ -384,7 +386,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			rentry->grantable = false;
 			rentry->reply = rc;
 			ProcessTrackReplyCap(sr_thread->owner_process,
-						current_thread->owner_process, (uint32_t)slot, rc);
+					     current_thread->owner_process, (uint32_t)slot, rc);
 
 			(*arch_reg(frame, 0)) = slot;
 			(*arch_reg(frame, 1)) = sr_thread->owner_process->pid;
@@ -436,7 +438,8 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 #endif
 		if (unlikely(timeout_ms != TIMEOUT_INFINITE &&
 			     current_thread->wake_reason != WAKE_TIMEOUT &&
-			     current_thread->timeout_node.prev && current_thread->timeout_node.next)) {
+			     current_thread->timeout_node.prev &&
+			     current_thread->timeout_node.next)) {
 			list_remove(&current_thread->timeout_node);
 		}
 
@@ -458,7 +461,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		return;
 	}
 
-    ReplyCap *rc = kalloc_reply_cap();
+	ReplyCap *rc = kalloc_reply_cap();
 	if (unlikely(!rc)) {
 		(*arch_reg(frame, 0)) = ERR_NOMEM;
 		return; // caller gets clean error, never blocked
@@ -485,7 +488,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 						 rx_frame);
 #endif
 
-	int slot = handle_vec_find_free(&rx_thread->owner_process->handle_table);
+		int slot = handle_vec_find_free(&rx_thread->owner_process->handle_table);
 		if (unlikely(slot < 0)) {
 			kfree_reply_cap(rc);
 			list_add_tail(&rx_slot->node, &port->receiver_queue.node);
@@ -498,7 +501,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		rentry->grantable = false;
 		rentry->reply = rc;
 		ProcessTrackReplyCap(current_thread->owner_process, rx_thread->owner_process,
-					(uint32_t)slot, rc);
+				     (uint32_t)slot, rc);
 
 		if (unlikely(rx_thread->waitany_port_wait_active)) {
 			WaitanyResult *res = &rx_thread->waitany_pending_result;
@@ -508,6 +511,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 			res->kind = WAITANY_KIND_CALL;
 			res->source = (uint32_t)slot;
 			res->marker = entry->marker;
+			res->label = current_thread->owner_process->label;
 			res->w1 = current_thread->owner_process->pid;
 			res->w2 = (*arch_reg(frame, 1));
 			res->w3 = (*arch_reg(frame, 2));
@@ -629,6 +633,7 @@ void __attribute__((hot)) SysMsgLsend(CpuState *frame)
 			res->kind = WAITANY_KIND_SEND;
 			res->source = current_thread->owner_process->pid;
 			res->marker = entry->marker;
+			res->label = current_thread->owner_process->label;
 			ipc_buf_copy(current_thread, rx_thread, xlen);
 			res->w1 = xlen;
 			res->w2 = 0;
@@ -690,8 +695,7 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 		return;
 	}
 
-
-    ReplyCap *rc = kalloc_reply_cap();
+	ReplyCap *rc = kalloc_reply_cap();
 	if (!rc) {
 		(*arch_reg(frame, 0)) = ERR_NOMEM;
 		return; // caller gets clean error, never blocked
@@ -722,7 +726,7 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 		rentry->grantable = false;
 		rentry->reply = rc;
 		ProcessTrackReplyCap(current_thread->owner_process, rx_thread->owner_process,
-					(uint32_t)slot, rc);
+				     (uint32_t)slot, rc);
 
 		if (unlikely(rx_thread->waitany_port_wait_active)) {
 			WaitanyResult *res = &rx_thread->waitany_pending_result;
@@ -732,6 +736,7 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 			res->kind = WAITANY_KIND_CALL;
 			res->source = (uint32_t)slot;
 			res->marker = entry->marker;
+			res->label = current_thread->owner_process->label;
 			res->w1 = current_thread->owner_process->pid;
 			ipc_buf_copy(current_thread, rx_thread, xlen);
 			res->w2 = xlen;
@@ -843,6 +848,7 @@ static int waitany_deliver_sender(uint32_t matched_index, Thread *receiver, List
 		result->kind = WAITANY_KIND_SEND;
 		result->source = sr_thread->owner_process->pid;
 		result->marker = sr_thread->port_marker;
+		result->label = sr_thread->owner_process->label;
 		result->w1 = (*arch_reg(sr_frame, 1));
 		result->w2 = (*arch_reg(sr_frame, 2));
 		result->w3 = (*arch_reg(sr_frame, 3));
@@ -883,11 +889,12 @@ static int waitany_deliver_sender(uint32_t matched_index, Thread *receiver, List
 		rentry->grantable = false;
 		rentry->reply = rc;
 		ProcessTrackReplyCap(sr_thread->owner_process, receiver->owner_process,
-					(uint32_t)slot, rc);
+				     (uint32_t)slot, rc);
 
 		result->kind = WAITANY_KIND_CALL;
 		result->source = (uint32_t)slot;
 		result->marker = sr_thread->port_marker;
+		result->label = sr_thread->owner_process->label;
 		result->w1 = sr_thread->owner_process->pid;
 		result->w2 = (*arch_reg(sr_frame, 1));
 		result->w3 = (*arch_reg(sr_frame, 2));
@@ -1035,7 +1042,7 @@ void SysWaitAny(CpuState *frame)
 
 	if (!validate_user_ptr(result_ptr, sizeof(WaitanyResult)) ||
 	    !VmmCheckUserFault(current_thread->owner_process->as, result_ptr, sizeof(WaitanyResult),
-			    true)) {
+			       true)) {
 		(*arch_reg(frame, 0)) = ERR_BADPTR;
 		return;
 	}
@@ -1138,7 +1145,8 @@ void SysWaitAny(CpuState *frame)
 			for (uint32_t i = 0; i < ep_wait_count; i++) {
 				current_thread->waitany_wait_ports[i] = wait_eps[i];
 				current_thread->waitany_port_wait_slots[i].owner = current_thread;
-				current_thread->waitany_port_wait_slots[i].index = wait_ep_indices[i];
+				current_thread->waitany_port_wait_slots[i].index =
+				    wait_ep_indices[i];
 				current_thread->waitany_port_wait_slots[i].node.prev = NULL;
 				current_thread->waitany_port_wait_slots[i].node.next = NULL;
 				list_add_tail(&current_thread->waitany_port_wait_slots[i].node,
