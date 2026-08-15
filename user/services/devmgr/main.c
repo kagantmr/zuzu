@@ -1,6 +1,8 @@
 #include "devmgr.h"
+#include "zuzu/protocols/nametable.h"
 #include <string.h>
 #include <zuzu/lmsg.h>
+#include <zuzu/cap.h>
 #include <zuzu/channel.h>
 #include <zuzu/types.h>
 
@@ -73,7 +75,7 @@ static void HandleDevRequest(Handle reply_handle, Pid sender_pid,
             }
 
             /* Match. Grant the device cap to the requesting driver. */
-            Handle granted = ZuzuGrant(h, sender_pid);
+            Handle granted = ZuzuGrant(h, sender_pid, 0);
             if (granted < 0) {
                 ZuzuMsgReply(reply_handle, granted, 0, 0);
                 return;
@@ -88,17 +90,6 @@ static void HandleDevRequest(Handle reply_handle, Pid sender_pid,
     ZuzuMsgReply(reply_handle, ERR_NOENT, 0, 0);
 }
 
-/* devmgr is kernel-loaded, not spawned through the ordinary SysPSpawn
- * chain, so it never inherits anything at slot 0 — sysd grants it a
- * handle to nameserver's port before kickstart and hands over the two
- * values needed to use it, in the kickstart r0/r1 registers crt0 forwards
- * straight into main()'s argc/argv (see arch/arm/crt0.S: _start moves r0,
- * r1 verbatim into main's first two args, no wrapping/reinterpretation).
- * nameserver_port_slot is which slot in OUR OWN table the granted port
- * landed at — not necessarily 0, since device-cap injection at boot may
- * already occupy slot 0 by the time sysd's grant runs. nameserver_pid is
- * nameserver's real (dynamically-assigned) pid, needed as the ZuzuGrant
- * target below since there's no compile-time constant for it. */
 int DevmgrSetup(Handle nameserver_port_slot, Pid nameserver_pid)
 {
     //build_class_table();
@@ -108,15 +99,22 @@ int DevmgrSetup(Handle nameserver_port_slot, Pid nameserver_pid)
         return port;
     }
 
-    Handle ntSlot = ZuzuGrant(port, nameserver_pid);
-    if (ntSlot < 0)
-    {
-        return ntSlot;
-    }
 
-    (void)ZuzuMsgSend(nameserver_port_slot, NT_REGISTER, nt_pack(DEVMGR_NAME), (MsgWord)ntSlot);
+    Handle handle = ZuzuGrant(port, nameserver_pid, GRANT_REGRANTABLE);
 
-    return ZUZU_OK;
+    if (handle < 0)
+        return handle;
+
+    LmsgWriter w; LmsgWriterInit(&w);
+    LmsgPutU32(&w, NT_REGISTER);     // cmd first
+    LmsgPutU32(&w, handle); // handle
+    LmsgPutU32(&w, 0);      // pid field unused for register
+    LmsgPutStr(&w, "/svc/devmgr");
+
+    Message reply = ZuzuMsgLcall(nameserver_port_slot,
+                                 w.off); // ns will reply with return code in w1
+
+    return reply.w1;
 }
 
 int main(int argc, char **argv)

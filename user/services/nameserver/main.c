@@ -1,174 +1,240 @@
-#include <zuzu/types.h>
-#include <zuzu/msg.h>
+#include "zuzu/err.h"
+#include "zuzu/lmsg.h"
 #include "zuzu/protocols/nametable.h"
+#include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
+#include <zuzu/cap.h>
+#include <zuzu/msg.h>
+#include <zuzu/types.h>
 
-#define NS_MAX_SERVICES 64
-#define NS_NAME_LEN 4
+typedef struct
+{
+    char path[NT_MAX_PATH];
+    Handle handle; /* slot in OUR table, regrantable */
+    Label label;   /* owner identity from WaitanyResult, never the request */
+    Pid pid;       /* for scrub + LOOKUP_PID */
+    bool in_use;
+} NtEntry;
 
-/* Registry entry: `handle` is always a slot in *our own* handle table —
- * every registrant grants us its serving port (ZuzuGrant(port, our pid))
- * before sending NT_REGISTER with the slot that grant landed at, so a
- * lookup can re-grant that same local handle out to whoever asked. */
-typedef struct {
-    char name[NS_NAME_LEN];
-    uint32_t handle;
-    uint32_t pid;
-} nt_entry_t;
+static NtEntry registry[NT_MAX_SERVICES];
+static Label sysd_label;
 
-static nt_entry_t registry_table[NS_MAX_SERVICES];
-
-static inline void name_u32_to_chars(uint32_t name_u32, char out[NS_NAME_LEN]) {
-    out[0] = (char)((name_u32 >> 0)  & 0xFF);
-    out[1] = (char)((name_u32 >> 8)  & 0xFF);
-    out[2] = (char)((name_u32 >> 16) & 0xFF);
-    out[3] = (char)((name_u32 >> 24) & 0xFF);
-}
-
-static int name_equals_u32(const char name[NS_NAME_LEN], uint32_t name_u32) {
-    char tmp[NS_NAME_LEN];
-    name_u32_to_chars(name_u32, tmp);
-    for (int i = 0; i < NS_NAME_LEN; i++) {
-        if (name[i] != tmp[i]) return 0;
+static uint32_t Fnv1aHash(const char *s)
+{
+    uint32_t h = 0x811c9dc5u; // FNV offset basis
+    while (*s)
+    {
+        h ^= (uint8_t)*s++;
+        h *= 0x01000193u; // FNV prime
     }
-    return 1;
+    return h;
 }
 
-static int nt_register(uint32_t name_u32, uint32_t handle, uint32_t pid) {
-    if (handle == 0) return NT_REG_FAIL;
+static int NtUnpack(const char *buf, uint32_t xlen, NtRequest *out)
+{
+    /* 1. Header must fit */
+    if (xlen < 12)
+    {
+        return ERR_BADARG;
+    }
 
-    for (int i = 0; i < NS_MAX_SERVICES; i++) {
-        if (registry_table[i].handle != 0 &&
-            name_equals_u32(registry_table[i].name, name_u32)) {
-            if (registry_table[i].pid == pid) {
-                registry_table[i].handle = handle;
-                return NT_REG_OK;
+    uint32_t cmd;
+    Handle h;
+    Pid p;
+    memcpy(&cmd, buf, 4);
+    memcpy(&h, buf + 4, 4);
+    memcpy(&p, buf + 8, 4);
+
+    uint32_t off = 12;
+    if (off >= xlen)
+        return ERR_BADARG;
+    uint32_t remaining = xlen - off;
+    size_t len = strnlen(buf + off, remaining);
+    if (len == remaining)
+        return ERR_BADARG; /* no NUL in bounds */
+    if (len >= NT_MAX_PATH)
+        return ERR_BADARG; /* fail loudly on over-long */
+    out->path = buf + off;
+    off += (uint32_t)len + 1;
+
+    if (off != xlen)
+        return ERR_BADARG;
+
+    out->cmd = (NtOpcode)cmd;
+    out->handle = h;
+    out->pid = p;
+    return ZUZU_OK;
+}
+
+static void NtRegister(NtRequest *req, Label label, Pid caller, Message *reply)
+{
+
+    if (label == LABEL_NONE) { reply->w1 = ERR_NOPERM; return; }
+
+    int free_slot = -1;
+
+    for (int i = 0; i < NT_MAX_SERVICES; i++)
+    {
+        if (!registry[i].in_use)
+        {
+            if (free_slot == -1)
+                free_slot = i;
+            continue;
+        }
+        if (strncmp(registry[i].path, req->path, NT_MAX_PATH) == 0)
+        {
+            // path already registered
+            NtEntry *e = &registry[i];
+            if (e->label != label)
+            {
+                reply->w1 = ERR_BUSY;
+                return;
             }
-            return NT_REG_FAIL;
+            e->handle = req->handle;
+            e->pid = caller;
+            e->in_use = true;
+            reply->w1 = ZUZU_OK;
+            return;
         }
     }
 
-    for (int i = 0; i < NS_MAX_SERVICES; i++) {
-        if (registry_table[i].handle == 0) {
-            name_u32_to_chars(name_u32, registry_table[i].name);
-            registry_table[i].handle = handle;
-            registry_table[i].pid = pid;
-            return NT_REG_OK;
+    if (free_slot == -1)
+    {
+        reply->w1 = ERR_NOMEM; // table full
+        return;
+    }
+
+    NtEntry *e = &registry[free_slot];
+    strncpy(e->path, req->path, NT_MAX_PATH - 1);
+    e->path[NT_MAX_PATH - 1] = '\0';
+    e->handle = req->handle;
+    e->label = label;
+    e->pid = caller;
+    e->in_use = true;
+
+    reply->w1 = ZUZU_OK;
+}
+
+static void NtLookup(NtRequest *req, Label label, Pid caller, Message *reply)
+{
+    (void)label;
+    for (int i = 0; i < NT_MAX_SERVICES; i++)
+    {
+        if (!registry[i].in_use)
+            continue;
+        if (strncmp(registry[i].path, req->path, NT_MAX_PATH) != 0)
+            continue;
+
+        Handle granted = ZuzuGrant(registry[i].handle, caller, 0);
+        if (granted < 0)
+        {
+            if (granted == ERR_DEAD || granted == ERR_BADHANDLE)
+                registry[i].in_use = false;   /* entry genuinely stale */
+            reply->w1 = granted;
+            return;
+        }
+        reply->w1 = ZUZU_OK;
+        reply->w2 = (uint32_t)granted;
+        reply->w3 = (uint32_t)registry[i].pid;
+        return;
+    }
+    reply->w1 = ERR_NOENT; // no such service
+}
+
+static void NtLookupPid(NtRequest *req, Label label, Pid caller, Message *reply)
+{
+    (void)label; (void)caller;
+    for (int i = 0; i < NT_MAX_SERVICES; i++)
+    {
+        if (!registry[i].in_use || registry[i].pid != req->pid)
+            continue;
+
+        reply->w1 = ZUZU_OK;
+        reply->w2 = (uint32_t)registry[i].handle;
+        reply->w3 = (uint32_t)registry[i].pid;
+        return;
+
+    }
+    reply->w1 = ERR_NOENT;
+}
+
+static void NtScrubPid(NtRequest *req, Label label, Pid caller, Message *reply)
+{
+    (void)caller;
+    if (label != sysd_label)
+    {
+        reply->w1 = ERR_NOPERM;
+        return;
+    }
+    int found = 0;
+    for (int i = 0; i < NT_MAX_SERVICES; i++)
+    {
+        if (registry[i].in_use && registry[i].pid == req->pid)
+        {
+            registry[i].in_use = false;
+            found++;
         }
     }
-
-    return NT_REG_FAIL;
+    reply->w1 = found ? ZUZU_OK : ERR_NOENT;
 }
 
-static int nt_lookup(uint32_t name_u32, uint32_t *out_handle, uint32_t *out_pid) {
-    for (int i = 0; i < NS_MAX_SERVICES; i++) {
-        if (registry_table[i].handle == 0) continue;
-        if (!name_equals_u32(registry_table[i].name, name_u32)) continue;
+int main(void)
+{
 
-        *out_handle = registry_table[i].handle;
-        *out_pid    = registry_table[i].pid;
-        return NT_LU_OK;
-    }
-    return NT_LU_NOMATCH;
-}
+    sysd_label = Fnv1aHash("/svc/sysd");
 
-static int nt_lookup_pid(uint32_t pid, uint32_t *out_handle, uint32_t *out_pid) {
-    for (int i = 0; i < NS_MAX_SERVICES; i++) {
-        if (registry_table[i].handle == 0) continue;
-        if (registry_table[i].pid != pid) continue;
+    while (1)
+    {
+        Handle handles[1] = {NT_PORT};
+        WaitanyResult res;
 
-        *out_handle = registry_table[i].handle;
-        *out_pid    = registry_table[i].pid;
-        return NT_LU_OK;
-    }
-    return NT_LU_NOMATCH;
-}
+        Err rc = ZuzuWaitany(handles, 1, TIMEOUT_INFINITE, &res);
+        if (rc != ZUZU_OK)
+        {
+          if (rc == ERR_DEAD)
+                continue;
+            return rc;
+        }
 
-static void scrub_pid(uint32_t pid) {
-    for (int i = 0; i < NS_MAX_SERVICES; i++) {
-        if (registry_table[i].handle == 0) continue;
-        if (registry_table[i].pid != pid) continue;
+        if (res.kind == WAITANY_KIND_CALL || res.kind == WAITANY_KIND_SEND)
+        {
+            // save reply cap
+            Pid caller_pid = (res.kind == WAITANY_KIND_CALL) ? res.w1 : res.source;
+            uint32_t xlen = (res.kind == WAITANY_KIND_CALL) ? res.w2 : res.w1;
+            NtRequest r;
+            Message reply = (Message){.w0 = 0, .w1 = 0, .w2 = 0, .w3 = 0};
 
-        registry_table[i].handle = 0;
-        registry_table[i].pid = 0;
-        for (int j = 0; j < NS_NAME_LEN; j++)
-            registry_table[i].name[j] = 0;
-    }
-}
-
-/* Mirrors sysd's old nt_handle_msg dispatch (minus SYSD_EXEC/DEN_*, which
- * never belonged to naming): NT_LOOKUP/NT_LOOKUP_PID arrive as a
- * ZuzuMsgCall (reply_handle/sender prefixed onto w0/w1, shifting the
- * client's own w1/w2 into w2/w3 — see the client-payload-shift comment on
- * NT_LOOKUP in nametable.h), everything else as a plain ZuzuMsgSend (w0 =
- * kernel-stamped sender, w1-w3 verbatim). The command/send disambiguation
- * peeks at the low byte of w2, which only works because every send-style
- * command here keeps small integers (matching a reserved id) out of that
- * position — NT_REGISTER puts a name there (printable ASCII, always a high
- * byte value) and NT_SCRUB_PID deliberately leaves it 0 rather than the
- * pid, since pids in this system are small enough to collide. */
-static void nt_handle_msg(Message msg) {
-    uint32_t sender = 0;
-    uint32_t reply_handle = 0;
-    uint32_t raw_command = 0;
-    uint32_t name_u32 = 0;
-    uint32_t arg = 0;
-    int needs_reply = 0;
-
-    uint32_t r2_cmd = msg.w2 & 0xFF;
-    if (r2_cmd == NT_LOOKUP || r2_cmd == NT_LOOKUP_PID) {
-        reply_handle = (uint32_t)msg.w0;
-        sender       = msg.w1;
-        raw_command  = msg.w2;
-        name_u32     = msg.w3;
-        arg          = msg.w3;
-        needs_reply  = 1;
-    } else {
-        sender      = (uint32_t)msg.w0;
-        raw_command = msg.w1;
-        name_u32    = msg.w2;
-        arg         = msg.w3;
-        needs_reply = 0;
-    }
-
-    uint32_t command = raw_command & 0xFF;
-
-    int status = NT_BADCMD;
-    uint32_t out_handle = 0;
-    uint32_t out_pid = 0;
-
-    if (command == NT_REGISTER) {
-        status = nt_register(name_u32, arg, sender);
-
-    } else if (command == NT_LOOKUP) {
-        status = nt_lookup(name_u32, &out_handle, &out_pid);
-        if (status == NT_LU_OK) {
-            int32_t slot = ZuzuGrant((Handle)out_handle, (Pid)sender);
-            if (slot < 0) {
-                status = NT_LU_NOMATCH;
-                out_handle = 0;
-                out_pid = 0;
-            } else {
-                out_handle = (uint32_t)slot;
+            if (NtUnpack(LmsgBuf(), xlen, &r) < 0)
+            {
+                if (res.kind == WAITANY_KIND_CALL)
+                    ZuzuMsgReply(res.source, ERR_BADARG, 0, 0);
+                continue;
+            }
+            // dispatch on opcode
+            switch (r.cmd)
+            {
+            case NT_REGISTER:
+                NtRegister(&r, res.label, caller_pid, &reply);
+                break;
+            case NT_LOOKUP:
+                NtLookup(&r, res.label, caller_pid, &reply);
+                break;
+            case NT_LOOKUP_PID:
+                NtLookupPid(&r, res.label, caller_pid, &reply);
+                break;
+            case NT_SCRUB_PID:
+                NtScrubPid(&r, res.label, caller_pid, &reply);
+                break;
+            default:
+                reply.w1 = ERR_BADARG;
+                break;
+            }
+            if (res.kind == WAITANY_KIND_CALL)
+            {
+                ZuzuMsgReply(res.source, reply.w1, reply.w2, reply.w3);
             }
         }
-
-    } else if (command == NT_LOOKUP_PID) {
-        status = nt_lookup_pid(name_u32, &out_handle, &out_pid);
-
-    } else if (command == NT_SCRUB_PID) {
-        scrub_pid(arg);
-        status = ZUZU_OK;
-    }
-
-    if (needs_reply)
-        ZuzuMsgReply((Handle)reply_handle, (uint32_t)status, out_handle, out_pid);
-}
-
-int main(void) {
-    while (1) {
-        Message msg = ZuzuMsgRecv(NT_PORT, TIMEOUT_INFINITE);
-        nt_handle_msg(msg);
     }
     return ZUZU_OK;
 }

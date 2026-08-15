@@ -14,6 +14,7 @@
 #include "tables.h"
 #include "backend/backend.h"
 #include "client_table.h"
+#include "zuzu/service.h"
 
 #include <zuzu/zuzu.h>
 #include <zuzu/log.h>
@@ -364,12 +365,8 @@ int main(void)
         LOG_ERROR(LOG_TAG, "port create failed: %d", (int)g_port);
         return 1;
     }
-    int32_t slot = ZuzuGrant(g_port, NAMETABLE_PID);
-    if (slot < 0) {
-        LOG_ERROR(LOG_TAG, "nametable grant failed: %d", (int)slot);
-        return 1;
-    }
-    ZuzuMsgSend(NT_PORT, NT_REGISTER | (0u << 8), nt_pack("fsd"), (uint32_t)slot);
+
+    RegisterService("/svc/fsd", g_port);
 
     LOG_INFO(LOG_TAG, "ready");
 

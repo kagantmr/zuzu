@@ -1,3 +1,4 @@
+#include "zuzu/types.h"
 #include "zzsh.h"
 #include <ansi.h>
 #include <string.h>
@@ -12,9 +13,9 @@
 #include <zuzu/channel.h>
 #include <zuzu/user_layout.h>
 
-static int32_t sysd_port;
-static uint32_t sysd_pid;
-static fsd_conn_t fsd_conn;   /* session with the filesystem daemon */
+static Handle sysd_port;
+static Pid sysd_pid;
+static FsdConn fsd_conn;   /* session with the filesystem daemon */
 static char cwd[256] = "/";
 
 // -------------------- Prompt --------------------
@@ -64,11 +65,10 @@ static void strip(char *s)
 
 int setup(void)
 {
-    Message sysd = ZuzuMsgCall(NT_PORT, NT_LOOKUP, nt_pack(NT_NAME_SYS), 0);
-    if (sysd.w1 != NT_LU_OK)
-        return -1;
-    sysd_port = (int32_t)sysd.w2;
-    sysd_pid = sysd.w3;
+
+    sysd_port = LookupServiceWithPid("/svc/sysd", &sysd_pid);
+    if (sysd_port < 0)
+        return sysd_port;
 
     if (stdio_use_tty(0) < 0)
         return -1;
@@ -78,7 +78,7 @@ int setup(void)
 
 static bool ensure_fsd(void)
 {
-    return fsd_connect(&fsd_conn, FSD_SHM_DEFAULT) == ZUZU_OK;
+    return FsdConnect(&fsd_conn, FSD_SHM_DEFAULT) == ZUZU_OK;
 }
 
 // Redraws prompt + current line content, clears to end of line.
@@ -181,7 +181,7 @@ static bool stat_path(const char *path, FsdStat *st)
     if (strlen(path) >= 4096)
         return false;
 
-    return fsd_stat(&fsd_conn, path, st) == ZUZU_OK;
+    return FsdGetStat(&fsd_conn, path, st) == ZUZU_OK;
 }
 
 static const char *path_basename(const char *path)
@@ -271,7 +271,7 @@ static void cmd_ls(const char *arg)
     for (;;) {
         FsdDirEntry entries[32];
         uint32_t count = 0;
-        if (fsd_readdir(&fsd_conn, path, start, entries,
+        if (FsdReadDir(&fsd_conn, path, start, entries,
                         sizeof(entries) / sizeof(entries[0]), &count) != ZUZU_OK) {
             if (start == 0)
                 printf("%s", ANSI_RED "ls: cannot read directory\n" ANSI_RESET);
@@ -316,7 +316,7 @@ static void cmd_cat(const char *path)
     }
 
     uint32_t fd = 0;
-    if (fsd_open(&fsd_conn, abs_path, FSD_MODE_READ, &fd) != ZUZU_OK) {
+    if (FsdOpen(&fsd_conn, abs_path, FSD_MODE_READ, &fd) != ZUZU_OK) {
         printf("%s", ANSI_RED "cat: file not found\n" ANSI_RESET);
         return;
     }
@@ -324,7 +324,7 @@ static void cmd_cat(const char *path)
     char chunk[4096];
     while (1) {
         uint32_t got = 0;
-        if (fsd_read(&fsd_conn, fd, chunk, sizeof(chunk) - 1, &got) != ZUZU_OK)
+        if (FsdRead(&fsd_conn, fd, chunk, sizeof(chunk) - 1, &got) != ZUZU_OK)
             break;
         if (got == 0) break;
 
@@ -332,7 +332,7 @@ static void cmd_cat(const char *path)
         printf("%s", chunk);
     }
 
-    fsd_close(&fsd_conn, fd);
+    FsdClose(&fsd_conn, fd);
     printf("\n");
 }
 
@@ -345,22 +345,19 @@ static void cmd_resolve(const char *name)
         return;
     }
 
-    if (strlen(name) > 4) {
-        printf("%s", ANSI_RED "resolve: name too long (max 4 chars)\n" ANSI_RESET);
-        return;
-    }
-
     char packed[4] = { 0 };
     strncpy(packed, name, sizeof(packed));
 
-    Message reply = ZuzuMsgCall(NT_PORT, NT_LOOKUP, nt_pack(packed), 0);
-    if (reply.w1 != NT_LU_OK) {
+    Pid pid;
+    Handle h = LookupServiceWithPid(name, &pid);
+
+    if (h < 0) {
         printf("%s", ANSI_RED "resolve: not found\n" ANSI_RESET);
         return;
     }
 
     char buf[64];
-    snprintf(buf, sizeof(buf), "port=%d pid=%u\n", (int32_t)reply.w2, reply.w3);
+    snprintf(buf, sizeof(buf), "port=%d pid=%u\n", h, pid);
     printf("%s", buf);
 }
 
@@ -420,7 +417,7 @@ static void cmd_exec(const char *line)
         return;
     }
 
-    int32_t sysd_task_handle = ZuzuGrant(ts.taskHandle, (int32_t)sysd_pid);
+    int32_t sysd_task_handle = ZuzuGrant(ts.taskHandle, (int32_t)sysd_pid, 0);
     if (sysd_task_handle < 0) {
         ZuzuPKill(ts.taskHandle);                    /* <-- NEW */
         printf("%s", ANSI_RED "zzsh: spawn failed (sysd reject)\n" ANSI_RESET);
@@ -574,7 +571,7 @@ void command_dispatch(const char *line)
     }
     else if (strcmp(line, "nicstat") == 0)
     {
-        int32_t nic_port = lookup_service("nic0");
+        int32_t nic_port = LookupService("/dev/eth0");
         if (nic_port < 0) {
             printf("%s", "nicstat: nic0 not found\n");
         } else {
@@ -625,7 +622,7 @@ int main(void)
     typedef enum { ST_NORMAL, ST_ESC, ST_CSI } input_state_t;
     input_state_t state = ST_NORMAL;
 
-    if (stdio_register_uart() != 0)
+    if (stdio_open_tty() != 0)
         return 1;
 
     printf("%s", ANSI_BOLD ANSI_CYAN "zzsh " ZZSH_VER "\n" ANSI_RESET);
