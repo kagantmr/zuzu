@@ -1,35 +1,118 @@
-#include <zuzu/service.h>
+#include "zuzu/cap.h"
+#include "zuzu/err.h"
+#include "zuzu/msg.h"
 #include "zuzu/protocols/nametable.h"
-#include <zuzu/zuzu.h>
-#include <string.h>
+#include <zuzu/channel.h>
+#include <zuzu/lmsg.h>
+#include <zuzu/service.h>
 
-int32_t register_service(const char *name) {
-    int32_t port = ZuzuPortCreate();
-    if (port < 0)
-        return -1;
+Err RegisterService(const char *name, Handle port)
+{
+    if (!name || port < 0)
+        return ERR_BADARG;
 
-    int32_t nt_slot = ZuzuGrant(port, NAMETABLE_PID);
-    if (nt_slot < 0)
-        return -1;
+    NtOpcode op = NT_REGISTER;
+    Handle handle = ZuzuGrant(port, NT_PID, GRANT_REGRANTABLE);
 
-    /* announce ourselves */
-    (void)ZuzuMsgSend(NT_PORT, NT_REGISTER, nt_pack(name), (uint32_t)nt_slot);
+    if (handle < 0)
+        return handle;
 
-    return port;
+    LmsgWriter w;
+    LmsgWriterInit(&w);
+    LmsgPutU32(&w, op);     // cmd first
+    LmsgPutU32(&w, handle); // handle
+    LmsgPutU32(&w, 0);      // pid field unused for register
+    LmsgPutStr(&w, name);
+
+    Message reply = ZuzuMsgLcall(NT_PORT,
+                                 w.off); // ns will reply with return code in w1
+
+    return reply.w1;
 }
 
-int32_t lookup_service(const char *name) {
-    while (1) {
-        Message reply = ZuzuMsgCall(NT_PORT, NT_LOOKUP, nt_pack(name), 0);
-        if (reply.w1 == NT_LU_OK)
-            return (int32_t)reply.w2;
+Handle LookupService(const char *name)
+{
+    if (!name)
+        return ERR_BADARG;
 
-        if (strcmp(name, "tty0") == 0) {
-            reply = ZuzuMsgCall(NT_PORT, NT_LOOKUP, nt_pack("uart"), 0);
-            if (reply.w1 == NT_LU_OK)
-                return (int32_t)reply.w2;
-        }
+    NtOpcode op = NT_LOOKUP;
 
-        ZuzuSleep(10);
-    }
+    LmsgWriter w;
+    LmsgWriterInit(&w);
+    LmsgPutU32(&w, op); // cmd first
+    LmsgPutU32(&w, 0);  // handle
+    LmsgPutU32(&w, 0);  // pid field unused
+    LmsgPutStr(&w, name);
+
+    Message reply = ZuzuMsgLcall(NT_PORT,
+                                 w.off); // ns will reply with return code in w1
+
+    if (reply.w1 != ZUZU_OK)
+        return reply.w1;
+    return (Handle)reply.w2;
+}
+
+Handle LookupServiceWithPid(const char *name, Pid *out_pid)
+{
+    if (!name)
+        return ERR_BADARG;
+
+    NtOpcode op = NT_LOOKUP;
+
+    LmsgWriter w;
+    LmsgWriterInit(&w);
+    LmsgPutU32(&w, op); // cmd first
+    LmsgPutU32(&w, 0);  // handle
+    LmsgPutU32(&w, 0);  // pid field unused
+    LmsgPutStr(&w, name);
+
+    Message reply = ZuzuMsgLcall(NT_PORT,
+                                 w.off); // ns will reply with return code in w1
+
+    if (reply.w1 != ZUZU_OK)
+        return reply.w1;
+    if (out_pid) *out_pid = reply.w3;
+    return (Handle)reply.w2;
+}
+
+Handle LookupServicePid(Pid pid)
+{
+    if (pid <= 0)
+        return ERR_BADARG;
+
+    NtOpcode op = NT_LOOKUP_PID;
+
+    LmsgWriter w;
+    LmsgWriterInit(&w);
+    LmsgPutU32(&w, op);  // cmd first
+    LmsgPutU32(&w, 0);   // handle
+    LmsgPutU32(&w, pid); // pid field
+    LmsgPutStr(&w, "");
+
+    Message reply = ZuzuMsgLcall(NT_PORT,
+                                 w.off); // ns will reply with return code in w1
+
+    if (reply.w1 != ZUZU_OK)
+        return reply.w1;
+    return (Handle)reply.w2;
+}
+
+Err ScrubServicePid(Pid pid)
+{
+    if (pid <= 0)
+        return ERR_BADARG;
+
+    NtOpcode op = NT_SCRUB_PID;
+
+    LmsgWriter w;
+    LmsgWriterInit(&w);
+    LmsgPutU32(&w, op);  // cmd first
+    LmsgPutU32(&w, 0);   // handle
+    LmsgPutU32(&w, pid); // pid field
+    LmsgPutStr(&w, "");
+
+    Message reply = ZuzuMsgLcall(NT_PORT,
+                                 w.off); // ns will reply with return code in w1
+
+    return (Err)reply.w1;
 }
