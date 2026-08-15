@@ -15,6 +15,7 @@
 #include <zuzu/types.h>
 
 #include "kernel/irq/sys_irq.h"
+#include "kernel/bench.h"
 
 #define LOG_FMT(fmt) "(ipc) " fmt
 #include "core/log.h"
@@ -25,6 +26,14 @@ extern Thread *current_thread;
 extern ListHead sleep_queue;
 extern kernel_layout_t kernel_layout;
 
+#ifdef ZUZU_BENCH
+BENCH_STAT(g_bench_ipc_buf_copy_memcpy, "ipc_buf_copy: memcpy");
+BENCH_STAT(g_bench_ipc_buf_copy_wordcopy, "ipc_buf_copy: hand-rolled word-copy");
+/* Scratch destination for the word-copy swap-test below -- never read back,
+ * only timed, so it never touches the real reply data. */
+static uint8_t g_bench_wordcopy_scratch[LMSG_BUF_SIZE] __attribute__((aligned(4)));
+#endif
+
 /* Every call site passes a sender and a receiver -- never the same thread
  * (and their ipc_buf_pa pages are always separate physical frames), so
  * the memcpy below is genuinely non-overlapping. */
@@ -34,8 +43,33 @@ static void ipc_buf_copy(Thread *restrict src, Thread *restrict dst, uint32_t le
 		return;
 	if (len > LMSG_BUF_SIZE)
 		return;
-	memcpy((void *)PA_TO_VA(dst->lmsg_buf_phys_addr), (void *)PA_TO_VA(src->lmsg_buf_phys_addr),
-	       len);
+
+	const void *srcp = (const void *)PA_TO_VA(src->lmsg_buf_phys_addr);
+	void *dstp = (void *)PA_TO_VA(dst->lmsg_buf_phys_addr);
+
+#ifdef ZUZU_BENCH
+	uint32_t bench_start = BENCH_BEGIN();
+#endif
+	memcpy(dstp, srcp, len);
+#ifdef ZUZU_BENCH
+	BENCH_END(g_bench_ipc_buf_copy_memcpy, bench_start);
+
+	/* Swap-test: hand-rolled word-copy loop timed against the same source
+	 * buffer, on a scratch destination so it can't corrupt the real reply.
+	 * Only fires for word-aligned, word-multiple lengths -- the case real
+	 * IPC payloads mostly are -- since the loop below has no unaligned-tail
+	 * handling. If this alone recovers a big chunk of the RTT's mystery
+	 * cycles, the answer was memcpy() overhead, not the walk. */
+	if (((uintptr_t)srcp & 3u) == 0 && (len & 3u) == 0) {
+		bench_start = BENCH_BEGIN();
+		const uint32_t *ws = (const uint32_t *)srcp;
+		uint32_t *wd = (uint32_t *)g_bench_wordcopy_scratch;
+		uint32_t nwords = len / 4u;
+		for (uint32_t i = 0; i < nwords; i++)
+			wd[i] = ws[i];
+		BENCH_END(g_bench_ipc_buf_copy_wordcopy, bench_start);
+	}
+#endif
 }
 
 #ifdef DEBUG
@@ -104,8 +138,6 @@ static __hot inline void ipc_wake_ready(Thread *t)
 	t->state = READY;
 	sched_add(t);
 }
-
-#include "kernel/bench.h"
 
 #ifdef ZUZU_BENCH
 BENCH_STAT(g_bench_handle_lookup, "handle table lookup");
@@ -912,6 +944,16 @@ static int waitany_deliver_sender(uint32_t matched_index, Thread *receiver, List
 	return ERR_BADARG;
 }
 
+#ifdef ZUZU_BENCH
+/* Splits WaitAny's per-call cost into "validate every handle in the array"
+ * (marker/type/liveness checks -- scales with count, see the fan-out bench
+ * in speedtest) vs "actually deliver a match and wake the sender" (the
+ * scheduler-adjacent cost) -- so a slowdown here doesn't get blamed on the
+ * wrong half. */
+BENCH_STAT(g_bench_waitany_validate, "WaitAny: handle validation");
+BENCH_STAT(g_bench_waitany_deliver, "WaitAny: deliver+wake");
+#endif
+
 static int waitany_try_once(const Handle *handles, uint32_t count, WaitanyResult *result,
 			    Ntfn **wait_ntfns, uint32_t *wait_ntfn_indices,
 			    uint32_t *wait_count_out, Port **wait_eps, uint32_t *wait_ep_indices,
@@ -925,6 +967,9 @@ static int waitany_try_once(const Handle *handles, uint32_t count, WaitanyResult
 	if (wait_ep_count_out)
 		*wait_ep_count_out = 0;
 
+#ifdef ZUZU_BENCH
+	uint32_t bench_start = BENCH_BEGIN();
+#endif
 	for (uint32_t i = 0; i < count; i++) {
 		HandleEntry *entry =
 		    handle_vec_get(&current_thread->owner_process->handle_table, handles[i]);
@@ -965,11 +1010,19 @@ static int waitany_try_once(const Handle *handles, uint32_t count, WaitanyResult
 		(*arch_reg(current_thread->trap_frame, 0)) = ERR_BADTYPE;
 		return ERR_BADTYPE;
 	}
+#ifdef ZUZU_BENCH
+	BENCH_END(g_bench_waitany_validate, bench_start);
+	bench_start = BENCH_BEGIN();
+#endif
 
 	for (uint32_t i = 0; i < count; i++) {
 		if (endpoints[i] && !list_empty(&endpoints[i]->sender_queue)) {
 			ListNode *sender = list_pop_front(&endpoints[i]->sender_queue);
-			return waitany_deliver_sender(i, current_thread, sender, result);
+			int rc = waitany_deliver_sender(i, current_thread, sender, result);
+#ifdef ZUZU_BENCH
+			BENCH_END(g_bench_waitany_deliver, bench_start);
+#endif
+			return rc;
 		}
 	}
 
@@ -979,6 +1032,9 @@ static int waitany_try_once(const Handle *handles, uint32_t count, WaitanyResult
 			uint32_t bits = ntfn->word;
 			ntfn->word = 0;
 			waitany_deliver_notification(i, bits, result);
+#ifdef ZUZU_BENCH
+			BENCH_END(g_bench_waitany_deliver, bench_start);
+#endif
 			return 0;
 		}
 	}
