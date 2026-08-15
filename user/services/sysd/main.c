@@ -1,23 +1,25 @@
-#include <zuzu/zuzu.h>
-#include "zuzu/protocols/nametable.h"
-#include <stdint.h>
-#include <stddef.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <string.h>
+#include <zuzu/zuzu.h>
 
-#include "zuzu/protocols/exec.h"
-#include <zuzu/fsd_client.h>
-#include <zuzu/lmsg.h>
-#include <zuzu/channel.h>
-#include <zuzu/boot.h>
-#include <cpio.h>
-#include <malloc.h>
-#include <zuzu/syspage.h>
-#include <zuzu/err.h>
-#include <zuzu/version.h>
-#include <stdlib.h>
 #include "exec.h"
 #include "sysd.h"
+#include "zuzu/protocols/exec.h"
+#include "zuzu/service.h"
+#include "zuzu/types.h"
+#include <cpio.h>
+#include <malloc.h>
+#include <stdlib.h>
+#include <zuzu/boot.h>
+#include <zuzu/channel.h>
+#include <zuzu/err.h>
+#include <zuzu/fsd_client.h>
+#include <zuzu/lmsg.h>
+#include <zuzu/syspage.h>
+#include <zuzu/version.h>
+#include <zuzu/fnv1a.h>
 
 /* sysd's own "sys" service port (SYSD_EXEC only, see nt_handle_msg below) —
  * distinct from nameserver_port, which is nameserver's serving port that
@@ -27,7 +29,7 @@
 static int32_t port;
 static int32_t nameserver_port;
 static uint32_t nameserver_pid;
-static fsd_conn_t fsd_conn;
+static FsdConn fsd_conn;
 
 /* sysd is spawned via KernelProcessLoad, not the ordinary SysPSpawn chain,
  * so it never inherits anything at slot 0 — it creates nameserver's port
@@ -53,12 +55,14 @@ static int nameserver_setup(const void *initrd, uint32_t initrd_sz)
     /* Pre-kickstart grant, same as any other spawned child — nameserver's
      * table is still empty (FROZEN, hasn't executed a single instruction),
      * so this lands at its own slot 0 too. */
-    if (ZuzuGrant(nameserver_port, (Pid)nameserver_pid) < 0)
+    if (ZuzuGrant(nameserver_port, (Pid)nameserver_pid, 0) < 0)
         return ERR_NOPERM;
 
     ExecReply reply;
     if (exec_inject((uint32_t)ts.taskHandle, elf_data, elf_size, NULL, 0, 0, &reply) != 0)
         return EXEC_EBADELF;
+
+    ZuzuSetLabel(ts.taskHandle, LABEL_OF("/nt"));
 
     ZuzuKickstart(ts.taskHandle, reply.entry, reply.sp, reply.argc, reply.argv_va);
     return ZUZU_OK;
@@ -73,125 +77,119 @@ static int sysd_register_self(void)
     if (port < 0)
         return port;
 
-    int32_t slot = ZuzuGrant(port, (Pid)nameserver_pid);
-    if (slot < 0)
-        return slot;
-
-    (void)ZuzuMsgSend((Handle)nameserver_port, NT_REGISTER, nt_pack(NT_NAME_SYS),
-                      (uint32_t)slot);
-    return ZUZU_OK;
-}
-
-static int remote_nt_lookup(uint32_t name_u32, uint32_t *out_handle, uint32_t *out_pid) {
-    Message reply = ZuzuMsgCall((Handle)nameserver_port, NT_LOOKUP, name_u32, 0);
-    if ((int32_t)reply.w1 != NT_LU_OK)
-        return (int)reply.w1;
-    *out_handle = reply.w2;
-    *out_pid    = reply.w3;
-    return NT_LU_OK;
-}
-
-static int remote_nt_lookup_pid(uint32_t pid, uint32_t *out_handle, uint32_t *out_pid) {
-    Message reply = ZuzuMsgCall((Handle)nameserver_port, NT_LOOKUP_PID, pid, 0);
-    if ((int32_t)reply.w1 != NT_LU_OK)
-        return (int)reply.w1;
-    *out_handle = reply.w2;
-    *out_pid    = reply.w3;
-    return NT_LU_OK;
-}
-
-static void remote_scrub_pid(uint32_t pid) {
-    (void)ZuzuMsgSend((Handle)nameserver_port, NT_SCRUB_PID, 0, pid);
+    return RegisterService("/svc/sysd", port);
 }
 
 /* Only SYSD_EXEC arrives on sysd's own port now — NT_REGISTER/NT_LOOKUP go
  * straight to nameserver (NT_PORT), which every process either inherits
  * from sysd (SysPSpawn's slot 0-3 copy) or is granted directly (devmgr). */
-static void nt_handle_msg(Message msg) {
+static void nt_handle_msg(Message msg)
+{
     if (msg.w2 >= sizeof(ExecRequestHeader) && msg.w2 <= LMSG_BUF_SIZE &&
-        ((ExecRequestHeader *)LmsgBuf())->cmd == SYSD_EXEC) {
-        uint32_t reply_handle = (uint32_t)msg.w0;
-        uint32_t req_len = msg.w2;
+        ((ExecRequestHeader *)LmsgBuf())->cmd == SYSD_EXEC)
+    {
+        Handle reply_handle = (Handle)msg.w0;
+        size_t req_len = msg.w2;
         ExecRequestHeader *hdr = (ExecRequestHeader *)LmsgBuf();
 
         size_t path_off = sizeof(ExecRequestHeader);
         size_t path_bytes = (size_t)hdr->path_len + 1;
         if (path_bytes == 0 || path_off + path_bytes > req_len ||
-            ((char *)LmsgBuf())[path_off + hdr->path_len] != '\0') {
+            ((char *)LmsgBuf())[path_off + hdr->path_len] != '\0')
+        {
             ZuzuMsgReply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
             return;
         }
 
-        const char *path = (const char *)LmsgBuf() + path_off;
-        const char *argbuf = (const char *)LmsgBuf() + path_off + path_bytes;
+        /* The lazy fsd-connect below (LookupServiceWithPid) issues its own
+         * Lcall, which reuses this same thread's LmsgBuf() as scratch space
+         * -- clobbering the path/argbuf bytes still referenced below if they
+         * pointed straight into it. Snapshot the request out of LmsgBuf()
+         * first so it survives. */
+        static uint8_t reqbuf[LMSG_BUF_SIZE];
+        memcpy(reqbuf, LmsgBuf(), req_len);
+        hdr = (ExecRequestHeader *)reqbuf;
+        const char *path = (const char *)reqbuf + path_off;
+        const char *argbuf = (const char *)reqbuf + path_off + path_bytes;
         size_t argbuf_len = req_len - path_off - path_bytes;
 
         /* --- lazy-connect to fsd (once) --- */
-        if (!fsd_conn.ready) {
-            uint32_t fsd_h = 0, fsd_p = 0;
-            if (remote_nt_lookup(nt_pack("fsd"), &fsd_h, &fsd_p) != NT_LU_OK) {
+        if (!fsd_conn.ready)
+        {
+            Handle fsd_h = 0;
+            Pid fsd_p = 0;
+            if ((fsd_h = LookupServiceWithPid("/svc/fsd", &fsd_p)) < 0)
+            {
                 ZuzuMsgReply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
                 return;
             }
-            if (fsd_attach(&fsd_conn, (int32_t)fsd_h, fsd_p, FSD_SHM_DEFAULT) != ZUZU_OK) {
+            if (FsdAttach(&fsd_conn, (int32_t)fsd_h, fsd_p, FSD_SHM_DEFAULT) != ZUZU_OK)
+            {
                 ZuzuMsgReply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
                 return;
             }
         }
 
         size_t plen = strlen(path);
-        if (plen == 0 || plen >= 4096) {
+        if (plen == 0 || plen >= 4096)
+        {
             ZuzuMsgReply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
             return;
         }
 
         FsdStat st;
-        if (fsd_stat(&fsd_conn, path, &st) != ZUZU_OK) {
+        memset(&st, 0, sizeof(st));
+        if (FsdGetStat(&fsd_conn, path, &st) != ZUZU_OK)
+        {
             ZuzuMsgReply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
             return;
         }
 
         uint32_t file_size = st.size;
-        if (file_size == 0 || st.type == FSD_TYPE_DIR) {
+        if (file_size == 0 || st.type == FSD_TYPE_DIR)
+        {
             ZuzuMsgReply(reply_handle, (uint32_t)EXEC_EBADELF, 0, 0);
             return;
         }
 
         uint32_t fd = 0;
-        if (fsd_open(&fsd_conn, path, FSD_MODE_READ, &fd) != ZUZU_OK) {
+        if (FsdOpen(&fsd_conn, path, FSD_MODE_READ, &fd) != ZUZU_OK)
+        {
             ZuzuMsgReply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
             return;
         }
 
         uint8_t *elf = (uint8_t *)malloc(file_size);
-        if (!elf) {
-            fsd_close(&fsd_conn, fd);
+        if (!elf)
+        {
+            FsdClose(&fsd_conn, fd);
             ZuzuMsgReply(reply_handle, (uint32_t)ERR_NOMEM, 0, 0);
             return;
         }
 
         uint32_t total = 0;
-        while (total < file_size) {
+        while (total < file_size)
+        {
             uint32_t got = 0;
-            if (fsd_read(&fsd_conn, fd, elf + total, file_size - total, &got) != ZUZU_OK
-                || got == 0)
+            if (FsdRead(&fsd_conn, fd, elf + total, file_size - total, &got) != ZUZU_OK || got == 0)
                 break;
             total += got;
         }
-        fsd_close(&fsd_conn, fd);
+        FsdClose(&fsd_conn, fd);
 
-        if (total != file_size) {
+        if (total != file_size)
+        {
             free(elf);
             ZuzuMsgReply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
             return;
         }
 
         ExecReply reply;
-        int rc = exec_inject((uint32_t)hdr->taskHandle, elf, file_size,
-                             argbuf_len ? argbuf : NULL, argbuf_len,
-                             hdr->argc, &reply);
+        int rc = exec_inject((uint32_t)hdr->taskHandle, elf, file_size, argbuf_len ? argbuf : NULL,
+                             argbuf_len, hdr->argc, &reply);
         free(elf);
-        if (rc != 0) {
+        if (rc != 0)
+        {
             ZuzuMsgReply(reply_handle, (uint32_t)EXEC_EBADELF, 0, 0);
             return;
         }
@@ -204,36 +202,37 @@ static void nt_handle_msg(Message msg) {
 
 #define MAX_BOOT_ENTRIES 16
 
-typedef struct {
-    char          path[64];
-    char          name[32];
-    const void   *elf_data;     /* into CPIO mapping; NULL if SD-only */
-    size_t        elf_size;
-    int32_t       taskHandle;
-    uint32_t      pid;
-    ExecReply  reply;
-    bool          in_cpio;
-    bool          injected;
-    bool          is_tty;
-    uint32_t      tty_index;
-    bool          spawn_last;
+typedef struct
+{
+    char path[64];
+    char name[32];
+    const void *elf_data; /* into CPIO mapping; NULL if SD-only */
+    size_t elf_size;
+    int32_t taskHandle;
+    uint32_t pid;
+    ExecReply reply;
+    bool in_cpio;
+    bool injected;
+    bool spawn_last;
+    char svc_path[NT_MAX_PATH];
 } boot_entry_t;
 
 static boot_entry_t boot_entries[MAX_BOOT_ENTRIES];
-static int           boot_count;
+static int boot_count;
 
 static char deferred_paths[MAX_BOOT_ENTRIES][64];
-static int  deferred_count;
+static int deferred_count;
 
 #define WAIT_TIMEOUT_MS 30000u
-#define WAIT_SLICE_MS   10u
+#define WAIT_SLICE_MS 10u
 
 static bool recvany_to_ipcmsg(const WaitanyResult *res, Message *msg)
 {
     if (!res || !msg)
         return false;
 
-    if (res->kind == WAITANY_KIND_SEND || res->kind == WAITANY_KIND_CALL) {
+    if (res->kind == WAITANY_KIND_SEND || res->kind == WAITANY_KIND_CALL)
+    {
         msg->w0 = res->source;
         msg->w1 = res->w1;
         msg->w2 = res->w2;
@@ -245,7 +244,8 @@ static bool recvany_to_ipcmsg(const WaitanyResult *res, Message *msg)
      * the notification bitmask in w1. Consumers can interpret `matched_index`
      * if needed via the recvany_result metadata (not present in Message).
      */
-    if (res->kind == WAITANY_KIND_NTFN) {
+    if (res->kind == WAITANY_KIND_NTFN)
+    {
         msg->w0 = (int32_t)res->source;
         msg->w1 = res->w1; /* notification bits */
         msg->w2 = res->w2;
@@ -258,7 +258,8 @@ static bool recvany_to_ipcmsg(const WaitanyResult *res, Message *msg)
 
 static boot_entry_t *find_boot_entry_by_pid(uint32_t pid)
 {
-    for (int i = 0; i < boot_count; i++) {
+    for (int i = 0; i < boot_count; i++)
+    {
         if (boot_entries[i].injected && boot_entries[i].pid == pid)
             return &boot_entries[i];
     }
@@ -273,7 +274,8 @@ static bool should_respawn(int32_t status)
     if (!WAS_KILLED(status))
         return false;
 
-    switch (KILL_REASON(status)) {
+    switch (KILL_REASON(status))
+    {
     case KILL_FAULT_DATA:
     case KILL_FAULT_PREFETCH:
     case KILL_FAULT_UNDEF:
@@ -292,16 +294,16 @@ static void respawn_entry(boot_entry_t *e)
         return;
 
     e->taskHandle = ts.taskHandle;
-    e->pid         = ts.pid;
-    e->injected    = false;
+    e->pid = ts.pid;
+    e->injected = false;
 
-    if (exec_inject((uint32_t)ts.taskHandle, e->elf_data, e->elf_size,
-                    NULL, 0, 0, &e->reply) != 0)
+    ZuzuSetLabel(ts.taskHandle, LABEL_OF(e->svc_path[0] ? e->svc_path : e->path));
+
+    if (exec_inject((uint32_t)ts.taskHandle, e->elf_data, e->elf_size, NULL, 0, 0, &e->reply) != 0)
         return;
 
     e->injected = true;
-    ZuzuKickstart(e->taskHandle, e->reply.entry, e->reply.sp,
-               e->reply.argc, e->reply.argv_va);
+    ZuzuKickstart(e->taskHandle, e->reply.entry, e->reply.sp, e->reply.argc, e->reply.argv_va);
 }
 
 /* Drains every zombie currently on our child list. Supervised children
@@ -310,28 +312,33 @@ static void respawn_entry(boot_entry_t *e)
  * just reaped and discarded. */
 static void reap_all(void)
 {
-    int32_t status;
-    int32_t pid;
+    Err status;
+    Pid pid;
 
-    while ((pid = ZuzuWait(-1, &status, WNOHANG)) > 0) {
+    while ((pid = ZuzuWait(-1, &status, WNOHANG)) > 0)
+    {
         boot_entry_t *e = find_boot_entry_by_pid((uint32_t)pid);
-        remote_scrub_pid((uint32_t)pid);
+        ScrubServicePid(pid);
 
         if (e && should_respawn(status))
             respawn_entry(e);
     }
 }
 
-static bool wait_for_service(uint32_t name_u32) {
-    uint32_t handle = 0, pid = 0, waited_ms = 0;
+static bool WaitForService(const char *name)
+{
+    Handle handle = 0;
+    Pid pid = 0;
+    Duration waited_ms = 0;
     Handle recv_handles[1] = {(Handle)port};
 
-    while (remote_nt_lookup(name_u32, &handle, &pid) != NT_LU_OK &&
-           waited_ms < WAIT_TIMEOUT_MS) {
+    while ((handle = LookupServiceWithPid(name, &pid)) < 0 && waited_ms < WAIT_TIMEOUT_MS)
+    {
         reap_all();
 
         WaitanyResult any = {0};
-        if (ZuzuWaitany(recv_handles, 1, WAIT_SLICE_MS, &any) == 0) {
+        if (ZuzuWaitany(recv_handles, 1, WAIT_SLICE_MS, &any) == 0)
+        {
             Message msg;
             if (recvany_to_ipcmsg(&any, &msg))
                 nt_handle_msg(msg);
@@ -339,7 +346,7 @@ static bool wait_for_service(uint32_t name_u32) {
         waited_ms += WAIT_SLICE_MS;
     }
 
-    return remote_nt_lookup(name_u32, &handle, &pid) == NT_LU_OK;
+    return ((handle = LookupServiceWithPid(name, &pid)) >= 0);
 }
 
 /* A process that dies with zombie children reparents them to us (see
@@ -352,7 +359,8 @@ static bool wait_for_service(uint32_t name_u32) {
 
 void sysd_loop(void)
 {
-    while (1) {
+    while (1)
+    {
         reap_all();
         nt_handle_msg(ZuzuMsgRecv(port, REAP_POLL_MS));
     }
@@ -366,99 +374,149 @@ static const char *basename(const char *path)
 {
     const char *b = path;
     for (const char *p = path; *p; p++)
-        if (*p == '/') b = p + 1;
+        if (*p == '/')
+            b = p + 1;
     return b;
 }
 
 static bool role_is_kernel(const char *r, size_t len)
 {
-    return (len == 4 && memcmp(r, "init", 4) == 0) ||
-           (len == 3 && memcmp(r, "dev",  3) == 0) ||
-           (len == 5 && memcmp(r, "devmgr", 5) == 0);
+    return (len == 4 && memcmp(r, "init", 4) == 0) || (len == 3 && memcmp(r, "dev", 3) == 0) ||
+           (len == 6 && memcmp(r, "devmgr", 6) == 0);
 }
 
-static bool role_is_tty(const char *r, size_t len)
+static void parse_manifest(const char *data, size_t size, const void *cpio, size_t cpio_size)
 {
-    return len == 3 && memcmp(r, "tty", 3) == 0;
-}
-
-static uint32_t pack_tty_name(uint32_t index)
-{
-    char name[SYSD_NAME_LEN] = {'t', 't', 'y', (char)('0' + (index % 10u))};
-    return nt_pack(name);
-}
-
-static void parse_manifest(const char *data, size_t size,
-                           const void *cpio, size_t cpio_size)
-{
-    const char *p   = data;
+    const char *p = data;
     const char *end = data + size;
 
-    boot_count     = 0;
+    boot_count = 0;
     deferred_count = 0;
 
-    while (p < end && boot_count < MAX_BOOT_ENTRIES) {
+    while (p < end && boot_count < MAX_BOOT_ENTRIES)
+    {
         const char *eol = p;
-        while (eol < end && *eol != '\n') eol++;
+        while (eol < end && *eol != '\n')
+            eol++;
 
         size_t ll = (size_t)(eol - p);
-        if (ll == 0 || p[0] == '#') { p = eol + 1; continue; }
+        if (ll == 0 || p[0] == '#')
+        {
+            p = eol + 1;
+            continue;
+        }
 
-        while (ll > 0 && (p[ll-1] == '\r' || p[ll-1] == ' ' || p[ll-1] == '\t'))
+        while (ll > 0 && (p[ll - 1] == '\r' || p[ll - 1] == ' ' || p[ll - 1] == '\t'))
             ll--;
 
         /* find pipe */
         size_t pipe = 0;
-        while (pipe < ll && p[pipe] != '|') pipe++;
-        if (pipe == 0 || pipe >= ll) { p = eol + 1; continue; }
+        while (pipe < ll && p[pipe] != '|')
+            pipe++;
+        if (pipe == 0 || pipe >= ll)
+        {
+            p = eol + 1;
+            continue;
+        }
 
-        const char *ps = p;          size_t pl = pipe;
-        const char *rs = p+pipe+1;   size_t rl = ll-pipe-1;
+        const char *ps = p;
+        size_t pl = pipe;
+        const char *rs = p + pipe + 1;
+        size_t rl = ll - pipe - 1;
 
-        while (pl > 0 && (ps[pl-1]==' '||ps[pl-1]=='\t')) pl--;
-        while (rl > 0 && (*rs==' '||*rs=='\t')) { rs++; rl--; }
-        while (rl > 0 && (rs[rl-1]==' '||rs[rl-1]=='\t')) rl--;
+        while (pl > 0 && (ps[pl - 1] == ' ' || ps[pl - 1] == '\t'))
+            pl--;
+        while (rl > 0 && (*rs == ' ' || *rs == '\t'))
+        {
+            rs++;
+            rl--;
+        }
+        while (rl > 0 && (rs[rl - 1] == ' ' || rs[rl - 1] == '\t'))
+            rl--;
 
-        if (role_is_kernel(rs, rl)) { p = eol + 1; continue; }
-        if (pl >= 64)               { p = eol + 1; continue; }
+        size_t pipe2 = 0;
+        while (pipe2 < rl && rs[pipe2] != '|')
+            pipe2++;
+
+        const char *ss = NULL;
+        size_t sl = 0;
+        if (pipe2 < rl)
+        {
+            ss = rs + pipe2 + 1;
+            sl = rl - pipe2 - 1;
+            rl = pipe2;
+            while (rl > 0 && (rs[rl - 1] == ' ' || rs[rl - 1] == '\t'))
+                rl--;
+            while (sl > 0 && (*ss == ' ' || *ss == '\t'))
+            {
+                ss++;
+                sl--;
+            }
+            while (sl > 0 && (ss[sl - 1] == ' ' || ss[sl - 1] == '\t'))
+                sl--;
+        }
+
+        if (role_is_kernel(rs, rl))
+        {
+            p = eol + 1;
+            continue;
+        }
+        if (pl >= 64)
+        {
+            p = eol + 1;
+            continue;
+        }
 
         /* normalise path: bare name -> bin/<name> */
         char full[64];
-        if (memchr(ps, '/', pl)) {
+        if (memchr(ps, '/', pl))
+        {
             memcpy(full, ps, pl);
             full[pl] = '\0';
-        } else {
+        }
+        else
+        {
             memcpy(full, "bin/", 4);
             memcpy(full + 4, ps, pl);
             full[4 + pl] = '\0';
         }
 
         const void *elf = NULL;
-        size_t      esz = 0;
+        size_t esz = 0;
 
-        if (cpio_find(cpio, cpio_size, full, &elf, &esz)) {
+        if (cpio_find(cpio, cpio_size, full, &elf, &esz))
+        {
             boot_entry_t *e = &boot_entries[boot_count++];
             strcpy(e->path, full);
             const char *bn = basename(full);
             strncpy(e->name, bn, sizeof(e->name) - 1);
             e->name[sizeof(e->name) - 1] = '\0';
-            e->elf_data    = elf;
-            e->elf_size    = esz;
+            if (ss && sl > 0 && sl < sizeof(e->svc_path))
+            {
+                memcpy(e->svc_path, ss, sl);
+                e->svc_path[sl] = '\0';
+            }
+            else
+            {
+                e->svc_path[0] = '\0';
+            }
+            e->elf_data = elf;
+            e->elf_size = esz;
             e->taskHandle = -1;
-            e->pid         = 0;
-            e->in_cpio     = true;
-            e->injected    = false;
-            e->is_tty      = role_is_tty(rs, rl);
-            e->tty_index   = 0;
-            e->spawn_last  = false;
+            e->pid = 0;
+            e->in_cpio = true;
+            e->injected = false;
+            e->spawn_last = false;
 
             /* role field may include flags after a ':' e.g. "tty:late" */
             const char *colon = memchr(rs, ':', rl);
-            if (colon) {
+            if (colon)
+            {
                 size_t role_len = (size_t)(colon - rs);
                 const char *flags = colon + 1;
                 size_t flags_len = rl - role_len - 1;
-                if (flags_len > 0) {
+                if (flags_len > 0)
+                {
                     if (flags_len == 4 && memcmp(flags, "late", 4) == 0)
                         e->spawn_last = true;
                     else if (flags_len == 4 && memcmp(flags, "last", 4) == 0)
@@ -467,59 +525,13 @@ static void parse_manifest(const char *data, size_t size,
                         e->spawn_last = true;
                 }
             }
-        } else if (deferred_count < MAX_BOOT_ENTRIES) {
+        }
+        else if (deferred_count < MAX_BOOT_ENTRIES)
+        {
             strcpy(deferred_paths[deferred_count++], full);
         }
 
         p = eol + 1;
-    }
-}
-
-static bool wait_for_tty_registration(uint32_t pid,
-                                      uint32_t *out_handle,
-                                      uint32_t *out_pid)
-{
-    uint32_t waited_ms = 0;
-    Handle recv_handles[1] = {(Handle)port};
-
-    while (remote_nt_lookup_pid(pid, out_handle, out_pid) != NT_LU_OK &&
-           waited_ms < WAIT_TIMEOUT_MS) {
-        reap_all();
-
-        WaitanyResult any = {0};
-        if (ZuzuWaitany(recv_handles, 1, WAIT_SLICE_MS, &any) == 0) {
-            Message msg;
-            if (recvany_to_ipcmsg(&any, &msg))
-                nt_handle_msg(msg);
-        }
-        waited_ms += WAIT_SLICE_MS;
-    }
-
-    return remote_nt_lookup_pid(pid, out_handle, out_pid) == NT_LU_OK;
-}
-
-static void register_tty_aliases(void)
-{
-    uint32_t tty_index = 0;
-
-    for (int i = 0; i < boot_count; i++) {
-        boot_entry_t *e = &boot_entries[i];
-        if (!e->injected || !e->is_tty)
-            continue;
-
-        uint32_t handle = 0, pid = 0;
-        if (!wait_for_tty_registration(e->pid, &handle, &pid))
-            continue;
-
-        e->tty_index = tty_index;
-        /* NT_REGISTER's sender is always kernel-stamped to whoever sends
-         * it, so this alias ends up attributed to sysd's own pid rather
-         * than e->pid — a latent gap from moving the registry out of
-         * process, harmless today since no tty driver is in this boot's
-         * manifest yet. */
-        (void)ZuzuMsgSend((Handle)nameserver_port, NT_REGISTER,
-                          pack_tty_name(tty_index), handle);
-        tty_index++;
     }
 }
 
@@ -539,7 +551,8 @@ int main(int argc, char **argv)
      * outdated.
      *
      */
-    if (((sp->kernel_ver & 0x00FF0000) >> 16) < ZUZUOS_MIN_KERNEL_MAJOR) {
+    if (((sp->kernel_ver & 0x00FF0000) >> 16) < ZUZUOS_MIN_KERNEL_MAJOR)
+    {
         ZuzuPQuit(FATAL_TAG | FATAL_KERNEL_OUTDATED);
     }
 
@@ -553,9 +566,11 @@ int main(int argc, char **argv)
     if (argc < 5)
         return 1;
     const void *initrd = (const void *)strtoul(argv[1], NULL, 16);
-    uint32_t initrd_sz  = (uint32_t)strtoul(argv[2], NULL, 10);
+    uint32_t initrd_sz = (uint32_t)strtoul(argv[2], NULL, 10);
     VirtAddr devmgr_entry = (VirtAddr)strtoul(argv[3], NULL, 16);
-    VirtAddr devmgr_sp    = (VirtAddr)strtoul(argv[4], NULL, 16);
+    VirtAddr devmgr_sp = (VirtAddr)strtoul(argv[4], NULL, 16);
+
+    ZuzuSetLabel(-2 /* LABEL_SELF sentinel */, LABEL_OF("/svc/sysd"));
 
     /* ---- nameserver: spawn, grant it its own port, place that port in
      * our own slot 0 ---- */
@@ -571,8 +586,10 @@ int main(int argc, char **argv)
     /* ---- grant devmgr the nameserver port, then kickstart it ---- */
 
     {
-        int32_t devmgr_ns_slot = ZuzuGrant(nameserver_port, DEVMGR_PID);
-        if (devmgr_ns_slot >= 0) {
+        int32_t devmgr_ns_slot = ZuzuGrant(nameserver_port, DEVMGR_PID, 0);
+        if (devmgr_ns_slot >= 0)
+        {
+            ZuzuSetLabel(SYSD_DEVMGR_TASK_HANDLE_SLOT, LABEL_OF("/svc/devmgr"));
             ZuzuKickstart(SYSD_DEVMGR_TASK_HANDLE_SLOT, devmgr_entry, devmgr_sp,
                           (uint32_t)devmgr_ns_slot, nameserver_pid);
         }
@@ -581,16 +598,16 @@ int main(int argc, char **argv)
     /* ---- read boot manifest from CPIO ---- */
 
     const void *mdata;
-    size_t      msize;
+    size_t msize;
     if (!cpio_find(initrd, initrd_sz, "boot.manifest", &mdata, &msize))
         return 1;
 
     parse_manifest((const char *)mdata, msize, initrd, initrd_sz);
 
-
     /* ---- pspawn + inject every CPIO-resident program ---- */
 
-    for (int i = 0; i < boot_count; i++) {
+    for (int i = 0; i < boot_count; i++)
+    {
         boot_entry_t *e = &boot_entries[i];
         if (!e->in_cpio || e->spawn_last)
             continue;
@@ -600,47 +617,50 @@ int main(int argc, char **argv)
             continue;
 
         e->taskHandle = ts.taskHandle;
-        e->pid         = ts.pid;
+        e->pid = ts.pid;
 
-        if (exec_inject((uint32_t)ts.taskHandle,
-                        e->elf_data, e->elf_size,
-                        NULL, 0, 0, &e->reply) != 0)
+        ZuzuSetLabel(ts.taskHandle, LABEL_OF(e->svc_path[0] ? e->svc_path : e->path));
+
+        if (exec_inject((uint32_t)ts.taskHandle, e->elf_data, e->elf_size, NULL, 0, 0, &e->reply) !=
+            0)
             continue;
         e->injected = true;
     }
 
     /* ---- kickstart ---- */
 
-    for (int i = 0; i < boot_count; i++) {
+    for (int i = 0; i < boot_count; i++)
+    {
         boot_entry_t *e = &boot_entries[i];
-        if (!e->injected) continue;
+        if (!e->injected)
+            continue;
 
-        ZuzuKickstart(e->taskHandle, e->reply.entry, e->reply.sp,
-                   e->reply.argc, e->reply.argv_va);
+        ZuzuKickstart(e->taskHandle, e->reply.entry, e->reply.sp, e->reply.argc, e->reply.argv_va);
     }
 
     /* devmgr was explicitly kickstarted above; wait for it to register so
      * other services can find it once they start. */
-    wait_for_service(nt_pack("devm"));
-
-    register_tty_aliases();
+    WaitForService("/svc/devmgr");
 
     // wait for fsd so we can spawn deferred entries through it once it's ready,
     // but only if fsd is actually in this boot manifest — otherwise this is a
     // guaranteed 30s stall waiting for a service that will never register
     // (e.g. a trimmed boot manifest without fsd/pl181drv).
     bool have_fsd = false;
-    for (int i = 0; i < boot_count; i++) {
-        if (boot_entries[i].in_cpio && strcmp(boot_entries[i].name, "fsd") == 0) {
+    for (int i = 0; i < boot_count; i++)
+    {
+        if (boot_entries[i].in_cpio && strcmp(boot_entries[i].name, "fsd") == 0)
+        {
             have_fsd = true;
             break;
         }
     }
     if (have_fsd)
-        wait_for_service(nt_pack("fsd"));
+        WaitForService("/svc/fsd");
 
     /* Spawn any entries marked spawn_last after services are available. */
-    for (int i = 0; i < boot_count; i++) {
+    for (int i = 0; i < boot_count; i++)
+    {
         boot_entry_t *e = &boot_entries[i];
         if (!e->in_cpio || !e->spawn_last)
             continue;
@@ -650,16 +670,16 @@ int main(int argc, char **argv)
             continue;
 
         e->taskHandle = ts.taskHandle;
-        e->pid         = ts.pid;
+        e->pid = ts.pid;
 
-        if (exec_inject((uint32_t)ts.taskHandle,
-                        e->elf_data, e->elf_size,
-                        NULL, 0, 0, &e->reply) != 0)
+        ZuzuSetLabel(ts.taskHandle, LABEL_OF(e->svc_path[0] ? e->svc_path : e->path));
+
+        if (exec_inject((uint32_t)ts.taskHandle, e->elf_data, e->elf_size, NULL, 0, 0, &e->reply) !=
+            0)
             continue;
         e->injected = true;
 
-        ZuzuKickstart(e->taskHandle, e->reply.entry, e->reply.sp,
-                   e->reply.argc, e->reply.argv_va);
+        ZuzuKickstart(e->taskHandle, e->reply.entry, e->reply.sp, e->reply.argc, e->reply.argv_va);
     }
 
     sysd_loop();
