@@ -280,7 +280,7 @@ static void handle_client(Message msg)
 
 static int pl181drv_setup(void)
 {
-    int32_t devmgr_port = LookupService("devm");
+    int32_t devmgr_port = LookupService("/svc/devmgr");
     if (devmgr_port < 0)
     {
         LOG_ERROR(LOG_TAG, "devmgr lookup failed");
