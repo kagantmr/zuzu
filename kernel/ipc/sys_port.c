@@ -299,6 +299,7 @@ void SysGrant(CpuState *frame)
 
     Handle handle = (Handle)(*arch_reg(frame, 0));
     Pid pid = (*arch_reg(frame, 1));
+    uint32_t flags = (*arch_reg(frame, 2));
 
     // Validate handle
     HandleEntry *src =
@@ -392,7 +393,7 @@ void SysGrant(CpuState *frame)
         if (dst->shm)
             dst->shm->ref_count++; // new handle reference to the same object
     }
-    dst->grantable = can_regrant_received_handle(grantee);
+    dst->grantable = (flags & GRANT_REGRANTABLE) || can_regrant_received_handle(grantee);
     (*arch_reg(frame, 0)) = (Handle)slot;
 }
 
@@ -455,6 +456,8 @@ void SysStamp(CpuState *frame)
     (*arch_reg(frame, 0)) = slot;
 }
 
+#define LABEL_SELF -2
+
 void SysSetLabel(CpuState *frame)
 {
     Handle src_handle = (*arch_reg(frame, 0));
@@ -473,34 +476,43 @@ void SysSetLabel(CpuState *frame)
         return;
     }
 
-    HandleEntry *src = handle_vec_get(&current_thread->owner_process->handle_table, src_handle);
-    if (!src)
+    ProcessObj *target;
+
+    if (src_handle == LABEL_SELF)
     {
-        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
-        return;
+        target = current_thread->owner_process;
     }
-
-    if (src->type != HANDLE_TASK)
+    else
     {
-        (*arch_reg(frame, 0)) = ERR_BADTYPE;
-        return;
+
+        HandleEntry *src = handle_vec_get(&current_thread->owner_process->handle_table, src_handle);
+        if (!src)
+        {
+            (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+            return;
+        }
+
+        if (src->type != HANDLE_TASK)
+        {
+            (*arch_reg(frame, 0)) = ERR_BADTYPE;
+            return;
+        }
+
+        target = src->task;
+
+        if (!target || !target->thread)
+        {
+            (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+            return;
+        }
+
+        if (target->thread->state != FROZEN)
+        {
+            (*arch_reg(frame, 0)) = ERR_BUSY;
+            return;
+        }
     }
-
-    ProcessObj *target = src->task;
-
-    if (!target || !target->thread)
-    {
-        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
-        return;
-    }
-
-    if (target->thread->state != FROZEN)
-    {
-        (*arch_reg(frame, 0)) = ERR_BUSY;
-        return;
-    }
-
-    if (src->task->label != LABEL_NONE)
+    if (target->label != LABEL_NONE)
     {
         (*arch_reg(frame, 0)) = ERR_DUPLICATE;
         return;

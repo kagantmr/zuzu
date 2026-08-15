@@ -1,13 +1,11 @@
 #ifndef ENDPOINT_H
 #define ENDPOINT_H
 
-#include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
 #include <list.h>
 #include <vector.h>
-#include "kernel/ipc/ntfn.h"
-#include "kernel/mm/vmm.h"
+#include <zuzu/types.h>
 
 struct process;
 

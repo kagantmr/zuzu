@@ -1,8 +1,6 @@
 #ifndef SYS_PORT_H
 #define SYS_PORT_H
 
-#define NAMETABLE_PID 1
-
 #include <arch/regs.h>
 
 void SysPortCreate(CpuState *frame);
