@@ -1,13 +1,13 @@
-# zuzu initrd boot manifest v1
-# format: <program-or-path>|<role>
-# role: init, dev, tty, none
-# examples: sysd|init, devmgr|dev
+# zuzu initrd boot manifest v2
+# format: <program-or-path>|<role>[:flags][|<service-path>]
+# role: init, dev, tty, none   flags: late
 
 bin/sysd|init
 bin/devmgr|dev
-# bin/pl011drv|tty
-# bin/pl181drv|none
-# bin/fsd|none
-# bin/lan9118drv|none
-# bin/netd|none
-# bin/zzsh|tty:late
+# bin/nameserver is spawned directly by sysd, not listed here
+bin/pl011drv|tty|/dev/uart0
+bin/pl181drv|none|/dev/mmc0
+bin/fsd|none|/svc/fsd
+bin/lan9118drv|none|/dev/eth0
+bin/netd|none|/svc/netd
+bin/zzsh|tty:late|/env/zzsh
