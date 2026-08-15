@@ -4,13 +4,7 @@
 #include <arch/mmu.h>
 #include <arch/platform.h>
 
-#include "drivers/uart/uart.h"
-#include "drivers/uart/pl011.h"
-
 #include "core/panic.h"
-#include "core/version.h"
-#include <assert.h>
-
 #include "kernel/layout.h"
 #include "kernel/mm/pmm.h"
 #include "boot_info.h"
@@ -24,7 +18,7 @@
 #include "kernel/loader/initrd.h"
 #include <string.h>
 #include "kernel/mm/alloc.h"
-
+#include "core/version.h"
 #include "kernel/syspage.h"
 #include "zuzu/types.h"
 #include <snprintf.h>
@@ -40,14 +34,6 @@
 #include "core/log.h"
 
 extern kernel_layout_t kernel_layout;
-static inline uint32_t read_be32(const void *p)
-{
-    const uint8_t *b = (const uint8_t *)p;
-    return ((uint32_t)b[0] << 24) |
-           ((uint32_t)b[1] << 16) |
-           ((uint32_t)b[2] << 8) |
-           ((uint32_t)b[3]);
-}
 
 static ProcessObj *s_devmgr;
 static ProcessObj *s_sysd;
