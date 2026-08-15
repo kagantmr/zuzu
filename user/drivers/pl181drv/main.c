@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "pl181drv.h"
+#include "zuzu/cap.h"
 #include "zuzu/protocols/devm.h"
 #include "zuzu/protocols/mmcdrv.h"
 
@@ -249,7 +250,7 @@ static void handle_client(Message msg)
 
     case SD_CMD_GET_BUF:
     {
-        int32_t granted = ZuzuGrant(shmem_handle, (int32_t)sender);
+        int32_t granted = ZuzuGrant(shmem_handle, (int32_t)sender, 0);
         if (granted < 0)
             ZuzuMsgReply(reply_h, (uint32_t)granted, 0, 0);
         else
@@ -279,7 +280,7 @@ static void handle_client(Message msg)
 
 static int pl181drv_setup(void)
 {
-    int32_t devmgr_port = lookup_service("devm");
+    int32_t devmgr_port = LookupService("devm");
     if (devmgr_port < 0)
     {
         LOG_ERROR(LOG_TAG, "devmgr lookup failed");
@@ -342,11 +343,12 @@ static int pl181drv_setup(void)
     shmem_buf = (uint32_t *)shm_addr;
 
     /* register after hardware is ready so clients don't find the port early */
-    port = register_service("pl181drv");
-    if (port < 0)
+    port = ZuzuPortCreate();
+    Err rc = RegisterService("/dev/mmc0", port);
+    if (rc < 0)
     {
         LOG_ERROR(LOG_TAG, "service registration failed");
-        return -1;
+        return rc;
     }
 
     return 0;
