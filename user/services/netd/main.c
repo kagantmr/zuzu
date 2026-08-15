@@ -71,7 +71,16 @@ __attribute__((cold)) int get_shm() {
         return ERR_SYSDOWN;
     }
 
-    nic_port = LookupService("/dev/eth0");
+    /* lan9118drv is kicked off in the same boot-manifest batch as netd, so
+     * this lookup can race lan9118drv's own devmgr rendezvous + NIC setup.
+     * Retry for a bit instead of failing outright on a boot-order race
+     * (mirrors pl011drv's wait_for_devmgr()). */
+    nic_port = -1;
+    for (int tries = 0; tries < 200 && nic_port < 0; tries++) {
+        nic_port = LookupService("/dev/eth0");
+        if (nic_port < 0)
+            ZuzuSleep(10);
+    }
     if (nic_port < 0) {
         LOG_ERROR(LOG_TAG, "couldn't find nic0");
         return ERR_NOENT;

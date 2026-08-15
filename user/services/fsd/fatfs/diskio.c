@@ -15,13 +15,27 @@ static int g_init = 0;
 static int32_t g_sd_port = -1;
 static BYTE *g_sector_buf = NULL;
 
+/* pl181drv and fsd are both kicked off in the same boot-manifest batch, so
+ * fsd's first mount attempt can easily race pl181drv's own devmgr
+ * rendezvous + card init. Retry the lookup for a bit instead of failing
+ * mount() outright on a boot-order race (mirrors pl011drv's
+ * wait_for_devmgr()). */
+#define MMC_LOOKUP_RETRIES 200
+#define MMC_LOOKUP_RETRY_MS 10
+
 static int disk_backend_init(void)
 {
     if (g_init) {
         return 0;
     }
 
-    g_sd_port = LookupService("/dev/mmc0");
+    for (int tries = 0; tries < MMC_LOOKUP_RETRIES; tries++) {
+        g_sd_port = LookupService("/dev/mmc0");
+        if (g_sd_port >= 0) {
+            break;
+        }
+        ZuzuSleep(MMC_LOOKUP_RETRY_MS);
+    }
     if (g_sd_port < 0) {
         return -1;
     }
