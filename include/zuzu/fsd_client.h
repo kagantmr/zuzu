@@ -10,191 +10,117 @@
  * don't each re-implement it. Tier-1 only (uses zuzu string/mem helpers).
  */
 
-#include <zuzu/zuzu.h>
-#include <zuzu/memprot.h>
-#include <zuzu/protocols/nametable.h>
-#include <zuzu/protocols/fsd.h>
-#include <string.h>
 #include <stdbool.h>
+#include <zuzu/protocols/fsd.h>
+#include <zuzu/types.h>
 
-typedef struct {
-    int32_t  port;   /* granted handle to fsd's port                 */
-    uint32_t pid;    /* fsd's pid, needed to grant our buffer to it  */
-    Handle shm;      /* our shm handle                               */
-    uint8_t *buf;    /* mapped base of the shared buffer             */
-    uint32_t size;   /* buffer size (page-aligned)                   */
-    bool     ready;
-} fsd_conn_t;
-
-/* Establish a session given fsd's already-resolved port handle and pid: create
- * a buffer, grant it to fsd, announce it with FSD_SET_BUF. Use this when the
- * caller cannot (or should not) resolve fsd over NT_PORT — notably sysd, which
- * *is* the nametable and would deadlock RPC-ing itself. Idempotent. */
-static inline int32_t fsd_attach(fsd_conn_t *c, int32_t port, uint32_t pid,
-                                 uint32_t want_size)
+#ifdef __cplusplus
+extern "C"
 {
-    if (c->ready)
-        return ZUZU_OK;
+#endif
 
-    /* page-align and clamp so the low bits are free for the packed slot */
-    want_size = (want_size + FSD_SETBUF_MASK) & ~FSD_SETBUF_MASK;
-    if (want_size < FSD_SHM_MIN) want_size = FSD_SHM_MIN;
-    if (want_size > FSD_SHM_MAX) want_size = FSD_SHM_MAX;
+    typedef struct
+    {
+        Handle port;   /* granted handle to fsd's port                 */
+        Pid pid;       /* fsd's pid, needed to grant our buffer to it  */
+        Handle shm;    /* our shm handle                               */
+        uint8_t *buf;  /* mapped base of the shared buffer             */
+        uint32_t size; /* buffer size (page-aligned)                   */
+        bool ready;
+    } FsdConn;
 
-    c->port = port;
-    c->pid  = pid;
+    /**
+     * @brief Attaches a client's shared buffer to an already-resolved fsd port.
+     *
+     * @param c The connection state to initialize.
+     * @param port Granted handle to fsd's port.
+     * @param pid fsd's PID, needed to grant the shared buffer to it.
+     * @param want_size Requested shared buffer size; clamped to [FSD_SHM_MIN, FSD_SHM_MAX]
+     * and page-aligned.
+     * @return Err ZUZU_OK on success, or a negative error code on failure.
+     */
+    Err FsdAttach(FsdConn *c, Handle port, Pid pid, uint32_t want_size);
 
-    c->shm = ZuzuShmemCreate(want_size);
-    if (c->shm < 0)
-        return (int32_t)c->shm;
+    /**
+     * @brief Establishes a session by resolving fsd over the nameserver, then attaching.
+     * For ordinary clients.
+     *
+     * @param c The connection state to initialize.
+     * @param want_size Requested shared buffer size; see FsdAttach().
+     * @return Err ZUZU_OK on success, or a negative error code on failure.
+     */
+    Err FsdConnect(FsdConn *c, uint32_t want_size);
 
-    void *p = ZuzuMemMap(c->shm, 0, PROT_RW, 0);
-    if (ZuzuPtrIsErr(p))
-        return (int32_t)(intptr_t)p;
-    c->buf  = (uint8_t *)p;
-    c->size = want_size;
+    /**
+     * @brief Opens a file by path.
+     *
+     * @param c An attached connection.
+     * @param path Path to open.
+     * @param mode FSD_MODE_* flags.
+     * @param fd Out-param set to the opened file descriptor on success.
+     * @return Err ZUZU_OK on success, or a negative error code on failure.
+     */
+    Err FsdOpen(FsdConn *c, const char *path, uint32_t mode, uint32_t *fd);
 
-    int32_t slot = ZuzuGrant(c->shm, (int32_t)c->pid);
-    if (slot < 0)
-        return slot;
+    /**
+     * @brief Closes a file descriptor previously returned by FsdOpen().
+     *
+     * @param c An attached connection.
+     * @param fd The file descriptor to close.
+     * @return Err ZUZU_OK on success, or a negative error code on failure.
+     */
+    Err FsdClose(FsdConn *c, uint32_t fd);
 
-    Message s = ZuzuMsgCall(c->port, FSD_SET_BUF, FSD_SETBUF_PACK(slot, want_size), 0);
-    if ((int32_t)s.w1 != ZUZU_OK)
-        return (int32_t)s.w1;
+    /**
+     * @brief Reads up to `count` bytes from `fd` into `dst`.
+     *
+     * @param c An attached connection.
+     * @param fd The file descriptor to read from.
+     * @param dst Destination buffer; may be NULL to discard the data.
+     * @param count Maximum number of bytes to read.
+     * @param got Out-param set to the number of bytes actually read.
+     * @return Err ZUZU_OK on success, or a negative error code on failure.
+     */
+    Err FsdRead(FsdConn *c, uint32_t fd, void *dst, uint32_t count, uint32_t *got);
 
-    c->ready = true;
-    return ZUZU_OK;
+    /**
+     * @brief Writes up to `count` bytes from `src` to `fd`.
+     *
+     * @param c An attached connection.
+     * @param fd The file descriptor to write to.
+     * @param src Source buffer.
+     * @param count Maximum number of bytes to write.
+     * @param put Out-param set to the number of bytes actually written.
+     * @return Err ZUZU_OK on success, or a negative error code on failure.
+     */
+    Err FsdWrite(FsdConn *c, uint32_t fd, const void *src, uint32_t count, uint32_t *put);
+
+    /**
+     * @brief Stats a file by path.
+     *
+     * @param c An attached connection.
+     * @param path Path to stat.
+     * @param st Out-param filled with the file's stat info.
+     * @return Err ZUZU_OK on success, or a negative error code on failure.
+     */
+    Err FsdGetStat(FsdConn *c, const char *path, FsdStat *st);
+
+    /**
+     * @brief Reads directory entries starting at `start`.
+     *
+     * @param c An attached connection.
+     * @param path Directory path.
+     * @param start Index of the first entry to return.
+     * @param out Destination array of entries.
+     * @param max Capacity of `out`, in entries.
+     * @param count Out-param set to the number of entries actually returned.
+     * @return Err ZUZU_OK on success, or a negative error code on failure.
+     */
+    Err FsdReadDir(FsdConn *c, const char *path, uint32_t start, FsdDirEntry *out, uint32_t max,
+                   uint32_t *count);
+
+#ifdef __cplusplus
 }
-
-/* Establish a session by resolving fsd over NT_PORT, then attaching. For
- * ordinary clients. Idempotent — ZUZU_OK immediately if already connected. */
-static inline int32_t fsd_connect(fsd_conn_t *c, uint32_t want_size)
-{
-    if (c->ready)
-        return ZUZU_OK;
-
-    /* lookup returns the granted port slot in.w2 and fsd's pid in.w3 */
-    Message l = ZuzuMsgCall(NT_PORT, NT_LOOKUP, nt_pack("fsd"), 0);
-    if (l.w1 != NT_LU_OK)
-        return (int32_t)l.w1;
-
-    return fsd_attach(c, (int32_t)l.w2, l.w3, want_size);
-}
-
-/* Fill the request header at FSD_REQ_OFF; returns the payload cursor. */
-static inline FsdRequest *fsd__req(fsd_conn_t *c, uint32_t cmd)
-{
-    FsdRequest *r = (FsdRequest *)(c->buf + FSD_REQ_OFF);
-    memset(r, 0, sizeof(*r));
-    r->size     = sizeof(*r);
-    r->cmd      = cmd;
-    r->data_off = FSD_DATA_OFF;
-    return r;
-}
-
-static inline int32_t fsd_open(fsd_conn_t *c, const char *path, uint32_t mode, uint32_t *fd)
-{
-    size_t n = strlen(path);
-    if (FSD_DATA_OFF + n + 1 > c->size)
-        return ERR_OVERFLOW;
-
-    FsdRequest *r = fsd__req(c, FSD_OPEN);
-    r->mode     = mode;
-    r->data_len = (uint32_t)n + 1;
-    memcpy(c->buf + FSD_DATA_OFF, path, n + 1);
-
-    Message m = ZuzuMsgCall(c->port, FSD_OPEN, 0, 0);
-    if ((int32_t)m.w1 != ZUZU_OK)
-        return (int32_t)m.w1;
-    if (fd) *fd = m.w2;
-    return ZUZU_OK;
-}
-
-static inline int32_t fsd_close(fsd_conn_t *c, uint32_t fd)
-{
-    Message m = ZuzuMsgCall(c->port, FSD_CLOSE, fd, 0);
-    return (int32_t)m.w1;
-}
-
-/* Read up to `count` bytes into `dst`; *got set to the number returned. */
-static inline int32_t fsd_read(fsd_conn_t *c, uint32_t fd, void *dst,
-                               uint32_t count, uint32_t *got)
-{
-    uint32_t cap = c->size - FSD_DATA_OFF;
-    if (count > cap)      count = cap;
-    if (count > 0xFFFFu)  count = 0xFFFFu;   /* count rides the high 16 bits of arg */
-
-    Message m = ZuzuMsgCall(c->port, FSD_READ, (fd & 0xFFFFu) | (count << 16), 0);
-    if ((int32_t)m.w1 != ZUZU_OK)
-        return (int32_t)m.w1;
-
-    uint32_t g = m.w2;
-    if (g > count) g = count;
-    if (g && dst) memcpy(dst, c->buf + FSD_DATA_OFF, g);
-    if (got) *got = g;
-    return ZUZU_OK;
-}
-
-static inline int32_t fsd_write(fsd_conn_t *c, uint32_t fd, const void *src,
-                                uint32_t count, uint32_t *put)
-{
-    uint32_t cap = c->size - FSD_DATA_OFF;
-    if (count > cap)      count = cap;
-    if (count > 0xFFFFu)  count = 0xFFFFu;
-
-    if (count) memcpy(c->buf + FSD_DATA_OFF, src, count);
-    Message m = ZuzuMsgCall(c->port, FSD_WRITE, (fd & 0xFFFFu) | (count << 16), 0);
-    if ((int32_t)m.w1 != ZUZU_OK)
-        return (int32_t)m.w1;
-    if (put) *put = m.w2;
-    return ZUZU_OK;
-}
-
-static inline int32_t fsd_stat(fsd_conn_t *c, const char *path, FsdStat *st)
-{
-    size_t n = strlen(path);
-    if (FSD_DATA_OFF + n + 1 > c->size)
-        return ERR_OVERFLOW;
-
-    FsdRequest *r = fsd__req(c, FSD_STAT);
-    r->data_len = (uint32_t)n + 1;
-    memcpy(c->buf + FSD_DATA_OFF, path, n + 1);
-
-    Message m = ZuzuMsgCall(c->port, FSD_STAT, 0, 0);
-    if ((int32_t)m.w1 != ZUZU_OK)
-        return (int32_t)m.w1;
-
-    const FsdResponse *resp = (const FsdResponse *)(c->buf + FSD_RESP_OFF);
-    if (st && resp->data_len >= sizeof(*st) && resp->data_off + sizeof(*st) <= c->size)
-        memcpy(st, c->buf + resp->data_off, sizeof(*st));
-    return ZUZU_OK;
-}
-
-/* Read directory entries starting at `start`; *count set to entries returned. */
-static inline int32_t fsd_readdir(fsd_conn_t *c, const char *path, uint32_t start,
-                                  FsdDirEntry *out, uint32_t max, uint32_t *count)
-{
-    size_t n = strlen(path);
-    if (FSD_DATA_OFF + n + 1 > c->size)
-        return ERR_OVERFLOW;
-
-    FsdRequest *r = fsd__req(c, FSD_READDIR);
-    r->offset   = (int64_t)start;
-    r->data_len = (uint32_t)n + 1;
-    memcpy(c->buf + FSD_DATA_OFF, path, n + 1);
-
-    Message m = ZuzuMsgCall(c->port, FSD_READDIR, 0, 0);
-    if ((int32_t)m.w1 != ZUZU_OK)
-        return (int32_t)m.w1;
-
-    uint32_t got = m.w2;
-    if (got > max) got = max;
-    const FsdResponse *resp = (const FsdResponse *)(c->buf + FSD_RESP_OFF);
-    if (out && got &&
-        (uint64_t)resp->data_off + (uint64_t)got * sizeof(FsdDirEntry) <= c->size)
-        memcpy(out, c->buf + resp->data_off, (size_t)got * sizeof(FsdDirEntry));
-    if (count) *count = got;
-    return ZUZU_OK;
-}
+#endif
 
 #endif /* ZUZU_FSD_CLIENT_H */
