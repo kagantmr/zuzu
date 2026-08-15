@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <zuzu/bench.h>
+#include <zuzu/cap.h>
 #include <zuzu/channel.h>
 #include <zuzu/lmsg.h>
 #include <zuzu/msg.h>
@@ -27,9 +28,11 @@
 /* ZuzuMsgLcall has no w1/w2 word arguments -- the only thing SysMsgRecv
  * hands the receiver for an lcall is the transferred buffer length in w2
  * (see kernel/ipc/sys_ipc.c). LCALL_QUIT_LEN just needs to be distinct from
- * LCALL_PAYLOAD_LEN so the server can tell "shut down" from "echo this". */
+ * LCALL_PAYLOAD_LEN and from every size in the ZUZU_BENCH payload-size
+ * sweep (0/4/8/16/32/64/128/256, see run_lcall_sweep_benchmark) so the
+ * server can tell "shut down" from "echo this". */
 #define LCALL_PAYLOAD_LEN 32u
-#define LCALL_QUIT_LEN 4u
+#define LCALL_QUIT_LEN 500u
 
 /* Cross-process IPC RTT: same protocol, same iteration count as the
  * existing thread-based run_benchmark(), but a dedicated 500-sample
@@ -229,13 +232,13 @@ static int32_t spawn_ipc_child(Handle port, ChildProc *out)
 	if (ts.taskHandle < 0)
 		return ts.taskHandle;
 
-	int32_t child_slot = ZuzuGrant(port, ts.pid);
+	int32_t child_slot = ZuzuGrant(port, ts.pid, 0);
 	if (child_slot < 0) {
 		ZuzuPKill(ts.taskHandle);
 		return child_slot;
 	}
 
-	int32_t sysd_task = ZuzuGrant(ts.taskHandle, g_sysd_pid);
+	int32_t sysd_task = ZuzuGrant(ts.taskHandle, g_sysd_pid, 0);
 	if (sysd_task < 0) {
 		ZuzuPKill(ts.taskHandle);
 		return sysd_task;
@@ -612,14 +615,317 @@ static void run_kernel_ipc_bench_driver(Handle port)
 	}
 }
 
+/* Payload-size sweep on Lmsg RTT: same ping-pong protocol as
+ * run_lcall_benchmark(), swept across a fixed set of sizes so the slope
+ * against payload size can be cross-referenced with the memcpy-only cost
+ * (see ipc_buf_copy() in kernel/ipc/sys_msg.c) -- whatever doesn't scale
+ * with size is the walk/dispatch flat tax; whatever does is the copy. */
+#define LMSG_SWEEP_ITERS 20000u
+#define LMSG_SWEEP_WARMUP_ITERS 500u
+
+static void run_lcall_sweep_benchmark(Handle port)
+{
+	static const uint32_t sizes[] = { 0, 4, 8, 16, 32, 64, 128, 256 };
+	static uint8_t payload[256];
+	memset(payload, 0xA5, sizeof(payload));
+
+	printf("Lmsg RTT payload-size sweep (zuzu_msg_lcall round trip), %u iterations per size (+%u warm-up)\n",
+	       (unsigned)LMSG_SWEEP_ITERS, (unsigned)LMSG_SWEEP_WARMUP_ITERS);
+
+	for (size_t s = 0; s < sizeof(sizes) / sizeof(sizes[0]); s++) {
+		uint32_t len = sizes[s];
+
+		for (uint32_t i = 0; i < LMSG_SWEEP_WARMUP_ITERS; i++) {
+			if (len)
+				LmsgWrite(payload, len);
+			ZuzuMsgLcall(port, len);
+		}
+
+		BenchResult r = { 0 };
+		for (uint32_t i = 0; i < LMSG_SWEEP_ITERS; i++) {
+			if (len)
+				LmsgWrite(payload, len);
+
+			ArchIsb();
+			uint32_t start = ArchMeasure();
+			ArchIsb();
+
+			ZuzuMsgLcall(port, len);
+
+			ArchIsb();
+			uint32_t end = ArchMeasure();
+			ArchIsb();
+
+			bench_result_record(&r, end - start);
+		}
+
+		char label[32];
+		snprintf(label, sizeof(label), "Lmsg RTT (%uB payload)", (unsigned)len);
+		bench_print(label, &r);
+	}
+}
+
 /* Drives ZuzuMemMap/write/ZuzuMemUnmap enough times for the kernel-side
- * SysMemMap and lazy-mapping-translation-fault counters to self-report. */
+ * SysMemMap and lazy-mapping-translation-fault counters to self-report.
+ * 2 pages (not 1): SysMemMap's own standalone VmmCheckUserFault microbench
+ * (see kernel/mm/sys_mm.c) needs a 4KB-and-then-some region to run its
+ * 2-page-spanning check against. */
 static void run_kernel_memmap_bench_driver(void)
 {
 	for (uint32_t i = 0; i < ZUZU_BENCH_WARMUP_ITERS + ZUZU_BENCH_ITERS; i++) {
-		uint32_t *region = ZuzuMemMap(HANDLE_ANON, 4096, PROT_RW, 0);
+		uint32_t *region = ZuzuMemMap(HANDLE_ANON, 2 * 4096, PROT_RW, 0);
 		*region = 0xCAFEBABE;
 		ZuzuMemUnmap(region);
+	}
+}
+
+/* Mirrors echo_server_thread, but receives via ZuzuWaitany instead of
+ * ZuzuMsgRecv -- for a WAITANY_KIND_CALL match, the reply handle comes back
+ * as result.source and the caller's w1 payload as result.w2 (see
+ * WaitanyResult in zuzu/types.h and waitany_deliver_sender() in
+ * kernel/ipc/sys_msg.c), so the quit sentinel has to be checked there
+ * instead of cmd.w2. */
+static void waitany_echo_server_thread(void *arg)
+{
+	Handle port = *(Handle *)arg;
+
+	for (;;) {
+		Handle handles[1] = { port };
+		WaitanyResult res;
+		Err err = ZuzuWaitany(handles, 1, TIMEOUT_INFINITE, &res);
+		if (err != 0 || res.kind != WAITANY_KIND_CALL)
+			continue;
+
+		if (res.w2 == MSG_QUIT) {
+			ZuzuMsgReply((Handle)res.source, 1, 0, 0);
+			ZuzuTQuit(ZUZU_OK);
+		}
+		ZuzuMsgReply((Handle)res.source, 1, 0, 0);
+	}
+}
+
+/* WaitAny RTT baseline: identical protocol and min-of-N discipline to
+ * run_benchmark()'s IPC RTT, except the receiver blocks in ZuzuWaitany on a
+ * single handle instead of ZuzuMsgRecv -- msg/lmsg/handle-lookup/direct-
+ * handoff/reply-cap all have their own line item already; this is WaitAny's,
+ * measured the same "client times its own round trip" way. */
+static void run_waitany_benchmark(Handle port)
+{
+	for (uint32_t i = 0; i < ZUZU_BENCH_WARMUP_ITERS; i++) {
+		ZuzuMsgCall(port, MSG_PING, 0, 0);
+	}
+
+	BenchResult r = { 0 };
+	for (uint32_t i = 0; i < ZUZU_BENCH_ITERS; i++) {
+		ArchIsb();
+		uint32_t start = ArchMeasure();
+		ArchIsb();
+
+		ZuzuMsgCall(port, MSG_PING, 0, 0);
+
+		ArchIsb();
+		uint32_t end = ArchMeasure();
+		ArchIsb();
+
+		bench_result_record(&r, end - start);
+	}
+
+	bench_print("WaitAny RTT (single waiter, zuzu_msg_call round trip)", &r);
+}
+
+/* Kernel caps a single WaitAny call at WAITANY_MAX_HANDLES (16, see
+ * kernel/ipc/sys_msg.c) -- matched here as the sweep's largest fan-out and
+ * as the fixed size of the handle array below. */
+#define WAITANY_FANOUT_MAX 16u
+
+typedef struct {
+	Handle handles[WAITANY_FANOUT_MAX];
+	uint32_t count;
+} WaitanyFanoutArg;
+
+/* Waits on every handle in arg->handles -- only the last one (handles[count-1],
+ * see run_waitany_fanout_benchmark) ever receives traffic, so
+ * waitany_try_once's validate+scan loops always walk the full array before
+ * finding a match: the worst case for whatever the fan-out cost curve turns
+ * out to be. */
+static void waitany_fanout_server_thread(void *arg_)
+{
+	WaitanyFanoutArg *arg = (WaitanyFanoutArg *)arg_;
+
+	for (;;) {
+		WaitanyResult res;
+		Err err = ZuzuWaitany(arg->handles, arg->count, TIMEOUT_INFINITE, &res);
+		if (err != 0 || res.kind != WAITANY_KIND_CALL)
+			continue;
+
+		if (res.w2 == MSG_QUIT) {
+			ZuzuMsgReply((Handle)res.source, 1, 0, 0);
+			ZuzuTQuit(ZUZU_OK);
+		}
+		ZuzuMsgReply((Handle)res.source, 1, 0, 0);
+	}
+}
+
+/* WaitAny fan-out cost: RTT as a function of how many handles a single
+ * WaitAny call is waiting on. If waitany_try_once's per-handle validation
+ * (see the kernel-side bracket in kernel/ipc/sys_msg.c) is a plain linear
+ * scan, this curve should be roughly linear in count; anything worse shows
+ * up here too. */
+static void run_waitany_fanout_benchmark(void)
+{
+	static const uint32_t counts[] = { 1, 4, 16 };
+
+	for (size_t c = 0; c < sizeof(counts) / sizeof(counts[0]); c++) {
+		uint32_t n = counts[c];
+		WaitanyFanoutArg arg = { .count = n };
+		bool ok = true;
+
+		for (uint32_t i = 0; i < n; i++) {
+			arg.handles[i] = ZuzuPortCreate();
+			if (arg.handles[i] < 0) {
+				ok = false;
+				break;
+			}
+		}
+		if (!ok) {
+			printf("WaitAny fan-out (%u handles): couldn't create ports, skipping\n",
+			       (unsigned)n);
+			for (uint32_t i = 0; i < n; i++) {
+				if (arg.handles[i] >= 0)
+					ZuzuDestroy(arg.handles[i]);
+			}
+			continue;
+		}
+		Handle live_port = arg.handles[n - 1];
+
+		uint8_t *stack = malloc(THREAD_STACK_SIZE);
+		if (!stack) {
+			printf("WaitAny fan-out (%u handles): couldn't allocate thread stack, skipping\n",
+			       (unsigned)n);
+			for (uint32_t i = 0; i < n; i++)
+				ZuzuDestroy(arg.handles[i]);
+			continue;
+		}
+
+		Tid tid = ZuzuTMake(waitany_fanout_server_thread, stack + THREAD_STACK_SIZE, &arg);
+		if (tid < 0) {
+			printf("WaitAny fan-out (%u handles): couldn't make thread, skipping\n",
+			       (unsigned)n);
+			free(stack);
+			for (uint32_t i = 0; i < n; i++)
+				ZuzuDestroy(arg.handles[i]);
+			continue;
+		}
+
+		for (uint32_t i = 0; i < ZUZU_BENCH_WARMUP_ITERS; i++) {
+			ZuzuMsgCall(live_port, MSG_PING, 0, 0);
+		}
+
+		BenchResult r = { 0 };
+		for (uint32_t i = 0; i < ZUZU_BENCH_ITERS; i++) {
+			ArchIsb();
+			uint32_t start = ArchMeasure();
+			ArchIsb();
+
+			ZuzuMsgCall(live_port, MSG_PING, 0, 0);
+
+			ArchIsb();
+			uint32_t end = ArchMeasure();
+			ArchIsb();
+
+			bench_result_record(&r, end - start);
+		}
+
+		char label[48];
+		snprintf(label, sizeof(label), "WaitAny RTT (fan-out, %u handles)", (unsigned)n);
+		bench_print(label, &r);
+
+		ZuzuMsgCall(live_port, MSG_QUIT, 0, 0);
+		ZuzuTJoin(tid);
+		free(stack);
+		for (uint32_t i = 0; i < n; i++)
+			ZuzuDestroy(arg.handles[i]);
+	}
+}
+
+#define WAITANY_SENDER_MAX 16u
+
+typedef struct {
+	Handle port;
+	uint32_t tag;
+} WaitanySenderArg;
+
+static void waitany_sender_thread(void *arg_)
+{
+	WaitanySenderArg *arg = (WaitanySenderArg *)arg_;
+	ZuzuMsgCall(arg->port, arg->tag, 0, 0);
+}
+
+/* Not a timing bench: correctness-adjacent check for whether WaitAny's
+ * wake order under N pending senders on the same port stays FIFO as N
+ * grows. All N sender threads are spawned first and given a short sleep to
+ * pile up in the port's sender_queue before draining starts, so this is a
+ * best-effort ordering check under whatever this scheduler actually does,
+ * not a hard real-time guarantee -- the printed sequence is the ground
+ * truth, the PASS/FAIL line just flags whether it stayed monotonic. */
+static void run_waitany_wakeorder_check(void)
+{
+	static const uint32_t counts[] = { 1, 4, 16 };
+
+	for (size_t c = 0; c < sizeof(counts) / sizeof(counts[0]); c++) {
+		uint32_t n = counts[c];
+
+		Handle port = ZuzuPortCreate();
+		if (port < 0) {
+			printf("WaitAny wake-order (%u senders): couldn't create port, skipping\n",
+			       (unsigned)n);
+			continue;
+		}
+
+		uint8_t *stacks = malloc((size_t)n * THREAD_STACK_SIZE);
+		if (!stacks) {
+			printf("WaitAny wake-order (%u senders): couldn't allocate stacks, skipping\n",
+			       (unsigned)n);
+			ZuzuDestroy(port);
+			continue;
+		}
+
+		static WaitanySenderArg args[WAITANY_SENDER_MAX];
+		Tid tids[WAITANY_SENDER_MAX];
+
+		for (uint32_t i = 0; i < n; i++) {
+			args[i].port = port;
+			args[i].tag = i;
+			tids[i] = ZuzuTMake(waitany_sender_thread, stacks + (i + 1) * THREAD_STACK_SIZE,
+					     &args[i]);
+		}
+
+		ZuzuSleep(10);
+
+		printf("WaitAny wake order (%u senders): ", (unsigned)n);
+		bool fifo_ok = true;
+		uint32_t prev = 0;
+		for (uint32_t i = 0; i < n; i++) {
+			Handle handles[1] = { port };
+			WaitanyResult res;
+			Err err = ZuzuWaitany(handles, 1, TIMEOUT_INFINITE, &res);
+			if (err != 0 || res.kind != WAITANY_KIND_CALL) {
+				printf("(waitany error %d) ", err);
+				fifo_ok = false;
+				break;
+			}
+			printf("%u ", (unsigned)res.w2);
+			if (i > 0 && res.w2 < prev)
+				fifo_ok = false;
+			prev = res.w2;
+			ZuzuMsgReply((Handle)res.source, 1, 0, 0);
+		}
+		printf("-- %s\n", fifo_ok ? "FIFO order held" : "order NOT monotonic");
+
+		for (uint32_t i = 0; i < n; i++)
+			ZuzuTJoin(tids[i]);
+		free(stacks);
+		ZuzuDestroy(port);
 	}
 }
 
@@ -699,11 +1005,49 @@ int main(void)
 
 	BenchmarkResult r_lmsg = run_lcall_benchmark(lport);
 
+#ifdef ZUZU_BENCH
+	run_lcall_sweep_benchmark(lport);
+#endif
+
 	ZuzuMsgLcall(lport, LCALL_QUIT_LEN);
 	ZuzuTJoin(ltid);
 
 	free(lstack);
 	ZuzuDestroy(lport);
+
+#ifdef ZUZU_BENCH
+	{
+		Handle waport = ZuzuPortCreate();
+		if (waport < 0) {
+			printf("Couldn't get waitany handle: %s\n", StrToError(waport));
+		} else {
+			uint8_t *wastack = malloc(THREAD_STACK_SIZE);
+			if (!wastack) {
+				printf("Couldn't allocate waitany thread stack\n");
+				ZuzuDestroy(waport);
+			} else {
+				Tid watid = ZuzuTMake(waitany_echo_server_thread,
+						      wastack + THREAD_STACK_SIZE, &waport);
+				if (watid < 0) {
+					printf("Couldn't make waitany thread: %s\n",
+					       StrToError(watid));
+					free(wastack);
+					ZuzuDestroy(waport);
+				} else {
+					run_waitany_benchmark(waport);
+
+					ZuzuMsgCall(waport, MSG_QUIT, 0, 0);
+					ZuzuTJoin(watid);
+					free(wastack);
+					ZuzuDestroy(waport);
+				}
+			}
+		}
+
+		run_waitany_fanout_benchmark();
+		run_waitany_wakeorder_check();
+	}
+#endif
 
 #ifdef ZUZU_BENCH
 	/* Drives SysMemMap and the lazy-mapping translation-fault path; both
