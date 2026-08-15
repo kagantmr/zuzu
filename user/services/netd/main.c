@@ -21,6 +21,7 @@
 
 #include "app/dns.h"
 #include "app/dhcp.h"
+#include "zuzu/cap.h"
 
 nic_ring_t *tx_ring, *rx_ring;
 Handle nic_port;
@@ -62,13 +63,15 @@ static __attribute__((cold)) void on_dhcp_bound(void) {
 }
 
 __attribute__((cold)) int get_shm() {
-    Handle port = register_service("netd");
-    if (port < 0) {
+    Handle port = ZuzuPortCreate();
+
+    Err rc = RegisterService("/svc/netd", port);
+    if (rc < 0) {
         LOG_ERROR(LOG_TAG, "registration failed");
         return ERR_SYSDOWN;
     }
 
-    nic_port = lookup_service("nic0");
+    nic_port = LookupService("/dev/eth0");
     if (nic_port < 0) {
         LOG_ERROR(LOG_TAG, "couldn't find nic0");
         return ERR_NOENT;

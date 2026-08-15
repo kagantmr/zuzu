@@ -2,7 +2,6 @@
 #include "diskio.h"
 
 #include <zuzu/zuzu.h>
-#include "zuzu/protocols/nametable.h"
 #include "zuzu/protocols/mmcdrv.h"
 #include <zuzu/service.h>
 #include <string.h>
@@ -22,7 +21,7 @@ static int disk_backend_init(void)
         return 0;
     }
 
-    g_sd_port = lookup_service("pl181drv");
+    g_sd_port = LookupService("/dev/mmc0");
     if (g_sd_port < 0) {
         return -1;
     }
