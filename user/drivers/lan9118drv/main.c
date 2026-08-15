@@ -2,6 +2,7 @@
 #include <zuzu/protocols/devm.h>
 #include <zuzu/protocols/nic.h>
 #include <zuzu/msg.h>
+#include <zuzu/cap.h>
 #include <zuzu/irq.h>
 #include <zuzu/ntfn.h>
 #include <zuzu/task.h>
@@ -89,7 +90,7 @@ static inline void mac_csr_write(uint8_t index, uint32_t value)
 int get_nic(void)
 {
 
-    devm_port = lookup_service("devm");
+    devm_port = LookupService("devm");
     
     static const char *const nic_compat[] = { "smsc,lan9118" };
     uint32_t matched; 
@@ -198,8 +199,11 @@ int nic_setup(void)
 
 void lan9118_service_loop(void)
 {
-    nt_port = register_service("nic0");
-    if (nt_port < 0)
+    nt_port = ZuzuPortCreate();
+
+    Err rc = RegisterService("/dev/eth0", nt_port);
+
+    if (rc < 0)
     {
         LOG_ERROR(LOG_TAG, "service registration failed");
         return;
@@ -325,9 +329,9 @@ void lan9118_service_loop(void)
                 else
                 {
                     /* w1 = shmem, w2 = rx doorbell, w3 = tx doorbell */
-                    int32_t shm_g = ZuzuGrant(shmem_handle, result.w1);
-                    int32_t rx_g  = ZuzuGrant(netd_ntfn, result.w1);
-                    int32_t tx_g  = ZuzuGrant(tx_doorbell_ntfn, result.w1);
+                    int32_t shm_g = ZuzuGrant(shmem_handle, result.w1, 0);
+                    int32_t rx_g  = ZuzuGrant(netd_ntfn, result.w1, 0);
+                    int32_t tx_g  = ZuzuGrant(tx_doorbell_ntfn, result.w1, 0);
                     if (shm_g < 0 || rx_g < 0 || tx_g < 0)
                         ZuzuMsgReply(result.source, ERR_SYSDOWN, 0, 0);
                     else
