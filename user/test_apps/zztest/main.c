@@ -30,8 +30,8 @@
 #include <zuzu/memprot.h>
 #include <zuzu/tls.h>
 #include <zuzu/syspage.h>
-#include <zuzu/protocols/nametable.h>
 #include <zuzu/protocols/exec.h>
+#include <zuzu/service.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -110,11 +110,12 @@ static Pid  g_sysd_pid;
 
 static int sysd_setup(void)
 {
-    Message r = ZuzuMsgCall(NT_PORT, NT_LOOKUP, nt_pack(NT_NAME_SYS), 0);
-    if ((Err)r.w1 != NT_LU_OK)
+    Pid pid;
+    Handle h = LookupServiceWithPid("/svc/sysd", &pid);
+    if (h < 0)
         return -1;
-    g_sysd_port = (int32_t)r.w2;
-    g_sysd_pid  = (Pid)r.w3;
+    g_sysd_port = h;
+    g_sysd_pid  = pid;
     return 0;
 }
 
@@ -133,7 +134,7 @@ static int32_t child_spawn(const char *arg1, Handle grant_h, child_t *out)
     char arg2[16];
     int argc = 2;
     if (grant_h >= 0) {
-        int32_t child_slot = ZuzuGrant(grant_h, ts.pid);
+        int32_t child_slot = ZuzuGrant(grant_h, ts.pid, 0);
         if (child_slot < 0) {
             ZuzuPKill(ts.taskHandle);
             return child_slot;
@@ -142,7 +143,7 @@ static int32_t child_spawn(const char *arg1, Handle grant_h, child_t *out)
         argc = 3;
     }
 
-    int32_t sysd_task = ZuzuGrant(ts.taskHandle, g_sysd_pid);
+    int32_t sysd_task = ZuzuGrant(ts.taskHandle, g_sysd_pid, 0);
     if (sysd_task < 0) {
         ZuzuPKill(ts.taskHandle);
         return sysd_task;
@@ -899,8 +900,8 @@ static void sec_security(void)
     CHECK_EQ(ZuzuPKill(9999), ERR_BADHANDLE, "pkill on bogus handle -> ERR_BADHANDLE");
 
     /* --- grant authority checks --- */
-    CHECK_EQ(ZuzuGrant(kp, 999999), ERR_NOENT, "grant to nonexistent pid -> ERR_NOENT");
-    CHECK_EQ(ZuzuGrant(9999, g_sysd_pid), ERR_BADHANDLE, "grant bogus handle -> ERR_BADHANDLE");
+    CHECK_EQ(ZuzuGrant(kp, 999999, 0), ERR_NOENT, "grant to nonexistent pid -> ERR_NOENT");
+    CHECK_EQ(ZuzuGrant(9999, g_sysd_pid, 0), ERR_BADHANDLE, "grant bogus handle -> ERR_BADHANDLE");
     CHECK_EQ(ZuzuDestroy(kp), 0, "destroy grant-probe port");
 
     /* --- reply-cap forgery / replay --- */
@@ -920,7 +921,7 @@ static void sec_security(void)
              "reply on bogus handle -> ERR_BADHANDLE");
     CHECK_EQ(ZuzuMsgReply(0, 0, 0, 0), ERR_BADHANDLE,
              "reply on handle 0 -> ERR_BADHANDLE");
-    CHECK_EQ(ZuzuGrant((Handle)m.w0, g_sysd_pid), ERR_NOPERM,
+    CHECK_EQ(ZuzuGrant((Handle)m.w0, g_sysd_pid, 0), ERR_NOPERM,
              "cannot grant a REPLY handle (no cap leak)");
     LmsgWrite(RESP, sizeof(RESP));
     CHECK_EQ(ZuzuMsgLreply((Handle)m.w0, sizeof(RESP)), 0, "genuine reply succeeds");

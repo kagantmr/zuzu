@@ -14,7 +14,7 @@
 #include <zuzu/lmsg.h>
 #include <zuzu/msg.h>
 #include <zuzu/protocols/exec.h>
-#include <zuzu/protocols/nametable.h>
+#include <zuzu/service.h>
 #include <zuzu/task.h>
 #include <zuzu/types.h>
 
@@ -206,11 +206,12 @@ static Pid g_sysd_pid;
 
 static int sysd_setup(void)
 {
-	Message r = ZuzuMsgCall(NT_PORT, NT_LOOKUP, nt_pack(NT_NAME_SYS), 0);
-	if ((Err)r.w1 != NT_LU_OK)
+	Pid pid;
+	Handle h = LookupServiceWithPid("/svc/sysd", &pid);
+	if (h < 0)
 		return -1;
-	g_sysd_port = (Handle)r.w2;
-	g_sysd_pid = (Pid)r.w3;
+	g_sysd_port = h;
+	g_sysd_pid = pid;
 	return 0;
 }
 

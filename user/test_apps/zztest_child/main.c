@@ -25,6 +25,7 @@
  */
 #include <zuzu/zuzu.h>
 #include <zuzu/memprot.h>
+#include <zuzu/protocols/nametable.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -100,7 +101,7 @@ static int mode_regrant(Handle slot)
     /* A received capability must not be re-grantable (prevents unbounded
      * propagation), and we must not be able to destroy an object we don't
      * own. Both must be refused with ERR_NOPERM. */
-    if (ZuzuGrant(slot, NAMETABLE_PID) != ERR_NOPERM)
+    if (ZuzuGrant(slot, NT_PID, 0) != ERR_NOPERM)
         return 114;
     if (ZuzuDestroy(slot) != ERR_NOPERM)
         return 115;
