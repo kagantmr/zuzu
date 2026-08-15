@@ -29,6 +29,13 @@ NEWLIB_USER_CFLAGS = -O$(USER_OPTIMIZATION_LEVEL) -Wall -Wextra -mthumb \
                      -MMD -MP -g $(ARCH_USER_FP) \
                      -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"'
 
+# C-only additions: -include force-includes C declarations, which breaks
+# crt0-newlib.o's assembler compile (also built with NEWLIB_USER_CFLAGS,
+# via -x assembler-with-cpp) if added above. Only used by the two C compile
+# rules below.
+NEWLIB_USER_CFLAGS_C = $(NEWLIB_USER_CFLAGS) \
+                        -include include/newlib_compat.h -DSSIZE_MAX=0x7fffffff
+
 NEWLIB_USER_LDFLAGS = -nostartfiles -Wl,-T,user/user.ld \
                       -mthumb -mcpu=cortex-a15 -mfloat-abi=hard -mfpu=vfpv4
 
@@ -123,19 +130,27 @@ $(NEWLIB_INC)/zuzu:
 	@mkdir -p $(NEWLIB_INC)
 	@ln -sfn ../../include/zuzu $(NEWLIB_INC)/zuzu
 
+# This newlib build's own <dirent.h> hard #errors on this target (no host
+# directory backend), so shadow it with our own (see lib/posix/dirent.c).
+$(NEWLIB_INC)/dirent.h:
+	@mkdir -p $(NEWLIB_INC)
+	@ln -sfn ../../include/dirent.h $(NEWLIB_INC)/dirent.h
+
+NEWLIB_INC_STAMPS = $(NEWLIB_INC)/zuzu $(NEWLIB_INC)/dirent.h
+
 # Must precede the generic build/user/%.o rule: make 3.81 picks the first
 # matching pattern rule, not the most specific one.
-build/user/newlib_apps/%.o: user/newlib_apps/%.c $(BOARD_STAMP) $(NEWLIB_INC)/zuzu
+build/user/newlib_apps/%.o: user/newlib_apps/%.c $(BOARD_STAMP) $(NEWLIB_INC_STAMPS)
 	$(call check-newlib-toolchain)
 	@mkdir -p $(dir $@)
 	@echo "  CC[nl]  $<"
-	@$(NEWLIB_CC) $(NEWLIB_USER_CFLAGS) -c $< -o $@
+	@$(NEWLIB_CC) $(NEWLIB_USER_CFLAGS_C) -c $< -o $@
 
-build/lib/posix/%.o: lib/posix/%.c $(BOARD_STAMP) $(NEWLIB_INC)/zuzu
+build/lib/posix/%.o: lib/posix/%.c $(BOARD_STAMP) $(NEWLIB_INC_STAMPS)
 	$(call check-newlib-toolchain)
 	@mkdir -p $(dir $@)
 	@echo "  CC[nl]  $<"
-	@$(NEWLIB_CC) $(NEWLIB_USER_CFLAGS) -c $< -o $@
+	@$(NEWLIB_CC) $(NEWLIB_USER_CFLAGS_C) -c $< -o $@
 
 build/user/%.o: user/%.c $(BOARD_STAMP)
 	@mkdir -p $(dir $@)
