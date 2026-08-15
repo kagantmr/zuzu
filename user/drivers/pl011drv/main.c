@@ -4,7 +4,9 @@
 #include "zuzu/protocols/nametable.h"
 #include <zuzu/protocols/exec.h>
 #include "zuzu/lmsg.h"
+#include "zuzu/service.h"
 #include <ring.h>
+#include <zuzu/cap.h>
 #include <zuzu/channel.h>
 #include <stdint.h>
 #include <string.h>
@@ -59,13 +61,13 @@ static void drain_uart_rx_fifo(void)
     }
 }
 
-static int32_t wait_for_devmgr(void)
+static void wait_for_devmgr(void)
 {
     while (1) {
-        Message ntmsg = ZuzuMsgCall(NT_PORT, NT_LOOKUP, nt_pack("devm"), 0);
-        if ((int32_t)ntmsg.w1 == NT_LU_OK) {
-            devmgr_port = (int32_t)ntmsg.w2;
-            return (int32_t)ntmsg.w3;
+        Handle ntmsg = LookupService("/svc/devmgr");
+        if (ntmsg > 0) {
+            devmgr_port = (int32_t)ntmsg;
+            return;
         }
         ZuzuSleep(10);
     }
@@ -187,12 +189,12 @@ int pl011drv_setup(void)
         return client_port;
     }
 
-    int32_t nt_slot = ZuzuGrant(client_port, NAMETABLE_PID);
-    if (nt_slot < 0) {
-        return nt_slot;
+    Err rc = RegisterService("/dev/uart0", client_port);
+    if (rc < 0) {
+        return rc;
     }
 
-    (void)wait_for_devmgr();
+    wait_for_devmgr();
 
     int32_t dev_handle = request_serial_device();
     if (dev_handle < 0) {
@@ -231,7 +233,6 @@ int pl011drv_setup(void)
     run_irq_wait_bench();
 #endif
 
-    (void)ZuzuMsgSend(NT_PORT, NT_REGISTER, nt_pack("pl011drv"), (uint32_t)nt_slot);
     return PL011DRV_INIT_OK;
 }
 
