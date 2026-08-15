@@ -12,6 +12,7 @@
 #define LOG_FMT(fmt) "(syscall_mm) " fmt
 #include "core/log.h"
 #include "kernel/mm/alloc.h"
+#include "kernel/mm/vmm.h"
 #include "kernel/bench.h"
 #include <compiler.h>
 
@@ -19,6 +20,16 @@ extern Thread *current_thread;
 
 #ifdef ZUZU_BENCH
 BENCH_STAT(g_bench_memmap, "SysMemMap call->return");
+
+/* Standalone VmmCheckUserFault microbench: called alone (no memcpy, no
+ * syscall dispatch overhead beyond SysMemMap's own) against a freshly
+ * mapped anon region, at three sizes -- flat cost across all three would
+ * mean the walk is pure per-call overhead (TLB/cache-miss dominated);
+ * cost scaling with the 4KB/2-page case would mean it's genuinely
+ * per-page work. */
+BENCH_STAT(g_bench_checkuserfault_4b, "VmmCheckUserFault (4B)");
+BENCH_STAT(g_bench_checkuserfault_32b, "VmmCheckUserFault (32B)");
+BENCH_STAT(g_bench_checkuserfault_4k_2page, "VmmCheckUserFault (4KB, 2 pages)");
 #endif
 
 /**
@@ -210,6 +221,25 @@ void __hot SysMemMap(CpuState *frame)
     if (likely(handle == HANDLE_ANON))
     {
         rc = memmap_anon(p, 0, size, prot, &va); /* hint dies at step D */
+#ifdef ZUZU_BENCH
+        /* Needs >= 2 pages so the 4KB check can start mid-page-one and
+         * genuinely cross into page two rather than just sitting inside it. */
+        if (rc == ZUZU_OK && size >= 2 * PAGE_SIZE) {
+            uint32_t t0;
+
+            t0 = BENCH_BEGIN();
+            (void)VmmCheckUserFault(p->as, va, 4, true);
+            BENCH_END(g_bench_checkuserfault_4b, t0);
+
+            t0 = BENCH_BEGIN();
+            (void)VmmCheckUserFault(p->as, va, 32, true);
+            BENCH_END(g_bench_checkuserfault_32b, t0);
+
+            t0 = BENCH_BEGIN();
+            (void)VmmCheckUserFault(p->as, va + PAGE_SIZE / 2, PAGE_SIZE, true);
+            BENCH_END(g_bench_checkuserfault_4k_2page, t0);
+        }
+#endif
     }
     else
     {
