@@ -4,6 +4,7 @@
 #include <sys/times.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdio.h>
 #include <zuzu/zuzu.h>
 #include <zuzu/lmsg.h>
 #include <zuzu/uspin.h>
@@ -350,6 +351,22 @@ int _getpid(void) {
     return ZuzuGetPid();
 }
 
+unsigned sleep(unsigned seconds) {
+    ZuzuSleep(seconds * 1000u);
+    return 0;
+}
+
+/* This newlib build implements getline() as __getline() internally but
+ * never exposes the POSIX name in <stdio.h>; the implementation itself is
+ * present in libc_nano.a (confirmed at link time), just not declared. */
+ssize_t __getline(char **lineptr, size_t *n, FILE *stream);
+
+/* weak: kilo (and possibly other vendored programs) bundle their own
+ * getline() fallback and must win over this one. */
+__attribute__((weak)) ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
+    return __getline(lineptr, n, stream);
+}
+
 int _kill(int pid, int sig) {
     if (pid == ZuzuGetPid())
         ZuzuPQuit(sig);
@@ -454,6 +471,13 @@ clock_t _times(struct tms *buf)
         buf->tms_cstime = 0;
     }
     return ticks;
+}
+
+/* fsd has no symlink layer of its own (FSD_TYPE_SYMLINK exists in the wire
+ * protocol but nothing ever produces it yet), so lstat() has nothing to
+ * behave differently about -- alias it straight to stat(). */
+int lstat(const char *name, struct stat *st) {
+    return stat(name, st);
 }
 
 int _stat(const char *name, struct stat *st)
