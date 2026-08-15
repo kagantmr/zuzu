@@ -13,7 +13,6 @@ extern "C" {
 
 /* ---- Process constants ---- */
 
-#define NAMETABLE_PID 1
 #define WNOHANG (1 << 0)
 
 /* ---- Task lifecycle syscalls ---- */

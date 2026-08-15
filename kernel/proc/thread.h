@@ -1,6 +1,7 @@
 #ifndef ZUZU_THREAD_H
 #define ZUZU_THREAD_H
 
+#include "kernel/ipc/ntfn.h"
 #include "kernel/ipc/port.h"
 #include "kernel/mm/vmm.h"
 #include <arch/fpu.h>

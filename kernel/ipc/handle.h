@@ -12,6 +12,8 @@
 #include "port.h"
 #include "kernel/dev/devcap.h"
 
+#define GRANT_REGRANTABLE (1u << 0)
+
 typedef enum
 {
     HANDLE_FREE,

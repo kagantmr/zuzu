@@ -3,7 +3,6 @@
 
 
 #include <list.h>
-#include <stdint.h>
 #include <zuzu/types.h>
 #include <stdbool.h>
 
