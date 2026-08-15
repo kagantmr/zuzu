@@ -8,8 +8,8 @@
 #include <zuzu/lmsg.h>
 #include <zuzu/uspin.h>
 #include <zuzu/syspage.h>
-#include <zuzu/protocols/nametable.h>
 #include <zuzu/protocols/fsd.h>
+#include <zuzu/service.h>
 #include <string.h>
 
 #define MAX_FD 32
@@ -76,10 +76,10 @@ static int err_to_errno(Err e)
 
 static Handle console_port(void) {
     if (console_tty < 0) {
-        Message lu = ZuzuMsgCall(NT_PORT, NT_LOOKUP, nt_pack("tty0"), 0);
-        if ((Err)lu.w1 != NT_LU_OK)
+        Handle h = LookupService("/dev/uart0");
+        if (h < 0)
             return -1;
-        console_tty = (Handle)lu.w2;
+        console_tty = h;
     }
     return console_tty;
 }
@@ -121,11 +121,13 @@ static void fsd_release(void)
 }
 
 static int fsd_connect(void) {
-    if (fsd_buf) return 0;
-    Message lu = ZuzuMsgCall(NT_PORT, NT_LOOKUP, nt_pack("fsd\0"), 0);
-    if ((Err)lu.w1 != NT_LU_OK) return -1;
-    fsd_handle = (Handle)lu.w2;
-    uint32_t fsd_pid = lu.w3;
+    if (fsd_buf)
+        return 0;
+
+    Pid fsd_pid = 0;
+    fsd_handle = LookupServiceWithPid("/svc/fsd", &fsd_pid);
+    if (fsd_handle < 0)
+        return -1;
 
     Handle shm = ZuzuShmemCreate(FSD_SHM_DEFAULT);
     if (shm < 0) return -1;
@@ -133,7 +135,7 @@ static int fsd_connect(void) {
     void *p = ZuzuMemMap(shm, 0, PROT_RW, 0);
     if (ZuzuPtrIsErr(p)) return -1;
 
-    int32_t slot = ZuzuGrant(shm, (int32_t)fsd_pid);
+    int32_t slot = ZuzuGrant(shm, (int32_t)fsd_pid, 0);
     if (slot < 0) return -1;
 
     Message r = ZuzuMsgCall(fsd_handle, FSD_SET_BUF,
