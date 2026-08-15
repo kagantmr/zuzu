@@ -90,7 +90,7 @@ static inline void mac_csr_write(uint8_t index, uint32_t value)
 int get_nic(void)
 {
 
-    devm_port = LookupService("devm");
+    devm_port = LookupService("/svc/devmgr");
     
     static const char *const nic_compat[] = { "smsc,lan9118" };
     uint32_t matched; 
