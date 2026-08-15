@@ -82,7 +82,7 @@ int vscanf(const char *format, va_list args);
  * 
  * @return int Returns 0 on success, or a negative value if an error occurs.
  */
-int stdio_register_uart(void);
+int stdio_open_tty(void);
 
 /**
  * @brief Routes the standard I/O functions to a specific TTY device.

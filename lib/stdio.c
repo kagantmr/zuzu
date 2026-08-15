@@ -8,14 +8,18 @@
 #else
 #include <zuzu/lmsg.h>
 #include <zuzu/protocols/nametable.h>
+#include <zuzu/service.h>
 #include <zuzu/zuzu.h>
 #endif
 
 #define STDIO_PRINTF_BUF_SIZE 1024
 
 #ifndef __KERNEL__
+/* Full nametable path of the tty this process writes to. Drivers register
+ * under /dev, services under /svc; the console is a driver, so the
+ * default is the first UART. Changed at runtime via stdio_route_tty(). */
 static int32_t stdio_tty = -1;
-static char stdio_tty_name[4] = {'t', 't', 'y', '0'};
+static char stdio_tty_name[NT_MAX_PATH] = "/dev/uart0";
 static char stdio_input_buf[LMSG_BUF_SIZE];
 static uint32_t stdio_input_len;
 static uint32_t stdio_input_pos;
@@ -27,7 +31,7 @@ static void __attribute__((constructor)) stdio_init(void) {
     // Nothing to do for kernel, kprintf is always available
 #else
     // Lazy initialization: don't look up tty service on startup.
-    // Wait until first printf() or explicit `stdio_register_uart()` call.
+    // Wait until first printf() or explicit `stdio_open_tty()` call.
 #endif
 }
 
@@ -40,37 +44,10 @@ static void __attribute__((destructor)) stdio_fini(void) {
 #endif
 }
 
-int stdio_route_tty(const char name[4])
-{
-#ifdef __KERNEL__
-    (void)name;
-    return -1;
-#else
-    if (!name)
-        return -1;
 
-    for (int i = 0; i < 4; i++)
-        stdio_tty_name[i] = name[i];
-    stdio_tty = -1;
-    stdio_input_len = 0;
-    stdio_input_pos = 0;
-    stdio_input_pushback = EOF;
-    return stdio_register_uart();
-#endif
-}
-
-int stdio_use_tty(uint32_t index)
-{
-#ifdef __KERNEL__
-    (void)index;
-    return -1;
-#else
-    char name[4] = {'t', 't', 'y', (char)('0' + (index % 10u))};
-    return stdio_route_tty(name);
-#endif
-}
-
-int stdio_register_uart(void)
+/* Resolve stdio_tty_name through the nameserver, once. Idempotent: a
+ * successful lookup is cached until stdio_route_tty() invalidates it. */
+int stdio_open_tty(void)
 {
 #ifdef __KERNEL__
     return -1;
@@ -79,15 +56,51 @@ int stdio_register_uart(void)
         return 0;
     }
 
-    Message lu = ZuzuMsgCall(NT_PORT, NT_LOOKUP, nt_pack(stdio_tty_name), 0);
-    if ((int32_t)lu.w1 != NT_LU_OK) {
+    Handle h = LookupService(stdio_tty_name);
+    if (h < 0) {
         return -1;
     }
 
-    stdio_tty = (int32_t)lu.w2;
-    if (stdio_tty < 0)
-        return -1;
+    stdio_tty = (int32_t)h;
     return 0;
+#endif
+}
+
+/* Point stdio at a different tty by nametable path (e.g. "/dev/uart1").
+ * Drops any buffered input from the previous tty and resolves the new one
+ * immediately, so a failure is reported here rather than at first printf. */
+int stdio_route_tty(const char *name)
+{
+#ifdef __KERNEL__
+    (void)name;
+    return -1;
+#else
+    if (!name)
+        return -1;
+
+    size_t len = strlen(name);
+    if (len == 0 || len >= NT_MAX_PATH)
+        return -1;
+
+    memcpy(stdio_tty_name, name, len + 1);
+    stdio_tty = -1;
+    stdio_input_len = 0;
+    stdio_input_pos = 0;
+    stdio_input_pushback = EOF;
+    return stdio_open_tty();
+#endif
+}
+
+/* Convenience wrapper: route to /dev/uart<index>. */
+int stdio_use_tty(uint32_t index)
+{
+#ifdef __KERNEL__
+    (void)index;
+    return -1;
+#else
+    char name[NT_MAX_PATH];
+    snprintf(name, sizeof(name), "/dev/uart%u", (unsigned)(index % 10u));
+    return stdio_route_tty(name);
 #endif
 }
 
@@ -96,7 +109,7 @@ static int __attribute__((unused)) stdio_refill_input(void)
 #ifdef __KERNEL__
     return EOF;
 #else
-    if (stdio_register_uart() != 0)
+    if (stdio_open_tty() != 0)
         return EOF;
 
     Message reply = ZuzuMsgLcall(stdio_tty, LMSG_BUF_SIZE);
@@ -491,7 +504,7 @@ int vprintf(const char *format, va_list args)
         (void)out_len;
         kprintf("%s", buf);
 #else
-        if (stdio_register_uart() == 0) {
+        if (stdio_open_tty() == 0) {
             /* buf can exceed the lmsg buffer; send in chunks */
             size_t off = 0;
             while (off < out_len) {
