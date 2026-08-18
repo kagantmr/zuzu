@@ -19,15 +19,13 @@ static inline uint32_t read_cntfrq(void)
     return v;
 }
 
-/**
- * @brief Write to the CNTP_TVAL register to set the timer interval.
- * @param v Value to write (number of ticks until next interrupt).
- */
+/*
 static inline void write_cntp_tval(uint32_t v)
 {
     __asm__ volatile("mcr p15, 0, %0, c14, c2, 0" ::"r"(v));
     __asm__ volatile("isb");
 }
+*/
 
 /**
  * @brief Write to the CNTP_CTL register to enable/disable the physical timer.
