@@ -842,7 +842,7 @@ void ProcessDestroy(ProcessObj *p)
 	// KDEBUG("process_destroy: pid=%u current_tid=%u", p->pid, current_thread ?
 	// current_thread->tid : 0);
 
-	irq_release_all(p);
+	IrqReleaseAll(p);
 	if (p->node.prev && p->node.next)
 		list_remove(&p->node);
 	if (p->sibling_node.prev && p->sibling_node.next)
