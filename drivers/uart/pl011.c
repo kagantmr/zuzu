@@ -7,12 +7,6 @@
 #include <stdint.h>
 #include <stddef.h>
 
-static volatile struct {
-    char buf[UART_RX_BUF_SIZE];
-    uint16_t head;  // ISR writes here
-    uint16_t tail;  // Consumer reads here
-} rx_ring;
-
 static uintptr_t pl011_base;
 
 static inline volatile uint32_t *pl011_reg(uint32_t offset) {
