@@ -84,9 +84,9 @@ _Noreturn void early(void *dtb_ptr)
      * arch_platform_init_devices() replaces the sink with the real driver. */
     kprintf_init(arch_early_putc);
 
-    KINFO("early: dtb pa=%p", dtb_ptr);
+    KDEBUG("early: dtb pa=%p", dtb_ptr);
     FdtInit((const void *)PA_TO_VA((PhysAddr)dtb_ptr));
-    KINFO("early: dtb parsed (%u bytes)", FdtTotalSize());
+    KDEBUG("early: dtb parsed (%u bytes)", FdtTotalSize());
 
     kernel_layout.dtb_start_pa = (PhysAddr)dtb_ptr;
     kernel_layout.kernel_start_pa = (PhysAddr)_kernel_phys_start;
@@ -107,15 +107,15 @@ _Noreturn void early(void *dtb_ptr)
 
     kernel_layout.ram_start = (PhysAddr)ram_base;
     kernel_layout.ram_end = (PhysAddr)(ram_base + ram_size);
-    KINFO("early: ram [%p..%p)", (void *)kernel_layout.ram_start,
+    KDEBUG("early: ram [%p..%p)", (void *)kernel_layout.ram_start,
           (void *)kernel_layout.ram_end);
     early_map_ram_sections(kernel_layout.ram_start, (size_t)ram_size);
 
-    KINFO("early: pmm");
+    KDEBUG("early: pmm");
     PmmInit();
-    KINFO("early: kheap");
+    KDEBUG("early: kheap");
     kheap_init();
-    KINFO("early: vmm bootstrap");
+    KDEBUG("early: vmm bootstrap");
     vmm_bootstrap();
 
     /* fill kernel layout VAs now that paging/higher-half mapping exists */
@@ -147,24 +147,24 @@ _Noreturn void early(void *dtb_ptr)
     for (uint32_t i = 0; i < rsv_cnt; i++)
         PmmMarkRange((PhysAddr)rsv[i].addr, (PhysAddr)(rsv[i].addr + rsv[i].size));
 
-    KINFO("early: boot_info done (%u devs), vfp/pmu", boot_info_dev_count());
+    KDEBUG("early: boot_info done (%u devs), vfp/pmu", boot_info_dev_count());
     vfp_init();
     pmu_init();
 
-    KINFO("early: dropping identity map");
+    KDEBUG("early: dropping identity map");
     VmmRemoveIdentityMapping();
-    KINFO("early: ttbr1 split");
+    KDEBUG("early: ttbr1 split");
     arch_mmu_init_ttbr1(VmmGetKernelAddrspace());
-    KINFO("early: kernel lockdown");
+    KDEBUG("early: kernel lockdown");
     VmmLockdownKernelMapping();
 
-    KINFO("early: irq + platform devices");
+    KDEBUG("early: irq + platform devices");
     arch_irq_init();
     arch_platform_init_devices();
 
     KINFO("Freed DTB and boot space (%zu KiB)",
           ((PhysAddr)_boot_end - (PhysAddr)_boot_start + dtb_end_pa - kernel_layout.dtb_start_pa) / 1024);
-    KINFO("Boot info initialized from DTB: dev_count=%u", boot_info_dev_count());
-    KINFO("Handoff to kmain");
+    KDEBUG("Boot info initialized from DTB: dev_count=%u", boot_info_dev_count());
+    KDEBUG("Handoff to kmain");
     kmain();
 }
