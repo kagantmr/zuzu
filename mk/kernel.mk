@@ -3,7 +3,7 @@
 # Requires: config.mk (CPUFLAGS/INCLUDES/LTO_FLAG/dirs), toolchain.mk (CC/LD).
 
 CFLAGS   = -ffreestanding -O$(OPTIMIZATION_LEVEL) $(LTO_FLAG) -fno-omit-frame-pointer \
-           -Wall -Wextra -Werror $(CPUFLAGS) $(INCLUDES) -Ivendor/libfdt -MMD -MP \
+           -Wall -Wextra -Werror $(CPUFLAGS) $(INCLUDES) -Ivendor/libfdt -Ivendor/lz4 -MMD -MP \
            -D__KERNEL__ -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"' -DLOG_LEVEL=$(LOG_LEVEL)
 LDFLAGS  = -nostdlib -Wl,-T,$(LINKER_SCRIPT) -Wl,-Map=$(MAP) $(LTO_FLAG)
 
@@ -52,12 +52,25 @@ LIBFDT_SRCS = \
 	vendor/libfdt/fdt_wip.c \
 	vendor/libfdt/fdt_strerror.c
 
+LZ4_SRCS = vendor/lz4/lz4.c
+
 # := (not =): these run `find` once at parse time. With recursive (=)
 # expansion each reference below would re-run `find` on disk.
 CSRCS     := $(shell find $(NONARCH_DIRS) -name '*.c')
 CSRCS     += $(shell find $(ARCH_DIR) -name '*.c' $(ARCH_PRUNE_BOARDS))
 CSRCS     += $(shell find $(BOARD_DIR) -name '*.c')
 CSRCS     += $(LIBFDT_SRCS)
+CSRCS     += $(LZ4_SRCS)
+
+# Per-object flags for vendored files that need config zuzu supplies at
+# compile time rather than by patching the vendored source (keeps a
+# future upstream refresh a re-download, not a merge -- see
+# vendor/lz4/VENDOR.md). Isolated to this one object; must never leak into
+# the rest of the kernel. The next vendored file that needs its own flags
+# gets its own target-specific line here, same pattern.
+build/vendor/lz4/lz4.o: CFLAGS += -DLZ4_FREESTANDING=1 -DLZ4_FORCE_MEMORY_ACCESS=0 \
+    -DLZ4_memcpy=memcpy -DLZ4_memmove=memmove -DLZ4_memset=memset \
+    -include string.h
 ASRCS_ALL := $(shell find $(NONARCH_DIRS) -name '*.S') \
              $(shell find $(ARCH_DIR) -name '*.S' $(ARCH_PRUNE_BOARDS)) \
              $(shell find $(BOARD_DIR) -name '*.S')
