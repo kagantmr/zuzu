@@ -17,6 +17,7 @@
 #   mk/sdcard.mk          - SD card FAT32 image workflow
 #   mk/qemu.mk            - QEMU run/debug targets
 #   mk/uboot.mk           - U-Boot build + uImage + its own run/debug targets
+#   mk/compile_commands.mk - compile_commands.json for clangd
 #
 # Override ARCH/BOARD on the command line, e.g.
 #   make ARCH=arm BOARD=rpi4
@@ -49,6 +50,7 @@ include mk/dtb.mk
 include mk/sdcard.mk
 include mk/qemu.mk
 include mk/uboot.mk
+include mk/compile_commands.mk
 
 # Default target builds the kernel and every user program across all three
 # flag tiers (kernel CC, tier-1 USER_CC, tier-2 NEWLIB_CC), so a plain
