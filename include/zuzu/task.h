@@ -11,9 +11,7 @@
 extern "C" {
 #endif
 
-/* ---- Process constants ---- */
 
-#define WNOHANG (1 << 0)
 
 /* ---- Task lifecycle syscalls ---- */
 

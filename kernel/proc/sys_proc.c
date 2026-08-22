@@ -1,17 +1,17 @@
-#include <arch/context.h>
+
 #include "sys_proc.h"
+
 #include "kernel/syscall/syscall.h"
-#include "kernel/mm/alloc.h"
-#include "kernel/mm/vmm.h"
-#include "kstack.h"
-#include <arch/mmu.h>
-#include "kernel/mm/pmm.h"
-#include "kernel/ipc/handle.h"
-#include <string.h>
 #include "kernel/sched/sched.h"
-#include "zuzu/zuzu.h"
 #include "kernel/time/tick.h"
 #include "kernel/proc/process.h"
+#include "kernel/ipc/handle.h"
+
+#include <arch/mmu.h>
+#include <arch/context.h>
+
+#include <string.h>
+
 #include <zuzu/user_layout.h>
 #include <zuzu/tls.h>
 #include <zuzu/spawn_args.h>
