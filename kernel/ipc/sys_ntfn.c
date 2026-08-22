@@ -1,61 +1,35 @@
-#include "sys_notif.h"
-#include "kernel/proc/process.h"
+#include "sys_ntfn.h"
+
+#include "core/panic.h"
+
 #include "kernel/sched/sched.h"
-#include "handle.h"
 #include "kernel/syscall/syscall.h"
 #include "kernel/time/tick.h"
-#include "core/panic.h"
+#ifdef ZUZU_BENCH
 #include "kernel/bench.h"
+#endif /* ZUZU_BENCH */
 
-#define LOG_FMT(fmt) "(sys_notif) " fmt
+#include "ntfn.h"
+#include "handle.h"
+
+#define LOG_FMT(fmt) "(sys_ntfn) " fmt
 #include "core/log.h"
 
 extern Thread *current_thread;
 
-void NtfnWakeWaiter(Ntfn *ntfn, ThreadWaitSlot *slot,
-                      int32_t r0_value, NtfnBits bits)
+void SysNtfnCreate(CpuState *frame)
 {
-    Thread *waiter = slot->owner;
-    if (!waiter || !waiter->trap_frame) {
-        panic("NtfnWakeWaiter: queued waiter with no trap frame "
-              "(ntfn=%p slot=%p owner=%p trap_frame=%p)",
-              (void *)ntfn, (void *)slot, (void *)waiter,
-              waiter ? (void *)waiter->trap_frame : NULL);
-    }
-
-    (*arch_reg(waiter->trap_frame, 0)) = (uint32_t)r0_value;
-
-    uint32_t match_index = WAITANY_NO_MATCH;
-    if (waiter->waitany_active) {
-        for (uint32_t i = 0; i < waiter->waitany_wait_count; i++) {
-            if (waiter->waitany_wait_ntfns[i] == ntfn) {
-                match_index = waiter->waitany_wait_slots[i].index;
-                break;
-            }
-        }
-    }
-    ThreadWaitanyClearWaits(waiter);
-    ThreadWaitanyClearPortWaits(waiter);
-    waiter->waitany_wait_match_index = match_index;
-    waiter->waitany_wait_bits = bits;
-
-    if (waiter->wake_tick != 0 && waiter->timeout_node.prev && waiter->timeout_node.next) {
-        list_remove(&waiter->timeout_node);
-    }
-    waiter->wake_tick = 0;
-    waiter->wake_reason = WAKE_IPC;
-    waiter->blocked_port = NULL;
-    waiter->ipc_state = IPC_NONE;
-    waiter->state = READY;
-    sched_add(waiter);
-}
-
-void SysNtfnCreate(CpuState *frame) {
     Handle handle = handle_vec_find_free(&current_thread->owner_process->handle_table);
-    if (handle < 0) { (*arch_reg(frame, 0)) = ERR_NOMEM; return; }
+    if (handle < 0) {
+        (*arch_reg(frame, 0)) = ERR_NOMEM;
+        return;
+    }
 
-    Ntfn *ntfn = kmalloc(sizeof(Ntfn));  // or slab
-    if (!ntfn) { (*arch_reg(frame, 0)) = ERR_NOMEM; return; }
+    NtfnObj *ntfn = kmalloc(sizeof(NtfnObj)); // or slab
+    if (!ntfn) {
+        (*arch_reg(frame, 0)) = ERR_NOMEM;
+        return;
+    }
 
     ntfn->word = 0;
     list_init(&ntfn->wait_queue);
@@ -70,55 +44,53 @@ void SysNtfnCreate(CpuState *frame) {
     (*arch_reg(frame, 0)) = handle;
 }
 
-void SysNtfnSignal(CpuState *frame) {
+void SysNtfnSignal(CpuState *frame)
+{
     Handle handle_idx = (*arch_reg(frame, 0));
     uint32_t bits = (*arch_reg(frame, 1));
 
     HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
     if (!entry) {
-        (*arch_reg(frame, 0)) = ERR_BADHANDLE; return;
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+        return;
     }
     if (entry->type != HANDLE_NTFN) {
-        (*arch_reg(frame, 0)) = ERR_BADTYPE; return;
+        (*arch_reg(frame, 0)) = ERR_BADTYPE;
+        return;
     }
 
-    Ntfn *ntfn = entry->ntfn;
+    NtfnObj *ntfn = entry->ntfn;
     if (!ntfn || !ntfn->alive) {
         (*arch_reg(frame, 0)) = ERR_DEAD;
         return;
     }
-    if (bits & (1u << 31)) { /* bit 31 reserved: bits ride in r0, negatives are errors */
+    /* bit 31 reserved: bits ride in r0, negatives are errors */
+    if (bits & (1u << 31)) {
         (*arch_reg(frame, 0)) = ERR_BADARG;
         return;
     }
-    ntfn->word |= bits;
 
-    // Wake one waiter if any (NtfnWakeWaiter panics on a corrupt queue)
-    if (!list_empty(&ntfn->wait_queue)) {
-        ListNode *node = list_pop_front(&ntfn->wait_queue);
-        ThreadWaitSlot *slot = container_of(node, ThreadWaitSlot, node);
-
-        uint32_t delivered = ntfn->word;
-        NtfnWakeWaiter(ntfn, slot, (int32_t)delivered, delivered);
-        ntfn->word = 0;  // clear on delivery
-    }
+    NtfnSignal(ntfn, bits);
 
     (*arch_reg(frame, 0)) = 0;
 }
 
-void SysNtfnWait(CpuState *frame) {
+void SysNtfnWait(CpuState *frame)
+{
     Handle handle_idx = (*arch_reg(frame, 0));
     uint32_t timeout_ms = (*arch_reg(frame, 1));
 
     HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
     if (!entry) {
-        (*arch_reg(frame, 0)) = ERR_BADHANDLE; return;
+        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+        return;
     }
     if (entry->type != HANDLE_NTFN) {
-        (*arch_reg(frame, 0)) = ERR_BADTYPE; return;
+        (*arch_reg(frame, 0)) = ERR_BADTYPE;
+        return;
     }
 
-    Ntfn *ntfn = entry->ntfn;
+    NtfnObj *ntfn = entry->ntfn;
     if (!ntfn || !ntfn->alive) {
         (*arch_reg(frame, 0)) = ERR_DEAD;
         return;
@@ -140,7 +112,8 @@ void SysNtfnWait(CpuState *frame) {
     current_thread->blocked_port = NULL;
     current_thread->state = BLOCKED;
     current_thread->ntfn_wait_slot.owner = current_thread;
-    current_thread->ntfn_wait_slot.index = 0; /* unused on the plain-wait path; only waitany reads index */
+    current_thread->ntfn_wait_slot.index =
+        0; /* unused on the plain-wait path; only waitany reads index */
     current_thread->ntfn_wait_slot.node.prev = NULL;
     current_thread->ntfn_wait_slot.node.next = NULL;
     list_add_tail(&current_thread->ntfn_wait_slot.node, &ntfn->wait_queue.node);
@@ -150,11 +123,12 @@ void SysNtfnWait(CpuState *frame) {
      * the matching read has to happen wherever this thread is actually
      * unblocked (kernel/irq/sys_irq.c's relay_handler), not here. */
     current_thread->bench_irq_wait_start = BENCH_BEGIN();
-#endif
+#endif /* ZUZU_BENCH */
 
     if (timeout_ms != TIMEOUT_INFINITE) {
         Tick ticks = ((uint64_t)timeout_ms * (uint64_t)TICK_HZ) / 1000u;
-        if (ticks == 0) ticks = 1;
+        if (ticks == 0)
+            ticks = 1;
         current_thread->wake_tick = get_ticks() + ticks;
         sleep_queue_insert(current_thread);
     } else {
