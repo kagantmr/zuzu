@@ -16,6 +16,7 @@ extern "C" {
  * - umem.h:   memory management syscalls
  * - irq.h:    IRQ handling and claiming
  * - ntfn.h:   notification syscalls
+ * - event.h:  kernel event syscalls
  */
 
 #include "zuzu/types.h"
@@ -25,6 +26,7 @@ extern "C" {
 #include "zuzu/umem.h"
 #include "zuzu/irq.h"
 #include "zuzu/ntfn.h"
+#include "zuzu/event.h"
 
 #ifdef __cplusplus
 }

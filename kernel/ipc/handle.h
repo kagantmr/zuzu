@@ -14,8 +14,7 @@
 
 #define GRANT_REGRANTABLE (1u << 0)
 
-typedef enum
-{
+typedef enum {
     HANDLE_FREE,
     HANDLE_PORT,
     HANDLE_DEVICE,
@@ -25,21 +24,20 @@ typedef enum
     HANDLE_TASK
 } HandleType;
 
-typedef struct
-{
+typedef struct {
     HandleType type;    /* HANDLE_* */
     bool grantable;     /* Will grant() work on this handle? */
     VirtAddr mapped_va; /* For shm and device: destroy() checks before freeing */
-    union
-    {
+    union {
         Port *port;
         DeviceCap *dev;
         ShmCap *shm;
         ReplyCap *reply;
-        Ntfn *ntfn;
+        NtfnObj *ntfn;
         struct process *task;
     };
-    Marker marker;      /* Added in zuzu 1.1: Same handle can be stamped with a marker to demux clients in waitany() */
+    Marker
+        marker; /* Added in zuzu 1.1: Same handle can be stamped with a marker to demux clients in waitany() */
 } HandleEntry;
 
 DEFINE_VEC(handle, HandleEntry)
@@ -56,8 +54,7 @@ DEFINE_VEC(handle, HandleEntry)
  */
 static inline int handle_vec_find_free(handle_vec_t *handles)
 {
-    for (uint32_t i = 0; i < handles->cap; i++)
-    {
+    for (uint32_t i = 0; i < handles->cap; i++) {
         if (handles->data[i].type == HANDLE_FREE)
             return i;
     }

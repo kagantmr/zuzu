@@ -10,7 +10,7 @@ extern "C" {
 #include <stdbool.h>
 #include <string.h>
 
-#ifdef __KERNEL__
+#ifdef __ZUZU__
 #include "kernel/mm/alloc.h"
 #define VEC_ALLOC(sz) kmalloc(sz)
 #define VEC_FREE(ptr) kfree(ptr)

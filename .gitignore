@@ -73,6 +73,7 @@ compile_commands.json
 
 build/
 sd.img
+.*/
 
 # vendored U-Boot source tree (clone locally, see README)
 uboot-src/

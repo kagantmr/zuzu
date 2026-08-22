@@ -13,7 +13,7 @@ typedef struct {
 
 #define SPINLOCK_INIT { .locked = 0 }
 
-#ifdef __KERNEL__
+#ifdef __ZUZU__
 #include <arch/atomic.h>
 #include <arch/barrier.h>
 #include <arch/cpu.h>
