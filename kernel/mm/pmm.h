@@ -1,9 +1,12 @@
 #ifndef PMM_H
 #define PMM_H
 
+#include "kernel/ipc/ntfn.h"
+
 #include <stdint.h>
 #include <stddef.h>
 #include <zuzu/types.h>
+#include <zuzu/err.h>
 
 #define PAGE_SHIFT 12
 #ifndef PAGE_SIZE
@@ -12,13 +15,18 @@
 
 typedef uint32_t Pfn;
 
-static inline PhysAddr PfnToPhys(Pfn pfn) { return (PhysAddr)pfn << PAGE_SHIFT; }
-static inline Pfn PhysToPfn(PhysAddr pa)  { return (Pfn)(pa >> PAGE_SHIFT); }
+static inline PhysAddr PfnToPhys(Pfn pfn)
+{
+    return (PhysAddr)pfn << PAGE_SHIFT;
+}
+static inline Pfn PhysToPfn(PhysAddr pa)
+{
+    return (Pfn)(pa >> PAGE_SHIFT);
+}
 
 #define PHYS_NULL ((PhysAddr)0)
 
-typedef struct
-{
+typedef struct {
     size_t total_frames;
     size_t free_frames;
 } PmmStats;
@@ -88,5 +96,7 @@ PhysAddr PmmAllocFramesContigAligned(size_t n_frames, size_t align_frames);
  * must free them.
  */
 size_t PmmAllocFramesScattered(size_t n_frames, PhysAddr *out_addrs);
+
+int PmmSubscribe(NtfnObj *ntfn);
 
 #endif
