@@ -1,16 +1,21 @@
 #ifndef KERNEL_PROC_PROCESS_H
 #define KERNEL_PROC_PROCESS_H
 
+#include "thread.h"
+
 #include "kernel/ipc/handle.h"
 #include "kernel/ipc/port.h"
 #include "kernel/mm/vmm.h"
-#include "thread.h"
+
 #include <arch/regs.h>
+
 #include <list.h>
 #include <stddef.h>
 #include <stdint.h>
+
 #include <zuzu/tls.h>
 #include <zuzu/types.h>
+#include <zuzu/err.h>
 
 #define MAX_PROCESSES 512
 

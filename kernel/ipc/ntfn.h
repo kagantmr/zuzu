@@ -6,7 +6,7 @@
 #include <zuzu/types.h>
 #include <stdbool.h>
 
-typedef struct notification {
+typedef struct Notification {
     NtfnBits word;              // 31-bit signal mask (bit 31 reserved), atomic-ish (IRQs off)
     ListHead wait_queue;     // processes blocked in ntfn_wait
     Pid owner_pid;
