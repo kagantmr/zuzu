@@ -9,7 +9,6 @@
 #include "kernel/dev/fdt_wrappers.h"
 #include "zuzu/err.h"
 #include "zuzu/event.h"
-
 #include <arch/symbols.h>
 
 #include <list.h>
@@ -130,6 +129,7 @@ static void PmmKEventSignalUnderLock(void)
 
     if (!pmmState.in_pressure && free_pct < LOW_WATER_PCT) {
         pmmState.in_pressure = true;
+        KWARN("Memory usage exceeded low-water mark, signalling subscribers");
 
         // walk subscribers and signal them
         // clean dead ntfns: refcount--, free-if-zero, kfree(subscriber)

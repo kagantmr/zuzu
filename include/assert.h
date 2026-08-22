@@ -8,7 +8,7 @@ extern "C" {
 #ifdef NDEBUG
     #define assert(cond) ((void)0)
 #else
-    #ifdef __KERNEL__
+    #ifdef __ZUZU__
         #include <core/panic.h>
         #define assert(cond) if(!(cond)) panic("Assertion failed: %s (%s:%d)", #cond, __FILE__, __LINE__)
     #else
