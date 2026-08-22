@@ -91,9 +91,7 @@ typedef struct {
 
 /* Kernel event types users can subscribe to */
 typedef enum {
-  KEVENT_MEMMGMT = 0x10200200, /* Signal a notification when a low-water mark
-                                  for physical memory is reached *(value is
-                                  codename for October, ZooZoo)**/
+    KEVENT_MEMMGMT = 0,  /* memory pressure */
 } KEventType;
 
 /* ---- Process constants ---- */
