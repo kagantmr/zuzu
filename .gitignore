@@ -74,9 +74,7 @@ compile_commands.json
 
 build/
 sd.img
-
-# vendored U-Boot source tree (clone locally, see README)
-uboot-src/
+.*/
 
 # ZUZUSD/ is the SD-card staging directory (see Makefile's "SD card
 # workflow" section). bin/, boot/, and lib/*.a are all regenerated from
