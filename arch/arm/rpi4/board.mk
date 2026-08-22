@@ -3,11 +3,15 @@
 # selected. See arch/arm/arch.mk's header comment for the variable list a
 # board.mk may define.
 
-# The DTB is compiled from the checked-in rpi4.dts for QEMU; on real
-# hardware the firmware loads bcm2711-rpi-4-b.dtb itself and passes its
-# address in r2. QEMU's raspi4b machine has fixed 2G RAM and lives in
-# qemu-system-aarch64.
-DTB_rpi4        = build/dtb/rpi4.dtb
+# DTB is a checked-in compiled blob (matching vexpress-a15/virt), not
+# built from rpi4.dts at build time: rpi4.dts itself is hand-edited,
+# large, and not the kind of thing worth re-dtc'ing on every build. On
+# real hardware the firmware loads bcm2711-rpi-4-b.dtb itself and passes
+# its address in r2 -- this DTB is only ever consulted on the QEMU path.
+# QEMU's raspi4b machine has fixed 2G RAM and lives in qemu-system-aarch64.
+# To regenerate after editing rpi4.dts: `make build/dtb/rpi4.dtb` (still
+# wired up in mk/dtb.mk), then copy over arch/arm/dtb/rpi4/bcm2711-rpi-4-b.dtb.
+DTB_rpi4        = arch/arm/dtb/rpi4/bcm2711-rpi-4-b.dtb
 QEMU_MACH_rpi4  = raspi4b
 QEMU_CPU_rpi4   = cortex-a72
 QEMU_BIN_rpi4   = qemu-system-aarch64
