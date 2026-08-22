@@ -6,7 +6,6 @@
 #include "kernel/sched/sched.h"
 #include "kernel/syscall/syscall.h"
 #include "port.h"
-#include "sys_notif.h"
 #include "zuzu/err.h"
 
 #define LOG_FMT(fmt) "(sys_port) " fmt
@@ -168,7 +167,7 @@ void SysDestroy(CpuState *frame)
     break;
     case HANDLE_NTFN:
     {
-        Ntfn *ntf = entry->ntfn;
+        NtfnObj *ntf = entry->ntfn;
         if (!ntf)
         {
             (*arch_reg(frame, 0)) = ERR_BADHANDLE;

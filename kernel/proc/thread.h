@@ -69,7 +69,7 @@ struct thread {
 	Marker port_marker;
 	ThreadWaitSlot ntfn_wait_slot;
 	ThreadWaitSlot waitany_wait_slots[WAITANY_MAX_HANDLES];
-	Ntfn *waitany_wait_ntfns[WAITANY_MAX_HANDLES];
+	NtfnObj *waitany_wait_ntfns[WAITANY_MAX_HANDLES];
 	size_t waitany_wait_count;
 	uint32_t waitany_wait_match_index;
 	uint32_t waitany_wait_bits;
