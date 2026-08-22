@@ -63,7 +63,9 @@ gdb.txt
 .dir-locals.el.save
 .project
 compile_commands.json
-.cache/*e
+.cache/*
+
+.clang-format
 
 # mac-specific file
 .DS_Store
