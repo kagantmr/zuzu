@@ -24,6 +24,7 @@ SD_STAGE_DIR   ?= ZUZUSD
 .PHONY: sdimg sdimg-stage sdimg-clean sdimg-recreate
 
 sdimg-stage: $(SD_PROG_PACKED_ELFS) $(SD_LIB_ARCHIVES) $(USER_CRT0) $(ZCRT_ARCHIVE)
+	@rm -rf $(SD_STAGE_DIR)/bin $(SD_STAGE_DIR)/lib $(SD_STAGE_DIR)/include
 	@mkdir -p $(SD_STAGE_DIR)/bin
 	@mkdir -p $(SD_STAGE_DIR)/lib
 	@mkdir -p $(SD_STAGE_DIR)/include

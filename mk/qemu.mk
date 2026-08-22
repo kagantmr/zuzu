@@ -25,6 +25,21 @@ QEMU_BIN     = $(if $(QEMU_BIN_$(BOARD)),$(QEMU_BIN_$(BOARD)),qemu-system-arm)
 QEMU_MEM     = $(if $(QEMU_MEM_$(BOARD)),$(QEMU_MEM_$(BOARD)),64M)
 # Board NIC flags; empty for boards whose NIC QEMU does not emulate.
 QEMU_NET     = $(QEMU_NET_$(BOARD))
+# Bridged/pcap networking additionally need a bare NIC model name (not a
+# full -nic/-net flag string like QEMU_NET above) to build their own
+# flags around -- only boards with a matching userspace driver define one.
+# Checked, not silently substituted, so a board without one fails loudly
+# instead of emulating hardware it has no driver for.
+QEMU_NIC_MODEL = $(QEMU_NIC_MODEL_$(BOARD))
+define check-qemu-nic-model
+	@if [ -z "$(QEMU_NIC_MODEL)" ]; then \
+		echo "  ERROR   BOARD '$(BOARD)' has no QEMU_NIC_MODEL_$(BOARD) set" \
+		     "in its board.mk -- bridged/pcap networking needs a NIC model" \
+		     "matching a userspace driver this board actually has." \
+		     "Direct 'make run' works without one."; \
+		exit 1; \
+	fi
+endef
 # What QEMU boots: the raw image by default (QEMU only applies the ARM boot
 # protocol registers to raw images, not ELFs), a board-specific override
 # only if one is ever actually needed.
@@ -57,14 +72,16 @@ run-direct: $(QEMU_KERNEL) $(DTB_FILE) $(INITRD)
 	@$(QEMU_BIN) $(QEMU_ARGS) -kernel $(QEMU_KERNEL) $(QEMU_NET)
 
 run-direct-bridged: $(QEMU_KERNEL) $(DTB_FILE) $(INITRD)
+	$(call check-qemu-nic-model)
 	@echo "  QEMU    $(QEMU_KERNEL) [bridged]"
 	@sudo $(QEMU_BIN) $(QEMU_ARGS) -kernel $(QEMU_KERNEL) \
-	    -nic vmnet-bridged,model=lan9118,ifname=en0,mac=52:54:00:ab:cd:ef
+	    -nic vmnet-bridged,model=$(QEMU_NIC_MODEL),ifname=en0,mac=52:54:00:ab:cd:ef
 
 run-direct-pcap: $(QEMU_KERNEL) $(DTB_FILE) $(INITRD)
+	$(call check-qemu-nic-model)
 	@echo "  QEMU    $(QEMU_KERNEL) [pcap -> $(PCAP_FILE)]"
 	@$(QEMU_BIN) $(QEMU_ARGS) -kernel $(QEMU_KERNEL) \
-	    -net nic,model=lan9118 -net user,id=n0 \
+	    -net nic,model=$(QEMU_NIC_MODEL) -net user,id=n0 \
 	    -object filter-dump,id=f0,netdev=n0,file=$(PCAP_FILE)
 	@echo "  PCAP    wrote $(PCAP_FILE) (read with: tcpdump -nr $(PCAP_FILE))"
 

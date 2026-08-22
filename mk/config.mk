@@ -25,6 +25,23 @@ PMM_TRACE               ?= 0
 # (see kernel/bench.h). Off by default: compiled out entirely, zero
 # footprint in production builds.
 ZUZU_BENCH              ?= 0
+
+# ZUZU_BENCH/TIME_MEASURE change generated code on hot paths (inline
+# PMCCNTR reads + isb barriers, ~275 cycles/IPC round-trip for ZUZU_BENCH
+# alone) and must never leak into a build via inherited shell state -- a
+# stale `export ZUZU_BENCH=1` from an earlier debugging session would
+# otherwise ride along silently on an ordinary `make`, contaminating any
+# measurement that touches an instrumented path, not just the bench
+# targets themselves. Only a deliberate, explicit `make ZUZU_BENCH=1` on
+# the command line may enable either flag; an inherited/exported value is
+# a loud, immediate build error instead.
+$(foreach v,ZUZU_BENCH TIME_MEASURE,\
+  $(if $(filter environment%,$(origin $(v))),\
+    $(error $(v) is set in your environment ($($(v))) -- this flag must be \
+      passed explicitly on the make command line (e.g. make $(v)=1), never \
+      inherited from shell state, since it changes generated code on hot \
+      paths. Run: unset $(v))))
+
 LOG_LEVEL               ?= 1
 PANIC_SECTION_PROCESS   ?= 1
 PANIC_SECTION_SCHEDULER ?= 1

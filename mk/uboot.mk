@@ -136,14 +136,16 @@ run-uboot: sdimg-uboot $(UBOOT_BIN)
 	@$(QEMU_BIN) $(QEMU_UBOOT_ARGS) $(QEMU_NET)
 
 run-uboot-bridged: sdimg-uboot $(UBOOT_BIN)
+	$(call check-qemu-nic-model)
 	@echo "  QEMU    $(UBOOT_BIN) -> $(UBOOT_SD_IMG) [bridged]"
 	@sudo $(QEMU_BIN) $(QEMU_UBOOT_ARGS) \
-	    -nic vmnet-bridged,model=lan9118,ifname=en0,mac=52:54:00:ab:cd:ef
+	    -nic vmnet-bridged,model=$(QEMU_NIC_MODEL),ifname=en0,mac=52:54:00:ab:cd:ef
 
 run-uboot-pcap: sdimg-uboot $(UBOOT_BIN)
+	$(call check-qemu-nic-model)
 	@echo "  QEMU    $(UBOOT_BIN) -> $(UBOOT_SD_IMG) [pcap -> $(PCAP_FILE)]"
 	@$(QEMU_BIN) $(QEMU_UBOOT_ARGS) \
-	    -net nic,model=lan9118 -net user,id=n0 \
+	    -net nic,model=$(QEMU_NIC_MODEL) -net user,id=n0 \
 	    -object filter-dump,id=f0,netdev=n0,file=$(PCAP_FILE)
 	@echo "  PCAP    wrote $(PCAP_FILE) (read with: tcpdump -nr $(PCAP_FILE))"
 
