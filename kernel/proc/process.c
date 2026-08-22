@@ -1,27 +1,32 @@
 #include "process.h"
+
 #include "core/panic.h"
+
 #include "kernel/irq/sys_irq.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm.h"
 #include "kernel/proc/thread.h"
 #include "kernel/sched/sched.h"
 #include "kernel/syspage.h"
+
 #include <arch/cache.h>
 #include <arch/context.h>
 #include <arch/mmu.h>
+
 #include <elf.h>
 #include <stdint.h>
 #include <string.h>
+
 #include <zuzu/err.h>
 #include <zuzu/syscall_nums.h>
 #include <zuzu/tls.h>
 #include <zuzu/user_layout.h>
 
-uint32_t next_pid = 1;
-ProcessObj *process_table[MAX_PROCESSES];
-
 #define LOG_FMT(fmt) "(proc) " fmt
 #include "core/log.h"
+
+uint32_t next_pid = 1;
+ProcessObj *process_table[MAX_PROCESSES];
 
 static bool elf_segment_ranges_overlap(const Elf32_Phdr *a, const Elf32_Phdr *b)
 {
@@ -767,7 +772,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
 			entry->grantable = false;
 			entry->type = HANDLE_FREE;
 		} else if (entry->type == HANDLE_NTFN) {
-			Ntfn *ntfn = entry->ntfn;
+			NtfnObj *ntfn = entry->ntfn;
 			if (ntfn && ntfn->owner_pid == p->pid && ntfn->alive) {
 				ntfn->alive = false;
 				while (!list_empty(&ntfn->wait_queue)) {

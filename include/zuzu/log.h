@@ -21,7 +21,7 @@ typedef enum {
     LOG_LEVEL_FATAL = 5,
 } LogLevel;
 
-#ifndef __KERNEL__
+#ifndef __ZUZU__
 
 void log_set_level(LogLevel min_level);
 LogLevel log_get_level(void);

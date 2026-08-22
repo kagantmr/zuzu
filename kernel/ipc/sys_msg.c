@@ -955,12 +955,12 @@ BENCH_STAT(g_bench_waitany_deliver, "WaitAny: deliver+wake");
 #endif
 
 static int waitany_try_once(const Handle *handles, uint32_t count, WaitanyResult *result,
-			    Ntfn **wait_ntfns, uint32_t *wait_ntfn_indices,
+			    NtfnObj **wait_ntfns, uint32_t *wait_ntfn_indices,
 			    uint32_t *wait_count_out, Port **wait_eps, uint32_t *wait_ep_indices,
 			    uint32_t *wait_ep_count_out)
 {
 	Port *endpoints[WAITANY_MAX_HANDLES];
-	Ntfn *notifications[WAITANY_MAX_HANDLES];
+	NtfnObj *notifications[WAITANY_MAX_HANDLES];
 
 	if (wait_count_out)
 		*wait_count_out = 0;
@@ -998,7 +998,7 @@ static int waitany_try_once(const Handle *handles, uint32_t count, WaitanyResult
 			if (!n_entry) {
 				return (int)(*arch_reg(current_thread->trap_frame, 0));
 			}
-			Ntfn *ntfn = n_entry->ntfn;
+			NtfnObj *ntfn = n_entry->ntfn;
 			if (!ntfn) {
 				return (int)(*arch_reg(current_thread->trap_frame, 0));
 			}
@@ -1027,7 +1027,7 @@ static int waitany_try_once(const Handle *handles, uint32_t count, WaitanyResult
 	}
 
 	for (uint32_t i = 0; i < count; i++) {
-		Ntfn *ntfn = notifications[i];
+		NtfnObj *ntfn = notifications[i];
 		if (ntfn && ntfn->word != 0) {
 			uint32_t bits = ntfn->word;
 			ntfn->word = 0;
@@ -1132,7 +1132,7 @@ void SysWaitAny(CpuState *frame)
 	}
 
 	for (;;) {
-		Ntfn *wait_ntfns[WAITANY_MAX_HANDLES];
+		NtfnObj *wait_ntfns[WAITANY_MAX_HANDLES];
 		uint32_t wait_ntfn_indices[WAITANY_MAX_HANDLES];
 		uint32_t wait_count = 0;
 		Port *wait_eps[WAITANY_MAX_HANDLES];
@@ -1214,7 +1214,7 @@ void SysWaitAny(CpuState *frame)
 		current_thread->blocked_port = NULL;
 		current_thread->state = BLOCKED;
 #ifdef ZUZU_BENCH
-		/* Same stash used by SysNtfnWait: relay_handler's unblock (the
+		/* Same stash used by SysNtfnObjWait: relay_handler's unblock (the
 		 * IRQ-driven wake path) doesn't care which syscall queued this
 		 * thread's thread_wait_slot_t on the ntfn's wait_queue. */
 		if (wait_count > 0)

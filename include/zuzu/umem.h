@@ -3,6 +3,7 @@
 
 #include "zuzu/syscall_nums.h"
 #include "zuzu/types.h"
+#include "zuzu/err.h"
 #include "zuzu/memprot.h"
 #include <arch/syscall.h>
 #include <zuzu/spawn_args.h>
