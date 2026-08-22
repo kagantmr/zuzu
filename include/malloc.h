@@ -1,7 +1,7 @@
 #ifndef MALLOC_H
 #define MALLOC_H
 
-#ifndef __KERNEL__
+#ifndef __ZUZU__
 
 #include <stddef.h>
 
@@ -45,6 +45,6 @@ extern "C"
 }
 #endif
 
-#endif /* !__KERNEL__ */
+#endif /* !__ZUZU__ */
 
 #endif /* MALLOC_H */

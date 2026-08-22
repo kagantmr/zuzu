@@ -772,7 +772,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
 			entry->grantable = false;
 			entry->type = HANDLE_FREE;
 		} else if (entry->type == HANDLE_NTFN) {
-			Ntfn *ntfn = entry->ntfn;
+			NtfnObj *ntfn = entry->ntfn;
 			if (ntfn && ntfn->owner_pid == p->pid && ntfn->alive) {
 				ntfn->alive = false;
 				while (!list_empty(&ntfn->wait_queue)) {
