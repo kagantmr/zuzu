@@ -5,7 +5,7 @@
 
 #include "kernel/ipc/sys_port.h"
 #include "kernel/ipc/sys_msg.h"
-#include "kernel/ipc/sys_notif.h"
+#include "kernel/ipc/sys_ntfn.h"
 #include "kernel/irq/sys_irq.h"
 #include "kernel/mm/sys_mm.h"
 #include "kernel/mm/sys_shm.h"
@@ -59,6 +59,7 @@ static SyscallEntryPoint SyscallTable[SYS_MAX + 1] = {
     [SYS_MSG_LCALL] = SysMsgLcall,
     [SYS_MSG_LREPLY] = SysMsgLreply,
     [SYS_WAITANY] = SysWaitAny,
+    [SYS_KEVENT_BIND] = SysKEventBind,
     [SYS_PORT_CREATE] = SysPortCreate,
     [SYS_DESTROY] = SysDestroy,
     [SYS_GRANT] = SysGrant,
@@ -165,13 +166,12 @@ void __attribute__((hot)) SyscallDispatch(Svc svc_num, CpuState *frame)
 
     if (likely(SyscallTable[svc_num]))
     {
-        SyscallEntryPoint handler = SyscallTable[svc_num];
-        handler(frame);
+        SyscallTable[svc_num](frame);
         return;
     }
     else
     {
-        KERROR("System call 0x%X does not exist", svc_num);
+        // KERROR("System call 0x%X does not exist", svc_num);
         (*arch_reg(frame, 0)) = ERR_NOSYS;
     }
 };
