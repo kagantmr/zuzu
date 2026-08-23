@@ -14,17 +14,35 @@
 # Requires: arch.mk (per-board QEMU_*), config.mk (TARGET/IMG/DTB_FILE),
 # sdcard.mk (SD_IMG), initrd.mk (INITRD).
 
-.PHONY: run run-bridged run-pcap debug
-.PHONY: run-direct run-direct-bridged run-direct-pcap debug-direct
+.PHONY: run run-bridged run-pcap debug test
+.PHONY: run-direct run-direct-bridged run-direct-pcap run-test debug-direct
 
 PCAP_FILE ?= /tmp/zuzu.pcap
+
+# Host-side port forwards for local testing of netd: host TCP :8080 to the
+# guest's HTTP listener on :80, host UDP :7000 to the guest's UDP echo on
+# :7. Appended to a -nic/-netdev user backend's option list.
+QEMU_HOSTFWD = hostfwd=tcp::8080-:80,hostfwd=udp::7000-:7
 
 QEMU_MACHINE = $(QEMU_MACH_$(BOARD))
 QEMU_CPU     = $(QEMU_CPU_$(BOARD))
 QEMU_BIN     = $(if $(QEMU_BIN_$(BOARD)),$(QEMU_BIN_$(BOARD)),qemu-system-arm)
 QEMU_MEM     = $(if $(QEMU_MEM_$(BOARD)),$(QEMU_MEM_$(BOARD)),64M)
-# Board NIC flags; empty for boards whose NIC QEMU does not emulate.
-QEMU_NET     = $(QEMU_NET_$(BOARD))
+# Board NIC model (e.g. lan9118); empty for boards whose NIC QEMU does not
+# emulate. Single source of truth for run-direct, run-test and
+# run-direct-pcap below, so none of them hardcode a model that only
+# happens to be right for one board.
+QEMU_NIC_MODEL = $(QEMU_NIC_MODEL_$(BOARD))
+
+ifneq ($(QEMU_NIC_MODEL),)
+QEMU_NET         = -nic user,model=$(QEMU_NIC_MODEL)
+QEMU_NET_TEST    = -nic user,model=$(QEMU_NIC_MODEL),$(QEMU_HOSTFWD)
+QEMU_NETDEV_PCAP = -netdev user,id=n0,$(QEMU_HOSTFWD) -device $(QEMU_NIC_MODEL),netdev=n0
+else
+QEMU_NET         =
+QEMU_NET_TEST    =
+QEMU_NETDEV_PCAP =
+endif
 # What QEMU boots: the raw image by default (QEMU only applies the ARM boot
 # protocol registers to raw images, not ELFs), a board-specific override
 # only if one is ever actually needed.
@@ -51,6 +69,7 @@ run:         run-direct
 run-bridged: run-direct-bridged
 run-pcap:    run-direct-pcap
 debug:       debug-direct
+test:        run-test
 
 run-direct: $(QEMU_KERNEL) $(DTB_FILE) $(INITRD)
 	@echo "  QEMU    $(QEMU_KERNEL)"
@@ -64,9 +83,15 @@ run-direct-bridged: $(QEMU_KERNEL) $(DTB_FILE) $(INITRD)
 run-direct-pcap: $(QEMU_KERNEL) $(DTB_FILE) $(INITRD)
 	@echo "  QEMU    $(QEMU_KERNEL) [pcap -> $(PCAP_FILE)]"
 	@$(QEMU_BIN) $(QEMU_ARGS) -kernel $(QEMU_KERNEL) \
-	    -net nic,model=lan9118 -net user,id=n0 \
+	    $(QEMU_NETDEV_PCAP) \
 	    -object filter-dump,id=f0,netdev=n0,file=$(PCAP_FILE)
 	@echo "  PCAP    wrote $(PCAP_FILE) (read with: tcpdump -nr $(PCAP_FILE))"
+
+# Same as run-direct, but with host port forwards so netd's HTTP/UDP
+# listeners are reachable from outside the guest for local testing.
+run-test: $(QEMU_KERNEL) $(DTB_FILE) $(INITRD)
+	@echo "  QEMU    $(QEMU_KERNEL) [test: tcp :8080->:80, udp :7000->:7]"
+	@$(QEMU_BIN) $(QEMU_ARGS) -kernel $(QEMU_KERNEL) $(QEMU_NET_TEST)
 
 # $(TARGET) (the ELF) is never what QEMU boots here -- it only applies the
 # ARM boot protocol to raw images -- but it's kept as a prerequisite so
