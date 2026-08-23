@@ -35,13 +35,14 @@ _Static_assert(sizeof(TcpHdr) == 20, "TCP header size");
 #define TCP_OPT_KIND_NOP 1
 #define TCP_OPT_KIND_MSS 2
 
-/* Internal presence bitmask for tcp_seg_t.opts_present */
+/* Internal presence bitmask */
 #define TCP_OPT_MSS_BIT (1u << 0)
 
 #define TCP_MAX_PCB 64
 #define TCP_MSS 1460
 #define TCP_RTO_MAX 60000
 #define TCP_OOO_MAX 8
+#define TCP_MAX_OPTS 40   
 #define TCP_SND_BUF (1024 * 32)
 #define TCP_RCV_BUF (1024 * 32)
 #define TCP_TIME_WAIT_MS                                                       \
@@ -84,6 +85,7 @@ typedef struct {
   size_t buffered_bytes;        // how many bytes are buffered?
   uint8_t rcv_buf[TCP_RCV_BUF]; // size must be a power of 2
   void (*on_data)(int slot);    // data arrival callback
+  void (*on_close)(int slot);
   TimerHandle rto_timer;
   Duration rto_ms;  /* current backoff value */
   uint32_t fin_seq; /* the FIN's position in sequence space */
@@ -109,6 +111,11 @@ typedef struct {
   uint16_t opts_present;
   uint16_t mss;
 } TcpSegment;
+
+typedef struct {
+    uint16_t opts_present;    /* which options to emit */
+    uint16_t mss;              /* value when MSS bit set */
+} TcpOptsOut;
 
 _Static_assert((TCP_SND_BUF & (TCP_SND_BUF - 1)) == 0,
                "TCP_SND_BUF must be power of two");

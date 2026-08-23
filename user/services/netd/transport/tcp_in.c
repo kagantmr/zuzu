@@ -118,7 +118,8 @@ static void consume_fin(int slot, TcpPcb *pcb)
 
     if (pcb->state == TCP_ESTABLISHED) {
         pcb->state = TCP_CLOSE_WAIT;
-        tcp_close(slot);
+        if (pcb->on_close)
+            pcb->on_close(slot);
     } else if (pcb->state == TCP_FIN_WAIT_1) {
         pcb->state = TCP_TIME_WAIT;
         timer_arm(net_now_ms() + TCP_TIME_WAIT_MS, time_wait_cb, pcb);
@@ -284,6 +285,28 @@ static void on_last_ack(int slot, TcpPcb *pcb, const TcpSegment *s)
     }
 }
 
+static void on_close_wait(TcpPcb *pcb, const TcpSegment *s)
+{
+    if (seq_lt(pcb->snd_una, s->ack) && seq_leq(s->ack, pcb->snd_nxt)) {
+        size_t delta = s->ack - pcb->snd_una;
+
+        if (pcb->rtt_timing && seq_leq(pcb->rtt_seq, s->ack)) {
+            uint32_t R = net_now_ms() - pcb->rtt_start;
+            TcpRttUpdate(pcb, R);
+            pcb->rtt_timing = false;
+        }
+
+        pcb->snd_una = s->ack;
+        pcb->buffered_bytes -= MIN(delta, pcb->buffered_bytes);
+        rto_stop(pcb);
+        if (pcb->snd_nxt != pcb->snd_una) rto_start(pcb);
+    }
+    if (s->flags & TCP_FIN) {
+        /* peer retransmitted their FIN; re-ACK it */
+        tcp_output(pcb, TCP_ACK, NULL, 0);
+    }
+}
+
 static void on_listening(TcpPcb *listener, const TcpSegment *s)
 {
     if (!((s->flags & TCP_SYN) && !(s->flags & TCP_ACK)))
@@ -295,6 +318,7 @@ static void on_listening(TcpPcb *listener, const TcpSegment *s)
     TcpPcb *np = &tcp_pcbs[nidx];
     memset(np, 0, sizeof(*np));
     np->on_data = listener->on_data;
+    np->on_close = listener->on_close;
     np->active = true;
     np->local_ip = netif.ip;
     np->local_port = listener->local_port; /* same port we listen on */
@@ -382,6 +406,9 @@ static void tcp_dispatch(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const TcpSegmen
     case TCP_SYN_RCVD:
         on_syn_rcvd(pcb, seg);
         break;
+    case TCP_CLOSE_WAIT:
+        on_close_wait(pcb, seg);
+        break;
     default:
         break;
     }
@@ -443,7 +470,7 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
 int tcp_recv(int idx, uint8_t *buf, uint16_t sz)
 {
     TcpPcb *pcb = &tcp_pcbs[idx];
-    if (pcb->state != TCP_ESTABLISHED)
+    if (pcb->state != TCP_ESTABLISHED && pcb->state != TCP_CLOSE_WAIT)
         return ERR_NOTCONN;
 
     size_t avail = pcb->rcv_nxt - pcb->rcv_rsq; // readable bytes
