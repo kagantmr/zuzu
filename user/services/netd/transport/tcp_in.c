@@ -138,6 +138,12 @@ static void on_syn_sent(TcpPcb *pcb, const TcpSegment *s)
         pcb->snd_una = s->ack;
         pcb->state = TCP_ESTABLISHED;
         tcp_output(pcb, TCP_ACK, NULL, 0);
+    } else if ((s->flags & TCP_SYN) && !(s->flags & TCP_ACK)) {
+        pcb->rcv_nxt = s->seq + 1; pcb->rcv_rsq = pcb->rcv_nxt;
+        pcb->snd_nxt = pcb->snd_una;
+        tcp_output(pcb, TCP_SYN | TCP_ACK, NULL, 0);
+        pcb->state = TCP_SYN_RCVD;
+        LOG_INFO(LOG_TAG, "simultaneous open: SYN from %u.%u.%u.%u, now SYN_RCVD", IP4(s->src_ip));
     }
 }
 
