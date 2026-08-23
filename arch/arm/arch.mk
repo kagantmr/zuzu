@@ -27,7 +27,11 @@ BOARDS = vexpress-a15 rpi4 virt
 # QEMU_CPU_<board>   : QEMU -cpu
 # QEMU_BIN_<board>   : (optional) QEMU binary, default qemu-system-arm
 # QEMU_MEM_<board>   : (optional) QEMU -m, default 64M
-# QEMU_NET_<board>   : (optional) QEMU NIC flags, default none
+# QEMU_NIC_MODEL_<board> : (optional) QEMU NIC model (e.g. lan9118), default
+#                       none (board's NIC not emulated by QEMU). Drives
+#                       QEMU_NET/QEMU_NET_TEST/QEMU_NETDEV_PCAP in
+#                       mk/qemu.mk — set the model here, not a full -nic
+#                       flag, so run/run-test/run-pcap all stay in sync.
 # QEMU_NO_DRIVE_<board> : (optional) set to y to skip the SD card -drive
 #                       (boards with no matching disk interface)
 # CPUFLAGS_<board>   : (optional) override ARCH_CPUFLAGS for this board
