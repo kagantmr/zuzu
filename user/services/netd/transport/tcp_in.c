@@ -273,7 +273,7 @@ static void on_fin_wait_2(TcpPcb *pcb, const TcpSegment *s)
 
 static void on_last_ack(int slot, TcpPcb *pcb, const TcpSegment *s)
 {
-    if (seq_lt(pcb->snd_una, s->ack)) {
+    if (seq_lt(pcb->snd_una, s->ack) && seq_leq(s->ack, pcb->snd_nxt)) {
         pcb->snd_una = s->ack;
         if (seq_leq(pcb->snd_nxt, pcb->snd_una)) { /* our FIN acked */
             rto_stop(pcb);
