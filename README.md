@@ -43,16 +43,6 @@ Everything else is a userspace process. Device drivers, the filesystem, and the
 entire network stack run unprivileged and isolated. A driver crash is a process
 crash.
 
-### Design principles
-
-- **IPC carries intent, shared memory carries data.** Control messages go
-  through the kernel; bulk transfer does not.
-- **Possession is authority.** No handle, no access.
-- **Additive ABI.** Syscall numbers and semantics must never be broken.
-- **QEMU is permissive, silicon is strict.** Correctness is verified in
-  emulation; behaviour is validated on hardware. Two separate classes of bug
-  have been caught this way that QEMU cannot reproduce.
-
 ## Performance
 
 Measured on Raspberry Pi 4 (Cortex-A72) via the PMU cycle counter, single-core,
