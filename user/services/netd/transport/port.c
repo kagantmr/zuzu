@@ -1,4 +1,6 @@
 #include "port.h"
+#include "user/services/netd/common/globals.h"
+#include <stdint.h>
 
 /* Sized to the demux table: every held port ends up bound there too. */
 #define PORT_MAX_HELD 64
