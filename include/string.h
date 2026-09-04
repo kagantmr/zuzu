@@ -6,8 +6,8 @@
 
 typedef void (*strfmt_outc_t)(void *ctx, char c);
 
-#define align_down(addr, align) ((addr) & ~((align) - 1))
-#define align_up(addr, align)   (((addr) + (align) - 1) & ~((align) - 1))
+#define align_down(addr, align) ((addr) & ~((align) - 1u))
+#define align_up(addr, align)   (((addr) + (align) - 1) & ~((align) - 1u))
 
 /**
  * @brief Copy n bytes from source to destination.
@@ -197,6 +197,33 @@ void vstrfmt(strfmt_outc_t outc, void *ctx, const char *fstring, va_list *args);
  * @return Amount of visible characters
  */
 int visible_len(const char *s);
+
+/**
+ * @brief Format a string into a fixed-size buffer using a va_list.
+ *
+ * Writes at most size-1 characters plus a terminating NUL (unless size is
+ * 0, in which case buf is left untouched). Same format specifiers as
+ * vstrfmt/strfmt.
+ *
+ * @param buf  Destination buffer, or NULL if size is 0.
+ * @param size Size of buf in bytes, including the terminating NUL.
+ * @param fmt  Format string.
+ * @param args Variable arguments matching the format specifiers.
+ * @return The number of characters that would have been written had size
+ *         been unlimited (excluding the terminating NUL).
+ */
+int vsnprintf(char *buf, size_t size, const char *fmt, va_list args);
+
+/**
+ * @brief Format a string into a fixed-size buffer.
+ * @param buf  Destination buffer, or NULL if size is 0.
+ * @param size Size of buf in bytes, including the terminating NUL.
+ * @param fmt  Format string.
+ * @param ...  Variable arguments matching the format specifiers.
+ * @return The number of characters that would have been written had size
+ *         been unlimited (excluding the terminating NUL).
+ */
+int snprintf(char *buf, size_t size, const char *fmt, ...);
 
 #ifdef __cplusplus
 }

@@ -3,6 +3,14 @@
 
 typedef struct { uint32_t w[8]; } __attribute__((aligned(4))) chunk32_t;
 
+/* used: -ftrivial-auto-var-init=zero (and struct copy/compare codegen in
+ * general) makes GCC synthesize fresh calls to memset/memcpy/memmove during
+ * per-TU RTL expansion, which under LTO runs after whole-program analysis
+ * has already decided -- from explicit call sites alone, all of which get
+ * inlined away at -O3 -- that these functions are unreachable and dropped
+ * them from every partition. __attribute__((used)) keeps the standalone
+ * body alive regardless, so those late-synthesized calls still link. */
+__attribute__((used))
 void *memcpy(void *dst, const void *src, size_t n) {
     uintptr_t d = (uintptr_t)dst, s = (uintptr_t)src;
 
@@ -27,6 +35,7 @@ void *memcpy(void *dst, const void *src, size_t n) {
 }
 
 
+__attribute__((used))
 void *memset(void *dst, int c, size_t n) {
     uintptr_t d = (uintptr_t)dst;
     uint8_t b = (uint8_t)c;
@@ -57,6 +66,8 @@ void *memset(void *dst, int c, size_t n) {
     return dst;
 }
 
+/* used: see memcpy above -- same GCC-synthesized-libcall/LTO interaction. */
+__attribute__((used))
 void *memmove(void *dest, const void *src, size_t n)
 {
     void *result = dest;
@@ -107,7 +118,7 @@ void *memchr(const void *s, int c, size_t n)
     const unsigned char *p = s;
     while (n--) {
         if (*p == (unsigned char)c)
-            return (void *)p;
+            return (void *)(uintptr_t)p;
         p++;
     }
     return NULL;

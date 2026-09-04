@@ -149,33 +149,33 @@ BENCH_STAT(g_bench_direct_handoff, "IPC direct-switch handoff");
  * traffic a client hammers a port it already validated once, so all four
  * are marked unlikely to keep the fall-through (the success return) as
  * the straight-line path. */
-HandleEntry *__hot ValidatePortHandle(ProcessObj *proc, Handle handle, CpuState *frame)
+static HandleEntry *__hot ValidatePortHandle(ProcessObj *proc, Handle handle, CpuState *frame)
 {
 	if (unlikely(!proc)) {
-		(*arch_reg(frame, 0)) = ERR_BADARG;
+		arch_reg_set(frame, 0, ERR_BADARG);
 		return NULL;
 	}
 #ifdef ZUZU_BENCH
 	uint32_t bench_start = BENCH_BEGIN();
 #endif
-	HandleEntry *entry = handle_vec_get(&proc->handle_table, handle);
+	HandleEntry *entry = handle_vec_get(&proc->handle_table, (uint32_t)handle);
 #ifdef ZUZU_BENCH
 	BENCH_END(g_bench_handle_lookup, bench_start);
 #endif
 	if (unlikely(!entry)) {
-		(*arch_reg(frame, 0)) = ERR_BADHANDLE;
+		arch_reg_set(frame, 0, ERR_BADHANDLE);
 		return NULL;
 	}
 	if (unlikely(entry->type != HANDLE_PORT)) {
-		(*arch_reg(frame, 0)) = ERR_BADTYPE;
+		arch_reg_set(frame, 0, ERR_BADTYPE);
 		return NULL;
 	}
 	if (unlikely(!entry->port)) {
-		(*arch_reg(frame, 0)) = ERR_BADHANDLE;
+		arch_reg_set(frame, 0, ERR_BADHANDLE);
 		return NULL;
 	}
 	if (unlikely(!entry->port->alive)) {
-		(*arch_reg(frame, 0)) = ERR_DEAD;
+		arch_reg_set(frame, 0, ERR_DEAD);
 		return NULL;
 	}
 
@@ -185,25 +185,25 @@ HandleEntry *__hot ValidatePortHandle(ProcessObj *proc, Handle handle, CpuState 
 static HandleEntry *validate_notification_handle(ProcessObj *proc, Handle handle, CpuState *frame)
 {
 	if (!proc) {
-		(*arch_reg(frame, 0)) = ERR_BADARG;
+		arch_reg_set(frame, 0, ERR_BADARG);
 		return NULL;
 	}
 
-	HandleEntry *entry = handle_vec_get(&proc->handle_table, handle);
+	HandleEntry *entry = handle_vec_get(&proc->handle_table, (uint32_t)handle);
 	if (!entry) {
-		(*arch_reg(frame, 0)) = ERR_BADHANDLE;
+		arch_reg_set(frame, 0, ERR_BADHANDLE);
 		return NULL;
 	}
 	if (entry->type != HANDLE_NTFN) {
-		(*arch_reg(frame, 0)) = ERR_BADTYPE;
+		arch_reg_set(frame, 0, ERR_BADTYPE);
 		return NULL;
 	}
 	if (!entry->ntfn) {
-		(*arch_reg(frame, 0)) = ERR_BADHANDLE;
+		arch_reg_set(frame, 0, ERR_BADHANDLE);
 		return NULL;
 	}
 	if (!entry->ntfn->alive) {
-		(*arch_reg(frame, 0)) = ERR_DEAD;
+		arch_reg_set(frame, 0, ERR_DEAD);
 		return NULL;
 	}
 
@@ -214,21 +214,21 @@ static HandleEntry *validate_reply_handle(ProcessObj *proc, Handle handle_idx, T
 					  CpuState *frame)
 {
 	if (!proc || handle_idx == 0) {
-		(*arch_reg(frame, 0)) = ERR_BADHANDLE;
+		arch_reg_set(frame, 0, ERR_BADHANDLE);
 		return NULL;
 	}
 
-	HandleEntry *entry = handle_vec_get(&proc->handle_table, handle_idx);
+	HandleEntry *entry = handle_vec_get(&proc->handle_table, (uint32_t)handle_idx);
 	if (!entry) {
-		(*arch_reg(frame, 0)) = ERR_BADHANDLE;
+		arch_reg_set(frame, 0, ERR_BADHANDLE);
 		return NULL;
 	}
 	if (entry->type != HANDLE_REPLY) {
-		(*arch_reg(frame, 0)) = ERR_BADTYPE;
+		arch_reg_set(frame, 0, ERR_BADTYPE);
 		return NULL;
 	}
 	if (!entry->reply || entry->reply->caller_tid == 0) {
-		(*arch_reg(frame, 0)) = ERR_BADHANDLE;
+		arch_reg_set(frame, 0, ERR_BADHANDLE);
 		return NULL;
 	}
 
@@ -240,7 +240,7 @@ static HandleEntry *validate_reply_handle(ProcessObj *proc, Handle handle_idx, T
 		entry->reply = NULL;
 		entry->grantable = false;
 		entry->type = HANDLE_FREE;
-		(*arch_reg(frame, 0)) = ERR_DEAD;
+		arch_reg_set(frame, 0, ERR_DEAD);
 		return NULL;
 	}
 
@@ -250,7 +250,7 @@ static HandleEntry *validate_reply_handle(ProcessObj *proc, Handle handle_idx, T
 		entry->reply = NULL;
 		entry->grantable = false;
 		entry->type = HANDLE_FREE;
-		(*arch_reg(frame, 0)) = ERR_DEAD;
+		arch_reg_set(frame, 0, ERR_DEAD);
 		return NULL;
 	}
 
@@ -263,7 +263,7 @@ static void waitany_deliver_notification(uint32_t matched_index, uint32_t bits,
 {
 	memset(result, 0, sizeof(*result));
 	result->size = sizeof(*result);
-	result->matched_index = matched_index;
+	result->matched_index = (Handle)matched_index;
 	result->kind = WAITANY_KIND_NTFN;
 	result->source = 0;
 	result->w1 = bits;
@@ -289,9 +289,9 @@ void __attribute__((hot)) SysMsgSend(CpuState *frame)
 		if (unlikely(rx_thread->waitany_port_wait_active)) {
 			WaitanyResult *res = &rx_thread->waitany_pending_result;
 			memset(res, 0, sizeof(*res));
-			res->matched_index = rx_slot->index;
+			res->matched_index = (Handle)rx_slot->index;
 			res->kind = WAITANY_KIND_SEND;
-			res->source = current_thread->owner_process->pid;
+			res->source = (uint32_t)current_thread->owner_process->pid;
 			res->marker = entry->marker;
 			res->label = current_thread->owner_process->label;
 			res->w1 = (*arch_reg(frame, 1));
@@ -312,7 +312,7 @@ void __attribute__((hot)) SysMsgSend(CpuState *frame)
 				ipc_panic_bad_trap_frame("ZuzuMsgSend.rx", rx_thread->owner_process,
 							 rx_frame);
 #endif
-			(*arch_reg(rx_frame, 0)) = current_thread->owner_process->pid;
+			arch_reg_set(rx_frame, 0, current_thread->owner_process->pid);
 			(*arch_reg(rx_frame, 1)) = (*arch_reg(frame, 1));
 			(*arch_reg(rx_frame, 2)) = (*arch_reg(frame, 2));
 			(*arch_reg(rx_frame, 3)) = (*arch_reg(frame, 3));
@@ -363,7 +363,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 		}
 #endif
 		// Copy message to receiver
-		(*arch_reg(frame, 0)) = sr_thread->owner_process->pid;
+		arch_reg_set(frame, 0, sr_thread->owner_process->pid);
 		(*arch_reg(frame, 1)) = (*arch_reg(sr_frame, 1));
 		(*arch_reg(frame, 2)) = (*arch_reg(sr_frame, 2));
 		(*arch_reg(frame, 3)) = (*arch_reg(sr_frame, 3));
@@ -400,7 +400,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 				kfree_reply_cap(rc);
 				sr_thread->pending_reply_cap = NULL;
 				// Wake the caller with an error instead of leaving it stuck
-				(*arch_reg(sr_thread->trap_frame, 0)) = ERR_NOMEM;
+				arch_reg_set(sr_thread->trap_frame, 0, ERR_NOMEM);
 				sr_thread->ipc_state = IPC_NONE;
 				sr_thread->blocked_port = NULL;
 				// Cancel timeout if sender had one
@@ -408,20 +408,32 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 				sr_thread->wake_reason = WAKE_IPC;
 				sr_thread->state = READY;
 				sched_add(sr_thread);
-				(*arch_reg(frame, 0)) = ERR_NOMEM;
+				arch_reg_set(frame, 0, ERR_NOMEM);
 				return;
 			}
 
 			HandleEntry *rentry =
-			    handle_vec_get(&current_thread->owner_process->handle_table, slot);
+			    handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)slot);
+			if (!rentry) {
+				kfree_reply_cap(rc);
+				arch_reg_set(sr_thread->trap_frame, 0, ERR_NOMEM);
+				sr_thread->ipc_state = IPC_NONE;
+				sr_thread->blocked_port = NULL;
+				ipc_cancel_timeout(sr_thread);
+				sr_thread->wake_reason = WAKE_IPC;
+				sr_thread->state = READY;
+				sched_add(sr_thread);
+				arch_reg_set(frame, 0, ERR_NOMEM);
+				return;
+			}
 			rentry->type = HANDLE_REPLY;
 			rentry->grantable = false;
 			rentry->reply = rc;
 			ProcessTrackReplyCap(sr_thread->owner_process,
-					     current_thread->owner_process, (uint32_t)slot, rc);
+					     current_thread->owner_process, slot, rc);
 
-			(*arch_reg(frame, 0)) = slot;
-			(*arch_reg(frame, 1)) = sr_thread->owner_process->pid;
+			arch_reg_set(frame, 0, slot);
+			arch_reg_set(frame, 1, sr_thread->owner_process->pid);
 			(*arch_reg(frame, 2)) = (*arch_reg(sr_frame, 1));
 			(*arch_reg(frame, 3)) = (*arch_reg(sr_frame, 2));
 			if (sr_thread->lmsg_buf_xfer_len > 0) {
@@ -434,7 +446,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 		}
 	} else {
 		if (unlikely(timeout_ms == TIMEOUT_POLL)) {
-			(*arch_reg(frame, 0)) = ERR_TIMEOUT;
+			arch_reg_set(frame, 0, ERR_TIMEOUT);
 			return;
 		}
 
@@ -476,7 +488,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 		}
 
 		if (unlikely(current_thread->wake_reason == WAKE_TIMEOUT)) {
-			(*arch_reg(frame, 0)) = ERR_TIMEOUT;
+			arch_reg_set(frame, 0, ERR_TIMEOUT);
 		}
 	}
 }
@@ -495,7 +507,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 
 	ReplyCap *rc = kalloc_reply_cap();
 	if (unlikely(!rc)) {
-		(*arch_reg(frame, 0)) = ERR_NOMEM;
+		arch_reg_set(frame, 0, ERR_NOMEM);
 		return; // caller gets clean error, never blocked
 	}
 	rc->caller_tid = current_thread ? current_thread->tid : 0;
@@ -524,35 +536,41 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		if (unlikely(slot < 0)) {
 			kfree_reply_cap(rc);
 			list_add_tail(&rx_slot->node, &port->receiver_queue.node);
-			(*arch_reg(frame, 0)) = ERR_NOMEM;
+			arch_reg_set(frame, 0, ERR_NOMEM);
 			return;
 		}
 
-		HandleEntry *rentry = handle_vec_get(&rx_thread->owner_process->handle_table, slot);
+		HandleEntry *rentry = handle_vec_get(&rx_thread->owner_process->handle_table, (uint32_t)slot);
+		if (!rentry) {
+			kfree_reply_cap(rc);
+			list_add_tail(&rx_slot->node, &port->receiver_queue.node);
+			arch_reg_set(frame, 0, ERR_NOMEM);
+			return;
+		}
 		rentry->type = HANDLE_REPLY;
 		rentry->grantable = false;
 		rentry->reply = rc;
 		ProcessTrackReplyCap(current_thread->owner_process, rx_thread->owner_process,
-				     (uint32_t)slot, rc);
+				     slot, rc);
 
 		if (unlikely(rx_thread->waitany_port_wait_active)) {
 			WaitanyResult *res = &rx_thread->waitany_pending_result;
 			memset(res, 0, sizeof(*res));
 			res->size = sizeof(*res);
-			res->matched_index = rx_slot->index;
+			res->matched_index = (Handle)rx_slot->index;
 			res->kind = WAITANY_KIND_CALL;
 			res->source = (uint32_t)slot;
 			res->marker = entry->marker;
 			res->label = current_thread->owner_process->label;
-			res->w1 = current_thread->owner_process->pid;
+			res->w1 = (uint32_t)current_thread->owner_process->pid;
 			res->w2 = (*arch_reg(frame, 1));
 			res->w3 = (*arch_reg(frame, 2));
 			ThreadWaitanyClearWaits(rx_thread);
 			ThreadWaitanyClearPortWaits(rx_thread);
 			rx_thread->waitany_port_wait_match_index = rx_slot->index;
 		} else {
-			(*arch_reg(rx_frame, 0)) = slot;
-			(*arch_reg(rx_frame, 1)) = current_thread->owner_process->pid;
+			arch_reg_set(rx_frame, 0, slot);
+			arch_reg_set(rx_frame, 1, current_thread->owner_process->pid);
 			(*arch_reg(rx_frame, 2)) = (*arch_reg(frame, 1));
 			(*arch_reg(rx_frame, 3)) = (*arch_reg(frame, 2));
 			rx_thread->ipc_state = IPC_NONE;
@@ -594,7 +612,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 
 void __attribute__((hot)) SysMsgReply(CpuState *frame)
 {
-	Handle handle_idx = (*arch_reg(frame, 0));
+	Handle handle_idx = (Handle)(*arch_reg(frame, 0));
 	Thread *target_thread = NULL;
 	HandleEntry *entry =
 	    validate_reply_handle(current_thread->owner_process, handle_idx, &target_thread, frame);
@@ -648,7 +666,7 @@ void __attribute__((hot)) SysMsgLsend(CpuState *frame)
 
 	/* No truncation: oversized payloads are rejected outright. */
 	if (xlen > LMSG_BUF_SIZE) {
-		(*arch_reg(frame, 0)) = ERR_OVERFLOW;
+		arch_reg_set(frame, 0, ERR_OVERFLOW);
 		return;
 	}
 
@@ -661,9 +679,9 @@ void __attribute__((hot)) SysMsgLsend(CpuState *frame)
 			WaitanyResult *res = &rx_thread->waitany_pending_result;
 			memset(res, 0, sizeof(*res));
 			res->size = sizeof(*res);
-			res->matched_index = rx_slot->index;
+			res->matched_index = (Handle)rx_slot->index;
 			res->kind = WAITANY_KIND_SEND;
-			res->source = current_thread->owner_process->pid;
+			res->source = (uint32_t)current_thread->owner_process->pid;
 			res->marker = entry->marker;
 			res->label = current_thread->owner_process->label;
 			ipc_buf_copy(current_thread, rx_thread, xlen);
@@ -684,7 +702,7 @@ void __attribute__((hot)) SysMsgLsend(CpuState *frame)
 				ipc_panic_bad_trap_frame("ZuzuMsgLsend.rx",
 							 rx_thread->owner_process, rx_frame);
 #endif
-			(*arch_reg(rx_frame, 0)) = current_thread->owner_process->pid;
+			arch_reg_set(rx_frame, 0, current_thread->owner_process->pid);
 			(*arch_reg(rx_frame, 1)) = xlen;
 			(*arch_reg(rx_frame, 2)) = 0;
 			(*arch_reg(rx_frame, 3)) = 0;
@@ -723,13 +741,13 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 
 	/* No truncation: oversized payloads are rejected outright. */
 	if (xlen > LMSG_BUF_SIZE) {
-		(*arch_reg(frame, 0)) = ERR_OVERFLOW;
+		arch_reg_set(frame, 0, ERR_OVERFLOW);
 		return;
 	}
 
 	ReplyCap *rc = kalloc_reply_cap();
 	if (!rc) {
-		(*arch_reg(frame, 0)) = ERR_NOMEM;
+		arch_reg_set(frame, 0, ERR_NOMEM);
 		return; // caller gets clean error, never blocked
 	}
 	rc->caller_tid = current_thread ? current_thread->tid : 0;
@@ -749,27 +767,33 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 		if (unlikely(slot < 0)) {
 			kfree_reply_cap(rc);
 			list_add_tail(&rx_slot->node, &port->receiver_queue.node);
-			(*arch_reg(frame, 0)) = ERR_NOMEM;
+			arch_reg_set(frame, 0, ERR_NOMEM);
 			return;
 		}
 
-		HandleEntry *rentry = handle_vec_get(&rx_thread->owner_process->handle_table, slot);
+		HandleEntry *rentry = handle_vec_get(&rx_thread->owner_process->handle_table, (uint32_t)slot);
+		if (!rentry) {
+			kfree_reply_cap(rc);
+			list_add_tail(&rx_slot->node, &port->receiver_queue.node);
+			arch_reg_set(frame, 0, ERR_NOMEM);
+			return;
+		}
 		rentry->type = HANDLE_REPLY;
 		rentry->grantable = false;
 		rentry->reply = rc;
 		ProcessTrackReplyCap(current_thread->owner_process, rx_thread->owner_process,
-				     (uint32_t)slot, rc);
+				     slot, rc);
 
 		if (unlikely(rx_thread->waitany_port_wait_active)) {
 			WaitanyResult *res = &rx_thread->waitany_pending_result;
 			memset(res, 0, sizeof(*res));
 			res->size = sizeof(*res);
-			res->matched_index = rx_slot->index;
+			res->matched_index = (Handle)rx_slot->index;
 			res->kind = WAITANY_KIND_CALL;
 			res->source = (uint32_t)slot;
 			res->marker = entry->marker;
 			res->label = current_thread->owner_process->label;
-			res->w1 = current_thread->owner_process->pid;
+			res->w1 = (uint32_t)current_thread->owner_process->pid;
 			ipc_buf_copy(current_thread, rx_thread, xlen);
 			res->w2 = xlen;
 			res->w3 = 0;
@@ -777,8 +801,8 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 			ThreadWaitanyClearPortWaits(rx_thread);
 			rx_thread->waitany_port_wait_match_index = rx_slot->index;
 		} else {
-			(*arch_reg(rx_frame, 0)) = slot;
-			(*arch_reg(rx_frame, 1)) = current_thread->owner_process->pid;
+			arch_reg_set(rx_frame, 0, slot);
+			arch_reg_set(rx_frame, 1, current_thread->owner_process->pid);
 			(*arch_reg(rx_frame, 2)) = xlen;
 			(*arch_reg(rx_frame, 3)) = 0;
 			ipc_buf_copy(current_thread, rx_thread, xlen);
@@ -814,12 +838,12 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 
 void __attribute__((hot)) SysMsgLreply(CpuState *frame)
 {
-	Handle handle_idx = (*arch_reg(frame, 0));
+	Handle handle_idx = (Handle)(*arch_reg(frame, 0));
 	uint32_t xlen = (*arch_reg(frame, 1));
 
 	/* No truncation: oversized payloads are rejected outright. */
 	if (xlen > LMSG_BUF_SIZE) {
-		(*arch_reg(frame, 0)) = ERR_OVERFLOW;
+		arch_reg_set(frame, 0, ERR_OVERFLOW);
 		return;
 	}
 
@@ -874,11 +898,11 @@ static int waitany_deliver_sender(uint32_t matched_index, Thread *receiver, List
 #endif
 	memset(result, 0, sizeof(*result));
 	result->size = sizeof(*result);
-	result->matched_index = matched_index;
+	result->matched_index = (Handle)matched_index;
 
 	if (sr_thread->ipc_state == IPC_SENDER) {
 		result->kind = WAITANY_KIND_SEND;
-		result->source = sr_thread->owner_process->pid;
+		result->source = (uint32_t)sr_thread->owner_process->pid;
 		result->marker = sr_thread->port_marker;
 		result->label = sr_thread->owner_process->label;
 		result->w1 = (*arch_reg(sr_frame, 1));
@@ -911,23 +935,29 @@ static int waitany_deliver_sender(uint32_t matched_index, Thread *receiver, List
 		int slot = handle_vec_find_free(&receiver->owner_process->handle_table);
 		if (slot < 0) {
 			kfree_reply_cap(rc);
-			(*arch_reg(sr_frame, 0)) = ERR_NOMEM;
+			arch_reg_set(sr_frame, 0, ERR_NOMEM);
 			ipc_wake_ready(sr_thread);
 			return ERR_NOMEM;
 		}
 
-		HandleEntry *rentry = handle_vec_get(&receiver->owner_process->handle_table, slot);
+		HandleEntry *rentry = handle_vec_get(&receiver->owner_process->handle_table, (uint32_t)slot);
+		if (!rentry) {
+			kfree_reply_cap(rc);
+			arch_reg_set(sr_frame, 0, ERR_NOMEM);
+			ipc_wake_ready(sr_thread);
+			return ERR_NOMEM;
+		}
 		rentry->type = HANDLE_REPLY;
 		rentry->grantable = false;
 		rentry->reply = rc;
 		ProcessTrackReplyCap(sr_thread->owner_process, receiver->owner_process,
-				     (uint32_t)slot, rc);
+				     slot, rc);
 
 		result->kind = WAITANY_KIND_CALL;
 		result->source = (uint32_t)slot;
 		result->marker = sr_thread->port_marker;
 		result->label = sr_thread->owner_process->label;
-		result->w1 = sr_thread->owner_process->pid;
+		result->w1 = (uint32_t)sr_thread->owner_process->pid;
 		result->w2 = (*arch_reg(sr_frame, 1));
 		result->w3 = (*arch_reg(sr_frame, 2));
 
@@ -972,9 +1002,9 @@ static int waitany_try_once(const Handle *handles, uint32_t count, WaitanyResult
 #endif
 	for (uint32_t i = 0; i < count; i++) {
 		HandleEntry *entry =
-		    handle_vec_get(&current_thread->owner_process->handle_table, handles[i]);
+		    handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handles[i]);
 		if (!entry) {
-			(*arch_reg(current_thread->trap_frame, 0)) = ERR_BADHANDLE;
+			arch_reg_set(current_thread->trap_frame, 0, ERR_BADHANDLE);
 			return ERR_BADHANDLE;
 		}
 
@@ -1007,7 +1037,7 @@ static int waitany_try_once(const Handle *handles, uint32_t count, WaitanyResult
 			continue;
 		}
 
-		(*arch_reg(current_thread->trap_frame, 0)) = ERR_BADTYPE;
+		arch_reg_set(current_thread->trap_frame, 0, ERR_BADTYPE);
 		return ERR_BADTYPE;
 	}
 #ifdef ZUZU_BENCH
@@ -1073,9 +1103,76 @@ static bool waitany_write_timeout_result(uintptr_t result_ptr, uint32_t size)
 	WaitanyResult result;
 	memset(&result, 0, sizeof(result));
 	result.size = sizeof(result);
-	result.matched_index = UINT32_MAX;
+	result.matched_index = (Handle)UINT32_MAX;
 	result.kind = WAITANY_KIND_TIMEOUT;
 	return CopyToUser((void *)result_ptr, &result, size);
+}
+
+/* Runs one waitany_try_once() attempt and, if nothing matched yet (BUSY),
+ * enqueues self on every notification/endpoint it's now waiting on. Split
+ * out of SysWaitAny()'s for(;;) loop body so its four WAITANY_MAX_HANDLES
+ * scratch arrays live in this function's own frame instead of SysWaitAny's
+ * -- they're only needed for the duration of one attempt, and SysWaitAny's
+ * frame (which also has to stay live across the blocking schedule() call
+ * below) was 528 bytes with them, over the 512-byte budget. Behavior is
+ * unchanged: this is exactly the code that used to run inline. */
+/* noinline: the whole point of splitting this out of SysWaitAny() is to
+ * keep its four WAITANY_MAX_HANDLES scratch arrays off SysWaitAny's frame;
+ * GCC's inliner folding this straight back in at -O3 would silently undo
+ * that (and did, until this attribute was added -- same 528-byte frame
+ * either way). */
+static int __attribute__((noinline)) waitany_prepare_wait(Thread *self,
+							  const Handle *handles_local,
+							  uint32_t count, WaitanyResult *result)
+{
+	NtfnObj *wait_ntfns[WAITANY_MAX_HANDLES];
+	uint32_t wait_ntfn_indices[WAITANY_MAX_HANDLES];
+	uint32_t wait_count = 0;
+	Port *wait_eps[WAITANY_MAX_HANDLES];
+	uint32_t wait_ep_indices[WAITANY_MAX_HANDLES];
+	uint32_t ep_wait_count = 0;
+
+	int err = waitany_try_once(handles_local, count, result, wait_ntfns, wait_ntfn_indices,
+				   &wait_count, wait_eps, wait_ep_indices, &ep_wait_count);
+	if (err != ERR_BUSY)
+		return err;
+
+	/* Enqueue on notification wait queues */
+	if (wait_count > 0) {
+		self->waitany_wait_count = wait_count;
+		self->waitany_wait_match_index = WAITANY_NO_MATCH;
+		self->waitany_wait_bits = 0;
+		self->waitany_active = true;
+
+		for (uint32_t i = 0; i < wait_count; i++) {
+			self->waitany_wait_ntfns[i] = wait_ntfns[i];
+			self->waitany_wait_slots[i].owner = self;
+			self->waitany_wait_slots[i].index = wait_ntfn_indices[i];
+			self->waitany_wait_slots[i].node.prev = NULL;
+			self->waitany_wait_slots[i].node.next = NULL;
+			list_add_tail(&self->waitany_wait_slots[i].node,
+				      &wait_ntfns[i]->wait_queue.node);
+		}
+	}
+
+	/* Enqueue on endpoint receiver queues */
+	if (ep_wait_count > 0) {
+		self->waitany_port_wait_count = ep_wait_count;
+		self->waitany_port_wait_match_index = WAITANY_NO_MATCH;
+		self->waitany_port_wait_active = true;
+
+		for (uint32_t i = 0; i < ep_wait_count; i++) {
+			self->waitany_wait_ports[i] = wait_eps[i];
+			self->waitany_port_wait_slots[i].owner = self;
+			self->waitany_port_wait_slots[i].index = wait_ep_indices[i];
+			self->waitany_port_wait_slots[i].node.prev = NULL;
+			self->waitany_port_wait_slots[i].node.next = NULL;
+			list_add_tail(&self->waitany_port_wait_slots[i].node,
+				      &wait_eps[i]->receiver_queue.node);
+		}
+	}
+
+	return ERR_BUSY;
 }
 
 void SysWaitAny(CpuState *frame)
@@ -1092,25 +1189,25 @@ void SysWaitAny(CpuState *frame)
 
 	if (!current_thread || !handles_ptr || !result_ptr || count == 0 ||
 	    count > WAITANY_MAX_HANDLES) {
-		(*arch_reg(frame, 0)) = ERR_BADARG;
+		arch_reg_set(frame, 0, ERR_BADARG);
 		return;
 	}
 
 	if (!validate_user_ptr(result_ptr, sizeof(WaitanyResult)) ||
 	    !VmmCheckUserFault(current_thread->owner_process->as, result_ptr, sizeof(WaitanyResult),
 			       true)) {
-		(*arch_reg(frame, 0)) = ERR_BADPTR;
+		arch_reg_set(frame, 0, ERR_BADPTR);
 		return;
 	}
 
 	size_t caller_size;
 	if (!CopyFromUser(&caller_size, (const void *)result_ptr, sizeof(uint32_t))) {
-		(*arch_reg(frame, 0)) = ERR_BADPTR;
+		arch_reg_set(frame, 0, ERR_BADPTR);
 		return;
 	}
 
 	if (caller_size < sizeof(WaitanyResult)) { /* v1: exact; later: >= v1 size */
-		(*arch_reg(frame, 0)) = ERR_BADARG;
+		arch_reg_set(frame, 0, ERR_BADARG);
 		return;
 	}
 
@@ -1119,7 +1216,7 @@ void SysWaitAny(CpuState *frame)
 	Handle handles_local[WAITANY_MAX_HANDLES];
 	size_t copy_size = count * sizeof(Handle);
 	if (!CopyFromUser(handles_local, (const void *)handles_ptr, copy_size)) {
-		(*arch_reg(frame, 0)) = ERR_BADPTR;
+		arch_reg_set(frame, 0, ERR_BADPTR);
 		return;
 	}
 
@@ -1132,19 +1229,12 @@ void SysWaitAny(CpuState *frame)
 	}
 
 	for (;;) {
-		NtfnObj *wait_ntfns[WAITANY_MAX_HANDLES];
-		uint32_t wait_ntfn_indices[WAITANY_MAX_HANDLES];
-		uint32_t wait_count = 0;
-		Port *wait_eps[WAITANY_MAX_HANDLES];
-		uint32_t wait_ep_indices[WAITANY_MAX_HANDLES];
-		uint32_t ep_wait_count = 0;
 		WaitanyResult result;
-		int err =
-		    waitany_try_once(handles_local, count, &result, wait_ntfns, wait_ntfn_indices,
-				     &wait_count, wait_eps, wait_ep_indices, &ep_wait_count);
+		int err = waitany_prepare_wait(current_thread, handles_local, (uint32_t)count,
+					       &result);
 		if (err == 0) {
 			if (!CopyToUser((void *)result_ptr, &result, wlen)) {
-				(*arch_reg(frame, 0)) = ERR_BADPTR;
+				arch_reg_set(frame, 0, ERR_BADPTR);
 				return;
 			}
 			(*arch_reg(frame, 0)) = 0;
@@ -1152,12 +1242,12 @@ void SysWaitAny(CpuState *frame)
 		}
 
 		if (err != ERR_BUSY) {
-			(*arch_reg(frame, 0)) = err;
+			arch_reg_set(frame, 0, err);
 			return;
 		}
 
 		if (timeout_ms == TIMEOUT_POLL) {
-			(*arch_reg(frame, 0)) = ERR_TIMEOUT;
+			arch_reg_set(frame, 0, ERR_TIMEOUT);
 			return;
 		}
 
@@ -1166,47 +1256,11 @@ void SysWaitAny(CpuState *frame)
 			Tick now = get_ticks();
 			if (now >= deadline) {
 				if (!waitany_write_timeout_result(result_ptr, wlen)) {
-					(*arch_reg(frame, 0)) = ERR_BADPTR;
+					arch_reg_set(frame, 0, ERR_BADPTR);
 					return;
 				}
 				(*arch_reg(frame, 0)) = 0;
 				return;
-			}
-		}
-
-		/* Enqueue on notification wait queues */
-		if (wait_count > 0) {
-			current_thread->waitany_wait_count = wait_count;
-			current_thread->waitany_wait_match_index = WAITANY_NO_MATCH;
-			current_thread->waitany_wait_bits = 0;
-			current_thread->waitany_active = true;
-
-			for (uint32_t i = 0; i < wait_count; i++) {
-				current_thread->waitany_wait_ntfns[i] = wait_ntfns[i];
-				current_thread->waitany_wait_slots[i].owner = current_thread;
-				current_thread->waitany_wait_slots[i].index = wait_ntfn_indices[i];
-				current_thread->waitany_wait_slots[i].node.prev = NULL;
-				current_thread->waitany_wait_slots[i].node.next = NULL;
-				list_add_tail(&current_thread->waitany_wait_slots[i].node,
-					      &wait_ntfns[i]->wait_queue.node);
-			}
-		}
-
-		/* Enqueue on endpoint receiver queues */
-		if (ep_wait_count > 0) {
-			current_thread->waitany_port_wait_count = ep_wait_count;
-			current_thread->waitany_port_wait_match_index = WAITANY_NO_MATCH;
-			current_thread->waitany_port_wait_active = true;
-
-			for (uint32_t i = 0; i < ep_wait_count; i++) {
-				current_thread->waitany_wait_ports[i] = wait_eps[i];
-				current_thread->waitany_port_wait_slots[i].owner = current_thread;
-				current_thread->waitany_port_wait_slots[i].index =
-				    wait_ep_indices[i];
-				current_thread->waitany_port_wait_slots[i].node.prev = NULL;
-				current_thread->waitany_port_wait_slots[i].node.next = NULL;
-				list_add_tail(&current_thread->waitany_port_wait_slots[i].node,
-					      &wait_eps[i]->receiver_queue.node);
 			}
 		}
 
@@ -1240,7 +1294,7 @@ void SysWaitAny(CpuState *frame)
 		if ((int32_t)(*arch_reg(frame, 0)) == ERR_DEAD) {
 			ThreadWaitanyClearWaits(current_thread);
 			ThreadWaitanyClearPortWaits(current_thread);
-			(*arch_reg(frame, 0)) = ERR_DEAD;
+			arch_reg_set(frame, 0, ERR_DEAD);
 			return;
 		}
 
@@ -1257,7 +1311,7 @@ void SysWaitAny(CpuState *frame)
 			ThreadWaitanyClearPortWaits(current_thread);
 			if (!CopyToUser((void *)result_ptr, &current_thread->waitany_pending_result,
 					wlen)) {
-				(*arch_reg(frame, 0)) = ERR_BADPTR;
+				arch_reg_set(frame, 0, ERR_BADPTR);
 				return;
 			}
 			(*arch_reg(frame, 0)) = 0;
@@ -1271,7 +1325,7 @@ void SysWaitAny(CpuState *frame)
 			ThreadWaitanyClearWaits(current_thread);
 			ThreadWaitanyClearPortWaits(current_thread);
 			if (!CopyToUser((void *)result_ptr, &result, wlen)) {
-				(*arch_reg(frame, 0)) = ERR_BADPTR;
+				arch_reg_set(frame, 0, ERR_BADPTR);
 				return;
 			}
 			(*arch_reg(frame, 0)) = 0;

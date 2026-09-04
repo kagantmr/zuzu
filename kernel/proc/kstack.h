@@ -1,7 +1,6 @@
 #ifndef KERNEL_STACK_H
 #define KERNEL_STACK_H
 
-#include <stdint.h>
 #include <zuzu/types.h>
 #include BOARD_LAYOUT_H
 
@@ -25,7 +24,7 @@ static inline int KernelStackSlotFromTop(VirtAddr stack_top)
 
 static inline VirtAddr KernelStackTopFromSlot(int slot)
 {
-	return KSTACK_REGION_BASE + (slot + 1) * KSTACK_SLOT_SIZE;
+	return KSTACK_REGION_BASE + (VirtAddr)((slot + 1) * KSTACK_SLOT_SIZE);
 }
 
 VirtAddr KernelStackAlloc(void);

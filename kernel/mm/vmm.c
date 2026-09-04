@@ -233,6 +233,8 @@ void AddrspaceDestroy(AddressSpace* as) {
 
     for (uint32_t i = 0; i < as->regions.len; i++) {
         VirtMemRegion *r = vm_region_vec_get(&as->regions, i);
+        if (!r)
+            continue;
         VmmUnmapRange(as, r->vaddr_start, r->size);
     }
     
@@ -306,6 +308,7 @@ bool VmmBuildPts(AddressSpace* as) {
 
     for (uint32_t i = 0; i < as->regions.len; i++) {
         VirtMemRegion *r = vm_region_vec_get(&as->regions, i);
+        if (!r) continue;
         if (r->flags & VM_FLAG_GUARD) continue;
         if (!VmmMapRange(as, r->vaddr_start, r->paddr_start, r->size,
                         r->prot, r->memtype, r->owner, r->flags))
@@ -507,7 +510,7 @@ static int bitmap_find_free(uint32_t n) {
         if ((word & bit) == 0) {
             count++;
             if (count == n) {
-                return i + 1 - n;
+                return (int)(i + 1 - n);
             }
         } else {
             count = 0;
@@ -616,7 +619,7 @@ void* IoRemap(PhysAddr phys, size_t size) {
         return NULL;
     }
 
-    uintptr_t va = IOREMAP_BASE + (slot * SECTION_SIZE);
+    uintptr_t va = IOREMAP_BASE + ((uint32_t)slot * SECTION_SIZE);
 
     if (!VmmMapRange(g_kernel_as, va, phys_aligned, aligned_size, 
                        PROT_READ | PROT_WRITE,
@@ -625,12 +628,12 @@ void* IoRemap(PhysAddr phys, size_t size) {
         return NULL;
     }
 
-    bitmap_alloc(slot, sections_needed);
+    bitmap_alloc((uint32_t)slot, sections_needed);
 
     ioremap_entry_t* entry = ioremap_alloc_entry();
     if (!entry) {
         VmmUnmapRange(g_kernel_as, va, aligned_size);
-        bitmap_free(slot, sections_needed);
+        bitmap_free((uint32_t)slot, sections_needed);
         return NULL;
     }
     entry->va = va;

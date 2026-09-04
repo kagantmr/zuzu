@@ -19,7 +19,7 @@ VirtAddr KernelStackAlloc(void)
 		uint64_t free = ~bitmap[w];
 		if (!free)
 			continue; /* this word full, next */
-		uint32_t bit = __builtin_ctzll(free);
+		uint32_t bit = (uint32_t)__builtin_ctzll(free);
 		uint32_t slot = w * 64 + bit;
 		if (slot >= MAX_KSTACKS)
 			return 0; /* free bit was in the unused tail */

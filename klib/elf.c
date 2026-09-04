@@ -27,7 +27,7 @@ int elf_phdr_count(const void *data) {
     return ehdr->e_phnum;
 }
 
-Elf32_Phdr *elf_phdr_get(const void *data, int index) {
+const Elf32_Phdr *elf_phdr_get(const void *data, int index) {
     const Elf32_Ehdr *ehdr = data;
-    return (Elf32_Phdr *)((const uint8_t *)data + ehdr->e_phoff) + index;
+    return (const Elf32_Phdr *)(const void *)((const uint8_t *)data + ehdr->e_phoff) + index;
 }

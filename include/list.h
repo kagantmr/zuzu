@@ -60,7 +60,7 @@ static __always_inline void list_remove(ListNode* node) {
 }
 
 #define container_of(ptr, type, member) \
-    ((type*)((char*)(ptr) - offsetof(type, member)))
+    ((type*)(void*)((char*)(ptr) - offsetof(type, member)))
 
 /**
  * @brief Initializes a list head.

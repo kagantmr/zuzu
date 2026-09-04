@@ -49,7 +49,7 @@ void NtfnSignal(NtfnObj *ntfn, NtfnBits bits)
     assert(ntfn && ntfn->alive && !(bits & (1u<<31)));
     ntfn->word |= bits;
     if (!list_empty(&ntfn->wait_queue)) {
-        ListNode *node = list_pop_front(&ntfn->wait_queue);
+        ListNode *node = list_pop_front(&ntfn->wait_queue); 
         ThreadWaitSlot *slot = container_of(node, ThreadWaitSlot, node);
         NtfnBits delivered = ntfn->word;
         NtfnWakeWaiter(ntfn, slot, (int32_t)delivered, delivered);

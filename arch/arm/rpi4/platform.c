@@ -88,8 +88,8 @@ void arch_platform_init_devices(void) {
             s_c = d->size2;
         }
 
-        void *gicd_va = IoRemap(gicd, s_d);
-        void *gicc_va = IoRemap(gicc ? gicc : gicd, s_c ? s_c : s_d);
+        void *gicd_va = IoRemap((PhysAddr)gicd, (size_t)s_d);
+        void *gicc_va = IoRemap((PhysAddr)(gicc ? gicc : gicd), (size_t)(s_c ? s_c : s_d));
 
         KDEBUG("GICv2 (GICD) re-mapped to %p", gicd_va);
 

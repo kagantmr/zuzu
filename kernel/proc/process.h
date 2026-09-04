@@ -56,39 +56,39 @@ static inline int TcbSlotAlloc(ProcessObj *p)
     for (uint32_t w = 0; w < 4; w++) {
         uint64_t free = ~p->tcb_slot_bitmap[w];
         if (!free) continue;                       // this word full, next
-        uint32_t bit = __builtin_ctzll(free);      // lowest free bit in this word
-        uint32_t slot = w * 64 + bit;
+        uint32_t bit = (uint32_t)__builtin_ctzll(free);      // lowest free bit in this word
+        uint32_t slot = (w * 64) + bit;
         if (slot >= TCB_MAX_SLOTS) return -1;       // past the cap
-        p->tcb_slot_bitmap[w] |= (1ull << bit);
+        p->tcb_slot_bitmap[w] |= (1ULL << bit);
         return (int)slot;
     }
     return -1;
 }
 
-static inline void TcbSlotFree(ProcessObj *p, uint8_t slot)
+static inline void TcbSlotFree(ProcessObj *p, int slot)
 {
-    p->tcb_slot_bitmap[slot / 64] &= ~(1ull << (slot % 64));
+    p->tcb_slot_bitmap[slot / 64] &= ~(1ULL << (slot % 64));
 }
 
 /* Physical base of the frame backing this slot's TCB page. */
 static inline PhysAddr TcbSlotPhysAddr(ProcessObj *p, uint32_t slot)
 {
     return p->tcb_page_pa[slot / SLOTS_PER_PAGE]
-         + (slot % SLOTS_PER_PAGE) * TCB_SLOT_SIZE;
+         + ((slot % SLOTS_PER_PAGE) * TCB_SLOT_SIZE);
 }
 
 /* Kernel VA of this slot. */
 static inline VirtAddr TcbSlotKVirtAddr(ProcessObj *p, uint32_t slot)
 {
     return PA_TO_VA(p->tcb_page_pa[slot / SLOTS_PER_PAGE])
-         + (slot % SLOTS_PER_PAGE) * TCB_SLOT_SIZE;
+         + ((slot % SLOTS_PER_PAGE) * TCB_SLOT_SIZE);
 }
 
 /* User VA of this slot. */
 static inline VirtAddr TcbSlotUVirtAddr(ProcessObj *p, uint32_t slot)
 {
-    return p->tcb_page_va + (slot / SLOTS_PER_PAGE) * PAGE_SIZE
-         + (slot % SLOTS_PER_PAGE) * TCB_SLOT_SIZE;
+    return p->tcb_page_va + ((slot / SLOTS_PER_PAGE) * PAGE_SIZE)
+         + ((slot % SLOTS_PER_PAGE) * TCB_SLOT_SIZE);
 }
 
 void ProcessDestroy(ProcessObj *process);

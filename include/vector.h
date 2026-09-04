@@ -55,6 +55,16 @@ extern "C" {
         return &v->data[i];                                               \
     }                                                                     \
                                                                           \
+    /* Read-only counterpart for callers that only hold a const owner     \
+     * (e.g. a const AddressSpace *) -- avoids casting the const away     \
+     * just to call name##_vec_get. */                                    \
+    static __always_inline const type *name##_vec_get_const(const name##_vec_t *v, uint32_t i) \
+    {                                                                     \
+        if (unlikely(i >= v->cap))                                        \
+            return NULL;                                                  \
+        return &v->data[i];                                               \
+    }                                                                     \
+                                                                          \
     static inline int name##_vec_grow(name##_vec_t *v)                    \
     {                                                                     \
         uint32_t new_cap = v->cap * 2;                                    \

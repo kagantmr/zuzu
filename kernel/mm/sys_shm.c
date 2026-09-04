@@ -32,19 +32,19 @@ void SysShmCreate(CpuState *frame)
     const size_t size = align_up((size_t)(*arch_reg(frame, 0)), PAGE_SIZE);
     if (size == 0)
     {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        arch_reg_set(frame, 0, ERR_BADARG);
         return;
     }
     if (size > 1024 * 1024 * 32)
     {
-        (*arch_reg(frame, 0)) = ERR_OVERFLOW; // 32mb static cap
+        arch_reg_set(frame, 0, ERR_OVERFLOW); // 32mb static cap
         return;
     }
     const size_t page_count = size / PAGE_SIZE;
     PhysAddr *page_arr = kmalloc(sizeof(PhysAddr) * page_count);
     if (!page_arr)
     {
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
+        arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }
     memset(page_arr, 0, sizeof(PhysAddr) * page_count);
@@ -53,7 +53,7 @@ void SysShmCreate(CpuState *frame)
     if (!shmem_obj)
     {
         kfree(page_arr);
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
+        arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }
     shmem_obj->page_count = page_count;
@@ -68,7 +68,7 @@ void SysShmCreate(CpuState *frame)
     {
         kfree(page_arr);
         kfree(shmem_obj);
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
+        arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }
 
@@ -77,7 +77,7 @@ void SysShmCreate(CpuState *frame)
     {
         kfree(page_arr);
         kfree(shmem_obj);
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
+        arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }
 
@@ -86,5 +86,5 @@ void SysShmCreate(CpuState *frame)
     entry->type = HANDLE_SHM;
     entry->grantable = true;
 
-    (*arch_reg(frame, 0)) = (Handle)handle;
+    arch_reg_set(frame, 0, (Handle)handle);
 }
