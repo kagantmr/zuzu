@@ -3,35 +3,35 @@
 #include <string.h>
 #include <malloc.h>
 #include <elf.h>  // now a header-only or shared header
+#include <zuzu/zxf.h>
 #include <zuzu/memprot.h>
 #include <zuzu/user_layout.h>
 
-static int inject_segment(uint32_t taskHandle, const void *elf_data,
-                          size_t elf_size, Elf32_Phdr *ph)
+/* Shared by both the ELF and ZXF loaders below: injects one PT_LOAD-like
+ * segment (file-backed portion + demand-zero BSS tail) given format-neutral
+ * fields already pulled out of an Elf32_Phdr or a ZXFSegment. */
+static int inject_segment(uint32_t taskHandle, const void *data, size_t data_size,
+                          uint32_t vaddr, uint32_t file_offset, uint32_t file_size,
+                          uint32_t mem_size, uint32_t prot)
 {
-    if (ph->p_offset + ph->p_filesz > elf_size)
+    if (file_offset + file_size > data_size)
         return -1;
 
-    uint32_t prot = 0;
-    if (ph->p_flags & PF_R) prot |= PROT_READ;
-    if (ph->p_flags & PF_W) prot |= PROT_WRITE;
-    if (ph->p_flags & PF_X) prot |= PROT_EXEC;
-
     // inject file-backed portion
-    if (ph->p_filesz > 0) {
-        int32_t rc = ZuzuAsInject(taskHandle, ph->p_vaddr,
-                               (const uint8_t *)elf_data + ph->p_offset,
-                               ph->p_filesz, prot);
+    if (file_size > 0) {
+        int32_t rc = ZuzuAsInject(taskHandle, vaddr,
+                               (const uint8_t *)data + file_offset,
+                               file_size, prot);
         if (rc != 0) return rc;
     }
 
     // BSS: memsz > filesz means zero-filled pages beyond the file data,
     // with no file content behind them. asinject already zeroes the
-    // partial tail of the boundary page (the one holding p_filesz), so the
+    // partial tail of the boundary page (the one holding file_size), so the
     // rest just needs to be reserved as demand-zero anon memory - no bytes
     // to copy, so no need to materialize a zero buffer.
-    uint32_t file_end = ph->p_vaddr + ph->p_filesz;
-    uint32_t mem_end  = ph->p_vaddr + ph->p_memsz;
+    uint32_t file_end = vaddr + file_size;
+    uint32_t mem_end  = vaddr + mem_size;
     uint32_t bss_start = (file_end + 0xFFF) & ~0xFFF;  // next page boundary
 
     if (bss_start < mem_end) {
@@ -107,8 +107,8 @@ static int inject_stack(uint32_t taskHandle,
     return 0;
 }
 
-int exec_inject(uint32_t taskHandle, const void *elf_data, size_t elf_size,
-              const char *argbuf, size_t argbuf_len, uint32_t argc, ExecReply *out)
+static int exec_inject_elf(uint32_t taskHandle, const void *elf_data, size_t elf_size,
+                           uint32_t *out_entry)
 {
     uint32_t entry = elf_validate(elf_data, elf_size);
     if (!entry) return -1;
@@ -117,10 +117,10 @@ int exec_inject(uint32_t taskHandle, const void *elf_data, size_t elf_size,
 
     // check for overlapping segments
     for (int i = 0; i < phdr_count; i++) {
-        Elf32_Phdr *a = elf_phdr_get(elf_data, i);
+        const Elf32_Phdr *a = elf_phdr_get(elf_data, i);
         if (a->p_type != PT_LOAD) continue;
         for (int j = i + 1; j < phdr_count; j++) {
-            Elf32_Phdr *b = elf_phdr_get(elf_data, j);
+            const Elf32_Phdr *b = elf_phdr_get(elf_data, j);
             if (b->p_type != PT_LOAD) continue;
             uint32_t a_end = a->p_vaddr + a->p_memsz;
             uint32_t b_end = b->p_vaddr + b->p_memsz;
@@ -131,30 +131,78 @@ int exec_inject(uint32_t taskHandle, const void *elf_data, size_t elf_size,
 
     // inject each PT_LOAD segment
     for (int i = 0; i < phdr_count; i++) {
-        Elf32_Phdr *ph = elf_phdr_get(elf_data, i);
+        const Elf32_Phdr *ph = elf_phdr_get(elf_data, i);
         if (ph->p_type != PT_LOAD) continue;
-        int rc = inject_segment(taskHandle, elf_data, elf_size, ph);
+        uint32_t prot = 0;
+        if (ph->p_flags & PF_R) prot |= PROT_READ;
+        if (ph->p_flags & PF_W) prot |= PROT_WRITE;
+        if (ph->p_flags & PF_X) prot |= PROT_EXEC;
+        int rc = inject_segment(taskHandle, elf_data, elf_size,
+                                ph->p_vaddr, ph->p_offset, ph->p_filesz, ph->p_memsz, prot);
         if (rc != 0) return rc;
     }
+
+    *out_entry = entry;
+    return 0;
+}
+
+static int exec_inject_zxf(uint32_t taskHandle, const void *zxf_data, size_t zxf_size,
+                           uint32_t *out_entry)
+{
+    ZXFImage img;
+    if (!ZxfParse(zxf_data, zxf_size, &img)) return -1;
+
+    // check for overlapping segments
+    for (int i = 0; i < img.seg_count; i++) {
+        const ZXFSegment *a = &img.segs[i];
+        for (int j = i + 1; j < img.seg_count; j++) {
+            const ZXFSegment *b = &img.segs[j];
+            uint64_t a_end = a->vaddr + a->mem_size;
+            uint64_t b_end = b->vaddr + b->mem_size;
+            if (a->vaddr < b_end && b->vaddr < a_end)
+                return -1;
+        }
+    }
+
+    // inject each segment
+    for (int i = 0; i < img.seg_count; i++) {
+        const ZXFSegment *seg = &img.segs[i];
+        uint32_t prot = 0;
+        if (seg->flags & ZXF_R) prot |= PROT_READ;
+        if (seg->flags & ZXF_W) prot |= PROT_WRITE;
+        if (seg->flags & ZXF_X) prot |= PROT_EXEC;
+        int rc = inject_segment(taskHandle, zxf_data, zxf_size,
+                                (uint32_t)seg->vaddr, seg->file_offset, seg->file_size,
+                                seg->mem_size, prot);
+        if (rc != 0) return rc;
+    }
+
+    *out_entry = img.entry;
+    return 0;
+}
+
+int exec_inject(uint32_t taskHandle, const void *data, size_t size,
+              const char *argbuf, size_t argbuf_len, uint32_t argc, ExecReply *out)
+{
+    uint32_t entry;
+    int rc;
+
+    if (size >= 4 && memcmp(data, "\x7a" "ZXF", 4) == 0)
+        rc = exec_inject_zxf(taskHandle, data, size, &entry);
+    else
+        rc = exec_inject_elf(taskHandle, data, size, &entry);
+    if (rc != 0) return rc;
 
     // inject user stack with argv
     uintptr_t sp = USER_STACK_TOP;
     uintptr_t argv_va = 0;
-    int rc = inject_stack(taskHandle, argbuf, argbuf_len, argc, &sp, &argv_va);
+    rc = inject_stack(taskHandle, argbuf, argbuf_len, argc, &sp, &argv_va);
     if (rc != 0) return rc;
 
-    /*
-    KickstartArgs ks = {
-        .taskHandle = taskHandle,
-        .entry       = entry,
-        .sp          = sp,
-        .r0_val      = argc,
-        .r1_val      = (uint32_t)argv_va,
-    };*/
     out->entry = entry;
     out->sp = sp;
     out->argc = argc;
     out->argv_va = argv_va;
-    out->pid = 0; 
-    return rc;
+    out->pid = 0;
+    return 0;
 }
