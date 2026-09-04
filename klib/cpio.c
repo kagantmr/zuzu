@@ -10,9 +10,9 @@ static uint32_t parse_hex8(const char *s) {
         if (c >= '0' && c <= '9')
             val = (val << 4) | (c - '0');
         else if (c >= 'a' && c <= 'f')
-            val = (val << 4) | (c - 'a' + 10);
+            val = (val << 4) | (uint32_t)(c - 'a' + 10);
         else if (c >= 'A' && c <= 'F')
-            val = (val << 4) | (c - 'A' + 10);
+            val = (val << 4) | (uint32_t)(c - 'A' + 10);
     }
     return val;
 }

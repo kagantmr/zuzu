@@ -18,7 +18,7 @@ void SysKEventBind(CpuState *frame)
         return;
 
     KEventType event_type = *(arch_reg(frame, 0));
-    Handle h = *(arch_reg(frame, 1));
+    Handle h = (Handle)(*arch_reg(frame, 1));
 
     /**
      * The only KEvent we support as of now is KEVENT_MEMMGMT which is a memory pressure
@@ -30,14 +30,14 @@ void SysKEventBind(CpuState *frame)
 
     switch (event_type) {
     case KEVENT_MEMMGMT: {
-        HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, h);
+        HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)h);
 
         if (unlikely(!entry)) {
-            *(arch_reg(frame, 0)) = ERR_BADHANDLE;
+            arch_reg_set(frame, 0, ERR_BADHANDLE);
             return;
         }
         if (unlikely(entry->type != HANDLE_NTFN)) {
-            *(arch_reg(frame, 0)) = ERR_BADTYPE;
+            arch_reg_set(frame, 0, ERR_BADTYPE);
             return;
         }
 
@@ -46,15 +46,15 @@ void SysKEventBind(CpuState *frame)
         assert(ntfn);
 
         if (!ntfn->alive) {
-            *(arch_reg(frame, 0)) = ERR_DEAD;
+            arch_reg_set(frame, 0, ERR_DEAD);
             return;
         }
 
-        *(arch_reg(frame, 0)) = PmmSubscribe(ntfn);
+        arch_reg_set(frame, 0, PmmSubscribe(ntfn));
         return;
     };
     default:
-        *(arch_reg(frame, 0)) = ERR_BADARG;
+        arch_reg_set(frame, 0, ERR_BADARG);
         return;
     }
 }

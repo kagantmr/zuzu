@@ -12,8 +12,8 @@ static uint32_t current_generation = 1;
 static asid_t next_asid = 1;
 
 static inline bool asid_bit_test(int i) { return asid_bitmap[i / 8] & (1 << (i % 8)); }
-static inline void asid_bit_set(int i) { asid_bitmap[i / 8] |= (1 << (i % 8)); }
-static inline void asid_bit_clear(int i) { asid_bitmap[i / 8] &= ~(1 << (i % 8)); }
+static inline void asid_bit_set(int i) { asid_bitmap[i / 8] = (asid_t)(asid_bitmap[i / 8] | (1u << (i % 8))); }
+static inline void asid_bit_clear(int i) { asid_bitmap[i / 8] = (asid_t)(asid_bitmap[i / 8] & ~(1u << (i % 8))); }
 
 // Scan [lo, hi) for a free ASID; claim it and advance next_asid. Returns the
 // claimed ASID, or 0 if the range had none free.
@@ -24,7 +24,7 @@ static int asid_claim_in_range(int lo, int hi)
         if (!asid_bit_test(i))
         {
             asid_bit_set(i);
-            next_asid = i + 1;
+            next_asid = (asid_t)(i + 1);
             return i;
         }
     }

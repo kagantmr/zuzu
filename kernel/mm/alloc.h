@@ -11,7 +11,7 @@
 #define MIN_PAYLOAD ALIGNMENT
 
 // Helper for compile-time alignment
-#define ALIGN_UP_CONST(x, a) (((x) + (a) - 1) & ~((a) - 1))
+#define ALIGN_UP_CONST(x, a) (((x) + (a) - 1) & ~((a) - 1u))
 
 typedef struct mem_block {
     size_t size;           // Size of the block, excluding this header

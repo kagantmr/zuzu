@@ -54,7 +54,7 @@ int strcmp(const char *s1, const char *s2) {
 
 
 int strncmp(const char *s1, const char *s2, size_t n) {
-    signed char diff;
+    int diff;
     size_t compared = 0;
     while (*s1 && *s2 && compared < n) {
         diff = *s1++ - *s2++;
@@ -93,7 +93,7 @@ char *strncpy(char *dest, const char *src, size_t n) {
 char *strchr(const char *s, int c) {
     while (*s) {
         if (*s == (char)c) {
-            return (char *)s;
+            return (char *)(uintptr_t)s;
         }
         s++;
     }
@@ -109,7 +109,7 @@ char *strrchr(const char *s, int c) {
         }
     } while (*s++);
 
-    return (char *)last;
+    return (char *)(uintptr_t)last;
 }
 
 void strfmt(void (*outc)(void *ctx, char), void *ctx, const char *fstring, ...) {

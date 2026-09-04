@@ -215,6 +215,8 @@ static bool __hot try_demand_page(ProcessObj *current_process, uint32_t dfar, ui
     for (uint32_t i = 0; i < as->regions.len; i++)
     {
         VirtMemRegion *r = vm_region_vec_get(&as->regions, i);
+        if (!r)
+            continue;
         /* Not hinted: which region matches depends on where in the
          * regions list the faulting VA happens to fall, which varies by
          * workload -- no honest "usual" answer here. */
@@ -234,6 +236,11 @@ static bool __hot try_demand_page(ProcessObj *current_process, uint32_t dfar, ui
     }
     return false;
 }
+
+/* Called only from entry.S (bl exception_dispatch) -- no C caller, so no
+ * shared header, but it still needs external linkage and a prototype to
+ * satisfy -Wmissing-prototypes. */
+void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame);
 
 /* Every syscall and every fault funnels through here; EXC_SVC dominates
  * the traffic in any workload that isn't fault-heavy. */
@@ -488,7 +495,11 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
 
 /* Called from the exception_exit tripwire in entry.S when the frame about to
  * be RFE'd has return_pc == 0: the frame was corrupted after the C handlers
- * released it. Panic here, in kernel context, with the frame contents. */
+ * released it. Panic here, in kernel context, with the frame contents.
+ *
+ * Called only from entry.S -- no C caller, so no shared header, but still
+ * needs external linkage and a prototype for -Wmissing-prototypes. */
+_Noreturn void exception_exit_pc0_trap(CpuState *frame);
 _Noreturn void exception_exit_pc0_trap(CpuState *frame)
 {
     KERROR("exception_exit: frame at %p has return_pc=0 (cpsr=%p sp_usr=%p lr_usr=%p)",

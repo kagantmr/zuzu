@@ -15,7 +15,7 @@
 #include "kernel/mm/vmm.h"
 
 /* Architecture section/large-page size (used by ioremap slot math in the VMM). */
-#define SECTION_SIZE 0x100000
+#define SECTION_SIZE 0x100000u
 
 /**
  * @brief Allocate and initialize a top-level page table.

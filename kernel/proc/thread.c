@@ -30,7 +30,7 @@ static int thread_table_find_free_slot(void)
 	return -1;
 }
 
-Tid thread_register(Thread *thread)
+static Tid thread_register(Thread *thread)
 {
 	if (!thread)
 		return 0;
@@ -54,7 +54,7 @@ Tid thread_register(Thread *thread)
 	return thread->tid;
 }
 
-void thread_unregister(Thread *thread)
+static void thread_unregister(Thread *thread)
 {
 	if (!thread || thread->tid == 0)
 		return;

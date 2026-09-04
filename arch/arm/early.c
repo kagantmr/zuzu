@@ -55,7 +55,7 @@ static void pmu_init(void) {
     __asm__ volatile("mrc p15, 0, %0, c9, c12, 0" : "=r"(pmcr));
     pmcr |=  (1 << 0);   // E: enable all counters
     pmcr |=  (1 << 2);   // C: reset cycle counter to 0
-    pmcr &= ~(1 << 3);   // D: CLEAR divider — count every cycle, not every 64th
+    pmcr &= ~(1u << 3);   // D: CLEAR divider — count every cycle, not every 64th
     __asm__ volatile("mcr p15, 0, %0, c9, c12, 0" :: "r"(pmcr));
     __asm__ volatile("mcr p15, 0, %0, c9, c14, 0" :: "r"(0x00000001)); // PMUSERENR: user read
     __asm__ volatile("mcr p15, 0, %0, c9, c12, 1" :: "r"(0x80000000)); // PMCNTENSET: enable CCNT
@@ -72,12 +72,16 @@ static void vfp_init() {
         "vmsr fpexc, %0" ::"r"(1u << 30));
 }
 
-int rdcyc() {
+/* Debug helper, not called from C; kept for use from a debugger/disasm
+ * session. External linkage only, so it still needs a prototype. */
+int rdcyc(void);
+int rdcyc(void) {
     uint32_t value;
     __asm__ volatile("mrc p15, 0, %0, c9, c13, 0" : "=r"(value));
-    return value;
+    return (int)value;
 }
 
+_Noreturn void early(void *dtb_ptr);
 _Noreturn void early(void *dtb_ptr)
 {
     /* Console-before-everything: a no-op unless the board overrides it.

@@ -30,14 +30,6 @@ ListHead sleep_queue = LIST_HEAD_INIT(sleep_queue);
 static ListHead thread_destroy_queue = LIST_HEAD_INIT(thread_destroy_queue);
 Thread *current_thread;
 
-/* Diagnostic-only: lets low-level modules (e.g. PMM_TRACE) attribute an
- * allocation to a process without taking on a thread.h/process.h
- * dependency themselves. */
-uint32_t current_pid_or_zero(void)
-{
-	return (current_thread && current_thread->owner_process) ? current_thread->owner_process->pid : 0;
-}
-
 Thread *fpu_owner = NULL;
 
 volatile uint8_t do_resched = 0; // needs spinlock guard on SMP
@@ -129,6 +121,8 @@ void sched_reap_thread_destroys(void) {
 
     while (!list_empty(&thread_destroy_queue)) {
         ListNode *node = list_pop_front(&thread_destroy_queue);
+        if (!node)
+            break;
         Thread *t = container_of(node, Thread, destroy_node);
 
         if (t == current_thread) {
@@ -141,6 +135,8 @@ void sched_reap_thread_destroys(void) {
 
     while (!list_empty(&deferred)) {
         ListNode *node = list_pop_front(&deferred);
+        if (!node)
+            break;
         Thread *t = container_of(node, Thread, destroy_node);
         list_add_tail(&t->destroy_node, &thread_destroy_queue.node);
     }
@@ -199,13 +195,13 @@ static void sched_wake_sleepers(void) {
             t->ipc_state = IPC_NONE;
             t->blocked_port = NULL;
             t->wake_reason = WAKE_TIMEOUT;
-            (*arch_reg(t->trap_frame, 0)) = ERR_TIMEOUT;
+            arch_reg_set(t->trap_frame, 0, ERR_TIMEOUT);
             t->state = READY;
             sched_add(t);
         } else {
             t->wake_reason = WAKE_TIMEOUT;
             if (t->trap_frame)
-                (*arch_reg(t->trap_frame, 0)) = ERR_TIMEOUT;
+                arch_reg_set(t->trap_frame, 0, ERR_TIMEOUT);
             ThreadWaitanyClearWaits(t);
             ThreadWaitanyClearPortWaits(t);
             if (t->ntfn_wait_slot.node.prev && t->ntfn_wait_slot.node.next)

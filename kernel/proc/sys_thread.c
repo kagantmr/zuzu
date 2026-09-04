@@ -14,25 +14,25 @@ void SysTMake(CpuState *frame)
 	VirtAddr arg = (*arch_reg(frame, 2));
 
 	if (!validate_user_ptr(entry, 1)) {
-		(*arch_reg(frame, 0)) = ERR_BADPTR;
+		arch_reg_set(frame, 0, ERR_BADPTR);
 		return;
 	}
 	if (!validate_user_ptr(usr_sp, 4)) {
-		(*arch_reg(frame, 0)) = ERR_BADPTR;
+		arch_reg_set(frame, 0, ERR_BADPTR);
 		return;
 	}
 
 	ProcessObj *owner = current_thread->owner_process;
 	Thread *t = ThreadCreate(owner);
 	if (!t) {
-		(*arch_reg(frame, 0)) = ERR_NOMEM;
+		arch_reg_set(frame, 0, ERR_NOMEM);
 		return;
 	}
 
 	int slot_idx = TcbSlotAlloc(owner);
 	if (slot_idx < 0) {
 		ThreadDestroy(t);
-		(*arch_reg(frame, 0)) = ERR_NOMEM;
+		arch_reg_set(frame, 0, ERR_NOMEM);
 		return;
 	}
 
@@ -43,7 +43,7 @@ void SysTMake(CpuState *frame)
         if (!new_frame) {
             TcbSlotFree(owner, slot_idx);
             ThreadDestroy(t);
-            (*arch_reg(frame, 0)) = ERR_NOMEM;
+            arch_reg_set(frame, 0, ERR_NOMEM);
             return;
         }
         VirtAddr page_va = owner->tcb_page_va + tcb_page * PAGE_SIZE;
@@ -52,15 +52,15 @@ void SysTMake(CpuState *frame)
             PmmFreeFrame(new_frame);
             TcbSlotFree(owner, slot_idx);
             ThreadDestroy(t);
-            (*arch_reg(frame, 0)) = ERR_NOMEM;
+            arch_reg_set(frame, 0, ERR_NOMEM);
             return;
         }
         memset((void *)PA_TO_VA(new_frame), 0, PAGE_SIZE);
         owner->tcb_page_pa[tcb_page] = new_frame;
     }
 
-    ThreadData *slot = (ThreadData *)TcbSlotKVirtAddr(owner, slot_idx);
-	VirtAddr slot_va = TcbSlotUVirtAddr(owner, slot_idx);
+    ThreadData *slot = (ThreadData *)TcbSlotKVirtAddr(owner, (uint32_t)slot_idx);
+	VirtAddr slot_va = TcbSlotUVirtAddr(owner, (uint32_t)slot_idx);
 
 	slot->tid = t->tid;
 	slot->pid = owner->pid;
@@ -68,7 +68,7 @@ void SysTMake(CpuState *frame)
 
 	t->thread_info_va = slot_va;
 	t->tcb_slot = (uint8_t)slot_idx;
-	t->lmsg_buf_phys_addr = TcbSlotPhysAddr(owner, slot_idx) + offsetof(ThreadData, buf);
+	t->lmsg_buf_phys_addr = TcbSlotPhysAddr(owner, (uint32_t)slot_idx) + offsetof(ThreadData, buf);
 
 	// Build the initial kernel stack so the thread enters user mode at `entry`.
 	t->kernel_sp = (uint32_t *)arch_thread_user_init(
@@ -77,19 +77,19 @@ void SysTMake(CpuState *frame)
 	t->state = READY;
 	sched_add(t);
 
-	(*arch_reg(frame, 0)) = (Tid)t->tid;
+	arch_reg_set(frame, 0, (Tid)t->tid);
 }
 
 void SysTJoin(CpuState *frame)
 {
-	Tid tid = (*arch_reg(frame, 0));
+	Tid tid = (Tid)(*arch_reg(frame, 0));
 	Thread *thread = ThreadFindByTid(tid);
 	if (!thread) {
-		(*arch_reg(frame, 0)) = ERR_NOENT;
+		arch_reg_set(frame, 0, ERR_NOENT);
 		return;
 	}
 	if (thread->owner_process != current_thread->owner_process) {
-		(*arch_reg(frame, 0)) = ERR_NOPERM;
+		arch_reg_set(frame, 0, ERR_NOPERM);
 		return;
 	}
 
@@ -109,7 +109,7 @@ void SysTJoin(CpuState *frame)
 	/* Thread already a ZOMBIE: read the exit status (no destroy).
 	 * Ownership of destruction belongs to the thread that performed
 	 * the quit (tquit) and the scheduler reaper. */
-	(*arch_reg(frame, 0)) = thread->exit_status;
+	arch_reg_set(frame, 0, thread->exit_status);
 }
 
 void SysTQuit(CpuState *frame)
