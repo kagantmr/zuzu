@@ -22,4 +22,9 @@
 
 #include <arch_impl/regs.h>   /* arch_regs_t + accessors (CpuContext for arch use) */
 
+static __always_inline void arch_reg_set(CpuState *f, unsigned i, int value)
+{
+    *arch_reg(f, i) = (Register)value;
+} 
+
 #endif // ZUZU_ARCH_REGS_H
