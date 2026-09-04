@@ -154,7 +154,7 @@ void __attribute__((hot)) SyscallDispatch(Svc svc_num, CpuState *frame)
 {
     if (unlikely(!current_thread))
     {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        arch_reg_set(frame, 0, ERR_BADARG);
         return;
     }
     if (unlikely(!trap_frame_sane(frame)))
@@ -173,6 +173,6 @@ void __attribute__((hot)) SyscallDispatch(Svc svc_num, CpuState *frame)
     else
     {
         // KERROR("System call 0x%X does not exist", svc_num);
-        (*arch_reg(frame, 0)) = ERR_NOSYS;
+        arch_reg_set(frame, 0, ERR_NOSYS);
     }
 };

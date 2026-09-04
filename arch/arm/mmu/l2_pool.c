@@ -29,7 +29,7 @@ uintptr_t l2_pool_alloc(void)
         {
             if (!(entry->used_mask & (1 << slot)))
             {
-                entry->used_mask |= (1 << slot);
+                entry->used_mask = (uint8_t)(entry->used_mask | (1u << slot));
                 uintptr_t pa = entry->page_pa + (slot * L2_TABLE_SIZE);
                 memset((void *)PA_TO_VA(pa), 0, L2_TABLE_SIZE);
                 spin_unlock_irqrestore(&l2_pool_lock, flags);
@@ -76,7 +76,7 @@ void l2_pool_free(uintptr_t l2_pa)
     }
 
     uintptr_t page_pa = l2_pa & ~PAGE_OFFSET_MASK;
-    int slot = (l2_pa & PAGE_OFFSET_MASK) / L2_TABLE_SIZE;
+    int slot = (int)((l2_pa & PAGE_OFFSET_MASK) / L2_TABLE_SIZE);
 
     l2_pool_entry_t *prev = NULL;
     l2_pool_entry_t *entry = pool_head;
@@ -90,7 +90,7 @@ void l2_pool_free(uintptr_t l2_pa)
             continue;
         }
 
-        entry->used_mask &= ~(1 << slot);
+        entry->used_mask = (uint8_t)(entry->used_mask & ~(1u << slot));
 
         // If all 4 slots free, return page to PMM
         if (entry->used_mask == 0)

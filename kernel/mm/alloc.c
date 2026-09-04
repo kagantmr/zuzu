@@ -54,7 +54,7 @@ static slab_t *slab_grow(slab_cache_t *cache)
     return slab;
 }
 
-void slab_cache_create(slab_cache_t *cache, const char *name, size_t obj_size)
+static void slab_cache_create(slab_cache_t *cache, const char *name, size_t obj_size)
 {
     // enforce minimum: must fit a freelist pointer
     if (obj_size < sizeof(void *))
@@ -70,7 +70,7 @@ void slab_cache_create(slab_cache_t *cache, const char *name, size_t obj_size)
  * loop) -- hot biases the compiler/LTO toward keeping this warm and
  * favoring that path; it still has a loop and a cold slab_grow() call so
  * it's not an always_inline leaf. */
-void *__hot slab_alloc(slab_cache_t *cache)
+static void *__hot slab_alloc(slab_cache_t *cache)
 {
     // 1. find a slab with free space
     slab_t *slab = cache->slabs;
@@ -200,7 +200,7 @@ void* kmalloc(size_t size) {
             if (current_block->free && current_block->size >= req) {    // free block found?
                 size_t leftover = current_block->size - req;
                 if (leftover >= HDR + MIN_PAYLOAD + (ALIGNMENT - 1)) { // split?
-                    kmem_block_t* new_block = (kmem_block_t*) ((uint8_t*)current_block + HDR + req);
+                    kmem_block_t* new_block = (kmem_block_t*)(void*)((uint8_t*)current_block + HDR + req);
 
                     new_block->size = align_down(leftover - HDR, ALIGNMENT);
                     new_block->next = current_block->next;

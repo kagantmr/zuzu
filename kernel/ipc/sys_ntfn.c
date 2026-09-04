@@ -21,13 +21,13 @@ void SysNtfnCreate(CpuState *frame)
 {
     Handle handle = handle_vec_find_free(&current_thread->owner_process->handle_table);
     if (handle < 0) {
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
+        arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }
 
     NtfnObj *ntfn = kmalloc(sizeof(NtfnObj)); // or slab
     if (!ntfn) {
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
+        arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }
 
@@ -37,36 +37,41 @@ void SysNtfnCreate(CpuState *frame)
     ntfn->ref_count = 1;
     ntfn->alive = true;
 
-    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle);
+    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle);
+    if (!entry) {
+        kfree(ntfn);
+        arch_reg_set(frame, 0, ERR_NOMEM);
+        return;
+    }
     entry->type = HANDLE_NTFN;
     entry->ntfn = ntfn;
     entry->grantable = true;
-    (*arch_reg(frame, 0)) = handle;
+    arch_reg_set(frame, 0, handle);
 }
 
 void SysNtfnSignal(CpuState *frame)
 {
-    Handle handle_idx = (*arch_reg(frame, 0));
+    Handle handle_idx = (Handle)(*arch_reg(frame, 0));
     uint32_t bits = (*arch_reg(frame, 1));
 
-    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
+    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle_idx);
     if (!entry) {
-        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+        arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
     }
     if (entry->type != HANDLE_NTFN) {
-        (*arch_reg(frame, 0)) = ERR_BADTYPE;
+        arch_reg_set(frame, 0, ERR_BADTYPE);
         return;
     }
 
     NtfnObj *ntfn = entry->ntfn;
     if (!ntfn || !ntfn->alive) {
-        (*arch_reg(frame, 0)) = ERR_DEAD;
+        arch_reg_set(frame, 0, ERR_DEAD);
         return;
     }
     /* bit 31 reserved: bits ride in r0, negatives are errors */
     if (bits & (1u << 31)) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        arch_reg_set(frame, 0, ERR_BADARG);
         return;
     }
 
@@ -77,22 +82,22 @@ void SysNtfnSignal(CpuState *frame)
 
 void SysNtfnWait(CpuState *frame)
 {
-    Handle handle_idx = (*arch_reg(frame, 0));
+    Handle handle_idx = (Handle)(*arch_reg(frame, 0));
     uint32_t timeout_ms = (*arch_reg(frame, 1));
 
-    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
+    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle_idx);
     if (!entry) {
-        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+        arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
     }
     if (entry->type != HANDLE_NTFN) {
-        (*arch_reg(frame, 0)) = ERR_BADTYPE;
+        arch_reg_set(frame, 0, ERR_BADTYPE);
         return;
     }
 
     NtfnObj *ntfn = entry->ntfn;
     if (!ntfn || !ntfn->alive) {
-        (*arch_reg(frame, 0)) = ERR_DEAD;
+        arch_reg_set(frame, 0, ERR_DEAD);
         return;
     }
 
@@ -104,7 +109,7 @@ void SysNtfnWait(CpuState *frame)
     }
 
     if (timeout_ms == TIMEOUT_POLL) {
-        (*arch_reg(frame, 0)) = ERR_TIMEOUT;
+        arch_reg_set(frame, 0, ERR_TIMEOUT);
         return;
     }
 

@@ -2,7 +2,7 @@
 
 #include <arch/cache.h>
 
-#define CACHE_LINE 64
+#define CACHE_LINE 64u
 
 void arch_cache_clean_dcache_range(uintptr_t start, size_t size)
 {

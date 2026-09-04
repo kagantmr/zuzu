@@ -665,7 +665,7 @@ static VirtMemOwner mmu_region_owner_for_va(const AddressSpace *as, uintptr_t va
 
     for (uint32_t i = 0; i < as->regions.len; i++)
     {
-        const VirtMemRegion *r = vm_region_vec_get((vm_region_vec_t *)&as->regions, i);
+        const VirtMemRegion *r = vm_region_vec_get_const(&as->regions, i);
         if (!r)
             continue;
 

@@ -56,7 +56,7 @@ static inline int handle_vec_find_free(handle_vec_t *handles)
 {
     for (uint32_t i = 0; i < handles->cap; i++) {
         if (handles->data[i].type == HANDLE_FREE)
-            return i;
+            return (int)i;
     }
     uint32_t old_cap = handles->cap;
     if (handle_vec_grow(handles) < 0)

@@ -88,50 +88,50 @@ static inline bool valid_irq(Irq irq_num)
  */
 void SysIrqBind(CpuState *frame)
 {
-    Handle dev_handle = (*arch_reg(frame, 0));
-    Handle ntfn_handle = (*arch_reg(frame, 1));
+    Handle dev_handle = (Handle)(*arch_reg(frame, 0));
+    Handle ntfn_handle = (Handle)(*arch_reg(frame, 1));
 
     if (dev_handle == 0) {
-        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+        arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
     }
-    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, dev_handle);
+    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)dev_handle);
     if (!entry) {
-        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+        arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
     }
     if (entry->type != HANDLE_DEVICE) {
-        (*arch_reg(frame, 0)) = ERR_BADTYPE;
+        arch_reg_set(frame, 0, ERR_BADTYPE);
         return;
     }
 
     Irq irq_num = entry->dev->irq;
     if (!valid_irq(irq_num)) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        arch_reg_set(frame, 0, ERR_BADARG);
         return;
     }
 
     /* Ownership: free line is ours to claim; a line owned by someone else is busy. */
     Process *owner = irq_owners[irq_num].owner;
     if (owner && owner != current_thread->owner_process) {
-        (*arch_reg(frame, 0)) = ERR_BUSY;
+        arch_reg_set(frame, 0, ERR_BUSY);
         return;
     }
 
     /* Validate the notification before mutating any state so a bad ntfn handle
      * does not leave the line claimed-but-unbound. */
     HandleEntry *ntfn_entry =
-        handle_vec_get(&current_thread->owner_process->handle_table, ntfn_handle);
+        handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)ntfn_handle);
     if (!ntfn_entry || !ntfn_entry->ntfn) {
-        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+        arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
     }
     if (ntfn_entry->type != HANDLE_NTFN) {
-        (*arch_reg(frame, 0)) = ERR_BADTYPE;
+        arch_reg_set(frame, 0, ERR_BADTYPE);
         return;
     }
     if (!ntfn_entry->ntfn->alive) {
-        (*arch_reg(frame, 0)) = ERR_DEAD;
+        arch_reg_set(frame, 0, ERR_DEAD);
         return;
     }
 
@@ -198,27 +198,27 @@ void SysIrqBind(CpuState *frame)
 
 void SysIrqDone(CpuState *frame)
 {
-    Handle dev_handle = (*arch_reg(frame, 0));
+    Handle dev_handle = (Handle)(*arch_reg(frame, 0));
 
     if (dev_handle == 0) {
-        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+        arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
     }
-    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, dev_handle);
+    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)dev_handle);
     if (!entry) {
-        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+        arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
     }
     if (entry->type != HANDLE_DEVICE) {
-        (*arch_reg(frame, 0)) = ERR_BADTYPE;
+        arch_reg_set(frame, 0, ERR_BADTYPE);
         return;
     }
     if (!entry->dev) {
-        (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+        arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
     }
     if (!valid_irq(entry->dev->irq)) {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        arch_reg_set(frame, 0, ERR_BADARG);
         return;
     }
     if (irq_owners[entry->dev->irq].owner == current_thread->owner_process) {
@@ -226,7 +226,7 @@ void SysIrqDone(CpuState *frame)
         (*arch_reg(frame, 0)) = 0;
         return;
     } else {
-        (*arch_reg(frame, 0)) = ERR_NOPERM;
+        arch_reg_set(frame, 0, ERR_NOPERM);
         return;
     }
 }
@@ -243,8 +243,8 @@ void IrqReleaseAll(Process *owner)
                     kfree(ntfn);
                 irq_owners[i].bound_ntfn = NULL;
             }
-            arch_irq_disable_line(i);
-            arch_irq_unregister(i);
+            arch_irq_disable_line((uint32_t)i);
+            arch_irq_unregister((uint32_t)i);
             memset(&irq_owners[i], 0, sizeof(IrqOwner));
         }
     }

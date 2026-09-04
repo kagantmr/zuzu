@@ -15,26 +15,26 @@
 extern Thread *current_thread;
 
 void SysDevQuery(CpuState *frame) {
-    Handle handle_idx = (*arch_reg(frame, 0));
+    Handle handle_idx = (Handle)(*arch_reg(frame, 0));
     char *out_buf = (char *)(*arch_reg(frame, 1));
     size_t buf_len = (*arch_reg(frame, 2));
     char compat_buf[sizeof(((DeviceCap *)0)->compatible) + 1];
 
     if (handle_idx == 0 || buf_len == 0) {
-        (*arch_reg(frame, 0)) = ERR_BADARG; return;
+        arch_reg_set(frame, 0, ERR_BADARG); return;
     }
 
-    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
+    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle_idx);
     if (!entry) {
-        (*arch_reg(frame, 0)) = ERR_BADHANDLE; return;
+        arch_reg_set(frame, 0, ERR_BADHANDLE); return;
     }
     if (entry->type != HANDLE_DEVICE) {
-        (*arch_reg(frame, 0)) = ERR_BADTYPE; return;
+        arch_reg_set(frame, 0, ERR_BADTYPE); return;
     }
 
     DeviceCap *cap = entry->dev;
     if (!cap) {
-        (*arch_reg(frame, 0)) = ERR_BADHANDLE; return;
+        arch_reg_set(frame, 0, ERR_BADHANDLE); return;
     }
 
     strncpy(compat_buf, cap->compatible, sizeof(compat_buf) - 1);
@@ -47,7 +47,7 @@ void SysDevQuery(CpuState *frame) {
     }
 
     if (!CopyToUser(out_buf, compat_buf, copy_len)) {
-        (*arch_reg(frame, 0)) = ERR_BADPTR;
+        arch_reg_set(frame, 0, ERR_BADPTR);
         return;
     }
 
