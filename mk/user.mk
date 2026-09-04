@@ -206,3 +206,16 @@ $(foreach p,$(LIB_PROGS),$(eval $(call LINK_USER_LIB,$(p))))
 build/user/%.stripped.elf: build/user/%.elf
 	@echo "  STRIP   $@"
 	@$(USER_OBJCOPY) --strip-debug $< $@
+
+# ---- ZXF conversion ----------------------------------------------------------
+# All initrd programs (BOOT_ROLES: services, drivers, shell) ship as ZXF —
+# the kernel loads sysd/devmgr directly via KernelProcessLoad, and sysd's own
+# loader (user/services/sysd/exec.c) dispatches on magic, so both understand
+# it. SD-card programs (DISK_ROLES/NEWLIB_ROLES) stay plain ELF.
+ZXF_PROGS = $(BOOT_PROGS)
+ZXF_PROG_FILES = $(ZXF_PROGS:%=build/user/%.zxf)
+
+build/user/%.zxf: build/user/%.stripped.elf scripts/elf2zxf.py
+	$(call check-tool,python3,install Python 3.)
+	@echo "  ZXF     $@"
+	@python3 scripts/elf2zxf.py $< -o $@ > /dev/null
