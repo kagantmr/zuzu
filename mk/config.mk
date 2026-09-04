@@ -16,25 +16,22 @@ DEBUG_BUILD             ?= 1
 # called only from early.c) can get fully inlined and lose its standalone
 # symbol even at -O0, making it unbreakpointable. Set LTO=0 for a debug
 # build if a function you want to break on has vanished from the disasm.
-LTO                     ?= 1
+LTO                     ?= 0
 DTB_DEBUG_WALK          ?= 0
 EARLY_UART              ?= 0
 TIME_MEASURE            ?= 0
 PMM_TRACE               ?= 0
+UBSAN                   ?= 0
+# Set by `make analyze` (as ANALYZE=1) to swap -Werror for -fanalyzer; never
+# set this directly. Needs an explicit default like every other knob here --
+# left unset, kernel.mk's `ifneq ($(ANALYZE), 0)` would read empty != 0 as
+# true and silently run every build in analyzer mode.
+ANALYZE                 ?= 0
 # PMCCNTR-based min/avg/max instrumentation at fixed measurement points
 # (see kernel/bench.h). Off by default: compiled out entirely, zero
 # footprint in production builds.
 ZUZU_BENCH              ?= 0
 
-# ZUZU_BENCH/TIME_MEASURE change generated code on hot paths (inline
-# PMCCNTR reads + isb barriers, ~275 cycles/IPC round-trip for ZUZU_BENCH
-# alone) and must never leak into a build via inherited shell state -- a
-# stale `export ZUZU_BENCH=1` from an earlier debugging session would
-# otherwise ride along silently on an ordinary `make`, contaminating any
-# measurement that touches an instrumented path, not just the bench
-# targets themselves. Only a deliberate, explicit `make ZUZU_BENCH=1` on
-# the command line may enable either flag; an inherited/exported value is
-# a loud, immediate build error instead.
 $(foreach v,ZUZU_BENCH TIME_MEASURE,\
   $(if $(filter environment%,$(origin $(v))),\
     $(error $(v) is set in your environment ($($(v))) -- this flag must be \
