@@ -110,18 +110,18 @@ static const char *cpsr_mode_name(uint32_t cpsr)
     case 0x11u: return "FIQ";
     case 0x12u: return "IRQ";
     case 0x13u: return "SVC";
+    case 0x1Fu: return "SYS";
     case 0x16u: return "MON";
     case 0x17u: return "ABT";
     case 0x1Au: return "HYP";
     case 0x1Bu: return "UND";
-    case 0x1Fu: return "SYS";
     default:    return "???";
     }
 }
 
 static void cpsr_decode(char *buf, int bufsz, uint32_t cpsr)
 {
-    snprintf(buf, (size_t)bufsz,
+    (void)snprintf(buf, (size_t)bufsz,
              "[%s %s irq=%s fiq=%s %c%c%c%c]",
              cpsr_mode_name(cpsr),
              (cpsr & (1u << 5))  ? "Thumb" : "ARM",
@@ -666,7 +666,7 @@ static void panic_print_sched(void)
         list_for_each(node, &sleep_queue.node)
             sleep_count++;
 
-        snprintf(line, sizeof(line), "sleeping (%d):", sleep_count);
+        (void)snprintf(line, sizeof(line), "sleeping (%d):", sleep_count);
         panic_line(line);
 
         if (sleep_count == 0) {
@@ -675,14 +675,14 @@ static void panic_print_sched(void)
             int shown = 0;
             list_for_each(node, &sleep_queue.node) {
                 if (shown >= PANIC_SLEEP_MAX) {
-                    snprintf(line, sizeof(line), "  ... +%d more",
+                    (void)snprintf(line, sizeof(line), "  ... +%d more",
                              sleep_count - shown);
                     panic_line(line);
                     break;
                 }
                 Thread *t = container_of(node, Thread, timeout_node);
                 ProcessObj *p = t->owner_process;
-                snprintf(line, sizeof(line),
+                (void)snprintf(line, sizeof(line),
                          "  tid=%-4u  pid=%-4u  %-16s  wake_tick=%llu",
                          t->tid, p ? p->pid : 0,
                          p ? p->name : "(none)",
@@ -882,6 +882,8 @@ bool entered_panic = false;
 _Noreturn void __attribute__((cold)) panic(const char *fmt, ...)
 {
 
+    void *caller_ra;
+
     arch_global_irq_disable();
 
     if (entered_panic)
@@ -892,7 +894,7 @@ _Noreturn void __attribute__((cold)) panic(const char *fmt, ...)
     /* Static: panic is terminal and runs with IRQs off, so no reentrancy */
     static char reason[LINE_BUF];
 
-    void *caller_ra = __builtin_return_address(0);
+    caller_ra = __builtin_return_address(0);
 
 
     if (fmt) {
