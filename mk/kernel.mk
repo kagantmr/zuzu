@@ -3,7 +3,14 @@
 # Requires: config.mk (CPUFLAGS/INCLUDES/LTO_FLAG/dirs), toolchain.mk (CC/LD).
 
 CFLAGS   = -ffreestanding -O$(OPTIMIZATION_LEVEL) $(LTO_FLAG) -fno-omit-frame-pointer \
-           -Wall -Wextra -Werror $(CPUFLAGS) $(INCLUDES) -Ivendor/libfdt -Ivendor/lz4 -MMD -MP \
+           -Wall -Wextra -Werror \
+           -Wshadow -Wconversion -Wsign-conversion -Wcast-align -Wcast-qual \
+           -Wstrict-prototypes -Wmissing-prototypes -Wformat=2 -Wundef \
+           -Wvla -Walloca -Wframe-larger-than=512 \
+           -Wnull-dereference -Wduplicated-cond -Wduplicated-branches -Wlogical-op \
+           -fno-common \
+           -ftrivial-auto-var-init=zero -fzero-call-used-regs=all -fstack-clash-protection \
+           $(CPUFLAGS) $(INCLUDES) -Ivendor/libfdt -Ivendor/lz4 -MMD -MP \
            -D__ZUZU__ -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"' -DLOG_LEVEL=$(LOG_LEVEL)
 LDFLAGS  = -nostdlib -Wl,-T,$(LINKER_SCRIPT) -Wl,-Map=$(MAP) $(LTO_FLAG)
 
@@ -30,6 +37,22 @@ ifneq ($(PMM_TRACE), 0)
 endif
 ifneq ($(ZUZU_BENCH), 0)
     CFLAGS += -DZUZU_BENCH
+endif
+ifneq ($(UBSAN), 0)
+    CFLAGS += -fsanitize=undefined -DUBSAN
+endif
+# Set only by the `analyze` target below (as ANALYZE=1 on the sub-make
+# command line, never meant to be set directly): swaps -Werror for
+# -fanalyzer so a bug the analyzer flags is reported, not fatal. This has
+# to happen in-Makefile rather than by handing the sub-make a fully
+# pre-rendered CFLAGS string, because CFLAGS already carries
+# -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"' -- nested quotes that don't
+# survive being embedded in a second shell string (`CFLAGS="$(CFLAGS)"`
+# on a recipe line): the inner quotes get eaten by the outer ones, and
+# `#include BOARD_LAYOUT_H` silently resolves wrong. A one-word command-line
+# flag has no quoting to lose.
+ifneq ($(ANALYZE), 0)
+    CFLAGS := $(filter-out -Werror,$(CFLAGS)) -fanalyzer
 endif
 
 KERNEL_LIBGCC = $(shell $(CC) $(CPUFLAGS) -print-libgcc-file-name)
@@ -71,6 +94,33 @@ CSRCS     += $(LZ4_SRCS)
 build/vendor/lz4/lz4.o: CFLAGS += -DLZ4_FREESTANDING=1 -DLZ4_FORCE_MEMORY_ACCESS=0 \
     -DLZ4_memcpy=memcpy -DLZ4_memmove=memmove -DLZ4_memset=memset \
     -include string.h
+# lz4.c is vendored third-party source like libfdt above: same
+# type/const-correctness-is-upstream's-problem rationale, same filter.
+# LZ4's compression tables (hash chains, match tables) are multi-KB stack
+# buffers by algorithm design -- upstream's tradeoff, not a stack-usage bug
+# to fix here. Same "not ours to fix" rationale as the other filters above.
+build/vendor/lz4/lz4.o: CFLAGS := $(filter-out -Wconversion -Wsign-conversion -Wcast-qual -Wcast-align -Wmissing-prototypes -Wframe-larger-than=512,$(CFLAGS))
+
+# libfdt is vendored third-party source (see vendor/libfdt/): its
+# type/const-correctness is upstream's concern, not zuzu's. Filter the
+# noisiest correctness warnings back out for this directory only so an
+# upstream refresh stays a re-download, not a warning-fixing merge. Same
+# per-object override pattern as vendor/lz4/lz4.o above, widened to the
+# directory with a pattern-stem target. -Wcast-align is included alongside
+# the -Wconversion/-Wsign-conversion/-Wcast-qual set the task named
+# explicitly: libfdt's device-tree walkers cast byte offsets into struct
+# pointers throughout, tripping the same "not ours to fix" warning.
+build/vendor/libfdt/%.o: CFLAGS := $(filter-out -Wconversion -Wsign-conversion -Wcast-qual -Wcast-align,$(CFLAGS))
+
+# libfdt.h itself is a vendored header, and its inline helpers (byte-store
+# accessors, string-length-to-int narrowing, etc.) trip the same warnings
+# when the two zuzu TUs that use libfdt directly (rather than compiling
+# vendor/libfdt/*.c) pull it in. Same rationale and filter as above, just
+# addressed at the including object instead of the vendor directory, since
+# per-object CFLAGS overrides key off the object being compiled, not the
+# headers it happens to include.
+build/kernel/boot_info.o: CFLAGS := $(filter-out -Wconversion -Wsign-conversion -Wcast-qual -Wcast-align,$(CFLAGS))
+build/kernel/dev/fdt_wrappers.o: CFLAGS := $(filter-out -Wconversion -Wsign-conversion -Wcast-qual -Wcast-align,$(CFLAGS))
 ASRCS_ALL := $(shell find $(NONARCH_DIRS) -name '*.S') \
              $(shell find $(ARCH_DIR) -name '*.S' $(ARCH_PRUNE_BOARDS)) \
              $(shell find $(BOARD_DIR) -name '*.S')
@@ -108,6 +158,21 @@ $(TARGET): $(OBJS) $(LINKER_SCRIPT)
 		echo "  STRIP   $@"; \
 		$(OBJCOPY) --strip-debug $@ $@; \
 	fi
+
+# ---- static analysis ------------------------------------------------------
+# `make analyze` rebuilds the kernel from scratch with GCC's -fanalyzer
+# symbolic-execution pass and captures the full output in build/analyzer.log.
+# -Werror is filtered out so analyzer diagnostics (which are noisier and
+# more speculative than the normal warning set) never fail the build; this
+# target is a report generator, not a gate. Kept separate from the real
+# build because -fanalyzer roughly triples compile time. See the ANALYZE
+# knob above CFLAGS for why this passes ANALYZE=1 rather than a rendered
+# CFLAGS string.
+.PHONY: analyze
+analyze:
+	@$(MAKE) clean
+	@mkdir -p build
+	@$(MAKE) ANALYZE=1 kernel 2>&1 | tee build/analyzer.log
 
 .PHONY: kernel dump
 kernel: $(TARGET)
