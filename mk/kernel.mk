@@ -9,7 +9,6 @@ CFLAGS   = -ffreestanding -O$(OPTIMIZATION_LEVEL) $(LTO_FLAG) -fno-omit-frame-po
            -Wvla -Walloca -Wframe-larger-than=512 \
            -Wnull-dereference -Wduplicated-cond -Wduplicated-branches -Wlogical-op \
            -fno-common \
-           -ftrivial-auto-var-init=zero -fzero-call-used-regs=all -fstack-clash-protection \
            $(CPUFLAGS) $(INCLUDES) -Ivendor/libfdt -Ivendor/lz4 -MMD -MP \
            -D__ZUZU__ -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"' -DLOG_LEVEL=$(LOG_LEVEL)
 LDFLAGS  = -nostdlib -Wl,-T,$(LINKER_SCRIPT) -Wl,-Map=$(MAP) $(LTO_FLAG)
@@ -75,7 +74,6 @@ LIBFDT_SRCS = \
 	vendor/libfdt/fdt_wip.c \
 	vendor/libfdt/fdt_strerror.c
 
-LZ4_SRCS = vendor/lz4/lz4.c
 
 # := (not =): these run `find` once at parse time. With recursive (=)
 # expansion each reference below would re-run `find` on disk.
@@ -83,23 +81,6 @@ CSRCS     := $(shell find $(NONARCH_DIRS) -name '*.c')
 CSRCS     += $(shell find $(ARCH_DIR) -name '*.c' $(ARCH_PRUNE_BOARDS))
 CSRCS     += $(shell find $(BOARD_DIR) -name '*.c')
 CSRCS     += $(LIBFDT_SRCS)
-CSRCS     += $(LZ4_SRCS)
-
-# Per-object flags for vendored files that need config zuzu supplies at
-# compile time rather than by patching the vendored source (keeps a
-# future upstream refresh a re-download, not a merge -- see
-# vendor/lz4/VENDOR.md). Isolated to this one object; must never leak into
-# the rest of the kernel. The next vendored file that needs its own flags
-# gets its own target-specific line here, same pattern.
-build/vendor/lz4/lz4.o: CFLAGS += -DLZ4_FREESTANDING=1 -DLZ4_FORCE_MEMORY_ACCESS=0 \
-    -DLZ4_memcpy=memcpy -DLZ4_memmove=memmove -DLZ4_memset=memset \
-    -include string.h
-# lz4.c is vendored third-party source like libfdt above: same
-# type/const-correctness-is-upstream's-problem rationale, same filter.
-# LZ4's compression tables (hash chains, match tables) are multi-KB stack
-# buffers by algorithm design -- upstream's tradeoff, not a stack-usage bug
-# to fix here. Same "not ours to fix" rationale as the other filters above.
-build/vendor/lz4/lz4.o: CFLAGS := $(filter-out -Wconversion -Wsign-conversion -Wcast-qual -Wcast-align -Wmissing-prototypes -Wframe-larger-than=512,$(CFLAGS))
 
 # libfdt is vendored third-party source (see vendor/libfdt/): its
 # type/const-correctness is upstream's concern, not zuzu's. Filter the

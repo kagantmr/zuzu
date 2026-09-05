@@ -151,6 +151,7 @@ Thread *ThreadCreate(ProcessObj *owner_process)
 	thread->priority = SCHED_PRIO_DEFAULT;
 	thread->time_slice = 5;
 	thread->ticks_remaining = thread->time_slice;
+	thread->slice_deadline = 0;
 	thread->thread_info_va = 0;
 	thread->tcb_slot = TCB_SLOT_NONE;
 

@@ -1,12 +1,12 @@
 #include "syspage.h"
-#include <zuzu/syspage.h>
-#include "kernel/mm/pmm.h"
-#include <string.h>
-#include <stdio.h>
-#include "kernel/time/tick.h"
-#include "kernel/mm/vmm.h"
-#include "core/version.h"
 #include "boot_info.h"
+#include "core/version.h"
+#include "kernel/mm/pmm.h"
+#include "kernel/mm/vmm.h"
+#include "kernel/time/tick.h"
+#include <stdio.h>
+#include <string.h>
+#include <zuzu/syspage.h>
 
 Syspage *g_sp;
 static PhysAddr g_syspage_pa;
@@ -14,7 +14,9 @@ extern uint32_t rtc_epoch;
 
 static void dev_cb(const char *compatible, uint64_t phys, uint64_t size, uint32_t irq)
 {
-    (void)phys; (void)size; (void)irq;
+    (void)phys;
+    (void)size;
+    (void)irq;
     if (g_sp->dev_count >= SYSPAGE_MAX_DEVICES)
         return;
 
@@ -32,7 +34,8 @@ static void dev_cb(const char *compatible, uint64_t phys, uint64_t size, uint32_
     /* build the display name */
     char name[SYSPAGE_DEV_NAME_LEN];
     int i = 0;
-    while (src[i] && i < SYSPAGE_DEV_NAME_LEN - 1) {
+    while (src[i] && i < SYSPAGE_DEV_NAME_LEN - 1)
+    {
         name[i] = (src[i] >= 'a' && src[i] <= 'z') ? src[i] - 32 : src[i];
         i++;
     }
@@ -59,11 +62,11 @@ void SyspageInit(void)
 
     snprintf(g_sp->build, sizeof(g_sp->build), "%s %s", __DATE__, __TIME__);
 
-    strncpy(g_sp->machine, boot_info_model(),      sizeof(g_sp->machine) - 1);
-    strncpy(g_sp->cpu,     boot_info_cpu_compat(), sizeof(g_sp->cpu)     - 1);
+    strncpy(g_sp->machine, boot_info_model(), sizeof(g_sp->machine) - 1);
+    strncpy(g_sp->cpu, boot_info_cpu_compat(), sizeof(g_sp->cpu) - 1);
 
     g_sp->mem_total_kb = (uint32_t)((PmmGetStats().total_frames * (uint64_t)PAGE_SIZE) / 1024);
-    g_sp->tick_hz = get_tick_rate();
+    g_sp->tick_hz = GetTickRate();
     g_sp->boot_time_s = rtc_epoch;
 
     boot_info_foreach_dev(dev_cb);
@@ -72,10 +75,7 @@ void SyspageInit(void)
 
     // g_sp->mem_free_kb = (uint32_t)((pmmState.free_pages  * (uint64_t)PAGE_SIZE) / 1024);
 }
-PhysAddr SyspagePhysAddr(void)
-{
-    return g_syspage_pa;
-}
+PhysAddr SyspagePhysAddr(void) { return g_syspage_pa; }
 void SyspageUpdateMem(void)
 {
     if (!g_sp)
@@ -87,7 +87,7 @@ void SyspageUpdateUptime(void)
 {
     if (!g_sp)
         return;
-    g_sp->uptime_ticks = get_ticks();
+    g_sp->uptime_ticks = GetTicks();
 }
 
 void SyspageSetInitrdSz(uint32_t size)

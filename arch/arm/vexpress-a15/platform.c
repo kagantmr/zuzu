@@ -27,25 +27,19 @@
 #define LOG_FMT(fmt) "(board) " fmt
 #include "core/log.h"
 
+
 uint32_t rtc_epoch;
 
-// Early console: poke the PL011 through the bootstrap peripheral section at
-// its identity VA (see early_paging_init's PERIPH_PA_BASE/PERIPH_MB in
-// _start.S). Those L1 entries survive the RAM identity unmap (which only
-// clears RAM sections) and are copied into the kernel L1 by
-// vmm_bootstrap, so this works from the top of early() until the ioremapped
-// driver takes over below. QEMU's vexpress-a15 model values, not real
-// hardware — this board has none (see README's Supported Targets).
-#define EARLY_UART      ((volatile uint32_t *)0x1C090000u)
+#define EARLY_UART_MMIO      ((volatile uint32_t *)0x1C090000u)
 #define EARLY_UART_FR   (0x18u / 4u)
 #define EARLY_UART_TXFF (1u << 5)
 
 void arch_early_putc(char c) {
     if (c == '\n')
         arch_early_putc('\r');
-    while (EARLY_UART[EARLY_UART_FR] & EARLY_UART_TXFF)
+    while (EARLY_UART_MMIO[EARLY_UART_FR] & EARLY_UART_TXFF)
         ;
-    EARLY_UART[0] = (uint32_t)(uint8_t)c;
+    EARLY_UART_MMIO[0] = (uint32_t)(uint8_t)c;
 }
 
 // Find the first DTB device whose compatible string matches any entry in the
@@ -116,5 +110,5 @@ void arch_platform_init_devices(void) {
     }
 
     KDEBUG("Using ARM generic timer as tick source");
-    arch_timer_init();
+    ArchTimerInit();
 }
