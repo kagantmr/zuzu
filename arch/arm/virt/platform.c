@@ -30,13 +30,6 @@
 
 uint32_t rtc_epoch;
 
-// Early console: poke the PL011 through the bootstrap peripheral section at
-// its identity VA (see early_paging_init's PERIPH_PA_BASE/PERIPH_MB in
-// _start.S). Those L1 entries survive the RAM identity unmap (which only
-// clears RAM sections) and are copied into the kernel L1 by
-// vmm_bootstrap, so this works from the top of early() until the ioremapped
-// driver takes over below. QEMU's virt model values — this board is
-// QEMU-only, no real hardware.
 #define EARLY_UART      ((volatile uint32_t *)0x09000000u)
 #define EARLY_UART_FR   (0x18u / 4u)
 #define EARLY_UART_TXFF (1u << 5)
@@ -117,5 +110,5 @@ void arch_platform_init_devices(void) {
     }
 
     KDEBUG("Using ARM generic timer as tick source");
-    arch_timer_init();
+    ArchTimerInit();
 }

@@ -2,8 +2,8 @@
 #define KERNEL_SCHED_SCHED_H
 
 #include "kernel/proc/process.h"
-#include <stddef.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 #define SCHED_PRIORITY_LEVELS 8
 #define SCHED_PRIO_DEFAULT 1
@@ -33,7 +33,7 @@ size_t sched_ready_queue_snapshot(Thread **out, size_t max_out);
 // straight to a specific thread instead of going through sched_add()+
 // schedule(). See kernel/sched/sched.c for the state-ownership contract on
 // switch_to_thread and the priority argument for sched_has_ready_at_or_above.
-bool sched_has_ready_at_or_above(const Thread *t);
+bool SchedAnyCpuTakers(const Thread *t);
 void switch_to_thread(Thread *next);
 
 extern volatile uint8_t do_resched;

@@ -6,6 +6,14 @@
 #ifndef ZUZU_ARCH_TIMER_H
 #define ZUZU_ARCH_TIMER_H
 
-void arch_timer_init(void);
+#include <stdint.h>
+#include <zuzu/types.h>
+
+void ArchTimerInit(void);
+
+Time ArchTimerNow(void);
+uint32_t ArchTimerFreq(void);
+void ArchTimerSetDeadline(Time abs_count);
+void ArchTimerDisable(void);
 
 #endif // ZUZU_ARCH_TIMER_H

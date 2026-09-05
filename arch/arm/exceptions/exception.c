@@ -15,6 +15,7 @@
 #include "kernel/mm/pmm.h"
 #include "kernel/syscall/syscall.h"
 #include "kernel/bench.h"
+#include "zuzu/log.h"
 #include <string.h>
 #include <stdint.h>
 #include <snprintf.h>
@@ -429,7 +430,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
                 return;
             }
 
-            KDEBUG("Oops! Bad user pointer in SVC from '%s' (PID %d, TID %d) @ 0x%08X (%s %s)\n",
+            KERROR("Oops! Bad user pointer in SVC from '%s' (PID %d, TID %d) @ 0x%08X (%s %s)\n",
                    current_process->name, current_process->pid, current_thread->tid, dfar,
                    (dfsr & (1 << 11)) ? "write" : "read",
                    decode_fault_status(dfsr));

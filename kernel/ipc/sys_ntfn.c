@@ -15,8 +15,6 @@
 #define LOG_FMT(fmt) "(sys_ntfn) " fmt
 #include "core/log.h"
 
-extern Thread *current_thread;
-
 void SysNtfnCreate(CpuState *frame)
 {
     Handle handle = handle_vec_find_free(&current_thread->owner_process->handle_table);
@@ -134,7 +132,7 @@ void SysNtfnWait(CpuState *frame)
         Tick ticks = ((uint64_t)timeout_ms * (uint64_t)TICK_HZ) / 1000u;
         if (ticks == 0)
             ticks = 1;
-        current_thread->wake_tick = get_ticks() + ticks;
+        current_thread->wake_tick = GetTicks() + ticks;
         sleep_queue_insert(current_thread);
     } else {
         current_thread->wake_tick = 0;

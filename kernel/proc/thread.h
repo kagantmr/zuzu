@@ -82,6 +82,10 @@ struct thread {
 	uint32_t waitany_port_wait_match_index;
 	WaitanyResult waitany_pending_result;
 	uint32_t priority, time_slice, ticks_remaining;
+	/* Absolute counter value (ArchTimerNow() units) at which this thread's
+	 * slice expires. Set on dispatch; compared against, never decremented,
+	 * so slice expiry no longer depends on a periodic tick arriving. */
+	uint64_t slice_deadline;
 	Process *owner_process; // backpointer to owning process
 	VirtAddr thread_info_va;
 	uint8_t tcb_slot;   // index into owner's TCB page, TCB_SLOT_NONE if unassigned

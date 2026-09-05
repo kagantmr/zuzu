@@ -1,20 +1,20 @@
 #include "kernel/kmain.h"
 
-#include <arch/symbols.h>
 #include <arch/cpu.h>
+#include <arch/symbols.h>
 
 #include <arch/mmu.h>
 #include <arch/platform.h>
 
+#include "boot_info.h"
 #include "core/panic.h"
 #include "kernel/layout.h"
-#include "boot_info.h"
-#include "kernel/time/tick.h"
 #include "kernel/sched/sched.h"
+#include "kernel/time/tick.h"
 
-#include "kernel/loader/initrd.h"
-#include "kernel/loader/boot_programs.h"
 #include "core/version.h"
+#include "kernel/loader/boot_programs.h"
+#include "kernel/loader/initrd.h"
 #include "kernel/syspage.h"
 #include "zuzu/types.h"
 #include <stdint.h>
@@ -22,7 +22,6 @@
 
 #define STR(x) #x
 #define XSTR(x) STR(x)
-
 
 #define LOG_FMT(fmt) "(main) " fmt
 #include "core/log.h"
@@ -33,10 +32,7 @@ extern kernel_layout_t kernel_layout;
  * this wraps set_resched_flag rather than being registered alongside it —
  * a second call to register_tick_callback would silently replace the first
  * and stop preemption. */
-static void sched_tick(void)
-{
-    set_resched_flag();
-}
+static void sched_tick(void) { set_resched_flag(); }
 
 _Noreturn void kmain(void)
 {
@@ -66,12 +62,11 @@ _Noreturn void kmain(void)
      * kernel/loader/boot_programs.c). */
     boot_programs_spawn_all(initrd_pa, initrd_size);
 
-    register_tick_callback(sched_tick);
+    RegisterTickCb(sched_tick);
 
     KINFO("Entering idle");
 
-
     schedule();
-    
+
     panic("Unreachable: %s:%d", __FILE__, __LINE__);
 }
