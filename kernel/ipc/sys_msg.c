@@ -1137,6 +1137,21 @@ static int __attribute__((noinline)) waitany_prepare_wait(Thread *self,
 	if (err != ERR_BUSY)
 		return err;
 
+	/* We are about to null-and-re-add every slot below. A slot still
+	 * linked from a previous iteration (a wake path that didn't fully
+	 * unlink it -- e.g. cross-process teardown) would be clobbered into a
+	 * zombie node left in its old queue, detonating on the next signal.
+	 * Unlink defensively first; list_remove's use is safe on clean slots
+	 * because of the prev/next guard. */
+	for (uint32_t i = 0; i < WAITANY_MAX_HANDLES; i++) {
+		ListNode *n = &self->waitany_wait_slots[i].node;
+		if (n->prev && n->next)
+			list_remove(n);
+		ListNode *p = &self->waitany_port_wait_slots[i].node;
+		if (p->prev && p->next)
+			list_remove(p);
+	}
+
 	/* Enqueue on notification wait queues */
 	if (wait_count > 0) {
 		self->waitany_wait_count = wait_count;
