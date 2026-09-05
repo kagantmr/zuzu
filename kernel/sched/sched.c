@@ -411,16 +411,11 @@ size_t sched_ready_queue_snapshot(Thread **out, size_t max_out)
 
 void set_resched_flag(void)
 {
-
-    if (current_thread)
-    {
-        if (ArchTimerNow() >= current_thread->slice_deadline)
-        {
-            do_resched = 1;
-        }
-    }
-    else
-    {
-        do_resched = 1; // idling
-    }
+    /* Tickless: the timer only fires when SchedArmTimer() deliberately armed
+     * it -- either the running slice expired or the earliest sleeper is due.
+     * Either way the right response is to run schedule(), which re-picks the
+     * run queue and (critically) runs sched_wake_sleepers(). Gating this on
+     * slice_deadline would swallow the wakeup a sleeper's own deadline IRQ
+     * was armed for, stranding every timed sleep/recv/wait. */
+    do_resched = 1;
 }
