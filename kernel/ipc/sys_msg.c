@@ -8,6 +8,7 @@
 #include "kernel/syscall/syscall.h"
 #include "kernel/time/tick.h"
 #include "port.h"
+#include <arch/timer.h>
 #include <compiler.h>
 #include <stdbool.h>
 #include <string.h>
@@ -101,9 +102,7 @@ static bool trap_frame_sane(const CpuState *tf)
 	return true;
 }
 
-/* Only ever called right before a panic() -- never let it (or the KERROR
- * formatting call inside it) get pulled into a hot IPC caller's icache
- * footprint. */
+
 static __cold __noinline void ipc_panic_bad_trap_frame(const char *where, const ProcessObj *owner,
 						       const CpuState *tf)
 {
@@ -123,10 +122,10 @@ static __cold __noinline void ipc_panic_bad_trap_frame(const char *where, const 
  * list_remove(). Called on every IPC wake, direct-handoff, and reply. */
 static __always_inline void ipc_cancel_timeout(Thread *t)
 {
-	if (unlikely(t->wake_tick != 0 && t->timeout_node.prev && t->timeout_node.next)) {
+	if (unlikely(t->wake_deadline != 0 && t->timeout_node.prev && t->timeout_node.next)) {
 		list_remove(&t->timeout_node);
 	}
-	t->wake_tick = 0;
+	t->wake_deadline = 0;
 }
 
 static __hot inline void ipc_wake_ready(Thread *t)
@@ -286,11 +285,7 @@ void __attribute__((hot)) SysMsgSend(CpuState *frame)
 		ThreadWaitSlot *rx_slot = container_of(receiver, ThreadWaitSlot, node);
 		Thread *rx_thread = rx_slot->owner;
 
-		/* Deliver in waitany form only if the slot we actually dequeued is
-		 * one of the receiver's waitany slots. Keying off the thread's
-		 * waitany_port_wait_active flag instead means a stale flag routes a
-		 * plain msg_recv receiver down the waitany path, which never writes
-		 * its trap frame -- it returns garbage registers. */
+
 		if (unlikely(rx_slot != &rx_thread->port_wait_slot)) {
 			WaitanyResult *res = &rx_thread->waitany_pending_result;
 			memset(res, 0, sizeof(*res));
@@ -455,12 +450,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			return;
 		}
 
-		/* A thread parking on a plain blocking recv is by definition not in
-		 * a waitany. Any waitany slot still linked from an earlier call
-		 * would otherwise sit ahead of our port_wait_slot in this port's
-		 * receiver queue, and a sender popping it delivers in waitany form
-		 * -- which never writes the trap frame, so we would wake with our
-		 * registers untouched and silently drop the message. */
+
 		ThreadWaitanyClearWaits(current_thread);
 		ThreadWaitanyClearPortWaits(current_thread);
 
@@ -475,13 +465,10 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 		current_thread->state = BLOCKED;
 
 		if (unlikely(timeout_ms != TIMEOUT_INFINITE)) {
-			Tick ticks = ((uint64_t)timeout_ms * (uint64_t)TICK_HZ) / 1000u;
-			if (unlikely(ticks == 0))
-				ticks = 1;
-			current_thread->wake_tick = GetTicks() + ticks;
+			current_thread->wake_deadline = ArchDeadlineFromMs(timeout_ms);
 			sleep_queue_insert(current_thread);
 		} else {
-			current_thread->wake_tick = 0;
+			current_thread->wake_deadline = 0;
 		}
 
 		schedule();
@@ -1260,13 +1247,9 @@ void SysWaitAny(CpuState *frame)
 		return;
 	}
 
-	Tick deadline = 0;
-	if (timeout_ms != TIMEOUT_POLL && timeout_ms != TIMEOUT_INFINITE) {
-		Tick ticks = ((uint64_t)timeout_ms * (uint64_t)TICK_HZ) / 1000u;
-		if (ticks == 0)
-			ticks = 1;
-		deadline = GetTicks() + ticks;
-	}
+	uint64_t deadline = 0;
+	if (timeout_ms != TIMEOUT_POLL && timeout_ms != TIMEOUT_INFINITE)
+		deadline = ArchDeadlineFromMs(timeout_ms);
 
 	for (;;) {
 		WaitanyResult result;
@@ -1299,8 +1282,7 @@ void SysWaitAny(CpuState *frame)
 
 		/* Deadline check before blocking */
 		if (timeout_ms != TIMEOUT_INFINITE) {
-			Tick now = GetTicks();
-			if (now >= deadline) {
+			if (ArchTimerNow() >= deadline) {
 				ThreadWaitanyClearWaits(current_thread);
 				ThreadWaitanyClearPortWaits(current_thread);
 				if (!waitany_write_timeout_result(result_ptr, wlen)) {
@@ -1324,10 +1306,10 @@ void SysWaitAny(CpuState *frame)
 #endif
 
 		if (timeout_ms != TIMEOUT_INFINITE) {
-			current_thread->wake_tick = deadline;
+			current_thread->wake_deadline = deadline;
 			sleep_queue_insert(current_thread);
 		} else {
-			current_thread->wake_tick = 0;
+			current_thread->wake_deadline = 0;
 		}
 
 		schedule();

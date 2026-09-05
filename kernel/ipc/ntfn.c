@@ -33,10 +33,10 @@ void NtfnWakeWaiter(NtfnObj *ntfn, ThreadWaitSlot *slot, int32_t r0_value, NtfnB
     waiter->waitany_wait_match_index = match_index;
     waiter->waitany_wait_bits = bits;
 
-    if (waiter->wake_tick != 0 && waiter->timeout_node.prev && waiter->timeout_node.next) {
+    if (waiter->wake_deadline != 0 && waiter->timeout_node.prev && waiter->timeout_node.next) {
         list_remove(&waiter->timeout_node);
     }
-    waiter->wake_tick = 0;
+    waiter->wake_deadline = 0;
     waiter->wake_reason = WAKE_IPC;
     waiter->blocked_port = NULL;
     waiter->ipc_state = IPC_NONE;
