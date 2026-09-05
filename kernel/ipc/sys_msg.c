@@ -478,7 +478,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			Tick ticks = ((uint64_t)timeout_ms * (uint64_t)TICK_HZ) / 1000u;
 			if (unlikely(ticks == 0))
 				ticks = 1;
-			current_thread->wake_tick = get_ticks() + ticks;
+			current_thread->wake_tick = GetTicks() + ticks;
 			sleep_queue_insert(current_thread);
 		} else {
 			current_thread->wake_tick = 0;
@@ -608,10 +608,10 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		/* Direct handoff: skip the run-queue round trip and switch straight
 		 * to the receiver we just woke, as long as doing so wouldn't jump
 		 * ahead of a thread that's already waiting at rx_thread's priority
-		 * or higher (sched_has_ready_at_or_above) -- in that case the full
+		 * or higher (SchedAnyCpuTakers) -- in that case the full
 		 * scheduler wouldn't have picked rx_thread next anyway, so fall back
 		 * to the normal sched_add()+schedule() path. */
-		if (unlikely(sched_has_ready_at_or_above(rx_thread))) {
+		if (unlikely(SchedAnyCpuTakers(rx_thread))) {
 			rx_thread->state = READY;
 			sched_add(rx_thread);
 			schedule();
@@ -842,7 +842,7 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 		current_thread->ipc_state = IPC_WAITING;
 
 		/* Direct handoff -- see the identical comment in SysMsgCall(). */
-		if (unlikely(sched_has_ready_at_or_above(rx_thread))) {
+		if (unlikely(SchedAnyCpuTakers(rx_thread))) {
 			rx_thread->state = READY;
 			sched_add(rx_thread);
 			schedule();
@@ -1265,7 +1265,7 @@ void SysWaitAny(CpuState *frame)
 		Tick ticks = ((uint64_t)timeout_ms * (uint64_t)TICK_HZ) / 1000u;
 		if (ticks == 0)
 			ticks = 1;
-		deadline = get_ticks() + ticks;
+		deadline = GetTicks() + ticks;
 	}
 
 	for (;;) {
@@ -1293,7 +1293,7 @@ void SysWaitAny(CpuState *frame)
 
 		/* Deadline check before blocking */
 		if (timeout_ms != TIMEOUT_INFINITE) {
-			Tick now = get_ticks();
+			Tick now = GetTicks();
 			if (now >= deadline) {
 				if (!waitany_write_timeout_result(result_ptr, wlen)) {
 					arch_reg_set(frame, 0, ERR_BADPTR);

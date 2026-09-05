@@ -1,21 +1,20 @@
 
 #include "sys_proc.h"
 
-#include "kernel/syscall/syscall.h"
-#include "kernel/sched/sched.h"
-#include "kernel/time/tick.h"
-#include "kernel/proc/process.h"
 #include "kernel/ipc/handle.h"
+#include "kernel/proc/process.h"
+#include "kernel/sched/sched.h"
+#include "kernel/syscall/syscall.h"
+#include "kernel/time/tick.h"
 
-#include <arch/mmu.h>
 #include <arch/context.h>
+#include <arch/mmu.h>
 
 #include <string.h>
 
-#include <zuzu/user_layout.h>
-#include <zuzu/tls.h>
 #include <zuzu/spawn_args.h>
-
+#include <zuzu/tls.h>
+#include <zuzu/user_layout.h>
 
 extern Thread *current_thread;
 extern ListHead sleep_queue;
@@ -24,7 +23,7 @@ extern ProcessObj *process_table[MAX_PROCESSES];
 #define LOG_FMT(fmt) "(sys_task) " fmt
 #include "core/log.h"
 
-#define WAIT_ANY_PID ((Pid)-1)
+#define WAIT_ANY_PID ((Pid) - 1)
 
 static bool wait_write_status(int32_t *status_out, int32_t status)
 {
@@ -34,33 +33,36 @@ static bool wait_write_status(int32_t *status_out, int32_t status)
     return CopyToUser(status_out, &status, sizeof(status));
 }
 
-void SysPQuit(CpuState *frame) {
+void SysPQuit(CpuState *frame)
+{
     int exit_status = (int)(*arch_reg(frame, 0));
-    KDEBUG("Process %d exited with status code %d", 
-           current_thread->owner_process ? current_thread->owner_process->pid : 0, 
-           exit_status);
-    
+    KDEBUG("Process %d exited with status code %d",
+           current_thread->owner_process ? current_thread->owner_process->pid : 0, exit_status);
+
     ProcessKill(current_thread->owner_process, exit_status);
     schedule();
 }
 
-void SysYield(CpuState *frame) {
+void SysYield(CpuState *frame)
+{
     (*arch_reg(frame, 0)) = 0;
     (void)frame;
     schedule();
 }
 
-void SysSleep(CpuState *frame) {
+void SysSleep(CpuState *frame)
+{
     uint32_t ms = (*arch_reg(frame, 0)); // argument 0: Milliseconds to sleep
-    
+
     // Convert ms to ticks using configured tick rate.
     uint64_t ticks = ((uint64_t)ms * (uint64_t)TICK_HZ) / 1000u;
-    if (ticks == 0) ticks = 1; // Sleep at least 1 tick
+    if (ticks == 0)
+        ticks = 1; // Sleep at least 1 tick
 
     // Calculate wake time
-    current_thread->wake_tick = get_ticks() + ticks;
+    current_thread->wake_tick = GetTicks() + ticks;
     current_thread->wake_reason = WAKE_NONE;
-    
+
     // Change state to BLOCKED and insert into sleep queue
     current_thread->state = BLOCKED;
     sleep_queue_insert(current_thread);
@@ -70,20 +72,22 @@ void SysSleep(CpuState *frame) {
     (*arch_reg(frame, 0)) = 0;
 }
 
-void SysGetPid(CpuState *frame) {
-    arch_reg_set(frame, 0, current_thread->owner_process->pid);
-}
+void SysGetPid(CpuState *frame) { arch_reg_set(frame, 0, current_thread->owner_process->pid); }
 
-void SysWait(CpuState *frame) {
+void SysWait(CpuState *frame)
+{
     int32_t req_pid = (int32_t)(*arch_reg(frame, 0));
     int32_t *status_out = (int32_t *)(*arch_reg(frame, 1));
     uint32_t flags = (*arch_reg(frame, 2));
     ProcessObj *child = NULL;
 
-    if (req_pid == -1) {
+    if (req_pid == -1)
+    {
         child = ProcessFindZombieChild(current_thread->owner_process);
-        if (child) {
-            if (!wait_write_status(status_out, child->exit_status)) {
+        if (child)
+        {
+            if (!wait_write_status(status_out, child->exit_status))
+            {
                 arch_reg_set(frame, 0, ERR_BADPTR);
                 return;
             }
@@ -92,7 +96,8 @@ void SysWait(CpuState *frame) {
             return;
         }
 
-        if (flags & WNOHANG) {
+        if (flags & WNOHANG)
+        {
             (*arch_reg(frame, 0)) = 0;
             return;
         }
@@ -102,11 +107,13 @@ void SysWait(CpuState *frame) {
         schedule();
 
         child = ProcessFindZombieChild(current_thread->owner_process);
-        if (!child) {
+        if (!child)
+        {
             arch_reg_set(frame, 0, ERR_NOENT);
             return;
         }
-        if (!wait_write_status(status_out, child->exit_status)) {
+        if (!wait_write_status(status_out, child->exit_status))
+        {
             arch_reg_set(frame, 0, ERR_BADPTR);
             return;
         }
@@ -115,21 +122,25 @@ void SysWait(CpuState *frame) {
         return;
     }
 
-    if (req_pid < 0) {
+    if (req_pid < 0)
+    {
         arch_reg_set(frame, 0, ERR_BADARG);
         return;
     }
 
     Pid child_pid = req_pid;
     child = ProcessFindChildFromPid(current_thread->owner_process, child_pid);
-    if (!child) {
+    if (!child)
+    {
         arch_reg_set(frame, 0, ERR_NOENT);
-        return; 
+        return;
     }
 
     // Case A: child already exited
-    if (child->thread->state == ZOMBIE) {
-        if (!wait_write_status(status_out, child->exit_status)) {
+    if (child->thread->state == ZOMBIE)
+    {
+        if (!wait_write_status(status_out, child->exit_status))
+        {
             arch_reg_set(frame, 0, ERR_BADPTR);
             return;
         }
@@ -139,7 +150,8 @@ void SysWait(CpuState *frame) {
     }
 
     // Case B: child still running, non-blocking
-    if (flags & WNOHANG) {
+    if (flags & WNOHANG)
+    {
         (*arch_reg(frame, 0)) = 0;
         return;
     }
@@ -151,11 +163,13 @@ void SysWait(CpuState *frame) {
 
     // re-fetch after wakeup, pointer may be stale
     child = ProcessFindChildFromPid(current_thread->owner_process, child_pid);
-    if (!child) {
+    if (!child)
+    {
         arch_reg_set(frame, 0, ERR_NOENT);
         return;
     }
-    if (!wait_write_status(status_out, child->exit_status)) {
+    if (!wait_write_status(status_out, child->exit_status))
+    {
         arch_reg_set(frame, 0, ERR_BADPTR);
         return;
     }
@@ -165,25 +179,30 @@ void SysWait(CpuState *frame) {
 
 /* spawn syscall removed: use pspawn/kickstart with sysd */
 
-void SysPSpawn(CpuState *frame) {
+void SysPSpawn(CpuState *frame)
+{
     SpawnArgs *args = (SpawnArgs *)(*arch_reg(frame, 0));
-    if (!validate_user_ptr((uintptr_t)args, sizeof(SpawnArgs))) {
+    if (!validate_user_ptr((uintptr_t)args, sizeof(SpawnArgs)))
+    {
         arch_reg_set(frame, 0, ERR_BADPTR);
         return;
     }
 
     SpawnArgs kargs;
-    if (!CopyFromUser(&kargs, args, sizeof(SpawnArgs))) {
+    if (!CopyFromUser(&kargs, args, sizeof(SpawnArgs)))
+    {
         arch_reg_set(frame, 0, ERR_BADPTR);
         return;
     }
 
-    if (kargs.size < sizeof(SpawnArgs)) {
+    if (kargs.size < sizeof(SpawnArgs))
+    {
         arch_reg_set(frame, 0, ERR_BADARG);
         return;
     }
 
-    if (!validate_user_ptr((uintptr_t)kargs.name, 1)) {
+    if (!validate_user_ptr((uintptr_t)kargs.name, 1))
+    {
         arch_reg_set(frame, 0, ERR_BADPTR);
         return;
     }
@@ -192,7 +211,8 @@ void SysPSpawn(CpuState *frame) {
     size_t nlen = kargs.name_len;
     if (nlen > sizeof(kname) - 1)
         nlen = sizeof(kname) - 1;
-    if (nlen > 0 && !CopyFromUser(kname, kargs.name, nlen)) {
+    if (nlen > 0 && !CopyFromUser(kname, kargs.name, nlen))
+    {
         arch_reg_set(frame, 0, ERR_BADPTR);
         return;
     }
@@ -200,13 +220,16 @@ void SysPSpawn(CpuState *frame) {
     kname[nlen] = '\0'; // Ensure null-termination
 
     ProcessObj *process = ProcessCreate(kname);
-    if (!process) {
+    if (!process)
+    {
         arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }
 
-    for (int i = 0; i < 4; i++) {
-        HandleEntry *src = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)i);
+    for (int i = 0; i < 4; i++)
+    {
+        HandleEntry *src =
+            handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)i);
         if (!src || src->type == HANDLE_FREE)
             continue;
         HandleEntry *dst = handle_vec_get(&process->handle_table, (uint32_t)i);
@@ -221,13 +244,16 @@ void SysPSpawn(CpuState *frame) {
 
     // now return a handle
     int slot = handle_vec_find_free(&current_thread->owner_process->handle_table);
-    if (slot < 0) {
+    if (slot < 0)
+    {
         ProcessDestroy(process);
         arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }
-    HandleEntry *slot_entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)slot);
-    if (!slot_entry) {
+    HandleEntry *slot_entry =
+        handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)slot);
+    if (!slot_entry)
+    {
         ProcessDestroy(process);
         arch_reg_set(frame, 0, ERR_NOMEM);
         return;
@@ -241,47 +267,56 @@ void SysPSpawn(CpuState *frame) {
     return;
 }
 
-void SysKickstart(CpuState *frame) {
+void SysKickstart(CpuState *frame)
+{
+
     KickstartArgs *args = (KickstartArgs *)(*arch_reg(frame, 0));
-    if (!validate_user_ptr((uintptr_t)args, sizeof(KickstartArgs))) {
+    if (!validate_user_ptr((uintptr_t)args, sizeof(KickstartArgs)))
+    {
         arch_reg_set(frame, 0, ERR_BADPTR);
         return;
     }
 
     KickstartArgs kargs;
-    if (!CopyFromUser(&kargs, args, sizeof(KickstartArgs))) {
+    if (!CopyFromUser(&kargs, args, sizeof(KickstartArgs)))
+    {
         arch_reg_set(frame, 0, ERR_BADPTR);
         return;
     }
 
-    if (kargs.size < sizeof(KickstartArgs)) {
+    if (kargs.size < sizeof(KickstartArgs))
+    {
         arch_reg_set(frame, 0, ERR_BADARG);
         return;
     }
 
-    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)kargs.taskHandle);
-    if (!entry) {
+    HandleEntry *entry =
+        handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)kargs.taskHandle);
+    if (!entry)
+    {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
     }
-    if (entry->type != HANDLE_TASK) {
+    if (entry->type != HANDLE_TASK)
+    {
         arch_reg_set(frame, 0, ERR_BADTYPE);
         return;
     }
 
     ProcessObj *target = entry->task;
-    if (!target || !target->thread) {
+    if (!target || !target->thread)
+    {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
     }
-    if (target->thread->state != FROZEN) {
+    if (target->thread->state != FROZEN)
+    {
         arch_reg_set(frame, 0, ERR_BUSY);
         return;
     }
 
     target->thread->kernel_sp = (uint32_t *)arch_thread_user_init(
-        (void *)target->thread->kernel_stack_top,
-        kargs.entry, kargs.sp, USER_ELF_BASE,
+        (void *)target->thread->kernel_stack_top, kargs.entry, kargs.sp, USER_ELF_BASE,
         kargs.r0_val, kargs.r1_val, &target->thread->trap_frame);
     target->thread->state = READY;
     sched_add(target->thread);
@@ -290,27 +325,32 @@ void SysKickstart(CpuState *frame) {
     return;
 }
 
-void SysPKill(CpuState *frame) {
+void SysPKill(CpuState *frame)
+{
     uint32_t handle_idx = (*arch_reg(frame, 0));
 
     HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
-    if (!entry) {
+    if (!entry)
+    {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
     }
-    if (entry->type != HANDLE_TASK) {
+    if (entry->type != HANDLE_TASK)
+    {
         arch_reg_set(frame, 0, ERR_BADTYPE);
         return;
     }
 
     ProcessObj *target = entry->task;
-    if (!target || !target->thread) {
+    if (!target || !target->thread)
+    {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
     }
 
-    if (target == current_thread->owner_process) {
-        arch_reg_set(frame, 0, ERR_BADARG);   /* use pquit */
+    if (target == current_thread->owner_process)
+    {
+        arch_reg_set(frame, 0, ERR_BADARG); /* use pquit */
         return;
     }
     entry->type = HANDLE_FREE;
@@ -318,6 +358,6 @@ void SysPKill(CpuState *frame) {
     entry->grantable = false;
 
     ProcessKill(target, KILLED_TAG | KILL_BY_PARENT);
- 
+
     (*arch_reg(frame, 0)) = 0;
 }

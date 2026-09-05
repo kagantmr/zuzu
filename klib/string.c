@@ -174,26 +174,10 @@ static int utoa_ull(char *buf, unsigned long long v, unsigned base, int uppercas
             v >>= 1;
         }
     } else if (base == 10) {
-        // Long division by 10 without using 64-bit / or % (avoids __aeabi_uldivmod)
-        if (v == 0) {
-            tmp[n++] = '0';
-        } else {
-            while (v != 0) {
-                unsigned long long q = 0;
-                unsigned int r = 0;
-
-                // Bitwise long division: (q, r) = v / 10, v % 10
-                for (int i = 63; i >= 0; i--) {
-                    r = (r << 1) | (unsigned int)((v >> i) & 1ULL);
-                    if (r >= 10U) {
-                        r -= 10U;
-                        q |= (1ULL << i);
-                    }
-                }
-
-                tmp[n++] = (char)('0' + r);
-                v = q;
-            }
+        if (v == 0) { tmp[n++] = '0'; }
+        while (v != 0) {
+            tmp[n++] = (char)('0' + (v % 10ULL));
+            v /= 10ULL;
         }
     } else {
         // Fallback: support only bases we explicitly handle in this kernel
