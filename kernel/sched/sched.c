@@ -93,12 +93,12 @@ void sched_add(Thread *t) {
 
     uint32_t priority = thread_priority(t);
     if (priority >= SCHED_PRIORITY_LEVELS)
-        priority = SCHED_PRIORITY_LEVELS - 1;
+        priority = SCHED_PRIO_DEFAULT;
 
     list_add_tail(&t->node, &run_queues[priority].node);
     ready_mask |= (1u << priority);
 
-    if (current_thread && t->priority < current_thread->priority) {
+    if (current_thread && t->priority > current_thread->priority) {
         do_resched = 1;
     }
 }
