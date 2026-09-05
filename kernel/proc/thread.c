@@ -83,6 +83,7 @@ void ThreadDestroy(Thread *thread)
 {
 	if (!thread)
 		return;
+	ThreadUnlinkWaits(thread);
 	thread_unregister(thread);
 	if (fpu_owner == thread)
 		fpu_owner = NULL;
@@ -182,3 +183,17 @@ Thread *ThreadFindByTid(Tid tid)
 
 	return NULL;
 }
+
+void ThreadUnlinkWaits(Thread *t)
+{
+    if (!t) return;
+    if (t->node.prev && t->node.next)                     list_remove(&t->node);
+    if (t->timeout_node.prev && t->timeout_node.next)     list_remove(&t->timeout_node);
+    if (t->ntfn_wait_slot.node.prev && t->ntfn_wait_slot.node.next)
+        list_remove(&t->ntfn_wait_slot.node);
+    if (t->port_wait_slot.node.prev && t->port_wait_slot.node.next)
+        list_remove(&t->port_wait_slot.node);
+    ThreadWaitanyClearWaits(t);
+    ThreadWaitanyClearPortWaits(t);
+}
+
