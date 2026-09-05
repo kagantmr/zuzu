@@ -698,11 +698,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
         Thread *thread = container_of(thread_node, Thread, process_node);
         thread->exit_status = exit_status;
 
-        // remove from run queue / sleep queue / IPC queue
-        if (thread->node.prev && thread->node.next)
-            list_remove(&thread->node);
-        if (thread->timeout_node.prev && thread->timeout_node.next)
-            list_remove(&thread->timeout_node);
+        ThreadUnlinkWaits(thread);
 
         ThreadKill(thread); // state = ZOMBIE
         thread_node = next_thread;
@@ -843,6 +839,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                     if (thread->trap_frame)
                         arch_reg_set(thread->trap_frame, 0, ERR_DEAD);
                     ThreadWaitanyClearWaits(thread);
+                    ThreadWaitanyClearPortWaits(thread);
                     if (thread->wake_tick != 0 && thread->timeout_node.prev &&
                         thread->timeout_node.next)
                         list_remove(&thread->timeout_node);

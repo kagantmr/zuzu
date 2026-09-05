@@ -143,4 +143,6 @@ static inline void ThreadWaitanyClearPortWaits(Thread *thread)
 	thread->waitany_port_wait_active = false;
 }
 
+void ThreadUnlinkWaits(Thread *t);
+
 #endif // ZUZU_THREAD_H
