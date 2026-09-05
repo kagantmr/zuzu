@@ -147,7 +147,7 @@ Thread *ThreadCreate(ProcessObj *owner_process)
 	thread->pending_reply_cap = NULL;
 	thread->lmsg_buf_phys_addr = 0;
 	thread->lmsg_buf_xfer_len = 0;
-	thread->priority = 1;
+	thread->priority = SCHED_PRIO_DEFAULT;
 	thread->time_slice = 5;
 	thread->ticks_remaining = thread->time_slice;
 	thread->thread_info_va = 0;

@@ -18,7 +18,6 @@
 #include "kernel/mm/vmm.h"
 #include "core/panic.h"
 #include "core/kprintf.h"
-#include <assert.h>
 #include <string.h>
 
 kernel_layout_t kernel_layout;
