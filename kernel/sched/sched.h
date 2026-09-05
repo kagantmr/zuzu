@@ -6,6 +6,7 @@
 #include <stdbool.h>
 
 #define SCHED_PRIORITY_LEVELS 8
+#define SCHED_PRIO_DEFAULT 1
 
 extern void __attribute__((hot)) context_switch(Thread *prev, Thread *next);
 
