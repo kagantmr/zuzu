@@ -1287,6 +1287,12 @@ void SysWaitAny(CpuState *frame)
 		}
 
 		if (timeout_ms == TIMEOUT_POLL) {
+			/* prepare_wait just enqueued our slots on every ntfn
+			 * wait_queue / port receiver_queue; a non-blocking exit
+			 * must tear them back down or they rot in those queues
+			 * and a later sender/signal dequeues a zombie slot. */
+			ThreadWaitanyClearWaits(current_thread);
+			ThreadWaitanyClearPortWaits(current_thread);
 			arch_reg_set(frame, 0, ERR_TIMEOUT);
 			return;
 		}
@@ -1295,6 +1301,8 @@ void SysWaitAny(CpuState *frame)
 		if (timeout_ms != TIMEOUT_INFINITE) {
 			Tick now = GetTicks();
 			if (now >= deadline) {
+				ThreadWaitanyClearWaits(current_thread);
+				ThreadWaitanyClearPortWaits(current_thread);
 				if (!waitany_write_timeout_result(result_ptr, wlen)) {
 					arch_reg_set(frame, 0, ERR_BADPTR);
 					return;
