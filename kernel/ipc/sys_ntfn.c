@@ -5,6 +5,7 @@
 #include "kernel/sched/sched.h"
 #include "kernel/syscall/syscall.h"
 #include "kernel/time/tick.h"
+#include <arch/timer.h>
 #ifdef ZUZU_BENCH
 #include "kernel/bench.h"
 #endif /* ZUZU_BENCH */
@@ -129,13 +130,10 @@ void SysNtfnWait(CpuState *frame)
 #endif /* ZUZU_BENCH */
 
     if (timeout_ms != TIMEOUT_INFINITE) {
-        Tick ticks = ((uint64_t)timeout_ms * (uint64_t)TICK_HZ) / 1000u;
-        if (ticks == 0)
-            ticks = 1;
-        current_thread->wake_tick = GetTicks() + ticks;
+        current_thread->wake_deadline = ArchDeadlineFromMs(timeout_ms);
         sleep_queue_insert(current_thread);
     } else {
-        current_thread->wake_tick = 0;
+        current_thread->wake_deadline = 0;
     }
 
     schedule();

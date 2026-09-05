@@ -58,7 +58,7 @@ struct thread {
 	ListNode process_node; // membership in owner process thread list
 	ListNode timeout_node;
 	WakeReason wake_reason;
-	Tick wake_tick;
+	uint64_t wake_deadline;
 	ThreadState state;
 	ListNode destroy_node;
 	MsgState ipc_state;
