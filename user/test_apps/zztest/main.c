@@ -732,47 +732,59 @@ static void sec_tasks(void)
     g_spin_quit[1] = 1;
     CHECK_EQ(ZuzuTJoin(t), 0x41, "tjoin returns exit status");
 
-    /* TCB slot exhaustion: main holds 1 of TCB_MAX_SLOTS(7) -> 6 workers max.
-     * Quiesce first: joined threads' TCB slots are released by the deferred
-     * reaper, so slots from earlier sections may still be held briefly. */
+    /* Thread-creation limit + reclaim. TCB_MAX_SLOTS (255) is far more than
+     * the anon-mmap space for 4K worker stacks (or the kernel-stack pool, or
+     * free frames for the higher TCB pages) can back, so this bottoms out on
+     * whichever resource binds first rather than the slot cap specifically.
+     * It still exercises the multi-page TCB path and the reap/refill cycle.
+     * Quiesce first: earlier sections' joined threads free their TCB slots
+     * via the deferred reaper. */
     ZuzuSleep(20);
-    void *stacks[TCB_MAX_SLOTS];
-    Tid tids[TCB_MAX_SLOTS];
+#define WORKER_CAP (TCB_MAX_SLOTS - 1)
+    static void *stacks[WORKER_CAP];
+    static Tid tids[WORKER_CAP];
     int made = 0;
-    for (int i = 0; i < TCB_MAX_SLOTS - 1; i++) {
+    for (int i = 0; i < WORKER_CAP; i++) {
         stacks[i] = stack_alloc();
         if (!stacks[i]) break;
         g_spin_quit[i] = 0;
         tids[i] = ZuzuTMake(spin_worker, (char *)stacks[i] + STACK_SIZE,
                              (void *)(uintptr_t)i);
-        if (tids[i] < 0) break;
+        if (tids[i] < 0) { ZuzuMemUnmap(stacks[i]); stacks[i] = NULL; break; }
         made++;
     }
-    CHECK(made == TCB_MAX_SLOTS - 1, "created TCB_MAX_SLOTS-1 (6) worker threads");
+    CHECK(made >= 16, "spun up a healthy worker pool");
+
+    /* We're at the limit now: another tmake (with a stack in hand) must
+     * still fail, and keep failing, until we free some capacity. */
     void *xs = stack_alloc();
     CHECK(xs != NULL, "stack for overflow probe");
-    Tid over = ZuzuTMake(spin_worker, (char *)xs + STACK_SIZE, (void *)6);
-    CHECK_EQ(over, ERR_NOMEM, "tmake past TCB_MAX_SLOTS -> ERR_NOMEM");
-    if (over > 0) { /* defensive: don't leave a stray spinner if it slipped in */
-        g_spin_quit[6] = 1;
+    Tid over = ZuzuTMake(spin_worker, (char *)xs + STACK_SIZE, (void *)0);
+    CHECK(over < 0, "tmake at the limit -> error");
+    if (over > 0) { /* defensive: don't leak a stray spinner */
+        g_spin_quit[0] = 1;
         ZuzuTJoin(over);
     }
-    /* join one -> slot frees -> tmake succeeds again */
+
+    /* join one -> capacity frees -> tmake succeeds again */
     g_spin_quit[0] = 1;
-    CHECK_EQ(ZuzuTJoin(tids[0]), 0x40, "join frees a slot");
+    CHECK_EQ(ZuzuTJoin(tids[0]), 0x40, "join frees capacity");
     ZuzuSleep(10);   /* deferred thread reaper releases the TCB slot */
-    g_spin_quit[6] = 0;
-    Tid again = ZuzuTMake(spin_worker, (char *)xs + STACK_SIZE, (void *)6);
+    stacks[0] = NULL;
+    g_spin_quit[1] = 0;
+    Tid again = ZuzuTMake(spin_worker, (char *)xs + STACK_SIZE, (void *)1);
     CHECK(again > 0, "tmake succeeds again after join");
-    g_spin_quit[6] = 1;
+    g_spin_quit[1] = 1;
     ZuzuTJoin(again);
     for (int i = 1; i < made; i++) {
         g_spin_quit[i] = 1;
         ZuzuTJoin(tids[i]);
     }
     ZuzuSleep(10);
-    for (int i = 0; i < made; i++) ZuzuMemUnmap(stacks[i]);
+    for (int i = 0; i < made; i++)
+        if (stacks[i]) ZuzuMemUnmap(stacks[i]);
     ZuzuMemUnmap(xs);
+#undef WORKER_CAP
     ZuzuMemUnmap(st);
 
     /* pspawn -> kickstart -> wait lifecycle through sysd exec */
