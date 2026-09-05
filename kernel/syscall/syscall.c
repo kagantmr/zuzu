@@ -40,6 +40,10 @@ BENCH_STAT(g_bench_copyfromuser_copy, "CopyFromUser: memcpy");
 
 typedef void (*SyscallEntryPoint)(CpuState *);
 
+#ifdef DEBUG
+static void SysDebugLog(CpuState *frame);
+#endif
+
 static SyscallEntryPoint SyscallTable[SYS_MAX + 1] = {
     [SYS_PQUIT] = SysPQuit,
     [SYS_YIELD] = SysYield,
@@ -76,7 +80,10 @@ static SyscallEntryPoint SyscallTable[SYS_MAX + 1] = {
     [SYS_MEMPROTECT] = SysMemProtect,
     [SYS_ASINJECT] = SysAsInject,
     [SYS_IRQ_BIND] = SysIrqBind,
-    [SYS_IRQ_DONE] = SysIrqDone
+    [SYS_IRQ_DONE] = SysIrqDone,
+#ifdef DEBUG
+    [SYS_LOG] = SysDebugLog, /* defined below; DEBUG builds only */
+#endif
 };
 
 /* Runs on every syscall. The two "in bounds" checks below are the normal
@@ -149,6 +156,29 @@ bool CopyFromUser(void *restrict kaddr, const void *restrict uaddr, size_t len)
 #endif
     return true;
 }
+
+#ifdef DEBUG
+/* DEBUG-only kernel console sink for userspace. Lets pre-tty services print
+ * before pl011drv is up. Deliberately dumb: bounded copy, no formatting. */
+#define SYSLOG_MAX 240u
+static void SysDebugLog(CpuState *frame)
+{
+    VirtAddr uptr = (VirtAddr)(*arch_reg(frame, 0));
+    uint32_t len = (*arch_reg(frame, 1));
+    char buf[SYSLOG_MAX + 1];
+
+    if (len > SYSLOG_MAX)
+        len = SYSLOG_MAX;
+    if (len == 0 || !CopyFromUser(buf, (const void *)uptr, len)) {
+        arch_reg_set(frame, 0, ERR_BADPTR);
+        return;
+    }
+    buf[len] = '\0';
+    kprintf("[udbg pid=%u] %s\n",
+            (unsigned)(current_thread->owner_process ? current_thread->owner_process->pid : 0), buf);
+    arch_reg_set(frame, 0, 0);
+}
+#endif /* DEBUG */
 
 void __attribute__((hot)) SyscallDispatch(Svc svc_num, CpuState *frame)
 {

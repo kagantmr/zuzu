@@ -286,7 +286,12 @@ void __attribute__((hot)) SysMsgSend(CpuState *frame)
 		ThreadWaitSlot *rx_slot = container_of(receiver, ThreadWaitSlot, node);
 		Thread *rx_thread = rx_slot->owner;
 
-		if (unlikely(rx_thread->waitany_port_wait_active)) {
+		/* Deliver in waitany form only if the slot we actually dequeued is
+		 * one of the receiver's waitany slots. Keying off the thread's
+		 * waitany_port_wait_active flag instead means a stale flag routes a
+		 * plain msg_recv receiver down the waitany path, which never writes
+		 * its trap frame -- it returns garbage registers. */
+		if (unlikely(rx_slot != &rx_thread->port_wait_slot)) {
 			WaitanyResult *res = &rx_thread->waitany_pending_result;
 			memset(res, 0, sizeof(*res));
 			res->matched_index = (Handle)rx_slot->index;
@@ -450,6 +455,15 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			return;
 		}
 
+		/* A thread parking on a plain blocking recv is by definition not in
+		 * a waitany. Any waitany slot still linked from an earlier call
+		 * would otherwise sit ahead of our port_wait_slot in this port's
+		 * receiver queue, and a sender popping it delivers in waitany form
+		 * -- which never writes the trap frame, so we would wake with our
+		 * registers untouched and silently drop the message. */
+		ThreadWaitanyClearWaits(current_thread);
+		ThreadWaitanyClearPortWaits(current_thread);
+
 		current_thread->port_wait_slot.owner = current_thread;
 		current_thread->port_wait_slot.index = 0;
 		current_thread->port_wait_slot.node.prev = NULL;
@@ -553,7 +567,12 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		ProcessTrackReplyCap(current_thread->owner_process, rx_thread->owner_process,
 				     slot, rc);
 
-		if (unlikely(rx_thread->waitany_port_wait_active)) {
+		/* Deliver in waitany form only if the slot we actually dequeued is
+		 * one of the receiver's waitany slots. Keying off the thread's
+		 * waitany_port_wait_active flag instead means a stale flag routes a
+		 * plain msg_recv receiver down the waitany path, which never writes
+		 * its trap frame -- it returns garbage registers. */
+		if (unlikely(rx_slot != &rx_thread->port_wait_slot)) {
 			WaitanyResult *res = &rx_thread->waitany_pending_result;
 			memset(res, 0, sizeof(*res));
 			res->size = sizeof(*res);
@@ -675,7 +694,8 @@ void __attribute__((hot)) SysMsgLsend(CpuState *frame)
 		ThreadWaitSlot *rx_slot = container_of(receiver, ThreadWaitSlot, node);
 		Thread *rx_thread = rx_slot->owner;
 
-		if (rx_thread->waitany_port_wait_active) {
+		/* See the slot-identity note in SysMsgSend. */
+		if (rx_slot != &rx_thread->port_wait_slot) {
 			WaitanyResult *res = &rx_thread->waitany_pending_result;
 			memset(res, 0, sizeof(*res));
 			res->size = sizeof(*res);
@@ -784,7 +804,12 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 		ProcessTrackReplyCap(current_thread->owner_process, rx_thread->owner_process,
 				     slot, rc);
 
-		if (unlikely(rx_thread->waitany_port_wait_active)) {
+		/* Deliver in waitany form only if the slot we actually dequeued is
+		 * one of the receiver's waitany slots. Keying off the thread's
+		 * waitany_port_wait_active flag instead means a stale flag routes a
+		 * plain msg_recv receiver down the waitany path, which never writes
+		 * its trap frame -- it returns garbage registers. */
+		if (unlikely(rx_slot != &rx_thread->port_wait_slot)) {
 			WaitanyResult *res = &rx_thread->waitany_pending_result;
 			memset(res, 0, sizeof(*res));
 			res->size = sizeof(*res);

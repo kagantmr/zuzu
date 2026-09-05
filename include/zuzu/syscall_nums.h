@@ -4,7 +4,10 @@
 /* ---- Process/Thread lifecycle (0x00-0x0F) ---- */
 #define SYS_PQUIT 0x00           /* (status) -> never returns */
 #define SYS_YIELD 0x01           /* () -> 0 */
-#define __SYSCALL_RESERVED1 0x02 /* Reserved, used to be log() */
+/* 0x02 was log(), retired in Loaf. Temporarily re-wired for DEBUG builds only
+ * as a kernel-console debug sink, so pre-tty services (sysd, devmgr) can print
+ * before pl011drv exists. Not present in release builds; not ABI. */
+#define SYS_LOG 0x02             /* (buf, len) -> 0; DEBUG builds only */
 #define SYS_WAIT 0x03            /* (pid, &status) -> 0 or -err */
 #define SYS_GETPID 0x04          /* () -> pid */
 #define SYS_SLEEP 0x05           /* (duration_ms) -> 0, no infinite sleep or polling */
