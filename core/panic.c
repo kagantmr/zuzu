@@ -683,10 +683,10 @@ static void panic_print_sched(void)
                 Thread *t = container_of(node, Thread, timeout_node);
                 ProcessObj *p = t->owner_process;
                 (void)snprintf(line, sizeof(line),
-                         "  tid=%-4u  pid=%-4u  %-16s  wake_tick=%llu",
+                         "  tid=%-4u  pid=%-4u  %-16s  wake_deadline=%llu",
                          t->tid, p ? p->pid : 0,
                          p ? p->name : "(none)",
-                         (unsigned long long)t->wake_tick);
+                         (unsigned long long)t->wake_deadline);
                 panic_line(line);
                 shown++;
             }

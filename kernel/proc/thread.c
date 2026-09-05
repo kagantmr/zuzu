@@ -141,7 +141,7 @@ Thread *ThreadCreate(ProcessObj *owner_process)
 	thread->timeout_node.next = NULL;
 	thread->timeout_node.prev = NULL;
 	thread->wake_reason = WAKE_NONE;
-	thread->wake_tick = 0;
+	thread->wake_deadline = 0;
 	thread->state = FROZEN;
 	thread->ipc_state = IPC_NONE;
 	thread->blocked_port = NULL;

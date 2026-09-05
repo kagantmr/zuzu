@@ -9,6 +9,7 @@
 
 #include <arch/context.h>
 #include <arch/mmu.h>
+#include <arch/timer.h>
 
 #include <string.h>
 
@@ -54,13 +55,7 @@ void SysSleep(CpuState *frame)
 {
     uint32_t ms = (*arch_reg(frame, 0)); // argument 0: Milliseconds to sleep
 
-    // Convert ms to ticks using configured tick rate.
-    uint64_t ticks = ((uint64_t)ms * (uint64_t)TICK_HZ) / 1000u;
-    if (ticks == 0)
-        ticks = 1; // Sleep at least 1 tick
-
-    // Calculate wake time
-    current_thread->wake_tick = GetTicks() + ticks;
+    current_thread->wake_deadline = ArchDeadlineFromMs(ms);
     current_thread->wake_reason = WAKE_NONE;
 
     // Change state to BLOCKED and insert into sleep queue

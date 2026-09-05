@@ -53,11 +53,11 @@ static void __hot relay_handler(void *ctx)
             ThreadWaitanyClearPortWaits(waiter);
             waiter->waitany_wait_match_index = match_index;
             waiter->waitany_wait_bits = ntfn->word;
-            if (unlikely(waiter->wake_tick != 0 && waiter->timeout_node.prev &&
+            if (unlikely(waiter->wake_deadline != 0 && waiter->timeout_node.prev &&
                          waiter->timeout_node.next)) {
                 list_remove(&waiter->timeout_node);
             }
-            waiter->wake_tick = 0;
+            waiter->wake_deadline = 0;
             ntfn->word = 0;
             waiter->wake_reason = WAKE_IPC;
             waiter->blocked_port = NULL;
@@ -178,11 +178,11 @@ void SysIrqBind(CpuState *frame)
             ThreadWaitanyClearPortWaits(waiter);
             waiter->waitany_wait_match_index = match_index;
             waiter->waitany_wait_bits = ntfn->word;
-            if (unlikely(waiter->wake_tick != 0 && waiter->timeout_node.prev &&
+            if (unlikely(waiter->wake_deadline != 0 && waiter->timeout_node.prev &&
                          waiter->timeout_node.next)) {
                 list_remove(&waiter->timeout_node);
             }
-            waiter->wake_tick = 0;
+            waiter->wake_deadline = 0;
             ntfn->word = 0;
             waiter->wake_reason = WAKE_IPC;
             waiter->blocked_port = NULL;

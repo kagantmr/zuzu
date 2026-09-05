@@ -176,7 +176,7 @@ void sleep_queue_insert(Thread *t)
     list_for_each(curr, &sleep_queue.node)
     {
         Thread *s = container_of(curr, Thread, timeout_node);
-        if (t->wake_tick < s->wake_tick)
+        if (t->wake_deadline < s->wake_deadline)
         {
             list_insert_before(&t->timeout_node, curr);
             SchedArmTimer();
@@ -189,12 +189,12 @@ void sleep_queue_insert(Thread *t)
 
 static void sched_wake_sleepers(void)
 {
-    uint64_t now = GetTicks();
+    uint64_t now = ArchTimerNow();
     while (!list_empty(&sleep_queue))
     {
         ListNode *head = sleep_queue.node.next;
         Thread *t = container_of(head, Thread, timeout_node);
-        if (t->wake_tick > now)
+        if (t->wake_deadline > now)
             break;
         list_remove(&t->timeout_node);
         if (t->ipc_state == IPC_RECEIVER || t->ipc_state == IPC_SENDER)
@@ -226,7 +226,7 @@ static void sched_wake_sleepers(void)
             if (t->ntfn_wait_slot.node.prev && t->ntfn_wait_slot.node.next)
                 list_remove(&t->ntfn_wait_slot.node);
             t->state = READY;
-            t->wake_tick = 0;
+            t->wake_deadline = 0;
             sched_add(t);
         }
     }
@@ -352,9 +352,8 @@ void SchedArmTimer(void)
     if (!list_empty(&sleep_queue))
     {
         Thread *head = container_of(sleep_queue.node.next, Thread, timeout_node);
-        uint64_t d = head->wake_tick * (uint64_t)(ArchTimerFreq() / TICK_HZ);
-        if (d < deadline)
-            deadline = d;
+        if (head->wake_deadline < deadline)
+            deadline = head->wake_deadline;
     }
 
     if (current_thread && SchedAnyCpuTakers(current_thread) &&
