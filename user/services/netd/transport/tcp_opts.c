@@ -1,9 +1,8 @@
 #include "tcp_opts.h"
 #include <stdint.h>
 #include <zuzu/log.h>
-#include "../common/globals.h"
 
-bool tcp_parse_options(const uint8_t *opts, size_t len, TcpSegment *seg)
+bool TcpParseOptions(const uint8_t *opts, size_t len, TcpSegment *seg)
 {
     size_t i = 0;
     while (i < len) {
@@ -37,3 +36,18 @@ bool tcp_parse_options(const uint8_t *opts, size_t len, TcpSegment *seg)
     }
     return true;
 }
+
+size_t TcpBuildOptions(uint8_t *dst, size_t cap, const TcpOptsOut *opts)
+{
+    size_t len = 0;
+    if ((opts->opts_present & TCP_OPT_MSS_BIT) && cap - len >= 4) {
+        dst[len++] = TCP_OPT_KIND_MSS;
+        dst[len++] = 4;
+        dst[len++] = opts->mss >> 8;
+        dst[len++] = opts->mss & 0xFF;
+    }
+    while (len % 4 != 0 && len < cap)
+        dst[len++] = TCP_OPT_KIND_NOP;
+    return len;
+}
+

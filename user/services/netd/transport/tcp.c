@@ -23,6 +23,7 @@ int tcp_connect(ipv4_addr_t remote_ip, port_t remote_port) {
     pcb->rcv_nxt = 0;
     pcb->rcv_rsq = pcb->rcv_nxt;
     pcb->rto_ms = 1000;
+    pcb->snd_mss = TCP_MSS;
     pcb->state = TCP_SYN_SENT;
     int rc = tcp_output(pcb, TCP_SYN, NULL, 0);
     if (rc != ZUZU_OK) { port_release(pcb->local_port); tcp_pcb_free(idx); return rc; }
