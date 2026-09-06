@@ -15,7 +15,7 @@
  * 
  * @return Flag dictating whether or not the parser completely parsed the segment
  */
-bool tcp_parse_options(const uint8_t *opts, size_t len, TcpSegment *seg);
+bool TcpParseOptions(const uint8_t *opts, size_t len, TcpSegment *seg);
 
 /**
 * @brief Emits desired options into the destination buffer. 
@@ -26,6 +26,6 @@ bool tcp_parse_options(const uint8_t *opts, size_t len, TcpSegment *seg);
 *
 * @return bytes written, always multiple of 4. return 0 means empty options
 */
-size_t tcp_build_options(uint8_t *dst, size_t cap, const TcpOptsOut *opts);
+size_t TcpBuildOptions(uint8_t *dst, size_t cap, const TcpOptsOut *opts);
 
 #endif /* TCP_OPTIONS_H */

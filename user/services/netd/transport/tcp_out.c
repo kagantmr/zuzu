@@ -2,6 +2,7 @@
 #include "../common/txframe.h"
 #include "../net/ip.h"
 #include "tcp_pcb.h"
+#include "tcp_opts.h"
 #include <convert.h>
 #include <string.h>
 #include <zuzu/log.h>
@@ -47,7 +48,6 @@ int tcp_output(TcpPcb *pcb, uint8_t flags, const uint8_t *data, uint16_t data_le
     th->dst_port = htons(pcb->remote_port);
     th->seq = htonl(pcb->snd_nxt);
     th->ack = (flags & TCP_ACK) ? htonl(pcb->rcv_nxt) : 0;
-    th->data_offset = (5 << 4); /* 20-byte header, no options */
     th->flags = flags;
 
     size_t occupied =
@@ -58,13 +58,21 @@ int tcp_output(TcpPcb *pcb, uint8_t flags, const uint8_t *data, uint16_t data_le
     th->checksum = 0;
     th->urgent_ptr = 0;
 
-    if (data_len)
-        memcpy(buf + sizeof(TcpHdr), data, data_len);
+    size_t optlen = 0;
+    if (flags & TCP_SYN) {
+        TcpOptsOut o = { .opts_present = TCP_OPT_MSS_BIT, .mss = TCP_MSS };
+        optlen = TcpBuildOptions(buf + sizeof(TcpHdr), sizeof(buf) - sizeof(TcpHdr), &o);
+    }
+    th->data_offset = (uint8_t)(((sizeof(TcpHdr) + optlen) / 4) << 4);
 
-    uint16_t seg_len = sizeof(TcpHdr) + data_len;
+
+    if (data_len)
+        memcpy(buf + sizeof(TcpHdr) + optlen, data, data_len);
+
+    uint16_t seg_len = sizeof(TcpHdr) + optlen + data_len;
     th->checksum = htons(tcp_checksum(pcb->local_ip, pcb->remote_ip, buf, seg_len));
 
-    int rc = ip_tx(buf, seg_len, pcb->local_ip, pcb->remote_ip, IP_PROTO_TCP);
+    int rc = ip_tx(buf, seg_len , pcb->local_ip, pcb->remote_ip, IP_PROTO_TCP);
     LOG_INFO(LOG_TAG, "ip_tx rc=%d", rc);
     if (rc != ZUZU_OK)
         return rc;
@@ -87,7 +95,7 @@ int tcp_xmit(TcpPcb *pcb)
             break;
         size_t sendable = window_edge - pcb->snd_nxt;
         sent = true;
-        size_t seglen = MIN(MIN(unsent, sendable), TCP_MSS);
+        size_t seglen = MIN(MIN(unsent, sendable), pcb->snd_mss);
         uint8_t data[TCP_MSS];
         size_t off = pcb->snd_nxt & (TCP_SND_BUF - 1);
         size_t first = MIN(seglen, TCP_SND_BUF - off);

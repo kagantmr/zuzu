@@ -96,6 +96,11 @@ typedef struct {
   Duration rtt_start; /* when we sent the timed segment (net_now_ms) */
   uint32_t rtt_seq;   /* which byte we're waiting for the ACK to pass */
   bool rtt_timing;    /* is a stopwatch currently running? */
+  uint16_t snd_mss;
+  uint32_t cwnd;
+  uint32_t ssthresh;
+  uint32_t dupacks;
+  uint32_t recover;
 } TcpPcb;
 
 typedef struct {

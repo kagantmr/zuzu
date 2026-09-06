@@ -126,6 +126,16 @@ static void consume_fin(int slot, TcpPcb *pcb)
     }
 }
 
+static void TcpConsumeMss(TcpPcb *pcb, const TcpSegment *s)
+{
+    if (!(s->opts_present & TCP_OPT_MSS_BIT)) return;
+    uint16_t m = s->mss;
+    if (m < 536) m = 536;
+    if (m > TCP_MSS) m = TCP_MSS;
+    pcb->snd_mss = m;
+}
+
+
 /* ------------------------------------------------------------------ */
 /* per-state handlers                                                 */
 /* ------------------------------------------------------------------ */
@@ -137,10 +147,12 @@ static void on_syn_sent(TcpPcb *pcb, const TcpSegment *s)
         pcb->rcv_rsq = pcb->rcv_nxt;
         pcb->snd_una = s->ack;
         pcb->state = TCP_ESTABLISHED;
+        TcpConsumeMss(pcb, s);
         tcp_output(pcb, TCP_ACK, NULL, 0);
     } else if ((s->flags & TCP_SYN) && !(s->flags & TCP_ACK)) {
         pcb->rcv_nxt = s->seq + 1; pcb->rcv_rsq = pcb->rcv_nxt;
         pcb->snd_nxt = pcb->snd_una;
+        TcpConsumeMss(pcb, s);
         tcp_output(pcb, TCP_SYN | TCP_ACK, NULL, 0);
         pcb->state = TCP_SYN_RCVD;
         LOG_INFO(LOG_TAG, "simultaneous open: SYN from %u.%u.%u.%u, now SYN_RCVD", IP4(s->src_ip));
@@ -338,6 +350,7 @@ static void on_listening(TcpPcb *listener, const TcpSegment *s)
     np->snd_una = np->snd_nxt;
     np->rto_ms = 1000;
     np->state = TCP_SYN_RCVD;
+    TcpConsumeMss(np, s);
     tcp_output(np, TCP_SYN | TCP_ACK, NULL, 0); /* SYN-ACK */
     LOG_INFO(LOG_TAG, "SYN from %u.%u.%u.%u, now SYN_RCVD", IP4(s->src_ip));
 }
@@ -445,7 +458,7 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
                        .payload_len = (uint16_t)(len - hdr_len),
                        .window = ntohs(th->window) };
 
-    if (!tcp_parse_options(data + sizeof(TcpHdr), hdr_len - sizeof(TcpHdr), &seg)) {
+    if (!TcpParseOptions(data + sizeof(TcpHdr), hdr_len - sizeof(TcpHdr), &seg)) {
         LOG_INFO(LOG_TAG, "malformed TCP options from %u.%u.%u.%u", IP4(src_ip));
     }
 
