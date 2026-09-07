@@ -8,7 +8,7 @@
 
 typedef struct sem Semaphore;
 
-Err SemInit(Semaphore* s);
+Err SemInit(Semaphore* s, int initial_count);
 
 Err SemDestroy(Semaphore *s);
 
