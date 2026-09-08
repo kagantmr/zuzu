@@ -413,15 +413,18 @@ void arch_mmu_switch(AddressSpace *as)
         as->asid_token = asid_alloc();
     }
 
-    // Write the ASID to the ASID register (ARMv7-A short-descriptor).
-    __asm__ volatile("mcr p15, 0, %0, c13, c0, 1" ::"r"((uint32_t)as->asid_token.asid) : "memory");
-
     arch_mmu_barrier();
 
-    // Write TTBR0 with the new address space's L1 table base.
-    __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"(ttbr_value(as->pt_root_physaddr)) : "memory");
+    /* Park on reserved ASID 0: no speculative walk during the TTBR0 change
+     * can then allocate a TLB entry tagged with a live ASID. */
+    __asm__ volatile("mcr p15, 0, %0, c13, c0, 1" ::"r"(0U) : "memory");
+    __asm__ volatile("isb" ::: "memory");
 
-    // No need to flush TLB when ASIDs are written
+    __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"(ttbr_value(as->pt_root_physaddr)) : "memory");
+    __asm__ volatile("isb" ::: "memory");
+
+    __asm__ volatile("mcr p15, 0, %0, c13, c0, 1" ::"r"((uint32_t)as->asid_token.asid) : "memory");
+    __asm__ volatile("isb" ::: "memory");
 }
 
 void arch_mmu_flush_tlb(void)

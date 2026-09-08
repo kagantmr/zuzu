@@ -21,10 +21,11 @@ static int asid_claim_in_range(int lo, int hi)
 {
     for (int i = lo; i < hi; i++)
     {
-        if (!asid_bit_test(i))
-        {
+        if (!asid_bit_test(i)) {
             asid_bit_set(i);
             next_asid = (asid_t)(i + 1);
+            arch_mmu_flush_tlb_asid((uint8_t)i);   // drop the previous owner's entries
+            arch_mmu_barrier();
             return i;
         }
     }
