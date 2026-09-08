@@ -10,7 +10,7 @@
 #include <stdatomic.h>
 #include <stdint.h>
 
-typedef struct cv {
+typedef struct {
     _Atomic uint32_t seq;      /* bumped by every signal/broadcast */
     _Atomic int      waiters;
     Semaphore        sem;      /* waiters block here; count starts 0 */
