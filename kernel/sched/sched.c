@@ -39,6 +39,8 @@ static bool on_idle_stack;
 
 static ListHead run_queues[SCHED_PRIORITY_LEVELS];
 
+bool fpu_access_enabled = true;
+
 _Static_assert(SCHED_PRIORITY_LEVELS <= 32, "ready_mask is a uint32_t");
 static uint32_t ready_mask = 0;
 
@@ -321,14 +323,16 @@ void __hot switch_to_thread(Thread *next)
     if (unlikely(next == prev))
         return;
 
-
-    if (unlikely(current_thread == fpu_owner))
-    {
-        arch_fpu_trap_enable();
-    }
-    else
-    {
-        arch_fpu_trap_disable();
+    if (unlikely(current_thread == fpu_owner)) {
+        if (!fpu_access_enabled) {
+            arch_fpu_trap_enable();
+            fpu_access_enabled = true;
+        }
+    } else {
+        if (fpu_access_enabled) {
+            arch_fpu_trap_disable();
+            fpu_access_enabled = false;
+        }
     }
 
     ProcessObj *prev_proc = prev ? prev->owner_process : NULL;
