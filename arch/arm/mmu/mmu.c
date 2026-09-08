@@ -421,11 +421,7 @@ void arch_mmu_switch(AddressSpace *as)
     // Write TTBR0 with the new address space's L1 table base.
     __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"(ttbr_value(as->pt_root_physaddr)) : "memory");
 
-    arch_mmu_barrier();
-
-    arch_mmu_flush_tlb_asid(as->asid_token.asid);
-
-    arch_mmu_barrier();
+    // No need to flush TLB when ASIDs are written
 }
 
 void arch_mmu_flush_tlb(void)
