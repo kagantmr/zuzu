@@ -90,4 +90,5 @@ uboot-src/
 # above). Non-generated resources placed directly under ZUZUSD/ (headers,
 # config files, vendored non-build assets) are tracked normally.
 ZUZUSD/*
-docs/
+docs/Doxyfile
+docs/groups.dox
