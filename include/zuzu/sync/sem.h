@@ -5,8 +5,12 @@
 
 #include "zuzu/err.h"
 #include <zuzu/types.h>
+#include <stdatomic.h>
 
-typedef struct sem Semaphore;
+typedef struct sem {
+    _Atomic int count;
+    Handle      ntfn;
+} Semaphore;
 
 Err SemInit(Semaphore* s, int initial_count);
 

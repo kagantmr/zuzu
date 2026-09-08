@@ -5,11 +5,6 @@
 #include <zuzu/tls.h>
 #include <stdatomic.h>
 
-typedef struct sem {
-    _Atomic int count;  
-    Handle     ntfn;
-} Semaphore;
-
 Err SemInit(Semaphore* s, int initial_count) {
     s->count = initial_count;
     s->ntfn = ZuzuNtfnCreate();
