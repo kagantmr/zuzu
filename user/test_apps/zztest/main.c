@@ -32,6 +32,7 @@
 #include <zuzu/syspage.h>
 #include <zuzu/protocols/exec.h>
 #include <zuzu/service.h>
+#include <zuzu/sync/primitives.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,7 +45,7 @@
 
 /* ---------------- harness ---------------- */
 
-#define MAX_SECTIONS 10
+#define MAX_SECTIONS 12
 static struct { const char *name; int pass, fail; } sections[MAX_SECTIONS];
 static int cur_sec = -1;
 
@@ -984,6 +985,134 @@ static void leak_loop_anon(void)
     }
 }
 
+/* ---------------- sync primitives (zone / sem / cv) ---------------- */
+
+#define SYNC_WORKERS 4
+#define SYNC_BUMPS   400
+
+static Zone         g_zone;
+static Semaphore    g_sem;
+static CondVariable g_cv;
+
+static volatile int32_t g_shared_ctr;
+static volatile int      g_cv_pred;
+static volatile int      g_cv_woken;
+
+/* non-atomic read-modify-write: a lost update is possible iff the zone
+ * fails to provide mutual exclusion. */
+static void zone_bump_worker(void *arg)
+{
+    (void)arg;
+    for (int i = 0; i < SYNC_BUMPS; i++) {
+        IN_ZONE(&g_zone) {
+            int32_t v = g_shared_ctr;
+            ZuzuSleep(0);            /* invite a preemption mid-critical-section */
+            g_shared_ctr = v + 1;
+        }
+    }
+    ZuzuTQuit(0);
+}
+
+/* posts three units after a delay; the main thread must block on the
+ * first two SemWait()s until these land. */
+static void sem_post_worker(void *arg)
+{
+    (void)arg;
+    ZuzuSleep(20);
+    SemPost(&g_sem);
+    SemPost(&g_sem);
+    SemPost(&g_sem);
+    ZuzuTQuit(0);
+}
+
+static void cv_wait_worker(void *arg)
+{
+    (void)arg;
+    IN_ZONE(&g_zone) {
+        while (!g_cv_pred)
+            CondVarWait(&g_cv, &g_zone);
+        g_cv_woken++;
+    }
+    ZuzuTQuit(0);
+}
+
+static void sec_sync(void)
+{
+    section("sync");
+
+    void *st[SYNC_WORKERS];
+    Tid   t[SYNC_WORKERS];
+    for (int i = 0; i < SYNC_WORKERS; i++) st[i] = stack_alloc();
+
+    /* ---- zone: init / trylock / mutual exclusion ---- */
+    CHECK_EQ(ZoneInit(&g_zone), ZUZU_OK, "ZoneInit");
+
+    CHECK_EQ(ZoneEnter(&g_zone), ZUZU_OK, "ZoneEnter free zone");
+    CHECK_EQ(ZoneTryEnter(&g_zone), ERR_BUSY, "ZoneTryEnter on held zone -> ERR_BUSY");
+    CHECK_EQ(ZoneExit(&g_zone), ZUZU_OK, "ZoneExit");
+    CHECK_EQ(ZoneTryEnter(&g_zone), ZUZU_OK, "ZoneTryEnter on free zone -> OK");
+    ZoneExit(&g_zone);
+
+    g_shared_ctr = 0;
+    for (int i = 0; i < SYNC_WORKERS; i++)
+        t[i] = ZuzuTMake(zone_bump_worker, (char *)st[i] + STACK_SIZE, NULL);
+    for (int i = 0; i < SYNC_WORKERS; i++) ZuzuTJoin(t[i]);
+    CHECK_EQ(g_shared_ctr, SYNC_WORKERS * SYNC_BUMPS,
+             "zone serialises RMW: no lost updates across 4 threads");
+
+    /* ---- semaphore: counting + blocking acquire ---- */
+    CHECK_EQ(SemInit(&g_sem, 2), ZUZU_OK, "SemInit(count=2)");
+
+    uint32_t t0 = uptime_ms();
+    CHECK_EQ(SemWait(&g_sem), ZUZU_OK, "SemWait consumes unit 1");
+    CHECK_EQ(SemWait(&g_sem), ZUZU_OK, "SemWait consumes unit 2");
+    CHECK(uptime_ms() - t0 < 10, "SemWait on available units does not block");
+
+    t[0] = ZuzuTMake(sem_post_worker, (char *)st[0] + STACK_SIZE, NULL);
+    t0 = uptime_ms();
+    CHECK_EQ(SemWait(&g_sem), ZUZU_OK, "SemWait blocks then wakes on SemPost");
+    CHECK(uptime_ms() - t0 >= 15, "blocking SemWait actually waited for the post");
+    CHECK_EQ(SemWait(&g_sem), ZUZU_OK, "counting sem: 2nd queued unit");
+    CHECK_EQ(SemWait(&g_sem), ZUZU_OK, "counting sem: 3rd queued unit");
+    ZuzuTJoin(t[0]);
+
+    /* ---- condvar: signal wakes one waiter ---- */
+    CHECK_EQ(CondVarInit(&g_cv), ZUZU_OK, "CondVarInit");
+
+    g_cv_pred = 0;
+    g_cv_woken = 0;
+    t[0] = ZuzuTMake(cv_wait_worker, (char *)st[0] + STACK_SIZE, NULL);
+    ZuzuSleep(20);                       /* let the worker reach CondVarWait */
+    IN_ZONE(&g_zone) {
+        g_cv_pred = 1;
+        CondVarSignal(&g_cv);
+    }
+    ZuzuTJoin(t[0]);
+    CHECK_EQ(g_cv_woken, 1, "CondVarSignal wakes the blocked waiter");
+
+    /* ---- condvar: broadcast wakes every waiter ---- */
+    g_cv_pred = 0;
+    g_cv_woken = 0;
+    for (int i = 0; i < SYNC_WORKERS; i++)
+        t[i] = ZuzuTMake(cv_wait_worker, (char *)st[i] + STACK_SIZE, NULL);
+    ZuzuSleep(30);
+    IN_ZONE(&g_zone) {
+        g_cv_pred = 1;
+        CondVarBroadcast(&g_cv);
+    }
+    for (int i = 0; i < SYNC_WORKERS; i++) ZuzuTJoin(t[i]);
+    CHECK_EQ(g_cv_woken, SYNC_WORKERS, "CondVarBroadcast wakes all 4 waiters");
+
+    /* ---- teardown ---- */
+    CHECK_EQ(CondVarDestroy(&g_cv), ZUZU_OK, "CondVarDestroy");
+    CHECK_EQ(SemDestroy(&g_sem), ZUZU_OK, "SemDestroy");
+    CHECK_EQ(ZoneDestroy(&g_zone), ZUZU_OK, "ZoneDestroy");
+
+    ZuzuSleep(10);                       /* deferred reaper frees TCB slots */
+    for (int i = 0; i < SYNC_WORKERS; i++)
+        if (st[i]) ZuzuMemUnmap(st[i]);
+}
+
 static void leak_loop_shm(void)
 {
     Handle sh = ZuzuShmemCreate(4096);
@@ -1071,6 +1200,7 @@ int main(void)
     sec_vfp();
     sec_version();
     sec_security();
+    sec_sync();
     sec_leaks();
 
     int total_pass = 0, total_fail = 0;
