@@ -6,12 +6,6 @@
 #include <zuzu/cap.h>
 #include <stdatomic.h>
 
-typedef struct zoneobj {
-    Tid owner;
-    _Atomic int locked;    
-    Handle ntfn;
-} Zone;
-
 Err ZoneInit(Zone* z) {
     z->locked = 0;
     z->owner = 0;
