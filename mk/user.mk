@@ -84,7 +84,7 @@ LIB_PROG_OBJS := $(foreach p,$(LIB_PROGS),$(USER_$(p)_OBJS))
 
 # zcrt: the user-side runtime for tier-1 — klib rebuilt with user flags, the
 # ZCRT libc (lib/), and the IPC runtime (lib/zuzu/).
-ZCRT_SRCS := $(wildcard klib/*.c lib/*.c lib/zuzu/*.c)
+ZCRT_SRCS := $(wildcard klib/*.c lib/*.c lib/zuzu/*.c lib/zuzu/sync/*.c)
 ZCRT_OBJS := $(patsubst %.c,build/user/zcrt/%.o,$(ZCRT_SRCS))
 
 ZCRT_ARCHIVE = build/user/libc.a
@@ -100,7 +100,7 @@ $(ZCRT_ARCHIVE): $(ZCRT_OBJS)
 # sbrk(), and without this object the linker pulls newlib's sbrk() from
 # libc.a, which calls _sbrk_r -> _sbrk -> sbrk: unbounded recursion that
 # runs the stack into the guard page on the first malloc.
-NEWLIB_ZCRT_SRCS := $(wildcard lib/zuzu/*.c) lib/sbrk.c
+NEWLIB_ZCRT_SRCS := $(wildcard lib/zuzu/*.c lib/zuzu/sync/*.c) lib/sbrk.c
 NEWLIB_ZCRT_OBJS := $(patsubst %.c,build/user/zcrt/%.o,$(NEWLIB_ZCRT_SRCS))
 NEWLIB_STUB_SRCS := $(wildcard lib/posix/*.c)
 NEWLIB_STUB_OBJS := $(patsubst lib/%.c,build/lib/%.o,$(NEWLIB_STUB_SRCS))
