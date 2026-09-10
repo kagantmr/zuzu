@@ -130,7 +130,7 @@ static __hot inline void IpcWakeThread(Thread *t)
 	CancelTimeout(t);
 	t->wake_reason = WAKE_IPC;
 	t->state = READY;
-	sched_add(t);
+	SchedAdd(t);
 }
 
 #ifdef ZUZU_BENCH
@@ -295,7 +295,7 @@ void __attribute__((hot)) SysMsgSend(CpuState *frame)
 			CancelTimeout(rx_thread);
 			rx_thread->wake_reason = WAKE_IPC;
 			rx_thread->state = READY;
-			sched_add(rx_thread);
+			SchedAdd(rx_thread);
 		} else {
 			CpuState *rx_frame = rx_thread->trap_frame;
 #ifdef DEBUG
@@ -312,7 +312,7 @@ void __attribute__((hot)) SysMsgSend(CpuState *frame)
 			CancelTimeout(rx_thread);
 			rx_thread->wake_reason = WAKE_IPC;
 			rx_thread->state = READY;
-			sched_add(rx_thread);
+			SchedAdd(rx_thread);
 		}
 		(*arch_reg(frame, 0)) = 0;
 	} else {
@@ -321,7 +321,7 @@ void __attribute__((hot)) SysMsgSend(CpuState *frame)
 		current_thread->port_marker = entry->marker;
 		list_add_tail(&current_thread->node, &port->sender_queue.node);
 		current_thread->state = BLOCKED;
-		schedule();
+		Schedule();
 	}
 }
 
@@ -376,7 +376,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 				(*arch_reg(frame, 3)) = 0;
 				sr_thread->lmsg_buf_xfer_len = 0;
 			}
-			sched_add(sr_thread);
+			SchedAdd(sr_thread);
 		} else if (sr_thread->ipc_state == IPC_WAITING) {
 			// Use the pre-allocated reply cap
 			ReplyCap *rc = sr_thread->pending_reply_cap;
@@ -398,7 +398,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 				CancelTimeout(sr_thread);
 				sr_thread->wake_reason = WAKE_IPC;
 				sr_thread->state = READY;
-				sched_add(sr_thread);
+				SchedAdd(sr_thread);
 				arch_reg_set(frame, 0, ERR_NOMEM);
 				return;
 			}
@@ -413,7 +413,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 				CancelTimeout(sr_thread);
 				sr_thread->wake_reason = WAKE_IPC;
 				sr_thread->state = READY;
-				sched_add(sr_thread);
+				SchedAdd(sr_thread);
 				arch_reg_set(frame, 0, ERR_NOMEM);
 				return;
 			}
@@ -458,12 +458,12 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 
 		if (unlikely(timeout_ms != TIMEOUT_INFINITE)) {
 			current_thread->wake_deadline = ArchDeadlineFromMs(timeout_ms);
-			sleep_queue_insert(current_thread);
+			SchedInsertSleepQueue(current_thread);
 		} else {
 			current_thread->wake_deadline = 0;
 		}
 
-		schedule();
+		Schedule();
 
 #ifdef DEBUG
 		if (!IsFrameNormal(frame))
@@ -593,10 +593,10 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		 * to the normal sched_add()+schedule() path. */
 		if (unlikely(SchedAnyCpuTakers(rx_thread))) {
 			rx_thread->state = READY;
-			sched_add(rx_thread);
-			schedule();
+			SchedAdd(rx_thread);
+			Schedule();
 		} else {
-			switch_to_thread(rx_thread);
+			SchedSwitchNext(rx_thread);
 		}
 	} else {
 		current_thread->ipc_state = IPC_WAITING;
@@ -605,7 +605,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		current_thread->port_marker = entry->marker;
 		list_add_tail(&current_thread->node, &port->sender_queue.node);
 		current_thread->state = BLOCKED;
-		schedule();
+		Schedule();
 	}
 }
 
@@ -640,7 +640,7 @@ void __attribute__((hot)) SysMsgReply(CpuState *frame)
 	CancelTimeout(target_thread);
 	target_thread->wake_reason = WAKE_IPC;
 	target_thread->state = READY;
-	sched_add(target_thread);
+	SchedAdd(target_thread);
 
 	ProcessUntrackReplyCap(entry->reply);
 	KFreeReplyCap(entry->reply);
@@ -692,7 +692,7 @@ void __attribute__((hot)) SysMsgLsend(CpuState *frame)
 			CancelTimeout(rx_thread);
 			rx_thread->wake_reason = WAKE_IPC;
 			rx_thread->state = READY;
-			sched_add(rx_thread);
+			SchedAdd(rx_thread);
 		} else {
 			CpuState *rx_frame = rx_thread->trap_frame;
 #ifdef DEBUG
@@ -710,7 +710,7 @@ void __attribute__((hot)) SysMsgLsend(CpuState *frame)
 			CancelTimeout(rx_thread);
 			rx_thread->wake_reason = WAKE_IPC;
 			rx_thread->state = READY;
-			sched_add(rx_thread);
+			SchedAdd(rx_thread);
 		}
 		(*arch_reg(frame, 0)) = 0;
 	} else {
@@ -720,7 +720,7 @@ void __attribute__((hot)) SysMsgLsend(CpuState *frame)
 		list_add_tail(&current_thread->node, &port->sender_queue.node);
 		current_thread->lmsg_buf_xfer_len = xlen;
 		current_thread->state = BLOCKED;
-		schedule();
+		Schedule();
 	}
 }
 
@@ -823,10 +823,10 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 		/* Direct handoff -- see the identical comment in SysMsgCall(). */
 		if (unlikely(SchedAnyCpuTakers(rx_thread))) {
 			rx_thread->state = READY;
-			sched_add(rx_thread);
-			schedule();
+			SchedAdd(rx_thread);
+			Schedule();
 		} else {
-			switch_to_thread(rx_thread);
+			SchedSwitchNext(rx_thread);
 		}
 	} else {
 		current_thread->ipc_state = IPC_WAITING;
@@ -836,7 +836,7 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 		list_add_tail(&current_thread->node, &port->sender_queue.node);
 		current_thread->lmsg_buf_xfer_len = xlen;
 		current_thread->state = BLOCKED;
-		schedule();
+		Schedule();
 	}
 }
 
@@ -880,7 +880,7 @@ void __attribute__((hot)) SysMsgLreply(CpuState *frame)
 	CancelTimeout(target_thread);
 	target_thread->wake_reason = WAKE_IPC;
 	target_thread->state = READY;
-	sched_add(target_thread);
+	SchedAdd(target_thread);
 
 	ProcessUntrackReplyCap(entry->reply);
 	KFreeReplyCap(entry->reply);
@@ -926,7 +926,7 @@ static int WaitanyDeliverSender(uint32_t matched_index, Thread *receiver, ListNo
 			sr_thread->lmsg_buf_xfer_len = 0;
 		}
 
-		sched_add(sr_thread);
+		SchedAdd(sr_thread);
 		return 0;
 	}
 
@@ -1275,12 +1275,12 @@ void SysWaitAny(CpuState *frame)
 
 		if (timeout_ms != TIMEOUT_INFINITE) {
 			current_thread->wake_deadline = deadline;
-			sleep_queue_insert(current_thread);
+			SchedInsertSleepQueue(current_thread);
 		} else {
 			current_thread->wake_deadline = 0;
 		}
 
-		schedule();
+		Schedule();
 
 		/* Cancel sleep queue entry if not timed out */
 		if (timeout_ms != TIMEOUT_INFINITE && current_thread->wake_reason != WAKE_TIMEOUT &&

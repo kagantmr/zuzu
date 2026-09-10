@@ -75,7 +75,7 @@ void SysTMake(CpuState *frame)
 	    (void *)t->kernel_stack_top, (uintptr_t)entry, (uintptr_t)usr_sp, USER_ELF_BASE,
 	    (uint32_t)arg, 0, &t->trap_frame);
 	t->state = READY;
-	sched_add(t);
+	SchedAdd(t);
 
 	arch_reg_set(frame, 0, (Tid)t->tid);
 }
@@ -96,7 +96,7 @@ void SysTJoin(CpuState *frame)
 	if (thread->state != ZOMBIE) {
 		current_thread->owner_process->waiting_for_tid = tid;
 		current_thread->state = BLOCKED;
-		schedule();
+		Schedule();
 
 		/* `process_wake_joiners` delivered the exit status into our
 		 * trap frame before making us READY; do not access `thread`
@@ -130,8 +130,8 @@ void SysTQuit(CpuState *frame)
 		// remove from process thread list NOW so process_destroy won't see it
 		if (t->process_node.prev && t->process_node.next)
 			list_remove(&t->process_node);
-		sched_defer_destroy_thread(t);
+		SchedQueueDestroyThread(t);
 	}
 
-	schedule();
+	Schedule();
 }

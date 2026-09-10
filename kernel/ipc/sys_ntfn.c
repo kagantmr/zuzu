@@ -130,12 +130,12 @@ void SysNtfnWait(CpuState *frame)
 
     if (timeout_ms != TIMEOUT_INFINITE) {
         current_thread->wake_deadline = ArchDeadlineFromMs(timeout_ms);
-        sleep_queue_insert(current_thread);
+        SchedInsertSleepQueue(current_thread);
     } else {
         current_thread->wake_deadline = 0;
     }
 
-    schedule();
+    Schedule();
 
     if (timeout_ms != TIMEOUT_INFINITE && current_thread->wake_reason != WAKE_TIMEOUT &&
         current_thread->timeout_node.prev && current_thread->timeout_node.next) {

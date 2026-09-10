@@ -121,7 +121,7 @@ void SysDestroy(CpuState *frame)
             t->blocked_port = NULL;
             arch_reg_set(t->trap_frame, 0, ERR_DEAD);
             t->state = READY;
-            sched_add(t);
+            SchedAdd(t);
         }
 
         // Wake all blocked receivers with error
@@ -147,7 +147,7 @@ void SysDestroy(CpuState *frame)
             t->wake_deadline = 0;
             t->wake_reason = WAKE_IPC;
             t->state = READY;
-            sched_add(t);
+            SchedAdd(t);
         }
 
         port->alive = false;
