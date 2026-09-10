@@ -28,14 +28,15 @@ void SysPortCreate(CpuState *frame)
         return;
     }
 
-    Handle handle = handle_vec_find_free(&current_thread->owner_process->handle_table);
+    Handle handle = HandleTableFindFree(&current_thread->owner_process->handle_table);
     if (handle == -1)
     {
         arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }
 
-    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle);
+    HandleTable *ht = &current_thread->owner_process->handle_table;
+    HandleEntry *entry = HandleTableGet(ht, (uint32_t)handle);
 
     Port *new_port = (Port *)KAllocPortObj();
     if (!new_port)
@@ -52,6 +53,7 @@ void SysPortCreate(CpuState *frame)
     entry->port = new_port;
     entry->grantable = true;
     entry->type = HANDLE_PORT;
+    HandleEntryClaim(ht, entry);
 
     arch_reg_set(frame, 0, handle);
 }
@@ -67,7 +69,8 @@ void SysDestroy(CpuState *frame)
     int handle = (int)(*arch_reg(frame, 0));
 
     // Validate handle
-    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle);
+    HandleTable *ht = &current_thread->owner_process->handle_table;
+    HandleEntry *entry = HandleTableGet(ht, (uint32_t)handle);
     if (!entry)
     {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
@@ -97,9 +100,7 @@ void SysDestroy(CpuState *frame)
 
         if (!port->alive)
         {
-            entry->port = NULL;
-            entry->grantable = false;
-            entry->type = HANDLE_FREE;
+            HandleEntryFree(ht, entry);
             arch_reg_set(frame, 0, ERR_DEAD);
             return;
         }
@@ -151,9 +152,7 @@ void SysDestroy(CpuState *frame)
 
         port->alive = false;
 
-        entry->port = NULL;
-        entry->grantable = false;
-        entry->type = HANDLE_FREE;
+        HandleEntryFree(ht, entry);
 
         if (port->ref_count > 0)
             port->ref_count--;
@@ -174,9 +173,7 @@ void SysDestroy(CpuState *frame)
 
         if (!ntf->alive)
         {
-            entry->ntfn = NULL;
-            entry->grantable = false;
-            entry->type = HANDLE_FREE;
+            HandleEntryFree(ht, entry);
             arch_reg_set(frame, 0, ERR_DEAD);
             return;
         }
@@ -198,9 +195,7 @@ void SysDestroy(CpuState *frame)
 
         ntf->alive = false;
 
-        entry->ntfn = NULL;
-        entry->grantable = false;
-        entry->type = HANDLE_FREE;
+        HandleEntryFree(ht, entry);
 
         if (ntf->ref_count > 0)
             ntf->ref_count--;
@@ -221,9 +216,7 @@ void SysDestroy(CpuState *frame)
 
         // Drop this handle's reference; frees the object when it was the last.
         ShmemDropReference(entry->shm);
-        entry->shm = NULL;
-        entry->grantable = false;
-        entry->type = HANDLE_FREE;
+        HandleEntryFree(ht, entry);
 
         (*arch_reg(frame, 0)) = 0;
     }
@@ -244,10 +237,7 @@ void SysDestroy(CpuState *frame)
             return;
         }
 
-        entry->dev = NULL;
-        entry->mapped_va = 0;
-        entry->grantable = false;
-        entry->type = HANDLE_FREE;
+        HandleEntryFree(ht, entry);
 
         if (dev->ref_count > 0)
             dev->ref_count--;
@@ -272,9 +262,7 @@ void SysDestroy(CpuState *frame)
             return;
         }
 
-        entry->task = NULL;
-        entry->grantable = false;
-        entry->type = HANDLE_FREE;
+        HandleEntryFree(ht, entry);
         // reap: drop the parent's reference / free the process_t
         (*arch_reg(frame, 0)) = 0;
     }
@@ -300,7 +288,7 @@ void SysGrant(CpuState *frame)
 
     // Validate handle
     HandleEntry *src =
-        handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle);
+        HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)handle);
     if (!src || src->type == HANDLE_FREE)
     {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
@@ -332,14 +320,15 @@ void SysGrant(CpuState *frame)
         return;
     }
 
-    int slot = handle_vec_find_free(&grantee->handle_table);
+    HandleTable *grantee_ht = &grantee->handle_table;
+    int slot = HandleTableFindFree(grantee_ht);
     if (slot < 0)
     {
         arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }
 
-    HandleEntry *dst = handle_vec_get(&grantee->handle_table, (uint32_t)slot);
+    HandleEntry *dst = HandleTableGet(grantee_ht, (uint32_t)slot);
     if (!dst)
     {
         arch_reg_set(frame, 0, ERR_NOMEM);
@@ -352,9 +341,7 @@ void SysGrant(CpuState *frame)
     {
         if (!dst->port || !dst->port->alive)
         {
-            dst->type = HANDLE_FREE;
-            dst->grantable = false;
-            dst->port = NULL;
+            HandleEntryFree(grantee_ht, dst);
             arch_reg_set(frame, 0, ERR_DEAD);
             return;
         }
@@ -364,8 +351,7 @@ void SysGrant(CpuState *frame)
     {
         if (!dst->dev)
         {
-            dst->type = HANDLE_FREE;
-            dst->grantable = false;
+            HandleEntryFree(grantee_ht, dst);
             arch_reg_set(frame, 0, ERR_BADARG);
             return;
         }
@@ -375,9 +361,7 @@ void SysGrant(CpuState *frame)
     {
         if (!dst->ntfn || !dst->ntfn->alive)
         {
-            dst->type = HANDLE_FREE;
-            dst->grantable = false;
-            dst->ntfn = NULL;
+            HandleEntryFree(grantee_ht, dst);
             arch_reg_set(frame, 0, ERR_DEAD);
             return;
         }
@@ -391,6 +375,7 @@ void SysGrant(CpuState *frame)
             dst->shm->ref_count++; // new handle reference to the same object
     }
     dst->grantable = (flags & GRANT_REGRANTABLE) || CanRegrantHandle(grantee);
+    HandleEntryClaim(grantee_ht, dst);
     arch_reg_set(frame, 0, (Handle)slot);
 }
 
@@ -407,7 +392,8 @@ void SysStamp(CpuState *frame)
     }
 
     // 2. resolve the source handle
-    HandleEntry *src = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)src_handle);
+    HandleTable *ht = &current_thread->owner_process->handle_table;
+    HandleEntry *src = HandleTableGet(ht, (uint32_t)src_handle);
     if (!src)
     {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
@@ -433,8 +419,12 @@ void SysStamp(CpuState *frame)
         return;
     }
 
-    // 5. allocate a new slot in the CALLER's table
-    int slot = handle_vec_find_free(&current_thread->owner_process->handle_table);
+    // 5. allocate a new slot in the CALLER's table. FindFree may grow (and
+    // thus realloc) the table, invalidating src -- capture what we need first.
+    Port *src_port = src->port;
+    bool src_grantable = src->grantable;
+
+    int slot = HandleTableFindFree(ht);
     if (slot < 0)
     {
         arch_reg_set(frame, 0, ERR_NOMEM);
@@ -442,17 +432,18 @@ void SysStamp(CpuState *frame)
     }
 
     // 6. new entry: SAME endpoint, marker = value
-    HandleEntry *ne = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)slot);
+    HandleEntry *ne = HandleTableGet(ht, (uint32_t)slot);
     if (!ne)
     {
         arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }
     ne->type = HANDLE_PORT;
-    ne->port = src->port;           // same underlying port object
-    ne->marker = value;             // the stamp
-    ne->grantable = src->grantable; // inherit grantability (see note)
-    src->port->ref_count++;
+    ne->port = src_port;           // same underlying port object
+    ne->marker = value;            // the stamp
+    ne->grantable = src_grantable; // inherit grantability (see note)
+    HandleEntryClaim(ht, ne);
+    src_port->ref_count++;
 
     // 7. return the new handle; src is UNTOUCHED (non-consuming)
     arch_reg_set(frame, 0, slot);
@@ -487,7 +478,7 @@ void SysSetLabel(CpuState *frame)
     else
     {
 
-        HandleEntry *src = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)src_handle);
+        HandleEntry *src = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)src_handle);
         if (!src)
         {
             arch_reg_set(frame, 0, ERR_BADHANDLE);

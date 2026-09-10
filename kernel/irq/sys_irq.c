@@ -95,7 +95,7 @@ void SysIrqBind(CpuState *frame)
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
     }
-    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)dev_handle);
+    HandleEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)dev_handle);
     if (!entry) {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
@@ -121,7 +121,7 @@ void SysIrqBind(CpuState *frame)
     /* Validate the notification before mutating any state so a bad ntfn handle
      * does not leave the line claimed-but-unbound. */
     HandleEntry *ntfn_entry =
-        handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)ntfn_handle);
+        HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)ntfn_handle);
     if (!ntfn_entry || !ntfn_entry->ntfn) {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
@@ -204,7 +204,7 @@ void SysIrqDone(CpuState *frame)
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
     }
-    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)dev_handle);
+    HandleEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)dev_handle);
     if (!entry) {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;

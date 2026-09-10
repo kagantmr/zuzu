@@ -24,7 +24,7 @@ void SysDevQuery(CpuState *frame) {
         arch_reg_set(frame, 0, ERR_BADARG); return;
     }
 
-    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle_idx);
+    HandleEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)handle_idx);
     if (!entry) {
         arch_reg_set(frame, 0, ERR_BADHANDLE); return;
     }

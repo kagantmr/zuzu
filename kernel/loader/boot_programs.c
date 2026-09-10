@@ -52,15 +52,15 @@ static void inject_device_cap(const char *compatible,
     cap->size = (uint32_t)size;
     cap->irq = irq;
     cap->ref_count = 1;
-    // 3. handle_vec_find_free on s_devmgr->handle_table
-    int handle = handle_vec_find_free(&s_devmgr->handle_table);
+    // 3. HandleTableFindFree on s_devmgr->handle_table
+    int handle = HandleTableFindFree(&s_devmgr->handle_table);
     if (handle < 0)
     {
         KFreeDevCap(cap);
         return;
     }
-    // 4. handle_vec_get that slot, write HANDLE_DEVICE entry
-    HandleEntry *entry = handle_vec_get(&s_devmgr->handle_table, (uint32_t)handle);
+    // 4. HandleTableGet that slot, write HANDLE_DEVICE entry
+    HandleEntry *entry = HandleTableGet(&s_devmgr->handle_table, (uint32_t)handle);
     if (!entry)
     {
         KFreeDevCap(cap);
@@ -70,6 +70,7 @@ static void inject_device_cap(const char *compatible,
     entry->grantable = true;
     entry->mapped_va = 0;
     entry->dev = cap;
+    HandleEntryClaim(&s_devmgr->handle_table, entry);
 }
 
 /* devmgr's entry point/sp as computed by a parse-only peek at its ELF
@@ -380,17 +381,18 @@ void boot_programs_spawn_all(PhysAddr initrd_pa, size_t initrd_size)
      * fixed slot sysd's userspace code already knows by constant, so sysd
      * can SysKickstart devmgr without ever calling SysPSpawn for it. Same
      * direct-write pattern as inject_device_cap() above, just at a fixed
-     * slot instead of one returned by handle_vec_find_free. */
+     * slot instead of one returned by HandleTableFindFree. */
     if (s_sysd && s_devmgr)
     {
         HandleEntry *devmgr_task_slot =
-            handle_vec_get(&s_sysd->handle_table, SYSD_DEVMGR_TASK_HANDLE_SLOT);
+            HandleTableGet(&s_sysd->handle_table, SYSD_DEVMGR_TASK_HANDLE_SLOT);
         if (devmgr_task_slot)
         {
             devmgr_task_slot->type = HANDLE_TASK;
             devmgr_task_slot->grantable = true;
             devmgr_task_slot->mapped_va = 0;
             devmgr_task_slot->task = s_devmgr;
+            HandleEntryClaim(&s_sysd->handle_table, devmgr_task_slot);
         }
         else
         {

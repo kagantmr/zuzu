@@ -360,7 +360,7 @@ fail_kstack:
         arch_mmu_free_user_pages(p->as);
     AddrspaceDestroy(p->as);
     memset(p->tcb_page_pa, 0, sizeof(p->tcb_page_pa));
-    handle_vec_destroy(&p->handle_table);
+    HandleTableDestroy(&p->handle_table);
     ThreadDestroy(t);
 fail_process:
     KFree(p);
@@ -392,7 +392,7 @@ ProcessObj *ProcessCreate(const char *name)
         goto fail_process;
     p->thread = t;
 
-    if (!handle_vec_init(&p->handle_table))
+    if (!HandleTableInit(&p->handle_table))
         goto fail_process;
 
     p->as = AddrspaceCreate(ADDRSPACE_USER);
@@ -530,7 +530,7 @@ fail_kstack:
     AddrspaceDestroy(p->as);
     memset(p->tcb_page_pa, 0, sizeof(p->tcb_page_pa));
 fail_handles:
-    handle_vec_destroy(&p->handle_table);
+    HandleTableDestroy(&p->handle_table);
     ThreadDestroy(t);
 fail_process:
     KFree(p);
@@ -562,13 +562,11 @@ static void process_revoke_outstanding_reply_caps(ProcessObj *caller)
         ProcessObj *holder = ProcessFindByPid(rc->holder_pid);
         if (holder)
         {
-            HandleEntry *entry = handle_vec_get(&holder->handle_table, (uint32_t)rc->holder_slot);
+            HandleEntry *entry = HandleTableGet(&holder->handle_table, (uint32_t)rc->holder_slot);
 
             if (entry && entry->type == HANDLE_REPLY && entry->reply == rc)
             {
-                entry->reply = NULL;
-                entry->grantable = false;
-                entry->type = HANDLE_FREE;
+                HandleEntryFree(&holder->handle_table, entry);
             }
         }
 
@@ -707,7 +705,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
     // Clean up handle table
     for (uint32_t i = 0; i < p->handle_table.cap; i++)
     {
-        HandleEntry *entry = handle_vec_get(&p->handle_table, i);
+        HandleEntry *entry = HandleTableGet(&p->handle_table, i);
         if (!entry)
             break;
 
@@ -763,9 +761,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                 if (port->ref_count == 0)
                     KFreePortObj(port);
             }
-            entry->port = NULL;
-            entry->grantable = false;
-            entry->type = HANDLE_FREE;
+            HandleEntryFree(&p->handle_table, entry);
         }
         else if (entry->type == HANDLE_DEVICE)
         {
@@ -776,10 +772,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                 if (entry->dev->ref_count == 0)
                     KFreeDevCap(entry->dev);
             }
-            entry->dev = NULL;
-            entry->mapped_va = 0;
-            entry->grantable = false;
-            entry->type = HANDLE_FREE;
+            HandleEntryFree(&p->handle_table, entry);
         }
         else if (entry->type == HANDLE_SHM)
         {
@@ -793,10 +786,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                     VmmRemoveRegion(p->as, entry->mapped_va, shm->page_count * PAGE_SIZE);
                 ShmemDropReference(shm);
             }
-            entry->shm = NULL;
-            entry->mapped_va = 0;
-            entry->grantable = false;
-            entry->type = HANDLE_FREE;
+            HandleEntryFree(&p->handle_table, entry);
         }
         else if (entry->type == HANDLE_REPLY)
         {
@@ -820,9 +810,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                 KFreeReplyCap(rc);
             }
 
-            entry->reply = NULL;
-            entry->grantable = false;
-            entry->type = HANDLE_FREE;
+            HandleEntryFree(&p->handle_table, entry);
         }
         else if (entry->type == HANDLE_NTFN)
         {
@@ -857,18 +845,13 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                 if (ntfn->ref_count == 0)
                     KFree(ntfn);
             }
-            entry->ntfn = NULL;
-            entry->grantable = false;
-            entry->type = HANDLE_FREE;
+            HandleEntryFree(&p->handle_table, entry);
         }
         else if (entry->type == HANDLE_TASK)
         {
             // No special cleanup needed for task handles since they don't have kernel
             // objects associated with them
-            entry->task = NULL;
-            entry->mapped_va = 0;
-            entry->grantable = false;
-            entry->type = HANDLE_FREE;
+            HandleEntryFree(&p->handle_table, entry);
         }
     }
 
@@ -934,7 +917,7 @@ void ProcessDestroy(ProcessObj *p)
      * as_destroy so the address space is still valid for unmapping. */
     for (uint32_t i = 0; i < p->handle_table.cap; i++)
     {
-        HandleEntry *entry = handle_vec_get(&p->handle_table, i);
+        HandleEntry *entry = HandleTableGet(&p->handle_table, i);
         if (!entry)
             break;
         if (entry->type == HANDLE_SHM && entry->shm)
@@ -942,9 +925,7 @@ void ProcessDestroy(ProcessObj *p)
             if (p->as && entry->mapped_va != 0)
                 VmmRemoveRegion(p->as, entry->mapped_va, entry->shm->page_count * PAGE_SIZE);
             ShmemDropReference(entry->shm);
-            entry->shm = NULL;
-            entry->mapped_va = 0;
-            entry->type = HANDLE_FREE;
+            HandleEntryFree(&p->handle_table, entry);
         }
     }
     if (p->as)
@@ -952,7 +933,7 @@ void ProcessDestroy(ProcessObj *p)
         arch_mmu_free_user_pages(p->as);
         AddrspaceDestroy(p->as);
     }
-    handle_vec_destroy(&p->handle_table);
+    HandleTableDestroy(&p->handle_table);
     process_table[p->pid % MAX_PROCESSES] = NULL;
     KFree(p);
 }
