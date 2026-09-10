@@ -11,6 +11,7 @@
 #include "kernel/layout.h"
 #include <arch/asid.h>
 #include <zuzu/types.h>
+#include <arch/barrier.h>
 #include <stdlib.h>
 
 // Track kernel and current address spaces
@@ -128,7 +129,7 @@ bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, ui
     }
 
     arch_mmu_flush_tlb_va(page_va);
-    arch_mmu_barrier();
+    ArchCtxSync();
     return true;
 }
 
@@ -209,12 +210,12 @@ void VmmLockdownKernelMapping(void) {
         }
     }
     
-    arch_mmu_barrier();
+    ArchCtxSync();
 
     // Flush TLB so old permissions are gone
     arch_mmu_flush_tlb();
 
-    arch_mmu_barrier();
+    ArchCtxSync();
 }
 
 void AddrspaceDestroy(AddressSpace* as) {

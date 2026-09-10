@@ -2,6 +2,7 @@
 #include "kernel/syscall/syscall.h"
 #include "kernel/sched/sched.h"
 #include <arch/mmu.h>
+#include <arch/barrier.h>
 #include <arch/cache.h>
 #include "core/panic.h"
 #include "kernel/mm/pmm.h"
@@ -191,7 +192,7 @@ static int32_t memmap_dev(ProcessObj *restrict p, HandleEntry *restrict e, MemPr
 
     // flush TLB for this VA
     arch_mmu_flush_tlb_va(user_va);
-    arch_mmu_barrier();
+    ArchCtxSync();
 
     p->device_va_next += size_aligned;
     e->mapped_va = user_va;

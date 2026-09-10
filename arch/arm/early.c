@@ -7,6 +7,7 @@
 // linker.ld / _start.S, so this file does not change when adding a board.
 #include <arch/symbols.h>
 #include <arch/irq.h>
+#include <arch/barrier.h>
 #include <arch/platform.h>
 #include <arch/mmu.h>
 #include "kernel/layout.h"
@@ -46,7 +47,7 @@ static void early_map_ram_sections(uintptr_t ram_base, size_t ram_size) {
     }
 
     arch_mmu_flush_tlb();
-    arch_mmu_barrier();
+    ArchCtxSync();
 }
 
 static void pmu_init(void) {

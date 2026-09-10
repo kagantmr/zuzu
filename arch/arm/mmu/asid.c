@@ -3,6 +3,7 @@
 #include <arch/asid.h>
 #include <string.h>
 #include <arch/mmu.h>
+#include <arch/barrier.h>
 
 #define ASID_COUNT 256          // ARMv7-A short-descriptor ASID space (8-bit)
 #define ASID_BITMAP_BYTES 32    // ASID_COUNT / 8
@@ -25,7 +26,7 @@ static int asid_claim_in_range(int lo, int hi)
             asid_bit_set(i);
             next_asid = (asid_t)(i + 1);
             arch_mmu_flush_tlb_asid((uint8_t)i);   // drop the previous owner's entries
-            arch_mmu_barrier();
+            ArchCtxSync();
             return i;
         }
     }
