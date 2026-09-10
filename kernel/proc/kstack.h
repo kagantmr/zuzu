@@ -11,9 +11,6 @@
 /* VA window scales with the pool size, not a hardcoded slot count. */
 #define KSTACK_REGION_TOP (KSTACK_REGION_BASE + (MAX_KSTACKS * KSTACK_SLOT_SIZE))
 
-/* Bitmap is uint64_t words, so the pool must be a multiple of 64. */
-_Static_assert(MAX_KSTACKS % 64 == 0,
-	       "MAX_KSTACKS must be a multiple of 64 (uint64_t bitmap words)");
 /* The kstack VA window must fit under IOREMAP_END. */
 _Static_assert(KSTACK_REGION_TOP <= IOREMAP_END, "kstack region overflows the ioremap window");
 

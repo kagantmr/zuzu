@@ -240,7 +240,7 @@ void IrqReleaseAll(Process *owner)
                 if (ntfn->ref_count > 0)
                     ntfn->ref_count--;
                 if (ntfn->ref_count == 0)
-                    KFree(ntfn);
+                    KFreeNtfn(ntfn);
                 irq_owners[i].bound_ntfn = NULL;
             }
             arch_irq_disable_line((uint32_t)i);

@@ -28,6 +28,7 @@
 
 uint32_t next_pid = 1;
 ProcessObj *process_table[MAX_PROCESSES];
+static KHeapSlabCache process_cache;
 
 static bool ZxfSegChkOverlap(const ZXFSegment *a, const ZXFSegment *b)
 {
@@ -363,7 +364,7 @@ fail_kstack:
     HandleTableDestroy(&p->handle_table);
     ThreadDestroy(t);
 fail_process:
-    KFree(p);
+    KSlabFree(&process_cache, p);
     return NULL;
 }
 
@@ -379,9 +380,12 @@ void ProcessTrackReplyCap(ProcessObj *restrict caller, ProcessObj *restrict hold
 
 ProcessObj *ProcessCreate(const char *name)
 {
-    ProcessObj *p = KZAlloc(sizeof(ProcessObj));
+    if (!process_cache.obj_size)
+        KSlabInit(&process_cache, "ProcessObj", sizeof(ProcessObj));
+    ProcessObj *p = KSlabAlloc(&process_cache);
     if (!p)
         return NULL;
+    memset(p, 0, sizeof(ProcessObj));
 
     list_init(&p->outstanding_replies);
     list_init(&p->threads);
@@ -533,7 +537,7 @@ fail_handles:
     HandleTableDestroy(&p->handle_table);
     ThreadDestroy(t);
 fail_process:
-    KFree(p);
+    KSlabFree(&process_cache, p);
     return NULL;
 }
 
@@ -843,7 +847,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                 if (ntfn->ref_count > 0)
                     ntfn->ref_count--;
                 if (ntfn->ref_count == 0)
-                    KFree(ntfn);
+                    KFreeNtfn(ntfn);
             }
             HandleEntryFree(&p->handle_table, entry);
         }
@@ -935,5 +939,5 @@ void ProcessDestroy(ProcessObj *p)
     }
     HandleTableDestroy(&p->handle_table);
     process_table[p->pid % MAX_PROCESSES] = NULL;
-    KFree(p);
+    KSlabFree(&process_cache, p);
 }

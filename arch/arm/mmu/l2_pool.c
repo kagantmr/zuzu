@@ -3,23 +3,22 @@
 #include "l2_pool.h"
 #include "kernel/mm/pmm.h"
 #include "kernel/mm/alloc.h"
+#include "zuzu/types.h"
 #include <arch/mmu.h>
 #include <string.h>
 #include <spinlock.h>
 
-#define L2_TABLE_SIZE 1024u                 // one ARMv7 L2 table is 1 KB
+#define L2_TABLE_SIZE 1024U                 // one ARMv7 L2 table is 1 KB
 #define L2_PER_PAGE (PAGE_SIZE / L2_TABLE_SIZE) // 4 L2 tables packed per 4 KB page
 #define L2_SLOTS_FULL ((1u << L2_PER_PAGE) - 1u) // used_mask value when all slots taken
 #define PAGE_OFFSET_MASK (PAGE_SIZE - 1u)
 
-static l2_pool_entry_t *pool_head = NULL;
-spinlock_t l2_pool_lock = SPINLOCK_INIT;
+static L2PtPoolEntry *pool_head = NULL;
+static KHeapSlabCache l2_entry_cache;
 
-uintptr_t l2_pool_alloc(void)
+uintptr_t L2PtPoolAlloc(void)
 {
-    uint32_t flags;
-    spin_lock_irqsave(&l2_pool_lock, &flags); // lock the pool for safety
-    for (l2_pool_entry_t *entry = pool_head; entry; entry = entry->next)
+    for (L2PtPoolEntry *entry = pool_head; entry; entry = entry->next)
     {
         if (entry->used_mask == L2_SLOTS_FULL)
             continue; // all slots occupied
@@ -29,10 +28,9 @@ uintptr_t l2_pool_alloc(void)
         {
             if (!(entry->used_mask & (1 << slot)))
             {
-                entry->used_mask = (uint8_t)(entry->used_mask | (1u << slot));
+                entry->used_mask = (uint8_t)(entry->used_mask | (1U << slot));
                 uintptr_t pa = entry->page_pa + (slot * L2_TABLE_SIZE);
                 memset((void *)PA_TO_VA(pa), 0, L2_TABLE_SIZE);
-                spin_unlock_irqrestore(&l2_pool_lock, flags);
                 return pa;
             }
         }
@@ -42,15 +40,15 @@ uintptr_t l2_pool_alloc(void)
     uintptr_t page_pa = PmmAllocFrame();
     if (!page_pa)
     {
-        spin_unlock_irqrestore(&l2_pool_lock, flags);
         return 0; // out of physical memory
     }
 
-    l2_pool_entry_t *entry = KZAlloc(sizeof(l2_pool_entry_t));
+    if (!l2_entry_cache.obj_size)
+        KSlabInit(&l2_entry_cache, "L2PtPoolEntry", sizeof(L2PtPoolEntry));
+    L2PtPoolEntry *entry = KSlabAlloc(&l2_entry_cache);
     if (!entry)
     {
         PmmFreeFrame(page_pa);
-        spin_unlock_irqrestore(&l2_pool_lock, flags);
         return 0; // out of memory for pool entry
     }
 
@@ -61,25 +59,21 @@ uintptr_t l2_pool_alloc(void)
     entry->next = pool_head;
     pool_head = entry;
 
-    spin_unlock_irqrestore(&l2_pool_lock, flags); // release lock
     return page_pa;                               // slot 0 is at offset 0
 }
 
-void l2_pool_free(uintptr_t l2_pa)
+void L2PtPoolFree(PhysAddr l2_pa)
 {
-    uint32_t flags;
-    spin_lock_irqsave(&l2_pool_lock, &flags);
     if (!l2_pa)
     {
-        spin_unlock_irqrestore(&l2_pool_lock, flags);
         return;
     }
 
     uintptr_t page_pa = l2_pa & ~PAGE_OFFSET_MASK;
     int slot = (int)((l2_pa & PAGE_OFFSET_MASK) / L2_TABLE_SIZE);
 
-    l2_pool_entry_t *prev = NULL;
-    l2_pool_entry_t *entry = pool_head;
+    L2PtPoolEntry *prev = NULL;
+    L2PtPoolEntry *entry = pool_head;
 
     while (entry)
     {
@@ -90,7 +84,7 @@ void l2_pool_free(uintptr_t l2_pa)
             continue;
         }
 
-        entry->used_mask = (uint8_t)(entry->used_mask & ~(1u << slot));
+        entry->used_mask = (uint8_t)(entry->used_mask & ~(1U << slot));
 
         // If all 4 slots free, return page to PMM
         if (entry->used_mask == 0)
@@ -104,11 +98,9 @@ void l2_pool_free(uintptr_t l2_pa)
             {
                 pool_head = entry->next;
             }
-            KFree(entry);
+            KSlabFree(&l2_entry_cache, entry);
         }
-        spin_unlock_irqrestore(&l2_pool_lock, flags);
         return;
     }
 
-    spin_unlock_irqrestore(&l2_pool_lock, flags);
 }

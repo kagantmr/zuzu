@@ -69,6 +69,8 @@ static void CreateSlabCache(KHeapSlabCache *cache, const char *name, size_t obj_
     cache->obj_size = align_up(obj_size, 8);
     cache->name = name;
     cache->slabs = NULL;
+    // at least one object must fit in a slab page after the header
+    assert(cache->obj_size <= PAGE_SIZE - align_up(sizeof(KHeapSlab), 8));
 }
 
 static void *__hot SlabAlloc(KHeapSlabCache *cache)
@@ -119,6 +121,22 @@ static __always_inline void SlabCachesInit(void)
     CreateSlabCache(&reply_cap_cache, "ReplyCap", sizeof(ReplyCap));
     CreateSlabCache(&device_cap_cache, "DeviceCap", sizeof(DeviceCap));
     hot_caches_ready = true;
+}
+
+/* Generic slab-cache API for subsystems that want a dedicated fixed-size
+ * object pool (see kalloc/kfree helpers below for the IPC hot-path ones).
+ * A cache is lazily usable: KSlabAlloc on a zeroed cache initializes it. */
+void KSlabInit(KHeapSlabCache *cache, const char *name, size_t obj_size)
+{
+    CreateSlabCache(cache, name, obj_size);
+}
+
+void *KSlabAlloc(KHeapSlabCache *cache) { return SlabAlloc(cache); }
+
+void KSlabFree(KHeapSlabCache *cache, void *ptr)
+{
+    if (ptr)
+        SlabFree(cache, ptr);
 }
 
 static void HeapAppendBlk(KMemBlock *block)

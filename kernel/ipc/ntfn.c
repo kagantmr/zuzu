@@ -1,11 +1,23 @@
 #include "ntfn.h"
 
 #include "core/panic.h"
+#include "kernel/mm/alloc.h"
 #include "kernel/proc/thread.h"
 #include "kernel/sched/sched.h"
 
 #include <assert.h>
 #include <zuzu/types.h>
+
+static KHeapSlabCache ntfn_cache;
+
+NtfnObj *KAllocNtfn(void)
+{
+    if (!ntfn_cache.obj_size)
+        KSlabInit(&ntfn_cache, "NtfnObj", sizeof(NtfnObj));
+    return KSlabAlloc(&ntfn_cache);
+}
+
+void KFreeNtfn(NtfnObj *ntfn) { KSlabFree(&ntfn_cache, ntfn); }
 
 void NtfnWakeWaiter(NtfnObj *ntfn, ThreadWaitSlot *slot, int32_t r0_value, NtfnBits bits)
 {
@@ -61,6 +73,6 @@ void NtfnRefDrop(NtfnObj *ntfn) {
     if (!ntfn) return;
     ntfn->ref_count--;
     if (ntfn->ref_count == 0) {
-        KFree(ntfn);
+        KFreeNtfn(ntfn);
     }
 }
