@@ -64,6 +64,24 @@ void ThreadKill(Thread *thread)
 	thread->state = ZOMBIE;
 }
 
+void ThreadWakeJoiners(Thread *thread, int32_t exit_status)
+{
+	if (!thread)
+		return;
+
+	while (!list_empty(&thread->joiners)) {
+		ListNode *node = list_pop_front(&thread->joiners);
+		if (!node)
+			break;
+		Thread *joiner = container_of(node, Thread, join_node);
+		joiner->wake_reason = WAKE_IPC;
+		joiner->state = READY;
+		if (joiner->trap_frame)
+			(*arch_reg(joiner->trap_frame, 0)) = (uint32_t)exit_status;
+		SchedAdd(joiner);
+	}
+}
+
 void ThreadDestroy(Thread *thread)
 {
 	if (!thread)
@@ -127,6 +145,9 @@ Thread *ThreadCreate(ProcessObj *owner_process)
 	thread->process_node.prev = NULL;
 	thread->timeout_node.next = NULL;
 	thread->timeout_node.prev = NULL;
+	list_init(&thread->joiners);
+	thread->join_node.next = NULL;
+	thread->join_node.prev = NULL;
 	thread->wake_reason = WAKE_NONE;
 	thread->wake_deadline = 0;
 	thread->state = FROZEN;
@@ -170,6 +191,7 @@ void ThreadUnlinkWaits(Thread *t)
 {
     if (!t) return;
     if (t->node.prev && t->node.next)                     list_remove(&t->node);
+    if (t->join_node.prev && t->join_node.next)           list_remove(&t->join_node);
     SchedRemoveSleepQueue(t);
     if (t->ntfn_wait_slot.node.prev && t->ntfn_wait_slot.node.next)
         list_remove(&t->ntfn_wait_slot.node);
