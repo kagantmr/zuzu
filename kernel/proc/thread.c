@@ -9,38 +9,31 @@
 #define MAX_THREADS 1024
 
 #define LOG_FMT(fmt) "(thread) " fmt
-#include "core/log.h"
+#include <zuzu/log.h>
 
 static Tid next_tid = 1;
 static Thread *thread_table[MAX_THREADS];
 static spinlock_t thread_table_lock = SPINLOCK_INIT;
 
-static int thread_table_find_free_slot(void)
-{
-	Tid start = next_tid % MAX_THREADS;
-	Tid slot = start;
-
-	do {
-		if (thread_table[slot] == NULL)
-			return (int)slot;
-
-		slot = (slot + 1) % MAX_THREADS;
-	} while (slot != start);
-
-	return -1;
-}
-
-static Tid thread_register(Thread *thread)
+static Tid ThreadRegister(Thread *thread)
 {
 	if (!thread)
 		return 0;
 
 	spin_lock(&thread_table_lock);
 
-	int slot = thread_table_find_free_slot();
-	if (slot < 0) {
-		spin_unlock(&thread_table_lock);
-		return 0;
+	/* Advance next_tid until its hashed slot is free, so the assigned tid
+	 * always satisfies tid % MAX_THREADS == slot. ThreadFindByTid and
+	 * thread_unregister rely on that to stay O(1). Mirrors process_table. */
+	Tid start = next_tid % MAX_THREADS;
+	Tid slot = start;
+	while (thread_table[slot] != NULL) {
+		next_tid++;
+		slot = next_tid % MAX_THREADS;
+		if (slot == start) {
+			spin_unlock(&thread_table_lock);
+			return 0;
+		}
 	}
 
 	thread->tid = next_tid++;
@@ -54,19 +47,16 @@ static Tid thread_register(Thread *thread)
 	return thread->tid;
 }
 
-static void thread_unregister(Thread *thread)
+static void ThreadUnregister(Thread *thread)
 {
 	if (!thread || thread->tid == 0)
 		return;
 
 	spin_lock(&thread_table_lock);
 
-	for (uint32_t slot = 0; slot < MAX_THREADS; slot++) {
-		if (thread_table[slot] == thread) {
-			thread_table[slot] = NULL;
-			break;
-		}
-	}
+	uint32_t slot = (uint32_t)thread->tid % MAX_THREADS;
+	if (thread_table[slot] == thread)
+		thread_table[slot] = NULL;
 
 	spin_unlock(&thread_table_lock);
 }
@@ -84,7 +74,7 @@ void ThreadDestroy(Thread *thread)
 	if (!thread)
 		return;
 	ThreadUnlinkWaits(thread);
-	thread_unregister(thread);
+	ThreadUnregister(thread);
 	if (fpu_owner == thread)
 		fpu_owner = NULL;
 	// may already be removed by tquit, guard is safe
@@ -123,7 +113,7 @@ Thread *ThreadCreate(ProcessObj *owner_process)
 		return NULL;
 	}
 
-	thread->tid = thread_register(thread);
+	thread->tid = ThreadRegister(thread);
 	if (thread->tid == 0) {
 		KernelStackFree(thread->kernel_stack_top);
 		kfree(thread);
@@ -172,16 +162,10 @@ Thread *ThreadFindByTid(Tid tid)
 	if (tid == 0)
 		return NULL;
 
-	spin_lock(&thread_table_lock);
-	for (uint32_t slot = 0; slot < MAX_THREADS; slot++) {
-		Thread *thread = thread_table[slot];
-		if (thread && thread->tid == tid) {
-			spin_unlock(&thread_table_lock);
-			return thread;
-		}
-	}
-	spin_unlock(&thread_table_lock);
-
+	uint32_t slot = (uint32_t)tid % MAX_THREADS;
+	Thread *t = thread_table[slot];
+	if (t && t->tid == tid)
+		return t;
 	return NULL;
 }
 
