@@ -26,6 +26,7 @@ void SchedReap(void);
 void SchedIdleWait(void);
 void __attribute__((hot)) Schedule(void);
 void SchedSetReschedFlag(void);
+void SchedRemoveSleepQueue(Thread *t);
 void SchedInsertSleepQueue(Thread *t);
 size_t SchedGetReadyQueue(Thread **out, size_t max_out);
 

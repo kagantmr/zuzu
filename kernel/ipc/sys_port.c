@@ -142,8 +142,7 @@ void SysDestroy(CpuState *frame)
             }
             if (t->trap_frame)
                 arch_reg_set(t->trap_frame, 0, ERR_DEAD);
-            if (t->wake_deadline != 0 && t->timeout_node.prev && t->timeout_node.next)
-                list_remove(&t->timeout_node);
+            SchedRemoveSleepQueue(t);
             t->wake_deadline = 0;
             t->wake_reason = WAKE_IPC;
             t->state = READY;

@@ -137,9 +137,8 @@ void SysNtfnWait(CpuState *frame)
 
     Schedule();
 
-    if (timeout_ms != TIMEOUT_INFINITE && current_thread->wake_reason != WAKE_TIMEOUT &&
-        current_thread->timeout_node.prev && current_thread->timeout_node.next) {
-        list_remove(&current_thread->timeout_node);
+    if (timeout_ms != TIMEOUT_INFINITE && current_thread->wake_reason != WAKE_TIMEOUT) {
+        SchedRemoveSleepQueue(current_thread);
     }
 
     if (current_thread->wake_reason == WAKE_TIMEOUT) {

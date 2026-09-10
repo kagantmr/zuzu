@@ -747,9 +747,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                         thread->ipc_state = IPC_NONE;
                         thread->blocked_port = NULL;
                     }
-                    if (thread->wake_deadline != 0 && thread->timeout_node.prev &&
-                        thread->timeout_node.next)
-                        list_remove(&thread->timeout_node);
+                    SchedRemoveSleepQueue(thread);
                     thread->wake_deadline = 0;
                     thread->wake_reason = WAKE_IPC;
                     if (thread->trap_frame)
@@ -831,9 +829,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                         arch_reg_set(thread->trap_frame, 0, ERR_DEAD);
                     ThreadWaitanyClearWaits(thread);
                     ThreadWaitanyClearPortWaits(thread);
-                    if (thread->wake_deadline != 0 && thread->timeout_node.prev &&
-                        thread->timeout_node.next)
-                        list_remove(&thread->timeout_node);
+                    SchedRemoveSleepQueue(thread);
                     thread->wake_deadline = 0;
                     thread->state = READY;
                     thread->wake_reason = WAKE_IPC;
