@@ -66,7 +66,7 @@ static void __hot relay_handler(void *ctx)
 #ifdef ZUZU_BENCH
             BENCH_END(g_bench_irq_wait, waiter->bench_irq_wait_start);
 #endif
-            sched_add(waiter);
+            SchedAdd(waiter);
             if (!current_thread || waiter->priority > current_thread->priority) {
                 do_resched = 1;
             }
@@ -188,7 +188,7 @@ void SysIrqBind(CpuState *frame)
             waiter->blocked_port = NULL;
             waiter->ipc_state = IPC_NONE;
             waiter->state = READY;
-            sched_add(waiter);
+            SchedAdd(waiter);
         }
     }
 

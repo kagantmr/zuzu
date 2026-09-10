@@ -633,7 +633,7 @@ static void panic_print_sched(void)
 
     /* Ready queue */
     Thread *ready[PANIC_READY_MAX];
-    size_t ready_total = sched_ready_queue_snapshot(ready, PANIC_READY_MAX);
+    size_t ready_total = SchedGetReadyQueue(ready, PANIC_READY_MAX);
     panic_nl();
     snprintf(line, sizeof(line), "ready (%lu):", (unsigned long)ready_total);
     panic_line(line);

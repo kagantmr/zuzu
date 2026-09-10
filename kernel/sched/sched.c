@@ -8,33 +8,25 @@
 #include <arch/fpu.h>
 #include <arch/thread.h>
 
-#include "kernel/mm/alloc.h"
 #include "kernel/mm/vmm.h"
 #include "kernel/time/tick.h"
+#include "zuzu/types.h"
 #include <arch/cpu.h>
 #include <arch/timer.h>
 #include <stdint.h>
 #include <string.h>
 
-static __always_inline uint32_t thread_priority(const Thread *t)
-{
-    if (unlikely(!t))
-        return 0;
-
-    return t->priority;
-}
 
 static ListHead destroy_queue = LIST_HEAD_INIT(destroy_queue);
 ListHead sleep_queue = LIST_HEAD_INIT(sleep_queue);
 static ListHead thread_destroy_queue = LIST_HEAD_INIT(thread_destroy_queue);
 Thread *current_thread;
-
 Thread *fpu_owner = NULL;
 
-volatile uint8_t do_resched = 0; // needs spinlock guard on SMP
+volatile uint8_t do_resched = 0; 
 
 static Thread idle_thread; // only kernel_sp is used
-static uint8_t idle_stack[4096] __attribute__((aligned(8)));
+static uint8_t idle_stack[512] __attribute__((aligned(8)));
 static bool on_idle_stack;
 
 static ListHead run_queues[SCHED_PRIORITY_LEVELS];
@@ -43,33 +35,33 @@ _Static_assert(SCHED_PRIORITY_LEVELS <= 32, "ready_mask is a uint32_t");
 static uint32_t ready_mask = 0;
 
 #define LOG_FMT(fmt) "(sched) " fmt
-#include "core/log.h"
+#include <zuzu/log.h>
 
-static void sched_idle_trampoline(void) __attribute__((noreturn));
+static void IdleThread(void) __attribute__((noreturn));
 void SchedArmTimer(void);
 
-static void sched_idle_trampoline(void)
+static void IdleThread(void)
 {
     on_idle_stack = true;
     for (;;)
     {
         VmmActivateAddrspace(VmmGetKernelAddrspace());
-        sched_reap();
-        sched_idle_wait();
-        schedule();
+        SchedReap();
+        SchedIdleWait();
+        Schedule();
     }
 }
 
-static void sched_init_idle_context(void)
+static void SchedInitIdleThread(void)
 {
-    uintptr_t sp = (uintptr_t)idle_stack + sizeof(idle_stack);
-    sp &= ~(uintptr_t)7u;
+    VirtAddr sp = (VirtAddr)idle_stack + sizeof(idle_stack);
+    sp &= ~(VirtAddr)7U;
 
-    idle_thread.kernel_sp = (uint32_t *)arch_thread_kernel_init((void *)sp, sched_idle_trampoline);
+    idle_thread.kernel_sp = (uint32_t *)arch_thread_kernel_init((void *)sp, IdleThread);
     idle_thread.state = RUNNING;
 }
 
-void sched_init()
+void SchedInit()
 {
     for (uint32_t level = 0; level < SCHED_PRIORITY_LEVELS; level++)
         list_init(&run_queues[level]);
@@ -77,9 +69,10 @@ void sched_init()
     list_init(&sleep_queue);
     current_thread = NULL;
     on_idle_stack = false;
-    sched_init_idle_context();
+    SchedInitIdleThread();
 }
-void sched_add(Thread *t)
+
+void SchedAdd(Thread *t)
 {
     if (!t)
         return;
@@ -87,12 +80,12 @@ void sched_add(Thread *t)
     if (t->node.next || t->node.prev)
         return; // double enqueue guard
 
-    uint32_t priority = thread_priority(t);
+    uint32_t priority = t->priority;
     if (priority >= SCHED_PRIORITY_LEVELS)
         priority = SCHED_PRIO_DEFAULT;
 
     list_add_tail(&t->node, &run_queues[priority].node);
-    ready_mask |= (1u << priority);
+    ready_mask |= (1U << priority);
 
     if (current_thread && t->priority > current_thread->priority)
     {
@@ -100,9 +93,9 @@ void sched_add(Thread *t)
     }
 }
 
-void sched_defer_destroy(ProcessObj *p) { list_add_tail(&p->destroy_node, &destroy_queue.node); }
+void SchedQueueDestroyProcess(ProcessObj *p) { list_add_tail(&p->destroy_node, &destroy_queue.node); }
 
-void sched_defer_destroy_thread(Thread *t)
+void SchedQueueDestroyThread(Thread *t)
 {
     if (!t)
         return;
@@ -114,7 +107,7 @@ void sched_defer_destroy_thread(Thread *t)
     list_add_tail(&t->destroy_node, &thread_destroy_queue.node);
 }
 
-void sched_reap_thread_destroys(void)
+void SchedConsumeDestroyQueue(void)
 {
     ListHead deferred = LIST_HEAD_INIT(deferred);
 
@@ -144,7 +137,7 @@ void sched_reap_thread_destroys(void)
     }
 }
 
-void sched_reap(void)
+void SchedReap(void)
 {
     /* Removed noisy debug logging to avoid flooding the console. */
     while (!list_empty(&destroy_queue))
@@ -153,10 +146,10 @@ void sched_reap(void)
         ProcessObj *p = container_of(node, ProcessObj, destroy_node);
         ProcessDestroy(p);
     }
-    sched_reap_thread_destroys();
+    SchedConsumeDestroyQueue();
 }
 
-static bool sched_work_pending(void)
+static bool SchedIsWorkPending(void)
 {
     if (do_resched || !list_empty(&destroy_queue))
         return true;
@@ -170,7 +163,7 @@ static bool sched_work_pending(void)
     return false;
 }
 
-void sleep_queue_insert(Thread *t)
+void SchedInsertSleepQueue(Thread *t)
 {
     ListNode *curr;
     list_for_each(curr, &sleep_queue.node)
@@ -187,7 +180,7 @@ void sleep_queue_insert(Thread *t)
     SchedArmTimer();
 }
 
-static void sched_wake_sleepers(void)
+static void SchedWakeSleepers(void)
 {
     uint64_t now = ArchTimerNow();
     while (!list_empty(&sleep_queue))
@@ -214,7 +207,7 @@ static void sched_wake_sleepers(void)
             t->wake_reason = WAKE_TIMEOUT;
             arch_reg_set(t->trap_frame, 0, ERR_TIMEOUT);
             t->state = READY;
-            sched_add(t);
+            SchedAdd(t);
         }
         else
         {
@@ -227,18 +220,18 @@ static void sched_wake_sleepers(void)
                 list_remove(&t->ntfn_wait_slot.node);
             t->state = READY;
             t->wake_deadline = 0;
-            sched_add(t);
+            SchedAdd(t);
         }
     }
 }
 
-void sched_idle_wait(void)
+void SchedIdleWait(void)
 {
     for (;;)
     {
         arch_global_irq_disable();
 
-        if (sched_work_pending())
+        if (SchedIsWorkPending())
         {
             if (do_resched)
                 do_resched = 0;
@@ -249,7 +242,7 @@ void sched_idle_wait(void)
         __asm__ volatile("wfi" ::: "memory");
         arch_global_irq_enable();
 
-        if (sched_work_pending())
+        if (SchedIsWorkPending())
         {
             if (do_resched)
                 do_resched = 0;
@@ -258,21 +251,21 @@ void sched_idle_wait(void)
     }
 }
 
-static void sched_housekeeping(void)
+static void SchedDoHousekeeping(void)
 {
-    sched_reap_thread_destroys();
-    sched_wake_sleepers();
+    SchedConsumeDestroyQueue();
+    SchedWakeSleepers();
 }
 
-static Thread *sched_pick_next(void)
+static Thread *SchedPickNext(void)
 {
     for (int level = SCHED_PRIORITY_LEVELS - 1; level >= 0; level--)
     {
-        if (ready_mask & (1u << level))
+        if (ready_mask & (1U << level))
         {
             ListNode *next_node = list_pop_front(&run_queues[level]);
             if (list_empty(&run_queues[level]))
-                ready_mask &= ~(1u << level);
+                ready_mask &= ~(1U << level);
             return container_of(next_node, Thread, node);
         }
     }
@@ -281,18 +274,20 @@ static Thread *sched_pick_next(void)
 
 bool __hot SchedAnyCpuTakers(const Thread *t)
 {
-    uint32_t priority = thread_priority(t);
+    if (unlikely(!t))
+        return false;
+    uint32_t priority = t->priority;
     if (unlikely(priority >= SCHED_PRIORITY_LEVELS))
         priority = SCHED_PRIORITY_LEVELS - 1;
 
-    uint32_t at_or_above = ready_mask & ~((1u << priority) - 1u);
+    uint32_t at_or_above = ready_mask & ~((1U << priority) - 1U);
     return at_or_above != 0;
 }
 
 /* Called from schedule() (every voluntary reschedule) and directly from
  * SysMsgCall's/SysMsgLcall's direct-handoff path -- one of the hottest
  * functions in the kernel. */
-void __hot switch_to_thread(Thread *next)
+void __hot SchedSwitchNext(Thread *next)
 {
     Thread *prev = current_thread;
 
@@ -373,21 +368,21 @@ void SchedArmTimer(void)
     ArchTimerSetDeadline(deadline);
 }
 
-void __hot schedule(void)
+void __hot Schedule(void)
 {
     if (current_thread != NULL && current_thread->state == RUNNING)
     {
         current_thread->state = READY;
-        sched_add(current_thread);
+        SchedAdd(current_thread);
     }
 
-    sched_housekeeping();
+    SchedDoHousekeeping();
 
-    Thread *next = sched_pick_next();
-    switch_to_thread(next); /* sets the slice deadline and arms the timer */
+    Thread *next = SchedPickNext();
+    SchedSwitchNext(next); /* sets the slice deadline and arms the timer */
 }
 
-size_t sched_ready_queue_snapshot(Thread **out, size_t max_out)
+size_t SchedGetReadyQueue(Thread **out, size_t max_out)
 {
     size_t total = 0;
     for (int level = SCHED_PRIORITY_LEVELS - 1; level >= 0; level--)
@@ -408,13 +403,7 @@ size_t sched_ready_queue_snapshot(Thread **out, size_t max_out)
     return total;
 }
 
-void set_resched_flag(void)
+void SchedSetReschedFlag(void)
 {
-    /* Tickless: the timer only fires when SchedArmTimer() deliberately armed
-     * it -- either the running slice expired or the earliest sleeper is due.
-     * Either way the right response is to run schedule(), which re-picks the
-     * run queue and (critically) runs sched_wake_sleepers(). Gating this on
-     * slice_deadline would swallow the wakeup a sleeper's own deadline IRQ
-     * was armed for, stranding every timed sleep/recv/wait. */
     do_resched = 1;
 }

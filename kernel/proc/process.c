@@ -655,7 +655,7 @@ void ProcessWakeJoiners(Tid tid, int32_t exit_status)
             joiner->thread->state = READY;
             if (joiner->thread->trap_frame)
                 (*arch_reg(joiner->thread->trap_frame, 0)) = (uint32_t)exit_status;
-            sched_add(joiner->thread);
+            SchedAdd(joiner->thread);
         }
     }
 }
@@ -730,7 +730,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                     if (thread->trap_frame)
                         arch_reg_set(thread->trap_frame, 0, ERR_DEAD);
                     thread->state = READY;
-                    sched_add(thread);
+                    SchedAdd(thread);
                 }
                 while (!list_empty(&port->receiver_queue))
                 {
@@ -755,7 +755,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                     if (thread->trap_frame)
                         arch_reg_set(thread->trap_frame, 0, ERR_DEAD);
                     thread->state = READY;
-                    sched_add(thread);
+                    SchedAdd(thread);
                 }
             }
             if (port)
@@ -805,7 +805,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                 if (caller_thread->trap_frame)
                     arch_reg_set(caller_thread->trap_frame, 0, ERR_DEAD);
                 caller_thread->state = READY;
-                sched_add(caller_thread);
+                SchedAdd(caller_thread);
             }
 
             if (rc)
@@ -839,7 +839,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                     thread->wake_reason = WAKE_IPC;
                     thread->blocked_port = NULL;
                     thread->ipc_state = IPC_NONE;
-                    sched_add(thread);
+                    SchedAdd(thread);
                 }
             }
             if (ntfn)
@@ -877,7 +877,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
     {
         parent->thread->state = READY;
         parent->waiting_for = 0;
-        sched_add(parent->thread);
+        SchedAdd(parent->thread);
     }
     else if (parent && parent->thread)
     {
@@ -887,7 +887,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
     else
     {
         /* No parent left to reap us. Destroy now. */
-        sched_defer_destroy(p);
+        SchedQueueDestroyProcess(p);
     }
 }
 

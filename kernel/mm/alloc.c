@@ -11,7 +11,7 @@
 #include "kernel/ipc/port.h"
 #include <compiler.h>
 
-#define LOG_FMT(fmt) "(pmm) " fmt
+#define LOG_FMT(fmt) "(mm) " fmt
 #include <zuzu/log.h>
 
 extern kernel_layout_t kernel_layout;
@@ -235,6 +235,7 @@ static bool HeapGrow(size_t min_payload)
         kernel_layout.heap_end_va = (void *)seg_end_va;
     }
 
+    KDEBUG("Heap growth: heap size is now %u KB", wanted / 1024);
     return true;
 }
 

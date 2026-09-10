@@ -53,7 +53,7 @@ void NtfnWakeWaiter(NtfnObj *ntfn, ThreadWaitSlot *slot, int32_t r0_value, NtfnB
     waiter->blocked_port = NULL;
     waiter->ipc_state = IPC_NONE;
     waiter->state = READY;
-    sched_add(waiter);
+    SchedAdd(waiter);
 }
 
 void NtfnSignal(NtfnObj *ntfn, NtfnBits bits)
