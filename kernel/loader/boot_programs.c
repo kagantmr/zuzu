@@ -171,7 +171,7 @@ static void boot_program(const char *path, uint32_t flags,
      * thread to READY) — scheduling it now would run it with no valid
      * trap frame. */
     if (!leave_frozen)
-        sched_add(process->thread);
+        SchedAdd(process->thread);
 }
 
 static uint32_t parse_flag_string(const char *flag_str)

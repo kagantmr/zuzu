@@ -41,14 +41,14 @@ void SysPQuit(CpuState *frame)
            current_thread->owner_process ? current_thread->owner_process->pid : 0, exit_status);
 
     ProcessKill(current_thread->owner_process, exit_status);
-    schedule();
+    Schedule();
 }
 
 void SysYield(CpuState *frame)
 {
     (*arch_reg(frame, 0)) = 0;
     (void)frame;
-    schedule();
+    Schedule();
 }
 
 void SysSleep(CpuState *frame)
@@ -60,9 +60,9 @@ void SysSleep(CpuState *frame)
 
     // Change state to BLOCKED and insert into sleep queue
     current_thread->state = BLOCKED;
-    sleep_queue_insert(current_thread);
+    SchedInsertSleepQueue(current_thread);
     // Schedule someone else immediately
-    schedule();
+    Schedule();
 
     (*arch_reg(frame, 0)) = 0;
 }
@@ -99,7 +99,7 @@ void SysWait(CpuState *frame)
 
         current_thread->owner_process->waiting_for = WAIT_ANY_PID;
         current_thread->state = BLOCKED;
-        schedule();
+        Schedule();
 
         child = ProcessFindZombieChild(current_thread->owner_process);
         if (!child)
@@ -154,7 +154,7 @@ void SysWait(CpuState *frame)
     // Case C: block until child exits
     current_thread->owner_process->waiting_for = child_pid;
     current_thread->state = BLOCKED;
-    schedule();
+    Schedule();
 
     // re-fetch after wakeup, pointer may be stale
     child = ProcessFindChildFromPid(current_thread->owner_process, child_pid);
@@ -315,7 +315,7 @@ void SysKickstart(CpuState *frame)
         (void *)target->thread->kernel_stack_top, kargs.entry, kargs.sp, USER_ELF_BASE,
         kargs.r0_val, kargs.r1_val, &target->thread->trap_frame);
     target->thread->state = READY;
-    sched_add(target->thread);
+    SchedAdd(target->thread);
     (*arch_reg(frame, 0)) = 0;
     KDEBUG("Kickstarted process with PID %d", target->pid, kargs.entry);
     return;
