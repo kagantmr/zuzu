@@ -117,7 +117,7 @@ _Noreturn void early(void *dtb_ptr)
     KDEBUG("early: pmm");
     PmmInit();
     KDEBUG("early: kheap");
-    kheap_init();
+    KHeapInit();
     KDEBUG("early: vmm bootstrap");
     vmm_bootstrap();
 

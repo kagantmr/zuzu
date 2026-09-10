@@ -28,6 +28,7 @@
 
 uint32_t next_pid = 1;
 ProcessObj *process_table[MAX_PROCESSES];
+static KHeapSlabCache process_cache;
 
 static bool ZxfSegChkOverlap(const ZXFSegment *a, const ZXFSegment *b)
 {
@@ -117,7 +118,7 @@ ProcessObj *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char 
         uintptr_t *segment_pages = NULL;
         if (file_pages > 0)
         {
-            segment_pages = kmalloc(file_pages * sizeof(uintptr_t));
+            segment_pages = KMalloc(file_pages * sizeof(uintptr_t));
             if (!segment_pages)
                 goto fail_kstack;
         }
@@ -141,7 +142,7 @@ ProcessObj *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char 
                     VmmUnmapRange(p->as, orphan_va, PAGE_SIZE);
                     PmmFreeFrame(segment_pages[j]);
                 }
-                kfree(segment_pages);
+                KFree(segment_pages);
                 goto fail_kstack;
             }
 
@@ -175,7 +176,7 @@ ProcessObj *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char 
                     VmmUnmapRange(p->as, orphan_va, PAGE_SIZE);
                     PmmFreeFrame(segment_pages[j]);
                 }
-                kfree(segment_pages);
+                KFree(segment_pages);
                 goto fail_kstack;
             }
 
@@ -201,11 +202,11 @@ ProcessObj *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char 
                     VmmUnmapRange(p->as, orphan_va, PAGE_SIZE);
                     PmmFreeFrame(segment_pages[j]);
                 }
-                kfree(segment_pages);
+                KFree(segment_pages);
                 goto fail_kstack;
             }
 
-            kfree(segment_pages);
+            KFree(segment_pages);
         }
 
         if (mem_pages > file_pages)
@@ -360,10 +361,10 @@ fail_kstack:
         arch_mmu_free_user_pages(p->as);
     AddrspaceDestroy(p->as);
     memset(p->tcb_page_pa, 0, sizeof(p->tcb_page_pa));
-    handle_vec_destroy(&p->handle_table);
+    HandleTableDestroy(&p->handle_table);
     ThreadDestroy(t);
 fail_process:
-    kfree(p);
+    KSlabFree(&process_cache, p);
     return NULL;
 }
 
@@ -379,7 +380,9 @@ void ProcessTrackReplyCap(ProcessObj *restrict caller, ProcessObj *restrict hold
 
 ProcessObj *ProcessCreate(const char *name)
 {
-    ProcessObj *p = kmalloc(sizeof(ProcessObj));
+    if (!process_cache.obj_size)
+        KSlabInit(&process_cache, "ProcessObj", sizeof(ProcessObj));
+    ProcessObj *p = KSlabAlloc(&process_cache);
     if (!p)
         return NULL;
     memset(p, 0, sizeof(ProcessObj));
@@ -393,7 +396,7 @@ ProcessObj *ProcessCreate(const char *name)
         goto fail_process;
     p->thread = t;
 
-    if (!handle_vec_init(&p->handle_table))
+    if (!HandleTableInit(&p->handle_table))
         goto fail_process;
 
     p->as = AddrspaceCreate(ADDRSPACE_USER);
@@ -531,10 +534,10 @@ fail_kstack:
     AddrspaceDestroy(p->as);
     memset(p->tcb_page_pa, 0, sizeof(p->tcb_page_pa));
 fail_handles:
-    handle_vec_destroy(&p->handle_table);
+    HandleTableDestroy(&p->handle_table);
     ThreadDestroy(t);
 fail_process:
-    kfree(p);
+    KSlabFree(&process_cache, p);
     return NULL;
 }
 
@@ -563,13 +566,11 @@ static void process_revoke_outstanding_reply_caps(ProcessObj *caller)
         ProcessObj *holder = ProcessFindByPid(rc->holder_pid);
         if (holder)
         {
-            HandleEntry *entry = handle_vec_get(&holder->handle_table, (uint32_t)rc->holder_slot);
+            HandleEntry *entry = HandleTableGet(&holder->handle_table, (uint32_t)rc->holder_slot);
 
             if (entry && entry->type == HANDLE_REPLY && entry->reply == rc)
             {
-                entry->reply = NULL;
-                entry->grantable = false;
-                entry->type = HANDLE_FREE;
+                HandleEntryFree(&holder->handle_table, entry);
             }
         }
 
@@ -578,7 +579,7 @@ static void process_revoke_outstanding_reply_caps(ProcessObj *caller)
         rc->caller_tid = 0;
         rc->holder_pid = 0;
         rc->holder_slot = 0;
-        kfree_reply_cap(rc);
+        KFreeReplyCap(rc);
     }
 }
 
@@ -639,26 +640,6 @@ ProcessObj *ProcessFindZombieChild(ProcessObj *parent)
     return NULL;
 }
 
-void ProcessWakeJoiners(Tid tid, int32_t exit_status)
-{
-    for (uint32_t slot = 0; slot < MAX_PROCESSES; slot++)
-    {
-        ProcessObj *joiner = process_table[slot];
-        if (!joiner || joiner->waiting_for_tid != tid)
-            continue;
-
-        joiner->waiting_for_tid = 0;
-        if (joiner->thread)
-        {
-            joiner->thread->wake_reason = WAKE_IPC;
-            joiner->thread->state = READY;
-            if (joiner->thread->trap_frame)
-                (*arch_reg(joiner->thread->trap_frame, 0)) = (uint32_t)exit_status;
-            sched_add(joiner->thread);
-        }
-    }
-}
-
 static const char *fatal_reason_str(int reason)
 {
     switch (reason)
@@ -706,11 +687,11 @@ void ProcessKill(ProcessObj *p, const int exit_status)
     p->exit_status = exit_status;
 
     // Clean up handle table
-    for (uint32_t i = 0; i < p->handle_table.cap; i++)
+    for (uint32_t i = 0; i < HANDLE_MAX_SLOTS; i++)
     {
-        HandleEntry *entry = handle_vec_get(&p->handle_table, i);
+        HandleEntry *entry = HandleTableGet(&p->handle_table, i);
         if (!entry)
-            break;
+            continue;
 
         if (entry->type == HANDLE_PORT)
         {
@@ -729,7 +710,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                     if (thread->trap_frame)
                         arch_reg_set(thread->trap_frame, 0, ERR_DEAD);
                     thread->state = READY;
-                    sched_add(thread);
+                    SchedAdd(thread);
                 }
                 while (!list_empty(&port->receiver_queue))
                 {
@@ -746,15 +727,13 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                         thread->ipc_state = IPC_NONE;
                         thread->blocked_port = NULL;
                     }
-                    if (thread->wake_deadline != 0 && thread->timeout_node.prev &&
-                        thread->timeout_node.next)
-                        list_remove(&thread->timeout_node);
+                    SchedRemoveSleepQueue(thread);
                     thread->wake_deadline = 0;
                     thread->wake_reason = WAKE_IPC;
                     if (thread->trap_frame)
                         arch_reg_set(thread->trap_frame, 0, ERR_DEAD);
                     thread->state = READY;
-                    sched_add(thread);
+                    SchedAdd(thread);
                 }
             }
             if (port)
@@ -762,11 +741,9 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                 if (port->ref_count > 0)
                     port->ref_count--;
                 if (port->ref_count == 0)
-                    kfree_portobj(port);
+                    KFreePortObj(port);
             }
-            entry->port = NULL;
-            entry->grantable = false;
-            entry->type = HANDLE_FREE;
+            HandleEntryFree(&p->handle_table, entry);
         }
         else if (entry->type == HANDLE_DEVICE)
         {
@@ -775,12 +752,9 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                 if (entry->dev->ref_count > 0)
                     entry->dev->ref_count--;
                 if (entry->dev->ref_count == 0)
-                    kfree_device_cap(entry->dev);
+                    KFreeDevCap(entry->dev);
             }
-            entry->dev = NULL;
-            entry->mapped_va = 0;
-            entry->grantable = false;
-            entry->type = HANDLE_FREE;
+            HandleEntryFree(&p->handle_table, entry);
         }
         else if (entry->type == HANDLE_SHM)
         {
@@ -794,10 +768,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                     VmmRemoveRegion(p->as, entry->mapped_va, shm->page_count * PAGE_SIZE);
                 ShmemDropReference(shm);
             }
-            entry->shm = NULL;
-            entry->mapped_va = 0;
-            entry->grantable = false;
-            entry->type = HANDLE_FREE;
+            HandleEntryFree(&p->handle_table, entry);
         }
         else if (entry->type == HANDLE_REPLY)
         {
@@ -812,18 +783,16 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                 if (caller_thread->trap_frame)
                     arch_reg_set(caller_thread->trap_frame, 0, ERR_DEAD);
                 caller_thread->state = READY;
-                sched_add(caller_thread);
+                SchedAdd(caller_thread);
             }
 
             if (rc)
             {
                 ProcessUntrackReplyCap(rc);
-                kfree_reply_cap(rc);
+                KFreeReplyCap(rc);
             }
 
-            entry->reply = NULL;
-            entry->grantable = false;
-            entry->type = HANDLE_FREE;
+            HandleEntryFree(&p->handle_table, entry);
         }
         else if (entry->type == HANDLE_NTFN)
         {
@@ -840,15 +809,13 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                         arch_reg_set(thread->trap_frame, 0, ERR_DEAD);
                     ThreadWaitanyClearWaits(thread);
                     ThreadWaitanyClearPortWaits(thread);
-                    if (thread->wake_deadline != 0 && thread->timeout_node.prev &&
-                        thread->timeout_node.next)
-                        list_remove(&thread->timeout_node);
+                    SchedRemoveSleepQueue(thread);
                     thread->wake_deadline = 0;
                     thread->state = READY;
                     thread->wake_reason = WAKE_IPC;
                     thread->blocked_port = NULL;
                     thread->ipc_state = IPC_NONE;
-                    sched_add(thread);
+                    SchedAdd(thread);
                 }
             }
             if (ntfn)
@@ -856,20 +823,15 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                 if (ntfn->ref_count > 0)
                     ntfn->ref_count--;
                 if (ntfn->ref_count == 0)
-                    kfree(ntfn);
+                    KFreeNtfn(ntfn);
             }
-            entry->ntfn = NULL;
-            entry->grantable = false;
-            entry->type = HANDLE_FREE;
+            HandleEntryFree(&p->handle_table, entry);
         }
         else if (entry->type == HANDLE_TASK)
         {
             // No special cleanup needed for task handles since they don't have kernel
             // objects associated with them
-            entry->task = NULL;
-            entry->mapped_va = 0;
-            entry->grantable = false;
-            entry->type = HANDLE_FREE;
+            HandleEntryFree(&p->handle_table, entry);
         }
     }
 
@@ -891,7 +853,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
     {
         parent->thread->state = READY;
         parent->waiting_for = 0;
-        sched_add(parent->thread);
+        SchedAdd(parent->thread);
     }
     else if (parent && parent->thread)
     {
@@ -901,7 +863,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
     else
     {
         /* No parent left to reap us. Destroy now. */
-        sched_defer_destroy(p);
+        SchedQueueDestroyProcess(p);
     }
 }
 
@@ -933,19 +895,17 @@ void ProcessDestroy(ProcessObj *p)
      * catches the direct-destroy path (SysPKill) that bypasses process_kill
      * and would otherwise leak the shm object and its pages. Runs before
      * as_destroy so the address space is still valid for unmapping. */
-    for (uint32_t i = 0; i < p->handle_table.cap; i++)
+    for (uint32_t i = 0; i < HANDLE_MAX_SLOTS; i++)
     {
-        HandleEntry *entry = handle_vec_get(&p->handle_table, i);
+        HandleEntry *entry = HandleTableGet(&p->handle_table, i);
         if (!entry)
-            break;
+            continue;
         if (entry->type == HANDLE_SHM && entry->shm)
         {
             if (p->as && entry->mapped_va != 0)
                 VmmRemoveRegion(p->as, entry->mapped_va, entry->shm->page_count * PAGE_SIZE);
             ShmemDropReference(entry->shm);
-            entry->shm = NULL;
-            entry->mapped_va = 0;
-            entry->type = HANDLE_FREE;
+            HandleEntryFree(&p->handle_table, entry);
         }
     }
     if (p->as)
@@ -953,7 +913,7 @@ void ProcessDestroy(ProcessObj *p)
         arch_mmu_free_user_pages(p->as);
         AddrspaceDestroy(p->as);
     }
-    handle_vec_destroy(&p->handle_table);
+    HandleTableDestroy(&p->handle_table);
     process_table[p->pid % MAX_PROCESSES] = NULL;
-    kfree(p);
+    KSlabFree(&process_cache, p);
 }

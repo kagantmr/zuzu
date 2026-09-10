@@ -1,11 +1,23 @@
 #include "ntfn.h"
 
 #include "core/panic.h"
+#include "kernel/mm/alloc.h"
 #include "kernel/proc/thread.h"
 #include "kernel/sched/sched.h"
 
 #include <assert.h>
 #include <zuzu/types.h>
+
+static KHeapSlabCache ntfn_cache;
+
+NtfnObj *KAllocNtfn(void)
+{
+    if (!ntfn_cache.obj_size)
+        KSlabInit(&ntfn_cache, "NtfnObj", sizeof(NtfnObj));
+    return KSlabAlloc(&ntfn_cache);
+}
+
+void KFreeNtfn(NtfnObj *ntfn) { KSlabFree(&ntfn_cache, ntfn); }
 
 void NtfnWakeWaiter(NtfnObj *ntfn, ThreadWaitSlot *slot, int32_t r0_value, NtfnBits bits)
 {
@@ -33,15 +45,13 @@ void NtfnWakeWaiter(NtfnObj *ntfn, ThreadWaitSlot *slot, int32_t r0_value, NtfnB
     waiter->waitany_wait_match_index = match_index;
     waiter->waitany_wait_bits = bits;
 
-    if (waiter->wake_deadline != 0 && waiter->timeout_node.prev && waiter->timeout_node.next) {
-        list_remove(&waiter->timeout_node);
-    }
+    SchedRemoveSleepQueue(waiter);
     waiter->wake_deadline = 0;
     waiter->wake_reason = WAKE_IPC;
     waiter->blocked_port = NULL;
     waiter->ipc_state = IPC_NONE;
     waiter->state = READY;
-    sched_add(waiter);
+    SchedAdd(waiter);
 }
 
 void NtfnSignal(NtfnObj *ntfn, NtfnBits bits)
@@ -61,6 +71,6 @@ void NtfnRefDrop(NtfnObj *ntfn) {
     if (!ntfn) return;
     ntfn->ref_count--;
     if (ntfn->ref_count == 0) {
-        kfree(ntfn);
+        KFreeNtfn(ntfn);
     }
 }

@@ -30,7 +30,7 @@ void SysKEventBind(CpuState *frame)
 
     switch (event_type) {
     case KEVENT_MEMMGMT: {
-        HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)h);
+        HandleEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)h);
 
         if (unlikely(!entry)) {
             arch_reg_set(frame, 0, ERR_BADHANDLE);

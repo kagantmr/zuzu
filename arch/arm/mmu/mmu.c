@@ -164,7 +164,7 @@ void arch_mmu_free_tables(uintptr_t ttbr_pa, AsType type)
         if ((l1[i] & DESC_TYPE_MASK) == DESC_L2)
         {
             uint32_t l2_pa = l1[i] & ALIGNMENT_1KB_MASK;
-            l2_pool_free(l2_pa);
+            L2PtPoolFree(l2_pa);
         }
     }
 
@@ -274,7 +274,7 @@ bool arch_mmu_unmap(AddressSpace *as, uintptr_t va, size_t size)
                 arch_mmu_barrier();                           /* DSB: zero visible */
                 arch_mmu_flush_tlb_asid(as->asid_token.asid); /* drop cached walks */
                 arch_mmu_barrier();
-                l2_pool_free(entry & ALIGNMENT_1KB_MASK);     /* now safe to free  */
+                L2PtPoolFree(entry & ALIGNMENT_1KB_MASK);     /* now safe to free  */
             }
         }
         //KDEBUG("unmap: sections cleared");
@@ -495,7 +495,7 @@ uintptr_t arch_mmu_translate(uintptr_t ttbr_pa, uintptr_t va)
 
 static uintptr_t arch_mmu_alloc_l2_table(void)
 {
-    uintptr_t new_page = l2_pool_alloc();
+    uintptr_t new_page = L2PtPoolAlloc();
     if (!new_page)
         return 0;
     return (uintptr_t)new_page;
