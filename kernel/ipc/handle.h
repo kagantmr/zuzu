@@ -17,8 +17,6 @@
 
 #define GRANT_REGRANTABLE (1u << 0)
 
-#define HANDLE_TABLE_INITIAL_CAP 16u
-
 typedef enum
 {
     HANDLE_FREE,
@@ -48,96 +46,105 @@ typedef struct
                       in waitany() */
 } HandleEntry;
 
-/* Fixed-purpose slot table: dense integer-indexed HandleEntry array plus an
- * occupancy bitmap so FindFree scans 32 slots per word instead of walking
- * entries. slot_bitmap bit i set <=> slot i is allocated, and must stay in
- * sync with data[i].type (HANDLE_FREE iff the bit is clear). */
+#define HANDLE_BLOCK_SLOTS 64U
+#define HANDLE_MAX_BLOCKS  16U
+#define HANDLE_MAX_SLOTS   (HANDLE_BLOCK_SLOTS * HANDLE_MAX_BLOCKS) /* 1024 */
+
+typedef HandleEntry HandleBlock[HANDLE_BLOCK_SLOTS];
+
 typedef struct
 {
-    HandleEntry *data;
-    uint32_t cap;
-    uint32_t *slot_bitmap; /* BITMAP_WORDS(cap) words */
+    HandleBlock *blocks[HANDLE_MAX_BLOCKS];
+    uint32_t slot_bitmap[BITMAP_WORDS(HANDLE_MAX_SLOTS)];
 } HandleTable;
 
 static inline bool HandleTableInit(HandleTable *t)
 {
-    t->cap = HANDLE_TABLE_INITIAL_CAP;
-    t->data = KZAlloc(t->cap * sizeof(HandleEntry));
-    t->slot_bitmap = KZAlloc(BITMAP_WORDS(t->cap) * sizeof(uint32_t));
-    if (!t->data || !t->slot_bitmap)
-    {
-        KFree(t->data);
-        KFree(t->slot_bitmap);
-        t->data = NULL;
-        t->slot_bitmap = NULL;
-        t->cap = 0;
-        return false;
-    }
+    memset(t, 0, sizeof(*t));
     return true;
 }
 
 static inline void HandleTableDestroy(HandleTable *t)
 {
-    KFree(t->data);
-    KFree(t->slot_bitmap);
-    t->data = NULL;
-    t->slot_bitmap = NULL;
-    t->cap = 0;
+    for (uint32_t b = 0; b < HANDLE_MAX_BLOCKS; b++)
+    {
+        KFree(t->blocks[b]);
+        t->blocks[b] = NULL;
+    }
+    BitmapZero(t->slot_bitmap, HANDLE_MAX_SLOTS);
 }
 
+/* Bounds check + two-level index, hit on every send/recv/call/reply/notify/
+ * irq/memmap syscall. One extra branch + deref over a flat array. */
 static __always_inline HandleEntry *HandleTableGet(HandleTable *t, uint32_t i)
 {
-    if (unlikely(i >= t->cap))
+    if (unlikely(i >= HANDLE_MAX_SLOTS))
         return NULL;
-    return &t->data[i];
+    HandleBlock *blk = t->blocks[i / HANDLE_BLOCK_SLOTS];
+    if (unlikely(!blk))
+        return NULL;
+    return &(*blk)[i % HANDLE_BLOCK_SLOTS];
 }
 
-static inline int HandleTableGrow(HandleTable *t)
-{
-    uint32_t new_cap = t->cap * 2U;
-    HandleEntry *new_data = KZAlloc(new_cap * sizeof(HandleEntry));
-    uint32_t *new_bitmap = KZAlloc(BITMAP_WORDS(new_cap) * sizeof(uint32_t));
-    if (!new_data || !new_bitmap)
-    {
-        KFree(new_data);
-        KFree(new_bitmap);
-        return -1;
-    }
-    memcpy(new_data, t->data, t->cap * sizeof(HandleEntry));
-    memcpy(new_bitmap, t->slot_bitmap, BITMAP_WORDS(t->cap) * sizeof(uint32_t));
-    KFree(t->data);
-    KFree(t->slot_bitmap);
-    t->data = new_data;
-    t->slot_bitmap = new_bitmap;
-    t->cap = new_cap;
-    return 0;
-}
-
+/* Returns a free slot index, allocating its leaf block on first use. */
 static inline int HandleTableFindFree(HandleTable *t)
 {
-    int slot = BitmapFindFirstZero(t->slot_bitmap, t->cap);
-    if (slot >= 0)
-        return slot;
-
-    uint32_t old_cap = t->cap;
-    if (HandleTableGrow(t) < 0)
+    int slot = BitmapFindFirstZero(t->slot_bitmap, HANDLE_MAX_SLOTS);
+    if (slot < 0)
         return -1;
-    return (int)old_cap;
+
+    uint32_t b = (uint32_t)slot / HANDLE_BLOCK_SLOTS;
+    if (!t->blocks[b])
+    {
+        t->blocks[b] = KZAlloc(sizeof(HandleBlock));
+        if (!t->blocks[b])
+            return -1;
+    }
+    return slot;
+}
+
+
+static inline HandleEntry *HandleTableGetOrAlloc(HandleTable *t, uint32_t i)
+{
+    if (i >= HANDLE_MAX_SLOTS)
+        return NULL;
+    uint32_t b = i / HANDLE_BLOCK_SLOTS;
+    if (!t->blocks[b])
+    {
+        t->blocks[b] = KZAlloc(sizeof(HandleBlock));
+        if (!t->blocks[b])
+            return NULL;
+    }
+    return &(*t->blocks[b])[i % HANDLE_BLOCK_SLOTS];
+}
+
+/* Recover a slot index from a HandleEntry * by finding its leaf block. */
+static inline uint32_t HandleEntryIndex(const HandleTable *t, const HandleEntry *e)
+{
+    for (uint32_t b = 0; b < HANDLE_MAX_BLOCKS; b++)
+    {
+        const HandleEntry *base = t->blocks[b] ? (*t->blocks[b]) : NULL;
+        if (base && e >= base && e < base + HANDLE_BLOCK_SLOTS)
+            return (b * HANDLE_BLOCK_SLOTS) + (uint32_t)(e - base);
+    }
+    return HANDLE_MAX_SLOTS; /* not found: BitmapSet/Clr below are no-ops on OOB */
 }
 
 /* Mark a slot allocated. Call once, after every error check has passed and
- * the entry's type/union are filled in -- a FindFree slot that is never
- * claimed stays free, so a failed object alloc after FindFree leaks nothing. */
+ * the entry's type/union are filled in. */
 static inline void HandleEntryClaim(HandleTable *t, HandleEntry *e)
 {
-    BitmapSet(t->slot_bitmap, (size_t)(e - t->data));
+    uint32_t i = HandleEntryIndex(t, e);
+    if (i < HANDLE_MAX_SLOTS)
+        BitmapSet(t->slot_bitmap, i);
 }
 
 static inline void HandleEntryFree(HandleTable *t, HandleEntry *e)
 {
-    BitmapClr(t->slot_bitmap, (size_t)(e - t->data));
+    uint32_t i = HandleEntryIndex(t, e);
+    if (i < HANDLE_MAX_SLOTS)
+        BitmapClr(t->slot_bitmap, i);
     memset(e, 0, sizeof(*e));
 }
-
 
 #endif

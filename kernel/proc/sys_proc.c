@@ -227,7 +227,7 @@ void SysPSpawn(CpuState *frame)
         HandleEntry *src = HandleTableGet(caller_ht, (uint32_t)i);
         if (!src || src->type == HANDLE_FREE)
             continue;
-        HandleEntry *dst = HandleTableGet(&process->handle_table, (uint32_t)i);
+        HandleEntry *dst = HandleTableGetOrAlloc(&process->handle_table, (uint32_t)i);
         if (!dst)
             continue;
         *dst = *src;
