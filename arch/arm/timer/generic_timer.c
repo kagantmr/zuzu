@@ -37,17 +37,21 @@ static inline void WriteCntpCtl(uint32_t v)
 }
 
 
+static uint32_t cntv_ctl_shadow = ~0U;
+
 /**
  * @brief Write to the CNTV_CTL register to enable/disable the virtual timer.
  * @param v Control value (bit 0 = enable, bit 1 = interrupt mask
  * Note: enabling the virtual timer may cause it to fire alongside the physical timer if both are
  * present, which can effectively double the tick rate.
  */
-static inline void WriteCntvCtl(uint32_t v)
-{
-    __asm__ volatile("mcr p15, 0, %0, c14, c3, 1" ::"r"(v));
+static inline void WriteCntvCtl(uint32_t v) {
+    if (v == cntv_ctl_shadow) return;
+    cntv_ctl_shadow = v;
+    __asm__ volatile("mcr p15, 0, %0, c14, c3, 1" :: "r"(v));
     __asm__ volatile("isb");
 }
+
 
 /* Monotonic anchor for the workaround below. Single-core; racy across the
  * IRQ boundary only to the extent of a torn 64-bit load, which the clamp
