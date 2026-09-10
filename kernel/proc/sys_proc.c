@@ -17,8 +17,6 @@
 #include <zuzu/tls.h>
 #include <zuzu/user_layout.h>
 
-extern Thread *current_thread;
-extern ListHead sleep_queue;
 extern ProcessObj *process_table[MAX_PROCESSES];
 
 #define LOG_FMT(fmt) "(sys_task) " fmt
@@ -41,14 +39,14 @@ void SysPQuit(CpuState *frame)
            current_thread->owner_process ? current_thread->owner_process->pid : 0, exit_status);
 
     ProcessKill(current_thread->owner_process, exit_status);
-    schedule();
+    Schedule();
 }
 
 void SysYield(CpuState *frame)
 {
     (*arch_reg(frame, 0)) = 0;
     (void)frame;
-    schedule();
+    Schedule();
 }
 
 void SysSleep(CpuState *frame)
@@ -60,9 +58,9 @@ void SysSleep(CpuState *frame)
 
     // Change state to BLOCKED and insert into sleep queue
     current_thread->state = BLOCKED;
-    sleep_queue_insert(current_thread);
+    SchedInsertSleepQueue(current_thread);
     // Schedule someone else immediately
-    schedule();
+    Schedule();
 
     (*arch_reg(frame, 0)) = 0;
 }
@@ -99,7 +97,7 @@ void SysWait(CpuState *frame)
 
         current_thread->owner_process->waiting_for = WAIT_ANY_PID;
         current_thread->state = BLOCKED;
-        schedule();
+        Schedule();
 
         child = ProcessFindZombieChild(current_thread->owner_process);
         if (!child)
@@ -154,7 +152,7 @@ void SysWait(CpuState *frame)
     // Case C: block until child exits
     current_thread->owner_process->waiting_for = child_pid;
     current_thread->state = BLOCKED;
-    schedule();
+    Schedule();
 
     // re-fetch after wakeup, pointer may be stale
     child = ProcessFindChildFromPid(current_thread->owner_process, child_pid);
@@ -221,16 +219,17 @@ void SysPSpawn(CpuState *frame)
         return;
     }
 
+    HandleTable *caller_ht = &current_thread->owner_process->handle_table;
     for (int i = 0; i < 4; i++)
     {
-        HandleEntry *src =
-            handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)i);
+        HandleEntry *src = HandleTableGet(caller_ht, (uint32_t)i);
         if (!src || src->type == HANDLE_FREE)
             continue;
-        HandleEntry *dst = handle_vec_get(&process->handle_table, (uint32_t)i);
+        HandleEntry *dst = HandleTableGetOrAlloc(&process->handle_table, (uint32_t)i);
         if (!dst)
             continue;
         *dst = *src;
+        HandleEntryClaim(&process->handle_table, dst);
         if (src->type == HANDLE_PORT && src->port)
             src->port->ref_count++;
     }
@@ -238,15 +237,14 @@ void SysPSpawn(CpuState *frame)
     ProcessSetParent(process, current_thread->owner_process);
 
     // now return a handle
-    int slot = handle_vec_find_free(&current_thread->owner_process->handle_table);
+    int slot = HandleTableFindFree(caller_ht);
     if (slot < 0)
     {
         ProcessDestroy(process);
         arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }
-    HandleEntry *slot_entry =
-        handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)slot);
+    HandleEntry *slot_entry = HandleTableGet(caller_ht, (uint32_t)slot);
     if (!slot_entry)
     {
         ProcessDestroy(process);
@@ -256,6 +254,7 @@ void SysPSpawn(CpuState *frame)
     slot_entry->type = HANDLE_TASK;
     slot_entry->task = process;
     slot_entry->grantable = true;
+    HandleEntryClaim(caller_ht, slot_entry);
 
     arch_reg_set(frame, 0, slot);
     arch_reg_set(frame, 1, process->pid);
@@ -286,7 +285,7 @@ void SysKickstart(CpuState *frame)
     }
 
     HandleEntry *entry =
-        handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)kargs.taskHandle);
+        HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)kargs.taskHandle);
     if (!entry)
     {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
@@ -314,7 +313,7 @@ void SysKickstart(CpuState *frame)
         (void *)target->thread->kernel_stack_top, kargs.entry, kargs.sp, USER_ELF_BASE,
         kargs.r0_val, kargs.r1_val, &target->thread->trap_frame);
     target->thread->state = READY;
-    sched_add(target->thread);
+    SchedAdd(target->thread);
     (*arch_reg(frame, 0)) = 0;
     KDEBUG("Kickstarted process with PID %d", target->pid, kargs.entry);
     return;
@@ -324,7 +323,8 @@ void SysPKill(CpuState *frame)
 {
     uint32_t handle_idx = (*arch_reg(frame, 0));
 
-    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, handle_idx);
+    HandleTable *ht = &current_thread->owner_process->handle_table;
+    HandleEntry *entry = HandleTableGet(ht, handle_idx);
     if (!entry)
     {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
@@ -348,9 +348,7 @@ void SysPKill(CpuState *frame)
         arch_reg_set(frame, 0, ERR_BADARG); /* use pquit */
         return;
     }
-    entry->type = HANDLE_FREE;
-    entry->task = NULL;
-    entry->grantable = false;
+    HandleEntryFree(ht, entry);
 
     ProcessKill(target, KILLED_TAG | KILL_BY_PARENT);
 

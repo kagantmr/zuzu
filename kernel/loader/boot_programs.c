@@ -43,7 +43,7 @@ static void inject_device_cap(const char *compatible,
 {
     if (!s_devmgr)
         return;
-    DeviceCap *cap = (DeviceCap *)kalloc_device_cap();
+    DeviceCap *cap = (DeviceCap *)KAllocDevCap();
     if (!cap)
         return;
     strncpy(cap->compatible, compatible, sizeof(cap->compatible) - 1);
@@ -52,24 +52,25 @@ static void inject_device_cap(const char *compatible,
     cap->size = (uint32_t)size;
     cap->irq = irq;
     cap->ref_count = 1;
-    // 3. handle_vec_find_free on s_devmgr->handle_table
-    int handle = handle_vec_find_free(&s_devmgr->handle_table);
+    // 3. HandleTableFindFree on s_devmgr->handle_table
+    int handle = HandleTableFindFree(&s_devmgr->handle_table);
     if (handle < 0)
     {
-        kfree_device_cap(cap);
+        KFreeDevCap(cap);
         return;
     }
-    // 4. handle_vec_get that slot, write HANDLE_DEVICE entry
-    HandleEntry *entry = handle_vec_get(&s_devmgr->handle_table, (uint32_t)handle);
+    // 4. HandleTableGet that slot, write HANDLE_DEVICE entry
+    HandleEntry *entry = HandleTableGet(&s_devmgr->handle_table, (uint32_t)handle);
     if (!entry)
     {
-        kfree_device_cap(cap);
+        KFreeDevCap(cap);
         return;
     }
     entry->type = HANDLE_DEVICE;
     entry->grantable = true;
     entry->mapped_va = 0;
     entry->dev = cap;
+    HandleEntryClaim(&s_devmgr->handle_table, entry);
 }
 
 /* devmgr's entry point/sp as computed by a parse-only peek at its ELF
@@ -170,7 +171,7 @@ static void boot_program(const char *path, uint32_t flags,
      * thread to READY) — scheduling it now would run it with no valid
      * trap frame. */
     if (!leave_frozen)
-        sched_add(process->thread);
+        SchedAdd(process->thread);
 }
 
 static uint32_t parse_flag_string(const char *flag_str)
@@ -195,7 +196,7 @@ static char *normalize_manifest_program_path(const char *path_in)
 
     if (strchr(path_in, '/'))
     {
-        char *path = (char *)kmalloc(strlen(path_in) + 1);
+        char *path = (char *)KZAlloc(strlen(path_in) + 1);
         if (!path)
             return NULL;
         strcpy(path, path_in);
@@ -204,7 +205,7 @@ static char *normalize_manifest_program_path(const char *path_in)
 
     size_t path_len = strlen(path_in);
     size_t full_len = sizeof(BOOT_PROGRAM_PREFIX) - 1 + path_len + 1;
-    char *path = (char *)kmalloc(full_len);
+    char *path = (char *)KZAlloc(full_len);
     if (!path)
         return NULL;
 
@@ -370,7 +371,7 @@ void boot_programs_spawn_all(PhysAddr initrd_pa, size_t initrd_size)
                          devmgr_entry_peek, devmgr_sp_peek);
         if (boot_programs[i].owns_path && boot_programs[i].path)
         {
-            kfree((void *)boot_programs[i].path);
+            KFree((void *)boot_programs[i].path);
             boot_programs[i].path = NULL;
             boot_programs[i].owns_path = 0;
         }
@@ -380,17 +381,18 @@ void boot_programs_spawn_all(PhysAddr initrd_pa, size_t initrd_size)
      * fixed slot sysd's userspace code already knows by constant, so sysd
      * can SysKickstart devmgr without ever calling SysPSpawn for it. Same
      * direct-write pattern as inject_device_cap() above, just at a fixed
-     * slot instead of one returned by handle_vec_find_free. */
+     * slot instead of one returned by HandleTableFindFree. */
     if (s_sysd && s_devmgr)
     {
         HandleEntry *devmgr_task_slot =
-            handle_vec_get(&s_sysd->handle_table, SYSD_DEVMGR_TASK_HANDLE_SLOT);
+            HandleTableGetOrAlloc(&s_sysd->handle_table, SYSD_DEVMGR_TASK_HANDLE_SLOT);
         if (devmgr_task_slot)
         {
             devmgr_task_slot->type = HANDLE_TASK;
             devmgr_task_slot->grantable = true;
             devmgr_task_slot->mapped_va = 0;
             devmgr_task_slot->task = s_devmgr;
+            HandleEntryClaim(&s_sysd->handle_table, devmgr_task_slot);
         }
         else
         {

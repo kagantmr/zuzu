@@ -32,14 +32,14 @@ extern kernel_layout_t kernel_layout;
  * this wraps set_resched_flag rather than being registered alongside it —
  * a second call to register_tick_callback would silently replace the first
  * and stop preemption. */
-static void sched_tick(void) { set_resched_flag(); }
+static void sched_tick(void) { SchedSetReschedFlag(); }
 
 _Noreturn void kmain(void)
 {
     KINFO("Booting %s", "zuzu-" ZUZU_CODENAME "-" ZUZU_VERSION);
     /* DTB and boot_info were initialized in early(); do not touch DTB again */
 
-    sched_init();
+    SchedInit();
     arch_global_irq_enable();
 
     SyspageInit();
@@ -66,7 +66,7 @@ _Noreturn void kmain(void)
 
     KINFO("Entering idle");
 
-    schedule();
+    Schedule();
 
     panic("Unreachable: %s:%d", __FILE__, __LINE__);
 }

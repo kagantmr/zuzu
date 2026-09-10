@@ -279,7 +279,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
             KERROR("Oops! '%s' (PID %d, TID %d) killed: undefined instruction @ 0x%08X\n", current_process->name, current_process->pid, current_thread->tid, frame->return_pc);
             dump_registers(frame);
             ProcessKill(current_process, KILLED_TAG | KILL_FAULT_UNDEF);
-            schedule();
+            Schedule();
         }
         else
         {
@@ -341,7 +341,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
                    current_process->name, current_process->pid, current_thread->tid, ifar, decode_fault_status(ifsr));
             ProcessKill(current_process, KILLED_TAG | KILL_FAULT_PREFETCH);
             dump_registers(frame);
-            schedule();
+            Schedule();
         }
         else
         {
@@ -418,7 +418,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
                    decode_fault_status(dfsr));
             dump_registers(frame);
             ProcessKill(current_process, KILLED_TAG | KILL_FAULT_DATA);
-            schedule();
+            Schedule();
         }
         else if (from_svc && current_process && current_process->as
                  && dfar < KERNEL_VA_BASE)
@@ -436,7 +436,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
                    decode_fault_status(dfsr));
             dump_registers(frame);
             ProcessKill(current_process, KILLED_TAG | KILL_FAULT_DATA);
-            schedule();
+            Schedule();
         }
         else
         {
