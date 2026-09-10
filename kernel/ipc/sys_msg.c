@@ -117,9 +117,7 @@ static __cold __noinline void PanicBadFrame(const char *where, const ProcessObj 
 
 static __always_inline void CancelTimeout(Thread *t)
 {
-	if (unlikely(t->wake_deadline != 0 && t->timeout_node.prev && t->timeout_node.next)) {
-		list_remove(&t->timeout_node);
-	}
+	SchedRemoveSleepQueue(t);
 	t->wake_deadline = 0;
 }
 
@@ -474,10 +472,8 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 						 current_thread->owner_process, frame);
 #endif
 		if (unlikely(timeout_ms != TIMEOUT_INFINITE &&
-			     current_thread->wake_reason != WAKE_TIMEOUT &&
-			     current_thread->timeout_node.prev &&
-			     current_thread->timeout_node.next)) {
-			list_remove(&current_thread->timeout_node);
+			     current_thread->wake_reason != WAKE_TIMEOUT)) {
+			SchedRemoveSleepQueue(current_thread);
 		}
 
 		if (unlikely(current_thread->wake_reason == WAKE_TIMEOUT)) {
@@ -1283,9 +1279,8 @@ void SysWaitAny(CpuState *frame)
 		Schedule();
 
 		/* Cancel sleep queue entry if not timed out */
-		if (timeout_ms != TIMEOUT_INFINITE && current_thread->wake_reason != WAKE_TIMEOUT &&
-		    current_thread->timeout_node.prev && current_thread->timeout_node.next) {
-			list_remove(&current_thread->timeout_node);
+		if (timeout_ms != TIMEOUT_INFINITE && current_thread->wake_reason != WAKE_TIMEOUT) {
+			SchedRemoveSleepQueue(current_thread);
 		}
 
 		/* ERR_DEAD from cap_destroy */
