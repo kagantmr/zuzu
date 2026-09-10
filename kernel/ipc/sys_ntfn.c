@@ -22,7 +22,7 @@ void SysNtfnCreate(CpuState *frame)
         return;
     }
 
-    NtfnObj *ntfn = KZAlloc(sizeof(NtfnObj)); // or slab
+    NtfnObj *ntfn = KAllocNtfn();
     if (!ntfn) {
         arch_reg_set(frame, 0, ERR_NOMEM);
         return;
@@ -36,7 +36,7 @@ void SysNtfnCreate(CpuState *frame)
 
     HandleEntry *entry = HandleTableGet(ht, (uint32_t)handle);
     if (!entry) {
-        KFree(ntfn);
+        KFreeNtfn(ntfn);
         arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }

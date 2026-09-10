@@ -14,6 +14,7 @@
 static Tid next_tid = 1;
 static Thread *thread_table[MAX_THREADS];
 static spinlock_t thread_table_lock = SPINLOCK_INIT;
+static KHeapSlabCache thread_cache;
 
 static Tid ThreadRegister(Thread *thread)
 {
@@ -93,7 +94,7 @@ void ThreadDestroy(Thread *thread)
 		owner->thread = NULL;
 	if (thread->kernel_stack_top)
 		KernelStackFree(thread->kernel_stack_top);
-	KFree(thread);
+	KSlabFree(&thread_cache, thread);
 }
 
 Thread *ThreadCreate(ProcessObj *owner_process)
@@ -101,20 +102,23 @@ Thread *ThreadCreate(ProcessObj *owner_process)
 	if (!owner_process)
 		return NULL;
 
-	Thread *thread = KZAlloc(sizeof(*thread));
+	if (!thread_cache.obj_size)
+		KSlabInit(&thread_cache, "Thread", sizeof(Thread));
+	Thread *thread = KSlabAlloc(&thread_cache);
 	if (!thread)
 		return NULL;
+	memset(thread, 0, sizeof(*thread));
 
 	thread->kernel_stack_top = KernelStackAlloc();
 	if (!thread->kernel_stack_top) {
-		KFree(thread);
+		KSlabFree(&thread_cache, thread);
 		return NULL;
 	}
 
 	thread->tid = ThreadRegister(thread);
 	if (thread->tid == 0) {
 		KernelStackFree(thread->kernel_stack_top);
-		KFree(thread);
+		KSlabFree(&thread_cache, thread);
 		return NULL;
 	}
 

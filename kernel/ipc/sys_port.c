@@ -200,7 +200,7 @@ void SysDestroy(CpuState *frame)
         if (ntf->ref_count > 0)
             ntf->ref_count--;
         if (ntf->ref_count == 0)
-            KFree(ntf);
+            KFreeNtfn(ntf);
 
         (*arch_reg(frame, 0)) = 0;
     }
