@@ -1,38 +1,44 @@
 #include "alloc.h"
 #include "pmm.h"
 #include "kernel/layout.h"
-#include "kernel/mm/vmm.h"  // For PA_TO_VA
+#include "kernel/mm/vmm.h" 
 #include "stdbool.h"
+#include <stddef.h>
 #include <string.h>
 #include <assert.h>
 #include "kernel/dev/devcap.h"
 #include "core/panic.h"
-#include "core/log.h"
 #include "kernel/ipc/port.h"
-#include "kernel/bench.h"
 #include <compiler.h>
+
+#define LOG_FMT(fmt) "(pmm) " fmt
+#include <zuzu/log.h>
 
 extern kernel_layout_t kernel_layout;
 
 #ifdef ZUZU_BENCH
+
+#include "kernel/bench.h"
+
 BENCH_STAT(g_bench_reply_cap_alloc, "reply-cap alloc");
 BENCH_STAT(g_bench_reply_cap_free, "reply-cap free");
 #endif
 
-static slab_cache_t port_cache;
-static slab_cache_t reply_cap_cache;
-static slab_cache_t device_cap_cache;
+static KHeapSlabCache port_cache;
+static KHeapSlabCache reply_cap_cache;
+static KHeapSlabCache device_cap_cache;
 static bool hot_caches_ready;
 
-kmem_block_t* heap_head = NULL;
+KMemBlock* heap_head = NULL;
+static KMemBlock* heap_tail = NULL;
 
-static slab_t *slab_grow(slab_cache_t *cache)
+static KHeapSlab *SlabGrow(KHeapSlabCache *cache)
 {
     PhysAddr pa = PmmAllocFrame();
     if (!pa) return NULL;
 
-    slab_t *slab = (slab_t *)PA_TO_VA(pa);
-    size_t hdr_size = align_up(sizeof(slab_t), 8);
+    KHeapSlab *slab = (KHeapSlab *)PA_TO_VA(pa);
+    size_t hdr_size = align_up(sizeof(KHeapSlab), 8);
     uint8_t *data = (uint8_t *)slab + hdr_size;
     size_t usable = PAGE_SIZE - hdr_size;
 
@@ -42,8 +48,8 @@ static slab_t *slab_grow(slab_cache_t *cache)
     slab->free_head = NULL;
 
     // build freelist: chain all slots together
-    for (uint16_t i = 0; i < slab->capacity; i++) {
-        void *slot = data + i * cache->obj_size;
+    for (size_t i = 0; i < slab->capacity; i++) {
+        void *slot = data + (i * cache->obj_size);
         *(void **)slot = slab->free_head;
         slab->free_head = slot;
     }
@@ -54,7 +60,7 @@ static slab_t *slab_grow(slab_cache_t *cache)
     return slab;
 }
 
-static void slab_cache_create(slab_cache_t *cache, const char *name, size_t obj_size)
+static void CreateSlabCache(KHeapSlabCache *cache, const char *name, size_t obj_size)
 {
     // enforce minimum: must fit a freelist pointer
     if (obj_size < sizeof(void *))
@@ -65,15 +71,10 @@ static void slab_cache_create(slab_cache_t *cache, const char *name, size_t obj_
     cache->slabs = NULL;
 }
 
-/* Reached on every reply-cap/port/device-cap alloc, i.e. every IPC call.
- * The common case is "first slab already has free space" (0-iteration
- * loop) -- hot biases the compiler/LTO toward keeping this warm and
- * favoring that path; it still has a loop and a cold slab_grow() call so
- * it's not an always_inline leaf. */
-static void *__hot slab_alloc(slab_cache_t *cache)
+static void *__hot SlabAlloc(KHeapSlabCache *cache)
 {
     // 1. find a slab with free space
-    slab_t *slab = cache->slabs;
+    KHeapSlab *slab = cache->slabs;
     while (slab) {
         if (likely(slab->free_head))
             break;
@@ -82,7 +83,7 @@ static void *__hot slab_alloc(slab_cache_t *cache)
 
     // 2. none found, allocate a new slab page
     if (unlikely(!slab)) {
-        slab = slab_grow(cache);
+        slab = SlabGrow(cache);
         if (unlikely(!slab)) return NULL;
     }
 
@@ -93,16 +94,14 @@ static void *__hot slab_alloc(slab_cache_t *cache)
     return obj;
 }
 
-/* No loop, no calls (assert() compiles out under NDEBUG) -- a genuine
- * leaf on the same hot free path as kfree_reply_cap. */
-static __always_inline void slab_free(slab_cache_t *cache, void *ptr)
+static __always_inline void SlabFree(KHeapSlabCache *cache, void *ptr)
 {
     assert(cache != NULL);
     assert(ptr != NULL);
     (void)cache;
 
     // the slab header is at the page-aligned base of this pointer
-    slab_t *slab = (slab_t *)align_down((uintptr_t)ptr, PAGE_SIZE);
+    KHeapSlab *slab = (KHeapSlab *)align_down((uintptr_t)ptr, PAGE_SIZE);
     assert(slab->owner_cache == cache);
 
     // push onto freelist
@@ -111,36 +110,31 @@ static __always_inline void slab_free(slab_cache_t *cache, void *ptr)
     slab->used--;
 }
 
-/* Called at the top of every kalloc_ and kfree_ helper -- after boot, the
- * branch below is always taken, so mark the init-once body as the
- * unlikely leg. */
-static __always_inline void alloc_hot_caches_init(void)
+static __always_inline void SlabCachesInit(void)
 {
     if (likely(hot_caches_ready))
         return;
 
-    slab_cache_create(&port_cache, "Port", sizeof(Port));
-    slab_cache_create(&reply_cap_cache, "ReplyCap", sizeof(ReplyCap));
-    slab_cache_create(&device_cap_cache, "DeviceCap", sizeof(DeviceCap));
+    CreateSlabCache(&port_cache, "Port", sizeof(Port));
+    CreateSlabCache(&reply_cap_cache, "ReplyCap", sizeof(ReplyCap));
+    CreateSlabCache(&device_cap_cache, "DeviceCap", sizeof(DeviceCap));
     hot_caches_ready = true;
 }
 
-static void heap_append_block(kmem_block_t *block)
+static void HeapAppendBlk(KMemBlock *block)
 {
     block->next = NULL;
+    block->prev = heap_tail;
     if (!heap_head) {
         heap_head = block;
+        heap_tail = block;
         return;
     }
-
-    kmem_block_t *tail = heap_head;
-    while (tail->next) {
-        tail = tail->next;
-    }
-    tail->next = block;
+    heap_tail->next = block;
+    heap_tail = block;
 }
 
-static bool kheap_grow(size_t min_payload)
+static bool HeapGrow(size_t min_payload)
 {
     size_t wanted = align_up(min_payload + HDR + MIN_PAYLOAD, PAGE_SIZE);
     size_t pages = wanted / PAGE_SIZE;
@@ -154,15 +148,16 @@ static bool kheap_grow(size_t min_payload)
     }
 
     VirtAddr heap_va = PA_TO_VA(heap_pa);
-    kmem_block_t *block = (kmem_block_t *)heap_va;
+    KMemBlock *block = (KMemBlock *)heap_va;
     block->size = align_down(pages * PAGE_SIZE - HDR, ALIGNMENT);
-    block->free = true;
+    block->state = KBLOCK_FREE;
     block->next = NULL;
+    block->prev = NULL;
 
-    heap_append_block(block);
+    HeapAppendBlk(block);
 
-    PhysAddr seg_end_pa = heap_pa + pages * PAGE_SIZE;
-    VirtAddr seg_end_va = heap_va + pages * PAGE_SIZE;
+    PhysAddr seg_end_pa = heap_pa + (pages * PAGE_SIZE);
+    VirtAddr seg_end_va = heap_va + (pages * PAGE_SIZE);
 
     if (kernel_layout.heap_start_pa == 0 || heap_pa < kernel_layout.heap_start_pa) {
         kernel_layout.heap_start_pa = heap_pa;
@@ -176,48 +171,58 @@ static bool kheap_grow(size_t min_payload)
     return true;
 }
 
-static kmem_block_t *kheap_find_block_by_payload(void *ptr)
+/* Absorb block->next into block when the two are physically adjacent and
+ * next is free. Maintains prev links and heap_tail. */
+static void HeapMerge(KMemBlock *block)
 {
-    kmem_block_t *cur = heap_head;
-    while (cur) {
-        if ((void *)((uint8_t *)cur + HDR) == ptr) {
-            return cur;
-        }
-        cur = cur->next;
-    }
-    return NULL;
+    KMemBlock *next = block->next;
+    if (!next || next->state != KBLOCK_FREE)
+        return;
+    if ((uint8_t *)block + HDR + block->size != (uint8_t *)next)
+        return;
+
+    block->size += HDR + next->size;
+    block->next = next->next;
+    if (next->next)
+        next->next->prev = block;
+    else
+        heap_tail = block;
 }
 
-void* kmalloc(size_t size) {
+void* KMalloc(size_t size) {
     if (!size) {
         return NULL;
     }
     size_t req = align_up(size, ALIGNMENT); // align area up
 
     for (int pass = 0; pass < 2; pass++) {
-        kmem_block_t* current_block = heap_head;
-        while (current_block) {
-            if (current_block->free && current_block->size >= req) {    // free block found?
-                size_t leftover = current_block->size - req;
-                if (leftover >= HDR + MIN_PAYLOAD + (ALIGNMENT - 1)) { // split?
-                    kmem_block_t* new_block = (kmem_block_t*)(void*)((uint8_t*)current_block + HDR + req);
+        for (KMemBlock *current_block = heap_head; current_block;
+             current_block = current_block->next) {
+            if (current_block->state != KBLOCK_FREE || current_block->size < req)
+                continue;
 
-                    new_block->size = align_down(leftover - HDR, ALIGNMENT);
-                    new_block->next = current_block->next;
-                    new_block->free = true;
-                    current_block->next = new_block;
-                    current_block->free = false;
-                    current_block->size = req;
-                    return (void*)((uint8_t*)current_block + HDR);
-                } else {    // no split
-                    current_block->free = false;
-                    return (void*)((uint8_t*)current_block + HDR);
-                }
+            size_t leftover = current_block->size - req;
+            if (leftover >= HDR + MIN_PAYLOAD + (ALIGNMENT - 1)) { // split
+                KMemBlock *new_block =
+                    (KMemBlock *)(void *)((uint8_t *)current_block + HDR + req);
+
+                new_block->size = align_down(leftover - HDR, ALIGNMENT);
+                new_block->state = KBLOCK_FREE;
+                new_block->next = current_block->next;
+                new_block->prev = current_block;
+                if (current_block->next)
+                    current_block->next->prev = new_block;
+                else
+                    heap_tail = new_block;
+                current_block->next = new_block;
+                current_block->size = req;
             }
-            current_block = current_block->next;
+
+            current_block->state = KBLOCK_ALLOCATED;
+            return (void *)((uint8_t *)current_block + HDR);
         }
 
-        if (!kheap_grow(req)) {
+        if (!HeapGrow(req)) {
             break;
         }
     }
@@ -226,155 +231,137 @@ void* kmalloc(size_t size) {
     return NULL;
 }
 
+void *KZAlloc(size_t size)
+{
+    void *p = KMalloc(size);
+    if (p)
+        memset(p, 0, size);
+    return p;
+}
 
-void kfree(void* ptr) {
+void *KCalloc(size_t nmemb, size_t size)
+{
+    if (nmemb && size > (size_t)-1 / nmemb) {
+        KERROR("kcalloc: size overflow (%u x %u)", (unsigned)nmemb, (unsigned)size);
+        return NULL;
+    }
+    return KZAlloc(nmemb * size);
+}
+
+
+void KFree(void* ptr) {
     if (!ptr) {
         return;
     }
-    
+
     // Sanity check: ptr must be aligned
     if (((uintptr_t)ptr % ALIGNMENT) != 0) {
         KERROR("kfree: pointer not aligned");
         return;
     }
-    
-    kmem_block_t* header = kheap_find_block_by_payload(ptr);
-    if (!header) {
-        KERROR("kfree: pointer does not match any allocated heap block");
+
+    if ((uint8_t *)ptr < (uint8_t *)kernel_layout.heap_start_va + HDR ||
+        (uint8_t *)ptr >= (uint8_t *)kernel_layout.heap_end_va) {
+        KERROR("kfree: pointer outside kernel heap");
         return;
     }
-    
-    if (header->free) {
+
+    KMemBlock *header = (KMemBlock *)(void *)((uint8_t *)ptr - HDR);
+
+    if (header->state == KBLOCK_FREE) {
         KERROR("Double free in kernel heap");
         return;
     }
-    header->free = true;
-    
-    // Forward merge: merge freed block with its next repeatedly
-    while (header->next) {
-        if (header->next->free) {
-            uint8_t* block_end = (uint8_t*)header + HDR + header->size;
-            if (block_end == (uint8_t*)header->next) {
-                header->size += HDR + header->next->size;
-                header->next = header->next->next;
-            } else {
-                break; // Not adjacent, stop merging
-            }
-        } else {
-            break; // Next not free, stop merging
-        }
+    if (header->state != KBLOCK_ALLOCATED) {
+        KERROR("kfree: pointer does not match any allocated heap block");
+        return;
     }
-    
-    // Backward merge: find previous block
-    kmem_block_t* prev = NULL;
-    if (header != heap_head) {
-        prev = heap_head;
-        while (prev && prev->next != header) {
-            prev = prev->next;
-        }
-    }
-    
-    // Only attempt backward merge if we found a valid prev
-    if (prev && prev->free) {
-        uint8_t* end_of_prev = (uint8_t*)prev + HDR + prev->size;
-        if (end_of_prev == (uint8_t*)header) {
-            // Merge prev with header
-            prev->size += HDR + header->size;
-            prev->next = header->next;
-            
-            // Forward merge again from prev (it might now be adjacent to a free block)
-            while (prev->next) {
-                if (prev->next->free) {
-                    uint8_t* block_end = (uint8_t*)prev + HDR + prev->size;
-                    if (block_end == (uint8_t*)prev->next) {
-                        prev->size += HDR + prev->next->size;
-                        prev->next = prev->next->next;
-                    } else {
-                        break; // Not adjacent, stop merging
-                    }
-                } else {
-                    break; // Next not free, stop merging
-                }
-            }
-        }
-    }
+    header->state = KBLOCK_FREE;
+
+    // Forward merge: absorb the next block if adjacent and free.
+    HeapMerge(header);
+
+    // Backward merge: O(1) via prev pointer. Absorbs header (and whatever it
+    // just merged) into prev.
+    if (header->prev && header->prev->state == KBLOCK_FREE)
+        HeapMerge(header->prev);
 }
 
+_Static_assert(HEAP_INITIAL_SIZE % PAGE_SIZE == 0, "Heap is not aligned to page");
 
-void kheap_init(void) {
-    assert(HEAP_INITIAL_SIZE % PAGE_SIZE == 0);
-
+void KHeapInit(void) {
     heap_head = NULL;
+    heap_tail = NULL;
     kernel_layout.heap_start_pa = 0;
     kernel_layout.heap_end_pa = 0;
     kernel_layout.heap_start_va = NULL;
     kernel_layout.heap_end_va = NULL;
 
-    if (!kheap_grow(HEAP_INITIAL_SIZE - HDR)) {
+    if (!HeapGrow(HEAP_INITIAL_SIZE - HDR)) {
         panic("Heap could not be allocated");
     }
 
-    alloc_hot_caches_init();
+    SlabCachesInit();
 }
 
-void *kalloc_portobj(void)
+void *KAllocPortObj(void)
 {
-    alloc_hot_caches_init();
-    return slab_alloc(&port_cache);
+    SlabCachesInit();
+    return SlabAlloc(&port_cache);
 }
 
-void kfree_portobj(void *ptr)
+void KFreePortObj(void *ptr)
 {
     if (!ptr)
         return;
-    slab_free(&port_cache, ptr);
+    SlabFree(&port_cache, ptr);
 }
 
-void *__hot kalloc_reply_cap(void)
+void *__hot KAllocReplyCap(void)
 {
 #ifdef ZUZU_BENCH
     uint32_t bench_start = BENCH_BEGIN();
 #endif
-    alloc_hot_caches_init();
-    void *ptr = slab_alloc(&reply_cap_cache);
+    SlabCachesInit();
+    void *ptr = SlabAlloc(&reply_cap_cache);
 #ifdef ZUZU_BENCH
     BENCH_END(g_bench_reply_cap_alloc, bench_start);
 #endif
     return ptr;
 }
 
-void __hot kfree_reply_cap(void *ptr)
+void __hot KFreeReplyCap(void *ptr)
 {
 #ifdef ZUZU_BENCH
     uint32_t bench_start = BENCH_BEGIN();
 #endif
     if (unlikely(!ptr))
         return;
-    slab_free(&reply_cap_cache, ptr);
+    SlabFree(&reply_cap_cache, ptr);
 #ifdef ZUZU_BENCH
     BENCH_END(g_bench_reply_cap_free, bench_start);
 #endif
 }
 
-void *kalloc_device_cap(void)
+void *KAllocDevCap(void)
 {
-    alloc_hot_caches_init();
-    return slab_alloc(&device_cap_cache);
+    SlabCachesInit();
+    return SlabAlloc(&device_cap_cache);
 }
 
-void kfree_device_cap(void *ptr)
+void KFreeDevCap(void *ptr)
 {
     if (!ptr)
         return;
-    slab_free(&device_cap_cache, ptr);
+    SlabFree(&device_cap_cache, ptr);
 }
 
-void kheap_dump(void) {
+void KHeapDump(void) {
     KINFO("*** HEAP DUMP ***");
     // Print both PA and VA for clarity
     KINFO("Heap: %p - %p", kernel_layout.heap_start_va, kernel_layout.heap_end_va);
     
-    kmem_block_t* current = heap_head;
+    KMemBlock* current = heap_head;
     int block_num = 0;
     size_t total_free = 0;
     size_t total_used = 0;
@@ -387,10 +374,11 @@ void kheap_dump(void) {
             break;
         }
         
-        KINFO("Block %d: addr=%p size=%u free=%d next=%p", 
-              block_num, current, current->size, current->free, current->next);
-        
-        if (current->free) {
+        bool is_free = (current->state == KBLOCK_FREE);
+        KINFO("Block %d: addr=%p size=%u free=%d next=%p",
+              block_num, current, current->size, is_free, current->next);
+
+        if (is_free) {
             total_free += current->size;
         } else {
             total_used += current->size;

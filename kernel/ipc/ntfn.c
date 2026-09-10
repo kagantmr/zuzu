@@ -61,6 +61,6 @@ void NtfnRefDrop(NtfnObj *ntfn) {
     if (!ntfn) return;
     ntfn->ref_count--;
     if (ntfn->ref_count == 0) {
-        kfree(ntfn);
+        KFree(ntfn);
     }
 }
