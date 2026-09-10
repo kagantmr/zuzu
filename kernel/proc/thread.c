@@ -13,7 +13,6 @@
 
 static Tid next_tid = 1;
 static Thread *thread_table[MAX_THREADS];
-static spinlock_t thread_table_lock = SPINLOCK_INIT;
 static KHeapSlabCache thread_cache;
 
 static Tid ThreadRegister(Thread *thread)
@@ -21,7 +20,6 @@ static Tid ThreadRegister(Thread *thread)
 	if (!thread)
 		return 0;
 
-	spin_lock(&thread_table_lock);
 
 	/* Advance next_tid until its hashed slot is free, so the assigned tid
 	 * always satisfies tid % MAX_THREADS == slot. ThreadFindByTid and
@@ -32,7 +30,6 @@ static Tid ThreadRegister(Thread *thread)
 		next_tid++;
 		slot = next_tid % MAX_THREADS;
 		if (slot == start) {
-			spin_unlock(&thread_table_lock);
 			return 0;
 		}
 	}
@@ -44,7 +41,6 @@ static Tid ThreadRegister(Thread *thread)
 	       (thread->owner_process ? thread->owner_process->pid : 0),
 	       (thread->owner_process ? thread->owner_process->name : "<none>"));
 
-	spin_unlock(&thread_table_lock);
 	return thread->tid;
 }
 
@@ -53,13 +49,11 @@ static void ThreadUnregister(Thread *thread)
 	if (!thread || thread->tid == 0)
 		return;
 
-	spin_lock(&thread_table_lock);
 
 	uint32_t slot = (uint32_t)thread->tid % MAX_THREADS;
 	if (thread_table[slot] == thread)
 		thread_table[slot] = NULL;
 
-	spin_unlock(&thread_table_lock);
 }
 
 void ThreadKill(Thread *thread)
