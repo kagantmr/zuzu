@@ -32,6 +32,29 @@ static bool hot_caches_ready;
 KMemBlock* heap_head = NULL;
 static KMemBlock* heap_tail = NULL;
 
+/* Doubly-linked so a slab can be pulled from the middle of full/partial in
+ * O(1) when a free/alloc changes its fill state. */
+static __always_inline void SlabListPush(KHeapSlab **head, KHeapSlab *slab)
+{
+    slab->prev = NULL;
+    slab->next = *head;
+    if (*head)
+        (*head)->prev = slab;
+    *head = slab;
+}
+
+static __always_inline void SlabListRemove(KHeapSlab **head, KHeapSlab *slab)
+{
+    if (slab->prev)
+        slab->prev->next = slab->next;
+    else
+        *head = slab->next;
+    if (slab->next)
+        slab->next->prev = slab->prev;
+    slab->next = slab->prev = NULL;
+}
+
+/* New slab page, all slots free, pushed onto the cache's partial list. */
 static KHeapSlab *SlabGrow(KHeapSlabCache *cache)
 {
     PhysAddr pa = PmmAllocFrame();
@@ -46,6 +69,7 @@ static KHeapSlab *SlabGrow(KHeapSlabCache *cache)
     slab->capacity = usable / cache->obj_size;
     slab->used = 0;
     slab->free_head = NULL;
+    slab->state = SLAB_PARTIAL;
 
     // build freelist: chain all slots together
     for (size_t i = 0; i < slab->capacity; i++) {
@@ -54,9 +78,7 @@ static KHeapSlab *SlabGrow(KHeapSlabCache *cache)
         slab->free_head = slot;
     }
 
-    // prepend to cache's slab list
-    slab->next = cache->slabs;
-    cache->slabs = slab;
+    SlabListPush(&cache->partial, slab);
     return slab;
 }
 
@@ -68,31 +90,41 @@ static void CreateSlabCache(KHeapSlabCache *cache, const char *name, size_t obj_
     // align up to 8 for ARM alignment
     cache->obj_size = align_up(obj_size, 8);
     cache->name = name;
-    cache->slabs = NULL;
+    cache->partial = NULL;
+    cache->full = NULL;
+    cache->empty_hold = NULL;
     // at least one object must fit in a slab page after the header
     assert(cache->obj_size <= PAGE_SIZE - align_up(sizeof(KHeapSlab), 8));
 }
 
 static void *__hot SlabAlloc(KHeapSlabCache *cache)
 {
-    // 1. find a slab with free space
-    KHeapSlab *slab = cache->slabs;
-    while (slab) {
-        if (likely(slab->free_head))
-            break;
-        slab = slab->next;
-    }
+    KHeapSlab *slab = cache->partial;
 
-    // 2. none found, allocate a new slab page
     if (unlikely(!slab)) {
-        slab = SlabGrow(cache);
-        if (unlikely(!slab)) return NULL;
+        // Reuse the held empty slab before touching the PMM.
+        if (cache->empty_hold) {
+            slab = cache->empty_hold;
+            cache->empty_hold = NULL;
+            slab->state = SLAB_PARTIAL;
+            SlabListPush(&cache->partial, slab);
+        } else {
+            slab = SlabGrow(cache);
+            if (unlikely(!slab)) return NULL;
+        }
     }
 
-    // 3. pop from freelist
+    // pop from freelist
     void *obj = slab->free_head;
-    slab->free_head = *(void **)obj;  // read next pointer from the slot
+    slab->free_head = *(void **)obj;
     slab->used++;
+
+    if (unlikely(!slab->free_head)) {
+        // slab is now full: move partial -> full
+        SlabListRemove(&cache->partial, slab);
+        SlabListPush(&cache->full, slab);
+        slab->state = SLAB_FULL;
+    }
     return obj;
 }
 
@@ -100,16 +132,33 @@ static __always_inline void SlabFree(KHeapSlabCache *cache, void *ptr)
 {
     assert(cache != NULL);
     assert(ptr != NULL);
-    (void)cache;
 
     // the slab header is at the page-aligned base of this pointer
     KHeapSlab *slab = (KHeapSlab *)align_down((uintptr_t)ptr, PAGE_SIZE);
     assert(slab->owner_cache == cache);
 
+    bool was_full = (slab->free_head == NULL);
+
     // push onto freelist
     *(void **)ptr = slab->free_head;
     slab->free_head = ptr;
     slab->used--;
+
+    if (unlikely(was_full)) {
+        SlabListRemove(&cache->full, slab);
+        SlabListPush(&cache->partial, slab);
+        slab->state = SLAB_PARTIAL;
+    }
+
+    if (unlikely(slab->used == 0)) {
+        SlabListRemove(&cache->partial, slab);
+        if (cache->empty_hold == NULL) {
+            cache->empty_hold = slab;
+            slab->state = SLAB_EMPTY;
+        } else {
+            PmmFreeFrame(VA_TO_PA((uintptr_t)slab));
+        }
+    }
 }
 
 static __always_inline void SlabCachesInit(void)
