@@ -29,6 +29,7 @@ void SchedSetReschedFlag(void);
 void SchedRemoveSleepQueue(Thread *t);
 void SchedInsertSleepQueue(Thread *t);
 size_t SchedGetReadyQueue(Thread **out, size_t max_out);
+size_t SchedGetSleepers(Thread **out, size_t max_out);
 
 // Direct-switch support for callers (e.g. IPC handoff) that want to switch
 // straight to a specific thread instead of going through sched_add()+
