@@ -94,14 +94,14 @@ void SysTJoin(CpuState *frame)
 	}
 
 	if (thread->state != ZOMBIE) {
-		current_thread->owner_process->waiting_for_tid = tid;
+		list_add_tail(&current_thread->join_node, &thread->joiners.node);
 		current_thread->state = BLOCKED;
 		Schedule();
 
-		/* `process_wake_joiners` delivered the exit status into our
-		 * trap frame before making us READY; do not access `thread`
-		 * here since it may have been unregistered/freed by the
-		 * reaper. The return value is already placed in `(*arch_reg(frame, 0))`.
+		/* ThreadWakeJoiners delivered the exit status into our trap
+		 * frame before making us READY; do not access `thread` here
+		 * since it may have been unregistered/freed by the reaper.
+		 * The return value is already placed in `(*arch_reg(frame, 0))`.
 		 */
 		return;
 	}
@@ -119,7 +119,7 @@ void SysTQuit(CpuState *frame)
 	ProcessObj *owner = t->owner_process;
 
 	t->exit_status = exit_status;
-	ProcessWakeJoiners(t->tid, exit_status);
+	ThreadWakeJoiners(t, exit_status);
 
 	if (owner->threads.node.next == &t->process_node &&
 	    t->process_node.next == &owner->threads.node) {

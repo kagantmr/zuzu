@@ -57,6 +57,8 @@ struct thread {
 	ListNode node;	       // embedded, not pointers
 	ListNode process_node; // membership in owner process thread list
 	ListNode timeout_node;
+	ListHead joiners;
+	ListNode join_node;
 	WakeReason wake_reason;
 	uint64_t wake_deadline;
 	int16_t sleep_slot;
@@ -102,6 +104,7 @@ _Static_assert(offsetof(Thread, kernel_sp) == 12,
 void ThreadDestroy(Thread *thread);
 Thread *ThreadCreate(Process *owner_process);
 void ThreadKill(Thread *thread);
+void ThreadWakeJoiners(Thread *thread, int32_t exit_status);
 Thread *ThreadFindByTid(Tid tid);
 
 static inline void ThreadWaitanyClearWaits(Thread *thread)
