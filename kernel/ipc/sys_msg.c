@@ -20,7 +20,6 @@
 
 #define WAITANY_MAX_HANDLES 16u
 
-extern ListHead sleep_queue;
 extern kernel_layout_t kernel_layout;
 
 #ifdef ZUZU_BENCH

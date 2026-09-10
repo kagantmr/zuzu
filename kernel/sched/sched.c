@@ -23,7 +23,6 @@
 
 
 static ListHead destroy_queue = LIST_HEAD_INIT(destroy_queue);
-ListHead sleep_queue = LIST_HEAD_INIT(sleep_queue);
 static ListHead thread_destroy_queue = LIST_HEAD_INIT(thread_destroy_queue);
 Thread *current_thread;
 Thread *fpu_owner = NULL;
@@ -83,7 +82,6 @@ void SchedInit()
     slot_shift = (uint32_t)(63 - __builtin_clzll(ArchTimerFreq() / 250));
     wheel_now_slot = ArchTimerNow() >> slot_shift;
     list_init(&destroy_queue);
-    list_init(&sleep_queue);
     current_thread = NULL;
     on_idle_stack = false;
     SchedInitIdleThread();
@@ -449,6 +447,23 @@ size_t SchedGetReadyQueue(Thread **out, size_t max_out)
         }
     }
 
+    return total;
+}
+
+size_t SchedGetSleepers(Thread **out, size_t max_out)
+{
+    size_t total = 0;
+    for (uint32_t s = 0; s < SLEEP_QUEUE_SIZE; s++)
+    {
+        ListNode *node = sleep_wheel[s].node.next;
+        while (node != &sleep_wheel[s].node)
+        {
+            if (out && total < max_out)
+                out[total] = container_of(node, Thread, timeout_node);
+            total++;
+            node = node->next;
+        }
+    }
     return total;
 }
 

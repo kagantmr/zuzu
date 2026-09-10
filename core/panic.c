@@ -27,7 +27,6 @@ extern irq_handler_t      handler_table[MAX_IRQS];
 #endif
 
 extern kernel_layout_t kernel_layout;
-extern ListHead     sleep_queue;
 
 panic_fault_context_t panic_fault_ctx;
 
@@ -658,38 +657,31 @@ static void panic_print_sched(void)
         }
     }
 
-    /* Sleep queue */
+    /* Sleep wheel */
+    Thread *sleepers[PANIC_SLEEP_MAX];
+    size_t sleep_total = SchedGetSleepers(sleepers, PANIC_SLEEP_MAX);
     panic_nl();
-    {
-        int sleep_count = 0;
-        ListNode *node;
-        list_for_each(node, &sleep_queue.node)
-            sleep_count++;
+    (void)snprintf(line, sizeof(line), "sleeping (%lu):", (unsigned long)sleep_total);
+    panic_line(line);
 
-        (void)snprintf(line, sizeof(line), "sleeping (%d):", sleep_count);
-        panic_line(line);
-
-        if (sleep_count == 0) {
-            panic_line("  (empty)");
-        } else {
-            int shown = 0;
-            list_for_each(node, &sleep_queue.node) {
-                if (shown >= PANIC_SLEEP_MAX) {
-                    (void)snprintf(line, sizeof(line), "  ... +%d more",
-                             sleep_count - shown);
-                    panic_line(line);
-                    break;
-                }
-                Thread *t = container_of(node, Thread, timeout_node);
-                ProcessObj *p = t->owner_process;
-                (void)snprintf(line, sizeof(line),
-                         "  tid=%-4u  pid=%-4u  %-16s  wake_deadline=%llu",
-                         t->tid, p ? p->pid : 0,
-                         p ? p->name : "(none)",
-                         (unsigned long long)t->wake_deadline);
-                panic_line(line);
-                shown++;
-            }
+    if (sleep_total == 0) {
+        panic_line("  (empty)");
+    } else {
+        size_t show = sleep_total < PANIC_SLEEP_MAX ? sleep_total : PANIC_SLEEP_MAX;
+        for (size_t i = 0; i < show; i++) {
+            Thread *t = sleepers[i];
+            ProcessObj *p = t->owner_process;
+            (void)snprintf(line, sizeof(line),
+                     "  tid=%-4u  pid=%-4u  %-16s  wake_deadline=%llu",
+                     t->tid, p ? p->pid : 0,
+                     p ? p->name : "(none)",
+                     (unsigned long long)t->wake_deadline);
+            panic_line(line);
+        }
+        if (sleep_total > PANIC_SLEEP_MAX) {
+            (void)snprintf(line, sizeof(line), "  ... +%lu more",
+                     (unsigned long)(sleep_total - PANIC_SLEEP_MAX));
+            panic_line(line);
         }
     }
 }
