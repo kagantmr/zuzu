@@ -140,4 +140,11 @@ void *KAllocDevCap(void);
 */
 void KFreeDevCap(void *ptr);
 
+/* Generic slab-cache API for per-subsystem fixed-size object pools.
+ * Declare a `static KHeapSlabCache` in the owning TU, KSlabInit it once,
+ * then KSlabAlloc / KSlabFree. KSlabFree tolerates NULL. */
+void KSlabInit(KHeapSlabCache *cache, const char *name, size_t obj_size);
+void *KSlabAlloc(KHeapSlabCache *cache);
+void KSlabFree(KHeapSlabCache *cache, void *ptr);
+
 #endif // KERNEL_MM_ALLOC_H
