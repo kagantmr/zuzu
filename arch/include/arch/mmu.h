@@ -70,9 +70,6 @@ void arch_mmu_free_user_pages(AddressSpace *as);
 /** @brief Initialize the kernel translation base (TTBR1 on ARM) for user mode. */
 void arch_mmu_init_ttbr1(AddressSpace *as);
 
-/** @brief Issue memory/instruction barriers after MMU state changes. */
-void arch_mmu_barrier(void);
-
 /* Inline, architecture-private helpers (e.g. arch_relocate_stacks). */
 #include <arch_impl/mmu.h>
 

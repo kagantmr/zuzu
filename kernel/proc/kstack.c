@@ -3,7 +3,7 @@
 #include "kernel/mm/vmm.h"
 #include "stdbool.h"
 #include <arch/mmu.h>
-#include <assert.h>
+#include <arch/barrier.h>
 #include <zuzu/types.h>
 
 #define KSTACK_WORDS (MAX_KSTACKS / 64)
@@ -54,7 +54,7 @@ VirtAddr KernelStackAlloc(void)
 			}
 		}
 		arch_mmu_flush_tlb_va(slot_va);
-		arch_mmu_barrier();
+		ArchCtxSync();
 
 		bitmap[w] |= (1ULL << bit);
 		return KernelStackTopFromSlot((int)slot);
