@@ -24,20 +24,30 @@ typedef struct MemBlock
 #define KBLOCK_ALLOCATED 0xA110C8EDu
 #define KBLOCK_FREE 0xF9EEB10Cu
 
+typedef enum
+{
+    SLAB_EMPTY,   // used == 0
+    SLAB_PARTIAL, // 0 < used < capacity
+    SLAB_FULL     // used == capacity
+} KSlabState;
+
 typedef struct Slab
 {
-    struct Slab *next;             // next slab in this cache's list
+    struct Slab *next, *prev;      // intrusive: links within one of the cache's lists
     struct SlabCache *owner_cache; // owning cache for free-time validation
     size_t used;                   // how many objects are currently allocated
     size_t capacity;               // total slots in this slab
     void *free_head;               // freelist of available slots
+    KSlabState state;              // which list this slab is currently on
 } KHeapSlab;
 
 typedef struct SlabCache
 {
-    const char *name; // "Port", for debugging/kheap_dump
-    size_t obj_size;  // aligned object size
-    KHeapSlab *slabs;    // linked list of all slabs
+    const char *name;      // "Port", for debugging/KHeapDump
+    size_t obj_size;       // aligned object size
+    KHeapSlab *partial;    // slabs with >= 1 free slot
+    KHeapSlab *full;       // slabs with 0 free slots
+    KHeapSlab *empty_hold; // at most one all-free slab, kept as grow hysteresis
 } KHeapSlabCache;
 
 // Aligned header size used for all layout calculations
