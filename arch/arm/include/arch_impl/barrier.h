@@ -24,6 +24,12 @@ static inline void ArchDsb(void) { __asm__ volatile("dsb ish" ::: "memory"); }
  */
 static inline void ArchIsb(void) { __asm__ volatile("isb" ::: "memory"); }
 
+
+static inline void ArchCtxSync(void)
+{
+    __asm__ volatile("dsb ish\n\tisb" ::: "memory");
+}
+
 /**
  * Send Event (SEV): wakes cores blocked in WFE. Paired with a preceding DSB
  * so the state change that triggered the wakeup is visible before waking.

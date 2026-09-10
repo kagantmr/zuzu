@@ -1,14 +1,16 @@
 // mmu.c - ARM MMU implementation (ARMv7-A short-descriptor, 2-level)
 
 #include <arch/mmu.h>
+#include "arch_impl/barrier.h"
 #include "kernel/mm/pmm.h"
 #include "l2_pool.h"
 #include <stdint.h>
 #include <string.h>
 #include <assert.h>
+#include <arch/barrier.h>
 
 #define LOG_FMT(fmt) "(mmu) " fmt
-#include "core/log.h"
+#include "zuzu/log.h"
 
 // L1 descriptor type bits[1:0]
 #define DESC_FAULT     0x0u   // unmapped
@@ -271,9 +273,9 @@ bool arch_mmu_unmap(AddressSpace *as, uintptr_t va, size_t size)
 
             if ((entry & DESC_TYPE_MASK) == DESC_L2)
             {
-                arch_mmu_barrier();                           /* DSB: zero visible */
+                ArchCtxSync();                           /* DSB: zero visible */
                 arch_mmu_flush_tlb_asid(as->asid_token.asid); /* drop cached walks */
-                arch_mmu_barrier();
+                ArchCtxSync();
                 l2_pool_free(entry & ALIGNMENT_1KB_MASK);     /* now safe to free  */
             }
         }
@@ -293,7 +295,7 @@ bool arch_mmu_unmap(AddressSpace *as, uintptr_t va, size_t size)
                 // For small unmaps, invalidate only the touched virtual address.
                 if (size <= (16 * PAGE_SIZE))
                 {
-                    arch_mmu_barrier();
+                    ArchCtxSync();
                     arch_mmu_flush_tlb_va(va + offset);
                 }
             }
@@ -313,7 +315,7 @@ bool arch_mmu_unmap(AddressSpace *as, uintptr_t va, size_t size)
             arch_mmu_flush_tlb_asid(as->asid_token.asid);
         }
         //KDEBUG("unmap: barrier");
-        arch_mmu_barrier();
+        ArchCtxSync();
         //KDEBUG("unmap: done");
     }
 
@@ -363,7 +365,7 @@ bool arch_mmu_protect(AddressSpace *as, uintptr_t va, size_t size, MemProt prot)
     if (changed)
     {
         arch_mmu_flush_tlb_asid(as->asid_token.asid);
-        arch_mmu_barrier();
+        ArchCtxSync();
     }
     return changed;
 }
@@ -376,7 +378,8 @@ void arch_mmu_enable(AddressSpace *as)
     }
 
     // Barriers before changing translation context.
-    arch_mmu_barrier();
+    ArchDsb();
+    ArchIsb();
 
     // Set TTBR0 to the L1 table base (cacheable).
     __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"(ttbr_value(as->pt_root_physaddr)) : "memory");
@@ -388,7 +391,7 @@ void arch_mmu_enable(AddressSpace *as)
 
     // Invalidate TLB before enabling.
     arch_mmu_flush_tlb();
-    arch_mmu_barrier();
+    ArchCtxSync();
 
     // Read SCTLR, set M bit.
     uint32_t sctlr;
@@ -397,7 +400,7 @@ void arch_mmu_enable(AddressSpace *as)
     __asm__ volatile("mcr p15, 0, %0, c1, c0, 0" ::"r"(sctlr) : "memory");
 
     // Synchronize after enabling MMU.
-    arch_mmu_barrier();
+    ArchCtxSync();
 }
 
 void arch_mmu_switch(AddressSpace *as)
@@ -412,9 +415,7 @@ void arch_mmu_switch(AddressSpace *as)
         asid_free(as->asid_token); // free the old ASID (no-op if already reclaimed)
         as->asid_token = asid_alloc();
     }
-
-    arch_mmu_barrier();
-
+    
     /* Park on reserved ASID 0: no speculative walk during the TTBR0 change
      * can then allocate a TLB entry tagged with a live ASID. */
     __asm__ volatile("mcr p15, 0, %0, c13, c0, 1" ::"r"(0U) : "memory");
@@ -424,7 +425,6 @@ void arch_mmu_switch(AddressSpace *as)
     __asm__ volatile("isb" ::: "memory");
 
     __asm__ volatile("mcr p15, 0, %0, c13, c0, 1" ::"r"((uint32_t)as->asid_token.asid) : "memory");
-    __asm__ volatile("isb" ::: "memory");
 }
 
 void arch_mmu_flush_tlb(void)
@@ -558,7 +558,7 @@ static bool arch_mmu_break_section(uint32_t *l1, uint32_t l1_idx, uint8_t asid)
 
     /* Flush TLB — the old section TLB entries are now stale */
     arch_mmu_flush_tlb_asid(asid);
-    arch_mmu_barrier();
+    ArchCtxSync();
 
     return true;
 }
@@ -623,7 +623,7 @@ static bool arch_mmu_map_page(AddressSpace *as, uintptr_t va, uintptr_t pa,
     // let the first access race ahead of the table write (invisible on QEMU's
     // simpler TLB model).
     arch_mmu_flush_tlb_va(va);
-    arch_mmu_barrier();
+    ArchCtxSync();
     return true;
 }
 
@@ -742,12 +742,5 @@ void arch_mmu_init_ttbr1(AddressSpace *as)
     ttbcr |= 0x1;                                                          // N=1: split at 0x80000000, clear PD0/PD1
     __asm__ volatile("mcr p15, 0, %0, c2, c0, 2" ::"r"(ttbcr) : "memory"); // set
     arch_mmu_flush_tlb();                                                  // flush tlb so it doesnt corrupt anything
-    arch_mmu_barrier();                                                    // make sure it goes through
-}
-
-void arch_mmu_barrier(void)
-{
-    // completion of memory operations
-    __asm__ volatile("dsb sy" ::: "memory");
-    __asm__ volatile("isb" ::: "memory");
+    ArchCtxSync();                                                    // make sure it goes through
 }
