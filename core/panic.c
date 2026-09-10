@@ -533,13 +533,13 @@ static void panic_print_process(void)
 
         /* Handle table */
         HandleTable *ht = &p->handle_table;
-        if (ht->data && ht->cap > 0) {
+        {
             int shown = 0;
             panic_nl();
             panic_line("handles:");
-            for (uint32_t idx = 1; idx < ht->cap && shown < PANIC_HANDLE_MAX; idx++) {
-                HandleEntry *e = &ht->data[idx];
-                if (e->type == HANDLE_FREE)
+            for (uint32_t idx = 1; idx < HANDLE_MAX_SLOTS && shown < PANIC_HANDLE_MAX; idx++) {
+                HandleEntry *e = HandleTableGet(ht, idx);
+                if (!e || e->type == HANDLE_FREE)
                     continue;
                 void *ptr = NULL;
                 switch (e->type) {

@@ -385,7 +385,7 @@ void boot_programs_spawn_all(PhysAddr initrd_pa, size_t initrd_size)
     if (s_sysd && s_devmgr)
     {
         HandleEntry *devmgr_task_slot =
-            HandleTableGet(&s_sysd->handle_table, SYSD_DEVMGR_TASK_HANDLE_SLOT);
+            HandleTableGetOrAlloc(&s_sysd->handle_table, SYSD_DEVMGR_TASK_HANDLE_SLOT);
         if (devmgr_task_slot)
         {
             devmgr_task_slot->type = HANDLE_TASK;
