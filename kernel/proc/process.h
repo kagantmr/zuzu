@@ -36,7 +36,7 @@ typedef struct process {
 	VirtAddr device_va_next; // initialized to USER_DEVICE_BASE in process_create
 	VirtAddr mmap_va_next;	 // initialized to USER_MMAP_BASE in process_create
 	ListHead outstanding_replies;
-	handle_vec_t handle_table;
+	HandleTable handle_table;
 	uint32_t flags;
 	Thread *thread;
 	Tid waiting_for_tid;

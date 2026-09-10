@@ -6,7 +6,6 @@
 #include "kernel/proc/kstack.h"
 #include "kernel/sched/sched.h"
 #include "kernel/syscall/syscall.h"
-#include "kernel/time/tick.h"
 #include "port.h"
 #include <arch/timer.h>
 #include <compiler.h>
@@ -16,29 +15,27 @@
 #include <zuzu/types.h>
 
 #include "kernel/irq/sys_irq.h"
-#include "kernel/bench.h"
-
 #define LOG_FMT(fmt) "(ipc) " fmt
-#include "core/log.h"
+#include <zuzu/log.h>
 
 #define WAITANY_MAX_HANDLES 16u
 
-extern Thread *current_thread;
 extern ListHead sleep_queue;
 extern kernel_layout_t kernel_layout;
 
 #ifdef ZUZU_BENCH
+
+#include "kernel/bench.h"
+
 BENCH_STAT(g_bench_ipc_buf_copy_memcpy, "ipc_buf_copy: memcpy");
 BENCH_STAT(g_bench_ipc_buf_copy_wordcopy, "ipc_buf_copy: hand-rolled word-copy");
-/* Scratch destination for the word-copy swap-test below -- never read back,
- * only timed, so it never touches the real reply data. */
 static uint8_t g_bench_wordcopy_scratch[LMSG_BUF_SIZE] __attribute__((aligned(4)));
 #endif
 
 /* Every call site passes a sender and a receiver -- never the same thread
  * (and their ipc_buf_pa pages are always separate physical frames), so
  * the memcpy below is genuinely non-overlapping. */
-static void ipc_buf_copy(Thread *restrict src, Thread *restrict dst, uint32_t len)
+static void LmsgBufCopy(Thread *restrict src, Thread *restrict dst, uint32_t len)
 {
 	if (!len || !src->lmsg_buf_phys_addr || !dst->lmsg_buf_phys_addr)
 		return;
@@ -74,10 +71,10 @@ static void ipc_buf_copy(Thread *restrict src, Thread *restrict dst, uint32_t le
 }
 
 #ifdef DEBUG
-static bool trap_frame_sane(const CpuState *tf)
+static bool IsFrameNormal(const CpuState *tf)
 {
 	uintptr_t p = (uintptr_t)tf;
-	if (p == 0 || (p & 0x3u) != 0)
+	if (p == 0 || (p & 0x3U) != 0)
 		return false;
 
 	bool in_stack = false;
@@ -103,10 +100,10 @@ static bool trap_frame_sane(const CpuState *tf)
 }
 
 
-static __cold __noinline void ipc_panic_bad_trap_frame(const char *where, const ProcessObj *owner,
+static __cold __noinline void PanicBadFrame(const char *where, const ProcessObj *owner,
 						       const CpuState *tf)
 {
-	if (tf && ((uintptr_t)tf & 0x3u) == 0)
+	if (tf && ((uintptr_t)tf & 0x3U) == 0)
 		KERROR("  frame: pc=%p lr=%p sp=%p cpsr=%p", (void *)arch_regs_pc(tf),
 		       (void *)arch_regs_lr(tf), (void *)arch_regs_sp(tf),
 		       (void *)arch_regs_flags(tf));
@@ -118,9 +115,7 @@ static __cold __noinline void ipc_panic_bad_trap_frame(const char *where, const 
 }
 #endif
 
-/* Leaf: a couple of field reads plus (rarely) one always_inline
- * list_remove(). Called on every IPC wake, direct-handoff, and reply. */
-static __always_inline void ipc_cancel_timeout(Thread *t)
+static __always_inline void CancelTimeout(Thread *t)
 {
 	if (unlikely(t->wake_deadline != 0 && t->timeout_node.prev && t->timeout_node.next)) {
 		list_remove(&t->timeout_node);
@@ -128,11 +123,11 @@ static __always_inline void ipc_cancel_timeout(Thread *t)
 	t->wake_deadline = 0;
 }
 
-static __hot inline void ipc_wake_ready(Thread *t)
+static __hot inline void IpcWakeThread(Thread *t)
 {
 	t->ipc_state = IPC_NONE;
 	t->blocked_port = NULL;
-	ipc_cancel_timeout(t);
+	CancelTimeout(t);
 	t->wake_reason = WAKE_IPC;
 	t->state = READY;
 	sched_add(t);
@@ -157,7 +152,7 @@ static HandleEntry *__hot ValidatePortHandle(ProcessObj *proc, Handle handle, Cp
 #ifdef ZUZU_BENCH
 	uint32_t bench_start = BENCH_BEGIN();
 #endif
-	HandleEntry *entry = handle_vec_get(&proc->handle_table, (uint32_t)handle);
+	HandleEntry *entry = HandleTableGet(&proc->handle_table, (uint32_t)handle);
 #ifdef ZUZU_BENCH
 	BENCH_END(g_bench_handle_lookup, bench_start);
 #endif
@@ -181,14 +176,14 @@ static HandleEntry *__hot ValidatePortHandle(ProcessObj *proc, Handle handle, Cp
 	return entry;
 }
 
-static HandleEntry *validate_notification_handle(ProcessObj *proc, Handle handle, CpuState *frame)
+static HandleEntry *ValidateNtfn(ProcessObj *proc, Handle handle, CpuState *frame)
 {
 	if (!proc) {
 		arch_reg_set(frame, 0, ERR_BADARG);
 		return NULL;
 	}
 
-	HandleEntry *entry = handle_vec_get(&proc->handle_table, (uint32_t)handle);
+	HandleEntry *entry = HandleTableGet(&proc->handle_table, (uint32_t)handle);
 	if (!entry) {
 		arch_reg_set(frame, 0, ERR_BADHANDLE);
 		return NULL;
@@ -209,7 +204,7 @@ static HandleEntry *validate_notification_handle(ProcessObj *proc, Handle handle
 	return entry;
 }
 
-static HandleEntry *validate_reply_handle(ProcessObj *proc, Handle handle_idx, Thread **target_out,
+static HandleEntry *ValidateReplyCap(ProcessObj *proc, Handle handle_idx, Thread **target_out,
 					  CpuState *frame)
 {
 	if (!proc || handle_idx == 0) {
@@ -217,7 +212,7 @@ static HandleEntry *validate_reply_handle(ProcessObj *proc, Handle handle_idx, T
 		return NULL;
 	}
 
-	HandleEntry *entry = handle_vec_get(&proc->handle_table, (uint32_t)handle_idx);
+	HandleEntry *entry = HandleTableGet(&proc->handle_table, (uint32_t)handle_idx);
 	if (!entry) {
 		arch_reg_set(frame, 0, ERR_BADHANDLE);
 		return NULL;
@@ -236,9 +231,7 @@ static HandleEntry *validate_reply_handle(ProcessObj *proc, Handle handle_idx, T
 	if (!target || target->state == ZOMBIE) {
 		ProcessUntrackReplyCap(entry->reply);
 		KFreeReplyCap(entry->reply);
-		entry->reply = NULL;
-		entry->grantable = false;
-		entry->type = HANDLE_FREE;
+		HandleEntryFree(&proc->handle_table, entry);
 		arch_reg_set(frame, 0, ERR_DEAD);
 		return NULL;
 	}
@@ -246,9 +239,7 @@ static HandleEntry *validate_reply_handle(ProcessObj *proc, Handle handle_idx, T
 	if (target->ipc_state != IPC_WAITING) {
 		ProcessUntrackReplyCap(entry->reply);
 		KFreeReplyCap(entry->reply);
-		entry->reply = NULL;
-		entry->grantable = false;
-		entry->type = HANDLE_FREE;
+		HandleEntryFree(&proc->handle_table, entry);
 		arch_reg_set(frame, 0, ERR_DEAD);
 		return NULL;
 	}
@@ -257,7 +248,7 @@ static HandleEntry *validate_reply_handle(ProcessObj *proc, Handle handle_idx, T
 	return entry;
 }
 
-static void waitany_deliver_notification(uint32_t matched_index, uint32_t bits,
+static void WaitanyDeliverNtfn(uint32_t matched_index, uint32_t bits,
 					 WaitanyResult *result)
 {
 	memset(result, 0, sizeof(*result));
@@ -301,15 +292,15 @@ void __attribute__((hot)) SysMsgSend(CpuState *frame)
 			ThreadWaitanyClearWaits(rx_thread);
 			ThreadWaitanyClearPortWaits(rx_thread);
 			rx_thread->waitany_port_wait_match_index = rx_slot->index;
-			ipc_cancel_timeout(rx_thread);
+			CancelTimeout(rx_thread);
 			rx_thread->wake_reason = WAKE_IPC;
 			rx_thread->state = READY;
 			sched_add(rx_thread);
 		} else {
 			CpuState *rx_frame = rx_thread->trap_frame;
 #ifdef DEBUG
-			if (!trap_frame_sane(rx_frame))
-				ipc_panic_bad_trap_frame("ZuzuMsgSend.rx", rx_thread->owner_process,
+			if (!IsFrameNormal(rx_frame))
+				PanicBadFrame("ZuzuMsgSend.rx", rx_thread->owner_process,
 							 rx_frame);
 #endif
 			arch_reg_set(rx_frame, 0, current_thread->owner_process->pid);
@@ -318,7 +309,7 @@ void __attribute__((hot)) SysMsgSend(CpuState *frame)
 			(*arch_reg(rx_frame, 3)) = (*arch_reg(frame, 3));
 			rx_thread->ipc_state = IPC_NONE;
 			rx_thread->blocked_port = NULL;
-			ipc_cancel_timeout(rx_thread);
+			CancelTimeout(rx_thread);
 			rx_thread->wake_reason = WAKE_IPC;
 			rx_thread->state = READY;
 			sched_add(rx_thread);
@@ -357,8 +348,8 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 		Thread *sr_thread = container_of(sender, Thread, node);
 		CpuState *sr_frame = sr_thread->trap_frame;
 #ifdef DEBUG
-		if (!trap_frame_sane(sr_frame)) {
-			ipc_panic_bad_trap_frame("ZuzuMsgRecv.sr", sr_thread->owner_process,
+		if (!IsFrameNormal(sr_frame)) {
+			PanicBadFrame("ZuzuMsgRecv.sr", sr_thread->owner_process,
 						 sr_frame);
 		}
 #endif
@@ -374,11 +365,11 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			sr_thread->ipc_state = IPC_NONE;
 			sr_thread->blocked_port = NULL;
 			// Cancel timeout if sender had one
-			ipc_cancel_timeout(sr_thread);
+			CancelTimeout(sr_thread);
 			sr_thread->wake_reason = WAKE_IPC;
 			sr_thread->state = READY;
 			if (sr_thread->lmsg_buf_xfer_len > 0) {
-				ipc_buf_copy(sr_thread, current_thread,
+				LmsgBufCopy(sr_thread, current_thread,
 					     sr_thread->lmsg_buf_xfer_len);
 				(*arch_reg(frame, 1)) = sr_thread->lmsg_buf_xfer_len;
 				(*arch_reg(frame, 2)) = 0;
@@ -393,7 +384,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			// rc is guaranteed non-NULL — caller pre-allocated it
 
 			int slot =
-			    handle_vec_find_free(&current_thread->owner_process->handle_table);
+			    HandleTableFindFree(&current_thread->owner_process->handle_table);
 			if (slot < 0) {
 				// Handle table full - but at least we can report the error
 				// and the caller's rc gets cleaned up
@@ -404,7 +395,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 				sr_thread->ipc_state = IPC_NONE;
 				sr_thread->blocked_port = NULL;
 				// Cancel timeout if sender had one
-				ipc_cancel_timeout(sr_thread);
+				CancelTimeout(sr_thread);
 				sr_thread->wake_reason = WAKE_IPC;
 				sr_thread->state = READY;
 				sched_add(sr_thread);
@@ -413,13 +404,13 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			}
 
 			HandleEntry *rentry =
-			    handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)slot);
+			    HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)slot);
 			if (!rentry) {
 				KFreeReplyCap(rc);
 				arch_reg_set(sr_thread->trap_frame, 0, ERR_NOMEM);
 				sr_thread->ipc_state = IPC_NONE;
 				sr_thread->blocked_port = NULL;
-				ipc_cancel_timeout(sr_thread);
+				CancelTimeout(sr_thread);
 				sr_thread->wake_reason = WAKE_IPC;
 				sr_thread->state = READY;
 				sched_add(sr_thread);
@@ -429,6 +420,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			rentry->type = HANDLE_REPLY;
 			rentry->grantable = false;
 			rentry->reply = rc;
+			HandleEntryClaim(&current_thread->owner_process->handle_table, rentry);
 			ProcessTrackReplyCap(sr_thread->owner_process,
 					     current_thread->owner_process, slot, rc);
 
@@ -437,7 +429,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			(*arch_reg(frame, 2)) = (*arch_reg(sr_frame, 1));
 			(*arch_reg(frame, 3)) = (*arch_reg(sr_frame, 2));
 			if (sr_thread->lmsg_buf_xfer_len > 0) {
-				ipc_buf_copy(sr_thread, current_thread,
+				LmsgBufCopy(sr_thread, current_thread,
 					     sr_thread->lmsg_buf_xfer_len);
 				(*arch_reg(frame, 2)) = sr_thread->lmsg_buf_xfer_len;
 				(*arch_reg(frame, 3)) = 0;
@@ -474,11 +466,11 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 		schedule();
 
 #ifdef DEBUG
-		if (!trap_frame_sane(frame))
-			ipc_panic_bad_trap_frame("ZuzuMsgRecv.wake", current_thread->owner_process,
+		if (!IsFrameNormal(frame))
+			PanicBadFrame("ZuzuMsgRecv.wake", current_thread->owner_process,
 						 frame);
 		if (timeout_ms == TIMEOUT_INFINITE && current_thread->wake_reason == WAKE_TIMEOUT)
-			ipc_panic_bad_trap_frame("ZuzuMsgRecv.wake-timeout-on-infinite",
+			PanicBadFrame("ZuzuMsgRecv.wake-timeout-on-infinite",
 						 current_thread->owner_process, frame);
 #endif
 		if (unlikely(timeout_ms != TIMEOUT_INFINITE &&
@@ -528,12 +520,12 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		Thread *rx_thread = rx_slot->owner;
 		CpuState *rx_frame = rx_thread->trap_frame;
 #ifdef DEBUG
-		if (!trap_frame_sane(rx_frame))
-			ipc_panic_bad_trap_frame("ZuzuMsgCall.rx", rx_thread->owner_process,
+		if (!IsFrameNormal(rx_frame))
+			PanicBadFrame("ZuzuMsgCall.rx", rx_thread->owner_process,
 						 rx_frame);
 #endif
 
-		int slot = handle_vec_find_free(&rx_thread->owner_process->handle_table);
+		int slot = HandleTableFindFree(&rx_thread->owner_process->handle_table);
 		if (unlikely(slot < 0)) {
 			KFreeReplyCap(rc);
 			list_add_tail(&rx_slot->node, &port->receiver_queue.node);
@@ -541,7 +533,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 			return;
 		}
 
-		HandleEntry *rentry = handle_vec_get(&rx_thread->owner_process->handle_table, (uint32_t)slot);
+		HandleEntry *rentry = HandleTableGet(&rx_thread->owner_process->handle_table, (uint32_t)slot);
 		if (!rentry) {
 			KFreeReplyCap(rc);
 			list_add_tail(&rx_slot->node, &port->receiver_queue.node);
@@ -551,6 +543,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		rentry->type = HANDLE_REPLY;
 		rentry->grantable = false;
 		rentry->reply = rc;
+		HandleEntryClaim(&rx_thread->owner_process->handle_table, rentry);
 		ProcessTrackReplyCap(current_thread->owner_process, rx_thread->owner_process,
 				     slot, rc);
 
@@ -582,7 +575,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 			rx_thread->ipc_state = IPC_NONE;
 			rx_thread->blocked_port = NULL;
 		}
-		ipc_cancel_timeout(rx_thread);
+		CancelTimeout(rx_thread);
 		rx_thread->wake_reason = WAKE_IPC;
 #ifdef ZUZU_BENCH
 		BENCH_END(g_bench_direct_handoff, bench_start);
@@ -621,7 +614,7 @@ void __attribute__((hot)) SysMsgReply(CpuState *frame)
 	Handle handle_idx = (Handle)(*arch_reg(frame, 0));
 	Thread *target_thread = NULL;
 	HandleEntry *entry =
-	    validate_reply_handle(current_thread->owner_process, handle_idx, &target_thread, frame);
+	    ValidateReplyCap(current_thread->owner_process, handle_idx, &target_thread, frame);
 	if (!entry) {
 		return;
 	}
@@ -630,8 +623,8 @@ void __attribute__((hot)) SysMsgReply(CpuState *frame)
 
 	CpuState *target_frame = target_thread->trap_frame;
 #ifdef DEBUG
-	if (!trap_frame_sane(target_frame)) {
-		ipc_panic_bad_trap_frame("ZuzuMsgReply.target", target_thread->owner_process,
+	if (!IsFrameNormal(target_frame)) {
+		PanicBadFrame("ZuzuMsgReply.target", target_thread->owner_process,
 					 target_frame);
 	}
 #endif
@@ -644,16 +637,14 @@ void __attribute__((hot)) SysMsgReply(CpuState *frame)
 	target_thread->ipc_state = IPC_NONE;
 	target_thread->blocked_port = NULL;
 	// Cancel timeout if target had one
-	ipc_cancel_timeout(target_thread);
+	CancelTimeout(target_thread);
 	target_thread->wake_reason = WAKE_IPC;
 	target_thread->state = READY;
 	sched_add(target_thread);
 
 	ProcessUntrackReplyCap(entry->reply);
 	KFreeReplyCap(entry->reply);
-	entry->reply = NULL;
-	entry->grantable = false;
-	entry->type = HANDLE_FREE;
+	HandleEntryFree(&current_thread->owner_process->handle_table, entry);
 	(*arch_reg(frame, 0)) = 0;
 }
 
@@ -691,32 +682,32 @@ void __attribute__((hot)) SysMsgLsend(CpuState *frame)
 			res->source = (uint32_t)current_thread->owner_process->pid;
 			res->marker = entry->marker;
 			res->label = current_thread->owner_process->label;
-			ipc_buf_copy(current_thread, rx_thread, xlen);
+			LmsgBufCopy(current_thread, rx_thread, xlen);
 			res->w1 = xlen;
 			res->w2 = 0;
 			res->w3 = 0;
 			ThreadWaitanyClearWaits(rx_thread);
 			ThreadWaitanyClearPortWaits(rx_thread);
 			rx_thread->waitany_port_wait_match_index = rx_slot->index;
-			ipc_cancel_timeout(rx_thread);
+			CancelTimeout(rx_thread);
 			rx_thread->wake_reason = WAKE_IPC;
 			rx_thread->state = READY;
 			sched_add(rx_thread);
 		} else {
 			CpuState *rx_frame = rx_thread->trap_frame;
 #ifdef DEBUG
-			if (!trap_frame_sane(rx_frame))
-				ipc_panic_bad_trap_frame("ZuzuMsgLsend.rx",
+			if (!IsFrameNormal(rx_frame))
+				PanicBadFrame("ZuzuMsgLsend.rx",
 							 rx_thread->owner_process, rx_frame);
 #endif
 			arch_reg_set(rx_frame, 0, current_thread->owner_process->pid);
 			(*arch_reg(rx_frame, 1)) = xlen;
 			(*arch_reg(rx_frame, 2)) = 0;
 			(*arch_reg(rx_frame, 3)) = 0;
-			ipc_buf_copy(current_thread, rx_thread, xlen);
+			LmsgBufCopy(current_thread, rx_thread, xlen);
 			rx_thread->ipc_state = IPC_NONE;
 			rx_thread->blocked_port = NULL;
-			ipc_cancel_timeout(rx_thread);
+			CancelTimeout(rx_thread);
 			rx_thread->wake_reason = WAKE_IPC;
 			rx_thread->state = READY;
 			sched_add(rx_thread);
@@ -766,11 +757,11 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 		CpuState *rx_frame = rx_thread->trap_frame;
 		(void)rx_frame;
 #ifdef DEBUG
-		if (!trap_frame_sane(rx_frame))
-			ipc_panic_bad_trap_frame("ZuzuMsgLcall.rx", rx_thread->owner_process,
+		if (!IsFrameNormal(rx_frame))
+			PanicBadFrame("ZuzuMsgLcall.rx", rx_thread->owner_process,
 						 rx_frame);
 #endif
-		int slot = handle_vec_find_free(&rx_thread->owner_process->handle_table);
+		int slot = HandleTableFindFree(&rx_thread->owner_process->handle_table);
 		if (unlikely(slot < 0)) {
 			KFreeReplyCap(rc);
 			list_add_tail(&rx_slot->node, &port->receiver_queue.node);
@@ -778,7 +769,7 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 			return;
 		}
 
-		HandleEntry *rentry = handle_vec_get(&rx_thread->owner_process->handle_table, (uint32_t)slot);
+		HandleEntry *rentry = HandleTableGet(&rx_thread->owner_process->handle_table, (uint32_t)slot);
 		if (!rentry) {
 			KFreeReplyCap(rc);
 			list_add_tail(&rx_slot->node, &port->receiver_queue.node);
@@ -788,6 +779,7 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 		rentry->type = HANDLE_REPLY;
 		rentry->grantable = false;
 		rentry->reply = rc;
+		HandleEntryClaim(&rx_thread->owner_process->handle_table, rentry);
 		ProcessTrackReplyCap(current_thread->owner_process, rx_thread->owner_process,
 				     slot, rc);
 
@@ -806,7 +798,7 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 			res->marker = entry->marker;
 			res->label = current_thread->owner_process->label;
 			res->w1 = (uint32_t)current_thread->owner_process->pid;
-			ipc_buf_copy(current_thread, rx_thread, xlen);
+			LmsgBufCopy(current_thread, rx_thread, xlen);
 			res->w2 = xlen;
 			res->w3 = 0;
 			ThreadWaitanyClearWaits(rx_thread);
@@ -817,11 +809,11 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 			arch_reg_set(rx_frame, 1, current_thread->owner_process->pid);
 			(*arch_reg(rx_frame, 2)) = xlen;
 			(*arch_reg(rx_frame, 3)) = 0;
-			ipc_buf_copy(current_thread, rx_thread, xlen);
+			LmsgBufCopy(current_thread, rx_thread, xlen);
 			rx_thread->ipc_state = IPC_NONE;
 			rx_thread->blocked_port = NULL;
 		}
-		ipc_cancel_timeout(rx_thread);
+		CancelTimeout(rx_thread);
 		rx_thread->wake_reason = WAKE_IPC;
 
 		current_thread->state = BLOCKED;
@@ -861,7 +853,7 @@ void __attribute__((hot)) SysMsgLreply(CpuState *frame)
 
 	Thread *target_thread = NULL;
 	HandleEntry *entry =
-	    validate_reply_handle(current_thread->owner_process, handle_idx, &target_thread, frame);
+	    ValidateReplyCap(current_thread->owner_process, handle_idx, &target_thread, frame);
 	if (!entry) {
 		return;
 	}
@@ -870,8 +862,8 @@ void __attribute__((hot)) SysMsgLreply(CpuState *frame)
 
 	CpuState *target_frame = target_thread->trap_frame;
 #ifdef DEBUG
-	if (!trap_frame_sane(target_frame)) {
-		ipc_panic_bad_trap_frame("ZuzuMsgLreply.target", target_thread->owner_process,
+	if (!IsFrameNormal(target_frame)) {
+		PanicBadFrame("ZuzuMsgLreply.target", target_thread->owner_process,
 					 target_frame);
 	}
 #endif
@@ -879,33 +871,31 @@ void __attribute__((hot)) SysMsgLreply(CpuState *frame)
 	(*arch_reg(target_frame, 1)) = xlen; // reply payload
 	(*arch_reg(target_frame, 2)) = 0;
 	(*arch_reg(target_frame, 3)) = 0;
-	ipc_buf_copy(current_thread, target_thread, xlen);
+	LmsgBufCopy(current_thread, target_thread, xlen);
 
 	// Wake the caller
 	target_thread->ipc_state = IPC_NONE;
 	target_thread->blocked_port = NULL;
 	// Cancel timeout if target had one
-	ipc_cancel_timeout(target_thread);
+	CancelTimeout(target_thread);
 	target_thread->wake_reason = WAKE_IPC;
 	target_thread->state = READY;
 	sched_add(target_thread);
 
 	ProcessUntrackReplyCap(entry->reply);
 	KFreeReplyCap(entry->reply);
-	entry->reply = NULL;
-	entry->grantable = false;
-	entry->type = HANDLE_FREE;
+	HandleEntryFree(&current_thread->owner_process->handle_table, entry);
 	(*arch_reg(frame, 0)) = 0;
 }
 
-static int waitany_deliver_sender(uint32_t matched_index, Thread *receiver, ListNode *sender_node,
+static int WaitanyDeliverSender(uint32_t matched_index, Thread *receiver, ListNode *sender_node,
 				  WaitanyResult *result)
 {
 	Thread *sr_thread = container_of(sender_node, Thread, node);
 	CpuState *sr_frame = sr_thread->trap_frame;
 #ifdef DEBUG
-	if (!trap_frame_sane(sr_frame)) {
-		ipc_panic_bad_trap_frame("waitany.sr", sr_thread->owner_process, sr_frame);
+	if (!IsFrameNormal(sr_frame)) {
+		PanicBadFrame("waitany.sr", sr_thread->owner_process, sr_frame);
 	}
 #endif
 	memset(result, 0, sizeof(*result));
@@ -924,12 +914,12 @@ static int waitany_deliver_sender(uint32_t matched_index, Thread *receiver, List
 		(*arch_reg(sr_frame, 0)) = 0;
 		sr_thread->ipc_state = IPC_NONE;
 		sr_thread->blocked_port = NULL;
-		ipc_cancel_timeout(sr_thread);
+		CancelTimeout(sr_thread);
 		sr_thread->wake_reason = WAKE_IPC;
 		sr_thread->state = READY;
 
 		if (sr_thread->lmsg_buf_xfer_len > 0) {
-			ipc_buf_copy(sr_thread, receiver, sr_thread->lmsg_buf_xfer_len);
+			LmsgBufCopy(sr_thread, receiver, sr_thread->lmsg_buf_xfer_len);
 			result->w1 = sr_thread->lmsg_buf_xfer_len;
 			result->w2 = 0;
 			result->w3 = 0;
@@ -944,24 +934,25 @@ static int waitany_deliver_sender(uint32_t matched_index, Thread *receiver, List
 		ReplyCap *rc = sr_thread->pending_reply_cap;
 		sr_thread->pending_reply_cap = NULL;
 
-		int slot = handle_vec_find_free(&receiver->owner_process->handle_table);
+		int slot = HandleTableFindFree(&receiver->owner_process->handle_table);
 		if (slot < 0) {
 			KFreeReplyCap(rc);
 			arch_reg_set(sr_frame, 0, ERR_NOMEM);
-			ipc_wake_ready(sr_thread);
+			IpcWakeThread(sr_thread);
 			return ERR_NOMEM;
 		}
 
-		HandleEntry *rentry = handle_vec_get(&receiver->owner_process->handle_table, (uint32_t)slot);
+		HandleEntry *rentry = HandleTableGet(&receiver->owner_process->handle_table, (uint32_t)slot);
 		if (!rentry) {
 			KFreeReplyCap(rc);
 			arch_reg_set(sr_frame, 0, ERR_NOMEM);
-			ipc_wake_ready(sr_thread);
+			IpcWakeThread(sr_thread);
 			return ERR_NOMEM;
 		}
 		rentry->type = HANDLE_REPLY;
 		rentry->grantable = false;
 		rentry->reply = rc;
+		HandleEntryClaim(&receiver->owner_process->handle_table, rentry);
 		ProcessTrackReplyCap(sr_thread->owner_process, receiver->owner_process,
 				     slot, rc);
 
@@ -974,7 +965,7 @@ static int waitany_deliver_sender(uint32_t matched_index, Thread *receiver, List
 		result->w3 = (*arch_reg(sr_frame, 2));
 
 		if (sr_thread->lmsg_buf_xfer_len > 0) {
-			ipc_buf_copy(sr_thread, receiver, sr_thread->lmsg_buf_xfer_len);
+			LmsgBufCopy(sr_thread, receiver, sr_thread->lmsg_buf_xfer_len);
 			result->w2 = sr_thread->lmsg_buf_xfer_len;
 			result->w3 = 0;
 			sr_thread->lmsg_buf_xfer_len = 0;
@@ -987,16 +978,11 @@ static int waitany_deliver_sender(uint32_t matched_index, Thread *receiver, List
 }
 
 #ifdef ZUZU_BENCH
-/* Splits WaitAny's per-call cost into "validate every handle in the array"
- * (marker/type/liveness checks -- scales with count, see the fan-out bench
- * in speedtest) vs "actually deliver a match and wake the sender" (the
- * scheduler-adjacent cost) -- so a slowdown here doesn't get blamed on the
- * wrong half. */
 BENCH_STAT(g_bench_waitany_validate, "WaitAny: handle validation");
 BENCH_STAT(g_bench_waitany_deliver, "WaitAny: deliver+wake");
 #endif
 
-static int waitany_try_once(const Handle *handles, uint32_t count, WaitanyResult *result,
+static int WaitanyTryOnce(const Handle *handles, uint32_t count, WaitanyResult *result,
 			    NtfnObj **wait_ntfns, uint32_t *wait_ntfn_indices,
 			    uint32_t *wait_count_out, Port **wait_eps, uint32_t *wait_ep_indices,
 			    uint32_t *wait_ep_count_out)
@@ -1014,7 +1000,7 @@ static int waitany_try_once(const Handle *handles, uint32_t count, WaitanyResult
 #endif
 	for (uint32_t i = 0; i < count; i++) {
 		HandleEntry *entry =
-		    handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handles[i]);
+		    HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)handles[i]);
 		if (!entry) {
 			arch_reg_set(current_thread->trap_frame, 0, ERR_BADHANDLE);
 			return ERR_BADHANDLE;
@@ -1035,7 +1021,7 @@ static int waitany_try_once(const Handle *handles, uint32_t count, WaitanyResult
 		}
 
 		if (entry->type == HANDLE_NTFN) {
-			HandleEntry *n_entry = validate_notification_handle(
+			HandleEntry *n_entry = ValidateNtfn(
 			    current_thread->owner_process, handles[i], current_thread->trap_frame);
 			if (!n_entry) {
 				return (int)(*arch_reg(current_thread->trap_frame, 0));
@@ -1060,7 +1046,7 @@ static int waitany_try_once(const Handle *handles, uint32_t count, WaitanyResult
 	for (uint32_t i = 0; i < count; i++) {
 		if (endpoints[i] && !list_empty(&endpoints[i]->sender_queue)) {
 			ListNode *sender = list_pop_front(&endpoints[i]->sender_queue);
-			int rc = waitany_deliver_sender(i, current_thread, sender, result);
+			int rc = WaitanyDeliverSender(i, current_thread, sender, result);
 #ifdef ZUZU_BENCH
 			BENCH_END(g_bench_waitany_deliver, bench_start);
 #endif
@@ -1073,7 +1059,7 @@ static int waitany_try_once(const Handle *handles, uint32_t count, WaitanyResult
 		if (ntfn && ntfn->word != 0) {
 			uint32_t bits = ntfn->word;
 			ntfn->word = 0;
-			waitany_deliver_notification(i, bits, result);
+			WaitanyDeliverNtfn(i, bits, result);
 #ifdef ZUZU_BENCH
 			BENCH_END(g_bench_waitany_deliver, bench_start);
 #endif
@@ -1110,7 +1096,7 @@ static int waitany_try_once(const Handle *handles, uint32_t count, WaitanyResult
 	return ERR_BUSY;
 }
 
-static bool waitany_write_timeout_result(uintptr_t result_ptr, uint32_t size)
+static bool WaitanyWriteTimeoutRes(uintptr_t result_ptr, uint32_t size)
 {
 	WaitanyResult result;
 	memset(&result, 0, sizeof(result));
@@ -1120,20 +1106,8 @@ static bool waitany_write_timeout_result(uintptr_t result_ptr, uint32_t size)
 	return CopyToUser((void *)result_ptr, &result, size);
 }
 
-/* Runs one waitany_try_once() attempt and, if nothing matched yet (BUSY),
- * enqueues self on every notification/endpoint it's now waiting on. Split
- * out of SysWaitAny()'s for(;;) loop body so its four WAITANY_MAX_HANDLES
- * scratch arrays live in this function's own frame instead of SysWaitAny's
- * -- they're only needed for the duration of one attempt, and SysWaitAny's
- * frame (which also has to stay live across the blocking schedule() call
- * below) was 528 bytes with them, over the 512-byte budget. Behavior is
- * unchanged: this is exactly the code that used to run inline. */
-/* noinline: the whole point of splitting this out of SysWaitAny() is to
- * keep its four WAITANY_MAX_HANDLES scratch arrays off SysWaitAny's frame;
- * GCC's inliner folding this straight back in at -O3 would silently undo
- * that (and did, until this attribute was added -- same 528-byte frame
- * either way). */
-static int __attribute__((noinline)) waitany_prepare_wait(Thread *self,
+
+static int __attribute__((noinline)) WaitanyPrepareWait(Thread *self,
 							  const Handle *handles_local,
 							  uint32_t count, WaitanyResult *result)
 {
@@ -1144,17 +1118,11 @@ static int __attribute__((noinline)) waitany_prepare_wait(Thread *self,
 	uint32_t wait_ep_indices[WAITANY_MAX_HANDLES];
 	uint32_t ep_wait_count = 0;
 
-	int err = waitany_try_once(handles_local, count, result, wait_ntfns, wait_ntfn_indices,
+	int err = WaitanyTryOnce(handles_local, count, result, wait_ntfns, wait_ntfn_indices,
 				   &wait_count, wait_eps, wait_ep_indices, &ep_wait_count);
 	if (err != ERR_BUSY)
 		return err;
 
-	/* We are about to null-and-re-add every slot below. A slot still
-	 * linked from a previous iteration (a wake path that didn't fully
-	 * unlink it -- e.g. cross-process teardown) would be clobbered into a
-	 * zombie node left in its old queue, detonating on the next signal.
-	 * Unlink defensively first; list_remove's use is safe on clean slots
-	 * because of the prev/next guard. */
 	for (uint32_t i = 0; i < WAITANY_MAX_HANDLES; i++) {
 		ListNode *n = &self->waitany_wait_slots[i].node;
 		if (n->prev && n->next)
@@ -1253,7 +1221,7 @@ void SysWaitAny(CpuState *frame)
 
 	for (;;) {
 		WaitanyResult result;
-		int err = waitany_prepare_wait(current_thread, handles_local, (uint32_t)count,
+		int err = WaitanyPrepareWait(current_thread, handles_local, (uint32_t)count,
 					       &result);
 		if (err == 0) {
 			if (!CopyToUser((void *)result_ptr, &result, wlen)) {
@@ -1285,7 +1253,7 @@ void SysWaitAny(CpuState *frame)
 			if (ArchTimerNow() >= deadline) {
 				ThreadWaitanyClearWaits(current_thread);
 				ThreadWaitanyClearPortWaits(current_thread);
-				if (!waitany_write_timeout_result(result_ptr, wlen)) {
+				if (!WaitanyWriteTimeoutRes(result_ptr, wlen)) {
 					arch_reg_set(frame, 0, ERR_BADPTR);
 					return;
 				}
@@ -1350,7 +1318,7 @@ void SysWaitAny(CpuState *frame)
 
 		/* Woken by notification */
 		if (current_thread->waitany_wait_match_index != WAITANY_NO_MATCH) {
-			waitany_deliver_notification(current_thread->waitany_wait_match_index,
+			WaitanyDeliverNtfn(current_thread->waitany_wait_match_index,
 						     current_thread->waitany_wait_bits, &result);
 			ThreadWaitanyClearWaits(current_thread);
 			ThreadWaitanyClearPortWaits(current_thread);

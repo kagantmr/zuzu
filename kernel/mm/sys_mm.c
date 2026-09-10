@@ -243,7 +243,7 @@ void __hot SysMemMap(CpuState *frame)
     }
     else
     {
-        HandleEntry *e = handle_vec_get(&p->handle_table, (uint32_t)handle);
+        HandleEntry *e = HandleTableGet(&p->handle_table, (uint32_t)handle);
         if (unlikely(!e))
         {
             arch_reg_set(frame, 0, ERR_BADHANDLE);
@@ -325,7 +325,7 @@ void SysMemUnmap(CpuState *frame)
                 bool found_handle = false;
                 for (uint32_t i = 0; i < current_thread->owner_process->handle_table.cap; i++)
                 {
-                    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, i);
+                    HandleEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, i);
                     if (!entry || entry->mapped_va != va ||
                         (entry->type != HANDLE_SHM && entry->type != HANDLE_DEVICE))
                         continue;
@@ -389,7 +389,7 @@ void SysAsInject(CpuState *frame)
         }
         }
 
-        HandleEntry *handle = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)kargs.taskHandle);
+        HandleEntry *handle = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)kargs.taskHandle);
         if (!handle)
         {
             arch_reg_set(frame, 0, ERR_BADHANDLE);
