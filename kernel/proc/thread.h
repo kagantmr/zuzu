@@ -59,6 +59,7 @@ struct thread {
 	ListNode timeout_node;
 	WakeReason wake_reason;
 	uint64_t wake_deadline;
+	int16_t sleep_slot;
 	ThreadState state;
 	ListNode destroy_node;
 	MsgState ipc_state;
@@ -95,13 +96,8 @@ struct thread {
 #endif
 };
 
-#ifdef __cplusplus
-static_assert(offsetof(thread_t, kernel_sp) == 12,
-	      "switch.S expects process->kernel_sp at offset 12");
-#else
 _Static_assert(offsetof(Thread, kernel_sp) == 12,
 	       "switch.S expects process->kernel_sp at offset 12");
-#endif
 
 void ThreadDestroy(Thread *thread);
 Thread *ThreadCreate(Process *owner_process);

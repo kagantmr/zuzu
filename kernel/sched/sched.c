@@ -13,8 +13,13 @@
 #include "zuzu/types.h"
 #include <arch/cpu.h>
 #include <arch/timer.h>
+#include <assert.h>
 #include <stdint.h>
 #include <string.h>
+#include <bitmap.h>
+
+#define IDLE_STACK_BYTES 1024
+#define SLEEP_QUEUE_SIZE 512
 
 
 static ListHead destroy_queue = LIST_HEAD_INIT(destroy_queue);
@@ -26,10 +31,15 @@ Thread *fpu_owner = NULL;
 volatile uint8_t do_resched = 0; 
 
 static Thread idle_thread; // only kernel_sp is used
-static uint8_t idle_stack[512] __attribute__((aligned(8)));
+static uint8_t idle_stack[IDLE_STACK_BYTES] __attribute__((aligned(8)));
 static bool on_idle_stack;
 
 static ListHead run_queues[SCHED_PRIORITY_LEVELS];
+
+static ListHead sleep_wheel[SLEEP_QUEUE_SIZE];
+static uint32_t wheel_occ[BITMAP_WORDS(SLEEP_QUEUE_SIZE)];
+static uint64_t wheel_now_slot;
+static uint32_t slot_shift;
 
 _Static_assert(SCHED_PRIORITY_LEVELS <= 32, "ready_mask is a uint32_t");
 static uint32_t ready_mask = 0;
@@ -65,6 +75,13 @@ void SchedInit()
 {
     for (uint32_t level = 0; level < SCHED_PRIORITY_LEVELS; level++)
         list_init(&run_queues[level]);
+    for (uint32_t level = 0; level < SLEEP_QUEUE_SIZE; level++)
+        list_init(&sleep_wheel[level]);
+
+    assert(ArchTimerFreq() >= 250);
+
+    slot_shift = (uint32_t)(63 - __builtin_clzll(ArchTimerFreq() / 250));
+    wheel_now_slot = ArchTimerNow() >> slot_shift;
     list_init(&destroy_queue);
     list_init(&sleep_queue);
     current_thread = NULL;
@@ -163,65 +180,87 @@ static bool SchedIsWorkPending(void)
     return false;
 }
 
+void SchedRemoveSleepQueue(Thread *t) {
+    if (t->sleep_slot < 0) return;
+    if (t->timeout_node.prev && t->timeout_node.next) list_remove(&t->timeout_node);
+    uint32_t slot = (uint32_t)t->sleep_slot;
+    if (list_empty(&sleep_wheel[slot])) BitmapClr(wheel_occ, slot);
+    t->sleep_slot = -1;
+}
+
 void SchedInsertSleepQueue(Thread *t)
 {
-    ListNode *curr;
-    list_for_each(curr, &sleep_queue.node)
-    {
-        Thread *s = container_of(curr, Thread, timeout_node);
-        if (t->wake_deadline < s->wake_deadline)
-        {
-            list_insert_before(&t->timeout_node, curr);
-            SchedArmTimer();
-            return;
-        }
+    uint64_t abs_slot = t->wake_deadline >> slot_shift;
+    if (abs_slot < wheel_now_slot) abs_slot = wheel_now_slot;
+    if ((abs_slot - wheel_now_slot) >= SLEEP_QUEUE_SIZE) {
+        abs_slot = wheel_now_slot + SLEEP_QUEUE_SIZE - 1;
     }
-    list_add_tail(&t->timeout_node, &sleep_queue.node);
+    uint32_t slot = (uint32_t)(abs_slot % SLEEP_QUEUE_SIZE);
+    list_add_tail(&t->timeout_node, &sleep_wheel[slot].node);
+    BitmapSet(wheel_occ, slot);
+    t->sleep_slot = (int16_t)slot;
     SchedArmTimer();
 }
 
 static void SchedWakeSleepers(void)
 {
-    uint64_t now = ArchTimerNow();
-    while (!list_empty(&sleep_queue))
+    uint64_t now_slot = ArchTimerNow() >> slot_shift;
+    if (now_slot - wheel_now_slot > SLEEP_QUEUE_SIZE)
+        wheel_now_slot = now_slot - SLEEP_QUEUE_SIZE;
+
+    for (; wheel_now_slot < now_slot; wheel_now_slot++)
     {
-        ListNode *head = sleep_queue.node.next;
-        Thread *t = container_of(head, Thread, timeout_node);
-        if (t->wake_deadline > now)
-            break;
-        list_remove(&t->timeout_node);
-        if (t->ipc_state == IPC_RECEIVER || t->ipc_state == IPC_SENDER)
+        uint32_t slot = (uint32_t)(wheel_now_slot % SLEEP_QUEUE_SIZE);
+        ListHead *bucket = &sleep_wheel[slot];
+
+        for (;;)
         {
-            if (t->ipc_state == IPC_SENDER)
+            ListNode *node = list_pop_front(bucket);
+            if (!node)
+                break;
+            Thread *t = container_of(node, Thread, timeout_node);
+            t->sleep_slot = -1;
+            if ((t->wake_deadline >> slot_shift) > wheel_now_slot) {
+                SchedInsertSleepQueue(t);
+                continue;
+            }
+
+
+            if (t->ipc_state == IPC_RECEIVER || t->ipc_state == IPC_SENDER)
             {
-                if (t->node.prev && t->node.next)
-                    list_remove(&t->node);
+                if (t->ipc_state == IPC_SENDER)
+                {
+                    if (t->node.prev && t->node.next)
+                        list_remove(&t->node);
+                }
+                else
+                {
+                    if (t->port_wait_slot.node.prev && t->port_wait_slot.node.next)
+                        list_remove(&t->port_wait_slot.node);
+                }
+                t->ipc_state = IPC_NONE;
+                t->blocked_port = NULL;
+                t->wake_reason = WAKE_TIMEOUT;
+                arch_reg_set(t->trap_frame, 0, ERR_TIMEOUT);
+                t->state = READY;
+                SchedAdd(t);
             }
             else
             {
-                if (t->port_wait_slot.node.prev && t->port_wait_slot.node.next)
-                    list_remove(&t->port_wait_slot.node);
+                t->wake_reason = WAKE_TIMEOUT;
+                if (t->trap_frame)
+                    arch_reg_set(t->trap_frame, 0, ERR_TIMEOUT);
+                ThreadWaitanyClearWaits(t);
+                ThreadWaitanyClearPortWaits(t);
+                if (t->ntfn_wait_slot.node.prev && t->ntfn_wait_slot.node.next)
+                    list_remove(&t->ntfn_wait_slot.node);
+                t->state = READY;
+                t->wake_deadline = 0;
+                SchedAdd(t);
             }
-            t->ipc_state = IPC_NONE;
-            t->blocked_port = NULL;
-            t->wake_reason = WAKE_TIMEOUT;
-            arch_reg_set(t->trap_frame, 0, ERR_TIMEOUT);
-            t->state = READY;
-            SchedAdd(t);
         }
-        else
-        {
-            t->wake_reason = WAKE_TIMEOUT;
-            if (t->trap_frame)
-                arch_reg_set(t->trap_frame, 0, ERR_TIMEOUT);
-            ThreadWaitanyClearWaits(t);
-            ThreadWaitanyClearPortWaits(t);
-            if (t->ntfn_wait_slot.node.prev && t->ntfn_wait_slot.node.next)
-                list_remove(&t->ntfn_wait_slot.node);
-            t->state = READY;
-            t->wake_deadline = 0;
-            SchedAdd(t);
-        }
+
+        BitmapClr(wheel_occ, slot);
     }
 }
 
@@ -338,18 +377,28 @@ void __hot SchedSwitchNext(Thread *next)
 
 #define MIN_TIMER_SLACK (ArchTimerFreq() / 500000u) /* 2us, any CNTFRQ */
 
+static uint32_t WheelScanFromNow(void)
+{
+    uint32_t start = (uint32_t)(wheel_now_slot % SLEEP_QUEUE_SIZE);
+    for (uint32_t i = 0; i < SLEEP_QUEUE_SIZE; i++)
+    {
+        uint32_t slot = start + i;
+        if (slot >= SLEEP_QUEUE_SIZE)
+            slot -= SLEEP_QUEUE_SIZE;
+        if (wheel_occ[slot >> 5] & (1U << (slot & 31)))
+            return i;
+    }
+    return SLEEP_QUEUE_SIZE;
+}
+
 void SchedArmTimer(void)
 {
     uint64_t now = ArchTimerNow();
     uint64_t deadline = UINT64_MAX;
 
-    /* earliest sleeper */
-    if (!list_empty(&sleep_queue))
-    {
-        Thread *head = container_of(sleep_queue.node.next, Thread, timeout_node);
-        if (head->wake_deadline < deadline)
-            deadline = head->wake_deadline;
-    }
+    uint32_t k = WheelScanFromNow();
+    if (k < SLEEP_QUEUE_SIZE)
+        deadline = (wheel_now_slot + k + 1) << slot_shift;
 
     if (current_thread && SchedAnyCpuTakers(current_thread) &&
         current_thread->slice_deadline < deadline)

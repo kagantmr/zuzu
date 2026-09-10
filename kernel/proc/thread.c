@@ -122,6 +122,7 @@ Thread *ThreadCreate(ProcessObj *owner_process)
 	thread->exit_status = 0;
 	thread->node.next = NULL;
 	thread->node.prev = NULL;
+	thread->sleep_slot = -1;
 	thread->process_node.next = NULL;
 	thread->process_node.prev = NULL;
 	thread->timeout_node.next = NULL;
@@ -169,7 +170,7 @@ void ThreadUnlinkWaits(Thread *t)
 {
     if (!t) return;
     if (t->node.prev && t->node.next)                     list_remove(&t->node);
-    if (t->timeout_node.prev && t->timeout_node.next)     list_remove(&t->timeout_node);
+    SchedRemoveSleepQueue(t);
     if (t->ntfn_wait_slot.node.prev && t->ntfn_wait_slot.node.next)
         list_remove(&t->ntfn_wait_slot.node);
     if (t->port_wait_slot.node.prev && t->port_wait_slot.node.next)

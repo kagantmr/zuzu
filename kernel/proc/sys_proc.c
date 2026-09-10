@@ -17,8 +17,6 @@
 #include <zuzu/tls.h>
 #include <zuzu/user_layout.h>
 
-extern Thread *current_thread;
-extern ListHead sleep_queue;
 extern ProcessObj *process_table[MAX_PROCESSES];
 
 #define LOG_FMT(fmt) "(sys_task) " fmt
