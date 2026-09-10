@@ -323,7 +323,7 @@ void SysMemUnmap(CpuState *frame)
             {
                 // Shared or device mapping: clear the owning handle's mapped_va so memmap can remap it
                 bool found_handle = false;
-                for (uint32_t i = 0; i < current_thread->owner_process->handle_table.cap; i++)
+                for (uint32_t i = 0; i < HANDLE_MAX_SLOTS; i++)
                 {
                     HandleEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, i);
                     if (!entry || entry->mapped_va != va ||

@@ -703,11 +703,11 @@ void ProcessKill(ProcessObj *p, const int exit_status)
     p->exit_status = exit_status;
 
     // Clean up handle table
-    for (uint32_t i = 0; i < p->handle_table.cap; i++)
+    for (uint32_t i = 0; i < HANDLE_MAX_SLOTS; i++)
     {
         HandleEntry *entry = HandleTableGet(&p->handle_table, i);
         if (!entry)
-            break;
+            continue;
 
         if (entry->type == HANDLE_PORT)
         {
@@ -915,11 +915,11 @@ void ProcessDestroy(ProcessObj *p)
      * catches the direct-destroy path (SysPKill) that bypasses process_kill
      * and would otherwise leak the shm object and its pages. Runs before
      * as_destroy so the address space is still valid for unmapping. */
-    for (uint32_t i = 0; i < p->handle_table.cap; i++)
+    for (uint32_t i = 0; i < HANDLE_MAX_SLOTS; i++)
     {
         HandleEntry *entry = HandleTableGet(&p->handle_table, i);
         if (!entry)
-            break;
+            continue;
         if (entry->type == HANDLE_SHM && entry->shm)
         {
             if (p->as && entry->mapped_va != 0)
