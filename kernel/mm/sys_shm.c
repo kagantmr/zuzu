@@ -62,7 +62,8 @@ void SysShmCreate(CpuState *frame)
     shmem_obj->ref_count = 1;
     shmem_obj->page_addrs = page_arr;
 
-    int handle = handle_vec_find_free(&current_thread->owner_process->handle_table);
+    HandleTable *ht = &current_thread->owner_process->handle_table;
+    int handle = HandleTableFindFree(ht);
     if (handle < 0)
     {
         KFree(page_arr);
@@ -71,7 +72,7 @@ void SysShmCreate(CpuState *frame)
         return;
     }
 
-    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle);
+    HandleEntry *entry = HandleTableGet(ht, (uint32_t)handle);
     if (!entry)
     {
         KFree(page_arr);
@@ -84,6 +85,7 @@ void SysShmCreate(CpuState *frame)
     entry->shm = shmem_obj;
     entry->type = HANDLE_SHM;
     entry->grantable = true;
+    HandleEntryClaim(ht, entry);
 
     arch_reg_set(frame, 0, (Handle)handle);
 }

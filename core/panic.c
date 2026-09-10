@@ -532,7 +532,7 @@ static void panic_print_process(void)
         panic_line(line);
 
         /* Handle table */
-        handle_vec_t *ht = &p->handle_table;
+        HandleTable *ht = &p->handle_table;
         if (ht->data && ht->cap > 0) {
             int shown = 0;
             panic_nl();
