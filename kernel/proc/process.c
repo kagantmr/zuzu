@@ -640,26 +640,6 @@ ProcessObj *ProcessFindZombieChild(ProcessObj *parent)
     return NULL;
 }
 
-void ProcessWakeJoiners(Tid tid, int32_t exit_status)
-{
-    for (uint32_t slot = 0; slot < MAX_PROCESSES; slot++)
-    {
-        ProcessObj *joiner = process_table[slot];
-        if (!joiner || joiner->waiting_for_tid != tid)
-            continue;
-
-        joiner->waiting_for_tid = 0;
-        if (joiner->thread)
-        {
-            joiner->thread->wake_reason = WAKE_IPC;
-            joiner->thread->state = READY;
-            if (joiner->thread->trap_frame)
-                (*arch_reg(joiner->thread->trap_frame, 0)) = (uint32_t)exit_status;
-            SchedAdd(joiner->thread);
-        }
-    }
-}
-
 static const char *fatal_reason_str(int reason)
 {
     switch (reason)
