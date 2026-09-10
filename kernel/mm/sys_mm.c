@@ -516,7 +516,7 @@ void SysAsInject(CpuState *frame)
             }
         }
 
-        VirtAddr *page_addrs = kmalloc(page_count * sizeof(VirtAddr));
+        VirtAddr *page_addrs = KCalloc(page_count, sizeof(VirtAddr));
         if (!page_addrs)
         {
             {
@@ -524,7 +524,6 @@ void SysAsInject(CpuState *frame)
             return;
         }
         }
-        memset(page_addrs, 0, page_count * sizeof(VirtAddr));
 
         for (size_t i = 0; i < page_count; i++)
         {
@@ -591,7 +590,7 @@ void SysAsInject(CpuState *frame)
                 goto rollback_nomem;
         }
 
-        kfree(page_addrs);
+        KFree(page_addrs);
 
         (*arch_reg(frame, 0)) = 0;
         return;
@@ -605,7 +604,7 @@ void SysAsInject(CpuState *frame)
                 PmmFreeFrame(page_addrs[j]);
             }
         }
-        kfree(page_addrs);
+        KFree(page_addrs);
         {
             arch_reg_set(frame, 0, ERR_BADARG);
             return;
@@ -620,7 +619,7 @@ void SysAsInject(CpuState *frame)
                 PmmFreeFrame(page_addrs[j]);
             }
         }
-        kfree(page_addrs);
+        KFree(page_addrs);
         {
             arch_reg_set(frame, 0, ERR_NOMEM);
             return;

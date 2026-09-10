@@ -33,7 +33,7 @@ extern uint32_t current_pid_or_zero(void);
 #endif
 
 #define LOG_FMT(fmt) "(pmm) " fmt
-#include "core/log.h"
+#include "zuzu/log.h"
 
 typedef struct {
     Pfn pfn_base;           // lowest page frame number
@@ -141,7 +141,7 @@ static void PmmKEventSignalUnderLock(void)
             if (!sub->ntfn->alive) {
                 list_remove(pos);
                 NtfnRefDrop(sub->ntfn);
-                kfree(sub);
+                KFree(sub);
                 continue;
             }
 
@@ -230,7 +230,7 @@ int PmmSubscribe(NtfnObj *ntfn)
     if (!ntfn)
         return ERR_BADARG;
 
-    PmmSubscriber *new_node = kmalloc(sizeof(PmmSubscriber));
+    PmmSubscriber *new_node = KZAlloc(sizeof(PmmSubscriber));
     if (!new_node)
         return ERR_NOMEM;
     new_node->ntfn = ntfn;

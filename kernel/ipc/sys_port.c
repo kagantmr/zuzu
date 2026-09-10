@@ -9,12 +9,11 @@
 #include "zuzu/err.h"
 
 #define LOG_FMT(fmt) "(sys_port) " fmt
-#include "core/log.h"
+#include <zuzu/log.h>
 
-extern Thread *current_thread;
 extern ProcessObj *process_table[MAX_PROCESSES];
 
-static bool can_regrant_received_handle(const ProcessObj *grantee)
+static bool CanRegrantHandle(const ProcessObj *grantee)
 {
     // only sysd may receive grantable copies.
     // Everyone else gets a non-grantable copy to prevent unbounded handle propagation.
@@ -38,7 +37,7 @@ void SysPortCreate(CpuState *frame)
 
     HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle);
 
-    Port *new_port = (Port *)kalloc_portobj();
+    Port *new_port = (Port *)KAllocPortObj();
     if (!new_port)
     {
         arch_reg_set(frame, 0, ERR_NOMEM);
@@ -55,7 +54,6 @@ void SysPortCreate(CpuState *frame)
     entry->type = HANDLE_PORT;
 
     arch_reg_set(frame, 0, handle);
-    return;
 }
 
 void SysDestroy(CpuState *frame)
@@ -160,7 +158,7 @@ void SysDestroy(CpuState *frame)
         if (port->ref_count > 0)
             port->ref_count--;
         if (port->ref_count == 0)
-            kfree_portobj(port);
+            KFreePortObj(port);
 
         (*arch_reg(frame, 0)) = 0;
     }
@@ -207,7 +205,7 @@ void SysDestroy(CpuState *frame)
         if (ntf->ref_count > 0)
             ntf->ref_count--;
         if (ntf->ref_count == 0)
-            kfree(ntf);
+            KFree(ntf);
 
         (*arch_reg(frame, 0)) = 0;
     }
@@ -254,7 +252,7 @@ void SysDestroy(CpuState *frame)
         if (dev->ref_count > 0)
             dev->ref_count--;
         if (dev->ref_count == 0)
-            kfree_device_cap(dev);
+            KFreeDevCap(dev);
 
         (*arch_reg(frame, 0)) = 0;
     }
@@ -392,7 +390,7 @@ void SysGrant(CpuState *frame)
         if (dst->shm)
             dst->shm->ref_count++; // new handle reference to the same object
     }
-    dst->grantable = (flags & GRANT_REGRANTABLE) || can_regrant_received_handle(grantee);
+    dst->grantable = (flags & GRANT_REGRANTABLE) || CanRegrantHandle(grantee);
     arch_reg_set(frame, 0, (Handle)slot);
 }
 
@@ -460,7 +458,7 @@ void SysStamp(CpuState *frame)
     arch_reg_set(frame, 0, slot);
 }
 
-#define LABEL_SELF -2
+#define LABEL_SELF (-2)
 
 void SysSetLabel(CpuState *frame)
 {

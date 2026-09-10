@@ -46,7 +46,7 @@ uintptr_t l2_pool_alloc(void)
         return 0; // out of physical memory
     }
 
-    l2_pool_entry_t *entry = kmalloc(sizeof(l2_pool_entry_t));
+    l2_pool_entry_t *entry = KZAlloc(sizeof(l2_pool_entry_t));
     if (!entry)
     {
         PmmFreeFrame(page_pa);
@@ -104,7 +104,7 @@ void l2_pool_free(uintptr_t l2_pa)
             {
                 pool_head = entry->next;
             }
-            kfree(entry);
+            KFree(entry);
         }
         spin_unlock_irqrestore(&l2_pool_lock, flags);
         return;

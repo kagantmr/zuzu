@@ -148,7 +148,7 @@ void SysIrqBind(CpuState *frame)
         if (old->ref_count > 0)
             old->ref_count--;
         if (old->ref_count == 0)
-            kfree(old);
+            KFree(old);
     }
 
     irq_owners[irq_num].bound_ntfn = ntfn_entry->ntfn;
@@ -240,7 +240,7 @@ void IrqReleaseAll(Process *owner)
                 if (ntfn->ref_count > 0)
                     ntfn->ref_count--;
                 if (ntfn->ref_count == 0)
-                    kfree(ntfn);
+                    KFree(ntfn);
                 irq_owners[i].bound_ntfn = NULL;
             }
             arch_irq_disable_line((uint32_t)i);

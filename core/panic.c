@@ -252,12 +252,12 @@ typedef struct {
 static void panic_heap_snapshot(panic_heap_stats_t *st)
 {
     memset(st, 0, sizeof(*st));
-    kmem_block_t *block = heap_head;
+    KMemBlock *block = heap_head;
     size_t seen = 0;
     while (block && seen < 8192) {
         st->block_count++;
         st->total_bytes += block->size;
-        if (block->free)
+        if (block->state == KBLOCK_FREE)
             st->free_bytes += block->size;
         else
             st->used_bytes += block->size;

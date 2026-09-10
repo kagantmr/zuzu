@@ -235,7 +235,7 @@ static HandleEntry *validate_reply_handle(ProcessObj *proc, Handle handle_idx, T
 
 	if (!target || target->state == ZOMBIE) {
 		ProcessUntrackReplyCap(entry->reply);
-		kfree_reply_cap(entry->reply);
+		KFreeReplyCap(entry->reply);
 		entry->reply = NULL;
 		entry->grantable = false;
 		entry->type = HANDLE_FREE;
@@ -245,7 +245,7 @@ static HandleEntry *validate_reply_handle(ProcessObj *proc, Handle handle_idx, T
 
 	if (target->ipc_state != IPC_WAITING) {
 		ProcessUntrackReplyCap(entry->reply);
-		kfree_reply_cap(entry->reply);
+		KFreeReplyCap(entry->reply);
 		entry->reply = NULL;
 		entry->grantable = false;
 		entry->type = HANDLE_FREE;
@@ -397,7 +397,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			if (slot < 0) {
 				// Handle table full - but at least we can report the error
 				// and the caller's rc gets cleaned up
-				kfree_reply_cap(rc);
+				KFreeReplyCap(rc);
 				sr_thread->pending_reply_cap = NULL;
 				// Wake the caller with an error instead of leaving it stuck
 				arch_reg_set(sr_thread->trap_frame, 0, ERR_NOMEM);
@@ -415,7 +415,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			HandleEntry *rentry =
 			    handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)slot);
 			if (!rentry) {
-				kfree_reply_cap(rc);
+				KFreeReplyCap(rc);
 				arch_reg_set(sr_thread->trap_frame, 0, ERR_NOMEM);
 				sr_thread->ipc_state = IPC_NONE;
 				sr_thread->blocked_port = NULL;
@@ -506,7 +506,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		return;
 	}
 
-	ReplyCap *rc = kalloc_reply_cap();
+	ReplyCap *rc = KAllocReplyCap();
 	if (unlikely(!rc)) {
 		arch_reg_set(frame, 0, ERR_NOMEM);
 		return; // caller gets clean error, never blocked
@@ -535,7 +535,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 
 		int slot = handle_vec_find_free(&rx_thread->owner_process->handle_table);
 		if (unlikely(slot < 0)) {
-			kfree_reply_cap(rc);
+			KFreeReplyCap(rc);
 			list_add_tail(&rx_slot->node, &port->receiver_queue.node);
 			arch_reg_set(frame, 0, ERR_NOMEM);
 			return;
@@ -543,7 +543,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 
 		HandleEntry *rentry = handle_vec_get(&rx_thread->owner_process->handle_table, (uint32_t)slot);
 		if (!rentry) {
-			kfree_reply_cap(rc);
+			KFreeReplyCap(rc);
 			list_add_tail(&rx_slot->node, &port->receiver_queue.node);
 			arch_reg_set(frame, 0, ERR_NOMEM);
 			return;
@@ -650,7 +650,7 @@ void __attribute__((hot)) SysMsgReply(CpuState *frame)
 	sched_add(target_thread);
 
 	ProcessUntrackReplyCap(entry->reply);
-	kfree_reply_cap(entry->reply);
+	KFreeReplyCap(entry->reply);
 	entry->reply = NULL;
 	entry->grantable = false;
 	entry->type = HANDLE_FREE;
@@ -752,7 +752,7 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 		return;
 	}
 
-	ReplyCap *rc = kalloc_reply_cap();
+	ReplyCap *rc = KAllocReplyCap();
 	if (!rc) {
 		arch_reg_set(frame, 0, ERR_NOMEM);
 		return; // caller gets clean error, never blocked
@@ -772,7 +772,7 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 #endif
 		int slot = handle_vec_find_free(&rx_thread->owner_process->handle_table);
 		if (unlikely(slot < 0)) {
-			kfree_reply_cap(rc);
+			KFreeReplyCap(rc);
 			list_add_tail(&rx_slot->node, &port->receiver_queue.node);
 			arch_reg_set(frame, 0, ERR_NOMEM);
 			return;
@@ -780,7 +780,7 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 
 		HandleEntry *rentry = handle_vec_get(&rx_thread->owner_process->handle_table, (uint32_t)slot);
 		if (!rentry) {
-			kfree_reply_cap(rc);
+			KFreeReplyCap(rc);
 			list_add_tail(&rx_slot->node, &port->receiver_queue.node);
 			arch_reg_set(frame, 0, ERR_NOMEM);
 			return;
@@ -891,7 +891,7 @@ void __attribute__((hot)) SysMsgLreply(CpuState *frame)
 	sched_add(target_thread);
 
 	ProcessUntrackReplyCap(entry->reply);
-	kfree_reply_cap(entry->reply);
+	KFreeReplyCap(entry->reply);
 	entry->reply = NULL;
 	entry->grantable = false;
 	entry->type = HANDLE_FREE;
@@ -946,7 +946,7 @@ static int waitany_deliver_sender(uint32_t matched_index, Thread *receiver, List
 
 		int slot = handle_vec_find_free(&receiver->owner_process->handle_table);
 		if (slot < 0) {
-			kfree_reply_cap(rc);
+			KFreeReplyCap(rc);
 			arch_reg_set(sr_frame, 0, ERR_NOMEM);
 			ipc_wake_ready(sr_thread);
 			return ERR_NOMEM;
@@ -954,7 +954,7 @@ static int waitany_deliver_sender(uint32_t matched_index, Thread *receiver, List
 
 		HandleEntry *rentry = handle_vec_get(&receiver->owner_process->handle_table, (uint32_t)slot);
 		if (!rentry) {
-			kfree_reply_cap(rc);
+			KFreeReplyCap(rc);
 			arch_reg_set(sr_frame, 0, ERR_NOMEM);
 			ipc_wake_ready(sr_thread);
 			return ERR_NOMEM;

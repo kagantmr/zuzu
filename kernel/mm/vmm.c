@@ -134,7 +134,7 @@ bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, ui
 
 
 AddressSpace* AddrspaceCreate(AsType type) {
-    AddressSpace* as = kmalloc(sizeof(AddressSpace));
+    AddressSpace* as = KZAlloc(sizeof(AddressSpace));
     if (!as) {
         return NULL;
     }
@@ -143,7 +143,7 @@ AddressSpace* AddrspaceCreate(AsType type) {
     as->pt_root_physaddr = arch_mmu_create_tables(type);
 
     if (as->pt_root_physaddr == 0) {
-        kfree(as);
+        KFree(as);
         return NULL;
     }
 
@@ -151,7 +151,7 @@ AddressSpace* AddrspaceCreate(AsType type) {
         as->asid_token = asid_alloc();
         if (as->asid_token.asid == 0) {
             arch_mmu_free_tables(as->pt_root_physaddr, type);
-            kfree(as);
+            KFree(as);
             return NULL;
         }
     }
@@ -162,7 +162,7 @@ AddressSpace* AddrspaceCreate(AsType type) {
             asid_free(as->asid_token);
         }
         arch_mmu_free_tables(as->pt_root_physaddr, type);
-        kfree(as);
+        KFree(as);
         return NULL;
     }
 
@@ -246,7 +246,7 @@ void AddrspaceDestroy(AddressSpace* as) {
     vm_region_vec_destroy(&as->regions);
 
     // Free address space struct
-    kfree(as);
+    KFree(as);
 }
 
 bool VmmAddRegion(AddressSpace *restrict as, const VirtMemRegion *restrict region) {
@@ -320,7 +320,7 @@ bool VmmBuildPts(AddressSpace* as) {
 
 void vmm_bootstrap(void) {
     if (!g_kernel_as) {
-        g_kernel_as = kmalloc(sizeof(AddressSpace));
+        g_kernel_as = KZAlloc(sizeof(AddressSpace));
         if (!g_kernel_as) {
             panic("Failed to create kernel address space");
             __builtin_unreachable();

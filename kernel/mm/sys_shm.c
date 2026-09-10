@@ -22,8 +22,8 @@ void ShmemDropReference(ShmCap *shm)
         for (size_t j = 0; j < shm->page_count; j++)
             if (shm->page_addrs[j] != 0) /* demand-paged: skip unfaulted slots */
                 PmmFreeFrame(shm->page_addrs[j]);
-        kfree(shm->page_addrs);
-        kfree(shm);
+        KFree(shm->page_addrs);
+        KFree(shm);
     }
 }
 
@@ -41,18 +41,17 @@ void SysShmCreate(CpuState *frame)
         return;
     }
     const size_t page_count = size / PAGE_SIZE;
-    PhysAddr *page_arr = kmalloc(sizeof(PhysAddr) * page_count);
+    PhysAddr *page_arr = KCalloc(page_count, sizeof(PhysAddr));
     if (!page_arr)
     {
         arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }
-    memset(page_arr, 0, sizeof(PhysAddr) * page_count);
 
-    ShmCap *shmem_obj = kmalloc(sizeof(ShmCap));
+    ShmCap *shmem_obj = KZAlloc(sizeof(ShmCap));
     if (!shmem_obj)
     {
-        kfree(page_arr);
+        KFree(page_arr);
         arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }
@@ -66,8 +65,8 @@ void SysShmCreate(CpuState *frame)
     int handle = handle_vec_find_free(&current_thread->owner_process->handle_table);
     if (handle < 0)
     {
-        kfree(page_arr);
-        kfree(shmem_obj);
+        KFree(page_arr);
+        KFree(shmem_obj);
         arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }
@@ -75,8 +74,8 @@ void SysShmCreate(CpuState *frame)
     HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle);
     if (!entry)
     {
-        kfree(page_arr);
-        kfree(shmem_obj);
+        KFree(page_arr);
+        KFree(shmem_obj);
         arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }

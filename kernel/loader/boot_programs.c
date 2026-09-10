@@ -43,7 +43,7 @@ static void inject_device_cap(const char *compatible,
 {
     if (!s_devmgr)
         return;
-    DeviceCap *cap = (DeviceCap *)kalloc_device_cap();
+    DeviceCap *cap = (DeviceCap *)KAllocDevCap();
     if (!cap)
         return;
     strncpy(cap->compatible, compatible, sizeof(cap->compatible) - 1);
@@ -56,14 +56,14 @@ static void inject_device_cap(const char *compatible,
     int handle = handle_vec_find_free(&s_devmgr->handle_table);
     if (handle < 0)
     {
-        kfree_device_cap(cap);
+        KFreeDevCap(cap);
         return;
     }
     // 4. handle_vec_get that slot, write HANDLE_DEVICE entry
     HandleEntry *entry = handle_vec_get(&s_devmgr->handle_table, (uint32_t)handle);
     if (!entry)
     {
-        kfree_device_cap(cap);
+        KFreeDevCap(cap);
         return;
     }
     entry->type = HANDLE_DEVICE;
@@ -195,7 +195,7 @@ static char *normalize_manifest_program_path(const char *path_in)
 
     if (strchr(path_in, '/'))
     {
-        char *path = (char *)kmalloc(strlen(path_in) + 1);
+        char *path = (char *)KZAlloc(strlen(path_in) + 1);
         if (!path)
             return NULL;
         strcpy(path, path_in);
@@ -204,7 +204,7 @@ static char *normalize_manifest_program_path(const char *path_in)
 
     size_t path_len = strlen(path_in);
     size_t full_len = sizeof(BOOT_PROGRAM_PREFIX) - 1 + path_len + 1;
-    char *path = (char *)kmalloc(full_len);
+    char *path = (char *)KZAlloc(full_len);
     if (!path)
         return NULL;
 
@@ -370,7 +370,7 @@ void boot_programs_spawn_all(PhysAddr initrd_pa, size_t initrd_size)
                          devmgr_entry_peek, devmgr_sp_peek);
         if (boot_programs[i].owns_path && boot_programs[i].path)
         {
-            kfree((void *)boot_programs[i].path);
+            KFree((void *)boot_programs[i].path);
             boot_programs[i].path = NULL;
             boot_programs[i].owns_path = 0;
         }

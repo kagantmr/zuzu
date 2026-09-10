@@ -117,7 +117,7 @@ ProcessObj *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char 
         uintptr_t *segment_pages = NULL;
         if (file_pages > 0)
         {
-            segment_pages = kmalloc(file_pages * sizeof(uintptr_t));
+            segment_pages = KMalloc(file_pages * sizeof(uintptr_t));
             if (!segment_pages)
                 goto fail_kstack;
         }
@@ -141,7 +141,7 @@ ProcessObj *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char 
                     VmmUnmapRange(p->as, orphan_va, PAGE_SIZE);
                     PmmFreeFrame(segment_pages[j]);
                 }
-                kfree(segment_pages);
+                KFree(segment_pages);
                 goto fail_kstack;
             }
 
@@ -175,7 +175,7 @@ ProcessObj *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char 
                     VmmUnmapRange(p->as, orphan_va, PAGE_SIZE);
                     PmmFreeFrame(segment_pages[j]);
                 }
-                kfree(segment_pages);
+                KFree(segment_pages);
                 goto fail_kstack;
             }
 
@@ -201,11 +201,11 @@ ProcessObj *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char 
                     VmmUnmapRange(p->as, orphan_va, PAGE_SIZE);
                     PmmFreeFrame(segment_pages[j]);
                 }
-                kfree(segment_pages);
+                KFree(segment_pages);
                 goto fail_kstack;
             }
 
-            kfree(segment_pages);
+            KFree(segment_pages);
         }
 
         if (mem_pages > file_pages)
@@ -363,7 +363,7 @@ fail_kstack:
     handle_vec_destroy(&p->handle_table);
     ThreadDestroy(t);
 fail_process:
-    kfree(p);
+    KFree(p);
     return NULL;
 }
 
@@ -379,10 +379,9 @@ void ProcessTrackReplyCap(ProcessObj *restrict caller, ProcessObj *restrict hold
 
 ProcessObj *ProcessCreate(const char *name)
 {
-    ProcessObj *p = kmalloc(sizeof(ProcessObj));
+    ProcessObj *p = KZAlloc(sizeof(ProcessObj));
     if (!p)
         return NULL;
-    memset(p, 0, sizeof(ProcessObj));
 
     list_init(&p->outstanding_replies);
     list_init(&p->threads);
@@ -534,7 +533,7 @@ fail_handles:
     handle_vec_destroy(&p->handle_table);
     ThreadDestroy(t);
 fail_process:
-    kfree(p);
+    KFree(p);
     return NULL;
 }
 
@@ -578,7 +577,7 @@ static void process_revoke_outstanding_reply_caps(ProcessObj *caller)
         rc->caller_tid = 0;
         rc->holder_pid = 0;
         rc->holder_slot = 0;
-        kfree_reply_cap(rc);
+        KFreeReplyCap(rc);
     }
 }
 
@@ -762,7 +761,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                 if (port->ref_count > 0)
                     port->ref_count--;
                 if (port->ref_count == 0)
-                    kfree_portobj(port);
+                    KFreePortObj(port);
             }
             entry->port = NULL;
             entry->grantable = false;
@@ -775,7 +774,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                 if (entry->dev->ref_count > 0)
                     entry->dev->ref_count--;
                 if (entry->dev->ref_count == 0)
-                    kfree_device_cap(entry->dev);
+                    KFreeDevCap(entry->dev);
             }
             entry->dev = NULL;
             entry->mapped_va = 0;
@@ -818,7 +817,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
             if (rc)
             {
                 ProcessUntrackReplyCap(rc);
-                kfree_reply_cap(rc);
+                KFreeReplyCap(rc);
             }
 
             entry->reply = NULL;
@@ -856,7 +855,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                 if (ntfn->ref_count > 0)
                     ntfn->ref_count--;
                 if (ntfn->ref_count == 0)
-                    kfree(ntfn);
+                    KFree(ntfn);
             }
             entry->ntfn = NULL;
             entry->grantable = false;
@@ -955,5 +954,5 @@ void ProcessDestroy(ProcessObj *p)
     }
     handle_vec_destroy(&p->handle_table);
     process_table[p->pid % MAX_PROCESSES] = NULL;
-    kfree(p);
+    KFree(p);
 }
