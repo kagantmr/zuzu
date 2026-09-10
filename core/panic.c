@@ -27,7 +27,6 @@ extern irq_handler_t      handler_table[MAX_IRQS];
 #endif
 
 extern kernel_layout_t kernel_layout;
-extern ListHead     sleep_queue;
 
 panic_fault_context_t panic_fault_ctx;
 
@@ -252,12 +251,12 @@ typedef struct {
 static void panic_heap_snapshot(panic_heap_stats_t *st)
 {
     memset(st, 0, sizeof(*st));
-    kmem_block_t *block = heap_head;
+    KMemBlock *block = heap_head;
     size_t seen = 0;
     while (block && seen < 8192) {
         st->block_count++;
         st->total_bytes += block->size;
-        if (block->free)
+        if (block->state == KBLOCK_FREE)
             st->free_bytes += block->size;
         else
             st->used_bytes += block->size;
@@ -532,14 +531,14 @@ static void panic_print_process(void)
         panic_line(line);
 
         /* Handle table */
-        handle_vec_t *ht = &p->handle_table;
-        if (ht->data && ht->cap > 0) {
+        HandleTable *ht = &p->handle_table;
+        {
             int shown = 0;
             panic_nl();
             panic_line("handles:");
-            for (uint32_t idx = 1; idx < ht->cap && shown < PANIC_HANDLE_MAX; idx++) {
-                HandleEntry *e = &ht->data[idx];
-                if (e->type == HANDLE_FREE)
+            for (uint32_t idx = 1; idx < HANDLE_MAX_SLOTS && shown < PANIC_HANDLE_MAX; idx++) {
+                HandleEntry *e = HandleTableGet(ht, idx);
+                if (!e || e->type == HANDLE_FREE)
                     continue;
                 void *ptr = NULL;
                 switch (e->type) {
@@ -633,7 +632,7 @@ static void panic_print_sched(void)
 
     /* Ready queue */
     Thread *ready[PANIC_READY_MAX];
-    size_t ready_total = sched_ready_queue_snapshot(ready, PANIC_READY_MAX);
+    size_t ready_total = SchedGetReadyQueue(ready, PANIC_READY_MAX);
     panic_nl();
     snprintf(line, sizeof(line), "ready (%lu):", (unsigned long)ready_total);
     panic_line(line);
@@ -658,38 +657,31 @@ static void panic_print_sched(void)
         }
     }
 
-    /* Sleep queue */
+    /* Sleep wheel */
+    Thread *sleepers[PANIC_SLEEP_MAX];
+    size_t sleep_total = SchedGetSleepers(sleepers, PANIC_SLEEP_MAX);
     panic_nl();
-    {
-        int sleep_count = 0;
-        ListNode *node;
-        list_for_each(node, &sleep_queue.node)
-            sleep_count++;
+    (void)snprintf(line, sizeof(line), "sleeping (%lu):", (unsigned long)sleep_total);
+    panic_line(line);
 
-        (void)snprintf(line, sizeof(line), "sleeping (%d):", sleep_count);
-        panic_line(line);
-
-        if (sleep_count == 0) {
-            panic_line("  (empty)");
-        } else {
-            int shown = 0;
-            list_for_each(node, &sleep_queue.node) {
-                if (shown >= PANIC_SLEEP_MAX) {
-                    (void)snprintf(line, sizeof(line), "  ... +%d more",
-                             sleep_count - shown);
-                    panic_line(line);
-                    break;
-                }
-                Thread *t = container_of(node, Thread, timeout_node);
-                ProcessObj *p = t->owner_process;
-                (void)snprintf(line, sizeof(line),
-                         "  tid=%-4u  pid=%-4u  %-16s  wake_deadline=%llu",
-                         t->tid, p ? p->pid : 0,
-                         p ? p->name : "(none)",
-                         (unsigned long long)t->wake_deadline);
-                panic_line(line);
-                shown++;
-            }
+    if (sleep_total == 0) {
+        panic_line("  (empty)");
+    } else {
+        size_t show = sleep_total < PANIC_SLEEP_MAX ? sleep_total : PANIC_SLEEP_MAX;
+        for (size_t i = 0; i < show; i++) {
+            Thread *t = sleepers[i];
+            ProcessObj *p = t->owner_process;
+            (void)snprintf(line, sizeof(line),
+                     "  tid=%-4u  pid=%-4u  %-16s  wake_deadline=%llu",
+                     t->tid, p ? p->pid : 0,
+                     p ? p->name : "(none)",
+                     (unsigned long long)t->wake_deadline);
+            panic_line(line);
+        }
+        if (sleep_total > PANIC_SLEEP_MAX) {
+            (void)snprintf(line, sizeof(line), "  ... +%lu more",
+                     (unsigned long)(sleep_total - PANIC_SLEEP_MAX));
+            panic_line(line);
         }
     }
 }

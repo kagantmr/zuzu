@@ -53,10 +53,7 @@ static void __hot relay_handler(void *ctx)
             ThreadWaitanyClearPortWaits(waiter);
             waiter->waitany_wait_match_index = match_index;
             waiter->waitany_wait_bits = ntfn->word;
-            if (unlikely(waiter->wake_deadline != 0 && waiter->timeout_node.prev &&
-                         waiter->timeout_node.next)) {
-                list_remove(&waiter->timeout_node);
-            }
+            SchedRemoveSleepQueue(waiter);
             waiter->wake_deadline = 0;
             ntfn->word = 0;
             waiter->wake_reason = WAKE_IPC;
@@ -66,7 +63,7 @@ static void __hot relay_handler(void *ctx)
 #ifdef ZUZU_BENCH
             BENCH_END(g_bench_irq_wait, waiter->bench_irq_wait_start);
 #endif
-            sched_add(waiter);
+            SchedAdd(waiter);
             if (!current_thread || waiter->priority > current_thread->priority) {
                 do_resched = 1;
             }
@@ -95,7 +92,7 @@ void SysIrqBind(CpuState *frame)
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
     }
-    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)dev_handle);
+    HandleEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)dev_handle);
     if (!entry) {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
@@ -121,7 +118,7 @@ void SysIrqBind(CpuState *frame)
     /* Validate the notification before mutating any state so a bad ntfn handle
      * does not leave the line claimed-but-unbound. */
     HandleEntry *ntfn_entry =
-        handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)ntfn_handle);
+        HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)ntfn_handle);
     if (!ntfn_entry || !ntfn_entry->ntfn) {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
@@ -148,7 +145,7 @@ void SysIrqBind(CpuState *frame)
         if (old->ref_count > 0)
             old->ref_count--;
         if (old->ref_count == 0)
-            kfree(old);
+            KFree(old);
     }
 
     irq_owners[irq_num].bound_ntfn = ntfn_entry->ntfn;
@@ -178,17 +175,14 @@ void SysIrqBind(CpuState *frame)
             ThreadWaitanyClearPortWaits(waiter);
             waiter->waitany_wait_match_index = match_index;
             waiter->waitany_wait_bits = ntfn->word;
-            if (unlikely(waiter->wake_deadline != 0 && waiter->timeout_node.prev &&
-                         waiter->timeout_node.next)) {
-                list_remove(&waiter->timeout_node);
-            }
+            SchedRemoveSleepQueue(waiter);
             waiter->wake_deadline = 0;
             ntfn->word = 0;
             waiter->wake_reason = WAKE_IPC;
             waiter->blocked_port = NULL;
             waiter->ipc_state = IPC_NONE;
             waiter->state = READY;
-            sched_add(waiter);
+            SchedAdd(waiter);
         }
     }
 
@@ -204,7 +198,7 @@ void SysIrqDone(CpuState *frame)
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
     }
-    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)dev_handle);
+    HandleEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)dev_handle);
     if (!entry) {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
@@ -240,7 +234,7 @@ void IrqReleaseAll(Process *owner)
                 if (ntfn->ref_count > 0)
                     ntfn->ref_count--;
                 if (ntfn->ref_count == 0)
-                    kfree(ntfn);
+                    KFreeNtfn(ntfn);
                 irq_owners[i].bound_ntfn = NULL;
             }
             arch_irq_disable_line((uint32_t)i);

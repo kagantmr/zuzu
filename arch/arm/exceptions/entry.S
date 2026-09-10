@@ -97,7 +97,7 @@ irq_handler:
     mov r1, #0
     strb r1, [r0]          // Clear flag
     sub sp, sp, #4         // AAPCS: keep 8-byte alignment at C call boundary
-    bl schedule
+    bl Schedule
     add sp, sp, #4
 .no_schedule:
     exception_exit

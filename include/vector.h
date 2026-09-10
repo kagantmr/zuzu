@@ -12,8 +12,8 @@ extern "C" {
 
 #ifdef __ZUZU__
 #include "kernel/mm/alloc.h"
-#define VEC_ALLOC(sz) kmalloc(sz)
-#define VEC_FREE(ptr) kfree(ptr)
+#define VEC_ALLOC(sz) KZAlloc(sz)
+#define VEC_FREE(ptr) KFree(ptr)
 #else
 #include <malloc.h>
 #define VEC_ALLOC(sz) malloc(sz)

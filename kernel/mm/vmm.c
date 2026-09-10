@@ -10,6 +10,7 @@
 #include "core/panic.h"
 #include "kernel/layout.h"
 #include <arch/asid.h>
+#include <bitmap.h>
 #include <zuzu/types.h>
 #include <stdlib.h>
 
@@ -17,14 +18,15 @@
 static AddressSpace* g_kernel_as = NULL;
 static AddressSpace* g_current_addrspace = NULL;
 static bool g_mmu_enabled = false;
+static KHeapSlabCache addrspace_cache;
 extern kernel_layout_t kernel_layout;
 extern uint32_t early_l1[]; 
 
 
 #define LOG_FMT(fmt) "(vmm) " fmt
-#include "core/log.h"
+#include <zuzu/log.h>
 
-static int region_contains_va(const void *key, const void *elem)
+static int RegionContainsVa(const void *key, const void *elem)
 {
     uintptr_t va = *(const uintptr_t *)key;
     const VirtMemRegion *r = (const VirtMemRegion *)elem;
@@ -33,7 +35,7 @@ static int region_contains_va(const void *key, const void *elem)
     return 0;
 }
 
-static int region_cmp_start(const void *key, const void *elem)
+static int RegionCmpStart(const void *key, const void *elem)
 {
     uintptr_t va = *(const uintptr_t *)key;
     const VirtMemRegion *r = (const VirtMemRegion *)elem;
@@ -60,15 +62,16 @@ typedef struct {
     VirtAddr va;       // Base VA (0 = unused entry)
     PhysAddr pa;       // Physical address  
     uint32_t sections;  // Number of 1MB sections
-} ioremap_entry_t;
-static ioremap_entry_t ioremap_table[IOREMAP_MAX_ENTRIES];
+} IoremapEntry;
 
-static VirtMemRegion *vmm_find_region(AddressSpace *as, uintptr_t va)
+static IoremapEntry ioremap_table[IOREMAP_MAX_ENTRIES];
+
+static VirtMemRegion *VmmFindRegion(AddressSpace *as, uintptr_t va)
 {
     if (!as || as->regions.len == 0)
         return NULL;
     return bsearch(&va, as->regions.data, as->regions.len,
-                   sizeof(VirtMemRegion), region_contains_va);
+                   sizeof(VirtMemRegion), RegionContainsVa);
 }
 
 bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, uintptr_t page_va)
@@ -134,16 +137,19 @@ bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, ui
 
 
 AddressSpace* AddrspaceCreate(AsType type) {
-    AddressSpace* as = kmalloc(sizeof(AddressSpace));
+    if (!addrspace_cache.obj_size)
+        KSlabInit(&addrspace_cache, "AddressSpace", sizeof(AddressSpace));
+    AddressSpace* as = KSlabAlloc(&addrspace_cache);
     if (!as) {
         return NULL;
     }
+    memset(as, 0, sizeof(*as));
     as->asid_token = (asid_token_t){0};
 
     as->pt_root_physaddr = arch_mmu_create_tables(type);
 
     if (as->pt_root_physaddr == 0) {
-        kfree(as);
+        KSlabFree(&addrspace_cache, as);
         return NULL;
     }
 
@@ -151,7 +157,7 @@ AddressSpace* AddrspaceCreate(AsType type) {
         as->asid_token = asid_alloc();
         if (as->asid_token.asid == 0) {
             arch_mmu_free_tables(as->pt_root_physaddr, type);
-            kfree(as);
+            KSlabFree(&addrspace_cache, as);
             return NULL;
         }
     }
@@ -162,7 +168,7 @@ AddressSpace* AddrspaceCreate(AsType type) {
             asid_free(as->asid_token);
         }
         arch_mmu_free_tables(as->pt_root_physaddr, type);
-        kfree(as);
+        KSlabFree(&addrspace_cache, as);
         return NULL;
     }
 
@@ -182,15 +188,15 @@ void VmmLockdownKernelMapping(void) {
         // Section descriptor (bits[1:0] == 0b10)
         if ((entry & 0x3) == 0x2) {
             // Clear AP[11:10], set to 0b01 (kernel only)
-            entry &= ~(0x3u << 10);
-            entry |=  (0x1u << 10);
+            entry &= ~(0x3U << 10);
+            entry |=  (0x1U << 10);
             l1[i] = entry;
             continue;
         }
 
         // Coarse page table (bits[1:0] == 0b01)
         if ((entry & 0x3) == 0x1) {
-            PhysAddr l2_pa = entry & 0xFFFFFC00u;
+            PhysAddr l2_pa = entry & 0xFFFFFC00U;
             VirtAddr *l2 = (VirtAddr *)PA_TO_VA(l2_pa);
 
             for (size_t j = 0; j < 256; j++) {
@@ -202,8 +208,8 @@ void VmmLockdownKernelMapping(void) {
                 }
 
                 // Small page AP bits are [5:4]. Force kernel-only AP=01.
-                pte &= ~(0x3u << 4);
-                pte |=  (0x1u << 4);
+                pte &= ~(0x3U << 4);
+                pte |=  (0x1U << 4);
                 l2[j] = pte;
             }
         }
@@ -246,7 +252,7 @@ void AddrspaceDestroy(AddressSpace* as) {
     vm_region_vec_destroy(&as->regions);
 
     // Free address space struct
-    kfree(as);
+    KSlabFree(&addrspace_cache, as);
 }
 
 bool VmmAddRegion(AddressSpace *restrict as, const VirtMemRegion *restrict region) {
@@ -257,7 +263,7 @@ bool VmmAddRegion(AddressSpace *restrict as, const VirtMemRegion *restrict regio
 
     uint32_t lo = 0, hi = as->regions.len;
     while (lo < hi) {
-        uint32_t mid = lo + (hi - lo) / 2;
+        uint32_t mid = lo + ((hi - lo) / 2);
         if (as->regions.data[mid].vaddr_start <= new_start)
             lo = mid + 1;
         else
@@ -291,7 +297,7 @@ bool VmmRemoveRegion(AddressSpace *as, uintptr_t vaddr, size_t size) {
     if (!as || size == 0) return false;
 
     VirtMemRegion *r = bsearch(&vaddr, as->regions.data, as->regions.len,
-                              sizeof(VirtMemRegion), region_cmp_start);
+                              sizeof(VirtMemRegion), RegionCmpStart);
     if (!r || r->size != size)
         return false;
 
@@ -320,7 +326,7 @@ bool VmmBuildPts(AddressSpace* as) {
 
 void vmm_bootstrap(void) {
     if (!g_kernel_as) {
-        g_kernel_as = kmalloc(sizeof(AddressSpace));
+        g_kernel_as = KZAlloc(sizeof(AddressSpace));
         if (!g_kernel_as) {
             panic("Failed to create kernel address space");
             __builtin_unreachable();
@@ -408,7 +414,7 @@ void VmmRemoveIdentityMapping(void) {
 
     VirtMemRegion *r = bsearch(&map_pa_start, g_kernel_as->regions.data,
                               g_kernel_as->regions.len,
-                              sizeof(VirtMemRegion), region_cmp_start);
+                              sizeof(VirtMemRegion), RegionCmpStart);
     if (r) {
         uint32_t idx = (uint32_t)(r - g_kernel_as->regions.data);
         memmove(r, r + 1,
@@ -473,7 +479,7 @@ bool VmmProtectPage(AddressSpace *as, VirtAddr va, size_t size, MemProt new_prot
 {
     if (!as || size == 0) return false;
 
-    VirtMemRegion *r = vmm_find_region(as, va);
+    VirtMemRegion *r = VmmFindRegion(as, va);
     if (!r) return false;                          /* no region → refuse */
     if (va + size > r->vaddr_start + r->size)      /* must not span regions */
         return false;
@@ -499,24 +505,11 @@ bool VmmMapUserPage(AddressSpace* as, PhysAddr pa, VirtAddr va, MemProt prot) {
                          VM_MEM_NORMAL, VM_OWNER_SHARED, VM_FLAG_NONE);
 }
 
-// Find N contiguous free bits in bitmap, return starting index or -1.
-// Bounded to IOREMAP_MAX_SLOT, not IOREMAP_SLOTS: slots beyond that would
-// land on the kstack region (see IOREMAP_MAX_SLOT in vmm.h).
-static int bitmap_find_free(uint32_t n) {
-    uint32_t count = 0;
-    for (uint32_t i = 0; i < IOREMAP_MAX_SLOT; i++) {
-        uint32_t word = ioremap_bitmap[i / 32];
-        uint32_t bit = 1u << (i % 32);
-        if ((word & bit) == 0) {
-            count++;
-            if (count == n) {
-                return (int)(i + 1 - n);
-            }
-        } else {
-            count = 0;
-        }
-    }
-    return -1;
+// Find N contiguous free slots. Bounded to IOREMAP_MAX_SLOT, not
+// IOREMAP_SLOTS: slots beyond that would land on the kstack region
+// (see IOREMAP_MAX_SLOT in vmm.h).
+static int BitmapFindFree(uint32_t n) {
+    return BitmapFindClearRun(ioremap_bitmap, IOREMAP_MAX_SLOT, n);
 }
 
 bool VmmCheckUserFault(AddressSpace *as, VirtAddr va, size_t len, bool write) {
@@ -540,7 +533,7 @@ bool VmmCheckUserFault(AddressSpace *as, VirtAddr va, size_t len, bool write) {
             page_va += PAGE_SIZE;
             continue;
         }
-        VirtMemRegion *r = vmm_find_region(as, page_va);
+        VirtMemRegion *r = VmmFindRegion(as, page_va);
         if (!r)
             return false;
         if (r->flags & VM_FLAG_GUARD)
@@ -559,26 +552,16 @@ bool VmmCheckUserFault(AddressSpace *as, VirtAddr va, size_t len, bool write) {
     return true;
 }
 
-// Mark bits [start, start+count) as used
-static void bitmap_alloc(uint32_t start, uint32_t count) {
-    for (uint32_t i = 0; i < count; i++) {
-        uint32_t idx = start + i;
-        uint32_t bit = 1u << (idx % 32);
-        ioremap_bitmap[idx / 32] |= bit;
-    }
+static void BitmapAlloc(uint32_t start, uint32_t count) {
+    BitmapSetRange(ioremap_bitmap, start, count);
 }
 
-// Mark bits [start, start+count) as free  
-static void bitmap_free(uint32_t start, uint32_t count) {
-    for (uint32_t i = 0; i < count; i++) {
-        uint32_t idx = start + i;
-        uint32_t bit = 1u << (idx % 32);
-        ioremap_bitmap[idx / 32] &= ~bit;
-    }
+static void BitmapFree(uint32_t start, uint32_t count) {
+    BitmapClrRange(ioremap_bitmap, start, count);
 }
 
 // Find ioremap_table entry by VA
-static ioremap_entry_t* ioremap_find(VirtAddr va) {
+static IoremapEntry* IoremapFind(VirtAddr va) {
     for (size_t i = 0; i < IOREMAP_MAX_ENTRIES; i++) {
         if (ioremap_table[i].va == va) {
             return &ioremap_table[i];
@@ -588,7 +571,7 @@ static ioremap_entry_t* ioremap_find(VirtAddr va) {
 }
 
 // Find free slot in ioremap_table
-static ioremap_entry_t* ioremap_alloc_entry(void) {
+static IoremapEntry* IoremapAllocEntry(void) {
     for (size_t i = 0; i < IOREMAP_MAX_ENTRIES; i++) {
         if (ioremap_table[i].va == 0) {
             return &ioremap_table[i];
@@ -608,7 +591,7 @@ void* IoRemap(PhysAddr phys, size_t size) {
     size_t aligned_size = align_up(total_size, SECTION_SIZE);
     uint32_t sections_needed = aligned_size / SECTION_SIZE;
 
-    int slot = bitmap_find_free(sections_needed);
+    int slot = BitmapFindFree(sections_needed);
     if (slot < 0) {
         return NULL;
     }
@@ -628,12 +611,12 @@ void* IoRemap(PhysAddr phys, size_t size) {
         return NULL;
     }
 
-    bitmap_alloc((uint32_t)slot, sections_needed);
+    BitmapAlloc((uint32_t)slot, sections_needed);
 
-    ioremap_entry_t* entry = ioremap_alloc_entry();
+    IoremapEntry* entry = IoremapAllocEntry();
     if (!entry) {
         VmmUnmapRange(g_kernel_as, va, aligned_size);
-        bitmap_free((uint32_t)slot, sections_needed);
+        BitmapFree((uint32_t)slot, sections_needed);
         return NULL;
     }
     entry->va = va;
@@ -649,7 +632,7 @@ void IoUnmap(void* va) {
     }
 
     uintptr_t base_va = align_down((uintptr_t)va, SECTION_SIZE);
-    ioremap_entry_t* entry = ioremap_find(base_va);
+    IoremapEntry* entry = IoremapFind(base_va);
     if (!entry) {
         return;
     }
@@ -658,7 +641,7 @@ void IoUnmap(void* va) {
     VmmUnmapRange(g_kernel_as, entry->va, size);
 
     uint32_t slot_start = (entry->va - IOREMAP_BASE) / SECTION_SIZE;
-    bitmap_free(slot_start, entry->sections);
+    BitmapFree(slot_start, entry->sections);
 
     entry->va = 0;
     entry->pa = 0;
