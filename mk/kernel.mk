@@ -6,11 +6,12 @@ CFLAGS   = -ffreestanding -O$(OPTIMIZATION_LEVEL) $(LTO_FLAG) -fno-omit-frame-po
            -Wall -Wextra -Werror \
            -Wshadow -Wconversion -Wsign-conversion -Wcast-align -Wcast-qual \
            -Wstrict-prototypes -Wmissing-prototypes -Wformat=2 -Wundef \
-           -Wvla -Walloca -Wframe-larger-than=512 \
+           -Wvla -Walloca \
            -Wnull-dereference -Wduplicated-cond -Wduplicated-branches -Wlogical-op \
            -fno-common \
            $(CPUFLAGS) $(INCLUDES) -Ivendor/libfdt -Ivendor/lz4 -MMD -MP \
-           -D__ZUZU__ -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"' -DLOG_LEVEL=$(LOG_LEVEL)
+           -D__ZUZU__ -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"' -DLOG_LEVEL=$(LOG_LEVEL) \
+           -DZUZU_ELF_PATH='"$(TARGET)"'
 LDFLAGS  = -nostdlib -Wl,-T,$(LINKER_SCRIPT) -Wl,-Map=$(MAP) $(LTO_FLAG)
 
 ifeq ($(DEBUG_BUILD), 1)
@@ -91,7 +92,7 @@ CSRCS     += $(LIBFDT_SRCS)
 # the -Wconversion/-Wsign-conversion/-Wcast-qual set the task named
 # explicitly: libfdt's device-tree walkers cast byte offsets into struct
 # pointers throughout, tripping the same "not ours to fix" warning.
-build/vendor/libfdt/%.o: CFLAGS := $(filter-out -Wconversion -Wsign-conversion -Wcast-qual -Wcast-align,$(CFLAGS))
+$(O)/vendor/libfdt/%.o: CFLAGS := $(filter-out -Wconversion -Wsign-conversion -Wcast-qual -Wcast-align,$(CFLAGS))
 
 # libfdt.h itself is a vendored header, and its inline helpers (byte-store
 # accessors, string-length-to-int narrowing, etc.) trip the same warnings
@@ -100,41 +101,40 @@ build/vendor/libfdt/%.o: CFLAGS := $(filter-out -Wconversion -Wsign-conversion -
 # addressed at the including object instead of the vendor directory, since
 # per-object CFLAGS overrides key off the object being compiled, not the
 # headers it happens to include.
-build/kernel/boot_info.o: CFLAGS := $(filter-out -Wconversion -Wsign-conversion -Wcast-qual -Wcast-align,$(CFLAGS))
-build/kernel/dev/fdt_wrappers.o: CFLAGS := $(filter-out -Wconversion -Wsign-conversion -Wcast-qual -Wcast-align,$(CFLAGS))
+$(O)/kernel/boot_info.o: CFLAGS := $(filter-out -Wconversion -Wsign-conversion -Wcast-qual -Wcast-align,$(CFLAGS))
+$(O)/kernel/dev/fdt_wrappers.o: CFLAGS := $(filter-out -Wconversion -Wsign-conversion -Wcast-qual -Wcast-align,$(CFLAGS))
 ASRCS_ALL := $(shell find $(NONARCH_DIRS) -name '*.S') \
              $(shell find $(ARCH_DIR) -name '*.S' $(ARCH_PRUNE_BOARDS)) \
              $(shell find $(BOARD_DIR) -name '*.S')
 ASRCS     := $(filter-out $(ARCH_DIR)/crt0.S,$(ASRCS_ALL))
-OBJS      := $(CSRCS:%.c=build/%.o) $(ASRCS:%.S=build/%.o)
+OBJS      := $(CSRCS:%.c=$(O)/%.o) $(ASRCS:%.S=$(O)/%.o)
 DEPS      := $(OBJS:.o=.d)
 
 # ---- compilation rules ------------------------------------------------------
-build/%.o: %.c $(BOARD_STAMP)
+$(O)/%.o: %.c $(FLAGS_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "  CC      $<"
 	@$(CC) $(CFLAGS) -c $< -o $@
 
-build/%.o: %.S $(BOARD_STAMP)
+$(O)/%.o: %.S $(FLAGS_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "  AS      $<"
 	@$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
 
-# two-pass build to generate kernel symbol table
+# Two-pass link: pass 1 exists only to give symbol.py a symbol table to read,
+# which pass 2 links in. Safe because ksymtab.c is pure data (no .text), so the
+# addresses captured in pass 1 still hold in pass 2.
 $(TARGET): $(OBJS) $(LINKER_SCRIPT)
 	@mkdir -p $(dir $@)
 	@echo "  LD      (pass1) $@"
 	@$(LD) $(LDFLAGS) $(OBJS) $(KERNEL_LIBGCC) -o $@
-	@echo "  PY      generating build/ksymtab.c"
-	@python3 scripts/symbol.py $@ build/ksymtab.c || true
-	@if [ -f build/ksymtab.c ]; then \
-		echo "  CC      build/ksymtab.o"; \
-		$(CC) $(CFLAGS) -c build/ksymtab.c -o build/ksymtab.o; \
-		echo "  LD      (final) $@"; \
-		$(LD) $(LDFLAGS) build/ksymtab.o $(OBJS) $(KERNEL_LIBGCC) -o $@; \
-	else \
-		echo "  WARN: build/ksymtab.c not generated; final ELF uses empty symbol table"; \
-	fi
+	@echo "  PY      $(O)/ksymtab.c"
+	@rm -f $(O)/ksymtab.c
+	@python3 scripts/symbol.py --nm $(CROSS)nm $@ $(O)/ksymtab.c
+	@echo "  CC      $(O)/ksymtab.o"
+	@$(CC) $(CFLAGS) -c $(O)/ksymtab.c -o $(O)/ksymtab.o
+	@echo "  LD      (final) $@"
+	@$(LD) $(LDFLAGS) $(O)/ksymtab.o $(OBJS) $(KERNEL_LIBGCC) -o $@
 	@if [ "$(DEBUG_BUILD)" = "0" ]; then \
 		echo "  STRIP   $@"; \
 		$(OBJCOPY) --strip-debug $@ $@; \
@@ -142,7 +142,7 @@ $(TARGET): $(OBJS) $(LINKER_SCRIPT)
 
 # ---- static analysis ------------------------------------------------------
 # `make analyze` rebuilds the kernel from scratch with GCC's -fanalyzer
-# symbolic-execution pass and captures the full output in build/analyzer.log.
+# symbolic-execution pass and captures the full output in $(O)/analyzer.log.
 # -Werror is filtered out so analyzer diagnostics (which are noisier and
 # more speculative than the normal warning set) never fail the build; this
 # target is a report generator, not a gate. Kept separate from the real
@@ -152,12 +152,12 @@ $(TARGET): $(OBJS) $(LINKER_SCRIPT)
 .PHONY: analyze
 analyze:
 	@$(MAKE) clean
-	@mkdir -p build
-	@$(MAKE) ANALYZE=1 kernel 2>&1 | tee build/analyzer.log
+	@mkdir -p $(O)
+	@$(MAKE) ANALYZE=1 kernel 2>&1 | tee $(O)/analyzer.log
 
 .PHONY: kernel dump
-kernel: $(TARGET)
+kernel: $(TARGET) links
 
 dump: $(TARGET)
 	@echo "  OBJDUMP $@"
-	@$(OBJDUMP) -D $(TARGET) > build/zuzu.dump
+	@$(OBJDUMP) -D $(TARGET) > $(O)/zuzu.dump

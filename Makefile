@@ -22,29 +22,27 @@
 # Override ARCH/BOARD on the command line, e.g.
 #   make ARCH=arm BOARD=rpi4
 
+# Make 3.81 (Apple's /usr/bin/make) picks the first-defined matching pattern
+# rule instead of the most specific one, which breaks the tier-specific
+# build/user/%.o rules against kernel.mk's build/%.o.
+ifneq ($(firstword $(sort 4.0 $(MAKE_VERSION))),4.0)
+$(error zuzu needs GNU Make >= 4.0, this is $(MAKE_VERSION). On macOS: \
+  brew install make, then build with `gmake`)
+endif
+
 ARCH  ?= arm
 BOARD ?= vexpress-a15
 
-# Pin the default goal to `all` explicitly. Without this, GNU Make falls
-# back to the first target rule encountered anywhere in the include chain
-# below (e.g. mk/config.mk's $(BOARD_STAMP) rule) as the default goal, which
-# silently breaks a bare `make` — and with it, VSCode Makefile Tools' dry-run
-# IntelliSense parse, which builds whatever the default goal is.
+# Otherwise make takes the first rule in the include chain below as the
+# default goal, which silently breaks a bare `make`.
 .DEFAULT_GOAL := all
 
 include arch/$(ARCH)/arch.mk
 include mk/host.mk
 include mk/config.mk
 include mk/toolchain.mk
-# user.mk before kernel.mk: several build/%.o targets are matched by both
-# user.mk's tier-specific pattern rules (e.g. build/lib/posix/%.o,
-# build/user/newlib_apps/%.o, build/user/%.o) and kernel.mk's blanket
-# build/%.o: %.c fallback. When a target's prerequisite exists under more
-# than one matching pattern, this make picks whichever pattern was defined
-# first rather than the most specific one — so the specific rules must be
-# textually defined before the generic one.
-include mk/user.mk
 include mk/kernel.mk
+include mk/user.mk
 include mk/initrd.mk
 include mk/dtb.mk
 include mk/sdcard.mk
@@ -52,19 +50,20 @@ include mk/qemu.mk
 include mk/uboot.mk
 include mk/compile_commands.mk
 
-# Default target builds the kernel and every user program across all three
-# flag tiers (kernel CC, tier-1 USER_CC, tier-2 NEWLIB_CC), so a plain
-# `make` — and therefore VSCode Makefile Tools' dry-run parse of the
-# default target — emits a compile command for every source file and
-# IntelliSense works without switching targets. `make kernel` (mk/kernel.mk)
-# remains for a kernel-only fast iteration loop.
-.PHONY: all deploy clean
-all: $(TARGET) $(ALL_USER_ELFS) $(SD_LIB_ARCHIVES) $(INITRD)
+# Builds the kernel and every user program across all three flag tiers.
+# `make kernel` (mk/kernel.mk) is the kernel-only fast iteration loop.
+.PHONY: all deploy clean distclean
+all: $(TARGET) $(ALL_USER_ELFS) $(SD_LIB_ARCHIVES) $(INITRD) links
 
 deploy: all sdimg-recreate run
 
+# ZUZUSD/ is the pre-$(O) SD staging dir; drop it so old checkouts tidy up.
 clean:
-	@rm -rf build
-	@echo "  CLEAN   build"
+	@rm -rf build compile_commands.json ZUZUSD
+	@echo "  CLEAN   build compile_commands.json"
+
+distclean: clean
+	@rm -rf .baseline .cache
+	@echo "  CLEAN   .baseline .cache"
 
 -include $(DEPS) $(USER_DEPS)

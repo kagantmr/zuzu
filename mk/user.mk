@@ -37,7 +37,7 @@ NEWLIB_USER_CFLAGS_C = $(NEWLIB_USER_CFLAGS) \
                         -include include/newlib_compat.h -DSSIZE_MAX=0x7fffffff
 
 NEWLIB_USER_LDFLAGS = -nostartfiles -Wl,-T,user/user.ld \
-                      -mthumb -mcpu=cortex-a15 -mfloat-abi=hard -mfpu=vfpv4
+                      -mthumb $(CPUFLAGS) $(ARCH_USER_FP)
 
 # Fails only when a tier-2 recipe actually runs, so kernel/tier-1-only
 # builds on a machine without a newlib toolchain are unaffected.
@@ -78,7 +78,7 @@ USER_PROGS   := $(BOOT_PROGS) $(DISK_PROGS) $(NEWLIB_PROGS) $(LIB_PROGS)
 
 $(foreach d,$(BOOT_PROG_DIRS) $(DISK_PROG_DIRS) $(NEWLIB_PROG_DIRS) $(LIB_PROG_DIRS),$(eval USER_DIR_$(notdir $(d)) := $(d)))
 $(foreach p,$(USER_PROGS),$(eval USER_$(p)_SRCS := $(shell find $(USER_DIR_$(p)) -name '*.c')))
-$(foreach p,$(USER_PROGS),$(eval USER_$(p)_OBJS := $(patsubst user/%.c,build/user/%.o,$(USER_$(p)_SRCS))))
+$(foreach p,$(USER_PROGS),$(eval USER_$(p)_OBJS := $(patsubst user/%.c,$(O)/user/%.o,$(USER_$(p)_SRCS))))
 USER_APP_OBJS := $(foreach p,$(BOOT_PROGS) $(DISK_PROGS) $(NEWLIB_PROGS),$(USER_$(p)_OBJS))
 LIB_PROG_OBJS := $(foreach p,$(LIB_PROGS),$(USER_$(p)_OBJS))
 
@@ -89,10 +89,10 @@ LIB_PROG_OBJS := $(foreach p,$(LIB_PROGS),$(USER_$(p)_OBJS))
 ZCRT_CSRCS := $(wildcard klib/*.c lib/*.c lib/zuzu/*.c lib/zuzu/sync/*.c)
 ZCRT_SSRCS := $(shell find klib -name '*.S')
 ZCRT_SRCS  := $(ZCRT_CSRCS) $(ZCRT_SSRCS)
-ZCRT_OBJS  := $(patsubst %.c,build/user/zcrt/%.o,$(ZCRT_CSRCS)) \
-              $(patsubst %.S,build/user/zcrt/%.o,$(ZCRT_SSRCS))
+ZCRT_OBJS  := $(patsubst %.c,$(O)/user/zcrt/%.o,$(ZCRT_CSRCS)) \
+              $(patsubst %.S,$(O)/user/zcrt/%.o,$(ZCRT_SSRCS))
 
-ZCRT_ARCHIVE = build/user/libc.a
+ZCRT_ARCHIVE = $(O)/user/libc.a
 $(ZCRT_ARCHIVE): $(ZCRT_OBJS)
 	@mkdir -p $(dir $@)
 	@echo "  AR      $@"
@@ -106,24 +106,24 @@ $(ZCRT_ARCHIVE): $(ZCRT_OBJS)
 # libc.a, which calls _sbrk_r -> _sbrk -> sbrk: unbounded recursion that
 # runs the stack into the guard page on the first malloc.
 NEWLIB_ZCRT_SRCS := $(wildcard lib/zuzu/*.c lib/zuzu/sync/*.c) lib/sbrk.c
-NEWLIB_ZCRT_OBJS := $(patsubst %.c,build/user/zcrt/%.o,$(NEWLIB_ZCRT_SRCS))
+NEWLIB_ZCRT_OBJS := $(patsubst %.c,$(O)/user/zcrt/%.o,$(NEWLIB_ZCRT_SRCS))
 NEWLIB_STUB_SRCS := $(wildcard lib/posix/*.c)
-NEWLIB_STUB_OBJS := $(patsubst lib/%.c,build/lib/%.o,$(NEWLIB_STUB_SRCS))
+NEWLIB_STUB_OBJS := $(patsubst lib/%.c,$(O)/lib/%.o,$(NEWLIB_STUB_SRCS))
 
-USER_CRT0             = build/user/crt0.o
-NEWLIB_CRT0           = build/user/crt0-newlib.o
-BOOT_PROG_PACKED_ELFS = $(BOOT_PROGS:%=build/user/%.stripped.elf)
+USER_CRT0             = $(O)/user/crt0.o
+NEWLIB_CRT0           = $(O)/user/crt0-newlib.o
+BOOT_PROG_PACKED_ELFS = $(BOOT_PROGS:%=$(O)/user/%.stripped.elf)
 # Everything staged into the SD image: tier-1 disk apps + tier-2 newlib apps.
 SD_PROGS              = $(DISK_PROGS) $(NEWLIB_PROGS)
-SD_PROG_PACKED_ELFS   = $(SD_PROGS:%=build/user/%.stripped.elf)
-# Static libraries (user/libs/<name>/*.c) staged into ZUZUSD/lib/.
+SD_PROG_PACKED_ELFS   = $(SD_PROGS:%=$(O)/user/%.stripped.elf)
+# Static libraries (user/libs/<name>/*.c) staged onto the SD card.
 SD_LIBS               = $(LIB_PROGS)
-SD_LIB_ARCHIVES       = $(SD_LIBS:%=build/user/lib/%.a)
+SD_LIB_ARCHIVES       = $(SD_LIBS:%=$(O)/user/lib/%.a)
 
 # Every ELF that `all` needs to build so IntelliSense (Makefile Tools' dry
 # run of the default target) sees compiler invocations for every tier.
-ALL_USER_ELFS = $(BOOT_PROGS:%=build/user/%.elf) $(DISK_PROGS:%=build/user/%.elf) \
-                $(NEWLIB_PROGS:%=build/user/%.elf)
+ALL_USER_ELFS = $(BOOT_PROGS:%=$(O)/user/%.elf) $(DISK_PROGS:%=$(O)/user/%.elf) \
+                $(NEWLIB_PROGS:%=$(O)/user/%.elf)
 
 USER_DEPS = $(USER_CRT0:.o=.d) $(NEWLIB_CRT0:.o=.d) $(USER_APP_OBJS:.o=.d) \
             $(LIB_PROG_OBJS:.o=.d) $(ZCRT_OBJS:.o=.d) $(NEWLIB_STUB_OBJS:.o=.d)
@@ -143,31 +143,29 @@ $(NEWLIB_INC)/dirent.h:
 
 NEWLIB_INC_STAMPS = $(NEWLIB_INC)/zuzu $(NEWLIB_INC)/dirent.h
 
-# Must precede the generic build/user/%.o rule: make 3.81 picks the first
-# matching pattern rule, not the most specific one.
-build/user/newlib_apps/%.o: user/newlib_apps/%.c $(BOARD_STAMP) $(NEWLIB_INC_STAMPS)
+$(O)/user/newlib_apps/%.o: user/newlib_apps/%.c $(FLAGS_STAMP) $(NEWLIB_INC_STAMPS)
 	$(call check-newlib-toolchain)
 	@mkdir -p $(dir $@)
 	@echo "  CC[nl]  $<"
 	@$(NEWLIB_CC) $(NEWLIB_USER_CFLAGS_C) -c $< -o $@
 
-build/lib/posix/%.o: lib/posix/%.c $(BOARD_STAMP) $(NEWLIB_INC_STAMPS)
+$(O)/lib/posix/%.o: lib/posix/%.c $(FLAGS_STAMP) $(NEWLIB_INC_STAMPS)
 	$(call check-newlib-toolchain)
 	@mkdir -p $(dir $@)
 	@echo "  CC[nl]  $<"
 	@$(NEWLIB_CC) $(NEWLIB_USER_CFLAGS_C) -c $< -o $@
 
-build/user/%.o: user/%.c $(BOARD_STAMP)
+$(O)/user/%.o: user/%.c $(FLAGS_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "  CC      $<"
 	@$(USER_CC) $(USER_CFLAGS) -c $< -o $@
 
-build/user/zcrt/%.o: %.c $(BOARD_STAMP)
+$(O)/user/zcrt/%.o: %.c $(FLAGS_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "  CC      $<"
 	@$(USER_CC) $(USER_CFLAGS) -c $< -o $@
 
-build/user/zcrt/%.o: %.S $(BOARD_STAMP)
+$(O)/user/zcrt/%.o: %.S $(FLAGS_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "  AS      $<"
 	@$(USER_CC) $(USER_CFLAGS) -x assembler-with-cpp -c $< -o $@
@@ -185,7 +183,7 @@ $(NEWLIB_CRT0): $(ARCH_DIR)/crt0.S
 
 # ---- user program link rules ------------------------------------------------
 define LINK_USER_PROG
-build/user/$(1).elf: $$(USER_$(1)_OBJS) $(USER_CRT0) $(ZCRT_OBJS) user/user.ld
+$(O)/user/$(1).elf: $$(USER_$(1)_OBJS) $(USER_CRT0) $(ZCRT_OBJS) user/user.ld
 	@mkdir -p $$(dir $$@)
 	@echo "  LD      $$@"
 	@$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) $$(USER_$(1)_OBJS) $(ZCRT_OBJS) $(USER_LIBGCC) -o $$@
@@ -194,7 +192,7 @@ endef
 $(foreach p,$(BOOT_PROGS) $(DISK_PROGS),$(eval $(call LINK_USER_PROG,$(p))))
 
 define LINK_NEWLIB_PROG
-build/user/$(1).elf: $$(USER_$(1)_OBJS) $(NEWLIB_CRT0) $(NEWLIB_STUB_OBJS) $(NEWLIB_ZCRT_OBJS) user/user.ld
+$(O)/user/$(1).elf: $$(USER_$(1)_OBJS) $(NEWLIB_CRT0) $(NEWLIB_STUB_OBJS) $(NEWLIB_ZCRT_OBJS) user/user.ld
 	$$(call check-newlib-toolchain)
 	@mkdir -p $$(dir $$@)
 	@echo "  LD[nl]  $$@"
@@ -204,7 +202,7 @@ endef
 $(foreach p,$(NEWLIB_PROGS),$(eval $(call LINK_NEWLIB_PROG,$(p))))
 
 define LINK_USER_LIB
-build/user/lib/$(1).a: $$(USER_$(1)_OBJS)
+$(O)/user/lib/$(1).a: $$(USER_$(1)_OBJS)
 	@mkdir -p $$(dir $$@)
 	@echo "  AR      $$@"
 	@rm -f $$@
@@ -213,7 +211,7 @@ endef
 
 $(foreach p,$(LIB_PROGS),$(eval $(call LINK_USER_LIB,$(p))))
 
-build/user/%.stripped.elf: build/user/%.elf
+$(O)/user/%.stripped.elf: $(O)/user/%.elf
 	@echo "  STRIP   $@"
 	@$(USER_OBJCOPY) --strip-debug $< $@
 
@@ -223,9 +221,9 @@ build/user/%.stripped.elf: build/user/%.elf
 # loader (user/services/sysd/exec.c) dispatches on magic, so both understand
 # it. SD-card programs (DISK_ROLES/NEWLIB_ROLES) stay plain ELF.
 ZXF_PROGS = $(BOOT_PROGS)
-ZXF_PROG_FILES = $(ZXF_PROGS:%=build/user/%.zxf)
+ZXF_PROG_FILES = $(ZXF_PROGS:%=$(O)/user/%.zxf)
 
-build/user/%.zxf: build/user/%.stripped.elf scripts/elf2zxf.py
+$(O)/user/%.zxf: $(O)/user/%.stripped.elf scripts/elf2zxf.py
 	$(call check-tool,python3,install Python 3.)
 	@echo "  ZXF     $@"
 	@python3 scripts/elf2zxf.py $< -o $@ > /dev/null
