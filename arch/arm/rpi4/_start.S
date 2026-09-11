@@ -19,7 +19,8 @@
 .equ MODE_UND,        0x1b
 .equ MODE_SVC,        0x13
 .equ MODE_HYP,        0x1a
-.equ TTBR0_BOOT_ATTRS, 0x6B
+#include <arch_impl/armv7_mmu.h>
+.equ TTBR0_BOOT_ATTRS, TTBR_WALK_ATTRS
 .equ KERNEL_VA_OFFSET, 0xC0000000
 
 @ BCM2711 in "low peripheral" mode
@@ -198,8 +199,8 @@ svc_entry:
 .equ BOOTSTRAP_RAM_MB,   8
 .equ RAM_LOW_IDX_BASE,   0x000
 .equ RAM_HIGH_IDX_BASE,  0xC00
-.equ SECTION_NORMAL_DESC,0x11C0E
-.equ SECTION_DEVICE_DESC,0xC16      @ shared device, AP=RW(PL1), XN
+.equ SECTION_NORMAL_DESC,L1_SECT_BOOT_NORMAL
+.equ SECTION_DEVICE_DESC,L1_SECT_BOOT_DEVICE
 .equ PERIPH_PA_BASE,     0xFE000000 @ low-peripheral mode: 0xFE0..0xFFF
 .equ PERIPH_MB,          32
 

@@ -24,11 +24,20 @@ static inline void ArchDsb(void) { __asm__ volatile("dsb ish" ::: "memory"); }
  */
 static inline void ArchIsb(void) { __asm__ volatile("isb" ::: "memory"); }
 
+/**
+ * Issues an Inner Shareable DSB and an ISB follwoing it.
+ */
+static inline void ArchCtxSync(void) { __asm__ volatile("dsb ish\n\tisb" ::: "memory"); }
 
-static inline void ArchCtxSync(void)
-{
-    __asm__ volatile("dsb ish\n\tisb" ::: "memory");
-}
+/**
+ * Full system domain DSB.
+ */
+static inline void ArchDsbSy(void) { __asm__ volatile("dsb sy" ::: "memory"); }
+
+/**
+ * Full system domain DMB.
+ */
+static inline void ArchDmbSy(void) { __asm__ volatile("dmb sy" ::: "memory"); }
 
 /**
  * Send Event (SEV): wakes cores blocked in WFE. Paired with a preceding DSB
