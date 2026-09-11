@@ -31,6 +31,9 @@ void arch_irq_disable_line(uint32_t irq_id);
 /** Enable a single IRQ line at the controller. */
 void arch_irq_enable_line(uint32_t irq_id);
 
+/** Set an IRQ line's priority (controller-defined units; lower preempts higher). */
+void ArchIrqSetPrio(uint32_t irq_id, uint8_t prio);
+
 /** Dispatch the currently-pending IRQ to its registered handler. */
 void arch_irq_dispatch(void);
 

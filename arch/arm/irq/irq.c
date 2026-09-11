@@ -38,6 +38,7 @@ bool arch_irq_register(uint32_t irq_id, irq_handler_t handler, void *ctx) {
     }
     handler_table[irq_id] = handler;
     handler_ctx[irq_id] = ctx;
+    GicV2ConfigureIrq(irq_id);
     return true;
 }
 
@@ -50,11 +51,15 @@ bool arch_irq_unregister(uint32_t irq_id) {
     return true;    
 }
 
+void ArchIrqSetPrio(Irq irq_id, uint8_t prio) {
+    GicV2SetPriority(irq_id, prio);
+}
+
 void arch_irq_disable_line(uint32_t irq_id) {
-    gic_disable_irq(irq_id); // Delegate to GIC function
+    GicV2MaskIrq(irq_id); // Delegate to GIC function
 }
 void arch_irq_enable_line(uint32_t irq_id) {
-    gic_enable_irq(irq_id); // Delegate to GIC function
+    GicV2UnmaskIrq(irq_id); // Delegate to GIC function
 }
 
 void arch_irq_dispatch(void) {

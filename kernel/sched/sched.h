@@ -11,6 +11,7 @@
 extern void __attribute__((hot)) context_switch(Thread *prev, Thread *next);
 
 extern Thread *current_thread;
+extern bool fpu_access_enabled;;
 
 // Thread whose registers currently live in the FPU hardware, or NULL if none.
 // Cleared by thread_destroy() when the owning thread is freed. See

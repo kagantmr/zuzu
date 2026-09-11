@@ -261,6 +261,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
         if (current_thread && current_thread != fpu_owner)
         {
             arch_fpu_trap_enable();
+            fpu_access_enabled = true;
             if (fpu_owner)
                 arch_fpu_save(&fpu_owner->fpu_state);
             arch_fpu_restore(&current_thread->fpu_state);

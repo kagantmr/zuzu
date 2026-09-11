@@ -1,0 +1,8 @@
+# clangd project config
+
+Diagnostics:
+  UnusedIncludes: None
+  MissingIncludes: None
+
+Completion:
+  HeaderInsertion: Never
