@@ -138,7 +138,7 @@ ProcessObj *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char 
                 for (uint32_t j = 0; j < page; j++)
                 {
                     uintptr_t orphan_va = (uint32_t)seg->vaddr + j * PAGE_SIZE;
-                    VmmUnmapRange(p->as, orphan_va, PAGE_SIZE);
+                    VmmUnmapRange(p->as, orphan_va, PAGE_SIZE, true);
                     PmmFreeFrame(segment_pages[j]);
                 }
                 kfree(segment_pages);
@@ -172,7 +172,7 @@ ProcessObj *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char 
                 for (uint32_t j = 0; j < page; j++)
                 {
                     VirtAddr orphan_va = (uint32_t)seg->vaddr + j * PAGE_SIZE;
-                    VmmUnmapRange(p->as, orphan_va, PAGE_SIZE);
+                    VmmUnmapRange(p->as, orphan_va, PAGE_SIZE, true);
                     PmmFreeFrame(segment_pages[j]);
                 }
                 kfree(segment_pages);
@@ -198,7 +198,7 @@ ProcessObj *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char 
                 for (uint32_t j = 0; j < file_pages; j++)
                 {
                     VirtAddr orphan_va = (uint32_t)seg->vaddr + j * PAGE_SIZE;
-                    VmmUnmapRange(p->as, orphan_va, PAGE_SIZE);
+                    VmmUnmapRange(p->as, orphan_va, PAGE_SIZE, true);
                     PmmFreeFrame(segment_pages[j]);
                 }
                 kfree(segment_pages);
