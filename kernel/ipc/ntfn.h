@@ -39,4 +39,8 @@ void NtfnSignal(NtfnObj *ntfn, NtfnBits bits);
 
 void NtfnRefDrop(NtfnObj *ntfn);
 
+/* Slab-backed NtfnObj pool. KAllocNtfn returns uninitialized storage. */
+NtfnObj *KAllocNtfn(void);
+void KFreeNtfn(NtfnObj *ntfn);
+
 #endif // NOTIF_H

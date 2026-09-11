@@ -9,7 +9,7 @@
 
 struct process;
 
-typedef struct endpoint {
+typedef struct {
     ListHead sender_queue;
     ListHead receiver_queue;
     Pid owner_pid;

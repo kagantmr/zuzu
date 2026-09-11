@@ -1,10 +1,7 @@
 #include "sys_ntfn.h"
 
-#include "core/panic.h"
-
 #include "kernel/sched/sched.h"
 #include "kernel/syscall/syscall.h"
-#include "kernel/time/tick.h"
 #include <arch/timer.h>
 #ifdef ZUZU_BENCH
 #include "kernel/bench.h"
@@ -14,17 +11,18 @@
 #include "handle.h"
 
 #define LOG_FMT(fmt) "(sys_ntfn) " fmt
-#include "core/log.h"
+#include <zuzu/log.h>
 
 void SysNtfnCreate(CpuState *frame)
 {
-    Handle handle = handle_vec_find_free(&current_thread->owner_process->handle_table);
+    HandleTable *ht = &current_thread->owner_process->handle_table;
+    Handle handle = HandleTableFindFree(ht);
     if (handle < 0) {
         arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }
 
-    NtfnObj *ntfn = kmalloc(sizeof(NtfnObj)); // or slab
+    NtfnObj *ntfn = KAllocNtfn();
     if (!ntfn) {
         arch_reg_set(frame, 0, ERR_NOMEM);
         return;
@@ -36,15 +34,16 @@ void SysNtfnCreate(CpuState *frame)
     ntfn->ref_count = 1;
     ntfn->alive = true;
 
-    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle);
+    HandleEntry *entry = HandleTableGet(ht, (uint32_t)handle);
     if (!entry) {
-        kfree(ntfn);
+        KFreeNtfn(ntfn);
         arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }
     entry->type = HANDLE_NTFN;
     entry->ntfn = ntfn;
     entry->grantable = true;
+    HandleEntryClaim(ht, entry);
     arch_reg_set(frame, 0, handle);
 }
 
@@ -53,7 +52,7 @@ void SysNtfnSignal(CpuState *frame)
     Handle handle_idx = (Handle)(*arch_reg(frame, 0));
     uint32_t bits = (*arch_reg(frame, 1));
 
-    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle_idx);
+    HandleEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)handle_idx);
     if (!entry) {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
@@ -69,7 +68,7 @@ void SysNtfnSignal(CpuState *frame)
         return;
     }
     /* bit 31 reserved: bits ride in r0, negatives are errors */
-    if (bits & (1u << 31)) {
+    if (bits & (1U << 31)) {
         arch_reg_set(frame, 0, ERR_BADARG);
         return;
     }
@@ -84,7 +83,7 @@ void SysNtfnWait(CpuState *frame)
     Handle handle_idx = (Handle)(*arch_reg(frame, 0));
     uint32_t timeout_ms = (*arch_reg(frame, 1));
 
-    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle_idx);
+    HandleEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)handle_idx);
     if (!entry) {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
@@ -131,16 +130,15 @@ void SysNtfnWait(CpuState *frame)
 
     if (timeout_ms != TIMEOUT_INFINITE) {
         current_thread->wake_deadline = ArchDeadlineFromMs(timeout_ms);
-        sleep_queue_insert(current_thread);
+        SchedInsertSleepQueue(current_thread);
     } else {
         current_thread->wake_deadline = 0;
     }
 
-    schedule();
+    Schedule();
 
-    if (timeout_ms != TIMEOUT_INFINITE && current_thread->wake_reason != WAKE_TIMEOUT &&
-        current_thread->timeout_node.prev && current_thread->timeout_node.next) {
-        list_remove(&current_thread->timeout_node);
+    if (timeout_ms != TIMEOUT_INFINITE && current_thread->wake_reason != WAKE_TIMEOUT) {
+        SchedRemoveSleepQueue(current_thread);
     }
 
     if (current_thread->wake_reason == WAKE_TIMEOUT) {

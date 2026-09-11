@@ -143,7 +143,7 @@ void arch_mmu_free_tables(uintptr_t ttbr_pa, AsType type)
         if ((l1[i] & DESC_TYPE_MASK) == DESC_L2)
         {
             uint32_t l2_pa = l1[i] & L1_L2PTR_BASE_MASK;
-            l2_pool_free(l2_pa);
+            L2PtPoolFree(l2_pa);
         }
     }
 
@@ -257,7 +257,7 @@ bool arch_mmu_unmap(AddressSpace *as, uintptr_t va, size_t size, bool flush)
                     arch_mmu_flush_tlb_asid(as->asid_token.asid); /* drop cached walks */
                     ArchCtxSync();
                 }
-                l2_pool_free(entry & L1_L2PTR_BASE_MASK); /* now safe to free */
+                L2PtPoolFree(entry & L1_L2PTR_BASE_MASK); /* now safe to free */
             } else {
                 needs_trailing_flush = true;
             }
@@ -483,7 +483,13 @@ uintptr_t arch_mmu_translate(PhysAddr ttbr_pa, VirtAddr va)
     return 0;
 }
 
-static uintptr_t arch_mmu_alloc_l2_table(void) { return l2_pool_alloc(); }
+static uintptr_t arch_mmu_alloc_l2_table(void)
+{
+    uintptr_t new_page = L2PtPoolAlloc();
+    if (!new_page)
+        return 0;
+    return (uintptr_t)new_page;
+}
 
 static uint32_t arch_mmu_make_l1_pte(uintptr_t l2_pa)
 {

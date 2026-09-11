@@ -4,25 +4,19 @@
 #include "stdbool.h"
 #include <arch/mmu.h>
 #include <arch/barrier.h>
+#include <assert.h>
+#include <bitmap.h>
 #include <zuzu/types.h>
 
-#define KSTACK_WORDS (MAX_KSTACKS / 64)
-
-/* Bitmap: bit N set = kstack slot N in use. Word-indexed for >64 slots. */
-static uint64_t bitmap[KSTACK_WORDS];
+/* Bit N set = kstack slot N in use. */
+static uint32_t bitmap[BITMAP_WORDS(MAX_KSTACKS)];
 static PhysAddr slot_pa[MAX_KSTACKS];
 
 VirtAddr KernelStackAlloc(void)
 {
-	/* Scan word by word for a free bit, exactly like TcbSlotAlloc. */
-	for (uint32_t w = 0; w < KSTACK_WORDS; w++) {
-		uint64_t free = ~bitmap[w];
-		if (!free)
-			continue; /* this word full, next */
-		uint32_t bit = (uint32_t)__builtin_ctzll(free);
-		uint32_t slot = w * 64 + bit;
-		if (slot >= MAX_KSTACKS)
-			return 0; /* free bit was in the unused tail */
+	int found = BitmapFindFirstZero(bitmap, MAX_KSTACKS);
+	if (found >= 0) {
+		uint32_t slot = (uint32_t)found;
 
 		PhysAddr page_pa = PmmAllocFrame();
 		if (!page_pa)
@@ -56,7 +50,7 @@ VirtAddr KernelStackAlloc(void)
 		arch_mmu_flush_tlb_va(slot_va);
 		ArchCtxSync();
 
-		bitmap[w] |= (1ULL << bit);
+		BitmapSet(bitmap, slot);
 		return KernelStackTopFromSlot((int)slot);
 	}
 	return 0; /* pool exhausted */
@@ -69,5 +63,5 @@ void KernelStackFree(VirtAddr stack_top)
 	VmmUnmapRange(VmmGetKernelAddrspace(), mapped_va, PAGE_SIZE, true);
 	PmmFreeFrame(slot_pa[slot]);
 	slot_pa[slot] = 0;
-	bitmap[slot / 64] &= ~(1ULL << (slot % 64));
+	BitmapClr(bitmap, (size_t)slot);
 }
