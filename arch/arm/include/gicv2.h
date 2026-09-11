@@ -6,6 +6,7 @@
 #define GICV2_H
 
 #include <stdint.h>
+#include <zuzu/types.h>
 
 #define GIC_SPI_BASE  32   /* SPIs start at 32 */
 #define GIC_PPI_BASE  16   /* PPIs start at 16 */
@@ -35,13 +36,19 @@ void gic_init(uintptr_t gicd_base_addr, uintptr_t gicc_base_addr);
  * @brief Enable a specific IRQ in the GIC.
  * @param irq_id The IRQ number to enable.
  */
-void gic_enable_irq(uint32_t irq_id);
+void GicV2ConfigureIrq(Irq irq_id);
+
+/**
+ * @brief Enable a specific IRQ in the GIC.
+ * @param irq_id The IRQ number to enable.
+ */
+void GicV2UnmaskIrq(Irq irq_id);
 
 /**
  * @brief Disable a specific IRQ in the GIC.
  * @param irq_id The IRQ number to disable.
  */
-void gic_disable_irq(uint32_t irq_id);
+void GicV2MaskIrq(uint32_t irq_id);
 
 /**
  * @brief Acknowledge an IRQ and return the raw IAR value.
