@@ -3,16 +3,16 @@
 // Descriptor layouts, field positions and attribute encodings live in
 // armv7_mmu.h; this file is the logic that builds and edits them.
 
-#include <arch/asid.h>
-#include <arch/mmu.h>
-#include <arch_impl/armv7_mmu.h>
 #include "kernel/mm/pmm.h"
 #include "l2_pool.h"
 #include "zuzu/types.h"
+#include <arch/asid.h>
+#include <arch/barrier.h>
+#include <arch/mmu.h>
+#include <arch_impl/armv7_mmu.h>
+#include <assert.h>
 #include <stdint.h>
 #include <string.h>
-#include <assert.h>
-#include <arch/barrier.h>
 
 #define LOG_FMT(fmt) "(mmu) " fmt
 #include <zuzu/log.h>
@@ -22,8 +22,8 @@
  * address space's translations warm. */
 #define UNMAP_TLBI_PAGE_THRESHOLD 16U
 
-static bool arch_mmu_map_page(AddressSpace *as, uintptr_t va, uintptr_t pa,
-                              VirtMemType memtype, MemProt prot);
+static bool arch_mmu_map_page(AddressSpace *as, uintptr_t va, uintptr_t pa, VirtMemType memtype,
+                              MemProt prot);
 
 // ---- Address-space geometry ----------------------------------------------
 
@@ -32,15 +32,9 @@ static inline size_t l1_entry_count(AsType type)
     return (type == ADDRSPACE_USER) ? L1_ENTRIES_USER : L1_ENTRIES_KERNEL;
 }
 
-static inline size_t l1_table_bytes(AsType type)
-{
-    return l1_entry_count(type) * L1_DESC_BYTES;
-}
+static inline size_t l1_table_bytes(AsType type) { return l1_entry_count(type) * L1_DESC_BYTES; }
 
-static inline size_t l1_table_pages(AsType type)
-{
-    return l1_table_bytes(type) / PAGE_SIZE;
-}
+static inline size_t l1_table_pages(AsType type) { return l1_table_bytes(type) / PAGE_SIZE; }
 
 // ---- Descriptor attribute encoding ---------------------------------------
 
@@ -61,8 +55,11 @@ static uint32_t l1_section_desc(uintptr_t pa, MemProt prot, VirtMemType memtype)
     if (!(prot & PROT_EXEC))
         e |= MMU_BIT(L1_SECT_XN_BIT);
     if (prot & VM_PROT_USER)
-        e |= MMU_BIT(L1_SECT_NG_BIT); // ASID-tagged, not visible across address spaces
-    e |= (memtype == VM_MEM_DEVICE) ? L1_SECT_ATTR_DEVICE : L1_SECT_ATTR_NORMAL;
+        e |= MMU_BIT(L1_SECT_NG_BIT);
+    if (memtype == VM_MEM_DEVICE)
+        e |= L1_SECT_ATTR_DEVICE;
+    else
+        e |= L1_SECT_ATTR_NORMAL | MMU_BIT(L1_SECT_S_BIT);
 
     return e;
 }
@@ -77,7 +74,10 @@ static uint32_t l2_page_desc(uintptr_t pa, MemProt prot, VirtMemType memtype)
         e |= MMU_BIT(L2_PAGE_XN_BIT);
     if (prot & VM_PROT_USER)
         e |= MMU_BIT(L2_PAGE_NG_BIT); // ASID-tagged, not visible across address spaces
-    e |= (memtype == VM_MEM_DEVICE) ? L2_PAGE_ATTR_DEVICE : L2_PAGE_ATTR_NORMAL;
+    if (memtype == VM_MEM_DEVICE) 
+        e |= L2_PAGE_ATTR_DEVICE;
+    else
+        e |= L2_PAGE_ATTR_NORMAL | MMU_BIT(L2_PAGE_S_BIT);
 
     return e;
 }
@@ -104,10 +104,7 @@ static uint32_t l2_page_set_prot(uint32_t e, MemProt prot)
 
 // TTBR value for a translation-table base PA. See TTBR_WALK_ATTRS in
 // armv7_mmu.h for why the walk attributes must match the table's own mapping.
-static inline uint32_t ttbr_value(uintptr_t ttbr_pa)
-{
-    return (uint32_t)ttbr_pa | TTBR_WALK_ATTRS;
-}
+static inline uint32_t ttbr_value(uintptr_t ttbr_pa) { return (uint32_t)ttbr_pa | TTBR_WALK_ATTRS; }
 
 uintptr_t arch_mmu_create_tables(AsType type)
 {
@@ -154,8 +151,8 @@ void arch_mmu_free_tables(uintptr_t ttbr_pa, AsType type)
     }
 }
 
-bool arch_mmu_map(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size,
-                  MemProt prot, VirtMemType memtype)
+bool arch_mmu_map(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, MemProt prot,
+                  VirtMemType memtype)
 {
     if (!as || size == 0)
     {
@@ -356,7 +353,8 @@ void arch_mmu_enable(AddressSpace *as)
     ArchIsb();
 
     // TTBR0 = L1 table base (cacheable walks).
-    __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"(ttbr_value(as->pt_root_physaddr)) : "memory");
+    __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"(ttbr_value(as->pt_root_physaddr))
+                     : "memory");
 
     // Domain Access Control: domain 0 = Client, so descriptor permissions apply.
     __asm__ volatile("mcr p15, 0, %0, c3, c0, 0" ::"r"(DACR_DOMAIN0_CLIENT) : "memory");
@@ -481,10 +479,7 @@ uintptr_t arch_mmu_translate(PhysAddr ttbr_pa, VirtAddr va)
     return 0;
 }
 
-static uintptr_t arch_mmu_alloc_l2_table(void)
-{
-    return l2_pool_alloc();
-}
+static uintptr_t arch_mmu_alloc_l2_table(void) { return l2_pool_alloc(); }
 
 static uint32_t arch_mmu_make_l1_pte(uintptr_t l2_pa)
 {
@@ -542,8 +537,8 @@ static bool arch_mmu_break_section(uint32_t *l1, uint32_t l1_idx, uint8_t asid)
     return true;
 }
 
-static bool arch_mmu_map_page(AddressSpace *as, uintptr_t va, uintptr_t pa,
-                              VirtMemType memtype, MemProt prot)
+static bool arch_mmu_map_page(AddressSpace *as, uintptr_t va, uintptr_t pa, VirtMemType memtype,
+                              MemProt prot)
 {
     if (!as)
     {
@@ -701,7 +696,8 @@ void arch_mmu_free_user_pages(AddressSpace *as)
 void arch_mmu_init_ttbr1(AddressSpace *as)
 {
     // Mirror the kernel L1 into TTBR1, then set TTBCR.N to split at USER_VA_TOP.
-    __asm__ volatile("mcr p15, 0, %0, c2, c0, 1" ::"r"(ttbr_value(as->pt_root_physaddr)) : "memory");
+    __asm__ volatile("mcr p15, 0, %0, c2, c0, 1" ::"r"(ttbr_value(as->pt_root_physaddr))
+                     : "memory");
 
     ArchIsb();
 
