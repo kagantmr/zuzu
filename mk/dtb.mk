@@ -14,4 +14,4 @@ $(IMG): $(TARGET)
 	@$(OBJCOPY) -O binary $(TARGET) $(IMG)
 
 .PHONY: img
-img: $(IMG)
+img: $(IMG) links

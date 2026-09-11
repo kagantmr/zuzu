@@ -476,7 +476,7 @@ static void panic_print_backtrace(backtrace_t *bt)
 
     /* addr2line hint — print piece-by-piece to avoid buffer constraints */
     panic_nl();
-    panic_puts("  " C_DIM "addr2line -e build/zuzu.elf");
+    panic_puts("  " C_DIM "addr2line -e " ZUZU_ELF_PATH);
     for (int i = 0; i < bt->depth; i++) {
         char tmp[12];
         snprintf(tmp, sizeof(tmp), " 0x%08X", bt->addresses[i]);

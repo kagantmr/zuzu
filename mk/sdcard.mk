@@ -1,46 +1,43 @@
 # mk/sdcard.mk - SD card FAT32 image workflow.
 #
 #  Typical workflow:
-#    make                  — build kernel + all programs
-#    make sdimg            — stage DISK_PROGS and create sd.img from ZUZUSD/
-#    make run              — launch QEMU
+#    make sdimg            — stage programs and build sd.img
+#    make sdimg-recreate   — rebuild it from scratch after code changes
 #
-#  ZUZUSD/ is the staging directory. Put non-generated resources (headers,
-#  config files, vendored data) there directly and they'll be tracked in
-#  git and shipped on the SD card. Compiled output (ZUZUSD/bin/ ELFs,
-#  ZUZUSD/lib/*.a, ZUZUSD/boot/) is regenerated from source by this target
-#  and gitignored — see .gitignore.
-#
-#  To update the SD card after code changes:
-#    make sdimg-recreate && make run
+#  Hand-placed files go in sdroot/ (tracked); it is copied onto the card
+#  first, then generated output lands on top. The staging tree itself is
+#  under $(O) and is disposable.
 #
 # Requires: host.mk (HOST_OS), user.mk (SD_PROGS/SD_LIBS/USER_CRT0/ZCRT_ARCHIVE).
 
-SD_IMG         ?= build/sd.img
+SD_IMG         ?= $(O)/sd.img
 SD_IMG_SIZE_MB ?= 64
 SD_VOL_LABEL   ?= ZUZU
-SD_STAGE_DIR   ?= ZUZUSD
+SD_ROOT_DIR    ?= sdroot
+SD_STAGE_DIR   ?= $(O)/sdcard
 
 .PHONY: sdimg sdimg-stage sdimg-clean sdimg-recreate
 
 sdimg-stage: $(SD_PROG_PACKED_ELFS) $(SD_LIB_ARCHIVES) $(USER_CRT0) $(ZCRT_ARCHIVE)
-	@rm -rf $(SD_STAGE_DIR)/bin $(SD_STAGE_DIR)/lib $(SD_STAGE_DIR)/include
-	@mkdir -p $(SD_STAGE_DIR)/bin
-	@mkdir -p $(SD_STAGE_DIR)/lib
-	@mkdir -p $(SD_STAGE_DIR)/include
+	@rm -rf $(SD_STAGE_DIR)
+	@mkdir -p $(SD_STAGE_DIR)/bin $(SD_STAGE_DIR)/lib $(SD_STAGE_DIR)/include
+	@if [ -d "$(SD_ROOT_DIR)" ]; then \
+	    cp -R $(SD_ROOT_DIR)/. $(SD_STAGE_DIR)/; \
+	    echo "  STAGE   $(SD_ROOT_DIR)/ -> $(SD_STAGE_DIR)/"; \
+	fi
 	@for prog in $(SD_PROGS); do \
-		cp build/user/$$prog.stripped.elf $(SD_STAGE_DIR)/bin/$$prog; \
-		echo "  STAGE   $(SD_STAGE_DIR)/bin/$$prog"; \
+		cp $(O)/user/$$prog.stripped.elf $(SD_STAGE_DIR)/bin/$$prog; \
+		echo "  STAGE   bin/$$prog"; \
 	done
 	@for lib in $(SD_LIBS); do \
-		cp build/user/lib/$$lib.a $(SD_STAGE_DIR)/lib/$$lib.a; \
-		echo "  STAGE   $(SD_STAGE_DIR)/lib/$$lib.a"; \
+		cp $(O)/user/lib/$$lib.a $(SD_STAGE_DIR)/lib/$$lib.a; \
+		echo "  STAGE   lib/$$lib.a"; \
 	done
 	@# System headers and runtime binaries staged for TCC.
 	@cp -r include/* $(SD_STAGE_DIR)/include/
 	@cp $(USER_CRT0) $(SD_STAGE_DIR)/lib/crt0.o
 	@cp $(ZCRT_ARCHIVE) $(SD_STAGE_DIR)/lib/libc.a
-	@echo "  STAGE   $(SD_STAGE_DIR)/include/ and $(SD_STAGE_DIR)/lib/libc.a"
+	@echo "  STAGE   include/ and lib/libc.a"
 
 # Creates a FAT32 image ($(1)) from a staging directory ($(2)). macOS uses
 # hdiutil; everywhere else uses mkfs.fat + mtools (dosfstools/mtools).
