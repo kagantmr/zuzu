@@ -35,7 +35,7 @@ bool arch_mmu_map(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size,
                   MemProt prot, VirtMemType memtype);
 
 /** @brief Remove mappings over [va, va+size). */
-bool arch_mmu_unmap(AddressSpace *as, uintptr_t va, size_t size);
+bool arch_mmu_unmap(AddressSpace *as, uintptr_t va, size_t size, bool flush);
 
 /** @brief Change protection over [va, va+size). */
 bool arch_mmu_protect(AddressSpace *as, uintptr_t va, size_t size, MemProt prot);
