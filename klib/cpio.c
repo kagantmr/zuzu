@@ -24,6 +24,7 @@ bool cpio_find(const void *base, size_t size, const char *name,
     const uint8_t *ptr = base;
     const uint8_t *end = base + size;
 
+
     while (ptr + sizeof(cpio_hdr_t) <= end) {
         
         const cpio_hdr_t *hdr = (const cpio_hdr_t *)ptr;
@@ -34,6 +35,10 @@ bool cpio_find(const void *base, size_t size, const char *name,
 
         uint32_t namesize = parse_hex8(hdr->namesize);
         uint32_t filesize = parse_hex8(hdr->filesize);
+
+        // Bound-check the header + name before dereferencing entry_name below.
+        if (ptr + align_up(sizeof(cpio_hdr_t) + namesize, 4) > end)
+            return false;
 
         const char *entry_name = (const char *)(ptr + sizeof(cpio_hdr_t));
         const char *cmp_name = entry_name;
@@ -46,6 +51,11 @@ bool cpio_find(const void *base, size_t size, const char *name,
 
         // data starts after header + name, aligned to 4 bytes
         const uint8_t *data = ptr + align_up(sizeof(cpio_hdr_t) + namesize, 4);
+
+        // Bound-check the payload too: a corrupted filesize would otherwise
+        // hand the caller a (data, size) pair that reads past the archive.
+        if (data + filesize > end)
+            return false;
 
         // is this the file we want?
         if (strcmp(cmp_name, name) == 0) {

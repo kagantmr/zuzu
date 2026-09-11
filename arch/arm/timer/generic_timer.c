@@ -37,17 +37,21 @@ static inline void WriteCntpCtl(uint32_t v)
 }
 
 
+static uint32_t cntv_ctl_shadow = ~0U;
+
 /**
  * @brief Write to the CNTV_CTL register to enable/disable the virtual timer.
  * @param v Control value (bit 0 = enable, bit 1 = interrupt mask
  * Note: enabling the virtual timer may cause it to fire alongside the physical timer if both are
  * present, which can effectively double the tick rate.
  */
-static inline void WriteCntvCtl(uint32_t v)
-{
-    __asm__ volatile("mcr p15, 0, %0, c14, c3, 1" ::"r"(v));
+static inline void WriteCntvCtl(uint32_t v) {
+    if (v == cntv_ctl_shadow) return;
+    cntv_ctl_shadow = v;
+    __asm__ volatile("mcr p15, 0, %0, c14, c3, 1" :: "r"(v));
     __asm__ volatile("isb");
 }
+
 
 /* Monotonic anchor for the workaround below. Single-core; racy across the
  * IRQ boundary only to the extent of a torn 64-bit load, which the clamp
@@ -104,6 +108,7 @@ void ArchTimerInit(void)
     WriteCntpCtl(0x2); /* ENABLE=0, IMASK=1 */
 
     arch_irq_register(TIMER_IRQ_VIRT, ArmGenericTimerHandler, NULL);
+    ArchIrqSetPrio(TIMER_IRQ_VIRT, 0x80);
     arch_irq_enable_line(TIMER_IRQ_VIRT);
 
     /* Enabled + masked; SchedArmTimer() programs CVAL and unmasks on the
@@ -113,16 +118,18 @@ void ArchTimerInit(void)
 
 Time ArchTimerNow(void) { return ReadCntvct(); }
 uint32_t ArchTimerFreq(void) { return freq; }
+static uint64_t cntv_cval_shadow = ~0ULL;   /* sentinel: no real deadline is ever this value */
 
 void ArchTimerSetDeadline(Time abs_count)
 {
-    /* Program CNTV_CVAL, then enable + unmask. Writing CVAL first means that
-     * if abs_count is already in the past the interrupt latches immediately
-     * on unmask -- which is the intended behaviour for a missed deadline. */
-    __asm__ volatile("mcrr p15, 3, %0, %1, c14"
-                     :: "r"((uint32_t)abs_count), "r"((uint32_t)(abs_count >> 32)));
-    __asm__ volatile("isb");
-    WriteCntvCtl(0x1); /* ENABLE=1, IMASK=0 */
+    if (abs_count != cntv_cval_shadow) {
+        cntv_cval_shadow = abs_count;
+        __asm__ volatile("mcrr p15, 3, %0, %1, c14"
+                         :: "r"((uint32_t)abs_count), "r"((uint32_t)(abs_count >> 32)));
+        __asm__ volatile("isb");
+    }
+    WriteCntvCtl(0x1); /* ENABLE=1, IMASK=0 already shadow-gated on its own */
 }
+
 
 void ArchTimerDisable(void) { WriteCntvCtl(0x2); /* IMASK=1 */ }

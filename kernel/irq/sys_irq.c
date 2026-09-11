@@ -5,9 +5,9 @@
 #include "kernel/syscall/syscall.h"
 #include <arch/irq.h>
 #include <compiler.h>
+#include <arch/barrier.h>
 #include <string.h>
 
-extern Thread *current_thread;
 static IrqOwner irq_owners[MAX_IRQS];
 
 #ifdef ZUZU_BENCH
@@ -192,6 +192,8 @@ void SysIrqBind(CpuState *frame)
 
 void SysIrqDone(CpuState *frame)
 {
+    ArchDsb();
+
     Handle dev_handle = (Handle)(*arch_reg(frame, 0));
 
     if (dev_handle == 0) {

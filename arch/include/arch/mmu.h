@@ -35,7 +35,7 @@ bool arch_mmu_map(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size,
                   MemProt prot, VirtMemType memtype);
 
 /** @brief Remove mappings over [va, va+size). */
-bool arch_mmu_unmap(AddressSpace *as, uintptr_t va, size_t size);
+bool arch_mmu_unmap(AddressSpace *as, uintptr_t va, size_t size, bool flush);
 
 /** @brief Change protection over [va, va+size). */
 bool arch_mmu_protect(AddressSpace *as, uintptr_t va, size_t size, MemProt prot);
@@ -55,6 +55,8 @@ void arch_mmu_flush_tlb_asid(uint8_t asid);
 /** @brief Invalidate the TLB entry for a single virtual address. */
 void arch_mmu_flush_tlb_va(uintptr_t va);
 
+void arch_mmu_flush_tlb_va_asid(uintptr_t va, uint8_t asid);
+
 /**
  * @brief Walk page tables to translate a VA to its PA.
  * @return Physical address, or 0 if unmapped.
@@ -69,9 +71,6 @@ void arch_mmu_free_user_pages(AddressSpace *as);
 
 /** @brief Initialize the kernel translation base (TTBR1 on ARM) for user mode. */
 void arch_mmu_init_ttbr1(AddressSpace *as);
-
-/** @brief Issue memory/instruction barriers after MMU state changes. */
-void arch_mmu_barrier(void);
 
 /* Inline, architecture-private helpers (e.g. arch_relocate_stacks). */
 #include <arch_impl/mmu.h>
