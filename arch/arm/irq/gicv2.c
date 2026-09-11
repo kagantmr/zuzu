@@ -1,6 +1,7 @@
 // gicv2.c - ARM Generic Interrupt Controller v2 implementation
 
 #include "arch/arm/include/gicv2.h"
+#include <arch/barrier.h>
 #include <arch/irq.h>
 #include <stdbool.h>
 
@@ -130,5 +131,6 @@ uint32_t gic_acknowledge(void) {
 
 
 void gic_end(uint32_t iar) {
+    ArchDsbSy();
     gicc_write(GICC_EOIR, iar); // Signal end of interrupt
 }
