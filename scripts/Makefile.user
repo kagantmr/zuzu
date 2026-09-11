@@ -48,36 +48,67 @@ define check-newlib-toolchain
 endef
 
 # ---- user programs ----------------------------------------------------------
-# Auto-discovered: every directory under a role dir is one program, named
-# after its directory (sources inside may nest arbitrarily). ELF/initrd
-# naming stays the bare program name regardless of where its sources live.
-# Role decides packaging and libc tier:
-#   BOOT_ROLES   -> initrd, tier-1
-#   DISK_ROLES   -> SD card image, tier-1
-#   NEWLIB_ROLES -> SD card image, tier-2 (newlib)
-BOOT_ROLES   = services drivers shell
-DISK_ROLES   = test_apps
-NEWLIB_ROLES = newlib_apps
-# Static .a libraries staged onto the SD card (headers/config alongside them
-# go straight into ZUZUSD/ — see sdcard.mk's "SD card workflow" comment).
-LIB_ROLES    = libs
+# A program is any user/<group>/<prog>/ with a build.mk declaring:
+#   prog-y    := <name>        ELF/initrd name (defaults to the directory name)
+#   prog-tier := zcrt|newlib   which libc it links against
+# or, for a static archive:
+#   lib-y     := <name>
+#
+# <group> is organisational only. What gets packaged where is the board's
+# call, not the directory's -- see BOOT_PROGS/SD_PROGS below.
+USER_PROG_DIRS := $(patsubst %/build.mk,%,$(wildcard user/*/*/build.mk))
 
-prog_dirs = $(shell find $(foreach r,$(1),user/$(r)) -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
-BOOT_PROG_DIRS   := $(call prog_dirs,$(BOOT_ROLES))
-DISK_PROG_DIRS   := $(call prog_dirs,$(DISK_ROLES))
-NEWLIB_PROG_DIRS := $(call prog_dirs,$(NEWLIB_ROLES))
-LIB_PROG_DIRS    := $(call prog_dirs,$(LIB_ROLES))
+define read-prog
+prog-y :=
+prog-tier :=
+lib-y :=
+include $(1)/build.mk
+ifneq ($$(lib-y),)
+LIB_PROGS += $$(lib-y)
+USER_DIR_$$(lib-y) := $(1)
+else
+_prog := $$(if $$(prog-y),$$(prog-y),$$(notdir $(1)))
+USER_PROGS += $$(_prog)
+USER_DIR_$$(_prog) := $(1)
+USER_TIER_$$(_prog) := $$(if $$(prog-tier),$$(prog-tier),zcrt)
+endif
+endef
 
-BOOT_PROGS   := $(notdir $(BOOT_PROG_DIRS))
-DISK_PROGS   := $(notdir $(DISK_PROG_DIRS))
-NEWLIB_PROGS := $(notdir $(NEWLIB_PROG_DIRS))
-LIB_PROGS    := $(notdir $(LIB_PROG_DIRS))
-USER_PROGS   := $(BOOT_PROGS) $(DISK_PROGS) $(NEWLIB_PROGS) $(LIB_PROGS)
+USER_PROGS :=
+LIB_PROGS  :=
+$(foreach d,$(USER_PROG_DIRS),$(eval $(call read-prog,$(d))))
 
-$(foreach d,$(BOOT_PROG_DIRS) $(DISK_PROG_DIRS) $(NEWLIB_PROG_DIRS) $(LIB_PROG_DIRS),$(eval USER_DIR_$(notdir $(d)) := $(d)))
-$(foreach p,$(USER_PROGS),$(eval USER_$(p)_SRCS := $(shell find $(USER_DIR_$(p)) -name '*.c')))
-$(foreach p,$(USER_PROGS),$(eval USER_$(p)_OBJS := $(patsubst user/%.c,$(O)/user/%.o,$(USER_$(p)_SRCS))))
-USER_APP_OBJS := $(foreach p,$(BOOT_PROGS) $(DISK_PROGS) $(NEWLIB_PROGS),$(USER_$(p)_OBJS))
+NEWLIB_PROGS := $(foreach p,$(USER_PROGS),$(if $(filter newlib,$(USER_TIER_$(p))),$(p)))
+ZCRT_PROGS   := $(filter-out $(NEWLIB_PROGS),$(USER_PROGS))
+
+# ---- packaging is per board --------------------------------------------------
+# The board's boot.manifest doubles as the initrd packing list and the runtime
+# spawn list; sd.manifest lists what goes on the SD card. A program appears
+# because a board asked for it, not because of where its source lives.
+BOOT_MANIFEST := $(BOARD_DIR)/boot.manifest
+SD_MANIFEST   := $(BOARD_DIR)/sd.manifest
+
+# First |-field of each non-comment, non-blank line, basename only:
+# "bin/zzsh|tty:late|/env/zzsh" -> zzsh
+manifest-progs = $(sort $(notdir $(shell awk -F'|' \
+  '/^[[:space:]]*#/ || /^[[:space:]]*$$/ { next } \
+   { gsub(/[[:space:]]/, "", $$1); if ($$1 != "") print $$1 }' $(1) 2>/dev/null)))
+
+BOOT_PROGS := $(call manifest-progs,$(BOOT_MANIFEST))
+SD_PROGS   := $(call manifest-progs,$(SD_MANIFEST))
+
+$(foreach p,$(BOOT_PROGS) $(SD_PROGS),$(if $(USER_DIR_$(p)),,\
+  $(error $(p) is listed in a manifest for BOARD=$(BOARD) but no \
+    user/*/$(p)/build.mk declares it)))
+
+$(foreach p,$(USER_PROGS) $(LIB_PROGS),\
+  $(eval USER_$(p)_SRCS := $(shell find $(USER_DIR_$(p)) -name '*.c')))
+$(foreach p,$(USER_PROGS) $(LIB_PROGS),\
+  $(eval USER_$(p)_OBJS := $(patsubst user/%.c,$(O)/user/%.o,$(USER_$(p)_SRCS))))
+
+# Only build what this board actually packages.
+BOARD_PROGS   := $(sort $(BOOT_PROGS) $(SD_PROGS))
+USER_APP_OBJS := $(foreach p,$(BOARD_PROGS),$(USER_$(p)_OBJS))
 LIB_PROG_OBJS := $(foreach p,$(LIB_PROGS),$(USER_$(p)_OBJS))
 
 # zcrt: the user-side runtime for tier-1 — klib rebuilt with user flags, the
@@ -111,17 +142,11 @@ NEWLIB_STUB_OBJS := $(patsubst lib/%.c,$(O)/lib/%.o,$(NEWLIB_STUB_SRCS))
 USER_CRT0             = $(O)/user/crt0.o
 NEWLIB_CRT0           = $(O)/user/crt0-newlib.o
 BOOT_PROG_PACKED_ELFS = $(BOOT_PROGS:%=$(O)/user/%.stripped.elf)
-# Everything staged into the SD image: tier-1 disk apps + tier-2 newlib apps.
-SD_PROGS              = $(DISK_PROGS) $(NEWLIB_PROGS)
 SD_PROG_PACKED_ELFS   = $(SD_PROGS:%=$(O)/user/%.stripped.elf)
-# Static libraries (user/libs/<name>/*.c) staged onto the SD card.
 SD_LIBS               = $(LIB_PROGS)
 SD_LIB_ARCHIVES       = $(SD_LIBS:%=$(O)/user/lib/%.a)
 
-# Every ELF that `all` needs to build so IntelliSense (Makefile Tools' dry
-# run of the default target) sees compiler invocations for every tier.
-ALL_USER_ELFS = $(BOOT_PROGS:%=$(O)/user/%.elf) $(DISK_PROGS:%=$(O)/user/%.elf) \
-                $(NEWLIB_PROGS:%=$(O)/user/%.elf)
+ALL_USER_ELFS = $(BOARD_PROGS:%=$(O)/user/%.elf)
 
 USER_DEPS = $(USER_CRT0:.o=.d) $(NEWLIB_CRT0:.o=.d) $(USER_APP_OBJS:.o=.d) \
             $(LIB_PROG_OBJS:.o=.d) $(ZCRT_OBJS:.o=.d) $(NEWLIB_STUB_OBJS:.o=.d)
@@ -194,7 +219,7 @@ $(O)/user/$(1).elf: $$(USER_$(1)_OBJS) $(USER_CRT0) $(ZCRT_OBJS) user/user.ld
 	@$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) $$(USER_$(1)_OBJS) $(ZCRT_OBJS) $(USER_LIBGCC) -o $$@
 endef
 
-$(foreach p,$(BOOT_PROGS) $(DISK_PROGS),$(eval $(call LINK_USER_PROG,$(p))))
+$(foreach p,$(filter $(ZCRT_PROGS),$(BOARD_PROGS)),$(eval $(call LINK_USER_PROG,$(p))))
 
 define LINK_NEWLIB_PROG
 $(O)/user/$(1).elf: $$(USER_$(1)_OBJS) $(NEWLIB_CRT0) $(NEWLIB_STUB_OBJS) $(NEWLIB_ZCRT_OBJS) user/user.ld
@@ -204,7 +229,7 @@ $(O)/user/$(1).elf: $$(USER_$(1)_OBJS) $(NEWLIB_CRT0) $(NEWLIB_STUB_OBJS) $(NEWL
 	@$(NEWLIB_LD) $(NEWLIB_USER_LDFLAGS) $(NEWLIB_CRT0) $$(USER_$(1)_OBJS) $(NEWLIB_STUB_OBJS) $(NEWLIB_ZCRT_OBJS) -o $$@
 endef
 
-$(foreach p,$(NEWLIB_PROGS),$(eval $(call LINK_NEWLIB_PROG,$(p))))
+$(foreach p,$(filter $(NEWLIB_PROGS),$(BOARD_PROGS)),$(eval $(call LINK_NEWLIB_PROG,$(p))))
 
 define LINK_USER_LIB
 $(O)/user/lib/$(1).a: $$(USER_$(1)_OBJS)
@@ -221,10 +246,9 @@ $(O)/user/%.stripped.elf: $(O)/user/%.elf
 	@$(USER_OBJCOPY) --strip-debug $< $@
 
 # ---- ZXF conversion ----------------------------------------------------------
-# All initrd programs (BOOT_ROLES: services, drivers, shell) ship as ZXF —
-# the kernel loads sysd/devmgr directly via KernelProcessLoad, and sysd's own
-# loader (user/services/sysd/exec.c) dispatches on magic, so both understand
-# it. SD-card programs (DISK_ROLES/NEWLIB_ROLES) stay plain ELF.
+# Everything in the initrd ships as ZXF: the kernel loads sysd/devmgr directly
+# via KernelProcessLoad and sysd's loader (user/services/sysd/exec.c)
+# dispatches on magic, so both understand it. SD-card programs stay plain ELF.
 ZXF_PROGS = $(BOOT_PROGS)
 ZXF_PROG_FILES = $(ZXF_PROGS:%=$(O)/user/%.zxf)
 

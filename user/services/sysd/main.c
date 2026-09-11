@@ -385,6 +385,12 @@ static bool role_is_kernel(const char *r, size_t len)
            (len == 6 && memcmp(r, "devmgr", 6) == 0);
 }
 
+/* "file": packed into the initrd but never spawned. */
+static bool role_is_file(const char *r, size_t len)
+{
+    return len == 4 && memcmp(r, "file", 4) == 0;
+}
+
 static void parse_manifest(const char *data, size_t size, const void *cpio, size_t cpio_size)
 {
     const char *p = data;
@@ -456,7 +462,7 @@ static void parse_manifest(const char *data, size_t size, const void *cpio, size
                 sl--;
         }
 
-        if (role_is_kernel(rs, rl))
+        if (role_is_kernel(rs, rl) || role_is_file(rs, rl))
         {
             p = eol + 1;
             continue;

@@ -1,0 +1,11 @@
+# Programs staged onto the SD card image (plain ELF, run from the shell).
+speedtest
+speedtest_ipc_child
+test
+vfptest
+zuzufetch
+zztest
+zztest_child
+filetest
+hello_newlib
+kilo
