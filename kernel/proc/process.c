@@ -179,8 +179,11 @@ ProcessObj *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char 
                 goto fail_kstack;
             }
 
-            arch_cache_flush_code_range((uintptr_t)PA_TO_VA(page_pa), PAGE_SIZE);
         }
+
+        if ((prot & PROT_EXEC) && file_pages > 0)
+            arch_cache_flush_code_range((uintptr_t)seg->vaddr, file_pages * PAGE_SIZE);
+
 
         if (file_pages > 0)
         {
