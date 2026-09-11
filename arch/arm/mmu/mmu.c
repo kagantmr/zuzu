@@ -225,11 +225,13 @@ bool arch_mmu_unmap(AddressSpace *as, uintptr_t va, size_t size, bool flush)
     bool unmapped_any = false;
     bool page_mode = false;
     size_t unmapped_pages = 0;
+    bool needs_trailing_flush = false;
 
     // Section-aligned: use sections
     if ((va % SECTION_SIZE) == 0 && (size % SECTION_SIZE) == 0)
     {
         uint32_t *l1_table = (uint32_t *)PA_TO_VA(as->pt_root_physaddr);
+
 
         for (uintptr_t offset = 0; offset < size; offset += SECTION_SIZE)
         {
@@ -254,6 +256,8 @@ bool arch_mmu_unmap(AddressSpace *as, uintptr_t va, size_t size, bool flush)
                     ArchCtxSync();
                 }
                 l2_pool_free(entry & L1_L2PTR_BASE_MASK); /* now safe to free */
+            } else {
+                needs_trailing_flush = true;
             }
         }
     }
@@ -281,7 +285,7 @@ bool arch_mmu_unmap(AddressSpace *as, uintptr_t va, size_t size, bool flush)
         return false;
     }
 
-    if (unmapped_any && flush)
+    if (unmapped_any && flush && (needs_trailing_flush || page_mode))
     {
         if (!page_mode || size > (UNMAP_TLBI_PAGE_THRESHOLD * PAGE_SIZE) || unmapped_pages == 0)
             arch_mmu_flush_tlb_asid(as->asid_token.asid);
