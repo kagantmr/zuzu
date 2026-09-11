@@ -55,6 +55,8 @@ void arch_mmu_flush_tlb_asid(uint8_t asid);
 /** @brief Invalidate the TLB entry for a single virtual address. */
 void arch_mmu_flush_tlb_va(uintptr_t va);
 
+void arch_mmu_flush_tlb_va_asid(uintptr_t va, uint8_t asid);
+
 /**
  * @brief Walk page tables to translate a VA to its PA.
  * @return Physical address, or 0 if unmapped.
