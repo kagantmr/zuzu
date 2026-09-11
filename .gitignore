@@ -88,3 +88,7 @@ docs/groups.dox
 
 # Build baselines captured by scripts/baseline.sh.
 .baseline/
+
+# Build-system modules -- *.lib above (an MSVC artifact rule) would eat
+# scripts/Makefile.lib otherwise.
+!scripts/Makefile.*
