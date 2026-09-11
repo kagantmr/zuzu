@@ -273,7 +273,7 @@ bool arch_mmu_unmap(AddressSpace *as, uintptr_t va, size_t size)
                 if (size <= (UNMAP_TLBI_PAGE_THRESHOLD * PAGE_SIZE))
                 {
                     ArchCtxSync();
-                    arch_mmu_flush_tlb_va(va + offset);
+                    arch_mmu_flush_tlb_va_asid(va + offset, as->asid_token.asid);
                 }
             }
         }
@@ -600,7 +600,7 @@ static bool arch_mmu_map_page(AddressSpace *as, uintptr_t va, uintptr_t pa,
     // Without this, a stale/absent TLB state for this VA on real hardware can
     // let the first access race ahead of the table write (invisible on QEMU's
     // simpler TLB model).
-    arch_mmu_flush_tlb_va(va);
+    arch_mmu_flush_tlb_va_asid(va, as->asid_token.asid);
     ArchCtxSync();
     return true;
 }
@@ -702,6 +702,8 @@ void arch_mmu_init_ttbr1(AddressSpace *as)
 {
     // Mirror the kernel L1 into TTBR1, then set TTBCR.N to split at USER_VA_TOP.
     __asm__ volatile("mcr p15, 0, %0, c2, c0, 1" ::"r"(ttbr_value(as->pt_root_physaddr)) : "memory");
+
+    ArchIsb();
 
     uint32_t ttbcr;
     __asm__ volatile("mrc p15, 0, %0, c2, c0, 2" : "=r"(ttbcr)::"memory");
