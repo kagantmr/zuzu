@@ -148,38 +148,45 @@ $(O)/user/newlib_apps/%.o: user/newlib_apps/%.c $(FLAGS_STAMP) $(NEWLIB_INC_STAM
 	@mkdir -p $(dir $@)
 	@echo "  CC[nl]  $<"
 	@$(NEWLIB_CC) $(NEWLIB_USER_CFLAGS_C) -c $< -o $@
+	@$(call record-cmd,$(NEWLIB_CC) $(NEWLIB_USER_CFLAGS_C) -c $< -o $@)
 
 $(O)/lib/posix/%.o: lib/posix/%.c $(FLAGS_STAMP) $(NEWLIB_INC_STAMPS)
 	$(call check-newlib-toolchain)
 	@mkdir -p $(dir $@)
 	@echo "  CC[nl]  $<"
 	@$(NEWLIB_CC) $(NEWLIB_USER_CFLAGS_C) -c $< -o $@
+	@$(call record-cmd,$(NEWLIB_CC) $(NEWLIB_USER_CFLAGS_C) -c $< -o $@)
 
 $(O)/user/%.o: user/%.c $(FLAGS_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "  CC      $<"
 	@$(USER_CC) $(USER_CFLAGS) -c $< -o $@
+	@$(call record-cmd,$(USER_CC) $(USER_CFLAGS) -c $< -o $@)
 
 $(O)/user/zcrt/%.o: %.c $(FLAGS_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "  CC      $<"
 	@$(USER_CC) $(USER_CFLAGS) -c $< -o $@
+	@$(call record-cmd,$(USER_CC) $(USER_CFLAGS) -c $< -o $@)
 
 $(O)/user/zcrt/%.o: %.S $(FLAGS_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "  AS      $<"
 	@$(USER_CC) $(USER_CFLAGS) -x assembler-with-cpp -c $< -o $@
+	@$(call record-cmd,$(USER_CC) $(USER_CFLAGS) -x assembler-with-cpp -c $< -o $@)
 
 $(USER_CRT0): $(ARCH_DIR)/crt0.S
 	@mkdir -p $(dir $@)
 	@echo "  AS      $<"
 	@$(USER_CC) $(USER_CFLAGS) -x assembler-with-cpp -c $< -o $@
+	@$(call record-cmd,$(USER_CC) $(USER_CFLAGS) -x assembler-with-cpp -c $< -o $@)
 
 $(NEWLIB_CRT0): $(ARCH_DIR)/crt0.S
 	$(call check-newlib-toolchain)
 	@mkdir -p $(dir $@)
 	@echo "  AS[nl]  $<"
 	@$(NEWLIB_CC) $(NEWLIB_USER_CFLAGS) -DZUZU_NEWLIB -x assembler-with-cpp -c $< -o $@
+	@$(call record-cmd,$(NEWLIB_CC) $(NEWLIB_USER_CFLAGS) -DZUZU_NEWLIB -x assembler-with-cpp -c $< -o $@)
 
 # ---- user program link rules ------------------------------------------------
 define LINK_USER_PROG
