@@ -244,7 +244,7 @@ void __hot SysMemMap(CpuState *frame)
     }
     else
     {
-        HandleEntry *e = handle_vec_get(&p->handle_table, (uint32_t)handle);
+        HandleEntry *e = HandleTableGet(&p->handle_table, (uint32_t)handle);
         if (unlikely(!e))
         {
             arch_reg_set(frame, 0, ERR_BADHANDLE);
@@ -324,9 +324,9 @@ void SysMemUnmap(CpuState *frame)
             {
                 // Shared or device mapping: clear the owning handle's mapped_va so memmap can remap it
                 bool found_handle = false;
-                for (uint32_t i = 0; i < current_thread->owner_process->handle_table.cap; i++)
+                for (uint32_t i = 0; i < HANDLE_MAX_SLOTS; i++)
                 {
-                    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, i);
+                    HandleEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, i);
                     if (!entry || entry->mapped_va != va ||
                         (entry->type != HANDLE_SHM && entry->type != HANDLE_DEVICE))
                         continue;
@@ -390,7 +390,7 @@ void SysAsInject(CpuState *frame)
         }
         }
 
-        HandleEntry *handle = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)kargs.taskHandle);
+        HandleEntry *handle = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)kargs.taskHandle);
         if (!handle)
         {
             arch_reg_set(frame, 0, ERR_BADHANDLE);
@@ -517,7 +517,7 @@ void SysAsInject(CpuState *frame)
             }
         }
 
-        VirtAddr *page_addrs = kmalloc(page_count * sizeof(VirtAddr));
+        VirtAddr *page_addrs = KCalloc(page_count, sizeof(VirtAddr));
         if (!page_addrs)
         {
             {
@@ -525,7 +525,6 @@ void SysAsInject(CpuState *frame)
             return;
         }
         }
-        memset(page_addrs, 0, page_count * sizeof(VirtAddr));
 
         for (size_t i = 0; i < page_count; i++)
         {
@@ -592,7 +591,7 @@ void SysAsInject(CpuState *frame)
                 goto rollback_nomem;
         }
 
-        kfree(page_addrs);
+        KFree(page_addrs);
 
         (*arch_reg(frame, 0)) = 0;
         return;
@@ -606,7 +605,7 @@ void SysAsInject(CpuState *frame)
                 PmmFreeFrame(page_addrs[j]);
             }
         }
-        kfree(page_addrs);
+        KFree(page_addrs);
         {
             arch_reg_set(frame, 0, ERR_BADARG);
             return;
@@ -621,7 +620,7 @@ void SysAsInject(CpuState *frame)
                 PmmFreeFrame(page_addrs[j]);
             }
         }
-        kfree(page_addrs);
+        KFree(page_addrs);
         {
             arch_reg_set(frame, 0, ERR_NOMEM);
             return;
