@@ -28,3 +28,17 @@ CPUFLAGS_rpi4   = -mcpu=cortex-a72  -falign-functions=64
 # testing happens on real hardware; `make smoke` only checks it builds.
 SMOKE_NONE_rpi4 = y
 SMOKE_NONE_REASON_rpi4 = QEMU models no AArch32 BCM2711; verify on real hardware
+
+# Boots from its own SD card, so it needs a FAT32 boot partition rather than
+# the data-card layout the QEMU boards use. `make BOARD=rpi4 bootfs` stages
+# these; `bootimg` wraps them in a FAT32 image. Recursive (=) because IMG,
+# INITRD and DTB_FILE are all defined after this file is included.
+#
+# Filenames here are what the firmware and config.txt look for by name:
+# config.txt names kernel=zuzu.img and initramfs initrd.cpio, and the
+# firmware loads bcm2711-rpi-4-b.dtb itself.
+BOOT_FILES_rpi4  = scripts/rpi4/config.txt $(IMG) $(INITRD) $(DTB_FILE)
+
+# Closed-source Pi firmware (start4.elf, fixup4.dat) is not vendored. Drop it
+# here, or leave it on the card and only copy the files above.
+BOOT_FW_DIR_rpi4 = firmware

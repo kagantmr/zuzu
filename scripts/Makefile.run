@@ -64,7 +64,8 @@ SMOKE_DEPS = $(QEMU_KERNEL) $(DTB_FILE) $(INITRD) \
              $(if $(filter y,$(SMOKE_FULL_$(BOARD))),$(SD_IMG))
 
 ifeq ($(SMOKE_NONE_$(BOARD)),y)
-smoke: $(QEMU_KERNEL)
+# Can't be emulated, so the gate is that it builds and stages a boot partition.
+smoke: $(QEMU_KERNEL) $(if $(BOOT_FILES_$(BOARD)),bootfs)
 	@echo "  SMOKE   $(BOARD) build-only: $(SMOKE_NONE_REASON_$(BOARD))"
 else
 smoke: $(SMOKE_DEPS)
