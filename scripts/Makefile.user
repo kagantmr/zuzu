@@ -1,6 +1,4 @@
-# mk/user.mk - user-space programs: tier-1 (zcrt) and tier-2 (newlib).
-#
-# Requires: config.mk, toolchain.mk.
+# Makefile.user - user programs: tier-1 (zcrt libc) and tier-2 (newlib).
 
 # ---- user (tier-1, zuzu libc) flags ----------------------------------------
 USER_LIBGCC = $(shell $(USER_CC) $(CPUFLAGS) $(ARCH_USER_FP) -print-libgcc-file-name)
