@@ -101,6 +101,13 @@ $(FLAGS_STAMP): flags-check
 	@printf '%s' '$(FLAGS_SIG)' | cmp -s - $@ 2>/dev/null || \
 	    printf '%s' '$(FLAGS_SIG)' > $@
 
+# Record a compile command next to its object for scripts/ccjson.py. $(file)
+# writes it without a shell, so CFLAGS' nested -DBOARD_LAYOUT_H='"..."' quoting
+# survives verbatim and nothing has to re-derive the flags. Both functions run
+# at recipe-expansion time, i.e. before the recipe's own mkdir line executes --
+# hence the mkdir here, expanded first.
+record-cmd = $(shell mkdir -p $(dir $@))$(file >$@.cmd,$(1))
+
 # build/zuzu.{elf,map,img} -> the current board's real output, for humans and
 # muscle memory. Phony so it never goes stale; only links what actually exists,
 # so a board that hasn't been img'd doesn't leave a dangling link. Tools that
