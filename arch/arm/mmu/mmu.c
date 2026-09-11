@@ -77,7 +77,7 @@ static uint32_t l2_page_desc(uintptr_t pa, MemProt prot, VirtMemType memtype)
     if (memtype == VM_MEM_DEVICE) 
         e |= L2_PAGE_ATTR_DEVICE;
     else
-        e |= L2_PAGE_ATTR_NORMAL | MMU_BIT(L2_PAGE_S_BIT);
+        e |= L2_PAGE_ATTR_NORMAL | MMU_BIT(L2_PAGE_S_BIT); // <-- add
 
     return e;
 }
@@ -590,13 +590,7 @@ static bool arch_mmu_map_page(AddressSpace *as, uintptr_t va, uintptr_t pa, Virt
     // Now install the page entry
     l2[l2_idx] = l2_page_desc(pa, prot, memtype);
 
-    // A freshly installed entry must be visible before anything walks it —
-    // matches what vmm_fault_page() already does per page for the lazy path.
-    // Without this, a stale/absent TLB state for this VA on real hardware can
-    // let the first access race ahead of the table write (invisible on QEMU's
-    // simpler TLB model).
-    arch_mmu_flush_tlb_va_asid(va, as->asid_token.asid);
-    ArchCtxSync();
+    ArchDsb();
     return true;
 }
 
