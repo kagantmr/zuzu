@@ -17,6 +17,8 @@
 #define LOG_FMT(fmt) "(mmu) " fmt
 #include <zuzu/log.h>
 
+extern uint8_t dirty_bitmap[];
+
 /* Above this many pages, a single by-ASID flush is cheaper than a per-page
  * TLBI loop. Below it, the narrower by-VA invalidation keeps the rest of the
  * address space's translations warm. */
