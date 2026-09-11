@@ -63,15 +63,20 @@ include $(BOARD_DIR)/board.mk
 BOARD_LAYOUT_H = $(BOARD_DIR)/layout.h
 LINKER_SCRIPT  = $(BOARD_DIR)/linker.ld
 DTB_FILE       = $(DTB_$(BOARD))
-MAP            = build/zuzu.map
-TARGET         = build/zuzu.elf
+
+# Output tree. Per-board, so switching boards no longer forces a rebuild and
+# two boards' objects can't contaminate each other.
+O              = build/$(ARCH)-$(BOARD)
+
+MAP            = $(O)/zuzu.map
+TARGET         = $(O)/zuzu.elf
 # Raw kernel image for real hardware / bootloaders (objcopy -O binary of
 # TARGET). Defined here, not next to its build rule in dtb.mk, because it's
 # referenced as a *prerequisite* by the U-Boot uImage rule in uboot.mk —
 # prerequisite lists expand at parse time (unlike recipe bodies, which
 # expand lazily at run time), so a forward reference here would silently
 # expand to empty and drop from the dependency list.
-IMG            = build/zuzu.img
+IMG            = $(O)/zuzu.img
 
 # Board may override the arch-default cpu flags via CPUFLAGS_<board>.
 CPUFLAGS = $(if $(CPUFLAGS_$(BOARD)),$(CPUFLAGS_$(BOARD)),$(ARCH_CPUFLAGS))
@@ -79,13 +84,36 @@ INCLUDES = -I. -Iinclude -Iarch/include -Iarch/$(ARCH)/include
 
 LTO_FLAG = $(if $(filter 1,$(LTO)),-flto=auto)
 
-# Objects bake in per-board flags (BOARD_LAYOUT_H, CPUFLAGS), so a BOARD
-# switch must rebuild everything. The stamp file changes name with the
-# board; every object depends on it, forcing a full rebuild when it
-# (re)appears.
-BOARD_STAMP = build/.board-$(BOARD)
+# Every object depends on this stamp, whose mtime moves only when the flags
+# that went into it actually change -- so `make LOG_LEVEL=3` rebuilds, and a
+# no-op re-run doesn't. Lazily expanded: CFLAGS et al. are assembled in
+# kernel.mk/user.mk, after this file. Quotes are stripped because the
+# signature gets embedded in a shell string and CFLAGS carries
+# -DBOARD_LAYOUT_H='"..."'; it only has to change, not round-trip.
+FLAGS_SIG = $(subst ",,$(subst ',,$(ARCH)|$(BOARD)|$(CROSS)|$(NEWLIB_CROSS)|\
+  $(CFLAGS)|$(LDFLAGS)|$(USER_CFLAGS)|$(USER_LDFLAGS)|$(NEWLIB_USER_CFLAGS)|\
+  $(NEWLIB_USER_LDFLAGS)))
+FLAGS_STAMP = $(O)/.flags
 
-$(BOARD_STAMP):
+.PHONY: flags-check
+$(FLAGS_STAMP): flags-check
+	@mkdir -p $(dir $@)
+	@printf '%s' '$(FLAGS_SIG)' | cmp -s - $@ 2>/dev/null || \
+	    printf '%s' '$(FLAGS_SIG)' > $@
+
+# build/zuzu.{elf,map,img} -> the current board's real output, for humans and
+# muscle memory. Phony so it never goes stale; only links what actually exists,
+# so a board that hasn't been img'd doesn't leave a dangling link. Tools that
+# care which board they're looking at should use $(O) directly -- these
+# repoint on every board switch.
+.PHONY: links
+links:
 	@mkdir -p build
-	@rm -f build/.board-*
-	@touch $@
+	@for f in zuzu.elf zuzu.map zuzu.img; do \
+	    if [ -e $(O)/$$f ]; then ln -sfn $(ARCH)-$(BOARD)/$$f build/$$f; fi; \
+	done
+
+# Expose any make variable to scripts: `make -s print-BOARDS`.
+.PHONY: print-%
+print-%:
+	@echo '$($*)'

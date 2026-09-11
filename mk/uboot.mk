@@ -32,11 +32,11 @@ UBOOT_SRC_DIR     ?= uboot-src
 UBOOT_DEFCONFIG   ?= vexpress_ca15_tc2_defconfig
 UBOOT_MKIMAGE     ?= mkimage
 UBOOT_BIN         ?= $(UBOOT_SRC_DIR)/u-boot
-UBOOT_IMG         ?= build/zuzu.uImage
-UBOOT_INITRD_IMG  ?= build/initrd.uImage
+UBOOT_IMG         ?= $(O)/zuzu.uImage
+UBOOT_INITRD_IMG  ?= $(O)/initrd.uImage
 UBOOT_BOOT_CMD    ?= scripts/uboot-vexpress.cmd
-UBOOT_BOOT_SCR    ?= build/boot.scr
-UBOOT_SD_IMG      ?= build/sd-uboot.img
+UBOOT_BOOT_SCR    ?= $(O)/boot.scr
+UBOOT_SD_IMG      ?= $(O)/sd-uboot.img
 # Must match arch/arm/vexpress-a15/linker.ld's BOOT_PA — that's where the
 # kernel is linked to actually run from, and bootm copies the uImage
 # payload there from wherever `load` staged it (scripts/uboot-vexpress.cmd).
@@ -75,17 +75,17 @@ uboot:
 	@# u-boot's own migration whitelist at v2019.01. That step runs after
 	@# $(UBOOT_BIN) is already built, so judge success by whether the
 	@# binary exists, not by u-boot's own output/exit code — logged to
-	@# build/uboot-build.log, only shown if the binary is truly missing.
+	@# $(O)/uboot-build.log, only shown if the binary is truly missing.
 	@mkdir -p build
 	@if [ "$(HOST_OS)" = "Darwin" ]; then \
 	    $(MAKE) -C $(UBOOT_SRC_DIR) CROSS_COMPILE=$(CROSS) HOSTLDFLAGS="-Wl,-ld_classic" \
-	        -j$(NPROC) > build/uboot-build.log 2>&1 || true; \
+	        -j$(NPROC) > $(O)/uboot-build.log 2>&1 || true; \
 	else \
-	    $(MAKE) -C $(UBOOT_SRC_DIR) CROSS_COMPILE=$(CROSS) -j$(NPROC) > build/uboot-build.log 2>&1 || true; \
+	    $(MAKE) -C $(UBOOT_SRC_DIR) CROSS_COMPILE=$(CROSS) -j$(NPROC) > $(O)/uboot-build.log 2>&1 || true; \
 	fi
 	@if [ ! -f $(UBOOT_BIN) ]; then \
-	    echo "  UBOOT   build failed: $(UBOOT_BIN) was not produced; see build/uboot-build.log"; \
-	    tail -40 build/uboot-build.log; \
+	    echo "  UBOOT   build failed: $(UBOOT_BIN) was not produced; see $(O)/uboot-build.log"; \
+	    tail -40 $(O)/uboot-build.log; \
 	    exit 1; \
 	fi
 
