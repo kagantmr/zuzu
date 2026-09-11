@@ -146,6 +146,6 @@ uint32_t gic_acknowledge(void) {
 
 
 void gic_end(uint32_t iar) {
-    ArchDsbSy();
+    ArchDsb();
     gicc_write(GICC_EOIR, iar); // Signal end of interrupt
 }
