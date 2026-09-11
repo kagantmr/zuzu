@@ -9,38 +9,29 @@
 #define MAX_THREADS 1024
 
 #define LOG_FMT(fmt) "(thread) " fmt
-#include "core/log.h"
+#include <zuzu/log.h>
 
 static Tid next_tid = 1;
 static Thread *thread_table[MAX_THREADS];
-static spinlock_t thread_table_lock = SPINLOCK_INIT;
+static KHeapSlabCache thread_cache;
 
-static int thread_table_find_free_slot(void)
-{
-	Tid start = next_tid % MAX_THREADS;
-	Tid slot = start;
-
-	do {
-		if (thread_table[slot] == NULL)
-			return (int)slot;
-
-		slot = (slot + 1) % MAX_THREADS;
-	} while (slot != start);
-
-	return -1;
-}
-
-static Tid thread_register(Thread *thread)
+static Tid ThreadRegister(Thread *thread)
 {
 	if (!thread)
 		return 0;
 
-	spin_lock(&thread_table_lock);
 
-	int slot = thread_table_find_free_slot();
-	if (slot < 0) {
-		spin_unlock(&thread_table_lock);
-		return 0;
+	/* Advance next_tid until its hashed slot is free, so the assigned tid
+	 * always satisfies tid % MAX_THREADS == slot. ThreadFindByTid and
+	 * thread_unregister rely on that to stay O(1). Mirrors process_table. */
+	Tid start = next_tid % MAX_THREADS;
+	Tid slot = start;
+	while (thread_table[slot] != NULL) {
+		next_tid++;
+		slot = next_tid % MAX_THREADS;
+		if (slot == start) {
+			return 0;
+		}
 	}
 
 	thread->tid = next_tid++;
@@ -50,25 +41,19 @@ static Tid thread_register(Thread *thread)
 	       (thread->owner_process ? thread->owner_process->pid : 0),
 	       (thread->owner_process ? thread->owner_process->name : "<none>"));
 
-	spin_unlock(&thread_table_lock);
 	return thread->tid;
 }
 
-static void thread_unregister(Thread *thread)
+static void ThreadUnregister(Thread *thread)
 {
 	if (!thread || thread->tid == 0)
 		return;
 
-	spin_lock(&thread_table_lock);
 
-	for (uint32_t slot = 0; slot < MAX_THREADS; slot++) {
-		if (thread_table[slot] == thread) {
-			thread_table[slot] = NULL;
-			break;
-		}
-	}
+	uint32_t slot = (uint32_t)thread->tid % MAX_THREADS;
+	if (thread_table[slot] == thread)
+		thread_table[slot] = NULL;
 
-	spin_unlock(&thread_table_lock);
 }
 
 void ThreadKill(Thread *thread)
@@ -79,12 +64,30 @@ void ThreadKill(Thread *thread)
 	thread->state = ZOMBIE;
 }
 
+void ThreadWakeJoiners(Thread *thread, int32_t exit_status)
+{
+	if (!thread)
+		return;
+
+	while (!list_empty(&thread->joiners)) {
+		ListNode *node = list_pop_front(&thread->joiners);
+		if (!node)
+			break;
+		Thread *joiner = container_of(node, Thread, join_node);
+		joiner->wake_reason = WAKE_IPC;
+		joiner->state = READY;
+		if (joiner->trap_frame)
+			(*arch_reg(joiner->trap_frame, 0)) = (uint32_t)exit_status;
+		SchedAdd(joiner);
+	}
+}
+
 void ThreadDestroy(Thread *thread)
 {
 	if (!thread)
 		return;
 	ThreadUnlinkWaits(thread);
-	thread_unregister(thread);
+	ThreadUnregister(thread);
 	if (fpu_owner == thread)
 		fpu_owner = NULL;
 	// may already be removed by tquit, guard is safe
@@ -103,7 +106,7 @@ void ThreadDestroy(Thread *thread)
 		owner->thread = NULL;
 	if (thread->kernel_stack_top)
 		KernelStackFree(thread->kernel_stack_top);
-	kfree(thread);
+	KSlabFree(&thread_cache, thread);
 }
 
 Thread *ThreadCreate(ProcessObj *owner_process)
@@ -111,22 +114,23 @@ Thread *ThreadCreate(ProcessObj *owner_process)
 	if (!owner_process)
 		return NULL;
 
-	Thread *thread = kmalloc(sizeof(*thread));
+	if (!thread_cache.obj_size)
+		KSlabInit(&thread_cache, "Thread", sizeof(Thread));
+	Thread *thread = KSlabAlloc(&thread_cache);
 	if (!thread)
 		return NULL;
-
 	memset(thread, 0, sizeof(*thread));
 
 	thread->kernel_stack_top = KernelStackAlloc();
 	if (!thread->kernel_stack_top) {
-		kfree(thread);
+		KSlabFree(&thread_cache, thread);
 		return NULL;
 	}
 
-	thread->tid = thread_register(thread);
+	thread->tid = ThreadRegister(thread);
 	if (thread->tid == 0) {
 		KernelStackFree(thread->kernel_stack_top);
-		kfree(thread);
+		KSlabFree(&thread_cache, thread);
 		return NULL;
 	}
 
@@ -136,10 +140,14 @@ Thread *ThreadCreate(ProcessObj *owner_process)
 	thread->exit_status = 0;
 	thread->node.next = NULL;
 	thread->node.prev = NULL;
+	thread->sleep_slot = -1;
 	thread->process_node.next = NULL;
 	thread->process_node.prev = NULL;
 	thread->timeout_node.next = NULL;
 	thread->timeout_node.prev = NULL;
+	list_init(&thread->joiners);
+	thread->join_node.next = NULL;
+	thread->join_node.prev = NULL;
 	thread->wake_reason = WAKE_NONE;
 	thread->wake_deadline = 0;
 	thread->state = FROZEN;
@@ -172,16 +180,10 @@ Thread *ThreadFindByTid(Tid tid)
 	if (tid == 0)
 		return NULL;
 
-	spin_lock(&thread_table_lock);
-	for (uint32_t slot = 0; slot < MAX_THREADS; slot++) {
-		Thread *thread = thread_table[slot];
-		if (thread && thread->tid == tid) {
-			spin_unlock(&thread_table_lock);
-			return thread;
-		}
-	}
-	spin_unlock(&thread_table_lock);
-
+	uint32_t slot = (uint32_t)tid % MAX_THREADS;
+	Thread *t = thread_table[slot];
+	if (t && t->tid == tid)
+		return t;
 	return NULL;
 }
 
@@ -189,7 +191,8 @@ void ThreadUnlinkWaits(Thread *t)
 {
     if (!t) return;
     if (t->node.prev && t->node.next)                     list_remove(&t->node);
-    if (t->timeout_node.prev && t->timeout_node.next)     list_remove(&t->timeout_node);
+    if (t->join_node.prev && t->join_node.next)           list_remove(&t->join_node);
+    SchedRemoveSleepQueue(t);
     if (t->ntfn_wait_slot.node.prev && t->ntfn_wait_slot.node.next)
         list_remove(&t->ntfn_wait_slot.node);
     if (t->port_wait_slot.node.prev && t->port_wait_slot.node.next)

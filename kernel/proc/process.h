@@ -9,6 +9,7 @@
 
 #include <arch/regs.h>
 
+#include <bitmap.h>
 #include <list.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -36,16 +37,15 @@ typedef struct process {
 	VirtAddr device_va_next; // initialized to USER_DEVICE_BASE in process_create
 	VirtAddr mmap_va_next;	 // initialized to USER_MMAP_BASE in process_create
 	ListHead outstanding_replies;
-	handle_vec_t handle_table;
+	HandleTable handle_table;
 	uint32_t flags;
 	Thread *thread;
-	Tid waiting_for_tid;
 	ListHead threads;
 	ListHead children;
 	ListNode sibling_node;
     PhysAddr tcb_page_pa[MAX_TCB_PAGES];    /* 37 entries */
     VirtAddr tcb_page_va;                   /* singular: contiguous window base */
-    uint64_t tcb_slot_bitmap[4];	        /* 256 bits */
+    uint32_t tcb_slot_bitmap[BITMAP_WORDS(256)]; /* 256 bits */
     Label label;
 } ProcessObj;
 
@@ -53,21 +53,16 @@ _Static_assert(TCB_MAX_SLOTS <= 256, "tcb_slot_bitmap is 256 bits wide");
 
 static inline int TcbSlotAlloc(ProcessObj *p)
 {
-    for (uint32_t w = 0; w < 4; w++) {
-        uint64_t free = ~p->tcb_slot_bitmap[w];
-        if (!free) continue;                       // this word full, next
-        uint32_t bit = (uint32_t)__builtin_ctzll(free);      // lowest free bit in this word
-        uint32_t slot = (w * 64) + bit;
-        if (slot >= TCB_MAX_SLOTS) return -1;       // past the cap
-        p->tcb_slot_bitmap[w] |= (1ULL << bit);
-        return (int)slot;
-    }
-    return -1;
+    int slot = BitmapFindFirstZero(p->tcb_slot_bitmap, TCB_MAX_SLOTS);
+    if (slot < 0)
+        return -1;
+    BitmapSet(p->tcb_slot_bitmap, (size_t)slot);
+    return slot;
 }
 
 static inline void TcbSlotFree(ProcessObj *p, int slot)
 {
-    p->tcb_slot_bitmap[slot / 64] &= ~(1ULL << (slot % 64));
+    BitmapClr(p->tcb_slot_bitmap, (size_t)slot);
 }
 
 /* Physical base of the frame backing this slot's TCB page. */
@@ -94,7 +89,6 @@ static inline VirtAddr TcbSlotUVirtAddr(ProcessObj *p, uint32_t slot)
 void ProcessDestroy(ProcessObj *process);
 ProcessObj *ProcessFindByPid(Pid pid);
 ProcessObj *ProcessCreate(const char *name);
-void ProcessWakeJoiners(Tid tid, Err exit_status);
 ProcessObj *KernelProcessLoad(const void *elf_data, size_t elf_size, const char *name,
 			      const char *argbuf, size_t argbuf_len, uint32_t argc,
 			      bool leave_frozen);

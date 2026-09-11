@@ -46,10 +46,9 @@ void boot_info_init_from_dtb()
     if (count == 0)
         return;
 
-    FdtDevice *arr = (FdtDevice *)kmalloc(sizeof(FdtDevice) * count);
+    FdtDevice *arr = (FdtDevice *)KCalloc(count, sizeof(FdtDevice));
     if (!arr)
         return;
-    memset(arr, 0, sizeof(FdtDevice) * count);
 
     g_boot_info.devs = arr;
     g_boot_info.count = 0;
@@ -57,13 +56,13 @@ void boot_info_init_from_dtb()
     /* copy model and cpu strings */
     const char *m = FdtModel();
     if (m && m[0]) {
-        g_boot_info.model = (char *)kmalloc(strlen(m) + 1);
+        g_boot_info.model = (char *)KMalloc(strlen(m) + 1);
         if (g_boot_info.model)
             strcpy(g_boot_info.model, m);
     }
     const char *c = FdtCpuCompat();
     if (c && c[0]) {
-        g_boot_info.cpu_compat = (char *)kmalloc(strlen(c) + 1);
+        g_boot_info.cpu_compat = (char *)KMalloc(strlen(c) + 1);
         if (g_boot_info.cpu_compat)
             strcpy(g_boot_info.cpu_compat, c);
     }
