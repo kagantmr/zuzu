@@ -21,3 +21,10 @@ QEMU_MEM_rpi4   = 2G
 # boot (mk/qemu.mk's default for every board) isn't just preferred here,
 # it's the only option.
 CPUFLAGS_rpi4   = -mcpu=cortex-a72  -falign-functions=64
+
+# No QEMU path for this board's AArch32 image: qemu-system-arm has neither a
+# raspi4b machine nor a cortex-a72, and qemu-system-aarch64's raspi4b boots raw
+# images as AArch64 at the arm64 load address, not AArch32 at 0x8000. Boot
+# testing happens on real hardware; `make smoke` only checks it builds.
+SMOKE_NONE_rpi4 = y
+SMOKE_NONE_REASON_rpi4 = QEMU models no AArch32 BCM2711; verify on real hardware
