@@ -83,9 +83,14 @@ USER_APP_OBJS := $(foreach p,$(BOOT_PROGS) $(DISK_PROGS) $(NEWLIB_PROGS),$(USER_
 LIB_PROG_OBJS := $(foreach p,$(LIB_PROGS),$(USER_$(p)_OBJS))
 
 # zcrt: the user-side runtime for tier-1 — klib rebuilt with user flags, the
-# ZCRT libc (lib/), and the IPC runtime (lib/zuzu/).
-ZCRT_SRCS := $(wildcard klib/*.c lib/*.c lib/zuzu/*.c lib/zuzu/sync/*.c)
-ZCRT_OBJS := $(patsubst %.c,build/user/zcrt/%.o,$(ZCRT_SRCS))
+# ZCRT libc (lib/), and the IPC runtime (lib/zuzu/). klib/arm/*.S (hand-tuned
+# memcpy/memset) is picked up separately -- it's not covered by the flat
+# klib/*.c wildcard, and needs its own .S compile rule below.
+ZCRT_CSRCS := $(wildcard klib/*.c lib/*.c lib/zuzu/*.c lib/zuzu/sync/*.c)
+ZCRT_SSRCS := $(shell find klib -name '*.S')
+ZCRT_SRCS  := $(ZCRT_CSRCS) $(ZCRT_SSRCS)
+ZCRT_OBJS  := $(patsubst %.c,build/user/zcrt/%.o,$(ZCRT_CSRCS)) \
+              $(patsubst %.S,build/user/zcrt/%.o,$(ZCRT_SSRCS))
 
 ZCRT_ARCHIVE = build/user/libc.a
 $(ZCRT_ARCHIVE): $(ZCRT_OBJS)
@@ -161,6 +166,11 @@ build/user/zcrt/%.o: %.c $(BOARD_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "  CC      $<"
 	@$(USER_CC) $(USER_CFLAGS) -c $< -o $@
+
+build/user/zcrt/%.o: %.S $(BOARD_STAMP)
+	@mkdir -p $(dir $@)
+	@echo "  AS      $<"
+	@$(USER_CC) $(USER_CFLAGS) -x assembler-with-cpp -c $< -o $@
 
 $(USER_CRT0): $(ARCH_DIR)/crt0.S
 	@mkdir -p $(dir $@)

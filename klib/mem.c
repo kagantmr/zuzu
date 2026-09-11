@@ -1,67 +1,6 @@
 #include "string.h"
 #include <stdint.h>
 
-typedef struct { uint32_t w[8]; } __attribute__((aligned(4))) chunk32_t;
-
-__attribute__((used))
-void *memcpy(void *dst, const void *src, size_t n) {
-    void *res = dst;
-    uintptr_t d = (uintptr_t)dst, s = (uintptr_t)src;
-
-    if (n >= 32 && ((d | s) & 3) == 0) {
-        chunk32_t *dc = dst; const chunk32_t *sc = src;
-        size_t chunks = n / 32;
-        while (chunks--) *dc++ = *sc++;
-        n &= 31;
-        dst = dc; src = (const void *)sc;
-    }
-    // word loop 
-    if (n >= 4 && (((uintptr_t)dst | (uintptr_t)src) & 3) == 0) {
-        uint32_t *dw = dst; const uint32_t *sw = src;
-        size_t words = n / 4;
-        while (words--) *dw++ = *sw++;
-        n &= 3;
-        dst = dw; src = (const void *)sw;
-    }
-    uint8_t *db = dst; const uint8_t *sb = src;
-    while (n--) *db++ = *sb++;
-    return res;
-}
-
-
-__attribute__((used))
-void *memset(void *dst, int c, size_t n) {
-    void *res = dst;
-    uintptr_t d = (uintptr_t)dst;
-    uint8_t b = (uint8_t)c;
-    uint32_t fill = (uint32_t)b * 0x01010101u;
-    if (n >= 32 && (d & 3) == 0) {
-        chunk32_t *dc = dst;
-        size_t chunks = n / 32;
-        while (chunks--) {
-            for (size_t i = 0; i < 8; ++i) {
-                dc->w[i] = fill;
-            }
-            ++dc;
-        }
-        n &= 31;
-        dst = dc;
-    }
-    if (n >= 4 && (((uintptr_t)dst) & 3) == 0) {
-        uint32_t *dw = dst;
-        size_t words = n / 4;
-        while (words--) {
-            *dw++ = fill;
-        }
-        n &= 3;
-        dst = dw;
-    }
-    uint8_t *db = dst;
-    while (n--) *db++ = b;
-    return res;
-}
-
-/* used: see memcpy above -- same GCC-synthesized-libcall/LTO interaction. */
 __attribute__((used))
 void *memmove(void *dest, const void *src, size_t n)
 {
