@@ -420,6 +420,7 @@ void VmmRemoveIdentityMapping(void) {
 
 void VmmActivateAddrspace(AddressSpace* as) {
     if (!as) return;
+    if (as == g_current_addrspace) return; 
 
     if (!g_mmu_enabled) {
         arch_mmu_enable(as);
