@@ -128,8 +128,6 @@ bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, ui
         return false;
     }
 
-    arch_mmu_flush_tlb_va(page_va);
-    ArchCtxSync();
     return true;
 }
 
