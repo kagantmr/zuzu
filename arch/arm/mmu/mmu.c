@@ -269,7 +269,6 @@ bool arch_mmu_unmap(AddressSpace *as, uintptr_t va, size_t size)
                 // For small unmaps, invalidate only the touched virtual address.
                 if (size <= (UNMAP_TLBI_PAGE_THRESHOLD * PAGE_SIZE))
                 {
-                    ArchCtxSync();
                     arch_mmu_flush_tlb_va_asid(va + offset, as->asid_token.asid);
                 }
             }
