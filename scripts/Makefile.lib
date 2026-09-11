@@ -19,7 +19,29 @@ define check-tool
 	}
 endef
 
-# ---- helpers -------------------------------------------------------------------
+# ---- source manifests ------------------------------------------------------
+# Each <dir>/build.mk declares what that directory contributes:
+#   obj-y     += foo.o            always built
+#   obj-$(CONFIG_X) += bar.o      built when CONFIG_X=y
+#   subdir-y  += sub              descend into sub/build.mk
+# Paths come back prefixed with the directory, so a manifest never needs to
+# know where it sits. read-manifest recurses; collect-objs is the entry point.
+define read-manifest
+obj-y :=
+subdir-y :=
+include $(1)build.mk
+MANIFEST_OBJS += $$(addprefix $(1),$$(obj-y))
+$$(foreach d,$$(subdir-y),$$(eval $$(call read-manifest,$(1)$$(d)/)))
+endef
+
+# $(call collect-objs,dir1 dir2 ...) -> every object those trees declare.
+define collect-objs
+$(eval MANIFEST_OBJS :=)
+$(foreach d,$(1),$(eval $(call read-manifest,$(d)/)))
+$(MANIFEST_OBJS)
+endef
+
+# ---- helpers-------------------------------------------------------------------
 # at recipe-expansion time, i.e. before the recipe's own mkdir line executes --
 # hence the mkdir here, expanded first.
 record-cmd = $(shell mkdir -p $(dir $@))$(file >$@.cmd,$(1))

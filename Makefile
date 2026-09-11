@@ -234,57 +234,28 @@ endif
 KERNEL_LIBGCC = $(shell $(CC) $(CPUFLAGS) -print-libgcc-file-name)
 
 # ---- kernel sources --------------------------------------------------------
-# Architecture-neutral source roots. klib/ is the freestanding shared
-# library (libkern model): compiled here with kernel CFLAGS and again into
-# ZCRT with USER_CFLAGS (see user.mk). lib/ is userspace-only libc.
-NONARCH_DIRS = core drivers kernel klib
+# Declared by per-directory build.mk manifests (see collect-objs in
+# scripts/Makefile.lib), not discovered on disk -- that is what lets a driver
+# or subsystem be selected rather than merely present.
+#
+# klib/ is the freestanding shared library: built here with kernel CFLAGS and
+# again into zcrt with USER_CFLAGS (Makefile.user). lib/ is userspace-only.
+# Only the selected board's directory is read, so unselected boards never
+# contribute objects.
+KERNEL_MANIFEST_DIRS = core drivers kernel klib $(ARCH_DIR) $(BOARD_DIR) vendor/libfdt
 
-# Within arch/$(ARCH), exclude every board's directory, then add back only
-# the selected BOARD_DIR so unselected boards never get compiled in.
-ARCH_PRUNE_BOARDS = $(foreach b,$(BOARDS),-not -path '$(ARCH_DIR)/$(b)/*')
+OBJS := $(addprefix $(O)/,$(call collect-objs,$(KERNEL_MANIFEST_DIRS)))
+DEPS := $(OBJS:.o=.d)
 
-LIBFDT_SRCS = \
-	vendor/libfdt/fdt.c \
-	vendor/libfdt/fdt_ro.c \
-	vendor/libfdt/fdt_addresses.c \
-	vendor/libfdt/fdt_rw.c \
-	vendor/libfdt/fdt_wip.c \
-	vendor/libfdt/fdt_strerror.c
-
-
-# := (not =): these run `find` once at parse time. With recursive (=)
-# expansion each reference below would re-run `find` on disk.
-CSRCS     := $(shell find $(NONARCH_DIRS) -name '*.c')
-CSRCS     += $(shell find $(ARCH_DIR) -name '*.c' $(ARCH_PRUNE_BOARDS))
-CSRCS     += $(shell find $(BOARD_DIR) -name '*.c')
-CSRCS     += $(LIBFDT_SRCS)
-
-# libfdt is vendored third-party source (see vendor/libfdt/): its
-# type/const-correctness is upstream's concern, not zuzu's. Filter the
-# noisiest correctness warnings back out for this directory only so an
-# upstream refresh stays a re-download, not a warning-fixing merge. Same
-# per-object override pattern as vendor/lz4/lz4.o above, widened to the
-# directory with a pattern-stem target. -Wcast-align is included alongside
-# the -Wconversion/-Wsign-conversion/-Wcast-qual set the task named
-# explicitly: libfdt's device-tree walkers cast byte offsets into struct
-# pointers throughout, tripping the same "not ours to fix" warning.
-$(O)/vendor/libfdt/%.o: CFLAGS := $(filter-out -Wconversion -Wsign-conversion -Wcast-qual -Wcast-align,$(CFLAGS))
-
-# libfdt.h itself is a vendored header, and its inline helpers (byte-store
-# accessors, string-length-to-int narrowing, etc.) trip the same warnings
-# when the two zuzu TUs that use libfdt directly (rather than compiling
-# vendor/libfdt/*.c) pull it in. Same rationale and filter as above, just
-# addressed at the including object instead of the vendor directory, since
-# per-object CFLAGS overrides key off the object being compiled, not the
-# headers it happens to include.
-$(O)/kernel/boot_info.o: CFLAGS := $(filter-out -Wconversion -Wsign-conversion -Wcast-qual -Wcast-align,$(CFLAGS))
-$(O)/kernel/dev/fdt_wrappers.o: CFLAGS := $(filter-out -Wconversion -Wsign-conversion -Wcast-qual -Wcast-align,$(CFLAGS))
-ASRCS_ALL := $(shell find $(NONARCH_DIRS) -name '*.S') \
-             $(shell find $(ARCH_DIR) -name '*.S' $(ARCH_PRUNE_BOARDS)) \
-             $(shell find $(BOARD_DIR) -name '*.S')
-ASRCS     := $(filter-out $(ARCH_DIR)/crt0.S,$(ASRCS_ALL))
-OBJS      := $(CSRCS:%.c=$(O)/%.o) $(ASRCS:%.S=$(O)/%.o)
-DEPS      := $(OBJS:.o=.d)
+# Vendored third-party source: its type/const-correctness is upstream's
+# concern, so an upstream refresh stays a re-download rather than a
+# warning-fixing merge. The second pair are zuzu TUs that include libfdt.h,
+# whose inline helpers trip the same warnings; per-object overrides key off
+# the object being compiled, not the headers it pulls in.
+CFLAGS_NOVENDOR = $(filter-out -Wconversion -Wsign-conversion -Wcast-qual -Wcast-align,$(CFLAGS))
+$(O)/vendor/libfdt/%.o: CFLAGS := $(CFLAGS_NOVENDOR)
+$(O)/kernel/boot_info.o: CFLAGS := $(CFLAGS_NOVENDOR)
+$(O)/kernel/dev/fdt_wrappers.o: CFLAGS := $(CFLAGS_NOVENDOR)
 
 # ---- compilation rules ------------------------------------------------------
 $(O)/%.o: %.c $(FLAGS_STAMP)
