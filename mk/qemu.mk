@@ -67,6 +67,32 @@ run-bridged: run-direct-bridged
 run-pcap:    run-direct-pcap
 debug:       debug-direct
 
+# Boot under QEMU and check it came up. Boards with SMOKE_FULL_<board>=y run
+# zztest off the SD card; the rest only have to reach the shell prompt. Boards
+# with SMOKE_NONE_<board>=y can't be emulated at all and are build-only.
+.PHONY: smoke
+SMOKE_TIMEOUT ?= 90
+SMOKE_MODE = $(if $(filter y,$(SMOKE_FULL_$(BOARD))),,--prompt-only)
+SMOKE_DEPS = $(QEMU_KERNEL) $(DTB_FILE) $(INITRD) \
+             $(if $(filter y,$(SMOKE_FULL_$(BOARD))),$(SD_IMG))
+
+ifeq ($(SMOKE_NONE_$(BOARD)),y)
+smoke: $(QEMU_KERNEL)
+	@echo "  SMOKE   $(BOARD) build-only: $(SMOKE_NONE_REASON_$(BOARD))"
+else
+smoke: $(SMOKE_DEPS)
+	$(call check-tool,python3,install Python 3.)
+	@echo "  SMOKE   $(BOARD) $(if $(SMOKE_MODE),(prompt only),(zztest))"
+	@python3 scripts/smoke.py $(SMOKE_MODE) --timeout $(SMOKE_TIMEOUT) -- \
+	    $(QEMU_BIN) $(QEMU_ARGS) -no-reboot -kernel $(QEMU_KERNEL) $(QEMU_NET)
+endif
+
+# Every board, one after another. Board switches force a full rebuild today
+# (BOARD_STAMP); per-board build dirs will make this cheap.
+.PHONY: smoke-all
+smoke-all:
+	@for b in $(BOARDS); do $(MAKE) --no-print-directory BOARD=$$b smoke || exit 1; done
+
 run-direct: $(QEMU_KERNEL) $(DTB_FILE) $(INITRD)
 	@echo "  QEMU    $(QEMU_KERNEL)"
 	@$(QEMU_BIN) $(QEMU_ARGS) -kernel $(QEMU_KERNEL) $(QEMU_NET)
