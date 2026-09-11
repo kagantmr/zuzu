@@ -1,10 +1,12 @@
 # zuzu initrd boot manifest v2
 # format: <program-or-path>|<role>[:flags][|<service-path>]
-# role: init, dev, tty, none   flags: late
+# role: init, dev, tty, none, file   flags: late
+# "file" is packed into the initrd but never spawned.
 
 bin/sysd|init
 bin/devmgr|dev
-# bin/nameserver is spawned directly by sysd, not listed here
+# sysd spawns nameserver itself; it only needs to be present.
+bin/nameserver|file
 bin/pl011drv|tty|/dev/uart0
 bin/pl181drv|none|/dev/mmc0
 bin/fsd|none|/svc/fsd

@@ -183,7 +183,9 @@ static uint32_t parse_flag_string(const char *flag_str)
         return PROC_FLAG_INIT;
     if (strcmp(flag_str, "dev") == 0 || strcmp(flag_str, "devmgr") == 0)
         return PROC_FLAG_DEVMGR;
-    if (strcmp(flag_str, "none") == 0)
+    /* "none" is spawned by sysd; "file" is packed but never spawned. Neither
+     * carries a kernel-side flag. */
+    if (strcmp(flag_str, "none") == 0 || strcmp(flag_str, "file") == 0)
         return 0;
 
     return 0;
