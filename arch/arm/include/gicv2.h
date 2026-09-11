@@ -33,7 +33,7 @@
 void gic_init(uintptr_t gicd_base_addr, uintptr_t gicc_base_addr);
 
 /**
- * @brief Enable a specific IRQ in the GIC.
+ * @brief Set up a specific IRQ in the GIC.
  * @param irq_id The IRQ number to enable.
  */
 void GicV2ConfigureIrq(Irq irq_id);
@@ -49,6 +49,8 @@ void GicV2UnmaskIrq(Irq irq_id);
  * @param irq_id The IRQ number to disable.
  */
 void GicV2MaskIrq(uint32_t irq_id);
+
+void GicV2SetPriority(Irq irq_id, uint8_t priority);
 
 /**
  * @brief Acknowledge an IRQ and return the raw IAR value.

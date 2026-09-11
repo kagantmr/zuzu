@@ -118,6 +118,18 @@ void GicV2ConfigureIrq(Irq irq_id) {
     }
 }
 
+void GicV2SetPriority(Irq irq_id, uint8_t priority)
+{
+    uint32_t reg_offset = GICD_IPRIORITYR + (irq_id & ~3U);
+    uint32_t byte_shift = (irq_id % 4) * 8;
+
+    uint32_t val = gicd_read(reg_offset);
+    val &= ~(0xFFU << byte_shift);
+    val |= ((uint32_t)priority << byte_shift);
+    gicd_write(reg_offset, val);
+}
+
+
 void GicV2UnmaskIrq(Irq irq_id) {
     // Enable the interrupt
     gicd_write(GICD_ISENABLER + ((irq_id / 32) * 4), (1 << (irq_id % 32)));

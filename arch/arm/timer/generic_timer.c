@@ -108,6 +108,7 @@ void ArchTimerInit(void)
     WriteCntpCtl(0x2); /* ENABLE=0, IMASK=1 */
 
     arch_irq_register(TIMER_IRQ_VIRT, ArmGenericTimerHandler, NULL);
+    ArchIrqSetPrio(TIMER_IRQ_VIRT, 0x80);
     arch_irq_enable_line(TIMER_IRQ_VIRT);
 
     /* Enabled + masked; SchedArmTimer() programs CVAL and unmasks on the
