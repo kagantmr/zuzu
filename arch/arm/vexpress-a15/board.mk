@@ -14,4 +14,7 @@ QEMU_MEM_vexpress-a15  = 64M
 
 UBOOT_vexpress-a15     = y
 
+# Has a working SD driver, so `make smoke` can run zztest off the card.
+SMOKE_FULL_vexpress-a15 = y
+
 CPUFLAGS_vexpress-a15  = -mcpu=cortex-a15 -falign-functions=64

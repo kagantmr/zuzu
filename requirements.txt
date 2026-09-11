@@ -1,0 +1,9 @@
+# Host-side Python dependencies.
+#   pip install -r requirements.txt
+#
+# kconfiglib is also vendored under vendor/kconfiglib/, so a plain build works
+# without installing anything; this is for the menuconfig UI.
+
+kconfiglib==14.1.0   # make menuconfig / defconfig
+pyelftools==0.31     # scripts/elf2zxf.py  (ELF -> ZXF container)
+Pillow==11.0.0       # scripts/ttf_to_bitmap.py  (font asset pipeline, optional)
