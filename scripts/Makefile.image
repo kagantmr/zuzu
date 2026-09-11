@@ -110,3 +110,70 @@ sdimg-clean:
 	@echo "  CLEAN   $(SD_IMG)"
 
 sdimg-recreate: sdimg-clean sdimg
+
+# ---- board boot partition ---------------------------------------------------
+# Boards that boot from their own SD card (rather than QEMU's -kernel) need a
+# set of files on a FAT32 partition. BOOT_FILES_<board> lists them and
+# BOOT_FW_DIR_<board> points at any vendor firmware to copy verbatim.
+BOOT_FILES  = $(BOOT_FILES_$(BOARD))
+BOOT_FW_DIR = $(BOOT_FW_DIR_$(BOARD))
+BOOTFS      = $(O)/bootfs
+BOOT_IMG    = $(O)/boot.img
+
+.PHONY: bootfs bootimg
+ifeq ($(BOOT_FILES),)
+bootfs bootimg:
+	$(error BOARD '$(BOARD)' boots via QEMU -kernel and has no boot partition; \
+	  set BOOT_FILES_$(BOARD) in $(BOARD_DIR)/board.mk if it needs one)
+else
+
+bootfs: $(BOOT_FILES)
+	@rm -rf $(BOOTFS)
+	@mkdir -p $(BOOTFS)
+	@for f in $(BOOT_FILES); do \
+		cp $$f $(BOOTFS)/ && echo "  BOOTFS  $$(basename $$f)"; \
+	done
+	@if [ -d "$(BOOT_FW_DIR)" ]; then \
+		cp -R $(BOOT_FW_DIR)/. $(BOOTFS)/; \
+		echo "  BOOTFS  firmware from $(BOOT_FW_DIR)/"; \
+	else \
+		echo "  BOOTFS  no $(BOOT_FW_DIR)/ -- the card must already carry the"; \
+		echo "          vendor firmware (Pi 4: start4.elf, fixup4.dat)."; \
+		echo "          Fetch it with: make $(BOARD)-firmware"; \
+	fi
+	@echo "  BOOTFS  $(BOOTFS)/ ready -- copy its contents onto the FAT32 boot partition"
+
+# MAKE_FAT_IMAGE is not consistent across hosts: hdiutil (macOS) emits a
+# partitioned MBR image, mkfs.fat + mtools (Linux) a bare filesystem. So the
+# image is only dd-able as a whole card on macOS. Copying $(BOOTFS)/ onto a
+# card you formatted yourself works the same way everywhere and is what the
+# message recommends.
+bootimg: bootfs
+	$(call MAKE_FAT_IMAGE,$(BOOT_IMG),$(BOOTFS))
+	@echo "  BOOTIMG $(BOOT_IMG)"
+ifeq ($(HOST_OS),Darwin)
+	@echo "          partitioned (MBR + FAT32): dd it to the whole card, e.g."
+	@echo "          sudo dd if=$(BOOT_IMG) of=/dev/rdiskN bs=1m"
+else
+	@echo "          bare FAT32 filesystem, no partition table: write it to an"
+	@echo "          existing boot partition, not to the whole card."
+endif
+	@echo "          Simplest either way: copy $(BOOTFS)/ onto a FAT32 card."
+endif
+
+# Pi 4 firmware fetch. Explicit target, never part of a build: it downloads
+# from github.com/raspberrypi/firmware, which is closed-source and separately
+# licensed, so it is not vendored here.
+RPI_FW_BASE ?= https://raw.githubusercontent.com/raspberrypi/firmware/master/boot
+RPI_FW_FILES = start4.elf fixup4.dat
+
+.PHONY: rpi4-firmware
+rpi4-firmware:
+	$(call check-tool,curl,install curl.)
+	@mkdir -p firmware
+	@for f in $(RPI_FW_FILES); do \
+		echo "  FETCH   firmware/$$f"; \
+		curl -fsSL -o firmware/$$f $(RPI_FW_BASE)/$$f || \
+		  { echo "  ERROR   could not fetch $$f from $(RPI_FW_BASE)"; exit 1; }; \
+	done
+	@echo "  FETCH   done -- rerun: make BOARD=rpi4 bootfs"

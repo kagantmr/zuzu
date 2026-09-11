@@ -92,3 +92,6 @@ docs/groups.dox
 # Build-system modules -- *.lib above (an MSVC artifact rule) would eat
 # scripts/Makefile.lib otherwise.
 !scripts/Makefile.*
+
+# Pi firmware, fetched with `make rpi4-firmware` (not vendored).
+firmware/
