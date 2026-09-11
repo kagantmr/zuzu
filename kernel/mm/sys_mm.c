@@ -572,11 +572,11 @@ void SysAsInject(CpuState *frame)
                 goto rollback_nomem;
             }
 
-            if (kargs.prot & PROT_EXEC)
-            {
-                arch_cache_flush_code_range((VirtAddr)PA_TO_VA(page), PAGE_SIZE);
-            }
         }
+
+        if (kargs.prot & PROT_EXEC)
+            arch_cache_flush_code_range(kargs.DestVAddr, page_count * PAGE_SIZE);
+        
 
         if (!enclosing)
         {
