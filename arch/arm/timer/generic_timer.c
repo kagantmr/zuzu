@@ -118,16 +118,18 @@ void ArchTimerInit(void)
 
 Time ArchTimerNow(void) { return ReadCntvct(); }
 uint32_t ArchTimerFreq(void) { return freq; }
+static uint64_t cntv_cval_shadow = ~0ULL;   /* sentinel: no real deadline is ever this value */
 
 void ArchTimerSetDeadline(Time abs_count)
 {
-    /* Program CNTV_CVAL, then enable + unmask. Writing CVAL first means that
-     * if abs_count is already in the past the interrupt latches immediately
-     * on unmask -- which is the intended behaviour for a missed deadline. */
-    __asm__ volatile("mcrr p15, 3, %0, %1, c14"
-                     :: "r"((uint32_t)abs_count), "r"((uint32_t)(abs_count >> 32)));
-    __asm__ volatile("isb");
-    WriteCntvCtl(0x1); /* ENABLE=1, IMASK=0 */
+    if (abs_count != cntv_cval_shadow) {
+        cntv_cval_shadow = abs_count;
+        __asm__ volatile("mcrr p15, 3, %0, %1, c14"
+                         :: "r"((uint32_t)abs_count), "r"((uint32_t)(abs_count >> 32)));
+        __asm__ volatile("isb");
+    }
+    WriteCntvCtl(0x1); /* ENABLE=1, IMASK=0 already shadow-gated on its own */
 }
+
 
 void ArchTimerDisable(void) { WriteCntvCtl(0x2); /* IMASK=1 */ }
