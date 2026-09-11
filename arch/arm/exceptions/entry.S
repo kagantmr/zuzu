@@ -20,13 +20,8 @@
 process_entry_trampoline:
     // frame at SP: r0-r12, sp_usr, lr_usr, return_pc, return_cpsr
 
-    ldr r0, [sp, #52]         // r0 = sp_usr
-    ldr r1, [sp, #56]         // r1 = lr_usr
-
-    cps #0x1f                  // SYS mode (updates usr banked regs)
-    mov sp, r0                 // set user SP
-    mov lr, r1                 // set user LR (or mov lr, #0 if you prefer)
-    cps #0x13                  // back to SVC
+    add r0, sp, #52
+    ldm r0, {r13, r14}^     // loads frame[52]->r13_usr, frame[56]->r14_usr, no mode change
 
     ldmia sp!, {r0-r12}        // restore regs (13 words)
     add sp, sp, #8             // skip sp_usr/lr_usr
@@ -37,33 +32,22 @@ process_entry_trampoline:
     srsdb sp!, #0x13          // push [return_pc, cpsr]
     cpsid i, #0x13            // SVC, IRQs off
     sub sp, sp, #8            // reserve [sp_usr, lr_usr]
-    stmdb sp!, {r0-r12}      // push r0-r12
+    stmdb sp!, {r0-r12}       // push r0-r12
     // frame is now complete except sp_usr/lr_usr
-    // use r0/r1 as scratch since they're already saved
-    cps #0x1f
-    mov r0, sp
-    mov r1, lr
-    cps #0x13
-    str r0, [sp, #52]         // frame[13] = sp_usr
-    str r1, [sp, #56]         // frame[14] = lr_usr
+    add r0, sp, #52
+    stm r0, {r13, r14}^       // stores r13_usr -> [r0], r14_usr -> [r0+4], no mode change
 .endm
 
 .macro exception_exit
-    // Bring-up tripwire: never RFE to pc=0. If the frame's return_pc slot
-    // is zero the frame was corrupted after the C handlers finished; panic
-    // in-kernel with the frame instead of letting user mode fault at 0.
     ldr r0, [sp, #60]         // return_pc
     cmp r0, #0
     bne 8f
     mov r0, sp
     bl exception_exit_pc0_trap
 8:
-    ldr r0, [sp, #52]         // load sp_usr
-    ldr r1, [sp, #56]         // load lr_usr
-    cps #0x1f
-    mov sp, r0
-    mov lr, r1
-    cps #0x13
+    add r0, sp, #52
+    ldm r0, {r13, r14}^       // loads frame[52]->r13_usr, frame[56]->r14_usr, no mode change
+
     ldmia sp!, {r0-r12}       // restore r0-r12
     add sp, sp, #8            // skip sp_usr/lr_usr
     rfeia sp!                 // restore pc + cpsr

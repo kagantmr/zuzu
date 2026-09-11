@@ -2,6 +2,7 @@
 #include "kernel/syscall/syscall.h"
 #include "kernel/sched/sched.h"
 #include <arch/mmu.h>
+#include <arch/barrier.h>
 #include <arch/cache.h>
 #include "core/panic.h"
 #include "kernel/mm/pmm.h"
@@ -185,13 +186,13 @@ static int32_t memmap_dev(ProcessObj *restrict p, HandleEntry *restrict e, MemPr
                                    .flags = VM_FLAG_NONE,
                                }))
     {
-        VmmUnmapRange(p->as, user_va, size_aligned);
+        VmmUnmapRange(p->as, user_va, size_aligned, true);
         return ERR_NOMEM;
     }
 
     // flush TLB for this VA
     arch_mmu_flush_tlb_va(user_va);
-    arch_mmu_barrier();
+    ArchCtxSync();
 
     p->device_va_next += size_aligned;
     e->mapped_va = user_va;
@@ -570,11 +571,11 @@ void SysAsInject(CpuState *frame)
                 goto rollback_nomem;
             }
 
-            if (kargs.prot & PROT_EXEC)
-            {
-                arch_cache_flush_code_range((VirtAddr)PA_TO_VA(page), PAGE_SIZE);
-            }
         }
+
+        if (kargs.prot & PROT_EXEC)
+            arch_cache_flush_code_range(kargs.DestVAddr, page_count * PAGE_SIZE);
+        
 
         if (!enclosing)
         {
@@ -600,7 +601,7 @@ void SysAsInject(CpuState *frame)
         {
             if (page_addrs[j])
             {
-                VmmUnmapRange(target->as, kargs.DestVAddr + j * PAGE_SIZE, PAGE_SIZE);
+                VmmUnmapRange(target->as, kargs.DestVAddr + j * PAGE_SIZE, PAGE_SIZE, true);
                 PmmFreeFrame(page_addrs[j]);
             }
         }
@@ -615,7 +616,7 @@ void SysAsInject(CpuState *frame)
         {
             if (page_addrs[j])
             {
-                VmmUnmapRange(target->as, kargs.DestVAddr + j * PAGE_SIZE, PAGE_SIZE);
+                VmmUnmapRange(target->as, kargs.DestVAddr + j * PAGE_SIZE, PAGE_SIZE, true);
                 PmmFreeFrame(page_addrs[j]);
             }
         }

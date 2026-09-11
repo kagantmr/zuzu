@@ -7,8 +7,10 @@
 // linker.ld / _start.S, so this file does not change when adding a board.
 #include <arch/symbols.h>
 #include <arch/irq.h>
+#include <arch/barrier.h>
 #include <arch/platform.h>
 #include <arch/mmu.h>
+#include <arch_impl/armv7_mmu.h>
 #include "kernel/layout.h"
 #include "kernel/mm/pmm.h"
 #include "kernel/kmain.h"
@@ -22,7 +24,6 @@
 
 kernel_layout_t kernel_layout;
 extern AddressSpace *g_kernel_as;
-#define SECTION_NORMAL_DESC 0x11C0Eu
 
 #define LOG_FMT(fmt) "(early) " fmt
 #include "core/log.h"
@@ -40,13 +41,13 @@ static void early_map_ram_sections(uintptr_t ram_base, size_t ram_size) {
     uintptr_t pa_end = (ram_base + ram_size + SECTION_SIZE - 1) & ~(SECTION_SIZE - 1);
 
     for (uintptr_t pa = pa_start; pa < pa_end; pa += SECTION_SIZE) {
-        uint32_t entry = (uint32_t)pa | SECTION_NORMAL_DESC;
-        l1[(pa >> 20) & 0xFFFu] = entry;
-        l1[(PA_TO_VA(pa) >> 20) & 0xFFFu] = entry;
+        uint32_t entry = (uint32_t)pa | L1_SECT_BOOT_NORMAL;
+        l1[L1_IDX(pa)] = entry;
+        l1[L1_IDX(PA_TO_VA(pa))] = entry;
     }
 
     arch_mmu_flush_tlb();
-    arch_mmu_barrier();
+    ArchCtxSync();
 }
 
 static void pmu_init(void) {

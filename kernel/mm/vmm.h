@@ -204,7 +204,7 @@ bool VmmMapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size,
  * TLB invalidation. If the addrspace is active (TTBR0), the TLB must
  * be invalidated for this to take effect.
  */
-bool VmmUnmapRange(AddressSpace *as, VirtAddr va, size_t size);
+bool VmmUnmapRange(AddressSpace *as, VirtAddr va, size_t size, bool flush);
 
 /**
  * @brief Change permissions on a range.
