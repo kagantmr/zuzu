@@ -51,6 +51,10 @@ bool arch_irq_unregister(uint32_t irq_id) {
     return true;    
 }
 
+void ArchIrqSetPrio(Irq irq_id, uint8_t prio) {
+    GicV2SetPriority(irq_id, prio);
+}
+
 void arch_irq_disable_line(uint32_t irq_id) {
     GicV2MaskIrq(irq_id); // Delegate to GIC function
 }
