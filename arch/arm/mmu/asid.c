@@ -10,7 +10,7 @@
 
 static asid_t asid_bitmap[ASID_BITMAP_BYTES]; // 256 bits
 static uint8_t dirty_bitmap[ASID_BITMAP_BYTES];
-static uint32_t current_generation = 1;
+uint32_t asid_generation = 1;
 static asid_t next_asid = 1;
 static asid_t active_asid;
 
@@ -59,7 +59,7 @@ asid_token_t asid_alloc(void)
     if (!i)
         i = asid_claim_in_range(1, next_asid);
     if (i)
-        return (asid_token_t){.asid = (asid_t)i, .generation = current_generation};
+        return (asid_token_t){.asid = (asid_t)i, .generation = asid_generation};
 
     // No free ASIDs: flush the whole TLB and start a new generation.
     arch_mmu_flush_tlb();
@@ -68,11 +68,11 @@ asid_token_t asid_alloc(void)
     asid_bit_set(asid_bitmap,0);                             /* kernel */
 
     if (active_asid) asid_bit_set(asid_bitmap,active_asid);  /* running AS keeps its tag */
-    current_generation++;
+    asid_generation++;
     next_asid = 1;
     i = asid_claim_in_range(1, ASID_COUNT);      /* first genuinely free one */
 
-    return (asid_token_t){.asid = (asid_t)i, .generation = current_generation};
+    return (asid_token_t){.asid = (asid_t)i, .generation = asid_generation};
 }
 
 void asid_free(asid_token_t token)
@@ -83,10 +83,8 @@ void asid_free(asid_token_t token)
     // If this token is from an old generation, the bitmap was
     // already wiped during the rollover. The bit either belongs
     // to a new process now or is already clear. Don't touch it.
-    if (token.generation != current_generation)
+    if (token.generation != asid_generation)
         return;
 
     asid_bit_clear(asid_bitmap,token.asid);
 }
-
-uint32_t asid_current_generation(void) { return current_generation; }

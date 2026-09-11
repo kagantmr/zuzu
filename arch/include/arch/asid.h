@@ -24,7 +24,8 @@ asid_token_t asid_alloc(void);
 void asid_free(asid_token_t token);
 
 /** Current ASID generation number. */
-uint32_t asid_current_generation(void);
+extern uint32_t asid_generation;
+static inline uint32_t asid_current_generation(void) { return asid_generation; }
 
 /**
  * Record the ASID just installed in the live translation-context register
