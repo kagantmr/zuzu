@@ -224,19 +224,19 @@ void AddrspaceDestroy(AddressSpace* as) {
         __builtin_unreachable();
     }
     
-    if (as->asid_token.asid != 0) {
-        // Prevent stale translations from surviving ASID reuse.
+    // Prevent stale translations from surviving ASID reuse.
+    if (as->asid_token.asid != 0)
         arch_mmu_flush_tlb_asid(as->asid_token.asid);
-        asid_free(as->asid_token);
-    }
 
     for (uint32_t i = 0; i < as->regions.len; i++) {
         VirtMemRegion *r = vm_region_vec_get(&as->regions, i);
         if (!r)
             continue;
-        VmmUnmapRange(as, r->vaddr_start, r->size);
+        VmmUnmapRange(as, r->vaddr_start, r->size, false);
     }
-    
+
+    if (as->asid_token.asid != 0)
+        asid_free(as->asid_token);
     
     // Free page tables
     arch_mmu_free_tables(as->pt_root_physaddr, as->type);
@@ -294,7 +294,7 @@ bool VmmRemoveRegion(AddressSpace *as, uintptr_t vaddr, size_t size) {
     if (!r || r->size != size)
         return false;
 
-    VmmUnmapRange(as, vaddr, size);
+    VmmUnmapRange(as, vaddr, size, true);
 
     uint32_t idx = (uint32_t)(r - as->regions.data);
     memmove(r, r + 1, (as->regions.len - idx - 1) * sizeof(VirtMemRegion));
@@ -402,7 +402,7 @@ void VmmRemoveIdentityMapping(void) {
         arch_relocate_stacks(offset);
     }
 
-    VmmUnmapRange(g_kernel_as, map_pa_start, map_size);
+    VmmUnmapRange(g_kernel_as, map_pa_start, map_size, true);
     KDEBUG("identity unmapped, pruning region");
 
     VirtMemRegion *r = bsearch(&map_pa_start, g_kernel_as->regions.data,
@@ -459,13 +459,13 @@ bool VmmMapRange(AddressSpace* as, VirtAddr va, PhysAddr pa, size_t size,
     return arch_mmu_map(as, va, pa, size, prot, memtype);
 }
 
-bool VmmUnmapRange(AddressSpace* as, VirtAddr va, size_t size) {
+bool VmmUnmapRange(AddressSpace* as, VirtAddr va, size_t size, bool flush) {
     if (!as) return false;
     if (size == 0) return false;
     if ((va % PAGE_SIZE) != 0) return false;    // page granularity
     if ((size % PAGE_SIZE) != 0) return false;  // page granularity
 
-    return arch_mmu_unmap(as, va, size);
+    return arch_mmu_unmap(as, va, size, flush);
 }
 
 bool VmmProtectPage(AddressSpace *as, VirtAddr va, size_t size, MemProt new_prot)
@@ -631,7 +631,7 @@ void* IoRemap(PhysAddr phys, size_t size) {
 
     ioremap_entry_t* entry = ioremap_alloc_entry();
     if (!entry) {
-        VmmUnmapRange(g_kernel_as, va, aligned_size);
+        VmmUnmapRange(g_kernel_as, va, aligned_size, true);
         bitmap_free((uint32_t)slot, sections_needed);
         return NULL;
     }
@@ -654,7 +654,7 @@ void IoUnmap(void* va) {
     }
 
     size_t size = entry->sections * SECTION_SIZE;
-    VmmUnmapRange(g_kernel_as, entry->va, size);
+    VmmUnmapRange(g_kernel_as, entry->va, size, true);
 
     uint32_t slot_start = (entry->va - IOREMAP_BASE) / SECTION_SIZE;
     bitmap_free(slot_start, entry->sections);

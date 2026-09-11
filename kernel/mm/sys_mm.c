@@ -186,7 +186,7 @@ static int32_t memmap_dev(ProcessObj *restrict p, HandleEntry *restrict e, MemPr
                                    .flags = VM_FLAG_NONE,
                                }))
     {
-        VmmUnmapRange(p->as, user_va, size_aligned);
+        VmmUnmapRange(p->as, user_va, size_aligned, true);
         return ERR_NOMEM;
     }
 
@@ -602,7 +602,7 @@ void SysAsInject(CpuState *frame)
         {
             if (page_addrs[j])
             {
-                VmmUnmapRange(target->as, kargs.DestVAddr + j * PAGE_SIZE, PAGE_SIZE);
+                VmmUnmapRange(target->as, kargs.DestVAddr + j * PAGE_SIZE, PAGE_SIZE, true);
                 PmmFreeFrame(page_addrs[j]);
             }
         }
@@ -617,7 +617,7 @@ void SysAsInject(CpuState *frame)
         {
             if (page_addrs[j])
             {
-                VmmUnmapRange(target->as, kargs.DestVAddr + j * PAGE_SIZE, PAGE_SIZE);
+                VmmUnmapRange(target->as, kargs.DestVAddr + j * PAGE_SIZE, PAGE_SIZE, true);
                 PmmFreeFrame(page_addrs[j]);
             }
         }

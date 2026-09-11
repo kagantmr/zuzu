@@ -47,7 +47,7 @@ VirtAddr KernelStackAlloc(void)
 			 * the desired state and this is not an allocation failure. */
 			if (arch_mmu_translate(VmmGetKernelAddrspace()->pt_root_physaddr, slot_va) != 0) {
 				VmmUnmapRange(VmmGetKernelAddrspace(), slot_va + KSTACK_GUARD_SIZE,
-						PAGE_SIZE);
+						PAGE_SIZE, true);
 				PmmFreeFrame(page_pa);
 				slot_pa[slot] = 0;
 				return 0;
@@ -66,7 +66,7 @@ void KernelStackFree(VirtAddr stack_top)
 {
 	int slot = KernelStackSlotFromTop(stack_top);
 	VirtAddr mapped_va = KernelStackTopFromSlot(slot) - KSTACK_SLOT_SIZE + KSTACK_GUARD_SIZE;
-	VmmUnmapRange(VmmGetKernelAddrspace(), mapped_va, PAGE_SIZE);
+	VmmUnmapRange(VmmGetKernelAddrspace(), mapped_va, PAGE_SIZE, true);
 	PmmFreeFrame(slot_pa[slot]);
 	slot_pa[slot] = 0;
 	bitmap[slot / 64] &= ~(1ULL << (slot % 64));

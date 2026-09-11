@@ -215,7 +215,7 @@ bool arch_mmu_map(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, Mem
     return false;
 }
 
-bool arch_mmu_unmap(AddressSpace *as, uintptr_t va, size_t size)
+bool arch_mmu_unmap(AddressSpace *as, uintptr_t va, size_t size, bool flush)
 {
     if (!as || size == 0)
     {
@@ -248,9 +248,11 @@ bool arch_mmu_unmap(AddressSpace *as, uintptr_t va, size_t size)
 
             if ((entry & DESC_TYPE_MASK) == DESC_L2)
             {
-                ArchCtxSync();                                /* DSB: zero visible */
-                arch_mmu_flush_tlb_asid(as->asid_token.asid); /* drop cached walks */
-                ArchCtxSync();
+                if (flush) {
+                    ArchCtxSync();                                /* DSB: zero visible */
+                    arch_mmu_flush_tlb_asid(as->asid_token.asid); /* drop cached walks */
+                    ArchCtxSync();
+                }
                 l2_pool_free(entry & L1_L2PTR_BASE_MASK); /* now safe to free */
             }
         }
@@ -267,7 +269,7 @@ bool arch_mmu_unmap(AddressSpace *as, uintptr_t va, size_t size)
                 unmapped_pages++;
 
                 // For small unmaps, invalidate only the touched virtual address.
-                if (size <= (UNMAP_TLBI_PAGE_THRESHOLD * PAGE_SIZE))
+                if (flush && size <= (UNMAP_TLBI_PAGE_THRESHOLD * PAGE_SIZE))
                 {
                     arch_mmu_flush_tlb_va_asid(va + offset, as->asid_token.asid);
                 }
@@ -279,13 +281,10 @@ bool arch_mmu_unmap(AddressSpace *as, uintptr_t va, size_t size)
         return false;
     }
 
-    if (unmapped_any)
+    if (unmapped_any && flush)
     {
-        // For section unmaps and larger page ranges, invalidate by ASID.
         if (!page_mode || size > (UNMAP_TLBI_PAGE_THRESHOLD * PAGE_SIZE) || unmapped_pages == 0)
-        {
             arch_mmu_flush_tlb_asid(as->asid_token.asid);
-        }
         ArchCtxSync();
     }
 
