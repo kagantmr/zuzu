@@ -4,6 +4,7 @@
 #include "arch_impl/barrier.h"
 #include "kernel/mm/pmm.h"
 #include "l2_pool.h"
+#include "zuzu/types.h"
 #include <stdint.h>
 #include <string.h>
 #include <assert.h>
@@ -415,7 +416,7 @@ void arch_mmu_switch(AddressSpace *as)
         asid_free(as->asid_token); // free the old ASID (no-op if already reclaimed)
         as->asid_token = asid_alloc();
     }
-    
+
     /* Park on reserved ASID 0: no speculative walk during the TTBR0 change
      * can then allocate a TLB entry tagged with a live ASID. */
     __asm__ volatile("mcr p15, 0, %0, c13, c0, 1" ::"r"(0U) : "memory");
@@ -447,14 +448,18 @@ void arch_mmu_flush_tlb_asid(uint8_t asid)
     __asm__ volatile("mcr p15, 0, %0, c8, c7, 2" ::"r"(asid_arg) : "memory");
 }
 
-void arch_mmu_flush_tlb_va(uintptr_t va)
-{
-    // Invalidate unified TLB entry by MVA.
-    // The architecture ignores low bits as appropriate.
-    __asm__ volatile("mcr p15, 0, %0, c8, c7, 1" ::"r"((uint32_t)(va & ALIGNMENT_4KB_MASK)) : "memory");
+/* TLBIMVAA: by MVA, all ASIDs: kernel/global VAs */
+void arch_mmu_flush_tlb_va(uintptr_t va) {
+    __asm__ volatile("mcr p15, 0, %0, c8, c7, 3" ::"r"((uint32_t)(va & ALIGNMENT_4KB_MASK)) : "memory");
+}
+/* TLBIMVA: by MVA + ASID: user VAs */
+void arch_mmu_flush_tlb_va_asid(uintptr_t va, uint8_t asid) {
+    __asm__ volatile("mcr p15, 0, %0, c8, c7, 1"
+                     ::"r"((uint32_t)((va & ALIGNMENT_4KB_MASK) | asid)) : "memory");
 }
 
-uintptr_t arch_mmu_translate(uintptr_t ttbr_pa, uintptr_t va)
+
+uintptr_t arch_mmu_translate(PhysAddr ttbr_pa, VirtAddr va)
 {
     if (ttbr_pa == 0)
     {
@@ -497,7 +502,7 @@ static uintptr_t arch_mmu_alloc_l2_table(void)
     uintptr_t new_page = l2_pool_alloc();
     if (!new_page)
         return 0;
-    return (uintptr_t)new_page;
+    return (VirtAddr)new_page;
 }
 
 static uint32_t arch_mmu_make_l1_pte(uintptr_t l2_pa)
