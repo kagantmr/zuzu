@@ -115,11 +115,13 @@ $(O)/%.o: %.c $(FLAGS_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "  CC      $<"
 	@$(CC) $(CFLAGS) -c $< -o $@
+	@$(call record-cmd,$(CC) $(CFLAGS) -c $< -o $@)
 
 $(O)/%.o: %.S $(FLAGS_STAMP)
 	@mkdir -p $(dir $@)
 	@echo "  AS      $<"
 	@$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
+	@$(call record-cmd,$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@)
 
 # Two-pass link: pass 1 exists only to give symbol.py a symbol table to read,
 # which pass 2 links in. Safe because ksymtab.c is pure data (no .text), so the
