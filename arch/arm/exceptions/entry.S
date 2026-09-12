@@ -57,9 +57,10 @@ process_entry_trampoline:
 .macro exception_dispatch_call, type
     mov r0, #\type
     mov r1, sp
-    sub sp, sp, #4            // AAPCS: keep 8-byte alignment at C call boundary
+    mov r4, sp
+    bic sp, sp, #7            // AAPCS: force 8-byte alignment; the interrupted SP may be 4 mod 8
     bl exception_dispatch
-    add sp, sp, #4
+    mov sp, r4
 .endm
 
 reset_handler:
@@ -81,9 +82,10 @@ irq_handler:
 .do_schedule:
     mov r1, #0
     strb r1, [r0]          // Clear flag
-    sub sp, sp, #4         // AAPCS: keep 8-byte alignment at C call boundary
+    mov r4, sp
+    bic sp, sp, #7         // AAPCS: force 8-byte alignment; see exception_dispatch_call
     bl Schedule
-    add sp, sp, #4
+    mov sp, r4
 .no_schedule:
     exception_exit
 
