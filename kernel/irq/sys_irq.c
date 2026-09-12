@@ -10,7 +10,7 @@
 
 static IrqOwner irq_owners[MAX_IRQS];
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 BENCH_STAT(g_bench_irq_wait, "IRQ wait block->unblock");
 #endif
 
@@ -60,7 +60,7 @@ static void __hot relay_handler(void *ctx)
             waiter->blocked_port = NULL;
             waiter->ipc_state = IPC_NONE;
             waiter->state = READY;
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
             BENCH_END(g_bench_irq_wait, waiter->bench_irq_wait_start);
 #endif
             SchedAdd(waiter);

@@ -16,7 +16,7 @@
 
 extern kernel_layout_t kernel_layout;
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 
 #include "kernel/bench.h"
 
@@ -387,12 +387,12 @@ void KFreePortObj(void *ptr)
 
 void *__hot KAllocReplyCap(void)
 {
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
     uint32_t bench_start = BENCH_BEGIN();
 #endif
     SlabCachesInit();
     void *ptr = SlabAlloc(&reply_cap_cache);
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
     BENCH_END(g_bench_reply_cap_alloc, bench_start);
 #endif
     return ptr;
@@ -400,13 +400,13 @@ void *__hot KAllocReplyCap(void)
 
 void __hot KFreeReplyCap(void *ptr)
 {
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
     uint32_t bench_start = BENCH_BEGIN();
 #endif
     if (unlikely(!ptr))
         return;
     SlabFree(&reply_cap_cache, ptr);
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
     BENCH_END(g_bench_reply_cap_free, bench_start);
 #endif
 }

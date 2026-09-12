@@ -5,7 +5,7 @@
 
 #define TICK_HZ 100 // 100 ticks per second
 
-#ifdef TIME_MEASURE
+#ifdef CONFIG_TIME_MEASURE
 extern uint32_t ctx_switch_start;
 extern uint32_t ctx_switch_cost;
 #endif

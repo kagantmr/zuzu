@@ -11,7 +11,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 #include <arch/cycles.h>
 #include <snprintf.h>
 #include <zuzu/bench.h>
@@ -133,7 +133,7 @@ static void handle_read(Handle reply_handle, uint32_t max_len)
     (void)ChannelReply(reply_handle, buf, n);
 }
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 static void uart_bench_print(const char *label, const BenchResult *r)
 {
     uint64_t avg_x100 = r->count ? (r->sum * 100) / r->count : 0;
@@ -180,7 +180,7 @@ static void run_irq_wait_bench(void)
 
     uart_bench_print("IRQ wait block->unblock", &r);
 }
-#endif /* ZUZU_BENCH */
+#endif /* CONFIG_ZUZU_BENCH */
 
 int pl011drv_setup(void)
 {
@@ -229,7 +229,7 @@ int pl011drv_setup(void)
     uart->ICR = ICR_ALL;
     uart->IMSC = (IMSC_RXIM | IMSC_RTIM);
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
     run_irq_wait_bench();
 #endif
 

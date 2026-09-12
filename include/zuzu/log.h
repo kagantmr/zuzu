@@ -33,8 +33,8 @@ void log_write(LogLevel level, const char *tag, const char *fmt, ...);
 #define LOG_ERROR(tag, fmt, ...) log_write(LOG_LEVEL_ERROR, tag, fmt, ##__VA_ARGS__)
 
 #else
-#ifndef LOG_LEVEL
-#define LOG_LEVEL LOG_LEVEL_INFO
+#ifndef CONFIG_LOG_LEVEL
+#define CONFIG_LOG_LEVEL LOG_LEVEL_INFO
 #endif
 
 
@@ -46,37 +46,37 @@ void log_write(LogLevel level, const char *tag, const char *fmt, ...);
 #define LOG_FMT(fmt) fmt
 #endif
 
-#if LOG_LEVEL <= ZUZU_LOG_LEVEL_TRACE
+#if CONFIG_LOG_LEVEL <= ZUZU_LOG_LEVEL_TRACE
 #define KTRACE(fmt, ...) kprintf(ANSI_BOLD ANSI_CYAN "[%6llu TRACE] " ANSI_RESET LOG_FMT(fmt) "\n", (unsigned long long)GetTicks(), ##__VA_ARGS__) /* very verbose */
 #else
 #define KTRACE(fmt, ...) do {} while (0)
 #endif
 
-#if LOG_LEVEL <= ZUZU_LOG_LEVEL_DEBUG
+#if CONFIG_LOG_LEVEL <= ZUZU_LOG_LEVEL_DEBUG
 #define KDEBUG(fmt, ...) kprintf(ANSI_BOLD ANSI_GREEN "[%6llu DEBUG] " ANSI_RESET LOG_FMT(fmt) "\n", (unsigned long long)GetTicks(), ##__VA_ARGS__)
 #else
 #define KDEBUG(fmt, ...) do {} while (0)
 #endif
 
-#if LOG_LEVEL <= ZUZU_LOG_LEVEL_INFO
+#if CONFIG_LOG_LEVEL <= ZUZU_LOG_LEVEL_INFO
 #define KINFO(fmt, ...)  kprintf(ANSI_BOLD ANSI_BLUE "[%6llu INFO ] " ANSI_RESET LOG_FMT(fmt) "\n", (unsigned long long)GetTicks(), ##__VA_ARGS__)
 #else
 #define KINFO(fmt, ...) do {} while (0)
 #endif
 
-#if LOG_LEVEL <= ZUZU_LOG_LEVEL_WARN
+#if CONFIG_LOG_LEVEL <= ZUZU_LOG_LEVEL_WARN
 #define KWARN(fmt, ...)  kprintf(ANSI_BOLD ANSI_YELLOW "[%6llu WARN ] " ANSI_RESET LOG_FMT(fmt) "\n", (unsigned long long)GetTicks(), ##__VA_ARGS__)
 #else
 #define KWARN(fmt, ...) do {} while (0)
 #endif
 
-#if LOG_LEVEL <= ZUZU_LOG_LEVEL_ERROR
+#if CONFIG_LOG_LEVEL <= ZUZU_LOG_LEVEL_ERROR
 #define KERROR(fmt, ...) kprintf(ANSI_BOLD ANSI_RED "[%6llu ERR  ] " ANSI_RESET LOG_FMT(fmt) "\n", (unsigned long long)GetTicks(), ##__VA_ARGS__)
 #else
 #define KERROR(fmt, ...) do {} while (0)
 #endif
 
-#if LOG_LEVEL <= ZUZU_LOG_LEVEL_FATAL
+#if CONFIG_LOG_LEVEL <= ZUZU_LOG_LEVEL_FATAL
 #define KFATAL(fmt, ...) kprintf(ANSI_BOLD ANSI_GRAY "[%6llu FATAL]" ANSI_RESET LOG_FMT(fmt) "\n", (unsigned long long)GetTicks(), ##__VA_ARGS__)
 #else
 #define KFATAL(fmt, ...) do {} while (0)
