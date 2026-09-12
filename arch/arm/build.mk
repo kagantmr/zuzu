@@ -3,4 +3,4 @@ obj-y += context.o
 obj-y += early.o
 obj-y += vfp.o
 
-subdir-y += exceptions irq mmu timer
+subdir-y += boot exceptions irq mmu timer

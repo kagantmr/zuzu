@@ -1,18 +1,9 @@
-@ _start.s - ARMv7-A boot code for QEMU's `virt` machine.
+@ Shared ARMv7-A boot path. Board differences are six constants in
+@ <board>/boot.h plus two optional hooks in <board>/boot_hooks.S.
 @
-@ _start must be the very first thing in .text.boot: QEMU's raw-kernel
-@ direct-boot loader jumps to the first byte of the loaded image, not to
-@ any symbol (this bit vexpress-a15 once -- see its _start.S history).
-@
-@ virt has no on-board firmware of its own (it's a synthetic QEMU-only
-@ platform), so it boots the same way rpi4/vexpress-a15 do on QEMU's
-@ direct path: raw image, ARM Linux boot protocol (r2 = DTB), no
-@ bootloader needed. Electrically it's close to vexpress-a15 -- same GIC
-@ family ("arm,cortex-a15-gic"), same PL011 UART, same generic timer --
-@ just with RAM/peripherals at different addresses (RAM at 0x40000000, not
-@ 0x80000000) and no HYP entry in practice (QEMU enters this machine's
-@ 32-bit kernels straight into SVC), though the HYP-leave code below still
-@ handles it correctly if that ever changes.
+@ _start must be the very first thing in .text.boot: raw-image loaders (QEMU
+@ -kernel, the Pi firmware) jump to the first byte of the image, not to the
+@ ELF entry point. The linker script keeps it there.
 
 .section .text.boot, "ax"
 
@@ -22,8 +13,15 @@
 .equ MODE_SVC,        0x13
 .equ MODE_HYP,        0x1a
 #include <arch_impl/armv7_mmu.h>
+#include BOARD_BOOT_H
 .equ TTBR0_BOOT_ATTRS, TTBR_WALK_ATTRS
-.equ KERNEL_VA_OFFSET, 0x80000000
+
+@ Derived from the board's two base addresses -- a board that got these
+@ inconsistent with each other would fault in ways that are painful to debug.
+.equ VA_OFFSET_IDX,     (BOARD_KERNEL_VA_OFFSET >> 20)
+.equ RAM_LOW_IDX_BASE,  (BOARD_RAM_PA_BASE >> 20)
+.equ RAM_HIGH_IDX_BASE, (RAM_LOW_IDX_BASE + VA_OFFSET_IDX)
+.equ BOOTSTRAP_RAM_MB,  8
 
 .macro SET_MODE_STACK_PHYS mode, top_sym
     cps     #\mode
@@ -40,13 +38,10 @@
 .type _start, %function
 
 _start:
-    /* Physical setup */
-
     /* Disable interrupts */
     cpsid   if
 
-    /* Park any core that is not core 0. virt defaults to a single vCPU,
-     * but this costs nothing and covers a future -smp. */
+    /* Park any core that is not core 0. */
     mrc     p15, 0, r0, c0, c0, 5   @ MPIDR
     ands    r0, r0, #0xFF           @ Aff0 = core number
     beq     1f
@@ -66,11 +61,22 @@ _start:
     mov     r1, #0
     mcrr    p15, 4, r1, r1, c14     @ CNTVOFF = 0
 
-    mcr     p15, 4, r1, c1, c1, 0   @ no hypercalls/traps
-    mcr     p15, 4, r1, c1, c1, 1   @ no debug/PMU traps
-    mcr     p15, 4, r1, c1, c1, 2   @ no coprocessor/VFP traps
-    mcr     p15, 4, r1, c1, c1, 3   @ no CP15 traps
+    /* HYP trap controls reset to UNKNOWN. Nothing must trap to HYP after we
+     * leave it: a stray HCPTR.TCP10/11 would kill the kernel at its first VFP
+     * access, HDCR.TPM at the first PMU access, and so on. */
+    mcr     p15, 4, r1, c1, c1, 0   @ HCR   = 0 (no hypercalls/traps)
+    mcr     p15, 4, r1, c1, c1, 1   @ HDCR  = 0 (no debug/PMU traps)
+    mcr     p15, 4, r1, c1, c1, 2   @ HCPTR = 0 (no coprocessor/VFP traps)
+    mcr     p15, 4, r1, c1, c1, 3   @ HSTR  = 0 (no CP15 traps)
 
+    /* Board hook, still in HYP: last chance to touch HYP-only state.
+     * Must not touch the stack -- SP_hyp is whatever the firmware left, and a
+     * fault here happens before any console or HYP vectors exist, so it hangs
+     * silently. Contract: clobbers r1 only, preserves r0 (the CPSR we are
+     * about to edit), returns via bx lr. */
+    bl      board_hyp_setup
+
+    /* ERET into SVC with IRQ/FIQ masked */
     bic     r0, r0, #0x1F
     orr     r0, r0, #(MODE_SVC | 0xC0)
     msr     spsr_cxsf, r0           @ SPSR_hyp
@@ -79,19 +85,28 @@ _start:
     eret
 
 svc_entry:
-    /* Stash the bootloader's DTB pointer (ARM Linux boot protocol: r2 =
-     * DTB physical address) before r0-r3 get clobbered. r4 is
-     * callee-saved through everything below. */
+    /* Stash the loader's DTB pointer (ARM Linux boot protocol: r2 = DTB
+     * physical address) before r0-r3 get clobbered. r4 is callee-saved
+     * through everything below. */
     mov     r4, r2
 
-    /* Console up first so a bad DTB pointer can say so instead of
-     * silently mapping garbage. */
+    /* Stacks before the console: early_uart_init and the hooks below use bl. */
+    bl      setup_mode_stacks
+
+    /* Console up first so a bad DTB pointer can say so instead of silently
+     * mapping garbage. */
     bl      early_uart_init
 
-    /* Sanity-check r4 before trusting it as a DTB pointer: without -dtb,
-     * QEMU synthesizes an ATAG list instead of a DTB, and walking that as
-     * an FDT gives a garbage memory map and a crash three functions later
-     * in early.c. Fail loud immediately instead. */
+    /* "zu" now, "zu\n" once the MMU is on -- the only boot feedback on
+     * hardware with no debugger attached. */
+    mov     r0, #'z'
+    bl      early_uart_putc
+    mov     r0, #'u'
+    bl      early_uart_putc
+
+    /* Sanity-check r4 before trusting it as a DTB pointer: without a DTB,
+     * QEMU synthesizes an ATAG list instead, and walking that as an FDT gives
+     * a garbage memory map and a crash three functions later in early.c. */
     ldr     r0, [r4]
     ldr     r1, =0xedfe0dd0         @ FDT magic 0xd00dfeed, byte-swapped
                                      @ for a little-endian word load
@@ -100,30 +115,24 @@ svc_entry:
     bl      dtb_panic
 1:
 
-    /* Set up stacks for all modes (at physical addresses) */
-    bl      setup_mode_stacks
-
-    /* Do page table init in C code */
-    mov     r0, r4                  @ Pass DTB physical address
+    /* Page table init (r0 = DTB PA so its megabyte gets mapped) */
+    mov     r0, r4
     bl      early_paging_init       @ Returns L1 table physical address in r0
     mov     r5, r0                  @ Save TTBR0 base in r5
-
-    /* MMU enabling code */
 
     /* Set TTBCR = 0 (use TTBR0 for all addresses, N=0) */
     mov     r0, #0
     mcr     p15, 0, r0, c2, c0, 2   @ TTBCR = 0
     isb
 
-    /* Set TTBR0 to our page table base */
-    /* TTBR0[31:14] = table base, bits[13:0] = attributes */
-    /* Use inner/outer write-back, write-allocate cacheable */
+    /* TTBR0[31:14] = table base, bits[13:0] = attributes.
+     * Inner/outer write-back, write-allocate cacheable. */
     orr     r0, r5, #TTBR0_BOOT_ATTRS @ IRGN=0b11, S=1, RGN=0b01, NOS=1
     mcr     p15, 0, r0, c2, c0, 0   @ TTBR0 = r0
     isb
 
-    /* Set DACR: Domain 0 = Client (0b01), check permissions */
-    mov     r0, #0x1                @ Domain 0 = Client access
+    /* DACR: Domain 0 = Client (0b01), check permissions */
+    mov     r0, #0x1
     mcr     p15, 0, r0, c3, c0, 0   @ DACR = 0x1
     isb
 
@@ -156,25 +165,33 @@ svc_entry:
 .size _start, . - _start
 
 
+/* Default board hooks. A board overrides one by defining the same symbol
+ * strongly in its own boot_hooks.S; every object is passed to the link
+ * explicitly, so the strong definition wins. */
+.weak board_hyp_setup
+.type board_hyp_setup, %function
+board_hyp_setup:
+    bx      lr
+.size board_hyp_setup, . - board_hyp_setup
+
+.weak board_console_pinmux
+.type board_console_pinmux, %function
+board_console_pinmux:
+    bx      lr
+.size board_console_pinmux, . - board_console_pinmux
+
+
 /* Bootstrap L1: identity + higher-half sections for the first
- * BOOTSTRAP_RAM_MB of RAM, the megabyte holding the DTB, and the
- * peripheral block (identity only, for the early console). In: r0 = DTB
- * physical address. Out: r0 = L1 table physical address. r4 is never
- * touched here (the caller relies on it surviving this call unmodified —
- * see svc_entry) — r2 is this function's own table-base scratch register
- * instead. */
+ * BOOTSTRAP_RAM_MB of RAM, the megabyte holding the DTB (a bootloader may
+ * place it anywhere in RAM, not just within those 8 MB), and the peripheral
+ * block (identity only, for the early console). In: r0 = DTB physical
+ * address. Out: r0 = L1 table physical address. r4 is never touched here --
+ * the caller relies on it surviving, so r2 is the table-base scratch. */
 .global early_paging_init
 .type early_paging_init, %function
 
-.equ RAM_PA_BASE,        0x40000000
-.equ BOOTSTRAP_RAM_MB,   8
-.equ RAM_LOW_IDX_BASE,   0x400
-.equ RAM_HIGH_IDX_BASE,  0xC00
-.equ SECTION_NORMAL_DESC,L1_SECT_BOOT_NORMAL
-.equ SECTION_DEVICE_DESC,L1_SECT_BOOT_DEVICE
-.equ VA_OFFSET_IDX,      0x800     @ KERNEL_VA_OFFSET (0x80000000) >> 20
-.equ PERIPH_PA_BASE,     0x09000000 @ pl011 (0x9000000) + pl031 (0x9010000)
-.equ PERIPH_MB,          1
+.equ SECTION_NORMAL_DESC, L1_SECT_BOOT_NORMAL
+.equ SECTION_DEVICE_DESC, L1_SECT_BOOT_DEVICE
 
 early_paging_init:
     ldr     r2, =early_l1
@@ -190,7 +207,7 @@ early_paging_init:
     b       1b
 2:
     /* Map enough RAM to enter C; early.c expands this from the DTB. */
-    ldr     r7, =RAM_PA_BASE
+    ldr     r7, =BOARD_RAM_PA_BASE
     ldr     r8, =SECTION_NORMAL_DESC
     mov     r5, #0
     ldr     r10, =BOOTSTRAP_RAM_MB
@@ -206,10 +223,8 @@ early_paging_init:
     add     r5, r5, #1
     b       3b
 4:
-    /* Map two sections at the DTB (may straddle a 1MB boundary), identity
-     * and higher-half, so early() can parse it before the full RAM map.
-     * A real bootloader can place the DTB anywhere in RAM, not just
-     * within the first BOOTSTRAP_RAM_MB, e.g. near the top of RAM. */
+    /* Map two sections at the DTB (it may straddle a 1MB boundary), identity
+     * and higher-half, so early() can parse it before the full RAM map. */
     lsr     r11, r0, #20            @ DTB megabyte index (physical)
     mov     r5, #0
 5:
@@ -226,14 +241,13 @@ early_paging_init:
     b       5b
 6:
     /* Identity-map the peripheral block (device memory) so a C-level
-     * arch_early_putc override can poke the UART directly at its physical
-     * address after the MMU is on — this L1 entry survives the RAM
-     * identity unmap (which only clears RAM sections) and is carried into
-     * the kernel L1 by vmm_bootstrap. */
-    ldr     r7, =PERIPH_PA_BASE
+     * arch_early_putc can poke the UART at its physical address after the MMU
+     * is on -- this entry survives the RAM identity unmap (which only clears
+     * RAM sections) and is carried into the kernel L1 by vmm_bootstrap. */
+    ldr     r7, =BOARD_PERIPH_PA_BASE
     ldr     r8, =SECTION_DEVICE_DESC
     mov     r5, #0
-    ldr     r10, =PERIPH_MB
+    ldr     r10, =BOARD_PERIPH_MB
 7:
     cmp     r5, r10
     bge     8f
@@ -249,14 +263,11 @@ early_paging_init:
 .size early_paging_init, . - early_paging_init
 
 
-/* Minimal early PL011 console, physical/identity addressing only (MMU is
- * off here). Only exists to report a bad DTB pointer before anything else
- * can run; the real driver (drivers/uart/pl011.c) takes over post-MMU.
- * Address/clock are QEMU's virt model values (apb-pclk = 24MHz), not real
- * hardware -- this board is QEMU-only. */
+/* Minimal early PL011 console, physical/identity addressing only (the MMU is
+ * off here). Exists to report a bad DTB pointer before anything else can run;
+ * drivers/uart/pl011.c takes over post-MMU. */
 .section .text.boot, "ax"
 
-.equ UART0_BASE, 0x09000000
 .equ UART_DR,    0x00
 .equ UART_FR,    0x18
 .equ UART_IBRD,  0x24
@@ -267,14 +278,17 @@ early_paging_init:
 
 .type early_uart_init, %function
 early_uart_init:
-    ldr     r1, =UART0_BASE
+    push    {lr}
+    bl      board_console_pinmux    @ route pins to the UART, if the board must
+    pop     {lr}
+    ldr     r1, =BOARD_UART0_BASE
     mov     r0, #0
     str     r0, [r1, #UART_CR]
     ldr     r0, =0x7FF
     str     r0, [r1, #UART_ICR]
-    mov     r0, #13                 @ IBRD: 24e6 / (16 * 115200) = 13.02
+    mov     r0, #BOARD_UART_IBRD
     str     r0, [r1, #UART_IBRD]
-    mov     r0, #1                  @ FBRD: round(0.02 * 64)
+    mov     r0, #BOARD_UART_FBRD
     str     r0, [r1, #UART_FBRD]
     mov     r0, #0x70               @ LCRH: FEN | WLEN 8 (latches divisors)
     str     r0, [r1, #UART_LCRH]
@@ -283,10 +297,11 @@ early_uart_init:
     bx      lr
 .size early_uart_init, . - early_uart_init
 
-/* r0 = character. Clobbers r1, r2. */
+/* r0 = character. Clobbers r1, r2. Physical/identity addressing only. */
+.global early_uart_putc
 .type early_uart_putc, %function
 early_uart_putc:
-    ldr     r1, =UART0_BASE
+    ldr     r1, =BOARD_UART0_BASE
 1:
     ldr     r2, [r1, #UART_FR]
     tst     r2, #(1 << 5)           @ TXFF
@@ -336,7 +351,7 @@ setup_mode_stacks:
 .type setup_mode_stacks_higher_half, %function
 setup_mode_stacks_higher_half:
     /* VA = PA + KERNEL_VA_OFFSET */
-    ldr     r1, =KERNEL_VA_OFFSET
+    ldr     r1, =BOARD_KERNEL_VA_OFFSET
 
     SET_MODE_STACK_VIRT MODE_IRQ, __irq_stack_top__
     SET_MODE_STACK_VIRT MODE_ABT, __abt_stack_top__
@@ -353,8 +368,6 @@ setup_mode_stacks_higher_half:
 .type higher_half_entry, %function
 
 higher_half_entry:
-    /* post-MMU code */
-
     /* Clear BSS */
     ldr     r0, =_bss_start
     ldr     r1, =_bss_end
@@ -372,18 +385,29 @@ higher_half_entry:
     isb
 
     /* Relocate all mode stacks to higher-half VAs before entering C.
-     * Pre-MMU stacks were set to physical/identity addresses.
-     * After identity removal, those become invalid.
-     */
+     * Pre-MMU stacks were physical/identity addresses, which stop being
+     * valid once the identity map is removed. */
     bl      setup_mode_stacks_higher_half
 
-    /* Keep interrupts disabled until kernel IRQ/GIC init is complete */
+    /* Finish the "zuzu" progress word, then go quiet until the kernel console
+     * takes over. early_uart_putc lives in .text.boot at its physical address,
+     * out of BL range from the higher half, so call it absolutely through the
+     * still-live identity mapping. */
+    ldr     r3, =early_uart_putc
+    mov     r0, #'z'
+    blx     r3
+    mov     r0, #'u'
+    blx     r3
+    mov     r0, #'\n'
+    blx     r3
 
-    /* early call: r4 has held the DTB physical address since _start */
+    /* Interrupts stay disabled until kernel IRQ/GIC init is complete. */
+
+    /* early call: r4 has held the DTB physical address since svc_entry */
     mov     r0, r4
     bl      early                   @ Jump to C code
 3:
     wfi
-    b    3b
+    b       3b
 
 .size higher_half_entry, . - higher_half_entry

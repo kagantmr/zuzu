@@ -62,6 +62,7 @@ BOARD_DIR      = $(ARCH_DIR)/$(BOARD)
 include $(BOARD_DIR)/board.mk
 
 BOARD_LAYOUT_H = $(BOARD_DIR)/layout.h
+BOARD_BOOT_H   = $(BOARD_DIR)/boot.h
 LINKER_SCRIPT  = $(BOARD_DIR)/linker.ld
 DTB_FILE       = $(DTB_$(BOARD))
 
@@ -223,6 +224,7 @@ CFLAGS   = -ffreestanding -O$(CONFIG_CC_OPT_LEVEL) $(LTO_FLAG) -fno-omit-frame-p
            $(CPUFLAGS) $(INCLUDES) -Ivendor/libfdt -MMD -MP \
            -include $(KCONFIG_AUTOCONF) \
            -D__ZUZU__ -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"' \
+           -DBOARD_BOOT_H='"$(BOARD_BOOT_H)"' \
            -DZUZU_ELF_PATH='"$(TARGET)"'
 LDFLAGS  = -nostdlib -Wl,-T,$(LINKER_SCRIPT) -Wl,-Map=$(MAP) $(LTO_FLAG)
 
