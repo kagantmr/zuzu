@@ -38,11 +38,14 @@ static uint8_t txbuf_storage[UART_RINGBUF_MAX];
 
 static void uart_txraw(char c)
 {
-    if (!(uart->FR & FR_TXFF) && ring_avail(&txrb) == 0) {
-        uart->DR = (uint32_t)c;
-    } else if (ring_push(&txrb, (uint8_t)c) == 0) {
-        uart->IMSC |= IMSC_TXIM;
-    }
+    /* Poll TXFF rather than queueing behind TXIM. The TX interrupt is the only
+     * thing that drains txrb, so on a board where the UART IRQ never arrives
+     * output stops dead after the first FIFO-full -- one character, then
+     * silence, with the rest of the string stuck in the ring. Spinning costs a
+     * character time (~87us at 115200) and always works. */
+    while (uart->FR & FR_TXFF)
+        ;
+    uart->DR = (uint32_t)c;
 }
 
 static void uart_txbyte(char c)
@@ -53,6 +56,11 @@ static void uart_txbyte(char c)
     uart_txraw(c);
 }
 
+static void uart_puts(const char* s) {
+    while (*s) {
+        uart_txbyte(*s++);
+    }
+}
 static void drain_uart_rx_fifo(void)
 {
     while (!(uart->FR & FR_RXFE) && ring_full(&rxrb) == 0) {
@@ -247,6 +255,8 @@ int main(void)
         [H_IRQ]  = serial_irq_ntfn,
         [H_PORT] = client_port,
     };
+
+    uart_puts("pl011drv is up\n");
 
     while (1) {
         WaitanyResult r;
