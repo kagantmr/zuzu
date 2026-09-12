@@ -211,7 +211,7 @@ void __hot SysMemMap(CpuState *frame)
     uint32_t flags = (*arch_reg(frame, 3));
 
     if (unlikely(flags != 0)) { arch_reg_set(frame, 0, ERR_BADARG); return;}
-    if (unlikely(prot & ~(PROT_READ|PROT_WRITE|PROT_EXEC)))  { arch_reg_set(frame, 0, ERR_BADARG); return;}   /* rejects VM_PROT_USER */
+    if (unlikely(prot & (unsigned int)(~(PROT_READ|PROT_WRITE|PROT_EXEC))))  { arch_reg_set(frame, 0, ERR_BADARG); return;}   /* rejects VM_PROT_USER */
     if (unlikely((prot & PROT_WRITE) && (prot & PROT_EXEC)))  { arch_reg_set(frame, 0, ERR_BADARG); return;}
 
     VirtAddr va = 0;
