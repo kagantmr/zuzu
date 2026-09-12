@@ -27,7 +27,7 @@ static void __hot relay_handler(void *ctx)
     arch_irq_disable_line(irq_num);
 
     irq_owners[irq_num].pending = true;
-
+    kprintf("Delivering IRQ %d to %s", irq_num, irq_owners[irq_num].owner->name);
     NtfnObj *ntfn = irq_owners[irq_num].bound_ntfn;
     if (likely(ntfn && ntfn->alive)) {
         ntfn->word |= (1u << (irq_num & 31));
