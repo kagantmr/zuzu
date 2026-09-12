@@ -118,3 +118,16 @@ const FdtDevice *boot_info_dev_array(void)
 {
     return (const FdtDevice *)g_boot_info.devs;
 }
+
+const FdtDevice *boot_info_find_compatible(const char *const *compat)
+{
+    const FdtDevice *arr = boot_info_dev_array();
+    uint32_t cnt = boot_info_dev_count();
+    for (uint32_t i = 0; i < cnt; i++) {
+        for (const char *const *cp = compat; *cp; cp++) {
+            if (strcmp(arr[i].compatible, *cp) == 0)
+                return &arr[i];
+        }
+    }
+    return NULL;
+}
