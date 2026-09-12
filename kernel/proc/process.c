@@ -182,8 +182,18 @@ ProcessObj *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char 
 
         }
 
+        /* Publish the code through the kernel alias, not seg->vaddr: that is a
+         * VA in p->as, which is not the active translation regime here, and
+         * cache maintenance by VA takes a translation fault when the address
+         * does not translate (DFSR.CM). QEMU does not model that, so this only
+         * ever showed up on real hardware. The I-cache is invalidated whole
+         * rather than by VA for the same reason. */
         if ((prot & PROT_EXEC) && file_pages > 0)
-            arch_cache_flush_code_range((uintptr_t)seg->vaddr, file_pages * PAGE_SIZE);
+        {
+            for (uint32_t page = 0; page < file_pages; page++)
+                arch_cache_clean_dcache_range(PA_TO_VA(segment_pages[page]), PAGE_SIZE);
+            arch_cache_invalidate_icache_all();
+        }
 
 
         if (file_pages > 0)
