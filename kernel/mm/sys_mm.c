@@ -17,8 +17,6 @@
 #include "kernel/bench.h"
 #include <compiler.h>
 
-extern Thread *current_thread;
-
 #ifdef CONFIG_ZUZU_BENCH
 BENCH_STAT(g_bench_memmap, "SysMemMap call->return");
 
@@ -573,9 +571,24 @@ void SysAsInject(CpuState *frame)
 
         }
 
+        /* Publish through the kernel alias: DestVAddr belongs to target->as,
+         * which is not the active translation regime, and cache maintenance by
+         * VA faults when the address does not translate (DFSR.CM). Translating
+         * per page rather than using page_addrs[], which only tracks pages we
+         * allocated ourselves. */
         if (kargs.prot & PROT_EXEC)
-            arch_cache_flush_code_range(kargs.DestVAddr, page_count * PAGE_SIZE);
-        
+        {
+            for (size_t i = 0; i < page_count; i++)
+            {
+                PhysAddr pa = arch_mmu_translate(target->as->pt_root_physaddr,
+                                                 kargs.DestVAddr + i * PAGE_SIZE);
+                if (pa)
+                    arch_cache_clean_dcache_range(PA_TO_VA(pa), PAGE_SIZE);
+            }
+            arch_cache_invalidate_icache_all();
+        }
+
+
 
         if (!enclosing)
         {
