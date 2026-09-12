@@ -191,7 +191,9 @@ void SysIrqBind(CpuState *frame)
 
 void SysIrqDone(CpuState *frame)
 {
-    ArchDsb();
+    /* dsb sy: the driver's MMIO writes that quiesced the device must complete
+     * before we re-enable the line (see gic_end). */
+    ArchDsbSy();
 
     Handle dev_handle = (Handle)(*arch_reg(frame, 0));
 
