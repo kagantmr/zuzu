@@ -1259,6 +1259,13 @@ void SysWaitAny(CpuState *frame)
 
 		current_thread->wake_reason = WAKE_NONE;
 		current_thread->blocked_port = NULL;
+		/* r0 doubles as the wakeup signal channel on resume below (relay_handler
+		 * writes ntfn->word, cap_destroy writes ERR_DEAD). Until now it still
+		 * held this syscall's first argument -- the user's `handles` pointer --
+		 * so a waker that marked us READY without writing r0 left a stack
+		 * address masquerading as a wakeup code, which then leaked out as the
+		 * return value. Clear it so an unwritten channel reads as "nothing". */
+		arch_reg_set(frame, 0, ZUZU_OK);
 		current_thread->state = BLOCKED;
 #ifdef CONFIG_ZUZU_BENCH
 		/* Same stash used by SysNtfnObjWait: relay_handler's unblock (the
