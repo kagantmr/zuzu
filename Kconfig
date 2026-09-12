@@ -1,0 +1,76 @@
+mainmenu "zuzu kernel configuration"
+
+comment "Board is chosen with BOARD= on the make command line, not here."
+comment "Each board has its own .config under build/<arch>-<board>/."
+
+source "core/Kconfig"
+source "kernel/Kconfig"
+source "drivers/Kconfig"
+
+menu "Build options"
+
+choice
+	prompt "Kernel optimization level"
+	default CC_OPT_O3
+config CC_OPT_O0
+	bool "-O0 (no optimization)"
+config CC_OPT_O2
+	bool "-O2"
+config CC_OPT_O3
+	bool "-O3 (speed)"
+config CC_OPT_OS
+	bool "-Os (size)"
+config CC_OPT_OG
+	bool "-Og (debug-friendly)"
+endchoice
+
+config CC_OPT_LEVEL
+	string
+	default "0" if CC_OPT_O0
+	default "2" if CC_OPT_O2
+	default "3" if CC_OPT_O3
+	default "s" if CC_OPT_OS
+	default "g" if CC_OPT_OG
+
+choice
+	prompt "User program optimization level"
+	default USER_CC_OPT_OS
+config USER_CC_OPT_O2
+	bool "-O2"
+config USER_CC_OPT_OS
+	bool "-Os (size)"
+config USER_CC_OPT_OG
+	bool "-Og (debug-friendly)"
+endchoice
+
+config USER_CC_OPT_LEVEL
+	string
+	default "2" if USER_CC_OPT_O2
+	default "s" if USER_CC_OPT_OS
+	default "g" if USER_CC_OPT_OG
+
+config DEBUG_BUILD
+	bool "Debug build (-g, DEBUG defined, unstripped)"
+	default y
+	help
+	  Compiles with -g and defines DEBUG. With this off the kernel is
+	  built -DNDEBUG and the final ELF is stripped.
+
+config LTO
+	bool "Link-time optimization"
+	default n
+	help
+	  Whole-program inlining at link time, independent of the optimization
+	  level: a function with one call site can be fully inlined and lose
+	  its standalone symbol even at -O0, making it unbreakpointable. Turn
+	  this off if a function you want to break on has vanished.
+
+	  Note the kernel symbol table is generated between two link passes;
+	  under LTO the second pass can re-optimize differently, so backtrace
+	  addresses are not guaranteed accurate.
+
+config UBSAN
+	bool "Undefined behaviour sanitizer"
+	default n
+
+endmenu

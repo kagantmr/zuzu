@@ -21,7 +21,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 
-#ifdef PANIC_SECTION_IRQ
+#ifdef CONFIG_PANIC_SECTION_IRQ
 #include "kernel/irq/sys_irq.h"
 extern irq_handler_t      handler_table[MAX_IRQS];
 #endif
@@ -486,10 +486,10 @@ static void panic_print_backtrace(backtrace_t *bt)
 }
 
 /* ------------------------------------------------------------------ */
-/* CURRENT PROCESS  (PANIC_SECTION_PROCESS)                           */
+/* CURRENT PROCESS  (CONFIG_PANIC_SECTION_PROCESS)                           */
 /* ------------------------------------------------------------------ */
 
-#ifdef PANIC_SECTION_PROCESS
+#ifdef CONFIG_PANIC_SECTION_PROCESS
 static void panic_print_process(void)
 {
     char line[LINE_BUF];
@@ -603,13 +603,13 @@ static void panic_print_process(void)
         panic_line(line);
     }
 }
-#endif /* PANIC_SECTION_PROCESS */
+#endif /* CONFIG_PANIC_SECTION_PROCESS */
 
 /* ------------------------------------------------------------------ */
-/* SCHEDULER  (PANIC_SECTION_SCHEDULER)                               */
+/* SCHEDULER  (CONFIG_PANIC_SECTION_SCHEDULER)                               */
 /* ------------------------------------------------------------------ */
 
-#ifdef PANIC_SECTION_SCHEDULER
+#ifdef CONFIG_PANIC_SECTION_SCHEDULER
 static void panic_print_sched(void)
 {
     char line[LINE_BUF];
@@ -685,13 +685,13 @@ static void panic_print_sched(void)
         }
     }
 }
-#endif /* PANIC_SECTION_SCHEDULER */
+#endif /* CONFIG_PANIC_SECTION_SCHEDULER */
 
 /* ------------------------------------------------------------------ */
-/* IRQ / GIC  (PANIC_SECTION_IRQ)                                     */
+/* IRQ / GIC  (CONFIG_PANIC_SECTION_IRQ)                                     */
 /* ------------------------------------------------------------------ */
 
-#ifdef PANIC_SECTION_IRQ
+#ifdef CONFIG_PANIC_SECTION_IRQ
 static void panic_print_irq(void)
 {
     char line[LINE_BUF];
@@ -785,13 +785,13 @@ static void panic_print_irq(void)
     if (!any_pending)
         panic_line("  (none)");
 }
-#endif /* PANIC_SECTION_IRQ */
+#endif /* CONFIG_PANIC_SECTION_IRQ */
 
 /* ------------------------------------------------------------------ */
-/* MEMORY  (PANIC_SECTION_MEMORY)                                     */
+/* MEMORY  (CONFIG_PANIC_SECTION_MEMORY)                                     */
 /* ------------------------------------------------------------------ */
 
-#ifdef PANIC_SECTION_MEMORY
+#ifdef CONFIG_PANIC_SECTION_MEMORY
 static void panic_print_memory(void)
 {
     char line[LINE_BUF];
@@ -834,7 +834,7 @@ static void panic_print_memory(void)
         }
     }
 }
-#endif /* PANIC_SECTION_MEMORY */
+#endif /* CONFIG_PANIC_SECTION_MEMORY */
 
 /* ================================================================== */
 /* Entry point                                                         */
@@ -853,16 +853,16 @@ static void panic_screen(const char *reason, void *caller_ra)
     backtrace_walk(&bt);
     panic_print_backtrace(&bt);
 
-#ifdef PANIC_SECTION_PROCESS
+#ifdef CONFIG_PANIC_SECTION_PROCESS
     panic_print_process();
 #endif
-#ifdef PANIC_SECTION_SCHEDULER
+#ifdef CONFIG_PANIC_SECTION_SCHEDULER
     panic_print_sched();
 #endif
-#ifdef PANIC_SECTION_IRQ
+#ifdef CONFIG_PANIC_SECTION_IRQ
     panic_print_irq();
 #endif
-#ifdef PANIC_SECTION_MEMORY
+#ifdef CONFIG_PANIC_SECTION_MEMORY
     panic_print_memory();
 #endif
 

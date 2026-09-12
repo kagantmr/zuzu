@@ -95,3 +95,6 @@ docs/groups.dox
 
 # Pi firmware, fetched with `make rpi4-firmware` (not vendored).
 firmware/
+
+__pycache__/
+*.pyc

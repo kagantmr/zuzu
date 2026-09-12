@@ -3,18 +3,16 @@
 # ---- user (tier-1, zuzu libc) flags ----------------------------------------
 USER_LIBGCC = $(shell $(USER_CC) $(CPUFLAGS) $(ARCH_USER_FP) -print-libgcc-file-name)
 
-USER_CFLAGS  = -ffreestanding -nostdlib -O$(USER_OPTIMIZATION_LEVEL) -Wall -Wextra -Wshadow \
+USER_CFLAGS  = -ffreestanding -nostdlib -O$(CONFIG_USER_CC_OPT_LEVEL) -Wall -Wextra -Wshadow \
                $(CPUFLAGS) $(INCLUDES) -MMD -MP -g $(ARCH_USER_FP) \
-               -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"' -DLOG_LEVEL=$(LOG_LEVEL)
+               -include $(KCONFIG_AUTOCONF) \
+               -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"'
 USER_LDFLAGS = -nostdlib -Wl,-T,user/user.ld
 
-ifeq ($(DEBUG_BUILD), 1)
+ifeq ($(CONFIG_DEBUG_BUILD),y)
     USER_CFLAGS += -DDEBUG
 else
     USER_CFLAGS += -DNDEBUG
-endif
-ifneq ($(ZUZU_BENCH), 0)
-    USER_CFLAGS += -DZUZU_BENCH
 endif
 
 # ---- tier-2 (newlib) flags --------------------------------------------------
@@ -22,9 +20,10 @@ endif
 # This dir exposes zuzu/ alone. (Goes away with the klib/ split.)
 NEWLIB_INC = build/newlib-include
 
-NEWLIB_USER_CFLAGS = -O$(USER_OPTIMIZATION_LEVEL) -Wall -Wextra -mthumb \
+NEWLIB_USER_CFLAGS = -O$(CONFIG_USER_CC_OPT_LEVEL) -Wall -Wextra -mthumb \
                      $(CPUFLAGS) -I. -I$(NEWLIB_INC) -Iarch/include -Iarch/$(ARCH)/include \
                      -MMD -MP -g $(ARCH_USER_FP) \
+                     -include $(KCONFIG_AUTOCONF) \
                      -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"'
 
 # C-only additions: -include force-includes C declarations, which breaks
@@ -166,33 +165,33 @@ $(NEWLIB_INC)/dirent.h:
 
 NEWLIB_INC_STAMPS = $(NEWLIB_INC)/zuzu $(NEWLIB_INC)/dirent.h
 
-$(O)/user/newlib_apps/%.o: user/newlib_apps/%.c $(FLAGS_STAMP) $(NEWLIB_INC_STAMPS)
+$(O)/user/newlib_apps/%.o: user/newlib_apps/%.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF) $(NEWLIB_INC_STAMPS)
 	$(call check-newlib-toolchain)
 	@mkdir -p $(dir $@)
 	@echo "  CC[nl]  $<"
 	@$(NEWLIB_CC) $(NEWLIB_USER_CFLAGS_C) -c $< -o $@
 	@$(call record-cmd,$(NEWLIB_CC) $(NEWLIB_USER_CFLAGS_C) -c $< -o $@)
 
-$(O)/lib/posix/%.o: lib/posix/%.c $(FLAGS_STAMP) $(NEWLIB_INC_STAMPS)
+$(O)/lib/posix/%.o: lib/posix/%.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF) $(NEWLIB_INC_STAMPS)
 	$(call check-newlib-toolchain)
 	@mkdir -p $(dir $@)
 	@echo "  CC[nl]  $<"
 	@$(NEWLIB_CC) $(NEWLIB_USER_CFLAGS_C) -c $< -o $@
 	@$(call record-cmd,$(NEWLIB_CC) $(NEWLIB_USER_CFLAGS_C) -c $< -o $@)
 
-$(O)/user/%.o: user/%.c $(FLAGS_STAMP)
+$(O)/user/%.o: user/%.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
 	@mkdir -p $(dir $@)
 	@echo "  CC      $<"
 	@$(USER_CC) $(USER_CFLAGS) -c $< -o $@
 	@$(call record-cmd,$(USER_CC) $(USER_CFLAGS) -c $< -o $@)
 
-$(O)/user/zcrt/%.o: %.c $(FLAGS_STAMP)
+$(O)/user/zcrt/%.o: %.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
 	@mkdir -p $(dir $@)
 	@echo "  CC      $<"
 	@$(USER_CC) $(USER_CFLAGS) -c $< -o $@
 	@$(call record-cmd,$(USER_CC) $(USER_CFLAGS) -c $< -o $@)
 
-$(O)/user/zcrt/%.o: %.S $(FLAGS_STAMP)
+$(O)/user/zcrt/%.o: %.S $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
 	@mkdir -p $(dir $@)
 	@echo "  AS      $<"
 	@$(USER_CC) $(USER_CFLAGS) -x assembler-with-cpp -c $< -o $@

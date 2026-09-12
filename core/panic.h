@@ -31,10 +31,10 @@ extern panic_fault_context_t panic_fault_ctx;
  * Uses polled UART only.
  *
  * Optional sections (default all on, disable by passing 0 to make):
- *   PANIC_SECTION_PROCESS    current process, handles, trapframe, IPC
- *   PANIC_SECTION_SCHEDULER  run queue, sleep queue
- *   PANIC_SECTION_IRQ        GIC enabled/pending lines, IRQ owners
- *   PANIC_SECTION_MEMORY     PMM, heap, kernel stack
+ *   CONFIG_PANIC_SECTION_PROCESS    current process, handles, trapframe, IPC
+ *   CONFIG_PANIC_SECTION_SCHEDULER  run queue, sleep queue
+ *   CONFIG_PANIC_SECTION_IRQ        GIC enabled/pending lines, IRQ owners
+ *   CONFIG_PANIC_SECTION_MEMORY     PMM, heap, kernel stack
  *
  * Does not return.
  */

@@ -19,7 +19,7 @@
 
 extern Thread *current_thread;
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 BENCH_STAT(g_bench_memmap, "SysMemMap call->return");
 
 /* Standalone VmmCheckUserFault microbench: called alone (no memcpy, no
@@ -203,7 +203,7 @@ static int32_t memmap_dev(ProcessObj *restrict p, HandleEntry *restrict e, MemPr
 
 void __hot SysMemMap(CpuState *frame)
 {
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
     uint32_t bench_start = BENCH_BEGIN();
 #endif
     ProcessObj *p = current_thread->owner_process;
@@ -222,7 +222,7 @@ void __hot SysMemMap(CpuState *frame)
     if (likely(handle == HANDLE_ANON))
     {
         rc = memmap_anon(p, 0, size, prot, &va); /* hint dies at step D */
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
         /* Needs >= 2 pages so the 4KB check can start mid-page-one and
          * genuinely cross into page two rather than just sitting inside it. */
         if (rc == ZUZU_OK && size >= 2 * PAGE_SIZE) {
@@ -284,7 +284,7 @@ void __hot SysMemMap(CpuState *frame)
     }
 
     (*arch_reg(frame, 0)) = (rc == ZUZU_OK) ? (uint32_t)va : (uint32_t)rc;
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
     BENCH_END(g_bench_memmap, bench_start);
 #endif
     return;

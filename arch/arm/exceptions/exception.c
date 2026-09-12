@@ -20,7 +20,7 @@
 #include <stdint.h>
 #include <snprintf.h>
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 BENCH_STAT(g_bench_lazy_map_fault, "lazy-map translation fault");
 #endif
 
@@ -361,7 +361,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
 
     case EXC_DATA_ABORT:
     {
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
         uint32_t bench_start = BENCH_BEGIN();
 #endif
 
@@ -406,7 +406,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
              * below is the actually-unlikely case. */
             if (likely(is_translation && dfar < KERNEL_VA_BASE)
                 && try_demand_page(current_process, dfar, dfsr)) {
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
                 BENCH_END(g_bench_lazy_map_fault, bench_start);
 #endif
                 return;
@@ -425,7 +425,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
                  && dfar < KERNEL_VA_BASE)
         {
             if (is_translation && try_demand_page(current_process, dfar, dfsr)) {
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
                 BENCH_END(g_bench_lazy_map_fault, bench_start);
 #endif
                 return;
