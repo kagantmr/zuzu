@@ -1127,6 +1127,9 @@ static int __attribute__((noinline)) WaitanyPrepareWait(Thread *self,
 			list_remove(p);
 	}
 
+	self->waitany_wait_match_index = WAITANY_NO_MATCH;
+	self->waitany_port_wait_match_index = WAITANY_NO_MATCH;
+
 	/* Enqueue on notification wait queues */
 	if (wait_count > 0) {
 		self->waitany_wait_count = wait_count;
