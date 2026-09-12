@@ -15,7 +15,9 @@
 #include "kernel/dev/fdt_wrappers.h"
 #include "kernel/mm/vmm.h"
 #include "kernel/boot_info.h"
+#ifdef CONFIG_UART_PL011
 #include "drivers/uart/pl011.h"
+#endif
 #include "drivers/uart/uart.h"
 #include <arch/platform.h>
 #include "arch/arm/include/gicv2.h"
@@ -30,16 +32,16 @@
 
 uint32_t rtc_epoch;
 
-#define EARLY_UART      ((volatile uint32_t *)0x09000000u)
+#define EARLY_UART_BASE ((volatile uint32_t *)0x09000000u)
 #define EARLY_UART_FR   (0x18u / 4u)
 #define EARLY_UART_TXFF (1u << 5)
 
 void arch_early_putc(char c) {
     if (c == '\n')
         arch_early_putc('\r');
-    while (EARLY_UART[EARLY_UART_FR] & EARLY_UART_TXFF)
+    while (EARLY_UART_BASE[EARLY_UART_FR] & EARLY_UART_TXFF)
         ;
-    EARLY_UART[0] = (uint32_t)(uint8_t)c;
+    EARLY_UART_BASE[0] = (uint32_t)(uint8_t)c;
 }
 
 // Find the first DTB device whose compatible string matches any entry in the
@@ -57,7 +59,9 @@ static const FdtDevice *find_dev(const char *const *compat) {
 }
 
 // Compatible strings, ordered most-to-least preferred where it matters.
+#ifdef CONFIG_UART_PL011
 static const char *const PL011_COMPAT[] = { "arm,pl011", NULL };
+#endif
 static const char *const GIC_COMPAT[]   = { "arm,gic-400", "arm,cortex-a15-gic",
                                             "arm,gic-v2", NULL };
 static const char *const PL031_COMPAT[] = { "arm,pl031", NULL };
@@ -65,6 +69,7 @@ static const char *const PL031_COMPAT[] = { "arm,pl031", NULL };
 void arch_platform_init_devices(void) {
     const FdtDevice *d;
 
+#ifdef CONFIG_UART_PL011
     // UART (PL011).
     if ((d = find_dev(PL011_COMPAT))) {
         void *uart_va = IoRemap((uintptr_t)d->phys, (size_t)d->size);
@@ -75,6 +80,7 @@ void arch_platform_init_devices(void) {
 
         KDEBUG("UART re-mapped to %p", uart_va);
     }
+#endif
 
     // Interrupt controller (GICv2 family).
     if (!(d = find_dev(GIC_COMPAT))) panic("GIC not found");

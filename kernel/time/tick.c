@@ -9,7 +9,10 @@ static volatile Tick tick_count = 0;
 static TickCb tick_callback = NULL;
 extern void SyspageUpdateUptime(void);
 
-#ifdef TIME_MEASURE
+#ifdef CONFIG_TIME_MEASURE
+#define LOG_FMT(fmt) "(tick) " fmt
+#include "core/log.h"
+
 uint32_t ctx_switch_start = 0;
 uint32_t ctx_switch_cost = 0;
 #endif
@@ -41,7 +44,7 @@ void tick_announce(void)
     {
         tick_callback();
     }
-#ifdef TIME_MEASURE
+#ifdef CONFIG_TIME_MEASURE
     if (tick_count % 1000 == 0)
     {
         KDEBUG("Context switch start: %u, cost: %u", ctx_switch_start, ctx_switch_cost);

@@ -22,7 +22,7 @@
 
 extern kernel_layout_t kernel_layout;
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 
 #include "kernel/bench.h"
 
@@ -44,11 +44,11 @@ static void LmsgBufCopy(Thread *restrict src, Thread *restrict dst, uint32_t len
 	const void *srcp = (const void *)PA_TO_VA(src->lmsg_buf_phys_addr);
 	void *dstp = (void *)PA_TO_VA(dst->lmsg_buf_phys_addr);
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 	uint32_t bench_start = BENCH_BEGIN();
 #endif
 	memcpy(dstp, srcp, len);
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 	BENCH_END(g_bench_ipc_buf_copy_memcpy, bench_start);
 
 	/* Swap-test: hand-rolled word-copy loop timed against the same source
@@ -130,7 +130,7 @@ static __hot inline void IpcWakeThread(Thread *t)
 	SchedAdd(t);
 }
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 BENCH_STAT(g_bench_handle_lookup, "handle table lookup");
 BENCH_STAT(g_bench_direct_handoff, "IPC direct-switch handoff");
 #endif
@@ -146,11 +146,11 @@ static HandleEntry *__hot ValidatePortHandle(ProcessObj *proc, Handle handle, Cp
 		arch_reg_set(frame, 0, ERR_BADARG);
 		return NULL;
 	}
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 	uint32_t bench_start = BENCH_BEGIN();
 #endif
 	HandleEntry *entry = HandleTableGet(&proc->handle_table, (uint32_t)handle);
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 	BENCH_END(g_bench_handle_lookup, bench_start);
 #endif
 	if (unlikely(!entry)) {
@@ -504,7 +504,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 	 * of the direct-handoff optimization below): the receiver is already
 	 * parked in ZuzuMsgRecv waiting when the call lands. */
 	if (likely(!list_empty(&port->receiver_queue))) {
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 		/* Direct-switch handoff branch only (not the block/enqueue branch
 		 * below): from the port handle already resolved above, through
 		 * the receiver's trap frame being written and its unblock decided. */
@@ -572,7 +572,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		}
 		CancelTimeout(rx_thread);
 		rx_thread->wake_reason = WAKE_IPC;
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 		BENCH_END(g_bench_direct_handoff, bench_start);
 #endif
 
@@ -972,7 +972,7 @@ static int WaitanyDeliverSender(uint32_t matched_index, Thread *receiver, ListNo
 	return ERR_BADARG;
 }
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 BENCH_STAT(g_bench_waitany_validate, "WaitAny: handle validation");
 BENCH_STAT(g_bench_waitany_deliver, "WaitAny: deliver+wake");
 #endif
@@ -990,7 +990,7 @@ static int WaitanyTryOnce(const Handle *handles, uint32_t count, WaitanyResult *
 	if (wait_ep_count_out)
 		*wait_ep_count_out = 0;
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 	uint32_t bench_start = BENCH_BEGIN();
 #endif
 	for (uint32_t i = 0; i < count; i++) {
@@ -1033,7 +1033,7 @@ static int WaitanyTryOnce(const Handle *handles, uint32_t count, WaitanyResult *
 		arch_reg_set(current_thread->trap_frame, 0, ERR_BADTYPE);
 		return ERR_BADTYPE;
 	}
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 	BENCH_END(g_bench_waitany_validate, bench_start);
 	bench_start = BENCH_BEGIN();
 #endif
@@ -1042,7 +1042,7 @@ static int WaitanyTryOnce(const Handle *handles, uint32_t count, WaitanyResult *
 		if (endpoints[i] && !list_empty(&endpoints[i]->sender_queue)) {
 			ListNode *sender = list_pop_front(&endpoints[i]->sender_queue);
 			int rc = WaitanyDeliverSender(i, current_thread, sender, result);
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 			BENCH_END(g_bench_waitany_deliver, bench_start);
 #endif
 			return rc;
@@ -1055,7 +1055,7 @@ static int WaitanyTryOnce(const Handle *handles, uint32_t count, WaitanyResult *
 			uint32_t bits = ntfn->word;
 			ntfn->word = 0;
 			WaitanyDeliverNtfn(i, bits, result);
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 			BENCH_END(g_bench_waitany_deliver, bench_start);
 #endif
 			return 0;
@@ -1260,7 +1260,7 @@ void SysWaitAny(CpuState *frame)
 		current_thread->wake_reason = WAKE_NONE;
 		current_thread->blocked_port = NULL;
 		current_thread->state = BLOCKED;
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 		/* Same stash used by SysNtfnObjWait: relay_handler's unblock (the
 		 * IRQ-driven wake path) doesn't care which syscall queued this
 		 * thread's thread_wait_slot_t on the ntfn's wait_queue. */

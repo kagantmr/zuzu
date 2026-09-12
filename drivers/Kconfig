@@ -1,0 +1,12 @@
+menu "Device drivers"
+
+comment "Selected drivers must match the board; the DTB decides what is probed."
+
+config UART_PL011
+	bool "ARM PL011 UART"
+	default y
+	help
+	  The console UART on every board zuzu currently supports. Turning this
+	  off leaves the kernel with no console driver.
+
+endmenu

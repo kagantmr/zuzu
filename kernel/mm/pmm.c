@@ -23,7 +23,7 @@
 #define LOW_WATER_PCT 20  // fire when free < 20%
 #define HIGH_WATER_PCT 30 // clear when free > 30%
 
-#ifdef PMM_TRACE
+#ifdef CONFIG_PMM_TRACE
 #include <core/ksym.h>
 
 /* Attributes a trace line to the process making the call. Declared here
@@ -382,7 +382,7 @@ PhysAddr PmmAllocFrame(void)
     if (pa != 0) {
         SyspageUpdateMem();
     }
-#ifdef PMM_TRACE
+#ifdef CONFIG_PMM_TRACE
     KTRACE("alloc_page pa=%p pid=%u caller: %s", (void *)pa, current_pid_or_zero(),
            ksym_lookup((uint32_t)__builtin_return_address(0)));
 #endif
@@ -437,7 +437,7 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
                 assert(pfn >= pmm_state.pfn_base && (pfn + n_frames) <= pmm_state.pfn_end);
                 SyspageUpdateMem(); // update free memory info in syspage
                 PmmKEventSignalUnderLock();
-#ifdef PMM_TRACE
+#ifdef CONFIG_PMM_TRACE
                 KTRACE("alloc_pages n=%zu pa=%p pid=%u scanned=%zu caller: %s", n_frames,
                        (void *)addr, current_pid_or_zero(), index + 1,
                        ksym_lookup((uint32_t)__builtin_return_address(0)));
@@ -449,7 +449,7 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
         }
     }
 
-#ifdef PMM_TRACE
+#ifdef CONFIG_PMM_TRACE
     KTRACE("alloc_pages n=%zu FAILED pid=%u scanned=%zu caller: %s", n_frames,
            current_pid_or_zero(), total_pages, ksym_lookup((uint32_t)__builtin_return_address(0)));
 #endif
@@ -458,7 +458,7 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
 
 void PmmFreeFrame(const PhysAddr addr)
 {
-#ifdef PMM_TRACE
+#ifdef CONFIG_PMM_TRACE
     KTRACE("free_page pa=%p pid=%u caller: %s", (void *)addr, current_pid_or_zero(),
            ksym_lookup((uint32_t)__builtin_return_address(0)));
 #endif
@@ -507,7 +507,7 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
     }
     if (align_frames == 0)
         align_frames = 1;
-#ifdef PMM_TRACE
+#ifdef CONFIG_PMM_TRACE
     KTRACE("alloc_pages_aligned n=%zu align=%zu pid=%u caller: %s", n_frames, align_frames,
            current_pid_or_zero(), ksym_lookup((uint32_t)__builtin_return_address(0)));
 #endif
@@ -561,7 +561,7 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
 
                 SyspageUpdateMem(); // update free memory info in syspage
                 PmmKEventSignalUnderLock();
-#ifdef PMM_TRACE
+#ifdef CONFIG_PMM_TRACE
                 KTRACE("alloc_pages_aligned n=%zu pa=%p pid=%u scanned=%zu caller: %s", n_frames,
                        (void *)start_pa, current_pid_or_zero(), index + 1,
                        ksym_lookup((uint32_t)__builtin_return_address(0)));
@@ -574,7 +574,7 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
         }
     }
 
-#ifdef PMM_TRACE
+#ifdef CONFIG_PMM_TRACE
     KTRACE("alloc_pages_aligned n=%zu FAILED pid=%u scanned=%zu caller: %s", n_frames,
            current_pid_or_zero(), total_pages, ksym_lookup((uint32_t)__builtin_return_address(0)));
 #endif
@@ -583,7 +583,7 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
 
 size_t PmmAllocFramesScattered(const size_t n_frames, PhysAddr *out_addrs)
 {
-#ifdef PMM_TRACE
+#ifdef CONFIG_PMM_TRACE
     KTRACE("alloc_pages_scattered n=%zu pid=%u caller: %s", n_frames, current_pid_or_zero(),
            ksym_lookup((uint32_t)__builtin_return_address(0)));
 #endif

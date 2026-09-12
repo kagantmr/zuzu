@@ -27,7 +27,7 @@
 
 extern kernel_layout_t kernel_layout;
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 /* CopyToUser/CopyFromUser bracketed in two halves: the VmmCheckUserFault
  * page walk (TLB/cache-miss dominated, lazy-fault path included) and the
  * memcpy itself -- splits "walk" from "copy" so a slow round trip can be
@@ -115,18 +115,18 @@ bool CopyToUser(void *restrict uaddr, const void *restrict kaddr, size_t len)
         return false;
     if (!validate_user_ptr((uintptr_t)uaddr, len))
         return false;
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
     uint32_t bench_start = BENCH_BEGIN();
 #endif
     if (!VmmCheckUserFault(current_thread->owner_process->as, (uintptr_t)uaddr, len, true))
         return false;
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
     BENCH_END(g_bench_copytouser_walk, bench_start);
     bench_start = BENCH_BEGIN();
 #endif
 
     memcpy(uaddr, kaddr, len);
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
     BENCH_END(g_bench_copytouser_copy, bench_start);
 #endif
     return true;
@@ -140,18 +140,18 @@ bool CopyFromUser(void *restrict kaddr, const void *restrict uaddr, size_t len)
         return false;
     if (!validate_user_ptr((uintptr_t)uaddr, len))
         return false;
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
     uint32_t bench_start = BENCH_BEGIN();
 #endif
     if (!VmmCheckUserFault(current_thread->owner_process->as, (uintptr_t)uaddr, len, false))
         return false;
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
     BENCH_END(g_bench_copyfromuser_walk, bench_start);
     bench_start = BENCH_BEGIN();
 #endif
 
     memcpy(kaddr, uaddr, len);
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
     BENCH_END(g_bench_copyfromuser_copy, bench_start);
 #endif
     return true;

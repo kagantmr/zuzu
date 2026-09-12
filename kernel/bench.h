@@ -1,15 +1,15 @@
-// kernel/bench.h - PMCCNTR min/avg/max instrumentation for ZUZU_BENCH builds.
+// kernel/bench.h - PMCCNTR min/avg/max instrumentation for CONFIG_ZUZU_BENCH builds.
 //
 // Each measurement point declares a BENCH_STAT() at file scope, brackets the
 // code under test with BENCH_BEGIN()/BENCH_END(), and gets a one-line
 // min/avg/max summary printed to the kernel console the moment the warm-up
 // is discarded and BENCH_ITERS samples have been collected. Nothing here
-// exists outside ZUZU_BENCH builds.
+// exists outside CONFIG_ZUZU_BENCH builds.
 
 #ifndef ZUZU_KERNEL_BENCH_H
 #define ZUZU_KERNEL_BENCH_H
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 
 #include <arch/cycles.h>
 #include <stdbool.h>
@@ -59,6 +59,6 @@ static inline void bench_record(BenchStat *s, uint32_t cycles)
 #define BENCH_BEGIN() ArchMeasure()
 #define BENCH_END(stat, start_val) bench_record(&(stat), ArchMeasure() - (start_val))
 
-#endif /* ZUZU_BENCH */
+#endif /* CONFIG_ZUZU_BENCH */
 
 #endif /* ZUZU_KERNEL_BENCH_H */

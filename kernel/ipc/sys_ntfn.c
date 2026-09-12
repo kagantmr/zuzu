@@ -3,9 +3,9 @@
 #include "kernel/sched/sched.h"
 #include "kernel/syscall/syscall.h"
 #include <arch/timer.h>
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 #include "kernel/bench.h"
-#endif /* ZUZU_BENCH */
+#endif /* CONFIG_ZUZU_BENCH */
 
 #include "ntfn.h"
 #include "handle.h"
@@ -120,13 +120,13 @@ void SysNtfnWait(CpuState *frame)
     current_thread->ntfn_wait_slot.node.prev = NULL;
     current_thread->ntfn_wait_slot.node.next = NULL;
     list_add_tail(&current_thread->ntfn_wait_slot.node, &ntfn->wait_queue.node);
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
     /* Stashed on the thread, not a local: schedule() below may not return
      * to this stack frame for a long time (other threads run first), so
      * the matching read has to happen wherever this thread is actually
      * unblocked (kernel/irq/sys_irq.c's relay_handler), not here. */
     current_thread->bench_irq_wait_start = BENCH_BEGIN();
-#endif /* ZUZU_BENCH */
+#endif /* CONFIG_ZUZU_BENCH */
 
     if (timeout_ms != TIMEOUT_INFINITE) {
         current_thread->wake_deadline = ArchDeadlineFromMs(timeout_ms);

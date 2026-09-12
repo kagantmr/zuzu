@@ -1,0 +1,25 @@
+menu "Kernel debugging"
+
+config PMM_TRACE
+	bool "Trace physical memory allocations"
+	default n
+
+config TIME_MEASURE
+	bool "Timing instrumentation"
+	default n
+	help
+	  Changes generated code on hot paths. Off in anything you intend to
+	  benchmark against a production build.
+
+config ZUZU_BENCH
+	bool "PMCCNTR min/avg/max instrumentation (currently does not build)"
+	default n
+	help
+	  Fixed measurement points (kernel/bench.h). Compiled out entirely when
+	  off, so a production build carries no footprint.
+
+	  Known broken: kernel/ipc/sys_msg.c fails to compile with this on, at
+	  a -Wcast-align violation and a wait_count use outside its scope. Both
+	  predate the Kconfig migration (reproduced at 70216f4).
+
+endmenu

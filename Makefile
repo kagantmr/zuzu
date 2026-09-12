@@ -34,47 +34,21 @@ ifeq ($(filter $(BOARD),$(BOARDS)),)
 $(error unknown BOARD '$(BOARD)' for ARCH '$(ARCH)'; valid boards: $(BOARDS))
 endif
 
-# ---- build knobs ----------------------------------------------------------
-OPTIMIZATION_LEVEL      ?= 3
-USER_OPTIMIZATION_LEVEL ?= s
-DEBUG_BUILD             ?= 1
-# LTO does cross-TU whole-program inlining at link time, independent of
-# OPTIMIZATION_LEVEL: a function with a single call site (e.g. dtb_init(),
-# called only from early.c) can get fully inlined and lose its standalone
-# symbol even at -O0, making it unbreakpointable. Set LTO=0 for a debug
-# build if a function you want to break on has vanished from the disasm.
-LTO                     ?= 0
-DTB_DEBUG_WALK          ?= 0
-EARLY_UART              ?= 0
-TIME_MEASURE            ?= 0
-PMM_TRACE               ?= 0
-UBSAN                   ?= 0
-# Set by `make analyze` (as ANALYZE=1) to swap -Werror for -fanalyzer; never
-# set this directly. Needs an explicit default like every other knob here --
-# left unset, kernel.mk's `ifneq ($(ANALYZE), 0)` would read empty != 0 as
-# true and silently run every build in analyzer mode.
-ANALYZE                 ?= 0
-# PMCCNTR-based min/avg/max instrumentation at fixed measurement points
-# (see kernel/bench.h). Off by default: compiled out entirely, zero
-# footprint in production builds.
-ZUZU_BENCH              ?= 0
+# ---- build knobs ------------------------------------------------------------
+# Everything configurable lives in Kconfig now; see the CONFIGURATION section
+# further down. ANALYZE stays a plain make variable: it is a one-shot report
+# mode for `make analyze`, not a property of the kernel being built.
+ANALYZE ?= 0
 
-$(foreach v,ZUZU_BENCH TIME_MEASURE,\
-  $(if $(filter environment%,$(origin $(v))),\
-    $(error $(v) is set in your environment ($($(v))) -- this flag must be \
-      passed explicitly on the make command line (e.g. make $(v)=1), never \
-      inherited from shell state, since it changes generated code on hot \
-      paths. Run: unset $(v))))
-
-LOG_LEVEL               ?= 1
-PANIC_SECTION_PROCESS   ?= 1
-PANIC_SECTION_SCHEDULER ?= 1
-PANIC_SECTION_IRQ       ?= 1
-PANIC_SECTION_MEMORY    ?= 1
-
-ifeq ($(filter $(LOG_LEVEL),0 1 2 3 4 5),)
-$(error LOG_LEVEL must be an integer from 0 to 5)
-endif
+# CONFIG_* may not be set on the command line. kbuild allows it and the result
+# is a silent split-brain: the make variable wins in build logic while
+# autoconf.h still carries the old value, so the makefiles and the compiled
+# code disagree. Fail instead, and say where the knob actually lives.
+$(foreach v,$(filter CONFIG_%,$(.VARIABLES)),\
+  $(if $(filter command line environment,$(origin $(v))),\
+    $(error $(v) cannot be set on the make command line or in the environment. \
+      Edit the config instead: make BOARD=$(BOARD) menuconfig, or \
+      scripts/config --set $(v)=<value>)))
 
 # ---- derived paths ---------------------------------------------------------
 ARCH_DIR       = arch/$(ARCH)
@@ -109,7 +83,68 @@ IMG            = $(O)/zuzu.img
 CPUFLAGS = $(if $(CPUFLAGS_$(BOARD)),$(CPUFLAGS_$(BOARD)),$(ARCH_CPUFLAGS))
 INCLUDES = -I. -Iinclude -Iarch/include -Iarch/$(ARCH)/include
 
-LTO_FLAG = $(if $(filter 1,$(LTO)),-flto=auto)
+LTO_FLAG = $(if $(filter y,$(CONFIG_LTO)),-flto=auto)
+
+# ---- configuration (Kconfig) -------------------------------------------------
+# .config is per board, under $(O) -- boards are switched constantly here and
+# each keeps its own object tree, so a single root .config would just be a
+# thing to clobber. Board defaults come from $(BOARD_DIR)/defconfig.
+KCONFIG_CONFIG    = $(O)/.config
+KCONFIG_DEFCONFIG = $(BOARD_DIR)/defconfig
+KCONFIG_DIR       = $(O)/include/config
+KCONFIG_AUTOCONF  = $(KCONFIG_DIR)/autoconf.h
+KCONFIG_AUTOCONF_MK = $(KCONFIG_DIR)/auto.conf
+KCONFIG_FILES     = $(shell find . -name Kconfig -not -path './build/*' 2>/dev/null)
+KCONF             = python3 scripts/kconf.py --kconfig Kconfig
+
+# Goals that must not drag in config generation, or that would recurse.
+no-config-goals := clean distclean help %config scripts/config rpi4-firmware
+
+ifeq ($(filter $(no-config-goals),$(MAKECMDGOALS)),)
+# Hard include, not -include: a generator that silently failed would
+# otherwise leave every CONFIG_ empty and build a kernel with every feature
+# off -- exactly the class of bug this whole mechanism exists to prevent.
+# Make builds the file and re-execs itself when it is missing or stale.
+include $(KCONFIG_AUTOCONF_MK)
+# Only meaningful once the file exists: on the first pass make has not built
+# it yet, keeps parsing, and re-execs afterwards. The check is here to catch a
+# file that exists but is empty or truncated, not a missing one.
+ifneq ($(wildcard $(KCONFIG_AUTOCONF_MK)),)
+ifndef CONFIG_ZUZU_VALID
+$(error $(KCONFIG_AUTOCONF_MK) exists but carries no configuration; \
+  regenerate it with: make BOARD=$(BOARD) defconfig)
+endif
+endif
+endif
+
+$(KCONFIG_CONFIG):
+	@$(KCONF) olddefconfig --config $@ --defconfig $(KCONFIG_DEFCONFIG) --out $(KCONFIG_DIR)
+
+# One recipe, one target: autoconf.h is written by the same invocation but is
+# not itself a target, because make before 4.3 has no grouped targets and a
+# two-target rule can run twice under -j, racing on the temp files.
+$(KCONFIG_AUTOCONF_MK): $(KCONFIG_CONFIG) $(KCONFIG_FILES)
+	@$(KCONF) sync --config $(KCONFIG_CONFIG) --out $(KCONFIG_DIR)
+
+$(KCONFIG_AUTOCONF): $(KCONFIG_AUTOCONF_MK) ;
+
+.PHONY: menuconfig defconfig olddefconfig savedefconfig
+menuconfig:
+	@$(KCONF) menuconfig --config $(KCONFIG_CONFIG) \
+	    --defconfig $(KCONFIG_DEFCONFIG) --out $(KCONFIG_DIR)
+
+defconfig:
+	@$(KCONF) defconfig --config $(KCONFIG_CONFIG) \
+	    --defconfig $(KCONFIG_DEFCONFIG) --out $(KCONFIG_DIR)
+	@echo "  CFG     $(BOARD) reset to $(KCONFIG_DEFCONFIG)"
+
+olddefconfig:
+	@$(KCONF) olddefconfig --config $(KCONFIG_CONFIG) \
+	    --defconfig $(KCONFIG_DEFCONFIG) --out $(KCONFIG_DIR)
+
+# Write the current config back as the board's checked-in default, minimised.
+savedefconfig:
+	@$(KCONF) savedefconfig --config $(KCONFIG_CONFIG) --defconfig $(KCONFIG_DEFCONFIG)
 
 # Every object depends on this stamp, whose mtime moves only when the flags
 # that went into it actually change -- so `make LOG_LEVEL=3` rebuilds, and a
@@ -178,55 +213,34 @@ NEWLIB_CC = $(NEWLIB_CROSS)gcc
 NEWLIB_LD = $(NEWLIB_CC)
 
 # ---- kernel --------------------------------------------------------------------
-CFLAGS   = -ffreestanding -O$(OPTIMIZATION_LEVEL) $(LTO_FLAG) -fno-omit-frame-pointer \
+CFLAGS   = -ffreestanding -O$(CONFIG_CC_OPT_LEVEL) $(LTO_FLAG) -fno-omit-frame-pointer \
            -Wall -Wextra -Werror \
            -Wshadow -Wconversion -Wsign-conversion -Wcast-align -Wcast-qual \
            -Wstrict-prototypes -Wmissing-prototypes -Wformat=2 -Wundef \
            -Wvla -Walloca \
            -Wnull-dereference -Wduplicated-cond -Wduplicated-branches -Wlogical-op \
            -fno-common \
-           $(CPUFLAGS) $(INCLUDES) -Ivendor/libfdt -Ivendor/lz4 -MMD -MP \
-           -D__ZUZU__ -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"' -DLOG_LEVEL=$(LOG_LEVEL) \
+           $(CPUFLAGS) $(INCLUDES) -Ivendor/libfdt -MMD -MP \
+           -include $(KCONFIG_AUTOCONF) \
+           -D__ZUZU__ -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"' \
            -DZUZU_ELF_PATH='"$(TARGET)"'
 LDFLAGS  = -nostdlib -Wl,-T,$(LINKER_SCRIPT) -Wl,-Map=$(MAP) $(LTO_FLAG)
 
-ifeq ($(DEBUG_BUILD), 1)
+# DEBUG/NDEBUG keep their standard C spelling rather than moving into
+# autoconf.h; CONFIG_DEBUG_BUILD is what selects between them.
+ifeq ($(CONFIG_DEBUG_BUILD),y)
     CFLAGS += -DDEBUG -DZUZU_BANNER_SHOW_ADDR -g
 else
     CFLAGS += -DNDEBUG
 endif
-
-# Each PANIC_SECTION_<name>=1 knob becomes a -DPANIC_SECTION_<name> define.
-CFLAGS += $(foreach s,PROCESS SCHEDULER IRQ MEMORY,\
-            $(if $(filter 1,$(PANIC_SECTION_$(s))),-DPANIC_SECTION_$(s)))
-ifneq ($(DTB_DEBUG_WALK), 0)
-    CFLAGS += -DDTB_DEBUG_WALK
+ifeq ($(CONFIG_UBSAN),y)
+    CFLAGS += -fsanitize=undefined
 endif
-ifneq ($(EARLY_UART), 0)
-    CFLAGS += -DEARLY_UART
-endif
-ifneq ($(TIME_MEASURE), 0)
-    CFLAGS += -DTIME_MEASURE
-endif
-ifneq ($(PMM_TRACE), 0)
-    CFLAGS += -DPMM_TRACE
-endif
-ifneq ($(ZUZU_BENCH), 0)
-    CFLAGS += -DZUZU_BENCH
-endif
-ifneq ($(UBSAN), 0)
-    CFLAGS += -fsanitize=undefined -DUBSAN
-endif
-# Set only by the `analyze` target below (as ANALYZE=1 on the sub-make
-# command line, never meant to be set directly): swaps -Werror for
-# -fanalyzer so a bug the analyzer flags is reported, not fatal. This has
-# to happen in-Makefile rather than by handing the sub-make a fully
-# pre-rendered CFLAGS string, because CFLAGS already carries
-# -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"' -- nested quotes that don't
-# survive being embedded in a second shell string (`CFLAGS="$(CFLAGS)"`
-# on a recipe line): the inner quotes get eaten by the outer ones, and
-# `#include BOARD_LAYOUT_H` silently resolves wrong. A one-word command-line
-# flag has no quoting to lose.
+# Set only by the `analyze` target below, never directly: swaps -Werror for
+# -fanalyzer so a flagged bug is reported rather than fatal. Done here rather
+# than by handing a sub-make a rendered CFLAGS string, because CFLAGS carries
+# -DBOARD_LAYOUT_H='"..."' -- nested quotes that do not survive being embedded
+# in a second shell string.
 ifneq ($(ANALYZE), 0)
     CFLAGS := $(filter-out -Werror,$(CFLAGS)) -fanalyzer
 endif
@@ -258,13 +272,13 @@ $(O)/kernel/boot_info.o: CFLAGS := $(CFLAGS_NOVENDOR)
 $(O)/kernel/dev/fdt_wrappers.o: CFLAGS := $(CFLAGS_NOVENDOR)
 
 # ---- compilation rules ------------------------------------------------------
-$(O)/%.o: %.c $(FLAGS_STAMP)
+$(O)/%.o: %.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
 	@mkdir -p $(dir $@)
 	@echo "  CC      $<"
 	@$(CC) $(CFLAGS) -c $< -o $@
 	@$(call record-cmd,$(CC) $(CFLAGS) -c $< -o $@)
 
-$(O)/%.o: %.S $(FLAGS_STAMP)
+$(O)/%.o: %.S $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
 	@mkdir -p $(dir $@)
 	@echo "  AS      $<"
 	@$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
