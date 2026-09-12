@@ -3,6 +3,7 @@
 #include "kernel/mm/alloc.h"
 #include "kernel/sched/sched.h"
 #include "kernel/syscall/syscall.h"
+#include <core/panic.h>
 #include <arch/irq.h>
 #include <compiler.h>
 #include <arch/barrier.h>
@@ -17,10 +18,7 @@ BENCH_STAT(g_bench_irq_wait, "IRQ wait block->unblock");
 #define LOG_FMT(fmt) "(syscall_irq) " fmt
 #include "core/log.h"
 
-/* Runs in interrupt context on every IRQ this process owns -- a driver's
- * hottest function by definition. A device with no live, bound, waited-on
- * notification is the misconfigured/shutdown-race case, not the steady
- * state, so all three guards below are marked unlikely-to-bail. */
+
 static void __hot relay_handler(void *ctx)
 {
     Irq irq_num = (Irq)(VirtAddr)ctx;
