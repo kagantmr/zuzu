@@ -1,14 +1,24 @@
 # zuzu config.txt for Raspberry Pi 4 (BCM2711)
 #
-# Copy this over the config.txt on the boot (FAT32) partition, next to the
-# stock firmware files (start4.elf, fixup4.dat, bcm2711-rpi-4-b.dtb) and
-# zuzu.img (built with: make BOARD=rpi4 img).
+# Staged onto the boot partition by `make BOARD=rpi4 bootfs`, alongside
+# zuzu.img, initrd.cpio and bcm2711-rpi-4-b.dtb. The vendor firmware
+# (start4.elf, fixup4.dat) comes from a Raspberry Pi Imager card.
 
 # 32-bit kernel, loaded at the default 0x8000 (matches linker.ld BOOT_OFFSET)
 arm_64bit=0
 kernel=zuzu.img
 
 initramfs initrd.cpio followkernel
+
+# Required for any UART console. Without it the firmware does not bring the
+# UART up and the core clock is free to scale, so the baud rate drifts --
+# the usual cause of a Pi that boots but says nothing.
+enable_uart=1
+
+# On the Pi 4, uart0 (the PL011) is wired to the Bluetooth module by default
+# and GPIO14/15 carry the mini-UART instead. zuzu drives the PL011, so move
+# Bluetooth out of the way and give uart0 back to the header pins.
+dtoverlay=disable-bt
 
 # Pin the UARTCLK the PL011 divisors in _start.S assume (115200 = 48e6/16/26.042).
 # 48 MHz is the firmware default on the Pi 4; this makes it explicit.
@@ -23,3 +33,15 @@ device_tree_end=0x03100000
 # Keep peripherals in low mode (0xFE000000) — the default, stated explicitly
 # because _start.S and the DTB depend on it.
 arm_peri_high=0
+
+# ---- Debugging -------------------------------------------------------------
+# Uncomment to make start4.elf log its own progress to the UART before it
+# hands off to the kernel.
+#uart_2ndstage=1
+
+# Device tree / overlay loading trace. Noisy; pair with uart_2ndstage=1.
+#dtdebug=1
+
+# Pause before loading the kernel, so a terminal that is slow to attach does
+# not miss the first output.
+#boot_delay=3
