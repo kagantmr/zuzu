@@ -31,4 +31,8 @@ bool boot_info_initrd(uint64_t *out_pa, uint64_t *out_size);
 /* Returns pointer to internal array (read-only) */
 const FdtDevice *boot_info_dev_array(void);
 
+/* First device whose compatible string matches any entry in the
+ * NULL-terminated list, or NULL. List order is preference order. */
+const FdtDevice *boot_info_find_compatible(const char *const *compat);
+
 #endif

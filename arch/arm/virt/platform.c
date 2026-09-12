@@ -44,19 +44,6 @@ void arch_early_putc(char c) {
     EARLY_UART_BASE[0] = (uint32_t)(uint8_t)c;
 }
 
-// Find the first DTB device whose compatible string matches any entry in the
-// NULL-terminated list. Returns the device, or NULL if none matched.
-static const FdtDevice *find_dev(const char *const *compat) {
-    const FdtDevice *arr = boot_info_dev_array();
-    uint32_t cnt = boot_info_dev_count();
-    for (uint32_t i = 0; i < cnt; i++) {
-        for (const char *const *c = compat; *c; c++) {
-            if (strcmp(arr[i].compatible, *c) == 0)
-                return &arr[i];
-        }
-    }
-    return NULL;
-}
 
 // Compatible strings, ordered most-to-least preferred where it matters.
 #ifdef CONFIG_UART_PL011
@@ -71,7 +58,7 @@ void arch_platform_init_devices(void) {
 
 #ifdef CONFIG_UART_PL011
     // UART (PL011).
-    if ((d = find_dev(PL011_COMPAT))) {
+    if ((d = boot_info_find_compatible(PL011_COMPAT))) {
         void *uart_va = IoRemap((uintptr_t)d->phys, (size_t)d->size);
         if (!uart_va) panic("Failed to ioremap UART");
 
@@ -83,7 +70,7 @@ void arch_platform_init_devices(void) {
 #endif
 
     // Interrupt controller (GICv2 family).
-    if (!(d = find_dev(GIC_COMPAT))) panic("GIC not found");
+    if (!(d = boot_info_find_compatible(GIC_COMPAT))) panic("GIC not found");
     {
         uint64_t gicd = d->phys, s_d = d->size;
         uint64_t gicc = 0, s_c = 0;
@@ -103,7 +90,7 @@ void arch_platform_init_devices(void) {
     }
 
     // RTC (PL031): present on virt.
-    if ((d = find_dev(PL031_COMPAT))) {
+    if ((d = boot_info_find_compatible(PL031_COMPAT))) {
         void *rtc_va = IoRemap((uintptr_t)d->phys, (size_t)d->size);
         if (rtc_va) {
             rtc_epoch = *((volatile uint32_t *)rtc_va);
