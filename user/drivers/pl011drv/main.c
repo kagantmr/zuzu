@@ -65,15 +65,6 @@ static void drain_uart_rx_fifo(void)
 {
     while (!(uart->FR & FR_RXFE) && ring_full(&rxrb) == 0) {
         uint32_t dr = uart->DR;
-        /* DR[11:8] = OE/BE/PE/FE for this byte. A break or framing error also
-         * latches in RSR and stays latched until written, so without this the
-         * FIFO keeps handing back error bytes forever -- a single line glitch
-         * turns into an endless stream of garbage characters. Drop the byte
-         * and clear the status. */
-        if (dr & 0xF00u) {
-            uart->RSR = 0xFu;
-            continue;
-        }
         (void)ring_push(&rxrb, (uint8_t)(dr & 0xFFu));
     }
 }
@@ -99,8 +90,11 @@ static Handle request_serial_device(void)
 static void handle_irq_event(void)
 {
     if (uart->MIS & (IMSC_RXIM | IMSC_RTIM)) {
-        drain_uart_rx_fifo();
+        /* Clear before draining: a byte landing after the drain loop but before
+         * the clear would otherwise have its interrupt acked while it sits in
+         * the FIFO. */
         uart->ICR = (IMSC_RXIM | IMSC_RTIM);
+        drain_uart_rx_fifo();
     }
     if (uart->MIS & IMSC_TXIM) {
         while (!(uart->FR & FR_TXFF) && ring_avail(&txrb) > 0) {
@@ -273,6 +267,9 @@ int main(void)
             continue;
 
         switch (r.kind) {
+        case WAITANY_KIND_NTFN:
+            handle_irq_event();
+            break;
         case WAITANY_KIND_SEND:
             handle_write(r.w1);
             break;
@@ -289,6 +286,6 @@ int main(void)
          * while an interrupt is outstanding, the ack never happens and the
          * UART IRQ stays masked forever -- one keystroke, then silence.
          * Re-enabling a line that was not masked is harmless. */
-        handle_irq_event();
+
     }
 }
