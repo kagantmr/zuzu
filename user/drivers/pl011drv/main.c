@@ -64,8 +64,17 @@ static void uart_puts(const char* s) {
 static void drain_uart_rx_fifo(void)
 {
     while (!(uart->FR & FR_RXFE) && ring_full(&rxrb) == 0) {
-        uint8_t c = (uint8_t)(uart->DR & 0xFF);
-        (void)ring_push(&rxrb, c);
+        uint32_t dr = uart->DR;
+        /* DR[11:8] = OE/BE/PE/FE for this byte. A break or framing error also
+         * latches in RSR and stays latched until written, so without this the
+         * FIFO keeps handing back error bytes forever -- a single line glitch
+         * turns into an endless stream of garbage characters. Drop the byte
+         * and clear the status. */
+        if (dr & 0xF00u) {
+            uart->RSR = 0xFu;
+            continue;
+        }
+        (void)ring_push(&rxrb, (uint8_t)(dr & 0xFFu));
     }
 }
 
