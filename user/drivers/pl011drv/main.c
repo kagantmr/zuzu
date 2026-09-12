@@ -264,9 +264,6 @@ int main(void)
             continue;
 
         switch (r.kind) {
-        case WAITANY_KIND_NTFN:
-            handle_irq_event();
-            break;
         case WAITANY_KIND_SEND:
             handle_write(r.w1);
             break;
@@ -276,5 +273,13 @@ int main(void)
         default:
             break;
         }
+
+        /* Service the device on every wakeup, not just WAITANY_KIND_NTFN. The
+         * kernel masks the line in relay_handler on every interrupt and only
+         * ZuzuIrqDone re-enables it, so if waitany hands us a client request
+         * while an interrupt is outstanding, the ack never happens and the
+         * UART IRQ stays masked forever -- one keystroke, then silence.
+         * Re-enabling a line that was not masked is harmless. */
+        handle_irq_event();
     }
 }
