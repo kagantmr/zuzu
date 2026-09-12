@@ -22,7 +22,7 @@ process_entry_trampoline:
 
     add r0, sp, #52
     ldm r0, {r13, r14}^     // loads frame[52]->r13_usr, frame[56]->r14_usr, no mode change
-
+    nop                     // A1085W: no banked-reg access in the next instruction
     ldmia sp!, {r0-r12}        // restore regs (13 words)
     add sp, sp, #8             // skip sp_usr/lr_usr
     rfeia sp!                  // pop return_pc + return_cpsr into PC/CPSR
@@ -36,6 +36,7 @@ process_entry_trampoline:
     // frame is now complete except sp_usr/lr_usr
     add r0, sp, #52
     stm r0, {r13, r14}^       // stores r13_usr -> [r0], r14_usr -> [r0+4], no mode change
+    nop                       // A1085W: no banked-reg access in the next instruction
 .endm
 
 .macro exception_exit
@@ -47,7 +48,7 @@ process_entry_trampoline:
 8:
     add r0, sp, #52
     ldm r0, {r13, r14}^       // loads frame[52]->r13_usr, frame[56]->r14_usr, no mode change
-
+    nop                       // A1085W: no banked-reg access in the next instruction
     ldmia sp!, {r0-r12}       // restore r0-r12
     add sp, sp, #8            // skip sp_usr/lr_usr
     rfeia sp!                 // restore pc + cpsr
