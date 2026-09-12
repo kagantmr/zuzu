@@ -146,6 +146,11 @@ uint32_t gic_acknowledge(void) {
 
 
 void gic_end(uint32_t iar) {
-    ArchDsb();
+    /* dsb sy, not ish: EOIR is a device write, and the Inner Shareable domain
+     * does not order Device memory. The driver's interrupt-clearing writes must
+     * have completed before we signal EOIR, or the GIC still sees the line
+     * asserted and re-delivers. QEMU models neither domain, so this is
+     * invisible there and only bites on real silicon. */
+    ArchDsbSy();
     gicc_write(GICC_EOIR, iar); // Signal end of interrupt
 }
