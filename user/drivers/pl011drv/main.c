@@ -268,27 +268,37 @@ int main(void)
     uart_puts("pl011drv is up\n");
 
     while (1) {
+        /* Zeroed every iteration, with a kind the kernel never returns: a
+         * waitany that reports success without filling this in would
+         * otherwise leave the previous iteration's kind and length here,
+         * and we would replay that message against whatever the lmsg
+         * buffer now holds. Treat an unwritten result as no event. */
         WaitanyResult r;
-        if (ZuzuWaitany(handles, 2, TIMEOUT_INFINITE, &r) != 0)
-            continue;
+        memset(&r, 0, sizeof(r));
+        r.kind = (WaitanyType)0xEE; /* no kernel path yields this */
 
-        switch (r.kind) {
-        case WAITANY_KIND_SEND:
-            handle_write(r.w1);
-            break;
-        case WAITANY_KIND_CALL:
-            handle_read((Handle)r.source, r.w2);
-            break;
-        default:
-            break;
+        Err rc = ZuzuWaitany(handles, 2, TIMEOUT_INFINITE, &r);
+
+        if (rc == ZUZU_OK && r.kind != (WaitanyType)0xEE) {
+            switch (r.kind) {
+            case WAITANY_KIND_SEND:
+                handle_write(r.w1);
+                break;
+            case WAITANY_KIND_CALL:
+                handle_read((Handle)r.source, r.w2);
+                break;
+            default:
+                break;
+            }
         }
 
-        /* Service the device on every wakeup, not just WAITANY_KIND_NTFN. The
-         * kernel masks the line in relay_handler on every interrupt and only
-         * ZuzuIrqDone re-enables it, so if waitany hands us a client request
-         * while an interrupt is outstanding, the ack never happens and the
-         * UART IRQ stays masked forever -- one keystroke, then silence.
-         * Re-enabling a line that was not masked is harmless. */
+        /* Service the device on every wakeup, not just WAITANY_KIND_NTFN, and
+         * on a failed wait too. The kernel masks the line in relay_handler on
+         * every interrupt and only ZuzuIrqDone re-enables it, so any path that
+         * skips this -- a client request delivered while an interrupt is
+         * outstanding, or a wait that returns an error -- leaves the UART IRQ
+         * masked forever: one keystroke, then silence. Re-enabling a line that
+         * was not masked is harmless. */
         handle_irq_event();
     }
 }
