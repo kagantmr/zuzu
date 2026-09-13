@@ -134,8 +134,6 @@ Thread *ThreadCreate(ProcessObj *owner_process)
 		return NULL;
 	}
 
-	thread->waitany_wait_match_index = WAITANY_NO_MATCH;
-	thread->waitany_port_wait_match_index = WAITANY_NO_MATCH;
 	thread->kernel_sp = NULL;
 	thread->trap_frame = NULL;
 	thread->owner_process = owner_process;
