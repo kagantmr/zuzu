@@ -80,6 +80,12 @@ static int sysd_register_self(void)
     return RegisterService("/svc/sysd", port);
 }
 
+
+static void exec_reply_err(Handle reply_handle, Err err)
+{
+    (void)ChannelReply(reply_handle, &err, sizeof(err));
+}
+
 /* Only SYSD_EXEC arrives on sysd's own port now — NT_REGISTER/NT_LOOKUP go
  * straight to nameserver (NT_PORT), which every process either inherits
  * from sysd (SysPSpawn's slot 0-3 copy) or is granted directly (devmgr). */
@@ -97,7 +103,7 @@ static void nt_handle_msg(Message msg)
         if (path_bytes == 0 || path_off + path_bytes > req_len ||
             ((char *)LmsgBuf())[path_off + hdr->path_len] != '\0')
         {
-            ChannelReply(reply_handle, NULL, 0);
+            exec_reply_err(reply_handle, ERR_NOENT);
             return;
         }
 
@@ -120,12 +126,12 @@ static void nt_handle_msg(Message msg)
             Pid fsd_p = 0;
             if ((fsd_h = LookupServiceWithPid("/svc/fsd", &fsd_p)) < 0)
             {
-                ChannelReply(reply_handle, NULL, 0);
+                exec_reply_err(reply_handle, ERR_NOENT);
                 return;
             }
             if (FsdAttach(&fsd_conn, (int32_t)fsd_h, fsd_p, FSD_SHM_DEFAULT) != ZUZU_OK)
             {
-                ChannelReply(reply_handle, NULL, 0);
+                exec_reply_err(reply_handle, EXEC_EIO);
                 return;
             }
         }
@@ -133,7 +139,7 @@ static void nt_handle_msg(Message msg)
         size_t plen = strlen(path);
         if (plen == 0 || plen >= 4096)
         {
-            ChannelReply(reply_handle, NULL, 0);
+            exec_reply_err(reply_handle, ERR_NOENT);
             return;
         }
 
@@ -141,21 +147,21 @@ static void nt_handle_msg(Message msg)
         memset(&st, 0, sizeof(st));
         if (FsdGetStat(&fsd_conn, path, &st) != ZUZU_OK)
         {
-            ChannelReply(reply_handle, NULL, 0);
+            exec_reply_err(reply_handle, ERR_NOENT);
             return;
         }
 
         uint32_t file_size = st.size;
         if (file_size == 0 || st.type == FSD_TYPE_DIR)
         {
-            ChannelReply(reply_handle, NULL, 0);
+            exec_reply_err(reply_handle, EXEC_EBADELF);
             return;
         }
 
         uint32_t fd = 0;
         if (FsdOpen(&fsd_conn, path, FSD_MODE_READ, &fd) != ZUZU_OK)
         {
-            ChannelReply(reply_handle, NULL, 0);
+            exec_reply_err(reply_handle, EXEC_EIO);
             return;
         }
 
@@ -163,7 +169,7 @@ static void nt_handle_msg(Message msg)
         if (!elf)
         {
             FsdClose(&fsd_conn, fd);
-            ChannelReply(reply_handle, NULL, 0);
+            exec_reply_err(reply_handle, ERR_NOMEM);
             return;
         }
 
@@ -180,7 +186,7 @@ static void nt_handle_msg(Message msg)
         if (total != file_size)
         {
             free(elf);
-            ChannelReply(reply_handle, NULL, 0);
+            exec_reply_err(reply_handle, EXEC_EIO);
             return;
         }
 
@@ -190,7 +196,7 @@ static void nt_handle_msg(Message msg)
         free(elf);
         if (rc != 0)
         {
-            ChannelReply(reply_handle, NULL, 0);
+            exec_reply_err(reply_handle, EXEC_EBADELF);
             return;
         }
 
