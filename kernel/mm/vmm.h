@@ -138,6 +138,16 @@ bool VmmAddRegion(AddressSpace *restrict as, const VirtMemRegion *restrict regio
 bool VmmRemoveRegion(AddressSpace *as, VirtAddr vaddr, size_t size);
 
 /**
+ * @brief First-fit free virtual range within [lo, hi).
+ * @param as Address space whose region list defines what is occupied.
+ * @param lo Arena start (inclusive).
+ * @param hi Arena end (exclusive).
+ * @param size Bytes required; must be non-zero.
+ * @return Base of a free range, or 0 if the arena cannot hold it.
+ */
+VirtAddr VmmFindFreeVa(const AddressSpace *as, VirtAddr lo, VirtAddr hi, size_t size);
+
+/**
  * @brief Build actual page tables from region descriptions.
  * @param as Address space to realize.
  * Iterates over all vm_region_t in as->regions and calls arch_mmu_map().

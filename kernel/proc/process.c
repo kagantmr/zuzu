@@ -432,19 +432,16 @@ ProcessObj *ProcessCreate(const char *name)
     if (!VmmAddRegion(p->as, &sys_region))
         goto fail_kstack;
 
-    /* Initialize per-process mmap bump pointer before allocating the
-     * TCB mapping so we can place the TCB page at the process's
-     * `mmap_va_next` value and then advance it. */
-    p->device_va_next = USER_DEVICE_BASE;
-    p->mmap_va_next = USER_MMAP_BASE;
-
     PhysAddr tcb_page0_phys_addr = PmmAllocFrame();
     if (!tcb_page0_phys_addr)
         goto fail_kstack;
     p->tcb_page_pa[0] = tcb_page0_phys_addr;
     /* Map the TCB page into the user mmap area at the process's bump
      * pointer so userspace can read its per-thread slot. */
-    VirtAddr tcb_user_va = p->mmap_va_next;
+    VirtAddr tcb_user_va =
+        VmmFindFreeVa(p->as, USER_MMAP_BASE, USER_DEVICE_BASE, MAX_TCB_PAGES * PAGE_SIZE);
+    if (!tcb_user_va)
+        goto fail_kstack;
     if (!VmmMapUserPage(p->as, tcb_page0_phys_addr, tcb_user_va,
                         VM_PROT_USER | PROT_READ | PROT_WRITE))
         goto fail_kstack;
@@ -461,9 +458,6 @@ ProcessObj *ProcessCreate(const char *name)
         goto fail_kstack;
 
     p->tcb_page_va = tcb_user_va; /* user-visible VA */
-
-    /* Advance bump pointer to reserve the TCB page */
-    p->mmap_va_next += MAX_TCB_PAGES * PAGE_SIZE;
 
     /* Reserve the whole stack window as a demand-paged anon region: no
      * physical pages up front, the data-abort handler faults them in as
@@ -506,7 +500,6 @@ ProcessObj *ProcessCreate(const char *name)
     t->tcb_slot = (uint8_t)tcb_slot_idx;
     t->lmsg_buf_phys_addr = TcbSlotPhysAddr(p, (uint32_t)tcb_slot_idx) + offsetof(ThreadData, buf);
 
-    /* `device_va_next` and `mmap_va_next` were initialized earlier. */
     p->parent_pid = 0;
     t->priority = 1;
     t->time_slice = 5;
