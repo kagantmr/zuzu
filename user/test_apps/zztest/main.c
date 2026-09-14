@@ -350,6 +350,7 @@ static void sec_mem(void)
     CHECK_EQ(ZuzuMemUnmap(m1), 0, "shm memunmap");
     uint8_t *m2 = (uint8_t *)ZuzuMemMap(sh, 0, PROT_RW, 0);
     CHECK(!ZuzuPtrIsErr(m2), "shm REMAP after unmap works");
+    CHECK(m2 == m1, "shm remap reuses the unmapped VA");
     CHECK(m2[0] == 0x77 && m2[4095] == 0x88, "shm contents persist across remap");
     CHECK_EQ(ZuzuMemUnmap(m2), 0, "shm memunmap (2nd)");
     CHECK_EQ(ZuzuDestroy(sh), 0, "shm destroy after unmap");
@@ -366,6 +367,19 @@ static void sec_mem(void)
              "syspage (pinned) unmap -> ERR_NOPERM");
     CHECK_EQ(ZuzuMemUnmap((void *)((uintptr_t)ZuzuTLS() & ~0xFFFu)), ERR_NOPERM,
              "TCB page (pinned) unmap -> ERR_NOPERM");
+
+    /* VA is reclaimed on unmap: a bump-pointer allocator retires each range
+     * permanently and runs the arena dry. */
+    void *first = ZuzuMemMap(HANDLE_ANON, 4096, PROT_RW, 0);
+    CHECK(!ZuzuPtrIsErr(first), "anon memmap (VA reclaim probe)");
+    int reclaim_ok = 1;
+    for (uint32_t i = 0; i < 4096; i++) {
+        if (ZuzuMemUnmap(first) != 0) { reclaim_ok = 0; break; }
+        void *again = ZuzuMemMap(HANDLE_ANON, 4096, PROT_RW, 0);
+        if (ZuzuPtrIsErr(again) || again != first) { reclaim_ok = 0; break; }
+    }
+    CHECK(reclaim_ok, "4096x map/unmap cycles reuse the same VA");
+    CHECK_EQ(ZuzuMemUnmap(first), 0, "VA reclaim probe unmapped");
 
     /* memprotect */
     uint8_t *c = (uint8_t *)ZuzuMemMap(HANDLE_ANON, 4096, PROT_RW, 0);

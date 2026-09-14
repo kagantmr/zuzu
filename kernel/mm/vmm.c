@@ -292,6 +292,31 @@ bool VmmAddRegion(AddressSpace *restrict as, const VirtMemRegion *restrict regio
     return true;
 }
 
+VirtAddr VmmFindFreeVa(const AddressSpace *as, VirtAddr lo, VirtAddr hi, size_t size)
+{
+    if (!as || size == 0 || lo >= hi || size > hi - lo)
+        return 0;
+
+    VirtAddr cand = lo;
+    for (uint32_t i = 0; i < as->regions.len; i++) {
+        const VirtMemRegion *r = &as->regions.data[i];
+        VirtAddr r_start = r->vaddr_start;
+        VirtAddr r_end = align_up(r_start + r->size, PAGE_SIZE);
+
+        if (r_end <= cand)
+            continue;
+        if (r_start >= hi)
+            break;
+        if (r_start > cand && r_start - cand >= size)
+            return cand;
+        if (r_end >= hi)
+            return 0;
+        cand = r_end;
+    }
+
+    return (hi - cand >= size) ? cand : 0;
+}
+
 bool VmmRemoveRegion(AddressSpace *as, uintptr_t vaddr, size_t size) {
     if (!as || size == 0) return false;
 
