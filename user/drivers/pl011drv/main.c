@@ -61,8 +61,11 @@ static void uart_puts(const char* s) {
         uart_txbyte(*s++);
     }
 }
-static void drain_uart_rx_fifo(void)
+
+static uint32_t drain_uart_rx_fifo(uint32_t *err_bytes_out)
 {
+    uint32_t pushed = 0;
+    uint32_t err_bytes = 0;
     while (!(uart->FR & FR_RXFE) && ring_full(&rxrb) == 0) {
         uint32_t dr = uart->DR;
         /* DR[11:8] = OE/BE/PE/FE for this byte. A break or framing error also
@@ -72,10 +75,15 @@ static void drain_uart_rx_fifo(void)
          * and clear the status. */
         if (dr & 0xF00u) {
             uart->RSR = 0xFu;
+            err_bytes++;
             continue;
         }
-        (void)ring_push(&rxrb, (uint8_t)(dr & 0xFFu));
+        if (ring_push(&rxrb, (uint8_t)(dr & 0xFFu)) == 0)
+            pushed++;
     }
+    if (err_bytes_out)
+        *err_bytes_out = err_bytes;
+    return pushed;
 }
 
 static void wait_for_devmgr(void)
@@ -99,7 +107,7 @@ static Handle request_serial_device(void)
 static void handle_irq_event(void)
 {
     if (uart->MIS & (IMSC_RXIM | IMSC_RTIM)) {
-        drain_uart_rx_fifo();
+        (void)drain_uart_rx_fifo(NULL);
         uart->ICR = (IMSC_RXIM | IMSC_RTIM);
     }
     if (uart->MIS & IMSC_TXIM) {
@@ -136,7 +144,7 @@ static void handle_read(Handle reply_handle, uint32_t max_len)
     if (max_len > LMSG_BUF_SIZE)
         max_len = LMSG_BUF_SIZE;
 
-    drain_uart_rx_fifo();
+    (void)drain_uart_rx_fifo(NULL);
 
     char *buf = (char *)LmsgBuf();
     uint32_t n = 0;
@@ -281,6 +289,9 @@ int main(void)
 
         if (rc == ZUZU_OK && r.kind != (WaitanyType)0xEE) {
             switch (r.kind) {
+            case WAITANY_KIND_NTFN:
+                handle_irq_event();
+                break;
             case WAITANY_KIND_SEND:
                 handle_write(r.w1);
                 break;
@@ -291,14 +302,5 @@ int main(void)
                 break;
             }
         }
-
-        /* Service the device on every wakeup, not just WAITANY_KIND_NTFN, and
-         * on a failed wait too. The kernel masks the line in relay_handler on
-         * every interrupt and only ZuzuIrqDone re-enables it, so any path that
-         * skips this -- a client request delivered while an interrupt is
-         * outstanding, or a wait that returns an error -- leaves the UART IRQ
-         * masked forever: one keystroke, then silence. Re-enabling a line that
-         * was not masked is harmless. */
-        handle_irq_event();
     }
 }
