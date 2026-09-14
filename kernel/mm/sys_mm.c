@@ -35,8 +35,6 @@ BENCH_STAT(g_bench_checkuserfault_4k_2page, "VmmCheckUserFault (4KB, 2 pages)");
  * Helper for memmap to map anonymous memory.
  * Adapted from zuzu v0.1.5-alpha version
  */
-/* p (the owning process) and out (the caller's VA-result slot) are never
- * the same object -- out always points at a local in SysMemMap's frame. */
 static int32_t memmap_anon(ProcessObj *restrict p, VirtAddr hint, size_t size, MemProt prot,
 			   VirtAddr *restrict out)
 {
@@ -57,21 +55,16 @@ static int32_t memmap_anon(ProcessObj *restrict p, VirtAddr hint, size_t size, M
             return ERR_BADARG;
     }
 
-    // 1. Pick a VA
     VirtAddr va;
-    if (hint != 0)
+    if (hint != 0) {
         va = hint; // already validated above
-    else
-        va = p->mmap_va_next;
-
-    if (va >= USER_VA_TOP)
-        return ERR_NOMEM; // user VA space exhausted
-    // 2. Bump the cursor
-    if (size > USER_VA_TOP - va) // no contiguous VA left
-        return ERR_NOMEM;
-
-    if (hint == 0)
-        p->mmap_va_next += size;
+        if (va >= USER_VA_TOP || size > USER_VA_TOP - va)
+            return ERR_NOMEM;
+    } else {
+        va = VmmFindFreeVa(p->as, USER_MMAP_BASE, USER_DEVICE_BASE, size);
+        if (va == 0)
+            return ERR_NOMEM;
+    }
 
     VirtMemRegion region = {
         .vaddr_start = va,
@@ -84,11 +77,7 @@ static int32_t memmap_anon(ProcessObj *restrict p, VirtAddr hint, size_t size, M
     };
 
     if (!VmmAddRegion(p->as, &region))
-    {
-        if (hint == 0)
-            p->mmap_va_next -= size; // roll back cursor on failure
         return ERR_NOMEM;
-    }
 
     *out = va;
     return ZUZU_OK;
@@ -114,11 +103,9 @@ static int32_t memmap_shm(ProcessObj *restrict p, HandleEntry *restrict e, MemPr
 
     size_t size = shmem_obj->page_count * PAGE_SIZE;
 
-    if ((p->mmap_va_next > USER_VA_TOP - size) || (size > USER_VA_TOP - p->mmap_va_next)) // user VA space exhausted
+    const VirtAddr va_base = VmmFindFreeVa(p->as, USER_MMAP_BASE, USER_DEVICE_BASE, size);
+    if (va_base == 0)
         return ERR_NOMEM;
-
-    const VirtAddr va_base = p->mmap_va_next;
-    p->mmap_va_next += size;
 
     VirtMemRegion region = {
         .vaddr_start = va_base,
@@ -129,10 +116,7 @@ static int32_t memmap_shm(ProcessObj *restrict p, HandleEntry *restrict e, MemPr
         .backing = shmem_obj,
         .flags = VM_FLAG_NONE};
     if (!VmmAddRegion(p->as, &region))
-    {
-        p->mmap_va_next -= size;
         return ERR_NOMEM; // OOM
-    }
 
     e->mapped_va = va_base;
     *out = va_base;
@@ -160,13 +144,9 @@ static int32_t memmap_dev(ProcessObj *restrict p, HandleEntry *restrict e, MemPr
         return ERR_BUSY;
 
     size_t size_aligned = align_up(cap->size, PAGE_SIZE);
-    VirtAddr user_va = p->device_va_next;
-
-    // Device mappings are carved from device_va_next; bound-check that cursor.
-    if (user_va >= USER_DEVICE_LIMIT || size_aligned > USER_DEVICE_LIMIT - user_va)
-    {
+    VirtAddr user_va = VmmFindFreeVa(p->as, USER_DEVICE_BASE, USER_DEVICE_LIMIT, size_aligned);
+    if (user_va == 0)
         return ERR_NOMEM;
-    }
 
     if (!VmmMapRange(p->as, user_va, cap->phys_base, size_aligned,
                        prot | VM_PROT_USER,
@@ -192,7 +172,6 @@ static int32_t memmap_dev(ProcessObj *restrict p, HandleEntry *restrict e, MemPr
     arch_mmu_flush_tlb_va(user_va);
     ArchCtxSync();
 
-    p->device_va_next += size_aligned;
     e->mapped_va = user_va;
 
     *out = user_va;

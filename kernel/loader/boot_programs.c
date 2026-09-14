@@ -98,23 +98,22 @@ static void boot_program(const char *path, uint32_t flags,
      * the mapping has to start at the containing page and the process
      * needs to be told exactly where the real data begins within it —
      * hence passing it via argv rather than a fixed/assumed address.
-     * mmap_va_next always starts at USER_MMAP_BASE and process_create()
-     * always reserves MAX_TCB_PAGES worth of TCB slots before returning,
-     * so the mapping loop below is guaranteed to start at
-     * USER_MMAP_BASE + MAX_TCB_PAGES * PAGE_SIZE. */
+     * The TCB reservation is the only mmap-arena region process_create()
+     * makes, so the initrd window always lands directly above it. */
     char argbuf[320];
     size_t argbuf_len = 0;
     uint32_t argc = 0;
     uint32_t initrd_page_offset = 0, initrd_page_count = 0;
     uint32_t initrd_aligned_pa = 0;
-    uintptr_t initrd_real_va = 0;
+    uintptr_t initrd_real_va = 0, initrd_base_va = 0;
 
     if (flags & PROC_FLAG_INIT)
     {
         initrd_page_offset = g_initrd_pa & (PAGE_SIZE - 1);
         initrd_aligned_pa = g_initrd_pa - initrd_page_offset;
         initrd_page_count = (initrd_page_offset + (uint32_t)g_initrd_size + PAGE_SIZE - 1) / PAGE_SIZE;
-        initrd_real_va = USER_MMAP_BASE + MAX_TCB_PAGES * PAGE_SIZE + initrd_page_offset;
+        initrd_base_va = USER_MMAP_BASE + MAX_TCB_PAGES * PAGE_SIZE;
+        initrd_real_va = initrd_base_va + initrd_page_offset;
 
         size_t off = 0;
         off += (size_t)snprintf(argbuf + off, sizeof(argbuf) - off, "%s", path) + 1;
@@ -144,16 +143,15 @@ static void boot_program(const char *path, uint32_t flags,
         for (uint32_t i = 0; i < initrd_page_count; i++)
         {
             uint32_t page_pa = initrd_aligned_pa + i * PAGE_SIZE;
-            if (!VmmMapUserPage(process->as, page_pa, process->mmap_va_next, PROT_READ))
+            if (!VmmMapUserPage(process->as, page_pa, initrd_base_va + i * PAGE_SIZE, PROT_READ))
             {
                 KERROR("Failed to map initrd page %u for %s", i, path);
                 return;
             }
-            process->mmap_va_next += PAGE_SIZE;
         }
         VmmAddRegion(process->as, &(VirtMemRegion){
-                                        .vaddr_start = initrd_real_va,
-                                        .size = g_initrd_size,
+                                        .vaddr_start = initrd_base_va,
+                                        .size = initrd_page_count * PAGE_SIZE,
                                         .prot = PROT_READ | VM_PROT_USER,
                                         .memtype = VM_MEM_NORMAL,
                                         .owner = VM_OWNER_SHARED,

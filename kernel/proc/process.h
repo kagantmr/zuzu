@@ -34,8 +34,6 @@ typedef struct process {
 	Err exit_status;
 	Pid waiting_for;
 	char name[32];		 // PROCESS name
-	VirtAddr device_va_next; // initialized to USER_DEVICE_BASE in process_create
-	VirtAddr mmap_va_next;	 // initialized to USER_MMAP_BASE in process_create
 	ListHead outstanding_replies;
 	HandleTable handle_table;
 	uint32_t flags;
