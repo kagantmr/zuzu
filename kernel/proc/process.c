@@ -2,6 +2,7 @@
 
 #include "core/panic.h"
 
+#include "kernel/ipc/waitslot.h"
 #include "kernel/irq/sys_irq.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm.h"
@@ -728,12 +729,11 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                 while (!list_empty(&port->receiver_queue))
                 {
                     ListNode *n = list_pop_front(&port->receiver_queue);
-                    ThreadWaitSlot *slot = container_of(n, ThreadWaitSlot, node);
+                    WaitSlot *slot = container_of(n, WaitSlot, node);
                     Thread *thread = slot->owner;
-                    if (thread->waitany_port_wait_active)
+                    if (slot != &thread->port_wait_slot)
                     {
-                        ThreadWaitanyClearWaits(thread);
-                        ThreadWaitanyClearPortWaits(thread);
+                        WaitSlotsUnregisterAll(thread);
                     }
                     else
                     {
@@ -816,12 +816,11 @@ void ProcessKill(ProcessObj *p, const int exit_status)
                 while (!list_empty(&ntfn->wait_queue))
                 {
                     ListNode *n = list_pop_front(&ntfn->wait_queue);
-                    ThreadWaitSlot *slot = container_of(n, ThreadWaitSlot, node);
+                    WaitSlot *slot = container_of(n, WaitSlot, node);
                     Thread *thread = slot->owner;
                     if (thread->trap_frame)
                         arch_reg_set(thread->trap_frame, 0, ERR_DEAD);
-                    ThreadWaitanyClearWaits(thread);
-                    ThreadWaitanyClearPortWaits(thread);
+                    WaitSlotsUnregisterAll(thread);
                     SchedRemoveSleepQueue(thread);
                     thread->wake_deadline = 0;
                     thread->state = READY;
