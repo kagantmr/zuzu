@@ -9,6 +9,7 @@
 
 #include "ntfn.h"
 #include "handle.h"
+#include "waitslot.h"
 
 #define LOG_FMT(fmt) "(sys_ntfn) " fmt
 #include <zuzu/log.h>
@@ -115,8 +116,9 @@ void SysNtfnWait(CpuState *frame)
     current_thread->blocked_port = NULL;
     current_thread->state = BLOCKED;
     current_thread->ntfn_wait_slot.owner = current_thread;
-    current_thread->ntfn_wait_slot.index =
-        0; /* unused on the plain-wait path; only waitany reads index */
+    current_thread->ntfn_wait_slot.kind = WAIT_KIND_NTFN;
+    current_thread->ntfn_wait_slot.handle_index = 0; /* unused on the plain-wait path */
+    current_thread->ntfn_wait_slot.ntfn = ntfn;
     current_thread->ntfn_wait_slot.node.prev = NULL;
     current_thread->ntfn_wait_slot.node.next = NULL;
     list_add_tail(&current_thread->ntfn_wait_slot.node, &ntfn->wait_queue.node);

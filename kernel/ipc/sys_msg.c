@@ -7,6 +7,7 @@
 #include "kernel/sched/sched.h"
 #include "kernel/syscall/syscall.h"
 #include "port.h"
+#include "waitslot.h"
 #include <arch/timer.h>
 #include <compiler.h>
 #include <stdbool.h>
@@ -245,17 +246,6 @@ static HandleEntry *ValidateReplyCap(ProcessObj *proc, Handle handle_idx, Thread
 	return entry;
 }
 
-static void WaitanyDeliverNtfn(uint32_t matched_index, uint32_t bits,
-					 WaitanyResult *result)
-{
-	memset(result, 0, sizeof(*result));
-	result->size = sizeof(*result);
-	result->matched_index = (Handle)matched_index;
-	result->kind = WAITANY_KIND_NTFN;
-	result->source = 0;
-	result->w1 = bits;
-}
-
 void __attribute__((hot)) SysMsgSend(CpuState *frame)
 {
 	int handle = (int)(*arch_reg(frame, 0));
@@ -270,25 +260,24 @@ void __attribute__((hot)) SysMsgSend(CpuState *frame)
 
 	if (likely(!list_empty(&port->receiver_queue))) {
 		ListNode *receiver = list_pop_front(&port->receiver_queue);
-		ThreadWaitSlot *rx_slot = container_of(receiver, ThreadWaitSlot, node);
+		WaitSlot *rx_slot = container_of(receiver, WaitSlot, node);
 		Thread *rx_thread = rx_slot->owner;
 
 
 		if (unlikely(rx_slot != &rx_thread->port_wait_slot)) {
-			WaitanyResult *res = &rx_thread->waitany_pending_result;
-			memset(res, 0, sizeof(*res));
-			res->matched_index = (Handle)rx_slot->index;
-			res->kind = WAITANY_KIND_SEND;
-			res->source = (uint32_t)current_thread->owner_process->pid;
-			res->marker = entry->marker;
-			res->label = current_thread->owner_process->label;
-			res->w1 = (*arch_reg(frame, 1));
-			res->w2 = (*arch_reg(frame, 2));
-			res->w3 = (*arch_reg(frame, 3));
-			res->size = sizeof(*res);
-			ThreadWaitanyClearWaits(rx_thread);
-			ThreadWaitanyClearPortWaits(rx_thread);
-			rx_thread->waitany_port_wait_match_index = rx_slot->index;
+			WaitanyResult res;
+			memset(&res, 0, sizeof(res));
+			res.size = sizeof(res);
+			res.matched_index = (Handle)rx_slot->handle_index;
+			res.kind = WAITANY_KIND_SEND;
+			res.source = (uint32_t)current_thread->owner_process->pid;
+			res.marker = entry->marker;
+			res.label = current_thread->owner_process->label;
+			res.w1 = (*arch_reg(frame, 1));
+			res.w2 = (*arch_reg(frame, 2));
+			res.w3 = (*arch_reg(frame, 3));
+			WaitSlotsUnregisterAll(rx_thread);
+			WaitSlotsDeliver(rx_thread, rx_slot->handle_index, &res);
 			CancelTimeout(rx_thread);
 			rx_thread->wake_reason = WAKE_IPC;
 			rx_thread->state = READY;
@@ -440,11 +429,12 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 		}
 
 
-		ThreadWaitanyClearWaits(current_thread);
-		ThreadWaitanyClearPortWaits(current_thread);
+		WaitSlotsUnregisterAll(current_thread);
 
 		current_thread->port_wait_slot.owner = current_thread;
-		current_thread->port_wait_slot.index = 0;
+		current_thread->port_wait_slot.kind = WAIT_KIND_PORT;
+		current_thread->port_wait_slot.handle_index = 0;
+		current_thread->port_wait_slot.port = port;
 		current_thread->port_wait_slot.node.prev = NULL;
 		current_thread->port_wait_slot.node.next = NULL;
 		current_thread->ipc_state = IPC_RECEIVER;
@@ -511,7 +501,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		uint32_t bench_start = BENCH_BEGIN();
 #endif
 		ListNode *receiver = list_pop_front(&port->receiver_queue);
-		ThreadWaitSlot *rx_slot = container_of(receiver, ThreadWaitSlot, node);
+		WaitSlot *rx_slot = container_of(receiver, WaitSlot, node);
 		Thread *rx_thread = rx_slot->owner;
 		CpuState *rx_frame = rx_thread->trap_frame;
 #ifdef DEBUG
@@ -542,26 +532,21 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		ProcessTrackReplyCap(current_thread->owner_process, rx_thread->owner_process,
 				     slot, rc);
 
-		/* Deliver in waitany form only if the slot we actually dequeued is
-		 * one of the receiver's waitany slots. Keying off the thread's
-		 * waitany_port_wait_active flag instead means a stale flag routes a
-		 * plain msg_recv receiver down the waitany path, which never writes
-		 * its trap frame -- it returns garbage registers. */
+		/* See the slot-identity note in SysMsgSend. */
 		if (unlikely(rx_slot != &rx_thread->port_wait_slot)) {
-			WaitanyResult *res = &rx_thread->waitany_pending_result;
-			memset(res, 0, sizeof(*res));
-			res->size = sizeof(*res);
-			res->matched_index = (Handle)rx_slot->index;
-			res->kind = WAITANY_KIND_CALL;
-			res->source = (uint32_t)slot;
-			res->marker = entry->marker;
-			res->label = current_thread->owner_process->label;
-			res->w1 = (uint32_t)current_thread->owner_process->pid;
-			res->w2 = (*arch_reg(frame, 1));
-			res->w3 = (*arch_reg(frame, 2));
-			ThreadWaitanyClearWaits(rx_thread);
-			ThreadWaitanyClearPortWaits(rx_thread);
-			rx_thread->waitany_port_wait_match_index = rx_slot->index;
+			WaitanyResult res;
+			memset(&res, 0, sizeof(res));
+			res.size = sizeof(res);
+			res.matched_index = (Handle)rx_slot->handle_index;
+			res.kind = WAITANY_KIND_CALL;
+			res.source = (uint32_t)slot;
+			res.marker = entry->marker;
+			res.label = current_thread->owner_process->label;
+			res.w1 = (uint32_t)current_thread->owner_process->pid;
+			res.w2 = (*arch_reg(frame, 1));
+			res.w3 = (*arch_reg(frame, 2));
+			WaitSlotsUnregisterAll(rx_thread);
+			WaitSlotsDeliver(rx_thread, rx_slot->handle_index, &res);
 		} else {
 			arch_reg_set(rx_frame, 0, slot);
 			arch_reg_set(rx_frame, 1, current_thread->owner_process->pid);
@@ -664,26 +649,25 @@ void __attribute__((hot)) SysMsgLsend(CpuState *frame)
 
 	if (!list_empty(&port->receiver_queue)) {
 		ListNode *receiver = list_pop_front(&port->receiver_queue);
-		ThreadWaitSlot *rx_slot = container_of(receiver, ThreadWaitSlot, node);
+		WaitSlot *rx_slot = container_of(receiver, WaitSlot, node);
 		Thread *rx_thread = rx_slot->owner;
 
 		/* See the slot-identity note in SysMsgSend. */
 		if (rx_slot != &rx_thread->port_wait_slot) {
-			WaitanyResult *res = &rx_thread->waitany_pending_result;
-			memset(res, 0, sizeof(*res));
-			res->size = sizeof(*res);
-			res->matched_index = (Handle)rx_slot->index;
-			res->kind = WAITANY_KIND_SEND;
-			res->source = (uint32_t)current_thread->owner_process->pid;
-			res->marker = entry->marker;
-			res->label = current_thread->owner_process->label;
+			WaitanyResult res;
+			memset(&res, 0, sizeof(res));
+			res.size = sizeof(res);
+			res.matched_index = (Handle)rx_slot->handle_index;
+			res.kind = WAITANY_KIND_SEND;
+			res.source = (uint32_t)current_thread->owner_process->pid;
+			res.marker = entry->marker;
+			res.label = current_thread->owner_process->label;
 			LmsgBufCopy(current_thread, rx_thread, xlen);
-			res->w1 = xlen;
-			res->w2 = 0;
-			res->w3 = 0;
-			ThreadWaitanyClearWaits(rx_thread);
-			ThreadWaitanyClearPortWaits(rx_thread);
-			rx_thread->waitany_port_wait_match_index = rx_slot->index;
+			res.w1 = xlen;
+			res.w2 = 0;
+			res.w3 = 0;
+			WaitSlotsUnregisterAll(rx_thread);
+			WaitSlotsDeliver(rx_thread, rx_slot->handle_index, &res);
 			CancelTimeout(rx_thread);
 			rx_thread->wake_reason = WAKE_IPC;
 			rx_thread->state = READY;
@@ -747,7 +731,7 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 
 	if (!list_empty(&port->receiver_queue)) {
 		ListNode *receiver = list_pop_front(&port->receiver_queue);
-		ThreadWaitSlot *rx_slot = container_of(receiver, ThreadWaitSlot, node);
+		WaitSlot *rx_slot = container_of(receiver, WaitSlot, node);
 		Thread *rx_thread = rx_slot->owner;
 		CpuState *rx_frame = rx_thread->trap_frame;
 		(void)rx_frame;
@@ -778,27 +762,22 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 		ProcessTrackReplyCap(current_thread->owner_process, rx_thread->owner_process,
 				     slot, rc);
 
-		/* Deliver in waitany form only if the slot we actually dequeued is
-		 * one of the receiver's waitany slots. Keying off the thread's
-		 * waitany_port_wait_active flag instead means a stale flag routes a
-		 * plain msg_recv receiver down the waitany path, which never writes
-		 * its trap frame -- it returns garbage registers. */
+		/* See the slot-identity note in SysMsgSend. */
 		if (unlikely(rx_slot != &rx_thread->port_wait_slot)) {
-			WaitanyResult *res = &rx_thread->waitany_pending_result;
-			memset(res, 0, sizeof(*res));
-			res->size = sizeof(*res);
-			res->matched_index = (Handle)rx_slot->index;
-			res->kind = WAITANY_KIND_CALL;
-			res->source = (uint32_t)slot;
-			res->marker = entry->marker;
-			res->label = current_thread->owner_process->label;
-			res->w1 = (uint32_t)current_thread->owner_process->pid;
+			WaitanyResult res;
+			memset(&res, 0, sizeof(res));
+			res.size = sizeof(res);
+			res.matched_index = (Handle)rx_slot->handle_index;
+			res.kind = WAITANY_KIND_CALL;
+			res.source = (uint32_t)slot;
+			res.marker = entry->marker;
+			res.label = current_thread->owner_process->label;
+			res.w1 = (uint32_t)current_thread->owner_process->pid;
 			LmsgBufCopy(current_thread, rx_thread, xlen);
-			res->w2 = xlen;
-			res->w3 = 0;
-			ThreadWaitanyClearWaits(rx_thread);
-			ThreadWaitanyClearPortWaits(rx_thread);
-			rx_thread->waitany_port_wait_match_index = rx_slot->index;
+			res.w2 = xlen;
+			res.w3 = 0;
+			WaitSlotsUnregisterAll(rx_thread);
+			WaitSlotsDeliver(rx_thread, rx_slot->handle_index, &res);
 		} else {
 			arch_reg_set(rx_frame, 0, slot);
 			arch_reg_set(rx_frame, 1, current_thread->owner_process->pid);
@@ -977,18 +956,22 @@ BENCH_STAT(g_bench_waitany_validate, "WaitAny: handle validation");
 BENCH_STAT(g_bench_waitany_deliver, "WaitAny: deliver+wake");
 #endif
 
+/**
+ * @brief Check for an immediate match; else build this call's pending
+ * wait set.
+ * @param handles Caller's handle array (already copied into kernel memory).
+ * @param count   Number of entries in @p handles.
+ * @param result  Filled in on an immediate match (return 0).
+ * @param pending Filled in, one entry per handle, when no immediate match
+ *                is found (return ERR_BUSY): kind/ntfn-or-port/handle_index,
+ *                ready to hand to WaitSlotsRegister().
+ * @return 0 (result filled), ERR_BUSY (pending filled), or a hard error.
+ */
 static int WaitanyTryOnce(const Handle *handles, uint32_t count, WaitanyResult *result,
-			    NtfnObj **wait_ntfns, uint32_t *wait_ntfn_indices,
-			    uint32_t *wait_count_out, Port **wait_eps, uint32_t *wait_ep_indices,
-			    uint32_t *wait_ep_count_out)
+			    WaitSlot *pending)
 {
 	Port *endpoints[WAITANY_MAX_HANDLES];
 	NtfnObj *notifications[WAITANY_MAX_HANDLES];
-
-	if (wait_count_out)
-		*wait_count_out = 0;
-	if (wait_ep_count_out)
-		*wait_ep_count_out = 0;
 
 #ifdef CONFIG_ZUZU_BENCH
 	uint32_t bench_start = BENCH_BEGIN();
@@ -1062,31 +1045,16 @@ static int WaitanyTryOnce(const Handle *handles, uint32_t count, WaitanyResult *
 		}
 	}
 
-	uint32_t notif_count = 0;
 	for (uint32_t i = 0; i < count; i++) {
+		pending[i].handle_index = i;
 		if (notifications[i]) {
-			uint32_t slot = notif_count++;
-			if (wait_ntfns)
-				wait_ntfns[slot] = notifications[i];
-			if (wait_ntfn_indices)
-				wait_ntfn_indices[slot] = i;
+			pending[i].kind = WAIT_KIND_NTFN;
+			pending[i].ntfn = notifications[i];
+		} else {
+			pending[i].kind = WAIT_KIND_PORT;
+			pending[i].port = endpoints[i];
 		}
 	}
-	if (wait_count_out)
-		*wait_count_out = notif_count;
-
-	uint32_t ep_count = 0;
-	for (uint32_t i = 0; i < count; i++) {
-		if (endpoints[i]) {
-			uint32_t slot = ep_count++;
-			if (wait_eps)
-				wait_eps[slot] = endpoints[i];
-			if (wait_ep_indices)
-				wait_ep_indices[slot] = i;
-		}
-	}
-	if (wait_ep_count_out)
-		*wait_ep_count_out = ep_count;
 
 	return ERR_BUSY;
 }
@@ -1102,69 +1070,25 @@ static bool WaitanyWriteTimeoutRes(uintptr_t result_ptr, uint32_t size)
 }
 
 
+/**
+ * @brief Check for an immediate match; else register this call's wait set.
+ * @param self         Calling thread.
+ * @param handles_local Caller's handle array, already in kernel memory.
+ * @param count        Number of entries in @p handles_local.
+ * @param result       Filled in on an immediate match (return 0).
+ * @return 0 (result filled), ERR_BUSY (registered, must block), or a hard error.
+ */
 static int __attribute__((noinline)) WaitanyPrepareWait(Thread *self,
 							  const Handle *handles_local,
 							  uint32_t count, WaitanyResult *result)
 {
-	NtfnObj *wait_ntfns[WAITANY_MAX_HANDLES];
-	uint32_t wait_ntfn_indices[WAITANY_MAX_HANDLES];
-	uint32_t wait_count = 0;
-	Port *wait_eps[WAITANY_MAX_HANDLES];
-	uint32_t wait_ep_indices[WAITANY_MAX_HANDLES];
-	uint32_t ep_wait_count = 0;
+	WaitSlot pending[WAITANY_MAX_HANDLES];
 
-	int err = WaitanyTryOnce(handles_local, count, result, wait_ntfns, wait_ntfn_indices,
-				   &wait_count, wait_eps, wait_ep_indices, &ep_wait_count);
+	int err = WaitanyTryOnce(handles_local, count, result, pending);
 	if (err != ERR_BUSY)
 		return err;
 
-	for (uint32_t i = 0; i < WAITANY_MAX_HANDLES; i++) {
-		ListNode *n = &self->waitany_wait_slots[i].node;
-		if (n->prev && n->next)
-			list_remove(n);
-		ListNode *p = &self->waitany_port_wait_slots[i].node;
-		if (p->prev && p->next)
-			list_remove(p);
-	}
-
-	self->waitany_wait_match_index = WAITANY_NO_MATCH;
-	self->waitany_port_wait_match_index = WAITANY_NO_MATCH;
-
-	/* Enqueue on notification wait queues */
-	if (wait_count > 0) {
-		self->waitany_wait_count = wait_count;
-		self->waitany_wait_match_index = WAITANY_NO_MATCH;
-		self->waitany_wait_bits = 0;
-		self->waitany_active = true;
-
-		for (uint32_t i = 0; i < wait_count; i++) {
-			self->waitany_wait_ntfns[i] = wait_ntfns[i];
-			self->waitany_wait_slots[i].owner = self;
-			self->waitany_wait_slots[i].index = wait_ntfn_indices[i];
-			self->waitany_wait_slots[i].node.prev = NULL;
-			self->waitany_wait_slots[i].node.next = NULL;
-			list_add_tail(&self->waitany_wait_slots[i].node,
-				      &wait_ntfns[i]->wait_queue.node);
-		}
-	}
-
-	/* Enqueue on endpoint receiver queues */
-	if (ep_wait_count > 0) {
-		self->waitany_port_wait_count = ep_wait_count;
-		self->waitany_port_wait_match_index = WAITANY_NO_MATCH;
-		self->waitany_port_wait_active = true;
-
-		for (uint32_t i = 0; i < ep_wait_count; i++) {
-			self->waitany_wait_ports[i] = wait_eps[i];
-			self->waitany_port_wait_slots[i].owner = self;
-			self->waitany_port_wait_slots[i].index = wait_ep_indices[i];
-			self->waitany_port_wait_slots[i].node.prev = NULL;
-			self->waitany_port_wait_slots[i].node.next = NULL;
-			list_add_tail(&self->waitany_port_wait_slots[i].node,
-				      &wait_eps[i]->receiver_queue.node);
-		}
-	}
-
+	WaitSlotsRegister(self, pending, count);
 	return ERR_BUSY;
 }
 
@@ -1240,8 +1164,7 @@ void SysWaitAny(CpuState *frame)
 			 * wait_queue / port receiver_queue; a non-blocking exit
 			 * must tear them back down or they rot in those queues
 			 * and a later sender/signal dequeues a zombie slot. */
-			ThreadWaitanyClearWaits(current_thread);
-			ThreadWaitanyClearPortWaits(current_thread);
+			WaitSlotsUnregisterAll(current_thread);
 			arch_reg_set(frame, 0, ERR_TIMEOUT);
 			return;
 		}
@@ -1249,8 +1172,7 @@ void SysWaitAny(CpuState *frame)
 		/* Deadline check before blocking */
 		if (timeout_ms != TIMEOUT_INFINITE) {
 			if (ArchTimerNow() >= deadline) {
-				ThreadWaitanyClearWaits(current_thread);
-				ThreadWaitanyClearPortWaits(current_thread);
+				WaitSlotsUnregisterAll(current_thread);
 				if (!WaitanyWriteTimeoutRes(result_ptr, wlen)) {
 					arch_reg_set(frame, 0, ERR_BADPTR);
 					return;
@@ -1269,13 +1191,13 @@ void SysWaitAny(CpuState *frame)
 		 * address masquerading as a wakeup code, which then leaked out as the
 		 * return value. Clear it so an unwritten channel reads as "nothing". */
 		arch_reg_set(frame, 0, ZUZU_OK);
+		current_thread->waitany_in_block = true;
 		current_thread->state = BLOCKED;
 #ifdef CONFIG_ZUZU_BENCH
 		/* Same stash used by SysNtfnObjWait: relay_handler's unblock (the
 		 * IRQ-driven wake path) doesn't care which syscall queued this
 		 * thread's thread_wait_slot_t on the ntfn's wait_queue. */
-		if (wait_count > 0)
-			current_thread->bench_irq_wait_start = BENCH_BEGIN();
+		current_thread->bench_irq_wait_start = BENCH_BEGIN();
 #endif
 
 		if (timeout_ms != TIMEOUT_INFINITE) {
@@ -1286,6 +1208,7 @@ void SysWaitAny(CpuState *frame)
 		}
 
 		Schedule();
+		current_thread->waitany_in_block = false;
 
 		/* Cancel sleep queue entry if not timed out */
 		if (timeout_ms != TIMEOUT_INFINITE && current_thread->wake_reason != WAKE_TIMEOUT) {
@@ -1294,38 +1217,18 @@ void SysWaitAny(CpuState *frame)
 
 		/* ERR_DEAD from cap_destroy */
 		if ((int32_t)(*arch_reg(frame, 0)) == ERR_DEAD) {
-			ThreadWaitanyClearWaits(current_thread);
-			ThreadWaitanyClearPortWaits(current_thread);
+			WaitSlotsUnregisterAll(current_thread);
 			arch_reg_set(frame, 0, ERR_DEAD);
 			return;
 		}
 
-		/* Timeout */
-		if (current_thread->wake_reason == WAKE_TIMEOUT) {
-			ThreadWaitanyClearWaits(current_thread);
-			ThreadWaitanyClearPortWaits(current_thread);
-			continue; /* deadline check at top catches expiry */
-		}
-
-		/* Woken by endpoint sender */
-		if (current_thread->waitany_port_wait_match_index != WAITANY_NO_MATCH) {
-			ThreadWaitanyClearWaits(current_thread);
-			ThreadWaitanyClearPortWaits(current_thread);
-			if (!CopyToUser((void *)result_ptr, &current_thread->waitany_pending_result,
-					wlen)) {
-				arch_reg_set(frame, 0, ERR_BADPTR);
-				return;
-			}
-			(*arch_reg(frame, 0)) = 0;
-			return;
-		}
-
-		/* Woken by notification */
-		if (current_thread->waitany_wait_match_index != WAITANY_NO_MATCH) {
-			WaitanyDeliverNtfn(current_thread->waitany_wait_match_index,
-						     current_thread->waitany_wait_bits, &result);
-			ThreadWaitanyClearWaits(current_thread);
-			ThreadWaitanyClearPortWaits(current_thread);
+		/* A delivery is checked before the timeout: a waker that matched us
+		 * has already dequeued the sender, copied its payload and marked the
+		 * message delivered, so discarding it here loses it for good -- the
+		 * sender is never told. A timeout racing a real delivery must lose. */
+		if (current_thread->waitany_match_index != WAITANY_NO_MATCH) {
+			result = current_thread->waitany_pending_result;
+			WaitSlotsUnregisterAll(current_thread);
 			if (!CopyToUser((void *)result_ptr, &result, wlen)) {
 				arch_reg_set(frame, 0, ERR_BADPTR);
 				return;
@@ -1334,8 +1237,13 @@ void SysWaitAny(CpuState *frame)
 			return;
 		}
 
+		/* Timeout, only once no delivery was pending */
+		if (current_thread->wake_reason == WAKE_TIMEOUT) {
+			WaitSlotsUnregisterAll(current_thread);
+			continue; /* deadline check at top catches expiry */
+		}
+
 		/* Spurious wakeup, retry */
-		ThreadWaitanyClearWaits(current_thread);
-		ThreadWaitanyClearPortWaits(current_thread);
+		WaitSlotsUnregisterAll(current_thread);
 	}
 }

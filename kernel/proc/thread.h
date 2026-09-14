@@ -40,11 +40,29 @@ typedef struct thread Thread;
 
 #define TCB_SLOT_NONE 0xFFu /* thread holds no TCB slot */
 
-typedef struct thread_wait_slot {
+typedef enum {
+	WAIT_KIND_NONE = 0,
+	WAIT_KIND_NTFN,
+	WAIT_KIND_PORT,
+} WaitKind;
+
+/**
+ * @brief A registration linked into one ntfn's wait_queue or one port's
+ * receiver_queue. Used both for plain single-handle waits (ntfn_wait_slot,
+ * port_wait_slot below) and for every slot of a waitany call; see
+ * kernel/ipc/waitslot.h.
+ */
+typedef struct wait_slot {
 	ListNode node;
 	Thread *owner;
-	uint32_t index;
-} ThreadWaitSlot;
+	WaitKind kind;
+	uint32_t handle_index; /**< waitany: index into caller's handles[];
+				     unused for a plain single-handle wait. */
+	union {
+		NtfnObj *ntfn;
+		Port *port;
+	};
+} WaitSlot;
 
 struct thread {
 	VirtAddr kernel_stack_top; // base of kernel stack for freeing (offset 0)
@@ -70,20 +88,18 @@ struct thread {
 	PhysAddr lmsg_buf_phys_addr;
 	size_t lmsg_buf_xfer_len;
 	Marker port_marker;
-	ThreadWaitSlot ntfn_wait_slot;
-	ThreadWaitSlot waitany_wait_slots[WAITANY_MAX_HANDLES];
-	NtfnObj *waitany_wait_ntfns[WAITANY_MAX_HANDLES];
-	size_t waitany_wait_count;
-	uint32_t waitany_wait_match_index;
-	uint32_t waitany_wait_bits;
-	bool waitany_active;
-	ThreadWaitSlot port_wait_slot;				     /* for msg_recv */
-	ThreadWaitSlot waitany_port_wait_slots[WAITANY_MAX_HANDLES]; /* for waitany endpoints */
-	Port *waitany_wait_ports[WAITANY_MAX_HANDLES];
-	size_t waitany_port_wait_count;
-	bool waitany_port_wait_active;
-	uint32_t waitany_port_wait_match_index;
+	WaitSlot ntfn_wait_slot;  /* for SysNtfnWait */
+	WaitSlot port_wait_slot;  /* for SysMsgRecv */
+	WaitSlot waitany_slots[WAITANY_MAX_HANDLES];
+	uint32_t waitany_slot_count;
+	bool waitany_registered;
+	uint32_t waitany_match_index;
 	WaitanyResult waitany_pending_result;
+	/* Set immediately before SysWaitAny blocks, cleared the instant
+	 * Schedule() hands the thread back. A thread that reaches userspace
+	 * with this still set never finished its syscall -- see the check at
+	 * SyscallDispatch entry. */
+	bool waitany_in_block;
 	uint32_t priority, time_slice, ticks_remaining;
 	/* Absolute counter value (ArchTimerNow() units) at which this thread's
 	 * slice expires. Set on dispatch; compared against, never decremented,
@@ -106,45 +122,6 @@ Thread *ThreadCreate(Process *owner_process);
 void ThreadKill(Thread *thread);
 void ThreadWakeJoiners(Thread *thread, int32_t exit_status);
 Thread *ThreadFindByTid(Tid tid);
-
-static inline void ThreadWaitanyClearWaits(Thread *thread)
-{
-	if (!thread || !thread->waitany_active)
-		return;
-
-	for (uint32_t i = 0; i < thread->waitany_wait_count && i < WAITANY_MAX_HANDLES; i++) {
-		ListNode *node = &thread->waitany_wait_slots[i].node;
-		if (node->prev && node->next)
-			list_remove(node);
-		thread->waitany_wait_ntfns[i] = NULL;
-		node->prev = NULL;
-		node->next = NULL;
-	}
-
-	thread->waitany_wait_count = 0;
-	thread->waitany_wait_match_index = WAITANY_NO_MATCH;
-	thread->waitany_wait_bits = 0;
-	thread->waitany_active = false;
-}
-
-static inline void ThreadWaitanyClearPortWaits(Thread *thread)
-{
-	if (!thread || !thread->waitany_port_wait_active)
-		return;
-
-	for (uint32_t i = 0; i < thread->waitany_port_wait_count && i < WAITANY_MAX_HANDLES; i++) {
-		ListNode *node = &thread->waitany_port_wait_slots[i].node;
-		if (node->prev && node->next)
-			list_remove(node);
-		thread->waitany_wait_ports[i] = NULL;
-		node->prev = NULL;
-		node->next = NULL;
-	}
-
-	thread->waitany_port_wait_count = 0;
-	thread->waitany_port_wait_match_index = WAITANY_NO_MATCH;
-	thread->waitany_port_wait_active = false;
-}
 
 void ThreadUnlinkWaits(Thread *t);
 
