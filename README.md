@@ -6,19 +6,19 @@
 
 zuzu is a microkernel written from scratch in C and ARM assembly, targeting
 AArch32 / ARMv7-A. **zuzuOS** is the userspace that runs on top of it: drivers,
-a filesystem server, a network stack, and a shell which are packed all as ordinary isolated processes communicating through IPC.
-
-It currently runs on QEMU's `vexpress-a15` (Cortex-A15) and on **Raspberry Pi 4 silicon**
+a filesystem server, a network stack, and a shell which are packed all as ordinary isolated processes communicating through IPC. It currently runs on QEMU's `vexpress-a15` (Cortex-A15) and is physically tested on the **Raspberry Pi 4**
 (BCM2711, Cortex-A72).
-
-## The claim
 
 Microkernels have a reputation for being too slow for practical use. I believe this is a
 reputation earned by Mach in the early 1990s and never fully shaken. zuzu is an
 argument that this is no longer true for the embedded, IoT, and router-class
 systems where isolation matters most.
 
-The argument is made with measurements on real silicon, not on an emulator.
+## About
+
+This began as a hobby project, a way to put every piece of systems programming
+I cared about into one place and became a master's thesis and undergraduate
+capstone. It is still the project I most wanted to build. It is named after our cat, Zuzu, a Scottish Fold.
 
 ## Design
 
@@ -26,31 +26,16 @@ Everything the kernel exposes is a **handle**. Holding a handle *is* the
 permission to use the object it names. A process can do exactly what it holds
 handles for, and nothing else.
 
-The kernel provides:
-
-- Address spaces, threads, and scheduling
-- Synchronous IPC (message passing, call/reply), long messages, and
-  notifications
-- Multiplexed blocking across ports, IRQs, and timers via `WaitAny`
-- Interrupt forwarding to userspace drivers
-- Physical memory management, device enumeration, shared memory, W^X enforcement
-
-Everything else is a userspace process. Device drivers, the filesystem, and the
-entire network stack run unprivileged and isolated.
-
-## What works
-
 **Kernel**
 - Address spaces, USR-mode execution, ASID-tagged TLB
 - Preemptive priority scheduling, up to 255 threads per process
-- IPC: messages, long messages, notifications, `WaitAny`, receiver-side
-  demux markers, shared memory
-- Userspace device drivers with MMIO mapping and IRQ forwarding
+- IPC: messages, long messages, notifications, `WaitAny`, markers, shared memory
 - ELF/ZXF loading from an initrd, process lifecycle, kernel-attested labels
 
 **zuzuOS**
 - Supervisor/init, a standalone name server, a VFS server, a device manager
 - A UART driver and an interactive shell
+- Userspace device drivers
 - A network stack running entirely in userspace: LAN9118 driver -> Ethernet /
   ARP / IPv4 / ICMP -> UDP/TCP, with a full state machine, RFC 6298
   retransmission timing with Karn's algorithm, and out-of-order reassembly
@@ -60,7 +45,7 @@ entire network stack run unprivileged and isolated.
 
 ## Status
 
-Under active development. The kernel ABI is stable within the 1.x series. See roadmap for recent development updates.
+Under active development. The kernel ABI is stable between minors of the same major. See roadmap for recent development updates.
 
 ## Documentation
 
@@ -72,7 +57,7 @@ All documentation has been moved to the zuzu docs website. Visit [https://kagant
      Should cover: toolchain prerequisites, `make BOARD=vexpress`,
      `make BOARD=rpi4`, running under QEMU, and deploying to hardware. -->
 
-**Requirements:** `arm-none-eabi` toolchain, QEMU with `arm-softmmu`.
+**Requirements:** `arm-none-eabi` toolchain, QEMU with `arm-softmmu`, also `gmake`.
 
 ## Repository layout
 
@@ -108,12 +93,6 @@ Major versions are named after how a cat sits: **Loaf**
 (1.x), **Prowl** (2.x), **Knead** (3.x), **Pounce** (4.x).
 
 zuzuOS versions are named after drinks.
-
-## About
-
-This began as a hobby project, a way to put every piece of systems programming
-I cared about into one place and became a master's thesis and undergraduate
-capstone. It is still the project I most wanted to build. It is named after our cat, Zuzu, a Scottish Fold.
 
 ## Credits
 
