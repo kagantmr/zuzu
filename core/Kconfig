@@ -1,0 +1,28 @@
+menu "Logging and panic"
+
+config LOG_LEVEL
+	int "Log level (0 = silent, 5 = everything)"
+	range 0 5
+	default 1
+
+menu "Panic backtrace sections"
+comment "Which subsystems annotate a panic with their own state."
+
+config PANIC_SECTION_PROCESS
+	bool "Process state"
+	default y
+
+config PANIC_SECTION_SCHEDULER
+	bool "Scheduler state"
+	default y
+
+config PANIC_SECTION_IRQ
+	bool "IRQ state"
+	default y
+
+config PANIC_SECTION_MEMORY
+	bool "Memory state"
+	default y
+
+endmenu
+endmenu

@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+"""Read or change one Kconfig symbol without opening menuconfig.
+
+    scripts/config [--board B] --set CONFIG_LOG_LEVEL=4
+    scripts/config [--board B] --enable CONFIG_ZUZU_BENCH
+    scripts/config [--board B] --disable CONFIG_UART_PL011
+    scripts/config [--board B] --get CONFIG_LOG_LEVEL
+    scripts/config [--board B] --list
+
+Edits build/<arch>-<board>/.config and regenerates autoconf.h, so the next
+build picks the change up. --board defaults to $BOARD, then vexpress-a15.
+"""
+
+import argparse
+import os
+import pathlib
+import subprocess
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "vendor" / "kconfiglib"))
+import kconfiglib  # noqa: E402
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--board", default=os.environ.get("BOARD", "vexpress-a15"))
+    ap.add_argument("--arch", default=os.environ.get("ARCH", "arm"))
+    g = ap.add_mutually_exclusive_group(required=True)
+    g.add_argument("--set", metavar="SYM=VALUE")
+    g.add_argument("--enable", metavar="SYM")
+    g.add_argument("--disable", metavar="SYM")
+    g.add_argument("--get", metavar="SYM")
+    g.add_argument("--list", action="store_true")
+    args = ap.parse_args()
+
+    out = ROOT / "build" / f"{args.arch}-{args.board}"
+    cfg = out / ".config"
+    inc = out / "include" / "config"
+
+    if not cfg.exists():
+        subprocess.run([sys.executable, str(ROOT / "scripts" / "kconf.py"), "olddefconfig",
+                        "--config", str(cfg), "--out", str(inc),
+                        "--defconfig", str(ROOT / "arch" / args.arch / args.board / "defconfig")],
+                       check=True, cwd=ROOT)
+
+    os.chdir(ROOT)
+    os.environ["KCONFIG_CONFIG"] = str(cfg)
+    kconf = kconfiglib.Kconfig("Kconfig", warn_to_stderr=False)
+    kconf.load_config(str(cfg))
+
+    def sym_of(name):
+        s = kconf.syms.get(name[len("CONFIG_"):] if name.startswith("CONFIG_") else name)
+        if s is None:
+            sys.exit(f"config: no such symbol: {name}")
+        return s
+
+    if args.list:
+        for s in kconf.unique_defined_syms:
+            if s.str_value != "":
+                print(f"CONFIG_{s.name}={s.str_value}")
+        return
+    if args.get:
+        print(sym_of(args.get).str_value)
+        return
+
+    if args.enable:
+        name, value = args.enable, "y"
+    elif args.disable:
+        name, value = args.disable, "n"
+    else:
+        if "=" not in args.set:
+            sys.exit("config: --set needs SYM=VALUE")
+        name, value = args.set.split("=", 1)
+
+    sym = sym_of(name)
+    if not sym.set_value(value):
+        sys.exit(f"config: {name} rejected value {value!r} "
+                 f"(type {kconfiglib.TYPE_TO_STR[sym.type]})")
+    kconf.write_config(str(cfg))
+    subprocess.run([sys.executable, str(ROOT / "scripts" / "kconf.py"), "sync",
+                    "--config", str(cfg), "--out", str(inc)], check=True, cwd=ROOT)
+    print(f"  CFG     {args.board}: CONFIG_{sym.name}={sym.str_value}")
+
+
+if __name__ == "__main__":
+    main()

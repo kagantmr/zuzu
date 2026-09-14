@@ -11,7 +11,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 #include <arch/cycles.h>
 #include <snprintf.h>
 #include <zuzu/bench.h>
@@ -24,7 +24,7 @@
  * kernel's DTB enumeration only keeps that first string per device (see
  * dtb_enum_devices() in kernel/dtb/dtb.c) -- so devmgr's exact strcmp
  * against just "arm,pl011" never matches on rpi4. Mirror the alias list
- * arch/arm/rpi4/platform.c already uses for the early console lookup. */
+ * the PL011 driver registration already uses for the console lookup. */
 #define PL011DRV_COMPATIBLE_AXI "arm,pl011-axi"
 
 static volatile pl011_t *uart;
@@ -38,11 +38,14 @@ static uint8_t txbuf_storage[UART_RINGBUF_MAX];
 
 static void uart_txraw(char c)
 {
-    if (!(uart->FR & FR_TXFF) && ring_avail(&txrb) == 0) {
-        uart->DR = (uint32_t)c;
-    } else if (ring_push(&txrb, (uint8_t)c) == 0) {
-        uart->IMSC |= IMSC_TXIM;
-    }
+    /* Poll TXFF rather than queueing behind TXIM. The TX interrupt is the only
+     * thing that drains txrb, so on a board where the UART IRQ never arrives
+     * output stops dead after the first FIFO-full -- one character, then
+     * silence, with the rest of the string stuck in the ring. Spinning costs a
+     * character time (~87us at 115200) and always works. */
+    while (uart->FR & FR_TXFF)
+        ;
+    uart->DR = (uint32_t)c;
 }
 
 static void uart_txbyte(char c)
@@ -53,12 +56,34 @@ static void uart_txbyte(char c)
     uart_txraw(c);
 }
 
-static void drain_uart_rx_fifo(void)
-{
-    while (!(uart->FR & FR_RXFE) && ring_full(&rxrb) == 0) {
-        uint8_t c = (uint8_t)(uart->DR & 0xFF);
-        (void)ring_push(&rxrb, c);
+static void uart_puts(const char* s) {
+    while (*s) {
+        uart_txbyte(*s++);
     }
+}
+
+static uint32_t drain_uart_rx_fifo(uint32_t *err_bytes_out)
+{
+    uint32_t pushed = 0;
+    uint32_t err_bytes = 0;
+    while (!(uart->FR & FR_RXFE) && ring_full(&rxrb) == 0) {
+        uint32_t dr = uart->DR;
+        /* DR[11:8] = OE/BE/PE/FE for this byte. A break or framing error also
+         * latches in RSR and stays latched until written, so without this the
+         * FIFO keeps handing back error bytes forever -- a single line glitch
+         * turns into an endless stream of garbage characters. Drop the byte
+         * and clear the status. */
+        if (dr & 0xF00u) {
+            uart->RSR = 0xFu;
+            err_bytes++;
+            continue;
+        }
+        if (ring_push(&rxrb, (uint8_t)(dr & 0xFFu)) == 0)
+            pushed++;
+    }
+    if (err_bytes_out)
+        *err_bytes_out = err_bytes;
+    return pushed;
 }
 
 static void wait_for_devmgr(void)
@@ -82,7 +107,7 @@ static Handle request_serial_device(void)
 static void handle_irq_event(void)
 {
     if (uart->MIS & (IMSC_RXIM | IMSC_RTIM)) {
-        drain_uart_rx_fifo();
+        (void)drain_uart_rx_fifo(NULL);
         uart->ICR = (IMSC_RXIM | IMSC_RTIM);
     }
     if (uart->MIS & IMSC_TXIM) {
@@ -119,7 +144,7 @@ static void handle_read(Handle reply_handle, uint32_t max_len)
     if (max_len > LMSG_BUF_SIZE)
         max_len = LMSG_BUF_SIZE;
 
-    drain_uart_rx_fifo();
+    (void)drain_uart_rx_fifo(NULL);
 
     char *buf = (char *)LmsgBuf();
     uint32_t n = 0;
@@ -133,7 +158,7 @@ static void handle_read(Handle reply_handle, uint32_t max_len)
     (void)ChannelReply(reply_handle, buf, n);
 }
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 static void uart_bench_print(const char *label, const BenchResult *r)
 {
     uint64_t avg_x100 = r->count ? (r->sum * 100) / r->count : 0;
@@ -180,7 +205,7 @@ static void run_irq_wait_bench(void)
 
     uart_bench_print("IRQ wait block->unblock", &r);
 }
-#endif /* ZUZU_BENCH */
+#endif /* CONFIG_ZUZU_BENCH */
 
 int pl011drv_setup(void)
 {
@@ -229,7 +254,7 @@ int pl011drv_setup(void)
     uart->ICR = ICR_ALL;
     uart->IMSC = (IMSC_RXIM | IMSC_RTIM);
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
     run_irq_wait_bench();
 #endif
 
@@ -248,23 +273,34 @@ int main(void)
         [H_PORT] = client_port,
     };
 
-    while (1) {
-        WaitanyResult r;
-        if (ZuzuWaitany(handles, 2, TIMEOUT_INFINITE, &r) != 0)
-            continue;
+    uart_puts("pl011drv is up\n");
 
-        switch (r.kind) {
-        case WAITANY_KIND_NTFN:
-            handle_irq_event();
-            break;
-        case WAITANY_KIND_SEND:
-            handle_write(r.w1);
-            break;
-        case WAITANY_KIND_CALL:
-            handle_read((Handle)r.source, r.w2);
-            break;
-        default:
-            break;
+    while (1) {
+        /* Zeroed every iteration, with a kind the kernel never returns: a
+         * waitany that reports success without filling this in would
+         * otherwise leave the previous iteration's kind and length here,
+         * and we would replay that message against whatever the lmsg
+         * buffer now holds. Treat an unwritten result as no event. */
+        WaitanyResult r;
+        memset(&r, 0, sizeof(r));
+        r.kind = (WaitanyType)0xEE; /* no kernel path yields this */
+
+        Err rc = ZuzuWaitany(handles, 2, TIMEOUT_INFINITE, &r);
+
+        if (rc == ZUZU_OK && r.kind != (WaitanyType)0xEE) {
+            switch (r.kind) {
+            case WAITANY_KIND_NTFN:
+                handle_irq_event();
+                break;
+            case WAITANY_KIND_SEND:
+                handle_write(r.w1);
+                break;
+            case WAITANY_KIND_CALL:
+                handle_read((Handle)r.source, r.w2);
+                break;
+            default:
+                break;
+            }
         }
     }
 }

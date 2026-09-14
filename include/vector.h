@@ -10,10 +10,10 @@ extern "C" {
 #include <stdbool.h>
 #include <string.h>
 
-#ifdef __KERNEL__
+#ifdef __ZUZU__
 #include "kernel/mm/alloc.h"
-#define VEC_ALLOC(sz) kmalloc(sz)
-#define VEC_FREE(ptr) kfree(ptr)
+#define VEC_ALLOC(sz) KZAlloc(sz)
+#define VEC_FREE(ptr) KFree(ptr)
 #else
 #include <malloc.h>
 #define VEC_ALLOC(sz) malloc(sz)
@@ -49,6 +49,16 @@ extern "C" {
      * in the always_inline sense: no loop, no calls, nothing to gain     \
      * by keeping it out-of-line. */                                      \
     static __always_inline type *name##_vec_get(name##_vec_t *v, uint32_t i) \
+    {                                                                     \
+        if (unlikely(i >= v->cap))                                        \
+            return NULL;                                                  \
+        return &v->data[i];                                               \
+    }                                                                     \
+                                                                          \
+    /* Read-only counterpart for callers that only hold a const owner     \
+     * (e.g. a const AddressSpace *) -- avoids casting the const away     \
+     * just to call name##_vec_get. */                                    \
+    static __always_inline const type *name##_vec_get_const(const name##_vec_t *v, uint32_t i) \
     {                                                                     \
         if (unlikely(i >= v->cap))                                        \
             return NULL;                                                  \

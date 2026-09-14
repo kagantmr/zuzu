@@ -1,5 +1,5 @@
-#ifndef ENDPOINT_H
-#define ENDPOINT_H
+#ifndef PORT_H
+#define PORT_H
 
 #include <stddef.h>
 #include <stdbool.h>
@@ -9,7 +9,7 @@
 
 struct process;
 
-typedef struct endpoint {
+typedef struct {
     ListHead sender_queue;
     ListHead receiver_queue;
     Pid owner_pid;
@@ -26,4 +26,4 @@ typedef struct {
 } ReplyCap;
 
 
-#endif // ENDPOINT_H
+#endif // PORT_H

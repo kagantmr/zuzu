@@ -72,6 +72,6 @@ int elf_phdr_count(const void *data);
  * @param index Index of the program header to retrieve.
  * @return Elf32_Phdr* Pointer to the program header, or NULL if index is out of bounds.
  */
-Elf32_Phdr *elf_phdr_get(const void *data, int index);
+const Elf32_Phdr *elf_phdr_get(const void *data, int index);
 
 #endif // ELF_H

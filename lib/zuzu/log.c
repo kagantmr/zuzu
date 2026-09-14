@@ -4,7 +4,7 @@
 #include <zuzu/syspage.h>
 #include "ansi.h"
 
-static LogLevel g_min_level = LOG_LEVEL;
+static LogLevel g_min_level = CONFIG_LOG_LEVEL;
 
 static const char *level_to_label(LogLevel level) {
     switch (level) {
