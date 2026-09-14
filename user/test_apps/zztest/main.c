@@ -41,7 +41,7 @@
 #define LEAK_ITERS      50
 #define CHILD_PATH      "/bin/zztest_child"
 #define CHILD_NAME      "zztest_child"
-#define VM_PROT_USER_BIT (1u << 3)   /* kernel-internal bit, must be rejected */
+#define VM_PROT_USER_BIT (1U << 3)   /* kernel-internal bit, must be rejected */
 
 /* ---------------- harness ---------------- */
 

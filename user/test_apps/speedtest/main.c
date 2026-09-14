@@ -277,6 +277,14 @@ static int32_t spawn_ipc_child(Handle port, ChildProc *out)
 		ZuzuPKill(ts.taskHandle);
 		return rc;
 	}
+	/* sysd signals failure with the Err as the whole payload; ChannelCall
+	 * has already copied it into `reply`. */
+	if (rc == (int32_t)sizeof(Err)) {
+		Err err;
+		memcpy(&err, &reply, sizeof(err));
+		ZuzuPKill(ts.taskHandle);
+		return err;
+	}
 	if (rc != (int32_t)sizeof(ExecReply)) {
 		ZuzuPKill(ts.taskHandle);
 		return ERR_MALFORMED;
@@ -860,6 +868,9 @@ static void waitany_sender_thread(void *arg_)
 {
 	WaitanySenderArg *arg = (WaitanySenderArg *)arg_;
 	ZuzuMsgCall(arg->port, arg->tag, 0, 0);
+	/* SysTMake seeds the thread's user_lr with USER_ELF_BASE, so returning
+	 * from a thread entry re-enters _start and runs main again. */
+	ZuzuTQuit(ZUZU_OK);
 }
 
 /* Not a timing bench: correctness-adjacent check for whether WaitAny's
