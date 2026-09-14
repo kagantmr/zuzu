@@ -19,6 +19,9 @@ typedef struct list_head {
 #define list_for_each(pos, head) \
     for (pos = (head)->next; pos != (head); pos = pos->next)
 
+#define list_for_each_safe(pos, n, head) \
+    for (pos = (head)->next, n = pos->next; pos != (head); pos = n, n = pos->next)
+
 #define LIST_HEAD_INIT(name) { { &(name).node, &(name).node } }
 
 /**
@@ -57,7 +60,7 @@ static __always_inline void list_remove(ListNode* node) {
 }
 
 #define container_of(ptr, type, member) \
-    ((type*)((char*)(ptr) - offsetof(type, member)))
+    ((type*)(void*)((char*)(ptr) - offsetof(type, member)))
 
 /**
  * @brief Initializes a list head.

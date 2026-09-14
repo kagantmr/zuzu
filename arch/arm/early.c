@@ -7,8 +7,10 @@
 // linker.ld / _start.S, so this file does not change when adding a board.
 #include <arch/symbols.h>
 #include <arch/irq.h>
+#include <arch/barrier.h>
 #include <arch/platform.h>
 #include <arch/mmu.h>
+#include <arch_impl/armv7_mmu.h>
 #include "kernel/layout.h"
 #include "kernel/mm/pmm.h"
 #include "kernel/kmain.h"
@@ -18,12 +20,10 @@
 #include "kernel/mm/vmm.h"
 #include "core/panic.h"
 #include "core/kprintf.h"
-#include <assert.h>
 #include <string.h>
 
 kernel_layout_t kernel_layout;
 extern AddressSpace *g_kernel_as;
-#define SECTION_NORMAL_DESC 0x11C0Eu
 
 #define LOG_FMT(fmt) "(early) " fmt
 #include "core/log.h"
@@ -41,13 +41,13 @@ static void early_map_ram_sections(uintptr_t ram_base, size_t ram_size) {
     uintptr_t pa_end = (ram_base + ram_size + SECTION_SIZE - 1) & ~(SECTION_SIZE - 1);
 
     for (uintptr_t pa = pa_start; pa < pa_end; pa += SECTION_SIZE) {
-        uint32_t entry = (uint32_t)pa | SECTION_NORMAL_DESC;
-        l1[(pa >> 20) & 0xFFFu] = entry;
-        l1[(PA_TO_VA(pa) >> 20) & 0xFFFu] = entry;
+        uint32_t entry = (uint32_t)pa | L1_SECT_BOOT_NORMAL;
+        l1[L1_IDX(pa)] = entry;
+        l1[L1_IDX(PA_TO_VA(pa))] = entry;
     }
 
     arch_mmu_flush_tlb();
-    arch_mmu_barrier();
+    ArchCtxSync();
 }
 
 static void pmu_init(void) {
@@ -55,7 +55,7 @@ static void pmu_init(void) {
     __asm__ volatile("mrc p15, 0, %0, c9, c12, 0" : "=r"(pmcr));
     pmcr |=  (1 << 0);   // E: enable all counters
     pmcr |=  (1 << 2);   // C: reset cycle counter to 0
-    pmcr &= ~(1 << 3);   // D: CLEAR divider — count every cycle, not every 64th
+    pmcr &= ~(1u << 3);   // D: CLEAR divider — count every cycle, not every 64th
     __asm__ volatile("mcr p15, 0, %0, c9, c12, 0" :: "r"(pmcr));
     __asm__ volatile("mcr p15, 0, %0, c9, c14, 0" :: "r"(0x00000001)); // PMUSERENR: user read
     __asm__ volatile("mcr p15, 0, %0, c9, c12, 1" :: "r"(0x80000000)); // PMCNTENSET: enable CCNT
@@ -72,12 +72,16 @@ static void vfp_init() {
         "vmsr fpexc, %0" ::"r"(1u << 30));
 }
 
-int rdcyc() {
+/* Debug helper, not called from C; kept for use from a debugger/disasm
+ * session. External linkage only, so it still needs a prototype. */
+int rdcyc(void);
+int rdcyc(void) {
     uint32_t value;
     __asm__ volatile("mrc p15, 0, %0, c9, c13, 0" : "=r"(value));
-    return value;
+    return (int)value;
 }
 
+_Noreturn void early(void *dtb_ptr);
 _Noreturn void early(void *dtb_ptr)
 {
     /* Console-before-everything: a no-op unless the board overrides it.
@@ -114,7 +118,7 @@ _Noreturn void early(void *dtb_ptr)
     KDEBUG("early: pmm");
     PmmInit();
     KDEBUG("early: kheap");
-    kheap_init();
+    KHeapInit();
     KDEBUG("early: vmm bootstrap");
     vmm_bootstrap();
 

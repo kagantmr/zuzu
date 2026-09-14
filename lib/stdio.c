@@ -3,7 +3,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-#ifdef __KERNEL__
+#ifdef __ZUZU__
 #include "core/kprintf.h"
 #else
 #include <zuzu/lmsg.h>
@@ -14,7 +14,7 @@
 
 #define STDIO_PRINTF_BUF_SIZE 1024
 
-#ifndef __KERNEL__
+#ifndef __ZUZU__
 /* Full nametable path of the tty this process writes to. Drivers register
  * under /dev, services under /svc; the console is a driver, so the
  * default is the first UART. Changed at runtime via stdio_route_tty(). */
@@ -27,7 +27,7 @@ static int stdio_input_pushback = EOF;
 #endif
 
 static void __attribute__((constructor)) stdio_init(void) {
-#ifdef __KERNEL__
+#ifdef __ZUZU__
     // Nothing to do for kernel, kprintf is always available
 #else
     // Lazy initialization: don't look up tty service on startup.
@@ -36,7 +36,7 @@ static void __attribute__((constructor)) stdio_init(void) {
 }
 
 static void __attribute__((destructor)) stdio_fini(void) {
-#ifndef __KERNEL__
+#ifndef __ZUZU__
     stdio_tty = -1;
     stdio_input_len = 0;
     stdio_input_pos = 0;
@@ -49,7 +49,7 @@ static void __attribute__((destructor)) stdio_fini(void) {
  * successful lookup is cached until stdio_route_tty() invalidates it. */
 int stdio_open_tty(void)
 {
-#ifdef __KERNEL__
+#ifdef __ZUZU__
     return -1;
 #else
     if (stdio_tty >= 0) {
@@ -71,7 +71,7 @@ int stdio_open_tty(void)
  * immediately, so a failure is reported here rather than at first printf. */
 int stdio_route_tty(const char *name)
 {
-#ifdef __KERNEL__
+#ifdef __ZUZU__
     (void)name;
     return -1;
 #else
@@ -94,7 +94,7 @@ int stdio_route_tty(const char *name)
 /* Convenience wrapper: route to /dev/uart<index>. */
 int stdio_use_tty(uint32_t index)
 {
-#ifdef __KERNEL__
+#ifdef __ZUZU__
     (void)index;
     return -1;
 #else
@@ -106,7 +106,7 @@ int stdio_use_tty(uint32_t index)
 
 static int __attribute__((unused)) stdio_refill_input(void)
 {
-#ifdef __KERNEL__
+#ifdef __ZUZU__
     return EOF;
 #else
     if (stdio_open_tty() != 0)
@@ -131,7 +131,7 @@ static int __attribute__((unused)) stdio_refill_input(void)
 
 static int __attribute__((unused)) stdio_stream_getc(void)
 {
-#ifdef __KERNEL__
+#ifdef __ZUZU__
     return EOF;
 #else
     if (stdio_input_pushback != EOF) {
@@ -151,7 +151,7 @@ static int __attribute__((unused)) stdio_stream_getc(void)
 
 int getchar(void)
 {
-#ifdef __KERNEL__
+#ifdef __ZUZU__
     return EOF;
 #else
     return stdio_stream_getc();
@@ -176,7 +176,7 @@ static const char * __attribute__((unused)) stdio_skip_ws(const char *s)
  */
 static int __attribute__((unused)) stdio_stream_getc_blocking(void)
 {
-#ifdef __KERNEL__
+#ifdef __ZUZU__
     return EOF;
 #else
     for (;;) {
@@ -468,7 +468,7 @@ int scanf(const char *format, ...)
 
 int vscanf(const char *format, va_list args)
 {
-#ifdef __KERNEL__
+#ifdef __ZUZU__
     (void)format;
     (void)args;
     return EOF;
@@ -500,7 +500,7 @@ int vprintf(const char *format, va_list args)
             out_len = sizeof(buf) - 1;
         }
 
-#ifdef __KERNEL__
+#ifdef __ZUZU__
         (void)out_len;
         kprintf("%s", buf);
 #else

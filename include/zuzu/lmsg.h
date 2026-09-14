@@ -10,6 +10,7 @@ extern "C" {
 #include "tls.h"
 #include <stdbool.h>
 #include <zuzu/types.h>
+#include <zuzu/err.h>
 
 /**
  * @brief Accessor for the current thread's local message buffer.
