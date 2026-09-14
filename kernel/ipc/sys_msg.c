@@ -117,8 +117,10 @@ static __cold __noinline void PanicBadFrame(const char *where, const ProcessObj 
 
 static __always_inline void CancelTimeout(Thread *t)
 {
-	SchedRemoveSleepQueue(t);
-	t->wake_deadline = 0;
+	if (t->wake_deadline != 0) {
+		SchedRemoveSleepQueue(t);
+		t->wake_deadline = 0;
+	}
 }
 
 static __hot inline void IpcWakeThread(Thread *t)
@@ -136,6 +138,13 @@ BENCH_STAT(g_bench_handle_lookup, "handle table lookup");
 BENCH_STAT(g_bench_direct_handoff, "IPC direct-switch handoff");
 BENCH_STAT(g_bench_call_body, "SysMsgCall body (pre-switch)");
 BENCH_STAT(g_bench_reply_body, "SysMsgReply body (whole)");
+BENCH_STAT(g_bench_recv_body, "SysMsgRecv body (whole)");
+BENCH_STAT(g_bench_slot_findfree, "  HandleTableFindFree");
+BENCH_STAT(g_bench_entry_claim, "  HandleEntryClaim");
+BENCH_STAT(g_bench_entry_free, "  HandleEntryFree");
+BENCH_STAT(g_bench_track_cap, "  ProcessTrackReplyCap");
+BENCH_STAT(g_bench_untrack_cap, "  ProcessUntrackReplyCap");
+BENCH_STAT(g_bench_validate_replycap, "  ValidateReplyCap");
 
 /* Which of the three exits a call takes, counted rather than timed: the
  * timed handoff stat says what a handoff costs, not how often we get one.
@@ -353,6 +362,9 @@ void __attribute__((hot)) SysMsgSend(CpuState *frame)
 
 void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 {
+#ifdef CONFIG_ZUZU_BENCH
+	uint32_t bench_recv_start = BENCH_BEGIN();
+#endif
 	int handle = (int)(*arch_reg(frame, 0));
 	uint32_t timeout_ms = (*arch_reg(frame, 1)); // TIMEOUT_POLL / TIMEOUT_INFINITE / finite ms
 
@@ -374,7 +386,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 		Thread *sr_thread = container_of(sender, Thread, node);
 		CpuState *sr_frame = sr_thread->trap_frame;
 #ifdef DEBUG
-		if (!IsFrameNormal(sr_frame)) {
+		if (unlikely(!IsFrameNormal(sr_frame))) {
 			PanicBadFrame("ZuzuMsgRecv.sr", sr_thread->owner_process,
 						 sr_frame);
 		}
@@ -490,6 +502,9 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			current_thread->wake_deadline = 0;
 		}
 
+#ifdef CONFIG_ZUZU_BENCH
+		BENCH_END(g_bench_recv_body, bench_recv_start);
+#endif
 		Schedule();
 
 #ifdef DEBUG
@@ -515,6 +530,8 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 {
 #ifdef CONFIG_ZUZU_BENCH
 	uint32_t bench_call_start = BENCH_BEGIN();
+	uint32_t bs = 0;
+	(void)bs;
 #endif
 	int handle = (int)(*arch_reg(frame, 0));
 
@@ -553,7 +570,13 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 						 rx_frame);
 #endif
 
+#ifdef CONFIG_ZUZU_BENCH
+		bs = BENCH_BEGIN();
+#endif
 		int slot = HandleTableFindFree(&rx_thread->owner_process->handle_table);
+#ifdef CONFIG_ZUZU_BENCH
+		BENCH_END(g_bench_slot_findfree, bs);
+#endif
 		if (unlikely(slot < 0)) {
 			KFreeReplyCap(rc);
 			list_add_tail(&rx_slot->node, &port->receiver_queue.node);
@@ -571,9 +594,21 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		rentry->type = HANDLE_REPLY;
 		rentry->grantable = false;
 		rentry->reply = rc;
+#ifdef CONFIG_ZUZU_BENCH
+		bs = BENCH_BEGIN();
+#endif
 		HandleEntryClaim(&rx_thread->owner_process->handle_table, rentry);
+#ifdef CONFIG_ZUZU_BENCH
+		BENCH_END(g_bench_entry_claim, bs);
+#endif
+#ifdef CONFIG_ZUZU_BENCH
+		bs = BENCH_BEGIN();
+#endif
 		ProcessTrackReplyCap(current_thread->owner_process, rx_thread->owner_process,
 				     slot, rc);
+#ifdef CONFIG_ZUZU_BENCH
+		BENCH_END(g_bench_track_cap, bs);
+#endif
 
 		/* See the slot-identity note in SysMsgSend. */
 		if (unlikely(rx_slot != &rx_thread->port_wait_slot)) {
@@ -648,11 +683,19 @@ void __attribute__((hot)) SysMsgReply(CpuState *frame)
 {
 #ifdef CONFIG_ZUZU_BENCH
 	uint32_t bench_reply_start = BENCH_BEGIN();
+	uint32_t bs = 0;
+	(void)bs;
 #endif
 	Handle handle_idx = (Handle)(*arch_reg(frame, 0));
 	Thread *target_thread = NULL;
+#ifdef CONFIG_ZUZU_BENCH
+	bs = BENCH_BEGIN();
+#endif
 	HandleEntry *entry =
 	    ValidateReplyCap(current_thread->owner_process, handle_idx, &target_thread, frame);
+#ifdef CONFIG_ZUZU_BENCH
+	BENCH_END(g_bench_validate_replycap, bs);
+#endif
 	if (!entry) {
 		return;
 	}
@@ -680,9 +723,21 @@ void __attribute__((hot)) SysMsgReply(CpuState *frame)
 	target_thread->state = READY;
 	SchedAdd(target_thread);
 
+#ifdef CONFIG_ZUZU_BENCH
+	bs = BENCH_BEGIN();
+#endif
 	ProcessUntrackReplyCap(entry->reply);
+#ifdef CONFIG_ZUZU_BENCH
+	BENCH_END(g_bench_untrack_cap, bs);
+#endif
 	KFreeReplyCap(entry->reply);
+#ifdef CONFIG_ZUZU_BENCH
+	bs = BENCH_BEGIN();
+#endif
 	HandleEntryFree(&current_thread->owner_process->handle_table, entry);
+#ifdef CONFIG_ZUZU_BENCH
+	BENCH_END(g_bench_entry_free, bs);
+#endif
 	(*arch_reg(frame, 0)) = 0;
 #ifdef CONFIG_ZUZU_BENCH
 	BENCH_END(g_bench_reply_body, bench_reply_start);
@@ -703,7 +758,7 @@ void __attribute__((hot)) SysMsgLsend(CpuState *frame)
 	}
 
 	/* No truncation: oversized payloads are rejected outright. */
-	if (xlen > LMSG_BUF_SIZE) {
+	if (unlikely(xlen > LMSG_BUF_SIZE)) {
 		arch_reg_set(frame, 0, ERR_OVERFLOW);
 		return;
 	}
