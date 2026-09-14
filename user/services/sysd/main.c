@@ -661,7 +661,7 @@ int main(int argc, char **argv)
             break;
         }
     }
-    if (have_fsd)
+    if (have_fsd && deferred_count > 0)
         WaitForService("/svc/fsd");
 
     /* Spawn any entries marked spawn_last after services are available. */
