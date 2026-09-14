@@ -1,0 +1,105 @@
+# zuzu API documentation Doxygen config.
+#
+# Produces XML only. The HTML site is built by zuzu-docs (Jekyll); a
+# generator script consumes doxygen/xml/ and emits the Jekyll pages.
+#
+#   cd zuzu && doxygen docs/Doxyfile
+
+#---------------------------------------------------------------------------
+# Project
+#---------------------------------------------------------------------------
+PROJECT_NAME           = zuzu
+PROJECT_BRIEF          = "the Scottish Fold microkernel"
+OUTPUT_DIRECTORY       = docs/doxygen
+CREATE_SUBDIRS         = NO
+FULL_PATH_NAMES        = YES
+STRIP_FROM_PATH        = .
+STRIP_FROM_INC_PATH    = include
+
+#---------------------------------------------------------------------------
+# Build / extraction
+#---------------------------------------------------------------------------
+OPTIMIZE_OUTPUT_FOR_C  = YES
+EXTRACT_ALL            = NO
+EXTRACT_STATIC         = NO
+EXTRACT_PRIVATE        = NO
+EXTRACT_LOCAL_CLASSES  = NO
+HIDE_UNDOC_MEMBERS     = YES
+HIDE_UNDOC_CLASSES     = YES
+MARKDOWN_SUPPORT       = YES
+AUTOLINK_SUPPORT       = YES
+TYPEDEF_HIDES_STRUCT   = YES
+SORT_MEMBER_DOCS       = NO
+SORT_BRIEF_DOCS        = NO
+
+#---------------------------------------------------------------------------
+# Comment style
+#---------------------------------------------------------------------------
+JAVADOC_AUTOBRIEF      = YES
+QT_AUTOBRIEF           = NO
+MULTILINE_CPP_IS_BRIEF = NO
+INHERIT_DOCS           = YES
+TAB_SIZE               = 4
+
+#---------------------------------------------------------------------------
+# Input
+#---------------------------------------------------------------------------
+INPUT                  = docs/groups.dox \
+                         include/zuzu/sync
+INPUT_ENCODING         = UTF-8
+FILE_PATTERNS          = *.h
+RECURSIVE              = YES
+EXCLUDE_SYMLINKS       = YES
+
+#---------------------------------------------------------------------------
+# Preprocessing
+#---------------------------------------------------------------------------
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+SEARCH_INCLUDES        = YES
+INCLUDE_PATH           = include
+PREDEFINED             = __zuzu__ \
+                         _Atomic(x)=x \
+                         __attribute__(x)=
+
+#---------------------------------------------------------------------------
+# Warnings — CI gate
+#---------------------------------------------------------------------------
+QUIET                  = YES
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+WARN_IF_INCOMPLETE_DOC = YES
+WARN_NO_PARAMDOC       = YES
+WARN_AS_ERROR          = FAIL_ON_WARNINGS
+WARN_LOGFILE           = docs/doxygen/warnings.log
+
+#---------------------------------------------------------------------------
+# Output — XML only
+#---------------------------------------------------------------------------
+GENERATE_HTML          = NO
+GENERATE_LATEX         = NO
+GENERATE_XML           = YES
+XML_OUTPUT             = xml
+XML_PROGRAMLISTING     = NO
+XML_NS_MEMB_FILE_SCOPE = NO
+
+#---------------------------------------------------------------------------
+# Diagrams
+#---------------------------------------------------------------------------
+HAVE_DOT               = NO
+
+#---------------------------------------------------------------------------
+# Custom commands for syscall / ABI metadata
+#   @syscall_num 0x10
+#   @syscall_group messaging
+#   @syscall_blocking yes
+#   @reg r0 port "Handle of the destination port"
+# These emit xrefsect entries the generator can pick out by ID.
+#---------------------------------------------------------------------------
+ALIASES += "syscall_num=@xrefitem syscall_num \"Syscall number\" \"\" "
+ALIASES += "syscall_group=@xrefitem syscall_group \"Syscall group\" \"\" "
+ALIASES += "syscall_blocking=@xrefitem syscall_blocking \"Blocking\" \"\" "
+ALIASES += "syscall_sig=@xrefitem syscall_sig \"Signature\" \"\" "
+ALIASES += "reg{3}=@param \2 (\1) \3"
