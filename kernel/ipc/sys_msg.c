@@ -61,7 +61,7 @@ static void LmsgBufCopy(Thread *restrict src, Thread *restrict dst, uint32_t len
 	if (((uintptr_t)srcp & 3u) == 0 && (len & 3u) == 0) {
 		bench_start = BENCH_BEGIN();
 		const uint32_t *ws = (const uint32_t *)srcp;
-		uint32_t *wd = (uint32_t *)g_bench_wordcopy_scratch;
+		uint32_t *wd = (uint32_t *)(void *)g_bench_wordcopy_scratch;
 		uint32_t nwords = len / 4u;
 		for (uint32_t i = 0; i < nwords; i++)
 			wd[i] = ws[i];
@@ -134,6 +134,46 @@ static __hot inline void IpcWakeThread(Thread *t)
 #ifdef CONFIG_ZUZU_BENCH
 BENCH_STAT(g_bench_handle_lookup, "handle table lookup");
 BENCH_STAT(g_bench_direct_handoff, "IPC direct-switch handoff");
+BENCH_STAT(g_bench_call_body, "SysMsgCall body (pre-switch)");
+BENCH_STAT(g_bench_reply_body, "SysMsgReply body (whole)");
+
+/* Which of the three exits a call takes, counted rather than timed: the
+ * timed handoff stat says what a handoff costs, not how often we get one.
+ * A round trip that misses the handoff pays a full block+schedule. */
+typedef struct {
+	const char *name;
+	uint32_t handoff, takers, no_receiver;
+	bool reported;
+} CallPathMix;
+
+static CallPathMix g_mix_call = { .name = "msg_call path mix" };
+static CallPathMix g_mix_lcall = { .name = "msg_lcall path mix" };
+
+#define CALLPATH_HANDOFF     0
+#define CALLPATH_TAKERS      1
+#define CALLPATH_NO_RECEIVER 2
+
+static void CallPathTally(CallPathMix *m, int which)
+{
+	if (m->reported)
+		return;
+	if (which == CALLPATH_HANDOFF)
+		m->handoff++;
+	else if (which == CALLPATH_TAKERS)
+		m->takers++;
+	else
+		m->no_receiver++;
+
+	uint32_t total = m->handoff + m->takers + m->no_receiver;
+	if (total >= 100000u) {
+		m->reported = true;
+		kprintf("[BENCH] %-32s handoff=%u takers=%u no-receiver=%u (n=%u)\n", m->name,
+			m->handoff, m->takers, m->no_receiver, total);
+	}
+}
+#define CALL_TALLY(m, w) CallPathTally(&(m), (w))
+#else
+#define CALL_TALLY(m, w) ((void)0)
 #endif
 
 /* First thing every send/recv/call/reply does. The four checks below are
@@ -473,6 +513,9 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 
 void __attribute__((hot)) SysMsgCall(CpuState *frame)
 {
+#ifdef CONFIG_ZUZU_BENCH
+	uint32_t bench_call_start = BENCH_BEGIN();
+#endif
 	int handle = (int)(*arch_reg(frame, 0));
 
 	HandleEntry *entry = ValidatePortHandle(current_thread->owner_process, handle, frame);
@@ -572,13 +615,25 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		 * scheduler wouldn't have picked rx_thread next anyway, so fall back
 		 * to the normal sched_add()+schedule() path. */
 		if (unlikely(SchedAnyCpuTakers(rx_thread))) {
+			CALL_TALLY(g_mix_call, CALLPATH_TAKERS);
+#ifdef CONFIG_ZUZU_BENCH
+			BENCH_END(g_bench_call_body, bench_call_start);
+#endif
 			rx_thread->state = READY;
 			SchedAdd(rx_thread);
 			Schedule();
 		} else {
+			CALL_TALLY(g_mix_call, CALLPATH_HANDOFF);
+#ifdef CONFIG_ZUZU_BENCH
+			BENCH_END(g_bench_call_body, bench_call_start);
+#endif
 			SchedSwitchNext(rx_thread);
 		}
 	} else {
+		CALL_TALLY(g_mix_call, CALLPATH_NO_RECEIVER);
+#ifdef CONFIG_ZUZU_BENCH
+		BENCH_END(g_bench_call_body, bench_call_start);
+#endif
 		current_thread->ipc_state = IPC_WAITING;
 		current_thread->blocked_port = port;
 		current_thread->pending_reply_cap = rc;
@@ -591,6 +646,9 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 
 void __attribute__((hot)) SysMsgReply(CpuState *frame)
 {
+#ifdef CONFIG_ZUZU_BENCH
+	uint32_t bench_reply_start = BENCH_BEGIN();
+#endif
 	Handle handle_idx = (Handle)(*arch_reg(frame, 0));
 	Thread *target_thread = NULL;
 	HandleEntry *entry =
@@ -626,6 +684,9 @@ void __attribute__((hot)) SysMsgReply(CpuState *frame)
 	KFreeReplyCap(entry->reply);
 	HandleEntryFree(&current_thread->owner_process->handle_table, entry);
 	(*arch_reg(frame, 0)) = 0;
+#ifdef CONFIG_ZUZU_BENCH
+	BENCH_END(g_bench_reply_body, bench_reply_start);
+#endif
 }
 
 void __attribute__((hot)) SysMsgLsend(CpuState *frame)
@@ -796,13 +857,16 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 
 		/* Direct handoff -- see the identical comment in SysMsgCall(). */
 		if (unlikely(SchedAnyCpuTakers(rx_thread))) {
+			CALL_TALLY(g_mix_lcall, CALLPATH_TAKERS);
 			rx_thread->state = READY;
 			SchedAdd(rx_thread);
 			Schedule();
 		} else {
+			CALL_TALLY(g_mix_lcall, CALLPATH_HANDOFF);
 			SchedSwitchNext(rx_thread);
 		}
 	} else {
+		CALL_TALLY(g_mix_lcall, CALLPATH_NO_RECEIVER);
 		current_thread->ipc_state = IPC_WAITING;
 		current_thread->blocked_port = port;
 		current_thread->pending_reply_cap = rc;

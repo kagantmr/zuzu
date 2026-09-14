@@ -1,9 +1,4 @@
-@ Shared ARMv7-A boot path. Board differences are six constants in
-@ <board>/boot.h plus two optional hooks in <board>/boot_hooks.S.
-@
-@ _start must be the very first thing in .text.boot: raw-image loaders (QEMU
-@ -kernel, the Pi firmware) jump to the first byte of the image, not to the
-@ ELF entry point. The linker script keeps it there.
+
 
 .section .text.boot, "ax"
 
