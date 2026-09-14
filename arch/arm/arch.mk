@@ -28,6 +28,10 @@ BOARDS = vexpress-a15 rpi4 virt
 # QEMU_BIN_<board>   : (optional) QEMU binary, default qemu-system-arm
 # QEMU_MEM_<board>   : (optional) QEMU -m, default 64M
 # QEMU_NET_<board>   : (optional) QEMU NIC flags, default none
+# QEMU_NIC_MODEL_<board> : (optional) bare NIC model name for the
+#                       bridged/pcap targets (mk/qemu.mk); boards without
+#                       one fail loudly on run-bridged/run-pcap instead of
+#                       emulating hardware they have no driver for
 # QEMU_NO_DRIVE_<board> : (optional) set to y to skip the SD card -drive
 #                       (boards with no matching disk interface)
 # CPUFLAGS_<board>   : (optional) override ARCH_CPUFLAGS for this board

@@ -28,7 +28,7 @@
 /* ZuzuMsgLcall has no w1/w2 word arguments -- the only thing SysMsgRecv
  * hands the receiver for an lcall is the transferred buffer length in w2
  * (see kernel/ipc/sys_ipc.c). LCALL_QUIT_LEN just needs to be distinct from
- * LCALL_PAYLOAD_LEN and from every size in the ZUZU_BENCH payload-size
+ * LCALL_PAYLOAD_LEN and from every size in the CONFIG_ZUZU_BENCH payload-size
  * sweep (0/4/8/16/32/64/128/256, see run_lcall_sweep_benchmark) so the
  * server can tell "shut down" from "echo this". */
 #define LCALL_PAYLOAD_LEN 32u
@@ -276,6 +276,14 @@ static int32_t spawn_ipc_child(Handle port, ChildProc *out)
 	if (rc < 0) {
 		ZuzuPKill(ts.taskHandle);
 		return rc;
+	}
+	/* sysd signals failure with the Err as the whole payload; ChannelCall
+	 * has already copied it into `reply`. */
+	if (rc == (int32_t)sizeof(Err)) {
+		Err err;
+		memcpy(&err, &reply, sizeof(err));
+		ZuzuPKill(ts.taskHandle);
+		return err;
 	}
 	if (rc != (int32_t)sizeof(ExecReply)) {
 		ZuzuPKill(ts.taskHandle);
@@ -540,7 +548,7 @@ static BenchmarkResult run_getpid_benchmark(void)
  * binary itself measures (min-of-N cycles, matching the "Control (1.1)
  * none" baseline row's convention) -- paste straight into BENCHMARKS.md,
  * fill in the leading label cell for whatever config this run was built
- * with. Kernel-side ZUZU_BENCH counters print their own [BENCH] lines
+ * with. Kernel-side CONFIG_ZUZU_BENCH counters print their own [BENCH] lines
  * separately on the kernel console; they aren't part of this row since
  * this process has no way to read them back. */
 static void print_markdown_row(BenchmarkResult getpid, BenchmarkResult ipc_thread,
@@ -574,7 +582,7 @@ static void print_markdown_row(BenchmarkResult getpid, BenchmarkResult ipc_threa
 	       "IPC RTT cross-process | Lmsg RTT)\n");
 }
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 
 static void bench_print(const char *label, const BenchResult *r)
 {
@@ -604,7 +612,7 @@ static void run_svc_entry_exit_benchmark(void)
 }
 
 /* Drives ZuzuMsgCall/ZuzuMsgRecv enough times for the kernel-side
- * ZUZU_BENCH counters bracketing the handle-table lookup, the direct-switch
+ * CONFIG_ZUZU_BENCH counters bracketing the handle-table lookup, the direct-switch
  * IPC handoff, and reply-cap alloc/free (see kernel/ipc/sys_msg.c and
  * kernel/mm/alloc.c) to clear their warm-up and self-report on the kernel
  * console. This process only needs to generate the traffic -- the
@@ -860,6 +868,9 @@ static void waitany_sender_thread(void *arg_)
 {
 	WaitanySenderArg *arg = (WaitanySenderArg *)arg_;
 	ZuzuMsgCall(arg->port, arg->tag, 0, 0);
+	/* SysTMake seeds the thread's user_lr with USER_ELF_BASE, so returning
+	 * from a thread entry re-enters _start and runs main again. */
+	ZuzuTQuit(ZUZU_OK);
 }
 
 /* Not a timing bench: correctness-adjacent check for whether WaitAny's
@@ -930,7 +941,7 @@ static void run_waitany_wakeorder_check(void)
 	}
 }
 
-#endif /* ZUZU_BENCH */
+#endif /* CONFIG_ZUZU_BENCH */
 
 int main(void)
 {
@@ -940,7 +951,7 @@ int main(void)
 
 	BenchmarkResult r_getpid = run_getpid_benchmark();
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 	run_svc_entry_exit_benchmark();
 #endif
 
@@ -968,7 +979,7 @@ int main(void)
 
 	BenchmarkResult r_ipc_thread = run_benchmark(port);
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 	run_kernel_ipc_bench_driver(port);
 #endif
 
@@ -1006,7 +1017,7 @@ int main(void)
 
 	BenchmarkResult r_lmsg = run_lcall_benchmark(lport);
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 	run_lcall_sweep_benchmark(lport);
 #endif
 
@@ -1016,7 +1027,7 @@ int main(void)
 	free(lstack);
 	ZuzuDestroy(lport);
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 	{
 		Handle waport = ZuzuPortCreate();
 		if (waport < 0) {
@@ -1050,7 +1061,7 @@ int main(void)
 	}
 #endif
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 	/* Drives SysMemMap and the lazy-mapping translation-fault path; both
 	 * self-report on the kernel console once their warm-up clears. */
 	run_kernel_memmap_bench_driver();

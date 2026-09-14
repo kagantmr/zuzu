@@ -451,6 +451,11 @@ static void cmd_exec(const char *line)
         print_exec_error(rc);
         return;
     }
+    if (rc == (int32_t)sizeof(Err)) {
+        ZuzuPKill(ts.taskHandle);
+        print_exec_error(*(const Err *)LmsgBuf());
+        return;
+    }
     if (rc != (int32_t)sizeof(ExecReply)) {
         ZuzuPKill(ts.taskHandle);
         printf("%s", ANSI_RED "zzsh: bad exec reply\n" ANSI_RESET);

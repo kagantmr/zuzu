@@ -1,0 +1,70 @@
+# Makefile.lib - host environment and build-system helpers.
+# No zuzu/board knowledge lives here.
+
+# ---- host ----------------------------------------------------------------------
+HOST_OS := $(shell uname -s)
+
+ifeq ($(HOST_OS),Darwin)
+NPROC := $(shell sysctl -n hw.ncpu)
+else
+NPROC := $(shell nproc)
+endif
+
+# check-tool,<binary>,<install-hint> - errors out with an actionable
+# message if <binary> isn't on PATH. Called from recipes (not top-level),
+# so it only fires when a target that actually needs the tool is built.
+define check-tool
+	@command -v $(1) >/dev/null 2>&1 || { \
+		echo "  ERROR   '$(1)' not found. $(2)"; exit 1; \
+	}
+endef
+
+# ---- source manifests ------------------------------------------------------
+# Each <dir>/build.mk declares what that directory contributes:
+#   obj-y     += foo.o            always built
+#   obj-$(CONFIG_X) += bar.o      built when CONFIG_X=y
+#   subdir-y  += sub              descend into sub/build.mk
+# Paths come back prefixed with the directory, so a manifest never needs to
+# know where it sits. read-manifest recurses; collect-objs is the entry point.
+define read-manifest
+obj-y :=
+subdir-y :=
+include $(1)build.mk
+MANIFEST_OBJS += $$(addprefix $(1),$$(obj-y))
+$$(foreach d,$$(subdir-y),$$(eval $$(call read-manifest,$(1)$$(d)/)))
+endef
+
+# $(call collect-objs,dir1 dir2 ...) -> every object those trees declare.
+define collect-objs
+$(eval MANIFEST_OBJS :=)
+$(foreach d,$(1),$(eval $(call read-manifest,$(d)/)))
+$(MANIFEST_OBJS)
+endef
+
+# ---- helpers-------------------------------------------------------------------
+# at recipe-expansion time, i.e. before the recipe's own mkdir line executes --
+# hence the mkdir here, expanded first.
+record-cmd = $(shell mkdir -p $(dir $@))$(file >$@.cmd,$(1))
+
+# build/zuzu.{elf,map,img} -> the current board's real output, for humans and
+# muscle memory. Phony so it never goes stale; only links what actually exists,
+# so a board that hasn't been img'd doesn't leave a dangling link. Tools that
+# care which board they're looking at should use $(O) directly -- these
+# repoint on every board switch.
+.PHONY: links
+links:
+	@mkdir -p build
+	@for f in zuzu.elf zuzu.map zuzu.img; do \
+	    if [ -e $(O)/$$f ]; then ln -sfn $(ARCH)-$(BOARD)/$$f build/$$f; fi; \
+	done
+
+# Expose any make variable to scripts: `make -s print-BOARDS`.
+.PHONY: print-%
+print-%:
+	@echo '$($*)'
+
+# ---- compile_commands.json -----------------------------------------------------
+.PHONY: compile_commands.json
+compile_commands.json: all
+	$(call check-tool,python3,install Python 3.)
+	@python3 scripts/ccjson.py $(O) $@

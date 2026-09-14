@@ -1,4 +1,4 @@
-#ifndef __KERNEL__
+#ifndef __ZUZU__
 
 #include "malloc.h"
 
@@ -175,4 +175,4 @@ void free(void *ptr)
     }
 }
 
-#endif /* !__KERNEL__ */
+#endif /* !__ZUZU__ */

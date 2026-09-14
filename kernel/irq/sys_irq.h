@@ -8,11 +8,10 @@
 
 typedef struct process ProcessObj;
 
-typedef struct irq_owner
-{
+typedef struct irq_owner {
     ProcessObj *owner;
     bool pending;
-    Ntfn *bound_ntfn; // was Endpoint *bound_port
+    NtfnObj *bound_ntfn; // was Endpoint *bound_port
 } IrqOwner;
 
 void SysIrqBind(CpuState *frame);

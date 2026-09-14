@@ -2,6 +2,7 @@
 #include "kernel/syscall/syscall.h"
 #include "kernel/sched/sched.h"
 #include <arch/mmu.h>
+#include <arch/barrier.h>
 #include <arch/cache.h>
 #include "core/panic.h"
 #include "kernel/mm/pmm.h"
@@ -16,9 +17,7 @@
 #include "kernel/bench.h"
 #include <compiler.h>
 
-extern Thread *current_thread;
-
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 BENCH_STAT(g_bench_memmap, "SysMemMap call->return");
 
 /* Standalone VmmCheckUserFault microbench: called alone (no memcpy, no
@@ -36,8 +35,6 @@ BENCH_STAT(g_bench_checkuserfault_4k_2page, "VmmCheckUserFault (4KB, 2 pages)");
  * Helper for memmap to map anonymous memory.
  * Adapted from zuzu v0.1.5-alpha version
  */
-/* p (the owning process) and out (the caller's VA-result slot) are never
- * the same object -- out always points at a local in SysMemMap's frame. */
 static int32_t memmap_anon(ProcessObj *restrict p, VirtAddr hint, size_t size, MemProt prot,
 			   VirtAddr *restrict out)
 {
@@ -58,21 +55,16 @@ static int32_t memmap_anon(ProcessObj *restrict p, VirtAddr hint, size_t size, M
             return ERR_BADARG;
     }
 
-    // 1. Pick a VA
     VirtAddr va;
-    if (hint != 0)
+    if (hint != 0) {
         va = hint; // already validated above
-    else
-        va = p->mmap_va_next;
-
-    if (va >= USER_VA_TOP)
-        return ERR_NOMEM; // user VA space exhausted
-    // 2. Bump the cursor
-    if (size > USER_VA_TOP - va) // no contiguous VA left
-        return ERR_NOMEM;
-
-    if (hint == 0)
-        p->mmap_va_next += size;
+        if (va >= USER_VA_TOP || size > USER_VA_TOP - va)
+            return ERR_NOMEM;
+    } else {
+        va = VmmFindFreeVa(p->as, USER_MMAP_BASE, USER_DEVICE_BASE, size);
+        if (va == 0)
+            return ERR_NOMEM;
+    }
 
     VirtMemRegion region = {
         .vaddr_start = va,
@@ -85,11 +77,7 @@ static int32_t memmap_anon(ProcessObj *restrict p, VirtAddr hint, size_t size, M
     };
 
     if (!VmmAddRegion(p->as, &region))
-    {
-        if (hint == 0)
-            p->mmap_va_next -= size; // roll back cursor on failure
         return ERR_NOMEM;
-    }
 
     *out = va;
     return ZUZU_OK;
@@ -115,11 +103,9 @@ static int32_t memmap_shm(ProcessObj *restrict p, HandleEntry *restrict e, MemPr
 
     size_t size = shmem_obj->page_count * PAGE_SIZE;
 
-    if ((p->mmap_va_next > USER_VA_TOP - size) || (size > USER_VA_TOP - p->mmap_va_next)) // user VA space exhausted
+    const VirtAddr va_base = VmmFindFreeVa(p->as, USER_MMAP_BASE, USER_DEVICE_BASE, size);
+    if (va_base == 0)
         return ERR_NOMEM;
-
-    const VirtAddr va_base = p->mmap_va_next;
-    p->mmap_va_next += size;
 
     VirtMemRegion region = {
         .vaddr_start = va_base,
@@ -130,10 +116,7 @@ static int32_t memmap_shm(ProcessObj *restrict p, HandleEntry *restrict e, MemPr
         .backing = shmem_obj,
         .flags = VM_FLAG_NONE};
     if (!VmmAddRegion(p->as, &region))
-    {
-        p->mmap_va_next -= size;
         return ERR_NOMEM; // OOM
-    }
 
     e->mapped_va = va_base;
     *out = va_base;
@@ -161,13 +144,9 @@ static int32_t memmap_dev(ProcessObj *restrict p, HandleEntry *restrict e, MemPr
         return ERR_BUSY;
 
     size_t size_aligned = align_up(cap->size, PAGE_SIZE);
-    VirtAddr user_va = p->device_va_next;
-
-    // Device mappings are carved from device_va_next; bound-check that cursor.
-    if (user_va >= USER_DEVICE_LIMIT || size_aligned > USER_DEVICE_LIMIT - user_va)
-    {
+    VirtAddr user_va = VmmFindFreeVa(p->as, USER_DEVICE_BASE, USER_DEVICE_LIMIT, size_aligned);
+    if (user_va == 0)
         return ERR_NOMEM;
-    }
 
     if (!VmmMapRange(p->as, user_va, cap->phys_base, size_aligned,
                        prot | VM_PROT_USER,
@@ -185,15 +164,14 @@ static int32_t memmap_dev(ProcessObj *restrict p, HandleEntry *restrict e, MemPr
                                    .flags = VM_FLAG_NONE,
                                }))
     {
-        VmmUnmapRange(p->as, user_va, size_aligned);
+        VmmUnmapRange(p->as, user_va, size_aligned, true);
         return ERR_NOMEM;
     }
 
     // flush TLB for this VA
     arch_mmu_flush_tlb_va(user_va);
-    arch_mmu_barrier();
+    ArchCtxSync();
 
-    p->device_va_next += size_aligned;
     e->mapped_va = user_va;
 
     *out = user_va;
@@ -202,7 +180,7 @@ static int32_t memmap_dev(ProcessObj *restrict p, HandleEntry *restrict e, MemPr
 
 void __hot SysMemMap(CpuState *frame)
 {
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
     uint32_t bench_start = BENCH_BEGIN();
 #endif
     ProcessObj *p = current_thread->owner_process;
@@ -211,9 +189,9 @@ void __hot SysMemMap(CpuState *frame)
     MemProt prot = (MemProt)(*arch_reg(frame, 2));
     uint32_t flags = (*arch_reg(frame, 3));
 
-    if (unlikely(flags != 0)) { *arch_reg(frame, 0) = ERR_BADARG; return;}
-    if (unlikely(prot & ~(PROT_READ|PROT_WRITE|PROT_EXEC)))  { *arch_reg(frame, 0) = ERR_BADARG; return;}   /* rejects VM_PROT_USER */
-    if (unlikely((prot & PROT_WRITE) && (prot & PROT_EXEC)))  { *arch_reg(frame, 0) = ERR_BADARG; return;}
+    if (unlikely(flags != 0)) { arch_reg_set(frame, 0, ERR_BADARG); return;}
+    if (unlikely(prot & (unsigned int)(~(PROT_READ|PROT_WRITE|PROT_EXEC))))  { arch_reg_set(frame, 0, ERR_BADARG); return;}   /* rejects VM_PROT_USER */
+    if (unlikely((prot & PROT_WRITE) && (prot & PROT_EXEC)))  { arch_reg_set(frame, 0, ERR_BADARG); return;}
 
     VirtAddr va = 0;
     Err rc;
@@ -221,7 +199,7 @@ void __hot SysMemMap(CpuState *frame)
     if (likely(handle == HANDLE_ANON))
     {
         rc = memmap_anon(p, 0, size, prot, &va); /* hint dies at step D */
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
         /* Needs >= 2 pages so the 4KB check can start mid-page-one and
          * genuinely cross into page two rather than just sitting inside it. */
         if (rc == ZUZU_OK && size >= 2 * PAGE_SIZE) {
@@ -243,10 +221,10 @@ void __hot SysMemMap(CpuState *frame)
     }
     else
     {
-        HandleEntry *e = handle_vec_get(&p->handle_table, handle);
+        HandleEntry *e = HandleTableGet(&p->handle_table, (uint32_t)handle);
         if (unlikely(!e))
         {
-            *arch_reg(frame, 0) = ERR_BADHANDLE;
+            arch_reg_set(frame, 0, ERR_BADHANDLE);
             return;
         }
         switch (e->type)
@@ -254,11 +232,11 @@ void __hot SysMemMap(CpuState *frame)
         case HANDLE_DEVICE:
         {
             if (size != 0) {
-                *arch_reg(frame, 0) = ERR_BADARG;
+                arch_reg_set(frame, 0, ERR_BADARG);
                 return;
             }
             if (prot & PROT_EXEC) {
-                *arch_reg(frame, 0) = ERR_BADARG;
+                arch_reg_set(frame, 0, ERR_BADARG);
                 return;
             }
             rc = memmap_dev(p, e, prot, &va);
@@ -268,7 +246,7 @@ void __hot SysMemMap(CpuState *frame)
         case HANDLE_SHM:
         {
             if (size != 0) {
-                *arch_reg(frame, 0) = ERR_BADARG;
+                arch_reg_set(frame, 0, ERR_BADARG);
                 return;
             }
             rc = memmap_shm(p, e, prot, &va);
@@ -283,7 +261,7 @@ void __hot SysMemMap(CpuState *frame)
     }
 
     (*arch_reg(frame, 0)) = (rc == ZUZU_OK) ? (uint32_t)va : (uint32_t)rc;
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
     BENCH_END(g_bench_memmap, bench_start);
 #endif
     return;
@@ -301,8 +279,8 @@ void SysMemUnmap(CpuState *frame)
             VirtMemRegion *r = vm_region_vec_get(&as->regions, i);
             if (r && r->vaddr_start == va) { found = r; break; }   /* base match only */
         }
-        if (!found) { (*arch_reg(frame, 0)) = ERR_BADARG; return; }
-        if (found->flags & VM_FLAG_PINNED) { (*arch_reg(frame, 0)) = ERR_NOPERM; return; }
+        if (!found) { arch_reg_set(frame, 0, ERR_BADARG); return; }
+        if (found->flags & VM_FLAG_PINNED) { arch_reg_set(frame, 0, ERR_NOPERM); return; }
 
         size_t size = found->size;
 
@@ -323,9 +301,9 @@ void SysMemUnmap(CpuState *frame)
             {
                 // Shared or device mapping: clear the owning handle's mapped_va so memmap can remap it
                 bool found_handle = false;
-                for (uint32_t i = 0; i < current_thread->owner_process->handle_table.cap; i++)
+                for (uint32_t i = 0; i < HANDLE_MAX_SLOTS; i++)
                 {
-                    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, i);
+                    HandleEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, i);
                     if (!entry || entry->mapped_va != va ||
                         (entry->type != HANDLE_SHM && entry->type != HANDLE_DEVICE))
                         continue;
@@ -358,7 +336,7 @@ void SysAsInject(CpuState *frame)
         if (!(current_thread->owner_process->flags & PROC_FLAG_INIT))
         {
             {
-            (*arch_reg(frame, 0)) = ERR_NOPERM;
+            arch_reg_set(frame, 0, ERR_NOPERM);
             return;
         }
         }
@@ -367,7 +345,7 @@ void SysAsInject(CpuState *frame)
         if (!validate_user_ptr((uintptr_t)args, sizeof(AsInjectArgs)))
         {
             {
-            (*arch_reg(frame, 0)) = ERR_BADPTR;
+            arch_reg_set(frame, 0, ERR_BADPTR);
             return;
         }
         }
@@ -376,7 +354,7 @@ void SysAsInject(CpuState *frame)
         if (!CopyFromUser(&kargs, args, sizeof(AsInjectArgs)))
         {
             {
-            (*arch_reg(frame, 0)) = ERR_BADPTR;
+            arch_reg_set(frame, 0, ERR_BADPTR);
             return;
         }
         }
@@ -384,20 +362,20 @@ void SysAsInject(CpuState *frame)
         if (kargs.size < sizeof(AsInjectArgs))
         {
             {
-            (*arch_reg(frame, 0)) = ERR_BADARG;
+            arch_reg_set(frame, 0, ERR_BADARG);
             return;
         }
         }
 
-        HandleEntry *handle = handle_vec_get(&current_thread->owner_process->handle_table, kargs.taskHandle);
+        HandleEntry *handle = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)kargs.taskHandle);
         if (!handle)
         {
-            (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+            arch_reg_set(frame, 0, ERR_BADHANDLE);
             return;
         }
         if (handle->type != HANDLE_TASK)
         {
-            (*arch_reg(frame, 0)) = ERR_BADTYPE;
+            arch_reg_set(frame, 0, ERR_BADTYPE);
             return;
         }
 
@@ -405,25 +383,25 @@ void SysAsInject(CpuState *frame)
 
         if (!target)
         {
-            (*arch_reg(frame, 0)) = ERR_BADHANDLE;
+            arch_reg_set(frame, 0, ERR_BADHANDLE);
             return;
         }
         if (target->thread->state != FROZEN)
         {
-            (*arch_reg(frame, 0)) = ERR_BUSY;
+            arch_reg_set(frame, 0, ERR_BUSY);
             return;
         }
 
         if (kargs.len == 0)
         {
-            (*arch_reg(frame, 0)) = ERR_BADARG;
+            arch_reg_set(frame, 0, ERR_BADARG);
             return;
         }
 
         if ((kargs.prot & PROT_WRITE) && (kargs.prot & PROT_EXEC))
         {
             {
-            (*arch_reg(frame, 0)) = ERR_BADARG;
+            arch_reg_set(frame, 0, ERR_BADARG);
             return;
         }
         }
@@ -433,7 +411,7 @@ void SysAsInject(CpuState *frame)
             kargs.len > USER_VA_TOP - kargs.DestVAddr)
         {
             {
-            (*arch_reg(frame, 0)) = ERR_BADARG;
+            arch_reg_set(frame, 0, ERR_BADARG);
             return;
         }
         }
@@ -446,7 +424,7 @@ void SysAsInject(CpuState *frame)
              * zeroes, and maps each page lazily on first touch. */
             if (kargs.src_buf != NULL || kargs.len % PAGE_SIZE != 0)
             {
-                (*arch_reg(frame, 0)) = ERR_BADARG;
+                arch_reg_set(frame, 0, ERR_BADARG);
                 return;
             }
 
@@ -460,7 +438,7 @@ void SysAsInject(CpuState *frame)
             };
             if (!VmmAddRegion(target->as, &region))
             {
-                (*arch_reg(frame, 0)) = ERR_NOMEM;
+                arch_reg_set(frame, 0, ERR_NOMEM);
                 return;
             }
 
@@ -470,12 +448,12 @@ void SysAsInject(CpuState *frame)
 
         if (!kargs.src_buf)
         {
-            (*arch_reg(frame, 0)) = ERR_BADARG;
+            arch_reg_set(frame, 0, ERR_BADARG);
             return;
         }
         if (!validate_user_ptr((uintptr_t)kargs.src_buf, kargs.len))
         {
-            (*arch_reg(frame, 0)) = ERR_BADPTR;
+            arch_reg_set(frame, 0, ERR_BADPTR);
             return;
         }
 
@@ -489,6 +467,8 @@ void SysAsInject(CpuState *frame)
         for (uint32_t i = 0; i < target->as->regions.len; i++)
         {
             VirtMemRegion *r = vm_region_vec_get(&target->as->regions, i);
+            if (!r)
+                continue;
             /* dst must lie inside the region before computing the remaining
              * space, or the unsigned subtraction below wraps for regions
              * that end before DestVAddr. */
@@ -508,21 +488,20 @@ void SysAsInject(CpuState *frame)
                 ((kargs.prot | VM_PROT_USER) & ~enclosing->prot))
             {
                 {
-            (*arch_reg(frame, 0)) = ERR_BADARG;
+            arch_reg_set(frame, 0, ERR_BADARG);
             return;
         }
             }
         }
 
-        VirtAddr *page_addrs = kmalloc(page_count * sizeof(VirtAddr));
+        VirtAddr *page_addrs = KCalloc(page_count, sizeof(VirtAddr));
         if (!page_addrs)
         {
             {
-            (*arch_reg(frame, 0)) = ERR_NOMEM;
+            arch_reg_set(frame, 0, ERR_NOMEM);
             return;
         }
         }
-        memset(page_addrs, 0, page_count * sizeof(VirtAddr));
 
         for (size_t i = 0; i < page_count; i++)
         {
@@ -569,11 +548,26 @@ void SysAsInject(CpuState *frame)
                 goto rollback_nomem;
             }
 
-            if (kargs.prot & PROT_EXEC)
-            {
-                arch_cache_flush_code_range((VirtAddr)PA_TO_VA(page), PAGE_SIZE);
-            }
         }
+
+        /* Publish through the kernel alias: DestVAddr belongs to target->as,
+         * which is not the active translation regime, and cache maintenance by
+         * VA faults when the address does not translate (DFSR.CM). Translating
+         * per page rather than using page_addrs[], which only tracks pages we
+         * allocated ourselves. */
+        if (kargs.prot & PROT_EXEC)
+        {
+            for (size_t i = 0; i < page_count; i++)
+            {
+                PhysAddr pa = arch_mmu_translate(target->as->pt_root_physaddr,
+                                                 kargs.DestVAddr + i * PAGE_SIZE);
+                if (pa)
+                    arch_cache_clean_dcache_range(PA_TO_VA(pa), PAGE_SIZE);
+            }
+            arch_cache_invalidate_icache_all();
+        }
+
+
 
         if (!enclosing)
         {
@@ -589,7 +583,7 @@ void SysAsInject(CpuState *frame)
                 goto rollback_nomem;
         }
 
-        kfree(page_addrs);
+        KFree(page_addrs);
 
         (*arch_reg(frame, 0)) = 0;
         return;
@@ -599,13 +593,13 @@ void SysAsInject(CpuState *frame)
         {
             if (page_addrs[j])
             {
-                VmmUnmapRange(target->as, kargs.DestVAddr + j * PAGE_SIZE, PAGE_SIZE);
+                VmmUnmapRange(target->as, kargs.DestVAddr + j * PAGE_SIZE, PAGE_SIZE, true);
                 PmmFreeFrame(page_addrs[j]);
             }
         }
-        kfree(page_addrs);
+        KFree(page_addrs);
         {
-            (*arch_reg(frame, 0)) = ERR_BADARG;
+            arch_reg_set(frame, 0, ERR_BADARG);
             return;
         }
 
@@ -614,13 +608,13 @@ void SysAsInject(CpuState *frame)
         {
             if (page_addrs[j])
             {
-                VmmUnmapRange(target->as, kargs.DestVAddr + j * PAGE_SIZE, PAGE_SIZE);
+                VmmUnmapRange(target->as, kargs.DestVAddr + j * PAGE_SIZE, PAGE_SIZE, true);
                 PmmFreeFrame(page_addrs[j]);
             }
         }
-        kfree(page_addrs);
+        KFree(page_addrs);
         {
-            (*arch_reg(frame, 0)) = ERR_NOMEM;
+            arch_reg_set(frame, 0, ERR_NOMEM);
             return;
         }
 }
@@ -634,35 +628,35 @@ void SysMemProtect(CpuState *frame)
         // Basic validation
         if (size == 0)
         {
-            (*arch_reg(frame, 0)) = ERR_BADARG;
+            arch_reg_set(frame, 0, ERR_BADARG);
             return;
         }
         if (size % PAGE_SIZE != 0)
         {
-            (*arch_reg(frame, 0)) = ERR_BADARG;
+            arch_reg_set(frame, 0, ERR_BADARG);
             return;
         }
         if (!validate_user_ptr(va, size))
         {
-            (*arch_reg(frame, 0)) = ERR_BADARG;
+            arch_reg_set(frame, 0, ERR_BADARG);
             return;
         }
         if (new_prot & ~(PROT_READ|PROT_WRITE|PROT_EXEC)) {
-            (*arch_reg(frame, 0)) = ERR_NOPERM;
+            arch_reg_set(frame, 0, ERR_NOPERM);
             return;
         }
 
         // Enforce W^X policy
         if ((new_prot & PROT_WRITE) && (new_prot & PROT_EXEC))
         {
-            (*arch_reg(frame, 0)) = ERR_BADARG;
+            arch_reg_set(frame, 0, ERR_BADARG);
             return;
         }
 
         // The region must exist; use vmm_protect_range to change its protections
         if (!VmmProtectPage(current_thread->owner_process->as, va, size, new_prot | VM_PROT_USER))
         {
-            (*arch_reg(frame, 0)) = ERR_BADARG;
+            arch_reg_set(frame, 0, ERR_BADARG);
             return;
         }
 

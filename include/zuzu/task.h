@@ -2,7 +2,8 @@
 #define ZUZU_TASK_H
 
 #include "zuzu/syscall_nums.h"
-#include "zuzu/types.h"
+#include <zuzu/types.h>
+#include <zuzu/err.h>
 #include <arch/syscall.h>
 #include <zuzu/spawn_args.h>
 #include <stdint.h>
@@ -11,9 +12,7 @@
 extern "C" {
 #endif
 
-/* ---- Process constants ---- */
 
-#define WNOHANG (1 << 0)
 
 /* ---- Task lifecycle syscalls ---- */
 

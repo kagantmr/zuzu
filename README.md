@@ -4,10 +4,6 @@
 
 ![Boot screen](docs/img/shell.png)
 
-*everything is a handle; possession is authority*
-
----
-
 zuzu is a microkernel written from scratch in C and ARM assembly, targeting
 AArch32 / ARMv7-A. **zuzuOS** is the userspace that runs on top of it: drivers,
 a filesystem server, a network stack, and a shell which are packed all as ordinary isolated processes communicating through IPC.

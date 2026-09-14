@@ -5,7 +5,8 @@
 
 #include "kernel/ipc/sys_port.h"
 #include "kernel/ipc/sys_msg.h"
-#include "kernel/ipc/sys_notif.h"
+#include "kernel/ipc/sys_event.h"
+#include "kernel/ipc/sys_ntfn.h"
 #include "kernel/irq/sys_irq.h"
 #include "kernel/mm/sys_mm.h"
 #include "kernel/mm/sys_shm.h"
@@ -26,7 +27,7 @@
 
 extern kernel_layout_t kernel_layout;
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 /* CopyToUser/CopyFromUser bracketed in two halves: the VmmCheckUserFault
  * page walk (TLB/cache-miss dominated, lazy-fault path included) and the
  * memcpy itself -- splits "walk" from "copy" so a slow round trip can be
@@ -38,6 +39,10 @@ BENCH_STAT(g_bench_copyfromuser_copy, "CopyFromUser: memcpy");
 #endif
 
 typedef void (*SyscallEntryPoint)(CpuState *);
+
+#ifdef DEBUG
+static void SysDebugLog(CpuState *frame);
+#endif
 
 static SyscallEntryPoint SyscallTable[SYS_MAX + 1] = {
     [SYS_PQUIT] = SysPQuit,
@@ -59,6 +64,7 @@ static SyscallEntryPoint SyscallTable[SYS_MAX + 1] = {
     [SYS_MSG_LCALL] = SysMsgLcall,
     [SYS_MSG_LREPLY] = SysMsgLreply,
     [SYS_WAITANY] = SysWaitAny,
+    [SYS_KEVENT_BIND] = SysKEventBind,
     [SYS_PORT_CREATE] = SysPortCreate,
     [SYS_DESTROY] = SysDestroy,
     [SYS_GRANT] = SysGrant,
@@ -74,7 +80,10 @@ static SyscallEntryPoint SyscallTable[SYS_MAX + 1] = {
     [SYS_MEMPROTECT] = SysMemProtect,
     [SYS_ASINJECT] = SysAsInject,
     [SYS_IRQ_BIND] = SysIrqBind,
-    [SYS_IRQ_DONE] = SysIrqDone
+    [SYS_IRQ_DONE] = SysIrqDone,
+#ifdef DEBUG
+    [SYS_LOG] = SysDebugLog, /* defined below; DEBUG builds only */
+#endif
 };
 
 /* Runs on every syscall. The two "in bounds" checks below are the normal
@@ -106,18 +115,18 @@ bool CopyToUser(void *restrict uaddr, const void *restrict kaddr, size_t len)
         return false;
     if (!validate_user_ptr((uintptr_t)uaddr, len))
         return false;
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
     uint32_t bench_start = BENCH_BEGIN();
 #endif
     if (!VmmCheckUserFault(current_thread->owner_process->as, (uintptr_t)uaddr, len, true))
         return false;
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
     BENCH_END(g_bench_copytouser_walk, bench_start);
     bench_start = BENCH_BEGIN();
 #endif
 
     memcpy(uaddr, kaddr, len);
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
     BENCH_END(g_bench_copytouser_copy, bench_start);
 #endif
     return true;
@@ -131,28 +140,51 @@ bool CopyFromUser(void *restrict kaddr, const void *restrict uaddr, size_t len)
         return false;
     if (!validate_user_ptr((uintptr_t)uaddr, len))
         return false;
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
     uint32_t bench_start = BENCH_BEGIN();
 #endif
     if (!VmmCheckUserFault(current_thread->owner_process->as, (uintptr_t)uaddr, len, false))
         return false;
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
     BENCH_END(g_bench_copyfromuser_walk, bench_start);
     bench_start = BENCH_BEGIN();
 #endif
 
     memcpy(kaddr, uaddr, len);
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
     BENCH_END(g_bench_copyfromuser_copy, bench_start);
 #endif
     return true;
 }
 
+#ifdef DEBUG
+/* DEBUG-only kernel console sink for userspace. Lets pre-tty services print
+ * before pl011drv is up. Deliberately dumb: bounded copy, no formatting. */
+#define SYSLOG_MAX 240u
+static void SysDebugLog(CpuState *frame)
+{
+    VirtAddr uptr = (VirtAddr)(*arch_reg(frame, 0));
+    uint32_t len = (*arch_reg(frame, 1));
+    char buf[SYSLOG_MAX + 1];
+
+    if (len > SYSLOG_MAX)
+        len = SYSLOG_MAX;
+    if (len == 0 || !CopyFromUser(buf, (const void *)uptr, len)) {
+        arch_reg_set(frame, 0, ERR_BADPTR);
+        return;
+    }
+    buf[len] = '\0';
+    kprintf("[udbg pid=%u] %s\n",
+            (unsigned)(current_thread->owner_process ? current_thread->owner_process->pid : 0), buf);
+    arch_reg_set(frame, 0, 0);
+}
+#endif /* DEBUG */
+
 void __attribute__((hot)) SyscallDispatch(Svc svc_num, CpuState *frame)
 {
     if (unlikely(!current_thread))
     {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        arch_reg_set(frame, 0, ERR_BADARG);
         return;
     }
     if (unlikely(!trap_frame_sane(frame)))
@@ -161,17 +193,34 @@ void __attribute__((hot)) SyscallDispatch(Svc svc_num, CpuState *frame)
               (unsigned)(current_thread->owner_process ? current_thread->owner_process->pid : 0),
               svc_num, (void *)frame);
     }
+    /* A thread only reaches userspace -- and so only gets back here -- after
+     * SysWaitAny clears this on the instruction following Schedule(). Still
+     * set means the last waitany never finished: it returned to userspace
+     * reporting success over a result it never wrote, which the caller then
+     * read back as whatever its WaitanyResult slot last held. Report the
+     * userspace PC so the resume point is identifiable. */
+    if (unlikely(current_thread->waitany_in_block)) {
+        static uint32_t waitany_escapes;
+        current_thread->waitany_in_block = false;
+        if (++waitany_escapes <= 8u) {
+            KERROR("waitany escaped without completing: pid=%u svc=0x%X pc=%p lr=%p (#%u)",
+                   (unsigned)(current_thread->owner_process ? current_thread->owner_process->pid
+                                                            : 0),
+                   svc_num, (void *)arch_regs_pc(frame), (void *)arch_regs_lr(frame),
+                   (unsigned)waitany_escapes);
+        }
+    }
+
     current_thread->trap_frame = frame;
 
     if (likely(SyscallTable[svc_num]))
     {
-        SyscallEntryPoint handler = SyscallTable[svc_num];
-        handler(frame);
+        SyscallTable[svc_num](frame);
         return;
     }
     else
     {
-        KERROR("System call 0x%X does not exist", svc_num);
-        (*arch_reg(frame, 0)) = ERR_NOSYS;
+        // KERROR("System call 0x%X does not exist", svc_num);
+        arch_reg_set(frame, 0, ERR_NOSYS);
     }
 };

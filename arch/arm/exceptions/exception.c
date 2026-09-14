@@ -15,11 +15,12 @@
 #include "kernel/mm/pmm.h"
 #include "kernel/syscall/syscall.h"
 #include "kernel/bench.h"
+#include "zuzu/log.h"
 #include <string.h>
 #include <stdint.h>
 #include <snprintf.h>
 
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
 BENCH_STAT(g_bench_lazy_map_fault, "lazy-map translation fault");
 #endif
 
@@ -215,6 +216,8 @@ static bool __hot try_demand_page(ProcessObj *current_process, uint32_t dfar, ui
     for (uint32_t i = 0; i < as->regions.len; i++)
     {
         VirtMemRegion *r = vm_region_vec_get(&as->regions, i);
+        if (!r)
+            continue;
         /* Not hinted: which region matches depends on where in the
          * regions list the faulting VA happens to fall, which varies by
          * workload -- no honest "usual" answer here. */
@@ -235,6 +238,11 @@ static bool __hot try_demand_page(ProcessObj *current_process, uint32_t dfar, ui
     return false;
 }
 
+/* Called only from entry.S (bl exception_dispatch) -- no C caller, so no
+ * shared header, but it still needs external linkage and a prototype to
+ * satisfy -Wmissing-prototypes. */
+void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame);
+
 /* Every syscall and every fault funnels through here; EXC_SVC dominates
  * the traffic in any workload that isn't fault-heavy. */
 void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
@@ -253,6 +261,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
         if (current_thread && current_thread != fpu_owner)
         {
             arch_fpu_trap_enable();
+            fpu_access_enabled = true;
             if (fpu_owner)
                 arch_fpu_save(&fpu_owner->fpu_state);
             arch_fpu_restore(&current_thread->fpu_state);
@@ -271,7 +280,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
             KERROR("Oops! '%s' (PID %d, TID %d) killed: undefined instruction @ 0x%08X\n", current_process->name, current_process->pid, current_thread->tid, frame->return_pc);
             dump_registers(frame);
             ProcessKill(current_process, KILLED_TAG | KILL_FAULT_UNDEF);
-            schedule();
+            Schedule();
         }
         else
         {
@@ -333,7 +342,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
                    current_process->name, current_process->pid, current_thread->tid, ifar, decode_fault_status(ifsr));
             ProcessKill(current_process, KILLED_TAG | KILL_FAULT_PREFETCH);
             dump_registers(frame);
-            schedule();
+            Schedule();
         }
         else
         {
@@ -352,7 +361,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
 
     case EXC_DATA_ABORT:
     {
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
         uint32_t bench_start = BENCH_BEGIN();
 #endif
 
@@ -397,7 +406,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
              * below is the actually-unlikely case. */
             if (likely(is_translation && dfar < KERNEL_VA_BASE)
                 && try_demand_page(current_process, dfar, dfsr)) {
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
                 BENCH_END(g_bench_lazy_map_fault, bench_start);
 #endif
                 return;
@@ -410,25 +419,25 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
                    decode_fault_status(dfsr));
             dump_registers(frame);
             ProcessKill(current_process, KILLED_TAG | KILL_FAULT_DATA);
-            schedule();
+            Schedule();
         }
         else if (from_svc && current_process && current_process->as
                  && dfar < KERNEL_VA_BASE)
         {
             if (is_translation && try_demand_page(current_process, dfar, dfsr)) {
-#ifdef ZUZU_BENCH
+#ifdef CONFIG_ZUZU_BENCH
                 BENCH_END(g_bench_lazy_map_fault, bench_start);
 #endif
                 return;
             }
 
-            KDEBUG("Oops! Bad user pointer in SVC from '%s' (PID %d, TID %d) @ 0x%08X (%s %s)\n",
+            KERROR("Oops! Bad user pointer in SVC from '%s' (PID %d, TID %d) @ 0x%08X (%s %s)\n",
                    current_process->name, current_process->pid, current_thread->tid, dfar,
                    (dfsr & (1 << 11)) ? "write" : "read",
                    decode_fault_status(dfsr));
             dump_registers(frame);
             ProcessKill(current_process, KILLED_TAG | KILL_FAULT_DATA);
-            schedule();
+            Schedule();
         }
         else
         {
@@ -488,7 +497,11 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
 
 /* Called from the exception_exit tripwire in entry.S when the frame about to
  * be RFE'd has return_pc == 0: the frame was corrupted after the C handlers
- * released it. Panic here, in kernel context, with the frame contents. */
+ * released it. Panic here, in kernel context, with the frame contents.
+ *
+ * Called only from entry.S -- no C caller, so no shared header, but still
+ * needs external linkage and a prototype for -Wmissing-prototypes. */
+_Noreturn void exception_exit_pc0_trap(CpuState *frame);
 _Noreturn void exception_exit_pc0_trap(CpuState *frame)
 {
     KERROR("exception_exit: frame at %p has return_pc=0 (cpsr=%p sp_usr=%p lr_usr=%p)",

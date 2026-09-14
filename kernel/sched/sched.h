@@ -2,38 +2,42 @@
 #define KERNEL_SCHED_SCHED_H
 
 #include "kernel/proc/process.h"
-#include <stddef.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 #define SCHED_PRIORITY_LEVELS 8
+#define SCHED_PRIO_DEFAULT 1
 
 extern void __attribute__((hot)) context_switch(Thread *prev, Thread *next);
 
 extern Thread *current_thread;
+extern bool fpu_access_enabled;;
 
 // Thread whose registers currently live in the FPU hardware, or NULL if none.
 // Cleared by thread_destroy() when the owning thread is freed. See
 // arch/include/arch/fpu.h for the lazy-switch contract.
 extern Thread *fpu_owner;
 
-void sched_init(void);
-void sched_add(Thread *t);
-void sched_defer_destroy(ProcessObj *p);
-void sched_defer_destroy_thread(Thread *t);
-void sched_reap_thread_destroys(void);
-void sched_reap(void);
-void sched_idle_wait(void);
-void __attribute__((hot)) schedule(void);
-void set_resched_flag(void);
-void sleep_queue_insert(Thread *t);
-size_t sched_ready_queue_snapshot(Thread **out, size_t max_out);
+void SchedInit(void);
+void SchedAdd(Thread *t);
+void SchedQueueDestroyProcess(ProcessObj *p);
+void SchedQueueDestroyThread(Thread *t);
+void SchedConsumeDestroyQueue(void);
+void SchedReap(void);
+void SchedIdleWait(void);
+void __attribute__((hot)) Schedule(void);
+void SchedSetReschedFlag(void);
+void SchedRemoveSleepQueue(Thread *t);
+void SchedInsertSleepQueue(Thread *t);
+size_t SchedGetReadyQueue(Thread **out, size_t max_out);
+size_t SchedGetSleepers(Thread **out, size_t max_out);
 
 // Direct-switch support for callers (e.g. IPC handoff) that want to switch
 // straight to a specific thread instead of going through sched_add()+
 // schedule(). See kernel/sched/sched.c for the state-ownership contract on
 // switch_to_thread and the priority argument for sched_has_ready_at_or_above.
-bool sched_has_ready_at_or_above(const Thread *t);
-void switch_to_thread(Thread *next);
+bool SchedAnyCpuTakers(const Thread *t);
+void SchedSwitchNext(Thread *next);
 
 extern volatile uint8_t do_resched;
 

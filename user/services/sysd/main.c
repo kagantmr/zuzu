@@ -80,6 +80,12 @@ static int sysd_register_self(void)
     return RegisterService("/svc/sysd", port);
 }
 
+
+static void exec_reply_err(Handle reply_handle, Err err)
+{
+    (void)ChannelReply(reply_handle, &err, sizeof(err));
+}
+
 /* Only SYSD_EXEC arrives on sysd's own port now — NT_REGISTER/NT_LOOKUP go
  * straight to nameserver (NT_PORT), which every process either inherits
  * from sysd (SysPSpawn's slot 0-3 copy) or is granted directly (devmgr). */
@@ -97,7 +103,7 @@ static void nt_handle_msg(Message msg)
         if (path_bytes == 0 || path_off + path_bytes > req_len ||
             ((char *)LmsgBuf())[path_off + hdr->path_len] != '\0')
         {
-            ZuzuMsgReply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
+            exec_reply_err(reply_handle, ERR_NOENT);
             return;
         }
 
@@ -120,12 +126,12 @@ static void nt_handle_msg(Message msg)
             Pid fsd_p = 0;
             if ((fsd_h = LookupServiceWithPid("/svc/fsd", &fsd_p)) < 0)
             {
-                ZuzuMsgReply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
+                exec_reply_err(reply_handle, ERR_NOENT);
                 return;
             }
             if (FsdAttach(&fsd_conn, (int32_t)fsd_h, fsd_p, FSD_SHM_DEFAULT) != ZUZU_OK)
             {
-                ZuzuMsgReply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
+                exec_reply_err(reply_handle, EXEC_EIO);
                 return;
             }
         }
@@ -133,7 +139,7 @@ static void nt_handle_msg(Message msg)
         size_t plen = strlen(path);
         if (plen == 0 || plen >= 4096)
         {
-            ZuzuMsgReply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
+            exec_reply_err(reply_handle, ERR_NOENT);
             return;
         }
 
@@ -141,21 +147,21 @@ static void nt_handle_msg(Message msg)
         memset(&st, 0, sizeof(st));
         if (FsdGetStat(&fsd_conn, path, &st) != ZUZU_OK)
         {
-            ZuzuMsgReply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
+            exec_reply_err(reply_handle, ERR_NOENT);
             return;
         }
 
         uint32_t file_size = st.size;
         if (file_size == 0 || st.type == FSD_TYPE_DIR)
         {
-            ZuzuMsgReply(reply_handle, (uint32_t)EXEC_EBADELF, 0, 0);
+            exec_reply_err(reply_handle, EXEC_EBADELF);
             return;
         }
 
         uint32_t fd = 0;
         if (FsdOpen(&fsd_conn, path, FSD_MODE_READ, &fd) != ZUZU_OK)
         {
-            ZuzuMsgReply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
+            exec_reply_err(reply_handle, EXEC_EIO);
             return;
         }
 
@@ -163,7 +169,7 @@ static void nt_handle_msg(Message msg)
         if (!elf)
         {
             FsdClose(&fsd_conn, fd);
-            ZuzuMsgReply(reply_handle, (uint32_t)ERR_NOMEM, 0, 0);
+            exec_reply_err(reply_handle, ERR_NOMEM);
             return;
         }
 
@@ -180,7 +186,7 @@ static void nt_handle_msg(Message msg)
         if (total != file_size)
         {
             free(elf);
-            ZuzuMsgReply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
+            exec_reply_err(reply_handle, EXEC_EIO);
             return;
         }
 
@@ -190,12 +196,12 @@ static void nt_handle_msg(Message msg)
         free(elf);
         if (rc != 0)
         {
-            ZuzuMsgReply(reply_handle, (uint32_t)EXEC_EBADELF, 0, 0);
+            exec_reply_err(reply_handle, EXEC_EBADELF);
             return;
         }
 
         memcpy(LmsgBuf(), &reply, sizeof(reply));
-        (void)ChannelReply((Handle)reply_handle, LmsgBuf(), sizeof(reply));
+        (void)ChannelReply(reply_handle, LmsgBuf(), sizeof(reply));
         return;
     }
 }
@@ -385,6 +391,12 @@ static bool role_is_kernel(const char *r, size_t len)
            (len == 6 && memcmp(r, "devmgr", 6) == 0);
 }
 
+/* "file": packed into the initrd but never spawned. */
+static bool role_is_file(const char *r, size_t len)
+{
+    return len == 4 && memcmp(r, "file", 4) == 0;
+}
+
 static void parse_manifest(const char *data, size_t size, const void *cpio, size_t cpio_size)
 {
     const char *p = data;
@@ -456,7 +468,7 @@ static void parse_manifest(const char *data, size_t size, const void *cpio, size
                 sl--;
         }
 
-        if (role_is_kernel(rs, rl))
+        if (role_is_kernel(rs, rl) || role_is_file(rs, rl))
         {
             p = eol + 1;
             continue;
@@ -655,7 +667,7 @@ int main(int argc, char **argv)
             break;
         }
     }
-    if (have_fsd)
+    if (have_fsd && deferred_count > 0)
         WaitForService("/svc/fsd");
 
     /* Spawn any entries marked spawn_last after services are available. */

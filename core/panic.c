@@ -21,13 +21,12 @@
 #include <stdarg.h>
 #include <stdint.h>
 
-#ifdef PANIC_SECTION_IRQ
+#ifdef CONFIG_PANIC_SECTION_IRQ
 #include "kernel/irq/sys_irq.h"
 extern irq_handler_t      handler_table[MAX_IRQS];
 #endif
 
 extern kernel_layout_t kernel_layout;
-extern ListHead     sleep_queue;
 
 panic_fault_context_t panic_fault_ctx;
 
@@ -110,18 +109,18 @@ static const char *cpsr_mode_name(uint32_t cpsr)
     case 0x11u: return "FIQ";
     case 0x12u: return "IRQ";
     case 0x13u: return "SVC";
+    case 0x1Fu: return "SYS";
     case 0x16u: return "MON";
     case 0x17u: return "ABT";
     case 0x1Au: return "HYP";
     case 0x1Bu: return "UND";
-    case 0x1Fu: return "SYS";
     default:    return "???";
     }
 }
 
 static void cpsr_decode(char *buf, int bufsz, uint32_t cpsr)
 {
-    snprintf(buf, (size_t)bufsz,
+    (void)snprintf(buf, (size_t)bufsz,
              "[%s %s irq=%s fiq=%s %c%c%c%c]",
              cpsr_mode_name(cpsr),
              (cpsr & (1u << 5))  ? "Thumb" : "ARM",
@@ -252,12 +251,12 @@ typedef struct {
 static void panic_heap_snapshot(panic_heap_stats_t *st)
 {
     memset(st, 0, sizeof(*st));
-    kmem_block_t *block = heap_head;
+    KMemBlock *block = heap_head;
     size_t seen = 0;
     while (block && seen < 8192) {
         st->block_count++;
         st->total_bytes += block->size;
-        if (block->free)
+        if (block->state == KBLOCK_FREE)
             st->free_bytes += block->size;
         else
             st->used_bytes += block->size;
@@ -477,7 +476,7 @@ static void panic_print_backtrace(backtrace_t *bt)
 
     /* addr2line hint — print piece-by-piece to avoid buffer constraints */
     panic_nl();
-    panic_puts("  " C_DIM "addr2line -e build/zuzu.elf");
+    panic_puts("  " C_DIM "addr2line -e " ZUZU_ELF_PATH);
     for (int i = 0; i < bt->depth; i++) {
         char tmp[12];
         snprintf(tmp, sizeof(tmp), " 0x%08X", bt->addresses[i]);
@@ -487,10 +486,10 @@ static void panic_print_backtrace(backtrace_t *bt)
 }
 
 /* ------------------------------------------------------------------ */
-/* CURRENT PROCESS  (PANIC_SECTION_PROCESS)                           */
+/* CURRENT PROCESS  (CONFIG_PANIC_SECTION_PROCESS)                           */
 /* ------------------------------------------------------------------ */
 
-#ifdef PANIC_SECTION_PROCESS
+#ifdef CONFIG_PANIC_SECTION_PROCESS
 static void panic_print_process(void)
 {
     char line[LINE_BUF];
@@ -532,14 +531,14 @@ static void panic_print_process(void)
         panic_line(line);
 
         /* Handle table */
-        handle_vec_t *ht = &p->handle_table;
-        if (ht->data && ht->cap > 0) {
+        HandleTable *ht = &p->handle_table;
+        {
             int shown = 0;
             panic_nl();
             panic_line("handles:");
-            for (uint32_t idx = 1; idx < ht->cap && shown < PANIC_HANDLE_MAX; idx++) {
-                HandleEntry *e = &ht->data[idx];
-                if (e->type == HANDLE_FREE)
+            for (uint32_t idx = 1; idx < HANDLE_MAX_SLOTS && shown < PANIC_HANDLE_MAX; idx++) {
+                HandleEntry *e = HandleTableGet(ht, idx);
+                if (!e || e->type == HANDLE_FREE)
                     continue;
                 void *ptr = NULL;
                 switch (e->type) {
@@ -604,13 +603,13 @@ static void panic_print_process(void)
         panic_line(line);
     }
 }
-#endif /* PANIC_SECTION_PROCESS */
+#endif /* CONFIG_PANIC_SECTION_PROCESS */
 
 /* ------------------------------------------------------------------ */
-/* SCHEDULER  (PANIC_SECTION_SCHEDULER)                               */
+/* SCHEDULER  (CONFIG_PANIC_SECTION_SCHEDULER)                               */
 /* ------------------------------------------------------------------ */
 
-#ifdef PANIC_SECTION_SCHEDULER
+#ifdef CONFIG_PANIC_SECTION_SCHEDULER
 static void panic_print_sched(void)
 {
     char line[LINE_BUF];
@@ -633,7 +632,7 @@ static void panic_print_sched(void)
 
     /* Ready queue */
     Thread *ready[PANIC_READY_MAX];
-    size_t ready_total = sched_ready_queue_snapshot(ready, PANIC_READY_MAX);
+    size_t ready_total = SchedGetReadyQueue(ready, PANIC_READY_MAX);
     panic_nl();
     snprintf(line, sizeof(line), "ready (%lu):", (unsigned long)ready_total);
     panic_line(line);
@@ -658,48 +657,41 @@ static void panic_print_sched(void)
         }
     }
 
-    /* Sleep queue */
+    /* Sleep wheel */
+    Thread *sleepers[PANIC_SLEEP_MAX];
+    size_t sleep_total = SchedGetSleepers(sleepers, PANIC_SLEEP_MAX);
     panic_nl();
-    {
-        int sleep_count = 0;
-        ListNode *node;
-        list_for_each(node, &sleep_queue.node)
-            sleep_count++;
+    (void)snprintf(line, sizeof(line), "sleeping (%lu):", (unsigned long)sleep_total);
+    panic_line(line);
 
-        snprintf(line, sizeof(line), "sleeping (%d):", sleep_count);
-        panic_line(line);
-
-        if (sleep_count == 0) {
-            panic_line("  (empty)");
-        } else {
-            int shown = 0;
-            list_for_each(node, &sleep_queue.node) {
-                if (shown >= PANIC_SLEEP_MAX) {
-                    snprintf(line, sizeof(line), "  ... +%d more",
-                             sleep_count - shown);
-                    panic_line(line);
-                    break;
-                }
-                Thread *t = container_of(node, Thread, timeout_node);
-                ProcessObj *p = t->owner_process;
-                snprintf(line, sizeof(line),
-                         "  tid=%-4u  pid=%-4u  %-16s  wake_tick=%llu",
-                         t->tid, p ? p->pid : 0,
-                         p ? p->name : "(none)",
-                         (unsigned long long)t->wake_tick);
-                panic_line(line);
-                shown++;
-            }
+    if (sleep_total == 0) {
+        panic_line("  (empty)");
+    } else {
+        size_t show = sleep_total < PANIC_SLEEP_MAX ? sleep_total : PANIC_SLEEP_MAX;
+        for (size_t i = 0; i < show; i++) {
+            Thread *t = sleepers[i];
+            ProcessObj *p = t->owner_process;
+            (void)snprintf(line, sizeof(line),
+                     "  tid=%-4u  pid=%-4u  %-16s  wake_deadline=%llu",
+                     t->tid, p ? p->pid : 0,
+                     p ? p->name : "(none)",
+                     (unsigned long long)t->wake_deadline);
+            panic_line(line);
+        }
+        if (sleep_total > PANIC_SLEEP_MAX) {
+            (void)snprintf(line, sizeof(line), "  ... +%lu more",
+                     (unsigned long)(sleep_total - PANIC_SLEEP_MAX));
+            panic_line(line);
         }
     }
 }
-#endif /* PANIC_SECTION_SCHEDULER */
+#endif /* CONFIG_PANIC_SECTION_SCHEDULER */
 
 /* ------------------------------------------------------------------ */
-/* IRQ / GIC  (PANIC_SECTION_IRQ)                                     */
+/* IRQ / GIC  (CONFIG_PANIC_SECTION_IRQ)                                     */
 /* ------------------------------------------------------------------ */
 
-#ifdef PANIC_SECTION_IRQ
+#ifdef CONFIG_PANIC_SECTION_IRQ
 static void panic_print_irq(void)
 {
     char line[LINE_BUF];
@@ -793,13 +785,13 @@ static void panic_print_irq(void)
     if (!any_pending)
         panic_line("  (none)");
 }
-#endif /* PANIC_SECTION_IRQ */
+#endif /* CONFIG_PANIC_SECTION_IRQ */
 
 /* ------------------------------------------------------------------ */
-/* MEMORY  (PANIC_SECTION_MEMORY)                                     */
+/* MEMORY  (CONFIG_PANIC_SECTION_MEMORY)                                     */
 /* ------------------------------------------------------------------ */
 
-#ifdef PANIC_SECTION_MEMORY
+#ifdef CONFIG_PANIC_SECTION_MEMORY
 static void panic_print_memory(void)
 {
     char line[LINE_BUF];
@@ -842,7 +834,7 @@ static void panic_print_memory(void)
         }
     }
 }
-#endif /* PANIC_SECTION_MEMORY */
+#endif /* CONFIG_PANIC_SECTION_MEMORY */
 
 /* ================================================================== */
 /* Entry point                                                         */
@@ -861,16 +853,16 @@ static void panic_screen(const char *reason, void *caller_ra)
     backtrace_walk(&bt);
     panic_print_backtrace(&bt);
 
-#ifdef PANIC_SECTION_PROCESS
+#ifdef CONFIG_PANIC_SECTION_PROCESS
     panic_print_process();
 #endif
-#ifdef PANIC_SECTION_SCHEDULER
+#ifdef CONFIG_PANIC_SECTION_SCHEDULER
     panic_print_sched();
 #endif
-#ifdef PANIC_SECTION_IRQ
+#ifdef CONFIG_PANIC_SECTION_IRQ
     panic_print_irq();
 #endif
-#ifdef PANIC_SECTION_MEMORY
+#ifdef CONFIG_PANIC_SECTION_MEMORY
     panic_print_memory();
 #endif
 
@@ -882,6 +874,8 @@ bool entered_panic = false;
 _Noreturn void __attribute__((cold)) panic(const char *fmt, ...)
 {
 
+    void *caller_ra;
+
     arch_global_irq_disable();
 
     if (entered_panic)
@@ -892,7 +886,7 @@ _Noreturn void __attribute__((cold)) panic(const char *fmt, ...)
     /* Static: panic is terminal and runs with IRQs off, so no reentrancy */
     static char reason[LINE_BUF];
 
-    void *caller_ra = __builtin_return_address(0);
+    caller_ra = __builtin_return_address(0);
 
 
     if (fmt) {

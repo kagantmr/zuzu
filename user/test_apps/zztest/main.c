@@ -32,6 +32,7 @@
 #include <zuzu/syspage.h>
 #include <zuzu/protocols/exec.h>
 #include <zuzu/service.h>
+#include <zuzu/sync/primitives.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,11 +41,11 @@
 #define LEAK_ITERS      50
 #define CHILD_PATH      "/bin/zztest_child"
 #define CHILD_NAME      "zztest_child"
-#define VM_PROT_USER_BIT (1u << 3)   /* kernel-internal bit, must be rejected */
+#define VM_PROT_USER_BIT (1U << 3)   /* kernel-internal bit, must be rejected */
 
 /* ---------------- harness ---------------- */
 
-#define MAX_SECTIONS 10
+#define MAX_SECTIONS 12
 static struct { const char *name; int pass, fail; } sections[MAX_SECTIONS];
 static int cur_sec = -1;
 
@@ -349,6 +350,7 @@ static void sec_mem(void)
     CHECK_EQ(ZuzuMemUnmap(m1), 0, "shm memunmap");
     uint8_t *m2 = (uint8_t *)ZuzuMemMap(sh, 0, PROT_RW, 0);
     CHECK(!ZuzuPtrIsErr(m2), "shm REMAP after unmap works");
+    CHECK(m2 == m1, "shm remap reuses the unmapped VA");
     CHECK(m2[0] == 0x77 && m2[4095] == 0x88, "shm contents persist across remap");
     CHECK_EQ(ZuzuMemUnmap(m2), 0, "shm memunmap (2nd)");
     CHECK_EQ(ZuzuDestroy(sh), 0, "shm destroy after unmap");
@@ -365,6 +367,19 @@ static void sec_mem(void)
              "syspage (pinned) unmap -> ERR_NOPERM");
     CHECK_EQ(ZuzuMemUnmap((void *)((uintptr_t)ZuzuTLS() & ~0xFFFu)), ERR_NOPERM,
              "TCB page (pinned) unmap -> ERR_NOPERM");
+
+    /* VA is reclaimed on unmap: a bump-pointer allocator retires each range
+     * permanently and runs the arena dry. */
+    void *first = ZuzuMemMap(HANDLE_ANON, 4096, PROT_RW, 0);
+    CHECK(!ZuzuPtrIsErr(first), "anon memmap (VA reclaim probe)");
+    int reclaim_ok = 1;
+    for (uint32_t i = 0; i < 4096; i++) {
+        if (ZuzuMemUnmap(first) != 0) { reclaim_ok = 0; break; }
+        void *again = ZuzuMemMap(HANDLE_ANON, 4096, PROT_RW, 0);
+        if (ZuzuPtrIsErr(again) || again != first) { reclaim_ok = 0; break; }
+    }
+    CHECK(reclaim_ok, "4096x map/unmap cycles reuse the same VA");
+    CHECK_EQ(ZuzuMemUnmap(first), 0, "VA reclaim probe unmapped");
 
     /* memprotect */
     uint8_t *c = (uint8_t *)ZuzuMemMap(HANDLE_ANON, 4096, PROT_RW, 0);
@@ -732,47 +747,59 @@ static void sec_tasks(void)
     g_spin_quit[1] = 1;
     CHECK_EQ(ZuzuTJoin(t), 0x41, "tjoin returns exit status");
 
-    /* TCB slot exhaustion: main holds 1 of TCB_MAX_SLOTS(7) -> 6 workers max.
-     * Quiesce first: joined threads' TCB slots are released by the deferred
-     * reaper, so slots from earlier sections may still be held briefly. */
+    /* Thread-creation limit + reclaim. TCB_MAX_SLOTS (255) is far more than
+     * the anon-mmap space for 4K worker stacks (or the kernel-stack pool, or
+     * free frames for the higher TCB pages) can back, so this bottoms out on
+     * whichever resource binds first rather than the slot cap specifically.
+     * It still exercises the multi-page TCB path and the reap/refill cycle.
+     * Quiesce first: earlier sections' joined threads free their TCB slots
+     * via the deferred reaper. */
     ZuzuSleep(20);
-    void *stacks[TCB_MAX_SLOTS];
-    Tid tids[TCB_MAX_SLOTS];
+#define WORKER_CAP (TCB_MAX_SLOTS - 1)
+    static void *stacks[WORKER_CAP];
+    static Tid tids[WORKER_CAP];
     int made = 0;
-    for (int i = 0; i < TCB_MAX_SLOTS - 1; i++) {
+    for (int i = 0; i < WORKER_CAP; i++) {
         stacks[i] = stack_alloc();
         if (!stacks[i]) break;
         g_spin_quit[i] = 0;
         tids[i] = ZuzuTMake(spin_worker, (char *)stacks[i] + STACK_SIZE,
                              (void *)(uintptr_t)i);
-        if (tids[i] < 0) break;
+        if (tids[i] < 0) { ZuzuMemUnmap(stacks[i]); stacks[i] = NULL; break; }
         made++;
     }
-    CHECK(made == TCB_MAX_SLOTS - 1, "created TCB_MAX_SLOTS-1 (6) worker threads");
+    CHECK(made >= 16, "spun up a healthy worker pool");
+
+    /* We're at the limit now: another tmake (with a stack in hand) must
+     * still fail, and keep failing, until we free some capacity. */
     void *xs = stack_alloc();
     CHECK(xs != NULL, "stack for overflow probe");
-    Tid over = ZuzuTMake(spin_worker, (char *)xs + STACK_SIZE, (void *)6);
-    CHECK_EQ(over, ERR_NOMEM, "tmake past TCB_MAX_SLOTS -> ERR_NOMEM");
-    if (over > 0) { /* defensive: don't leave a stray spinner if it slipped in */
-        g_spin_quit[6] = 1;
+    Tid over = ZuzuTMake(spin_worker, (char *)xs + STACK_SIZE, (void *)0);
+    CHECK(over < 0, "tmake at the limit -> error");
+    if (over > 0) { /* defensive: don't leak a stray spinner */
+        g_spin_quit[0] = 1;
         ZuzuTJoin(over);
     }
-    /* join one -> slot frees -> tmake succeeds again */
+
+    /* join one -> capacity frees -> tmake succeeds again */
     g_spin_quit[0] = 1;
-    CHECK_EQ(ZuzuTJoin(tids[0]), 0x40, "join frees a slot");
+    CHECK_EQ(ZuzuTJoin(tids[0]), 0x40, "join frees capacity");
     ZuzuSleep(10);   /* deferred thread reaper releases the TCB slot */
-    g_spin_quit[6] = 0;
-    Tid again = ZuzuTMake(spin_worker, (char *)xs + STACK_SIZE, (void *)6);
+    stacks[0] = NULL;
+    g_spin_quit[1] = 0;
+    Tid again = ZuzuTMake(spin_worker, (char *)xs + STACK_SIZE, (void *)1);
     CHECK(again > 0, "tmake succeeds again after join");
-    g_spin_quit[6] = 1;
+    g_spin_quit[1] = 1;
     ZuzuTJoin(again);
     for (int i = 1; i < made; i++) {
         g_spin_quit[i] = 1;
         ZuzuTJoin(tids[i]);
     }
     ZuzuSleep(10);
-    for (int i = 0; i < made; i++) ZuzuMemUnmap(stacks[i]);
+    for (int i = 0; i < made; i++)
+        if (stacks[i]) ZuzuMemUnmap(stacks[i]);
     ZuzuMemUnmap(xs);
+#undef WORKER_CAP
     ZuzuMemUnmap(st);
 
     /* pspawn -> kickstart -> wait lifecycle through sysd exec */
@@ -972,6 +999,134 @@ static void leak_loop_anon(void)
     }
 }
 
+/* ---------------- sync primitives (zone / sem / cv) ---------------- */
+
+#define SYNC_WORKERS 4
+#define SYNC_BUMPS   400
+
+static Zone         g_zone;
+static Semaphore    g_sem;
+static CondVariable g_cv;
+
+static volatile int32_t g_shared_ctr;
+static volatile int      g_cv_pred;
+static volatile int      g_cv_woken;
+
+/* non-atomic read-modify-write: a lost update is possible iff the zone
+ * fails to provide mutual exclusion. */
+static void zone_bump_worker(void *arg)
+{
+    (void)arg;
+    for (int i = 0; i < SYNC_BUMPS; i++) {
+        IN_ZONE(&g_zone) {
+            int32_t v = g_shared_ctr;
+            ZuzuSleep(0);            /* invite a preemption mid-critical-section */
+            g_shared_ctr = v + 1;
+        }
+    }
+    ZuzuTQuit(0);
+}
+
+/* posts three units after a delay; the main thread must block on the
+ * first two SemWait()s until these land. */
+static void sem_post_worker(void *arg)
+{
+    (void)arg;
+    ZuzuSleep(20);
+    SemPost(&g_sem);
+    SemPost(&g_sem);
+    SemPost(&g_sem);
+    ZuzuTQuit(0);
+}
+
+static void cv_wait_worker(void *arg)
+{
+    (void)arg;
+    IN_ZONE(&g_zone) {
+        while (!g_cv_pred)
+            CondVarWait(&g_cv, &g_zone);
+        g_cv_woken++;
+    }
+    ZuzuTQuit(0);
+}
+
+static void sec_sync(void)
+{
+    section("sync");
+
+    void *st[SYNC_WORKERS];
+    Tid   t[SYNC_WORKERS];
+    for (int i = 0; i < SYNC_WORKERS; i++) st[i] = stack_alloc();
+
+    /* ---- zone: init / trylock / mutual exclusion ---- */
+    CHECK_EQ(ZoneInit(&g_zone), ZUZU_OK, "ZoneInit");
+
+    CHECK_EQ(ZoneEnter(&g_zone), ZUZU_OK, "ZoneEnter free zone");
+    CHECK_EQ(ZoneTryEnter(&g_zone), ERR_BUSY, "ZoneTryEnter on held zone -> ERR_BUSY");
+    CHECK_EQ(ZoneExit(&g_zone), ZUZU_OK, "ZoneExit");
+    CHECK_EQ(ZoneTryEnter(&g_zone), ZUZU_OK, "ZoneTryEnter on free zone -> OK");
+    ZoneExit(&g_zone);
+
+    g_shared_ctr = 0;
+    for (int i = 0; i < SYNC_WORKERS; i++)
+        t[i] = ZuzuTMake(zone_bump_worker, (char *)st[i] + STACK_SIZE, NULL);
+    for (int i = 0; i < SYNC_WORKERS; i++) ZuzuTJoin(t[i]);
+    CHECK_EQ(g_shared_ctr, SYNC_WORKERS * SYNC_BUMPS,
+             "zone serialises RMW: no lost updates across 4 threads");
+
+    /* ---- semaphore: counting + blocking acquire ---- */
+    CHECK_EQ(SemInit(&g_sem, 2), ZUZU_OK, "SemInit(count=2)");
+
+    uint32_t t0 = uptime_ms();
+    CHECK_EQ(SemWait(&g_sem), ZUZU_OK, "SemWait consumes unit 1");
+    CHECK_EQ(SemWait(&g_sem), ZUZU_OK, "SemWait consumes unit 2");
+    CHECK(uptime_ms() - t0 < 10, "SemWait on available units does not block");
+
+    t[0] = ZuzuTMake(sem_post_worker, (char *)st[0] + STACK_SIZE, NULL);
+    t0 = uptime_ms();
+    CHECK_EQ(SemWait(&g_sem), ZUZU_OK, "SemWait blocks then wakes on SemPost");
+    CHECK(uptime_ms() - t0 >= 15, "blocking SemWait actually waited for the post");
+    CHECK_EQ(SemWait(&g_sem), ZUZU_OK, "counting sem: 2nd queued unit");
+    CHECK_EQ(SemWait(&g_sem), ZUZU_OK, "counting sem: 3rd queued unit");
+    ZuzuTJoin(t[0]);
+
+    /* ---- condvar: signal wakes one waiter ---- */
+    CHECK_EQ(CondVarInit(&g_cv), ZUZU_OK, "CondVarInit");
+
+    g_cv_pred = 0;
+    g_cv_woken = 0;
+    t[0] = ZuzuTMake(cv_wait_worker, (char *)st[0] + STACK_SIZE, NULL);
+    ZuzuSleep(20);                       /* let the worker reach CondVarWait */
+    IN_ZONE(&g_zone) {
+        g_cv_pred = 1;
+        CondVarSignal(&g_cv);
+    }
+    ZuzuTJoin(t[0]);
+    CHECK_EQ(g_cv_woken, 1, "CondVarSignal wakes the blocked waiter");
+
+    /* ---- condvar: broadcast wakes every waiter ---- */
+    g_cv_pred = 0;
+    g_cv_woken = 0;
+    for (int i = 0; i < SYNC_WORKERS; i++)
+        t[i] = ZuzuTMake(cv_wait_worker, (char *)st[i] + STACK_SIZE, NULL);
+    ZuzuSleep(30);
+    IN_ZONE(&g_zone) {
+        g_cv_pred = 1;
+        CondVarBroadcast(&g_cv);
+    }
+    for (int i = 0; i < SYNC_WORKERS; i++) ZuzuTJoin(t[i]);
+    CHECK_EQ(g_cv_woken, SYNC_WORKERS, "CondVarBroadcast wakes all 4 waiters");
+
+    /* ---- teardown ---- */
+    CHECK_EQ(CondVarDestroy(&g_cv), ZUZU_OK, "CondVarDestroy");
+    CHECK_EQ(SemDestroy(&g_sem), ZUZU_OK, "SemDestroy");
+    CHECK_EQ(ZoneDestroy(&g_zone), ZUZU_OK, "ZoneDestroy");
+
+    ZuzuSleep(10);                       /* deferred reaper frees TCB slots */
+    for (int i = 0; i < SYNC_WORKERS; i++)
+        if (st[i]) ZuzuMemUnmap(st[i]);
+}
+
 static void leak_loop_shm(void)
 {
     Handle sh = ZuzuShmemCreate(4096);
@@ -1059,6 +1214,7 @@ int main(void)
     sec_vfp();
     sec_version();
     sec_security();
+    sec_sync();
     sec_leaks();
 
     int total_pass = 0, total_fail = 0;

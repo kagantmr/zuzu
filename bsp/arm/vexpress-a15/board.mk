@@ -1,0 +1,20 @@
+# bsp/arm/vexpress-a15/board.mk - Versatile Express Cortex-A15 (QEMU-only)
+# board metadata. Included by mk/config.mk once BOARD=vexpress-a15 is
+# selected. See arch/arm/arch.mk's header comment for the variable list a
+# board.mk may define.
+
+DTB_vexpress-a15       = arch/arm/dtb/vexpress-a15/vexpress-v2p-ca15-tc1.dtb
+QEMU_MACH_vexpress-a15 = vexpress-a15
+QEMU_CPU_vexpress-a15  = cortex-a15
+QEMU_NET_vexpress-a15  = -nic user,model=lan9118
+
+QEMU_NIC_MODEL_vexpress-a15 = lan9118
+
+QEMU_MEM_vexpress-a15  = 64M
+
+UBOOT_vexpress-a15     = y
+
+# Has a working SD driver, so `make smoke` can run zztest off the card.
+SMOKE_FULL_vexpress-a15 = y
+
+CPUFLAGS_vexpress-a15  = -mcpu=cortex-a15 -falign-functions=64

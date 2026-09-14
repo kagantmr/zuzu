@@ -42,7 +42,7 @@ char *itoa(int value, char *str, unsigned int base);
  */
 char *utoa(unsigned int value, char *str, unsigned int base);
 
-static inline uint16_t htons(uint16_t x) { return (x >> 8) | (x << 8); }
+static inline uint16_t htons(uint16_t x) { return (uint16_t)((x >> 8) | (x << 8)); }
 static inline uint32_t htonl(uint32_t x) { return ((x >> 24)) | ((x >> 8) & 0xFF00) | ((x << 8) & 0xFF0000) | (x << 24); }
 
 #define ntohs htons
