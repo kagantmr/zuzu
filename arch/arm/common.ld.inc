@@ -62,6 +62,13 @@ SECTIONS
     /* --- Read-only Data --- */
     /* LMA must match VMA offset: if VMA is aligned, LMA must be too */
     .rodata : AT(ALIGN(LOADADDR(.text) + SIZEOF(.text), 4096)) {
+        /* Must precede the wildcards below, and must not be named
+         * .rodata.* or *(.rodata.*) would swallow it. KEEP is required:
+         * the bracket symbols are the only referrers. */
+        . = ALIGN(4);
+        __zuzu_drivers_start = .;
+        KEEP(*(SORT_BY_NAME(.zuzu_drivers.*)))
+        __zuzu_drivers_end = .;
         *(.rodata)
         *(.rodata.*)
     } : rodata

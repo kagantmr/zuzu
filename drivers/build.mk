@@ -1,1 +1,2 @@
-subdir-y += uart
+obj-y += driver.o
+subdir-y += uart rtc

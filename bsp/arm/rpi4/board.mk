@@ -1,4 +1,4 @@
-# arch/arm/rpi4/board.mk - Raspberry Pi 4 (BCM2711, Cortex-A72 running
+# bsp/arm/rpi4/board.mk - Raspberry Pi 4 (BCM2711, Cortex-A72 running
 # AArch32) board metadata. Included by mk/config.mk once BOARD=rpi4 is
 # selected. See arch/arm/arch.mk's header comment for the variable list a
 # board.mk may define.

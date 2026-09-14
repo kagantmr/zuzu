@@ -133,3 +133,20 @@ void ArchTimerSetDeadline(Time abs_count)
 
 
 void ArchTimerDisable(void) { WriteCntvCtl(0x2); /* IMASK=1 */ }
+
+#include "drivers/driver.h"
+
+#define LOG_FMT(fmt) "(board) " fmt
+#include "core/log.h"
+
+static void GenericTimerProbe(const FdtDevice *dev)
+{
+	(void)dev;
+	KDEBUG("Using ARM generic timer as tick source");
+	ArchTimerInit();
+}
+
+ZUZU_DRIVER(generic_timer, ZUZU_DRV_TIMER) = {
+	.name = "ARM generic timer", .compat = NULL, .required = false,
+	.probe = GenericTimerProbe,
+};
