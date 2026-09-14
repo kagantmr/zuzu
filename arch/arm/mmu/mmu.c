@@ -392,14 +392,24 @@ void arch_mmu_switch(AddressSpace *as)
     /* Park on reserved ASID 0: no speculative walk during the TTBR0 change
      * can then allocate a TLB entry tagged with a live ASID. */
     __asm__ volatile("mcr p15, 0, %0, c13, c0, 1" ::"r"(0U) : "memory"); // CONTEXTIDR
-    __asm__ volatile("isb" ::: "memory");
+    
+    ArchIsb();
 
     __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"(ttbr_value(as->pt_root_physaddr))
                      : "memory"); // TTBR0
-    __asm__ volatile("isb" ::: "memory");
+    
+    ArchIsb();
 
     __asm__ volatile("mcr p15, 0, %0, c13, c0, 1" ::"r"((uint32_t)as->asid_token.asid)
                      : "memory"); // CONTEXTIDR
+
+    /**
+    * load bearing ISB. removed this and spent 12-14 sep 2026 entirely bugging
+    * possibly the worst days of my life too
+    * when everything was going wrong and i literally rewrote waitany
+    * qemu won't show this because it doesn't really model the mmu truly
+    */
+    ArchIsb();
 
     // Tell asid_alloc() which ASID is now actually live in hardware, so a
     // rollover reserves it instead of handing it to a second address space.
