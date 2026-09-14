@@ -1,7 +1,7 @@
 @ rpi4 board hooks for the shared boot path (arch/arm/boot/_start.S).
 @ These override the weak defaults there.
 
-#include "arch/arm/rpi4/boot.h"
+#include "bsp/arm/rpi4/boot.h"
 
 .section .text.boot, "ax"
 

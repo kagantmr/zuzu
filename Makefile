@@ -11,7 +11,7 @@
 #   scripts/Makefile.image   dtb, raw image, initrd, SD card
 #   scripts/Makefile.run     QEMU, smoke, U-Boot
 #   arch/$(ARCH)/arch.mk     toolchain prefix, board list
-#   arch/$(ARCH)/$(BOARD)/board.mk   per-board metadata
+#   bsp/$(ARCH)/$(BOARD)/          per-board package (board.mk, defconfig, linker)
 
 # Make 3.81 (Apple's /usr/bin/make) picks the first-defined matching pattern
 # rule instead of the most specific one, and has no $(file).
@@ -52,11 +52,12 @@ $(foreach v,$(filter CONFIG_%,$(.VARIABLES)),\
 
 # ---- derived paths ---------------------------------------------------------
 ARCH_DIR       = arch/$(ARCH)
-BOARD_DIR      = $(ARCH_DIR)/$(BOARD)
+BSP_DIR        = bsp/$(ARCH)
+BOARD_DIR      = $(BSP_DIR)/$(BOARD)
 
 # Board-specific metadata (CPUFLAGS_<board>, DTB_<board>, QEMU_*_<board>,
 # UBOOT_<board>, ...) lives in the board's own directory — see
-# arch/$(ARCH)/arch.mk's header comment for the variable list a board.mk
+# bsp/$(ARCH)/<board>/board.mk's header comment for the variable list a board.mk
 # may define. Not -include: a board without one is misconfigured and
 # should fail loudly rather than silently fall back to arch-wide defaults.
 include $(BOARD_DIR)/board.mk
@@ -337,6 +338,49 @@ include scripts/Makefile.run
 all: $(TARGET) $(ALL_USER_ELFS) $(SD_LIB_ARCHIVES) $(INITRD) links
 
 deploy: all sdimg-recreate run
+
+.PHONY: help
+help:
+	@echo 'Usage: $(MAKE) [BOARD=<board>] <target>'
+	@echo ''
+	@echo 'Boards:        $(BOARDS)   (default: $(BOARD))'
+	@echo ''
+	@echo 'Build:'
+	@echo '  all                 kernel + user programs + initrd (default)'
+	@echo '  kernel              kernel ELF only'
+	@echo '  img                 raw zuzu.img for real hardware'
+	@echo '  clean               remove build/ and compile_commands.json'
+	@echo '  distclean           also remove .baseline/ and .cache/'
+	@echo ''
+	@echo 'Run:'
+	@echo '  run                 boot under QEMU'
+	@echo '  debug               boot stopped, gdb on tcp::1234'
+	@echo '  smoke               boot headless and check it came up'
+	@echo '  smoke-all           smoke every board'
+	@echo '  run-bridged         boot with a bridged NIC (needs sudo)'
+	@echo '  run-pcap            boot and capture traffic to a pcap'
+	@echo ''
+	@echo 'Configure (per board, in $(O)/.config):'
+	@echo '  menuconfig          interactive configuration'
+	@echo '  defconfig           reset to $(BOARD)'"'"'s defconfig'
+	@echo '  olddefconfig        fill in new symbols non-interactively'
+	@echo '  savedefconfig       save current config as the board default'
+	@echo '  (single symbols: scripts/config --set CONFIG_X=Y, --enable, --get, --list)'
+	@echo '  (CONFIG_* cannot be set on the command line -- edit the config)'
+	@echo ''
+	@echo 'Media:'
+	@echo '  sdimg               build the SD card image'
+	@echo '  sdimg-recreate      rebuild it from scratch'
+	@echo '  bootfs              stage a FAT32 boot partition'
+	@echo '  bootimg             wrap that into a partitioned image'
+	@echo '  deploy              all + sdimg-recreate + run'
+	@echo '  rpi4-firmware       download the Pi firmware into firmware/'
+	@echo ''
+	@echo 'Tools:'
+	@echo '  compile_commands.json   clangd database'
+	@echo '  dump                objdump -D to $(O)/zuzu.dump'
+	@echo '  analyze             clean rebuild under -fanalyzer'
+	@echo '  print-<VAR>         print a make variable, e.g. -s print-CFLAGS'
 
 # ZUZUSD/ was the pre-$(O) SD staging dir; drop it so old checkouts tidy up.
 clean:

@@ -59,3 +59,30 @@ const struct uart_driver pl011_driver = {
     .putc = pl011_putc,
     .puts = pl011_puts,
 };
+
+#ifdef CONFIG_UART_PL011
+#include "drivers/driver.h"
+#include "kernel/mm/vmm.h"
+#include "core/kprintf.h"
+#include "core/panic.h"
+
+#define LOG_FMT(fmt) "(board) " fmt
+#include "core/log.h"
+
+static void Pl011Probe(const FdtDevice *dev)
+{
+	void *va = IoRemap((uintptr_t)dev->phys, (size_t)dev->size);
+	if (!va)
+		panic("Failed to ioremap UART");
+
+	uart_set_driver(&pl011_driver, (uintptr_t)va);
+	kprintf_init(uart_putc);
+	KDEBUG("UART re-mapped to %p", va);
+}
+
+static const char *const PL011_COMPAT[] = { "arm,pl011", "arm,pl011-axi", NULL };
+
+ZUZU_DRIVER(pl011, ZUZU_DRV_CONSOLE) = {
+	.name = "PL011 UART", .compat = PL011_COMPAT, .required = false, .probe = Pl011Probe,
+};
+#endif

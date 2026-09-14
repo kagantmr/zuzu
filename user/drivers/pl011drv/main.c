@@ -24,7 +24,7 @@
  * kernel's DTB enumeration only keeps that first string per device (see
  * dtb_enum_devices() in kernel/dtb/dtb.c) -- so devmgr's exact strcmp
  * against just "arm,pl011" never matches on rpi4. Mirror the alias list
- * arch/arm/rpi4/platform.c already uses for the early console lookup. */
+ * the PL011 driver registration already uses for the console lookup. */
 #define PL011DRV_COMPATIBLE_AXI "arm,pl011-axi"
 
 static volatile pl011_t *uart;

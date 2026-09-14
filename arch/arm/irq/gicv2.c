@@ -154,3 +154,37 @@ void gic_end(uint32_t iar) {
     ArchDsbSy();
     gicc_write(GICC_EOIR, iar); // Signal end of interrupt
 }
+
+#include "drivers/driver.h"
+#include "kernel/mm/vmm.h"
+#include "core/panic.h"
+
+#define LOG_FMT(fmt) "(board) " fmt
+#include "core/log.h"
+
+static void GicV2Probe(const FdtDevice *dev)
+{
+	uint64_t gicd = dev->phys, s_d = dev->size;
+	uint64_t gicc = 0, s_c = 0;
+
+	if (dev->nregs >= 2) {
+		gicc = dev->phys2;
+		s_c = dev->size2;
+	}
+
+	void *gicd_va = IoRemap((PhysAddr)gicd, (size_t)s_d);
+	void *gicc_va = IoRemap((PhysAddr)(gicc ? gicc : gicd), (size_t)(s_c ? s_c : s_d));
+
+	KDEBUG("GICv2 (GICD) re-mapped to %p", gicd_va);
+	if (!gicd_va || !gicc_va)
+		panic("Failed to ioremap GIC");
+
+	gic_init((uintptr_t)gicd_va, (uintptr_t)gicc_va);
+}
+
+static const char *const GIC_COMPAT[] = { "arm,gic-400", "arm,cortex-a15-gic", "arm,gic-v2",
+					  NULL };
+
+ZUZU_DRIVER(gicv2, ZUZU_DRV_IRQCHIP) = {
+	.name = "GIC", .compat = GIC_COMPAT, .required = true, .probe = GicV2Probe,
+};
