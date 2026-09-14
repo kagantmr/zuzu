@@ -1,0 +1,9 @@
+/**
+ * @defgroup sync Synchronization primitives
+ * @brief Notification-based mutual exclusion and signalling for zuzu
+ *        user-space threads.
+ *
+ * These primitives back the "Sync primitives" section of the zuzu SDK
+ * documentation. Each sub-group (Zone, Semaphore, CondVariable) becomes
+ * one primitive page.
+ */

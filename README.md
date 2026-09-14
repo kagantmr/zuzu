@@ -36,46 +36,17 @@ The kernel provides:
 - Physical memory management, device enumeration, shared memory, W^X enforcement
 
 Everything else is a userspace process. Device drivers, the filesystem, and the
-entire network stack run unprivileged and isolated. A driver crash is a process
-crash.
-
-## Performance
-
-Measured on Raspberry Pi 4 (Cortex-A72) via the PMU cycle counter, single-core,
-min-of-N over 100,000 iterations.
-
-| Operation | Cycles |
-| --- | --- |
-| Syscall floor (`getpid` round trip) | 519 |
-| IPC cross-process round trip (register message) | 3,387 |
-| IPC cross-thread round trip (register message) | 2,006 |
-| IPC cross-thread ound trip (32-byte payload) | 2,148 |
-| Context switch | ~107 |
-
-For context, seL4 (the fastest microkernel in existence, with a hand-written
-assembly fastpath and a formal proof of correctness) achieves roughly 570–720
-cycles hot-cache and ~1,180 cold-cache on comparable ARM cores. seL4's own
-published estimate puts the rest of the field at 2×–10× slower than itself,
-typically around 7,000 cycles.
-
-zuzu sits at roughly **3x seL4 hot-cache and 1.7x cold-cache**, in C
-with no assembly fastpath. At 1.5 GHz an IPC round trip costs about **1.34 µs** The path here was incremental and each step was measured on hardware: lazy VFP
-switching, direct-switch handoff to a waiting receiver, an O(1) priority bitmap,
-and removing benchmark instrumentation from the production path took the round
-trip from 2,440 to 2,006 cycles.
-
-See [BENCHMARKS.md](BENCHMARKS.md) for methodology, the full optimization arc,
-and the remaining known headroom.
+entire network stack run unprivileged and isolated.
 
 ## What works
 
 **Kernel**
-- Per-process address spaces, USR-mode execution, ASID-tagged TLB
+- Address spaces, USR-mode execution, ASID-tagged TLB
 - Preemptive priority scheduling, up to 255 threads per process
-- Full IPC: messages, long messages, notifications, `WaitAny`, receiver-side
-  demux markers
+- IPC: messages, long messages, notifications, `WaitAny`, receiver-side
+  demux markers, shared memory
 - Userspace device drivers with MMIO mapping and IRQ forwarding
-- ELF loading from an initrd, process lifecycle, kernel-attested labels
+- ELF/ZXF loading from an initrd, process lifecycle, kernel-attested labels
 
 **zuzuOS**
 - Supervisor/init, a standalone name server, a VFS server, a device manager
@@ -89,10 +60,7 @@ and the remaining known headroom.
 
 ## Status
 
-Under active development. The kernel ABI is stable within the 1.x series.
-
-Current work is on TCP options, a native socket API, and driver restart. See
-the roadmap for what's planned and in what order.
+Under active development. The kernel ABI is stable within the 1.x series. See roadmap for recent development updates.
 
 ## Documentation
 
