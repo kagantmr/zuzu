@@ -97,7 +97,7 @@ static void nt_handle_msg(Message msg)
         if (path_bytes == 0 || path_off + path_bytes > req_len ||
             ((char *)LmsgBuf())[path_off + hdr->path_len] != '\0')
         {
-            ZuzuMsgReply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
+            ChannelReply(reply_handle, NULL, 0);
             return;
         }
 
@@ -120,12 +120,12 @@ static void nt_handle_msg(Message msg)
             Pid fsd_p = 0;
             if ((fsd_h = LookupServiceWithPid("/svc/fsd", &fsd_p)) < 0)
             {
-                ZuzuMsgReply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
+                ChannelReply(reply_handle, NULL, 0);
                 return;
             }
             if (FsdAttach(&fsd_conn, (int32_t)fsd_h, fsd_p, FSD_SHM_DEFAULT) != ZUZU_OK)
             {
-                ZuzuMsgReply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
+                ChannelReply(reply_handle, NULL, 0);
                 return;
             }
         }
@@ -133,7 +133,7 @@ static void nt_handle_msg(Message msg)
         size_t plen = strlen(path);
         if (plen == 0 || plen >= 4096)
         {
-            ZuzuMsgReply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
+            ChannelReply(reply_handle, NULL, 0);
             return;
         }
 
@@ -141,21 +141,21 @@ static void nt_handle_msg(Message msg)
         memset(&st, 0, sizeof(st));
         if (FsdGetStat(&fsd_conn, path, &st) != ZUZU_OK)
         {
-            ZuzuMsgReply(reply_handle, (uint32_t)ERR_NOENT, 0, 0);
+            ChannelReply(reply_handle, NULL, 0);
             return;
         }
 
         uint32_t file_size = st.size;
         if (file_size == 0 || st.type == FSD_TYPE_DIR)
         {
-            ZuzuMsgReply(reply_handle, (uint32_t)EXEC_EBADELF, 0, 0);
+            ChannelReply(reply_handle, NULL, 0);
             return;
         }
 
         uint32_t fd = 0;
         if (FsdOpen(&fsd_conn, path, FSD_MODE_READ, &fd) != ZUZU_OK)
         {
-            ZuzuMsgReply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
+            ChannelReply(reply_handle, NULL, 0);
             return;
         }
 
@@ -163,7 +163,7 @@ static void nt_handle_msg(Message msg)
         if (!elf)
         {
             FsdClose(&fsd_conn, fd);
-            ZuzuMsgReply(reply_handle, (uint32_t)ERR_NOMEM, 0, 0);
+            ChannelReply(reply_handle, NULL, 0);
             return;
         }
 
@@ -180,7 +180,7 @@ static void nt_handle_msg(Message msg)
         if (total != file_size)
         {
             free(elf);
-            ZuzuMsgReply(reply_handle, (uint32_t)EXEC_EIO, 0, 0);
+            ChannelReply(reply_handle, NULL, 0);
             return;
         }
 
@@ -190,12 +190,12 @@ static void nt_handle_msg(Message msg)
         free(elf);
         if (rc != 0)
         {
-            ZuzuMsgReply(reply_handle, (uint32_t)EXEC_EBADELF, 0, 0);
+            ChannelReply(reply_handle, NULL, 0);
             return;
         }
 
         memcpy(LmsgBuf(), &reply, sizeof(reply));
-        (void)ChannelReply((Handle)reply_handle, LmsgBuf(), sizeof(reply));
+        (void)ChannelReply(reply_handle, LmsgBuf(), sizeof(reply));
         return;
     }
 }
