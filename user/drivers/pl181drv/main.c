@@ -302,16 +302,16 @@ static int pl181drv_setup(void)
         return -1;
     }
 
-    if (ZuzuIrqBind((uint32_t)block_dev_handle, (uint32_t)block_irq_ntfn) < 0)
+    if (ZuzuIrqBind((Handle)block_dev_handle, (Handle)block_irq_ntfn) < 0)
     {
         LOG_ERROR(LOG_TAG, "irq_bind failed");
         return -1;
     }
 
-    pl181 = (pl181_t *)ZuzuMemMap((uint32_t)block_dev_handle, 0, PROT_RW, 0);
+    pl181 = (pl181_t *)ZuzuMemMap((Handle)block_dev_handle, 0, PROT_RW, 0);
     if ((intptr_t)pl181 <= 0)
     {
-        LOG_ERROR(LOG_TAG, "mapdev failed");
+        LOG_ERROR(LOG_TAG, "memmap failed");
         return -1;
     }
 
