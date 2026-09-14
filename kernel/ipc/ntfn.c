@@ -1,6 +1,7 @@
 #include "ntfn.h"
 
 #include "core/panic.h"
+#include "kernel/ipc/waitslot.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/proc/thread.h"
 #include "kernel/sched/sched.h"
@@ -19,7 +20,7 @@ NtfnObj *KAllocNtfn(void)
 
 void KFreeNtfn(NtfnObj *ntfn) { KSlabFree(&ntfn_cache, ntfn); }
 
-void NtfnWakeWaiter(NtfnObj *ntfn, ThreadWaitSlot *slot, int32_t r0_value, NtfnBits bits)
+void NtfnWakeWaiter(NtfnObj *ntfn, WaitSlot *slot, int32_t r0_value, NtfnBits bits)
 {
     Thread *waiter = slot->owner;
     if (!waiter || !waiter->trap_frame) {
@@ -31,19 +32,12 @@ void NtfnWakeWaiter(NtfnObj *ntfn, ThreadWaitSlot *slot, int32_t r0_value, NtfnB
 
     (*arch_reg(waiter->trap_frame, 0)) = (uint32_t)r0_value;
 
-    uint32_t match_index = WAITANY_NO_MATCH;
-    if (waiter->waitany_active) {
-        for (uint32_t i = 0; i < waiter->waitany_wait_count; i++) {
-            if (waiter->waitany_wait_ntfns[i] == ntfn) {
-                match_index = waiter->waitany_wait_slots[i].index;
-                break;
-            }
-        }
+    if (slot != &waiter->ntfn_wait_slot) {
+        WaitanyResult res;
+        WaitanyDeliverNtfn(slot->handle_index, bits, &res);
+        WaitSlotsUnregisterAll(waiter);
+        WaitSlotsDeliver(waiter, slot->handle_index, &res);
     }
-    ThreadWaitanyClearWaits(waiter);
-    ThreadWaitanyClearPortWaits(waiter);
-    waiter->waitany_wait_match_index = match_index;
-    waiter->waitany_wait_bits = bits;
 
     SchedRemoveSleepQueue(waiter);
     waiter->wake_deadline = 0;
@@ -59,8 +53,8 @@ void NtfnSignal(NtfnObj *ntfn, NtfnBits bits)
     assert(ntfn && ntfn->alive && !(bits & (1u<<31)));
     ntfn->word |= bits;
     if (!list_empty(&ntfn->wait_queue)) {
-        ListNode *node = list_pop_front(&ntfn->wait_queue); 
-        ThreadWaitSlot *slot = container_of(node, ThreadWaitSlot, node);
+        ListNode *node = list_pop_front(&ntfn->wait_queue);
+        WaitSlot *slot = container_of(node, WaitSlot, node);
         NtfnBits delivered = ntfn->word;
         NtfnWakeWaiter(ntfn, slot, (int32_t)delivered, delivered);
         ntfn->word = 0;

@@ -14,17 +14,22 @@ typedef struct Notification {
     bool alive;
 } NtfnObj;
 
-struct thread_wait_slot;
-
-/* Wake one waiter whose slot has already been popped from ntfn->wait_queue.
- * r0_value lands in the waiter's r0 (delivered bits from ntfn_signal, or a
- * negative error from cap_destroy); bits is what a waitany waiter sees in
- * its result. A queued waiter without a trap frame is a corrupt wait queue:
- * panics rather than limp past it. */
-void NtfnWakeWaiter(NtfnObj *ntfn, struct thread_wait_slot *slot, int32_t r0_value, NtfnBits bits);
+struct wait_slot;
 
 /**
- * Signal one or more bits on a notification object.
+ * @brief Wake one waiter already popped from ntfn->wait_queue.
+ * @param ntfn     Notification the waiter was popped from.
+ * @param slot     Waiter's slot, already popped.
+ * @param r0_value Lands in the waiter's r0: delivered bits from NtfnSignal(),
+ *                 or a negative error from cap_destroy.
+ * @param bits     What a waitany waiter sees in its result.
+ * @note A queued waiter without a trap frame is a corrupt wait queue:
+ * panics rather than limp past it.
+ */
+void NtfnWakeWaiter(NtfnObj *ntfn, struct wait_slot *slot, int32_t r0_value, NtfnBits bits);
+
+/**
+ * @brief Signal one or more bits on a notification object.
  *
  * ORs @p bits into the notification's word and wakes at most one waiter.
  * If a waiter is woken, it receives the accumulated word and the word is

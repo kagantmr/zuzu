@@ -1,5 +1,6 @@
 #include "sys_port.h"
 #include "handle.h"
+#include "kernel/ipc/waitslot.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/proc/process.h"
 #include "kernel/proc/thread.h"
@@ -128,12 +129,11 @@ void SysDestroy(CpuState *frame)
         while (!list_empty(&port->receiver_queue))
         {
             ListNode *n = list_pop_front(&port->receiver_queue);
-            ThreadWaitSlot *slot = container_of(n, ThreadWaitSlot, node);
+            WaitSlot *slot = container_of(n, WaitSlot, node);
             Thread *t = slot->owner;
-            if (t->waitany_port_wait_active)
+            if (slot != &t->port_wait_slot)
             {
-                ThreadWaitanyClearWaits(t);
-                ThreadWaitanyClearPortWaits(t);
+                WaitSlotsUnregisterAll(t);
             }
             else
             {
@@ -188,7 +188,7 @@ void SysDestroy(CpuState *frame)
         while (!list_empty(&ntf->wait_queue))
         {
             ListNode *n = list_pop_front(&ntf->wait_queue);
-            ThreadWaitSlot *slot = container_of(n, ThreadWaitSlot, node);
+            WaitSlot *slot = container_of(n, WaitSlot, node);
             NtfnWakeWaiter(ntf, slot, ERR_DEAD, 0);
         }
 

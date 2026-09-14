@@ -1,4 +1,5 @@
 #include "thread.h"
+#include "kernel/ipc/waitslot.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/sched/sched.h"
 #include "kstack.h"
@@ -197,7 +198,6 @@ void ThreadUnlinkWaits(Thread *t)
         list_remove(&t->ntfn_wait_slot.node);
     if (t->port_wait_slot.node.prev && t->port_wait_slot.node.next)
         list_remove(&t->port_wait_slot.node);
-    ThreadWaitanyClearWaits(t);
-    ThreadWaitanyClearPortWaits(t);
+    WaitSlotsUnregisterAll(t);
 }
 
