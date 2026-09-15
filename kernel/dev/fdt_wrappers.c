@@ -406,7 +406,12 @@ static bool dtb_translate_address(const char *node_path, uint64_t raw_addr, uint
     if (!node_path || !out_phys || !g_fdt_ready)
         return false;
 
-    char current_path[256];
+    /* static, not a stack local: same rationale as FdtEnumerateDevices()'s
+     * buffers above -- this is only ever reached from that function's
+     * single-threaded, non-reentrant boot-time device walk (via
+     * FdtGetRegPhysAddr), and the 256-byte buffer alone was most of what
+     * pushed this function over the 512-byte frame budget. */
+    static char current_path[256];
     size_t len = strlen(node_path);
     if (len >= sizeof(current_path))
         return false;
@@ -415,20 +420,21 @@ static bool dtb_translate_address(const char *node_path, uint64_t raw_addr, uint
     uint64_t addr = raw_addr;
 
     while (true) {
-        char parent_path[256];
-        if (!get_parent_path(current_path, parent_path, sizeof(parent_path)))
+        /* get_parent_path() fully overwrites its output (memcpy of the
+         * whole input) before truncating it in place, so it's safe to
+         * call with the same buffer as both path and parent -- avoids a
+         * second 256-byte stack buffer just to shuttle the result back
+         * into current_path every iteration. */
+        if (!get_parent_path(current_path, current_path, sizeof(current_path)))
             break;
 
         uint64_t translated;
-        if (!apply_ranges(parent_path, addr, &translated))
+        if (!apply_ranges(current_path, addr, &translated))
             return false;
 
         addr = translated;
 
-        len = strlen(parent_path);
-        memcpy(current_path, parent_path, len + 1);
-
-        if (len == 1 && parent_path[0] == '/')
+        if (current_path[0] == '/' && current_path[1] == '\0')
             break;
     }
 
@@ -557,8 +563,7 @@ void FdtEnumerateDevices(void (*cb)(const char *compatible,
         if (!reg || reg_len <= 0)
             continue;
 
-        /* use a small local copy of the first compatible string */
-        char first_compat[64];
+        static char first_compat[64];
         size_t slen = strnlen(compat, (size_t)compat_len);
         if (slen == (size_t)compat_len)
             continue;
@@ -566,7 +571,7 @@ void FdtEnumerateDevices(void (*cb)(const char *compatible,
         memcpy(first_compat, compat, copy);
         first_compat[copy] = '\0';
 
-        char path[256];
+        static char path[256];
         if (fdt_get_path(g_fdt, off, path, sizeof(path)) < 0)
             continue;
 

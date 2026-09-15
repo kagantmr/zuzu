@@ -1,0 +1,253 @@
+# Makefile.run - running zuzu: QEMU direct boot, smoke tests, U-Boot.
+
+# ---- QEMU ----------------------------------------------------------------------
+.PHONY: run run-bridged run-pcap debug
+.PHONY: run-direct run-direct-bridged run-direct-pcap debug-direct
+
+PCAP_FILE ?= /tmp/zuzu.pcap
+
+QEMU_MACHINE = $(QEMU_MACH_$(BOARD))
+QEMU_CPU     = $(QEMU_CPU_$(BOARD))
+QEMU_BIN     = $(if $(QEMU_BIN_$(BOARD)),$(QEMU_BIN_$(BOARD)),qemu-system-arm)
+QEMU_MEM     = $(if $(QEMU_MEM_$(BOARD)),$(QEMU_MEM_$(BOARD)),64M)
+# Board NIC flags; empty for boards whose NIC QEMU does not emulate.
+QEMU_NET     = $(QEMU_NET_$(BOARD))
+# Bridged/pcap networking additionally need a bare NIC model name (not a
+# full -nic/-net flag string like QEMU_NET above) to build their own
+# flags around -- only boards with a matching userspace driver define one.
+# Checked, not silently substituted, so a board without one fails loudly
+# instead of emulating hardware it has no driver for.
+QEMU_NIC_MODEL = $(QEMU_NIC_MODEL_$(BOARD))
+define check-qemu-nic-model
+	@if [ -z "$(QEMU_NIC_MODEL)" ]; then \
+		echo "  ERROR   BOARD '$(BOARD)' has no QEMU_NIC_MODEL_$(BOARD) set" \
+		     "in its board.mk -- bridged/pcap networking needs a NIC model" \
+		     "matching a userspace driver this board actually has." \
+		     "Direct 'make run' works without one."; \
+		exit 1; \
+	fi
+endef
+# What QEMU boots: the raw image by default (QEMU only applies the ARM boot
+# protocol registers to raw images, not ELFs), a board-specific override
+# only if one is ever actually needed.
+QEMU_KERNEL  = $(if $(QEMU_KERNEL_$(BOARD)),$(QEMU_KERNEL_$(BOARD)),$(IMG))
+# SD card drive; skipped for boards with no matching disk interface (e.g.
+# virt has no SD/MMC controller QEMU exposes as if=sd here).
+ifeq ($(QEMU_NO_DRIVE_$(BOARD)),y)
+QEMU_DRIVE =
+else
+QEMU_DRIVE = -drive file=$(SD_IMG),if=sd,format=raw
+endif
+
+# Flags shared by every direct-boot run/debug variant; each target adds
+# -kernel + extras. -initrd is what actually gets the kernel an initrd on
+# this path: QEMU patches the DTB it hands the guest with /chosen
+# linux,initrd-start/-end pointing at wherever it placed the file (verified
+# by reading guest memory: it sits right before the DTB, no overlap), and
+# dtb_get_chosen_initrd() (kernel/dtb/dtb.c) already reads exactly that --
+# it just never had anything to read on this path before.
+QEMU_ARGS = -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m $(QEMU_MEM) \
+            -dtb $(DTB_FILE) -initrd $(INITRD) -nographic $(QEMU_DRIVE)
+
+run:         run-direct
+run-bridged: run-direct-bridged
+run-pcap:    run-direct-pcap
+debug:       debug-direct
+
+# Boot under QEMU and check it came up. Boards with SMOKE_FULL_<board>=y run
+# zztest off the SD card; the rest only have to reach the shell prompt. Boards
+# with SMOKE_NONE_<board>=y can't be emulated at all and are build-only.
+.PHONY: smoke
+SMOKE_TIMEOUT ?= 90
+SMOKE_MODE = $(if $(filter y,$(SMOKE_FULL_$(BOARD))),,--prompt-only)
+SMOKE_DEPS = $(QEMU_KERNEL) $(DTB_FILE) $(INITRD) \
+             $(if $(filter y,$(SMOKE_FULL_$(BOARD))),$(SD_IMG))
+
+ifeq ($(SMOKE_NONE_$(BOARD)),y)
+# Can't be emulated, so the gate is that it builds and stages a boot partition.
+smoke: $(QEMU_KERNEL) $(if $(BOOT_FILES_$(BOARD)),bootfs)
+	@echo "  SMOKE   $(BOARD) build-only: $(SMOKE_NONE_REASON_$(BOARD))"
+else
+smoke: $(SMOKE_DEPS)
+	$(call check-tool,python3,install Python 3.)
+	@echo "  SMOKE   $(BOARD) $(if $(SMOKE_MODE),(prompt only),(zztest))"
+	@python3 scripts/smoke.py $(SMOKE_MODE) --timeout $(SMOKE_TIMEOUT) -- \
+	    $(QEMU_BIN) $(QEMU_ARGS) -no-reboot -kernel $(QEMU_KERNEL) $(QEMU_NET)
+endif
+
+# Every board, one after another. Board switches force a full rebuild today
+# (BOARD_STAMP); per-board build dirs will make this cheap.
+.PHONY: smoke-all
+smoke-all:
+	@for b in $(BOARDS); do $(MAKE) --no-print-directory BOARD=$$b smoke || exit 1; done
+
+run-direct: $(QEMU_KERNEL) $(DTB_FILE) $(INITRD)
+	@echo "  QEMU    $(QEMU_KERNEL)"
+	@$(QEMU_BIN) $(QEMU_ARGS) -kernel $(QEMU_KERNEL) $(QEMU_NET)
+
+run-direct-bridged: $(QEMU_KERNEL) $(DTB_FILE) $(INITRD)
+	$(call check-qemu-nic-model)
+	@echo "  QEMU    $(QEMU_KERNEL) [bridged]"
+	@sudo $(QEMU_BIN) $(QEMU_ARGS) -kernel $(QEMU_KERNEL) \
+	    -nic vmnet-bridged,model=$(QEMU_NIC_MODEL),ifname=en0,mac=52:54:00:ab:cd:ef
+
+run-direct-pcap: $(QEMU_KERNEL) $(DTB_FILE) $(INITRD)
+	$(call check-qemu-nic-model)
+	@echo "  QEMU    $(QEMU_KERNEL) [pcap -> $(PCAP_FILE)]"
+	@$(QEMU_BIN) $(QEMU_ARGS) -kernel $(QEMU_KERNEL) \
+	    -net nic,model=$(QEMU_NIC_MODEL) -net user,id=n0 \
+	    -object filter-dump,id=f0,netdev=n0,file=$(PCAP_FILE)
+	@echo "  PCAP    wrote $(PCAP_FILE) (read with: tcpdump -nr $(PCAP_FILE))"
+
+# $(TARGET) (the ELF) is never what QEMU boots here -- it only applies the
+# ARM boot protocol to raw images -- but it's kept as a prerequisite so
+# it's on disk for `arm-none-eabi-gdb build/zuzu.elf` to pull symbols from
+# before attaching (see README's Debug section).
+debug-direct: $(QEMU_KERNEL) $(TARGET) $(DTB_FILE) $(INITRD)
+	@echo "  QEMU    $(QEMU_KERNEL) (debug)"
+	@$(QEMU_BIN) $(QEMU_ARGS) -kernel $(QEMU_KERNEL) $(QEMU_NET) -S -gdb tcp::1234
+
+# ---- U-Boot (opt-in via UBOOT_<board>=y) ---------------------------------------
+# Kept only because vexpress-a15 has no on-board firmware, so this is the
+# one place the project exercises a real bootloader handoff. `make run`
+# never comes here; QEMU's -kernel already does the ARM boot-register
+# handoff on every board.
+ifneq ($(UBOOT_$(BOARD)),y)
+.PHONY: uboot uimage uboot-stage sdimg-uboot run-uboot
+.PHONY: debug-uboot run-uboot-bridged run-uboot-pcap
+uboot uimage uboot-stage sdimg-uboot run-uboot debug-uboot run-uboot-bridged run-uboot-pcap:
+	$(error U-Boot is not enabled for BOARD '$(BOARD)' -- set UBOOT_$(BOARD)=y in arch/arm/arch.mk to opt in; direct boot (`make run`) works without it)
+else
+
+UBOOT_SRC_DIR     ?= uboot-src
+UBOOT_DEFCONFIG   ?= vexpress_ca15_tc2_defconfig
+UBOOT_MKIMAGE     ?= mkimage
+UBOOT_BIN         ?= $(UBOOT_SRC_DIR)/u-boot
+UBOOT_IMG         ?= $(O)/zuzu.uImage
+UBOOT_INITRD_IMG  ?= $(O)/initrd.uImage
+UBOOT_BOOT_CMD    ?= scripts/uboot-vexpress.cmd
+UBOOT_BOOT_SCR    ?= $(O)/boot.scr
+UBOOT_SD_IMG      ?= $(O)/sd-uboot.img
+# Must match arch/arm/vexpress-a15/linker.ld's BOOT_PA — that's where the
+# kernel is linked to actually run from, and bootm copies the uImage
+# payload there from wherever `load` staged it (scripts/uboot-vexpress.cmd).
+UBOOT_KERNEL_LOAD ?= 0x80010000
+
+.PHONY: uboot uimage uboot-stage sdimg-uboot run-uboot
+.PHONY: debug-uboot run-uboot-bridged run-uboot-pcap
+
+# Builds uboot-src/u-boot if the source tree is present. Not a prerequisite
+# of $(UBOOT_BIN) itself, since a pre-built binary at UBOOT_BIN is enough
+# to run/debug zuzu with; run this explicitly (or after cloning u-boot).
+uboot:
+	@if [ ! -d $(UBOOT_SRC_DIR) ]; then \
+	    echo "  UBOOT   $(UBOOT_SRC_DIR) not found; clone u-boot there first, e.g.:"; \
+	    echo "          git clone --depth 1 -b v2019.01 https://source.denx.de/u-boot/u-boot.git $(UBOOT_SRC_DIR)"; \
+	    exit 1; \
+	fi
+	@if [ ! -f $(UBOOT_SRC_DIR)/.config ]; then \
+	    echo "  CONFIG  $(UBOOT_DEFCONFIG)"; \
+	    $(MAKE) -C $(UBOOT_SRC_DIR) CROSS_COMPILE=$(CROSS) $(UBOOT_DEFCONFIG); \
+	fi
+	@# vexpress_common.h's CONFIG_VEXPRESS_EXTENDED_MEMORY_MAP defaults
+	@# scriptaddr/pxefile_addr_r to 0xa8000000 (~672M into RAM) — sized for
+	@# real vexpress hardware, not our 64M QEMU instance. That's a U-Boot
+	@# staging address only, unrelated to what zuzu itself needs, so fix it
+	@# here rather than growing QEMU's -m to cover it.
+	@echo "  PATCH   scriptaddr/pxefile_addr_r (vexpress_common.h)"
+	@sed -i.bak 's/=0xa8000000/=0x80100000/g' \
+	    $(UBOOT_SRC_DIR)/include/configs/vexpress_common.h
+	@rm -f $(UBOOT_SRC_DIR)/include/configs/vexpress_common.h.bak
+	@echo "  MAKE    $(UBOOT_BIN)"
+	@# u-boot's own build is noisy (its own per-file CC/LD echoes) and, on
+	@# this release, ends with a CFGCHK lint step (Kconfig-migration
+	@# bookkeeping) that fails even when the actual binary links fine —
+	@# CONFIG_SYS_MALLOC_CLEAR_ON_INIT is Kconfig-derived but not yet in
+	@# u-boot's own migration whitelist at v2019.01. That step runs after
+	@# $(UBOOT_BIN) is already built, so judge success by whether the
+	@# binary exists, not by u-boot's own output/exit code — logged to
+	@# $(O)/uboot-build.log, only shown if the binary is truly missing.
+	@mkdir -p build
+	@if [ "$(HOST_OS)" = "Darwin" ]; then \
+	    $(MAKE) -C $(UBOOT_SRC_DIR) CROSS_COMPILE=$(CROSS) HOSTLDFLAGS="-Wl,-ld_classic" \
+	        -j$(NPROC) > $(O)/uboot-build.log 2>&1 || true; \
+	else \
+	    $(MAKE) -C $(UBOOT_SRC_DIR) CROSS_COMPILE=$(CROSS) -j$(NPROC) > $(O)/uboot-build.log 2>&1 || true; \
+	fi
+	@if [ ! -f $(UBOOT_BIN) ]; then \
+	    echo "  UBOOT   build failed: $(UBOOT_BIN) was not produced; see $(O)/uboot-build.log"; \
+	    tail -40 $(O)/uboot-build.log; \
+	    exit 1; \
+	fi
+
+$(UBOOT_IMG): $(IMG) $(TARGET)
+	$(call check-tool,$(UBOOT_MKIMAGE),install u-boot-tools (e.g. apt install u-boot-tools / brew install u-boot-tools).)
+	@mkdir -p $(dir $@)
+	@entry=$$($(OBJDUMP) -f $(TARGET) | awk '/start address/ {print $$NF}'); \
+	echo "  MKIMAGE $@ (load $(UBOOT_KERNEL_LOAD), entry $$entry)"; \
+	$(UBOOT_MKIMAGE) -A arm -O linux -T kernel -C none \
+	    -a $(UBOOT_KERNEL_LOAD) -e $$entry \
+	    -n "zuzuOS" -d $(IMG) $@ >/dev/null
+
+$(UBOOT_INITRD_IMG): $(INITRD)
+	@mkdir -p $(dir $@)
+	@echo "  MKIMAGE $@"
+	@$(UBOOT_MKIMAGE) -A arm -O linux -T ramdisk -C none \
+	    -n "zuzuOS initrd" -d $(INITRD) $@ >/dev/null
+
+$(UBOOT_BOOT_SCR): $(UBOOT_BOOT_CMD)
+	@mkdir -p $(dir $@)
+	@echo "  MKIMAGE $@"
+	@$(UBOOT_MKIMAGE) -A arm -O linux -T script -C none \
+	    -n "zuzuOS vexpress boot" -d $< $@ >/dev/null
+
+uimage: $(UBOOT_IMG) $(UBOOT_INITRD_IMG) $(UBOOT_BOOT_SCR)
+
+uboot-stage: sdimg-stage uimage $(DTB_FILE)
+	@mkdir -p $(SD_STAGE_DIR)/boot
+	@cp $(UBOOT_IMG) $(SD_STAGE_DIR)/boot/zuzu.uImage
+	@cp $(UBOOT_INITRD_IMG) $(SD_STAGE_DIR)/boot/initrd.uImage
+	@cp $(UBOOT_BOOT_SCR) $(SD_STAGE_DIR)/boot/boot.scr
+	@cp $(DTB_FILE) $(SD_STAGE_DIR)/boot/vexpress-v2p-ca15-tc1.dtb
+	@echo "  STAGE   $(SD_STAGE_DIR)/boot/{zuzu.uImage,initrd.uImage,boot.scr,vexpress-v2p-ca15-tc1.dtb}"
+
+$(UBOOT_SD_IMG): uboot-stage
+	$(call MAKE_FAT_IMAGE,$(UBOOT_SD_IMG),$(SD_STAGE_DIR))
+
+sdimg-uboot: $(UBOOT_SD_IMG)
+
+# Flags shared by every U-Boot run/debug variant; each target adds net +
+# extras (mirrors QEMU_ARGS's split for the direct-boot variants in qemu.mk).
+QEMU_UBOOT_ARGS = -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m $(QEMU_MEM) \
+                  -nographic -kernel $(UBOOT_BIN) \
+                  -drive file=$(UBOOT_SD_IMG),if=sd,format=raw
+
+run-uboot: sdimg-uboot $(UBOOT_BIN)
+	@echo "  QEMU    $(UBOOT_BIN) -> $(UBOOT_SD_IMG)"
+	@$(QEMU_BIN) $(QEMU_UBOOT_ARGS) $(QEMU_NET)
+
+run-uboot-bridged: sdimg-uboot $(UBOOT_BIN)
+	$(call check-qemu-nic-model)
+	@echo "  QEMU    $(UBOOT_BIN) -> $(UBOOT_SD_IMG) [bridged]"
+	@sudo $(QEMU_BIN) $(QEMU_UBOOT_ARGS) \
+	    -nic vmnet-bridged,model=$(QEMU_NIC_MODEL),ifname=en0,mac=52:54:00:ab:cd:ef
+
+run-uboot-pcap: sdimg-uboot $(UBOOT_BIN)
+	$(call check-qemu-nic-model)
+	@echo "  QEMU    $(UBOOT_BIN) -> $(UBOOT_SD_IMG) [pcap -> $(PCAP_FILE)]"
+	@$(QEMU_BIN) $(QEMU_UBOOT_ARGS) \
+	    -net nic,model=$(QEMU_NIC_MODEL) -net user,id=n0 \
+	    -object filter-dump,id=f0,netdev=n0,file=$(PCAP_FILE)
+	@echo "  PCAP    wrote $(PCAP_FILE) (read with: tcpdump -nr $(PCAP_FILE))"
+
+# GDB won't survive a plain breakpoint on kernel code here: U-Boot's bootm
+# copies the raw zuzu.img over that RAM *after* GDB attaches, silently
+# wiping any software breakpoint already written there. Use a hardware
+# breakpoint instead (`hbreak <symbol>` in GDB, or via setupCommands in
+# .vscode/launch.json) — it's a PC compare in a debug register, so it
+# survives the copy regardless of when it was set.
+debug-uboot: sdimg-uboot $(UBOOT_BIN)
+	@echo "  QEMU    $(UBOOT_BIN) -> $(UBOOT_SD_IMG) (debug)"
+	@$(QEMU_BIN) $(QEMU_UBOOT_ARGS) $(QEMU_NET) -S -gdb tcp::1234
+
+endif
