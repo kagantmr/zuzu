@@ -3,7 +3,7 @@
 
 #include <arch/regs.h>
 
-void SysPQuit(CpuState *frame);
+void SysQuit(CpuState *frame);
 void SysYield(CpuState *frame);
 void SysSleep(CpuState *frame);
 void SysGetPid(CpuState *frame);

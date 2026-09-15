@@ -45,7 +45,7 @@ static void SysDebugLog(CpuState *frame);
 #endif
 
 static SyscallEntryPoint SyscallTable[SYS_MAX + 1] = {
-    [SYS_PQUIT] = SysPQuit,
+    [SYS_PQUIT] = SysQuit,
     [SYS_YIELD] = SysYield,
     [SYS_WAIT] = SysWait,
     [SYS_GETPID] = SysGetPid,

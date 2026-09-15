@@ -114,24 +114,5 @@ void SysTJoin(CpuState *frame)
 
 void SysTQuit(CpuState *frame)
 {
-	int exit_status = (int)(*arch_reg(frame, 0));
-	Thread *t = current_thread;
-	ProcessObj *owner = t->owner_process;
-
-	t->exit_status = exit_status;
-	ThreadWakeJoiners(t, exit_status);
-
-	if (owner->threads.node.next == &t->process_node &&
-	    t->process_node.next == &owner->threads.node) {
-		// last thread, kill the process
-		ProcessKill(owner, exit_status);
-	} else {
-		ThreadKill(t);
-		// remove from process thread list NOW so process_destroy won't see it
-		if (t->process_node.prev && t->process_node.next)
-			list_remove(&t->process_node);
-		SchedQueueDestroyThread(t);
-	}
-
-	Schedule();
+	(void)frame;
 }
