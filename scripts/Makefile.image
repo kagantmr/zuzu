@@ -1,0 +1,179 @@
+# Makefile.image - packaging: device trees, raw image, initrd, SD card.
+
+# ---- device tree / raw image ---------------------------------------------------
+build/dtb/%.dtb: %.dts
+	$(call check-tool,dtc,install it via your package manager (e.g. apt install device-tree-compiler / brew install dtc).)
+	@mkdir -p $(dir $@)
+	@echo "  DTC     $@"
+	@dtc -I dts -O dtb -o $@ $<
+
+# Raw kernel image for real hardware (e.g. kernel= in the Pi 4 config.txt).
+# IMG itself is defined in config.mk.
+$(IMG): $(TARGET)
+	@echo "  OBJCOPY $@"
+	@$(OBJCOPY) -O binary $(TARGET) $(IMG)
+
+.PHONY: img
+img: $(IMG) links
+
+# ---- initrd --------------------------------------------------------------------
+INITRD = $(O)/initrd.cpio
+
+# Optional hand-placed files for the initrd root (create the dir to use it).
+# Kept out of the tree by default: the initrd is RAM-resident at boot, so
+# nothing ships in it that a board did not ask for.
+INITRD_ROOT_DIR   ?= initrdroot
+INITRD_ROOT_FILES := $(shell find $(INITRD_ROOT_DIR) -type f 2>/dev/null)
+
+# The board's boot.manifest is both the packing list (BOOT_PROGS) and the
+# runtime spawn list, and ships in the image as /boot.manifest.
+$(INITRD): $(ZXF_PROG_FILES) $(BOOT_MANIFEST) $(INITRD_ROOT_FILES)
+	$(call check-tool,cpio,install it via your package manager (e.g. apt/brew install cpio).)
+	@rm -rf $(O)/initrd
+	@mkdir -p $(O)/initrd/bin
+	@for prog in $(BOOT_PROGS); do \
+		cp $(O)/user/$$prog.zxf $(O)/initrd/bin/$$prog; \
+	done
+	@cp $(BOOT_MANIFEST) $(O)/initrd/boot.manifest
+	@if [ -d "$(INITRD_ROOT_DIR)" ]; then \
+		cp -R $(INITRD_ROOT_DIR)/. $(O)/initrd/; \
+	fi
+	@cd $(O)/initrd && find . -not -name '.' | sort | cpio -o -H newc > ../initrd.cpio 2>/dev/null
+	@echo "  CPIO    $@ ($(words $(BOOT_PROGS)) program(s))"
+
+# ---- SD card -------------------------------------------------------------------
+SD_IMG         ?= $(O)/sd.img
+SD_IMG_SIZE_MB ?= 64
+SD_VOL_LABEL   ?= ZUZU
+SD_ROOT_DIR    ?= sdroot
+SD_STAGE_DIR   ?= $(O)/sdcard
+
+.PHONY: sdimg sdimg-stage sdimg-clean sdimg-recreate
+
+sdimg-stage: $(SD_PROG_PACKED_ELFS) $(SD_LIB_ARCHIVES) $(USER_CRT0) $(ZCRT_ARCHIVE)
+	@rm -rf $(SD_STAGE_DIR)
+	@mkdir -p $(SD_STAGE_DIR)/bin $(SD_STAGE_DIR)/lib $(SD_STAGE_DIR)/include
+	@if [ -d "$(SD_ROOT_DIR)" ]; then \
+	    cp -R $(SD_ROOT_DIR)/. $(SD_STAGE_DIR)/; \
+	    echo "  STAGE   $(SD_ROOT_DIR)/ -> $(SD_STAGE_DIR)/"; \
+	fi
+	@for prog in $(SD_PROGS); do \
+		cp $(O)/user/$$prog.stripped.elf $(SD_STAGE_DIR)/bin/$$prog; \
+		echo "  STAGE   bin/$$prog"; \
+	done
+	@for lib in $(SD_LIBS); do \
+		cp $(O)/user/lib/$$lib.a $(SD_STAGE_DIR)/lib/$$lib.a; \
+		echo "  STAGE   lib/$$lib.a"; \
+	done
+	@# System headers and runtime binaries staged for TCC.
+	@cp -r include/* $(SD_STAGE_DIR)/include/
+	@cp $(USER_CRT0) $(SD_STAGE_DIR)/lib/crt0.o
+	@cp $(ZCRT_ARCHIVE) $(SD_STAGE_DIR)/lib/libc.a
+	@echo "  STAGE   include/ and lib/libc.a"
+
+# Creates a FAT32 image ($(1)) from a staging directory ($(2)). macOS uses
+# hdiutil; everywhere else uses mkfs.fat + mtools (dosfstools/mtools).
+define MAKE_FAT_IMAGE
+	@mkdir -p $(dir $(1))
+	@rm -f $(1) $(1).dmg
+	@echo "  IMG     $(1) from $(2)/ ($(SD_IMG_SIZE_MB)MB, FAT32)"
+	@if [ "$(HOST_OS)" = "Darwin" ]; then \
+	    COPYFILE_DISABLE=1 hdiutil create -srcfolder "$(2)" -fs "MS-DOS FAT32" \
+	        -volname $(SD_VOL_LABEL) -size $(SD_IMG_SIZE_MB)m \
+	        -format UDIF $(1) >/dev/null; \
+	    mv $(1).dmg $(1); \
+	    MNT=$$(mktemp -d); \
+	    hdiutil attach $(1) -mountpoint "$$MNT" -nobrowse >/dev/null; \
+	    dot_clean -m "$$MNT"; \
+	    hdiutil detach "$$MNT" >/dev/null; \
+	    rmdir "$$MNT"; \
+	else \
+	    if ! command -v mkfs.fat >/dev/null 2>&1; then \
+	        echo "  IMG     failed: install dosfstools  (sudo apt install dosfstools)"; exit 1; \
+	    fi; \
+	    if ! command -v mcopy >/dev/null 2>&1; then \
+	        echo "  IMG     failed: install mtools  (sudo apt install mtools)"; exit 1; \
+	    fi; \
+	    dd if=/dev/zero of=$(1) bs=1M count=$(SD_IMG_SIZE_MB) status=none; \
+	    mkfs.fat -F 32 -n $(SD_VOL_LABEL) $(1) >/dev/null; \
+	    mcopy -i $(1) -s $(2)/* ::; \
+	fi
+endef
+
+$(SD_IMG): sdimg-stage
+	$(call MAKE_FAT_IMAGE,$(SD_IMG),$(SD_STAGE_DIR))
+
+sdimg: $(SD_IMG)
+
+sdimg-clean:
+	@rm -f $(SD_IMG)
+	@echo "  CLEAN   $(SD_IMG)"
+
+sdimg-recreate: sdimg-clean sdimg
+
+# ---- board boot partition ---------------------------------------------------
+# Boards that boot from their own SD card (rather than QEMU's -kernel) need a
+# set of files on a FAT32 partition. BOOT_FILES_<board> lists them and
+# BOOT_FW_DIR_<board> points at any vendor firmware to copy verbatim.
+BOOT_FILES  = $(BOOT_FILES_$(BOARD))
+BOOT_FW_DIR = $(BOOT_FW_DIR_$(BOARD))
+BOOTFS      = $(O)/bootfs
+BOOT_IMG    = $(O)/boot.img
+
+.PHONY: bootfs bootimg
+ifeq ($(BOOT_FILES),)
+bootfs bootimg:
+	$(error BOARD '$(BOARD)' boots via QEMU -kernel and has no boot partition; \
+	  set BOOT_FILES_$(BOARD) in $(BOARD_DIR)/board.mk if it needs one)
+else
+
+bootfs: $(BOOT_FILES)
+	@rm -rf $(BOOTFS)
+	@mkdir -p $(BOOTFS)
+	@for f in $(BOOT_FILES); do \
+		cp $$f $(BOOTFS)/ && echo "  BOOTFS  $$(basename $$f)"; \
+	done
+	@if [ -d "$(BOOT_FW_DIR)" ]; then \
+		cp -R $(BOOT_FW_DIR)/. $(BOOTFS)/; \
+		echo "  BOOTFS  firmware from $(BOOT_FW_DIR)/"; \
+	else \
+		echo "  BOOTFS  no $(BOOT_FW_DIR)/ -- the card must already carry the"; \
+		echo "          vendor firmware (Pi 4: start4.elf, fixup4.dat)."; \
+		echo "          Fetch it with: make $(BOARD)-firmware"; \
+	fi
+	@echo "  BOOTFS  $(BOOTFS)/ ready -- copy its contents onto the FAT32 boot partition"
+
+# MAKE_FAT_IMAGE is not consistent across hosts: hdiutil (macOS) emits a
+# partitioned MBR image, mkfs.fat + mtools (Linux) a bare filesystem. So the
+# image is only dd-able as a whole card on macOS. Copying $(BOOTFS)/ onto a
+# card you formatted yourself works the same way everywhere and is what the
+# message recommends.
+bootimg: bootfs
+	$(call MAKE_FAT_IMAGE,$(BOOT_IMG),$(BOOTFS))
+	@echo "  BOOTIMG $(BOOT_IMG)"
+ifeq ($(HOST_OS),Darwin)
+	@echo "          partitioned (MBR + FAT32): dd it to the whole card, e.g."
+	@echo "          sudo dd if=$(BOOT_IMG) of=/dev/rdiskN bs=1m"
+else
+	@echo "          bare FAT32 filesystem, no partition table: write it to an"
+	@echo "          existing boot partition, not to the whole card."
+endif
+	@echo "          Simplest either way: copy $(BOOTFS)/ onto a FAT32 card."
+endif
+
+# Pi 4 firmware fetch. Explicit target, never part of a build: it downloads
+# from github.com/raspberrypi/firmware, which is closed-source and separately
+# licensed, so it is not vendored here.
+RPI_FW_BASE ?= https://raw.githubusercontent.com/raspberrypi/firmware/master/boot
+RPI_FW_FILES = start4.elf fixup4.dat
+
+.PHONY: rpi4-firmware
+rpi4-firmware:
+	$(call check-tool,curl,install curl.)
+	@mkdir -p firmware
+	@for f in $(RPI_FW_FILES); do \
+		echo "  FETCH   firmware/$$f"; \
+		curl -fsSL -o firmware/$$f $(RPI_FW_BASE)/$$f || \
+		  { echo "  ERROR   could not fetch $$f from $(RPI_FW_BASE)"; exit 1; }; \
+	done
+	@echo "  FETCH   done -- rerun: make BOARD=rpi4 bootfs"

@@ -40,7 +40,7 @@ Message syscall_msg(uint32_t svc_num, uint32_t a0, uint32_t a1, uint32_t a2, uin
         : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3)
         : [num] "i"(svc_num)
         : "memory");
-    return (Message){.w0 = r0, .w1 = r1, .w2 = r2, .w3 = r3};
+    return (Message){.w0 = (MsgWordSigned)r0, .w1 = r1, .w2 = r2, .w3 = r3};
 }
 
 #ifdef __cplusplus

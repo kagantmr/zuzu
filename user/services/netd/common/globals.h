@@ -3,6 +3,7 @@
 
 #include <zuzu/packetring.h>
 #include <zuzu/types.h>
+#include <zuzu/err.h>
 #include <zuzu/syspage.h>
 #include <stdbool.h>
 

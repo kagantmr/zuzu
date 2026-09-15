@@ -22,8 +22,8 @@ void ShmemDropReference(ShmCap *shm)
         for (size_t j = 0; j < shm->page_count; j++)
             if (shm->page_addrs[j] != 0) /* demand-paged: skip unfaulted slots */
                 PmmFreeFrame(shm->page_addrs[j]);
-        kfree(shm->page_addrs);
-        kfree(shm);
+        KFree(shm->page_addrs);
+        KFree(shm);
     }
 }
 
@@ -32,28 +32,27 @@ void SysShmCreate(CpuState *frame)
     const size_t size = align_up((size_t)(*arch_reg(frame, 0)), PAGE_SIZE);
     if (size == 0)
     {
-        (*arch_reg(frame, 0)) = ERR_BADARG;
+        arch_reg_set(frame, 0, ERR_BADARG);
         return;
     }
     if (size > 1024 * 1024 * 32)
     {
-        (*arch_reg(frame, 0)) = ERR_OVERFLOW; // 32mb static cap
+        arch_reg_set(frame, 0, ERR_OVERFLOW); // 32mb static cap
         return;
     }
     const size_t page_count = size / PAGE_SIZE;
-    PhysAddr *page_arr = kmalloc(sizeof(PhysAddr) * page_count);
+    PhysAddr *page_arr = KCalloc(page_count, sizeof(PhysAddr));
     if (!page_arr)
     {
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
+        arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }
-    memset(page_arr, 0, sizeof(PhysAddr) * page_count);
 
-    ShmCap *shmem_obj = kmalloc(sizeof(ShmCap));
+    ShmCap *shmem_obj = KZAlloc(sizeof(ShmCap));
     if (!shmem_obj)
     {
-        kfree(page_arr);
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
+        KFree(page_arr);
+        arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }
     shmem_obj->page_count = page_count;
@@ -63,21 +62,22 @@ void SysShmCreate(CpuState *frame)
     shmem_obj->ref_count = 1;
     shmem_obj->page_addrs = page_arr;
 
-    int handle = handle_vec_find_free(&current_thread->owner_process->handle_table);
+    HandleTable *ht = &current_thread->owner_process->handle_table;
+    int handle = HandleTableFindFree(ht);
     if (handle < 0)
     {
-        kfree(page_arr);
-        kfree(shmem_obj);
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
+        KFree(page_arr);
+        KFree(shmem_obj);
+        arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }
 
-    HandleEntry *entry = handle_vec_get(&current_thread->owner_process->handle_table, (uint32_t)handle);
+    HandleEntry *entry = HandleTableGet(ht, (uint32_t)handle);
     if (!entry)
     {
-        kfree(page_arr);
-        kfree(shmem_obj);
-        (*arch_reg(frame, 0)) = ERR_NOMEM;
+        KFree(page_arr);
+        KFree(shmem_obj);
+        arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }
 
@@ -85,6 +85,7 @@ void SysShmCreate(CpuState *frame)
     entry->shm = shmem_obj;
     entry->type = HANDLE_SHM;
     entry->grantable = true;
+    HandleEntryClaim(ht, entry);
 
-    (*arch_reg(frame, 0)) = (Handle)handle;
+    arch_reg_set(frame, 0, (Handle)handle);
 }
