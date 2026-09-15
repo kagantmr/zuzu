@@ -48,8 +48,8 @@ static int nameserver_setup(const void *initrd, uint32_t initrd_sz)
         return ERR_NOENT;
 
     TSpawnResult ts = ZuzuPSpawn("nameserver");
-    if (ts.taskHandle < 0)
-        return ts.taskHandle;
+    if (ts.task_handle < 0)
+        return ts.task_handle;
     nameserver_pid = (uint32_t)ts.pid;
 
     /* Pre-kickstart grant, same as any other spawned child — nameserver's
@@ -59,12 +59,12 @@ static int nameserver_setup(const void *initrd, uint32_t initrd_sz)
         return ERR_NOPERM;
 
     ExecReply reply;
-    if (exec_inject((uint32_t)ts.taskHandle, elf_data, elf_size, NULL, 0, 0, &reply) != 0)
+    if (exec_inject((uint32_t)ts.task_handle, elf_data, elf_size, NULL, 0, 0, &reply) != 0)
         return EXEC_EBADELF;
 
-    ZuzuSetLabel(ts.taskHandle, LABEL_OF("/nt"));
+    ZuzuSetLabel(ts.task_handle, LABEL_OF("/nt"));
 
-    ZuzuKickstart(ts.taskHandle, reply.entry, reply.sp, reply.argc, reply.argv_va);
+    ZuzuKickstart(ts.task_handle, reply.entry, reply.sp, reply.argc, reply.argv_va);
     return ZUZU_OK;
 }
 
@@ -296,16 +296,16 @@ static bool should_respawn(int32_t status)
 static void respawn_entry(boot_entry_t *e)
 {
     TSpawnResult ts = ZuzuPSpawn(e->name);
-    if (ts.taskHandle < 0)
+    if (ts.task_handle < 0)
         return;
 
-    e->taskHandle = ts.taskHandle;
+    e->taskHandle = ts.task_handle;
     e->pid = ts.pid;
     e->injected = false;
 
-    ZuzuSetLabel(ts.taskHandle, LABEL_OF(e->svc_path[0] ? e->svc_path : e->path));
+    ZuzuSetLabel(ts.task_handle, LABEL_OF(e->svc_path[0] ? e->svc_path : e->path));
 
-    if (exec_inject((uint32_t)ts.taskHandle, e->elf_data, e->elf_size, NULL, 0, 0, &e->reply) != 0)
+    if (exec_inject((uint32_t)ts.task_handle, e->elf_data, e->elf_size, NULL, 0, 0, &e->reply) != 0)
         return;
 
     e->injected = true;
@@ -625,15 +625,15 @@ int main(int argc, char **argv)
             continue;
 
         TSpawnResult ts = ZuzuPSpawn(e->name);
-        if (ts.taskHandle < 0)
+        if (ts.task_handle < 0)
             continue;
 
-        e->taskHandle = ts.taskHandle;
+        e->taskHandle = ts.task_handle;
         e->pid = ts.pid;
 
-        ZuzuSetLabel(ts.taskHandle, LABEL_OF(e->svc_path[0] ? e->svc_path : e->path));
+        ZuzuSetLabel(ts.task_handle, LABEL_OF(e->svc_path[0] ? e->svc_path : e->path));
 
-        if (exec_inject((uint32_t)ts.taskHandle, e->elf_data, e->elf_size, NULL, 0, 0, &e->reply) !=
+        if (exec_inject((uint32_t)ts.task_handle, e->elf_data, e->elf_size, NULL, 0, 0, &e->reply) !=
             0)
             continue;
         e->injected = true;
@@ -678,15 +678,15 @@ int main(int argc, char **argv)
             continue;
 
         TSpawnResult ts = ZuzuPSpawn(e->name);
-        if (ts.taskHandle < 0)
+        if (ts.task_handle < 0)
             continue;
 
-        e->taskHandle = ts.taskHandle;
+        e->taskHandle = ts.task_handle;
         e->pid = ts.pid;
 
-        ZuzuSetLabel(ts.taskHandle, LABEL_OF(e->svc_path[0] ? e->svc_path : e->path));
+        ZuzuSetLabel(ts.task_handle, LABEL_OF(e->svc_path[0] ? e->svc_path : e->path));
 
-        if (exec_inject((uint32_t)ts.taskHandle, e->elf_data, e->elf_size, NULL, 0, 0, &e->reply) !=
+        if (exec_inject((uint32_t)ts.task_handle, e->elf_data, e->elf_size, NULL, 0, 0, &e->reply) !=
             0)
             continue;
         e->injected = true;
