@@ -230,18 +230,18 @@ typedef struct {
 static int32_t spawn_ipc_child(Handle port, ChildProc *out)
 {
 	TSpawnResult ts = ZuzuPSpawn(CHILD_NAME);
-	if (ts.taskHandle < 0)
-		return ts.taskHandle;
+	if (ts.task_handle < 0)
+		return ts.task_handle;
 
 	int32_t child_slot = ZuzuGrant(port, ts.pid, 0);
 	if (child_slot < 0) {
-		ZuzuPKill(ts.taskHandle);
+		ZuzuPKill(ts.task_handle);
 		return child_slot;
 	}
 
-	int32_t sysd_task = ZuzuGrant(ts.taskHandle, g_sysd_pid, 0);
+	int32_t sysd_task = ZuzuGrant(ts.task_handle, g_sysd_pid, 0);
 	if (sysd_task < 0) {
-		ZuzuPKill(ts.taskHandle);
+		ZuzuPKill(ts.task_handle);
 		return sysd_task;
 	}
 
@@ -274,7 +274,7 @@ static int32_t spawn_ipc_child(Handle port, ChildProc *out)
 				 (uint32_t)(sizeof(*hdr) + path_len + 1 + argpos), &reply,
 				 sizeof(reply));
 	if (rc < 0) {
-		ZuzuPKill(ts.taskHandle);
+		ZuzuPKill(ts.task_handle);
 		return rc;
 	}
 	/* sysd signals failure with the Err as the whole payload; ChannelCall
@@ -282,21 +282,21 @@ static int32_t spawn_ipc_child(Handle port, ChildProc *out)
 	if (rc == (int32_t)sizeof(Err)) {
 		Err err;
 		memcpy(&err, &reply, sizeof(err));
-		ZuzuPKill(ts.taskHandle);
+		ZuzuPKill(ts.task_handle);
 		return err;
 	}
 	if (rc != (int32_t)sizeof(ExecReply)) {
-		ZuzuPKill(ts.taskHandle);
+		ZuzuPKill(ts.task_handle);
 		return ERR_MALFORMED;
 	}
 
-	rc = ZuzuKickstart(ts.taskHandle, reply.entry, reply.sp, 2, reply.argv_va);
+	rc = ZuzuKickstart(ts.task_handle, reply.entry, reply.sp, 2, reply.argv_va);
 	if (rc != 0) {
-		ZuzuPKill(ts.taskHandle);
+		ZuzuPKill(ts.task_handle);
 		return rc;
 	}
 
-	out->task = ts.taskHandle; /* consumed by kickstart (slot freed) */
+	out->task = ts.task_handle; /* consumed by kickstart (slot freed) */
 	out->pid = ts.pid;
 	return 0;
 }

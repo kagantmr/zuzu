@@ -129,24 +129,24 @@ typedef struct { Handle task; Pid pid; } child_t;
 static int32_t child_spawn(const char *arg1, Handle grant_h, child_t *out)
 {
     TSpawnResult ts = ZuzuPSpawn(CHILD_NAME);
-    if (ts.taskHandle < 0)
-        return ts.taskHandle;
+    if (ts.task_handle < 0)
+        return ts.task_handle;
 
     char arg2[16];
     int argc = 2;
     if (grant_h >= 0) {
         int32_t child_slot = ZuzuGrant(grant_h, ts.pid, 0);
         if (child_slot < 0) {
-            ZuzuPKill(ts.taskHandle);
+            ZuzuPKill(ts.task_handle);
             return child_slot;
         }
         snprintf(arg2, sizeof(arg2), "%d", (int)child_slot);
         argc = 3;
     }
 
-    int32_t sysd_task = ZuzuGrant(ts.taskHandle, g_sysd_pid, 0);
+    int32_t sysd_task = ZuzuGrant(ts.task_handle, g_sysd_pid, 0);
     if (sysd_task < 0) {
-        ZuzuPKill(ts.taskHandle);
+        ZuzuPKill(ts.task_handle);
         return sysd_task;
     }
 
@@ -179,22 +179,22 @@ static int32_t child_spawn(const char *arg1, Handle grant_h, child_t *out)
                            (uint32_t)(sizeof(*hdr) + path_len + 1 + argpos),
                            &reply, sizeof(reply));
     if (rc < 0) {
-        ZuzuPKill(ts.taskHandle);
+        ZuzuPKill(ts.task_handle);
         return rc;
     }
     if (rc != (int32_t)sizeof(ExecReply)) {
-        ZuzuPKill(ts.taskHandle);
+        ZuzuPKill(ts.task_handle);
         return ERR_MALFORMED;
     }
 
-    rc = ZuzuKickstart(ts.taskHandle, reply.entry, reply.sp,
+    rc = ZuzuKickstart(ts.task_handle, reply.entry, reply.sp,
                         (uint32_t)argc, reply.argv_va);
     if (rc != 0) {
-        ZuzuPKill(ts.taskHandle);
+        ZuzuPKill(ts.task_handle);
         return rc;
     }
 
-    out->task = ts.taskHandle;   /* consumed by kickstart (slot freed) */
+    out->task = ts.task_handle;   /* consumed by kickstart (slot freed) */
     out->pid = ts.pid;
     return 0;
 }
@@ -649,9 +649,9 @@ static void sec_handles(void)
 
     /* destroy TASK handle -> rejected */
     TSpawnResult ts = ZuzuPSpawn("zzt_dummy");
-    CHECK(ts.taskHandle >= 0, "pspawn empty process");
-    CHECK_EQ(ZuzuDestroy(ts.taskHandle), ERR_BADTYPE, "destroy TASK handle -> ERR_BADTYPE");
-    CHECK_EQ(ZuzuPKill(ts.taskHandle), 0, "pkill empty process");
+    CHECK(ts.task_handle >= 0, "pspawn empty process");
+    CHECK_EQ(ZuzuDestroy(ts.task_handle), ERR_BADTYPE, "destroy TASK handle -> ERR_BADTYPE");
+    CHECK_EQ(ZuzuPKill(ts.task_handle), 0, "pkill empty process");
     /* pkill only zombifies; nothing reaps a zombie except wait(). Without
      * this the process (kstack + L1 table) leaks for the rest of the boot -
      * it's parented to zztest, not init, and zztest never wait(-1)s. */

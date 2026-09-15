@@ -412,14 +412,14 @@ static void cmd_exec(const char *line)
     /* ---- pspawn locally, ask sysd to inject, then kickstart ---- */
     const char *name = path_basename(path);
     TSpawnResult ts = ZuzuPSpawn(name);
-    if (ts.taskHandle < 0) {
+    if (ts.task_handle < 0) {
         printf("%s", ANSI_RED "zzsh: spawn failed\n" ANSI_RESET);
         return;
     }
 
-    int32_t sysd_task_handle = ZuzuGrant(ts.taskHandle, (int32_t)sysd_pid, 0);
+    int32_t sysd_task_handle = ZuzuGrant(ts.task_handle, (int32_t)sysd_pid, 0);
     if (sysd_task_handle < 0) {
-        ZuzuPKill(ts.taskHandle);                    /* <-- NEW */
+        ZuzuPKill(ts.task_handle);                    /* <-- NEW */
         printf("%s", ANSI_RED "zzsh: spawn failed (sysd reject)\n" ANSI_RESET);
         return;
     }
@@ -427,7 +427,7 @@ static void cmd_exec(const char *line)
     size_t path_len = strlen(path);
     size_t req_len = sizeof(ExecRequestHeader) + path_len + 1 + argpos;
     if (req_len > LMSG_BUF_SIZE) {
-        ZuzuPKill(ts.taskHandle);                    /* <-- NEW */
+        ZuzuPKill(ts.task_handle);                    /* <-- NEW */
         printf("%s", ANSI_RED "zzsh: command too long\n" ANSI_RESET);
         return;
     }
@@ -447,31 +447,31 @@ static void cmd_exec(const char *line)
     int32_t rc = ChannelCall((Handle)sysd_port, LmsgBuf(), (uint32_t)req_len,
                            LmsgBuf(), (uint32_t)sizeof(ExecReply));
     if (rc < 0) {
-        ZuzuPKill(ts.taskHandle);
+        ZuzuPKill(ts.task_handle);
         print_exec_error(rc);
         return;
     }
     if (rc == (int32_t)sizeof(Err)) {
-        ZuzuPKill(ts.taskHandle);
+        ZuzuPKill(ts.task_handle);
         print_exec_error(*(const Err *)LmsgBuf());
         return;
     }
     if (rc != (int32_t)sizeof(ExecReply)) {
-        ZuzuPKill(ts.taskHandle);
+        ZuzuPKill(ts.task_handle);
         printf("%s", ANSI_RED "zzsh: bad exec reply\n" ANSI_RESET);
         return;
     }
 
     ExecReply *reply = (ExecReply *)LmsgBuf();
     if (!exec_reply_valid(reply)) {
-        ZuzuPKill(ts.taskHandle);
+        ZuzuPKill(ts.task_handle);
         print_exec_error(EXEC_EBADELF);
         return;
     }
 
-    if (ZuzuKickstart(ts.taskHandle, reply->entry, reply->sp,
+    if (ZuzuKickstart(ts.task_handle, reply->entry, reply->sp,
                    reply->argc, reply->argv_va) != 0) {
-        ZuzuPKill(ts.taskHandle);
+        ZuzuPKill(ts.task_handle);
         printf("%s", ANSI_RED "zzsh: kickstart failed\n" ANSI_RESET);
         return;
     }

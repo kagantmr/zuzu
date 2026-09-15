@@ -41,7 +41,7 @@ typedef struct {
 /*  Process spawn types  */
 
 typedef struct {
-  Handle taskHandle;
+  Handle task_handle;
   Pid pid;
 } TSpawnResult;
 

@@ -79,7 +79,7 @@ static inline TSpawnResult ZuzuPSpawn(const char* name) {
         .name_len = name_len,
     };
     Message result = syscall_msg(SYS_PSPAWN, (uint32_t)(VirtAddr)&args, 0, 0, 0);
-    return (TSpawnResult) {.taskHandle = (Handle) result.w0, .pid = (Pid) result.w1};
+    return (TSpawnResult) {.task_handle = (Handle) result.w0, .pid = (Pid) result.w1};
 }
 
 /**
