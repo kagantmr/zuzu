@@ -82,6 +82,14 @@ static inline int list_empty(const ListHead *head) {
     return head->node.next == &head->node;
 }
 
+static inline int list_one_elem(const ListHead *head) {
+    if (!head || head->node.next == &head->node) {
+        return 0; // Null or empty
+    }
+    // If next and prev point to the same node, there's only 1 element.
+    return (head->node.next == head->node.prev);
+}
+
 /**
  * @brief Inserts a new node before an existing node in the list.
  * 

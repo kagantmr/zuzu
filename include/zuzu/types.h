@@ -40,6 +40,10 @@ typedef struct {
 
 /*  Process spawn types  */
 
+#define SELF_TASK 0
+#define SELF_THREAD 1
+
+
 typedef struct {
   Handle task_handle;
   Pid pid;
@@ -59,10 +63,10 @@ typedef struct {
 * What type of event did Waitany wake us up to?
 */
 typedef enum {
-  WAITANY_KIND_SEND = 0u,
-  WAITANY_KIND_CALL = 1u,
-  WAITANY_KIND_NTFN = 2u,
-  WAITANY_KIND_TIMEOUT = 3u,
+  WAITANY_KIND_SEND = 0U,
+  WAITANY_KIND_CALL = 1U,
+  WAITANY_KIND_NTFN = 2U,
+  WAITANY_KIND_TIMEOUT = 3U,
 } WaitanyType;
 
 /**
