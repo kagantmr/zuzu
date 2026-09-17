@@ -1,5 +1,4 @@
 #include "sched.h"
-#include "kernel/ipc/waitslot.h"
 #include "kernel/proc/process.h"
 #include <arch/context.h>
 #include <compiler.h>
@@ -251,7 +250,6 @@ static void SchedWakeSleepers(void)
                 t->wake_reason = WAKE_TIMEOUT;
                 if (t->trap_frame)
                     arch_reg_set(t->trap_frame, 0, ERR_TIMEOUT);
-                WaitSlotsUnregisterAll(t);
                 if (t->ntfn_wait_slot.node.prev && t->ntfn_wait_slot.node.next)
                     list_remove(&t->ntfn_wait_slot.node);
                 t->state = READY;

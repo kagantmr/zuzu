@@ -32,36 +32,18 @@ typedef enum ipc_state {
 	IPC_WAITING,
 } MsgState;
 
-#ifndef WAITANY_MAX_HANDLES
-#define WAITANY_MAX_HANDLES 16u
-#endif
-
 typedef struct thread Thread;
 
 #define TCB_SLOT_NONE 0xFFu /* thread holds no TCB slot */
 
-typedef enum {
-	WAIT_KIND_NONE = 0,
-	WAIT_KIND_NTFN,
-	WAIT_KIND_PORT,
-} WaitKind;
-
 /**
  * @brief A registration linked into one ntfn's wait_queue or one port's
- * receiver_queue. Used both for plain single-handle waits (ntfn_wait_slot,
- * port_wait_slot below) and for every slot of a waitany call; see
- * kernel/ipc/waitslot.h.
+ * receiver_queue for a thread blocked in a plain single-handle wait
+ * (ntfn_wait_slot, port_wait_slot below).
  */
 typedef struct wait_slot {
 	ListNode node;
 	Thread *owner;
-	WaitKind kind;
-	uint32_t handle_index; /**< waitany: index into caller's handles[];
-				     unused for a plain single-handle wait. */
-	union {
-		NtfnObj *ntfn;
-		Port *port;
-	};
 } WaitSlot;
 
 struct thread {
@@ -90,16 +72,6 @@ struct thread {
 	Marker port_marker;
 	WaitSlot ntfn_wait_slot;  /* for SysNtfnWait */
 	WaitSlot port_wait_slot;  /* for SysMsgRecv */
-	WaitSlot waitany_slots[WAITANY_MAX_HANDLES];
-	uint32_t waitany_slot_count;
-	bool waitany_registered;
-	uint32_t waitany_match_index;
-	WaitanyResult waitany_pending_result;
-	/* Set immediately before SysWaitAny blocks, cleared the instant
-	 * Schedule() hands the thread back. A thread that reaches userspace
-	 * with this still set never finished its syscall -- see the check at
-	 * SyscallDispatch entry. */
-	bool waitany_in_block;
 	uint32_t priority, time_slice, ticks_remaining;
 	/* Absolute counter value (ArchTimerNow() units) at which this thread's
 	 * slice expires. Set on dispatch; compared against, never decremented,
