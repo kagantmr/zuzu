@@ -1,6 +1,5 @@
 #include "sys_irq.h"
 #include "kernel/bench.h"
-#include "kernel/ipc/waitslot.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/sched/sched.h"
 #include "kernel/syscall/syscall.h"
@@ -31,14 +30,7 @@ static bool WakeNtfnWaiter(NtfnObj *ntfn, WaitSlot *slot)
         return false;
 
     uint32_t bits = ntfn->word;
-    if (slot == &waiter->ntfn_wait_slot) {
-        (*arch_reg(waiter->trap_frame, 0)) = bits;
-    } else {
-        WaitanyResult res;
-        WaitanyDeliverNtfn(slot->handle_index, bits, &res);
-        WaitSlotsUnregisterAll(waiter);
-        WaitSlotsDeliver(waiter, slot->handle_index, &res);
-    }
+    (*arch_reg(waiter->trap_frame, 0)) = bits;
 
     SchedRemoveSleepQueue(waiter);
     waiter->wake_deadline = 0;
@@ -174,14 +166,7 @@ void SysIrqBind(CpuState *frame)
             uint32_t bits = ntfn->word;
 
             if (waiter->trap_frame) {
-                if (slot == &waiter->ntfn_wait_slot) {
-                    (*arch_reg(waiter->trap_frame, 0)) = bits;
-                } else {
-                    WaitanyResult res;
-                    WaitanyDeliverNtfn(slot->handle_index, bits, &res);
-                    WaitSlotsUnregisterAll(waiter);
-                    WaitSlotsDeliver(waiter, slot->handle_index, &res);
-                }
+                (*arch_reg(waiter->trap_frame, 0)) = bits;
             }
 
             SchedRemoveSleepQueue(waiter);

@@ -7,7 +7,6 @@
 #include "kernel/sched/sched.h"
 #include "kernel/syscall/syscall.h"
 #include "port.h"
-#include "waitslot.h"
 #include <arch/timer.h>
 #include <compiler.h>
 #include <stdbool.h>
@@ -18,8 +17,6 @@
 #include "kernel/irq/sys_irq.h"
 #define LOG_FMT(fmt) "(ipc) " fmt
 #include <zuzu/log.h>
-
-#define WAITANY_MAX_HANDLES 16u
 
 extern kernel_layout_t kernel_layout;
 
@@ -223,34 +220,6 @@ static HandleEntry *__hot ValidatePortHandle(ProcessObj *proc, Handle handle, Cp
 	return entry;
 }
 
-static HandleEntry *ValidateNtfn(ProcessObj *proc, Handle handle, CpuState *frame)
-{
-	if (!proc) {
-		arch_reg_set(frame, 0, ERR_BADARG);
-		return NULL;
-	}
-
-	HandleEntry *entry = HandleTableGet(&proc->handle_table, (uint32_t)handle);
-	if (!entry) {
-		arch_reg_set(frame, 0, ERR_BADHANDLE);
-		return NULL;
-	}
-	if (entry->type != HANDLE_NTFN) {
-		arch_reg_set(frame, 0, ERR_BADTYPE);
-		return NULL;
-	}
-	if (!entry->ntfn) {
-		arch_reg_set(frame, 0, ERR_BADHANDLE);
-		return NULL;
-	}
-	if (!entry->ntfn->alive) {
-		arch_reg_set(frame, 0, ERR_DEAD);
-		return NULL;
-	}
-
-	return entry;
-}
-
 static HandleEntry *ValidateReplyCap(ProcessObj *proc, Handle handle_idx, Thread **target_out,
 					  CpuState *frame)
 {
@@ -311,44 +280,22 @@ void __attribute__((hot)) SysMsgSend(CpuState *frame)
 		ListNode *receiver = list_pop_front(&port->receiver_queue);
 		WaitSlot *rx_slot = container_of(receiver, WaitSlot, node);
 		Thread *rx_thread = rx_slot->owner;
-
-
-		if (unlikely(rx_slot != &rx_thread->port_wait_slot)) {
-			WaitanyResult res;
-			memset(&res, 0, sizeof(res));
-			res.size = sizeof(res);
-			res.matched_index = (Handle)rx_slot->handle_index;
-			res.kind = WAITANY_KIND_SEND;
-			res.source = (uint32_t)current_thread->owner_process->pid;
-			res.marker = entry->marker;
-			res.label = current_thread->owner_process->label;
-			res.w1 = (*arch_reg(frame, 1));
-			res.w2 = (*arch_reg(frame, 2));
-			res.w3 = (*arch_reg(frame, 3));
-			WaitSlotsUnregisterAll(rx_thread);
-			WaitSlotsDeliver(rx_thread, rx_slot->handle_index, &res);
-			CancelTimeout(rx_thread);
-			rx_thread->wake_reason = WAKE_IPC;
-			rx_thread->state = READY;
-			SchedAdd(rx_thread);
-		} else {
-			CpuState *rx_frame = rx_thread->trap_frame;
+		CpuState *rx_frame = rx_thread->trap_frame;
 #ifdef DEBUG
-			if (!IsFrameNormal(rx_frame))
-				PanicBadFrame("ZuzuMsgSend.rx", rx_thread->owner_process,
-							 rx_frame);
+		if (!IsFrameNormal(rx_frame))
+			PanicBadFrame("ZuzuMsgSend.rx", rx_thread->owner_process,
+						 rx_frame);
 #endif
-			arch_reg_set(rx_frame, 0, current_thread->owner_process->pid);
-			(*arch_reg(rx_frame, 1)) = (*arch_reg(frame, 1));
-			(*arch_reg(rx_frame, 2)) = (*arch_reg(frame, 2));
-			(*arch_reg(rx_frame, 3)) = (*arch_reg(frame, 3));
-			rx_thread->ipc_state = IPC_NONE;
-			rx_thread->blocked_port = NULL;
-			CancelTimeout(rx_thread);
-			rx_thread->wake_reason = WAKE_IPC;
-			rx_thread->state = READY;
-			SchedAdd(rx_thread);
-		}
+		arch_reg_set(rx_frame, 0, current_thread->owner_process->pid);
+		(*arch_reg(rx_frame, 1)) = (*arch_reg(frame, 1));
+		(*arch_reg(rx_frame, 2)) = (*arch_reg(frame, 2));
+		(*arch_reg(rx_frame, 3)) = (*arch_reg(frame, 3));
+		rx_thread->ipc_state = IPC_NONE;
+		rx_thread->blocked_port = NULL;
+		CancelTimeout(rx_thread);
+		rx_thread->wake_reason = WAKE_IPC;
+		rx_thread->state = READY;
+		SchedAdd(rx_thread);
 		(*arch_reg(frame, 0)) = 0;
 	} else {
 		current_thread->ipc_state = IPC_SENDER;
@@ -481,12 +428,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 		}
 
 
-		WaitSlotsUnregisterAll(current_thread);
-
 		current_thread->port_wait_slot.owner = current_thread;
-		current_thread->port_wait_slot.kind = WAIT_KIND_PORT;
-		current_thread->port_wait_slot.handle_index = 0;
-		current_thread->port_wait_slot.port = port;
 		current_thread->port_wait_slot.node.prev = NULL;
 		current_thread->port_wait_slot.node.next = NULL;
 		current_thread->ipc_state = IPC_RECEIVER;
@@ -610,29 +552,12 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		BENCH_END(g_bench_track_cap, bs);
 #endif
 
-		/* See the slot-identity note in SysMsgSend. */
-		if (unlikely(rx_slot != &rx_thread->port_wait_slot)) {
-			WaitanyResult res;
-			memset(&res, 0, sizeof(res));
-			res.size = sizeof(res);
-			res.matched_index = (Handle)rx_slot->handle_index;
-			res.kind = WAITANY_KIND_CALL;
-			res.source = (uint32_t)slot;
-			res.marker = entry->marker;
-			res.label = current_thread->owner_process->label;
-			res.w1 = (uint32_t)current_thread->owner_process->pid;
-			res.w2 = (*arch_reg(frame, 1));
-			res.w3 = (*arch_reg(frame, 2));
-			WaitSlotsUnregisterAll(rx_thread);
-			WaitSlotsDeliver(rx_thread, rx_slot->handle_index, &res);
-		} else {
-			arch_reg_set(rx_frame, 0, slot);
-			arch_reg_set(rx_frame, 1, current_thread->owner_process->pid);
-			(*arch_reg(rx_frame, 2)) = (*arch_reg(frame, 1));
-			(*arch_reg(rx_frame, 3)) = (*arch_reg(frame, 2));
-			rx_thread->ipc_state = IPC_NONE;
-			rx_thread->blocked_port = NULL;
-		}
+		arch_reg_set(rx_frame, 0, slot);
+		arch_reg_set(rx_frame, 1, current_thread->owner_process->pid);
+		(*arch_reg(rx_frame, 2)) = (*arch_reg(frame, 1));
+		(*arch_reg(rx_frame, 3)) = (*arch_reg(frame, 2));
+		rx_thread->ipc_state = IPC_NONE;
+		rx_thread->blocked_port = NULL;
 		CancelTimeout(rx_thread);
 		rx_thread->wake_reason = WAKE_IPC;
 #ifdef CONFIG_ZUZU_BENCH
@@ -767,46 +692,23 @@ void __attribute__((hot)) SysMsgLsend(CpuState *frame)
 		ListNode *receiver = list_pop_front(&port->receiver_queue);
 		WaitSlot *rx_slot = container_of(receiver, WaitSlot, node);
 		Thread *rx_thread = rx_slot->owner;
-
-		/* See the slot-identity note in SysMsgSend. */
-		if (rx_slot != &rx_thread->port_wait_slot) {
-			WaitanyResult res;
-			memset(&res, 0, sizeof(res));
-			res.size = sizeof(res);
-			res.matched_index = (Handle)rx_slot->handle_index;
-			res.kind = WAITANY_KIND_SEND;
-			res.source = (uint32_t)current_thread->owner_process->pid;
-			res.marker = entry->marker;
-			res.label = current_thread->owner_process->label;
-			LmsgBufCopy(current_thread, rx_thread, xlen);
-			res.w1 = xlen;
-			res.w2 = 0;
-			res.w3 = 0;
-			WaitSlotsUnregisterAll(rx_thread);
-			WaitSlotsDeliver(rx_thread, rx_slot->handle_index, &res);
-			CancelTimeout(rx_thread);
-			rx_thread->wake_reason = WAKE_IPC;
-			rx_thread->state = READY;
-			SchedAdd(rx_thread);
-		} else {
-			CpuState *rx_frame = rx_thread->trap_frame;
+		CpuState *rx_frame = rx_thread->trap_frame;
 #ifdef DEBUG
-			if (!IsFrameNormal(rx_frame))
-				PanicBadFrame("ZuzuMsgLsend.rx",
-							 rx_thread->owner_process, rx_frame);
+		if (!IsFrameNormal(rx_frame))
+			PanicBadFrame("ZuzuMsgLsend.rx",
+						 rx_thread->owner_process, rx_frame);
 #endif
-			arch_reg_set(rx_frame, 0, current_thread->owner_process->pid);
-			(*arch_reg(rx_frame, 1)) = xlen;
-			(*arch_reg(rx_frame, 2)) = 0;
-			(*arch_reg(rx_frame, 3)) = 0;
-			LmsgBufCopy(current_thread, rx_thread, xlen);
-			rx_thread->ipc_state = IPC_NONE;
-			rx_thread->blocked_port = NULL;
-			CancelTimeout(rx_thread);
-			rx_thread->wake_reason = WAKE_IPC;
-			rx_thread->state = READY;
-			SchedAdd(rx_thread);
-		}
+		arch_reg_set(rx_frame, 0, current_thread->owner_process->pid);
+		(*arch_reg(rx_frame, 1)) = xlen;
+		(*arch_reg(rx_frame, 2)) = 0;
+		(*arch_reg(rx_frame, 3)) = 0;
+		LmsgBufCopy(current_thread, rx_thread, xlen);
+		rx_thread->ipc_state = IPC_NONE;
+		rx_thread->blocked_port = NULL;
+		CancelTimeout(rx_thread);
+		rx_thread->wake_reason = WAKE_IPC;
+		rx_thread->state = READY;
+		SchedAdd(rx_thread);
 		(*arch_reg(frame, 0)) = 0;
 	} else {
 		current_thread->ipc_state = IPC_SENDER;
@@ -878,31 +780,13 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 		ProcessTrackReplyCap(current_thread->owner_process, rx_thread->owner_process,
 				     slot, rc);
 
-		/* See the slot-identity note in SysMsgSend. */
-		if (unlikely(rx_slot != &rx_thread->port_wait_slot)) {
-			WaitanyResult res;
-			memset(&res, 0, sizeof(res));
-			res.size = sizeof(res);
-			res.matched_index = (Handle)rx_slot->handle_index;
-			res.kind = WAITANY_KIND_CALL;
-			res.source = (uint32_t)slot;
-			res.marker = entry->marker;
-			res.label = current_thread->owner_process->label;
-			res.w1 = (uint32_t)current_thread->owner_process->pid;
-			LmsgBufCopy(current_thread, rx_thread, xlen);
-			res.w2 = xlen;
-			res.w3 = 0;
-			WaitSlotsUnregisterAll(rx_thread);
-			WaitSlotsDeliver(rx_thread, rx_slot->handle_index, &res);
-		} else {
-			arch_reg_set(rx_frame, 0, slot);
-			arch_reg_set(rx_frame, 1, current_thread->owner_process->pid);
-			(*arch_reg(rx_frame, 2)) = xlen;
-			(*arch_reg(rx_frame, 3)) = 0;
-			LmsgBufCopy(current_thread, rx_thread, xlen);
-			rx_thread->ipc_state = IPC_NONE;
-			rx_thread->blocked_port = NULL;
-		}
+		arch_reg_set(rx_frame, 0, slot);
+		arch_reg_set(rx_frame, 1, current_thread->owner_process->pid);
+		(*arch_reg(rx_frame, 2)) = xlen;
+		(*arch_reg(rx_frame, 3)) = 0;
+		LmsgBufCopy(current_thread, rx_thread, xlen);
+		rx_thread->ipc_state = IPC_NONE;
+		rx_thread->blocked_port = NULL;
 		CancelTimeout(rx_thread);
 		rx_thread->wake_reason = WAKE_IPC;
 
@@ -979,390 +863,4 @@ void __attribute__((hot)) SysMsgLreply(CpuState *frame)
 	KFreeReplyCap(entry->reply);
 	HandleEntryFree(&current_thread->owner_process->handle_table, entry);
 	(*arch_reg(frame, 0)) = 0;
-}
-
-static int WaitanyDeliverSender(uint32_t matched_index, Thread *receiver, ListNode *sender_node,
-				  WaitanyResult *result)
-{
-	Thread *sr_thread = container_of(sender_node, Thread, node);
-	CpuState *sr_frame = sr_thread->trap_frame;
-#ifdef DEBUG
-	if (!IsFrameNormal(sr_frame)) {
-		PanicBadFrame("waitany.sr", sr_thread->owner_process, sr_frame);
-	}
-#endif
-	memset(result, 0, sizeof(*result));
-	result->size = sizeof(*result);
-	result->matched_index = (Handle)matched_index;
-
-	if (sr_thread->ipc_state == IPC_SENDER) {
-		result->kind = WAITANY_KIND_SEND;
-		result->source = (uint32_t)sr_thread->owner_process->pid;
-		result->marker = sr_thread->port_marker;
-		result->label = sr_thread->owner_process->label;
-		result->w1 = (*arch_reg(sr_frame, 1));
-		result->w2 = (*arch_reg(sr_frame, 2));
-		result->w3 = (*arch_reg(sr_frame, 3));
-
-		(*arch_reg(sr_frame, 0)) = 0;
-		sr_thread->ipc_state = IPC_NONE;
-		sr_thread->blocked_port = NULL;
-		CancelTimeout(sr_thread);
-		sr_thread->wake_reason = WAKE_IPC;
-		sr_thread->state = READY;
-
-		if (sr_thread->lmsg_buf_xfer_len > 0) {
-			LmsgBufCopy(sr_thread, receiver, sr_thread->lmsg_buf_xfer_len);
-			result->w1 = sr_thread->lmsg_buf_xfer_len;
-			result->w2 = 0;
-			result->w3 = 0;
-			sr_thread->lmsg_buf_xfer_len = 0;
-		}
-
-		SchedAdd(sr_thread);
-		return 0;
-	}
-
-	if (sr_thread->ipc_state == IPC_WAITING) {
-		ReplyCap *rc = sr_thread->pending_reply_cap;
-		sr_thread->pending_reply_cap = NULL;
-
-		int slot = HandleTableFindFree(&receiver->owner_process->handle_table);
-		if (slot < 0) {
-			KFreeReplyCap(rc);
-			arch_reg_set(sr_frame, 0, ERR_NOMEM);
-			IpcWakeThread(sr_thread);
-			return ERR_NOMEM;
-		}
-
-		HandleEntry *rentry = HandleTableGet(&receiver->owner_process->handle_table, (uint32_t)slot);
-		if (!rentry) {
-			KFreeReplyCap(rc);
-			arch_reg_set(sr_frame, 0, ERR_NOMEM);
-			IpcWakeThread(sr_thread);
-			return ERR_NOMEM;
-		}
-		rentry->type = HANDLE_REPLY;
-		rentry->grantable = false;
-		rentry->reply = rc;
-		HandleEntryClaim(&receiver->owner_process->handle_table, rentry);
-		ProcessTrackReplyCap(sr_thread->owner_process, receiver->owner_process,
-				     slot, rc);
-
-		result->kind = WAITANY_KIND_CALL;
-		result->source = (uint32_t)slot;
-		result->marker = sr_thread->port_marker;
-		result->label = sr_thread->owner_process->label;
-		result->w1 = (uint32_t)sr_thread->owner_process->pid;
-		result->w2 = (*arch_reg(sr_frame, 1));
-		result->w3 = (*arch_reg(sr_frame, 2));
-
-		if (sr_thread->lmsg_buf_xfer_len > 0) {
-			LmsgBufCopy(sr_thread, receiver, sr_thread->lmsg_buf_xfer_len);
-			result->w2 = sr_thread->lmsg_buf_xfer_len;
-			result->w3 = 0;
-			sr_thread->lmsg_buf_xfer_len = 0;
-		}
-
-		return 0;
-	}
-
-	return ERR_BADARG;
-}
-
-#ifdef CONFIG_ZUZU_BENCH
-BENCH_STAT(g_bench_waitany_validate, "WaitAny: handle validation");
-BENCH_STAT(g_bench_waitany_deliver, "WaitAny: deliver+wake");
-#endif
-
-/**
- * @brief Check for an immediate match; else build this call's pending
- * wait set.
- * @param handles Caller's handle array (already copied into kernel memory).
- * @param count   Number of entries in @p handles.
- * @param result  Filled in on an immediate match (return 0).
- * @param pending Filled in, one entry per handle, when no immediate match
- *                is found (return ERR_BUSY): kind/ntfn-or-port/handle_index,
- *                ready to hand to WaitSlotsRegister().
- * @return 0 (result filled), ERR_BUSY (pending filled), or a hard error.
- */
-static int WaitanyTryOnce(const Handle *handles, uint32_t count, WaitanyResult *result,
-			    WaitSlot *pending)
-{
-	Port *endpoints[WAITANY_MAX_HANDLES];
-	NtfnObj *notifications[WAITANY_MAX_HANDLES];
-
-#ifdef CONFIG_ZUZU_BENCH
-	uint32_t bench_start = BENCH_BEGIN();
-#endif
-	for (uint32_t i = 0; i < count; i++) {
-		HandleEntry *entry =
-		    HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)handles[i]);
-		if (!entry) {
-			arch_reg_set(current_thread->trap_frame, 0, ERR_BADHANDLE);
-			return ERR_BADHANDLE;
-		}
-
-		if (entry->type == HANDLE_PORT) {
-			HandleEntry *ep_entry = ValidatePortHandle(
-			    current_thread->owner_process, handles[i], current_thread->trap_frame);
-			if (!ep_entry)
-				return (int)(*arch_reg(current_thread->trap_frame, 0));
-			Port *port = ep_entry->port;
-			if (!port) {
-				return (int)(*arch_reg(current_thread->trap_frame, 0));
-			}
-			endpoints[i] = port;
-			notifications[i] = NULL;
-			continue;
-		}
-
-		if (entry->type == HANDLE_NTFN) {
-			HandleEntry *n_entry = ValidateNtfn(
-			    current_thread->owner_process, handles[i], current_thread->trap_frame);
-			if (!n_entry) {
-				return (int)(*arch_reg(current_thread->trap_frame, 0));
-			}
-			NtfnObj *ntfn = n_entry->ntfn;
-			if (!ntfn) {
-				return (int)(*arch_reg(current_thread->trap_frame, 0));
-			}
-			endpoints[i] = NULL;
-			notifications[i] = ntfn;
-			continue;
-		}
-
-		arch_reg_set(current_thread->trap_frame, 0, ERR_BADTYPE);
-		return ERR_BADTYPE;
-	}
-#ifdef CONFIG_ZUZU_BENCH
-	BENCH_END(g_bench_waitany_validate, bench_start);
-	bench_start = BENCH_BEGIN();
-#endif
-
-	for (uint32_t i = 0; i < count; i++) {
-		if (endpoints[i] && !list_empty(&endpoints[i]->sender_queue)) {
-			ListNode *sender = list_pop_front(&endpoints[i]->sender_queue);
-			int rc = WaitanyDeliverSender(i, current_thread, sender, result);
-#ifdef CONFIG_ZUZU_BENCH
-			BENCH_END(g_bench_waitany_deliver, bench_start);
-#endif
-			return rc;
-		}
-	}
-
-	for (uint32_t i = 0; i < count; i++) {
-		NtfnObj *ntfn = notifications[i];
-		if (ntfn && ntfn->word != 0) {
-			uint32_t bits = ntfn->word;
-			ntfn->word = 0;
-			WaitanyDeliverNtfn(i, bits, result);
-#ifdef CONFIG_ZUZU_BENCH
-			BENCH_END(g_bench_waitany_deliver, bench_start);
-#endif
-			return 0;
-		}
-	}
-
-	for (uint32_t i = 0; i < count; i++) {
-		pending[i].handle_index = i;
-		if (notifications[i]) {
-			pending[i].kind = WAIT_KIND_NTFN;
-			pending[i].ntfn = notifications[i];
-		} else {
-			pending[i].kind = WAIT_KIND_PORT;
-			pending[i].port = endpoints[i];
-		}
-	}
-
-	return ERR_BUSY;
-}
-
-static bool WaitanyWriteTimeoutRes(uintptr_t result_ptr, uint32_t size)
-{
-	WaitanyResult result;
-	memset(&result, 0, sizeof(result));
-	result.size = sizeof(result);
-	result.matched_index = (Handle)UINT32_MAX;
-	result.kind = WAITANY_KIND_TIMEOUT;
-	return CopyToUser((void *)result_ptr, &result, size);
-}
-
-
-/**
- * @brief Check for an immediate match; else register this call's wait set.
- * @param self         Calling thread.
- * @param handles_local Caller's handle array, already in kernel memory.
- * @param count        Number of entries in @p handles_local.
- * @param result       Filled in on an immediate match (return 0).
- * @return 0 (result filled), ERR_BUSY (registered, must block), or a hard error.
- */
-static int __attribute__((noinline)) WaitanyPrepareWait(Thread *self,
-							  const Handle *handles_local,
-							  uint32_t count, WaitanyResult *result)
-{
-	WaitSlot pending[WAITANY_MAX_HANDLES];
-
-	int err = WaitanyTryOnce(handles_local, count, result, pending);
-	if (err != ERR_BUSY)
-		return err;
-
-	WaitSlotsRegister(self, pending, count);
-	return ERR_BUSY;
-}
-
-void SysWaitAny(CpuState *frame)
-{
-	/* r0 = handle array pointer
-	 * w1 = count
-	 * w2 = timeout_ms
-	 * w3 = result struct pointer
-	 */
-	VirtAddr handles_ptr = (VirtAddr)(*arch_reg(frame, 0));
-	size_t count = (*arch_reg(frame, 1));
-	Duration timeout_ms = (*arch_reg(frame, 2));
-	VirtAddr result_ptr = (VirtAddr)(*arch_reg(frame, 3));
-
-	if (!current_thread || !handles_ptr || !result_ptr || count == 0 ||
-	    count > WAITANY_MAX_HANDLES) {
-		arch_reg_set(frame, 0, ERR_BADARG);
-		return;
-	}
-
-	if (!validate_user_ptr(result_ptr, sizeof(WaitanyResult)) ||
-	    !VmmCheckUserFault(current_thread->owner_process->as, result_ptr, sizeof(WaitanyResult),
-			       true)) {
-		arch_reg_set(frame, 0, ERR_BADPTR);
-		return;
-	}
-
-	size_t caller_size;
-	if (!CopyFromUser(&caller_size, (const void *)result_ptr, sizeof(uint32_t))) {
-		arch_reg_set(frame, 0, ERR_BADPTR);
-		return;
-	}
-
-	if (caller_size < sizeof(WaitanyResult)) { /* v1: exact; later: >= v1 size */
-		arch_reg_set(frame, 0, ERR_BADARG);
-		return;
-	}
-
-	size_t wlen = caller_size < sizeof(WaitanyResult) ? caller_size : sizeof(WaitanyResult);
-
-	Handle handles_local[WAITANY_MAX_HANDLES];
-	size_t copy_size = count * sizeof(Handle);
-	if (!CopyFromUser(handles_local, (const void *)handles_ptr, copy_size)) {
-		arch_reg_set(frame, 0, ERR_BADPTR);
-		return;
-	}
-
-	uint64_t deadline = 0;
-	if (timeout_ms != TIMEOUT_POLL && timeout_ms != TIMEOUT_INFINITE)
-		deadline = ArchDeadlineFromMs(timeout_ms);
-
-	for (;;) {
-		WaitanyResult result;
-		int err = WaitanyPrepareWait(current_thread, handles_local, (uint32_t)count,
-					       &result);
-		if (err == 0) {
-			if (!CopyToUser((void *)result_ptr, &result, wlen)) {
-				arch_reg_set(frame, 0, ERR_BADPTR);
-				return;
-			}
-			(*arch_reg(frame, 0)) = 0;
-			return;
-		}
-
-		if (err != ERR_BUSY) {
-			arch_reg_set(frame, 0, err);
-			return;
-		}
-
-		if (timeout_ms == TIMEOUT_POLL) {
-			/* prepare_wait just enqueued our slots on every ntfn
-			 * wait_queue / port receiver_queue; a non-blocking exit
-			 * must tear them back down or they rot in those queues
-			 * and a later sender/signal dequeues a zombie slot. */
-			WaitSlotsUnregisterAll(current_thread);
-			arch_reg_set(frame, 0, ERR_TIMEOUT);
-			return;
-		}
-
-		/* Deadline check before blocking */
-		if (timeout_ms != TIMEOUT_INFINITE) {
-			if (ArchTimerNow() >= deadline) {
-				WaitSlotsUnregisterAll(current_thread);
-				if (!WaitanyWriteTimeoutRes(result_ptr, wlen)) {
-					arch_reg_set(frame, 0, ERR_BADPTR);
-					return;
-				}
-				(*arch_reg(frame, 0)) = 0;
-				return;
-			}
-		}
-
-		current_thread->wake_reason = WAKE_NONE;
-		current_thread->blocked_port = NULL;
-		/* r0 doubles as the wakeup signal channel on resume below (relay_handler
-		 * writes ntfn->word, cap_destroy writes ERR_DEAD). Until now it still
-		 * held this syscall's first argument -- the user's `handles` pointer --
-		 * so a waker that marked us READY without writing r0 left a stack
-		 * address masquerading as a wakeup code, which then leaked out as the
-		 * return value. Clear it so an unwritten channel reads as "nothing". */
-		arch_reg_set(frame, 0, ZUZU_OK);
-		current_thread->waitany_in_block = true;
-		current_thread->state = BLOCKED;
-#ifdef CONFIG_ZUZU_BENCH
-		/* Same stash used by SysNtfnObjWait: relay_handler's unblock (the
-		 * IRQ-driven wake path) doesn't care which syscall queued this
-		 * thread's thread_wait_slot_t on the ntfn's wait_queue. */
-		current_thread->bench_irq_wait_start = BENCH_BEGIN();
-#endif
-
-		if (timeout_ms != TIMEOUT_INFINITE) {
-			current_thread->wake_deadline = deadline;
-			SchedInsertSleepQueue(current_thread);
-		} else {
-			current_thread->wake_deadline = 0;
-		}
-
-		Schedule();
-		current_thread->waitany_in_block = false;
-
-		/* Cancel sleep queue entry if not timed out */
-		if (timeout_ms != TIMEOUT_INFINITE && current_thread->wake_reason != WAKE_TIMEOUT) {
-			SchedRemoveSleepQueue(current_thread);
-		}
-
-		/* ERR_DEAD from cap_destroy */
-		if ((int32_t)(*arch_reg(frame, 0)) == ERR_DEAD) {
-			WaitSlotsUnregisterAll(current_thread);
-			arch_reg_set(frame, 0, ERR_DEAD);
-			return;
-		}
-
-		/* A delivery is checked before the timeout: a waker that matched us
-		 * has already dequeued the sender, copied its payload and marked the
-		 * message delivered, so discarding it here loses it for good -- the
-		 * sender is never told. A timeout racing a real delivery must lose. */
-		if (current_thread->waitany_match_index != WAITANY_NO_MATCH) {
-			result = current_thread->waitany_pending_result;
-			WaitSlotsUnregisterAll(current_thread);
-			if (!CopyToUser((void *)result_ptr, &result, wlen)) {
-				arch_reg_set(frame, 0, ERR_BADPTR);
-				return;
-			}
-			(*arch_reg(frame, 0)) = 0;
-			return;
-		}
-
-		/* Timeout, only once no delivery was pending */
-		if (current_thread->wake_reason == WAKE_TIMEOUT) {
-			WaitSlotsUnregisterAll(current_thread);
-			continue; /* deadline check at top catches expiry */
-		}
-
-		/* Spurious wakeup, retry */
-		WaitSlotsUnregisterAll(current_thread);
-	}
 }

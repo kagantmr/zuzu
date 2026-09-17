@@ -1,6 +1,5 @@
 #include "sys_port.h"
 #include "handle.h"
-#include "kernel/ipc/waitslot.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/proc/process.h"
 #include "kernel/proc/thread.h"
@@ -131,15 +130,8 @@ void SysDestroy(CpuState *frame)
             ListNode *n = list_pop_front(&port->receiver_queue);
             WaitSlot *slot = container_of(n, WaitSlot, node);
             Thread *t = slot->owner;
-            if (slot != &t->port_wait_slot)
-            {
-                WaitSlotsUnregisterAll(t);
-            }
-            else
-            {
-                t->ipc_state = IPC_NONE;
-                t->blocked_port = NULL;
-            }
+            t->ipc_state = IPC_NONE;
+            t->blocked_port = NULL;
             if (t->trap_frame)
                 arch_reg_set(t->trap_frame, 0, ERR_DEAD);
             SchedRemoveSleepQueue(t);
@@ -184,12 +176,12 @@ void SysDestroy(CpuState *frame)
             return;
         }
 
-        // Wake all blocked waiters (plain ntfn_wait and waitany) with error
+        // Wake all blocked ntfn_wait waiters with error
         while (!list_empty(&ntf->wait_queue))
         {
             ListNode *n = list_pop_front(&ntf->wait_queue);
             WaitSlot *slot = container_of(n, WaitSlot, node);
-            NtfnWakeWaiter(ntf, slot, ERR_DEAD, 0);
+            NtfnWakeWaiter(ntf, slot, ERR_DEAD);
         }
 
         ntf->alive = false;

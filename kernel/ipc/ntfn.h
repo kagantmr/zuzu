@@ -22,11 +22,10 @@ struct wait_slot;
  * @param slot     Waiter's slot, already popped.
  * @param r0_value Lands in the waiter's r0: delivered bits from NtfnSignal(),
  *                 or a negative error from cap_destroy.
- * @param bits     What a waitany waiter sees in its result.
  * @note A queued waiter without a trap frame is a corrupt wait queue:
  * panics rather than limp past it.
  */
-void NtfnWakeWaiter(NtfnObj *ntfn, struct wait_slot *slot, int32_t r0_value, NtfnBits bits);
+void NtfnWakeWaiter(NtfnObj *ntfn, struct wait_slot *slot, int32_t r0_value);
 
 /**
  * @brief Signal one or more bits on a notification object.
