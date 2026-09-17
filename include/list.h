@@ -28,9 +28,9 @@ typedef struct list_head {
  * @brief Adds a new node to the end of the list.
  *
  * On the IPC hot path this runs on every SysMsgSend/Recv/Call
- * block-and-enqueue and every waitany registration -- a true leaf (no
- * loop, no calls), so always_inline turns it back into straight-line
- * pointer stores instead of a call/ret across TUs.
+ * block-and-enqueue -- a true leaf (no loop, no calls), so always_inline
+ * turns it back into straight-line pointer stores instead of a call/ret
+ * across TUs.
  *
  * @param node Pointer to the new node to be added.
  * @param head Pointer to the head of the list.

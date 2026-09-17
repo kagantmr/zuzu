@@ -16,7 +16,7 @@ typedef uint64_t Tick;      /* Monotonic tick counts */
 typedef uintptr_t PhysAddr; /* Physical memory address */
 typedef uintptr_t VirtAddr; /* Virtual memory address */
 typedef uint32_t Irq;       /* IRQ number*/
-typedef uint32_t Duration;  /* for sleep and waitany syscalls */
+typedef uint32_t Duration;  /* for sleep and other timeout-taking syscalls */
 typedef uint64_t Time;      /* wall-clock time */
 
 typedef uint32_t Marker;

@@ -42,8 +42,8 @@ typedef struct
         NtfnObj *ntfn;
         struct process *task;
     };
-    Marker marker; /* Added in zuzu 1.1: Same handle can be stamped with a marker to demux clients
-                      in waitany() */
+    Marker marker; /* Added in zuzu 1.1: Same handle can be stamped with a marker to demux
+                      clients sharing a port */
 } HandleEntry;
 
 #define HANDLE_BLOCK_SLOTS 64U
