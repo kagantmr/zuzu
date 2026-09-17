@@ -11,11 +11,10 @@ extern "C" {
 typedef int32_t Handle;     /* Index into kernel-managed handle table */
 typedef int32_t Pid;        /* zuzu Process ID or -err */
 typedef int32_t Tid;        /* zuzu Thread ID or -err */
-typedef uint32_t DenID;     /* sysd den ID */
 typedef uint64_t Tick;      /* Monotonic tick counts */
 typedef uintptr_t PhysAddr; /* Physical memory address */
 typedef uintptr_t VirtAddr; /* Virtual memory address */
-typedef uint32_t Irq;       /* IRQ number*/
+typedef uint32_t Irq;       /* IRQ number */
 typedef uint32_t Duration;  /* for sleep and other timeout-taking syscalls */
 typedef uint64_t Time;      /* wall-clock time */
 

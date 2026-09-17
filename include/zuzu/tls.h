@@ -30,14 +30,14 @@ typedef struct {
 	Pid pid;
 	uint8_t _pad[TCB_HDR_SIZE - 12];
 	uint8_t buf[LMSG_BUF_SIZE];
-} ThreadData;
+} ThreadLocalData;
 
-_Static_assert(sizeof(ThreadData) == TCB_SLOT_SIZE, "ThreadData must fill its slot");
+_Static_assert(sizeof(ThreadLocalData) == TCB_SLOT_SIZE, "ThreadData must fill its slot");
 
 /**
  * TLS accessor for the current thread's TCB.
  */
-static inline ThreadData *ZuzuTLS(void) { return (ThreadData *)arch_get_thread_ptr(); }
+static inline ThreadLocalData *ZuzuTLS(void) { return (ThreadLocalData *)arch_get_thread_ptr(); }
 
 #ifdef __cplusplus
 }
