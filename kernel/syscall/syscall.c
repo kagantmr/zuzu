@@ -63,7 +63,6 @@ static SyscallEntryPoint SyscallTable[SYS_MAX + 1] = {
     [SYS_MSG_LSEND] = SysMsgLsend,
     [SYS_MSG_LCALL] = SysMsgLcall,
     [SYS_MSG_LREPLY] = SysMsgLreply,
-    [SYS_WAITANY] = SysWaitAny,
     [SYS_KEVENT_BIND] = SysKEventBind,
     [SYS_PORT_CREATE] = SysPortCreate,
     [SYS_DESTROY] = SysDestroy,
@@ -193,24 +192,6 @@ void __attribute__((hot)) SyscallDispatch(Svc svc_num, CpuState *frame)
               (unsigned)(current_thread->owner_process ? current_thread->owner_process->pid : 0),
               svc_num, (void *)frame);
     }
-    /* A thread only reaches userspace -- and so only gets back here -- after
-     * SysWaitAny clears this on the instruction following Schedule(). Still
-     * set means the last waitany never finished: it returned to userspace
-     * reporting success over a result it never wrote, which the caller then
-     * read back as whatever its WaitanyResult slot last held. Report the
-     * userspace PC so the resume point is identifiable. */
-    if (unlikely(current_thread->waitany_in_block)) {
-        static uint32_t waitany_escapes;
-        current_thread->waitany_in_block = false;
-        if (++waitany_escapes <= 8u) {
-            KERROR("waitany escaped without completing: pid=%u svc=0x%X pc=%p lr=%p (#%u)",
-                   (unsigned)(current_thread->owner_process ? current_thread->owner_process->pid
-                                                            : 0),
-                   svc_num, (void *)arch_regs_pc(frame), (void *)arch_regs_lr(frame),
-                   (unsigned)waitany_escapes);
-        }
-    }
-
     current_thread->trap_frame = frame;
 
     if (likely(SyscallTable[svc_num]))

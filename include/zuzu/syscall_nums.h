@@ -26,7 +26,8 @@
 #define SYS_MSG_LSEND 0x14   /* (port, len) -> 0 or -err; len <= 512 bytes, else ERR_OVERFLOW */
 #define SYS_MSG_LCALL 0x15   /* (port, len) -> r0=0, r1=recv_len (only success case) */
 #define SYS_MSG_LREPLY 0x16  /* (reply_handle, len) -> 0 or -err */
-#define SYS_WAITANY 0x17     /* (handles*, count, timeout, result*) -> 0 or -err */
+/* 0x17 was waitany(), retired: waitany removed from the kernel. */
+#define __SYSCALL_RESERVED7 0x17
 #define SYS_KEVENT_BIND 0x18 /* (type, ntfn) -> 0 or -err */
 
 /* ---- Handles/Capabilities (0x20-0x2F) ---- */
