@@ -73,8 +73,8 @@ static inline TSpawnResult ZuzuPSpawn(const char* name) {
     size_t name_len = 0;
     while (name && name[name_len])
         name_len++;
-    SpawnArgs args = {
-        .size     = sizeof(SpawnArgs),
+    CreateSpawnArgs args = {
+        .size     = sizeof(CreateSpawnArgs),
         .name     = name,
         .name_len = name_len,
     };
@@ -93,9 +93,9 @@ static inline TSpawnResult ZuzuPSpawn(const char* name) {
  */
 static inline Err ZuzuKickstart(Handle taskHandle, VirtAddr entry,
                                   VirtAddr sp, uint32_t r0_val, uint32_t r1_val) {
-    KickstartArgs args = {
-        .size        = sizeof(KickstartArgs),
-        .taskHandle  = taskHandle,
+    HandleCntlStartArgs args = {
+        .size        = sizeof(HandleCntlStartArgs),
+        .task_handle  = taskHandle,
         .entry       = entry,
         .sp          = sp,
         .r0_val      = r0_val,

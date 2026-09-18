@@ -27,9 +27,9 @@ Err ZoneEnter(Zone *z) {
     while (1) {
         int expected = 0;
         if (atomic_compare_exchange_weak(&z->locked, &expected, 1)) {
-            z->owner = ZuzuTLS()->tid;
+            z->owner = GetTls()->tid;
             return ZUZU_OK;
-        } 
+        }
         ZuzuNtfnWait(z->ntfn, TIMEOUT_INFINITE);
     }
     return ERR_DEAD;
@@ -39,14 +39,14 @@ Err ZoneExit(Zone *z) {
     z->owner = 0;
     atomic_store(&z->locked, 0);
     ZuzuNtfnSignal(z->ntfn, 1);
-    return ZUZU_OK; 
+    return ZUZU_OK;
 }
 
 Err ZoneTryEnter(Zone *z) {
     int expected = 0;
     if (atomic_compare_exchange_strong(&z->locked, &expected, 1)) {
-        z->owner = ZuzuTLS()->tid;
+        z->owner = GetTls()->tid;
         return ZUZU_OK;
-    } 
+    }
     return ERR_BUSY;
 }

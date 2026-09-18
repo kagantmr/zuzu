@@ -341,8 +341,8 @@ void SysAsInject(CpuState *frame)
         }
         }
 
-        AsInjectArgs *args = (AsInjectArgs *)(*arch_reg(frame, 0));
-        if (!validate_user_ptr((uintptr_t)args, sizeof(AsInjectArgs)))
+        McntlInjectArgs *args = (McntlInjectArgs *)(*arch_reg(frame, 0));
+        if (!validate_user_ptr((uintptr_t)args, sizeof(McntlInjectArgs)))
         {
             {
             arch_reg_set(frame, 0, ERR_BADPTR);
@@ -350,8 +350,8 @@ void SysAsInject(CpuState *frame)
         }
         }
 
-        AsInjectArgs kargs;
-        if (!CopyFromUser(&kargs, args, sizeof(AsInjectArgs)))
+        McntlInjectArgs kargs;
+        if (!CopyFromUser(&kargs, args, sizeof(McntlInjectArgs)))
         {
             {
             arch_reg_set(frame, 0, ERR_BADPTR);
@@ -359,7 +359,7 @@ void SysAsInject(CpuState *frame)
         }
         }
 
-        if (kargs.size < sizeof(AsInjectArgs))
+        if (kargs.size < sizeof(McntlInjectArgs))
         {
             {
             arch_reg_set(frame, 0, ERR_BADARG);
@@ -406,9 +406,9 @@ void SysAsInject(CpuState *frame)
         }
         }
 
-        if (kargs.DestVAddr % PAGE_SIZE != 0 ||
-            kargs.DestVAddr >= USER_VA_TOP ||
-            kargs.len > USER_VA_TOP - kargs.DestVAddr)
+        if (kargs.dest_vaddr % PAGE_SIZE != 0 ||
+            kargs.dest_vaddr >= USER_VA_TOP ||
+            kargs.len > USER_VA_TOP - kargs.dest_vaddr)
         {
             {
             arch_reg_set(frame, 0, ERR_BADARG);
@@ -429,7 +429,7 @@ void SysAsInject(CpuState *frame)
             }
 
             VirtMemRegion region = {
-                .vaddr_start = kargs.DestVAddr,
+                .vaddr_start = kargs.dest_vaddr,
                 .size = kargs.len,
                 .prot = kargs.prot | VM_PROT_USER,
                 .memtype = VM_MEM_NORMAL,
@@ -472,9 +472,9 @@ void SysAsInject(CpuState *frame)
             /* dst must lie inside the region before computing the remaining
              * space, or the unsigned subtraction below wraps for regions
              * that end before DestVAddr. */
-            if (kargs.DestVAddr >= r->vaddr_start &&
-                kargs.DestVAddr - r->vaddr_start < r->size &&
-                page_count * PAGE_SIZE <= r->size - (kargs.DestVAddr - r->vaddr_start))
+            if (kargs.dest_vaddr >= r->vaddr_start &&
+                kargs.dest_vaddr - r->vaddr_start < r->size &&
+                page_count * PAGE_SIZE <= r->size - (kargs.dest_vaddr - r->vaddr_start))
             {
                 enclosing = r;
                 break;
@@ -505,7 +505,7 @@ void SysAsInject(CpuState *frame)
 
         for (size_t i = 0; i < page_count; i++)
         {
-            VirtAddr dst_page = kargs.DestVAddr + i * PAGE_SIZE;
+            VirtAddr dst_page = kargs.dest_vaddr + i * PAGE_SIZE;
 
             /* Inside an existing region a page may already be faulted in;
              * write into it instead of remapping. page_addrs[] tracks only
@@ -560,7 +560,7 @@ void SysAsInject(CpuState *frame)
             for (size_t i = 0; i < page_count; i++)
             {
                 PhysAddr pa = arch_mmu_translate(target->as->pt_root_physaddr,
-                                                 kargs.DestVAddr + i * PAGE_SIZE);
+                                                 kargs.dest_vaddr + i * PAGE_SIZE);
                 if (pa)
                     arch_cache_clean_dcache_range(PA_TO_VA(pa), PAGE_SIZE);
             }
@@ -572,7 +572,7 @@ void SysAsInject(CpuState *frame)
         if (!enclosing)
         {
             VirtMemRegion region = {
-                .vaddr_start = kargs.DestVAddr,
+                .vaddr_start = kargs.dest_vaddr,
                 .size = page_count * PAGE_SIZE,
                 .prot = kargs.prot | VM_PROT_USER,
                 .memtype = VM_MEM_NORMAL,
@@ -593,7 +593,7 @@ void SysAsInject(CpuState *frame)
         {
             if (page_addrs[j])
             {
-                VmmUnmapRange(target->as, kargs.DestVAddr + j * PAGE_SIZE, PAGE_SIZE, true);
+                VmmUnmapRange(target->as, kargs.dest_vaddr + j * PAGE_SIZE, PAGE_SIZE, true);
                 PmmFreeFrame(page_addrs[j]);
             }
         }
@@ -608,7 +608,7 @@ void SysAsInject(CpuState *frame)
         {
             if (page_addrs[j])
             {
-                VmmUnmapRange(target->as, kargs.DestVAddr + j * PAGE_SIZE, PAGE_SIZE, true);
+                VmmUnmapRange(target->as, kargs.dest_vaddr + j * PAGE_SIZE, PAGE_SIZE, true);
                 PmmFreeFrame(page_addrs[j]);
             }
         }

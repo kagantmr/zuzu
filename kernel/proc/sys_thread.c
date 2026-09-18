@@ -64,7 +64,7 @@ void SysTMake(CpuState *frame)
 
 	slot->tid = t->tid;
 	slot->pid = owner->pid;
-	slot->LmsgBuf = (void *)(slot_va + offsetof(ThreadData, buf)); /* points into itself */
+	slot->lmsg_buf = (void *)(slot_va + offsetof(ThreadData, buf)); /* points into itself */
 
 	t->thread_info_va = slot_va;
 	t->tcb_slot = (uint8_t)slot_idx;

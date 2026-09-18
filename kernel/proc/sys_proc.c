@@ -196,21 +196,21 @@ void SysWait(CpuState *frame)
 
 void SysPSpawn(CpuState *frame)
 {
-    SpawnArgs *args = (SpawnArgs *)(*arch_reg(frame, 0));
-    if (!validate_user_ptr((uintptr_t)args, sizeof(SpawnArgs)))
+    CreateSpawnArgs *args = (CreateSpawnArgs *)(*arch_reg(frame, 0));
+    if (!validate_user_ptr((uintptr_t)args, sizeof(CreateSpawnArgs)))
     {
         arch_reg_set(frame, 0, ERR_BADPTR);
         return;
     }
 
-    SpawnArgs kargs;
-    if (!CopyFromUser(&kargs, args, sizeof(SpawnArgs)))
+    CreateSpawnArgs kargs;
+    if (!CopyFromUser(&kargs, args, sizeof(CreateSpawnArgs)))
     {
         arch_reg_set(frame, 0, ERR_BADPTR);
         return;
     }
 
-    if (kargs.size < sizeof(SpawnArgs))
+    if (kargs.size < sizeof(CreateSpawnArgs))
     {
         arch_reg_set(frame, 0, ERR_BADARG);
         return;
@@ -285,28 +285,28 @@ void SysPSpawn(CpuState *frame)
 void SysKickstart(CpuState *frame)
 {
 
-    KickstartArgs *args = (KickstartArgs *)(*arch_reg(frame, 0));
-    if (!validate_user_ptr((uintptr_t)args, sizeof(KickstartArgs)))
+    HandleCntlStartArgs *args = (HandleCntlStartArgs *)(*arch_reg(frame, 0));
+    if (!validate_user_ptr((uintptr_t)args, sizeof(HandleCntlStartArgs)))
     {
         arch_reg_set(frame, 0, ERR_BADPTR);
         return;
     }
 
-    KickstartArgs kargs;
-    if (!CopyFromUser(&kargs, args, sizeof(KickstartArgs)))
+    HandleCntlStartArgs kargs;
+    if (!CopyFromUser(&kargs, args, sizeof(HandleCntlStartArgs)))
     {
         arch_reg_set(frame, 0, ERR_BADPTR);
         return;
     }
 
-    if (kargs.size < sizeof(KickstartArgs))
+    if (kargs.size < sizeof(HandleCntlStartArgs))
     {
         arch_reg_set(frame, 0, ERR_BADARG);
         return;
     }
 
     HandleEntry *entry =
-        HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)kargs.taskHandle);
+        HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)kargs.task_handle);
     if (!entry)
     {
         arch_reg_set(frame, 0, ERR_BADHANDLE);

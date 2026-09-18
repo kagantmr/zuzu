@@ -493,7 +493,7 @@ ProcessObj *ProcessCreate(const char *name)
         goto fail_kstack;
     ThreadData *tcb0 = (ThreadData *)TcbSlotKVirtAddr(p, (uint32_t)tcb_slot_idx);
     VirtAddr tcb0_va = TcbSlotUVirtAddr(p, (uint32_t)tcb_slot_idx);
-    tcb0->LmsgBuf = (void *)(tcb0_va + offsetof(ThreadData, buf));
+    tcb0->lmsg_buf = (void *)(tcb0_va + offsetof(ThreadData, buf));
     tcb0->tid = t->tid;
     t->thread_info_va = tcb0_va;
     t->tcb_slot = (uint8_t)tcb_slot_idx;
