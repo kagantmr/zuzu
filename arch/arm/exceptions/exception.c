@@ -116,11 +116,11 @@ static void sym_annotate(char *buf, size_t bufsz, uint32_t addr)
     const char *name = ksym_lookup(addr);
     uint32_t base = ksym_lookup_base(addr);
     if (name && base && addr != base)
-        snprintf(buf, bufsz, "0x%08X (%s+0x%X)", addr, name, addr - base);
+        (void)snprintf(buf, bufsz, "0x%08X (%s+0x%X)", addr, name, addr - base);
     else if (name)
-        snprintf(buf, bufsz, "0x%08X (%s)", addr, name);
+        (void)snprintf(buf, bufsz, "0x%08X (%s)", addr, name);
     else
-        snprintf(buf, bufsz, "0x%08X (<?>)", addr);
+        (void)snprintf(buf, bufsz, "0x%08X (<?>)", addr);
 }
 
 /* d0-d31 + FPSCR, laid out exactly as arch_fpu_save() (arch/arm/vfp.S) writes them. */
@@ -131,14 +131,14 @@ static void dump_vfp(const FpuState *fpu)
     for (int i = 0; i < 32; i += 2)
     {
         uint64_t d0, d1;
-        memcpy(&d0, p + (size_t)i * 8, 8);
-        memcpy(&d1, p + (size_t)(i + 1) * 8, 8);
+        memcpy(&d0, p + ((size_t)i * 8), 8);
+        memcpy(&d1, p + (((size_t)(i + 1)) * 8), 8);
         kprintf(" d%-2d=%016llX  d%-2d=%016llX\n",
                 i, (unsigned long long)d0, i + 1, (unsigned long long)d1);
     }
 
     uint32_t fpscr;
-    memcpy(&fpscr, p + 32 * 8, sizeof(fpscr));
+    memcpy(&fpscr, p + (32 * 8), sizeof(fpscr));
     kprintf(" fpscr=%08X\n", fpscr);
 }
 
@@ -456,20 +456,6 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
         }
     }
     break;
-
-    case EXC_RESERVED:
-    {
-        // dump_registers(frame);
-        panic_fault_ctx = (panic_fault_context_t){
-            .valid = 1,
-            .fault_type = "Reserved",
-            .fault_decoded = "Reserved exception",
-            .frame = frame,
-        };
-        panic("Why are you here? (reserved exception)");
-    }
-    break;
-
     case EXC_IRQ:
     {
         arch_irq_dispatch();
@@ -482,6 +468,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
     }
     break;
 
+    case EXC_RESERVED:
     default:
     {
         panic_fault_ctx = (panic_fault_context_t){
