@@ -32,63 +32,6 @@ static bool wait_write_status(int32_t *status_out, int32_t status)
     return CopyToUser(status_out, &status, sizeof(status));
 }
 
-void SysQuit(CpuState *frame)
-{
-    int exit_status = (int)(*arch_reg(frame, 0));
-    int scope = (int)(*arch_reg(frame, 1));
-
-    if (scope == SELF_THREAD) {
-            ProcessObj *owner = current_thread->owner_process;
-            current_thread->exit_status = exit_status;
-            ThreadWakeJoiners(current_thread, exit_status);
-
-            if (list_one_elem(&owner->threads)) {
-                // last thread, kill the process
-                ProcessKill(owner, exit_status);
-            } else {
-                ThreadKill(current_thread);
-                // remove from process thread list NOW so process_destroy won't see it
-                if (current_thread->process_node.prev && current_thread->process_node.next)
-                    list_remove(&current_thread->process_node);
-                SchedQueueDestroyThread(current_thread);
-            }
-        } else {
-        // do NOT return an error, anything that isnt "kill thread" is accepted as kill process.
-        // eases backwards compatibility, apps from Loaf can call this without any compat shim.
-        KDEBUG("Task %d exited with status code %d",
-            current_thread->owner_process ? current_thread->owner_process->pid : 0, exit_status);
-
-        ProcessKill(current_thread->owner_process, exit_status);
-    }
-
-	Schedule();
-}
-
-void SysYield(CpuState *frame)
-{
-    (*arch_reg(frame, 0)) = 0;
-    (void)frame;
-    Schedule();
-}
-
-void SysSleep(CpuState *frame)
-{
-    uint32_t ms = (*arch_reg(frame, 0)); // argument 0: Milliseconds to sleep
-
-    current_thread->wake_deadline = ArchDeadlineFromMs(ms);
-    current_thread->wake_reason = WAKE_NONE;
-
-    // Change state to BLOCKED and insert into sleep queue
-    current_thread->state = BLOCKED;
-    SchedInsertSleepQueue(current_thread);
-    // Schedule someone else immediately
-    Schedule();
-
-    (*arch_reg(frame, 0)) = 0;
-}
-
-void SysGetPid(CpuState *frame) { arch_reg_set(frame, 0, current_thread->owner_process->pid); }
-
 void SysWait(CpuState *frame)
 {
     int32_t req_pid = (int32_t)(*arch_reg(frame, 0));

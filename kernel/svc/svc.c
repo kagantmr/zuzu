@@ -1,4 +1,4 @@
-#include "syscall.h"
+#include "svc.h"
 
 #include "kernel/sched/sched.h"
 #include "core/log.h"
@@ -28,10 +28,6 @@
 extern kernel_layout_t kernel_layout;
 
 #ifdef CONFIG_ZUZU_BENCH
-/* CopyToUser/CopyFromUser bracketed in two halves: the VmmCheckUserFault
- * page walk (TLB/cache-miss dominated, lazy-fault path included) and the
- * memcpy itself -- splits "walk" from "copy" so a slow round trip can be
- * blamed on the right one instead of the syscall as a whole. */
 BENCH_STAT(g_bench_copytouser_walk, "CopyToUser: VmmCheckUserFault");
 BENCH_STAT(g_bench_copytouser_copy, "CopyToUser: memcpy");
 BENCH_STAT(g_bench_copyfromuser_walk, "CopyFromUser: VmmCheckUserFault");
@@ -44,55 +40,30 @@ typedef void (*SyscallEntryPoint)(CpuState *);
 static void SysDebugLog(CpuState *frame);
 #endif
 
-static SyscallEntryPoint SyscallTable[SYS_MAX + 1] = {
-    [SYS_PQUIT] = SysQuit,
-    [SYS_YIELD] = SysYield,
-    [SYS_WAIT] = SysWait,
-    [SYS_GETPID] = SysGetPid,
-    [SYS_SLEEP] = SysSleep,
-    [SYS_PSPAWN] = SysPSpawn,
-    [SYS_KICKSTART] = SysKickstart,
-    [SYS_PKILL] = SysPKill,
-    [SYS_TMAKE] = SysTMake,
-    [SYS_TJOIN] = SysTJoin,
-    [SYS_TQUIT] = SysTQuit,
-    [SYS_MSG_SEND] = SysMsgSend,
-    [SYS_MSG_RECV] = SysMsgRecv,
-    [SYS_MSG_CALL] = SysMsgCall,
-    [SYS_MSG_REPLY] = SysMsgReply,
-    [SYS_MSG_LSEND] = SysMsgLsend,
-    [SYS_MSG_LCALL] = SysMsgLcall,
-    [SYS_MSG_LREPLY] = SysMsgLreply,
-    [SYS_KEVENT_BIND] = SysKEventBind,
-    [SYS_PORT_CREATE] = SysPortCreate,
-    [SYS_DESTROY] = SysDestroy,
-    [SYS_GRANT] = SysGrant,
-    [SYS_NTFN_CREATE] = SysNtfnCreate,
-    [SYS_DEV_QUERY] = SysDevQuery,
-    [SYS_NTFN_SIGNAL] = SysNtfnSignal,
-    [SYS_NTFN_WAIT] = SysNtfnWait,
-    [SYS_STAMP] = SysStamp,
-    [SYS_SET_LABEL] = SysSetLabel,
-    [SYS_MEMMAP] = SysMemMap,
-    [SYS_MEMUNMAP] = SysMemUnmap,
-    [SYS_SHMEM_CREATE] = SysShmCreate,
-    [SYS_MEMPROTECT] = SysMemProtect,
-    [SYS_ASINJECT] = SysAsInject,
-    [SYS_IRQ_BIND] = SysIrqBind,
-    [SYS_IRQ_DONE] = SysIrqDone,
-#ifdef DEBUG
-    [SYS_LOG] = SysDebugLog, /* defined below; DEBUG builds only */
-#endif
+static SyscallEntryPoint syscall_table[SYSCALL_COUNT] = {
+    [SYS_QUIT] = SvcQuit,
+    [SYS_YIELD] = SvcYield,
+    #ifdef DEBUG
+        [SYS_LOG] = SysDebugLog, /* defined below; DEBUG builds only */
+    #else
+        [SYS_LOG] = NULL,
+    #endif
+    [SYS_CREATE] = SvcCreate,
+    [SYS_CALL] = SvcCall,
+    [SYS_REPLY] = SvcReply,
+    [SYS_WAITON] = SvcWaitOn,
+    [SYS_CNTLHANDLE] = SvcCntlHandle,
+    [SYS_SIGNAL] = SvcSignal,
+    [SYS_BINDEVENT] = SvcBindEvent,
+    [SYS_CNTLMEMORY] = SvcCntlMemory,
+    [SYS_COMPLETEIRQ] = SvcCompleteIrq,
 };
 
-/* Runs on every syscall. The two "in bounds" checks below are the normal
- * case (a syscall from an intact, correctly-placed kernel stack); a miss
- * on both means a corrupted trap frame, which is fatal (panic below) --
- * genuinely rare, so the false-return tail is the cold path. */
-static __hot bool trap_frame_sane(const CpuState *frame)
+
+static __hot bool IsNormalFrame(const CpuState *frame)
 {
     uintptr_t p = (uintptr_t)frame;
-    if (unlikely(p == 0 || (p & 0x3u) != 0))
+    if (unlikely(p == 0 || (p & 0x3U) != 0))
         return false;
 
     if (likely(kernel_layout.stack_base_va && kernel_layout.stack_top_va &&
@@ -112,7 +83,7 @@ bool CopyToUser(void *restrict uaddr, const void *restrict kaddr, size_t len)
         return true;
     if (!current_thread || !current_thread->owner_process || !current_thread->owner_process->as || !uaddr || !kaddr)
         return false;
-    if (!validate_user_ptr((uintptr_t)uaddr, len))
+    if (!IsUserPtrNormal((uintptr_t)uaddr, len))
         return false;
 #ifdef CONFIG_ZUZU_BENCH
     uint32_t bench_start = BENCH_BEGIN();
@@ -137,7 +108,7 @@ bool CopyFromUser(void *restrict kaddr, const void *restrict uaddr, size_t len)
         return true;
     if (!current_thread || !current_thread->owner_process || !current_thread->owner_process->as || !uaddr || !kaddr)
         return false;
-    if (!validate_user_ptr((uintptr_t)uaddr, len))
+    if (!IsUserPtrNormal((uintptr_t)uaddr, len))
         return false;
 #ifdef CONFIG_ZUZU_BENCH
     uint32_t bench_start = BENCH_BEGIN();
@@ -179,14 +150,14 @@ static void SysDebugLog(CpuState *frame)
 }
 #endif /* DEBUG */
 
-void __attribute__((hot)) SyscallDispatch(Svc svc_num, CpuState *frame)
+void __hot SvcDispatch(Svc svc_num, CpuState *frame)
 {
     if (unlikely(!current_thread))
     {
         arch_reg_set(frame, 0, ERR_BADARG);
         return;
     }
-    if (unlikely(!trap_frame_sane(frame)))
+    if (unlikely(!IsNormalFrame(frame)))
     {
         panic("Corrupt trap_frame at syscall dispatch: pid=%u svc=%u frame=%p",
               (unsigned)(current_thread->owner_process ? current_thread->owner_process->pid : 0),
@@ -194,14 +165,8 @@ void __attribute__((hot)) SyscallDispatch(Svc svc_num, CpuState *frame)
     }
     current_thread->trap_frame = frame;
 
-    if (likely(SyscallTable[svc_num]))
-    {
-        SyscallTable[svc_num](frame);
-        return;
-    }
+    if (likely(syscall_table[svc_num]))
+        syscall_table[svc_num](frame);
     else
-    {
-        // KERROR("System call 0x%X does not exist", svc_num);
         arch_reg_set(frame, 0, ERR_NOSYS);
-    }
-};
+}

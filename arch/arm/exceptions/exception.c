@@ -317,7 +317,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
             svc_num = (uint8_t)(*arm_instr & 0xFF);
         }
 
-        SyscallDispatch(svc_num, frame);
+        SvcDispatch(svc_num, frame);
     }
     break;
 
