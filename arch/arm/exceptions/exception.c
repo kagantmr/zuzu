@@ -148,13 +148,13 @@ static void dump_registers(ExceptionFrame *frame)
     sym_annotate(pc_sym, sizeof(pc_sym), frame->return_pc);
     sym_annotate(lr_sym, sizeof(lr_sym), frame->lr_usr);
 
-    SpaceObject *p = current_thread ? current_thread->owner_process : NULL;
+    SpaceObject *p = current_task ? current_task->owner_process : NULL;
 
     kprintf("-- register dump --------------------------------------------\n");
     if (p)
-        kprintf("  ctx: pid=%u tid=%u '%s'\n", p->pid, current_thread->tid, p->name);
-    else if (current_thread)
-        kprintf("  ctx: tid=%u (no owner process)\n", current_thread->tid);
+        kprintf("  ctx: pid=%u tid=%u '%s'\n", p->pid, current_task->tid, p->name);
+    else if (current_task)
+        kprintf("  ctx: tid=%u (no owner process)\n", current_task->tid);
     else
         kprintf("  ctx: kernel/boot (no current thread)\n");
 
@@ -187,23 +187,23 @@ static void dump_registers(ExceptionFrame *frame)
     kprintf(" DFAR=%08X  DFSR=%08X  (%s)\n", dfar, dfsr, decode_fault_status(dfsr));
     kprintf(" IFAR=%08X  IFSR=%08X  (%s)\n", ifar, ifsr, decode_fault_status(ifsr));
 
-    /* current_thread == fpu_owner is the only state where CPACR access is
+    /* current_task == fpu_owner is the only state where CPACR access is
      * enabled for this thread (sched.c keeps the two in lockstep on every
      * switch), so it's the only state where touching the live d0-d31 here
      * won't itself raise an undefined-instruction exception. Otherwise the
      * thread's FPU state (if it has any) is what was last saved into
      * fpu_state on the switch away from it. */
-    if (current_thread && current_thread == fpu_owner)
+    if (current_task && current_task == fpu_owner)
     {
         FpuState live;
         arch_fpu_save(&live);
         kprintf("-- vfp state (live) -------------------------------------------\n");
         dump_vfp(&live);
     }
-    else if (current_thread)
+    else if (current_task)
     {
         kprintf("-- vfp state (saved, thread is not current fpu owner) --------\n");
-        dump_vfp(&current_thread->fpu_state);
+        dump_vfp(&current_task->fpu_state);
     }
 }
 
@@ -247,7 +247,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame);
  * the traffic in any workload that isn't fault-heavy. */
 void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
 {
-    SpaceObject *current_process = current_thread ? current_thread->owner_process : NULL;
+    SpaceObject *current_process = current_task ? current_task->owner_process : NULL;
 
     switch (exctype)
     {
@@ -258,14 +258,14 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
         if (frame->return_cpsr & (1 << 5))
             frame->return_pc += 2;
 
-        if (current_thread && current_thread != fpu_owner)
+        if (current_task && current_task != fpu_owner)
         {
             arch_fpu_trap_enable();
             fpu_access_enabled = true;
             if (fpu_owner)
                 arch_fpu_save(&fpu_owner->fpu_state);
-            arch_fpu_restore(&current_thread->fpu_state);
-            fpu_owner = current_thread;
+            arch_fpu_restore(&current_task->fpu_state);
+            fpu_owner = current_task;
             break;
         }
 
@@ -277,7 +277,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
 
         if (from_user && current_process)
         {
-            KERROR("Oops! '%s' (PID %d, TID %d) killed: undefined instruction @ 0x%08X\n", current_process->name, current_process->pid, current_thread->tid, frame->return_pc);
+            KERROR("Oops! '%s' (PID %d, TID %d) killed: undefined instruction @ 0x%08X\n", current_process->name, current_process->pid, current_task->tid, frame->return_pc);
             dump_registers(frame);
             ProcessKill(current_process, KILLED_TAG | KILL_FAULT_UNDEF);
             Schedule();
@@ -339,7 +339,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
         if (from_user && current_process)
         {
             KERROR("Oops! '%s' (PID %d, TID %d) killed: prefetch abort @ 0x%08X (%s)\n",
-                   current_process->name, current_process->pid, current_thread->tid, ifar, decode_fault_status(ifsr));
+                   current_process->name, current_process->pid, current_task->tid, ifar, decode_fault_status(ifsr));
             ProcessKill(current_process, KILLED_TAG | KILL_FAULT_PREFETCH);
             dump_registers(frame);
             Schedule();
@@ -414,7 +414,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
 
             KERROR("Oops! Segmentation fault");
             KDEBUG("Oops! '%s' (PID %d, TID %d) killed: data abort @ 0x%08X (%s %s)\n",
-                   current_process->name, current_process->pid, current_thread->tid, dfar,
+                   current_process->name, current_process->pid, current_task->tid, dfar,
                    (dfsr & (1 << 11)) ? "write" : "read",
                    decode_fault_status(dfsr));
             dump_registers(frame);
@@ -432,7 +432,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
             }
 
             KERROR("Oops! Bad user pointer in SVC from '%s' (PID %d, TID %d) @ 0x%08X (%s %s)\n",
-                   current_process->name, current_process->pid, current_thread->tid, dfar,
+                   current_process->name, current_process->pid, current_task->tid, dfar,
                    (dfsr & (1 << 11)) ? "write" : "read",
                    decode_fault_status(dfsr));
             dump_registers(frame);
@@ -495,9 +495,9 @@ _Noreturn void exception_exit_pc0_trap(CpuState *frame)
            frame, (void *)arch_regs_flags(frame), (void *)arch_regs_sp(frame),
            (void *)arch_regs_lr(frame));
     KERROR("  r0=%p r1=%p r2=%p r3=%p r12=%p",
-           (void *)*arch_reg(frame, 0), (void *)*arch_reg(frame, 1),
-           (void *)*arch_reg(frame, 2), (void *)*arch_reg(frame, 3),
-           (void *)*arch_reg(frame, 12));
+           (void *)*ArchGetFromFrame(frame, 0), (void *)*ArchGetFromFrame(frame, 1),
+           (void *)*ArchGetFromFrame(frame, 2), (void *)*ArchGetFromFrame(frame, 3),
+           (void *)*ArchGetFromFrame(frame, 12));
     panic_fault_ctx = (panic_fault_context_t){
         .valid = 1,
         .fault_type = "RFE to pc=0 (frame corrupted in kernel)",

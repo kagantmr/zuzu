@@ -106,8 +106,8 @@ static __cold __noinline void PanicBadFrame(const char *where, const SpaceObject
 		       (void *)arch_regs_flags(tf));
 	panic("Corrupt trap_frame in IPC path at %s: owner_pid=%u tf=%p current_pid=%u", where,
 	      (unsigned)(owner ? owner->pid : 0), (const void *)tf,
-	      (unsigned)(current_thread && current_thread->owner_process
-			     ? current_thread->owner_process->pid
+	      (unsigned)(current_task && current_task->owner_process
+			     ? current_task->owner_process->pid
 			     : 0));
 }
 #endif
@@ -266,9 +266,9 @@ static HandleTableEntry *ValidateReplyCap(SpaceObject *proc, Handle handle_idx, 
 
 void __attribute__((hot)) SysMsgSend(CpuState *frame)
 {
-	int handle = (int)(*arch_reg(frame, 0));
+	int handle = (int)(*ArchGetFromFrame(frame, 0));
 
-	HandleTableEntry *entry = ValidatePortHandle(current_thread->owner_process, handle, frame);
+	HandleTableEntry *entry = ValidatePortHandle(current_task->owner_process, handle, frame);
 	if (unlikely(!entry))
 		return;
 	PortObject *port = entry->port;
@@ -286,23 +286,23 @@ void __attribute__((hot)) SysMsgSend(CpuState *frame)
 			PanicBadFrame("ZuzuMsgSend.rx", rx_thread->owner_process,
 						 rx_frame);
 #endif
-		arch_reg_set(rx_frame, 0, current_thread->owner_process->pid);
-		(*arch_reg(rx_frame, 1)) = (*arch_reg(frame, 1));
-		(*arch_reg(rx_frame, 2)) = (*arch_reg(frame, 2));
-		(*arch_reg(rx_frame, 3)) = (*arch_reg(frame, 3));
+		arch_reg_set(rx_frame, 0, current_task->owner_process->pid);
+		(*ArchGetFromFrame(rx_frame, 1)) = (*ArchGetFromFrame(frame, 1));
+		(*ArchGetFromFrame(rx_frame, 2)) = (*ArchGetFromFrame(frame, 2));
+		(*ArchGetFromFrame(rx_frame, 3)) = (*ArchGetFromFrame(frame, 3));
 		rx_thread->ipc_state = IPC_NONE;
 		rx_thread->blocked_port = NULL;
 		CancelTimeout(rx_thread);
 		rx_thread->wake_reason = WAKE_IPC;
 		rx_thread->state = READY;
 		SchedAdd(rx_thread);
-		(*arch_reg(frame, 0)) = 0;
+		(*ArchGetFromFrame(frame, 0)) = 0;
 	} else {
-		current_thread->ipc_state = IPC_SENDER;
-		current_thread->blocked_port = port;
-		current_thread->port_marker = entry->marker;
-		list_add_tail(&current_thread->node, &port->sender_queue.node);
-		current_thread->state = BLOCKED;
+		current_task->ipc_state = IPC_SENDER;
+		current_task->blocked_port = port;
+		current_task->port_marker = entry->marker;
+		list_add_tail(&current_task->node, &port->sender_queue.node);
+		current_task->state = BLOCKED;
 		Schedule();
 	}
 }
@@ -312,10 +312,10 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 #ifdef CONFIG_ZUZU_BENCH
 	uint32_t bench_recv_start = BENCH_BEGIN();
 #endif
-	int handle = (int)(*arch_reg(frame, 0));
-	uint32_t timeout_ms = (*arch_reg(frame, 1)); // TIMEOUT_POLL / TIMEOUT_INFINITE / finite ms
+	int handle = (int)(*ArchGetFromFrame(frame, 0));
+	uint32_t timeout_ms = (*ArchGetFromFrame(frame, 1)); // TIMEOUT_POLL / TIMEOUT_INFINITE / finite ms
 
-	HandleTableEntry *entry = ValidatePortHandle(current_thread->owner_process, handle, frame);
+	HandleTableEntry *entry = ValidatePortHandle(current_task->owner_process, handle, frame);
 	if (unlikely(!entry))
 		return;
 	PortObject *port = entry->port;
@@ -340,13 +340,13 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 #endif
 		// Copy message to receiver
 		arch_reg_set(frame, 0, sr_thread->owner_process->pid);
-		(*arch_reg(frame, 1)) = (*arch_reg(sr_frame, 1));
-		(*arch_reg(frame, 2)) = (*arch_reg(sr_frame, 2));
-		(*arch_reg(frame, 3)) = (*arch_reg(sr_frame, 3));
+		(*ArchGetFromFrame(frame, 1)) = (*ArchGetFromFrame(sr_frame, 1));
+		(*ArchGetFromFrame(frame, 2)) = (*ArchGetFromFrame(sr_frame, 2));
+		(*ArchGetFromFrame(frame, 3)) = (*ArchGetFromFrame(sr_frame, 3));
 
 		if (sr_thread->ipc_state == IPC_SENDER) {
 			// wake the sender, it's done
-			(*arch_reg(sr_frame, 0)) = 0;
+			(*ArchGetFromFrame(sr_frame, 0)) = 0;
 			sr_thread->ipc_state = IPC_NONE;
 			sr_thread->blocked_port = NULL;
 			// Cancel timeout if sender had one
@@ -354,11 +354,11 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			sr_thread->wake_reason = WAKE_IPC;
 			sr_thread->state = READY;
 			if (sr_thread->lmsg_buf_xfer_len > 0) {
-				LmsgBufCopy(sr_thread, current_thread,
+				LmsgBufCopy(sr_thread, current_task,
 					     sr_thread->lmsg_buf_xfer_len);
-				(*arch_reg(frame, 1)) = sr_thread->lmsg_buf_xfer_len;
-				(*arch_reg(frame, 2)) = 0;
-				(*arch_reg(frame, 3)) = 0;
+				(*ArchGetFromFrame(frame, 1)) = sr_thread->lmsg_buf_xfer_len;
+				(*ArchGetFromFrame(frame, 2)) = 0;
+				(*ArchGetFromFrame(frame, 3)) = 0;
 				sr_thread->lmsg_buf_xfer_len = 0;
 			}
 			SchedAdd(sr_thread);
@@ -369,7 +369,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			// rc is guaranteed non-NULL — caller pre-allocated it
 
 			int slot =
-			    HandleTableFindFree(&current_thread->owner_process->handle_table);
+			    HandleTableFindFree(&current_task->owner_process->handle_table);
 			if (slot < 0) {
 				// Handle table full - but at least we can report the error
 				// and the caller's rc gets cleaned up
@@ -389,7 +389,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			}
 
 			HandleTableEntry *rentry =
-			    HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)slot);
+			    HandleTableGet(&current_task->owner_process->handle_table, (uint32_t)slot);
 			if (!rentry) {
 				KFreeReplyCap(rc);
 				arch_reg_set(sr_thread->trap_frame, 0, ERR_NOMEM);
@@ -405,19 +405,19 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			rentry->type = HANDLE_REPLY;
 			rentry->grantable = false;
 			rentry->reply = rc;
-			HandleEntryClaim(&current_thread->owner_process->handle_table, rentry);
+			HandleEntryClaim(&current_task->owner_process->handle_table, rentry);
 			ProcessTrackReplyCap(sr_thread->owner_process,
-					     current_thread->owner_process, slot, rc);
+					     current_task->owner_process, slot, rc);
 
 			arch_reg_set(frame, 0, slot);
 			arch_reg_set(frame, 1, sr_thread->owner_process->pid);
-			(*arch_reg(frame, 2)) = (*arch_reg(sr_frame, 1));
-			(*arch_reg(frame, 3)) = (*arch_reg(sr_frame, 2));
+			(*ArchGetFromFrame(frame, 2)) = (*ArchGetFromFrame(sr_frame, 1));
+			(*ArchGetFromFrame(frame, 3)) = (*ArchGetFromFrame(sr_frame, 2));
 			if (sr_thread->lmsg_buf_xfer_len > 0) {
-				LmsgBufCopy(sr_thread, current_thread,
+				LmsgBufCopy(sr_thread, current_task,
 					     sr_thread->lmsg_buf_xfer_len);
-				(*arch_reg(frame, 2)) = sr_thread->lmsg_buf_xfer_len;
-				(*arch_reg(frame, 3)) = 0;
+				(*ArchGetFromFrame(frame, 2)) = sr_thread->lmsg_buf_xfer_len;
+				(*ArchGetFromFrame(frame, 3)) = 0;
 				sr_thread->lmsg_buf_xfer_len = 0;
 			}
 		}
@@ -428,20 +428,20 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 		}
 
 
-		current_thread->port_wait_slot.owner = current_thread;
-		current_thread->port_wait_slot.node.prev = NULL;
-		current_thread->port_wait_slot.node.next = NULL;
-		current_thread->ipc_state = IPC_RECEIVER;
-		current_thread->blocked_port = port;
-		current_thread->wake_reason = WAKE_NONE;
-		list_add_tail(&current_thread->port_wait_slot.node, &port->receiver_queue.node);
-		current_thread->state = BLOCKED;
+		current_task->port_wait_slot.owner = current_task;
+		current_task->port_wait_slot.node.prev = NULL;
+		current_task->port_wait_slot.node.next = NULL;
+		current_task->ipc_state = IPC_RECEIVER;
+		current_task->blocked_port = port;
+		current_task->wake_reason = WAKE_NONE;
+		list_add_tail(&current_task->port_wait_slot.node, &port->receiver_queue.node);
+		current_task->state = BLOCKED;
 
 		if (unlikely(timeout_ms != TIMEOUT_INFINITE)) {
-			current_thread->wake_deadline = ArchDeadlineFromMs(timeout_ms);
-			SchedInsertSleepQueue(current_thread);
+			current_task->wake_deadline = ArchDeadlineFromMs(timeout_ms);
+			SchedInsertSleepQueue(current_task);
 		} else {
-			current_thread->wake_deadline = 0;
+			current_task->wake_deadline = 0;
 		}
 
 #ifdef CONFIG_ZUZU_BENCH
@@ -451,18 +451,18 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 
 #ifdef DEBUG
 		if (!IsFrameNormal(frame))
-			PanicBadFrame("ZuzuMsgRecv.wake", current_thread->owner_process,
+			PanicBadFrame("ZuzuMsgRecv.wake", current_task->owner_process,
 						 frame);
-		if (timeout_ms == TIMEOUT_INFINITE && current_thread->wake_reason == WAKE_TIMEOUT)
+		if (timeout_ms == TIMEOUT_INFINITE && current_task->wake_reason == WAKE_TIMEOUT)
 			PanicBadFrame("ZuzuMsgRecv.wake-timeout-on-infinite",
-						 current_thread->owner_process, frame);
+						 current_task->owner_process, frame);
 #endif
 		if (unlikely(timeout_ms != TIMEOUT_INFINITE &&
-			     current_thread->wake_reason != WAKE_TIMEOUT)) {
-			SchedRemoveSleepQueue(current_thread);
+			     current_task->wake_reason != WAKE_TIMEOUT)) {
+			SchedRemoveSleepQueue(current_task);
 		}
 
-		if (unlikely(current_thread->wake_reason == WAKE_TIMEOUT)) {
+		if (unlikely(current_task->wake_reason == WAKE_TIMEOUT)) {
 			arch_reg_set(frame, 0, ERR_TIMEOUT);
 		}
 	}
@@ -475,9 +475,9 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 	uint32_t bs = 0;
 	(void)bs;
 #endif
-	int handle = (int)(*arch_reg(frame, 0));
+	int handle = (int)(*ArchGetFromFrame(frame, 0));
 
-	HandleTableEntry *entry = ValidatePortHandle(current_thread->owner_process, handle, frame);
+	HandleTableEntry *entry = ValidatePortHandle(current_task->owner_process, handle, frame);
 	if (unlikely(!entry))
 		return;
 	PortObject *port = entry->port;
@@ -490,7 +490,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		arch_reg_set(frame, 0, ERR_NOMEM);
 		return; // caller gets clean error, never blocked
 	}
-	rc->caller_tid = current_thread ? current_thread->tid : 0;
+	rc->caller_tid = current_task ? current_task->tid : 0;
 
 	/* The whole point of this benchmark suite's echo-server pattern (and
 	 * of the direct-handoff optimization below): the receiver is already
@@ -546,16 +546,16 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 #ifdef CONFIG_ZUZU_BENCH
 		bs = BENCH_BEGIN();
 #endif
-		ProcessTrackReplyCap(current_thread->owner_process, rx_thread->owner_process,
+		ProcessTrackReplyCap(current_task->owner_process, rx_thread->owner_process,
 				     slot, rc);
 #ifdef CONFIG_ZUZU_BENCH
 		BENCH_END(g_bench_track_cap, bs);
 #endif
 
 		arch_reg_set(rx_frame, 0, slot);
-		arch_reg_set(rx_frame, 1, current_thread->owner_process->pid);
-		(*arch_reg(rx_frame, 2)) = (*arch_reg(frame, 1));
-		(*arch_reg(rx_frame, 3)) = (*arch_reg(frame, 2));
+		arch_reg_set(rx_frame, 1, current_task->owner_process->pid);
+		(*ArchGetFromFrame(rx_frame, 2)) = (*ArchGetFromFrame(frame, 1));
+		(*ArchGetFromFrame(rx_frame, 3)) = (*ArchGetFromFrame(frame, 2));
 		rx_thread->ipc_state = IPC_NONE;
 		rx_thread->blocked_port = NULL;
 		CancelTimeout(rx_thread);
@@ -564,9 +564,9 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		BENCH_END(g_bench_direct_handoff, bench_start);
 #endif
 
-		current_thread->state = BLOCKED;
-		current_thread->blocked_port = port;
-		current_thread->ipc_state = IPC_WAITING;
+		current_task->state = BLOCKED;
+		current_task->blocked_port = port;
+		current_task->ipc_state = IPC_WAITING;
 
 		/* Direct handoff: skip the run-queue round trip and switch straight
 		 * to the receiver we just woke, as long as doing so wouldn't jump
@@ -594,12 +594,12 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 #ifdef CONFIG_ZUZU_BENCH
 		BENCH_END(g_bench_call_body, bench_call_start);
 #endif
-		current_thread->ipc_state = IPC_WAITING;
-		current_thread->blocked_port = port;
-		current_thread->pending_reply_cap = rc;
-		current_thread->port_marker = entry->marker;
-		list_add_tail(&current_thread->node, &port->sender_queue.node);
-		current_thread->state = BLOCKED;
+		current_task->ipc_state = IPC_WAITING;
+		current_task->blocked_port = port;
+		current_task->pending_reply_cap = rc;
+		current_task->port_marker = entry->marker;
+		list_add_tail(&current_task->node, &port->sender_queue.node);
+		current_task->state = BLOCKED;
 		Schedule();
 	}
 }
@@ -611,13 +611,13 @@ void __attribute__((hot)) SysMsgReply(CpuState *frame)
 	uint32_t bs = 0;
 	(void)bs;
 #endif
-	Handle handle_idx = (Handle)(*arch_reg(frame, 0));
+	Handle handle_idx = (Handle)(*ArchGetFromFrame(frame, 0));
 	TaskObject *target_thread = NULL;
 #ifdef CONFIG_ZUZU_BENCH
 	bs = BENCH_BEGIN();
 #endif
 	HandleTableEntry *entry =
-	    ValidateReplyCap(current_thread->owner_process, handle_idx, &target_thread, frame);
+	    ValidateReplyCap(current_task->owner_process, handle_idx, &target_thread, frame);
 #ifdef CONFIG_ZUZU_BENCH
 	BENCH_END(g_bench_validate_replycap, bs);
 #endif
@@ -634,10 +634,10 @@ void __attribute__((hot)) SysMsgReply(CpuState *frame)
 					 target_frame);
 	}
 #endif
-	(*arch_reg(target_frame, 0)) = 0;		      // success
-	(*arch_reg(target_frame, 1)) = (*arch_reg(frame, 1)); // reply payload
-	(*arch_reg(target_frame, 2)) = (*arch_reg(frame, 2));
-	(*arch_reg(target_frame, 3)) = (*arch_reg(frame, 3));
+	(*ArchGetFromFrame(target_frame, 0)) = 0;		      // success
+	(*ArchGetFromFrame(target_frame, 1)) = (*ArchGetFromFrame(frame, 1)); // reply payload
+	(*ArchGetFromFrame(target_frame, 2)) = (*ArchGetFromFrame(frame, 2));
+	(*ArchGetFromFrame(target_frame, 3)) = (*ArchGetFromFrame(frame, 3));
 
 	// Wake the caller
 	target_thread->ipc_state = IPC_NONE;
@@ -659,11 +659,11 @@ void __attribute__((hot)) SysMsgReply(CpuState *frame)
 #ifdef CONFIG_ZUZU_BENCH
 	bs = BENCH_BEGIN();
 #endif
-	HandleEntryFree(&current_thread->owner_process->handle_table, entry);
+	HandleEntryFree(&current_task->owner_process->handle_table, entry);
 #ifdef CONFIG_ZUZU_BENCH
 	BENCH_END(g_bench_entry_free, bs);
 #endif
-	(*arch_reg(frame, 0)) = 0;
+	(*ArchGetFromFrame(frame, 0)) = 0;
 #ifdef CONFIG_ZUZU_BENCH
 	BENCH_END(g_bench_reply_body, bench_reply_start);
 #endif
@@ -671,10 +671,10 @@ void __attribute__((hot)) SysMsgReply(CpuState *frame)
 
 void __attribute__((hot)) SysMsgLsend(CpuState *frame)
 {
-	int handle = (int)(*arch_reg(frame, 0));
-	uint32_t xlen = (*arch_reg(frame, 1));
+	int handle = (int)(*ArchGetFromFrame(frame, 0));
+	uint32_t xlen = (*ArchGetFromFrame(frame, 1));
 
-	HandleTableEntry *entry = ValidatePortHandle(current_thread->owner_process, handle, frame);
+	HandleTableEntry *entry = ValidatePortHandle(current_task->owner_process, handle, frame);
 	if (!entry)
 		return;
 	PortObject *port = entry->port;
@@ -698,35 +698,35 @@ void __attribute__((hot)) SysMsgLsend(CpuState *frame)
 			PanicBadFrame("ZuzuMsgLsend.rx",
 						 rx_thread->owner_process, rx_frame);
 #endif
-		arch_reg_set(rx_frame, 0, current_thread->owner_process->pid);
-		(*arch_reg(rx_frame, 1)) = xlen;
-		(*arch_reg(rx_frame, 2)) = 0;
-		(*arch_reg(rx_frame, 3)) = 0;
-		LmsgBufCopy(current_thread, rx_thread, xlen);
+		arch_reg_set(rx_frame, 0, current_task->owner_process->pid);
+		(*ArchGetFromFrame(rx_frame, 1)) = xlen;
+		(*ArchGetFromFrame(rx_frame, 2)) = 0;
+		(*ArchGetFromFrame(rx_frame, 3)) = 0;
+		LmsgBufCopy(current_task, rx_thread, xlen);
 		rx_thread->ipc_state = IPC_NONE;
 		rx_thread->blocked_port = NULL;
 		CancelTimeout(rx_thread);
 		rx_thread->wake_reason = WAKE_IPC;
 		rx_thread->state = READY;
 		SchedAdd(rx_thread);
-		(*arch_reg(frame, 0)) = 0;
+		(*ArchGetFromFrame(frame, 0)) = 0;
 	} else {
-		current_thread->ipc_state = IPC_SENDER;
-		current_thread->blocked_port = port;
-		current_thread->port_marker = entry->marker;
-		list_add_tail(&current_thread->node, &port->sender_queue.node);
-		current_thread->lmsg_buf_xfer_len = xlen;
-		current_thread->state = BLOCKED;
+		current_task->ipc_state = IPC_SENDER;
+		current_task->blocked_port = port;
+		current_task->port_marker = entry->marker;
+		list_add_tail(&current_task->node, &port->sender_queue.node);
+		current_task->lmsg_buf_xfer_len = xlen;
+		current_task->state = BLOCKED;
 		Schedule();
 	}
 }
 
 void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 {
-	Handle handle = (Handle)(*arch_reg(frame, 0));
-	uint32_t xlen = (*arch_reg(frame, 1));
+	Handle handle = (Handle)(*ArchGetFromFrame(frame, 0));
+	uint32_t xlen = (*ArchGetFromFrame(frame, 1));
 
-	HandleTableEntry *entry = ValidatePortHandle(current_thread->owner_process, handle, frame);
+	HandleTableEntry *entry = ValidatePortHandle(current_task->owner_process, handle, frame);
 	if (!entry)
 		return;
 	PortObject *port = entry->port;
@@ -745,7 +745,7 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 		arch_reg_set(frame, 0, ERR_NOMEM);
 		return; // caller gets clean error, never blocked
 	}
-	rc->caller_tid = current_thread ? current_thread->tid : 0;
+	rc->caller_tid = current_task ? current_task->tid : 0;
 
 	if (!list_empty(&port->receiver_queue)) {
 		ListNode *receiver = list_pop_front(&port->receiver_queue);
@@ -777,22 +777,22 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 		rentry->grantable = false;
 		rentry->reply = rc;
 		HandleEntryClaim(&rx_thread->owner_process->handle_table, rentry);
-		ProcessTrackReplyCap(current_thread->owner_process, rx_thread->owner_process,
+		ProcessTrackReplyCap(current_task->owner_process, rx_thread->owner_process,
 				     slot, rc);
 
 		arch_reg_set(rx_frame, 0, slot);
-		arch_reg_set(rx_frame, 1, current_thread->owner_process->pid);
-		(*arch_reg(rx_frame, 2)) = xlen;
-		(*arch_reg(rx_frame, 3)) = 0;
-		LmsgBufCopy(current_thread, rx_thread, xlen);
+		arch_reg_set(rx_frame, 1, current_task->owner_process->pid);
+		(*ArchGetFromFrame(rx_frame, 2)) = xlen;
+		(*ArchGetFromFrame(rx_frame, 3)) = 0;
+		LmsgBufCopy(current_task, rx_thread, xlen);
 		rx_thread->ipc_state = IPC_NONE;
 		rx_thread->blocked_port = NULL;
 		CancelTimeout(rx_thread);
 		rx_thread->wake_reason = WAKE_IPC;
 
-		current_thread->state = BLOCKED;
-		current_thread->blocked_port = port;
-		current_thread->ipc_state = IPC_WAITING;
+		current_task->state = BLOCKED;
+		current_task->blocked_port = port;
+		current_task->ipc_state = IPC_WAITING;
 
 		/* Direct handoff -- see the identical comment in SysMsgCall(). */
 		if (unlikely(SchedAnyCpuTakers(rx_thread))) {
@@ -806,21 +806,21 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 		}
 	} else {
 		CALL_TALLY(g_mix_lcall, CALLPATH_NO_RECEIVER);
-		current_thread->ipc_state = IPC_WAITING;
-		current_thread->blocked_port = port;
-		current_thread->pending_reply_cap = rc;
-		current_thread->port_marker = entry->marker;
-		list_add_tail(&current_thread->node, &port->sender_queue.node);
-		current_thread->lmsg_buf_xfer_len = xlen;
-		current_thread->state = BLOCKED;
+		current_task->ipc_state = IPC_WAITING;
+		current_task->blocked_port = port;
+		current_task->pending_reply_cap = rc;
+		current_task->port_marker = entry->marker;
+		list_add_tail(&current_task->node, &port->sender_queue.node);
+		current_task->lmsg_buf_xfer_len = xlen;
+		current_task->state = BLOCKED;
 		Schedule();
 	}
 }
 
 void __attribute__((hot)) SysMsgLreply(CpuState *frame)
 {
-	Handle handle_idx = (Handle)(*arch_reg(frame, 0));
-	uint32_t xlen = (*arch_reg(frame, 1));
+	Handle handle_idx = (Handle)(*ArchGetFromFrame(frame, 0));
+	uint32_t xlen = (*ArchGetFromFrame(frame, 1));
 
 	/* No truncation: oversized payloads are rejected outright. */
 	if (xlen > LMSG_BUF_SIZE) {
@@ -830,7 +830,7 @@ void __attribute__((hot)) SysMsgLreply(CpuState *frame)
 
 	TaskObject *target_thread = NULL;
 	HandleTableEntry *entry =
-	    ValidateReplyCap(current_thread->owner_process, handle_idx, &target_thread, frame);
+	    ValidateReplyCap(current_task->owner_process, handle_idx, &target_thread, frame);
 	if (!entry) {
 		return;
 	}
@@ -844,11 +844,11 @@ void __attribute__((hot)) SysMsgLreply(CpuState *frame)
 					 target_frame);
 	}
 #endif
-	(*arch_reg(target_frame, 0)) = 0;    // success
-	(*arch_reg(target_frame, 1)) = xlen; // reply payload
-	(*arch_reg(target_frame, 2)) = 0;
-	(*arch_reg(target_frame, 3)) = 0;
-	LmsgBufCopy(current_thread, target_thread, xlen);
+	(*ArchGetFromFrame(target_frame, 0)) = 0;    // success
+	(*ArchGetFromFrame(target_frame, 1)) = xlen; // reply payload
+	(*ArchGetFromFrame(target_frame, 2)) = 0;
+	(*ArchGetFromFrame(target_frame, 3)) = 0;
+	LmsgBufCopy(current_task, target_thread, xlen);
 
 	// Wake the caller
 	target_thread->ipc_state = IPC_NONE;
@@ -861,6 +861,6 @@ void __attribute__((hot)) SysMsgLreply(CpuState *frame)
 
 	ProcessUntrackReplyCap(entry->reply);
 	KFreeReplyCap(entry->reply);
-	HandleEntryFree(&current_thread->owner_process->handle_table, entry);
-	(*arch_reg(frame, 0)) = 0;
+	HandleEntryFree(&current_task->owner_process->handle_table, entry);
+	(*ArchGetFromFrame(frame, 0)) = 0;
 }

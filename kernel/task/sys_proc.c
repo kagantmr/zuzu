@@ -41,7 +41,7 @@ void SysWait(CpuState *frame)
 
     if (req_pid == -1)
     {
-        child = ProcessFindZombieChild(current_thread->owner_process);
+        child = ProcessFindZombieChild(current_task->owner_process);
         if (child)
         {
             if (!wait_write_status(status_out, child->exit_status))
@@ -60,11 +60,11 @@ void SysWait(CpuState *frame)
             return;
         }
 
-        current_thread->owner_process->waiting_for = WAIT_ANY_PID;
-        current_thread->state = BLOCKED;
+        current_task->owner_process->waiting_for = WAIT_ANY_PID;
+        current_task->state = BLOCKED;
         Schedule();
 
-        child = ProcessFindZombieChild(current_thread->owner_process);
+        child = ProcessFindZombieChild(current_task->owner_process);
         if (!child)
         {
             arch_reg_set(frame, 0, ERR_NOENT);
@@ -87,7 +87,7 @@ void SysWait(CpuState *frame)
     }
 
     Pid child_pid = req_pid;
-    child = ProcessFindChildFromPid(current_thread->owner_process, child_pid);
+    child = ProcessFindChildFromPid(current_task->owner_process, child_pid);
     if (!child)
     {
         arch_reg_set(frame, 0, ERR_NOENT);
@@ -115,12 +115,12 @@ void SysWait(CpuState *frame)
     }
 
     // Case C: block until child exits
-    current_thread->owner_process->waiting_for = child_pid;
-    current_thread->state = BLOCKED;
+    current_task->owner_process->waiting_for = child_pid;
+    current_task->state = BLOCKED;
     Schedule();
 
     // re-fetch after wakeup, pointer may be stale
-    child = ProcessFindChildFromPid(current_thread->owner_process, child_pid);
+    child = ProcessFindChildFromPid(current_task->owner_process, child_pid);
     if (!child)
     {
         arch_reg_set(frame, 0, ERR_NOENT);
@@ -184,7 +184,7 @@ void SysPSpawn(CpuState *frame)
         return;
     }
 
-    HandleTable *caller_ht = &current_thread->owner_process->handle_table;
+    HandleTable *caller_ht = &current_task->owner_process->handle_table;
     for (int i = 0; i < 4; i++)
     {
         HandleTableEntry *src = HandleTableGet(caller_ht, (uint32_t)i);
@@ -199,7 +199,7 @@ void SysPSpawn(CpuState *frame)
             src->port->ref_count++;
     }
 
-    ProcessSetParent(process, current_thread->owner_process);
+    ProcessSetParent(process, current_task->owner_process);
 
     // now return a handle
     int slot = HandleTableFindFree(caller_ht);
@@ -249,7 +249,7 @@ void SysKickstart(CpuState *frame)
     }
 
     HandleTableEntry *entry =
-        HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)kargs.task_handle);
+        HandleTableGet(&current_task->owner_process->handle_table, (uint32_t)kargs.task_handle);
     if (!entry)
     {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
@@ -287,7 +287,7 @@ void SysPKill(CpuState *frame)
 {
     uint32_t handle_idx = (*arch_reg(frame, 0));
 
-    HandleTable *ht = &current_thread->owner_process->handle_table;
+    HandleTable *ht = &current_task->owner_process->handle_table;
     HandleTableEntry *entry = HandleTableGet(ht, handle_idx);
     if (!entry)
     {
@@ -307,7 +307,7 @@ void SysPKill(CpuState *frame)
         return;
     }
 
-    if (target == current_thread->owner_process)
+    if (target == current_task->owner_process)
     {
         arch_reg_set(frame, 0, ERR_BADARG); /* use pquit */
         return;

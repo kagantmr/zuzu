@@ -29,7 +29,7 @@ void NtfnWakeWaiter(EventObject *ntfn, WaitSlot *slot, int32_t r0_value)
               waiter ? (void *)waiter->trap_frame : NULL);
     }
 
-    (*arch_reg(waiter->trap_frame, 0)) = (uint32_t)r0_value;
+    (*ArchGetFromFrame(waiter->trap_frame, 0)) = (uint32_t)r0_value;
 
     SchedRemoveSleepQueue(waiter);
     waiter->wake_deadline = 0;

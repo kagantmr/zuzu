@@ -8,7 +8,6 @@
 #include <string.h>
 #include <zuzu/types.h>
 
-
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/vmm.h"
 
@@ -56,8 +55,8 @@ typedef struct
         PortObject *port;
         DeviceObject *dev;
         ShmObject *shm;
-        EventObject *event;   /* rename target: HANDLE_EVENT */
-        struct SpaceObjectStruct *task;
+        EventObject *event; 
+        TaskObject *task;
         SpaceObject *space;
     };
     Marker marker; /* Added in zuzu 1.1: Same handle can be stamped with a marker to demux
@@ -106,7 +105,7 @@ static __always_inline HandleTableEntry *HandleTableGet(HandleTable *t, uint32_t
 }
 
 /* Returns a free slot index, allocating its leaf block on first use. */
-static inline int HandleTableFindFree(HandleTable *t)
+static inline Handle HandleTableFindFree(HandleTable *t)
 {
     int slot = BitmapFindFirstZero(t->slot_bitmap, HANDLE_MAX_SLOTS);
     if (slot < 0)
@@ -119,7 +118,7 @@ static inline int HandleTableFindFree(HandleTable *t)
         if (!t->blocks[b])
             return -1;
     }
-    return slot;
+    return (Handle)slot;
 }
 
 static inline HandleTableEntry *HandleTableLookup(HandleTable *t, Handle h)

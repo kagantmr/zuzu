@@ -81,14 +81,14 @@ bool CopyToUser(void *restrict uaddr, const void *restrict kaddr, size_t len)
 {
     if (len == 0)
         return true;
-    if (!current_thread || !current_thread->owner_process || !current_thread->owner_process->as || !uaddr || !kaddr)
+    if (!current_task || !current_task->owner_process || !current_task->owner_process->as || !uaddr || !kaddr)
         return false;
     if (!IsUserPtrNormal((uintptr_t)uaddr, len))
         return false;
 #ifdef CONFIG_ZUZU_BENCH
     uint32_t bench_start = BENCH_BEGIN();
 #endif
-    if (!VmmCheckUserFault(current_thread->owner_process->as, (uintptr_t)uaddr, len, true))
+    if (!VmmCheckUserFault(current_task->owner_process->as, (uintptr_t)uaddr, len, true))
         return false;
 #ifdef CONFIG_ZUZU_BENCH
     BENCH_END(g_bench_copytouser_walk, bench_start);
@@ -106,14 +106,14 @@ bool CopyFromUser(void *restrict kaddr, const void *restrict uaddr, size_t len)
 {
     if (len == 0)
         return true;
-    if (!current_thread || !current_thread->owner_process || !current_thread->owner_process->as || !uaddr || !kaddr)
+    if (!current_task || !current_task->owner_process || !current_task->owner_process->as || !uaddr || !kaddr)
         return false;
     if (!IsUserPtrNormal((uintptr_t)uaddr, len))
         return false;
 #ifdef CONFIG_ZUZU_BENCH
     uint32_t bench_start = BENCH_BEGIN();
 #endif
-    if (!VmmCheckUserFault(current_thread->owner_process->as, (uintptr_t)uaddr, len, false))
+    if (!VmmCheckUserFault(current_task->owner_process->as, (uintptr_t)uaddr, len, false))
         return false;
 #ifdef CONFIG_ZUZU_BENCH
     BENCH_END(g_bench_copyfromuser_walk, bench_start);
@@ -145,14 +145,14 @@ static void SvcDebugLog(CpuState *frame)
     }
     buf[len] = '\0';
     kprintf("[udbg pid=%u] %s\n",
-            (unsigned)(current_thread->owner_process ? current_thread->owner_process->pid : 0), buf);
+            (unsigned)(current_task->owner_process ? current_task->owner_process->pid : 0), buf);
     arch_reg_set(frame, 0, 0);
 }
 #endif /* DEBUG */
 
 void __hot SvcDispatch(Svc svc_num, CpuState *frame)
 {
-    if (unlikely(!current_thread))
+    if (unlikely(!current_task))
     {
         arch_reg_set(frame, 0, ERR_BADARG);
         return;
@@ -160,10 +160,10 @@ void __hot SvcDispatch(Svc svc_num, CpuState *frame)
     if (unlikely(!IsNormalFrame(frame)))
     {
         panic("Corrupt trap_frame at syscall dispatch: pid=%u svc=%u frame=%p",
-              (unsigned)(current_thread->owner_process ? current_thread->owner_process->pid : 0),
+              (unsigned)(current_task->owner_process ? current_task->owner_process->pid : 0),
               svc_num, (void *)frame);
     }
-    current_thread->trap_frame = frame;
+    current_task->trap_frame = frame;
 
     if (likely(svc_table[svc_num]))
         svc_table[svc_num](frame);

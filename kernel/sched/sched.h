@@ -10,7 +10,7 @@
 
 extern void __attribute__((hot)) context_switch(TaskObject *prev, TaskObject *next);
 
-extern TaskObject *current_thread;
+extern TaskObject *current_task;
 extern bool fpu_access_enabled;;
 
 // Thread whose registers currently live in the FPU hardware, or NULL if none.

@@ -30,7 +30,7 @@ static bool WakeNtfnWaiter(EventObject *ntfn, WaitSlot *slot)
         return false;
 
     uint32_t bits = ntfn->word;
-    (*arch_reg(waiter->trap_frame, 0)) = bits;
+    (*ArchGetFromFrame(waiter->trap_frame, 0)) = bits;
 
     SchedRemoveSleepQueue(waiter);
     waiter->wake_deadline = 0;
@@ -67,7 +67,7 @@ static void __hot relay_handler(void *ctx)
 #ifdef CONFIG_ZUZU_BENCH
             BENCH_END(g_bench_irq_wait, waiter->bench_irq_wait_start);
 #endif
-            if (!current_thread || waiter->priority > current_thread->priority) {
+            if (!current_task || waiter->priority > current_task->priority) {
                 do_resched = 1;
             }
         }
@@ -88,14 +88,14 @@ static inline bool valid_irq(Irq irq_num)
  */
 void SysIrqBind(CpuState *frame)
 {
-    Handle dev_handle = (Handle)(*arch_reg(frame, 0));
-    Handle ntfn_handle = (Handle)(*arch_reg(frame, 1));
+    Handle dev_handle = (Handle)(*ArchGetFromFrame(frame, 0));
+    Handle ntfn_handle = (Handle)(*ArchGetFromFrame(frame, 1));
 
     if (dev_handle == 0) {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
     }
-    HandleTableEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)dev_handle);
+    HandleTableEntry *entry = HandleTableGet(&current_task->owner_process->handle_table, (uint32_t)dev_handle);
     if (!entry) {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
@@ -113,7 +113,7 @@ void SysIrqBind(CpuState *frame)
 
     /* Ownership: free line is ours to claim; a line owned by someone else is busy. */
     Process *owner = irq_owners[irq_num].owner;
-    if (owner && owner != current_thread->owner_process) {
+    if (owner && owner != current_task->owner_process) {
         arch_reg_set(frame, 0, ERR_BUSY);
         return;
     }
@@ -121,7 +121,7 @@ void SysIrqBind(CpuState *frame)
     /* Validate the notification before mutating any state so a bad ntfn handle
      * does not leave the line claimed-but-unbound. */
     HandleTableEntry *ntfn_entry =
-        HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)ntfn_handle);
+        HandleTableGet(&current_task->owner_process->handle_table, (uint32_t)ntfn_handle);
     if (!ntfn_entry || !ntfn_entry->ntfn) {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
@@ -138,7 +138,7 @@ void SysIrqBind(CpuState *frame)
     /* Claim the line on first bind. */
     if (!owner) {
         irq_owners[irq_num] = (IrqOwner){ .bound_ntfn = NULL,
-                                          .owner = current_thread->owner_process,
+                                          .owner = current_task->owner_process,
                                           .pending = false };
         arch_irq_register(irq_num, relay_handler, (void *)(VirtAddr)irq_num);
     }
@@ -166,7 +166,7 @@ void SysIrqBind(CpuState *frame)
             uint32_t bits = ntfn->word;
 
             if (waiter->trap_frame) {
-                (*arch_reg(waiter->trap_frame, 0)) = bits;
+                (*ArchGetFromFrame(waiter->trap_frame, 0)) = bits;
             }
 
             SchedRemoveSleepQueue(waiter);
@@ -181,7 +181,7 @@ void SysIrqBind(CpuState *frame)
     }
 
     arch_irq_enable_line(irq_num);
-    (*arch_reg(frame, 0)) = 0;
+    (*ArchGetFromFrame(frame, 0)) = 0;
 }
 
 

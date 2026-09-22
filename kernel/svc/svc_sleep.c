@@ -7,12 +7,12 @@ void SvcSleep(CpuState *frame)
 {
     Duration ms = (*arch_reg(frame, 0)); // argument 0: Milliseconds to sleep
 
-    current_thread->wake_deadline = ArchDeadlineFromMs(ms);
-    current_thread->wake_reason = WAKE_NONE;
+    current_task->wake_deadline = ArchDeadlineFromMs(ms);
+    current_task->wake_reason = WAKE_NONE;
 
     // Change state to BLOCKED and insert into sleep queue
-    current_thread->state = BLOCKED;
-    SchedInsertSleepQueue(current_thread);
+    current_task->state = BLOCKED;
+    SchedInsertSleepQueue(current_task);
     // Schedule someone else immediately
     Schedule();
 

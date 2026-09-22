@@ -12,7 +12,7 @@
 #include <stdint.h>
 
 /* Natural register-width integer for this architecture (32-bit on ARMv7-A). */
-typedef uint32_t Register;
+typedef int32_t Register;
 
 /**
  * Represents a process's saved CPU state at the time of an exception.
@@ -41,7 +41,7 @@ typedef struct exception_frame CpuState;
  * times per syscall (every arg read, every return-value write); always_inline
  * guarantees the pointer arithmetic never survives as a real call even if a
  * caller is judged too large to inline into otherwise. */
-static __always_inline Register *arch_reg(CpuState *f, unsigned i) { return &f->r[i]; }
+static __always_inline Register *ArchGetFromFrame(CpuState *f, unsigned i) { return &f->r[i]; }
 
 static __always_inline Register arch_regs_pc(const CpuState *f)    { return f->return_pc; }
 static __always_inline Register arch_regs_sp(const CpuState *f)    { return f->sp_usr; }

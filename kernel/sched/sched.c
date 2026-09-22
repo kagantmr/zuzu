@@ -24,7 +24,7 @@
 
 static ListHead destroy_queue = LIST_HEAD_INIT(destroy_queue);
 static ListHead thread_destroy_queue = LIST_HEAD_INIT(thread_destroy_queue);
-TaskObject *current_thread;
+TaskObject *current_task;
 TaskObject *fpu_owner = NULL;
 
 volatile uint8_t do_resched = 0;
@@ -84,7 +84,7 @@ void SchedInit()
     slot_shift = (uint32_t)(63 - __builtin_clzll(ArchTimerFreq() / 250));
     wheel_now_slot = ArchTimerNow() >> slot_shift;
     list_init(&destroy_queue);
-    current_thread = NULL;
+    current_task = NULL;
     on_idle_stack = false;
     SchedInitIdleThread();
 }
@@ -104,7 +104,7 @@ void SchedAdd(TaskObject *t)
     list_add_tail(&t->node, &run_queues[priority].node);
     ready_mask |= (1U << priority);
 
-    if (current_thread && t->priority > current_thread->priority)
+    if (current_task && t->priority > current_task->priority)
     {
         do_resched = 1;
     }
@@ -135,7 +135,7 @@ void SchedConsumeDestroyQueue(void)
             break;
         TaskObject *t = container_of(node, TaskObject, destroy_node);
 
-        if (t == current_thread)
+        if (t == current_task)
         {
             list_add_tail(&t->destroy_node, &deferred.node);
             continue;
@@ -326,12 +326,12 @@ bool __hot SchedAnyCpuTakers(const TaskObject *t)
  * functions in the kernel. */
 void __hot SchedSwitchNext(TaskObject *next)
 {
-    TaskObject *prev = current_thread;
+    TaskObject *prev = current_task;
 
     if (unlikely(next == &idle_thread))
     {
         bool from_idle = (prev == NULL && on_idle_stack);
-        current_thread = NULL;
+        current_task = NULL;
         SchedArmTimer(); /* no slice to run out; sleepers still need waking */
         if (from_idle)
         {
@@ -341,19 +341,19 @@ void __hot SchedSwitchNext(TaskObject *next)
         return;
     }
 
-    current_thread = next;
-    current_thread->state = RUNNING;
+    current_task = next;
+    current_task->state = RUNNING;
     on_idle_stack = false;
 
-    current_thread->ticks_remaining = current_thread->time_slice;
-    current_thread->slice_deadline =
-        ArchTimerNow() + ((uint64_t)current_thread->time_slice * (ArchTimerFreq() / TICK_HZ));
+    current_task->ticks_remaining = current_task->time_slice;
+    current_task->slice_deadline =
+        ArchTimerNow() + ((uint64_t)current_task->time_slice * (ArchTimerFreq() / TICK_HZ));
     SchedArmTimer();
 
     if (unlikely(next == prev))
         return;
 
-    if (unlikely(current_thread == fpu_owner)) {
+    if (unlikely(current_task == fpu_owner)) {
         if (!fpu_access_enabled) {
             arch_fpu_trap_enable();
             fpu_access_enabled = true;
@@ -366,13 +366,13 @@ void __hot SchedSwitchNext(TaskObject *next)
     }
 
     SpaceObject *prev_proc = prev ? prev->owner : NULL;
-    if (unlikely(current_thread->owner->as &&
-                 (!prev_proc || prev_proc->as != current_thread->owner->as)))
+    if (unlikely(current_task->owner->as &&
+                 (!prev_proc || prev_proc->as != current_task->owner->as)))
     {
-        VmmActivateAddrspace(current_thread->owner->as);
+        VmmActivateAddrspace(current_task->owner->as);
     }
-    arch_set_thread_ptr(current_thread);
-    context_switch(prev, current_thread);
+    arch_set_thread_ptr(current_task);
+    context_switch(prev, current_task);
 }
 
 #define MIN_TIMER_SLACK (ArchTimerFreq() / 500000u) /* 2us, any CNTFRQ */
@@ -400,9 +400,9 @@ void SchedArmTimer(void)
     if (k < SLEEP_QUEUE_SIZE)
         deadline = (wheel_now_slot + k + 1) << slot_shift;
 
-    if (current_thread && SchedAnyCpuTakers(current_thread) &&
-        current_thread->slice_deadline < deadline)
-        deadline = current_thread->slice_deadline;
+    if (current_task && SchedAnyCpuTakers(current_task) &&
+        current_task->slice_deadline < deadline)
+        deadline = current_task->slice_deadline;
 
     if (deadline == UINT64_MAX)
     {
@@ -419,10 +419,10 @@ void SchedArmTimer(void)
 
 void __hot Schedule(void)
 {
-    if (current_thread != NULL && current_thread->state == RUNNING)
+    if (current_task != NULL && current_task->state == RUNNING)
     {
-        current_thread->state = READY;
-        SchedAdd(current_thread);
+        current_task->state = READY;
+        SchedAdd(current_task);
     }
 
     SchedDoHousekeeping();

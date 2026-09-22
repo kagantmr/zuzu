@@ -22,7 +22,7 @@ void SysTMake(CpuState *frame)
 		return;
 	}
 
-	ProcessObj *owner = current_thread->owner_process;
+	ProcessObj *owner = current_task->owner_process;
 	Thread *t = ThreadCreate(owner);
 	if (!t) {
 		arch_reg_set(frame, 0, ERR_NOMEM);
@@ -88,14 +88,14 @@ void SysTJoin(CpuState *frame)
 		arch_reg_set(frame, 0, ERR_NOENT);
 		return;
 	}
-	if (thread->owner_process != current_thread->owner_process) {
+	if (thread->owner_process != current_task->owner_process) {
 		arch_reg_set(frame, 0, ERR_NOPERM);
 		return;
 	}
 
 	if (thread->state != ZOMBIE) {
-		list_add_tail(&current_thread->join_node, &thread->joiners.node);
-		current_thread->state = BLOCKED;
+		list_add_tail(&current_task->join_node, &thread->joiners.node);
+		current_task->state = BLOCKED;
 		Schedule();
 
 		/* ThreadWakeJoiners delivered the exit status into our trap

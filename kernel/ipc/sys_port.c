@@ -22,20 +22,20 @@ static bool CanRegrantHandle(const SpaceObject *grantee)
 
 void SysPortCreate(CpuState *frame)
 {
-    if (!current_thread)
+    if (!current_task)
     {
         arch_reg_set(frame, 0, ERR_BADARG);
         return;
     }
 
-    Handle handle = HandleTableFindFree(&current_thread->owner_process->handle_table);
+    Handle handle = HandleTableFindFree(&current_task->owner_process->handle_table);
     if (handle == -1)
     {
         arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }
 
-    HandleTable *ht = &current_thread->owner_process->handle_table;
+    HandleTable *ht = &current_task->owner_process->handle_table;
     HandleTableEntry *entry = HandleTableGet(ht, (uint32_t)handle);
 
     PortObject *new_port = (PortObject *)KAllocPortObj();
@@ -47,7 +47,7 @@ void SysPortCreate(CpuState *frame)
     // list_init(&new_port->node);
     list_init(&new_port->sender_queue);
     list_init(&new_port->receiver_queue);
-    new_port->owner_pid = current_thread->owner_process->pid;
+    new_port->owner_pid = current_task->owner_process->pid;
     new_port->ref_count = 1;
     new_port->alive = true;
     entry->port = new_port;
@@ -60,16 +60,16 @@ void SysPortCreate(CpuState *frame)
 
 void SysDestroy(CpuState *frame)
 {
-    if (!current_thread)
+    if (!current_task)
     {
         arch_reg_set(frame, 0, ERR_BADARG);
         return;
     }
 
-    int handle = (int)(*arch_reg(frame, 0));
+    int handle = (int)(*ArchGetFromFrame(frame, 0));
 
     // Validate handle
-    HandleTable *ht = &current_thread->owner_process->handle_table;
+    HandleTable *ht = &current_task->owner_process->handle_table;
     HandleTableEntry *entry = HandleTableGet(ht, (uint32_t)handle);
     if (!entry)
     {
@@ -106,7 +106,7 @@ void SysDestroy(CpuState *frame)
         }
 
         // Only owner can destroy
-        if (port->owner_pid != current_thread->owner_process->pid)
+        if (port->owner_pid != current_task->owner_process->pid)
         {
             arch_reg_set(frame, 0, ERR_NOPERM);
             return;
@@ -150,7 +150,7 @@ void SysDestroy(CpuState *frame)
         if (port->ref_count == 0)
             KFreePortObj(port);
 
-        (*arch_reg(frame, 0)) = 0;
+        (*ArchGetFromFrame(frame, 0)) = 0;
     }
     break;
     case HANDLE_NTFN:
@@ -170,7 +170,7 @@ void SysDestroy(CpuState *frame)
         }
 
         // Only owner can destroy
-        if (ntf->owner_pid != current_thread->owner_process->pid)
+        if (ntf->owner_pid != current_task->owner_process->pid)
         {
             arch_reg_set(frame, 0, ERR_NOPERM);
             return;
@@ -193,7 +193,7 @@ void SysDestroy(CpuState *frame)
         if (ntf->ref_count == 0)
             KFreeNtfn(ntf);
 
-        (*arch_reg(frame, 0)) = 0;
+        (*ArchGetFromFrame(frame, 0)) = 0;
     }
     break;
     case HANDLE_SHM:
@@ -209,7 +209,7 @@ void SysDestroy(CpuState *frame)
         ShmemDropReference(entry->shm);
         HandleEntryFree(ht, entry);
 
-        (*arch_reg(frame, 0)) = 0;
+        (*ArchGetFromFrame(frame, 0)) = 0;
     }
     break;
     case HANDLE_DEVICE:
@@ -235,7 +235,7 @@ void SysDestroy(CpuState *frame)
         if (dev->ref_count == 0)
             KFreeDevCap(dev);
 
-        (*arch_reg(frame, 0)) = 0;
+        (*ArchGetFromFrame(frame, 0)) = 0;
     }
     break;
     case HANDLE_TASK:
@@ -255,7 +255,7 @@ void SysDestroy(CpuState *frame)
 
         HandleEntryFree(ht, entry);
         // reap: drop the parent's reference / free the process_t
-        (*arch_reg(frame, 0)) = 0;
+        (*ArchGetFromFrame(frame, 0)) = 0;
     }
     break;
     default:
@@ -267,26 +267,26 @@ void SysDestroy(CpuState *frame)
 
 void SysGrant(CpuState *frame)
 {
-    if (!current_thread)
+    if (!current_task)
     {
         arch_reg_set(frame, 0, ERR_BADARG);
         return;
     }
 
-    Handle handle = (Handle)(*arch_reg(frame, 0));
-    Spid pid = (Spid)(*arch_reg(frame, 1));
-    uint32_t flags = (*arch_reg(frame, 2));
+    Handle handle = (Handle)(*ArchGetFromFrame(frame, 0));
+    Spid pid = (Spid)(*ArchGetFromFrame(frame, 1));
+    uint32_t flags = (*ArchGetFromFrame(frame, 2));
 
     // Validate handle
     HandleTableEntry *src =
-        HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)handle);
+        HandleTableGet(&current_task->owner_process->handle_table, (uint32_t)handle);
     if (!src || src->type == HANDLE_FREE)
     {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
     }
 
-    if (!src->grantable || current_thread->owner_process->pid == pid)
+    if (!src->grantable || current_task->owner_process->pid == pid)
     {
         arch_reg_set(frame, 0, ERR_NOPERM);
         return;
@@ -372,8 +372,8 @@ void SysGrant(CpuState *frame)
 
 void SysStamp(CpuState *frame)
 {
-    Handle src_handle = (Handle)(*arch_reg(frame, 0));
-    uint32_t value = (*arch_reg(frame, 1));
+    Handle src_handle = (Handle)(*ArchGetFromFrame(frame, 0));
+    uint32_t value = (*ArchGetFromFrame(frame, 1));
 
     // 1. value != 0  (0 is the reserved unmarked sentinel)
     if (value == MARKER_NONE)
@@ -383,7 +383,7 @@ void SysStamp(CpuState *frame)
     }
 
     // 2. resolve the source handle
-    HandleTable *ht = &current_thread->owner_process->handle_table;
+    HandleTable *ht = &current_task->owner_process->handle_table;
     HandleTableEntry *src = HandleTableGet(ht, (uint32_t)src_handle);
     if (!src)
     {
@@ -444,10 +444,10 @@ void SysStamp(CpuState *frame)
 
 void SysSetLabel(CpuState *frame)
 {
-    Handle src_handle = (Handle)(*arch_reg(frame, 0));
+    Handle src_handle = (Handle)(*ArchGetFromFrame(frame, 0));
     Label value = (*arch_reg(frame, 1));
 
-    if (!(current_thread->owner_process->flags & PROC_FLAG_INIT))
+    if (!(current_task->owner_process->flags & PROC_FLAG_INIT))
     {
         arch_reg_set(frame, 0, ERR_NOPERM);
         return;
@@ -464,12 +464,12 @@ void SysSetLabel(CpuState *frame)
 
     if (src_handle == LABEL_SELF)
     {
-        target = current_thread->owner_process;
+        target = current_task->owner_process;
     }
     else
     {
 
-        HandleTableEntry *src = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)src_handle);
+        HandleTableEntry *src = HandleTableGet(&current_task->owner_process->handle_table, (uint32_t)src_handle);
         if (!src)
         {
             arch_reg_set(frame, 0, ERR_BADHANDLE);
@@ -504,5 +504,5 @@ void SysSetLabel(CpuState *frame)
 
     target->label = value;
 
-    (*arch_reg(frame, 0)) = ZUZU_OK;
+    (*ArchGetFromFrame(frame, 0)) = ZUZU_OK;
 }

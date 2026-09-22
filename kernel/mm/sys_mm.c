@@ -183,11 +183,11 @@ void __hot SysMemMap(CpuState *frame)
 #ifdef CONFIG_ZUZU_BENCH
     uint32_t bench_start = BENCH_BEGIN();
 #endif
-    SpaceObject *p = current_thread->owner_process;
-    Handle handle = (Handle)(*arch_reg(frame, 0));
-    size_t size = (size_t)(*arch_reg(frame, 1));
-    MemProt prot = (MemProt)(*arch_reg(frame, 2));
-    uint32_t flags = (*arch_reg(frame, 3));
+    SpaceObject *p = current_task->owner_process;
+    Handle handle = (Handle)(*ArchGetFromFrame(frame, 0));
+    size_t size = (size_t)(*ArchGetFromFrame(frame, 1));
+    MemProt prot = (MemProt)(*ArchGetFromFrame(frame, 2));
+    uint32_t flags = (*ArchGetFromFrame(frame, 3));
 
     if (unlikely(flags != 0)) { arch_reg_set(frame, 0, ERR_BADARG); return;}
     if (unlikely(prot & (unsigned int)(~(PROT_READ|PROT_WRITE|PROT_EXEC))))  { arch_reg_set(frame, 0, ERR_BADARG); return;}   /* rejects VM_PROT_USER */
@@ -260,7 +260,7 @@ void __hot SysMemMap(CpuState *frame)
         }
     }
 
-    (*arch_reg(frame, 0)) = (rc == ZUZU_OK) ? (uint32_t)va : (uint32_t)rc;
+    (*ArchGetFromFrame(frame, 0)) = (rc == ZUZU_OK) ? (uint32_t)va : (uint32_t)rc;
 #ifdef CONFIG_ZUZU_BENCH
     BENCH_END(g_bench_memmap, bench_start);
 #endif
@@ -269,9 +269,9 @@ void __hot SysMemMap(CpuState *frame)
 
 void SysMemUnmap(CpuState *frame)
 {
-        const VirtAddr va = (VirtAddr)(*arch_reg(frame, 0));
+        const VirtAddr va = (VirtAddr)(*ArchGetFromFrame(frame, 0));
 
-        AddressSpace *as = current_thread->owner_process->as;
+        AddressSpace *as = current_task->owner_process->as;
 
         // Find the region, it must be an exact match to prevent partial-unmap attacks
         VirtMemRegion *found = NULL;
@@ -303,7 +303,7 @@ void SysMemUnmap(CpuState *frame)
                 bool found_handle = false;
                 for (uint32_t i = 0; i < HANDLE_MAX_SLOTS; i++)
                 {
-                    HandleTableEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, i);
+                    HandleTableEntry *entry = HandleTableGet(&current_task->owner_process->handle_table, i);
                     if (!entry || entry->mapped_va != va ||
                         (entry->type != HANDLE_SHM && entry->type != HANDLE_DEVICE))
                         continue;
@@ -328,12 +328,12 @@ void SysMemUnmap(CpuState *frame)
             __builtin_unreachable();
         }
     
-        (*arch_reg(frame, 0)) = 0;
+        (*ArchGetFromFrame(frame, 0)) = 0;
 }
 
 void SysAsInject(CpuState *frame)
 {
-        if (!(current_thread->owner_process->flags & PROC_FLAG_INIT))
+        if (!(current_task->owner_process->flags & PROC_FLAG_INIT))
         {
             {
             arch_reg_set(frame, 0, ERR_NOPERM);
@@ -341,7 +341,7 @@ void SysAsInject(CpuState *frame)
         }
         }
 
-        McntlInjectArgs *args = (McntlInjectArgs *)(*arch_reg(frame, 0));
+        McntlInjectArgs *args = (McntlInjectArgs *)(*ArchGetFromFrame(frame, 0));
         if (!validate_user_ptr((uintptr_t)args, sizeof(McntlInjectArgs)))
         {
             {
@@ -367,7 +367,7 @@ void SysAsInject(CpuState *frame)
         }
         }
 
-        HandleTableEntry *handle = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)kargs.taskHandle);
+        HandleTableEntry *handle = HandleTableGet(&current_task->owner_process->handle_table, (uint32_t)kargs.taskHandle);
         if (!handle)
         {
             arch_reg_set(frame, 0, ERR_BADHANDLE);
@@ -442,7 +442,7 @@ void SysAsInject(CpuState *frame)
                 return;
             }
 
-            (*arch_reg(frame, 0)) = 0;
+            (*ArchGetFromFrame(frame, 0)) = 0;
             return;
         }
 
@@ -585,7 +585,7 @@ void SysAsInject(CpuState *frame)
 
         KFree(page_addrs);
 
-        (*arch_reg(frame, 0)) = 0;
+        (*ArchGetFromFrame(frame, 0)) = 0;
         return;
 
     rollback_badarg:
@@ -621,9 +621,9 @@ void SysAsInject(CpuState *frame)
 
 void SysMemProtect(CpuState *frame)
 {
-        const uintptr_t va = (uintptr_t)(*arch_reg(frame, 0));
-        const size_t size = (size_t)(*arch_reg(frame, 1));
-        const MemProt new_prot = (MemProt)(*arch_reg(frame, 2));
+        const uintptr_t va = (uintptr_t)(*ArchGetFromFrame(frame, 0));
+        const size_t size = (size_t)(*ArchGetFromFrame(frame, 1));
+        const MemProt new_prot = (MemProt)(*ArchGetFromFrame(frame, 2));
 
         // Basic validation
         if (size == 0)
@@ -654,11 +654,11 @@ void SysMemProtect(CpuState *frame)
         }
 
         // The region must exist; use vmm_protect_range to change its protections
-        if (!VmmProtectPage(current_thread->owner_process->as, va, size, new_prot | VM_PROT_USER))
+        if (!VmmProtectPage(current_task->owner_process->as, va, size, new_prot | VM_PROT_USER))
         {
             arch_reg_set(frame, 0, ERR_BADARG);
             return;
         }
 
-        (*arch_reg(frame, 0)) = 0;
+        (*ArchGetFromFrame(frame, 0)) = 0;
 }

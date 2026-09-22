@@ -18,6 +18,8 @@
  * Arguments in r0-w3, return in r0. See docs/syscall.md for full ABI.
  */
 
+#define CURRENT_SPACE (current_task->owner)
+
 typedef uint8_t Svc;
 
 /**
@@ -62,7 +64,7 @@ static inline bool IsUserPtrNormal(const uintptr_t addr, const size_t len) {
     return true;
 }
 
-extern TaskObject *current_thread;
+extern TaskObject *current_task;
 
 /*
  * Service call functions.

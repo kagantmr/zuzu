@@ -10,7 +10,7 @@
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm.h"
 
-extern TaskObject *current_thread;
+extern TaskObject *current_task;
 
 void ShmemDropReference(ShmObject *shm)
 {
@@ -29,7 +29,7 @@ void ShmemDropReference(ShmObject *shm)
 
 void SysShmCreate(CpuState *frame)
 {
-    const size_t size = align_up((size_t)(*arch_reg(frame, 0)), PAGE_SIZE);
+    const size_t size = align_up((size_t)(*ArchGetFromFrame(frame, 0)), PAGE_SIZE);
     if (size == 0)
     {
         arch_reg_set(frame, 0, ERR_BADARG);
@@ -62,7 +62,7 @@ void SysShmCreate(CpuState *frame)
     shmem_obj->ref_count = 1;
     shmem_obj->page_addrs = page_arr;
 
-    HandleTable *ht = &current_thread->owner_process->handle_table;
+    HandleTable *ht = &current_task->owner_process->handle_table;
     int handle = HandleTableFindFree(ht);
     if (handle < 0)
     {

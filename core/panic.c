@@ -219,7 +219,7 @@ static void backtrace_walk(backtrace_t *bt)
 
     uint32_t fp;
     if (panic_fault_ctx.frame)
-        fp = (*arch_reg(panic_fault_ctx.frame, 11));  /* fp captured at fault time */
+        fp = (*ArchGetFromFrame(panic_fault_ctx.frame, 11));  /* fp captured at fault time */
     else
         fp = arch_current_fp();
 
@@ -330,18 +330,18 @@ static void panic_print_header(const char *reason, void *caller_ra)
     snprintf(line, sizeof(line), "reason:  %s", reason ? reason : "unknown");
     panic_line(line);
 
-    if (!current_thread) {
+    if (!current_task) {
         panic_line("context: BOOT");
     } else {
-        ProcessObj *p = current_thread->owner_process;
+        ProcessObj *p = current_task->owner_process;
         if (p)
             snprintf(line, sizeof(line),
                      "context: PROCESS  [pid=%u  %s  tid=%u]",
-                     p->pid, p->name, current_thread->tid);
+                     p->pid, p->name, current_task->tid);
         else
             snprintf(line, sizeof(line),
                      "context: PROCESS  [tid=%u  no owner]",
-                     current_thread->tid);
+                     current_task->tid);
         panic_line(line);
     }
 
@@ -435,19 +435,19 @@ static void panic_print_cpu(void)
     panic_nl();
     snprintf(line, sizeof(line),
              "r0  = %08X   r1  = %08X   r2  = %08X   r3  = %08X",
-             (*arch_reg(f, 0)), (*arch_reg(f, 1)), (*arch_reg(f, 2)), (*arch_reg(f, 3)));
+             (*ArchGetFromFrame(f, 0)), (*ArchGetFromFrame(f, 1)), (*ArchGetFromFrame(f, 2)), (*ArchGetFromFrame(f, 3)));
     panic_line(line);
     snprintf(line, sizeof(line),
              "r4  = %08X   r5  = %08X   r6  = %08X   r7  = %08X",
-             (*arch_reg(f, 4)), (*arch_reg(f, 5)), (*arch_reg(f, 6)), (*arch_reg(f, 7)));
+             (*ArchGetFromFrame(f, 4)), (*ArchGetFromFrame(f, 5)), (*ArchGetFromFrame(f, 6)), (*ArchGetFromFrame(f, 7)));
     panic_line(line);
     snprintf(line, sizeof(line),
              "r8  = %08X   r9  = %08X   r10 = %08X   r11 = %08X",
-             (*arch_reg(f, 8)), (*arch_reg(f, 9)), (*arch_reg(f, 10)), (*arch_reg(f, 11)));
+             (*ArchGetFromFrame(f, 8)), (*ArchGetFromFrame(f, 9)), (*ArchGetFromFrame(f, 10)), (*ArchGetFromFrame(f, 11)));
     panic_line(line);
     snprintf(line, sizeof(line),
              "r12 = %08X   sp_usr = %08X   lr_usr = %08X",
-             (*arch_reg(f, 12)), arch_regs_sp(f), arch_regs_lr(f));
+             (*ArchGetFromFrame(f, 12)), arch_regs_sp(f), arch_regs_lr(f));
     panic_line(line);
 }
 
@@ -496,20 +496,20 @@ static void panic_print_process(void)
 
     panic_section("CURRENT PROCESS");
 
-    if (!current_thread) {
+    if (!current_task) {
         panic_line("(no current thread - BOOT context)");
         return;
     }
 
-    ProcessObj *p = current_thread->owner_process;
+    ProcessObj *p = current_task->owner_process;
 
     snprintf(line, sizeof(line),
              "tid=%-4u  state=%-7s  prio=%u  slice=%u  left=%u",
-             current_thread->tid,
-             thread_state_str(current_thread->state),
-             current_thread->priority,
-             current_thread->time_slice,
-             current_thread->ticks_remaining);
+             current_task->tid,
+             thread_state_str(current_task->state),
+             current_task->priority,
+             current_task->time_slice,
+             current_task->ticks_remaining);
     panic_line(line);
 
     if (p) {
@@ -562,25 +562,25 @@ static void panic_print_process(void)
     }
 
     /* User trapframe (saved at syscall/exception entry) */
-    if (current_thread->trap_frame) {
-        CpuState *tf = current_thread->trap_frame;
+    if (current_task->trap_frame) {
+        CpuState *tf = current_task->trap_frame;
         panic_nl();
         panic_line("user trapframe:");
         snprintf(line, sizeof(line),
                  "  r0  = %08X   r1  = %08X   r2  = %08X   r3  = %08X",
-                 (*arch_reg(tf, 0)), (*arch_reg(tf, 1)), (*arch_reg(tf, 2)), (*arch_reg(tf, 3)));
+                 (*ArchGetFromFrame(tf, 0)), (*ArchGetFromFrame(tf, 1)), (*ArchGetFromFrame(tf, 2)), (*ArchGetFromFrame(tf, 3)));
         panic_line(line);
         snprintf(line, sizeof(line),
                  "  r4  = %08X   r5  = %08X   r6  = %08X   r7  = %08X",
-                 (*arch_reg(tf, 4)), (*arch_reg(tf, 5)), (*arch_reg(tf, 6)), (*arch_reg(tf, 7)));
+                 (*ArchGetFromFrame(tf, 4)), (*ArchGetFromFrame(tf, 5)), (*ArchGetFromFrame(tf, 6)), (*ArchGetFromFrame(tf, 7)));
         panic_line(line);
         snprintf(line, sizeof(line),
                  "  r8  = %08X   r9  = %08X   r10 = %08X   r11 = %08X",
-                 (*arch_reg(tf, 8)), (*arch_reg(tf, 9)), (*arch_reg(tf, 10)), (*arch_reg(tf, 11)));
+                 (*ArchGetFromFrame(tf, 8)), (*ArchGetFromFrame(tf, 9)), (*ArchGetFromFrame(tf, 10)), (*ArchGetFromFrame(tf, 11)));
         panic_line(line);
         snprintf(line, sizeof(line),
                  "  r12 = %08X   sp_usr = %08X   lr_usr = %08X   pc = %08X",
-                 (*arch_reg(tf, 12)), arch_regs_sp(tf), arch_regs_lr(tf), arch_regs_pc(tf));
+                 (*ArchGetFromFrame(tf, 12)), arch_regs_sp(tf), arch_regs_lr(tf), arch_regs_pc(tf));
         panic_line(line);
         {
             char dec[64];
@@ -591,15 +591,15 @@ static void panic_print_process(void)
     }
 
     /* IPC state */
-    if (current_thread->ipc_state != IPC_NONE) {
+    if (current_task->ipc_state != IPC_NONE) {
         panic_nl();
-        if (current_thread->blocked_port)
+        if (current_task->blocked_port)
             snprintf(line, sizeof(line), "IPC: %s  port=0x%08X",
-                     ipc_state_str(current_thread->ipc_state),
-                     (uint32_t)(uintptr_t)current_thread->blocked_port);
+                     ipc_state_str(current_task->ipc_state),
+                     (uint32_t)(uintptr_t)current_task->blocked_port);
         else
             snprintf(line, sizeof(line), "IPC: %s",
-                     ipc_state_str(current_thread->ipc_state));
+                     ipc_state_str(current_task->ipc_state));
         panic_line(line);
     }
 }
@@ -616,15 +616,15 @@ static void panic_print_sched(void)
 
     panic_section("SCHEDULER");
 
-    if (current_thread) {
-        ProcessObj *p = current_thread->owner_process;
+    if (current_task) {
+        ProcessObj *p = current_task->owner_process;
         snprintf(line, sizeof(line),
                  "current: tid=%-4u  pid=%-4u  %-16s  %s  prio=%u",
-                 current_thread->tid,
+                 current_task->tid,
                  p ? p->pid : 0,
                  p ? p->name : "(none)",
-                 thread_state_str(current_thread->state),
-                 current_thread->priority);
+                 thread_state_str(current_task->state),
+                 current_task->priority);
     } else {
         snprintf(line, sizeof(line), "current: (idle)");
     }
@@ -821,7 +821,7 @@ static void panic_print_memory(void)
     }
 
     if (kernel_layout.stack_base_va && kernel_layout.stack_top_va) {
-        if (!current_thread) {
+        if (!current_task) {
             panic_line("kstack: N/A (BOOT context)");
         } else {
             snprintf(line, sizeof(line),

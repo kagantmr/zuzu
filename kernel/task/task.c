@@ -79,7 +79,7 @@ void WakeJoinTask(TaskObject *task, int32_t exit_status)
 		joiner->wake_reason = WAKE_IPC;
 		joiner->state = READY;
 		if (joiner->trap_frame)
-			(*arch_reg(joiner->trap_frame, 0)) = (uint32_t)exit_status;
+			(*ArchGetFromFrame(joiner->trap_frame, 0)) = (uint32_t)exit_status;
 		SchedAdd(joiner);
 	}
 }
@@ -110,9 +110,6 @@ void TaskDestroy(TaskObject *task)
 		KernelStackFree(task->kernel_stack_top);
 	KSlabFree(&task_cache, task);
 
-	/* If this was the last task referencing an already-torn-down space,
-	 * the space's struct was kept alive only so this task's owner
-	 * backpointer stayed valid -- free it now. */
 	if (owner && owner->torn_down && list_empty(&owner->tasks))
 		SpaceFinalize(owner);
 }
@@ -225,7 +222,7 @@ void ThreadUnlinkWaits(TaskObject *t)
         list_remove(&t->port_wait_slot.node);
 }
 
-static const char *fatal_reason_str(int reason)
+static const char *FatalReasonStr(int reason)
 {
 	switch (reason)
 	{
@@ -236,10 +233,6 @@ static const char *fatal_reason_str(int reason)
 	}
 }
 
-/* Unifies self-directed Quit and external Term: both land the task in
- * ZOMBIE and wake anyone already blocked joining it. If this was the last
- * task in its space, that space is now defunct as a consequence -- torn
- * down here, but not necessarily freed (see SpaceDestroy/SpaceFinalize). */
 void TaskTerminate(TaskObject *task, Err exit_status)
 {
 	if (!task)
@@ -263,7 +256,7 @@ void TaskTerminate(TaskObject *task, Err exit_status)
 				/* deliberate fatal exit carrying a reason code */
 				panic("critical space '%s' (pid %d) exited: %s", owner->name,
 				      (int)owner->pid,
-				      fatal_reason_str((int)((uint32_t)exit_status & FATAL_REASON_MASK)));
+				      FatalReasonStr((int)((uint32_t)exit_status & FATAL_REASON_MASK)));
 			}
 			else
 			{
@@ -274,23 +267,14 @@ void TaskTerminate(TaskObject *task, Err exit_status)
 		}
 
 		/* TODO(reply-ticket): revoke any outstanding reply ticket held
-		 * against this task before its space is torn down. Shape not
-		 * decided yet (raw TaskObject* vs. generation-checked value) --
-		 * see PROCESS_C_DISSOLVE.md's open reply-ticket question. */
+		 * against this task before its space is torn down. */
 
-		if (task == current_thread)
-			/* owner->as is this CPU's active TTBR0 right now --
-			 * freeing it synchronously would pull the page tables
-			 * out from under the MMU. Defer to SchedReap, which
-			 * runs on the idle task with the kernel AS active. */
+		if (task == current_task)
 			SchedQueueDestroyProcess(owner);
 		else
 			SpaceDestroy(owner);
-		/* task itself is left parked as a zombie, not destroyed here --
-		 * whoever holds/joins its handle still needs task->owner to
-		 * resolve, which SpaceDestroy alone does not invalidate. */
 	}
-	else if (task == current_thread)
+	else if (task == current_task)
 	{
 		/* Can't free our own kernel stack while running on it. */
 		SchedQueueDestroyThread(task);

@@ -13,16 +13,16 @@
 #include "core/log.h"
 
 void SysDevQuery(CpuState *frame) {
-    Handle handle_idx = (Handle)(*arch_reg(frame, 0));
-    char *out_buf = (char *)(*arch_reg(frame, 1));
-    size_t buf_len = (*arch_reg(frame, 2));
+    Handle handle_idx = (Handle)(*ArchGetFromFrame(frame, 0));
+    char *out_buf = (char *)(*ArchGetFromFrame(frame, 1));
+    size_t buf_len = (*ArchGetFromFrame(frame, 2));
     char compat_buf[sizeof(((DeviceCap *)0)->compatible) + 1];
 
     if (handle_idx == 0 || buf_len == 0) {
         arch_reg_set(frame, 0, ERR_BADARG); return;
     }
 
-    HandleTableEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)handle_idx);
+    HandleTableEntry *entry = HandleTableGet(&current_task->owner_process->handle_table, (uint32_t)handle_idx);
     if (!entry) {
         arch_reg_set(frame, 0, ERR_BADHANDLE); return;
     }

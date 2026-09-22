@@ -10,27 +10,27 @@
 #include <zuzu/types.h>
 #include <zuzu/err.h>
 
-extern TaskObject *current_thread;
+extern TaskObject *current_task;
 
 void SysKEventBind(CpuState *frame)
 {
     if (!frame)
         return;
 
-    KEventType event_type = *(arch_reg(frame, 0));
-    Handle h = (Handle)(*arch_reg(frame, 1));
+    KEventType event_type = *(ArchGetFromFrame(frame, 0));
+    Handle h = (Handle)(*ArchGetFromFrame(frame, 1));
 
     /**
      * The only KEvent we support as of now is KEVENT_MEMMGMT which is a memory pressure
      * notification. For future event classes, an event-specific struct will be copied
      * to kernel, and used that way.
      */
-    void *data = (void *)*(arch_reg(frame, 2));
+    void *data = (void *)*(ArchGetFromFrame(frame, 2));
     (void)data;
 
     switch (event_type) {
     case KEVENT_MEMMGMT: {
-        HandleTableEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)h);
+        HandleTableEntry *entry = HandleTableGet(&current_task->owner_process->handle_table, (uint32_t)h);
 
         if (unlikely(!entry)) {
             arch_reg_set(frame, 0, ERR_BADHANDLE);

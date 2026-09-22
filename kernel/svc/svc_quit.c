@@ -7,9 +7,9 @@
 
 void SvcQuit(CpuState *frame)
 {
-    int32_t exit_status = (int32_t)(*arch_reg(frame, 0));
+    int32_t exit_status = (int32_t)(*ArchGetFromFrame(frame, 0));
 
-    TaskTerminate(current_thread, exit_status);
+    TaskTerminate(current_task, exit_status);
 
     Schedule();
 }

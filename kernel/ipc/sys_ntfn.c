@@ -15,7 +15,7 @@
 
 void SysNtfnCreate(CpuState *frame)
 {
-    HandleTable *ht = &current_thread->owner_process->handle_table;
+    HandleTable *ht = &current_task->owner_process->handle_table;
     Handle handle = HandleTableFindFree(ht);
     if (handle < 0) {
         arch_reg_set(frame, 0, ERR_NOMEM);
@@ -30,7 +30,7 @@ void SysNtfnCreate(CpuState *frame)
 
     ntfn->word = 0;
     list_init(&ntfn->wait_queue);
-    ntfn->owner_pid = current_thread->owner_process->pid;
+    ntfn->owner_pid = current_task->owner_process->pid;
     ntfn->ref_count = 1;
     ntfn->alive = true;
 
@@ -49,10 +49,10 @@ void SysNtfnCreate(CpuState *frame)
 
 void SysNtfnSignal(CpuState *frame)
 {
-    Handle handle_idx = (Handle)(*arch_reg(frame, 0));
-    uint32_t bits = (*arch_reg(frame, 1));
+    Handle handle_idx = (Handle)(*ArchGetFromFrame(frame, 0));
+    uint32_t bits = (*ArchGetFromFrame(frame, 1));
 
-    HandleTableEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)handle_idx);
+    HandleTableEntry *entry = HandleTableGet(&current_task->owner_process->handle_table, (uint32_t)handle_idx);
     if (!entry) {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
@@ -75,15 +75,15 @@ void SysNtfnSignal(CpuState *frame)
 
     NtfnSignal(ntfn, bits);
 
-    (*arch_reg(frame, 0)) = 0;
+    (*ArchGetFromFrame(frame, 0)) = 0;
 }
 
 void SysNtfnWait(CpuState *frame)
 {
-    Handle handle_idx = (Handle)(*arch_reg(frame, 0));
-    uint32_t timeout_ms = (*arch_reg(frame, 1));
+    Handle handle_idx = (Handle)(*ArchGetFromFrame(frame, 0));
+    uint32_t timeout_ms = (*ArchGetFromFrame(frame, 1));
 
-    HandleTableEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)handle_idx);
+    HandleTableEntry *entry = HandleTableGet(&current_task->owner_process->handle_table, (uint32_t)handle_idx);
     if (!entry) {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
@@ -101,7 +101,7 @@ void SysNtfnWait(CpuState *frame)
 
     if (ntfn->word != 0) {
         /* bits are 31-bit (signal rejects bit 31), so this is never negative */
-        (*arch_reg(frame, 0)) = ntfn->word;
+        (*ArchGetFromFrame(frame, 0)) = ntfn->word;
         ntfn->word = 0;
         return;
     }
@@ -111,37 +111,37 @@ void SysNtfnWait(CpuState *frame)
         return;
     }
 
-    current_thread->wake_reason = WAKE_NONE;
-    current_thread->blocked_port = NULL;
-    current_thread->state = BLOCKED;
-    current_thread->ntfn_wait_slot.owner = current_thread;
-    current_thread->ntfn_wait_slot.node.prev = NULL;
-    current_thread->ntfn_wait_slot.node.next = NULL;
-    list_add_tail(&current_thread->ntfn_wait_slot.node, &ntfn->wait_queue.node);
+    current_task->wake_reason = WAKE_NONE;
+    current_task->blocked_port = NULL;
+    current_task->state = BLOCKED;
+    current_task->ntfn_wait_slot.owner = current_task;
+    current_task->ntfn_wait_slot.node.prev = NULL;
+    current_task->ntfn_wait_slot.node.next = NULL;
+    list_add_tail(&current_task->ntfn_wait_slot.node, &ntfn->wait_queue.node);
 #ifdef CONFIG_ZUZU_BENCH
     /* Stashed on the thread, not a local: schedule() below may not return
      * to this stack frame for a long time (other threads run first), so
      * the matching read has to happen wherever this thread is actually
      * unblocked (kernel/irq/sys_irq.c's relay_handler), not here. */
-    current_thread->bench_irq_wait_start = BENCH_BEGIN();
+    current_task->bench_irq_wait_start = BENCH_BEGIN();
 #endif /* CONFIG_ZUZU_BENCH */
 
     if (timeout_ms != TIMEOUT_INFINITE) {
-        current_thread->wake_deadline = ArchDeadlineFromMs(timeout_ms);
-        SchedInsertSleepQueue(current_thread);
+        current_task->wake_deadline = ArchDeadlineFromMs(timeout_ms);
+        SchedInsertSleepQueue(current_task);
     } else {
-        current_thread->wake_deadline = 0;
+        current_task->wake_deadline = 0;
     }
 
     Schedule();
 
-    if (timeout_ms != TIMEOUT_INFINITE && current_thread->wake_reason != WAKE_TIMEOUT) {
-        SchedRemoveSleepQueue(current_thread);
+    if (timeout_ms != TIMEOUT_INFINITE && current_task->wake_reason != WAKE_TIMEOUT) {
+        SchedRemoveSleepQueue(current_task);
     }
 
-    if (current_thread->wake_reason == WAKE_TIMEOUT) {
-        if (current_thread->ntfn_wait_slot.node.prev && current_thread->ntfn_wait_slot.node.next) {
-            list_remove(&current_thread->ntfn_wait_slot.node);
+    if (current_task->wake_reason == WAKE_TIMEOUT) {
+        if (current_task->ntfn_wait_slot.node.prev && current_task->ntfn_wait_slot.node.next) {
+            list_remove(&current_task->ntfn_wait_slot.node);
         }
         // r[0] already set to ERR_TIMEOUT by scheduler
         return;

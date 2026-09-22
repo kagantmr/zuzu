@@ -31,8 +31,8 @@ void *arch_thread_user_init(void *kstack_top, uintptr_t entry, uintptr_t user_sp
     sp -= sizeof(CpuState);
     CpuState *f = (CpuState *)sp;
     memset(f, 0, sizeof(*f));
-    *arch_reg(f, 0) = a0;
-    *arch_reg(f, 1) = a1;
+    *ArchGetFromFrame(f, 0) = a0;
+    *ArchGetFromFrame(f, 1) = a1;
     f->sp_usr       = (uint32_t)user_sp;
     f->lr_usr       = (uint32_t)user_lr;
     f->return_pc    = (uint32_t)entry;
