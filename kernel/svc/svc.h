@@ -145,11 +145,4 @@ void SvcBind(CpuState *frame);
  */
 void SvcManageMemory(CpuState *frame);
 
-/**
- * @brief Service call function for signalling IRQ completion.
- * 
- * @param frame The CPU state frame to use for the service call.
- */
-void SvcCompleteIrq(CpuState *frame);
-
 #endif /* KERNEL_SYSCALL_H */
