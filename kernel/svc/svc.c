@@ -40,7 +40,7 @@ typedef void (*SvcEntry)(CpuState *);
 static void SvcDebugLog(CpuState *frame);
 #endif
 
-static SvcEntry svc_table[SYSCALL_COUNT] = {
+static SvcEntry svc_table[SVC_TOTAL_COUNT] = {
     [SVC_QUIT] = SvcQuit,
     [SVC_YIELD] = SvcYield,
     #ifdef DEBUG
@@ -53,10 +53,10 @@ static SvcEntry svc_table[SYSCALL_COUNT] = {
     [SVC_CALL] = SvcCall,
     [SVC_REPLY] = SvcReply,
     [SVC_WAITON] = SvcWaitOn,
-    [SVC_MANAGEHANDLE] = SvcCntlHandle,
+    [SVC_MANAGEHANDLE] = SvcManageHandle,
     [SVC_SIGNAL] = SvcSignal,
-    [SVC_BIND] = SvcBindEvent,
-    [SVC_MANAGEMEM] = SvcManageMemory
+    [SVC_BIND] = SvcBind,
+    [SVC_MANAGEMEMORY] = SvcManageMemory
 };
 
 

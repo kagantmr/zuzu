@@ -184,63 +184,6 @@ void SysIrqBind(CpuState *frame)
     (*arch_reg(frame, 0)) = 0;
 }
 
-void SysIrqDone(CpuState *frame)
-{
-    /* dsb sy: the driver's MMIO writes that quiesced the device must complete
-     * before we re-enable the line (see gic_end). */
-    ArchDsbSy();
-
-    Handle dev_handle = (Handle)(*arch_reg(frame, 0));
-
-    if (dev_handle == 0) {
-        arch_reg_set(frame, 0, ERR_BADHANDLE);
-        return;
-    }
-    HandleEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)dev_handle);
-    if (!entry) {
-        arch_reg_set(frame, 0, ERR_BADHANDLE);
-        return;
-    }
-    if (entry->type != HANDLE_DEVICE) {
-        arch_reg_set(frame, 0, ERR_BADTYPE);
-        return;
-    }
-    if (!entry->dev) {
-        arch_reg_set(frame, 0, ERR_BADHANDLE);
-        return;
-    }
-    if (!valid_irq(entry->dev->irq)) {
-        arch_reg_set(frame, 0, ERR_BADARG);
-        return;
-    }
-    if (irq_owners[entry->dev->irq].owner == current_thread->owner_process) {
-        arch_irq_enable_line(entry->dev->irq);
-        (*arch_reg(frame, 0)) = 0;
-        return;
-    } else {
-        arch_reg_set(frame, 0, ERR_NOPERM);
-        return;
-    }
-}
-
-void IrqReleaseAll(Process *owner)
-{
-    for (int i = 0; i < MAX_IRQS; i++) {
-        if (irq_owners[i].owner == owner) {
-            if (irq_owners[i].bound_ntfn) {
-                NtfnObj *ntfn = irq_owners[i].bound_ntfn;
-                if (ntfn->ref_count > 0)
-                    ntfn->ref_count--;
-                if (ntfn->ref_count == 0)
-                    KFreeNtfn(ntfn);
-                irq_owners[i].bound_ntfn = NULL;
-            }
-            arch_irq_disable_line((uint32_t)i);
-            arch_irq_unregister((uint32_t)i);
-            memset(&irq_owners[i], 0, sizeof(IrqOwner));
-        }
-    }
-}
 
 bool IrqClearPending(int irq_num)
 {

@@ -122,7 +122,7 @@ void SvcWaitOn(CpuState *frame);
  * 
  * @param frame The CPU state frame to use for the service call.
  */
-void SvcCntlHandle(CpuState *frame);
+void SvcManageHandle(CpuState *frame);
 
 /**
  * @brief Service call function for signaling notifications.
@@ -136,7 +136,7 @@ void SvcSignal(CpuState *frame);
  * 
  * @param frame The CPU state frame to use for the service call.
  */
-void SvcBindEvent(CpuState *frame);
+void SvcBind(CpuState *frame);
 
 /**
  * @brief Service call function for controlling memory.

@@ -15,9 +15,8 @@ typedef enum {
     SVC_MANAGEHANDLE,
     SVC_SIGNAL,
     SVC_BIND,
-    SVC_MANAGEMEM,
-    SYS_COMPLETEIRQ,
-    SYSCALL_COUNT
+    SVC_MANAGEMEMORY,
+    SVC_TOTAL_COUNT
 } SvcNumber;
 
 typedef uint8_t Svc;
