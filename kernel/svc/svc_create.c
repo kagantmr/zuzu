@@ -1,50 +1,117 @@
-#include "svc.h"
-#include <zuzu/types.h>
-#include <zuzu/err.h>
 #include "core/ensure.h"
+#include "kernel/ipc/port.h"
 #include "kernel/space/space.h"
+#include "svc.h"
 #include <arch/regs.h>
+#include <zuzu/err.h>
+#include <zuzu/types.h>
 
 void SvcCreate(CpuState *frame)
 {
     // Dispatch based on type
     CreateType type = (CreateType)(*ArchGetFromFrame(frame, 0));
-    switch (type) {
-        case CREATE_TASK: {
-            // TASK: r0=type, r1=space_handle (must be a kitten of its parent)
-            Handle space_handle = (Handle)(*ArchGetFromFrame(frame, 1));
-            HandleTableEntry *space_entry = HandleTableLookup(&CURRENT_SPACE->handle_table, space_handle);
+    switch (type)
+    {
+    case CREATE_TASK:
+    {
+        // TASK: r0=type, r1=space_handle (must be a kitten of its parent)
+        Handle space_handle = (Handle)(*ArchGetFromFrame(frame, 1));
+        HandleTableEntry *space_entry =
+            HandleTableLookup(&CURRENT_SPACE->handle_table, space_handle);
 
-            ENSURE_ERR(frame, (NULL != space_entry), ERR_BADHANDLE);
-            ENSURE_ERR(frame, (HANDLE_SPACE == space_entry->type), ERR_BADTYPE);
-            ENSURE_ERR(frame, (NULL != space_entry->space), ERR_BADHANDLE);
+        ENSURE_ERR(frame, (NULL != space_entry), ERR_BADHANDLE);
+        ENSURE_ERR(frame, (HANDLE_SPACE == space_entry->type), ERR_BADTYPE);
+        ENSURE_ERR(frame, (NULL != space_entry->space), ERR_BADHANDLE);
 
-            TaskObject *task = TaskCreate(space_entry->space);
+        TaskObject *task = TaskCreate(space_entry->space);
 
-            ENSURE_ERR(frame, (NULL != task), ERR_BUSY);
+        ENSURE_ERR(frame, (NULL != task), ERR_BUSY);
 
-            Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
-            ENSURE_ERR(frame, (-1 != new_handle), ERR_NOMEM);
+        Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
+        ENSURE(-1 != new_handle, TaskDestroy(task); arch_reg_set(frame, 0, ERR_NOMEM); return);
 
-            HandleTableEntry *entry = HandleTableGet(&CURRENT_SPACE->handle_table, (uint32_t)new_handle);
-            HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
-            entry->type = HANDLE_TASK;
-            entry->task = task;
+        HandleTableEntry *entry =
+            HandleTableGet(&CURRENT_SPACE->handle_table, (uint32_t)new_handle);
+        HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
+        entry->type = HANDLE_TASK;
+        entry->task = task;
 
-            (*ArchGetFromFrame(frame, 0)) = (Register)HANDLE_PACK(new_handle, entry->generation);
-        } break;
-        case CREATE_PORT: {
-            
-        } break;
-        case CREATE_EVENT: {
+        (*ArchGetFromFrame(frame, 0)) = (Register)HANDLE_PACK(new_handle, entry->generation);
+    }
+    break;
+    case CREATE_PORT:
+    {
+        // PORT: r0=type
+        PortObject *new_port = PortCreate(CURRENT_SPACE);
+        ENSURE_ERR(frame, (NULL != new_port), ERR_NOMEM);
 
-        } break;
-        case CREATE_SPACE: {
+        Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
+        ENSURE(-1 != new_handle, PortDestroy(new_port); arch_reg_set(frame, 0, ERR_NOMEM); return);
 
-        } break;
-        case CREATE_MEMORY: {
+        HandleTableEntry *entry =
+            HandleTableGet(&CURRENT_SPACE->handle_table, (uint32_t)new_handle);
+        HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
+        entry->type = HANDLE_PORT;
+        entry->port = new_port;
+        entry->grantable = true;
 
-        } break;
-        default: ENSURE_ERR(frame, 0, ERR_BADARG);
+        (*ArchGetFromFrame(frame, 0)) = (Register)HANDLE_PACK(new_handle, entry->generation);
+    }
+    break;
+    case CREATE_EVENT:
+    {
+        // PORT: r0=type
+        PortObject *new_event = PortCreate(CURRENT_SPACE);
+        ENSURE_ERR(frame, (NULL != new_event), ERR_NOMEM);
+
+        Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
+        ENSURE(-1 != new_handle, PortDestroy(new_event); arch_reg_set(frame, 0, ERR_NOMEM); return);
+
+        HandleTableEntry *entry =
+            HandleTableGet(&CURRENT_SPACE->handle_table, (uint32_t)new_handle);
+        HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
+        entry->type = HANDLE_PORT;
+        entry->port = new_event;
+        entry->grantable = true;
+
+        (*ArchGetFromFrame(frame, 0)) = (Register)HANDLE_PACK(new_handle, entry->generation);
+    }
+    break;
+    case CREATE_SPACE:
+    {
+        // SPACE: r0=type, r1=name_ptr, r2=name_len
+        VirtAddr name_ptr = (VirtAddr)(*ArchGetFromFrame(frame, 1));
+        uint32_t name_len = (uint32_t)(*ArchGetFromFrame(frame, 2));
+
+        char kname[32]; // matches SpaceObject.name[32]
+        if (name_len >= sizeof(kname))
+            name_len = sizeof(kname) - 1;
+
+        ENSURE_ERR(frame, (name_len == 0 || CopyFromUser(kname, (const void *)name_ptr, name_len)),
+                   ERR_BADPTR);
+        kname[name_len] = '\0';
+
+        SpaceObject *space = SpaceCreate(kname);
+        ENSURE_ERR(frame, (NULL != space), ERR_NOMEM);
+
+        Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
+        ENSURE(-1 != new_handle, SpaceDestroy(space); SpaceFinalize(space);
+               arch_reg_set(frame, 0, ERR_NOMEM); return);
+
+        HandleTableEntry *entry =
+            HandleTableGet(&CURRENT_SPACE->handle_table, (uint32_t)new_handle);
+        HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
+        entry->type = HANDLE_SPACE;
+        entry->space = space;
+
+        (*ArchGetFromFrame(frame, 0)) = (Register)HANDLE_PACK(new_handle, entry->generation);
+    }
+    break;
+    case CREATE_MEMORY:
+    {
+    }
+    break;
+    default:
+        ENSURE_ERR(frame, 0, ERR_BADARG);
     }
 }

@@ -12,6 +12,7 @@
 #include "kernel/mm/vmm.h"
 
 #include "kernel/dev/devcap.h"
+#include "kernel/task/task.h"
 #include "kernel/ipc/ntfn.h"
 #include "kernel/ipc/port.h"
 

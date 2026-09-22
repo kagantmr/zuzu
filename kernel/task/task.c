@@ -180,7 +180,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
 	memset(tcb, 0, TCB_SLOT_SIZE);
 	tcb->lmsg_buf = (void *)(tcb_va + offsetof(ThreadLocalData, buf));
 	tcb->tid = task->tid;
-	tcb->pid = owner->pid;
+	tcb->pid = owner->spid;
 	task->task_info_va = tcb_va;
 	task->tcb_slot = (uint8_t)tcb_slot_idx;
 	task->lmsg_buf_phys_addr =
@@ -255,14 +255,14 @@ void TaskTerminate(TaskObject *task, Err exit_status)
 			{
 				/* deliberate fatal exit carrying a reason code */
 				panic("critical space '%s' (pid %d) exited: %s", owner->name,
-				      (int)owner->pid,
+				      (int)owner->spid,
 				      FatalReasonStr((int)((uint32_t)exit_status & FATAL_REASON_MASK)));
 			}
 			else
 			{
 				/* unexpected death, or exit with no reason */
 				panic("critical space '%s' (pid %d) died unexpectedly (status %d)",
-				      owner->name, (int)owner->pid, exit_status);
+				      owner->name, (int)owner->spid, exit_status);
 			}
 		}
 

@@ -31,7 +31,7 @@ typedef struct
     ListNode caller_link;
 } ReplyCap;
 
-PortObject *CreatePort(SpaceObject *owner);
-void DestroyPort(PortObject *port);
+PortObject *PortCreate(SpaceObject *owner);
+void PortDestroy(PortObject *port);
 
 #endif /* _ZUZU_OBJECTS_PORT_H */

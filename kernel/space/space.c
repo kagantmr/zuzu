@@ -47,7 +47,7 @@ SpaceObject *SpaceCreate(const char *name)
     memset(sp, 0, sizeof(*sp));
 
     list_init(&sp->tasks);
-    list_init(&sp->children);
+    list_init(&sp->kittens);
 
     if (!HandleTableInit(&sp->handle_table))
         goto fail;
@@ -127,7 +127,7 @@ SpaceObject *SpaceCreate(const char *name)
     Spid pid = SpidAlloc(sp);
     if (!pid)
         goto fail_as;
-    sp->pid = pid;
+    sp->spid = pid;
 
     if (name)
     {
@@ -158,7 +158,7 @@ SpaceObject *SpaceFindBySpid(Spid pid)
 {
     uint32_t slot = (uint32_t)pid % MAX_SPACES;
     SpaceObject *sp = spaces[slot];
-    if (sp && sp->pid == pid)
+    if (sp && sp->spid == pid)
         return sp;
     return NULL;
 }
@@ -171,10 +171,10 @@ void SpaceReparent(SpaceObject *kitten, SpaceObject *parent)
     if (kitten->sibling_node.prev && kitten->sibling_node.next)
         list_remove(&kitten->sibling_node);
 
-    kitten->parent_pid = parent ? parent->pid : 0;
+    kitten->parent_spid = parent ? parent->spid : 0;
 
     if (parent)
-        list_add_tail(&kitten->sibling_node, &parent->children.node);
+        list_add_tail(&kitten->sibling_node, &parent->kittens.node);
 }
 
 SpaceObject *SpaceFindKittenBySpid(SpaceObject *parent, Spid pid)
@@ -182,11 +182,11 @@ SpaceObject *SpaceFindKittenBySpid(SpaceObject *parent, Spid pid)
     if (!parent)
         return NULL;
 
-    ListNode *node = parent->children.node.next;
-    while (node != &parent->children.node)
+    ListNode *node = parent->kittens.node.next;
+    while (node != &parent->kittens.node)
     {
         SpaceObject *child = container_of(node, SpaceObject, sibling_node);
-        if (child->pid == pid)
+        if (child->spid == pid)
             return child;
         node = node->next;
     }
@@ -199,8 +199,8 @@ SpaceObject *SpaceFindHollowKitten(SpaceObject *parent)
     if (!parent)
         return NULL;
 
-    ListNode *node = parent->children.node.next;
-    while (node != &parent->children.node)
+    ListNode *node = parent->kittens.node.next;
+    while (node != &parent->kittens.node)
     {
         SpaceObject *child = container_of(node, SpaceObject, sibling_node);
         if (list_empty(&child->tasks))
@@ -216,8 +216,8 @@ SpaceObject *SpaceFindZombieKitten(SpaceObject *parent)
     if (!parent)
         return NULL;
 
-    ListNode *node = parent->children.node.next;
-    while (node != &parent->children.node)
+    ListNode *node = parent->kittens.node.next;
+    while (node != &parent->kittens.node)
     {
         SpaceObject *child = container_of(node, SpaceObject, sibling_node);
         if (child->main_task && child->main_task->state == ZOMBIE)
@@ -242,11 +242,10 @@ void SpaceDestroy(SpaceObject *sp)
     if (sp->timeout_node.prev && sp->timeout_node.next)
         list_remove(&sp->timeout_node);
 
-    /* Cascade-reparent children to the grandparent, not to init
-     * unconditionally: family adoption, not orphan-to-pid-1. */
-    SpaceObject *grandparent = SpaceFindBySpid(sp->parent_pid);
-    ListNode *child_node = sp->children.node.next;
-    while (child_node != &sp->children.node)
+    /* Cascade-reparent kittens to the grandparent  */
+    SpaceObject *grandparent = SpaceFindBySpid(sp->parent_spid);
+    ListNode *child_node = sp->kittens.node.next;
+    while (child_node != &sp->kittens.node)
     {
         ListNode *next = child_node->next;
         SpaceObject *child = container_of(child_node, SpaceObject, sibling_node);
@@ -265,7 +264,7 @@ void SpaceDestroy(SpaceObject *sp)
         if (entry->type == HANDLE_PORT)
         {
             PortObject *port = entry->port;
-            if (port && port->owner_pid == sp->pid && port->alive)
+            if (port && port->owner_spid == sp->spid && port->alive)
             {
                 port->alive = false;
                 while (!list_empty(&port->sender_queue))
@@ -332,7 +331,7 @@ void SpaceDestroy(SpaceObject *sp)
         else if (entry->type == HANDLE_EVENT)
         {
             EventObject *event = entry->event;
-            if (event && event->owner_pid == sp->pid && event->alive)
+            if (event && event->owner_pid == sp->spid && event->alive)
             {
                 event->alive = false;
                 while (!list_empty(&event->wait_queue))
@@ -362,7 +361,7 @@ void SpaceDestroy(SpaceObject *sp)
     }
     HandleTableDestroy(&sp->handle_table);
 
-    uint32_t slot = (uint32_t)sp->pid % MAX_SPACES;
+    uint32_t slot = (uint32_t)sp->spid % MAX_SPACES;
     if (spaces[slot] == sp)
         spaces[slot] = NULL;
 

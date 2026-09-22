@@ -19,7 +19,7 @@
  */
 typedef struct SpaceObjectStruct
 {
-    Spid pid, parent_pid;                /**< SPID of this space, and its parent space. */
+    Spid spid, parent_spid;              /**< SPID of this space, and its parent space. */
     AddressSpace *as;                    /**< Pointer to the address space of this space. */
     ListNode node;                       /**< Embedded list node for space management. */
     ListNode destroy_node;               /**< Embedded list node for destruction management. */
@@ -28,16 +28,16 @@ typedef struct SpaceObjectStruct
     char name[32];                       /**< Space name. */
     ListHead outstanding_replies;        /**< List of outstanding replies. */
     HandleTable handle_table;            /**< Handle table for this space. */
-    TaskObject *main_task;                  /**< Pointer to the thread associated with this space. */
-    ListHead tasks;                    /**< List of threads in this space. */
-    ListHead children;                   /**< List of child spaces. */
+    TaskObject *main_task;               /**< Pointer to the thread associated with this space. */
+    ListHead tasks;                      /**< List of threads in this space. */
+    ListHead kittens;                   /**< List of child spaces. */
     ListNode sibling_node;               /**< Embedded list node for sibling management. */
     PhysAddr tcb_page_pa[MAX_TCB_PAGES]; /**< TCB page physical addresses. */
     VirtAddr tcb_page_va;                /**< TCB page virtual address. */
     uint32_t tcb_slot_bitmap[BITMAP_WORDS(256)]; /**< TCB slot bitmap. */
-    bool critical;   /**< Kernel panics if this space dies unexpectedly (init/devmgr). */
-    bool torn_down;  /**< SpaceDestroy has already run; only a zombie main_task keeps
-                          this struct allocated. See SpaceFinalize. */
+    bool critical;  /**< Kernel panics if this space dies unexpectedly (init). */
+    bool torn_down; /**< SpaceDestroy has already run; only a zombie main_task keeps
+                         this struct allocated. See SpaceFinalize. */
 } SpaceObject;
 
 _Static_assert(TCB_MAX_SLOTS <= 256, "tcb_slot_bitmap is 256 bits wide");
@@ -59,22 +59,21 @@ static inline void TcbSlotFree(SpaceObject *p, int slot)
 /* Physical base of the frame backing this slot's TCB page. */
 static inline PhysAddr TcbSlotPhysAddr(SpaceObject *p, uint32_t slot)
 {
-    return p->tcb_page_pa[slot / SLOTS_PER_PAGE]
-         + ((slot % SLOTS_PER_PAGE) * TCB_SLOT_SIZE);
+    return p->tcb_page_pa[slot / SLOTS_PER_PAGE] + ((slot % SLOTS_PER_PAGE) * TCB_SLOT_SIZE);
 }
 
 /* Kernel VA of this slot. */
 static inline VirtAddr TcbSlotKVirtAddr(SpaceObject *p, uint32_t slot)
 {
-    return PA_TO_VA(p->tcb_page_pa[slot / SLOTS_PER_PAGE])
-         + ((slot % SLOTS_PER_PAGE) * TCB_SLOT_SIZE);
+    return PA_TO_VA(p->tcb_page_pa[slot / SLOTS_PER_PAGE]) +
+           ((slot % SLOTS_PER_PAGE) * TCB_SLOT_SIZE);
 }
 
 /* User VA of this slot. */
 static inline VirtAddr TcbSlotUVirtAddr(SpaceObject *p, uint32_t slot)
 {
-    return p->tcb_page_va + ((slot / SLOTS_PER_PAGE) * PAGE_SIZE)
-         + ((slot % SLOTS_PER_PAGE) * TCB_SLOT_SIZE);
+    return p->tcb_page_va + ((slot / SLOTS_PER_PAGE) * PAGE_SIZE) +
+           ((slot % SLOTS_PER_PAGE) * TCB_SLOT_SIZE);
 }
 
 /**

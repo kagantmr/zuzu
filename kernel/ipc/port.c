@@ -4,13 +4,7 @@
 #include "kernel/sched/sched.h"
 #include <zuzu/err.h>
 
-PortObject *CreatePort(SpaceObject *owner) {
-    Handle handle = HandleTableFindFree(&owner->handle_table);
-    ENSURE_RET((-1 != handle), NULL);
-
-    HandleTable *ht = &owner->handle_table;
-    HandleTableEntry *entry = HandleTableGet(ht, (uint32_t)handle);
-
+PortObject *PortCreate(SpaceObject *owner) {
     PortObject *new_port = (PortObject *)KAllocPortObj();
     ENSURE_RET((NULL != new_port), NULL);
     
@@ -20,15 +14,11 @@ PortObject *CreatePort(SpaceObject *owner) {
     new_port->ref_count = 1;
     new_port->alive = true;
     new_port->owner = owner;
-    entry->port = new_port;
-    entry->grantable = true;
-    entry->type = HANDLE_PORT;
-    HandleEntryClaim(ht, entry);
 
     return new_port;
 }
 
-void DestroyPort(PortObject *port) {
+void PortDestroy(PortObject *port) {
     ENSURE_GOTO((NULL != port), DestroyPortEnd);
     ENSURE_GOTO(port->alive, DestroyPortEnd);
 

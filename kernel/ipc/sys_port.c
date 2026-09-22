@@ -47,7 +47,7 @@ void SysPortCreate(CpuState *frame)
     // list_init(&new_port->node);
     list_init(&new_port->sender_queue);
     list_init(&new_port->receiver_queue);
-    new_port->owner_pid = current_task->owner_process->pid;
+    new_port->owner_spid = current_task->owner_process->pid;
     new_port->ref_count = 1;
     new_port->alive = true;
     entry->port = new_port;
@@ -106,7 +106,7 @@ void SysDestroy(CpuState *frame)
         }
 
         // Only owner can destroy
-        if (port->owner_pid != current_task->owner_process->pid)
+        if (port->owner_spid != current_task->owner_process->pid)
         {
             arch_reg_set(frame, 0, ERR_NOPERM);
             return;
