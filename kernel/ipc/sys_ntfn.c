@@ -22,7 +22,7 @@ void SysNtfnCreate(CpuState *frame)
         return;
     }
 
-    NtfnObj *ntfn = KAllocNtfn();
+    EventObject *ntfn = KAllocNtfn();
     if (!ntfn) {
         arch_reg_set(frame, 0, ERR_NOMEM);
         return;
@@ -34,7 +34,7 @@ void SysNtfnCreate(CpuState *frame)
     ntfn->ref_count = 1;
     ntfn->alive = true;
 
-    HandleEntry *entry = HandleTableGet(ht, (uint32_t)handle);
+    HandleTableEntry *entry = HandleTableGet(ht, (uint32_t)handle);
     if (!entry) {
         KFreeNtfn(ntfn);
         arch_reg_set(frame, 0, ERR_NOMEM);
@@ -52,7 +52,7 @@ void SysNtfnSignal(CpuState *frame)
     Handle handle_idx = (Handle)(*arch_reg(frame, 0));
     uint32_t bits = (*arch_reg(frame, 1));
 
-    HandleEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)handle_idx);
+    HandleTableEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)handle_idx);
     if (!entry) {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
@@ -62,7 +62,7 @@ void SysNtfnSignal(CpuState *frame)
         return;
     }
 
-    NtfnObj *ntfn = entry->ntfn;
+    EventObject *ntfn = entry->ntfn;
     if (!ntfn || !ntfn->alive) {
         arch_reg_set(frame, 0, ERR_DEAD);
         return;
@@ -83,7 +83,7 @@ void SysNtfnWait(CpuState *frame)
     Handle handle_idx = (Handle)(*arch_reg(frame, 0));
     uint32_t timeout_ms = (*arch_reg(frame, 1));
 
-    HandleEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)handle_idx);
+    HandleTableEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)handle_idx);
     if (!entry) {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
@@ -93,7 +93,7 @@ void SysNtfnWait(CpuState *frame)
         return;
     }
 
-    NtfnObj *ntfn = entry->ntfn;
+    EventObject *ntfn = entry->ntfn;
     if (!ntfn || !ntfn->alive) {
         arch_reg_set(frame, 0, ERR_DEAD);
         return;

@@ -187,10 +187,10 @@ void SysPSpawn(CpuState *frame)
     HandleTable *caller_ht = &current_thread->owner_process->handle_table;
     for (int i = 0; i < 4; i++)
     {
-        HandleEntry *src = HandleTableGet(caller_ht, (uint32_t)i);
+        HandleTableEntry *src = HandleTableGet(caller_ht, (uint32_t)i);
         if (!src || src->type == HANDLE_FREE)
             continue;
-        HandleEntry *dst = HandleTableGetOrAlloc(&process->handle_table, (uint32_t)i);
+        HandleTableEntry *dst = HandleTableGetOrAlloc(&process->handle_table, (uint32_t)i);
         if (!dst)
             continue;
         *dst = *src;
@@ -209,7 +209,7 @@ void SysPSpawn(CpuState *frame)
         arch_reg_set(frame, 0, ERR_NOMEM);
         return;
     }
-    HandleEntry *slot_entry = HandleTableGet(caller_ht, (uint32_t)slot);
+    HandleTableEntry *slot_entry = HandleTableGet(caller_ht, (uint32_t)slot);
     if (!slot_entry)
     {
         ProcessDestroy(process);
@@ -248,7 +248,7 @@ void SysKickstart(CpuState *frame)
         return;
     }
 
-    HandleEntry *entry =
+    HandleTableEntry *entry =
         HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)kargs.task_handle);
     if (!entry)
     {
@@ -288,7 +288,7 @@ void SysPKill(CpuState *frame)
     uint32_t handle_idx = (*arch_reg(frame, 0));
 
     HandleTable *ht = &current_thread->owner_process->handle_table;
-    HandleEntry *entry = HandleTableGet(ht, handle_idx);
+    HandleTableEntry *entry = HandleTableGet(ht, handle_idx);
     if (!entry)
     {
         arch_reg_set(frame, 0, ERR_BADHANDLE);

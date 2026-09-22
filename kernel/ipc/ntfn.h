@@ -12,7 +12,7 @@ typedef struct Notification {
     Pid owner_pid;
     size_t ref_count;
     bool alive;
-} NtfnObj;
+} EventObject;
 
 struct wait_slot;
 
@@ -25,7 +25,7 @@ struct wait_slot;
  * @note A queued waiter without a trap frame is a corrupt wait queue:
  * panics rather than limp past it.
  */
-void NtfnWakeWaiter(NtfnObj *ntfn, struct wait_slot *slot, int32_t r0_value);
+void NtfnWakeWaiter(EventObject *ntfn, struct wait_slot *slot, int32_t r0_value);
 
 /**
  * @brief Signal one or more bits on a notification object.
@@ -39,12 +39,12 @@ void NtfnWakeWaiter(NtfnObj *ntfn, struct wait_slot *slot, int32_t r0_value);
  * @pre         Caller has verified @p ntfn is alive and @p bits is valid.
  * @pre         IRQs disabled.
  */
-void NtfnSignal(NtfnObj *ntfn, NtfnBits bits);
+void NtfnSignal(EventObject *ntfn, NtfnBits bits);
 
-void NtfnRefDrop(NtfnObj *ntfn);
+void NtfnRefDrop(EventObject *ntfn);
 
 /* Slab-backed NtfnObj pool. KAllocNtfn returns uninitialized storage. */
-NtfnObj *KAllocNtfn(void);
-void KFreeNtfn(NtfnObj *ntfn);
+EventObject *KAllocNtfn(void);
+void KFreeNtfn(EventObject *ntfn);
 
 #endif // NOTIF_H

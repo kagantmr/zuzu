@@ -60,13 +60,13 @@ static void inject_device_cap(const char *compatible,
         return;
     }
     // 4. HandleTableGet that slot, write HANDLE_DEVICE entry
-    HandleEntry *entry = HandleTableGet(&s_devmgr->handle_table, (uint32_t)handle);
+    HandleTableEntry *entry = HandleTableGet(&s_devmgr->handle_table, (uint32_t)handle);
     if (!entry)
     {
         KFreeDevCap(cap);
         return;
     }
-    entry->type = HANDLE_DEVICE;
+    entry->type = HANDLE_MEM;
     entry->grantable = true;
     entry->mapped_va = 0;
     entry->dev = cap;
@@ -384,7 +384,7 @@ void boot_programs_spawn_all(PhysAddr initrd_pa, size_t initrd_size)
      * slot instead of one returned by HandleTableFindFree. */
     if (s_sysd && s_devmgr)
     {
-        HandleEntry *devmgr_task_slot =
+        HandleTableEntry *devmgr_task_slot =
             HandleTableGetOrAlloc(&s_sysd->handle_table, SYSD_DEVMGR_TASK_HANDLE_SLOT);
         if (devmgr_task_slot)
         {

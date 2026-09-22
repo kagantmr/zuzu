@@ -6,12 +6,12 @@
 #include "stdbool.h"
 #include <arch/regs.h>
 
-typedef struct process ProcessObj;
+typedef struct ProcessObjectStruct ProcessObj;
 
 typedef struct irq_owner {
     ProcessObj *owner;
     bool pending;
-    NtfnObj *bound_ntfn; // was Endpoint *bound_port
+    EventObject *bound_ntfn; // was Endpoint *bound_port
 } IrqOwner;
 
 void SysIrqBind(CpuState *frame);

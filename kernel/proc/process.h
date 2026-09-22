@@ -25,7 +25,7 @@
 
 extern void process_entry_trampoline(void);
 
-typedef struct process {
+typedef struct ProcessObjectStruct {
 	Pid pid, parent_pid;
 	AddressSpace *as;
 	ListNode node; // embedded, not pointers

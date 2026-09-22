@@ -30,7 +30,7 @@ void SysKEventBind(CpuState *frame)
 
     switch (event_type) {
     case KEVENT_MEMMGMT: {
-        HandleEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)h);
+        HandleTableEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)h);
 
         if (unlikely(!entry)) {
             arch_reg_set(frame, 0, ERR_BADHANDLE);
@@ -41,7 +41,7 @@ void SysKEventBind(CpuState *frame)
             return;
         }
 
-        NtfnObj *ntfn = entry->ntfn;
+        EventObject *ntfn = entry->ntfn;
 
         assert(ntfn);
 

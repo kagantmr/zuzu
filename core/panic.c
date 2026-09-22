@@ -537,7 +537,7 @@ static void panic_print_process(void)
             panic_nl();
             panic_line("handles:");
             for (uint32_t idx = 1; idx < HANDLE_MAX_SLOTS && shown < PANIC_HANDLE_MAX; idx++) {
-                HandleEntry *e = HandleTableGet(ht, idx);
+                HandleTableEntry *e = HandleTableGet(ht, idx);
                 if (!e || e->type == HANDLE_FREE)
                     continue;
                 void *ptr = NULL;

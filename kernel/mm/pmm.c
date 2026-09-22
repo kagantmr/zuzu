@@ -52,7 +52,7 @@ extern void SyspageUpdateMem(void);
 
 typedef struct {
     ListNode node;
-    NtfnObj *ntfn;
+    EventObject *ntfn;
 } PmmSubscriber;
 
 static ListHead pmm_subscribers;
@@ -224,7 +224,7 @@ static void PmmReserveBootRegions(void)
         PmmMarkRange((PhysAddr)initrd_start, (PhysAddr)initrd_end);
 }
 
-int PmmSubscribe(NtfnObj *ntfn)
+int PmmSubscribe(EventObject *ntfn)
 {
     if (!ntfn)
         return ERR_BADARG;

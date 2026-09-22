@@ -36,9 +36,9 @@ void SysPortCreate(CpuState *frame)
     }
 
     HandleTable *ht = &current_thread->owner_process->handle_table;
-    HandleEntry *entry = HandleTableGet(ht, (uint32_t)handle);
+    HandleTableEntry *entry = HandleTableGet(ht, (uint32_t)handle);
 
-    Port *new_port = (Port *)KAllocPortObj();
+    PortObject *new_port = (PortObject *)KAllocPortObj();
     if (!new_port)
     {
         arch_reg_set(frame, 0, ERR_NOMEM);
@@ -70,7 +70,7 @@ void SysDestroy(CpuState *frame)
 
     // Validate handle
     HandleTable *ht = &current_thread->owner_process->handle_table;
-    HandleEntry *entry = HandleTableGet(ht, (uint32_t)handle);
+    HandleTableEntry *entry = HandleTableGet(ht, (uint32_t)handle);
     if (!entry)
     {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
@@ -91,7 +91,7 @@ void SysDestroy(CpuState *frame)
     case HANDLE_PORT:
     {
 
-        Port *port = entry->port;
+        PortObject *port = entry->port;
         if (!port)
         {
             arch_reg_set(frame, 0, ERR_BADHANDLE);
@@ -155,7 +155,7 @@ void SysDestroy(CpuState *frame)
     break;
     case HANDLE_NTFN:
     {
-        NtfnObj *ntf = entry->ntfn;
+        EventObject *ntf = entry->ntfn;
         if (!ntf)
         {
             arch_reg_set(frame, 0, ERR_BADHANDLE);
@@ -278,7 +278,7 @@ void SysGrant(CpuState *frame)
     uint32_t flags = (*arch_reg(frame, 2));
 
     // Validate handle
-    HandleEntry *src =
+    HandleTableEntry *src =
         HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)handle);
     if (!src || src->type == HANDLE_FREE)
     {
@@ -319,7 +319,7 @@ void SysGrant(CpuState *frame)
         return;
     }
 
-    HandleEntry *dst = HandleTableGet(grantee_ht, (uint32_t)slot);
+    HandleTableEntry *dst = HandleTableGet(grantee_ht, (uint32_t)slot);
     if (!dst)
     {
         arch_reg_set(frame, 0, ERR_NOMEM);
@@ -384,7 +384,7 @@ void SysStamp(CpuState *frame)
 
     // 2. resolve the source handle
     HandleTable *ht = &current_thread->owner_process->handle_table;
-    HandleEntry *src = HandleTableGet(ht, (uint32_t)src_handle);
+    HandleTableEntry *src = HandleTableGet(ht, (uint32_t)src_handle);
     if (!src)
     {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
@@ -412,7 +412,7 @@ void SysStamp(CpuState *frame)
 
     // 5. allocate a new slot in the CALLER's table. FindFree may grow (and
     // thus realloc) the table, invalidating src -- capture what we need first.
-    Port *src_port = src->port;
+    PortObject *src_port = src->port;
     bool src_grantable = src->grantable;
 
     int slot = HandleTableFindFree(ht);
@@ -423,7 +423,7 @@ void SysStamp(CpuState *frame)
     }
 
     // 6. new entry: SAME endpoint, marker = value
-    HandleEntry *ne = HandleTableGet(ht, (uint32_t)slot);
+    HandleTableEntry *ne = HandleTableGet(ht, (uint32_t)slot);
     if (!ne)
     {
         arch_reg_set(frame, 0, ERR_NOMEM);
@@ -469,7 +469,7 @@ void SysSetLabel(CpuState *frame)
     else
     {
 
-        HandleEntry *src = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)src_handle);
+        HandleTableEntry *src = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)src_handle);
         if (!src)
         {
             arch_reg_set(frame, 0, ERR_BADHANDLE);

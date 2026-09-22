@@ -7,7 +7,7 @@
 #include <vector.h>
 #include <zuzu/types.h>
 
-struct process;
+struct ProcessObjectStruct;
 
 typedef struct {
     ListHead sender_queue;
@@ -16,7 +16,7 @@ typedef struct {
     size_t ref_count;
     bool alive;
     ListNode node;
-} Port;
+} PortObject;
 
 typedef struct {
     Tid caller_tid;     

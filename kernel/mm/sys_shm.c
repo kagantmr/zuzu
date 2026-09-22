@@ -12,7 +12,7 @@
 
 extern Thread *current_thread;
 
-void ShmemDropReference(ShmCap *shm)
+void ShmemDropReference(ShmObject *shm)
 {
     if (!shm)
         return;
@@ -48,7 +48,7 @@ void SysShmCreate(CpuState *frame)
         return;
     }
 
-    ShmCap *shmem_obj = KZAlloc(sizeof(ShmCap));
+    ShmObject *shmem_obj = KZAlloc(sizeof(ShmObject));
     if (!shmem_obj)
     {
         KFree(page_arr);
@@ -72,7 +72,7 @@ void SysShmCreate(CpuState *frame)
         return;
     }
 
-    HandleEntry *entry = HandleTableGet(ht, (uint32_t)handle);
+    HandleTableEntry *entry = HandleTableGet(ht, (uint32_t)handle);
     if (!entry)
     {
         KFree(page_arr);

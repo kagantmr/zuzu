@@ -187,7 +187,7 @@ static void CallPathTally(CallPathMix *m, int which)
  * traffic a client hammers a port it already validated once, so all four
  * are marked unlikely to keep the fall-through (the success return) as
  * the straight-line path. */
-static HandleEntry *__hot ValidatePortHandle(ProcessObj *proc, Handle handle, CpuState *frame)
+static HandleTableEntry *__hot ValidatePortHandle(ProcessObj *proc, Handle handle, CpuState *frame)
 {
 	if (unlikely(!proc)) {
 		arch_reg_set(frame, 0, ERR_BADARG);
@@ -196,7 +196,7 @@ static HandleEntry *__hot ValidatePortHandle(ProcessObj *proc, Handle handle, Cp
 #ifdef CONFIG_ZUZU_BENCH
 	uint32_t bench_start = BENCH_BEGIN();
 #endif
-	HandleEntry *entry = HandleTableGet(&proc->handle_table, (uint32_t)handle);
+	HandleTableEntry *entry = HandleTableGet(&proc->handle_table, (uint32_t)handle);
 #ifdef CONFIG_ZUZU_BENCH
 	BENCH_END(g_bench_handle_lookup, bench_start);
 #endif
@@ -220,7 +220,7 @@ static HandleEntry *__hot ValidatePortHandle(ProcessObj *proc, Handle handle, Cp
 	return entry;
 }
 
-static HandleEntry *ValidateReplyCap(ProcessObj *proc, Handle handle_idx, Thread **target_out,
+static HandleTableEntry *ValidateReplyCap(ProcessObj *proc, Handle handle_idx, Thread **target_out,
 					  CpuState *frame)
 {
 	if (!proc || handle_idx == 0) {
@@ -228,7 +228,7 @@ static HandleEntry *ValidateReplyCap(ProcessObj *proc, Handle handle_idx, Thread
 		return NULL;
 	}
 
-	HandleEntry *entry = HandleTableGet(&proc->handle_table, (uint32_t)handle_idx);
+	HandleTableEntry *entry = HandleTableGet(&proc->handle_table, (uint32_t)handle_idx);
 	if (!entry) {
 		arch_reg_set(frame, 0, ERR_BADHANDLE);
 		return NULL;
@@ -268,10 +268,10 @@ void __attribute__((hot)) SysMsgSend(CpuState *frame)
 {
 	int handle = (int)(*arch_reg(frame, 0));
 
-	HandleEntry *entry = ValidatePortHandle(current_thread->owner_process, handle, frame);
+	HandleTableEntry *entry = ValidatePortHandle(current_thread->owner_process, handle, frame);
 	if (unlikely(!entry))
 		return;
-	Port *port = entry->port;
+	PortObject *port = entry->port;
 	if (unlikely(!port)) {
 		return;
 	}
@@ -315,10 +315,10 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 	int handle = (int)(*arch_reg(frame, 0));
 	uint32_t timeout_ms = (*arch_reg(frame, 1)); // TIMEOUT_POLL / TIMEOUT_INFINITE / finite ms
 
-	HandleEntry *entry = ValidatePortHandle(current_thread->owner_process, handle, frame);
+	HandleTableEntry *entry = ValidatePortHandle(current_thread->owner_process, handle, frame);
 	if (unlikely(!entry))
 		return;
-	Port *port = entry->port;
+	PortObject *port = entry->port;
 	if (unlikely(!port)) {
 		return;
 	}
@@ -388,7 +388,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 				return;
 			}
 
-			HandleEntry *rentry =
+			HandleTableEntry *rentry =
 			    HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)slot);
 			if (!rentry) {
 				KFreeReplyCap(rc);
@@ -477,10 +477,10 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 #endif
 	int handle = (int)(*arch_reg(frame, 0));
 
-	HandleEntry *entry = ValidatePortHandle(current_thread->owner_process, handle, frame);
+	HandleTableEntry *entry = ValidatePortHandle(current_thread->owner_process, handle, frame);
 	if (unlikely(!entry))
 		return;
-	Port *port = entry->port;
+	PortObject *port = entry->port;
 	if (unlikely(!port)) {
 		return;
 	}
@@ -526,7 +526,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 			return;
 		}
 
-		HandleEntry *rentry = HandleTableGet(&rx_thread->owner_process->handle_table, (uint32_t)slot);
+		HandleTableEntry *rentry = HandleTableGet(&rx_thread->owner_process->handle_table, (uint32_t)slot);
 		if (!rentry) {
 			KFreeReplyCap(rc);
 			list_add_tail(&rx_slot->node, &port->receiver_queue.node);
@@ -616,7 +616,7 @@ void __attribute__((hot)) SysMsgReply(CpuState *frame)
 #ifdef CONFIG_ZUZU_BENCH
 	bs = BENCH_BEGIN();
 #endif
-	HandleEntry *entry =
+	HandleTableEntry *entry =
 	    ValidateReplyCap(current_thread->owner_process, handle_idx, &target_thread, frame);
 #ifdef CONFIG_ZUZU_BENCH
 	BENCH_END(g_bench_validate_replycap, bs);
@@ -674,10 +674,10 @@ void __attribute__((hot)) SysMsgLsend(CpuState *frame)
 	int handle = (int)(*arch_reg(frame, 0));
 	uint32_t xlen = (*arch_reg(frame, 1));
 
-	HandleEntry *entry = ValidatePortHandle(current_thread->owner_process, handle, frame);
+	HandleTableEntry *entry = ValidatePortHandle(current_thread->owner_process, handle, frame);
 	if (!entry)
 		return;
-	Port *port = entry->port;
+	PortObject *port = entry->port;
 	if (!port) {
 		return;
 	}
@@ -726,10 +726,10 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 	Handle handle = (Handle)(*arch_reg(frame, 0));
 	uint32_t xlen = (*arch_reg(frame, 1));
 
-	HandleEntry *entry = ValidatePortHandle(current_thread->owner_process, handle, frame);
+	HandleTableEntry *entry = ValidatePortHandle(current_thread->owner_process, handle, frame);
 	if (!entry)
 		return;
-	Port *port = entry->port;
+	PortObject *port = entry->port;
 	if (!port) {
 		return;
 	}
@@ -766,7 +766,7 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 			return;
 		}
 
-		HandleEntry *rentry = HandleTableGet(&rx_thread->owner_process->handle_table, (uint32_t)slot);
+		HandleTableEntry *rentry = HandleTableGet(&rx_thread->owner_process->handle_table, (uint32_t)slot);
 		if (!rentry) {
 			KFreeReplyCap(rc);
 			list_add_tail(&rx_slot->node, &port->receiver_queue.node);
@@ -829,7 +829,7 @@ void __attribute__((hot)) SysMsgLreply(CpuState *frame)
 	}
 
 	Thread *target_thread = NULL;
-	HandleEntry *entry =
+	HandleTableEntry *entry =
 	    ValidateReplyCap(current_thread->owner_process, handle_idx, &target_thread, frame);
 	if (!entry) {
 		return;

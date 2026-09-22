@@ -23,7 +23,7 @@ BENCH_STAT(g_bench_irq_wait, "IRQ wait block->unblock");
  * @param slot Waiter's slot, already popped from ntfn->wait_queue.
  * @return false if the waiter had no trap frame (does not wake it).
  */
-static bool WakeNtfnWaiter(NtfnObj *ntfn, WaitSlot *slot)
+static bool WakeNtfnWaiter(EventObject *ntfn, WaitSlot *slot)
 {
     Thread *waiter = slot->owner;
     if (unlikely(!waiter->trap_frame))
@@ -53,7 +53,7 @@ static void __hot relay_handler(void *ctx)
     arch_irq_disable_line(irq_num);
 
     irq_owners[irq_num].pending = true;
-    NtfnObj *ntfn = irq_owners[irq_num].bound_ntfn;
+    EventObject *ntfn = irq_owners[irq_num].bound_ntfn;
     if (likely(ntfn && ntfn->alive)) {
         ntfn->word |= (1u << (irq_num & 31));
         irq_owners[irq_num].pending = false;
@@ -95,7 +95,7 @@ void SysIrqBind(CpuState *frame)
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
     }
-    HandleEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)dev_handle);
+    HandleTableEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)dev_handle);
     if (!entry) {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
         return;
@@ -120,7 +120,7 @@ void SysIrqBind(CpuState *frame)
 
     /* Validate the notification before mutating any state so a bad ntfn handle
      * does not leave the line claimed-but-unbound. */
-    HandleEntry *ntfn_entry =
+    HandleTableEntry *ntfn_entry =
         HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)ntfn_handle);
     if (!ntfn_entry || !ntfn_entry->ntfn) {
         arch_reg_set(frame, 0, ERR_BADHANDLE);
@@ -144,7 +144,7 @@ void SysIrqBind(CpuState *frame)
     }
 
     if (irq_owners[irq_num].bound_ntfn) {
-        NtfnObj *old = irq_owners[irq_num].bound_ntfn;
+        EventObject *old = irq_owners[irq_num].bound_ntfn;
         if (old->ref_count > 0)
             old->ref_count--;
         if (old->ref_count == 0)
@@ -155,7 +155,7 @@ void SysIrqBind(CpuState *frame)
     irq_owners[irq_num].bound_ntfn->ref_count++;
 
     if (irq_owners[irq_num].pending) {
-        NtfnObj *ntfn = irq_owners[irq_num].bound_ntfn;
+        EventObject *ntfn = irq_owners[irq_num].bound_ntfn;
         ntfn->word |= (1u << (irq_num & 31));
         irq_owners[irq_num].pending = false;
 

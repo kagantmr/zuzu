@@ -10,16 +10,16 @@
 
 static KHeapSlabCache ntfn_cache;
 
-NtfnObj *KAllocNtfn(void)
+EventObject *KAllocNtfn(void)
 {
     if (!ntfn_cache.obj_size)
-        KSlabInit(&ntfn_cache, "NtfnObj", sizeof(NtfnObj));
+        KSlabInit(&ntfn_cache, "NtfnObj", sizeof(EventObject));
     return KSlabAlloc(&ntfn_cache);
 }
 
-void KFreeNtfn(NtfnObj *ntfn) { KSlabFree(&ntfn_cache, ntfn); }
+void KFreeNtfn(EventObject *ntfn) { KSlabFree(&ntfn_cache, ntfn); }
 
-void NtfnWakeWaiter(NtfnObj *ntfn, WaitSlot *slot, int32_t r0_value)
+void NtfnWakeWaiter(EventObject *ntfn, WaitSlot *slot, int32_t r0_value)
 {
     Thread *waiter = slot->owner;
     if (!waiter || !waiter->trap_frame) {
@@ -40,7 +40,7 @@ void NtfnWakeWaiter(NtfnObj *ntfn, WaitSlot *slot, int32_t r0_value)
     SchedAdd(waiter);
 }
 
-void NtfnSignal(NtfnObj *ntfn, NtfnBits bits)
+void NtfnSignal(EventObject *ntfn, NtfnBits bits)
 {
     assert(ntfn && ntfn->alive && !(bits & (1u<<31)));
     ntfn->word |= bits;
@@ -53,7 +53,7 @@ void NtfnSignal(NtfnObj *ntfn, NtfnBits bits)
     }
 }
 
-void NtfnRefDrop(NtfnObj *ntfn) {
+void NtfnRefDrop(EventObject *ntfn) {
     if (!ntfn) return;
     ntfn->ref_count--;
     if (ntfn->ref_count == 0) {

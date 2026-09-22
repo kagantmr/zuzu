@@ -90,7 +90,7 @@ bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, ui
     bool allocated_new = false;
 
     if (r->owner == VM_OWNER_SHARED && r->backing) {
-        ShmCap *shm = (ShmCap *)r->backing;
+        ShmObject *shm = (ShmObject *)r->backing;
         if (page_va < r->vaddr_start)
             return false;
 
@@ -121,7 +121,7 @@ bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, ui
                        r->prot, r->memtype, r->owner, r->flags)) {
         if (allocated_new) {
             if (r->owner == VM_OWNER_SHARED && r->backing) {
-                ShmCap *shm = (ShmCap *)r->backing;
+                ShmObject *shm = (ShmObject *)r->backing;
                 size_t page_index = (size_t)((page_va - r->vaddr_start) / PAGE_SIZE);
                 if (page_index < shm->page_count && shm->page_addrs[page_index] == new_pa)
                     shm->page_addrs[page_index] = 0;

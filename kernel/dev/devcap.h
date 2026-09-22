@@ -9,6 +9,6 @@ typedef struct {
     char compatible[32]; // DTB compatible string
     Irq irq;
     size_t ref_count;
-} DeviceCap;
+} DeviceObject;
 
 #endif

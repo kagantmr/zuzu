@@ -88,7 +88,7 @@ static int32_t memmap_anon(ProcessObj *restrict p, VirtAddr hint, size_t size, M
  * Adapted from zuzu v0.1.5-alpha version
  */
 /* p, e (the handle-table entry), and out are three distinct objects. */
-static int32_t memmap_shm(ProcessObj *restrict p, HandleEntry *restrict e, MemProt prot,
+static int32_t memmap_shm(ProcessObj *restrict p, HandleTableEntry *restrict e, MemProt prot,
 			  VirtAddr *restrict out)
 {
 
@@ -96,7 +96,7 @@ static int32_t memmap_shm(ProcessObj *restrict p, HandleEntry *restrict e, MemPr
         return ERR_BUSY;
 
     // pick VA base and bump cursor once
-    ShmCap *shmem_obj = e->shm;
+    ShmObject *shmem_obj = e->shm;
 
     if (!shmem_obj)
         return ERR_BADHANDLE;
@@ -129,7 +129,7 @@ static int32_t memmap_shm(ProcessObj *restrict p, HandleEntry *restrict e, MemPr
  */
 /* Same non-aliasing shape as memmap_shm: p, e, and out are always three
  * distinct objects. */
-static int32_t memmap_dev(ProcessObj *restrict p, HandleEntry *restrict e, MemProt prot,
+static int32_t memmap_dev(ProcessObj *restrict p, HandleTableEntry *restrict e, MemProt prot,
 			  VirtAddr *restrict out)
 {
 
@@ -221,7 +221,7 @@ void __hot SysMemMap(CpuState *frame)
     }
     else
     {
-        HandleEntry *e = HandleTableGet(&p->handle_table, (uint32_t)handle);
+        HandleTableEntry *e = HandleTableGet(&p->handle_table, (uint32_t)handle);
         if (unlikely(!e))
         {
             arch_reg_set(frame, 0, ERR_BADHANDLE);
@@ -303,7 +303,7 @@ void SysMemUnmap(CpuState *frame)
                 bool found_handle = false;
                 for (uint32_t i = 0; i < HANDLE_MAX_SLOTS; i++)
                 {
-                    HandleEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, i);
+                    HandleTableEntry *entry = HandleTableGet(&current_thread->owner_process->handle_table, i);
                     if (!entry || entry->mapped_va != va ||
                         (entry->type != HANDLE_SHM && entry->type != HANDLE_DEVICE))
                         continue;
@@ -367,7 +367,7 @@ void SysAsInject(CpuState *frame)
         }
         }
 
-        HandleEntry *handle = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)kargs.taskHandle);
+        HandleTableEntry *handle = HandleTableGet(&current_thread->owner_process->handle_table, (uint32_t)kargs.taskHandle);
         if (!handle)
         {
             arch_reg_set(frame, 0, ERR_BADHANDLE);

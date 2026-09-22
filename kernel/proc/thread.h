@@ -9,7 +9,7 @@
 #include <list.h>
 #include <zuzu/types.h>
 
-typedef struct process Process;
+typedef struct ProcessObjectStruct Process;
 
 typedef enum thread_state {
 	READY = 0, // ready to run, in run queue
@@ -65,7 +65,7 @@ struct thread {
 	ThreadState state;
 	ListNode destroy_node;
 	MsgState ipc_state;
-	Port *blocked_port;
+	PortObject *blocked_port;
 	ReplyCap *pending_reply_cap;
 	PhysAddr lmsg_buf_phys_addr;
 	size_t lmsg_buf_xfer_len;

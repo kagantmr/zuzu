@@ -79,11 +79,11 @@ typedef struct
     PhysAddr *page_addrs; // array of individual PAs, one per page
     size_t page_count;     // amount of used pages
     size_t ref_count;    // live HANDLE references (shm_create + each grant). NOT mappings. Object frees when this hits zero.
-} ShmCap;
+} ShmObject;
 
 /* Drop one handle reference to a shmem object. shm_create and each grant add
  * one; SysDestroy and process teardown drop one. */
-void ShmemDropReference(ShmCap *shm);
+void ShmemDropReference(ShmObject *shm);
 
 #define IOREMAP_SIZE (IOREMAP_END - IOREMAP_BASE + 1)
 #define IOREMAP_SLOTS (IOREMAP_SIZE / SECTION_SIZE) // 256

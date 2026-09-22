@@ -572,7 +572,7 @@ static void process_revoke_outstanding_reply_caps(ProcessObj *caller)
         ProcessObj *holder = ProcessFindByPid(rc->holder_pid);
         if (holder)
         {
-            HandleEntry *entry = HandleTableGet(&holder->handle_table, (uint32_t)rc->holder_slot);
+            HandleTableEntry *entry = HandleTableGet(&holder->handle_table, (uint32_t)rc->holder_slot);
 
             if (entry && entry->type == HANDLE_REPLY && entry->reply == rc)
             {
@@ -695,7 +695,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
     // Clean up handle table
     for (uint32_t i = 0; i < HANDLE_MAX_SLOTS; i++)
     {
-        HandleEntry *entry = HandleTableGet(&p->handle_table, i);
+        HandleTableEntry *entry = HandleTableGet(&p->handle_table, i);
         if (!entry)
             continue;
 
@@ -743,7 +743,7 @@ void ProcessKill(ProcessObj *p, const int exit_status)
             }
             HandleEntryFree(&p->handle_table, entry);
         }
-        else if (entry->type == HANDLE_DEVICE)
+        else if (entry->type == HANDLE_MEM)
         {
             if (entry->dev)
             {
@@ -893,7 +893,7 @@ void ProcessDestroy(ProcessObj *p)
      * as_destroy so the address space is still valid for unmapping. */
     for (uint32_t i = 0; i < HANDLE_MAX_SLOTS; i++)
     {
-        HandleEntry *entry = HandleTableGet(&p->handle_table, i);
+        HandleTableEntry *entry = HandleTableGet(&p->handle_table, i);
         if (!entry)
             continue;
         if (entry->type == HANDLE_SHM && entry->shm)
