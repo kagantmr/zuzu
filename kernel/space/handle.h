@@ -38,11 +38,19 @@ typedef enum
     HANDLE_SPACE
 } HandleType;
 
+typedef enum
+{
+    MEM_KIND_NONE,
+    MEM_KIND_DEV,
+    MEM_KIND_SHM,
+} MemKind;
+
 typedef struct
 {
     HandleType type;    /* HANDLE_* */
     bool grantable;     /* Will grant() work on this handle? */
     VirtAddr mapped_va; /* For shm and device: destroy() checks before freeing */
+    MemKind mem_kind;   /* Only meaningful when type == HANDLE_MEM. */
     union
     {
         PortObject *port;
