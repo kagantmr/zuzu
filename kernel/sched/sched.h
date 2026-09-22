@@ -1,7 +1,7 @@
 #ifndef KERNEL_SCHED_SCHED_H
 #define KERNEL_SCHED_SCHED_H
 
-#include "kernel/proc/process.h"
+#include "kernel/task/task.h"
 #include <stdbool.h>
 #include <stddef.h>
 

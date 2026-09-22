@@ -25,25 +25,6 @@
 
 extern void process_entry_trampoline(void);
 
-typedef struct SpaceObjectStruct {
-	Pid pid, parent_pid;
-	AddressSpace *as;
-	ListNode node; // embedded, not pointers
-	ListNode destroy_node;
-	ListNode timeout_node;
-	Pid waiting_for;
-	char name[32];		 // PROCESS name
-	ListHead outstanding_replies;
-	HandleTable handle_table;
-	uint32_t flags;
-	TaskObject *thread;
-	ListHead threads;
-	ListHead children;
-	ListNode sibling_node;
-    PhysAddr tcb_page_pa[MAX_TCB_PAGES];    /* 37 entries */
-    VirtAddr tcb_page_va;                   /* singular: contiguous window base */
-    uint32_t tcb_slot_bitmap[BITMAP_WORDS(256)]; /* 256 bits */
-} SpaceObject;
 
 _Static_assert(TCB_MAX_SLOTS <= 256, "tcb_slot_bitmap is 256 bits wide");
 

@@ -78,8 +78,7 @@ typedef struct {
   MsgWord w3;    /* send/call: payload */
   Marker marker; /* Added in 1.1: waitany on 32-bit architectures is the only
                     syscall that can use markers */
-  Label label; /* Added in 1.1.1: sysd assigned label helps nameserver create an
-                  unforgeable identity. */
+  /* Labels are outdated by zuzu Prowl v2.0 */
 } WaitanyResult;
 
 #ifdef __cplusplus

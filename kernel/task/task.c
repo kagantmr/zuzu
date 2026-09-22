@@ -1,4 +1,4 @@
-#include "thread.h"
+#include "task.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/sched/sched.h"
 #include "kstack.h"
