@@ -1,7 +1,7 @@
 #include "sys_thread.h"
 #include "kernel/proc/thread.h"
 #include "kernel/sched/sched.h"
-#include "kernel/syscall/syscall.h"
+#include "kernel/svc/svc.h"
 #include "kernel/mm/pmm.h"
 #include "process.h"
 #include <arch/context.h>

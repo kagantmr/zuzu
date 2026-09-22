@@ -1,5 +1,5 @@
 #include "sys_dev.h"
-#include "kernel/syscall/syscall.h"
+#include "kernel/svc/svc.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/proc/process.h"
 #include <arch/mmu.h>
@@ -11,8 +11,6 @@
 
 #define LOG_FMT(fmt) "(sys_dev) " fmt
 #include "core/log.h"
-
-extern Thread *current_thread;
 
 void SysDevQuery(CpuState *frame) {
     Handle handle_idx = (Handle)(*arch_reg(frame, 0));

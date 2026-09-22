@@ -1,5 +1,5 @@
 #include "sys_mm.h"
-#include "kernel/syscall/syscall.h"
+#include "kernel/svc/svc.h"
 #include "kernel/sched/sched.h"
 #include <arch/mmu.h>
 #include <arch/barrier.h>

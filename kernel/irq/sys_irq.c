@@ -2,7 +2,7 @@
 #include "kernel/bench.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/sched/sched.h"
-#include "kernel/syscall/syscall.h"
+#include "kernel/svc/svc.h"
 #include <arch/irq.h>
 #include <compiler.h>
 #include <arch/barrier.h>

@@ -4,7 +4,7 @@
 #include <compiler.h>
 #include <list.h>
 
-#include "kernel/syscall/syscall.h"
+#include "kernel/svc/svc.h"
 #include <arch/fpu.h>
 #include <arch/thread.h>
 

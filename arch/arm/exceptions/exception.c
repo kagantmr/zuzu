@@ -13,7 +13,7 @@
 #include "kernel/proc/kstack.h"
 #include "kernel/sched/sched.h"
 #include "kernel/mm/pmm.h"
-#include "kernel/syscall/syscall.h"
+#include "kernel/svc/svc.h"
 #include "kernel/bench.h"
 #include "zuzu/log.h"
 #include <string.h>
