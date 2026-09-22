@@ -34,29 +34,29 @@ BENCH_STAT(g_bench_copyfromuser_walk, "CopyFromUser: VmmCheckUserFault");
 BENCH_STAT(g_bench_copyfromuser_copy, "CopyFromUser: memcpy");
 #endif
 
-typedef void (*SyscallEntryPoint)(CpuState *);
+typedef void (*SvcEntry)(CpuState *);
 
 #ifdef DEBUG
-static void SysDebugLog(CpuState *frame);
+static void SvcDebugLog(CpuState *frame);
 #endif
 
-static SyscallEntryPoint syscall_table[SYSCALL_COUNT] = {
-    [SYS_QUIT] = SvcQuit,
-    [SYS_YIELD] = SvcYield,
+static SvcEntry svc_table[SYSCALL_COUNT] = {
+    [SVC_QUIT] = SvcQuit,
+    [SVC_YIELD] = SvcYield,
     #ifdef DEBUG
-        [SYS_LOG] = SysDebugLog, /* defined below; DEBUG builds only */
+        [SVC_LOG] = SvcDebugLog, /* defined below; DEBUG builds only */
     #else
-        [SYS_LOG] = NULL,
+        [SVC_LOG] = NULL,
     #endif
-    [SYS_CREATE] = SvcCreate,
-    [SYS_CALL] = SvcCall,
-    [SYS_REPLY] = SvcReply,
-    [SYS_WAITON] = SvcWaitOn,
-    [SYS_CNTLHANDLE] = SvcCntlHandle,
-    [SYS_SIGNAL] = SvcSignal,
-    [SYS_BINDEVENT] = SvcBindEvent,
-    [SYS_CNTLMEMORY] = SvcCntlMemory,
-    [SYS_COMPLETEIRQ] = SvcCompleteIrq,
+    [SVC_SLEEP] = SvcSleep,
+    [SVC_CREATE] = SvcCreate,
+    [SVC_CALL] = SvcCall,
+    [SVC_REPLY] = SvcReply,
+    [SVC_WAITON] = SvcWaitOn,
+    [SVC_MANAGEHANDLE] = SvcCntlHandle,
+    [SVC_SIGNAL] = SvcSignal,
+    [SVC_BIND] = SvcBindEvent,
+    [SVC_MANAGEMEM] = SvcManageMemory
 };
 
 
@@ -131,7 +131,7 @@ bool CopyFromUser(void *restrict kaddr, const void *restrict uaddr, size_t len)
 /* DEBUG-only kernel console sink for userspace. Lets pre-tty services print
  * before pl011drv is up. Deliberately dumb: bounded copy, no formatting. */
 #define SYSLOG_MAX 240u
-static void SysDebugLog(CpuState *frame)
+static void SvcDebugLog(CpuState *frame)
 {
     VirtAddr uptr = (VirtAddr)(*arch_reg(frame, 0));
     uint32_t len = (*arch_reg(frame, 1));
@@ -165,8 +165,8 @@ void __hot SvcDispatch(Svc svc_num, CpuState *frame)
     }
     current_thread->trap_frame = frame;
 
-    if (likely(syscall_table[svc_num]))
-        syscall_table[svc_num](frame);
+    if (likely(svc_table[svc_num]))
+        svc_table[svc_num](frame);
     else
         arch_reg_set(frame, 0, ERR_NOSYS);
 }

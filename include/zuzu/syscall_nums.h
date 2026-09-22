@@ -4,20 +4,21 @@
 #include <stdint.h>
 
 typedef enum {
-    SYS_QUIT = 0,
-    SYS_YIELD,
-    SYS_LOG,
-    SYS_CREATE,
-    SYS_CALL,
-    SYS_REPLY,
-    SYS_WAITON,
-    SYS_CNTLHANDLE,
-    SYS_SIGNAL,
-    SYS_BINDEVENT,
-    SYS_CNTLMEMORY,
+    SVC_QUIT = 0,
+    SVC_YIELD,
+    SVC_SLEEP,
+    SVC_LOG,
+    SVC_CREATE,
+    SVC_CALL,
+    SVC_REPLY,
+    SVC_WAITON,
+    SVC_MANAGEHANDLE,
+    SVC_SIGNAL,
+    SVC_BIND,
+    SVC_MANAGEMEM,
     SYS_COMPLETEIRQ,
     SYSCALL_COUNT
-} SyscallNumber;
+} SvcNumber;
 
 typedef uint8_t Svc;
 

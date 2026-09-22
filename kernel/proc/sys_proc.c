@@ -4,7 +4,7 @@
 #include "kernel/ipc/handle.h"
 #include "kernel/proc/process.h"
 #include "kernel/sched/sched.h"
-#include "kernel/syscall/syscall.h"
+#include "kernel/svc/svc.h"
 #include "kernel/time/tick.h"
 
 #include <arch/context.h>

@@ -143,7 +143,7 @@ void SvcBindEvent(CpuState *frame);
  * 
  * @param frame The CPU state frame to use for the service call.
  */
-void SvcCntlMemory(CpuState *frame);
+void SvcManageMemory(CpuState *frame);
 
 /**
  * @brief Service call function for signalling IRQ completion.

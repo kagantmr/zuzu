@@ -44,8 +44,6 @@ void SysIrqDone(CpuState *frame)
         arch_irq_enable_line(entry->dev->irq);
         (*arch_reg(frame, 0)) = 0;
         return;
-    } else {
-        arch_reg_set(frame, 0, ERR_NOPERM);
-        return;
     }
+    arch_reg_set(frame, 0, ERR_NOPERM);
 }
