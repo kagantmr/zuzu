@@ -5,7 +5,7 @@
 #ifndef ZUZU_ARM_IMPL_THREAD_H
 #define ZUZU_ARM_IMPL_THREAD_H
 
-#include "kernel/proc/thread.h"
+#include "kernel/task/task.h"
 
 /**
  * arch_set_thread_ptr - publish the thread pointer to user-readable TPIDRURO.
@@ -18,7 +18,7 @@ static inline void arch_set_thread_ptr(TaskObject *t)
 	if (!t)
 		return;
 
-	__asm__ volatile("mcr p15, 0, %0, c13, c0, 3" :: "r"(t->thread_info_va) : "memory");
+	__asm__ volatile("mcr p15, 0, %0, c13, c0, 3" :: "r"(t->task_info_va) : "memory");
 }
 
 #endif // ZUZU_ARM_IMPL_THREAD_H

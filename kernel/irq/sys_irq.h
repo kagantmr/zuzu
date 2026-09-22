@@ -6,17 +6,17 @@
 #include "stdbool.h"
 #include <arch/regs.h>
 
-typedef struct SpaceObjectStruct ProcessObj;
+typedef struct SpaceObjectStruct SpaceObject;
 
 typedef struct irq_owner {
-    ProcessObj *owner;
+    SpaceObject *owner;
     bool pending;
     EventObject *bound_ntfn; // was Endpoint *bound_port
 } IrqOwner;
 
 void SysIrqBind(CpuState *frame);
 void SysIrqDone(CpuState *frame);
-void IrqReleaseAll(ProcessObj *owner);
+void IrqReleaseAll(SpaceObject *owner);
 
 bool IrqClearPending(int irq_num);
 

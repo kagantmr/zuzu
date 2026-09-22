@@ -2,7 +2,7 @@
 #define KERNEL_SYSCALL_H
 
 #include <arch/regs.h>
-#include "kernel/proc/thread.h"
+#include "kernel/task/task.h"
 #include "stdbool.h"
 #include "stddef.h"
 #include "kernel/mm/vmm.h"

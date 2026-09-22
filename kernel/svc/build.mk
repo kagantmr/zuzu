@@ -1,1 +1,12 @@
-obj-y += syscall.o
+obj-y += svc.o
+obj-y += svc_bind.o
+obj-y += svc_call.o
+obj-y += svc_create.o
+obj-y += svc_managehandle.o
+obj-y += svc_managememory.o
+obj-y += svc_quit.o
+obj-y += svc_reply.o
+obj-y += svc_signal.o
+obj-y += svc_sleep.o
+obj-y += svc_waiton.o
+obj-y += svc_yield.o
