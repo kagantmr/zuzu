@@ -37,12 +37,6 @@ typedef struct {
 #define TIMEOUT_POLL 0u
 #define TIMEOUT_INFINITE UINT32_MAX
 
-/*  Process spawn types  */
-
-#define SELF_TASK 0
-#define SELF_THREAD 1
-
-
 typedef struct {
   Handle task_handle;
   Pid pid;
