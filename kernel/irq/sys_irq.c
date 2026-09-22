@@ -25,7 +25,7 @@ BENCH_STAT(g_bench_irq_wait, "IRQ wait block->unblock");
  */
 static bool WakeNtfnWaiter(EventObject *ntfn, WaitSlot *slot)
 {
-    Thread *waiter = slot->owner;
+    TaskObject *waiter = slot->owner;
     if (unlikely(!waiter->trap_frame))
         return false;
 
@@ -61,7 +61,7 @@ static void __hot relay_handler(void *ctx)
         if (likely(!list_empty(&ntfn->wait_queue))) {
             ListNode *node = list_pop_front(&ntfn->wait_queue);
             WaitSlot *slot = container_of(node, WaitSlot, node);
-            Thread *waiter = slot->owner;
+            TaskObject *waiter = slot->owner;
             if (unlikely(!WakeNtfnWaiter(ntfn, slot)))
                 return;
 #ifdef CONFIG_ZUZU_BENCH
@@ -162,7 +162,7 @@ void SysIrqBind(CpuState *frame)
         if (!list_empty(&ntfn->wait_queue)) {
             ListNode *node = list_pop_front(&ntfn->wait_queue);
             WaitSlot *slot = container_of(node, WaitSlot, node);
-            Thread *waiter = slot->owner;
+            TaskObject *waiter = slot->owner;
             uint32_t bits = ntfn->word;
 
             if (waiter->trap_frame) {

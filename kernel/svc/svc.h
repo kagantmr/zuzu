@@ -62,7 +62,7 @@ static inline bool IsUserPtrNormal(const uintptr_t addr, const size_t len) {
     return true;
 }
 
-extern Thread *current_thread;
+extern TaskObject *current_thread;
 
 /*
  * Service call functions.

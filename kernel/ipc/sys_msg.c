@@ -32,7 +32,7 @@ static uint8_t g_bench_wordcopy_scratch[LMSG_BUF_SIZE] __attribute__((aligned(4)
 /* Every call site passes a sender and a receiver -- never the same thread
  * (and their ipc_buf_pa pages are always separate physical frames), so
  * the memcpy below is genuinely non-overlapping. */
-static void LmsgBufCopy(Thread *restrict src, Thread *restrict dst, uint32_t len)
+static void LmsgBufCopy(TaskObject *restrict src, TaskObject *restrict dst, uint32_t len)
 {
 	if (!len || !src->lmsg_buf_phys_addr || !dst->lmsg_buf_phys_addr)
 		return;
@@ -97,7 +97,7 @@ static bool IsFrameNormal(const CpuState *tf)
 }
 
 
-static __cold __noinline void PanicBadFrame(const char *where, const ProcessObj *owner,
+static __cold __noinline void PanicBadFrame(const char *where, const SpaceObject *owner,
 						       const CpuState *tf)
 {
 	if (tf && ((uintptr_t)tf & 0x3U) == 0)
@@ -112,7 +112,7 @@ static __cold __noinline void PanicBadFrame(const char *where, const ProcessObj 
 }
 #endif
 
-static __always_inline void CancelTimeout(Thread *t)
+static __always_inline void CancelTimeout(TaskObject *t)
 {
 	if (t->wake_deadline != 0) {
 		SchedRemoveSleepQueue(t);
@@ -120,7 +120,7 @@ static __always_inline void CancelTimeout(Thread *t)
 	}
 }
 
-static __hot inline void IpcWakeThread(Thread *t)
+static __hot inline void IpcWakeThread(TaskObject *t)
 {
 	t->ipc_state = IPC_NONE;
 	t->blocked_port = NULL;
@@ -187,7 +187,7 @@ static void CallPathTally(CallPathMix *m, int which)
  * traffic a client hammers a port it already validated once, so all four
  * are marked unlikely to keep the fall-through (the success return) as
  * the straight-line path. */
-static HandleTableEntry *__hot ValidatePortHandle(ProcessObj *proc, Handle handle, CpuState *frame)
+static HandleTableEntry *__hot ValidatePortHandle(SpaceObject *proc, Handle handle, CpuState *frame)
 {
 	if (unlikely(!proc)) {
 		arch_reg_set(frame, 0, ERR_BADARG);
@@ -220,7 +220,7 @@ static HandleTableEntry *__hot ValidatePortHandle(ProcessObj *proc, Handle handl
 	return entry;
 }
 
-static HandleTableEntry *ValidateReplyCap(ProcessObj *proc, Handle handle_idx, Thread **target_out,
+static HandleTableEntry *ValidateReplyCap(SpaceObject *proc, Handle handle_idx, TaskObject **target_out,
 					  CpuState *frame)
 {
 	if (!proc || handle_idx == 0) {
@@ -242,7 +242,7 @@ static HandleTableEntry *ValidateReplyCap(ProcessObj *proc, Handle handle_idx, T
 		return NULL;
 	}
 
-	Thread *target = ThreadFindByTid(entry->reply->caller_tid);
+	TaskObject *target = ThreadFindByTid(entry->reply->caller_tid);
 
 	if (!target || target->state == ZOMBIE) {
 		ProcessUntrackReplyCap(entry->reply);
@@ -279,7 +279,7 @@ void __attribute__((hot)) SysMsgSend(CpuState *frame)
 	if (likely(!list_empty(&port->receiver_queue))) {
 		ListNode *receiver = list_pop_front(&port->receiver_queue);
 		WaitSlot *rx_slot = container_of(receiver, WaitSlot, node);
-		Thread *rx_thread = rx_slot->owner;
+		TaskObject *rx_thread = rx_slot->owner;
 		CpuState *rx_frame = rx_thread->trap_frame;
 #ifdef DEBUG
 		if (!IsFrameNormal(rx_frame))
@@ -330,7 +330,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 	 * pairing) sender_queue is essentially always empty when this runs. */
 	if (unlikely(!list_empty(&port->sender_queue))) {
 		ListNode *sender = list_pop_front(&port->sender_queue);
-		Thread *sr_thread = container_of(sender, Thread, node);
+		TaskObject *sr_thread = container_of(sender, TaskObject, node);
 		CpuState *sr_frame = sr_thread->trap_frame;
 #ifdef DEBUG
 		if (unlikely(!IsFrameNormal(sr_frame))) {
@@ -504,7 +504,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 #endif
 		ListNode *receiver = list_pop_front(&port->receiver_queue);
 		WaitSlot *rx_slot = container_of(receiver, WaitSlot, node);
-		Thread *rx_thread = rx_slot->owner;
+		TaskObject *rx_thread = rx_slot->owner;
 		CpuState *rx_frame = rx_thread->trap_frame;
 #ifdef DEBUG
 		if (!IsFrameNormal(rx_frame))
@@ -612,7 +612,7 @@ void __attribute__((hot)) SysMsgReply(CpuState *frame)
 	(void)bs;
 #endif
 	Handle handle_idx = (Handle)(*arch_reg(frame, 0));
-	Thread *target_thread = NULL;
+	TaskObject *target_thread = NULL;
 #ifdef CONFIG_ZUZU_BENCH
 	bs = BENCH_BEGIN();
 #endif
@@ -691,7 +691,7 @@ void __attribute__((hot)) SysMsgLsend(CpuState *frame)
 	if (!list_empty(&port->receiver_queue)) {
 		ListNode *receiver = list_pop_front(&port->receiver_queue);
 		WaitSlot *rx_slot = container_of(receiver, WaitSlot, node);
-		Thread *rx_thread = rx_slot->owner;
+		TaskObject *rx_thread = rx_slot->owner;
 		CpuState *rx_frame = rx_thread->trap_frame;
 #ifdef DEBUG
 		if (!IsFrameNormal(rx_frame))
@@ -750,7 +750,7 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 	if (!list_empty(&port->receiver_queue)) {
 		ListNode *receiver = list_pop_front(&port->receiver_queue);
 		WaitSlot *rx_slot = container_of(receiver, WaitSlot, node);
-		Thread *rx_thread = rx_slot->owner;
+		TaskObject *rx_thread = rx_slot->owner;
 		CpuState *rx_frame = rx_thread->trap_frame;
 		(void)rx_frame;
 #ifdef DEBUG
@@ -828,7 +828,7 @@ void __attribute__((hot)) SysMsgLreply(CpuState *frame)
 		return;
 	}
 
-	Thread *target_thread = NULL;
+	TaskObject *target_thread = NULL;
 	HandleTableEntry *entry =
 	    ValidateReplyCap(current_thread->owner_process, handle_idx, &target_thread, frame);
 	if (!entry) {

@@ -20,8 +20,8 @@
 #define LOG_FMT(fmt) "(loader) " fmt
 #include "core/log.h"
 
-static ProcessObj *s_devmgr;
-static ProcessObj *s_sysd;
+static SpaceObject *s_devmgr;
+static SpaceObject *s_sysd;
 
 /* Set once in boot_programs_spawn_all(): the bootloader-supplied initrd
  * (DTB /chosen), as a physical address + size. */
@@ -126,7 +126,7 @@ static void boot_program(const char *path, uint32_t flags,
     }
 
     bool leave_frozen = (flags & PROC_FLAG_DEVMGR) != 0;
-    ProcessObj *process = KernelProcessLoad(zxf_data, zxf_size, path,
+    SpaceObject *process = KernelProcessLoad(zxf_data, zxf_size, path,
                                        argc ? argbuf : NULL, argbuf_len, argc,
                                        leave_frozen);
     if (!process)

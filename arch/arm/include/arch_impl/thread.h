@@ -13,7 +13,7 @@
  * Writes the thread's info VA to the ARM TPIDRURO register (cp15, c13, c0, 3),
  * so user-mode can read it via mrc p15, 0, rt, c13, c0, 3 for TLS / thread IDs.
  */
-static inline void arch_set_thread_ptr(Thread *t)
+static inline void arch_set_thread_ptr(TaskObject *t)
 {
 	if (!t)
 		return;

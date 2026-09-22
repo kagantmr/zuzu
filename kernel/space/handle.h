@@ -49,7 +49,7 @@ typedef struct
         DeviceObject *dev;
         ShmObject *shm;
         EventObject *event;   /* rename target: HANDLE_EVENT */
-        struct ProcessObjectStruct *task;
+        struct SpaceObjectStruct *task;
         SpaceObject *space;
     };
     Marker marker; /* Added in zuzu 1.1: Same handle can be stamped with a marker to demux

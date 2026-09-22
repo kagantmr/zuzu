@@ -10,7 +10,7 @@
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm.h"
 
-extern Thread *current_thread;
+extern TaskObject *current_thread;
 
 void ShmemDropReference(ShmObject *shm)
 {

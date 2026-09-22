@@ -9,7 +9,7 @@ void SvcQuit(CpuState *frame)
 {
     int exit_status = (int)(*arch_reg(frame, 0));
 
-    ProcessObj *owner = current_thread->owner_process;
+    SpaceObject *owner = current_thread->owner_process;
     current_thread->exit_status = exit_status;
     ThreadWakeJoiners(current_thread, exit_status);
 

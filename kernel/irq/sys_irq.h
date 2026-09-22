@@ -6,7 +6,7 @@
 #include "stdbool.h"
 #include <arch/regs.h>
 
-typedef struct ProcessObjectStruct ProcessObj;
+typedef struct SpaceObjectStruct ProcessObj;
 
 typedef struct irq_owner {
     ProcessObj *owner;

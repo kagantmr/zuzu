@@ -24,12 +24,12 @@
 
 static ListHead destroy_queue = LIST_HEAD_INIT(destroy_queue);
 static ListHead thread_destroy_queue = LIST_HEAD_INIT(thread_destroy_queue);
-Thread *current_thread;
-Thread *fpu_owner = NULL;
+TaskObject *current_thread;
+TaskObject *fpu_owner = NULL;
 
 volatile uint8_t do_resched = 0; 
 
-static Thread idle_thread; // only kernel_sp is used
+static TaskObject idle_thread; // only kernel_sp is used
 static uint8_t idle_stack[IDLE_STACK_BYTES] __attribute__((aligned(8)));
 static bool on_idle_stack;
 
@@ -89,7 +89,7 @@ void SchedInit()
     SchedInitIdleThread();
 }
 
-void SchedAdd(Thread *t)
+void SchedAdd(TaskObject *t)
 {
     if (!t)
         return;
@@ -110,9 +110,9 @@ void SchedAdd(Thread *t)
     }
 }
 
-void SchedQueueDestroyProcess(ProcessObj *p) { list_add_tail(&p->destroy_node, &destroy_queue.node); }
+void SchedQueueDestroyProcess(SpaceObject *p) { list_add_tail(&p->destroy_node, &destroy_queue.node); }
 
-void SchedQueueDestroyThread(Thread *t)
+void SchedQueueDestroyThread(TaskObject *t)
 {
     if (!t)
         return;
@@ -133,7 +133,7 @@ void SchedConsumeDestroyQueue(void)
         ListNode *node = list_pop_front(&thread_destroy_queue);
         if (!node)
             break;
-        Thread *t = container_of(node, Thread, destroy_node);
+        TaskObject *t = container_of(node, TaskObject, destroy_node);
 
         if (t == current_thread)
         {
@@ -149,7 +149,7 @@ void SchedConsumeDestroyQueue(void)
         ListNode *node = list_pop_front(&deferred);
         if (!node)
             break;
-        Thread *t = container_of(node, Thread, destroy_node);
+        TaskObject *t = container_of(node, TaskObject, destroy_node);
         list_add_tail(&t->destroy_node, &thread_destroy_queue.node);
     }
 }
@@ -160,7 +160,7 @@ void SchedReap(void)
     while (!list_empty(&destroy_queue))
     {
         ListNode *node = list_pop_front(&destroy_queue);
-        ProcessObj *p = container_of(node, ProcessObj, destroy_node);
+        SpaceObject *p = container_of(node, SpaceObject, destroy_node);
         ProcessDestroy(p);
     }
     SchedConsumeDestroyQueue();
@@ -180,7 +180,7 @@ static bool SchedIsWorkPending(void)
     return false;
 }
 
-void SchedRemoveSleepQueue(Thread *t) {
+void SchedRemoveSleepQueue(TaskObject *t) {
     if (t->sleep_slot < 0) return;
     if (t->timeout_node.prev && t->timeout_node.next) list_remove(&t->timeout_node);
     uint32_t slot = (uint32_t)t->sleep_slot;
@@ -188,7 +188,7 @@ void SchedRemoveSleepQueue(Thread *t) {
     t->sleep_slot = -1;
 }
 
-void SchedInsertSleepQueue(Thread *t)
+void SchedInsertSleepQueue(TaskObject *t)
 {
     uint64_t abs_slot = t->wake_deadline >> slot_shift;
     if (abs_slot < wheel_now_slot) abs_slot = wheel_now_slot;
@@ -218,7 +218,7 @@ static void SchedWakeSleepers(void)
             ListNode *node = list_pop_front(bucket);
             if (!node)
                 break;
-            Thread *t = container_of(node, Thread, timeout_node);
+            TaskObject *t = container_of(node, TaskObject, timeout_node);
             t->sleep_slot = -1;
             if ((t->wake_deadline >> slot_shift) > wheel_now_slot) {
                 SchedInsertSleepQueue(t);
@@ -294,7 +294,7 @@ static void SchedDoHousekeeping(void)
     SchedWakeSleepers();
 }
 
-static Thread *SchedPickNext(void)
+static TaskObject *SchedPickNext(void)
 {
     for (int level = SCHED_PRIORITY_LEVELS - 1; level >= 0; level--)
     {
@@ -303,13 +303,13 @@ static Thread *SchedPickNext(void)
             ListNode *next_node = list_pop_front(&run_queues[level]);
             if (list_empty(&run_queues[level]))
                 ready_mask &= ~(1U << level);
-            return container_of(next_node, Thread, node);
+            return container_of(next_node, TaskObject, node);
         }
     }
     return &idle_thread;
 }
 
-bool __hot SchedAnyCpuTakers(const Thread *t)
+bool __hot SchedAnyCpuTakers(const TaskObject *t)
 {
     if (unlikely(!t))
         return false;
@@ -324,9 +324,9 @@ bool __hot SchedAnyCpuTakers(const Thread *t)
 /* Called from schedule() (every voluntary reschedule) and directly from
  * SysMsgCall's/SysMsgLcall's direct-handoff path -- one of the hottest
  * functions in the kernel. */
-void __hot SchedSwitchNext(Thread *next)
+void __hot SchedSwitchNext(TaskObject *next)
 {
-    Thread *prev = current_thread;
+    TaskObject *prev = current_thread;
 
     if (unlikely(next == &idle_thread))
     {
@@ -365,7 +365,7 @@ void __hot SchedSwitchNext(Thread *next)
         }
     }
 
-    ProcessObj *prev_proc = prev ? prev->owner_process : NULL;
+    SpaceObject *prev_proc = prev ? prev->owner_process : NULL;
     if (unlikely(current_thread->owner_process->as &&
                  (!prev_proc || prev_proc->as != current_thread->owner_process->as)))
     {
@@ -427,11 +427,11 @@ void __hot Schedule(void)
 
     SchedDoHousekeeping();
 
-    Thread *next = SchedPickNext();
+    TaskObject *next = SchedPickNext();
     SchedSwitchNext(next); /* sets the slice deadline and arms the timer */
 }
 
-size_t SchedGetReadyQueue(Thread **out, size_t max_out)
+size_t SchedGetReadyQueue(TaskObject **out, size_t max_out)
 {
     size_t total = 0;
     for (int level = SCHED_PRIORITY_LEVELS - 1; level >= 0; level--)
@@ -442,7 +442,7 @@ size_t SchedGetReadyQueue(Thread **out, size_t max_out)
         {
             if (out && total < max_out)
             {
-                out[total] = container_of(node, Thread, node);
+                out[total] = container_of(node, TaskObject, node);
             }
             total++;
             node = node->next;
@@ -452,7 +452,7 @@ size_t SchedGetReadyQueue(Thread **out, size_t max_out)
     return total;
 }
 
-size_t SchedGetSleepers(Thread **out, size_t max_out)
+size_t SchedGetSleepers(TaskObject **out, size_t max_out)
 {
     size_t total = 0;
     for (uint32_t s = 0; s < SLEEP_QUEUE_SIZE; s++)
@@ -461,7 +461,7 @@ size_t SchedGetSleepers(Thread **out, size_t max_out)
         while (node != &sleep_wheel[s].node)
         {
             if (out && total < max_out)
-                out[total] = container_of(node, Thread, timeout_node);
+                out[total] = container_of(node, TaskObject, timeout_node);
             total++;
             node = node->next;
         }

@@ -21,7 +21,7 @@ void KFreeNtfn(EventObject *ntfn) { KSlabFree(&ntfn_cache, ntfn); }
 
 void NtfnWakeWaiter(EventObject *ntfn, WaitSlot *slot, int32_t r0_value)
 {
-    Thread *waiter = slot->owner;
+    TaskObject *waiter = slot->owner;
     if (!waiter || !waiter->trap_frame) {
         panic("NtfnWakeWaiter: queued waiter with no trap frame "
               "(ntfn=%p slot=%p owner=%p trap_frame=%p)",

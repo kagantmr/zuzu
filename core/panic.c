@@ -631,7 +631,7 @@ static void panic_print_sched(void)
     panic_line(line);
 
     /* Ready queue */
-    Thread *ready[PANIC_READY_MAX];
+    TaskObject *ready[PANIC_READY_MAX];
     size_t ready_total = SchedGetReadyQueue(ready, PANIC_READY_MAX);
     panic_nl();
     snprintf(line, sizeof(line), "ready (%lu):", (unsigned long)ready_total);
@@ -641,7 +641,7 @@ static void panic_print_sched(void)
     } else {
         size_t show = ready_total < PANIC_READY_MAX ? ready_total : PANIC_READY_MAX;
         for (size_t i = 0; i < show; i++) {
-            Thread *t = ready[i];
+            TaskObject *t = ready[i];
             ProcessObj *p = t->owner_process;
             snprintf(line, sizeof(line),
                      "  tid=%-4u  pid=%-4u  %-16s  prio=%u",
@@ -658,7 +658,7 @@ static void panic_print_sched(void)
     }
 
     /* Sleep wheel */
-    Thread *sleepers[PANIC_SLEEP_MAX];
+    TaskObject *sleepers[PANIC_SLEEP_MAX];
     size_t sleep_total = SchedGetSleepers(sleepers, PANIC_SLEEP_MAX);
     panic_nl();
     (void)snprintf(line, sizeof(line), "sleeping (%lu):", (unsigned long)sleep_total);
@@ -669,7 +669,7 @@ static void panic_print_sched(void)
     } else {
         size_t show = sleep_total < PANIC_SLEEP_MAX ? sleep_total : PANIC_SLEEP_MAX;
         for (size_t i = 0; i < show; i++) {
-            Thread *t = sleepers[i];
+            TaskObject *t = sleepers[i];
             ProcessObj *p = t->owner_process;
             (void)snprintf(line, sizeof(line),
                      "  tid=%-4u  pid=%-4u  %-16s  wake_deadline=%llu",

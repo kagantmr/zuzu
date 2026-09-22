@@ -7,7 +7,7 @@
 #include <vector.h>
 #include <zuzu/types.h>
 
-struct ProcessObjectStruct;
+struct SpaceObjectStruct;
 
 typedef struct {
     ListHead sender_queue;

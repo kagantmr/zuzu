@@ -11,9 +11,9 @@
 #define LOG_FMT(fmt) "(sys_port) " fmt
 #include <zuzu/log.h>
 
-extern ProcessObj *process_table[MAX_PROCESSES];
+extern SpaceObject *process_table[MAX_PROCESSES];
 
-static bool CanRegrantHandle(const ProcessObj *grantee)
+static bool CanRegrantHandle(const SpaceObject *grantee)
 {
     // only sysd may receive grantable copies.
     // Everyone else gets a non-grantable copy to prevent unbounded handle propagation.
@@ -116,7 +116,7 @@ void SysDestroy(CpuState *frame)
         while (!list_empty(&port->sender_queue))
         {
             ListNode *n = list_pop_front(&port->sender_queue);
-            Thread *t = container_of(n, Thread, node);
+            TaskObject *t = container_of(n, TaskObject, node);
             t->ipc_state = IPC_NONE;
             t->blocked_port = NULL;
             arch_reg_set(t->trap_frame, 0, ERR_DEAD);
@@ -129,7 +129,7 @@ void SysDestroy(CpuState *frame)
         {
             ListNode *n = list_pop_front(&port->receiver_queue);
             WaitSlot *slot = container_of(n, WaitSlot, node);
-            Thread *t = slot->owner;
+            TaskObject *t = slot->owner;
             t->ipc_state = IPC_NONE;
             t->blocked_port = NULL;
             if (t->trap_frame)
@@ -240,7 +240,7 @@ void SysDestroy(CpuState *frame)
     break;
     case HANDLE_TASK:
     {
-        ProcessObj *task = entry->task;
+        SpaceObject *task = entry->task;
         if (!task)
         {
             arch_reg_set(frame, 0, ERR_BADHANDLE);
@@ -299,7 +299,7 @@ void SysGrant(CpuState *frame)
     }
 
     // Look up target process
-    ProcessObj *grantee = ProcessFindByPid(pid);
+    SpaceObject *grantee = ProcessFindByPid(pid);
     if (!grantee)
     {
         arch_reg_set(frame, 0, ERR_NOENT);
@@ -460,7 +460,7 @@ void SysSetLabel(CpuState *frame)
         return;
     }
 
-    ProcessObj *target;
+    SpaceObject *target;
 
     if (src_handle == LABEL_SELF)
     {

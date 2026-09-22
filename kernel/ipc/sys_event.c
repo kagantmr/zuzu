@@ -10,7 +10,7 @@
 #include <zuzu/types.h>
 #include <zuzu/err.h>
 
-extern Thread *current_thread;
+extern TaskObject *current_thread;
 
 void SysKEventBind(CpuState *frame)
 {

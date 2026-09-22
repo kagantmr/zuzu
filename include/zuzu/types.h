@@ -17,9 +17,9 @@ typedef uintptr_t VirtAddr; /* Virtual memory address */
 typedef uint32_t Irq;       /* IRQ number */
 typedef uint32_t Duration;  /* for sleep and other timeout-taking syscalls */
 typedef uint64_t Time;      /* wall-clock time */
+typedef int32_t Err;        /* Error code */
 
 typedef uint32_t Marker;
-typedef uint32_t Label;
 typedef uint32_t NtfnBits;
 
 /* ---- Common IPC types ---- */

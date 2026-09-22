@@ -35,7 +35,7 @@ BENCH_STAT(g_bench_checkuserfault_4k_2page, "VmmCheckUserFault (4KB, 2 pages)");
  * Helper for memmap to map anonymous memory.
  * Adapted from zuzu v0.1.5-alpha version
  */
-static int32_t memmap_anon(ProcessObj *restrict p, VirtAddr hint, size_t size, MemProt prot,
+static int32_t memmap_anon(SpaceObject *restrict p, VirtAddr hint, size_t size, MemProt prot,
 			   VirtAddr *restrict out)
 {
     if (size == 0)
@@ -88,7 +88,7 @@ static int32_t memmap_anon(ProcessObj *restrict p, VirtAddr hint, size_t size, M
  * Adapted from zuzu v0.1.5-alpha version
  */
 /* p, e (the handle-table entry), and out are three distinct objects. */
-static int32_t memmap_shm(ProcessObj *restrict p, HandleTableEntry *restrict e, MemProt prot,
+static int32_t memmap_shm(SpaceObject *restrict p, HandleTableEntry *restrict e, MemProt prot,
 			  VirtAddr *restrict out)
 {
 
@@ -129,7 +129,7 @@ static int32_t memmap_shm(ProcessObj *restrict p, HandleTableEntry *restrict e, 
  */
 /* Same non-aliasing shape as memmap_shm: p, e, and out are always three
  * distinct objects. */
-static int32_t memmap_dev(ProcessObj *restrict p, HandleTableEntry *restrict e, MemProt prot,
+static int32_t memmap_dev(SpaceObject *restrict p, HandleTableEntry *restrict e, MemProt prot,
 			  VirtAddr *restrict out)
 {
 
@@ -183,7 +183,7 @@ void __hot SysMemMap(CpuState *frame)
 #ifdef CONFIG_ZUZU_BENCH
     uint32_t bench_start = BENCH_BEGIN();
 #endif
-    ProcessObj *p = current_thread->owner_process;
+    SpaceObject *p = current_thread->owner_process;
     Handle handle = (Handle)(*arch_reg(frame, 0));
     size_t size = (size_t)(*arch_reg(frame, 1));
     MemProt prot = (MemProt)(*arch_reg(frame, 2));
@@ -379,7 +379,7 @@ void SysAsInject(CpuState *frame)
             return;
         }
 
-        ProcessObj *target = handle->task;
+        SpaceObject *target = handle->task;
 
         if (!target)
         {
