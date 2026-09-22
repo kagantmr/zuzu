@@ -36,13 +36,20 @@ typedef struct SpaceObjectStruct
 } SpaceObject;
 
 /**
+ * @brief Create a new space.
+ *
+ * @param name The name of the space.
+ * @return The space object, or NULL if not created.
+ */
+SpaceObject *CreateSpace(const char *name);
+
+/**
  * @brief Find a space by its SPID.
  *
  * @param pid The SPID of the space to find.
  * @return The space object, or NULL if not found.
  */
 SpaceObject *SpaceFindBySpid(Spid pid);
-
 void SpaceReparent(SpaceObject *kitten, SpaceObject *parent);
 SpaceObject *SpaceFindKittenBySpid(SpaceObject *parent, Spid pid);
 SpaceObject *SpaceFindHollowKitten(SpaceObject *parent);

@@ -11,14 +11,14 @@
 
 typedef struct SpaceObjectStruct Process;
 
-typedef enum thread_state
+typedef enum TaskStateEnum
 {
     READY = 0, // ready to run, in run queue
     RUNNING,   // on CPU
     BLOCKED,   // waiting for IPC or timeout
     ZOMBIE,    // called quit()
     FROZEN,    // not runnable yet
-} ThreadState;
+} TaskState;
 
 typedef enum
 {
@@ -46,56 +46,55 @@ typedef struct TaskObjectStruct TaskObject;
  */
 typedef struct wait_slot
 {
-    ListNode node;
-    TaskObject *owner;
+    ListNode node;     /**< Node in the wait queue. */
+    TaskObject *owner; /**< Owner task of this wait slot. */
 } WaitSlot;
 
 struct TaskObjectStruct
 {
-    VirtAddr kernel_stack_top; // base of kernel stack for freeing (offset 0)
-    CpuState
-        *trap_frame;     // pointer to saved user registers for IPC and context switching (offset 4)
-    Tid tid;             // thread ID (offset 8)
-    uint32_t *kernel_sp; // current kernel stack pointer for context switching (offset 12 -
-                         // CRITICAL: switch.S offset)
-    Err exit_status;
-    ListNode node;         // embedded, not pointers
-    ListNode process_node; // membership in owner process thread list
-    ListNode timeout_node;
-    ListHead joiners;
-    ListNode join_node;
-    WakeReason wake_reason;
-    Time wake_deadline;
-    int16_t sleep_slot;
-    ThreadState state;
-    ListNode destroy_node;
-    MsgState ipc_state;
-    PortObject *blocked_port;
-    ReplyCap *pending_reply_cap;
-    PhysAddr lmsg_buf_phys_addr;
-    size_t lmsg_buf_xfer_len;
-    Marker port_marker;
-    WaitSlot ntfn_wait_slot; /* for SysNtfnWait */
-    WaitSlot port_wait_slot; /* for SysMsgRecv */
-    uint32_t priority, time_slice, ticks_remaining;
-    Time slice_deadline;
-    Process *owner_process; // backpointer to owning process
-    VirtAddr thread_info_va;
-    uint8_t tcb_slot;   // index into owner's TCB page, TCB_SLOT_NONE if unassigned
-    FpuState fpu_state; // lazily saved/restored, see kernel/sched/sched.c fpu_owner
+    VirtAddr kernel_stack_top; /**< Top of the kernel stack for freeing. */
+    CpuState *trap_frame;     /**< Pointer to saved user registers for IPC and context switching. */
+    Tid tid;                  /**< Thread ID. */
+    uint32_t *kernel_sp;      /**< Current kernel stack pointer for context switching. */
+    Err exit_status;          /**< Exit status of the thread. */
+    ListNode node;            /**< Embedded, not pointers. */
+    ListNode process_node;    /**< Membership in owner process thread list. */
+    ListNode timeout_node;    /**< Node for timeout queue. */
+    ListHead joiners;         /**< List of joiners. */
+    ListNode join_node;       /**< Node for joiners. */
+    WakeReason wake_reason;   /**< Reason for waking up. */
+    Time wake_deadline;       /**< Deadline for waking up. */
+    int16_t sleep_slot;       /**< Sleep slot. */
+    TaskState state;          /**< State of the thread. */
+    ListNode destroy_node;    /**< Node for destruction. */
+    MsgState ipc_state;       /**< IPC state. */
+    PortObject *blocked_port; /**< Blocked port. */
+    ReplyCap *pending_reply_cap; /**< Pending reply capability. */
+    PhysAddr lmsg_buf_phys_addr; /**< Physical address of the message buffer. */
+    size_t lmsg_buf_xfer_len;    /**< Length of the message buffer transfer. */
+    Marker port_marker;          /**< Port marker. */
+    WaitSlot ntfn_wait_slot;     /**< Wait slot for SysNtfnWait. */
+    WaitSlot port_wait_slot;     /**< Wait slot for SysMsgRecv. */
+    uint32_t priority, time_slice,
+        ticks_remaining;     /**< Priority, time slice, and remaining ticks. */
+    Time slice_deadline;     /**< Deadline for the time slice. */
+    Process *owner_process;  /**< Backpointer to owning process. */
+    VirtAddr thread_info_va; /**< Virtual address of thread info. */
+    uint8_t tcb_slot;        /**< Index into owner's TCB page, TCB_SLOT_NONE if unassigned. */
+    FpuState fpu_state;      /**< Lazily saved/restored, see kernel/sched/sched.c fpu_owner. */
 #ifdef CONFIG_ZUZU_BENCH
-    uint32_t bench_irq_wait_start; // PMCCNTR at SysNtfnWait block, for the IRQ-wait bench
+    uint32_t bench_irq_wait_start; /**< PMCCNTR at SysNtfnWait block, for the IRQ-wait bench. */
 #endif
 };
 
 _Static_assert(offsetof(TaskObject, kernel_sp) == 12,
                "switch.S expects process->kernel_sp at offset 12");
 
-void ThreadDestroy(TaskObject *thread);
-TaskObject *ThreadCreate(Process *owner_process);
-void ThreadKill(TaskObject *thread);
-void ThreadWakeJoiners(TaskObject *thread, int32_t exit_status);
-TaskObject *ThreadFindByTid(Tid tid);
+void DestroyTask(TaskObject *thread);
+TaskObject *CreateTask(Process *owner_process);
+void KillTask(TaskObject *thread);
+void WakeJoinTask(TaskObject *thread, Err exit_status);
+TaskObject *FindTaskByTid(Tid tid);
 
 void ThreadUnlinkWaits(TaskObject *t);
 

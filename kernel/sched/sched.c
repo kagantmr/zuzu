@@ -27,7 +27,7 @@ static ListHead thread_destroy_queue = LIST_HEAD_INIT(thread_destroy_queue);
 TaskObject *current_thread;
 TaskObject *fpu_owner = NULL;
 
-volatile uint8_t do_resched = 0; 
+volatile uint8_t do_resched = 0;
 
 static TaskObject idle_thread; // only kernel_sp is used
 static uint8_t idle_stack[IDLE_STACK_BYTES] __attribute__((aligned(8)));
@@ -141,7 +141,7 @@ void SchedConsumeDestroyQueue(void)
             continue;
         }
 
-        ThreadDestroy(t);
+        DestroyTask(t);
     }
 
     while (!list_empty(&deferred))

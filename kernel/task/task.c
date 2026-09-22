@@ -56,7 +56,7 @@ static void ThreadUnregister(Thread *thread)
 
 }
 
-void ThreadKill(Thread *thread)
+void KillTask(Thread *thread)
 {
 	if (!thread)
 		return;
@@ -64,7 +64,7 @@ void ThreadKill(Thread *thread)
 	thread->state = ZOMBIE;
 }
 
-void ThreadWakeJoiners(Thread *thread, int32_t exit_status)
+void WakeJoinTask(Thread *thread, int32_t exit_status)
 {
 	if (!thread)
 		return;
@@ -82,7 +82,7 @@ void ThreadWakeJoiners(Thread *thread, int32_t exit_status)
 	}
 }
 
-void ThreadDestroy(Thread *thread)
+void DestroyTask(Thread *thread)
 {
 	if (!thread)
 		return;
@@ -109,7 +109,7 @@ void ThreadDestroy(Thread *thread)
 	KSlabFree(&thread_cache, thread);
 }
 
-Thread *ThreadCreate(ProcessObj *owner_process)
+Thread *CreateTask(ProcessObj *owner_process)
 {
 	if (!owner_process)
 		return NULL;
@@ -175,7 +175,7 @@ Thread *ThreadCreate(ProcessObj *owner_process)
 	return thread;
 }
 
-Thread *ThreadFindByTid(Tid tid)
+Thread *FindTaskByTid(Tid tid)
 {
 	if (tid == 0)
 		return NULL;

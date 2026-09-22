@@ -11,13 +11,13 @@ void SvcQuit(CpuState *frame)
 
     SpaceObject *owner = current_thread->owner_process;
     current_thread->exit_status = exit_status;
-    ThreadWakeJoiners(current_thread, exit_status);
+    WakeJoinTask(current_thread, exit_status);
 
     if (list_one_elem(&owner->threads)) {
         // last thread, kill the process
         ProcessKill(owner, exit_status);
     } else {
-        ThreadKill(current_thread);
+        KillTask(current_thread);
         // remove from process thread list NOW so process_destroy won't see it
         if (current_thread->process_node.prev && current_thread->process_node.next)
             list_remove(&current_thread->process_node);
