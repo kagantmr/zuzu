@@ -5,7 +5,7 @@
 #include "kernel/mm/alloc.h"
 #include "kernel/proc/kstack.h"
 #include "kernel/sched/sched.h"
-#include "kernel/syscall/syscall.h"
+#include "kernel/svc/svc.h"
 #include "port.h"
 #include <arch/timer.h>
 #include <compiler.h>

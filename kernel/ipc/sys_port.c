@@ -4,7 +4,7 @@
 #include "kernel/proc/process.h"
 #include "kernel/proc/thread.h"
 #include "kernel/sched/sched.h"
-#include "kernel/syscall/syscall.h"
+#include "kernel/svc/svc.h"
 #include "port.h"
 #include "zuzu/err.h"
 

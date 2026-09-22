@@ -1,7 +1,7 @@
 #include "sys_ntfn.h"
 
 #include "kernel/sched/sched.h"
-#include "kernel/syscall/syscall.h"
+#include "kernel/svc/svc.h"
 #include <arch/timer.h>
 #ifdef CONFIG_ZUZU_BENCH
 #include "kernel/bench.h"
