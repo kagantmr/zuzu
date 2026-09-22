@@ -90,11 +90,18 @@ struct TaskObjectStruct
 _Static_assert(offsetof(TaskObject, kernel_sp) == 12,
                "switch.S expects process->kernel_sp at offset 12");
 
-void DestroyTask(TaskObject *task);
-TaskObject *CreateTask(SpaceObject *owner);
+void TaskDestroy(TaskObject *task);
+TaskObject *TaskCreate(SpaceObject *owner);
 void KillTask(TaskObject *task);
 void WakeJoinTask(TaskObject *task, Err exit_status);
 TaskObject *FindTaskByTid(Tid tid);
 void ThreadUnlinkWaits(TaskObject *t);
+
+/**
+ * @brief Unify self-directed Quit and external Term: mark the task ZOMBIE,
+ * wake any already-blocked joiners, and if it was the last task in its
+ * space, tear that space down as a consequence (see SpaceDestroy).
+ */
+void TaskTerminate(TaskObject *task, Err exit_status);
 
 #endif // ZUZU_THREAD_H
