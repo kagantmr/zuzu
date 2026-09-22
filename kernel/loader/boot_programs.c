@@ -5,7 +5,8 @@
 #include "kernel/boot_info.h"
 #include "kernel/mm/vmm.h"
 #include "kernel/sched/sched.h"
-#include "kernel/proc/process.h"
+#include "kernel/space/space.h"
+#include "kernel/task/kernel_load.h"
 
 #include "kernel/loader/initrd.h"
 #include "kernel/loader/boot_programs.h"
@@ -19,6 +20,11 @@
 
 #define LOG_FMT(fmt) "(loader) " fmt
 #include "core/log.h"
+
+/* Boot manifest flags: purely this loader's own bookkeeping now -- no
+ * longer mirrored onto a SpaceObject bitmask field. */
+#define PROC_FLAG_INIT (1 << 0)   // PID 1 (sysd)
+#define PROC_FLAG_DEVMGR (1 << 1) // hardware authority
 
 static SpaceObject *s_devmgr;
 static SpaceObject *s_sysd;
@@ -43,7 +49,7 @@ static void inject_device_cap(const char *compatible,
 {
     if (!s_devmgr)
         return;
-    DeviceCap *cap = (DeviceCap *)KAllocDevCap();
+    DeviceObject *cap = (DeviceObject *)KAllocDevCap();
     if (!cap)
         return;
     strncpy(cap->compatible, compatible, sizeof(cap->compatible) - 1);
@@ -67,6 +73,7 @@ static void inject_device_cap(const char *compatible,
         return;
     }
     entry->type = HANDLE_MEM;
+    entry->mem_kind = MEM_KIND_DEV;
     entry->grantable = true;
     entry->mapped_va = 0;
     entry->dev = cap;
@@ -135,7 +142,8 @@ static void boot_program(const char *path, uint32_t flags,
         return;
     }
 
-    process->flags |= flags;
+    if (flags & (PROC_FLAG_INIT | PROC_FLAG_DEVMGR))
+        process->critical = true;
 
     if (flags & PROC_FLAG_INIT)
     {
@@ -169,7 +177,7 @@ static void boot_program(const char *path, uint32_t flags,
      * thread to READY) — scheduling it now would run it with no valid
      * trap frame. */
     if (!leave_frozen)
-        SchedAdd(process->thread);
+        SchedAdd(process->main_task);
 }
 
 static uint32_t parse_flag_string(const char *flag_str)
