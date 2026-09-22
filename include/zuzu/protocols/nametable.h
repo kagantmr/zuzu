@@ -26,7 +26,7 @@ extern "C"
     {
         NtOpcode cmd;
         Handle handle; /* NT_REGISTER: the granted slot. unused otherwise */
-        Pid pid;       /* NT_LOOKUP_PID / NT_SCRUB_PID target */
+        Spid pid;       /* NT_LOOKUP_PID / NT_SCRUB_PID target */
         char *path;    /* points into the lmsg buf; unused for pid ops */
     } NtRequest;
 

@@ -55,7 +55,7 @@ static int nameserver_setup(const void *initrd, uint32_t initrd_sz)
     /* Pre-kickstart grant, same as any other spawned child — nameserver's
      * table is still empty (FROZEN, hasn't executed a single instruction),
      * so this lands at its own slot 0 too. */
-    if (ZuzuGrant(nameserver_port, (Pid)nameserver_pid, 0) < 0)
+    if (ZuzuGrant(nameserver_port, (Spid)nameserver_pid, 0) < 0)
         return ERR_NOPERM;
 
     ExecReply reply;
@@ -123,7 +123,7 @@ static void nt_handle_msg(Message msg)
         if (!fsd_conn.ready)
         {
             Handle fsd_h = 0;
-            Pid fsd_p = 0;
+            Spid fsd_p = 0;
             if ((fsd_h = LookupServiceWithPid("/svc/fsd", &fsd_p)) < 0)
             {
                 exec_reply_err(reply_handle, ERR_NOENT);
@@ -319,7 +319,7 @@ static void respawn_entry(boot_entry_t *e)
 static void reap_all(void)
 {
     Err status;
-    Pid pid;
+    Spid pid;
 
     while ((pid = ZuzuWait(-1, &status, WNOHANG)) > 0)
     {
@@ -334,7 +334,7 @@ static void reap_all(void)
 static bool WaitForService(const char *name)
 {
     Handle handle = 0;
-    Pid pid = 0;
+    Spid pid = 0;
     Duration waited_ms = 0;
     Handle recv_handles[1] = {(Handle)port};
 

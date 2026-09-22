@@ -274,7 +274,7 @@ void SysGrant(CpuState *frame)
     }
 
     Handle handle = (Handle)(*arch_reg(frame, 0));
-    Pid pid = (Pid)(*arch_reg(frame, 1));
+    Spid pid = (Spid)(*arch_reg(frame, 1));
     uint32_t flags = (*arch_reg(frame, 2));
 
     // Validate handle

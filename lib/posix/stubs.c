@@ -125,7 +125,7 @@ static int fsd_connect(void) {
     if (fsd_buf)
         return 0;
 
-    Pid fsd_pid = 0;
+    Spid fsd_pid = 0;
     fsd_handle = LookupServiceWithPid("/svc/fsd", &fsd_pid);
     if (fsd_handle < 0)
         return -1;

@@ -37,7 +37,7 @@ extern "C"
      * @return Handle Return the handle of the granted port to the service on success, or
      * a negative error code on failure.
      **/
-    Handle LookupServicePid(Pid pid);
+    Handle LookupServicePid(Spid pid);
 
     /**
      * @brief On process death, remove an entry from the nametable. (sysd only)
@@ -47,7 +47,7 @@ extern "C"
      * @return Err ZUZU_OK on success, ERR_* on fail
      *
      **/
-    Err ScrubServicePid(Pid pid);
+    Err ScrubServicePid(Spid pid);
 
     /**
      * @brief Looks up a service by name and returns its handle and PID.
@@ -58,7 +58,7 @@ extern "C"
      * @return Handle Returns the handle of the granted port to the service on success, or a
      * negative error code on failure.
      */
-    Handle LookupServiceWithPid(const char *name, Pid *out_pid);
+    Handle LookupServiceWithPid(const char *name, Spid *out_pid);
 
 #ifdef __cplusplus
 }

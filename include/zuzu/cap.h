@@ -35,7 +35,7 @@ static inline Err ZuzuPortCreate(void) {
  * @param flags Flags to set (REGRANTABLE)
  * @return Err Returns 0 on success, or a negative error code on failure.
  */
-static inline Err ZuzuGrant(Handle cap, Pid pid, uint32_t flags) {
+static inline Err ZuzuGrant(Handle cap, Spid pid, uint32_t flags) {
     return Syscall(SYS_GRANT, cap, pid, flags, 0);
 }
 

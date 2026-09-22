@@ -9,7 +9,7 @@ extern "C" {
 #include <stdint.h>
 
 typedef int32_t Handle;     /* Index into kernel-managed handle table */
-typedef int32_t Pid;        /* zuzu Process ID or -err */
+typedef int32_t Spid;        /* zuzu Process ID or -err */
 typedef int32_t Tid;        /* zuzu Thread ID or -err */
 typedef uint64_t Tick;      /* Monotonic tick counts */
 typedef uintptr_t PhysAddr; /* Physical memory address */
@@ -39,7 +39,7 @@ typedef struct {
 
 typedef struct {
   Handle task_handle;
-  Pid pid;
+  Spid pid;
 } TSpawnResult;
 
 /* Handle sentinels  */

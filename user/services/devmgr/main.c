@@ -57,7 +57,7 @@ static int DevmUnpack(const char *buf, uint32_t xlen, DevmRequest *out)
 }
 
 
-static void HandleDevRequest(Handle reply_handle, Pid sender_pid,
+static void HandleDevRequest(Handle reply_handle, Spid sender_pid,
                              const DevmRequest *req)
 {
     char compat_buf[DEVM_COMPAT_MAX];   /* our own out-buffer; NOT the lmsg */
@@ -90,7 +90,7 @@ static void HandleDevRequest(Handle reply_handle, Pid sender_pid,
     ZuzuMsgReply(reply_handle, ERR_NOENT, 0, 0);
 }
 
-int DevmgrSetup(Handle nameserver_port_slot, Pid nameserver_pid)
+int DevmgrSetup(Handle nameserver_port_slot, Spid nameserver_pid)
 {
     //build_class_table();
     port = ZuzuPortCreate();
@@ -120,7 +120,7 @@ int DevmgrSetup(Handle nameserver_port_slot, Pid nameserver_pid)
 int main(int argc, char **argv)
 {
     Handle nameserver_port_slot = (Handle)argc;
-    Pid nameserver_pid = (Pid)(uintptr_t)argv;
+    Spid nameserver_pid = (Spid)(uintptr_t)argv;
 
     if (DevmgrSetup(nameserver_port_slot, nameserver_pid) != 0)
     {
@@ -132,7 +132,7 @@ int main(int argc, char **argv)
         Message msg = ZuzuMsgRecv(port, TIMEOUT_INFINITE);
 
         Handle   reply_handle = msg.w0;   // kernel-assigned reply-cap slot
-        Pid      sender_pid   = msg.w1;   // kernel-stamped, trustworthy
+        Spid      sender_pid   = msg.w1;   // kernel-stamped, trustworthy
         size_t   xlen         = msg.w2;   // buffer length = your bounds ceiling
 
         DevmRequest req;

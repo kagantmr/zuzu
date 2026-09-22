@@ -22,7 +22,7 @@ extern "C"
     typedef struct
     {
         Handle port;   /* granted handle to fsd's port                 */
-        Pid pid;       /* fsd's pid, needed to grant our buffer to it  */
+        Spid pid;       /* fsd's pid, needed to grant our buffer to it  */
         Handle shm;    /* our shm handle                               */
         uint8_t *buf;  /* mapped base of the shared buffer             */
         uint32_t size; /* buffer size (page-aligned)                   */
@@ -39,7 +39,7 @@ extern "C"
      * and page-aligned.
      * @return Err ZUZU_OK on success, or a negative error code on failure.
      */
-    Err FsdAttach(FsdConn *c, Handle port, Pid pid, uint32_t want_size);
+    Err FsdAttach(FsdConn *c, Handle port, Spid pid, uint32_t want_size);
 
     /**
      * @brief Establishes a session by resolving fsd over the nameserver, then attaching.

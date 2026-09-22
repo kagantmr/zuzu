@@ -52,7 +52,7 @@ Handle LookupService(const char *name)
     return (Handle)reply.w2;
 }
 
-Handle LookupServiceWithPid(const char *name, Pid *out_pid)
+Handle LookupServiceWithPid(const char *name, Spid *out_pid)
 {
     if (!name)
         return ERR_BADARG;
@@ -75,7 +75,7 @@ Handle LookupServiceWithPid(const char *name, Pid *out_pid)
     return (Handle)reply.w2;
 }
 
-Handle LookupServicePid(Pid pid)
+Handle LookupServicePid(Spid pid)
 {
     if (pid <= 0)
         return ERR_BADARG;
@@ -97,7 +97,7 @@ Handle LookupServicePid(Pid pid)
     return (Handle)reply.w2;
 }
 
-Err ScrubServicePid(Pid pid)
+Err ScrubServicePid(Spid pid)
 {
     if (pid <= 0)
         return ERR_BADARG;

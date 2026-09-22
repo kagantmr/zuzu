@@ -12,7 +12,7 @@ struct SpaceObjectStruct;
 typedef struct {
     ListHead sender_queue;
     ListHead receiver_queue;
-    Pid owner_pid;
+    Spid owner_pid;
     size_t ref_count;
     bool alive;
     ListNode node;
@@ -20,7 +20,7 @@ typedef struct {
 
 typedef struct {
     Tid caller_tid;     
-    Pid holder_pid;       
+    Spid holder_pid;       
     Handle holder_slot;
     ListNode caller_link;
 } ReplyCap;

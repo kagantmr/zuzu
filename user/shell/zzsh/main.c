@@ -14,7 +14,7 @@
 #include <zuzu/user_layout.h>
 
 static Handle sysd_port;
-static Pid sysd_pid;
+static Spid sysd_pid;
 static FsdConn fsd_conn;   /* session with the filesystem daemon */
 static char cwd[256] = "/";
 
@@ -348,7 +348,7 @@ static void cmd_resolve(const char *name)
     char packed[4] = { 0 };
     strncpy(packed, name, sizeof(packed));
 
-    Pid pid;
+    Spid pid;
     Handle h = LookupServiceWithPid(name, &pid);
 
     if (h < 0) {

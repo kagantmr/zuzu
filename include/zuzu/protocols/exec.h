@@ -27,7 +27,7 @@ typedef struct {
 	uint16_t taskHandle; // slot in sysd's handle table (from _port_grant)
 	uint16_t path_len;   // excluding NUL
 	uint16_t argc;	     // number of argv strings
-	Pid pid;	     // PID returned by caller's _tspawn
+	Spid pid;	     // PID returned by caller's _tspawn
 			     // followed by char path[path_len + 1]  (NUL-terminated)
 			     // followed by char argbuf[...]          (NUL-delimited argv strings)
 } ExecRequestHeader;
@@ -40,7 +40,7 @@ typedef struct {
 	uint32_t sp;	  // user stack pointer after argv layout
 	uint32_t argc;	  // passed through
 	uint32_t argv_va; // pointer to argv array on user stack
-	Pid pid;	  // PID of the new process
+	Spid pid;	  // PID of the new process
 } ExecReply;
 
 _Static_assert(sizeof(ExecReply) <= LMSG_BUF_SIZE, "exec reply exceeds lmsg buffer");

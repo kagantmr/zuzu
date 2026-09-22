@@ -202,11 +202,11 @@ static BenchmarkResult run_benchmark(Handle port)
  * pspawn -> grant -> SYSD_EXEC -> kickstart path zzsh uses -- minus the
  * mode-string argv this suite doesn't need. */
 static Handle g_sysd_port = -1;
-static Pid g_sysd_pid;
+static Spid g_sysd_pid;
 
 static int sysd_setup(void)
 {
-	Pid pid;
+	Spid pid;
 	Handle h = LookupServiceWithPid("/svc/sysd", &pid);
 	if (h < 0)
 		return -1;
@@ -217,7 +217,7 @@ static int sysd_setup(void)
 
 typedef struct {
 	Handle task;
-	Pid pid;
+	Spid pid;
 } ChildProc;
 
 /* Spawns speedtest_ipc_child with `port` granted into its handle table

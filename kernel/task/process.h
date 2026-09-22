@@ -64,15 +64,13 @@ static inline VirtAddr TcbSlotUVirtAddr(SpaceObject *p, uint32_t slot)
 }
 
 void ProcessDestroy(SpaceObject *process);
-SpaceObject *ProcessFindByPid(Pid pid);
+
 SpaceObject *ProcessCreate(const char *name);
 SpaceObject *KernelProcessLoad(const void *elf_data, size_t elf_size, const char *name,
 			      const char *argbuf, size_t argbuf_len, uint32_t argc,
 			      bool leave_frozen);
 void ProcessKill(SpaceObject *p, int exit_status);
-void ProcessSetParent(SpaceObject *child, SpaceObject *parent);
-SpaceObject *ProcessFindChildFromPid(SpaceObject *parent, Pid pid);
-SpaceObject *ProcessFindZombieChild(SpaceObject *parent);
+
 /* caller/holder/rc are always three distinct objects (never the same
  * process, never a process aliased with the reply-cap slab object). */
 void ProcessTrackReplyCap(SpaceObject *restrict caller, SpaceObject *restrict holder,

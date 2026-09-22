@@ -9,7 +9,7 @@
 typedef struct Notification {
     NtfnBits word;       // 31-bit signal mask (bit 31 reserved), atomic-ish (IRQs off)
     ListHead wait_queue; // processes blocked in ntfn_wait
-    Pid owner_pid;
+    Spid owner_pid;
     size_t ref_count;
     bool alive;
 } EventObject;

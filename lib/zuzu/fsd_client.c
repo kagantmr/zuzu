@@ -3,7 +3,7 @@
 #include <zuzu/service.h>
 #include <zuzu/zuzu.h>
 
-Err FsdAttach(FsdConn *c, Handle port, Pid pid, uint32_t want_size)
+Err FsdAttach(FsdConn *c, Handle port, Spid pid, uint32_t want_size)
 {
     if (c->ready)
         return ZUZU_OK;
@@ -46,7 +46,7 @@ Err FsdConnect(FsdConn *c, uint32_t want_size)
         return ZUZU_OK;
 
     /* lookup returns the granted port slot and fsd's pid */
-    Pid fsd_pid;
+    Spid fsd_pid;
     Handle h = LookupServiceWithPid("/svc/fsd", &fsd_pid);
     if (h < 0)
         return h;

@@ -13,7 +13,7 @@ typedef struct
     char path[NT_MAX_PATH];
     Handle handle; /* slot in OUR table, regrantable */
     Label label;   /* owner identity from WaitanyResult, never the request */
-    Pid pid;       /* for scrub + LOOKUP_PID */
+    Spid pid;       /* for scrub + LOOKUP_PID */
     bool in_use;
 } NtEntry;
 
@@ -41,7 +41,7 @@ static int NtUnpack(const char *buf, uint32_t xlen, NtRequest *out)
 
     uint32_t cmd;
     Handle h;
-    Pid p;
+    Spid p;
     memcpy(&cmd, buf, 4);
     memcpy(&h, buf + 4, 4);
     memcpy(&p, buf + 8, 4);
@@ -67,7 +67,7 @@ static int NtUnpack(const char *buf, uint32_t xlen, NtRequest *out)
     return ZUZU_OK;
 }
 
-static void NtRegister(NtRequest *req, Label label, Pid caller, Message *reply)
+static void NtRegister(NtRequest *req, Label label, Spid caller, Message *reply)
 {
 
     if (label == LABEL_NONE) { reply->w1 = ERR_NOPERM; return; }
@@ -116,7 +116,7 @@ static void NtRegister(NtRequest *req, Label label, Pid caller, Message *reply)
     reply->w1 = ZUZU_OK;
 }
 
-static void NtLookup(NtRequest *req, Label label, Pid caller, Message *reply)
+static void NtLookup(NtRequest *req, Label label, Spid caller, Message *reply)
 {
     (void)label;
     for (int i = 0; i < NT_MAX_SERVICES; i++)
@@ -142,7 +142,7 @@ static void NtLookup(NtRequest *req, Label label, Pid caller, Message *reply)
     reply->w1 = ERR_NOENT; // no such service
 }
 
-static void NtLookupPid(NtRequest *req, Label label, Pid caller, Message *reply)
+static void NtLookupPid(NtRequest *req, Label label, Spid caller, Message *reply)
 {
     (void)label; (void)caller;
     for (int i = 0; i < NT_MAX_SERVICES; i++)
@@ -159,7 +159,7 @@ static void NtLookupPid(NtRequest *req, Label label, Pid caller, Message *reply)
     reply->w1 = ERR_NOENT;
 }
 
-static void NtScrubPid(NtRequest *req, Label label, Pid caller, Message *reply)
+static void NtScrubPid(NtRequest *req, Label label, Spid caller, Message *reply)
 {
     (void)caller;
     if (label != sysd_label)
@@ -200,7 +200,7 @@ int main(void)
         if (res.kind == WAITANY_KIND_CALL || res.kind == WAITANY_KIND_SEND)
         {
             // save reply cap
-            Pid caller_pid = (res.kind == WAITANY_KIND_CALL) ? res.w1 : res.source;
+            Spid caller_pid = (res.kind == WAITANY_KIND_CALL) ? res.w1 : res.source;
             uint32_t xlen = (res.kind == WAITANY_KIND_CALL) ? res.w2 : res.w1;
             NtRequest r;
             Message reply = (Message){.w0 = 0, .w1 = 0, .w2 = 0, .w3 = 0};

@@ -107,11 +107,11 @@ static int32_t raw_waitany(const Handle *handles, uint32_t count,
 /* ---------------- child spawn plumbing (mirrors zzsh cmd_exec) -------- */
 
 static Handle g_sysd_port = -1;
-static Pid  g_sysd_pid;
+static Spid  g_sysd_pid;
 
 static int sysd_setup(void)
 {
-    Pid pid;
+    Spid pid;
     Handle h = LookupServiceWithPid("/svc/sysd", &pid);
     if (h < 0)
         return -1;
@@ -120,7 +120,7 @@ static int sysd_setup(void)
     return 0;
 }
 
-typedef struct { Handle task; Pid pid; } child_t;
+typedef struct { Handle task; Spid pid; } child_t;
 
 /* Spawn CHILD_PATH with argv = {CHILD_NAME, arg1[, arg2]}.
  * grant_h >= 0: granted into the child pre-kickstart; the child-side slot
@@ -660,7 +660,7 @@ static void sec_handles(void)
              "wait reaps the pkilled process (no leak)");
 
     /* cross-process grant: child sends on a port we granted it */
-    Pid self = ZuzuGetPid();
+    Spid self = ZuzuGetPid();
     child_t c;
     int32_t rc = child_spawn("sendport", g_port, &c);
     CHECK_EQ(rc, 0, "spawn sendport child (grant pre-kickstart)");
