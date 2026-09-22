@@ -27,7 +27,7 @@
 #include "core/log.h"
 
 uint32_t next_pid = 1;
-ProcessObj *process_table[MAX_PROCESSES];
+ProcessObj *spaces[MAX_PROCESSES];
 static KHeapSlabCache process_cache;
 
 static bool ZxfSegChkOverlap(const ZXFSegment *a, const ZXFSegment *b)
@@ -367,8 +367,8 @@ ProcessObj *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char 
     return p;
 
 fail_kstack:
-    if (process_table[p->pid % MAX_PROCESSES] == p)
-        process_table[p->pid % MAX_PROCESSES] = NULL;
+    if (spaces[p->pid % MAX_PROCESSES] == p)
+        spaces[p->pid % MAX_PROCESSES] = NULL;
 
     if (p->as)
         arch_mmu_free_user_pages(p->as);
@@ -520,17 +520,17 @@ ProcessObj *ProcessCreate(const char *name)
     Tid slot = start;
     do
     {
-        if (process_table[slot] == NULL)
+        if (spaces[slot] == NULL)
             break;
         next_pid++;
         slot = next_pid % MAX_PROCESSES;
     } while (slot != start);
 
-    if (process_table[slot] != NULL)
+    if (spaces[slot] != NULL)
         goto fail_kstack;
 
     p->pid = (Pid)next_pid++;
-    process_table[slot] = p;
+    spaces[slot] = p;
     tcb0->pid = p->pid;
     return p;
 
@@ -592,7 +592,7 @@ static void process_revoke_outstanding_reply_caps(ProcessObj *caller)
 ProcessObj *ProcessFindByPid(Pid pid)
 {
     uint32_t slot = (uint32_t)pid % MAX_PROCESSES;
-    ProcessObj *p = process_table[slot];
+    ProcessObj *p = spaces[slot];
     if (p && p->pid == pid)
         return p;
     return NULL;
@@ -910,6 +910,6 @@ void ProcessDestroy(ProcessObj *p)
         AddrspaceDestroy(p->as);
     }
     HandleTableDestroy(&p->handle_table);
-    process_table[p->pid % MAX_PROCESSES] = NULL;
+    spaces[p->pid % MAX_PROCESSES] = NULL;
     KSlabFree(&process_cache, p);
 }

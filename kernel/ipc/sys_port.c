@@ -11,7 +11,7 @@
 #define LOG_FMT(fmt) "(sys_port) " fmt
 #include <zuzu/log.h>
 
-extern SpaceObject *process_table[MAX_PROCESSES];
+extern SpaceObject *spaces[MAX_PROCESSES];
 
 static bool CanRegrantHandle(const SpaceObject *grantee)
 {

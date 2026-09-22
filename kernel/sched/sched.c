@@ -369,7 +369,7 @@ void __hot SchedSwitchNext(TaskObject *next)
     if (unlikely(current_thread->owner_process->as &&
                  (!prev_proc || prev_proc->as != current_thread->owner_process->as)))
     {
-        VmmActivateAddrspace(current_thread->owner_process->as);
+        VmmActivateAddrspace(current_thread->owner->as);
     }
     arch_set_thread_ptr(current_thread);
     context_switch(prev, current_thread);

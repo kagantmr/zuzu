@@ -9,7 +9,7 @@
 #include <list.h>
 #include <zuzu/types.h>
 
-typedef struct SpaceObjectStruct Process;
+typedef struct SpaceObjectStruct SpaceObject;
 
 typedef enum TaskStateEnum
 {
@@ -78,8 +78,8 @@ struct TaskObjectStruct
     uint32_t priority, time_slice,
         ticks_remaining;     /**< Priority, time slice, and remaining ticks. */
     Time slice_deadline;     /**< Deadline for the time slice. */
-    Process *owner_process;  /**< Backpointer to owning process. */
-    VirtAddr thread_info_va; /**< Virtual address of thread info. */
+    SpaceObject *owner;  /**< Backpointer to owning process. */
+    VirtAddr task_info_va; /**< Virtual address of thread info. */
     uint8_t tcb_slot;        /**< Index into owner's TCB page, TCB_SLOT_NONE if unassigned. */
     FpuState fpu_state;      /**< Lazily saved/restored, see kernel/sched/sched.c fpu_owner. */
 #ifdef CONFIG_ZUZU_BENCH
@@ -90,12 +90,11 @@ struct TaskObjectStruct
 _Static_assert(offsetof(TaskObject, kernel_sp) == 12,
                "switch.S expects process->kernel_sp at offset 12");
 
-void DestroyTask(TaskObject *thread);
-TaskObject *CreateTask(Process *owner_process);
-void KillTask(TaskObject *thread);
-void WakeJoinTask(TaskObject *thread, Err exit_status);
+void DestroyTask(TaskObject *task);
+TaskObject *CreateTask(SpaceObject *owner);
+void KillTask(TaskObject *task);
+void WakeJoinTask(TaskObject *task, Err exit_status);
 TaskObject *FindTaskByTid(Tid tid);
-
 void ThreadUnlinkWaits(TaskObject *t);
 
 #endif // ZUZU_THREAD_H

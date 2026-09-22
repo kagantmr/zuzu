@@ -2,31 +2,30 @@
 #include "kernel/mm/alloc.h"
 #include "kernel/sched/sched.h"
 #include "kstack.h"
-#include "process.h"
 #include <spinlock.h>
 #include <string.h>
 
 #define MAX_THREADS 1024
 
-#define LOG_FMT(fmt) "(thread) " fmt
+#define LOG_FMT(fmt) "(task) " fmt
 #include <zuzu/log.h>
 
 static Tid next_tid = 1;
-static Thread *thread_table[MAX_THREADS];
-static KHeapSlabCache thread_cache;
+static TaskObject *task_table[MAX_THREADS];
+static KHeapSlabCache task_cache;
 
-static Tid ThreadRegister(Thread *thread)
+static Tid RegisterTask(TaskObject *task)
 {
-	if (!thread)
+	if (!task)
 		return 0;
 
 
 	/* Advance next_tid until its hashed slot is free, so the assigned tid
-	 * always satisfies tid % MAX_THREADS == slot. ThreadFindByTid and
-	 * thread_unregister rely on that to stay O(1). Mirrors process_table. */
+	 * always satisfies tid % MAX_THREADS == slot. TaskObjectFindByTid and
+	 * task_unregister rely on that to stay O(1). Mirrors process_table. */
 	Tid start = next_tid % MAX_THREADS;
 	Tid slot = start;
-	while (thread_table[slot] != NULL) {
+	while (task_table[slot] != NULL) {
 		next_tid++;
 		slot = next_tid % MAX_THREADS;
 		if (slot == start) {
@@ -34,46 +33,46 @@ static Tid ThreadRegister(Thread *thread)
 		}
 	}
 
-	thread->tid = next_tid++;
-	thread_table[slot] = thread;
+	task->tid = next_tid++;
+	task_table[slot] = task;
 
-	KTRACE("thread register: tid=%u slot=%d owner_pid=%u owner_name=%s", thread->tid, slot,
-	       (thread->owner_process ? thread->owner_process->pid : 0),
-	       (thread->owner_process ? thread->owner_process->name : "<none>"));
+	KTRACE("task register: tid=%u slot=%d owner_pid=%u owner_name=%s", task->tid, slot,
+	       (task->owner_process ? task->owner_process->pid : 0),
+	       (task->owner_process ? task->owner_process->name : "<none>"));
 
-	return thread->tid;
+	return task->tid;
 }
 
-static void ThreadUnregister(Thread *thread)
+static void TaskObjectUnregister(TaskObject *task)
 {
-	if (!thread || thread->tid == 0)
+	if (!task || task->tid == 0)
 		return;
 
 
-	uint32_t slot = (uint32_t)thread->tid % MAX_THREADS;
-	if (thread_table[slot] == thread)
-		thread_table[slot] = NULL;
+	uint32_t slot = (uint32_t)task->tid % MAX_THREADS;
+	if (task_table[slot] == task)
+		task_table[slot] = NULL;
 
 }
 
-void KillTask(Thread *thread)
+void KillTask(TaskObject *task)
 {
-	if (!thread)
+	if (!task)
 		return;
 
-	thread->state = ZOMBIE;
+	task->state = ZOMBIE;
 }
 
-void WakeJoinTask(Thread *thread, int32_t exit_status)
+void WakeJoinTask(TaskObject *task, int32_t exit_status)
 {
-	if (!thread)
+	if (!task)
 		return;
 
-	while (!list_empty(&thread->joiners)) {
-		ListNode *node = list_pop_front(&thread->joiners);
+	while (!list_empty(&task->joiners)) {
+		ListNode *node = list_pop_front(&task->joiners);
 		if (!node)
 			break;
-		Thread *joiner = container_of(node, Thread, join_node);
+		TaskObject *joiner = container_of(node, TaskObject, join_node);
 		joiner->wake_reason = WAKE_IPC;
 		joiner->state = READY;
 		if (joiner->trap_frame)
@@ -82,112 +81,112 @@ void WakeJoinTask(Thread *thread, int32_t exit_status)
 	}
 }
 
-void DestroyTask(Thread *thread)
+void DestroyTask(TaskObject *task)
 {
-	if (!thread)
+	if (!task)
 		return;
-	ThreadUnlinkWaits(thread);
-	ThreadUnregister(thread);
-	if (fpu_owner == thread)
+	ThreadUnlinkWaits(task);
+	TaskObjectUnregister(task);
+	if (fpu_owner == task)
 		fpu_owner = NULL;
 	// may already be removed by tquit, guard is safe
-	if (thread->process_node.prev && thread->process_node.next)
-		list_remove(&thread->process_node);
-	ProcessObj *owner = thread->owner_process;
+	if (task->process_node.prev && task->process_node.next)
+		list_remove(&task->process_node);
+	SpaceObject *owner = task->owner;
 	/* Release the TCB slot; scrub it so a reused slot never shows a
-	 * previous thread's tid/pid. tcb_page_pa == 0 means the page is
+	 * previous task's tid/pid. tcb_page_pa == 0 means the page is
 	 * already gone (process teardown fail paths). */
-	if (owner && thread->tcb_slot < TCB_MAX_SLOTS &&
-	    owner->tcb_page_pa[thread->tcb_slot / SLOTS_PER_PAGE]) {
-		memset((void *)TcbSlotKVirtAddr(owner, thread->tcb_slot), 0, TCB_SLOT_SIZE);
-		TcbSlotFree(owner, thread->tcb_slot);
+	if (owner && task->tcb_slot < TCB_MAX_SLOTS &&
+	    owner->tcb_page_pa[task->tcb_slot / SLOTS_PER_PAGE]) {
+		memset((void *)TcbSlotKVirtAddr(owner, task->tcb_slot), 0, TCB_SLOT_SIZE);
+		TcbSlotFree(owner, task->tcb_slot);
 	}
-	if (owner && owner->thread == thread)
-		owner->thread = NULL;
-	if (thread->kernel_stack_top)
-		KernelStackFree(thread->kernel_stack_top);
-	KSlabFree(&thread_cache, thread);
+	if (owner && owner->task == task)
+		owner->task = NULL;
+	if (task->kernel_stack_top)
+		KernelStackFree(task->kernel_stack_top);
+	KSlabFree(&task_cache, task);
 }
 
-Thread *CreateTask(ProcessObj *owner_process)
+TaskObject *CreateTask(SpaceObject *owner)
 {
-	if (!owner_process)
+	if (!owner)
 		return NULL;
 
-	if (!thread_cache.obj_size)
-		KSlabInit(&thread_cache, "Thread", sizeof(Thread));
-	Thread *thread = KSlabAlloc(&thread_cache);
-	if (!thread)
+	if (!task_cache.obj_size)
+		KSlabInit(&task_cache, "TaskObject", sizeof(TaskObject));
+	TaskObject *task = KSlabAlloc(&task_cache);
+	if (!task)
 		return NULL;
-	memset(thread, 0, sizeof(*thread));
+	memset(task, 0, sizeof(*task));
 
-	thread->kernel_stack_top = KernelStackAlloc();
-	if (!thread->kernel_stack_top) {
-		KSlabFree(&thread_cache, thread);
-		return NULL;
-	}
-
-	thread->tid = ThreadRegister(thread);
-	if (thread->tid == 0) {
-		KernelStackFree(thread->kernel_stack_top);
-		KSlabFree(&thread_cache, thread);
+	task->kernel_stack_top = KernelStackAlloc();
+	if (!task->kernel_stack_top) {
+		KSlabFree(&task_cache, task);
 		return NULL;
 	}
 
-	thread->kernel_sp = NULL;
-	thread->trap_frame = NULL;
-	thread->owner_process = owner_process;
-	thread->exit_status = 0;
-	thread->node.next = NULL;
-	thread->node.prev = NULL;
-	thread->sleep_slot = -1;
-	thread->process_node.next = NULL;
-	thread->process_node.prev = NULL;
-	thread->timeout_node.next = NULL;
-	thread->timeout_node.prev = NULL;
-	list_init(&thread->joiners);
-	thread->join_node.next = NULL;
-	thread->join_node.prev = NULL;
-	thread->wake_reason = WAKE_NONE;
-	thread->wake_deadline = 0;
-	thread->state = FROZEN;
-	thread->ipc_state = IPC_NONE;
-	thread->blocked_port = NULL;
-	thread->pending_reply_cap = NULL;
-	thread->lmsg_buf_phys_addr = 0;
-	thread->lmsg_buf_xfer_len = 0;
-	thread->priority = SCHED_PRIO_DEFAULT;
-	thread->time_slice = 5;
-	thread->ticks_remaining = thread->time_slice;
-	thread->slice_deadline = 0;
-	thread->thread_info_va = 0;
-	thread->tcb_slot = TCB_SLOT_NONE;
+	task->tid = RegisterTask(task);
+	if (task->tid == 0) {
+		KernelStackFree(task->kernel_stack_top);
+		KSlabFree(&task_cache, task);
+		return NULL;
+	}
 
-	list_add_tail(&thread->process_node, &owner_process->threads.node);
+	task->kernel_sp = NULL;
+	task->trap_frame = NULL;
+	task->owner = owner;
+	task->exit_status = 0;
+	task->node.next = NULL;
+	task->node.prev = NULL;
+	task->sleep_slot = -1;
+	task->process_node.next = NULL;
+	task->process_node.prev = NULL;
+	task->timeout_node.next = NULL;
+	task->timeout_node.prev = NULL;
+	list_init(&task->joiners);
+	task->join_node.next = NULL;
+	task->join_node.prev = NULL;
+	task->wake_reason = WAKE_NONE;
+	task->wake_deadline = 0;
+	task->state = FROZEN;
+	task->ipc_state = IPC_NONE;
+	task->blocked_port = NULL;
+	task->pending_reply_cap = NULL;
+	task->lmsg_buf_phys_addr = 0;
+	task->lmsg_buf_xfer_len = 0;
+	task->priority = SCHED_PRIO_DEFAULT;
+	task->time_slice = 5;
+	task->ticks_remaining = task->time_slice;
+	task->slice_deadline = 0;
+	task->task_info_va = 0;
+	task->tcb_slot = TCB_SLOT_NONE;
 
-	if (!owner_process->thread)
-		owner_process->thread = thread;
+	list_add_tail(&task->process_node, &owner->tasks.node);
 
-	KTRACE("thread create: tid=%u owner_pid=%u owner_name=%s state=%u kernel_stack_top=%p",
-	       thread->tid, owner_process->pid, owner_process->name, thread->state,
-	       (void *)thread->kernel_stack_top);
+	if (!owner->task)
+		owner->task = task;
 
-	return thread;
+	KTRACE("task create: tid=%u owner_pid=%u owner_name=%s state=%u kernel_stack_top=%p",
+	       task->tid, owner->pid, owner->name, task->state,
+	       (void *)task->kernel_stack_top);
+
+	return task;
 }
 
-Thread *FindTaskByTid(Tid tid)
+TaskObject *FindTaskByTid(Tid tid)
 {
 	if (tid == 0)
 		return NULL;
 
 	uint32_t slot = (uint32_t)tid % MAX_THREADS;
-	Thread *t = thread_table[slot];
+	TaskObject *t = task_table[slot];
 	if (t && t->tid == tid)
 		return t;
 	return NULL;
 }
 
-void ThreadUnlinkWaits(Thread *t)
+void ThreadUnlinkWaits(TaskObject *t)
 {
     if (!t) return;
     if (t->node.prev && t->node.next)                     list_remove(&t->node);

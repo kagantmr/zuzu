@@ -1,7 +1,9 @@
 #include "space.h"
 #include "kernel/mm/alloc.h"
-#include "kernel/slab/slab.h"
 
+uint32_t next_pid = 1;
+SpaceObject *spaces[MAX_SPACES];
+static KHeapSlabCache space_cache;
 
 SpaceObject *CreateSpace(const char *name)
 {
@@ -9,7 +11,7 @@ SpaceObject *CreateSpace(const char *name)
     if (!sp) return NULL;
     memset(sp, 0, sizeof(*sp));
 
-    list_init(&sp->threads);
+    list_init(&sp->tasks);
     list_init(&sp->children);
 
     if (!HandleTableInit(&sp->handle_table))

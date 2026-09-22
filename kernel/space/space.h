@@ -3,7 +3,6 @@
  * @brief Space object definitions & methods.
  */
 
-
 #ifndef _ZUZU_OBJECTS_SPACE_H
 #define _ZUZU_OBJECTS_SPACE_H
 
@@ -11,6 +10,8 @@
 #include "kernel/mm/vmm.h"
 #include "kernel/task/task.h"
 #include <zuzu/tls.h>
+
+#define MAX_SPACES 512
 
 /**
  * @brief Space object, representing a process space.
@@ -26,8 +27,8 @@ typedef struct SpaceObjectStruct
     char name[32];                       /**< Space name. */
     ListHead outstanding_replies;        /**< List of outstanding replies. */
     HandleTable handle_table;            /**< Handle table for this space. */
-    TaskObject *thread;                  /**< Pointer to the thread associated with this space. */
-    ListHead threads;                    /**< List of threads in this space. */
+    TaskObject *main_task;                  /**< Pointer to the thread associated with this space. */
+    ListHead tasks;                    /**< List of threads in this space. */
     ListHead children;                   /**< List of child spaces. */
     ListNode sibling_node;               /**< Embedded list node for sibling management. */
     PhysAddr tcb_page_pa[MAX_TCB_PAGES]; /**< TCB page physical addresses. */
