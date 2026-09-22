@@ -1,5 +1,5 @@
 #include "sched.h"
-#include "kernel/proc/process.h"
+#include "kernel/space/space.h"
 #include <arch/context.h>
 #include <compiler.h>
 #include <list.h>
@@ -141,7 +141,7 @@ void SchedConsumeDestroyQueue(void)
             continue;
         }
 
-        DestroyTask(t);
+        TaskDestroy(t);
     }
 
     while (!list_empty(&deferred))
@@ -161,7 +161,7 @@ void SchedReap(void)
     {
         ListNode *node = list_pop_front(&destroy_queue);
         SpaceObject *p = container_of(node, SpaceObject, destroy_node);
-        ProcessDestroy(p);
+        SpaceDestroy(p);
     }
     SchedConsumeDestroyQueue();
 }
@@ -365,9 +365,9 @@ void __hot SchedSwitchNext(TaskObject *next)
         }
     }
 
-    SpaceObject *prev_proc = prev ? prev->owner_process : NULL;
-    if (unlikely(current_thread->owner_process->as &&
-                 (!prev_proc || prev_proc->as != current_thread->owner_process->as)))
+    SpaceObject *prev_proc = prev ? prev->owner : NULL;
+    if (unlikely(current_thread->owner->as &&
+                 (!prev_proc || prev_proc->as != current_thread->owner->as)))
     {
         VmmActivateAddrspace(current_thread->owner->as);
     }
