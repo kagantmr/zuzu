@@ -47,20 +47,17 @@ void IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev)
         return;
 
     /* Claim the line on first bind. */
-    if (!owner)
+    if (!current_owner)
     {
         irq_owners[irq_num] =
-            (IrqOwner){.bound_ev = NULL, .owner = current_task->owner, .pending = false};
+            (IrqOwner){.bound_ev = NULL, .owner = owner, .pending = false};
         ArchIrqRegister(irq_num, RelayIsr, (void *)(VirtAddr)irq_num);
     }
 
     if (irq_owners[irq_num].bound_ev)
     {
         EventObject *old = irq_owners[irq_num].bound_ev;
-        if (old->ref_count > 0)
-            old->ref_count--;
-        if (old->ref_count == 0)
-            KFree(old);
+        EventDropReference(old);
     }
 
     irq_owners[irq_num].bound_ev = ev;
@@ -87,4 +84,18 @@ bool IrqClearPending(Irq irq_num)
     return false;
 }
 
+void IrqReleaseAll(SpaceObject *owner)
+{
+    for (Irq irq_num = 0; irq_num < MAX_IRQS; irq_num++)
+    {
+        if (irq_owners[irq_num].owner == owner)
+        {
+            EventDropReference(irq_owners[irq_num].bound_ev);
+            irq_owners[irq_num] = (IrqOwner){.bound_ev = NULL, .owner = NULL, .pending = false};
+            ArchIrqMaskLine(irq_num);
+        }
+    }
+}
+
 const IrqOwner *GetIrqOwnersList(void) { return irq_owners; }
+
