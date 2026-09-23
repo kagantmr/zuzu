@@ -25,7 +25,6 @@ BENCH_STAT(g_bench_reply_cap_free, "reply-cap free");
 #endif
 
 static KHeapSlabCache port_cache;
-static KHeapSlabCache reply_cap_cache;
 static KHeapSlabCache device_cap_cache;
 static bool hot_caches_ready;
 
@@ -167,7 +166,6 @@ static __always_inline void SlabCachesInit(void)
         return;
 
     CreateSlabCache(&port_cache, "Port", sizeof(PortObject));
-    CreateSlabCache(&reply_cap_cache, "ReplyCap", sizeof(EphemeralReplyObject));
     CreateSlabCache(&device_cap_cache, "DeviceCap", sizeof(DeviceObject));
     hot_caches_ready = true;
 }
@@ -383,32 +381,6 @@ void PortObjFree(void *ptr)
     if (!ptr)
         return;
     SlabFree(&port_cache, ptr);
-}
-
-void *__hot KAllocReplyCap(void)
-{
-#ifdef CONFIG_ZUZU_BENCH
-    uint32_t bench_start = BENCH_BEGIN();
-#endif
-    SlabCachesInit();
-    void *ptr = SlabAlloc(&reply_cap_cache);
-#ifdef CONFIG_ZUZU_BENCH
-    BENCH_END(g_bench_reply_cap_alloc, bench_start);
-#endif
-    return ptr;
-}
-
-void __hot KFreeReplyCap(void *ptr)
-{
-#ifdef CONFIG_ZUZU_BENCH
-    uint32_t bench_start = BENCH_BEGIN();
-#endif
-    if (unlikely(!ptr))
-        return;
-    SlabFree(&reply_cap_cache, ptr);
-#ifdef CONFIG_ZUZU_BENCH
-    BENCH_END(g_bench_reply_cap_free, bench_start);
-#endif
 }
 
 void *KAllocDevCap(void)

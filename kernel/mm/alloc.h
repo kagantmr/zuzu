@@ -121,21 +121,6 @@ void *PortObjAlloc(void);
 void PortObjFree(void *ptr);
 
 /**
-* @brief Allocate space for a ReplyCap object.
-*
-* @retval NULL Out of memory
-* @return void*
-*/
-void *KAllocReplyCap(void);
-
-/**
-* @brief Free space belonging to a ReplyCap object.
-*
-* @param[in] Object to free.
-*/
-void KFreeReplyCap(void *ptr);
-
-/**
 * @brief Allocate space for a DeviceCap object.
 *
 * @retval NULL Out of memory

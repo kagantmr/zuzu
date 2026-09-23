@@ -4,11 +4,6 @@
 #include "core/log.h"
 #include "core/ensure.h"
 
-#include "kernel/ipc/sys_port.h"
-#include "kernel/ipc/sys_msg.h"
-#include "kernel/ipc/sys_event.h"
-#include "kernel/ipc/sys_ntfn.h"
-#include "kernel/irq/sys_irq.h"
 #include "kernel/mm/sys_mm.h"
 #include "kernel/mm/sys_shm.h"
 #include "kernel/dev/sys_dev.h"
