@@ -62,7 +62,7 @@ typedef struct
         EventObject *event; 
         TaskObject *task;
         SpaceObject *space;
-        ReplyCap *reply;
+        EphemeralReplyObject *reply;
     };
     Marker marker; /* Added in zuzu 1.1: Same handle can be stamped with a marker to demux
                       clients sharing a port */

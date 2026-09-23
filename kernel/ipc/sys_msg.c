@@ -318,7 +318,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			SchedAdd(sr_thread);
 		} else if (sr_thread->ipc_state == IPC_WAITING) {
 			// Use the pre-allocated reply cap
-			ReplyCap *rc = sr_thread->pending_reply_cap;
+			EphemeralReplyObject *rc = sr_thread->pending_reply_cap;
 			sr_thread->pending_reply_cap = NULL;
 			// rc is guaranteed non-NULL — caller pre-allocated it
 
@@ -439,7 +439,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		return;
 	}
 
-	ReplyCap *rc = KAllocReplyCap();
+	EphemeralReplyObject *rc = KAllocReplyCap();
 	if (unlikely(!rc)) {
 		ArchSetInFrame(frame, 0, ERR_NOMEM);
 		return; // caller gets clean error, never blocked
@@ -694,7 +694,7 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 		return;
 	}
 
-	ReplyCap *rc = KAllocReplyCap();
+	EphemeralReplyObject *rc = KAllocReplyCap();
 	if (!rc) {
 		ArchSetInFrame(frame, 0, ERR_NOMEM);
 		return; // caller gets clean error, never blocked

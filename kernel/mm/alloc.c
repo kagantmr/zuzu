@@ -167,7 +167,7 @@ static __always_inline void SlabCachesInit(void)
         return;
 
     CreateSlabCache(&port_cache, "Port", sizeof(PortObject));
-    CreateSlabCache(&reply_cap_cache, "ReplyCap", sizeof(ReplyCap));
+    CreateSlabCache(&reply_cap_cache, "ReplyCap", sizeof(EphemeralReplyObject));
     CreateSlabCache(&device_cap_cache, "DeviceCap", sizeof(DeviceObject));
     hot_caches_ready = true;
 }

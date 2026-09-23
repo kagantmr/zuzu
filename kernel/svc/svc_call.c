@@ -5,7 +5,7 @@
 #include "kernel/space/space.h"
 #include "kernel/sched/sched.h"
 
-static HandleTableEntry *ValidateCallPort(SpaceObject *space, Handle handle, CpuState *frame)
+static __hot HandleTableEntry *ValidateCallPort(SpaceObject *space, Handle handle, CpuState *frame)
 {
     HandleTableEntry *entry = HandleTableLookup(&space->handle_table, handle);
     ENSURE(entry, ArchSetInFrame(frame, 0, ERR_BADHANDLE); return NULL);
@@ -15,7 +15,7 @@ static HandleTableEntry *ValidateCallPort(SpaceObject *space, Handle handle, Cpu
     return entry;
 }
 
-static int32_t GrantHandleAcross(SpaceObject *from, SpaceObject *to,
+static Handle GrantHandleAcross(SpaceObject *from, SpaceObject *to,
                                   Handle handle_to_grant, CpuState *frame)
 {
     if (handle_to_grant == 0)
@@ -42,12 +42,12 @@ static int32_t GrantHandleAcross(SpaceObject *from, SpaceObject *to,
         default: break; /* HANDLE_TASK/SPACE/MEM: no shared-refcount concept yet */
     }
 
-    return (int32_t)HANDLE_PACK(new_handle, dst->generation);
+    return (Handle)HANDLE_PACK(new_handle, dst->generation);
 }
 
 
 static void CallBlockAsSender(TaskObject *caller, PortObject *port,
-                               HandleTableEntry *entry, ReplyCap *rc, uint32_t xlen)
+                               HandleTableEntry *entry, EphemeralReplyObject *rc, uint32_t xlen)
 {
     caller->ipc_state = IPC_WAITING;
     caller->blocked_port = port;
@@ -59,8 +59,8 @@ static void CallBlockAsSender(TaskObject *caller, PortObject *port,
     Schedule();
 }
 
-static bool CallHandoffToReceiver(TaskObject *caller, PortObject *port,
-                                   ReplyCap *rc, uint32_t xlen, Handle grant_handle,
+static __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port,
+                                   EphemeralReplyObject *rc, size_t xlen, Handle grant_handle,
                                    CpuState *frame)
 {
     ListNode *node = list_pop_front(&port->receiver_queue);
@@ -81,7 +81,7 @@ static bool CallHandoffToReceiver(TaskObject *caller, PortObject *port,
 
     ArchSetInFrame(rx_frame, 0, caller->owner->spid);
     (*ArchGetFromFrame(rx_frame, 1)) = (Register)xlen;
-    if (xlen) LmsgBufCopy(caller, rx, xlen);
+    if (xlen) MsgBufCopy(caller, rx, xlen);
 
     rx->ipc_state = IPC_NONE;
     rx->blocked_port = NULL;
@@ -102,7 +102,7 @@ static bool CallHandoffToReceiver(TaskObject *caller, PortObject *port,
     return true;
 }
 
-void SvcCall(CpuState *frame)
+void __hot SvcCall(CpuState *frame)
 {
     Handle handle = (Handle)(*ArchGetFromFrame(frame, 0));
     uint32_t xlen = (uint32_t)(*ArchGetFromFrame(frame, 1));
@@ -113,8 +113,7 @@ void SvcCall(CpuState *frame)
     if (!entry) return;
     PortObject *port = entry->port;
 
-    ReplyCap *rc = KAllocReplyCap();
-    ENSURE_ERR(frame, rc, ERR_NOMEM);
+    EphemeralReplyObject *rc = current_task->reply_cap;
     rc->caller = CURRENT_SPACE;
     rc->caller_tid = current_task->tid;
 
@@ -122,7 +121,6 @@ void SvcCall(CpuState *frame)
 
     if (!list_empty(&port->receiver_queue)) {
         if (!CallHandoffToReceiver(current_task, port, rc, xlen, grant_handle, frame)) {
-            KFreeReplyCap(rc);
             return;
         }
     } else {

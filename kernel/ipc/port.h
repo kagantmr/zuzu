@@ -29,7 +29,7 @@ typedef struct
     Spid holder_spid;    // for cross-check: holder->pid == holder_spid
     Handle holder_slot;
     ListNode caller_link;
-} ReplyCap;
+} EphemeralReplyObject;
 
 PortObject *PortCreate(SpaceObject *owner);
 void PortDestroy(PortObject *port);

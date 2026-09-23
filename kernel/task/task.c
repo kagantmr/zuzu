@@ -66,7 +66,7 @@ void KillTask(TaskObject *task)
 	task->state = ZOMBIE;
 }
 
-void WakeJoinTask(TaskObject *task, int32_t exit_status)
+void WakeJoinTask(TaskObject *task, Err exit_status)
 {
 	if (!task)
 		return;
@@ -79,7 +79,7 @@ void WakeJoinTask(TaskObject *task, int32_t exit_status)
 		joiner->wake_reason = WAKE_IPC;
 		joiner->state = READY;
 		if (joiner->trap_frame)
-			(*ArchGetFromFrame(joiner->trap_frame, 0)) = (uint32_t)exit_status;
+			(*ArchGetFromFrame(joiner->trap_frame, 0)) = exit_status;
 		SchedAdd(joiner);
 	}
 }

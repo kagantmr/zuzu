@@ -12,7 +12,7 @@ BENCH_STAT(g_bench_ipc_buf_copy_wordcopy, "ipc_buf_copy: hand-rolled word-copy")
 static uint8_t g_bench_wordcopy_scratch[LMSG_BUF_SIZE] __attribute__((aligned(4)));
 #endif
 
-void __hot LmsgBufCopy(TaskObject *restrict src, TaskObject *restrict dst, size_t len)
+void __hot MsgBufCopy(TaskObject *restrict src, TaskObject *restrict dst, size_t len)
 {
 	if (!len || !src->msg_buf_phys_addr || !dst->msg_buf_phys_addr)
 		return;
