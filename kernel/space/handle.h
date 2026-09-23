@@ -13,7 +13,7 @@
 
 #include "kernel/dev/devcap.h"
 #include "kernel/task/task.h"
-#include "kernel/ipc/ntfn.h"
+#include "kernel/ipc/event.h"
 #include "kernel/ipc/port.h"
 
 #define HANDLE_INDEX_BITS 10u                              /* log2(HANDLE_MAX_SLOTS) */

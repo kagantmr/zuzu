@@ -139,12 +139,12 @@ static void PmmKEventSignalUnderLock(void)
             // safe to remove sub from list here
             if (!sub->ntfn->alive) {
                 list_remove(pos);
-                NtfnRefDrop(sub->ntfn);
+                EventDropReference(sub->ntfn);
                 KFree(sub);
                 continue;
             }
 
-            NtfnSignal(sub->ntfn, KEVENT_MEMMGMT_BIT);
+            EventSignal(sub->ntfn, KEVENT_MEMMGMT_BIT);
         }
     } else if (pmm_state.in_pressure && free_pct > HIGH_WATER_PCT) {
         pmm_state.in_pressure = false;

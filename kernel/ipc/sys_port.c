@@ -38,7 +38,7 @@ void SysPortCreate(CpuState *frame)
     HandleTable *ht = &current_task->owner_process->handle_table;
     HandleTableEntry *entry = HandleTableGet(ht, (uint32_t)handle);
 
-    PortObject *new_port = (PortObject *)KAllocPortObj();
+    PortObject *new_port = (PortObject *)PortObjAlloc();
     if (!new_port)
     {
         arch_reg_set(frame, 0, ERR_NOMEM);
@@ -47,7 +47,7 @@ void SysPortCreate(CpuState *frame)
     // list_init(&new_port->node);
     list_init(&new_port->sender_queue);
     list_init(&new_port->receiver_queue);
-    new_port->owner_spid = current_task->owner_process->pid;
+    new_port->owner_spid = current_task->owner->spid;
     new_port->ref_count = 1;
     new_port->alive = true;
     entry->port = new_port;
@@ -148,7 +148,7 @@ void SysDestroy(CpuState *frame)
         if (port->ref_count > 0)
             port->ref_count--;
         if (port->ref_count == 0)
-            KFreePortObj(port);
+            PortObjFree(port);
 
         (*ArchGetFromFrame(frame, 0)) = 0;
     }
@@ -181,7 +181,7 @@ void SysDestroy(CpuState *frame)
         {
             ListNode *n = list_pop_front(&ntf->wait_queue);
             WaitSlot *slot = container_of(n, WaitSlot, node);
-            NtfnWakeWaiter(ntf, slot, ERR_DEAD);
+            EventWakeWaiter(ntf, slot, ERR_DEAD);
         }
 
         ntf->alive = false;
@@ -191,7 +191,7 @@ void SysDestroy(CpuState *frame)
         if (ntf->ref_count > 0)
             ntf->ref_count--;
         if (ntf->ref_count == 0)
-            KFreeNtfn(ntf);
+            EventObjFree(ntf);
 
         (*ArchGetFromFrame(frame, 0)) = 0;
     }

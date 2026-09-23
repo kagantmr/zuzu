@@ -337,7 +337,7 @@ void __hot SchedSwitchNext(TaskObject *next)
         {
             return;
         }
-        context_switch(prev, &idle_thread);
+        ContextSwitch(prev, &idle_thread);
         return;
     }
 
@@ -372,7 +372,7 @@ void __hot SchedSwitchNext(TaskObject *next)
         VmmActivateAddrspace(current_task->owner->as);
     }
     arch_set_thread_ptr(current_task);
-    context_switch(prev, current_task);
+    ContextSwitch(prev, current_task);
 }
 
 #define MIN_TIMER_SLACK (ArchTimerFreq() / 500000u) /* 2us, any CNTFRQ */

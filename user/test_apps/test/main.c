@@ -4,8 +4,8 @@
 #include <string.h>
 #include <zuzu/syspage.h>
 #include <zuzu/event.h>
-#include <zuzu/ntfn.h>  
-#include <zuzu/umem.h>     
+#include <zuzu/ntfn.h>
+#include <zuzu/umem.h>
 #include <stdbool.h>
 
 #define MAX_ITERS 100
@@ -17,7 +17,7 @@ int main(void) {
 
     Handle ntfn = ZuzuNtfnCreate();
     ZuzuKEventBind(KEVENT_MEMMGMT, ntfn, NULL);
-    
+
     printf("start: %u pages free\n", syspage->mem_free_kb);
 
 	bool first_fired = false, second_fired = false;
@@ -34,14 +34,14 @@ int main(void) {
         }
 		memset(chunks[iterations], 0, CHUNK_PAGES * 4096);   // force fault-in
 
-        NtfnBits bits = ZuzuNtfnWait(ntfn, TIMEOUT_POLL);
+        EventWord bits = ZuzuNtfnWait(ntfn, TIMEOUT_POLL);
         if (bits & KEVENT_MEMMGMT_BIT) {
             printf("FIRED at iter %d, free=%u pages\n",
                    iterations, syspage->mem_free_kb / 4);
 			first_fired = true;
             break;
         }
-        
+
         if (iterations % 10 == 0)
             printf("iter %d: free=%u\n", iterations, syspage->mem_free_kb / 4);
     }
@@ -62,14 +62,14 @@ int main(void) {
         }
 		memset(chunks[iterations], 0, CHUNK_PAGES * 4096);   // force fault-in
 
-        NtfnBits bits = ZuzuNtfnWait(ntfn, TIMEOUT_POLL);
+        EventWord bits = ZuzuNtfnWait(ntfn, TIMEOUT_POLL);
         if (bits & KEVENT_MEMMGMT_BIT) {
 			second_fired = true;
             printf("FIRED at iter %d, free=%u pages\n",
                    iterations, syspage->mem_free_kb / 4);
             break;
         }
-        
+
         if (iterations % 10 == 0)
             printf("iter %d: free=%u\n", iterations, syspage->mem_free_kb / 4);
     }

@@ -1,7 +1,7 @@
 #include "alloc.h"
 #include "pmm.h"
 #include "kernel/layout.h"
-#include "kernel/mm/vmm.h" 
+#include "kernel/mm/vmm.h"
 #include "stdbool.h"
 #include <stddef.h>
 #include <string.h>
@@ -372,13 +372,13 @@ void KHeapInit(void) {
     SlabCachesInit();
 }
 
-void *KAllocPortObj(void)
+void *PortObjAlloc(void)
 {
     SlabCachesInit();
     return SlabAlloc(&port_cache);
 }
 
-void KFreePortObj(void *ptr)
+void PortObjFree(void *ptr)
 {
     if (!ptr)
         return;
@@ -428,12 +428,12 @@ void KHeapDump(void) {
     KINFO("*** HEAP DUMP ***");
     // Print both PA and VA for clarity
     KINFO("Heap: %p - %p", kernel_layout.heap_start_va, kernel_layout.heap_end_va);
-    
+
     KMemBlock* current = heap_head;
     int block_num = 0;
     size_t total_free = 0;
     size_t total_used = 0;
-    
+
     while (current) {
         // Sanity check: ensure current is within heap bounds (use _va)
         if ((uint8_t*)current < (uint8_t*)kernel_layout.heap_start_va ||
@@ -441,7 +441,7 @@ void KHeapDump(void) {
             KERROR("Block %d corrupted - pointer %p outside heap bounds", block_num, current);
             break;
         }
-        
+
         bool is_free = (current->state == KBLOCK_FREE);
         KINFO("Block %d: addr=%p size=%u free=%d next=%p",
               block_num, current, current->size, is_free, current->next);
@@ -451,17 +451,17 @@ void KHeapDump(void) {
         } else {
             total_used += current->size;
         }
-        
+
         current = current->next;
         block_num++;
-        
+
         // Prevent infinite loop in case of corruption
         if (block_num > 1000) {
             KERROR("Too many blocks - possible corruption");
             break;
         }
     }
-    
-    KINFO("Total blocks: %d, Free: %u bytes, Used: %u bytes", 
+
+    KINFO("Total blocks: %d, Free: %u bytes, Used: %u bytes",
           block_num, total_free, total_used);
 }

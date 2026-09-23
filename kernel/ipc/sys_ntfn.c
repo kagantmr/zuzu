@@ -13,40 +13,6 @@
 #define LOG_FMT(fmt) "(sys_ntfn) " fmt
 #include <zuzu/log.h>
 
-void SysNtfnCreate(CpuState *frame)
-{
-    HandleTable *ht = &current_task->owner_process->handle_table;
-    Handle handle = HandleTableFindFree(ht);
-    if (handle < 0) {
-        arch_reg_set(frame, 0, ERR_NOMEM);
-        return;
-    }
-
-    EventObject *ntfn = KAllocNtfn();
-    if (!ntfn) {
-        arch_reg_set(frame, 0, ERR_NOMEM);
-        return;
-    }
-
-    ntfn->word = 0;
-    list_init(&ntfn->wait_queue);
-    ntfn->owner_pid = current_task->owner_process->pid;
-    ntfn->ref_count = 1;
-    ntfn->alive = true;
-
-    HandleTableEntry *entry = HandleTableGet(ht, (uint32_t)handle);
-    if (!entry) {
-        KFreeNtfn(ntfn);
-        arch_reg_set(frame, 0, ERR_NOMEM);
-        return;
-    }
-    entry->type = HANDLE_NTFN;
-    entry->ntfn = ntfn;
-    entry->grantable = true;
-    HandleEntryClaim(ht, entry);
-    arch_reg_set(frame, 0, handle);
-}
-
 void SysNtfnSignal(CpuState *frame)
 {
     Handle handle_idx = (Handle)(*ArchGetFromFrame(frame, 0));
@@ -73,7 +39,7 @@ void SysNtfnSignal(CpuState *frame)
         return;
     }
 
-    NtfnSignal(ntfn, bits);
+    EventSignal(ntfn, bits);
 
     (*ArchGetFromFrame(frame, 0)) = 0;
 }

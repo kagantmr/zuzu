@@ -20,7 +20,7 @@ typedef uint64_t Time;      /* wall-clock time */
 typedef int32_t Err;        /* Error code */
 
 typedef uint32_t Marker;
-typedef uint32_t NtfnBits;
+typedef uint32_t EventWord;
 
 /* ---- Common IPC types ---- */
 
@@ -75,9 +75,9 @@ typedef enum {
 } KEventType;
 
 /* ---- Process constants ---- */
-    
+
 #define WNOHANG (1 << 0)
-    
+
 #ifdef __cplusplus
 }
 #endif

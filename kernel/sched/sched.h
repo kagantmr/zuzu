@@ -8,7 +8,7 @@
 #define SCHED_PRIORITY_LEVELS 8
 #define SCHED_PRIO_DEFAULT 1
 
-extern void __attribute__((hot)) context_switch(TaskObject *prev, TaskObject *next);
+extern void __attribute__((hot)) ContextSwitch(TaskObject *prev, TaskObject *next);
 
 extern TaskObject *current_task;
 extern bool fpu_access_enabled;;
@@ -25,7 +25,7 @@ void SchedQueueDestroyThread(TaskObject *t);
 void SchedConsumeDestroyQueue(void);
 void SchedReap(void);
 void SchedIdleWait(void);
-void __attribute__((hot)) Schedule(void);
+void __hot Schedule(void);
 void SchedSetReschedFlag(void);
 void SchedRemoveSleepQueue(TaskObject *t);
 void SchedInsertSleepQueue(TaskObject *t);

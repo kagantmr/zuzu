@@ -5,7 +5,7 @@
 #include <zuzu/err.h>
 
 PortObject *PortCreate(SpaceObject *owner) {
-    PortObject *new_port = (PortObject *)KAllocPortObj();
+    PortObject *new_port = (PortObject *)PortObjAlloc();
     ENSURE_RET((NULL != new_port), NULL);
     
     list_init(&new_port->sender_queue);
@@ -61,7 +61,7 @@ void PortDestroy(PortObject *port) {
 
     port->alive = false;
 
-    KFreePortObj(port);
+    PortObjFree(port);
 DestroyPortEnd:
     return;
 }

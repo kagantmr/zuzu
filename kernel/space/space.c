@@ -300,7 +300,7 @@ void SpaceDestroy(SpaceObject *sp)
                 if (port->ref_count > 0)
                     port->ref_count--;
                 if (port->ref_count == 0)
-                    KFreePortObj(port);
+                    PortObjFree(port);
             }
             HandleEntryFree(&sp->handle_table, entry);
         }
@@ -338,11 +338,11 @@ void SpaceDestroy(SpaceObject *sp)
                 {
                     ListNode *n = list_pop_front(&event->wait_queue);
                     WaitSlot *slot = container_of(n, WaitSlot, node);
-                    NtfnWakeWaiter(event, slot, ERR_DEAD);
+                    EventWakeWaiter(event, slot, ERR_DEAD);
                 }
             }
             if (event)
-                NtfnRefDrop(event);
+                EventDropReference(event);
             HandleEntryFree(&sp->handle_table, entry);
         }
         else if (entry->type == HANDLE_TASK || entry->type == HANDLE_SPACE)

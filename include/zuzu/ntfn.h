@@ -1,5 +1,5 @@
 /** ntfn.h -- zuzu kernel notification syscalls
- * 
+ *
  * Wraps the raw syscalls over a clean API.
  */
 
@@ -16,7 +16,7 @@
 extern "C" {
 #endif
 
-typedef uint32_t NtfnBits;  /* bitfield of pending signals */
+typedef uint32_t EventWord;  /* bitfield of pending signals */
 
 /**
  * @brief Creates a new notification object and returns its handle.
@@ -47,7 +47,7 @@ static inline Err ZuzuNtfnSignal(Handle ntfn_handle, uint32_t bits) {
  *
  * @return `NtfnBits` Returns the signaled bits on success, or a negative error code on failure. If the wait times out, returns ERR_TIMEOUT.
  */
-static inline NtfnBits ZuzuNtfnWait(Handle ntfn_handle, Duration timeout_ms) {
+static inline EventWord ZuzuNtfnWait(Handle ntfn_handle, Duration timeout_ms) {
     return Syscall(SYS_NTFN_WAIT, ntfn_handle, timeout_ms, 0, 0);
 }
 

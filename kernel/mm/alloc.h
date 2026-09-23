@@ -111,14 +111,14 @@ void KHeapDump(void);
 * @retval NULL Out of memory
 * @return void*
 */
-void *KAllocPortObj(void);
+void *PortObjAlloc(void);
 
 /**
 * @brief Free space belonging to a Port object.
 *
 * @param[in] Object to free.
 */
-void KFreePortObj(void *ptr);
+void PortObjFree(void *ptr);
 
 /**
 * @brief Allocate space for a ReplyCap object.

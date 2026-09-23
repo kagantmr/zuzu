@@ -60,20 +60,19 @@ void SvcCreate(CpuState *frame)
     break;
     case CREATE_EVENT:
     {
-        // PORT: r0=type
-        PortObject *new_event = PortCreate(CURRENT_SPACE);
+        // EVENT: r0=type
+        EventObject *new_event = EventCreate(CURRENT_SPACE);
         ENSURE_ERR(frame, (NULL != new_event), ERR_NOMEM);
-
+    
         Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
-        ENSURE(-1 != new_handle, PortDestroy(new_event); arch_reg_set(frame, 0, ERR_NOMEM); return);
-
+        ENSURE(-1 != new_handle, EventDestroy(new_event); arch_reg_set(frame, 0, ERR_NOMEM); return);
+    
         HandleTableEntry *entry =
             HandleTableGet(&CURRENT_SPACE->handle_table, (uint32_t)new_handle);
         HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
-        entry->type = HANDLE_PORT;
-        entry->port = new_event;
-        entry->grantable = true;
-
+        entry->type = HANDLE_EVENT;
+        entry->event = new_event;
+    
         (*ArchGetFromFrame(frame, 0)) = (Register)HANDLE_PACK(new_handle, entry->generation);
     }
     break;

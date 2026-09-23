@@ -1,7 +1,7 @@
 #ifndef ZUZU_THREAD_H
 #define ZUZU_THREAD_H
 
-#include "kernel/ipc/ntfn.h"
+#include "kernel/ipc/event.h"
 #include "kernel/ipc/port.h"
 #include "kernel/mm/vmm.h"
 #include <arch/fpu.h>
@@ -76,12 +76,12 @@ struct TaskObjectStruct
     WaitSlot ntfn_wait_slot;     /**< Wait slot for SysNtfnWait. */
     WaitSlot port_wait_slot;     /**< Wait slot for SysMsgRecv. */
     uint32_t priority, time_slice,
-        ticks_remaining;     /**< Priority, time slice, and remaining ticks. */
-    Time slice_deadline;     /**< Deadline for the time slice. */
-    SpaceObject *owner;  /**< Backpointer to owning process. */
+        ticks_remaining;   /**< Priority, time slice, and remaining ticks. */
+    Time slice_deadline;   /**< Deadline for the time slice. */
+    SpaceObject *owner;    /**< Backpointer to owning process. */
     VirtAddr task_info_va; /**< Virtual address of thread info. */
-    uint8_t tcb_slot;        /**< Index into owner's TCB page, TCB_SLOT_NONE if unassigned. */
-    FpuState fpu_state;      /**< Lazily saved/restored, see kernel/sched/sched.c fpu_owner. */
+    uint8_t tcb_slot;      /**< Index into owner's TCB page, TCB_SLOT_NONE if unassigned. */
+    FpuState fpu_state;    /**< Lazily saved/restored, see kernel/sched/sched.c fpu_owner. */
 #ifdef CONFIG_ZUZU_BENCH
     uint32_t bench_irq_wait_start; /**< PMCCNTR at SysNtfnWait block, for the IRQ-wait bench. */
 #endif
