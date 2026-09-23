@@ -2,6 +2,7 @@
 
 #include "kernel/sched/sched.h"
 #include "core/log.h"
+#include "core/ensure.h"
 
 #include "kernel/ipc/sys_port.h"
 #include "kernel/ipc/sys_msg.h"
@@ -11,10 +12,11 @@
 #include "kernel/mm/sys_mm.h"
 #include "kernel/mm/sys_shm.h"
 #include "kernel/dev/sys_dev.h"
-#include "kernel/proc/kstack.h"
+#include "kernel/space/space.h"
+#include "kernel/task/kstack.h"
 #include "kernel/layout.h"
-#include "kernel/proc/sys_proc.h"
-#include "kernel/proc/sys_thread.h"
+#include "kernel/task/sys_proc.h"
+#include "kernel/task/sys_thread.h"
 #include "core/panic.h"
 
 #include "kernel/mm/vmm.h"
@@ -59,7 +61,6 @@ static SvcEntry svc_table[SVC_TOTAL_COUNT] = {
     [SVC_MANAGEMEMORY] = SvcManageMemory
 };
 
-
 static __hot bool IsNormalFrame(const CpuState *frame)
 {
     uintptr_t p = (uintptr_t)frame;
@@ -77,18 +78,18 @@ static __hot bool IsNormalFrame(const CpuState *frame)
     return false;
 }
 
-bool CopyToUser(void *restrict uaddr, const void *restrict kaddr, size_t len)
+bool __hot CopyToUser(void *restrict uaddr, const void *restrict kaddr, size_t len)
 {
     if (len == 0)
         return true;
-    if (!current_task || !current_task->owner_process || !current_task->owner_process->as || !uaddr || !kaddr)
+    if (!current_task || !CURRENT_SPACE || !CURRENT_SPACE->as || !uaddr || !kaddr)
         return false;
     if (!IsUserPtrNormal((uintptr_t)uaddr, len))
         return false;
 #ifdef CONFIG_ZUZU_BENCH
     uint32_t bench_start = BENCH_BEGIN();
 #endif
-    if (!VmmCheckUserFault(current_task->owner_process->as, (uintptr_t)uaddr, len, true))
+    if (!VmmCheckUserFault(CURRENT_SPACE->as, (uintptr_t)uaddr, len, true))
         return false;
 #ifdef CONFIG_ZUZU_BENCH
     BENCH_END(g_bench_copytouser_walk, bench_start);
@@ -102,18 +103,18 @@ bool CopyToUser(void *restrict uaddr, const void *restrict kaddr, size_t len)
     return true;
 }
 
-bool CopyFromUser(void *restrict kaddr, const void *restrict uaddr, size_t len)
+bool __hot CopyFromUser(void *restrict kaddr, const void *restrict uaddr, size_t len)
 {
     if (len == 0)
         return true;
-    if (!current_task || !current_task->owner_process || !current_task->owner_process->as || !uaddr || !kaddr)
+    if (!current_task || !CURRENT_SPACE || !CURRENT_SPACE->as || !uaddr || !kaddr)
         return false;
-    if (!IsUserPtrNormal((uintptr_t)uaddr, len))
+    if (!IsUserPtrNormal((VirtAddr)uaddr, len))
         return false;
 #ifdef CONFIG_ZUZU_BENCH
     uint32_t bench_start = BENCH_BEGIN();
 #endif
-    if (!VmmCheckUserFault(current_task->owner_process->as, (uintptr_t)uaddr, len, false))
+    if (!VmmCheckUserFault(CURRENT_SPACE->as, (VirtAddr)uaddr, len, false))
         return false;
 #ifdef CONFIG_ZUZU_BENCH
     BENCH_END(g_bench_copyfromuser_walk, bench_start);
@@ -133,40 +134,39 @@ bool CopyFromUser(void *restrict kaddr, const void *restrict uaddr, size_t len)
 #define SYSLOG_MAX 240u
 static void SvcDebugLog(CpuState *frame)
 {
-    VirtAddr uptr = (VirtAddr)(*arch_reg(frame, 0));
-    uint32_t len = (*arch_reg(frame, 1));
+    VirtAddr uptr = (VirtAddr)(*ArchGetFromFrame(frame, 0));
+    size_t len = (size_t)(*ArchGetFromFrame(frame, 1));
     char buf[SYSLOG_MAX + 1];
 
     if (len > SYSLOG_MAX)
         len = SYSLOG_MAX;
     if (len == 0 || !CopyFromUser(buf, (const void *)uptr, len)) {
-        arch_reg_set(frame, 0, ERR_BADPTR);
+        ArchSetInFrame(frame, 0, ERR_BADPTR);
         return;
     }
     buf[len] = '\0';
-    kprintf("[udbg pid=%u] %s\n",
-            (unsigned)(current_task->owner_process ? current_task->owner_process->pid : 0), buf);
-    arch_reg_set(frame, 0, 0);
+    kprintf("[udbg spid=%u] %s\n",
+            (unsigned)(CURRENT_SPACE ? CURRENT_SPACE->spid : 0), buf);
+    ArchSetInFrame(frame, 0, 0);
 }
 #endif /* DEBUG */
 
 void __hot SvcDispatch(Svc svc_num, CpuState *frame)
 {
-    if (unlikely(!current_task))
-    {
-        arch_reg_set(frame, 0, ERR_BADARG);
-        return;
-    }
-    if (unlikely(!IsNormalFrame(frame)))
-    {
-        panic("Corrupt trap_frame at syscall dispatch: pid=%u svc=%u frame=%p",
-              (unsigned)(current_task->owner_process ? current_task->owner_process->pid : 0),
-              svc_num, (void *)frame);
-    }
+    ENSURE_ERR(frame, current_task, ERR_BADARG);
+    ENSURE_GOTO(IsNormalFrame(frame), PanicOnWeirdFrame);
+    
     current_task->trap_frame = frame;
 
     if (likely(svc_table[svc_num]))
         svc_table[svc_num](frame);
     else
-        arch_reg_set(frame, 0, ERR_NOSYS);
+        ArchSetInFrame(frame, 0, ERR_NOSYS);
+
+    return;
+PanicOnWeirdFrame:
+    panic("Corrupt trap_frame at syscall dispatch: pid=%u svc=%u frame=%p",
+            (unsigned)(CURRENT_SPACE ? CURRENT_SPACE->spid : 0),
+        svc_num, (void *)frame);
+    
 }

@@ -53,7 +53,6 @@ void SvcCreate(CpuState *frame)
         HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
         entry->type = HANDLE_PORT;
         entry->port = new_port;
-        entry->grantable = true;
 
         (*ArchGetFromFrame(frame, 0)) = (Register)HANDLE_PACK(new_handle, entry->generation);
     }
