@@ -1,5 +1,5 @@
-#include "kernel/space/space.h"
-#include "kernel/irq/sys_irq.h"
+#include "space.h"
+
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm.h"
 #include "kernel/sched/sched.h"

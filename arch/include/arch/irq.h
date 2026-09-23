@@ -20,16 +20,16 @@ typedef void (*irq_handler_t)(void *ctx); /* generic IRQ handler */
 void arch_irq_init(void);
 
 /** Register a handler for an IRQ line. Returns true on success. */
-bool arch_irq_register(uint32_t irq_id, irq_handler_t handler, void *ctx);
+bool ArchIrqRegister(uint32_t irq_id, irq_handler_t handler, void *ctx);
 
 /** Unregister the handler for an IRQ line. Returns true on success. */
 bool arch_irq_unregister(uint32_t irq_id);
 
 /** Disable a single IRQ line at the controller. */
-void arch_irq_disable_line(uint32_t irq_id);
+void ArchIrqMaskLine(uint32_t irq_id);
 
 /** Enable a single IRQ line at the controller. */
-void arch_irq_enable_line(uint32_t irq_id);
+void ArchIrqUnmaskLine(uint32_t irq_id);
 
 /** Set an IRQ line's priority (controller-defined units; lower preempts higher). */
 void ArchIrqSetPrio(uint32_t irq_id, uint8_t prio);
@@ -39,7 +39,7 @@ void arch_irq_dispatch(void);
 
 /** True if an IRQ line is reserved by the kernel/arch (e.g. the tick timer)
  *  and therefore cannot be claimed by a userspace driver. */
-bool arch_irq_is_reserved(uint32_t irq_id);
+bool ArchIrqIsOwnedByKernel(uint32_t irq_id);
 
 /* ---- Controller introspection (for diagnostics / panic dumps) ----------- */
 /* Lines are reported 32 per "word"; there are MAX_IRQS/32 words. */

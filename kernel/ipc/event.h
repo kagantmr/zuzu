@@ -17,7 +17,7 @@ typedef struct EventObjectStruct
     bool alive;
 } EventObject;
 
-struct wait_slot;
+struct WaitSlotStruct;
 
 /**
  * @brief Wake one waiter already popped from ev->wait_queue.
@@ -28,7 +28,7 @@ struct wait_slot;
  * @note A queued waiter without a trap frame is a corrupt wait queue:
  * panics rather than limp past it.
  */
-void EventWakeWaiter(EventObject *ev, struct wait_slot *slot, int32_t r0_value);
+void EventWakeWaiter(EventObject *ev, struct WaitSlotStruct *slot, EventWord bits);
 
 /**
  * @brief Signal one or more bits on an event object.

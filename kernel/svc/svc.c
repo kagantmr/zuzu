@@ -129,8 +129,6 @@ bool __hot CopyFromUser(void *restrict kaddr, const void *restrict uaddr, size_t
 }
 
 #ifdef DEBUG
-/* DEBUG-only kernel console sink for userspace. Lets pre-tty services print
- * before pl011drv is up. Deliberately dumb: bounded copy, no formatting. */
 #define SYSLOG_MAX 240u
 static void SvcDebugLog(CpuState *frame)
 {
@@ -162,11 +160,10 @@ void __hot SvcDispatch(Svc svc_num, CpuState *frame)
         svc_table[svc_num](frame);
     else
         ArchSetInFrame(frame, 0, ERR_NOSYS);
-
     return;
 PanicOnWeirdFrame:
     panic("Corrupt trap_frame at syscall dispatch: pid=%u svc=%u frame=%p",
             (unsigned)(CURRENT_SPACE ? CURRENT_SPACE->spid : 0),
         svc_num, (void *)frame);
-    
+    __builtin_unreachable();
 }

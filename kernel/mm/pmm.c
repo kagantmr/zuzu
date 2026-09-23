@@ -2,7 +2,7 @@
 
 #include "core/panic.h"
 
-#include "kernel/ipc/ntfn.h"
+#include "kernel/ipc/event.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/vmm.h" // PA_TO_VA / VA_TO_PA helpers
 #include "kernel/layout.h"

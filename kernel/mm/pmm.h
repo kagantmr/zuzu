@@ -1,7 +1,7 @@
 #ifndef PMM_H
 #define PMM_H
 
-#include "kernel/ipc/ntfn.h"
+#include "kernel/ipc/event.h"
 
 #include <stdint.h>
 #include <stddef.h>

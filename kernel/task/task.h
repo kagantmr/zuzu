@@ -44,7 +44,7 @@ typedef struct TaskObjectStruct TaskObject;
  * receiver_queue for a thread blocked in a plain single-handle wait
  * (ntfn_wait_slot, port_wait_slot below).
  */
-typedef struct wait_slot
+typedef struct WaitSlotStruct
 {
     ListNode node;     /**< Node in the wait queue. */
     TaskObject *owner; /**< Owner task of this wait slot. */

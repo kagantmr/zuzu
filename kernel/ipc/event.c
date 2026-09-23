@@ -21,7 +21,7 @@ EventObject *EventObjAlloc(void)
 
 void EventObjFree(EventObject *ev) { KSlabFree(&event_cache, ev); }
 
-void EventWakeWaiter(EventObject *ev, WaitSlot *slot, int32_t r0_value)
+void EventWakeWaiter(EventObject *ev, WaitSlot *slot, EventWord bits)
 {
     TaskObject *waiter = slot->owner;
     if (!waiter || !waiter->trap_frame)
@@ -32,7 +32,7 @@ void EventWakeWaiter(EventObject *ev, WaitSlot *slot, int32_t r0_value)
               waiter ? (void *)waiter->trap_frame : NULL);
     }
 
-    (*ArchGetFromFrame(waiter->trap_frame, 0)) = (Register)r0_value;
+    (*ArchGetFromFrame(waiter->trap_frame, 0)) = (Register)bits;
 
     SchedRemoveSleepQueue(waiter);
     waiter->wake_deadline = 0;
@@ -52,7 +52,7 @@ void EventSignal(EventObject *ev, EventWord bits)
         ListNode *node = list_pop_front(&ev->wait_queue);
         WaitSlot *slot = container_of(node, WaitSlot, node);
         EventWord delivered = ev->word;
-        EventWakeWaiter(ev, slot, (int32_t)delivered);
+        EventWakeWaiter(ev, slot, delivered);
         ev->word = 0;
     }
 }

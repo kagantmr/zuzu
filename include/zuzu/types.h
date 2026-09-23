@@ -71,8 +71,11 @@ typedef struct {
 
 /* Kernel event types users can subscribe to */
 typedef enum {
-    KEVENT_MEMMGMT = 0,  /* memory pressure */
-} KEventType;
+    EVENT_GENERIC = 0,  /* no distinction */
+    EVENT_MEMMGMT,      /* memory pressure */
+    EVENT_IRQ,          /* interrupts */
+    EVENT_TIMER        /* timers */
+} EventType;
 
 /* ---- Process constants ---- */
 

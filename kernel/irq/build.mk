@@ -1,1 +1,1 @@
-obj-y += sys_irq.o
+obj-y += irq_relay.o

@@ -14,7 +14,7 @@
 irq_handler_t handler_table[MAX_IRQS];
 void* handler_ctx[MAX_IRQS];
 
-bool arch_irq_is_reserved(uint32_t irq_id) {
+bool ArchIrqIsOwnedByKernel(uint32_t irq_id) {
     switch (irq_id) {
     case TIMER_IRQ_VIRT:   // ARM generic timer CNTV PPI
         return true;
@@ -32,7 +32,7 @@ void arch_irq_init(void) {
     }
 }
 
-bool arch_irq_register(uint32_t irq_id, irq_handler_t handler, void *ctx) {
+bool ArchIrqRegister(uint32_t irq_id, irq_handler_t handler, void *ctx) {
     if (irq_id >= MAX_IRQS || handler == NULL) {
         return false;
     }
@@ -55,10 +55,10 @@ void ArchIrqSetPrio(Irq irq_id, uint8_t prio) {
     GicV2SetPriority(irq_id, prio);
 }
 
-void arch_irq_disable_line(uint32_t irq_id) {
+void ArchIrqMaskLine(uint32_t irq_id) {
     GicV2MaskIrq(irq_id); // Delegate to GIC function
 }
-void arch_irq_enable_line(uint32_t irq_id) {
+void ArchIrqUnmaskLine(uint32_t irq_id) {
     GicV2UnmaskIrq(irq_id); // Delegate to GIC function
 }
 

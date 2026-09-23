@@ -17,7 +17,7 @@ void SysKEventBind(CpuState *frame)
     if (!frame)
         return;
 
-    KEventType event_type = *(ArchGetFromFrame(frame, 0));
+    EventType event_type = *(ArchGetFromFrame(frame, 0));
     Handle h = (Handle)(*ArchGetFromFrame(frame, 1));
 
     /**

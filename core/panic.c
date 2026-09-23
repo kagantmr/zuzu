@@ -710,7 +710,7 @@ static void panic_print_irq(void)
              pmr, pmr == 0xFFu ? "all priorities pass" : "filtered");
     panic_line(line);
 
-    const IrqOwner *owners = GetIrqOwners();
+    const IrqOwner *owners = GetIrqOwnersList();
 
     /*
      * Snapshot enabled bitmap; used both for the enabled section and
