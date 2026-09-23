@@ -11,7 +11,6 @@
 #define LOG_FMT(fmt) "(sys_ntfn) " fmt
 #include <zuzu/log.h>
 
-
 void SysNtfnWait(CpuState *frame)
 {
     Handle handle_idx = (Handle)(*ArchGetFromFrame(frame, 0));
@@ -53,10 +52,6 @@ void SysNtfnWait(CpuState *frame)
     current_task->ntfn_wait_slot.node.next = NULL;
     list_add_tail(&current_task->ntfn_wait_slot.node, &ev->wait_queue.node);
 #ifdef CONFIG_ZUZU_BENCH
-    /* Stashed on the thread, not a local: schedule() below may not return
-     * to this stack frame for a long time (other threads run first), so
-     * the matching read has to happen wherever this thread is actually
-     * unblocked (kernel/irq/sys_irq.c's relay_handler), not here. */
     current_task->bench_irq_wait_start = BENCH_BEGIN();
 #endif /* CONFIG_ZUZU_BENCH */
 
