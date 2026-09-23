@@ -24,7 +24,7 @@ void SvcReply(CpuState *frame)
     }
 
     Handle granted = GrantHandleAcross(CURRENT_SPACE, target->owner, grant_handle, frame);
-    ENSURE_GOTO(granted, ReplyFail);
+    ENSURE_GOTO((granted >= 0), ReplyFail);
 
     ReplyDeliverToCaller(target, xlen, granted);
 
