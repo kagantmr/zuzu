@@ -3,7 +3,6 @@
 
 void SvcYield(CpuState *frame)
 {
-    (*arch_reg(frame, 0)) = 0;
-    (void)frame;
+    ArchSetInFrame(frame, 0, ZUZU_OK);
     Schedule();
 }

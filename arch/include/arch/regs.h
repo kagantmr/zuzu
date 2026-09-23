@@ -22,7 +22,7 @@
 
 #include <arch_impl/regs.h>   /* arch_regs_t + accessors (CpuContext for arch use) */
 
-static __always_inline void arch_reg_set(CpuState *f, unsigned i, int value)
+static __always_inline void ArchSetInFrame(CpuState *f, unsigned i, int value)
 {
     *ArchGetFromFrame(f, i) = (Register)value;
 } 

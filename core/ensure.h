@@ -24,7 +24,7 @@
 /* Shorthand for the syscall-handler pattern specifically:
  * if (!cond) { arch_reg_set(frame, 0, err); return; } */
 #define ENSURE_ERR(frame, cond, err)                        \
-    ENSURE(cond, arch_reg_set((frame), 0, (err)); return)
+    ENSURE(cond, ArchSetInFrame((frame), 0, (err)); return)
 
 /* Logging variant for internal invariants that "shouldn't happen" and
  * are worth a trace when they do, as opposed to routine userspace-input

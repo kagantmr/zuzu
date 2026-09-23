@@ -92,29 +92,29 @@ void SysIrqBind(CpuState *frame)
     Handle ntfn_handle = (Handle)(*ArchGetFromFrame(frame, 1));
 
     if (dev_handle == 0) {
-        arch_reg_set(frame, 0, ERR_BADHANDLE);
+        ArchSetInFrame(frame, 0, ERR_BADHANDLE);
         return;
     }
     HandleTableEntry *entry = HandleTableGet(&current_task->owner_process->handle_table, (uint32_t)dev_handle);
     if (!entry) {
-        arch_reg_set(frame, 0, ERR_BADHANDLE);
+        ArchSetInFrame(frame, 0, ERR_BADHANDLE);
         return;
     }
     if (entry->type != HANDLE_DEVICE) {
-        arch_reg_set(frame, 0, ERR_BADTYPE);
+        ArchSetInFrame(frame, 0, ERR_BADTYPE);
         return;
     }
 
     Irq irq_num = entry->dev->irq;
     if (!valid_irq(irq_num)) {
-        arch_reg_set(frame, 0, ERR_BADARG);
+        ArchSetInFrame(frame, 0, ERR_BADARG);
         return;
     }
 
     /* Ownership: free line is ours to claim; a line owned by someone else is busy. */
     Process *owner = irq_owners[irq_num].owner;
     if (owner && owner != current_task->owner_process) {
-        arch_reg_set(frame, 0, ERR_BUSY);
+        ArchSetInFrame(frame, 0, ERR_BUSY);
         return;
     }
 
@@ -123,15 +123,15 @@ void SysIrqBind(CpuState *frame)
     HandleTableEntry *ntfn_entry =
         HandleTableGet(&current_task->owner_process->handle_table, (uint32_t)ntfn_handle);
     if (!ntfn_entry || !ntfn_entry->ntfn) {
-        arch_reg_set(frame, 0, ERR_BADHANDLE);
+        ArchSetInFrame(frame, 0, ERR_BADHANDLE);
         return;
     }
     if (ntfn_entry->type != HANDLE_NTFN) {
-        arch_reg_set(frame, 0, ERR_BADTYPE);
+        ArchSetInFrame(frame, 0, ERR_BADTYPE);
         return;
     }
     if (!ntfn_entry->ntfn->alive) {
-        arch_reg_set(frame, 0, ERR_DEAD);
+        ArchSetInFrame(frame, 0, ERR_DEAD);
         return;
     }
 

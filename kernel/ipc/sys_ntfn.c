@@ -7,73 +7,43 @@
 #include "kernel/bench.h"
 #endif /* CONFIG_ZUZU_BENCH */
 
-#include "ntfn.h"
-#include "handle.h"
+#include "event.h"
+#include "kernel/space/space.h"
 
 #define LOG_FMT(fmt) "(sys_ntfn) " fmt
 #include <zuzu/log.h>
 
-void SysNtfnSignal(CpuState *frame)
-{
-    Handle handle_idx = (Handle)(*ArchGetFromFrame(frame, 0));
-    uint32_t bits = (*ArchGetFromFrame(frame, 1));
-
-    HandleTableEntry *entry = HandleTableGet(&current_task->owner_process->handle_table, (uint32_t)handle_idx);
-    if (!entry) {
-        arch_reg_set(frame, 0, ERR_BADHANDLE);
-        return;
-    }
-    if (entry->type != HANDLE_NTFN) {
-        arch_reg_set(frame, 0, ERR_BADTYPE);
-        return;
-    }
-
-    EventObject *ntfn = entry->ntfn;
-    if (!ntfn || !ntfn->alive) {
-        arch_reg_set(frame, 0, ERR_DEAD);
-        return;
-    }
-    /* bit 31 reserved: bits ride in r0, negatives are errors */
-    if (bits & (1U << 31)) {
-        arch_reg_set(frame, 0, ERR_BADARG);
-        return;
-    }
-
-    EventSignal(ntfn, bits);
-
-    (*ArchGetFromFrame(frame, 0)) = 0;
-}
 
 void SysNtfnWait(CpuState *frame)
 {
     Handle handle_idx = (Handle)(*ArchGetFromFrame(frame, 0));
-    uint32_t timeout_ms = (*ArchGetFromFrame(frame, 1));
+    uint32_t timeout_ms = (uint32_t)(*ArchGetFromFrame(frame, 1));
 
-    HandleTableEntry *entry = HandleTableGet(&current_task->owner_process->handle_table, (uint32_t)handle_idx);
+    HandleTableEntry *entry = HandleTableGet(&CURRENT_SPACE->handle_table, handle_idx);
     if (!entry) {
-        arch_reg_set(frame, 0, ERR_BADHANDLE);
+        ArchSetInFrame(frame, 0, ERR_BADHANDLE);
         return;
     }
-    if (entry->type != HANDLE_NTFN) {
-        arch_reg_set(frame, 0, ERR_BADTYPE);
-        return;
-    }
-
-    EventObject *ntfn = entry->ntfn;
-    if (!ntfn || !ntfn->alive) {
-        arch_reg_set(frame, 0, ERR_DEAD);
+    if (entry->type != HANDLE_EVENT) {
+        ArchSetInFrame(frame, 0, ERR_BADTYPE);
         return;
     }
 
-    if (ntfn->word != 0) {
+    EventObject *ev = entry->event;
+    if (!ev || !ev->alive) {
+        ArchSetInFrame(frame, 0, ERR_DEAD);
+        return;
+    }
+
+    if (ev->word != 0) {
         /* bits are 31-bit (signal rejects bit 31), so this is never negative */
-        (*ArchGetFromFrame(frame, 0)) = ntfn->word;
-        ntfn->word = 0;
+        ArchSetInFrame(frame, 0, (int)ev->word);
+        ev->word = 0;
         return;
     }
 
     if (timeout_ms == TIMEOUT_POLL) {
-        arch_reg_set(frame, 0, ERR_TIMEOUT);
+        ArchSetInFrame(frame, 0, ERR_TIMEOUT);
         return;
     }
 
@@ -83,7 +53,7 @@ void SysNtfnWait(CpuState *frame)
     current_task->ntfn_wait_slot.owner = current_task;
     current_task->ntfn_wait_slot.node.prev = NULL;
     current_task->ntfn_wait_slot.node.next = NULL;
-    list_add_tail(&current_task->ntfn_wait_slot.node, &ntfn->wait_queue.node);
+    list_add_tail(&current_task->ntfn_wait_slot.node, &ev->wait_queue.node);
 #ifdef CONFIG_ZUZU_BENCH
     /* Stashed on the thread, not a local: schedule() below may not return
      * to this stack frame for a long time (other threads run first), so

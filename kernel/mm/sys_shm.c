@@ -32,19 +32,19 @@ void SysShmCreate(CpuState *frame)
     const size_t size = align_up((size_t)(*ArchGetFromFrame(frame, 0)), PAGE_SIZE);
     if (size == 0)
     {
-        arch_reg_set(frame, 0, ERR_BADARG);
+        ArchSetInFrame(frame, 0, ERR_BADARG);
         return;
     }
     if (size > 1024 * 1024 * 32)
     {
-        arch_reg_set(frame, 0, ERR_OVERFLOW); // 32mb static cap
+        ArchSetInFrame(frame, 0, ERR_OVERFLOW); // 32mb static cap
         return;
     }
     const size_t page_count = size / PAGE_SIZE;
     PhysAddr *page_arr = KCalloc(page_count, sizeof(PhysAddr));
     if (!page_arr)
     {
-        arch_reg_set(frame, 0, ERR_NOMEM);
+        ArchSetInFrame(frame, 0, ERR_NOMEM);
         return;
     }
 
@@ -52,7 +52,7 @@ void SysShmCreate(CpuState *frame)
     if (!shmem_obj)
     {
         KFree(page_arr);
-        arch_reg_set(frame, 0, ERR_NOMEM);
+        ArchSetInFrame(frame, 0, ERR_NOMEM);
         return;
     }
     shmem_obj->page_count = page_count;
@@ -68,7 +68,7 @@ void SysShmCreate(CpuState *frame)
     {
         KFree(page_arr);
         KFree(shmem_obj);
-        arch_reg_set(frame, 0, ERR_NOMEM);
+        ArchSetInFrame(frame, 0, ERR_NOMEM);
         return;
     }
 
@@ -77,7 +77,7 @@ void SysShmCreate(CpuState *frame)
     {
         KFree(page_arr);
         KFree(shmem_obj);
-        arch_reg_set(frame, 0, ERR_NOMEM);
+        ArchSetInFrame(frame, 0, ERR_NOMEM);
         return;
     }
 
@@ -87,5 +87,5 @@ void SysShmCreate(CpuState *frame)
     entry->grantable = true;
     HandleEntryClaim(ht, entry);
 
-    arch_reg_set(frame, 0, (Handle)handle);
+    ArchSetInFrame(frame, 0, (Handle)handle);
 }

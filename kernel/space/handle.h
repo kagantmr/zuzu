@@ -95,7 +95,7 @@ static inline void HandleTableDestroy(HandleTable *t)
 
 /* Bounds check + two-level index, hit on every send/recv/call/reply/notify/
  * irq/memmap syscall. One extra branch + deref over a flat array. */
-static __always_inline HandleTableEntry *HandleTableGet(HandleTable *t, uint32_t i)
+static __always_inline HandleTableEntry *HandleTableGet(HandleTable *t, Handle i)
 {
     if (unlikely(i >= HANDLE_MAX_SLOTS))
         return NULL;
@@ -130,7 +130,7 @@ static inline HandleTableEntry *HandleTableLookup(HandleTable *t, Handle h)
     return e;
 }
 
-static inline HandleTableEntry *HandleTableGetOrAlloc(HandleTable *t, uint32_t i)
+static inline HandleTableEntry *HandleTableGetOrAlloc(HandleTable *t, Handle i)
 {
     if (i >= HANDLE_MAX_SLOTS)
         return NULL;

@@ -33,11 +33,11 @@ void SysKEventBind(CpuState *frame)
         HandleTableEntry *entry = HandleTableGet(&current_task->owner_process->handle_table, (uint32_t)h);
 
         if (unlikely(!entry)) {
-            arch_reg_set(frame, 0, ERR_BADHANDLE);
+            ArchSetInFrame(frame, 0, ERR_BADHANDLE);
             return;
         }
         if (unlikely(entry->type != HANDLE_NTFN)) {
-            arch_reg_set(frame, 0, ERR_BADTYPE);
+            ArchSetInFrame(frame, 0, ERR_BADTYPE);
             return;
         }
 
@@ -46,15 +46,15 @@ void SysKEventBind(CpuState *frame)
         assert(ntfn);
 
         if (!ntfn->alive) {
-            arch_reg_set(frame, 0, ERR_DEAD);
+            ArchSetInFrame(frame, 0, ERR_DEAD);
             return;
         }
 
-        arch_reg_set(frame, 0, PmmSubscribe(ntfn));
+        ArchSetInFrame(frame, 0, PmmSubscribe(ntfn));
         return;
     };
     default:
-        arch_reg_set(frame, 0, ERR_BADARG);
+        ArchSetInFrame(frame, 0, ERR_BADARG);
         return;
     }
 }

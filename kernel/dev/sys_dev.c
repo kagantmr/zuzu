@@ -19,20 +19,20 @@ void SysDevQuery(CpuState *frame) {
     char compat_buf[sizeof(((DeviceCap *)0)->compatible) + 1];
 
     if (handle_idx == 0 || buf_len == 0) {
-        arch_reg_set(frame, 0, ERR_BADARG); return;
+        ArchSetInFrame(frame, 0, ERR_BADARG); return;
     }
 
     HandleTableEntry *entry = HandleTableGet(&current_task->owner_process->handle_table, (uint32_t)handle_idx);
     if (!entry) {
-        arch_reg_set(frame, 0, ERR_BADHANDLE); return;
+        ArchSetInFrame(frame, 0, ERR_BADHANDLE); return;
     }
     if (entry->type != HANDLE_DEVICE) {
-        arch_reg_set(frame, 0, ERR_BADTYPE); return;
+        ArchSetInFrame(frame, 0, ERR_BADTYPE); return;
     }
 
     DeviceCap *cap = entry->dev;
     if (!cap) {
-        arch_reg_set(frame, 0, ERR_BADHANDLE); return;
+        ArchSetInFrame(frame, 0, ERR_BADHANDLE); return;
     }
 
     strncpy(compat_buf, cap->compatible, sizeof(compat_buf) - 1);
@@ -45,7 +45,7 @@ void SysDevQuery(CpuState *frame) {
     }
 
     if (!CopyToUser(out_buf, compat_buf, copy_len)) {
-        arch_reg_set(frame, 0, ERR_BADPTR);
+        ArchSetInFrame(frame, 0, ERR_BADPTR);
         return;
     }
 

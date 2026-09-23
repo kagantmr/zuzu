@@ -36,7 +36,7 @@ void PortDestroy(PortObject *port) {
         t->ipc_state = IPC_NONE;
         t->blocked_port = NULL;
         if (t->trap_frame)
-            arch_reg_set(t->trap_frame, 0, ERR_DEAD);
+            ArchSetInFrame(t->trap_frame, 0, ERR_DEAD);
         t->wake_reason = WAKE_IPC;
         t->state = READY;
         SchedAdd(t);
@@ -51,7 +51,7 @@ void PortDestroy(PortObject *port) {
         t->ipc_state = IPC_NONE;
         t->blocked_port = NULL;
         if (t->trap_frame)
-            arch_reg_set(t->trap_frame, 0, ERR_DEAD);
+            ArchSetInFrame(t->trap_frame, 0, ERR_DEAD);
         SchedRemoveSleepQueue(t);
         t->wake_deadline = 0;
         t->wake_reason = WAKE_IPC;

@@ -189,9 +189,9 @@ void __hot SysMemMap(CpuState *frame)
     MemProt prot = (MemProt)(*ArchGetFromFrame(frame, 2));
     uint32_t flags = (*ArchGetFromFrame(frame, 3));
 
-    if (unlikely(flags != 0)) { arch_reg_set(frame, 0, ERR_BADARG); return;}
-    if (unlikely(prot & (unsigned int)(~(PROT_READ|PROT_WRITE|PROT_EXEC))))  { arch_reg_set(frame, 0, ERR_BADARG); return;}   /* rejects VM_PROT_USER */
-    if (unlikely((prot & PROT_WRITE) && (prot & PROT_EXEC)))  { arch_reg_set(frame, 0, ERR_BADARG); return;}
+    if (unlikely(flags != 0)) { ArchSetInFrame(frame, 0, ERR_BADARG); return;}
+    if (unlikely(prot & (unsigned int)(~(PROT_READ|PROT_WRITE|PROT_EXEC))))  { ArchSetInFrame(frame, 0, ERR_BADARG); return;}   /* rejects VM_PROT_USER */
+    if (unlikely((prot & PROT_WRITE) && (prot & PROT_EXEC)))  { ArchSetInFrame(frame, 0, ERR_BADARG); return;}
 
     VirtAddr va = 0;
     Err rc;
@@ -224,7 +224,7 @@ void __hot SysMemMap(CpuState *frame)
         HandleTableEntry *e = HandleTableGet(&p->handle_table, (uint32_t)handle);
         if (unlikely(!e))
         {
-            arch_reg_set(frame, 0, ERR_BADHANDLE);
+            ArchSetInFrame(frame, 0, ERR_BADHANDLE);
             return;
         }
         switch (e->type)
@@ -232,11 +232,11 @@ void __hot SysMemMap(CpuState *frame)
         case HANDLE_DEVICE:
         {
             if (size != 0) {
-                arch_reg_set(frame, 0, ERR_BADARG);
+                ArchSetInFrame(frame, 0, ERR_BADARG);
                 return;
             }
             if (prot & PROT_EXEC) {
-                arch_reg_set(frame, 0, ERR_BADARG);
+                ArchSetInFrame(frame, 0, ERR_BADARG);
                 return;
             }
             rc = memmap_dev(p, e, prot, &va);
@@ -246,7 +246,7 @@ void __hot SysMemMap(CpuState *frame)
         case HANDLE_SHM:
         {
             if (size != 0) {
-                arch_reg_set(frame, 0, ERR_BADARG);
+                ArchSetInFrame(frame, 0, ERR_BADARG);
                 return;
             }
             rc = memmap_shm(p, e, prot, &va);
@@ -279,8 +279,8 @@ void SysMemUnmap(CpuState *frame)
             VirtMemRegion *r = vm_region_vec_get(&as->regions, i);
             if (r && r->vaddr_start == va) { found = r; break; }   /* base match only */
         }
-        if (!found) { arch_reg_set(frame, 0, ERR_BADARG); return; }
-        if (found->flags & VM_FLAG_PINNED) { arch_reg_set(frame, 0, ERR_NOPERM); return; }
+        if (!found) { ArchSetInFrame(frame, 0, ERR_BADARG); return; }
+        if (found->flags & VM_FLAG_PINNED) { ArchSetInFrame(frame, 0, ERR_NOPERM); return; }
 
         size_t size = found->size;
 
@@ -336,7 +336,7 @@ void SysAsInject(CpuState *frame)
         if (!(current_task->owner_process->flags & PROC_FLAG_INIT))
         {
             {
-            arch_reg_set(frame, 0, ERR_NOPERM);
+            ArchSetInFrame(frame, 0, ERR_NOPERM);
             return;
         }
         }
@@ -345,7 +345,7 @@ void SysAsInject(CpuState *frame)
         if (!validate_user_ptr((uintptr_t)args, sizeof(McntlInjectArgs)))
         {
             {
-            arch_reg_set(frame, 0, ERR_BADPTR);
+            ArchSetInFrame(frame, 0, ERR_BADPTR);
             return;
         }
         }
@@ -354,7 +354,7 @@ void SysAsInject(CpuState *frame)
         if (!CopyFromUser(&kargs, args, sizeof(McntlInjectArgs)))
         {
             {
-            arch_reg_set(frame, 0, ERR_BADPTR);
+            ArchSetInFrame(frame, 0, ERR_BADPTR);
             return;
         }
         }
@@ -362,7 +362,7 @@ void SysAsInject(CpuState *frame)
         if (kargs.size < sizeof(McntlInjectArgs))
         {
             {
-            arch_reg_set(frame, 0, ERR_BADARG);
+            ArchSetInFrame(frame, 0, ERR_BADARG);
             return;
         }
         }
@@ -370,12 +370,12 @@ void SysAsInject(CpuState *frame)
         HandleTableEntry *handle = HandleTableGet(&current_task->owner_process->handle_table, (uint32_t)kargs.taskHandle);
         if (!handle)
         {
-            arch_reg_set(frame, 0, ERR_BADHANDLE);
+            ArchSetInFrame(frame, 0, ERR_BADHANDLE);
             return;
         }
         if (handle->type != HANDLE_TASK)
         {
-            arch_reg_set(frame, 0, ERR_BADTYPE);
+            ArchSetInFrame(frame, 0, ERR_BADTYPE);
             return;
         }
 
@@ -383,25 +383,25 @@ void SysAsInject(CpuState *frame)
 
         if (!target)
         {
-            arch_reg_set(frame, 0, ERR_BADHANDLE);
+            ArchSetInFrame(frame, 0, ERR_BADHANDLE);
             return;
         }
         if (target->thread->state != FROZEN)
         {
-            arch_reg_set(frame, 0, ERR_BUSY);
+            ArchSetInFrame(frame, 0, ERR_BUSY);
             return;
         }
 
         if (kargs.len == 0)
         {
-            arch_reg_set(frame, 0, ERR_BADARG);
+            ArchSetInFrame(frame, 0, ERR_BADARG);
             return;
         }
 
         if ((kargs.prot & PROT_WRITE) && (kargs.prot & PROT_EXEC))
         {
             {
-            arch_reg_set(frame, 0, ERR_BADARG);
+            ArchSetInFrame(frame, 0, ERR_BADARG);
             return;
         }
         }
@@ -411,7 +411,7 @@ void SysAsInject(CpuState *frame)
             kargs.len > USER_VA_TOP - kargs.dest_vaddr)
         {
             {
-            arch_reg_set(frame, 0, ERR_BADARG);
+            ArchSetInFrame(frame, 0, ERR_BADARG);
             return;
         }
         }
@@ -424,7 +424,7 @@ void SysAsInject(CpuState *frame)
              * zeroes, and maps each page lazily on first touch. */
             if (kargs.src_buf != NULL || kargs.len % PAGE_SIZE != 0)
             {
-                arch_reg_set(frame, 0, ERR_BADARG);
+                ArchSetInFrame(frame, 0, ERR_BADARG);
                 return;
             }
 
@@ -438,7 +438,7 @@ void SysAsInject(CpuState *frame)
             };
             if (!VmmAddRegion(target->as, &region))
             {
-                arch_reg_set(frame, 0, ERR_NOMEM);
+                ArchSetInFrame(frame, 0, ERR_NOMEM);
                 return;
             }
 
@@ -448,12 +448,12 @@ void SysAsInject(CpuState *frame)
 
         if (!kargs.src_buf)
         {
-            arch_reg_set(frame, 0, ERR_BADARG);
+            ArchSetInFrame(frame, 0, ERR_BADARG);
             return;
         }
         if (!validate_user_ptr((uintptr_t)kargs.src_buf, kargs.len))
         {
-            arch_reg_set(frame, 0, ERR_BADPTR);
+            ArchSetInFrame(frame, 0, ERR_BADPTR);
             return;
         }
 
@@ -488,7 +488,7 @@ void SysAsInject(CpuState *frame)
                 ((kargs.prot | VM_PROT_USER) & ~enclosing->prot))
             {
                 {
-            arch_reg_set(frame, 0, ERR_BADARG);
+            ArchSetInFrame(frame, 0, ERR_BADARG);
             return;
         }
             }
@@ -498,7 +498,7 @@ void SysAsInject(CpuState *frame)
         if (!page_addrs)
         {
             {
-            arch_reg_set(frame, 0, ERR_NOMEM);
+            ArchSetInFrame(frame, 0, ERR_NOMEM);
             return;
         }
         }
@@ -599,7 +599,7 @@ void SysAsInject(CpuState *frame)
         }
         KFree(page_addrs);
         {
-            arch_reg_set(frame, 0, ERR_BADARG);
+            ArchSetInFrame(frame, 0, ERR_BADARG);
             return;
         }
 
@@ -614,7 +614,7 @@ void SysAsInject(CpuState *frame)
         }
         KFree(page_addrs);
         {
-            arch_reg_set(frame, 0, ERR_NOMEM);
+            ArchSetInFrame(frame, 0, ERR_NOMEM);
             return;
         }
 }
@@ -628,35 +628,35 @@ void SysMemProtect(CpuState *frame)
         // Basic validation
         if (size == 0)
         {
-            arch_reg_set(frame, 0, ERR_BADARG);
+            ArchSetInFrame(frame, 0, ERR_BADARG);
             return;
         }
         if (size % PAGE_SIZE != 0)
         {
-            arch_reg_set(frame, 0, ERR_BADARG);
+            ArchSetInFrame(frame, 0, ERR_BADARG);
             return;
         }
         if (!validate_user_ptr(va, size))
         {
-            arch_reg_set(frame, 0, ERR_BADARG);
+            ArchSetInFrame(frame, 0, ERR_BADARG);
             return;
         }
         if (new_prot & ~(PROT_READ|PROT_WRITE|PROT_EXEC)) {
-            arch_reg_set(frame, 0, ERR_NOPERM);
+            ArchSetInFrame(frame, 0, ERR_NOPERM);
             return;
         }
 
         // Enforce W^X policy
         if ((new_prot & PROT_WRITE) && (new_prot & PROT_EXEC))
         {
-            arch_reg_set(frame, 0, ERR_BADARG);
+            ArchSetInFrame(frame, 0, ERR_BADARG);
             return;
         }
 
         // The region must exist; use vmm_protect_range to change its protections
         if (!VmmProtectPage(current_task->owner_process->as, va, size, new_prot | VM_PROT_USER))
         {
-            arch_reg_set(frame, 0, ERR_BADARG);
+            ArchSetInFrame(frame, 0, ERR_BADARG);
             return;
         }
 

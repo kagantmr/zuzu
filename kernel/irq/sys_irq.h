@@ -1,14 +1,14 @@
 #ifndef SYS_IRQ_H
 #define SYS_IRQ_H
 
-#include "kernel/ipc/ntfn.h"
+#include "kernel/ipc/event.h"
 #include "kernel/ipc/port.h"
 #include "stdbool.h"
 #include <arch/regs.h>
 
 typedef struct SpaceObjectStruct SpaceObject;
 
-typedef struct irq_owner {
+typedef struct IrqOwnerStruct {
     SpaceObject *owner;
     bool pending;
     EventObject *bound_ntfn; // was Endpoint *bound_port

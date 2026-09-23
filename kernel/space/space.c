@@ -275,7 +275,7 @@ void SpaceDestroy(SpaceObject *sp)
                     task->blocked_port = NULL;
                     task->wake_reason = WAKE_IPC;
                     if (task->trap_frame)
-                        arch_reg_set(task->trap_frame, 0, ERR_DEAD);
+                        ArchSetInFrame(task->trap_frame, 0, ERR_DEAD);
                     task->state = READY;
                     SchedAdd(task);
                 }
@@ -290,7 +290,7 @@ void SpaceDestroy(SpaceObject *sp)
                     task->wake_deadline = 0;
                     task->wake_reason = WAKE_IPC;
                     if (task->trap_frame)
-                        arch_reg_set(task->trap_frame, 0, ERR_DEAD);
+                        ArchSetInFrame(task->trap_frame, 0, ERR_DEAD);
                     task->state = READY;
                     SchedAdd(task);
                 }

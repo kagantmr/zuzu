@@ -24,14 +24,14 @@ void SysPortCreate(CpuState *frame)
 {
     if (!current_task)
     {
-        arch_reg_set(frame, 0, ERR_BADARG);
+        ArchSetInFrame(frame, 0, ERR_BADARG);
         return;
     }
 
     Handle handle = HandleTableFindFree(&current_task->owner_process->handle_table);
     if (handle == -1)
     {
-        arch_reg_set(frame, 0, ERR_NOMEM);
+        ArchSetInFrame(frame, 0, ERR_NOMEM);
         return;
     }
 
@@ -41,7 +41,7 @@ void SysPortCreate(CpuState *frame)
     PortObject *new_port = (PortObject *)PortObjAlloc();
     if (!new_port)
     {
-        arch_reg_set(frame, 0, ERR_NOMEM);
+        ArchSetInFrame(frame, 0, ERR_NOMEM);
         return;
     }
     // list_init(&new_port->node);
@@ -55,14 +55,14 @@ void SysPortCreate(CpuState *frame)
     entry->type = HANDLE_PORT;
     HandleEntryClaim(ht, entry);
 
-    arch_reg_set(frame, 0, handle);
+    ArchSetInFrame(frame, 0, handle);
 }
 
 void SysDestroy(CpuState *frame)
 {
     if (!current_task)
     {
-        arch_reg_set(frame, 0, ERR_BADARG);
+        ArchSetInFrame(frame, 0, ERR_BADARG);
         return;
     }
 
@@ -73,17 +73,17 @@ void SysDestroy(CpuState *frame)
     HandleTableEntry *entry = HandleTableGet(ht, (uint32_t)handle);
     if (!entry)
     {
-        arch_reg_set(frame, 0, ERR_BADHANDLE);
+        ArchSetInFrame(frame, 0, ERR_BADHANDLE);
         return;
     }
     if (entry->type == HANDLE_FREE)
     {
-        arch_reg_set(frame, 0, ERR_BADHANDLE);
+        ArchSetInFrame(frame, 0, ERR_BADHANDLE);
         return;
     }
     if (entry->type == HANDLE_REPLY || entry->type == HANDLE_TASK)
     {
-        arch_reg_set(frame, 0, ERR_BADTYPE);
+        ArchSetInFrame(frame, 0, ERR_BADTYPE);
         return;
     }
     switch (entry->type)
@@ -94,21 +94,21 @@ void SysDestroy(CpuState *frame)
         PortObject *port = entry->port;
         if (!port)
         {
-            arch_reg_set(frame, 0, ERR_BADHANDLE);
+            ArchSetInFrame(frame, 0, ERR_BADHANDLE);
             return;
         }
 
         if (!port->alive)
         {
             HandleEntryFree(ht, entry);
-            arch_reg_set(frame, 0, ERR_DEAD);
+            ArchSetInFrame(frame, 0, ERR_DEAD);
             return;
         }
 
         // Only owner can destroy
         if (port->owner_spid != current_task->owner_process->pid)
         {
-            arch_reg_set(frame, 0, ERR_NOPERM);
+            ArchSetInFrame(frame, 0, ERR_NOPERM);
             return;
         }
 
@@ -119,7 +119,7 @@ void SysDestroy(CpuState *frame)
             TaskObject *t = container_of(n, TaskObject, node);
             t->ipc_state = IPC_NONE;
             t->blocked_port = NULL;
-            arch_reg_set(t->trap_frame, 0, ERR_DEAD);
+            ArchSetInFrame(t->trap_frame, 0, ERR_DEAD);
             t->state = READY;
             SchedAdd(t);
         }
@@ -133,7 +133,7 @@ void SysDestroy(CpuState *frame)
             t->ipc_state = IPC_NONE;
             t->blocked_port = NULL;
             if (t->trap_frame)
-                arch_reg_set(t->trap_frame, 0, ERR_DEAD);
+                ArchSetInFrame(t->trap_frame, 0, ERR_DEAD);
             SchedRemoveSleepQueue(t);
             t->wake_deadline = 0;
             t->wake_reason = WAKE_IPC;
@@ -158,21 +158,21 @@ void SysDestroy(CpuState *frame)
         EventObject *ntf = entry->ntfn;
         if (!ntf)
         {
-            arch_reg_set(frame, 0, ERR_BADHANDLE);
+            ArchSetInFrame(frame, 0, ERR_BADHANDLE);
             return;
         }
 
         if (!ntf->alive)
         {
             HandleEntryFree(ht, entry);
-            arch_reg_set(frame, 0, ERR_DEAD);
+            ArchSetInFrame(frame, 0, ERR_DEAD);
             return;
         }
 
         // Only owner can destroy
         if (ntf->owner_pid != current_task->owner_process->pid)
         {
-            arch_reg_set(frame, 0, ERR_NOPERM);
+            ArchSetInFrame(frame, 0, ERR_NOPERM);
             return;
         }
 
@@ -201,7 +201,7 @@ void SysDestroy(CpuState *frame)
         // Mapped handles must go through detach/memunmap so the region is torn down
         if (entry->mapped_va != 0)
         {
-            arch_reg_set(frame, 0, ERR_BUSY);
+            ArchSetInFrame(frame, 0, ERR_BUSY);
             return;
         }
 
@@ -217,14 +217,14 @@ void SysDestroy(CpuState *frame)
         DeviceCap *dev = entry->dev;
         if (!dev)
         {
-            arch_reg_set(frame, 0, ERR_BADHANDLE);
+            ArchSetInFrame(frame, 0, ERR_BADHANDLE);
             return;
         }
 
         // Refuse while this handle's mapping is live in our address space
         if (entry->mapped_va != 0)
         {
-            arch_reg_set(frame, 0, ERR_BUSY);
+            ArchSetInFrame(frame, 0, ERR_BUSY);
             return;
         }
 
@@ -243,13 +243,13 @@ void SysDestroy(CpuState *frame)
         SpaceObject *task = entry->task;
         if (!task)
         {
-            arch_reg_set(frame, 0, ERR_BADHANDLE);
+            ArchSetInFrame(frame, 0, ERR_BADHANDLE);
             return;
         }
         // Refuse while the process is still alive; it must exit or be pkill'd first.
         if (task->thread && task->thread->state != ZOMBIE)
         {
-            arch_reg_set(frame, 0, ERR_BUSY);
+            ArchSetInFrame(frame, 0, ERR_BUSY);
             return;
         }
 
@@ -260,7 +260,7 @@ void SysDestroy(CpuState *frame)
     break;
     default:
     {
-        arch_reg_set(frame, 0, ERR_BADTYPE);
+        ArchSetInFrame(frame, 0, ERR_BADTYPE);
     }
     }
 }
@@ -269,7 +269,7 @@ void SysGrant(CpuState *frame)
 {
     if (!current_task)
     {
-        arch_reg_set(frame, 0, ERR_BADARG);
+        ArchSetInFrame(frame, 0, ERR_BADARG);
         return;
     }
 
@@ -282,19 +282,19 @@ void SysGrant(CpuState *frame)
         HandleTableGet(&current_task->owner_process->handle_table, (uint32_t)handle);
     if (!src || src->type == HANDLE_FREE)
     {
-        arch_reg_set(frame, 0, ERR_BADHANDLE);
+        ArchSetInFrame(frame, 0, ERR_BADHANDLE);
         return;
     }
 
     if (!src->grantable || current_task->owner_process->pid == pid)
     {
-        arch_reg_set(frame, 0, ERR_NOPERM);
+        ArchSetInFrame(frame, 0, ERR_NOPERM);
         return;
     }
 
     if (src->type == HANDLE_REPLY)
     {
-        arch_reg_set(frame, 0, ERR_NOPERM);
+        ArchSetInFrame(frame, 0, ERR_NOPERM);
         return;
     }
 
@@ -302,12 +302,12 @@ void SysGrant(CpuState *frame)
     SpaceObject *grantee = ProcessFindByPid(pid);
     if (!grantee)
     {
-        arch_reg_set(frame, 0, ERR_NOENT);
+        ArchSetInFrame(frame, 0, ERR_NOENT);
         return;
     }
     if (grantee->thread->state == ZOMBIE)
     {
-        arch_reg_set(frame, 0, ERR_DEAD);
+        ArchSetInFrame(frame, 0, ERR_DEAD);
         return;
     }
 
@@ -315,14 +315,14 @@ void SysGrant(CpuState *frame)
     int slot = HandleTableFindFree(grantee_ht);
     if (slot < 0)
     {
-        arch_reg_set(frame, 0, ERR_NOMEM);
+        ArchSetInFrame(frame, 0, ERR_NOMEM);
         return;
     }
 
     HandleTableEntry *dst = HandleTableGet(grantee_ht, (uint32_t)slot);
     if (!dst)
     {
-        arch_reg_set(frame, 0, ERR_NOMEM);
+        ArchSetInFrame(frame, 0, ERR_NOMEM);
         return;
     }
 
@@ -333,7 +333,7 @@ void SysGrant(CpuState *frame)
         if (!dst->port || !dst->port->alive)
         {
             HandleEntryFree(grantee_ht, dst);
-            arch_reg_set(frame, 0, ERR_DEAD);
+            ArchSetInFrame(frame, 0, ERR_DEAD);
             return;
         }
         dst->port->ref_count++;
@@ -343,7 +343,7 @@ void SysGrant(CpuState *frame)
         if (!dst->dev)
         {
             HandleEntryFree(grantee_ht, dst);
-            arch_reg_set(frame, 0, ERR_BADARG);
+            ArchSetInFrame(frame, 0, ERR_BADARG);
             return;
         }
         dst->dev->ref_count++;
@@ -353,7 +353,7 @@ void SysGrant(CpuState *frame)
         if (!dst->ntfn || !dst->ntfn->alive)
         {
             HandleEntryFree(grantee_ht, dst);
-            arch_reg_set(frame, 0, ERR_DEAD);
+            ArchSetInFrame(frame, 0, ERR_DEAD);
             return;
         }
         dst->ntfn->ref_count++;
@@ -367,7 +367,7 @@ void SysGrant(CpuState *frame)
     }
     dst->grantable = (flags & GRANT_REGRANTABLE) || CanRegrantHandle(grantee);
     HandleEntryClaim(grantee_ht, dst);
-    arch_reg_set(frame, 0, (Handle)slot);
+    ArchSetInFrame(frame, 0, (Handle)slot);
 }
 
 void SysStamp(CpuState *frame)
@@ -378,7 +378,7 @@ void SysStamp(CpuState *frame)
     // 1. value != 0  (0 is the reserved unmarked sentinel)
     if (value == MARKER_NONE)
     {
-        arch_reg_set(frame, 0, ERR_BADARG);
+        ArchSetInFrame(frame, 0, ERR_BADARG);
         return;
     }
 
@@ -387,26 +387,26 @@ void SysStamp(CpuState *frame)
     HandleTableEntry *src = HandleTableGet(ht, (uint32_t)src_handle);
     if (!src)
     {
-        arch_reg_set(frame, 0, ERR_BADHANDLE);
+        ArchSetInFrame(frame, 0, ERR_BADHANDLE);
         return;
     }
 
     // 3. must be an endpoint cap
     if (src->type != HANDLE_PORT)
     {
-        arch_reg_set(frame, 0, ERR_BADTYPE);
+        ArchSetInFrame(frame, 0, ERR_BADTYPE);
         return;
     }
     if (!src->port || !src->port->alive)
     {
-        arch_reg_set(frame, 0, ERR_DEAD); // or ERR_BADHANDLE for !port
+        ArchSetInFrame(frame, 0, ERR_DEAD); // or ERR_BADHANDLE for !port
         return;
     }
 
     // 4. IMMUTABILITY: can only stamp an UNMARKERD cap
     if (src->marker != MARKER_NONE)
     {
-        arch_reg_set(frame, 0, ERR_DUPLICATE); // already markerd, won't re-stamp
+        ArchSetInFrame(frame, 0, ERR_DUPLICATE); // already markerd, won't re-stamp
         return;
     }
 
@@ -418,7 +418,7 @@ void SysStamp(CpuState *frame)
     int slot = HandleTableFindFree(ht);
     if (slot < 0)
     {
-        arch_reg_set(frame, 0, ERR_NOMEM);
+        ArchSetInFrame(frame, 0, ERR_NOMEM);
         return;
     }
 
@@ -426,7 +426,7 @@ void SysStamp(CpuState *frame)
     HandleTableEntry *ne = HandleTableGet(ht, (uint32_t)slot);
     if (!ne)
     {
-        arch_reg_set(frame, 0, ERR_NOMEM);
+        ArchSetInFrame(frame, 0, ERR_NOMEM);
         return;
     }
     ne->type = HANDLE_PORT;
@@ -437,7 +437,7 @@ void SysStamp(CpuState *frame)
     src_port->ref_count++;
 
     // 7. return the new handle; src is UNTOUCHED (non-consuming)
-    arch_reg_set(frame, 0, slot);
+    ArchSetInFrame(frame, 0, slot);
 }
 
 #define LABEL_SELF (-2)
@@ -449,14 +449,14 @@ void SysSetLabel(CpuState *frame)
 
     if (!(current_task->owner_process->flags & PROC_FLAG_INIT))
     {
-        arch_reg_set(frame, 0, ERR_NOPERM);
+        ArchSetInFrame(frame, 0, ERR_NOPERM);
         return;
     }
 
     // 1. value != 0  (0 is the reserved unmarked sentinel)
     if (value == LABEL_NONE)
     {
-        arch_reg_set(frame, 0, ERR_BADARG);
+        ArchSetInFrame(frame, 0, ERR_BADARG);
         return;
     }
 
@@ -472,13 +472,13 @@ void SysSetLabel(CpuState *frame)
         HandleTableEntry *src = HandleTableGet(&current_task->owner_process->handle_table, (uint32_t)src_handle);
         if (!src)
         {
-            arch_reg_set(frame, 0, ERR_BADHANDLE);
+            ArchSetInFrame(frame, 0, ERR_BADHANDLE);
             return;
         }
 
         if (src->type != HANDLE_TASK)
         {
-            arch_reg_set(frame, 0, ERR_BADTYPE);
+            ArchSetInFrame(frame, 0, ERR_BADTYPE);
             return;
         }
 
@@ -486,19 +486,19 @@ void SysSetLabel(CpuState *frame)
 
         if (!target || !target->thread)
         {
-            arch_reg_set(frame, 0, ERR_BADHANDLE);
+            ArchSetInFrame(frame, 0, ERR_BADHANDLE);
             return;
         }
 
         if (target->thread->state != FROZEN)
         {
-            arch_reg_set(frame, 0, ERR_BUSY);
+            ArchSetInFrame(frame, 0, ERR_BUSY);
             return;
         }
     }
     if (target->label != LABEL_NONE)
     {
-        arch_reg_set(frame, 0, ERR_DUPLICATE);
+        ArchSetInFrame(frame, 0, ERR_DUPLICATE);
         return;
     }
 

@@ -28,10 +28,10 @@ void SvcCreate(CpuState *frame)
         ENSURE_ERR(frame, (NULL != task), ERR_BUSY);
 
         Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
-        ENSURE(-1 != new_handle, TaskDestroy(task); arch_reg_set(frame, 0, ERR_NOMEM); return);
+        ENSURE(-1 != new_handle, TaskDestroy(task); ArchSetInFrame(frame, 0, ERR_NOMEM); return);
 
         HandleTableEntry *entry =
-            HandleTableGet(&CURRENT_SPACE->handle_table, (uint32_t)new_handle);
+            HandleTableGet(&CURRENT_SPACE->handle_table, new_handle);
         HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
         entry->type = HANDLE_TASK;
         entry->task = task;
@@ -46,10 +46,10 @@ void SvcCreate(CpuState *frame)
         ENSURE_ERR(frame, (NULL != new_port), ERR_NOMEM);
 
         Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
-        ENSURE(-1 != new_handle, PortDestroy(new_port); arch_reg_set(frame, 0, ERR_NOMEM); return);
+        ENSURE(-1 != new_handle, PortDestroy(new_port); ArchSetInFrame(frame, 0, ERR_NOMEM); return);
 
         HandleTableEntry *entry =
-            HandleTableGet(&CURRENT_SPACE->handle_table, (uint32_t)new_handle);
+            HandleTableGet(&CURRENT_SPACE->handle_table, new_handle);
         HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
         entry->type = HANDLE_PORT;
         entry->port = new_port;
@@ -65,10 +65,10 @@ void SvcCreate(CpuState *frame)
         ENSURE_ERR(frame, (NULL != new_event), ERR_NOMEM);
     
         Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
-        ENSURE(-1 != new_handle, EventDestroy(new_event); arch_reg_set(frame, 0, ERR_NOMEM); return);
+        ENSURE(-1 != new_handle, EventDestroy(new_event); ArchSetInFrame(frame, 0, ERR_NOMEM); return);
     
         HandleTableEntry *entry =
-            HandleTableGet(&CURRENT_SPACE->handle_table, (uint32_t)new_handle);
+            HandleTableGet(&CURRENT_SPACE->handle_table, new_handle);
         HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
         entry->type = HANDLE_EVENT;
         entry->event = new_event;
@@ -80,7 +80,7 @@ void SvcCreate(CpuState *frame)
     {
         // SPACE: r0=type, r1=name_ptr, r2=name_len
         VirtAddr name_ptr = (VirtAddr)(*ArchGetFromFrame(frame, 1));
-        uint32_t name_len = (uint32_t)(*ArchGetFromFrame(frame, 2));
+        size_t name_len = (size_t)(*ArchGetFromFrame(frame, 2));
 
         char kname[32]; // matches SpaceObject.name[32]
         if (name_len >= sizeof(kname))
@@ -95,10 +95,10 @@ void SvcCreate(CpuState *frame)
 
         Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
         ENSURE(-1 != new_handle, SpaceDestroy(space); SpaceFinalize(space);
-               arch_reg_set(frame, 0, ERR_NOMEM); return);
+               ArchSetInFrame(frame, 0, ERR_NOMEM); return);
 
         HandleTableEntry *entry =
-            HandleTableGet(&CURRENT_SPACE->handle_table, (uint32_t)new_handle);
+            HandleTableGet(&CURRENT_SPACE->handle_table, new_handle);
         HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
         entry->type = HANDLE_SPACE;
         entry->space = space;

@@ -190,7 +190,7 @@ static void CallPathTally(CallPathMix *m, int which)
 static HandleTableEntry *__hot ValidatePortHandle(SpaceObject *proc, Handle handle, CpuState *frame)
 {
 	if (unlikely(!proc)) {
-		arch_reg_set(frame, 0, ERR_BADARG);
+		ArchSetInFrame(frame, 0, ERR_BADARG);
 		return NULL;
 	}
 #ifdef CONFIG_ZUZU_BENCH
@@ -201,19 +201,19 @@ static HandleTableEntry *__hot ValidatePortHandle(SpaceObject *proc, Handle hand
 	BENCH_END(g_bench_handle_lookup, bench_start);
 #endif
 	if (unlikely(!entry)) {
-		arch_reg_set(frame, 0, ERR_BADHANDLE);
+		ArchSetInFrame(frame, 0, ERR_BADHANDLE);
 		return NULL;
 	}
 	if (unlikely(entry->type != HANDLE_PORT)) {
-		arch_reg_set(frame, 0, ERR_BADTYPE);
+		ArchSetInFrame(frame, 0, ERR_BADTYPE);
 		return NULL;
 	}
 	if (unlikely(!entry->port)) {
-		arch_reg_set(frame, 0, ERR_BADHANDLE);
+		ArchSetInFrame(frame, 0, ERR_BADHANDLE);
 		return NULL;
 	}
 	if (unlikely(!entry->port->alive)) {
-		arch_reg_set(frame, 0, ERR_DEAD);
+		ArchSetInFrame(frame, 0, ERR_DEAD);
 		return NULL;
 	}
 
@@ -224,21 +224,21 @@ static HandleTableEntry *ValidateReplyCap(SpaceObject *proc, Handle handle_idx, 
 					  CpuState *frame)
 {
 	if (!proc || handle_idx == 0) {
-		arch_reg_set(frame, 0, ERR_BADHANDLE);
+		ArchSetInFrame(frame, 0, ERR_BADHANDLE);
 		return NULL;
 	}
 
 	HandleTableEntry *entry = HandleTableGet(&proc->handle_table, (uint32_t)handle_idx);
 	if (!entry) {
-		arch_reg_set(frame, 0, ERR_BADHANDLE);
+		ArchSetInFrame(frame, 0, ERR_BADHANDLE);
 		return NULL;
 	}
 	if (entry->type != HANDLE_REPLY) {
-		arch_reg_set(frame, 0, ERR_BADTYPE);
+		ArchSetInFrame(frame, 0, ERR_BADTYPE);
 		return NULL;
 	}
 	if (!entry->reply || entry->reply->caller_tid == 0) {
-		arch_reg_set(frame, 0, ERR_BADHANDLE);
+		ArchSetInFrame(frame, 0, ERR_BADHANDLE);
 		return NULL;
 	}
 
@@ -248,7 +248,7 @@ static HandleTableEntry *ValidateReplyCap(SpaceObject *proc, Handle handle_idx, 
 		ProcessUntrackReplyCap(entry->reply);
 		KFreeReplyCap(entry->reply);
 		HandleEntryFree(&proc->handle_table, entry);
-		arch_reg_set(frame, 0, ERR_DEAD);
+		ArchSetInFrame(frame, 0, ERR_DEAD);
 		return NULL;
 	}
 
@@ -256,7 +256,7 @@ static HandleTableEntry *ValidateReplyCap(SpaceObject *proc, Handle handle_idx, 
 		ProcessUntrackReplyCap(entry->reply);
 		KFreeReplyCap(entry->reply);
 		HandleEntryFree(&proc->handle_table, entry);
-		arch_reg_set(frame, 0, ERR_DEAD);
+		ArchSetInFrame(frame, 0, ERR_DEAD);
 		return NULL;
 	}
 
@@ -286,7 +286,7 @@ void __attribute__((hot)) SysMsgSend(CpuState *frame)
 			PanicBadFrame("ZuzuMsgSend.rx", rx_thread->owner_process,
 						 rx_frame);
 #endif
-		arch_reg_set(rx_frame, 0, current_task->owner_process->pid);
+		ArchSetInFrame(rx_frame, 0, current_task->owner_process->pid);
 		(*ArchGetFromFrame(rx_frame, 1)) = (*ArchGetFromFrame(frame, 1));
 		(*ArchGetFromFrame(rx_frame, 2)) = (*ArchGetFromFrame(frame, 2));
 		(*ArchGetFromFrame(rx_frame, 3)) = (*ArchGetFromFrame(frame, 3));
@@ -339,7 +339,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 		}
 #endif
 		// Copy message to receiver
-		arch_reg_set(frame, 0, sr_thread->owner_process->pid);
+		ArchSetInFrame(frame, 0, sr_thread->owner_process->pid);
 		(*ArchGetFromFrame(frame, 1)) = (*ArchGetFromFrame(sr_frame, 1));
 		(*ArchGetFromFrame(frame, 2)) = (*ArchGetFromFrame(sr_frame, 2));
 		(*ArchGetFromFrame(frame, 3)) = (*ArchGetFromFrame(sr_frame, 3));
@@ -376,7 +376,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 				KFreeReplyCap(rc);
 				sr_thread->pending_reply_cap = NULL;
 				// Wake the caller with an error instead of leaving it stuck
-				arch_reg_set(sr_thread->trap_frame, 0, ERR_NOMEM);
+				ArchSetInFrame(sr_thread->trap_frame, 0, ERR_NOMEM);
 				sr_thread->ipc_state = IPC_NONE;
 				sr_thread->blocked_port = NULL;
 				// Cancel timeout if sender had one
@@ -384,7 +384,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 				sr_thread->wake_reason = WAKE_IPC;
 				sr_thread->state = READY;
 				SchedAdd(sr_thread);
-				arch_reg_set(frame, 0, ERR_NOMEM);
+				ArchSetInFrame(frame, 0, ERR_NOMEM);
 				return;
 			}
 
@@ -392,14 +392,14 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			    HandleTableGet(&current_task->owner_process->handle_table, (uint32_t)slot);
 			if (!rentry) {
 				KFreeReplyCap(rc);
-				arch_reg_set(sr_thread->trap_frame, 0, ERR_NOMEM);
+				ArchSetInFrame(sr_thread->trap_frame, 0, ERR_NOMEM);
 				sr_thread->ipc_state = IPC_NONE;
 				sr_thread->blocked_port = NULL;
 				CancelTimeout(sr_thread);
 				sr_thread->wake_reason = WAKE_IPC;
 				sr_thread->state = READY;
 				SchedAdd(sr_thread);
-				arch_reg_set(frame, 0, ERR_NOMEM);
+				ArchSetInFrame(frame, 0, ERR_NOMEM);
 				return;
 			}
 			rentry->type = HANDLE_REPLY;
@@ -409,8 +409,8 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			ProcessTrackReplyCap(sr_thread->owner_process,
 					     current_task->owner_process, slot, rc);
 
-			arch_reg_set(frame, 0, slot);
-			arch_reg_set(frame, 1, sr_thread->owner_process->pid);
+			ArchSetInFrame(frame, 0, slot);
+			ArchSetInFrame(frame, 1, sr_thread->owner_process->pid);
 			(*ArchGetFromFrame(frame, 2)) = (*ArchGetFromFrame(sr_frame, 1));
 			(*ArchGetFromFrame(frame, 3)) = (*ArchGetFromFrame(sr_frame, 2));
 			if (sr_thread->lmsg_buf_xfer_len > 0) {
@@ -423,7 +423,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 		}
 	} else {
 		if (unlikely(timeout_ms == TIMEOUT_POLL)) {
-			arch_reg_set(frame, 0, ERR_TIMEOUT);
+			ArchSetInFrame(frame, 0, ERR_TIMEOUT);
 			return;
 		}
 
@@ -463,7 +463,7 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 		}
 
 		if (unlikely(current_task->wake_reason == WAKE_TIMEOUT)) {
-			arch_reg_set(frame, 0, ERR_TIMEOUT);
+			ArchSetInFrame(frame, 0, ERR_TIMEOUT);
 		}
 	}
 }
@@ -487,7 +487,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 
 	ReplyCap *rc = KAllocReplyCap();
 	if (unlikely(!rc)) {
-		arch_reg_set(frame, 0, ERR_NOMEM);
+		ArchSetInFrame(frame, 0, ERR_NOMEM);
 		return; // caller gets clean error, never blocked
 	}
 	rc->caller_tid = current_task ? current_task->tid : 0;
@@ -522,7 +522,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		if (unlikely(slot < 0)) {
 			KFreeReplyCap(rc);
 			list_add_tail(&rx_slot->node, &port->receiver_queue.node);
-			arch_reg_set(frame, 0, ERR_NOMEM);
+			ArchSetInFrame(frame, 0, ERR_NOMEM);
 			return;
 		}
 
@@ -530,7 +530,7 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		if (!rentry) {
 			KFreeReplyCap(rc);
 			list_add_tail(&rx_slot->node, &port->receiver_queue.node);
-			arch_reg_set(frame, 0, ERR_NOMEM);
+			ArchSetInFrame(frame, 0, ERR_NOMEM);
 			return;
 		}
 		rentry->type = HANDLE_REPLY;
@@ -552,8 +552,8 @@ void __attribute__((hot)) SysMsgCall(CpuState *frame)
 		BENCH_END(g_bench_track_cap, bs);
 #endif
 
-		arch_reg_set(rx_frame, 0, slot);
-		arch_reg_set(rx_frame, 1, current_task->owner_process->pid);
+		ArchSetInFrame(rx_frame, 0, slot);
+		ArchSetInFrame(rx_frame, 1, current_task->owner_process->pid);
 		(*ArchGetFromFrame(rx_frame, 2)) = (*ArchGetFromFrame(frame, 1));
 		(*ArchGetFromFrame(rx_frame, 3)) = (*ArchGetFromFrame(frame, 2));
 		rx_thread->ipc_state = IPC_NONE;
@@ -684,7 +684,7 @@ void __attribute__((hot)) SysMsgLsend(CpuState *frame)
 
 	/* No truncation: oversized payloads are rejected outright. */
 	if (unlikely(xlen > LMSG_BUF_SIZE)) {
-		arch_reg_set(frame, 0, ERR_OVERFLOW);
+		ArchSetInFrame(frame, 0, ERR_OVERFLOW);
 		return;
 	}
 
@@ -698,7 +698,7 @@ void __attribute__((hot)) SysMsgLsend(CpuState *frame)
 			PanicBadFrame("ZuzuMsgLsend.rx",
 						 rx_thread->owner_process, rx_frame);
 #endif
-		arch_reg_set(rx_frame, 0, current_task->owner_process->pid);
+		ArchSetInFrame(rx_frame, 0, current_task->owner_process->pid);
 		(*ArchGetFromFrame(rx_frame, 1)) = xlen;
 		(*ArchGetFromFrame(rx_frame, 2)) = 0;
 		(*ArchGetFromFrame(rx_frame, 3)) = 0;
@@ -736,13 +736,13 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 
 	/* No truncation: oversized payloads are rejected outright. */
 	if (xlen > LMSG_BUF_SIZE) {
-		arch_reg_set(frame, 0, ERR_OVERFLOW);
+		ArchSetInFrame(frame, 0, ERR_OVERFLOW);
 		return;
 	}
 
 	ReplyCap *rc = KAllocReplyCap();
 	if (!rc) {
-		arch_reg_set(frame, 0, ERR_NOMEM);
+		ArchSetInFrame(frame, 0, ERR_NOMEM);
 		return; // caller gets clean error, never blocked
 	}
 	rc->caller_tid = current_task ? current_task->tid : 0;
@@ -762,7 +762,7 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 		if (unlikely(slot < 0)) {
 			KFreeReplyCap(rc);
 			list_add_tail(&rx_slot->node, &port->receiver_queue.node);
-			arch_reg_set(frame, 0, ERR_NOMEM);
+			ArchSetInFrame(frame, 0, ERR_NOMEM);
 			return;
 		}
 
@@ -770,7 +770,7 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 		if (!rentry) {
 			KFreeReplyCap(rc);
 			list_add_tail(&rx_slot->node, &port->receiver_queue.node);
-			arch_reg_set(frame, 0, ERR_NOMEM);
+			ArchSetInFrame(frame, 0, ERR_NOMEM);
 			return;
 		}
 		rentry->type = HANDLE_REPLY;
@@ -780,8 +780,8 @@ void __attribute__((hot)) SysMsgLcall(CpuState *frame)
 		ProcessTrackReplyCap(current_task->owner_process, rx_thread->owner_process,
 				     slot, rc);
 
-		arch_reg_set(rx_frame, 0, slot);
-		arch_reg_set(rx_frame, 1, current_task->owner_process->pid);
+		ArchSetInFrame(rx_frame, 0, slot);
+		ArchSetInFrame(rx_frame, 1, current_task->owner_process->pid);
 		(*ArchGetFromFrame(rx_frame, 2)) = xlen;
 		(*ArchGetFromFrame(rx_frame, 3)) = 0;
 		LmsgBufCopy(current_task, rx_thread, xlen);
@@ -824,7 +824,7 @@ void __attribute__((hot)) SysMsgLreply(CpuState *frame)
 
 	/* No truncation: oversized payloads are rejected outright. */
 	if (xlen > LMSG_BUF_SIZE) {
-		arch_reg_set(frame, 0, ERR_OVERFLOW);
+		ArchSetInFrame(frame, 0, ERR_OVERFLOW);
 		return;
 	}
 
