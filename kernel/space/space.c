@@ -306,7 +306,7 @@ void SpaceDestroy(SpaceObject *sp)
         }
         else if (entry->type == HANDLE_MEM)
         {
-            if (entry->mem_kind == MEM_KIND_DEV)
+            if (entry->memtype == MEMTYPE_DEVICE)
             {
                 if (entry->dev)
                 {
@@ -316,7 +316,7 @@ void SpaceDestroy(SpaceObject *sp)
                         KFreeDevCap(entry->dev);
                 }
             }
-            else if (entry->mem_kind == MEM_KIND_SHM)
+            else if (entry->memtype == MEM_KIND_SHM)
             {
                 ShmObject *shm = entry->shm;
                 if (shm)

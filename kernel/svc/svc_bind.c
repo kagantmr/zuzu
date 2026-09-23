@@ -13,7 +13,7 @@ void SvcBind(CpuState *frame)
     EventType event_type = (EventType)(*ArchGetFromFrame(frame, 0));
     Handle ev_handle = (Handle)(*ArchGetFromFrame(frame, 1));
 
-    HandleTableEntry *entry = HandleTableGet(&CURRENT_SPACE->handle_table, ev_handle);
+    HandleTableEntry *entry = HandleTableLookup(&CURRENT_SPACE->handle_table, ev_handle);
 
     ENSURE_ERR(frame, entry, ERR_BADHANDLE);
     ENSURE_ERR(frame, (entry->type == HANDLE_EVENT), ERR_BADTYPE);
@@ -32,16 +32,16 @@ void SvcBind(CpuState *frame)
     case EVENT_IRQ:
     {
         Handle dev_handle = (Handle)(*ArchGetFromFrame(frame, 2));
-        HandleTableEntry *dev_entry = HandleTableGet(&CURRENT_SPACE->handle_table, dev_handle);
+        HandleTableEntry *dev_entry = HandleTableLookup(&CURRENT_SPACE->handle_table, dev_handle);
     
         ENSURE_ERR(frame, dev_entry, ERR_BADHANDLE);
-        ENSURE_ERR(frame, (dev_entry->type == HANDLE_MEM), ERR_BADTYPE);
+        ENSURE_ERR(frame, (dev_entry->type == HANDLE_MEM && dev_entry->memtype == MEMTYPE_DEVICE), ERR_BADTYPE);
     
         DeviceObject *dev = dev_entry->dev;
     
         ENSURE_ERR(frame, (dev), ERR_BADHANDLE);
-
         
+        ENSURE_ERR(frame, IrqIsValid(dev->irq), ERR_BADARG);
         ArchSetInFrame(frame, 0, IrqBindToEvent(CURRENT_SPACE, dev->irq, ev));
     } break;
     default:

@@ -31,7 +31,7 @@ static void __hot RelayIsr(void *ctx)
     }
 }
 
-static inline bool IrqIsValid(Irq irq_num)
+bool IrqIsValid(Irq irq_num)
 {
     return (irq_num < MAX_IRQS) && !ArchIrqIsOwnedByKernel(irq_num);
 }

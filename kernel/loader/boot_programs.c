@@ -21,8 +21,6 @@
 #define LOG_FMT(fmt) "(loader) " fmt
 #include "core/log.h"
 
-/* Boot manifest flags: purely this loader's own bookkeeping now -- no
- * longer mirrored onto a SpaceObject bitmask field. */
 #define PROC_FLAG_INIT (1 << 0)   // PID 1 (sysd)
 #define PROC_FLAG_DEVMGR (1 << 1) // hardware authority
 
@@ -73,9 +71,9 @@ static void inject_device_cap(const char *compatible,
         return;
     }
     entry->type = HANDLE_MEM;
-    entry->mem_kind = MEM_KIND_DEV;
+    entry->memtype = MEM_KIND_DEV;
     entry->grantable = true;
-    entry->mapped_va = 0;
+    entry->mapped_va =MEMTYPE_DEVICE
     entry->dev = cap;
     HandleEntryClaim(&s_devmgr->handle_table, entry);
 }

@@ -14,6 +14,7 @@ typedef struct IrqOwnerStruct {
     EventObject *bound_ev; // was Endpoint *bound_port
 } IrqOwner;
 
+bool IrqIsValid(Irq irq_num);
 void IrqReleaseAll(SpaceObject *owner);
 bool IrqClearPending(Irq irq_num);
 Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev);
