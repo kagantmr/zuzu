@@ -159,7 +159,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
 	task->ipc_state = IPC_NONE;
 	task->blocked_port = NULL;
 	task->pending_reply_cap = NULL;
-	task->lmsg_buf_phys_addr = 0;
+	task->msg_buf_phys_addr = 0;
 	task->lmsg_buf_xfer_len = 0;
 	task->priority = SCHED_PRIO_DEFAULT;
 	task->time_slice = 5;
@@ -183,7 +183,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
 	tcb->pid = owner->spid;
 	task->task_info_va = tcb_va;
 	task->tcb_slot = (uint8_t)tcb_slot_idx;
-	task->lmsg_buf_phys_addr =
+	task->msg_buf_phys_addr =
 		TcbSlotPhysAddr(owner, (uint32_t)tcb_slot_idx) + offsetof(ThreadLocalData, buf);
 
 	list_add_tail(&task->process_node, &owner->tasks.node);

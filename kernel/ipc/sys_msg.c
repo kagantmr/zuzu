@@ -20,52 +20,6 @@
 
 extern kernel_layout_t kernel_layout;
 
-#ifdef CONFIG_ZUZU_BENCH
-
-#include "kernel/bench.h"
-
-BENCH_STAT(g_bench_ipc_buf_copy_memcpy, "ipc_buf_copy: memcpy");
-BENCH_STAT(g_bench_ipc_buf_copy_wordcopy, "ipc_buf_copy: hand-rolled word-copy");
-static uint8_t g_bench_wordcopy_scratch[LMSG_BUF_SIZE] __attribute__((aligned(4)));
-#endif
-
-/* Every call site passes a sender and a receiver -- never the same thread
- * (and their ipc_buf_pa pages are always separate physical frames), so
- * the memcpy below is genuinely non-overlapping. */
-static void LmsgBufCopy(TaskObject *restrict src, TaskObject *restrict dst, uint32_t len)
-{
-	if (!len || !src->lmsg_buf_phys_addr || !dst->lmsg_buf_phys_addr)
-		return;
-	if (len > LMSG_BUF_SIZE)
-		return;
-
-	const void *srcp = (const void *)PA_TO_VA(src->lmsg_buf_phys_addr);
-	void *dstp = (void *)PA_TO_VA(dst->lmsg_buf_phys_addr);
-
-#ifdef CONFIG_ZUZU_BENCH
-	uint32_t bench_start = BENCH_BEGIN();
-#endif
-	memcpy(dstp, srcp, len);
-#ifdef CONFIG_ZUZU_BENCH
-	BENCH_END(g_bench_ipc_buf_copy_memcpy, bench_start);
-
-	/* Swap-test: hand-rolled word-copy loop timed against the same source
-	 * buffer, on a scratch destination so it can't corrupt the real reply.
-	 * Only fires for word-aligned, word-multiple lengths -- the case real
-	 * IPC payloads mostly are -- since the loop below has no unaligned-tail
-	 * handling. If this alone recovers a big chunk of the RTT's mystery
-	 * cycles, the answer was memcpy() overhead, not the walk. */
-	if (((uintptr_t)srcp & 3u) == 0 && (len & 3u) == 0) {
-		bench_start = BENCH_BEGIN();
-		const uint32_t *ws = (const uint32_t *)srcp;
-		uint32_t *wd = (uint32_t *)(void *)g_bench_wordcopy_scratch;
-		uint32_t nwords = len / 4u;
-		for (uint32_t i = 0; i < nwords; i++)
-			wd[i] = ws[i];
-		BENCH_END(g_bench_ipc_buf_copy_wordcopy, bench_start);
-	}
-#endif
-}
 
 #ifdef DEBUG
 static bool IsFrameNormal(const CpuState *tf)

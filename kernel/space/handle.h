@@ -35,14 +35,17 @@ typedef enum
     HANDLE_MEM,
     HANDLE_EVENT,
     HANDLE_TASK,
-    HANDLE_SPACE
+    HANDLE_SPACE,
+    HANDLE_REPLY,
+    HANDLE_TYPE_COUNT
 } HandleType;
 
 typedef enum
 {
     MEMTYPE_NONE,
     MEMTYPE_DEVICE,
-    MEMTYPE_SHARED
+    MEMTYPE_SHARED,
+    MEMTYPE_COUNT
 } MemType;
 
 typedef struct
@@ -59,6 +62,7 @@ typedef struct
         EventObject *event; 
         TaskObject *task;
         SpaceObject *space;
+        ReplyCap *reply;
     };
     Marker marker; /* Added in zuzu 1.1: Same handle can be stamped with a marker to demux
                       clients sharing a port */
