@@ -64,7 +64,7 @@ static void inject_device_cap(const char *compatible,
         return;
     }
     // 4. HandleTableGet that slot, write HANDLE_DEVICE entry
-    HandleTableEntry *entry = HandleTableGet(&s_devmgr->handle_table, (uint32_t)handle);
+    HandleTableEntry *entry = HandleTableGet(&s_devmgr->handle_table, handle);
     if (!entry)
     {
         KFreeDevCap(cap);

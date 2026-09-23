@@ -257,7 +257,7 @@ void SpaceDestroy(SpaceObject *sp)
 
     for (uint32_t i = 0; i < HANDLE_MAX_SLOTS; i++)
     {
-        HandleTableEntry *entry = HandleTableLookup(&sp->handle_table, (Handle)i);
+        HandleTableEntry *entry = HandleTableGet(&sp->handle_table, (Handle)i);
         if (!entry)
             continue;
 
@@ -316,7 +316,7 @@ void SpaceDestroy(SpaceObject *sp)
                         KFreeDevCap(entry->dev);
                 }
             }
-            else if (entry->memtype == MEMTYPE_SHM)
+            else if (entry->memtype == MEMTYPE_SHARED)
             {
                 ShmObject *shm = entry->shm;
                 if (shm)
