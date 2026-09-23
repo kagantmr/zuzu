@@ -17,7 +17,7 @@ typedef struct {
 } boot_info_t;
 
 /* Initialize boot info from an already-initialized DTB base. */
-void boot_info_init_from_dtb();
+void boot_info_init_from_dtb(void);
 
 /* Accessors */
 const char *boot_info_model(void);

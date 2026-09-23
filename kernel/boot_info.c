@@ -38,7 +38,7 @@ static void collect_dev_cb(const char *compatible, const char *path, uint64_t ph
     g_boot_info.count++;
 }
 
-void boot_info_init_from_dtb()
+void boot_info_init_from_dtb(void)
 {
 
     /* dtb subsystem must already be initialized. */

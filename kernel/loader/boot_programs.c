@@ -71,9 +71,9 @@ static void inject_device_cap(const char *compatible,
         return;
     }
     entry->type = HANDLE_MEM;
-    entry->memtype = MEM_KIND_DEV;
+    entry->memtype = MEMTYPE_DEVICE;
     entry->grantable = true;
-    entry->mapped_va =MEMTYPE_DEVICE
+    entry->mapped_va = 0;
     entry->dev = cap;
     HandleEntryClaim(&s_devmgr->handle_table, entry);
 }
