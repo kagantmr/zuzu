@@ -7,6 +7,8 @@
 #include <vector.h>
 #include <zuzu/types.h>
 
+
+typedef struct TaskObjectStruct TaskObject;
 typedef struct SpaceObjectStruct SpaceObject;
 
 /** */
@@ -23,11 +25,8 @@ typedef struct
 
 typedef struct
 {
-    SpaceObject *caller; // fast path
+    TaskObject *caller_task; // fast path
     Tid caller_tid;      // for cross-check: caller->tid == caller_tid
-    SpaceObject *holder; // fast path
-    Spid holder_spid;    // for cross-check: holder->pid == holder_spid
-    Handle holder_slot;
     ListNode caller_link;
 } EphemeralReplyObject;
 

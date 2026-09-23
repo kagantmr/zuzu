@@ -1,25 +1,34 @@
+#include "core/ensure.h"
+#include "kernel/ipc/msg.h"
 #include "svc.h"
 #include <arch/regs.h>
-
-/* ---- reply: delivering into the waiting caller ---- */
-
-static void ReplyDeliverToCaller(TaskObject *target, uint32_t xlen, Handle granted)
-{
-    CpuState *target_frame = target->trap_frame;
-    ArchSetInFrame(target_frame, 0, ZUZU_OK);
-    (*ArchGetFromFrame(target_frame, 1)) = (Register)xlen;
-    (*ArchGetFromFrame(target_frame, 3)) = granted;
-    if (xlen) LmsgBufCopy(current_task, target, xlen);
-
-    target->ipc_state = IPC_NONE;
-    target->blocked_port = NULL;
-    target->pending_reply_cap = NULL;
-    target->wake_reason = WAKE_IPC;
-    target->state = READY;
-    SchedAdd(target);
-}
+#include <zuzu/tls.h>
 
 void SvcReply(CpuState *frame)
 {
-    (void)frame;
+    size_t xlen = (size_t)(*ArchGetFromFrame(frame, 0));
+    Handle grant_handle = (Handle)(*ArchGetFromFrame(frame, 1));
+    ENSURE_ERR(frame, (xlen <= MSG_BUF_SIZE), ERR_OVERFLOW);
+
+    EphemeralReplyObject *rc = current_task->reply_cap;
+    ENSURE_ERR(frame, rc, ERR_BADHANDLE);
+    // clear reply cap
+    current_task->reply_cap = NULL;
+
+    TaskObject *target = rc->caller_task;
+    if (!target || target->tid != rc->caller_tid || target->state == ZOMBIE ||
+        target->ipc_state != IPC_WAITING)
+    {
+        ArchSetInFrame(frame, 0, ERR_DEAD);
+        return;
+    }
+
+    Handle granted = GrantHandleAcross(CURRENT_SPACE, target->owner, grant_handle, frame);
+    ENSURE_GOTO(granted, ReplyFail);
+
+    ReplyDeliverToCaller(target, xlen, granted);
+
+    ArchSetInFrame(frame, 0, ZUZU_OK);
+ReplyFail:
+    return;
 }

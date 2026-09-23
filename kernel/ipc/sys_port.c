@@ -1,8 +1,7 @@
-#include "sys_port.h"
-#include "handle.h"
+#include "kernel/space/handle.h"
 #include "kernel/mm/alloc.h"
-#include "kernel/proc/process.h"
-#include "kernel/proc/thread.h"
+#include "kernel/task/task.h"
+#include "kernel/space/space.h"
 #include "kernel/sched/sched.h"
 #include "kernel/svc/svc.h"
 #include "port.h"
@@ -10,53 +9,6 @@
 
 #define LOG_FMT(fmt) "(sys_port) " fmt
 #include <zuzu/log.h>
-
-extern SpaceObject *spaces[MAX_PROCESSES];
-
-static bool CanRegrantHandle(const SpaceObject *grantee)
-{
-    // only sysd may receive grantable copies.
-    // Everyone else gets a non-grantable copy to prevent unbounded handle propagation.
-    return grantee && ((grantee->flags & PROC_FLAG_INIT) != 0);
-}
-
-void SysPortCreate(CpuState *frame)
-{
-    if (!current_task)
-    {
-        ArchSetInFrame(frame, 0, ERR_BADARG);
-        return;
-    }
-
-    Handle handle = HandleTableFindFree(&current_task->owner_process->handle_table);
-    if (handle == -1)
-    {
-        ArchSetInFrame(frame, 0, ERR_NOMEM);
-        return;
-    }
-
-    HandleTable *ht = &current_task->owner_process->handle_table;
-    HandleTableEntry *entry = HandleTableGet(ht, (uint32_t)handle);
-
-    PortObject *new_port = (PortObject *)PortObjAlloc();
-    if (!new_port)
-    {
-        ArchSetInFrame(frame, 0, ERR_NOMEM);
-        return;
-    }
-    // list_init(&new_port->node);
-    list_init(&new_port->sender_queue);
-    list_init(&new_port->receiver_queue);
-    new_port->owner_spid = current_task->owner->spid;
-    new_port->ref_count = 1;
-    new_port->alive = true;
-    entry->port = new_port;
-    entry->grantable = true;
-    entry->type = HANDLE_PORT;
-    HandleEntryClaim(ht, entry);
-
-    ArchSetInFrame(frame, 0, handle);
-}
 
 void SysDestroy(CpuState *frame)
 {
@@ -69,8 +21,8 @@ void SysDestroy(CpuState *frame)
     int handle = (int)(*ArchGetFromFrame(frame, 0));
 
     // Validate handle
-    HandleTable *ht = &current_task->owner_process->handle_table;
-    HandleTableEntry *entry = HandleTableGet(ht, (uint32_t)handle);
+    HandleTable *ht = &CURRENT_SPACE->handle_table;
+    HandleTableEntry *entry = HandleTableGet(ht, handle);
     if (!entry)
     {
         ArchSetInFrame(frame, 0, ERR_BADHANDLE);

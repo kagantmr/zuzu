@@ -136,16 +136,16 @@ static inline HandleTableEntry *HandleTableLookup(HandleTable *t, Handle h)
 
 static inline HandleTableEntry *HandleTableGetOrAlloc(HandleTable *t, Handle i)
 {
-    if (i >= HANDLE_MAX_SLOTS)
+    if ((uint32_t)i >= HANDLE_MAX_SLOTS)
         return NULL;
-    uint32_t b = i / HANDLE_BLOCK_SLOTS;
+    uint32_t b = (uint32_t)i / HANDLE_BLOCK_SLOTS;
     if (!t->blocks[b])
     {
         t->blocks[b] = KZAlloc(sizeof(HandleBlock));
         if (!t->blocks[b])
             return NULL;
     }
-    return &(*t->blocks[b])[i % HANDLE_BLOCK_SLOTS];
+    return &(*t->blocks[b])[(uint32_t)i % HANDLE_BLOCK_SLOTS];
 }
 
 /* Recover a slot index from a HandleEntry * by finding its leaf block. */

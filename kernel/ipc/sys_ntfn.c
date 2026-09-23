@@ -1,5 +1,3 @@
-#include "sys_ntfn.h"
-
 #include "kernel/sched/sched.h"
 #include "kernel/svc/svc.h"
 #include <arch/timer.h>
