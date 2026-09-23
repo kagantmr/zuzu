@@ -36,15 +36,15 @@ static inline bool IrqIsValid(Irq irq_num)
     return (irq_num < MAX_IRQS) && !ArchIrqIsOwnedByKernel(irq_num);
 }
 
-void IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev)
+Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev)
 {
     /* Ownership: free line is ours to claim; a line owned by someone else is busy. */
     SpaceObject *current_owner = irq_owners[irq_num].owner;
     if (current_owner && current_owner != owner)
-        return;
+        return ERR_BUSY;
 
     if (!ev->alive)
-        return;
+        return ERR_DEAD;
 
     /* Claim the line on first bind. */
     if (!current_owner)
@@ -70,6 +70,7 @@ void IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev)
     }
 
     ArchIrqUnmaskLine(irq_num);
+    return ZUZU_OK;
 }
 
 bool IrqClearPending(Irq irq_num)
@@ -96,6 +97,3 @@ void IrqReleaseAll(SpaceObject *owner)
         }
     }
 }
-
-const IrqOwner *GetIrqOwnersList(void) { return irq_owners; }
-

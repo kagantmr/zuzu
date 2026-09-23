@@ -16,7 +16,6 @@ typedef struct IrqOwnerStruct {
 
 void IrqReleaseAll(SpaceObject *owner);
 bool IrqClearPending(Irq irq_num);
-const IrqOwner *GetIrqOwnersList(void);
-void IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev);
+Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev);
 
 #endif /* _ZUZU_IRQ_RELAY_H */
