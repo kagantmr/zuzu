@@ -97,12 +97,12 @@ static inline void HandleTableDestroy(HandleTable *t)
  * irq/memmap syscall. One extra branch + deref over a flat array. */
 static __always_inline HandleTableEntry *HandleTableGet(HandleTable *t, Handle i)
 {
-    if (unlikely(i >= HANDLE_MAX_SLOTS))
+    if (unlikely((uint32_t)i >= HANDLE_MAX_SLOTS))
         return NULL;
-    HandleBlock *blk = t->blocks[i / HANDLE_BLOCK_SLOTS];
+    HandleBlock *blk = t->blocks[(uint32_t)i / HANDLE_BLOCK_SLOTS];
     if (unlikely(!blk))
         return NULL;
-    return &(*blk)[i % HANDLE_BLOCK_SLOTS];
+    return &(*blk)[(uint32_t)i % HANDLE_BLOCK_SLOTS];
 }
 
 /* Returns a free slot index, allocating its leaf block on first use. */

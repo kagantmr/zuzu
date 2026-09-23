@@ -5,7 +5,7 @@
 #include "kernel/sched/sched.h"
 #include "kernel/syspage.h"
 #include "kernel/task/task.h"
-
+#include "kernel/irq/irq_relay.h"
 #include <arch/mmu.h>
 #include <string.h>
 #include <zuzu/user_layout.h>
@@ -257,7 +257,7 @@ void SpaceDestroy(SpaceObject *sp)
 
     for (uint32_t i = 0; i < HANDLE_MAX_SLOTS; i++)
     {
-        HandleTableEntry *entry = HandleTableGet(&sp->handle_table, i);
+        HandleTableEntry *entry = HandleTableLookup(&sp->handle_table, (Handle)i);
         if (!entry)
             continue;
 
@@ -316,7 +316,7 @@ void SpaceDestroy(SpaceObject *sp)
                         KFreeDevCap(entry->dev);
                 }
             }
-            else if (entry->memtype == MEM_KIND_SHM)
+            else if (entry->memtype == MEMTYPE_SHM)
             {
                 ShmObject *shm = entry->shm;
                 if (shm)
@@ -331,14 +331,14 @@ void SpaceDestroy(SpaceObject *sp)
         else if (entry->type == HANDLE_EVENT)
         {
             EventObject *event = entry->event;
-            if (event && event->owner_pid == sp->spid && event->alive)
+            if (event && event->owner_spid == sp->spid && event->alive)
             {
                 event->alive = false;
                 while (!list_empty(&event->wait_queue))
                 {
                     ListNode *n = list_pop_front(&event->wait_queue);
                     WaitSlot *slot = container_of(n, WaitSlot, node);
-                    EventWakeWaiter(event, slot, ERR_DEAD);
+                    EventWakeWaiter(event, slot, (EventWord)ERR_DEAD);
                 }
             }
             if (event)
