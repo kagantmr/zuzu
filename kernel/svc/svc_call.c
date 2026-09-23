@@ -91,6 +91,7 @@ static __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port,
     caller->blocked_port = port;
     caller->pending_reply_cap = rc;
     caller->state = BLOCKED;
+    caller->pending_grant_handle = grant_handle;
 
     if (unlikely(SchedAnyCpuTakers(rx))) {
         rx->state = READY;
@@ -113,7 +114,7 @@ void __hot SvcCall(CpuState *frame)
     if (!entry) return;
     PortObject *port = entry->port;
 
-    EphemeralReplyObject *rc = current_task->reply_cap;
+    EphemeralReplyObject *rc = &current_task->reply_cap_storage;
     rc->caller = CURRENT_SPACE;
     rc->caller_tid = current_task->tid;
 

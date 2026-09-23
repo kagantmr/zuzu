@@ -71,13 +71,15 @@ struct TaskObjectStruct
     PortObject *blocked_port; /**< Blocked port. */
     EphemeralReplyObject reply_cap_storage;
     Handle pending_grant_handle; /**< Waiting for reply. */
-    EphemeralReplyObject *pending_reply_cap; /**< Set while this task is a blocked caller, waiting for its reply. */
-    EphemeralReplyObject *reply_cap;         /**< Set while this task is a receiver mid-call, waiting to Reply. */
+    EphemeralReplyObject
+        *pending_reply_cap; /**< Set while this task is a blocked caller, waiting for its reply. */
+    EphemeralReplyObject
+        *reply_cap; /**< Set while this task is a receiver mid-call, waiting to Reply. */
     PhysAddr msg_buf_phys_addr; /**< Physical address of the message buffer. */
-    size_t lmsg_buf_xfer_len;    /**< Length of the message buffer transfer. */
-    Marker port_marker;          /**< Port marker. */
-    WaitSlot ntfn_wait_slot;     /**< Wait slot for SysNtfnWait. */
-    WaitSlot port_wait_slot;     /**< Wait slot for SysMsgRecv. */
+    size_t lmsg_buf_xfer_len;   /**< Length of the message buffer transfer. */
+    Marker port_marker;         /**< Port marker. */
+    WaitSlot ntfn_wait_slot;    /**< Wait slot for SysNtfnWait. */
+    WaitSlot port_wait_slot;    /**< Wait slot for SysMsgRecv. */
     uint32_t priority, time_slice,
         ticks_remaining;   /**< Priority, time slice, and remaining ticks. */
     Time slice_deadline;   /**< Deadline for the time slice. */
