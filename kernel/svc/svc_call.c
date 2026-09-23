@@ -47,13 +47,15 @@ static Handle GrantHandleAcross(SpaceObject *from, SpaceObject *to,
 
 
 static void CallBlockAsSender(TaskObject *caller, PortObject *port,
-                               HandleTableEntry *entry, EphemeralReplyObject *rc, uint32_t xlen)
+                               HandleTableEntry *entry, EphemeralReplyObject *rc,
+                               uint32_t xlen, Handle grant_handle)
 {
     caller->ipc_state = IPC_WAITING;
     caller->blocked_port = port;
     caller->pending_reply_cap = rc;
     caller->port_marker = entry->marker;
     caller->lmsg_buf_xfer_len = xlen;
+    caller->pending_grant_handle = grant_handle;
     list_add_tail(&caller->node, &port->sender_queue.node);
     caller->state = BLOCKED;
     Schedule();
@@ -91,7 +93,6 @@ static __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port,
     caller->blocked_port = port;
     caller->pending_reply_cap = rc;
     caller->state = BLOCKED;
-    caller->pending_grant_handle = grant_handle;
 
     if (unlikely(SchedAnyCpuTakers(rx))) {
         rx->state = READY;
@@ -125,6 +126,6 @@ void __hot SvcCall(CpuState *frame)
             return;
         }
     } else {
-        CallBlockAsSender(current_task, port, entry, rc, xlen);
+        CallBlockAsSender(current_task, port, entry, rc, xlen, grant_handle);
     }
 }
