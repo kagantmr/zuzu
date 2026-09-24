@@ -26,6 +26,7 @@
 
 static SpaceObject *s_devmgr;
 static SpaceObject *s_sysd;
+// todo: replace with rootsvc only
 
 /* Set once in boot_programs_spawn_all(): the bootloader-supplied initrd
  * (DTB /chosen), as a physical address + size. */
@@ -34,53 +35,36 @@ static size_t g_initrd_size;
 
 #define BOOT_PROGRAM_PREFIX "bin/"
 
-typedef struct boot_program
+typedef struct BootProgramStruct
 {
     char *path;
     uint32_t flags;
     uint8_t owns_path;
-} boot_program_t;
+} BootProgram;
 
-static void inject_device_cap(const char *compatible,
+static void InjectDeviceObjectsToRootSvc(const char *compatible,
                               uint64_t phys, uint64_t size,
                               uint32_t irq)
 {
     if (!s_devmgr)
         return;
-    DeviceObject *cap = (DeviceObject *)KAllocDevCap();
-    if (!cap)
-        return;
-    strncpy(cap->compatible, compatible, sizeof(cap->compatible) - 1);
-    cap->compatible[sizeof(cap->compatible) - 1] = '\0';
-    cap->phys_base = (uint32_t)phys;
-    cap->size = (uint32_t)size;
-    cap->irq = irq;
-    cap->ref_count = 1;
-    // 3. HandleTableFindFree on s_devmgr->handle_table
     int handle = HandleTableFindFree(&s_devmgr->handle_table);
     if (handle < 0)
-    {
-        KFreeDevCap(cap);
         return;
-    }
-    // 4. HandleTableGet that slot, write HANDLE_DEVICE entry
     HandleTableEntry *entry = HandleTableGet(&s_devmgr->handle_table, handle);
     if (!entry)
-    {
-        KFreeDevCap(cap);
         return;
-    }
+    MemObject *mem = MemObjCreateDevice((PhysAddr)phys, (size_t)size, compatible, irq);
+    if (!mem) return; /* or whatever this function's existing error path is */
+    
     entry->type = HANDLE_MEM;
-    entry->mem->kind = MEMTYPE_DEVICE;
-    entry->mem->dev.phys_base = (uint32_t)phys;
-    entry->mem->dev.size = (uint32_t)size;
-    entry->mem->dev.irq = irq;
+    entry->mem = mem;
     entry->grantable = true;
     entry->mapped_va = 0;
     HandleEntryClaim(&s_devmgr->handle_table, entry);
 }
 
-static void boot_program(const char *path, uint32_t flags,
+static void CreateRootSpace(const char *path, uint32_t flags,
                          uint32_t devmgr_entry_peek, uint32_t devmgr_sp_peek)
 {
     const void *zxf_data;
@@ -128,16 +112,13 @@ static void boot_program(const char *path, uint32_t flags,
         return;
     }
 
-    if (flags & (PROC_FLAG_INIT | PROC_FLAG_DEVMGR))
-        process->critical = true;
-
     if (flags & PROC_FLAG_INIT)
     {
         s_sysd = process;
         for (uint32_t i = 0; i < initrd_page_count; i++)
         {
-            uint32_t page_pa = initrd_aligned_pa + i * PAGE_SIZE;
-            if (!VmmMapUserPage(process->as, page_pa, initrd_base_va + i * PAGE_SIZE, PROT_READ))
+            uint32_t page_pa = initrd_aligned_pa + (i * PAGE_SIZE);
+            if (!VmmMapUserPage(process->as, page_pa, initrd_base_va + (i * PAGE_SIZE), PROT_READ))
             {
                 KERROR("Failed to map initrd page %u for %s", i, path);
                 return;
@@ -155,7 +136,7 @@ static void boot_program(const char *path, uint32_t flags,
     if (flags & PROC_FLAG_DEVMGR)
     {
         s_devmgr = process;
-        boot_info_foreach_dev(inject_device_cap);
+        boot_info_foreach_dev(InjectDeviceObjectsToRootSvc);
     }
 
     /* devmgr stays FROZEN until sysd grants it what it needs and
@@ -166,24 +147,7 @@ static void boot_program(const char *path, uint32_t flags,
         SchedAdd(process->main_task);
 }
 
-static uint32_t parse_flag_string(const char *flag_str)
-{
-    if (!flag_str)
-        return 0;
-
-    if (strcmp(flag_str, "init") == 0)
-        return PROC_FLAG_INIT;
-    if (strcmp(flag_str, "dev") == 0 || strcmp(flag_str, "devmgr") == 0)
-        return PROC_FLAG_DEVMGR;
-    /* "none" is spawned by sysd; "file" is packed but never spawned. Neither
-     * carries a kernel-side flag. */
-    if (strcmp(flag_str, "none") == 0 || strcmp(flag_str, "file") == 0)
-        return 0;
-
-    return 0;
-}
-
-static char *normalize_manifest_program_path(const char *path_in)
+static char *NormalizeManifestPath(const char *path_in)
 {
     if (!path_in || !path_in[0])
         return NULL;
@@ -208,8 +172,8 @@ static char *normalize_manifest_program_path(const char *path_in)
     return path;
 }
 
-static size_t parse_boot_manifest(const char *manifest_data, size_t manifest_size,
-                                  boot_program_t *out_programs, size_t max_programs)
+static size_t KernelParseManifest(const char *manifest_data, size_t manifest_size,
+                                  BootProgram *out_programs, size_t max_programs)
 {
     if (!manifest_data || !manifest_size || !out_programs || !max_programs)
         return 0;
@@ -294,7 +258,7 @@ static size_t parse_boot_manifest(const char *manifest_data, size_t manifest_siz
         flags_buf[flags_len] = '\0';
 
         // populate output entry
-        out_programs[count].path = normalize_manifest_program_path(path_buf);
+        out_programs[count].path = NormalizeManifestPath(path_buf);
         if (!out_programs[count].path)
         {
             KERROR("Boot manifest: allocation failed");
@@ -310,7 +274,7 @@ static size_t parse_boot_manifest(const char *manifest_data, size_t manifest_siz
     return count;
 }
 
-void boot_programs_spawn_all(PhysAddr initrd_pa, size_t initrd_size)
+void SpawnAllBootPrograms(PhysAddr initrd_pa, size_t initrd_size)
 {
     g_initrd_pa = initrd_pa;
     g_initrd_size = initrd_size;
@@ -322,12 +286,12 @@ void boot_programs_spawn_all(PhysAddr initrd_pa, size_t initrd_size)
      * once at boot (see kmain.c), so this doesn't need per-call storage --
      * moving it off the stack keeps this function's frame under the
      * 512-byte budget. */
-    static boot_program_t boot_programs[16]; // max 16 boot programs
+    static BootProgram boot_programs[16]; // max 16 boot programs
     size_t boot_count = 0;
 
     if (initrd_find("boot.manifest", &manifest_data, &manifest_size))
     {
-        boot_count = parse_boot_manifest(manifest_data, manifest_size,
+        boot_count = KernelParseManifest(manifest_data, manifest_size,
                                          boot_programs, sizeof(boot_programs) / sizeof(boot_programs[0]));
         KDEBUG("Loaded boot manifest: %u programs", boot_count);
     }
@@ -361,7 +325,7 @@ void boot_programs_spawn_all(PhysAddr initrd_pa, size_t initrd_size)
     for (size_t i = 0; i < boot_count; i++)
     {
         if (boot_programs[i].flags & (PROC_FLAG_INIT | PROC_FLAG_DEVMGR))
-            boot_program(boot_programs[i].path, boot_programs[i].flags,
+            CreateRootSpace(boot_programs[i].path, boot_programs[i].flags,
                          devmgr_entry_peek, devmgr_sp_peek);
         if (boot_programs[i].owns_path && boot_programs[i].path)
         {

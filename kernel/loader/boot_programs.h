@@ -11,6 +11,6 @@
  * initrd_pa / initrd_size describe the bootloader-supplied initrd as a
  * physical address + size; PROC_FLAG_INIT (sysd) gets it mapped into its
  * own address space. Panics if boot.manifest is missing. */
-void boot_programs_spawn_all(PhysAddr initrd_pa, size_t initrd_size);
+void SpawnAllBootPrograms(PhysAddr initrd_pa, size_t initrd_size);
 
 #endif /* KERNEL_LOADER_BOOT_PROGRAMS_H */
