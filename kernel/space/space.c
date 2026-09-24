@@ -1,11 +1,11 @@
 #include "space.h"
 
+#include "kernel/irq/irq_relay.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm.h"
 #include "kernel/sched/sched.h"
 #include "kernel/syspage.h"
 #include "kernel/task/task.h"
-#include "kernel/irq/irq_relay.h"
 #include <arch/mmu.h>
 #include <string.h>
 #include <zuzu/user_layout.h>
@@ -95,7 +95,6 @@ SpaceObject *SpaceCreate(const char *name)
         goto fail_as;
 
     sp->tcb_page_va = tcb_user_va; /* user-visible VA */
-
 
     VirtMemRegion stack_region = {
         .vaddr_start = USER_STACK_BASE,
@@ -234,6 +233,16 @@ void SpaceDestroy(SpaceObject *sp)
         return;
     sp->torn_down = true;
 
+    ListNode *task_node = sp->tasks.node.next;
+    while (task_node != &sp->tasks.node)
+    {
+        ListNode *next = task_node->next;
+        TaskObject *task = container_of(task_node, TaskObject, process_node);
+        if (task->state != ZOMBIE)
+            TaskTerminate(task, ERR_DEAD);
+        task_node = next;
+    }
+
     IrqReleaseAll(sp);
     if (sp->node.prev && sp->node.next)
         list_remove(&sp->node);
@@ -242,14 +251,12 @@ void SpaceDestroy(SpaceObject *sp)
     if (sp->timeout_node.prev && sp->timeout_node.next)
         list_remove(&sp->timeout_node);
 
-    /* Cascade-reparent kittens to the grandparent  */
-    SpaceObject *grandparent = SpaceFindBySpid(sp->parent_spid);
     ListNode *child_node = sp->kittens.node.next;
     while (child_node != &sp->kittens.node)
     {
         ListNode *next = child_node->next;
         SpaceObject *child = container_of(child_node, SpaceObject, sibling_node);
-        SpaceReparent(child, grandparent);
+        SpaceDestroy(child);
         child_node = next;
     }
     if (sp->sibling_node.prev && sp->sibling_node.next)

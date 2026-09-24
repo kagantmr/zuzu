@@ -35,7 +35,6 @@ typedef struct SpaceObjectStruct
     PhysAddr tcb_page_pa[MAX_TCB_PAGES]; /**< TCB page physical addresses. */
     VirtAddr tcb_page_va;                /**< TCB page virtual address. */
     uint32_t tcb_slot_bitmap[BITMAP_WORDS(256)]; /**< TCB slot bitmap. */
-    bool critical;  /**< Kernel panics if this space dies unexpectedly (init). */
     bool torn_down; /**< SpaceDestroy has already run; only a zombie main_task keeps
                          this struct allocated. See SpaceFinalize. */
 } SpaceObject;
@@ -92,6 +91,7 @@ SpaceObject *SpaceCreate(const char *name);
  */
 SpaceObject *SpaceFindBySpid(Spid pid);
 void SpaceReparent(SpaceObject *kitten, SpaceObject *parent);
+
 SpaceObject *SpaceFindKittenBySpid(SpaceObject *parent, Spid pid);
 SpaceObject *SpaceFindHollowKitten(SpaceObject *parent);
 
