@@ -161,7 +161,10 @@ void SchedReap(void)
     {
         ListNode *node = list_pop_front(&destroy_queue);
         SpaceObject *p = container_of(node, SpaceObject, destroy_node);
-        SpaceDestroy(p);
+        if (!p->torn_down && p->parent_spid == -1) {
+            // ResurrectRootSvc(...)
+        }
+        /* not torn_down and not root: leave it hollow, nothing to do */
     }
     SchedConsumeDestroyQueue();
 }
