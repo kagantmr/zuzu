@@ -3,7 +3,14 @@
 
 #include <zuzu/types.h>
 #include "pmm.h"
-#include "kernel/space/handle.h"
+
+typedef enum
+{
+    MEMTYPE_NONE,
+    MEMTYPE_DEVICE,
+    MEMTYPE_SHARED,
+    MEMTYPE_COUNT
+} MemType;
 
 typedef struct {
     MemType kind;      // MEMTYPE_DEVICE / MEMTYPE_SHARED
@@ -19,5 +26,12 @@ static inline PhysAddr MemObjPageAt(MemObject *mem, size_t index) {
         ? mem->dev.phys_base + (index * PAGE_SIZE)
         : mem->shm.page_addrs[index];
 }
+
+MemObject *MemObjAlloc(void);
+void MemObjFree(MemObject *mem);
+
+MemObject *MemObjCreateShm(PhysAddr *page_addrs, size_t page_count);
+MemObject *MemObjCreateDevice(PhysAddr phys_base, size_t size, const char *compatible, Irq irq);
+void MemObjDestroy(MemObject *mem);
 
 #endif /* _ZUZU_MEM_OBJECT_H */

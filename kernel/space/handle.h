@@ -15,6 +15,7 @@
 #include "kernel/task/task.h"
 #include "kernel/ipc/event.h"
 #include "kernel/ipc/port.h"
+#include "kernel/mm/mem_object.h"
 
 #define HANDLE_INDEX_BITS 10u                              /* log2(HANDLE_MAX_SLOTS) */
 #define HANDLE_INDEX_MASK ((1u << HANDLE_INDEX_BITS) - 1u) /* 0x3FF */
@@ -39,14 +40,6 @@ typedef enum
     HANDLE_REPLY,
     HANDLE_TYPE_COUNT
 } HandleType;
-
-typedef enum
-{
-    MEMTYPE_NONE,
-    MEMTYPE_DEVICE,
-    MEMTYPE_SHARED,
-    MEMTYPE_COUNT
-} MemType;
 
 typedef struct
 {
