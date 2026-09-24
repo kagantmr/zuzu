@@ -35,14 +35,14 @@ void SvcBind(CpuState *frame)
         HandleTableEntry *dev_entry = HandleTableLookup(&CURRENT_SPACE->handle_table, dev_handle);
     
         ENSURE_ERR(frame, dev_entry, ERR_BADHANDLE);
-        ENSURE_ERR(frame, (dev_entry->type == HANDLE_MEM && dev_entry->memtype == MEMTYPE_DEVICE), ERR_BADTYPE);
+        ENSURE_ERR(frame, (dev_entry->type == HANDLE_MEM && dev_entry->mem->kind == MEMTYPE_DEVICE), ERR_BADTYPE);
     
-        DeviceObject *dev = dev_entry->dev;
+        MemObject *dev_mem_obj = dev_entry->mem;
     
-        ENSURE_ERR(frame, (dev), ERR_BADHANDLE);
+        ENSURE_ERR(frame, (dev_mem_obj), ERR_BADHANDLE);
         
-        ENSURE_ERR(frame, IrqIsValid(dev->irq), ERR_BADARG);
-        ArchSetInFrame(frame, 0, IrqBindToEvent(CURRENT_SPACE, dev->irq, ev));
+        ENSURE_ERR(frame, IrqIsValid(dev_mem_obj->dev.irq), ERR_BADARG);
+        ArchSetInFrame(frame, 0, IrqBindToEvent(CURRENT_SPACE, dev_mem_obj->dev.irq, ev));
     } break;
     default:
         ArchSetInFrame(frame, 0, ERR_BADARG);

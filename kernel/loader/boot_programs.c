@@ -71,19 +71,15 @@ static void inject_device_cap(const char *compatible,
         return;
     }
     entry->type = HANDLE_MEM;
-    entry->memtype = MEMTYPE_DEVICE;
+    entry->mem->kind = MEMTYPE_DEVICE;
+    entry->mem->dev.phys_base = (uint32_t)phys;
+    entry->mem->dev.size = (uint32_t)size;
+    entry->mem->dev.irq = irq;
     entry->grantable = true;
     entry->mapped_va = 0;
-    entry->dev = cap;
     HandleEntryClaim(&s_devmgr->handle_table, entry);
 }
 
-/* devmgr's entry point/sp as computed by a parse-only peek at its ELF
- * before sysd is created (see boot_programs_spawn_all()) — passed through
- * so sysd's own argv (PROC_FLAG_INIT branch below) can carry them. devmgr
- * is loaded for real, FROZEN, later in the same boot_programs[] loop; sysd
- * later reads these same values back out of its argv to SysKickstart
- * devmgr once it has granted it what it needs. */
 static void boot_program(const char *path, uint32_t flags,
                          uint32_t devmgr_entry_peek, uint32_t devmgr_sp_peek)
 {
@@ -96,15 +92,7 @@ static void boot_program(const char *path, uint32_t flags,
         return;
     }
 
-    /* PROC_FLAG_INIT gets the initrd mapped into its own address space
-     * below. g_initrd_pa isn't necessarily page-aligned (a bootloader-
-     * supplied ramdisk lands wherever it lands, e.g. u-boot's bootm skips
-     * its own 64-byte legacy-image header, which is never page-sized), so
-     * the mapping has to start at the containing page and the process
-     * needs to be told exactly where the real data begins within it —
-     * hence passing it via argv rather than a fixed/assumed address.
-     * The TCB reservation is the only mmap-arena region process_create()
-     * makes, so the initrd window always lands directly above it. */
+
     char argbuf[320];
     size_t argbuf_len = 0;
     uint32_t argc = 0;

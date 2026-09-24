@@ -72,7 +72,6 @@ Handle GrantHandleAcross(SpaceObject *from, SpaceObject *to,
     HandleEntryClaim(&to->handle_table, dst);
     dst->type = src->type;
     dst->grantable = src->grantable;
-    dst->memtype = src->memtype;
     dst->mapped_va = src->mapped_va;
     dst->port = src->port; /* union: one write covers every member */
 

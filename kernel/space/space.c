@@ -313,25 +313,17 @@ void SpaceDestroy(SpaceObject *sp)
         }
         else if (entry->type == HANDLE_MEM)
         {
-            if (entry->memtype == MEMTYPE_DEVICE)
+            MemObject *mem = entry->mem;
+            if (mem)
             {
-                if (entry->dev)
+                if (entry->mapped_va != 0)
                 {
-                    if (entry->dev->ref_count > 0)
-                        entry->dev->ref_count--;
-                    if (entry->dev->ref_count == 0)
-                        KFreeDevCap(entry->dev);
+                    size_t region_size = (mem->kind == MEMTYPE_DEVICE)
+                        ? mem->dev.size
+                        : mem->shm.page_count * PAGE_SIZE;
+                    VmmRemoveRegion(sp->as, entry->mapped_va, region_size);
                 }
-            }
-            else if (entry->memtype == MEMTYPE_SHARED)
-            {
-                ShmObject *shm = entry->shm;
-                if (shm)
-                {
-                    if (entry->mapped_va != 0)
-                        VmmRemoveRegion(sp->as, entry->mapped_va, shm->page_count * PAGE_SIZE);
-                    ShmemDropReference(shm);
-                }
+                MemObjDestroy(mem);
             }
             HandleEntryFree(&sp->handle_table, entry);
         }
