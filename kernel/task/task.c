@@ -222,17 +222,6 @@ void ThreadUnlinkWaits(TaskObject *t)
         list_remove(&t->port_wait_slot.node);
 }
 
-static const char *FatalReasonStr(int reason)
-{
-	switch (reason)
-	{
-	case FATAL_KERNEL_OUTDATED:
-		return "kernel and sysd version don't match";
-	default:
-		return "no reason specified";
-	}
-}
-
 void TaskTerminate(TaskObject *task, Err exit_status)
 {
 	if (!task)
@@ -249,30 +238,19 @@ void TaskTerminate(TaskObject *task, Err exit_status)
 
 	if (last_task)
 	{
-		if (owner->critical)
-		{
-			if (((uint32_t)exit_status & FATAL_TAG_MASK) == FATAL_TAG)
-			{
-				/* deliberate fatal exit carrying a reason code */
-				panic("critical space '%s' (pid %d) exited: %s", owner->name,
-				      (int)owner->spid,
-				      FatalReasonStr((int)((uint32_t)exit_status & FATAL_REASON_MASK)));
-			}
-			else
-			{
-				/* unexpected death, or exit with no reason */
-				panic("critical space '%s' (pid %d) died unexpectedly (status %d)",
-				      owner->name, (int)owner->spid, exit_status);
-			}
-		}
-
 		/* TODO(reply-ticket): revoke any outstanding reply ticket held
 		 * against this task before its space is torn down. */
 
-		if (task == current_task)
+		if (owner->torn_down) {
+			/* SpaceDestroy already owns this Space's fate — just die. */
+		}
+		else if (task == current_task)
 			SchedQueueDestroyProcess(owner);
-		else
-			SpaceDestroy(owner);
+		else {
+			if (owner->parent_spid == -1) {
+				// ResurrectRootSvc(task, exit_status);
+			}
+		}
 	}
 	else if (task == current_task)
 	{
