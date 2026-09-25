@@ -14,16 +14,27 @@ void SvcCreate(CpuState *frame)
     {
     case CREATE_TASK:
     {
-        // TASK: r0=type, r1=space_handle (must be a kitten of its parent)
+        // TASK: r0=type, r1=space_handle (a kitten Space you hold a handle
+        // to, or -1 to spawn a sibling Task in your own Space)
         Handle space_handle = (Handle)(*ArchGetFromFrame(frame, 1));
-        HandleTableEntry *space_entry =
-            HandleTableLookup(&CURRENT_SPACE->handle_table, space_handle);
+        SpaceObject *target_space;
 
-        ENSURE_ERR(frame, (NULL != space_entry), ERR_BADHANDLE);
-        ENSURE_ERR(frame, (HANDLE_SPACE == space_entry->type), ERR_BADTYPE);
-        ENSURE_ERR(frame, (NULL != space_entry->space), ERR_BADHANDLE);
+        if (-1 == space_handle)
+        {
+            target_space = CURRENT_SPACE;
+        }
+        else
+        {
+            HandleTableEntry *space_entry =
+                HandleTableLookup(&CURRENT_SPACE->handle_table, space_handle);
 
-        TaskObject *task = TaskCreate(space_entry->space);
+            ENSURE_ERR(frame, (NULL != space_entry), ERR_BADHANDLE);
+            ENSURE_ERR(frame, (HANDLE_SPACE == space_entry->type), ERR_BADTYPE);
+            ENSURE_ERR(frame, (NULL != space_entry->space), ERR_BADHANDLE);
+            target_space = space_entry->space;
+        }
+
+        TaskObject *task = TaskCreate(target_space);
 
         ENSURE_ERR(frame, (NULL != task), ERR_BUSY);
 
