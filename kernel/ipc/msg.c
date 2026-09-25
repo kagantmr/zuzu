@@ -148,6 +148,7 @@ void DeliverCallToReceiver(TaskObject *caller, TaskObject *rx, EphemeralReplyObj
     if (xlen) MsgBufCopy(caller, rx, xlen);
 
     rx->reply_cap = rc;
+    caller->reply_holder = rx;
     rx->ipc_state = IPC_NONE;
     rx->blocked_port = NULL;
     rx->wake_reason = WAKE_IPC;
@@ -209,7 +210,26 @@ void ReplyDeliverToCaller(TaskObject *target, uint32_t xlen, Handle granted)
     target->ipc_state = IPC_NONE;
     target->blocked_port = NULL;
     target->pending_reply_cap = NULL;
+    target->reply_holder = NULL;
     target->wake_reason = WAKE_IPC;
     target->state = READY;
     SchedAdd(target);
+}
+
+/* Error-wake counterpart of EventWakeWaiter (kernel/ipc/event.c): forces a
+ * task out of whichever IPC wait it's in (Call block or port receive) with
+ * an error. Caller is responsible for having already unlinked t from
+ * whatever queue/slot put it there. */
+void IpcAbortWait(TaskObject *t, Err err)
+{
+    SchedRemoveSleepQueue(t);
+    t->wake_deadline = 0;
+    if (t->trap_frame)
+        ArchSetInFrame(t->trap_frame, 0, err);
+    t->ipc_state = IPC_NONE;
+    t->blocked_port = NULL;
+    t->pending_reply_cap = NULL;
+    t->wake_reason = WAKE_IPC;
+    t->state = READY;
+    SchedAdd(t);
 }

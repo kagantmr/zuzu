@@ -1,5 +1,6 @@
 #include "port.h"
 #include "core/ensure.h"
+#include "kernel/ipc/msg.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/space/space.h"
 #include "kernel/sched/sched.h"
@@ -45,13 +46,7 @@ void PortDestroy(PortObject *port) {
     {
         ListNode *n = list_pop_front(&port->sender_queue);
         TaskObject *t = container_of(n, TaskObject, node);
-        t->ipc_state = IPC_NONE;
-        t->blocked_port = NULL;
-        if (t->trap_frame)
-            ArchSetInFrame(t->trap_frame, 0, ERR_DEAD);
-        t->wake_reason = WAKE_IPC;
-        t->state = READY;
-        SchedAdd(t);
+        IpcAbortWait(t, ERR_DEAD);
     }
 
     // Wake all blocked receivers with error
@@ -60,15 +55,7 @@ void PortDestroy(PortObject *port) {
         ListNode *n = list_pop_front(&port->receiver_queue);
         WaitSlot *slot = container_of(n, WaitSlot, node);
         TaskObject *t = slot->owner;
-        t->ipc_state = IPC_NONE;
-        t->blocked_port = NULL;
-        if (t->trap_frame)
-            ArchSetInFrame(t->trap_frame, 0, ERR_DEAD);
-        SchedRemoveSleepQueue(t);
-        t->wake_deadline = 0;
-        t->wake_reason = WAKE_IPC;
-        t->state = READY;
-        SchedAdd(t);
+        IpcAbortWait(t, ERR_DEAD);
     }
 
     port->alive = false;
