@@ -12,8 +12,6 @@ void SvcReply(CpuState *frame)
 
     EphemeralReplyObject *rc = current_task->reply_cap;
     ENSURE_ERR(frame, rc, ERR_BADHANDLE);
-    // clear reply cap
-    current_task->reply_cap = NULL;
 
     TaskObject *target = rc->caller_task;
     if (!target || target->tid != rc->caller_tid || target->state == ZOMBIE ||
@@ -26,6 +24,10 @@ void SvcReply(CpuState *frame)
     Handle granted;
     Err grant_err = GrantHandleAcross(CURRENT_SPACE, target->owner, grant_handle, &granted);
     ENSURE_ERR(frame, (grant_err == ZUZU_OK), grant_err);
+
+    // Only clear the reply cap once delivery is certain to succeed -- on any
+    // earlier failure the server keeps it and can retry (e.g. without the grant).
+    current_task->reply_cap = NULL;
 
     ReplyDeliverToCaller(target, xlen, granted);
 
