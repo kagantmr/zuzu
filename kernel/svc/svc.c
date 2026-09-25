@@ -4,17 +4,11 @@
 #include "core/log.h"
 #include "core/ensure.h"
 
-#include "kernel/mm/sys_mm.h"
-#include "kernel/mm/sys_shm.h"
-#include "kernel/dev/sys_dev.h"
 #include "kernel/space/space.h"
 #include "kernel/task/kstack.h"
 #include "kernel/layout.h"
-#include "kernel/task/sys_proc.h"
-#include "kernel/task/sys_thread.h"
 #include "core/panic.h"
 
-#include "kernel/mm/vmm/vmm.h"
 #include "zuzu/syscall_nums.h"
 #include "kernel/bench.h"
 
