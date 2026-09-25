@@ -56,18 +56,35 @@ __hot HandleTableEntry *ValidateCallPort(SpaceObject *space, Handle handle, CpuS
     return entry;
 }
 
-Handle GrantHandleAcross(SpaceObject *from, SpaceObject *to,
-                                  Handle handle_to_grant, CpuState *frame)
+Err ValidateGrantHandle(SpaceObject *from, Handle handle_to_grant)
 {
-    if (handle_to_grant == 0)
-        return 0;
+    if (handle_to_grant == -1)
+        return ZUZU_OK;
 
     HandleTableEntry *src = HandleTableLookup(&from->handle_table, handle_to_grant);
-    ENSURE(src, ArchSetInFrame(frame, 0, ERR_BADHANDLE); return -1);
-    ENSURE(src->grantable, ArchSetInFrame(frame, 0, ERR_NOPERM); return -1);
+    if (!src) return ERR_BADHANDLE;
+    if (!src->grantable) return ERR_NOPERM;
+    return ZUZU_OK;
+}
+
+/* Allocates the destination slot for a grant already known-valid (see
+ * ValidateGrantHandle). WaitOn's not-yet-written pickup path (an
+ * already-queued caller found at receive time) will call this directly at
+ * pickup time; if it fails there with ERR_NOMEM, that caller must be woken
+ * with ERR_NOMEM rather than delivered to -- that wake-up path doesn't
+ * exist yet either. */
+Err AllocateGrantSlot(SpaceObject *from, SpaceObject *to, Handle handle_to_grant, Handle *out)
+{
+    *out = -1;
+    if (handle_to_grant == -1)
+        return ZUZU_OK;
+
+    HandleTableEntry *src = HandleTableLookup(&from->handle_table, handle_to_grant);
+    if (!src) return ERR_BADHANDLE;
+    if (!src->grantable) return ERR_NOPERM;
 
     Handle new_handle = HandleTableFindFree(&to->handle_table);
-    ENSURE((-1 != new_handle), ArchSetInFrame(frame, 0, ERR_NOMEM); return -1);
+    if (new_handle == -1) return ERR_NOMEM;
 
     HandleTableEntry *dst = HandleTableGet(&to->handle_table, new_handle);
     HandleEntryClaim(&to->handle_table, dst);
@@ -82,23 +99,58 @@ Handle GrantHandleAcross(SpaceObject *from, SpaceObject *to,
         default: break; /* HANDLE_TASK/SPACE/MEM: no shared-refcount concept yet */
     }
 
-    return (Handle)HANDLE_PACK(new_handle, dst->generation);
+    *out = (Handle)HANDLE_PACK(new_handle, dst->generation);
+    return ZUZU_OK;
+}
+
+Err GrantHandleAcross(SpaceObject *from, SpaceObject *to, Handle handle_to_grant, Handle *out)
+{
+    Err err = ValidateGrantHandle(from, handle_to_grant);
+    if (err != ZUZU_OK) {
+        *out = -1;
+        return err;
+    }
+    return AllocateGrantSlot(from, to, handle_to_grant, out);
 }
 
 
 void CallBlockAsSender(TaskObject *caller, PortObject *port,
-                               HandleTableEntry *entry, EphemeralReplyObject *rc,
+                               EphemeralReplyObject *rc,
                                uint32_t xlen, Handle grant_handle)
 {
     caller->ipc_state = IPC_WAITING;
     caller->blocked_port = port;
     caller->pending_reply_cap = rc;
-    caller->port_marker = entry->marker;
     caller->lmsg_buf_xfer_len = xlen;
     caller->pending_grant_handle = grant_handle;
     list_add_tail(&caller->node, &port->sender_queue.node);
     caller->state = BLOCKED;
     Schedule();
+}
+
+/* The only code that writes a receiver's r0-r3 for a delivered Call:
+ *   r0 = 0 (index of the handle that fired; always 0 for a direct handoff)
+ *   r1 = marker of the handle the caller used
+ *   r2 = xlen
+ *   r3 = granted handle in the receiver's table, or -1 if none
+ * Also copies the message buffer, hands the receiver the reply ticket, and
+ * clears its wait state. CallHandoffToReceiver uses this now; WaitOn's
+ * pickup path (not yet written) will use it too, so the two can never
+ * drift apart. */
+void DeliverCallToReceiver(TaskObject *caller, TaskObject *rx, EphemeralReplyObject *rc,
+                            size_t xlen, Handle granted)
+{
+    CpuState *rx_frame = rx->trap_frame;
+    ArchSetInFrame(rx_frame, 0, 0);
+    (*ArchGetFromFrame(rx_frame, 1)) = (Register)caller->port_marker;
+    (*ArchGetFromFrame(rx_frame, 2)) = (Register)xlen;
+    (*ArchGetFromFrame(rx_frame, 3)) = granted;
+    if (xlen) MsgBufCopy(caller, rx, xlen);
+
+    rx->reply_cap = rc;
+    rx->ipc_state = IPC_NONE;
+    rx->blocked_port = NULL;
+    rx->wake_reason = WAKE_IPC;
 }
 
 __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port,
@@ -113,24 +165,18 @@ __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port,
     if (!rx || !rx->trap_frame)
         panic("CallHandoffToReceiver: queued receiver with no trap frame "
               "(port=%p slot=%p owner=%p)", (void *)port, (void *)rx_slot, (void *)rx);
-    CpuState *rx_frame = rx->trap_frame;
 
-    int32_t granted = GrantHandleAcross(caller->owner, rx->owner, grant_handle, frame);
-    if (granted < 0) {
-        list_add_tail(&rx_slot->node, &port->receiver_queue.node); /* grant failed, put it back */
+    /* grant_handle was already validated (existence + grantable) in
+     * SvcCall before either path was chosen; only allocation in rx's
+     * table remains, and can still fail with ERR_NOMEM. */
+    Handle granted;
+    Err err = AllocateGrantSlot(caller->owner, rx->owner, grant_handle, &granted);
+    if (err != ZUZU_OK) {
+        ArchSetInFrame(frame, 0, err);
         return false;
     }
-    (*ArchGetFromFrame(frame, 3)) = granted;
 
-    rx->reply_cap = rc;
-
-    ArchSetInFrame(rx_frame, 0, caller->owner->spid);
-    (*ArchGetFromFrame(rx_frame, 1)) = (Register)xlen;
-    if (xlen) MsgBufCopy(caller, rx, xlen);
-
-    rx->ipc_state = IPC_NONE;
-    rx->blocked_port = NULL;
-    rx->wake_reason = WAKE_IPC;
+    DeliverCallToReceiver(caller, rx, rc, xlen, granted);
 
     caller->ipc_state = IPC_WAITING;
     caller->blocked_port = port;

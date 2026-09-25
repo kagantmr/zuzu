@@ -17,17 +17,20 @@ void __hot SvcCall(CpuState *frame)
     if (!entry) return;
     PortObject *port = entry->port;
 
+    Err grant_err = ValidateGrantHandle(CURRENT_SPACE, grant_handle);
+    ENSURE_ERR(frame, (grant_err == ZUZU_OK), grant_err);
+
     EphemeralReplyObject *rc = &current_task->reply_cap_storage;
     rc->caller_task = current_task;
     rc->caller_tid = current_task->tid;
 
-    (*ArchGetFromFrame(frame, 2)) = (Register)entry->marker;
+    current_task->port_marker = entry->marker;
 
     if (!list_empty(&port->receiver_queue)) {
         if (!CallHandoffToReceiver(current_task, port, rc, xlen, grant_handle, frame)) {
             return;
         }
     } else {
-        CallBlockAsSender(current_task, port, entry, rc, xlen, grant_handle);
+        CallBlockAsSender(current_task, port, rc, xlen, grant_handle);
     }
 }

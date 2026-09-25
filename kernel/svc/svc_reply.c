@@ -23,12 +23,11 @@ void SvcReply(CpuState *frame)
         return;
     }
 
-    Handle granted = GrantHandleAcross(CURRENT_SPACE, target->owner, grant_handle, frame);
-    ENSURE_GOTO((granted >= 0), ReplyFail);
+    Handle granted;
+    Err grant_err = GrantHandleAcross(CURRENT_SPACE, target->owner, grant_handle, &granted);
+    ENSURE_ERR(frame, (grant_err == ZUZU_OK), grant_err);
 
     ReplyDeliverToCaller(target, xlen, granted);
 
     ArchSetInFrame(frame, 0, ZUZU_OK);
-ReplyFail:
-    return;
 }
