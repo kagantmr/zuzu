@@ -6,27 +6,13 @@
 #include <stddef.h>
 #include <string.h>
 #include <assert.h>
-#include "kernel/dev/devcap.h"
 #include "core/panic.h"
-#include "kernel/ipc/port.h"
 #include <compiler.h>
 
 #define LOG_FMT(fmt) "(mm) " fmt
 #include <zuzu/log.h>
 
 extern kernel_layout_t kernel_layout;
-
-#ifdef CONFIG_ZUZU_BENCH
-
-#include "kernel/bench.h"
-
-BENCH_STAT(g_bench_reply_cap_alloc, "reply-cap alloc");
-BENCH_STAT(g_bench_reply_cap_free, "reply-cap free");
-#endif
-
-static KHeapSlabCache port_cache;
-static KHeapSlabCache device_cap_cache;
-static bool hot_caches_ready;
 
 KMemBlock* heap_head = NULL;
 static KMemBlock* heap_tail = NULL;
@@ -158,16 +144,6 @@ static __always_inline void SlabFree(KHeapSlabCache *cache, void *ptr)
             PmmFreeFrame(VA_TO_PA((uintptr_t)slab));
         }
     }
-}
-
-static __always_inline void SlabCachesInit(void)
-{
-    if (likely(hot_caches_ready))
-        return;
-
-    CreateSlabCache(&port_cache, "Port", sizeof(PortObject));
-    CreateSlabCache(&device_cap_cache, "DeviceCap", sizeof(DeviceObject));
-    hot_caches_ready = true;
 }
 
 /* Generic slab-cache API for subsystems that want a dedicated fixed-size
@@ -366,34 +342,6 @@ void KHeapInit(void) {
     if (!HeapGrow(HEAP_INITIAL_SIZE - HDR)) {
         panic("Heap could not be allocated");
     }
-
-    SlabCachesInit();
-}
-
-void *PortObjAlloc(void)
-{
-    SlabCachesInit();
-    return SlabAlloc(&port_cache);
-}
-
-void PortObjFree(void *ptr)
-{
-    if (!ptr)
-        return;
-    SlabFree(&port_cache, ptr);
-}
-
-void *KAllocDevCap(void)
-{
-    SlabCachesInit();
-    return SlabAlloc(&device_cap_cache);
-}
-
-void KFreeDevCap(void *ptr)
-{
-    if (!ptr)
-        return;
-    SlabFree(&device_cap_cache, ptr);
 }
 
 void KHeapDump(void) {

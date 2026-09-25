@@ -1,11 +1,23 @@
 #include "port.h"
 #include "core/ensure.h"
+#include "kernel/mm/alloc.h"
 #include "kernel/space/space.h"
 #include "kernel/sched/sched.h"
 #include <zuzu/err.h>
 
+static KHeapSlabCache port_cache;
+
+PortObject *PortObjAlloc(void)
+{
+    if (!port_cache.obj_size)
+        KSlabInit(&port_cache, "Port", sizeof(PortObject));
+    return KSlabAlloc(&port_cache);
+}
+
+void PortObjFree(PortObject *port) { KSlabFree(&port_cache, port); }
+
 PortObject *PortCreate(SpaceObject *owner) {
-    PortObject *new_port = (PortObject *)PortObjAlloc();
+    PortObject *new_port = PortObjAlloc();
     ENSURE_RET((NULL != new_port), NULL);
     
     list_init(&new_port->sender_queue);

@@ -103,38 +103,6 @@ void KHeapInit(void);
  */
 void KHeapDump(void);
 
-/* Hot-path object allocators backed by slab caches. */
-
-/**
-* @brief Allocate space for a Port object.
-*
-* @retval NULL Out of memory
-* @return void*
-*/
-void *PortObjAlloc(void);
-
-/**
-* @brief Free space belonging to a Port object.
-*
-* @param[in] Object to free.
-*/
-void PortObjFree(void *ptr);
-
-/**
-* @brief Allocate space for a DeviceCap object.
-*
-* @retval NULL Out of memory
-* @return void*
-*/
-void *KAllocDevCap(void);
-
-/**
-* @brief Free space belonging to a DeviceCap object.
-*
-* @param[in] Object to free.
-*/
-void KFreeDevCap(void *ptr);
-
 /* Generic slab-cache API for per-subsystem fixed-size object pools.
  * Declare a `static KHeapSlabCache` in the owning TU, KSlabInit it once,
  * then KSlabAlloc / KSlabFree. KSlabFree tolerates NULL. */

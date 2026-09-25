@@ -33,4 +33,15 @@ typedef struct
 PortObject *PortCreate(SpaceObject *owner);
 void PortDestroy(PortObject *port);
 
+/**
+ * @brief Allocate space for a Port object.
+ * @retval NULL Out of memory
+ */
+PortObject *PortObjAlloc(void);
+
+/**
+ * @brief Free space belonging to a Port object.
+ */
+void PortObjFree(PortObject *port);
+
 #endif /* _ZUZU_OBJECTS_PORT_H */
