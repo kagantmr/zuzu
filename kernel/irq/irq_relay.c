@@ -80,7 +80,7 @@ Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev)
 
 bool IrqClearPending(Irq irq_num)
 {
-    if (irq_num < 0 || irq_num >= MAX_IRQS)
+    if (irq_num >= MAX_IRQS)
         return false;
     if (irq_owners[irq_num].pending)
     {

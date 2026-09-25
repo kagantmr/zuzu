@@ -8,7 +8,6 @@
 #include "kernel/layout.h"
 #include "kernel/dev/fdt_wrappers.h"
 #include "zuzu/err.h"
-#include "zuzu/event.h"
 #include <arch/symbols.h>
 
 #include <list.h>
@@ -43,7 +42,7 @@ typedef struct {
     uint8_t *bitmap;        // pointer to bitmap memory
     size_t bitmap_bytes;    // size of bitmap in bytes
     PhysAddr freelist_head; // PA of first free page (or 0 if none)
-    bool in_pressure;       // notify if memory is going low to signal via KEvent
+    bool in_pressure;       // notify if memory is going low to signal via Event
 } PmmState;
 
 static PmmState pmm_state;

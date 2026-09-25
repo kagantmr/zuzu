@@ -7,6 +7,9 @@
 
 typedef struct SpaceObjectStruct SpaceObject;
 
+
+#define KEVENT_MEMMGMT_BIT (1u << 0)
+
 typedef struct EventObjectStruct
 {
     EventWord word;      // 31-bit signal mask (bit 31 reserved), atomic-ish (IRQs off)

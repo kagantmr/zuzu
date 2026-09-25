@@ -92,7 +92,7 @@ void EventDestroy(EventObject *ev)
     {
         ListNode *n = list_pop_front(&ev->wait_queue);
         WaitSlot *slot = container_of(n, WaitSlot, node);
-        EventWakeWaiter(ev, slot, ERR_DEAD);
+        EventWakeWaiter(ev, slot, (EventWord)ERR_DEAD);
     }
     ev->alive = false;
 

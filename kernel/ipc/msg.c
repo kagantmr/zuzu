@@ -5,6 +5,7 @@
 #include "kernel/space/space.h"
 #include <zuzu/err.h>
 #include "core/ensure.h"
+#include "core/panic.h"
 #include "kernel/sched/sched.h"
 
 #ifdef CONFIG_ZUZU_BENCH
@@ -105,8 +106,13 @@ __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port,
                                    CpuState *frame)
 {
     ListNode *node = list_pop_front(&port->receiver_queue);
+    if (!node)
+        panic("CallHandoffToReceiver: called with empty receiver_queue (port=%p)", (void *)port);
     WaitSlot *rx_slot = container_of(node, WaitSlot, node);
     TaskObject *rx = rx_slot->owner;
+    if (!rx || !rx->trap_frame)
+        panic("CallHandoffToReceiver: queued receiver with no trap frame "
+              "(port=%p slot=%p owner=%p)", (void *)port, (void *)rx_slot, (void *)rx);
     CpuState *rx_frame = rx->trap_frame;
 
     int32_t granted = GrantHandleAcross(caller->owner, rx->owner, grant_handle, frame);
