@@ -76,12 +76,40 @@ extern "C"
         EVENT_TIMER        /* timers */
     } EventType;
 
-    typedef enum {
+    typedef enum
+    {
+        PROT_NONE = 0,        // no access
+        PROT_READ = 1U << 0,  // read access
+        PROT_WRITE = 1U << 1, // write access
+        PROT_EXEC = 1U << 2   // execute access
+    } MemProt;
+
+#define PROT_RW ((PROT_READ) | (PROT_WRITE))
+
+    typedef enum
+    {
         MNGMEM_MAP,
         MNGMEM_UNMAP,
         MNGMEM_PROTECT,
         MNGMEM_INJECT
     } ManageMemoryVerb;
+
+/* AsInjectArgs.flags */
+#define ASINJECT_FLAG_RESERVE                                                                      \
+    0x1U /* reserve [DestVAddr, DestVAddr+len) as demand-zero                                      \
+          * anon memory in the target AS; src_buf must                                             \
+          * be NULL, no bytes are copied up front. */
+
+    typedef struct
+    {
+        uint32_t size;       /* wrapper sets it */
+        VirtAddr dest_vaddr; // destination virtual address in the target task's address space
+        const void *src_buf; // pointer to the source buffer in the current task's address space
+        size_t len;          // length of the source buffer in bytes
+        MemProt prot;   // memory protection flags for the destination mapping (e.g., PROT_READ |
+                        // PROT_WRITE)
+        uint32_t flags; // ASINJECT_FLAG_* bits; 0 for the original copy-in behavior
+    } InjectArgs;
 
 #define WNOHANG (1 << 0)
 

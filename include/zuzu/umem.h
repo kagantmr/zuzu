@@ -74,8 +74,8 @@ static inline Err ZuzuDeviceQuery(Handle handle, void *out_buf, size_t len) {
  */
 static inline Err ZuzuAsInject(Handle taskHandle, VirtAddr DestVAddr,
                                 const void *src_buf, size_t len, MemProt prot) {
-    McntlInjectArgs args = {
-        .size        = sizeof(McntlInjectArgs),
+    InjectArgs args = {
+        .size        = sizeof(InjectArgs),
         .taskHandle  = taskHandle,
         .dest_vaddr   = DestVAddr,
         .src_buf     = src_buf,
@@ -105,8 +105,8 @@ static inline Err ZuzuAsInject(Handle taskHandle, VirtAddr DestVAddr,
  */
 static inline Err ZuzuAsInjectReserve(Handle taskHandle, VirtAddr DestVAddr,
                                         size_t len, uint32_t prot) {
-    McntlInjectArgs args = {
-        .size        = sizeof(McntlInjectArgs),
+    InjectArgs args = {
+        .size        = sizeof(InjectArgs),
         .taskHandle  = taskHandle,
         .dest_vaddr   = DestVAddr,
         .src_buf     = NULL,    

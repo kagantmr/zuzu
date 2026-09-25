@@ -11,7 +11,6 @@
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/vmm/vmm.h"
 
-#include "kernel/dev/devcap.h"
 #include "kernel/task/task.h"
 #include "kernel/ipc/event.h"
 #include "kernel/ipc/port.h"

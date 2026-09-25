@@ -4,7 +4,6 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
-#include <zuzu/memprot.h>
 #include <vector.h>
 #include <zuzu/types.h>
 #include BOARD_LAYOUT_H
@@ -234,6 +233,8 @@ Err VmmMapMemObject(SpaceObject *space, HandleTableEntry *entry, MemProt prot, V
 
 Err VmmUnmapUserRegion(SpaceObject *space, VirtAddr va);
 
+Err InjectInKittenSpace(SpaceObject *kitten, SpaceObject *parent, InjectArgs *args);
+
 Err VmmProtectUserRange(SpaceObject *space, VirtAddr va, size_t size, MemProt new_prot);
 
 /**
@@ -271,6 +272,7 @@ bool VmmCheckUserFault(AddressSpace *as, VirtAddr va, size_t len, bool write);
  * vm_region_t bytes region points at never overlap -- on the lazy-mapping
  * hot path (try_demand_page -> here), this is what makes it safe. */
 bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict region, uintptr_t page_va);
+
 
 void VmmLockdownKernelMapping(void);
 

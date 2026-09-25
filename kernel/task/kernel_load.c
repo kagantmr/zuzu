@@ -1,6 +1,7 @@
 #include "kernel_load.h"
 
 #include "core/panic.h"
+#include "core/ensure.h"
 
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm/pmm.h"

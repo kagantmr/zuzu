@@ -341,8 +341,8 @@ void SysAsInject(CpuState *frame)
         }
         }
 
-        McntlInjectArgs *args = (McntlInjectArgs *)(*ArchGetFromFrame(frame, 0));
-        if (!validate_user_ptr((uintptr_t)args, sizeof(McntlInjectArgs)))
+        InjectArgs *args = (InjectArgs *)(*ArchGetFromFrame(frame, 0));
+        if (!validate_user_ptr((uintptr_t)args, sizeof(InjectArgs)))
         {
             {
             ArchSetInFrame(frame, 0, ERR_BADPTR);
@@ -350,8 +350,8 @@ void SysAsInject(CpuState *frame)
         }
         }
 
-        McntlInjectArgs kargs;
-        if (!CopyFromUser(&kargs, args, sizeof(McntlInjectArgs)))
+        InjectArgs kargs;
+        if (!CopyFromUser(&kargs, args, sizeof(InjectArgs)))
         {
             {
             ArchSetInFrame(frame, 0, ERR_BADPTR);
@@ -359,7 +359,7 @@ void SysAsInject(CpuState *frame)
         }
         }
 
-        if (kargs.size < sizeof(McntlInjectArgs))
+        if (kargs.size < sizeof(InjectArgs))
         {
             {
             ArchSetInFrame(frame, 0, ERR_BADARG);
