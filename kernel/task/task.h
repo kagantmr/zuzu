@@ -75,6 +75,7 @@ struct TaskObjectStruct
         *pending_reply_cap; /**< Set while this task is a blocked caller, waiting for its reply. */
     EphemeralReplyObject
         *reply_cap; /**< Set while this task is a receiver mid-call, waiting to Reply. */
+    TaskObject *reply_holder; /**< Server currently holding this task's reply cap, or NULL. */
     PhysAddr msg_buf_phys_addr; /**< Physical address of the message buffer. */
     size_t lmsg_buf_xfer_len;   /**< Length of the message buffer transfer. */
     Marker port_marker;         /**< Port marker. */

@@ -1,4 +1,5 @@
 #include "core/panic.h"
+#include "kernel/ipc/msg.h"
 #include "kernel/space/space.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/sched/sched.h"
@@ -231,6 +232,27 @@ void TaskTerminate(TaskObject *task, Err exit_status)
 
 	task->exit_status = exit_status;
 	ThreadUnlinkWaits(task);
+
+	/* (a) task was a caller mid-call: its reply cap lives in its own TCB
+	 * storage, about to become invalid. Tell the server holding it so a
+	 * later Reply fails cleanly instead of reading freed memory. */
+	if (task->pending_reply_cap && task->reply_holder) {
+		task->reply_holder->reply_cap = NULL;
+		task->reply_holder = NULL;
+	}
+
+	/* (b) task was holding a reply cap (received a Call, hasn't Replied
+	 * yet): wake its caller with ERR_DEAD instead of leaving it blocked
+	 * forever. */
+	if (task->reply_cap) {
+		TaskObject *caller = task->reply_cap->caller_task;
+		if (caller && caller->tid == task->reply_cap->caller_tid && caller->state != ZOMBIE) {
+			IpcAbortWait(caller, ERR_DEAD);
+			caller->reply_holder = NULL;
+		}
+		task->reply_cap = NULL;
+	}
+
 	KillTask(task); // state = ZOMBIE
 	WakeJoinTask(task, exit_status);
 
@@ -238,9 +260,6 @@ void TaskTerminate(TaskObject *task, Err exit_status)
 
 	if (last_task)
 	{
-		/* TODO(reply-ticket): revoke any outstanding reply ticket held
-		 * against this task before its space is torn down. */
-
 		if (owner->torn_down) {
 			/* SpaceDestroy already owns this Space's fate — just die. */
 		}
