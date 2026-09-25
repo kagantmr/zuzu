@@ -48,7 +48,15 @@ bool arch_irq_unregister(uint32_t irq_id) {
     }
     handler_table[irq_id] = NULL;
     handler_ctx[irq_id] = NULL;
-    return true;    
+    return true;
+}
+
+bool ArchIrqHasHandler(uint32_t irq_id) {
+    return irq_id < MAX_IRQS && handler_table[irq_id] != NULL;
+}
+
+void *arch_irq_handler_addr(uint32_t irq_id) {
+    return irq_id < MAX_IRQS ? (void *)handler_table[irq_id] : NULL;
 }
 
 void ArchIrqSetPrio(Irq irq_id, uint8_t prio) {

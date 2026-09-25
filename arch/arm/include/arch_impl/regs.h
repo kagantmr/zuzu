@@ -9,6 +9,9 @@
 #define ZUZU_ARM_IMPL_REGS_H
 
 #include <compiler.h>
+#include <snprintf.h>
+#include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 /* Natural register-width integer for this architecture (32-bit on ARMv7-A). */
@@ -47,6 +50,7 @@ static __always_inline Register arch_regs_pc(const CpuState *f)    { return f->r
 static __always_inline Register arch_regs_sp(const CpuState *f)    { return f->sp_usr; }
 static __always_inline Register arch_regs_lr(const CpuState *f)    { return f->lr_usr; }
 static __always_inline Register arch_regs_flags(const CpuState *f) { return f->return_cpsr; }
+static __always_inline Register arch_regs_fp(const CpuState *f)    { return f->r[11]; }
 
 /* Live reads of current CPU state (see <arch/regs.h>). */
 static inline Register arch_current_fp(void)
@@ -61,6 +65,43 @@ static inline Register arch_current_flags(void)
     Register cpsr;
     __asm__ volatile("mrs %0, cpsr" : "=r"(cpsr));
     return cpsr;
+}
+
+/* Count of ArchGetFromFrame() slots (r0-r12 on ARM) -- see <arch/regs.h>. */
+#define ARCH_NUM_GP_REGS 13
+
+static inline const char *arm_cpsr_mode_name(uint32_t cpsr)
+{
+    switch (cpsr & 0x1Fu)
+    {
+    case 0x10u: return "USR";
+    case 0x11u: return "FIQ";
+    case 0x12u: return "IRQ";
+    case 0x13u: return "SVC";
+    case 0x1Fu: return "SYS";
+    case 0x16u: return "MON";
+    case 0x17u: return "ABT";
+    case 0x1Au: return "HYP";
+    case 0x1Bu: return "UND";
+    default:    return "???";
+    }
+}
+
+/* Diagnostics-only (see <arch/regs.h>): mode + Thumb/IRQ/FIQ + NZCV string. */
+static inline void arch_flags_decode(char *buf, size_t bufsz, Register flags)
+{
+    uint32_t cpsr = (uint32_t)flags;
+    (void)snprintf(buf, bufsz, "[%s %s irq=%s fiq=%s %c%c%c%c]", arm_cpsr_mode_name(cpsr),
+                   (cpsr & (1u << 5)) ? "Thumb" : "ARM", (cpsr & (1u << 7)) ? "dis" : "en",
+                   (cpsr & (1u << 6)) ? "dis" : "en", (cpsr >> 31) & 1u ? 'N' : 'n',
+                   (cpsr >> 30) & 1u ? 'Z' : 'z', (cpsr >> 29) & 1u ? 'C' : 'c',
+                   (cpsr >> 28) & 1u ? 'V' : 'v');
+}
+
+/* Diagnostics-only (see <arch/regs.h>): true if flags denotes IRQ mode. */
+static inline bool arch_flags_in_irq_context(Register flags)
+{
+    return ((uint32_t)flags & 0x1Fu) == 0x12u;
 }
 
 #endif // ZUZU_ARM_IMPL_REGS_H

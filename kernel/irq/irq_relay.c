@@ -13,6 +13,11 @@ static IrqOwner irq_owners[MAX_IRQS];
 #define LOG_FMT(fmt) "(syscall_irq) " fmt
 #include "core/log.h"
 
+const IrqOwner *GetIrqOwnersList(void)
+{
+    return irq_owners;
+}
+
 static void __hot RelayIsr(void *ctx)
 {
     Irq irq_num = (Irq)(VirtAddr)ctx;

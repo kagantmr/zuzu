@@ -56,4 +56,11 @@ uint32_t arch_irq_enabled_word(uint32_t word);
 /** Bitmap word of pending IRQ lines [word*32, word*32+32). */
 uint32_t arch_irq_pending_word(uint32_t word);
 
+/** True if a kernel-level handler is registered for this IRQ line. */
+bool ArchIrqHasHandler(uint32_t irq_id);
+
+/** Address of the registered handler, for symbolization in diagnostics;
+ *  NULL if none. */
+void *arch_irq_handler_addr(uint32_t irq_id);
+
 #endif // ZUZU_ARCH_IRQ_H

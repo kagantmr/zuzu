@@ -9,6 +9,7 @@
 //   Register  arch_regs_sp(const arch_regs_t *f);     -- saved user SP
 //   Register  arch_regs_lr(const arch_regs_t *f);     -- saved user LR
 //   Register  arch_regs_flags(const arch_regs_t *f);  -- saved status/flags
+//   Register  arch_regs_fp(const arch_regs_t *f);      -- saved frame pointer (for backtrace)
 //
 // The two below read live CPU state (not a saved frame) — for diagnostics
 // (e.g. core/panic.c) that need "where are we right now" rather than "where
@@ -16,6 +17,14 @@
 //
 //   Register  arch_current_fp(void);                  -- live frame-pointer register
 //   Register  arch_current_flags(void);                -- live status/flags register
+//
+// Diagnostics-only helpers below (core/panic.c is the only caller); these let
+// a panic dump stay free of any architecture-specific flag/mode encoding.
+//
+//   ARCH_NUM_GP_REGS                                   -- count of ArchGetFromFrame() slots
+//   void arch_flags_decode(char *buf, size_t bufsz, Register flags);
+//                                                       -- human-readable mode/flag string
+//   bool arch_flags_in_irq_context(Register flags);    -- true if flags denotes IRQ context
 
 #ifndef ZUZU_ARCH_REGS_H
 #define ZUZU_ARCH_REGS_H

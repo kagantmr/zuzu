@@ -19,4 +19,8 @@ void IrqReleaseAll(SpaceObject *owner);
 bool IrqClearPending(Irq irq_num);
 Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev);
 
+/** Read-only view of the IRQ ownership table, indexed by IRQ line, for
+ *  diagnostics (core/panic.c). */
+const IrqOwner *GetIrqOwnersList(void);
+
 #endif /* _ZUZU_IRQ_RELAY_H */
