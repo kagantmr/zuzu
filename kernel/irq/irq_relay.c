@@ -63,6 +63,7 @@ Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev)
     {
         EventObject *old = irq_owners[irq_num].bound_ev;
         EventDropReference(old);
+        old->irq_bind_count--;
     }
 
     irq_owners[irq_num].bound_ev = ev;
@@ -98,6 +99,7 @@ void IrqReleaseAll(SpaceObject *owner)
         if (irq_owners[irq_num].owner == owner)
         {
             EventDropReference(irq_owners[irq_num].bound_ev);
+            irq_owners[irq_num].bound_ev->irq_bind_count--;
             irq_owners[irq_num] = (IrqOwner){.bound_ev = NULL, .owner = NULL, .pending = false};
             ArchIrqMaskLine(irq_num);
         }
