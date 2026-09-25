@@ -166,6 +166,7 @@ Err VmmUnmapUserRegion(SpaceObject *space, VirtAddr va) {
             bool found_in_table = false;
             for (Handle i = 0; i < (Handle)HANDLE_MAX_SLOTS; i++) {
                 HandleTableEntry *entry = HandleTableGet(&space->handle_table, i);
+                if (!entry) continue;
                 if (entry->type == HANDLE_MEM && entry->mapped_va == va) {
                     found_in_table = true;
                     entry->mapped_va = 0;
