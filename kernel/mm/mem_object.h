@@ -2,7 +2,7 @@
 #define _ZUZU_MEM_OBJECT_H
 
 #include <zuzu/types.h>
-#include "pmm.h"
+#include "kernel/mm/pmm/pmm.h"
 
 typedef enum
 {

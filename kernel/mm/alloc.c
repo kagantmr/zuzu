@@ -1,7 +1,7 @@
 #include "alloc.h"
-#include "pmm.h"
+#include "kernel/mm/pmm/pmm.h"
 #include "kernel/layout.h"
-#include "kernel/mm/vmm.h"
+#include "kernel/mm/vmm/vmm.h"
 #include "stdbool.h"
 #include <stddef.h>
 #include <string.h>
