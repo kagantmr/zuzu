@@ -42,7 +42,7 @@ static bool AddrSpaceCopyOut(AddressSpace *as, VirtAddr va, const void *src, siz
     while (len > 0)
     {
         VirtAddr page_va = va & ~(VirtAddr)(PAGE_SIZE - 1);
-        PhysAddr pa = arch_mmu_translate(as->pt_root_physaddr, page_va);
+        PhysAddr pa = ArchMmuTranslate(as->pt_root_physaddr, page_va);
         if (pa == 0)
             return false;
         size_t off = va - page_va;
@@ -148,7 +148,7 @@ SpaceObject *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char
             {
                 for (uint32_t j = 0; j < page; j++)
                 {
-                    uintptr_t orphan_va = (uint32_t)seg->vaddr + j * PAGE_SIZE;
+                    uintptr_t orphan_va = (uint32_t)seg->vaddr + (j * PAGE_SIZE);
                     VmmUnmapRange(p->as, orphan_va, PAGE_SIZE, true);
                     PmmFreeFrame(segment_pages[j]);
                 }
@@ -177,13 +177,13 @@ SpaceObject *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char
                 memset((uint8_t *)PA_TO_VA(page_pa) + bytes_to_copy, 0, PAGE_SIZE - bytes_to_copy);
             }
 
-            VirtAddr va = (uint32_t)seg->vaddr + page * PAGE_SIZE;
+            VirtAddr va = (uint32_t)seg->vaddr + (page * PAGE_SIZE);
             if (!VmmMapUserPage(p->as, page_pa, va, prot))
             {
                 PmmFreeFrame(page_pa);
                 for (uint32_t j = 0; j < page; j++)
                 {
-                    VirtAddr orphan_va = (uint32_t)seg->vaddr + j * PAGE_SIZE;
+                    VirtAddr orphan_va = (uint32_t)seg->vaddr + (j * PAGE_SIZE);
                     VmmUnmapRange(p->as, orphan_va, PAGE_SIZE, true);
                     PmmFreeFrame(segment_pages[j]);
                 }
@@ -221,7 +221,7 @@ SpaceObject *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char
                 KERROR("Failed to add ELF segment region at VA %08X", (uint32_t)seg->vaddr);
                 for (uint32_t j = 0; j < file_pages; j++)
                 {
-                    VirtAddr orphan_va = (uint32_t)seg->vaddr + j * PAGE_SIZE;
+                    VirtAddr orphan_va = (uint32_t)seg->vaddr + (j * PAGE_SIZE);
                     VmmUnmapRange(p->as, orphan_va, PAGE_SIZE, true);
                     PmmFreeFrame(segment_pages[j]);
                 }
@@ -236,7 +236,7 @@ SpaceObject *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char
         if (mem_pages > file_pages)
         {
             VirtMemRegion bss_region = {
-                .vaddr_start = (uint32_t)seg->vaddr + file_pages * PAGE_SIZE,
+                .vaddr_start = (uint32_t)seg->vaddr + (file_pages * PAGE_SIZE),
                 .size = (mem_pages - file_pages) * PAGE_SIZE,
                 .prot = prot | VM_PROT_USER,
                 .memtype = VM_MEM_NORMAL,
@@ -268,7 +268,7 @@ SpaceObject *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char
 
     if (argbuf && argbuf_len > 0 && argc > 0)
     {
-        if (((const char *)argbuf)[argbuf_len - 1] != '\0')
+        if ((argbuf)[argbuf_len - 1] != '\0')
         {
             KERROR("Invalid argv payload: missing trailing NUL");
             KernelLoadFail(p, t);
@@ -278,7 +278,7 @@ SpaceObject *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char
         size_t nul_count = 0;
         for (size_t i = 0; i < argbuf_len; i++)
         {
-            if (((const char *)argbuf)[i] == '\0')
+            if ((argbuf)[i] == '\0')
             {
                 nul_count++;
             }
@@ -290,7 +290,7 @@ SpaceObject *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char
             return NULL;
         }
 
-        size_t argv_slots = (size_t)argc + 1u;
+        size_t argv_slots = (size_t)argc + 1U;
         if (argv_slots <= (size_t)argc)
         {
             KERROR("Invalid argv payload: argc too large");
@@ -315,7 +315,7 @@ SpaceObject *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char
         }
 
         check_sp -= argbuf_len;
-        check_sp &= ~((uintptr_t)3u);
+        check_sp &= ~((uintptr_t)3U);
 
         if (argv_bytes > (size_t)(check_sp - user_stack_base))
         {
@@ -325,7 +325,7 @@ SpaceObject *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char
         }
 
         check_sp -= argv_bytes;
-        check_sp &= ~((uintptr_t)7u);
+        check_sp &= ~((uintptr_t)7U);
 
         if (check_sp < user_stack_base)
         {
@@ -335,11 +335,11 @@ SpaceObject *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char
         }
 
         sp -= argbuf_len;
-        sp &= ~3u;
+        sp &= ~3U;
         VirtAddr strings_va = sp;
 
         sp -= (argc + 1) * sizeof(uint32_t);
-        sp &= ~7u;
+        sp &= ~7U;
         argv_va = sp;
 
         /* Fault in the stack pages the argv block spans, then write them
@@ -363,7 +363,7 @@ SpaceObject *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char
         for (uint32_t a = 0; a <= argc; a++)
         {
             uint32_t slot = (a < argc) ? (uint32_t)str_va : 0;
-            if (!AddrSpaceCopyOut(p->as, argv_va + a * sizeof(uint32_t), &slot, sizeof(slot)))
+            if (!AddrSpaceCopyOut(p->as, argv_va + (a * sizeof(uint32_t)), &slot, sizeof(slot)))
             {
                 KernelLoadFail(p, t);
                 return NULL;
@@ -381,7 +381,7 @@ SpaceObject *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char
     {
         t->kernel_sp = (uint32_t *)arch_thread_user_init(
             (void *)stack_top, (uintptr_t)img.entry, (uintptr_t)sp, USER_ELF_BASE, argc,
-            (uint32_t)(VirtAddr)argv_va, &t->trap_frame);
+            (uint32_t)argv_va, &t->trap_frame);
         t->state = READY;
     }
     /* leave_frozen: task stays FROZEN (TaskCreate's default) with no
