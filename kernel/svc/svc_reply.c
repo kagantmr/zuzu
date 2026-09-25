@@ -17,16 +17,15 @@ void SvcReply(CpuState *frame)
     if (!target || target->tid != rc->caller_tid || target->state == ZOMBIE ||
         target->ipc_state != IPC_WAITING)
     {
+        current_task->reply_cap = NULL;
         ArchSetInFrame(frame, 0, ERR_DEAD);
         return;
     }
-
+    
     Handle granted;
     Err grant_err = GrantHandleAcross(CURRENT_SPACE, target->owner, grant_handle, &granted);
     ENSURE_ERR(frame, (grant_err == ZUZU_OK), grant_err);
 
-    // Only clear the reply cap once delivery is certain to succeed -- on any
-    // earlier failure the server keeps it and can retry (e.g. without the grant).
     current_task->reply_cap = NULL;
 
     ReplyDeliverToCaller(target, xlen, granted);
