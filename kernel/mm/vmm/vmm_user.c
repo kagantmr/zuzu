@@ -190,6 +190,7 @@ Err VmmProtectUserRange(SpaceObject *space, VirtAddr va, size_t size, MemProt ne
     ENSURE_RET((va < USER_VA_TOP && size <= USER_VA_TOP - va), ERR_BADARG);
     ENSURE_RET(!(new_prot & ~(uint32_t)(PROT_EXEC|PROT_WRITE|PROT_READ)), ERR_BADARG);
     ENSURE_RET(!((new_prot & PROT_WRITE) && (new_prot & PROT_EXEC)), ERR_BADARG);
+    
 
     ENSURE_RET(VmmProtectPage(space->as, va, size, new_prot | VM_PROT_USER), ERR_BADARG);
     
