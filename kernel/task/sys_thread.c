@@ -2,7 +2,7 @@
 #include "kernel/proc/thread.h"
 #include "kernel/sched/sched.h"
 #include "kernel/svc/svc.h"
-#include "kernel/mm/pmm.h"
+#include "kernel/mm/pmm/pmm.h"
 #include "process.h"
 #include <arch/context.h>
 #include <zuzu/tls.h>

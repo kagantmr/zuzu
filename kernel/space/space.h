@@ -7,7 +7,7 @@
 #define _ZUZU_OBJECTS_SPACE_H
 
 #include "handle.h"
-#include "kernel/mm/vmm.h"
+#include "kernel/mm/vmm/vmm.h"
 #include "kernel/task/task.h"
 #include <bitmap.h>
 #include <zuzu/tls.h>

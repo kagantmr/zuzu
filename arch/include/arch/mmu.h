@@ -12,7 +12,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "kernel/mm/vmm.h"
+#include "kernel/mm/vmm/vmm.h"
 
 /* Architecture section/large-page size (used by ioremap slot math in the VMM). */
 #define SECTION_SIZE 0x100000u

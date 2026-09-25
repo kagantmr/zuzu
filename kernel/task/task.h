@@ -3,7 +3,7 @@
 
 #include "kernel/ipc/event.h"
 #include "kernel/ipc/port.h"
-#include "kernel/mm/vmm.h"
+#include "kernel/mm/vmm/vmm.h"
 #include <arch/fpu.h>
 #include <arch/regs.h>
 #include <list.h>

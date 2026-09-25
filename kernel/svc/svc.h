@@ -5,7 +5,7 @@
 #include "kernel/task/task.h"
 #include "stdbool.h"
 #include "stddef.h"
-#include "kernel/mm/vmm.h"
+#include "kernel/mm/vmm/vmm.h"
 #include "stdint.h"
 #include <zuzu/syscall_nums.h>
 #include <zuzu/err.h>

@@ -11,7 +11,7 @@
 #include "drivers/uart/uart.h"
 #include "kernel/layout.h"
 #include "kernel/mm/alloc.h"
-#include "kernel/mm/pmm.h"
+#include "kernel/mm/pmm/pmm.h"
 #include "kernel/sched/sched.h"
 #include "kernel/space/handle.h"
 #include "kernel/space/space.h"

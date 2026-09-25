@@ -1,7 +1,7 @@
 #include "msg.h"
 #include <string.h>
 #include <zuzu/tls.h>
-#include "kernel/mm/vmm.h"
+#include "kernel/mm/vmm/vmm.h"
 #include "kernel/space/space.h"
 #include <zuzu/err.h>
 #include "core/ensure.h"

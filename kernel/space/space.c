@@ -2,7 +2,7 @@
 
 #include "kernel/irq/irq_relay.h"
 #include "kernel/mm/alloc.h"
-#include "kernel/mm/pmm.h"
+#include "kernel/mm/pmm/pmm.h"
 #include "kernel/sched/sched.h"
 #include "kernel/syspage.h"
 #include "kernel/task/task.h"

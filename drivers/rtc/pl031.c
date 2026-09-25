@@ -1,5 +1,5 @@
 #include "drivers/driver.h"
-#include "kernel/mm/vmm.h"
+#include "kernel/mm/vmm/vmm.h"
 #include <stdint.h>
 
 #define LOG_FMT(fmt) "(board) " fmt

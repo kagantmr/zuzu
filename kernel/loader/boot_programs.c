@@ -3,7 +3,7 @@
 
 #include "core/panic.h"
 #include "kernel/boot_info.h"
-#include "kernel/mm/vmm.h"
+#include "kernel/mm/vmm/vmm.h"
 #include "kernel/sched/sched.h"
 #include "kernel/space/space.h"
 #include "kernel/task/kernel_load.h"

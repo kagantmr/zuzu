@@ -8,7 +8,7 @@
 #include <arch/fpu.h>
 #include <arch/thread.h>
 
-#include "kernel/mm/vmm.h"
+#include "kernel/mm/vmm/vmm.h"
 #include "kernel/time/tick.h"
 #include "zuzu/types.h"
 #include <arch/cpu.h>

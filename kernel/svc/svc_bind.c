@@ -1,6 +1,6 @@
 #include "core/ensure.h"
 #include "kernel/ipc/port.h"
-#include "kernel/mm/pmm.h"
+#include "kernel/mm/pmm/pmm.h"
 #include "kernel/irq/irq_relay.h"
 #include "kernel/space/space.h"
 #include "svc.h"

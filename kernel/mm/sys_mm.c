@@ -5,7 +5,7 @@
 #include <arch/barrier.h>
 #include <arch/cache.h>
 #include "core/panic.h"
-#include "kernel/mm/pmm.h"
+#include "kernel/mm/pmm/pmm.h"
 #include "kernel/layout.h"
 #include <zuzu/spawn_args.h>
 #include <string.h>
@@ -13,7 +13,7 @@
 #define LOG_FMT(fmt) "(syscall_mm) " fmt
 #include "core/log.h"
 #include "kernel/mm/alloc.h"
-#include "kernel/mm/vmm.h"
+#include "kernel/mm/vmm/vmm.h"
 #include "kernel/bench.h"
 #include <compiler.h>
 

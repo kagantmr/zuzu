@@ -1,8 +1,8 @@
 #include "syspage.h"
 #include "boot_info.h"
 #include "core/version.h"
-#include "kernel/mm/pmm.h"
-#include "kernel/mm/vmm.h"
+#include "kernel/mm/pmm/pmm.h"
+#include "kernel/mm/vmm/vmm.h"
 #include "kernel/time/tick.h"
 #include <stdio.h>
 #include <string.h>

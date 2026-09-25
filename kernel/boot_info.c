@@ -1,8 +1,8 @@
 #include "boot_info.h"
 #include "kernel/dev/fdt_wrappers.h"
 #include "kernel/mm/alloc.h"
-#include "kernel/mm/pmm.h"
-#include "kernel/mm/vmm.h"
+#include "kernel/mm/pmm/pmm.h"
+#include "kernel/mm/vmm/vmm.h"
 #include <libfdt.h>
 #include <string.h>
 #include <stddef.h>

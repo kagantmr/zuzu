@@ -3,7 +3,7 @@
 // Descriptor layouts, field positions and attribute encodings live in
 // armv7_mmu.h; this file is the logic that builds and edits them.
 
-#include "kernel/mm/pmm.h"
+#include "kernel/mm/pmm/pmm.h"
 #include "l2_pool.h"
 #include "zuzu/types.h"
 #include <arch/asid.h>

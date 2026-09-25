@@ -14,7 +14,7 @@
 #include "kernel/task/sys_thread.h"
 #include "core/panic.h"
 
-#include "kernel/mm/vmm.h"
+#include "kernel/mm/vmm/vmm.h"
 #include "zuzu/syscall_nums.h"
 #include "kernel/bench.h"
 

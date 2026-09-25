@@ -1,6 +1,6 @@
 #include "kstack.h"
-#include "kernel/mm/pmm.h"
-#include "kernel/mm/vmm.h"
+#include "kernel/mm/pmm/pmm.h"
+#include "kernel/mm/vmm/vmm.h"
 #include "stdbool.h"
 #include <arch/mmu.h>
 #include <arch/barrier.h>

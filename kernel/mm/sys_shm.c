@@ -8,7 +8,7 @@
 #include "core/log.h"
 #include "kernel/layout.h"
 #include "kernel/mm/alloc.h"
-#include "kernel/mm/pmm.h"
+#include "kernel/mm/pmm/pmm.h"
 
 extern TaskObject *current_task;
 

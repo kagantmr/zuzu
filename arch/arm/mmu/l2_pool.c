@@ -1,7 +1,7 @@
 // l2_pool.c - L2 page pool implementation for ARM MMU
 
 #include "l2_pool.h"
-#include "kernel/mm/pmm.h"
+#include "kernel/mm/pmm/pmm.h"
 #include "kernel/mm/alloc.h"
 #include "zuzu/types.h"
 #include <arch/mmu.h>

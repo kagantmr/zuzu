@@ -156,7 +156,7 @@ void gic_end(uint32_t iar) {
 }
 
 #include "drivers/driver.h"
-#include "kernel/mm/vmm.h"
+#include "kernel/mm/vmm/vmm.h"
 #include "core/panic.h"
 
 #define LOG_FMT(fmt) "(board) " fmt
