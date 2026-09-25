@@ -67,6 +67,7 @@ Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev)
 
     irq_owners[irq_num].bound_ev = ev;
     irq_owners[irq_num].bound_ev->ref_count++;
+    irq_owners[irq_num].bound_ev->irq_bind_count++;
 
     if (irq_owners[irq_num].pending)
     {

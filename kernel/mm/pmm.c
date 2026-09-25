@@ -51,7 +51,7 @@ extern void SyspageUpdateMem(void);
 
 typedef struct {
     ListNode node;
-    EventObject *ntfn;
+    EventObject *ev;
 } PmmSubscriber;
 
 static ListHead pmm_subscribers;
@@ -121,7 +121,7 @@ static void PmmFreelistRemoveRange(PhysAddr start_pa, PhysAddr end_pa)
 }
 
 
-static void PmmKEventSignalUnderLock(void)
+static void PmmKEventSignal(void)
 {
     size_t free_pct = (pmm_state.free_frames * 100) / pmm_state.total_frames;
 
@@ -136,14 +136,14 @@ static void PmmKEventSignalUnderLock(void)
         {
             PmmSubscriber *sub = container_of(pos, PmmSubscriber, node);
             // safe to remove sub from list here
-            if (!sub->ntfn->alive) {
+            if (!sub->ev->alive) {
                 list_remove(pos);
-                EventDropReference(sub->ntfn);
+                EventDropReference(sub->ev);
                 KFree(sub);
                 continue;
             }
 
-            EventSignal(sub->ntfn, KEVENT_MEMMGMT_BIT);
+            EventSignal(sub->ev, KEVENT_MEMMGMT_BIT);
         }
     } else if (pmm_state.in_pressure && free_pct > HIGH_WATER_PCT) {
         pmm_state.in_pressure = false;
@@ -193,7 +193,7 @@ static PhysAddr PmmAllocFrameUnderLock(void)
     pmm_state.free_frames--;
     assert(pmm_state.free_frames <= pmm_state.total_frames);
 
-    PmmKEventSignalUnderLock();
+    PmmKEventSignal();
     return pa;
 }
 
@@ -223,18 +223,18 @@ static void PmmReserveBootRegions(void)
         PmmMarkRange((PhysAddr)initrd_start, (PhysAddr)initrd_end);
 }
 
-int PmmSubscribe(EventObject *ntfn)
+int PmmSubscribe(EventObject *ev)
 {
-    if (!ntfn)
+    if (!ev)
         return ERR_BADARG;
 
     PmmSubscriber *new_node = KZAlloc(sizeof(PmmSubscriber));
     if (!new_node)
         return ERR_NOMEM;
-    new_node->ntfn = ntfn;
-
+    new_node->ev = ev;
+    ev->irq_bind_count++;
     list_add_tail(&new_node->node, &pmm_subscribers.node);
-    ntfn->ref_count++;
+    ev->ref_count++;
 
     return ZUZU_OK;
 }
@@ -435,7 +435,7 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
                 assert(addr % PAGE_SIZE == 0);
                 assert(pfn >= pmm_state.pfn_base && (pfn + n_frames) <= pmm_state.pfn_end);
                 SyspageUpdateMem(); // update free memory info in syspage
-                PmmKEventSignalUnderLock();
+                PmmKEventSignal();
 #ifdef CONFIG_PMM_TRACE
                 KTRACE("alloc_pages n=%zu pa=%p pid=%u scanned=%zu caller: %s", n_frames,
                        (void *)addr, current_pid_or_zero(), index + 1,
@@ -559,7 +559,7 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
                 PmmFreelistRemoveRange(start_pa, end_pa);
 
                 SyspageUpdateMem(); // update free memory info in syspage
-                PmmKEventSignalUnderLock();
+                PmmKEventSignal();
 #ifdef CONFIG_PMM_TRACE
                 KTRACE("alloc_pages_aligned n=%zu pa=%p pid=%u scanned=%zu caller: %s", n_frames,
                        (void *)start_pa, current_pid_or_zero(), index + 1,

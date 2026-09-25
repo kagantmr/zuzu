@@ -21,6 +21,7 @@ void SvcSignal(CpuState *frame)
     EventObject *ev = entry->event;
 
     ENSURE_ERR(frame, ev, ERR_DEAD);
+    ENSURE_ERR(frame, (ev->irq_bind_count == 0), ERR_NOPERM);
     ENSURE_ERR(frame, (ev->alive), ERR_DEAD);
 
     EventSignal(ev, bits);

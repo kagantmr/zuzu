@@ -97,6 +97,6 @@ PhysAddr PmmAllocFramesContigAligned(size_t n_frames, size_t align_frames);
  */
 size_t PmmAllocFramesScattered(size_t n_frames, PhysAddr *out_addrs);
 
-int PmmSubscribe(EventObject *ntfn);
+int PmmSubscribe(EventObject *ev);
 
 #endif

@@ -18,6 +18,7 @@ typedef struct EventObjectStruct
     Spid owner_spid;
     size_t ref_count;
     bool alive;
+    size_t irq_bind_count;
 } EventObject;
 
 struct WaitSlotStruct;

@@ -42,6 +42,7 @@ void SvcBind(CpuState *frame)
         ENSURE_ERR(frame, (dev_mem_obj), ERR_BADHANDLE);
         
         ENSURE_ERR(frame, IrqIsValid(dev_mem_obj->dev.irq), ERR_BADARG);
+        
         ArchSetInFrame(frame, 0, IrqBindToEvent(CURRENT_SPACE, dev_mem_obj->dev.irq, ev));
     } break;
     default:
