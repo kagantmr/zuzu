@@ -246,7 +246,7 @@ void TaskTerminate(TaskObject *task, Err exit_status)
 	 * forever. */
 	if (task->reply_cap) {
 		TaskObject *caller = task->reply_cap->caller_task;
-		if (caller && caller->tid == task->reply_cap->caller_tid && caller->state != ZOMBIE) {
+		if (caller && caller->tid == task->reply_cap->caller_tid && caller->state != ZOMBIE && caller->ipc_state == IPC_WAITING) {
 			IpcAbortWait(caller, ERR_DEAD);
 			caller->reply_holder = NULL;
 		}
