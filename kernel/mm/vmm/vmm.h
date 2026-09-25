@@ -13,6 +13,9 @@
 #define PA_TO_VA(pa) ((VirtAddr)(pa) + KERNEL_VA_OFFSET)
 #define VA_TO_PA(va) ((PhysAddr)(va) - KERNEL_VA_OFFSET)
 
+typedef struct SpaceObjectStruct SpaceObject;
+typedef struct HandleTableEntryStruct HandleTableEntry;
+
 #define IOREMAP_MAX_ENTRIES 16 // was 64
 
 #define VM_PROT_USER 1u << 3 // user-accessible (otherwise kernel-only)
@@ -45,7 +48,7 @@ typedef enum
     VM_FLAG_TEMPORARY = 1u << 3, // temporary mapping (e.g. identity map during boot)
 } VirtMemFlags;
 
-typedef struct vm_region
+typedef struct VirtMemRegionStruct
 {
     VirtAddr vaddr_start;
     size_t size;
@@ -65,7 +68,7 @@ typedef enum
 
 DEFINE_VEC(vm_region, VirtMemRegion)
 
-typedef struct addrspace
+typedef struct AddressSpaceStruct
 {
     PhysAddr pt_root_physaddr; // physical address of level-1 table
     vm_region_vec_t regions;
@@ -165,7 +168,7 @@ bool VmmBuildPts(AddressSpace *as);
  *   5. handle post-MMU transition
  * Called once during early boot.
  */
-void vmm_bootstrap(void);
+void VmmBootstrap(void);
 
 /**
  * @brief Activate/switch to an address space.
@@ -235,6 +238,14 @@ bool VmmProtectPage(AddressSpace *as, VirtAddr va, size_t size, MemProt new_prot
  * @return true on success, false on error.
  */
 bool VmmMapUserPage(AddressSpace *as, PhysAddr pa, VirtAddr va, MemProt prot);
+
+Err VmmMapAnon(SpaceObject *p, VirtAddr hint, size_t size, MemProt prot, VirtAddr *out);
+
+Err VmmMapMemObject(SpaceObject *p, HandleTableEntry *entry, MemProt prot, VirtAddr hint, VirtAddr *out);
+
+Err VmmUnmapUserRegion(SpaceObject *p, VirtAddr va);
+
+Err VmmProtectUserRange(SpaceObject *p, VirtAddr va, size_t size, MemProt new_prot);
 
 /**
  * @brief Remove the identity mapping from the kernel address space.

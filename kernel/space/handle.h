@@ -9,7 +9,7 @@
 #include <zuzu/types.h>
 
 #include "kernel/mm/alloc.h"
-#include "kernel/mm/vmm.h"
+#include "kernel/mm/vmm/vmm.h"
 
 #include "kernel/dev/devcap.h"
 #include "kernel/task/task.h"
@@ -41,7 +41,7 @@ typedef enum
     HANDLE_TYPE_COUNT
 } HandleType;
 
-typedef struct
+typedef struct HandleTableEntryStruct
 {
     HandleType type;    /* HANDLE_* */
     bool grantable;     /* Will grant() work on this handle? */

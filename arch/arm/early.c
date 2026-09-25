@@ -12,12 +12,12 @@
 #include <arch/mmu.h>
 #include <arch_impl/armv7_mmu.h>
 #include "kernel/layout.h"
-#include "kernel/mm/pmm.h"
+#include "kernel/mm/pmm/pmm.h"
 #include "kernel/kmain.h"
 #include "kernel/dev/fdt_wrappers.h"
 #include "kernel/boot_info.h"
 #include "kernel/mm/alloc.h"
-#include "kernel/mm/vmm.h"
+#include "kernel/mm/vmm/vmm.h"
 #include "core/panic.h"
 #include "core/kprintf.h"
 #include <string.h>
@@ -120,7 +120,7 @@ _Noreturn void early(void *dtb_ptr)
     KDEBUG("early: kheap");
     KHeapInit();
     KDEBUG("early: vmm bootstrap");
-    vmm_bootstrap();
+    VmmBootstrap();
 
     /* fill kernel layout VAs now that paging/higher-half mapping exists */
     kernel_layout.dtb_start_va = (void *)PA_TO_VA(kernel_layout.dtb_start_pa);
