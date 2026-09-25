@@ -157,8 +157,11 @@ __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port,
                                    EphemeralReplyObject *rc, size_t xlen, Handle grant_handle,
                                    CpuState *frame)
 {
-    ListNode *node = list_pop_front(&port->receiver_queue);
-    if (!node)
+    /* Peek, don't pop yet: allocation below can still fail with ERR_NOMEM
+     * (rx's handle table full), and by then rx must still be safely on
+     * receiver_queue -- pop only once the grant actually succeeds. */
+    ListNode *node = port->receiver_queue.node.next;
+    if (node == &port->receiver_queue.node)
         panic("CallHandoffToReceiver: called with empty receiver_queue (port=%p)", (void *)port);
     WaitSlot *rx_slot = container_of(node, WaitSlot, node);
     TaskObject *rx = rx_slot->owner;
@@ -175,6 +178,8 @@ __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port,
         ArchSetInFrame(frame, 0, err);
         return false;
     }
+
+    list_remove(node);
 
     DeliverCallToReceiver(caller, rx, rc, xlen, granted);
 
