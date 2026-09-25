@@ -12,12 +12,13 @@ typedef struct IrqOwnerStruct {
     SpaceObject *owner;
     bool pending;
     EventObject *bound_ev; // was Endpoint *bound_port
+    uint32_t bit;          // EventWord bit this IRQ signals, 0..30 (31 is reserved)
 } IrqOwner;
 
 bool IrqIsValid(Irq irq_num);
 void IrqReleaseAll(SpaceObject *owner);
 bool IrqClearPending(Irq irq_num);
-Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev);
+Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev, uint32_t bit);
 
 /** Read-only view of the IRQ ownership table, indexed by IRQ line, for
  *  diagnostics (core/panic.c). */

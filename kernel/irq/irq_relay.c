@@ -27,7 +27,7 @@ static void __hot RelayIsr(void *ctx)
     EventObject *ntfn = irq_owners[irq_num].bound_ev;
     if (likely(ntfn && ntfn->alive))
     {
-        EventSignal(ntfn, (1U << (irq_num & 31)));
+        EventSignal(ntfn, (1U << irq_owners[irq_num].bit));
         irq_owners[irq_num].pending = false;
     }
     else if (ntfn && !ntfn->alive)
@@ -41,7 +41,7 @@ bool IrqIsValid(Irq irq_num)
     return (irq_num < MAX_IRQS) && !ArchIrqIsOwnedByKernel(irq_num);
 }
 
-Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev)
+Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev, uint32_t bit)
 {
     /* Ownership: free line is ours to claim; a line owned by someone else is busy. */
     SpaceObject *current_owner = irq_owners[irq_num].owner;
@@ -55,9 +55,10 @@ Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev)
     if (!current_owner)
     {
         irq_owners[irq_num] =
-            (IrqOwner){.bound_ev = NULL, .owner = owner, .pending = false};
+            (IrqOwner){.bound_ev = NULL, .owner = owner, .pending = false, .bit = bit};
         ArchIrqRegister(irq_num, RelayIsr, (void *)(VirtAddr)irq_num);
     }
+    irq_owners[irq_num].bit = bit;
 
     if (irq_owners[irq_num].bound_ev)
     {
@@ -72,7 +73,7 @@ Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev)
 
     if (irq_owners[irq_num].pending)
     {
-        EventSignal(irq_owners[irq_num].bound_ev, (1U << (irq_num & 31)));
+        EventSignal(irq_owners[irq_num].bound_ev, (1U << irq_owners[irq_num].bit));
         irq_owners[irq_num].pending = false;
     }
 

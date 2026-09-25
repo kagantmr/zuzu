@@ -32,18 +32,20 @@ void SvcBind(CpuState *frame)
     case EVENT_IRQ:
     {
         Handle dev_handle = (Handle)(*ArchGetFromFrame(frame, 2));
+        uint32_t bit = (uint32_t)(*ArchGetFromFrame(frame, 3));
         HandleTableEntry *dev_entry = HandleTableLookup(&CURRENT_SPACE->handle_table, dev_handle);
-    
+
         ENSURE_ERR(frame, dev_entry, ERR_BADHANDLE);
         ENSURE_ERR(frame, (dev_entry->type == HANDLE_MEM && dev_entry->mem->kind == MEMTYPE_DEVICE), ERR_BADTYPE);
-    
+
         MemObject *dev_mem_obj = dev_entry->mem;
-    
+
         ENSURE_ERR(frame, (dev_mem_obj), ERR_BADHANDLE);
-        
+
         ENSURE_ERR(frame, IrqIsValid(dev_mem_obj->dev.irq), ERR_BADARG);
-        
-        ArchSetInFrame(frame, 0, IrqBindToEvent(CURRENT_SPACE, dev_mem_obj->dev.irq, ev));
+        ENSURE_ERR(frame, (bit < 31u), ERR_BADARG);
+
+        ArchSetInFrame(frame, 0, IrqBindToEvent(CURRENT_SPACE, dev_mem_obj->dev.irq, ev, bit));
     } break;
     default:
         ArchSetInFrame(frame, 0, ERR_BADARG);
