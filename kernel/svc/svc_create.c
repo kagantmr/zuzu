@@ -6,6 +6,13 @@
 #include <zuzu/err.h>
 #include <zuzu/types.h>
 
+static void FreeScatteredPages(PhysAddr *addrs, size_t count)
+{
+    for (size_t i = 0; i < count; i++)
+        PmmFreeFrame(addrs[i]);
+    KFree(addrs);
+}
+
 void SvcCreate(CpuState *frame)
 {
     // Dispatch based on type
@@ -118,6 +125,35 @@ void SvcCreate(CpuState *frame)
     break;
     case CREATE_MEMORY:
     {
+        // MEMORY: r0=type, r1=page_count. Only SHM is user-creatable; Device
+        // MemObjects come from kernel/boot-time injection (InjectDeviceObjectsToRootSvc
+        // in boot_programs.c), never this path.
+        size_t page_count = (size_t)(*ArchGetFromFrame(frame, 1));
+        ENSURE_ERR(frame, (page_count > 0), ERR_BADARG);
+    
+        PhysAddr *page_addrs = KZAlloc(page_count * sizeof(PhysAddr));
+        ENSURE_ERR(frame, (NULL != page_addrs), ERR_NOMEM);
+    
+        size_t got = PmmAllocFramesScattered(page_count, page_addrs);
+        ENSURE(got == page_count, FreeScatteredPages(page_addrs, got);
+               ArchSetInFrame(frame, 0, ERR_NOMEM); return);
+    
+        MemObject *mem = MemObjCreateShm(page_addrs, page_count);
+        ENSURE(NULL != mem, FreeScatteredPages(page_addrs, page_count);
+               ArchSetInFrame(frame, 0, ERR_NOMEM); return);
+    
+        Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
+        ENSURE(-1 != new_handle, MemObjDestroy(mem); ArchSetInFrame(frame, 0, ERR_NOMEM); return);
+    
+        HandleTableEntry *entry =
+            HandleTableGet(&CURRENT_SPACE->handle_table, new_handle);
+        HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
+        entry->type = HANDLE_MEM;
+        entry->mem = mem;
+        entry->grantable = true;
+        entry->mapped_va = 0;
+    
+        (*ArchGetFromFrame(frame, 0)) = (Register)HANDLE_PACK(new_handle, entry->generation);
     }
     break;
     default:

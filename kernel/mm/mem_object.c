@@ -42,5 +42,15 @@ void MemObjDestroy(MemObject *mem)
 {
     if (!mem) return;
     if (mem->ref_count > 0) mem->ref_count--;
-    if (mem->ref_count == 0) MemObjFree(mem);
+    if (mem->ref_count == 0)
+    {
+        if (mem->kind == MEMTYPE_SHARED)
+        {
+            for (size_t i = 0; i < mem->shm.page_count; i++)
+                if (mem->shm.page_addrs[i] != 0) /* demand-paged: skip unfaulted slots */
+                    PmmFreeFrame(mem->shm.page_addrs[i]);
+            KFree(mem->shm.page_addrs);
+        }
+        MemObjFree(mem);
+    }
 }
