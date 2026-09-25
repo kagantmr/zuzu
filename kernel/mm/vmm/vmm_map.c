@@ -65,56 +65,6 @@ bool VmmProtectPage(AddressSpace *as, VirtAddr va, size_t size, MemProt new_prot
     return true;
 }
 
-bool VmmMapUserPage(AddressSpace *as, PhysAddr pa, VirtAddr va, MemProt prot) {
-    if (!as) return false;
-    if (as->type != ADDRSPACE_USER) return false;
-    if ((pa % PAGE_SIZE) != 0) return false;
-    if ((va % PAGE_SIZE) != 0) return false;
-
-    return VmmMapRange(as, va, pa, PAGE_SIZE, prot | VM_PROT_USER,
-                         VM_MEM_NORMAL, VM_OWNER_SHARED, VM_FLAG_NONE);
-}
-
-bool VmmCheckUserFault(AddressSpace *as, VirtAddr va, size_t len, bool write) {
-    if (!as)
-        return false;
-    if (len == 0)
-        return true;
-    if (va > UINTPTR_MAX - len)
-        return false;
-
-    const uintptr_t end = va + len;
-    if (as->type == ADDRSPACE_USER && (va >= USER_VA_TOP || end > USER_VA_TOP))
-        return false;
-
-    uintptr_t page_va = align_down(va, PAGE_SIZE);
-    const uintptr_t end_va = align_up(end, PAGE_SIZE);
-
-    while (page_va < end_va) {
-        if (ArchMmuTranslate(as->pt_root_physaddr, page_va) != 0) {
-            // Already mapped — nothing to do
-            page_va += PAGE_SIZE;
-            continue;
-        }
-        VirtMemRegion *r = VmmFindRegion(as, page_va);
-        if (!r)
-            return false;
-        if (r->flags & VM_FLAG_GUARD)
-            return false;
-        if (!(r->prot & PROT_READ))
-            return false;
-        if (write && !(r->prot & PROT_WRITE))
-            return false;
-
-        if (!VmmPageFaultHandle(as, r, page_va))
-            return false;
-
-        page_va += PAGE_SIZE;
-    }
-
-    return true;
-}
-
 void VmmActivateAddrspace(AddressSpace *as) {
     if (!as) return;
     if (as == g_current_addrspace) return;

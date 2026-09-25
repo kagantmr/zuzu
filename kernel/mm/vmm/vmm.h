@@ -18,7 +18,7 @@ typedef struct HandleTableEntryStruct HandleTableEntry;
 
 #define IOREMAP_MAX_ENTRIES 16 // was 64
 
-#define VM_PROT_USER 1u << 3 // user-accessible (otherwise kernel-only)
+#define VM_PROT_USER (1U << 3) // user-accessible (otherwise kernel-only)
 
 typedef enum
 {
@@ -42,10 +42,10 @@ typedef enum
 typedef enum
 {
     VM_FLAG_NONE = 0,
-    VM_FLAG_PINNED = 1u << 0,    // must stay mapped
-    VM_FLAG_GLOBAL = 1u << 1,    // global TLB entry where supported
-    VM_FLAG_GUARD = 1u << 2,     // guard page/region
-    VM_FLAG_TEMPORARY = 1u << 3, // temporary mapping (e.g. identity map during boot)
+    VM_FLAG_PINNED = 1U << 0,    // must stay mapped
+    VM_FLAG_GLOBAL = 1U << 1,    // global TLB entry where supported
+    VM_FLAG_GUARD = 1U << 2,     // guard page/region
+    VM_FLAG_TEMPORARY = 1U << 3, // temporary mapping (e.g. identity map during boot)
 } VirtMemFlags;
 
 typedef struct VirtMemRegionStruct
@@ -76,17 +76,6 @@ typedef struct AddressSpaceStruct
     AsType type;
     asid_token_t asid_token;
 } AddressSpace;
-
-typedef struct
-{
-    PhysAddr *page_addrs; // array of individual PAs, one per page
-    size_t page_count;     // amount of used pages
-    size_t ref_count;    // live HANDLE references (shm_create + each grant). NOT mappings. Object frees when this hits zero.
-} ShmObject;
-
-/* Drop one handle reference to a shmem object. shm_create and each grant add
- * one; SysDestroy and process teardown drop one. */
-void ShmemDropReference(ShmObject *shm);
 
 #define IOREMAP_SIZE (IOREMAP_END - IOREMAP_BASE + 1)
 #define IOREMAP_SLOTS (IOREMAP_SIZE / SECTION_SIZE) // 256
@@ -239,13 +228,13 @@ bool VmmProtectPage(AddressSpace *as, VirtAddr va, size_t size, MemProt new_prot
  */
 bool VmmMapUserPage(AddressSpace *as, PhysAddr pa, VirtAddr va, MemProt prot);
 
-Err VmmMapAnon(SpaceObject *p, VirtAddr hint, size_t size, MemProt prot, VirtAddr *out);
+Err VmmMapAnon(SpaceObject *space, VirtAddr hint, size_t size, MemProt prot, VirtAddr *out);
 
-Err VmmMapMemObject(SpaceObject *p, HandleTableEntry *entry, MemProt prot, VirtAddr hint, VirtAddr *out);
+Err VmmMapMemObject(SpaceObject *space, HandleTableEntry *entry, MemProt prot, VirtAddr hint, VirtAddr *out);
 
-Err VmmUnmapUserRegion(SpaceObject *p, VirtAddr va);
+Err VmmUnmapUserRegion(SpaceObject *space, VirtAddr va);
 
-Err VmmProtectUserRange(SpaceObject *p, VirtAddr va, size_t size, MemProt new_prot);
+Err VmmProtectUserRange(SpaceObject *space, VirtAddr va, size_t size, MemProt new_prot);
 
 /**
  * @brief Remove the identity mapping from the kernel address space.
