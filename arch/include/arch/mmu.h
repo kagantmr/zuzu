@@ -61,7 +61,7 @@ void arch_mmu_flush_tlb_va_asid(uintptr_t va, uint8_t asid);
  * @brief Walk page tables to translate a VA to its PA.
  * @return Physical address, or 0 if unmapped.
  */
-uintptr_t arch_mmu_translate(uintptr_t ttbr_pa, uintptr_t va);
+uintptr_t ArchMmuTranslate(uintptr_t ttbr_pa, uintptr_t va);
 
 /** @brief Unmap a single page. */
 bool arch_mmu_unmap_page(AddressSpace *as, uintptr_t va);

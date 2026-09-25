@@ -39,7 +39,7 @@ VirtAddr KernelStackAlloc(void)
 		if (!arch_mmu_unmap_page(VmmGetKernelAddrspace(), slot_va)) {
 			/* If translation is already absent, the guard page is already in
 			 * the desired state and this is not an allocation failure. */
-			if (arch_mmu_translate(VmmGetKernelAddrspace()->pt_root_physaddr, slot_va) != 0) {
+			if (ArchMmuTranslate(VmmGetKernelAddrspace()->pt_root_physaddr, slot_va) != 0) {
 				VmmUnmapRange(VmmGetKernelAddrspace(), slot_va + KSTACK_GUARD_SIZE,
 						PAGE_SIZE, true);
 				PmmFreeFrame(page_pa);

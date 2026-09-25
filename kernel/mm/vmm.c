@@ -1,6 +1,7 @@
 #include "vmm.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm.h"
+#include "kernel/mm/mem_object.h"
 #include <arch/mmu.h>
 #include <arch/symbols.h>
 #include <stddef.h>
@@ -75,36 +76,36 @@ static VirtMemRegion *VmmFindRegion(AddressSpace *as, uintptr_t va)
                    sizeof(VirtMemRegion), RegionContainsVa);
 }
 
-bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, uintptr_t page_va)
+bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, VirtAddr page_va)
 {
     if (!as || !r)
         return false;
 
-    if (arch_mmu_translate(as->pt_root_physaddr, page_va) != 0)
+    if (ArchMmuTranslate(as->pt_root_physaddr, page_va) != 0)
         return true;
 
     if (r->memtype == VM_MEM_DEVICE)
         return false;
 
-    uintptr_t new_pa = 0;
+    PhysAddr new_pa = 0;
     bool allocated_new = false;
 
     if (r->owner == VM_OWNER_SHARED && r->backing) {
-        ShmObject *shm = (ShmObject *)r->backing;
+        MemObject *mem = (MemObject *)r->backing;
         if (page_va < r->vaddr_start)
             return false;
 
         size_t page_index = (size_t)((page_va - r->vaddr_start) / PAGE_SIZE);
-        if (page_index >= shm->page_count)
+        if (page_index >= mem->shm.page_count)
             return false;
 
-        new_pa = shm->page_addrs[page_index];
+        new_pa = mem->shm.page_addrs[page_index];
         if (new_pa == 0) {
             new_pa = PmmAllocFrame();
             if (new_pa == 0)
                 return false;
             memset((void *)PA_TO_VA(new_pa), 0, PAGE_SIZE);
-            shm->page_addrs[page_index] = new_pa;
+            mem->shm.page_addrs[page_index] = new_pa;
             allocated_new = true;
         }
     } else if (r->owner == VM_OWNER_ANON) {
@@ -121,10 +122,10 @@ bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, ui
                        r->prot, r->memtype, r->owner, r->flags)) {
         if (allocated_new) {
             if (r->owner == VM_OWNER_SHARED && r->backing) {
-                ShmObject *shm = (ShmObject *)r->backing;
+                MemObject *mem = (MemObject *)r->backing;
                 size_t page_index = (size_t)((page_va - r->vaddr_start) / PAGE_SIZE);
-                if (page_index < shm->page_count && shm->page_addrs[page_index] == new_pa)
-                    shm->page_addrs[page_index] = 0;
+                if (page_index < mem->shm.page_count && mem->shm.page_addrs[page_index] == new_pa)
+                    mem->shm.page_addrs[page_index] = 0;
             }
             PmmFreeFrame(new_pa);
         }
@@ -553,7 +554,7 @@ bool VmmCheckUserFault(AddressSpace *as, VirtAddr va, size_t len, bool write) {
     const uintptr_t end_va = align_up(end, PAGE_SIZE);
 
     while (page_va < end_va) {
-        if (arch_mmu_translate(as->pt_root_physaddr, page_va) != 0) {
+        if (ArchMmuTranslate(as->pt_root_physaddr, page_va) != 0) {
             // Already mapped — nothing to do
             page_va += PAGE_SIZE;
             continue;

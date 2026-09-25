@@ -292,7 +292,7 @@ void SysMemUnmap(CpuState *frame)
                 // (demand paging means not every page in the region may be mapped)
                 for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE)
                 {
-                    uintptr_t pa = arch_mmu_translate(as->pt_root_physaddr, va + offset);
+                    uintptr_t pa = ArchMmuTranslate(as->pt_root_physaddr, va + offset);
                     if (pa != 0) PmmFreeFrame(pa);
                 }
             } break;
@@ -510,7 +510,7 @@ void SysAsInject(CpuState *frame)
             /* Inside an existing region a page may already be faulted in;
              * write into it instead of remapping. page_addrs[] tracks only
              * pages we allocated ourselves, for rollback. */
-            PhysAddr page = enclosing ? arch_mmu_translate(target->as->pt_root_physaddr, dst_page) : 0;
+            PhysAddr page = enclosing ? ArchMmuTranslate(target->as->pt_root_physaddr, dst_page) : 0;
             bool fresh = (page == 0);
             if (fresh)
             {
@@ -559,7 +559,7 @@ void SysAsInject(CpuState *frame)
         {
             for (size_t i = 0; i < page_count; i++)
             {
-                PhysAddr pa = arch_mmu_translate(target->as->pt_root_physaddr,
+                PhysAddr pa = ArchMmuTranslate(target->as->pt_root_physaddr,
                                                  kargs.dest_vaddr + i * PAGE_SIZE);
                 if (pa)
                     arch_cache_clean_dcache_range(PA_TO_VA(pa), PAGE_SIZE);

@@ -452,7 +452,7 @@ void arch_mmu_flush_tlb_va_asid(uintptr_t va, uint8_t asid)
                      : "memory");
 }
 
-uintptr_t arch_mmu_translate(PhysAddr ttbr_pa, VirtAddr va)
+uintptr_t ArchMmuTranslate(PhysAddr ttbr_pa, VirtAddr va)
 {
     if (ttbr_pa == 0)
     {
