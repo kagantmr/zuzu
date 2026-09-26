@@ -8,12 +8,12 @@
 #include <stddef.h>
 #include <string.h>
 #include <zuzu/err.h>
-#include "core/ensure.h"
 
 #define MAX_THREADS 1024
 
 #define LOG_FMT(fmt) "(task) " fmt
 #include <zuzu/log.h>
+#include "core/ensure.h"
 
 static Tid next_tid = 1;
 static TaskObject *task_table[MAX_THREADS];
