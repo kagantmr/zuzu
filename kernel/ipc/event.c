@@ -32,14 +32,9 @@ void EventWakeWaiter(EventObject *ev, WaitSlot *slot, EventWord bits)
               waiter ? (void *)waiter->trap_frame : NULL);
     }
 
-    (*ArchGetFromFrame(waiter->trap_frame, 0)) = (Register)bits;
-
-    SchedRemoveSleepQueue(waiter);
-    waiter->wake_deadline = 0;
-    waiter->wake_reason = WAKE_IPC;
-    waiter->blocked_port = NULL;
-    waiter->ipc_state = IPC_NONE;
-    waiter->state = READY;
+    ArchSetInFrame(waiter->trap_frame, 0, ZUZU_OK);
+    (*ArchGetFromFrame(waiter->trap_frame, 1)) = (Register)bits;
+    SchedUnblock(waiter, WAKE_IPC);
     SchedAdd(waiter);
 }
 

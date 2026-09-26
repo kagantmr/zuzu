@@ -278,28 +278,15 @@ void SpaceDestroy(SpaceObject *sp)
                 {
                     ListNode *n = list_pop_front(&port->sender_queue);
                     TaskObject *task = container_of(n, TaskObject, node);
-                    task->ipc_state = IPC_NONE;
-                    task->blocked_port = NULL;
-                    task->wake_reason = WAKE_IPC;
-                    if (task->trap_frame)
-                        ArchSetInFrame(task->trap_frame, 0, ERR_DEAD);
-                    task->state = READY;
-                    SchedAdd(task);
+                    TaskAbortWait(task, ERR_DEAD);
                 }
                 while (!list_empty(&port->receiver_queue))
                 {
                     ListNode *n = list_pop_front(&port->receiver_queue);
                     WaitSlot *slot = container_of(n, WaitSlot, node);
                     TaskObject *task = slot->owner;
-                    task->ipc_state = IPC_NONE;
-                    task->blocked_port = NULL;
-                    SchedRemoveSleepQueue(task);
-                    task->wake_deadline = 0;
-                    task->wake_reason = WAKE_IPC;
-                    if (task->trap_frame)
-                        ArchSetInFrame(task->trap_frame, 0, ERR_DEAD);
-                    task->state = READY;
-                    SchedAdd(task);
+                    TaskAbortWait(task, ERR_DEAD);   
+
                 }
             }
             if (port)

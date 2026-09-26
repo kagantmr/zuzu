@@ -95,6 +95,7 @@ void KillTask(TaskObject *task);
 void WakeJoinTask(TaskObject *task, Err exit_status);
 TaskObject *FindTaskByTid(Tid tid);
 void TaskUnlinkWaits(TaskObject *t);
+void TaskAbortWait(TaskObject *t, Err err);
 
 /**
  * @brief Unify self-directed Quit and external Term: mark the task ZOMBIE,

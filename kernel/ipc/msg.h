@@ -33,8 +33,4 @@ bool __hot CallHandoffToReceiver(TaskObject *caller, PortObject *port,
 
 void __hot ReplyDeliverToCaller(TaskObject *target, uint32_t xlen, Handle granted);
 
-/* Error-wake counterpart of EventWakeWaiter: forces t out of an IPC wait
- * with err. Caller must have already unlinked t from its queue/slot. */
-void IpcAbortWait(TaskObject *t, Err err);
-
 #endif /* _ZUZU_KERNEL_IPC_MSG_H */

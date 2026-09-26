@@ -77,11 +77,12 @@ void WakeJoinTask(TaskObject *task, Err exit_status)
 		if (!node)
 			break;
 		TaskObject *joiner = container_of(node, WaitSlot, node)->owner;
-		joiner->wake_reason = WAKE_IPC;
-		joiner->state = READY;
-		if (joiner->trap_frame)
-			(*ArchGetFromFrame(joiner->trap_frame, 0)) = exit_status;
-		SchedAdd(joiner);
+		if (joiner->trap_frame) {
+            ArchSetInFrame(joiner->trap_frame, 0, ZUZU_OK);
+            (*ArchGetFromFrame(joiner->trap_frame, 1)) = (Register)exit_status;
+        }
+        SchedUnblock(joiner, WAKE_IPC);
+        SchedAdd(joiner);
 	}
 }
 
@@ -220,6 +221,15 @@ void TaskUnlinkWaits(TaskObject *t)
         list_remove(&t->wait_slot.node);
 }
 
+void TaskAbortWait(TaskObject *t, Err err)
+{
+    if (t->trap_frame)
+        ArchSetInFrame(t->trap_frame, 0, err);
+    t->pending_reply_cap = NULL;
+    SchedUnblock(t, WAKE_IPC);
+    SchedAdd(t);
+}
+
 void TaskTerminate(TaskObject *task, Err exit_status)
 {
 	if (!task)
@@ -244,7 +254,7 @@ void TaskTerminate(TaskObject *task, Err exit_status)
 	if (task->reply_cap) {
 		TaskObject *caller = task->reply_cap->caller_task;
 		if (caller && caller->tid == task->reply_cap->caller_tid && caller->state != ZOMBIE && caller->ipc_state == IPC_WAITING) {
-			IpcAbortWait(caller, ERR_DEAD);
+			TaskAbortWait(caller, ERR_DEAD);
 			caller->reply_holder = NULL;
 		}
 		task->reply_cap = NULL;
