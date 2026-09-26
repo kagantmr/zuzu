@@ -91,7 +91,7 @@ _Static_assert(offsetof(TaskObject, kernel_sp) == 12,
 
 void TaskDestroy(TaskObject *task);
 TaskObject *TaskCreate(SpaceObject *owner);
-void TaskWait(TaskObject *task,Duration timeout, CpuState *frame);
+void TaskWaitExit(TaskObject *task,Duration timeout, CpuState *frame);
 void KillTask(TaskObject *task);
 void WakeJoinTask(TaskObject *task, Err exit_status);
 TaskObject *FindTaskByTid(Tid tid);

@@ -8,6 +8,7 @@
 #include <stddef.h>
 #include <string.h>
 #include <zuzu/err.h>
+#include "core/ensure.h"
 
 #define MAX_THREADS 1024
 
@@ -116,7 +117,8 @@ void TaskDestroy(TaskObject *task)
 		SpaceFinalize(owner);
 }
 
-void TaskWait(TaskObject *task,Duration timeout, CpuState *frame) {
+void TaskWaitExit(TaskObject *task,Duration timeout, CpuState *frame) {
+    ENSURE_ERR(frame, task != current_task, ERR_BADARG);
     if (ZOMBIE == task->state) {
         ArchSetInFrame(frame, 0, ZUZU_OK);
         ArchSetInFrame(frame, 1, task->exit_status);
