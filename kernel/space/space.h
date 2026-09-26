@@ -30,8 +30,11 @@ typedef struct SpaceObjectStruct
     HandleTable handle_table;            /**< Handle table for this space. */
     TaskObject *main_task;               /**< Pointer to the thread associated with this space. */
     ListHead tasks;                      /**< List of threads in this space. */
-    ListHead kittens;                   /**< List of child spaces. */
+    ListHead kittens;                    /**< List of kitten spaces. */
     ListNode sibling_node;               /**< Embedded list node for sibling management. */
+    uint32_t live_tasks;                 /**< Count of live tasks */
+    Err last_exit_status;                /**< Anyone waiting on this Space will receive this upon hollowness. */
+    ListHead waiters; 
     PhysAddr tcb_page_pa[MAX_TCB_PAGES]; /**< TCB page physical addresses. */
     VirtAddr tcb_page_va;                /**< TCB page virtual address. */
     uint32_t tcb_slot_bitmap[BITMAP_WORDS(256)]; /**< TCB slot bitmap. */
@@ -114,6 +117,8 @@ SpaceObject *SpaceFindZombieKitten(SpaceObject *parent);
  * TaskDestroy calls SpaceFinalize() once that last task is actually freed.
  */
 void SpaceDestroy(SpaceObject *sp);
+
+void SpaceWaitHollow(SpaceObject *sp, Duration timeout, CpuState *frame);
 
 /**
  * @brief Free a torn-down SpaceObject once no task references it anymore.

@@ -11,6 +11,7 @@
 #include <zuzu/user_layout.h>
 
 #define LOG_FMT(fmt) "(space) " fmt
+#include "core/ensure.h"
 #include "core/log.h"
 
 static uint32_t next_pid = 1;
@@ -48,6 +49,7 @@ SpaceObject *SpaceCreate(const char *name)
 
     list_init(&sp->tasks);
     list_init(&sp->kittens);
+    list_init(&sp->waiters);
 
     if (!HandleTableInit(&sp->handle_table))
         goto fail;
@@ -237,10 +239,17 @@ void SpaceDestroy(SpaceObject *sp)
     while (task_node != &sp->tasks.node)
     {
         ListNode *next = task_node->next;
-        TaskObject *task = container_of(task_node, TaskObject, process_node);
+        TaskObject *task = container_of(task_node, TaskObject, space_node);
         if (task->state != ZOMBIE)
             TaskTerminate(task, ERR_DEAD);
         task_node = next;
+    }
+
+    while (!list_empty(&sp->waiters))
+    {
+        ListNode *node = list_pop_front(&sp->waiters);
+        WaitSlot *slot = container_of(node, WaitSlot, node);
+        TaskAbortWait(slot->owner, ERR_DEAD);
     }
 
     IrqReleaseAll(sp);
@@ -285,7 +294,7 @@ void SpaceDestroy(SpaceObject *sp)
                     ListNode *n = list_pop_front(&port->receiver_queue);
                     WaitSlot *slot = container_of(n, WaitSlot, node);
                     TaskObject *task = slot->owner;
-                    TaskAbortWait(task, ERR_DEAD);   
+                    TaskAbortWait(task, ERR_DEAD);
 
                 }
             }
@@ -360,4 +369,16 @@ void SpaceFinalize(SpaceObject *sp)
     if (!sp)
         return;
     KSlabFree(&space_cache, sp);
+}
+
+void SpaceWaitHollow(SpaceObject *sp, Duration timeout, CpuState *frame)
+{
+    ENSURE_ERR(frame, sp != current_task->owner, ERR_BADARG);
+    if (sp->live_tasks == 0)
+    {
+        ArchSetInFrame(frame, 0, ZUZU_OK);
+        ArchSetInFrame(frame, 1, (Register)sp->last_exit_status);
+        return;
+    }
+    SchedBlockOn(&sp->waiters, timeout);
 }
