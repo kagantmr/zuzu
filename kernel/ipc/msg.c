@@ -124,15 +124,6 @@ void CallBlockAsSender(TaskObject *caller, PortObject *port,
     Schedule();
 }
 
-/* The only code that writes a receiver's r0-r3 for a delivered Call:
- *   r0 = 0 (index of the handle that fired; always 0 for a direct handoff)
- *   r1 = marker of the handle the caller used
- *   r2 = xlen
- *   r3 = granted handle in the receiver's table, or -1 if none
- * Also copies the message buffer, hands the receiver the reply ticket, and
- * clears its wait state. CallHandoffToReceiver uses this now; WaitOn's
- * pickup path (not yet written) will use it too, so the two can never
- * drift apart. */
 void DeliverCallToReceiver(TaskObject *caller, TaskObject *rx, EphemeralReplyObject *rc,
                             size_t xlen, Handle granted)
 {
@@ -145,16 +136,11 @@ void DeliverCallToReceiver(TaskObject *caller, TaskObject *rx, EphemeralReplyObj
 
     rx->reply_cap = rc;
     caller->reply_holder = rx;
-    SchedUnblock(rx, WAKE_IPC);
-}
 
 __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port,
                                    EphemeralReplyObject *rc, size_t xlen, Handle grant_handle,
                                    CpuState *frame)
 {
-    /* Peek, don't pop yet: allocation below can still fail with ERR_NOMEM
-     * (rx's handle table full), and by then rx must still be safely on
-     * receiver_queue -- pop only once the grant actually succeeds. */
     ListNode *node = port->receiver_queue.node.next;
     if (node == &port->receiver_queue.node)
         panic("CallHandoffToReceiver: called with empty receiver_queue (port=%p)", (void *)port);
@@ -177,6 +163,7 @@ __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port,
     list_remove(node);
 
     DeliverCallToReceiver(caller, rx, rc, xlen, granted);
+    SchedUnblock(rx, WAKE_IPC);
 
     caller->ipc_state = IPC_WAITING;
     caller->blocked_port = port;
@@ -184,7 +171,6 @@ __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port,
     caller->state = BLOCKED;
 
     if (unlikely(SchedAnyCpuTakers(rx))) {
-        rx->state = READY;
         SchedAdd(rx);
         Schedule();
     } else {
