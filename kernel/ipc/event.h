@@ -24,17 +24,6 @@ typedef struct EventObjectStruct
 struct WaitSlotStruct;
 
 /**
- * @brief Wake one waiter already popped from ev->wait_queue.
- * @param ev     Notification the waiter was popped from.
- * @param slot     Waiter's slot, already popped.
- * @param r0_value Lands in the waiter's r0: delivered bits from EventSignal(),
- *                 or a negative error from cap_destroy.
- * @note A queued waiter without a trap frame is a corrupt wait queue:
- * panics rather than limp past it.
- */
-void EventWakeWaiter(EventObject *ev, struct WaitSlotStruct *slot, EventWord bits);
-
-/**
  * @brief Signal one or more bits on an event object.
  *
  * ORs @p bits into the event's word and wakes at most one waiter.

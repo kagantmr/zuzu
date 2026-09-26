@@ -46,7 +46,7 @@ void PortDestroy(PortObject *port) {
     {
         ListNode *n = list_pop_front(&port->sender_queue);
         TaskObject *t = container_of(n, TaskObject, node);
-        IpcAbortWait(t, ERR_DEAD);
+        TaskAbortWait(t, ERR_DEAD);
     }
 
     // Wake all blocked receivers with error
@@ -55,7 +55,7 @@ void PortDestroy(PortObject *port) {
         ListNode *n = list_pop_front(&port->receiver_queue);
         WaitSlot *slot = container_of(n, WaitSlot, node);
         TaskObject *t = slot->owner;
-        IpcAbortWait(t, ERR_DEAD);
+        TaskAbortWait(t, ERR_DEAD);
     }
 
     port->alive = false;

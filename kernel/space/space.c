@@ -324,7 +324,7 @@ void SpaceDestroy(SpaceObject *sp)
                 {
                     ListNode *n = list_pop_front(&event->wait_queue);
                     WaitSlot *slot = container_of(n, WaitSlot, node);
-                    EventWakeWaiter(event, slot, (EventWord)ERR_DEAD);
+                    TaskAbortWait(slot->owner, ERR_DEAD);
                 }
             }
             if (event)

@@ -21,22 +21,6 @@ EventObject *EventObjAlloc(void)
 
 void EventObjFree(EventObject *ev) { KSlabFree(&event_cache, ev); }
 
-void EventWakeWaiter(EventObject *ev, WaitSlot *slot, EventWord bits)
-{
-    TaskObject *waiter = slot->owner;
-    if (!waiter || !waiter->trap_frame)
-    {
-        panic("NtfnWakeWaiter: queued waiter with no trap frame "
-              "(ntfn=%p slot=%p owner=%p trap_frame=%p)",
-              (void *)ev, (void *)slot, (void *)waiter,
-              waiter ? (void *)waiter->trap_frame : NULL);
-    }
-
-    ArchSetInFrame(waiter->trap_frame, 0, ZUZU_OK);
-    (*ArchGetFromFrame(waiter->trap_frame, 1)) = (Register)bits;
-    SchedUnblock(waiter, WAKE_IPC);
-    SchedAdd(waiter);
-}
 
 void EventSignal(EventObject *ev, EventWord bits)
 {
@@ -46,8 +30,11 @@ void EventSignal(EventObject *ev, EventWord bits)
     {
         ListNode *node = list_pop_front(&ev->wait_queue);
         WaitSlot *slot = container_of(node, WaitSlot, node);
-        EventWord delivered = ev->word;
-        EventWakeWaiter(ev, slot, delivered);
+        TaskObject *waiter = slot->owner;
+        ArchSetInFrame(waiter->trap_frame, 0, ZUZU_OK);
+        (*ArchGetFromFrame(waiter->trap_frame, 1)) = (Register)bits;
+        SchedUnblock(waiter, WAKE_IPC);
+        SchedAdd(waiter);
         ev->word = 0;
     }
 }
@@ -87,7 +74,7 @@ void EventDestroy(EventObject *ev)
     {
         ListNode *n = list_pop_front(&ev->wait_queue);
         WaitSlot *slot = container_of(n, WaitSlot, node);
-        EventWakeWaiter(ev, slot, (EventWord)ERR_DEAD);
+        TaskAbortWait(slot->owner, ERR_DEAD);
     }
     ev->alive = false;
 
