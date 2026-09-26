@@ -238,36 +238,10 @@ static void SchedWakeSleepers(void)
                 continue;
             }
 
-            if (t->ipc_state == IPC_RECEIVER || t->ipc_state == IPC_SENDER)
-            {
-                if (t->ipc_state == IPC_SENDER)
-                {
-                    if (t->node.prev && t->node.next)
-                        list_remove(&t->node);
-                }
-                else
-                {
-                    if (t->wait_slot.node.prev && t->wait_slot.node.next)
-                        list_remove(&t->wait_slot.node);
-                }
-                t->ipc_state = IPC_NONE;
-                t->blocked_port = NULL;
-                t->wake_reason = WAKE_TIMEOUT;
+            if (t->trap_frame)
                 ArchSetInFrame(t->trap_frame, 0, ERR_TIMEOUT);
-                t->state = READY;
-                SchedAdd(t);
-            }
-            else
-            {
-                t->wake_reason = WAKE_TIMEOUT;
-                if (t->trap_frame)
-                    ArchSetInFrame(t->trap_frame, 0, ERR_TIMEOUT);
-                if (t->wait_slot.node.prev && t->wait_slot.node.next)
-                    list_remove(&t->wait_slot.node);
-                t->state = READY;
-                t->wake_deadline = 0;
-                SchedAdd(t);
-            }
+            SchedUnblock(t, WAKE_TIMEOUT);
+            SchedAdd(t);
         }
 
         BitmapClr(wheel_occ, slot);
