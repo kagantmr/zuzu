@@ -31,6 +31,8 @@ void SchedRemoveSleepQueue(TaskObject *t);
 void SchedInsertSleepQueue(TaskObject *t);
 size_t SchedGetReadyQueue(TaskObject **out, size_t max_out);
 size_t SchedGetSleepers(TaskObject **out, size_t max_out);
+void SchedBlockOn(ListHead *queue, Duration timeout);
+void SchedUnblock(TaskObject *t, WakeReason reason);
 
 // Direct-switch support for callers (e.g. IPC handoff) that want to switch
 // straight to a specific thread instead of going through sched_add()+

@@ -14,13 +14,12 @@
 #include <arch/cpu.h>
 #include <arch/timer.h>
 #include <assert.h>
+#include <bitmap.h>
 #include <stdint.h>
 #include <string.h>
-#include <bitmap.h>
 
 #define IDLE_STACK_BYTES 1024
 #define SLEEP_QUEUE_SIZE 512
-
 
 static ListHead destroy_queue = LIST_HEAD_INIT(destroy_queue);
 static ListHead thread_destroy_queue = LIST_HEAD_INIT(thread_destroy_queue);
@@ -72,7 +71,7 @@ static void SchedInitIdleThread(void)
     idle_thread.state = RUNNING;
 }
 
-void SchedInit()
+void SchedInit(void)
 {
     for (uint32_t level = 0; level < SCHED_PRIORITY_LEVELS; level++)
         list_init(&run_queues[level]);
@@ -110,7 +109,10 @@ void SchedAdd(TaskObject *t)
     }
 }
 
-void SchedQueueDestroyProcess(SpaceObject *p) { list_add_tail(&p->destroy_node, &destroy_queue.node); }
+void SchedQueueDestroyProcess(SpaceObject *p)
+{
+    list_add_tail(&p->destroy_node, &destroy_queue.node);
+}
 
 void SchedQueueDestroyThread(TaskObject *t)
 {
@@ -161,7 +163,8 @@ void SchedReap(void)
     {
         ListNode *node = list_pop_front(&destroy_queue);
         SpaceObject *p = container_of(node, SpaceObject, destroy_node);
-        if (!p->torn_down && p->parent_spid == -1) {
+        if (!p->torn_down && p->parent_spid == -1)
+        {
             // ResurrectRootSvc(...)
         }
         /* not torn_down and not root: leave it hollow, nothing to do */
@@ -183,19 +186,25 @@ static bool SchedIsWorkPending(void)
     return false;
 }
 
-void SchedRemoveSleepQueue(TaskObject *t) {
-    if (t->sleep_slot < 0) return;
-    if (t->timeout_node.prev && t->timeout_node.next) list_remove(&t->timeout_node);
+void SchedRemoveSleepQueue(TaskObject *t)
+{
+    if (t->sleep_slot < 0)
+        return;
+    if (t->timeout_node.prev && t->timeout_node.next)
+        list_remove(&t->timeout_node);
     uint32_t slot = (uint32_t)t->sleep_slot;
-    if (list_empty(&sleep_wheel[slot])) BitmapClr(wheel_occ, slot);
+    if (list_empty(&sleep_wheel[slot]))
+        BitmapClr(wheel_occ, slot);
     t->sleep_slot = -1;
 }
 
 void SchedInsertSleepQueue(TaskObject *t)
 {
     uint64_t abs_slot = t->wake_deadline >> slot_shift;
-    if (abs_slot < wheel_now_slot) abs_slot = wheel_now_slot;
-    if ((abs_slot - wheel_now_slot) >= SLEEP_QUEUE_SIZE) {
+    if (abs_slot < wheel_now_slot)
+        abs_slot = wheel_now_slot;
+    if ((abs_slot - wheel_now_slot) >= SLEEP_QUEUE_SIZE)
+    {
         abs_slot = wheel_now_slot + SLEEP_QUEUE_SIZE - 1;
     }
     uint32_t slot = (uint32_t)(abs_slot % SLEEP_QUEUE_SIZE);
@@ -223,11 +232,11 @@ static void SchedWakeSleepers(void)
                 break;
             TaskObject *t = container_of(node, TaskObject, timeout_node);
             t->sleep_slot = -1;
-            if ((t->wake_deadline >> slot_shift) > wheel_now_slot) {
+            if ((t->wake_deadline >> slot_shift) > wheel_now_slot)
+            {
                 SchedInsertSleepQueue(t);
                 continue;
             }
-
 
             if (t->ipc_state == IPC_RECEIVER || t->ipc_state == IPC_SENDER)
             {
@@ -238,8 +247,8 @@ static void SchedWakeSleepers(void)
                 }
                 else
                 {
-                    if (t->port_wait_slot.node.prev && t->port_wait_slot.node.next)
-                        list_remove(&t->port_wait_slot.node);
+                    if (t->wait_slot.node.prev && t->wait_slot.node.next)
+                        list_remove(&t->wait_slot.node);
                 }
                 t->ipc_state = IPC_NONE;
                 t->blocked_port = NULL;
@@ -253,8 +262,8 @@ static void SchedWakeSleepers(void)
                 t->wake_reason = WAKE_TIMEOUT;
                 if (t->trap_frame)
                     ArchSetInFrame(t->trap_frame, 0, ERR_TIMEOUT);
-                if (t->ntfn_wait_slot.node.prev && t->ntfn_wait_slot.node.next)
-                    list_remove(&t->ntfn_wait_slot.node);
+                if (t->wait_slot.node.prev && t->wait_slot.node.next)
+                    list_remove(&t->wait_slot.node);
                 t->state = READY;
                 t->wake_deadline = 0;
                 SchedAdd(t);
@@ -356,13 +365,18 @@ void __hot SchedSwitchNext(TaskObject *next)
     if (unlikely(next == prev))
         return;
 
-    if (unlikely(current_task == fpu_owner)) {
-        if (!fpu_access_enabled) {
+    if (unlikely(current_task == fpu_owner))
+    {
+        if (!fpu_access_enabled)
+        {
             arch_fpu_trap_enable();
             fpu_access_enabled = true;
         }
-    } else {
-        if (fpu_access_enabled) {
+    }
+    else
+    {
+        if (fpu_access_enabled)
+        {
             arch_fpu_trap_disable();
             fpu_access_enabled = false;
         }
@@ -403,8 +417,7 @@ void SchedArmTimer(void)
     if (k < SLEEP_QUEUE_SIZE)
         deadline = (wheel_now_slot + k + 1) << slot_shift;
 
-    if (current_task && SchedAnyCpuTakers(current_task) &&
-        current_task->slice_deadline < deadline)
+    if (current_task && SchedAnyCpuTakers(current_task) && current_task->slice_deadline < deadline)
         deadline = current_task->slice_deadline;
 
     if (deadline == UINT64_MAX)
@@ -419,6 +432,35 @@ void SchedArmTimer(void)
 
     ArchTimerSetDeadline(deadline);
 }
+
+void SchedBlockOn(ListHead *queue, Duration timeout)
+{
+    if (TIMEOUT_POLL == timeout)
+    {
+        ArchSetInFrame(current_task->trap_frame, 0, ERR_TIMEOUT);
+        return;
+    }
+
+    current_task->wait_slot.owner  = current_task;
+    list_add_tail(&current_task->wait_slot.node, &queue->node);
+
+    current_task->wake_reason = WAKE_NONE;
+    current_task->state = BLOCKED;
+
+    if (TIMEOUT_INFINITE != timeout)
+    {
+        current_task->wake_deadline = ArchDeadlineFromMs(timeout);
+        SchedInsertSleepQueue(current_task);
+    }
+    else
+    {
+        current_task->wake_deadline = 0;
+    }
+
+    Schedule();
+}
+
+void SchedUnblock(TaskObject *t, WakeReason reason) {}
 
 void __hot Schedule(void)
 {
@@ -472,7 +514,4 @@ size_t SchedGetSleepers(TaskObject **out, size_t max_out)
     return total;
 }
 
-void SchedSetReschedFlag(void)
-{
-    do_resched = 1;
-}
+void SchedSetReschedFlag(void) { do_resched = 1; }

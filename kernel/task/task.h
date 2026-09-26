@@ -39,11 +39,6 @@ typedef struct TaskObjectStruct TaskObject;
 
 #define TCB_SLOT_NONE 0xFFu /* thread holds no TCB slot */
 
-/**
- * @brief A registration linked into one ntfn's wait_queue or one port's
- * receiver_queue for a thread blocked in a plain single-handle wait
- * (ntfn_wait_slot, port_wait_slot below).
- */
 typedef struct WaitSlotStruct
 {
     ListNode node;     /**< Node in the wait queue. */
@@ -61,7 +56,6 @@ struct TaskObjectStruct
     ListNode process_node;    /**< Membership in owner process thread list. */
     ListNode timeout_node;    /**< Node for timeout queue. */
     ListHead joiners;         /**< List of joiners. */
-    ListNode join_node;       /**< Node for joiners. */
     WakeReason wake_reason;   /**< Reason for waking up. */
     Time wake_deadline;       /**< Deadline for waking up. */
     int16_t sleep_slot;       /**< Sleep slot. */
@@ -79,8 +73,7 @@ struct TaskObjectStruct
     PhysAddr msg_buf_phys_addr; /**< Physical address of the message buffer. */
     size_t lmsg_buf_xfer_len;   /**< Length of the message buffer transfer. */
     Marker port_marker;         /**< Port marker. */
-    WaitSlot ntfn_wait_slot;    /**< Wait slot for SysNtfnWait. */
-    WaitSlot port_wait_slot;    /**< Wait slot for SysMsgRecv. */
+    WaitSlot wait_slot;    /**< Wait slot. */
     uint32_t priority, time_slice,
         ticks_remaining;   /**< Priority, time slice, and remaining ticks. */
     Time slice_deadline;   /**< Deadline for the time slice. */
@@ -101,7 +94,7 @@ TaskObject *TaskCreate(SpaceObject *owner);
 void KillTask(TaskObject *task);
 void WakeJoinTask(TaskObject *task, Err exit_status);
 TaskObject *FindTaskByTid(Tid tid);
-void ThreadUnlinkWaits(TaskObject *t);
+void TaskUnlinkWaits(TaskObject *t);
 
 /**
  * @brief Unify self-directed Quit and external Term: mark the task ZOMBIE,

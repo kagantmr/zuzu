@@ -76,7 +76,7 @@ void WakeJoinTask(TaskObject *task, Err exit_status)
 		ListNode *node = list_pop_front(&task->joiners);
 		if (!node)
 			break;
-		TaskObject *joiner = container_of(node, TaskObject, join_node);
+		TaskObject *joiner = container_of(node, WaitSlot, node)->owner;
 		joiner->wake_reason = WAKE_IPC;
 		joiner->state = READY;
 		if (joiner->trap_frame)
@@ -89,7 +89,7 @@ void TaskDestroy(TaskObject *task)
 {
 	if (!task)
 		return;
-	ThreadUnlinkWaits(task);
+	TaskUnlinkWaits(task);
 	TaskObjectUnregister(task);
 	if (fpu_owner == task)
 		fpu_owner = NULL;
@@ -152,8 +152,8 @@ TaskObject *TaskCreate(SpaceObject *owner)
 	task->timeout_node.next = NULL;
 	task->timeout_node.prev = NULL;
 	list_init(&task->joiners);
-	task->join_node.next = NULL;
-	task->join_node.prev = NULL;
+	task->wait_slot.node.next = NULL;
+	task->wait_slot.node.prev = NULL;
 	task->wake_reason = WAKE_NONE;
 	task->wake_deadline = 0;
 	task->state = FROZEN;
@@ -211,16 +211,13 @@ TaskObject *FindTaskByTid(Tid tid)
 	return NULL;
 }
 
-void ThreadUnlinkWaits(TaskObject *t)
+void TaskUnlinkWaits(TaskObject *t)
 {
     if (!t) return;
-    if (t->node.prev && t->node.next)                     list_remove(&t->node);
-    if (t->join_node.prev && t->join_node.next)           list_remove(&t->join_node);
+    if (t->node.prev && t->node.next)           list_remove(&t->node);
     SchedRemoveSleepQueue(t);
-    if (t->ntfn_wait_slot.node.prev && t->ntfn_wait_slot.node.next)
-        list_remove(&t->ntfn_wait_slot.node);
-    if (t->port_wait_slot.node.prev && t->port_wait_slot.node.next)
-        list_remove(&t->port_wait_slot.node);
+    if (t->wait_slot.node.prev && t->wait_slot.node.next)
+        list_remove(&t->wait_slot.node);
 }
 
 void TaskTerminate(TaskObject *task, Err exit_status)
@@ -231,7 +228,7 @@ void TaskTerminate(TaskObject *task, Err exit_status)
 	SpaceObject *owner = task->owner;
 
 	task->exit_status = exit_status;
-	ThreadUnlinkWaits(task);
+	TaskUnlinkWaits(task);
 
 	/* (a) task was a caller mid-call: its reply cap lives in its own TCB
 	 * storage, about to become invalid. Tell the server holding it so a
