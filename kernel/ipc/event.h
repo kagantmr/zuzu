@@ -4,6 +4,7 @@
 #include <list.h>
 #include <stdbool.h>
 #include <zuzu/types.h>
+#include <arch/regs.h>
 
 typedef struct SpaceObjectStruct SpaceObject;
 
@@ -36,6 +37,8 @@ struct WaitSlotStruct;
  * @pre         IRQs disabled.
  */
 void EventSignal(EventObject *ev, EventWord bits);
+
+void EventWait(EventObject *ev,Duration timeout, CpuState *frame);
 
 void EventDropReference(EventObject *ev);
 

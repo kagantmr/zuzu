@@ -31,8 +31,9 @@ void EventSignal(EventObject *ev, EventWord bits)
         ListNode *node = list_pop_front(&ev->wait_queue);
         WaitSlot *slot = container_of(node, WaitSlot, node);
         TaskObject *waiter = slot->owner;
+        assert(waiter && waiter->trap_frame);
         ArchSetInFrame(waiter->trap_frame, 0, ZUZU_OK);
-        (*ArchGetFromFrame(waiter->trap_frame, 1)) = (Register)bits;
+        (*ArchGetFromFrame(waiter->trap_frame, 1)) = (Register)ev->word;
         SchedUnblock(waiter, WAKE_IPC);
         SchedAdd(waiter);
         ev->word = 0;
@@ -79,4 +80,16 @@ void EventDestroy(EventObject *ev)
     ev->alive = false;
 
     EventDropReference(ev);
+}
+
+void EventWait(EventObject *ev,Duration timeout, CpuState *frame) {
+    ENSURE_ERR(frame, ev->alive, ERR_DEAD);
+    if (ev->word) {
+        ArchSetInFrame(frame, 0, ZUZU_OK);
+        ArchSetInFrame(frame, 1, (Register)ev->word);
+        ev->word = 0;
+        return;
+    }
+
+    SchedBlockOn(&ev->wait_queue, timeout);
 }
