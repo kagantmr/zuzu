@@ -307,11 +307,11 @@ void TaskTerminate(TaskObject *task, Err exit_status)
 
     if (space_hollow)
     {
-        if (!owner->torn_down && task == current_task)
-            SchedQueueDestroyProcess(owner);
-        else
+        if (!owner->torn_down)
         {
-            if (owner->parent_spid == -1)
+            if (task == current_task)
+                SchedQueueDestroyProcess(owner);
+            else if (owner->parent_spid == -1)
             {
                 // ResurrectRootSvc(task, exit_status);
             }

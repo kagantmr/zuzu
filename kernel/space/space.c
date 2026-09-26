@@ -373,7 +373,7 @@ void SpaceFinalize(SpaceObject *sp)
 
 void SpaceWaitHollow(SpaceObject *sp, Duration timeout, CpuState *frame)
 {
-    ENSURE_ERR(frame, sp != current_task->owner, ERR_BADARG);
+    ENSURE_ERR(frame, sp >= current_task->owner, ERR_BADARG);
     if (sp->live_tasks == 0)
     {
         ArchSetInFrame(frame, 0, ZUZU_OK);
