@@ -116,6 +116,15 @@ void TaskDestroy(TaskObject *task)
 		SpaceFinalize(owner);
 }
 
+void TaskWait(TaskObject *task,Duration timeout, CpuState *frame) {
+    if (ZOMBIE == task->state) {
+        ArchSetInFrame(frame, 0, ZUZU_OK);
+        ArchSetInFrame(frame, 1, task->exit_status);
+        return;
+    }
+    SchedBlockOn(&task->joiners, timeout);
+}
+
 TaskObject *TaskCreate(SpaceObject *owner)
 {
 	if (!owner)
