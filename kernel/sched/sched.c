@@ -461,14 +461,14 @@ void SchedBlockOn(ListHead *queue, Duration timeout)
 }
 
 void SchedUnblock(TaskObject *t, WakeReason reason) {
-    if (t->node.next)           list_remove(&t->node);
+    if (t->wait_slot.node.next)           list_remove(&t->wait_slot.node);
     SchedRemoveSleepQueue(t);
     t->wake_deadline = 0;
     t->wake_reason = reason;
     t->ipc_state = IPC_NONE;
     t->blocked_port = NULL;
     t->state = READY;
-    // direct switch
+    // caller does switch
 }
 
 void __hot Schedule(void)
