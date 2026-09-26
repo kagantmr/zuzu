@@ -53,7 +53,7 @@ struct TaskObjectStruct
     uint32_t *kernel_sp;      /**< Current kernel stack pointer for context switching. */
     Err exit_status;          /**< Exit status of the thread. */
     ListNode node;            /**< Embedded, not pointers. */
-    ListNode process_node;    /**< Membership in owner process thread list. */
+    ListNode space_node;      /**< Membership in owner space task list. */
     ListNode timeout_node;    /**< Node for timeout queue. */
     ListHead joiners;         /**< List of joiners. */
     WakeReason wake_reason;   /**< Reason for waking up. */
@@ -68,12 +68,12 @@ struct TaskObjectStruct
     EphemeralReplyObject
         *pending_reply_cap; /**< Set while this task is a blocked caller, waiting for its reply. */
     EphemeralReplyObject
-        *reply_cap; /**< Set while this task is a receiver mid-call, waiting to Reply. */
+        *reply_cap;           /**< Set while this task is a receiver mid-call, waiting to Reply. */
     TaskObject *reply_holder; /**< Server currently holding this task's reply cap, or NULL. */
     PhysAddr msg_buf_phys_addr; /**< Physical address of the message buffer. */
-    size_t lmsg_buf_xfer_len;   /**< Length of the message buffer transfer. */
+    size_t msg_xfer_len;   /**< Length of the message buffer transfer. */
     Marker port_marker;         /**< Port marker. */
-    WaitSlot wait_slot;    /**< Wait slot. */
+    WaitSlot wait_slot;         /**< Wait slot. */
     uint32_t priority, time_slice,
         ticks_remaining;   /**< Priority, time slice, and remaining ticks. */
     Time slice_deadline;   /**< Deadline for the time slice. */
@@ -91,7 +91,7 @@ _Static_assert(offsetof(TaskObject, kernel_sp) == 12,
 
 void TaskDestroy(TaskObject *task);
 TaskObject *TaskCreate(SpaceObject *owner);
-void TaskWaitExit(TaskObject *task,Duration timeout, CpuState *frame);
+void TaskWaitExit(TaskObject *task, Duration timeout, CpuState *frame);
 void KillTask(TaskObject *task);
 void WakeJoinTask(TaskObject *task, Err exit_status);
 TaskObject *FindTaskByTid(Tid tid);
