@@ -136,6 +136,7 @@ void DeliverCallToReceiver(TaskObject *caller, TaskObject *rx, EphemeralReplyObj
 
     rx->reply_cap = rc;
     caller->reply_holder = rx;
+}
 
 __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port,
                                    EphemeralReplyObject *rc, size_t xlen, Handle grant_handle,
@@ -196,3 +197,27 @@ void ReplyDeliverToCaller(TaskObject *target, uint32_t xlen, Handle granted)
     SchedAdd(target);
 }
 
+void PortReceive(PortObject *port, Duration timeout, CpuState *frame) {
+    ENSURE_ERR(frame, port->alive, ERR_DEAD);
+    ENSURE_ERR(frame, !current_task->reply_cap, ERR_BUSY);
+
+    while (!list_empty(&port->sender_queue)) {
+        ListNode *node = port->sender_queue.node.next;
+        TaskObject *caller = container_of(node, TaskObject, node);
+
+        Handle granted;
+        Err rc = AllocateGrantSlot(caller->owner, current_task->owner, caller->pending_grant_handle, &granted);
+        list_remove(node);
+        if (ZUZU_OK != rc) {
+            TaskAbortWait(caller, rc);
+            continue;
+        }
+
+        caller->pending_grant_handle = -1;
+        DeliverCallToReceiver(caller, current_task, caller->pending_reply_cap, caller->msg_xfer_len, granted);
+        return;
+
+    }
+    
+    SchedBlockOn(&port->receiver_queue, timeout);
+}

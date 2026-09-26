@@ -33,4 +33,6 @@ bool __hot CallHandoffToReceiver(TaskObject *caller, PortObject *port,
 
 void __hot ReplyDeliverToCaller(TaskObject *target, uint32_t xlen, Handle granted);
 
+void PortReceive(PortObject *port, Duration timeout, CpuState *frame);
+
 #endif /* _ZUZU_KERNEL_IPC_MSG_H */

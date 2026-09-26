@@ -1,5 +1,6 @@
 #include "svc.h"
 #include "kernel/space/space.h"
+#include "kernel/ipc/msg.h"
 #include <core/ensure.h>
 #include <arch/regs.h>
 
