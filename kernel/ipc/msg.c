@@ -117,7 +117,7 @@ void CallBlockAsSender(TaskObject *caller, PortObject *port,
     caller->ipc_state = IPC_WAITING;
     caller->blocked_port = port;
     caller->pending_reply_cap = rc;
-    caller->lmsg_buf_xfer_len = xlen;
+    caller->msg_xfer_len = xlen;
     caller->pending_grant_handle = grant_handle;
     list_add_tail(&caller->node, &port->sender_queue.node);
     caller->state = BLOCKED;

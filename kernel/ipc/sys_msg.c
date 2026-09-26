@@ -67,13 +67,13 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			CancelTimeout(sr_thread);
 			sr_thread->wake_reason = WAKE_IPC;
 			sr_thread->state = READY;
-			if (sr_thread->lmsg_buf_xfer_len > 0) {
+			if (sr_thread->msg_xfer_len > 0) {
 				LmsgBufCopy(sr_thread, current_task,
-					     sr_thread->lmsg_buf_xfer_len);
-				(*ArchGetFromFrame(frame, 1)) = sr_thread->lmsg_buf_xfer_len;
+					     sr_thread->msg_xfer_len);
+				(*ArchGetFromFrame(frame, 1)) = sr_thread->msg_xfer_len;
 				(*ArchGetFromFrame(frame, 2)) = 0;
 				(*ArchGetFromFrame(frame, 3)) = 0;
-				sr_thread->lmsg_buf_xfer_len = 0;
+				sr_thread->msg_xfer_len = 0;
 			}
 			SchedAdd(sr_thread);
 		} else if (sr_thread->ipc_state == IPC_WAITING) {
@@ -127,12 +127,12 @@ void __attribute__((hot)) SysMsgRecv(CpuState *frame)
 			ArchSetInFrame(frame, 1, sr_thread->owner_process->pid);
 			(*ArchGetFromFrame(frame, 2)) = (*ArchGetFromFrame(sr_frame, 1));
 			(*ArchGetFromFrame(frame, 3)) = (*ArchGetFromFrame(sr_frame, 2));
-			if (sr_thread->lmsg_buf_xfer_len > 0) {
+			if (sr_thread->msg_xfer_len > 0) {
 				LmsgBufCopy(sr_thread, current_task,
-					     sr_thread->lmsg_buf_xfer_len);
-				(*ArchGetFromFrame(frame, 2)) = sr_thread->lmsg_buf_xfer_len;
+					     sr_thread->msg_xfer_len);
+				(*ArchGetFromFrame(frame, 2)) = sr_thread->msg_xfer_len;
 				(*ArchGetFromFrame(frame, 3)) = 0;
-				sr_thread->lmsg_buf_xfer_len = 0;
+				sr_thread->msg_xfer_len = 0;
 			}
 		}
 	} else {

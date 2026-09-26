@@ -67,25 +67,30 @@ void KillTask(TaskObject *task)
     task->state = ZOMBIE;
 }
 
+void WakeWaitList(ListHead *list, Err status)
+{
+    while (!list_empty(list))
+    {
+        ListNode *node = list_pop_front(list);
+        if (!node)
+            break;
+        TaskObject *waiter = container_of(node, WaitSlot, node)->owner;
+        if (waiter->trap_frame)
+        {
+            ArchSetInFrame(waiter->trap_frame, 0, ZUZU_OK);
+            (*ArchGetFromFrame(waiter->trap_frame, 1)) = (Register)status;
+        }
+        SchedUnblock(waiter, WAKE_IPC);
+        SchedAdd(waiter);
+    }
+}
+
 void WakeJoinTask(TaskObject *task, Err exit_status)
 {
     if (!task)
         return;
 
-    while (!list_empty(&task->joiners))
-    {
-        ListNode *node = list_pop_front(&task->joiners);
-        if (!node)
-            break;
-        TaskObject *joiner = container_of(node, WaitSlot, node)->owner;
-        if (joiner->trap_frame)
-        {
-            ArchSetInFrame(joiner->trap_frame, 0, ZUZU_OK);
-            (*ArchGetFromFrame(joiner->trap_frame, 1)) = (Register)exit_status;
-        }
-        SchedUnblock(joiner, WAKE_IPC);
-        SchedAdd(joiner);
-    }
+    WakeWaitList(&task->joiners, exit_status);
 }
 
 void TaskDestroy(TaskObject *task)
@@ -295,31 +300,14 @@ void TaskTerminate(TaskObject *task, Err exit_status)
     if (space_hollow && !owner->torn_down)
     {
         owner->last_exit_status = exit_status;
-        while (!list_empty(&owner->waiters))
-        {
-            ListNode *node = list_pop_front(&owner->waiters);
-            if (!node)
-                break;
-            TaskObject *joiner = container_of(node, WaitSlot, node)->owner;
-            if (joiner->trap_frame)
-            {
-                ArchSetInFrame(joiner->trap_frame, 0, ZUZU_OK);
-                (*ArchGetFromFrame(joiner->trap_frame, 1)) = (Register)exit_status;
-            }
-            SchedUnblock(joiner, WAKE_IPC);
-            SchedAdd(joiner);
-        }
+        WakeWaitList(&owner->waiters, exit_status);
     }
 
     WakeJoinTask(task, exit_status);
 
     if (space_hollow)
     {
-        if (owner->torn_down)
-        {
-
-        }
-        else if (task == current_task)
+        if (!owner->torn_down && task == current_task)
             SchedQueueDestroyProcess(owner);
         else
         {

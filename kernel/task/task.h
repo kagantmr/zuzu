@@ -93,6 +93,7 @@ void TaskDestroy(TaskObject *task);
 TaskObject *TaskCreate(SpaceObject *owner);
 void TaskWaitExit(TaskObject *task, Duration timeout, CpuState *frame);
 void KillTask(TaskObject *task);
+void WakeWaitList(ListHead *list, Err status);
 void WakeJoinTask(TaskObject *task, Err exit_status);
 TaskObject *FindTaskByTid(Tid tid);
 void TaskUnlinkWaits(TaskObject *t);
