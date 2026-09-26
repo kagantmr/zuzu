@@ -44,18 +44,13 @@ extern "C"
      */
     typedef enum
     {
-        CREATE_TASK =
-            0, /**< Indicates that the following arguments of Create should belong to a Task */
-        CREATE_SPACE, /**< Indicates that the following arguments of Create should belong to a Space
-                       */
-        CREATE_PORT,  /**< Indicates that the following arguments of Create should belong to a Port
-                       */
-        CREATE_EVENT, /**< Indicates that the following arguments of Create should belong to an
-                         Event */
-        CREATE_MEMORY, /**< Indicates that the following arguments of Create should belong to a
-                          Memory object */
-        CREATE_TYPES_COUNT
-    } CreateType;
+        OBJECT_TASK = 0, 
+        OBJECT_SPACE,
+        OBJECT_PORT,  
+        OBJECT_EVENT, 
+        OBJECT_MEMORY, 
+        OBJECT_CODE_COUNT
+    } ZuzuObjectCode;
 
     /**
      * @brief This struct represents the 4 arguments passed into ManageHandle() to start a task.

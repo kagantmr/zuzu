@@ -16,10 +16,10 @@ static void FreeScatteredPages(PhysAddr *addrs, size_t count)
 void SvcCreate(CpuState *frame)
 {
     // Dispatch based on type
-    CreateType type = (CreateType)(*ArchGetFromFrame(frame, 0));
+    ZuzuObjectCode type = (ZuzuObjectCode)(*ArchGetFromFrame(frame, 0));
     switch (type)
     {
-    case CREATE_TASK:
+    case OBJECT_TASK:
     {
         // TASK: r0=type, r1=space_handle (a kitten Space you hold a handle
         // to, or -1 to spawn a sibling Task in your own Space)
@@ -54,10 +54,10 @@ void SvcCreate(CpuState *frame)
         entry->type = HANDLE_TASK;
         entry->task = task;
 
-        (*ArchGetFromFrame(frame, 0)) = (Register)HANDLE_PACK(new_handle, entry->generation);
+        ArchSetInFrame(frame, 0, (Register)HANDLE_PACK(new_handle, entry->generation));
     }
     break;
-    case CREATE_PORT:
+    case OBJECT_PORT:
     {
         // PORT: r0=type
         PortObject *new_port = PortCreate(CURRENT_SPACE);
@@ -72,10 +72,10 @@ void SvcCreate(CpuState *frame)
         entry->type = HANDLE_PORT;
         entry->port = new_port;
 
-        (*ArchGetFromFrame(frame, 0)) = (Register)HANDLE_PACK(new_handle, entry->generation);
+        ArchSetInFrame(frame, 0, (Register)HANDLE_PACK(new_handle, entry->generation));
     }
     break;
-    case CREATE_EVENT:
+    case OBJECT_EVENT:
     {
         // EVENT: r0=type
         EventObject *new_event = EventCreate(CURRENT_SPACE);
@@ -90,10 +90,10 @@ void SvcCreate(CpuState *frame)
         entry->type = HANDLE_EVENT;
         entry->event = new_event;
     
-        (*ArchGetFromFrame(frame, 0)) = (Register)HANDLE_PACK(new_handle, entry->generation);
+        ArchSetInFrame(frame, 0, (Register)HANDLE_PACK(new_handle, entry->generation));
     }
     break;
-    case CREATE_SPACE:
+    case OBJECT_SPACE:
     {
         // SPACE: r0=type, r1=name_ptr, r2=name_len
         VirtAddr name_ptr = (VirtAddr)(*ArchGetFromFrame(frame, 1));
@@ -120,10 +120,10 @@ void SvcCreate(CpuState *frame)
         entry->type = HANDLE_SPACE;
         entry->space = space;
 
-        (*ArchGetFromFrame(frame, 0)) = (Register)HANDLE_PACK(new_handle, entry->generation);
+        ArchSetInFrame(frame, 0, (Register)HANDLE_PACK(new_handle, entry->generation));
     }
     break;
-    case CREATE_MEMORY:
+    case OBJECT_MEMORY:
     {
         // MEMORY: r0=type, r1=page_count. Only SHM is user-creatable; Device
         // MemObjects come from kernel/boot-time injection (InjectDeviceObjectsToRootSvc
@@ -153,7 +153,7 @@ void SvcCreate(CpuState *frame)
         entry->grantable = true;
         entry->mapped_va = 0;
     
-        (*ArchGetFromFrame(frame, 0)) = (Register)HANDLE_PACK(new_handle, entry->generation);
+        ArchSetInFrame(frame, 0, (Register)HANDLE_PACK(new_handle, entry->generation));
     }
     break;
     default:

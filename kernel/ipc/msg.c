@@ -67,12 +67,7 @@ Err ValidateGrantHandle(SpaceObject *from, Handle handle_to_grant)
     return ZUZU_OK;
 }
 
-/* Allocates the destination slot for a grant already known-valid (see
- * ValidateGrantHandle). WaitOn's not-yet-written pickup path (an
- * already-queued caller found at receive time) will call this directly at
- * pickup time; if it fails there with ERR_NOMEM, that caller must be woken
- * with ERR_NOMEM rather than delivered to -- that wake-up path doesn't
- * exist yet either. */
+
 Err AllocateGrantSlot(SpaceObject *from, SpaceObject *to, Handle handle_to_grant, Handle *out)
 {
     *out = -1;
@@ -91,7 +86,8 @@ Err AllocateGrantSlot(SpaceObject *from, SpaceObject *to, Handle handle_to_grant
     dst->type = src->type;
     dst->grantable = src->grantable;
     dst->mapped_va = src->mapped_va;
-    dst->port = src->port; /* union: one write covers every member */
+    dst->port = src->port;
+    dst->marker = src->marker;
 
     switch (src->type) {
         case HANDLE_PORT:  src->port->ref_count++;  break;
