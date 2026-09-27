@@ -169,4 +169,8 @@ static inline void HandleEntryFree(HandleTable *t, HandleTableEntry *e)
     e->generation = next_gen;
 }
 
+Err HandleCopyInto(HandleTable *dst_table, HandleTableEntry *src, HandlePerms perms, Marker marker, Handle *out);
+
+void HandleRelease(SpaceObject *sp, HandleTableEntry *entry);
+
 #endif /* _ZUZU_HANDLE_H */

@@ -74,32 +74,10 @@ Err AllocateGrantSlot(SpaceObject *from, SpaceObject *to, Handle handle_to_grant
     *out = -1;
     if (handle_to_grant == -1)
         return ZUZU_OK;
-
     HandleTableEntry *src = HandleTableLookup(&from->handle_table, handle_to_grant);
     if (!src) return ERR_BADHANDLE;
     if (!(src->perms & PERM_TXFR)) return ERR_NOPERM;
-
-    Handle new_handle = HandleTableFindFree(&to->handle_table);
-    if (new_handle == -1) return ERR_NOMEM;
-
-    HandleTableEntry *dst = HandleTableGet(&to->handle_table, new_handle);
-    HandleEntryClaim(&to->handle_table, dst);
-    dst->type = src->type;
-    dst->perms = src->perms;
-    dst->mapped_va = src->mapped_va;
-    dst->port = src->port;
-    dst->marker = src->marker;
-
-    switch (src->type) {
-        case HANDLE_PORT:  src->port->ref_count++;  break;
-        case HANDLE_EVENT: src->event->ref_count++; break;
-        case HANDLE_TASK:  TaskRef(src->task);      break;
-        case HANDLE_SPACE: SpaceRef(src->space);    break;
-        default: break; /* HANDLE_MEM/REPLY: no shared-refcount concept yet */
-    }
-
-    *out = (Handle)HANDLE_PACK(new_handle, dst->generation);
-    return ZUZU_OK;
+    return HandleCopyInto(&to->handle_table, src, src->perms, src->marker, out);
 }
 
 Err GrantHandleAcross(SpaceObject *from, SpaceObject *to, Handle handle_to_grant, Handle *out)
