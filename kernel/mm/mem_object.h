@@ -3,6 +3,7 @@
 
 #include <zuzu/types.h>
 #include "kernel/mm/pmm/pmm.h"
+#include "kernel/mm/vmm/vmm.h"
 
 typedef enum
 {
@@ -33,6 +34,6 @@ void MemObjFree(MemObject *mem);
 MemObject *MemObjCreateShm(PhysAddr *page_addrs, size_t page_count);
 MemObject *MemObjCreateDevice(PhysAddr phys_base, size_t size, const char *compatible, Irq irq);
 void MemObjDestroy(MemObject *mem);
-void MemObjUnmapAndDrop(SpaceObject *sp, VirtAddr mapped_va, MemObject *mem);
+void MemObjUnmapAndDrop(AddressSpace *as, VirtAddr mapped_va, MemObject *mem);
 
 #endif /* _ZUZU_MEM_OBJECT_H */

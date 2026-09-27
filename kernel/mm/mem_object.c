@@ -2,7 +2,6 @@
 #include "kernel/mm/alloc.h"
 #include <string.h>
 #include "core/ensure.h"
-#include "kernel/space/space.h"
 
 static KHeapSlabCache mem_obj_cache;
 
@@ -56,9 +55,9 @@ void MemObjDestroy(MemObject *mem)
     }
 }
 
-void MemObjUnmapAndDrop(SpaceObject *sp, VirtAddr mapped_va, MemObject *mem) {
+void MemObjUnmapAndDrop(AddressSpace *as, VirtAddr mapped_va, MemObject *mem) {
     if (mapped_va)
-        VmmRemoveRegion(sp->as, mapped_va,
+        VmmRemoveRegion(as, mapped_va,
                         (mem->kind == MEMTYPE_DEVICE)
                             ? mem->dev.size
                             : mem->shm.page_count * PAGE_SIZE);
