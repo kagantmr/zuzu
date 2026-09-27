@@ -234,6 +234,7 @@ void SpaceDestroy(SpaceObject *sp)
     if (!sp || sp->torn_down)
         return;
     sp->torn_down = true;
+    sp->ref_count++;
 
     ListNode *task_node = sp->tasks.node.next;
     while (task_node != &sp->tasks.node)
@@ -340,10 +341,14 @@ void SpaceDestroy(SpaceObject *sp)
                 EventDropReference(event);
             HandleEntryFree(&sp->handle_table, entry);
         }
-        else if (entry->type == HANDLE_TASK || entry->type == HANDLE_SPACE)
+        else if (entry->type == HANDLE_TASK)
         {
-            /* No kernel object owned by this space's teardown: the
-             * referenced Task/Space outlives this handle. */
+            TaskUnref(entry->task);
+            HandleEntryFree(&sp->handle_table, entry);
+        }
+        else if (entry->type == HANDLE_SPACE)
+        {
+            SpaceUnref(entry->space);
             HandleEntryFree(&sp->handle_table, entry);
         }
     }
@@ -360,20 +365,38 @@ void SpaceDestroy(SpaceObject *sp)
     if (spaces[slot] == sp)
         spaces[slot] = NULL;
 
-    if (list_empty(&sp->tasks))
-        SpaceFinalize(sp);
+    SpaceUnref(sp);
 }
 
 void SpaceFinalize(SpaceObject *sp)
 {
     if (!sp)
         return;
+    if (!sp->torn_down || !list_empty(&sp->tasks) || sp->ref_count != 0)
+        return;
     KSlabFree(&space_cache, sp);
+}
+
+void SpaceRef(SpaceObject *sp)
+{
+    if (!sp)
+        return;
+    sp->ref_count++;
+}
+
+void SpaceUnref(SpaceObject *sp)
+{
+    if (!sp)
+        return;
+    if (sp->ref_count > 0)
+        sp->ref_count--;
+    SpaceFinalize(sp);
 }
 
 void SpaceWaitHollow(SpaceObject *sp, Duration timeout, CpuState *frame)
 {
-    ENSURE_ERR(frame, sp >= current_task->owner, ERR_BADARG);
+    ENSURE_ERR(frame, sp != current_task->owner, ERR_BADARG);
+    ENSURE_ERR(frame, !sp->torn_down, ERR_DEAD);
     if (sp->live_tasks == 0)
     {
         ArchSetInFrame(frame, 0, ZUZU_OK);

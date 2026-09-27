@@ -40,6 +40,7 @@ typedef struct SpaceObjectStruct
     uint32_t tcb_slot_bitmap[BITMAP_WORDS(256)]; /**< TCB slot bitmap. */
     bool torn_down; /**< SpaceDestroy has already run; only a zombie main_task keeps
                          this struct allocated. See SpaceFinalize. */
+    uint32_t ref_count;
 } SpaceObject;
 
 _Static_assert(TCB_MAX_SLOTS <= 256, "tcb_slot_bitmap is 256 bits wide");
@@ -125,5 +126,8 @@ void SpaceWaitHollow(SpaceObject *sp, Duration timeout, CpuState *frame);
  * Only TaskDestroy should call this.
  */
 void SpaceFinalize(SpaceObject *sp);
+
+void SpaceRef(SpaceObject *sp);
+void SpaceUnref(SpaceObject *sp);
 
 #endif /* _ZUZU_OBJECTS_SPACE_H */
