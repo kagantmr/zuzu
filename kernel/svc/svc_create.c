@@ -75,7 +75,8 @@ void SvcCreate(CpuState *frame)
         HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
         entry->type = HANDLE_PORT;
         entry->port = new_port;
-
+        entry->perms = PERM_ALL;
+        
         ArchSetInFrame(frame, 0, (Register)HANDLE_PACK(new_handle, entry->generation));
     }
     break;

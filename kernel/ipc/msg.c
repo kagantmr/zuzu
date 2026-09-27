@@ -50,7 +50,7 @@ __hot HandleTableEntry *ValidateCallPort(SpaceObject *space, Handle handle, CpuS
 {
     HandleTableEntry *entry = HandleTableLookup(&space->handle_table, handle);
     ENSURE(entry, ArchSetInFrame(frame, 0, ERR_BADHANDLE); return NULL);
-    ENSURE((entry->perms & PERM_WAIT), ArchSetInFrame(frame, 0, ERR_BADHANDLE); return NULL);
+    ENSURE((entry->perms & PERM_SEND), ArchSetInFrame(frame, 0, ERR_NOPERM); return NULL);
     ENSURE((entry->type == HANDLE_PORT), ArchSetInFrame(frame, 0, ERR_BADTYPE); return NULL);
     ENSURE(entry->port, ArchSetInFrame(frame, 0, ERR_BADHANDLE); return NULL);
     ENSURE(entry->port->alive, ArchSetInFrame(frame, 0, ERR_DEAD); return NULL);

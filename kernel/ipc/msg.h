@@ -9,16 +9,11 @@ void MsgBufCopy(TaskObject *restrict src, TaskObject *restrict dst, size_t len);
 
 HandleTableEntry __hot *ValidateCallPort(SpaceObject *space, Handle handle, CpuState *frame);
 
-/* Validate-only: does the source handle exist and is it grantable? Safe to
- * call before a Call blocks, when the destination table isn't known yet. */
 Err ValidateGrantHandle(SpaceObject *from, Handle handle_to_grant);
 
-/* Allocation-only: assumes handle_to_grant already passed ValidateGrantHandle.
- * *out is set to -1 if handle_to_grant is -1 (no grant requested). */
+
 Err AllocateGrantSlot(SpaceObject *from, SpaceObject *to, Handle handle_to_grant, Handle *out);
 
-/* Validate + allocate in one call, for call sites (SvcReply) that know the
- * destination table up front. *out is -1 on no-grant or on failure. */
 Err GrantHandleAcross(SpaceObject *from, SpaceObject *to, Handle handle_to_grant, Handle *out);
 
 void __hot CallBlockAsSender(TaskObject *caller, PortObject *port,
