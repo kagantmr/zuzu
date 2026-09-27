@@ -37,6 +37,7 @@ void SvcCreate(CpuState *frame)
 
             ENSURE_ERR(frame, (NULL != space_entry), ERR_BADHANDLE);
             ENSURE_ERR(frame, (HANDLE_SPACE == space_entry->type), ERR_BADTYPE);
+            ENSURE_ERR(frame, space_entry->perms & PERM_CNTL, ERR_NOPERM);
             ENSURE_ERR(frame, (NULL != space_entry->space), ERR_BADHANDLE);
             target_space = space_entry->space;
             ENSURE_ERR(frame, !target_space->torn_down, ERR_DEAD);
@@ -54,6 +55,7 @@ void SvcCreate(CpuState *frame)
         HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
         entry->type = HANDLE_TASK;
         entry->task = task;
+        entry->perms = PERM_ALL;
         TaskRef(task);
 
         ArchSetInFrame(frame, 0, (Register)HANDLE_PACK(new_handle, entry->generation));
@@ -91,6 +93,7 @@ void SvcCreate(CpuState *frame)
         HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
         entry->type = HANDLE_EVENT;
         entry->event = new_event;
+        entry->perms = PERM_ALL;
     
         ArchSetInFrame(frame, 0, (Register)HANDLE_PACK(new_handle, entry->generation));
     }
@@ -121,6 +124,7 @@ void SvcCreate(CpuState *frame)
         HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
         entry->type = HANDLE_SPACE;
         entry->space = space;
+        entry->perms = PERM_ALL;
         SpaceRef(space);
 
         ArchSetInFrame(frame, 0, (Register)HANDLE_PACK(new_handle, entry->generation));
@@ -153,7 +157,7 @@ void SvcCreate(CpuState *frame)
         HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
         entry->type = HANDLE_MEM;
         entry->mem = mem;
-        entry->grantable = true;
+        entry->perms = PERM_ALL;
         entry->mapped_va = 0;
     
         ArchSetInFrame(frame, 0, (Register)HANDLE_PACK(new_handle, entry->generation));

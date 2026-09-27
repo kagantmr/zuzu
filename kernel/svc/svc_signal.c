@@ -16,6 +16,7 @@ void SvcSignal(CpuState *frame)
     HandleTableEntry *entry = HandleTableLookup(&CURRENT_SPACE->handle_table, ev_handle);
 
     ENSURE_ERR(frame, entry, ERR_BADHANDLE);
+    ENSURE_ERR(frame, entry->perms & PERM_SEND, ERR_NOPERM);
     ENSURE_ERR(frame, (entry->type == HANDLE_EVENT), ERR_BADTYPE);
 
     EventObject *ev = entry->event;

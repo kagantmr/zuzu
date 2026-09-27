@@ -50,6 +50,7 @@ __hot HandleTableEntry *ValidateCallPort(SpaceObject *space, Handle handle, CpuS
 {
     HandleTableEntry *entry = HandleTableLookup(&space->handle_table, handle);
     ENSURE(entry, ArchSetInFrame(frame, 0, ERR_BADHANDLE); return NULL);
+    ENSURE((entry->perms & PERM_WAIT), ArchSetInFrame(frame, 0, ERR_BADHANDLE); return NULL);
     ENSURE((entry->type == HANDLE_PORT), ArchSetInFrame(frame, 0, ERR_BADTYPE); return NULL);
     ENSURE(entry->port, ArchSetInFrame(frame, 0, ERR_BADHANDLE); return NULL);
     ENSURE(entry->port->alive, ArchSetInFrame(frame, 0, ERR_DEAD); return NULL);
@@ -63,7 +64,7 @@ Err ValidateGrantHandle(SpaceObject *from, Handle handle_to_grant)
 
     HandleTableEntry *src = HandleTableLookup(&from->handle_table, handle_to_grant);
     if (!src) return ERR_BADHANDLE;
-    if (!src->grantable) return ERR_NOPERM;
+    if (!(src->perms & PERM_TXFR)) return ERR_NOPERM;
     return ZUZU_OK;
 }
 
@@ -76,7 +77,7 @@ Err AllocateGrantSlot(SpaceObject *from, SpaceObject *to, Handle handle_to_grant
 
     HandleTableEntry *src = HandleTableLookup(&from->handle_table, handle_to_grant);
     if (!src) return ERR_BADHANDLE;
-    if (!src->grantable) return ERR_NOPERM;
+    if (!(src->perms & PERM_TXFR)) return ERR_NOPERM;
 
     Handle new_handle = HandleTableFindFree(&to->handle_table);
     if (new_handle == -1) return ERR_NOMEM;
@@ -84,7 +85,7 @@ Err AllocateGrantSlot(SpaceObject *from, SpaceObject *to, Handle handle_to_grant
     HandleTableEntry *dst = HandleTableGet(&to->handle_table, new_handle);
     HandleEntryClaim(&to->handle_table, dst);
     dst->type = src->type;
-    dst->grantable = src->grantable;
+    dst->perms = src->perms;
     dst->mapped_va = src->mapped_va;
     dst->port = src->port;
     dst->marker = src->marker;

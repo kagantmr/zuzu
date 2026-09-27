@@ -25,6 +25,7 @@ void SvcManageMemory(CpuState *frame)
                 HandleTableEntry *entry = HandleTableLookup(&CURRENT_SPACE->handle_table, mem_handle);
                 ENSURE_ERR(frame, entry, ERR_BADARG);
                 ENSURE_ERR(frame,(HANDLE_MEM == entry->type), ERR_BADARG);
+                ENSURE_ERR(frame, entry->perms & PERM_MAP, ERR_NOPERM);
                 Err rc = VmmMapMemObject(CURRENT_SPACE, entry, prot, hint, &out);
                 ArchSetInFrame(frame, 0, (rc == 0) ? (signed)out : rc);
             }
@@ -48,6 +49,7 @@ void SvcManageMemory(CpuState *frame)
             ENSURE_ERR(frame, entry, ERR_BADARG);
             ENSURE_ERR(frame,(HANDLE_SPACE == entry->type), ERR_BADARG);
             ENSURE_ERR(frame, !entry->space->torn_down, ERR_DEAD);
+            ENSURE_ERR(frame, entry->perms & PERM_CNTL, ERR_NOPERM);
 
             InjectArgs kargs;
             ENSURE_ERR(frame, CopyFromUser(&kargs, (const void *)(*ArchGetFromFrame(frame, 2)), sizeof(kargs)), ERR_BADPTR);

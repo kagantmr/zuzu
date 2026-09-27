@@ -17,11 +17,13 @@ void SvcBind(CpuState *frame)
 
     ENSURE_ERR(frame, entry, ERR_BADHANDLE);
     ENSURE_ERR(frame, (entry->type == HANDLE_EVENT), ERR_BADTYPE);
-
+    ENSURE_ERR(frame, entry->perms & PERM_CNTL, ERR_NOPERM);
+    
     EventObject *ev = entry->event;
 
     ENSURE_ERR(frame, (ev), ERR_BADHANDLE);
     ENSURE_ERR(frame, (ev->alive), ERR_DEAD);
+
     
     switch (event_type)
     {
@@ -43,7 +45,7 @@ void SvcBind(CpuState *frame)
         ENSURE_ERR(frame, (dev_mem_obj), ERR_BADHANDLE);
 
         ENSURE_ERR(frame, IrqIsValid(dev_mem_obj->dev.irq), ERR_BADARG);
-        ENSURE_ERR(frame, (bit < 31u), ERR_BADARG);
+        ENSURE_ERR(frame, (bit < 31U), ERR_BADARG);
 
         ArchSetInFrame(frame, 0, IrqBindToEvent(CURRENT_SPACE, dev_mem_obj->dev.irq, ev, bit));
     } break;

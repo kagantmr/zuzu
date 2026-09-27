@@ -43,7 +43,7 @@ typedef enum
 typedef struct HandleTableEntryStruct
 {
     HandleType type;    /* HANDLE_* */
-    bool grantable;     /* Will grant() work on this handle? */
+    HandlePerms perms;
     VirtAddr mapped_va; /* For shm and device: destroy() checks before freeing */
     union
     {

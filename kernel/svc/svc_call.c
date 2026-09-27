@@ -17,6 +17,7 @@ void __hot SvcCall(CpuState *frame)
     if (!entry) return;
     PortObject *port = entry->port;
 
+
     Err grant_err = ValidateGrantHandle(CURRENT_SPACE, grant_handle);
     ENSURE_ERR(frame, (grant_err == ZUZU_OK), grant_err);
 
