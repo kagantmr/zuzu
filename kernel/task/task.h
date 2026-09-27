@@ -76,6 +76,7 @@ struct TaskObjectStruct
     WaitSlot wait_slot;         /**< Wait slot. */
     uint32_t priority, time_slice,
         ticks_remaining;   /**< Priority, time slice, and remaining ticks. */
+    uint32_t max_prio;
     Time slice_deadline;   /**< Deadline for the time slice. */
     SpaceObject *owner;    /**< Backpointer to owning process. */
     VirtAddr task_info_va; /**< Virtual address of thread info. */

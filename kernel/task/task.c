@@ -210,6 +210,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
     task->msg_xfer_len = 0;
     task->priority = SCHED_PRIO_DEFAULT;
     task->time_slice = 5;
+    task->max_prio = SCHED_PRIORITY_LEVELS - 1;
     task->ticks_remaining = task->time_slice;
     task->slice_deadline = 0;
     task->task_info_va = 0;

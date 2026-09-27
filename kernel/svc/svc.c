@@ -47,7 +47,8 @@ static SvcEntry svc_table[SVC_TOTAL_COUNT] = {
     [SVC_MANAGEHANDLE] = SvcManageHandle,
     [SVC_SIGNAL] = SvcSignal,
     [SVC_BIND] = SvcBind,
-    [SVC_MANAGEMEMORY] = SvcManageMemory
+    [SVC_MANAGEMEMORY] = SvcManageMemory,
+    [SVC_MANAGETASK] = SvcManageTask,
 };
 
 static __hot bool IsNormalFrame(const CpuState *frame)

@@ -113,6 +113,19 @@ typedef enum
     MNGHNDL_QUERY
 } ManageHandleVerb;
 
+typedef enum
+{
+    MNGTASK_START,
+    MNGTASK_KILL,
+    MNGTASK_SET_PRIORITY,
+    MNGTASK_SET_MAX_PRIO,
+    MNGTASK_SET_TIMESLICE,
+    MNGTASK_SUSPEND,
+    MNGTASK_RESUME,
+    MNGTASK_GET_REGS,
+    MNGTASK_SET_REGS
+} ManageTaskVerb;
+
 /* AsInjectArgs.flags */
 #define ASINJECT_FLAG_RESERVE                                                                      \
 0x1U /* reserve [DestVAddr, DestVAddr+len) as demand-zero                                      \

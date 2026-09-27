@@ -16,6 +16,7 @@ typedef enum {
     SVC_SIGNAL,
     SVC_BIND,
     SVC_MANAGEMEMORY,
+    SVC_MANAGETASK,
     SVC_TOTAL_COUNT
 } SvcNumber;
 
