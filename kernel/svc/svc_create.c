@@ -39,6 +39,7 @@ void SvcCreate(CpuState *frame)
             ENSURE_ERR(frame, (HANDLE_SPACE == space_entry->type), ERR_BADTYPE);
             ENSURE_ERR(frame, (NULL != space_entry->space), ERR_BADHANDLE);
             target_space = space_entry->space;
+            ENSURE_ERR(frame, !target_space->torn_down, ERR_DEAD);
         }
 
         TaskObject *task = TaskCreate(target_space);
@@ -53,6 +54,7 @@ void SvcCreate(CpuState *frame)
         HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
         entry->type = HANDLE_TASK;
         entry->task = task;
+        TaskRef(task);
 
         ArchSetInFrame(frame, 0, (Register)HANDLE_PACK(new_handle, entry->generation));
     }
@@ -119,6 +121,7 @@ void SvcCreate(CpuState *frame)
         HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
         entry->type = HANDLE_SPACE;
         entry->space = space;
+        SpaceRef(space);
 
         ArchSetInFrame(frame, 0, (Register)HANDLE_PACK(new_handle, entry->generation));
     }

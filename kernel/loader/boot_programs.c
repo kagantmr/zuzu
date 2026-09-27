@@ -350,6 +350,7 @@ void SpawnAllBootPrograms(PhysAddr initrd_pa, size_t initrd_size)
             devmgr_task_slot->grantable = true;
             devmgr_task_slot->mapped_va = 0;
             devmgr_task_slot->task = s_devmgr;
+            TaskRef(devmgr_task_slot->task);
             HandleEntryClaim(&s_sysd->handle_table, devmgr_task_slot);
         }
         else

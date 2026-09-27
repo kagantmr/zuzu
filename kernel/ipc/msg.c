@@ -92,7 +92,9 @@ Err AllocateGrantSlot(SpaceObject *from, SpaceObject *to, Handle handle_to_grant
     switch (src->type) {
         case HANDLE_PORT:  src->port->ref_count++;  break;
         case HANDLE_EVENT: src->event->ref_count++; break;
-        default: break; /* HANDLE_TASK/SPACE/MEM: no shared-refcount concept yet */
+        case HANDLE_TASK:  TaskRef(src->task);      break;
+        case HANDLE_SPACE: SpaceRef(src->space);    break;
+        default: break; /* HANDLE_MEM/REPLY: no shared-refcount concept yet */
     }
 
     *out = (Handle)HANDLE_PACK(new_handle, dst->generation);
