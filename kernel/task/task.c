@@ -93,9 +93,26 @@ void WakeJoinTask(TaskObject *task, Err exit_status)
     WakeWaitList(&task->joiners, exit_status);
 }
 
+void TaskRef(TaskObject *t)
+{
+    if (!t)
+        return;
+    t->ref_count++;
+}
+
+void TaskUnref(TaskObject *t)
+{
+    if (!t)
+        return;
+    if (t->ref_count > 0)
+        t->ref_count--;
+    if (t->ref_count == 0 && t->released)
+        KSlabFree(&task_cache, t);
+}
+
 void TaskDestroy(TaskObject *task)
 {
-    if (!task)
+    if (!task || task->released)
         return;
     TaskUnlinkWaits(task);
     TaskObjectUnregister(task);
@@ -120,10 +137,14 @@ void TaskDestroy(TaskObject *task)
         owner->main_task = NULL;
     if (task->kernel_stack_top)
         KernelStackFree(task->kernel_stack_top);
-    KSlabFree(&task_cache, task);
 
     if (owner && owner->torn_down && list_empty(&owner->tasks))
         SpaceFinalize(owner);
+
+    task->released = true;
+    task->owner = NULL;
+    if (task->ref_count == 0)
+        KSlabFree(&task_cache, task);
 }
 
 void TaskWaitExit(TaskObject *task, Duration timeout, CpuState *frame)

@@ -81,6 +81,8 @@ struct TaskObjectStruct
     VirtAddr task_info_va; /**< Virtual address of thread info. */
     uint8_t tcb_slot;      /**< Index into owner's TCB page, TCB_SLOT_NONE if unassigned. */
     FpuState fpu_state;    /**< Lazily saved/restored, see kernel/sched/sched.c fpu_owner. */
+    uint32_t ref_count;
+    bool released;
 #ifdef CONFIG_ZUZU_BENCH
     uint32_t bench_irq_wait_start; /**< PMCCNTR at SysNtfnWait block, for the IRQ-wait bench. */
 #endif
@@ -98,6 +100,8 @@ void WakeJoinTask(TaskObject *task, Err exit_status);
 TaskObject *FindTaskByTid(Tid tid);
 void TaskUnlinkWaits(TaskObject *t);
 void TaskAbortWait(TaskObject *t, Err err);
+void TaskRef(TaskObject *t);
+void TaskUnref(TaskObject *t);
 
 /**
  * @brief Unify self-directed Quit and external Term: mark the task ZOMBIE,
