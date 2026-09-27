@@ -1,5 +1,9 @@
 #include "handle.h"
 #include "core/ensure.h"
+#include "kernel/ipc/event.h"
+#include "kernel/ipc/port.h"
+#include "kernel/mm/mem_object.h"
+#include "kernel/task/task.h"
 #include "space.h"
 #include <string.h>
 

@@ -281,82 +281,13 @@ void SpaceDestroy(SpaceObject *sp)
     for (uint32_t i = 0; i < HANDLE_MAX_SLOTS; i++)
     {
         HandleTableEntry *entry = HandleTableGet(&sp->handle_table, (Handle)i);
-        if (!entry)
+        if (!entry || entry->type == HANDLE_FREE)
             continue;
-
-        if (entry->type == HANDLE_PORT)
-        {
-            PortObject *port = entry->port;
-            if (port && port->owner_spid == sp->spid && port->alive)
-            {
-                port->alive = false;
-                while (!list_empty(&port->sender_queue))
-                {
-                    ListNode *n = list_pop_front(&port->sender_queue);
-                    TaskObject *task = container_of(n, TaskObject, node);
-                    TaskAbortWait(task, ERR_DEAD);
-                }
-                while (!list_empty(&port->receiver_queue))
-                {
-                    ListNode *n = list_pop_front(&port->receiver_queue);
-                    WaitSlot *slot = container_of(n, WaitSlot, node);
-                    TaskObject *task = slot->owner;
-                    TaskAbortWait(task, ERR_DEAD);
-
-                }
-            }
-            if (port)
-            {
-                if (port->ref_count > 0)
-                    port->ref_count--;
-                if (port->ref_count == 0)
-                    PortObjFree(port);
-            }
-            HandleEntryFree(&sp->handle_table, entry);
-        }
-        else if (entry->type == HANDLE_MEM)
-        {
-            MemObject *mem = entry->mem;
-            if (mem)
-            {
-                if (entry->mapped_va != 0)
-                {
-                    size_t region_size = (mem->kind == MEMTYPE_DEVICE)
-                        ? mem->dev.size
-                        : mem->shm.page_count * PAGE_SIZE;
-                    VmmRemoveRegion(sp->as, entry->mapped_va, region_size);
-                }
-                MemObjDestroy(mem);
-            }
-            HandleEntryFree(&sp->handle_table, entry);
-        }
-        else if (entry->type == HANDLE_EVENT)
-        {
-            EventObject *event = entry->event;
-            if (event && event->owner_spid == sp->spid && event->alive)
-            {
-                event->alive = false;
-                while (!list_empty(&event->wait_queue))
-                {
-                    ListNode *n = list_pop_front(&event->wait_queue);
-                    WaitSlot *slot = container_of(n, WaitSlot, node);
-                    TaskAbortWait(slot->owner, ERR_DEAD);
-                }
-            }
-            if (event)
-                EventDropReference(event);
-            HandleEntryFree(&sp->handle_table, entry);
-        }
-        else if (entry->type == HANDLE_TASK)
-        {
-            TaskUnref(entry->task);
-            HandleEntryFree(&sp->handle_table, entry);
-        }
-        else if (entry->type == HANDLE_SPACE)
-        {
-            SpaceUnref(entry->space);
-            HandleEntryFree(&sp->handle_table, entry);
-        }
+        if (entry->type == HANDLE_PORT && entry->port && entry->port->owner_spid == sp->spid)
+            PortKill(entry->port);
+        else if (entry->type == HANDLE_EVENT && entry->event && entry->event->owner_spid == sp->spid)
+            EventKill(entry->event);
+        HandleRelease(sp, entry);
     }
 
     if (sp->as)
