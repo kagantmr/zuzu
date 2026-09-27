@@ -19,7 +19,6 @@ typedef uint32_t Irq;       /* IRQ number */
 typedef uint32_t Duration;  /* for sleep and other timeout-taking syscalls */
 typedef uint64_t Time;      /* wall-clock time */
 typedef int32_t Err;        /* Error code */
-
 typedef uint32_t Marker;
 typedef uint32_t EventWord;
 
@@ -69,7 +68,7 @@ typedef struct
     VirtAddr entry;
     VirtAddr sp;
     uint32_t r0, r1;
-} ManageHandleTaskKickstartArgs;
+} KickstartArgs;
 
 /* Kernel event types users can subscribe to */
 typedef enum
@@ -97,6 +96,22 @@ typedef enum
     MNGMEM_PROTECT,
     MNGMEM_INJECT
 } ManageMemoryVerb;
+
+typedef enum
+{
+    QUERY_TYPE,
+    QUERY_PERMS,
+    QUERY_MARKER,
+    QUERY_STATUS
+} QueryWhat;
+
+typedef enum
+{
+    MNGHNDL_DUPLICATE,
+    MNGHNDL_RESTRICT,
+    MNGHNDL_CLOSE,
+    MNGHNDL_QUERY
+} ManageHandleVerb;
 
 /* AsInjectArgs.flags */
 #define ASINJECT_FLAG_RESERVE                                                                      \
