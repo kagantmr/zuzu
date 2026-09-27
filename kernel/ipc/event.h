@@ -41,6 +41,7 @@ void EventSignal(EventObject *ev, EventWord bits);
 void EventWait(EventObject *ev,Duration timeout, CpuState *frame);
 
 void EventDropReference(EventObject *ev);
+void EventKill(EventObject *ev);
 
 /* Slab-backed evObj pool. KAllocev returns uninitialized storage. */
 EventObject *EventObjAlloc(void);

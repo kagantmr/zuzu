@@ -32,6 +32,7 @@ typedef struct
 
 PortObject *PortCreate(SpaceObject *owner);
 void PortDestroy(PortObject *port);
+void PortKill(PortObject *port);
 
 /**
  * @brief Allocate space for a Port object.

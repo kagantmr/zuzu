@@ -31,17 +31,11 @@ PortObject *PortCreate(SpaceObject *owner) {
     return new_port;
 }
 
-void PortDestroy(PortObject *port) {
-    ENSURE_GOTO((NULL != port), DestroyPortEnd);
-    ENSURE_GOTO(port->alive, DestroyPortEnd);
+void PortKill(PortObject *port) {
+    if (!port || !port->alive)
+        return;
+    port->alive = false;
 
-    if (port->ref_count > 0)
-         port->ref_count--;
-     if (port->ref_count > 0)
-         goto DestroyPortEnd;   // other holders remain so don't tear down yet
-
-    
-    // Wake all blocked senders with error
     while (!list_empty(&port->sender_queue))
     {
         ListNode *n = list_pop_front(&port->sender_queue);
@@ -49,18 +43,21 @@ void PortDestroy(PortObject *port) {
         TaskAbortWait(t, ERR_DEAD);
     }
 
-    // Wake all blocked receivers with error
     while (!list_empty(&port->receiver_queue))
     {
         ListNode *n = list_pop_front(&port->receiver_queue);
         WaitSlot *slot = container_of(n, WaitSlot, node);
-        TaskObject *t = slot->owner;
-        TaskAbortWait(t, ERR_DEAD);
+        TaskAbortWait(slot->owner, ERR_DEAD);
     }
+}
 
-    port->alive = false;
-
+void PortDestroy(PortObject *port) {
+    if (!port)
+        return;
+    if (port->ref_count > 0)
+        port->ref_count--;
+    if (port->ref_count > 0)
+        return;
+    PortKill(port);
     PortObjFree(port);
-DestroyPortEnd:
-    return;
 }

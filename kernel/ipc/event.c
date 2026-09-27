@@ -40,15 +40,29 @@ void EventSignal(EventObject *ev, EventWord bits)
     }
 }
 
+void EventKill(EventObject *ev)
+{
+    if (!ev || !ev->alive)
+        return;
+    ev->alive = false;
+    while (!list_empty(&ev->wait_queue))
+    {
+        ListNode *n = list_pop_front(&ev->wait_queue);
+        WaitSlot *slot = container_of(n, WaitSlot, node);
+        TaskAbortWait(slot->owner, ERR_DEAD);
+    }
+}
+
 void EventDropReference(EventObject *ev)
 {
     if (!ev)
         return;
-    ev->ref_count--;
-    if (ev->ref_count == 0)
-    {
-        EventObjFree(ev);
-    }
+    if (ev->ref_count > 0)
+        ev->ref_count--;
+    if (ev->ref_count > 0)
+        return;
+    EventKill(ev);
+    EventObjFree(ev);
 }
 
 EventObject *EventCreate(SpaceObject *owner)
@@ -70,15 +84,7 @@ void EventDestroy(EventObject *ev)
 {
     if (!ev || !ev->alive)
         return;
-
-    while (!list_empty(&ev->wait_queue))
-    {
-        ListNode *n = list_pop_front(&ev->wait_queue);
-        WaitSlot *slot = container_of(n, WaitSlot, node);
-        TaskAbortWait(slot->owner, ERR_DEAD);
-    }
-    ev->alive = false;
-
+    EventKill(ev);
     EventDropReference(ev);
 }
 
