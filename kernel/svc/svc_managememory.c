@@ -47,6 +47,7 @@ void SvcManageMemory(CpuState *frame)
             HandleTableEntry *entry = HandleTableLookup(&CURRENT_SPACE->handle_table, kitten_space_handle);
             ENSURE_ERR(frame, entry, ERR_BADARG);
             ENSURE_ERR(frame,(HANDLE_SPACE == entry->type), ERR_BADARG);
+            ENSURE_ERR(frame, !entry->space->torn_down, ERR_DEAD);
 
             InjectArgs kargs;
             ENSURE_ERR(frame, CopyFromUser(&kargs, (const void *)(*ArchGetFromFrame(frame, 2)), sizeof(kargs)), ERR_BADPTR);
