@@ -241,8 +241,14 @@ void SpaceDestroy(SpaceObject *sp)
     {
         ListNode *next = task_node->next;
         TaskObject *task = container_of(task_node, TaskObject, space_node);
+        TaskRef(task);
         if (task->state != ZOMBIE)
             TaskTerminate(task, ERR_DEAD);
+        if (task != current_task)
+            TaskDestroy(task);
+        else
+            SchedQueueDestroyThread(task);
+        TaskUnref(task);
         task_node = next;
     }
 
