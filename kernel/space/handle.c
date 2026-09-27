@@ -12,7 +12,7 @@ Err HandleCopyInto(HandleTable *dst_table, HandleTableEntry *src, HandlePerms pe
     HandleTableEntry *dst = HandleTableGet(dst_table, free_handle);
     ENSURE_RET(dst, ERR_NOENT);
     HandleEntryClaim(dst_table, dst);
-    
+
     dst->perms = perms;
     dst->type = src->type;
     dst->marker = marker;
@@ -42,9 +42,22 @@ Err HandleCopyInto(HandleTable *dst_table, HandleTableEntry *src, HandlePerms pe
     default:
         break;
     }
-    
+
     *out = (Handle)HANDLE_PACK(free_handle, dst->generation);
     return ZUZU_OK;
 }
 
-void HandleRelease(SpaceObject *sp, HandleTableEntry *entry) {}
+void HandleRelease(SpaceObject *sp, HandleTableEntry *entry)
+{
+    switch (entry->type)
+    {
+    case HANDLE_PORT:  PortDestroy(entry->port);           break;
+    case HANDLE_EVENT: EventDropReference(entry->event);   break;
+    case HANDLE_MEM:   MemObjUnmapAndDrop(sp->as, entry->mapped_va, entry->mem); break;
+    case HANDLE_TASK:  TaskUnref(entry->task);             break;
+    case HANDLE_SPACE: SpaceUnref(entry->space);           break;
+    case HANDLE_FREE:  return;
+    default:           break;
+    }
+    HandleEntryFree(&sp->handle_table, entry);
+}
