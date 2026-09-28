@@ -1,7 +1,6 @@
 #include "kernel_load.h"
 
 #include "core/panic.h"
-#include "core/ensure.h"
 
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm/pmm.h"
@@ -21,6 +20,7 @@
 
 #define LOG_FMT(fmt) "(kload) " fmt
 #include "core/log.h"
+#include "core/ensure.h"
 
 static bool ZxfSegChkOverlap(const ZXFSegment *a, const ZXFSegment *b)
 {

@@ -59,7 +59,7 @@ static void InjectDeviceObjectsToRootSvc(const char *compatible,
     
     entry->type = HANDLE_MEM;
     entry->mem = mem;
-    entry->grantable = true;
+    entry->perms = PERM_ALL;
     entry->mapped_va = 0;
     HandleEntryClaim(&s_devmgr->handle_table, entry);
 }
@@ -264,7 +264,6 @@ static size_t KernelParseManifest(const char *manifest_data, size_t manifest_siz
             KERROR("Boot manifest: allocation failed");
             break;
         }
-        out_programs[count].flags = parse_flag_string(flags_buf);
         out_programs[count].owns_path = 1;
 
         count++;
@@ -347,7 +346,7 @@ void SpawnAllBootPrograms(PhysAddr initrd_pa, size_t initrd_size)
         if (devmgr_task_slot)
         {
             devmgr_task_slot->type = HANDLE_TASK;
-            devmgr_task_slot->grantable = true;
+            devmgr_task_slot->perms = PERM_ALL;
             devmgr_task_slot->mapped_va = 0;
             devmgr_task_slot->task = s_devmgr;
             TaskRef(devmgr_task_slot->task);

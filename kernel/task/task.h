@@ -71,11 +71,11 @@ struct TaskObjectStruct
         *reply_cap;           /**< Set while this task is a receiver mid-call, waiting to Reply. */
     TaskObject *reply_holder; /**< Server currently holding this task's reply cap, or NULL. */
     PhysAddr msg_buf_phys_addr; /**< Physical address of the message buffer. */
-    size_t msg_xfer_len;   /**< Length of the message buffer transfer. */
+    size_t msg_xfer_len;        /**< Length of the message buffer transfer. */
     Marker port_marker;         /**< Port marker. */
     WaitSlot wait_slot;         /**< Wait slot. */
     uint32_t priority, time_slice,
-        ticks_remaining;   /**< Priority, time slice, and remaining ticks. */
+        ticks_remaining; /**< Priority, time slice, and remaining ticks. */
     uint32_t max_prio;
     Time slice_deadline;   /**< Deadline for the time slice. */
     SpaceObject *owner;    /**< Backpointer to owning process. */
