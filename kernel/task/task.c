@@ -364,6 +364,7 @@ void TaskFault(TaskObject *task, Err reason)
     task->fault_reason = reason;
     task->owner->frozen = true;
     task->owner->faulted_tid = task->tid;
+    TaskMaybeSignalBind(task);
     while (!list_empty(&task->joiners)) {
         ListNode *jn = list_pop_front(&task->joiners);
         TaskObject *joiner = container_of(jn, WaitSlot, node)->owner;
