@@ -9,7 +9,7 @@ extern "C"
 #include <arch/svc.h>
 #include <arch/regs.h>
 #include <stdint.h>
-#include "syscall_nums.h"
+#include "svc_nums.h"
 #include <string.h>
 #include <types.h>
 

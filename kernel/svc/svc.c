@@ -9,7 +9,6 @@
 #include "kernel/layout.h"
 #include "core/panic.h"
 
-#include "syscall_nums.h"
 #include "kernel/bench.h"
 
 #include <compiler.h>

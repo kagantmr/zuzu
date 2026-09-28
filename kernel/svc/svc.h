@@ -7,7 +7,7 @@
 #include "stddef.h"
 #include "kernel/mm/vmm/vmm.h"
 #include "stdint.h"
-#include <syscall_nums.h>
+#include <svc_nums.h>
 #include <zuzu/err.h>
 
 
