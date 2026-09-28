@@ -27,7 +27,7 @@ static void __hot RelayIsr(void *ctx)
     EventObject *ntfn = irq_owners[irq_num].bound_ev;
     if (likely(ntfn && ntfn->alive))
     {
-        EventSignal(ntfn, (1U << irq_owners[irq_num].bit));
+        EventSignal(ntfn, (1U << irq_owners[irq_num].bit), false);
         irq_owners[irq_num].pending = false;
     }
     else if (ntfn && !ntfn->alive)
