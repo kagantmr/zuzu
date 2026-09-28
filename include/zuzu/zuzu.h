@@ -195,9 +195,10 @@ static inline Err MemProtect(VirtAddr va, size_t size, MemProt new_prot) {
 static inline Err MemInject(Handle kitten_space_handle, VirtAddr dest_vaddr,
                              const void *src_buf, size_t size, MemProt prot, uint32_t flags) {
     InjectArgs args = {
-        .size = (uint32_t)size,
+        .size = sizeof(args),
         .dest_vaddr = dest_vaddr,
         .src_buf = src_buf,
+        .len = size,
         .prot = prot,
         .flags = flags,
     };

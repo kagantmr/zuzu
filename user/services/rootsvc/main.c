@@ -1,5 +1,5 @@
-#include <arch/syscall.h>
-#include <syscall_nums.h>
+#include <arch/svc.h>
+#include <svc_nums.h>
 
 static const char msg[] = "rootsvc: hello\n";
 

@@ -12,9 +12,7 @@ extern "C" {
 /**
  * @brief Parses a ZXF blob and spawns it directly: creates a kitten Space +
  * Task, injects its load segments, reserves and lays out its initial stack
- * (with an optional argv), then kickstarts it. Replaces the old sysd
- * SYSD_EXEC RPC -- under Prowl's capability model spawning doesn't need a
- * privileged broker in the middle, just a handle to inject into.
+ * (with an optional argv), then kickstarts it.
  *
  * @param zxf_data  Pointer to the ZXF image bytes.
  * @param zxf_size  Size of zxf_data in bytes.

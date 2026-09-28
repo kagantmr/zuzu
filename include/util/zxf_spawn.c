@@ -1,37 +1,16 @@
 #include <util/zxf_spawn.h>
 
-#include <arch/syscall.h>
-#include <syscall_nums.h>
 #include <util/tls.h>
 #include <util/zxf.h>
 #include <zuzu/err.h>
 #include <zuzu/user_layout.h>
+#include <zuzu/zuzu.h>
 
 #include <malloc.h>
 #include <string.h>
 
 #define PAGE_ROUND_UP(x) (((x) + PAGE_SIZE - 1) & ~(size_t)(PAGE_SIZE - 1))
 #define PAGE_ROUND_DOWN(x) ((x) & ~(VirtAddr)(PAGE_SIZE - 1))
-
-static Err InjectBytes(Handle space_handle, VirtAddr dest_vaddr, const void *src_buf,
-                        size_t len, MemProt prot, uint32_t flags)
-{
-    InjectArgs args = {
-        .size = sizeof(args),
-        .dest_vaddr = dest_vaddr,
-        .src_buf = src_buf,
-        .len = len,
-        .prot = prot,
-        .flags = flags,
-    };
-    return (Err)Syscall(SVC_MANAGEMEMORY, MNGMEM_INJECT, (uint32_t)space_handle,
-                         (uint32_t)(uintptr_t)&args, 0);
-}
-
-static void DestroySpace(Handle space_handle)
-{
-    Syscall(SVC_MANAGEHANDLE, (uint32_t)space_handle, MNGHNDL_DESTROY, 0, 0);
-}
 
 static Err LoadSegment(Handle space_handle, const void *zxf_data, const ZXFSegment *seg)
 {
@@ -54,8 +33,8 @@ static Err LoadSegment(Handle space_handle, const void *zxf_data, const ZXFSegme
         memset(buf, 0, file_pages * PAGE_SIZE);
         memcpy(buf, (const uint8_t *)zxf_data + seg->file_offset, seg->file_size);
 
-        Err rc = InjectBytes(space_handle, (VirtAddr)seg->vaddr, buf,
-                              file_pages * PAGE_SIZE, prot, 0);
+        Err rc = MemInject(space_handle, (VirtAddr)seg->vaddr, buf,
+                            file_pages * PAGE_SIZE, prot, 0);
         free(buf);
         if (rc != ZUZU_OK)
             return rc;
@@ -63,8 +42,8 @@ static Err LoadSegment(Handle space_handle, const void *zxf_data, const ZXFSegme
 
     if (mem_pages > file_pages)
     {
-        Err rc = InjectBytes(space_handle, (VirtAddr)seg->vaddr + (file_pages * PAGE_SIZE), NULL,
-                              (mem_pages - file_pages) * PAGE_SIZE, prot, ASINJECT_FLAG_RESERVE);
+        Err rc = MemInject(space_handle, (VirtAddr)seg->vaddr + (file_pages * PAGE_SIZE), NULL,
+                            (mem_pages - file_pages) * PAGE_SIZE, prot, ASINJECT_FLAG_RESERVE);
         if (rc != ZUZU_OK)
             return rc;
     }
@@ -101,9 +80,8 @@ static Err LayoutArgv(Handle space_handle, const char *argbuf, size_t argbuf_len
 
     /* Build the whole [ptr array][strings] block locally, at the exact byte
      * offsets it will land at in the target stack, then inject it as one
-     * page-aligned write -- InjectInKittenSpace fills in place since this
-     * falls entirely inside the stack region already reserved by the
-     * caller. */
+     * page-aligned write -- MemInject fills in place since this falls
+     * entirely inside the stack region already reserved by the caller. */
     VirtAddr block_start = PAGE_ROUND_DOWN(argv_va);
     VirtAddr block_end = PAGE_ROUND_UP(USR_SP);
     size_t block_len = block_end - block_start;
@@ -128,7 +106,7 @@ static Err LayoutArgv(Handle space_handle, const char *argbuf, size_t argbuf_len
     }
     memcpy(block + (strings_va - block_start), argbuf, argbuf_len);
 
-    Err rc = InjectBytes(space_handle, block_start, block, block_len, PROT_RW, 0);
+    Err rc = MemInject(space_handle, block_start, block, block_len, PROT_RW, 0);
     free(block);
     if (rc != ZUZU_OK)
         return rc;
@@ -147,33 +125,27 @@ Err ZxfSpawn(const void *zxf_data, size_t zxf_size, const char *name,
     if ((argc > 0) != (argbuf != NULL && argbuf_len > 0))
         return ERR_BADARG;
 
-    size_t name_len = 0;
-    while (name && name[name_len])
-        name_len++;
-
-    int32_t space_r = Syscall(SVC_CREATE, OBJECT_SPACE, (uint32_t)(uintptr_t)name,
-                               (uint32_t)name_len, 0);
-    if (space_r < 0)
-        return (Err)space_r;
-    Handle space_handle = (Handle)space_r;
+    Handle space_handle = CreateSpace(name);
+    if (space_handle < 0)
+        return (Err)space_handle;
 
     for (uint16_t i = 0; i < img.seg_count; i++)
     {
         Err rc = LoadSegment(space_handle, zxf_data, &img.segs[i]);
         if (rc != ZUZU_OK)
         {
-            DestroySpace(space_handle);
+            HandleDestroy(space_handle);
             return rc;
         }
     }
 
     /* Stack region: reserved whole (demand-zero, faulted in lazily), same
      * as SpaceCreate reserves it for kernel-loaded boot programs. */
-    Err rc = InjectBytes(space_handle, USER_STACK_BASE, NULL, USER_STACK_TOP - USER_STACK_BASE,
-                          PROT_RW, ASINJECT_FLAG_RESERVE);
+    Err rc = MemInject(space_handle, USER_STACK_BASE, NULL, USER_STACK_TOP - USER_STACK_BASE,
+                        PROT_RW, ASINJECT_FLAG_RESERVE);
     if (rc != ZUZU_OK)
     {
-        DestroySpace(space_handle);
+        HandleDestroy(space_handle);
         return rc;
     }
 
@@ -181,33 +153,25 @@ Err ZxfSpawn(const void *zxf_data, size_t zxf_size, const char *name,
     rc = LayoutArgv(space_handle, argbuf, argbuf_len, argc, &sp, &argv_va);
     if (rc != ZUZU_OK)
     {
-        DestroySpace(space_handle);
+        HandleDestroy(space_handle);
         return rc;
     }
 
-    int32_t task_r = Syscall(SVC_CREATE, OBJECT_TASK, (uint32_t)space_handle, 0, 0);
-    if (task_r < 0)
+    Handle task_handle = CreateTask(space_handle);
+    if (task_handle < 0)
     {
-        DestroySpace(space_handle);
-        return (Err)task_r;
+        HandleDestroy(space_handle);
+        return (Err)task_handle;
     }
-    Handle task_handle = (Handle)task_r;
 
-    KickstartArgs kargs = {
-        .entry = (VirtAddr)img.entry,
-        .sp = sp,
-        .r0 = argc,
-        .r1 = (uint32_t)argv_va,
-    };
-    rc = (Err)Syscall(SVC_MANAGETASK, (uint32_t)task_handle, MNGTASK_START,
-                       (uint32_t)(uintptr_t)&kargs, 0);
+    rc = TaskStart(task_handle, (VirtAddr)img.entry, sp, argc, (uint32_t)argv_va);
     if (rc != ZUZU_OK)
     {
-        DestroySpace(space_handle);
+        HandleDestroy(space_handle);
         return rc;
     }
 
     if (out_pid)
-        *out_pid = space_r; /* the handle IS the pid-bearing token for the space we just made */
+        *out_pid = space_handle; /* the handle IS the pid-bearing token for the space we just made */
     return ZUZU_OK;
 }
