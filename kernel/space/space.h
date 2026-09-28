@@ -131,5 +131,6 @@ void SpaceFinalize(SpaceObject *sp);
 
 void SpaceRef(SpaceObject *sp);
 void SpaceUnref(SpaceObject *sp);
+void SpaceMaybeSignalBind(SpaceObject *sp);
 
 #endif /* _ZUZU_OBJECTS_SPACE_H */

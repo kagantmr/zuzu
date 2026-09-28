@@ -279,6 +279,12 @@ void TaskAbortWait(TaskObject *t, Err err)
     SchedAdd(t);
 }
 
+void TaskMaybeSignalBind(TaskObject *task)
+{
+    if (task->bound_ev && task->bound_ev->alive && task->state == ZOMBIE)
+        EventSignal(task->bound_ev, (1U << task->bind_bit), false);
+}
+
 void TaskTerminate(TaskObject *task, Err exit_status)
 {
     if (!task)
@@ -315,6 +321,7 @@ void TaskTerminate(TaskObject *task, Err exit_status)
     }
 
     KillTask(task); // state = ZOMBIE
+    TaskMaybeSignalBind(task);
     if (owner && entry_state != ZOMBIE)
         owner->live_tasks--;
     bool space_hollow = owner && owner->live_tasks == 0;
@@ -323,7 +330,7 @@ void TaskTerminate(TaskObject *task, Err exit_status)
     {
         owner->last_exit_status = exit_status;
         WakeWaitList(&owner->waiters, exit_status);
-        EventSignal(owner->bound_ev, owner->bind_bit, false);
+        SpaceMaybeSignalBind(owner);
     }
 
     WakeJoinTask(task, exit_status);
@@ -350,3 +357,4 @@ void TaskTerminate(TaskObject *task, Err exit_status)
         TaskDestroy(task);
     }
 }
+

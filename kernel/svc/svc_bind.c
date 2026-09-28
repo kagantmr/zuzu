@@ -8,6 +8,28 @@
 #include <zuzu/err.h>
 #include <zuzu/types.h>
 
+static HandleTableEntry *BindLookupTarget(CpuState *frame, Handle h, HandleType want_type, uint32_t bit)
+{
+    HandleTableEntry *entry = HandleTableLookup(&CURRENT_SPACE->handle_table, h);
+    ENSURE(entry, ArchSetInFrame(frame, 0, ERR_BADHANDLE); return NULL);
+    ENSURE((entry->type == want_type), ArchSetInFrame(frame, 0, ERR_BADTYPE); return NULL);
+    ENSURE((entry->perms & PERM_WAIT), ArchSetInFrame(frame, 0, ERR_NOPERM); return NULL);
+    ENSURE((bit < 31U), ArchSetInFrame(frame, 0, ERR_BADARG); return NULL);
+    return entry;
+}
+
+static void BindEventTo(EventObject **slot, uint32_t *bit_slot, EventObject *ev, uint32_t bit)
+{
+    if (*slot) {
+        (*slot)->bind_count--;
+        EventDropReference(*slot);
+    }
+    *slot = ev;
+    ev->ref_count++;
+    ev->bind_count++;
+    *bit_slot = bit;
+}
+
 void SvcBind(CpuState *frame)
 {
     EventType event_type = (EventType)(*ArchGetFromFrame(frame, 0));
@@ -18,13 +40,12 @@ void SvcBind(CpuState *frame)
     ENSURE_ERR(frame, entry, ERR_BADHANDLE);
     ENSURE_ERR(frame, (entry->type == HANDLE_EVENT), ERR_BADTYPE);
     ENSURE_ERR(frame, entry->perms & PERM_CNTL, ERR_NOPERM);
-    
+
     EventObject *ev = entry->event;
 
     ENSURE_ERR(frame, (ev), ERR_BADHANDLE);
     ENSURE_ERR(frame, (ev->alive), ERR_DEAD);
 
-    
     switch (event_type)
     {
     case EVENT_MEMMGMT:
@@ -51,82 +72,46 @@ void SvcBind(CpuState *frame)
     } break;
     case EVENT_PORT:
     {
-        Handle dev_handle = (Handle)(*ArchGetFromFrame(frame, 2));
+        Handle h = (Handle)(*ArchGetFromFrame(frame, 2));
         uint32_t bit = (uint32_t)(*ArchGetFromFrame(frame, 3));
-        HandleTableEntry *port_entry = HandleTableLookup(&CURRENT_SPACE->handle_table, dev_handle);
+        HandleTableEntry *target = BindLookupTarget(frame, h, HANDLE_PORT, bit);
+        if (!target) return;
 
-        ENSURE_ERR(frame, port_entry, ERR_BADHANDLE);
-        ENSURE_ERR(frame, (port_entry->type == HANDLE_PORT), ERR_BADTYPE);
-        ENSURE_ERR(frame, (port_entry->perms & PERM_WAIT), ERR_NOPERM);
+        PortObject *port = target->port;
+        ENSURE_ERR(frame, port, ERR_BADHANDLE);
+        ENSURE_ERR(frame, port->alive, ERR_DEAD);
 
-        PortObject *port_obj = port_entry->port;
-
-        ENSURE_ERR(frame, (port_obj), ERR_BADHANDLE);
-        ENSURE_ERR(frame, (port_obj->alive), ERR_DEAD);
-        ENSURE_ERR(frame, (bit < 31U), ERR_BADARG);
-
-        if (port_obj->bound_ev) {
-            port_obj->bound_ev->bind_count--; 
-            EventDropReference(port_obj->bound_ev);
-        }
-
-        port_obj->bound_ev = ev; 
-        ev->ref_count++;
-        ev->bind_count++;
-        
-        PortMaybeSignalBind(port_obj);
-        
+        BindEventTo(&port->bound_ev, &port->bind_bit, ev, bit);
+        PortMaybeSignalBind(port);
+        ArchSetInFrame(frame, 0, ZUZU_OK);
     } break;
     case EVENT_TASK:
     {
-        Handle dev_handle = (Handle)(*ArchGetFromFrame(frame, 2));
+        Handle h = (Handle)(*ArchGetFromFrame(frame, 2));
         uint32_t bit = (uint32_t)(*ArchGetFromFrame(frame, 3));
-        HandleTableEntry *task_entry = HandleTableLookup(&CURRENT_SPACE->handle_table, dev_handle);
+        HandleTableEntry *target = BindLookupTarget(frame, h, HANDLE_TASK, bit);
+        if (!target) return;
 
-        ENSURE_ERR(frame, task_entry, ERR_BADHANDLE);
-        ENSURE_ERR(frame, (task_entry->type == HANDLE_TASK), ERR_BADTYPE);
-        ENSURE_ERR(frame, (task_entry->perms & PERM_WAIT), ERR_NOPERM);
+        TaskObject *task = target->task;
+        ENSURE_ERR(frame, task, ERR_BADHANDLE);
 
-        TaskObject *task = task_entry->task;
-
-        ENSURE_ERR(frame, (task), ERR_BADHANDLE);
-        ENSURE_ERR(frame, (bit < 31U), ERR_BADARG);
-
-        if (task->bound_ev) {
-            task->bound_ev->bind_count--; 
-            EventDropReference(task->bound_ev);
-        }
-
-        task->bound_ev = ev; 
-        ev->ref_count++;
-        ev->bind_count++;
-        
+        BindEventTo(&task->bound_ev, &task->bind_bit, ev, bit);
+        TaskMaybeSignalBind(task);
+        ArchSetInFrame(frame, 0, ZUZU_OK);
     } break;
-
     case EVENT_SPACE:
     {
-        Handle dev_handle = (Handle)(*ArchGetFromFrame(frame, 2));
+        Handle h = (Handle)(*ArchGetFromFrame(frame, 2));
         uint32_t bit = (uint32_t)(*ArchGetFromFrame(frame, 3));
-        HandleTableEntry *task_entry = HandleTableLookup(&CURRENT_SPACE->handle_table, dev_handle);
+        HandleTableEntry *target = BindLookupTarget(frame, h, HANDLE_SPACE, bit);
+        if (!target) return;
 
-        ENSURE_ERR(frame, task_entry, ERR_BADHANDLE);
-        ENSURE_ERR(frame, (task_entry->type == HANDLE_TASK), ERR_BADTYPE);
-        ENSURE_ERR(frame, (task_entry->perms & PERM_WAIT), ERR_NOPERM);
+        SpaceObject *space = target->space;
+        ENSURE_ERR(frame, space, ERR_BADHANDLE);
 
-        SpaceObject *space = space_entry->space;
-
-        ENSURE_ERR(frame, (space), ERR_BADHANDLE);
-        ENSURE_ERR(frame, (bit < 31U), ERR_BADARG);
-
-        if (space->bound_ev) {
-            space->bound_ev->bind_count--; 
-            EventDropReference(space->bound_ev);
-        }
-
-        space->bound_ev = ev; 
-        ev->ref_count++;
-        ev->bind_count++;
-        
+        BindEventTo(&space->bound_ev, &space->bind_bit, ev, bit);
+        SpaceMaybeSignalBind(space);
+        ArchSetInFrame(frame, 0, ZUZU_OK);
     } break;
     default:
         ArchSetInFrame(frame, 0, ERR_BADARG);

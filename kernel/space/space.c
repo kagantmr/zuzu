@@ -342,3 +342,9 @@ void SpaceWaitHollow(SpaceObject *sp, Duration timeout, CpuState *frame)
     }
     SchedBlockOn(&sp->waiters, timeout);
 }
+
+void SpaceMaybeSignalBind(SpaceObject *sp)
+{
+    if (sp->bound_ev && sp->bound_ev->alive && sp->live_tasks == 0)
+        EventSignal(sp->bound_ev, (1U << sp->bind_bit), false);
+}

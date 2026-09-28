@@ -112,5 +112,5 @@ void TaskUnref(TaskObject *t);
  * space, tear that space down as a consequence (see SpaceDestroy).
  */
 void TaskTerminate(TaskObject *task, Err exit_status);
-
+void TaskMaybeSignalBind(TaskObject *task);
 #endif // ZUZU_THREAD_H
