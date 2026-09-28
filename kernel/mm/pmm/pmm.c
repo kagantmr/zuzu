@@ -314,7 +314,7 @@ PhysAddr PmmAllocFrame(void)
     }
 #ifdef CONFIG_PMM_TRACE
     KTRACE("alloc_page pa=%p pid=%u caller: %s", (void *)pa, current_pid_or_zero(),
-           ksym_lookup((uint32_t)__builtin_return_address(0)));
+           KSymLookup((uint32_t)__builtin_return_address(0)));
 #endif
     return pa;
 }
@@ -370,7 +370,7 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
 #ifdef CONFIG_PMM_TRACE
                 KTRACE("alloc_pages n=%zu pa=%p pid=%u scanned=%zu caller: %s", n_frames,
                        (void *)addr, current_pid_or_zero(), index + 1,
-                       ksym_lookup((uint32_t)__builtin_return_address(0)));
+                       KSymLookup((uint32_t)__builtin_return_address(0)));
 #endif
                 return addr;
             }
@@ -381,7 +381,7 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
 
 #ifdef CONFIG_PMM_TRACE
     KTRACE("alloc_pages n=%zu FAILED pid=%u scanned=%zu caller: %s", n_frames,
-           current_pid_or_zero(), total_pages, ksym_lookup((uint32_t)__builtin_return_address(0)));
+           current_pid_or_zero(), total_pages, KSymLookup((uint32_t)__builtin_return_address(0)));
 #endif
     return PHYS_NULL;
 }
@@ -390,7 +390,7 @@ void PmmFreeFrame(const PhysAddr addr)
 {
 #ifdef CONFIG_PMM_TRACE
     KTRACE("free_page pa=%p pid=%u caller: %s", (void *)addr, current_pid_or_zero(),
-           ksym_lookup((uint32_t)__builtin_return_address(0)));
+           KSymLookup((uint32_t)__builtin_return_address(0)));
 #endif
     assert(addr % PAGE_SIZE == 0);
 
@@ -439,7 +439,7 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
         align_frames = 1;
 #ifdef CONFIG_PMM_TRACE
     KTRACE("alloc_pages_aligned n=%zu align=%zu pid=%u caller: %s", n_frames, align_frames,
-           current_pid_or_zero(), ksym_lookup((uint32_t)__builtin_return_address(0)));
+           current_pid_or_zero(), KSymLookup((uint32_t)__builtin_return_address(0)));
 #endif
     // Require power-of-two alignment (common + cheap)
     if ((align_frames & (align_frames - 1)) != 0) {
@@ -494,7 +494,7 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
 #ifdef CONFIG_PMM_TRACE
                 KTRACE("alloc_pages_aligned n=%zu pa=%p pid=%u scanned=%zu caller: %s", n_frames,
                        (void *)start_pa, current_pid_or_zero(), index + 1,
-                       ksym_lookup((uint32_t)__builtin_return_address(0)));
+                       KSymLookup((uint32_t)__builtin_return_address(0)));
 #endif
 
                 return start_pa;
@@ -506,7 +506,7 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
 
 #ifdef CONFIG_PMM_TRACE
     KTRACE("alloc_pages_aligned n=%zu FAILED pid=%u scanned=%zu caller: %s", n_frames,
-           current_pid_or_zero(), total_pages, ksym_lookup((uint32_t)__builtin_return_address(0)));
+           current_pid_or_zero(), total_pages, KSymLookup((uint32_t)__builtin_return_address(0)));
 #endif
     return PHYS_NULL;
 }
@@ -515,7 +515,7 @@ size_t PmmAllocFramesScattered(const size_t n_frames, PhysAddr *out_addrs)
 {
 #ifdef CONFIG_PMM_TRACE
     KTRACE("alloc_pages_scattered n=%zu pid=%u caller: %s", n_frames, current_pid_or_zero(),
-           ksym_lookup((uint32_t)__builtin_return_address(0)));
+           KSymLookup((uint32_t)__builtin_return_address(0)));
 #endif
     if (n_frames == 0 || !out_addrs || pmm_state.free_frames < n_frames) {
         return 0;

@@ -343,7 +343,7 @@ void __hot SchedSwitchNext(TaskObject *next)
     {
         if (!fpu_access_enabled)
         {
-            arch_fpu_trap_enable();
+            ArchFpuTrapEnable();
             fpu_access_enabled = true;
         }
     }

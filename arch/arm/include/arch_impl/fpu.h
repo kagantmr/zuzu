@@ -19,8 +19,8 @@
 typedef uint8_t FpuState[32 * 8 + 4] __attribute__((aligned(8)));
 
 // Implemented in arch/arm/vfp.S.
-void arch_fpu_save(FpuState *state);
-void arch_fpu_restore(const FpuState *state);
+void ArchFpuSaveState(FpuState *state);
+void ArchFpuRestoreState(const FpuState *state);
 
 static inline void arch_fpu_trap_disable(void)
 {
@@ -31,7 +31,7 @@ static inline void arch_fpu_trap_disable(void)
     __asm__ volatile("isb" ::: "memory");
 }
 
-static inline void arch_fpu_trap_enable(void)
+static inline void ArchFpuTrapEnable(void)
 {
     uint32_t cpacr;
     __asm__ volatile("mrc p15, 0, %0, c1, c0, 2" : "=r"(cpacr));

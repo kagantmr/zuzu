@@ -28,7 +28,7 @@
 
 extern ZuzuRamLayout kernel_layout;
 
-panic_fault_context_t panic_fault_ctx;
+PanicFaultContext panic_fault_ctx;
 
 /* ------------------------------------------------------------------ */
 /* Constants                                                           */
@@ -240,8 +240,8 @@ static void GetPanicHeapSnapshot(PanicHeapStats *st)
 
 static void FormatKSym(char *buf, int bufsz, uint32_t addr)
 {
-    const char *name = ksym_lookup(addr);
-    uint32_t base = ksym_lookup_base(addr);
+    const char *name = KSymLookup(addr);
+    uint32_t base = KSymLookupBaseAddr(addr);
     if (name && base && addr != base)
         (void)snprintf(buf, (size_t)bufsz, "%s+0x%X", name, addr - base);
     else if (name)

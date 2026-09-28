@@ -9,8 +9,9 @@
 #include "core/log.h"
 #include "core/panic.h"
 #include "core/ksym.h"
-#include "kernel/proc/process.h"
-#include "kernel/proc/kstack.h"
+#include "kernel/task/task.h"
+#include "kernel/space/space.h"
+#include "kernel/task/kstack.h"
 #include "kernel/sched/sched.h"
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/svc/svc.h"
@@ -24,7 +25,7 @@
 BENCH_STAT(g_bench_lazy_map_fault, "lazy-map translation fault");
 #endif
 
-typedef enum exception_type
+typedef enum
 {
     EXC_RESET = 0,
     EXC_UNDEF = 1,
@@ -34,10 +35,10 @@ typedef enum exception_type
     EXC_RESERVED = 5,
     EXC_IRQ = 6,
     EXC_FIQ = 7
-} exception_type;
+} ExcType;
 
 // Decode FSR status bits (works for both DFSR and IFSR)
-static const char *decode_fault_status(uint32_t fsr)
+static const char *DecodeFsr(uint32_t fsr)
 {
     // Status = FS[10] : FS[3:0]
     uint32_t status = (fsr & 0xF) | ((fsr >> 6) & 0x10);
@@ -83,7 +84,7 @@ static const char *decode_fault_status(uint32_t fsr)
     }
 }
 
-static const char *decode_mode(uint32_t spsr)
+static const char *DecodeProcessorMode(uint32_t spsr)
 {
     switch (spsr & 0x1F)
     {
@@ -111,10 +112,10 @@ static const char *decode_mode(uint32_t spsr)
 }
 
 /* addr annotated with its containing kernel symbol, e.g. "0x8012340 (schedule+0x18)". */
-static void sym_annotate(char *buf, size_t bufsz, uint32_t addr)
+static void SymAnnotate(char *buf, size_t bufsz, uint32_t addr)
 {
-    const char *name = ksym_lookup(addr);
-    uint32_t base = ksym_lookup_base(addr);
+    const char *name = KSymLookup(addr);
+    uint32_t base = KSymLookupBaseAddr(addr);
     if (name && base && addr != base)
         (void)snprintf(buf, bufsz, "0x%08X (%s+0x%X)", addr, name, addr - base);
     else if (name)
@@ -123,8 +124,8 @@ static void sym_annotate(char *buf, size_t bufsz, uint32_t addr)
         (void)snprintf(buf, bufsz, "0x%08X (<?>)", addr);
 }
 
-/* d0-d31 + FPSCR, laid out exactly as arch_fpu_save() (arch/arm/vfp.S) writes them. */
-static void dump_vfp(const FpuState *fpu)
+/* d0-d31 + FPSCR, laid out exactly as ArchFpuSaveState() (arch/arm/vfp.S) writes them. */
+static void DumpVfpState(const FpuState *fpu)
 {
     const uint8_t *p = (const uint8_t *)fpu;
 
@@ -142,17 +143,17 @@ static void dump_vfp(const FpuState *fpu)
     kprintf(" fpscr=%08X\n", fpscr);
 }
 
-static void dump_registers(ExceptionFrame *frame)
+static void DumpRegisters(ExceptionFrame *frame)
 {
     char pc_sym[80], lr_sym[80];
-    sym_annotate(pc_sym, sizeof(pc_sym), frame->return_pc);
-    sym_annotate(lr_sym, sizeof(lr_sym), frame->lr_usr);
+    SymAnnotate(pc_sym, sizeof(pc_sym), (uint32_t)frame->return_pc);
+    SymAnnotate(lr_sym, sizeof(lr_sym), (uint32_t)frame->lr_usr);
 
-    SpaceObject *p = current_task ? current_task->owner_process : NULL;
+    SpaceObject *space = current_task ? CURRENT_SPACE : NULL;
 
     kprintf("-- register dump --------------------------------------------\n");
-    if (p)
-        kprintf("  ctx: pid=%u tid=%u '%s'\n", p->pid, current_task->tid, p->name);
+    if (space)
+        kprintf("  ctx: pid=%u tid=%u '%s'\n", space->spid, current_task->tid, space->name);
     else if (current_task)
         kprintf("  ctx: tid=%u (no owner process)\n", current_task->tid);
     else
@@ -169,14 +170,14 @@ static void dump_registers(ExceptionFrame *frame)
     kprintf("  pc=%s\n", pc_sym);
     kprintf("spsr=%08X [%s mode, %s%s%s %c%c%c%c]  frame=%p\n",
             frame->return_cpsr,
-            decode_mode(frame->return_cpsr),
-            (frame->return_cpsr & (1 << 7)) ? "I" : "i",
-            (frame->return_cpsr & (1 << 6)) ? "F" : "f",
-            (frame->return_cpsr & (1 << 5)) ? " Thumb" : "",
-            (frame->return_cpsr & (1u << 31)) ? 'N' : 'n',
-            (frame->return_cpsr & (1u << 30)) ? 'Z' : 'z',
-            (frame->return_cpsr & (1u << 29)) ? 'C' : 'c',
-            (frame->return_cpsr & (1u << 28)) ? 'V' : 'v',
+            DecodeProcessorMode((uint32_t)frame->return_cpsr),
+            ((uint32_t)frame->return_cpsr & (1U << 7)) ? "I" : "i",
+            ((uint32_t)frame->return_cpsr & (1U << 6)) ? "F" : "f",
+            ((uint32_t)frame->return_cpsr & (1U << 5)) ? " Thumb" : "",
+            ((uint32_t)frame->return_cpsr & (1U << 31)) ? 'N' : 'n',
+            ((uint32_t)frame->return_cpsr & (1U << 30)) ? 'Z' : 'z',
+            ((uint32_t)frame->return_cpsr & (1U << 29)) ? 'C' : 'c',
+            ((uint32_t)frame->return_cpsr & (1U << 28)) ? 'V' : 'v',
             (void *)frame);
 
     uint32_t dfar, dfsr, ifar, ifsr;
@@ -184,8 +185,8 @@ static void dump_registers(ExceptionFrame *frame)
     __asm__ volatile("mrc p15, 0, %0, c5, c0, 0" : "=r"(dfsr));
     __asm__ volatile("mrc p15, 0, %0, c6, c0, 2" : "=r"(ifar));
     __asm__ volatile("mrc p15, 0, %0, c5, c0, 1" : "=r"(ifsr));
-    kprintf(" DFAR=%08X  DFSR=%08X  (%s)\n", dfar, dfsr, decode_fault_status(dfsr));
-    kprintf(" IFAR=%08X  IFSR=%08X  (%s)\n", ifar, ifsr, decode_fault_status(ifsr));
+    kprintf(" DFAR=%08X  DFSR=%08X  (%s)\n", dfar, dfsr, DecodeFsr(dfsr));
+    kprintf(" IFAR=%08X  IFSR=%08X  (%s)\n", ifar, ifsr, DecodeFsr(ifsr));
 
     /* current_task == fpu_owner is the only state where CPACR access is
      * enabled for this thread (sched.c keeps the two in lockstep on every
@@ -196,21 +197,19 @@ static void dump_registers(ExceptionFrame *frame)
     if (current_task && current_task == fpu_owner)
     {
         FpuState live;
-        arch_fpu_save(&live);
+        ArchFpuSaveState(&live);
         kprintf("-- vfp state (live) -------------------------------------------\n");
-        dump_vfp(&live);
+        DumpVfpState(&live);
     }
     else if (current_task)
     {
         kprintf("-- vfp state (saved, thread is not current fpu owner) --------\n");
-        dump_vfp(&current_task->fpu_state);
+        DumpVfpState(&current_task->fpu_state);
     }
 }
 
-// Attempts to service a translation-fault dfar via demand paging against
-// the process's VM regions. Returns true if handled (caller should return
-// immediately without killing/panicking).
-static bool __hot try_demand_page(SpaceObject *current_process, uint32_t dfar, uint32_t dfsr)
+
+static bool __hot ServiceDemandPage(SpaceObject *current_process, uint32_t dfar, uint32_t dfsr)
 {
     AddressSpace *as = current_process->as;
     for (uint32_t i = 0; i < as->regions.len; i++)
@@ -218,9 +217,6 @@ static bool __hot try_demand_page(SpaceObject *current_process, uint32_t dfar, u
         VirtMemRegion *r = vm_region_vec_get(&as->regions, i);
         if (!r)
             continue;
-        /* Not hinted: which region matches depends on where in the
-         * regions list the faulting VA happens to fall, which varies by
-         * workload -- no honest "usual" answer here. */
         if (dfar >= r->vaddr_start && dfar < r->vaddr_start + r->size)
         {
             if (unlikely(r->flags & VM_FLAG_GUARD))
@@ -238,16 +234,13 @@ static bool __hot try_demand_page(SpaceObject *current_process, uint32_t dfar, u
     return false;
 }
 
-/* Called only from entry.S (bl exception_dispatch) -- no C caller, so no
- * shared header, but it still needs external linkage and a prototype to
- * satisfy -Wmissing-prototypes. */
-void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame);
+void __hot ExceptionDispatch(ExcType exctype, ExceptionFrame *frame);
 
 /* Every syscall and every fault funnels through here; EXC_SVC dominates
  * the traffic in any workload that isn't fault-heavy. */
-void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
+void __hot ExceptionDispatch(ExcType exctype, ExceptionFrame *frame)
 {
-    SpaceObject *current_process = current_task ? current_task->owner_process : NULL;
+    SpaceObject *current_space = current_task ? current_task->owner : NULL;
 
     switch (exctype)
     {
@@ -260,11 +253,11 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
 
         if (current_task && current_task != fpu_owner)
         {
-            arch_fpu_trap_enable();
+            ArchFpuTrapEnable();
             fpu_access_enabled = true;
             if (fpu_owner)
-                arch_fpu_save(&fpu_owner->fpu_state);
-            arch_fpu_restore(&current_task->fpu_state);
+                ArchFpuSaveState(&fpu_owner->fpu_state);
+            ArchFpuRestoreState(&current_task->fpu_state);
             fpu_owner = current_task;
             break;
         }
@@ -275,16 +268,16 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
          */
         bool from_user = (frame->return_cpsr & 0x1F) == 0x10;
 
-        if (from_user && current_process)
+        if (from_user && current_space)
         {
-            KERROR("Oops! '%s' (PID %d, TID %d) killed: undefined instruction @ 0x%08X\n", current_process->name, current_process->pid, current_task->tid, frame->return_pc);
-            dump_registers(frame);
-            ProcessKill(current_process, KILLED_TAG | KILL_FAULT_UNDEF);
+            KERROR("Oops! '%s' (PID %d, TID %d) killed: undefined instruction @ 0x%08X\n", current_space->name, current_space->pid, current_task->tid, frame->return_pc);
+            DumpRegisters(frame);
+            ProcessKill(current_space, KILLED_TAG | KILL_FAULT_UNDEF);
             Schedule();
         }
         else
         {
-            panic_fault_ctx = (panic_fault_context_t){
+            panic_fault_ctx = (PanicFaultContext){
                 .valid = 1,
                 .fault_type = "Undefined instruction",
                 .fault_decoded = "Undefined instruction",
@@ -310,22 +303,22 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
 
         bool from_user = (frame->return_cpsr & 0x1F) == 0x10;
 
-        if (from_user && current_process)
+        if (from_user && current_space)
         {
             KERROR("Oops! '%s' (PID %d, TID %d) killed: prefetch abort @ 0x%08X (%s)\n",
-                   current_process->name, current_process->pid, current_task->tid, ifar, decode_fault_status(ifsr));
-            ProcessKill(current_process, KILLED_TAG | KILL_FAULT_PREFETCH);
-            dump_registers(frame);
+                   current_space->name, current_space->pid, current_task->tid, ifar, DecodeFsr(ifsr));
+            ProcessKill(current_space, KILLED_TAG | KILL_FAULT_PREFETCH);
+            DumpRegisters(frame);
             Schedule();
         }
         else
         {
-            panic_fault_ctx = (panic_fault_context_t){
+            panic_fault_ctx = (PanicFaultContext){
                 .valid = 1,
                 .far = ifar,
                 .fsr = ifsr,
                 .fault_type = "Prefetch abort",
-                .fault_decoded = decode_fault_status(ifsr),
+                .fault_decoded = DecodeFsr(ifsr),
                 .frame = frame,
             };
             panic("Kernel-level prefetch abort");
@@ -359,12 +352,12 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
             uint32_t offset_in_slot = (dfar - KSTACK_REGION_BASE) % KSTACK_SLOT_SIZE;
             if (offset_in_slot < 0x1000)
             {
-                panic_fault_ctx = (panic_fault_context_t){
+                panic_fault_ctx = (PanicFaultContext){
                     .valid = 1,
                     .far = dfar,
                     .fsr = dfsr,
                     .fault_type = "Data abort (kernel stack overflow)",
-                    .fault_decoded = decode_fault_status(dfsr),
+                    .fault_decoded = DecodeFsr(dfsr),
                     .access_type = (dfsr & (1 << 11)) ? "Write" : "Read",
                     .frame = frame,
                 };
@@ -373,13 +366,13 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
         }
 
 
-        if (likely(from_user && current_process && current_process->as))
+        if (likely(from_user && current_space && current_space->as))
         {
             /* Lazy mapping is the intended, expected reason userspace
              * takes a data abort at all -- the segfault/kill fallthrough
              * below is the actually-unlikely case. */
             if (likely(is_translation && dfar < KERNEL_VA_BASE)
-                && try_demand_page(current_process, dfar, dfsr)) {
+                && ServiceDemandPage(current_space, dfar, dfsr)) {
 #ifdef CONFIG_ZUZU_BENCH
                 BENCH_END(g_bench_lazy_map_fault, bench_start);
 #endif
@@ -388,17 +381,17 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
 
             KERROR("Oops! Segmentation fault");
             KDEBUG("Oops! '%s' (PID %d, TID %d) killed: data abort @ 0x%08X (%s %s)\n",
-                   current_process->name, current_process->pid, current_task->tid, dfar,
+                   current_space->name, current_space->pid, current_task->tid, dfar,
                    (dfsr & (1 << 11)) ? "write" : "read",
-                   decode_fault_status(dfsr));
-            dump_registers(frame);
-            ProcessKill(current_process, KILLED_TAG | KILL_FAULT_DATA);
+                   DecodeFsr(dfsr));
+            DumpRegisters(frame);
+            ProcessKill(current_space, KILLED_TAG | KILL_FAULT_DATA);
             Schedule();
         }
-        else if (from_svc && current_process && current_process->as
+        else if (from_svc && current_space && current_space->as
                  && dfar < KERNEL_VA_BASE)
         {
-            if (is_translation && try_demand_page(current_process, dfar, dfsr)) {
+            if (is_translation && ServiceDemandPage(current_space, dfar, dfsr)) {
 #ifdef CONFIG_ZUZU_BENCH
                 BENCH_END(g_bench_lazy_map_fault, bench_start);
 #endif
@@ -406,23 +399,23 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
             }
 
             KERROR("Oops! Bad user pointer in SVC from '%s' (PID %d, TID %d) @ 0x%08X (%s %s)\n",
-                   current_process->name, current_process->pid, current_task->tid, dfar,
+                   current_space->name, current_space->pid, current_task->tid, dfar,
                    (dfsr & (1 << 11)) ? "write" : "read",
-                   decode_fault_status(dfsr));
-            dump_registers(frame);
-            ProcessKill(current_process, KILLED_TAG | KILL_FAULT_DATA);
+                   DecodeFsr(dfsr));
+            DumpRegisters(frame);
+            ProcessKill(current_space, KILLED_TAG | KILL_FAULT_DATA);
             Schedule();
         }
         else
         {
             /* Kernel VA fault while in SVC mode, or no address space, or
              * any other non-user/non-SVC kernel-mode abort: panic. */
-            panic_fault_ctx = (panic_fault_context_t){
+            panic_fault_ctx = (PanicFaultContext){
                 .valid = 1,
                 .far = dfar,
                 .fsr = dfsr,
                 .fault_type = "Data abort",
-                .fault_decoded = decode_fault_status(dfsr),
+                .fault_decoded = DecodeFsr(dfsr),
                 .access_type = (dfsr & (1 << 11)) ? "Write" : "Read",
                 .frame = frame,
             };
@@ -445,7 +438,7 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
     case EXC_RESERVED:
     default:
     {
-        panic_fault_ctx = (panic_fault_context_t){
+        panic_fault_ctx = (PanicFaultContext){
             .valid = 1,
             .fault_type = "Unknown exception",
             .frame = frame,
@@ -454,28 +447,4 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
     }
     break;
     }
-}
-
-/* Called from the exception_exit tripwire in entry.S when the frame about to
- * be RFE'd has return_pc == 0: the frame was corrupted after the C handlers
- * released it. Panic here, in kernel context, with the frame contents.
- *
- * Called only from entry.S -- no C caller, so no shared header, but still
- * needs external linkage and a prototype for -Wmissing-prototypes. */
-_Noreturn void exception_exit_pc0_trap(CpuState *frame);
-_Noreturn void exception_exit_pc0_trap(CpuState *frame)
-{
-    KERROR("exception_exit: frame at %p has return_pc=0 (cpsr=%p sp_usr=%p lr_usr=%p)",
-           frame, (void *)arch_regs_flags(frame), (void *)arch_regs_sp(frame),
-           (void *)arch_regs_lr(frame));
-    KERROR("  r0=%p r1=%p r2=%p r3=%p r12=%p",
-           (void *)*ArchGetFromFrame(frame, 0), (void *)*ArchGetFromFrame(frame, 1),
-           (void *)*ArchGetFromFrame(frame, 2), (void *)*ArchGetFromFrame(frame, 3),
-           (void *)*ArchGetFromFrame(frame, 12));
-    panic_fault_ctx = (panic_fault_context_t){
-        .valid = 1,
-        .fault_type = "RFE to pc=0 (frame corrupted in kernel)",
-        .frame = frame,
-    };
-    panic("exception_exit would resume at pc=0");
 }
