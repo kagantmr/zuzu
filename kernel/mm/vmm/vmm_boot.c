@@ -13,7 +13,7 @@
 #include <arch/mmu.h>
 #include <string.h>
 
-extern kernel_layout_t kernel_layout;
+extern ZuzuRamLayout kernel_layout;
 extern uint32_t early_l1[];
 
 #define LOG_FMT(fmt) "(vmm) " fmt

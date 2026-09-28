@@ -89,7 +89,7 @@ static void CreateRootSpace(const char *path, uint32_t flags,
         initrd_page_offset = g_initrd_pa & (PAGE_SIZE - 1);
         initrd_aligned_pa = g_initrd_pa - initrd_page_offset;
         initrd_page_count = (initrd_page_offset + (uint32_t)g_initrd_size + PAGE_SIZE - 1) / PAGE_SIZE;
-        initrd_base_va = USER_MMAP_BASE + MAX_TCB_PAGES * PAGE_SIZE;
+        initrd_base_va = USER_MMAP_BASE + (MAX_TCB_PAGES * PAGE_SIZE);
         initrd_real_va = initrd_base_va + initrd_page_offset;
 
         size_t off = 0;
@@ -361,7 +361,7 @@ void SpawnAllBootPrograms(PhysAddr initrd_pa, size_t initrd_size)
             devmgr_task_slot->type = HANDLE_TASK;
             devmgr_task_slot->perms = PERM_ALL;
             devmgr_task_slot->mapped_va = 0;
-            devmgr_task_slot->task = s_devmgr;
+            devmgr_task_slot->task = s_devmgr->main_task;
             TaskRef(devmgr_task_slot->task);
             HandleEntryClaim(&s_sysd->handle_table, devmgr_task_slot);
         }
