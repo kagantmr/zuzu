@@ -36,7 +36,7 @@ struct WaitSlotStruct;
  * @pre         Caller has verified @p ev is alive and @p bits is valid.
  * @pre         IRQs disabled.
  */
-void EventSignal(EventObject *ev, EventWord bits);
+void EventSignal(EventObject *ev, EventWord bits, bool bcast);
 
 void EventWait(EventObject *ev,Duration timeout, CpuState *frame);
 

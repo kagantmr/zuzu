@@ -10,7 +10,9 @@ void SvcSignal(CpuState *frame)
 {
     Handle ev_handle = (Handle)(*ArchGetFromFrame(frame, 0));
     EventWord bits = (EventWord)(*ArchGetFromFrame(frame, 1));
+    EventWord flags = (EventWord)(*ArchGetFromFrame(frame, 2));
 
+    
     ENSURE_ERR(frame, !(bits & (1U << 31)), ERR_BADARG);
 
     HandleTableEntry *entry = HandleTableLookup(&CURRENT_SPACE->handle_table, ev_handle);
@@ -25,7 +27,8 @@ void SvcSignal(CpuState *frame)
     ENSURE_ERR(frame, (ev->irq_bind_count == 0), ERR_NOPERM);
     ENSURE_ERR(frame, (ev->alive), ERR_DEAD);
 
-    EventSignal(ev, bits);
+    ENSURE_ERR(frame, !(flags & ~SIGNAL_BROADCAST), ERR_BADARG);
+    EventSignal(ev, bits, (flags & SIGNAL_BROADCAST) != 0);
 
     ArchSetInFrame(frame, 0, ZUZU_OK);
 }

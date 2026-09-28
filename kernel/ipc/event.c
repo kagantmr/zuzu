@@ -22,11 +22,12 @@ EventObject *EventObjAlloc(void)
 void EventObjFree(EventObject *ev) { KSlabFree(&event_cache, ev); }
 
 
-void EventSignal(EventObject *ev, EventWord bits)
+void EventSignal(EventObject *ev, EventWord bits, bool bcast)
 {
     assert(ev && ev->alive && !(bits & (1U << 31)));
     ev->word |= bits;
-    if (!list_empty(&ev->wait_queue))
+
+    while (!list_empty(&ev->wait_queue))
     {
         ListNode *node = list_pop_front(&ev->wait_queue);
         WaitSlot *slot = container_of(node, WaitSlot, node);
@@ -36,8 +37,11 @@ void EventSignal(EventObject *ev, EventWord bits)
         (*ArchGetFromFrame(waiter->trap_frame, 1)) = (Register)ev->word;
         SchedUnblock(waiter, WAKE_IPC);
         SchedAdd(waiter);
-        ev->word = 0;
+        if (!bcast)
+            break;
     }
+
+    ev->word = 0;
 }
 
 void EventKill(EventObject *ev)

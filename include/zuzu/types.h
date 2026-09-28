@@ -126,6 +126,8 @@ typedef enum
     MNGTASK_SET_REGS
 } ManageTaskVerb;
 
+#define SIGNAL_BROADCAST (1U << 0)
+
 /* AsInjectArgs.flags */
 #define ASINJECT_FLAG_RESERVE                                                                      \
 0x1U /* reserve [DestVAddr, DestVAddr+len) as demand-zero                                      \
