@@ -5,6 +5,7 @@
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/task/task.h"
+#include "kernel/sched/sched.h"
 
 #include <arch/cache.h>
 #include <arch/context.h>
@@ -77,6 +78,7 @@ SpaceObject *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char
         return NULL;
 
     SpaceObject *p = SpaceCreate(name);
+    p->max_prio = SCHED_PRIORITY_LEVELS - 1;
     if (!p)
         return NULL;
     TaskObject *t = TaskCreate(p);

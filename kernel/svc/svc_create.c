@@ -46,6 +46,10 @@ void SvcCreate(CpuState *frame)
         TaskObject *task = TaskCreate(target_space);
 
         ENSURE_ERR(frame, (NULL != task), ERR_BUSY);
+        task->max_prio = (current_task->max_prio < target_space->max_prio)
+            ? current_task->max_prio : target_space->max_prio;
+        task->priority = (current_task->priority < task->max_prio)
+            ? current_task->priority : task->max_prio;
 
         Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
         ENSURE(-1 != new_handle, TaskDestroy(task); ArchSetInFrame(frame, 0, ERR_NOMEM); return);
@@ -114,6 +118,7 @@ void SvcCreate(CpuState *frame)
         kname[name_len] = '\0';
 
         SpaceObject *space = SpaceCreate(kname);
+        space->max_prio = current_task->max_prio;
         ENSURE_ERR(frame, (NULL != space), ERR_NOMEM);
 
         Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);

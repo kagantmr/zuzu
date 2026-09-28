@@ -28,8 +28,9 @@ typedef struct SpaceObjectStruct
     char name[32];                       /**< Space name. */
     ListHead outstanding_replies;        /**< List of outstanding replies. */
     HandleTable handle_table;            /**< Handle table for this space. */
-    TaskObject *main_task;               /**< Pointer to the thread associated with this space. */
-    ListHead tasks;                      /**< List of threads in this space. */
+    TaskObject *main_task;               /**< Pointer to the first task associated with this space. */
+    uint32_t max_prio;
+    ListHead tasks;                      /**< List of tasks in this space. */
     ListHead kittens;                    /**< List of kitten spaces. */
     ListNode sibling_node;               /**< Embedded list node for sibling management. */
     uint32_t live_tasks;                 /**< Count of live tasks */
