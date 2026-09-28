@@ -1,5 +1,6 @@
 #include "core/ensure.h"
 #include "kernel/ipc/msg.h"
+#include "kernel/space/space.h"
 #include "svc.h"
 #include <arch/regs.h>
 #include <zuzu/tls.h>
