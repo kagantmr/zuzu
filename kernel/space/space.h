@@ -33,6 +33,8 @@ typedef struct SpaceObjectStruct
     ListHead tasks;                      /**< List of tasks in this space. */
     ListHead kittens;                    /**< List of kitten spaces. */
     ListNode sibling_node;               /**< Embedded list node for sibling management. */
+    bool frozen;                         /**< Space is frozen, nothing will execute. */
+    Tid faulted_tid;                     /**< TID of the task that faulted. */
     uint32_t live_tasks;                 /**< Count of live tasks */
     Err last_exit_status;                /**< Anyone waiting on this Space will receive this upon hollowness. */
     ListHead waiters; 

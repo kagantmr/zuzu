@@ -270,9 +270,9 @@ void __hot ExceptionDispatch(ExcType exctype, ExceptionFrame *frame)
 
         if (from_user && current_space)
         {
-            KERROR("Oops! '%s' (PID %d, TID %d) killed: undefined instruction @ 0x%08X\n", current_space->name, current_space->pid, current_task->tid, frame->return_pc);
+            KERROR("Oops! '%s' (PID %d, TID %d) killed: undefined instruction @ 0x%08X\n", current_space->name, current_space->spid, current_task->tid, frame->return_pc);
             DumpRegisters(frame);
-            ProcessKill(current_space, KILLED_TAG | KILL_FAULT_UNDEF);
+            TaskFault(current_task, KILLED_FAULT_UNDEF);
             Schedule();
         }
         else
@@ -306,8 +306,8 @@ void __hot ExceptionDispatch(ExcType exctype, ExceptionFrame *frame)
         if (from_user && current_space)
         {
             KERROR("Oops! '%s' (PID %d, TID %d) killed: prefetch abort @ 0x%08X (%s)\n",
-                   current_space->name, current_space->pid, current_task->tid, ifar, DecodeFsr(ifsr));
-            ProcessKill(current_space, KILLED_TAG | KILL_FAULT_PREFETCH);
+                   current_space->name, current_space->spid, current_task->tid, ifar, DecodeFsr(ifsr));
+            TaskFault(current_task, KILLED_FAULT_PREFETCH);
             DumpRegisters(frame);
             Schedule();
         }
@@ -381,11 +381,11 @@ void __hot ExceptionDispatch(ExcType exctype, ExceptionFrame *frame)
 
             KERROR("Oops! Segmentation fault");
             KDEBUG("Oops! '%s' (PID %d, TID %d) killed: data abort @ 0x%08X (%s %s)\n",
-                   current_space->name, current_space->pid, current_task->tid, dfar,
+                   current_space->name, current_space->spid, current_task->tid, dfar,
                    (dfsr & (1 << 11)) ? "write" : "read",
                    DecodeFsr(dfsr));
             DumpRegisters(frame);
-            ProcessKill(current_space, KILLED_TAG | KILL_FAULT_DATA);
+            TaskFault(current_task, KILLED_FAULT_DATA);
             Schedule();
         }
         else if (from_svc && current_space && current_space->as
@@ -399,11 +399,11 @@ void __hot ExceptionDispatch(ExcType exctype, ExceptionFrame *frame)
             }
 
             KERROR("Oops! Bad user pointer in SVC from '%s' (PID %d, TID %d) @ 0x%08X (%s %s)\n",
-                   current_space->name, current_space->pid, current_task->tid, dfar,
+                   current_space->name, current_space->spid, current_task->tid, dfar,
                    (dfsr & (1 << 11)) ? "write" : "read",
                    DecodeFsr(dfsr));
             DumpRegisters(frame);
-            ProcessKill(current_space, KILLED_TAG | KILL_FAULT_DATA);
+            TaskFault(current_task, KILLED_FAULT_DATA);
             Schedule();
         }
         else

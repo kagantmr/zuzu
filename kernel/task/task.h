@@ -18,6 +18,7 @@ typedef enum TaskStateEnum
     BLOCKED,   // waiting for IPC or timeout
     ZOMBIE,    // called quit()
     FROZEN,    // not runnable yet
+    FAULTED, // ran into an exception, or parent/owner stopped it
 } TaskState;
 
 typedef enum
@@ -25,6 +26,7 @@ typedef enum
     WAKE_NONE = 0, // not currently sleeping/waiting
     WAKE_IPC,      // woken by IPC partner
     WAKE_TIMEOUT,  // woken by timer
+    WAKE_FAULT,    // woken by fault
 } WakeReason;
 
 typedef enum MsgStateEnum
@@ -80,6 +82,7 @@ struct TaskObjectStruct
     Time slice_deadline;   /**< Deadline for the time slice. */
     SpaceObject *owner;    /**< Backpointer to owning process. */
     VirtAddr task_info_va; /**< Virtual address of thread info. */
+    Err fault_reason;
     uint8_t tcb_slot;      /**< Index into owner's TCB page, TCB_SLOT_NONE if unassigned. */
     FpuState fpu_state;    /**< Lazily saved/restored, see kernel/sched/sched.c fpu_owner. */
     EventObject *bound_ev; 
@@ -113,4 +116,5 @@ void TaskUnref(TaskObject *t);
  */
 void TaskTerminate(TaskObject *task, Err exit_status);
 void TaskMaybeSignalBind(TaskObject *task);
+void TaskFault(TaskObject *task, Err reason);
 #endif // ZUZU_THREAD_H

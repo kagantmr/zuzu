@@ -358,3 +358,30 @@ void TaskTerminate(TaskObject *task, Err exit_status)
     }
 }
 
+void TaskFault(TaskObject *task, Err reason)
+{
+    task->state = FAULTED;
+    task->fault_reason = reason;
+    task->owner->frozen = true;
+    task->owner->faulted_tid = task->tid;
+    while (!list_empty(&task->joiners)) {
+        ListNode *jn = list_pop_front(&task->joiners);
+        TaskObject *joiner = container_of(jn, WaitSlot, node)->owner;
+        if (joiner->trap_frame) {
+            ArchSetInFrame(joiner->trap_frame, 0, ZUZU_OK);
+            ArchSetInFrame(joiner->trap_frame, 1, WAKE_FAULT);
+            ArchSetInFrame(joiner->trap_frame, 2, reason);
+            ArchSetInFrame(joiner->trap_frame, 3, 0);
+        }
+        SchedUnblock(joiner, WAKE_IPC);
+        SchedAdd(joiner);
+    }
+
+    ListNode *n = task->owner->tasks.node.next;
+    while (n != &task->owner->tasks.node) {
+        TaskObject *t = container_of(n, TaskObject, space_node);
+        if (t != task && t->state == READY && t->node.next)
+            SchedRemoveRunQueue(t);
+        n = n->next;
+    }
+}

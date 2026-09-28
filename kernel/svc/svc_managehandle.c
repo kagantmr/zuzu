@@ -54,7 +54,23 @@ void SvcManageHandle(CpuState *frame)
         HandleRelease(CURRENT_SPACE, entry);
         ArchSetInFrame(frame, 0, ZUZU_OK);
     } break;
-    
+    case MNGHNDL_DESTROY: {
+        if (HANDLE_SPACE == entry->type) {
+            /* same self/ancestor walk CLOSE already does */
+            SpaceObject *target = entry->space;
+            ENSURE_ERR(frame, target, ERR_BADHANDLE);
+            SpaceObject *walk = CURRENT_SPACE;
+            bool is_self_or_ancestor = false;
+            while (walk) {
+                if (walk == target) { is_self_or_ancestor = true; break; }
+                walk = (walk->parent_spid == -1) ? NULL : SpaceFindBySpid(walk->parent_spid);
+            }
+            ENSURE_ERR(frame, !is_self_or_ancestor, ERR_BADARG);
+            SpaceDestroy(target);
+        }
+        HandleRelease(CURRENT_SPACE, entry);
+        ArchSetInFrame(frame, 0, ZUZU_OK);
+    } break;
     case MNGHNDL_QUERY: {
         /* r2 = what */
         QueryWhat what = (QueryWhat)(*ArchGetFromFrame(frame, 2));

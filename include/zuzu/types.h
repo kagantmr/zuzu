@@ -97,7 +97,8 @@ typedef enum
     MNGMEM_MAP,
     MNGMEM_UNMAP,
     MNGMEM_PROTECT,
-    MNGMEM_INJECT
+    MNGMEM_INJECT,
+    MNGMEM_VERB_COUNT
 } ManageMemoryVerb;
 
 typedef enum
@@ -105,7 +106,8 @@ typedef enum
     QUERY_TYPE,
     QUERY_PERMS,
     QUERY_MARKER,
-    QUERY_STATUS
+    QUERY_STATUS,
+    QUERY_WHAT_COUNT
 } QueryWhat;
 
 typedef enum
@@ -113,7 +115,9 @@ typedef enum
     MNGHNDL_DUPLICATE,
     MNGHNDL_RESTRICT,
     MNGHNDL_CLOSE,
-    MNGHNDL_QUERY
+    MNGHNDL_QUERY,
+    MNGHNDL_DESTROY,
+    MNGHNDL_VERB_COUNT
 } ManageHandleVerb;
 
 typedef enum
@@ -126,7 +130,8 @@ typedef enum
     MNGTASK_SUSPEND,
     MNGTASK_RESUME,
     MNGTASK_GET_REGS,
-    MNGTASK_SET_REGS
+    MNGTASK_SET_REGS,
+    MNGTASK_VERB_COUNT
 } ManageTaskVerb;
 
 #define SIGNAL_BROADCAST (1U << 0)

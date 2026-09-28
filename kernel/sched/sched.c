@@ -92,7 +92,7 @@ void SchedAdd(TaskObject *t)
 {
     if (!t)
         return;
-
+    if (t->owner && t->owner->frozen) return;
     if (t->node.next || t->node.prev)
         return; // double enqueue guard
 
@@ -478,6 +478,16 @@ size_t SchedGetReadyQueue(TaskObject **out, size_t max_out)
     }
 
     return total;
+}
+
+void SchedRemoveRunQueue(TaskObject *t)
+{
+    uint32_t priority = t->priority;
+    if (priority >= SCHED_PRIORITY_LEVELS)
+        priority = SCHED_PRIORITY_LEVELS - 1;
+    list_remove(&t->node);
+    if (list_empty(&run_queues[priority]))
+        ready_mask &= ~(1U << priority);
 }
 
 size_t SchedGetSleepers(TaskObject **out, size_t max_out)

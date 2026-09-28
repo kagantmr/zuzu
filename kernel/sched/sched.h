@@ -28,6 +28,7 @@ void SchedIdleWait(void);
 void __hot Schedule(void);
 void SchedSetReschedFlag(void);
 void SchedRemoveSleepQueue(TaskObject *t);
+void SchedRemoveRunQueue(TaskObject *t);
 void SchedInsertSleepQueue(TaskObject *t);
 size_t SchedGetReadyQueue(TaskObject **out, size_t max_out);
 size_t SchedGetSleepers(TaskObject **out, size_t max_out);
