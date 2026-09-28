@@ -118,7 +118,6 @@ void SvcCreate(CpuState *frame)
         kname[name_len] = '\0';
 
         SpaceObject *space = SpaceCreate(kname);
-        space->max_prio = current_task->max_prio;
         ENSURE_ERR(frame, (NULL != space), ERR_NOMEM);
         space->max_prio = current_task->max_prio;
 

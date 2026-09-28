@@ -78,7 +78,6 @@ SpaceObject *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char
         return NULL;
 
     SpaceObject *p = SpaceCreate(name);
-    p->max_prio = SCHED_PRIORITY_LEVELS - 1;
     if (!p)
         return NULL;
     p->max_prio = SCHED_PRIORITY_LEVELS - 1;
