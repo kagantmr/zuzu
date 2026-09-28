@@ -19,27 +19,6 @@ size_t strnlen(const char *s, size_t maxlen)
   return len;
 }
 
-char *strcat(char *dest, const char *src) {
-    char *end = dest;
-
-    while (*end) end++;
-
-    strcpy(end, src);
-
-    return dest;
-}
-
-char *strncat(char *dest, const char *src, size_t n) {
-    char *end = dest;
-
-    while (*end) end++;  // find end of dest
-
-    strncpy(end, src, n);     // now copy src starting at the end
-
-    return dest;
-}
-
-
 int strcmp(const char *s1, const char *s2) {
     int diff;
     while (*s1 && *s2) {
@@ -665,19 +644,4 @@ void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list 
                 break;
         }
     }
-}
-
-int visible_len(const char *s)
-{
-    int len = 0;
-    while (*s) {
-        if (*s == '\033') {
-            while (*s && *s != 'm') s++;
-            if (*s) s++;
-        } else {
-            len++;
-            s++;
-        }
-    }
-    return len;
 }

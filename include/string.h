@@ -73,25 +73,6 @@ size_t strlen(const char *s);
 size_t strnlen(const char *s, size_t maxlen);
 
 /**
- * @brief Append one string to another.
- * 
- * @param dest Destination buffer (must be large enough to hold both strings).
- * @param src  Source string to append.
- * @return Pointer to dest.
- */
-char *strcat(char *dest, const char *src);
-
-/**
- * @brief Append at most n characters from one string to another.
- * 
- * @param dest Destination buffer.
- * @param src  Source string.
- * @param n    Maximum number of characters to append.
- * @return Pointer to dest.
- */
-char *strncat(char *dest, const char *src, size_t n);
-
-/**
  * @brief Copy a string from src to dest.
  * 
  * @param dest Destination buffer.
@@ -190,13 +171,6 @@ void strfmt(strfmt_outc_t outc, void *ctx, const char *fstring, ...);
  * @param args    Pointer to va_list of arguments matching the format specifiers.
  */
 void vstrfmt(strfmt_outc_t outc, void *ctx, const char *fstring, va_list *args);
-
-/**
- * @brief Calculate the length of a string in terms of visible characters.
- * @param s String to count visible characters in
- * @return Amount of visible characters
- */
-int visible_len(const char *s);
 
 /**
  * @brief Format a string into a fixed-size buffer using a va_list.

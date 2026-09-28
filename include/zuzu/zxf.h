@@ -83,7 +83,6 @@ _Static_assert(sizeof(ZXFBlock) == 12, "ZXFBlock must be 12 bytes");
 _Static_assert(sizeof(ZXFHeader) == 64, "ZXFHeader must be 64 bytes");
 _Static_assert(sizeof(ZXFSegment) == 24, "ZXFSegment must be 24 bytes");
 
-uint32_t ZxfCrc32(const void *data, size_t len);
 bool ZxfParse(const void *data, size_t size, ZXFImage *out);
 
 #endif /* ZXF_FORMAT_H */

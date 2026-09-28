@@ -19,10 +19,6 @@ static uint32_t ZxfCrc32Partial(const void *data, size_t len, uint32_t crc) {
     return crc;
 }
 
-uint32_t ZxfCrc32(const void *data, size_t len) {
-    return ZxfCrc32Partial(data, len, 0xFFFFFFFF) ^ 0xFFFFFFFF;
-}
-
 bool ZxfParse(const void *data, size_t size, ZXFImage *out) {
 
     const uint8_t zeros[4] = {0};
