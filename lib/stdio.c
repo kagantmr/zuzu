@@ -6,7 +6,7 @@
 #ifdef __ZUZU__
 #include "core/kprintf.h"
 #else
-#include <util/lmsg.h>
+#include <util/msg.h>
 #include <zuzu/protocols/nametable.h>
 #include <zuzu/service.h>
 #include <zuzu/zuzu.h>
@@ -20,7 +20,7 @@
  * default is the first UART. Changed at runtime via stdio_route_tty(). */
 static int32_t stdio_tty = -1;
 static char stdio_tty_name[NT_MAX_PATH] = "/dev/uart0";
-static char stdio_input_buf[LMSG_BUF_SIZE];
+static char stdio_input_buf[MSG_BUF_SIZE];
 static uint32_t stdio_input_len;
 static uint32_t stdio_input_pos;
 static int stdio_input_pushback = EOF;
@@ -112,17 +112,17 @@ static int __attribute__((unused)) stdio_refill_input(void)
     if (stdio_open_tty() != 0)
         return EOF;
 
-    Message reply = ZuzuMsgLcall(stdio_tty, LMSG_BUF_SIZE);
+    Message reply = ZuzuMsgLcall(stdio_tty, MSG_BUF_SIZE);
     if (reply.w0 < 0)
         return EOF;
 
     uint32_t got = reply.w1;
-    if (got > LMSG_BUF_SIZE)
-        got = LMSG_BUF_SIZE;
+    if (got > MSG_BUF_SIZE)
+        got = MSG_BUF_SIZE;
     if (got == 0)
         return EOF;
 
-    memcpy(stdio_input_buf, LmsgBuf(), got);
+    memcpy(stdio_input_buf, MessageBuf(), got);
     stdio_input_len = got;
     stdio_input_pos = 0;
     return 0;
@@ -473,7 +473,7 @@ int vscanf(const char *format, va_list args)
     (void)args;
     return EOF;
 #else
-    char line[LMSG_BUF_SIZE + 1];
+    char line[MSG_BUF_SIZE + 1];
     int len = stdio_read_line(line, sizeof(line));
     if (len == EOF)
         return EOF;
@@ -509,9 +509,9 @@ int vprintf(const char *format, va_list args)
             size_t off = 0;
             while (off < out_len) {
                 uint32_t chunk = (uint32_t)(out_len - off);
-                if (chunk > LMSG_BUF_SIZE)
-                    chunk = LMSG_BUF_SIZE;
-                LmsgWrite(buf + off, chunk);
+                if (chunk > MSG_BUF_SIZE)
+                    chunk = MSG_BUF_SIZE;
+                MsgWrite(buf + off, chunk);
                 (void)ZuzuMsgLsend(stdio_tty, chunk);
                 off += chunk;
             }

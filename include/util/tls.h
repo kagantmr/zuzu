@@ -25,7 +25,7 @@ _Static_assert(SLOTS_PER_PAGE *TCB_SLOT_SIZE <= PAGE_SIZE, "slots must fit withi
 _Static_assert(TCB_MAX_SLOTS <= 256, "bitmap is uint64_t[4] = 256 bits");
 
 typedef struct {
-	void *lmsg_buf; /* this slot's buf; kernel owns the location */
+	void *msg_buf; /* this slot's buf; kernel owns the location */
 	Tid tid;
 	Spid spid;
 	size_t msg_recv_len;

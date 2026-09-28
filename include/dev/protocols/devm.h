@@ -2,7 +2,7 @@
 #define DEVMGR_PROTOCOL_H
 
 #include <stdint.h>
-#include <util/lmsg.h>
+#include <util/msg.h>
 #include <zuzu/msg.h>
 #include <types.h>
 #include <string.h>
@@ -38,7 +38,7 @@ static inline Handle DevmRequestDevice(Handle devmgr_port,
     if (count == 0 || count > DEVM_MAX_COMPAT)
         return ERR_BADARG;
 
-    char *b = LmsgBuf();
+    char *b = MessageBuf();
     uint32_t cmd = DEVM_REQUEST;
     memcpy(b + 0, &cmd,   4);
     memcpy(b + 4, &count, 4);
@@ -46,7 +46,7 @@ static inline Handle DevmRequestDevice(Handle devmgr_port,
     uint32_t off = 8;
     for (uint32_t i = 0; i < count; i++) {
         uint32_t n = (uint32_t)strlen(compats[i]) + 1;   /* incl NUL */
-        if (off + n > LMSG_BUF_SIZE)
+        if (off + n > MSG_BUF_SIZE)
             return ERR_OVERFLOW;
         memcpy(b + off, compats[i], n);
         off += n;

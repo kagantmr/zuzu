@@ -10,7 +10,7 @@
 #include <util/bench.h>
 #include <zuzu/cap.h>
 #include <util/channel.h>
-#include <util/lmsg.h>
+#include <util/msg.h>
 #include <zuzu/msg.h>
 #include <zuzu/service.h>
 #include <zuzu/task.h>
@@ -83,7 +83,7 @@ static void echo_server_thread(void *arg)
 static void lcall_echo_server_thread(void *arg)
 {
 	Handle port = *(Handle *)arg;
-	static uint8_t buf[LMSG_BUF_SIZE];
+	static uint8_t buf[MSG_BUF_SIZE];
 
 	for (;;) {
 		Message cmd = ZuzuMsgRecv(port, TIMEOUT_INFINITE);
@@ -94,8 +94,8 @@ static void lcall_echo_server_thread(void *arg)
 			ZuzuTQuit(ZUZU_OK);
 		}
 
-		LmsgRead(buf, len);
-		LmsgWrite(buf, len);
+		MsgRead(buf, len);
+		MsgWrite(buf, len);
 		ZuzuMsgLreply(cmd.w0, len);
 	}
 }
@@ -418,7 +418,7 @@ static BenchmarkResult run_lcall_benchmark(Handle port)
 	memset(payload, 0xA5, sizeof(payload));
 
 	for (int i = 0; i < WARMUP_ITERATIONS; i++) {
-		LmsgWrite(payload, sizeof(payload));
+		MsgWrite(payload, sizeof(payload));
 		ZuzuMsgLcall(port, sizeof(payload));
 	}
 
@@ -427,7 +427,7 @@ static BenchmarkResult run_lcall_benchmark(Handle port)
 	uint32_t first_err_r1 = 0;
 
 	for (uint32_t i = 0; i < BENCHMARK_ITERATIONS; i++) {
-		LmsgWrite(payload, sizeof(payload));
+		MsgWrite(payload, sizeof(payload));
 
 		ArchIsb();
 		uint32_t start = ArchMeasure();
@@ -644,14 +644,14 @@ static void run_lcall_sweep_benchmark(Handle port)
 
 		for (uint32_t i = 0; i < LMSG_SWEEP_WARMUP_ITERS; i++) {
 			if (len)
-				LmsgWrite(payload, len);
+				MsgWrite(payload, len);
 			ZuzuMsgLcall(port, len);
 		}
 
 		BenchResult r = { 0 };
 		for (uint32_t i = 0; i < LMSG_SWEEP_ITERS; i++) {
 			if (len)
-				LmsgWrite(payload, len);
+				MsgWrite(payload, len);
 
 			ArchIsb();
 			uint32_t start = ArchMeasure();

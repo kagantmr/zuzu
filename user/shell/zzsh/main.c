@@ -425,13 +425,13 @@ static void cmd_exec(const char *line)
 
     size_t path_len = strlen(path);
     size_t req_len = sizeof(ExecRequestHeader) + path_len + 1 + argpos;
-    if (req_len > LMSG_BUF_SIZE) {
+    if (req_len > MSG_BUF_SIZE) {
         ZuzuPKill(ts.task_handle);                    /* <-- NEW */
         printf("%s", ANSI_RED "zzsh: command too long\n" ANSI_RESET);
         return;
     }
 
-    ExecRequestHeader *hdr = (ExecRequestHeader *)LmsgBuf();
+    ExecRequestHeader *hdr = (ExecRequestHeader *)MessageBuf();
     hdr->cmd = SYSD_EXEC;
     hdr->_pad = 0;
     hdr->taskHandle = (uint16_t)sysd_task_handle;
@@ -439,12 +439,12 @@ static void cmd_exec(const char *line)
     hdr->argc = (uint16_t)token_count;
     hdr->pid = ts.pid;
 
-    char *payload = (char *)LmsgBuf() + sizeof(*hdr);
+    char *payload = (char *)MessageBuf() + sizeof(*hdr);
     memcpy(payload, path, path_len + 1);
     memcpy(payload + path_len + 1, argbuf, argpos);
 
-    int32_t rc = ChannelCall((Handle)sysd_port, LmsgBuf(), (uint32_t)req_len,
-                           LmsgBuf(), (uint32_t)sizeof(ExecReply));
+    int32_t rc = ChannelCall((Handle)sysd_port, MessageBuf(), (uint32_t)req_len,
+                           MessageBuf(), (uint32_t)sizeof(ExecReply));
     if (rc < 0) {
         ZuzuPKill(ts.task_handle);
         print_exec_error(rc);
@@ -452,7 +452,7 @@ static void cmd_exec(const char *line)
     }
     if (rc == (int32_t)sizeof(Err)) {
         ZuzuPKill(ts.task_handle);
-        print_exec_error(*(const Err *)LmsgBuf());
+        print_exec_error(*(const Err *)MessageBuf());
         return;
     }
     if (rc != (int32_t)sizeof(ExecReply)) {
@@ -461,7 +461,7 @@ static void cmd_exec(const char *line)
         return;
     }
 
-    ExecReply *reply = (ExecReply *)LmsgBuf();
+    ExecReply *reply = (ExecReply *)MessageBuf();
     if (!exec_reply_valid(reply)) {
         ZuzuPKill(ts.task_handle);
         print_exec_error(EXEC_EBADELF);

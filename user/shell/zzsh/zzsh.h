@@ -6,7 +6,7 @@
 #include <zuzu/zuzu.h>
 #include "dev/protocols/uart.h"
 #include "zuzu/protocols/nametable.h"
-#include "util/lmsg.h"
+#include "util/msg.h"
 
 #define LINE_BUFFER_SIZE 256
 #define HISTORY_MAX      32

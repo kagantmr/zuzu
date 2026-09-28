@@ -6,7 +6,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <zuzu/zuzu.h>
-#include <util/lmsg.h>
+#include <util/msg.h>
 #include <sync/uspin.h>
 #include <zuzu/syspage.h>
 #include <fs/protocols/fsd.h>
@@ -183,8 +183,8 @@ int _write(int file, char *ptr, int len)
         size_t off = 0;
         while (off < (size_t)len) {
             uint32_t chunk = (uint32_t)((size_t)len - off);
-            if (chunk > LMSG_BUF_SIZE) chunk = LMSG_BUF_SIZE;
-            LmsgWrite(ptr + off, chunk);
+            if (chunk > MSG_BUF_SIZE) chunk = MSG_BUF_SIZE;
+            MsgWrite(ptr + off, chunk);
             ZuzuMsgLsend(tty, chunk);
             off += chunk;
         }
@@ -240,7 +240,7 @@ int _read(int file, char *ptr, int len)
         if (tty < 0) { errno = EIO; return -1; }
 
         uint32_t want = (uint32_t)len;
-        if (want > LMSG_BUF_SIZE) want = LMSG_BUF_SIZE;
+        if (want > MSG_BUF_SIZE) want = MSG_BUF_SIZE;
 
 
         /* The console driver's read is non-blocking: it replies with whatever
@@ -259,7 +259,7 @@ int _read(int file, char *ptr, int len)
             uint32_t got = r.w1;
             if (got > want) got = want;
             if (got) {
-                memcpy(ptr, LmsgBuf(), got);
+                memcpy(ptr, MessageBuf(), got);
                 /* ICRNL: Enter on a serial console sends CR. scanf() would
                  * cope -- CR is whitespace -- but fgets/getline look for LF
                  * specifically and would never see a line end. The TX side

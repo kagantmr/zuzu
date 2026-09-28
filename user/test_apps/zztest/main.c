@@ -25,7 +25,7 @@
  *    only), so the device-region paths are untestable from here.
  */
 #include <zuzu/zuzu.h>
-#include <util/lmsg.h>
+#include <util/msg.h>
 #include <util/channel.h>
 #include <util/tls.h>
 #include <zuzu/syspage.h>
@@ -219,11 +219,11 @@ static volatile int g_worker_ok;
 static void lcall_worker(void *arg)
 {
     (void)arg;
-    char buf[LMSG_BUF_SIZE];
-    LmsgWrite(REQ, sizeof(REQ));
+    char buf[MSG_BUF_SIZE];
+    MsgWrite(REQ, sizeof(REQ));
     Message r = ZuzuMsgLcall(g_port, sizeof(REQ));
     if ((int32_t)r.w0 == 0) {
-        LmsgRead(buf, r.w1);
+        MsgRead(buf, r.w1);
         g_worker_ok = (r.w1 == sizeof(RESP) &&
                        memcmp(buf, RESP, sizeof(RESP)) == 0);
     }
@@ -439,22 +439,22 @@ static void sec_ipc(void)
     t = ZuzuTMake(lcall_worker, (char *)st + STACK_SIZE, NULL);
     m = ZuzuMsgRecv(g_port, TIMEOUT_INFINITE);
     char early[sizeof(REQ)];
-    LmsgRead(early, sizeof(REQ));            /* FIRST - before any printf */
+    MsgRead(early, sizeof(REQ));            /* FIRST - before any printf */
     CHECK((int32_t)m.w0 >= 0, "recv got the lcall");
     CHECK(m.w2 == sizeof(REQ), "lcall payload length");
     CHECK(memcmp(early, REQ, sizeof(REQ)) == 0, "lmsg payload intact when read first");
     printf("      (volatile-buffer probe: this printf reuses the lmsg buffer)\n");
     char late[sizeof(REQ)];
-    LmsgRead(late, sizeof(REQ));
+    MsgRead(late, sizeof(REQ));
     CHECK(memcmp(late, REQ, sizeof(REQ)) != 0,
           "VOLATILE CONTRACT: printf clobbered lmsg buffer - must lmsg_read before printing");
-    LmsgWrite(RESP, sizeof(RESP));
+    MsgWrite(RESP, sizeof(RESP));
     CHECK_EQ(ZuzuMsgLreply((Handle)m.w0, sizeof(RESP)), 0, "lreply");
     ZuzuTJoin(t);
     CHECK(g_worker_ok, "lcall caller got reply payload intact");
 
     /* lmsg oversize */
-    CHECK_EQ(ZuzuMsgLsend(g_port, LMSG_BUF_SIZE + 1), ERR_OVERFLOW,
+    CHECK_EQ(ZuzuMsgLsend(g_port, MSG_BUF_SIZE + 1), ERR_OVERFLOW,
              "lsend len>512 -> ERR_OVERFLOW");
 
     /* type confusion */
@@ -637,10 +637,10 @@ static void sec_handles(void)
     Tid t = ZuzuTMake(lcall_worker, (char *)st + STACK_SIZE, NULL);
     Message m = ZuzuMsgRecv(g_port, TIMEOUT_INFINITE);
     char sink[sizeof(REQ)];
-    LmsgRead(sink, sizeof(REQ));
+    MsgRead(sink, sizeof(REQ));
     CHECK((int32_t)m.w0 >= 0, "recv reply handle");
     CHECK_EQ(ZuzuDestroy((Handle)m.w0), ERR_BADTYPE, "destroy REPLY handle -> ERR_BADTYPE");
-    LmsgWrite(RESP, sizeof(RESP));
+    MsgWrite(RESP, sizeof(RESP));
     CHECK_EQ(ZuzuMsgLreply((Handle)m.w0, sizeof(RESP)), 0, "reply handle survives destroy attempt");
     ZuzuTJoin(t);
     CHECK(g_worker_ok, "caller unaffected");
@@ -938,7 +938,7 @@ static void sec_security(void)
     Tid t = ZuzuTMake(lcall_worker, (char *)st + STACK_SIZE, NULL);
     Message m = ZuzuMsgRecv(g_port, TIMEOUT_INFINITE);
     char sink[sizeof(REQ)];
-    LmsgRead(sink, sizeof(REQ));
+    MsgRead(sink, sizeof(REQ));
     CHECK((int32_t)m.w0 >= 0, "recv reply handle");
     CHECK_EQ(ZuzuMsgReply(g_port, 0, 0, 0), ERR_BADTYPE,
              "reply on a port handle -> ERR_BADTYPE (no cap forgery from endpoint)");
@@ -948,7 +948,7 @@ static void sec_security(void)
              "reply on handle 0 -> ERR_BADHANDLE");
     CHECK_EQ(ZuzuGrant((Handle)m.w0, g_sysd_pid, 0), ERR_NOPERM,
              "cannot grant a REPLY handle (no cap leak)");
-    LmsgWrite(RESP, sizeof(RESP));
+    MsgWrite(RESP, sizeof(RESP));
     CHECK_EQ(ZuzuMsgLreply((Handle)m.w0, sizeof(RESP)), 0, "genuine reply succeeds");
     CHECK_EQ(ZuzuMsgReply((Handle)m.w0, 0, 0, 0), ERR_BADTYPE,
              "double-reply on spent reply handle -> ERR_BADTYPE (no replay)");

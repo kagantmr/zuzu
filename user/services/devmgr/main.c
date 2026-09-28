@@ -1,7 +1,7 @@
 #include "devmgr.h"
 #include "zuzu/protocols/nametable.h"
 #include <string.h>
-#include <util/lmsg.h>
+#include <util/msg.h>
 #include <zuzu/cap.h>
 #include <util/channel.h>
 #include <types.h>
@@ -105,11 +105,11 @@ int DevmgrSetup(Handle nameserver_port_slot, Spid nameserver_pid)
     if (handle < 0)
         return handle;
 
-    LmsgWriter w; LmsgWriterInit(&w);
-    LmsgPutU32(&w, NT_REGISTER);     // cmd first
-    LmsgPutU32(&w, handle); // handle
-    LmsgPutU32(&w, 0);      // pid field unused for register
-    LmsgPutStr(&w, "/svc/devmgr");
+    MsgWriter w; MsgWriterInit(&w);
+    MsgPutU32(&w, NT_REGISTER);     // cmd first
+    MsgPutU32(&w, handle); // handle
+    MsgPutU32(&w, 0);      // pid field unused for register
+    MsgPutStr(&w, "/svc/devmgr");
 
     Message reply = ZuzuMsgLcall(nameserver_port_slot,
                                  w.off); // ns will reply with return code in w1
@@ -136,7 +136,7 @@ int main(int argc, char **argv)
         size_t   xlen         = msg.w2;   // buffer length = your bounds ceiling
 
         DevmRequest req;
-        if (DevmUnpack(LmsgBuf(), xlen, &req) != 0) {
+        if (DevmUnpack(MessageBuf(), xlen, &req) != 0) {
             ZuzuMsgReply(reply_handle, ERR_BADARG, 0, 0);
             continue;
         }

@@ -9,7 +9,7 @@
 
 typedef struct sem {
     _Atomic int count;
-    Handle      ntfn;
+    Handle      event; /* kernel event object waiters block on */
 } Semaphore;
 
 Err SemInit(Semaphore* s, int initial_count);

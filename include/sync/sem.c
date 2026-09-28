@@ -1,28 +1,27 @@
 #include <sync/sem.h>
-#include <zuzu/ntfn.h>
-#include <zuzu/cap.h>
+#include <zuzu/zuzu.h>
 #include <stdbool.h>
 #include <util/tls.h>
 #include <stdatomic.h>
 
 Err SemInit(Semaphore* s, int initial_count) {
     s->count = initial_count;
-    s->ntfn = ZuzuNtfnCreate();
-    if (s->ntfn < 0) {
-        return s->ntfn;
+    s->event = CreateEvent();
+    if (s->event < 0) {
+        return s->event;
     }
     return ZUZU_OK;
 }
 
 Err SemDestroy(Semaphore *s) {
-    if (ZuzuDestroy(s->ntfn) != ZUZU_OK) return ERR_BUSY;
+    if (HandleDestroy(s->event) != ZUZU_OK) return ERR_BUSY;
     s->count = 0;
     return ZUZU_OK;
 }
 
 Err SemPost(Semaphore *s) {
     atomic_fetch_add(&s->count, 1);
-    ZuzuNtfnSignal(s->ntfn, 1);
+    Signal(s->event, 1, false);
     return ZUZU_OK;
 }
 
@@ -36,6 +35,6 @@ Err SemWait(Semaphore *s) {
             // CAS failed but expected still > 0 → someone else raced us, retry with updated expected
         }
         // count is <= 0 → nothing available, block
-        ZuzuNtfnWait(s->ntfn, TIMEOUT_INFINITE);
+        WaitOn(s->event, TIMEOUT_INFINITE);
     }
 }

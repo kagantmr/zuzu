@@ -14,7 +14,7 @@
 #include <util/channel.h>
 #include <zuzu/err.h>
 #include <fs/fsd_client.h>
-#include <util/lmsg.h>
+#include <util/msg.h>
 #include <zuzu/syspage.h>
 #include <util/version.h>
 #include <util/fnv1a.h>
@@ -89,29 +89,29 @@ static void exec_reply_err(Handle reply_handle, Err err)
  * from sysd (SysPSpawn's slot 0-3 copy) or is granted directly (devmgr). */
 static void nt_handle_msg(Message msg)
 {
-    if (msg.w2 >= sizeof(ExecRequestHeader) && msg.w2 <= LMSG_BUF_SIZE &&
-        ((ExecRequestHeader *)LmsgBuf())->cmd == SYSD_EXEC)
+    if (msg.w2 >= sizeof(ExecRequestHeader) && msg.w2 <= MSG_BUF_SIZE &&
+        ((ExecRequestHeader *)MessageBuf())->cmd == SYSD_EXEC)
     {
         Handle reply_handle = (Handle)msg.w0;
         size_t req_len = msg.w2;
-        ExecRequestHeader *hdr = (ExecRequestHeader *)LmsgBuf();
+        ExecRequestHeader *hdr = (ExecRequestHeader *)MessageBuf();
 
         size_t path_off = sizeof(ExecRequestHeader);
         size_t path_bytes = (size_t)hdr->path_len + 1;
         if (path_bytes == 0 || path_off + path_bytes > req_len ||
-            ((char *)LmsgBuf())[path_off + hdr->path_len] != '\0')
+            ((char *)MessageBuf())[path_off + hdr->path_len] != '\0')
         {
             exec_reply_err(reply_handle, ERR_NOENT);
             return;
         }
 
         /* The lazy fsd-connect below (LookupServiceWithPid) issues its own
-         * Lcall, which reuses this same thread's LmsgBuf() as scratch space
+         * Lcall, which reuses this same thread's MessageBuf() as scratch space
          * -- clobbering the path/argbuf bytes still referenced below if they
-         * pointed straight into it. Snapshot the request out of LmsgBuf()
+         * pointed straight into it. Snapshot the request out of MessageBuf()
          * first so it survives. */
-        static uint8_t reqbuf[LMSG_BUF_SIZE];
-        memcpy(reqbuf, LmsgBuf(), req_len);
+        static uint8_t reqbuf[MSG_BUF_SIZE];
+        memcpy(reqbuf, MessageBuf(), req_len);
         hdr = (ExecRequestHeader *)reqbuf;
         const char *path = (const char *)reqbuf + path_off;
         const char *argbuf = (const char *)reqbuf + path_off + path_bytes;
@@ -198,8 +198,8 @@ static void nt_handle_msg(Message msg)
             return;
         }
 
-        memcpy(LmsgBuf(), &reply, sizeof(reply));
-        (void)ChannelReply(reply_handle, LmsgBuf(), sizeof(reply));
+        memcpy(MessageBuf(), &reply, sizeof(reply));
+        (void)ChannelReply(reply_handle, MessageBuf(), sizeof(reply));
         return;
     }
 }

@@ -4,7 +4,7 @@
  *
  * A zone provides mutual exclusion between threads of a process. Uncontended
  * enter/exit is a single atomic op; contended waiters block on a kernel
- * notification object rather than spinning.
+ * event object rather than spinning.
  */
 
 #ifndef ZUZU_SYNC_ZONE
@@ -30,7 +30,7 @@
 typedef struct {
     Tid         owner;   ///< Owning thread while locked; undefined when unlocked.
     _Atomic int locked;  ///< 0 = free, 1 = held. Contended waiters spin-check then block.
-    Handle      ntfn;    ///< Kernel notification object waiters block on.
+    Handle      event;   ///< Kernel event object waiters block on.
 } Zone;
 
 /**
@@ -38,12 +38,12 @@ typedef struct {
  * @param z  Storage for the zone. Contents are overwritten.
  * @return @c ERR_OK on success.
  * @retval ERR_INVAL  @p z is NULL.
- * @retval ERR_NOMEM  Could not allocate the backing notification object.
+ * @retval ERR_NOMEM  Could not allocate the backing event object.
  */
 Err ZoneInit(Zone *z);
 
 /**
- * @brief Release a zone and its backing notification object.
+ * @brief Release a zone and its backing event object.
  *
  * The zone must be unlocked and have no waiters. Using @p z afterwards is
  * UB.
@@ -60,7 +60,7 @@ Err ZoneDestroy(Zone *z);
  * @param z  Initialised zone.
  * @return @c ERR_OK once the zone is held by the caller.
  * @retval ERR_INVAL  @p z is NULL or uninitialised.
- * @retval ERR_DEAD   Backing notification object was destroyed.
+ * @retval ERR_DEAD   Backing event object was destroyed.
  * @note Blocking. Recursive entry by the owner is undefined behaviour.
  * @see ZoneExit, ZoneTryEnter
  */

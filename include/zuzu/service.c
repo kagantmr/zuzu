@@ -3,7 +3,7 @@
 #include "zuzu/msg.h"
 #include "zuzu/protocols/nametable.h"
 #include <util/channel.h>
-#include <util/lmsg.h>
+#include <util/msg.h>
 #include <zuzu/service.h>
 
 Err RegisterService(const char *name, Handle port)
@@ -17,12 +17,12 @@ Err RegisterService(const char *name, Handle port)
     if (handle < 0)
         return handle;
 
-    LmsgWriter w;
-    LmsgWriterInit(&w);
-    LmsgPutU32(&w, op);     // cmd first
-    LmsgPutU32(&w, handle); // handle
-    LmsgPutU32(&w, 0);      // pid field unused for register
-    LmsgPutStr(&w, name);
+    MsgWriter w;
+    MsgWriterInit(&w);
+    MsgPutU32(&w, op);     // cmd first
+    MsgPutU32(&w, handle); // handle
+    MsgPutU32(&w, 0);      // pid field unused for register
+    MsgPutStr(&w, name);
 
     Message reply = ZuzuMsgLcall(NT_PORT,
                                  w.off); // ns will reply with return code in w1
@@ -37,12 +37,12 @@ Handle LookupService(const char *name)
 
     NtOpcode op = NT_LOOKUP;
 
-    LmsgWriter w;
-    LmsgWriterInit(&w);
-    LmsgPutU32(&w, op); // cmd first
-    LmsgPutU32(&w, 0);  // handle
-    LmsgPutU32(&w, 0);  // pid field unused
-    LmsgPutStr(&w, name);
+    MsgWriter w;
+    MsgWriterInit(&w);
+    MsgPutU32(&w, op); // cmd first
+    MsgPutU32(&w, 0);  // handle
+    MsgPutU32(&w, 0);  // pid field unused
+    MsgPutStr(&w, name);
 
     Message reply = ZuzuMsgLcall(NT_PORT,
                                  w.off); // ns will reply with return code in w1
@@ -59,12 +59,12 @@ Handle LookupServiceWithPid(const char *name, Spid *out_pid)
 
     NtOpcode op = NT_LOOKUP;
 
-    LmsgWriter w;
-    LmsgWriterInit(&w);
-    LmsgPutU32(&w, op); // cmd first
-    LmsgPutU32(&w, 0);  // handle
-    LmsgPutU32(&w, 0);  // pid field unused
-    LmsgPutStr(&w, name);
+    MsgWriter w;
+    MsgWriterInit(&w);
+    MsgPutU32(&w, op); // cmd first
+    MsgPutU32(&w, 0);  // handle
+    MsgPutU32(&w, 0);  // pid field unused
+    MsgPutStr(&w, name);
 
     Message reply = ZuzuMsgLcall(NT_PORT,
                                  w.off); // ns will reply with return code in w1
@@ -82,12 +82,12 @@ Handle LookupServicePid(Spid pid)
 
     NtOpcode op = NT_LOOKUP_PID;
 
-    LmsgWriter w;
-    LmsgWriterInit(&w);
-    LmsgPutU32(&w, op);  // cmd first
-    LmsgPutU32(&w, 0);   // handle
-    LmsgPutU32(&w, pid); // pid field
-    LmsgPutStr(&w, "");
+    MsgWriter w;
+    MsgWriterInit(&w);
+    MsgPutU32(&w, op);  // cmd first
+    MsgPutU32(&w, 0);   // handle
+    MsgPutU32(&w, pid); // pid field
+    MsgPutStr(&w, "");
 
     Message reply = ZuzuMsgLcall(NT_PORT,
                                  w.off); // ns will reply with return code in w1
@@ -104,12 +104,12 @@ Err ScrubServicePid(Spid pid)
 
     NtOpcode op = NT_SCRUB_PID;
 
-    LmsgWriter w;
-    LmsgWriterInit(&w);
-    LmsgPutU32(&w, op);  // cmd first
-    LmsgPutU32(&w, 0);   // handle
-    LmsgPutU32(&w, pid); // pid field
-    LmsgPutStr(&w, "");
+    MsgWriter w;
+    MsgWriterInit(&w);
+    MsgPutU32(&w, op);  // cmd first
+    MsgPutU32(&w, 0);   // handle
+    MsgPutU32(&w, pid); // pid field
+    MsgPutStr(&w, "");
 
     Message reply = ZuzuMsgLcall(NT_PORT,
                                  w.off); // ns will reply with return code in w1

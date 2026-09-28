@@ -2,7 +2,7 @@
 #include "dev/protocols/uart.h"
 #include "dev/protocols/devm.h"
 #include "zuzu/protocols/nametable.h"
-#include "util/lmsg.h"
+#include "util/msg.h"
 #include "zuzu/service.h"
 #include <util/ring.h>
 #include <zuzu/cap.h>
@@ -31,7 +31,7 @@ static Handle client_port = -1;
 static Handle devmgr_port = -1;
 static Handle serial_dev_handle = -1;
 static Handle serial_irq_ntfn = -1;
-static ring_t rxrb, txrb;
+static RingBuffer rxrb, txrb;
 static uint8_t rxbuf_storage[UART_RINGBUF_MAX];
 static uint8_t txbuf_storage[UART_RINGBUF_MAX];
 
@@ -65,7 +65,7 @@ static uint32_t drain_uart_rx_fifo(uint32_t *err_bytes_out)
 {
     uint32_t pushed = 0;
     uint32_t err_bytes = 0;
-    while (!(uart->FR & FR_RXFE) && ring_full(&rxrb) == 0) {
+    while (!(uart->FR & FR_RXFE) && RingFull(&rxrb) == 0) {
         uint32_t dr = uart->DR;
         /* DR[11:8] = OE/BE/PE/FE for this byte. A break or framing error also
          * latches in RSR and stays latched until written, so without this the
@@ -77,7 +77,7 @@ static uint32_t drain_uart_rx_fifo(uint32_t *err_bytes_out)
             err_bytes++;
             continue;
         }
-        if (ring_push(&rxrb, (uint8_t)(dr & 0xFFu)) == 0)
+        if (RingPush(&rxrb, (uint8_t)(dr & 0xFFu)) == 0)
             pushed++;
     }
     if (err_bytes_out)
@@ -110,14 +110,14 @@ static void handle_irq_event(void)
         uart->ICR = (IMSC_RXIM | IMSC_RTIM);
     }
     if (uart->MIS & IMSC_TXIM) {
-        while (!(uart->FR & FR_TXFF) && ring_avail(&txrb) > 0) {
+        while (!(uart->FR & FR_TXFF) && RingAvail(&txrb) > 0) {
             uint8_t b = 0;
-            if (ring_pop(&txrb, &b) == 0)
+            if (RingPop(&txrb, &b) == 0)
                 uart->DR = (uint32_t)b;
             else
                 break;
         }
-        if (ring_avail(&txrb) == 0)
+        if (RingAvail(&txrb) == 0)
             uart->IMSC &= ~IMSC_TXIM;
         uart->ICR = IMSC_TXIM;
     }
@@ -127,10 +127,10 @@ static void handle_irq_event(void)
 /* ZuzuMsgLsend(client_port, len): fire-and-forget write, payload in lmsg_buf(). */
 static void handle_write(uint32_t len)
 {
-    if (len > LMSG_BUF_SIZE)
-        len = LMSG_BUF_SIZE;
+    if (len > MSG_BUF_SIZE)
+        len = MSG_BUF_SIZE;
 
-    const char *buf = LmsgBuf();
+    const char *buf = MessageBuf();
     for (uint32_t i = 0; i < len; i++)
         uart_txbyte(buf[i]);
 }
@@ -140,16 +140,16 @@ static void handle_write(uint32_t len)
  * available (possibly zero) rather than blocking for more. */
 static void handle_read(Handle reply_handle, uint32_t max_len)
 {
-    if (max_len > LMSG_BUF_SIZE)
-        max_len = LMSG_BUF_SIZE;
+    if (max_len > MSG_BUF_SIZE)
+        max_len = MSG_BUF_SIZE;
 
     (void)drain_uart_rx_fifo(NULL);
 
-    char *buf = (char *)LmsgBuf();
+    char *buf = (char *)MessageBuf();
     uint32_t n = 0;
-    while (n < max_len && ring_avail(&rxrb) > 0) {
+    while (n < max_len && RingAvail(&rxrb) > 0) {
         uint8_t b = 0;
-        if (ring_pop(&rxrb, &b) != 0)
+        if (RingPop(&rxrb, &b) != 0)
             break;
         buf[n++] = (char)b;
     }
@@ -241,8 +241,8 @@ int pl011drv_setup(void)
         return (int)(intptr_t)uart;
     }
 
-    ring_init(&rxrb, rxbuf_storage, UART_RINGBUF_MAX);
-    ring_init(&txrb, txbuf_storage, UART_RINGBUF_MAX);
+    RingInit(&rxrb, rxbuf_storage, UART_RINGBUF_MAX);
+    RingInit(&txrb, txbuf_storage, UART_RINGBUF_MAX);
 
     uart->IMSC = 0;
     uart->CR = 0;

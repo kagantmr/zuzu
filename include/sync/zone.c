@@ -1,23 +1,22 @@
 #include <types.h>
 #include <sync/zone.h>
-#include <zuzu/ntfn.h>
+#include <zuzu/zuzu.h>
 #include <stdbool.h>
 #include <util/tls.h>
-#include <zuzu/cap.h>
 #include <stdatomic.h>
 
 Err ZoneInit(Zone* z) {
     z->locked = 0;
     z->owner = 0;
-    z->ntfn = ZuzuNtfnCreate();
-    if (z->ntfn < 0) {
-        return z->ntfn;
+    z->event = CreateEvent();
+    if (z->event < 0) {
+        return z->event;
     }
     return ZUZU_OK;
 }
 
 Err ZoneDestroy(Zone *z) {
-    if (ZuzuDestroy(z->ntfn) != ZUZU_OK) return ERR_BUSY;
+    if (HandleDestroy(z->event) != ZUZU_OK) return ERR_BUSY;
     z->locked = 0;
     z->owner = 0;
     return ZUZU_OK;
@@ -27,10 +26,10 @@ Err ZoneEnter(Zone *z) {
     while (1) {
         int expected = 0;
         if (atomic_compare_exchange_weak(&z->locked, &expected, 1)) {
-            z->owner = GetTls()->tid;
+            z->owner = ZuzuTLS()->tid;
             return ZUZU_OK;
         }
-        ZuzuNtfnWait(z->ntfn, TIMEOUT_INFINITE);
+        WaitOn(z->event, TIMEOUT_INFINITE);
     }
     return ERR_DEAD;
 }
@@ -38,14 +37,14 @@ Err ZoneEnter(Zone *z) {
 Err ZoneExit(Zone *z) {
     z->owner = 0;
     atomic_store(&z->locked, 0);
-    ZuzuNtfnSignal(z->ntfn, 1);
+    Signal(z->event, 1, false);
     return ZUZU_OK;
 }
 
 Err ZoneTryEnter(Zone *z) {
     int expected = 0;
     if (atomic_compare_exchange_strong(&z->locked, &expected, 1)) {
-        z->owner = GetTls()->tid;
+        z->owner = ZuzuTLS()->tid;
         return ZUZU_OK;
     }
     return ERR_BUSY;

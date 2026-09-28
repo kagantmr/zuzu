@@ -1,5 +1,5 @@
 #include "zuzu/err.h"
-#include "util/lmsg.h"
+#include "util/msg.h"
 #include "zuzu/protocols/nametable.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -205,7 +205,7 @@ int main(void)
             NtRequest r;
             Message reply = (Message){.w0 = 0, .w1 = 0, .w2 = 0, .w3 = 0};
 
-            if (NtUnpack(LmsgBuf(), xlen, &r) < 0)
+            if (NtUnpack(MessageBuf(), xlen, &r) < 0)
             {
                 if (res.kind == WAITANY_KIND_CALL)
                     ZuzuMsgReply(res.source, ERR_BADARG, 0, 0);

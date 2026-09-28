@@ -235,7 +235,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
     ThreadLocalData *tcb = (ThreadLocalData *)TcbSlotKVirtAddr(owner, (uint32_t)tcb_slot_idx);
     VirtAddr tcb_va = TcbSlotUVirtAddr(owner, (uint32_t)tcb_slot_idx);
     memset(tcb, 0, TCB_SLOT_SIZE);
-    tcb->lmsg_buf = (void *)(tcb_va + offsetof(ThreadLocalData, buf));
+    tcb->msg_buf = (void *)(tcb_va + offsetof(ThreadLocalData, buf));
     tcb->tid = task->tid;
     tcb->spid = owner->spid;
     task->task_info_va = tcb_va;
