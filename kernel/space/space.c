@@ -314,6 +314,22 @@ void SpaceFinalize(SpaceObject *sp)
     KSlabFree(&space_cache, sp);
 }
 
+void SpaceUnfreeze(SpaceObject *owner)
+{
+    if (!owner)
+        return;
+    owner->frozen = false;
+    owner->faulted_tid = 0;
+
+    ListNode *n = owner->tasks.node.next;
+    while (n != &owner->tasks.node) {
+        TaskObject *t = container_of(n, TaskObject, space_node);
+        if (t->state == READY && !t->node.next)
+            SchedAdd(t);
+        n = n->next;
+    }
+}
+
 void SpaceRef(SpaceObject *sp)
 {
     if (!sp)

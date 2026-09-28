@@ -132,6 +132,12 @@ void SpaceWaitHollow(SpaceObject *sp, Duration timeout, CpuState *frame);
  */
 void SpaceFinalize(SpaceObject *sp);
 
+/**
+ * @brief Undo TaskFault's freeze: clear frozen/faulted_tid and re-queue any
+ * sibling tasks that were left READY but unlinked from their run queue.
+ */
+void SpaceUnfreeze(SpaceObject *owner);
+
 void SpaceRef(SpaceObject *sp);
 void SpaceUnref(SpaceObject *sp);
 void SpaceMaybeSignalBind(SpaceObject *sp);

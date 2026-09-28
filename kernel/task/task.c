@@ -150,10 +150,18 @@ void TaskDestroy(TaskObject *task)
 void TaskWaitExit(TaskObject *task, Duration timeout, CpuState *frame)
 {
     ENSURE_ERR(frame, task != current_task, ERR_BADARG);
-    if (ZOMBIE == task->state)
+    if (task->state == ZOMBIE)
     {
         ArchSetInFrame(frame, 0, ZUZU_OK);
         ArchSetInFrame(frame, 1, task->exit_status);
+        return;
+    }
+    if (task->state == FAULTED)
+    {
+        ArchSetInFrame(frame, 0, ZUZU_OK);
+        ArchSetInFrame(frame, 1, WAKE_FAULT);
+        ArchSetInFrame(frame, 2, task->fault_reason);
+        ArchSetInFrame(frame, 3, 0);
         return;
     }
     SchedBlockOn(&task->joiners, timeout);

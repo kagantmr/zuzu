@@ -59,6 +59,8 @@ void SvcManageTask(CpuState *frame)
 
     case MNGTASK_KILL: {
         ENSURE_ERR(frame, target != current_task, ERR_BADARG);
+        if (target->state == FAULTED)
+            SpaceUnfreeze(target->owner);
         TaskTerminate(target, ERR_DEAD);
         ArchSetInFrame(frame, 0, ZUZU_OK);
     } break;
@@ -83,9 +85,16 @@ void SvcManageTask(CpuState *frame)
     } break;
 
     case MNGTASK_SUSPEND:
-    case MNGTASK_RESUME:
         ArchSetInFrame(frame, 0, ERR_NOSYS);
         break;
+
+    case MNGTASK_RESUME: {
+        ENSURE_ERR(frame, target->state == FAULTED, ERR_BADARG);
+        SpaceUnfreeze(target->owner);
+        target->state = READY;
+        SchedAdd(target);
+        ArchSetInFrame(frame, 0, ZUZU_OK);
+    } break;
 
     case MNGTASK_GET_REGS: {
         ENSURE_ERR(frame, target->trap_frame, ERR_DEAD);
