@@ -103,6 +103,7 @@ void CallBlockAsSender(TaskObject *caller, PortObject *port,
     list_add_tail(&caller->node, &port->sender_queue.node);
     caller->state = BLOCKED;
     Schedule();
+    PortMaybeSignalBind(port);
 }
 
 void DeliverCallToReceiver(TaskObject *caller, TaskObject *rx, EphemeralReplyObject *rc,
@@ -196,6 +197,7 @@ void PortReceive(PortObject *port, Duration timeout, CpuState *frame) {
 
         caller->pending_grant_handle = -1;
         DeliverCallToReceiver(caller, current_task, caller->pending_reply_cap, caller->msg_xfer_len, granted);
+        PortMaybeSignalBind(port);
         return;
 
     }

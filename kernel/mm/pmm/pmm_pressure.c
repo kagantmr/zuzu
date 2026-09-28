@@ -60,7 +60,7 @@ int PmmSubscribe(EventObject *ev)
     if (!new_node)
         return ERR_NOMEM;
     new_node->ev = ev;
-    ev->irq_bind_count++;
+    ev->bind_count++;
     list_add_tail(&new_node->node, &pmm_subscribers.node);
     ev->ref_count++;
 

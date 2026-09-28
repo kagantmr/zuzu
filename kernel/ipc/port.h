@@ -6,7 +6,7 @@
 #include <stddef.h>
 #include <vector.h>
 #include <zuzu/types.h>
-
+#include "event.h"
 
 typedef struct TaskObjectStruct TaskObject;
 typedef struct SpaceObjectStruct SpaceObject;
@@ -21,6 +21,8 @@ typedef struct
     size_t ref_count;
     bool alive;
     ListNode node;
+    EventObject *bound_ev;   // NULL if unbound
+    uint32_t bind_bit;
 } PortObject;
 
 typedef struct
@@ -44,5 +46,7 @@ PortObject *PortObjAlloc(void);
  * @brief Free space belonging to a Port object.
  */
 void PortObjFree(PortObject *port);
+
+void PortMaybeSignalBind(PortObject *port);
 
 #endif /* _ZUZU_OBJECTS_PORT_H */

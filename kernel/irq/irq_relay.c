@@ -24,13 +24,13 @@ static void __hot RelayIsr(void *ctx)
     ArchIrqMaskLine(irq_num);
 
     irq_owners[irq_num].pending = true;
-    EventObject *ntfn = irq_owners[irq_num].bound_ev;
-    if (likely(ntfn && ntfn->alive))
+    EventObject *ev = irq_owners[irq_num].bound_ev;
+    if (likely(ev && ev->alive))
     {
-        EventSignal(ntfn, (1U << irq_owners[irq_num].bit), false);
+        EventSignal(ev, (1U << irq_owners[irq_num].bit), false);
         irq_owners[irq_num].pending = false;
     }
-    else if (ntfn && !ntfn->alive)
+    else if (ev && !ev->alive)
     {
         irq_owners[irq_num].bound_ev = NULL;
     }
@@ -63,13 +63,13 @@ Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev, uint32_t bi
     if (irq_owners[irq_num].bound_ev)
     {
         EventObject *old = irq_owners[irq_num].bound_ev;
-        old->irq_bind_count--;
+        old->bind_count--;
         EventDropReference(old);
     }
 
     irq_owners[irq_num].bound_ev = ev;
     irq_owners[irq_num].bound_ev->ref_count++;
-    irq_owners[irq_num].bound_ev->irq_bind_count++;
+    irq_owners[irq_num].bound_ev->bind_count++;
 
     if (irq_owners[irq_num].pending)
     {
@@ -99,7 +99,7 @@ void IrqReleaseAll(SpaceObject *owner)
     {
         if (irq_owners[irq_num].owner == owner)
         {
-            irq_owners[irq_num].bound_ev->irq_bind_count--;
+            irq_owners[irq_num].bound_ev->bind_count--;
             EventDropReference(irq_owners[irq_num].bound_ev);
             irq_owners[irq_num] = (IrqOwner){.bound_ev = NULL, .owner = NULL, .pending = false};
             ArchIrqMaskLine(irq_num);

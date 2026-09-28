@@ -49,6 +49,32 @@ void SvcBind(CpuState *frame)
 
         ArchSetInFrame(frame, 0, IrqBindToEvent(CURRENT_SPACE, dev_mem_obj->dev.irq, ev, bit));
     } break;
+    case EVENT_PORT:
+    {
+        Handle dev_handle = (Handle)(*ArchGetFromFrame(frame, 2));
+        uint32_t bit = (uint32_t)(*ArchGetFromFrame(frame, 3));
+        HandleTableEntry *port_entry = HandleTableLookup(&CURRENT_SPACE->handle_table, dev_handle);
+
+        ENSURE_ERR(frame, port_entry, ERR_BADHANDLE);
+        ENSURE_ERR(frame, (port_entry->type == HANDLE_PORT), ERR_BADTYPE);
+
+        PortObject *port_obj = port_entry->port;
+
+        ENSURE_ERR(frame, (port_obj), ERR_BADHANDLE);
+        ENSURE_ERR(frame, (bit < 31U), ERR_BADARG);
+
+        if (port_obj->bound_ev) {
+            port_obj->bound_ev->bind_count--; 
+            EventDropReference(port_obj->bound_ev);
+        }
+
+        port_obj->bound_ev = ev; 
+        ev->ref_count++;
+        ev->bind_count++;
+        
+        PortMaybeSignalBind(port_obj);
+        
+    } break;
     default:
         ArchSetInFrame(frame, 0, ERR_BADARG);
     }

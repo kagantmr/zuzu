@@ -59,5 +59,15 @@ void PortDestroy(PortObject *port) {
     if (port->ref_count > 0)
         return;
     PortKill(port);
+    if (port->bound_ev) {
+        port->bound_ev->bind_count--;
+        EventDropReference(port->bound_ev);
+    }
     PortObjFree(port);
+}
+
+void PortMaybeSignalBind(PortObject *port)
+{
+    if (port->bound_ev && port->bound_ev->alive && !list_empty(&port->sender_queue))
+        EventSignal(port->bound_ev, (1U << port->bind_bit), false);
 }

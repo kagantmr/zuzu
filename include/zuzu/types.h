@@ -76,6 +76,7 @@ typedef enum
     EVENT_GENERIC = 0, /* no distinction */
     EVENT_MEMMGMT,     /* memory pressure */
     EVENT_IRQ,         /* interrupts */
+    EVENT_PORT,        /* port events */
     EVENT_TIMER        /* timers */
 } EventType;
 
