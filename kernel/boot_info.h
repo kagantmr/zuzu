@@ -15,7 +15,7 @@ typedef struct {
     uint64_t initrd_pa;
     uint64_t initrd_size;
     bool has_initrd;
-} boot_info_t;
+} BootInfo;
 
 /* Initialize boot info from an already-initialized DTB base. */
 void boot_info_init_from_dtb(void);

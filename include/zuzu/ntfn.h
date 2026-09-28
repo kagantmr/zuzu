@@ -24,7 +24,7 @@ typedef uint32_t EventWord;  /* bitfield of pending signals */
  * @return `Handle` Returns the handle of the newly created notification object on success, or a negative error code on failure.
  */
 static inline Handle ZuzuNtfnCreate(void) {
-    return Syscall(SYS_NTFN_CREATE, 0, 0, 0, 0);
+    return InvokeSvc(SYS_NTFN_CREATE, 0, 0, 0, 0);
 }
 
 /**
@@ -36,7 +36,7 @@ static inline Handle ZuzuNtfnCreate(void) {
  * @return `Err` Returns 0 on success, or a negative error code on failure.
  */
 static inline Err ZuzuNtfnSignal(Handle ntfn_handle, uint32_t bits) {
-    return Syscall(SYS_NTFN_SIGNAL, ntfn_handle, bits, 0, 0);
+    return InvokeSvc(SYS_NTFN_SIGNAL, ntfn_handle, bits, 0, 0);
 }
 
 /**
@@ -48,7 +48,7 @@ static inline Err ZuzuNtfnSignal(Handle ntfn_handle, uint32_t bits) {
  * @return `NtfnBits` Returns the signaled bits on success, or a negative error code on failure. If the wait times out, returns ERR_TIMEOUT.
  */
 static inline EventWord ZuzuNtfnWait(Handle ntfn_handle, Duration timeout_ms) {
-    return Syscall(SYS_NTFN_WAIT, ntfn_handle, timeout_ms, 0, 0);
+    return InvokeSvc(SYS_NTFN_WAIT, ntfn_handle, timeout_ms, 0, 0);
 }
 
 #ifdef __cplusplus

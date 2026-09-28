@@ -22,7 +22,7 @@ extern "C" {
  * @param status The exit status of the process, visible by the parent.
  */
 static inline void __attribute__((noreturn)) ZuzuPQuit(Err status) {
-    Syscall(SYS_PQUIT, (uint32_t)status, 0, 0, 0);
+    InvokeSvc(SYS_PQUIT, (uint32_t)status, 0, 0, 0);
     __builtin_unreachable();
 }
 
@@ -32,7 +32,7 @@ static inline void __attribute__((noreturn)) ZuzuPQuit(Err status) {
  * @return int32_t Returns 0 on success. Cannot fail
  */
 static inline Err ZuzuYield(void) {
-    return Syscall(SYS_YIELD, 0, 0, 0, 0);
+    return InvokeSvc(SYS_YIELD, 0, 0, 0, 0);
 }
 
 /**
@@ -45,21 +45,21 @@ static inline Err ZuzuYield(void) {
  * @return Err  
  */
 static inline Err ZuzuWait(Spid pid, Err *statusOut, uint32_t flags) {
-    return Syscall(SYS_WAIT, (uint32_t)pid, (uint32_t)(VirtAddr)statusOut, flags, 0);
+    return InvokeSvc(SYS_WAIT, (uint32_t)pid, (uint32_t)(VirtAddr)statusOut, flags, 0);
 }
 
 /**
  *  @brief Retrieves the process ID of the calling process.
  */
 static inline Spid ZuzuGetPid(void) {
-    return Syscall(SYS_GETPID, 0, 0, 0, 0);
+    return InvokeSvc(SYS_GETPID, 0, 0, 0, 0);
 }
 
 /**
  * @brief Suspends the calling process for a specified number of milliseconds.
  */
 static inline Err ZuzuSleep(Duration ms) {
-    return Syscall(SYS_SLEEP, ms, 0, 0, 0);
+    return InvokeSvc(SYS_SLEEP, ms, 0, 0, 0);
 }
 
 /**
@@ -101,21 +101,21 @@ static inline Err ZuzuKickstart(Handle taskHandle, VirtAddr entry,
         .r0_val      = r0_val,
         .r1_val      = r1_val,
     };
-    return (Err) Syscall(SYS_KICKSTART, (uint32_t)(VirtAddr)&args, 0, 0, 0);
+    return (Err) InvokeSvc(SYS_KICKSTART, (uint32_t)(VirtAddr)&args, 0, 0, 0);
 }
 
 /**
  * @brief Kills the process associated with the specified task handle.
  */
 static inline Err ZuzuPKill(Handle taskHandle) {
-    return Syscall(SYS_PKILL, taskHandle, 0, 0, 0);
+    return InvokeSvc(SYS_PKILL, taskHandle, 0, 0, 0);
 }
 
 /**
  * @brief Creates a new thread in the current process with the specified entry point, stack pointer, and argument.
  */
 static inline Tid ZuzuTMake(void (*entry)(void *), void *user_sp, void *arg) {
-    return (Tid)Syscall(SYS_TMAKE, (uint32_t)(VirtAddr)entry, (uint32_t)(VirtAddr)user_sp,
+    return (Tid)InvokeSvc(SYS_TMAKE, (uint32_t)(VirtAddr)entry, (uint32_t)(VirtAddr)user_sp,
                            (uint32_t)(VirtAddr)arg, 0);
 }
 
@@ -123,14 +123,14 @@ static inline Tid ZuzuTMake(void (*entry)(void *), void *user_sp, void *arg) {
  * @brief Waits for the specified thread to terminate and retrieves its exit status.
  */
 static inline Err ZuzuTJoin(Tid tid) {
-    return Syscall(SYS_TJOIN, tid, 0, 0, 0);
+    return InvokeSvc(SYS_TJOIN, tid, 0, 0, 0);
 }
 
 /**
  * @brief Terminates the calling thread with the specified exit status.
  */
 static inline __attribute__((noreturn)) void ZuzuTQuit(Err status) {
-    Syscall(SYS_TQUIT, (uint32_t)status, 0, 0, 0);
+    InvokeSvc(SYS_TQUIT, (uint32_t)status, 0, 0, 0);
     __builtin_unreachable();
 }
 

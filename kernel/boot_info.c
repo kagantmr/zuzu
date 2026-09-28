@@ -11,7 +11,7 @@
 #define LOG_FMT(fmt) "(boot_info) " fmt
 #include "core/log.h"
 
-static boot_info_t g_boot_info = {0};
+static BootInfo g_boot_info = {0};
 static PhysAddr g_bootinfo_pa;
 
 static void collect_dev_cb(const char *compatible, const char *path, uint64_t phys, uint64_t size, uint32_t irq)

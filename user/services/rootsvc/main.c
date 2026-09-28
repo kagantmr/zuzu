@@ -5,6 +5,6 @@ static const char msg[] = "rootsvc: hello\n";
 
 int main(void)
 {
-    Syscall(SVC_LOG, (uint32_t)(uintptr_t)msg, sizeof(msg) - 1, 0, 0);
+    ArchInvokeSvc(SVC_LOG, (uint32_t)(uintptr_t)msg, sizeof(msg) - 1, 0, 0);
     return 0;
 }

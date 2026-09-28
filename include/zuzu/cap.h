@@ -22,7 +22,7 @@ extern "C" {
  * @return Err Returns the handle of the newly created port on success, or a negative error code on failure.
  */
 static inline Err ZuzuPortCreate(void) {
-    return Syscall(SYS_PORT_CREATE, 0, 0, 0, 0);
+    return ArchInvokeSvc(SYS_PORT_CREATE, 0, 0, 0, 0);
 }
 
 #define GRANT_REGRANTABLE (1u << 0)
@@ -36,7 +36,7 @@ static inline Err ZuzuPortCreate(void) {
  * @return Err Returns 0 on success, or a negative error code on failure.
  */
 static inline Err ZuzuGrant(Handle cap, Spid pid, uint32_t flags) {
-    return Syscall(SYS_GRANT, cap, pid, flags, 0);
+    return ArchInvokeSvc(SYS_GRANT, cap, pid, flags, 0);
 }
 
 /**
@@ -47,7 +47,7 @@ static inline Err ZuzuGrant(Handle cap, Spid pid, uint32_t flags) {
  * @return Handle Returns handle slot on the grantee's  on success, or a negative error code on failure.
  */
 static inline Handle ZuzuDestroy(Handle h) {
-    return Syscall(SYS_DESTROY, h, 0, 0, 0);
+    return ArchInvokeSvc(SYS_DESTROY, h, 0, 0, 0);
 }
 
 /**
@@ -63,7 +63,7 @@ static inline Handle ZuzuDestroy(Handle h) {
  * @return Err Returns the new (marked) handle on success, or a negative error code on failure.
  */
 static inline Err ZuzuStamp(Handle handle, Marker marker) {
-    return Syscall(SYS_STAMP, handle, marker, 0, 0);
+    return ArchInvokeSvc(SYS_STAMP, handle, marker, 0, 0);
 }
 
 /**
@@ -75,7 +75,7 @@ static inline Err ZuzuStamp(Handle handle, Marker marker) {
  * @return Err 0 or negative error code.
  */
 static inline Err ZuzuSetLabel(Handle task_handle, Label label) {
-    return Syscall(SYS_SET_LABEL, task_handle, label, 0, 0);
+    return ArchInvokeSvc(SYS_SET_LABEL, task_handle, label, 0, 0);
 }
 
 #ifdef __cplusplus

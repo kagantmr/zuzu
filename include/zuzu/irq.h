@@ -21,7 +21,7 @@ extern "C" {
  * @return Err Returns 0 on success, or a negative error code on failure.
  */
 static inline Err ZuzuIrqBind(Handle dev_handle, Handle ntfn_handle) {
-    return Syscall(SYS_IRQ_BIND, dev_handle, ntfn_handle, 0, 0);
+    return InvokeSvc(SYS_IRQ_BIND, dev_handle, ntfn_handle, 0, 0);
 }
 
 /**
@@ -32,7 +32,7 @@ static inline Err ZuzuIrqBind(Handle dev_handle, Handle ntfn_handle) {
  * @return Err Returns 0 on success, or a negative error code on failure.
  */
 static inline Err ZuzuIrqDone(Handle dev_handle) {
-    return Syscall(SYS_IRQ_DONE, dev_handle, 0, 0, 0);
+    return InvokeSvc(SYS_IRQ_DONE, dev_handle, 0, 0, 0);
 }
 
 #ifdef __cplusplus

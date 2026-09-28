@@ -23,7 +23,7 @@ extern "C" {
  * @return Err Returns 0 on success, or a negative error code on failure.
  */
 static inline Err ZuzuMsgSend(Handle port, MsgWord w1, MsgWord w2, MsgWord w3) {
-    return Syscall(SYS_MSG_SEND, port, w1, w2, w3);
+    return InvokeSvc(SYS_MSG_SEND, port, w1, w2, w3);
 }
 
 /**
@@ -63,7 +63,7 @@ static inline Message ZuzuMsgCall(Handle port, MsgWord w1, MsgWord w2, MsgWord w
  * @return Err Returns 0 on success, or a negative error code on failure.
  */
 static inline Err ZuzuMsgReply(Handle reply_handle, MsgWord w1, MsgWord w2, MsgWord w3) {
-    return Syscall(SYS_MSG_REPLY, reply_handle, w1, w2, w3);
+    return InvokeSvc(SYS_MSG_REPLY, reply_handle, w1, w2, w3);
 }
 
 /**
@@ -75,7 +75,7 @@ static inline Err ZuzuMsgReply(Handle reply_handle, MsgWord w1, MsgWord w2, MsgW
  * @return Err Returns 0 on success, or a negative error code on failure.
  */
 static inline Err ZuzuMsgLsend(Handle port, size_t buf_len) {
-    return Syscall(SYS_MSG_LSEND, port, buf_len, 0, 0);
+    return InvokeSvc(SYS_MSG_LSEND, port, buf_len, 0, 0);
 }
 
 /**
@@ -99,7 +99,7 @@ static inline Message ZuzuMsgLcall(Handle port, size_t buf_len) {
  * @return Err Returns 0 on success, or a negative error code on failure.
  */
 static inline Err ZuzuMsgLreply(Handle reply_handle, size_t buf_len) {
-    return Syscall(SYS_MSG_LREPLY, reply_handle, buf_len, 0, 0);
+    return InvokeSvc(SYS_MSG_LREPLY, reply_handle, buf_len, 0, 0);
 }
 
 /**
@@ -116,7 +116,7 @@ static inline Err ZuzuWaitany(const Handle *handles, size_t count,
 {
     result->size = sizeof(*result);   /* versioning handshake, owned by the wrapper */
 
-    return Syscall(SYS_WAITANY, (uint32_t)(VirtAddr)handles, count, timeout_ms,
+    return InvokeSvc(SYS_WAITANY, (uint32_t)(VirtAddr)handles, count, timeout_ms,
                     (uint32_t)(VirtAddr)result);
 }
 
