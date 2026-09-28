@@ -40,12 +40,6 @@ process_entry_trampoline:
 .endm
 
 .macro exception_exit
-    ldr r0, [sp, #60]         // return_pc
-    cmp r0, #0
-    bne 8f
-    mov r0, sp
-    bl exception_exit_pc0_trap
-8:
     add r0, sp, #52
     ldm r0, {r13, r14}^       // loads frame[52]->r13_usr, frame[56]->r14_usr, no mode change
     nop                       // A1085W: no banked-reg access in the next instruction
@@ -59,7 +53,7 @@ process_entry_trampoline:
     mov r1, sp
     mov r4, sp
     bic sp, sp, #7            // AAPCS: force 8-byte alignment; the interrupted SP may be 4 mod 8
-    bl exception_dispatch
+    bl ExceptionDispatch
     mov sp, r4
 .endm
 
