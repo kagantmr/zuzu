@@ -101,7 +101,11 @@ data_abort_handler:
 
 svc_handler:
     exception_entry 0
-    exception_dispatch_call 2
+    mov r0, sp
+    mov r4, sp
+    bic sp, sp, #7
+    bl SvcTrap
+    mov sp, r4
     exception_exit
 
 prefetch_abort_handler:

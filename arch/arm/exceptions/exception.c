@@ -295,32 +295,6 @@ void __hot exception_dispatch(exception_type exctype, ExceptionFrame *frame)
     }
     break;
 
-    case EXC_SVC:
-    {
-        if (unlikely((frame->return_cpsr & 0x1F) != 0x10))
-        {
-            break;
-        }
-
-        uint8_t svc_num;
-
-        if (unlikely(frame->return_cpsr & (1 << 5)))
-        {
-            // Thumb mode: SVC instruction is 2 bytes, at return_pc - 2
-            uint16_t *thumb_instr = (uint16_t *)(frame->return_pc - 2);
-            svc_num = (uint8_t)(*thumb_instr & 0xFF);
-        }
-        else
-        {
-            // ARM mode: SVC instruction is 4 bytes, at return_pc - 4
-            uint32_t *arm_instr = (uint32_t *)(frame->return_pc - 4);
-            svc_num = (uint8_t)(*arm_instr & 0xFF);
-        }
-
-        SvcDispatch(svc_num, frame);
-    }
-    break;
-
     case EXC_PREFETCH_ABORT:
     {
         /**
