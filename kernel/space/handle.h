@@ -6,7 +6,7 @@
 #include <list.h>
 #include <stdint.h>
 #include <string.h>
-#include <zuzu/types.h>
+#include <types.h>
 
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/vmm/vmm.h"

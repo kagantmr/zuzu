@@ -1,7 +1,7 @@
 #ifndef KERNEL_STACK_H
 #define KERNEL_STACK_H
 
-#include <zuzu/types.h>
+#include <types.h>
 #include BOARD_LAYOUT_H
 
 #define MAX_KSTACKS 256 /* system-wide kernel stack pool (each is a resident physical stack) */

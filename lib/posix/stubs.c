@@ -6,10 +6,10 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <zuzu/zuzu.h>
-#include <zuzu/lmsg.h>
-#include <zuzu/uspin.h>
+#include <util/lmsg.h>
+#include <sync/uspin.h>
 #include <zuzu/syspage.h>
-#include <zuzu/protocols/fsd.h>
+#include <fs/protocols/fsd.h>
 #include <zuzu/service.h>
 #include <string.h>
 

@@ -1,10 +1,10 @@
 #include "devmgr.h"
 #include "zuzu/protocols/nametable.h"
 #include <string.h>
-#include <zuzu/lmsg.h>
+#include <util/lmsg.h>
 #include <zuzu/cap.h>
-#include <zuzu/channel.h>
-#include <zuzu/types.h>
+#include <util/channel.h>
+#include <types.h>
 
 #define MAX_DRIVERS 64
 #define MAX_HANDLE_SCAN 256

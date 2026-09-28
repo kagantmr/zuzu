@@ -2,7 +2,7 @@
 #include "diskio.h"
 
 #include <zuzu/zuzu.h>
-#include "zuzu/protocols/mmcdrv.h"
+#include "dev/protocols/mmcdrv.h"
 #include <zuzu/service.h>
 #include <string.h>
 #include <stdint.h>

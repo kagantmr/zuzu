@@ -1,8 +1,8 @@
 #ifndef NETD_GLOBALS_H
 #define NETD_GLOBALS_H
 
-#include <zuzu/packetring.h>
-#include <zuzu/types.h>
+#include <net/packetring.h>
+#include <types.h>
 #include <zuzu/err.h>
 #include <zuzu/syspage.h>
 #include <stdbool.h>

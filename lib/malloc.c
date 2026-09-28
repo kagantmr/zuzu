@@ -4,7 +4,7 @@
 
 #include <string.h>
 #include <stdint.h>
-#include <zuzu/types.h>
+#include <types.h>
 #include <sbrk.h>
 
 typedef struct

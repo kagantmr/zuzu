@@ -4,7 +4,7 @@
 #include "kernel/space/space.h"
 #include <stddef.h>
 #include <stdint.h>
-#include <zuzu/types.h>
+#include <types.h>
 
 /**
  * @brief Create a Space with a single Task, load a ZXF image into it, and

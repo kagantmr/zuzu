@@ -1,6 +1,5 @@
 #include "tables.h"
 #include "backend/backend.h"
-#include <zuzu/memprot.h>
 #include <zuzu/umem.h>
 #include <string.h>
 

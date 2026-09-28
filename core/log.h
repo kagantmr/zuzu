@@ -1,6 +1,6 @@
 #ifndef CORE_LOG_H
 #define CORE_LOG_H
 
-#include <zuzu/log.h>
+#include <util/log.h>
 
 #endif // CORE_LOG_H

@@ -1,8 +1,8 @@
 #ifndef EVENT_H
 #define EVENT_H
 
-#include <zuzu/types.h>
-#include "syscall_nums.h"
+#include <types.h>
+#include <syscall_nums.h>
 #include <arch/syscall.h>
 
 #define KEVENT_MEMMGMT_BIT (1u << 0)

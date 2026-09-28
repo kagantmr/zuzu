@@ -8,7 +8,7 @@ extern "C"
 
 #include "stdint.h"
 #include "stddef.h"
-#include "zuzu/types.h"
+#include "types.h"
 
 #define SYSPAGE_MAX_DEVICES 120
 #define SYSPAGE_DEV_NAME_LEN 32

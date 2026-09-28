@@ -1,7 +1,7 @@
 #ifndef UDP_H
 #define UDP_H
 
-#include <zuzu/types.h>
+#include <types.h>
 #include "../common/globals.h"
 
 typedef struct __attribute__((packed)) {

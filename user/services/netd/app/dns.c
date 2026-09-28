@@ -5,7 +5,7 @@
 #include "../transport/port.h"
 #include <convert.h>
 #include <string.h>
-#include <zuzu/log.h>
+#include <util/log.h>
 #include <stddef.h>
 
 typedef struct

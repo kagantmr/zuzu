@@ -2,8 +2,8 @@
 #include "zuzu/err.h"
 #include "zuzu/msg.h"
 #include "zuzu/protocols/nametable.h"
-#include <zuzu/channel.h>
-#include <zuzu/lmsg.h>
+#include <util/channel.h>
+#include <util/lmsg.h>
 #include <zuzu/service.h>
 
 Err RegisterService(const char *name, Handle port)

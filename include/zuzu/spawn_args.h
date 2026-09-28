@@ -1,8 +1,7 @@
 #ifndef ZUZU_SPAWN_ARGS_H
 #define ZUZU_SPAWN_ARGS_H
 
-#include "memprot.h"
-#include "zuzu/types.h"
+#include "types.h"
 #include <stddef.h>
 #include <stdint.h>
 

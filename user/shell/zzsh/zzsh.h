@@ -4,9 +4,9 @@
 #define ZZSH_VER "v1.3"
 
 #include <zuzu/zuzu.h>
-#include "zuzu/protocols/uart.h"
+#include "dev/protocols/uart.h"
 #include "zuzu/protocols/nametable.h"
-#include "zuzu/lmsg.h"
+#include "util/lmsg.h"
 
 #define LINE_BUFFER_SIZE 256
 #define HISTORY_MAX      32

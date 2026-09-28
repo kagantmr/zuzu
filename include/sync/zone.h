@@ -11,7 +11,7 @@
 #define ZUZU_SYNC_ZONE
 
 #include "zuzu/err.h"
-#include <zuzu/types.h>
+#include <types.h>
 #include <stdatomic.h>
 
 /**

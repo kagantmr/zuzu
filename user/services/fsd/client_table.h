@@ -1,7 +1,7 @@
 #ifndef FSD_CLIENT_TABLE_H
 #define FSD_CLIENT_TABLE_H
 
-#include <zuzu/types.h>
+#include <types.h>
 #include "backend/backend.h"
 
 #define FSD_MAX_CLIENTS 32

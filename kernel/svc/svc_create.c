@@ -4,7 +4,7 @@
 #include "svc.h"
 #include <arch/regs.h>
 #include <zuzu/err.h>
-#include <zuzu/types.h>
+#include <types.h>
 
 static void FreeScatteredPages(PhysAddr *addrs, size_t count)
 {

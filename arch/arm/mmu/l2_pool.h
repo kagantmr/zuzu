@@ -8,7 +8,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <zuzu/types.h>
+#include <types.h>
 
 // An entry in the L2 pool linked list, representing one 4KB page that can hold four 1KB L2 tables.
 typedef struct L2PtPoolEntry

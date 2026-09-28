@@ -13,7 +13,7 @@
 
 #define LOG_FMT(fmt) "(task) " fmt
 #include "core/ensure.h"
-#include <zuzu/log.h>
+#include <util/log.h>
 
 static Tid next_tid = 1;
 static TaskObject *task_table[MAX_THREADS];

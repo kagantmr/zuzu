@@ -1,4 +1,4 @@
-// zuzu/bench.h - shared running min/avg/max accumulator for userspace
+// util/bench.h - shared running min/avg/max accumulator for userspace
 // CONFIG_ZUZU_BENCH instrumentation (see kernel/bench.h for the kernel-side
 // counterpart). Callers own printing: user/test_apps/speedtest uses printf,
 // user/drivers/pl011drv can't (it *is* the console), so there's no
@@ -10,7 +10,7 @@
 #ifdef CONFIG_ZUZU_BENCH
 
 #include <arch/cycles.h>
-#include <zuzu/types.h>
+#include <types.h>
 
 #define ZUZU_BENCH_WARMUP_ITERS 500u
 #define ZUZU_BENCH_ITERS        100000u

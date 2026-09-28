@@ -23,7 +23,7 @@
 #define ZUZUOS_FSD_PROTOCOL_H
 
 #include <zuzu/err.h>
-#include <zuzu/types.h>
+#include <types.h>
 
 typedef struct
 {

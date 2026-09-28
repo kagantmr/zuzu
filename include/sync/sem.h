@@ -4,7 +4,7 @@
 #define ZUZU_SYNC_SEM
 
 #include "zuzu/err.h"
-#include <zuzu/types.h>
+#include <types.h>
 #include <stdatomic.h>
 
 typedef struct sem {

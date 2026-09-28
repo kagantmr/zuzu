@@ -1,5 +1,5 @@
 #include <arch/syscall.h>
-#include <zuzu/syscall_nums.h>
+#include <syscall_nums.h>
 
 static const char msg[] = "rootsvc: hello\n";
 

@@ -1,19 +1,19 @@
 #include <stdio.h>
-#include <zuzu/protocols/devm.h>
-#include <zuzu/protocols/nic.h>
+#include <dev/protocols/devm.h>
+#include <net/protocols/nic.h>
 #include <zuzu/msg.h>
 #include <zuzu/cap.h>
 #include <zuzu/irq.h>
 #include <zuzu/ntfn.h>
 #include <zuzu/task.h>
 #include <zuzu/umem.h>
-#include <zuzu/types.h>
+#include <types.h>
 #include <zuzu/syspage.h>
-#include <zuzu/devices.h>
+#include <util/devices.h>
 #include <zuzu/service.h>
-#include <zuzu/log.h>
+#include <util/log.h>
 #include <stdlib.h>
-#include <zuzu/packetring.h>
+#include <net/packetring.h>
 #include "lan9118.h"
 
 #define LOG_TAG "lan9118drv"

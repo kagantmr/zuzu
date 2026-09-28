@@ -1,6 +1,5 @@
 #include <sbrk.h>
 #include <zuzu/umem.h>
-#include <zuzu/memprot.h>
 
 #define HEAP_RESERVE (32 * 1024 * 1024)   /* VA reservation; demand-paged, costs no RAM until touched */
 

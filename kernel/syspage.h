@@ -1,7 +1,7 @@
 #ifndef KERNEL_SYSPAGE_H
 #define KERNEL_SYSPAGE_H
 
-#include <zuzu/types.h>
+#include <types.h>
 #include <stddef.h>
 #include <stdint.h>
 

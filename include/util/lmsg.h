@@ -9,7 +9,7 @@ extern "C" {
 #include <string.h>
 #include "tls.h"
 #include <stdbool.h>
-#include <zuzu/types.h>
+#include <types.h>
 #include <zuzu/err.h>
 
 /**

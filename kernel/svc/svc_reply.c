@@ -3,7 +3,7 @@
 #include "kernel/space/space.h"
 #include "svc.h"
 #include <arch/regs.h>
-#include <zuzu/tls.h>
+#include <util/tls.h>
 
 void SvcReply(CpuState *frame)
 {

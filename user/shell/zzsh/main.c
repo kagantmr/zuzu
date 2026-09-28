@@ -1,4 +1,4 @@
-#include "zuzu/types.h"
+#include "types.h"
 #include "zzsh.h"
 #include <ansi.h>
 #include <string.h>
@@ -7,10 +7,9 @@
 #include <zuzu/service.h>
 #include <malloc.h>
 #include <zuzu/syspage.h>
-#include <zuzu/fsd_client.h>
-#include <zuzu/protocols/nic.h>
-#include <zuzu/protocols/exec.h>
-#include <zuzu/channel.h>
+#include <fs/fsd_client.h>
+#include <net/protocols/nic.h>
+#include <util/channel.h>
 #include <zuzu/user_layout.h>
 
 static Handle sysd_port;

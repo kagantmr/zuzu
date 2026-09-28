@@ -1,8 +1,8 @@
 #ifndef NETD_TXFRAME_H
 #define NETD_TXFRAME_H
 
-#include <zuzu/types.h>
-#include <zuzu/packetring.h>
+#include <types.h>
+#include <net/packetring.h>
 #include "globals.h"
 
 typedef struct {

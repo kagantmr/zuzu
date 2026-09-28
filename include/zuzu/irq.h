@@ -1,8 +1,8 @@
 #ifndef ZUZU_IRQ_H
 #define ZUZU_IRQ_H
 
-#include "zuzu/syscall_nums.h"
-#include "zuzu/types.h"
+#include "syscall_nums.h"
+#include "types.h"
 #include <arch/syscall.h>
 #include <stdint.h>
 

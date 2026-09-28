@@ -13,7 +13,7 @@
 #define HIGH_WATER_PCT 30 // clear when free > 30%
 
 #define LOG_FMT(fmt) "(pmm) " fmt
-#include "zuzu/log.h"
+#include "util/log.h"
 
 typedef struct {
     ListNode node;

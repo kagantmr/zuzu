@@ -17,7 +17,7 @@
 #include "zuzu/service.h"
 
 #include <zuzu/zuzu.h>
-#include <zuzu/log.h>
+#include <util/log.h>
 #include <zuzu/protocols/nametable.h>
 #include <string.h>
 

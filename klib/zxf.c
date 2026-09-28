@@ -1,7 +1,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
-#include <zuzu/zxf.h>
+#include <util/zxf.h>
 
 
 static uint32_t ZxfCrc32Partial(const void *data, size_t len, uint32_t crc) {

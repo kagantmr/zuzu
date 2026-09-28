@@ -3,7 +3,7 @@
 #include "l2_pool.h"
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/mm/alloc.h"
-#include "zuzu/types.h"
+#include "types.h"
 #include <arch/mmu.h>
 #include <string.h>
 #include <spinlock.h>

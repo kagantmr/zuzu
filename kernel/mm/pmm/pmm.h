@@ -5,7 +5,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include <zuzu/types.h>
+#include <types.h>
 #include <zuzu/err.h>
 
 #define PAGE_SHIFT 12

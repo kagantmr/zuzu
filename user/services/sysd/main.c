@@ -6,20 +6,18 @@
 
 #include "exec.h"
 #include "sysd.h"
-#include "zuzu/protocols/exec.h"
 #include "zuzu/service.h"
-#include "zuzu/types.h"
+#include "types.h"
 #include <cpio.h>
 #include <malloc.h>
 #include <stdlib.h>
-#include <zuzu/boot.h>
-#include <zuzu/channel.h>
+#include <util/channel.h>
 #include <zuzu/err.h>
-#include <zuzu/fsd_client.h>
-#include <zuzu/lmsg.h>
+#include <fs/fsd_client.h>
+#include <util/lmsg.h>
 #include <zuzu/syspage.h>
-#include <zuzu/version.h>
-#include <zuzu/fnv1a.h>
+#include <util/version.h>
+#include <util/fnv1a.h>
 
 /* sysd's own "sys" service port (SYSD_EXEC only, see nt_handle_msg below) —
  * distinct from nameserver_port, which is nameserver's serving port that

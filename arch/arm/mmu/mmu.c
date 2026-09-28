@@ -5,7 +5,7 @@
 
 #include "kernel/mm/pmm/pmm.h"
 #include "l2_pool.h"
-#include "zuzu/types.h"
+#include "types.h"
 #include <arch/asid.h>
 #include <arch/barrier.h>
 #include <arch/mmu.h>
@@ -15,7 +15,7 @@
 #include <string.h>
 
 #define LOG_FMT(fmt) "(mmu) " fmt
-#include <zuzu/log.h>
+#include <util/log.h>
 
 extern uint8_t dirty_bitmap[];
 

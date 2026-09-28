@@ -1,5 +1,4 @@
 #include "globals.h"
-#include "zuzu/memprot.h"
 #include "zuzu/umem.h"
 
 #include <arch/cycles.h>
@@ -8,15 +7,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <zuzu/bench.h>
+#include <util/bench.h>
 #include <zuzu/cap.h>
-#include <zuzu/channel.h>
-#include <zuzu/lmsg.h>
+#include <util/channel.h>
+#include <util/lmsg.h>
 #include <zuzu/msg.h>
-#include <zuzu/protocols/exec.h>
 #include <zuzu/service.h>
 #include <zuzu/task.h>
-#include <zuzu/types.h>
+#include <types.h>
 
 /* First payload word (w1) the client sends to ask the echo thread to exit.
  * zuzu_msg_recv() of a call hands the receiver: w0 = reply handle,

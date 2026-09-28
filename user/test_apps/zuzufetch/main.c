@@ -3,7 +3,7 @@
 #include <zuzu/zuzu.h>
 #include <ansi.h>
 #include <zuzu/syspage.h>
-#include <zuzu/version.h>
+#include <util/version.h>
 
 #define LOGO_WIDTH    50
 #define INFO_MAX      20

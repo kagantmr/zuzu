@@ -25,14 +25,12 @@
  *    only), so the device-region paths are untestable from here.
  */
 #include <zuzu/zuzu.h>
-#include <zuzu/lmsg.h>
-#include <zuzu/channel.h>
-#include <zuzu/memprot.h>
-#include <zuzu/tls.h>
+#include <util/lmsg.h>
+#include <util/channel.h>
+#include <util/tls.h>
 #include <zuzu/syspage.h>
-#include <zuzu/protocols/exec.h>
 #include <zuzu/service.h>
-#include <zuzu/sync/primitives.h>
+#include <sync/primitives.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

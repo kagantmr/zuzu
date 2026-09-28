@@ -5,7 +5,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
-#include <zuzu/log.h>
+#include <util/log.h>
 
 #define LOG_TAG "netd"
 

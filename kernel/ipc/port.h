@@ -5,7 +5,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <vector.h>
-#include <zuzu/types.h>
+#include <types.h>
 #include "event.h"
 
 typedef struct TaskObjectStruct TaskObject;

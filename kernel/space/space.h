@@ -10,7 +10,7 @@
 #include "kernel/mm/vmm/vmm.h"
 #include "kernel/task/task.h"
 #include <bitmap.h>
-#include <zuzu/tls.h>
+#include <util/tls.h>
 
 #define MAX_SPACES 512
 

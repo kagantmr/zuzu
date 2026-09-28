@@ -11,12 +11,11 @@
 #include "kernel/loader/boot_programs.h"
 #include "kernel/loader/initrd.h"
 #include "kernel/mm/alloc.h"
-#include "zuzu/types.h"
+#include "types.h"
 #include <snprintf.h>
 #include <string.h>
-#include <zuzu/boot.h>
 #include <zuzu/user_layout.h>
-#include <zuzu/zxf.h>
+#include <util/zxf.h>
 
 #define LOG_FMT(fmt) "(loader) " fmt
 #include "core/log.h"

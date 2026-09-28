@@ -6,7 +6,7 @@
 #include "svc.h"
 #include <arch/regs.h>
 #include <zuzu/err.h>
-#include <zuzu/types.h>
+#include <types.h>
 
 static HandleTableEntry *BindLookupTarget(CpuState *frame, Handle h, HandleType want_type, uint32_t bit)
 {

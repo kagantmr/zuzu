@@ -1,7 +1,7 @@
 #ifndef _ZUZU_MEM_OBJECT_H
 #define _ZUZU_MEM_OBJECT_H
 
-#include <zuzu/types.h>
+#include <types.h>
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/mm/vmm/vmm.h"
 

@@ -5,7 +5,7 @@
 #include <arch/irq.h>
 #include <arch/timer.h>
 #include <stdint.h>
-#include <zuzu/types.h>
+#include <types.h>
 
 /**
  * @brief Read the counter frequency from the CNTFRQ register.

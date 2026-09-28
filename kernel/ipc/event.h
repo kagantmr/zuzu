@@ -3,7 +3,7 @@
 
 #include <list.h>
 #include <stdbool.h>
-#include <zuzu/types.h>
+#include <types.h>
 #include <arch/regs.h>
 
 typedef struct SpaceObjectStruct SpaceObject;

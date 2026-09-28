@@ -2,9 +2,9 @@
 #define DEVMGR_PROTOCOL_H
 
 #include <stdint.h>
-#include <zuzu/lmsg.h>
+#include <util/lmsg.h>
 #include <zuzu/msg.h>
-#include <zuzu/types.h>
+#include <types.h>
 #include <string.h>
 
 #ifdef __cplusplus

@@ -3,7 +3,7 @@
 #include "kernel/task/task.h"
 
 #define LOG_FMT(fmt) "(SvcQuit) " fmt
-#include <zuzu/log.h>
+#include <util/log.h>
 
 void SvcQuit(CpuState *frame)
 {

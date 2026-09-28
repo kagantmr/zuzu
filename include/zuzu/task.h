@@ -1,8 +1,8 @@
 #ifndef ZUZU_TASK_H
 #define ZUZU_TASK_H
 
-#include "zuzu/syscall_nums.h"
-#include <zuzu/types.h>
+#include "syscall_nums.h"
+#include <types.h>
 #include <zuzu/err.h>
 #include <arch/syscall.h>
 #include <zuzu/spawn_args.h>

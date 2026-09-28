@@ -3,7 +3,7 @@
 #include <arch/timer.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <zuzu/types.h>
+#include <types.h>
 
 static volatile Tick tick_count = 0;
 static TickCb tick_callback = NULL;

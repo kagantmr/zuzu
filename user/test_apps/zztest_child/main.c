@@ -24,7 +24,6 @@
  * Exit codes 100+ are child-side failures; zztest reports them.
  */
 #include <zuzu/zuzu.h>
-#include <zuzu/memprot.h>
 #include <zuzu/protocols/nametable.h>
 #include <stdlib.h>
 #include <string.h>

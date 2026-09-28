@@ -10,7 +10,7 @@
 
 #include "kernel/mm/vmm/vmm.h"
 #include "kernel/time/tick.h"
-#include "zuzu/types.h"
+#include "types.h"
 #include <arch/cpu.h>
 #include <arch/timer.h>
 #include <assert.h>
@@ -45,7 +45,7 @@ _Static_assert(SCHED_PRIORITY_LEVELS <= 32, "ready_mask is a uint32_t");
 static uint32_t ready_mask = 0;
 
 #define LOG_FMT(fmt) "(sched) " fmt
-#include <zuzu/log.h>
+#include <util/log.h>
 
 static void IdleThread(void) __attribute__((noreturn));
 void SchedArmTimer(void);

@@ -1,13 +1,13 @@
 #ifndef ZUZU_SERVICE_H
 #define ZUZU_SERVICE_H
 
-#include "zuzu/types.h"
+#include "types.h"
 #ifdef __cplusplus
 extern "C"
 {
 #endif
 
-#include <zuzu/lmsg.h>
+#include <util/lmsg.h>
 #include <zuzu/protocols/nametable.h>
 
     /**

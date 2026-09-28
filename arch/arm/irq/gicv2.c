@@ -3,7 +3,7 @@
 #include "arch/arm/include/gicv2.h"
 #include <arch/barrier.h>
 #include <arch/irq.h>
-#include <zuzu/types.h>
+#include <types.h>
 #include <stdbool.h>
 
 volatile uint32_t *gicd_base, *gicc_base;

@@ -3,8 +3,7 @@
 #include <string.h>
 #include <malloc.h>
 #include <elf.h>  // now a header-only or shared header
-#include <zuzu/zxf.h>
-#include <zuzu/memprot.h>
+#include <util/zxf.h>
 #include <zuzu/user_layout.h>
 
 /* Shared by both the ELF and ZXF loaders below: injects one PT_LOAD-like

@@ -1,5 +1,4 @@
-#include "zuzu/memprot.h"
-#include "zuzu/types.h"
+#include "types.h"
 #include <stdio.h>
 #include <string.h>
 #include <zuzu/syspage.h>

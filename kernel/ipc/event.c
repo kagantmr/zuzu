@@ -7,7 +7,7 @@
 #include "kernel/space/space.h"
 
 #include <assert.h>
-#include <zuzu/types.h>
+#include <types.h>
 #include <zuzu/err.h>
 
 static KHeapSlabCache event_cache;

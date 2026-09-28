@@ -1,7 +1,7 @@
 #ifndef NETD_TIMER_H
 #define NETD_TIMER_H
 
-#include <zuzu/types.h>
+#include <types.h>
 #include <stdbool.h>
 
 #define TIMER_MAX 64

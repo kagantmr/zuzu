@@ -4,9 +4,9 @@
 #define ZUZU_SYNC_CV
 
 #include "zuzu/err.h"
-#include <zuzu/types.h>
-#include <zuzu/sync/zone.h>
-#include <zuzu/sync/sem.h>
+#include <types.h>
+#include <sync/zone.h>
+#include <sync/sem.h>
 #include <stdatomic.h>
 #include <stdint.h>
 

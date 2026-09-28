@@ -1,4 +1,4 @@
-#include <zuzu/packetring.h>
+#include <net/packetring.h>
 #include <zuzu/err.h>
 
 int packet_ring_push(nic_ring_t *r, void *src, uint16_t len) {

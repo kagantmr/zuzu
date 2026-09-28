@@ -1,4 +1,4 @@
-#include <ring.h>
+#include <util/ring.h>
 #include <string.h>
 
 void ring_init(ring_t *r, uint8_t *buf, uint32_t size) {

@@ -3,7 +3,7 @@
 #include <convert.h>
 #include "ip.h"
 #include <stdio.h>
-#include <zuzu/log.h>
+#include <util/log.h>
 
 #define LOG_TAG "netd"
 

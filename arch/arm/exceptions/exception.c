@@ -16,7 +16,7 @@
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/svc/svc.h"
 #include "kernel/bench.h"
-#include "zuzu/log.h"
+#include "util/log.h"
 #include <string.h>
 #include <stdint.h>
 #include <snprintf.h>

@@ -17,7 +17,7 @@ extern ZuzuRamLayout kernel_layout;
 extern uint32_t early_l1[];
 
 #define LOG_FMT(fmt) "(vmm) " fmt
-#include <zuzu/log.h>
+#include <util/log.h>
 
 void VmmBootstrap(void) {
     if (!g_kernel_as) {

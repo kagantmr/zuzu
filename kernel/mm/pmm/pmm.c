@@ -15,7 +15,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#include <zuzu/types.h>
+#include <types.h>
 
 #ifdef CONFIG_PMM_TRACE
 #include <core/ksym.h>
@@ -27,7 +27,7 @@ extern uint32_t current_pid_or_zero(void);
 #endif
 
 #define LOG_FMT(fmt) "(pmm) " fmt
-#include "zuzu/log.h"
+#include "util/log.h"
 
 PmmState pmm_state;
 extern ZuzuRamLayout kernel_layout;

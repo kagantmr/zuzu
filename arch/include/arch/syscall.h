@@ -1,8 +1,8 @@
 #ifndef ZUZU_SYSCALL_H
 #define ZUZU_SYSCALL_H
 
-#include "zuzu/syscall_nums.h"
-#include "zuzu/types.h"
+#include "syscall_nums.h"
+#include "types.h"
 #include <stdint.h>
 
 #ifdef __cplusplus

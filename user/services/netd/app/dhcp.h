@@ -1,7 +1,7 @@
 #ifndef DHCP_H
 #define DHCP_H
 
-#include <zuzu/types.h>
+#include <types.h>
 #include "../common/globals.h"
 
 /* BOOTP/DHCP fixed header (RFC 2131). Options follow the magic cookie. */

@@ -12,7 +12,7 @@
 #ifndef ZUZU_UDBG_H
 #define ZUZU_UDBG_H
 
-#include "zuzu/syscall_nums.h"
+#include "syscall_nums.h"
 #include <arch/syscall.h>
 #include <stdint.h>
 

@@ -6,7 +6,7 @@
 #ifdef __ZUZU__
 #include "core/kprintf.h"
 #else
-#include <zuzu/lmsg.h>
+#include <util/lmsg.h>
 #include <zuzu/protocols/nametable.h>
 #include <zuzu/service.h>
 #include <zuzu/zuzu.h>

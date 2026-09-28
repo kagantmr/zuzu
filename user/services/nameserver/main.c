@@ -1,12 +1,12 @@
 #include "zuzu/err.h"
-#include "zuzu/lmsg.h"
+#include "util/lmsg.h"
 #include "zuzu/protocols/nametable.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 #include <zuzu/cap.h>
 #include <zuzu/msg.h>
-#include <zuzu/types.h>
+#include <types.h>
 
 typedef struct
 {

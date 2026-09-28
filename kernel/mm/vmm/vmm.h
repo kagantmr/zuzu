@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <vector.h>
-#include <zuzu/types.h>
+#include <types.h>
 #include BOARD_LAYOUT_H
 #include <arch/asid.h>
 

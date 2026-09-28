@@ -22,7 +22,7 @@ bool g_mmu_enabled = false;
 static KHeapSlabCache addrspace_cache;
 
 #define LOG_FMT(fmt) "(vmm) " fmt
-#include <zuzu/log.h>
+#include <util/log.h>
 
 static int RegionContainsVa(const void *key, const void *elem)
 {

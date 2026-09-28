@@ -4,7 +4,7 @@
 #include "kernel/space/space.h"
 #include "core/ensure.h"
 #include "core/panic.h"
-#include "zuzu/syscall_nums.h"
+#include "syscall_nums.h"
 #include <compiler.h>
 
 extern ZuzuRamLayout kernel_layout;

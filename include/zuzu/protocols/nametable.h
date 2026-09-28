@@ -7,7 +7,7 @@ extern "C"
 #endif
 
 #include <zuzu/err.h>
-#include <zuzu/types.h>
+#include <types.h>
 
 #define NT_PORT 0
 #define NT_PID 3

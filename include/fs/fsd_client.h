@@ -11,8 +11,8 @@
  */
 
 #include <stdbool.h>
-#include <zuzu/protocols/fsd.h>
-#include <zuzu/types.h>
+#include <fs/protocols/fsd.h>
+#include <types.h>
 
 #ifdef __cplusplus
 extern "C"

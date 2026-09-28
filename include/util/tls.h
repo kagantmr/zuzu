@@ -8,7 +8,7 @@ extern "C" {
 #include <arch/tls.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <zuzu/types.h>
+#include <types.h>
 
 #ifndef PAGE_SIZE
 #define PAGE_SIZE 4096

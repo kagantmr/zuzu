@@ -1,8 +1,8 @@
-#include <zuzu/types.h>
-#include <zuzu/sync/zone.h>
+#include <types.h>
+#include <sync/zone.h>
 #include <zuzu/ntfn.h>
 #include <stdbool.h>
-#include <zuzu/tls.h>
+#include <util/tls.h>
 #include <zuzu/cap.h>
 #include <stdatomic.h>
 

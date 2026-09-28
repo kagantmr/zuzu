@@ -7,7 +7,7 @@
 #define ZUZU_ARCH_TIMER_H
 
 #include <stdint.h>
-#include <zuzu/types.h>
+#include <types.h>
 
 void ArchTimerInit(void);
 

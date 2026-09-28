@@ -5,7 +5,7 @@
 #include "../app/dhcp.h"
 #include "../common/netrand.h"
 #include "../net/ip.h"
-#include <zuzu/log.h>
+#include <util/log.h>
 #include <string.h>
 
 int tcp_connect(ipv4_addr_t remote_ip, port_t remote_port) {

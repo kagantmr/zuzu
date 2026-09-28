@@ -1,20 +1,19 @@
 #include "pl011drv.h"
-#include "zuzu/protocols/uart.h"
-#include "zuzu/protocols/devm.h"
+#include "dev/protocols/uart.h"
+#include "dev/protocols/devm.h"
 #include "zuzu/protocols/nametable.h"
-#include <zuzu/protocols/exec.h>
-#include "zuzu/lmsg.h"
+#include "util/lmsg.h"
 #include "zuzu/service.h"
-#include <ring.h>
+#include <util/ring.h>
 #include <zuzu/cap.h>
-#include <zuzu/channel.h>
+#include <util/channel.h>
 #include <stdint.h>
 #include <string.h>
 
 #ifdef CONFIG_ZUZU_BENCH
 #include <arch/cycles.h>
 #include <snprintf.h>
-#include <zuzu/bench.h>
+#include <util/bench.h>
 #endif
 
 #define PL011DRV_DEV_CLASS DEV_CLASS_SERIAL

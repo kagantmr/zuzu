@@ -1,12 +1,12 @@
 #include <zuzu/zuzu.h>
 #include <zuzu/service.h>
-#include <zuzu/log.h>
+#include <util/log.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include "pl181drv.h"
 #include "zuzu/cap.h"
-#include "zuzu/protocols/devm.h"
-#include "zuzu/protocols/mmcdrv.h"
+#include "dev/protocols/devm.h"
+#include "dev/protocols/mmcdrv.h"
 
 #define LOG_TAG "pl181drv"
 

@@ -3,7 +3,6 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <zuzu/protocols/exec.h>
 
 /* Accepts either an ELF or a ZXF image, dispatching on magic. */
 int exec_inject(uint32_t taskHandle, const void *data, size_t size,

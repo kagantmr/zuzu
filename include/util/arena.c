@@ -1,4 +1,4 @@
-#include <zuzu/arena.h>
+#include <util/arena.h>
 #include <string.h>
 
 void ArenaInit(Arena *a, void *buf, size_t size) {

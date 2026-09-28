@@ -1,6 +1,6 @@
-#include <zuzu/sync/sem.h>
-#include <zuzu/sync/cv.h>
-#include <zuzu/sync/zone.h>
+#include <sync/sem.h>
+#include <sync/cv.h>
+#include <sync/zone.h>
 #include <stdatomic.h>
 
 Err CondVarInit(CondVariable *cv) {

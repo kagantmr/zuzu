@@ -17,7 +17,7 @@
 
 #include <zuzu/err.h>
 #include <zuzu/user_layout.h>
-#include <zuzu/zxf.h>
+#include <util/zxf.h>
 
 #define LOG_FMT(fmt) "(kload) " fmt
 #include "core/log.h"

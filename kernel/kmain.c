@@ -16,9 +16,9 @@
 #include "kernel/loader/boot_programs.h"
 #include "kernel/loader/initrd.h"
 #include "kernel/syspage.h"
-#include "zuzu/types.h"
+#include "types.h"
 #include <stdint.h>
-#include <zuzu/zxf.h>
+#include <util/zxf.h>
 
 #define STR(x) #x
 #define XSTR(x) STR(x)

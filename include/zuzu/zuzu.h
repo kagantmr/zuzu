@@ -19,7 +19,7 @@ extern "C" {
  * - event.h:  kernel event syscalls
  */
 
-#include "zuzu/types.h"
+#include "types.h"
 #include "zuzu/task.h"
 #include "zuzu/msg.h"
 #include "zuzu/cap.h"

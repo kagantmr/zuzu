@@ -7,7 +7,7 @@
 #include <arch/fpu.h>
 #include <arch/regs.h>
 #include <list.h>
-#include <zuzu/types.h>
+#include <types.h>
 
 typedef struct SpaceObjectStruct SpaceObject;
 

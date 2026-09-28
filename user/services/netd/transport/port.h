@@ -1,7 +1,7 @@
 #ifndef PORT_H
 #define PORT_H
 
-#include <zuzu/types.h>
+#include <types.h>
 #include <stdbool.h>
 #include "../common/globals.h"   /* port_t */
 

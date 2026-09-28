@@ -6,7 +6,7 @@
 #define GICV2_H
 
 #include <stdint.h>
-#include <zuzu/types.h>
+#include <types.h>
 
 #define GIC_SPI_BASE  32   /* SPIs start at 32 */
 #define GIC_PPI_BASE  16   /* PPIs start at 16 */

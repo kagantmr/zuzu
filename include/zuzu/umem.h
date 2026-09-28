@@ -1,10 +1,9 @@
 #ifndef ZUZU_MEM_H
 #define ZUZU_MEM_H
 
-#include "zuzu/syscall_nums.h"
-#include "zuzu/types.h"
+#include "syscall_nums.h"
+#include "types.h"
 #include "zuzu/err.h"
-#include "zuzu/memprot.h"
 #include <arch/syscall.h>
 #include <zuzu/spawn_args.h>
 #include <stddef.h>

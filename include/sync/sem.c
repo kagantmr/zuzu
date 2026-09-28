@@ -1,8 +1,8 @@
-#include <zuzu/sync/sem.h>
+#include <sync/sem.h>
 #include <zuzu/ntfn.h>
 #include <zuzu/cap.h>
 #include <stdbool.h>
-#include <zuzu/tls.h>
+#include <util/tls.h>
 #include <stdatomic.h>
 
 Err SemInit(Semaphore* s, int initial_count) {

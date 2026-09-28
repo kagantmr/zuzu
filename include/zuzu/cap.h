@@ -6,8 +6,8 @@
 #ifndef ZUZU_CAP_H
 #define ZUZU_CAP_H
 
-#include "zuzu/syscall_nums.h"
-#include "zuzu/types.h"
+#include "syscall_nums.h"
+#include "types.h"
 #include "zuzu/err.h"
 #include <arch/syscall.h>
 #include <stdint.h>

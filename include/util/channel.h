@@ -22,7 +22,7 @@ extern "C" {
 #endif
 
 #include <zuzu/msg.h>
-#include <zuzu/lmsg.h>
+#include <util/lmsg.h>
 #include <zuzu/err.h>
 #include <string.h>
 #include <stdint.h>

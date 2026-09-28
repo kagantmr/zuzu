@@ -6,7 +6,7 @@
 #include <arch/barrier.h>
 #include <assert.h>
 #include <bitmap.h>
-#include <zuzu/types.h>
+#include <types.h>
 
 /* Bit N set = kstack slot N in use. */
 static uint32_t bitmap[BITMAP_WORDS(MAX_KSTACKS)];

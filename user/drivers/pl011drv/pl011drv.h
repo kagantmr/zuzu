@@ -56,8 +56,8 @@ typedef struct {
 
 #define UART_RINGBUF_MAX 1024
 
-#include <ring.h>
-#include <zuzu/channel.h>
+#include <util/ring.h>
+#include <util/channel.h>
 
 int pl011drv_setup(void);
 

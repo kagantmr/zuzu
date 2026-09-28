@@ -5,7 +5,7 @@
 #include "../common/netrand.h"
 #include "../net/ip.h"
 #include <convert.h>
-#include <zuzu/log.h>
+#include <util/log.h>
 #include <string.h>
 
 /**

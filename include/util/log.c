@@ -1,6 +1,6 @@
 #include <stdarg.h>
 #include <stdio.h>
-#include <zuzu/log.h>
+#include <util/log.h>
 #include <zuzu/syspage.h>
 #include "ansi.h"
 

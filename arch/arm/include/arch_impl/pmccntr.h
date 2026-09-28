@@ -2,7 +2,7 @@
 #define ZUZU_ARM_IMPL_PMCCNTR_H
 
 #include <arch/barrier.h>
-#include <zuzu/types.h>
+#include <types.h>
 
 static inline uint32_t ArchReadCycles(void)
 {

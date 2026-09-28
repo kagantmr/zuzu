@@ -1,10 +1,10 @@
 #include "emmc2drv.h"
 #include "zuzu/cap.h"
-#include "zuzu/protocols/devm.h"
-#include "zuzu/protocols/mmcdrv.h"
+#include "dev/protocols/devm.h"
+#include "dev/protocols/mmcdrv.h"
 #include <stdbool.h>
 #include <stdint.h>
-#include <zuzu/log.h>
+#include <util/log.h>
 #include <zuzu/msg.h>
 #include <zuzu/service.h>
 #include <zuzu/zuzu.h>

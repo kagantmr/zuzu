@@ -2,9 +2,9 @@
 #define NETD_ETHERNET_H
 
 #include "../common/globals.h"
-#include <zuzu/types.h>
+#include <types.h>
 #include <convert.h>
-#include <zuzu/packetring.h>
+#include <net/packetring.h>
 #include "../common/txframe.h"
 
 #define ETH_TYPE_ARP 0x0806

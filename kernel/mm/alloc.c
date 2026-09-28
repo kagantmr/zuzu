@@ -10,7 +10,7 @@
 #include <compiler.h>
 
 #define LOG_FMT(fmt) "(mm) " fmt
-#include <zuzu/log.h>
+#include <util/log.h>
 
 extern ZuzuRamLayout kernel_layout;
 
