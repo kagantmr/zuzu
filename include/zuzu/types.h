@@ -77,6 +77,8 @@ typedef enum
     EVENT_MEMMGMT,     /* memory pressure */
     EVENT_IRQ,         /* interrupts */
     EVENT_PORT,        /* port events */
+    EVENT_TASK,        /* task events */
+    EVENT_SPACE,       /* space events */
     EVENT_TIMER        /* timers */
 } EventType;
 

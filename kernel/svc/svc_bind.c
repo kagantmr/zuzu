@@ -62,7 +62,7 @@ void SvcBind(CpuState *frame)
         PortObject *port_obj = port_entry->port;
 
         ENSURE_ERR(frame, (port_obj), ERR_BADHANDLE);
-        ENSURE_ERR(frame, (port_obj->alive), ERR_BADHANDLE);
+        ENSURE_ERR(frame, (port_obj->alive), ERR_DEAD);
         ENSURE_ERR(frame, (bit < 31U), ERR_BADARG);
 
         if (port_obj->bound_ev) {
@@ -75,6 +75,57 @@ void SvcBind(CpuState *frame)
         ev->bind_count++;
         
         PortMaybeSignalBind(port_obj);
+        
+    } break;
+    case EVENT_TASK:
+    {
+        Handle dev_handle = (Handle)(*ArchGetFromFrame(frame, 2));
+        uint32_t bit = (uint32_t)(*ArchGetFromFrame(frame, 3));
+        HandleTableEntry *task_entry = HandleTableLookup(&CURRENT_SPACE->handle_table, dev_handle);
+
+        ENSURE_ERR(frame, task_entry, ERR_BADHANDLE);
+        ENSURE_ERR(frame, (task_entry->type == HANDLE_TASK), ERR_BADTYPE);
+        ENSURE_ERR(frame, (task_entry->perms & PERM_WAIT), ERR_NOPERM);
+
+        TaskObject *task = task_entry->task;
+
+        ENSURE_ERR(frame, (task), ERR_BADHANDLE);
+        ENSURE_ERR(frame, (bit < 31U), ERR_BADARG);
+
+        if (task->bound_ev) {
+            task->bound_ev->bind_count--; 
+            EventDropReference(task->bound_ev);
+        }
+
+        task->bound_ev = ev; 
+        ev->ref_count++;
+        ev->bind_count++;
+        
+    } break;
+
+    case EVENT_SPACE:
+    {
+        Handle dev_handle = (Handle)(*ArchGetFromFrame(frame, 2));
+        uint32_t bit = (uint32_t)(*ArchGetFromFrame(frame, 3));
+        HandleTableEntry *task_entry = HandleTableLookup(&CURRENT_SPACE->handle_table, dev_handle);
+
+        ENSURE_ERR(frame, task_entry, ERR_BADHANDLE);
+        ENSURE_ERR(frame, (task_entry->type == HANDLE_TASK), ERR_BADTYPE);
+        ENSURE_ERR(frame, (task_entry->perms & PERM_WAIT), ERR_NOPERM);
+
+        SpaceObject *space = space_entry->space;
+
+        ENSURE_ERR(frame, (space), ERR_BADHANDLE);
+        ENSURE_ERR(frame, (bit < 31U), ERR_BADARG);
+
+        if (space->bound_ev) {
+            space->bound_ev->bind_count--; 
+            EventDropReference(space->bound_ev);
+        }
+
+        space->bound_ev = ev; 
+        ev->ref_count++;
+        ev->bind_count++;
         
     } break;
     default:

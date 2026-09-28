@@ -323,6 +323,7 @@ void TaskTerminate(TaskObject *task, Err exit_status)
     {
         owner->last_exit_status = exit_status;
         WakeWaitList(&owner->waiters, exit_status);
+        EventSignal(owner->bound_ev, owner->bind_bit, false);
     }
 
     WakeJoinTask(task, exit_status);
