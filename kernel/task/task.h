@@ -82,6 +82,8 @@ struct TaskObjectStruct
     VirtAddr task_info_va; /**< Virtual address of thread info. */
     uint8_t tcb_slot;      /**< Index into owner's TCB page, TCB_SLOT_NONE if unassigned. */
     FpuState fpu_state;    /**< Lazily saved/restored, see kernel/sched/sched.c fpu_owner. */
+    EventObject *bound_ev; 
+    uint32_t bind_bit;
     uint32_t ref_count;
     bool released;
 #ifdef CONFIG_ZUZU_BENCH

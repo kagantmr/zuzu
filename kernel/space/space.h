@@ -40,6 +40,8 @@ typedef struct SpaceObjectStruct
     uint32_t tcb_slot_bitmap[BITMAP_WORDS(256)]; /**< TCB slot bitmap. */
     bool torn_down; /**< SpaceDestroy has already run; only a zombie main_task keeps
                          this struct allocated. See SpaceFinalize. */
+    EventObject *bound_ev; 
+    uint32_t bind_bit;
     uint32_t ref_count;
 } SpaceObject;
 

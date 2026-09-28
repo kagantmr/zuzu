@@ -57,10 +57,12 @@ void SvcBind(CpuState *frame)
 
         ENSURE_ERR(frame, port_entry, ERR_BADHANDLE);
         ENSURE_ERR(frame, (port_entry->type == HANDLE_PORT), ERR_BADTYPE);
+        ENSURE_ERR(frame, (port_entry->perms & PERM_WAIT), ERR_NOPERM);
 
         PortObject *port_obj = port_entry->port;
 
         ENSURE_ERR(frame, (port_obj), ERR_BADHANDLE);
+        ENSURE_ERR(frame, (port_obj->alive), ERR_BADHANDLE);
         ENSURE_ERR(frame, (bit < 31U), ERR_BADARG);
 
         if (port_obj->bound_ev) {
