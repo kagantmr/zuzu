@@ -6,7 +6,7 @@
 
 static LogLevel g_min_level = CONFIG_LOG_LEVEL;
 
-static const char *level_to_label(LogLevel level) {
+static const char *LevelToLabel(LogLevel level) {
     switch (level) {
         case LOG_LEVEL_TRACE: return "TRACE";
         case LOG_LEVEL_DEBUG: return "DEBUG";
@@ -18,7 +18,7 @@ static const char *level_to_label(LogLevel level) {
     }
 }
 
-static const char *level_to_style(LogLevel level) {
+static const char *LevelToStyle(LogLevel level) {
     switch (level) {
         case LOG_LEVEL_TRACE: return ANSI_BOLD ANSI_CYAN;
         case LOG_LEVEL_DEBUG: return ANSI_BOLD ANSI_GREEN;
@@ -30,20 +30,20 @@ static const char *level_to_style(LogLevel level) {
     }
 }
 
-void log_set_level(LogLevel min_level) {
+void LogSetLevel(LogLevel min_level) {
     g_min_level = min_level;
 }
 
-LogLevel log_get_level(void) {
+LogLevel LogGetLevel(void) {
     return g_min_level;
 }
 
-void log_write(LogLevel level, const char *tag, const char *fmt, ...) {
+void LogWrite(LogLevel level, const char *tag, const char *fmt, ...) {
     if (level < g_min_level) return;
     if (!fmt) return;
 
-    const char *lvl_label = level_to_label(level);
-    const char *lvl_style = level_to_style(level);
+    const char *lvl_label = LevelToLabel(level);
+    const char *lvl_style = LevelToStyle(level);
     const char *safe_tag = tag ? tag : "";
     Syspage *sp = (Syspage *)SYSPAGE;
     unsigned long long ticks = (unsigned long long)sp->uptime_ticks;
@@ -51,15 +51,15 @@ void log_write(LogLevel level, const char *tag, const char *fmt, ...) {
     char msg_buf[192];
     va_list ap;
     va_start(ap, fmt);
-    vsnprintf(msg_buf, sizeof(msg_buf), fmt, ap);
+    (void)vsnprintf(msg_buf, sizeof(msg_buf), fmt, ap);
     va_end(ap);
 
     char line_buf[256];
     if (safe_tag[0] != '\0') {
-        snprintf(line_buf, sizeof(line_buf), "%s[%6llu %-5s]" ANSI_RESET " (%s) %s",
+        (void)snprintf(line_buf, sizeof(line_buf), "%s[%6llu %-5s]" ANSI_RESET " (%s) %s",
                  lvl_style, ticks, lvl_label, safe_tag, msg_buf);
     } else {
-        snprintf(line_buf, sizeof(line_buf), "%s[%6llu %-5s]" ANSI_RESET " %s",
+        (void)snprintf(line_buf, sizeof(line_buf), "%s[%6llu %-5s]" ANSI_RESET " %s",
                  lvl_style, ticks, lvl_label, msg_buf);
     }
 

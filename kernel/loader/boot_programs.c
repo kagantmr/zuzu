@@ -91,7 +91,7 @@ static void CreateRootSpace(const char *path)
                                                .owner = VM_OWNER_SHARED,
                                                .flags = VM_FLAG_NONE});
 
-    size_t bootinfo_pages = (sizeof(BootInfo) + PAGE_SIZE - 1) / PAGE_SIZE;
+    size_t bootinfo_pages = (sizeof(KernelBootInfo) + PAGE_SIZE - 1) / PAGE_SIZE;
     for (size_t i = 0; i < bootinfo_pages; i++)
     {
         if (!VmmMapUserPage(process->as, BootInfoPhysAddr() + (i * PAGE_SIZE),

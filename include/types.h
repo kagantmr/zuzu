@@ -70,6 +70,7 @@ typedef struct
     uint32_t r0, r1;
 } KickstartArgs;
 
+
 /* Kernel event types users can subscribe to */
 typedef enum
 {

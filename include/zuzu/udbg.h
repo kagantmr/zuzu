@@ -36,7 +36,7 @@ static inline void UserspaceDebugLog(const char *fmt, ...)
     if (n < 0)
         return;
     uint32_t len = (n >= (int)sizeof(line)) ? (uint32_t)sizeof(line) - 1U : (uint32_t)n;
-    ArchInvokeSvc(SVC_LOG, (uint32_t)(uintptr_t)line, len, 0, 0);
+    ArchInvokeSvc(SVC_LOG, (uint32_t)(uintptr_t)line, (Register)len, 0, 0);
 }
 
 #else /* !DEBUG */

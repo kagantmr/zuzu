@@ -35,7 +35,7 @@ static inline Err MsgWrite(const void *src, size_t len) {
     if (len > MSG_BUF_SIZE)
         return ERR_OVERFLOW;
     memcpy(MessageBuf(), src, len);
-    return len;
+    return (Err)len;
 }
 
 /**
