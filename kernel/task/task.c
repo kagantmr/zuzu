@@ -281,7 +281,7 @@ void TaskAbortWait(TaskObject *t, Err err)
 
 void TaskMaybeSignalBind(TaskObject *task)
 {
-    if (task->bound_ev && task->bound_ev->alive && task->state == ZOMBIE)
+    if (task->bound_ev && task->bound_ev->alive && (task->state == ZOMBIE || task->state == FAULTED))
         EventSignal(task->bound_ev, (1U << task->bind_bit), false);
 }
 
