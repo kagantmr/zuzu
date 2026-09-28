@@ -92,7 +92,7 @@ const char *boot_info_cpu_compat(void)
     return g_boot_info.cpu_compat ? g_boot_info.cpu_compat : FdtCpuCompat();
 }
 
-void boot_info_foreach_dev(void (*cb)(const char *, uint64_t, uint64_t, uint32_t))
+void BootInfoEnumerateDevs(void (*cb)(const char *, uint64_t, uint64_t, uint32_t))
 {
     if (!cb)
         return;
@@ -136,7 +136,7 @@ const FdtDevice *boot_info_find_compatible(const char *const *compat)
 
 void BootInfoInit(void)
 {
-    g_bootinfo_pa = PmmAllocFrame(); // reserve one page for the boot info table
+    g_bootinfo_pa = PmmAllocFramesContig((sizeof(BootInfo) + PAGE_SIZE - 1) / PAGE_SIZE);
     BootInfo *bi = (BootInfo *)PA_TO_VA(g_bootinfo_pa);
     memset(bi, 0, sizeof(*bi));
     bi->magic = 0xB007DA7A;

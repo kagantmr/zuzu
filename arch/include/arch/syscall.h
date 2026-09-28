@@ -28,21 +28,6 @@ int32_t Syscall(uint32_t svc_num, uint32_t a0, uint32_t a1, uint32_t a2, uint32_
     return (int32_t)r0;
 }
 
-/* Like syscall() but returns all four output registers as Message. */
-static __attribute__((always_inline)) inline
-Message syscall_msg(uint32_t svc_num, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
-{
-    register uint32_t r0 __asm__("r0") = a0;
-    register uint32_t r1 __asm__("r1") = a1;
-    register uint32_t r2 __asm__("r2") = a2;
-    register uint32_t r3 __asm__("r3") = a3;
-    __asm__ volatile("svc %[num]"
-        : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3)
-        : [num] "i"(svc_num)
-        : "memory");
-    return (Message){.w0 = (MsgWordSigned)r0, .w1 = r1, .w2 = r2, .w3 = r3};
-}
-
 #ifdef __cplusplus
 }
 #endif

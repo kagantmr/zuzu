@@ -68,6 +68,7 @@ static void CreateRootSpace(const char *path)
         return;
     }
     s_rootsvc = process;
+    BootInfoEnumerateDevs(InjectDeviceObjects);
 
     uint32_t initrd_page_offset = g_initrd_pa & (PAGE_SIZE - 1);
     uint32_t initrd_aligned_pa = g_initrd_pa - initrd_page_offset;

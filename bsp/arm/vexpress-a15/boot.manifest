@@ -3,7 +3,7 @@
 # role: tty, none, file   flags: late
 # "file" is packed into the initrd but never spawned.
 
-bin/rootsvc.zxf
+bin/rootsvc
 
 # bin/pl011drv|tty|/dev/uart0
 # bin/pl181drv|none|/dev/mmc0

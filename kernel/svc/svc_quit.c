@@ -10,6 +10,7 @@ void SvcQuit(CpuState *frame)
     int32_t exit_status = (int32_t)(*ArchGetFromFrame(frame, 0));
 
     TaskTerminate(current_task, exit_status);
+    KDEBUG("Task %d exited with status %d", current_task->tid, exit_status);
 
     Schedule();
 }

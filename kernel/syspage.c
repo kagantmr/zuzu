@@ -69,7 +69,7 @@ void SyspageInit(void)
     g_sp->tick_hz = GetTickRate();
     g_sp->boot_time_s = rtc_epoch;
 
-    boot_info_foreach_dev(dev_cb);
+    BootInfoEnumerateDevs(dev_cb);
 
     SyspageUpdateMem();
 

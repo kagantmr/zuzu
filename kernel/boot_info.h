@@ -23,7 +23,7 @@ void boot_info_init_from_dtb(void);
 /* Accessors */
 const char *boot_info_model(void);
 const char *boot_info_cpu_compat(void);
-void boot_info_foreach_dev(void (*cb)(const char *, uint64_t, uint64_t, uint32_t));
+void BootInfoEnumerateDevs(void (*cb)(const char *, uint64_t, uint64_t, uint32_t));
 uint32_t boot_info_dev_count(void);
 
 /* Bootloader-supplied initrd from the DTB's /chosen node, if present. */
