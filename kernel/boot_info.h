@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "kernel/dev/fdt_wrappers.h"
+#include <zuzu/types.h>
 
 /* Simple cached boot info populated once during early boot. */
 typedef struct {
@@ -34,5 +35,11 @@ const FdtDevice *boot_info_dev_array(void);
 /* First device whose compatible string matches any entry in the
  * NULL-terminated list, or NULL. List order is preference order. */
 const FdtDevice *boot_info_find_compatible(const char *const *compat);
+
+/* rootsvc-only boot device table (see include/zuzu/bootinfo.h). Unlike
+ * Syspage this carries physical addresses; only map it into the root/init
+ * process. Call once at boot after PMM + DTB ready, right after SyspageInit(). */
+void BootInfoInit(void);
+PhysAddr BootInfoPhysAddr(void); /* returns the physical page address */
 
 #endif

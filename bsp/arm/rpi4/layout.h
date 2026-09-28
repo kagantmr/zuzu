@@ -16,6 +16,7 @@
 
 /* User address space */
 #define USER_SYSPAGE_VA      0x00001000UL
+#define USER_BOOTINFO_VA      0x00002000UL
 #define USER_ELF_BASE        0x00010000UL
 #define USER_MMAP_BASE       0x20000000UL
 #define USER_DEVICE_BASE     0x7F000000UL

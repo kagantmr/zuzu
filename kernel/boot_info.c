@@ -6,11 +6,13 @@
 #include <libfdt.h>
 #include <string.h>
 #include <stddef.h>
+#include <zuzu/bootinfo.h>
 
 #define LOG_FMT(fmt) "(boot_info) " fmt
 #include "core/log.h"
 
 static boot_info_t g_boot_info = {0};
+static PhysAddr g_bootinfo_pa;
 
 static void collect_dev_cb(const char *compatible, const char *path, uint64_t phys, uint64_t size, uint32_t irq)
 {
@@ -131,3 +133,27 @@ const FdtDevice *boot_info_find_compatible(const char *const *compat)
     }
     return NULL;
 }
+
+void BootInfoInit(void)
+{
+    g_bootinfo_pa = PmmAllocFrame(); // reserve one page for the boot info table
+    BootInfo *bi = (BootInfo *)PA_TO_VA(g_bootinfo_pa);
+    memset(bi, 0, sizeof(*bi));
+    bi->magic = 0xB007DA7A;
+
+    strncpy(bi->model, boot_info_model(), sizeof(bi->model) - 1);
+    strncpy(bi->cpu_compat, boot_info_cpu_compat(), sizeof(bi->cpu_compat) - 1);
+    bi->initrd_pa = g_boot_info.initrd_pa;
+    bi->initrd_size = g_boot_info.initrd_size;
+
+    /* FdtDevice mirrors BootInfoDevEntry field-for-field, so copy it
+     * straight through with no filtering/renaming (unlike Syspage's dev_cb,
+     * which is cosmetic-only and must not carry physical addresses). */
+    uint32_t count = g_boot_info.count;
+    if (count > BOOTINFO_MAX_DEVICES)
+        count = BOOTINFO_MAX_DEVICES;
+    memcpy(bi->devs, g_boot_info.devs, count * sizeof(BootInfoDevEntry));
+    bi->dev_count = count;
+}
+
+PhysAddr BootInfoPhysAddr(void) { return g_bootinfo_pa; }

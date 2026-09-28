@@ -43,6 +43,7 @@ _Noreturn void kmain(void)
     arch_global_irq_enable();
 
     SyspageInit();
+    BootInfoInit();
 
     /* The initrd always comes from the bootloader/firmware now (u-boot's
      * bootm, or the Pi firmware on rpi4), via the DTB /chosen node. */

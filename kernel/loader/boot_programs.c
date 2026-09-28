@@ -131,6 +131,19 @@ static void CreateRootSpace(const char *path, uint32_t flags,
                                         .memtype = VM_MEM_NORMAL,
                                         .owner = VM_OWNER_SHARED,
                                         .flags = VM_FLAG_NONE});
+
+        if (!VmmMapUserPage(process->as, BootInfoPhysAddr(), USER_BOOTINFO_VA, PROT_READ))
+        {
+            KERROR("Failed to map boot info for %s", path);
+            return;
+        }
+        VmmAddRegion(process->as, &(VirtMemRegion){
+                                        .vaddr_start = USER_BOOTINFO_VA,
+                                        .size = PAGE_SIZE,
+                                        .prot = PROT_READ | VM_PROT_USER,
+                                        .memtype = VM_MEM_NORMAL,
+                                        .owner = VM_OWNER_SHARED,
+                                        .flags = VM_FLAG_NONE});
     }
 
     if (flags & PROC_FLAG_DEVMGR)
