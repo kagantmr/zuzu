@@ -44,7 +44,7 @@ void PmmKEventSignal(void)
                 continue;
             }
 
-            EventSignal(sub->ev, KEVENT_MEMMGMT_BIT);
+            EventSignal(sub->ev, KEVENT_MEMMGMT_BIT, false);
         }
     } else if (pmm_state.in_pressure && free_pct > HIGH_WATER_PCT) {
         pmm_state.in_pressure = false;

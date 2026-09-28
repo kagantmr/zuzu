@@ -73,7 +73,7 @@ Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev, uint32_t bi
 
     if (irq_owners[irq_num].pending)
     {
-        EventSignal(irq_owners[irq_num].bound_ev, (1U << irq_owners[irq_num].bit));
+        EventSignal(irq_owners[irq_num].bound_ev, (1U << irq_owners[irq_num].bit), false);
         irq_owners[irq_num].pending = false;
     }
 
