@@ -23,8 +23,8 @@ void SvcManageMemory(CpuState *frame)
                 ArchSetInFrame(frame, 0, (rc == 0) ? (signed)out : rc);
             } else {
                 HandleTableEntry *entry = HandleTableLookup(&CURRENT_SPACE->handle_table, mem_handle);
-                ENSURE_ERR(frame, entry, ERR_BADARG);
-                ENSURE_ERR(frame,(HANDLE_MEM == entry->type), ERR_BADARG);
+                ENSURE_ERR(frame, entry, ERR_BADHANDLE);
+                ENSURE_ERR(frame,(HANDLE_MEM == entry->type), ERR_BADTYPE);
                 ENSURE_ERR(frame, entry->perms & PERM_MAP, ERR_NOPERM);
                 Err rc = VmmMapMemObject(CURRENT_SPACE, entry, prot, hint, &out);
                 ArchSetInFrame(frame, 0, (rc == 0) ? (signed)out : rc);
@@ -46,8 +46,8 @@ void SvcManageMemory(CpuState *frame)
             Handle kitten_space_handle = (*ArchGetFromFrame(frame, 1));
 
             HandleTableEntry *entry = HandleTableLookup(&CURRENT_SPACE->handle_table, kitten_space_handle);
-            ENSURE_ERR(frame, entry, ERR_BADARG);
-            ENSURE_ERR(frame,(HANDLE_SPACE == entry->type), ERR_BADARG);
+            ENSURE_ERR(frame, entry, ERR_BADHANDLE);
+            ENSURE_ERR(frame,(HANDLE_SPACE == entry->type), ERR_BADTYPE);
             ENSURE_ERR(frame, !entry->space->torn_down, ERR_DEAD);
             ENSURE_ERR(frame, entry->perms & PERM_CNTL, ERR_NOPERM);
 

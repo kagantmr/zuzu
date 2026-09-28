@@ -27,6 +27,8 @@ PortObject *PortCreate(SpaceObject *owner) {
     new_port->ref_count = 1;
     new_port->alive = true;
     new_port->owner = owner;
+    new_port->bound_ev = NULL;
+    new_port->bind_bit = 0;
 
     return new_port;
 }

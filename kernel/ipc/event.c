@@ -80,6 +80,7 @@ EventObject *EventCreate(SpaceObject *owner)
     ev->alive = true;
     list_init(&ev->wait_queue);
     ev->word = 0;
+    ev->bind_count = 0;
     
     return ev;
 }
