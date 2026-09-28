@@ -81,6 +81,7 @@ SpaceObject *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char
     p->max_prio = SCHED_PRIORITY_LEVELS - 1;
     if (!p)
         return NULL;
+    p->max_prio = SCHED_PRIORITY_LEVELS - 1;
     TaskObject *t = TaskCreate(p);
     if (!t)
     {

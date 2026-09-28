@@ -120,6 +120,7 @@ void SvcCreate(CpuState *frame)
         SpaceObject *space = SpaceCreate(kname);
         space->max_prio = current_task->max_prio;
         ENSURE_ERR(frame, (NULL != space), ERR_NOMEM);
+        space->max_prio = current_task->max_prio;
 
         Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
         ENSURE(-1 != new_handle, SpaceDestroy(space); SpaceFinalize(space);
