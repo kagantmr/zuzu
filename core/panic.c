@@ -26,7 +26,7 @@
 #include "kernel/irq/irq_relay.h"
 #endif
 
-extern kernel_layout_t kernel_layout;
+extern ZuzuRamLayout kernel_layout;
 
 panic_fault_context_t panic_fault_ctx;
 

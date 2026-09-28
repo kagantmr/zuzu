@@ -18,7 +18,7 @@
 #define LOG_FMT(fmt) "(ipc) " fmt
 #include <zuzu/log.h>
 
-extern kernel_layout_t kernel_layout;
+extern ZuzuRamLayout kernel_layout;
 
 
 void __attribute__((hot)) SysMsgRecv(CpuState *frame)

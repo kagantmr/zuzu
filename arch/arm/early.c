@@ -22,7 +22,7 @@
 #include "core/kprintf.h"
 #include <string.h>
 
-kernel_layout_t kernel_layout;
+ZuzuRamLayout kernel_layout;
 extern AddressSpace *g_kernel_as;
 
 #define LOG_FMT(fmt) "(early) " fmt

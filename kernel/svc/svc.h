@@ -91,6 +91,10 @@ void SvcYield(CpuState *frame);
  */
 void SvcSleep(CpuState *frame);
 
+#ifdef DEBUG
+void SvcDebugLog(CpuState *frame);
+#endif
+
 /**
  * @brief Service call function for creating objects.
  * 

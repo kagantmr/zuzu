@@ -26,7 +26,7 @@
 #define LOG_FMT(fmt) "(main) " fmt
 #include "core/log.h"
 
-extern kernel_layout_t kernel_layout;
+extern ZuzuRamLayout kernel_layout;
 
 /* register_tick_callback keeps a single slot (see kernel/time/tick.c), so
  * this wraps set_resched_flag rather than being registered alongside it —

@@ -10,7 +10,7 @@
 
 static const void *g_fdt;
 static bool g_fdt_ready;
-extern kernel_layout_t kernel_layout;
+extern ZuzuRamLayout kernel_layout;
 static char      s_model[64];
 static char      s_cpu[64];
 

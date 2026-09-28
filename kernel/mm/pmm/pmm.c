@@ -30,7 +30,7 @@ extern uint32_t current_pid_or_zero(void);
 #include "zuzu/log.h"
 
 PmmState pmm_state;
-extern kernel_layout_t kernel_layout;
+extern ZuzuRamLayout kernel_layout;
 extern void SyspageUpdateMem(void);
 
 static bool PmmIsRecorded(PhysAddr pa)

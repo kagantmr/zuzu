@@ -11,3 +11,5 @@ obj-y += svc_signal.o
 obj-y += svc_sleep.o
 obj-y += svc_waiton.o
 obj-y += svc_yield.o
+obj-y += dispatch.o
+obj-y += svc_log.o
