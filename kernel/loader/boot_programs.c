@@ -8,64 +8,49 @@
 #include "kernel/space/space.h"
 #include "kernel/task/kernel_load.h"
 
-#include "kernel/loader/initrd.h"
 #include "kernel/loader/boot_programs.h"
-#include <zuzu/zxf.h>
-#include <string.h>
+#include "kernel/loader/initrd.h"
 #include "kernel/mm/alloc.h"
 #include "zuzu/types.h"
 #include <snprintf.h>
+#include <string.h>
 #include <zuzu/boot.h>
 #include <zuzu/user_layout.h>
+#include <zuzu/zxf.h>
 
 #define LOG_FMT(fmt) "(loader) " fmt
 #include "core/log.h"
 
-#define PROC_FLAG_INIT (1 << 0)   // PID 1 (sysd)
-#define PROC_FLAG_DEVMGR (1 << 1) // hardware authority
+static SpaceObject *s_rootsvc;
 
-static SpaceObject *s_devmgr;
-static SpaceObject *s_sysd;
-// todo: replace with rootsvc only
-
-/* Set once in boot_programs_spawn_all(): the bootloader-supplied initrd
- * (DTB /chosen), as a physical address + size. */
 static PhysAddr g_initrd_pa;
 static size_t g_initrd_size;
 
 #define BOOT_PROGRAM_PREFIX "bin/"
 
-typedef struct BootProgramStruct
+static void InjectDeviceObjects(const char *compatible, uint64_t phys, uint64_t size,
+                                         uint32_t irq)
 {
-    char *path;
-    uint32_t flags;
-    uint8_t owns_path;
-} BootProgram;
-
-static void InjectDeviceObjectsToRootSvc(const char *compatible,
-                              uint64_t phys, uint64_t size,
-                              uint32_t irq)
-{
-    if (!s_devmgr)
+    if (!s_rootsvc)
         return;
-    int handle = HandleTableFindFree(&s_devmgr->handle_table);
+    int handle = HandleTableFindFree(&s_rootsvc->handle_table);
     if (handle < 0)
         return;
-    HandleTableEntry *entry = HandleTableGet(&s_devmgr->handle_table, handle);
+    HandleTableEntry *entry = HandleTableGet(&s_rootsvc->handle_table, handle);
     if (!entry)
         return;
     MemObject *mem = MemObjCreateDevice((PhysAddr)phys, (size_t)size, compatible, irq);
-    if (!mem) return; /* or whatever this function's existing error path is */
-    
+    if (!mem)
+        return;
+
     entry->type = HANDLE_MEM;
     entry->mem = mem;
     entry->perms = PERM_ALL;
     entry->mapped_va = 0;
-    HandleEntryClaim(&s_devmgr->handle_table, entry);
+    HandleEntryClaim(&s_rootsvc->handle_table, entry);
 }
 
-static void CreateRootSpace(const char *path, uint32_t flags,
-                         uint32_t devmgr_entry_peek, uint32_t devmgr_sp_peek)
+static void CreateRootSpace(const char *path)
 {
     const void *zxf_data;
     size_t zxf_size;
@@ -76,88 +61,49 @@ static void CreateRootSpace(const char *path, uint32_t flags,
         return;
     }
 
-
-    char argbuf[320];
-    size_t argbuf_len = 0;
-    uint32_t argc = 0;
-    uint32_t initrd_page_offset = 0, initrd_page_count = 0;
-    uint32_t initrd_aligned_pa = 0;
-    uintptr_t initrd_real_va = 0, initrd_base_va = 0;
-
-    if (flags & PROC_FLAG_INIT)
-    {
-        initrd_page_offset = g_initrd_pa & (PAGE_SIZE - 1);
-        initrd_aligned_pa = g_initrd_pa - initrd_page_offset;
-        initrd_page_count = (initrd_page_offset + (uint32_t)g_initrd_size + PAGE_SIZE - 1) / PAGE_SIZE;
-        initrd_base_va = USER_MMAP_BASE + (MAX_TCB_PAGES * PAGE_SIZE);
-        initrd_real_va = initrd_base_va + initrd_page_offset;
-
-        size_t off = 0;
-        off += (size_t)snprintf(argbuf + off, sizeof(argbuf) - off, "%s", path) + 1;
-        off += (size_t)snprintf(argbuf + off, sizeof(argbuf) - off, "%#x", (unsigned)initrd_real_va) + 1;
-        off += (size_t)snprintf(argbuf + off, sizeof(argbuf) - off, "%u", (unsigned)g_initrd_size) + 1;
-        off += (size_t)snprintf(argbuf + off, sizeof(argbuf) - off, "%#x", (unsigned)devmgr_entry_peek) + 1;
-        off += (size_t)snprintf(argbuf + off, sizeof(argbuf) - off, "%#x", (unsigned)devmgr_sp_peek) + 1;
-        argbuf_len = off;
-        argc = 5;
-    }
-
-    bool leave_frozen = (flags & PROC_FLAG_DEVMGR) != 0;
-    SpaceObject *process = KernelProcessLoad(zxf_data, zxf_size, path,
-                                       argc ? argbuf : NULL, argbuf_len, argc,
-                                       leave_frozen);
+    SpaceObject *process = KernelProcessLoad(zxf_data, zxf_size, path, NULL, 0, 0, false);
     if (!process)
     {
         KERROR("Failed to create boot program %s", path);
         return;
     }
+    s_rootsvc = process;
 
-    if (flags & PROC_FLAG_INIT)
+    uint32_t initrd_page_offset = g_initrd_pa & (PAGE_SIZE - 1);
+    uint32_t initrd_aligned_pa = g_initrd_pa - initrd_page_offset;
+    uint32_t initrd_page_count =
+        (initrd_page_offset + (uint32_t)g_initrd_size + PAGE_SIZE - 1) / PAGE_SIZE;
+    uintptr_t initrd_base_va = USER_MMAP_BASE + (MAX_TCB_PAGES * PAGE_SIZE);
+
+    for (uint32_t i = 0; i < initrd_page_count; i++)
     {
-        s_sysd = process;
-        for (uint32_t i = 0; i < initrd_page_count; i++)
+        uint32_t page_pa = initrd_aligned_pa + (i * PAGE_SIZE);
+        if (!VmmMapUserPage(process->as, page_pa, initrd_base_va + (i * PAGE_SIZE), PROT_READ))
         {
-            uint32_t page_pa = initrd_aligned_pa + (i * PAGE_SIZE);
-            if (!VmmMapUserPage(process->as, page_pa, initrd_base_va + (i * PAGE_SIZE), PROT_READ))
-            {
-                KERROR("Failed to map initrd page %u for %s", i, path);
-                return;
-            }
-        }
-        VmmAddRegion(process->as, &(VirtMemRegion){
-                                        .vaddr_start = initrd_base_va,
-                                        .size = initrd_page_count * PAGE_SIZE,
-                                        .prot = PROT_READ | VM_PROT_USER,
-                                        .memtype = VM_MEM_NORMAL,
-                                        .owner = VM_OWNER_SHARED,
-                                        .flags = VM_FLAG_NONE});
-
-        if (!VmmMapUserPage(process->as, BootInfoPhysAddr(), USER_BOOTINFO_VA, PROT_READ))
-        {
-            KERROR("Failed to map boot info for %s", path);
+            KERROR("Failed to map initrd page %u for %s", i, path);
             return;
         }
-        VmmAddRegion(process->as, &(VirtMemRegion){
-                                        .vaddr_start = USER_BOOTINFO_VA,
-                                        .size = PAGE_SIZE,
-                                        .prot = PROT_READ | VM_PROT_USER,
-                                        .memtype = VM_MEM_NORMAL,
-                                        .owner = VM_OWNER_SHARED,
-                                        .flags = VM_FLAG_NONE});
     }
+    VmmAddRegion(process->as, &(VirtMemRegion){.vaddr_start = initrd_base_va,
+                                               .size = initrd_page_count * PAGE_SIZE,
+                                               .prot = PROT_READ | VM_PROT_USER,
+                                               .memtype = VM_MEM_NORMAL,
+                                               .owner = VM_OWNER_SHARED,
+                                               .flags = VM_FLAG_NONE});
 
-    if (flags & PROC_FLAG_DEVMGR)
+    if (!VmmMapUserPage(process->as, BootInfoPhysAddr(), USER_BOOTINFO_VA, PROT_READ))
     {
-        s_devmgr = process;
-        boot_info_foreach_dev(InjectDeviceObjectsToRootSvc);
+        KERROR("Failed to map boot info for %s", path);
+        return;
     }
+    VmmAddRegion(process->as, &(VirtMemRegion){.vaddr_start = USER_BOOTINFO_VA,
+                                               .size = PAGE_SIZE,
+                                               .prot = PROT_READ | VM_PROT_USER,
+                                               .memtype = VM_MEM_NORMAL,
+                                               .owner = VM_OWNER_SHARED,
+                                               .flags = VM_FLAG_NONE});
 
-    /* devmgr stays FROZEN until sysd grants it what it needs and
-     * SysKickstarts it (which calls sched_add itself once it flips the
-     * thread to READY) — scheduling it now would run it with no valid
-     * trap frame. */
-    if (!leave_frozen)
-        SchedAdd(process->main_task);
+    SchedAdd(process->main_task);
 }
 
 static char *NormalizeManifestPath(const char *path_in)
@@ -185,189 +131,53 @@ static char *NormalizeManifestPath(const char *path_in)
     return path;
 }
 
-static size_t KernelParseManifest(const char *manifest_data, size_t manifest_size,
-                                  BootProgram *out_programs, size_t max_programs)
-{
-    if (!manifest_data || !manifest_size || !out_programs || !max_programs)
-        return 0;
 
-    size_t count = 0;
+static char *FindRootsvcPath(const char *manifest_data, size_t manifest_size)
+{
     const char *line_start = manifest_data;
     const char *end = manifest_data + manifest_size;
 
-    while (line_start < end && count < max_programs)
+    while (line_start < end)
     {
         const char *line_end = line_start;
         while (line_end < end && *line_end != '\n')
             line_end++;
 
         size_t line_len = (size_t)(line_end - line_start);
-
-        // skip empty lines and comments
-        if (line_len == 0 || line_start[0] == '#' || line_start[0] == '\n')
-        {
-            line_start = line_end + 1;
-            continue;
-        }
-
-        // trim trailing whitespace
         while (line_len > 0 && (line_start[line_len - 1] == '\r' ||
-                                line_start[line_len - 1] == ' ' ||
-                                line_start[line_len - 1] == '\t'))
+                                 line_start[line_len - 1] == ' ' ||
+                                 line_start[line_len - 1] == '\t'))
             line_len--;
 
-        // find pipe separator
-        int pipe_idx = -1;
-        for (size_t i = 0; i < line_len; i++)
+        if (line_len > 0 && line_start[0] != '#')
         {
-            if (line_start[i] == '|')
-            {
-                pipe_idx = (int)i;
-                break;
-            }
+            char path_buf[256];
+            if (line_len >= sizeof(path_buf))
+                return NULL;
+            memcpy(path_buf, line_start, line_len);
+            path_buf[line_len] = '\0';
+            return NormalizeManifestPath(path_buf);
         }
 
-        if (pipe_idx <= 0)
-        {
-            KWARN("Boot manifest: invalid line format (missing pipe)");
-            line_start = line_end + 1;
-            continue;
-        }
-
-        // extract path
-        const char *path_start = line_start;
-        size_t path_len = (size_t)pipe_idx;
-        while (path_len > 0 &&
-               (path_start[path_len - 1] == ' ' || path_start[path_len - 1] == '\t'))
-            path_len--;
-        char path_buf[256];
-        if (path_len >= sizeof(path_buf))
-        {
-            KWARN("Boot manifest: path too long");
-            line_start = line_end + 1;
-            continue;
-        }
-        memcpy(path_buf, path_start, path_len);
-        path_buf[path_len] = '\0';
-
-        // extract flags
-        const char *flags_start = line_start + pipe_idx + 1;
-        size_t flags_len = line_len - (size_t)pipe_idx - 1;
-        while (flags_len > 0 &&
-               (*flags_start == ' ' || *flags_start == '\t'))
-        {
-            flags_start++;
-            flags_len--;
-        }
-        while (flags_len > 0 &&
-               (flags_start[flags_len - 1] == ' ' || flags_start[flags_len - 1] == '\t'))
-            flags_len--;
-        char flags_buf[64];
-        if (flags_len >= sizeof(flags_buf))
-        {
-            flags_len = sizeof(flags_buf) - 1;
-        }
-        memcpy(flags_buf, flags_start, flags_len);
-        flags_buf[flags_len] = '\0';
-
-        // populate output entry
-        out_programs[count].path = NormalizeManifestPath(path_buf);
-        if (!out_programs[count].path)
-        {
-            KERROR("Boot manifest: allocation failed");
-            break;
-        }
-        out_programs[count].owns_path = 1;
-
-        count++;
         line_start = line_end + 1;
     }
-
-    return count;
+    return NULL;
 }
 
-void SpawnAllBootPrograms(PhysAddr initrd_pa, size_t initrd_size)
+void CreateRootSvc(PhysAddr initrd_pa, size_t initrd_size)
 {
     g_initrd_pa = initrd_pa;
     g_initrd_size = initrd_size;
 
-    // Read and parse boot manifest
     const void *manifest_data;
     size_t manifest_size;
-    /* static, not a stack local: boot_programs_spawn_all() runs exactly
-     * once at boot (see kmain.c), so this doesn't need per-call storage --
-     * moving it off the stack keeps this function's frame under the
-     * 512-byte budget. */
-    static BootProgram boot_programs[16]; // max 16 boot programs
-    size_t boot_count = 0;
-
-    if (initrd_find("boot.manifest", &manifest_data, &manifest_size))
-    {
-        boot_count = KernelParseManifest(manifest_data, manifest_size,
-                                         boot_programs, sizeof(boot_programs) / sizeof(boot_programs[0]));
-        KDEBUG("Loaded boot manifest: %u programs", boot_count);
-    }
-    else
-    {
+    if (!initrd_find("boot.manifest", &manifest_data, &manifest_size))
         panic("Boot manifest not found");
-    }
-    uint32_t devmgr_entry_peek = 0;
-    uint32_t devmgr_sp_peek = 0;
-    for (size_t i = 0; i < boot_count; i++)
-    {
-        if (!(boot_programs[i].flags & PROC_FLAG_DEVMGR))
-            continue;
-        const void *devmgr_zxf_data;
-        size_t devmgr_zxf_size;
-        if (!initrd_find(boot_programs[i].path, &devmgr_zxf_data, &devmgr_zxf_size))
-        {
-            KERROR("Missing boot program %s", boot_programs[i].path);
-            break;
-        }
-        ZXFImage img;
-        if (ZxfParse(devmgr_zxf_data, devmgr_zxf_size, &img) == false) {
-            panic("Could not parse devmgr");
-        }
-        devmgr_entry_peek = img.entry;
-        devmgr_sp_peek = USR_SP;
-        break;
-    }
 
-    // Spawn boot programs from manifest
-    for (size_t i = 0; i < boot_count; i++)
-    {
-        if (boot_programs[i].flags & (PROC_FLAG_INIT | PROC_FLAG_DEVMGR))
-            CreateRootSpace(boot_programs[i].path, boot_programs[i].flags,
-                         devmgr_entry_peek, devmgr_sp_peek);
-        if (boot_programs[i].owns_path && boot_programs[i].path)
-        {
-            KFree((void *)boot_programs[i].path);
-            boot_programs[i].path = NULL;
-            boot_programs[i].owns_path = 0;
-        }
-    }
+    char *rootsvc_path = FindRootsvcPath(manifest_data, manifest_size);
+    if (!rootsvc_path)
+        panic("Boot manifest has no rootsvc entry");
 
-    /* Seed devmgr's task handle directly into sysd's own handle table, at a
-     * fixed slot sysd's userspace code already knows by constant, so sysd
-     * can SysKickstart devmgr without ever calling SysPSpawn for it. Same
-     * direct-write pattern as inject_device_cap() above, just at a fixed
-     * slot instead of one returned by HandleTableFindFree. */
-    if (s_sysd && s_devmgr)
-    {
-        HandleTableEntry *devmgr_task_slot =
-            HandleTableGetOrAlloc(&s_sysd->handle_table, SYSD_DEVMGR_TASK_HANDLE_SLOT);
-        if (devmgr_task_slot)
-        {
-            devmgr_task_slot->type = HANDLE_TASK;
-            devmgr_task_slot->perms = PERM_ALL;
-            devmgr_task_slot->mapped_va = 0;
-            devmgr_task_slot->task = s_devmgr->main_task;
-            TaskRef(devmgr_task_slot->task);
-            HandleEntryClaim(&s_sysd->handle_table, devmgr_task_slot);
-        }
-        else
-        {
-            KERROR("Failed to seed devmgr task handle into sysd's handle table");
-        }
-    }
+    CreateRootSpace(rootsvc_path);
+    KFree(rootsvc_path);
 }
