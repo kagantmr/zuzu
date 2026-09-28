@@ -14,7 +14,7 @@ typedef struct
     size_t size;   // must be power of 2
     uint32_t head; // written by producer
     uint32_t tail; // written by consumer
-} ring_t;
+} RingBuffer;
 
 /**
  * @brief Initializes a ring buffer.
@@ -23,7 +23,7 @@ typedef struct
  * @param buf Pointer to the buffer that will be used for the ring.
  * @param size Size of the buffer in bytes. Must be a power of 2.
  */
-void ring_init(ring_t *r, uint8_t *buf, uint32_t size);
+void RingInit(RingBuffer *r, uint8_t *buf, uint32_t size);
 
 /**
  * @brief Pushes a byte into the ring buffer.
@@ -32,7 +32,7 @@ void ring_init(ring_t *r, uint8_t *buf, uint32_t size);
  * @param byte The byte to push into the buffer.
  * @return int Returns 0 on success, or -1 if the buffer is full.
  */
-int ring_push(ring_t *r, uint8_t byte); // returns 0 or -1 if full
+int RingPush(RingBuffer *r, uint8_t byte); // returns 0 or -1 if full
 
 /**
  * @brief Checks if the ring buffer is full.
@@ -41,7 +41,7 @@ int ring_push(ring_t *r, uint8_t byte); // returns 0 or -1 if full
  * @param out Pointer to the variable that will receive the popped byte.
  * @return int Returns 1 if the buffer is full, 0 otherwise.
  */
-int ring_pop(ring_t *r, uint8_t *out); // returns 0 or -1 if empty
+int RingPop(RingBuffer *r, uint8_t *out); // returns 0 or -1 if empty
 
 /**
  * @brief Peeks at the next byte in the ring buffer without removing it.
@@ -50,7 +50,7 @@ int ring_pop(ring_t *r, uint8_t *out); // returns 0 or -1 if empty
  * @param out Pointer to the variable that will receive the peeked byte.
  * @return int Returns 0 on success, or -1 if the buffer is empty.
  */
-int ring_peek(const ring_t *r, uint8_t *out);
+int RingPeek(const RingBuffer *r, uint8_t *out);
 
 /**
  * @brief Returns the number of bytes available in the ring buffer.
@@ -58,7 +58,7 @@ int ring_peek(const ring_t *r, uint8_t *out);
  * @param r Pointer to the ring buffer.
  * @return uint32_t The number of bytes available in the buffer.
  */
-uint32_t ring_avail(const ring_t *r);
+uint32_t RingAvail(const RingBuffer *r);
 
 /**
  * @brief Checks if the ring buffer is full.
@@ -66,7 +66,7 @@ uint32_t ring_avail(const ring_t *r);
  * @param r Pointer to the ring buffer.
  * @return int Returns 1 if the buffer is full, 0 otherwise.
  */
-int ring_full(const ring_t *r);
+int RingFull(const RingBuffer *r);
 
 /**
  * @brief Pushes multiple bytes into the ring buffer from a source buffer.
@@ -76,7 +76,7 @@ int ring_full(const ring_t *r);
  * @param len The number of bytes to push from the source buffer.
  * @return uint32_t The number of bytes successfully pushed into the ring buffer.
  */
-uint32_t ring_push_buf(ring_t *r, const uint8_t *src, uint32_t len);
+uint32_t RingPushBuffer(RingBuffer *r, const uint8_t *src, uint32_t len);
 
 /**
  * @brief Pops multiple bytes from the ring buffer into a destination buffer.
@@ -87,7 +87,7 @@ uint32_t ring_push_buf(ring_t *r, const uint8_t *src, uint32_t len);
  *
  * @return uint32_t The number of bytes successfully popped from the ring buffer.
  */
-uint32_t ring_pop_buf(ring_t *r, uint8_t *dst, uint32_t len);
+uint32_t RingPopIntoBuffer(RingBuffer *r, uint8_t *dst, uint32_t len);
 
 #ifdef __cplusplus
 }
