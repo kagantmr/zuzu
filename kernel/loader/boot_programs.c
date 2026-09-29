@@ -26,7 +26,6 @@ static PhysAddr g_initrd_pa;
 static size_t g_initrd_size;
 
 #define BOOT_PROGRAM_PREFIX "bin/"
-#define DEVICE_HANDLE_BASE 16
 
 static void InjectDeviceObjects(const char *compatible, uint64_t phys, uint64_t size, uint32_t irq)
 {

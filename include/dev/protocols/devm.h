@@ -25,7 +25,7 @@ typedef struct {
     const char     *strings[DEVM_MAX_COMPAT];  /* point into the lmsg buf */
 } DevmRequest;
 
-static inline Handle DevmRequestDevice(Handle devmgr_port, const char *const *compats,
+static inline Handle RequestDevice(Handle devsvc_port, const char *const *compats,
                                         uint32_t count, uint32_t *out_matched)
 {
     if (count == 0 || count > DEVM_MAX_COMPAT)
@@ -45,7 +45,7 @@ static inline Handle DevmRequestDevice(Handle devmgr_port, const char *const *co
         off += n;
     }
 
-    SvcResult r = Call(devmgr_port, off, -1);
+    SvcResult r = Call(devsvc_port, off, -1);
     if (r.r0 != ZUZU_OK)
         return (Handle)r.r0;
 

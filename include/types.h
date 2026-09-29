@@ -38,6 +38,10 @@ typedef struct
 #define HANDLE_ANON ((Handle) - 1) /* Sentinel value used in memmap() as the handle value */
 #define MARKER_NONE 0              /* Means unbadged */
 
+/* First handle slot in rootsvc's table where the kernel loader seeds device
+ * MemObjects (kernel/loader/boot_programs.c); devsvc indexes from here. */
+#define DEVICE_HANDLE_BASE 16
+
 typedef enum
 {
     PERM_WAIT = (1U << 0),
