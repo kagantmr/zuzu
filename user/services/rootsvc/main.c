@@ -1,19 +1,20 @@
-#include <zuzu/zuzu.h>
-#include <zuzu/syspage.h>
+#include <cpio.h>
+#include <string.h>
+#include <util/tls.h>
+#include <util/zxf_spawn.h>
 #include <zuzu/bootinfo.h>
+#include <zuzu/err.h>
+#include <zuzu/syspage.h>
 #include <zuzu/udbg.h>
 #include <zuzu/user_layout.h>
-#include <cpio.h>
-#include <util/zxf_spawn.h>
-#include <zuzu/err.h>
-#include <util/tls.h>
-#include <string.h>
+#include <zuzu/zuzu.h>
 
-#define MAX_KITTENS 30        
+#define MAX_KITTENS 30
 #define STACK_SIZE (16 * 1024)
 #define INITRD_VA (USER_MMAP_BASE + (MAX_TCB_PAGES * PAGE_SIZE))
 
-typedef struct {
+typedef struct
+{
     bool active;
     Handle task;
     Handle space;
@@ -26,8 +27,16 @@ static Handle g_monitor_ev;
 static const BootInfo *g_bootinfo;
 
 /* Filled in once devsvc/nsvc's real logic gets ported. */
-static void DevsvcMain(void) { for (;;) Yield(); }
-static void NsvcMain(void)   { for (;;) Yield(); }
+static void DevsvcMain(void)
+{
+    for (;;)
+        Yield();
+}
+static void NsvcMain(void)
+{
+    for (;;)
+        Yield();
+}
 
 static Handle SpawnThread(void (*entry)(void))
 {
@@ -40,7 +49,8 @@ static Handle SpawnThread(void (*entry)(void))
         return h;
 
     Err rc = TaskStart(h, (VirtAddr)entry, stack + STACK_SIZE, 0, 0);
-    if (rc != ZUZU_OK) {
+    if (rc != ZUZU_OK)
+    {
         HandleClose(h);
         return rc;
     }
@@ -49,7 +59,8 @@ static Handle SpawnThread(void (*entry)(void))
 
 static void MonitorKitten(Handle task, Handle space, const char *path)
 {
-    if (g_kitten_count >= MAX_KITTENS) {
+    if (g_kitten_count >= MAX_KITTENS)
+    {
         UserspaceDebugLog("rootsvc: too many kittens, dropping %s", path);
         HandleDestroy(space);
         return;
@@ -71,7 +82,8 @@ static void SpawnKitten(const void *zxf_data, size_t zxf_size, const char *path)
     Spid pid;
     Handle task;
     Err rc = ZxfSpawn(zxf_data, zxf_size, path, NULL, 0, 0, &pid, &task);
-    if (rc != ZUZU_OK) {
+    if (rc != ZUZU_OK)
+    {
         UserspaceDebugLog("rootsvc: failed to spawn %s: %d", path, rc);
         return;
     }
@@ -83,7 +95,7 @@ static void HandleKittenFault(Kitten *k)
     Register regs[ARCH_NUM_GP_REGS];
     Err rc = TaskGetRegs(k->task, regs);
     UserspaceDebugLog("rootsvc: %s faulted (get_regs rc=%d)", k->path, rc);
-    
+
     /* No recovery policy yet so just take the kitten down. Once there's
      * something to actually inspect/patch the fault with, this is where
      * TaskSetRegs + TaskResume would go instead. */
@@ -100,14 +112,14 @@ static void ReapKitten(Kitten *k)
 
 static void CheckKittenState(Kitten *k)
 {
-    SvcResult r = WaitOn(k->task, 0); /* non-blocking: the bit already told us it's ready */
-    if (r.r0 != ZUZU_OK)
+    TaskWaitResult tw = AsTaskWait(WaitOn(k->task, 0));
+    if (tw.status != ZUZU_OK)
         return;
 
-    if (r.r1 == WAKE_FAULT) {
-        HandleKittenFault(k); /* r.r2 = fault reason */
+    if (tw.outcome == TASK_FAULTED) {
+        HandleKittenFault(k); /* tw.value = fault reason */
     } else {
-        ReapKitten(k); /* r.r1 = exit_status, if you want to log it */
+        ReapKitten(k); /* tw.value = exit_status */
     }
 }
 
@@ -117,7 +129,6 @@ static bool VersionOk(void)
     return sp->kernel_ver >= 0x00000200; /* major minor patch: gotta be at least 0x00 00 02 00 */
 }
 
-
 static void SpawnStage1(void)
 {
     const void *initrd_base = (const void *)INITRD_VA;
@@ -125,7 +136,8 @@ static void SpawnStage1(void)
 
     const void *manifest_data;
     size_t manifest_size;
-    if (!cpio_find(initrd_base, initrd_size, "boot.manifest", &manifest_data, &manifest_size)) {
+    if (!cpio_find(initrd_base, initrd_size, "boot.manifest", &manifest_data, &manifest_size))
+    {
         UserspaceDebugLog("rootsvc: no boot.manifest in initrd");
         return;
     }
@@ -134,19 +146,22 @@ static void SpawnStage1(void)
     const char *end = line + manifest_size;
     bool skipped_own_entry = false;
 
-    while (line < end) {
+    while (line < end)
+    {
         const char *line_end = line;
         while (line_end < end && *line_end != '\n')
             line_end++;
         size_t line_len = (size_t)(line_end - line);
 
-        if (line_len == 0 || line[0] == '#') {
+        if (line_len == 0 || line[0] == '#')
+        {
             line = line_end + 1;
             continue;
         }
 
         const char *pipe = memchr(line, '|', line_len);
-        if (!pipe) {
+        if (!pipe)
+        {
             /* rootsvc's own no-pipe entry -- the kernel loader already
              * consumed this one, skip it exactly once. */
             if (!skipped_own_entry)
@@ -157,7 +172,8 @@ static void SpawnStage1(void)
 
         size_t path_len = (size_t)(pipe - line);
         char path[64];
-        if (path_len >= sizeof(path)) {
+        if (path_len >= sizeof(path))
+        {
             line = line_end + 1;
             continue;
         }
@@ -165,21 +181,23 @@ static void SpawnStage1(void)
         path[path_len] = '\0';
 
         const char *role = pipe + 1;
-        if (strncmp(role, "file", 4) == 0) {
+        if (strncmp(role, "file", 4) == 0)
+        {
             line = line_end + 1;
             continue; /* packed but never spawned */
         }
 
         const void *zxf_data;
         size_t zxf_size;
-        if (!cpio_find(initrd_base, initrd_size, path, &zxf_data, &zxf_size)) {
+        if (!cpio_find(initrd_base, initrd_size, path, &zxf_data, &zxf_size))
+        {
             UserspaceDebugLog("rootsvc: missing boot program %s", path);
             line = line_end + 1;
             continue;
         }
 
         SpawnKitten(zxf_data, zxf_size, path);
-        
+
         line = line_end + 1;
     }
 }
@@ -197,12 +215,14 @@ int main(void)
 
     SpawnStage1();
 
-    for (;;) {
+    for (;;)
+    {
         SvcResult r = WaitOn(g_monitor_ev, TIMEOUT_INFINITE);
         if (r.r0 != ZUZU_OK)
             continue;
         EventWord bits = (EventWord)r.r1;
-        for (uint32_t bit = 0; bit < g_kitten_count; bit++) {
+        for (uint32_t bit = 0; bit < g_kitten_count; bit++)
+        {
             if (!(bits & (1U << bit)) || !g_kittens[bit].active)
                 continue;
             CheckKittenState(&g_kittens[bit]);

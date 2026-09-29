@@ -154,6 +154,39 @@ static inline SvcResult WaitOn(Handle h, Duration timeout) {
     return ArchInvokeSvc4(SVC_WAITON, h, (Register)timeout, 0, 0);
 }
 
+static inline PortWaitResult AsPortWait(SvcResult r) {
+    return (PortWaitResult){
+        .status = (Err)r.r0,
+        .sender = (Marker)r.r1,
+        .xlen = (uint32_t)r.r2,
+        .granted = (Handle)r.r3,
+    };
+}
+
+static inline EventWaitResult AsEventWait(SvcResult r) {
+    return (EventWaitResult){
+        .status = (Err)r.r0,
+        .bits = (EventWord)r.r1,
+    };
+}
+
+/** @brief .value is exit_status when .outcome == TASK_EXITED, or
+ * fault_reason when .outcome == TASK_FAULTED. */
+static inline TaskWaitResult AsTaskWait(SvcResult r) {
+    return (TaskWaitResult){
+        .status = (Err)r.r0,
+        .outcome = (TaskWaitOutcome)r.r3,
+        .value = (int32_t)r.r1,
+    };
+}
+
+static inline SpaceWaitResult AsSpaceWait(SvcResult r) {
+    return (SpaceWaitResult){
+        .status = (Err)r.r0,
+        .exit_status = (Err)r.r1,
+    };
+}
+
 static inline SvcResult HandleDuplicate(Handle h, HandlePerms perms, Marker marker) {
     return ArchInvokeSvc4(SVC_MANAGEHANDLE, h, MNGHNDL_DUPLICATE, perms, (Register)marker);
 }

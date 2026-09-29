@@ -38,13 +38,14 @@ typedef struct
 #define HANDLE_ANON ((Handle) - 1) /* Sentinel value used in memmap() as the handle value */
 #define MARKER_NONE 0              /* Means unbadged */
 
-typedef enum {
+typedef enum
+{
     PERM_WAIT = (1U << 0),
     PERM_SEND = (1U << 1),
     PERM_TXFR = (1U << 2),
-    PERM_MAP  = (1U << 3),
+    PERM_MAP = (1U << 3),
     PERM_CNTL = (1U << 4),
-    PERM_ALL  = (PERM_WAIT|PERM_SEND|PERM_TXFR|PERM_MAP|PERM_CNTL)
+    PERM_ALL = (PERM_WAIT | PERM_SEND | PERM_TXFR | PERM_MAP | PERM_CNTL)
 } HandlePerms;
 
 /**
@@ -52,17 +53,17 @@ typedef enum {
     */
 typedef enum
 {
-    OBJECT_TASK = 0, 
+    OBJECT_TASK = 0,
     OBJECT_SPACE,
-    OBJECT_PORT,  
-    OBJECT_EVENT, 
-    OBJECT_MEMORY, 
+    OBJECT_PORT,
+    OBJECT_EVENT,
+    OBJECT_MEMORY,
     OBJECT_CODE_COUNT
 } ZuzuObjectCode;
 
 /**
- * @brief This struct represents the 4 arguments passed into ManageHandle() to start a task.
- */
+    * @brief This struct represents the 4 arguments passed into ManageHandle() to start a task.
+    */
 typedef struct
 {
     VirtAddr entry;
@@ -70,7 +71,34 @@ typedef struct
     uint32_t r0, r1;
 } KickstartArgs;
 
-typedef enum { TASK_EXITED = 0, TASK_FAULTED = 1 } TaskWaitOutcome;
+typedef enum
+{
+    TASK_EXITED = 0,
+    TASK_FAULTED = 1
+} TaskWaitOutcome;
+typedef struct
+{
+    Err status;
+    Marker sender;
+    uint32_t xlen;
+    Handle granted;
+} PortWaitResult;
+typedef struct
+{
+    Err status;
+    EventWord bits;
+} EventWaitResult;
+typedef struct
+{
+    Err status;
+    TaskWaitOutcome outcome;
+    int32_t value;
+} TaskWaitResult;
+typedef struct
+{
+    Err status;
+    Err exit_status;
+} SpaceWaitResult;
 
 /* Kernel event types users can subscribe to */
 typedef enum
