@@ -289,7 +289,7 @@ static int pl181drv_setup(void)
 
     /* request the block device capability */
     static const char *const block_compat[] = { "arm,pl180" };   /* note: pl180, the PL18x primecell */
-    block_dev_handle = DevmRequestDevice(devmgr_port, block_compat, 1, NULL);
+    block_dev_handle = RequestDevice(devmgr_port, block_compat, 1, NULL);
     if (block_dev_handle < 0) {
         LOG_ERROR(LOG_TAG, "block device not present");
         return block_dev_handle;

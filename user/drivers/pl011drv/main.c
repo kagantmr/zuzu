@@ -100,7 +100,7 @@ static void wait_for_devmgr(void)
 static Handle request_serial_device(void)
 {
     static const char *const compat[] = { PL011DRV_COMPATIBLE, PL011DRV_COMPATIBLE_AXI };
-    return DevmRequestDevice(devmgr_port, compat, 2, NULL);
+    return RequestDevice(devmgr_port, compat, 2, NULL);
 }
 
 static void handle_irq_event(void)

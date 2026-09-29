@@ -154,7 +154,7 @@ static inline SvcResult WaitOn(Handle h, Duration timeout) {
     return ArchInvokeSvc4(SVC_WAITON, h, (Register)timeout, 0, 0);
 }
 
-static inline PortWaitResult AsPortWait(SvcResult r) {
+static inline PortWaitResult FormatToPortWait(SvcResult r) {
     return (PortWaitResult){
         .status = (Err)r.r0,
         .sender = (Marker)r.r1,
@@ -163,7 +163,7 @@ static inline PortWaitResult AsPortWait(SvcResult r) {
     };
 }
 
-static inline EventWaitResult AsEventWait(SvcResult r) {
+static inline EventWaitResult FormatToEventWait(SvcResult r) {
     return (EventWaitResult){
         .status = (Err)r.r0,
         .bits = (EventWord)r.r1,
@@ -172,7 +172,7 @@ static inline EventWaitResult AsEventWait(SvcResult r) {
 
 /** @brief .value is exit_status when .outcome == TASK_EXITED, or
  * fault_reason when .outcome == TASK_FAULTED. */
-static inline TaskWaitResult AsTaskWait(SvcResult r) {
+static inline TaskWaitResult FormatToTaskWait(SvcResult r) {
     return (TaskWaitResult){
         .status = (Err)r.r0,
         .outcome = (TaskWaitOutcome)r.r3,
@@ -180,7 +180,7 @@ static inline TaskWaitResult AsTaskWait(SvcResult r) {
     };
 }
 
-static inline SpaceWaitResult AsSpaceWait(SvcResult r) {
+static inline SpaceWaitResult FormatToSpaceWait(SvcResult r) {
     return (SpaceWaitResult){
         .status = (Err)r.r0,
         .exit_status = (Err)r.r1,

@@ -14,8 +14,8 @@
 #include "types.h"
 #include <snprintf.h>
 #include <string.h>
-#include <zuzu/user_layout.h>
 #include <util/zxf.h>
+#include <zuzu/user_layout.h>
 
 #define LOG_FMT(fmt) "(loader) " fmt
 #include "core/log.h"
@@ -26,16 +26,15 @@ static PhysAddr g_initrd_pa;
 static size_t g_initrd_size;
 
 #define BOOT_PROGRAM_PREFIX "bin/"
+#define DEVICE_HANDLE_BASE 16
 
-static void InjectDeviceObjects(const char *compatible, uint64_t phys, uint64_t size,
-                                         uint32_t irq)
+static void InjectDeviceObjects(const char *compatible, uint64_t phys, uint64_t size, uint32_t irq)
 {
+    static int32_t index = 0;
     if (!s_rootsvc)
         return;
-    int handle = HandleTableFindFree(&s_rootsvc->handle_table);
-    if (handle < 0)
-        return;
-    HandleTableEntry *entry = HandleTableGet(&s_rootsvc->handle_table, handle);
+    HandleTableEntry *entry =
+        HandleTableGetOrAlloc(&s_rootsvc->handle_table, (Handle)DEVICE_HANDLE_BASE + index++);
     if (!entry)
         return;
     MemObject *mem = MemObjCreateDevice((PhysAddr)phys, (size_t)size, compatible, irq);
@@ -95,7 +94,7 @@ static void CreateRootSpace(const char *path)
     for (size_t i = 0; i < bootinfo_pages; i++)
     {
         if (!VmmMapUserPage(process->as, BootInfoPhysAddr() + (i * PAGE_SIZE),
-                             USER_BOOTINFO_VA + (i * PAGE_SIZE), PROT_READ))
+                            USER_BOOTINFO_VA + (i * PAGE_SIZE), PROT_READ))
         {
             KERROR("Failed to map boot info page %zu for %s", i, path);
             return;
@@ -136,7 +135,6 @@ static char *NormalizeManifestPath(const char *path_in)
     return path;
 }
 
-
 static char *FindRootsvcPath(const char *manifest_data, size_t manifest_size)
 {
     const char *line_start = manifest_data;
@@ -149,9 +147,9 @@ static char *FindRootsvcPath(const char *manifest_data, size_t manifest_size)
             line_end++;
 
         size_t line_len = (size_t)(line_end - line_start);
-        while (line_len > 0 && (line_start[line_len - 1] == '\r' ||
-                                 line_start[line_len - 1] == ' ' ||
-                                 line_start[line_len - 1] == '\t'))
+        while (line_len > 0 &&
+               (line_start[line_len - 1] == '\r' || line_start[line_len - 1] == ' ' ||
+                line_start[line_len - 1] == '\t'))
             line_len--;
 
         if (line_len > 0 && line_start[0] != '#')

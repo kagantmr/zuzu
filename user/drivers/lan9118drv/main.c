@@ -94,7 +94,7 @@ int get_nic(void)
     
     static const char *const nic_compat[] = { "smsc,lan9118" };
     uint32_t matched; 
-    dev_handle = DevmRequestDevice(devm_port, nic_compat, 1, &matched);
+    dev_handle = RequestDevice(devm_port, nic_compat, 1, &matched);
     if (dev_handle < 0) {
         LOG_ERROR(LOG_TAG, "NIC device request failed");
         return dev_handle;   /* ERR_NOENT — no LAN9118 on this board */

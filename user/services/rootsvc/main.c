@@ -5,13 +5,16 @@
 #include <zuzu/bootinfo.h>
 #include <zuzu/err.h>
 #include <zuzu/syspage.h>
+#include <util/msg.h>
 #include <zuzu/udbg.h>
+#include <dev/protocols/devm.h>
 #include <zuzu/user_layout.h>
 #include <zuzu/zuzu.h>
 
 #define MAX_KITTENS 30
 #define STACK_SIZE (16 * 1024)
 #define INITRD_VA (USER_MMAP_BASE + (MAX_TCB_PAGES * PAGE_SIZE))
+#define DEVICE_HANDLE_BASE 16
 
 typedef struct
 {
@@ -26,12 +29,98 @@ static uint32_t g_kitten_count;
 static Handle g_monitor_ev;
 static const BootInfo *g_bootinfo;
 
-/* Filled in once devsvc/nsvc's real logic gets ported. */
+static Handle g_devsvc_port;
+
+static int DevmUnpack(const char *buf, uint32_t xlen, DevmRequest *out)
+{
+    /* 1. Header must fit: cmd(4) + count(4). */
+    if (xlen < 8) {
+        return ERR_BADARG;
+    }
+
+    uint32_t cmd;
+    uint32_t count;
+    memcpy(&cmd,   buf,     4);   /* alignment- and aliasing-safe */
+    memcpy(&count, buf + 4, 4);
+
+    /* 2. Bound count before it indexes strings[]. */
+    if (count == 0 || count > DEVM_MAX_COMPAT) {
+        return ERR_BADARG;
+    }
+
+    /* 3. Bounded walk of `count` NUL-terminated strings. */
+    uint32_t off = 8;
+    for (uint32_t i = 0; i < count; i++) {
+        if (off >= xlen) {
+            return ERR_BADARG;              /* ran out before string i */
+        }
+
+        uint32_t remaining = xlen - off;
+        size_t   len       = strnlen(buf + off, remaining);
+        if (len == remaining) {
+            return ERR_BADARG;              /* no NUL within bounds */
+        }
+
+        out->strings[i] = buf + off;
+        off += (uint32_t)len + 1;           /* +1 steps over the NUL */
+    }
+
+
+    if (off != xlen) {
+        return ERR_BADARG;
+    }
+
+    out->cmd   = (DevmRequestType)cmd;
+    out->count = count;
+    return ZUZU_OK;   
+}
 static void DevsvcMain(void)
 {
+    g_devsvc_port = CreatePort();
+    if (g_devsvc_port < 0)
+        return;
+    HandleDuplicate(g_devsvc_port, PERM_MAP, 0xDE71CE00);
+
     for (;;)
-        Yield();
+    {
+        PortWaitResult result = FormatToPortWait(WaitOn(g_devsvc_port, TIMEOUT_INFINITE));
+        if (result.status != ZUZU_OK)
+            continue;
+
+        DevmRequest req;
+        if (DevmUnpack(MessageBuf(), result.xlen, &req) != ZUZU_OK)
+            continue;
+
+        switch (req.cmd)
+        {
+            case DEVM_REQUEST: {
+                uint32_t matched_index = 0;
+                bool found = false;
+                for (uint32_t i = 0; i < req.count && !found; i++) {
+                    for (uint32_t d = 0; d < g_bootinfo->dev_count; d++) {
+                        if (strcmp(req.strings[i], g_bootinfo->devs[d].compatible) == 0) {
+                            matched_index = d;
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+                if (!found)
+                    break;
+
+                SvcResult dup = HandleDuplicate(DEVICE_HANDLE_BASE + matched_index, PERM_MAP, MARKER_NONE);
+                if (dup.r0 != ZUZU_OK)
+                    break;
+
+                memcpy(MessageBuf(), &matched_index, sizeof(matched_index));
+                Reply(sizeof(matched_index), (Handle)dup.r1);
+            } break;
+            default:
+                break;
+        }
+    }
 }
+
 static void NsvcMain(void)
 {
     for (;;)
@@ -112,7 +201,7 @@ static void ReapKitten(Kitten *k)
 
 static void CheckKittenState(Kitten *k)
 {
-    TaskWaitResult tw = AsTaskWait(WaitOn(k->task, 0));
+    TaskWaitResult tw = FormatToTaskWait(WaitOn(k->task, 0));
     if (tw.status != ZUZU_OK)
         return;
 
@@ -162,8 +251,6 @@ static void SpawnStage1(void)
         const char *pipe = memchr(line, '|', line_len);
         if (!pipe)
         {
-            /* rootsvc's own no-pipe entry -- the kernel loader already
-             * consumed this one, skip it exactly once. */
             if (!skipped_own_entry)
                 skipped_own_entry = true;
             line = line_end + 1;
@@ -217,13 +304,12 @@ int main(void)
 
     for (;;)
     {
-        SvcResult r = WaitOn(g_monitor_ev, TIMEOUT_INFINITE);
-        if (r.r0 != ZUZU_OK)
+        EventWaitResult r = FormatToEventWait(WaitOn(g_monitor_ev, TIMEOUT_INFINITE));
+        if (r.status != ZUZU_OK)
             continue;
-        EventWord bits = (EventWord)r.r1;
         for (uint32_t bit = 0; bit < g_kitten_count; bit++)
         {
-            if (!(bits & (1U << bit)) || !g_kittens[bit].active)
+            if (!(r.bits & (1U << bit)) || !g_kittens[bit].active)
                 continue;
             CheckKittenState(&g_kittens[bit]);
         }
