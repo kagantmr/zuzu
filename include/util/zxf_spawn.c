@@ -15,9 +15,12 @@
 static Err LoadSegment(Handle space_handle, const void *zxf_data, const ZXFSegment *seg)
 {
     uint32_t prot = 0;
-    if (seg->flags & ZXF_R) prot |= PROT_READ;
-    if (seg->flags & ZXF_W) prot |= PROT_WRITE;
-    if (seg->flags & ZXF_X) prot |= PROT_EXEC;
+    if (seg->flags & ZXF_R)
+        prot |= PROT_READ;
+    if (seg->flags & ZXF_W)
+        prot |= PROT_WRITE;
+    if (seg->flags & ZXF_X)
+        prot |= PROT_EXEC;
 
     size_t file_pages = PAGE_ROUND_UP(seg->file_size) / PAGE_SIZE;
     size_t mem_pages = PAGE_ROUND_UP(seg->mem_size) / PAGE_SIZE;
@@ -33,8 +36,8 @@ static Err LoadSegment(Handle space_handle, const void *zxf_data, const ZXFSegme
         memset(buf, 0, file_pages * PAGE_SIZE);
         memcpy(buf, (const uint8_t *)zxf_data + seg->file_offset, seg->file_size);
 
-        Err rc = MemInject(space_handle, (VirtAddr)seg->vaddr, buf,
-                            file_pages * PAGE_SIZE, prot, 0);
+        Err rc =
+            MemInject(space_handle, (VirtAddr)seg->vaddr, buf, file_pages * PAGE_SIZE, prot, 0);
         free(buf);
         if (rc != ZUZU_OK)
             return rc;
@@ -43,7 +46,7 @@ static Err LoadSegment(Handle space_handle, const void *zxf_data, const ZXFSegme
     if (mem_pages > file_pages)
     {
         Err rc = MemInject(space_handle, (VirtAddr)seg->vaddr + (file_pages * PAGE_SIZE), NULL,
-                            (mem_pages - file_pages) * PAGE_SIZE, prot, ASINJECT_FLAG_RESERVE);
+                           (mem_pages - file_pages) * PAGE_SIZE, prot, ASINJECT_FLAG_RESERVE);
         if (rc != ZUZU_OK)
             return rc;
     }
@@ -55,8 +58,8 @@ static Err LoadSegment(Handle space_handle, const void *zxf_data, const ZXFSegme
  * does: strings just below USR_SP, then the (argc+1)-slot pointer array
  * (NULL-terminated) just below that. Returns the resulting sp and, if
  * argc > 0, the argv pointer array's VA in *out_argv_va. */
-static Err LayoutArgv(Handle space_handle, const char *argbuf, size_t argbuf_len,
-                       uint32_t argc, VirtAddr *out_sp, VirtAddr *out_argv_va)
+static Err LayoutArgv(Handle space_handle, const char *argbuf, size_t argbuf_len, uint32_t argc,
+                      VirtAddr *out_sp, VirtAddr *out_argv_va)
 {
     VirtAddr sp = USR_SP;
     *out_argv_va = 0;
@@ -116,8 +119,8 @@ static Err LayoutArgv(Handle space_handle, const char *argbuf, size_t argbuf_len
     return ZUZU_OK;
 }
 
-Err ZxfSpawn(const void *zxf_data, size_t zxf_size, const char *name,
-             const char *argbuf, size_t argbuf_len, uint32_t argc, Spid *out_pid)
+Err ZxfSpawn(const void *zxf_data, size_t zxf_size, const char *name, const char *argbuf,
+             size_t argbuf_len, uint32_t argc, Spid *out_pid, Handle *out_task)
 {
     ZXFImage img;
     if (!ZxfParse(zxf_data, zxf_size, &img))
@@ -142,7 +145,7 @@ Err ZxfSpawn(const void *zxf_data, size_t zxf_size, const char *name,
     /* Stack region: reserved whole (demand-zero, faulted in lazily), same
      * as SpaceCreate reserves it for kernel-loaded boot programs. */
     Err rc = MemInject(space_handle, USER_STACK_BASE, NULL, USER_STACK_TOP - USER_STACK_BASE,
-                        PROT_RW, ASINJECT_FLAG_RESERVE);
+                       PROT_RW, ASINJECT_FLAG_RESERVE);
     if (rc != ZUZU_OK)
     {
         HandleDestroy(space_handle);
@@ -172,6 +175,9 @@ Err ZxfSpawn(const void *zxf_data, size_t zxf_size, const char *name,
     }
 
     if (out_pid)
-        *out_pid = space_handle; /* the handle IS the pid-bearing token for the space we just made */
+        *out_pid =
+            space_handle; /* the handle IS the pid-bearing token for the space we just made */
+    if (out_task)
+        *out_task = task_handle;
     return ZUZU_OK;
 }

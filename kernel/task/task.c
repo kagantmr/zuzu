@@ -79,6 +79,7 @@ void WakeWaitList(ListHead *list, Err status)
         {
             ArchSetInFrame(waiter->trap_frame, 0, ZUZU_OK);
             (*ArchGetFromFrame(waiter->trap_frame, 1)) = (Register)status;
+            ArchSetInFrame(waiter->trap_frame, 3, TASK_EXITED);
         }
         SchedUnblock(waiter, WAKE_IPC);
         SchedAdd(waiter);
@@ -154,14 +155,14 @@ void TaskWaitExit(TaskObject *task, Duration timeout, CpuState *frame)
     {
         ArchSetInFrame(frame, 0, ZUZU_OK);
         ArchSetInFrame(frame, 1, task->exit_status);
+        ArchSetInFrame(frame, 3, TASK_EXITED);
         return;
     }
     if (task->state == FAULTED)
     {
         ArchSetInFrame(frame, 0, ZUZU_OK);
-        ArchSetInFrame(frame, 1, WAKE_FAULT);
-        ArchSetInFrame(frame, 2, task->fault_reason);
-        ArchSetInFrame(frame, 3, 0);
+        ArchSetInFrame(frame, 1, task->fault_reason);
+        ArchSetInFrame(frame, 3, TASK_FAULTED);
         return;
     }
     SchedBlockOn(&task->joiners, timeout);
@@ -378,9 +379,8 @@ void TaskFault(TaskObject *task, Err reason)
         TaskObject *joiner = container_of(jn, WaitSlot, node)->owner;
         if (joiner->trap_frame) {
             ArchSetInFrame(joiner->trap_frame, 0, ZUZU_OK);
-            ArchSetInFrame(joiner->trap_frame, 1, WAKE_FAULT);
-            ArchSetInFrame(joiner->trap_frame, 2, reason);
-            ArchSetInFrame(joiner->trap_frame, 3, 0);
+            ArchSetInFrame(joiner->trap_frame, 1, reason);
+            ArchSetInFrame(joiner->trap_frame, 3, TASK_FAULTED);
         }
         SchedUnblock(joiner, WAKE_IPC);
         SchedAdd(joiner);

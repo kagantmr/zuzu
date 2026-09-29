@@ -21,10 +21,12 @@ extern "C" {
  * @param argbuf_len Length of argbuf including NULs, or 0.
  * @param argc      Number of strings in argbuf, or 0.
  * @param out_pid   Set to the new Space's pid on success.
+ * @param out_task Set to the new Task's handle on success, or NULL.
  * @return ZUZU_OK on success, negative Err on failure.
  */
 Err ZxfSpawn(const void *zxf_data, size_t zxf_size, const char *name,
-             const char *argbuf, size_t argbuf_len, uint32_t argc, Spid *out_pid);
+             const char *argbuf, size_t argbuf_len, uint32_t argc, Spid *out_pid, Handle *out_task);
+
 
 #ifdef __cplusplus
 }
