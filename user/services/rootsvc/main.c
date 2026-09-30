@@ -200,8 +200,10 @@ int main(void)
     g_bootinfo = (const BootInfo *)USER_BOOTINFO_VA;
     g_monitor_ev = CreateEvent();
 
+    NsvcInit();
     SpawnThread(DevsvcMain);
     SpawnThread(NsvcMain);
+
 
     SpawnStage1();
 
