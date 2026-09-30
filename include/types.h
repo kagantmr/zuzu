@@ -151,7 +151,7 @@ typedef enum
     MNGHNDL_CLOSE,
     MNGHNDL_QUERY,
     MNGHNDL_DESTROY,
-    MNGHNDL_GRANT
+    MNGHNDL_GRANT,
     MNGHNDL_VERB_COUNT
 } ManageHandleVerb;
 
