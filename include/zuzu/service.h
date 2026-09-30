@@ -7,18 +7,15 @@ extern "C"
 {
 #endif
 
-#define NT_PORT 0
-#define NT_PID 3
-#define NT_MAX_PATH 64
-#define NT_MAX_SERVICES 512
+#define NS_MAX_PATH 64
+#define NS_MAX_SERVICES 512
+
 
 typedef enum
 {
     NS_REGISTER = 1, /* register port into nt */
-    NS_LOOKUP,       /* Look up a name  */
-    NT_LOOKUP_PID,   /* Look up a pid (used for tty aliasing, change later)*/
-    NT_SCRUB_PID     /* sysd telling name server that a process died */
-} NsvcOpcode;
+    NS_LOOKUP       /* Look up a name  */
+} NsvcOpcode; 
 
 typedef struct
 {
@@ -46,6 +43,9 @@ Err RegisterService(const char *name, Handle port);
     * negative error code on failure.
     */
 Handle LookupService(const char *name);
+
+Handle LookupServiceGeneric(const char *name, Handle nsvc_port);
+Err RegisterServiceGeneric(const char *name, Handle port, Handle nsvc_port);
 
 
 #ifdef __cplusplus
