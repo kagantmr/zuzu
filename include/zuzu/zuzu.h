@@ -270,6 +270,14 @@ static inline Err Bind(EventType type, Handle ev_handle, Handle target, uint32_t
     return ArchInvokeSvc(SVC_BIND, type, ev_handle, target, (Register)bit);
 }
 
+/** @brief Grants handle h directly into target_space's table (you need
+ * PERM_CNTL over target_space). r1 = the new handle's value in the
+ * *target's* table, though the target itself has to already know the convention 
+ * (e.g. "slot 0") to find it. */
+static inline SvcResult HandleGrant(Handle h, Handle target_space_handle, HandlePerms perms) {
+    return ArchInvokeSvc4(SVC_MANAGEHANDLE, h, MNGHNDL_GRANT, target_space_handle, perms);
+}
+
 static inline int PtrIsErr(const void *p) {
     return (VirtAddr)p >= (VirtAddr)(-4095);
 }

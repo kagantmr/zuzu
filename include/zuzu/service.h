@@ -14,19 +14,19 @@ extern "C"
 
 typedef enum
 {
-    NT_REGISTER = 1, /* register port into nt */
-    NT_LOOKUP,       /* Look up a name  */
+    NS_REGISTER = 1, /* register port into nt */
+    NS_LOOKUP,       /* Look up a name  */
     NT_LOOKUP_PID,   /* Look up a pid (used for tty aliasing, change later)*/
     NT_SCRUB_PID     /* sysd telling name server that a process died */
-} NtOpcode;
+} NsvcOpcode;
 
 typedef struct
 {
-    NtOpcode cmd;
+    NsvcOpcode cmd;
     Handle handle; /* NT_REGISTER: the granted slot. unused otherwise */
     Spid pid;       /* NT_LOOKUP_PID / NT_SCRUB_PID target */
     char *path;    /* points into the lmsg buf; unused for pid ops */
-} NtRequest;
+} NsvcRequest;
 
 /**
     * @brief Registers a service with the specified name with sysd.
