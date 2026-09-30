@@ -12,6 +12,8 @@
 #define PAGE_ROUND_UP(x) (((x) + PAGE_SIZE - 1) & ~(size_t)(PAGE_SIZE - 1))
 #define PAGE_ROUND_DOWN(x) ((x) & ~(VirtAddr)(PAGE_SIZE - 1))
 
+extern Handle g_nsvc_port;
+
 static Err LoadSegment(Handle space_handle, const void *zxf_data, const ZXFSegment *seg)
 {
     uint32_t prot = 0;
@@ -166,6 +168,15 @@ Err ZxfSpawn(const void *zxf_data, size_t zxf_size, const char *name, const char
         HandleDestroy(space_handle);
         return (Err)task_handle;
     }
+
+    SvcResult grant = HandleGrant(g_nsvc_port, space_handle, PERM_SEND);
+    if (grant.r0 != ZUZU_OK)
+    {
+        HandleDestroy(space_handle);
+        return (Err)grant.r0;
+    }
+
+    rc = TaskStart(task_handle, (VirtAddr)img.entry, sp, argc, (uint32_t)argv_va);
 
     rc = TaskStart(task_handle, (VirtAddr)img.entry, sp, argc, (uint32_t)argv_va);
     if (rc != ZUZU_OK)
