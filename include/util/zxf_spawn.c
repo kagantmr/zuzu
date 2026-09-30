@@ -177,8 +177,6 @@ Err ZxfSpawn(const void *zxf_data, size_t zxf_size, const char *name, const char
     }
 
     rc = TaskStart(task_handle, (VirtAddr)img.entry, sp, argc, (uint32_t)argv_va);
-
-    rc = TaskStart(task_handle, (VirtAddr)img.entry, sp, argc, (uint32_t)argv_va);
     if (rc != ZUZU_OK)
     {
         HandleDestroy(space_handle);
