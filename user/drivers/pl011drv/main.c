@@ -132,7 +132,7 @@ static Err Pl011DrvSetup(void)
     uart->cr = 0;
     uart->icr = ICR_ALL;
     uart->ifls = (uart->ifls & ~IFLS_RX_MASK) | IFLS_RX_1_8;
-    uart->lcrh = LCRH_WLEN_8;
+    uart->lcrh = LCRH_FEN | LCRH_WLEN_8;
     uart->cr = CR_UARTEN | CR_TXE | CR_RXE;
     uart->icr = ICR_ALL;
 
