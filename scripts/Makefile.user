@@ -22,6 +22,7 @@ NEWLIB_INC = build/newlib-include
 
 NEWLIB_USER_CFLAGS = -O$(CONFIG_USER_CC_OPT_LEVEL) -Wall -Wextra -mthumb \
                      $(CPUFLAGS) -I. -I$(NEWLIB_INC) -Iarch/include -Iarch/$(ARCH)/include \
+                     -idirafter include \
                      -MMD -MP -g $(ARCH_USER_FP) \
                      -include $(KCONFIG_AUTOCONF) \
                      -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"'
@@ -116,8 +117,8 @@ LIB_PROG_OBJS := $(foreach p,$(LIB_PROGS),$(USER_$(p)_OBJS))
 # separately -- it's not covered by the flat klib/*.c wildcard, and needs its
 # own .S compile rule below. klib/*.c stays a separate wildcard since klib/ is
 # untouched and lives outside include/.
-ZCRT_CSRCS := $(wildcard klib/*.c) lib/malloc.c \
-              $(filter-out include/fs/fsd_client.c,$(shell find include -name '*.c'))
+ZCRT_CSRCS := $(wildcard klib/*.c) lib/malloc.c lib/stdio.c \
+              $(shell find include -name '*.c')
 ZCRT_SSRCS := $(shell find klib -name '*.S')
 ZCRT_SRCS  := $(ZCRT_CSRCS) $(ZCRT_SSRCS)
 ZCRT_OBJS  := $(patsubst %.c,$(O)/user/zcrt/%.o,$(ZCRT_CSRCS)) \
@@ -139,7 +140,7 @@ $(ZCRT_ARCHIVE): $(ZCRT_OBJS)
 # blanket `find include` like ZCRT_CSRCS above: include/{convert,stdlib}.c
 # and include/zuzu/err.c stay off this list, same as before the include/
 # reorg, so this tier keeps using newlib's own libc for those symbols.
-NEWLIB_ZCRT_SRCS := $(filter-out include/fs/fsd_client.c,$(shell find include/sync include/net include/fs include/util -name '*.c')) \
+NEWLIB_ZCRT_SRCS := $(filter-out include/util/spawn.c,$(shell find include/sync include/net include/fs include/util -name '*.c')) \
                      include/zuzu/service.c include/sbrk.c
 NEWLIB_ZCRT_OBJS := $(patsubst %.c,$(O)/user/zcrt/%.o,$(NEWLIB_ZCRT_SRCS))
 NEWLIB_STUB_SRCS := $(wildcard lib/posix/*.c)
