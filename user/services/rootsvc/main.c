@@ -1,6 +1,7 @@
 #include "rootsvc.h"
 #include <cpio.h>
 #include <string.h>
+#include <zuzu/service.h>
 #include <util/tls.h>
 #include <util/zxf_spawn.h>
 #include <zuzu/bootinfo.h>

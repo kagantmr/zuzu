@@ -116,7 +116,8 @@ LIB_PROG_OBJS := $(foreach p,$(LIB_PROGS),$(USER_$(p)_OBJS))
 # separately -- it's not covered by the flat klib/*.c wildcard, and needs its
 # own .S compile rule below. klib/*.c stays a separate wildcard since klib/ is
 # untouched and lives outside include/.
-ZCRT_CSRCS := $(wildcard klib/*.c) $(shell find include -name '*.c')
+ZCRT_CSRCS := $(wildcard klib/*.c) lib/malloc.c \
+              $(filter-out include/fs/fsd_client.c,$(shell find include -name '*.c'))
 ZCRT_SSRCS := $(shell find klib -name '*.S')
 ZCRT_SRCS  := $(ZCRT_CSRCS) $(ZCRT_SSRCS)
 ZCRT_OBJS  := $(patsubst %.c,$(O)/user/zcrt/%.o,$(ZCRT_CSRCS)) \
@@ -138,7 +139,7 @@ $(ZCRT_ARCHIVE): $(ZCRT_OBJS)
 # blanket `find include` like ZCRT_CSRCS above: include/{convert,stdlib}.c
 # and include/zuzu/err.c stay off this list, same as before the include/
 # reorg, so this tier keeps using newlib's own libc for those symbols.
-NEWLIB_ZCRT_SRCS := $(shell find include/sync include/net include/fs include/util -name '*.c') \
+NEWLIB_ZCRT_SRCS := $(filter-out include/fs/fsd_client.c,$(shell find include/sync include/net include/fs include/util -name '*.c')) \
                      include/zuzu/service.c include/sbrk.c
 NEWLIB_ZCRT_OBJS := $(patsubst %.c,$(O)/user/zcrt/%.o,$(NEWLIB_ZCRT_SRCS))
 NEWLIB_STUB_SRCS := $(wildcard lib/posix/*.c)
@@ -218,10 +219,10 @@ $(NEWLIB_CRT0): $(ARCH_DIR)/crt0.S
 
 # ---- user program link rules ------------------------------------------------
 define LINK_USER_PROG
-$(O)/user/$(1).elf: $$(USER_$(1)_OBJS) $(USER_CRT0) $(ZCRT_OBJS) user/user.ld
+$(O)/user/$(1).elf: $$(USER_$(1)_OBJS) $(USER_CRT0) $(ZCRT_ARCHIVE) user/user.ld
 	@mkdir -p $$(dir $$@)
 	@echo "  LD      $$@"
-	@$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) $$(USER_$(1)_OBJS) $(ZCRT_OBJS) $(USER_LIBGCC) -o $$@
+	@$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) $$(USER_$(1)_OBJS) $(ZCRT_ARCHIVE) $(USER_LIBGCC) -o $$@
 endef
 
 $(foreach p,$(filter $(ZCRT_PROGS),$(BOARD_PROGS)),$(eval $(call LINK_USER_PROG,$(p))))
