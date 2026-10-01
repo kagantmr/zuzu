@@ -1,26 +1,37 @@
-#include "emmc2drv.h"
-#include "zuzu/cap.h"
-#include "dev/protocols/devm.h"
-#include "dev/protocols/mmcdrv.h"
 #include <stdbool.h>
 #include <stdint.h>
-#include <util/log.h>
-#include <zuzu/msg.h>
+#include <string.h>
+#include <util/msg.h>
 #include <zuzu/service.h>
+#include <zuzu/udbg.h>
 #include <zuzu/zuzu.h>
+#include "dev/protocols/devm.h"
+#include "dev/protocols/mmcdrv.h"
+#include "emmc2drv.h"
 
-#define LOG_TAG "pl181drv"
+#define LOG_TAG "emmc2drv"
+#define LOG_INFO(tag, fmt, ...) UserspaceDebugLog(tag ": " fmt, ##__VA_ARGS__)
+#define LOG_WARN(tag, fmt, ...) UserspaceDebugLog(tag ": " fmt, ##__VA_ARGS__)
+#define LOG_ERROR(tag, fmt, ...) UserspaceDebugLog(tag ": " fmt, ##__VA_ARGS__)
+
+#define BIT_IRQ 0
+#define BIT_PORT 1
+#define MASK(bit) (1U << (bit))
+#define POLL_MS 10 /* bits are hints: int_status is re-checked at least this often */
+#define XFER_TIMEOUT_POLLS 500
+
+#define OP_READ 1
+#define OP_WRITE 2
 
 static Emmc2MMIO *emmc2;
 static bool is_sdhc;
 
 static Handle port = -1;
 static Handle block_dev_handle = -1;
-static Handle block_irq_ntfn = -1;
-static Handle shmem_handle = -1;
+static Handle g_event = -1;
+static Handle g_buf_mem = -1;
 static uint32_t *shmem_buf = NULL;
-static Handle pending_reply_h = -1;
-static int current_op = 0; /* 0 = IDLE, 1 = READ, 2 = WRITE */
+static int current_op = 0;
 
 static void BusyDelay(uint32_t n)
 {
@@ -114,7 +125,7 @@ static int Emmc2HwInit(void)
 
     /* Power On to 3.3V */
     emmc2->host_ctrl_1 = SDHCI_POWER_330V | SDHCI_POWER_ON;
-    ZuzuSleep(10);
+    Sleep(10);
 
     /* 3. Enable internal clock & set divider for ~400kHz (identification mode) */
     /* SDHCI 3.0 uses bits 8-15 for the base clock divider */
@@ -167,7 +178,7 @@ static int Emmc2HwInit(void)
             break;
 
         /* Yield thread while waiting for physical card power up */
-        ZuzuSleep(10);
+        Sleep(10);
     }
 
     if (!(ocr & (1U << 31)))
@@ -207,154 +218,218 @@ static int Emmc2HwInit(void)
     return 0;
 }
 
-static void StartRead(uint32_t block_num, Handle reply_h)
+/* Synchronous transfer: after the command is issued, sleep on the event until
+ * the controller raises BUF_RD/WR_READY (or an error), move the data, and
+ * return. The IRQ line is masked by the kernel on every interrupt, so the
+ * source is cleared first, then the line re-armed, then int_status re-read. */
+static int Emmc2WaitTransfer(uint32_t *buf)
+{
+    bool irq = true; /* command interrupts may already have masked the line */
+
+    for (uint32_t polls = 0; polls < XFER_TIMEOUT_POLLS; polls++)
+    {
+        uint32_t status = emmc2->int_status;
+
+        if (status & SDHCI_INT_ERROR)
+        {
+            LOG_ERROR(LOG_TAG, "transfer error STATUS=0x%08x", status);
+            emmc2->int_status = status;
+            emmc2->clk_ctrl_reset |= SDHCI_RESET_DATA;
+            while (emmc2->clk_ctrl_reset & SDHCI_RESET_DATA)
+                ;
+            IrqRearm(block_dev_handle);
+            return SD_ERR_IO;
+        }
+        if (current_op == OP_READ && (status & SDHCI_INT_BUF_RD_READY))
+        {
+            emmc2->int_status = SDHCI_INT_BUF_RD_READY;
+            for (size_t i = 0; i < MCI_BLOCK_WORDS; i++)
+            {
+                buf[i] = emmc2->data_port;
+            }
+            while (!(emmc2->int_status & SDHCI_INT_XFER_COMPLETE))
+                ;
+            emmc2->int_status = SDHCI_INT_XFER_COMPLETE;
+            IrqRearm(block_dev_handle);
+            return ZUZU_OK;
+        }
+        if (current_op == OP_WRITE && (status & SDHCI_INT_BUF_WR_READY))
+        {
+            emmc2->int_status = SDHCI_INT_BUF_WR_READY;
+            for (size_t i = 0; i < MCI_BLOCK_WORDS; i++)
+            {
+                emmc2->data_port = buf[i];
+            }
+            while (!(emmc2->int_status & SDHCI_INT_XFER_COMPLETE))
+                ;
+            emmc2->int_status = SDHCI_INT_XFER_COMPLETE;
+            IrqRearm(block_dev_handle);
+            return ZUZU_OK;
+        }
+
+        /* Spurious, or XFER_COMPLETE from a previous step */
+        if (status)
+            emmc2->int_status = status;
+        if (irq)
+        {
+            IrqRearm(block_dev_handle);
+            irq = false;
+        }
+
+        EventWaitResult ev = FormatToEventWait(WaitOn(g_event, POLL_MS));
+        irq = ev.status == ZUZU_OK && (ev.bits & MASK(BIT_IRQ));
+    }
+
+    LOG_ERROR(LOG_TAG, "transfer timed out");
+    return SD_ERR_IO;
+}
+
+static int Emmc2Transfer(int op, uint32_t block_num, uint32_t *buf)
 {
     uint32_t addr = is_sdhc ? block_num : block_num * MCI_BLOCK_SIZE;
 
-    pending_reply_h = reply_h;
-    current_op = 1;
-
+    current_op = op;
     emmc2->block_size_count = (1U << 16) | 512U;
     emmc2->int_status = 0xFFFFFFFF;
 
-    if (Emmc2SendCmd(17, addr,
-                     SDHCI_CMD_RESP_48 | SDHCI_CMD_CRC_CHECK | SDHCI_CMD_IDX_CHECK |
-                         SDHCI_CMD_DATA_EN | SDHCI_TRNS_READ | SDHCI_TRNS_BLK_CNT_EN) < 0)
+    int rc;
+    if (op == OP_READ)
     {
-        ZuzuMsgReply(reply_h, (uint32_t)SD_ERR_IO, 0, 0);
-        current_op = 0;
-    }
-}
-
-static void StartWrite(uint32_t block_num, Handle reply_h)
-{
-    uint32_t addr = is_sdhc ? block_num : block_num * MCI_BLOCK_SIZE;
-
-    pending_reply_h = reply_h;
-    current_op = 2;
-
-    emmc2->block_size_count = (1U << 16) | 512U;
-    emmc2->int_status = 0xFFFFFFFF;
-
-    if (Emmc2SendCmd(24, addr,
-                     SDHCI_CMD_RESP_48 | SDHCI_CMD_CRC_CHECK | SDHCI_CMD_IDX_CHECK |
-                         SDHCI_CMD_DATA_EN | SDHCI_TRNS_BLK_CNT_EN) < 0)
-    {
-        ZuzuMsgReply(reply_h, (uint32_t)SD_ERR_IO, 0, 0);
-        current_op = 0;
-    }
-}
-
-static void HandleHardwareIrq(void)
-{
-    uint32_t status = emmc2->int_status;
-    int rc = ZUZU_OK;
-
-    if (status & SDHCI_INT_ERROR)
-    {
-        LOG_ERROR(LOG_TAG, "transfer error STATUS=0x%08x", status);
-        emmc2->int_status = status;
-        emmc2->clk_ctrl_reset |= SDHCI_RESET_DATA;
-        while (emmc2->clk_ctrl_reset & SDHCI_RESET_DATA)
-            ;
-        rc = SD_ERR_IO;
-    }
-    else if (current_op == 1 && (status & SDHCI_INT_BUF_RD_READY))
-    {
-        emmc2->int_status = SDHCI_INT_BUF_RD_READY;
-        for (size_t i = 0; i < MCI_BLOCK_WORDS; i++)
-        {
-            shmem_buf[i] = emmc2->data_port;
-        }
-        while (!(emmc2->int_status & SDHCI_INT_XFER_COMPLETE))
-            ;
-        emmc2->int_status = SDHCI_INT_XFER_COMPLETE;
-    }
-    else if (current_op == 2 && (status & SDHCI_INT_BUF_WR_READY))
-    {
-        emmc2->int_status = SDHCI_INT_BUF_WR_READY;
-        for (size_t i = 0; i < MCI_BLOCK_WORDS; i++)
-        {
-            emmc2->data_port = shmem_buf[i]; /* Fixed: push to hardware */
-        }
-        while (!(emmc2->int_status & SDHCI_INT_XFER_COMPLETE))
-            ;
-        emmc2->int_status = SDHCI_INT_XFER_COMPLETE;
+        rc = Emmc2SendCmd(17, addr,
+                          SDHCI_CMD_RESP_48 | SDHCI_CMD_CRC_CHECK | SDHCI_CMD_IDX_CHECK |
+                              SDHCI_CMD_DATA_EN | SDHCI_TRNS_READ | SDHCI_TRNS_BLK_CNT_EN);
     }
     else
     {
-        /* Spurious or XFER_COMPLETE from a previous step */
-        emmc2->int_status = status;
-        ZuzuIrqDone(block_dev_handle);
+        rc = Emmc2SendCmd(24, addr,
+                          SDHCI_CMD_RESP_48 | SDHCI_CMD_CRC_CHECK | SDHCI_CMD_IDX_CHECK |
+                              SDHCI_CMD_DATA_EN | SDHCI_TRNS_BLK_CNT_EN);
+    }
+
+    rc = (rc < 0) ? SD_ERR_IO : Emmc2WaitTransfer(buf);
+    current_op = 0;
+    return rc;
+}
+
+static void ReplyStatus(Err status)
+{
+    memcpy(MessageBuf(), &status, sizeof(status));
+    Reply(sizeof(status), -1);
+}
+
+static void ServeGetBuf(void)
+{
+    /* Grants copy perms verbatim and need PERM_TXFR: send a dup. */
+    SvcResult dup = HandleDuplicate(g_buf_mem, PERM_MAP | PERM_TXFR, MARKER_NONE);
+    if (dup.r0 != ZUZU_OK)
+    {
+        ReplyStatus((Err)dup.r0);
         return;
     }
 
-    ZuzuIrqDone(block_dev_handle);
-
-    if (pending_reply_h != -1)
-    {
-        ZuzuMsgReply(pending_reply_h, (uint32_t)rc, 0, 0);
-        pending_reply_h = -1;
-    }
-    current_op = 0;
+    /* The card's capacity is not queried, so block_count is reported unknown. */
+    SdReply rep = { .status = ZUZU_OK, .buf_size = SD_BUF_SIZE, .block_size = SD_BLOCK_SIZE,
+                    .block_count = 0 };
+    memcpy(MessageBuf(), &rep, sizeof(rep));
+    Reply(sizeof(rep), (Handle)dup.r1);
+    HandleClose((Handle)dup.r1);
 }
 
-static void ServeClient(Handle reply_h, uint32_t sender, uint32_t cmd, uint32_t arg)
+static void ServeTransfer(const SdRequest *req)
 {
+    if (req->count == 0 || req->count > SD_BUF_SIZE / SD_BLOCK_SIZE)
+    {
+        ReplyStatus(ERR_BADARG);
+        return;
+    }
+
+    int op = (req->cmd == SD_CMD_READ) ? OP_READ : OP_WRITE;
+    int rc = ZUZU_OK;
+    for (uint32_t i = 0; i < req->count && rc == ZUZU_OK; i++)
+        rc = Emmc2Transfer(op, req->lba + i, shmem_buf + (i * MCI_BLOCK_WORDS));
+    ReplyStatus((Err)rc);
+}
+
+static void HandleRequest(const PortWaitResult *r)
+{
+    if (r->granted >= 0)
+        HandleClose(r->granted);
+
+    uint32_t cmd = 0;
+    if (r->xlen < sizeof(cmd))
+    {
+        ReplyStatus(ERR_BADARG);
+        return;
+    }
+    memcpy(&cmd, MessageBuf(), sizeof(cmd));
+
     switch (cmd)
     {
     case SD_CMD_GET_BUF:
+        ServeGetBuf();
+        break;
+    case SD_CMD_READ:
+    case SD_CMD_WRITE:
     {
-        int32_t granted = ZuzuGrant(shmem_handle, (int32_t)sender, 0);
-        if (granted < 0)
-            ZuzuMsgReply(reply_h, (uint32_t)granted, 0, 0);
-        else
-            ZuzuMsgReply(reply_h, ZUZU_OK, (uint32_t)granted, 0);
+        SdRequest req;
+        if (r->xlen < sizeof(req))
+        {
+            ReplyStatus(ERR_BADARG);
+            break;
+        }
+        memcpy(&req, MessageBuf(), sizeof(req));
+        ServeTransfer(&req);
         break;
     }
-    case SD_CMD_READ:
-        StartRead(arg, reply_h);
-        break;
-    case SD_CMD_WRITE:
-        StartWrite(arg, reply_h);
-        break;
     default:
-        ZuzuMsgReply(reply_h, (uint32_t)ERR_NOSYS, 0, 0);
+        ReplyStatus(ERR_NOSYS);
         break;
+    }
+}
+
+static Handle WaitForDevsvc(void)
+{
+    for (;;)
+    {
+        Handle h = LookupService("/svc/devsvc");
+        if (h >= 0)
+            return h;
+        Sleep(10);
     }
 }
 
 static int Emmc2ServiceInit(void)
 {
-    int32_t devmgr_port = LookupService("/svc/devmgr");
-    if (devmgr_port < 0)
-        return -1;
+    Handle devsvc_port = WaitForDevsvc();
 
     static const char *const block_compat[] = {"brcm,bcm2711-emmc2"};
-    block_dev_handle = DevmRequestDevice(devmgr_port, block_compat, 1, NULL);
+    block_dev_handle = RequestDevice(devsvc_port, block_compat, 1, NULL);
     if (block_dev_handle < 0)
         return block_dev_handle;
 
-    block_irq_ntfn = ZuzuNtfnCreate();
-    if (block_irq_ntfn < 0 || ZuzuIrqBind(block_dev_handle, block_irq_ntfn) < 0)
+    g_event = CreateEvent();
+    if (g_event < 0 || BindIrq(g_event, block_dev_handle, BIT_IRQ) != ZUZU_OK)
         return -1;
 
-    emmc2 = (Emmc2MMIO *)ZuzuMemMap(block_dev_handle, 0, PROT_RW, 0);
-    if ((intptr_t)emmc2 <= 0)
+    VirtAddr mmio = MemMap(block_dev_handle, 0, PROT_RW);
+    if (PtrIsErr((void *)mmio))
         return -1;
+    emmc2 = (Emmc2MMIO *)mmio;
 
     if (Emmc2HwInit() < 0)
         return -1;
 
-    Handle shm_h = ZuzuShmemCreate(4096);
-    void *shm_addr = ZuzuMemMap(shm_h, 0, PROT_RW, 0);
-    if (ZuzuPtrIsErr(shm_addr))
+    g_buf_mem = CreateMem(SD_BUF_SIZE / 4096);
+    if (g_buf_mem < 0)
         return -1;
-
-    shmem_handle = shm_h;
+    VirtAddr shm_addr = MemMap(g_buf_mem, 0, PROT_RW);
+    if (PtrIsErr((void *)shm_addr))
+        return -1;
     shmem_buf = (uint32_t *)shm_addr;
 
-    port = ZuzuPortCreate();
+    port = CreatePort();
+    if (port < 0 || Bind(EVENT_PORT, g_event, port, BIT_PORT) != ZUZU_OK)
+        return -1;
     return RegisterService("/dev/mmc0", port);
 }
 
@@ -363,40 +438,22 @@ int main(void)
     if (Emmc2ServiceInit() < 0)
         return 1;
 
-    Handle wait_handles[2] = {port, block_irq_ntfn};
-
-    while (1)
+    for (;;)
     {
-        /* Per-iteration, and stamped NO_MATCH rather than merely zeroed:
-         * index 0 is a live handle here, so a zeroed result would dispatch
-         * as a port request carrying the previous iteration's source and
-         * LBA. waitany can return success without writing this. */
-        WaitanyResult res;
-        res.matched_index = (Handle)WAITANY_NO_MATCH;
-
-        Err err = ZuzuWaitany(wait_handles, 2, TIMEOUT_INFINITE, &res);
-        if (err < 0 || res.matched_index == (Handle)WAITANY_NO_MATCH)
+        EventWaitResult ev = FormatToEventWait(WaitOn(g_event, POLL_MS));
+        /* A stray IRQ between transfers: clear the source, then re-arm the line. */
+        if (ev.status == ZUZU_OK && (ev.bits & MASK(BIT_IRQ)))
         {
-            continue;
+            emmc2->int_status = emmc2->int_status;
+            IrqRearm(block_dev_handle);
         }
 
-        if (res.matched_index == 0)
+        for (;;)
         {
-            if (current_op != 0 && (res.w2 == SD_CMD_READ || res.w2 == SD_CMD_WRITE))
-            {
-                ZuzuMsgReply((Handle)res.source, (uint32_t)ERR_BUSY, 0, 0);
-            }
-            else
-            {
-                ServeClient((Handle)res.source, res.w1, res.w2, res.w3);
-            }
-        }
-        else if (res.matched_index == 1)
-        {
-            if (res.w1 > 0)
-            {
-                HandleHardwareIrq();
-            }
+            PortWaitResult r = FormatToPortWait(WaitOn(port, TIMEOUT_POLL));
+            if (r.status != ZUZU_OK)
+                break;
+            HandleRequest(&r);
         }
     }
 }
