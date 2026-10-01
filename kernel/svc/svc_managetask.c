@@ -35,7 +35,7 @@ void SvcManageTask(CpuState *frame)
         return;
     }
 
-    HandleTableEntry *entry = HandleTableGet(&CURRENT_SPACE->handle_table, h);
+    HandleTableEntry *entry = HandleTableLookup(&CURRENT_SPACE->handle_table, h);
     ENSURE_ERR(frame, entry, ERR_BADHANDLE);
     ENSURE_ERR(frame, entry->type == HANDLE_TASK, ERR_BADTYPE);
     ENSURE_ERR(frame, entry->perms & PERM_CNTL, ERR_NOPERM);

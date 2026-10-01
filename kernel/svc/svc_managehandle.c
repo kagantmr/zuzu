@@ -10,7 +10,7 @@ void SvcManageHandle(CpuState *frame)
     Handle h = (Handle)(*ArchGetFromFrame(frame, 0));
     ManageHandleVerb verb = (ManageHandleVerb)(*ArchGetFromFrame(frame, 1));
 
-    HandleTableEntry *entry = HandleTableGet(&CURRENT_SPACE->handle_table, h);
+    HandleTableEntry *entry = HandleTableLookup(&CURRENT_SPACE->handle_table, h);
 
     ENSURE_ERR(frame, entry, ERR_BADHANDLE);
 
