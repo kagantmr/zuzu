@@ -106,3 +106,13 @@ void IrqReleaseAll(SpaceObject *owner)
         }
     }
 }
+
+Err IrqRelayRearm(SpaceObject *owner, Irq irq_num)
+{
+    if (irq_num >= MAX_IRQS)
+        return ERR_BADARG;
+    if (irq_owners[irq_num].owner != owner)
+        return ERR_NOPERM;
+    ArchIrqUnmaskLine(irq_num);
+    return ZUZU_OK;
+}

@@ -1,5 +1,6 @@
 #include "core/ensure.h"
 #include "kernel/space/handle.h"
+#include "kernel/irq/irq_relay.h"
 #include "kernel/space/space.h"
 #include "svc.h"
 #include <arch/regs.h>
@@ -148,6 +149,15 @@ void SvcManageHandle(CpuState *frame)
         ENSURE_ERR(frame, ZUZU_OK == rc, rc);
         ArchSetInFrame(frame, 0, ZUZU_OK);
         ArchSetInFrame(frame, 1, new_handle);
+    }
+    break;
+    case MNGHNDL_IRQ_REARM:
+    {
+        ENSURE_ERR(frame, HANDLE_MEM == entry->type, ERR_BADTYPE);
+        MemObject *dev = entry->mem;
+        ENSURE_ERR(frame, dev && dev->kind == MEMTYPE_DEVICE, ERR_BADTYPE);
+        ENSURE_ERR(frame, IrqIsValid(dev->dev.irq), ERR_BADARG);
+        ArchSetInFrame(frame, 0, IrqRelayRearm(CURRENT_SPACE, dev->dev.irq));
     }
     break;
     default:

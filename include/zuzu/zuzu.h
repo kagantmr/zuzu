@@ -278,6 +278,13 @@ static inline SvcResult HandleGrant(Handle h, Handle target_space_handle, Handle
     return ArchInvokeSvc4(SVC_MANAGEHANDLE, h, MNGHNDL_GRANT, target_space_handle, perms);
 }
 
+/** @brief Unmasks the IRQ line of a device handle this space bound with
+ * BindIrq. The kernel masks the line on every interrupt; call this once the
+ * device's interrupt source has been cleared. */
+static inline Err IrqRearm(Handle dev_handle) {
+    return ArchInvokeSvc(SVC_MANAGEHANDLE, dev_handle, MNGHNDL_IRQ_REARM, 0, 0);
+}
+
 static inline int PtrIsErr(const void *p) {
     return (VirtAddr)p >= (VirtAddr)(-4095);
 }

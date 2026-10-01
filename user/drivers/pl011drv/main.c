@@ -23,6 +23,7 @@
 static volatile Pl011Mmio *uart;
 static Handle devsvc_port = -1;
 static Handle client_port = -1;
+static Handle g_dev = -1;
 static Handle g_event = -1;
 static Handle g_doorbell = -1;
 
@@ -209,12 +210,12 @@ static Err Pl011DrvSetup(void)
     if (rc != ZUZU_OK)
         return rc;
 
-    Handle dev_handle = RequestSerialDevice();
-    UserspaceDebugLog("pl011drv: device handle=%d", dev_handle);
-    if (dev_handle < 0)
-        return (Err)dev_handle;
+    g_dev = RequestSerialDevice();
+    UserspaceDebugLog("pl011drv: device handle=%d", g_dev);
+    if (g_dev < 0)
+        return (Err)g_dev;
 
-    VirtAddr mmio = MemMap(dev_handle, 0, PROT_RW);
+    VirtAddr mmio = MemMap(g_dev, 0, PROT_RW);
     UserspaceDebugLog("pl011drv: mmio=0x%x", (unsigned)mmio);
     if (PtrIsErr((void *)mmio))
         return (Err)mmio;
@@ -238,7 +239,7 @@ static Err Pl011DrvSetup(void)
         return (Err)dup.r0;
     g_doorbell = (Handle)dup.r1;
 
-    rc = BindIrq(g_event, dev_handle, BIT_IRQ);
+    rc = BindIrq(g_event, g_dev, BIT_IRQ);
     if (rc != ZUZU_OK)
         return rc;
     rc = Bind(EVENT_PORT, g_event, client_port, BIT_PORT);
@@ -280,6 +281,8 @@ int main(void)
         uart->icr = ICR_ALL;
         bool rx = UartRxPump();
         UartTxPump();
+        if (ev.bits & MASK(BIT_IRQ))
+            IrqRearm(g_dev);
         if (rx && g_session.client_doorbell >= 0)
             Signal(g_session.client_doorbell, MASK(g_session.client_bit), false);
     }
