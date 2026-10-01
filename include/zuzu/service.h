@@ -7,9 +7,9 @@ extern "C"
 {
 #endif
 
+#define NSVC_PORT 0
 #define NS_MAX_PATH 64
 #define NS_MAX_SERVICES 512
-
 
 typedef enum
 {

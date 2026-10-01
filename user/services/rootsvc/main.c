@@ -197,7 +197,8 @@ int main(void)
     if (!VersionOk())
         Quit(ERR_BADARG);
 
-    NsvcInit();
+    if (NsvcInit() != NSVC_PORT)
+        Quit(ERR_BADARG);
     
     g_bootinfo = (const BootInfo *)USER_BOOTINFO_VA;
     g_monitor_ev = CreateEvent();

@@ -3,9 +3,6 @@
 #include <zuzu/zuzu.h>
 #include <zuzu/err.h>
 
-#define NSVC_PORT 0
-
-
 Err RegisterServiceGeneric(const char *name, Handle port, Handle nsvc_port)
 {
     MsgWriter w;

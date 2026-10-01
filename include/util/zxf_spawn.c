@@ -1,5 +1,5 @@
 #include <util/zxf_spawn.h>
-
+#include <zuzu/service.h>
 #include <util/tls.h>
 #include <util/zxf.h>
 #include <zuzu/err.h>
