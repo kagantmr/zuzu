@@ -20,7 +20,13 @@
 extern "C" {
 #endif
 
-#ifdef DEBUG
+/* Off for now; build with -DUDBG_ENABLED=1 (or flip this default) to get the
+ * [udbg spid=N] lines back. */
+#ifndef UDBG_ENABLED
+#define UDBG_ENABLED 0
+#endif
+
+#if defined(DEBUG) && UDBG_ENABLED
 
 #include <stdarg.h>
 #include <stdio.h>
