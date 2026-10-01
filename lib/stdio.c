@@ -2,227 +2,204 @@
 #include <ctype.h>
 #include <string.h>
 #include <stdlib.h>
-
-#ifdef __ZUZU__
-#include "core/kprintf.h"
-#else
+#include <dev/protocols/tty.h>
 #include <util/msg.h>
-#include <zuzu/protocols/nametable.h>
+#include <zuzu/err.h>
 #include <zuzu/service.h>
+#include <zuzu/udbg.h>
 #include <zuzu/zuzu.h>
-#endif
 
 #define STDIO_PRINTF_BUF_SIZE 1024
+#define STDIO_BIT_KICK 0
+#define STDIO_POLL_MS 20
+#define STDIO_ATTACH_RETRIES 100
 
-#ifndef __ZUZU__
-/* Full nametable path of the tty this process writes to. Drivers register
- * under /dev, services under /svc; the console is a driver, so the
- * default is the first UART. Changed at runtime via stdio_route_tty(). */
-static int32_t stdio_tty = -1;
-static char stdio_tty_name[NT_MAX_PATH] = "/dev/uart0";
-static char stdio_input_buf[MSG_BUF_SIZE];
-static uint32_t stdio_input_len;
-static uint32_t stdio_input_pos;
-static int stdio_input_pushback = EOF;
-#endif
+typedef enum
+{
+    STDIO_IDLE,
+    STDIO_READY,
+    STDIO_FAILED, /* endpoint never appeared; stop retrying */
+} StdioState;
 
-static void __attribute__((constructor)) stdio_init(void) {
-#ifdef __ZUZU__
-    // Nothing to do for kernel, kprintf is always available
-#else
-    // Lazy initialization: don't look up tty service on startup.
-    // Wait until first printf() or explicit `stdio_open_tty()` call.
-#endif
+static StdioState stdio_state = STDIO_IDLE;
+static Handle stdio_port = -1;
+static Handle stdio_event = -1;
+static TtyConn stdio_conn;
+static char stdio_alias[TTY_NAME_MAX];
+static int stdio_pushback = EOF;
+static uint32_t stdio_mode = TTY_MODE_COOKED | TTY_MODE_ECHO;
+
+static void stdio_disconnect(void)
+{
+    if (stdio_state == STDIO_READY)
+    {
+        TtyShm *shm = stdio_conn.shm;
+        for (int i = 0; i < STDIO_ATTACH_RETRIES && ShmRingAvail(&shm->up_hdr) > 0; i++)
+        {
+            Signal(stdio_conn.doorbell, 1U << stdio_conn.bit, false);
+            WaitOn(stdio_event, STDIO_POLL_MS);
+        }
+        TtyClientClose(stdio_port, &stdio_conn);
+    }
+    stdio_state = STDIO_IDLE;
+    stdio_pushback = EOF;
 }
 
-static void __attribute__((destructor)) stdio_fini(void) {
-#ifndef __ZUZU__
-    stdio_tty = -1;
-    stdio_input_len = 0;
-    stdio_input_pos = 0;
-    stdio_input_pushback = EOF;
-#endif
+static void __attribute__((destructor)) stdio_fini(void)
+{
+    stdio_disconnect();
 }
 
-
-/* Resolve stdio_tty_name through the nameserver, once. Idempotent: a
- * successful lookup is cached until stdio_route_tty() invalidates it. */
+/* Idempotent. Connects on first use rather than at startup so services that
+ * link this file never block waiting for ttysvc. Returns 0 when attached. */
 int stdio_open_tty(void)
 {
-#ifdef __ZUZU__
-    return -1;
-#else
-    if (stdio_tty >= 0) {
+    if (stdio_state == STDIO_READY)
         return 0;
+    if (stdio_state == STDIO_FAILED)
+        return -1;
+
+    if (stdio_port < 0)
+    {
+        stdio_port = LookupService("/svc/tty");
+        if (stdio_port < 0)
+        {
+            stdio_port = -1;
+            return -1;
+        }
+    }
+    if (stdio_event < 0)
+    {
+        stdio_event = CreateEvent();
+        if (stdio_event < 0)
+        {
+            stdio_event = -1;
+            return -1;
+        }
     }
 
-    Handle h = LookupService(stdio_tty_name);
-    if (h < 0) {
+    Err rc = ERR_NOENT;
+    for (int i = 0; i < STDIO_ATTACH_RETRIES && rc == ERR_NOENT; i++)
+    {
+        rc = TtyClientConnect(stdio_port, TTY_ATTACH, stdio_alias, stdio_event, STDIO_BIT_KICK, &stdio_conn);
+        if (rc == ERR_NOENT)
+            Sleep(10);
+    }
+    if (rc != ZUZU_OK)
+    {
+        if (rc == ERR_NOENT)
+            stdio_state = STDIO_FAILED;
         return -1;
     }
 
-    stdio_tty = (int32_t)h;
+    rc = TtyClientSetMode(stdio_port, &stdio_conn, stdio_mode);
+    if (rc != ZUZU_OK)
+    {
+        TtyClientClose(stdio_port, &stdio_conn);
+        return -1;
+    }
+    stdio_state = STDIO_READY;
     return 0;
-#endif
 }
 
-/* Point stdio at a different tty by nametable path (e.g. "/dev/uart1").
- * Drops any buffered input from the previous tty and resolves the new one
- * immediately, so a failure is reported here rather than at first printf. */
+/* Raw mode hands every byte through untouched, so the caller does its own
+ * echo and line editing. Output still gets "\n" -> "\r\n" (what cooked mode
+ * does in ttysvc). The setting survives a reattach. */
+int stdio_set_raw(int enable)
+{
+    stdio_mode = enable ? TTY_MODE_RAW : (TTY_MODE_COOKED | TTY_MODE_ECHO);
+    if (stdio_state != STDIO_READY)
+        return 0;
+    return TtyClientSetMode(stdio_port, &stdio_conn, stdio_mode) == ZUZU_OK ? 0 : -1;
+}
+
+/* Releases the session so another program can take the foreground; the next
+ * printf or getchar attaches again. */
+void stdio_close_tty(void)
+{
+    stdio_disconnect();
+}
+
+/* `name` is a ttysvc alias ("" for the default endpoint). Reconnects now so
+ * a bad alias is reported here rather than at the first printf. */
 int stdio_route_tty(const char *name)
 {
-#ifdef __ZUZU__
-    (void)name;
-    return -1;
-#else
-    if (!name)
+    if (!name || strlen(name) >= TTY_NAME_MAX)
         return -1;
 
-    size_t len = strlen(name);
-    if (len == 0 || len >= NT_MAX_PATH)
-        return -1;
-
-    memcpy(stdio_tty_name, name, len + 1);
-    stdio_tty = -1;
-    stdio_input_len = 0;
-    stdio_input_pos = 0;
-    stdio_input_pushback = EOF;
+    stdio_disconnect();
+    strcpy(stdio_alias, name);
     return stdio_open_tty();
-#endif
 }
 
-/* Convenience wrapper: route to /dev/uart<index>. */
 int stdio_use_tty(uint32_t index)
 {
-#ifdef __ZUZU__
-    (void)index;
-    return -1;
-#else
-    char name[NT_MAX_PATH];
-    snprintf(name, sizeof(name), "/dev/uart%u", (unsigned)(index % 10u));
+    char name[TTY_NAME_MAX];
+    snprintf(name, sizeof(name), "tty%u", (unsigned)(index % 10u));
     return stdio_route_tty(name);
-#endif
 }
 
-static int __attribute__((unused)) stdio_refill_input(void)
+static void stdio_kick(void)
 {
-#ifdef __ZUZU__
-    return EOF;
-#else
-    if (stdio_open_tty() != 0)
-        return EOF;
-
-    Message reply = ZuzuMsgLcall(stdio_tty, MSG_BUF_SIZE);
-    if (reply.w0 < 0)
-        return EOF;
-
-    uint32_t got = reply.w1;
-    if (got > MSG_BUF_SIZE)
-        got = MSG_BUF_SIZE;
-    if (got == 0)
-        return EOF;
-
-    memcpy(stdio_input_buf, MessageBuf(), got);
-    stdio_input_len = got;
-    stdio_input_pos = 0;
-    return 0;
-#endif
+    Signal(stdio_conn.doorbell, 1U << stdio_conn.bit, false);
 }
 
-static int __attribute__((unused)) stdio_stream_getc(void)
+/* Blocks while the up ring is full: that is the backpressure ttysvc applies
+ * to a background consumer. */
+static void stdio_write(const char *s, size_t n)
 {
-#ifdef __ZUZU__
-    return EOF;
-#else
-    if (stdio_input_pushback != EOF) {
-        int c = stdio_input_pushback;
-        stdio_input_pushback = EOF;
+    TtyShm *shm = stdio_conn.shm;
+    while (n > 0)
+    {
+        uint32_t w = ShmRingPush(&shm->up_hdr, shm->up_data, (const uint8_t *)s, (uint32_t)n);
+        s += w;
+        n -= w;
+        stdio_kick();
+        if (n > 0)
+            WaitOn(stdio_event, STDIO_POLL_MS);
+    }
+}
+
+/* Blocks until a byte arrives. Event words are only hints, so the ring and
+ * the EOF flag are re-checked on every wakeup. */
+static int stdio_stream_getc(void)
+{
+    if (stdio_pushback != EOF)
+    {
+        int c = stdio_pushback;
+        stdio_pushback = EOF;
         return c;
     }
 
-    if (stdio_input_pos >= stdio_input_len) {
-        if (stdio_refill_input() == EOF)
-            return EOF;
-    }
+    if (stdio_open_tty() != 0)
+        return EOF;
 
-    return (unsigned char)stdio_input_buf[stdio_input_pos++];
-#endif
+    TtyShm *shm = stdio_conn.shm;
+    for (;;)
+    {
+        uint8_t b;
+        if (ShmRingPop(&shm->down_hdr, shm->down_data, &b, 1) == 1)
+            return b;
+        if (TtyEofPending(shm))
+            return EOF;
+        WaitOn(stdio_event, STDIO_POLL_MS);
+    }
 }
 
 int getchar(void)
 {
-#ifdef __ZUZU__
-    return EOF;
-#else
     return stdio_stream_getc();
-#endif
 }
 
-static const char * __attribute__((unused)) stdio_skip_ws(const char *s)
+static const char *stdio_skip_ws(const char *s)
 {
     while (*s && isspace((unsigned char)*s))
         s++;
     return s;
 }
 
-/* Blocking counterpart to stdio_stream_getc.
- *
- * The tty driver's read is non-blocking: it replies with whatever is in its
- * RX ring, which between keystrokes is nothing, and stdio_refill_input turns
- * that empty reply into EOF. getchar() keeps those non-blocking semantics --
- * zzsh's input loop is built on polling it and sleeping on EOF -- but a
- * line-oriented reader must not treat "nothing typed yet" as end of input, or
- * scanf() returns EOF the moment it is called rather than waiting for a line.
- */
-static int __attribute__((unused)) stdio_stream_getc_blocking(void)
-{
-#ifdef __ZUZU__
-    return EOF;
-#else
-    for (;;) {
-        int c = stdio_stream_getc();
-        if (c != EOF)
-            return c;
-        ZuzuSleep(5);
-    }
-#endif
-}
 
-static int __attribute__((unused)) stdio_read_line(char *dst, size_t max)
-{
-    if (!dst || max == 0)
-        return EOF;
-
-    size_t len = 0;
-    int c = EOF;
-
-    while ((c = stdio_stream_getc_blocking()) != EOF) {
-        /* Enter on a serial console sends CR, and nothing downstream turns
-         * it into LF, so CR has to end the line as well -- discarding it and
-         * waiting for a LF that never arrives hangs the read. A CRLF pair
-         * must still count as one line ending, so swallow the LF; the peek
-         * is the non-blocking getc because a lone CR must not wait around
-         * for a companion that is never coming. */
-        if (c == '\r') {
-            int nc = stdio_stream_getc();
-            if (nc != EOF && nc != '\n')
-                stdio_input_pushback = nc;
-            break;
-        }
-        if (c == '\n')
-            break;
-        if (len + 1 < max)
-            dst[len++] = (char)c;
-    }
-
-    if (c == EOF && len == 0)
-        return EOF;
-
-    dst[len] = '\0';
-    return (int)len;
-}
-
-static int __attribute__((unused)) stdio_vsscanf_line(const char *input, const char *format, va_list args)
+static int stdio_vsscanf_line(const char *input, const char *format, va_list args)
 {
     const char *src = input;
     const char *fmt = format;
@@ -457,6 +434,26 @@ static int __attribute__((unused)) stdio_vsscanf_line(const char *input, const c
     return assigned;
 }
 
+static int stdio_read_line(char *dst, size_t max)
+{
+    if (!dst || max == 0)
+        return EOF;
+
+    size_t len = 0;
+    int c;
+    while ((c = stdio_stream_getc()) != EOF && c != '\n')
+    {
+        if (len + 1 < max)
+            dst[len++] = (char)c;
+    }
+
+    if (c == EOF && len == 0)
+        return EOF;
+
+    dst[len] = '\0';
+    return (int)len;
+}
+
 int scanf(const char *format, ...)
 {
     va_list args;
@@ -468,17 +465,11 @@ int scanf(const char *format, ...)
 
 int vscanf(const char *format, va_list args)
 {
-#ifdef __ZUZU__
-    (void)format;
-    (void)args;
-    return EOF;
-#else
     char line[MSG_BUF_SIZE + 1];
     int len = stdio_read_line(line, sizeof(line));
     if (len == EOF)
         return EOF;
     return stdio_vsscanf_line(line, format, args);
-#endif
 }
 
 int printf(const char *format, ...)
@@ -494,29 +485,32 @@ int vprintf(const char *format, va_list args)
 {
     char buf[STDIO_PRINTF_BUF_SIZE];
     int len = vsnprintf(buf, sizeof(buf), format, args);
-    if (len > 0) {
-        size_t out_len = (size_t)len;
-        if (out_len >= sizeof(buf)) {
-            out_len = sizeof(buf) - 1;
-        }
+    if (len <= 0)
+        return len;
 
-#ifdef __ZUZU__
-        (void)out_len;
-        kprintf("%s", buf);
-#else
-        if (stdio_open_tty() == 0) {
-            /* buf can exceed the lmsg buffer; send in chunks */
-            size_t off = 0;
-            while (off < out_len) {
-                uint32_t chunk = (uint32_t)(out_len - off);
-                if (chunk > MSG_BUF_SIZE)
-                    chunk = MSG_BUF_SIZE;
-                MsgWrite(buf + off, chunk);
-                (void)ZuzuMsgLsend(stdio_tty, chunk);
-                off += chunk;
-            }
+    size_t out_len = (size_t)len;
+    if (out_len >= sizeof(buf))
+        out_len = sizeof(buf) - 1;
+
+    if (stdio_open_tty() == 0)
+    {
+        if (stdio_mode != TTY_MODE_RAW)
+        {
+            stdio_write(buf, out_len);
+            return len;
         }
-#endif
+        size_t start = 0;
+        for (size_t i = 0; i < out_len; i++)
+        {
+            if (buf[i] != '\n')
+                continue;
+            stdio_write(buf + start, i - start);
+            stdio_write("\r\n", 2);
+            start = i + 1;
+        }
+        stdio_write(buf + start, out_len - start);
     }
+    else
+        UserspaceDebugLog("%s", buf);
     return len;
 }
