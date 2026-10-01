@@ -4,7 +4,7 @@
 #define ZZSH_VER "v1.3"
 
 #include <zuzu/zuzu.h>
-#include "dev/protocols/uart.h"
+#include "dev/protocols/tty.h"
 #include "zuzu/protocols/nametable.h"
 #include "util/msg.h"
 
