@@ -1,7 +1,9 @@
-#include <util/zxf_spawn.h>
+#include <util/spawn.h>
+#include <elf.h>
 #include <zuzu/service.h>
 #include <util/tls.h>
 #include <util/zxf.h>
+#include <stdbool.h>
 #include <zuzu/err.h>
 #include <zuzu/user_layout.h>
 #include <zuzu/zuzu.h>
@@ -12,15 +14,97 @@
 #define PAGE_ROUND_UP(x) (((x) + PAGE_SIZE - 1) & ~(size_t)(PAGE_SIZE - 1))
 #define PAGE_ROUND_DOWN(x) ((x) & ~(VirtAddr)(PAGE_SIZE - 1))
 
-static Err LoadSegment(Handle space_handle, const void *zxf_data, const ZXFSegment *seg)
+#define SPAWN_MAX_SEGS 8
+
+typedef struct
 {
-    uint32_t prot = 0;
-    if (seg->flags & ZXF_R)
-        prot |= PROT_READ;
-    if (seg->flags & ZXF_W)
-        prot |= PROT_WRITE;
-    if (seg->flags & ZXF_X)
-        prot |= PROT_EXEC;
+    uint32_t file_offset;
+    uint32_t file_size;
+    uint32_t vaddr;
+    uint32_t mem_size;
+    uint32_t prot;
+} SpawnSeg;
+
+typedef struct
+{
+    uint32_t entry;
+    uint32_t seg_count;
+    SpawnSeg segs[SPAWN_MAX_SEGS];
+} SpawnImage;
+
+static bool SegInBounds(const SpawnSeg *s, size_t size)
+{
+    return s->file_size <= s->mem_size && s->file_offset <= size && s->file_size <= size - s->file_offset &&
+           (s->vaddr & (PAGE_SIZE - 1)) == 0;
+}
+
+static Err ParseZxf(const void *data, size_t size, SpawnImage *out)
+{
+    ZXFImage img;
+    if (!ZxfParse(data, size, &img))
+        return ERR_MALFORMED;
+    if (img.seg_count > SPAWN_MAX_SEGS)
+        return ERR_OVERFLOW;
+
+    out->entry = img.entry;
+    out->seg_count = img.seg_count;
+    for (uint32_t i = 0; i < img.seg_count; i++)
+    {
+        const ZXFSegment *z = &img.segs[i];
+        uint32_t prot = 0;
+        if (z->flags & ZXF_R)
+            prot |= PROT_READ;
+        if (z->flags & ZXF_W)
+            prot |= PROT_WRITE;
+        if (z->flags & ZXF_X)
+            prot |= PROT_EXEC;
+        out->segs[i] = (SpawnSeg){ z->file_offset, z->file_size, (uint32_t)z->vaddr, z->mem_size, prot };
+    }
+    return ZUZU_OK;
+}
+
+static Err ParseElf(const void *data, size_t size, SpawnImage *out)
+{
+    uint32_t entry = elf_validate(data, size);
+    if (entry == 0)
+        return ERR_MALFORMED;
+
+    out->entry = entry;
+    out->seg_count = 0;
+    int n = elf_phdr_count(data);
+    for (int i = 0; i < n; i++)
+    {
+        const Elf32_Phdr *ph = elf_phdr_get(data, i);
+        if (ph->p_type != PT_LOAD)
+            continue;
+        if (out->seg_count == SPAWN_MAX_SEGS)
+            return ERR_OVERFLOW;
+
+        uint32_t prot = 0;
+        if (ph->p_flags & PF_R)
+            prot |= PROT_READ;
+        if (ph->p_flags & PF_W)
+            prot |= PROT_WRITE;
+        if (ph->p_flags & PF_X)
+            prot |= PROT_EXEC;
+        SpawnSeg seg = { ph->p_offset, ph->p_filesz, ph->p_vaddr, ph->p_memsz, prot };
+        if (!SegInBounds(&seg, size))
+            return ERR_MALFORMED;
+        out->segs[out->seg_count++] = seg;
+    }
+    return out->seg_count ? ZUZU_OK : ERR_MALFORMED;
+}
+
+static Err ParseImage(const void *data, size_t size, SpawnImage *out)
+{
+    if (size >= 4 && memcmp(data, ELF_MAGIC, 4) == 0)
+        return ParseElf(data, size, out);
+    return ParseZxf(data, size, out);
+}
+
+static Err LoadSegment(Handle space_handle, const void *data, const SpawnSeg *seg)
+{
+    uint32_t prot = seg->prot;
 
     size_t file_pages = PAGE_ROUND_UP(seg->file_size) / PAGE_SIZE;
     size_t mem_pages = PAGE_ROUND_UP(seg->mem_size) / PAGE_SIZE;
@@ -34,7 +118,7 @@ static Err LoadSegment(Handle space_handle, const void *zxf_data, const ZXFSegme
         if (!buf)
             return ERR_NOMEM;
         memset(buf, 0, file_pages * PAGE_SIZE);
-        memcpy(buf, (const uint8_t *)zxf_data + seg->file_offset, seg->file_size);
+        memcpy(buf, (const uint8_t *)data + seg->file_offset, seg->file_size);
 
         Err rc =
             MemInject(space_handle, (VirtAddr)seg->vaddr, buf, file_pages * PAGE_SIZE, prot, 0);
@@ -119,12 +203,13 @@ static Err LayoutArgv(Handle space_handle, const char *argbuf, size_t argbuf_len
     return ZUZU_OK;
 }
 
-Err ZxfSpawn(const void *zxf_data, size_t zxf_size, const char *name, const char *argbuf,
-             size_t argbuf_len, uint32_t argc, Spid *out_pid, Handle *out_task)
+Err SpawnProcess(const void *image, size_t size, const char *name, const char *argbuf,
+                 size_t argbuf_len, uint32_t argc, Spid *out_pid, Handle *out_task)
 {
-    ZXFImage img;
-    if (!ZxfParse(zxf_data, zxf_size, &img))
-        return ERR_MALFORMED;
+    SpawnImage img;
+    Err prc = ParseImage(image, size, &img);
+    if (prc != ZUZU_OK)
+        return prc;
     if ((argc > 0) != (argbuf != NULL && argbuf_len > 0))
         return ERR_BADARG;
 
@@ -132,9 +217,9 @@ Err ZxfSpawn(const void *zxf_data, size_t zxf_size, const char *name, const char
     if (space_handle < 0)
         return (Err)space_handle;
 
-    for (uint16_t i = 0; i < img.seg_count; i++)
+    for (uint32_t i = 0; i < img.seg_count; i++)
     {
-        Err rc = LoadSegment(space_handle, zxf_data, &img.segs[i]);
+        Err rc = LoadSegment(space_handle, image, &img.segs[i]);
         if (rc != ZUZU_OK)
         {
             HandleDestroy(space_handle);

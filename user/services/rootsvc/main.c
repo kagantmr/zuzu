@@ -3,7 +3,7 @@
 #include <string.h>
 #include <zuzu/service.h>
 #include <util/tls.h>
-#include <util/zxf_spawn.h>
+#include <util/spawn.h>
 #include <zuzu/bootinfo.h>
 #include <zuzu/err.h>
 #include <zuzu/syspage.h>
@@ -72,7 +72,7 @@ static void SpawnKitten(const void *zxf_data, size_t zxf_size, const char *path)
 {
     Spid pid;
     Handle task;
-    Err rc = ZxfSpawn(zxf_data, zxf_size, path, NULL, 0, 0, &pid, &task);
+    Err rc = SpawnProcess(zxf_data, zxf_size, path, NULL, 0, 0, &pid, &task);
     if (rc != ZUZU_OK)
     {
         UserspaceDebugLog("rootsvc: failed to spawn %s: %d", path, rc);
