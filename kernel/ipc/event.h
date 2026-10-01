@@ -20,6 +20,7 @@ typedef struct EventObjectStruct
     size_t ref_count;
     bool alive;
     size_t bind_count;
+    EventWord bound_mask; /* bits claimed by kernel bindings; user Signal() may not raise these */
 } EventObject;
 
 struct WaitSlotStruct;

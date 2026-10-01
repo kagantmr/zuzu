@@ -61,6 +61,7 @@ int PmmSubscribe(EventObject *ev)
         return ERR_NOMEM;
     new_node->ev = ev;
     ev->bind_count++;
+    ev->bound_mask |= KEVENT_MEMMGMT_BIT;
     list_add_tail(&new_node->node, &pmm_subscribers.node);
     ev->ref_count++;
 

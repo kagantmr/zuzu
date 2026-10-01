@@ -122,9 +122,11 @@ int main(void)
             }
         }
 
-        /* Kick after pushing TX *and* after draining RX: the driver masks
-         * RX interrupts when our ring fills and only unmasks on a kick. */
         if (popped || pushed)
-            Signal(g_driver_doorbell, 1U << g_driver_bit, false);
+        {
+            rc = Signal(g_driver_doorbell, 1U << g_driver_bit, false);
+            if (rc != ZUZU_OK)
+                UserspaceDebugLog("ttysvc: kick failed rc=%d", rc);
+        }
     }
 }

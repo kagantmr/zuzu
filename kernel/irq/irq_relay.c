@@ -70,7 +70,8 @@ Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev, uint32_t bi
     irq_owners[irq_num].bound_ev = ev;
     irq_owners[irq_num].bound_ev->ref_count++;
     irq_owners[irq_num].bound_ev->bind_count++;
-
+    irq_owners[irq_num].bound_ev->bound_mask |= (1U << irq_owners[irq_num].bit);
+    
     if (irq_owners[irq_num].pending)
     {
         EventSignal(irq_owners[irq_num].bound_ev, (1U << irq_owners[irq_num].bit), false);

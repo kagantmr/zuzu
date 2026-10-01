@@ -225,7 +225,7 @@ static Err Pl011DrvSetup(void)
     uart->cr = 0;
     uart->icr = ICR_ALL;
     uart->ifls = (uart->ifls & ~IFLS_RX_MASK) | IFLS_RX_1_8;
-    uart->lcrh = LCRH_FEN | LCRH_WLEN_8;
+    uart->lcrh = LCRH_WLEN_8;          /* was: LCRH_FEN | LCRH_WLEN_8 */
     uart->cr = CR_UARTEN | CR_TXE | CR_RXE;
     uart->icr = ICR_ALL;
 
@@ -266,7 +266,7 @@ int main(void)
         if (ev.status != ZUZU_OK)
             continue;
 
-
+       // UserspaceDebugLog("pl011drv: wake bits=%x fr=%x", ev.bits, uart->fr);
         if (ev.bits & MASK(BIT_PORT))
         {
             for (;;)
@@ -278,11 +278,25 @@ int main(void)
             }
         }
 
-        uart->icr = ICR_ALL;
-        bool rx = UartRxPump();
-        UartTxPump();
-        if (ev.bits & MASK(BIT_IRQ))
-            IrqRearm(g_dev);
+        bool rx = false;
+        bool irq = ev.bits & MASK(BIT_IRQ);
+        for (;;)
+        {
+            uart->icr = ICR_ALL;
+            rx |= UartRxPump();
+            UartTxPump();
+            if (irq)
+            {
+                IrqRearm(g_dev);
+                irq = false;
+            }
+            /* Re-check after unmasking: a byte that arrived while the line was
+             * masked may not raise a new interrupt. Stop if the FIFO is empty,
+             * or if it isn't only because the reader's ring is full. */
+            if ((uart->fr & FR_RXFE) ||
+                (g_session.in_use && ShmRingFree(&g_session.shm->rx_hdr) == 0))
+                break;
+        }
         if (rx && g_session.client_doorbell >= 0)
             Signal(g_session.client_doorbell, MASK(g_session.client_bit), false);
     }

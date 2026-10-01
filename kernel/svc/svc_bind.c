@@ -27,6 +27,7 @@ static void BindEventTo(EventObject **slot, uint32_t *bit_slot, EventObject *ev,
     *slot = ev;
     ev->ref_count++;
     ev->bind_count++;
+    ev->bound_mask |= (1U << bit);
     *bit_slot = bit;
 }
 

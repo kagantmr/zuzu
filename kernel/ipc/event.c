@@ -84,6 +84,7 @@ EventObject *EventCreate(SpaceObject *owner)
     list_init(&ev->wait_queue);
     ev->word = 0;
     ev->bind_count = 0;
+    ev->bound_mask = 0;
     
     return ev;
 }
