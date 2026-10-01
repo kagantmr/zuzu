@@ -86,7 +86,7 @@ static Err LayoutArgv(Handle space_handle, const char *argbuf, size_t argbuf_len
     /* Build the whole [ptr array][strings] block locally, at the exact byte
      * offsets it will land at in the target stack, then inject it as one
      * page-aligned write -- MemInject fills in place since this falls
-     * entirely inside the stack region already reserved by the caller. */
+     * entirely inside the stack region SpaceCreate already reserved. */
     VirtAddr block_start = PAGE_ROUND_DOWN(argv_va);
     VirtAddr block_end = PAGE_ROUND_UP(USR_SP);
     size_t block_len = block_end - block_start;
@@ -144,18 +144,8 @@ Err ZxfSpawn(const void *zxf_data, size_t zxf_size, const char *name, const char
         }
     }
 
-    /* Stack region: reserved whole (demand-zero, faulted in lazily), same
-     * as SpaceCreate reserves it for kernel-loaded boot programs. */
-    Err rc = MemInject(space_handle, USER_STACK_BASE, NULL, USER_STACK_TOP - USER_STACK_BASE,
-                       PROT_RW, ASINJECT_FLAG_RESERVE);
-    if (rc != ZUZU_OK)
-    {
-        HandleDestroy(space_handle);
-        return rc;
-    }
-
     VirtAddr sp, argv_va;
-    rc = LayoutArgv(space_handle, argbuf, argbuf_len, argc, &sp, &argv_va);
+    Err rc = LayoutArgv(space_handle, argbuf, argbuf_len, argc, &sp, &argv_va);
     if (rc != ZUZU_OK)
     {
         HandleDestroy(space_handle);

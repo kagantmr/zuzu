@@ -1,305 +1,307 @@
 #include "pl011drv.h"
-#include "dev/protocols/uart.h"
-#include "dev/protocols/devm.h"
-#include "zuzu/protocols/nametable.h"
-#include "util/msg.h"
-#include "zuzu/service.h"
-#include <util/ring.h>
-#include <zuzu/cap.h>
-#include <util/channel.h>
-#include <stdint.h>
+#include <dev/protocols/devm.h>
+#include <dev/protocols/uart.h>
 #include <string.h>
+#include <util/msg.h>
+#include <util/shm_ring.h>
+#include <zuzu/err.h>
+#include <zuzu/service.h>
+#include <zuzu/zuzu.h>
 
-#ifdef CONFIG_ZUZU_BENCH
-#include <arch/cycles.h>
-#include <snprintf.h>
-#include <util/bench.h>
-#endif
-
-#define PL011DRV_DEV_CLASS DEV_CLASS_SERIAL
 #define PL011DRV_COMPATIBLE "arm,pl011"
-/* rpi4's DTB lists "arm,pl011-axi" as the UART's *first* compatible string
- * (compatible = "arm,pl011-axi", "arm,pl011", "arm,primecell";), and the
- * kernel's DTB enumeration only keeps that first string per device (see
- * dtb_enum_devices() in kernel/dtb/dtb.c) -- so devmgr's exact strcmp
- * against just "arm,pl011" never matches on rpi4. Mirror the alias list
- * the PL011 driver registration already uses for the console lookup. */
+/* rpi4's DTB lists "arm,pl011-axi" as the UART's *first* compatible string;
+ * the kernel's DTB enumeration only keeps that first string, so devsvc's
+ * exact match against "arm,pl011" never fires on rpi4. */
 #define PL011DRV_COMPATIBLE_AXI "arm,pl011-axi"
+#define STACK_SIZE (16 * 1024)
 
-static volatile pl011_t *uart;
-static Handle client_port = -1;
+static volatile Pl011Mmio *uart;
 static Handle devmgr_port = -1;
-static Handle serial_dev_handle = -1;
-static Handle serial_irq_ntfn = -1;
-static RingBuffer rxrb, txrb;
-static uint8_t rxbuf_storage[UART_RINGBUF_MAX];
-static uint8_t txbuf_storage[UART_RINGBUF_MAX];
+static Handle client_port = -1;
+static Handle irq_event = -1;
+static Handle session_event = -1;
 
-static void uart_txraw(char c)
+typedef struct
 {
-    /* Poll TXFF rather than queueing behind TXIM. The TX interrupt is the only
-     * thing that drains txrb, so on a board where the UART IRQ never arrives
-     * output stops dead after the first FIFO-full -- one character, then
-     * silence, with the rest of the string stuck in the ring. Spinning costs a
-     * character time (~87us at 115200) and always works. */
-    while (uart->FR & FR_TXFF)
-        ;
-    uart->DR = (uint32_t)c;
+    bool in_use;
+    UartShm *shm;
+    Handle mem;
+    Handle task;
+} Session;
+
+static Session g_session;
+
+static void ReplyStatus(Err status)
+{
+    memcpy(MessageBuf(), &status, sizeof(status));
+    Reply(sizeof(status), -1);
 }
 
-static void uart_txbyte(char c)
+static void UartTxPump(void)
 {
-    if (c == '\n') {
-        uart_txraw('\r');
-    }
-    uart_txraw(c);
-}
-
-static void uart_puts(const char* s) {
-    while (*s) {
-        uart_txbyte(*s++);
-    }
-}
-
-static uint32_t drain_uart_rx_fifo(uint32_t *err_bytes_out)
-{
-    uint32_t pushed = 0;
-    uint32_t err_bytes = 0;
-    while (!(uart->FR & FR_RXFE) && RingFull(&rxrb) == 0) {
-        uint32_t dr = uart->DR;
-        /* DR[11:8] = OE/BE/PE/FE for this byte. A break or framing error also
-         * latches in RSR and stays latched until written, so without this the
-         * FIFO keeps handing back error bytes forever -- a single line glitch
-         * turns into an endless stream of garbage characters. Drop the byte
-         * and clear the status. */
-        if (dr & 0xF00u) {
-            uart->RSR = 0xFu;
-            err_bytes++;
-            continue;
-        }
-        if (RingPush(&rxrb, (uint8_t)(dr & 0xFFu)) == 0)
-            pushed++;
-    }
-    if (err_bytes_out)
-        *err_bytes_out = err_bytes;
-    return pushed;
-}
-
-static void wait_for_devmgr(void)
-{
-    while (1) {
-        Handle ntmsg = LookupService("/svc/devmgr");
-        if (ntmsg > 0) {
-            devmgr_port = (int32_t)ntmsg;
+    if (!g_session.in_use)
+        return;
+    UartShm *shm = g_session.shm;
+    while (!(uart->fr & FR_TXFF))
+    {
+        uint8_t b;
+        if (ShmRingPop(&shm->tx_hdr, shm->tx_data, &b, 1) == 0)
+        {
+            uart->imsc &= ~IMSC_TXIM;
             return;
         }
-        ZuzuSleep(10);
+        uart->dr = b;
+    }
+    uart->imsc |= IMSC_TXIM;
+}
+
+/* Drains whatever's in the hardware FIFO into the RX ring. If the ring
+ * fills up first, stops and leaves the rest in hardware -- natural
+ * backpressure; a slow reader risks a hardware overrun, not a kernel one. */
+static bool UartRxPump(void)
+{
+    if (!g_session.in_use)
+        return false;
+    UartShm *shm = g_session.shm;
+    bool pushed_any = false;
+    while (!(uart->fr & FR_RXFE))
+    {
+        uint32_t dr = uart->dr;
+        if (dr & 0xF00u)
+        {
+            uart->rsr = 0xFu;
+            continue;
+        }
+        uint8_t b = (uint8_t)(dr & 0xFFu);
+        if (ShmRingPush(&shm->rx_hdr, shm->rx_data, &b, 1) == 0)
+            break;
+        pushed_any = true;
+    }
+    return pushed_any;
+}
+
+static void TeardownSession(void)
+{
+    MemUnmap((VirtAddr)g_session.shm);
+    HandleClose(g_session.mem);
+    HandleClose(g_session.task);
+    g_session.in_use = false;
+    g_session.shm = NULL;
+    g_session.mem = -1;
+    g_session.task = -1;
+}
+
+static void UartHandleOpen(Handle granted_mem)
+{
+    if (g_session.in_use || granted_mem < 0)
+    {
+        ReplyStatus(ERR_BUSY);
+        return;
+    }
+
+    VirtAddr va = MemMap(granted_mem, 0, PROT_RW);
+    if (PtrIsErr((void *)va))
+    {
+        ReplyStatus((Err)va);
+        return;
+    }
+
+    g_session.shm = (UartShm *)va;
+    g_session.mem = granted_mem;
+    g_session.task = -1;
+    ShmRingInit(&g_session.shm->tx_hdr, UART_RING_DATA_SIZE);
+    ShmRingInit(&g_session.shm->rx_hdr, UART_RING_DATA_SIZE);
+    g_session.in_use = true;
+
+    UartOpenReply rep = { .status = ZUZU_OK, .bit = 0 };
+    memcpy(MessageBuf(), &rep, sizeof(rep));
+    Reply(sizeof(rep), session_event);
+}
+
+static void UartHandleBindTask(const UartBindTaskRequest *req, Handle granted_task)
+{
+    if (!g_session.in_use || req->bit != 0 || granted_task < 0)
+    {
+        ReplyStatus(ERR_BADARG);
+        return;
+    }
+    g_session.task = granted_task;
+    Bind(EVENT_TASK, session_event, granted_task, 0);
+    ReplyStatus(ZUZU_OK);
+}
+
+static void UartAcceptLoop(void)
+{
+    for (;;)
+    {
+        PortWaitResult r = FormatToPortWait(WaitOn(client_port, TIMEOUT_INFINITE));
+        if (r.status != ZUZU_OK)
+            continue;
+        if (r.xlen < 4)
+        {
+            ReplyStatus(ERR_BADARG);
+            continue;
+        }
+
+        uint32_t cmd;
+        memcpy(&cmd, MessageBuf(), 4);
+
+        switch (cmd)
+        {
+        case UART_OPEN:
+            UartHandleOpen(r.granted);
+            break;
+        case UART_BIND_TASK:
+        {
+            UartBindTaskRequest req;
+            if (r.xlen < sizeof(req))
+            {
+                ReplyStatus(ERR_BADARG);
+                break;
+            }
+            memcpy(&req, MessageBuf(), sizeof(req));
+            UartHandleBindTask(&req, r.granted);
+        }
+        break;
+        default:
+            ReplyStatus(ERR_BADARG);
+            break;
+        }
     }
 }
 
-static Handle request_serial_device(void)
+/* One shared bit does double duty: the client Signal()s it on new TX
+ * data, and Bind(EVENT_TASK,...) signals it when the client dies. A
+ * non-blocking poll on the task handle disambiguates. */
+static void UartSessionLoop(void)
+{
+    for (;;)
+    {
+        EventWaitResult r = FormatToEventWait(WaitOn(session_event, TIMEOUT_INFINITE));
+        if (r.status != ZUZU_OK || !g_session.in_use)
+            continue;
+
+        UartTxPump();
+
+        TaskWaitResult tw = FormatToTaskWait(WaitOn(g_session.task, TIMEOUT_POLL));
+        if (tw.status == ZUZU_OK)
+            TeardownSession();
+    }
+}
+
+static void UartIrqLoop(void)
+{
+    for (;;)
+    {
+        EventWaitResult r = FormatToEventWait(WaitOn(irq_event, TIMEOUT_INFINITE));
+        if (r.status != ZUZU_OK)
+            continue;
+
+        bool rx_data = UartRxPump();
+        uart->icr = ICR_ALL;
+        UartTxPump();
+
+        if (rx_data && g_session.in_use)
+            Signal(session_event, 1U, true);
+    }
+}
+
+static Handle SpawnThread(void (*entry)(void))
+{
+    VirtAddr stack = MemMapAnon(STACK_SIZE, 0, PROT_READ | PROT_WRITE);
+    if (PtrIsErr((void *)stack))
+        return (Handle)stack;
+
+    Handle h = CreateTask(-1);
+    if (h < 0)
+        return h;
+
+    Err rc = TaskStart(h, (VirtAddr)entry, stack + STACK_SIZE, 0, 0);
+    if (rc != ZUZU_OK)
+    {
+        HandleClose(h);
+        return rc;
+    }
+    return h;
+}
+
+static Err WaitForDevmgr(void)
+{
+    for (;;)
+    {
+        Handle h = LookupService("/svc/devsvc");
+        if (h >= 0)
+        {
+            devmgr_port = h;
+            return ZUZU_OK;
+        }
+        Sleep(10);
+    }
+}
+
+static Handle RequestSerialDevice(void)
 {
     static const char *const compat[] = { PL011DRV_COMPATIBLE, PL011DRV_COMPATIBLE_AXI };
     return RequestDevice(devmgr_port, compat, 2, NULL);
 }
 
-static void handle_irq_event(void)
+static Err Pl011DrvSetup(void)
 {
-    if (uart->MIS & (IMSC_RXIM | IMSC_RTIM)) {
-        (void)drain_uart_rx_fifo(NULL);
-        uart->ICR = (IMSC_RXIM | IMSC_RTIM);
-    }
-    if (uart->MIS & IMSC_TXIM) {
-        while (!(uart->FR & FR_TXFF) && RingAvail(&txrb) > 0) {
-            uint8_t b = 0;
-            if (RingPop(&txrb, &b) == 0)
-                uart->DR = (uint32_t)b;
-            else
-                break;
-        }
-        if (RingAvail(&txrb) == 0)
-            uart->IMSC &= ~IMSC_TXIM;
-        uart->ICR = IMSC_TXIM;
-    }
-    ZuzuIrqDone((uint32_t)serial_dev_handle);
-}
-
-/* ZuzuMsgLsend(client_port, len): fire-and-forget write, payload in lmsg_buf(). */
-static void handle_write(uint32_t len)
-{
-    if (len > MSG_BUF_SIZE)
-        len = MSG_BUF_SIZE;
-
-    const char *buf = MessageBuf();
-    for (uint32_t i = 0; i < len; i++)
-        uart_txbyte(buf[i]);
-}
-
-/* ZuzuMsgLcall(client_port, max_len): read up to max_len bytes already
- * buffered from the UART; replies immediately with however many are
- * available (possibly zero) rather than blocking for more. */
-static void handle_read(Handle reply_handle, uint32_t max_len)
-{
-    if (max_len > MSG_BUF_SIZE)
-        max_len = MSG_BUF_SIZE;
-
-    (void)drain_uart_rx_fifo(NULL);
-
-    char *buf = (char *)MessageBuf();
-    uint32_t n = 0;
-    while (n < max_len && RingAvail(&rxrb) > 0) {
-        uint8_t b = 0;
-        if (RingPop(&rxrb, &b) != 0)
-            break;
-        buf[n++] = (char)b;
-    }
-
-    (void)ChannelReply(reply_handle, buf, n);
-}
-
-#ifdef CONFIG_ZUZU_BENCH
-static void uart_bench_print(const char *label, const BenchResult *r)
-{
-    uint64_t avg_x100 = r->count ? (r->sum * 100) / r->count : 0;
-    char line[96];
-    int n = snprintf(line, sizeof(line),
-                      "[BENCH] %-32s min=%-8u avg=%u.%02u max=%-8u (cycles, n=%u)\n", label,
-                      r->min, (uint32_t)(avg_x100 / 100), (uint32_t)(avg_x100 % 100), r->max,
-                      r->count);
-    if (n < 0)
-        return;
-    if ((size_t)n >= sizeof(line))
-        n = (int)sizeof(line) - 1;
-    for (int i = 0; i < n; i++)
-        uart_txbyte(line[i]);
-}
-
-/* Exercises the kernel's IRQ-wait block->unblock bracket (SysNtfnWait's
- * block point / relay_handler's unblock point, kernel/irq/sys_irq.c) using
- * our own TX-empty interrupt as a real, self-triggerable hardware IRQ
- * source. No bytes ever go on the wire: the FIFO is already empty, so
- * unmasking IMSC_TXIM alone makes the PL011 assert the interrupt. Run
- * once, before this driver takes client traffic. */
-static void run_irq_wait_bench(void)
-{
-    BenchResult r = { 0 };
-    uint32_t total = ZUZU_BENCH_WARMUP_ITERS + ZUZU_BENCH_ITERS;
-
-    for (uint32_t i = 0; i < total; i++) {
-        uart->ICR = IMSC_TXIM;
-
-        uint32_t start = ArchMeasure();
-        uart->IMSC |= IMSC_TXIM;
-
-        (void)ZuzuNtfnWait(serial_irq_ntfn, TIMEOUT_INFINITE);
-        uint32_t end = ArchMeasure();
-
-        uart->IMSC &= ~IMSC_TXIM;
-        uart->ICR = IMSC_TXIM;
-        ZuzuIrqDone((uint32_t)serial_dev_handle);
-
-        if (i >= ZUZU_BENCH_WARMUP_ITERS)
-            bench_result_record(&r, end - start);
-    }
-
-    uart_bench_print("IRQ wait block->unblock", &r);
-}
-#endif /* CONFIG_ZUZU_BENCH */
-
-int pl011drv_setup(void)
-{
-    client_port = ZuzuPortCreate();
-    if (client_port < 0) {
-        return client_port;
-    }
+    client_port = CreatePort();
+    if (client_port < 0)
+        return (Err)client_port;
 
     Err rc = RegisterService("/dev/uart0", client_port);
-    if (rc < 0) {
+    if (rc != ZUZU_OK)
         return rc;
-    }
 
-    wait_for_devmgr();
+    rc = WaitForDevmgr();
+    if (rc != ZUZU_OK)
+        return rc;
 
-    int32_t dev_handle = request_serial_device();
-    if (dev_handle < 0) {
-        return dev_handle;
-    }
+    Handle dev_handle = RequestSerialDevice();
+    if (dev_handle < 0)
+        return (Err)dev_handle;
 
-    serial_irq_ntfn = ZuzuNtfnCreate();
-    if (serial_irq_ntfn < 0) {
-        return serial_irq_ntfn;
-    }
+    irq_event = CreateEvent();
+    if (irq_event < 0)
+        return (Err)irq_event;
+    rc = BindIrq(irq_event, dev_handle, 0);
+    if (rc != ZUZU_OK)
+        return rc;
 
-    int32_t bind_rc = ZuzuIrqBind(dev_handle, (uint32_t)serial_irq_ntfn);
-    if (bind_rc < 0) {
-        return bind_rc;
-    }
+    session_event = CreateEvent();
+    if (session_event < 0)
+        return (Err)session_event;
 
-    serial_dev_handle = dev_handle;
-    uart = (volatile pl011_t *)ZuzuMemMap(dev_handle, 0, PROT_RW, 0);
-    if ((intptr_t)uart <= 0) {
-        return (int)(intptr_t)uart;
-    }
+    VirtAddr mmio = MemMap(dev_handle, 0, PROT_RW);
+    if (PtrIsErr((void *)mmio))
+        return (Err)mmio;
+    uart = (volatile Pl011Mmio *)mmio;
 
-    RingInit(&rxrb, rxbuf_storage, UART_RINGBUF_MAX);
-    RingInit(&txrb, txbuf_storage, UART_RINGBUF_MAX);
+    uart->imsc = 0;
+    uart->cr = 0;
+    uart->icr = ICR_ALL;
+    uart->ifls = (uart->ifls & ~IFLS_RX_MASK) | IFLS_RX_1_8;
+    uart->lcrh = LCRH_FEN | LCRH_WLEN_8;
+    uart->cr = CR_UARTEN | CR_TXE | CR_RXE;
+    uart->icr = ICR_ALL;
+    uart->imsc = (IMSC_RXIM | IMSC_RTIM); /* TXIM is toggled dynamically */
 
-    uart->IMSC = 0;
-    uart->CR = 0;
-    uart->ICR = ICR_ALL;
-    uart->IFLS = (uart->IFLS & ~IFLS_RX_MASK) | IFLS_RX_1_8;
-    uart->LCRH = LCRH_FEN | LCRH_WLEN_8;
-    uart->CR = CR_UARTEN | CR_TXE | CR_RXE;
-    uart->ICR = ICR_ALL;
-    uart->IMSC = (IMSC_RXIM | IMSC_RTIM);
+    g_session.task = -1;
+    g_session.mem = -1;
 
-#ifdef CONFIG_ZUZU_BENCH
-    run_irq_wait_bench();
-#endif
-
-    return PL011DRV_INIT_OK;
+    return ZUZU_OK;
 }
 
 int main(void)
 {
-    int exit_code;
-    if ((exit_code = pl011drv_setup()) != 0)
-        return exit_code;
+    Err rc = Pl011DrvSetup();
+    if (rc != ZUZU_OK)
+        return rc;
 
-    enum { H_IRQ = 0, H_PORT = 1 };
-    Handle handles[] = {
-        [H_IRQ]  = serial_irq_ntfn,
-        [H_PORT] = client_port,
-    };
-
-    uart_puts("pl011drv is up\n");
-
-    while (1) {
-        /* Zeroed every iteration, with a kind the kernel never returns: a
-         * waitany that reports success without filling this in would
-         * otherwise leave the previous iteration's kind and length here,
-         * and we would replay that message against whatever the lmsg
-         * buffer now holds. Treat an unwritten result as no event. */
-        WaitanyResult r;
-        memset(&r, 0, sizeof(r));
-        r.kind = (WaitanyType)0xEE; /* no kernel path yields this */
-
-        Err rc = ZuzuWaitany(handles, 2, TIMEOUT_INFINITE, &r);
-
-        if (rc == ZUZU_OK && r.kind != (WaitanyType)0xEE) {
-            switch (r.kind) {
-            case WAITANY_KIND_NTFN:
-                handle_irq_event();
-                break;
-            case WAITANY_KIND_SEND:
-                handle_write(r.w1);
-                break;
-            case WAITANY_KIND_CALL:
-                handle_read((Handle)r.source, r.w2);
-                break;
-            default:
-                break;
-            }
-        }
-    }
+    SpawnThread(UartIrqLoop);
+    SpawnThread(UartSessionLoop);
+    UartAcceptLoop();
+    return 0;
 }

@@ -5,7 +5,7 @@
 
 bin/rootsvc
 
-# bin/pl011drv|tty|/dev/uart0
+bin/pl011drv|tty|/dev/uart0
 # bin/pl181drv|none|/dev/mmc0
 # bin/fsd|none|/svc/fsd
 # bin/lan9118drv|none|/dev/eth0

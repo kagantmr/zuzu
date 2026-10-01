@@ -2,6 +2,7 @@
 #include <dev/protocols/devm.h>
 #include <string.h>
 #include <util/msg.h>
+#include <zuzu/service.h>
 #include <zuzu/err.h>
 #include <zuzu/zuzu.h>
 
@@ -55,12 +56,14 @@ static int DevmUnpack(const char *buf, uint32_t xlen, DevmRequest *out)
     out->count = count;
     return ZUZU_OK;
 }
+
 void DevsvcMain(void)
 {
     g_devsvc_port = CreatePort();
     if (g_devsvc_port < 0)
         return;
     HandleDuplicate(g_devsvc_port, PERM_MAP, 0xDE71CE00);
+    RegisterServiceGeneric("/svc/devsvc",  g_devsvc_port, g_nsvc_port);
 
     for (;;)
     {
