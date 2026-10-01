@@ -25,6 +25,7 @@ bool __hot CallHandoffToReceiver(TaskObject *caller, PortObject *port,
                                    EphemeralReplyObject *rc, size_t xlen, Handle grant_handle,
                                    CpuState *frame);
 
+void ReplyFailCaller(TaskObject *target, Err err);
 
 void __hot ReplyDeliverToCaller(TaskObject *target, uint32_t xlen, Handle granted);
 

@@ -179,6 +179,22 @@ void ReplyDeliverToCaller(TaskObject *target, uint32_t xlen, Handle granted)
     SchedAdd(target);
 }
 
+void ReplyFailCaller(TaskObject *target, Err err)
+{
+    CpuState *target_frame = target->trap_frame;
+    ArchSetInFrame(target_frame, 0, err);
+    (*ArchGetFromFrame(target_frame, 1)) = 0;
+    (*ArchGetFromFrame(target_frame, 3)) = (Register)-1;
+
+    target->ipc_state = IPC_NONE;
+    target->blocked_port = NULL;
+    target->pending_reply_cap = NULL;
+    target->reply_holder = NULL;
+    target->wake_reason = WAKE_IPC;
+    target->state = READY;
+    SchedAdd(target);
+}
+
 void PortReceive(PortObject *port, Duration timeout, CpuState *frame) {
     ENSURE_ERR(frame, port->alive, ERR_DEAD);
     ENSURE_ERR(frame, !current_task->reply_cap, ERR_BUSY);

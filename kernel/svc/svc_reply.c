@@ -37,9 +37,12 @@ void SvcReply(CpuState *frame)
         } else {
             Handle granted;
             Err grant_err = GrantHandleAcross(CURRENT_SPACE, target->owner, grant_handle, &granted);
-            ENSURE_ERR(frame, (grant_err == ZUZU_OK), grant_err);
-
             current_task->reply_cap = NULL;
+            if (grant_err != ZUZU_OK) {
+                ReplyFailCaller(target, grant_err);
+                ArchSetInFrame(frame, 0, grant_err);
+                return;
+            }
             ReplyDeliverToCaller(target, xlen, granted);
         }
     } else {

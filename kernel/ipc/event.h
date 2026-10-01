@@ -50,4 +50,6 @@ void EventObjFree(EventObject *ev);
 EventObject *EventCreate(SpaceObject *owner);
 void EventDestroy(EventObject *ev);
 
+
+
 #endif // NOTIF_H

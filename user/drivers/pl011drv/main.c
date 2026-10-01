@@ -13,23 +13,29 @@
  * the kernel's DTB enumeration only keeps that first string, so devsvc's
  * exact match against "arm,pl011" never fires on rpi4. */
 #define PL011DRV_COMPATIBLE_AXI "arm,pl011-axi"
-#define STACK_SIZE (16 * 1024)
+
+/* Bit indices on g_event: Bind/BindIrq take indices, WaitOn returns a mask. */
+#define BIT_IRQ 0
+#define BIT_PORT 1
+#define BIT_KICK 2
+#define MASK(bit) (1U << (bit))
 
 static volatile Pl011Mmio *uart;
-static Handle devmgr_port = -1;
+static Handle devsvc_port = -1;
 static Handle client_port = -1;
-static Handle irq_event = -1;
-static Handle session_event = -1;
+static Handle g_event = -1;
+static Handle g_doorbell = -1;
 
 typedef struct
 {
     bool in_use;
     UartShm *shm;
     Handle mem;
-    Handle task;
+    Handle client_doorbell;
+    uint32_t client_bit;
 } Session;
 
-static Session g_session;
+static Session g_session = { .mem = -1, .client_doorbell = -1 };
 
 static void ReplyStatus(Err status)
 {
@@ -37,6 +43,8 @@ static void ReplyStatus(Err status)
     Reply(sizeof(status), -1);
 }
 
+/* Non-blocking: fills the FIFO from the TX ring, and leaves TXIM set iff
+ * there's still more queued, so the hardware wakes us when it drains. */
 static void UartTxPump(void)
 {
     if (!g_session.in_use)
@@ -55,46 +63,45 @@ static void UartTxPump(void)
     uart->imsc |= IMSC_TXIM;
 }
 
-/* Drains whatever's in the hardware FIFO into the RX ring. If the ring
- * fills up first, stops and leaves the rest in hardware -- natural
- * backpressure; a slow reader risks a hardware overrun, not a kernel one. */
+/* RX interrupts are level-triggered on FIFO occupancy, so the FIFO must be
+ * emptied every time: with no session the bytes are dropped, and if the
+ * reader's ring is full RX interrupts are masked until it kicks us. */
 static bool UartRxPump(void)
 {
-    if (!g_session.in_use)
-        return false;
-    UartShm *shm = g_session.shm;
     bool pushed_any = false;
     while (!(uart->fr & FR_RXFE))
     {
+        if (g_session.in_use && ShmRingFree(&g_session.shm->rx_hdr) == 0)
+        {
+            uart->imsc &= ~(IMSC_RXIM | IMSC_RTIM);
+            return pushed_any;
+        }
         uint32_t dr = uart->dr;
         if (dr & 0xF00u)
         {
             uart->rsr = 0xFu;
             continue;
         }
+        if (!g_session.in_use)
+            continue;
         uint8_t b = (uint8_t)(dr & 0xFFu);
-        if (ShmRingPush(&shm->rx_hdr, shm->rx_data, &b, 1) == 0)
-            break;
+        ShmRingPush(&g_session.shm->rx_hdr, g_session.shm->rx_data, &b, 1);
         pushed_any = true;
     }
+    uart->imsc |= (IMSC_RXIM | IMSC_RTIM);
     return pushed_any;
-}
-
-static void TeardownSession(void)
-{
-    MemUnmap((VirtAddr)g_session.shm);
-    HandleClose(g_session.mem);
-    HandleClose(g_session.task);
-    g_session.in_use = false;
-    g_session.shm = NULL;
-    g_session.mem = -1;
-    g_session.task = -1;
 }
 
 static void UartHandleOpen(Handle granted_mem)
 {
-    if (g_session.in_use || granted_mem < 0)
+    if (granted_mem < 0)
     {
+        ReplyStatus(ERR_BADARG);
+        return;
+    }
+    if (g_session.in_use)
+    {
+        HandleClose(granted_mem);
         ReplyStatus(ERR_BUSY);
         return;
     }
@@ -102,137 +109,80 @@ static void UartHandleOpen(Handle granted_mem)
     VirtAddr va = MemMap(granted_mem, 0, PROT_RW);
     if (PtrIsErr((void *)va))
     {
+        HandleClose(granted_mem);
         ReplyStatus((Err)va);
         return;
     }
 
     g_session.shm = (UartShm *)va;
     g_session.mem = granted_mem;
-    g_session.task = -1;
     ShmRingInit(&g_session.shm->tx_hdr, UART_RING_DATA_SIZE);
     ShmRingInit(&g_session.shm->rx_hdr, UART_RING_DATA_SIZE);
     g_session.in_use = true;
 
-    UartOpenReply rep = { .status = ZUZU_OK, .bit = 0 };
+    UartOpenReply rep = { .status = ZUZU_OK, .bit = BIT_KICK };
     memcpy(MessageBuf(), &rep, sizeof(rep));
-    Reply(sizeof(rep), session_event);
+    if (Reply(sizeof(rep), g_doorbell) != ZUZU_OK)
+    {
+        MemUnmap(va);
+        HandleClose(granted_mem);
+        g_session = (Session){ .mem = -1, .client_doorbell = -1 };
+    }
 }
 
-static void UartHandleBindTask(const UartBindTaskRequest *req, Handle granted_task)
+static void UartHandleNotify(const UartNotifyRequest *req, Handle granted)
 {
-    if (!g_session.in_use || req->bit != 0 || granted_task < 0)
+    if (!g_session.in_use || granted < 0 || req->bit >= 31)
     {
+        if (granted >= 0)
+            HandleClose(granted);
         ReplyStatus(ERR_BADARG);
         return;
     }
-    g_session.task = granted_task;
-    Bind(EVENT_TASK, session_event, granted_task, 0);
+    if (g_session.client_doorbell >= 0)
+        HandleClose(g_session.client_doorbell);
+    g_session.client_doorbell = granted;
+    g_session.client_bit = req->bit;
     ReplyStatus(ZUZU_OK);
 }
 
-static void UartAcceptLoop(void)
+/* Every path replies exactly once: PortReceive refuses (ERR_BUSY) while an
+ * unanswered reply cap is held. */
+static void HandleRequest(const PortWaitResult *r)
 {
-    for (;;)
+    uint32_t cmd;
+    if (r->xlen >= sizeof(cmd))
     {
-        PortWaitResult r = FormatToPortWait(WaitOn(client_port, TIMEOUT_INFINITE));
-        if (r.status != ZUZU_OK)
-            continue;
-        if (r.xlen < 4)
-        {
-            ReplyStatus(ERR_BADARG);
-            continue;
-        }
-
-        uint32_t cmd;
-        memcpy(&cmd, MessageBuf(), 4);
-
+        memcpy(&cmd, MessageBuf(), sizeof(cmd));
         switch (cmd)
         {
         case UART_OPEN:
-            UartHandleOpen(r.granted);
-            break;
-        case UART_BIND_TASK:
-        {
-            UartBindTaskRequest req;
-            if (r.xlen < sizeof(req))
+            UartHandleOpen(r->granted);
+            return;
+        case UART_NOTIFY:
+            if (r->xlen >= sizeof(UartNotifyRequest))
             {
-                ReplyStatus(ERR_BADARG);
-                break;
+                UartNotifyRequest req;
+                memcpy(&req, MessageBuf(), sizeof(req));
+                UartHandleNotify(&req, r->granted);
+                return;
             }
-            memcpy(&req, MessageBuf(), sizeof(req));
-            UartHandleBindTask(&req, r.granted);
-        }
-        break;
-        default:
-            ReplyStatus(ERR_BADARG);
             break;
         }
     }
+    if (r->granted >= 0)
+        HandleClose(r->granted);
+    ReplyStatus(ERR_BADARG);
 }
 
-/* One shared bit does double duty: the client Signal()s it on new TX
- * data, and Bind(EVENT_TASK,...) signals it when the client dies. A
- * non-blocking poll on the task handle disambiguates. */
-static void UartSessionLoop(void)
-{
-    for (;;)
-    {
-        EventWaitResult r = FormatToEventWait(WaitOn(session_event, TIMEOUT_INFINITE));
-        if (r.status != ZUZU_OK || !g_session.in_use)
-            continue;
-
-        UartTxPump();
-
-        TaskWaitResult tw = FormatToTaskWait(WaitOn(g_session.task, TIMEOUT_POLL));
-        if (tw.status == ZUZU_OK)
-            TeardownSession();
-    }
-}
-
-static void UartIrqLoop(void)
-{
-    for (;;)
-    {
-        EventWaitResult r = FormatToEventWait(WaitOn(irq_event, TIMEOUT_INFINITE));
-        if (r.status != ZUZU_OK)
-            continue;
-
-        bool rx_data = UartRxPump();
-        uart->icr = ICR_ALL;
-        UartTxPump();
-
-        if (rx_data && g_session.in_use)
-            Signal(session_event, 1U, true);
-    }
-}
-
-static Handle SpawnThread(void (*entry)(void))
-{
-    VirtAddr stack = MemMapAnon(STACK_SIZE, 0, PROT_READ | PROT_WRITE);
-    if (PtrIsErr((void *)stack))
-        return (Handle)stack;
-
-    Handle h = CreateTask(-1);
-    if (h < 0)
-        return h;
-
-    Err rc = TaskStart(h, (VirtAddr)entry, stack + STACK_SIZE, 0, 0);
-    if (rc != ZUZU_OK)
-    {
-        HandleClose(h);
-        return rc;
-    }
-    return h;
-}
-
-static Err WaitForDevmgr(void)
+static Err WaitForDevsvc(void)
 {
     for (;;)
     {
         Handle h = LookupService("/svc/devsvc");
         if (h >= 0)
         {
-            devmgr_port = h;
+            devsvc_port = h;
             return ZUZU_OK;
         }
         Sleep(10);
@@ -242,7 +192,7 @@ static Err WaitForDevmgr(void)
 static Handle RequestSerialDevice(void)
 {
     static const char *const compat[] = { PL011DRV_COMPATIBLE, PL011DRV_COMPATIBLE_AXI };
-    return RequestDevice(devmgr_port, compat, 2, NULL);
+    return RequestDevice(devsvc_port, compat, 2, NULL);
 }
 
 static Err Pl011DrvSetup(void)
@@ -255,24 +205,13 @@ static Err Pl011DrvSetup(void)
     if (rc != ZUZU_OK)
         return rc;
 
-    rc = WaitForDevmgr();
+    rc = WaitForDevsvc();
     if (rc != ZUZU_OK)
         return rc;
 
     Handle dev_handle = RequestSerialDevice();
     if (dev_handle < 0)
         return (Err)dev_handle;
-
-    irq_event = CreateEvent();
-    if (irq_event < 0)
-        return (Err)irq_event;
-    rc = BindIrq(irq_event, dev_handle, 0);
-    if (rc != ZUZU_OK)
-        return rc;
-
-    session_event = CreateEvent();
-    if (session_event < 0)
-        return (Err)session_event;
 
     VirtAddr mmio = MemMap(dev_handle, 0, PROT_RW);
     if (PtrIsErr((void *)mmio))
@@ -286,11 +225,25 @@ static Err Pl011DrvSetup(void)
     uart->lcrh = LCRH_FEN | LCRH_WLEN_8;
     uart->cr = CR_UARTEN | CR_TXE | CR_RXE;
     uart->icr = ICR_ALL;
-    uart->imsc = (IMSC_RXIM | IMSC_RTIM); /* TXIM is toggled dynamically */
 
-    g_session.task = -1;
-    g_session.mem = -1;
+    g_event = CreateEvent();
+    if (g_event < 0)
+        return (Err)g_event;
 
+    /* TXFR: grants require it on the source, and the doorbell gets granted. */
+    SvcResult dup = HandleDuplicate(g_event, PERM_SEND | PERM_TXFR, MARKER_NONE);
+    if (dup.r0 != ZUZU_OK)
+        return (Err)dup.r0;
+    g_doorbell = (Handle)dup.r1;
+
+    rc = BindIrq(g_event, dev_handle, BIT_IRQ);
+    if (rc != ZUZU_OK)
+        return rc;
+    rc = Bind(EVENT_PORT, g_event, client_port, BIT_PORT);
+    if (rc != ZUZU_OK)
+        return rc;
+
+    uart->imsc = (IMSC_RXIM | IMSC_RTIM); /* TXIM is toggled by UartTxPump */
     return ZUZU_OK;
 }
 
@@ -300,8 +253,30 @@ int main(void)
     if (rc != ZUZU_OK)
         return rc;
 
-    SpawnThread(UartIrqLoop);
-    SpawnThread(UartSessionLoop);
-    UartAcceptLoop();
-    return 0;
+    for (;;)
+    {
+        EventWaitResult ev = FormatToEventWait(WaitOn(g_event, TIMEOUT_INFINITE));
+        if (ev.status != ZUZU_OK)
+            continue;
+
+        /* The port bind only fires when a new sender blocks, so drain. */
+        if (ev.bits & MASK(BIT_PORT))
+        {
+            for (;;)
+            {
+                PortWaitResult r = FormatToPortWait(WaitOn(client_port, TIMEOUT_POLL));
+                if (r.status != ZUZU_OK)
+                    break;
+                HandleRequest(&r);
+            }
+        }
+
+        /* Bits are hints (the word self-clears, kicks coalesce with IRQs):
+         * ack first, then service both directions on every wakeup. */
+        uart->icr = ICR_ALL;
+        bool rx = UartRxPump();
+        UartTxPump();
+        if (rx && g_session.client_doorbell >= 0)
+            Signal(g_session.client_doorbell, MASK(g_session.client_bit), false);
+    }
 }
