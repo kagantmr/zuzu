@@ -14,7 +14,6 @@
  * exact match against "arm,pl011" never fires on rpi4. */
 #define PL011DRV_COMPATIBLE_AXI "arm,pl011-axi"
 
-/* Bit indices on g_event: Bind/BindIrq take indices, WaitOn returns a mask. */
 #define BIT_IRQ 0
 #define BIT_PORT 1
 #define BIT_KICK 2
@@ -43,8 +42,6 @@ static void ReplyStatus(Err status)
     Reply(sizeof(status), -1);
 }
 
-/* Non-blocking: fills the FIFO from the TX ring, and leaves TXIM set iff
- * there's still more queued, so the hardware wakes us when it drains. */
 static void UartTxPump(void)
 {
     if (!g_session.in_use)
@@ -52,7 +49,7 @@ static void UartTxPump(void)
     UartShm *shm = g_session.shm;
     while (!(uart->fr & FR_TXFF))
     {
-        uint8_t b;
+        uint8_t b = 0;
         if (ShmRingPop(&shm->tx_hdr, shm->tx_data, &b, 1) == 0)
         {
             uart->imsc &= ~IMSC_TXIM;
@@ -146,8 +143,7 @@ static void UartHandleNotify(const UartNotifyRequest *req, Handle granted)
     ReplyStatus(ZUZU_OK);
 }
 
-/* Every path replies exactly once: PortReceive refuses (ERR_BUSY) while an
- * unanswered reply cap is held. */
+
 static void HandleRequest(const PortWaitResult *r)
 {
     uint32_t cmd;
@@ -230,7 +226,7 @@ static Err Pl011DrvSetup(void)
     if (g_event < 0)
         return (Err)g_event;
 
-    /* TXFR: grants require it on the source, and the doorbell gets granted. */
+
     SvcResult dup = HandleDuplicate(g_event, PERM_SEND | PERM_TXFR, MARKER_NONE);
     if (dup.r0 != ZUZU_OK)
         return (Err)dup.r0;
@@ -243,7 +239,7 @@ static Err Pl011DrvSetup(void)
     if (rc != ZUZU_OK)
         return rc;
 
-    uart->imsc = (IMSC_RXIM | IMSC_RTIM); /* TXIM is toggled by UartTxPump */
+    uart->imsc = (IMSC_RXIM | IMSC_RTIM);
     return ZUZU_OK;
 }
 
@@ -259,7 +255,7 @@ int main(void)
         if (ev.status != ZUZU_OK)
             continue;
 
-        /* The port bind only fires when a new sender blocks, so drain. */
+
         if (ev.bits & MASK(BIT_PORT))
         {
             for (;;)
@@ -271,8 +267,6 @@ int main(void)
             }
         }
 
-        /* Bits are hints (the word self-clears, kicks coalesce with IRQs):
-         * ack first, then service both directions on every wakeup. */
         uart->icr = ICR_ALL;
         bool rx = UartRxPump();
         UartTxPump();

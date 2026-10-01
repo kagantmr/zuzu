@@ -21,7 +21,7 @@ typedef struct {
 #define UART_NOTIFY 3
 
 typedef struct { uint32_t cmd; } UartOpenRequest;
-typedef struct { uint32_t cmd; uint32_t bit; } UartBindTaskRequest;
+typedef struct { uint32_t cmd; uint32_t bit; } UartNotifyRequest;
 typedef struct { Err status; uint32_t bit; } UartOpenReply;
 
 #ifdef __cplusplus

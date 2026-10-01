@@ -101,7 +101,7 @@ static void NsvcLookup(const NsvcRequest *req)
         if (strncmp(g_registry[i].path, req->path, NS_MAX_PATH) != 0)
             continue;
 
-        SvcResult dup = HandleDuplicate(g_registry[i].handle, PERM_SEND, MARKER_NONE);
+        SvcResult dup = HandleDuplicate(g_registry[i].handle, (PERM_SEND | PERM_TXFR), MARKER_NONE);
         if (dup.r0 == ZUZU_OK)
         {
             Reply(0, (Handle)dup.r1);
