@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include <util/msg.h>
+#include <zuzu/udbg.h>
 #include <zuzu/err.h>
 #include <zuzu/zuzu.h>
 
@@ -114,6 +115,7 @@ static void NsvcLookup(const NsvcRequest *req)
 
 void NsvcMain(void)
 {
+    UserspaceDebugLog("nsvc: up");
     for (;;)
     {
         PortWaitResult result = FormatToPortWait(WaitOn(g_nsvc_port, TIMEOUT_INFINITE));

@@ -4,6 +4,7 @@
 #include <util/msg.h>
 #include <zuzu/service.h>
 #include <zuzu/err.h>
+#include <zuzu/udbg.h>
 #include <zuzu/zuzu.h>
 
 static Handle g_devsvc_port;
@@ -59,6 +60,7 @@ static int DevmUnpack(const char *buf, uint32_t xlen, DevmRequest *out)
 
 void DevsvcMain(void)
 {
+    UserspaceDebugLog("devsvc: up");
     g_devsvc_port = CreatePort();
     if (g_devsvc_port < 0)
         return;

@@ -6,6 +6,7 @@
 #include <util/shm_ring.h>
 #include <zuzu/err.h>
 #include <zuzu/service.h>
+#include <zuzu/udbg.h>
 #include <zuzu/zuzu.h>
 
 #define PL011DRV_COMPATIBLE "arm,pl011"
@@ -196,20 +197,25 @@ static Err Pl011DrvSetup(void)
     client_port = CreatePort();
     if (client_port < 0)
         return (Err)client_port;
+    UserspaceDebugLog("pl011drv: client port=%d", client_port);
 
     Err rc = RegisterService("/dev/uart0", client_port);
+    UserspaceDebugLog("pl011drv: register /dev/uart0 rc=%d", rc);
     if (rc != ZUZU_OK)
         return rc;
 
     rc = WaitForDevsvc();
+    UserspaceDebugLog("pl011drv: devsvc lookup rc=%d", rc);
     if (rc != ZUZU_OK)
         return rc;
 
     Handle dev_handle = RequestSerialDevice();
+    UserspaceDebugLog("pl011drv: device handle=%d", dev_handle);
     if (dev_handle < 0)
         return (Err)dev_handle;
 
     VirtAddr mmio = MemMap(dev_handle, 0, PROT_RW);
+    UserspaceDebugLog("pl011drv: mmio=0x%x", (unsigned)mmio);
     if (PtrIsErr((void *)mmio))
         return (Err)mmio;
     uart = (volatile Pl011Mmio *)mmio;
@@ -236,6 +242,7 @@ static Err Pl011DrvSetup(void)
     if (rc != ZUZU_OK)
         return rc;
     rc = Bind(EVENT_PORT, g_event, client_port, BIT_PORT);
+    UserspaceDebugLog("pl011drv: irq/port bind rc=%d", rc);
     if (rc != ZUZU_OK)
         return rc;
 
@@ -245,9 +252,12 @@ static Err Pl011DrvSetup(void)
 
 int main(void)
 {
+    UserspaceDebugLog("pl011drv: started");
     Err rc = Pl011DrvSetup();
+    UserspaceDebugLog("pl011drv: setup rc=%d", rc);
     if (rc != ZUZU_OK)
         return rc;
+    UserspaceDebugLog("pl011drv: entering event loop");
 
     for (;;)
     {

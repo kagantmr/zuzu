@@ -27,6 +27,7 @@ void EventSignal(EventObject *ev, EventWord bits, bool bcast)
     assert(ev && ev->alive && !(bits & (1U << 31)));
     ev->word |= bits;
 
+    bool delivered = false;
     while (!list_empty(&ev->wait_queue))
     {
         ListNode *node = list_pop_front(&ev->wait_queue);
@@ -37,11 +38,13 @@ void EventSignal(EventObject *ev, EventWord bits, bool bcast)
         (*ArchGetFromFrame(waiter->trap_frame, 1)) = (Register)ev->word;
         SchedUnblock(waiter, WAKE_IPC);
         SchedAdd(waiter);
+        delivered = true;
         if (!bcast)
             break;
     }
 
-    ev->word = 0;
+    if (delivered)
+        ev->word = 0;
 }
 
 void EventKill(EventObject *ev)

@@ -30,6 +30,7 @@ const BootInfo *g_bootinfo;
 
 static Handle SpawnThread(void (*entry)(void))
 {
+    
     VirtAddr stack = MemMapAnon(STACK_SIZE, 0, PROT_READ | PROT_WRITE);
     if (PtrIsErr((void *)stack))
         return (Handle)stack;
@@ -77,6 +78,7 @@ static void SpawnKitten(const void *zxf_data, size_t zxf_size, const char *path)
         UserspaceDebugLog("rootsvc: failed to spawn %s: %d", path, rc);
         return;
     }
+    UserspaceDebugLog("rootsvc: spawned %s", path);
     MonitorKitten(task, (Handle)pid, path);
 }
 
@@ -195,10 +197,16 @@ static void SpawnStage1(void)
 
 int main(void)
 {
+    UserspaceDebugLog("rootsvc: started");
     if (!VersionOk())
+    {
+        UserspaceDebugLog("rootsvc: kernel too old");
         Quit(ERR_BADARG);
+    }
 
-    if (NsvcInit() != NSVC_PORT)
+    Handle nsvc = NsvcInit();
+    UserspaceDebugLog("rootsvc: nsvc port=%d", nsvc);
+    if (nsvc != NSVC_PORT)
         Quit(ERR_BADARG);
     
     g_bootinfo = (const BootInfo *)USER_BOOTINFO_VA;
@@ -210,6 +218,7 @@ int main(void)
 
 
     SpawnStage1();
+    UserspaceDebugLog("rootsvc: stage1 spawned %u kitten(s), monitoring", g_kitten_count);
 
     for (;;)
     {
