@@ -4,41 +4,36 @@
 #include <fs/protocols/fsd.h>
 #include "client_table.h"
 
+void TablesInit(const fs_backend_t *b, void *ctx);
 
 /**
- * Client and file tables for FSD service.
+ * Allocates a session for the granted page and maps it. On success *badge is
+ * the marker the client must present on every later request. Takes ownership
+ * of `shm` only on ZUZU_OK.
  */
-
-void tables_init(const fs_backend_t *b, void *ctx);
-
- /**
-  * Register a new client with the given PID and shared memory handle.
-  */
-Err          client_register(uint32_t pid, Handle shm, uint32_t size);
+Err ClientRegister(Handle shm, uint32_t size, Marker *badge);
 
 /**
- * Find a client by (pid). Returns NULL if not found.
+ * Resolves a marker to a live session, or NULL if the marker is unmarked,
+ * out of range, free, or from an earlier generation of the slot.
  */
-fsd_client_t  *client_find(uint32_t pid);
+FsdClient *ClientFind(Marker badge);
+
+uint32_t ClientSlot(const FsdClient *c);
 
 /**
- * Drop a client by (pid). Unmaps its shared memory and closes any open files.
+ * Closes the session's open files, unmaps and closes its page, and frees the
+ * slot.
  */
-void           client_drop(uint32_t pid);   /* unmaps shm, closes its files */
+void ClientDrop(FsdClient *c);
+
+Err FileOpen(uint32_t slot, const char *path, uint32_t mode, uint32_t *fd_out);
 
 /**
- * Open a file for the given client (pid) with the specified path and mode. Returns a file descriptor in fd_out.
+ * Backend file for (slot, fd), or NULL if the session does not own that fd.
  */
-Err  file_open(uint32_t pid, const char *path, uint32_t mode, uint32_t *fd_out);
+void *FileGet(uint32_t slot, uint32_t fd);
 
-/**
- * Get the backend file pointer for the given client (pid) and file descriptor (fd). Returns NULL if the file is not owned by the client.
- */
-void  *file_get(uint32_t pid, uint32_t fd);   /* backend file ptr, NULL if not owned */
-
-/**
- * Close a file for the given client (pid) and file descriptor (fd). Returns an error code if the operation fails.
- */
-Err  file_close(uint32_t pid, uint32_t fd);
+Err FileClose(uint32_t slot, uint32_t fd);
 
 #endif /* FSD_TABLES_H */

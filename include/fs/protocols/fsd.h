@@ -1,22 +1,25 @@
 /**
- * fsd_protocol.h - fs daemon protocol information
+ * fsd.h - fs daemon protocol information
  *
- * fsd (fs daemon) is the zuzuOS v0.6 VFS, replacing the fat32d-fbox chain. Its job is to talk to storage drivers and
- * with addition of new filesystem shims, it can handle multiple file types.
+ * fsd (fs daemon) is the zuzuOS VFS. It talks to a block driver through a
+ * filesystem backend shim and serves clients over a port registered as
+ * "/svc/fsd".
  *
- * The protocol is mainly over msg (no lmsg) with msg_call(), optionally there are request and response structs in shm that
- * the user/fsd will be asked to refer to if the reply/request is too long (passing it over lmsg is slow).
+ * Sessions. A caller reaches fsd on an unmarked handle (from LookupService),
+ * which may only send FSD_ATTACH, granting a shared page it created (the
+ * client pays for it; the page size rides in FsdRequest.data_len). fsd
+ * allocates a session, maps the page and replies granting a PERM_SEND|PERM_TXFR
+ * duplicate of its own port stamped with a marker, FSD_BADGE(generation, slot).
+ * Every later request goes on that badged handle; fsd reads the marker from
+ * the receive result and rejects anything that does not match a live session,
+ * so a session cannot be guessed or forged. FSD_DETACH frees the session.
+ * fds are per session.
  *
- * Request:
- * - r2: cmd (reads request struct for OPEN, SEEK, STAT, READDIR, UNLINK, RENAME, must match that cmd field or is rejected)
- * - r3: arg (fd or fd|count << 16) for registers
- * Response:
- * - r1: status
- * - r2: primary result (read struct for extras)
- *
- * Client must create and grant the shm. The calling process is charged for the memory, not fsd. To prevent TOCTOU,
- * fsd copies the request out of shm before acting on it. fsd also validates data_off >= FSD_DATA_OFF, data_len <= shm_size - data_off and rejects
- * if this is violated. fds are per-client, fsd keys them by sender PID.
+ * Requests. The payload is an FsdRequest in the message buffer. Paths and
+ * file data live in the shared page at data_off >= FSD_DATA_OFF; fsd checks
+ * data_off/data_len against the page and copies a path out before using it.
+ * The reply payload is an FsdResponse in the message buffer; READ, STAT,
+ * READDIR results are placed in the shared page at resp.data_off.
  */
 
 #ifndef ZUZUOS_FSD_PROTOCOL_H
@@ -89,45 +92,29 @@ _Static_assert(sizeof(FsdDirEntry) <= 64, "dirent should stay cache-line-ish");
 
 typedef enum
 {
-    FSD_SET_BUF = 1, /* client grants its shm; fsd maps it        */
-    FSD_OPEN,        /* shm: path        -> fd                    */
-    FSD_CLOSE,       /* reg: fd                                   */
-    FSD_READ,        /* reg: fd|count<<16 -> count, data in shm   */
-    FSD_WRITE,       /* reg: fd|count<<16, data in shm -> count   */
-    FSD_SEEK,        /* shm: offset+whence -> new offset          */
-    FSD_STAT,        /* shm: path -> stat struct in shm           */
-    FSD_FSTAT,       /* reg: fd   -> stat struct in shm           */
-    FSD_READDIR,     /* shm: path -> dirents in shm, count        */
-    FSD_UNLINK,      /* shm: path                                 */
-    FSD_RENAME,      /* shm: two paths                            */
+    FSD_ATTACH = 1, /* unmarked: grant shm, data_len = size -> badged port */
+    FSD_OPEN,       /* shm: path        -> fd                    */
+    FSD_CLOSE,      /* fd                                        */
+    FSD_READ,       /* fd, data_len = count -> count, data in shm  */
+    FSD_WRITE,      /* fd, data_len = count, data in shm -> count  */
+    FSD_SEEK,       /* fd, offset, whence -> new offset          */
+    FSD_STAT,       /* shm: path -> stat struct in shm           */
+    FSD_FSTAT,      /* fd        -> stat struct in shm           */
+    FSD_READDIR,    /* shm: path -> dirents in shm, count        */
+    FSD_UNLINK,     /* shm: path                                 */
+    FSD_RENAME,     /* shm: two paths                            */
+    FSD_DETACH,     /* free the session                          */
 } FsdCommand;
 
-#define FSD_REQ_OFF 0u
-#define FSD_RESP_OFF 64u
 #define FSD_DATA_OFF 128u           /* payload starts here; data_off >= FSD_DATA_OFF */
+#define FSD_PAGE_SIZE 4096u
 #define FSD_SHM_MIN 4096u           /* smallest buffer a client may grant */
 #define FSD_SHM_DEFAULT (64 * 1024) /* suggested size; client chooses, fsd enforces MIN/MAX */
 #define FSD_SHM_MAX (4 * 1024 * 1024)
 
-/*
- * FSD_SET_BUF argument encoding.
- *
- * A msg_call delivers only two payload words to the receiver: the command in r2
- * and a single argument in r3 (the kernel overwrites the sender's third word
- * with its pid). FSD_SET_BUF must convey both the granted shm handle slot and
- * the buffer's byte size, so the two are packed into that one argument word.
- *
- * shm sizes are page-aligned (ZuzuShmemCreate rounds up to PAGE_SIZE), so the
- * low FSD_PAGE_SHIFT bits of the size are always zero and carry the handle slot
- * instead. A grantee handle slot is a small handle-table index and fits easily
- * in the 12 freed bits.
- */
-#define FSD_PAGE_SHIFT 12u
-#define FSD_SETBUF_MASK ((1u << FSD_PAGE_SHIFT) - 1u)
-#define FSD_SETBUF_PACK(slot, size) \
-    (((uint32_t)(size) & ~FSD_SETBUF_MASK) | ((uint32_t)(slot) & FSD_SETBUF_MASK))
-#define FSD_SETBUF_SLOT(arg) ((uint32_t)(arg) & FSD_SETBUF_MASK)
-#define FSD_SETBUF_SIZE(arg) ((uint32_t)(arg) & ~FSD_SETBUF_MASK)
+#define FSD_BADGE(gen, slot) ((((uint32_t)(gen)) << 8) | ((uint32_t)(slot) & 0xFFu))
+#define FSD_BADGE_SLOT(badge) ((uint32_t)(badge) & 0xFFu)
+#define FSD_BADGE_GEN(badge) ((uint32_t)(badge) >> 8)
 
 #define FSD_MODE_READ 0x01          /* FA_READ */
 #define FSD_MODE_WRITE 0x02         /* FA_WRITE */

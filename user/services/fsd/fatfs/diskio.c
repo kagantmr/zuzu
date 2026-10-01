@@ -3,6 +3,7 @@
 
 #include <zuzu/zuzu.h>
 #include "dev/protocols/mmcdrv.h"
+#include <util/msg.h>
 #include <zuzu/service.h>
 #include <string.h>
 #include <stdint.h>
@@ -12,16 +13,33 @@
 #define FAT32D_SECTOR_COUNT 131072u
 
 static int g_init = 0;
-static int32_t g_sd_port = -1;
-static BYTE *g_sector_buf = NULL;
+static Handle g_sd_port = -1;
+static BYTE *g_buf = NULL;
+static uint32_t g_buf_size = 0;
+static uint32_t g_block_size = FAT32D_SECTOR_SIZE;
+static uint32_t g_block_count = 0;
 
-/* pl181drv and fsd are both kicked off in the same boot-manifest batch, so
- * fsd's first mount attempt can easily race pl181drv's own devmgr
- * rendezvous + card init. Retry the lookup for a bit instead of failing
- * mount() outright on a boot-order race (mirrors pl011drv's
- * wait_for_devmgr()). */
+/* The block driver and fsd start in the same boot batch, so the first mount
+ * can race the driver's registration. Retry the lookup instead of failing
+ * mount() on a boot-order race. */
 #define MMC_LOOKUP_RETRIES 200
 #define MMC_LOOKUP_RETRY_MS 10
+
+static Err SdCall(uint32_t cmd, uint32_t lba, uint32_t count, SdReply *rep, Handle *granted)
+{
+    SdRequest req = { .cmd = cmd, .lba = lba, .count = count };
+    memcpy(MessageBuf(), &req, sizeof(req));
+    SvcResult r = Call(g_sd_port, sizeof(req), -1);
+    if (granted)
+        *granted = (Handle)r.r3;
+    if (r.r0 != ZUZU_OK)
+        return (Err)r.r0;
+    if ((uint32_t)r.r1 < sizeof(Err))
+        return ERR_MALFORMED;
+    memset(rep, 0, sizeof(*rep));
+    memcpy(rep, MessageBuf(), (uint32_t)r.r1 < sizeof(*rep) ? (uint32_t)r.r1 : sizeof(*rep));
+    return rep->status;
+}
 
 static int disk_backend_init(void)
 {
@@ -29,27 +47,51 @@ static int disk_backend_init(void)
         return 0;
     }
 
+    Handle port = -1;
     for (int tries = 0; tries < MMC_LOOKUP_RETRIES; tries++) {
-        g_sd_port = LookupService("/dev/mmc0");
-        if (g_sd_port >= 0) {
+        port = LookupService("/dev/mmc0");
+        if (port >= 0) {
             break;
         }
-        ZuzuSleep(MMC_LOOKUP_RETRY_MS);
+        Sleep(MMC_LOOKUP_RETRY_MS);
     }
-    if (g_sd_port < 0) {
+    if (port < 0) {
         return -1;
     }
+    g_sd_port = port;
 
-    Message r = ZuzuMsgCall(g_sd_port, SD_CMD_GET_BUF, 0, 0);
-    if ((int32_t)r.w1 != 0) {
+    SdReply rep;
+    Handle mem = -1;
+    Err rc = SdCall(SD_CMD_GET_BUF, 0, 0, &rep, &mem);
+    if (rc != ZUZU_OK || mem < 0) {
+        if (mem >= 0) {
+            HandleClose(mem);
+        }
+        HandleClose(g_sd_port);
         g_sd_port = -1;
         return -1;
     }
 
-    g_sector_buf = (BYTE *)ZuzuMemMap((int32_t)r.w2, 0, PROT_RW, 0);
-    if ((intptr_t)g_sector_buf <= 0) {
+    VirtAddr va = MemMap(mem, 0, PROT_RW);
+    if (PtrIsErr((void *)va)) {
+        HandleClose(mem);
+        HandleClose(g_sd_port);
         g_sd_port = -1;
-        g_sector_buf = NULL;
+        return -1;
+    }
+
+    g_buf = (BYTE *)va;
+    g_buf_size = rep.buf_size;
+    if (rep.block_size != 0) {
+        g_block_size = rep.block_size;
+    }
+    g_block_count = rep.block_count;
+    if (g_block_size != FAT32D_SECTOR_SIZE || g_buf_size < g_block_size) {
+        MemUnmap(va);
+        HandleClose(mem);
+        HandleClose(g_sd_port);
+        g_sd_port = -1;
+        g_buf = NULL;
         return -1;
     }
 
@@ -82,12 +124,15 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
         return RES_NOTRDY;
     }
 
-    for (UINT i = 0; i < count; i++) {
-        Message r = ZuzuMsgCall(g_sd_port, SD_CMD_READ, (uint32_t)(sector + i), 0);
-        if ((int32_t)r.w1 != 0) {
+    uint32_t per = g_buf_size / FAT32D_SECTOR_SIZE;
+    for (UINT done = 0; done < count;) {
+        uint32_t n = count - done < per ? count - done : per;
+        SdReply rep;
+        if (SdCall(SD_CMD_READ, (uint32_t)(sector + done), n, &rep, NULL) != ZUZU_OK) {
             return RES_ERROR;
         }
-        memcpy(buff + (i * FAT32D_SECTOR_SIZE), g_sector_buf, FAT32D_SECTOR_SIZE);
+        memcpy(buff + (done * FAT32D_SECTOR_SIZE), g_buf, n * FAT32D_SECTOR_SIZE);
+        done += n;
     }
 
     return RES_OK;
@@ -103,12 +148,15 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
         return RES_NOTRDY;
     }
 
-    for (UINT i = 0; i < count; i++) {
-        memcpy(g_sector_buf, buff + (i * FAT32D_SECTOR_SIZE), FAT32D_SECTOR_SIZE);
-        Message r = ZuzuMsgCall(g_sd_port, SD_CMD_WRITE, (uint32_t)(sector + i), 0);
-        if ((int32_t)r.w1 != 0) {
+    uint32_t per = g_buf_size / FAT32D_SECTOR_SIZE;
+    for (UINT done = 0; done < count;) {
+        uint32_t n = count - done < per ? count - done : per;
+        SdReply rep;
+        memcpy(g_buf, buff + (done * FAT32D_SECTOR_SIZE), n * FAT32D_SECTOR_SIZE);
+        if (SdCall(SD_CMD_WRITE, (uint32_t)(sector + done), n, &rep, NULL) != ZUZU_OK) {
             return RES_ERROR;
         }
+        done += n;
     }
 
     return RES_OK;
@@ -132,7 +180,7 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
         if (buff == NULL) {
             return RES_PARERR;
         }
-        *(LBA_t *)buff = (LBA_t)FAT32D_SECTOR_COUNT;
+        *(LBA_t *)buff = (LBA_t)(g_block_count ? g_block_count : FAT32D_SECTOR_COUNT);
         return RES_OK;
 
     default:

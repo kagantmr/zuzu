@@ -1,14 +1,11 @@
 /**
- * fsd - filesystem daemon (zuzuOS v0.6 VFS)
+ * fsd - filesystem daemon
  *
- * Replaces the old fat32d + fbox two-process chain with a single daemon that
- * talks to a storage driver through a filesystem backend shim (backend/fat.c)
- * and serves clients over the fsd protocol (include/zuzu/protocols/fsd_protocol.h).
+ * One daemon in front of a filesystem backend (backend/fat.c) that serves
+ * clients over the protocol in include/fs/protocols/fsd.h.
  *
- * Startup order is load-bearing: the backend is mounted and the tables are
- * wired up *before* the port is published to the nametable, so no client can
- * send a request before we are able to serve it. (The old fat32d registered
- * first, a latent bug.)
+ * Startup order is load-bearing: the backend is mounted before the port is
+ * published, so no client can send a request before we are able to serve it.
  */
 
 #include "tables.h"
@@ -17,370 +14,404 @@
 #include "zuzu/service.h"
 
 #include <zuzu/zuzu.h>
-#include <util/log.h>
-#include <zuzu/protocols/nametable.h>
+#include <zuzu/udbg.h>
+#include <util/msg.h>
 #include <string.h>
 
-#define LOG_TAG "fsd"
 
 #define FSD_PATH_MAX 256u
+#define PORT_BIT 0
+#define POLL_MS 100
 
-static int32_t            g_port    = -1;
+static Handle g_port = -1;
+static Handle g_event = -1;
 static const fs_backend_t *g_backend = &fat_backend;
-static void               *g_ctx     = NULL;
+static void *g_ctx = NULL;
 
-/* ------------------------------------------------------------------ *
- *  Request helpers
- * ------------------------------------------------------------------ */
-
-/*
- * Copy the FsdRequest out of the client's shm and validate it. w2 (cmd) is
- * authoritative: we copy the struct once, then reject if its cmd field does not
- * match, so a concurrently-mutating client cannot slip a different command past
- * us (TOCTOU). Every field we later act on comes from this private copy, never a
- * second read of shm.
- */
-static Err load_req(fsd_client_t *c, uint32_t cmd, FsdRequest *out)
+static void CloseGrant(const PortWaitResult *r)
 {
-    if (!c->buf) return ERR_NOTCONN;
+    if (r->granted >= 0)
+        HandleClose(r->granted);
+}
 
-    memcpy(out, (const uint8_t *)c->buf + FSD_REQ_OFF, sizeof(*out)); /* copy first */
+static void ReplyResponse(const FsdResponse *resp, Handle grant)
+{
+    memcpy(MessageBuf(), resp, sizeof(*resp));
+    Err rc = Reply(sizeof(*resp), grant);
+    if (rc != ZUZU_OK)
+        UserspaceDebugLog("fsd: reply failed: %d", (int)rc);
+}
 
-    if (out->size < sizeof(*out) || out->size > FSD_RESP_OFF) return ERR_MALFORMED;
-    if (out->cmd != cmd) return ERR_MALFORMED;                /* w2 authoritative */
-    if (out->data_off < FSD_DATA_OFF) return ERR_MALFORMED;
-    if (out->data_off > c->shm_size) return ERR_MALFORMED;
-    if (out->data_len > c->shm_size - out->data_off) return ERR_MALFORMED; /* overflow-safe */
+static void ReplyStatus(Err status)
+{
+    FsdResponse resp;
+    memset(&resp, 0, sizeof(resp));
+    resp.size = sizeof(resp);
+    resp.status = status;
+    ReplyResponse(&resp, -1);
+}
+
+static Err ValidateRequest(const FsdClient *c, const FsdRequest *req)
+{
+    if (req->data_off < FSD_DATA_OFF || req->data_off > c->shm_size)
+        return ERR_MALFORMED;
+    if (req->cmd != FSD_READ && req->cmd != FSD_WRITE && req->data_len > c->shm_size - req->data_off)
+        return ERR_MALFORMED;
     return ZUZU_OK;
 }
 
-/*
- * Copy a NUL-terminated string out of shm at `off` into a bounded local buffer.
- * A client may fill the whole payload with non-NUL bytes, so we cap the copy by
- * both the destination size and the bytes actually left in shm (off is already
- * known <= shm_size), then force termination.
- */
-static void shm_copy_str(const fsd_client_t *c, uint32_t off, char *dst, size_t dstsz)
+/* A client may fill the whole page with non-NUL bytes, so cap the copy by both
+ * the destination and what is left in the page, then force termination. */
+static void CopyShmString(const FsdClient *c, uint32_t off, char *dst, size_t dstsz)
 {
     uint32_t avail = c->shm_size - off;
-    uint32_t lim   = (uint32_t)dstsz - 1u;
-    if (avail < lim) lim = avail;
+    uint32_t lim = (uint32_t)dstsz - 1u;
+    if (avail < lim)
+        lim = avail;
     strncpy(dst, (const char *)c->buf + off, lim);
     dst[lim] = '\0';
 }
 
-/* Stage the FsdResponse extras into shm at FSD_RESP_OFF. */
-static void put_resp(fsd_client_t *c, const FsdResponse *r)
-{
-    memcpy((uint8_t *)c->buf + FSD_RESP_OFF, r, sizeof(*r));
-}
-
-/* ------------------------------------------------------------------ *
- *  Command handlers
- * ------------------------------------------------------------------ */
-
-/* The only command valid without an existing client entry. */
-static void handle_set_buf(uint32_t reply_h, uint32_t sender, uint32_t arg)
-{
-    uint32_t slot = FSD_SETBUF_SLOT(arg);
-    uint32_t size = FSD_SETBUF_SIZE(arg);
-
-    Err rc = client_register(sender, (Handle)slot, size);
-    ZuzuMsgReply(reply_h, (uint32_t)rc, 0, 0);
-}
-
-static void handle_open(uint32_t reply_h, uint32_t sender, fsd_client_t *c, const FsdRequest *req)
+static Err CmdOpen(FsdClient *c, const FsdRequest *req, FsdResponse *resp)
 {
     char path[FSD_PATH_MAX];
-    shm_copy_str(c, req->data_off, path, sizeof(path));
+    CopyShmString(c, req->data_off, path, sizeof(path));
 
     uint32_t fd = 0;
-    Err rc = file_open(sender, path, req->mode, &fd);
-
-    FsdResponse resp;
-    memset(&resp, 0, sizeof(resp));
-    resp.size   = sizeof(resp);
-    resp.status = rc;
-    resp.fd     = fd;
-    put_resp(c, &resp);
-
-    ZuzuMsgReply(reply_h, (uint32_t)rc, fd, 0);
+    Err rc = FileOpen(ClientSlot(c), path, req->mode, &fd);
+    resp->fd = fd;
+    return rc;
 }
 
-static void handle_seek(uint32_t reply_h, uint32_t sender, fsd_client_t *c, const FsdRequest *req)
+static Err CmdClose(FsdClient *c, const FsdRequest *req, FsdResponse *resp)
 {
-    void *file = file_get(sender, req->fd);
-    if (!file) { ZuzuMsgReply(reply_h, (uint32_t)ERR_NOENT, 0, 0); return; }
+    (void)resp;
+    return FileClose(ClientSlot(c), req->fd);
+}
+
+static Err CmdSeek(FsdClient *c, const FsdRequest *req, FsdResponse *resp)
+{
+    void *file = FileGet(ClientSlot(c), req->fd);
+    if (!file)
+        return ERR_NOENT;
 
     int64_t newpos = 0;
     Err rc = g_backend->seek(g_ctx, file, req->offset, req->whence, &newpos);
-
-    FsdResponse resp;
-    memset(&resp, 0, sizeof(resp));
-    resp.size   = sizeof(resp);
-    resp.status = rc;
-    resp.offset = newpos;
-    put_resp(c, &resp);
-
-    ZuzuMsgReply(reply_h, (uint32_t)rc, (uint32_t)newpos, 0);
+    resp->offset = newpos;
+    return rc;
 }
 
-static void handle_stat(uint32_t reply_h, fsd_client_t *c, const FsdRequest *req)
+static Err PutStat(FsdClient *c, const FsdStat *st, FsdResponse *resp)
+{
+    memcpy((uint8_t *)c->buf + FSD_DATA_OFF, st, sizeof(*st));
+    resp->data_off = FSD_DATA_OFF;
+    resp->data_len = sizeof(*st);
+    return ZUZU_OK;
+}
+
+static Err CmdStat(FsdClient *c, const FsdRequest *req, FsdResponse *resp)
 {
     char path[FSD_PATH_MAX];
-    shm_copy_str(c, req->data_off, path, sizeof(path));
+    CopyShmString(c, req->data_off, path, sizeof(path));
 
     FsdStat st;
     memset(&st, 0, sizeof(st));
     Err rc = g_backend->stat(g_ctx, path, &st);
-
-    FsdResponse resp;
-    memset(&resp, 0, sizeof(resp));
-    resp.size   = sizeof(resp);
-    resp.status = rc;
-    if (rc == ZUZU_OK) {
-        memcpy((uint8_t *)c->buf + FSD_DATA_OFF, &st, sizeof(st));
-        resp.data_off = FSD_DATA_OFF;
-        resp.data_len = sizeof(st);
-    }
-    put_resp(c, &resp);
-
-    ZuzuMsgReply(reply_h, (uint32_t)rc, st.size, 0);
+    if (rc == ZUZU_OK)
+        PutStat(c, &st, resp);
+    return rc;
 }
 
-static void handle_fstat(uint32_t reply_h, uint32_t sender, fsd_client_t *c, uint32_t fd)
+static Err CmdFstat(FsdClient *c, const FsdRequest *req, FsdResponse *resp)
 {
-    void *file = file_get(sender, fd);
-    if (!file) { ZuzuMsgReply(reply_h, (uint32_t)ERR_NOENT, 0, 0); return; }
+    void *file = FileGet(ClientSlot(c), req->fd);
+    if (!file)
+        return ERR_NOENT;
 
     /* The backend has no fstat(file); derive the size by seeking to END and
      * restoring the position. An open fd is always a regular file. */
     int64_t cur = 0, end = 0, tmp = 0;
     Err rc = g_backend->seek(g_ctx, file, 0, FSD_SEEK_CUR, &cur);
-    if (rc == ZUZU_OK) rc = g_backend->seek(g_ctx, file, 0, FSD_SEEK_END, &end);
-    if (rc == ZUZU_OK) rc = g_backend->seek(g_ctx, file, cur, FSD_SEEK_SET, &tmp);
+    if (rc == ZUZU_OK)
+        rc = g_backend->seek(g_ctx, file, 0, FSD_SEEK_END, &end);
+    if (rc == ZUZU_OK)
+        rc = g_backend->seek(g_ctx, file, cur, FSD_SEEK_SET, &tmp);
+    if (rc != ZUZU_OK)
+        return rc;
 
     FsdStat st;
     memset(&st, 0, sizeof(st));
-    if (rc == ZUZU_OK) {
-        st.size = (uint32_t)end;
-        st.type = FSD_TYPE_FILE;
-    }
-
-    FsdResponse resp;
-    memset(&resp, 0, sizeof(resp));
-    resp.size   = sizeof(resp);
-    resp.status = rc;
-    if (rc == ZUZU_OK) {
-        memcpy((uint8_t *)c->buf + FSD_DATA_OFF, &st, sizeof(st));
-        resp.data_off = FSD_DATA_OFF;
-        resp.data_len = sizeof(st);
-    }
-    put_resp(c, &resp);
-
-    ZuzuMsgReply(reply_h, (uint32_t)rc, st.size, 0);
+    st.size = (uint32_t)end;
+    st.type = FSD_TYPE_FILE;
+    return PutStat(c, &st, resp);
 }
 
-static void handle_readdir(uint32_t reply_h, fsd_client_t *c, const FsdRequest *req)
+static Err CmdReadDir(FsdClient *c, const FsdRequest *req, FsdResponse *resp)
 {
     char path[FSD_PATH_MAX];
-    shm_copy_str(c, req->data_off, path, sizeof(path));
+    CopyShmString(c, req->data_off, path, sizeof(path));
 
-    /* dirents land at FSD_DATA_OFF; bound the count by what actually fits in
-     * this client's buffer, never a constant. */
     FsdDirEntry *out = (FsdDirEntry *)((uint8_t *)c->buf + FSD_DATA_OFF);
     uint32_t max = (c->shm_size - FSD_DATA_OFF) / sizeof(FsdDirEntry);
-    uint32_t start = (uint32_t)req->offset;
 
     uint32_t count = 0;
-    Err rc = g_backend->readdir(g_ctx, path, start, out, max, &count);
-
-    FsdResponse resp;
-    memset(&resp, 0, sizeof(resp));
-    resp.size   = sizeof(resp);
-    resp.status = rc;
-    resp.count  = count;
-    if (rc == ZUZU_OK) {
-        resp.data_off = FSD_DATA_OFF;
-        resp.data_len = count * sizeof(FsdDirEntry);
+    Err rc = g_backend->readdir(g_ctx, path, (uint32_t)req->offset, out, max, &count);
+    resp->count = count;
+    if (rc == ZUZU_OK)
+    {
+        resp->data_off = FSD_DATA_OFF;
+        resp->data_len = count * sizeof(FsdDirEntry);
     }
-    put_resp(c, &resp);
-
-    ZuzuMsgReply(reply_h, (uint32_t)rc, count, 0);
+    return rc;
 }
 
-static void handle_unlink(uint32_t reply_h, fsd_client_t *c, const FsdRequest *req)
+static Err CmdUnlink(FsdClient *c, const FsdRequest *req, FsdResponse *resp)
 {
+    (void)resp;
     char path[FSD_PATH_MAX];
-    shm_copy_str(c, req->data_off, path, sizeof(path));
-
-    Err rc = g_backend->unlink(g_ctx, path);
-    ZuzuMsgReply(reply_h, (uint32_t)rc, 0, 0);
+    CopyShmString(c, req->data_off, path, sizeof(path));
+    return g_backend->unlink(g_ctx, path);
 }
 
-static void handle_rename(uint32_t reply_h, fsd_client_t *c, const FsdRequest *req)
+static Err CmdRename(FsdClient *c, const FsdRequest *req, FsdResponse *resp)
 {
-    /* Two NUL-separated paths ("from\0to\0") in the payload region. Copy the
-     * declared payload into a local buffer, terminate, then split on the first
-     * NUL — the second path must fall wholly inside what we copied. */
+    (void)resp;
+    /* "from\0to\0": copy the declared payload, terminate, split on the first
+     * NUL; the second path must fall wholly inside what was copied. */
     char buf[2u * FSD_PATH_MAX];
     uint32_t avail = c->shm_size - req->data_off;
-    uint32_t lim   = sizeof(buf) - 1u;
-    if (avail < lim)        lim = avail;
-    if (req->data_len < lim) lim = req->data_len;
+    uint32_t lim = sizeof(buf) - 1u;
+    if (avail < lim)
+        lim = avail;
+    if (req->data_len < lim)
+        lim = req->data_len;
     memcpy(buf, (const uint8_t *)c->buf + req->data_off, lim);
     buf[lim] = '\0';
 
     size_t flen = strlen(buf);
-    if (flen >= lim) { ZuzuMsgReply(reply_h, (uint32_t)ERR_MALFORMED, 0, 0); return; }
-    const char *from = buf;
-    const char *to   = buf + flen + 1;
-    if (*to == '\0')  { ZuzuMsgReply(reply_h, (uint32_t)ERR_MALFORMED, 0, 0); return; }
+    if (flen >= lim)
+        return ERR_MALFORMED;
+    const char *to = buf + flen + 1;
+    if (*to == '\0')
+        return ERR_MALFORMED;
 
-    Err rc = g_backend->rename(g_ctx, from, to);
-    ZuzuMsgReply(reply_h, (uint32_t)rc, 0, 0);
+    return g_backend->rename(g_ctx, buf, to);
 }
 
-static void handle_close(uint32_t reply_h, uint32_t sender, uint32_t fd)
+static Err CmdRead(FsdClient *c, const FsdRequest *req, FsdResponse *resp)
 {
-    Err rc = file_close(sender, fd);
-    ZuzuMsgReply(reply_h, (uint32_t)rc, 0, 0);
-}
+    void *file = FileGet(ClientSlot(c), req->fd);
+    if (!file)
+        return ERR_NOENT;
 
-static void handle_read(uint32_t reply_h, uint32_t sender, fsd_client_t *c, uint32_t arg)
-{
-    uint32_t fd    = arg & 0xFFFFu;
-    uint32_t count = arg >> 16;
-
-    void *file = file_get(sender, fd);
-    if (!file) { ZuzuMsgReply(reply_h, (uint32_t)ERR_NOENT, 0, 0); return; }
-
-    uint32_t cap = c->shm_size - FSD_DATA_OFF;   /* payload space, this client's buffer */
-    if (count > cap) count = cap;
+    uint32_t count = req->data_len;
+    uint32_t cap = c->shm_size - FSD_DATA_OFF;
+    if (count > cap)
+        count = cap;
 
     uint32_t got = 0;
     Err rc = g_backend->read(g_ctx, file, (uint8_t *)c->buf + FSD_DATA_OFF, count, &got);
-
-    FsdResponse resp;
-    memset(&resp, 0, sizeof(resp));
-    resp.size   = sizeof(resp);
-    resp.status = rc;
-    resp.count  = got;
-    if (rc == ZUZU_OK) {
-        resp.data_off = FSD_DATA_OFF;
-        resp.data_len = got;
+    resp->count = got;
+    if (rc == ZUZU_OK)
+    {
+        resp->data_off = FSD_DATA_OFF;
+        resp->data_len = got;
     }
-    put_resp(c, &resp);
-
-    ZuzuMsgReply(reply_h, (uint32_t)rc, got, 0);
+    return rc;
 }
 
-static void handle_write(uint32_t reply_h, uint32_t sender, fsd_client_t *c, uint32_t arg)
+static Err CmdWrite(FsdClient *c, const FsdRequest *req, FsdResponse *resp)
 {
-    uint32_t fd    = arg & 0xFFFFu;
-    uint32_t count = arg >> 16;
+    void *file = FileGet(ClientSlot(c), req->fd);
+    if (!file)
+        return ERR_NOENT;
 
-    void *file = file_get(sender, fd);
-    if (!file) { ZuzuMsgReply(reply_h, (uint32_t)ERR_NOENT, 0, 0); return; }
-
+    uint32_t count = req->data_len;
     uint32_t cap = c->shm_size - FSD_DATA_OFF;
-    if (count > cap) count = cap;
+    if (count > cap)
+        count = cap;
 
     uint32_t put = 0;
     Err rc = g_backend->write(g_ctx, file, (const uint8_t *)c->buf + FSD_DATA_OFF, count, &put);
-
-    FsdResponse resp;
-    memset(&resp, 0, sizeof(resp));
-    resp.size   = sizeof(resp);
-    resp.status = rc;
-    resp.count  = put;
-    put_resp(c, &resp);
-
-    ZuzuMsgReply(reply_h, (uint32_t)rc, put, 0);
+    resp->count = put;
+    return rc;
 }
 
-/* ------------------------------------------------------------------ *
- *  Dispatch
- * ------------------------------------------------------------------ */
-
-/* Run a shm-path command: pull+validate the request, then invoke `fn`. */
-#define DISPATCH_SHM(fn, ...)                                             \
-    do {                                                                 \
-        FsdRequest req;                                                    \
-        Err lrc = load_req(c, cmd, &req);                              \
-        if (lrc != ZUZU_OK) { ZuzuMsgReply(reply_h, (uint32_t)lrc, 0, 0); return; } \
-        fn(__VA_ARGS__);                                                 \
-    } while (0)
-
-static void dispatch(uint32_t reply_h, uint32_t sender, uint32_t cmd, uint32_t arg)
+static void HandleAttach(const PortWaitResult *r)
 {
-    if (cmd == FSD_SET_BUF) {
-        handle_set_buf(reply_h, sender, arg);
+    if (r->granted < 0)
+    {
+        ReplyStatus(ERR_BADARG);
         return;
     }
 
-    fsd_client_t *c = client_find(sender);
-    if (!c) { ZuzuMsgReply(reply_h, (uint32_t)ERR_NOTCONN, 0, 0); return; }
+    FsdRequest req;
+    memcpy(&req, MessageBuf(), sizeof(req));
 
-    switch (cmd) {
-    /* shm-path: arg unused, request struct in shm */
-    case FSD_OPEN:    DISPATCH_SHM(handle_open,    reply_h, sender, c, &req); break;
-    case FSD_SEEK:    DISPATCH_SHM(handle_seek,    reply_h, sender, c, &req); break;
-    case FSD_STAT:    DISPATCH_SHM(handle_stat,    reply_h, c, &req);         break;
-    case FSD_READDIR: DISPATCH_SHM(handle_readdir, reply_h, c, &req);         break;
-    case FSD_UNLINK:  DISPATCH_SHM(handle_unlink,  reply_h, c, &req);         break;
-    case FSD_RENAME:  DISPATCH_SHM(handle_rename,  reply_h, c, &req);         break;
+    Marker badge = 0;
+    Err rc = ClientRegister(r->granted, req.data_len, &badge);
+    if (rc != ZUZU_OK)
+    {
+        HandleClose(r->granted);
+        ReplyStatus(rc);
+        return;
+    }
 
-    /* register-path: arg carries fd (| count<<16 for read/write) */
-    case FSD_CLOSE:   handle_close(reply_h, sender, arg);        break;
-    case FSD_READ:    handle_read(reply_h, sender, c, arg);      break;
-    case FSD_WRITE:   handle_write(reply_h, sender, c, arg);     break;
-    case FSD_FSTAT:   handle_fstat(reply_h, sender, c, arg);     break;
+    SvcResult dup = HandleDuplicate(g_port, PERM_SEND | PERM_TXFR, badge);
+    if (dup.r0 != ZUZU_OK)
+    {
+        ClientDrop(ClientFind(badge));
+        ReplyStatus((Err)dup.r0);
+        return;
+    }
 
-    default:
-        ZuzuMsgReply(reply_h, (uint32_t)ERR_NOSYS, 0, 0);
-        break;
+    FsdResponse resp;
+    memset(&resp, 0, sizeof(resp));
+    resp.size = sizeof(resp);
+    memcpy(MessageBuf(), &resp, sizeof(resp));
+    rc = Reply(sizeof(resp), (Handle)dup.r1);
+    HandleClose((Handle)dup.r1);
+    if (rc != ZUZU_OK)
+    {
+        /* A failed grant already woke the caller with the error. */
+        UserspaceDebugLog("fsd: attach reply failed: %d", (int)rc);
+        ClientDrop(ClientFind(badge));
     }
 }
 
-/* ------------------------------------------------------------------ *
- *  Entry
- * ------------------------------------------------------------------ */
+static Err Dispatch(FsdClient *c, const FsdRequest *req, FsdResponse *resp)
+{
+    switch (req->cmd)
+    {
+    case FSD_OPEN:
+        return CmdOpen(c, req, resp);
+    case FSD_CLOSE:
+        return CmdClose(c, req, resp);
+    case FSD_READ:
+        return CmdRead(c, req, resp);
+    case FSD_WRITE:
+        return CmdWrite(c, req, resp);
+    case FSD_SEEK:
+        return CmdSeek(c, req, resp);
+    case FSD_STAT:
+        return CmdStat(c, req, resp);
+    case FSD_FSTAT:
+        return CmdFstat(c, req, resp);
+    case FSD_READDIR:
+        return CmdReadDir(c, req, resp);
+    case FSD_UNLINK:
+        return CmdUnlink(c, req, resp);
+    case FSD_RENAME:
+        return CmdRename(c, req, resp);
+    default:
+        return ERR_NOSYS;
+    }
+}
+
+static void HandleRequest(const PortWaitResult *r)
+{
+    if (r->xlen < sizeof(FsdRequest))
+    {
+        CloseGrant(r);
+        ReplyStatus(ERR_MALFORMED);
+        return;
+    }
+
+    FsdRequest req;
+    memcpy(&req, MessageBuf(), sizeof(req));
+    if (req.size < sizeof(req))
+    {
+        CloseGrant(r);
+        ReplyStatus(ERR_MALFORMED);
+        return;
+    }
+
+    if (r->sender == MARKER_NONE)
+    {
+        if (req.cmd == FSD_ATTACH)
+            HandleAttach(r);
+        else
+        {
+            CloseGrant(r);
+            ReplyStatus(ERR_NOPERM);
+        }
+        return;
+    }
+
+    CloseGrant(r);
+    FsdClient *c = ClientFind(r->sender);
+    if (!c)
+    {
+        ReplyStatus(ERR_NOTCONN);
+        return;
+    }
+
+    if (req.cmd == FSD_ATTACH)
+    {
+        ReplyStatus(ERR_DUPLICATE);
+        return;
+    }
+    if (req.cmd == FSD_DETACH)
+    {
+        ClientDrop(c);
+        ReplyStatus(ZUZU_OK);
+        return;
+    }
+
+    FsdResponse resp;
+    memset(&resp, 0, sizeof(resp));
+    resp.size = sizeof(resp);
+    Err rc = ValidateRequest(c, &req);
+    if (rc == ZUZU_OK)
+        rc = Dispatch(c, &req, &resp);
+    resp.status = rc;
+    ReplyResponse(&resp, -1);
+}
 
 int main(void)
 {
-    /* 1. mount the backend before anything else can reach us. */
     Err rc = g_backend->mount(&g_ctx);
-    if (rc != ZUZU_OK) {
-        LOG_ERROR(LOG_TAG, "mount failed: %d", (int)rc);
+    if (rc != ZUZU_OK)
+    {
+        UserspaceDebugLog("fsd: mount failed: %d", (int)rc);
         return 1;
     }
-    tables_init(g_backend, g_ctx);
+    TablesInit(g_backend, g_ctx);
 
-    /* 2. create the port and publish it globally (den 0) only now that the
-     * filesystem is serviceable. sysd adds fsd to the "disk" den so our
-     * backend's diskio can reach pl181drv. */
-    g_port = ZuzuPortCreate();
-    if (g_port < 0) {
-        LOG_ERROR(LOG_TAG, "port create failed: %d", (int)g_port);
+    g_port = CreatePort();
+    g_event = CreateEvent();
+    if (g_port < 0 || g_event < 0)
+    {
+        UserspaceDebugLog("fsd: port/event create failed");
+        return 1;
+    }
+    rc = Bind(EVENT_PORT, g_event, g_port, PORT_BIT);
+    if (rc != ZUZU_OK)
+    {
+        UserspaceDebugLog("fsd: bind port failed: %d", (int)rc);
         return 1;
     }
 
-    RegisterService("/svc/fsd", g_port);
-
-    LOG_INFO(LOG_TAG, "ready");
-
-    /* 3. serve. */
-    Handle handles[1] = { (Handle)g_port };
-    while (1) {
-        WaitanyResult res;
-        if (ZuzuWaitany(handles, 1, TIMEOUT_INFINITE, &res) < 0)
-            continue;
-        if (res.kind != WAITANY_KIND_CALL)
-            continue;   /* fsd is call-only; ignore stray sends/notifications */
-
-        dispatch(res.source, res.w1, res.w2, res.w3);
+    rc = RegisterService("/svc/fsd", g_port);
+    if (rc != ZUZU_OK)
+    {
+        UserspaceDebugLog("fsd: register failed: %d", (int)rc);
+        return 1;
     }
 
-    return 0;
+    UserspaceDebugLog("fsd: ready");
+
+    /* TODO: a client that dies without FSD_DETACH leaks its session and fds. */
+    for (;;)
+    {
+        WaitOn(g_event, POLL_MS);
+
+        for (;;)
+        {
+            PortWaitResult r = FormatToPortWait(WaitOn(g_port, TIMEOUT_POLL));
+            if (r.status != ZUZU_OK)
+                break;
+            HandleRequest(&r);
+        }
+    }
 }

@@ -4,10 +4,10 @@
 /**
  * fsd_client.h - minimal client for the fsd protocol.
  *
- * fsd requires the client to own the shared buffer: create it, grant it to
- * fsd, and announce it with FSD_SET_BUF. This header wraps that handshake and
- * the per-command request/response marshalling so callers (sysd, zzsh, ...)
- * don't each re-implement it. Tier-1 only (uses zuzu string/mem helpers).
+ * fsd requires the client to own the shared buffer: create it and grant it
+ * to fsd with FSD_ATTACH, which returns a badged port for the session. This
+ * header wraps that handshake and the per-command request/response
+ * marshalling so callers (zzsh, ...) don't each re-implement it.
  */
 
 #include <stdbool.h>
@@ -21,8 +21,7 @@ extern "C"
 
     typedef struct
     {
-        Handle port;   /* granted handle to fsd's port                 */
-        Spid pid;       /* fsd's pid, needed to grant our buffer to it  */
+        Handle port;   /* badged handle to fsd's port (the session)    */
         Handle shm;    /* our shm handle                               */
         uint8_t *buf;  /* mapped base of the shared buffer             */
         uint32_t size; /* buffer size (page-aligned)                   */
@@ -33,8 +32,8 @@ extern "C"
      * @brief Attaches a client's shared buffer to an already-resolved fsd port.
      *
      * @param c The connection state to initialize.
-     * @param port Granted handle to fsd's port.
-     * @param pid fsd's PID, needed to grant the shared buffer to it.
+     * @param port Unmarked handle to fsd's port; the caller keeps ownership.
+     * @param pid Unused; kept for source compatibility.
      * @param want_size Requested shared buffer size; clamped to [FSD_SHM_MIN, FSD_SHM_MAX]
      * and page-aligned.
      * @return Err ZUZU_OK on success, or a negative error code on failure.
@@ -50,6 +49,14 @@ extern "C"
      * @return Err ZUZU_OK on success, or a negative error code on failure.
      */
     Err FsdConnect(FsdConn *c, uint32_t want_size);
+
+    /**
+     * @brief Ends the session: fsd closes the fds it owns and frees the session.
+     *
+     * @param c An attached connection.
+     * @return Err ZUZU_OK on success, or a negative error code on failure.
+     */
+    Err FsdDetach(FsdConn *c);
 
     /**
      * @brief Opens a file by path.
@@ -96,6 +103,27 @@ extern "C"
     Err FsdWrite(FsdConn *c, uint32_t fd, const void *src, uint32_t count, uint32_t *put);
 
     /**
+     * @brief Repositions the file offset of `fd`.
+     *
+     * @param c An attached connection.
+     * @param fd The file descriptor.
+     * @param offset Offset relative to `whence`.
+     * @param whence An FsdWhence value.
+     * @param newpos Out-param set to the new absolute position; may be NULL.
+     * @return Err ZUZU_OK on success, or a negative error code on failure.
+     */
+    Err FsdSeek(FsdConn *c, uint32_t fd, int64_t offset, uint32_t whence, int64_t *newpos);
+
+    /**
+     * @brief Removes a file or empty directory.
+     *
+     * @param c An attached connection.
+     * @param path Path to remove.
+     * @return Err ZUZU_OK on success, or a negative error code on failure.
+     */
+    Err FsdUnlink(FsdConn *c, const char *path);
+
+    /**
      * @brief Stats a file by path.
      *
      * @param c An attached connection.
@@ -104,6 +132,16 @@ extern "C"
      * @return Err ZUZU_OK on success, or a negative error code on failure.
      */
     Err FsdGetStat(FsdConn *c, const char *path, FsdStat *st);
+
+    /**
+     * @brief Stats an open file by descriptor.
+     *
+     * @param c An attached connection.
+     * @param fd The file descriptor.
+     * @param st Out-param filled with the file's stat info.
+     * @return Err ZUZU_OK on success, or a negative error code on failure.
+     */
+    Err FsdFstat(FsdConn *c, uint32_t fd, FsdStat *st);
 
     /**
      * @brief Reads directory entries starting at `start`.
