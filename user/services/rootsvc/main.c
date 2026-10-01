@@ -197,10 +197,12 @@ int main(void)
     if (!VersionOk())
         Quit(ERR_BADARG);
 
+    NsvcInit();
+    
     g_bootinfo = (const BootInfo *)USER_BOOTINFO_VA;
     g_monitor_ev = CreateEvent();
 
-    NsvcInit();
+
     SpawnThread(DevsvcMain);
     SpawnThread(NsvcMain);
 
