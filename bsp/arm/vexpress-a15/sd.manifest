@@ -2,10 +2,8 @@
 # speedtest
 # speedtest_ipc_child
 # test
-# vfptest
-# zuzufetch
+zuzufetch
 # zztest
 # zztest_child
-# filetest
-# hello_newlib
-# kilo
+hello_newlib
+kilo

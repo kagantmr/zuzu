@@ -7,9 +7,8 @@ bin/rootsvc
 
 bin/ttysvc|none|/svc/tty
 bin/pl011drv|none|/dev/uart0
-bin/ttytest|none|/env/ttytest
-# bin/pl181drv|none|/dev/mmc0
-# bin/fsd|none|/svc/fsd
+bin/pl181drv|none|/dev/mmc0
+bin/fsd|none|/svc/fsd
 # bin/lan9118drv|none|/dev/eth0
 # bin/netd|none|/svc/netd
-# bin/zzsh|tty:late|/env/zzsh
+bin/zzsh|none:late|/env/zzsh
