@@ -55,7 +55,7 @@ void __hot SvcDispatch(Svc svc_num, CpuState *frame)
 
     current_task->trap_frame = frame;
 
-    if (likely(svc_table[svc_num]))
+    if (likely(svc_num < SVC_TOTAL_COUNT && svc_table[svc_num]))
         svc_table[svc_num](frame);
     else
         ArchSetInFrame(frame, 0, ERR_NOSYS);
