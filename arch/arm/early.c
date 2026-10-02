@@ -61,7 +61,7 @@ static void pmu_init(void) {
     __asm__ volatile("mcr p15, 0, %0, c9, c12, 1" :: "r"(0x80000000)); // PMCNTENSET: enable CCNT
 }
 
-static void vfp_init() {
+static void vfp_init(void) {
     uint32_t cpacr;
     __asm__ volatile("mrc p15, 0, %0, c1, c0, 2" : "=r"(cpacr));
     cpacr |= (0xF << 20);
