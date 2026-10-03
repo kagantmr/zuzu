@@ -177,7 +177,7 @@ static int stdio_stream_getc(void)
     TtyShm *shm = stdio_conn.shm;
     for (;;)
     {
-        uint8_t b;
+        uint8_t b = 0;
         if (ShmRingPop(&shm->down_hdr, shm->down_data, &b, 1) == 1)
             return b;
         if (TtyEofPending(shm))
