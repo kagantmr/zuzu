@@ -19,6 +19,11 @@ struct DIR
 
 static FsdConn g_dir_conn;
 
+void DirentDetach(void)
+{
+    FsdDetach(&g_dir_conn);
+}
+
 DIR *opendir(const char *path)
 {
     if (!g_dir_conn.ready && FsdConnect(&g_dir_conn, FSD_SHM_DEFAULT) != ZUZU_OK) {

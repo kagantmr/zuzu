@@ -491,6 +491,11 @@ static bool read_line(char *line)
     }
 }
 
+static void __attribute__((destructor)) ShellDetachFsd(void)
+{
+    FsdDetach(&fsd_conn);
+}
+
 int main(void)
 {
     stdio_set_raw(1);

@@ -15,6 +15,7 @@
 int ConsoleWrite(const char *buf, int len);
 int ConsoleRead(char *buf, int len);
 void ConsoleClose(void);
+void DirentDetach(void);
 extern void *sbrk(intptr_t incr);
 
 /* posix fd -> fsd fd; slot 0-2 belong to the console. */
@@ -157,6 +158,8 @@ int _write(int file, char *ptr, int len)
 
 void __attribute__((noreturn)) _exit(int status)
 {
+    FsdDetach(&fsd_conn);
+    DirentDetach();
     ConsoleClose();
     Quit(status);
     for (;;)
@@ -255,7 +258,7 @@ __attribute__((weak)) ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
 int _kill(int pid, int sig)
 {
     if (pid == _getpid())
-        Quit(sig);
+        _exit(sig);
     errno = EINVAL;
     return -1;
 }
