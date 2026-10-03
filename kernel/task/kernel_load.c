@@ -1,6 +1,5 @@
 #include "kernel_load.h"
 
-#include "core/panic.h"
 
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm/pmm.h"
@@ -11,7 +10,6 @@
 #include <arch/context.h>
 #include <arch/mmu.h>
 
-#include <elf.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -21,7 +19,6 @@
 
 #define LOG_FMT(fmt) "(kload) " fmt
 #include "core/log.h"
-#include "core/ensure.h"
 
 static bool ZxfSegChkOverlap(const ZXFSegment *a, const ZXFSegment *b)
 {
@@ -37,7 +34,7 @@ static bool ZxfSegChkOverlap(const ZXFSegment *a, const ZXFSegment *b)
 }
 
 /* Copy into another address space through the kernel alias of each page.
- * The target pages must already be faulted in (see fault_in_pages). */
+ * The target pages must already be faulted in (see VmmCheckUserFault). */
 static bool AddrSpaceCopyOut(AddressSpace *as, VirtAddr va, const void *src, size_t len)
 {
     const uint8_t *s = src;
@@ -68,7 +65,7 @@ static void KernelLoadFail(SpaceObject *sp, TaskObject *t)
     TaskDestroy(t);
 }
 
-SpaceObject *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char *name,
+SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *name,
                                 const char *argbuf, size_t argbuf_len, uint32_t argc,
                                 bool leave_frozen)
 {
@@ -77,7 +74,7 @@ SpaceObject *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char
     if (!valid)
         return NULL;
 
-    SpaceObject *p = SpaceCreate(name);
+    SpaceObject *p = SpaceCreate(name, NULL);
     if (!p)
         return NULL;
     p->max_prio = SCHED_PRIORITY_LEVELS - 1;
@@ -101,7 +98,7 @@ SpaceObject *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char
 
             if (ZxfSegChkOverlap(seg_i, seg_j))
             {
-                KERROR("ELF load segments overlap: [%08X, %08X) and [%08X, %08X)", seg_i->vaddr,
+                KERROR("ZXF load segments overlap: [%08X, %08X) and [%08X, %08X)", seg_i->vaddr,
                        seg_i->vaddr + seg_i->mem_size, seg_j->vaddr,
                        seg_j->vaddr + seg_j->mem_size);
                 KernelLoadFail(p, t);
@@ -121,7 +118,7 @@ SpaceObject *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char
         /* [filesz, memsz) is BSS: zero by definition, with no file
          * content behind it. Only [0, page_align_up(filesz)) needs an
          * eager alloc+copy; the rest is registered as anon and faults
-         * in lazily via vmm_fault_page(), same as the stack reserve. */
+         * in lazily on first touch, same as the stack reserve. */
         size_t file_pages = (seg->file_size + PAGE_SIZE - 1) / PAGE_SIZE;
         size_t mem_pages = (seg->mem_size + PAGE_SIZE - 1) / PAGE_SIZE;
 
@@ -165,7 +162,7 @@ SpaceObject *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char
             /* Every page here is < file_pages, so file_offset < p_filesz
              * always holds; the page containing p_filesz (the boundary
              * page) is part file content, part BSS, so the tail past
-             * p_filesz must be explicitly zeroed - PmmAllocPage() can
+             * p_filesz must be explicitly zeroed - PmmAllocFrame() can
              * return a recycled frame with arbitrary contents. */
             VirtAddr file_offset = page * PAGE_SIZE;
             size_t bytes_to_copy = seg->file_size - file_offset;
@@ -221,7 +218,7 @@ SpaceObject *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char
             };
             if (!VmmAddRegion(p->as, &seg_region))
             {
-                KERROR("Failed to add ELF segment region at VA %08X", (uint32_t)seg->vaddr);
+                KERROR("Failed to add ZXF segment region at VA %08X", (uint32_t)seg->vaddr);
                 for (uint32_t j = 0; j < file_pages; j++)
                 {
                     VirtAddr orphan_va = (uint32_t)seg->vaddr + (j * PAGE_SIZE);
@@ -388,11 +385,11 @@ SpaceObject *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char
         t->state = READY;
     }
     /* leave_frozen: task stays FROZEN (TaskCreate's default) with no
-     * trap frame set up yet. The caller is expected to SysKickstart this
-     * task later, which performs the deferred arch_thread_user_init
+     * trap frame set up yet. The caller is expected to start it later with
+     * MNGTASK_START, which performs the deferred arch_thread_user_init
      * call with the entry/sp it supplies at that time. */
 
-    KTRACE("space create: pid=%d name=%s tid=%u owner_task=%p as=%p", p->spid, p->name,
+    KTRACE("space create: spid=%d name=%s tid=%u owner_task=%p as=%p", p->spid, p->name,
            t->tid, (void *)t, (void *)p->as);
     return p;
 }

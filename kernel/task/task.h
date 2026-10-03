@@ -1,5 +1,5 @@
-#ifndef ZUZU_THREAD_H
-#define ZUZU_THREAD_H
+#ifndef KERNEL_TASK_TASK_H
+#define KERNEL_TASK_TASK_H
 
 #include "kernel/ipc/event.h"
 #include "kernel/ipc/observer.h"
@@ -17,30 +17,20 @@ typedef enum TaskStateEnum
     READY = 0, // ready to run, in run queue
     RUNNING,   // on CPU
     BLOCKED,   // waiting for IPC or timeout
-    ZOMBIE,    // called quit()
+    ZOMBIE,    // exited (Quit or killed), not yet reaped
     FROZEN,    // not runnable yet
     FAULTED, // ran into an exception, or parent/owner stopped it
 } TaskState;
 
-typedef enum
-{
-    WAKE_NONE = 0, // not currently sleeping/waiting
-    WAKE_IPC,      // woken by IPC partner
-    WAKE_TIMEOUT,  // woken by timer
-    WAKE_FAULT,    // woken by fault
-} WakeReason;
-
 typedef enum MsgStateEnum
 {
     IPC_NONE = 0,
-    IPC_SENDER,
-    IPC_RECEIVER,
     IPC_WAITING,
 } MsgState;
 
 typedef struct TaskObjectStruct TaskObject;
 
-#define TCB_SLOT_NONE 0xFFu /* thread holds no TCB slot */
+#define TCB_SLOT_NONE 0xFFu /* task holds no TCB slot */
 
 typedef struct WaitSlotStruct
 {
@@ -52,17 +42,16 @@ struct TaskObjectStruct
 {
     VirtAddr kernel_stack_top; /**< Top of the kernel stack for freeing. */
     CpuState *trap_frame;     /**< Pointer to saved user registers for IPC and context switching. */
-    Tid tid;                  /**< Thread ID. */
+    Tid tid;                  /**< Task ID. */
     uint32_t *kernel_sp;      /**< Current kernel stack pointer for context switching. */
-    Err exit_status;          /**< Exit status of the thread. */
+    Err exit_status;          /**< Exit status of the task. */
     ListNode node;            /**< Embedded, not pointers. */
     ListNode space_node;      /**< Membership in owner space task list. */
     ListNode timeout_node;    /**< Node for timeout queue. */
     ListHead joiners;         /**< List of joiners. */
-    WakeReason wake_reason;   /**< Reason for waking up. */
     Time wake_deadline;       /**< Deadline for waking up. */
     int16_t sleep_slot;       /**< Sleep slot. */
-    TaskState state;          /**< State of the thread. */
+    TaskState state;          /**< State of the task. */
     ListNode destroy_node;    /**< Node for destruction. */
     MsgState ipc_state;       /**< IPC state. */
     PortObject *blocked_port; /**< Blocked port. */
@@ -77,34 +66,27 @@ struct TaskObjectStruct
     size_t msg_xfer_len;        /**< Length of the message buffer transfer. */
     Marker port_marker;         /**< Port marker. */
     WaitSlot wait_slot;         /**< Wait slot. */
-    uint32_t priority, time_slice,
-        ticks_remaining; /**< Priority, time slice, and remaining ticks. */
+    uint32_t priority, time_slice; /**< Priority and time slice. */
     uint32_t max_prio;
     uint8_t queued_prio;   /**< Run-queue level the node is linked at; valid while node is linked. */
     Time slice_deadline;   /**< Deadline for the time slice. */
-    SpaceObject *owner;    /**< Backpointer to owning process. */
-    VirtAddr task_info_va; /**< Virtual address of thread info. */
+    SpaceObject *owner;    /**< Backpointer to the owning Space. */
+    VirtAddr task_info_va; /**< User VA of the task's TCB slot. */
     Err fault_reason;
     uint8_t tcb_slot;      /**< Index into owner's TCB page, TCB_SLOT_NONE if unassigned. */
     FpuState fpu_state;    /**< Lazily saved/restored, see kernel/sched/sched.c fpu_owner. */
     ObserverSet observers;
     uint32_t ref_count;
     bool released;
-#ifdef CONFIG_ZUZU_BENCH
-    uint32_t bench_irq_wait_start; /**< PMCCNTR at SysNtfnWait block, for the IRQ-wait bench. */
-#endif
 };
 
 _Static_assert(offsetof(TaskObject, kernel_sp) == 12,
-               "switch.S expects process->kernel_sp at offset 12");
+               "switch.S expects task->kernel_sp at offset 12");
 
 void TaskDestroy(TaskObject *task);
 TaskObject *TaskCreate(SpaceObject *owner);
 void TaskWaitExit(TaskObject *task, Duration timeout, CpuState *frame);
-void KillTask(TaskObject *task);
 void WakeWaitList(ListHead *list, Err status);
-void WakeJoinTask(TaskObject *task, Err exit_status);
-TaskObject *FindTaskByTid(Tid tid);
 void TaskUnlinkWaits(TaskObject *t);
 void TaskAbortWait(TaskObject *t, Err err);
 void TaskRef(TaskObject *t);
@@ -119,4 +101,4 @@ void TaskTerminate(TaskObject *task, Err exit_status);
 /* Exited or faulted: the condition observers wait for. */
 bool TaskIsDead(const TaskObject *task);
 void TaskFault(TaskObject *task, Err reason);
-#endif // ZUZU_THREAD_H
+#endif // KERNEL_TASK_TASK_H

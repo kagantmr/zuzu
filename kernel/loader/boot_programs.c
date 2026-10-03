@@ -30,6 +30,7 @@ static size_t g_initrd_size;
 
 static void InjectDeviceObjects(const char *compatible, uint64_t phys, uint64_t size, uint32_t irq)
 {
+    (void)compatible;
     static int32_t index = 0;
     if (!s_rootsvc)
         return;
@@ -37,7 +38,7 @@ static void InjectDeviceObjects(const char *compatible, uint64_t phys, uint64_t 
         HandleTableGetOrAlloc(&s_rootsvc->handle_table, (Handle)DEVICE_HANDLE_BASE + index++);
     if (!entry)
         return;
-    MemObject *mem = MemObjCreateDevice((PhysAddr)phys, (size_t)size, compatible, irq);
+    MemObject *mem = MemObjCreateDevice((PhysAddr)phys, (size_t)size, irq);
     if (!mem)
         return;
 
@@ -59,13 +60,13 @@ static void CreateRootSpace(const char *path)
         return;
     }
 
-    SpaceObject *process = KernelProcessLoad(zxf_data, zxf_size, path, NULL, 0, 0, false);
-    if (!process)
+    SpaceObject *space = KernelSpaceLoad(zxf_data, zxf_size, path, NULL, 0, 0, false);
+    if (!space)
     {
         KERROR("Failed to create boot program %s", path);
         return;
     }
-    s_rootsvc = process;
+    s_rootsvc = space;
     BootInfoEnumerateDevs(InjectDeviceObjects);
 
     uint32_t initrd_page_offset = g_initrd_pa & (PAGE_SIZE - 1);
@@ -77,13 +78,13 @@ static void CreateRootSpace(const char *path)
     for (uint32_t i = 0; i < initrd_page_count; i++)
     {
         uint32_t page_pa = initrd_aligned_pa + (i * PAGE_SIZE);
-        if (!VmmMapUserPage(process->as, page_pa, initrd_base_va + (i * PAGE_SIZE), PROT_READ))
+        if (!VmmMapUserPage(space->as, page_pa, initrd_base_va + (i * PAGE_SIZE), PROT_READ))
         {
             KERROR("Failed to map initrd page %u for %s", i, path);
             return;
         }
     }
-    VmmAddRegion(process->as, &(VirtMemRegion){.vaddr_start = initrd_base_va,
+    VmmAddRegion(space->as, &(VirtMemRegion){.vaddr_start = initrd_base_va,
                                                .size = initrd_page_count * PAGE_SIZE,
                                                .prot = PROT_READ | VM_PROT_USER,
                                                .memtype = VM_MEM_NORMAL,
@@ -93,21 +94,21 @@ static void CreateRootSpace(const char *path)
     size_t bootinfo_pages = (sizeof(BootInfo) + PAGE_SIZE - 1) / PAGE_SIZE;
     for (size_t i = 0; i < bootinfo_pages; i++)
     {
-        if (!VmmMapUserPage(process->as, BootInfoPhysAddr() + (i * PAGE_SIZE),
+        if (!VmmMapUserPage(space->as, BootInfoPhysAddr() + (i * PAGE_SIZE),
                             USER_BOOTINFO_VA + (i * PAGE_SIZE), PROT_READ))
         {
             KERROR("Failed to map boot info page %zu for %s", i, path);
             return;
         }
     }
-    VmmAddRegion(process->as, &(VirtMemRegion){.vaddr_start = USER_BOOTINFO_VA,
+    VmmAddRegion(space->as, &(VirtMemRegion){.vaddr_start = USER_BOOTINFO_VA,
                                                .size = bootinfo_pages * PAGE_SIZE,
                                                .prot = PROT_READ | VM_PROT_USER,
                                                .memtype = VM_MEM_NORMAL,
                                                .owner = VM_OWNER_SHARED,
                                                .flags = VM_FLAG_NONE});
 
-    SchedAdd(process->main_task);
+    SchedAdd(space->main_task);
 }
 
 static char *NormalizeManifestPath(const char *path_in)

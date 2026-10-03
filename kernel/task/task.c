@@ -1,4 +1,3 @@
-#include "core/panic.h"
 #include "kernel/ipc/msg.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm/pmm.h"
@@ -6,7 +5,6 @@
 #include "kernel/sched/sched.h"
 #include "kernel/space/space.h"
 #include "kstack.h"
-#include <spinlock.h>
 #include <stddef.h>
 #include <string.h>
 #include <zuzu/err.h>
@@ -27,8 +25,8 @@ static Tid RegisterTask(TaskObject *task)
         return 0;
 
     /* Advance next_tid until its hashed slot is free, so the assigned tid
-     * always satisfies tid % MAX_THREADS == slot. TaskObjectFindByTid and
-     * task_unregister rely on that to stay O(1). Mirrors process_table. */
+     * always satisfies tid % MAX_THREADS == slot, which keeps
+     * TaskObjectUnregister O(1). */
     Tid start = next_tid % MAX_THREADS;
     Tid slot = start;
     while (task_table[slot] != NULL)
@@ -44,7 +42,7 @@ static Tid RegisterTask(TaskObject *task)
     task->tid = next_tid++;
     task_table[slot] = task;
 
-    KTRACE("task register: tid=%u slot=%d owner_pid=%u owner_name=%s", task->tid, slot,
+    KTRACE("task register: tid=%u slot=%d owner_spid=%u owner_name=%s", task->tid, slot,
            (task->owner ? task->owner->spid : 0),
            (task->owner ? task->owner->name : "<none>"));
 
@@ -61,39 +59,29 @@ static void TaskObjectUnregister(TaskObject *task)
         task_table[slot] = NULL;
 }
 
-void KillTask(TaskObject *task)
+static void SetExitResult(CpuState *frame, Err value, TaskWaitOutcome outcome)
 {
-    if (!task)
-        return;
-
-    task->state = ZOMBIE;
+    ArchSetInFrame(frame, 0, ZUZU_OK);
+    ArchSetInFrame(frame, 1, (Register)value);
+    ArchSetInFrame(frame, 3, outcome);
 }
 
-void WakeWaitList(ListHead *list, Err status)
+static void WakeWaiters(ListHead *list, Err value, TaskWaitOutcome outcome)
 {
     while (!list_empty(list))
     {
         ListNode *node = list_pop_front(list);
-        if (!node)
-            break;
         TaskObject *waiter = container_of(node, WaitSlot, node)->owner;
         if (waiter->trap_frame)
-        {
-            ArchSetInFrame(waiter->trap_frame, 0, ZUZU_OK);
-            (*ArchGetFromFrame(waiter->trap_frame, 1)) = (Register)status;
-            ArchSetInFrame(waiter->trap_frame, 3, TASK_EXITED);
-        }
-        SchedUnblock(waiter, WAKE_IPC);
+            SetExitResult(waiter->trap_frame, value, outcome);
+        SchedUnblock(waiter);
         SchedAdd(waiter);
     }
 }
 
-void WakeJoinTask(TaskObject *task, Err exit_status)
+void WakeWaitList(ListHead *list, Err status)
 {
-    if (!task)
-        return;
-
-    WakeWaitList(&task->joiners, exit_status);
+    WakeWaiters(list, status, TASK_EXITED);
 }
 
 void TaskRef(TaskObject *t)
@@ -129,15 +117,15 @@ void TaskDestroy(TaskObject *task)
     TaskObjectUnregister(task);
     if (fpu_owner == task)
         fpu_owner = NULL;
-    // may already be removed by tquit, guard is safe
+    // may already be unlinked by TaskTerminate, guard is safe
     if (task->space_node.prev && task->space_node.next)
         list_remove(&task->space_node);
     SpaceObject *owner = task->owner;
     if (owner && task->state != ZOMBIE)
         owner->live_tasks--;
     /* Release the TCB slot; scrub it so a reused slot never shows a
-     * previous task's tid/pid. tcb_page_pa == 0 means the page is
-     * already gone (process teardown fail paths). */
+     * previous task's tid/spid. tcb_page_pa == 0 means the page is
+     * already gone (Space teardown fail paths). */
     if (owner && task->tcb_slot < TCB_MAX_SLOTS &&
         owner->tcb_page_pa[task->tcb_slot / SLOTS_PER_PAGE])
     {
@@ -164,16 +152,12 @@ void TaskWaitExit(TaskObject *task, Duration timeout, CpuState *frame)
     ENSURE_ERR(frame, task != current_task, ERR_BADARG);
     if (task->state == ZOMBIE)
     {
-        ArchSetInFrame(frame, 0, ZUZU_OK);
-        ArchSetInFrame(frame, 1, task->exit_status);
-        ArchSetInFrame(frame, 3, TASK_EXITED);
+        SetExitResult(frame, task->exit_status, TASK_EXITED);
         return;
     }
     if (task->state == FAULTED)
     {
-        ArchSetInFrame(frame, 0, ZUZU_OK);
-        ArchSetInFrame(frame, 1, task->fault_reason);
-        ArchSetInFrame(frame, 3, TASK_FAULTED);
+        SetExitResult(frame, task->fault_reason, TASK_FAULTED);
         return;
     }
     SchedBlockOn(&task->joiners, timeout);
@@ -185,7 +169,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
         return NULL;
 
     if (!task_cache.obj_size)
-        KSlabInit(&task_cache, "TaskObject", sizeof(TaskObject));
+        KSlabInit(&task_cache, sizeof(TaskObject));
     TaskObject *task = KSlabAlloc(&task_cache);
     if (!task)
         return NULL;
@@ -207,34 +191,14 @@ TaskObject *TaskCreate(SpaceObject *owner)
         return NULL;
     }
 
-    task->kernel_sp = NULL;
-    task->trap_frame = NULL;
     task->owner = owner;
-    task->exit_status = 0;
-    task->node.next = NULL;
-    task->node.prev = NULL;
     task->sleep_slot = -1;
-    task->space_node.next = NULL;
-    task->space_node.prev = NULL;
-    task->timeout_node.next = NULL;
-    task->timeout_node.prev = NULL;
     list_init(&task->joiners);
-    task->wait_slot.node.next = NULL;
-    task->wait_slot.node.prev = NULL;
-    task->wake_reason = WAKE_NONE;
-    task->wake_deadline = 0;
     task->state = FROZEN;
     task->ipc_state = IPC_NONE;
-    task->blocked_port = NULL;
-    task->pending_reply_cap = NULL;
-    task->msg_buf_phys_addr = 0;
-    task->msg_xfer_len = 0;
     task->priority = SCHED_PRIO_DEFAULT;
     task->time_slice = 5;
     task->max_prio = SCHED_PRIORITY_LEVELS - 1;
-    task->ticks_remaining = task->time_slice;
-    task->slice_deadline = 0;
-    task->task_info_va = 0;
     task->tcb_slot = TCB_SLOT_NONE;
 
     int tcb_slot_idx = TcbSlotAlloc(owner);
@@ -282,22 +246,10 @@ TaskObject *TaskCreate(SpaceObject *owner)
     if (!owner->main_task)
         owner->main_task = task;
 
-    KTRACE("task create: tid=%u owner_pid=%u owner_name=%s state=%u kernel_stack_top=%p", task->tid,
+    KTRACE("task create: tid=%u owner_spid=%u owner_name=%s state=%u kernel_stack_top=%p", task->tid,
            owner->spid, owner->name, task->state, (void *)task->kernel_stack_top);
 
     return task;
-}
-
-TaskObject *FindTaskByTid(Tid tid)
-{
-    if (tid == 0)
-        return NULL;
-
-    uint32_t slot = (uint32_t)tid % MAX_THREADS;
-    TaskObject *t = task_table[slot];
-    if (t && t->tid == tid)
-        return t;
-    return NULL;
 }
 
 void TaskUnlinkWaits(TaskObject *t)
@@ -316,7 +268,7 @@ void TaskAbortWait(TaskObject *t, Err err)
     if (t->trap_frame)
         ArchSetInFrame(t->trap_frame, 0, err);
     t->pending_reply_cap = NULL;
-    SchedUnblock(t, WAKE_IPC);
+    SchedUnblock(t);
     SchedAdd(t);
 }
 
@@ -360,9 +312,8 @@ void TaskTerminate(TaskObject *task, Err exit_status)
         task->reply_cap = NULL;
     }
 
-    KillTask(task); // state = ZOMBIE
-    if (TaskIsDead(task))
-        ObserverNotify(&task->observers);
+    task->state = ZOMBIE;
+    ObserverNotify(&task->observers);
     if (owner && entry_state != ZOMBIE)
         owner->live_tasks--;
     bool space_hollow = owner && owner->live_tasks == 0;
@@ -371,28 +322,18 @@ void TaskTerminate(TaskObject *task, Err exit_status)
     {
         owner->last_exit_status = exit_status;
         WakeWaitList(&owner->waiters, exit_status);
-        if (SpaceIsHollow(owner))
-            ObserverNotify(&owner->observers);
+        ObserverNotify(&owner->observers);
     }
 
-    WakeJoinTask(task, exit_status);
+    WakeWaitList(&task->joiners, exit_status);
 
+    /* The last task of a Space stays a zombie until the Space is destroyed. */
     if (space_hollow)
-    {
-        if (!owner->torn_down)
-        {
-            if (task == current_task)
-                SchedQueueDestroyProcess(owner);
-            else if (owner->parent_spid == -1)
-            {
-                // ResurrectRootSvc(task, exit_status);
-            }
-        }
-    }
-    else if (task == current_task)
+        return;
+    if (task == current_task)
     {
         /* Can't free our own kernel stack while running on it. */
-        SchedQueueDestroyThread(task);
+        SchedQueueDestroyTask(task);
     }
     else
     {
@@ -405,20 +346,8 @@ void TaskFault(TaskObject *task, Err reason)
     task->state = FAULTED;
     task->fault_reason = reason;
     task->owner->frozen = true;
-    task->owner->faulted_tid = task->tid;
-    if (TaskIsDead(task))
-        ObserverNotify(&task->observers);
-    while (!list_empty(&task->joiners)) {
-        ListNode *jn = list_pop_front(&task->joiners);
-        TaskObject *joiner = container_of(jn, WaitSlot, node)->owner;
-        if (joiner->trap_frame) {
-            ArchSetInFrame(joiner->trap_frame, 0, ZUZU_OK);
-            ArchSetInFrame(joiner->trap_frame, 1, reason);
-            ArchSetInFrame(joiner->trap_frame, 3, TASK_FAULTED);
-        }
-        SchedUnblock(joiner, WAKE_IPC);
-        SchedAdd(joiner);
-    }
+    ObserverNotify(&task->observers);
+    WakeWaiters(&task->joiners, reason, TASK_FAULTED);
 
     ListNode *n = task->owner->tasks.node.next;
     while (n != &task->owner->tasks.node) {

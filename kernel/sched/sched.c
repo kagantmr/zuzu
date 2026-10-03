@@ -17,19 +17,17 @@
 #include <assert.h>
 #include <bitmap.h>
 #include <stdint.h>
-#include <string.h>
 
 #define IDLE_STACK_BYTES 1024
 #define SLEEP_QUEUE_SIZE 512
 
-static ListHead destroy_queue = LIST_HEAD_INIT(destroy_queue);
-static ListHead thread_destroy_queue = LIST_HEAD_INIT(thread_destroy_queue);
+static ListHead task_destroy_queue = LIST_HEAD_INIT(task_destroy_queue);
 TaskObject *current_task;
 TaskObject *fpu_owner = NULL;
 
 volatile uint8_t do_resched = 0;
 
-static TaskObject idle_thread; // only kernel_sp is used
+static TaskObject idle_task; // only kernel_sp is used
 static uint8_t idle_stack[IDLE_STACK_BYTES] __attribute__((aligned(8)));
 static bool on_idle_stack;
 
@@ -48,28 +46,29 @@ static uint32_t ready_mask = 0;
 #define LOG_FMT(fmt) "(sched) " fmt
 #include <util/log.h>
 
-static void IdleThread(void) __attribute__((noreturn));
-void SchedArmTimer(void);
+static void IdleTask(void) __attribute__((noreturn));
+static void SchedArmTimer(void);
+static void SchedConsumeDestroyQueue(void);
+static void SchedIdleWait(void);
 
-static void IdleThread(void)
+static void IdleTask(void)
 {
     on_idle_stack = true;
     for (;;)
     {
         VmmActivateAddrspace(VmmGetKernelAddrspace());
-        SchedReap();
+        SchedConsumeDestroyQueue();
         SchedIdleWait();
         Schedule();
     }
 }
 
-static void SchedInitIdleThread(void)
+static void SchedInitIdleTask(void)
 {
     VirtAddr sp = (VirtAddr)idle_stack + sizeof(idle_stack);
     sp &= ~(VirtAddr)7U;
 
-    idle_thread.kernel_sp = (uint32_t *)arch_thread_kernel_init((void *)sp, IdleThread);
-    idle_thread.state = RUNNING;
+    idle_task.kernel_sp = (uint32_t *)arch_thread_kernel_init((void *)sp, IdleTask);
 }
 
 void SchedInit(void)
@@ -83,10 +82,9 @@ void SchedInit(void)
 
     slot_shift = (uint32_t)(63 - __builtin_clzll(ArchTimerFreq() / 250));
     wheel_now_slot = ArchTimerNow() >> slot_shift;
-    list_init(&destroy_queue);
     current_task = NULL;
     on_idle_stack = false;
-    SchedInitIdleThread();
+    SchedInitIdleTask();
 }
 
 void SchedAdd(TaskObject *t)
@@ -111,12 +109,7 @@ void SchedAdd(TaskObject *t)
     }
 }
 
-void SchedQueueDestroyProcess(SpaceObject *p)
-{
-    list_add_tail(&p->destroy_node, &destroy_queue.node);
-}
-
-void SchedQueueDestroyThread(TaskObject *t)
+void SchedQueueDestroyTask(TaskObject *t)
 {
     if (!t)
         return;
@@ -125,16 +118,16 @@ void SchedQueueDestroyThread(TaskObject *t)
     {
         return;
     }
-    list_add_tail(&t->destroy_node, &thread_destroy_queue.node);
+    list_add_tail(&t->destroy_node, &task_destroy_queue.node);
 }
 
-void SchedConsumeDestroyQueue(void)
+static void SchedConsumeDestroyQueue(void)
 {
     ListHead deferred = LIST_HEAD_INIT(deferred);
 
-    while (!list_empty(&thread_destroy_queue))
+    while (!list_empty(&task_destroy_queue))
     {
-        ListNode *node = list_pop_front(&thread_destroy_queue);
+        ListNode *node = list_pop_front(&task_destroy_queue);
         if (!node)
             break;
         TaskObject *t = container_of(node, TaskObject, destroy_node);
@@ -154,29 +147,13 @@ void SchedConsumeDestroyQueue(void)
         if (!node)
             break;
         TaskObject *t = container_of(node, TaskObject, destroy_node);
-        list_add_tail(&t->destroy_node, &thread_destroy_queue.node);
+        list_add_tail(&t->destroy_node, &task_destroy_queue.node);
     }
-}
-
-void SchedReap(void)
-{
-    /* Removed noisy debug logging to avoid flooding the console. */
-    while (!list_empty(&destroy_queue))
-    {
-        ListNode *node = list_pop_front(&destroy_queue);
-        SpaceObject *p = container_of(node, SpaceObject, destroy_node);
-        if (!p->torn_down && p->parent_spid == -1)
-        {
-            // ResurrectRootSvc(...)
-        }
-        /* not torn_down and not root: leave it hollow, nothing to do */
-    }
-    SchedConsumeDestroyQueue();
 }
 
 static bool SchedIsWorkPending(void)
 {
-    if (do_resched || !list_empty(&destroy_queue))
+    if (do_resched)
         return true;
 
     for (uint32_t level = 0; level < SCHED_PRIORITY_LEVELS; level++)
@@ -242,7 +219,7 @@ static void SchedWakeSleepers(void)
 
             if (t->trap_frame)
                 ArchSetInFrame(t->trap_frame, 0, ERR_TIMEOUT);
-            SchedUnblock(t, WAKE_TIMEOUT);
+            SchedUnblock(t);
             SchedAdd(t);
         }
 
@@ -250,7 +227,7 @@ static void SchedWakeSleepers(void)
     }
 }
 
-void SchedIdleWait(void)
+static void SchedIdleWait(void)
 {
     for (;;)
     {
@@ -302,7 +279,7 @@ static TaskObject *SchedPickNext(void)
             return container_of(next_node, TaskObject, node);
         }
     }
-    return &idle_thread;
+    return &idle_task;
 }
 
 bool __hot SchedAnyCpuTakers(const TaskObject *t)
@@ -317,14 +294,14 @@ bool __hot SchedAnyCpuTakers(const TaskObject *t)
     return at_or_above != 0;
 }
 
-/* Called from schedule() (every voluntary reschedule) and directly from
- * SysMsgCall's/SysMsgLcall's direct-handoff path -- one of the hottest
- * functions in the kernel. */
+/* Called from Schedule() (every voluntary reschedule) and directly from
+ * the Call direct-handoff path -- one of the hottest functions in the
+ * kernel. */
 void __hot SchedSwitchNext(TaskObject *next)
 {
     TaskObject *prev = current_task;
 
-    if (unlikely(next == &idle_thread))
+    if (unlikely(next == &idle_task))
     {
         bool from_idle = (prev == NULL && on_idle_stack);
         current_task = NULL;
@@ -333,7 +310,7 @@ void __hot SchedSwitchNext(TaskObject *next)
         {
             return;
         }
-        ContextSwitch(prev, &idle_thread);
+        ContextSwitch(prev, &idle_task);
         return;
     }
 
@@ -341,7 +318,6 @@ void __hot SchedSwitchNext(TaskObject *next)
     current_task->state = RUNNING;
     on_idle_stack = false;
 
-    current_task->ticks_remaining = current_task->time_slice;
     current_task->slice_deadline =
         ArchTimerNow() + ((uint64_t)current_task->time_slice * (ArchTimerFreq() / TICK_HZ));
     SchedArmTimer();
@@ -392,7 +368,7 @@ static uint32_t WheelScanFromNow(void)
     return SLEEP_QUEUE_SIZE;
 }
 
-void SchedArmTimer(void)
+static void SchedArmTimer(void)
 {
     uint64_t now = ArchTimerNow();
     uint64_t deadline = UINT64_MAX;
@@ -428,7 +404,6 @@ void SchedBlockOn(ListHead *queue, Duration timeout)
     current_task->wait_slot.owner  = current_task;
     list_add_tail(&current_task->wait_slot.node, &queue->node);
 
-    current_task->wake_reason = WAKE_NONE;
     current_task->state = BLOCKED;
 
     if (TIMEOUT_INFINITE != timeout)
@@ -444,11 +419,10 @@ void SchedBlockOn(ListHead *queue, Duration timeout)
     Schedule();
 }
 
-void SchedUnblock(TaskObject *t, WakeReason reason) {
+void SchedUnblock(TaskObject *t) {
     if (t->wait_slot.node.next)           list_remove(&t->wait_slot.node);
     SchedRemoveSleepQueue(t);
     t->wake_deadline = 0;
-    t->wake_reason = reason;
     t->ipc_state = IPC_NONE;
     t->blocked_port = NULL;
     t->state = READY;
