@@ -23,7 +23,6 @@
 #define PORT_MASK (1u << PORT_BIT)
 #define IRQ_MASK (1u << IRQ_BIT)
 
-
 #define TX_DOORBELL_MASK (1u << TX_DOORBELL_BIT)
 #define RX_DOORBELL_MASK (1u << RX_DOORBELL_BIT)
 
@@ -40,11 +39,11 @@ static NicRing *rx_ring, *tx_ring;
 static uint16_t tx_tag = 0;
 static uint32_t nic_stats[NIC_STAT_COUNT];
 
-static Handle WaitForDevsvc(void)
+static Handle WaitForService(const char *path)
 {
     for (;;)
     {
-        Handle h = LookupService("/svc/devsvc");
+        Handle h = LookupService(path);
         if (h >= 0)
             return h;
         Sleep(10);
@@ -140,7 +139,7 @@ static Err GetNicHandle(void)
 {
     static const char *const nic_compat[] = {"smsc,lan9118"};
     uint32_t matched;
-    dev_handle = RequestDevice(WaitForDevsvc(), nic_compat, 1, &matched);
+    dev_handle = RequestDevice(WaitForService("/svc/devsvc"), nic_compat, 1, &matched);
     if (dev_handle < 0)
     {
         LOG_ERROR(LOG_TAG, "RequestDevice failed: %s", StrToError(dev_handle));
@@ -231,7 +230,7 @@ void InitLan9118Svcs(void)
         LOG_ERROR(LOG_TAG, "BindIrq failed: %s", StrToError(rc));
         return;
     }
-    
+
     g_doorbell_ev = CreateEvent();
     if (g_doorbell_ev < 0)
     {
@@ -254,21 +253,104 @@ void InitLan9118Svcs(void)
     }
 }
 
+void ServiceIrq(void)
+{
+
+    nic_stats[NIC_STAT_IRQ]++;
+    uint32_t sts = nic->int_sts;
+    nic->int_sts = sts; // write back to clear R/WC bits
+    if (sts & INT_RSFL)
+    {
+        /* drain RX FIFO */
+        while ((nic->rx_fifo_inf >> 16) & 0xFF)
+        {
+            uint32_t rx_sts = nic->rx_status_fifo_port;
+            size_t pkt_len = (rx_sts >> 16) & 0x3FFF;
+            if (rx_sts & (1U << 15))
+            {
+                nic_stats[NIC_STAT_RX_ERRORS]++;
+                uint32_t dwords = (pkt_len + 3) / 4;
+                for (uint32_t i = 0; i < dwords; i++)
+                    (void)nic->rx_data_fifo_port;
+            }
+            else
+            {
+                static _Alignas(4) uint8_t buf[NIC_FRAME_SIZE];
+                if (pkt_len > NIC_FRAME_SIZE)
+                {
+                    nic_stats[NIC_STAT_RX_OVERSIZE]++;
+                    uint32_t dwords = (pkt_len + 3) / 4;
+                    for (uint32_t i = 0; i < dwords; i++)
+                        (void)nic->rx_data_fifo_port;
+                    continue;
+                }
+                uint32_t dwords = (pkt_len + 3) / 4;
+                for (uint32_t i = 0; i < dwords; i++)
+                    ((uint32_t *)buf)[i] = nic->rx_data_fifo_port;
+                int push_rc = PacketRingPush(rx_ring, buf, pkt_len);
+                if (push_rc < 0)
+                {
+                    nic_stats[NIC_STAT_RX_RING_FULL]++;
+                    continue;
+                }
+                nic_stats[NIC_STAT_RX_PACKETS]++;
+                Signal(g_doorbell_ev, RX_DOORBELL_BIT, false);
+            }
+        }
+    }
+    if (sts & INT_TSFL)
+    {
+        /* drain TX status FIFO */
+        while ((nic->tx_fifo_inf >> 16) & 0xFF)
+        {
+            uint32_t tx_sts = nic->tx_status_fifo_port;
+            (void)tx_sts;
+        }
+    }
+
+    IrqRearm(dev_handle);
+}
+
+static Err NetdHandshake(void) {
+    Handle netd_port = WaitForService("/svc/netd");
+    if (netd_port < 0) {
+        printf("Couldn't find netd");
+        return ERR_SYSDOWN;
+    }
+
+    
+
+    return ZUZU_OK;
+}
+
 int main(void)
 {
-    int rc1 = GetNicHandle();
-    if (rc1 != 0)
-        return rc1;
+    Err retval;
+    retval = GetNicHandle();
+    if (retval != 0)
+        return retval;
 
-    int rc2 = Lan9118Setup();
-    if (rc2 != 0)
-        return rc2;
-
+    retval = Lan9118Setup();
+    if (retval != 0)
+        return retval;
+    
     InitPacketRings();
     InitLan9118Svcs();
 
+    retval = NetdHandshake();
+    if (retval != ZUZU_OK)
+        return retval;
+
     for (;;)
     {
+        EventWaitResult res = FormatToEventWait(WaitOn(g_event, 50));
+
+        if (ZUZU_OK == res.status)
+        {
+            if (res.bits & IRQ_BIT) ServiceIrq();
+            if (res.bits & PORT_BIT) {
+            }
+        }
     }
 
     return 0;
