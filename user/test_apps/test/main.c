@@ -1,82 +1,78 @@
-#include "types.h"
+/* Memory-pressure event test: map anonymous memory until the kernel raises
+ * EVENT_MEMMGMT, release it all, then check the event fires a second time. */
+
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <zuzu/err.h>
 #include <zuzu/syspage.h>
-#include <zuzu/event.h>
-#include <zuzu/ntfn.h>
-#include <zuzu/umem.h>
-#include <stdbool.h>
+#include <zuzu/zuzu.h>
 
-#define MAX_ITERS 100
+#define MAX_ITERS 256
+#define CHUNK_BYTES (64 * 4096)
+#define MEMMGMT_BIT (1u << 0)
 
-int main(void) {
-    // 1. Setup
+static void *g_chunks[MAX_ITERS];
 
-	Syspage *syspage = SYSPAGE;
-
-    Handle ntfn = ZuzuNtfnCreate();
-    ZuzuKEventBind(KEVENT_MEMMGMT, ntfn, NULL);
-
-    printf("start: %u pages free\n", syspage->mem_free_kb);
-
-	bool first_fired = false, second_fired = false;
-
-    // 2. Allocate chunks until KEvent fires
-    const size_t CHUNK_PAGES = 64;   // 256KB per MemMap
-	int iterations = 0;
-	void *chunks[MAX_ITERS];
-    for (iterations = 0; iterations < MAX_ITERS; iterations++) {
-        chunks[iterations] = ZuzuMemMap(HANDLE_ANON, CHUNK_PAGES * 4096, PROT_RW, 0);  // fill in args
-        if (!chunks[iterations]) {
-            printf("MemMap failed at iter %d — OOM before KEvent?\n", iterations);
+/* Maps chunks until the pressure bit fires; returns how many were mapped. */
+static int FillUntilPressure(Handle ev, bool *fired)
+{
+    const Syspage *sp = SYSPAGE;
+    *fired = false;
+    int n;
+    for (n = 0; n < MAX_ITERS; n++)
+    {
+        g_chunks[n] = MemMapAnon(CHUNK_BYTES, 0, PROT_RW);
+        if (PtrIsErr(g_chunks[n]))
+        {
+            printf("MemMapAnon failed at iter %d (%d) before the event fired\n", n,
+                   (int)(intptr_t)g_chunks[n]);
             break;
         }
-		memset(chunks[iterations], 0, CHUNK_PAGES * 4096);   // force fault-in
+        memset(g_chunks[n], 0, CHUNK_BYTES);
 
-        EventWord bits = ZuzuNtfnWait(ntfn, TIMEOUT_POLL);
-        if (bits & KEVENT_MEMMGMT_BIT) {
-            printf("FIRED at iter %d, free=%u pages\n",
-                   iterations, syspage->mem_free_kb / 4);
-			first_fired = true;
-            break;
+        EventWaitResult r = FormatToEventWait(WaitOn(ev, TIMEOUT_POLL));
+        if (r.status == ZUZU_OK && (r.bits & MEMMGMT_BIT))
+        {
+            printf("fired at iter %d, %u KiB free\n", n, (unsigned)sp->mem_free_kb);
+            *fired = true;
+            return n + 1;
         }
-
-        if (iterations % 10 == 0)
-            printf("iter %d: free=%u\n", iterations, syspage->mem_free_kb / 4);
+        if (n % 10 == 0)
+            printf("iter %d: %u KiB free\n", n, (unsigned)sp->mem_free_kb);
     }
-	// 3. Re-arm test
-	for (int i = 0; i < iterations; i++) {
-		ZuzuMemUnmap(chunks[i]);   // you'll need an array to track them
-	}
-	// free is now back near starting level, in_pressure still true
+    return n;
+}
 
-	// Drain any stale bits from the first fire
-	ZuzuNtfnWait(ntfn, TIMEOUT_POLL);
+static void ReleaseAll(int n)
+{
+    for (int i = 0; i < n; i++)
+        MemUnmap(g_chunks[i]);
+}
 
-    for (iterations = 0; iterations < MAX_ITERS; iterations++) {
-        chunks[iterations] = ZuzuMemMap(HANDLE_ANON, CHUNK_PAGES * 4096, PROT_RW, 0);  // fill in args
-        if (!chunks[iterations]) {
-            printf("MemMap failed at iter %d — OOM before KEvent?\n", iterations);
-            break;
-        }
-		memset(chunks[iterations], 0, CHUNK_PAGES * 4096);   // force fault-in
-
-        EventWord bits = ZuzuNtfnWait(ntfn, TIMEOUT_POLL);
-        if (bits & KEVENT_MEMMGMT_BIT) {
-			second_fired = true;
-            printf("FIRED at iter %d, free=%u pages\n",
-                   iterations, syspage->mem_free_kb / 4);
-            break;
-        }
-
-        if (iterations % 10 == 0)
-            printf("iter %d: free=%u\n", iterations, syspage->mem_free_kb / 4);
+int main(void)
+{
+    const Syspage *sp = SYSPAGE;
+    Handle ev = CreateEvent();
+    if (ev < 0 || BindMemMgmt(ev) != ZUZU_OK)
+    {
+        printf("TEST FAILED: cannot subscribe to memory pressure\n");
+        return 1;
     }
+    printf("start: %u KiB free\n", (unsigned)sp->mem_free_kb);
 
-	if (first_fired && second_fired)
-		printf("TEST PASSED\n");
-	else
-		printf("TEST FAILED: first=%d second=%d\n", first_fired, second_fired);
+    bool first, second;
+    int n = FillUntilPressure(ev, &first);
+    ReleaseAll(n);
+    WaitOn(ev, TIMEOUT_POLL); /* drain bits left over from the first fire */
 
-    return 0;
+    n = FillUntilPressure(ev, &second);
+    ReleaseAll(n);
+
+    if (first && second)
+        printf("TEST PASSED\n");
+    else
+        printf("TEST FAILED: first=%d second=%d\n", first, second);
+    HandleClose(ev);
+    return first && second ? 0 : 1;
 }
