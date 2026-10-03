@@ -12,28 +12,22 @@
 #include <arch/mmu.h>
 #include <arch_impl/armv7_mmu.h>
 #include "kernel/layout.h"
-#include "kernel/mm/pmm.h"
+#include "kernel/mm/pmm/pmm.h"
 #include "kernel/kmain.h"
 #include "kernel/dev/fdt_wrappers.h"
 #include "kernel/boot_info.h"
 #include "kernel/mm/alloc.h"
-#include "kernel/mm/vmm.h"
+#include "kernel/mm/vmm/vmm.h"
 #include "core/panic.h"
 #include "core/kprintf.h"
 #include <string.h>
 
-kernel_layout_t kernel_layout;
-extern AddressSpace *g_kernel_as;
+ZuzuRamLayout kernel_layout;
 
 #define LOG_FMT(fmt) "(early) " fmt
 #include "core/log.h"
 
 __attribute__((section(".bss.boot"), aligned(16384))) uint32_t early_l1[4096];
-
-/* Default early console: drop the character. Boards with a fixed debug UART
- * (e.g. rpi4) provide a strong override so panics and progress are visible
- * before arch_platform_init_devices() wires up the real console. */
-__attribute__((weak)) void arch_early_putc(char c) { (void)c; }
 
 static void early_map_ram_sections(uintptr_t ram_base, size_t ram_size) {
     uint32_t *l1 = (uint32_t *)PA_TO_VA((uintptr_t)early_l1);
@@ -61,7 +55,7 @@ static void pmu_init(void) {
     __asm__ volatile("mcr p15, 0, %0, c9, c12, 1" :: "r"(0x80000000)); // PMCNTENSET: enable CCNT
 }
 
-static void vfp_init() {
+static void vfp_init(void) {
     uint32_t cpacr;
     __asm__ volatile("mrc p15, 0, %0, c1, c0, 2" : "=r"(cpacr));
     cpacr |= (0xF << 20);
@@ -120,10 +114,9 @@ _Noreturn void early(void *dtb_ptr)
     KDEBUG("early: kheap");
     KHeapInit();
     KDEBUG("early: vmm bootstrap");
-    vmm_bootstrap();
+    VmmBootstrap();
 
     /* fill kernel layout VAs now that paging/higher-half mapping exists */
-    kernel_layout.dtb_start_va = (void *)PA_TO_VA(kernel_layout.dtb_start_pa);
     kernel_layout.stack_base_va = (uintptr_t)PA_TO_VA(kernel_layout.stack_base_pa);
     kernel_layout.stack_top_va = (uintptr_t)PA_TO_VA(kernel_layout.stack_top_pa);
     kernel_layout.kernel_start_va = (uintptr_t)PA_TO_VA(kernel_layout.kernel_start_pa);

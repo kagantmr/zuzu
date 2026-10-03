@@ -34,15 +34,4 @@ static inline void ArchCtxSync(void) { __asm__ volatile("dsb ish\n\tisb" ::: "me
  */
 static inline void ArchDsbSy(void) { __asm__ volatile("dsb sy" ::: "memory"); }
 
-/**
- * Full system domain DMB.
- */
-static inline void ArchDmbSy(void) { __asm__ volatile("dmb sy" ::: "memory"); }
-
-/**
- * Send Event (SEV): wakes cores blocked in WFE. Paired with a preceding DSB
- * so the state change that triggered the wakeup is visible before waking.
- */
-static inline void ArchSev(void) { __asm__ volatile("sev" ::: "memory"); }
-
 #endif // ZUZU_ARM_IMPL_BARRIER_H

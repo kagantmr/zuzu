@@ -62,7 +62,7 @@ const struct uart_driver pl011_driver = {
 
 #ifdef CONFIG_UART_PL011
 #include "drivers/driver.h"
-#include "kernel/mm/vmm.h"
+#include "kernel/mm/vmm/vmm.h"
 #include "core/kprintf.h"
 #include "core/panic.h"
 

@@ -12,21 +12,27 @@
 #ifndef ZUZU_UDBG_H
 #define ZUZU_UDBG_H
 
-#include "zuzu/syscall_nums.h"
-#include <arch/syscall.h>
+#include <zuzu/zuzu.h>
+#include <arch/svc.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#ifdef DEBUG
+/* Off for now; build with -DUDBG_ENABLED=1 (or flip this default) to get the
+ * [udbg spid=N] lines back. */
+#ifndef UDBG_ENABLED
+#define UDBG_ENABLED 0
+#endif
+
+#if defined(DEBUG) && UDBG_ENABLED
 
 #include <stdarg.h>
 #include <stdio.h>
 
 /** Emit one line to the kernel console. Truncated past ~240 bytes. */
-static inline void udbg(const char *fmt, ...)
+static inline void UserspaceDebugLog(const char *fmt, ...)
 {
     char line[240];
     va_list ap;
@@ -35,13 +41,13 @@ static inline void udbg(const char *fmt, ...)
     va_end(ap);
     if (n < 0)
         return;
-    uint32_t len = (n >= (int)sizeof(line)) ? (uint32_t)sizeof(line) - 1u : (uint32_t)n;
-    Syscall(SYS_LOG, (uint32_t)(uintptr_t)line, len, 0, 0);
+    uint32_t len = (n >= (int)sizeof(line)) ? (uint32_t)sizeof(line) - 1U : (uint32_t)n;
+    ArchInvokeSvc(SVC_LOG, (uint32_t)(uintptr_t)line, (Register)len, 0, 0);
 }
 
 #else /* !DEBUG */
 
-static inline void udbg(const char *fmt, ...) { (void)fmt; }
+static inline void UserspaceDebugLog(const char *fmt, ...) { (void)fmt; }
 
 #endif /* DEBUG */
 

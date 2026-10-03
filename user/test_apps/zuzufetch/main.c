@@ -3,7 +3,7 @@
 #include <zuzu/zuzu.h>
 #include <ansi.h>
 #include <zuzu/syspage.h>
-#include <zuzu/version.h>
+#include <util/version.h>
 
 #define LOGO_WIDTH    50
 #define INFO_MAX      20
@@ -39,7 +39,7 @@ static int visible_len_ansi(const char *s)
 
 static void emit_tiles(char *dst, size_t cap)
 {
-    snprintf(dst, cap,
+    (void)snprintf(dst, cap,
         "\033[40m  \033[0m\033[41m  \033[0m\033[42m  \033[0m\033[43m  \033[0m"
         "\033[44m  \033[0m\033[45m  \033[0m\033[46m  \033[0m\033[47m  \033[0m");
 }
@@ -55,7 +55,7 @@ static int build_info(char info[][INFO_LINE_LEN])
     info[n][0] = '\0'; n++;
 
     /* title */
-    snprintf(info[n], INFO_LINE_LEN,
+    (void)snprintf(info[n], INFO_LINE_LEN,
              ANSI_CYAN "zuzuOS" ANSI_RESET " %s", ZUZUOS_VERSION);
     n++;
 
@@ -78,12 +78,12 @@ static int build_info(char info[][INFO_LINE_LEN])
     /* memory */
     uint32_t ram_mb  = sp->mem_total_kb / 1024;
     uint32_t free_mb = sp->mem_free_kb / 1024;
-    snprintf(tmp, sizeof(tmp), "%u MB free / %u MB total", free_mb, ram_mb);
+    (void)snprintf(tmp, sizeof(tmp), "%u MB free / %u MB total", free_mb, ram_mb);
     fmt_kv(info[n], INFO_LINE_LEN, "Memory:", tmp);
     n++;
 
     /* uptime */
-    snprintf(tmp, sizeof(tmp), "%llu s", sp->uptime_ticks / sp->tick_hz);
+    (void)snprintf(tmp, sizeof(tmp), "%llu s", sp->uptime_ticks / sp->tick_hz);
     fmt_kv(info[n], INFO_LINE_LEN, "Uptime:", tmp);
     n++;
 
@@ -93,7 +93,7 @@ static int build_info(char info[][INFO_LINE_LEN])
 
     /* devices */
     if (sp->dev_count > 0) {
-        snprintf(tmp, sizeof(tmp), "%u devices", sp->dev_count);
+        (void)snprintf(tmp, sizeof(tmp), "%u devices", sp->dev_count);
         fmt_kv(info[n], INFO_LINE_LEN, "Devices:", tmp);
         n++;
     }

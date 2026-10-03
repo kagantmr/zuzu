@@ -1,0 +1,5 @@
+# Programs staged onto the SD card image (plain ELF, run from the shell).
+zuzufetch
+zztest
+hello_newlib
+kilo

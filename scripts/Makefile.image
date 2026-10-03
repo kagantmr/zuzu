@@ -50,7 +50,7 @@ SD_STAGE_DIR   ?= $(O)/sdcard
 
 .PHONY: sdimg sdimg-stage sdimg-clean sdimg-recreate
 
-sdimg-stage: $(SD_PROG_PACKED_ELFS) $(SD_LIB_ARCHIVES) $(USER_CRT0) $(ZCRT_ARCHIVE)
+sdimg-stage: $(SD_PROGS:%=$(O)/user/%.zxf) $(SD_LIB_ARCHIVES) $(USER_CRT0) $(ZCRT_ARCHIVE)
 	@rm -rf $(SD_STAGE_DIR)
 	@mkdir -p $(SD_STAGE_DIR)/bin $(SD_STAGE_DIR)/lib $(SD_STAGE_DIR)/include
 	@if [ -d "$(SD_ROOT_DIR)" ]; then \
@@ -58,7 +58,7 @@ sdimg-stage: $(SD_PROG_PACKED_ELFS) $(SD_LIB_ARCHIVES) $(USER_CRT0) $(ZCRT_ARCHI
 	    echo "  STAGE   $(SD_ROOT_DIR)/ -> $(SD_STAGE_DIR)/"; \
 	fi
 	@for prog in $(SD_PROGS); do \
-		cp $(O)/user/$$prog.stripped.elf $(SD_STAGE_DIR)/bin/$$prog; \
+		cp $(O)/user/$$prog.zxf $(SD_STAGE_DIR)/bin/$$prog; \
 		echo "  STAGE   bin/$$prog"; \
 	done
 	@for lib in $(SD_LIBS); do \

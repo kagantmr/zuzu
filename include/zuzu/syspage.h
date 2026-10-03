@@ -8,7 +8,7 @@ extern "C"
 
 #include "stdint.h"
 #include "stddef.h"
-#include "zuzu/types.h"
+#include "types.h"
 
 #define SYSPAGE_MAX_DEVICES 120
 #define SYSPAGE_DEV_NAME_LEN 32
@@ -29,7 +29,7 @@ typedef struct
     char build[24];      // build timestamp, constant after boot
     char machine[20];    // from DTB, constant after boot
     char cpu[24];        // from DTB, constant after boot
-    size_t mem_total_kb;                       // set at early()
+    size_t mem_total_kb;                       // set at SyspageInit()
     size_t mem_free_kb;                        // updated
     Time boot_time_s;                          // when did the kernel boot?
     Tick uptime_ticks;                         // raw scheduler ticks since timer start
@@ -37,10 +37,10 @@ typedef struct
     uint8_t dev_count;                         // how many devices are in the devs[] array
     size_t initrd_size;                        // size of initrd (for sysd and likely fsd in the future)
     SyspageDevEntry devs[SYSPAGE_MAX_DEVICES]; // filled from DTB walk at boot
-    uint32_t features;                         // bitfield of SYSPAGE_FEATURE_* flags
+    uint32_t _reserved;
 } Syspage;
 
-_Static_assert(offsetof(Syspage, features) == 3980, "syspage ABI");
+_Static_assert(offsetof(Syspage, _reserved) == 3980, "syspage ABI");
 _Static_assert(sizeof(Syspage) <= 4096, "Syspage must fit in one page");
 
 #ifdef __cplusplus

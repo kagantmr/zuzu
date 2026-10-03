@@ -2,9 +2,8 @@
 #include <zuzu/umem.h>
 #include <zuzu/task.h>
 #include <zuzu/service.h>
-#include <zuzu/protocols/devm.h>
-#include <zuzu/log.h>
-#include <zuzu/memprot.h>
+#include <dev/protocols/devm.h>
+#include <util/log.h>
 #include "bcm2711gpiodrv.h"
 
 #define LOG_TAG "pl181drv"

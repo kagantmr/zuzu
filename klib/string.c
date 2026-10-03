@@ -1,6 +1,5 @@
 #include "string.h"
 #include <stdint.h>
-#include "convert.h"
 
 size_t strlen(const char *s) {
     size_t len = 0;
@@ -18,27 +17,6 @@ size_t strnlen(const char *s, size_t maxlen)
       break;
   return len;
 }
-
-char *strcat(char *dest, const char *src) {
-    char *end = dest;
-
-    while (*end) end++;
-
-    strcpy(end, src);
-
-    return dest;
-}
-
-char *strncat(char *dest, const char *src, size_t n) {
-    char *end = dest;
-
-    while (*end) end++;  // find end of dest
-
-    strncpy(end, src, n);     // now copy src starting at the end
-
-    return dest;
-}
-
 
 int strcmp(const char *s1, const char *s2) {
     int diff;
@@ -110,13 +88,6 @@ char *strrchr(const char *s, int c) {
     } while (*s++);
 
     return (char *)(uintptr_t)last;
-}
-
-void strfmt(void (*outc)(void *ctx, char), void *ctx, const char *fstring, ...) {
-    va_list args;
-    va_start(args, fstring);
-    vstrfmt(outc, ctx, fstring, &args);
-    va_end(args);
 }
 
 // --- helpers for vstrfmt field width and padding ---
@@ -223,8 +194,7 @@ static long long get_signed_arg(va_list *args, length_t len) {
 }
 
 // ---- helpers for %f/%e/%g ----
-// All double math below stays in floating point (no 64-bit integer divide,
-// which utoa_ull's own comment avoids relying on) -- only the final
+// All double math below stays in floating point -- only the final
 // truncating cast to unsigned long long is used to pull out decimal digits.
 
 // Fills `digits[0..prec-1]` with frac's decimal expansion (frac in [0,1)),
@@ -376,8 +346,7 @@ void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list 
 
             case 'd':
             case 'i': {
-                // FIXED: Pass &args (pointer)
-                long long v = get_signed_arg(args, len);
+                                long long v = get_signed_arg(args, len);
                 unsigned long long uv;
                 char signch = 0;
 
@@ -428,8 +397,7 @@ void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list 
                 else if (spec == 'o') { base = 8; }
                 else if (spec == 'b') { base = 2; }
 
-                // FIXED: Pass &args (pointer)
-                unsigned long long v = get_unsigned_arg(args, len);
+                                unsigned long long v = get_unsigned_arg(args, len);
 
                 // conversion (v==0 with precision==0 -> empty per printf)
                 char num[65];
@@ -665,19 +633,4 @@ void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list 
                 break;
         }
     }
-}
-
-int visible_len(const char *s)
-{
-    int len = 0;
-    while (*s) {
-        if (*s == '\033') {
-            while (*s && *s != 'm') s++;
-            if (*s) s++;
-        } else {
-            len++;
-            s++;
-        }
-    }
-    return len;
 }

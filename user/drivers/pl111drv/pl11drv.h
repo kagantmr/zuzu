@@ -2,7 +2,7 @@
 #define PL111DRV_H
 
 #include <stdint.h>
-#include <zuzu/types.h>
+#include <types.h>
 
 typedef volatile uint32_t MMIORegister;
 

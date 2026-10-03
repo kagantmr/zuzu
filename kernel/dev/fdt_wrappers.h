@@ -41,15 +41,13 @@ bool FdtGetInitrd(uint64_t *out_start, uint64_t *out_end);
 
 bool FdtGetRegPhysAddr(const char *path, int index, uint64_t *out_addr, uint64_t *out_size);
 
-bool FdtFindCompatible(const char *compatible, char *out_path, size_t out_path_cap);
-
 /* Simple string queries */
 const char *FdtModel(void);
 
 const char *FdtCpuCompat(void);
 
 /* Arch hooks: arch code can provide stronger implementations by defining
-   these symbols (they are weakly referenced in dtb.c). */
+   these symbols (weak defaults live in fdt_wrappers.c). */
 bool FdtTranslateAddressArch(const char *node_path, uint64_t raw_addr, uint64_t *out_phys);
 bool FdtResolveIrqArch(const char *node_path, uint32_t child_irq, uint32_t *out_irq,
 			  uint32_t *out_flags);

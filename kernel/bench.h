@@ -13,7 +13,7 @@
 
 #include <arch/cycles.h>
 #include <stdbool.h>
-#include <zuzu/types.h>
+#include <types.h>
 
 #include "core/kprintf.h"
 

@@ -1,7 +1,7 @@
 #include "eth.h"
 #include <zuzu/msg.h>
 #include <zuzu/ntfn.h>
-#include <zuzu/protocols/nic.h>
+#include <net/protocols/nic.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>

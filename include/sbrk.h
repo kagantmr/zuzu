@@ -1,7 +1,7 @@
 #ifndef SBRK_H
 #define SBRK_H
 
-#include <zuzu/types.h>
+#include <types.h>
 
 typedef struct arena {
     VirtAddr base;    // heap_base

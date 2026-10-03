@@ -2,7 +2,7 @@
 #define NETRAND_H
 
 
-#include <zuzu/types.h>
+#include <types.h>
 #include "globals.h"
 
 void netrand_init(void);

@@ -1,8 +1,8 @@
 #include "syspage.h"
 #include "boot_info.h"
 #include "core/version.h"
-#include "kernel/mm/pmm.h"
-#include "kernel/mm/vmm.h"
+#include "kernel/mm/pmm/pmm.h"
+#include "kernel/mm/vmm/vmm.h"
 #include "kernel/time/tick.h"
 #include <stdio.h>
 #include <string.h>
@@ -69,11 +69,9 @@ void SyspageInit(void)
     g_sp->tick_hz = GetTickRate();
     g_sp->boot_time_s = rtc_epoch;
 
-    boot_info_foreach_dev(dev_cb);
+    BootInfoEnumerateDevs(dev_cb);
 
     SyspageUpdateMem();
-
-    // g_sp->mem_free_kb = (uint32_t)((pmmState.free_pages  * (uint64_t)PAGE_SIZE) / 1024);
 }
 PhysAddr SyspagePhysAddr(void) { return g_syspage_pa; }
 void SyspageUpdateMem(void)

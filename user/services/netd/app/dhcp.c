@@ -5,7 +5,7 @@
 #include "../transport/port.h"
 #include <stddef.h>
 #include <convert.h>
-#include <zuzu/log.h>
+#include <util/log.h>
 
 /* RFC 2131 caps the safe DHCP message size at 576 bytes; our ACKs are far
    smaller. Big enough to stash one while ACD runs against the offered IP. */

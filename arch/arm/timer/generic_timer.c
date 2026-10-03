@@ -5,7 +5,7 @@
 #include <arch/irq.h>
 #include <arch/timer.h>
 #include <stdint.h>
-#include <zuzu/types.h>
+#include <types.h>
 
 /**
  * @brief Read the counter frequency from the CNTFRQ register.
@@ -17,14 +17,6 @@ static inline uint32_t ReadCntFrq(void)
     __asm__ volatile("mrc p15, 0, %0, c14, c0, 0" : "=r"(v));
     return v;
 }
-
-/*
-static inline void write_cntp_tval(uint32_t v)
-{
-    __asm__ volatile("mcr p15, 0, %0, c14, c2, 0" ::"r"(v));
-    __asm__ volatile("isb");
-}
-*/
 
 /**
  * @brief Write to the CNTP_CTL register to enable/disable the physical timer.
@@ -58,7 +50,7 @@ static inline void WriteCntvCtl(uint32_t v) {
  * tolerates and the next call heals. */
 static uint64_t cnt_last;
 
-static inline uint64_t ReadCntvct(void)
+static inline uint64_t ReadCntpct(void)
 {
     /* CNTPCT (physical count). QEMU's TCG generic-timer model intermittently
      * returns this register with the halves misplaced -- the real count in
@@ -93,7 +85,7 @@ static void ArmGenericTimerHandler(void *ctx)
     (void)ctx;
     /* One-shot: no TVAL reload. Mask our own line so we don't re-fire on the
      * same expired CVAL before the scheduler re-arms; SchedArmTimer() (run
-     * from schedule() on the IRQ-return path) sets the next deadline and
+     * from Schedule() on the IRQ-return path) sets the next deadline and
      * clears IMASK again. tick_announce keeps uptime / any tick callback
      * alive -- it just no longer paces the scheduler. */
     WriteCntvCtl(0x3); /* ENABLE=1, IMASK=1 */
@@ -107,16 +99,16 @@ void ArchTimerInit(void)
     /* Silence CNTP at the source so its interrupt line stays deasserted */
     WriteCntpCtl(0x2); /* ENABLE=0, IMASK=1 */
 
-    arch_irq_register(TIMER_IRQ_VIRT, ArmGenericTimerHandler, NULL);
+    ArchIrqRegister(TIMER_IRQ_VIRT, ArmGenericTimerHandler, NULL);
     ArchIrqSetPrio(TIMER_IRQ_VIRT, 0x80);
-    arch_irq_enable_line(TIMER_IRQ_VIRT);
+    ArchIrqUnmaskLine(TIMER_IRQ_VIRT);
 
     /* Enabled + masked; SchedArmTimer() programs CVAL and unmasks on the
-     * first schedule(). Until then nothing needs a timer wakeup. */
+     * first Schedule(). Until then nothing needs a timer wakeup. */
     WriteCntvCtl(0x3); /* ENABLE=1, IMASK=1 */
 }
 
-Time ArchTimerNow(void) { return ReadCntvct(); }
+Time ArchTimerNow(void) { return ReadCntpct(); }
 uint32_t ArchTimerFreq(void) { return freq; }
 static uint64_t cntv_cval_shadow = ~0ULL;   /* sentinel: no real deadline is ever this value */
 

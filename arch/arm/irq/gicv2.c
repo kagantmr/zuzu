@@ -3,7 +3,7 @@
 #include "arch/arm/include/gicv2.h"
 #include <arch/barrier.h>
 #include <arch/irq.h>
-#include <zuzu/types.h>
+#include <types.h>
 #include <stdbool.h>
 
 volatile uint32_t *gicd_base, *gicc_base;
@@ -156,7 +156,7 @@ void gic_end(uint32_t iar) {
 }
 
 #include "drivers/driver.h"
-#include "kernel/mm/vmm.h"
+#include "kernel/mm/vmm/vmm.h"
 #include "core/panic.h"
 
 #define LOG_FMT(fmt) "(board) " fmt

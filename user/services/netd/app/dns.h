@@ -1,7 +1,7 @@
 #ifndef DNS_H
 #define DNS_H
 
-#include <zuzu/types.h>
+#include <types.h>
 #include "../common/globals.h"
 
 typedef struct

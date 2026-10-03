@@ -3,7 +3,7 @@
 #include "../net/ip.h"
 #include "../common/txframe.h"
 #include <convert.h>
-#include <zuzu/log.h>
+#include <util/log.h>
 #include <string.h>
 
 uint16_t tcp_checksum(ipv4_addr_t src_ip, ipv4_addr_t dst_ip,

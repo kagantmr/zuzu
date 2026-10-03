@@ -4,7 +4,7 @@
  * The kernel VMM drives address spaces through this interface; the active
  * architecture implements the page-table format behind it (ARMv7-A short
  * descriptor: 2-level tables, 4 KB pages, 1 MB sections). Neutral types
- * (addrspace_t, MemProt, vm_memtype_t) come from kernel/mm/vmm.h.
+ * (AddressSpace, MemProt, VirtMemType) come from kernel/mm/vmm/vmm.h.
  */
 
 #ifndef ZUZU_ARCH_MMU_H
@@ -12,7 +12,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "kernel/mm/vmm.h"
+#include "kernel/mm/vmm/vmm.h"
 
 /* Architecture section/large-page size (used by ioremap slot math in the VMM). */
 #define SECTION_SIZE 0x100000u
@@ -61,7 +61,7 @@ void arch_mmu_flush_tlb_va_asid(uintptr_t va, uint8_t asid);
  * @brief Walk page tables to translate a VA to its PA.
  * @return Physical address, or 0 if unmapped.
  */
-uintptr_t arch_mmu_translate(uintptr_t ttbr_pa, uintptr_t va);
+uintptr_t ArchMmuTranslate(uintptr_t ttbr_pa, uintptr_t va);
 
 /** @brief Unmap a single page. */
 bool arch_mmu_unmap_page(AddressSpace *as, uintptr_t va);

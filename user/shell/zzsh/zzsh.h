@@ -1,18 +1,13 @@
 #ifndef ZZSH_H
 #define ZZSH_H
 
-#define ZZSH_VER "v1.3"
+#include <stdbool.h>
 
-#include <zuzu/zuzu.h>
-#include "zuzu/protocols/uart.h"
-#include "zuzu/protocols/nametable.h"
-#include "zuzu/lmsg.h"
+#define ZZSH_VER "v2.0"
 
 #define LINE_BUFFER_SIZE 256
-#define HISTORY_MAX      32
+#define HISTORY_MAX 32
 
-void zprint(const char* s);
-void command_dispatch(const char *line);
-int setup(void);
+bool command_dispatch(const char *line);
 
 #endif // ZZSH_H

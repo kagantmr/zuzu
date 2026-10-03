@@ -85,12 +85,25 @@ int vscanf(const char *format, va_list args);
 int stdio_open_tty(void);
 
 /**
+ * @brief Switches the console between cooked (line editing and echo by the
+ * terminal service, the default) and raw (every byte passed through; the
+ * caller echoes). In raw mode printf still turns "\n" into "\r\n".
+ */
+int stdio_set_raw(int enable);
+
+/**
+ * @brief Detaches from the tty so another program can take the foreground.
+ * The next stdio call attaches again.
+ */
+void stdio_close_tty(void);
+
+/**
  * @brief Routes the standard I/O functions to a specific TTY device.
  * 
- * @param name A 4-character string representing the name of the TTY device (e.g., "tty0").
+ * @param name A ttysvc alias (e.g. "tty0"), or "" for the default endpoint.
  * @return int Returns 0 on success, or a negative value if an error occurs.
  */
-int stdio_route_tty(const char name[4]);
+int stdio_route_tty(const char *name);
 
 /**
  * @brief Sets the standard I/O functions to use a specific TTY device by index.

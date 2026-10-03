@@ -3,12 +3,12 @@
 #include <zuzu/msg.h>
 #include <zuzu/task.h>
 #include <zuzu/umem.h>
-#include <zuzu/channel.h>
-#include <zuzu/protocols/devm.h>
-#include <zuzu/protocols/nic.h>
+#include <util/channel.h>
+#include <dev/protocols/devm.h>
+#include <net/protocols/nic.h>
 #include <zuzu/service.h>
-#include <zuzu/types.h>
-#include <zuzu/log.h>
+#include <types.h>
+#include <util/log.h>
 
 #include "common/globals.h"
 #include "common/timer.h"

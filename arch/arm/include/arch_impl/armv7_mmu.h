@@ -82,7 +82,6 @@
 #define CB_MASK  0x3U /* C and B together, as they sit adjacent at bits[3:2] */
 
 #define TEX_NORMAL_WBWA 0x1U /* TEX=0b001 with C=1,B=1: Normal Write-Back Write-Allocate */
-#define TEX_DEVICE      0x0U /* TEX=0b000 with C=0,B=1: Device                          */
 
 /* Attribute words pre-positioned for each descriptor format. */
 #define L1_SECT_ATTR_NORMAL                                                                        \
@@ -141,7 +140,6 @@ _Static_assert(L1_SECT_BOOT_DEVICE == 0x00C16U, "boot device section descriptor 
 
 #define TTBCR_N_MASK   0x7U /* bits[2:0]: TTBR0 size / split point */
 #define TTBCR_PD0_BIT  4U
-#define TTBCR_PD1_BIT  5U
 #define TTBCR_N_SPLIT_2GB 0x1U /* N=1: TTBR0 covers [0, 0x80000000) */
 
 #endif /* ZUZU_ARM_ARMV7_MMU_H */

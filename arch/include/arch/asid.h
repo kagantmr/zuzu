@@ -2,7 +2,7 @@
 //
 // ASIDs tag TLB entries with a process identity so context switches avoid full
 // TLB flushes. Architectures without ASIDs provide a trivial implementation.
-// addrspace_t embeds an asid_token_t by value, so this is a concrete type.
+// AddressSpace embeds an asid_token_t by value, so this is a concrete type.
 
 #ifndef ZUZU_ARCH_ASID_H
 #define ZUZU_ARCH_ASID_H

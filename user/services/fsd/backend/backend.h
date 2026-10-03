@@ -1,8 +1,8 @@
 #ifndef FSD_BACKEND_H
 #define FSD_BACKEND_H
 
-#include <zuzu/types.h>
-#include <zuzu/protocols/fsd.h>
+#include <types.h>
+#include <fs/protocols/fsd.h>
 
 #define MAX_BACKEND_FILE_SIZE 2048
 

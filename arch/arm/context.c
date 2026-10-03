@@ -10,7 +10,7 @@
 //   lower addr   └─────────────────────────┘  <- returned kernel_sp
 //
 // FPU state is not part of the kernel stack: it's saved lazily into
-// thread_t::fpu_state (see arch/fpu.h), so context_switch never touches it.
+// TaskObject::fpu_state (see arch/fpu.h), so ContextSwitch never touches it.
 
 #include <arch/context.h>
 #include <arch/regs.h>
@@ -31,11 +31,11 @@ void *arch_thread_user_init(void *kstack_top, uintptr_t entry, uintptr_t user_sp
     sp -= sizeof(CpuState);
     CpuState *f = (CpuState *)sp;
     memset(f, 0, sizeof(*f));
-    *arch_reg(f, 0) = a0;
-    *arch_reg(f, 1) = a1;
-    f->sp_usr       = (uint32_t)user_sp;
-    f->lr_usr       = (uint32_t)user_lr;
-    f->return_pc    = (uint32_t)entry;
+    *ArchGetFromFrame(f, 0) = (Register)a0;
+    *ArchGetFromFrame(f, 1) = (Register)a1;
+    f->sp_usr       = (Register)user_sp;
+    f->lr_usr       = (Register)user_lr;
+    f->return_pc    = (Register)entry;
     f->return_cpsr  = ARM_CPSR_USER;
     if (trap_frame_out)
         *trap_frame_out = f;
@@ -43,7 +43,7 @@ void *arch_thread_user_init(void *kstack_top, uintptr_t entry, uintptr_t user_sp
     sp -= sizeof(CpuContext);
     CpuContext *ctx = (CpuContext *)sp;
     memset(ctx, 0, sizeof(*ctx));
-    ctx->lr = (uint32_t)process_entry_trampoline;
+    ctx->lr = (Register)process_entry_trampoline;
 
     return (void *)sp;
 }
@@ -55,7 +55,7 @@ void *arch_thread_kernel_init(void *kstack_top, void (*entry)(void))
     sp -= sizeof(CpuContext);
     CpuContext *ctx = (CpuContext *)sp;
     memset(ctx, 0, sizeof(*ctx));
-    ctx->lr = (uint32_t)entry;
+    ctx->lr = (Register)entry;
 
     return (void *)sp;
 }

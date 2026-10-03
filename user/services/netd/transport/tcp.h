@@ -3,7 +3,7 @@
 
 #include "../common/globals.h"
 #include "../common/timer.h"
-#include <zuzu/types.h>
+#include <types.h>
 
 typedef struct __attribute__((packed)) {
     port_t   src_port;

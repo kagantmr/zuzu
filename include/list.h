@@ -16,9 +16,6 @@ typedef struct list_head {
     ListNode node;  // sentinel node (empty list points to itself)
 } ListHead;
 
-#define list_for_each(pos, head) \
-    for (pos = (head)->next; pos != (head); pos = pos->next)
-
 #define list_for_each_safe(pos, n, head) \
     for (pos = (head)->next, n = pos->next; pos != (head); pos = n, n = pos->next)
 
@@ -27,10 +24,10 @@ typedef struct list_head {
 /**
  * @brief Adds a new node to the end of the list.
  *
- * On the IPC hot path this runs on every SysMsgSend/Recv/Call
- * block-and-enqueue and every waitany registration -- a true leaf (no
- * loop, no calls), so always_inline turns it back into straight-line
- * pointer stores instead of a call/ret across TUs.
+ * On the IPC hot path this runs on every Call/Reply/WaitOn
+ * block-and-enqueue -- a true leaf (no loop, no calls), so always_inline
+ * turns it back into straight-line pointer stores instead of a call/ret
+ * across TUs.
  *
  * @param node Pointer to the new node to be added.
  * @param head Pointer to the head of the list.
@@ -82,32 +79,11 @@ static inline int list_empty(const ListHead *head) {
     return head->node.next == &head->node;
 }
 
-static inline int list_one_elem(const ListHead *head) {
-    if (!head || head->node.next == &head->node) {
-        return 0; // Null or empty
-    }
-    // If next and prev point to the same node, there's only 1 element.
-    return (head->node.next == head->node.prev);
-}
-
-/**
- * @brief Inserts a new node before an existing node in the list.
- * 
- * @param new Pointer to the new node to be inserted.
- * @param existing Pointer to the existing node before which the new node will be inserted.
- */
-static inline void list_insert_before(ListNode *new, ListNode *existing) {
-    new->next = existing;
-    new->prev = existing->prev;
-    existing->prev->next = new;
-    existing->prev = new;
-}
-
 /**
  * @brief Pops the first node from the list and returns it.
  * 
  * @param head Pointer to the list head.
- * @return list_node_t* Pointer to the popped node, or NULL if the list is empty.
+ * @return ListNode * Pointer to the popped node, or NULL if the list is empty.
  */
 static inline ListNode* list_pop_front(ListHead *head) {
     if (list_empty(head)) {

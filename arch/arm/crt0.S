@@ -13,7 +13,7 @@ _start:
 #ifdef ZUZU_NEWLIB
     // newlib owns the init/teardown protocol. __libc_init_array
     // walks .preinit_array/.init_array; exit() flushes stdio, runs
-    // atexit handlers, then enters the _exit stub (zuzu_pquit).
+    // atexit handlers, then enters the _exit stub (lib/posix/stubs.c).
     bl __libc_init_array
     mov r0, r6              // argc
     mov r1, r7              // argv

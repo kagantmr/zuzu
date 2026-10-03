@@ -4,9 +4,7 @@
 
 #include <string.h>
 #include <stdint.h>
-#include <zuzu/memprot.h>
-#include <zuzu/types.h>
-#include <zuzu/zuzu.h>
+#include <types.h>
 #include <sbrk.h>
 
 typedef struct
