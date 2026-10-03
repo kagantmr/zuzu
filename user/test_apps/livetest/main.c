@@ -68,7 +68,7 @@ static void *ReadFile(const char *path, size_t *len)
     return buf;
 }
 
-static bool RunChild(const void *image, size_t len, const char *mode, TaskWaitResult *out)
+static bool StartChild(const void *image, size_t len, const char *mode, Spid *pid, Handle *task)
 {
     char argbuf[32];
     size_t n = 0;
@@ -78,9 +78,14 @@ static bool RunChild(const void *image, size_t len, const char *mode, TaskWaitRe
     memcpy(argbuf + n, mode, m);
     n += m;
 
+    return SpawnProcess(image, len, "livechild", argbuf, n, 2, pid, task) == ZUZU_OK;
+}
+
+static bool RunChild(const void *image, size_t len, const char *mode, TaskWaitResult *out)
+{
     Spid pid;
     Handle task;
-    if (SpawnProcess(image, len, "livechild", argbuf, n, 2, &pid, &task) != ZUZU_OK)
+    if (!StartChild(image, len, mode, &pid, &task))
         return false;
     *out = FormatToTaskWait(WaitOn(task, JOIN_MS));
     if (out->status != ZUZU_OK)
@@ -124,6 +129,49 @@ static void TestFreshClients(const void *image, size_t len)
     Check(FsdConnect(&extra, FSD_SHM_DEFAULT) == ZUZU_OK, "a second session attaches to fsd");
     Check(FsdOpen(&extra, "/README.md", FSD_MODE_READ, &fd) == ZUZU_OK, "and opens a file");
     FsdDetach(&extra);
+}
+
+#define SELFCALL_ROUNDS 40
+
+static void ExpectServersServe(const void *image, size_t len, const char *what)
+{
+    TaskWaitResult tw;
+    Check(RunChild(image, len, "return", &tw) && tw.status == ZUZU_OK && tw.outcome == TASK_EXITED &&
+              tw.value == 0,
+          what);
+}
+
+/* A client that Calls its own liveness port must not be mistaken for a
+ * request by the server's liveness check, and must still be reaped. */
+static void TestSelfCall(const void *image, size_t len, const char *mode)
+{
+    Spid pid;
+    Handle task;
+
+    Check(StartChild(image, len, mode, &pid, &task), "spawn a self-calling client");
+    Sleep(150);
+    TaskWaitResult tw;
+    Check(RunChild(image, len, "quit", &tw), "a client dies while the self-caller blocks");
+    Sleep(50);
+    ExpectServersServe(image, len, "the servers still serve a new client with a self-caller blocked");
+    Check(FormatToTaskWait(WaitOn(task, TIMEOUT_POLL)).status == ERR_TIMEOUT,
+          "the self-caller is still blocked on its own port");
+    HandleDestroy((Handle)pid);
+    HandleClose(task);
+
+    for (int i = 0; i < SELFCALL_ROUNDS; i++)
+    {
+        if (!StartChild(image, len, mode, &pid, &task))
+        {
+            Check(false, "spawn a self-calling client");
+            continue;
+        }
+        Sleep(40);
+        HandleDestroy((Handle)pid);
+        HandleClose(task);
+        Sleep(5);
+    }
+    ExpectServersServe(image, len, "self-callers killed in bulk were all reaped");
 }
 
 static void TestStaleFsdBadge(void)
@@ -202,6 +250,9 @@ int main(void)
         TestDyingClients(image, len);
         UserspaceDebugLog("livetest: dying clients done");
         TestFreshClients(image, len);
+        TestSelfCall(image, len, "selfcall-fsd");
+        UserspaceDebugLog("livetest: fsd self-call done");
+        TestSelfCall(image, len, "selfcall-tty");
         free(image);
     }
     TestStaleFsdBadge();

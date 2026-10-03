@@ -621,7 +621,8 @@ static void ReapDead(void)
         Session *s = &g_sessions[slot];
         if (!(d.bits & MASK(slot)) || !s->in_use || s->live < 0)
             continue;
-        if (FormatToPortWait(WaitOn(s->live, TIMEOUT_POLL)).status != ERR_DEAD)
+        SvcResult q = HandleQuery(s->live, QUERY_STATUS);
+        if (q.r0 != ZUZU_OK || (Err)q.r1 != ERR_DEAD)
             continue;
         UserspaceDebugLog("ttysvc: peer of slot=%d died", slot);
         CloseSession(s, slot);

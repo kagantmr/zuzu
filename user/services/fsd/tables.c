@@ -89,7 +89,8 @@ uint32_t ClientsReapDead(void)
         FsdClient *c = &g_clients[i];
         if (!c->in_use || c->live < 0)
             continue;
-        if (FormatToPortWait(WaitOn(c->live, TIMEOUT_POLL)).status != ERR_DEAD)
+        SvcResult q = HandleQuery(c->live, QUERY_STATUS);
+        if (q.r0 != ZUZU_OK || (Err)q.r1 != ERR_DEAD)
             continue;
         UserspaceDebugLog("fsd: client slot=%u died, dropping its session", i);
         ClientDrop(c);
