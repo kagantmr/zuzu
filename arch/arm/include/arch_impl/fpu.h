@@ -15,7 +15,7 @@
 // 32 double-word VFP registers (d0-d31) + FPSCR. vldmia/vstmia require a
 // word-aligned base address; a plain uint8_t array has alignment 1, which
 // lets the compiler pack it at an odd offset next to preceding narrow
-// fields (see thread_t::fpu_state) and fault on first use.
+// fields (see TaskObject::fpu_state) and fault on first use.
 typedef uint8_t FpuState[32 * 8 + 4] __attribute__((aligned(8)));
 
 // Implemented in arch/arm/vfp.S.

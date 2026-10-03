@@ -1,6 +1,6 @@
 // arch/tls.h - Neutral thread-pointer read contract.
 //
-//   uintptr_t arch_get_thread_ptr(void);  - read the TLS/thread ptr published
+//   uintptr_t ArchGetTlsPointer(void);  - read the TLS/thread ptr published
 //                                            by arch_set_thread_ptr()
 
 #ifndef ZUZU_ARCH_TLS_H

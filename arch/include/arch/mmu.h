@@ -4,7 +4,7 @@
  * The kernel VMM drives address spaces through this interface; the active
  * architecture implements the page-table format behind it (ARMv7-A short
  * descriptor: 2-level tables, 4 KB pages, 1 MB sections). Neutral types
- * (addrspace_t, MemProt, vm_memtype_t) come from kernel/mm/vmm.h.
+ * (AddressSpace, MemProt, VirtMemType) come from kernel/mm/vmm/vmm.h.
  */
 
 #ifndef ZUZU_ARCH_MMU_H

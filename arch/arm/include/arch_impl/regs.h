@@ -22,22 +22,20 @@ typedef int32_t Register;
  * Layout must match the stmfd sequence in entry.S exactly,
  * the assembly writes directly into this struct by offset.
  */
-typedef struct exception_frame {
+typedef struct exception_frame
+{
     Register r[13];        /* r0-r12 */
     Register sp_usr;       /* user SP saved via SRS */
     Register lr_usr;       /* user LR saved via SRS */
     Register return_pc;    /* adjusted return address (LR - offset) */
     Register return_cpsr;  /* saved CPSR/SPSR value you return with */
-} ExceptionFrame;
+} CpuState;
 
-typedef struct cpu_context
+typedef struct
 {
     Register r4, r5, r6, r7, r8, r9, r10, r11;
-    Register lr; // return address (or entry point for new process)
+    Register lr; // return address (or entry point for a new task)
 } CpuContext;
-
-/* Neutral alias used by architecture-independent code. */
-typedef struct exception_frame CpuState;
 
 /* ---- Accessors (the neutral contract; see <arch/regs.h>) ----------------- */
 /* Syscall ABI slots: arg i / return value i map to r[i] on ARM. Called many

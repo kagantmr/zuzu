@@ -1,7 +1,7 @@
 .fpu vfpv4
 .text
 
-// void ArchFpuSaveState(fpu_state_t *state)
+// void ArchFpuSaveState(FpuState *state)
 .global ArchFpuSaveState
 ArchFpuSaveState:
     vstmia r0!, {d0-d15}
@@ -10,7 +10,7 @@ ArchFpuSaveState:
     str r1, [r0]
     bx lr
 
-// void ArchFpuRestoreState(const fpu_state_t *state)
+// void ArchFpuRestoreState(const FpuState *state)
 .global ArchFpuRestoreState
 ArchFpuRestoreState:
     vldmia r0!, {d0-d15}

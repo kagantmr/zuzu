@@ -58,7 +58,7 @@ FaultLines()
     local lines
     lines=$(grep -a -E 'Oops!|Kernel fault|panic' "$LOG")
     if [ -n "${ALLOW_USER_FAULTS:-}" ]; then
-        lines=$(printf '%s\n' "$lines" | grep -a -v -E "Oops! Segmentation fault|Oops! '[^']*' \(PID [0-9]+, TID [0-9]+\) killed:")
+        lines=$(printf '%s\n' "$lines" | grep -a -v -E "Oops! Segmentation fault|Oops! '[^']*' \(S?PID [0-9]+, TID [0-9]+\) killed:")
     fi
     printf '%s' "$lines" | grep -a -v '^$'
 }

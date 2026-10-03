@@ -42,15 +42,6 @@ bool ArchIrqRegister(uint32_t irq_id, irq_handler_t handler, void *ctx) {
     return true;
 }
 
-bool arch_irq_unregister(uint32_t irq_id) {
-    if (irq_id >= MAX_IRQS) {
-        return false;
-    }
-    handler_table[irq_id] = NULL;
-    handler_ctx[irq_id] = NULL;
-    return true;
-}
-
 bool ArchIrqHasHandler(uint32_t irq_id) {
     return irq_id < MAX_IRQS && handler_table[irq_id] != NULL;
 }
@@ -71,7 +62,6 @@ void ArchIrqUnmaskLine(uint32_t irq_id) {
 }
 
 void arch_irq_dispatch(void) {
-    //KINFO("IRQ received");
     uint32_t iar = gic_acknowledge();
     uint32_t irq_id = iar & 0x3FF;
 

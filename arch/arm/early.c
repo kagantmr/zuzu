@@ -23,17 +23,11 @@
 #include <string.h>
 
 ZuzuRamLayout kernel_layout;
-extern AddressSpace *g_kernel_as;
 
 #define LOG_FMT(fmt) "(early) " fmt
 #include "core/log.h"
 
 __attribute__((section(".bss.boot"), aligned(16384))) uint32_t early_l1[4096];
-
-/* Default early console: drop the character. Boards with a fixed debug UART
- * (e.g. rpi4) provide a strong override so panics and progress are visible
- * before arch_platform_init_devices() wires up the real console. */
-__attribute__((weak)) void arch_early_putc(char c) { (void)c; }
 
 static void early_map_ram_sections(uintptr_t ram_base, size_t ram_size) {
     uint32_t *l1 = (uint32_t *)PA_TO_VA((uintptr_t)early_l1);
@@ -123,7 +117,6 @@ _Noreturn void early(void *dtb_ptr)
     VmmBootstrap();
 
     /* fill kernel layout VAs now that paging/higher-half mapping exists */
-    kernel_layout.dtb_start_va = (void *)PA_TO_VA(kernel_layout.dtb_start_pa);
     kernel_layout.stack_base_va = (uintptr_t)PA_TO_VA(kernel_layout.stack_base_pa);
     kernel_layout.stack_top_va = (uintptr_t)PA_TO_VA(kernel_layout.stack_top_pa);
     kernel_layout.kernel_start_va = (uintptr_t)PA_TO_VA(kernel_layout.kernel_start_pa);

@@ -10,7 +10,7 @@
 //   lower addr   └─────────────────────────┘  <- returned kernel_sp
 //
 // FPU state is not part of the kernel stack: it's saved lazily into
-// thread_t::fpu_state (see arch/fpu.h), so context_switch never touches it.
+// TaskObject::fpu_state (see arch/fpu.h), so ContextSwitch never touches it.
 
 #include <arch/context.h>
 #include <arch/regs.h>

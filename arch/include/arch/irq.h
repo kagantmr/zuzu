@@ -23,7 +23,6 @@ void arch_irq_init(void);
 bool ArchIrqRegister(uint32_t irq_id, irq_handler_t handler, void *ctx);
 
 /** Unregister the handler for an IRQ line. Returns true on success. */
-bool arch_irq_unregister(uint32_t irq_id);
 
 /** Disable a single IRQ line at the controller. */
 void ArchIrqMaskLine(uint32_t irq_id);

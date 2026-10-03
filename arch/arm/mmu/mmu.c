@@ -14,10 +14,6 @@
 #include <stdint.h>
 #include <string.h>
 
-#define LOG_FMT(fmt) "(mmu) " fmt
-#include <util/log.h>
-
-extern uint8_t dirty_bitmap[];
 
 /* Above this many pages, a single by-ASID flush is cheaper than a per-page
  * TLBI loop. Below it, the narrower by-VA invalidation keeps the rest of the
@@ -79,7 +75,7 @@ static uint32_t l2_page_desc(uintptr_t pa, MemProt prot, VirtMemType memtype)
     if (memtype == VM_MEM_DEVICE) 
         e |= L2_PAGE_ATTR_DEVICE;
     else
-        e |= L2_PAGE_ATTR_NORMAL | MMU_BIT(L2_PAGE_S_BIT); // <-- add
+        e |= L2_PAGE_ATTR_NORMAL | MMU_BIT(L2_PAGE_S_BIT);
 
     return e;
 }
@@ -493,14 +489,6 @@ PhysAddr ArchMmuTranslate(PhysAddr ttbr_pa, VirtAddr va)
     return 0;
 }
 
-static uintptr_t arch_mmu_alloc_l2_table(void)
-{
-    uintptr_t new_page = L2PtPoolAlloc();
-    if (!new_page)
-        return 0;
-    return (uintptr_t)new_page;
-}
-
 static uint32_t arch_mmu_make_l1_pte(uintptr_t l2_pa)
 {
     if (!l2_pa)
@@ -530,7 +518,7 @@ static bool arch_mmu_break_section(uint32_t *l1, uint32_t l1_idx, uint8_t asid)
     uint32_t ap2 = (section >> L1_SECT_AP2_BIT) & 0x1U;
     uint32_t ng = (section >> L1_SECT_NG_BIT) & 0x1U;
 
-    uintptr_t l2_pa = arch_mmu_alloc_l2_table();
+    uintptr_t l2_pa = (uintptr_t)L2PtPoolAlloc();
     if (!l2_pa)
         return false;
 
@@ -586,7 +574,7 @@ static bool arch_mmu_map_page(AddressSpace *as, uintptr_t va, uintptr_t pa, Virt
     if (type == DESC_FAULT)
     {
         // Unmapped - allocate a fresh L2 table
-        uintptr_t l2_pa = arch_mmu_alloc_l2_table();
+        uintptr_t l2_pa = (uintptr_t)L2PtPoolAlloc();
         if (!l2_pa)
             return false;
 

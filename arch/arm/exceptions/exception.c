@@ -27,9 +27,7 @@ BENCH_STAT(g_bench_lazy_map_fault, "lazy-map translation fault");
 
 typedef enum
 {
-    EXC_RESET = 0,
     EXC_UNDEF = 1,
-    EXC_SVC = 2,
     EXC_PREFETCH_ABORT = 3,
     EXC_DATA_ABORT = 4,
     EXC_RESERVED = 5,
@@ -84,34 +82,7 @@ static const char *DecodeFsr(uint32_t fsr)
     }
 }
 
-static const char *DecodeProcessorMode(uint32_t spsr)
-{
-    switch (spsr & 0x1F)
-    {
-    case 0x10:
-        return "USR";
-    case 0x11:
-        return "FIQ";
-    case 0x12:
-        return "IRQ";
-    case 0x13:
-        return "SVC";
-    case 0x16:
-        return "MON";
-    case 0x17:
-        return "ABT";
-    case 0x1A:
-        return "HYP";
-    case 0x1B:
-        return "UND";
-    case 0x1F:
-        return "SYS";
-    default:
-        return "???";
-    }
-}
-
-/* addr annotated with its containing kernel symbol, e.g. "0x8012340 (schedule+0x18)". */
+/* addr annotated with its containing kernel symbol, e.g. "0x8012340 (Schedule+0x18)". */
 static void SymAnnotate(char *buf, size_t bufsz, uint32_t addr)
 {
     const char *name = KSymLookup(addr);
@@ -143,7 +114,7 @@ static void DumpVfpState(const FpuState *fpu)
     kprintf(" fpscr=%08X\n", fpscr);
 }
 
-static void DumpRegisters(ExceptionFrame *frame)
+static void DumpRegisters(CpuState *frame)
 {
     char pc_sym[80], lr_sym[80];
     SymAnnotate(pc_sym, sizeof(pc_sym), (uint32_t)frame->return_pc);
@@ -153,9 +124,9 @@ static void DumpRegisters(ExceptionFrame *frame)
 
     kprintf("-- register dump --------------------------------------------\n");
     if (space)
-        kprintf("  ctx: pid=%u tid=%u '%s'\n", space->spid, current_task->tid, space->name);
+        kprintf("  ctx: spid=%u tid=%u '%s'\n", space->spid, current_task->tid, space->name);
     else if (current_task)
-        kprintf("  ctx: tid=%u (no owner process)\n", current_task->tid);
+        kprintf("  ctx: tid=%u (no owner space)\n", current_task->tid);
     else
         kprintf("  ctx: kernel/boot (no current thread)\n");
 
@@ -170,7 +141,7 @@ static void DumpRegisters(ExceptionFrame *frame)
     kprintf("  pc=%s\n", pc_sym);
     kprintf("spsr=%08X [%s mode, %s%s%s %c%c%c%c]  frame=%p\n",
             frame->return_cpsr,
-            DecodeProcessorMode((uint32_t)frame->return_cpsr),
+            arm_cpsr_mode_name((uint32_t)frame->return_cpsr),
             ((uint32_t)frame->return_cpsr & (1U << 7)) ? "I" : "i",
             ((uint32_t)frame->return_cpsr & (1U << 6)) ? "F" : "f",
             ((uint32_t)frame->return_cpsr & (1U << 5)) ? " Thumb" : "",
@@ -209,9 +180,9 @@ static void DumpRegisters(ExceptionFrame *frame)
 }
 
 
-static bool __hot ServiceDemandPage(SpaceObject *current_process, uint32_t dfar, uint32_t dfsr)
+static bool __hot ServiceDemandPage(SpaceObject *space, uint32_t dfar, uint32_t dfsr)
 {
-    AddressSpace *as = current_process->as;
+    AddressSpace *as = space->as;
     for (uint32_t i = 0; i < as->regions.len; i++)
     {
         VirtMemRegion *r = vm_region_vec_get(&as->regions, i);
@@ -234,11 +205,11 @@ static bool __hot ServiceDemandPage(SpaceObject *current_process, uint32_t dfar,
     return false;
 }
 
-void __hot ExceptionDispatch(ExcType exctype, ExceptionFrame *frame);
+void __hot ExceptionDispatch(ExcType exctype, CpuState *frame);
 
 /* Every syscall and every fault funnels through here; EXC_SVC dominates
  * the traffic in any workload that isn't fault-heavy. */
-void __hot ExceptionDispatch(ExcType exctype, ExceptionFrame *frame)
+void __hot ExceptionDispatch(ExcType exctype, CpuState *frame)
 {
     SpaceObject *current_space = current_task ? current_task->owner : NULL;
 
@@ -263,14 +234,14 @@ void __hot ExceptionDispatch(ExcType exctype, ExceptionFrame *frame)
         }
 
         /**
-         * Any other undefined instruction is NOT returnable. Kill process or
+         * Any other undefined instruction is NOT returnable. Kill the task or
          * panic.
          */
         bool from_user = (frame->return_cpsr & 0x1F) == 0x10;
 
         if (from_user && current_space)
         {
-            KERROR("Oops! '%s' (PID %d, TID %d) killed: undefined instruction @ 0x%08X\n", current_space->name, current_space->spid, current_task->tid, frame->return_pc);
+            KERROR("Oops! '%s' (SPID %d, TID %d) killed: undefined instruction @ 0x%08X\n", current_space->name, current_space->spid, current_task->tid, frame->return_pc);
             DumpRegisters(frame);
             TaskFault(current_task, KILLED_FAULT_UNDEF);
             Schedule();
@@ -294,7 +265,7 @@ void __hot ExceptionDispatch(ExcType exctype, ExceptionFrame *frame)
          * Prefetch abort is also impossible to return from.
          * This means either pc is corrupted, or we haven't mapped
          * whatever text seciton was trying to be executed.
-         * Retrieve IFAR and IFSR and kill process/panic.
+         * Retrieve IFAR and IFSR and kill the task or panic.
          */
 
         uint32_t ifar, ifsr;
@@ -305,7 +276,7 @@ void __hot ExceptionDispatch(ExcType exctype, ExceptionFrame *frame)
 
         if (from_user && current_space)
         {
-            KERROR("Oops! '%s' (PID %d, TID %d) killed: prefetch abort @ 0x%08X (%s)\n",
+            KERROR("Oops! '%s' (SPID %d, TID %d) killed: prefetch abort @ 0x%08X (%s)\n",
                    current_space->name, current_space->spid, current_task->tid, ifar, DecodeFsr(ifsr));
             TaskFault(current_task, KILLED_FAULT_PREFETCH);
             DumpRegisters(frame);
@@ -380,7 +351,7 @@ void __hot ExceptionDispatch(ExcType exctype, ExceptionFrame *frame)
             }
 
             KERROR("Oops! Segmentation fault");
-            KDEBUG("Oops! '%s' (PID %d, TID %d) killed: data abort @ 0x%08X (%s %s)\n",
+            KDEBUG("Oops! '%s' (SPID %d, TID %d) killed: data abort @ 0x%08X (%s %s)\n",
                    current_space->name, current_space->spid, current_task->tid, dfar,
                    (dfsr & (1 << 11)) ? "write" : "read",
                    DecodeFsr(dfsr));
@@ -398,7 +369,7 @@ void __hot ExceptionDispatch(ExcType exctype, ExceptionFrame *frame)
                 return;
             }
 
-            KERROR("Oops! Kernel fault in SVC from '%s' (PID %d, TID %d, state %d) pc=0x%08X @ 0x%08X (%s %s)\n",
+            KERROR("Oops! Kernel fault in SVC from '%s' (SPID %d, TID %d, state %d) pc=0x%08X @ 0x%08X (%s %s)\n",
                    current_space->name, current_space->spid, current_task->tid,
                    (int)current_task->state, (unsigned)frame->return_pc, dfar,
                    (dfsr & (1 << 11)) ? "write" : "read",
