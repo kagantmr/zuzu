@@ -115,6 +115,11 @@ void SvcManageHandle(CpuState *frame)
                 ENSURE_ERR(frame, entry->space, ERR_BADHANDLE);
                 value = (Register)entry->space->last_exit_status;
             }
+            else if (HANDLE_PORT == entry->type)
+            {
+                ENSURE_ERR(frame, entry->port, ERR_BADHANDLE);
+                value = (Register)(entry->port->alive ? ZUZU_OK : ERR_DEAD);
+            }
             else
             {
                 ArchSetInFrame(frame, 0, ERR_BADTYPE);
