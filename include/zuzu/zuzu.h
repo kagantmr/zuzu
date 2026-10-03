@@ -98,7 +98,7 @@ static inline Handle CreateMem(size_t page_count) {
  *
  * @return ZUZU_OK if the task was started successfully, error code otherwise.
  */
-static inline Err TaskStart(Handle h, VirtAddr entry, VirtAddr sp, uint32_t r0, uint32_t r1) {
+static inline Err TaskStart(Handle h, void *entry, void *sp, uint32_t r0, uint32_t r1) {
     KickstartArgs args = {
         .entry = entry,
         .sp = sp,
@@ -207,18 +207,19 @@ static inline SvcResult HandleQuery(Handle h, QueryWhat what) {
     return ArchInvokeSvc4(SVC_MANAGEHANDLE, h, MNGHNDL_QUERY, what, 0);
 }
 
-static inline VirtAddr MemMap(Handle mem_handle, VirtAddr hint_va, MemProt prot) {
+static inline void *MemMap(Handle mem_handle, VirtAddr hint_va, MemProt prot) {
     uint32_t packed = (hint_va & ~0xFFFU) | ((uint32_t)prot & 0x7U);
-    return (VirtAddr)ArchInvokeSvc(SVC_MANAGEMEMORY, MNGMEM_MAP, mem_handle, 0, (Register)packed);}
-
-
-static inline VirtAddr MemMapAnon(size_t size, VirtAddr hint_va, MemProt prot) {
-    uint32_t packed = (hint_va & ~0xFFFU) | ((uint32_t)prot & 0x7U);
-    return (VirtAddr)ArchInvokeSvc(SVC_MANAGEMEMORY, MNGMEM_MAP, HANDLE_ANON, (Register)size, (Register)packed);
+    return (void *)ArchInvokeSvc(SVC_MANAGEMEMORY, MNGMEM_MAP, mem_handle, 0, (Register)packed);
 }
 
-static inline Err MemUnmap(VirtAddr va) {
-    return ArchInvokeSvc(SVC_MANAGEMEMORY, MNGMEM_UNMAP,(Register)va, 0, 0);
+
+static inline void *MemMapAnon(size_t size, VirtAddr hint_va, MemProt prot) {
+    uint32_t packed = (hint_va & ~0xFFFU) | ((uint32_t)prot & 0x7U);
+    return (void *)ArchInvokeSvc(SVC_MANAGEMEMORY, MNGMEM_MAP, HANDLE_ANON, (Register)size, (Register)packed);
+}
+
+static inline Err MemUnmap(void *va) {
+    return ArchInvokeSvc(SVC_MANAGEMEMORY, MNGMEM_UNMAP, (Register)va, 0, 0);
 }
 
 static inline Err MemProtect(VirtAddr va, size_t size, MemProt new_prot) {

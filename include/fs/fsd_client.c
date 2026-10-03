@@ -34,7 +34,7 @@ static Err FsdTransact(FsdConn *c, const FsdRequest *req, FsdResponse *resp)
 static void FsdTeardown(FsdConn *c)
 {
     if (c->buf)
-        MemUnmap((VirtAddr)c->buf);
+        MemUnmap(c->buf);
     if (c->shm >= 0)
         HandleClose(c->shm);
     c->buf = NULL;
@@ -58,8 +58,8 @@ Err FsdAttach(FsdConn *c, Handle port, Spid pid, uint32_t want_size)
     if (c->shm < 0)
         return c->shm;
 
-    VirtAddr va = MemMap(c->shm, 0, PROT_RW);
-    if (PtrIsErr((void *)va))
+    void *va = MemMap(c->shm, 0, PROT_RW);
+    if (PtrIsErr(va))
     {
         HandleClose(c->shm);
         c->shm = -1;
@@ -263,7 +263,7 @@ Err FsdReadDir(FsdConn *c, const char *path, uint32_t start, FsdDirEntry *out, u
     uint32_t got = resp.count;
     if (got > max)
         got = max;
-    if (out && got && (uint64_t)resp.data_off + (uint64_t)got * sizeof(FsdDirEntry) <= c->size)
+    if (out && got && (uint64_t)resp.data_off + ((uint64_t)got * sizeof(FsdDirEntry)) <= c->size)
         memcpy(out, c->buf + resp.data_off, (size_t)got * sizeof(FsdDirEntry));
     if (count)
         *count = got;

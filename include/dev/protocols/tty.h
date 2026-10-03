@@ -14,31 +14,15 @@ extern "C" {
 #include <zuzu/err.h>
 #include <zuzu/zuzu.h>
 
-/*
- * tty: a named, bidirectional text endpoint. ttysvc ("/svc/tty") joins two
- * ends of a byte stream: a PROVIDER (hardware or emulator behind a name) and
- * a CONSUMER (shell, app). Each peer shares one page with ttysvc holding two
- * rings, named from ttysvc's point of view:
- *   up   = peer -> ttysvc        down = ttysvc -> peer
- * Routing: provider.up -> filter -> foreground.down, and
- *          foreground.up -> filter -> provider.down.
- * Exactly one consumer per endpoint is foreground and gets RX; others block
- * on a full up ring (their TX is not drained).
- *
- * Every request payload starts with a u32 cmd; every reply payload starts
- * with an Err status.
- */
-
 #define TTY_NAME_MAX 16
 #define TTY_RING_DATA_SIZE 1024u
 
-/* ttysvc writes these, the consumer reads them. */
 typedef struct
 {
-    volatile uint32_t eof_seq;  /* ttysvc: ++ when ^D hit an empty line */
-    volatile uint32_t eof_ack;  /* consumer: set to eof_seq once seen */
-    volatile uint32_t eof_pos;  /* down.head at the time of EOF */
-    volatile uint32_t intr_seq; /* ttysvc: ++ on every ^C */
+    volatile uint32_t eof_seq;
+    volatile uint32_t eof_ack;
+    volatile uint32_t eof_pos;
+    volatile uint32_t intr_seq;
 } TtyCtl;
 
 typedef struct
@@ -134,8 +118,8 @@ static inline Err TtyClientConnect(Handle tty_port, uint32_t cmd, const char *al
     c->mem = CreateMem(1);
     if (c->mem < 0)
         return (Err)c->mem;
-    VirtAddr va = MemMap(c->mem, 0, PROT_RW);
-    if (PtrIsErr((void *)va))
+    void *va = MemMap(c->mem, 0, PROT_RW);
+    if (PtrIsErr(va))
     {
         HandleClose(c->mem);
         return (Err)va;
@@ -194,7 +178,7 @@ static inline Err TtyClientClose(Handle tty_port, TtyConn *c)
     TtyCloseRequest req = { .cmd = TTY_CLOSE, .index = c->index };
     Err rc = TtyCall(tty_port, &req, sizeof(req), -1, NULL);
     HandleClose(c->doorbell);
-    MemUnmap((VirtAddr)c->shm);
+    MemUnmap(c->shm);
     HandleClose(c->mem);
     c->shm = NULL;
     return rc;

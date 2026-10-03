@@ -1,11 +1,11 @@
 #include <net/packetring.h>
 #include <zuzu/err.h>
 
-int packet_ring_push(nic_ring_t *r, void *src, uint16_t len) {
+int PacketRingPush(NicRing *r, void *src, uint16_t len) {
     if (!r || !src || len > NIC_FRAME_SIZE)
         return ERR_OVERFLOW;
 
-    if (!((r->head + 1) % NIC_RING_DEPTH == r->tail)) { 
+    if (!((r->head + 1) % NIC_RING_DEPTH == r->tail)) {
         r->slots[r->head].len = len;
         memcpy(r->slots[r->head].data, src, len);
         ArchDmb();
@@ -15,7 +15,7 @@ int packet_ring_push(nic_ring_t *r, void *src, uint16_t len) {
     return ERR_BUFFULL;
 }
 
-int packet_ring_pop(nic_frame_t *dst, nic_ring_t *r) {
+int PacketRingPop(NicFrame *dst, NicRing *r) {
     if (!dst || !r)
         return ERR_BADARG;
 
@@ -38,7 +38,7 @@ int packet_ring_pop(nic_frame_t *dst, nic_ring_t *r) {
 
 /* Producer: reserve the next writable slot (or NULL if full). Caller fills
    slot->data and slot->len, then calls packet_ring_commit. */
-nic_frame_t *packet_ring_reserve(nic_ring_t *r) {
+NicFrame *PacketRingReserve(NicRing *r) {
     if (!r || (r->head + 1) % NIC_RING_DEPTH == r->tail)
         return NULL;
     return &r->slots[r->head];
@@ -46,14 +46,14 @@ nic_frame_t *packet_ring_reserve(nic_ring_t *r) {
 
 /* Producer: publish the reserved slot. Release barrier so the consumer never
    sees the advanced head before the slot contents. */
-void packet_ring_commit(nic_ring_t *r) {
+void PacketRingCommit(NicRing *r) {
     ArchDmb();
     r->head = (r->head + 1) % NIC_RING_DEPTH;
 }
 
 /* Consumer: peek the next readable slot (or NULL if empty). Acquire barrier so
    slot reads are not hoisted above the head observation. */
-nic_frame_t *packet_ring_peek(nic_ring_t *r) {
+NicFrame *PacketRingPeek(NicRing *r) {
     if (!r || r->head == r->tail)
         return NULL;
     ArchDmb();
@@ -61,7 +61,7 @@ nic_frame_t *packet_ring_peek(nic_ring_t *r) {
 }
 
 /* Consumer: release the slot after reading it. */
-void packet_ring_consume(nic_ring_t *r) {
+void PacketRingConsume(NicRing *r) {
     ArchDmb();
     r->tail = (r->tail + 1) % NIC_RING_DEPTH;
 }

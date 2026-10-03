@@ -44,10 +44,6 @@ Err RegisterService(const char *name, Handle port);
     */
 Handle LookupService(const char *name);
 
-Handle LookupServiceGeneric(const char *name, Handle nsvc_port);
-Err RegisterServiceGeneric(const char *name, Handle port, Handle nsvc_port);
-
-
 #ifdef __cplusplus
 }
 #endif

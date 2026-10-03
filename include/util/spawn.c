@@ -249,7 +249,7 @@ Err SpawnProcess(const void *image, size_t size, const char *name, const char *a
         return (Err)grant.r0;
     }
 
-    rc = TaskStart(task_handle, (VirtAddr)img.entry, sp, argc, (uint32_t)argv_va);
+    rc = TaskStart(task_handle, (void *)img.entry, (void *)sp, argc, (uint32_t)argv_va);
     if (rc != ZUZU_OK)
     {
         HandleDestroy(space_handle);

@@ -70,8 +70,8 @@ typedef enum
     */
 typedef struct
 {
-    VirtAddr entry;
-    VirtAddr sp;
+    void *entry;
+    void *sp;
     uint32_t r0, r1;
 } KickstartArgs;
 
@@ -141,6 +141,7 @@ typedef enum
     QUERY_PERMS,
     QUERY_MARKER,
     QUERY_STATUS,
+    QUERY_SIZE,
     QUERY_WHAT_COUNT
 } QueryWhat;
 

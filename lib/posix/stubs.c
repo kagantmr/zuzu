@@ -244,9 +244,6 @@ unsigned sleep(unsigned seconds)
     return 0;
 }
 
-/* This newlib build implements getline() as __getline() internally but
- * never exposes the POSIX name in <stdio.h>; the implementation itself is
- * present in libc_nano.a (confirmed at link time), just not declared. */
 ssize_t __getline(char **lineptr, size_t *n, FILE *stream);
 
 /* weak: kilo (and possibly other vendored programs) bundle their own
