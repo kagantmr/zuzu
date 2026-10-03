@@ -1,5 +1,5 @@
-#ifndef KERNEL_VM_VMM_H
-#define KERNEL_VM_VMM_H
+#ifndef KERNEL_MM_VMM_VMM_H
+#define KERNEL_MM_VMM_VMM_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -15,7 +15,7 @@
 typedef struct SpaceObjectStruct SpaceObject;
 typedef struct HandleTableEntryStruct HandleTableEntry;
 
-#define IOREMAP_MAX_ENTRIES 16 // was 64
+#define IOREMAP_MAX_ENTRIES 16
 
 #define VM_PROT_USER (1U << 3) // user-accessible (otherwise kernel-only)
 
@@ -42,9 +42,7 @@ typedef enum
 {
     VM_FLAG_NONE = 0,
     VM_FLAG_PINNED = 1U << 0,    // must stay mapped
-    VM_FLAG_GLOBAL = 1U << 1,    // global TLB entry where supported
     VM_FLAG_GUARD = 1U << 2,     // guard page/region
-    VM_FLAG_TEMPORARY = 1U << 3, // temporary mapping (e.g. identity map during boot)
 } VirtMemFlags;
 
 typedef struct VirtMemRegionStruct
@@ -54,9 +52,8 @@ typedef struct VirtMemRegionStruct
     MemProt prot;
     VirtMemType memtype;
     VirtMemOwner owner; // ownership: who allocated/owns the backing pages
-    PhysAddr paddr_start;
     VirtMemFlags flags;
-    void *backing; // optional pointer to backing object (e.g. ShmCap) for shared memory, file mappings, etc.
+    void *backing; // optional backing MemObject for shared and device mappings
 } VirtMemRegion;
 
 typedef enum
@@ -71,7 +68,6 @@ typedef struct AddressSpaceStruct
 {
     PhysAddr pt_root_physaddr; // physical address of level-1 table
     vm_region_vec_t regions;
-    // uint32_t         lock;      // placeholder until concurrency is added
     AsType type;
     asid_token_t asid_token;
 } AddressSpace;
@@ -87,8 +83,8 @@ typedef struct AddressSpaceStruct
  * SECTION_SIZE comes from arch/mmu.h, which itself includes this header, so
  * it isn't visible yet at this point in the first (defining) pass over this
  * file — this macro is fine as pure text substitution (same as IOREMAP_SLOTS
- * above), but a _Static_assert here would evaluate too early. See vmm.c for
- * the assert once both headers are actually in scope. */
+ * above), but a _Static_assert here would evaluate too early. See ioremap.c
+ * for the assert once both headers are actually in scope. */
 #define IOREMAP_MAX_SLOT ((KSTACK_REGION_BASE - IOREMAP_BASE) / SECTION_SIZE)
 
 AddressSpace *VmmGetKernelAddrspace(void);
@@ -110,7 +106,7 @@ void AddrspaceDestroy(AddressSpace *as);
 /**
  * @brief Add a region to an address space.
  * @param as Address space.
- * @param region Region to add (vaddr_start, size, prot, memtype, paddr_start, flags).
+ * @param region Region to add (vaddr_start, size, prot, memtype, flags).
  * @return true on success, false if overlap or alignment error.
  * Does not touch page tables; only validates and appends to as->regions.
  */
@@ -139,14 +135,6 @@ bool VmmRemoveRegion(AddressSpace *as, VirtAddr vaddr, size_t size);
 VirtAddr VmmFindFreeVa(const AddressSpace *as, VirtAddr lo, VirtAddr hi, size_t size);
 
 /**
- * @brief Build actual page tables from region descriptions.
- * @param as Address space to realize.
- * Iterates over all vm_region_t in as->regions and calls arch_mmu_map().
- * @return true on success, false on page table allocation failure.
- */
-bool VmmBuildPts(AddressSpace *as);
-
-/**
  * @brief Bootstrap the virtual memory system (early boot).
  * Responsibilities:
  *   1. create kernel address space
@@ -172,14 +160,12 @@ void VmmActivateAddrspace(AddressSpace *as);
  * @param va Virtual address (should be page-aligned).
  * @param pa Physical address (should be page-aligned).
  * @param size Size in bytes (should be page-aligned or section-aligned).
- * @param prot Protection flags (VM_PROT_READ | VM_PROT_WRITE | ...).
+ * @param prot Protection flags (PROT_READ | PROT_WRITE | VM_PROT_USER | ...).
  * @param memtype VM_MEM_NORMAL or VM_MEM_DEVICE.
- * @param owner VM_OWNER_* (determines if pages are freed on destroy).
- * @param flags VM_FLAG_* bits (pinned, global, guard, etc.).
  * @return true on success, false on error.
  */
 bool VmmMapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size,
-                   MemProt prot, VirtMemType memtype, VirtMemOwner owner, VirtMemFlags flags);
+                   MemProt prot, VirtMemType memtype);
 
 /**
  * @brief Remove mappings from an address space.
@@ -201,7 +187,7 @@ bool VmmMapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size,
  * If the region owns its pages (VM_OWNER_ANON), the caller must walk
  * page tables BEFORE unmapping to discover which PAs to free.
  *
- * TLB Handling: vmm_unmap_range calls arch_mmu_unmap, which handles
+ * TLB Handling: VmmUnmapRange calls arch_mmu_unmap, which handles
  * TLB invalidation. If the addrspace is active (TTBR0), the TLB must
  * be invalidated for this to take effect.
  */
@@ -264,16 +250,16 @@ void IoUnmap(void *va);
  * @param len The size of ther region to check
  * @param as The address space
  * @param write R/W toggle.
-yy */
+ */
 bool VmmCheckUserFault(AddressSpace *as, VirtAddr va, size_t len, bool write);
 
-/* region always points into as->regions.data, but the struct addrspace_t
- * bytes themselves (ttbr_pa, the regions vector header) and the
- * vm_region_t bytes region points at never overlap -- on the lazy-mapping
- * hot path (try_demand_page -> here), this is what makes it safe. */
+/* region always points into as->regions.data, but the AddressSpace bytes
+ * themselves (pt_root_physaddr, the regions vector header) and the
+ * VirtMemRegion bytes region points at never overlap -- on the lazy-mapping
+ * hot path (ServiceDemandPage -> here), this is what makes it safe. */
 bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict region, uintptr_t page_va);
 
 
 void VmmLockdownKernelMapping(void);
 
-#endif // KERNEL_VM_VMM_H
+#endif // KERNEL_MM_VMM_VMM_H

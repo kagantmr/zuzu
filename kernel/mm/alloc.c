@@ -54,7 +54,6 @@ static KHeapSlab *SlabGrow(KHeapSlabCache *cache)
     slab->capacity = usable / cache->obj_size;
     slab->used = 0;
     slab->free_head = NULL;
-    slab->state = SLAB_PARTIAL;
 
     // build freelist: chain all slots together
     for (size_t i = 0; i < slab->capacity; i++) {
@@ -67,14 +66,13 @@ static KHeapSlab *SlabGrow(KHeapSlabCache *cache)
     return slab;
 }
 
-static void CreateSlabCache(KHeapSlabCache *cache, const char *name, size_t obj_size)
+static void CreateSlabCache(KHeapSlabCache *cache, size_t obj_size)
 {
     // enforce minimum: must fit a freelist pointer
     if (obj_size < sizeof(void *))
         obj_size = sizeof(void *);
     // align up to 8 for ARM alignment
     cache->obj_size = align_up(obj_size, 8);
-    cache->name = name;
     cache->partial = NULL;
     cache->full = NULL;
     cache->empty_hold = NULL;
@@ -91,7 +89,6 @@ static void *__hot SlabAlloc(KHeapSlabCache *cache)
         if (cache->empty_hold) {
             slab = cache->empty_hold;
             cache->empty_hold = NULL;
-            slab->state = SLAB_PARTIAL;
             SlabListPush(&cache->partial, slab);
         } else {
             slab = SlabGrow(cache);
@@ -108,7 +105,6 @@ static void *__hot SlabAlloc(KHeapSlabCache *cache)
         // slab is now full: move partial -> full
         SlabListRemove(&cache->partial, slab);
         SlabListPush(&cache->full, slab);
-        slab->state = SLAB_FULL;
     }
     return obj;
 }
@@ -132,14 +128,12 @@ static __always_inline void SlabFree(KHeapSlabCache *cache, void *ptr)
     if (unlikely(was_full)) {
         SlabListRemove(&cache->full, slab);
         SlabListPush(&cache->partial, slab);
-        slab->state = SLAB_PARTIAL;
     }
 
     if (unlikely(slab->used == 0)) {
         SlabListRemove(&cache->partial, slab);
         if (cache->empty_hold == NULL) {
             cache->empty_hold = slab;
-            slab->state = SLAB_EMPTY;
         } else {
             PmmFreeFrame(VA_TO_PA((uintptr_t)slab));
         }
@@ -147,11 +141,10 @@ static __always_inline void SlabFree(KHeapSlabCache *cache, void *ptr)
 }
 
 /* Generic slab-cache API for subsystems that want a dedicated fixed-size
- * object pool (see kalloc/kfree helpers below for the IPC hot-path ones).
- * A cache is lazily usable: KSlabAlloc on a zeroed cache initializes it. */
-void KSlabInit(KHeapSlabCache *cache, const char *name, size_t obj_size)
+ * object pool. Callers KSlabInit a zeroed cache before the first KSlabAlloc. */
+void KSlabInit(KHeapSlabCache *cache, size_t obj_size)
 {
-    CreateSlabCache(cache, name, obj_size);
+    CreateSlabCache(cache, obj_size);
 }
 
 void *KSlabAlloc(KHeapSlabCache *cache) { return SlabAlloc(cache); }
@@ -284,7 +277,7 @@ void *KZAlloc(size_t size)
 void *KCalloc(size_t nmemb, size_t size)
 {
     if (nmemb && size > (size_t)-1 / nmemb) {
-        KERROR("kcalloc: size overflow (%u x %u)", (unsigned)nmemb, (unsigned)size);
+        KERROR("KCalloc: size overflow (%u x %u)", (unsigned)nmemb, (unsigned)size);
         return NULL;
     }
     return KZAlloc(nmemb * size);
@@ -298,13 +291,13 @@ void KFree(void* ptr) {
 
     // Sanity check: ptr must be aligned
     if (((uintptr_t)ptr % ALIGNMENT) != 0) {
-        KERROR("kfree: pointer not aligned");
+        KERROR("KFree: pointer not aligned");
         return;
     }
 
     if ((uint8_t *)ptr < (uint8_t *)kernel_layout.heap_start_va + HDR ||
         (uint8_t *)ptr >= (uint8_t *)kernel_layout.heap_end_va) {
-        KERROR("kfree: pointer outside kernel heap");
+        KERROR("KFree: pointer outside kernel heap");
         return;
     }
 
@@ -315,7 +308,7 @@ void KFree(void* ptr) {
         return;
     }
     if (header->state != KBLOCK_ALLOCATED) {
-        KERROR("kfree: pointer does not match any allocated heap block");
+        KERROR("KFree: pointer does not match any allocated heap block");
         return;
     }
     header->state = KBLOCK_FREE;
@@ -342,46 +335,4 @@ void KHeapInit(void) {
     if (!HeapGrow(HEAP_INITIAL_SIZE - HDR)) {
         panic("Heap could not be allocated");
     }
-}
-
-void KHeapDump(void) {
-    KINFO("*** HEAP DUMP ***");
-    // Print both PA and VA for clarity
-    KINFO("Heap: %p - %p", kernel_layout.heap_start_va, kernel_layout.heap_end_va);
-
-    KMemBlock* current = heap_head;
-    int block_num = 0;
-    size_t total_free = 0;
-    size_t total_used = 0;
-
-    while (current) {
-        // Sanity check: ensure current is within heap bounds (use _va)
-        if ((uint8_t*)current < (uint8_t*)kernel_layout.heap_start_va ||
-            (uint8_t*)current >= (uint8_t*)kernel_layout.heap_end_va) {
-            KERROR("Block %d corrupted - pointer %p outside heap bounds", block_num, current);
-            break;
-        }
-
-        bool is_free = (current->state == KBLOCK_FREE);
-        KINFO("Block %d: addr=%p size=%u free=%d next=%p",
-              block_num, current, current->size, is_free, current->next);
-
-        if (is_free) {
-            total_free += current->size;
-        } else {
-            total_used += current->size;
-        }
-
-        current = current->next;
-        block_num++;
-
-        // Prevent infinite loop in case of corruption
-        if (block_num > 1000) {
-            KERROR("Too many blocks - possible corruption");
-            break;
-        }
-    }
-
-    KINFO("Total blocks: %d, Free: %u bytes, Used: %u bytes",
-          block_num, total_free, total_used);
 }

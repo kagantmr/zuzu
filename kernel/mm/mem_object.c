@@ -5,16 +5,16 @@
 
 static KHeapSlabCache mem_obj_cache;
 
-MemObject *MemObjAlloc(void)
+static MemObject *MemObjAlloc(void)
 {
     if (!mem_obj_cache.obj_size)
-        KSlabInit(&mem_obj_cache, "MemObject", sizeof(MemObject));
+        KSlabInit(&mem_obj_cache, sizeof(MemObject));
     return KSlabAlloc(&mem_obj_cache);
 }
 
-void MemObjFree(MemObject *mem) { KSlabFree(&mem_obj_cache, mem); }
+static void MemObjFree(MemObject *mem) { KSlabFree(&mem_obj_cache, mem); }
 
-MemObject *MemObjCreateDevice(PhysAddr phys_base, size_t size, const char *compatible, Irq irq)
+MemObject *MemObjCreateDevice(PhysAddr phys_base, size_t size, Irq irq)
 {
     MemObject *mem = MemObjAlloc();
     ENSURE_RET(mem, NULL);
@@ -23,7 +23,6 @@ MemObject *MemObjCreateDevice(PhysAddr phys_base, size_t size, const char *compa
     mem->dev.phys_base = phys_base;
     mem->dev.size = size;
     mem->dev.irq = irq;
-    strncpy(mem->dev.compatible, compatible, sizeof(mem->dev.compatible) - 1);
     return mem;
 }
 

@@ -24,13 +24,6 @@ typedef struct MemBlock
 #define KBLOCK_ALLOCATED 0xA110C8EDu
 #define KBLOCK_FREE 0xF9EEB10Cu
 
-typedef enum
-{
-    SLAB_EMPTY,   // used == 0
-    SLAB_PARTIAL, // 0 < used < capacity
-    SLAB_FULL     // used == capacity
-} KSlabState;
-
 typedef struct Slab
 {
     struct Slab *next, *prev;      // intrusive: links within one of the cache's lists
@@ -38,12 +31,10 @@ typedef struct Slab
     size_t used;                   // how many objects are currently allocated
     size_t capacity;               // total slots in this slab
     void *free_head;               // freelist of available slots
-    KSlabState state;              // which list this slab is currently on
 } KHeapSlab;
 
 typedef struct SlabCache
 {
-    const char *name;      // "Port", for debugging/KHeapDump
     size_t obj_size;       // aligned object size
     KHeapSlab *partial;    // slabs with >= 1 free slot
     KHeapSlab *full;       // slabs with 0 free slots
@@ -95,18 +86,10 @@ void KFree(void *ptr);
  */
 void KHeapInit(void);
 
-/**
- * @brief Dump the kernel heap state for debugging.
- *
- * Prints information about all blocks in the heap including addresses,
- * sizes, free status, and statistics.
- */
-void KHeapDump(void);
-
 /* Generic slab-cache API for per-subsystem fixed-size object pools.
  * Declare a `static KHeapSlabCache` in the owning TU, KSlabInit it once,
  * then KSlabAlloc / KSlabFree. KSlabFree tolerates NULL. */
-void KSlabInit(KHeapSlabCache *cache, const char *name, size_t obj_size);
+void KSlabInit(KHeapSlabCache *cache, size_t obj_size);
 void *KSlabAlloc(KHeapSlabCache *cache);
 void KSlabFree(KHeapSlabCache *cache, void *ptr);
 

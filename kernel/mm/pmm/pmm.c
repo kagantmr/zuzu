@@ -10,21 +10,11 @@
 
 #include <assert.h>
 #include <list.h>
-#include <spinlock.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
 #include <types.h>
-
-#ifdef CONFIG_PMM_TRACE
-#include <core/ksym.h>
-
-/* Attributes a trace line to the process making the call. Declared here
- * rather than pulled in via thread.h/process.h to keep pmm.c out of that
- * dependency chain; see kernel/sched/sched.c. */
-extern uint32_t current_pid_or_zero(void);
-#endif
 
 #define LOG_FMT(fmt) "(pmm) " fmt
 #include "util/log.h"
@@ -74,7 +64,6 @@ static void PmmFreelistRemoveRange(PhysAddr start_pa, PhysAddr end_pa)
         }
 
         PhysAddr next_pa = *(PhysAddr *)PA_TO_VA(curr_pa);
-        ;
 
         if (!PmmIsRecorded(next_pa)) {
             PmmRebuildFreelist();
@@ -97,7 +86,7 @@ static void PmmFreelistRemoveRange(PhysAddr start_pa, PhysAddr end_pa)
     }
 }
 
-static PhysAddr PmmAllocFrameUnderLock(void)
+static PhysAddr PmmTakeFreeFrame(void)
 {
     if (pmm_state.freelist_head == 0)
         return (PhysAddr)0;
@@ -308,14 +297,10 @@ Err PmmUnmarkRange(const PhysAddr start, const PhysAddr end)
 
 PhysAddr PmmAllocFrame(void)
 {
-    PhysAddr pa = PmmAllocFrameUnderLock();
+    PhysAddr pa = PmmTakeFreeFrame();
     if (pa != 0) {
         SyspageUpdateMem();
     }
-#ifdef CONFIG_PMM_TRACE
-    KTRACE("alloc_page pa=%p pid=%u caller: %s", (void *)pa, current_pid_or_zero(),
-           KSymLookup((uint32_t)__builtin_return_address(0)));
-#endif
     return pa;
 }
 PhysAddr PmmAllocFramesContig(size_t n_frames)
@@ -367,11 +352,6 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
                 assert(pfn >= pmm_state.pfn_base && (pfn + n_frames) <= pmm_state.pfn_end);
                 SyspageUpdateMem(); // update free memory info in syspage
                 PmmKEventSignal();
-#ifdef CONFIG_PMM_TRACE
-                KTRACE("alloc_pages n=%zu pa=%p pid=%u scanned=%zu caller: %s", n_frames,
-                       (void *)addr, current_pid_or_zero(), index + 1,
-                       KSymLookup((uint32_t)__builtin_return_address(0)));
-#endif
                 return addr;
             }
         } else {
@@ -379,19 +359,11 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
         }
     }
 
-#ifdef CONFIG_PMM_TRACE
-    KTRACE("alloc_pages n=%zu FAILED pid=%u scanned=%zu caller: %s", n_frames,
-           current_pid_or_zero(), total_pages, KSymLookup((uint32_t)__builtin_return_address(0)));
-#endif
     return PHYS_NULL;
 }
 
 void PmmFreeFrame(const PhysAddr addr)
 {
-#ifdef CONFIG_PMM_TRACE
-    KTRACE("free_page pa=%p pid=%u caller: %s", (void *)addr, current_pid_or_zero(),
-           KSymLookup((uint32_t)__builtin_return_address(0)));
-#endif
     assert(addr % PAGE_SIZE == 0);
 
     const Pfn pfn = PhysToPfn(addr);
@@ -437,10 +409,6 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
     }
     if (align_frames == 0)
         align_frames = 1;
-#ifdef CONFIG_PMM_TRACE
-    KTRACE("alloc_pages_aligned n=%zu align=%zu pid=%u caller: %s", n_frames, align_frames,
-           current_pid_or_zero(), KSymLookup((uint32_t)__builtin_return_address(0)));
-#endif
     // Require power-of-two alignment (common + cheap)
     if ((align_frames & (align_frames - 1)) != 0) {
         return PHYS_NULL;
@@ -491,11 +459,6 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
 
                 SyspageUpdateMem(); // update free memory info in syspage
                 PmmKEventSignal();
-#ifdef CONFIG_PMM_TRACE
-                KTRACE("alloc_pages_aligned n=%zu pa=%p pid=%u scanned=%zu caller: %s", n_frames,
-                       (void *)start_pa, current_pid_or_zero(), index + 1,
-                       KSymLookup((uint32_t)__builtin_return_address(0)));
-#endif
 
                 return start_pa;
             }
@@ -504,19 +467,11 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
         }
     }
 
-#ifdef CONFIG_PMM_TRACE
-    KTRACE("alloc_pages_aligned n=%zu FAILED pid=%u scanned=%zu caller: %s", n_frames,
-           current_pid_or_zero(), total_pages, KSymLookup((uint32_t)__builtin_return_address(0)));
-#endif
     return PHYS_NULL;
 }
 
 size_t PmmAllocFramesScattered(const size_t n_frames, PhysAddr *out_addrs)
 {
-#ifdef CONFIG_PMM_TRACE
-    KTRACE("alloc_pages_scattered n=%zu pid=%u caller: %s", n_frames, current_pid_or_zero(),
-           KSymLookup((uint32_t)__builtin_return_address(0)));
-#endif
     if (n_frames == 0 || !out_addrs || pmm_state.free_frames < n_frames) {
         return 0;
     }
@@ -526,7 +481,7 @@ size_t PmmAllocFramesScattered(const size_t n_frames, PhysAddr *out_addrs)
     assert(pmm_state.free_frames <= pmm_state.total_frames);
     assert(n_frames <= pmm_state.total_frames);
     for (size_t i = 0; i < n_frames; i++) {
-        const PhysAddr new_page = PmmAllocFrameUnderLock();
+        const PhysAddr new_page = PmmTakeFreeFrame();
         if (new_page == 0) {
             SyspageUpdateMem();
             return i;

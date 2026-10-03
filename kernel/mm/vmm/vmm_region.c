@@ -97,8 +97,7 @@ bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, Vi
         return false;
     }
 
-    if (!VmmMapRange(as, page_va, new_pa, PAGE_SIZE,
-                       r->prot, r->memtype, r->owner, r->flags)) {
+    if (!VmmMapRange(as, page_va, new_pa, PAGE_SIZE, r->prot, r->memtype)) {
         if (allocated_new) {
             if (r->owner == VM_OWNER_SHARED && r->backing) {
                 MemObject *mem = (MemObject *)r->backing;
@@ -117,7 +116,7 @@ bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, Vi
 AddressSpace *AddrspaceCreate(AsType type)
 {
     if (!addrspace_cache.obj_size)
-        KSlabInit(&addrspace_cache, "AddressSpace", sizeof(AddressSpace));
+        KSlabInit(&addrspace_cache, sizeof(AddressSpace));
     AddressSpace *as = KSlabAlloc(&addrspace_cache);
     if (!as) {
         return NULL;
@@ -161,7 +160,6 @@ void AddrspaceDestroy(AddressSpace *as)
     if (as == g_current_addrspace) {
         panic("Attempted to destroy active addrspace %p (asid=%u)",
               (void *)as, as->asid_token.asid);
-        __builtin_unreachable();
     }
 
     /* Prevent stale translations from surviving ASID reuse. */
@@ -264,17 +262,3 @@ bool VmmRemoveRegion(AddressSpace *as, uintptr_t vaddr, size_t size)
     return true;
 }
 
-bool VmmBuildPts(AddressSpace *as)
-{
-    if (!as) return false;
-
-    for (uint32_t i = 0; i < as->regions.len; i++) {
-        VirtMemRegion *r = vm_region_vec_get(&as->regions, i);
-        if (!r) continue;
-        if (r->flags & VM_FLAG_GUARD) continue;
-        if (!VmmMapRange(as, r->vaddr_start, r->paddr_start, r->size,
-                        r->prot, r->memtype, r->owner, r->flags))
-            return false;
-    }
-    return true;
-}

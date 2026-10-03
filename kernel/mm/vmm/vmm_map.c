@@ -9,7 +9,7 @@
 #include <stdint.h>
 
 bool VmmMapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size,
-                   MemProt prot, VirtMemType memtype, VirtMemOwner owner, VirtMemFlags flags) {
+                   MemProt prot, VirtMemType memtype) {
     if (!as) return false;
     if (size == 0) return false;
     if ((va % 0x1000) != 0) return false;
@@ -29,10 +29,6 @@ bool VmmMapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size,
         }
     }
 
-    (void)owner;
-    (void)flags;
-
-    // Delegate to arch layer (handles ownership and flags at the architecture level)
     return arch_mmu_map(as, va, pa, size, prot, memtype);
 }
 

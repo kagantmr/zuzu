@@ -6,7 +6,6 @@
 #include "types.h"
 #include <arch/mmu.h>
 #include <string.h>
-#include <spinlock.h>
 
 #define L2_TABLE_SIZE 1024U                 // one ARMv7 L2 table is 1 KB
 #define L2_PER_PAGE (PAGE_SIZE / L2_TABLE_SIZE) // 4 L2 tables packed per 4 KB page
@@ -44,7 +43,7 @@ uintptr_t L2PtPoolAlloc(void)
     }
 
     if (!l2_entry_cache.obj_size)
-        KSlabInit(&l2_entry_cache, "L2PtPoolEntry", sizeof(L2PtPoolEntry));
+        KSlabInit(&l2_entry_cache, sizeof(L2PtPoolEntry));
     L2PtPoolEntry *entry = KSlabAlloc(&l2_entry_cache);
     if (!entry)
     {

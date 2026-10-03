@@ -31,7 +31,7 @@ void PmmKEventSignal(void)
         KWARN("Memory usage exceeded low-water mark, signalling subscribers");
 
         // walk subscribers and signal them
-        // clean dead ntfns: refcount--, free-if-zero, kfree(subscriber)
+        // drop dead events: EventDropReference, KFree(subscriber)
         ListNode *pos, *tmp;
         list_for_each_safe(pos, tmp, &pmm_subscribers.node)
         {
@@ -60,7 +60,6 @@ int PmmSubscribe(EventObject *ev)
     if (!new_node)
         return ERR_NOMEM;
     new_node->ev = ev;
-    ev->bind_count++;
     ev->bound_mask |= KEVENT_MEMMGMT_BIT;
     list_add_tail(&new_node->node, &pmm_subscribers.node);
     ev->ref_count++;

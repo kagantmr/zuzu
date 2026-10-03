@@ -1,7 +1,6 @@
 #include "core/ensure.h"
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/space/space.h"
-#include "vmm.h"
 #include "vmm_internal.h"
 #include <arch/barrier.h>
 #include <arch/cache.h>
@@ -13,7 +12,7 @@ Err VmmMapAnon(SpaceObject *space, VirtAddr hint, size_t size, MemProt prot, Vir
 {
     if (size == 0)
         return ERR_BADARG;
-    if (size > 32 * 1024 * 1024) // 32MB static cap, same as the old code
+    if (size > 32 * 1024 * 1024) // 32MB static cap
         return ERR_OVERFLOW;
     if (size % PAGE_SIZE != 0)
         return ERR_BADARG;
@@ -36,7 +35,6 @@ Err VmmMapAnon(SpaceObject *space, VirtAddr hint, size_t size, MemProt prot, Vir
 
     VirtMemRegion region = {
         .vaddr_start = va,
-        .paddr_start = 0, // filled in lazily at fault time
         .size = size,
         .prot = prot | VM_PROT_USER,
         .memtype = VM_MEM_NORMAL,
@@ -112,12 +110,11 @@ Err VmmMapMemObject(SpaceObject *space, HandleTableEntry *entry, MemProt prot, V
             return ERR_NOMEM;
 
         if (!VmmMapRange(space->as, va_base, mem->dev.phys_base, size_aligned, prot | VM_PROT_USER,
-                         VM_MEM_DEVICE, VM_OWNER_NONE, VM_FLAG_NONE))
+                         VM_MEM_DEVICE))
             return ERR_NOMEM;
 
         VirtMemRegion region = {
             .vaddr_start = va_base,
-            .paddr_start = mem->dev.phys_base,
             .backing = mem,
             .size = size_aligned,
             .prot = prot | VM_PROT_USER,
@@ -140,7 +137,6 @@ Err VmmMapMemObject(SpaceObject *space, HandleTableEntry *entry, MemProt prot, V
     {
         return ERR_BADTYPE;
     }
-    break;
     }
 
     entry->mapped_va = va_base;
@@ -208,8 +204,7 @@ bool VmmMapUserPage(AddressSpace *as, PhysAddr pa, VirtAddr va, MemProt prot)
     if ((va % PAGE_SIZE) != 0)
         return false;
 
-    return VmmMapRange(as, va, pa, PAGE_SIZE, prot | VM_PROT_USER, VM_MEM_NORMAL, VM_OWNER_SHARED,
-                       VM_FLAG_NONE);
+    return VmmMapRange(as, va, pa, PAGE_SIZE, prot | VM_PROT_USER, VM_MEM_NORMAL);
 }
 
 bool VmmCheckUserFault(AddressSpace *as, VirtAddr va, size_t len, bool write)

@@ -20,7 +20,6 @@ _Static_assert(IOREMAP_MAX_SLOT <= IOREMAP_SLOTS,
 
 typedef struct {
     VirtAddr va;       // Base VA (0 = unused entry)
-    PhysAddr pa;       // Physical address
     uint32_t sections;  // Number of 1MB sections
 } IoremapEntry;
 
@@ -86,9 +85,7 @@ void *IoRemap(PhysAddr phys, size_t size) {
     uintptr_t va = IOREMAP_BASE + ((uint32_t)slot * SECTION_SIZE);
 
     if (!VmmMapRange(g_kernel_as, va, phys_aligned, aligned_size,
-                       PROT_READ | PROT_WRITE,
-                       VM_MEM_DEVICE, VM_OWNER_NONE,
-                       VM_FLAG_PINNED | VM_FLAG_GLOBAL)) {
+                       PROT_READ | PROT_WRITE, VM_MEM_DEVICE)) {
         return NULL;
     }
 
@@ -101,7 +98,6 @@ void *IoRemap(PhysAddr phys, size_t size) {
         return NULL;
     }
     entry->va = va;
-    entry->pa = phys_aligned;
     entry->sections = sections_needed;
 
     return (void *)(va + offset);
@@ -125,6 +121,5 @@ void IoUnmap(void *va) {
     BitmapFree(slot_start, entry->sections);
 
     entry->va = 0;
-    entry->pa = 0;
     entry->sections = 0;
 }

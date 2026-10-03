@@ -28,7 +28,7 @@ VirtAddr KernelStackAlloc(void)
 		/* Map the usable stack page (above the guard). */
 		bool result = VmmMapRange(VmmGetKernelAddrspace(), slot_va + KSTACK_GUARD_SIZE,
 					    page_pa, PAGE_SIZE, PROT_READ | PROT_WRITE,
-					    VM_MEM_NORMAL, VM_OWNER_ANON, VM_FLAG_NONE);
+					    VM_MEM_NORMAL);
 		if (!result) {
 			PmmFreeFrame(page_pa);
 			slot_pa[slot] = 0;

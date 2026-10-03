@@ -24,7 +24,6 @@ void VmmBootstrap(void) {
         g_kernel_as = KZAlloc(sizeof(AddressSpace));
         if (!g_kernel_as) {
             panic("Failed to create kernel address space");
-            __builtin_unreachable();
         }
 
         // allocate a PMM-backed L1 and copy early_l1 into it
@@ -59,19 +58,17 @@ void VmmBootstrap(void) {
 
         VirtMemRegion kernel_region = {
             .vaddr_start = PA_TO_VA(map_pa_start),
-            .paddr_start = map_pa_start,
             .size = map_size,
             .prot = PROT_READ | PROT_WRITE | PROT_EXEC,
             .memtype = VM_MEM_NORMAL,
             .owner = VM_OWNER_SHARED,
-            .flags = VM_FLAG_GLOBAL | VM_FLAG_PINNED,
+            .flags = VM_FLAG_PINNED,
         };
         VmmAddRegion(g_kernel_as, &kernel_region);
 
         // Record identity mapping so VmmRemoveIdentityMapping can find it
         VirtMemRegion identity_region = {
             .vaddr_start = map_pa_start,
-            .paddr_start = map_pa_start,
             .size = map_size,
             .prot = PROT_READ | PROT_WRITE | PROT_EXEC,
             .memtype = VM_MEM_NORMAL,
@@ -80,7 +77,6 @@ void VmmBootstrap(void) {
         };
         VmmAddRegion(g_kernel_as, &identity_region);
 
-        //KDEBUG("VMM: Bootstrap complete (adopted early_l1)");
     }
 }
 
