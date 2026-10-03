@@ -46,6 +46,7 @@ SpaceObject *SpaceCreate(const char *name)
     if (!sp)
         return NULL;
     memset(sp, 0, sizeof(*sp));
+    ObserverInit(&sp->observers);
 
     list_init(&sp->tasks);
     list_init(&sp->kittens);
@@ -311,6 +312,7 @@ void SpaceFinalize(SpaceObject *sp)
         return;
     if (!sp->torn_down || !list_empty(&sp->tasks) || sp->ref_count != 0)
         return;
+    ObserverClear(&sp->observers);
     KSlabFree(&space_cache, sp);
 }
 
@@ -359,8 +361,7 @@ void SpaceWaitHollow(SpaceObject *sp, Duration timeout, CpuState *frame)
     SchedBlockOn(&sp->waiters, timeout);
 }
 
-void SpaceMaybeSignalBind(SpaceObject *sp)
+bool SpaceIsHollow(const SpaceObject *sp)
 {
-    if (sp->bound_ev && sp->bound_ev->alive && sp->live_tasks == 0)
-        EventSignal(sp->bound_ev, (1U << sp->bind_bit), false);
+    return sp->live_tasks == 0;
 }

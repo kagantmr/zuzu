@@ -1,4 +1,5 @@
 #include "core/ensure.h"
+#include "kernel/ipc/observer.h"
 #include "kernel/ipc/port.h"
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/irq/irq_relay.h"
@@ -8,27 +9,55 @@
 #include <zuzu/err.h>
 #include <types.h>
 
-static HandleTableEntry *BindLookupTarget(CpuState *frame, Handle h, HandleType want_type, uint32_t bit)
+typedef struct
 {
-    HandleTableEntry *entry = HandleTableLookup(&CURRENT_SPACE->handle_table, h);
-    ENSURE(entry, ArchSetInFrame(frame, 0, ERR_BADHANDLE); return NULL);
-    ENSURE((entry->type == want_type), ArchSetInFrame(frame, 0, ERR_BADTYPE); return NULL);
-    ENSURE((entry->perms & PERM_WAIT), ArchSetInFrame(frame, 0, ERR_NOPERM); return NULL);
-    ENSURE((bit < 31U), ArchSetInFrame(frame, 0, ERR_BADARG); return NULL);
-    return entry;
-}
+    ObserverSet *set; /* NULL: the object is already released, nothing to attach to */
+    bool ready;       /* its condition (dead / hollow / has a pending caller) already holds */
+} BindTarget;
 
-static void BindEventTo(EventObject **slot, uint32_t *bit_slot, EventObject *ev, uint32_t bit)
+static Err BindLookupTarget(EventType type, Handle h, uint32_t bit, BindTarget *out)
 {
-    if (*slot) {
-        (*slot)->bind_count--;
-        EventDropReference(*slot);
+    HandleType want = (type == EVENT_PORT)   ? HANDLE_PORT
+                      : (type == EVENT_TASK) ? HANDLE_TASK
+                                             : HANDLE_SPACE;
+    HandleTableEntry *entry = HandleTableLookup(&CURRENT_SPACE->handle_table, h);
+    if (!entry)
+        return ERR_BADHANDLE;
+    if (entry->type != want)
+        return ERR_BADTYPE;
+    if (!(entry->perms & PERM_WAIT))
+        return ERR_NOPERM;
+    if (bit >= 31U)
+        return ERR_BADARG;
+
+    switch (type)
+    {
+    case EVENT_PORT:
+    {
+        PortObject *port = entry->port;
+        if (!port)
+            return ERR_BADHANDLE;
+        if (!port->alive)
+            return ERR_DEAD;
+        *out = (BindTarget){ &port->observers, PortHasPending(port) };
+    } break;
+    case EVENT_TASK:
+    {
+        TaskObject *task = entry->task;
+        if (!task)
+            return ERR_BADHANDLE;
+        /* A released task is never cleaned up again: an observer added now would leak. */
+        *out = (BindTarget){ task->released ? NULL : &task->observers, TaskIsDead(task) };
+    } break;
+    default:
+    {
+        SpaceObject *space = entry->space;
+        if (!space)
+            return ERR_BADHANDLE;
+        *out = (BindTarget){ &space->observers, SpaceIsHollow(space) };
+    } break;
     }
-    *slot = ev;
-    ev->ref_count++;
-    ev->bind_count++;
-    ev->bound_mask |= (1U << bit);
-    *bit_slot = bit;
+    return ZUZU_OK;
 }
 
 void SvcBind(CpuState *frame)
@@ -72,47 +101,19 @@ void SvcBind(CpuState *frame)
         ArchSetInFrame(frame, 0, IrqBindToEvent(CURRENT_SPACE, dev_mem_obj->dev.irq, ev, bit));
     } break;
     case EVENT_PORT:
-    {
-        Handle h = (Handle)(*ArchGetFromFrame(frame, 2));
-        uint32_t bit = (uint32_t)(*ArchGetFromFrame(frame, 3));
-        HandleTableEntry *target = BindLookupTarget(frame, h, HANDLE_PORT, bit);
-        if (!target) return;
-
-        PortObject *port = target->port;
-        ENSURE_ERR(frame, port, ERR_BADHANDLE);
-        ENSURE_ERR(frame, port->alive, ERR_DEAD);
-
-        BindEventTo(&port->bound_ev, &port->bind_bit, ev, bit);
-        PortMaybeSignalBind(port);
-        ArchSetInFrame(frame, 0, ZUZU_OK);
-    } break;
     case EVENT_TASK:
-    {
-        Handle h = (Handle)(*ArchGetFromFrame(frame, 2));
-        uint32_t bit = (uint32_t)(*ArchGetFromFrame(frame, 3));
-        HandleTableEntry *target = BindLookupTarget(frame, h, HANDLE_TASK, bit);
-        if (!target) return;
-
-        TaskObject *task = target->task;
-        ENSURE_ERR(frame, task, ERR_BADHANDLE);
-
-        BindEventTo(&task->bound_ev, &task->bind_bit, ev, bit);
-        TaskMaybeSignalBind(task);
-        ArchSetInFrame(frame, 0, ZUZU_OK);
-    } break;
     case EVENT_SPACE:
     {
         Handle h = (Handle)(*ArchGetFromFrame(frame, 2));
         uint32_t bit = (uint32_t)(*ArchGetFromFrame(frame, 3));
-        HandleTableEntry *target = BindLookupTarget(frame, h, HANDLE_SPACE, bit);
-        if (!target) return;
-
-        SpaceObject *space = target->space;
-        ENSURE_ERR(frame, space, ERR_BADHANDLE);
-
-        BindEventTo(&space->bound_ev, &space->bind_bit, ev, bit);
-        SpaceMaybeSignalBind(space);
-        ArchSetInFrame(frame, 0, ZUZU_OK);
+        BindTarget target;
+        Err rc = BindLookupTarget(event_type, h, bit, &target);
+        if (rc == ZUZU_OK && target.set)
+            rc = ObserverAdd(target.set, ev, bit);
+        /* Only the new observer hears about a condition that already holds. */
+        if (rc == ZUZU_OK && target.ready)
+            EventSignal(ev, (1U << bit), false);
+        ArchSetInFrame(frame, 0, rc);
     } break;
     default:
         ArchSetInFrame(frame, 0, ERR_BADARG);

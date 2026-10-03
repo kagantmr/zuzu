@@ -2,6 +2,7 @@
 #define ZUZU_THREAD_H
 
 #include "kernel/ipc/event.h"
+#include "kernel/ipc/observer.h"
 #include "kernel/ipc/port.h"
 #include "kernel/mm/vmm/vmm.h"
 #include <arch/fpu.h>
@@ -79,14 +80,14 @@ struct TaskObjectStruct
     uint32_t priority, time_slice,
         ticks_remaining; /**< Priority, time slice, and remaining ticks. */
     uint32_t max_prio;
+    uint8_t queued_prio;   /**< Run-queue level the node is linked at; valid while node is linked. */
     Time slice_deadline;   /**< Deadline for the time slice. */
     SpaceObject *owner;    /**< Backpointer to owning process. */
     VirtAddr task_info_va; /**< Virtual address of thread info. */
     Err fault_reason;
     uint8_t tcb_slot;      /**< Index into owner's TCB page, TCB_SLOT_NONE if unassigned. */
     FpuState fpu_state;    /**< Lazily saved/restored, see kernel/sched/sched.c fpu_owner. */
-    EventObject *bound_ev; 
-    uint32_t bind_bit;
+    ObserverSet observers;
     uint32_t ref_count;
     bool released;
 #ifdef CONFIG_ZUZU_BENCH
@@ -115,6 +116,7 @@ void TaskUnref(TaskObject *t);
  * space, tear that space down as a consequence (see SpaceDestroy).
  */
 void TaskTerminate(TaskObject *task, Err exit_status);
-void TaskMaybeSignalBind(TaskObject *task);
+/* Exited or faulted: the condition observers wait for. */
+bool TaskIsDead(const TaskObject *task);
 void TaskFault(TaskObject *task, Err reason);
 #endif // ZUZU_THREAD_H

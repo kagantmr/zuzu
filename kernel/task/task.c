@@ -1,6 +1,8 @@
 #include "core/panic.h"
 #include "kernel/ipc/msg.h"
 #include "kernel/mm/alloc.h"
+#include "kernel/mm/pmm/pmm.h"
+#include "kernel/mm/vmm/vmm.h"
 #include "kernel/sched/sched.h"
 #include "kernel/space/space.h"
 #include "kstack.h"
@@ -43,8 +45,8 @@ static Tid RegisterTask(TaskObject *task)
     task_table[slot] = task;
 
     KTRACE("task register: tid=%u slot=%d owner_pid=%u owner_name=%s", task->tid, slot,
-           (task->owner_process ? task->owner_process->pid : 0),
-           (task->owner_process ? task->owner_process->name : "<none>"));
+           (task->owner ? task->owner->spid : 0),
+           (task->owner ? task->owner->name : "<none>"));
 
     return task->tid;
 }
@@ -108,7 +110,15 @@ void TaskUnref(TaskObject *t)
     if (t->ref_count > 0)
         t->ref_count--;
     if (t->ref_count == 0 && t->released)
+    {
         KSlabFree(&task_cache, t);
+    }
+    else if (t->ref_count == 0 && t->state == FROZEN)
+    {
+        /* Never started and nobody can start it now: nothing else will ever
+         * reap it, so its kernel stack and TCB slot would leak. */
+        TaskDestroy(t); /* also frees the object: ref_count is 0 */
+    }
 }
 
 void TaskDestroy(TaskObject *task)
@@ -142,6 +152,7 @@ void TaskDestroy(TaskObject *task)
     if (owner && owner->torn_down && list_empty(&owner->tasks))
         SpaceFinalize(owner);
 
+    ObserverClear(&task->observers);
     task->released = true;
     task->owner = NULL;
     if (task->ref_count == 0)
@@ -179,6 +190,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
     if (!task)
         return NULL;
     memset(task, 0, sizeof(*task));
+    ObserverInit(&task->observers);
 
     task->kernel_stack_top = KernelStackAlloc();
     if (!task->kernel_stack_top)
@@ -233,6 +245,26 @@ TaskObject *TaskCreate(SpaceObject *owner)
         KSlabFree(&task_cache, task);
         return NULL;
     }
+    /* Space creation only backs TCB page 0; slots on later pages get theirs
+     * here, on first use (they are freed with the Space's anon regions). */
+    uint32_t tcb_page = (uint32_t)tcb_slot_idx / SLOTS_PER_PAGE;
+    if (!owner->tcb_page_pa[tcb_page])
+    {
+        PhysAddr pa = PmmAllocFrame();
+        if (!pa || !VmmMapUserPage(owner->as, pa, owner->tcb_page_va + (tcb_page * PAGE_SIZE),
+                                   VM_PROT_USER | PROT_READ | PROT_WRITE))
+        {
+            if (pa)
+                PmmFreeFrame(pa);
+            TcbSlotFree(owner, tcb_slot_idx);
+            TaskObjectUnregister(task);
+            KernelStackFree(task->kernel_stack_top);
+            KSlabFree(&task_cache, task);
+            return NULL;
+        }
+        memset((void *)PA_TO_VA(pa), 0, PAGE_SIZE);
+        owner->tcb_page_pa[tcb_page] = pa;
+    }
     ThreadLocalData *tcb = (ThreadLocalData *)TcbSlotKVirtAddr(owner, (uint32_t)tcb_slot_idx);
     VirtAddr tcb_va = TcbSlotUVirtAddr(owner, (uint32_t)tcb_slot_idx);
     memset(tcb, 0, TCB_SLOT_SIZE);
@@ -251,7 +283,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
         owner->main_task = task;
 
     KTRACE("task create: tid=%u owner_pid=%u owner_name=%s state=%u kernel_stack_top=%p", task->tid,
-           owner->pid, owner->name, task->state, (void *)task->kernel_stack_top);
+           owner->spid, owner->name, task->state, (void *)task->kernel_stack_top);
 
     return task;
 }
@@ -273,7 +305,7 @@ void TaskUnlinkWaits(TaskObject *t)
     if (!t)
         return;
     if (t->node.prev && t->node.next)
-        list_remove(&t->node);
+        SchedRemoveRunQueue(t);
     SchedRemoveSleepQueue(t);
     if (t->wait_slot.node.prev && t->wait_slot.node.next)
         list_remove(&t->wait_slot.node);
@@ -288,10 +320,9 @@ void TaskAbortWait(TaskObject *t, Err err)
     SchedAdd(t);
 }
 
-void TaskMaybeSignalBind(TaskObject *task)
+bool TaskIsDead(const TaskObject *task)
 {
-    if (task->bound_ev && task->bound_ev->alive && (task->state == ZOMBIE || task->state == FAULTED))
-        EventSignal(task->bound_ev, (1U << task->bind_bit), false);
+    return task->state == ZOMBIE || task->state == FAULTED;
 }
 
 void TaskTerminate(TaskObject *task, Err exit_status)
@@ -330,7 +361,8 @@ void TaskTerminate(TaskObject *task, Err exit_status)
     }
 
     KillTask(task); // state = ZOMBIE
-    TaskMaybeSignalBind(task);
+    if (TaskIsDead(task))
+        ObserverNotify(&task->observers);
     if (owner && entry_state != ZOMBIE)
         owner->live_tasks--;
     bool space_hollow = owner && owner->live_tasks == 0;
@@ -339,7 +371,8 @@ void TaskTerminate(TaskObject *task, Err exit_status)
     {
         owner->last_exit_status = exit_status;
         WakeWaitList(&owner->waiters, exit_status);
-        SpaceMaybeSignalBind(owner);
+        if (SpaceIsHollow(owner))
+            ObserverNotify(&owner->observers);
     }
 
     WakeJoinTask(task, exit_status);
@@ -373,7 +406,8 @@ void TaskFault(TaskObject *task, Err reason)
     task->fault_reason = reason;
     task->owner->frozen = true;
     task->owner->faulted_tid = task->tid;
-    TaskMaybeSignalBind(task);
+    if (TaskIsDead(task))
+        ObserverNotify(&task->observers);
     while (!list_empty(&task->joiners)) {
         ListNode *jn = list_pop_front(&task->joiners);
         TaskObject *joiner = container_of(jn, WaitSlot, node)->owner;

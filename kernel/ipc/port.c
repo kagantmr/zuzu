@@ -27,8 +27,7 @@ PortObject *PortCreate(SpaceObject *owner) {
     new_port->ref_count = 1;
     new_port->alive = true;
     new_port->owner = owner;
-    new_port->bound_ev = NULL;
-    new_port->bind_bit = 0;
+    ObserverInit(&new_port->observers);
 
     return new_port;
 }
@@ -61,15 +60,11 @@ void PortDestroy(PortObject *port) {
     if (port->ref_count > 0)
         return;
     PortKill(port);
-    if (port->bound_ev) {
-        port->bound_ev->bind_count--;
-        EventDropReference(port->bound_ev);
-    }
+    ObserverClear(&port->observers);
     PortObjFree(port);
 }
 
-void PortMaybeSignalBind(PortObject *port)
+bool PortHasPending(const PortObject *port)
 {
-    if (port->bound_ev && port->bound_ev->alive && !list_empty(&port->sender_queue))
-        EventSignal(port->bound_ev, (1U << port->bind_bit), false);
+    return !list_empty(&port->sender_queue);
 }

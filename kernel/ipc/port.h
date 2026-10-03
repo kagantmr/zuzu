@@ -7,6 +7,7 @@
 #include <vector.h>
 #include <types.h>
 #include "event.h"
+#include "observer.h"
 
 typedef struct TaskObjectStruct TaskObject;
 typedef struct SpaceObjectStruct SpaceObject;
@@ -21,8 +22,7 @@ typedef struct
     size_t ref_count;
     bool alive;
     ListNode node;
-    EventObject *bound_ev;   // NULL if unbound
-    uint32_t bind_bit;
+    ObserverSet observers;
 } PortObject;
 
 typedef struct
@@ -47,6 +47,7 @@ PortObject *PortObjAlloc(void);
  */
 void PortObjFree(PortObject *port);
 
-void PortMaybeSignalBind(PortObject *port);
+/* A caller is queued with nobody receiving: the condition observers wait for. */
+bool PortHasPending(const PortObject *port);
 
 #endif /* _ZUZU_OBJECTS_PORT_H */

@@ -43,8 +43,7 @@ typedef struct SpaceObjectStruct
     uint32_t tcb_slot_bitmap[BITMAP_WORDS(256)]; /**< TCB slot bitmap. */
     bool torn_down; /**< SpaceDestroy has already run; only a zombie main_task keeps
                          this struct allocated. See SpaceFinalize. */
-    EventObject *bound_ev; 
-    uint32_t bind_bit;
+    ObserverSet observers;
     uint32_t ref_count;
 } SpaceObject;
 
@@ -140,6 +139,7 @@ void SpaceUnfreeze(SpaceObject *owner);
 
 void SpaceRef(SpaceObject *sp);
 void SpaceUnref(SpaceObject *sp);
-void SpaceMaybeSignalBind(SpaceObject *sp);
+/* No live tasks left: the condition observers wait for. */
+bool SpaceIsHollow(const SpaceObject *sp);
 
 #endif /* _ZUZU_OBJECTS_SPACE_H */

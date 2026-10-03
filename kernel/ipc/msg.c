@@ -102,7 +102,8 @@ void CallBlockAsSender(TaskObject *caller, PortObject *port,
     caller->pending_grant_handle = grant_handle;
     list_add_tail(&caller->node, &port->sender_queue.node);
     caller->state = BLOCKED;
-    PortMaybeSignalBind(port);
+    if (PortHasPending(port))
+        ObserverNotify(&port->observers);
     Schedule();
 }
 
@@ -213,7 +214,8 @@ void PortReceive(PortObject *port, Duration timeout, CpuState *frame) {
 
         caller->pending_grant_handle = -1;
         DeliverCallToReceiver(caller, current_task, caller->pending_reply_cap, caller->msg_xfer_len, granted);
-        PortMaybeSignalBind(port);
+        if (PortHasPending(port))
+            ObserverNotify(&port->observers);
         return;
 
     }
