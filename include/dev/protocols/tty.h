@@ -39,6 +39,7 @@ _Static_assert(sizeof(TtyShm) <= 4096, "TtyShm must fit in the one shared page")
 #define TTY_NOTIFY  3 /* grant: the peer's own doorbell. {cmd, index, bit} */
 #define TTY_SETMODE 4 /* {cmd, index, flags}, consumers only */
 #define TTY_CLOSE   5 /* {cmd, index} */
+#define TTY_WATCH   6 /* grant: a port the caller owns (PERM_WAIT|PERM_TXFR). {cmd, index}; ttysvc closes the session when that port dies */
 
 #define TTY_MODE_RAW    0u        /* default: bytes pass through untouched */
 #define TTY_MODE_COOKED (1u << 0) /* line editing (^H DEL ^U ^W), whole lines, ^D = EOF, ^C = flag; '\n' -> "\r\n" on output */
@@ -49,9 +50,11 @@ typedef struct { uint32_t cmd; char alias[TTY_NAME_MAX]; } TtyConnectRequest;
 typedef struct { uint32_t cmd; uint32_t index; uint32_t bit; } TtyNotifyRequest;
 typedef struct { uint32_t cmd; uint32_t index; uint32_t flags; } TtySetModeRequest;
 typedef struct { uint32_t cmd; uint32_t index; } TtyCloseRequest;
+typedef TtyCloseRequest TtyWatchRequest;
 typedef struct { Err status; uint32_t bit; uint32_t index; } TtyConnectReply;
 
-/* `index` identifies the caller's session in ttysvc. TODO: it is guessable,
+/* `index` identifies the caller's session in ttysvc: (generation << 8) | slot,
+ * so an index from a closed session never matches a reused slot. TODO: it is guessable,
  * so any peer can close or re-mode another's session; bind sessions to
  * unforgeable per-session handles once peers get per-peer authority. */
 
@@ -87,6 +90,7 @@ typedef struct
     Handle doorbell; /* send-only dup of ttysvc's event */
     uint32_t bit;    /* bit to ring on `doorbell` */
     uint32_t index;
+    Handle live;     /* port we own; ttysvc watches it to notice our death */
 } TtyConn;
 
 /* One request/reply round trip. On success *granted is the handle the reply
@@ -115,6 +119,7 @@ static inline Err TtyClientConnect(Handle tty_port, uint32_t cmd, const char *al
                                    Handle my_event, uint32_t my_bit, TtyConn *c)
 {
     memset(c, 0, sizeof(*c));
+    c->live = -1;
     c->mem = CreateMem(1);
     if (c->mem < 0)
         return (Err)c->mem;
@@ -158,6 +163,25 @@ static inline Err TtyClientConnect(Handle tty_port, uint32_t cmd, const char *al
     c->bit = rep.bit;
     c->index = rep.index;
 
+    /* Best effort: without it ttysvc only frees the session on TTY_CLOSE. */
+    c->live = CreatePort();
+    if (c->live >= 0)
+    {
+        SvcResult watch = HandleDuplicate(c->live, PERM_WAIT | PERM_TXFR, MARKER_NONE);
+        TtyWatchRequest wreq = { .cmd = TTY_WATCH, .index = c->index };
+        Err wrc = (Err)watch.r0;
+        if (wrc == ZUZU_OK)
+        {
+            wrc = TtyCall(tty_port, &wreq, sizeof(wreq), (Handle)watch.r1, NULL);
+            HandleClose((Handle)watch.r1);
+        }
+        if (wrc != ZUZU_OK)
+        {
+            HandleClose(c->live);
+            c->live = -1;
+        }
+    }
+
     SvcResult mine = HandleDuplicate(my_event, PERM_SEND | PERM_TXFR, MARKER_NONE);
     if (mine.r0 != ZUZU_OK)
         return (Err)mine.r0;
@@ -180,6 +204,9 @@ static inline Err TtyClientClose(Handle tty_port, TtyConn *c)
     HandleClose(c->doorbell);
     MemUnmap(c->shm);
     HandleClose(c->mem);
+    if (c->live >= 0)
+        HandleClose(c->live);
+    c->live = -1;
     c->shm = NULL;
     return rc;
 }

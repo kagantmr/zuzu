@@ -12,6 +12,7 @@ typedef struct
     bool in_use;
     uint32_t gen; /* survives free so a stale badge never matches a reused slot */
     Handle shm_handle;
+    Handle live; /* client-owned port granted by FSD_WATCH, or -1 */
     void *buf;
     uint32_t shm_size;
 } FsdClient;

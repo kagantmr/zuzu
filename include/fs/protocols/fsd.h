@@ -12,7 +12,8 @@
  * duplicate of its own port stamped with a marker, FSD_BADGE(generation, slot).
  * Every later request goes on that badged handle; fsd reads the marker from
  * the receive result and rejects anything that does not match a live session,
- * so a session cannot be guessed or forged. FSD_DETACH frees the session.
+ * so a session cannot be guessed or forged. FSD_DETACH frees the session; so
+ * does the death of the client, once it has sent FSD_WATCH with a port it owns.
  * fds are per session.
  *
  * Requests. The payload is an FsdRequest in the message buffer. Paths and
@@ -104,6 +105,7 @@ typedef enum
     FSD_UNLINK,     /* shm: path                                 */
     FSD_RENAME,     /* shm: two paths                            */
     FSD_DETACH,     /* free the session                          */
+    FSD_WATCH,      /* badged; grant: a port the client owns (PERM_WAIT|PERM_TXFR). fsd frees the session when it dies */
 } FsdCommand;
 
 #define FSD_DATA_OFF 128u           /* payload starts here; data_off >= FSD_DATA_OFF */

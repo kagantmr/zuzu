@@ -25,6 +25,7 @@ extern "C"
         Handle shm;    /* our shm handle                               */
         uint8_t *buf;  /* mapped base of the shared buffer             */
         uint32_t size; /* buffer size (page-aligned)                   */
+        Handle live;   /* port we own; fsd watches it to notice our death */
         bool ready;
     } FsdConn;
 

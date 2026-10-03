@@ -1,5 +1,6 @@
 #include "tables.h"
 #include "backend/backend.h"
+#include <zuzu/udbg.h>
 #include <zuzu/zuzu.h>
 #include <string.h>
 
@@ -38,8 +39,8 @@ Err ClientRegister(Handle shm, Marker *badge)
         uint32_t gen = (c->gen + 1) & 0xFFFFFFU;
         if (gen == 0)
             gen = 1;
-        *c = (FsdClient){ .in_use = true, .gen = gen, .shm_handle = shm, .buf = va,
-                          .shm_size = size };
+        *c = (FsdClient){ .in_use = true, .gen = gen, .shm_handle = shm, .live = -1,
+                          .buf = va, .shm_size = size };
         *badge = FSD_BADGE(gen, i);
         return ZUZU_OK;
     }
@@ -73,9 +74,28 @@ void ClientDrop(FsdClient *c)
 
     MemUnmap(c->buf);
     HandleClose(c->shm_handle);
+    if (c->live >= 0)
+        HandleClose(c->live);
     uint32_t gen = c->gen;
     memset(c, 0, sizeof(*c));
     c->gen = gen;
+}
+
+uint32_t ClientsReapDead(void)
+{
+    uint32_t reaped = 0;
+    for (uint32_t i = 0; i < FSD_MAX_CLIENTS; i++)
+    {
+        FsdClient *c = &g_clients[i];
+        if (!c->in_use || c->live < 0)
+            continue;
+        if (FormatToPortWait(WaitOn(c->live, TIMEOUT_POLL)).status != ERR_DEAD)
+            continue;
+        UserspaceDebugLog("fsd: client slot=%u died, dropping its session", i);
+        ClientDrop(c);
+        reaped++;
+    }
+    return reaped;
 }
 
 Err FileOpen(uint32_t slot, const char *path, uint32_t mode, uint32_t *fd_out)

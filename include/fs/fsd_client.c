@@ -40,6 +40,9 @@ static void FsdTeardown(FsdConn *c)
     c->buf = NULL;
     c->shm = -1;
     c->port = -1;
+    if (c->live >= 0)
+        HandleClose(c->live);
+    c->live = -1;
 }
 
 Err FsdAttach(FsdConn *c, Handle port, Spid pid, uint32_t want_size)
@@ -47,6 +50,7 @@ Err FsdAttach(FsdConn *c, Handle port, Spid pid, uint32_t want_size)
     (void)pid;
     if (c->ready)
         return ZUZU_OK;
+    c->live = -1;
 
     want_size = (want_size + FSD_PAGE_SIZE - 1) & ~(FSD_PAGE_SIZE - 1);
     if (want_size < FSD_SHM_MIN)
@@ -94,6 +98,27 @@ Err FsdAttach(FsdConn *c, Handle port, Spid pid, uint32_t want_size)
 
     c->port = badged;
     c->ready = true;
+
+    /* Best effort: without it fsd only frees the session on FSD_DETACH. */
+    c->live = CreatePort();
+    if (c->live >= 0)
+    {
+        SvcResult watch = HandleDuplicate(c->live, PERM_WAIT | PERM_TXFR, MARKER_NONE);
+        Err wrc = (Err)watch.r0;
+        if (wrc == ZUZU_OK)
+        {
+            FsdRequest wreq;
+            FsdInitRequest(&wreq, FSD_WATCH);
+            FsdResponse wresp;
+            wrc = FsdCall(c->port, &wreq, &wresp, (Handle)watch.r1, NULL);
+            HandleClose((Handle)watch.r1);
+        }
+        if (wrc != ZUZU_OK)
+        {
+            HandleClose(c->live);
+            c->live = -1;
+        }
+    }
     return ZUZU_OK;
 }
 

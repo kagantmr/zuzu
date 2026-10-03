@@ -22,6 +22,12 @@ FsdClient *ClientFind(Marker badge);
 uint32_t ClientSlot(const FsdClient *c);
 
 /**
+ * Drops every session whose liveness port reports ERR_DEAD, as FSD_DETACH
+ * would. Returns how many were dropped.
+ */
+uint32_t ClientsReapDead(void);
+
+/**
  * Closes the session's open files, unmaps and closes its page, and frees the
  * slot.
  */

@@ -12,6 +12,9 @@
 #define PORT_BIT 0
 #define SESSION_BIT(slot) ((uint32_t)(slot) + 1U)
 #define MASK(bit) (1U << (bit))
+#define SESSION_INDEX(gen, slot) ((((uint32_t)(gen)) << 8) | ((uint32_t)(slot) & 0xFFu))
+#define INDEX_SLOT(index) ((uint32_t)(index) & 0xFFu)
+#define INDEX_GEN(index) ((uint32_t)(index) >> 8)
 #define POLL_MS 10 /* safety net: bits are hints, rings are the truth */
 
 /* Peers can write anywhere in the shared page, so none of ttysvc's decisions
@@ -27,6 +30,7 @@ typedef struct
     TtyShm *shm;
     Handle mem;
     Handle peer_doorbell;
+    Handle live; /* the peer's liveness port; ERR_DEAD on it means the peer died */
     uint32_t peer_bit;
     bool dirty; /* peer needs a kick */
     uint32_t up_tail;
@@ -49,6 +53,11 @@ static Session g_sessions[MAX_SESSIONS];
 static Endpoint g_endpoints[MAX_ENDPOINTS];
 static Handle g_port = -1;
 static Handle g_event = -1;
+/* Liveness ports are bound here, bit = session slot. Kept apart from g_event
+ * because peers ring their session's bit on g_event, and the kernel refuses
+ * user Signal() on a bit a binding has claimed. */
+static Handle g_death = -1;
+static uint32_t g_gen[MAX_SESSIONS];
 static uint32_t g_order;
 static uint32_t g_auto_count;
 static uint32_t g_kick_failures;
@@ -176,9 +185,11 @@ static void ReleaseSession(int slot)
     Session *s = &g_sessions[slot];
     if (s->peer_doorbell >= 0)
         HandleClose(s->peer_doorbell);
+    if (s->live >= 0)
+        HandleClose(s->live);
     MemUnmap(s->shm);
     HandleClose(s->mem);
-    *s = (Session){ .peer_doorbell = -1, .mem = -1 };
+    *s = (Session){ .peer_doorbell = -1, .live = -1, .mem = -1 };
 }
 
 static void PromoteForeground(Endpoint *ep)
@@ -273,12 +284,16 @@ static void HandleConnect(bool provider, const PortWaitResult *r)
 
     Session *s = &g_sessions[slot];
     *s = (Session){ .in_use = true, .provider = provider, .endpoint = ep, .order = g_order++,
-                    .shm = (TtyShm *)va, .mem = r->granted, .peer_doorbell = -1 };
+                    .shm = (TtyShm *)va, .mem = r->granted, .peer_doorbell = -1, .live = -1 };
+    g_gen[slot] = (g_gen[slot] + 1) & 0xFFFFFFU;
+    if (g_gen[slot] == 0)
+        g_gen[slot] = 1;
     memset(s->shm, 0, sizeof(*s->shm));
     ShmRingInit(&s->shm->up_hdr, TTY_RING_DATA_SIZE);
     ShmRingInit(&s->shm->down_hdr, TTY_RING_DATA_SIZE);
 
-    TtyConnectReply rep = { .status = ZUZU_OK, .bit = SESSION_BIT(slot), .index = (uint32_t)slot };
+    TtyConnectReply rep = { .status = ZUZU_OK, .bit = SESSION_BIT(slot),
+                         .index = SESSION_INDEX(g_gen[slot], slot) };
     memcpy(MessageBuf(), &rep, sizeof(rep));
     Err rc = Reply(sizeof(rep), (Handle)bell.r1);
     HandleClose((Handle)bell.r1);
@@ -307,9 +322,10 @@ static void HandleConnect(bool provider, const PortWaitResult *r)
 
 static Session *SessionFor(uint32_t index)
 {
-    if (index >= MAX_SESSIONS || !g_sessions[index].in_use)
+    uint32_t slot = INDEX_SLOT(index);
+    if (slot >= MAX_SESSIONS || !g_sessions[slot].in_use || g_gen[slot] != INDEX_GEN(index))
         return NULL;
-    return &g_sessions[index];
+    return &g_sessions[slot];
 }
 
 static void RouteOutbound(Session *f, Session *p);
@@ -408,10 +424,46 @@ static void HandleRequest(const PortWaitResult *r)
         }
         if (!s)
         {
-            ReplyStatus(ERR_BADARG);
+            ReplyStatus(ERR_NOTCONN);
             return;
         }
-        CloseSession(s, (int)req.index);
+        CloseSession(s, (int)INDEX_SLOT(req.index));
+        ReplyStatus(ZUZU_OK);
+        return;
+    }
+    case TTY_WATCH:
+    {
+        TtyWatchRequest req;
+        Session *s = NULL;
+        if (r->xlen >= sizeof(req))
+        {
+            memcpy(&req, MessageBuf(), sizeof(req));
+            s = SessionFor(req.index);
+        }
+        if (!s || r->granted < 0)
+        {
+            if (r->granted >= 0)
+                HandleClose(r->granted);
+            ReplyStatus(r->granted < 0 && s ? ERR_BADARG : ERR_NOTCONN);
+            return;
+        }
+        if (s->live >= 0)
+        {
+            HandleClose(r->granted);
+            ReplyStatus(ERR_DUPLICATE);
+            return;
+        }
+        int slot = (int)INDEX_SLOT(req.index);
+        Err rc = Bind(EVENT_PORT, g_death, r->granted, (uint32_t)slot);
+        if (rc != ZUZU_OK)
+        {
+            HandleClose(r->granted);
+            if (rc == ERR_DEAD)
+                CloseSession(s, slot); /* the peer died before it could be watched */
+            ReplyStatus(rc);
+            return;
+        }
+        s->live = r->granted;
         ReplyStatus(ZUZU_OK);
         return;
     }
@@ -559,6 +611,23 @@ static void RouteOutbound(Session *f, Session *p)
     }
 }
 
+static void ReapDead(void)
+{
+    EventWaitResult d = FormatToEventWait(WaitOn(g_death, TIMEOUT_POLL));
+    if (d.status != ZUZU_OK)
+        return;
+    for (int slot = 0; slot < MAX_SESSIONS; slot++)
+    {
+        Session *s = &g_sessions[slot];
+        if (!(d.bits & MASK(slot)) || !s->in_use || s->live < 0)
+            continue;
+        if (FormatToPortWait(WaitOn(s->live, TIMEOUT_POLL)).status != ERR_DEAD)
+            continue;
+        UserspaceDebugLog("ttysvc: peer of slot=%d died", slot);
+        CloseSession(s, slot);
+    }
+}
+
 static void ServiceAll(void)
 {
     for (int i = 0; i < MAX_ENDPOINTS; i++)
@@ -589,11 +658,12 @@ int main(void)
 {
     UserspaceDebugLog("ttysvc: up");
     for (int i = 0; i < MAX_SESSIONS; i++)
-        g_sessions[i] = (Session){ .peer_doorbell = -1, .mem = -1 };
+        g_sessions[i] = (Session){ .peer_doorbell = -1, .live = -1, .mem = -1 };
 
     g_port = CreatePort();
     g_event = CreateEvent();
-    if (g_port < 0 || g_event < 0)
+    g_death = CreateEvent();
+    if (g_port < 0 || g_event < 0 || g_death < 0)
         return ERR_NOMEM;
     Err rc = Bind(EVENT_PORT, g_event, g_port, PORT_BIT);
     if (rc != ZUZU_OK)
@@ -607,12 +677,10 @@ int main(void)
     if (rc != ZUZU_OK)
         return rc;
 
-    /* TODO: peers that die without TTY_CLOSE leak their session (and a
-     * dead foreground consumer wedges its endpoint); watch peers with
-     * Bind(EVENT_TASK/SPACE, ...) once they have a handle to hand us. */
     for (;;)
     {
         WaitOn(g_event, POLL_MS);
+        ReapDead();
 
         for (;;)
         {

@@ -21,6 +21,7 @@
 
 #define FSD_PATH_MAX 256u
 #define PORT_BIT 0
+#define DEATH_BIT 1 /* every client's liveness port; clients never ring g_event */
 #define POLL_MS 100
 
 static Handle g_port = -1;
@@ -279,6 +280,39 @@ static void HandleAttach(const PortWaitResult *r)
     }
 }
 
+static void HandleWatch(const PortWaitResult *r)
+{
+    FsdClient *c = ClientFind(r->sender);
+    if (!c)
+    {
+        CloseGrant(r);
+        ReplyStatus(ERR_NOTCONN);
+        return;
+    }
+    if (r->granted < 0)
+    {
+        ReplyStatus(ERR_BADARG);
+        return;
+    }
+    if (c->live >= 0)
+    {
+        CloseGrant(r);
+        ReplyStatus(ERR_DUPLICATE);
+        return;
+    }
+    Err rc = Bind(EVENT_PORT, g_event, r->granted, DEATH_BIT);
+    if (rc != ZUZU_OK)
+    {
+        CloseGrant(r);
+        if (rc == ERR_DEAD)
+            ClientDrop(c); /* the client died before it could be watched */
+        ReplyStatus(rc);
+        return;
+    }
+    c->live = r->granted;
+    ReplyStatus(ZUZU_OK);
+}
+
 static Err Dispatch(FsdClient *c, const FsdRequest *req, FsdResponse *resp)
 {
     switch (req->cmd)
@@ -335,6 +369,12 @@ static void HandleRequest(const PortWaitResult *r)
             CloseGrant(r);
             ReplyStatus(ERR_NOPERM);
         }
+        return;
+    }
+
+    if (req.cmd == FSD_WATCH)
+    {
+        HandleWatch(r);
         return;
     }
 
@@ -401,10 +441,11 @@ int main(void)
 
     UserspaceDebugLog("fsd: ready");
 
-    /* TODO: a client that dies without FSD_DETACH leaks its session and fds. */
     for (;;)
     {
-        WaitOn(g_event, POLL_MS);
+        EventWaitResult ev = FormatToEventWait(WaitOn(g_event, POLL_MS));
+        if (ev.status == ZUZU_OK && (ev.bits & (1U << DEATH_BIT)))
+            ClientsReapDead();
 
         for (;;)
         {
