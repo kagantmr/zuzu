@@ -10,7 +10,7 @@
 Err HandleCopyInto(HandleTable *dst_table, HandleTableEntry *src, HandlePerms perms, Marker marker,
                    Handle *out)
 {
-    ENSURE_RET(src->type < HANDLE_REPLY && src->type != HANDLE_FREE, ERR_BADTYPE);
+    ENSURE_RET(src->type < HANDLE_TYPE_COUNT && src->type != HANDLE_FREE, ERR_BADTYPE);
     Handle free_handle = HandleTableFindFree(dst_table);
     ENSURE_RET(free_handle >= 0, ERR_NOMEM);
     HandleTableEntry *dst = HandleTableGet(dst_table, free_handle);

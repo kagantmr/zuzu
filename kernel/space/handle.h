@@ -24,8 +24,6 @@
 #define HANDLE_INDEX(h) ((uint32_t)(h) & HANDLE_INDEX_MASK)
 #define HANDLE_GEN(h) ((uint32_t)(h) >> HANDLE_INDEX_BITS)
 
-#define GRANT_REGRANTABLE (1u << 0)
-
 typedef struct SpaceObjectStruct SpaceObject;
 
 typedef enum
@@ -36,7 +34,6 @@ typedef enum
     HANDLE_EVENT,
     HANDLE_TASK,
     HANDLE_SPACE,
-    HANDLE_REPLY,
     HANDLE_TYPE_COUNT
 } HandleType;
 
@@ -52,7 +49,6 @@ typedef struct HandleTableEntryStruct
         EventObject *event; 
         TaskObject *task;
         SpaceObject *space;
-        EphemeralReplyObject *reply;
     };
     Marker marker; /* Added in zuzu 1.1: Same handle can be stamped with a marker to demux
                       clients sharing a port */
@@ -71,10 +67,9 @@ typedef struct
     uint32_t slot_bitmap[BITMAP_WORDS(HANDLE_MAX_SLOTS)];
 } HandleTable;
 
-static inline bool HandleTableInit(HandleTable *t)
+static inline void HandleTableInit(HandleTable *t)
 {
     memset(t, 0, sizeof(*t));
-    return true;
 }
 
 static inline void HandleTableDestroy(HandleTable *t)
@@ -99,20 +94,21 @@ static __always_inline HandleTableEntry *HandleTableGet(HandleTable *t, Handle i
     return &(*blk)[(uint32_t)i % HANDLE_BLOCK_SLOTS];
 }
 
+/* Backs the leaf block holding slot `i`, allocating it on first use. */
+static inline bool HandleBlockEnsure(HandleTable *t, uint32_t i)
+{
+    uint32_t b = i / HANDLE_BLOCK_SLOTS;
+    if (!t->blocks[b])
+        t->blocks[b] = KZAlloc(sizeof(HandleBlock));
+    return t->blocks[b] != NULL;
+}
+
 /* Returns a free slot index, allocating its leaf block on first use. */
 static inline Handle HandleTableFindFree(HandleTable *t)
 {
     int slot = BitmapFindFirstZero(t->slot_bitmap, HANDLE_MAX_SLOTS);
-    if (slot < 0)
+    if (slot < 0 || !HandleBlockEnsure(t, (uint32_t)slot))
         return -1;
-
-    uint32_t b = (uint32_t)slot / HANDLE_BLOCK_SLOTS;
-    if (!t->blocks[b])
-    {
-        t->blocks[b] = KZAlloc(sizeof(HandleBlock));
-        if (!t->blocks[b])
-            return -1;
-    }
     return (Handle)slot;
 }
 
@@ -126,16 +122,9 @@ static inline HandleTableEntry *HandleTableLookup(HandleTable *t, Handle h)
 
 static inline HandleTableEntry *HandleTableGetOrAlloc(HandleTable *t, Handle i)
 {
-    if ((uint32_t)i >= HANDLE_MAX_SLOTS)
+    if ((uint32_t)i >= HANDLE_MAX_SLOTS || !HandleBlockEnsure(t, (uint32_t)i))
         return NULL;
-    uint32_t b = (uint32_t)i / HANDLE_BLOCK_SLOTS;
-    if (!t->blocks[b])
-    {
-        t->blocks[b] = KZAlloc(sizeof(HandleBlock));
-        if (!t->blocks[b])
-            return NULL;
-    }
-    return &(*t->blocks[b])[(uint32_t)i % HANDLE_BLOCK_SLOTS];
+    return &(*t->blocks[(uint32_t)i / HANDLE_BLOCK_SLOTS])[(uint32_t)i % HANDLE_BLOCK_SLOTS];
 }
 
 /* Recover a slot index from a HandleEntry * by finding its leaf block. */

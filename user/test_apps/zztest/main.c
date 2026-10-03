@@ -215,6 +215,9 @@ static const uint32_t kCodeYieldLoop[] = { 0xE3A04064, 0xEF000001, 0xE2544001, 0
 static const uint32_t kCodeSleepQuit[] = { 0xE3A00014, 0xEF000002, 0xE3A00006, 0xEF000000 }; /* SLEEP 20; QUIT 6 */
 /* ldr r1,[r0] (r0 comes in as the start argument); mov r0,#7; svc QUIT */
 static const uint32_t kCodeLoadThenQuit7[] = { 0xE5901000, 0xE3A00007, 0xEF000000 };
+/* r0 = a space handle (start argument); quit with ManageHandle(r0, CLOSE / DESTROY) */
+static const uint32_t kCodeCloseHandle[] = { 0xE3A01002, 0xEF000008, 0xEF000000 };
+static const uint32_t kCodeDestroyHandle[] = { 0xE3A01004, 0xEF000008, 0xEF000000 };
 
 static uint8_t g_code_page[4096] __attribute__((aligned(4096)));
 
@@ -1122,6 +1125,32 @@ static void TestSpaces(void)
     CheckEq((int32_t)er.bits, (1 << 4) | (1 << 6), "task and space binds both raised their bits");
     KittenFree(&k);
     HandleClose(ev);
+
+    /* Ancestry: a Space may not close or destroy a handle to itself or to a
+     * Space that created it; a sibling is fair game. */
+    const uint32_t *self_code[2] = { kCodeCloseHandle, kCodeDestroyHandle };
+    for (int i = 0; i < 2; i++)
+    {
+        Kitten s;
+        KittenCreate(&s, self_code[i], sizeof(kCodeCloseHandle));
+        SvcResult g = HandleGrant(s.space, s.space, PERM_ALL);
+        CheckEq((Err)g.r0, ZUZU_OK, "grant a Space a handle to itself");
+        KittenStart(&s, (uint32_t)g.r1, 0);
+        TaskWaitResult sw_self = FormatToTaskWait(WaitOn(s.task, 2000));
+        CheckEq(sw_self.value, ERR_BADARG, i ? "a Space cannot destroy a handle to itself"
+                                        : "a Space cannot close a handle to itself");
+        KittenFree(&s);
+    }
+    Kitten a, b;
+    KittenCreate(&a, kCodeLoop, sizeof(kCodeLoop));
+    KittenCreate(&b, kCodeCloseHandle, sizeof(kCodeCloseHandle));
+    SvcResult sib = HandleGrant(a.space, b.space, PERM_ALL);
+    CheckEq((Err)sib.r0, ZUZU_OK, "grant a Space a handle to its sibling");
+    KittenStart(&b, (uint32_t)sib.r1, 0);
+    TaskWaitResult sib_tw = FormatToTaskWait(WaitOn(b.task, 2000));
+    CheckEq(sib_tw.value, ZUZU_OK, "a Space may close a handle to its sibling");
+    KittenFree(&b);
+    KittenFree(&a);
 
     /* Registers and kill */
     CheckEq(KittenCreate(&k, kCodeLoop, sizeof(kCodeLoop)), ZUZU_OK, "build a spinning kitten");

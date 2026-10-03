@@ -15,26 +15,18 @@
 #define MAX_SPACES 512
 
 /**
- * @brief Space object, representing a process space.
+ * @brief Space object: an address space, its handle table and its tasks.
  */
 typedef struct SpaceObjectStruct
 {
-    Spid spid, parent_spid;              /**< SPID of this space, and its parent space. */
+    Spid spid, parent_spid;              /**< SPID of this space, and of the space that created it (-1: none). */
     AddressSpace *as;                    /**< Pointer to the address space of this space. */
-    ListNode node;                       /**< Embedded list node for space management. */
-    ListNode destroy_node;               /**< Embedded list node for destruction management. */
-    ListNode timeout_node;               /**< Embedded list node for timeout management. */
-    Spid waiting_for;                    /**< SPID of the space this space is waiting for. */
     char name[32];                       /**< Space name. */
-    ListHead outstanding_replies;        /**< List of outstanding replies. */
     HandleTable handle_table;            /**< Handle table for this space. */
     TaskObject *main_task;               /**< Pointer to the first task associated with this space. */
     uint32_t max_prio;
     ListHead tasks;                      /**< List of tasks in this space. */
-    ListHead kittens;                    /**< List of kitten spaces. */
-    ListNode sibling_node;               /**< Embedded list node for sibling management. */
     bool frozen;                         /**< Space is frozen, nothing will execute. */
-    Tid faulted_tid;                     /**< TID of the task that faulted. */
     uint32_t live_tasks;                 /**< Count of live tasks */
     Err last_exit_status;                /**< Anyone waiting on this Space will receive this upon hollowness. */
     ListHead waiters; 
@@ -89,32 +81,19 @@ static inline VirtAddr TcbSlotUVirtAddr(SpaceObject *p, uint32_t slot)
  * @param name The name of the space.
  * @return The space object, or NULL if not created.
  */
-SpaceObject *SpaceCreate(const char *name);
+SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent);
 
 /**
  * @brief Find a space by its SPID.
  *
- * @param pid The SPID of the space to find.
+ * @param spid The SPID of the space to find.
  * @return The space object, or NULL if not found.
  */
-SpaceObject *SpaceFindBySpid(Spid pid);
-void SpaceReparent(SpaceObject *kitten, SpaceObject *parent);
-
-SpaceObject *SpaceFindKittenBySpid(SpaceObject *parent, Spid pid);
-SpaceObject *SpaceFindHollowKitten(SpaceObject *parent);
-
-/**
- * @brief Find a child space whose representative task has already exited.
- *
- * Different predicate from SpaceFindHollowKitten: hollow means "no task was
- * ever launched," this means "the main task ran and reached ZOMBIE."
- */
-SpaceObject *SpaceFindZombieKitten(SpaceObject *parent);
+SpaceObject *SpaceFindBySpid(Spid spid);
 
 /**
  * @brief Tear down everything a space owns (ports, memory, events, handle
- * table, address space) and cascade-reparent its children to their
- * grandparent. Idempotent.
+ * table, address space). Idempotent.
  *
  * Does not necessarily free the SpaceObject itself: if the space's last
  * task is still parked as a zombie (state == ZOMBIE, not yet reaped), the
@@ -132,10 +111,13 @@ void SpaceWaitHollow(SpaceObject *sp, Duration timeout, CpuState *frame);
 void SpaceFinalize(SpaceObject *sp);
 
 /**
- * @brief Undo TaskFault's freeze: clear frozen/faulted_tid and re-queue any
+ * @brief Undo TaskFault's freeze: clear frozen and re-queue any
  * sibling tasks that were left READY but unlinked from their run queue.
  */
 void SpaceUnfreeze(SpaceObject *owner);
+
+/* True if `target` is `sp` or one of the spaces that (transitively) created it. */
+bool SpaceIsSelfOrAncestor(const SpaceObject *sp, const SpaceObject *target);
 
 void SpaceRef(SpaceObject *sp);
 void SpaceUnref(SpaceObject *sp);

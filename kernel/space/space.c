@@ -14,46 +14,45 @@
 #include "core/ensure.h"
 #include "core/log.h"
 
-static uint32_t next_pid = 1;
+static uint32_t next_spid = 1;
 static SpaceObject *spaces[MAX_SPACES];
 static KHeapSlabCache space_cache;
 
 static Spid SpidAlloc(SpaceObject *sp)
 {
-    uint32_t start = next_pid % MAX_SPACES;
+    uint32_t start = next_spid % MAX_SPACES;
     uint32_t slot = start;
     do
     {
         if (spaces[slot] == NULL)
             break;
-        next_pid++;
-        slot = next_pid % MAX_SPACES;
+        next_spid++;
+        slot = next_spid % MAX_SPACES;
     } while (slot != start);
 
     if (spaces[slot] != NULL)
         return 0;
 
-    Spid pid = (Spid)next_pid++;
+    Spid spid = (Spid)next_spid++;
     spaces[slot] = sp;
-    return pid;
+    return spid;
 }
 
-SpaceObject *SpaceCreate(const char *name)
+SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
 {
     if (!space_cache.obj_size)
-        KSlabInit(&space_cache, "SpaceObject", sizeof(SpaceObject));
+        KSlabInit(&space_cache, sizeof(SpaceObject));
     SpaceObject *sp = KSlabAlloc(&space_cache);
     if (!sp)
         return NULL;
     memset(sp, 0, sizeof(*sp));
     ObserverInit(&sp->observers);
+    sp->parent_spid = parent ? parent->spid : -1;
 
     list_init(&sp->tasks);
-    list_init(&sp->kittens);
     list_init(&sp->waiters);
 
-    if (!HandleTableInit(&sp->handle_table))
-        goto fail;
+    HandleTableInit(&sp->handle_table);
     sp->as = AddrspaceCreate(ADDRSPACE_USER);
     if (!sp->as)
         goto fail_handles;
@@ -126,10 +125,10 @@ SpaceObject *SpaceCreate(const char *name)
     memset((void *)PA_TO_VA(tcb_page0_phys_addr), 0, PAGE_SIZE);
     memset(sp->tcb_slot_bitmap, 0, sizeof(sp->tcb_slot_bitmap));
 
-    Spid pid = SpidAlloc(sp);
-    if (!pid)
+    Spid spid = SpidAlloc(sp);
+    if (!spid)
         goto fail_as;
-    sp->spid = pid;
+    sp->spid = spid;
 
     if (name)
     {
@@ -151,82 +150,16 @@ fail_as:
     memset(sp->tcb_page_pa, 0, sizeof(sp->tcb_page_pa));
 fail_handles:
     HandleTableDestroy(&sp->handle_table);
-fail:
     KSlabFree(&space_cache, sp);
     return NULL;
 }
 
-SpaceObject *SpaceFindBySpid(Spid pid)
+SpaceObject *SpaceFindBySpid(Spid spid)
 {
-    uint32_t slot = (uint32_t)pid % MAX_SPACES;
+    uint32_t slot = (uint32_t)spid % MAX_SPACES;
     SpaceObject *sp = spaces[slot];
-    if (sp && sp->spid == pid)
+    if (sp && sp->spid == spid)
         return sp;
-    return NULL;
-}
-
-void SpaceReparent(SpaceObject *kitten, SpaceObject *parent)
-{
-    if (!kitten)
-        return;
-
-    if (kitten->sibling_node.prev && kitten->sibling_node.next)
-        list_remove(&kitten->sibling_node);
-
-    kitten->parent_spid = parent ? parent->spid : 0;
-
-    if (parent)
-        list_add_tail(&kitten->sibling_node, &parent->kittens.node);
-}
-
-SpaceObject *SpaceFindKittenBySpid(SpaceObject *parent, Spid pid)
-{
-    if (!parent)
-        return NULL;
-
-    ListNode *node = parent->kittens.node.next;
-    while (node != &parent->kittens.node)
-    {
-        SpaceObject *child = container_of(node, SpaceObject, sibling_node);
-        if (child->spid == pid)
-            return child;
-        node = node->next;
-    }
-
-    return NULL;
-}
-
-SpaceObject *SpaceFindHollowKitten(SpaceObject *parent)
-{
-    if (!parent)
-        return NULL;
-
-    ListNode *node = parent->kittens.node.next;
-    while (node != &parent->kittens.node)
-    {
-        SpaceObject *child = container_of(node, SpaceObject, sibling_node);
-        if (list_empty(&child->tasks))
-            return child;
-        node = node->next;
-    }
-
-    return NULL;
-}
-
-SpaceObject *SpaceFindZombieKitten(SpaceObject *parent)
-{
-    if (!parent)
-        return NULL;
-
-    ListNode *node = parent->kittens.node.next;
-    while (node != &parent->kittens.node)
-    {
-        SpaceObject *child = container_of(node, SpaceObject, sibling_node);
-        if (child->main_task && child->main_task->state == ZOMBIE)
-            return child;
-        node = node->next;
-    }
-
     return NULL;
 }
 
@@ -248,7 +181,7 @@ void SpaceDestroy(SpaceObject *sp)
         if (task != current_task)
             TaskDestroy(task);
         else
-            SchedQueueDestroyThread(task);
+            SchedQueueDestroyTask(task);
         TaskUnref(task);
         task_node = next;
     }
@@ -261,23 +194,6 @@ void SpaceDestroy(SpaceObject *sp)
     }
 
     IrqReleaseAll(sp);
-    if (sp->node.prev && sp->node.next)
-        list_remove(&sp->node);
-    if (sp->destroy_node.prev && sp->destroy_node.next)
-        list_remove(&sp->destroy_node);
-    if (sp->timeout_node.prev && sp->timeout_node.next)
-        list_remove(&sp->timeout_node);
-
-    ListNode *child_node = sp->kittens.node.next;
-    while (child_node != &sp->kittens.node)
-    {
-        ListNode *next = child_node->next;
-        SpaceObject *child = container_of(child_node, SpaceObject, sibling_node);
-        SpaceDestroy(child);
-        child_node = next;
-    }
-    if (sp->sibling_node.prev && sp->sibling_node.next)
-        list_remove(&sp->sibling_node);
 
     for (uint32_t i = 0; i < HANDLE_MAX_SLOTS; i++)
     {
@@ -321,7 +237,6 @@ void SpaceUnfreeze(SpaceObject *owner)
     if (!owner)
         return;
     owner->frozen = false;
-    owner->faulted_tid = 0;
 
     ListNode *n = owner->tasks.node.next;
     while (n != &owner->tasks.node) {
@@ -364,4 +279,15 @@ void SpaceWaitHollow(SpaceObject *sp, Duration timeout, CpuState *frame)
 bool SpaceIsHollow(const SpaceObject *sp)
 {
     return sp->live_tasks == 0;
+}
+bool SpaceIsSelfOrAncestor(const SpaceObject *sp, const SpaceObject *target)
+{
+    /* Bounded: a dead ancestor's spid can be reused by an unrelated space. */
+    for (uint32_t depth = 0; sp && depth < MAX_SPACES; depth++)
+    {
+        if (sp == target)
+            return true;
+        sp = sp->parent_spid == -1 ? NULL : SpaceFindBySpid(sp->parent_spid);
+    }
+    return false;
 }

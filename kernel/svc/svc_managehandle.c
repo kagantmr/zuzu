@@ -43,20 +43,8 @@ void SvcManageHandle(CpuState *frame)
     {
         if (HANDLE_SPACE == entry->type)
         {
-            SpaceObject *target = entry->space;
-            ENSURE_ERR(frame, target, ERR_BADHANDLE);
-            SpaceObject *walk = CURRENT_SPACE;
-            bool is_self_or_ancestor = false;
-            while (walk)
-            {
-                if (walk == target)
-                {
-                    is_self_or_ancestor = true;
-                    break;
-                }
-                walk = (walk->parent_spid == -1) ? NULL : SpaceFindBySpid(walk->parent_spid);
-            }
-            ENSURE_ERR(frame, !is_self_or_ancestor, ERR_BADARG);
+            ENSURE_ERR(frame, entry->space, ERR_BADHANDLE);
+            ENSURE_ERR(frame, !SpaceIsSelfOrAncestor(CURRENT_SPACE, entry->space), ERR_BADARG);
         }
         HandleRelease(CURRENT_SPACE, entry);
         ArchSetInFrame(frame, 0, ZUZU_OK);
@@ -66,22 +54,9 @@ void SvcManageHandle(CpuState *frame)
     {
         if (HANDLE_SPACE == entry->type)
         {
-            /* same self/ancestor walk CLOSE already does */
-            SpaceObject *target = entry->space;
-            ENSURE_ERR(frame, target, ERR_BADHANDLE);
-            SpaceObject *walk = CURRENT_SPACE;
-            bool is_self_or_ancestor = false;
-            while (walk)
-            {
-                if (walk == target)
-                {
-                    is_self_or_ancestor = true;
-                    break;
-                }
-                walk = (walk->parent_spid == -1) ? NULL : SpaceFindBySpid(walk->parent_spid);
-            }
-            ENSURE_ERR(frame, !is_self_or_ancestor, ERR_BADARG);
-            SpaceDestroy(target);
+            ENSURE_ERR(frame, entry->space, ERR_BADHANDLE);
+            ENSURE_ERR(frame, !SpaceIsSelfOrAncestor(CURRENT_SPACE, entry->space), ERR_BADARG);
+            SpaceDestroy(entry->space);
         }
         HandleRelease(CURRENT_SPACE, entry);
         ArchSetInFrame(frame, 0, ZUZU_OK);

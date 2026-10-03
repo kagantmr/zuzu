@@ -28,8 +28,6 @@ void SvcWaitOn(CpuState *frame)
             TaskWaitExit(entry->task, timeout, frame);
         } break;
 
-        case HANDLE_REPLY:
-        case HANDLE_MEM:
         default: ENSURE_ERR(frame, 0, ERR_BADTYPE);
     }
     
