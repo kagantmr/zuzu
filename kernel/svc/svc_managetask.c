@@ -74,11 +74,11 @@ void SvcManageTask(CpuState *frame)
     case MNGTASK_SET_PRIORITY: {
         uint32_t val = (uint32_t)(*ArchGetFromFrame(frame, 2));
         ENSURE_ERR(frame, val <= current_task->max_prio, ERR_NOPERM);
-        bool queued = target->node.next && target->node.prev;
-        if (queued)
+        bool requeue = (target->state == READY);   /* only READY tasks are on a run queue */
+        if (requeue)
             SchedRemoveRunQueue(target);
         target->priority = val;
-        if (queued)
+        if (requeue)
             SchedAdd(target);
         ArchSetInFrame(frame, 0, ZUZU_OK);
     } break;
