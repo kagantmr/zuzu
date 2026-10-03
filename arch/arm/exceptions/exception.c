@@ -398,8 +398,9 @@ void __hot ExceptionDispatch(ExcType exctype, ExceptionFrame *frame)
                 return;
             }
 
-            KERROR("Oops! Bad user pointer in SVC from '%s' (PID %d, TID %d) @ 0x%08X (%s %s)\n",
-                   current_space->name, current_space->spid, current_task->tid, dfar,
+            KERROR("Oops! Kernel fault in SVC from '%s' (PID %d, TID %d, state %d) pc=0x%08X @ 0x%08X (%s %s)\n",
+                   current_space->name, current_space->spid, current_task->tid,
+                   (int)current_task->state, (unsigned)frame->return_pc, dfar,
                    (dfsr & (1 << 11)) ? "write" : "read",
                    DecodeFsr(dfsr));
             DumpRegisters(frame);

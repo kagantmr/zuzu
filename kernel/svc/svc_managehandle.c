@@ -1,6 +1,6 @@
 #include "core/ensure.h"
-#include "kernel/space/handle.h"
 #include "kernel/irq/irq_relay.h"
+#include "kernel/space/handle.h"
 #include "kernel/space/space.h"
 #include "svc.h"
 #include <arch/regs.h>
@@ -104,7 +104,7 @@ void SvcManageHandle(CpuState *frame)
             value = (Register)entry->marker;
             break;
         case QUERY_STATUS:
-        {
+
             if (HANDLE_TASK == entry->type)
             {
                 ENSURE_ERR(frame, entry->task, ERR_BADHANDLE);
@@ -120,8 +120,15 @@ void SvcManageHandle(CpuState *frame)
                 ArchSetInFrame(frame, 0, ERR_BADTYPE);
                 return;
             }
-        }
-        break;
+            break;
+        case QUERY_SIZE:
+            ENSURE_ERR(frame, HANDLE_MEM == entry->type, ERR_BADTYPE);
+            ENSURE_ERR(frame, entry->mem, ERR_BADHANDLE);
+            value = (entry->mem->kind == MEMTYPE_DEVICE)
+                        ? (Register)entry->mem->dev.size
+                        : (Register)(entry->mem->shm.page_count * PAGE_SIZE);
+
+            break;
         default:
             ArchSetInFrame(frame, 0, ERR_BADARG);
             return;

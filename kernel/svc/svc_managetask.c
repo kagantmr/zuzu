@@ -50,7 +50,7 @@ void SvcManageTask(CpuState *frame)
         ENSURE_ERR(frame, CopyFromUser(&kargs, (const void *)(*ArchGetFromFrame(frame, 2)), sizeof(kargs)), ERR_BADPTR);
 
         target->kernel_sp = (uint32_t *)arch_thread_user_init(
-            (void *)target->kernel_stack_top, kargs.entry, kargs.sp, USER_ELF_BASE,
+            (void *)target->kernel_stack_top, (VirtAddr)kargs.entry, (VirtAddr)kargs.sp, USER_ELF_BASE,
             kargs.r0, kargs.r1, &target->trap_frame);
         target->state = READY;
         SchedAdd(target);
@@ -59,16 +59,27 @@ void SvcManageTask(CpuState *frame)
 
     case MNGTASK_KILL: {
         ENSURE_ERR(frame, target != current_task, ERR_BADARG);
-        if (target->state == FAULTED)
-            SpaceUnfreeze(target->owner);
-        TaskTerminate(target, ERR_DEAD);
+        /* Already dead: a second TaskTerminate would TaskDestroy it while it
+         * may still sit on the destroy queue, and the last handle close would
+         * then free it under the reaper. */
+        if (target->state != ZOMBIE)
+        {
+            if (target->state == FAULTED)
+                SpaceUnfreeze(target->owner);
+            TaskTerminate(target, ERR_DEAD);
+        }
         ArchSetInFrame(frame, 0, ZUZU_OK);
     } break;
 
     case MNGTASK_SET_PRIORITY: {
         uint32_t val = (uint32_t)(*ArchGetFromFrame(frame, 2));
         ENSURE_ERR(frame, val <= current_task->max_prio, ERR_NOPERM);
+        bool queued = target->node.next && target->node.prev;
+        if (queued)
+            SchedRemoveRunQueue(target);
         target->priority = val;
+        if (queued)
+            SchedAdd(target);
         ArchSetInFrame(frame, 0, ZUZU_OK);
     } break;
 

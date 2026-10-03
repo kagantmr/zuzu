@@ -13,6 +13,7 @@
 #include "types.h"
 #include <arch/cpu.h>
 #include <arch/timer.h>
+#include "core/panic.h"
 #include <assert.h>
 #include <bitmap.h>
 #include <stdint.h>
@@ -100,6 +101,7 @@ void SchedAdd(TaskObject *t)
     if (priority >= SCHED_PRIORITY_LEVELS)
         priority = SCHED_PRIO_DEFAULT;
 
+    t->queued_prio = (uint8_t)priority;
     list_add_tail(&t->node, &run_queues[priority].node);
     ready_mask |= (1U << priority);
 
@@ -286,6 +288,14 @@ static TaskObject *SchedPickNext(void)
     {
         if (ready_mask & (1U << level))
         {
+            if (unlikely(list_empty(&run_queues[level])))
+            {
+                ready_mask &= ~(1U << level);
+#ifdef DEBUG
+                panic("ready_mask bit %d set on an empty run queue", level);
+#endif
+                continue;
+            }
             ListNode *next_node = list_pop_front(&run_queues[level]);
             if (list_empty(&run_queues[level]))
                 ready_mask &= ~(1U << level);
@@ -482,9 +492,9 @@ size_t SchedGetReadyQueue(TaskObject **out, size_t max_out)
 
 void SchedRemoveRunQueue(TaskObject *t)
 {
-    uint32_t priority = t->priority;
-    if (priority >= SCHED_PRIORITY_LEVELS)
-        priority = SCHED_PRIORITY_LEVELS - 1;
+    if (!t->node.next || !t->node.prev)
+        return;
+    uint32_t priority = t->queued_prio;
     list_remove(&t->node);
     if (list_empty(&run_queues[priority]))
         ready_mask &= ~(1U << priority);

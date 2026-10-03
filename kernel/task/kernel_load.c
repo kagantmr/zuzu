@@ -392,7 +392,7 @@ SpaceObject *KernelProcessLoad(const void *zxf_data, size_t zxf_size, const char
      * task later, which performs the deferred arch_thread_user_init
      * call with the entry/sp it supplies at that time. */
 
-    KTRACE("space create: pid=%d name=%s tid=%u owner_task=%p as=%p", p->pid, p->name,
+    KTRACE("space create: pid=%d name=%s tid=%u owner_task=%p as=%p", p->spid, p->name,
            t->tid, (void *)t, (void *)p->as);
     return p;
 }
