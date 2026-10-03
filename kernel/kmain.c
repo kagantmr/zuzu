@@ -8,7 +8,6 @@
 
 #include "boot_info.h"
 #include "core/panic.h"
-#include "kernel/layout.h"
 #include "kernel/sched/sched.h"
 #include "kernel/time/tick.h"
 
@@ -20,18 +19,13 @@
 #include <stdint.h>
 #include <util/zxf.h>
 
-#define STR(x) #x
-#define XSTR(x) STR(x)
-
 #define LOG_FMT(fmt) "(main) " fmt
 #include "core/log.h"
 
-extern ZuzuRamLayout kernel_layout;
-
-/* register_tick_callback keeps a single slot (see kernel/time/tick.c), so
- * this wraps set_resched_flag rather than being registered alongside it —
- * a second call to register_tick_callback would silently replace the first
- * and stop preemption. */
+/* RegisterTickCb keeps a single slot (see kernel/time/tick.c), so this
+ * wraps SchedSetReschedFlag rather than being registered alongside it —
+ * a second call to RegisterTickCb would silently replace the first and
+ * stop preemption. */
 static void sched_tick(void) { SchedSetReschedFlag(); }
 
 _Noreturn void kmain(void)

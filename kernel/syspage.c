@@ -72,8 +72,6 @@ void SyspageInit(void)
     BootInfoEnumerateDevs(dev_cb);
 
     SyspageUpdateMem();
-
-    // g_sp->mem_free_kb = (uint32_t)((pmmState.free_pages  * (uint64_t)PAGE_SIZE) / 1024);
 }
 PhysAddr SyspagePhysAddr(void) { return g_syspage_pa; }
 void SyspageUpdateMem(void)

@@ -10,7 +10,6 @@ typedef struct {
     uintptr_t ram_end;
 
     uintptr_t dtb_start_pa;      // provided by bootloader
-    void     *dtb_start_va;      // mapped VA used by DTB parser after identity removal
 
     uintptr_t kernel_start_pa;   // from linker symbol
     uintptr_t kernel_end_pa;     // from linker symbol

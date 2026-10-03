@@ -5,12 +5,9 @@
 #include <string.h>
 #include <libfdt.h>
 #include "core/log.h"
-#include "core/panic.h"
-#include "kernel/layout.h"
 
 static const void *g_fdt;
 static bool g_fdt_ready;
-extern ZuzuRamLayout kernel_layout;
 static char      s_model[64];
 static char      s_cpu[64];
 
@@ -293,18 +290,6 @@ bool FdtGetInitrd(uint64_t *out_start, uint64_t *out_end)
     return true;
 }
 
-bool FdtFindCompatible(const char *compatible, char *out_path, size_t out_path_cap)
-{
-    if (!compatible || !out_path || out_path_cap == 0 || !g_fdt_ready)
-        return false;
-
-    int off = fdt_node_offset_by_compatible(g_fdt, -1, compatible);
-    if (off < 0)
-        return false;
-
-    return fdt_get_path(g_fdt, off, out_path, (int)out_path_cap) == 0;
-}
-
 static bool dtb_get_string(const char *path, const char *prop, char *out, size_t out_cap)
 {
     if (!path || !prop || !out || out_cap == 0 || !g_fdt_ready)
@@ -407,7 +392,7 @@ static bool dtb_translate_address(const char *node_path, uint64_t raw_addr, uint
         return false;
 
     /* static, not a stack local: same rationale as FdtEnumerateDevices()'s
-     * buffers above -- this is only ever reached from that function's
+     * buffers below -- this is only ever reached from that function's
      * single-threaded, non-reentrant boot-time device walk (via
      * FdtGetRegPhysAddr), and the 256-byte buffer alone was most of what
      * pushed this function over the 512-byte frame budget. */
