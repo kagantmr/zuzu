@@ -61,7 +61,7 @@ void __hot SvcDispatch(Svc svc_num, CpuState *frame)
         ArchSetInFrame(frame, 0, ERR_NOSYS);
     return;
 PanicOnWeirdFrame:
-    panic("Corrupt trap_frame at syscall dispatch: pid=%u svc=%u frame=%p",
+    panic("Corrupt trap_frame at syscall dispatch: spid=%u svc=%u frame=%p",
             (unsigned)(CURRENT_SPACE ? CURRENT_SPACE->spid : 0),
         svc_num, (void *)frame);
     __builtin_unreachable();

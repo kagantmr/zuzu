@@ -147,7 +147,7 @@ __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port,
     list_remove(node);
 
     DeliverCallToReceiver(caller, rx, rc, xlen, granted);
-    SchedUnblock(rx, WAKE_IPC);
+    SchedUnblock(rx);
 
     caller->ipc_state = IPC_WAITING;
     caller->blocked_port = port;
@@ -175,7 +175,6 @@ void ReplyDeliverToCaller(TaskObject *target, uint32_t xlen, Handle granted)
     target->blocked_port = NULL;
     target->pending_reply_cap = NULL;
     target->reply_holder = NULL;
-    target->wake_reason = WAKE_IPC;
     target->state = READY;
     SchedAdd(target);
 }
@@ -191,7 +190,6 @@ void ReplyFailCaller(TaskObject *target, Err err)
     target->blocked_port = NULL;
     target->pending_reply_cap = NULL;
     target->reply_holder = NULL;
-    target->wake_reason = WAKE_IPC;
     target->state = READY;
     SchedAdd(target);
 }

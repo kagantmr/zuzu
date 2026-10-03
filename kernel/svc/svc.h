@@ -1,5 +1,5 @@
-#ifndef KERNEL_SYSCALL_H
-#define KERNEL_SYSCALL_H
+#ifndef KERNEL_SVC_SVC_H
+#define KERNEL_SVC_SVC_H
 
 #include <arch/regs.h>
 #include "kernel/task/task.h"
@@ -15,28 +15,27 @@
  * zuzu Syscall ABI (ARMv7-A)
  *
  * Syscall numbers encoded in the lower 8 bits of SVC immediate.
- * Arguments in r0-w3, return in r0. See docs/syscall.md for full ABI.
+ * Arguments in r0-r3, results in r0-r3 (r0 is the status).
  */
 
 #define CURRENT_SPACE (current_task->owner)
 
-typedef uint8_t Svc;
 
 /**
  * @brief Copies data from a kernel address to a user address, checking for page faults.
  * 
- * @param uaddr The user address to copy from.
- * @param kaddr The kernel address to copy to.
+ * @param uaddr The user address to copy to.
+ * @param kaddr The kernel address to copy from.
  * @param len The number of bytes to copy.
  * @return true if the copy was successful, false otherwise.
  */
 bool CopyToUser(void *restrict uaddr, const void *restrict kaddr, size_t len);
 
 /**
- * @brief Copies data from a kernel address to a user address, checking for page faults.
+ * @brief Copies data from a user address to a kernel address, checking for page faults.
  * 
- * @param kaddr The kernel address to copy from.
- * @param uaddr The user address to copy to.
+ * @param kaddr The kernel address to copy to.
+ * @param uaddr The user address to copy from.
  * @param len The number of bytes to copy.
  * @return true if the copy was successful, false otherwise.
  */
@@ -71,7 +70,7 @@ extern TaskObject *current_task;
  */
 
 /**
- * @brief Service call function for quitting the process.
+ * @brief Service call function for quitting the calling task.
  * 
  * @param frame The CPU state frame to use for the service call.
  */
@@ -103,7 +102,7 @@ void SvcDebugLog(CpuState *frame);
 void SvcCreate(CpuState *frame);
 
 /**
- * @brief Service call function for calling another process.
+ * @brief Service call function for calling a port.
  * 
  * @param frame The CPU state frame to use for the service call.
  */
@@ -131,14 +130,14 @@ void SvcWaitOn(CpuState *frame);
 void SvcManageHandle(CpuState *frame);
 
 /**
- * @brief Service call function for signaling notifications.
+ * @brief Service call function for signaling events.
  * 
  * @param frame The CPU state frame to use for the service call.
  */
 void SvcSignal(CpuState *frame);
 
 /**
- * @brief Service call function for binding events to notifications.
+ * @brief Service call function for binding events to kernel objects.
  * 
  * @param frame The CPU state frame to use for the service call.
  */
@@ -158,4 +157,4 @@ void SvcManageMemory(CpuState *frame);
  */
 void SvcManageTask(CpuState *frame);
 
-#endif /* KERNEL_SYSCALL_H */
+#endif /* KERNEL_SVC_SVC_H */

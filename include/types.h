@@ -11,7 +11,7 @@ extern "C"
 
 typedef int32_t Handle;     /* Index into kernel-managed handle table */
 typedef int32_t Spid;       /* zuzu Space ID or -err */
-typedef int32_t Tid;        /* zuzu Thread ID or -err */
+typedef int32_t Tid;        /* zuzu Task ID or -err */
 typedef uint64_t Tick;      /* Monotonic tick counts */
 typedef uintptr_t PhysAddr; /* Physical memory address */
 typedef uintptr_t VirtAddr; /* Virtual memory address */
@@ -27,15 +27,9 @@ typedef uint32_t EventWord;
 #define TIMEOUT_POLL 0u
 #define TIMEOUT_INFINITE UINT32_MAX
 
-typedef struct
-{
-    Handle task_handle;
-    Spid pid;
-} TSpawnResult;
-
 /* Handle sentinels  */
 
-#define HANDLE_ANON ((Handle) - 1) /* Sentinel value used in memmap() as the handle value */
+#define HANDLE_ANON ((Handle) - 1) /* MemMap handle for anonymous memory (MemMapAnon) */
 #define MARKER_NONE 0              /* Means unbadged */
 
 /* First handle slot in rootsvc's table where the kernel loader seeds device
@@ -107,18 +101,15 @@ typedef struct
 /* Kernel event types users can subscribe to */
 typedef enum
 {
-    EVENT_GENERIC = 0, /* no distinction */
-    EVENT_MEMMGMT,     /* memory pressure */
+    EVENT_MEMMGMT = 1, /* memory pressure */
     EVENT_IRQ,         /* interrupts */
     EVENT_PORT,        /* port events */
     EVENT_TASK,        /* task events */
     EVENT_SPACE,       /* space events */
-    EVENT_TIMER        /* timers */
 } EventType;
 
 typedef enum
 {
-    PROT_NONE = 0,        // no access
     PROT_READ = 1U << 0,  // read access
     PROT_WRITE = 1U << 1, // write access
     PROT_EXEC = 1U << 2   // execute access
@@ -132,7 +123,6 @@ typedef enum
     MNGMEM_UNMAP,
     MNGMEM_PROTECT,
     MNGMEM_INJECT,
-    MNGMEM_VERB_COUNT
 } ManageMemoryVerb;
 
 typedef enum
@@ -173,15 +163,15 @@ typedef enum
 
 #define SIGNAL_BROADCAST (1U << 0)
 
-/* AsInjectArgs.flags */
+/* InjectArgs.flags */
 #define ASINJECT_FLAG_RESERVE                                                                      \
-0x1U /* reserve [DestVAddr, DestVAddr+len) as demand-zero                                      \
+0x1U /* reserve [dest_vaddr, dest_vaddr+len) as demand-zero                                    \
         * anon memory in the target AS; src_buf must                                             \
         * be NULL, no bytes are copied up front. */
 
 typedef struct
 {
-    uint32_t size;       /* wrapper sets it */
+    uint32_t _reserved;
     VirtAddr dest_vaddr; // destination virtual address in the target task's address space
     const void *src_buf; // pointer to the source buffer in the current task's address space
     size_t len;          // length of the source buffer in bytes
@@ -190,7 +180,6 @@ typedef struct
     uint32_t flags; // ASINJECT_FLAG_* bits; 0 for the original copy-in behavior
 } InjectArgs;
 
-#define WNOHANG (1 << 0)
 
 #ifdef __cplusplus
 }

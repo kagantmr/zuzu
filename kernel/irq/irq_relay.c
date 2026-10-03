@@ -1,17 +1,9 @@
 #include "irq_relay.h"
-#include "kernel/bench.h"
-#include "kernel/mm/alloc.h"
 #include "kernel/sched/sched.h"
-#include "kernel/svc/svc.h"
-#include <arch/barrier.h>
 #include <arch/irq.h>
 #include <compiler.h>
-#include <string.h>
 
 static IrqOwner irq_owners[MAX_IRQS];
-
-#define LOG_FMT(fmt) "(syscall_irq) " fmt
-#include "core/log.h"
 
 const IrqOwner *GetIrqOwnersList(void)
 {
@@ -30,9 +22,10 @@ static void __hot RelayIsr(void *ctx)
         EventSignal(ev, (1U << irq_owners[irq_num].bit), false);
         irq_owners[irq_num].pending = false;
     }
-    else if (ev && !ev->alive)
+    else if (ev)
     {
         irq_owners[irq_num].bound_ev = NULL;
+        EventDropReference(ev);
     }
 }
 
@@ -63,13 +56,11 @@ Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev, uint32_t bi
     if (irq_owners[irq_num].bound_ev)
     {
         EventObject *old = irq_owners[irq_num].bound_ev;
-        old->bind_count--;
         EventDropReference(old);
     }
 
     irq_owners[irq_num].bound_ev = ev;
     irq_owners[irq_num].bound_ev->ref_count++;
-    irq_owners[irq_num].bound_ev->bind_count++;
     irq_owners[irq_num].bound_ev->bound_mask |= (1U << irq_owners[irq_num].bit);
     
     if (irq_owners[irq_num].pending)
@@ -82,25 +73,12 @@ Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev, uint32_t bi
     return ZUZU_OK;
 }
 
-bool IrqClearPending(Irq irq_num)
-{
-    if (irq_num >= MAX_IRQS)
-        return false;
-    if (irq_owners[irq_num].pending)
-    {
-        irq_owners[irq_num].pending = false;
-        return true;
-    }
-    return false;
-}
-
 void IrqReleaseAll(SpaceObject *owner)
 {
     for (Irq irq_num = 0; irq_num < MAX_IRQS; irq_num++)
     {
         if (irq_owners[irq_num].owner == owner)
         {
-            irq_owners[irq_num].bound_ev->bind_count--;
             EventDropReference(irq_owners[irq_num].bound_ev);
             irq_owners[irq_num] = (IrqOwner){.bound_ev = NULL, .owner = NULL, .pending = false};
             ArchIrqMaskLine(irq_num);

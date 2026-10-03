@@ -146,7 +146,7 @@ static inline Err TaskSetRegs(Handle h, const Register in[ARCH_NUM_GP_REGS]) {
  * on the handle's type:
  *   Port:  r1 = sender's port marker, r2 = xlen, r3 = granted handle (or -1)
  *   Event: r1 = signaled bits
- *   Task:  r1 = exit_status (ZOMBIE) or WAKE_FAULT (FAULTED), r2 = fault reason if FAULTED
+ *   Task:  r1 = exit_status (exited) or fault reason (faulted), r3 = TASK_EXITED / TASK_FAULTED
  *   Space: r1 = last_exit_status
  * r0 is always the status (ZUZU_OK or an Err).
  */
@@ -229,7 +229,6 @@ static inline Err MemProtect(VirtAddr va, size_t size, MemProt new_prot) {
 static inline Err MemInject(Handle kitten_space_handle, VirtAddr dest_vaddr,
                              const void *src_buf, size_t size, MemProt prot, uint32_t flags) {
     InjectArgs args = {
-        .size = sizeof(args),
         .dest_vaddr = dest_vaddr,
         .src_buf = src_buf,
         .len = size,

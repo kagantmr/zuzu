@@ -8,14 +8,14 @@
 
 static KHeapSlabCache port_cache;
 
-PortObject *PortObjAlloc(void)
+static PortObject *PortObjAlloc(void)
 {
     if (!port_cache.obj_size)
-        KSlabInit(&port_cache, "Port", sizeof(PortObject));
+        KSlabInit(&port_cache, sizeof(PortObject));
     return KSlabAlloc(&port_cache);
 }
 
-void PortObjFree(PortObject *port) { KSlabFree(&port_cache, port); }
+static void PortObjFree(PortObject *port) { KSlabFree(&port_cache, port); }
 
 PortObject *PortCreate(SpaceObject *owner) {
     PortObject *new_port = PortObjAlloc();
@@ -26,7 +26,6 @@ PortObject *PortCreate(SpaceObject *owner) {
     new_port->owner_spid = owner->spid;
     new_port->ref_count = 1;
     new_port->alive = true;
-    new_port->owner = owner;
     ObserverInit(&new_port->observers);
 
     return new_port;

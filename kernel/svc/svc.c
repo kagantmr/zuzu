@@ -1,21 +1,12 @@
 #include "svc.h"
 
-#include "kernel/sched/sched.h"
-#include "core/log.h"
-#include "core/ensure.h"
-
 #include "kernel/space/space.h"
-#include "kernel/task/kstack.h"
-#include "kernel/layout.h"
-#include "core/panic.h"
 
 #include "kernel/bench.h"
 
 #include <compiler.h>
 #include <string.h>
 #include <stdbool.h>
-
-extern ZuzuRamLayout kernel_layout;
 
 #ifdef CONFIG_ZUZU_BENCH
 BENCH_STAT(g_bench_copytouser_walk, "CopyToUser: VmmCheckUserFault");

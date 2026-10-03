@@ -2,7 +2,6 @@
 
 static void ObserverRelease(Observer *o)
 {
-    o->ev->bind_count--;
     EventDropReference(o->ev);
     o->ev = NULL;
     o->bit = 0;
@@ -38,7 +37,6 @@ Err ObserverAdd(ObserverSet *s, EventObject *ev, uint32_t bit)
         {
             s->slot[i] = (Observer){ .ev = ev, .bit = (uint8_t)bit };
             ev->ref_count++;
-            ev->bind_count++;
             ev->bound_mask |= (1U << bit);
             return ZUZU_OK;
         }

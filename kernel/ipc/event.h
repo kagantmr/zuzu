@@ -1,5 +1,5 @@
-#ifndef NOTIF_H
-#define NOTIF_H
+#ifndef KERNEL_IPC_EVENT_H
+#define KERNEL_IPC_EVENT_H
 
 #include <list.h>
 #include <stdbool.h>
@@ -14,16 +14,12 @@ typedef struct SpaceObjectStruct SpaceObject;
 typedef struct EventObjectStruct
 {
     EventWord word;      // 31-bit signal mask (bit 31 reserved), atomic-ish (IRQs off)
-    ListHead wait_queue; // processes blocked in WaitOn()
-    SpaceObject *owner;
+    ListHead wait_queue; // tasks blocked in WaitOn()
     Spid owner_spid;
     size_t ref_count;
     bool alive;
-    size_t bind_count;
     EventWord bound_mask; /* bits claimed by kernel bindings; user Signal() may not raise these */
 } EventObject;
-
-struct WaitSlotStruct;
 
 /**
  * @brief Signal one or more bits on an event object.
@@ -44,13 +40,9 @@ void EventWait(EventObject *ev,Duration timeout, CpuState *frame);
 void EventDropReference(EventObject *ev);
 void EventKill(EventObject *ev);
 
-/* Slab-backed evObj pool. KAllocev returns uninitialized storage. */
-EventObject *EventObjAlloc(void);
-void EventObjFree(EventObject *ev);
-
 EventObject *EventCreate(SpaceObject *owner);
 void EventDestroy(EventObject *ev);
 
 
 
-#endif // NOTIF_H
+#endif // KERNEL_IPC_EVENT_H

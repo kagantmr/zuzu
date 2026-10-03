@@ -12,14 +12,14 @@
 
 static KHeapSlabCache event_cache;
 
-EventObject *EventObjAlloc(void)
+static EventObject *EventObjAlloc(void)
 {
     if (!event_cache.obj_size)
-        KSlabInit(&event_cache, "NtfnObj", sizeof(EventObject));
+        KSlabInit(&event_cache, sizeof(EventObject));
     return KSlabAlloc(&event_cache);
 }
 
-void EventObjFree(EventObject *ev) { KSlabFree(&event_cache, ev); }
+static void EventObjFree(EventObject *ev) { KSlabFree(&event_cache, ev); }
 
 
 void EventSignal(EventObject *ev, EventWord bits, bool bcast)
@@ -36,7 +36,7 @@ void EventSignal(EventObject *ev, EventWord bits, bool bcast)
         assert(waiter && waiter->trap_frame);
         ArchSetInFrame(waiter->trap_frame, 0, ZUZU_OK);
         (*ArchGetFromFrame(waiter->trap_frame, 1)) = (Register)ev->word;
-        SchedUnblock(waiter, WAKE_IPC);
+        SchedUnblock(waiter);
         SchedAdd(waiter);
         delivered = true;
         if (!bcast)
@@ -78,12 +78,10 @@ EventObject *EventCreate(SpaceObject *owner)
     ENSURE_RET(ev, NULL);
 
     ev->owner_spid = owner->spid;
-    ev->owner = owner;
     ev->ref_count = 1;
     ev->alive = true;
     list_init(&ev->wait_queue);
     ev->word = 0;
-    ev->bind_count = 0;
     ev->bound_mask = 0;
     
     return ev;

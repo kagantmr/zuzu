@@ -4,7 +4,6 @@
 #include <list.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <vector.h>
 #include <types.h>
 #include "event.h"
 #include "observer.h"
@@ -17,11 +16,9 @@ typedef struct
 {
     ListHead sender_queue;
     ListHead receiver_queue;
-    SpaceObject *owner; // fast path
-    Spid owner_spid;    // cross-check: owner->pid == owner_spid before trusting owner
+    Spid owner_spid;
     size_t ref_count;
     bool alive;
-    ListNode node;
     ObserverSet observers;
 } PortObject;
 
@@ -29,23 +26,11 @@ typedef struct
 {
     TaskObject *caller_task; // fast path
     Tid caller_tid;      // for cross-check: caller->tid == caller_tid
-    ListNode caller_link;
 } EphemeralReplyObject;
 
 PortObject *PortCreate(SpaceObject *owner);
 void PortDestroy(PortObject *port);
 void PortKill(PortObject *port);
-
-/**
- * @brief Allocate space for a Port object.
- * @retval NULL Out of memory
- */
-PortObject *PortObjAlloc(void);
-
-/**
- * @brief Free space belonging to a Port object.
- */
-void PortObjFree(PortObject *port);
 
 /* A caller is queued with nobody receiving: the condition observers wait for. */
 bool PortHasPending(const PortObject *port);
