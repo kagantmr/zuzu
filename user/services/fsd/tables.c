@@ -15,10 +15,15 @@ void TablesInit(const fs_backend_t *b, void *ctx)
     g_ctx = ctx;
 }
 
-Err ClientRegister(Handle shm, uint32_t size, Marker *badge)
+Err ClientRegister(Handle shm, Marker *badge)
 {
+    SvcResult q = HandleQuery(shm, QUERY_SIZE);
+    if (q.r0 != ZUZU_OK)
+        return (Err)q.r0;
+    uint32_t size = (uint32_t)q.r1;
     if (size < FSD_SHM_MIN || size > FSD_SHM_MAX || (size & (FSD_PAGE_SIZE - 1)) != 0)
         return ERR_BADARG;
+    /* rest unchanged */
 
     for (uint32_t i = 0; i < FSD_MAX_CLIENTS; i++)
     {
@@ -26,14 +31,14 @@ Err ClientRegister(Handle shm, uint32_t size, Marker *badge)
         if (c->in_use)
             continue;
 
-        VirtAddr va = MemMap(shm, 0, PROT_RW);
-        if (PtrIsErr((void *)va))
+        void *va = MemMap(shm, 0, PROT_RW);
+        if (PtrIsErr(va))
             return ERR_NOMEM;
 
-        uint32_t gen = (c->gen + 1) & 0xFFFFFFu;
+        uint32_t gen = (c->gen + 1) & 0xFFFFFFU;
         if (gen == 0)
             gen = 1;
-        *c = (FsdClient){ .in_use = true, .gen = gen, .shm_handle = shm, .buf = (void *)va,
+        *c = (FsdClient){ .in_use = true, .gen = gen, .shm_handle = shm, .buf = va,
                           .shm_size = size };
         *badge = FSD_BADGE(gen, i);
         return ZUZU_OK;
@@ -66,7 +71,7 @@ void ClientDrop(FsdClient *c)
         if (FileGet(slot, fd))
             FileClose(slot, fd);
 
-    MemUnmap((VirtAddr)c->buf);
+    MemUnmap(c->buf);
     HandleClose(c->shm_handle);
     uint32_t gen = c->gen;
     memset(c, 0, sizeof(*c));

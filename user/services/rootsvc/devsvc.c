@@ -65,7 +65,7 @@ void DevsvcMain(void)
     if (g_devsvc_port < 0)
         return;
     HandleDuplicate(g_devsvc_port, PERM_MAP, 0xDE71CE00);
-    RegisterServiceGeneric("/svc/devsvc",  g_devsvc_port, g_nsvc_port);
+    RegisterService("/svc/devsvc",  g_devsvc_port);
 
     for (;;)
     {

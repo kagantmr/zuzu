@@ -10,14 +10,12 @@
 #include <zuzu/zuzu.h>
 
 #define PL011DRV_COMPATIBLE "arm,pl011"
-/* rpi4's DTB lists "arm,pl011-axi" as the UART's *first* compatible string;
- * the kernel's DTB enumeration only keeps that first string, so devsvc's
- * exact match against "arm,pl011" never fires on rpi4. */
+
 #define PL011DRV_COMPATIBLE_AXI "arm,pl011-axi"
 
 #define BIT_IRQ 0
 #define BIT_KICK 1 /* ttysvc rings this on our event */
-#define POLL_MS 10 /* safety net: bits are hints, the FIFO and rings are the truth */
+#define POLL_MS 10 /* safety net  */
 #define MASK(bit) (1U << (bit))
 
 static volatile Pl011Mmio *uart;
@@ -25,10 +23,8 @@ static Handle devsvc_port = -1;
 static Handle g_dev = -1;
 static Handle g_event = -1;
 static TtyConn g_tty;
-static bool g_online; /* TTY_PROVIDE done: until then RX is dropped and TX has nowhere to come from */
+static bool g_online;
 
-/* up ring: we produce (device RX), ttysvc consumes. down ring: ttysvc
- * produces, we consume (device TX). */
 static bool UartTxPump(void)
 {
     if (!g_online)
@@ -50,9 +46,6 @@ static bool UartTxPump(void)
     return popped;
 }
 
-/* RX interrupts are level-triggered on FIFO occupancy, so the FIFO must be
- * emptied every time: when offline the bytes are dropped, and if ttysvc's
- * ring is full RX interrupts are masked until it kicks us. */
 static bool UartRxPump(void)
 {
     bool pushed_any = false;
@@ -64,14 +57,14 @@ static bool UartRxPump(void)
             return pushed_any;
         }
         uint32_t dr = uart->dr;
-        if (dr & 0xF00u)
+        if (dr & 0xF00U)
         {
-            uart->rsr = 0xFu;
+            uart->rsr = 0xFU;
             continue;
         }
         if (!g_online)
             continue;
-        uint8_t b = (uint8_t)(dr & 0xFFu);
+        uint8_t b = (uint8_t)(dr & 0xFFU);
         ShmRingPush(&g_tty.shm->up_hdr, g_tty.shm->up_data, &b, 1);
         pushed_any = true;
     }
@@ -106,7 +99,7 @@ static Err WaitForDevsvc(void)
 
 static Handle RequestSerialDevice(void)
 {
-    static const char *const compat[] = { PL011DRV_COMPATIBLE, PL011DRV_COMPATIBLE_AXI };
+    static const char *const compat[] = {PL011DRV_COMPATIBLE, PL011DRV_COMPATIBLE_AXI};
     return RequestDevice(devsvc_port, compat, 2, NULL);
 }
 
@@ -122,9 +115,9 @@ static Err Pl011DrvSetup(void)
     if (g_dev < 0)
         return (Err)g_dev;
 
-    VirtAddr mmio = MemMap(g_dev, 0, PROT_RW);
+    Pl011Mmio *mmio = MemMap(g_dev, 0, PROT_RW);
     UserspaceDebugLog("pl011drv: mmio=0x%x", (unsigned)mmio);
-    if (PtrIsErr((void *)mmio))
+    if (PtrIsErr(mmio))
         return (Err)mmio;
     uart = (volatile Pl011Mmio *)mmio;
 

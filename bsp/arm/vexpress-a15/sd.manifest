@@ -1,10 +1,5 @@
 # Programs staged onto the SD card image (plain ELF, run from the shell).
-# speedtest
-# speedtest_ipc_child
-# test
 zuzufetch
-# zztest
-# zztest_child
+zztest
 hello_newlib
 kilo
-slides

@@ -249,7 +249,7 @@ static void HandleAttach(const PortWaitResult *r)
     memcpy(&req, MessageBuf(), sizeof(req));
 
     Marker badge = 0;
-    Err rc = ClientRegister(r->granted, req.data_len, &badge);
+    Err rc = ClientRegister(r->granted, &badge);
     if (rc != ZUZU_OK)
     {
         HandleClose(r->granted);

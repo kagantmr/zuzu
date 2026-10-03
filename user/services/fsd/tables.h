@@ -11,7 +11,7 @@ void TablesInit(const fs_backend_t *b, void *ctx);
  * the marker the client must present on every later request. Takes ownership
  * of `shm` only on ZUZU_OK.
  */
-Err ClientRegister(Handle shm, uint32_t size, Marker *badge);
+Err ClientRegister(Handle shm, Marker *badge);
 
 /**
  * Resolves a marker to a live session, or NULL if the marker is unmarked,

@@ -72,8 +72,8 @@ static int disk_backend_init(void)
         return -1;
     }
 
-    VirtAddr va = MemMap(mem, 0, PROT_RW);
-    if (PtrIsErr((void *)va)) {
+    void * va = MemMap(mem, 0, PROT_RW);
+    if (PtrIsErr(va)) {
         HandleClose(mem);
         HandleClose(g_sd_port);
         g_sd_port = -1;

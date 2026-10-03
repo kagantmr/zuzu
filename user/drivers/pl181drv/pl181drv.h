@@ -23,7 +23,7 @@ typedef struct {
     uint32_t _pad2[983];           // 0x084-0xFDC
     volatile uint32_t PERIPHID[4]; // 0xFE0-0xFEC
     volatile uint32_t PCELLID[4];  // 0xFF0-0xFFC
-} pl181_t;
+} Pl181Mmio;
 
 /* STATUS / MASK bits */
 #define MCI_CMDCRCFAIL   (1u << 0)

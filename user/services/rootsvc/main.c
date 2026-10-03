@@ -31,15 +31,15 @@ const BootInfo *g_bootinfo;
 static Handle SpawnThread(void (*entry)(void))
 {
     
-    VirtAddr stack = MemMapAnon(STACK_SIZE, 0, PROT_READ | PROT_WRITE);
-    if (PtrIsErr((void *)stack))
+    void *stack = MemMapAnon(STACK_SIZE, 0, PROT_READ | PROT_WRITE);
+    if (PtrIsErr(stack))
         return (Handle)stack;
 
     Handle h = CreateTask(-1);
     if (h < 0)
         return h;
 
-    Err rc = TaskStart(h, (VirtAddr)entry, stack + STACK_SIZE, 0, 0);
+    Err rc = TaskStart(h, entry, ((char *)stack + STACK_SIZE), 0, 0);
     if (rc != ZUZU_OK)
     {
         HandleClose(h);

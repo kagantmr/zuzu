@@ -20,7 +20,7 @@
 #define POLL_MS 10 /* bits are hints: STATUS is re-checked at least this often */
 #define XFER_TIMEOUT_POLLS 500
 
-static pl181_t *pl181;
+static Pl181Mmio *pl181;
 static bool is_sdhc;
 
 static Handle port = -1;
@@ -77,7 +77,7 @@ static int Pl181Setup(void)
     bool is_v2;
 
     pl181->POWER = MCI_POWER_UP | MCI_POWER_OPENDRAIN;
-    pl181->CLOCK = (1u << 8) | 0x1D; /* enable, ~400 kHz */
+    pl181->CLOCK = (1U << 8) | 0x1D; /* enable, ~400 kHz */
     Pl181BusySpin(1000000);
     pl181->POWER = MCI_POWER_ON | MCI_POWER_OPENDRAIN;
     Pl181BusySpin(500000);
@@ -143,7 +143,7 @@ static int Pl181Setup(void)
     LOG_INFO(LOG_TAG, "card ready, SDHC=%d", is_sdhc);
 
     /* switch to transfer-speed clock */
-    pl181->CLOCK = (1u << 8) | 0x2; /* enable, ~25 MHz */
+    pl181->CLOCK = (1U << 8) | 0x2; /* enable, ~25 MHz */
     Pl181BusySpin(100000);
 
     return 0;
@@ -376,13 +376,13 @@ static int Pl181DrvSetup(void)
         return -1;
     }
 
-    VirtAddr mmio = MemMap(block_dev_handle, 0, PROT_RW);
-    if (PtrIsErr((void *)mmio))
+    void *mmio = MemMap(block_dev_handle, 0, PROT_RW);
+    if (PtrIsErr(mmio))
     {
         LOG_ERROR(LOG_TAG, "memmap failed");
         return -1;
     }
-    pl181 = (pl181_t *)mmio;
+    pl181 = (Pl181Mmio *)mmio;
 
     uint32_t pid0 = pl181->PERIPHID[0] & 0xFF;
     uint32_t pid1 = pl181->PERIPHID[1] & 0xFF;
@@ -402,8 +402,8 @@ static int Pl181DrvSetup(void)
         LOG_ERROR(LOG_TAG, "shmem failed");
         return -1;
     }
-    VirtAddr shm_addr = MemMap(g_buf_mem, 0, PROT_RW);
-    if (PtrIsErr((void *)shm_addr))
+    void *shm_addr = MemMap(g_buf_mem, 0, PROT_RW);
+    if (PtrIsErr(shm_addr))
     {
         LOG_ERROR(LOG_TAG, "shmem attach failed");
         return -1;

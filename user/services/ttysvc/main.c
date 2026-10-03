@@ -176,7 +176,7 @@ static void ReleaseSession(int slot)
     Session *s = &g_sessions[slot];
     if (s->peer_doorbell >= 0)
         HandleClose(s->peer_doorbell);
-    MemUnmap((VirtAddr)s->shm);
+    MemUnmap(s->shm);
     HandleClose(s->mem);
     *s = (Session){ .peer_doorbell = -1, .mem = -1 };
 }
@@ -246,11 +246,11 @@ static void HandleConnect(bool provider, const PortWaitResult *r)
     if (err == ZUZU_OK && slot < 0)
         err = ERR_BUSY;
 
-    VirtAddr va = 0;
+    void *va = 0;
     if (err == ZUZU_OK)
     {
         va = MemMap(r->granted, 0, PROT_RW);
-        if (PtrIsErr((void *)va))
+        if (PtrIsErr(va))
             err = (Err)va;
     }
     SvcResult bell = { .r0 = (Register)err };
