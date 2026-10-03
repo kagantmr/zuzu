@@ -138,7 +138,7 @@ static Err LoadSegment(Handle space_handle, const void *data, const SpawnSeg *se
     return ZUZU_OK;
 }
 
-/* Lays out argv the same way kernel/task/kernel_load.c's KernelProcessLoad
+/* Lays out argv the same way kernel/task/kernel_load.c's KernelSpaceLoad
  * does: strings just below USR_SP, then the (argc+1)-slot pointer array
  * (NULL-terminated) just below that. Returns the resulting sp and, if
  * argc > 0, the argv pointer array's VA in *out_argv_va. */

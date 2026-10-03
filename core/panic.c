@@ -59,10 +59,6 @@ PanicFaultContext panic_fault_ctx;
 #define C_RED "\033[91m"    /* errors only     */
 #define C_RESET "\033[0m"
 
-/* Legacy aliases used in the logo */
-#define C_AMBER C_YELLOW
-#define C_WHITE C_GRAY
-
 /* ------------------------------------------------------------------ */
 /* Low-level output                                                    */
 /* ------------------------------------------------------------------ */
@@ -155,8 +151,6 @@ static const char *HandleTypeStr(HandleType t)
         return "PORT";
     case HANDLE_MEM:
         return "MEMORY";
-    case HANDLE_REPLY:
-        return "REPLY";
     case HANDLE_EVENT:
         return "EVENT";
     case HANDLE_TASK:
@@ -174,10 +168,6 @@ static const char *IpcStateStr(MsgState s)
     {
     case IPC_NONE:
         return "NONE";
-    case IPC_SENDER:
-        return "SENDER";
-    case IPC_RECEIVER:
-        return "RECEIVER";
     case IPC_WAITING:
         return "WAITING";
     default:
@@ -308,7 +298,7 @@ static void PanicPrintHeader(const char *reason, void *caller_ra)
     {
         SpaceObject *space = current_task->owner;
         if (space)
-            (void)snprintf(line, sizeof(line), "context: SPACE  [pid=%d  %s  tid=%u]", space->spid,
+            (void)snprintf(line, sizeof(line), "context: SPACE  [spid=%d  %s  tid=%u]", space->spid,
                            space->name, current_task->tid);
         else
             (void)snprintf(line, sizeof(line), "context: TASK  [tid=%u  no owner]",
@@ -458,7 +448,7 @@ static void PanicPrintBt(FpBacktrace *bt)
 }
 
 /* ------------------------------------------------------------------ */
-/* CURRENT PROCESS  (CONFIG_PANIC_SECTION_PROCESS)                           */
+/* CURRENT SPACE  (CONFIG_PANIC_SECTION_PROCESS)                             */
 /* ------------------------------------------------------------------ */
 
 #ifdef CONFIG_PANIC_SECTION_PROCESS
@@ -466,24 +456,24 @@ static void PanicPrintSpace(void)
 {
     char line[LINE_BUF];
 
-    PanicHeader("CURRENT PROCESS");
+    PanicHeader("CURRENT SPACE");
 
     if (!current_task)
     {
-        PanicPutLine("(no current thread - BOOT context)");
+        PanicPutLine("(no current task - BOOT context)");
         return;
     }
 
     SpaceObject *space = current_task->owner;
 
-    (void)snprintf(line, sizeof(line), "tid=%-4u  state=%-7s  prio=%u  slice=%u  left=%u",
+    (void)snprintf(line, sizeof(line), "tid=%-4u  state=%-7s  prio=%u  slice=%u",
                    current_task->tid, TaskStateToString(current_task->state),
-                   current_task->priority, current_task->time_slice, current_task->ticks_remaining);
+                   current_task->priority, current_task->time_slice);
     PanicPutLine(line);
 
     if (space)
     {
-        (void)snprintf(line, sizeof(line), "pid=%-4d  ppid=%-4d  name=%s", space->spid,
+        (void)snprintf(line, sizeof(line), "spid=%-4d  parent=%-4d  name=%s", space->spid,
                        space->parent_spid, space->name);
         PanicPutLine(line);
 
@@ -517,9 +507,6 @@ static void PanicPrintSpace(void)
                     break;
                 case HANDLE_MEM:
                     ptr = e->mem;
-                    break;
-                case HANDLE_REPLY:
-                    ptr = e->reply;
                     break;
                 case HANDLE_EVENT:
                     ptr = e->event;
@@ -872,7 +859,7 @@ static void ConstructPanicScreen(const char *reason, void *caller_ra)
     PanicNewline();
 }
 
-bool entered_panic = false;
+static bool entered_panic = false;
 
 _Noreturn void __attribute__((cold)) panic(const char *fmt, ...)
 {

@@ -11,7 +11,6 @@
 #define ELF_CLASS_32 1
 #define ELF_DATA_LITTLE 1
 #define ELF_MACHINE_ARM 40
-#define ELF_MACHINE_AARCH64 183
 #define ET_EXEC 2
 #define PT_LOAD 1
 #define PF_X 0x1

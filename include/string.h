@@ -111,16 +111,6 @@ int strcmp(const char *s1, const char *s2);
 int strncmp(const char *s1, const char *s2, size_t n);
 
 /**
- * @brief Copy up to n characters from src to dest.
- * 
- * @param dest Destination buffer.
- * @param src  Source string.
- * @param n    Maximum number of characters to copy.
- * @return Pointer to dest.
- */
-char *strncpy(char *dest, const char *src, size_t n);
-
-/**
  * @brief Locate the first occurrence of a character in a string.
  * @param s Pointer to the input string.
  * @param c Character to locate (as an int, but treated as char).
@@ -135,24 +125,6 @@ char *strchr(const char *s, int c);
  * @return Pointer to the last occurrence of c in s, or NULL if not found.
  */
 char *strrchr(const char *s, int c);
-/**
- * @brief Format a string according to a format specifier list.
- * 
- * Supports format specifiers:
- *   %c, %s, %d, %i, %u, %x, %X, %o, %b, %p, %P, %%
- * 
- * Length modifiers: hh, h, l, ll, z (for size_t/ptrdiff_t)
- * Flags: -, 0, +, space, #
- * Width and precision are supported.
- * 
- * Examples: %zu (unsigned size_t), %zd (signed size_t), %zx (size_t in hex)
- * 
- * @param outc   Function pointer to output a single character.
- * @param fstring Format string.
- * @param ...     Variable arguments matching the format specifiers.
- */
-void strfmt(strfmt_outc_t outc, void *ctx, const char *fstring, ...);
-
 /**
  * @brief Format a string according to a format specifier list using va_list.
  * 
@@ -198,9 +170,5 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list args);
  *         been unlimited (excluding the terminating NUL).
  */
 int snprintf(char *buf, size_t size, const char *fmt, ...);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif

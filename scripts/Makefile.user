@@ -253,9 +253,10 @@ $(O)/user/%.stripped.elf: $(O)/user/%.elf
 	@$(USER_OBJCOPY) --strip-debug $< $@
 
 # ---- ZXF conversion ----------------------------------------------------------
-# Everything in the initrd ships as ZXF: the kernel loads sysd/devmgr directly
-# via KernelProcessLoad and sysd's loader (user/services/sysd/exec.c)
-# dispatches on magic, so both understand it. SD-card programs stay plain ELF.
+# Everything in the initrd ships as ZXF: the kernel loads rootsvc directly via
+# KernelSpaceLoad and rootsvc spawns the rest through SpawnProcess
+# (include/util/spawn.c), which dispatches on magic. SD-card programs stay
+# plain ELF.
 ZXF_PROGS = $(BOOT_PROGS)
 ZXF_PROG_FILES = $(ZXF_PROGS:%=$(O)/user/%.zxf)
 

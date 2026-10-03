@@ -16,7 +16,7 @@ extern "C" {
         #include <zuzu/zuzu.h>
         // User space assert is just quit for now
         #define assert(cond) \
-            do { if (!(cond)) { ZuzuPQuit(-1); } } while (0)
+            do { if (!(cond)) { Quit(-1); } } while (0)
     #endif
 #endif
 
