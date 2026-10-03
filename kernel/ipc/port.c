@@ -50,6 +50,8 @@ void PortKill(PortObject *port) {
         WaitSlot *slot = container_of(n, WaitSlot, node);
         TaskAbortWait(slot->owner, ERR_DEAD);
     }
+
+    ObserverNotify(&port->observers);
 }
 
 void PortDestroy(PortObject *port) {
