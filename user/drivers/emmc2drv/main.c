@@ -411,8 +411,8 @@ static int Emmc2ServiceInit(void)
     if (g_event < 0 || BindIrq(g_event, block_dev_handle, BIT_IRQ) != ZUZU_OK)
         return -1;
 
-    VirtAddr mmio = MemMap(block_dev_handle, 0, PROT_RW);
-    if (PtrIsErr((void *)mmio))
+    void *mmio = MemMap(block_dev_handle, 0, PROT_RW);
+    if (PtrIsErr(mmio))
         return -1;
     emmc2 = (Emmc2MMIO *)mmio;
 
@@ -422,8 +422,8 @@ static int Emmc2ServiceInit(void)
     g_buf_mem = CreateMem(SD_BUF_SIZE / 4096);
     if (g_buf_mem < 0)
         return -1;
-    VirtAddr shm_addr = MemMap(g_buf_mem, 0, PROT_RW);
-    if (PtrIsErr((void *)shm_addr))
+    void *shm_addr = MemMap(g_buf_mem, 0, PROT_RW);
+    if (PtrIsErr(shm_addr))
         return -1;
     shmem_buf = (uint32_t *)shm_addr;
 
