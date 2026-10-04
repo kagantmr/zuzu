@@ -267,7 +267,7 @@ static __attribute__((cold)) void dhcp_begin_acd(const uint8_t *data, uint16_t l
     arp_acd_start(dhcp.offered_ip, dhcp_acd_done);
 }
 
-static __attribute__((cold)) void dhcp_recv(ipv4_addr_t src_ip, port_t src_port, port_t dst_port,
+static __attribute__((cold)) void dhcp_recv(ipv4_addr_t src_ip, NetPort src_port, NetPort dst_port,
                                             const uint8_t *data, uint16_t len)
 {
     if (len < sizeof(dhcp_msg_t))

@@ -4,7 +4,6 @@
 #include <net/protocols/netd.h>
 #include <net/protocols/nic.h>
 #include <types.h>
-#include <util/channel.h>
 #include <util/log.h>
 #include <zuzu/service.h>
 #include <zuzu/zuzu.h>
@@ -22,11 +21,16 @@
 #include "app/dns.h"
 
 NicRing *tx_ring, *rx_ring;
+NicStatsBlock *stats;
 Handle g_svc_port = -1;
+Handle g_event = -1;
 Handle g_nic_doorbell_ev = -1;
 netif_t netif; /* filled at startup (htonl isn't constant); DHCP overwrites later */
 
 #define LEGACY_POLL_CAP 50u
+#define LOOP_SLICE_MS 10u
+#define PORT_BIT 0
+#define PORT_MASK (1u << PORT_BIT)
 
 /**
  * UDP echo handler
@@ -69,6 +73,16 @@ static Err InitNetdServices(void)
         return g_svc_port;
     }
 
+    g_event = CreateEvent();
+    if (g_event < 0)
+        return g_event;
+
+    retval = Bind(EVENT_PORT, g_event, g_svc_port, PORT_BIT);
+    if (retval < 0) {
+        LOG_ERROR(LOG_TAG, "port bind failed");
+        return retval;
+    }
+
     retval = RegisterService("/svc/netd", g_svc_port);
     if (retval < 0) {
         LOG_ERROR(LOG_TAG, "registration failed");
@@ -78,14 +92,79 @@ static Err InitNetdServices(void)
     return retval;
 }
 
+static void RejectCall(Err err, Handle granted)
+{
+    if (granted >= 0)
+        HandleClose(granted);
+    MsgWrite(&err, sizeof(err));
+    Reply(sizeof(err), -1);
+}
+
+static Err CheckStage(const PortWaitResult *r, uint8_t opcode, Marker drv_marker)
+{
+    if (r->xlen != 1 || *(uint8_t *)GetMessageBox() != opcode)
+        return ERR_BADARG;
+    if (r->granted < 0)
+        return ERR_BADHANDLE;
+    if (r->sender != drv_marker)
+        return ERR_BADHANDLE;
+    return ZUZU_OK;
+}
+
 /**
  * @brief Whenever a NIC sends NETD_DRVHANDSHAKE_INIT, does the 3-message handshake.
  */
-static __attribute__((cold)) Err PerformDriverHandshake(void)
+static __attribute__((cold)) Err PerformDriverHandshake(PortWaitResult res)
 {
-    // first handshake init from driver contains MAC address in the messagebox
-    
-    return ZUZU_OK;
+    if (res.granted < 0) {
+        RejectCall(ERR_BADHANDLE, -1);
+        return ERR_BADHANDLE;
+    }
+    g_nic_doorbell_ev = res.granted;
+
+    Marker drv_marker = res.sender;
+    const uint8_t *msg = GetMessageBox();
+    memcpy(&netif.mac[0], msg + 1, 4); // mac lo
+    memcpy(&netif.mac[4], msg + 5, 2); // low 16 bits of mac hi
+
+    Err rc = ZUZU_OK;
+    MsgWrite(&rc, sizeof(rc));
+    PortWaitResult r = FormatToPortWait(ReplyRecv(sizeof(rc), -1, g_svc_port, TIMEOUT_INFINITE));
+    if (r.status != ZUZU_OK)
+        return r.status;
+    rc = CheckStage(&r, NETD_DRVHANDSHAKE_STAGE2, drv_marker);
+    if (rc != ZUZU_OK) {
+        RejectCall(rc, r.granted);
+        return rc;
+    }
+    tx_ring = (NicRing *)MemMap(r.granted, 0, PROT_RW);
+    if (PtrIsErr(tx_ring)) {
+        RejectCall(ERR_BADHANDLE, r.granted);
+        return ERR_BADHANDLE;
+    }
+
+    rc = ZUZU_OK;
+    MsgWrite(&rc, sizeof(rc));
+    r = FormatToPortWait(ReplyRecv(sizeof(rc), -1, g_svc_port, TIMEOUT_INFINITE));
+    if (r.status != ZUZU_OK)
+        return r.status;
+    rc = CheckStage(&r, NETD_DRVHANDSHAKE_STAGE3, drv_marker);
+    if (rc != ZUZU_OK) {
+        RejectCall(rc, r.granted);
+        return rc;
+    }
+    rx_ring = (NicRing *)MemMap(r.granted, 0, PROT_RW);
+    if (PtrIsErr(rx_ring)) {
+        RejectCall(ERR_BADHANDLE, r.granted);
+        return ERR_BADHANDLE;
+    }
+    stats = (NicStatsBlock *)((uint8_t *)rx_ring + NIC_STATS_OFFSET);
+
+    MsgWriter w;
+    MsgWriterInit(&w);
+    MsgPutU32(&w, ZUZU_OK);
+    MsgPutStr(&w, "eth0");
+    return Reply(w.off, -1);
 }
 
 static Err WaitForDriver(void)
@@ -96,15 +175,16 @@ static Err WaitForDriver(void)
         if (res.status != ZUZU_OK)
             return res.status;
         // see if we got a proper handshake initiation
-        if (res.xlen >= 1 && *((uint8_t *)GetMessageBox()) == NETD_DRVHANDSHAKE_INIT) {
-            g_nic_doorbell_ev = res.granted; // if we got the grant that means it succeeded
-            retval = PerformDriverHandshake();
+        if (res.xlen >= 9 && *((uint8_t *)GetMessageBox()) == NETD_DRVHANDSHAKE_INIT) {
+            retval = PerformDriverHandshake(res);
             if (retval < 0)
                 return retval;
             break;
         }
+
+        RejectCall(ERR_BADARG, res.granted);
     }
-    return retval;  
+    return retval;
 }
 
 int main()
@@ -146,17 +226,28 @@ int main()
         else
             sleep_ms = next - now > LEGACY_POLL_CAP ? LEGACY_POLL_CAP : next - now;
 
-        /* 2. sleep until a packet arrives or the deadline elapses */
-        WaitanyResult result;
-        int32_t recv_rc = ZuzuWaitany(netd_handles, 2, sleep_ms, &result);
+        /* 2. wait on the doorbell, then on the public port; a slice each so the
+            timer deadline still holds */
+        uint32_t slice = sleep_ms / 2;
+        if (slice > LOOP_SLICE_MS)
+            slice = LOOP_SLICE_MS;
+        if (sleep_ms != TIMEOUT_POLL && slice == 0)
+            slice = 1;
+
+        WaitOn(g_nic_doorbell_ev, slice);
 
         /* 3. DRAIN RX FIRST: process inbound before any timer fires */
-        if (recv_rc >= 0 && result.kind == WAITANY_KIND_NTFN) {
-            nic_frame_t frame;
-            while (packet_ring_pop(&frame, rx_ring) == 0)
-                eth_rx(frame.data, frame.len);
-        } else if (recv_rc >= 0 && result.kind == WAITANY_KIND_CALL) {
-            ZuzuMsgReply(result.source, ERR_NOSYS, 0, 0);
+        NicFrame *frame;
+        while ((frame = PacketRingPeek(rx_ring)) != NULL) {
+            eth_rx(frame->data, (uint16_t)frame->len);
+            PacketRingConsume(rx_ring);
+        }
+
+        EventWaitResult ev = FormatToEventWait(WaitOn(g_event, slice));
+        if (ev.status == ZUZU_OK && (ev.bits & PORT_MASK)) {
+            PortWaitResult call;
+            while ((call = FormatToPortWait(WaitOn(g_svc_port, TIMEOUT_POLL))).status == ZUZU_OK)
+                RejectCall(ERR_NOSYS, call.granted);
         }
 
         /* 4. THEN fire expired timers */

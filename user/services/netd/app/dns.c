@@ -21,7 +21,7 @@ typedef struct {
 
 static dns_entry_t dns_table[DNS_MAX_TABLE];
 static uint16_t dns_next_id = 1;
-static port_t dns_client_port; /* ephemeral source port, allocated in dns_init */
+static NetPort dns_client_port; /* ephemeral source port, allocated in dns_init */
 
 typedef struct {
     char name[DNS_MAX_NAME];
@@ -186,7 +186,7 @@ void dns_tick(void)
     }
 }
 
-static __attribute__((cold)) void dns_recv(ipv4_addr_t src_ip, port_t src_port, port_t dst_port,
+static __attribute__((cold)) void dns_recv(ipv4_addr_t src_ip, NetPort src_port, NetPort dst_port,
                                            const uint8_t *data, uint16_t len)
 {
     (void)src_ip;

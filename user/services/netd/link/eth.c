@@ -55,7 +55,7 @@ int eth_tx(mac_addr_t dst_mac, uint16_t ethertype, uint8_t *payload, uint16_t le
     PacketRingCommit(tx_ring);
 
     /* Async doorbell */
-    return Signal(tx_doorbell, 1, false);
+    return Signal(g_nic_doorbell_ev, NIC_DOORBELL_TX, false);
 }
 
 int eth_send_frame(txframe_t *f, mac_addr_t dst_mac, uint16_t ethertype)
@@ -71,5 +71,5 @@ int eth_send_frame(txframe_t *f, mac_addr_t dst_mac, uint16_t ethertype)
     /* Header lands at slot->data[0], the whole frame is now contiguous. */
     f->slot->len = txframe_len(f);
     PacketRingCommit(tx_ring);
-    return Signal(tx_doorbell, 1, false);
+    return Signal(g_nic_doorbell_ev, NIC_DOORBELL_TX, false);
 }
