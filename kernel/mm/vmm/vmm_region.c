@@ -19,7 +19,7 @@ AddressSpace *g_kernel_as = NULL;
 AddressSpace *g_current_addrspace = NULL;
 bool g_mmu_enabled = false;
 
-static KHeapSlabCache addrspace_cache;
+static KSlabCache addrspace_cache;
 
 #define LOG_FMT(fmt) "(vmm) " fmt
 #include <util/log.h>
@@ -42,7 +42,7 @@ static int RegionCmpStart(const void *key, const void *elem)
     return 0;
 }
 
-AddressSpace *VmmGetKernelAddrspace(void)
+AddressSpace *VmmGetKernelAddressSpace(void)
 {
     return g_kernel_as;
 }
@@ -69,7 +69,7 @@ bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, Vi
     PhysAddr new_pa = 0;
     bool allocated_new = false;
 
-    if (r->owner == VM_OWNER_SHARED && r->backing) {
+    if (r->owner == VM_BACKING_SHARED && r->backing) {
         MemObject *mem = (MemObject *)r->backing;
         if (page_va < r->vaddr_start)
             return false;
@@ -87,7 +87,7 @@ bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, Vi
             mem->shm.page_addrs[page_index] = new_pa;
             allocated_new = true;
         }
-    } else if (r->owner == VM_OWNER_ANON) {
+    } else if (r->owner == VM_BACKING_ANON) {
         new_pa = PmmAllocFrame();
         if (new_pa == 0)
             return false;
@@ -99,7 +99,7 @@ bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, Vi
 
     if (!VmmMapRange(as, page_va, new_pa, PAGE_SIZE, r->prot, r->memtype)) {
         if (allocated_new) {
-            if (r->owner == VM_OWNER_SHARED && r->backing) {
+            if (r->owner == VM_BACKING_SHARED && r->backing) {
                 MemObject *mem = (MemObject *)r->backing;
                 size_t page_index = (size_t)((page_va - r->vaddr_start) / PAGE_SIZE);
                 if (page_index < mem->shm.page_count && mem->shm.page_addrs[page_index] == new_pa)
@@ -113,7 +113,7 @@ bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, Vi
     return true;
 }
 
-AddressSpace *AddrspaceCreate(AsType type)
+AddressSpace *AddressSpaceCreate(AddressSpaceType type)
 {
     if (!addrspace_cache.obj_size)
         KSlabInit(&addrspace_cache, sizeof(AddressSpace));
@@ -131,7 +131,7 @@ AddressSpace *AddrspaceCreate(AsType type)
         return NULL;
     }
 
-    if (type == ADDRSPACE_USER) {
+    if (type == ADDRESS_SPACE_USER) {
         as->asid_token = AsidAlloc();
         if (as->asid_token.asid == 0) {
             ArchMmuFreeTables(as->pt_root_physaddr, type);
@@ -154,7 +154,7 @@ AddressSpace *AddrspaceCreate(AsType type)
     return as;
 }
 
-void AddrspaceDestroy(AddressSpace *as)
+void AddressSpaceDestroy(AddressSpace *as)
 {
     if (!as) return;
     if (as == g_current_addrspace) {

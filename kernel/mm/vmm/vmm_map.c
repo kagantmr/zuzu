@@ -18,10 +18,10 @@ bool VmmMapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size,
     // check overflow
     if (va > UINTPTR_MAX - size) return false;
 
-    if (as->type == ADDRSPACE_USER && (prot & PROT_WRITE) && (prot & PROT_EXEC))
+    if (as->type == ADDRESS_SPACE_USER && (prot & PROT_WRITE) && (prot & PROT_EXEC))
         return false;
 
-    if (as->type == ADDRSPACE_USER) {
+    if (as->type == ADDRESS_SPACE_USER) {
         // For user address spaces, enforce canonical user VA range [0, USER_VA_TOP).
         // end is exclusive, so end == USER_VA_TOP is valid.
         if (va >= USER_VA_TOP || va + size > USER_VA_TOP) {
@@ -61,7 +61,7 @@ bool VmmProtectPage(AddressSpace *as, VirtAddr va, size_t size, MemProt new_prot
     return true;
 }
 
-void VmmActivateAddrspace(AddressSpace *as) {
+void VmmActivateAddressSpace(AddressSpace *as) {
     if (!as) return;
     if (as == g_current_addrspace) return;
 

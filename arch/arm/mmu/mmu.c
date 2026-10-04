@@ -25,14 +25,14 @@ static bool ArchMmuMapPage(AddressSpace *as, uintptr_t va, uintptr_t pa, VirtMem
 
 // ---- Address-space geometry ----------------------------------------------
 
-static inline size_t l1_entry_count(AsType type)
+static inline size_t l1_entry_count(AddressSpaceType type)
 {
-    return (type == ADDRSPACE_USER) ? L1_ENTRIES_USER : L1_ENTRIES_KERNEL;
+    return (type == ADDRESS_SPACE_USER) ? L1_ENTRIES_USER : L1_ENTRIES_KERNEL;
 }
 
-static inline size_t l1_table_bytes(AsType type) { return l1_entry_count(type) * L1_DESC_BYTES; }
+static inline size_t l1_table_bytes(AddressSpaceType type) { return l1_entry_count(type) * L1_DESC_BYTES; }
 
-static inline size_t l1_table_pages(AsType type) { return l1_table_bytes(type) / PAGE_SIZE; }
+static inline size_t l1_table_pages(AddressSpaceType type) { return l1_table_bytes(type) / PAGE_SIZE; }
 
 // ---- Descriptor attribute encoding ---------------------------------------
 
@@ -104,7 +104,7 @@ static uint32_t l2_page_set_prot(uint32_t e, MemProt prot)
 // armv7_mmu.h for why the walk attributes must match the table's own mapping.
 static inline uint32_t ttbr_value(uintptr_t ttbr_pa) { return (uint32_t)ttbr_pa | TTBR_WALK_ATTRS; }
 
-uintptr_t ArchMmuCreateTables(AsType type)
+uintptr_t ArchMmuCreateTables(AddressSpaceType type)
 {
     const size_t l1_bytes = l1_table_bytes(type);
     const size_t l1_pages = l1_table_pages(type);
@@ -121,7 +121,7 @@ uintptr_t ArchMmuCreateTables(AsType type)
     return l1_pa;
 }
 
-void ArchMmuFreeTables(uintptr_t ttbr_pa, AsType type)
+void ArchMmuFreeTables(uintptr_t ttbr_pa, AddressSpaceType type)
 {
     if (ttbr_pa == 0)
     {
@@ -159,7 +159,7 @@ bool ArchMmuMap(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, MemPr
 
     // TTBR0 user tables only cover [0, USER_VA_TOP) when N=1.
     // Reject ranges that would index beyond the user table.
-    if (as->type == ADDRSPACE_USER)
+    if (as->type == ADDRESS_SPACE_USER)
     {
         if (va >= USER_VA_TOP || size > (USER_VA_TOP - va))
         {
@@ -554,7 +554,7 @@ static bool ArchMmuMapPage(AddressSpace *as, uintptr_t va, uintptr_t pa, VirtMem
     }
 
     // Single-page user mappings must stay within the TTBR0 user range.
-    if (as->type == ADDRSPACE_USER && va >= USER_VA_TOP)
+    if (as->type == ADDRESS_SPACE_USER && va >= USER_VA_TOP)
     {
         return false;
     }
@@ -626,10 +626,10 @@ bool ArchMmuUnmapPage(AddressSpace *as, uintptr_t va)
     return true;
 }
 
-static VirtMemOwner mmu_region_owner_for_va(const AddressSpace *as, uintptr_t va)
+static VirtMemBacking mmu_region_owner_for_va(const AddressSpace *as, uintptr_t va)
 {
     if (!as)
-        return VM_OWNER_ANON;
+        return VM_BACKING_ANON;
 
     for (uint32_t i = 0; i < as->regions.len; i++)
     {
@@ -647,7 +647,7 @@ static VirtMemOwner mmu_region_owner_for_va(const AddressSpace *as, uintptr_t va
     }
 
     // If region metadata is missing, keep old behavior and reclaim.
-    return VM_OWNER_ANON;
+    return VM_BACKING_ANON;
 }
 
 void ArchMmuFreeUserPages(AddressSpace *as)
@@ -660,7 +660,7 @@ void ArchMmuFreeUserPages(AddressSpace *as)
     // Walk the user range of the L1. Only free the BACKING physical pages,
     // not the page-table structures: L2 tables and L1 pages are freed
     // separately by ArchMmuFreeTables().
-    size_t entries = l1_entry_count(ADDRSPACE_USER);
+    size_t entries = l1_entry_count(ADDRESS_SPACE_USER);
     for (size_t i = 0; i < entries; i++)
     {
         uint32_t l1_entry = l1[i];
@@ -683,7 +683,7 @@ void ArchMmuFreeUserPages(AddressSpace *as)
                 continue;
 
             // Only reclaim pages owned by this address space.
-            if (mmu_region_owner_for_va(as, va) != VM_OWNER_ANON)
+            if (mmu_region_owner_for_va(as, va) != VM_BACKING_ANON)
                 continue;
 
             // Device mappings are not PMM-owned pages.

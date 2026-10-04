@@ -27,16 +27,16 @@ typedef enum
 
 typedef enum
 {
-    VM_OWNER_NONE = 0,   // Physical pages NOT owned by this addrspace.
+    VM_BACKING_NONE = 0,   // Physical pages NOT owned by this addrspace.
                          // Used for MMIO, device memory, external allocations.
                          // On destroy: unmap only, do NOT free pages.
-    VM_OWNER_ANON = 1,   // Physical pages allocated by PMM for this addrspace.
+    VM_BACKING_ANON = 1,   // Physical pages allocated by PMM for this addrspace.
                          // Used for anonymous memory (heap, stack, user allocations).
                          // On destroy: must walk page tables, translate VA→PA, free pages to PMM.
-    VM_OWNER_SHARED = 2, // Physical pages owned by a different addrspace or subsystem.
+    VM_BACKING_SHARED = 2, // Physical pages owned by a different addrspace or subsystem.
                          // Used for shared kernel mappings, copy-on-write, etc.
                          // On destroy: unmap only, do NOT free pages.
-} VirtMemOwner;
+} VirtMemBacking;
 
 typedef enum
 {
@@ -51,16 +51,16 @@ typedef struct VirtMemRegionStruct
     size_t size;
     MemProt prot;
     VirtMemType memtype;
-    VirtMemOwner owner; // ownership: who allocated/owns the backing pages
+    VirtMemBacking owner; // ownership: who allocated/owns the backing pages
     VirtMemFlags flags;
     void *backing; // optional backing MemObject for shared and device mappings
 } VirtMemRegion;
 
 typedef enum
 {
-    ADDRSPACE_KERNEL = 0,
-    ADDRSPACE_USER = 1,
-} AsType;
+    ADDRESS_SPACE_KERNEL = 0,
+    ADDRESS_SPACE_USER = 1,
+} AddressSpaceType;
 
 DEFINE_VEC(vm_region, VirtMemRegion)
 
@@ -68,7 +68,7 @@ typedef struct AddressSpaceStruct
 {
     PhysAddr pt_root_physaddr; // physical address of level-1 table
     vm_region_vec_t regions;
-    AsType type;
+    AddressSpaceType type;
     AsidToken asid_token;
 } AddressSpace;
 
@@ -87,21 +87,21 @@ typedef struct AddressSpaceStruct
  * for the assert once both headers are actually in scope. */
 #define IOREMAP_MAX_SLOT ((KSTACK_REGION_BASE - IOREMAP_BASE) / SECTION_SIZE)
 
-AddressSpace *VmmGetKernelAddrspace(void);
+AddressSpace *VmmGetKernelAddressSpace(void);
 
 /**
  * @brief Create a new address space.
- * @param type ADDRSPACE_KERNEL or ADDRSPACE_USER.
+ * @param type ADDRESS_SPACE_KERNEL or ADDRESS_SPACE_USER.
  * @return Pointer to the newly created address space, or NULL on failure.
  */
-AddressSpace *AddrspaceCreate(AsType type);
+AddressSpace *AddressSpaceCreate(AddressSpaceType type);
 
 /**
  * @brief Destroy an address space.
  * @param as Address space to destroy.
  * Responsibilities: unmap regions, free page tables, release physical memory.
  */
-void AddrspaceDestroy(AddressSpace *as);
+void AddressSpaceDestroy(AddressSpace *as);
 
 /**
  * @brief Add a region to an address space.
@@ -152,7 +152,7 @@ void VmmBootstrap(void);
  * Calls arch layer to load TTBR0 and flush TLB.
  * Used for context switching and userspace entry.
  */
-void VmmActivateAddrspace(AddressSpace *as);
+void VmmActivateAddressSpace(AddressSpace *as);
 
 /**
  * @brief High-level mapping API: add a single mapping to an address space.
@@ -184,7 +184,7 @@ bool VmmMapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size,
  *   - Does NOT unmark pages in PMM
  *
  * Contract: The caller is responsible for freeing physical pages.
- * If the region owns its pages (VM_OWNER_ANON), the caller must walk
+ * If the region owns its pages (VM_BACKING_ANON), the caller must walk
  * page tables BEFORE unmapping to discover which PAs to free.
  *
  * TLB Handling: VmmUnmapRange calls ArchMmuUnmap, which handles
@@ -215,11 +215,11 @@ bool VmmMapUserPage(AddressSpace *as, PhysAddr pa, VirtAddr va, MemProt prot);
 
 Err VmmMapAnon(SpaceObject *space, VirtAddr hint, size_t size, MemProt prot, VirtAddr *out);
 
-Err VmmMapMemObject(SpaceObject *space, HandleTableEntry *entry, MemProt prot, VirtAddr hint, VirtAddr *out);
+Err VmmMapMemObj(SpaceObject *space, HandleTableEntry *entry, MemProt prot, VirtAddr hint, VirtAddr *out);
 
 Err VmmUnmapUserRegion(SpaceObject *space, VirtAddr va);
 
-Err InjectInKittenSpace(SpaceObject *kitten, SpaceObject *parent, InjectArgs *args);
+Err InjectIntoSpace(SpaceObject *kitten, SpaceObject *parent, InjectArgs *args);
 
 Err VmmProtectUserRange(SpaceObject *space, VirtAddr va, size_t size, MemProt new_prot);
 

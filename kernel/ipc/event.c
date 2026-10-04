@@ -10,7 +10,7 @@
 #include <types.h>
 #include <zuzu/err.h>
 
-static KHeapSlabCache event_cache;
+static KSlabCache event_cache;
 
 static EventObject *EventObjAlloc(void)
 {

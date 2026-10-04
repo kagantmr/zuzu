@@ -19,13 +19,13 @@
 
 /**
  * @brief Allocate and initialize a top-level page table.
- * @param type ADDRSPACE_USER or ADDRSPACE_KERNEL.
+ * @param type ADDRESS_SPACE_USER or ADDRESS_SPACE_KERNEL.
  * @return Physical address of the table, or 0 on failure.
  */
-uintptr_t ArchMmuCreateTables(AsType type);
+uintptr_t ArchMmuCreateTables(AddressSpaceType type);
 
 /** @brief Free page tables for an address space. */
-void ArchMmuFreeTables(uintptr_t ttbr_pa, AsType type);
+void ArchMmuFreeTables(uintptr_t ttbr_pa, AddressSpaceType type);
 
 /**
  * @brief Map [va, va+size) -> [pa, pa+size) with the given protection/memtype.

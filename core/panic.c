@@ -209,7 +209,7 @@ typedef struct
 static void GetPanicHeapSnapshot(PanicHeapStats *st)
 {
     memset(st, 0, sizeof(*st));
-    KMemBlock *block = heap_head;
+    KHeapBlock *block = heap_head;
     size_t seen = 0;
     while (block && seen < 8192)
     {

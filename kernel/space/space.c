@@ -16,7 +16,7 @@
 
 static uint32_t next_spid = 1;
 static SpaceObject *spaces[MAX_SPACES];
-static KHeapSlabCache space_cache;
+static KSlabCache space_cache;
 
 static Spid SpidAlloc(SpaceObject *sp)
 {
@@ -53,7 +53,7 @@ SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
     list_init(&sp->waiters);
 
     HandleTableInit(&sp->handle_table);
-    sp->as = AddrspaceCreate(ADDRSPACE_USER);
+    sp->as = AddressSpaceCreate(ADDRESS_SPACE_USER);
     if (!sp->as)
         goto fail_handles;
 
@@ -66,7 +66,7 @@ SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
         .size = PAGE_SIZE,
         .prot = PROT_READ | VM_PROT_USER,
         .memtype = VM_MEM_NORMAL,
-        .owner = VM_OWNER_SHARED,
+        .owner = VM_BACKING_SHARED,
         .flags = VM_FLAG_PINNED | VM_FLAG_GUARD,
     };
     if (!VmmAddRegion(sp->as, &sys_region))
@@ -89,7 +89,7 @@ SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
         .vaddr_start = tcb_user_va,
         .size = MAX_TCB_PAGES * PAGE_SIZE,
         .prot = PROT_READ | PROT_WRITE | VM_PROT_USER,
-        .owner = VM_OWNER_ANON, // GUARD dropped so pages 1..N demand-back; PINNED still blocks user
+        .owner = VM_BACKING_ANON, // GUARD dropped so pages 1..N demand-back; PINNED still blocks user
                                 // unmap.
         .flags = VM_FLAG_PINNED,
     };
@@ -103,7 +103,7 @@ SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
         .size = USER_STACK_TOP - USER_STACK_BASE,
         .prot = PROT_READ | PROT_WRITE | VM_PROT_USER,
         .memtype = VM_MEM_NORMAL,
-        .owner = VM_OWNER_ANON,
+        .owner = VM_BACKING_ANON,
         .flags = VM_FLAG_NONE,
     };
     if (!VmmAddRegion(sp->as, &stack_region))
@@ -114,7 +114,7 @@ SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
         .size = PAGE_SIZE,
         .prot = 0,
         .memtype = VM_MEM_NORMAL,
-        .owner = VM_OWNER_NONE,
+        .owner = VM_BACKING_NONE,
         .flags = VM_FLAG_GUARD,
     };
     if (!VmmAddRegion(sp->as, &stack_guard))
@@ -146,7 +146,7 @@ SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
 fail_as:
     if (sp->as)
         ArchMmuFreeUserPages(sp->as);
-    AddrspaceDestroy(sp->as);
+    AddressSpaceDestroy(sp->as);
     memset(sp->tcb_page_pa, 0, sizeof(sp->tcb_page_pa));
 fail_handles:
     HandleTableDestroy(&sp->handle_table);
@@ -210,7 +210,7 @@ void SpaceDestroy(SpaceObject *sp)
     if (sp->as)
     {
         ArchMmuFreeUserPages(sp->as);
-        AddrspaceDestroy(sp->as);
+        AddressSpaceDestroy(sp->as);
         sp->as = NULL;
     }
     HandleTableDestroy(&sp->handle_table);

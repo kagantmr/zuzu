@@ -13,7 +13,7 @@
 #define PAGE_OFFSET_MASK (PAGE_SIZE - 1u)
 
 static L2PtPoolEntry *pool_head = NULL;
-static KHeapSlabCache l2_entry_cache;
+static KSlabCache l2_entry_cache;
 
 uintptr_t L2PtPoolAlloc(void)
 {

@@ -56,7 +56,7 @@ static void IdleTask(void)
     on_idle_stack = true;
     for (;;)
     {
-        VmmActivateAddrspace(VmmGetKernelAddrspace());
+        VmmActivateAddressSpace(VmmGetKernelAddressSpace());
         SchedConsumeDestroyQueue();
         SchedIdleWait();
         Schedule();
@@ -346,7 +346,7 @@ void __hot SchedSwitchNext(TaskObject *next)
     if (unlikely(current_task->owner->as &&
                  (!prev_proc || prev_proc->as != current_task->owner->as)))
     {
-        VmmActivateAddrspace(current_task->owner->as);
+        VmmActivateAddressSpace(current_task->owner->as);
     }
     ArchSetTlsPointer(current_task);
     ContextSwitch(prev, current_task);

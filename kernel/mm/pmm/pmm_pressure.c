@@ -22,7 +22,7 @@ typedef struct {
 
 ListHead pmm_subscribers;
 
-void PmmKEventSignal(void)
+void PmmSignalSubscribers(void)
 {
     size_t free_pct = (pmm_state.free_frames * 100) / pmm_state.total_frames;
 

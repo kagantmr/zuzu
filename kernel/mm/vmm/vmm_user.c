@@ -38,7 +38,7 @@ Err VmmMapAnon(SpaceObject *space, VirtAddr hint, size_t size, MemProt prot, Vir
         .size = size,
         .prot = prot | VM_PROT_USER,
         .memtype = VM_MEM_NORMAL,
-        .owner = VM_OWNER_ANON,
+        .owner = VM_BACKING_ANON,
         .flags = VM_FLAG_NONE,
     };
     if (!VmmAddRegion(space->as, &region))
@@ -48,7 +48,7 @@ Err VmmMapAnon(SpaceObject *space, VirtAddr hint, size_t size, MemProt prot, Vir
     return ZUZU_OK;
 }
 
-Err VmmMapMemObject(SpaceObject *space, HandleTableEntry *entry, MemProt prot, VirtAddr hint,
+Err VmmMapMemObj(SpaceObject *space, HandleTableEntry *entry, MemProt prot, VirtAddr hint,
                     VirtAddr *out)
 {
     MemObject *mem = entry->mem;
@@ -60,7 +60,7 @@ Err VmmMapMemObject(SpaceObject *space, HandleTableEntry *entry, MemProt prot, V
 
     switch (mem->kind)
     {
-    case MEMTYPE_SHARED:
+    case MEMKIND_SHARED:
     {
         size_t size = entry->mem->shm.page_count * PAGE_SIZE;
 
@@ -83,14 +83,14 @@ Err VmmMapMemObject(SpaceObject *space, HandleTableEntry *entry, MemProt prot, V
                                 .size = size,
                                 .prot = prot | VM_PROT_USER,
                                 .memtype = VM_MEM_NORMAL,
-                                .owner = VM_OWNER_SHARED,
+                                .owner = VM_BACKING_SHARED,
                                 .backing = mem,
                                 .flags = VM_FLAG_NONE};
         if (!VmmAddRegion(space->as, &region))
             return ERR_NOMEM; // OOM
     }
     break;
-    case MEMTYPE_DEVICE:
+    case MEMKIND_DEVICE:
     {
         size_t size_aligned = align_up(mem->dev.size, PAGE_SIZE);
 
@@ -119,7 +119,7 @@ Err VmmMapMemObject(SpaceObject *space, HandleTableEntry *entry, MemProt prot, V
             .size = size_aligned,
             .prot = prot | VM_PROT_USER,
             .memtype = VM_MEM_DEVICE,
-            .owner = VM_OWNER_NONE,
+            .owner = VM_BACKING_NONE,
             .flags = VM_FLAG_NONE,
         };
         if (!VmmAddRegion(space->as, &region))
@@ -152,14 +152,14 @@ Err VmmUnmapUserRegion(SpaceObject *space, VirtAddr va) {
     ENSURE_RET(!(found->flags & VM_FLAG_PINNED), ERR_NOPERM);
 
     switch (found->owner) {
-        case VM_OWNER_ANON: {
+        case VM_BACKING_ANON: {
             for (VirtAddr anon_va = va; (anon_va < va + found->size); anon_va += PAGE_SIZE) {
                 PhysAddr anon_pa = ArchMmuTranslate(space->as->pt_root_physaddr, anon_va);
                 (anon_pa == 0) ? (void)anon_pa : PmmFreeFrame(anon_pa);
             }
         } break;
-        case VM_OWNER_NONE: 
-        case VM_OWNER_SHARED: {
+        case VM_BACKING_NONE: 
+        case VM_BACKING_SHARED: {
             bool found_in_table = false;
             for (Handle i = 0; i < (Handle)HANDLE_MAX_SLOTS; i++) {
                 HandleTableEntry *entry = HandleTableGet(&space->handle_table, i);
@@ -197,7 +197,7 @@ bool VmmMapUserPage(AddressSpace *as, PhysAddr pa, VirtAddr va, MemProt prot)
 {
     if (!as)
         return false;
-    if (as->type != ADDRSPACE_USER)
+    if (as->type != ADDRESS_SPACE_USER)
         return false;
     if ((pa % PAGE_SIZE) != 0)
         return false;
@@ -217,7 +217,7 @@ bool VmmCheckUserFault(AddressSpace *as, VirtAddr va, size_t len, bool write)
         return false;
 
     const uintptr_t end = va + len;
-    if (as->type == ADDRSPACE_USER && (va >= USER_VA_TOP || end > USER_VA_TOP))
+    if (as->type == ADDRESS_SPACE_USER && (va >= USER_VA_TOP || end > USER_VA_TOP))
         return false;
 
     uintptr_t page_va = align_down(va, PAGE_SIZE);
@@ -250,7 +250,7 @@ bool VmmCheckUserFault(AddressSpace *as, VirtAddr va, size_t len, bool write)
     return true;
 }
 
-Err InjectInKittenSpace(SpaceObject *kitten, SpaceObject *parent, InjectArgs *args) {
+Err InjectIntoSpace(SpaceObject *kitten, SpaceObject *parent, InjectArgs *args) {
 
     ENSURE_RET(args->len, ERR_BADARG);
     ENSURE_RET(!(args->prot & ~(uint32_t)(PROT_EXEC|PROT_WRITE|PROT_READ)), ERR_BADARG);
@@ -272,7 +272,7 @@ Err InjectInKittenSpace(SpaceObject *kitten, SpaceObject *parent, InjectArgs *ar
             .size = args->len,
             .prot = args->prot | VM_PROT_USER,
             .memtype = VM_MEM_NORMAL,
-            .owner = VM_OWNER_ANON,
+            .owner = VM_BACKING_ANON,
             .flags = VM_FLAG_NONE,
         };
         ENSURE_RET(VmmAddRegion(kitten->as, &region), ERR_NOMEM);
@@ -304,7 +304,7 @@ Err InjectInKittenSpace(SpaceObject *kitten, SpaceObject *parent, InjectArgs *ar
     if (enclosing)
     {
         ENSURE_RET(!(enclosing->flags & VM_FLAG_GUARD) &&
-                       enclosing->owner == VM_OWNER_ANON &&
+                       enclosing->owner == VM_BACKING_ANON &&
                        enclosing->memtype == VM_MEM_NORMAL &&
                        !((args->prot | VM_PROT_USER) & ~enclosing->prot),
                    ERR_BADARG);
@@ -366,7 +366,7 @@ Err InjectInKittenSpace(SpaceObject *kitten, SpaceObject *parent, InjectArgs *ar
             .size = page_count * PAGE_SIZE,
             .prot = args->prot | VM_PROT_USER,
             .memtype = VM_MEM_NORMAL,
-            .owner = VM_OWNER_ANON,
+            .owner = VM_BACKING_ANON,
             .flags = VM_FLAG_NONE,
         };
         if (!VmmAddRegion(kitten->as, &region))

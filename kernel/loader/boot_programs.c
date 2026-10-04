@@ -88,7 +88,7 @@ static void CreateRootSpace(const char *path)
                                                .size = initrd_page_count * PAGE_SIZE,
                                                .prot = PROT_READ | VM_PROT_USER,
                                                .memtype = VM_MEM_NORMAL,
-                                               .owner = VM_OWNER_SHARED,
+                                               .owner = VM_BACKING_SHARED,
                                                .flags = VM_FLAG_NONE});
 
     size_t bootinfo_pages = (sizeof(BootInfo) + PAGE_SIZE - 1) / PAGE_SIZE;
@@ -105,7 +105,7 @@ static void CreateRootSpace(const char *path)
                                                .size = bootinfo_pages * PAGE_SIZE,
                                                .prot = PROT_READ | VM_PROT_USER,
                                                .memtype = VM_MEM_NORMAL,
-                                               .owner = VM_OWNER_SHARED,
+                                               .owner = VM_BACKING_SHARED,
                                                .flags = VM_FLAG_NONE});
 
     SchedAdd(space->main_task);

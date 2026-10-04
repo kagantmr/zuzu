@@ -213,7 +213,7 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
                 .size = file_pages * PAGE_SIZE,
                 .prot = prot | VM_PROT_USER,
                 .memtype = VM_MEM_NORMAL,
-                .owner = VM_OWNER_ANON,
+                .owner = VM_BACKING_ANON,
                 .flags = VM_FLAG_NONE,
             };
             if (!VmmAddRegion(p->as, &seg_region))
@@ -240,7 +240,7 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
                 .size = (mem_pages - file_pages) * PAGE_SIZE,
                 .prot = prot | VM_PROT_USER,
                 .memtype = VM_MEM_NORMAL,
-                .owner = VM_OWNER_ANON,
+                .owner = VM_BACKING_ANON,
                 .flags = VM_FLAG_NONE,
             };
             if (!VmmAddRegion(p->as, &bss_region))

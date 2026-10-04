@@ -26,7 +26,7 @@ void SvcManageMemory(CpuState *frame)
                 ENSURE_ERR(frame, entry, ERR_BADHANDLE);
                 ENSURE_ERR(frame,(HANDLE_MEM == entry->type), ERR_BADTYPE);
                 ENSURE_ERR(frame, entry->perms & PERM_MAP, ERR_NOPERM);
-                Err rc = VmmMapMemObject(CURRENT_SPACE, entry, prot, hint, &out);
+                Err rc = VmmMapMemObj(CURRENT_SPACE, entry, prot, hint, &out);
                 ArchSetInFrame(frame, 0, (rc == 0) ? (signed)out : rc);
             }
         } break;
@@ -54,7 +54,7 @@ void SvcManageMemory(CpuState *frame)
             InjectArgs kargs;
             ENSURE_ERR(frame, CopyFromUser(&kargs, (const void *)(*ArchGetFromFrame(frame, 2)), sizeof(kargs)), ERR_BADPTR);
 
-            ArchSetInFrame(frame, 0, InjectInKittenSpace(entry->space, CURRENT_SPACE, &kargs));
+            ArchSetInFrame(frame, 0, InjectIntoSpace(entry->space, CURRENT_SPACE, &kargs));
         } break;
         default: ArchSetInFrame(frame, 0, ERR_BADARG);
     }

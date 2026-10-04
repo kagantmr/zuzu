@@ -151,7 +151,7 @@ _Noreturn void early(void *dtb_ptr)
     KDEBUG("early: dropping identity map");
     VmmRemoveIdentityMapping();
     KDEBUG("early: ttbr1 split");
-    ArchMmuInitTtbr1(VmmGetKernelAddrspace());
+    ArchMmuInitTtbr1(VmmGetKernelAddressSpace());
     KDEBUG("early: kernel lockdown");
     VmmLockdownKernelMapping();
 

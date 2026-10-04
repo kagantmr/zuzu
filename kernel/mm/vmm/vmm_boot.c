@@ -27,7 +27,7 @@ void VmmBootstrap(void) {
         }
 
         // allocate a PMM-backed L1 and copy early_l1 into it
-        uintptr_t new_l1_pa = ArchMmuCreateTables(ADDRSPACE_KERNEL);
+        uintptr_t new_l1_pa = ArchMmuCreateTables(ADDRESS_SPACE_KERNEL);
         if (!new_l1_pa) {
             panic("Failed to allocate kernel L1 from PMM");
         }
@@ -43,7 +43,7 @@ void VmmBootstrap(void) {
         ArchMmuSwitch(g_kernel_as);
 
         vm_region_vec_init(&g_kernel_as->regions);
-        g_kernel_as->type = ADDRSPACE_KERNEL;
+        g_kernel_as->type = ADDRESS_SPACE_KERNEL;
         g_kernel_as->asid_token = (AsidToken){0};
 
         g_mmu_enabled = true;
@@ -61,7 +61,7 @@ void VmmBootstrap(void) {
             .size = map_size,
             .prot = PROT_READ | PROT_WRITE | PROT_EXEC,
             .memtype = VM_MEM_NORMAL,
-            .owner = VM_OWNER_SHARED,
+            .owner = VM_BACKING_SHARED,
             .flags = VM_FLAG_PINNED,
         };
         VmmAddRegion(g_kernel_as, &kernel_region);
@@ -72,7 +72,7 @@ void VmmBootstrap(void) {
             .size = map_size,
             .prot = PROT_READ | PROT_WRITE | PROT_EXEC,
             .memtype = VM_MEM_NORMAL,
-            .owner = VM_OWNER_NONE,
+            .owner = VM_BACKING_NONE,
             .flags = VM_FLAG_NONE,
         };
         VmmAddRegion(g_kernel_as, &identity_region);

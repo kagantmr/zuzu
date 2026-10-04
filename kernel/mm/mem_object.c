@@ -3,7 +3,7 @@
 #include <string.h>
 #include "core/ensure.h"
 
-static KHeapSlabCache mem_obj_cache;
+static KSlabCache mem_obj_cache;
 
 static MemObject *MemObjAlloc(void)
 {
@@ -18,7 +18,7 @@ MemObject *MemObjCreateDevice(PhysAddr phys_base, size_t size, Irq irq)
 {
     MemObject *mem = MemObjAlloc();
     ENSURE_RET(mem, NULL);
-    mem->kind = MEMTYPE_DEVICE;
+    mem->kind = MEMKIND_DEVICE;
     mem->ref_count = 1;
     mem->dev.phys_base = phys_base;
     mem->dev.size = size;
@@ -30,7 +30,7 @@ MemObject *MemObjCreateShm(PhysAddr *page_addrs, size_t page_count)
 {
     MemObject *mem = MemObjAlloc();
     ENSURE_RET(mem, NULL);
-    mem->kind = MEMTYPE_SHARED;
+    mem->kind = MEMKIND_SHARED;
     mem->ref_count = 1;
     mem->shm.page_addrs = page_addrs;
     mem->shm.page_count = page_count;
@@ -43,7 +43,7 @@ void MemObjDestroy(MemObject *mem)
     if (mem->ref_count > 0) mem->ref_count--;
     if (mem->ref_count == 0)
     {
-        if (mem->kind == MEMTYPE_SHARED)
+        if (mem->kind == MEMKIND_SHARED)
         {
             for (size_t i = 0; i < mem->shm.page_count; i++)
                 if (mem->shm.page_addrs[i] != 0) /* demand-paged: skip unfaulted slots */
@@ -57,7 +57,7 @@ void MemObjDestroy(MemObject *mem)
 void MemObjUnmapAndDrop(AddressSpace *as, VirtAddr mapped_va, MemObject *mem) {
     if (mapped_va)
         VmmRemoveRegion(as, mapped_va,
-                        (mem->kind == MEMTYPE_DEVICE)
+                        (mem->kind == MEMKIND_DEVICE)
                             ? mem->dev.size
                             : mem->shm.page_count * PAGE_SIZE);
     MemObjDestroy(mem);

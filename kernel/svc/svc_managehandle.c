@@ -104,7 +104,7 @@ void SvcManageHandle(CpuState *frame)
         case QUERY_SIZE:
             ENSURE_ERR(frame, HANDLE_MEM == entry->type, ERR_BADTYPE);
             ENSURE_ERR(frame, entry->mem, ERR_BADHANDLE);
-            value = (entry->mem->kind == MEMTYPE_DEVICE)
+            value = (entry->mem->kind == MEMKIND_DEVICE)
                         ? (Register)entry->mem->dev.size
                         : (Register)(entry->mem->shm.page_count * PAGE_SIZE);
 
@@ -142,7 +142,7 @@ void SvcManageHandle(CpuState *frame)
     {
         ENSURE_ERR(frame, HANDLE_MEM == entry->type, ERR_BADTYPE);
         MemObject *dev = entry->mem;
-        ENSURE_ERR(frame, dev && dev->kind == MEMTYPE_DEVICE, ERR_BADTYPE);
+        ENSURE_ERR(frame, dev && dev->kind == MEMKIND_DEVICE, ERR_BADTYPE);
         ENSURE_ERR(frame, IrqIsValid(dev->dev.irq), ERR_BADARG);
         ArchSetInFrame(frame, 0, IrqRelayRearm(CURRENT_SPACE, dev->dev.irq));
     }

@@ -7,13 +7,13 @@
 
 typedef enum
 {
-    MEMTYPE_NONE,
-    MEMTYPE_DEVICE,
-    MEMTYPE_SHARED,
-} MemType;
+    MEMKIND_NONE,
+    MEMKIND_DEVICE,
+    MEMKIND_SHARED,
+} MemKind;
 
 typedef struct {
-    MemType kind;      // MEMTYPE_DEVICE / MEMTYPE_SHARED
+    MemKind kind;      // MEMKIND_DEVICE / MEMKIND_SHARED
     size_t ref_count;
     union {
         struct { PhysAddr phys_base; size_t size; Irq irq; } dev;

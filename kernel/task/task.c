@@ -17,7 +17,7 @@
 
 static Tid next_tid = 1;
 static TaskObject *task_table[MAX_THREADS];
-static KHeapSlabCache task_cache;
+static KSlabCache task_cache;
 
 static Tid RegisterTask(TaskObject *task)
 {

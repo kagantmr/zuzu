@@ -89,7 +89,7 @@ void SvcBind(CpuState *frame)
         HandleTableEntry *dev_entry = HandleTableLookup(&CURRENT_SPACE->handle_table, dev_handle);
 
         ENSURE_ERR(frame, dev_entry, ERR_BADHANDLE);
-        ENSURE_ERR(frame, (dev_entry->type == HANDLE_MEM && dev_entry->mem->kind == MEMTYPE_DEVICE), ERR_BADTYPE);
+        ENSURE_ERR(frame, (dev_entry->type == HANDLE_MEM && dev_entry->mem->kind == MEMKIND_DEVICE), ERR_BADTYPE);
 
         MemObject *dev_mem_obj = dev_entry->mem;
 
