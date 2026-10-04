@@ -8,7 +8,7 @@
 #include <string.h>
 #include <util/log.h>
 
-int tcp_connect(ipv4_addr_t remote_ip, port_t remote_port)
+int tcp_connect(ipv4_addr_t remote_ip, NetPort remote_port)
 {
     if (!dhcp_is_bound())
         return ERR_NOTCONN;

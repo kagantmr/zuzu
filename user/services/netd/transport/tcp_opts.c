@@ -1,6 +1,6 @@
 #include "tcp_opts.h"
 #include <stdint.h>
-#include <zuzu/log.h>
+#include <util/log.h>
 
 bool TcpParseOptions(const uint8_t *opts, size_t len, TcpSegment *seg)
 {

@@ -6,8 +6,8 @@
 #include <types.h>
 
 typedef struct __attribute__((packed)) {
-    port_t src_port;
-    port_t dst_port;
+    NetPort src_port;
+    NetPort dst_port;
     uint32_t seq;
     uint32_t ack;
     uint8_t data_offset;
@@ -67,9 +67,9 @@ typedef struct {
 
 typedef struct {
     ipv4_addr_t local_ip;
-    port_t local_port;
+    NetPort local_port;
     ipv4_addr_t remote_ip;
-    port_t remote_port;
+    NetPort remote_port;
     tcp_state_t state;
     uint32_t snd_nxt;
     uint32_t snd_una;
@@ -104,8 +104,8 @@ typedef struct {
 
 typedef struct {
     ipv4_addr_t src_ip;
-    port_t src_port;
-    port_t dst_port;
+    NetPort src_port;
+    NetPort dst_port;
     uint32_t seq; /* their sequence number */
     uint32_t ack; /* their acknowledgement number */
     uint8_t flags;
@@ -124,7 +124,7 @@ typedef struct {
 _Static_assert((TCP_SND_BUF & (TCP_SND_BUF - 1)) == 0, "TCP_SND_BUF must be power of two");
 _Static_assert((TCP_RCV_BUF & (TCP_RCV_BUF - 1)) == 0, "TCP_RCV_BUF must be power of two");
 
-int tcp_connect(ipv4_addr_t remote_ip, port_t remote_port); // , callback later)
+int tcp_connect(ipv4_addr_t remote_ip, NetPort remote_port); // , callback later)
 void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_t len);
 int tcp_send(int idx, const uint8_t *data, uint16_t len);
 int tcp_recv(int idx, uint8_t *buf, uint16_t sz);

@@ -5,7 +5,7 @@
 #include "tcp_pcb.h"
 #include <convert.h>
 #include <string.h>
-#include <zuzu/log.h>
+#include <util/log.h>
 
 uint16_t tcp_checksum(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *seg, uint16_t seg_len)
 {

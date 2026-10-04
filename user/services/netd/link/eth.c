@@ -6,8 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <zuzu/msg.h>
-#include <zuzu/ntfn.h>
+#include <zuzu/zuzu.h>
 
 int eth_rx(uint8_t *data, uint16_t len)
 {
@@ -43,7 +42,7 @@ int eth_tx(mac_addr_t dst_mac, uint16_t ethertype, uint8_t *payload, uint16_t le
         return ERR_OVERFLOW;
 
     /* Build the frame directly in a tx-ring slot */
-    nic_frame_t *slot = packet_ring_reserve(tx_ring);
+    NicFrame *slot = PacketRingReserve(tx_ring);
     if (!slot)
         return ERR_BUFFULL;
 
@@ -53,10 +52,10 @@ int eth_tx(mac_addr_t dst_mac, uint16_t ethertype, uint8_t *payload, uint16_t le
     hdr->ethertype = htons(ethertype);
     memcpy(slot->data + sizeof(eth_hdr_t), payload, len);
     slot->len = (uint32_t)total_len;
-    packet_ring_commit(tx_ring);
+    PacketRingCommit(tx_ring);
 
     /* Async doorbell */
-    return ZuzuNtfnSignal(tx_doorbell, 1);
+    return Signal(tx_doorbell, 1, false);
 }
 
 int eth_send_frame(txframe_t *f, mac_addr_t dst_mac, uint16_t ethertype)
@@ -71,6 +70,6 @@ int eth_send_frame(txframe_t *f, mac_addr_t dst_mac, uint16_t ethertype)
 
     /* Header lands at slot->data[0], the whole frame is now contiguous. */
     f->slot->len = txframe_len(f);
-    packet_ring_commit(tx_ring);
-    return ZuzuNtfnSignal(tx_doorbell, 1);
+    PacketRingCommit(tx_ring);
+    return Signal(tx_doorbell, 1, false);
 }

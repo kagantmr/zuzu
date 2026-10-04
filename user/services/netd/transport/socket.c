@@ -1,33 +1,29 @@
 #include "socket.h"
 #include "user/services/netd/common/globals.h"
-#include "zuzu/cap.h"
-#include "zuzu/memprot.h"
-#include "zuzu/ntfn.h"
-#include "zuzu/types.h"
+#include <zuzu/zuzu.h>
+#include <list.h>
 #include <stdlib.h>
-#include <zuzu/msg.h>
-#include <zuzu/umem.h>
 
 #define CONNTABLE_BUCKETS 128
 
 static ListHead conntable[CONNTABLE_BUCKETS];
 
-static inline uint32_t conntable_hash(port_t port)
+static inline uint32_t ConnTableHash(NetPort port)
 {
-    return ((uint32_t)port * 2654435761u) >> 25; // Knuth's multiplicative hash, top bits
+    return ((uint32_t)port * 2654435761U) >> 25; // Knuth's multiplicative hash, top bits
 }
 
 void ConnTableInit(void)
 {
     for (int i = 0; i < CONNTABLE_BUCKETS; i++)
-        list_init(&conntable[i]);
+        ListInit(&conntable[i]);
 }
 
-ConnTableEnt *ConnTableLookup(port_t port)
+ConnTableEnt *ConnTableLookup(NetPort port)
 {
-    ListHead *head = &conntable[conntable_hash(port)];
+    ListHead *head = &conntable[ConnTableHash(port)];
     ListNode *pos;
-    list_for_each(pos, &head->node)
+    LIST_FOR_EACH(pos, &head->node)
     {
         ConnTableEnt *ent = container_of(pos, ConnTableEnt, bucket_link);
         if (port == ent->port) {
@@ -37,14 +33,14 @@ ConnTableEnt *ConnTableLookup(port_t port)
     return NULL;
 }
 
-bool ConnTableInsert(port_t port, void *tx_rbuf, void *rx_rbuf, Handle tx_shm, Handle rx_shm,
+bool ConnTableInsert(NetPort port, void *tx_rbuf, void *rx_rbuf, Handle tx_shm, Handle rx_shm,
                      Handle tx_ntfn, Handle rx_ntfn, Handle ctl)
 {
     if (ConnTableLookup(port))
         return false;
 
     ConnTableEnt *ent = calloc(1, sizeof(ConnTableEnt));
-    ListHead *head = &conntable[conntable_hash(port)];
+    ListHead *head = &conntable[ConnTableHash(port)];
 
     ent->port = port;
     ent->ctlport = ctl;
@@ -55,17 +51,17 @@ bool ConnTableInsert(port_t port, void *tx_rbuf, void *rx_rbuf, Handle tx_shm, H
     ent->tx_ntf = tx_ntfn;
     ent->rx_ntf = rx_ntfn;
 
-    list_add_tail(&ent->bucket_link, &head->node);
+    ListAddTail(&ent->bucket_link, &head->node);
 
     return true;
 }
 
-bool ConnTableRemove(port_t port)
+bool ConnTableRemove(NetPort port)
 {
     ConnTableEnt *ent = ConnTableLookup(port);
     if (!ent)
         return false;
-    list_remove(&ent->bucket_link);
+    ListRemove(&ent->bucket_link);
     free(ent);
     return true;
 }
@@ -78,49 +74,49 @@ ConnTableEnt *ConnTableCreateEntry(void)
     if (!conn)
         return NULL;
 
-    conn->tx_shm = ZuzuShmemCreate(UDP_SOCK_RBUFSZ);
+    conn->tx_shm = CreateMem(UDP_SOCK_RBUFSZ / 4096);
     if (conn->tx_shm < 0)
         goto fail_conn;
 
-    conn->rx_shm = ZuzuShmemCreate(UDP_SOCK_RBUFSZ);
+    conn->rx_shm = CreateMem(UDP_SOCK_RBUFSZ / 4096);
     if (conn->rx_shm < 0)
         goto fail_tx_shm;
 
-    conn->rx_ring = ZuzuMemMap(conn->rx_shm, 0, PROT_RW, 0);
+    conn->rx_ring = MemMap(conn->rx_shm, 0, PROT_READ);
     if (!conn->rx_ring)
         goto fail_rx_shm;
 
-    conn->tx_ring = ZuzuMemMap(conn->tx_shm, 0, PROT_RW, 0);
+    conn->tx_ring = MemMap(conn->tx_shm, 0, PROT_RW);
     if (!conn->tx_ring)
         goto fail_rx_ring;
 
-    conn->tx_ntf = ZuzuNtfnCreate();
+    conn->tx_ntf = CreateEvent();
     if (conn->tx_ntf < 0)
         goto fail_tx_ring;
 
-    conn->rx_ntf = ZuzuNtfnCreate();
+    conn->rx_ntf = CreateEvent();
     if (conn->rx_ntf < 0)
         goto fail_tx_ntfn;
 
     // set ctl port
-    conn->ctlport = ZuzuPortCreate();
+    conn->ctlport = CreatePort();
     if (conn->ctlport < 0)
         goto fail_rx_ntfn;
 
     return conn;
 
 fail_rx_ntfn:
-    ZuzuDestroy(conn->rx_ntf);
+    HandleClose(conn->rx_ntf);
 fail_tx_ntfn:
-    ZuzuDestroy(conn->tx_ntf);
+    HandleClose(conn->tx_ntf);
 fail_tx_ring:
-    ZuzuMemUnmap(conn->tx_ring);
+    MemUnmap(conn->tx_ring);
 fail_rx_ring:
-    ZuzuMemUnmap(conn->rx_ring);
+    MemUnmap(conn->rx_ring);
 fail_rx_shm:
-    ZuzuDestroy(conn->rx_shm);
+    HandleClose(conn->rx_shm);
 fail_tx_shm:
-    ZuzuDestroy(conn->tx_shm);
+    HandleClose(conn->tx_shm);
 fail_conn:
     free(conn);
     return NULL;

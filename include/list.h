@@ -8,18 +8,20 @@ extern "C" {
 #include <compiler.h>
 #include <stddef.h>
 
-typedef struct list_node {
-    struct list_node *prev, *next;
+typedef struct ListNodeStruct {
+    struct ListNodeStruct *prev, *next;
 } ListNode;
 
-typedef struct list_head {
+typedef struct {
     ListNode node; // sentinel node (empty list points to itself)
 } ListHead;
 
-#define list_for_each_safe(pos, n, head)                                                           \
-    for (pos = (head)->next, n = pos->next; pos != (head); pos = n, n = pos->next)
+#define LIST_FOR_EACH_SAFE(pos, n, head)                                                           \
+    for ((pos) = (head)->next, (n) = (pos)->next; (pos) != (head); (pos) = (n), (n) = (pos)->next)
 
-#define LIST_HEAD_INIT(name)                                                                       \
+#define LIST_FOR_EACH(pos, head) for ((pos) = (head)->next; (pos) != (head); (pos) = (pos)->next)
+
+#define LIST_HEAD_INIT(name)                                                                      \
     {                                                                                              \
         {                                                                                          \
             &(name).node, &(name).node                                                             \
@@ -37,7 +39,7 @@ typedef struct list_head {
  * @param node Pointer to the new node to be added.
  * @param head Pointer to the head of the list.
  */
-static __always_inline void list_add_tail(ListNode *node, ListNode *head)
+static __always_inline void ListAddTail(ListNode *node, ListNode *head)
 {
     ListNode *tail = head->prev;
     tail->next = node;
@@ -54,7 +56,7 @@ static __always_inline void list_add_tail(ListNode *node, ListNode *head)
  *
  * @param node Pointer to the node to be removed.
  */
-static __always_inline void list_remove(ListNode *node)
+static __always_inline void ListRemove(ListNode *node)
 {
     ListNode *prev = node->prev;
     ListNode *next = node->next;
@@ -70,7 +72,7 @@ static __always_inline void list_remove(ListNode *node)
  *
  * @param head Pointer to the list head to be initialized.
  */
-static inline void list_init(ListHead *head)
+static inline void ListInit(ListHead *head)
 {
     head->node.next = &head->node;
     head->node.prev = &head->node;
@@ -82,7 +84,7 @@ static inline void list_init(ListHead *head)
  * @param head Pointer to the list head.
  * @return int Returns 1 if the list is empty, 0 otherwise.
  */
-static inline int list_empty(const ListHead *head) { return head->node.next == &head->node; }
+static inline int ListIsEmpty(const ListHead *head) { return head->node.next == &head->node; }
 
 /**
  * @brief Pops the first node from the list and returns it.
@@ -90,13 +92,13 @@ static inline int list_empty(const ListHead *head) { return head->node.next == &
  * @param head Pointer to the list head.
  * @return ListNode * Pointer to the popped node, or NULL if the list is empty.
  */
-static inline ListNode *list_pop_front(ListHead *head)
+static inline ListNode *ListPopFront(ListHead *head)
 {
-    if (list_empty(head)) {
+    if (ListIsEmpty(head)) {
         return NULL;
     }
     ListNode *first = head->node.next;
-    list_remove(first);
+    ListRemove(first);
     return first;
 }
 

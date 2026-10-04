@@ -196,7 +196,7 @@ void PmmInit(void)
     // Build the freelist from all free pages in the bitmap
     PmmRebuildFreelist();
 
-    list_init(&pmm_subscribers);
+    ListInit(&pmm_subscribers);
 }
 
 PmmStats PmmGetStats(void)

@@ -6,7 +6,7 @@
 #include <types.h>
 
 typedef struct {
-    nic_frame_t *slot; /* reserved tx-ring slot (head not yet advanced) */
+    NicFrame *slot; /* reserved tx-ring slot (head not yet advanced) */
     uint16_t front;    /* offset of the current outermost byte          */
     uint16_t end;      /* offset one past the last byte                 */
 } txframe_t;

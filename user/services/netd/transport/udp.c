@@ -8,7 +8,7 @@
 #include <string.h>
 
 typedef struct {
-    port_t port;
+    NetPort port;
     udp_handler_t handler;
 } udp_entry_t;
 
@@ -41,7 +41,7 @@ __attribute__((cold)) void udp_init(void)
     }
 }
 
-__attribute__((cold)) int udp_bind(port_t port, udp_handler_t handler)
+__attribute__((cold)) int udp_bind(NetPort port, udp_handler_t handler)
 {
     if (!port || !handler) {
         return ERR_NOPERM; // port 0 is reserved
@@ -83,7 +83,7 @@ void udp_rx(void *data, uint16_t len, ipv4_addr_t src_ip, ipv4_addr_t dst_ip)
         }
     }
     // demux
-    port_t dport = ntohs(hdr->dst_port);
+    NetPort dport = ntohs(hdr->dst_port);
     for (size_t i = 0; i < UDP_MAX_TABLE; i++) {
         if (udp_table[i].port == dport && udp_table[i].handler) {
             udp_table[i].handler(src_ip, ntohs(hdr->src_port), dport, (uint8_t *)data + 8,
@@ -93,7 +93,7 @@ void udp_rx(void *data, uint16_t len, ipv4_addr_t src_ip, ipv4_addr_t dst_ip)
     }
 }
 
-int udp_tx(ipv4_addr_t dst_ip, port_t src_port, port_t dst_port, const uint8_t *payload,
+int udp_tx(ipv4_addr_t dst_ip, NetPort src_port, NetPort dst_port, const uint8_t *payload,
            uint16_t payload_len)
 {
     if (payload_len > UDP_MAX_PAYLOAD) {

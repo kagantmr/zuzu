@@ -244,7 +244,7 @@ Err InjectIntoSpace(SpaceObject *kitten, SpaceObject *parent, InjectArgs *args)
                ERR_BADARG);
     ENSURE_RET(args->dest_vaddr % PAGE_SIZE == 0, ERR_BADARG);
 
-    ENSURE_RET(list_empty(&kitten->tasks), ERR_BUSY);
+    ENSURE_RET(ListIsEmpty(&kitten->tasks), ERR_BUSY);
 
     if (args->flags & ASINJECT_FLAG_RESERVE) {
         /* Reserve-only mode: register anon memory in the target AS with no

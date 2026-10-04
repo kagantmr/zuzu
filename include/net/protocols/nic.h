@@ -1,15 +1,12 @@
 #ifndef NIC_PROTOCOL_H
 #define NIC_PROTOCOL_H
 
+#include <net/packetring.h>
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-typedef enum {
-    NIC_CMD_GETMAC, // 1 byte of cmd
-    NIC_CMD_STATS,  // 1 byte of cmd followed by 1 byte of the stat
-    NIC_CMD_COUNT
-} NicCommand;
 
 // should be 1 byte
 typedef enum {
@@ -22,6 +19,15 @@ typedef enum {
     NIC_STAT_TX_DROPS,     // tx FIFO full -> frame dropped
     NIC_STAT_COUNT
 } NicStat;
+
+typedef struct {
+    volatile uint32_t stat[NIC_STAT_COUNT];
+} NicStatsBlock;
+
+#define NIC_STATS_OFFSET (NIC_RX_OFFSET + ((NIC_RING_BYTES + 7u) & ~7u))
+
+_Static_assert(NIC_STATS_OFFSET + sizeof(NicStatsBlock) <= NIC_RX_OFFSET + NIC_RING_STRIDE,
+               "stats overflow rx page group");
 
 #ifdef __cplusplus
 }

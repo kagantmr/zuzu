@@ -73,9 +73,9 @@ static void SchedInitIdleTask(void)
 void SchedInit(void)
 {
     for (uint32_t level = 0; level < SCHED_PRIORITY_LEVELS; level++)
-        list_init(&run_queues[level]);
+        ListInit(&run_queues[level]);
     for (uint32_t level = 0; level < SLEEP_QUEUE_SIZE; level++)
-        list_init(&sleep_wheel[level]);
+        ListInit(&sleep_wheel[level]);
 
     assert(ArchTimerFreq() >= 250);
 
@@ -100,7 +100,7 @@ void SchedAdd(TaskObject *t)
         priority = SCHED_PRIO_DEFAULT;
 
     t->queued_prio = (uint8_t)priority;
-    list_add_tail(&t->node, &run_queues[priority].node);
+    ListAddTail(&t->node, &run_queues[priority].node);
     ready_mask |= (1U << priority);
 
     if (current_task && t->priority > current_task->priority) {
@@ -116,33 +116,33 @@ void SchedQueueDestroyTask(TaskObject *t)
     if (t->destroy_node.next || t->destroy_node.prev) {
         return;
     }
-    list_add_tail(&t->destroy_node, &task_destroy_queue.node);
+    ListAddTail(&t->destroy_node, &task_destroy_queue.node);
 }
 
 static void SchedConsumeDestroyQueue(void)
 {
     ListHead deferred = LIST_HEAD_INIT(deferred);
 
-    while (!list_empty(&task_destroy_queue)) {
-        ListNode *node = list_pop_front(&task_destroy_queue);
+    while (!ListIsEmpty(&task_destroy_queue)) {
+        ListNode *node = ListPopFront(&task_destroy_queue);
         if (!node)
             break;
         TaskObject *t = container_of(node, TaskObject, destroy_node);
 
         if (t == current_task) {
-            list_add_tail(&t->destroy_node, &deferred.node);
+            ListAddTail(&t->destroy_node, &deferred.node);
             continue;
         }
 
         TaskDestroy(t);
     }
 
-    while (!list_empty(&deferred)) {
-        ListNode *node = list_pop_front(&deferred);
+    while (!ListIsEmpty(&deferred)) {
+        ListNode *node = ListPopFront(&deferred);
         if (!node)
             break;
         TaskObject *t = container_of(node, TaskObject, destroy_node);
-        list_add_tail(&t->destroy_node, &task_destroy_queue.node);
+        ListAddTail(&t->destroy_node, &task_destroy_queue.node);
     }
 }
 
@@ -152,7 +152,7 @@ static bool SchedIsWorkPending(void)
         return true;
 
     for (uint32_t level = 0; level < SCHED_PRIORITY_LEVELS; level++) {
-        if (!list_empty(&run_queues[level]))
+        if (!ListIsEmpty(&run_queues[level]))
             return true;
     }
 
@@ -164,9 +164,9 @@ void SchedRemoveSleepQueue(TaskObject *t)
     if (t->sleep_slot < 0)
         return;
     if (t->timeout_node.prev && t->timeout_node.next)
-        list_remove(&t->timeout_node);
+        ListRemove(&t->timeout_node);
     uint32_t slot = (uint32_t)t->sleep_slot;
-    if (list_empty(&sleep_wheel[slot]))
+    if (ListIsEmpty(&sleep_wheel[slot]))
         BitmapClr(wheel_occ, slot);
     t->sleep_slot = -1;
 }
@@ -180,7 +180,7 @@ void SchedInsertSleepQueue(TaskObject *t)
         abs_slot = wheel_now_slot + SLEEP_QUEUE_SIZE - 1;
     }
     uint32_t slot = (uint32_t)(abs_slot % SLEEP_QUEUE_SIZE);
-    list_add_tail(&t->timeout_node, &sleep_wheel[slot].node);
+    ListAddTail(&t->timeout_node, &sleep_wheel[slot].node);
     BitmapSet(wheel_occ, slot);
     t->sleep_slot = (int16_t)slot;
     SchedArmTimer();
@@ -197,7 +197,7 @@ static void SchedWakeSleepers(void)
         ListHead *bucket = &sleep_wheel[slot];
 
         for (;;) {
-            ListNode *node = list_pop_front(bucket);
+            ListNode *node = ListPopFront(bucket);
             if (!node)
                 break;
             TaskObject *t = container_of(node, TaskObject, timeout_node);
@@ -250,15 +250,15 @@ static TaskObject *SchedPickNext(void)
 {
     for (int level = SCHED_PRIORITY_LEVELS - 1; level >= 0; level--) {
         if (ready_mask & (1U << level)) {
-            if (unlikely(list_empty(&run_queues[level]))) {
+            if (unlikely(ListIsEmpty(&run_queues[level]))) {
                 ready_mask &= ~(1U << level);
 #ifdef DEBUG
                 panic("ready_mask bit %d set on an empty run queue", level);
 #endif
                 continue;
             }
-            ListNode *next_node = list_pop_front(&run_queues[level]);
-            if (list_empty(&run_queues[level]))
+            ListNode *next_node = ListPopFront(&run_queues[level]);
+            if (ListIsEmpty(&run_queues[level]))
                 ready_mask &= ~(1U << level);
             return container_of(next_node, TaskObject, node);
         }
@@ -375,7 +375,7 @@ void SchedBlockOn(ListHead *queue, Duration timeout)
     }
 
     current_task->wait_slot.owner = current_task;
-    list_add_tail(&current_task->wait_slot.node, &queue->node);
+    ListAddTail(&current_task->wait_slot.node, &queue->node);
 
     current_task->state = TASK_STATE_BLOCKED;
 
@@ -392,7 +392,7 @@ void SchedBlockOn(ListHead *queue, Duration timeout)
 void SchedUnblock(TaskObject *t)
 {
     if (t->wait_slot.node.next)
-        list_remove(&t->wait_slot.node);
+        ListRemove(&t->wait_slot.node);
     SchedRemoveSleepQueue(t);
     t->wake_deadline = 0;
     t->ipc_state = IPC_NONE;
@@ -437,8 +437,8 @@ void SchedRemoveRunQueue(TaskObject *t)
     if (!t->node.next || !t->node.prev)
         return;
     uint32_t priority = t->queued_prio;
-    list_remove(&t->node);
-    if (list_empty(&run_queues[priority]))
+    ListRemove(&t->node);
+    if (ListIsEmpty(&run_queues[priority]))
         ready_mask &= ~(1U << priority);
 }
 

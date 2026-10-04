@@ -21,7 +21,7 @@
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
 typedef uint32_t ipv4_addr_t;
-typedef uint16_t port_t;
+typedef uint16_t NetPort;
 typedef uint8_t mac_addr_t[6];
 
 /* One network interface's L2/L3 config. */
@@ -65,7 +65,7 @@ static inline bool rate_allow(rate_limiter_t *rl, uint32_t rate, uint32_t burst)
     return true;
 }
 
-extern nic_ring_t *tx_ring, *rx_ring;
+extern NicRing *tx_ring, *rx_ring;
 extern Handle nic_port;
 extern Handle nic_ntfn;
 extern Handle tx_doorbell; /* notification netd signals to kick the driver's TX drain */

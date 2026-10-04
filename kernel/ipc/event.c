@@ -27,8 +27,8 @@ void EventSignal(EventObject *ev, EventWord bits, bool bcast)
     ev->word |= bits;
 
     bool delivered = false;
-    while (!list_empty(&ev->wait_queue)) {
-        ListNode *node = list_pop_front(&ev->wait_queue);
+    while (!ListIsEmpty(&ev->wait_queue)) {
+        ListNode *node = ListPopFront(&ev->wait_queue);
         WaitSlot *slot = container_of(node, WaitSlot, node);
         TaskObject *waiter = slot->owner;
         assert(waiter && waiter->trap_frame);
@@ -50,8 +50,8 @@ void EventKill(EventObject *ev)
     if (!ev || !ev->alive)
         return;
     ev->alive = false;
-    while (!list_empty(&ev->wait_queue)) {
-        ListNode *n = list_pop_front(&ev->wait_queue);
+    while (!ListIsEmpty(&ev->wait_queue)) {
+        ListNode *n = ListPopFront(&ev->wait_queue);
         WaitSlot *slot = container_of(n, WaitSlot, node);
         TaskAbortWait(slot->owner, ERR_DEAD);
     }
@@ -77,7 +77,7 @@ EventObject *EventCreate(SpaceObject *owner)
     ev->owner_spid = owner->spid;
     ev->ref_count = 1;
     ev->alive = true;
-    list_init(&ev->wait_queue);
+    ListInit(&ev->wait_queue);
     ev->word = 0;
     ev->bound_mask = 0;
 

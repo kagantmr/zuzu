@@ -5,10 +5,8 @@
 #include <types.h>
 #include <util/channel.h>
 #include <util/log.h>
-#include <zuzu/msg.h>
+#include <zuzu/zuzu.h>
 #include <zuzu/service.h>
-#include <zuzu/task.h>
-#include <zuzu/umem.h>
 
 #include "common/globals.h"
 #include "common/netrand.h"
@@ -21,9 +19,8 @@
 
 #include "app/dhcp.h"
 #include "app/dns.h"
-#include "zuzu/cap.h"
 
-nic_ring_t *tx_ring, *rx_ring;
+NicRing *tx_ring, *rx_ring;
 Handle nic_port;
 Handle nic_ntfn;
 Handle tx_doorbell;
@@ -35,7 +32,7 @@ netif_t netif; /* filled at startup (htonl isn't constant); DHCP overwrites late
 /**
  * UDP echo handler
  */
-static void udp_echo_handler(ipv4_addr_t src_ip, port_t src_port, port_t dst_port,
+static void udp_echo_handler(ipv4_addr_t src_ip, NetPort src_port, NetPort dst_port,
                              const uint8_t *data, uint16_t len)
 {
     LOG_INFO(LOG_TAG, "UDP packet, from: %u.%u.%u.%u:%d, to: %u.%u.%u.%u:%d", IP4(src_ip), src_port,
@@ -63,9 +60,9 @@ static __attribute__((cold)) void on_dhcp_bound(void)
     dns_query("google.com", on_resolved); /* smoke test now that we have DNS */
 }
 
-__attribute__((cold)) int get_shm()
+__attribute__((cold)) int PerformDriverHandshake()
 {
-    Handle port = ZuzuPortCreate();
+    Handle port = CreatePort();
 
     Err rc = RegisterService("/svc/netd", port);
     if (rc < 0) {
@@ -81,7 +78,7 @@ __attribute__((cold)) int get_shm()
     for (int tries = 0; tries < 200 && nic_port < 0; tries++) {
         nic_port = LookupService("/dev/eth0");
         if (nic_port < 0)
-            ZuzuSleep(10);
+            Sleep(10);
     }
     if (nic_port < 0) {
         LOG_ERROR(LOG_TAG, "couldn't find nic0");
@@ -106,14 +103,14 @@ __attribute__((cold)) int get_shm()
              netif.mac[3], netif.mac[4], netif.mac[5]);
 
     // w1 = shmem handle, w2 = rx doorbell, w3 = tx doorbell (all >= 0 on success)
-    r = ZuzuMsgCall(nic_port, NIC_CMD_GETBUF, 0, 0);
+    r = Call(nic_port, NIC_CMD_GETBUF, 0, 0);
     if ((int32_t)r.w0 != 0 || (int32_t)r.w1 < 0 || (int32_t)r.w2 < 0 || (int32_t)r.w3 < 0) {
         LOG_ERROR(LOG_TAG, "NIC_GETBUF failed");
         return 1;
     }
 
-    void *addr = ZuzuMemMap((int32_t)r.w1, 0, PROT_RW, 0);
-    if (ZuzuPtrIsErr(addr)) {
+    void *addr = MemMap((int32_t)r.w1, 0, PROT_RW, 0);
+    if (PtrIsErr(addr)) {
         LOG_ERROR(LOG_TAG, "shmem attach failed");
         return ERR_SYSDOWN;
     }
@@ -133,7 +130,7 @@ __attribute__((cold)) int get_shm()
 
 int main()
 {
-    if (get_shm() < 0) {
+    if (PerformDriverHandshake() < 0) {
         return ERR_SYSDOWN;
     }
 
