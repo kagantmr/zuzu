@@ -40,7 +40,7 @@ static void collect_dev_cb(const char *compatible, const char *path, uint64_t ph
     g_boot_info.count++;
 }
 
-void boot_info_init_from_dtb(void)
+void BootInfoInitFromFdt(void)
 {
 
     /* dtb subsystem must already be initialized. */
@@ -156,4 +156,4 @@ void BootInfoInit(void)
     bi->dev_count = count;
 }
 
-PhysAddr BootInfoPhysAddr(void) { return g_bootinfo_pa; }
+PhysAddr BootInfoPa(void) { return g_bootinfo_pa; }

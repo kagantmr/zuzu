@@ -30,7 +30,7 @@ typedef struct {
     void     *heap_start_va;     // VA used by kmalloc/heap
     void     *heap_end_va;       // optional
 
-} ZuzuRamLayout;
+} RamLayout;
 
 
 #endif

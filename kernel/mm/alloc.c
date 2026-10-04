@@ -12,7 +12,7 @@
 #define LOG_FMT(fmt) "(mm) " fmt
 #include <util/log.h>
 
-extern ZuzuRamLayout kernel_layout;
+extern RamLayout kernel_layout;
 
 KMemBlock* heap_head = NULL;
 static KMemBlock* heap_tail = NULL;

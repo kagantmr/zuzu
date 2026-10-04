@@ -73,7 +73,7 @@ void SyspageInit(void)
 
     SyspageUpdateMem();
 }
-PhysAddr SyspagePhysAddr(void) { return g_syspage_pa; }
+PhysAddr SyspagePa(void) { return g_syspage_pa; }
 void SyspageUpdateMem(void)
 {
     if (!g_sp)

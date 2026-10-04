@@ -22,7 +22,7 @@
 #include "core/kprintf.h"
 #include <string.h>
 
-ZuzuRamLayout kernel_layout;
+RamLayout kernel_layout;
 
 #define LOG_FMT(fmt) "(early) " fmt
 #include "core/log.h"
@@ -122,7 +122,7 @@ _Noreturn void early(void *dtb_ptr)
     kernel_layout.kernel_start_va = (uintptr_t)PA_TO_VA(kernel_layout.kernel_start_pa);
     kernel_layout.kernel_end_va = (uintptr_t)PA_TO_VA(kernel_layout.kernel_end_pa);
 
-    /* boot_info_init_from_dtb() copies everything out of the DTB and shuts
+    /* BootInfoInitFromFdt() copies everything out of the DTB and shuts
      * down libfdt access, so capture what the cleanup below needs first. */
     PhysAddr dtb_end_pa = kernel_layout.dtb_start_pa + FdtTotalSize();
     struct { uint64_t addr, size; } rsv[8];
@@ -130,7 +130,7 @@ _Noreturn void early(void *dtb_ptr)
     while (rsv_cnt < 8 && FdtGetReservedMem(rsv_cnt, &rsv[rsv_cnt].addr, &rsv[rsv_cnt].size))
         rsv_cnt++;
 
-    boot_info_init_from_dtb();
+    BootInfoInitFromFdt();
 
     /* The boot-only sections and the DTB are no longer needed once the
      * PMM-backed kernel L1 is live and DTB data has been copied out. The DTB

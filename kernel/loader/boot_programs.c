@@ -94,7 +94,7 @@ static void CreateRootSpace(const char *path)
     size_t bootinfo_pages = (sizeof(BootInfo) + PAGE_SIZE - 1) / PAGE_SIZE;
     for (size_t i = 0; i < bootinfo_pages; i++)
     {
-        if (!VmmMapUserPage(space->as, BootInfoPhysAddr() + (i * PAGE_SIZE),
+        if (!VmmMapUserPage(space->as, BootInfoPa() + (i * PAGE_SIZE),
                             USER_BOOTINFO_VA + (i * PAGE_SIZE), PROT_READ))
         {
             KERROR("Failed to map boot info page %zu for %s", i, path);

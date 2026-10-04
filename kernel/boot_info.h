@@ -18,7 +18,7 @@ typedef struct {
 } KernelBootInfo;
 
 /* Initialize boot info from an already-initialized DTB base. */
-void boot_info_init_from_dtb(void);
+void BootInfoInitFromFdt(void);
 
 /* Accessors */
 const char *boot_info_model(void);
@@ -40,6 +40,6 @@ const FdtDevice *boot_info_find_compatible(const char *const *compat);
  * Syspage this carries physical addresses; only map it into the root/init
  * process. Call once at boot after PMM + DTB ready, right after SyspageInit(). */
 void BootInfoInit(void);
-PhysAddr BootInfoPhysAddr(void); /* returns the physical page address */
+PhysAddr BootInfoPa(void); /* returns the physical page address */
 
 #endif

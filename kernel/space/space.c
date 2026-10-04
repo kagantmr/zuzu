@@ -58,7 +58,7 @@ SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
         goto fail_handles;
 
     /* Map syspage into user space. */
-    if (!VmmMapUserPage(sp->as, SyspagePhysAddr(), USER_SYSPAGE_VA, PROT_READ))
+    if (!VmmMapUserPage(sp->as, SyspagePa(), USER_SYSPAGE_VA, PROT_READ))
         goto fail_as;
 
     VirtMemRegion sys_region = {

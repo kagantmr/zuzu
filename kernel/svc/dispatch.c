@@ -7,7 +7,7 @@
 #include "svc_nums.h"
 #include <compiler.h>
 
-extern ZuzuRamLayout kernel_layout;
+extern RamLayout kernel_layout;
 
 typedef void (*SvcEntry)(CpuState *);
 

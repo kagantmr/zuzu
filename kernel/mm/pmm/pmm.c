@@ -20,7 +20,7 @@
 #include "util/log.h"
 
 PmmState pmm_state;
-extern ZuzuRamLayout kernel_layout;
+extern RamLayout kernel_layout;
 extern void SyspageUpdateMem(void);
 
 static bool PmmIsRecorded(PhysAddr pa)
