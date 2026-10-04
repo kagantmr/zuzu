@@ -1,5 +1,5 @@
-#ifndef LAYOUT_H
-#define LAYOUT_H
+#ifndef KERNEL_LAYOUT_H
+#define KERNEL_LAYOUT_H
 
 #include <stdint.h>
 #include <stddef.h>
