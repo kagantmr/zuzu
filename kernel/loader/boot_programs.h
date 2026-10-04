@@ -4,6 +4,6 @@
 #include <stddef.h>
 #include "types.h"
 
-void CreateRootSvc(PhysAddr initrd_pa, size_t initrd_size);
+void CreateRootService(PhysAddr initrd_pa, size_t initrd_size);
 
 #endif /* KERNEL_LOADER_BOOT_PROGRAMS_H */

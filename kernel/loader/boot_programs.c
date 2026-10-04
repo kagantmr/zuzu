@@ -168,7 +168,7 @@ static char *FindRootsvcPath(const char *manifest_data, size_t manifest_size)
     return NULL;
 }
 
-void CreateRootSvc(PhysAddr initrd_pa, size_t initrd_size)
+void CreateRootService(PhysAddr initrd_pa, size_t initrd_size)
 {
     g_initrd_pa = initrd_pa;
     g_initrd_size = initrd_size;
