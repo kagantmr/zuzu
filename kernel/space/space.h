@@ -56,20 +56,20 @@ static inline void TcbSlotFree(SpaceObject *p, int slot)
 }
 
 /* Physical base of the frame backing this slot's TCB page. */
-static inline PhysAddr TcbSlotPhysAddr(SpaceObject *p, uint32_t slot)
+static inline PhysAddr TcbSlotPa(SpaceObject *p, uint32_t slot)
 {
     return p->tcb_page_pa[slot / SLOTS_PER_PAGE] + ((slot % SLOTS_PER_PAGE) * TCB_SLOT_SIZE);
 }
 
 /* Kernel VA of this slot. */
-static inline VirtAddr TcbSlotKVirtAddr(SpaceObject *p, uint32_t slot)
+static inline VirtAddr TcbSlotKernelVa(SpaceObject *p, uint32_t slot)
 {
     return PA_TO_VA(p->tcb_page_pa[slot / SLOTS_PER_PAGE]) +
            ((slot % SLOTS_PER_PAGE) * TCB_SLOT_SIZE);
 }
 
 /* User VA of this slot. */
-static inline VirtAddr TcbSlotUVirtAddr(SpaceObject *p, uint32_t slot)
+static inline VirtAddr TcbSlotUserVa(SpaceObject *p, uint32_t slot)
 {
     return p->tcb_page_va + ((slot / SLOTS_PER_PAGE) * PAGE_SIZE) +
            ((slot % SLOTS_PER_PAGE) * TCB_SLOT_SIZE);

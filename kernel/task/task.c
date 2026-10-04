@@ -129,7 +129,7 @@ void TaskDestroy(TaskObject *task)
     if (owner && task->tcb_slot < TCB_MAX_SLOTS &&
         owner->tcb_page_pa[task->tcb_slot / SLOTS_PER_PAGE])
     {
-        memset((void *)TcbSlotKVirtAddr(owner, task->tcb_slot), 0, TCB_SLOT_SIZE);
+        memset((void *)TcbSlotKernelVa(owner, task->tcb_slot), 0, TCB_SLOT_SIZE);
         TcbSlotFree(owner, task->tcb_slot);
     }
     if (owner && owner->main_task == task)
@@ -229,8 +229,8 @@ TaskObject *TaskCreate(SpaceObject *owner)
         memset((void *)PA_TO_VA(pa), 0, PAGE_SIZE);
         owner->tcb_page_pa[tcb_page] = pa;
     }
-    ThreadLocalData *tcb = (ThreadLocalData *)TcbSlotKVirtAddr(owner, (uint32_t)tcb_slot_idx);
-    VirtAddr tcb_va = TcbSlotUVirtAddr(owner, (uint32_t)tcb_slot_idx);
+    ThreadLocalData *tcb = (ThreadLocalData *)TcbSlotKernelVa(owner, (uint32_t)tcb_slot_idx);
+    VirtAddr tcb_va = TcbSlotUserVa(owner, (uint32_t)tcb_slot_idx);
     memset(tcb, 0, TCB_SLOT_SIZE);
     tcb->msg_buf = (void *)(tcb_va + offsetof(ThreadLocalData, buf));
     tcb->tid = task->tid;
@@ -238,7 +238,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
     task->task_info_va = tcb_va;
     task->tcb_slot = (uint8_t)tcb_slot_idx;
     task->msg_buf_phys_addr =
-        TcbSlotPhysAddr(owner, (uint32_t)tcb_slot_idx) + offsetof(ThreadLocalData, buf);
+        TcbSlotPa(owner, (uint32_t)tcb_slot_idx) + offsetof(ThreadLocalData, buf);
 
     list_add_tail(&task->space_node, &owner->tasks.node);
     owner->live_tasks++;
