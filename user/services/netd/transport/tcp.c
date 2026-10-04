@@ -1,23 +1,29 @@
 #include "tcp.h"
-#include "tcp_pcb.h"
-#include "tcp_out.h"
-#include "port.h"
 #include "../app/dhcp.h"
 #include "../common/netrand.h"
 #include "../net/ip.h"
-#include <util/log.h>
+#include "port.h"
+#include "tcp_out.h"
+#include "tcp_pcb.h"
 #include <string.h>
+#include <util/log.h>
 
-int tcp_connect(ipv4_addr_t remote_ip, port_t remote_port) {
-    if (!dhcp_is_bound()) return ERR_NOTCONN;
+int tcp_connect(ipv4_addr_t remote_ip, port_t remote_port)
+{
+    if (!dhcp_is_bound())
+        return ERR_NOTCONN;
     int idx = tcp_pcb_alloc();
-    if (idx < 0) return ERR_NOMEM;
+    if (idx < 0)
+        return ERR_NOMEM;
     TcpPcb *pcb = &tcp_pcbs[idx];
     pcb->remote_ip = remote_ip;
     pcb->remote_port = remote_port;
     pcb->local_ip = netif.ip;
     pcb->local_port = port_alloc();
-    if (pcb->local_port == 0) { tcp_pcb_free(idx); return ERR_NOMEM; }
+    if (pcb->local_port == 0) {
+        tcp_pcb_free(idx);
+        return ERR_NOMEM;
+    }
     pcb->snd_nxt = netrand_u32();
     pcb->snd_una = pcb->snd_nxt;
     pcb->rcv_nxt = 0;
@@ -25,12 +31,17 @@ int tcp_connect(ipv4_addr_t remote_ip, port_t remote_port) {
     pcb->rto_ms = 1000;
     pcb->state = TCP_SYN_SENT;
     int rc = tcp_output(pcb, TCP_SYN, NULL, 0);
-    if (rc != ZUZU_OK) { port_release(pcb->local_port); tcp_pcb_free(idx); return rc; }
+    if (rc != ZUZU_OK) {
+        port_release(pcb->local_port);
+        tcp_pcb_free(idx);
+        return rc;
+    }
     LOG_INFO(LOG_TAG, "SYN -> %u.%u.%u.%u:%u", IP4(remote_ip), remote_port);
     return idx;
 }
 
-static void http_on_data(int slot) {
+static void http_on_data(int slot)
+{
     TcpPcb *pcb = &tcp_pcbs[slot];
     uint8_t chunk[256];
     int n;
@@ -39,25 +50,25 @@ static void http_on_data(int slot) {
         LOG_INFO(LOG_TAG, "app read %d: %s", n, chunk);
     }
     /* the resp string + tcp_send + tcp_close, moved verbatim */
-    static const char *resp =
-        "HTTP/1.0 200 OK\r\n"
-        "Content-Type: text/html\r\n"
-        "Connection: close\r\n"
-        "\r\n"
-        "<html><body><h1>Hello from ZuzuOS!</h1>"
-        "<p>Served by netd, powered by the Zuzu microkernel.</p>"
-        "</body></html>\r\n";
+    static const char *resp = "HTTP/1.0 200 OK\r\n"
+                              "Content-Type: text/html\r\n"
+                              "Connection: close\r\n"
+                              "\r\n"
+                              "<html><body><h1>Hello from ZuzuOS!</h1>"
+                              "<p>Served by netd, powered by the Zuzu microkernel.</p>"
+                              "</body></html>\r\n";
 
     tcp_send(slot, (const uint8_t *)resp, strlen(resp));
-    tcp_close(slot);                            /* close after responding */
+    tcp_close(slot); /* close after responding */
 }
 
-
-int tcp_listen(int port) {
+int tcp_listen(int port)
+{
     int slot = tcp_pcb_alloc();
-    if (slot < 0) return ERR_NOMEM;
+    if (slot < 0)
+        return ERR_NOMEM;
     TcpPcb *pcb = &tcp_pcbs[slot];
-    pcb->active = true;               /* memset cleared it, set it back */
+    pcb->active = true; /* memset cleared it, set it back */
     pcb->local_ip = netif.ip;
     pcb->local_port = port;
     pcb->state = TCP_LISTENING;
@@ -65,16 +76,17 @@ int tcp_listen(int port) {
     return slot;
 }
 
-int tcp_close(int idx) {
+int tcp_close(int idx)
+{
     TcpPcb *pcb = &tcp_pcbs[idx];
 
-    pcb->fin_pending = true;                  /* stream ends after last buffered byte */
+    pcb->fin_pending = true; /* stream ends after last buffered byte */
 
     if (pcb->state == TCP_ESTABLISHED)
-        pcb->state = TCP_FIN_WAIT_1;          /* active close */
+        pcb->state = TCP_FIN_WAIT_1; /* active close */
     else if (pcb->state == TCP_CLOSE_WAIT)
-        pcb->state = TCP_LAST_ACK;            /* passive close */
+        pcb->state = TCP_LAST_ACK; /* passive close */
 
-    tcp_xmit(pcb);                            /* emits FIN (piggybacked or bare) */
+    tcp_xmit(pcb); /* emits FIN (piggybacked or bare) */
     return ZUZU_OK;
 }

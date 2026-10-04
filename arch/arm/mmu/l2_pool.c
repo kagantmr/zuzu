@@ -1,14 +1,14 @@
 // l2_pool.c - L2 page pool implementation for ARM MMU
 
 #include "l2_pool.h"
-#include "kernel/mm/pmm/pmm.h"
 #include "kernel/mm/alloc.h"
+#include "kernel/mm/pmm/pmm.h"
 #include "types.h"
 #include <arch/mmu.h>
 #include <string.h>
 
-#define L2_TABLE_SIZE 1024U                 // one ARMv7 L2 table is 1 KB
-#define L2_PER_PAGE (PAGE_SIZE / L2_TABLE_SIZE) // 4 L2 tables packed per 4 KB page
+#define L2_TABLE_SIZE 1024U                      // one ARMv7 L2 table is 1 KB
+#define L2_PER_PAGE (PAGE_SIZE / L2_TABLE_SIZE)  // 4 L2 tables packed per 4 KB page
 #define L2_SLOTS_FULL ((1u << L2_PER_PAGE) - 1u) // used_mask value when all slots taken
 #define PAGE_OFFSET_MASK (PAGE_SIZE - 1u)
 
@@ -17,16 +17,13 @@ static KSlabCache l2_entry_cache;
 
 uintptr_t L2PtPoolAlloc(void)
 {
-    for (L2PtPoolEntry *entry = pool_head; entry; entry = entry->next)
-    {
+    for (L2PtPoolEntry *entry = pool_head; entry; entry = entry->next) {
         if (entry->used_mask == L2_SLOTS_FULL)
             continue; // all slots occupied
 
         // Find the first free slot in this page
-        for (unsigned slot = 0; slot < L2_PER_PAGE; slot++)
-        {
-            if (!(entry->used_mask & (1 << slot)))
-            {
+        for (unsigned slot = 0; slot < L2_PER_PAGE; slot++) {
+            if (!(entry->used_mask & (1 << slot))) {
                 entry->used_mask = (uint8_t)(entry->used_mask | (1U << slot));
                 uintptr_t pa = entry->page_pa + (slot * L2_TABLE_SIZE);
                 memset((void *)PA_TO_VA(pa), 0, L2_TABLE_SIZE);
@@ -37,16 +34,14 @@ uintptr_t L2PtPoolAlloc(void)
 
     // No existing page has free slots, need to allocate a new page
     uintptr_t page_pa = PmmAllocFrame();
-    if (!page_pa)
-    {
+    if (!page_pa) {
         return 0; // out of physical memory
     }
 
     if (!l2_entry_cache.obj_size)
         KSlabInit(&l2_entry_cache, sizeof(L2PtPoolEntry));
     L2PtPoolEntry *entry = KSlabAlloc(&l2_entry_cache);
-    if (!entry)
-    {
+    if (!entry) {
         PmmFreeFrame(page_pa);
         return 0; // out of memory for pool entry
     }
@@ -58,13 +53,12 @@ uintptr_t L2PtPoolAlloc(void)
     entry->next = pool_head;
     pool_head = entry;
 
-    return page_pa;                               // slot 0 is at offset 0
+    return page_pa; // slot 0 is at offset 0
 }
 
 void L2PtPoolFree(PhysAddr l2_pa)
 {
-    if (!l2_pa)
-    {
+    if (!l2_pa) {
         return;
     }
 
@@ -74,10 +68,8 @@ void L2PtPoolFree(PhysAddr l2_pa)
     L2PtPoolEntry *prev = NULL;
     L2PtPoolEntry *entry = pool_head;
 
-    while (entry)
-    {
-        if (entry->page_pa != page_pa)
-        {
+    while (entry) {
+        if (entry->page_pa != page_pa) {
             prev = entry;
             entry = entry->next;
             continue;
@@ -86,20 +78,15 @@ void L2PtPoolFree(PhysAddr l2_pa)
         entry->used_mask = (uint8_t)(entry->used_mask & ~(1U << slot));
 
         // If all 4 slots free, return page to PMM
-        if (entry->used_mask == 0)
-        {
+        if (entry->used_mask == 0) {
             PmmFreeFrame(page_pa);
-            if (prev)
-            {
+            if (prev) {
                 prev->next = entry->next;
-            }
-            else
-            {
+            } else {
                 pool_head = entry->next;
             }
             KSlabFree(&l2_entry_cache, entry);
         }
         return;
     }
-
 }

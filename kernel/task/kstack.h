@@ -16,12 +16,12 @@ _Static_assert(KSTACK_REGION_TOP <= IOREMAP_END, "kstack region overflows the io
 
 static inline int KStackSlotFromTop(VirtAddr stack_top)
 {
-	return (int)((stack_top - KSTACK_REGION_BASE) / KSTACK_SLOT_SIZE) - 1;
+    return (int)((stack_top - KSTACK_REGION_BASE) / KSTACK_SLOT_SIZE) - 1;
 }
 
 static inline VirtAddr KStackTopFromSlot(int slot)
 {
-	return KSTACK_REGION_BASE + (VirtAddr)((slot + 1) * KSTACK_SLOT_SIZE);
+    return KSTACK_REGION_BASE + (VirtAddr)((slot + 1) * KSTACK_SLOT_SIZE);
 }
 
 VirtAddr KStackAlloc(void);

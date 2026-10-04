@@ -1,7 +1,7 @@
 /**
-* @file bcm2711gpiodrv.h
-* @brief Header file for the zuzu BCM2711 board GPIO driver
-*/
+ * @file bcm2711gpiodrv.h
+ * @brief Header file for the zuzu BCM2711 board GPIO driver
+ */
 
 #ifndef BCM2711_GPIODRV_H
 #define BCM2711_GPIODRV_H
@@ -35,31 +35,30 @@ typedef struct __attribute__((packed)) {
 } Bcm2711GpioMMIO;
 
 /* Function select modes */
-#define GPIO_FSEL_INPUT   0b000
-#define GPIO_FSEL_OUTPUT  0b001
-#define GPIO_FSEL_ALT0    0b100
+#define GPIO_FSEL_INPUT 0b000
+#define GPIO_FSEL_OUTPUT 0b001
+#define GPIO_FSEL_ALT0 0b100
 
 /* pull up/pull down modes */
 #define GPIO_PUP_PDN_NONE 0b00
-#define GPIO_PUP_PDN_UP   0b01
+#define GPIO_PUP_PDN_UP 0b01
 #define GPIO_PUP_PDN_DOWN 0b10
 
 /* zuzuphone pin mapping (temporary) */
-#define ZP_PIN_POWER_BTN   4
-#define ZP_PIN_VOL_UP_BTN  23
+#define ZP_PIN_POWER_BTN 4
+#define ZP_PIN_VOL_UP_BTN 23
 #define ZP_PIN_VOL_DOWN_BTN 24
-#define ZP_PIN_LED_BLUE    17
-#define ZP_PIN_LED_GREEN   27
-#define ZP_PIN_LED_RED     22
-#define ZP_PIN_BUZZER      5
+#define ZP_PIN_LED_BLUE 17
+#define ZP_PIN_LED_GREEN 27
+#define ZP_PIN_LED_RED 22
+#define ZP_PIN_BUZZER 5
 
 /* ipc cmds */
 enum GpioIpcCommand {
-    GPIO_CMD_SET_MODE = 1,   /* args: pin, mode (e.g., input/output/alt). Denied for UART */
-    GPIO_CMD_SET_PULL,       /* args: pin, pull_type (e.g., up/down/none) */
-    GPIO_CMD_WRITE,          /* args: pin, value (1 or 0) */
-    GPIO_CMD_READ            /* args: pin. returns: value (1 or 0) */
+    GPIO_CMD_SET_MODE = 1, /* args: pin, mode (e.g., input/output/alt). Denied for UART */
+    GPIO_CMD_SET_PULL,     /* args: pin, pull_type (e.g., up/down/none) */
+    GPIO_CMD_WRITE,        /* args: pin, value (1 or 0) */
+    GPIO_CMD_READ          /* args: pin. returns: value (1 or 0) */
 };
-
 
 #endif /* BCM2711_GPIODRV_H */

@@ -2,16 +2,15 @@
 #define NETD_ARP_H
 
 #include "../common/globals.h"
+#include "../common/txframe.h"
+#include <stdbool.h>
 #include <stdint.h>
 #include <vector.h>
-#include <stdbool.h>
-#include "../common/txframe.h"
 
 #define ARP_OPER_REQST 1
 #define ARP_OPER_REPLY 2
 
-typedef struct __attribute__((packed))
-{
+typedef struct __attribute__((packed)) {
     uint16_t htype; // hardware type: 1 for Ethernet
     uint16_t ptype; // protocol type: 0x0800 for IPv4
     uint8_t hlen;   // hardware address length: 6 for MAC
@@ -33,24 +32,17 @@ typedef struct __attribute__((packed))
    Total detection window is ACD_PROBE_NUM * ACD_PROBE_MS before an address is
    declared free. */
 #define ACD_PROBE_NUM 3
-#define ACD_PROBE_MS  1000
+#define ACD_PROBE_MS 1000
 
-typedef enum
-{
-    ARP_FREE = 0,
-    ARP_INCOMPLETE,
-    ARP_REACHABLE
-} arp_state_t;
+typedef enum { ARP_FREE = 0, ARP_INCOMPLETE, ARP_REACHABLE } arp_state_t;
 
-typedef struct
-{
+typedef struct {
     uint8_t *data;
     uint16_t len;
     uint16_t ethertype;
 } arp_pending_t;
 
-typedef struct
-{
+typedef struct {
     ipv4_addr_t ip;
     uint8_t mac[6];
     arp_state_t state;

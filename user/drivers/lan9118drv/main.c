@@ -41,8 +41,7 @@ static uint32_t nic_stats[NIC_STAT_COUNT];
 
 static Handle WaitForService(const char *path)
 {
-    for (;;)
-    {
+    for (;;) {
         Handle h = LookupService(path);
         if (h >= 0)
             return h;
@@ -54,27 +53,23 @@ static void InitPacketRings(void)
 {
 
     shm_tx_handle = CreateMem(NIC_SHM_BYTES); // packet size = 1536, ring_size = 16
-    if (shm_tx_handle < 0)
-    {
+    if (shm_tx_handle < 0) {
         LOG_ERROR(LOG_TAG, "CreateMem failed: %s", StrToError(shm_tx_handle));
         return;
     }
     shm_tx = MemMap(shm_tx_handle, 0, PROT_RW);
-    if (PtrIsErr(shm_tx))
-    {
+    if (PtrIsErr(shm_tx)) {
         LOG_ERROR(LOG_TAG, "MemMap on shm_tx failed: %s", StrToError((Err)shm_tx));
         return;
     }
 
     shm_rx_handle = CreateMem(NIC_SHM_BYTES); // packet size = 1536, ring_size = 16
-    if (shm_rx_handle < 0)
-    {
+    if (shm_rx_handle < 0) {
         LOG_ERROR(LOG_TAG, "CreateMem failed: %s", StrToError(shm_rx_handle));
         return;
     }
     shm_rx = MemMap(shm_rx_handle, 0, PROT_RW);
-    if (PtrIsErr(shm_rx))
-    {
+    if (PtrIsErr(shm_rx)) {
         LOG_ERROR(LOG_TAG, "MemMap on shm_rx failed: %s", StrToError((Err)shm_rx));
         return;
     }
@@ -91,8 +86,7 @@ static void InitPacketRings(void)
 
 static void NicTxFrame(NicFrame *f)
 {
-    if ((nic->tx_fifo_inf & 0xFFFFU) < (f->len + 8U))
-    { // +8 for the two command words
+    if ((nic->tx_fifo_inf & 0xFFFFU) < (f->len + 8U)) { // +8 for the two command words
         nic_stats[NIC_STAT_TX_DROPS]++;
         return; // tx FIFO full
     }
@@ -102,8 +96,7 @@ static void NicTxFrame(NicFrame *f)
     tx_tag++;
     nic->tx_data_fifo_port = cmd_a;
     nic->tx_data_fifo_port = cmd_b;
-    for (size_t i = 0; i < ((size_t)(f->len + 3) / 4); i++)
-    {
+    for (size_t i = 0; i < ((size_t)(f->len + 3) / 4); i++) {
         nic->tx_data_fifo_port = ((uint32_t *)f->data)[i];
     }
     nic_stats[NIC_STAT_TX_PACKETS]++;
@@ -140,15 +133,13 @@ static Err GetNicHandle(void)
     static const char *const nic_compat[] = {"smsc,lan9118"};
     uint32_t matched;
     dev_handle = RequestDevice(WaitForService("/svc/devsvc"), nic_compat, 1, &matched);
-    if (dev_handle < 0)
-    {
+    if (dev_handle < 0) {
         LOG_ERROR(LOG_TAG, "RequestDevice failed: %s", StrToError(dev_handle));
         return dev_handle;
     }
 
     nic = (volatile Lan9118Mmio *)MemMap(dev_handle, 0, PROT_RW);
-    if (PtrIsErr((const void *)nic))
-    {
+    if (PtrIsErr((const void *)nic)) {
         LOG_ERROR(LOG_TAG, "MemMap failed on MMIO: %s", StrToError((Err)nic));
         return ERR_SYSDOWN;
     }
@@ -159,8 +150,7 @@ static Err GetNicHandle(void)
 static Err Lan9118Setup(void)
 {
 
-    if (nic->byte_test != BYTE_TEST_VALUE)
-    {
+    if (nic->byte_test != BYTE_TEST_VALUE) {
         LOG_ERROR(LOG_TAG, "byte test failed (0x%08X instead of 0x%08x)", nic->byte_test,
                   BYTE_TEST_VALUE);
         return ERR_MALFORMED;
@@ -181,8 +171,7 @@ static Err Lan9118Setup(void)
     mac[4] = (hi >> 0) & 0xFF;
     mac[5] = (hi >> 8) & 0xFF;
 
-    if (nic->tx_cfg & TX_CFG_STOP_TX)
-    {
+    if (nic->tx_cfg & TX_CFG_STOP_TX) {
         LOG_ERROR(LOG_TAG, "TX is stopped");
         return ERR_SYSDOWN;
     }
@@ -211,43 +200,37 @@ void InitLan9118Svcs(void)
     Err rc;
 
     svc_port = CreatePort();
-    if (svc_port < 0)
-    {
+    if (svc_port < 0) {
         LOG_ERROR(LOG_TAG, "CreatePort failed: %s", StrToError(svc_port));
         return;
     }
 
     g_event = CreateEvent();
-    if (g_event < 0)
-    {
+    if (g_event < 0) {
         LOG_ERROR(LOG_TAG, "CreateEvent failed: %s", StrToError(g_event));
         return;
     }
 
     rc = BindIrq(g_event, dev_handle, IRQ_BIT);
-    if (rc < 0)
-    {
+    if (rc < 0) {
         LOG_ERROR(LOG_TAG, "BindIrq failed: %s", StrToError(rc));
         return;
     }
 
     g_doorbell_ev = CreateEvent();
-    if (g_doorbell_ev < 0)
-    {
+    if (g_doorbell_ev < 0) {
         LOG_ERROR(LOG_TAG, "tx doorbell registration failed");
         return;
     }
 
     rc = Bind(EVENT_PORT, g_event, svc_port, PORT_BIT);
-    if (rc < 0)
-    {
+    if (rc < 0) {
         LOG_ERROR(LOG_TAG, "Bind failed: %s", StrToError(rc));
         return;
     }
 
     rc = RegisterService("/dev/eth0", svc_port);
-    if (rc < 0)
-    {
+    if (rc < 0) {
         LOG_ERROR(LOG_TAG, "service registration failed: %s", StrToError(rc));
         return;
     }
@@ -259,25 +242,19 @@ void ServiceIrq(void)
     nic_stats[NIC_STAT_IRQ]++;
     uint32_t sts = nic->int_sts;
     nic->int_sts = sts; // write back to clear R/WC bits
-    if (sts & INT_RSFL)
-    {
+    if (sts & INT_RSFL) {
         /* drain RX FIFO */
-        while ((nic->rx_fifo_inf >> 16) & 0xFF)
-        {
+        while ((nic->rx_fifo_inf >> 16) & 0xFF) {
             uint32_t rx_sts = nic->rx_status_fifo_port;
             size_t pkt_len = (rx_sts >> 16) & 0x3FFF;
-            if (rx_sts & (1U << 15))
-            {
+            if (rx_sts & (1U << 15)) {
                 nic_stats[NIC_STAT_RX_ERRORS]++;
                 uint32_t dwords = (pkt_len + 3) / 4;
                 for (uint32_t i = 0; i < dwords; i++)
                     (void)nic->rx_data_fifo_port;
-            }
-            else
-            {
+            } else {
                 static _Alignas(4) uint8_t buf[NIC_FRAME_SIZE];
-                if (pkt_len > NIC_FRAME_SIZE)
-                {
+                if (pkt_len > NIC_FRAME_SIZE) {
                     nic_stats[NIC_STAT_RX_OVERSIZE]++;
                     uint32_t dwords = (pkt_len + 3) / 4;
                     for (uint32_t i = 0; i < dwords; i++)
@@ -288,8 +265,7 @@ void ServiceIrq(void)
                 for (uint32_t i = 0; i < dwords; i++)
                     ((uint32_t *)buf)[i] = nic->rx_data_fifo_port;
                 int push_rc = PacketRingPush(rx_ring, buf, pkt_len);
-                if (push_rc < 0)
-                {
+                if (push_rc < 0) {
                     nic_stats[NIC_STAT_RX_RING_FULL]++;
                     continue;
                 }
@@ -298,11 +274,9 @@ void ServiceIrq(void)
             }
         }
     }
-    if (sts & INT_TSFL)
-    {
+    if (sts & INT_TSFL) {
         /* drain TX status FIFO */
-        while ((nic->tx_fifo_inf >> 16) & 0xFF)
-        {
+        while ((nic->tx_fifo_inf >> 16) & 0xFF) {
             uint32_t tx_sts = nic->tx_status_fifo_port;
             (void)tx_sts;
         }
@@ -311,14 +285,13 @@ void ServiceIrq(void)
     IrqRearm(dev_handle);
 }
 
-static Err NetdHandshake(void) {
+static Err NetdHandshake(void)
+{
     Handle netd_port = WaitForService("/svc/netd");
     if (netd_port < 0) {
         printf("Couldn't find netd");
         return ERR_SYSDOWN;
     }
-
-    
 
     return ZUZU_OK;
 }
@@ -333,7 +306,7 @@ int main(void)
     retval = Lan9118Setup();
     if (retval != 0)
         return retval;
-    
+
     InitPacketRings();
     InitLan9118Svcs();
 
@@ -341,13 +314,12 @@ int main(void)
     if (retval != ZUZU_OK)
         return retval;
 
-    for (;;)
-    {
+    for (;;) {
         EventWaitResult res = FormatToEventWait(WaitOn(g_event, 50));
 
-        if (ZUZU_OK == res.status)
-        {
-            if (res.bits & IRQ_BIT) ServiceIrq();
+        if (ZUZU_OK == res.status) {
+            if (res.bits & IRQ_BIT)
+                ServiceIrq();
             if (res.bits & PORT_BIT) {
             }
         }

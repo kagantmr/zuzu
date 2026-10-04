@@ -4,8 +4,8 @@
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/mm/vmm/vmm.h"
 #include <libfdt.h>
-#include <string.h>
 #include <stddef.h>
+#include <string.h>
 #include <zuzu/bootinfo.h>
 
 #define LOG_FMT(fmt) "(boot_info) " fmt
@@ -14,7 +14,8 @@
 static KernelBootInfo g_boot_info = {0};
 static PhysAddr g_bootinfo_pa;
 
-static void collect_dev_cb(const char *compatible, const char *path, uint64_t phys, uint64_t size, uint32_t irq)
+static void collect_dev_cb(const char *compatible, const char *path, uint64_t phys, uint64_t size,
+                           uint32_t irq)
 {
     if (!g_boot_info.devs)
         return;
@@ -82,10 +83,7 @@ void BootInfoInitFromFdt(void)
     FdtShutdown();
 }
 
-const char *boot_info_model(void)
-{
-    return g_boot_info.model ? g_boot_info.model : FdtModel();
-}
+const char *boot_info_model(void) { return g_boot_info.model ? g_boot_info.model : FdtModel(); }
 
 const char *boot_info_cpu_compat(void)
 {
@@ -102,10 +100,7 @@ void BootInfoEnumerateDevs(void (*cb)(const char *, uint64_t, uint64_t, uint32_t
     }
 }
 
-uint32_t boot_info_dev_count(void)
-{
-    return g_boot_info.count;
-}
+uint32_t boot_info_dev_count(void) { return g_boot_info.count; }
 
 bool boot_info_initrd(uint64_t *out_pa, uint64_t *out_size)
 {
@@ -116,10 +111,7 @@ bool boot_info_initrd(uint64_t *out_pa, uint64_t *out_size)
     return true;
 }
 
-const FdtDevice *boot_info_dev_array(void)
-{
-    return (const FdtDevice *)g_boot_info.devs;
-}
+const FdtDevice *boot_info_dev_array(void) { return (const FdtDevice *)g_boot_info.devs; }
 
 const FdtDevice *boot_info_find_compatible(const char *const *compat)
 {

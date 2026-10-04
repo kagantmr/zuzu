@@ -4,8 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef struct
-{
+typedef struct {
     uint32_t rx_data_fifo_port;           // 0x00
     uint32_t rx_data_fifo_alias_ports[7]; // 0x04-0x1C
     uint32_t tx_data_fifo_port;           // 0x20

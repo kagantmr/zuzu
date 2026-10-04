@@ -14,10 +14,8 @@ void SvcManageHandle(CpuState *frame)
 
     ENSURE_ERR(frame, entry, ERR_BADHANDLE);
 
-    switch (verb)
-    {
-    case MNGHNDL_DUPLICATE:
-    {
+    switch (verb) {
+    case MNGHNDL_DUPLICATE: {
         Marker handle_marker = (Marker)(*ArchGetFromFrame(frame, 3));
         HandlePerms perms = (HandlePerms)(*ArchGetFromFrame(frame, 2));
         if (!(HANDLE_PORT == entry->type && entry->port->owner_spid == CURRENT_SPACE->spid))
@@ -28,47 +26,36 @@ void SvcManageHandle(CpuState *frame)
         ENSURE_ERR(frame, ZUZU_OK == rc, rc);
         ArchSetInFrame(frame, 0, ZUZU_OK);
         ArchSetInFrame(frame, 1, new_handle);
-    }
-    break;
-    case MNGHNDL_RESTRICT:
-    {
+    } break;
+    case MNGHNDL_RESTRICT: {
         /* r2 = perms mask */
         HandlePerms mask = (HandlePerms)(*ArchGetFromFrame(frame, 2));
         entry->perms &= mask;
         ArchSetInFrame(frame, 0, ZUZU_OK);
-    }
-    break;
+    } break;
 
-    case MNGHNDL_CLOSE:
-    {
-        if (HANDLE_SPACE == entry->type)
-        {
+    case MNGHNDL_CLOSE: {
+        if (HANDLE_SPACE == entry->type) {
             ENSURE_ERR(frame, entry->space, ERR_BADHANDLE);
             ENSURE_ERR(frame, !SpaceIsSelfOrAncestor(CURRENT_SPACE, entry->space), ERR_BADARG);
         }
         HandleRelease(CURRENT_SPACE, entry);
         ArchSetInFrame(frame, 0, ZUZU_OK);
-    }
-    break;
-    case MNGHNDL_DESTROY:
-    {
-        if (HANDLE_SPACE == entry->type)
-        {
+    } break;
+    case MNGHNDL_DESTROY: {
+        if (HANDLE_SPACE == entry->type) {
             ENSURE_ERR(frame, entry->space, ERR_BADHANDLE);
             ENSURE_ERR(frame, !SpaceIsSelfOrAncestor(CURRENT_SPACE, entry->space), ERR_BADARG);
             SpaceDestroy(entry->space);
         }
         HandleRelease(CURRENT_SPACE, entry);
         ArchSetInFrame(frame, 0, ZUZU_OK);
-    }
-    break;
-    case MNGHNDL_QUERY:
-    {
+    } break;
+    case MNGHNDL_QUERY: {
         /* r2 = what */
         QueryWhat what = (QueryWhat)(*ArchGetFromFrame(frame, 2));
         Register value;
-        switch (what)
-        {
+        switch (what) {
         case QUERY_TYPE:
             value = (Register)entry->type;
             break;
@@ -80,23 +67,16 @@ void SvcManageHandle(CpuState *frame)
             break;
         case QUERY_STATUS:
 
-            if (HANDLE_TASK == entry->type)
-            {
+            if (HANDLE_TASK == entry->type) {
                 ENSURE_ERR(frame, entry->task, ERR_BADHANDLE);
                 value = (Register)entry->task->exit_status;
-            }
-            else if (HANDLE_SPACE == entry->type)
-            {
+            } else if (HANDLE_SPACE == entry->type) {
                 ENSURE_ERR(frame, entry->space, ERR_BADHANDLE);
                 value = (Register)entry->space->last_exit_status;
-            }
-            else if (HANDLE_PORT == entry->type)
-            {
+            } else if (HANDLE_PORT == entry->type) {
                 ENSURE_ERR(frame, entry->port, ERR_BADHANDLE);
                 value = (Register)(entry->port->alive ? ZUZU_OK : ERR_DEAD);
-            }
-            else
-            {
+            } else {
                 ArchSetInFrame(frame, 0, ERR_BADTYPE);
                 return;
             }
@@ -115,10 +95,8 @@ void SvcManageHandle(CpuState *frame)
         }
         ArchSetInFrame(frame, 0, ZUZU_OK);
         ArchSetInFrame(frame, 1, value);
-    }
-    break;
-    case MNGHNDL_GRANT:
-    {
+    } break;
+    case MNGHNDL_GRANT: {
         Handle target_space_handle = (Handle)(*ArchGetFromFrame(frame, 2));
         HandlePerms perms = (HandlePerms)(*ArchGetFromFrame(frame, 3));
 
@@ -136,17 +114,14 @@ void SvcManageHandle(CpuState *frame)
         ENSURE_ERR(frame, ZUZU_OK == rc, rc);
         ArchSetInFrame(frame, 0, ZUZU_OK);
         ArchSetInFrame(frame, 1, new_handle);
-    }
-    break;
-    case MNGHNDL_IRQ_REARM:
-    {
+    } break;
+    case MNGHNDL_IRQ_REARM: {
         ENSURE_ERR(frame, HANDLE_MEM == entry->type, ERR_BADTYPE);
         MemObject *dev = entry->mem;
         ENSURE_ERR(frame, dev && dev->kind == MEMKIND_DEVICE, ERR_BADTYPE);
         ENSURE_ERR(frame, IrqIsValid(dev->dev.irq), ERR_BADARG);
         ArchSetInFrame(frame, 0, IrqRelayRearm(CURRENT_SPACE, dev->dev.irq));
-    }
-    break;
+    } break;
     default:
         ArchSetInFrame(frame, 0, ERR_BADARG);
         break;

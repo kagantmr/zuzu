@@ -1,7 +1,7 @@
-#include <zuzu/service.h>
 #include <util/msg.h>
-#include <zuzu/zuzu.h>
 #include <zuzu/err.h>
+#include <zuzu/service.h>
+#include <zuzu/zuzu.h>
 
 Err RegisterService(const char *name, Handle port)
 {
@@ -35,4 +35,3 @@ Handle LookupService(const char *name)
         return (Handle)r.r0;
     return (Handle)r.r3; /* nsvc regrants the found port via its Reply */
 }
-

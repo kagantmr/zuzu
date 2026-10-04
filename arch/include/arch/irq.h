@@ -7,8 +7,8 @@
 #ifndef ARCH_IRQ_H
 #define ARCH_IRQ_H
 
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 typedef void (*IrqHandler)(void *ctx); /* generic IRQ handler */
 

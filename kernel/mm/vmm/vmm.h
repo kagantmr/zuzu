@@ -1,11 +1,11 @@
 #ifndef KERNEL_MM_VMM_VMM_H
 #define KERNEL_MM_VMM_VMM_H
 
-#include <stdint.h>
-#include <stddef.h>
 #include <stdbool.h>
-#include <vector.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <types.h>
+#include <vector.h>
 #include BOARD_LAYOUT_H
 #include <arch/asid.h>
 
@@ -19,34 +19,30 @@ typedef struct HandleTableEntryStruct HandleTableEntry;
 
 #define VM_PROT_USER (1U << 3) // user-accessible (otherwise kernel-only)
 
-typedef enum
-{
+typedef enum {
     VM_MEM_NORMAL = 0,
     VM_MEM_DEVICE = 1,
 } VirtMemType;
 
-typedef enum
-{
+typedef enum {
     VM_BACKING_NONE = 0,   // Physical pages NOT owned by this addrspace.
-                         // Used for MMIO, device memory, external allocations.
-                         // On destroy: unmap only, do NOT free pages.
+                           // Used for MMIO, device memory, external allocations.
+                           // On destroy: unmap only, do NOT free pages.
     VM_BACKING_ANON = 1,   // Physical pages allocated by PMM for this addrspace.
-                         // Used for anonymous memory (heap, stack, user allocations).
-                         // On destroy: must walk page tables, translate VA→PA, free pages to PMM.
+                           // Used for anonymous memory (heap, stack, user allocations).
+                           // On destroy: must walk page tables, translate VA→PA, free pages to PMM.
     VM_BACKING_SHARED = 2, // Physical pages owned by a different addrspace or subsystem.
-                         // Used for shared kernel mappings, copy-on-write, etc.
-                         // On destroy: unmap only, do NOT free pages.
+                           // Used for shared kernel mappings, copy-on-write, etc.
+                           // On destroy: unmap only, do NOT free pages.
 } VirtMemBacking;
 
-typedef enum
-{
+typedef enum {
     VM_FLAG_NONE = 0,
-    VM_FLAG_PINNED = 1U << 0,    // must stay mapped
-    VM_FLAG_GUARD = 1U << 2,     // guard page/region
+    VM_FLAG_PINNED = 1U << 0, // must stay mapped
+    VM_FLAG_GUARD = 1U << 2,  // guard page/region
 } VirtMemFlags;
 
-typedef struct VirtMemRegionStruct
-{
+typedef struct VirtMemRegionStruct {
     VirtAddr vaddr_start;
     size_t size;
     MemProt prot;
@@ -56,16 +52,14 @@ typedef struct VirtMemRegionStruct
     void *backing; // optional backing MemObject for shared and device mappings
 } VirtMemRegion;
 
-typedef enum
-{
+typedef enum {
     ADDRESS_SPACE_KERNEL = 0,
     ADDRESS_SPACE_USER = 1,
 } AddressSpaceType;
 
 DEFINE_VEC(vm_region, VirtMemRegion)
 
-typedef struct AddressSpaceStruct
-{
+typedef struct AddressSpaceStruct {
     PhysAddr pt_root_physaddr; // physical address of level-1 table
     vm_region_vec_t regions;
     AddressSpaceType type;
@@ -164,8 +158,8 @@ void VmmActivateAddressSpace(AddressSpace *as);
  * @param memtype VM_MEM_NORMAL or VM_MEM_DEVICE.
  * @return true on success, false on error.
  */
-bool VmmMapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size,
-                   MemProt prot, VirtMemType memtype);
+bool VmmMapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size, MemProt prot,
+                 VirtMemType memtype);
 
 /**
  * @brief Remove mappings from an address space.
@@ -215,7 +209,8 @@ bool VmmMapUserPage(AddressSpace *as, PhysAddr pa, VirtAddr va, MemProt prot);
 
 Err VmmMapAnon(SpaceObject *space, VirtAddr hint, size_t size, MemProt prot, VirtAddr *out);
 
-Err VmmMapMemObj(SpaceObject *space, HandleTableEntry *entry, MemProt prot, VirtAddr hint, VirtAddr *out);
+Err VmmMapMemObj(SpaceObject *space, HandleTableEntry *entry, MemProt prot, VirtAddr hint,
+                 VirtAddr *out);
 
 Err VmmUnmapUserRegion(SpaceObject *space, VirtAddr va);
 
@@ -257,8 +252,8 @@ bool VmmCheckUserFault(AddressSpace *as, VirtAddr va, size_t len, bool write);
  * themselves (pt_root_physaddr, the regions vector header) and the
  * VirtMemRegion bytes region points at never overlap -- on the lazy-mapping
  * hot path (ServiceDemandPage -> here), this is what makes it safe. */
-bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict region, uintptr_t page_va);
-
+bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict region,
+                        uintptr_t page_va);
 
 void VmmLockdownKernelMapping(void);
 

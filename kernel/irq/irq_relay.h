@@ -11,7 +11,7 @@ typedef struct {
     SpaceObject *owner;
     bool pending;
     EventObject *bound_ev;
-    uint32_t bit;          // EventWord bit this IRQ signals, 0..30 (31 is reserved)
+    uint32_t bit; // EventWord bit this IRQ signals, 0..30 (31 is reserved)
 } IrqOwner;
 
 bool IrqIsValid(Irq irq_num);

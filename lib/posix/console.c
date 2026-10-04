@@ -1,6 +1,6 @@
+#include <dev/protocols/tty.h>
 #include <errno.h>
 #include <string.h>
-#include <dev/protocols/tty.h>
 #include <zuzu/service.h>
 #include <zuzu/zuzu.h>
 
@@ -22,25 +22,23 @@ static int ConsoleOpen(void)
     console_port = LookupService("/svc/tty");
     if (console_port < 0)
         return -1;
-    if (console_event < 0)
-    {
+    if (console_event < 0) {
         console_event = CreateEvent();
         if (console_event < 0)
             return -1;
     }
 
     Err rc = ERR_NOENT;
-    for (int i = 0; i < CONSOLE_ATTACH_RETRIES && rc == ERR_NOENT; i++)
-    {
-        rc = TtyClientConnect(console_port, TTY_ATTACH, "", console_event, CONSOLE_BIT_KICK, &console_conn);
+    for (int i = 0; i < CONSOLE_ATTACH_RETRIES && rc == ERR_NOENT; i++) {
+        rc = TtyClientConnect(console_port, TTY_ATTACH, "", console_event, CONSOLE_BIT_KICK,
+                              &console_conn);
         if (rc == ERR_NOENT)
             Sleep(10);
     }
     if (rc != ZUZU_OK)
         return -1;
 
-    if (TtyClientSetMode(console_port, &console_conn, console_mode) != ZUZU_OK)
-    {
+    if (TtyClientSetMode(console_port, &console_conn, console_mode) != ZUZU_OK) {
         TtyClientClose(console_port, &console_conn);
         return -1;
     }
@@ -66,8 +64,7 @@ void ConsoleClose(void)
         return;
 
     TtyShm *shm = console_conn.shm;
-    for (int i = 0; i < CONSOLE_ATTACH_RETRIES && ShmRingAvail(&shm->up_hdr) > 0; i++)
-    {
+    for (int i = 0; i < CONSOLE_ATTACH_RETRIES && ShmRingAvail(&shm->up_hdr) > 0; i++) {
         Signal(console_conn.doorbell, 1U << console_conn.bit, false);
         WaitOn(console_event, CONSOLE_POLL_MS);
     }
@@ -77,8 +74,7 @@ void ConsoleClose(void)
 
 int ConsoleWrite(const char *buf, int len)
 {
-    if (ConsoleOpen() != 0)
-    {
+    if (ConsoleOpen() != 0) {
         errno = EIO;
         return -1;
     }
@@ -86,8 +82,7 @@ int ConsoleWrite(const char *buf, int len)
     TtyShm *shm = console_conn.shm;
     const uint8_t *p = (const uint8_t *)buf;
     uint32_t left = (uint32_t)len;
-    while (left > 0)
-    {
+    while (left > 0) {
         uint32_t w = ShmRingPush(&shm->up_hdr, shm->up_data, p, left);
         p += w;
         left -= w;
@@ -101,15 +96,13 @@ int ConsoleWrite(const char *buf, int len)
 /* Blocks until at least one byte is available; 0 means EOF (^D). */
 int ConsoleRead(char *buf, int len)
 {
-    if (ConsoleOpen() != 0)
-    {
+    if (ConsoleOpen() != 0) {
         errno = EIO;
         return -1;
     }
 
     TtyShm *shm = console_conn.shm;
-    for (;;)
-    {
+    for (;;) {
         uint32_t got = ShmRingPop(&shm->down_hdr, shm->down_data, (uint8_t *)buf, (uint32_t)len);
         if (got > 0)
             return (int)got;

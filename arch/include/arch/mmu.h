@@ -10,9 +10,9 @@
 #ifndef ARCH_MMU_H
 #define ARCH_MMU_H
 
-#include <stdint.h>
-#include <stdbool.h>
 #include "kernel/mm/vmm/vmm.h"
+#include <stdbool.h>
+#include <stdint.h>
 
 /* Architecture section/large-page size (used by ioremap slot math in the VMM). */
 #define SECTION_SIZE 0x100000u
@@ -31,8 +31,8 @@ void ArchMmuFreeTables(uintptr_t ttbr_pa, AddressSpaceType type);
  * @brief Map [va, va+size) -> [pa, pa+size) with the given protection/memtype.
  * @return true on success, false on allocation failure or bad arguments.
  */
-bool ArchMmuMap(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size,
-                  MemProt prot, VirtMemType memtype);
+bool ArchMmuMap(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, MemProt prot,
+                VirtMemType memtype);
 
 /** @brief Remove mappings over [va, va+size). */
 bool ArchMmuUnmap(AddressSpace *as, uintptr_t va, size_t size, bool flush);

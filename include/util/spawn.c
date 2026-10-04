@@ -1,10 +1,10 @@
-#include <util/spawn.h>
 #include <elf.h>
-#include <zuzu/service.h>
+#include <stdbool.h>
+#include <util/spawn.h>
 #include <util/tls.h>
 #include <util/zxf.h>
-#include <stdbool.h>
 #include <zuzu/err.h>
+#include <zuzu/service.h>
 #include <zuzu/user_layout.h>
 #include <zuzu/zuzu.h>
 
@@ -16,8 +16,7 @@
 
 #define SPAWN_MAX_SEGS 8
 
-typedef struct
-{
+typedef struct {
     uint32_t file_offset;
     uint32_t file_size;
     uint32_t vaddr;
@@ -25,8 +24,7 @@ typedef struct
     uint32_t prot;
 } SpawnSeg;
 
-typedef struct
-{
+typedef struct {
     uint32_t entry;
     uint32_t seg_count;
     SpawnSeg segs[SPAWN_MAX_SEGS];
@@ -34,8 +32,8 @@ typedef struct
 
 static bool SegInBounds(const SpawnSeg *s, size_t size)
 {
-    return s->file_size <= s->mem_size && s->file_offset <= size && s->file_size <= size - s->file_offset &&
-           (s->vaddr & (PAGE_SIZE - 1)) == 0;
+    return s->file_size <= s->mem_size && s->file_offset <= size &&
+           s->file_size <= size - s->file_offset && (s->vaddr & (PAGE_SIZE - 1)) == 0;
 }
 
 static Err ParseZxf(const void *data, size_t size, SpawnImage *out)
@@ -48,8 +46,7 @@ static Err ParseZxf(const void *data, size_t size, SpawnImage *out)
 
     out->entry = img.entry;
     out->seg_count = img.seg_count;
-    for (uint32_t i = 0; i < img.seg_count; i++)
-    {
+    for (uint32_t i = 0; i < img.seg_count; i++) {
         const ZXFSegment *z = &img.segs[i];
         uint32_t prot = 0;
         if (z->flags & ZXF_R)
@@ -58,7 +55,8 @@ static Err ParseZxf(const void *data, size_t size, SpawnImage *out)
             prot |= PROT_WRITE;
         if (z->flags & ZXF_X)
             prot |= PROT_EXEC;
-        out->segs[i] = (SpawnSeg){ z->file_offset, z->file_size, (uint32_t)z->vaddr, z->mem_size, prot };
+        out->segs[i] =
+            (SpawnSeg){z->file_offset, z->file_size, (uint32_t)z->vaddr, z->mem_size, prot};
     }
     return ZUZU_OK;
 }
@@ -72,8 +70,7 @@ static Err ParseElf(const void *data, size_t size, SpawnImage *out)
     out->entry = entry;
     out->seg_count = 0;
     int n = elf_phdr_count(data);
-    for (int i = 0; i < n; i++)
-    {
+    for (int i = 0; i < n; i++) {
         const Elf32_Phdr *ph = elf_phdr_get(data, i);
         if (ph->p_type != PT_LOAD)
             continue;
@@ -87,7 +84,7 @@ static Err ParseElf(const void *data, size_t size, SpawnImage *out)
             prot |= PROT_WRITE;
         if (ph->p_flags & PF_X)
             prot |= PROT_EXEC;
-        SpawnSeg seg = { ph->p_offset, ph->p_filesz, ph->p_vaddr, ph->p_memsz, prot };
+        SpawnSeg seg = {ph->p_offset, ph->p_filesz, ph->p_vaddr, ph->p_memsz, prot};
         if (!SegInBounds(&seg, size))
             return ERR_MALFORMED;
         out->segs[out->seg_count++] = seg;
@@ -109,8 +106,7 @@ static Err LoadSegment(Handle space_handle, const void *data, const SpawnSeg *se
     size_t file_pages = PAGE_ROUND_UP(seg->file_size) / PAGE_SIZE;
     size_t mem_pages = PAGE_ROUND_UP(seg->mem_size) / PAGE_SIZE;
 
-    if (file_pages > 0)
-    {
+    if (file_pages > 0) {
         /* Zero-padded so the tail of the boundary page (file content mixed
          * with BSS, when file_size isn't page-aligned) comes out zeroed,
          * same as the kernel's own ELF loader. */
@@ -127,8 +123,7 @@ static Err LoadSegment(Handle space_handle, const void *data, const SpawnSeg *se
             return rc;
     }
 
-    if (mem_pages > file_pages)
-    {
+    if (mem_pages > file_pages) {
         Err rc = MemInject(space_handle, (VirtAddr)seg->vaddr + (file_pages * PAGE_SIZE), NULL,
                            (mem_pages - file_pages) * PAGE_SIZE, prot, ASINJECT_FLAG_RESERVE);
         if (rc != ZUZU_OK)
@@ -148,8 +143,7 @@ static Err LayoutArgv(Handle space_handle, const char *argbuf, size_t argbuf_len
     VirtAddr sp = USR_SP;
     *out_argv_va = 0;
 
-    if (argc == 0)
-    {
+    if (argc == 0) {
         *out_sp = sp;
         return ZUZU_OK;
     }
@@ -180,12 +174,10 @@ static Err LayoutArgv(Handle space_handle, const char *argbuf, size_t argbuf_len
 
     VirtAddr str_va = strings_va;
     const char *str_src = argbuf;
-    for (uint32_t a = 0; a <= argc; a++)
-    {
+    for (uint32_t a = 0; a <= argc; a++) {
         uint32_t slot = (a < argc) ? (uint32_t)str_va : 0;
         memcpy(block + (argv_va + a * sizeof(uint32_t) - block_start), &slot, sizeof(slot));
-        if (a < argc)
-        {
+        if (a < argc) {
             size_t l = strlen(str_src) + 1;
             str_va += l;
             str_src += l;
@@ -217,11 +209,9 @@ Err SpawnProcess(const void *image, size_t size, const char *name, const char *a
     if (space_handle < 0)
         return (Err)space_handle;
 
-    for (uint32_t i = 0; i < img.seg_count; i++)
-    {
+    for (uint32_t i = 0; i < img.seg_count; i++) {
         Err rc = LoadSegment(space_handle, image, &img.segs[i]);
-        if (rc != ZUZU_OK)
-        {
+        if (rc != ZUZU_OK) {
             HandleDestroy(space_handle);
             return rc;
         }
@@ -229,29 +219,25 @@ Err SpawnProcess(const void *image, size_t size, const char *name, const char *a
 
     VirtAddr sp, argv_va;
     Err rc = LayoutArgv(space_handle, argbuf, argbuf_len, argc, &sp, &argv_va);
-    if (rc != ZUZU_OK)
-    {
+    if (rc != ZUZU_OK) {
         HandleDestroy(space_handle);
         return rc;
     }
 
     Handle task_handle = CreateTask(space_handle);
-    if (task_handle < 0)
-    {
+    if (task_handle < 0) {
         HandleDestroy(space_handle);
         return (Err)task_handle;
     }
 
     SvcResult grant = HandleGrant(NSVC_PORT, space_handle, PERM_SEND);
-    if (grant.r0 != ZUZU_OK)
-    {
+    if (grant.r0 != ZUZU_OK) {
         HandleDestroy(space_handle);
         return (Err)grant.r0;
     }
 
     rc = TaskStart(task_handle, (void *)img.entry, (void *)sp, argc, (uint32_t)argv_va);
-    if (rc != ZUZU_OK)
-    {
+    if (rc != ZUZU_OK) {
         HandleDestroy(space_handle);
         return rc;
     }

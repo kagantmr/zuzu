@@ -1,6 +1,6 @@
-#include <compiler.h>
-#include <arch/regs.h>
 #include "kernel/svc/svc.h"
+#include <arch/regs.h>
+#include <compiler.h>
 
 void __hot SvcTrap(CpuState *frame);
 

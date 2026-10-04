@@ -8,19 +8,19 @@
 
 #define ROUNDS 40
 
-static const uint32_t kCodeLoop[] = { 0xEAFFFFFE }; /* b . */
+static const uint32_t kCodeLoop[] = {0xEAFFFFFE}; /* b . */
 
 /* Calls the port whose handle and xlen sit in the literal pool, then quits 7. */
 static const uint32_t kCodeCallPort[] = {
-    0xE59F0018, /* ldr r0, [pc, #24]   ; port handle  */
-    0xE59F1018, /* ldr r1, [pc, #24]   ; xlen         */
-    0xE3E02000, /* mvn r2, #0          ; no grant     */
-    0xE3A03000, /* mov r3, #0                         */
-    0xEF000005, /* svc SVC_CALL                       */
-    0xE3A00007, /* mov r0, #7                         */
-    0xEF000000, /* svc SVC_QUIT                       */
-    0xE1A00000, /* nop                                */
-    0, 0,       /* literal pool: handle, xlen         */
+    0xE59F0018,    /* ldr r0, [pc, #24]   ; port handle  */
+    0xE59F1018,    /* ldr r1, [pc, #24]   ; xlen         */
+    0xE3E02000,    /* mvn r2, #0          ; no grant     */
+    0xE3A03000,    /* mov r3, #0                         */
+    0xEF000005,    /* svc SVC_CALL                       */
+    0xE3A00007,    /* mov r0, #7                         */
+    0xEF000000,    /* svc SVC_QUIT                       */
+    0xE1A00000,    /* nop                                */
+    0,          0, /* literal pool: handle, xlen         */
 };
 #define CALL_CODE_HANDLE_WORD 8
 #define CALL_CODE_XLEN_WORD 9
@@ -29,8 +29,7 @@ static const uint32_t kCodeCallPort[] = {
 static uint8_t g_code_page[4096] __attribute__((aligned(4096)));
 static int g_fail;
 
-typedef struct
-{
+typedef struct {
     Handle space;
     Handle task;
 } Kitten;
@@ -79,8 +78,7 @@ static void SpinnerFree(Kitten *k)
 
 static void TestSpinnerDestroy(void)
 {
-    for (int i = 0; i < ROUNDS; i++)
-    {
+    for (int i = 0; i < ROUNDS; i++) {
         Kitten k;
         Check(SpinnerStart(&k), "spinner starts");
         if (i % 2)
@@ -91,11 +89,10 @@ static void TestSpinnerDestroy(void)
 
 static void TestPriorityOnQueued(void)
 {
-    static const uint32_t prios[] = { 0, 1, 0, 0, 1, 0 };
+    static const uint32_t prios[] = {0, 1, 0, 0, 1, 0};
     int applied = 0;
 
-    for (int i = 0; i < ROUNDS; i++)
-    {
+    for (int i = 0; i < ROUNDS; i++) {
         Kitten k;
         Check(SpinnerStart(&k), "spinner starts");
 
@@ -118,8 +115,7 @@ static void TestPriorityOnQueued(void)
 
 static void TestTwoQueued(void)
 {
-    for (int i = 0; i < ROUNDS; i++)
-    {
+    for (int i = 0; i < ROUNDS; i++) {
         Kitten a, b;
         Check(SpinnerStart(&a), "first spinner starts");
         Check(SpinnerStart(&b), "second spinner starts");
@@ -163,7 +159,8 @@ static bool ReceiveOne(Handle port, Marker want_marker, uint32_t want_xlen, cons
 static void ExpectSenderDone(Kitten *k, const char *what)
 {
     TaskWaitResult tw = FormatToTaskWait(WaitOn(k->task, 1000));
-    Check(tw.status == ZUZU_OK && tw.outcome == TASK_EXITED && tw.value == CALL_SENDER_STATUS, what);
+    Check(tw.status == ZUZU_OK && tw.outcome == TASK_EXITED && tw.value == CALL_SENDER_STATUS,
+          what);
 }
 
 static void TestPriorityOnBlockedSender(void)
@@ -171,16 +168,14 @@ static void TestPriorityOnBlockedSender(void)
     Handle port = CreatePort();
     Check(port >= 0, "create the port");
 
-    for (int i = 0; i < ROUNDS; i++)
-    {
+    for (int i = 0; i < ROUNDS; i++) {
         Kitten a, b;
 
         Check(SenderStart(&a, port, 0xA0, 4), "first sender starts");
         Sleep(3);
         Check(TaskSetPriority(a.task, 0) == ZUZU_OK, "SetPriority on a blocked sender");
         Check(TaskSetPriority(a.task, 1) == ZUZU_OK, "SetPriority back on a blocked sender");
-        if (ReceiveOne(port, 0xA0, 4, "the call arrives intact after SetPriority"))
-        {
+        if (ReceiveOne(port, 0xA0, 4, "the call arrives intact after SetPriority")) {
             Check(Reply(0, -1) == ZUZU_OK, "Reply to the sender");
             ExpectSenderDone(&a, "Reply wakes the sender");
         }
@@ -195,13 +190,11 @@ static void TestPriorityOnBlockedSender(void)
         Check(TaskSetPriority(b.task, 1) == ZUZU_OK, "SetPriority back on the second sender");
         Check(TaskSetPriority(a.task, 1) == ZUZU_OK, "SetPriority back on the first sender");
 
-        if (ReceiveOne(port, 0xB0, 8, "the first sender arrives first"))
-        {
+        if (ReceiveOne(port, 0xB0, 8, "the first sender arrives first")) {
             Check(Reply(0, -1) == ZUZU_OK, "Reply to the first sender");
             ExpectSenderDone(&a, "Reply wakes the first sender");
         }
-        if (ReceiveOne(port, 0xB1, 12, "the second sender arrives second"))
-        {
+        if (ReceiveOne(port, 0xB1, 12, "the second sender arrives second")) {
             Check(Reply(0, -1) == ZUZU_OK, "Reply to the second sender");
             ExpectSenderDone(&b, "Reply wakes the second sender");
         }
@@ -223,10 +216,10 @@ static void WitnessesStart(void)
 
 static void WitnessesVerify(void)
 {
-    for (int i = 0; i < WITNESSES; i++)
-    {
+    for (int i = 0; i < WITNESSES; i++) {
         TaskWaitResult tw = FormatToTaskWait(WaitOn(g_witness[i].task, TIMEOUT_POLL));
-        Check(tw.status == ERR_TIMEOUT, "witness spinner is still running (neither exited nor faulted)");
+        Check(tw.status == ERR_TIMEOUT,
+              "witness spinner is still running (neither exited nor faulted)");
         SpinnerFree(&g_witness[i]);
     }
 }

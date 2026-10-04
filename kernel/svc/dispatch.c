@@ -1,9 +1,9 @@
-#include "svc.h"
-#include "kernel/task/kstack.h"
-#include "kernel/layout.h"
-#include "kernel/space/space.h"
 #include "core/ensure.h"
 #include "core/panic.h"
+#include "kernel/layout.h"
+#include "kernel/space/space.h"
+#include "kernel/task/kstack.h"
+#include "svc.h"
 #include "svc_nums.h"
 #include <compiler.h>
 
@@ -14,11 +14,11 @@ typedef void (*SvcEntry)(CpuState *);
 static SvcEntry svc_table[SVC_TOTAL_COUNT] = {
     [SVC_QUIT] = SvcQuit,
     [SVC_YIELD] = SvcYield,
-    #ifdef DEBUG
-        [SVC_LOG] = SvcDebugLog, /* defined in svc_log.c; DEBUG builds only */
-    #else
-        [SVC_LOG] = NULL,
-    #endif
+#ifdef DEBUG
+    [SVC_LOG] = SvcDebugLog, /* defined in svc_log.c; DEBUG builds only */
+#else
+    [SVC_LOG] = NULL,
+#endif
     [SVC_SLEEP] = SvcSleep,
     [SVC_CREATE] = SvcCreate,
     [SVC_CALL] = SvcCall,
@@ -38,8 +38,8 @@ static __hot bool IsNormalFrame(const CpuState *frame)
         return false;
 
     if (likely(kernel_layout.stack_base_va && kernel_layout.stack_top_va &&
-	       p >= kernel_layout.stack_base_va &&
-	       p + sizeof(CpuState) <= kernel_layout.stack_top_va))
+               p >= kernel_layout.stack_base_va &&
+               p + sizeof(CpuState) <= kernel_layout.stack_top_va))
         return true;
 
     if (p >= KSTACK_REGION_BASE && p + sizeof(CpuState) <= KSTACK_REGION_TOP)
@@ -62,7 +62,6 @@ void __hot SvcDispatch(Svc svc_num, CpuState *frame)
     return;
 PanicOnWeirdFrame:
     panic("Corrupt trap_frame at syscall dispatch: spid=%u svc=%u frame=%p",
-            (unsigned)(CURRENT_SPACE ? CURRENT_SPACE->spid : 0),
-        svc_num, (void *)frame);
+          (unsigned)(CURRENT_SPACE ? CURRENT_SPACE->spid : 0), svc_num, (void *)frame);
     __builtin_unreachable();
 }

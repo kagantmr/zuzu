@@ -19,7 +19,8 @@ extern uint32_t early_l1[];
 #define LOG_FMT(fmt) "(vmm) " fmt
 #include <util/log.h>
 
-void VmmBootstrap(void) {
+void VmmBootstrap(void)
+{
     if (!g_kernel_as) {
         g_kernel_as = KZAlloc(sizeof(AddressSpace));
         if (!g_kernel_as) {
@@ -76,11 +77,11 @@ void VmmBootstrap(void) {
             .flags = VM_FLAG_NONE,
         };
         VmmAddRegion(g_kernel_as, &identity_region);
-
     }
 }
 
-void VmmRemoveIdentityMapping(void) {
+void VmmRemoveIdentityMapping(void)
+{
     if (!g_kernel_as) {
         return;
     }
@@ -111,11 +112,12 @@ void VmmRemoveIdentityMapping(void) {
     KDEBUG("identity mapping removed, running pure higher-half");
 }
 
-void VmmLockdownKernelMapping(void) {
+void VmmLockdownKernelMapping(void)
+{
     VirtAddr *l1 = (VirtAddr *)PA_TO_VA(g_kernel_as->pt_root_physaddr);
 
     size_t start_idx = kernel_layout.kernel_start_va >> 20;
-    size_t end_idx   = (kernel_layout.kernel_end_va + (1 << 20) - 1) >> 20;
+    size_t end_idx = (kernel_layout.kernel_end_va + (1 << 20) - 1) >> 20;
 
     for (size_t i = start_idx; i < end_idx; i++) {
         uint32_t entry = l1[i];
@@ -124,7 +126,7 @@ void VmmLockdownKernelMapping(void) {
         if ((entry & 0x3) == 0x2) {
             // Clear AP[11:10], set to 0b01 (kernel only)
             entry &= ~(0x3U << 10);
-            entry |=  (0x1U << 10);
+            entry |= (0x1U << 10);
             l1[i] = entry;
             continue;
         }
@@ -144,7 +146,7 @@ void VmmLockdownKernelMapping(void) {
 
                 // Small page AP bits are [5:4]. Force kernel-only AP=01.
                 pte &= ~(0x3U << 4);
-                pte |=  (0x1U << 4);
+                pte |= (0x1U << 4);
                 l2[j] = pte;
             }
         }

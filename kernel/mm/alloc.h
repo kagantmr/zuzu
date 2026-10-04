@@ -13,8 +13,7 @@
 // Helper for compile-time alignment
 #define ALIGN_UP_CONST(x, a) (((x) + (a) - 1) & ~((a) - 1u))
 
-typedef struct KHeapBlockStruct
-{
+typedef struct KHeapBlockStruct {
     size_t size; // Size of the block, excluding this header
     struct KHeapBlockStruct *next;
     struct KHeapBlockStruct *prev;
@@ -24,18 +23,16 @@ typedef struct KHeapBlockStruct
 #define KBLOCK_ALLOCATED 0xA110C8EDu
 #define KBLOCK_FREE 0xF9EEB10Cu
 
-typedef struct KSlabStruct
-{
+typedef struct KSlabStruct {
     struct KSlabStruct *next, *prev;      // intrusive: links within one of the cache's lists
     struct KSlabCacheStruct *owner_cache; // owning cache for free-time validation
-    size_t used;                   // how many objects are currently allocated
-    size_t capacity;               // total slots in this slab
-    void *free_head;               // freelist of available slots
+    size_t used;                          // how many objects are currently allocated
+    size_t capacity;                      // total slots in this slab
+    void *free_head;                      // freelist of available slots
 } KSlab;
 
-typedef struct KSlabCacheStruct
-{
-    size_t obj_size;       // aligned object size
+typedef struct KSlabCacheStruct {
+    size_t obj_size;   // aligned object size
     KSlab *partial;    // slabs with >= 1 free slot
     KSlab *full;       // slabs with 0 free slots
     KSlab *empty_hold; // at most one all-free slab, kept as grow hysteresis

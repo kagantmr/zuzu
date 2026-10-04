@@ -1,6 +1,6 @@
-#include "svc.h"
-#include "kernel/space/space.h"
 #include "core/log.h"
+#include "kernel/space/space.h"
+#include "svc.h"
 #include <arch/regs.h>
 
 #ifdef DEBUG
@@ -18,8 +18,7 @@ void SvcDebugLog(CpuState *frame)
         return;
     }
     buf[len] = '\0';
-    kprintf("[udbg spid=%u] %s\n",
-            (unsigned)(CURRENT_SPACE ? CURRENT_SPACE->spid : 0), buf);
+    kprintf("[udbg spid=%u] %s\n", (unsigned)(CURRENT_SPACE ? CURRENT_SPACE->spid : 0), buf);
     ArchSetInFrame(frame, 0, 0);
 }
 #endif /* DEBUG */

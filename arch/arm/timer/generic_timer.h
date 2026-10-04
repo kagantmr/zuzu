@@ -17,6 +17,6 @@
 
 #include <stdint.h>
 
-#define TIMER_IRQ_VIRT  27   /* CNTV PPI */
+#define TIMER_IRQ_VIRT 27 /* CNTV PPI */
 
 #endif // ARCH_ARM_GENERIC_TIMER_H

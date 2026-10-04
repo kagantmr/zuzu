@@ -3,11 +3,12 @@
 #ifndef ELF_H
 #define ELF_H
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
-#define ELF_MAGIC "\x7f" \
-                  "ELF"
+#define ELF_MAGIC                                                                                  \
+    "\x7f"                                                                                         \
+    "ELF"
 #define ELF_CLASS_32 1
 #define ELF_DATA_LITTLE 1
 #define ELF_MACHINE_ARM 40
@@ -17,8 +18,7 @@
 #define PF_W 0x2
 #define PF_R 0x4
 
-typedef struct
-{
+typedef struct {
     uint8_t e_ident[16];  /* ELF identification */
     uint16_t e_type;      /* Object file type */
     uint16_t e_machine;   /* Machine type */
@@ -35,8 +35,7 @@ typedef struct
     uint16_t e_shstrndx;  /* Section name string table index */
 } Elf32_Ehdr;
 
-typedef struct
-{
+typedef struct {
     uint32_t p_type;   /* Type of segment */
     uint32_t p_offset; /* Offset in file */
     uint32_t p_vaddr;  /* Virtual address in memory */

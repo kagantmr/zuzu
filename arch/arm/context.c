@@ -17,14 +17,13 @@
 #include <string.h>
 
 /* Initial Cpsr for a user thread: USR mode (0x10), IRQs enabled. */
-#define ARM_CPSR_USER     0x10u
+#define ARM_CPSR_USER 0x10u
 
 /* Entry trampoline that pops the exception frame and returns to user mode. */
 extern void task_entry_trampoline(void);
 
-void *ArchTaskUserInit(void *kstack_top, uintptr_t entry, uintptr_t user_sp,
-                            uintptr_t user_lr, uint32_t a0, uint32_t a1,
-                            CpuState **trap_frame_out)
+void *ArchTaskUserInit(void *kstack_top, uintptr_t entry, uintptr_t user_sp, uintptr_t user_lr,
+                       uint32_t a0, uint32_t a1, CpuState **trap_frame_out)
 {
     uintptr_t sp = (uintptr_t)kstack_top;
 
@@ -33,10 +32,10 @@ void *ArchTaskUserInit(void *kstack_top, uintptr_t entry, uintptr_t user_sp,
     memset(f, 0, sizeof(*f));
     *ArchGetFromFrame(f, 0) = (Register)a0;
     *ArchGetFromFrame(f, 1) = (Register)a1;
-    f->sp_usr       = (Register)user_sp;
-    f->lr_usr       = (Register)user_lr;
-    f->return_pc    = (Register)entry;
-    f->return_cpsr  = ARM_CPSR_USER;
+    f->sp_usr = (Register)user_sp;
+    f->lr_usr = (Register)user_lr;
+    f->return_pc = (Register)entry;
+    f->return_cpsr = ARM_CPSR_USER;
     if (trap_frame_out)
         *trap_frame_out = f;
 

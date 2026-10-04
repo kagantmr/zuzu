@@ -28,7 +28,6 @@ static inline void WriteCntpCtl(uint32_t v)
     __asm__ volatile("isb");
 }
 
-
 static uint32_t cntv_ctl_shadow = ~0U;
 
 /**
@@ -37,13 +36,14 @@ static uint32_t cntv_ctl_shadow = ~0U;
  * Note: enabling the virtual timer may cause it to fire alongside the physical timer if both are
  * present, which can effectively double the tick rate.
  */
-static inline void WriteCntvCtl(uint32_t v) {
-    if (v == cntv_ctl_shadow) return;
+static inline void WriteCntvCtl(uint32_t v)
+{
+    if (v == cntv_ctl_shadow)
+        return;
     cntv_ctl_shadow = v;
-    __asm__ volatile("mcr p15, 0, %0, c14, c3, 1" :: "r"(v));
+    __asm__ volatile("mcr p15, 0, %0, c14, c3, 1" ::"r"(v));
     __asm__ volatile("isb");
 }
-
 
 /* Monotonic anchor for the workaround below. Single-core; racy across the
  * IRQ boundary only to the extent of a torn 64-bit load, which the clamp
@@ -63,7 +63,7 @@ static inline uint64_t ReadCntpct(void)
      *     outside [last, last + 2^26) is the glitch -> pin to last.
      */
     uint64_t v;
-    __asm__ volatile("mrrc p15, 0, %Q0, %R0, c14" : "=r"(v) :: "memory");
+    __asm__ volatile("mrrc p15, 0, %Q0, %R0, c14" : "=r"(v)::"memory");
 
     /* Swap glitch: real count in the high word, low word zero. Undo it. */
     if ((uint32_t)v == 0 && (v >> 32) != 0)
@@ -110,19 +110,18 @@ void ArchTimerInit(void)
 
 Time ArchTimerNow(void) { return ReadCntpct(); }
 uint32_t ArchTimerFreq(void) { return freq; }
-static uint64_t cntv_cval_shadow = ~0ULL;   /* sentinel: no real deadline is ever this value */
+static uint64_t cntv_cval_shadow = ~0ULL; /* sentinel: no real deadline is ever this value */
 
 void ArchTimerSetDeadline(Time abs_count)
 {
     if (abs_count != cntv_cval_shadow) {
         cntv_cval_shadow = abs_count;
-        __asm__ volatile("mcrr p15, 3, %0, %1, c14"
-                         :: "r"((uint32_t)abs_count), "r"((uint32_t)(abs_count >> 32)));
+        __asm__ volatile("mcrr p15, 3, %0, %1, c14" ::"r"((uint32_t)abs_count),
+                         "r"((uint32_t)(abs_count >> 32)));
         __asm__ volatile("isb");
     }
     WriteCntvCtl(0x1); /* ENABLE=1, IMASK=0 already shadow-gated on its own */
 }
-
 
 void ArchTimerDisable(void) { WriteCntvCtl(0x2); /* IMASK=1 */ }
 
@@ -133,12 +132,14 @@ void ArchTimerDisable(void) { WriteCntvCtl(0x2); /* IMASK=1 */ }
 
 static void GenericTimerProbe(const FdtDevice *dev)
 {
-	(void)dev;
-	KDEBUG("Using ARM generic timer as tick source");
-	ArchTimerInit();
+    (void)dev;
+    KDEBUG("Using ARM generic timer as tick source");
+    ArchTimerInit();
 }
 
 ZUZU_DRIVER(generic_timer, ZUZU_DRV_TIMER) = {
-	.name = "ARM generic timer", .compat = NULL, .required = false,
-	.probe = GenericTimerProbe,
+    .name = "ARM generic timer",
+    .compat = NULL,
+    .required = false,
+    .probe = GenericTimerProbe,
 };

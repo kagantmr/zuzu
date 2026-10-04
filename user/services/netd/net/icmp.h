@@ -2,8 +2,8 @@
 #ifndef ICMP_H
 #define ICMP_H
 
-#include <types.h>
 #include "../common/globals.h"
+#include <types.h>
 
 typedef struct __attribute__((packed)) {
     uint8_t type;

@@ -1,23 +1,20 @@
 #include "fdt_wrappers.h"
+#include "core/log.h"
+#include <libfdt.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdbool.h>
 #include <string.h>
-#include <libfdt.h>
-#include "core/log.h"
 
 static const void *g_fdt;
 static bool g_fdt_ready;
-static char      s_model[64];
-static char      s_cpu[64];
-
+static char s_model[64];
+static char s_cpu[64];
 
 static inline uint32_t read_be32(const void *p)
 {
     const uint8_t *b = (const uint8_t *)p;
-    return ((uint32_t)b[0] << 24) |
-           ((uint32_t)b[1] << 16) |
-           ((uint32_t)b[2] << 8) |
+    return ((uint32_t)b[0] << 24) | ((uint32_t)b[1] << 16) | ((uint32_t)b[2] << 8) |
            ((uint32_t)b[3]);
 }
 
@@ -37,8 +34,8 @@ bool FdtInit(const void *base)
     return true;
 }
 
-static inline bool path_peek_segment(const char *s, int pos,
-                                     const char **seg, int *seg_len, int *next_pos)
+static inline bool path_peek_segment(const char *s, int pos, const char **seg, int *seg_len,
+                                     int *next_pos)
 {
     if (!s || !seg || !seg_len || !next_pos)
         return false;
@@ -85,9 +82,7 @@ static inline bool segment_matches_node(const char *seg, int seg_len, const char
     if (seg_has_at)
         return false;
 
-    return at_len >= 0 &&
-           seg_len == at_len &&
-           memcmp(seg, node_name, (size_t)seg_len) == 0;
+    return at_len >= 0 && seg_len == at_len && memcmp(seg, node_name, (size_t)seg_len) == 0;
 }
 
 static int FdtPathOffset(const char *path)
@@ -112,7 +107,8 @@ static int FdtPathOffset(const char *path)
         int child;
         int match = -FDT_ERR_NOTFOUND;
 
-        fdt_for_each_subnode(child, g_fdt, parent) {
+        fdt_for_each_subnode(child, g_fdt, parent)
+        {
             const char *name = fdt_get_name(g_fdt, child, NULL);
             if (segment_matches_node(seg, seg_len, name)) {
                 match = child;
@@ -130,8 +126,8 @@ static int FdtPathOffset(const char *path)
     return parent;
 }
 
-static bool FdtGetProperty(const char *path, const char *prop,
-                             const void **out_value, uint32_t *out_len)
+static bool FdtGetProperty(const char *path, const char *prop, const void **out_value,
+                           uint32_t *out_len)
 {
     if (!g_fdt_ready || !path || !prop || !out_value || !out_len)
         return false;
@@ -345,9 +341,8 @@ static bool apply_ranges(const char *node_path, uint64_t child_addr, uint64_t *o
     if (get_parent_path(node_path, parent_path, sizeof(parent_path)))
         (void)FdtGetU32(parent_path, "#address-cells", &parent_addr_cells);
 
-    if (child_addr_cells == 0 || child_addr_cells > 2 ||
-        parent_addr_cells == 0 || parent_addr_cells > 2 ||
-        child_size_cells == 0 || child_size_cells > 2)
+    if (child_addr_cells == 0 || child_addr_cells > 2 || parent_addr_cells == 0 ||
+        parent_addr_cells > 2 || child_size_cells == 0 || child_size_cells > 2)
         return false;
 
     uint32_t cells_per_entry = child_addr_cells + parent_addr_cells + child_size_cells;
@@ -447,10 +442,8 @@ bool FdtGetRegPa(const char *path, int index, uint64_t *out_addr, uint64_t *out_
     return true;
 }
 
-static bool FdtResolveIrqViaMap(const char *path,
-                                              uint32_t child_irq,
-                                              uint32_t *out_irq_num,
-                                              uint32_t *out_flags)
+static bool FdtResolveIrqViaMap(const char *path, uint32_t child_irq, uint32_t *out_irq_num,
+                                uint32_t *out_flags)
 {
     char parent_path[128];
     size_t plen = strlen(path);
@@ -527,10 +520,8 @@ static bool FdtGetIrq(const char *path, int index, uint32_t *out_irq_num, uint32
     return false;
 }
 
-void FdtEnumerateDevices(void (*cb)(const char *compatible,
-                                 const char *path,
-                                 uint64_t phys, uint64_t size,
-                                 uint32_t irq))
+void FdtEnumerateDevices(void (*cb)(const char *compatible, const char *path, uint64_t phys,
+                                    uint64_t size, uint32_t irq))
 {
     if (!cb || !g_fdt_ready)
         return;
@@ -613,15 +604,22 @@ const char *FdtCpuCompat(void)
     return "Unknown";
 }
 
-__attribute__((weak)) bool FdtTranslateAddressArch(const char *node_path, uint64_t raw_addr, uint64_t *out_phys)
+__attribute__((weak)) bool FdtTranslateAddressArch(const char *node_path, uint64_t raw_addr,
+                                                   uint64_t *out_phys)
 {
-    (void)node_path; (void)raw_addr; (void)out_phys;
+    (void)node_path;
+    (void)raw_addr;
+    (void)out_phys;
     return false;
 }
 
-__attribute__((weak)) bool FdtResolveIrqArch(const char *node_path, uint32_t child_irq, uint32_t *out_irq, uint32_t *out_flags)
+__attribute__((weak)) bool FdtResolveIrqArch(const char *node_path, uint32_t child_irq,
+                                             uint32_t *out_irq, uint32_t *out_flags)
 {
-    (void)node_path; (void)child_irq; (void)out_irq; (void)out_flags;
+    (void)node_path;
+    (void)child_irq;
+    (void)out_irq;
+    (void)out_flags;
     return false;
 }
 

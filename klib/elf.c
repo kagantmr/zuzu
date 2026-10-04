@@ -1,16 +1,14 @@
 #include "elf.h"
 #include <string.h>
 
-uint32_t elf_validate(const void *data, size_t size) {
+uint32_t elf_validate(const void *data, size_t size)
+{
     if (size < sizeof(Elf32_Ehdr))
         return 0;
     const Elf32_Ehdr *ehdr = (const Elf32_Ehdr *)data;
-    if (memcmp(ehdr->e_ident, ELF_MAGIC, 4) != 0
-        || ehdr->e_ident[4] != ELF_CLASS_32
-        || ehdr->e_ident[5] != ELF_DATA_LITTLE
-        || ehdr->e_machine != ELF_MACHINE_ARM
-        || ehdr->e_type != ET_EXEC)
-    {
+    if (memcmp(ehdr->e_ident, ELF_MAGIC, 4) != 0 || ehdr->e_ident[4] != ELF_CLASS_32 ||
+        ehdr->e_ident[5] != ELF_DATA_LITTLE || ehdr->e_machine != ELF_MACHINE_ARM ||
+        ehdr->e_type != ET_EXEC) {
         return 0;
     }
     if (ehdr->e_phentsize != sizeof(Elf32_Phdr)) {
@@ -22,12 +20,14 @@ uint32_t elf_validate(const void *data, size_t size) {
     return ehdr->e_entry;
 }
 
-int elf_phdr_count(const void *data) {
+int elf_phdr_count(const void *data)
+{
     const Elf32_Ehdr *ehdr = data;
     return ehdr->e_phnum;
 }
 
-const Elf32_Phdr *elf_phdr_get(const void *data, int index) {
+const Elf32_Phdr *elf_phdr_get(const void *data, int index)
+{
     const Elf32_Ehdr *ehdr = data;
     return (const Elf32_Phdr *)(const void *)((const uint8_t *)data + ehdr->e_phoff) + index;
 }

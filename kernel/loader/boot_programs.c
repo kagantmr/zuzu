@@ -54,15 +54,13 @@ static void CreateRootSpace(const char *path)
     const void *zxf_data;
     size_t zxf_size;
 
-    if (!initrd_find(path, &zxf_data, &zxf_size))
-    {
+    if (!initrd_find(path, &zxf_data, &zxf_size)) {
         KERROR("Missing boot program %s", path);
         return;
     }
 
     SpaceObject *space = KernelSpaceLoad(zxf_data, zxf_size, path, NULL, 0, 0, false);
-    if (!space)
-    {
+    if (!space) {
         KERROR("Failed to create boot program %s", path);
         return;
     }
@@ -75,38 +73,34 @@ static void CreateRootSpace(const char *path)
         (initrd_page_offset + (uint32_t)g_initrd_size + PAGE_SIZE - 1) / PAGE_SIZE;
     uintptr_t initrd_base_va = USER_MMAP_BASE + (MAX_TCB_PAGES * PAGE_SIZE);
 
-    for (uint32_t i = 0; i < initrd_page_count; i++)
-    {
+    for (uint32_t i = 0; i < initrd_page_count; i++) {
         uint32_t page_pa = initrd_aligned_pa + (i * PAGE_SIZE);
-        if (!VmmMapUserPage(space->as, page_pa, initrd_base_va + (i * PAGE_SIZE), PROT_READ))
-        {
+        if (!VmmMapUserPage(space->as, page_pa, initrd_base_va + (i * PAGE_SIZE), PROT_READ)) {
             KERROR("Failed to map initrd page %u for %s", i, path);
             return;
         }
     }
     VmmAddRegion(space->as, &(VirtMemRegion){.vaddr_start = initrd_base_va,
-                                               .size = initrd_page_count * PAGE_SIZE,
-                                               .prot = PROT_READ | VM_PROT_USER,
-                                               .memtype = VM_MEM_NORMAL,
-                                               .owner = VM_BACKING_SHARED,
-                                               .flags = VM_FLAG_NONE});
+                                             .size = initrd_page_count * PAGE_SIZE,
+                                             .prot = PROT_READ | VM_PROT_USER,
+                                             .memtype = VM_MEM_NORMAL,
+                                             .owner = VM_BACKING_SHARED,
+                                             .flags = VM_FLAG_NONE});
 
     size_t bootinfo_pages = (sizeof(BootInfo) + PAGE_SIZE - 1) / PAGE_SIZE;
-    for (size_t i = 0; i < bootinfo_pages; i++)
-    {
+    for (size_t i = 0; i < bootinfo_pages; i++) {
         if (!VmmMapUserPage(space->as, BootInfoPa() + (i * PAGE_SIZE),
-                            USER_BOOTINFO_VA + (i * PAGE_SIZE), PROT_READ))
-        {
+                            USER_BOOTINFO_VA + (i * PAGE_SIZE), PROT_READ)) {
             KERROR("Failed to map boot info page %zu for %s", i, path);
             return;
         }
     }
     VmmAddRegion(space->as, &(VirtMemRegion){.vaddr_start = USER_BOOTINFO_VA,
-                                               .size = bootinfo_pages * PAGE_SIZE,
-                                               .prot = PROT_READ | VM_PROT_USER,
-                                               .memtype = VM_MEM_NORMAL,
-                                               .owner = VM_BACKING_SHARED,
-                                               .flags = VM_FLAG_NONE});
+                                             .size = bootinfo_pages * PAGE_SIZE,
+                                             .prot = PROT_READ | VM_PROT_USER,
+                                             .memtype = VM_MEM_NORMAL,
+                                             .owner = VM_BACKING_SHARED,
+                                             .flags = VM_FLAG_NONE});
 
     SchedAdd(space->main_task);
 }
@@ -116,8 +110,7 @@ static char *NormalizeManifestPath(const char *path_in)
     if (!path_in || !path_in[0])
         return NULL;
 
-    if (strchr(path_in, '/'))
-    {
+    if (strchr(path_in, '/')) {
         char *path = (char *)KZAlloc(strlen(path_in) + 1);
         if (!path)
             return NULL;
@@ -141,8 +134,7 @@ static char *FindRootsvcPath(const char *manifest_data, size_t manifest_size)
     const char *line_start = manifest_data;
     const char *end = manifest_data + manifest_size;
 
-    while (line_start < end)
-    {
+    while (line_start < end) {
         const char *line_end = line_start;
         while (line_end < end && *line_end != '\n')
             line_end++;
@@ -153,8 +145,7 @@ static char *FindRootsvcPath(const char *manifest_data, size_t manifest_size)
                 line_start[line_len - 1] == '\t'))
             line_len--;
 
-        if (line_len > 0 && line_start[0] != '#')
-        {
+        if (line_len > 0 && line_start[0] != '#') {
             char path_buf[256];
             if (line_len >= sizeof(path_buf))
                 return NULL;

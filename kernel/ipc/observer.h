@@ -7,16 +7,14 @@
 
 #define MAX_OBSERVERS 4
 
-typedef struct
-{
+typedef struct {
     EventObject *ev;
     uint8_t bit;
 } Observer;
 
 /* The events that want to hear about a Task, Space or Port. Each observer
  * holds a reference on its event and a claim on its bit (bound_mask). */
-typedef struct
-{
+typedef struct {
     Observer slot[MAX_OBSERVERS];
 } ObserverSet;
 

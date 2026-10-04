@@ -9,18 +9,18 @@
 #include <stdint.h>
 
 // Bitmap: 256 bits = 8 x uint32_t
-static uint32_t ioremap_bitmap[8];  // Bit N = slot N allocated
+static uint32_t ioremap_bitmap[8]; // Bit N = slot N allocated
 
 /* IOREMAP_MAX_SLOT is defined in vmm.h as pure text substitution (SECTION_SIZE
  * isn't visible there yet, see the comment at its definition); this is the
  * first point in this TU where both arch/mmu.h (SECTION_SIZE) and vmm.h
  * (KSTACK_REGION_BASE, IOREMAP_BASE, IOREMAP_SLOTS) are in scope together. */
 _Static_assert(IOREMAP_MAX_SLOT <= IOREMAP_SLOTS,
-	       "kstack region base falls outside the ioremap window");
+               "kstack region base falls outside the ioremap window");
 
 typedef struct {
     VirtAddr va;       // Base VA (0 = unused entry)
-    uint32_t sections;  // Number of 1MB sections
+    uint32_t sections; // Number of 1MB sections
 } IoremapEntry;
 
 static IoremapEntry ioremap_table[IOREMAP_MAX_ENTRIES];
@@ -28,20 +28,24 @@ static IoremapEntry ioremap_table[IOREMAP_MAX_ENTRIES];
 // Find N contiguous free slots. Bounded to IOREMAP_MAX_SLOT, not
 // IOREMAP_SLOTS: slots beyond that would land on the kstack region
 // (see IOREMAP_MAX_SLOT in vmm.h).
-static int BitmapFindFree(uint32_t n) {
+static int BitmapFindFree(uint32_t n)
+{
     return BitmapFindClearRun(ioremap_bitmap, IOREMAP_MAX_SLOT, n);
 }
 
-static void BitmapAlloc(uint32_t start, uint32_t count) {
+static void BitmapAlloc(uint32_t start, uint32_t count)
+{
     BitmapSetRange(ioremap_bitmap, start, count);
 }
 
-static void BitmapFree(uint32_t start, uint32_t count) {
+static void BitmapFree(uint32_t start, uint32_t count)
+{
     BitmapClrRange(ioremap_bitmap, start, count);
 }
 
 // Find ioremap_table entry by VA
-static IoremapEntry *IoremapFind(VirtAddr va) {
+static IoremapEntry *IoremapFind(VirtAddr va)
+{
     for (size_t i = 0; i < IOREMAP_MAX_ENTRIES; i++) {
         if (ioremap_table[i].va == va) {
             return &ioremap_table[i];
@@ -51,7 +55,8 @@ static IoremapEntry *IoremapFind(VirtAddr va) {
 }
 
 // Find free slot in ioremap_table
-static IoremapEntry *IoremapAllocEntry(void) {
+static IoremapEntry *IoremapAllocEntry(void)
+{
     for (size_t i = 0; i < IOREMAP_MAX_ENTRIES; i++) {
         if (ioremap_table[i].va == 0) {
             return &ioremap_table[i];
@@ -60,7 +65,8 @@ static IoremapEntry *IoremapAllocEntry(void) {
     return NULL;
 }
 
-void *IoRemap(PhysAddr phys, size_t size) {
+void *IoRemap(PhysAddr phys, size_t size)
+{
     if (size == 0) {
         return NULL;
     }
@@ -84,8 +90,8 @@ void *IoRemap(PhysAddr phys, size_t size) {
 
     uintptr_t va = IOREMAP_BASE + ((uint32_t)slot * SECTION_SIZE);
 
-    if (!VmmMapRange(g_kernel_as, va, phys_aligned, aligned_size,
-                       PROT_READ | PROT_WRITE, VM_MEM_DEVICE)) {
+    if (!VmmMapRange(g_kernel_as, va, phys_aligned, aligned_size, PROT_READ | PROT_WRITE,
+                     VM_MEM_DEVICE)) {
         return NULL;
     }
 
@@ -103,7 +109,8 @@ void *IoRemap(PhysAddr phys, size_t size) {
     return (void *)(va + offset);
 }
 
-void IoUnmap(void *va) {
+void IoUnmap(void *va)
+{
     if (!va) {
         return;
     }

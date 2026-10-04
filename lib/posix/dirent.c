@@ -1,14 +1,13 @@
 #include <dirent.h>
 #include <errno.h>
+#include <fs/fsd_client.h>
 #include <stdlib.h>
 #include <string.h>
-#include <fs/fsd_client.h>
 
 #define DIR_BATCH 16
 #define DIR_PATH_MAX 256
 
-struct DIR
-{
+struct DIR {
     char path[DIR_PATH_MAX];
     uint32_t start;
     uint32_t count;
@@ -19,10 +18,7 @@ struct DIR
 
 static FsdConn g_dir_conn;
 
-void DirentDetach(void)
-{
-    FsdDetach(&g_dir_conn);
-}
+void DirentDetach(void) { FsdDetach(&g_dir_conn); }
 
 DIR *opendir(const char *path)
 {

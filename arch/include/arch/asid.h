@@ -11,9 +11,8 @@
 
 typedef uint8_t Asid;
 
-typedef struct
-{
-    Asid   asid;
+typedef struct {
+    Asid asid;
     uint32_t generation;
 } AsidToken;
 

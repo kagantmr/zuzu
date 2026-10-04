@@ -28,8 +28,10 @@ static int RegionContainsVa(const void *key, const void *elem)
 {
     uintptr_t va = *(const uintptr_t *)key;
     const VirtMemRegion *r = (const VirtMemRegion *)elem;
-    if (va < r->vaddr_start)       return -1;
-    if (va - r->vaddr_start >= r->size) return  1;
+    if (va < r->vaddr_start)
+        return -1;
+    if (va - r->vaddr_start >= r->size)
+        return 1;
     return 0;
 }
 
@@ -37,22 +39,20 @@ static int RegionCmpStart(const void *key, const void *elem)
 {
     uintptr_t va = *(const uintptr_t *)key;
     const VirtMemRegion *r = (const VirtMemRegion *)elem;
-    if (va < r->vaddr_start) return -1;
-    if (va > r->vaddr_start) return  1;
+    if (va < r->vaddr_start)
+        return -1;
+    if (va > r->vaddr_start)
+        return 1;
     return 0;
 }
 
-AddressSpace *VmmGetKernelAddressSpace(void)
-{
-    return g_kernel_as;
-}
+AddressSpace *VmmGetKernelAddressSpace(void) { return g_kernel_as; }
 
 VirtMemRegion *VmmFindRegion(AddressSpace *as, uintptr_t va)
 {
     if (!as || as->regions.len == 0)
         return NULL;
-    return bsearch(&va, as->regions.data, as->regions.len,
-                   sizeof(VirtMemRegion), RegionContainsVa);
+    return bsearch(&va, as->regions.data, as->regions.len, sizeof(VirtMemRegion), RegionContainsVa);
 }
 
 bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, VirtAddr page_va)
@@ -156,10 +156,11 @@ AddressSpace *AddressSpaceCreate(AddressSpaceType type)
 
 void AddressSpaceDestroy(AddressSpace *as)
 {
-    if (!as) return;
+    if (!as)
+        return;
     if (as == g_current_addrspace) {
-        panic("Attempted to destroy active addrspace %p (asid=%u)",
-              (void *)as, as->asid_token.asid);
+        panic("Attempted to destroy active addrspace %p (asid=%u)", (void *)as,
+              as->asid_token.asid);
     }
 
     /* Prevent stale translations from surviving ASID reuse. */
@@ -183,10 +184,11 @@ void AddressSpaceDestroy(AddressSpace *as)
 
 bool VmmAddRegion(AddressSpace *restrict as, const VirtMemRegion *restrict region)
 {
-    if (!as || !region || region->size == 0) return false;
+    if (!as || !region || region->size == 0)
+        return false;
 
     VirtAddr new_start = region->vaddr_start;
-    VirtAddr new_end   = new_start + region->size;
+    VirtAddr new_end = new_start + region->size;
 
     uint32_t lo = 0, hi = as->regions.len;
     while (lo < hi) {
@@ -247,10 +249,11 @@ VirtAddr VmmFindFreeVa(const AddressSpace *as, VirtAddr lo, VirtAddr hi, size_t 
 
 bool VmmRemoveRegion(AddressSpace *as, uintptr_t vaddr, size_t size)
 {
-    if (!as || size == 0) return false;
+    if (!as || size == 0)
+        return false;
 
-    VirtMemRegion *r = bsearch(&vaddr, as->regions.data, as->regions.len,
-                              sizeof(VirtMemRegion), RegionCmpStart);
+    VirtMemRegion *r =
+        bsearch(&vaddr, as->regions.data, as->regions.len, sizeof(VirtMemRegion), RegionCmpStart);
     if (!r || r->size != size)
         return false;
 
@@ -261,4 +264,3 @@ bool VmmRemoveRegion(AddressSpace *as, uintptr_t vaddr, size_t size)
     as->regions.len--;
     return true;
 }
-

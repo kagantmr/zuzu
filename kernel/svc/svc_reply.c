@@ -27,8 +27,7 @@ void SvcReply(CpuState *frame)
     if (rc) {
         TaskObject *target = rc->caller_task;
         if (!target || target->tid != rc->caller_tid || target->state == TASK_STATE_ZOMBIE ||
-            target->ipc_state != IPC_WAITING)
-        {
+            target->ipc_state != IPC_WAITING) {
             current_task->reply_cap = NULL;
             if (recv_handle == -1) {
                 ArchSetInFrame(frame, 0, ERR_DEAD);

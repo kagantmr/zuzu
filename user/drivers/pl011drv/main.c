@@ -31,11 +31,9 @@ static bool UartTxPump(void)
         return false;
     TtyShm *shm = g_tty.shm;
     bool popped = false;
-    while (!(uart->fr & FR_TXFF))
-    {
+    while (!(uart->fr & FR_TXFF)) {
         uint8_t b = 0;
-        if (ShmRingPop(&shm->down_hdr, shm->down_data, &b, 1) == 0)
-        {
+        if (ShmRingPop(&shm->down_hdr, shm->down_data, &b, 1) == 0) {
             uart->imsc &= ~IMSC_TXIM;
             return popped;
         }
@@ -49,16 +47,13 @@ static bool UartTxPump(void)
 static bool UartRxPump(void)
 {
     bool pushed_any = false;
-    while (!(uart->fr & FR_RXFE))
-    {
-        if (g_online && ShmRingFree(&g_tty.shm->up_hdr) == 0)
-        {
+    while (!(uart->fr & FR_RXFE)) {
+        if (g_online && ShmRingFree(&g_tty.shm->up_hdr) == 0) {
             uart->imsc &= ~(IMSC_RXIM | IMSC_RTIM);
             return pushed_any;
         }
         uint32_t dr = uart->dr;
-        if (dr & 0xF00U)
-        {
+        if (dr & 0xF00U) {
             uart->rsr = 0xFU;
             continue;
         }
@@ -74,8 +69,7 @@ static bool UartRxPump(void)
 
 static Handle WaitForTty(void)
 {
-    for (;;)
-    {
+    for (;;) {
         Handle h = LookupService("/svc/tty");
         if (h >= 0)
             return h;
@@ -85,11 +79,9 @@ static Handle WaitForTty(void)
 
 static Err WaitForDevsvc(void)
 {
-    for (;;)
-    {
+    for (;;) {
         Handle h = LookupService("/svc/devsvc");
-        if (h >= 0)
-        {
+        if (h >= 0) {
             devsvc_port = h;
             return ZUZU_OK;
         }
@@ -163,20 +155,17 @@ int main(void)
         return rc;
     UserspaceDebugLog("pl011drv: entering event loop");
 
-    for (;;)
-    {
+    for (;;) {
         EventWaitResult ev = FormatToEventWait(WaitOn(g_event, POLL_MS));
         bool irq = ev.status == ZUZU_OK && (ev.bits & MASK(BIT_IRQ));
 
         bool rx = false;
         bool tx = false;
-        for (;;)
-        {
+        for (;;) {
             uart->icr = ICR_ALL;
             rx |= UartRxPump();
             tx |= UartTxPump();
-            if (irq)
-            {
+            if (irq) {
                 IrqRearm(g_dev);
                 irq = false;
             }

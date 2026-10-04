@@ -29,11 +29,11 @@
 #ifndef ARCH_REGS_H
 #define ARCH_REGS_H
 
-#include <arch_impl/regs.h>   /* CpuState + accessors (CpuContext for arch use) */
+#include <arch_impl/regs.h> /* CpuState + accessors (CpuContext for arch use) */
 
 static __always_inline void ArchSetInFrame(CpuState *f, unsigned i, int value)
 {
     *ArchGetFromFrame(f, i) = (Register)value;
-} 
+}
 
 #endif // ARCH_REGS_H

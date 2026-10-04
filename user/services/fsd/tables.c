@@ -1,8 +1,8 @@
 #include "tables.h"
 #include "backend/backend.h"
+#include <string.h>
 #include <zuzu/udbg.h>
 #include <zuzu/zuzu.h>
-#include <string.h>
 
 static FsdClient g_clients[FSD_MAX_CLIENTS];
 static FsdFile g_files[FSD_MAX_FILES];
@@ -26,8 +26,7 @@ Err ClientRegister(Handle shm, Marker *badge)
         return ERR_BADARG;
     /* rest unchanged */
 
-    for (uint32_t i = 0; i < FSD_MAX_CLIENTS; i++)
-    {
+    for (uint32_t i = 0; i < FSD_MAX_CLIENTS; i++) {
         FsdClient *c = &g_clients[i];
         if (c->in_use)
             continue;
@@ -39,8 +38,8 @@ Err ClientRegister(Handle shm, Marker *badge)
         uint32_t gen = (c->gen + 1) & 0xFFFFFFU;
         if (gen == 0)
             gen = 1;
-        *c = (FsdClient){ .in_use = true, .gen = gen, .shm_handle = shm, .live = -1,
-                          .buf = va, .shm_size = size };
+        *c = (FsdClient){
+            .in_use = true, .gen = gen, .shm_handle = shm, .live = -1, .buf = va, .shm_size = size};
         *badge = FSD_BADGE(gen, i);
         return ZUZU_OK;
     }
@@ -60,10 +59,7 @@ FsdClient *ClientFind(Marker badge)
     return c;
 }
 
-uint32_t ClientSlot(const FsdClient *c)
-{
-    return (uint32_t)(c - g_clients);
-}
+uint32_t ClientSlot(const FsdClient *c) { return (uint32_t)(c - g_clients); }
 
 void ClientDrop(FsdClient *c)
 {
@@ -84,8 +80,7 @@ void ClientDrop(FsdClient *c)
 uint32_t ClientsReapDead(void)
 {
     uint32_t reaped = 0;
-    for (uint32_t i = 0; i < FSD_MAX_CLIENTS; i++)
-    {
+    for (uint32_t i = 0; i < FSD_MAX_CLIENTS; i++) {
         FsdClient *c = &g_clients[i];
         if (!c->in_use || c->live < 0)
             continue;
@@ -116,8 +111,7 @@ Err FileOpen(uint32_t slot, const char *path, uint32_t mode, uint32_t *fd_out)
 
     int idx = -1;
     for (int i = 0; i < FSD_MAX_FILES; i++)
-        if (!g_files[i].in_use)
-        {
+        if (!g_files[i].in_use) {
             idx = i;
             break;
         }
@@ -145,10 +139,8 @@ void *FileGet(uint32_t slot, uint32_t fd)
 
 Err FileClose(uint32_t slot, uint32_t fd)
 {
-    for (int i = 0; i < FSD_MAX_FILES; i++)
-    {
-        if (g_files[i].in_use && g_files[i].slot == slot && g_files[i].fd == fd)
-        {
+    for (int i = 0; i < FSD_MAX_FILES; i++) {
+        if (g_files[i].in_use && g_files[i].slot == slot && g_files[i].fd == fd) {
             Err rc = g_backend->close(g_ctx, g_files[i].backend_file);
             memset(&g_files[i], 0, sizeof(g_files[i]));
             return rc;

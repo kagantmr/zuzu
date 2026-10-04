@@ -1,35 +1,36 @@
 #include "arp.h"
-#include "eth.h"
 #include "../common/globals.h"
-#include <stdio.h>
+#include "eth.h"
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <util/log.h>
 
 #define LOG_TAG "netd"
 
-
 static arp_entry_t arp_table[ARP_MAX_ENTRIES];
 
 /* In-flight RFC 5227 conflict detection. Only one tentative address is probed at
    a time (DHCP validates a single offered lease). */
 static struct {
-    bool        active;
-    ipv4_addr_t ip;                     /* tentative address under test */
-    uint8_t     probes;                 /* probes sent so far */
-    uint32_t    next_ms;                /* when to send the next probe / declare free */
-    void      (*on_result)(bool conflict);
+    bool active;
+    ipv4_addr_t ip;   /* tentative address under test */
+    uint8_t probes;   /* probes sent so far */
+    uint32_t next_ms; /* when to send the next probe / declare free */
+    void (*on_result)(bool conflict);
 } acd;
 
-__attribute__((cold)) void arp_init() {
+__attribute__((cold)) void arp_init()
+{
     memset(arp_table, 0, sizeof(arp_table)); /* every slot ARP_FREE */
     memset(&acd, 0, sizeof(acd));
 }
 
 /* An ACD probe is an ARP request with the sender protocol address left at
    0.0.0.0 (RFC 5227 2.1.1): it asks "who has ip" without claiming ip ourselves. */
-static __attribute__((cold)) void arp_acd_probe(ipv4_addr_t ip) {
+static __attribute__((cold)) void arp_acd_probe(ipv4_addr_t ip)
+{
     arp_packet_t pkt;
     memset(&pkt, 0, sizeof(pkt));
     pkt.htype = htons(1);
@@ -43,17 +44,19 @@ static __attribute__((cold)) void arp_acd_probe(ipv4_addr_t ip) {
     eth_tx(dst_mac, ETH_TYPE_ARP, (uint8_t *)&pkt, sizeof(arp_packet_t));
 }
 
-void arp_acd_start(ipv4_addr_t ip, void (*on_result)(bool conflict)) {
-    acd.active    = true;
-    acd.ip        = ip;
-    acd.probes    = 0;
-    acd.next_ms   = net_now_ms();  /* first probe goes out on the next arp_tick */
+void arp_acd_start(ipv4_addr_t ip, void (*on_result)(bool conflict))
+{
+    acd.active = true;
+    acd.ip = ip;
+    acd.probes = 0;
+    acd.next_ms = net_now_ms(); /* first probe goes out on the next arp_tick */
     acd.on_result = on_result;
 }
 
 /* End the probe and report the verdict. The callback may start a fresh probe
    (e.g. DHCP declining and re-running DORA), so snapshot and clear first. */
-static void arp_acd_finish(bool conflict) {
+static void arp_acd_finish(bool conflict)
+{
     if (!acd.active)
         return;
     acd.active = false;
@@ -62,20 +65,23 @@ static void arp_acd_finish(bool conflict) {
         cb(conflict);
 }
 
-static arp_entry_t *arp_find(ipv4_addr_t ip) {
+static arp_entry_t *arp_find(ipv4_addr_t ip)
+{
     for (int i = 0; i < ARP_MAX_ENTRIES; i++)
         if (arp_table[i].state != ARP_FREE && arp_table[i].ip == ip)
             return &arp_table[i];
     return NULL;
 }
 
-static void arp_free_entry(arp_entry_t *e) {
+static void arp_free_entry(arp_entry_t *e)
+{
     for (uint8_t i = 0; i < e->qlen; i++)
         free(e->queue[i].data);
     memset(e, 0, sizeof(*e)); /* state -> ARP_FREE, qlen -> 0 */
 }
 
-static arp_entry_t *arp_find_or_create(ipv4_addr_t ip) {
+static arp_entry_t *arp_find_or_create(ipv4_addr_t ip)
+{
     arp_entry_t *e = arp_find(ip);
     if (e)
         return e;
@@ -108,7 +114,8 @@ static arp_entry_t *arp_find_or_create(ipv4_addr_t ip) {
     return victim;
 }
 
-void arp_learn(ipv4_addr_t ip, const uint8_t *mac_addr) {
+void arp_learn(ipv4_addr_t ip, const uint8_t *mac_addr)
+{
     arp_entry_t *e = arp_find_or_create(ip);
     if (!e)
         return; /* table saturated with pending resolutions */
@@ -129,7 +136,8 @@ void arp_learn(ipv4_addr_t ip, const uint8_t *mac_addr) {
     }
 }
 
-int arp_lookup(ipv4_addr_t ip, uint8_t *mac_out) {
+int arp_lookup(ipv4_addr_t ip, uint8_t *mac_out)
+{
     arp_entry_t *e = arp_find(ip);
     if (e && e->state == ARP_REACHABLE) {
         memcpy(mac_out, e->mac, 6);
@@ -138,7 +146,8 @@ int arp_lookup(ipv4_addr_t ip, uint8_t *mac_out) {
     return ERR_NOENT;
 }
 
-void arp_send_frame(ipv4_addr_t ip, uint16_t ethertype, txframe_t *f) {
+void arp_send_frame(ipv4_addr_t ip, uint16_t ethertype, txframe_t *f)
+{
     if (ip == BROADCAST_IP) {
         mac_addr_t bcast = BROADCAST_MAC;
         eth_send_frame(f, bcast, ethertype);
@@ -177,7 +186,8 @@ void arp_send_frame(ipv4_addr_t ip, uint16_t ethertype, txframe_t *f) {
     }
 }
 
-void arp_tick(void) {
+void arp_tick(void)
+{
     uint32_t now = net_now_ms();
 
     /* Drive in-flight address-conflict detection: space out the probes, then
@@ -188,10 +198,9 @@ void arp_tick(void) {
             arp_acd_probe(acd.ip);
             acd.probes++;
             acd.next_ms = now + ACD_PROBE_MS;
-            LOG_INFO(LOG_TAG, "ACD probe %u for %u.%u.%u.%u",
-                     acd.probes, IP4(acd.ip));
+            LOG_INFO(LOG_TAG, "ACD probe %u for %u.%u.%u.%u", acd.probes, IP4(acd.ip));
         } else {
-            arp_acd_finish(false);     /* no answer: address is free */
+            arp_acd_finish(false); /* no answer: address is free */
         }
     }
 
@@ -203,11 +212,10 @@ void arp_tick(void) {
                     arp_request(e->ip);
                     e->probes++;
                     e->last_tx_ms = now;
-                    LOG_INFO(LOG_TAG, "ARP retransmit %u.%u.%u.%u probe %u",
-                             IP4(e->ip), e->probes);
+                    LOG_INFO(LOG_TAG, "ARP retransmit %u.%u.%u.%u probe %u", IP4(e->ip), e->probes);
                 } else {
-                    LOG_WARN(LOG_TAG, "ARP gave up %u.%u.%u.%u, dropped %u queued",
-                             IP4(e->ip), e->qlen);
+                    LOG_WARN(LOG_TAG, "ARP gave up %u.%u.%u.%u, dropped %u queued", IP4(e->ip),
+                             e->qlen);
                     arp_free_entry(e); /* frees queued packets too */
                 }
             }
@@ -218,13 +226,14 @@ void arp_tick(void) {
     }
 }
 
-int arp_rx(uint8_t *data, uint16_t len) {
+int arp_rx(uint8_t *data, uint16_t len)
+{
     ipv4_addr_t ip = netif.ip;
     if (len < sizeof(arp_packet_t))
         return ERR_MALFORMED;
     arp_packet_t *pkt = (arp_packet_t *)data;
-    if (ntohs(pkt->htype) != 1 || ntohs(pkt->ptype) != ETH_TYPE_IP ||
-        pkt->hlen != 6 || pkt->plen != 4) {
+    if (ntohs(pkt->htype) != 1 || ntohs(pkt->ptype) != ETH_TYPE_IP || pkt->hlen != 6 ||
+        pkt->plen != 4) {
         return ERR_MALFORMED;
     }
 
@@ -247,32 +256,33 @@ int arp_rx(uint8_t *data, uint16_t len) {
 
     uint16_t op = ntohs(pkt->oper);
     switch (op) {
-        case (ARP_OPER_REQST): {
-            static rate_limiter_t arp_reply_rl;
-            if (memcmp(pkt->tpa, &ip, 4) == 0 && rate_allow(&arp_reply_rl, 16, 16)) {
-                arp_packet_t pkt_out;
-                pkt_out.htype = htons(1);
-                pkt_out.ptype = htons(ETH_TYPE_IP);
-                pkt_out.hlen  = 6;
-                pkt_out.plen  = 4;
-                pkt_out.oper  = htons(2);          // reply
-                memcpy(pkt_out.sha, netif.mac, 6); // our MAC
-                memcpy(pkt_out.spa, &ip, 4);       // our IP
-                memcpy(pkt_out.tha, pkt->sha, 6);  // their MAC
-                memcpy(pkt_out.tpa, pkt->spa, 4);  // their IP
-                eth_tx(pkt->sha, ETH_TYPE_ARP, (uint8_t *)&pkt_out, sizeof(arp_packet_t));
-            }
-            break;
+    case (ARP_OPER_REQST): {
+        static rate_limiter_t arp_reply_rl;
+        if (memcmp(pkt->tpa, &ip, 4) == 0 && rate_allow(&arp_reply_rl, 16, 16)) {
+            arp_packet_t pkt_out;
+            pkt_out.htype = htons(1);
+            pkt_out.ptype = htons(ETH_TYPE_IP);
+            pkt_out.hlen = 6;
+            pkt_out.plen = 4;
+            pkt_out.oper = htons(2);           // reply
+            memcpy(pkt_out.sha, netif.mac, 6); // our MAC
+            memcpy(pkt_out.spa, &ip, 4);       // our IP
+            memcpy(pkt_out.tha, pkt->sha, 6);  // their MAC
+            memcpy(pkt_out.tpa, pkt->spa, 4);  // their IP
+            eth_tx(pkt->sha, ETH_TYPE_ARP, (uint8_t *)&pkt_out, sizeof(arp_packet_t));
         }
-        case (ARP_OPER_REPLY): {
-            break;
-        }
+        break;
+    }
+    case (ARP_OPER_REPLY): {
+        break;
+    }
     }
 
     return ZUZU_OK;
 }
 
-__attribute__((cold)) int arp_request(ipv4_addr_t ip) {
+__attribute__((cold)) int arp_request(ipv4_addr_t ip)
+{
     arp_packet_t pkt;
     memset(&pkt, 0, sizeof(pkt));
     pkt.htype = htons(1);
@@ -280,11 +290,11 @@ __attribute__((cold)) int arp_request(ipv4_addr_t ip) {
     pkt.hlen = 6;
     pkt.plen = 4;
     ipv4_addr_t our_ip = netif.ip;
-    pkt.oper = htons(1); // request
+    pkt.oper = htons(1);           // request
     memcpy(pkt.sha, netif.mac, 6); // our MAC
-    memcpy(pkt.spa, &our_ip, 4);       // our IP
+    memcpy(pkt.spa, &our_ip, 4);   // our IP
     // broadcast frame, no need to set it
-    memcpy(pkt.tpa, &ip, 4);  // their IP
+    memcpy(pkt.tpa, &ip, 4); // their IP
     mac_addr_t dst_mac = BROADCAST_MAC;
     eth_tx(dst_mac, ETH_TYPE_ARP, (uint8_t *)&pkt, sizeof(arp_packet_t));
     return ZUZU_OK;

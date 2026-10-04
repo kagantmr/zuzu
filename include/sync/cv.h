@@ -4,19 +4,19 @@
 #define ZUZU_SYNC_CV
 
 #include "zuzu/err.h"
-#include <types.h>
-#include <sync/zone.h>
-#include <sync/sem.h>
 #include <stdatomic.h>
 #include <stdint.h>
+#include <sync/sem.h>
+#include <sync/zone.h>
+#include <types.h>
 
 typedef struct {
-    _Atomic uint32_t seq;      /* bumped by every signal/broadcast */
-    _Atomic int      waiters;
-    Semaphore        sem;      /* waiters block here; count starts 0 */
+    _Atomic uint32_t seq; /* bumped by every signal/broadcast */
+    _Atomic int waiters;
+    Semaphore sem; /* waiters block here; count starts 0 */
 } CondVariable;
 
-Err CondVarInit(CondVariable* cv);
+Err CondVarInit(CondVariable *cv);
 
 Err CondVarDestroy(CondVariable *cv);
 

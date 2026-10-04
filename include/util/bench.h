@@ -13,23 +13,23 @@
 #include <types.h>
 
 #define ZUZU_BENCH_WARMUP_ITERS 500u
-#define ZUZU_BENCH_ITERS        100000u
+#define ZUZU_BENCH_ITERS 100000u
 
 typedef struct {
-	uint32_t min;
-	uint32_t max;
-	uint64_t sum;
-	uint32_t count;
+    uint32_t min;
+    uint32_t max;
+    uint64_t sum;
+    uint32_t count;
 } BenchResult;
 
 static inline void bench_result_record(BenchResult *r, uint32_t cycles)
 {
-	if (r->count == 0 || cycles < r->min)
-		r->min = cycles;
-	if (cycles > r->max)
-		r->max = cycles;
-	r->sum += cycles;
-	r->count++;
+    if (r->count == 0 || cycles < r->min)
+        r->min = cycles;
+    if (cycles > r->max)
+        r->max = cycles;
+    r->sum += cycles;
+    r->count++;
 }
 
 #endif /* CONFIG_ZUZU_BENCH */

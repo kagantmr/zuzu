@@ -1,16 +1,15 @@
 #include "core/ensure.h"
 #include "kernel/ipc/observer.h"
 #include "kernel/ipc/port.h"
-#include "kernel/mm/pmm/pmm.h"
 #include "kernel/irq/irq_relay.h"
+#include "kernel/mm/pmm/pmm.h"
 #include "kernel/space/space.h"
 #include "svc.h"
 #include <arch/regs.h>
-#include <zuzu/err.h>
 #include <types.h>
+#include <zuzu/err.h>
 
-typedef struct
-{
+typedef struct {
     ObserverSet *set; /* NULL: the object is already released, nothing to attach to */
     bool ready;       /* its condition (dead / hollow / has a pending caller) already holds */
 } BindTarget;
@@ -30,31 +29,27 @@ static Err BindLookupTarget(EventType type, Handle h, uint32_t bit, BindTarget *
     if (bit >= 31U)
         return ERR_BADARG;
 
-    switch (type)
-    {
-    case EVENT_PORT:
-    {
+    switch (type) {
+    case EVENT_PORT: {
         PortObject *port = entry->port;
         if (!port)
             return ERR_BADHANDLE;
         if (!port->alive)
             return ERR_DEAD;
-        *out = (BindTarget){ &port->observers, PortHasPending(port) };
+        *out = (BindTarget){&port->observers, PortHasPending(port)};
     } break;
-    case EVENT_TASK:
-    {
+    case EVENT_TASK: {
         TaskObject *task = entry->task;
         if (!task)
             return ERR_BADHANDLE;
         /* A released task is never cleaned up again: an observer added now would leak. */
-        *out = (BindTarget){ task->released ? NULL : &task->observers, TaskIsDead(task) };
+        *out = (BindTarget){task->released ? NULL : &task->observers, TaskIsDead(task)};
     } break;
-    default:
-    {
+    default: {
         SpaceObject *space = entry->space;
         if (!space)
             return ERR_BADHANDLE;
-        *out = (BindTarget){ &space->observers, SpaceIsHollow(space) };
+        *out = (BindTarget){&space->observers, SpaceIsHollow(space)};
     } break;
     }
     return ZUZU_OK;
@@ -76,20 +71,18 @@ void SvcBind(CpuState *frame)
     ENSURE_ERR(frame, (ev), ERR_BADHANDLE);
     ENSURE_ERR(frame, (ev->alive), ERR_DEAD);
 
-    switch (event_type)
-    {
-    case EVENT_MEMMGMT:
-    {
+    switch (event_type) {
+    case EVENT_MEMMGMT: {
         ArchSetInFrame(frame, 0, PmmSubscribe(ev));
     } break;
-    case EVENT_IRQ:
-    {
+    case EVENT_IRQ: {
         Handle dev_handle = (Handle)(*ArchGetFromFrame(frame, 2));
         uint32_t bit = (uint32_t)(*ArchGetFromFrame(frame, 3));
         HandleTableEntry *dev_entry = HandleTableLookup(&CURRENT_SPACE->handle_table, dev_handle);
 
         ENSURE_ERR(frame, dev_entry, ERR_BADHANDLE);
-        ENSURE_ERR(frame, (dev_entry->type == HANDLE_MEM && dev_entry->mem->kind == MEMKIND_DEVICE), ERR_BADTYPE);
+        ENSURE_ERR(frame, (dev_entry->type == HANDLE_MEM && dev_entry->mem->kind == MEMKIND_DEVICE),
+                   ERR_BADTYPE);
 
         MemObject *dev_mem_obj = dev_entry->mem;
 
@@ -102,8 +95,7 @@ void SvcBind(CpuState *frame)
     } break;
     case EVENT_PORT:
     case EVENT_TASK:
-    case EVENT_SPACE:
-    {
+    case EVENT_SPACE: {
         Handle h = (Handle)(*ArchGetFromFrame(frame, 2));
         uint32_t bit = (uint32_t)(*ArchGetFromFrame(frame, 3));
         BindTarget target;

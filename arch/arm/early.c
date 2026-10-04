@@ -5,21 +5,21 @@
 // PMM/heap/VMM, tear down the identity mapping, then init IRQs and devices.
 // Anything board-specific is supplied by the DTB and the per-board layout.h /
 // linker.ld / _start.S, so this file does not change when adding a board.
-#include <arch/symbols.h>
-#include <arch/irq.h>
-#include <arch/barrier.h>
-#include <arch/platform.h>
-#include <arch/mmu.h>
-#include <arch_impl/armv7_mmu.h>
-#include "kernel/layout.h"
-#include "kernel/mm/pmm/pmm.h"
-#include "kernel/kmain.h"
-#include "kernel/dev/fdt_wrappers.h"
-#include "kernel/boot_info.h"
-#include "kernel/mm/alloc.h"
-#include "kernel/mm/vmm/vmm.h"
-#include "core/panic.h"
 #include "core/kprintf.h"
+#include "core/panic.h"
+#include "kernel/boot_info.h"
+#include "kernel/dev/fdt_wrappers.h"
+#include "kernel/kmain.h"
+#include "kernel/layout.h"
+#include "kernel/mm/alloc.h"
+#include "kernel/mm/pmm/pmm.h"
+#include "kernel/mm/vmm/vmm.h"
+#include <arch/barrier.h>
+#include <arch/irq.h>
+#include <arch/mmu.h>
+#include <arch/platform.h>
+#include <arch/symbols.h>
+#include <arch_impl/armv7_mmu.h>
 #include <string.h>
 
 RamLayout kernel_layout;
@@ -29,7 +29,8 @@ RamLayout kernel_layout;
 
 __attribute__((section(".bss.boot"), aligned(16384))) uint32_t early_l1[4096];
 
-static void early_map_ram_sections(uintptr_t ram_base, size_t ram_size) {
+static void early_map_ram_sections(uintptr_t ram_base, size_t ram_size)
+{
     uint32_t *l1 = (uint32_t *)PA_TO_VA((uintptr_t)early_l1);
     uintptr_t pa_start = ram_base & ~(SECTION_SIZE - 1);
     uintptr_t pa_end = (ram_base + ram_size + SECTION_SIZE - 1) & ~(SECTION_SIZE - 1);
@@ -44,32 +45,34 @@ static void early_map_ram_sections(uintptr_t ram_base, size_t ram_size) {
     ArchSyncBarrier();
 }
 
-static void pmu_init(void) {
+static void pmu_init(void)
+{
     uint32_t pmcr;
     __asm__ volatile("mrc p15, 0, %0, c9, c12, 0" : "=r"(pmcr));
-    pmcr |=  (1 << 0);   // E: enable all counters
-    pmcr |=  (1 << 2);   // C: reset cycle counter to 0
-    pmcr &= ~(1u << 3);   // D: CLEAR divider — count every cycle, not every 64th
-    __asm__ volatile("mcr p15, 0, %0, c9, c12, 0" :: "r"(pmcr));
-    __asm__ volatile("mcr p15, 0, %0, c9, c14, 0" :: "r"(0x00000001)); // PMUSERENR: user read
-    __asm__ volatile("mcr p15, 0, %0, c9, c12, 1" :: "r"(0x80000000)); // PMCNTENSET: enable CCNT
+    pmcr |= (1 << 0);   // E: enable all counters
+    pmcr |= (1 << 2);   // C: reset cycle counter to 0
+    pmcr &= ~(1u << 3); // D: CLEAR divider — count every cycle, not every 64th
+    __asm__ volatile("mcr p15, 0, %0, c9, c12, 0" ::"r"(pmcr));
+    __asm__ volatile("mcr p15, 0, %0, c9, c14, 0" ::"r"(0x00000001)); // PMUSERENR: user read
+    __asm__ volatile("mcr p15, 0, %0, c9, c12, 1" ::"r"(0x80000000)); // PMCNTENSET: enable CCNT
 }
 
-static void vfp_init(void) {
+static void vfp_init(void)
+{
     uint32_t cpacr;
     __asm__ volatile("mrc p15, 0, %0, c1, c0, 2" : "=r"(cpacr));
     cpacr |= (0xF << 20);
     __asm__ volatile("mcr p15, 0, %0, c1, c0, 2" ::"r"(cpacr));
     __asm__ volatile("isb");
-    __asm__ volatile(
-        ".fpu vfpv4\n\t"
-        "vmsr fpexc, %0" ::"r"(1u << 30));
+    __asm__ volatile(".fpu vfpv4\n\t"
+                     "vmsr fpexc, %0" ::"r"(1u << 30));
 }
 
 /* Debug helper, not called from C; kept for use from a debugger/disasm
  * session. External linkage only, so it still needs a prototype. */
 int rdcyc(void);
-int rdcyc(void) {
+int rdcyc(void)
+{
     uint32_t value;
     __asm__ volatile("mrc p15, 0, %0, c9, c13, 0" : "=r"(value));
     return (int)value;
@@ -105,8 +108,7 @@ _Noreturn void early(void *dtb_ptr)
 
     kernel_layout.ram_start = (PhysAddr)ram_base;
     kernel_layout.ram_end = (PhysAddr)(ram_base + ram_size);
-    KDEBUG("early: ram [%p..%p)", (void *)kernel_layout.ram_start,
-          (void *)kernel_layout.ram_end);
+    KDEBUG("early: ram [%p..%p)", (void *)kernel_layout.ram_start, (void *)kernel_layout.ram_end);
     early_map_ram_sections(kernel_layout.ram_start, (size_t)ram_size);
 
     KDEBUG("early: pmm");
@@ -125,7 +127,9 @@ _Noreturn void early(void *dtb_ptr)
     /* BootInfoInitFromFdt() copies everything out of the DTB and shuts
      * down libfdt access, so capture what the cleanup below needs first. */
     PhysAddr dtb_end_pa = kernel_layout.dtb_start_pa + FdtTotalSize();
-    struct { uint64_t addr, size; } rsv[8];
+    struct {
+        uint64_t addr, size;
+    } rsv[8];
     uint32_t rsv_cnt = 0;
     while (rsv_cnt < 8 && FdtGetReservedMem(rsv_cnt, &rsv[rsv_cnt].addr, &rsv[rsv_cnt].size))
         rsv_cnt++;
@@ -160,7 +164,8 @@ _Noreturn void early(void *dtb_ptr)
     ArchPlatformInitDevices();
 
     KINFO("Freed DTB and boot space (%zu KiB)",
-          ((PhysAddr)_boot_end - (PhysAddr)_boot_start + dtb_end_pa - kernel_layout.dtb_start_pa) / 1024);
+          ((PhysAddr)_boot_end - (PhysAddr)_boot_start + dtb_end_pa - kernel_layout.dtb_start_pa) /
+              1024);
     KDEBUG("Boot info initialized from DTB: dev_count=%u", boot_info_dev_count());
     KDEBUG("Handoff to kmain");
     kmain();

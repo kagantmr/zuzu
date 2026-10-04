@@ -13,10 +13,10 @@
 #ifndef ZUZU_COMPILER_H
 #define ZUZU_COMPILER_H
 
-#define likely(x)   __builtin_expect(!!(x), 1)
+#define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
-#define __hot           __attribute__((hot))
+#define __hot __attribute__((hot))
 #define __always_inline __attribute__((always_inline)) inline
 
 #endif /* ZUZU_COMPILER_H */

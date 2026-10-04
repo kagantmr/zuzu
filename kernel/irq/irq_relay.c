@@ -5,10 +5,7 @@
 
 static IrqOwner irq_owners[MAX_IRQS];
 
-const IrqOwner *GetIrqOwnersList(void)
-{
-    return irq_owners;
-}
+const IrqOwner *GetIrqOwnersList(void) { return irq_owners; }
 
 static void __hot RelayIrqHandler(void *ctx)
 {
@@ -17,22 +14,16 @@ static void __hot RelayIrqHandler(void *ctx)
 
     irq_owners[irq_num].pending = true;
     EventObject *ev = irq_owners[irq_num].bound_ev;
-    if (likely(ev && ev->alive))
-    {
+    if (likely(ev && ev->alive)) {
         EventSignal(ev, (1U << irq_owners[irq_num].bit), false);
         irq_owners[irq_num].pending = false;
-    }
-    else if (ev)
-    {
+    } else if (ev) {
         irq_owners[irq_num].bound_ev = NULL;
         EventUnref(ev);
     }
 }
 
-bool IrqIsValid(Irq irq_num)
-{
-    return (irq_num < MAX_IRQS) && !ArchIrqIsOwnedByKernel(irq_num);
-}
+bool IrqIsValid(Irq irq_num) { return (irq_num < MAX_IRQS) && !ArchIrqIsOwnedByKernel(irq_num); }
 
 Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev, uint32_t bit)
 {
@@ -45,16 +36,14 @@ Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev, uint32_t bi
         return ERR_DEAD;
 
     /* Claim the line on first bind. */
-    if (!current_owner)
-    {
+    if (!current_owner) {
         irq_owners[irq_num] =
             (IrqOwner){.bound_ev = NULL, .owner = owner, .pending = false, .bit = bit};
         ArchIrqRegister(irq_num, RelayIrqHandler, (void *)(VirtAddr)irq_num);
     }
     irq_owners[irq_num].bit = bit;
 
-    if (irq_owners[irq_num].bound_ev)
-    {
+    if (irq_owners[irq_num].bound_ev) {
         EventObject *old = irq_owners[irq_num].bound_ev;
         EventUnref(old);
     }
@@ -62,9 +51,8 @@ Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev, uint32_t bi
     irq_owners[irq_num].bound_ev = ev;
     irq_owners[irq_num].bound_ev->ref_count++;
     irq_owners[irq_num].bound_ev->bound_mask |= (1U << irq_owners[irq_num].bit);
-    
-    if (irq_owners[irq_num].pending)
-    {
+
+    if (irq_owners[irq_num].pending) {
         EventSignal(irq_owners[irq_num].bound_ev, (1U << irq_owners[irq_num].bit), false);
         irq_owners[irq_num].pending = false;
     }
@@ -75,10 +63,8 @@ Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev, uint32_t bi
 
 void IrqReleaseAll(SpaceObject *owner)
 {
-    for (Irq irq_num = 0; irq_num < MAX_IRQS; irq_num++)
-    {
-        if (irq_owners[irq_num].owner == owner)
-        {
+    for (Irq irq_num = 0; irq_num < MAX_IRQS; irq_num++) {
+        if (irq_owners[irq_num].owner == owner) {
             EventUnref(irq_owners[irq_num].bound_ev);
             irq_owners[irq_num] = (IrqOwner){.bound_ev = NULL, .owner = NULL, .pending = false};
             ArchIrqMaskLine(irq_num);

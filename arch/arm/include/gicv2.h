@@ -1,6 +1,7 @@
 // gicv2.h - ARM Generic Interrupt Controller v2 definitions
-// This file defines the register offsets and function prototypes for initializing and interacting with the GICv2 interrupt controller. 
-// The GIC is responsible for managing peripheral interrupts and delivering them to the CPU.
+// This file defines the register offsets and function prototypes for initializing and interacting
+// with the GICv2 interrupt controller. The GIC is responsible for managing peripheral interrupts
+// and delivering them to the CPU.
 
 #ifndef ARCH_ARM_GICV2_H
 #define ARCH_ARM_GICV2_H
@@ -8,22 +9,21 @@
 #include <stdint.h>
 #include <types.h>
 
-
 /* Distributor */
-#define GICD_CTLR        0x000
-#define GICD_IGROUPR     0x080
-#define GICD_ISENABLER   0x100
-#define GICD_ICENABLER   0x180
-#define GICD_ISPENDER    0x200
-#define GICD_IPRIORITYR  0x400
-#define GICD_ITARGETSR   0x800
-#define GICD_ICFGR       0xC00
+#define GICD_CTLR 0x000
+#define GICD_IGROUPR 0x080
+#define GICD_ISENABLER 0x100
+#define GICD_ICENABLER 0x180
+#define GICD_ISPENDER 0x200
+#define GICD_IPRIORITYR 0x400
+#define GICD_ITARGETSR 0x800
+#define GICD_ICFGR 0xC00
 
 /* CPU Interface */
-#define GICC_CTLR       0x000
-#define GICC_PMR        0x004
-#define GICC_IAR        0x00C
-#define GICC_EOIR       0x010
+#define GICC_CTLR 0x000
+#define GICC_PMR 0x004
+#define GICC_IAR 0x00C
+#define GICC_EOIR 0x010
 
 /**
  * @brief Initialize the GICv2 distributor and CPU interface.
@@ -68,6 +68,5 @@ uint32_t GicAcknowledge(void);
  * @param iar The raw IAR value to signal completion for.
  */
 void GicEnd(uint32_t iar);
-
 
 #endif

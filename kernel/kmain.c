@@ -47,8 +47,8 @@ _Noreturn void kmain(void)
 
     PhysAddr initrd_pa = (PhysAddr)chosen_pa;
     size_t initrd_size = (size_t)chosen_size;
-    KINFO("initrd: bootloader-supplied at pa=%p size=%zu",
-          (void *)(uintptr_t)initrd_pa, initrd_size);
+    KINFO("initrd: bootloader-supplied at pa=%p size=%zu", (void *)(uintptr_t)initrd_pa,
+          initrd_size);
     SyspageSetInitrdSz((uint32_t)initrd_size);
 
     initrd_init((const void *)PA_TO_VA((uintptr_t)initrd_pa), initrd_size);

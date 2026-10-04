@@ -1,16 +1,15 @@
 #include "rootsvc.h"
-#include <zuzu/service.h>
 #include <stdbool.h>
 #include <string.h>
 #include <util/msg.h>
-#include <zuzu/udbg.h>
 #include <zuzu/err.h>
+#include <zuzu/service.h>
+#include <zuzu/udbg.h>
 #include <zuzu/zuzu.h>
 
 Handle g_nsvc_port;
 
-typedef struct
-{
+typedef struct {
     char path[NS_MAX_PATH];
     Handle handle; /* slot in nsvc's own table, regrantable */
     bool in_use;
@@ -55,32 +54,27 @@ static void ReplyStatus(Err status)
 
 static void NsvcRegister(const NsvcRequest *req, Handle granted)
 {
-    if (granted < 0)
-    {
+    if (granted < 0) {
         ReplyStatus(ERR_BADARG); /* register must come with a port to grant */
         return;
     }
 
     int free_slot = -1;
     int found = -1;
-    for (int i = 0; i < NS_MAX_SERVICES; i++)
-    {
-        if (!g_registry[i].in_use)
-        {
+    for (int i = 0; i < NS_MAX_SERVICES; i++) {
+        if (!g_registry[i].in_use) {
             if (free_slot == -1)
                 free_slot = i;
             continue;
         }
-        if (strncmp(g_registry[i].path, req->path, NS_MAX_PATH) == 0)
-        {
+        if (strncmp(g_registry[i].path, req->path, NS_MAX_PATH) == 0) {
             found = i;
             break;
         }
     }
 
     int slot = (found >= 0) ? found : free_slot;
-    if (slot < 0)
-    {
+    if (slot < 0) {
         ReplyStatus(ERR_NOMEM);
         return;
     }
@@ -95,16 +89,14 @@ static void NsvcRegister(const NsvcRequest *req, Handle granted)
 
 static void NsvcLookup(const NsvcRequest *req)
 {
-    for (int i = 0; i < NS_MAX_SERVICES; i++)
-    {
+    for (int i = 0; i < NS_MAX_SERVICES; i++) {
         if (!g_registry[i].in_use)
             continue;
         if (strncmp(g_registry[i].path, req->path, NS_MAX_PATH) != 0)
             continue;
 
         SvcResult dup = HandleDuplicate(g_registry[i].handle, (PERM_SEND | PERM_TXFR), MARKER_NONE);
-        if (dup.r0 == ZUZU_OK)
-        {
+        if (dup.r0 == ZUZU_OK) {
             Reply(0, (Handle)dup.r1);
             return;
         }
@@ -116,21 +108,18 @@ static void NsvcLookup(const NsvcRequest *req)
 void NsvcMain(void)
 {
     UserspaceDebugLog("nsvc: up");
-    for (;;)
-    {
+    for (;;) {
         PortWaitResult result = FormatToPortWait(WaitOn(g_nsvc_port, TIMEOUT_INFINITE));
         if (result.status != ZUZU_OK)
             continue;
 
         NsvcRequest req;
-        if (NsvcUnpack(MessageBuf(), result.xlen, &req) != ZUZU_OK)
-        {
+        if (NsvcUnpack(MessageBuf(), result.xlen, &req) != ZUZU_OK) {
             ReplyStatus(ERR_BADARG);
             continue;
         }
 
-        switch (req.cmd)
-        {
+        switch (req.cmd) {
         case NS_REGISTER:
             NsvcRegister(&req, result.granted);
             break;

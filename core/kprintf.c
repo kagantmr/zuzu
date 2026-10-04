@@ -2,24 +2,25 @@
 
 #include "core/kprintf.h"
 #include <arch/cpu.h>
-#include <string.h>
 #include <snprintf.h>
 #include <stdarg.h>
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
+#include <string.h>
 
 static void (*kernel_console_putc)(char);
 
-void kprintf_init(void (*putc_func)(char)) {
-    kernel_console_putc = putc_func;
-}
+void kprintf_init(void (*putc_func)(char)) { kernel_console_putc = putc_func; }
 
-static void kprintf_outc(void *ctx, char c) {
+static void kprintf_outc(void *ctx, char c)
+{
     void (*putc_fn)(char) = (void (*)(char))ctx;
-    if (putc_fn) putc_fn(c);
+    if (putc_fn)
+        putc_fn(c);
 }
 
-void kprintf(const char* fmt, ...) {
+void kprintf(const char *fmt, ...)
+{
     uint32_t state = ArchIrqSave();
     va_list args;
     va_start(args, fmt);

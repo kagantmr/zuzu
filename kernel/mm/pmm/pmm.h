@@ -3,8 +3,8 @@
 
 #include "kernel/ipc/event.h"
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <types.h>
 #include <zuzu/err.h>
 
@@ -15,14 +15,8 @@
 
 typedef uint32_t Pfn;
 
-static inline PhysAddr PfnToPa(Pfn pfn)
-{
-    return (PhysAddr)pfn << PAGE_SHIFT;
-}
-static inline Pfn PaToPfn(PhysAddr pa)
-{
-    return (Pfn)(pa >> PAGE_SHIFT);
-}
+static inline PhysAddr PfnToPa(Pfn pfn) { return (PhysAddr)pfn << PAGE_SHIFT; }
+static inline Pfn PaToPfn(PhysAddr pa) { return (Pfn)(pa >> PAGE_SHIFT); }
 
 #define PA_NULL ((PhysAddr)0)
 

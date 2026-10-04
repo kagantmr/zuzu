@@ -14,8 +14,7 @@
 #define PL011DRV_INIT_FAIL -1
 
 // ------------------- PL011 constants -------------------
-typedef struct
-{
+typedef struct {
     uint32_t dr;      // 0x00
     uint32_t rsr;     // 0x04
     uint32_t res0[4]; // 0x08-0x14

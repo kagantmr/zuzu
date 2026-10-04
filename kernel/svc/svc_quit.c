@@ -1,6 +1,6 @@
-#include "svc.h"
 #include "kernel/sched/sched.h"
 #include "kernel/task/task.h"
+#include "svc.h"
 
 #define LOG_FMT(fmt) "(SvcQuit) " fmt
 #include <util/log.h>

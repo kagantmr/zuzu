@@ -1,8 +1,8 @@
-#include <stdio.h>
 #include <ctype.h>
-#include <string.h>
-#include <stdlib.h>
 #include <dev/protocols/tty.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <util/msg.h>
 #include <zuzu/err.h>
 #include <zuzu/service.h>
@@ -14,8 +14,7 @@
 #define STDIO_POLL_MS 20
 #define STDIO_ATTACH_RETRIES 100
 
-typedef enum
-{
+typedef enum {
     STDIO_IDLE,
     STDIO_READY,
     STDIO_FAILED, /* endpoint never appeared; stop retrying */
@@ -31,11 +30,9 @@ static uint32_t stdio_mode = TTY_MODE_COOKED | TTY_MODE_ECHO;
 
 static void stdio_disconnect(void)
 {
-    if (stdio_state == STDIO_READY)
-    {
+    if (stdio_state == STDIO_READY) {
         TtyShm *shm = stdio_conn.shm;
-        for (int i = 0; i < STDIO_ATTACH_RETRIES && ShmRingAvail(&shm->up_hdr) > 0; i++)
-        {
+        for (int i = 0; i < STDIO_ATTACH_RETRIES && ShmRingAvail(&shm->up_hdr) > 0; i++) {
             Signal(stdio_conn.doorbell, 1U << stdio_conn.bit, false);
             WaitOn(stdio_event, STDIO_POLL_MS);
         }
@@ -45,10 +42,7 @@ static void stdio_disconnect(void)
     stdio_pushback = EOF;
 }
 
-static void __attribute__((destructor)) stdio_fini(void)
-{
-    stdio_disconnect();
-}
+static void __attribute__((destructor)) stdio_fini(void) { stdio_disconnect(); }
 
 /* Idempotent. Connects on first use rather than at startup so services that
  * link this file never block waiting for ttysvc. Returns 0 when attached. */
@@ -59,42 +53,36 @@ int stdio_open_tty(void)
     if (stdio_state == STDIO_FAILED)
         return -1;
 
-    if (stdio_port < 0)
-    {
+    if (stdio_port < 0) {
         stdio_port = LookupService("/svc/tty");
-        if (stdio_port < 0)
-        {
+        if (stdio_port < 0) {
             stdio_port = -1;
             return -1;
         }
     }
-    if (stdio_event < 0)
-    {
+    if (stdio_event < 0) {
         stdio_event = CreateEvent();
-        if (stdio_event < 0)
-        {
+        if (stdio_event < 0) {
             stdio_event = -1;
             return -1;
         }
     }
 
     Err rc = ERR_NOENT;
-    for (int i = 0; i < STDIO_ATTACH_RETRIES && rc == ERR_NOENT; i++)
-    {
-        rc = TtyClientConnect(stdio_port, TTY_ATTACH, stdio_alias, stdio_event, STDIO_BIT_KICK, &stdio_conn);
+    for (int i = 0; i < STDIO_ATTACH_RETRIES && rc == ERR_NOENT; i++) {
+        rc = TtyClientConnect(stdio_port, TTY_ATTACH, stdio_alias, stdio_event, STDIO_BIT_KICK,
+                              &stdio_conn);
         if (rc == ERR_NOENT)
             Sleep(10);
     }
-    if (rc != ZUZU_OK)
-    {
+    if (rc != ZUZU_OK) {
         if (rc == ERR_NOENT)
             stdio_state = STDIO_FAILED;
         return -1;
     }
 
     rc = TtyClientSetMode(stdio_port, &stdio_conn, stdio_mode);
-    if (rc != ZUZU_OK)
-    {
+    if (rc != ZUZU_OK) {
         TtyClientClose(stdio_port, &stdio_conn);
         return -1;
     }
@@ -115,10 +103,7 @@ int stdio_set_raw(int enable)
 
 /* Releases the session so another program can take the foreground; the next
  * printf or getchar attaches again. */
-void stdio_close_tty(void)
-{
-    stdio_disconnect();
-}
+void stdio_close_tty(void) { stdio_disconnect(); }
 
 /* `name` is a ttysvc alias ("" for the default endpoint). Reconnects now so
  * a bad alias is reported here rather than at the first printf. */
@@ -139,18 +124,14 @@ int stdio_use_tty(uint32_t index)
     return stdio_route_tty(name);
 }
 
-static void stdio_kick(void)
-{
-    Signal(stdio_conn.doorbell, 1U << stdio_conn.bit, false);
-}
+static void stdio_kick(void) { Signal(stdio_conn.doorbell, 1U << stdio_conn.bit, false); }
 
 /* Blocks while the up ring is full: that is the backpressure ttysvc applies
  * to a background consumer. */
 static void stdio_write(const char *s, size_t n)
 {
     TtyShm *shm = stdio_conn.shm;
-    while (n > 0)
-    {
+    while (n > 0) {
         uint32_t w = ShmRingPush(&shm->up_hdr, shm->up_data, (const uint8_t *)s, (uint32_t)n);
         s += w;
         n -= w;
@@ -164,8 +145,7 @@ static void stdio_write(const char *s, size_t n)
  * the EOF flag are re-checked on every wakeup. */
 static int stdio_stream_getc(void)
 {
-    if (stdio_pushback != EOF)
-    {
+    if (stdio_pushback != EOF) {
         int c = stdio_pushback;
         stdio_pushback = EOF;
         return c;
@@ -175,8 +155,7 @@ static int stdio_stream_getc(void)
         return EOF;
 
     TtyShm *shm = stdio_conn.shm;
-    for (;;)
-    {
+    for (;;) {
         uint8_t b = 0;
         if (ShmRingPop(&shm->down_hdr, shm->down_data, &b, 1) == 1)
             return b;
@@ -186,10 +165,7 @@ static int stdio_stream_getc(void)
     }
 }
 
-int getchar(void)
-{
-    return stdio_stream_getc();
-}
+int getchar(void) { return stdio_stream_getc(); }
 
 static const char *stdio_skip_ws(const char *s)
 {
@@ -197,7 +173,6 @@ static const char *stdio_skip_ws(const char *s)
         s++;
     return s;
 }
-
 
 static int stdio_vsscanf_line(const char *input, const char *format, va_list args)
 {
@@ -331,52 +306,51 @@ static int stdio_vsscanf_line(const char *input, const char *format, va_list arg
             continue;
         }
 
-        if (conv == 'd' || conv == 'i' || conv == 'u' || conv == 'o' || conv == 'x' || conv == 'p' ||
-            conv == 'f' || conv == 'e' || conv == 'g' || conv == 'a') {
+        if (conv == 'd' || conv == 'i' || conv == 'u' || conv == 'o' || conv == 'x' ||
+            conv == 'p' || conv == 'f' || conv == 'e' || conv == 'g' || conv == 'a') {
             char *end = NULL;
             long signed_value = 0;
             unsigned long unsigned_value = 0;
 
             switch (conv) {
-                case 'd':
-                    signed_value = strtol(src, &end, 10);
-                    break;
-                case 'i':
-                    signed_value = strtol(src, &end, 0);
-                    break;
-                case 'u':
-                    unsigned_value = strtoul(src, &end, 10);
-                    break;
-                case 'o':
-                    unsigned_value = strtoul(src, &end, 8);
-                    break;
-                case 'x':
-                    unsigned_value = strtoul(src, &end, 16);
-                    break;
-                case 'p':
-                    unsigned_value = strtoul(src, &end, 0);
-                    break;
-                case 'f':
-                case 'e':
-                case 'g':
-                case 'a':
-                {
-                    double value = strtod(src, &end);
-                    if (!end || end == src)
-                        return assigned;
-                    if (!suppress) {
-                        if (len == LEN_L || len == LEN_LL) {
-                            double *out = va_arg(args, double *);
-                            *out = value;
-                        } else {
-                            float *out = va_arg(args, float *);
-                            *out = (float)value;
-                        }
-                        assigned++;
+            case 'd':
+                signed_value = strtol(src, &end, 10);
+                break;
+            case 'i':
+                signed_value = strtol(src, &end, 0);
+                break;
+            case 'u':
+                unsigned_value = strtoul(src, &end, 10);
+                break;
+            case 'o':
+                unsigned_value = strtoul(src, &end, 8);
+                break;
+            case 'x':
+                unsigned_value = strtoul(src, &end, 16);
+                break;
+            case 'p':
+                unsigned_value = strtoul(src, &end, 0);
+                break;
+            case 'f':
+            case 'e':
+            case 'g':
+            case 'a': {
+                double value = strtod(src, &end);
+                if (!end || end == src)
+                    return assigned;
+                if (!suppress) {
+                    if (len == LEN_L || len == LEN_LL) {
+                        double *out = va_arg(args, double *);
+                        *out = value;
+                    } else {
+                        float *out = va_arg(args, float *);
+                        *out = (float)value;
                     }
-                    src = end;
-                    continue;
+                    assigned++;
                 }
+                src = end;
+                continue;
+            }
             }
 
             if (!end || end == src)
@@ -384,42 +358,42 @@ static int stdio_vsscanf_line(const char *input, const char *format, va_list arg
 
             if (!suppress) {
                 switch (conv) {
-                    case 'd':
-                    case 'i':
-                        if (len == LEN_L)
-                            *va_arg(args, long *) = signed_value;
-                        else if (len == LEN_LL)
-                            *va_arg(args, long long *) = (long long)signed_value;
-                        else if (len == LEN_H)
-                            *va_arg(args, short *) = (short)signed_value;
-                        else if (len == LEN_HH)
-                            *va_arg(args, signed char *) = (signed char)signed_value;
-                        else if (len == LEN_Z)
-                            *va_arg(args, size_t *) = (size_t)signed_value;
-                        else if (len == LEN_T)
-                            *va_arg(args, ptrdiff_t *) = (ptrdiff_t)signed_value;
-                        else
-                            *va_arg(args, int *) = (int)signed_value;
-                        break;
-                    case 'u':
-                    case 'o':
-                    case 'x':
-                        if (len == LEN_L)
-                            *va_arg(args, unsigned long *) = unsigned_value;
-                        else if (len == LEN_LL)
-                            *va_arg(args, unsigned long long *) = (unsigned long long)unsigned_value;
-                        else if (len == LEN_H)
-                            *va_arg(args, unsigned short *) = (unsigned short)unsigned_value;
-                        else if (len == LEN_HH)
-                            *va_arg(args, unsigned char *) = (unsigned char)unsigned_value;
-                        else if (len == LEN_Z)
-                            *va_arg(args, size_t *) = (size_t)unsigned_value;
-                        else
-                            *va_arg(args, unsigned int *) = (unsigned int)unsigned_value;
-                        break;
-                    case 'p':
-                        *va_arg(args, void **) = (void *)(uintptr_t)unsigned_value;
-                        break;
+                case 'd':
+                case 'i':
+                    if (len == LEN_L)
+                        *va_arg(args, long *) = signed_value;
+                    else if (len == LEN_LL)
+                        *va_arg(args, long long *) = (long long)signed_value;
+                    else if (len == LEN_H)
+                        *va_arg(args, short *) = (short)signed_value;
+                    else if (len == LEN_HH)
+                        *va_arg(args, signed char *) = (signed char)signed_value;
+                    else if (len == LEN_Z)
+                        *va_arg(args, size_t *) = (size_t)signed_value;
+                    else if (len == LEN_T)
+                        *va_arg(args, ptrdiff_t *) = (ptrdiff_t)signed_value;
+                    else
+                        *va_arg(args, int *) = (int)signed_value;
+                    break;
+                case 'u':
+                case 'o':
+                case 'x':
+                    if (len == LEN_L)
+                        *va_arg(args, unsigned long *) = unsigned_value;
+                    else if (len == LEN_LL)
+                        *va_arg(args, unsigned long long *) = (unsigned long long)unsigned_value;
+                    else if (len == LEN_H)
+                        *va_arg(args, unsigned short *) = (unsigned short)unsigned_value;
+                    else if (len == LEN_HH)
+                        *va_arg(args, unsigned char *) = (unsigned char)unsigned_value;
+                    else if (len == LEN_Z)
+                        *va_arg(args, size_t *) = (size_t)unsigned_value;
+                    else
+                        *va_arg(args, unsigned int *) = (unsigned int)unsigned_value;
+                    break;
+                case 'p':
+                    *va_arg(args, void **) = (void *)(uintptr_t)unsigned_value;
+                    break;
                 }
                 assigned++;
             }
@@ -441,8 +415,7 @@ static int stdio_read_line(char *dst, size_t max)
 
     size_t len = 0;
     int c;
-    while ((c = stdio_stream_getc()) != EOF && c != '\n')
-    {
+    while ((c = stdio_stream_getc()) != EOF && c != '\n') {
         if (len + 1 < max)
             dst[len++] = (char)c;
     }
@@ -492,16 +465,13 @@ int vprintf(const char *format, va_list args)
     if (out_len >= sizeof(buf))
         out_len = sizeof(buf) - 1;
 
-    if (stdio_open_tty() == 0)
-    {
-        if (stdio_mode != TTY_MODE_RAW)
-        {
+    if (stdio_open_tty() == 0) {
+        if (stdio_mode != TTY_MODE_RAW) {
             stdio_write(buf, out_len);
             return len;
         }
         size_t start = 0;
-        for (size_t i = 0; i < out_len; i++)
-        {
+        for (size_t i = 0; i < out_len; i++) {
             if (buf[i] != '\n')
                 continue;
             stdio_write(buf + start, i - start);
@@ -509,8 +479,7 @@ int vprintf(const char *format, va_list args)
             start = i + 1;
         }
         stdio_write(buf + start, out_len - start);
-    }
-    else
+    } else
         UserspaceDebugLog("%s", buf);
     return len;
 }

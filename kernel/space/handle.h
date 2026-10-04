@@ -11,10 +11,10 @@
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/vmm/vmm.h"
 
-#include "kernel/task/task.h"
 #include "kernel/ipc/event.h"
 #include "kernel/ipc/port.h"
 #include "kernel/mm/mem_object.h"
+#include "kernel/task/task.h"
 
 #define HANDLE_INDEX_BITS 10u                              /* log2(HANDLE_MAX_SLOTS) */
 #define HANDLE_INDEX_MASK ((1u << HANDLE_INDEX_BITS) - 1u) /* 0x3FF */
@@ -26,8 +26,7 @@
 
 typedef struct SpaceObjectStruct SpaceObject;
 
-typedef enum
-{
+typedef enum {
     HANDLE_FREE,
     HANDLE_PORT,
     HANDLE_MEM,
@@ -37,16 +36,14 @@ typedef enum
     HANDLE_TYPE_COUNT
 } HandleType;
 
-typedef struct HandleTableEntryStruct
-{
-    HandleType type;    /* HANDLE_* */
+typedef struct HandleTableEntryStruct {
+    HandleType type; /* HANDLE_* */
     HandlePerms perms;
     VirtAddr mapped_va; /* For shm and device: destroy() checks before freeing */
-    union
-    {
+    union {
         PortObject *port;
         MemObject *mem;
-        EventObject *event; 
+        EventObject *event;
         TaskObject *task;
         SpaceObject *space;
     };
@@ -61,21 +58,16 @@ typedef struct HandleTableEntryStruct
 
 typedef HandleTableEntry HandleBlock[HANDLE_BLOCK_SLOTS];
 
-typedef struct
-{
+typedef struct {
     HandleBlock *blocks[HANDLE_MAX_BLOCKS];
     uint32_t slot_bitmap[BITMAP_WORDS(HANDLE_MAX_SLOTS)];
 } HandleTable;
 
-static inline void HandleTableInit(HandleTable *t)
-{
-    memset(t, 0, sizeof(*t));
-}
+static inline void HandleTableInit(HandleTable *t) { memset(t, 0, sizeof(*t)); }
 
 static inline void HandleTableDestroy(HandleTable *t)
 {
-    for (uint32_t b = 0; b < HANDLE_MAX_BLOCKS; b++)
-    {
+    for (uint32_t b = 0; b < HANDLE_MAX_BLOCKS; b++) {
         KFree(t->blocks[b]);
         t->blocks[b] = NULL;
     }
@@ -130,8 +122,7 @@ static inline HandleTableEntry *HandleTableGetOrAlloc(HandleTable *t, Handle i)
 /* Recover a slot index from a HandleEntry * by finding its leaf block. */
 static inline uint32_t HandleEntryIndex(const HandleTable *t, const HandleTableEntry *e)
 {
-    for (uint32_t b = 0; b < HANDLE_MAX_BLOCKS; b++)
-    {
+    for (uint32_t b = 0; b < HANDLE_MAX_BLOCKS; b++) {
         const HandleTableEntry *base = t->blocks[b] ? (*t->blocks[b]) : NULL;
         if (base && e >= base && e < base + HANDLE_BLOCK_SLOTS)
             return (b * HANDLE_BLOCK_SLOTS) + (uint32_t)(e - base);
@@ -158,7 +149,8 @@ static inline void HandleEntryFree(HandleTable *t, HandleTableEntry *e)
     e->generation = next_gen;
 }
 
-Err HandleCopyInto(HandleTable *dst_table, HandleTableEntry *src, HandlePerms perms, Marker marker, Handle *out);
+Err HandleCopyInto(HandleTable *dst_table, HandleTableEntry *src, HandlePerms perms, Marker marker,
+                   Handle *out);
 
 void HandleRelease(SpaceObject *sp, HandleTableEntry *entry);
 

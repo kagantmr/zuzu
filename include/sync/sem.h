@@ -4,15 +4,15 @@
 #define ZUZU_SYNC_SEM
 
 #include "zuzu/err.h"
-#include <types.h>
 #include <stdatomic.h>
+#include <types.h>
 
 typedef struct sem {
     _Atomic int count;
-    Handle      event; /* kernel event object waiters block on */
+    Handle event; /* kernel event object waiters block on */
 } Semaphore;
 
-Err SemInit(Semaphore* s, int initial_count);
+Err SemInit(Semaphore *s, int initial_count);
 
 Err SemDestroy(Semaphore *s);
 

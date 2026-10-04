@@ -2,8 +2,8 @@
 #include <dev/protocols/devm.h>
 #include <string.h>
 #include <util/msg.h>
-#include <zuzu/service.h>
 #include <zuzu/err.h>
+#include <zuzu/service.h>
 #include <zuzu/udbg.h>
 #include <zuzu/zuzu.h>
 
@@ -12,8 +12,7 @@ static Handle g_devsvc_port;
 static int DevmUnpack(const char *buf, uint32_t xlen, DevmRequest *out)
 {
     /* 1. Header must fit: cmd(4) + count(4). */
-    if (xlen < 8)
-    {
+    if (xlen < 8) {
         return ERR_BADARG;
     }
 
@@ -23,24 +22,20 @@ static int DevmUnpack(const char *buf, uint32_t xlen, DevmRequest *out)
     memcpy(&count, buf + 4, 4);
 
     /* 2. Bound count before it indexes strings[]. */
-    if (count == 0 || count > DEVM_MAX_COMPAT)
-    {
+    if (count == 0 || count > DEVM_MAX_COMPAT) {
         return ERR_BADARG;
     }
 
     /* 3. Bounded walk of `count` NUL-terminated strings. */
     uint32_t off = 8;
-    for (uint32_t i = 0; i < count; i++)
-    {
-        if (off >= xlen)
-        {
+    for (uint32_t i = 0; i < count; i++) {
+        if (off >= xlen) {
             return ERR_BADARG; /* ran out before string i */
         }
 
         uint32_t remaining = xlen - off;
         size_t len = strnlen(buf + off, remaining);
-        if (len == remaining)
-        {
+        if (len == remaining) {
             return ERR_BADARG; /* no NUL within bounds */
         }
 
@@ -48,8 +43,7 @@ static int DevmUnpack(const char *buf, uint32_t xlen, DevmRequest *out)
         off += (uint32_t)len + 1; /* +1 steps over the NUL */
     }
 
-    if (off != xlen)
-    {
+    if (off != xlen) {
         return ERR_BADARG;
     }
 
@@ -65,10 +59,9 @@ void DevsvcMain(void)
     if (g_devsvc_port < 0)
         return;
     HandleDuplicate(g_devsvc_port, PERM_MAP, 0xDE71CE00);
-    RegisterService("/svc/devsvc",  g_devsvc_port);
+    RegisterService("/svc/devsvc", g_devsvc_port);
 
-    for (;;)
-    {
+    for (;;) {
         PortWaitResult result = FormatToPortWait(WaitOn(g_devsvc_port, TIMEOUT_INFINITE));
         if (result.status != ZUZU_OK)
             continue;
@@ -77,18 +70,13 @@ void DevsvcMain(void)
         if (DevmUnpack(MessageBuf(), result.xlen, &req) != ZUZU_OK)
             continue;
 
-        switch (req.cmd)
-        {
-        case DEVM_REQUEST:
-        {
+        switch (req.cmd) {
+        case DEVM_REQUEST: {
             uint32_t matched_index = 0;
             bool found = false;
-            for (uint32_t i = 0; i < req.count && !found; i++)
-            {
-                for (uint32_t d = 0; d < g_bootinfo->dev_count; d++)
-                {
-                    if (strcmp(req.strings[i], g_bootinfo->devs[d].compatible) == 0)
-                    {
+            for (uint32_t i = 0; i < req.count && !found; i++) {
+                for (uint32_t d = 0; d < g_bootinfo->dev_count; d++) {
+                    if (strcmp(req.strings[i], g_bootinfo->devs[d].compatible) == 0) {
                         matched_index = d;
                         found = true;
                         break;
@@ -98,15 +86,14 @@ void DevsvcMain(void)
             if (!found)
                 break;
 
-            SvcResult dup =
-                HandleDuplicate(DEVICE_HANDLE_BASE + matched_index, (PERM_MAP | PERM_TXFR), MARKER_NONE);
+            SvcResult dup = HandleDuplicate(DEVICE_HANDLE_BASE + matched_index,
+                                            (PERM_MAP | PERM_TXFR), MARKER_NONE);
             if (dup.r0 != ZUZU_OK)
                 break;
 
             memcpy(MessageBuf(), &matched_index, sizeof(matched_index));
             Reply(sizeof(matched_index), (Handle)dup.r1);
-        }
-        break;
+        } break;
         default:
             break;
         }

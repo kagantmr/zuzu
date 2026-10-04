@@ -1,7 +1,7 @@
 #include "mem_object.h"
+#include "core/ensure.h"
 #include "kernel/mm/alloc.h"
 #include <string.h>
-#include "core/ensure.h"
 
 static KSlabCache mem_obj_cache;
 
@@ -39,12 +39,12 @@ MemObject *MemObjCreateShm(PhysAddr *page_addrs, size_t page_count)
 
 void MemObjUnref(MemObject *mem)
 {
-    if (!mem) return;
-    if (mem->ref_count > 0) mem->ref_count--;
-    if (mem->ref_count == 0)
-    {
-        if (mem->kind == MEMKIND_SHARED)
-        {
+    if (!mem)
+        return;
+    if (mem->ref_count > 0)
+        mem->ref_count--;
+    if (mem->ref_count == 0) {
+        if (mem->kind == MEMKIND_SHARED) {
             for (size_t i = 0; i < mem->shm.page_count; i++)
                 if (mem->shm.page_addrs[i] != 0) /* demand-paged: skip unfaulted slots */
                     PmmFreeFrame(mem->shm.page_addrs[i]);
@@ -54,11 +54,11 @@ void MemObjUnref(MemObject *mem)
     }
 }
 
-void MemObjUnmapAndDrop(AddressSpace *as, VirtAddr mapped_va, MemObject *mem) {
+void MemObjUnmapAndDrop(AddressSpace *as, VirtAddr mapped_va, MemObject *mem)
+{
     if (mapped_va)
         VmmRemoveRegion(as, mapped_va,
-                        (mem->kind == MEMKIND_DEVICE)
-                            ? mem->dev.size
-                            : mem->shm.page_count * PAGE_SIZE);
+                        (mem->kind == MEMKIND_DEVICE) ? mem->dev.size
+                                                      : mem->shm.page_count * PAGE_SIZE);
     MemObjUnref(mem);
 }

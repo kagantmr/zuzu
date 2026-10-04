@@ -1,16 +1,15 @@
 #include "zzsh.h"
 #include <ansi.h>
-#include <string.h>
+#include <fs/fsd_client.h>
 #include <stdbool.h>
 #include <stdio.h>
-#include <fs/fsd_client.h>
 #include <stdlib.h>
+#include <string.h>
 #include <util/spawn.h>
 #include <zuzu/err.h>
 #include <zuzu/zuzu.h>
 
-
-#define PROMPT ANSI_BOLD ANSI_CYAN "zzsh"  ANSI_GREEN "~>" ANSI_RESET
+#define PROMPT ANSI_BOLD ANSI_CYAN "zzsh" ANSI_GREEN "~>" ANSI_RESET
 
 static FsdConn fsd_conn;
 static char cwd[256] = "/";
@@ -18,14 +17,16 @@ static char cwd[256] = "/";
 static void strip(char *s)
 {
     char *src = s, *dst = s;
-    while (*src == ' ') src++;
+    while (*src == ' ')
+        src++;
     while (*src) {
         if (*src == ' ' && (dst == s || *(dst - 1) == ' '))
             src++;
         else
             *dst++ = *src++;
     }
-    if (dst > s && *(dst - 1) == ' ') dst--;
+    if (dst > s && *(dst - 1) == ' ')
+        dst--;
     *dst = '\0';
 }
 
@@ -153,8 +154,8 @@ static void cmd_ls(const char *arg)
     for (;;) {
         FsdDirEntry entries[32];
         uint32_t count = 0;
-        if (FsdReadDir(&fsd_conn, path, start, entries,
-                        sizeof(entries) / sizeof(entries[0]), &count) != ZUZU_OK) {
+        if (FsdReadDir(&fsd_conn, path, start, entries, sizeof(entries) / sizeof(entries[0]),
+                       &count) != ZUZU_OK) {
             if (start == 0)
                 printf("%s", ANSI_RED "ls: cannot read directory\n" ANSI_RESET);
             return;
@@ -162,11 +163,10 @@ static void cmd_ls(const char *arg)
 
         for (uint32_t i = 0; i < count; i++) {
             if (entries[i].type == FSD_TYPE_DIR) {
-                (void)snprintf(line, sizeof(line), ANSI_BOLD ANSI_CYAN "%-13s" ANSI_RESET "  <DIR>\n",
-                         entries[i].name);
+                (void)snprintf(line, sizeof(line),
+                               ANSI_BOLD ANSI_CYAN "%-13s" ANSI_RESET "  <DIR>\n", entries[i].name);
             } else {
-                (void)snprintf(line, sizeof(line), "%-13s  %u\n",
-                         entries[i].name, entries[i].size);
+                (void)snprintf(line, sizeof(line), "%-13s  %u\n", entries[i].name, entries[i].size);
             }
             printf("%s", line);
         }
@@ -209,9 +209,10 @@ static void cmd_cat(const char *path)
         uint32_t got = 0;
         if (FsdRead(&fsd_conn, fd, chunk, sizeof(chunk) - 1, &got) != ZUZU_OK)
             break;
-        if (got == 0) break;
+        if (got == 0)
+            break;
 
-        chunk[got] = '\0';  /* null-terminate for printf */
+        chunk[got] = '\0'; /* null-terminate for printf */
         printf("%s", chunk);
     }
 
@@ -327,15 +328,15 @@ static void cmd_run(const char *line)
 static void cmd_help(void)
 {
     printf("%s",
-        ANSI_BOLD ANSI_CYAN "zzsh " ZZSH_VER "\n" ANSI_RESET
-        ANSI_BOLD "  help" ANSI_RESET "          show this message\n"
-        ANSI_BOLD "  clear" ANSI_RESET "         clear the screen\n"
-        ANSI_BOLD "  pwd" ANSI_RESET "           print current directory\n"
-        ANSI_BOLD "  cd <path>" ANSI_RESET "     change current directory\n"
-        ANSI_BOLD "  ls [path]" ANSI_RESET "     list directory\n"
-        ANSI_BOLD "  cat <file>" ANSI_RESET "    print file contents\n"
-        ANSI_BOLD "  exit" ANSI_RESET "          leave the shell\n"
-        ANSI_BOLD "  <program>" ANSI_RESET "     run /bin/<program> or a path\n");
+           ANSI_BOLD ANSI_CYAN "zzsh " ZZSH_VER "\n" ANSI_RESET ANSI_BOLD "  help" ANSI_RESET
+                               "          show this message\n" ANSI_BOLD "  clear" ANSI_RESET
+                               "         clear the screen\n" ANSI_BOLD "  pwd" ANSI_RESET
+                               "           print current directory\n" ANSI_BOLD
+                               "  cd <path>" ANSI_RESET "     change current directory\n" ANSI_BOLD
+                               "  ls [path]" ANSI_RESET "     list directory\n" ANSI_BOLD
+                               "  cat <file>" ANSI_RESET "    print file contents\n" ANSI_BOLD
+                               "  exit" ANSI_RESET "          leave the shell\n" ANSI_BOLD
+                               "  <program>" ANSI_RESET "     run /bin/<program> or a path\n");
 }
 
 static void cmd_cd(const char *arg)
@@ -398,7 +399,7 @@ bool command_dispatch(const char *line)
 }
 
 static char history[HISTORY_MAX][LINE_BUFFER_SIZE];
-static int hist_head;  /* next write slot */
+static int hist_head; /* next write slot */
 static int hist_count;
 
 static void hist_push(const char *line)
@@ -420,12 +421,10 @@ static const char *hist_get(int offset)
     return history[(hist_head - offset + HISTORY_MAX) % HISTORY_MAX];
 }
 
-static void redraw_line(const char *line)
-{
-    printf("\r%s%s\033[K", PROMPT, line);
-}
+static void redraw_line(const char *line) { printf("\r%s%s\033[K", PROMPT, line); }
 
-/* Raw mode: zzsh does its own echo, backspace and history. Returns false on EOF (^D on an empty line). */
+/* Raw mode: zzsh does its own echo, backspace and history. Returns false on EOF (^D on an empty
+ * line). */
 static bool read_line(char *line)
 {
     enum { ST_NORMAL, ST_ESC, ST_CSI } state = ST_NORMAL;
@@ -434,8 +433,7 @@ static bool read_line(char *line)
     int hist_pos = 0;
 
     line[0] = '\0';
-    for (;;)
-    {
+    for (;;) {
         int c = getchar();
         if (c == EOF)
             return false;
@@ -491,10 +489,7 @@ static bool read_line(char *line)
     }
 }
 
-static void __attribute__((destructor)) ShellDetachFsd(void)
-{
-    FsdDetach(&fsd_conn);
-}
+static void __attribute__((destructor)) ShellDetachFsd(void) { FsdDetach(&fsd_conn); }
 
 int main(void)
 {
@@ -504,8 +499,7 @@ int main(void)
 
     printf("%s", ANSI_BOLD ANSI_CYAN "zzsh " ZZSH_VER "\n" ANSI_RESET);
 
-    for (;;)
-    {
+    for (;;) {
         printf("%s", PROMPT);
 
         char line[LINE_BUFFER_SIZE];

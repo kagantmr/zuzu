@@ -17,21 +17,20 @@
 /**
  * @brief Space object: an address space, its handle table and its tasks.
  */
-typedef struct SpaceObjectStruct
-{
-    Spid spid, parent_spid;              /**< SPID of this space, and of the space that created it (-1: none). */
-    AddressSpace *as;                    /**< Pointer to the address space of this space. */
-    char name[32];                       /**< Space name. */
-    HandleTable handle_table;            /**< Handle table for this space. */
-    TaskObject *main_task;               /**< Pointer to the first task associated with this space. */
+typedef struct SpaceObjectStruct {
+    Spid spid, parent_spid; /**< SPID of this space, and of the space that created it (-1: none). */
+    AddressSpace *as;       /**< Pointer to the address space of this space. */
+    char name[32];          /**< Space name. */
+    HandleTable handle_table; /**< Handle table for this space. */
+    TaskObject *main_task;    /**< Pointer to the first task associated with this space. */
     uint32_t max_prio;
-    ListHead tasks;                      /**< List of tasks in this space. */
-    bool frozen;                         /**< Space is frozen, nothing will execute. */
-    uint32_t live_tasks;                 /**< Count of live tasks */
-    Err last_exit_status;                /**< Anyone waiting on this Space will receive this upon hollowness. */
-    ListHead waiters; 
-    PhysAddr tcb_page_pa[MAX_TCB_PAGES]; /**< TCB page physical addresses. */
-    VirtAddr tcb_page_va;                /**< TCB page virtual address. */
+    ListHead tasks;       /**< List of tasks in this space. */
+    bool frozen;          /**< Space is frozen, nothing will execute. */
+    uint32_t live_tasks;  /**< Count of live tasks */
+    Err last_exit_status; /**< Anyone waiting on this Space will receive this upon hollowness. */
+    ListHead waiters;
+    PhysAddr tcb_page_pa[MAX_TCB_PAGES];         /**< TCB page physical addresses. */
+    VirtAddr tcb_page_va;                        /**< TCB page virtual address. */
     uint32_t tcb_slot_bitmap[BITMAP_WORDS(256)]; /**< TCB slot bitmap. */
     bool torn_down; /**< SpaceDestroy has already run; only a zombie main_task keeps
                          this struct allocated. See SpaceFinalize. */

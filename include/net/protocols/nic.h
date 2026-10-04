@@ -7,7 +7,7 @@ extern "C" {
 
 typedef enum {
     NIC_CMD_GETMAC, // 1 byte of cmd
-    NIC_CMD_STATS, // 1 byte of cmd followed by 1 byte of the stat
+    NIC_CMD_STATS,  // 1 byte of cmd followed by 1 byte of the stat
     NIC_CMD_COUNT
 } NicCommand;
 

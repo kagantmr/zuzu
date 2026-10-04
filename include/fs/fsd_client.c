@@ -1,10 +1,11 @@
-#include <string.h>
 #include <fs/fsd_client.h>
+#include <string.h>
 #include <util/msg.h>
 #include <zuzu/service.h>
 #include <zuzu/zuzu.h>
 
-static Err FsdCall(Handle port, const FsdRequest *req, FsdResponse *resp, Handle grant, Handle *granted)
+static Err FsdCall(Handle port, const FsdRequest *req, FsdResponse *resp, Handle grant,
+                   Handle *granted)
 {
     memcpy(MessageBuf(), req, sizeof(*req));
     SvcResult r = Call(port, sizeof(*req), grant);
@@ -63,8 +64,7 @@ Err FsdAttach(FsdConn *c, Handle port, Spid pid, uint32_t want_size)
         return c->shm;
 
     void *va = MemMap(c->shm, 0, PROT_RW);
-    if (PtrIsErr(va))
-    {
+    if (PtrIsErr(va)) {
         HandleClose(c->shm);
         c->shm = -1;
         return (Err)va;
@@ -73,8 +73,7 @@ Err FsdAttach(FsdConn *c, Handle port, Spid pid, uint32_t want_size)
     c->size = want_size;
 
     SvcResult dup = HandleDuplicate(c->shm, PERM_MAP | PERM_TXFR, MARKER_NONE);
-    if (dup.r0 != ZUZU_OK)
-    {
+    if (dup.r0 != ZUZU_OK) {
         FsdTeardown(c);
         return (Err)dup.r0;
     }
@@ -88,8 +87,7 @@ Err FsdAttach(FsdConn *c, Handle port, Spid pid, uint32_t want_size)
     HandleClose((Handle)dup.r1);
     if (rc == ZUZU_OK && badged < 0)
         rc = ERR_MALFORMED;
-    if (rc != ZUZU_OK)
-    {
+    if (rc != ZUZU_OK) {
         if (badged >= 0)
             HandleClose(badged);
         FsdTeardown(c);
@@ -101,20 +99,17 @@ Err FsdAttach(FsdConn *c, Handle port, Spid pid, uint32_t want_size)
 
     /* Best effort: without it fsd only frees the session on FSD_DETACH. */
     c->live = CreatePort();
-    if (c->live >= 0)
-    {
+    if (c->live >= 0) {
         SvcResult watch = HandleDuplicate(c->live, PERM_WAIT | PERM_TXFR, MARKER_NONE);
         Err wrc = (Err)watch.r0;
-        if (wrc == ZUZU_OK)
-        {
+        if (wrc == ZUZU_OK) {
             FsdRequest wreq;
             FsdInitRequest(&wreq, FSD_WATCH);
             FsdResponse wresp;
             wrc = FsdCall(c->port, &wreq, &wresp, (Handle)watch.r1, NULL);
             HandleClose((Handle)watch.r1);
         }
-        if (wrc != ZUZU_OK)
-        {
+        if (wrc != ZUZU_OK) {
             HandleClose(c->live);
             c->live = -1;
         }

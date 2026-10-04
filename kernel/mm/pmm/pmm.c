@@ -201,7 +201,7 @@ void PmmInit(void)
 
 PmmStats PmmGetStats(void)
 {
-    return (PmmStats){ .total_frames = pmm_state.total_frames, .free_frames = pmm_state.free_frames };
+    return (PmmStats){.total_frames = pmm_state.total_frames, .free_frames = pmm_state.free_frames};
 }
 
 /* mark: mark pages in [start, end) as USED */

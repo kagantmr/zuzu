@@ -12,18 +12,16 @@
 
 typedef struct SpaceObjectStruct SpaceObject;
 
-typedef enum TaskStateEnum
-{
+typedef enum TaskStateEnum {
     TASK_STATE_READY = 0, // ready to run, in run queue
     TASK_STATE_RUNNING,   // on CPU
     TASK_STATE_BLOCKED,   // waiting for IPC or timeout
     TASK_STATE_ZOMBIE,    // exited (Quit or killed), not yet reaped
     TASK_STATE_FROZEN,    // not runnable yet
-    TASK_STATE_FAULTED, // ran into an exception, or parent/owner stopped it
+    TASK_STATE_FAULTED,   // ran into an exception, or parent/owner stopped it
 } TaskState;
 
-typedef enum IpcStateEnum
-{
+typedef enum IpcStateEnum {
     IPC_NONE = 0,
     IPC_WAITING,
 } IpcState;
@@ -32,14 +30,12 @@ typedef struct TaskObjectStruct TaskObject;
 
 #define TCB_SLOT_NONE 0xFFu /* task holds no TCB slot */
 
-typedef struct WaitSlotStruct
-{
+typedef struct WaitSlotStruct {
     ListNode node;     /**< Node in the wait queue. */
     TaskObject *owner; /**< Owner task of this wait slot. */
 } WaitSlot;
 
-struct TaskObjectStruct
-{
+struct TaskObjectStruct {
     VirtAddr kernel_stack_top; /**< Top of the kernel stack for freeing. */
     CpuState *trap_frame;     /**< Pointer to saved user registers for IPC and context switching. */
     Tid tid;                  /**< Task ID. */
@@ -59,22 +55,21 @@ struct TaskObjectStruct
     Handle pending_grant_handle; /**< Waiting for reply. */
     ReplyObject
         *pending_reply_cap; /**< Set while this task is a blocked caller, waiting for its reply. */
-    ReplyObject
-        *reply_cap;           /**< Set while this task is a receiver mid-call, waiting to Reply. */
-    TaskObject *reply_holder; /**< Server currently holding this task's reply cap, or NULL. */
-    PhysAddr msg_buf_phys_addr; /**< Physical address of the message buffer. */
-    size_t msg_xfer_len;        /**< Length of the message buffer transfer. */
-    Marker port_marker;         /**< Port marker. */
-    WaitSlot wait_slot;         /**< Wait slot. */
+    ReplyObject *reply_cap; /**< Set while this task is a receiver mid-call, waiting to Reply. */
+    TaskObject *reply_holder;      /**< Server currently holding this task's reply cap, or NULL. */
+    PhysAddr msg_buf_phys_addr;    /**< Physical address of the message buffer. */
+    size_t msg_xfer_len;           /**< Length of the message buffer transfer. */
+    Marker port_marker;            /**< Port marker. */
+    WaitSlot wait_slot;            /**< Wait slot. */
     uint32_t priority, time_slice; /**< Priority and time slice. */
     uint32_t max_prio;
-    uint8_t queued_prio;   /**< Run-queue level the node is linked at; valid while node is linked. */
-    Time slice_deadline;   /**< Deadline for the time slice. */
-    SpaceObject *owner;    /**< Backpointer to the owning Space. */
+    uint8_t queued_prio; /**< Run-queue level the node is linked at; valid while node is linked. */
+    Time slice_deadline; /**< Deadline for the time slice. */
+    SpaceObject *owner;  /**< Backpointer to the owning Space. */
     VirtAddr task_info_va; /**< User VA of the task's TCB slot. */
     Err fault_reason;
-    uint8_t tcb_slot;      /**< Index into owner's TCB page, TCB_SLOT_NONE if unassigned. */
-    FpuState fpu_state;    /**< Lazily saved/restored, see kernel/sched/sched.c fpu_owner. */
+    uint8_t tcb_slot;   /**< Index into owner's TCB page, TCB_SLOT_NONE if unassigned. */
+    FpuState fpu_state; /**< Lazily saved/restored, see kernel/sched/sched.c fpu_owner. */
     ObserverSet observers;
     uint32_t ref_count;
     bool released;

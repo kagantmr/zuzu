@@ -8,12 +8,12 @@
 #include <arch/fpu.h>
 #include <arch/thread.h>
 
+#include "core/panic.h"
 #include "kernel/mm/vmm/vmm.h"
 #include "kernel/time/tick.h"
 #include "types.h"
 #include <arch/cpu.h>
 #include <arch/timer.h>
-#include "core/panic.h"
 #include <assert.h>
 #include <bitmap.h>
 #include <stdint.h>
@@ -54,8 +54,7 @@ static void SchedIdleWait(void);
 static void IdleTask(void)
 {
     on_idle_stack = true;
-    for (;;)
-    {
+    for (;;) {
         VmmActivateAddressSpace(VmmGetKernelAddressSpace());
         SchedConsumeDestroyQueue();
         SchedIdleWait();
@@ -91,7 +90,8 @@ void SchedAdd(TaskObject *t)
 {
     if (!t)
         return;
-    if (t->owner && t->owner->frozen) return;
+    if (t->owner && t->owner->frozen)
+        return;
     if (t->node.next || t->node.prev)
         return; // double enqueue guard
 
@@ -103,8 +103,7 @@ void SchedAdd(TaskObject *t)
     list_add_tail(&t->node, &run_queues[priority].node);
     ready_mask |= (1U << priority);
 
-    if (current_task && t->priority > current_task->priority)
-    {
+    if (current_task && t->priority > current_task->priority) {
         do_resched = 1;
     }
 }
@@ -114,8 +113,7 @@ void SchedQueueDestroyTask(TaskObject *t)
     if (!t)
         return;
     /* Guard against double-enqueue: if node is already linked, skip. */
-    if (t->destroy_node.next || t->destroy_node.prev)
-    {
+    if (t->destroy_node.next || t->destroy_node.prev) {
         return;
     }
     list_add_tail(&t->destroy_node, &task_destroy_queue.node);
@@ -125,15 +123,13 @@ static void SchedConsumeDestroyQueue(void)
 {
     ListHead deferred = LIST_HEAD_INIT(deferred);
 
-    while (!list_empty(&task_destroy_queue))
-    {
+    while (!list_empty(&task_destroy_queue)) {
         ListNode *node = list_pop_front(&task_destroy_queue);
         if (!node)
             break;
         TaskObject *t = container_of(node, TaskObject, destroy_node);
 
-        if (t == current_task)
-        {
+        if (t == current_task) {
             list_add_tail(&t->destroy_node, &deferred.node);
             continue;
         }
@@ -141,8 +137,7 @@ static void SchedConsumeDestroyQueue(void)
         TaskDestroy(t);
     }
 
-    while (!list_empty(&deferred))
-    {
+    while (!list_empty(&deferred)) {
         ListNode *node = list_pop_front(&deferred);
         if (!node)
             break;
@@ -156,8 +151,7 @@ static bool SchedIsWorkPending(void)
     if (do_resched)
         return true;
 
-    for (uint32_t level = 0; level < SCHED_PRIORITY_LEVELS; level++)
-    {
+    for (uint32_t level = 0; level < SCHED_PRIORITY_LEVELS; level++) {
         if (!list_empty(&run_queues[level]))
             return true;
     }
@@ -182,8 +176,7 @@ void SchedInsertSleepQueue(TaskObject *t)
     uint64_t abs_slot = t->wake_deadline >> slot_shift;
     if (abs_slot < wheel_now_slot)
         abs_slot = wheel_now_slot;
-    if ((abs_slot - wheel_now_slot) >= SLEEP_QUEUE_SIZE)
-    {
+    if ((abs_slot - wheel_now_slot) >= SLEEP_QUEUE_SIZE) {
         abs_slot = wheel_now_slot + SLEEP_QUEUE_SIZE - 1;
     }
     uint32_t slot = (uint32_t)(abs_slot % SLEEP_QUEUE_SIZE);
@@ -199,20 +192,17 @@ static void SchedWakeSleepers(void)
     if (now_slot - wheel_now_slot > SLEEP_QUEUE_SIZE)
         wheel_now_slot = now_slot - SLEEP_QUEUE_SIZE;
 
-    for (; wheel_now_slot < now_slot; wheel_now_slot++)
-    {
+    for (; wheel_now_slot < now_slot; wheel_now_slot++) {
         uint32_t slot = (uint32_t)(wheel_now_slot % SLEEP_QUEUE_SIZE);
         ListHead *bucket = &sleep_wheel[slot];
 
-        for (;;)
-        {
+        for (;;) {
             ListNode *node = list_pop_front(bucket);
             if (!node)
                 break;
             TaskObject *t = container_of(node, TaskObject, timeout_node);
             t->sleep_slot = -1;
-            if ((t->wake_deadline >> slot_shift) > wheel_now_slot)
-            {
+            if ((t->wake_deadline >> slot_shift) > wheel_now_slot) {
                 SchedInsertSleepQueue(t);
                 continue;
             }
@@ -229,12 +219,10 @@ static void SchedWakeSleepers(void)
 
 static void SchedIdleWait(void)
 {
-    for (;;)
-    {
+    for (;;) {
         ArchGlobalIrqDisable();
 
-        if (SchedIsWorkPending())
-        {
+        if (SchedIsWorkPending()) {
             if (do_resched)
                 do_resched = 0;
             ArchGlobalIrqEnable();
@@ -244,8 +232,7 @@ static void SchedIdleWait(void)
         __asm__ volatile("wfi" ::: "memory");
         ArchGlobalIrqEnable();
 
-        if (SchedIsWorkPending())
-        {
+        if (SchedIsWorkPending()) {
             if (do_resched)
                 do_resched = 0;
             return;
@@ -261,12 +248,9 @@ static void SchedDoHousekeeping(void)
 
 static TaskObject *SchedPickNext(void)
 {
-    for (int level = SCHED_PRIORITY_LEVELS - 1; level >= 0; level--)
-    {
-        if (ready_mask & (1U << level))
-        {
-            if (unlikely(list_empty(&run_queues[level])))
-            {
+    for (int level = SCHED_PRIORITY_LEVELS - 1; level >= 0; level--) {
+        if (ready_mask & (1U << level)) {
+            if (unlikely(list_empty(&run_queues[level]))) {
                 ready_mask &= ~(1U << level);
 #ifdef DEBUG
                 panic("ready_mask bit %d set on an empty run queue", level);
@@ -301,13 +285,11 @@ void __hot SchedSwitchNext(TaskObject *next)
 {
     TaskObject *prev = current_task;
 
-    if (unlikely(next == &idle_task))
-    {
+    if (unlikely(next == &idle_task)) {
         bool from_idle = (prev == NULL && on_idle_stack);
         current_task = NULL;
         SchedArmTimer(); /* no slice to run out; sleepers still need waking */
-        if (from_idle)
-        {
+        if (from_idle) {
             return;
         }
         ContextSwitch(prev, &idle_task);
@@ -325,18 +307,13 @@ void __hot SchedSwitchNext(TaskObject *next)
     if (unlikely(next == prev))
         return;
 
-    if (unlikely(current_task == fpu_owner))
-    {
-        if (!fpu_access_enabled)
-        {
+    if (unlikely(current_task == fpu_owner)) {
+        if (!fpu_access_enabled) {
             ArchFpuEnableAccess();
             fpu_access_enabled = true;
         }
-    }
-    else
-    {
-        if (fpu_access_enabled)
-        {
+    } else {
+        if (fpu_access_enabled) {
             ArchFpuTrapDisable();
             fpu_access_enabled = false;
         }
@@ -344,8 +321,7 @@ void __hot SchedSwitchNext(TaskObject *next)
 
     SpaceObject *prev_proc = prev ? prev->owner : NULL;
     if (unlikely(current_task->owner->as &&
-                 (!prev_proc || prev_proc->as != current_task->owner->as)))
-    {
+                 (!prev_proc || prev_proc->as != current_task->owner->as))) {
         VmmActivateAddressSpace(current_task->owner->as);
     }
     ArchSetTlsPointer(current_task);
@@ -357,8 +333,7 @@ void __hot SchedSwitchNext(TaskObject *next)
 static uint32_t WheelScanFromNow(void)
 {
     uint32_t start = (uint32_t)(wheel_now_slot % SLEEP_QUEUE_SIZE);
-    for (uint32_t i = 0; i < SLEEP_QUEUE_SIZE; i++)
-    {
+    for (uint32_t i = 0; i < SLEEP_QUEUE_SIZE; i++) {
         uint32_t slot = start + i;
         if (slot >= SLEEP_QUEUE_SIZE)
             slot -= SLEEP_QUEUE_SIZE;
@@ -380,8 +355,7 @@ static void SchedArmTimer(void)
     if (current_task && SchedAnyCpuTakers(current_task) && current_task->slice_deadline < deadline)
         deadline = current_task->slice_deadline;
 
-    if (deadline == UINT64_MAX)
-    {
+    if (deadline == UINT64_MAX) {
         /* Nothing sleeping and no peer to preempt for: no wakeup needed.
          * A device IRQ still wakes the CPU from WFI. */
         ArchTimerDisable();
@@ -395,32 +369,30 @@ static void SchedArmTimer(void)
 
 void SchedBlockOn(ListHead *queue, Duration timeout)
 {
-    if (TIMEOUT_POLL == timeout)
-    {
+    if (TIMEOUT_POLL == timeout) {
         ArchSetInFrame(current_task->trap_frame, 0, ERR_TIMEOUT);
         return;
     }
 
-    current_task->wait_slot.owner  = current_task;
+    current_task->wait_slot.owner = current_task;
     list_add_tail(&current_task->wait_slot.node, &queue->node);
 
     current_task->state = TASK_STATE_BLOCKED;
 
-    if (TIMEOUT_INFINITE != timeout)
-    {
+    if (TIMEOUT_INFINITE != timeout) {
         current_task->wake_deadline = ArchDeadlineFromMs(timeout);
         SchedInsertSleepQueue(current_task);
-    }
-    else
-    {
+    } else {
         current_task->wake_deadline = 0;
     }
 
     Schedule();
 }
 
-void SchedUnblock(TaskObject *t) {
-    if (t->wait_slot.node.next)           list_remove(&t->wait_slot.node);
+void SchedUnblock(TaskObject *t)
+{
+    if (t->wait_slot.node.next)
+        list_remove(&t->wait_slot.node);
     SchedRemoveSleepQueue(t);
     t->wake_deadline = 0;
     t->ipc_state = IPC_NONE;
@@ -431,8 +403,7 @@ void SchedUnblock(TaskObject *t) {
 
 void __hot Schedule(void)
 {
-    if (current_task != NULL && current_task->state == TASK_STATE_RUNNING)
-    {
+    if (current_task != NULL && current_task->state == TASK_STATE_RUNNING) {
         current_task->state = TASK_STATE_READY;
         SchedAdd(current_task);
     }
@@ -446,14 +417,11 @@ void __hot Schedule(void)
 size_t SchedGetReadyQueue(TaskObject **out, size_t max_out)
 {
     size_t total = 0;
-    for (int level = SCHED_PRIORITY_LEVELS - 1; level >= 0; level--)
-    {
+    for (int level = SCHED_PRIORITY_LEVELS - 1; level >= 0; level--) {
         ListNode *node = run_queues[level].node.next;
 
-        while (node != &run_queues[level].node)
-        {
-            if (out && total < max_out)
-            {
+        while (node != &run_queues[level].node) {
+            if (out && total < max_out) {
                 out[total] = container_of(node, TaskObject, node);
             }
             total++;
@@ -477,11 +445,9 @@ void SchedRemoveRunQueue(TaskObject *t)
 size_t SchedGetSleepers(TaskObject **out, size_t max_out)
 {
     size_t total = 0;
-    for (uint32_t s = 0; s < SLEEP_QUEUE_SIZE; s++)
-    {
+    for (uint32_t s = 0; s < SLEEP_QUEUE_SIZE; s++) {
         ListNode *node = sleep_wheel[s].node.next;
-        while (node != &sleep_wheel[s].node)
-        {
+        while (node != &sleep_wheel[s].node) {
             if (out && total < max_out)
                 out[total] = container_of(node, TaskObject, timeout_node);
             total++;

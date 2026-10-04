@@ -14,6 +14,6 @@ void kprintf_init(void (*putc_func)(char));
  * @param ... Additional arguments to be formatted.
  *
  */
-void kprintf(const char* fmt, ...);
+void kprintf(const char *fmt, ...);
 
 #endif

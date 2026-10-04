@@ -12,9 +12,9 @@
 #ifndef ZUZU_UDBG_H
 #define ZUZU_UDBG_H
 
-#include <zuzu/zuzu.h>
 #include <arch/svc.h>
 #include <stdint.h>
+#include <zuzu/zuzu.h>
 
 #ifdef __cplusplus
 extern "C" {

@@ -1,8 +1,8 @@
 #ifndef FSD_TABLES_H
 #define FSD_TABLES_H
 
-#include <fs/protocols/fsd.h>
 #include "client_table.h"
+#include <fs/protocols/fsd.h>
 
 void TablesInit(const fs_backend_t *b, void *ctx);
 

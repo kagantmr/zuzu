@@ -1,5 +1,5 @@
-#include "svc.h"
 #include "kernel/sched/sched.h"
+#include "svc.h"
 
 void SvcYield(CpuState *frame)
 {

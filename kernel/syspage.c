@@ -34,8 +34,7 @@ static void dev_cb(const char *compatible, uint64_t phys, uint64_t size, uint32_
     /* build the display name */
     char name[SYSPAGE_DEV_NAME_LEN];
     int i = 0;
-    while (src[i] && i < SYSPAGE_DEV_NAME_LEN - 1)
-    {
+    while (src[i] && i < SYSPAGE_DEV_NAME_LEN - 1) {
         name[i] = (src[i] >= 'a' && src[i] <= 'z') ? src[i] - 32 : src[i];
         i++;
     }

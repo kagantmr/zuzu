@@ -1,9 +1,9 @@
 #ifndef PORT_H
 #define PORT_H
 
-#include <types.h>
+#include "../common/globals.h" /* port_t */
 #include <stdbool.h>
-#include "../common/globals.h"   /* port_t */
+#include <types.h>
 
 /* Local UDP port allocator. Owns the namespace of source ports netd binds, so
    ephemeral clients (DNS) and protocol-mandated clients (DHCP's 68) never

@@ -1,14 +1,14 @@
 #ifndef NETD_TXFRAME_H
 #define NETD_TXFRAME_H
 
-#include <types.h>
-#include <net/packetring.h>
 #include "globals.h"
+#include <net/packetring.h>
+#include <types.h>
 
 typedef struct {
-    nic_frame_t *slot;  /* reserved tx-ring slot (head not yet advanced) */
-    uint16_t front;     /* offset of the current outermost byte          */
-    uint16_t end;       /* offset one past the last byte                 */
+    nic_frame_t *slot; /* reserved tx-ring slot (head not yet advanced) */
+    uint16_t front;    /* offset of the current outermost byte          */
+    uint16_t end;      /* offset one past the last byte                 */
 } txframe_t;
 
 /* Reserve a tx-ring slot leaving "headroom" bytes in front of the payload.
@@ -25,6 +25,6 @@ void *txframe_prepend(txframe_t *f, uint16_t n);
 
 /* Start and length of the bytes built so far. */
 static inline uint8_t *txframe_data(txframe_t *f) { return f->slot->data + f->front; }
-static inline uint16_t txframe_len(txframe_t *f)  { return (uint16_t)(f->end - f->front); }
+static inline uint16_t txframe_len(txframe_t *f) { return (uint16_t)(f->end - f->front); }
 
 #endif /* NETD_TXFRAME_H */

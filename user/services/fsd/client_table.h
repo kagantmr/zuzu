@@ -1,14 +1,13 @@
 #ifndef FSD_CLIENT_TABLE_H
 #define FSD_CLIENT_TABLE_H
 
+#include "backend/backend.h"
 #include <stdbool.h>
 #include <types.h>
-#include "backend/backend.h"
 
 #define FSD_MAX_CLIENTS 32
 
-typedef struct
-{
+typedef struct {
     bool in_use;
     uint32_t gen; /* survives free so a stale badge never matches a reused slot */
     Handle shm_handle;
@@ -20,8 +19,7 @@ typedef struct
 #define FSD_MAX_FILES 64
 #define FSD_MAX_FILES_PER_CLIENT 16
 
-typedef struct
-{
+typedef struct {
     bool in_use;
     uint32_t slot; /* owning FsdClient index */
     uint32_t fd;

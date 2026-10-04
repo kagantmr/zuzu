@@ -4,54 +4,55 @@
 #include "drivers/uart/uart.h"
 #include <assert.h>
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 static uintptr_t pl011_base;
 
-static inline volatile uint32_t *pl011_reg(uint32_t offset) {
-	return (volatile uint32_t *)(pl011_base + offset);
+static inline volatile uint32_t *pl011_reg(uint32_t offset)
+{
+    return (volatile uint32_t *)(pl011_base + offset);
 }
 
+static inline int pl011_tx_full(void) { return (*pl011_reg(PL011_FR) & FR_TXFF) != 0; }
 
-static inline int pl011_tx_full(void) {
-	return (*pl011_reg(PL011_FR) & FR_TXFF) != 0;
+void pl011_init(uintptr_t base_addr)
+{
+    pl011_base = base_addr;
+
+    // Leave baud divisors as provided by firmware; just ensure 8N1 + FIFO and enable TX/RX.
+    *pl011_reg(PL011_CR) = 0;
+    *pl011_reg(PL011_LCRH) = LCRH_FEN | LCRH_WLEN_8;
+    *pl011_reg(PL011_CR) = CR_UARTEN | CR_TXE | CR_RXE;
+    *pl011_reg(PL011_ICR) = 0x7FF; // Clear pending interrupts
 }
 
-
-void pl011_init(uintptr_t base_addr) {
-	pl011_base = base_addr;
-
-	// Leave baud divisors as provided by firmware; just ensure 8N1 + FIFO and enable TX/RX.
-	*pl011_reg(PL011_CR) = 0;
-	*pl011_reg(PL011_LCRH) = LCRH_FEN | LCRH_WLEN_8;
-	*pl011_reg(PL011_CR) = CR_UARTEN | CR_TXE | CR_RXE;
-	*pl011_reg(PL011_ICR) = 0x7FF; // Clear pending interrupts
+static void pl011_putc_raw(char c)
+{
+    while (pl011_tx_full()) {
+        // spin
+    }
+    *pl011_reg(PL011_DR) = (uint32_t)c;
 }
 
-static void pl011_putc_raw(char c) {
-	while (pl011_tx_full()) {
-		// spin
-	}
-	*pl011_reg(PL011_DR) = (uint32_t)c;
+void pl011_putc(char c)
+{
+    // assert(pl011_base != 0);
+    // A raw serial line (unlike QEMU's host-terminal pty, which has ONLCR)
+    // has no one to turn LF into CRLF, so do it here or every line after
+    // the first drifts right on the receiving terminal.
+    if (c == '\n')
+        pl011_putc_raw('\r');
+    pl011_putc_raw(c);
 }
 
-void pl011_putc(char c) {
-	// assert(pl011_base != 0);
-	// A raw serial line (unlike QEMU's host-terminal pty, which has ONLCR)
-	// has no one to turn LF into CRLF, so do it here or every line after
-	// the first drifts right on the receiving terminal.
-	if (c == '\n')
-		pl011_putc_raw('\r');
-	pl011_putc_raw(c);
-}
-
-int pl011_puts(const char *string) {
-	//assert(string != NULL);
-	while (*string) {
-		pl011_putc(*string++);
-	}
-	return UART_OK;
+int pl011_puts(const char *string)
+{
+    // assert(string != NULL);
+    while (*string) {
+        pl011_putc(*string++);
+    }
+    return UART_OK;
 }
 
 const struct uart_driver pl011_driver = {
@@ -61,28 +62,31 @@ const struct uart_driver pl011_driver = {
 };
 
 #ifdef CONFIG_UART_PL011
-#include "drivers/driver.h"
-#include "kernel/mm/vmm/vmm.h"
 #include "core/kprintf.h"
 #include "core/panic.h"
+#include "drivers/driver.h"
+#include "kernel/mm/vmm/vmm.h"
 
 #define LOG_FMT(fmt) "(board) " fmt
 #include "core/log.h"
 
 static void Pl011Probe(const FdtDevice *dev)
 {
-	void *va = IoRemap((uintptr_t)dev->phys, (size_t)dev->size);
-	if (!va)
-		panic("Failed to ioremap UART");
+    void *va = IoRemap((uintptr_t)dev->phys, (size_t)dev->size);
+    if (!va)
+        panic("Failed to ioremap UART");
 
-	uart_set_driver(&pl011_driver, (uintptr_t)va);
-	kprintf_init(uart_putc);
-	KDEBUG("UART re-mapped to %p", va);
+    uart_set_driver(&pl011_driver, (uintptr_t)va);
+    kprintf_init(uart_putc);
+    KDEBUG("UART re-mapped to %p", va);
 }
 
-static const char *const PL011_COMPAT[] = { "arm,pl011", "arm,pl011-axi", NULL };
+static const char *const PL011_COMPAT[] = {"arm,pl011", "arm,pl011-axi", NULL};
 
 ZUZU_DRIVER(pl011, ZUZU_DRV_CONSOLE) = {
-	.name = "PL011 UART", .compat = PL011_COMPAT, .required = false, .probe = Pl011Probe,
+    .name = "PL011 UART",
+    .compat = PL011_COMPAT,
+    .required = false,
+    .probe = Pl011Probe,
 };
 #endif

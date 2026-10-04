@@ -1,8 +1,9 @@
-#include <util/args.h>
-#include <string.h>
 #include <stdio.h>
+#include <string.h>
+#include <util/args.h>
 
-int ArgsParse(Args *out, int argc, char **argv, const ArgSpec *spec) {
+int ArgsParse(Args *out, int argc, char **argv, const ArgSpec *spec)
+{
     memset(out, 0, sizeof(*out));
     out->argc = argc;
     out->argv = argv;
@@ -17,7 +18,8 @@ int ArgsParse(Args *out, int argc, char **argv, const ArgSpec *spec) {
                 if (strcmp(p->name, name) == 0) {
                     matched = 1;
                     if (p->has_arg) {
-                        if (i + 1 >= argc) return -1;
+                        if (i + 1 >= argc)
+                            return -1;
                         ++i; // skip arg
                     }
                     break;
@@ -39,7 +41,8 @@ int ArgsParse(Args *out, int argc, char **argv, const ArgSpec *spec) {
                                 // remainder is arg
                                 break;
                             } else {
-                                if (i + 1 >= argc) return -1;
+                                if (i + 1 >= argc)
+                                    return -1;
                                 ++i;
                             }
                         }
@@ -49,7 +52,8 @@ int ArgsParse(Args *out, int argc, char **argv, const ArgSpec *spec) {
                 }
             }
         } else {
-            if (out->positional_count < (int)(sizeof(out->positionals)/sizeof(out->positionals[0]))) {
+            if (out->positional_count <
+                (int)(sizeof(out->positionals) / sizeof(out->positionals[0]))) {
                 out->positionals[out->positional_count++] = s;
             }
         }
@@ -57,7 +61,8 @@ int ArgsParse(Args *out, int argc, char **argv, const ArgSpec *spec) {
     return 0;
 }
 
-int ArgsHas(const Args *args, const char *name) {
+int ArgsHas(const Args *args, const char *name)
+{
     for (int i = 0; i < args->argc; ++i) {
         if (args->argv[i] && strcmp(args->argv[i], name) == 0)
             return 1;
@@ -65,15 +70,17 @@ int ArgsHas(const Args *args, const char *name) {
     return 0;
 }
 
-const char *ArgsGet(const Args *args, const char *name) {
+const char *ArgsGet(const Args *args, const char *name)
+{
     for (int i = 0; i < args->argc - 1; ++i) {
         if (args->argv[i] && strcmp(args->argv[i], name) == 0)
-            return args->argv[i+1];
+            return args->argv[i + 1];
     }
     return NULL;
 }
 
-void ArgsUsage(const char *progname, const ArgSpec *spec) {
+void ArgsUsage(const char *progname, const ArgSpec *spec)
+{
     printf("Usage: %s [options]\n", progname);
     const ArgSpec *p = spec;
     while (p && p->name) {

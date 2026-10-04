@@ -26,11 +26,10 @@
 #ifndef ZUZUOS_FSD_PROTOCOL_H
 #define ZUZUOS_FSD_PROTOCOL_H
 
-#include <zuzu/err.h>
 #include <types.h>
+#include <zuzu/err.h>
 
-typedef struct
-{
+typedef struct {
     uint32_t size; /* sizeof(FsdRequest); client sets, fsd honors */
     uint32_t cmd;
     uint32_t data_off; /* byte offset into shm where payload begins */
@@ -44,8 +43,7 @@ typedef struct
 
 _Static_assert(sizeof(FsdRequest) == 40, "FsdRequest layout changed");
 
-typedef struct
-{
+typedef struct {
     uint32_t size;     /* sizeof(FsdResponse); fsd sets */
     Err status;        /* ZUZU_OK or Err */
     uint32_t data_off; /* where fsd put the payload */
@@ -59,31 +57,19 @@ typedef struct
 
 _Static_assert(sizeof(FsdResponse) == 40, "FsdResponse layout changed");
 
-typedef enum
-{
-    FSD_SEEK_SET = 0,
-    FSD_SEEK_CUR = 1,
-    FSD_SEEK_END = 2
-} FsdWhence;
+typedef enum { FSD_SEEK_SET = 0, FSD_SEEK_CUR = 1, FSD_SEEK_END = 2 } FsdWhence;
 
-typedef enum
-{
-    FSD_TYPE_FILE = 0,
-    FSD_TYPE_DIR = 1,
-    FSD_TYPE_SYMLINK = 2
-} FsdFileType;
+typedef enum { FSD_TYPE_FILE = 0, FSD_TYPE_DIR = 1, FSD_TYPE_SYMLINK = 2 } FsdFileType;
 
-typedef struct
-{
+typedef struct {
     char name[56];   //  null-terminated UTF-8 string
     uint32_t size;   // file size in bytes
     uint8_t type;    /* FsdFileType value */
     uint8_t _pad[3]; // padding for alignment
-} FsdDirEntry;      /* 64 bytes */
+} FsdDirEntry;       /* 64 bytes */
 
 /* Stat result returned in shmem by STAT */
-typedef struct
-{
+typedef struct {
     uint32_t size;   // file size in bytes
     uint8_t type;    /* FsdFileType value */
     uint8_t _pad[3]; // padding for alignment
@@ -91,8 +77,7 @@ typedef struct
 
 _Static_assert(sizeof(FsdDirEntry) <= 64, "dirent should stay cache-line-ish");
 
-typedef enum
-{
+typedef enum {
     FSD_ATTACH = 1, /* unmarked: grant shm, data_len = size -> badged port */
     FSD_OPEN,       /* shm: path        -> fd                    */
     FSD_CLOSE,      /* fd                                        */
@@ -105,10 +90,11 @@ typedef enum
     FSD_UNLINK,     /* shm: path                                 */
     FSD_RENAME,     /* shm: two paths                            */
     FSD_DETACH,     /* free the session                          */
-    FSD_WATCH,      /* badged; grant: a port the client owns (PERM_WAIT|PERM_TXFR). fsd frees the session when it dies */
+    FSD_WATCH, /* badged; grant: a port the client owns (PERM_WAIT|PERM_TXFR). fsd frees the session
+                  when it dies */
 } FsdCommand;
 
-#define FSD_DATA_OFF 128u           /* payload starts here; data_off >= FSD_DATA_OFF */
+#define FSD_DATA_OFF 128u /* payload starts here; data_off >= FSD_DATA_OFF */
 #define FSD_PAGE_SIZE 4096u
 #define FSD_SHM_MIN 4096u           /* smallest buffer a client may grant */
 #define FSD_SHM_DEFAULT (64 * 1024) /* suggested size; client chooses, fsd enforces MIN/MAX */

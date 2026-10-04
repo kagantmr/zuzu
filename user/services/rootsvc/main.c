@@ -1,11 +1,11 @@
 #include "rootsvc.h"
 #include <cpio.h>
 #include <string.h>
-#include <zuzu/service.h>
-#include <util/tls.h>
 #include <util/spawn.h>
+#include <util/tls.h>
 #include <zuzu/bootinfo.h>
 #include <zuzu/err.h>
+#include <zuzu/service.h>
 #include <zuzu/syspage.h>
 #include <zuzu/udbg.h>
 #include <zuzu/user_layout.h>
@@ -15,8 +15,7 @@
 #define STACK_SIZE (16 * 1024)
 #define INITRD_VA (USER_MMAP_BASE + (MAX_TCB_PAGES * PAGE_SIZE))
 
-typedef struct
-{
+typedef struct {
     bool active;
     Handle task;
     Handle space;
@@ -30,7 +29,7 @@ const BootInfo *g_bootinfo;
 
 static Handle SpawnThread(void (*entry)(void))
 {
-    
+
     void *stack = MemMapAnon(STACK_SIZE, 0, PROT_READ | PROT_WRITE);
     if (PtrIsErr(stack))
         return (Handle)stack;
@@ -40,8 +39,7 @@ static Handle SpawnThread(void (*entry)(void))
         return h;
 
     Err rc = TaskStart(h, entry, ((char *)stack + STACK_SIZE), 0, 0);
-    if (rc != ZUZU_OK)
-    {
+    if (rc != ZUZU_OK) {
         HandleClose(h);
         return rc;
     }
@@ -50,8 +48,7 @@ static Handle SpawnThread(void (*entry)(void))
 
 static void MonitorKitten(Handle task, Handle space, const char *path)
 {
-    if (g_kitten_count >= MAX_KITTENS)
-    {
+    if (g_kitten_count >= MAX_KITTENS) {
         UserspaceDebugLog("rootsvc: too many kittens, dropping %s", path);
         HandleDestroy(space);
         return;
@@ -73,8 +70,7 @@ static void SpawnKitten(const void *zxf_data, size_t zxf_size, const char *path)
     Spid pid;
     Handle task;
     Err rc = SpawnProcess(zxf_data, zxf_size, path, NULL, 0, 0, &pid, &task);
-    if (rc != ZUZU_OK)
-    {
+    if (rc != ZUZU_OK) {
         UserspaceDebugLog("rootsvc: failed to spawn %s: %d", path, rc);
         return;
     }
@@ -108,12 +104,9 @@ static void CheckKittenState(Kitten *k)
     if (tw.status != ZUZU_OK)
         return;
 
-    if (tw.outcome == TASK_FAULTED)
-    {
+    if (tw.outcome == TASK_FAULTED) {
         HandleKittenFault(k); /* tw.value = fault reason */
-    }
-    else
-    {
+    } else {
         ReapKitten(k); /* tw.value = exit_status */
     }
 }
@@ -131,8 +124,7 @@ static void SpawnStage1(void)
 
     const void *manifest_data;
     size_t manifest_size;
-    if (!cpio_find(initrd_base, initrd_size, "boot.manifest", &manifest_data, &manifest_size))
-    {
+    if (!cpio_find(initrd_base, initrd_size, "boot.manifest", &manifest_data, &manifest_size)) {
         UserspaceDebugLog("rootsvc: no boot.manifest in initrd");
         return;
     }
@@ -141,22 +133,19 @@ static void SpawnStage1(void)
     const char *end = line + manifest_size;
     bool skipped_own_entry = false;
 
-    while (line < end)
-    {
+    while (line < end) {
         const char *line_end = line;
         while (line_end < end && *line_end != '\n')
             line_end++;
         size_t line_len = (size_t)(line_end - line);
 
-        if (line_len == 0 || line[0] == '#')
-        {
+        if (line_len == 0 || line[0] == '#') {
             line = line_end + 1;
             continue;
         }
 
         const char *pipe = memchr(line, '|', line_len);
-        if (!pipe)
-        {
+        if (!pipe) {
             if (!skipped_own_entry)
                 skipped_own_entry = true;
             line = line_end + 1;
@@ -165,8 +154,7 @@ static void SpawnStage1(void)
 
         size_t path_len = (size_t)(pipe - line);
         char path[64];
-        if (path_len >= sizeof(path))
-        {
+        if (path_len >= sizeof(path)) {
             line = line_end + 1;
             continue;
         }
@@ -174,16 +162,14 @@ static void SpawnStage1(void)
         path[path_len] = '\0';
 
         const char *role = pipe + 1;
-        if (strncmp(role, "file", 4) == 0)
-        {
+        if (strncmp(role, "file", 4) == 0) {
             line = line_end + 1;
             continue; /* packed but never spawned */
         }
 
         const void *zxf_data;
         size_t zxf_size;
-        if (!cpio_find(initrd_base, initrd_size, path, &zxf_data, &zxf_size))
-        {
+        if (!cpio_find(initrd_base, initrd_size, path, &zxf_data, &zxf_size)) {
             UserspaceDebugLog("rootsvc: missing boot program %s", path);
             line = line_end + 1;
             continue;
@@ -198,8 +184,7 @@ static void SpawnStage1(void)
 int main(void)
 {
     UserspaceDebugLog("rootsvc: started");
-    if (!VersionOk())
-    {
+    if (!VersionOk()) {
         UserspaceDebugLog("rootsvc: kernel too old");
         Quit(ERR_BADARG);
     }
@@ -208,25 +193,21 @@ int main(void)
     UserspaceDebugLog("rootsvc: nsvc port=%d", nsvc);
     if (nsvc != NSVC_PORT)
         Quit(ERR_BADARG);
-    
+
     g_bootinfo = (const BootInfo *)USER_BOOTINFO_VA;
     g_monitor_ev = CreateEvent();
-
 
     SpawnThread(DevsvcMain);
     SpawnThread(NsvcMain);
 
-
     SpawnStage1();
     UserspaceDebugLog("rootsvc: stage1 spawned %u kitten(s), monitoring", g_kitten_count);
 
-    for (;;)
-    {
+    for (;;) {
         EventWaitResult r = FormatToEventWait(WaitOn(g_monitor_ev, TIMEOUT_INFINITE));
         if (r.status != ZUZU_OK)
             continue;
-        for (uint32_t bit = 0; bit < g_kitten_count; bit++)
-        {
+        for (uint32_t bit = 0; bit < g_kitten_count; bit++) {
             if (!(r.bits & (1U << bit)) || !g_kittens[bit].active)
                 continue;
             CheckKittenState(&g_kittens[bit]);

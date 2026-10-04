@@ -19,12 +19,11 @@ uint32_t ctx_switch_cost = 0;
 
 static uint32_t f = 0;
 
-
 Tick GetTicks(void)
 {
     uint32_t archf = ArchTimerFreq();
     if (unlikely(archf == 0)) {
-        return 0;                 // timer not brought up yet
+        return 0; // timer not brought up yet
     }
     if (unlikely(f == 0)) {
         f = (archf / TICK_HZ);
@@ -40,13 +39,11 @@ void tick_announce(void)
 {
     tick_count++;
     SyspageUpdateUptime(); // update uptime in syspage on every tick
-    if (tick_callback)
-    {
+    if (tick_callback) {
         tick_callback();
     }
 #ifdef CONFIG_TIME_MEASURE
-    if (tick_count % 1000 == 0)
-    {
+    if (tick_count % 1000 == 0) {
         KDEBUG("Context switch start: %u, cost: %u", ctx_switch_start, ctx_switch_cost);
     }
 #endif

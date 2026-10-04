@@ -22,17 +22,15 @@ typedef int32_t Register;
  * Layout must match the stmfd sequence in entry.S exactly,
  * the assembly writes directly into this struct by offset.
  */
-typedef struct CpuStateStruct
-{
-    Register r[13];        /* r0-r12 */
-    Register sp_usr;       /* user SP saved via SRS */
-    Register lr_usr;       /* user LR saved via SRS */
-    Register return_pc;    /* adjusted return address (LR - offset) */
-    Register return_cpsr;  /* saved Cpsr/SPSR value you return with */
+typedef struct CpuStateStruct {
+    Register r[13];       /* r0-r12 */
+    Register sp_usr;      /* user SP saved via SRS */
+    Register lr_usr;      /* user LR saved via SRS */
+    Register return_pc;   /* adjusted return address (LR - offset) */
+    Register return_cpsr; /* saved Cpsr/SPSR value you return with */
 } CpuState;
 
-typedef struct
-{
+typedef struct {
     Register r4, r5, r6, r7, r8, r9, r10, r11;
     Register lr; // return address (or entry point for a new task)
 } CpuContext;
@@ -44,11 +42,11 @@ typedef struct
  * caller is judged too large to inline into otherwise. */
 static __always_inline Register *ArchGetFromFrame(CpuState *f, unsigned i) { return &f->r[i]; }
 
-static __always_inline Register ArchFramePc(const CpuState *f)    { return f->return_pc; }
-static __always_inline Register ArchFrameSp(const CpuState *f)    { return f->sp_usr; }
-static __always_inline Register ArchFrameLr(const CpuState *f)    { return f->lr_usr; }
+static __always_inline Register ArchFramePc(const CpuState *f) { return f->return_pc; }
+static __always_inline Register ArchFrameSp(const CpuState *f) { return f->sp_usr; }
+static __always_inline Register ArchFrameLr(const CpuState *f) { return f->lr_usr; }
 static __always_inline Register ArchFrameFlags(const CpuState *f) { return f->return_cpsr; }
-static __always_inline Register ArchFrameFp(const CpuState *f)    { return f->r[11]; }
+static __always_inline Register ArchFrameFp(const CpuState *f) { return f->r[11]; }
 
 /* Live reads of current CPU state (see <arch/regs.h>). */
 static inline Register ArchCurrentFramePointer(void)
@@ -70,18 +68,27 @@ static inline Register ArchCurrentFlags(void)
 
 static inline const char *arm_cpsr_mode_name(uint32_t cpsr)
 {
-    switch (cpsr & 0x1Fu)
-    {
-    case 0x10u: return "USR";
-    case 0x11u: return "FIQ";
-    case 0x12u: return "IRQ";
-    case 0x13u: return "SVC";
-    case 0x1Fu: return "SYS";
-    case 0x16u: return "MON";
-    case 0x17u: return "ABT";
-    case 0x1Au: return "HYP";
-    case 0x1Bu: return "UND";
-    default:    return "???";
+    switch (cpsr & 0x1Fu) {
+    case 0x10u:
+        return "USR";
+    case 0x11u:
+        return "FIQ";
+    case 0x12u:
+        return "IRQ";
+    case 0x13u:
+        return "SVC";
+    case 0x1Fu:
+        return "SYS";
+    case 0x16u:
+        return "MON";
+    case 0x17u:
+        return "ABT";
+    case 0x1Au:
+        return "HYP";
+    case 0x1Bu:
+        return "UND";
+    default:
+        return "???";
     }
 }
 

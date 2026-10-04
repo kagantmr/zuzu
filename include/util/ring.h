@@ -5,11 +5,10 @@
 extern "C" {
 #endif
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
-typedef struct
-{
+typedef struct {
     uint8_t *buf;
     size_t size;   // must be power of 2
     uint32_t head; // written by producer

@@ -2,8 +2,7 @@
 #define ZUZU_TYPES_H
 
 #ifdef __cplusplus
-extern "C"
-{
+extern "C" {
 #endif
 
 #include <stddef.h>
@@ -36,8 +35,7 @@ typedef uint32_t EventWord;
  * MemObjects (kernel/loader/boot_programs.c); devsvc indexes from here. */
 #define DEVICE_HANDLE_BASE 16
 
-typedef enum
-{
+typedef enum {
     PERM_WAIT = (1U << 0),
     PERM_SEND = (1U << 1),
     PERM_TXFR = (1U << 2),
@@ -47,10 +45,9 @@ typedef enum
 } HandlePerms;
 
 /**
-    * @brief Enum for the first argument of Create().
-    */
-typedef enum
-{
+ * @brief Enum for the first argument of Create().
+ */
+typedef enum {
     OBJECT_TASK = 0,
     OBJECT_SPACE,
     OBJECT_PORT,
@@ -60,47 +57,37 @@ typedef enum
 } ZuzuObjectCode;
 
 /**
-    * @brief This struct represents the 4 arguments passed into ManageHandle() to start a task.
-    */
-typedef struct
-{
+ * @brief This struct represents the 4 arguments passed into ManageHandle() to start a task.
+ */
+typedef struct {
     void *entry;
     void *sp;
     uint32_t r0, r1;
 } KickstartArgs;
 
-typedef enum
-{
-    TASK_EXITED = 0,
-    TASK_FAULTED = 1
-} TaskWaitOutcome;
-typedef struct
-{
+typedef enum { TASK_EXITED = 0, TASK_FAULTED = 1 } TaskWaitOutcome;
+typedef struct {
     Err status;
     Marker sender;
     uint32_t xlen;
     Handle granted;
 } PortWaitResult;
-typedef struct
-{
+typedef struct {
     Err status;
     EventWord bits;
 } EventWaitResult;
-typedef struct
-{
+typedef struct {
     Err status;
     TaskWaitOutcome outcome;
     int32_t value;
 } TaskWaitResult;
-typedef struct
-{
+typedef struct {
     Err status;
     Err exit_status;
 } SpaceWaitResult;
 
 /* Kernel event types users can subscribe to */
-typedef enum
-{
+typedef enum {
     EVENT_MEMMGMT = 1, /* memory pressure */
     EVENT_IRQ,         /* interrupts */
     EVENT_PORT,        /* port events */
@@ -108,8 +95,7 @@ typedef enum
     EVENT_SPACE,       /* space events */
 } EventType;
 
-typedef enum
-{
+typedef enum {
     PROT_READ = 1U << 0,  // read access
     PROT_WRITE = 1U << 1, // write access
     PROT_EXEC = 1U << 2   // execute access
@@ -117,16 +103,14 @@ typedef enum
 
 #define PROT_RW ((PROT_READ) | (PROT_WRITE))
 
-typedef enum
-{
+typedef enum {
     MNGMEM_MAP,
     MNGMEM_UNMAP,
     MNGMEM_PROTECT,
     MNGMEM_INJECT,
 } ManageMemoryVerb;
 
-typedef enum
-{
+typedef enum {
     QUERY_TYPE,
     QUERY_PERMS,
     QUERY_MARKER,
@@ -135,8 +119,7 @@ typedef enum
     QUERY_WHAT_COUNT
 } QueryWhat;
 
-typedef enum
-{
+typedef enum {
     MNGHNDL_DUPLICATE,
     MNGHNDL_RESTRICT,
     MNGHNDL_CLOSE,
@@ -147,8 +130,7 @@ typedef enum
     MNGHNDL_VERB_COUNT
 } ManageHandleVerb;
 
-typedef enum
-{
+typedef enum {
     MNGTASK_START,
     MNGTASK_KILL,
     MNGTASK_SET_PRIORITY,
@@ -165,21 +147,19 @@ typedef enum
 
 /* InjectArgs.flags */
 #define ASINJECT_FLAG_RESERVE                                                                      \
-0x1U /* reserve [dest_vaddr, dest_vaddr+len) as demand-zero                                    \
-        * anon memory in the target AS; src_buf must                                             \
-        * be NULL, no bytes are copied up front. */
+    0x1U /* reserve [dest_vaddr, dest_vaddr+len) as demand-zero                                    \
+          * anon memory in the target AS; src_buf must                                             \
+          * be NULL, no bytes are copied up front. */
 
-typedef struct
-{
+typedef struct {
     uint32_t _reserved;
     VirtAddr dest_vaddr; // destination virtual address in the target task's address space
     const void *src_buf; // pointer to the source buffer in the current task's address space
     size_t len;          // length of the source buffer in bytes
-    MemProt prot;   // memory protection flags for the destination mapping (e.g., PROT_READ |
-                    // PROT_WRITE)
-    uint32_t flags; // ASINJECT_FLAG_* bits; 0 for the original copy-in behavior
+    MemProt prot;        // memory protection flags for the destination mapping (e.g., PROT_READ |
+                         // PROT_WRITE)
+    uint32_t flags;      // ASINJECT_FLAG_* bits; 0 for the original copy-in behavior
 } InjectArgs;
-
 
 #ifdef __cplusplus
 }

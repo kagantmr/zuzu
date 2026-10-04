@@ -1,6 +1,7 @@
 #include <zuzu/err.h>
 
-const char *StrToError(Err err) {
+const char *StrToError(Err err)
+{
     switch (err) {
     case ZUZU_OK:
         return "ERR_OK";

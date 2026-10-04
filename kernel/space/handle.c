@@ -21,8 +21,7 @@ Err HandleCopyInto(HandleTable *dst_table, HandleTableEntry *src, HandlePerms pe
     dst->type = src->type;
     dst->marker = marker;
     dst->mapped_va = 0;
-    switch (src->type)
-    {
+    switch (src->type) {
     case HANDLE_PORT:
         dst->port = src->port;
         src->port->ref_count++;
@@ -53,15 +52,26 @@ Err HandleCopyInto(HandleTable *dst_table, HandleTableEntry *src, HandlePerms pe
 
 void HandleRelease(SpaceObject *sp, HandleTableEntry *entry)
 {
-    switch (entry->type)
-    {
-    case HANDLE_PORT:  PortUnref(entry->port);           break;
-    case HANDLE_EVENT: EventUnref(entry->event);   break;
-    case HANDLE_MEM:   MemObjUnmapAndDrop(sp->as, entry->mapped_va, entry->mem); break;
-    case HANDLE_TASK:  TaskUnref(entry->task);             break;
-    case HANDLE_SPACE: SpaceUnref(entry->space);           break;
-    case HANDLE_FREE:  return;
-    default:           break;
+    switch (entry->type) {
+    case HANDLE_PORT:
+        PortUnref(entry->port);
+        break;
+    case HANDLE_EVENT:
+        EventUnref(entry->event);
+        break;
+    case HANDLE_MEM:
+        MemObjUnmapAndDrop(sp->as, entry->mapped_va, entry->mem);
+        break;
+    case HANDLE_TASK:
+        TaskUnref(entry->task);
+        break;
+    case HANDLE_SPACE:
+        SpaceUnref(entry->space);
+        break;
+    case HANDLE_FREE:
+        return;
+    default:
+        break;
     }
     HandleEntryFree(&sp->handle_table, entry);
 }

@@ -1,53 +1,53 @@
 // uart.c - UART driver management and generic UART functions
 
 #include "drivers/uart/uart.h"
-#include <string.h>
 #include "core/log.h"
 #include <assert.h>
-#include <stddef.h>
 #include <stdarg.h>
+#include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 static const struct uart_driver *active_driver;
 static uintptr_t active_base;
 
-static inline void ensure_driver(void) {
+static inline void ensure_driver(void)
+{
     if (!active_driver) {
-        __asm__ volatile(
-            "1:\n"
-            "    wfi\n"
-            "    b 1b\n");
+        __asm__ volatile("1:\n"
+                         "    wfi\n"
+                         "    b 1b\n");
         __builtin_unreachable();
     }
 }
 
-const struct uart_driver *uart_get_driver(void) {
-    return active_driver;
-}
+const struct uart_driver *uart_get_driver(void) { return active_driver; }
 
-uintptr_t uart_get_base(void) {
-    return active_base;
-}
+uintptr_t uart_get_base(void) { return active_base; }
 
-void uart_set_driver(const struct uart_driver *driver, uintptr_t base_addr) {
+void uart_set_driver(const struct uart_driver *driver, uintptr_t base_addr)
+{
     active_driver = driver;
     active_base = base_addr;
     active_driver->init(base_addr);
 }
 
-void uart_init(uintptr_t base_addr) {
+void uart_init(uintptr_t base_addr)
+{
     ensure_driver();
     assert(base_addr != 0);
     active_base = base_addr;
     active_driver->init(base_addr);
 }
 
-void uart_putc(char c) {
+void uart_putc(char c)
+{
     ensure_driver();
     active_driver->putc(c);
 }
 
-int uart_puts(const char *string) {
+int uart_puts(const char *string)
+{
     ensure_driver();
     assert(string != NULL);
 
@@ -61,12 +61,14 @@ int uart_puts(const char *string) {
     return UART_OK;
 }
 
-static void uart_fmt_outc(void *ctx, char c) {
+static void uart_fmt_outc(void *ctx, char c)
+{
     (void)ctx;
     active_driver->putc(c);
 }
 
-int uart_printf(const char *fstring, ...) {
+int uart_printf(const char *fstring, ...)
+{
     ensure_driver();
     assert(fstring != NULL);
     va_list list;

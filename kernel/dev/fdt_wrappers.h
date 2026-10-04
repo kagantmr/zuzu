@@ -6,13 +6,13 @@
 #include <stdint.h>
 
 typedef struct {
-	char compatible[64];
-	uint64_t phys;
-	uint64_t size;
-	uint64_t phys2;
-	uint64_t size2;
-	uint32_t irq;
-	uint32_t nregs;
+    char compatible[64];
+    uint64_t phys;
+    uint64_t size;
+    uint64_t phys2;
+    uint64_t size2;
+    uint32_t irq;
+    uint32_t nregs;
 } FdtDevice;
 
 /**
@@ -22,7 +22,7 @@ bool FdtInit(const void *base);
 
 /* Enumerate devices in the DTB without storing a global static table. */
 void FdtEnumerateDevices(void (*cb)(const char * /* compatible */, const char * /* path */,
-				    uint64_t /* phys */, uint64_t /* size */, uint32_t /* irq */));
+                                    uint64_t /* phys */, uint64_t /* size */, uint32_t /* irq */));
 
 /* Total size the FDT blob */
 size_t FdtTotalSize(void);
@@ -50,7 +50,7 @@ const char *FdtCpuCompat(void);
    these symbols (weak defaults live in fdt_wrappers.c). */
 bool FdtTranslateAddressArch(const char *node_path, uint64_t raw_addr, uint64_t *out_phys);
 bool FdtResolveIrqArch(const char *node_path, uint32_t child_irq, uint32_t *out_irq,
-			  uint32_t *out_flags);
+                       uint32_t *out_flags);
 
 /* Shutdown DTB access: clears internal pointer so libfdt won't be used further */
 void FdtShutdown(void);

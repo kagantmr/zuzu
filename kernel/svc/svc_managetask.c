@@ -1,10 +1,10 @@
-#include "svc.h"
-#include "kernel/space/space.h"
 #include "core/ensure.h"
-#include <arch/regs.h>
-#include <arch/context.h>
-#include "kernel/task/task.h"
 #include "kernel/sched/sched.h"
+#include "kernel/space/space.h"
+#include "kernel/task/task.h"
+#include "svc.h"
+#include <arch/context.h>
+#include <arch/regs.h>
 
 void SvcManageTask(CpuState *frame)
 {
@@ -12,8 +12,10 @@ void SvcManageTask(CpuState *frame)
     ManageTaskVerb verb = (ManageTaskVerb)(*ArchGetFromFrame(frame, 1));
 
     if (h == -1) {
-        ENSURE_ERR(frame, verb == MNGTASK_SET_PRIORITY || verb == MNGTASK_SET_MAX_PRIO ||
-                           verb == MNGTASK_SET_TIMESLICE, ERR_BADARG);
+        ENSURE_ERR(frame,
+                   verb == MNGTASK_SET_PRIORITY || verb == MNGTASK_SET_MAX_PRIO ||
+                       verb == MNGTASK_SET_TIMESLICE,
+                   ERR_BADARG);
 
         uint32_t val = (uint32_t)(*ArchGetFromFrame(frame, 2));
         switch (verb) {
@@ -42,16 +44,17 @@ void SvcManageTask(CpuState *frame)
     TaskObject *target = entry->task;
     ENSURE_ERR(frame, target, ERR_BADHANDLE);
 
-    switch (verb)
-    {
+    switch (verb) {
     case MNGTASK_START: {
         ENSURE_ERR(frame, target->state == TASK_STATE_FROZEN, ERR_BUSY);
         KickstartArgs kargs;
-        ENSURE_ERR(frame, CopyFromUser(&kargs, (const void *)(*ArchGetFromFrame(frame, 2)), sizeof(kargs)), ERR_BADPTR);
+        ENSURE_ERR(frame,
+                   CopyFromUser(&kargs, (const void *)(*ArchGetFromFrame(frame, 2)), sizeof(kargs)),
+                   ERR_BADPTR);
 
         target->kernel_sp = (uint32_t *)ArchTaskUserInit(
-            (void *)target->kernel_stack_top, (VirtAddr)kargs.entry, (VirtAddr)kargs.sp, USER_ELF_BASE,
-            kargs.r0, kargs.r1, &target->trap_frame);
+            (void *)target->kernel_stack_top, (VirtAddr)kargs.entry, (VirtAddr)kargs.sp,
+            USER_ELF_BASE, kargs.r0, kargs.r1, &target->trap_frame);
         target->state = TASK_STATE_READY;
         SchedAdd(target);
         ArchSetInFrame(frame, 0, ZUZU_OK);
@@ -62,8 +65,7 @@ void SvcManageTask(CpuState *frame)
         /* Already dead: a second TaskTerminate would TaskDestroy it while it
          * may still sit on the destroy queue, and the last handle close would
          * then free it under the reaper. */
-        if (target->state != TASK_STATE_ZOMBIE)
-        {
+        if (target->state != TASK_STATE_ZOMBIE) {
             if (target->state == TASK_STATE_FAULTED)
                 SpaceUnfreeze(target->owner);
             TaskTerminate(target, ERR_DEAD);
@@ -74,7 +76,8 @@ void SvcManageTask(CpuState *frame)
     case MNGTASK_SET_PRIORITY: {
         uint32_t val = (uint32_t)(*ArchGetFromFrame(frame, 2));
         ENSURE_ERR(frame, val <= current_task->max_prio, ERR_NOPERM);
-        bool requeue = (target->state == TASK_STATE_READY);   /* only TASK_STATE_READY tasks are on a run queue */
+        bool requeue = (target->state ==
+                        TASK_STATE_READY); /* only TASK_STATE_READY tasks are on a run queue */
         if (requeue)
             SchedRemoveRunQueue(target);
         target->priority = val;
@@ -112,14 +115,17 @@ void SvcManageTask(CpuState *frame)
         Register regs[ARCH_NUM_GP_REGS];
         for (unsigned i = 0; i < ARCH_NUM_GP_REGS; i++)
             regs[i] = *ArchGetFromFrame(target->trap_frame, i);
-        ENSURE_ERR(frame, CopyToUser((void *)(*ArchGetFromFrame(frame, 2)), regs, sizeof(regs)), ERR_BADPTR);
+        ENSURE_ERR(frame, CopyToUser((void *)(*ArchGetFromFrame(frame, 2)), regs, sizeof(regs)),
+                   ERR_BADPTR);
         ArchSetInFrame(frame, 0, ZUZU_OK);
     } break;
 
     case MNGTASK_SET_REGS: {
         ENSURE_ERR(frame, target->trap_frame, ERR_DEAD);
         Register regs[ARCH_NUM_GP_REGS];
-        ENSURE_ERR(frame, CopyFromUser(regs, (const void *)(*ArchGetFromFrame(frame, 2)), sizeof(regs)), ERR_BADPTR);
+        ENSURE_ERR(frame,
+                   CopyFromUser(regs, (const void *)(*ArchGetFromFrame(frame, 2)), sizeof(regs)),
+                   ERR_BADPTR);
         for (unsigned i = 0; i < ARCH_NUM_GP_REGS; i++)
             ArchSetInFrame(target->trap_frame, i, (int)regs[i]);
         ArchSetInFrame(frame, 0, ZUZU_OK);

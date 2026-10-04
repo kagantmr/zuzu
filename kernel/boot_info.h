@@ -1,9 +1,9 @@
 #ifndef KERNEL_BOOT_INFO_H
 #define KERNEL_BOOT_INFO_H
 
-#include <stdint.h>
-#include <stddef.h>
 #include "kernel/dev/fdt_wrappers.h"
+#include <stddef.h>
+#include <stdint.h>
 #include <types.h>
 
 /* Simple cached boot info populated once during early boot. */

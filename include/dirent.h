@@ -11,21 +11,19 @@
  */
 
 #ifdef __cplusplus
-extern "C"
-{
+extern "C" {
 #endif
 
-    typedef struct DIR DIR;
+typedef struct DIR DIR;
 
-    struct dirent
-    {
-        unsigned char d_type; /* FsdFileType: FSD_TYPE_FILE/DIR/SYMLINK */
-        char d_name[56];      /* matches FsdDirEntry.name */
-    };
+struct dirent {
+    unsigned char d_type; /* FsdFileType: FSD_TYPE_FILE/DIR/SYMLINK */
+    char d_name[56];      /* matches FsdDirEntry.name */
+};
 
-    DIR *opendir(const char *path);
-    struct dirent *readdir(DIR *dirp);
-    int closedir(DIR *dirp);
+DIR *opendir(const char *path);
+struct dirent *readdir(DIR *dirp);
+int closedir(DIR *dirp);
 
 #ifdef __cplusplus
 }

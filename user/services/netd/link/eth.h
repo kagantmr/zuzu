@@ -2,16 +2,16 @@
 #define NETD_ETHERNET_H
 
 #include "../common/globals.h"
-#include <types.h>
+#include "../common/txframe.h"
 #include <convert.h>
 #include <net/packetring.h>
-#include "../common/txframe.h"
+#include <types.h>
 
 #define ETH_TYPE_ARP 0x0806
 #define ETH_TYPE_IP 0x0800
 
 /* NIC should already remove the other fields */
-typedef struct __attribute__((packed)){
+typedef struct __attribute__((packed)) {
     mac_addr_t dst_mac;
     mac_addr_t src_mac;
     uint16_t ethertype;

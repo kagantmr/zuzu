@@ -1,7 +1,7 @@
 // cache.c - Cache management functions for ARMv7-A
 
-#include <arch/cache.h>
 #include <arch/barrier.h>
+#include <arch/cache.h>
 
 #define CACHE_LINE 64u
 
@@ -11,7 +11,7 @@ void ArchCacheCleanDcacheRange(uintptr_t start, size_t size)
     uintptr_t end = start + size;
     for (; addr < end; addr += CACHE_LINE)
         __asm__ volatile("mcr p15, 0, %0, c7, c11, 1" ::"r"(addr)); // flush out d-cache
-    ArchDsb();                          // put data sync barrier for pipeline to wait
+    ArchDsb(); // put data sync barrier for pipeline to wait
 }
 
 void ArchCacheInvalidateIcacheAll(void)

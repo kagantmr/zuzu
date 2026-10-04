@@ -8,15 +8,21 @@
 #include <arch/mmu.h>
 #include <stdint.h>
 
-bool VmmMapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size,
-                   MemProt prot, VirtMemType memtype) {
-    if (!as) return false;
-    if (size == 0) return false;
-    if ((va % 0x1000) != 0) return false;
-    if ((pa % 0x1000) != 0) return false;
+bool VmmMapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size, MemProt prot,
+                 VirtMemType memtype)
+{
+    if (!as)
+        return false;
+    if (size == 0)
+        return false;
+    if ((va % 0x1000) != 0)
+        return false;
+    if ((pa % 0x1000) != 0)
+        return false;
 
     // check overflow
-    if (va > UINTPTR_MAX - size) return false;
+    if (va > UINTPTR_MAX - size)
+        return false;
 
     if (as->type == ADDRESS_SPACE_USER && (prot & PROT_WRITE) && (prot & PROT_EXEC))
         return false;
@@ -32,38 +38,48 @@ bool VmmMapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size,
     return ArchMmuMap(as, va, pa, size, prot, memtype);
 }
 
-bool VmmUnmapRange(AddressSpace *as, VirtAddr va, size_t size, bool flush) {
-    if (!as) return false;
-    if (size == 0) return false;
-    if ((va % PAGE_SIZE) != 0) return false;    // page granularity
-    if ((size % PAGE_SIZE) != 0) return false;  // page granularity
+bool VmmUnmapRange(AddressSpace *as, VirtAddr va, size_t size, bool flush)
+{
+    if (!as)
+        return false;
+    if (size == 0)
+        return false;
+    if ((va % PAGE_SIZE) != 0)
+        return false; // page granularity
+    if ((size % PAGE_SIZE) != 0)
+        return false; // page granularity
 
     return ArchMmuUnmap(as, va, size, flush);
 }
 
 bool VmmProtectPage(AddressSpace *as, VirtAddr va, size_t size, MemProt new_prot)
 {
-    if (!as || size == 0) return false;
+    if (!as || size == 0)
+        return false;
 
     VirtMemRegion *r = VmmFindRegion(as, va);
-    if (!r) return false;                          /* no region → refuse */
-    if (va + size > r->vaddr_start + r->size)      /* must not span regions */
+    if (!r)
+        return false;                         /* no region → refuse */
+    if (va + size > r->vaddr_start + r->size) /* must not span regions */
         return false;
     if (r->memtype == VM_MEM_DEVICE && (new_prot & PROT_EXEC))
-        return false;                              /* no executable MMIO */
-    if (r->flags & VM_FLAG_PINNED)                 /* tcb_page/syspage */
+        return false;              /* no executable MMIO */
+    if (r->flags & VM_FLAG_PINNED) /* tcb_page/syspage */
         return false;
 
     if (!ArchMmuProtect(as, va, size, new_prot))
         return false;
 
-    r->prot = new_prot;                            /* keep region truth in sync */
+    r->prot = new_prot; /* keep region truth in sync */
     return true;
 }
 
-void VmmActivateAddressSpace(AddressSpace *as) {
-    if (!as) return;
-    if (as == g_current_addrspace) return;
+void VmmActivateAddressSpace(AddressSpace *as)
+{
+    if (!as)
+        return;
+    if (as == g_current_addrspace)
+        return;
 
     if (!g_mmu_enabled) {
         ArchMmuEnable(as);

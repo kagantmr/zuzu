@@ -20,11 +20,9 @@ static int FillUntilPressure(Handle ev, bool *fired)
     const Syspage *sp = SYSPAGE;
     *fired = false;
     int n;
-    for (n = 0; n < MAX_ITERS; n++)
-    {
+    for (n = 0; n < MAX_ITERS; n++) {
         g_chunks[n] = MemMapAnon(CHUNK_BYTES, 0, PROT_RW);
-        if (PtrIsErr(g_chunks[n]))
-        {
+        if (PtrIsErr(g_chunks[n])) {
             printf("MemMapAnon failed at iter %d (%d) before the event fired\n", n,
                    (int)(intptr_t)g_chunks[n]);
             break;
@@ -32,8 +30,7 @@ static int FillUntilPressure(Handle ev, bool *fired)
         memset(g_chunks[n], 0, CHUNK_BYTES);
 
         EventWaitResult r = FormatToEventWait(WaitOn(ev, TIMEOUT_POLL));
-        if (r.status == ZUZU_OK && (r.bits & MEMMGMT_BIT))
-        {
+        if (r.status == ZUZU_OK && (r.bits & MEMMGMT_BIT)) {
             printf("fired at iter %d, %u KiB free\n", n, (unsigned)sp->mem_free_kb);
             *fired = true;
             return n + 1;
@@ -54,8 +51,7 @@ int main(void)
 {
     const Syspage *sp = SYSPAGE;
     Handle ev = CreateEvent();
-    if (ev < 0 || BindMemMgmt(ev) != ZUZU_OK)
-    {
+    if (ev < 0 || BindMemMgmt(ev) != ZUZU_OK) {
         printf("TEST FAILED: cannot subscribe to memory pressure\n");
         return 1;
     }

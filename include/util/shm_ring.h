@@ -5,14 +5,14 @@ extern "C" {
 #endif
 #include <stdint.h>
 
-
 typedef struct {
     uint32_t size;          /* power of 2 */
     volatile uint32_t head; /* producer-owned */
     volatile uint32_t tail; /* consumer-owned */
 } ShmRingHdr;
 
-static inline void ShmRingInit(ShmRingHdr *r, uint32_t size) {
+static inline void ShmRingInit(ShmRingHdr *r, uint32_t size)
+{
     r->size = size;
     r->head = 0;
     r->tail = 0;
@@ -21,7 +21,8 @@ static inline void ShmRingInit(ShmRingHdr *r, uint32_t size) {
 static inline uint32_t ShmRingAvail(const ShmRingHdr *r) { return r->head - r->tail; }
 static inline uint32_t ShmRingFree(const ShmRingHdr *r) { return r->size - ShmRingAvail(r); }
 
-static inline uint32_t ShmRingPush(ShmRingHdr *r, uint8_t *data, const uint8_t *src, uint32_t len) {
+static inline uint32_t ShmRingPush(ShmRingHdr *r, uint8_t *data, const uint8_t *src, uint32_t len)
+{
     uint32_t cap = ShmRingFree(r);
     if (len > cap)
         len = cap;
@@ -31,7 +32,8 @@ static inline uint32_t ShmRingPush(ShmRingHdr *r, uint8_t *data, const uint8_t *
     return len;
 }
 
-static inline uint32_t ShmRingPop(ShmRingHdr *r, const uint8_t *data, uint8_t *dst, uint32_t len) {
+static inline uint32_t ShmRingPop(ShmRingHdr *r, const uint8_t *data, uint8_t *dst, uint32_t len)
+{
     uint32_t cap = ShmRingAvail(r);
     if (len > cap)
         len = cap;

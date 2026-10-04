@@ -1,15 +1,15 @@
-#include <stdio.h>
-#include <dev/protocols/devm.h>
-#include <net/protocols/nic.h>
-#include <zuzu/zuzu.h>
-#include <types.h>
-#include <zuzu/syspage.h>
-#include <util/devices.h>
-#include <zuzu/service.h>
-#include <util/log.h>
-#include <stdlib.h>
-#include <net/packetring.h>
 #include "lan9118.h"
+#include <dev/protocols/devm.h>
+#include <net/packetring.h>
+#include <net/protocols/nic.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <types.h>
+#include <util/devices.h>
+#include <util/log.h>
+#include <zuzu/service.h>
+#include <zuzu/syspage.h>
+#include <zuzu/zuzu.h>
 
 #define LOG_TAG "lan9118drv"
 
@@ -27,7 +27,8 @@ NicRing *rx_ring, *tx_ring;
 static uint16_t tx_tag = 0;
 static uint32_t nic_stats[NIC_STAT_COUNT];
 
-void InitPacketRings(void *shm) {
+void InitPacketRings(void *shm)
+{
     // create two offsets
     rx_ring = (NicRing *)((uint8_t *)shm + NIC_RX_OFFSET);
     tx_ring = (NicRing *)((uint8_t *)shm + NIC_TX_OFFSET);
@@ -42,15 +43,15 @@ void nic_tx_frame(NicFrame *f)
 {
     if ((nic->tx_fifo_inf & 0xFFFFu) < ((uint32_t)f->len + 8u)) { // +8 for the two command words
         nic_stats[NIC_STAT_TX_DROPS]++;
-        return;                                                  // tx FIFO full
+        return; // tx FIFO full
     }
-    uint32_t cmd_a = (1u << 13) | (1u << 12) | (f->len & 0x7FF); // first, last, do not interrupt, length
+    uint32_t cmd_a =
+        (1u << 13) | (1u << 12) | (f->len & 0x7FF); // first, last, do not interrupt, length
     uint32_t cmd_b = ((uint32_t)tx_tag << 16) | (f->len & 0x7FF);
     tx_tag++;
     nic->tx_data_fifo_port = cmd_a;
     nic->tx_data_fifo_port = cmd_b;
-    for (size_t i = 0; i < ((size_t)(f->len + 3) / 4); i++)
-    {
+    for (size_t i = 0; i < ((size_t)(f->len + 3) / 4); i++) {
         nic->tx_data_fifo_port = ((uint32_t *)f->data)[i];
     }
     nic_stats[NIC_STAT_TX_PACKETS]++;
@@ -86,18 +87,17 @@ int get_nic(void)
 {
 
     devm_port = LookupService("/svc/devmgr");
-    
-    static const char *const nic_compat[] = { "smsc,lan9118" };
-    uint32_t matched; 
+
+    static const char *const nic_compat[] = {"smsc,lan9118"};
+    uint32_t matched;
     dev_handle = RequestDevice(devm_port, nic_compat, 1, &matched);
     if (dev_handle < 0) {
         LOG_ERROR(LOG_TAG, "NIC device request failed");
-        return dev_handle;   /* ERR_NOENT — no LAN9118 on this board */
+        return dev_handle; /* ERR_NOENT — no LAN9118 on this board */
     }
 
     irq_ntfn = ZuzuNtfnCreate();
-    if (irq_ntfn < 0)
-    {
+    if (irq_ntfn < 0) {
         LOG_ERROR(LOG_TAG, "ntfn_create failed (tx)");
         return ERR_SYSDOWN;
     }
@@ -105,8 +105,7 @@ int get_nic(void)
     ZuzuIrqBind((uint32_t)dev_handle, (uint32_t)irq_ntfn);
 
     nic = (volatile Lan9118Mmio *)ZuzuMemMap(dev_handle, 0, PROT_RW, 0);
-    if (!nic)
-    {
+    if (!nic) {
         LOG_ERROR(LOG_TAG, "device mapping failed");
         return ERR_SYSDOWN;
     }
@@ -117,9 +116,9 @@ int get_nic(void)
 int nic_setup(void)
 {
 
-    if (nic->byte_test != BYTE_TEST_VALUE)
-    {
-        LOG_ERROR(LOG_TAG, "byte test failed (0x%08X instead of 0x%08x)", nic->byte_test, BYTE_TEST_VALUE);
+    if (nic->byte_test != BYTE_TEST_VALUE) {
+        LOG_ERROR(LOG_TAG, "byte test failed (0x%08X instead of 0x%08x)", nic->byte_test,
+                  BYTE_TEST_VALUE);
         return ERR_MALFORMED;
     }
 
@@ -138,8 +137,7 @@ int nic_setup(void)
     mac[4] = (hi >> 0) & 0xFF;
     mac[5] = (hi >> 8) & 0xFF;
 
-    if (nic->tx_cfg & TX_CFG_STOP_TX)
-    {
+    if (nic->tx_cfg & TX_CFG_STOP_TX) {
         LOG_ERROR(LOG_TAG, "TX is stopped");
         return ERR_SYSDOWN;
     }
@@ -198,8 +196,7 @@ void Lan9118ServiceSetup(void)
 
     Err rc = RegisterService("/dev/eth0", nt_port);
 
-    if (rc < 0)
-    {
+    if (rc < 0) {
         LOG_ERROR(LOG_TAG, "service registration failed");
         return;
     }
@@ -212,27 +209,21 @@ void Lan9118ServiceSetup(void)
     };
     Handle pending_recv_reply = 0;
 
-    while (1)
-    {
+    while (1) {
 
         WaitanyResult result;
         int32_t recv_rc = ZuzuWaitany(handles, 3, 50, &result);
-        if (recv_rc < 0)
-        {
+        if (recv_rc < 0) {
             continue;
         }
 
-        switch (result.kind)
-        {
-        case WAITANY_KIND_NTFN:
-        {
-            if (result.matched_index == H_TXDOORBELL)
-            {
+        switch (result.kind) {
+        case WAITANY_KIND_NTFN: {
+            if (result.matched_index == H_TXDOORBELL) {
                 /* netd queued frames in tx_ring: drain them straight from the
                    shared slots into the FIFO (zero-copy, batched). */
                 NicFrame *slot;
-                while ((slot = PacketRingPeek(tx_ring)) != NULL)
-                {
+                while ((slot = PacketRingPeek(tx_ring)) != NULL) {
                     nic_tx_frame(slot);
                     PacketRingConsume(tx_ring);
                 }
@@ -242,25 +233,19 @@ void Lan9118ServiceSetup(void)
             nic_stats[NIC_STAT_IRQ]++;
             uint32_t sts = nic->int_sts;
             nic->int_sts = sts; // write back to clear R/WC bits
-            if (sts & INT_RSFL)
-            {
+            if (sts & INT_RSFL) {
                 /* drain RX FIFO */
-                while ((nic->rx_fifo_inf >> 16) & 0xFF)
-                {
+                while ((nic->rx_fifo_inf >> 16) & 0xFF) {
                     uint32_t rx_sts = nic->rx_status_fifo_port;
                     size_t pkt_len = (rx_sts >> 16) & 0x3FFF;
-                    if (rx_sts & (1u << 15))
-                    {
+                    if (rx_sts & (1u << 15)) {
                         nic_stats[NIC_STAT_RX_ERRORS]++;
                         uint32_t dwords = (pkt_len + 3) / 4;
                         for (uint32_t i = 0; i < dwords; i++)
                             (void)nic->rx_data_fifo_port;
-                    }
-                    else
-                    {
+                    } else {
                         _Alignas(4) uint8_t buf[NIC_FRAME_SIZE];
-                        if (pkt_len > NIC_FRAME_SIZE)
-                        {
+                        if (pkt_len > NIC_FRAME_SIZE) {
                             nic_stats[NIC_STAT_RX_OVERSIZE]++;
                             uint32_t dwords = (pkt_len + 3) / 4;
                             for (uint32_t i = 0; i < dwords; i++)
@@ -271,14 +256,12 @@ void Lan9118ServiceSetup(void)
                         for (uint32_t i = 0; i < dwords; i++)
                             ((uint32_t *)buf)[i] = nic->rx_data_fifo_port;
                         int push_rc = PacketRingPush(rx_ring, buf, pkt_len);
-                        if (push_rc < 0)
-                        {
+                        if (push_rc < 0) {
                             nic_stats[NIC_STAT_RX_RING_FULL]++;
                             continue;
                         }
                         nic_stats[NIC_STAT_RX_PACKETS]++;
-                        if (pending_recv_reply > 0)
-                        {
+                        if (pending_recv_reply > 0) {
                             ZuzuMsgReply(pending_recv_reply, ZUZU_OK, (uint32_t)pkt_len, 0);
                             pending_recv_reply = 0;
                         }
@@ -286,11 +269,9 @@ void Lan9118ServiceSetup(void)
                     }
                 }
             }
-            if (sts & INT_TSFL)
-            {
+            if (sts & INT_TSFL) {
                 /* drain TX status FIFO */
-                while ((nic->tx_fifo_inf >> 16) & 0xFF)
-                {
+                while ((nic->tx_fifo_inf >> 16) & 0xFF) {
                     uint32_t tx_sts = nic->tx_status_fifo_port;
                     (void)tx_sts;
                 }
@@ -299,34 +280,27 @@ void Lan9118ServiceSetup(void)
             ZuzuIrqDone(dev_handle);
             break;
         }
-        case WAITANY_KIND_CALL:
-        {
-            switch (result.w2)
-            {
-            case NIC_CMD_GETMAC:
-            {
+        case WAITANY_KIND_CALL: {
+            switch (result.w2) {
+            case NIC_CMD_GETMAC: {
                 /* Status goes in w1 so the MAC bytes in w2/w3 can never be
                    misread as an error (a high 4th octet makes mac_lo negative). */
                 int32_t status = (mac[0] | mac[1] | mac[2] | mac[3] | mac[4] | mac[5])
                                      ? ZUZU_OK
                                      : ERR_SYSDOWN; // MAC never read -> treat as system down
                 ZuzuMsgReply(result.source, status,
-                       (mac[0] | mac[1] << 8 | mac[2] << 16 | mac[3] << 24),
-                       (mac[4] | mac[5] << 8));
+                             (mac[0] | mac[1] << 8 | mac[2] << 16 | mac[3] << 24),
+                             (mac[4] | mac[5] << 8));
                 break;
             }
-            case NIC_CMD_GETBUF:
-            {
-                if (shmem_handle < 0 || shmem_addr == NULL)
-                {
+            case NIC_CMD_GETBUF: {
+                if (shmem_handle < 0 || shmem_addr == NULL) {
                     ZuzuMsgReply(result.source, ERR_SYSDOWN, 0, 0);
-                }
-                else
-                {
+                } else {
                     /* w1 = shmem, w2 = rx doorbell, w3 = tx doorbell */
                     int32_t shm_g = ZuzuGrant(shmem_handle, result.w1, 0);
-                    int32_t rx_g  = ZuzuGrant(netd_ntfn, result.w1, 0);
-                    int32_t tx_g  = ZuzuGrant(tx_doorbell_ntfn, result.w1, 0);
+                    int32_t rx_g = ZuzuGrant(netd_ntfn, result.w1, 0);
+                    int32_t tx_g = ZuzuGrant(tx_doorbell_ntfn, result.w1, 0);
                     if (shm_g < 0 || rx_g < 0 || tx_g < 0)
                         ZuzuMsgReply(result.source, ERR_SYSDOWN, 0, 0);
                     else
@@ -334,24 +308,21 @@ void Lan9118ServiceSetup(void)
                 }
                 break;
             }
-            case NIC_CMD_SEND:
-            {
+            case NIC_CMD_SEND: {
                 NicFrame frame;
                 while (PacketRingPop(&frame, tx_ring) == 0)
                     nic_tx_frame(&frame);
                 ZuzuMsgReply(result.source, 0, ZUZU_OK, 0);
                 break;
             }
-            case NIC_CMD_RECV:
-            {
+            case NIC_CMD_RECV: {
                 if (rx_ring->head != rx_ring->tail)
                     ZuzuMsgReply(result.source, 0, ZUZU_OK, 0);
                 else
                     pending_recv_reply = result.source;
                 break;
             }
-            case NIC_CMD_STATS:
-            {
+            case NIC_CMD_STATS: {
                 uint32_t idx = result.w3; // NIC_STAT_* selector
                 if (idx < NIC_STAT_COUNT)
                     ZuzuMsgReply(result.source, 0, nic_stats[idx], NIC_STAT_COUNT);
@@ -365,17 +336,13 @@ void Lan9118ServiceSetup(void)
             }
             break;
         }
-        case WAITANY_KIND_TIMEOUT:
-        {
+        case WAITANY_KIND_TIMEOUT: {
             /* Surface loss when the link goes idle, only when it changed, so
                bursts don't spam but drops never stay silent. */
             static uint32_t last_drops = 0;
-            uint32_t drops = nic_stats[NIC_STAT_RX_RING_FULL] +
-                             nic_stats[NIC_STAT_RX_ERRORS] +
-                             nic_stats[NIC_STAT_RX_OVERSIZE] +
-                             nic_stats[NIC_STAT_TX_DROPS];
-            if (drops != last_drops)
-            {
+            uint32_t drops = nic_stats[NIC_STAT_RX_RING_FULL] + nic_stats[NIC_STAT_RX_ERRORS] +
+                             nic_stats[NIC_STAT_RX_OVERSIZE] + nic_stats[NIC_STAT_TX_DROPS];
+            if (drops != last_drops) {
                 last_drops = drops;
                 LOG_WARN(LOG_TAG,
                          "drops rx_ringfull=%u rx_err=%u rx_oversize=%u tx=%u "

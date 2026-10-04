@@ -1,21 +1,21 @@
 #include "alloc.h"
-#include "kernel/mm/pmm/pmm.h"
+#include "core/panic.h"
 #include "kernel/layout.h"
+#include "kernel/mm/pmm/pmm.h"
 #include "kernel/mm/vmm/vmm.h"
 #include "stdbool.h"
+#include <assert.h>
+#include <compiler.h>
 #include <stddef.h>
 #include <string.h>
-#include <assert.h>
-#include "core/panic.h"
-#include <compiler.h>
 
 #define LOG_FMT(fmt) "(mm) " fmt
 #include <util/log.h>
 
 extern RamLayout kernel_layout;
 
-KHeapBlock* heap_head = NULL;
-static KHeapBlock* heap_tail = NULL;
+KHeapBlock *heap_head = NULL;
+static KHeapBlock *heap_tail = NULL;
 
 /* Doubly-linked so a slab can be pulled from the middle of full/partial in
  * O(1) when a free/alloc changes its fill state. */
@@ -43,7 +43,8 @@ static __always_inline void SlabListRemove(KSlab **head, KSlab *slab)
 static KSlab *SlabGrow(KSlabCache *cache)
 {
     PhysAddr pa = PmmAllocFrame();
-    if (!pa) return NULL;
+    if (!pa)
+        return NULL;
 
     KSlab *slab = (KSlab *)PA_TO_VA(pa);
     size_t hdr_size = align_up(sizeof(KSlab), 8);
@@ -92,7 +93,8 @@ static void *__hot SlabAlloc(KSlabCache *cache)
             SlabListPush(&cache->partial, slab);
         } else {
             slab = SlabGrow(cache);
-            if (unlikely(!slab)) return NULL;
+            if (unlikely(!slab))
+                return NULL;
         }
     }
 
@@ -142,10 +144,7 @@ static __always_inline void SlabFree(KSlabCache *cache, void *ptr)
 
 /* Generic slab-cache API for subsystems that want a dedicated fixed-size
  * object pool. Callers KSlabInit a zeroed cache before the first KSlabAlloc. */
-void KSlabInit(KSlabCache *cache, size_t obj_size)
-{
-    CreateSlabCache(cache, obj_size);
-}
+void KSlabInit(KSlabCache *cache, size_t obj_size) { CreateSlabCache(cache, obj_size); }
 
 void *KSlabAlloc(KSlabCache *cache) { return SlabAlloc(cache); }
 
@@ -224,7 +223,8 @@ static void HeapMerge(KHeapBlock *block)
         heap_tail = block;
 }
 
-void* KMalloc(size_t size) {
+void *KMalloc(size_t size)
+{
     if (!size) {
         return NULL;
     }
@@ -283,8 +283,8 @@ void *KCalloc(size_t nmemb, size_t size)
     return KZAlloc(nmemb * size);
 }
 
-
-void KFree(void* ptr) {
+void KFree(void *ptr)
+{
     if (!ptr) {
         return;
     }
@@ -324,7 +324,8 @@ void KFree(void* ptr) {
 
 _Static_assert(HEAP_INITIAL_SIZE % PAGE_SIZE == 0, "Heap is not aligned to page");
 
-void KHeapInit(void) {
+void KHeapInit(void)
+{
     heap_head = NULL;
     heap_tail = NULL;
     kernel_layout.heap_start_pa = 0;

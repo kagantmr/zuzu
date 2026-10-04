@@ -11,8 +11,8 @@
 #define ZUZU_SYNC_ZONE
 
 #include "zuzu/err.h"
-#include <types.h>
 #include <stdatomic.h>
+#include <types.h>
 
 /**
  * @defgroup sync_zone Zone
@@ -28,9 +28,9 @@
  * unlocked state, always call @ref ZoneInit.
  */
 typedef struct {
-    Tid         owner;   ///< Owning thread while locked; undefined when unlocked.
-    _Atomic int locked;  ///< 0 = free, 1 = held. Contended waiters spin-check then block.
-    Handle      event;   ///< Kernel event object waiters block on.
+    Tid owner;          ///< Owning thread while locked; undefined when unlocked.
+    _Atomic int locked; ///< 0 = free, 1 = held. Contended waiters spin-check then block.
+    Handle event;       ///< Kernel event object waiters block on.
 } Zone;
 
 /**
@@ -87,8 +87,10 @@ Err ZoneExit(Zone *z);
 Err ZoneTryEnter(Zone *z);
 
 /// Release callback for the @ref IN_ZONE cleanup attribute. @private
-static inline void _ZoneCleanup(Zone **zp) {
-    if (*zp) ZoneExit(*zp);
+static inline void _ZoneCleanup(Zone **zp)
+{
+    if (*zp)
+        ZoneExit(*zp);
 }
 
 /**
@@ -104,12 +106,10 @@ static inline void _ZoneCleanup(Zone **zp) {
  *
  * @warning Do not @c longjmp or thread-exit out of the block.
  */
-#define IN_ZONE(zptr) \
-    for (Zone *_zone_guard __attribute__((cleanup(_ZoneCleanup))) = \
-             (ZoneEnter(zptr), (zptr)), \
-         *_zone_once = _zone_guard; \
-         _zone_once; \
-         _zone_once = NULL)
+#define IN_ZONE(zptr)                                                                              \
+    for (Zone * _zone_guard __attribute__((cleanup(_ZoneCleanup))) = (ZoneEnter(zptr), (zptr)),    \
+                            *_zone_once = _zone_guard;                                             \
+         _zone_once; _zone_once = NULL)
 
 /** @} */ // sync_zone
 

@@ -21,15 +21,13 @@ static EventObject *EventObjAlloc(void)
 
 static void EventObjFree(EventObject *ev) { KSlabFree(&event_cache, ev); }
 
-
 void EventSignal(EventObject *ev, EventWord bits, bool bcast)
 {
     assert(ev && ev->alive && !(bits & (1U << 31)));
     ev->word |= bits;
 
     bool delivered = false;
-    while (!list_empty(&ev->wait_queue))
-    {
+    while (!list_empty(&ev->wait_queue)) {
         ListNode *node = list_pop_front(&ev->wait_queue);
         WaitSlot *slot = container_of(node, WaitSlot, node);
         TaskObject *waiter = slot->owner;
@@ -52,8 +50,7 @@ void EventKill(EventObject *ev)
     if (!ev || !ev->alive)
         return;
     ev->alive = false;
-    while (!list_empty(&ev->wait_queue))
-    {
+    while (!list_empty(&ev->wait_queue)) {
         ListNode *n = list_pop_front(&ev->wait_queue);
         WaitSlot *slot = container_of(n, WaitSlot, node);
         TaskAbortWait(slot->owner, ERR_DEAD);
@@ -83,7 +80,7 @@ EventObject *EventCreate(SpaceObject *owner)
     list_init(&ev->wait_queue);
     ev->word = 0;
     ev->bound_mask = 0;
-    
+
     return ev;
 }
 
@@ -95,7 +92,8 @@ void EventDestroy(EventObject *ev)
     EventUnref(ev);
 }
 
-void EventWait(EventObject *ev,Duration timeout, CpuState *frame) {
+void EventWait(EventObject *ev, Duration timeout, CpuState *frame)
+{
     ENSURE_ERR(frame, ev->alive, ERR_DEAD);
     if (ev->word) {
         ArchSetInFrame(frame, 0, ZUZU_OK);
@@ -106,4 +104,3 @@ void EventWait(EventObject *ev,Duration timeout, CpuState *frame) {
 
     SchedBlockOn(&ev->wait_queue, timeout);
 }
-

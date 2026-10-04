@@ -1,8 +1,8 @@
-#include "svc.h"
-#include "kernel/space/space.h"
 #include "kernel/ipc/msg.h"
-#include <core/ensure.h>
+#include "kernel/space/space.h"
+#include "svc.h"
 #include <arch/regs.h>
+#include <core/ensure.h>
 
 void SvcWaitOn(CpuState *frame)
 {
@@ -14,21 +14,21 @@ void SvcWaitOn(CpuState *frame)
     ENSURE_ERR(frame, entry, ERR_BADHANDLE);
     ENSURE_ERR(frame, (entry->perms & PERM_WAIT), ERR_NOPERM);
 
-    switch(entry->type) {
-        case HANDLE_PORT: {
-            PortReceive(entry->port, timeout, frame);
-        } break;
-        case HANDLE_EVENT: {
-            EventWait(entry->event, timeout, frame);
-        } break;
-        case HANDLE_SPACE: {
-            SpaceWaitHollow(entry->space, timeout, frame);
-        } break;
-        case HANDLE_TASK: {
-            TaskWaitExit(entry->task, timeout, frame);
-        } break;
+    switch (entry->type) {
+    case HANDLE_PORT: {
+        PortReceive(entry->port, timeout, frame);
+    } break;
+    case HANDLE_EVENT: {
+        EventWait(entry->event, timeout, frame);
+    } break;
+    case HANDLE_SPACE: {
+        SpaceWaitHollow(entry->space, timeout, frame);
+    } break;
+    case HANDLE_TASK: {
+        TaskWaitExit(entry->task, timeout, frame);
+    } break;
 
-        default: ENSURE_ERR(frame, 0, ERR_BADTYPE);
+    default:
+        ENSURE_ERR(frame, 0, ERR_BADTYPE);
     }
-    
 }

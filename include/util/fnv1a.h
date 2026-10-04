@@ -6,8 +6,7 @@
 static inline uint32_t Fnv1aHash(const char *s)
 {
     uint32_t h = 0x811c9dc5U; // FNV offset basis
-    while (*s)
-    {
+    while (*s) {
         h ^= (uint8_t)*s++;
         h *= 0x01000193U; // FNV prime
     }
@@ -15,6 +14,5 @@ static inline uint32_t Fnv1aHash(const char *s)
 }
 
 #define LABEL_OF(s) Fnv1aHash(s)
-
 
 #endif /* FNV1A_H  */

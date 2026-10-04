@@ -11,7 +11,7 @@ menu "Build options"
 
 choice
 	prompt "Kernel optimization level"
-	default CC_OPT_O3
+	default CC_OPT_O2
 config CC_OPT_O0
 	bool "-O0 (no optimization)"
 config CC_OPT_O2

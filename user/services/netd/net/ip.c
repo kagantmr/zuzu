@@ -1,12 +1,12 @@
 #include "ip.h"
-#include "../link/eth.h"
-#include "icmp.h"
-#include "../transport/udp.h"
-#include "../transport/tcp.h"
 #include "../link/arp.h"
-#include <stdio.h>
+#include "../link/eth.h"
+#include "../transport/tcp.h"
+#include "../transport/udp.h"
+#include "icmp.h"
 #include <convert.h>
 #include <malloc.h>
+#include <stdio.h>
 #include <string.h>
 
 static int id_counter = 0;
@@ -15,7 +15,8 @@ static int id_counter = 0;
    that several non-contiguous regions (e.g. a pseudo-header + segment) can be
    summed together. Each region passed in must have an even length except the
    last, otherwise the trailing-byte padding misaligns the following region. */
-uint32_t inet_csum_partial(const uint8_t *data, size_t len, uint32_t accum) {
+uint32_t inet_csum_partial(const uint8_t *data, size_t len, uint32_t accum)
+{
     size_t i = 0;
     for (; i + 1 < len; i += 2) {
         accum += (data[i] << 8) | data[i + 1];
@@ -27,29 +28,31 @@ uint32_t inet_csum_partial(const uint8_t *data, size_t len, uint32_t accum) {
 }
 
 /* Fold a partial sum down to 16 bits and take the one's complement. */
-uint16_t inet_csum_fold(uint32_t accum) {
+uint16_t inet_csum_fold(uint32_t accum)
+{
     while (accum >> 16) {
         accum = (accum & 0xFFFF) + (accum >> 16);
     }
     return (uint16_t)~accum;
 }
 
-uint16_t inet_checksum(uint8_t *data, size_t len) {
+uint16_t inet_checksum(uint8_t *data, size_t len)
+{
     return inet_csum_fold(inet_csum_partial(data, len, 0));
 }
 
-void ip_rx(uint8_t *data, uint16_t len, const uint8_t *src_mac) {
+void ip_rx(uint8_t *data, uint16_t len, const uint8_t *src_mac)
+{
     if (len < 20) {
         return;
     }
     ip_header_t *hdr = (ip_header_t *)data;
 
     if ((hdr->version_ihl & (0xF0)) != 0x40) {
-        return;     // we accept ipv4 only (for now)
+        return; // we accept ipv4 only (for now)
     }
     uint8_t hdr_len = (hdr->version_ihl & (0x0F)) * 4;
-    if (len < hdr_len || ntohs(hdr->total_length) < hdr_len
-         || ntohs(hdr->total_length) > len) {
+    if (len < hdr_len || ntohs(hdr->total_length) < hdr_len || ntohs(hdr->total_length) > len) {
         return; // anomalies with length?
     }
 
@@ -63,14 +66,13 @@ void ip_rx(uint8_t *data, uint16_t len, const uint8_t *src_mac) {
     arp_learn(hdr->src_ip, src_mac);
 
     if (ntohs(hdr->flags_fragment_offset) & IP_FLAG_MF ||
-    ntohs(hdr->flags_fragment_offset) & 0x1FFF) {
+        ntohs(hdr->flags_fragment_offset) & 0x1FFF) {
         return; // no reassembly
     }
 
     uint8_t *payload = data + hdr_len;
     size_t payload_len = ntohs(hdr->total_length) - hdr_len;
-    switch (hdr->protocol)
-    {
+    switch (hdr->protocol) {
     case IP_PROTO_ICMP:
         icmp_rx(payload, payload_len, hdr->src_ip);
         break;
@@ -83,10 +85,10 @@ void ip_rx(uint8_t *data, uint16_t len, const uint8_t *src_mac) {
     default:
         return;
     }
-
 }
 
-int ip_send(txframe_t *f, ipv4_addr_t src_ip, ipv4_addr_t dst_ip, uint8_t protocol) {
+int ip_send(txframe_t *f, ipv4_addr_t src_ip, ipv4_addr_t dst_ip, uint8_t protocol)
+{
     /* RFC 1122 3.2.1.3: never originate a unicast datagram from 0.0.0.0. Until
        an address is configured (DHCP bound) src_ip is 0, so only broadcast
        bootstrap traffic (DHCP) may leave. Abandoning the builder's reserved tx
@@ -129,7 +131,9 @@ int ip_send(txframe_t *f, ipv4_addr_t src_ip, ipv4_addr_t dst_ip, uint8_t protoc
     return ZUZU_OK;
 }
 
-int ip_tx(uint8_t *payload, uint16_t payload_len, ipv4_addr_t src_ip, ipv4_addr_t dst_ip, uint8_t protocol) {
+int ip_tx(uint8_t *payload, uint16_t payload_len, ipv4_addr_t src_ip, ipv4_addr_t dst_ip,
+          uint8_t protocol)
+{
     if ((size_t)sizeof(ip_header_t) + payload_len > NIC_MTU)
         return ERR_OVERFLOW; /* TODO: fragment here when DF is clear */
 

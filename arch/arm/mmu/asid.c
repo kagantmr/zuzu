@@ -15,11 +15,11 @@ static Asid next_asid = 1;
 static Asid active_asid;
 
 static inline bool AsidBitTest(uint8_t *bitmap, int i) { return bitmap[i / 8] & (1 << (i % 8)); }
-static inline void AsidBitSet(uint8_t *bitmap,int i)
+static inline void AsidBitSet(uint8_t *bitmap, int i)
 {
     bitmap[i / 8] = (Asid)(bitmap[i / 8] | (1U << (i % 8)));
 }
-static inline void AsidBitClear(uint8_t *bitmap,int i)
+static inline void AsidBitClear(uint8_t *bitmap, int i)
 {
     bitmap[i / 8] = (Asid)(bitmap[i / 8] & ~(1U << (i % 8)));
 }
@@ -30,18 +30,15 @@ void AsidSetActive(Asid a)
     AsidBitSet(dirty_bitmap, a);
 }
 
-
 // Scan [lo, hi) for a free ASID; claim it and advance next_asid. Returns the
 // claimed ASID, or 0 if the range had none free.
 static int AsidClaimInRange(int lo, int hi)
 {
-    for (int i = lo; i < hi; i++)
-    {
-        if (!AsidBitTest(asid_bitmap, i))
-        {
-            AsidBitSet(asid_bitmap,i);
+    for (int i = lo; i < hi; i++) {
+        if (!AsidBitTest(asid_bitmap, i)) {
+            AsidBitSet(asid_bitmap, i);
             next_asid = (Asid)(i + 1);
-            if (AsidBitTest(dirty_bitmap, i)) {          // only flush if it was ever installed
+            if (AsidBitTest(dirty_bitmap, i)) { // only flush if it was ever installed
                 ArchMmuFlushTlbAsid((uint8_t)i);
                 ArchSyncBarrier();
             }
@@ -50,7 +47,6 @@ static int AsidClaimInRange(int lo, int hi)
     }
     return 0;
 }
-
 
 AsidToken AsidAlloc(void)
 {
@@ -65,12 +61,13 @@ AsidToken AsidAlloc(void)
     ArchMmuFlushTlb();
     memset(asid_bitmap, 0, ASID_BITMAP_BYTES);
     memset(dirty_bitmap, 0, ASID_BITMAP_BYTES);
-    AsidBitSet(asid_bitmap,0);                             /* kernel */
+    AsidBitSet(asid_bitmap, 0); /* kernel */
 
-    if (active_asid) AsidBitSet(asid_bitmap,active_asid);  /* running AS keeps its tag */
+    if (active_asid)
+        AsidBitSet(asid_bitmap, active_asid); /* running AS keeps its tag */
     asid_generation++;
     next_asid = 1;
-    i = AsidClaimInRange(1, ASID_COUNT);      /* first genuinely free one */
+    i = AsidClaimInRange(1, ASID_COUNT); /* first genuinely free one */
 
     return (AsidToken){.asid = (Asid)i, .generation = asid_generation};
 }
@@ -86,5 +83,5 @@ void AsidFree(AsidToken token)
     if (token.generation != asid_generation)
         return;
 
-    AsidBitClear(asid_bitmap,token.asid);
+    AsidBitClear(asid_bitmap, token.asid);
 }

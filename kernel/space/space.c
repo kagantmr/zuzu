@@ -22,8 +22,7 @@ static Spid SpidAlloc(SpaceObject *sp)
 {
     uint32_t start = next_spid % MAX_SPACES;
     uint32_t slot = start;
-    do
-    {
+    do {
         if (spaces[slot] == NULL)
             break;
         next_spid++;
@@ -89,8 +88,8 @@ SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
         .vaddr_start = tcb_user_va,
         .size = MAX_TCB_PAGES * PAGE_SIZE,
         .prot = PROT_READ | PROT_WRITE | VM_PROT_USER,
-        .owner = VM_BACKING_ANON, // GUARD dropped so pages 1..N demand-back; PINNED still blocks user
-                                // unmap.
+        .owner = VM_BACKING_ANON, // GUARD dropped so pages 1..N demand-back; PINNED still blocks
+                                  // user unmap.
         .flags = VM_FLAG_PINNED,
     };
     if (!VmmAddRegion(sp->as, &tcb_region))
@@ -130,11 +129,9 @@ SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
         goto fail_as;
     sp->spid = spid;
 
-    if (name)
-    {
+    if (name) {
         const char *short_name = name;
-        for (const char *ch = name; *ch; ch++)
-        {
+        for (const char *ch = name; *ch; ch++) {
             if (*ch == '/')
                 short_name = ch + 1;
         }
@@ -171,8 +168,7 @@ void SpaceDestroy(SpaceObject *sp)
     sp->ref_count++;
 
     ListNode *task_node = sp->tasks.node.next;
-    while (task_node != &sp->tasks.node)
-    {
+    while (task_node != &sp->tasks.node) {
         ListNode *next = task_node->next;
         TaskObject *task = container_of(task_node, TaskObject, space_node);
         TaskRef(task);
@@ -186,8 +182,7 @@ void SpaceDestroy(SpaceObject *sp)
         task_node = next;
     }
 
-    while (!list_empty(&sp->waiters))
-    {
+    while (!list_empty(&sp->waiters)) {
         ListNode *node = list_pop_front(&sp->waiters);
         WaitSlot *slot = container_of(node, WaitSlot, node);
         TaskAbortWait(slot->owner, ERR_DEAD);
@@ -195,20 +190,19 @@ void SpaceDestroy(SpaceObject *sp)
 
     IrqReleaseAll(sp);
 
-    for (uint32_t i = 0; i < HANDLE_MAX_SLOTS; i++)
-    {
+    for (uint32_t i = 0; i < HANDLE_MAX_SLOTS; i++) {
         HandleTableEntry *entry = HandleTableGet(&sp->handle_table, (Handle)i);
         if (!entry || entry->type == HANDLE_FREE)
             continue;
         if (entry->type == HANDLE_PORT && entry->port && entry->port->owner_spid == sp->spid)
             PortKill(entry->port);
-        else if (entry->type == HANDLE_EVENT && entry->event && entry->event->owner_spid == sp->spid)
+        else if (entry->type == HANDLE_EVENT && entry->event &&
+                 entry->event->owner_spid == sp->spid)
             EventKill(entry->event);
         HandleRelease(sp, entry);
     }
 
-    if (sp->as)
-    {
+    if (sp->as) {
         ArchMmuFreeUserPages(sp->as);
         AddressSpaceDestroy(sp->as);
         sp->as = NULL;
@@ -267,8 +261,7 @@ void SpaceWaitHollow(SpaceObject *sp, Duration timeout, CpuState *frame)
 {
     ENSURE_ERR(frame, sp != current_task->owner, ERR_BADARG);
     ENSURE_ERR(frame, !sp->torn_down, ERR_DEAD);
-    if (sp->live_tasks == 0)
-    {
+    if (sp->live_tasks == 0) {
         ArchSetInFrame(frame, 0, ZUZU_OK);
         ArchSetInFrame(frame, 1, (Register)sp->last_exit_status);
         return;
@@ -276,15 +269,11 @@ void SpaceWaitHollow(SpaceObject *sp, Duration timeout, CpuState *frame)
     SchedBlockOn(&sp->waiters, timeout);
 }
 
-bool SpaceIsHollow(const SpaceObject *sp)
-{
-    return sp->live_tasks == 0;
-}
+bool SpaceIsHollow(const SpaceObject *sp) { return sp->live_tasks == 0; }
 bool SpaceIsSelfOrAncestor(const SpaceObject *sp, const SpaceObject *target)
 {
     /* Bounded: a dead ancestor's spid can be reused by an unrelated space. */
-    for (uint32_t depth = 0; sp && depth < MAX_SPACES; depth++)
-    {
+    for (uint32_t depth = 0; sp && depth < MAX_SPACES; depth++) {
         if (sp == target)
             return true;
         sp = sp->parent_spid == -1 ? NULL : SpaceFindBySpid(sp->parent_spid);

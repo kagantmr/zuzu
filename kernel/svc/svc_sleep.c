@@ -1,11 +1,11 @@
-#include "svc.h"
 #include "kernel/sched/sched.h"
+#include "svc.h"
 #include <arch/timer.h>
-
 
 void SvcSleep(CpuState *frame)
 {
-    Duration duration_ms = (Duration)(*ArchGetFromFrame(frame, 0)); // argument 0: Milliseconds to sleep
+    Duration duration_ms =
+        (Duration)(*ArchGetFromFrame(frame, 0)); // argument 0: Milliseconds to sleep
 
     current_task->wake_deadline = ArchDeadlineFromMs(duration_ms);
 

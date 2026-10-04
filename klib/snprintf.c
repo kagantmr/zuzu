@@ -1,15 +1,16 @@
-#include "string.h" 
+#include "string.h"
 
 typedef struct {
     char *buf;
     size_t pos;
-    size_t max;  // max chars to write (excluding null terminator)
+    size_t max; // max chars to write (excluding null terminator)
 } snprintf_ctx_t;
 
 static void snprintf_outc(void *ctx, char c)
 {
     snprintf_ctx_t *s = (snprintf_ctx_t *)ctx;
-    if (s->pos < s->max && s->buf) s->buf[s->pos] = c;
+    if (s->pos < s->max && s->buf)
+        s->buf[s->pos] = c;
     s->pos++;
 }
 

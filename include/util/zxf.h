@@ -9,8 +9,7 @@
 #define ZXF_W 2
 #define ZXF_X 4
 
-typedef struct
-{
+typedef struct {
     uint8_t magic[4];
     uint8_t version;
     uint8_t arch;
@@ -28,8 +27,7 @@ typedef struct
     uint8_t reserved2[4];
 } ZXFHeader;
 
-typedef struct
-{
+typedef struct {
     uint32_t file_offset;
     uint32_t file_size;
     uint64_t vaddr;
@@ -39,8 +37,7 @@ typedef struct
     uint16_t reserved;
 } ZXFSegment;
 
-typedef struct
-{
+typedef struct {
     const uint8_t *base;
     size_t size;
     uint32_t entry;
@@ -48,31 +45,18 @@ typedef struct
     const ZXFSegment *segs;
 } ZXFImage;
 
-typedef enum
-{
-    ARM32 = 0x01,
-    ARM64,
-    X86_64,
-    RISCV,
-    POWPC
-} ZXFArch;
+typedef enum { ARM32 = 0x01, ARM64, X86_64, RISCV, POWPC } ZXFArch;
 
-typedef enum
-{
+typedef enum {
     DYNLINK = 0x0001,   // a Zuzu Common Library (ZCL)
     HINTS = 0x0002,     // sysd hints
     DEBUGINFO = 0x0003, // debug symbols
     SIGNATURE = 0x0004  // driver signature
 } ZXFBlockType;
 
-typedef enum
-{
-    OPTIONAL = 0x0000,
-    REQUIRED = 0x0001
-} ZXFBlockFlag;
+typedef enum { OPTIONAL = 0x0000, REQUIRED = 0x0001 } ZXFBlockFlag;
 
-typedef struct
-{
+typedef struct {
     uint16_t type;
     uint16_t flags;
     uint32_t offset;

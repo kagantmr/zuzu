@@ -33,8 +33,7 @@ int main(int argc, char **argv)
 
     if (argc > 1 && strcmp(argv[1], "selfcall-fsd") == 0)
         Call(g_fsd.live, 0, -1);
-    if (argc > 1 && strcmp(argv[1], "selfcall-tty") == 0)
-    {
+    if (argc > 1 && strcmp(argv[1], "selfcall-tty") == 0) {
         Handle port = LookupService("/svc/tty");
         Handle ev = CreateEvent();
         TtyConn t;

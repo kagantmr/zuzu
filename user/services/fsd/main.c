@@ -8,16 +8,15 @@
  * published, so no client can send a request before we are able to serve it.
  */
 
-#include "tables.h"
 #include "backend/backend.h"
 #include "client_table.h"
+#include "tables.h"
 #include "zuzu/service.h"
 
-#include <zuzu/zuzu.h>
-#include <zuzu/udbg.h>
-#include <util/msg.h>
 #include <string.h>
-
+#include <util/msg.h>
+#include <zuzu/udbg.h>
+#include <zuzu/zuzu.h>
 
 #define FSD_PATH_MAX 256u
 #define PORT_BIT 0
@@ -56,7 +55,8 @@ static Err ValidateRequest(const FsdClient *c, const FsdRequest *req)
 {
     if (req->data_off < FSD_DATA_OFF || req->data_off > c->shm_size)
         return ERR_MALFORMED;
-    if (req->cmd != FSD_READ && req->cmd != FSD_WRITE && req->data_len > c->shm_size - req->data_off)
+    if (req->cmd != FSD_READ && req->cmd != FSD_WRITE &&
+        req->data_len > c->shm_size - req->data_off)
         return ERR_MALFORMED;
     return ZUZU_OK;
 }
@@ -158,8 +158,7 @@ static Err CmdReadDir(FsdClient *c, const FsdRequest *req, FsdResponse *resp)
     uint32_t count = 0;
     Err rc = g_backend->readdir(g_ctx, path, (uint32_t)req->offset, out, max, &count);
     resp->count = count;
-    if (rc == ZUZU_OK)
-    {
+    if (rc == ZUZU_OK) {
         resp->data_off = FSD_DATA_OFF;
         resp->data_len = count * sizeof(FsdDirEntry);
     }
@@ -213,8 +212,7 @@ static Err CmdRead(FsdClient *c, const FsdRequest *req, FsdResponse *resp)
     uint32_t got = 0;
     Err rc = g_backend->read(g_ctx, file, (uint8_t *)c->buf + FSD_DATA_OFF, count, &got);
     resp->count = got;
-    if (rc == ZUZU_OK)
-    {
+    if (rc == ZUZU_OK) {
         resp->data_off = FSD_DATA_OFF;
         resp->data_len = got;
     }
@@ -240,8 +238,7 @@ static Err CmdWrite(FsdClient *c, const FsdRequest *req, FsdResponse *resp)
 
 static void HandleAttach(const PortWaitResult *r)
 {
-    if (r->granted < 0)
-    {
+    if (r->granted < 0) {
         ReplyStatus(ERR_BADARG);
         return;
     }
@@ -251,16 +248,14 @@ static void HandleAttach(const PortWaitResult *r)
 
     Marker badge = 0;
     Err rc = ClientRegister(r->granted, &badge);
-    if (rc != ZUZU_OK)
-    {
+    if (rc != ZUZU_OK) {
         HandleClose(r->granted);
         ReplyStatus(rc);
         return;
     }
 
     SvcResult dup = HandleDuplicate(g_port, PERM_SEND | PERM_TXFR, badge);
-    if (dup.r0 != ZUZU_OK)
-    {
+    if (dup.r0 != ZUZU_OK) {
         ClientDrop(ClientFind(badge));
         ReplyStatus((Err)dup.r0);
         return;
@@ -272,8 +267,7 @@ static void HandleAttach(const PortWaitResult *r)
     memcpy(MessageBuf(), &resp, sizeof(resp));
     rc = Reply(sizeof(resp), (Handle)dup.r1);
     HandleClose((Handle)dup.r1);
-    if (rc != ZUZU_OK)
-    {
+    if (rc != ZUZU_OK) {
         /* A failed grant already woke the caller with the error. */
         UserspaceDebugLog("fsd: attach reply failed: %d", (int)rc);
         ClientDrop(ClientFind(badge));
@@ -283,26 +277,22 @@ static void HandleAttach(const PortWaitResult *r)
 static void HandleWatch(const PortWaitResult *r)
 {
     FsdClient *c = ClientFind(r->sender);
-    if (!c)
-    {
+    if (!c) {
         CloseGrant(r);
         ReplyStatus(ERR_NOTCONN);
         return;
     }
-    if (r->granted < 0)
-    {
+    if (r->granted < 0) {
         ReplyStatus(ERR_BADARG);
         return;
     }
-    if (c->live >= 0)
-    {
+    if (c->live >= 0) {
         CloseGrant(r);
         ReplyStatus(ERR_DUPLICATE);
         return;
     }
     Err rc = Bind(EVENT_PORT, g_event, r->granted, DEATH_BIT);
-    if (rc != ZUZU_OK)
-    {
+    if (rc != ZUZU_OK) {
         CloseGrant(r);
         if (rc == ERR_DEAD)
             ClientDrop(c); /* the client died before it could be watched */
@@ -315,8 +305,7 @@ static void HandleWatch(const PortWaitResult *r)
 
 static Err Dispatch(FsdClient *c, const FsdRequest *req, FsdResponse *resp)
 {
-    switch (req->cmd)
-    {
+    switch (req->cmd) {
     case FSD_OPEN:
         return CmdOpen(c, req, resp);
     case FSD_CLOSE:
@@ -344,8 +333,7 @@ static Err Dispatch(FsdClient *c, const FsdRequest *req, FsdResponse *resp)
 
 static void HandleRequest(const PortWaitResult *r)
 {
-    if (r->xlen < sizeof(FsdRequest))
-    {
+    if (r->xlen < sizeof(FsdRequest)) {
         CloseGrant(r);
         ReplyStatus(ERR_MALFORMED);
         return;
@@ -353,46 +341,39 @@ static void HandleRequest(const PortWaitResult *r)
 
     FsdRequest req;
     memcpy(&req, MessageBuf(), sizeof(req));
-    if (req.size < sizeof(req))
-    {
+    if (req.size < sizeof(req)) {
         CloseGrant(r);
         ReplyStatus(ERR_MALFORMED);
         return;
     }
 
-    if (r->sender == MARKER_NONE)
-    {
+    if (r->sender == MARKER_NONE) {
         if (req.cmd == FSD_ATTACH)
             HandleAttach(r);
-        else
-        {
+        else {
             CloseGrant(r);
             ReplyStatus(ERR_NOPERM);
         }
         return;
     }
 
-    if (req.cmd == FSD_WATCH)
-    {
+    if (req.cmd == FSD_WATCH) {
         HandleWatch(r);
         return;
     }
 
     CloseGrant(r);
     FsdClient *c = ClientFind(r->sender);
-    if (!c)
-    {
+    if (!c) {
         ReplyStatus(ERR_NOTCONN);
         return;
     }
 
-    if (req.cmd == FSD_ATTACH)
-    {
+    if (req.cmd == FSD_ATTACH) {
         ReplyStatus(ERR_DUPLICATE);
         return;
     }
-    if (req.cmd == FSD_DETACH)
-    {
+    if (req.cmd == FSD_DETACH) {
         ClientDrop(c);
         ReplyStatus(ZUZU_OK);
         return;
@@ -411,8 +392,7 @@ static void HandleRequest(const PortWaitResult *r)
 int main(void)
 {
     Err rc = g_backend->mount(&g_ctx);
-    if (rc != ZUZU_OK)
-    {
+    if (rc != ZUZU_OK) {
         UserspaceDebugLog("fsd: mount failed: %d", (int)rc);
         return 1;
     }
@@ -420,35 +400,30 @@ int main(void)
 
     g_port = CreatePort();
     g_event = CreateEvent();
-    if (g_port < 0 || g_event < 0)
-    {
+    if (g_port < 0 || g_event < 0) {
         UserspaceDebugLog("fsd: port/event create failed");
         return 1;
     }
     rc = Bind(EVENT_PORT, g_event, g_port, PORT_BIT);
-    if (rc != ZUZU_OK)
-    {
+    if (rc != ZUZU_OK) {
         UserspaceDebugLog("fsd: bind port failed: %d", (int)rc);
         return 1;
     }
 
     rc = RegisterService("/svc/fsd", g_port);
-    if (rc != ZUZU_OK)
-    {
+    if (rc != ZUZU_OK) {
         UserspaceDebugLog("fsd: register failed: %d", (int)rc);
         return 1;
     }
 
     UserspaceDebugLog("fsd: ready");
 
-    for (;;)
-    {
+    for (;;) {
         EventWaitResult ev = FormatToEventWait(WaitOn(g_event, POLL_MS));
         if (ev.status == ZUZU_OK && (ev.bits & (1U << DEATH_BIT)))
             ClientsReapDead();
 
-        for (;;)
-        {
+        for (;;) {
             PortWaitResult r = FormatToPortWait(WaitOn(g_port, TIMEOUT_POLL));
             if (r.status != ZUZU_OK)
                 break;

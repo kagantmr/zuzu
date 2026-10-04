@@ -26,8 +26,8 @@ extern "C" {
  * @return ZUZU_OK on success, ERR_MALFORMED if the image is neither a valid
  * ZXF nor a valid ARM ELF32 executable, or another negative Err.
  */
-Err SpawnProcess(const void *image, size_t size, const char *name,
-                 const char *argbuf, size_t argbuf_len, uint32_t argc, Spid *out_pid, Handle *out_task);
+Err SpawnProcess(const void *image, size_t size, const char *name, const char *argbuf,
+                 size_t argbuf_len, uint32_t argc, Spid *out_pid, Handle *out_task);
 
 #ifdef __cplusplus
 }

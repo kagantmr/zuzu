@@ -1,10 +1,9 @@
-#include "svc.h"
-#include <arch/regs.h>
 #include "core/ensure.h"
 #include "kernel/ipc/msg.h"
-#include "kernel/space/space.h"
 #include "kernel/sched/sched.h"
-
+#include "kernel/space/space.h"
+#include "svc.h"
+#include <arch/regs.h>
 
 void __hot SvcCall(CpuState *frame)
 {
@@ -14,9 +13,9 @@ void __hot SvcCall(CpuState *frame)
     ENSURE_ERR(frame, (xlen <= MSG_BUF_SIZE), ERR_OVERFLOW);
 
     HandleTableEntry *entry = ValidateCallPort(CURRENT_SPACE, handle, frame);
-    if (!entry) return;
+    if (!entry)
+        return;
     PortObject *port = entry->port;
-
 
     Err grant_err = ValidateGrantHandle(CURRENT_SPACE, grant_handle);
     ENSURE_ERR(frame, (grant_err == ZUZU_OK), grant_err);

@@ -5,8 +5,8 @@
 #include "kernel/bench.h"
 
 #include <compiler.h>
-#include <string.h>
 #include <stdbool.h>
+#include <string.h>
 
 #ifdef CONFIG_ZUZU_BENCH
 BENCH_STAT(g_bench_copytouser_walk, "CopyToUser: VmmCheckUserFault");

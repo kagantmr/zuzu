@@ -1,8 +1,8 @@
 #ifndef PANIC_H
 #define PANIC_H
 
-#include <stdint.h>
 #include <arch/regs.h>
+#include <stdint.h>
 
 /*
  * Fault context filled by exception handlers before calling panic().
@@ -10,12 +10,12 @@
  */
 typedef struct {
     int valid;
-    uint32_t far;               /* DFAR or IFAR */
-    uint32_t fsr;               /* DFSR or IFSR */
-    const char *fault_type;     /* "Data abort" / "Prefetch abort" / etc. */
-    const char *fault_decoded;  /* DecodeFsr() result */
-    const char *access_type;    /* "Read" / "Write" */
-    CpuState *frame;   /* saved registers at exception entry */
+    uint32_t far;              /* DFAR or IFAR */
+    uint32_t fsr;              /* DFSR or IFSR */
+    const char *fault_type;    /* "Data abort" / "Prefetch abort" / etc. */
+    const char *fault_decoded; /* DecodeFsr() result */
+    const char *access_type;   /* "Read" / "Write" */
+    CpuState *frame;           /* saved registers at exception entry */
 } PanicFaultContext;
 
 extern PanicFaultContext panic_fault_ctx;

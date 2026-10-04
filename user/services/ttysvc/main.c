@@ -21,8 +21,7 @@
  * trust a header field the peer could have scribbled on: masks use
  * TTY_RING_DATA_SIZE, and the indices ttysvc owns (up.tail, down.head) are
  * shadowed locally and only published. */
-typedef struct
-{
+typedef struct {
     bool in_use;
     bool provider;
     int endpoint;
@@ -41,8 +40,7 @@ typedef struct
     uint32_t line_len;
 } Session;
 
-typedef struct
-{
+typedef struct {
     bool in_use;
     char alias[TTY_NAME_MAX];
     int provider; /* session slot, or -1 while the provider is away */
@@ -114,8 +112,7 @@ static void ReplyStatus(Err status)
 
 static int FindEndpoint(const char *alias)
 {
-    for (int i = 0; i < MAX_ENDPOINTS; i++)
-    {
+    for (int i = 0; i < MAX_ENDPOINTS; i++) {
         if (g_endpoints[i].in_use && strcmp(g_endpoints[i].alias, alias) == 0)
             return i;
     }
@@ -124,11 +121,9 @@ static int FindEndpoint(const char *alias)
 
 static int NewEndpoint(const char *alias)
 {
-    for (int i = 0; i < MAX_ENDPOINTS; i++)
-    {
-        if (!g_endpoints[i].in_use)
-        {
-            g_endpoints[i] = (Endpoint){ .in_use = true, .provider = -1, .fg = -1 };
+    for (int i = 0; i < MAX_ENDPOINTS; i++) {
+        if (!g_endpoints[i].in_use) {
+            g_endpoints[i] = (Endpoint){.in_use = true, .provider = -1, .fg = -1};
             strncpy(g_endpoints[i].alias, alias, TTY_NAME_MAX - 1);
             return i;
         }
@@ -138,15 +133,13 @@ static int NewEndpoint(const char *alias)
 
 static void AutoAlias(char out[TTY_NAME_MAX])
 {
-    for (;; g_auto_count++)
-    {
+    for (;; g_auto_count++) {
         out[0] = 't';
         out[1] = 't';
         out[2] = 'y';
         out[3] = (char)('0' + (g_auto_count % 10));
         out[4] = '\0';
-        if (FindEndpoint(out) < 0)
-        {
+        if (FindEndpoint(out) < 0) {
             g_auto_count++;
             return;
         }
@@ -155,8 +148,7 @@ static void AutoAlias(char out[TTY_NAME_MAX])
 
 static int AllocSession(void)
 {
-    for (int i = 0; i < MAX_SESSIONS; i++)
-    {
+    for (int i = 0; i < MAX_SESSIONS; i++) {
         if (!g_sessions[i].in_use)
             return i;
     }
@@ -168,8 +160,7 @@ static int AllocSession(void)
 static int DefaultEndpoint(void)
 {
     int first = -1;
-    for (int i = 0; i < MAX_ENDPOINTS; i++)
-    {
+    for (int i = 0; i < MAX_ENDPOINTS; i++) {
         if (!g_endpoints[i].in_use || g_endpoints[i].provider < 0)
             continue;
         if (g_endpoints[i].fg < 0)
@@ -189,14 +180,13 @@ static void ReleaseSession(int slot)
         HandleClose(s->live);
     MemUnmap(s->shm);
     HandleClose(s->mem);
-    *s = (Session){ .peer_doorbell = -1, .live = -1, .mem = -1 };
+    *s = (Session){.peer_doorbell = -1, .live = -1, .mem = -1};
 }
 
 static void PromoteForeground(Endpoint *ep)
 {
     int best = -1;
-    for (int i = 0; i < MAX_SESSIONS; i++)
-    {
+    for (int i = 0; i < MAX_SESSIONS; i++) {
         Session *s = &g_sessions[i];
         if (!s->in_use || s->provider || s->endpoint != (int)(ep - g_endpoints))
             continue;
@@ -204,8 +194,7 @@ static void PromoteForeground(Endpoint *ep)
             best = i;
     }
     ep->fg = best;
-    if (best >= 0)
-    {
+    if (best >= 0) {
         g_sessions[best].line_len = 0;
         g_sessions[best].dirty = true; /* wake it: it is live now */
     }
@@ -216,8 +205,7 @@ static void PromoteForeground(Endpoint *ep)
 static void HandleConnect(bool provider, const PortWaitResult *r)
 {
     TtyConnectRequest req;
-    if (r->granted < 0 || r->xlen < sizeof(req))
-    {
+    if (r->granted < 0 || r->xlen < sizeof(req)) {
         if (r->granted >= 0)
             HandleClose(r->granted);
         ReplyStatus(ERR_BADARG);
@@ -229,26 +217,20 @@ static void HandleConnect(bool provider, const PortWaitResult *r)
     int ep = -1;
     bool new_ep = false;
     Err err = ZUZU_OK;
-    if (provider)
-    {
+    if (provider) {
         if (req.alias[0] == '\0')
             AutoAlias(req.alias);
         ep = FindEndpoint(req.alias);
-        if (ep >= 0)
-        {
+        if (ep >= 0) {
             if (g_endpoints[ep].provider >= 0)
                 err = ERR_DUPLICATE; /* alias is live */
-        }
-        else
-        {
+        } else {
             ep = NewEndpoint(req.alias);
             new_ep = true;
             if (ep < 0)
                 err = ERR_BUSY;
         }
-    }
-    else
-    {
+    } else {
         ep = req.alias[0] ? FindEndpoint(req.alias) : DefaultEndpoint();
         if (ep < 0)
             err = ERR_NOENT;
@@ -258,20 +240,18 @@ static void HandleConnect(bool provider, const PortWaitResult *r)
         err = ERR_BUSY;
 
     void *va = 0;
-    if (err == ZUZU_OK)
-    {
+    if (err == ZUZU_OK) {
         va = MemMap(r->granted, 0, PROT_RW);
         if (PtrIsErr(va))
             err = (Err)va;
     }
-    SvcResult bell = { .r0 = (Register)err };
+    SvcResult bell = {.r0 = (Register)err};
     if (err == ZUZU_OK)
         bell = HandleDuplicate(g_event, PERM_SEND | PERM_TXFR, MARKER_NONE);
     if (bell.r0 != ZUZU_OK)
         err = (Err)bell.r0;
 
-    if (err != ZUZU_OK)
-    {
+    if (err != ZUZU_OK) {
         if (va && !PtrIsErr((void *)va))
             MemUnmap(va);
         if (new_ep && ep >= 0)
@@ -283,8 +263,14 @@ static void HandleConnect(bool provider, const PortWaitResult *r)
     }
 
     Session *s = &g_sessions[slot];
-    *s = (Session){ .in_use = true, .provider = provider, .endpoint = ep, .order = g_order++,
-                    .shm = (TtyShm *)va, .mem = r->granted, .peer_doorbell = -1, .live = -1 };
+    *s = (Session){.in_use = true,
+                   .provider = provider,
+                   .endpoint = ep,
+                   .order = g_order++,
+                   .shm = (TtyShm *)va,
+                   .mem = r->granted,
+                   .peer_doorbell = -1,
+                   .live = -1};
     g_gen[slot] = (g_gen[slot] + 1) & 0xFFFFFFU;
     if (g_gen[slot] == 0)
         g_gen[slot] = 1;
@@ -292,13 +278,12 @@ static void HandleConnect(bool provider, const PortWaitResult *r)
     ShmRingInit(&s->shm->up_hdr, TTY_RING_DATA_SIZE);
     ShmRingInit(&s->shm->down_hdr, TTY_RING_DATA_SIZE);
 
-    TtyConnectReply rep = { .status = ZUZU_OK, .bit = SESSION_BIT(slot),
-                         .index = SESSION_INDEX(g_gen[slot], slot) };
+    TtyConnectReply rep = {
+        .status = ZUZU_OK, .bit = SESSION_BIT(slot), .index = SESSION_INDEX(g_gen[slot], slot)};
     memcpy(MessageBuf(), &rep, sizeof(rep));
     Err rc = Reply(sizeof(rep), (Handle)bell.r1);
     HandleClose((Handle)bell.r1);
-    if (rc != ZUZU_OK)
-    {
+    if (rc != ZUZU_OK) {
         /* A failed grant already woke the caller with the error. */
         UserspaceDebugLog("ttysvc: reply grant failed rc=%d", rc);
         ReleaseSession(slot);
@@ -307,12 +292,9 @@ static void HandleConnect(bool provider, const PortWaitResult *r)
         return;
     }
 
-    if (provider)
-    {
+    if (provider) {
         g_endpoints[ep].provider = slot;
-    }
-    else if (g_endpoints[ep].fg < 0)
-    {
+    } else if (g_endpoints[ep].fg < 0) {
         g_endpoints[ep].fg = slot;
     }
     UserspaceDebugLog("ttysvc: %s slot=%d endpoint=%s%s", provider ? "provide" : "attach", slot,
@@ -333,12 +315,9 @@ static void RouteOutbound(Session *f, Session *p);
 static void CloseSession(Session *s, int slot)
 {
     Endpoint *ep = &g_endpoints[s->endpoint];
-    if (s->provider)
-    {
+    if (s->provider) {
         ep->provider = -1;
-    }
-    else if (ep->fg == slot)
-    {
+    } else if (ep->fg == slot) {
         if (ep->provider >= 0)
             RouteOutbound(s, &g_sessions[ep->provider]); /* flush its last words */
     }
@@ -354,33 +333,28 @@ static void HandleRequest(const PortWaitResult *r)
     uint32_t cmd = 0;
     if (r->xlen >= sizeof(cmd))
         memcpy(&cmd, MessageBuf(), sizeof(cmd));
-    else
-    {
+    else {
         if (r->granted >= 0)
             HandleClose(r->granted);
         ReplyStatus(ERR_BADARG);
         return;
     }
 
-    switch (cmd)
-    {
+    switch (cmd) {
     case TTY_PROVIDE:
         HandleConnect(true, r);
         return;
     case TTY_ATTACH:
         HandleConnect(false, r);
         return;
-    case TTY_NOTIFY:
-    {
+    case TTY_NOTIFY: {
         TtyNotifyRequest req;
         Session *s = NULL;
-        if (r->xlen >= sizeof(req))
-        {
+        if (r->xlen >= sizeof(req)) {
             memcpy(&req, MessageBuf(), sizeof(req));
             s = SessionFor(req.index);
         }
-        if (!s || r->granted < 0 || req.bit >= 31)
-        {
+        if (!s || r->granted < 0 || req.bit >= 31) {
             if (r->granted >= 0)
                 HandleClose(r->granted);
             ReplyStatus(ERR_BADARG);
@@ -394,17 +368,14 @@ static void HandleRequest(const PortWaitResult *r)
         ReplyStatus(ZUZU_OK);
         return;
     }
-    case TTY_SETMODE:
-    {
+    case TTY_SETMODE: {
         TtySetModeRequest req;
         Session *s = NULL;
-        if (r->xlen >= sizeof(req))
-        {
+        if (r->xlen >= sizeof(req)) {
             memcpy(&req, MessageBuf(), sizeof(req));
             s = SessionFor(req.index);
         }
-        if (!s || s->provider || (req.flags & ~TTY_MODE_ALL))
-        {
+        if (!s || s->provider || (req.flags & ~TTY_MODE_ALL)) {
             ReplyStatus(ERR_BADARG);
             return;
         }
@@ -413,17 +384,14 @@ static void HandleRequest(const PortWaitResult *r)
         ReplyStatus(ZUZU_OK);
         return;
     }
-    case TTY_CLOSE:
-    {
+    case TTY_CLOSE: {
         TtyCloseRequest req;
         Session *s = NULL;
-        if (r->xlen >= sizeof(req))
-        {
+        if (r->xlen >= sizeof(req)) {
             memcpy(&req, MessageBuf(), sizeof(req));
             s = SessionFor(req.index);
         }
-        if (!s)
-        {
+        if (!s) {
             ReplyStatus(ERR_NOTCONN);
             return;
         }
@@ -431,32 +399,27 @@ static void HandleRequest(const PortWaitResult *r)
         ReplyStatus(ZUZU_OK);
         return;
     }
-    case TTY_WATCH:
-    {
+    case TTY_WATCH: {
         TtyWatchRequest req;
         Session *s = NULL;
-        if (r->xlen >= sizeof(req))
-        {
+        if (r->xlen >= sizeof(req)) {
             memcpy(&req, MessageBuf(), sizeof(req));
             s = SessionFor(req.index);
         }
-        if (!s || r->granted < 0)
-        {
+        if (!s || r->granted < 0) {
             if (r->granted >= 0)
                 HandleClose(r->granted);
             ReplyStatus(r->granted < 0 && s ? ERR_BADARG : ERR_NOTCONN);
             return;
         }
-        if (s->live >= 0)
-        {
+        if (s->live >= 0) {
             HandleClose(r->granted);
             ReplyStatus(ERR_DUPLICATE);
             return;
         }
         int slot = (int)INDEX_SLOT(req.index);
         Err rc = Bind(EVENT_PORT, g_death, r->granted, (uint32_t)slot);
-        if (rc != ZUZU_OK)
-        {
+        if (rc != ZUZU_OK) {
             HandleClose(r->granted);
             if (rc == ERR_DEAD)
                 CloseSession(s, slot); /* the peer died before it could be watched */
@@ -477,10 +440,7 @@ static void HandleRequest(const PortWaitResult *r)
 
 /* ---- routing ---- */
 
-static bool IsPrintable(uint8_t c)
-{
-    return c >= 0x20 && c < 0x7F;
-}
+static bool IsPrintable(uint8_t c) { return c >= 0x20 && c < 0x7F; }
 
 /* One typed byte from the provider through the foreground consumer's
  * filter. Returns false if it cannot be handled yet (a ring is full); the
@@ -490,28 +450,22 @@ static bool ProcessInbound(Session *f, Session *p, uint8_t c)
     bool echo = (f->mode & TTY_MODE_ECHO) != 0;
     uint32_t pfree = DownFree(p);
 
-    if (!(f->mode & TTY_MODE_COOKED))
-    {
+    if (!(f->mode & TTY_MODE_COOKED)) {
         if (DownFree(f) < 1 || (echo && pfree < 2))
             return false;
         DownPush(f, c);
-        if (echo)
-        {
-            if (c == '\r')
-            {
+        if (echo) {
+            if (c == '\r') {
                 DownPush(p, '\r');
                 DownPush(p, '\n');
-            }
-            else
-            {
+            } else {
                 DownPush(p, c);
             }
         }
         return true;
     }
 
-    switch (c)
-    {
+    switch (c) {
     case '\r':
     case '\n':
         if (DownFree(f) < f->line_len + 1U || (echo && pfree < 2))
@@ -524,14 +478,13 @@ static bool ProcessInbound(Session *f, Session *p, uint8_t c)
             DownPushStr(p, "\r\n");
         return true;
     case 0x04: /* ^D */
-        if (f->line_len == 0 && f->shm->ctl.eof_ack == f->eof_seq)
-        {
+        if (f->line_len == 0 && f->shm->ctl.eof_ack == f->eof_seq) {
             f->shm->ctl.eof_pos = f->down_head;
             f->shm->ctl.eof_seq = ++f->eof_seq;
             f->dirty = true;
         }
         return true; /* ^D mid-line is dropped */
-    case 0x03: /* ^C: flag only, ttysvc never kills anything */
+    case 0x03:       /* ^C: flag only, ttysvc never kills anything */
         if (echo && pfree < 4)
             return false;
         f->shm->ctl.intr_seq++;
@@ -554,8 +507,7 @@ static bool ProcessInbound(Session *f, Session *p, uint8_t c)
     case 0x17: /* ^W */
     {
         uint32_t keep = 0;
-        if (c == 0x17)
-        {
+        if (c == 0x17) {
             keep = f->line_len;
             while (keep > 0 && f->line[keep - 1] == ' ')
                 keep--;
@@ -566,8 +518,7 @@ static bool ProcessInbound(Session *f, Session *p, uint8_t c)
         if (echo && pfree < 3 * erase)
             return false;
         f->line_len = keep;
-        if (echo)
-        {
+        if (echo) {
             for (uint32_t i = 0; i < erase; i++)
                 DownPushStr(p, "\b \b");
         }
@@ -587,8 +538,7 @@ static bool ProcessInbound(Session *f, Session *p, uint8_t c)
 
 static void RouteInbound(Session *p, Session *f)
 {
-    while (UpAvail(p) > 0)
-    {
+    while (UpAvail(p) > 0) {
         if (f && !ProcessInbound(f, p, UpPeek(p)))
             break;
         UpDrop(p); /* with no foreground consumer the byte is discarded */
@@ -598,8 +548,7 @@ static void RouteInbound(Session *p, Session *f)
 static void RouteOutbound(Session *f, Session *p)
 {
     bool cooked = (f->mode & TTY_MODE_COOKED) != 0;
-    while (UpAvail(f) > 0)
-    {
+    while (UpAvail(f) > 0) {
         uint8_t c = UpPeek(f);
         bool crlf = cooked && c == '\n';
         if (DownFree(p) < (crlf ? 2U : 1U))
@@ -616,8 +565,7 @@ static void ReapDead(void)
     EventWaitResult d = FormatToEventWait(WaitOn(g_death, TIMEOUT_POLL));
     if (d.status != ZUZU_OK)
         return;
-    for (int slot = 0; slot < MAX_SESSIONS; slot++)
-    {
+    for (int slot = 0; slot < MAX_SESSIONS; slot++) {
         Session *s = &g_sessions[slot];
         if (!(d.bits & MASK(slot)) || !s->in_use || s->live < 0)
             continue;
@@ -631,8 +579,7 @@ static void ReapDead(void)
 
 static void ServiceAll(void)
 {
-    for (int i = 0; i < MAX_ENDPOINTS; i++)
-    {
+    for (int i = 0; i < MAX_ENDPOINTS; i++) {
         Endpoint *ep = &g_endpoints[i];
         if (!ep->in_use || ep->provider < 0)
             continue;
@@ -643,8 +590,7 @@ static void ServiceAll(void)
             RouteOutbound(f, p);
     }
 
-    for (int i = 0; i < MAX_SESSIONS; i++)
-    {
+    for (int i = 0; i < MAX_SESSIONS; i++) {
         Session *s = &g_sessions[i];
         if (!s->in_use || !s->dirty || s->peer_doorbell < 0)
             continue;
@@ -659,7 +605,7 @@ int main(void)
 {
     UserspaceDebugLog("ttysvc: up");
     for (int i = 0; i < MAX_SESSIONS; i++)
-        g_sessions[i] = (Session){ .peer_doorbell = -1, .live = -1, .mem = -1 };
+        g_sessions[i] = (Session){.peer_doorbell = -1, .live = -1, .mem = -1};
 
     g_port = CreatePort();
     g_event = CreateEvent();
@@ -667,8 +613,7 @@ int main(void)
     if (g_port < 0 || g_event < 0 || g_death < 0)
         return ERR_NOMEM;
     Err rc = Bind(EVENT_PORT, g_event, g_port, PORT_BIT);
-    if (rc != ZUZU_OK)
-    {
+    if (rc != ZUZU_OK) {
         UserspaceDebugLog("ttysvc: bind port failed rc=%d", rc);
         return rc;
     }
@@ -678,13 +623,11 @@ int main(void)
     if (rc != ZUZU_OK)
         return rc;
 
-    for (;;)
-    {
+    for (;;) {
         WaitOn(g_event, POLL_MS);
         ReapDead();
 
-        for (;;)
-        {
+        for (;;) {
             PortWaitResult r = FormatToPortWait(WaitOn(g_port, TIMEOUT_POLL));
             if (r.status != ZUZU_OK)
                 break;

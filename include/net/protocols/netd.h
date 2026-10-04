@@ -5,7 +5,6 @@
 extern "C" {
 #endif
 
-
 typedef enum {
     /* Interface management */
     NETD_GET_NETIF = 1,
@@ -34,10 +33,9 @@ typedef enum {
     /* lower-level Sockets */
     SOCKET_IP,
     SOCKET_FRAME,
-    
+
     NETD_OPCODE_COUNT
 } NetdOpcode;
-
 
 // zuzu error types...
 

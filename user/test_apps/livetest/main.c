@@ -32,8 +32,7 @@ static void Check(bool ok, const char *msg)
 
 static bool FsdUp(void)
 {
-    for (int i = 0; i < 200; i++)
-    {
+    for (int i = 0; i < 200; i++) {
         if (FsdConnect(&g_fsd, FSD_SHM_DEFAULT) == ZUZU_OK)
             return true;
         Sleep(50);
@@ -51,16 +50,14 @@ static void *ReadFile(const char *path, size_t *len)
         return NULL;
     uint8_t *buf = malloc(st.size ? st.size : 1);
     size_t off = 0;
-    while (buf && off < st.size)
-    {
+    while (buf && off < st.size) {
         uint32_t got = 0;
         if (FsdRead(&g_fsd, fd, buf + off, st.size - (uint32_t)off, &got) != ZUZU_OK || got == 0)
             break;
         off += got;
     }
     FsdClose(&g_fsd, fd);
-    if (off != st.size)
-    {
+    if (off != st.size) {
         free(buf);
         return NULL;
     }
@@ -97,12 +94,10 @@ static bool RunChild(const void *image, size_t len, const char *mode, TaskWaitRe
 
 static void TestDyingClients(const void *image, size_t len)
 {
-    for (int i = 0; i < ROUNDS; i++)
-    {
+    for (int i = 0; i < ROUNDS; i++) {
         bool fault = (i % 2) == 0;
         TaskWaitResult tw;
-        if (!RunChild(image, len, fault ? "fault" : "quit", &tw))
-        {
+        if (!RunChild(image, len, fault ? "fault" : "quit", &tw)) {
             Check(false, "spawn a dying client");
             continue;
         }
@@ -110,7 +105,8 @@ static void TestDyingClients(const void *image, size_t len)
             Check(tw.status == ZUZU_OK && tw.outcome == TASK_FAULTED,
                   "a client attached to ttysvc and fsd, then faulted");
         else
-            Check(tw.status == ZUZU_OK && tw.outcome == TASK_EXITED && tw.value == CHILD_QUIT_STATUS,
+            Check(tw.status == ZUZU_OK && tw.outcome == TASK_EXITED &&
+                      tw.value == CHILD_QUIT_STATUS,
                   "a client attached to ttysvc and fsd, then quit");
         Sleep(2);
     }
@@ -119,8 +115,8 @@ static void TestDyingClients(const void *image, size_t len)
 static void TestFreshClients(const void *image, size_t len)
 {
     TaskWaitResult tw;
-    Check(RunChild(image, len, "return", &tw) && tw.status == ZUZU_OK && tw.outcome == TASK_EXITED &&
-              tw.value == 0,
+    Check(RunChild(image, len, "return", &tw) && tw.status == ZUZU_OK &&
+              tw.outcome == TASK_EXITED && tw.value == 0,
           "a new client can attach to ttysvc and fsd and open a file");
 
     FsdConn extra;
@@ -136,8 +132,8 @@ static void TestFreshClients(const void *image, size_t len)
 static void ExpectServersServe(const void *image, size_t len, const char *what)
 {
     TaskWaitResult tw;
-    Check(RunChild(image, len, "return", &tw) && tw.status == ZUZU_OK && tw.outcome == TASK_EXITED &&
-              tw.value == 0,
+    Check(RunChild(image, len, "return", &tw) && tw.status == ZUZU_OK &&
+              tw.outcome == TASK_EXITED && tw.value == 0,
           what);
 }
 
@@ -153,16 +149,15 @@ static void TestSelfCall(const void *image, size_t len, const char *mode)
     TaskWaitResult tw;
     Check(RunChild(image, len, "quit", &tw), "a client dies while the self-caller blocks");
     Sleep(50);
-    ExpectServersServe(image, len, "the servers still serve a new client with a self-caller blocked");
+    ExpectServersServe(image, len,
+                       "the servers still serve a new client with a self-caller blocked");
     Check(FormatToTaskWait(WaitOn(task, TIMEOUT_POLL)).status == ERR_TIMEOUT,
           "the self-caller is still blocked on its own port");
     HandleDestroy((Handle)pid);
     HandleClose(task);
 
-    for (int i = 0; i < SELFCALL_ROUNDS; i++)
-    {
-        if (!StartChild(image, len, mode, &pid, &task))
-        {
+    for (int i = 0; i < SELFCALL_ROUNDS; i++) {
+        if (!StartChild(image, len, mode, &pid, &task)) {
             Check(false, "spawn a self-calling client");
             continue;
         }
@@ -192,7 +187,8 @@ static void TestStaleFsdBadge(void)
     SvcResult r = Call((Handle)dup.r1, sizeof(req), -1);
     FsdResponse resp;
     memcpy(&resp, MessageBuf(), sizeof(resp));
-    Check(r.r0 == ZUZU_OK && resp.status == ERR_NOTCONN, "the old fsd badge is rejected with NOTCONN");
+    Check(r.r0 == ZUZU_OK && resp.status == ERR_NOTCONN,
+          "the old fsd badge is rejected with NOTCONN");
 
     FsdConn again;
     memset(&again, 0, sizeof(again));
@@ -215,11 +211,12 @@ static void TestStaleTtyIndex(void)
         return;
 
     TtyConn c;
-    Check(TtyClientConnect(port, TTY_ATTACH, "", ev, 0, &c) == ZUZU_OK, "attach for the stale-index check");
+    Check(TtyClientConnect(port, TTY_ATTACH, "", ev, 0, &c) == ZUZU_OK,
+          "attach for the stale-index check");
     uint32_t stale = c.index;
     TtyClientClose(port, &c);
 
-    TtyCloseRequest req = { .cmd = TTY_CLOSE, .index = stale };
+    TtyCloseRequest req = {.cmd = TTY_CLOSE, .index = stale};
     Check(TtyCall(port, &req, sizeof(req), -1, NULL) == ERR_NOTCONN,
           "the old ttysvc session index is rejected with NOTCONN");
 
@@ -236,8 +233,7 @@ static void TestStaleTtyIndex(void)
 int main(void)
 {
     UserspaceDebugLog("livetest: start");
-    if (!FsdUp())
-    {
+    if (!FsdUp()) {
         UserspaceDebugLog("livetest: FAILED (fsd never came up)");
         return 1;
     }
@@ -245,8 +241,7 @@ int main(void)
     size_t len = 0;
     void *image = ReadFile(CHILD_PATH, &len);
     Check(image != NULL, "read " CHILD_PATH " from the SD card");
-    if (image)
-    {
+    if (image) {
         TestDyingClients(image, len);
         UserspaceDebugLog("livetest: dying clients done");
         TestFreshClients(image, len);

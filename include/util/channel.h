@@ -16,7 +16,6 @@
  *   compatibility with callers that still pass one.
  */
 
-
 #ifndef ZUZU_CHANNEL_H
 #define ZUZU_CHANNEL_H
 
@@ -24,11 +23,11 @@
 extern "C" {
 #endif
 
+#include <stdint.h>
+#include <string.h>
 #include <util/msg.h>
 #include <zuzu/err.h>
 #include <zuzu/zuzu.h>
-#include <string.h>
-#include <stdint.h>
 
 /**
  * @brief Sends a message to the specified port and waits for a reply.
@@ -45,7 +44,8 @@ extern "C" {
  */
 static inline Err ChannelSend(Handle port, const void *buf, size_t len)
 {
-    if (len > MSG_BUF_SIZE) return ERR_BADARG;
+    if (len > MSG_BUF_SIZE)
+        return ERR_BADARG;
     memcpy(MessageBuf(), buf, len);
     SvcResult r = Call(port, (uint32_t)len, -1);
     return (Err)r.r0;
@@ -60,13 +60,14 @@ static inline Err ChannelSend(Handle port, const void *buf, size_t len)
  * @param reply Pointer to the buffer that will receive the reply data.
  * @param reply_cap The maximum length of the reply buffer in bytes.
  *
- * @return Err Returns the number of bytes received in the reply on success, or a negative error code on failure.
+ * @return Err Returns the number of bytes received in the reply on success, or a negative error
+ * code on failure.
  */
-static inline Err ChannelCall(Handle port,
-                                const void *buf,    size_t len,
-                                void       *reply,  size_t reply_cap)
+static inline Err ChannelCall(Handle port, const void *buf, size_t len, void *reply,
+                              size_t reply_cap)
 {
-    if (len > MSG_BUF_SIZE) return ERR_BADARG;
+    if (len > MSG_BUF_SIZE)
+        return ERR_BADARG;
     memcpy(MessageBuf(), buf, len);
 
     SvcResult r = Call(port, (uint32_t)len, -1);
@@ -74,7 +75,8 @@ static inline Err ChannelCall(Handle port,
         return (Err)r.r0;
 
     uint32_t got = (uint32_t)r.r1;
-    if (got > reply_cap) got = (uint32_t)reply_cap;
+    if (got > reply_cap)
+        got = (uint32_t)reply_cap;
     if (got && reply)
         memcpy(reply, MessageBuf(), got);
 
@@ -90,11 +92,11 @@ static inline Err ChannelCall(Handle port,
  *
  * @return Err Returns 0 on success, or a negative error code on failure.
  */
-static inline Err ChannelReply(Handle reply_handle,
-                                 const void *buf, size_t len)
+static inline Err ChannelReply(Handle reply_handle, const void *buf, size_t len)
 {
     (void)reply_handle;
-    if (len > MSG_BUF_SIZE) return ERR_OVERFLOW;
+    if (len > MSG_BUF_SIZE)
+        return ERR_OVERFLOW;
     if (len && buf)
         memcpy(MessageBuf(), buf, len);
     return Reply((uint32_t)len, -1);

@@ -41,8 +41,7 @@ enum { ZH_PORT = 1, ZH_MEM, ZH_EVENT, ZH_TASK, ZH_SPACE };
 /* ---------------- harness ---------------- */
 
 #define MAX_SECTIONS 16
-typedef struct
-{
+typedef struct {
     const char *name;
     int pass;
     int fail;
@@ -66,7 +65,8 @@ static void EndSection(void)
     SleepAndSettle();
     int32_t delta = (int32_t)g_section_pages - (int32_t)PagesFree();
     if (delta != 0)
-        UserspaceDebugLog("zztest: note: section '%s' changed free pages by %d", g_sections[g_cur].name, -delta);
+        UserspaceDebugLog("zztest: note: section '%s' changed free pages by %d",
+                          g_sections[g_cur].name, -delta);
 }
 
 static void BeginSection(const char *name)
@@ -74,20 +74,17 @@ static void BeginSection(const char *name)
     EndSection();
     g_section_pages = PagesFree();
     g_cur++;
-    g_sections[g_cur] = (Section){ .name = name };
+    g_sections[g_cur] = (Section){.name = name};
     UserspaceDebugLog("zztest: --- %s ---", name);
 }
 
 static void Check(bool cond, const char *msg)
 {
-    if (cond)
-    {
+    if (cond) {
         g_sections[g_cur].pass++;
         if (g_verbose)
             UserspaceDebugLog("zztest: ok:   %s", msg);
-    }
-    else
-    {
+    } else {
         g_sections[g_cur].fail++;
         UserspaceDebugLog("zztest: FAIL: %s", msg);
     }
@@ -95,23 +92,17 @@ static void Check(bool cond, const char *msg)
 
 static void CheckEq(int32_t got, int32_t want, const char *msg)
 {
-    if (got == want)
-    {
+    if (got == want) {
         g_sections[g_cur].pass++;
         if (g_verbose)
             UserspaceDebugLog("zztest: ok:   %s", msg);
-    }
-    else
-    {
+    } else {
         g_sections[g_cur].fail++;
         UserspaceDebugLog("zztest: FAIL: %s (got %d, want %d)", msg, got, want);
     }
 }
 
-static uint32_t PagesFree(void)
-{
-    return ((const Syspage *)SYSPAGE)->mem_free_kb / 4;
-}
+static uint32_t PagesFree(void) { return ((const Syspage *)SYSPAGE)->mem_free_kb / 4; }
 
 static uint64_t NowMs(void)
 {
@@ -119,10 +110,7 @@ static uint64_t NowMs(void)
     return sp->uptime_ticks * 1000u / sp->tick_hz;
 }
 
-static uint64_t TickMs(void)
-{
-    return 1000u / ((const Syspage *)SYSPAGE)->tick_hz;
-}
+static uint64_t TickMs(void) { return 1000u / ((const Syspage *)SYSPAGE)->tick_hz; }
 
 static void SleepAndSettle(void)
 {
@@ -133,8 +121,7 @@ static void SleepAndSettle(void)
 
 typedef int32_t (*WorkerFn)(void *);
 
-typedef struct
-{
+typedef struct {
     WorkerFn fn;
     void *arg;
     uint8_t *stack;
@@ -144,18 +131,13 @@ typedef struct
 
 static Worker g_workers[MAX_WORKERS];
 
-static void WorkerEntry(Worker *w)
-{
-    Quit(w->fn(w->arg));
-}
+static void WorkerEntry(Worker *w) { Quit(w->fn(w->arg)); }
 
 static Worker *WorkerStart(WorkerFn fn, void *arg)
 {
     Worker *w = NULL;
-    for (int i = 0; i < MAX_WORKERS; i++)
-    {
-        if (!g_workers[i].used)
-        {
+    for (int i = 0; i < MAX_WORKERS; i++) {
+        if (!g_workers[i].used) {
             w = &g_workers[i];
             break;
         }
@@ -167,15 +149,13 @@ static Worker *WorkerStart(WorkerFn fn, void *arg)
     if (PtrIsErr(stack))
         return NULL;
     Handle task = CreateTask(-1);
-    if (task < 0)
-    {
+    if (task < 0) {
         MemUnmap(stack);
         return NULL;
     }
-    *w = (Worker){ .fn = fn, .arg = arg, .stack = stack, .task = task, .used = true };
+    *w = (Worker){.fn = fn, .arg = arg, .stack = stack, .task = task, .used = true};
     if (TaskStart(task, (void *)WorkerEntry, stack + WORKER_STACK, (uint32_t)(uintptr_t)w, 0) !=
-        ZUZU_OK)
-    {
+        ZUZU_OK) {
         HandleClose(task);
         MemUnmap(stack);
         w->used = false;
@@ -200,29 +180,37 @@ static int32_t WorkerJoin(Worker *w)
 
 /* ---------------- kitten Spaces from raw ARM code ---------------- */
 
-static const uint32_t kCodeLoop[] = { 0xEAFFFFFE };                        /* b . */
-static const uint32_t kCodeQuit42[] = { 0xE3A0002A, 0xEF000000 };          /* mov r0,#42; svc QUIT */
-static const uint32_t kCodeFaultData[] = { 0xE3A00000, 0xE5901000 };       /* mov r0,#0; ldr r1,[r0] */
-static const uint32_t kCodeFaultPrefetch[] = { 0xE3A00000, 0xE12FFF10 };   /* mov r0,#0; bx r0 */
-static const uint32_t kCodeFaultUndef[] = { 0xE7F000F0 };                  /* udf */
-static const uint32_t kCodeReadSyspage[] = { 0xE3A01A01, 0xE5910000, 0xEF000000 };     /* mov r1,#0x1000; ldr r0,[r1]; svc QUIT */
-static const uint32_t kCodeReadBootInfo[] = { 0xE3A01A02, 0xE5910000, 0xEF000000 };    /* mov r1,#0x2000; ldr r0,[r1]; ... */
-static const uint32_t kCodeReadKernel[] = { 0xE3A01103, 0xE5910000, 0xEF000000 };      /* mov r1,#0xC0000000; ldr r0,[r1] */
-static const uint32_t kCodeWriteCode[] = { 0xE3A01801, 0xE5810000, 0xEF000000 };       /* mov r1,#0x10000; str r0,[r1] (RX page) */
-static const uint32_t kCodeExecData[] = { 0xE3A01101, 0xE12FFF11 };                    /* mov r1,#0x40000000; bx r1 (RW, no exec) */
-static const uint32_t kCodeStack[] = { 0xE3A02009, 0xE50D2008, 0xE51D0008, 0xEF000000 }; /* mov r2,#9; str r2,[sp,#-8]; ldr r0,[sp,#-8]; QUIT */
-static const uint32_t kCodeYieldLoop[] = { 0xE3A04064, 0xEF000001, 0xE2544001, 0x1AFFFFFC, 0xE3A00005, 0xEF000000 }; /* 100x YIELD, QUIT 5 */
-static const uint32_t kCodeSleepQuit[] = { 0xE3A00014, 0xEF000002, 0xE3A00006, 0xEF000000 }; /* SLEEP 20; QUIT 6 */
+static const uint32_t kCodeLoop[] = {0xEAFFFFFE};                      /* b . */
+static const uint32_t kCodeQuit42[] = {0xE3A0002A, 0xEF000000};        /* mov r0,#42; svc QUIT */
+static const uint32_t kCodeFaultData[] = {0xE3A00000, 0xE5901000};     /* mov r0,#0; ldr r1,[r0] */
+static const uint32_t kCodeFaultPrefetch[] = {0xE3A00000, 0xE12FFF10}; /* mov r0,#0; bx r0 */
+static const uint32_t kCodeFaultUndef[] = {0xE7F000F0};                /* udf */
+static const uint32_t kCodeReadSyspage[] = {0xE3A01A01, 0xE5910000,
+                                            0xEF000000}; /* mov r1,#0x1000; ldr r0,[r1]; svc QUIT */
+static const uint32_t kCodeReadBootInfo[] = {0xE3A01A02, 0xE5910000,
+                                             0xEF000000}; /* mov r1,#0x2000; ldr r0,[r1]; ... */
+static const uint32_t kCodeReadKernel[] = {0xE3A01103, 0xE5910000,
+                                           0xEF000000}; /* mov r1,#0xC0000000; ldr r0,[r1] */
+static const uint32_t kCodeWriteCode[] = {0xE3A01801, 0xE5810000,
+                                          0xEF000000}; /* mov r1,#0x10000; str r0,[r1] (RX page) */
+static const uint32_t kCodeExecData[] = {0xE3A01101,
+                                         0xE12FFF11}; /* mov r1,#0x40000000; bx r1 (RW, no exec) */
+static const uint32_t kCodeStack[] = {
+    0xE3A02009, 0xE50D2008, 0xE51D0008,
+    0xEF000000}; /* mov r2,#9; str r2,[sp,#-8]; ldr r0,[sp,#-8]; QUIT */
+static const uint32_t kCodeYieldLoop[] = {0xE3A04064, 0xEF000001, 0xE2544001, 0x1AFFFFFC,
+                                          0xE3A00005, 0xEF000000}; /* 100x YIELD, QUIT 5 */
+static const uint32_t kCodeSleepQuit[] = {0xE3A00014, 0xEF000002, 0xE3A00006,
+                                          0xEF000000}; /* SLEEP 20; QUIT 6 */
 /* ldr r1,[r0] (r0 comes in as the start argument); mov r0,#7; svc QUIT */
-static const uint32_t kCodeLoadThenQuit7[] = { 0xE5901000, 0xE3A00007, 0xEF000000 };
+static const uint32_t kCodeLoadThenQuit7[] = {0xE5901000, 0xE3A00007, 0xEF000000};
 /* r0 = a space handle (start argument); quit with ManageHandle(r0, CLOSE / DESTROY) */
-static const uint32_t kCodeCloseHandle[] = { 0xE3A01002, 0xEF000008, 0xEF000000 };
-static const uint32_t kCodeDestroyHandle[] = { 0xE3A01004, 0xEF000008, 0xEF000000 };
+static const uint32_t kCodeCloseHandle[] = {0xE3A01002, 0xEF000008, 0xEF000000};
+static const uint32_t kCodeDestroyHandle[] = {0xE3A01004, 0xEF000008, 0xEF000000};
 
 static uint8_t g_code_page[4096] __attribute__((aligned(4096)));
 
-typedef struct
-{
+typedef struct {
     Handle space;
     Handle task;
 } Kitten;
@@ -245,14 +233,12 @@ static Err KittenCreateEx(Kitten *k, const uint32_t *code, size_t bytes, bool wi
     if (rc == ZUZU_OK)
         rc = MemInject(k->space, USER_ELF_BASE, g_code_page, sizeof(g_code_page),
                        PROT_READ | PROT_EXEC, 0);
-    if (rc != ZUZU_OK)
-    {
+    if (rc != ZUZU_OK) {
         HandleDestroy(k->space);
         return rc;
     }
     k->task = CreateTask(k->space);
-    if (k->task < 0)
-    {
+    if (k->task < 0) {
         HandleDestroy(k->space);
         return (Err)k->task;
     }
@@ -290,8 +276,7 @@ static void TestBasics(void)
      * slice from any single sample, but not from all of them. */
     uint64_t best = UINT64_MAX;
     Err sleep_rc = ZUZU_OK;
-    for (int i = 0; i < 3; i++)
-    {
+    for (int i = 0; i < 3; i++) {
         uint64_t t0 = NowMs();
         sleep_rc |= Sleep(50);
         uint64_t dt = NowMs() - t0;
@@ -300,26 +285,32 @@ static void TestBasics(void)
     }
     CheckEq(sleep_rc, ZUZU_OK, "Sleep(50) returns OK");
     if (!(best + TickMs() >= 50 && best <= 50 + 2 * TickMs()))
-        UserspaceDebugLog("zztest: best Sleep(50) took %u ms (tick = %u ms)", (unsigned)best, (unsigned)TickMs());
-    Check(best + TickMs() >= 50 && best <= 50 + 2 * TickMs(), "Sleep(50) sleeps 50ms (within a tick below, two ticks above)");
+        UserspaceDebugLog("zztest: best Sleep(50) took %u ms (tick = %u ms)", (unsigned)best,
+                          (unsigned)TickMs());
+    Check(best + TickMs() >= 50 && best <= 50 + 2 * TickMs(),
+          "Sleep(50) sleeps 50ms (within a tick below, two ticks above)");
     CheckEq(Sleep(0), ZUZU_OK, "Sleep(0) returns OK");
 
-    CheckEq(ArchInvokeSvc(SVC_TOTAL_COUNT, 0, 0, 0, 0), ERR_NOSYS, "svc number == SVC_TOTAL_COUNT -> NOSYS");
+    CheckEq(ArchInvokeSvc(SVC_TOTAL_COUNT, 0, 0, 0, 0), ERR_NOSYS,
+            "svc number == SVC_TOTAL_COUNT -> NOSYS");
     CheckEq(ArchInvokeSvc(0xFF, 0, 0, 0, 0), ERR_NOSYS, "svc number 0xFF -> NOSYS");
 #ifdef DEBUG
     CheckEq(ArchInvokeSvc(SVC_LOG, 0, 8, 0, 0), ERR_BADPTR, "Log(NULL, 8) -> BADPTR");
-    CheckEq(ArchInvokeSvc(SVC_LOG, (Register)"x", 0, 0, 0), ERR_BADPTR, "Log(ptr, 0) -> BADPTR");
-    CheckEq(ArchInvokeSvc(SVC_LOG, (Register)0xC0000000u, 8, 0, 0), ERR_BADPTR, "Log(kernel ptr) -> BADPTR");
+    CheckEq(ArchInvokeSvc(SVC_LOG, (Register) "x", 0, 0, 0), ERR_BADPTR, "Log(ptr, 0) -> BADPTR");
+    CheckEq(ArchInvokeSvc(SVC_LOG, (Register)0xC0000000u, 8, 0, 0), ERR_BADPTR,
+            "Log(kernel ptr) -> BADPTR");
 #endif
 
     const Syspage *sp = (const Syspage *)SYSPAGE;
     CheckEq((int32_t)sp->magic, (int32_t)0x50050CA7, "syspage magic");
     Check(sp->tick_hz > 0, "syspage tick_hz is set");
-    Check(sp->mem_total_kb > 0 && sp->mem_free_kb <= sp->mem_total_kb, "syspage memory totals are sane");
+    Check(sp->mem_total_kb > 0 && sp->mem_free_kb <= sp->mem_total_kb,
+          "syspage memory totals are sane");
     uint64_t u0 = sp->uptime_ticks;
     Sleep(20);
     Check(sp->uptime_ticks > u0, "syspage uptime advances");
-    CheckEq(MemUnmap((void *)USER_BOOTINFO_VA), ERR_NOENT, "BootInfo page is not mapped into ordinary Spaces");
+    CheckEq(MemUnmap((void *)USER_BOOTINFO_VA), ERR_NOENT,
+            "BootInfo page is not mapped into ordinary Spaces");
     CheckEq(MemUnmap((void *)USER_SYSPAGE_VA), ERR_NOPERM, "syspage region is pinned");
 }
 
@@ -349,30 +340,37 @@ static void TestHandles(void)
     CheckEq(HandleQuery(ev, QUERY_WHAT_COUNT).r0, ERR_BADARG, "Query(invalid what) -> BADARG");
     CheckEq(HandleQuery(ev, QUERY_STATUS).r0, ERR_BADTYPE, "Query(status) on an event -> BADTYPE");
 
-    CheckEq(ArchInvokeSvc(SVC_MANAGEHANDLE, ev, MNGHNDL_VERB_COUNT, 0, 0), ERR_BADARG, "invalid ManageHandle verb -> BADARG");
-    CheckEq(ArchInvokeSvc(SVC_MANAGEHANDLE, ev, MNGHNDL_IRQ_REARM, 0, 0), ERR_BADTYPE, "IrqRearm on a non-device -> BADTYPE");
+    CheckEq(ArchInvokeSvc(SVC_MANAGEHANDLE, ev, MNGHNDL_VERB_COUNT, 0, 0), ERR_BADARG,
+            "invalid ManageHandle verb -> BADARG");
+    CheckEq(ArchInvokeSvc(SVC_MANAGEHANDLE, ev, MNGHNDL_IRQ_REARM, 0, 0), ERR_BADTYPE,
+            "IrqRearm on a non-device -> BADTYPE");
 
     /* Duplicate masks permissions; it can only narrow. */
     SvcResult dup = HandleDuplicate(ev, PERM_SEND | PERM_WAIT, MARKER_NONE);
     CheckEq(dup.r0, ZUZU_OK, "Duplicate OK");
-    CheckEq(HandleQuery((Handle)dup.r1, QUERY_PERMS).r1, PERM_SEND | PERM_WAIT, "dup carries the requested perms");
+    CheckEq(HandleQuery((Handle)dup.r1, QUERY_PERMS).r1, PERM_SEND | PERM_WAIT,
+            "dup carries the requested perms");
     SvcResult dup2 = HandleDuplicate((Handle)dup.r1, PERM_ALL, MARKER_NONE);
-    CheckEq(HandleQuery((Handle)dup2.r1, QUERY_PERMS).r1, PERM_SEND | PERM_WAIT, "dup of a dup cannot widen perms");
+    CheckEq(HandleQuery((Handle)dup2.r1, QUERY_PERMS).r1, PERM_SEND | PERM_WAIT,
+            "dup of a dup cannot widen perms");
     CheckEq(HandleRestrict((Handle)dup2.r1, PERM_WAIT), ZUZU_OK, "Restrict OK");
     CheckEq(HandleQuery((Handle)dup2.r1, QUERY_PERMS).r1, PERM_WAIT, "Restrict narrows perms");
 
     /* Markers: only the creator of a port may stamp one. */
     SvcResult mk = HandleDuplicate(port, PERM_SEND, 0xBEEF);
-    CheckEq(HandleQuery((Handle)mk.r1, QUERY_MARKER).r1, 0xBEEF, "creator stamps a marker on a port dup");
+    CheckEq(HandleQuery((Handle)mk.r1, QUERY_MARKER).r1, 0xBEEF,
+            "creator stamps a marker on a port dup");
     SvcResult mk_ev = HandleDuplicate(ev, PERM_SEND, 0xBEEF);
-    CheckEq(HandleQuery((Handle)mk_ev.r1, QUERY_MARKER).r1, MARKER_NONE, "markers are ignored on non-port dups");
+    CheckEq(HandleQuery((Handle)mk_ev.r1, QUERY_MARKER).r1, MARKER_NONE,
+            "markers are ignored on non-port dups");
 
     /* Closing invalidates: a stale value is rejected even after the slot is reused. */
     Handle stale = (Handle)dup.r1;
     CheckEq(HandleClose(stale), ZUZU_OK, "Close OK");
     CheckEq(HandleClose(stale), ERR_BADHANDLE, "double Close -> BADHANDLE");
     Handle reuse = CreateEvent();
-    CheckEq(HandleQuery(stale, QUERY_TYPE).r0, ERR_BADHANDLE, "stale handle stays invalid after slot reuse (generation)");
+    CheckEq(HandleQuery(stale, QUERY_TYPE).r0, ERR_BADHANDLE,
+            "stale handle stays invalid after slot reuse (generation)");
     Check(reuse >= 0 && reuse != stale, "reused slot gets a new generation");
     HandleClose(reuse);
 
@@ -418,12 +416,15 @@ static void TestMemory(void)
 
     CheckEq(PtrErr(MemMapAnon(0, 0, PROT_RW)), ERR_BADARG, "size 0 -> BADARG");
     CheckEq(PtrErr(MemMapAnon(4097, 0, PROT_RW)), ERR_BADARG, "unaligned size -> BADARG");
-    CheckEq(PtrErr(MemMapAnon(33u * 1024 * 1024, 0, PROT_RW)), ERR_OVERFLOW, "over the 32MB cap -> OVERFLOW");
+    CheckEq(PtrErr(MemMapAnon(33u * 1024 * 1024, 0, PROT_RW)), ERR_OVERFLOW,
+            "over the 32MB cap -> OVERFLOW");
 
     uint8_t *fixed = MemMapAnon(4096, 0x30000000u, PROT_RW);
     CheckEq((int32_t)fixed, 0x30000000, "a free page-aligned hint is honored");
-    CheckEq(PtrErr(MemMapAnon(4096, 0x30000000u, PROT_RW)), ERR_NOMEM, "mapping over an existing region -> NOMEM");
-    CheckEq(PtrErr(MemMapAnon(4096, 0x90000000u, PROT_RW)), ERR_BADARG, "hint above the user VA top -> BADARG");
+    CheckEq(PtrErr(MemMapAnon(4096, 0x30000000u, PROT_RW)), ERR_NOMEM,
+            "mapping over an existing region -> NOMEM");
+    CheckEq(PtrErr(MemMapAnon(4096, 0x90000000u, PROT_RW)), ERR_BADARG,
+            "hint above the user VA top -> BADARG");
 
     CheckEq(MemUnmap(fixed), ZUZU_OK, "Unmap(region start) OK");
     CheckEq(MemUnmap(fixed), ERR_NOENT, "Unmap twice -> NOENT");
@@ -436,9 +437,12 @@ static void TestMemory(void)
     CheckEq(MemProtect((VirtAddr)a, 8192, PROT_WRITE | PROT_EXEC), ERR_BADARG, "W+X is refused");
     CheckEq(MemProtect((VirtAddr)a, 8192, (MemProt)8), ERR_BADARG, "unknown prot bits are refused");
     CheckEq(MemProtect((VirtAddr)a, 0, PROT_READ), ERR_BADARG, "Protect(size 0) -> BADARG");
-    CheckEq(MemProtect((VirtAddr)a + 1, 4096, PROT_READ), ERR_BADARG, "Protect(unaligned va) -> BADARG");
-    CheckEq(MemProtect((VirtAddr)a, 100, PROT_READ), ERR_BADARG, "Protect(unaligned size) -> BADARG");
-    CheckEq(MemProtect(0xC0000000u, 4096, PROT_READ), ERR_BADARG, "Protect(kernel range) -> BADARG");
+    CheckEq(MemProtect((VirtAddr)a + 1, 4096, PROT_READ), ERR_BADARG,
+            "Protect(unaligned va) -> BADARG");
+    CheckEq(MemProtect((VirtAddr)a, 100, PROT_READ), ERR_BADARG,
+            "Protect(unaligned size) -> BADARG");
+    CheckEq(MemProtect(0xC0000000u, 4096, PROT_READ), ERR_BADARG,
+            "Protect(kernel range) -> BADARG");
     MemProtect((VirtAddr)a, 8192, PROT_RW);
     CheckEq(MemUnmap(a), ZUZU_OK, "Unmap(anon) OK");
 
@@ -452,7 +456,8 @@ static void TestMemory(void)
     CheckEq(PtrErr(MemMap(mem, 0, PROT_RW)), ERR_BUSY, "mapping a handle twice -> BUSY");
 
     SvcResult nomap = HandleDuplicate(mem, PERM_WAIT, MARKER_NONE);
-    CheckEq(PtrErr(MemMap((Handle)nomap.r1, 0, PROT_RW)), ERR_NOPERM, "MemMap without PERM_MAP -> NOPERM");
+    CheckEq(PtrErr(MemMap((Handle)nomap.r1, 0, PROT_RW)), ERR_NOPERM,
+            "MemMap without PERM_MAP -> NOPERM");
     HandleClose((Handle)nomap.r1);
 
     CheckEq(PtrErr(MemMap(5000, 0, PROT_RW)), ERR_BADHANDLE, "MemMap(invalid handle) -> BADHANDLE");
@@ -468,8 +473,7 @@ static void TestMemory(void)
 
     /* No page leaks across map/touch/unmap. One warm-up round absorbs lazy
      * one-time kernel allocations before the baseline is taken. */
-    for (int round = 0; round < 2; round++)
-    {
+    for (int round = 0; round < 2; round++) {
         uint8_t *w = MemMapAnon(16384, 0, PROT_RW);
         memset((void *)w, 1, 16384);
         MemUnmap(w);
@@ -480,8 +484,7 @@ static void TestMemory(void)
     }
     SleepAndSettle();
     uint32_t before = PagesFree();
-    for (int i = 0; i < 40; i++)
-    {
+    for (int i = 0; i < 40; i++) {
         uint8_t *w = MemMapAnon(16384, 0, PROT_RW);
         memset((void *)w, 1, 16384);
         MemUnmap(w);
@@ -491,13 +494,13 @@ static void TestMemory(void)
         HandleClose(sm);
     }
     SleepAndSettle();
-    CheckEq((int32_t)PagesFree(), (int32_t)before, "no free-page change after 40 map/touch/unmap rounds");
+    CheckEq((int32_t)PagesFree(), (int32_t)before,
+            "no free-page change after 40 map/touch/unmap rounds");
 }
 
 /* ---------------- 4. events ---------------- */
 
-typedef struct
-{
+typedef struct {
     Handle ev;
     uint32_t bits;
     Duration delay;
@@ -511,8 +514,7 @@ static int32_t SignalLater(void *p)
     return Signal(j->ev, j->bits, j->broadcast);
 }
 
-typedef struct
-{
+typedef struct {
     Handle ev;
     EventWord got;
     Err status;
@@ -556,17 +558,20 @@ static void TestEvents(void)
 
     SvcResult wait_only = HandleDuplicate(ev, PERM_WAIT, MARKER_NONE);
     SvcResult send_only = HandleDuplicate(ev, PERM_SEND, MARKER_NONE);
-    CheckEq(Signal((Handle)wait_only.r1, 1, false), ERR_NOPERM, "Signal without PERM_SEND -> NOPERM");
-    CheckEq(WaitOn((Handle)send_only.r1, TIMEOUT_POLL).r0, ERR_NOPERM, "Wait without PERM_WAIT -> NOPERM");
+    CheckEq(Signal((Handle)wait_only.r1, 1, false), ERR_NOPERM,
+            "Signal without PERM_SEND -> NOPERM");
+    CheckEq(WaitOn((Handle)send_only.r1, TIMEOUT_POLL).r0, ERR_NOPERM,
+            "Wait without PERM_WAIT -> NOPERM");
 
     uint64_t t0 = NowMs();
     r = FormatToEventWait(WaitOn(ev, 60));
     uint64_t dt = NowMs() - t0;
     CheckEq(r.status, ERR_TIMEOUT, "timed wait on an empty event -> TIMEOUT");
-    Check(dt + TickMs() >= 60 && dt <= 60 + 3 * TickMs() + 40, "timed event wait lasts the timeout (within a tick below, bounded above)");
+    Check(dt + TickMs() >= 60 && dt <= 60 + 3 * TickMs() + 40,
+          "timed event wait lasts the timeout (within a tick below, bounded above)");
 
     /* A waiter in another thread is woken by Signal. */
-    SignalJob job = { .ev = ev, .bits = 0x20, .delay = 30, .broadcast = false };
+    SignalJob job = {.ev = ev, .bits = 0x20, .delay = 30, .broadcast = false};
     Worker *sig = WorkerStart(SignalLater, &job);
     Check(sig != NULL, "signaller thread starts");
     r = FormatToEventWait(WaitOn(ev, 2000));
@@ -575,7 +580,7 @@ static void TestEvents(void)
     CheckEq(WorkerJoin(sig), ZUZU_OK, "signaller exited cleanly");
 
     /* Signal wakes one waiter; broadcast wakes all. */
-    WaitJob w1 = { .ev = ev }, w2 = { .ev = ev };
+    WaitJob w1 = {.ev = ev}, w2 = {.ev = ev};
     Worker *a = WorkerStart(WaitForEvent, &w1);
     Worker *b = WorkerStart(WaitForEvent, &w2);
     Sleep(40);
@@ -586,7 +591,7 @@ static void TestEvents(void)
     WorkerJoin(a);
     WorkerJoin(b);
 
-    WaitJob w3 = { .ev = ev }, w4 = { .ev = ev };
+    WaitJob w3 = {.ev = ev}, w4 = {.ev = ev};
     a = WorkerStart(WaitForEvent, &w3);
     b = WorkerStart(WaitForEvent, &w4);
     Sleep(40);
@@ -598,7 +603,7 @@ static void TestEvents(void)
 
     /* Destroying the last handle wakes waiters with DEAD. */
     Handle doomed = CreateEvent();
-    WaitJob wd = { .ev = doomed };
+    WaitJob wd = {.ev = doomed};
     a = WorkerStart(WaitForEvent, &wd);
     Sleep(40);
     HandleClose(doomed);
@@ -618,9 +623,11 @@ static void TestEvents(void)
     CheckEq(Bind(EVENT_PORT, ev, -1, 5), ERR_BADHANDLE, "Bind(invalid target) -> BADHANDLE");
     CheckEq(Bind((EventType)99, ev, bp, 5), ERR_BADARG, "Bind(unknown type) -> BADARG");
     CheckEq(Bind(EVENT_PORT, bp, bp, 5), ERR_BADTYPE, "Bind(<non-event>, ...) -> BADTYPE");
-    CheckEq(Bind(EVENT_PORT, (Handle)send_only.r1, bp, 5), ERR_NOPERM, "Bind without PERM_CNTL on the event -> NOPERM");
+    CheckEq(Bind(EVENT_PORT, (Handle)send_only.r1, bp, 5), ERR_NOPERM,
+            "Bind without PERM_CNTL on the event -> NOPERM");
     SvcResult no_wait_port = HandleDuplicate(bp, PERM_SEND, MARKER_NONE);
-    CheckEq(Bind(EVENT_PORT, ev, (Handle)no_wait_port.r1, 5), ERR_NOPERM, "Bind without PERM_WAIT on the target -> NOPERM");
+    CheckEq(Bind(EVENT_PORT, ev, (Handle)no_wait_port.r1, 5), ERR_NOPERM,
+            "Bind without PERM_WAIT on the target -> NOPERM");
     HandleClose((Handle)no_wait_port.r1);
     CheckEq(BindIrq(ev, 5000, 0), ERR_BADHANDLE, "BindIrq(invalid device) -> BADHANDLE");
     Handle shm = CreateMem(1);
@@ -635,20 +642,18 @@ static void TestEvents(void)
 
 /* ---------------- 5. ipc ---------------- */
 
-enum
-{
-    OP_ECHO = 1,    /* reply the request bytes, each XOR 0xFF */
-    OP_MARKER,      /* reply the sender's marker */
-    OP_GRANT_INFO,  /* reply {granted handle, its type, its perms}; close it */
-    OP_GRANT_BACK,  /* reply 4 bytes and grant the caller a send-only event dup */
-    OP_DIE,         /* exit without replying */
-    OP_BIG_REPLY    /* try an oversized Reply, record the rc, then reply properly */
+enum {
+    OP_ECHO = 1,   /* reply the request bytes, each XOR 0xFF */
+    OP_MARKER,     /* reply the sender's marker */
+    OP_GRANT_INFO, /* reply {granted handle, its type, its perms}; close it */
+    OP_GRANT_BACK, /* reply 4 bytes and grant the caller a send-only event dup */
+    OP_DIE,        /* exit without replying */
+    OP_BIG_REPLY   /* try an oversized Reply, record the rc, then reply properly */
 };
 
-typedef struct
-{
+typedef struct {
     Handle port;
-    Handle ev;         /* an event the server can grant back */
+    Handle ev; /* an event the server can grant back */
     volatile int32_t big_reply_rc;
     volatile uint32_t served;
 } Server;
@@ -656,8 +661,7 @@ typedef struct
 static int32_t RunServer(void *p)
 {
     Server *s = p;
-    for (;;)
-    {
+    for (;;) {
         PortWaitResult r = FormatToPortWait(WaitOn(s->port, 5000));
         if (r.status == ERR_TIMEOUT)
             continue;
@@ -672,44 +676,34 @@ static int32_t RunServer(void *p)
         if (len >= 4)
             memcpy(&op, req, 4);
 
-        switch (op)
-        {
-        case OP_ECHO:
-        {
+        switch (op) {
+        case OP_ECHO: {
             uint8_t *out = MessageBuf();
             for (uint32_t i = 4; i < len; i++)
                 out[i - 4] = (uint8_t)(req[i] ^ 0xFF);
             Reply(len > 4 ? len - 4 : 0, -1);
-        }
-        break;
-        case OP_MARKER:
-        {
+        } break;
+        case OP_MARKER: {
             uint32_t m = (uint32_t)r.sender;
             memcpy(MessageBuf(), &m, 4);
             Reply(4, -1);
-        }
-        break;
-        case OP_GRANT_INFO:
-        {
-            uint32_t info[3] = { (uint32_t)r.granted, 0, 0 };
-            if (r.granted >= 0)
-            {
+        } break;
+        case OP_GRANT_INFO: {
+            uint32_t info[3] = {(uint32_t)r.granted, 0, 0};
+            if (r.granted >= 0) {
                 info[1] = (uint32_t)HandleQuery(r.granted, QUERY_TYPE).r1;
                 info[2] = (uint32_t)HandleQuery(r.granted, QUERY_PERMS).r1;
                 HandleClose(r.granted);
             }
             memcpy(MessageBuf(), info, sizeof(info));
             Reply(sizeof(info), -1);
-        }
-        break;
-        case OP_GRANT_BACK:
-        {
+        } break;
+        case OP_GRANT_BACK: {
             SvcResult d = HandleDuplicate(s->ev, PERM_SEND | PERM_TXFR, MARKER_NONE);
             memcpy(MessageBuf(), "ok!!", 4);
             Reply(4, (Handle)d.r1);
             HandleClose((Handle)d.r1);
-        }
-        break;
+        } break;
         case OP_DIE:
             return 99;
         case OP_BIG_REPLY:
@@ -735,8 +729,7 @@ static SvcResult Rpc(Handle port, uint32_t op, const void *body, uint32_t blen, 
     return Call(port, 4 + blen, grant);
 }
 
-typedef struct
-{
+typedef struct {
     Handle port;
     uint32_t op;
 } CallerJob;
@@ -752,7 +745,7 @@ static void TestIpc(void)
 {
     BeginSection("ipc");
 
-    Server srv = { .port = CreatePort(), .ev = CreateEvent() };
+    Server srv = {.port = CreatePort(), .ev = CreateEvent()};
     Worker *sw = WorkerStart(RunServer, &srv);
     Check(srv.port >= 0 && sw != NULL, "server thread starts");
 
@@ -781,7 +774,8 @@ static void TestIpc(void)
     r = Call(srv.port, MSG_BUF_SIZE, -1);
     CheckEq(r.r0, ZUZU_OK, "maximum-size request OK");
     CheckEq(r.r1, MSG_BUF_SIZE - 4, "maximum-size reply length");
-    CheckEq(Call(srv.port, MSG_BUF_SIZE + 1, -1).r0, ERR_OVERFLOW, "request over MSG_BUF_SIZE -> OVERFLOW");
+    CheckEq(Call(srv.port, MSG_BUF_SIZE + 1, -1).r0, ERR_OVERFLOW,
+            "request over MSG_BUF_SIZE -> OVERFLOW");
 
     CheckEq(Call(-1, 4, -1).r0, ERR_BADHANDLE, "Call(invalid) -> BADHANDLE");
     Handle ev = CreateEvent();
@@ -805,7 +799,8 @@ static void TestIpc(void)
     /* Grants: perms copy verbatim and PERM_TXFR is required. */
     Handle gev = CreateEvent();
     SvcResult no_txfr = HandleDuplicate(gev, PERM_SEND, MARKER_NONE);
-    CheckEq(Rpc(srv.port, OP_GRANT_INFO, NULL, 0, (Handle)no_txfr.r1).r0, ERR_NOPERM, "granting a handle without TXFR -> NOPERM");
+    CheckEq(Rpc(srv.port, OP_GRANT_INFO, NULL, 0, (Handle)no_txfr.r1).r0, ERR_NOPERM,
+            "granting a handle without TXFR -> NOPERM");
     HandleClose((Handle)no_txfr.r1);
     SvcResult gd = HandleDuplicate(gev, PERM_SEND | PERM_TXFR, MARKER_NONE);
     r = Rpc(srv.port, OP_GRANT_INFO, NULL, 0, (Handle)gd.r1);
@@ -823,7 +818,8 @@ static void TestIpc(void)
     r = Rpc(srv.port, OP_GRANT_BACK, NULL, 0, -1);
     CheckEq(r.r0, ZUZU_OK, "Reply with a grant OK");
     Check(r.r3 >= 0, "caller receives the granted handle in r3");
-    CheckEq(HandleQuery((Handle)r.r3, QUERY_PERMS).r1, PERM_SEND | PERM_TXFR, "reply-granted perms are verbatim");
+    CheckEq(HandleQuery((Handle)r.r3, QUERY_PERMS).r1, PERM_SEND | PERM_TXFR,
+            "reply-granted perms are verbatim");
     CheckEq(Signal((Handle)r.r3, 1, false), ZUZU_OK, "the granted handle works");
     WaitOn(srv.ev, TIMEOUT_POLL);
     HandleClose((Handle)r.r3);
@@ -838,21 +834,22 @@ static void TestIpc(void)
     Check(served >= 8, "server counted the calls");
 
     /* A server that dies mid-call fails its caller with DEAD. */
-    Server doomed = { .port = CreatePort(), .ev = -1 };
+    Server doomed = {.port = CreatePort(), .ev = -1};
     Worker *dw = WorkerStart(RunServer, &doomed);
-    CheckEq(Rpc(doomed.port, OP_DIE, NULL, 0, -1).r0, ERR_DEAD, "server exiting mid-call -> caller gets DEAD");
+    CheckEq(Rpc(doomed.port, OP_DIE, NULL, 0, -1).r0, ERR_DEAD,
+            "server exiting mid-call -> caller gets DEAD");
     CheckEq(WorkerJoin(dw), 99, "dying server exit status");
     HandleClose(doomed.port);
 
     /* Closing the port fails queued callers and blocked receivers. */
     Handle lone = CreatePort();
-    CallerJob cj = { .port = lone, .op = OP_ECHO };
+    CallerJob cj = {.port = lone, .op = OP_ECHO};
     Worker *cw = WorkerStart(CallOnce, &cj);
     Sleep(40);
     HandleClose(lone);
     CheckEq(WorkerJoin(cw), ERR_DEAD, "closing a port fails a queued caller with DEAD");
 
-    Server idle = { .port = CreatePort(), .ev = -1 };
+    Server idle = {.port = CreatePort(), .ev = -1};
     Worker *iw = WorkerStart(RunServer, &idle);
     Sleep(40);
     HandleClose(idle.port);
@@ -860,12 +857,13 @@ static void TestIpc(void)
 
     /* Receiving while a call is outstanding is refused; ReplyRecv chains. */
     Handle p2 = CreatePort();
-    CallerJob c1 = { .port = p2, .op = OP_ECHO };
+    CallerJob c1 = {.port = p2, .op = OP_ECHO};
     Worker *c1w = WorkerStart(CallOnce, &c1);
     PortWaitResult got = FormatToPortWait(WaitOn(p2, 2000));
     CheckEq(got.status, ZUZU_OK, "WaitOn(port) receives the call");
-    CheckEq(WaitOn(p2, TIMEOUT_POLL).r0, ERR_BUSY, "second receive with an unanswered call -> BUSY");
-    CallerJob c2 = { .port = p2, .op = OP_ECHO };
+    CheckEq(WaitOn(p2, TIMEOUT_POLL).r0, ERR_BUSY,
+            "second receive with an unanswered call -> BUSY");
+    CallerJob c2 = {.port = p2, .op = OP_ECHO};
     Worker *c2w = WorkerStart(CallOnce, &c2);
     Sleep(40);
     SvcResult rr = ReplyRecv(0, -1, p2, 2000);
@@ -876,12 +874,13 @@ static void TestIpc(void)
     CheckEq(WaitOn(p2, TIMEOUT_POLL).r0, ERR_TIMEOUT, "poll on an idle port -> TIMEOUT");
     uint64_t t0 = NowMs();
     CheckEq(WaitOn(p2, 50).r0, ERR_TIMEOUT, "timed wait on an idle port -> TIMEOUT");
-    Check(NowMs() - t0 + TickMs() >= 50, "port timed wait lasts at least the timeout (minus a tick)");
+    Check(NowMs() - t0 + TickMs() >= 50,
+          "port timed wait lasts at least the timeout (minus a tick)");
 
     /* A bound port raises its event bit when a caller is queued. */
     Handle pev = CreateEvent();
     CheckEq(Bind(EVENT_PORT, pev, p2, 2), ZUZU_OK, "Bind(port, bit 2) OK");
-    CallerJob c3 = { .port = p2, .op = OP_ECHO };
+    CallerJob c3 = {.port = p2, .op = OP_ECHO};
     Worker *c3w = WorkerStart(CallOnce, &c3);
     EventWaitResult er = FormatToEventWait(WaitOn(pev, 2000));
     CheckEq(er.status, ZUZU_OK, "queued caller wakes the bound event");
@@ -929,10 +928,12 @@ static void TestObservers(void)
     Worker *w = WorkerStart(SleepThenExit3, (void *)(uintptr_t)120);
     CheckEq(Bind(EVENT_TASK, e[0], w->task, 2), ZUZU_OK, "first observer on a task");
     CheckEq(Bind(EVENT_TASK, e[1], w->task, 5), ZUZU_OK, "second observer on the same task");
-    CheckEq(Bind(EVENT_TASK, e[0], w->task, 3), ZUZU_OK, "re-binding the same event just moves its bit");
+    CheckEq(Bind(EVENT_TASK, e[0], w->task, 3), ZUZU_OK,
+            "re-binding the same event just moves its bit");
     CheckEq(Bind(EVENT_TASK, e[2], w->task, 1), ZUZU_OK, "third observer");
     CheckEq(Bind(EVENT_TASK, e[3], w->task, 4), ZUZU_OK, "fourth observer");
-    CheckEq(Bind(EVENT_TASK, e[4], w->task, 6), ERR_NOMEM, "a fifth distinct event -> NOMEM (table full)");
+    CheckEq(Bind(EVENT_TASK, e[4], w->task, 6), ERR_NOMEM,
+            "a fifth distinct event -> NOMEM (table full)");
     CheckEq(WaitOn(e[4], TIMEOUT_POLL).r0, ERR_TIMEOUT, "the rejected event was never attached");
     CheckEq(WaitOn(w->task, 20).r0, ERR_TIMEOUT, "(the task is still running)");
     CheckEq((int32_t)PollBits(e[0]), 1 << 3, "observer 1 fires on the retargeted bit only");
@@ -954,9 +955,10 @@ static void TestObservers(void)
     Handle port = CreatePort();
     CheckEq(Bind(EVENT_PORT, e[0], port, 1), ZUZU_OK, "observer 1 on a port");
     CheckEq(Bind(EVENT_PORT, e[1], port, 2), ZUZU_OK, "observer 2 on the same port");
-    CallerJob cj = { .port = port, .op = OP_ECHO };
+    CallerJob cj = {.port = port, .op = OP_ECHO};
     Worker *cw = WorkerStart(CallOnce, &cj);
-    CheckEq((int32_t)(PollBits(e[0]) & (1u << 1)), 1 << 1, "a queued caller fires the first port observer");
+    CheckEq((int32_t)(PollBits(e[0]) & (1u << 1)), 1 << 1,
+            "a queued caller fires the first port observer");
     CheckEq((int32_t)(PollBits(e[1]) & (1u << 2)), 1 << 2, "and the second");
     FormatToPortWait(WaitOn(port, 1000));
     Reply(0, -1);
@@ -996,10 +998,7 @@ static int32_t SleepForever(void *p)
     return 0;
 }
 
-static int32_t ArgToExit(void *p)
-{
-    return (int32_t)(uintptr_t)p;
-}
+static int32_t ArgToExit(void *p) { return (int32_t)(uintptr_t)p; }
 
 static int32_t PriorityWorker(void *p)
 {
@@ -1042,8 +1041,10 @@ static void TestTasks(void)
     Handle t = CreateTask(-1);
     Check(t >= 0, "CreateTask(-1) creates a task in the caller's Space");
     uint8_t *stack = MemMapAnon(WORKER_STACK, 0, PROT_RW);
-    CheckEq(TaskStart(t, (void *)SleepForever, stack + WORKER_STACK, 0, 0), ZUZU_OK, "TaskStart OK");
-    CheckEq(TaskStart(t, (void *)SleepForever, stack + WORKER_STACK, 0, 0), ERR_BUSY, "TaskStart on a running task -> BUSY");
+    CheckEq(TaskStart(t, (void *)SleepForever, stack + WORKER_STACK, 0, 0), ZUZU_OK,
+            "TaskStart OK");
+    CheckEq(TaskStart(t, (void *)SleepForever, stack + WORKER_STACK, 0, 0), ERR_BUSY,
+            "TaskStart on a running task -> BUSY");
     CheckEq(WaitOn(t, 40).r0, ERR_TIMEOUT, "WaitOn(task) with a timeout while it runs -> TIMEOUT");
     CheckEq(WaitOn(t, 0).r0, ERR_TIMEOUT, "polling a running task -> TIMEOUT");
 
@@ -1078,8 +1079,10 @@ static void TestTasks(void)
     CheckEq(TaskSetTimeSlice(self_task, 3), ZUZU_OK, "SetTimeSlice OK");
     CheckEq(TaskSetPriority(self_task, 2), ZUZU_OK, "SetPriority on another task OK");
     CheckEq(TaskSetPriority(self_task, 9), ERR_NOPERM, "SetPriority above max -> NOPERM");
-    CheckEq(ArchInvokeSvc(SVC_MANAGETASK, self_task, MNGTASK_VERB_COUNT, 0, 0), ERR_BADARG, "invalid ManageTask verb -> BADARG");
-    CheckEq(ArchInvokeSvc(SVC_MANAGETASK, -1, MNGTASK_KILL, 0, 0), ERR_BADARG, "task-less verbs are limited to priority/slice");
+    CheckEq(ArchInvokeSvc(SVC_MANAGETASK, self_task, MNGTASK_VERB_COUNT, 0, 0), ERR_BADARG,
+            "invalid ManageTask verb -> BADARG");
+    CheckEq(ArchInvokeSvc(SVC_MANAGETASK, -1, MNGTASK_KILL, 0, 0), ERR_BADARG,
+            "task-less verbs are limited to priority/slice");
     HandleClose((Handle)no_ctl.r1);
     HandleClose(self_task);
 
@@ -1090,8 +1093,7 @@ static void TestTasks(void)
 
     /* Many short-lived threads: slots and stacks are recycled. */
     int ok = 0;
-    for (int i = 0; i < 20; i++)
-    {
+    for (int i = 0; i < 20; i++) {
         Worker *s = WorkerStart(ArgToExit, (void *)(uintptr_t)i);
         if (s && WorkerJoin(s) == i)
             ok++;
@@ -1108,12 +1110,14 @@ static void TestSpaces(void)
 
     /* Normal exit */
     Kitten k;
-    CheckEq(KittenCreate(&k, kCodeQuit42, sizeof(kCodeQuit42)), ZUZU_OK, "build a kitten that exits with 42");
+    CheckEq(KittenCreate(&k, kCodeQuit42, sizeof(kCodeQuit42)), ZUZU_OK,
+            "build a kitten that exits with 42");
     CheckEq(HandleQuery(k.space, QUERY_TYPE).r1, ZH_SPACE, "space handle reports type SPACE");
     Handle ev = CreateEvent();
     CheckEq(Bind(EVENT_SPACE, ev, k.space, 4), ZUZU_OK, "Bind(space) OK");
     CheckEq(Bind(EVENT_TASK, ev, k.task, 6), ZUZU_OK, "Bind(task) OK");
-    CheckEq(WaitOn(k.space, TIMEOUT_POLL).r0, ERR_TIMEOUT, "a Space with an unstarted task is not hollow");
+    CheckEq(WaitOn(k.space, TIMEOUT_POLL).r0, ERR_TIMEOUT,
+            "a Space with an unstarted task is not hollow");
     CheckEq(KittenStart(&k, 0, 0), ZUZU_OK, "start the kitten");
     SpaceWaitResult sw = FormatToSpaceWait(WaitOn(k.space, 2000));
     CheckEq(sw.status, ZUZU_OK, "WaitOn(space) returns when the last task exits");
@@ -1128,17 +1132,17 @@ static void TestSpaces(void)
 
     /* Ancestry: a Space may not close or destroy a handle to itself or to a
      * Space that created it; a sibling is fair game. */
-    const uint32_t *self_code[2] = { kCodeCloseHandle, kCodeDestroyHandle };
-    for (int i = 0; i < 2; i++)
-    {
+    const uint32_t *self_code[2] = {kCodeCloseHandle, kCodeDestroyHandle};
+    for (int i = 0; i < 2; i++) {
         Kitten s;
         KittenCreate(&s, self_code[i], sizeof(kCodeCloseHandle));
         SvcResult g = HandleGrant(s.space, s.space, PERM_ALL);
         CheckEq((Err)g.r0, ZUZU_OK, "grant a Space a handle to itself");
         KittenStart(&s, (uint32_t)g.r1, 0);
         TaskWaitResult sw_self = FormatToTaskWait(WaitOn(s.task, 2000));
-        CheckEq(sw_self.value, ERR_BADARG, i ? "a Space cannot destroy a handle to itself"
-                                        : "a Space cannot close a handle to itself");
+        CheckEq(sw_self.value, ERR_BADARG,
+                i ? "a Space cannot destroy a handle to itself"
+                  : "a Space cannot close a handle to itself");
         KittenFree(&s);
     }
     Kitten a, b;
@@ -1172,20 +1176,19 @@ static void TestSpaces(void)
     KittenFree(&k);
 
     /* Faults */
-    struct
-    {
+    struct {
         const uint32_t *code;
         size_t bytes;
         int32_t reason;
         const char *name;
     } faults[] = {
-        { kCodeFaultData, sizeof(kCodeFaultData), KILLED_FAULT_DATA, "data abort" },
-        { kCodeFaultPrefetch, sizeof(kCodeFaultPrefetch), KILLED_FAULT_PREFETCH, "prefetch abort" },
-        { kCodeFaultUndef, sizeof(kCodeFaultUndef), KILLED_FAULT_UNDEF, "undefined instruction" },
+        {kCodeFaultData, sizeof(kCodeFaultData), KILLED_FAULT_DATA, "data abort"},
+        {kCodeFaultPrefetch, sizeof(kCodeFaultPrefetch), KILLED_FAULT_PREFETCH, "prefetch abort"},
+        {kCodeFaultUndef, sizeof(kCodeFaultUndef), KILLED_FAULT_UNDEF, "undefined instruction"},
     };
-    for (unsigned i = 0; i < sizeof(faults) / sizeof(faults[0]); i++)
-    {
-        CheckEq(KittenCreate(&k, faults[i].code, faults[i].bytes), ZUZU_OK, "build a faulting kitten");
+    for (unsigned i = 0; i < sizeof(faults) / sizeof(faults[0]); i++) {
+        CheckEq(KittenCreate(&k, faults[i].code, faults[i].bytes), ZUZU_OK,
+                "build a faulting kitten");
         Handle fev = CreateEvent();
         Bind(EVENT_TASK, fev, k.task, 3);
         KittenStart(&k, 0, 0);
@@ -1195,7 +1198,8 @@ static void TestSpaces(void)
         CheckEq(tw.value, faults[i].reason, "the fault reason identifies the exception");
         EventWaitResult fr = FormatToEventWait(WaitOn(fev, 500));
         CheckEq((int32_t)fr.bits, 1 << 3, "a fault raises the task's bound event");
-        CheckEq(WaitOn(k.space, 50).r0, ERR_TIMEOUT, "a faulted task keeps its Space alive (frozen)");
+        CheckEq(WaitOn(k.space, 50).r0, ERR_TIMEOUT,
+                "a faulted task keeps its Space alive (frozen)");
         tw = FormatToTaskWait(WaitOn(k.task, TIMEOUT_POLL));
         CheckEq(tw.outcome, TASK_FAULTED, "waiting after the fault still reports FAULTED");
         CheckEq(TaskKill(k.task), ZUZU_OK, "TaskKill on a faulted task");
@@ -1206,7 +1210,8 @@ static void TestSpaces(void)
     }
 
     /* Fix up and resume */
-    CheckEq(KittenCreate(&k, kCodeLoadThenQuit7, sizeof(kCodeLoadThenQuit7)), ZUZU_OK, "build a resumable kitten");
+    CheckEq(KittenCreate(&k, kCodeLoadThenQuit7, sizeof(kCodeLoadThenQuit7)), ZUZU_OK,
+            "build a resumable kitten");
     KittenStart(&k, 0, 0);
     TaskWaitResult tw = FormatToTaskWait(WaitOn(k.task, 2000));
     CheckEq(tw.outcome, TASK_FAULTED, "it faults loading from address 0");
@@ -1224,31 +1229,50 @@ static void TestSpaces(void)
     /* MemInject contract */
     Handle sp = CreateSpace("zz-inject");
     memset(g_code_page, 0x90, sizeof(g_code_page));
-    CheckEq(MemInject(sp, USER_ELF_BASE + 1, g_code_page, 4096, PROT_READ, 0), ERR_BADARG, "unaligned destination -> BADARG");
-    CheckEq(MemInject(sp, USER_ELF_BASE, g_code_page, 0, PROT_READ, 0), ERR_BADARG, "zero length -> BADARG");
-    CheckEq(MemInject(sp, USER_ELF_BASE, g_code_page, 4096, PROT_WRITE | PROT_EXEC, 0), ERR_BADARG, "W+X -> BADARG");
-    CheckEq(MemInject(sp, USER_ELF_BASE, g_code_page, 4096, (MemProt)8, 0), ERR_BADARG, "unknown prot bits -> BADARG");
-    CheckEq(MemInject(sp, 0x80000000u, g_code_page, 4096, PROT_READ, 0), ERR_BADARG, "destination in kernel space -> BADARG");
-    CheckEq(MemInject(sp, USER_ELF_BASE, NULL, 4096, PROT_READ, 0), ERR_BADARG, "NULL source -> BADARG");
-    CheckEq(MemInject(sp, USER_ELF_BASE, g_code_page, 4096, PROT_READ, ASINJECT_FLAG_RESERVE), ERR_BADARG, "RESERVE with a source -> BADARG");
-    CheckEq(MemInject(sp, USER_ELF_BASE, NULL, 100, PROT_READ, ASINJECT_FLAG_RESERVE), ERR_BADARG, "RESERVE length not page-aligned -> BADARG");
-    CheckEq(MemInject(sp, USER_ELF_BASE, (const void *)0xC0000000u, 4096, PROT_READ, 0), ERR_BADARG, "source pointer into the kernel -> BADARG");
-    CheckEq(MemInject(sp, 0x40000000u, NULL, 8192, PROT_RW, ASINJECT_FLAG_RESERVE), ZUZU_OK, "RESERVE a demand-zero region");
-    CheckEq(MemInject(sp, 0x40000000u, NULL, 8192, PROT_RW, ASINJECT_FLAG_RESERVE), ERR_NOMEM, "RESERVE over an existing region -> NOMEM");
-    CheckEq(MemInject(sp, 0x40000000u, g_code_page, 4096, PROT_RW, 0), ZUZU_OK, "inject into a reserved region fills it in place");
-    CheckEq(MemInject(sp, 0x50000000u, NULL, 4096, PROT_READ, ASINJECT_FLAG_RESERVE), ZUZU_OK, "RESERVE a read-only region");
-    CheckEq(MemInject(sp, 0x50000000u, g_code_page, 4096, PROT_RW, 0), ERR_BADARG, "inject may not exceed the region's own prot");
-    CheckEq(MemInject(-1, USER_ELF_BASE, g_code_page, 4096, PROT_READ, 0), ERR_BADHANDLE, "MemInject(invalid space) -> BADHANDLE");
+    CheckEq(MemInject(sp, USER_ELF_BASE + 1, g_code_page, 4096, PROT_READ, 0), ERR_BADARG,
+            "unaligned destination -> BADARG");
+    CheckEq(MemInject(sp, USER_ELF_BASE, g_code_page, 0, PROT_READ, 0), ERR_BADARG,
+            "zero length -> BADARG");
+    CheckEq(MemInject(sp, USER_ELF_BASE, g_code_page, 4096, PROT_WRITE | PROT_EXEC, 0), ERR_BADARG,
+            "W+X -> BADARG");
+    CheckEq(MemInject(sp, USER_ELF_BASE, g_code_page, 4096, (MemProt)8, 0), ERR_BADARG,
+            "unknown prot bits -> BADARG");
+    CheckEq(MemInject(sp, 0x80000000u, g_code_page, 4096, PROT_READ, 0), ERR_BADARG,
+            "destination in kernel space -> BADARG");
+    CheckEq(MemInject(sp, USER_ELF_BASE, NULL, 4096, PROT_READ, 0), ERR_BADARG,
+            "NULL source -> BADARG");
+    CheckEq(MemInject(sp, USER_ELF_BASE, g_code_page, 4096, PROT_READ, ASINJECT_FLAG_RESERVE),
+            ERR_BADARG, "RESERVE with a source -> BADARG");
+    CheckEq(MemInject(sp, USER_ELF_BASE, NULL, 100, PROT_READ, ASINJECT_FLAG_RESERVE), ERR_BADARG,
+            "RESERVE length not page-aligned -> BADARG");
+    CheckEq(MemInject(sp, USER_ELF_BASE, (const void *)0xC0000000u, 4096, PROT_READ, 0), ERR_BADARG,
+            "source pointer into the kernel -> BADARG");
+    CheckEq(MemInject(sp, 0x40000000u, NULL, 8192, PROT_RW, ASINJECT_FLAG_RESERVE), ZUZU_OK,
+            "RESERVE a demand-zero region");
+    CheckEq(MemInject(sp, 0x40000000u, NULL, 8192, PROT_RW, ASINJECT_FLAG_RESERVE), ERR_NOMEM,
+            "RESERVE over an existing region -> NOMEM");
+    CheckEq(MemInject(sp, 0x40000000u, g_code_page, 4096, PROT_RW, 0), ZUZU_OK,
+            "inject into a reserved region fills it in place");
+    CheckEq(MemInject(sp, 0x50000000u, NULL, 4096, PROT_READ, ASINJECT_FLAG_RESERVE), ZUZU_OK,
+            "RESERVE a read-only region");
+    CheckEq(MemInject(sp, 0x50000000u, g_code_page, 4096, PROT_RW, 0), ERR_BADARG,
+            "inject may not exceed the region's own prot");
+    CheckEq(MemInject(-1, USER_ELF_BASE, g_code_page, 4096, PROT_READ, 0), ERR_BADHANDLE,
+            "MemInject(invalid space) -> BADHANDLE");
     Handle evt = CreateEvent();
-    CheckEq(MemInject(evt, USER_ELF_BASE, g_code_page, 4096, PROT_READ, 0), ERR_BADTYPE, "MemInject(event) -> BADTYPE");
+    CheckEq(MemInject(evt, USER_ELF_BASE, g_code_page, 4096, PROT_READ, 0), ERR_BADTYPE,
+            "MemInject(event) -> BADTYPE");
     HandleClose(evt);
     SvcResult weak = HandleDuplicate(sp, PERM_WAIT, MARKER_NONE);
-    CheckEq(MemInject((Handle)weak.r1, USER_ELF_BASE, g_code_page, 4096, PROT_READ, 0), ERR_NOPERM, "MemInject without PERM_CNTL -> NOPERM");
-    CheckEq(CreateTask((Handle)weak.r1), ERR_NOPERM, "CreateTask without PERM_CNTL on the Space -> NOPERM");
+    CheckEq(MemInject((Handle)weak.r1, USER_ELF_BASE, g_code_page, 4096, PROT_READ, 0), ERR_NOPERM,
+            "MemInject without PERM_CNTL -> NOPERM");
+    CheckEq(CreateTask((Handle)weak.r1), ERR_NOPERM,
+            "CreateTask without PERM_CNTL on the Space -> NOPERM");
     HandleClose((Handle)weak.r1);
     Handle task = CreateTask(sp);
     Check(task >= 0, "CreateTask in a kitten Space OK");
-    CheckEq(MemInject(sp, USER_ELF_BASE, g_code_page, 4096, PROT_READ, 0), ERR_BUSY, "injecting once a task exists -> BUSY");
+    CheckEq(MemInject(sp, USER_ELF_BASE, g_code_page, 4096, PROT_READ, 0), ERR_BUSY,
+            "injecting once a task exists -> BUSY");
     HandleClose(task);
     CheckEq(HandleDestroy(sp), ZUZU_OK, "Destroy(space) OK");
     CheckEq(HandleQuery(sp, QUERY_TYPE).r0, ERR_BADHANDLE, "the Space handle is gone");
@@ -1257,9 +1281,12 @@ static void TestSpaces(void)
     Handle pt = CreatePort();
     CheckEq(CreateTask(pt), ERR_BADTYPE, "CreateTask(port) -> BADTYPE");
     HandleClose(pt);
-    CheckEq(ArchInvokeSvc(SVC_CREATE, OBJECT_CODE_COUNT, 0, 0, 0), ERR_BADARG, "Create(unknown object type) -> BADARG");
-    CheckEq(ArchInvokeSvc(SVC_CREATE, OBJECT_SPACE, (Register)0xC0000000u, 4, 0), ERR_BADPTR, "CreateSpace(kernel name pointer) -> BADPTR");
-    Handle longname = CreateSpace("a-very-long-space-name-that-is-well-past-the-32-byte-name-field");
+    CheckEq(ArchInvokeSvc(SVC_CREATE, OBJECT_CODE_COUNT, 0, 0, 0), ERR_BADARG,
+            "Create(unknown object type) -> BADARG");
+    CheckEq(ArchInvokeSvc(SVC_CREATE, OBJECT_SPACE, (Register)0xC0000000u, 4, 0), ERR_BADPTR,
+            "CreateSpace(kernel name pointer) -> BADPTR");
+    Handle longname =
+        CreateSpace("a-very-long-space-name-that-is-well-past-the-32-byte-name-field");
     Check(longname >= 0, "an over-long Space name is truncated, not rejected");
     HandleDestroy(longname);
 }
@@ -1272,25 +1299,33 @@ static void TestSecurity(void)
 
     Kitten k;
     KittenCreate(&k, kCodeLoop, sizeof(kCodeLoop));
-    CheckEq(ArchInvokeSvc(SVC_MANAGETASK, k.task, MNGTASK_START, (Register)0xC0000000u, 0), ERR_BADPTR, "Start with a kernel args pointer -> BADPTR");
-    CheckEq(ArchInvokeSvc(SVC_MANAGETASK, k.task, MNGTASK_START, 0, 0), ERR_BADPTR, "Start with a NULL args pointer -> BADPTR");
+    CheckEq(ArchInvokeSvc(SVC_MANAGETASK, k.task, MNGTASK_START, (Register)0xC0000000u, 0),
+            ERR_BADPTR, "Start with a kernel args pointer -> BADPTR");
+    CheckEq(ArchInvokeSvc(SVC_MANAGETASK, k.task, MNGTASK_START, 0, 0), ERR_BADPTR,
+            "Start with a NULL args pointer -> BADPTR");
     KittenStart(&k, 0, 0);
-    CheckEq(TaskGetRegs(k.task, (Register *)0xC0000000u), ERR_BADPTR, "GetRegs into kernel memory -> BADPTR");
+    CheckEq(TaskGetRegs(k.task, (Register *)0xC0000000u), ERR_BADPTR,
+            "GetRegs into kernel memory -> BADPTR");
     CheckEq(TaskGetRegs(k.task, NULL), ERR_BADPTR, "GetRegs into NULL -> BADPTR");
-    CheckEq(TaskSetRegs(k.task, (const Register *)0xC0000000u), ERR_BADPTR, "SetRegs from kernel memory -> BADPTR");
+    CheckEq(TaskSetRegs(k.task, (const Register *)0xC0000000u), ERR_BADPTR,
+            "SetRegs from kernel memory -> BADPTR");
     KittenFree(&k);
 
     CheckEq(HandleQuery(0x7FFFFFFF, QUERY_TYPE).r0, ERR_BADHANDLE, "Query(INT_MAX) -> BADHANDLE");
-    CheckEq(HandleQuery((Handle)0x80000000u, QUERY_TYPE).r0, ERR_BADHANDLE, "Query(INT_MIN) -> BADHANDLE");
-    CheckEq(HandleClose((Handle)0xFFFFFC00u), ERR_BADHANDLE, "Close(garbage generation) -> BADHANDLE");
+    CheckEq(HandleQuery((Handle)0x80000000u, QUERY_TYPE).r0, ERR_BADHANDLE,
+            "Query(INT_MIN) -> BADHANDLE");
+    CheckEq(HandleClose((Handle)0xFFFFFC00u), ERR_BADHANDLE,
+            "Close(garbage generation) -> BADHANDLE");
 
     Handle mem = CreateMem(1);
-    CheckEq(PtrErr(MemMap(mem, 0xC0000000u, PROT_RW)), ERR_BADARG, "MemMap(mem) with a kernel-space hint -> BADARG");
+    CheckEq(PtrErr(MemMap(mem, 0xC0000000u, PROT_RW)), ERR_BADARG,
+            "MemMap(mem) with a kernel-space hint -> BADARG");
     HandleClose(mem);
     CheckEq(MemUnmap((void *)0xC0000000u), ERR_NOENT, "Unmap(kernel address) -> NOENT");
     CheckEq(MemUnmap(0), ERR_NOENT, "Unmap(NULL) -> NOENT");
     CheckEq(Call(-100, 0, -1).r0, ERR_BADHANDLE, "Call(negative handle) -> BADHANDLE");
-    CheckEq(Reply(MSG_BUF_SIZE + 1, -1), ERR_OVERFLOW, "Reply(oversize) is rejected before anything else");
+    CheckEq(Reply(MSG_BUF_SIZE + 1, -1), ERR_OVERFLOW,
+            "Reply(oversize) is rejected before anything else");
 }
 
 /* ---------------- 9. sync library (zone / semaphore / condvar) ---------------- */
@@ -1301,8 +1336,7 @@ static int g_counter;
 static int32_t ZoneWorker(void *p)
 {
     (void)p;
-    for (int i = 0; i < 150; i++)
-    {
+    for (int i = 0; i < 150; i++) {
         ZoneEnter(&g_zone);
         int v = g_counter;
         if (i % 5 == 0)
@@ -1318,8 +1352,7 @@ static Semaphore g_sem;
 static int32_t SemPoster(void *p)
 {
     (void)p;
-    for (int i = 0; i < 5; i++)
-    {
+    for (int i = 0; i < 5; i++) {
         Sleep(10);
         SemPost(&g_sem);
     }
@@ -1386,8 +1419,7 @@ static void TestSync(void)
 
 /* ---------------- 10. kitten isolation and protection ---------------- */
 
-typedef struct
-{
+typedef struct {
     const char *name;
     const uint32_t *code;
     size_t bytes;
@@ -1401,22 +1433,27 @@ static void TestKittens(void)
     BeginSection("kitten isolation");
 
     const KittenCase cases[] = {
-        { "kitten reads the syspage (mapped in every Space)", kCodeReadSyspage, sizeof(kCodeReadSyspage), false, TASK_EXITED, 0x50050CA7 },
-        { "kitten cannot read the rootsvc-only BootInfo page", kCodeReadBootInfo, sizeof(kCodeReadBootInfo), false, TASK_FAULTED, KILLED_FAULT_DATA },
-        { "kitten cannot read kernel memory", kCodeReadKernel, sizeof(kCodeReadKernel), false, TASK_FAULTED, KILLED_FAULT_DATA },
-        { "kitten cannot write its own read-exec code page", kCodeWriteCode, sizeof(kCodeWriteCode), false, TASK_FAULTED, KILLED_FAULT_DATA },
-        { "kitten cannot execute a read-write data page", kCodeExecData, sizeof(kCodeExecData), true, TASK_FAULTED, KILLED_FAULT_PREFETCH },
-        { "kitten's stack faults in on demand", kCodeStack, sizeof(kCodeStack), false, TASK_EXITED, 9 },
-        { "kitten can Yield 100 times", kCodeYieldLoop, sizeof(kCodeYieldLoop), false, TASK_EXITED, 5 },
-        { "kitten can Sleep", kCodeSleepQuit, sizeof(kCodeSleepQuit), false, TASK_EXITED, 6 },
+        {"kitten reads the syspage (mapped in every Space)", kCodeReadSyspage,
+         sizeof(kCodeReadSyspage), false, TASK_EXITED, 0x50050CA7},
+        {"kitten cannot read the rootsvc-only BootInfo page", kCodeReadBootInfo,
+         sizeof(kCodeReadBootInfo), false, TASK_FAULTED, KILLED_FAULT_DATA},
+        {"kitten cannot read kernel memory", kCodeReadKernel, sizeof(kCodeReadKernel), false,
+         TASK_FAULTED, KILLED_FAULT_DATA},
+        {"kitten cannot write its own read-exec code page", kCodeWriteCode, sizeof(kCodeWriteCode),
+         false, TASK_FAULTED, KILLED_FAULT_DATA},
+        {"kitten cannot execute a read-write data page", kCodeExecData, sizeof(kCodeExecData), true,
+         TASK_FAULTED, KILLED_FAULT_PREFETCH},
+        {"kitten's stack faults in on demand", kCodeStack, sizeof(kCodeStack), false, TASK_EXITED,
+         9},
+        {"kitten can Yield 100 times", kCodeYieldLoop, sizeof(kCodeYieldLoop), false, TASK_EXITED,
+         5},
+        {"kitten can Sleep", kCodeSleepQuit, sizeof(kCodeSleepQuit), false, TASK_EXITED, 6},
     };
 
-    for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
-    {
+    for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
         Kitten k;
         Err rc = KittenCreateEx(&k, cases[i].code, cases[i].bytes, cases[i].with_data);
-        if (rc != ZUZU_OK)
-        {
+        if (rc != ZUZU_OK) {
             CheckEq(rc, ZUZU_OK, cases[i].name);
             continue;
         }
@@ -1424,10 +1461,12 @@ static void TestKittens(void)
         KittenStart(&k, 0, 0);
         TaskWaitResult tw = FormatToTaskWait(WaitOn(k.task, 3000));
         uint64_t dt = NowMs() - t0;
-        bool ok = tw.status == ZUZU_OK && tw.outcome == cases[i].outcome && tw.value == cases[i].value;
+        bool ok =
+            tw.status == ZUZU_OK && tw.outcome == cases[i].outcome && tw.value == cases[i].value;
         if (!ok)
-            UserspaceDebugLog("zztest: %s: status=%d outcome=%d value=%d (want outcome=%d value=%d)",
-                              cases[i].name, tw.status, tw.outcome, tw.value, cases[i].outcome, cases[i].value);
+            UserspaceDebugLog(
+                "zztest: %s: status=%d outcome=%d value=%d (want outcome=%d value=%d)",
+                cases[i].name, tw.status, tw.outcome, tw.value, cases[i].outcome, cases[i].value);
         Check(ok, cases[i].name);
         if (cases[i].code == kCodeSleepQuit)
             Check(dt + TickMs() >= 20, "kitten's Sleep(20) lasted at least 20ms");
@@ -1439,15 +1478,14 @@ static void TestKittens(void)
     /* Many Spaces at once. */
     Kitten many[8];
     int started = 0;
-    for (int i = 0; i < 8; i++)
-    {
-        if (KittenCreate(&many[i], kCodeQuit42, sizeof(kCodeQuit42)) == ZUZU_OK && KittenStart(&many[i], 0, 0) == ZUZU_OK)
+    for (int i = 0; i < 8; i++) {
+        if (KittenCreate(&many[i], kCodeQuit42, sizeof(kCodeQuit42)) == ZUZU_OK &&
+            KittenStart(&many[i], 0, 0) == ZUZU_OK)
             started++;
     }
     CheckEq(started, 8, "eight kittens run side by side");
     int exited = 0;
-    for (int i = 0; i < 8; i++)
-    {
+    for (int i = 0; i < 8; i++) {
         SpaceWaitResult sw = FormatToSpaceWait(WaitOn(many[i].space, 3000));
         exited += sw.status == ZUZU_OK && sw.exit_status == 42;
         KittenFree(&many[i]);
@@ -1463,8 +1501,7 @@ static void TestTaskLifetime(void)
 
     /* Thread tasks: kill zombies, close handles, let the reaper run, repeat. */
     int clean = 0;
-    for (int i = 0; i < 12; i++)
-    {
+    for (int i = 0; i < 12; i++) {
         Worker *w = WorkerStart(ArgToExit, (void *)(uintptr_t)i);
         if (!w)
             continue;
@@ -1482,11 +1519,11 @@ static void TestTaskLifetime(void)
     CheckEq(clean, 12, "kill a zombie thread task twice, then close it, 12 times");
     SleepAndSettle();
     Worker *after = WorkerStart(ArgToExit, (void *)(uintptr_t)7);
-    CheckEq(after ? WorkerJoin(after) : -1, 7, "task slots still work after the reaper freed the killed ones");
+    CheckEq(after ? WorkerJoin(after) : -1, 7,
+            "task slots still work after the reaper freed the killed ones");
 
     /* Kitten tasks: exit, then kill the zombie, then tear the Space down. */
-    for (int i = 0; i < 6; i++)
-    {
+    for (int i = 0; i < 6; i++) {
         Kitten k;
         KittenCreate(&k, kCodeQuit42, sizeof(kCodeQuit42));
         KittenStart(&k, 0, 0);
@@ -1511,16 +1548,13 @@ static void TestTaskLifetime(void)
      * The warm-up runs the very same round so one-time allocations (slab
      * growth, page-table pages for the new mappings) land before the baseline. */
     uint32_t before = 0;
-    for (int i = 0; i < 28; i++)
-    {
-        if (i == 3)
-        {
+    for (int i = 0; i < 28; i++) {
+        if (i == 3) {
             SleepAndSettle();
             before = PagesFree();
         }
         Worker *w = WorkerStart(ArgToExit, NULL);
-        if (w)
-        {
+        if (w) {
             WaitOn(w->task, 2000);
             TaskKill(w->task);
             HandleClose(w->task);
@@ -1528,8 +1562,7 @@ static void TestTaskLifetime(void)
             w->used = false;
         }
         Kitten k;
-        if (KittenCreate(&k, kCodeQuit42, sizeof(kCodeQuit42)) == ZUZU_OK)
-        {
+        if (KittenCreate(&k, kCodeQuit42, sizeof(kCodeQuit42)) == ZUZU_OK) {
             KittenStart(&k, 0, 0);
             WaitOn(k.space, 2000);
             TaskKill(k.task);
@@ -1537,13 +1570,13 @@ static void TestTaskLifetime(void)
         }
     }
     SleepAndSettle();
-    CheckEq((int32_t)PagesFree(), (int32_t)before, "no free-page change after 25 kill-the-zombie rounds (after a 3-round warm-up)");
+    CheckEq((int32_t)PagesFree(), (int32_t)before,
+            "no free-page change after 25 kill-the-zombie rounds (after a 3-round warm-up)");
 }
 
 /* ---------------- 11b. many threads in one Space ---------------- */
 
-typedef struct
-{
+typedef struct {
     uint32_t id;
     volatile int ready;
     volatile int go;
@@ -1561,8 +1594,7 @@ static int32_t BufferOwner(void *p)
     t->ready = 1;
     while (!t->go)
         Sleep(5);
-    for (int i = 0; i < 64; i++)
-    {
+    for (int i = 0; i < 64; i++) {
         if (buf[i] != (uint8_t)(0x30 + t->id))
             return -1;
     }
@@ -1577,15 +1609,13 @@ static void TestManyThreads(void)
     static ThreadProbe probes[N];
     Worker *w[N];
     int started = 0;
-    for (int i = 0; i < N; i++)
-    {
-        probes[i] = (ThreadProbe){ .id = (uint32_t)i };
+    for (int i = 0; i < N; i++) {
+        probes[i] = (ThreadProbe){.id = (uint32_t)i};
         w[i] = WorkerStart(BufferOwner, &probes[i]);
         started += w[i] != NULL;
     }
     CheckEq(started, N, "12 threads are alive in one Space at once");
-    for (int i = 0; i < N; i++)
-    {
+    for (int i = 0; i < N; i++) {
         while (w[i] && !probes[i].ready)
             Sleep(5);
         probes[i].go = 1;
@@ -1604,8 +1634,7 @@ static uint32_t Lcg(uint32_t *state)
     return *state >> 8;
 }
 
-typedef struct
-{
+typedef struct {
     Handle port;
     uint32_t seed;
     int rounds;
@@ -1618,22 +1647,18 @@ static int32_t StressClient(void *p)
     StressJob *j = p;
     int32_t bad = 0;
     uint8_t body[MSG_BUF_SIZE];
-    for (int r = 0; r < j->rounds; r++)
-    {
+    for (int r = 0; r < j->rounds; r++) {
         uint32_t len = Lcg(&j->seed) % (MSG_BUF_SIZE - 4 + 1);
         for (uint32_t i = 0; i < len; i++)
             body[i] = (uint8_t)Lcg(&j->seed);
         SvcResult res = Rpc(j->port, OP_ECHO, body, len, -1);
-        if (res.r0 != ZUZU_OK || (uint32_t)res.r1 != len)
-        {
+        if (res.r0 != ZUZU_OK || (uint32_t)res.r1 != len) {
             bad++;
             continue;
         }
         const uint8_t *out = MessageBuf();
-        for (uint32_t i = 0; i < len; i++)
-        {
-            if (out[i] != (uint8_t)(body[i] ^ 0xFF))
-            {
+        for (uint32_t i = 0; i < len; i++) {
+            if (out[i] != (uint8_t)(body[i] ^ 0xFF)) {
                 bad++;
                 break;
             }
@@ -1642,8 +1667,7 @@ static int32_t StressClient(void *p)
     return bad;
 }
 
-typedef struct
-{
+typedef struct {
     Handle a, b;
     int rounds;
 } PingJob;
@@ -1652,8 +1676,7 @@ static int32_t Ponger(void *p)
 {
     PingJob *j = p;
     int n = 0;
-    for (int i = 0; i < j->rounds; i++)
-    {
+    for (int i = 0; i < j->rounds; i++) {
         if (FormatToEventWait(WaitOn(j->a, 2000)).status != ZUZU_OK)
             break;
         Signal(j->b, 1, false);
@@ -1674,16 +1697,16 @@ static void TestStress(void)
 {
     BeginSection("ipc stress");
 
-    Server srv = { .port = CreatePort(), .ev = -1 };
+    Server srv = {.port = CreatePort(), .ev = -1};
     Worker *sw = WorkerStart(RunServer, &srv);
 
-    StressJob solo = { .port = srv.port, .seed = 1, .rounds = 300 };
+    StressJob solo = {.port = srv.port, .seed = 1, .rounds = 300};
     CheckEq(StressClient(&solo), 0, "300 random-size echo round trips, all bytes verified");
 
     StressJob jobs[3] = {
-        { .port = srv.port, .seed = 11, .rounds = 120 },
-        { .port = srv.port, .seed = 22, .rounds = 120 },
-        { .port = srv.port, .seed = 33, .rounds = 120 },
+        {.port = srv.port, .seed = 11, .rounds = 120},
+        {.port = srv.port, .seed = 22, .rounds = 120},
+        {.port = srv.port, .seed = 33, .rounds = 120},
     };
     Worker *cw[3];
     for (int i = 0; i < 3; i++)
@@ -1691,7 +1714,8 @@ static void TestStress(void)
     int bad = 0;
     for (int i = 0; i < 3; i++)
         bad += cw[i] ? WorkerJoin(cw[i]) : 1;
-    CheckEq(bad, 0, "three concurrent clients never see each other's data (per-thread message buffers)");
+    CheckEq(bad, 0,
+            "three concurrent clients never see each other's data (per-thread message buffers)");
 
     HandleClose(srv.port);
     WorkerJoin(sw);
@@ -1700,15 +1724,13 @@ static void TestStress(void)
     Handle port = CreatePort();
     CallerJob order[4];
     Worker *ow[4];
-    for (int i = 0; i < 4; i++)
-    {
-        order[i] = (CallerJob){ .port = port, .op = (uint32_t)i };
+    for (int i = 0; i < 4; i++) {
+        order[i] = (CallerJob){.port = port, .op = (uint32_t)i};
         ow[i] = WorkerStart(OrderedCaller, &order[i]);
         Sleep(30);
     }
     int in_order = 0;
-    for (int i = 0; i < 4; i++)
-    {
+    for (int i = 0; i < 4; i++) {
         PortWaitResult r = FormatToPortWait(WaitOn(port, 2000));
         uint32_t idx = 99;
         if (r.status == ZUZU_OK && r.xlen >= 8)
@@ -1724,11 +1746,10 @@ static void TestStress(void)
     HandleClose(port);
 
     /* Event ping-pong: no lost wakeups in either direction. */
-    PingJob ping = { .a = CreateEvent(), .b = CreateEvent(), .rounds = 300 };
+    PingJob ping = {.a = CreateEvent(), .b = CreateEvent(), .rounds = 300};
     Worker *pw = WorkerStart(Ponger, &ping);
     int done = 0;
-    for (int i = 0; i < 300; i++)
-    {
+    for (int i = 0; i < 300; i++) {
         Signal(ping.a, 1, false);
         if (FormatToEventWait(WaitOn(ping.b, 2000)).status != ZUZU_OK)
             break;
@@ -1745,8 +1766,7 @@ static void TestStress(void)
 static void LeakRound(void)
 {
     Kitten k;
-    if (KittenCreate(&k, kCodeLoop, sizeof(kCodeLoop)) == ZUZU_OK)
-    {
+    if (KittenCreate(&k, kCodeLoop, sizeof(kCodeLoop)) == ZUZU_OK) {
         KittenStart(&k, 0, 0);
         Yield();
         KittenFree(&k);
@@ -1776,7 +1796,8 @@ static void TestLeaks(void)
         LeakRound();
     SleepAndSettle();
     uint32_t after = PagesFree();
-    CheckEq((int32_t)after, (int32_t)before, "free pages unchanged after 15 Space/Task/Port/Event/Mem rounds");
+    CheckEq((int32_t)after, (int32_t)before,
+            "free pages unchanged after 15 Space/Task/Port/Event/Mem rounds");
     if (before != after)
         UserspaceDebugLog("zztest: leak delta = %d pages", (int)before - (int)after);
 }
@@ -1810,8 +1831,7 @@ int main(void)
 
     int pass_total = 0, fail_total = 0;
     uint32_t pages_at_pass_end[PASSES];
-    for (int pass = 0; pass < PASSES; pass++)
-    {
+    for (int pass = 0; pass < PASSES; pass++) {
         g_cur = -1;
         g_verbose = (pass == 0); /* later passes only report failures */
         UserspaceDebugLog("zztest: ===== pass %d =====", pass + 1);
@@ -1819,8 +1839,7 @@ int main(void)
         EndSection();
 
         int pass_ok = 0, pass_fail = 0;
-        for (int i = 0; i <= g_cur; i++)
-        {
+        for (int i = 0; i <= g_cur; i++) {
             if (pass == 0)
                 UserspaceDebugLog("zztest: %-22s %3d pass %3d fail", g_sections[i].name,
                                   g_sections[i].pass, g_sections[i].fail);

@@ -1,19 +1,18 @@
 #ifndef KERNEL_IPC_PORT_H
 #define KERNEL_IPC_PORT_H
 
+#include "event.h"
+#include "observer.h"
 #include <list.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <types.h>
-#include "event.h"
-#include "observer.h"
 
 typedef struct TaskObjectStruct TaskObject;
 typedef struct SpaceObjectStruct SpaceObject;
 
 /** */
-typedef struct
-{
+typedef struct {
     ListHead sender_queue;
     ListHead receiver_queue;
     Spid owner_spid;
@@ -22,10 +21,9 @@ typedef struct
     ObserverSet observers;
 } PortObject;
 
-typedef struct
-{
+typedef struct {
     TaskObject *caller_task; // fast path
-    Tid caller_tid;      // for cross-check: caller->tid == caller_tid
+    Tid caller_tid;          // for cross-check: caller->tid == caller_tid
 } ReplyObject;
 
 PortObject *PortCreate(SpaceObject *owner);

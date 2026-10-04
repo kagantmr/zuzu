@@ -3,8 +3,8 @@
 #include "kernel/space/space.h"
 #include "svc.h"
 #include <arch/regs.h>
-#include <zuzu/err.h>
 #include <types.h>
+#include <zuzu/err.h>
 
 void SvcSignal(CpuState *frame)
 {
@@ -12,7 +12,6 @@ void SvcSignal(CpuState *frame)
     EventWord bits = (EventWord)(*ArchGetFromFrame(frame, 1));
     EventWord flags = (EventWord)(*ArchGetFromFrame(frame, 2));
 
-    
     ENSURE_ERR(frame, !(bits & (1U << 31)), ERR_BADARG);
 
     HandleTableEntry *entry = HandleTableLookup(&CURRENT_SPACE->handle_table, ev_handle);
