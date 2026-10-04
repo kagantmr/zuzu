@@ -8,7 +8,6 @@
 
 #include "boot_info.h"
 #include "core/panic.h"
-#include "kernel/layout.h"
 #include "kernel/sched/sched.h"
 #include "kernel/time/tick.h"
 
@@ -16,22 +15,17 @@
 #include "kernel/loader/boot_programs.h"
 #include "kernel/loader/initrd.h"
 #include "kernel/syspage.h"
-#include "zuzu/types.h"
+#include "types.h"
 #include <stdint.h>
-#include <zuzu/zxf.h>
-
-#define STR(x) #x
-#define XSTR(x) STR(x)
+#include <util/zxf.h>
 
 #define LOG_FMT(fmt) "(main) " fmt
 #include "core/log.h"
 
-extern kernel_layout_t kernel_layout;
-
-/* register_tick_callback keeps a single slot (see kernel/time/tick.c), so
- * this wraps set_resched_flag rather than being registered alongside it —
- * a second call to register_tick_callback would silently replace the first
- * and stop preemption. */
+/* RegisterTickCb keeps a single slot (see kernel/time/tick.c), so this
+ * wraps SchedSetReschedFlag rather than being registered alongside it —
+ * a second call to RegisterTickCb would silently replace the first and
+ * stop preemption. */
 static void sched_tick(void) { SchedSetReschedFlag(); }
 
 _Noreturn void kmain(void)
@@ -40,9 +34,10 @@ _Noreturn void kmain(void)
     /* DTB and boot_info were initialized in early(); do not touch DTB again */
 
     SchedInit();
-    arch_global_irq_enable();
+    ArchGlobalIrqEnable();
 
     SyspageInit();
+    BootInfoInit();
 
     /* The initrd always comes from the bootloader/firmware now (u-boot's
      * bootm, or the Pi firmware on rpi4), via the DTB /chosen node. */
@@ -52,15 +47,15 @@ _Noreturn void kmain(void)
 
     PhysAddr initrd_pa = (PhysAddr)chosen_pa;
     size_t initrd_size = (size_t)chosen_size;
-    KINFO("initrd: bootloader-supplied at pa=%p size=%zu",
-          (void *)(uintptr_t)initrd_pa, initrd_size);
+    KINFO("initrd: bootloader-supplied at pa=%p size=%zu", (void *)(uintptr_t)initrd_pa,
+          initrd_size);
     SyspageSetInitrdSz((uint32_t)initrd_size);
 
     initrd_init((const void *)PA_TO_VA((uintptr_t)initrd_pa), initrd_size);
 
     /* Load and spawn every boot program listed in boot.manifest (see
      * kernel/loader/boot_programs.c). */
-    boot_programs_spawn_all(initrd_pa, initrd_size);
+    CreateRootService(initrd_pa, initrd_size);
 
     RegisterTickCb(sched_tick);
 

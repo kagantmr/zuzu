@@ -3,15 +3,14 @@
 #ifndef CPIO_H
 #define CPIO_H
 
-#include <stddef.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef struct cpio_header
-{
+typedef struct cpio_header {
     char magic[6];     // "070701" for new ASCII format
     char ino[8];       // inode number
     char mode[8];      // file mode
@@ -30,7 +29,7 @@ typedef struct cpio_header
 
 /**
  * @brief Finds a file in a CPIO archive.
- * 
+ *
  * @param base Pointer to the start of the CPIO archive in memory.
  * @param size Size of the CPIO archive in bytes.
  * @param name Name of the file to find (null-terminated string).
@@ -38,8 +37,8 @@ typedef struct cpio_header
  * @param size_out Pointer to a variable that will receive the size of the file's data
  * @return true if the file was found, false otherwise.
  */
-bool cpio_find(const void *base, size_t size, const char *name,
-               const void **data_out, size_t *size_out);
+bool cpio_find(const void *base, size_t size, const char *name, const void **data_out,
+               size_t *size_out);
 
 #ifdef __cplusplus
 }

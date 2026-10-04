@@ -301,7 +301,7 @@ $(TARGET): $(OBJS) $(LINKER_SCRIPT)
 	@$(CC) $(CFLAGS) -c $(O)/ksymtab.c -o $(O)/ksymtab.o
 	@echo "  LD      (final) $@"
 	@$(LD) $(LDFLAGS) $(O)/ksymtab.o $(OBJS) $(KERNEL_LIBGCC) -o $@
-	@if [ "$(DEBUG_BUILD)" = "0" ]; then \
+	@if [ "$(CONFIG_DEBUG_BUILD)" != "y" ]; then \
 		echo "  STRIP   $@"; \
 		$(OBJCOPY) --strip-debug $@ $@; \
 	fi

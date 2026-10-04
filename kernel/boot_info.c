@@ -1,18 +1,21 @@
 #include "boot_info.h"
 #include "kernel/dev/fdt_wrappers.h"
 #include "kernel/mm/alloc.h"
-#include "kernel/mm/pmm.h"
-#include "kernel/mm/vmm.h"
+#include "kernel/mm/pmm/pmm.h"
+#include "kernel/mm/vmm/vmm.h"
 #include <libfdt.h>
-#include <string.h>
 #include <stddef.h>
+#include <string.h>
+#include <zuzu/bootinfo.h>
 
 #define LOG_FMT(fmt) "(boot_info) " fmt
 #include "core/log.h"
 
-static boot_info_t g_boot_info = {0};
+static KernelBootInfo g_boot_info = {0};
+static PhysAddr g_bootinfo_pa;
 
-static void collect_dev_cb(const char *compatible, const char *path, uint64_t phys, uint64_t size, uint32_t irq)
+static void collect_dev_cb(const char *compatible, const char *path, uint64_t phys, uint64_t size,
+                           uint32_t irq)
 {
     if (!g_boot_info.devs)
         return;
@@ -29,7 +32,7 @@ static void collect_dev_cb(const char *compatible, const char *path, uint64_t ph
     /* Attempt to capture a second reg entry if present */
     if (path) {
         uint64_t p2 = 0, s2 = 0;
-        if (FdtGetRegPhysAddr(path, 1, &p2, &s2)) {
+        if (FdtGetRegPa(path, 1, &p2, &s2)) {
             d->phys2 = p2;
             d->size2 = s2;
             d->nregs = 2;
@@ -38,7 +41,7 @@ static void collect_dev_cb(const char *compatible, const char *path, uint64_t ph
     g_boot_info.count++;
 }
 
-void boot_info_init_from_dtb()
+void BootInfoInitFromFdt(void)
 {
 
     /* dtb subsystem must already be initialized. */
@@ -80,17 +83,14 @@ void boot_info_init_from_dtb()
     FdtShutdown();
 }
 
-const char *boot_info_model(void)
-{
-    return g_boot_info.model ? g_boot_info.model : FdtModel();
-}
+const char *boot_info_model(void) { return g_boot_info.model ? g_boot_info.model : FdtModel(); }
 
 const char *boot_info_cpu_compat(void)
 {
     return g_boot_info.cpu_compat ? g_boot_info.cpu_compat : FdtCpuCompat();
 }
 
-void boot_info_foreach_dev(void (*cb)(const char *, uint64_t, uint64_t, uint32_t))
+void BootInfoEnumerateDevs(void (*cb)(const char *, uint64_t, uint64_t, uint32_t))
 {
     if (!cb)
         return;
@@ -100,10 +100,7 @@ void boot_info_foreach_dev(void (*cb)(const char *, uint64_t, uint64_t, uint32_t
     }
 }
 
-uint32_t boot_info_dev_count(void)
-{
-    return g_boot_info.count;
-}
+uint32_t boot_info_dev_count(void) { return g_boot_info.count; }
 
 bool boot_info_initrd(uint64_t *out_pa, uint64_t *out_size)
 {
@@ -114,10 +111,7 @@ bool boot_info_initrd(uint64_t *out_pa, uint64_t *out_size)
     return true;
 }
 
-const FdtDevice *boot_info_dev_array(void)
-{
-    return (const FdtDevice *)g_boot_info.devs;
-}
+const FdtDevice *boot_info_dev_array(void) { return (const FdtDevice *)g_boot_info.devs; }
 
 const FdtDevice *boot_info_find_compatible(const char *const *compat)
 {
@@ -131,3 +125,27 @@ const FdtDevice *boot_info_find_compatible(const char *const *compat)
     }
     return NULL;
 }
+
+void BootInfoInit(void)
+{
+    g_bootinfo_pa = PmmAllocFramesContig((sizeof(BootInfo) + PAGE_SIZE - 1) / PAGE_SIZE);
+    BootInfo *bi = (BootInfo *)PA_TO_VA(g_bootinfo_pa);
+    memset(bi, 0, sizeof(*bi));
+    bi->magic = 0xB007DA7A;
+
+    strncpy(bi->model, boot_info_model(), sizeof(bi->model) - 1);
+    strncpy(bi->cpu_compat, boot_info_cpu_compat(), sizeof(bi->cpu_compat) - 1);
+    bi->initrd_pa = g_boot_info.initrd_pa;
+    bi->initrd_size = g_boot_info.initrd_size;
+
+    /* FdtDevice mirrors BootInfoDevEntry field-for-field, so copy it
+     * straight through with no filtering/renaming (unlike Syspage's dev_cb,
+     * which is cosmetic-only and must not carry physical addresses). */
+    uint32_t count = g_boot_info.count;
+    if (count > BOOTINFO_MAX_DEVICES)
+        count = BOOTINFO_MAX_DEVICES;
+    memcpy(bi->devs, g_boot_info.devs, count * sizeof(BootInfoDevEntry));
+    bi->dev_count = count;
+}
+
+PhysAddr BootInfoPa(void) { return g_bootinfo_pa; }

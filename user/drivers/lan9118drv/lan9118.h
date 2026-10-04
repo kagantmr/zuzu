@@ -1,11 +1,10 @@
 #ifndef LAN9118_REGS_H
 #define LAN9118_REGS_H
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
-typedef struct
-{
+typedef struct {
     uint32_t rx_data_fifo_port;           // 0x00
     uint32_t rx_data_fifo_alias_ports[7]; // 0x04-0x1C
     uint32_t tx_data_fifo_port;           // 0x20
@@ -41,7 +40,7 @@ typedef struct
     uint32_t e2p_cmd;        // 0xB0
     uint32_t e2p_data;       // 0xB4
     uint32_t _reserved3[17]; // 0xB8-0xFC
-} lan9118_t;
+} Lan9118Mmio;
 
 #define HW_CFG_SRST (1u << 0)
 #define HW_CFG_SRST_TO (1u << 1)
@@ -79,13 +78,13 @@ typedef struct
 #define INT_PHY (1u << 18)  // PHY interrupt
 
 // IRQ_CFG bits
-#define IRQ_CFG_IRQ_EN   (1u << 8)   // master interrupt output enable
-#define IRQ_CFG_IRQ_POL  (1u << 4)   // 1 = active-high
-#define IRQ_CFG_IRQ_TYPE (1u << 0)   // 1 = push-pull (not open-drain)
+#define IRQ_CFG_IRQ_EN (1u << 8)   // master interrupt output enable
+#define IRQ_CFG_IRQ_POL (1u << 4)  // 1 = active-high
+#define IRQ_CFG_IRQ_TYPE (1u << 0) // 1 = push-pull (not open-drain)
 
-_Static_assert(offsetof(lan9118_t, tx_data_fifo_port) == 0x20, "tx_data_fifo_port offset wrong");
-_Static_assert(offsetof(lan9118_t, byte_test) == 0x64, "byte_test offset wrong");
-_Static_assert(offsetof(lan9118_t, hw_cfg) == 0x74, "hw_cfg offset wrong");
-_Static_assert(offsetof(lan9118_t, mac_csr_cmd) == 0xA4, "mac_csr_cmd offset wrong");
+_Static_assert(offsetof(Lan9118Mmio, tx_data_fifo_port) == 0x20, "tx_data_fifo_port offset wrong");
+_Static_assert(offsetof(Lan9118Mmio, byte_test) == 0x64, "byte_test offset wrong");
+_Static_assert(offsetof(Lan9118Mmio, hw_cfg) == 0x74, "hw_cfg offset wrong");
+_Static_assert(offsetof(Lan9118Mmio, mac_csr_cmd) == 0xA4, "mac_csr_cmd offset wrong");
 
 #endif /* LAN9118_REGS_H */

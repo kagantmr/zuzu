@@ -28,14 +28,12 @@ static inline int BitmapTest(const uint32_t *words, const size_t i)
 static inline int BitmapFindFirstZero(const uint32_t *words, const size_t nbits)
 {
     const size_t full = nbits / 32;
-    for (size_t w = 0; w < full; w++)
-    {
+    for (size_t w = 0; w < full; w++) {
         if (words[w] != 0xFFFFFFFFU)
             return (int)((w * 32) + (size_t)__builtin_ctz(~words[w]));
     }
     const size_t rem = nbits % 32;
-    if (rem)
-    {
+    if (rem) {
         const uint32_t free = ~words[full] & ((1U << rem) - 1U);
         if (free)
             return (int)((full * 32) + (size_t)__builtin_ctz(free));
@@ -50,10 +48,8 @@ static inline int BitmapFindClearRun(const uint32_t *words, const size_t nbits, 
     if (run == 0 || run > nbits)
         return -1;
     size_t count = 0;
-    for (size_t i = 0; i < nbits; i++)
-    {
-        if (BitmapTest(words, i))
-        {
+    for (size_t i = 0; i < nbits; i++) {
+        if (BitmapTest(words, i)) {
             count = 0;
             continue;
         }

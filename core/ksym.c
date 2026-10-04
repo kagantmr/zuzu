@@ -3,10 +3,11 @@
 
 /* Weak stubs for first-pass linking; replaced by ksymtab.o in final link */
 __attribute__((weak)) volatile const uint32_t ksym_count = 0;
-static const ksym_entry_t ksym_fallback_table[] = { {0, ""} };
+static const ksym_entry_t ksym_fallback_table[] = {{0, ""}};
 __attribute__((weak)) const ksym_entry_t *ksym_table = ksym_fallback_table;
 
-const char *ksym_lookup(uint32_t addr) {
+const char *KSymLookup(uint32_t addr)
+{
     if (ksym_count == 0) {
         return NULL;
     }
@@ -20,14 +21,16 @@ const char *ksym_lookup(uint32_t addr) {
             result = ksym_table[mid].name;
             lo = mid + 1;
         } else {
-            if (mid == 0) break;
+            if (mid == 0)
+                break;
             hi = mid - 1;
         }
     }
     return result;
 }
 
-uint32_t ksym_lookup_base(uint32_t addr) {
+uint32_t KSymLookupBaseAddr(uint32_t addr)
+{
     if (ksym_count == 0)
         return 0;
 
@@ -40,7 +43,8 @@ uint32_t ksym_lookup_base(uint32_t addr) {
             result = ksym_table[mid].addr;
             lo = mid + 1;
         } else {
-            if (mid == 0) break;
+            if (mid == 0)
+                break;
             hi = mid - 1;
         }
     }

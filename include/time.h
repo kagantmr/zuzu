@@ -12,8 +12,8 @@ typedef uint64_t Time;
 
 typedef struct timespec {
     Time tv_sec;
-    long   tv_nsec;
-} timespec_t;
+    long tv_nsec;
+} Timespec;
 
 struct tm {
     int tm_sec;   /* seconds after the minute - [0, 60] including leap second */
@@ -29,24 +29,26 @@ struct tm {
 
 /**
  * @brief Returns the current time in seconds since the epoch (January 1, 1970).
- * 
+ *
  * @return ztime_t The current time in seconds since the epoch.
  */
-static inline Time time_now(void) {
+static inline Time TimeNow(void)
+{
     Syspage *sp = (Syspage *)SYSPAGE;
     return sp->boot_time_s + (sp->uptime_ticks / sp->tick_hz);
 }
 
 /**
  * @brief Fills the provided timespec structure with the current time.
- * 
+ *
  * @param ts Pointer to a timespec structure that will be filled with the current time.
  */
-static inline void clock_gettime(struct timespec *ts) {
+static inline void ClockGetTime(struct timespec *ts)
+{
     Syspage *sp = (Syspage *)SYSPAGE;
     Time ticks = sp->uptime_ticks;
     uint32_t hz = sp->tick_hz;
-    ts->tv_sec  = ticks / hz;
+    ts->tv_sec = ticks / hz;
     ts->tv_nsec = ((ticks % hz) * 1000000000ULL) / hz;
 }
 

@@ -13,47 +13,35 @@
 // Helper for compile-time alignment
 #define ALIGN_UP_CONST(x, a) (((x) + (a) - 1) & ~((a) - 1u))
 
-typedef struct MemBlock
-{
+typedef struct KHeapBlockStruct {
     size_t size; // Size of the block, excluding this header
-    struct MemBlock *next;
-    struct MemBlock *prev;
+    struct KHeapBlockStruct *next;
+    struct KHeapBlockStruct *prev;
     uint32_t state; // KBLOCK_ALLOCATED / KBLOCK_FREE magic
-} KMemBlock;
+} KHeapBlock;
 
 #define KBLOCK_ALLOCATED 0xA110C8EDu
 #define KBLOCK_FREE 0xF9EEB10Cu
 
-typedef enum
-{
-    SLAB_EMPTY,   // used == 0
-    SLAB_PARTIAL, // 0 < used < capacity
-    SLAB_FULL     // used == capacity
-} KSlabState;
+typedef struct KSlabStruct {
+    struct KSlabStruct *next, *prev;      // intrusive: links within one of the cache's lists
+    struct KSlabCacheStruct *owner_cache; // owning cache for free-time validation
+    size_t used;                          // how many objects are currently allocated
+    size_t capacity;                      // total slots in this slab
+    void *free_head;                      // freelist of available slots
+} KSlab;
 
-typedef struct Slab
-{
-    struct Slab *next, *prev;      // intrusive: links within one of the cache's lists
-    struct SlabCache *owner_cache; // owning cache for free-time validation
-    size_t used;                   // how many objects are currently allocated
-    size_t capacity;               // total slots in this slab
-    void *free_head;               // freelist of available slots
-    KSlabState state;              // which list this slab is currently on
-} KHeapSlab;
-
-typedef struct SlabCache
-{
-    const char *name;      // "Port", for debugging/KHeapDump
-    size_t obj_size;       // aligned object size
-    KHeapSlab *partial;    // slabs with >= 1 free slot
-    KHeapSlab *full;       // slabs with 0 free slots
-    KHeapSlab *empty_hold; // at most one all-free slab, kept as grow hysteresis
-} KHeapSlabCache;
+typedef struct KSlabCacheStruct {
+    size_t obj_size;   // aligned object size
+    KSlab *partial;    // slabs with >= 1 free slot
+    KSlab *full;       // slabs with 0 free slots
+    KSlab *empty_hold; // at most one all-free slab, kept as grow hysteresis
+} KSlabCache;
 
 // Aligned header size used for all layout calculations
-#define HDR ALIGN_UP_CONST(sizeof(KMemBlock), ALIGNMENT)
+#define HDR ALIGN_UP_CONST(sizeof(KHeapBlock), ALIGNMENT)
 
-extern KMemBlock *heap_head;
+extern KHeapBlock *heap_head;
 
 /**
  * @brief Allocate uninitialized memory from the kernel heap.
@@ -95,66 +83,11 @@ void KFree(void *ptr);
  */
 void KHeapInit(void);
 
-/**
- * @brief Dump the kernel heap state for debugging.
- *
- * Prints information about all blocks in the heap including addresses,
- * sizes, free status, and statistics.
- */
-void KHeapDump(void);
-
-/* Hot-path object allocators backed by slab caches. */
-
-/**
-* @brief Allocate space for a Port object.
-*
-* @retval NULL Out of memory
-* @return void*
-*/
-void *KAllocPortObj(void);
-
-/**
-* @brief Free space belonging to a Port object.
-*
-* @param[in] Object to free.
-*/
-void KFreePortObj(void *ptr);
-
-/**
-* @brief Allocate space for a ReplyCap object.
-*
-* @retval NULL Out of memory
-* @return void*
-*/
-void *KAllocReplyCap(void);
-
-/**
-* @brief Free space belonging to a ReplyCap object.
-*
-* @param[in] Object to free.
-*/
-void KFreeReplyCap(void *ptr);
-
-/**
-* @brief Allocate space for a DeviceCap object.
-*
-* @retval NULL Out of memory
-* @return void*
-*/
-void *KAllocDevCap(void);
-
-/**
-* @brief Free space belonging to a DeviceCap object.
-*
-* @param[in] Object to free.
-*/
-void KFreeDevCap(void *ptr);
-
 /* Generic slab-cache API for per-subsystem fixed-size object pools.
- * Declare a `static KHeapSlabCache` in the owning TU, KSlabInit it once,
+ * Declare a `static KSlabCache` in the owning TU, KSlabInit it once,
  * then KSlabAlloc / KSlabFree. KSlabFree tolerates NULL. */
-void KSlabInit(KHeapSlabCache *cache, const char *name, size_t obj_size);
-void *KSlabAlloc(KHeapSlabCache *cache);
-void KSlabFree(KHeapSlabCache *cache, void *ptr);
+void KSlabInit(KSlabCache *cache, size_t obj_size);
+void *KSlabAlloc(KSlabCache *cache);
+void KSlabFree(KSlabCache *cache, void *ptr);
 
 #endif // KERNEL_MM_ALLOC_H

@@ -5,21 +5,29 @@
 static Err fres_to_err(FRESULT fr)
 {
     switch (fr) {
-    case FR_OK:                    return ZUZU_OK;
+    case FR_OK:
+        return ZUZU_OK;
     case FR_NO_FILE:
-    case FR_NO_PATH:               return ERR_NOENT;
-    case FR_EXIST:                 return ERR_DUPLICATE;
+    case FR_NO_PATH:
+        return ERR_NOENT;
+    case FR_EXIST:
+        return ERR_DUPLICATE;
     case FR_DENIED:
-    case FR_WRITE_PROTECTED:       return ERR_NOPERM;
+    case FR_WRITE_PROTECTED:
+        return ERR_NOPERM;
     case FR_INVALID_NAME:
     case FR_INVALID_PARAMETER:
-    case FR_INVALID_OBJECT:        return ERR_MALFORMED;
-    case FR_TOO_MANY_OPEN_FILES:   return ERR_BUFFULL;
-    case FR_NOT_ENOUGH_CORE:       return ERR_NOMEM;
+    case FR_INVALID_OBJECT:
+        return ERR_MALFORMED;
+    case FR_TOO_MANY_OPEN_FILES:
+        return ERR_BUFFULL;
+    case FR_NOT_ENOUGH_CORE:
+        return ERR_NOMEM;
     case FR_DISK_ERR:
     case FR_INT_ERR:
     case FR_NOT_READY:
-    default:                       return ERR_IO;
+    default:
+        return ERR_IO;
     }
 }
 
@@ -31,31 +39,37 @@ static Err fat_open(void *ctx, void *file, const char *path, uint32_t mode)
     return fres_to_err(f_open((FIL *)file, path, (BYTE)mode));
 }
 
-static Err fat_close(void *ctx, void *file) {
+static Err fat_close(void *ctx, void *file)
+{
     (void)ctx;
     return fres_to_err(f_close((FIL *)file));
 }
 
-static Err fat_read(void *ctx, void *file, void *buf, uint32_t count, uint32_t *got) {
+static Err fat_read(void *ctx, void *file, void *buf, uint32_t count, uint32_t *got)
+{
     (void)ctx;
     UINT br = 0;
     FRESULT rc = f_read((FIL *)file, buf, count, &br);
     *got = br;
-    if (rc != FR_OK && *got == 0) return fres_to_err(rc);
+    if (rc != FR_OK && *got == 0)
+        return fres_to_err(rc);
     return ZUZU_OK;
 }
 
-static Err fat_write(void *ctx, void *file, const void *buf, uint32_t count, uint32_t *put) {
-    
+static Err fat_write(void *ctx, void *file, const void *buf, uint32_t count, uint32_t *put)
+{
+
     (void)ctx;
     UINT bw = 0;
     FRESULT rc = f_write((FIL *)file, buf, count, &bw);
     *put = bw;
-    if (rc != FR_OK && *put == 0) return fres_to_err(rc);
+    if (rc != FR_OK && *put == 0)
+        return fres_to_err(rc);
     return ZUZU_OK;
 }
 
-static Err fat_seek(void *ctx, void *file, int64_t off, uint32_t whence, int64_t *newpos) {
+static Err fat_seek(void *ctx, void *file, int64_t off, uint32_t whence, int64_t *newpos)
+{
     (void)ctx;
     switch (whence) {
     case FSD_SEEK_SET:
@@ -69,48 +83,63 @@ static Err fat_seek(void *ctx, void *file, int64_t off, uint32_t whence, int64_t
     default:
         return ERR_MALFORMED;
     }
-    if (off < 0 || off > 0xFFFFFFFFLL) return ERR_MALFORMED;
+    if (off < 0 || off > 0xFFFFFFFFLL)
+        return ERR_MALFORMED;
 
     FRESULT rc = f_lseek((FIL *)file, (FSIZE_t)off);
-    if (rc != FR_OK) return fres_to_err(rc);
+    if (rc != FR_OK)
+        return fres_to_err(rc);
     *newpos = (int64_t)f_tell((FIL *)file);
     return ZUZU_OK;
 }
 
-static Err fat_stat(void *ctx, const char *path, FsdStat *out) {
+static Err fat_stat(void *ctx, const char *path, FsdStat *out)
+{
     (void)ctx;
     FILINFO fno;
     FRESULT rc = f_stat(path, &fno);
-    if (rc != FR_OK) return fres_to_err(rc);
+    if (rc != FR_OK)
+        return fres_to_err(rc);
     out->size = (uint32_t)fno.fsize;
     out->type = (fno.fattrib & AM_DIR) ? FSD_TYPE_DIR : FSD_TYPE_FILE;
     return ZUZU_OK;
 }
 
-static Err fat_readdir(void *ctx, const char *path, uint32_t start,
-                         FsdDirEntry *out, uint32_t max, uint32_t *count)
+static Err fat_readdir(void *ctx, const char *path, uint32_t start, FsdDirEntry *out, uint32_t max,
+                       uint32_t *count)
 {
     (void)ctx;
     *count = 0;
 
     DIR dir;
     FRESULT rc = f_opendir(&dir, path);
-    if (rc != FR_OK) return fres_to_err(rc);
+    if (rc != FR_OK)
+        return fres_to_err(rc);
 
     FILINFO fno;
 
     /* phase 1: skip `start` entries */
     for (uint32_t i = 0; i < start; i++) {
         rc = f_readdir(&dir, &fno);
-        if (rc != FR_OK) { f_closedir(&dir); return fres_to_err(rc); }
-        if (fno.fname[0] == '\0') { f_closedir(&dir); return ZUZU_OK; }  /* past the end */
+        if (rc != FR_OK) {
+            f_closedir(&dir);
+            return fres_to_err(rc);
+        }
+        if (fno.fname[0] == '\0') {
+            f_closedir(&dir);
+            return ZUZU_OK;
+        } /* past the end */
     }
 
     /* phase 2: fill up to `max` */
     while (*count < max) {
         rc = f_readdir(&dir, &fno);
-        if (rc != FR_OK) { f_closedir(&dir); return fres_to_err(rc); }
-        if (fno.fname[0] == '\0') break;   /* end of directory */
+        if (rc != FR_OK) {
+            f_closedir(&dir);
+            return fres_to_err(rc);
+        }
+        if (fno.fname[0] == '\0')
+            break; /* end of directory */
 
         FsdDirEntry *e = &out[*count];
         memset(e, 0, sizeof(*e));
@@ -124,24 +153,28 @@ static Err fat_readdir(void *ctx, const char *path, uint32_t start,
     return ZUZU_OK;
 }
 
-static Err fat_unlink(void *ctx, const char *path) {
+static Err fat_unlink(void *ctx, const char *path)
+{
     (void)ctx;
     FRESULT rc = f_unlink(path);
     return fres_to_err(rc);
 }
 
-static Err fat_rename(void *ctx, const char *from, const char *to) {
+static Err fat_rename(void *ctx, const char *from, const char *to)
+{
     (void)ctx;
     FRESULT rc = f_rename(from, to);
     return fres_to_err(rc);
 }
 
-static Err fat_mount(void **ctx_out) {
+static Err fat_mount(void **ctx_out)
+{
     FRESULT rc = f_mount(&fs, "", 1);
     *ctx_out = &fs;
     return fres_to_err(rc);
 }
-static Err fat_unmount(void *ctx) {
+static Err fat_unmount(void *ctx)
+{
     (void)ctx;
     return fres_to_err(f_unmount(""));
 }

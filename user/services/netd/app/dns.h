@@ -1,11 +1,10 @@
 #ifndef DNS_H
 #define DNS_H
 
-#include <zuzu/types.h>
 #include "../common/globals.h"
+#include <types.h>
 
-typedef struct
-{
+typedef struct {
     uint16_t id;
     uint16_t flags;
     uint16_t qdcount, ancount, nscount, arcount;

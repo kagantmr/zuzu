@@ -67,7 +67,7 @@ _start:
     /* Board hook, still in HYP: last chance to touch HYP-only state.
      * Must not touch the stack -- SP_hyp is whatever the firmware left, and a
      * fault here happens before any console or HYP vectors exist, so it hangs
-     * silently. Contract: clobbers r1 only, preserves r0 (the CPSR we are
+     * silently. Contract: clobbers r1 only, preserves r0 (the Cpsr we are
      * about to edit), returns via bx lr. */
     bl      board_hyp_setup
 
@@ -238,7 +238,7 @@ early_paging_init:
     /* Identity-map the peripheral block (device memory) so a C-level
      * arch_early_putc can poke the UART at its physical address after the MMU
      * is on -- this entry survives the RAM identity unmap (which only clears
-     * RAM sections) and is carried into the kernel L1 by vmm_bootstrap. */
+     * RAM sections) and is carried into the kernel L1 by VmmBootstrap. */
     ldr     r7, =BOARD_PERIPH_PA_BASE
     ldr     r8, =SECTION_DEVICE_DESC
     mov     r5, #0

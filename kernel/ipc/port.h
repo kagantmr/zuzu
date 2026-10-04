@@ -1,29 +1,36 @@
-#ifndef PORT_H
-#define PORT_H
+#ifndef KERNEL_IPC_PORT_H
+#define KERNEL_IPC_PORT_H
 
-#include <stddef.h>
-#include <stdbool.h>
+#include "event.h"
+#include "observer.h"
 #include <list.h>
-#include <vector.h>
-#include <zuzu/types.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <types.h>
 
-struct process;
+typedef struct TaskObjectStruct TaskObject;
+typedef struct SpaceObjectStruct SpaceObject;
 
+/** */
 typedef struct {
     ListHead sender_queue;
     ListHead receiver_queue;
-    Pid owner_pid;
+    Spid owner_spid;
     size_t ref_count;
     bool alive;
-    ListNode node;
-} Port;
+    ObserverSet observers;
+} PortObject;
 
 typedef struct {
-    Tid caller_tid;     
-    Pid holder_pid;       
-    Handle holder_slot;
-    ListNode caller_link;
-} ReplyCap;
+    TaskObject *caller_task; // fast path
+    Tid caller_tid;          // for cross-check: caller->tid == caller_tid
+} ReplyObject;
 
+PortObject *PortCreate(SpaceObject *owner);
+void PortUnref(PortObject *port);
+void PortKill(PortObject *port);
 
-#endif // PORT_H
+/* A caller is queued with nobody receiving: the condition observers wait for. */
+bool PortHasPending(const PortObject *port);
+
+#endif /* KERNEL_IPC_PORT_H */

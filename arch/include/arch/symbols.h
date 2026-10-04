@@ -4,8 +4,8 @@
 // image / stack / initrd boundaries. Names are architecture-neutral; every
 // board's linker.ld must define them.
 
-#ifndef ZUZU_ARCH_SYMBOLS_H
-#define ZUZU_ARCH_SYMBOLS_H
+#ifndef ARCH_SYMBOLS_H
+#define ARCH_SYMBOLS_H
 
 extern char _kernel_start[];
 extern char _kernel_end[];
@@ -25,4 +25,4 @@ extern char __abt_stack_top__[];
 extern char __und_stack_base__[];
 extern char __und_stack_top__[];
 
-#endif // ZUZU_ARCH_SYMBOLS_H
+#endif // ARCH_SYMBOLS_H

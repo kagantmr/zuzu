@@ -1,6 +1,6 @@
 // entry.S - exception entry points and trampoline for process entry
-// Assembly code for the exception entry points for ARMv7. 
-// Basic handlers for exceptions, they route to exception_dispatch. 
+// Assembly code for the exception entry points for ARMv7.
+// Basic handlers for exceptions, they route to ExceptionDispatch.
 
 .syntax unified
 .arm
@@ -13,19 +13,19 @@
 .global reserved_handler
 .global irq_handler
 .global fiq_handler
-.global process_entry_trampoline
+.global task_entry_trampoline
 
 .extern do_resched
 
-process_entry_trampoline:
+task_entry_trampoline:
     // frame at SP: r0-r12, sp_usr, lr_usr, return_pc, return_cpsr
 
     add r0, sp, #52
     ldm r0, {r13, r14}^     // loads frame[52]->r13_usr, frame[56]->r14_usr, no mode change
-    nop                     // A1085W: no banked-reg access in the next instruction
+    nop                        // A1085W: no banked-reg access in the next instruction
     ldmia sp!, {r0-r12}        // restore regs (13 words)
     add sp, sp, #8             // skip sp_usr/lr_usr
-    rfeia sp!                  // pop return_pc + return_cpsr into PC/CPSR
+    rfeia sp!                  // pop return_pc + return_cpsr into PC/Cpsr
 
 .macro exception_entry, lr_adjust
     sub lr, lr, #\lr_adjust
@@ -40,12 +40,6 @@ process_entry_trampoline:
 .endm
 
 .macro exception_exit
-    ldr r0, [sp, #60]         // return_pc
-    cmp r0, #0
-    bne 8f
-    mov r0, sp
-    bl exception_exit_pc0_trap
-8:
     add r0, sp, #52
     ldm r0, {r13, r14}^       // loads frame[52]->r13_usr, frame[56]->r14_usr, no mode change
     nop                       // A1085W: no banked-reg access in the next instruction
@@ -59,7 +53,7 @@ process_entry_trampoline:
     mov r1, sp
     mov r4, sp
     bic sp, sp, #7            // AAPCS: force 8-byte alignment; the interrupted SP may be 4 mod 8
-    bl exception_dispatch
+    bl ExceptionDispatch
     mov sp, r4
 .endm
 
@@ -101,7 +95,11 @@ data_abort_handler:
 
 svc_handler:
     exception_entry 0
-    exception_dispatch_call 2
+    mov r0, sp
+    mov r4, sp
+    bic sp, sp, #7
+    bl SvcTrap
+    mov sp, r4
     exception_exit
 
 prefetch_abort_handler:

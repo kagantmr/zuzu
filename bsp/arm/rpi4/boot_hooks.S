@@ -1,11 +1,11 @@
-@ rpi4 board hooks for the shared boot path (arch/arm/boot/_start.S).
-@ These override the weak defaults there.
+/* rpi4 board hooks for the shared boot path (arch/arm/boot/_start.S).
+  These override the weak defaults there. */
 
 #include "bsp/arm/rpi4/boot.h"
 
 .section .text.boot, "ax"
 
-@ BCM2711 in low-peripheral mode
+/* BCM2711 in low-peripheral mode */
 .equ GPIO_BASE,         0xFE200000
 .equ AUX_ENABLES,       0xFE215004
 .equ GPFSEL1_OFF,       0x04
@@ -23,15 +23,15 @@ board_console_pinmux:
     /* GPIO14/15 -> ALT0 (FSEL fields 0b100) */
     ldr     r1, =GPIO_BASE
     ldr     r0, [r1, #GPFSEL1_OFF]
-    bic     r0, r0, #(0x3F << 12)   @ clear FSEL14 [14:12], FSEL15 [17:15]
-    orr     r0, r0, #(0x4 << 12)    @ FSEL14 = ALT0
-    orr     r0, r0, #(0x4 << 15)    @ FSEL15 = ALT0
+    bic     r0, r0, #(0x3F << 12)   // clear FSEL14 [14:12], FSEL15 [17:15]
+    orr     r0, r0, #(0x4 << 12)    // FSEL14 = ALT0
+    orr     r0, r0, #(0x4 << 15)    // FSEL15 = ALT0
     str     r0, [r1, #GPFSEL1_OFF]
 
     /* No pull on GPIO14/15 (BCM2711 direct pull registers, not the old
      * GPPUD/GPPUDCLK sequence) */
     ldr     r0, [r1, #GPIO_PUP_PDN0_OFF]
-    bic     r0, r0, #(0xF << 28)    @ GPIO14 [29:28] = 00, GPIO15 [31:30] = 00
+    bic     r0, r0, #(0xF << 28)    // GPIO14 [29:28] = 00, GPIO15 [31:30] = 00
     str     r0, [r1, #GPIO_PUP_PDN0_OFF]
 
     /* Belt and braces: make sure the mini-UART is not driving anything */

@@ -5,37 +5,32 @@
 // PMM/heap/VMM, tear down the identity mapping, then init IRQs and devices.
 // Anything board-specific is supplied by the DTB and the per-board layout.h /
 // linker.ld / _start.S, so this file does not change when adding a board.
-#include <arch/symbols.h>
-#include <arch/irq.h>
-#include <arch/barrier.h>
-#include <arch/platform.h>
-#include <arch/mmu.h>
-#include <arch_impl/armv7_mmu.h>
-#include "kernel/layout.h"
-#include "kernel/mm/pmm.h"
-#include "kernel/kmain.h"
-#include "kernel/dev/fdt_wrappers.h"
-#include "kernel/boot_info.h"
-#include "kernel/mm/alloc.h"
-#include "kernel/mm/vmm.h"
-#include "core/panic.h"
 #include "core/kprintf.h"
+#include "core/panic.h"
+#include "kernel/boot_info.h"
+#include "kernel/dev/fdt_wrappers.h"
+#include "kernel/kmain.h"
+#include "kernel/layout.h"
+#include "kernel/mm/alloc.h"
+#include "kernel/mm/pmm/pmm.h"
+#include "kernel/mm/vmm/vmm.h"
+#include <arch/barrier.h>
+#include <arch/irq.h>
+#include <arch/mmu.h>
+#include <arch/platform.h>
+#include <arch/symbols.h>
+#include <arch_impl/armv7_mmu.h>
 #include <string.h>
 
-kernel_layout_t kernel_layout;
-extern AddressSpace *g_kernel_as;
+RamLayout kernel_layout;
 
 #define LOG_FMT(fmt) "(early) " fmt
 #include "core/log.h"
 
 __attribute__((section(".bss.boot"), aligned(16384))) uint32_t early_l1[4096];
 
-/* Default early console: drop the character. Boards with a fixed debug UART
- * (e.g. rpi4) provide a strong override so panics and progress are visible
- * before arch_platform_init_devices() wires up the real console. */
-__attribute__((weak)) void arch_early_putc(char c) { (void)c; }
-
-static void early_map_ram_sections(uintptr_t ram_base, size_t ram_size) {
+static void early_map_ram_sections(uintptr_t ram_base, size_t ram_size)
+{
     uint32_t *l1 = (uint32_t *)PA_TO_VA((uintptr_t)early_l1);
     uintptr_t pa_start = ram_base & ~(SECTION_SIZE - 1);
     uintptr_t pa_end = (ram_base + ram_size + SECTION_SIZE - 1) & ~(SECTION_SIZE - 1);
@@ -46,36 +41,38 @@ static void early_map_ram_sections(uintptr_t ram_base, size_t ram_size) {
         l1[L1_IDX(PA_TO_VA(pa))] = entry;
     }
 
-    arch_mmu_flush_tlb();
-    ArchCtxSync();
+    ArchMmuFlushTlb();
+    ArchSyncBarrier();
 }
 
-static void pmu_init(void) {
+static void pmu_init(void)
+{
     uint32_t pmcr;
     __asm__ volatile("mrc p15, 0, %0, c9, c12, 0" : "=r"(pmcr));
-    pmcr |=  (1 << 0);   // E: enable all counters
-    pmcr |=  (1 << 2);   // C: reset cycle counter to 0
-    pmcr &= ~(1u << 3);   // D: CLEAR divider — count every cycle, not every 64th
-    __asm__ volatile("mcr p15, 0, %0, c9, c12, 0" :: "r"(pmcr));
-    __asm__ volatile("mcr p15, 0, %0, c9, c14, 0" :: "r"(0x00000001)); // PMUSERENR: user read
-    __asm__ volatile("mcr p15, 0, %0, c9, c12, 1" :: "r"(0x80000000)); // PMCNTENSET: enable CCNT
+    pmcr |= (1 << 0);   // E: enable all counters
+    pmcr |= (1 << 2);   // C: reset cycle counter to 0
+    pmcr &= ~(1u << 3); // D: CLEAR divider — count every cycle, not every 64th
+    __asm__ volatile("mcr p15, 0, %0, c9, c12, 0" ::"r"(pmcr));
+    __asm__ volatile("mcr p15, 0, %0, c9, c14, 0" ::"r"(0x00000001)); // PMUSERENR: user read
+    __asm__ volatile("mcr p15, 0, %0, c9, c12, 1" ::"r"(0x80000000)); // PMCNTENSET: enable CCNT
 }
 
-static void vfp_init() {
+static void vfp_init(void)
+{
     uint32_t cpacr;
     __asm__ volatile("mrc p15, 0, %0, c1, c0, 2" : "=r"(cpacr));
     cpacr |= (0xF << 20);
     __asm__ volatile("mcr p15, 0, %0, c1, c0, 2" ::"r"(cpacr));
     __asm__ volatile("isb");
-    __asm__ volatile(
-        ".fpu vfpv4\n\t"
-        "vmsr fpexc, %0" ::"r"(1u << 30));
+    __asm__ volatile(".fpu vfpv4\n\t"
+                     "vmsr fpexc, %0" ::"r"(1u << 30));
 }
 
 /* Debug helper, not called from C; kept for use from a debugger/disasm
  * session. External linkage only, so it still needs a prototype. */
 int rdcyc(void);
-int rdcyc(void) {
+int rdcyc(void)
+{
     uint32_t value;
     __asm__ volatile("mrc p15, 0, %0, c9, c13, 0" : "=r"(value));
     return (int)value;
@@ -85,7 +82,7 @@ _Noreturn void early(void *dtb_ptr);
 _Noreturn void early(void *dtb_ptr)
 {
     /* Console-before-everything: a no-op unless the board overrides it.
-     * arch_platform_init_devices() replaces the sink with the real driver. */
+     * ArchPlatformInitDevices() replaces the sink with the real driver. */
     kprintf_init(arch_early_putc);
 
     KDEBUG("early: dtb pa=%p", dtb_ptr);
@@ -111,8 +108,7 @@ _Noreturn void early(void *dtb_ptr)
 
     kernel_layout.ram_start = (PhysAddr)ram_base;
     kernel_layout.ram_end = (PhysAddr)(ram_base + ram_size);
-    KDEBUG("early: ram [%p..%p)", (void *)kernel_layout.ram_start,
-          (void *)kernel_layout.ram_end);
+    KDEBUG("early: ram [%p..%p)", (void *)kernel_layout.ram_start, (void *)kernel_layout.ram_end);
     early_map_ram_sections(kernel_layout.ram_start, (size_t)ram_size);
 
     KDEBUG("early: pmm");
@@ -120,24 +116,25 @@ _Noreturn void early(void *dtb_ptr)
     KDEBUG("early: kheap");
     KHeapInit();
     KDEBUG("early: vmm bootstrap");
-    vmm_bootstrap();
+    VmmBootstrap();
 
     /* fill kernel layout VAs now that paging/higher-half mapping exists */
-    kernel_layout.dtb_start_va = (void *)PA_TO_VA(kernel_layout.dtb_start_pa);
     kernel_layout.stack_base_va = (uintptr_t)PA_TO_VA(kernel_layout.stack_base_pa);
     kernel_layout.stack_top_va = (uintptr_t)PA_TO_VA(kernel_layout.stack_top_pa);
     kernel_layout.kernel_start_va = (uintptr_t)PA_TO_VA(kernel_layout.kernel_start_pa);
     kernel_layout.kernel_end_va = (uintptr_t)PA_TO_VA(kernel_layout.kernel_end_pa);
 
-    /* boot_info_init_from_dtb() copies everything out of the DTB and shuts
+    /* BootInfoInitFromFdt() copies everything out of the DTB and shuts
      * down libfdt access, so capture what the cleanup below needs first. */
     PhysAddr dtb_end_pa = kernel_layout.dtb_start_pa + FdtTotalSize();
-    struct { uint64_t addr, size; } rsv[8];
+    struct {
+        uint64_t addr, size;
+    } rsv[8];
     uint32_t rsv_cnt = 0;
     while (rsv_cnt < 8 && FdtGetReservedMem(rsv_cnt, &rsv[rsv_cnt].addr, &rsv[rsv_cnt].size))
         rsv_cnt++;
 
-    boot_info_init_from_dtb();
+    BootInfoInitFromFdt();
 
     /* The boot-only sections and the DTB are no longer needed once the
      * PMM-backed kernel L1 is live and DTB data has been copied out. The DTB
@@ -158,16 +155,17 @@ _Noreturn void early(void *dtb_ptr)
     KDEBUG("early: dropping identity map");
     VmmRemoveIdentityMapping();
     KDEBUG("early: ttbr1 split");
-    arch_mmu_init_ttbr1(VmmGetKernelAddrspace());
+    ArchMmuInitTtbr1(VmmGetKernelAddressSpace());
     KDEBUG("early: kernel lockdown");
     VmmLockdownKernelMapping();
 
     KDEBUG("early: irq + platform devices");
-    arch_irq_init();
-    arch_platform_init_devices();
+    ArchIrqInit();
+    ArchPlatformInitDevices();
 
     KINFO("Freed DTB and boot space (%zu KiB)",
-          ((PhysAddr)_boot_end - (PhysAddr)_boot_start + dtb_end_pa - kernel_layout.dtb_start_pa) / 1024);
+          ((PhysAddr)_boot_end - (PhysAddr)_boot_start + dtb_end_pa - kernel_layout.dtb_start_pa) /
+              1024);
     KDEBUG("Boot info initialized from DTB: dev_count=%u", boot_info_dev_count());
     KDEBUG("Handoff to kmain");
     kmain();

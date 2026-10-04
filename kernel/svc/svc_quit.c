@@ -1,0 +1,16 @@
+#include "kernel/sched/sched.h"
+#include "kernel/task/task.h"
+#include "svc.h"
+
+#define LOG_FMT(fmt) "(SvcQuit) " fmt
+#include <util/log.h>
+
+void SvcQuit(CpuState *frame)
+{
+    int32_t exit_status = (int32_t)(*ArchGetFromFrame(frame, 0));
+
+    TaskTerminate(current_task, exit_status);
+    KDEBUG("Task %d exited with status %d", current_task->tid, exit_status);
+
+    Schedule();
+}

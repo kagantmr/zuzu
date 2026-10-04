@@ -1332,15 +1332,18 @@ int main(int argc, char **argv) {
         write(2, dbg_buf, (size_t)dbg_len);
     }
 
-    if (argc != 2) {
-        fprintf(stderr,"Usage: kilo <filename>\n");
+    if (argc > 2) {
+        fprintf(stderr,"Usage: kilo [filename]\n");
         exit(1);
     }
+    char *filename = argc == 2 ? argv[1] : "/kilo.txt";
 
-    initEditor();
-    editorSelectSyntaxHighlight(argv[1]);
-    editorOpen(argv[1]);
+    /* initEditor() asks the terminal for its size and waits for the reply;
+     * in cooked mode the reply has no newline and would never be delivered. */
     enableRawMode(STDIN_FILENO);
+    initEditor();
+    editorSelectSyntaxHighlight(filename);
+    editorOpen(filename);
     editorSetStatusMessage(
         "HELP: Ctrl-S = save | Ctrl-Q = quit | Ctrl-F = find");
     while(1) {

@@ -1,14 +1,14 @@
+#include <ansi.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <zuzu/zuzu.h>
-#include <ansi.h>
+#include <util/version.h>
 #include <zuzu/syspage.h>
-#include <zuzu/version.h>
+#include <zuzu/zuzu.h>
 
-#define LOGO_WIDTH    50
-#define INFO_MAX      20
+#define LOGO_WIDTH 50
+#define INFO_MAX 20
 #define INFO_LINE_LEN 80
-#define LABEL_WIDTH   10
+#define LABEL_WIDTH 10
 
 /* Write "Label:    value" into dst with ANSI color on the label */
 static void fmt_kv(char *dst, size_t cap, const char *label, const char *value)
@@ -39,9 +39,9 @@ static int visible_len_ansi(const char *s)
 
 static void emit_tiles(char *dst, size_t cap)
 {
-    snprintf(dst, cap,
-        "\033[40m  \033[0m\033[41m  \033[0m\033[42m  \033[0m\033[43m  \033[0m"
-        "\033[44m  \033[0m\033[45m  \033[0m\033[46m  \033[0m\033[47m  \033[0m");
+    (void)snprintf(dst, cap,
+                   "\033[40m  \033[0m\033[41m  \033[0m\033[42m  \033[0m\033[43m  \033[0m"
+                   "\033[44m  \033[0m\033[45m  \033[0m\033[46m  \033[0m\033[47m  \033[0m");
 }
 
 static int build_info(char info[][INFO_LINE_LEN])
@@ -51,16 +51,16 @@ static int build_info(char info[][INFO_LINE_LEN])
     Syspage *sp = (Syspage *)SYSPAGE;
 
     /* blank lines to align with logo top */
-    info[n][0] = '\0'; n++;
-    info[n][0] = '\0'; n++;
-
-    /* title */
-    snprintf(info[n], INFO_LINE_LEN,
-             ANSI_CYAN "zuzuOS" ANSI_RESET " %s", ZUZUOS_VERSION);
+    info[n][0] = '\0';
+    n++;
+    info[n][0] = '\0';
     n++;
 
-    snprintf(info[n], INFO_LINE_LEN,
-             ANSI_CYAN "----------" ANSI_RESET);
+    /* title */
+    (void)snprintf(info[n], INFO_LINE_LEN, ANSI_CYAN "zuzuOS" ANSI_RESET " %s", ZUZUOS_VERSION);
+    n++;
+
+    snprintf(info[n], INFO_LINE_LEN, ANSI_CYAN "----------" ANSI_RESET);
     n++;
 
     /* kernel version */
@@ -76,14 +76,14 @@ static int build_info(char info[][INFO_LINE_LEN])
     n++;
 
     /* memory */
-    uint32_t ram_mb  = sp->mem_total_kb / 1024;
+    uint32_t ram_mb = sp->mem_total_kb / 1024;
     uint32_t free_mb = sp->mem_free_kb / 1024;
-    snprintf(tmp, sizeof(tmp), "%u MB free / %u MB total", free_mb, ram_mb);
+    (void)snprintf(tmp, sizeof(tmp), "%u MB free / %u MB total", free_mb, ram_mb);
     fmt_kv(info[n], INFO_LINE_LEN, "Memory:", tmp);
     n++;
 
     /* uptime */
-    snprintf(tmp, sizeof(tmp), "%llu s", sp->uptime_ticks / sp->tick_hz);
+    (void)snprintf(tmp, sizeof(tmp), "%llu s", sp->uptime_ticks / sp->tick_hz);
     fmt_kv(info[n], INFO_LINE_LEN, "Uptime:", tmp);
     n++;
 
@@ -93,14 +93,14 @@ static int build_info(char info[][INFO_LINE_LEN])
 
     /* devices */
     if (sp->dev_count > 0) {
-        snprintf(tmp, sizeof(tmp), "%u devices", sp->dev_count);
+        (void)snprintf(tmp, sizeof(tmp), "%u devices", sp->dev_count);
         fmt_kv(info[n], INFO_LINE_LEN, "Devices:", tmp);
         n++;
     }
 
-
     /* blank spacer */
-    info[n][0] = '\0'; n++;
+    info[n][0] = '\0';
+    n++;
 
     /* color tiles */
     emit_tiles(info[n], INFO_LINE_LEN);
@@ -109,32 +109,36 @@ static int build_info(char info[][INFO_LINE_LEN])
     return n;
 }
 
-
 int main()
 {
     static const char *logo[] = {
-            "                                                  ",
-            "                                                  ",
-            "       \033[37m@@@@@@@@@@@\033[0m                                ",
-            "       \033[37m@@@@@@@@@@@\033[0m                \033[90m@@\033[0m              ",
-            "            \033[37m@@@@\033[0m                \033[90m@@@@@    @@@\033[0m      ",
-            "          \033[37m@@@@\033[0m                  \033[90m@@@       @@@\033[0m     ",
-            "        \033[37m@@@@\033[0m                    \033[90m@@@      @@@\033[0m      ",
-            "      \033[37m@@@@\033[0m                     \033[90m@@@       @@\033[0m       ",
-            "    \033[37m@@@@\033[0m           \033[37m@@@@@@@@\033[0m    \033[90m@@@      @@@\033[0m       ",
-            "   \033[37m@@@@@@@@@@@@@@@@@\033[0m      \033[37m@@@\033[0m  \033[90m@@@     @@@\033[0m        ",
-            "            \033[37m@@\033[0m                 \033[90m@@@@@@@@\033[0m           ",
-            "           \033[37m@@@\033[0m                                    ",
-            "           \033[37m@@@\033[0m                       \033[90m@@@\033[0m          ",
-            "           \033[37m@@@\033[0m      \033[90m@@@@@@@@@@@\033[0m     \033[90m@@@\033[0m           ",
-            "           \033[37m@@@\033[0m    \033[90m@@@         @@@\033[0m   \033[90m@@@\033[0m           ",
-            "           \033[37m@@@\033[0m    \033[90m@@@         @@@\033[0m   \033[90m@@@\033[0m           ",
-            "           \033[37m@@@\033[0m   \033[90m@@@          @@@\033[0m   \033[90m@@@\033[0m           ",
-            "            \033[37m@@@@@@@@\033[0m           \033[90m@@@@@@@@\033[0m           ",
-            "                                                  ",
-            "                                                  ",
-            "                                                  "
-    };
+        "                                                  ",
+        "                                                  ",
+        "       \033[37m@@@@@@@@@@@\033[0m                                ",
+        "       \033[37m@@@@@@@@@@@\033[0m                \033[90m@@\033[0m              ",
+        "            \033[37m@@@@\033[0m                \033[90m@@@@@    @@@\033[0m      ",
+        "          \033[37m@@@@\033[0m                  \033[90m@@@       @@@\033[0m     ",
+        "        \033[37m@@@@\033[0m                    \033[90m@@@      @@@\033[0m      ",
+        "      \033[37m@@@@\033[0m                     \033[90m@@@       @@\033[0m       ",
+        "    \033[37m@@@@\033[0m           \033[37m@@@@@@@@\033[0m    \033[90m@@@      @@@\033[0m  "
+        "     ",
+        "   \033[37m@@@@@@@@@@@@@@@@@\033[0m      \033[37m@@@\033[0m  \033[90m@@@     @@@\033[0m   "
+        "     ",
+        "            \033[37m@@\033[0m                 \033[90m@@@@@@@@\033[0m           ",
+        "           \033[37m@@@\033[0m                                    ",
+        "           \033[37m@@@\033[0m                       \033[90m@@@\033[0m          ",
+        "           \033[37m@@@\033[0m      \033[90m@@@@@@@@@@@\033[0m     \033[90m@@@\033[0m      "
+        "     ",
+        "           \033[37m@@@\033[0m    \033[90m@@@         @@@\033[0m   \033[90m@@@\033[0m      "
+        "     ",
+        "           \033[37m@@@\033[0m    \033[90m@@@         @@@\033[0m   \033[90m@@@\033[0m      "
+        "     ",
+        "           \033[37m@@@\033[0m   \033[90m@@@          @@@\033[0m   \033[90m@@@\033[0m      "
+        "     ",
+        "            \033[37m@@@@@@@@\033[0m           \033[90m@@@@@@@@\033[0m           ",
+        "                                                  ",
+        "                                                  ",
+        "                                                  "};
     static char info[INFO_MAX][INFO_LINE_LEN];
     int info_count = build_info(info);
 

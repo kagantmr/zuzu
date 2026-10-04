@@ -1,8 +1,8 @@
 #ifndef PANIC_H
 #define PANIC_H
 
-#include <stdint.h>
 #include <arch/regs.h>
+#include <stdint.h>
 
 /*
  * Fault context filled by exception handlers before calling panic().
@@ -10,15 +10,15 @@
  */
 typedef struct {
     int valid;
-    uint32_t far;               /* DFAR or IFAR */
-    uint32_t fsr;               /* DFSR or IFSR */
-    const char *fault_type;     /* "Data abort" / "Prefetch abort" / etc. */
-    const char *fault_decoded;  /* decode_fault_status() result */
-    const char *access_type;    /* "Read" / "Write" */
-    CpuState *frame;   /* saved registers at exception entry */
-} panic_fault_context_t;
+    uint32_t far;              /* DFAR or IFAR */
+    uint32_t fsr;              /* DFSR or IFSR */
+    const char *fault_type;    /* "Data abort" / "Prefetch abort" / etc. */
+    const char *fault_decoded; /* DecodeFsr() result */
+    const char *access_type;   /* "Read" / "Write" */
+    CpuState *frame;           /* saved registers at exception entry */
+} PanicFaultContext;
 
-extern panic_fault_context_t panic_fault_ctx;
+extern PanicFaultContext panic_fault_ctx;
 
 /*
  * Halt the kernel to prevent further damage, and provide debugging information about the issue.
@@ -30,8 +30,8 @@ extern panic_fault_context_t panic_fault_ctx;
  * sections controlled by Makefile flags, then spins in WFI.
  * Uses polled UART only.
  *
- * Optional sections (default all on, disable by passing 0 to make):
- *   CONFIG_PANIC_SECTION_PROCESS    current process, handles, trapframe, IPC
+ * Optional sections (default all on, toggled in core/Kconfig):
+ *   CONFIG_PANIC_SECTION_PROCESS    current Space, handles, trapframe, IPC
  *   CONFIG_PANIC_SECTION_SCHEDULER  run queue, sleep queue
  *   CONFIG_PANIC_SECTION_IRQ        GIC enabled/pending lines, IRQ owners
  *   CONFIG_PANIC_SECTION_MEMORY     PMM, heap, kernel stack

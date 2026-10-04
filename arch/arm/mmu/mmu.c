@@ -3,9 +3,9 @@
 // Descriptor layouts, field positions and attribute encodings live in
 // armv7_mmu.h; this file is the logic that builds and edits them.
 
-#include "kernel/mm/pmm.h"
+#include "kernel/mm/pmm/pmm.h"
 #include "l2_pool.h"
-#include "zuzu/types.h"
+#include "types.h"
 #include <arch/asid.h>
 #include <arch/barrier.h>
 #include <arch/mmu.h>
@@ -14,29 +14,30 @@
 #include <stdint.h>
 #include <string.h>
 
-#define LOG_FMT(fmt) "(mmu) " fmt
-#include <zuzu/log.h>
-
-extern uint8_t dirty_bitmap[];
-
 /* Above this many pages, a single by-ASID flush is cheaper than a per-page
  * TLBI loop. Below it, the narrower by-VA invalidation keeps the rest of the
  * address space's translations warm. */
 #define UNMAP_TLBI_PAGE_THRESHOLD 16U
 
-static bool arch_mmu_map_page(AddressSpace *as, uintptr_t va, uintptr_t pa, VirtMemType memtype,
-                              MemProt prot);
+static bool ArchMmuMapPage(AddressSpace *as, uintptr_t va, uintptr_t pa, VirtMemType memtype,
+                           MemProt prot);
 
 // ---- Address-space geometry ----------------------------------------------
 
-static inline size_t l1_entry_count(AsType type)
+static inline size_t l1_entry_count(AddressSpaceType type)
 {
-    return (type == ADDRSPACE_USER) ? L1_ENTRIES_USER : L1_ENTRIES_KERNEL;
+    return (type == ADDRESS_SPACE_USER) ? L1_ENTRIES_USER : L1_ENTRIES_KERNEL;
 }
 
-static inline size_t l1_table_bytes(AsType type) { return l1_entry_count(type) * L1_DESC_BYTES; }
+static inline size_t l1_table_bytes(AddressSpaceType type)
+{
+    return l1_entry_count(type) * L1_DESC_BYTES;
+}
 
-static inline size_t l1_table_pages(AsType type) { return l1_table_bytes(type) / PAGE_SIZE; }
+static inline size_t l1_table_pages(AddressSpaceType type)
+{
+    return l1_table_bytes(type) / PAGE_SIZE;
+}
 
 // ---- Descriptor attribute encoding ---------------------------------------
 
@@ -76,10 +77,10 @@ static uint32_t l2_page_desc(uintptr_t pa, MemProt prot, VirtMemType memtype)
         e |= MMU_BIT(L2_PAGE_XN_BIT);
     if (prot & VM_PROT_USER)
         e |= MMU_BIT(L2_PAGE_NG_BIT); // ASID-tagged, not visible across address spaces
-    if (memtype == VM_MEM_DEVICE) 
+    if (memtype == VM_MEM_DEVICE)
         e |= L2_PAGE_ATTR_DEVICE;
     else
-        e |= L2_PAGE_ATTR_NORMAL | MMU_BIT(L2_PAGE_S_BIT); // <-- add
+        e |= L2_PAGE_ATTR_NORMAL | MMU_BIT(L2_PAGE_S_BIT);
 
     return e;
 }
@@ -108,7 +109,7 @@ static uint32_t l2_page_set_prot(uint32_t e, MemProt prot)
 // armv7_mmu.h for why the walk attributes must match the table's own mapping.
 static inline uint32_t ttbr_value(uintptr_t ttbr_pa) { return (uint32_t)ttbr_pa | TTBR_WALK_ATTRS; }
 
-uintptr_t arch_mmu_create_tables(AsType type)
+uintptr_t ArchMmuCreateTables(AddressSpaceType type)
 {
     const size_t l1_bytes = l1_table_bytes(type);
     const size_t l1_pages = l1_table_pages(type);
@@ -125,10 +126,9 @@ uintptr_t arch_mmu_create_tables(AsType type)
     return l1_pa;
 }
 
-void arch_mmu_free_tables(uintptr_t ttbr_pa, AsType type)
+void ArchMmuFreeTables(uintptr_t ttbr_pa, AddressSpaceType type)
 {
-    if (ttbr_pa == 0)
-    {
+    if (ttbr_pa == 0) {
         return;
     }
 
@@ -138,47 +138,39 @@ void arch_mmu_free_tables(uintptr_t ttbr_pa, AsType type)
     size_t entries = l1_entry_count(type);
     size_t pages = l1_table_pages(type);
 
-    for (size_t i = 0; i < entries; i++)
-    {
-        if ((l1[i] & DESC_TYPE_MASK) == DESC_L2)
-        {
+    for (size_t i = 0; i < entries; i++) {
+        if ((l1[i] & DESC_TYPE_MASK) == DESC_L2) {
             uint32_t l2_pa = l1[i] & L1_L2PTR_BASE_MASK;
             L2PtPoolFree(l2_pa);
         }
     }
 
-    for (size_t i = 0; i < pages; i++)
-    {
+    for (size_t i = 0; i < pages; i++) {
         PmmFreeFrame(ttbr_pa + i * PAGE_SIZE);
     }
 }
 
-bool arch_mmu_map(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, MemProt prot,
-                  VirtMemType memtype)
+bool ArchMmuMap(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, MemProt prot,
+                VirtMemType memtype)
 {
-    if (!as || size == 0)
-    {
+    if (!as || size == 0) {
         return false;
     }
 
     // TTBR0 user tables only cover [0, USER_VA_TOP) when N=1.
     // Reject ranges that would index beyond the user table.
-    if (as->type == ADDRSPACE_USER)
-    {
-        if (va >= USER_VA_TOP || size > (USER_VA_TOP - va))
-        {
+    if (as->type == ADDRESS_SPACE_USER) {
+        if (va >= USER_VA_TOP || size > (USER_VA_TOP - va)) {
             return false;
         }
     }
 
-    if ((va % SECTION_SIZE) == 0 && (pa % SECTION_SIZE) == 0 && (size % SECTION_SIZE) == 0)
-    {
+    if ((va % SECTION_SIZE) == 0 && (pa % SECTION_SIZE) == 0 && (size % SECTION_SIZE) == 0) {
         // During identity-map bring-up, TTBR0 PA is directly addressable (MMU off / identity).
         uint32_t *l1_table = (uint32_t *)PA_TO_VA(as->pt_root_physaddr);
         size_t max_idx = l1_entry_count(as->type);
 
-        for (uintptr_t offset = 0; offset < size; offset += SECTION_SIZE)
-        {
+        for (uintptr_t offset = 0; offset < size; offset += SECTION_SIZE) {
             uintptr_t curr_va = va + offset;
             uintptr_t curr_pa = pa + offset;
 
@@ -196,16 +188,12 @@ bool arch_mmu_map(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, Mem
         return true;
     }
 
-    if ((va % PAGE_SIZE == 0) && (pa % PAGE_SIZE == 0) && (size % PAGE_SIZE == 0))
-    {
-        for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE)
-        {
-            if (!arch_mmu_map_page(as, va + offset, pa + offset, memtype, prot))
-            {
+    if ((va % PAGE_SIZE == 0) && (pa % PAGE_SIZE == 0) && (size % PAGE_SIZE == 0)) {
+        for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE) {
+            if (!ArchMmuMapPage(as, va + offset, pa + offset, memtype, prot)) {
                 // Unmap everything that was mapped so far
-                for (uintptr_t rollback = 0; rollback < offset; rollback += PAGE_SIZE)
-                {
-                    arch_mmu_unmap_page(as, va + rollback);
+                for (uintptr_t rollback = 0; rollback < offset; rollback += PAGE_SIZE) {
+                    ArchMmuUnmapPage(as, va + rollback);
                 }
                 return false;
             }
@@ -217,10 +205,9 @@ bool arch_mmu_map(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, Mem
     return false;
 }
 
-bool arch_mmu_unmap(AddressSpace *as, uintptr_t va, size_t size, bool flush)
+bool ArchMmuUnmap(AddressSpace *as, uintptr_t va, size_t size, bool flush)
 {
-    if (!as || size == 0)
-    {
+    if (!as || size == 0) {
         return false;
     }
 
@@ -230,13 +217,10 @@ bool arch_mmu_unmap(AddressSpace *as, uintptr_t va, size_t size, bool flush)
     bool needs_trailing_flush = false;
 
     // Section-aligned: use sections
-    if ((va % SECTION_SIZE) == 0 && (size % SECTION_SIZE) == 0)
-    {
+    if ((va % SECTION_SIZE) == 0 && (size % SECTION_SIZE) == 0) {
         uint32_t *l1_table = (uint32_t *)PA_TO_VA(as->pt_root_physaddr);
 
-
-        for (uintptr_t offset = 0; offset < size; offset += SECTION_SIZE)
-        {
+        for (uintptr_t offset = 0; offset < size; offset += SECTION_SIZE) {
             size_t idx = L1_IDX(va + offset);
 
             uint32_t entry = l1_table[idx];
@@ -250,12 +234,11 @@ bool arch_mmu_unmap(AddressSpace *as, uintptr_t va, size_t size, bool flush)
             l1_table[idx] = 0;
             unmapped_any = true;
 
-            if ((entry & DESC_TYPE_MASK) == DESC_L2)
-            {
+            if ((entry & DESC_TYPE_MASK) == DESC_L2) {
                 if (flush) {
-                    ArchCtxSync();                                /* DSB: zero visible */
-                    arch_mmu_flush_tlb_asid(as->asid_token.asid); /* drop cached walks */
-                    ArchCtxSync();
+                    ArchSyncBarrier();                        /* DSB: zero visible */
+                    ArchMmuFlushTlbAsid(as->asid_token.asid); /* drop cached walks */
+                    ArchSyncBarrier();
                 }
                 L2PtPoolFree(entry & L1_L2PTR_BASE_MASK); /* now safe to free */
             } else {
@@ -264,40 +247,33 @@ bool arch_mmu_unmap(AddressSpace *as, uintptr_t va, size_t size, bool flush)
         }
     }
     // Page-aligned: use pages
-    else if ((va % PAGE_SIZE) == 0 && (size % PAGE_SIZE) == 0)
-    {
+    else if ((va % PAGE_SIZE) == 0 && (size % PAGE_SIZE) == 0) {
         page_mode = true;
-        for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE)
-        {
-            if (arch_mmu_unmap_page(as, va + offset))
-            {
+        for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE) {
+            if (ArchMmuUnmapPage(as, va + offset)) {
                 unmapped_any = true;
                 unmapped_pages++;
 
                 // For small unmaps, invalidate only the touched virtual address.
-                if (flush && size <= (UNMAP_TLBI_PAGE_THRESHOLD * PAGE_SIZE))
-                {
-                    arch_mmu_flush_tlb_va_asid(va + offset, as->asid_token.asid);
+                if (flush && size <= (UNMAP_TLBI_PAGE_THRESHOLD * PAGE_SIZE)) {
+                    ArchMmuFlushTlbVaAsid(va + offset, as->asid_token.asid);
                 }
             }
         }
-    }
-    else
-    {
+    } else {
         return false;
     }
 
-    if (unmapped_any && flush && (needs_trailing_flush || page_mode))
-    {
+    if (unmapped_any && flush && (needs_trailing_flush || page_mode)) {
         if (!page_mode || size > (UNMAP_TLBI_PAGE_THRESHOLD * PAGE_SIZE) || unmapped_pages == 0)
-            arch_mmu_flush_tlb_asid(as->asid_token.asid);
-        ArchCtxSync();
+            ArchMmuFlushTlbAsid(as->asid_token.asid);
+        ArchSyncBarrier();
     }
 
     return unmapped_any;
 }
 
-bool arch_mmu_protect(AddressSpace *as, uintptr_t va, size_t size, MemProt prot)
+bool ArchMmuProtect(AddressSpace *as, uintptr_t va, size_t size, MemProt prot)
 {
     if (!as || size == 0)
         return false;
@@ -305,15 +281,13 @@ bool arch_mmu_protect(AddressSpace *as, uintptr_t va, size_t size, MemProt prot)
     uint32_t *l1 = (uint32_t *)PA_TO_VA(as->pt_root_physaddr);
     bool changed = false;
 
-    for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE)
-    {
+    for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE) {
         uintptr_t curr_va = va + offset;
         uint32_t l1_idx = L1_IDX(curr_va);
         uint32_t l1_entry = l1[l1_idx];
         uint32_t type = l1_entry & DESC_TYPE_MASK;
 
-        if (type == DESC_SECTION)
-        {
+        if (type == DESC_SECTION) {
             // Section entry, rewrite permission bits in place.
             l1[l1_idx] = l1_section_set_prot(l1_entry, prot);
             changed = true;
@@ -322,8 +296,7 @@ bool arch_mmu_protect(AddressSpace *as, uintptr_t va, size_t size, MemProt prot)
             continue;
         }
 
-        if (type == DESC_L2)
-        {
+        if (type == DESC_L2) {
             // Page table, rewrite L2 entry
             uint32_t l2_pa = l1_entry & L1_L2PTR_BASE_MASK;
             uint32_t *l2 = (uint32_t *)PA_TO_VA(l2_pa);
@@ -337,18 +310,16 @@ bool arch_mmu_protect(AddressSpace *as, uintptr_t va, size_t size, MemProt prot)
         }
     }
 
-    if (changed)
-    {
-        arch_mmu_flush_tlb_asid(as->asid_token.asid);
-        ArchCtxSync();
+    if (changed) {
+        ArchMmuFlushTlbAsid(as->asid_token.asid);
+        ArchSyncBarrier();
     }
     return changed;
 }
 
-void arch_mmu_enable(AddressSpace *as)
+void ArchMmuEnable(AddressSpace *as)
 {
-    if (!as || as->pt_root_physaddr == 0)
-    {
+    if (!as || as->pt_root_physaddr == 0) {
         return;
     }
 
@@ -364,8 +335,8 @@ void arch_mmu_enable(AddressSpace *as)
     __asm__ volatile("mcr p15, 0, %0, c3, c0, 0" ::"r"(DACR_DOMAIN0_CLIENT) : "memory");
 
     // Invalidate TLB before enabling.
-    arch_mmu_flush_tlb();
-    ArchCtxSync();
+    ArchMmuFlushTlb();
+    ArchSyncBarrier();
 
     uint32_t sctlr;
     __asm__ volatile("mrc p15, 0, %0, c1, c0, 0" : "=r"(sctlr));
@@ -373,61 +344,58 @@ void arch_mmu_enable(AddressSpace *as)
     __asm__ volatile("mcr p15, 0, %0, c1, c0, 0" ::"r"(sctlr) : "memory");
 
     // Synchronize after enabling MMU.
-    ArchCtxSync();
+    ArchSyncBarrier();
 }
 
-void arch_mmu_switch(AddressSpace *as)
+void ArchMmuSwitch(AddressSpace *as)
 {
-    if (!as || as->pt_root_physaddr == 0)
-    {
+    if (!as || as->pt_root_physaddr == 0) {
         return;
     }
 
-    if (as->asid_token.generation != asid_current_generation())
-    {
-        asid_free(as->asid_token); // free the old ASID (no-op if already reclaimed)
-        as->asid_token = asid_alloc();
+    if (as->asid_token.generation != AsidCurrentGeneration()) {
+        AsidFree(as->asid_token); // free the old ASID (no-op if already reclaimed)
+        as->asid_token = AsidAlloc();
     }
 
     /* Park on reserved ASID 0: no speculative walk during the TTBR0 change
      * can then allocate a TLB entry tagged with a live ASID. */
     __asm__ volatile("mcr p15, 0, %0, c13, c0, 1" ::"r"(0U) : "memory"); // CONTEXTIDR
-    
+
     ArchIsb();
 
     __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"(ttbr_value(as->pt_root_physaddr))
                      : "memory"); // TTBR0
-    
+
     ArchIsb();
 
     __asm__ volatile("mcr p15, 0, %0, c13, c0, 1" ::"r"((uint32_t)as->asid_token.asid)
                      : "memory"); // CONTEXTIDR
 
     /**
-    * load bearing ISB. removed this and spent 12-14 sep 2026 entirely bugging
-    * possibly the worst days of my life too
-    * when everything was going wrong and i literally rewrote waitany
-    * qemu won't show this because it doesn't really model the mmu truly
-    */
+     * load bearing ISB. removed this and spent 12-14 sep 2026 entirely bugging
+     * possibly the worst days of my life too
+     * when everything was going wrong and i literally rewrote waitany
+     * qemu won't show this because it doesn't really model the mmu truly
+     */
     ArchIsb();
 
-    // Tell asid_alloc() which ASID is now actually live in hardware, so a
+    // Tell AsidAlloc() which ASID is now actually live in hardware, so a
     // rollover reserves it instead of handing it to a second address space.
     AsidSetActive(as->asid_token.asid);
 }
 
-void arch_mmu_flush_tlb(void)
+void ArchMmuFlushTlb(void)
 {
     // TLBIALL: invalidate the entire unified TLB.
     uint32_t zero = 0;
     __asm__ volatile("mcr p15, 0, %0, c8, c7, 0" ::"r"(zero) : "memory");
 }
 
-void arch_mmu_flush_tlb_asid(uint8_t asid)
+void ArchMmuFlushTlbAsid(uint8_t asid)
 {
-    if (asid == 0)
-    {
-        arch_mmu_flush_tlb();
+    if (asid == 0) {
+        ArchMmuFlushTlb();
         return;
     }
 
@@ -437,7 +405,7 @@ void arch_mmu_flush_tlb_asid(uint8_t asid)
 }
 
 // TLBIMVAA: by MVA, all ASIDs. For kernel/global VAs.
-void arch_mmu_flush_tlb_va(uintptr_t va)
+void ArchMmuFlushTlbVa(uintptr_t va)
 {
     __asm__ volatile("mcr p15, 0, %0, c8, c7, 3" ::"r"((uint32_t)(va & L2_SMALL_BASE_MASK))
                      : "memory");
@@ -446,16 +414,15 @@ void arch_mmu_flush_tlb_va(uintptr_t va)
 // TLBIMVA: by MVA + ASID. For user VAs, whose entries are nG and therefore
 // ASID-tagged -- TLBIMVAA would also evict every other address space's
 // translation for the same VA.
-void arch_mmu_flush_tlb_va_asid(uintptr_t va, uint8_t asid)
+void ArchMmuFlushTlbVaAsid(uintptr_t va, uint8_t asid)
 {
     __asm__ volatile("mcr p15, 0, %0, c8, c7, 1" ::"r"((uint32_t)((va & L2_SMALL_BASE_MASK) | asid))
                      : "memory");
 }
 
-uintptr_t arch_mmu_translate(PhysAddr ttbr_pa, VirtAddr va)
+PhysAddr ArchMmuTranslate(PhysAddr ttbr_pa, VirtAddr va)
 {
-    if (ttbr_pa == 0)
-    {
+    if (ttbr_pa == 0) {
         return 0;
     }
 
@@ -463,26 +430,22 @@ uintptr_t arch_mmu_translate(PhysAddr ttbr_pa, VirtAddr va)
     uint32_t l1_entry = l1_table[L1_IDX(va)];
     uint32_t type = l1_entry & DESC_TYPE_MASK;
 
-    if (type == DESC_FAULT)
-    {
+    if (type == DESC_FAULT) {
         return 0; // unmapped
     }
 
-    if (type == DESC_SECTION || type == DESC_SUPERSECTION)
-    {
+    if (type == DESC_SECTION || type == DESC_SUPERSECTION) {
         // Supersections are treated as sections here; zuzu never creates one.
         uintptr_t section_base = (uintptr_t)(l1_entry & L1_SECTION_BASE_MASK);
         return section_base | (va & (SECTION_SIZE - 1));
     }
 
-    if (type == DESC_L2)
-    {
+    if (type == DESC_L2) {
         uint32_t l2_table_pa = l1_entry & L1_L2PTR_BASE_MASK;
         uint32_t *l2 = (uint32_t *)PA_TO_VA(l2_table_pa);
         uint32_t l2_entry = l2[L2_IDX(va)];
 
-        if (!(l2_entry & L2_SMALL_TAG))
-        {
+        if (!(l2_entry & L2_SMALL_TAG)) {
             return 0; // not a valid small page
         }
 
@@ -493,15 +456,7 @@ uintptr_t arch_mmu_translate(PhysAddr ttbr_pa, VirtAddr va)
     return 0;
 }
 
-static uintptr_t arch_mmu_alloc_l2_table(void)
-{
-    uintptr_t new_page = L2PtPoolAlloc();
-    if (!new_page)
-        return 0;
-    return (uintptr_t)new_page;
-}
-
-static uint32_t arch_mmu_make_l1_pte(uintptr_t l2_pa)
+static uint32_t ArchMmuMakeL1Pte(uintptr_t l2_pa)
 {
     if (!l2_pa)
         return 0;
@@ -515,7 +470,7 @@ static uint32_t arch_mmu_make_l1_pte(uintptr_t l2_pa)
  * L1 page-table pointer. After this, individual pages can be remapped or
  * unmapped within the former section.
  */
-static bool arch_mmu_break_section(uint32_t *l1, uint32_t l1_idx, uint8_t asid)
+static bool ArchMmuBreakSection(uint32_t *l1, uint32_t l1_idx, uint8_t asid)
 {
     uint32_t section = l1[l1_idx];
     uintptr_t section_pa = section & L1_SECTION_BASE_MASK;
@@ -530,7 +485,7 @@ static bool arch_mmu_break_section(uint32_t *l1, uint32_t l1_idx, uint8_t asid)
     uint32_t ap2 = (section >> L1_SECT_AP2_BIT) & 0x1U;
     uint32_t ng = (section >> L1_SECT_NG_BIT) & 0x1U;
 
-    uintptr_t l2_pa = arch_mmu_alloc_l2_table();
+    uintptr_t l2_pa = (uintptr_t)L2PtPoolAlloc();
     if (!l2_pa)
         return false;
 
@@ -541,33 +496,30 @@ static bool arch_mmu_break_section(uint32_t *l1, uint32_t l1_idx, uint8_t asid)
                            (ap2 << L2_PAGE_AP2_BIT) | (ng << L2_PAGE_NG_BIT);
 
     /* Replicate the section mapping at 4 KB granularity */
-    for (uint32_t i = 0; i < L2_ENTRIES; i++)
-    {
+    for (uint32_t i = 0; i < L2_ENTRIES; i++) {
         uintptr_t page_pa = section_pa + (uintptr_t)i * PAGE_SIZE;
         l2[i] = (uint32_t)(page_pa & L2_SMALL_BASE_MASK) | L2_SMALL_TAG | attrs;
     }
 
     /* Replace the section entry with an L1 page-table descriptor */
-    l1[l1_idx] = arch_mmu_make_l1_pte(l2_pa);
+    l1[l1_idx] = ArchMmuMakeL1Pte(l2_pa);
 
     /* The old section's TLB entries are now stale */
-    arch_mmu_flush_tlb_asid(asid);
-    ArchCtxSync();
+    ArchMmuFlushTlbAsid(asid);
+    ArchSyncBarrier();
 
     return true;
 }
 
-static bool arch_mmu_map_page(AddressSpace *as, uintptr_t va, uintptr_t pa, VirtMemType memtype,
-                              MemProt prot)
+static bool ArchMmuMapPage(AddressSpace *as, uintptr_t va, uintptr_t pa, VirtMemType memtype,
+                           MemProt prot)
 {
-    if (!as)
-    {
+    if (!as) {
         return false;
     }
 
     // Single-page user mappings must stay within the TTBR0 user range.
-    if (as->type == ADDRSPACE_USER && va >= USER_VA_TOP)
-    {
+    if (as->type == ADDRESS_SPACE_USER && va >= USER_VA_TOP) {
         return false;
     }
 
@@ -583,25 +535,20 @@ static bool arch_mmu_map_page(AddressSpace *as, uintptr_t va, uintptr_t pa, Virt
 
     uint32_t *l2;
 
-    if (type == DESC_FAULT)
-    {
+    if (type == DESC_FAULT) {
         // Unmapped - allocate a fresh L2 table
-        uintptr_t l2_pa = arch_mmu_alloc_l2_table();
+        uintptr_t l2_pa = (uintptr_t)L2PtPoolAlloc();
         if (!l2_pa)
             return false;
 
-        l1[l1_idx] = arch_mmu_make_l1_pte(l2_pa);
+        l1[l1_idx] = ArchMmuMakeL1Pte(l2_pa);
         l2 = (uint32_t *)PA_TO_VA(l2_pa);
-    }
-    else if (type == DESC_L2)
-    {
+    } else if (type == DESC_L2) {
         // Already an L2 page table - reuse it
         l2 = (uint32_t *)PA_TO_VA(l1_entry & L1_L2PTR_BASE_MASK);
-    }
-    else
-    {
+    } else {
         // Section mapping - break it into page entries first
-        if (!arch_mmu_break_section(l1, l1_idx, as->asid_token.asid))
+        if (!ArchMmuBreakSection(l1, l1_idx, as->asid_token.asid))
             return false;
 
         l2 = (uint32_t *)PA_TO_VA(l1[l1_idx] & L1_L2PTR_BASE_MASK);
@@ -614,7 +561,7 @@ static bool arch_mmu_map_page(AddressSpace *as, uintptr_t va, uintptr_t pa, Virt
     return true;
 }
 
-bool arch_mmu_unmap_page(AddressSpace *as, uintptr_t va)
+bool ArchMmuUnmapPage(AddressSpace *as, uintptr_t va)
 {
     uint32_t *l1 = (uint32_t *)PA_TO_VA(as->pt_root_physaddr);
 
@@ -623,28 +570,25 @@ bool arch_mmu_unmap_page(AddressSpace *as, uintptr_t va)
 
     uint32_t l1_entry = l1[l1_idx];
 
-    if ((l1_entry & DESC_TYPE_MASK) != DESC_L2)
-    {
+    if ((l1_entry & DESC_TYPE_MASK) != DESC_L2) {
         return false; // Not a page table, can't unmap page
     }
 
     uint32_t *l2 = (uint32_t *)PA_TO_VA(l1_entry & L1_L2PTR_BASE_MASK);
 
-    if (l2[l2_idx] == 0)
-    {
+    if (l2[l2_idx] == 0) {
         return false; // wasn't mapped
     }
     l2[l2_idx] = 0;
     return true;
 }
 
-static VirtMemOwner mmu_region_owner_for_va(const AddressSpace *as, uintptr_t va)
+static VirtMemBacking mmu_region_owner_for_va(const AddressSpace *as, uintptr_t va)
 {
     if (!as)
-        return VM_OWNER_ANON;
+        return VM_BACKING_ANON;
 
-    for (uint32_t i = 0; i < as->regions.len; i++)
-    {
+    for (uint32_t i = 0; i < as->regions.len; i++) {
         const VirtMemRegion *r = vm_region_vec_get_const(&as->regions, i);
         if (!r)
             continue;
@@ -659,10 +603,10 @@ static VirtMemOwner mmu_region_owner_for_va(const AddressSpace *as, uintptr_t va
     }
 
     // If region metadata is missing, keep old behavior and reclaim.
-    return VM_OWNER_ANON;
+    return VM_BACKING_ANON;
 }
 
-void arch_mmu_free_user_pages(AddressSpace *as)
+void ArchMmuFreeUserPages(AddressSpace *as)
 {
     if (!as)
         return;
@@ -671,10 +615,9 @@ void arch_mmu_free_user_pages(AddressSpace *as)
 
     // Walk the user range of the L1. Only free the BACKING physical pages,
     // not the page-table structures: L2 tables and L1 pages are freed
-    // separately by arch_mmu_free_tables().
-    size_t entries = l1_entry_count(ADDRSPACE_USER);
-    for (size_t i = 0; i < entries; i++)
-    {
+    // separately by ArchMmuFreeTables().
+    size_t entries = l1_entry_count(ADDRESS_SPACE_USER);
+    for (size_t i = 0; i < entries; i++) {
         uint32_t l1_entry = l1[i];
 
         // Section mappings are not used for user space currently.
@@ -683,8 +626,7 @@ void arch_mmu_free_user_pages(AddressSpace *as)
 
         uint32_t *l2 = (uint32_t *)PA_TO_VA(l1_entry & L1_L2PTR_BASE_MASK);
 
-        for (size_t j = 0; j < L2_ENTRIES; j++)
-        {
+        for (size_t j = 0; j < L2_ENTRIES; j++) {
             if (!(l2[j] & L2_SMALL_TAG))
                 continue; // not a valid small page
 
@@ -695,7 +637,7 @@ void arch_mmu_free_user_pages(AddressSpace *as)
                 continue;
 
             // Only reclaim pages owned by this address space.
-            if (mmu_region_owner_for_va(as, va) != VM_OWNER_ANON)
+            if (mmu_region_owner_for_va(as, va) != VM_BACKING_ANON)
                 continue;
 
             // Device mappings are not PMM-owned pages.
@@ -707,7 +649,7 @@ void arch_mmu_free_user_pages(AddressSpace *as)
     }
 }
 
-void arch_mmu_init_ttbr1(AddressSpace *as)
+void ArchMmuInitTtbr1(AddressSpace *as)
 {
     // Mirror the kernel L1 into TTBR1, then set TTBCR.N to split at USER_VA_TOP.
     __asm__ volatile("mcr p15, 0, %0, c2, c0, 1" ::"r"(ttbr_value(as->pt_root_physaddr))
@@ -722,6 +664,6 @@ void arch_mmu_init_ttbr1(AddressSpace *as)
     ttbcr |= TTBCR_N_SPLIT_2GB;
     __asm__ volatile("mcr p15, 0, %0, c2, c0, 2" ::"r"(ttbcr) : "memory");
 
-    arch_mmu_flush_tlb();
-    ArchCtxSync();
+    ArchMmuFlushTlb();
+    ArchSyncBarrier();
 }

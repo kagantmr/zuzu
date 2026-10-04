@@ -1,9 +1,10 @@
 
 #include <cpio.h>
-#include <string.h>
 #include <stdint.h>
+#include <string.h>
 
-static uint32_t parse_hex8(const char *s) {
+static uint32_t parse_hex8(const char *s)
+{
     uint32_t val = 0;
     for (int i = 0; i < 8; i++) {
         char c = s[i];
@@ -17,16 +18,14 @@ static uint32_t parse_hex8(const char *s) {
     return val;
 }
 
-
-bool cpio_find(const void *base, size_t size, const char *name,
-               const void **data_out, size_t *size_out)
-                {
+bool cpio_find(const void *base, size_t size, const char *name, const void **data_out,
+               size_t *size_out)
+{
     const uint8_t *ptr = base;
     const uint8_t *end = base + size;
 
-
     while (ptr + sizeof(cpio_hdr_t) <= end) {
-        
+
         const cpio_hdr_t *hdr = (const cpio_hdr_t *)ptr;
 
         // validate magic

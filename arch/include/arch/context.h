@@ -5,11 +5,11 @@
 // "returns" into the right place. The callee-saved switch context and any
 // FP save area are arch-private details hidden behind these calls.
 
-#ifndef ZUZU_ARCH_CONTEXT_H
-#define ZUZU_ARCH_CONTEXT_H
+#ifndef ARCH_CONTEXT_H
+#define ARCH_CONTEXT_H
 
-#include <stdint.h>
 #include <arch/regs.h>
+#include <stdint.h>
 
 /**
  * Build a fresh kernel stack for a thread that will drop into USER mode.
@@ -22,14 +22,13 @@
  * @param trap_frame_out  If non-NULL, receives the built trap frame pointer.
  * @return The initial kernel stack pointer (store in thread->kernel_sp).
  */
-void *arch_thread_user_init(void *kstack_top, uintptr_t entry, uintptr_t user_sp,
-                            uintptr_t user_lr, uint32_t a0, uint32_t a1,
-                            CpuState **trap_frame_out);
+void *ArchTaskUserInit(void *kstack_top, uintptr_t entry, uintptr_t user_sp, uintptr_t user_lr,
+                       uint32_t a0, uint32_t a1, CpuState **trap_frame_out);
 
 /**
  * Build a fresh kernel stack for a thread that begins in KERNEL mode at `entry`
  * (e.g. the idle thread). Returns the initial kernel stack pointer.
  */
-void *arch_thread_kernel_init(void *kstack_top, void (*entry)(void));
+void *ArchTaskKernelInit(void *kstack_top, void (*entry)(void));
 
-#endif // ZUZU_ARCH_CONTEXT_H
+#endif // ARCH_CONTEXT_H

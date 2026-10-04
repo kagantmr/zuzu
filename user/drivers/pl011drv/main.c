@@ -1,306 +1,181 @@
 #include "pl011drv.h"
-#include "zuzu/protocols/uart.h"
-#include "zuzu/protocols/devm.h"
-#include "zuzu/protocols/nametable.h"
-#include <zuzu/protocols/exec.h>
-#include "zuzu/lmsg.h"
-#include "zuzu/service.h"
-#include <ring.h>
-#include <zuzu/cap.h>
-#include <zuzu/channel.h>
-#include <stdint.h>
+#include <dev/protocols/devm.h>
+#include <dev/protocols/tty.h>
 #include <string.h>
+#include <util/msg.h>
+#include <util/shm_ring.h>
+#include <zuzu/err.h>
+#include <zuzu/service.h>
+#include <zuzu/udbg.h>
+#include <zuzu/zuzu.h>
 
-#ifdef CONFIG_ZUZU_BENCH
-#include <arch/cycles.h>
-#include <snprintf.h>
-#include <zuzu/bench.h>
-#endif
-
-#define PL011DRV_DEV_CLASS DEV_CLASS_SERIAL
 #define PL011DRV_COMPATIBLE "arm,pl011"
-/* rpi4's DTB lists "arm,pl011-axi" as the UART's *first* compatible string
- * (compatible = "arm,pl011-axi", "arm,pl011", "arm,primecell";), and the
- * kernel's DTB enumeration only keeps that first string per device (see
- * dtb_enum_devices() in kernel/dtb/dtb.c) -- so devmgr's exact strcmp
- * against just "arm,pl011" never matches on rpi4. Mirror the alias list
- * the PL011 driver registration already uses for the console lookup. */
+
 #define PL011DRV_COMPATIBLE_AXI "arm,pl011-axi"
 
-static volatile pl011_t *uart;
-static Handle client_port = -1;
-static Handle devmgr_port = -1;
-static Handle serial_dev_handle = -1;
-static Handle serial_irq_ntfn = -1;
-static ring_t rxrb, txrb;
-static uint8_t rxbuf_storage[UART_RINGBUF_MAX];
-static uint8_t txbuf_storage[UART_RINGBUF_MAX];
+#define BIT_IRQ 0
+#define BIT_KICK 1 /* ttysvc rings this on our event */
+#define POLL_MS 10 /* safety net  */
+#define MASK(bit) (1U << (bit))
 
-static void uart_txraw(char c)
-{
-    /* Poll TXFF rather than queueing behind TXIM. The TX interrupt is the only
-     * thing that drains txrb, so on a board where the UART IRQ never arrives
-     * output stops dead after the first FIFO-full -- one character, then
-     * silence, with the rest of the string stuck in the ring. Spinning costs a
-     * character time (~87us at 115200) and always works. */
-    while (uart->FR & FR_TXFF)
-        ;
-    uart->DR = (uint32_t)c;
-}
+static volatile Pl011Mmio *uart;
+static Handle devsvc_port = -1;
+static Handle g_dev = -1;
+static Handle g_event = -1;
+static TtyConn g_tty;
+static bool g_online;
 
-static void uart_txbyte(char c)
+static bool UartTxPump(void)
 {
-    if (c == '\n') {
-        uart_txraw('\r');
+    if (!g_online)
+        return false;
+    TtyShm *shm = g_tty.shm;
+    bool popped = false;
+    while (!(uart->fr & FR_TXFF)) {
+        uint8_t b = 0;
+        if (ShmRingPop(&shm->down_hdr, shm->down_data, &b, 1) == 0) {
+            uart->imsc &= ~IMSC_TXIM;
+            return popped;
+        }
+        uart->dr = b;
+        popped = true;
     }
-    uart_txraw(c);
+    uart->imsc |= IMSC_TXIM;
+    return popped;
 }
 
-static void uart_puts(const char* s) {
-    while (*s) {
-        uart_txbyte(*s++);
-    }
-}
-
-static uint32_t drain_uart_rx_fifo(uint32_t *err_bytes_out)
+static bool UartRxPump(void)
 {
-    uint32_t pushed = 0;
-    uint32_t err_bytes = 0;
-    while (!(uart->FR & FR_RXFE) && ring_full(&rxrb) == 0) {
-        uint32_t dr = uart->DR;
-        /* DR[11:8] = OE/BE/PE/FE for this byte. A break or framing error also
-         * latches in RSR and stays latched until written, so without this the
-         * FIFO keeps handing back error bytes forever -- a single line glitch
-         * turns into an endless stream of garbage characters. Drop the byte
-         * and clear the status. */
-        if (dr & 0xF00u) {
-            uart->RSR = 0xFu;
-            err_bytes++;
+    bool pushed_any = false;
+    while (!(uart->fr & FR_RXFE)) {
+        if (g_online && ShmRingFree(&g_tty.shm->up_hdr) == 0) {
+            uart->imsc &= ~(IMSC_RXIM | IMSC_RTIM);
+            return pushed_any;
+        }
+        uint32_t dr = uart->dr;
+        if (dr & 0xF00U) {
+            uart->rsr = 0xFU;
             continue;
         }
-        if (ring_push(&rxrb, (uint8_t)(dr & 0xFFu)) == 0)
-            pushed++;
+        if (!g_online)
+            continue;
+        uint8_t b = (uint8_t)(dr & 0xFFU);
+        ShmRingPush(&g_tty.shm->up_hdr, g_tty.shm->up_data, &b, 1);
+        pushed_any = true;
     }
-    if (err_bytes_out)
-        *err_bytes_out = err_bytes;
-    return pushed;
+    uart->imsc |= (IMSC_RXIM | IMSC_RTIM);
+    return pushed_any;
 }
 
-static void wait_for_devmgr(void)
+static Handle WaitForTty(void)
 {
-    while (1) {
-        Handle ntmsg = LookupService("/svc/devmgr");
-        if (ntmsg > 0) {
-            devmgr_port = (int32_t)ntmsg;
-            return;
+    for (;;) {
+        Handle h = LookupService("/svc/tty");
+        if (h >= 0)
+            return h;
+        Sleep(10);
+    }
+}
+
+static Err WaitForDevsvc(void)
+{
+    for (;;) {
+        Handle h = LookupService("/svc/devsvc");
+        if (h >= 0) {
+            devsvc_port = h;
+            return ZUZU_OK;
         }
-        ZuzuSleep(10);
+        Sleep(10);
     }
 }
 
-static Handle request_serial_device(void)
+static Handle RequestSerialDevice(void)
 {
-    static const char *const compat[] = { PL011DRV_COMPATIBLE, PL011DRV_COMPATIBLE_AXI };
-    return DevmRequestDevice(devmgr_port, compat, 2, NULL);
+    static const char *const compat[] = {PL011DRV_COMPATIBLE, PL011DRV_COMPATIBLE_AXI};
+    return RequestDevice(devsvc_port, compat, 2, NULL);
 }
 
-static void handle_irq_event(void)
+static Err Pl011DrvSetup(void)
 {
-    if (uart->MIS & (IMSC_RXIM | IMSC_RTIM)) {
-        (void)drain_uart_rx_fifo(NULL);
-        uart->ICR = (IMSC_RXIM | IMSC_RTIM);
-    }
-    if (uart->MIS & IMSC_TXIM) {
-        while (!(uart->FR & FR_TXFF) && ring_avail(&txrb) > 0) {
-            uint8_t b = 0;
-            if (ring_pop(&txrb, &b) == 0)
-                uart->DR = (uint32_t)b;
-            else
-                break;
-        }
-        if (ring_avail(&txrb) == 0)
-            uart->IMSC &= ~IMSC_TXIM;
-        uart->ICR = IMSC_TXIM;
-    }
-    ZuzuIrqDone((uint32_t)serial_dev_handle);
-}
-
-/* ZuzuMsgLsend(client_port, len): fire-and-forget write, payload in lmsg_buf(). */
-static void handle_write(uint32_t len)
-{
-    if (len > LMSG_BUF_SIZE)
-        len = LMSG_BUF_SIZE;
-
-    const char *buf = LmsgBuf();
-    for (uint32_t i = 0; i < len; i++)
-        uart_txbyte(buf[i]);
-}
-
-/* ZuzuMsgLcall(client_port, max_len): read up to max_len bytes already
- * buffered from the UART; replies immediately with however many are
- * available (possibly zero) rather than blocking for more. */
-static void handle_read(Handle reply_handle, uint32_t max_len)
-{
-    if (max_len > LMSG_BUF_SIZE)
-        max_len = LMSG_BUF_SIZE;
-
-    (void)drain_uart_rx_fifo(NULL);
-
-    char *buf = (char *)LmsgBuf();
-    uint32_t n = 0;
-    while (n < max_len && ring_avail(&rxrb) > 0) {
-        uint8_t b = 0;
-        if (ring_pop(&rxrb, &b) != 0)
-            break;
-        buf[n++] = (char)b;
-    }
-
-    (void)ChannelReply(reply_handle, buf, n);
-}
-
-#ifdef CONFIG_ZUZU_BENCH
-static void uart_bench_print(const char *label, const BenchResult *r)
-{
-    uint64_t avg_x100 = r->count ? (r->sum * 100) / r->count : 0;
-    char line[96];
-    int n = snprintf(line, sizeof(line),
-                      "[BENCH] %-32s min=%-8u avg=%u.%02u max=%-8u (cycles, n=%u)\n", label,
-                      r->min, (uint32_t)(avg_x100 / 100), (uint32_t)(avg_x100 % 100), r->max,
-                      r->count);
-    if (n < 0)
-        return;
-    if ((size_t)n >= sizeof(line))
-        n = (int)sizeof(line) - 1;
-    for (int i = 0; i < n; i++)
-        uart_txbyte(line[i]);
-}
-
-/* Exercises the kernel's IRQ-wait block->unblock bracket (SysNtfnWait's
- * block point / relay_handler's unblock point, kernel/irq/sys_irq.c) using
- * our own TX-empty interrupt as a real, self-triggerable hardware IRQ
- * source. No bytes ever go on the wire: the FIFO is already empty, so
- * unmasking IMSC_TXIM alone makes the PL011 assert the interrupt. Run
- * once, before this driver takes client traffic. */
-static void run_irq_wait_bench(void)
-{
-    BenchResult r = { 0 };
-    uint32_t total = ZUZU_BENCH_WARMUP_ITERS + ZUZU_BENCH_ITERS;
-
-    for (uint32_t i = 0; i < total; i++) {
-        uart->ICR = IMSC_TXIM;
-
-        uint32_t start = ArchMeasure();
-        uart->IMSC |= IMSC_TXIM;
-
-        (void)ZuzuNtfnWait(serial_irq_ntfn, TIMEOUT_INFINITE);
-        uint32_t end = ArchMeasure();
-
-        uart->IMSC &= ~IMSC_TXIM;
-        uart->ICR = IMSC_TXIM;
-        ZuzuIrqDone((uint32_t)serial_dev_handle);
-
-        if (i >= ZUZU_BENCH_WARMUP_ITERS)
-            bench_result_record(&r, end - start);
-    }
-
-    uart_bench_print("IRQ wait block->unblock", &r);
-}
-#endif /* CONFIG_ZUZU_BENCH */
-
-int pl011drv_setup(void)
-{
-    client_port = ZuzuPortCreate();
-    if (client_port < 0) {
-        return client_port;
-    }
-
-    Err rc = RegisterService("/dev/uart0", client_port);
-    if (rc < 0) {
+    Err rc = WaitForDevsvc();
+    UserspaceDebugLog("pl011drv: devsvc lookup rc=%d", rc);
+    if (rc != ZUZU_OK)
         return rc;
-    }
 
-    wait_for_devmgr();
+    g_dev = RequestSerialDevice();
+    UserspaceDebugLog("pl011drv: device handle=%d", g_dev);
+    if (g_dev < 0)
+        return (Err)g_dev;
 
-    int32_t dev_handle = request_serial_device();
-    if (dev_handle < 0) {
-        return dev_handle;
-    }
+    Pl011Mmio *mmio = MemMap(g_dev, 0, PROT_RW);
+    UserspaceDebugLog("pl011drv: mmio=0x%x", (unsigned)mmio);
+    if (PtrIsErr(mmio))
+        return (Err)mmio;
+    uart = (volatile Pl011Mmio *)mmio;
 
-    serial_irq_ntfn = ZuzuNtfnCreate();
-    if (serial_irq_ntfn < 0) {
-        return serial_irq_ntfn;
-    }
+    uart->imsc = 0;
+    uart->cr = 0;
+    uart->icr = ICR_ALL;
+    uart->ifls = (uart->ifls & ~IFLS_RX_MASK) | IFLS_RX_1_8;
+    uart->lcrh = LCRH_FEN | LCRH_WLEN_8;
+    uart->cr = CR_UARTEN | CR_TXE | CR_RXE;
+    uart->icr = ICR_ALL;
 
-    int32_t bind_rc = ZuzuIrqBind(dev_handle, (uint32_t)serial_irq_ntfn);
-    if (bind_rc < 0) {
-        return bind_rc;
-    }
+    g_event = CreateEvent();
+    if (g_event < 0)
+        return (Err)g_event;
+    rc = BindIrq(g_event, g_dev, BIT_IRQ);
+    UserspaceDebugLog("pl011drv: irq bind rc=%d", rc);
+    if (rc != ZUZU_OK)
+        return rc;
 
-    serial_dev_handle = dev_handle;
-    uart = (volatile pl011_t *)ZuzuMemMap(dev_handle, 0, PROT_RW, 0);
-    if ((intptr_t)uart <= 0) {
-        return (int)(intptr_t)uart;
-    }
+    Handle tty_port = WaitForTty();
+    rc = TtyClientConnect(tty_port, TTY_PROVIDE, "uart0", g_event, BIT_KICK, &g_tty);
+    UserspaceDebugLog("pl011drv: provide uart0 rc=%d", rc);
+    if (rc != ZUZU_OK)
+        return rc;
+    g_online = true;
 
-    ring_init(&rxrb, rxbuf_storage, UART_RINGBUF_MAX);
-    ring_init(&txrb, txbuf_storage, UART_RINGBUF_MAX);
+    uart->imsc = (IMSC_RXIM | IMSC_RTIM);
+    return ZUZU_OK;
+}
 
-    uart->IMSC = 0;
-    uart->CR = 0;
-    uart->ICR = ICR_ALL;
-    uart->IFLS = (uart->IFLS & ~IFLS_RX_MASK) | IFLS_RX_1_8;
-    uart->LCRH = LCRH_FEN | LCRH_WLEN_8;
-    uart->CR = CR_UARTEN | CR_TXE | CR_RXE;
-    uart->ICR = ICR_ALL;
-    uart->IMSC = (IMSC_RXIM | IMSC_RTIM);
-
-#ifdef CONFIG_ZUZU_BENCH
-    run_irq_wait_bench();
-#endif
-
-    return PL011DRV_INIT_OK;
+static void KickTty(void)
+{
+    Err rc = Signal(g_tty.doorbell, MASK(g_tty.bit), false);
+    if (rc != ZUZU_OK)
+        UserspaceDebugLog("pl011drv: kick ttysvc failed rc=%d", rc);
 }
 
 int main(void)
 {
-    int exit_code;
-    if ((exit_code = pl011drv_setup()) != 0)
-        return exit_code;
+    UserspaceDebugLog("pl011drv: started");
+    Err rc = Pl011DrvSetup();
+    if (rc != ZUZU_OK)
+        return rc;
+    UserspaceDebugLog("pl011drv: entering event loop");
 
-    enum { H_IRQ = 0, H_PORT = 1 };
-    Handle handles[] = {
-        [H_IRQ]  = serial_irq_ntfn,
-        [H_PORT] = client_port,
-    };
+    for (;;) {
+        EventWaitResult ev = FormatToEventWait(WaitOn(g_event, POLL_MS));
+        bool irq = ev.status == ZUZU_OK && (ev.bits & MASK(BIT_IRQ));
 
-    uart_puts("pl011drv is up\n");
-
-    while (1) {
-        /* Zeroed every iteration, with a kind the kernel never returns: a
-         * waitany that reports success without filling this in would
-         * otherwise leave the previous iteration's kind and length here,
-         * and we would replay that message against whatever the lmsg
-         * buffer now holds. Treat an unwritten result as no event. */
-        WaitanyResult r;
-        memset(&r, 0, sizeof(r));
-        r.kind = (WaitanyType)0xEE; /* no kernel path yields this */
-
-        Err rc = ZuzuWaitany(handles, 2, TIMEOUT_INFINITE, &r);
-
-        if (rc == ZUZU_OK && r.kind != (WaitanyType)0xEE) {
-            switch (r.kind) {
-            case WAITANY_KIND_NTFN:
-                handle_irq_event();
-                break;
-            case WAITANY_KIND_SEND:
-                handle_write(r.w1);
-                break;
-            case WAITANY_KIND_CALL:
-                handle_read((Handle)r.source, r.w2);
-                break;
-            default:
-                break;
+        bool rx = false;
+        bool tx = false;
+        for (;;) {
+            uart->icr = ICR_ALL;
+            rx |= UartRxPump();
+            tx |= UartTxPump();
+            if (irq) {
+                IrqRearm(g_dev);
+                irq = false;
             }
+            /* Re-check after unmasking: a byte that arrived while the line was
+             * masked may not raise a new interrupt. Stop if the FIFO is empty,
+             * or if it isn't only because ttysvc's ring is full. */
+            if ((uart->fr & FR_RXFE) || ShmRingFree(&g_tty.shm->up_hdr) == 0)
+                break;
         }
+        if (rx || tx)
+            KickTty();
     }
 }

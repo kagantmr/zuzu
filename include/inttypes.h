@@ -5,8 +5,8 @@
 extern "C" {
 #endif
 
-#include <stdint.h>
 #include <limits.h>
+#include <stdint.h>
 
 #define PRId8 "d"    /* int8_t */
 #define PRId16 "d"   /* int16_t */

@@ -1,5 +1,5 @@
-#ifndef ONCE_KERNEL_TIME_TICK_H
-#define ONCE_KERNEL_TIME_TICK_H
+#ifndef KERNEL_TIME_TICK_H
+#define KERNEL_TIME_TICK_H
 
 #include <stdint.h>
 
@@ -21,4 +21,4 @@ typedef void (*TickCb)(void);
 void RegisterTickCb(TickCb cb);
 void tick_announce(void);
 
-#endif // ONCE_KERNEL_TIME_TICK_H
+#endif // KERNEL_TIME_TICK_H

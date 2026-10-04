@@ -10,52 +10,51 @@
 //   lower addr   └─────────────────────────┘  <- returned kernel_sp
 //
 // FPU state is not part of the kernel stack: it's saved lazily into
-// thread_t::fpu_state (see arch/fpu.h), so context_switch never touches it.
+// TaskObject::fpu_state (see arch/fpu.h), so ContextSwitch never touches it.
 
 #include <arch/context.h>
 #include <arch/regs.h>
 #include <string.h>
 
-/* Initial CPSR for a user thread: USR mode (0x10), IRQs enabled. */
-#define ARM_CPSR_USER     0x10u
+/* Initial Cpsr for a user thread: USR mode (0x10), IRQs enabled. */
+#define ARM_CPSR_USER 0x10u
 
 /* Entry trampoline that pops the exception frame and returns to user mode. */
-extern void process_entry_trampoline(void);
+extern void task_entry_trampoline(void);
 
-void *arch_thread_user_init(void *kstack_top, uintptr_t entry, uintptr_t user_sp,
-                            uintptr_t user_lr, uint32_t a0, uint32_t a1,
-                            CpuState **trap_frame_out)
+void *ArchTaskUserInit(void *kstack_top, uintptr_t entry, uintptr_t user_sp, uintptr_t user_lr,
+                       uint32_t a0, uint32_t a1, CpuState **trap_frame_out)
 {
     uintptr_t sp = (uintptr_t)kstack_top;
 
     sp -= sizeof(CpuState);
     CpuState *f = (CpuState *)sp;
     memset(f, 0, sizeof(*f));
-    *arch_reg(f, 0) = a0;
-    *arch_reg(f, 1) = a1;
-    f->sp_usr       = (uint32_t)user_sp;
-    f->lr_usr       = (uint32_t)user_lr;
-    f->return_pc    = (uint32_t)entry;
-    f->return_cpsr  = ARM_CPSR_USER;
+    *ArchGetFromFrame(f, 0) = (Register)a0;
+    *ArchGetFromFrame(f, 1) = (Register)a1;
+    f->sp_usr = (Register)user_sp;
+    f->lr_usr = (Register)user_lr;
+    f->return_pc = (Register)entry;
+    f->return_cpsr = ARM_CPSR_USER;
     if (trap_frame_out)
         *trap_frame_out = f;
 
     sp -= sizeof(CpuContext);
     CpuContext *ctx = (CpuContext *)sp;
     memset(ctx, 0, sizeof(*ctx));
-    ctx->lr = (uint32_t)process_entry_trampoline;
+    ctx->lr = (Register)task_entry_trampoline;
 
     return (void *)sp;
 }
 
-void *arch_thread_kernel_init(void *kstack_top, void (*entry)(void))
+void *ArchTaskKernelInit(void *kstack_top, void (*entry)(void))
 {
     uintptr_t sp = (uintptr_t)kstack_top;
 
     sp -= sizeof(CpuContext);
     CpuContext *ctx = (CpuContext *)sp;
     memset(ctx, 0, sizeof(*ctx));
-    ctx->lr = (uint32_t)entry;
+    ctx->lr = (Register)entry;
 
     return (void *)sp;
 }

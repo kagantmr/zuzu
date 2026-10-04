@@ -1,0 +1,16 @@
+# zuzu initrd boot manifest v3
+# format: <program>|<role>[:flags][|<service-path>]
+# role: none, file   flags: late
+# "file" is packed into the initrd but never spawned.
+
+bin/rootsvc
+
+bin/ttysvc|none|/svc/tty
+bin/pl011drv|none|/dev/uart0
+bin/pl181drv|none|/dev/mmc0
+bin/fsd|none|/svc/fsd
+# bin/lan9118drv|none|/dev/eth0
+# bin/netd|none|/svc/netd
+bin/zzsh|none:late|/env/zzsh
+
+bin/schedtest|none|/env/schedtest

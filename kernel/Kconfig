@@ -18,7 +18,7 @@ config ZUZU_BENCH
 	  Fixed measurement points (kernel/bench.h). Compiled out entirely when
 	  off, so a production build carries no footprint.
 
-	  Known broken: kernel/ipc/sys_msg.c fails to compile with this on, at
+	  Known broken: kernel/ipc/msg.c fails to compile with this on, at
 	  a -Wcast-align violation and a wait_count use outside its scope. Both
 	  predate the Kconfig migration (reproduced at 70216f4).
 

@@ -22,6 +22,7 @@ NEWLIB_INC = build/newlib-include
 
 NEWLIB_USER_CFLAGS = -O$(CONFIG_USER_CC_OPT_LEVEL) -Wall -Wextra -mthumb \
                      $(CPUFLAGS) -I. -I$(NEWLIB_INC) -Iarch/include -Iarch/$(ARCH)/include \
+                     -idirafter include \
                      -MMD -MP -g $(ARCH_USER_FP) \
                      -include $(KCONFIG_AUTOCONF) \
                      -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"'
@@ -111,10 +112,13 @@ USER_APP_OBJS := $(foreach p,$(BOARD_PROGS),$(USER_$(p)_OBJS))
 LIB_PROG_OBJS := $(foreach p,$(LIB_PROGS),$(USER_$(p)_OBJS))
 
 # zcrt: the user-side runtime for tier-1 — klib rebuilt with user flags, the
-# ZCRT libc (lib/), and the IPC runtime (lib/zuzu/). klib/arm/*.S (hand-tuned
-# memcpy/memset) is picked up separately -- it's not covered by the flat
-# klib/*.c wildcard, and needs its own .S compile rule below.
-ZCRT_CSRCS := $(wildcard klib/*.c lib/*.c lib/zuzu/*.c lib/zuzu/sync/*.c)
+# ZCRT libc (lib/), and the IPC runtime (include/{sync,net,fs,dev,util}/,
+# include/zuzu/*.c). klib/arm/*.S (hand-tuned memcpy/memset) is picked up
+# separately -- it's not covered by the flat klib/*.c wildcard, and needs its
+# own .S compile rule below. klib/*.c stays a separate wildcard since klib/ is
+# untouched and lives outside include/.
+ZCRT_CSRCS := $(wildcard klib/*.c) lib/malloc.c lib/stdio.c \
+              $(shell find include -name '*.c')
 ZCRT_SSRCS := $(shell find klib -name '*.S')
 ZCRT_SRCS  := $(ZCRT_CSRCS) $(ZCRT_SSRCS)
 ZCRT_OBJS  := $(patsubst %.c,$(O)/user/zcrt/%.o,$(ZCRT_CSRCS)) \
@@ -132,8 +136,12 @@ $(ZCRT_ARCHIVE): $(ZCRT_OBJS)
 # unambiguously. sbrk.c must be here explicitly: the _sbrk stub calls
 # sbrk(), and without this object the linker pulls newlib's sbrk() from
 # libc.a, which calls _sbrk_r -> _sbrk -> sbrk: unbounded recursion that
-# runs the stack into the guard page on the first malloc.
-NEWLIB_ZCRT_SRCS := $(wildcard lib/zuzu/*.c lib/zuzu/sync/*.c) lib/sbrk.c
+# runs the stack into the guard page on the first malloc. Deliberately not a
+# blanket `find include` like ZCRT_CSRCS above: include/{convert,stdlib}.c
+# and include/zuzu/err.c stay off this list, same as before the include/
+# reorg, so this tier keeps using newlib's own libc for those symbols.
+NEWLIB_ZCRT_SRCS := $(filter-out include/util/spawn.c,$(shell find include/sync include/net include/fs include/util -name '*.c')) \
+                     include/zuzu/service.c include/sbrk.c
 NEWLIB_ZCRT_OBJS := $(patsubst %.c,$(O)/user/zcrt/%.o,$(NEWLIB_ZCRT_SRCS))
 NEWLIB_STUB_SRCS := $(wildcard lib/posix/*.c)
 NEWLIB_STUB_OBJS := $(patsubst lib/%.c,$(O)/lib/%.o,$(NEWLIB_STUB_SRCS))
@@ -212,10 +220,10 @@ $(NEWLIB_CRT0): $(ARCH_DIR)/crt0.S
 
 # ---- user program link rules ------------------------------------------------
 define LINK_USER_PROG
-$(O)/user/$(1).elf: $$(USER_$(1)_OBJS) $(USER_CRT0) $(ZCRT_OBJS) user/user.ld
+$(O)/user/$(1).elf: $$(USER_$(1)_OBJS) $(USER_CRT0) $(ZCRT_ARCHIVE) user/user.ld
 	@mkdir -p $$(dir $$@)
 	@echo "  LD      $$@"
-	@$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) $$(USER_$(1)_OBJS) $(ZCRT_OBJS) $(USER_LIBGCC) -o $$@
+	@$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) $$(USER_$(1)_OBJS) $(ZCRT_ARCHIVE) $(USER_LIBGCC) -o $$@
 endef
 
 $(foreach p,$(filter $(ZCRT_PROGS),$(BOARD_PROGS)),$(eval $(call LINK_USER_PROG,$(p))))
@@ -245,9 +253,10 @@ $(O)/user/%.stripped.elf: $(O)/user/%.elf
 	@$(USER_OBJCOPY) --strip-debug $< $@
 
 # ---- ZXF conversion ----------------------------------------------------------
-# Everything in the initrd ships as ZXF: the kernel loads sysd/devmgr directly
-# via KernelProcessLoad and sysd's loader (user/services/sysd/exec.c)
-# dispatches on magic, so both understand it. SD-card programs stay plain ELF.
+# Everything in the initrd ships as ZXF: the kernel loads rootsvc directly via
+# KernelSpaceLoad and rootsvc spawns the rest through SpawnProcess
+# (include/util/spawn.c), which dispatches on magic. SD-card programs stay
+# plain ELF.
 ZXF_PROGS = $(BOOT_PROGS)
 ZXF_PROG_FILES = $(ZXF_PROGS:%=$(O)/user/%.zxf)
 

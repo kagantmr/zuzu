@@ -1,38 +1,40 @@
 // irq.c - ARM IRQ handling implementation
 
-#include <arch/irq.h>
 #include "arch/arm/include/gicv2.h"
 #include "arch/arm/timer/generic_timer.h"
+#include <arch/irq.h>
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdbool.h>
 
 #define LOG_FMT(fmt) "(irq) " fmt
 #include "core/log.h"
 
-irq_handler_t handler_table[MAX_IRQS];
-void* handler_ctx[MAX_IRQS];
+IrqHandler handler_table[MAX_IRQS];
+void *handler_ctx[MAX_IRQS];
 
-bool arch_irq_is_reserved(uint32_t irq_id) {
+bool ArchIrqIsOwnedByKernel(uint32_t irq_id)
+{
     switch (irq_id) {
-    case TIMER_IRQ_VIRT:   // ARM generic timer CNTV PPI
+    case TIMER_IRQ_VIRT: // ARM generic timer CNTV PPI
         return true;
     default:
         return false;
     }
 }
 
-void arch_irq_init(void) {
+void ArchIrqInit(void)
+{
     // Clear handler table
-    for (uint32_t i = 0; i < MAX_IRQS; i++)
-    {
+    for (uint32_t i = 0; i < MAX_IRQS; i++) {
         handler_table[i] = NULL;
         handler_ctx[i] = NULL;
     }
 }
 
-bool arch_irq_register(uint32_t irq_id, irq_handler_t handler, void *ctx) {
+bool ArchIrqRegister(uint32_t irq_id, IrqHandler handler, void *ctx)
+{
     if (irq_id >= MAX_IRQS || handler == NULL) {
         return false;
     }
@@ -42,40 +44,39 @@ bool arch_irq_register(uint32_t irq_id, irq_handler_t handler, void *ctx) {
     return true;
 }
 
-bool arch_irq_unregister(uint32_t irq_id) {
-    if (irq_id >= MAX_IRQS) {
-        return false;
-    }
-    handler_table[irq_id] = NULL;
-    handler_ctx[irq_id] = NULL;
-    return true;    
+bool ArchIrqHasHandler(uint32_t irq_id)
+{
+    return irq_id < MAX_IRQS && handler_table[irq_id] != NULL;
 }
 
-void ArchIrqSetPrio(Irq irq_id, uint8_t prio) {
-    GicV2SetPriority(irq_id, prio);
+void *ArchIrqHandlerAddr(uint32_t irq_id)
+{
+    return irq_id < MAX_IRQS ? (void *)handler_table[irq_id] : NULL;
 }
 
-void arch_irq_disable_line(uint32_t irq_id) {
+void ArchIrqSetPrio(Irq irq_id, uint8_t prio) { GicV2SetPriority(irq_id, prio); }
+
+void ArchIrqMaskLine(uint32_t irq_id)
+{
     GicV2MaskIrq(irq_id); // Delegate to GIC function
 }
-void arch_irq_enable_line(uint32_t irq_id) {
+void ArchIrqUnmaskLine(uint32_t irq_id)
+{
     GicV2UnmaskIrq(irq_id); // Delegate to GIC function
 }
 
-void arch_irq_dispatch(void) {
-    //KINFO("IRQ received");
-    uint32_t iar = gic_acknowledge();
+void ArchIrqDispatch(void)
+{
+    uint32_t iar = GicAcknowledge();
     uint32_t irq_id = iar & 0x3FF;
 
     if (irq_id == 1023) {
-        return;  // Spurious interrupt, ignore
+        return; // Spurious interrupt, ignore
     }
     if (irq_id < MAX_IRQS && handler_table[irq_id] != NULL) {
         handler_table[irq_id](handler_ctx[irq_id]);
     } else {
         KERROR("Unhandled IRQ %u", irq_id);
     }
-    gic_end(iar);
-    
-
+    GicEnd(iar);
 }

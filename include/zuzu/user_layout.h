@@ -8,8 +8,8 @@ extern "C" {
 #include <stdint.h>
 #include BOARD_LAYOUT_H
 
-#define USER_STACK_PAGES     4u
-#define USER_STACK_SIZE      (USER_STACK_PAGES * 0x1000UL)
+#define USER_STACK_PAGES 4u
+#define USER_STACK_SIZE (USER_STACK_PAGES * 0x1000UL)
 
 #ifdef __cplusplus
 }

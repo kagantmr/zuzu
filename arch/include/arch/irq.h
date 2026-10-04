@@ -4,56 +4,62 @@
 // interrupt controller (GICv2 on ARM). Global IRQ-flag control lives in
 // <arch/cpu.h>; this header is about individual IRQ lines and handlers.
 
-#ifndef ZUZU_ARCH_IRQ_H
-#define ZUZU_ARCH_IRQ_H
+#ifndef ARCH_IRQ_H
+#define ARCH_IRQ_H
 
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
 
-typedef void (*irq_handler_t)(void *ctx); /* generic IRQ handler */
+typedef void (*IrqHandler)(void *ctx); /* generic IRQ handler */
 
-// Must cover the GIC's configured SPI range (gic_init() sets up 256 lines);
+// Must cover the GIC's configured SPI range (GicInit() sets up 256 lines);
 // real hardware (e.g. rpi4/BCM2711) uses SPI numbers well past 128.
 #define MAX_IRQS 256
 
 /** Initialize the interrupt subsystem (handler table + controller). */
-void arch_irq_init(void);
+void ArchIrqInit(void);
 
 /** Register a handler for an IRQ line. Returns true on success. */
-bool arch_irq_register(uint32_t irq_id, irq_handler_t handler, void *ctx);
+bool ArchIrqRegister(uint32_t irq_id, IrqHandler handler, void *ctx);
 
 /** Unregister the handler for an IRQ line. Returns true on success. */
-bool arch_irq_unregister(uint32_t irq_id);
 
 /** Disable a single IRQ line at the controller. */
-void arch_irq_disable_line(uint32_t irq_id);
+void ArchIrqMaskLine(uint32_t irq_id);
 
 /** Enable a single IRQ line at the controller. */
-void arch_irq_enable_line(uint32_t irq_id);
+void ArchIrqUnmaskLine(uint32_t irq_id);
 
 /** Set an IRQ line's priority (controller-defined units; lower preempts higher). */
 void ArchIrqSetPrio(uint32_t irq_id, uint8_t prio);
 
 /** Dispatch the currently-pending IRQ to its registered handler. */
-void arch_irq_dispatch(void);
+void ArchIrqDispatch(void);
 
 /** True if an IRQ line is reserved by the kernel/arch (e.g. the tick timer)
  *  and therefore cannot be claimed by a userspace driver. */
-bool arch_irq_is_reserved(uint32_t irq_id);
+bool ArchIrqIsOwnedByKernel(uint32_t irq_id);
 
 /* ---- Controller introspection (for diagnostics / panic dumps) ----------- */
 /* Lines are reported 32 per "word"; there are MAX_IRQS/32 words. */
 
 /** True once the interrupt controller has been initialized. */
-bool arch_irq_ready(void);
+bool ArchIrqReady(void);
 
 /** Current priority-mask threshold (controller-defined units). */
-uint32_t arch_irq_priority_mask(void);
+uint32_t ArchIrqPriorityMask(void);
 
 /** Bitmap word of enabled IRQ lines [word*32, word*32+32). */
-uint32_t arch_irq_enabled_word(uint32_t word);
+uint32_t ArchIrqEnabledWord(uint32_t word);
 
 /** Bitmap word of pending IRQ lines [word*32, word*32+32). */
-uint32_t arch_irq_pending_word(uint32_t word);
+uint32_t ArchIrqPendingWord(uint32_t word);
 
-#endif // ZUZU_ARCH_IRQ_H
+/** True if a kernel-level handler is registered for this IRQ line. */
+bool ArchIrqHasHandler(uint32_t irq_id);
+
+/** Address of the registered handler, for symbolization in diagnostics;
+ *  NULL if none. */
+void *ArchIrqHandlerAddr(uint32_t irq_id);
+
+#endif // ARCH_IRQ_H

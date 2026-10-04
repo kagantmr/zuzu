@@ -1,64 +1,45 @@
 #ifndef ZUZU_SERVICE_H
 #define ZUZU_SERVICE_H
 
-#include "zuzu/types.h"
+#include "types.h"
 #ifdef __cplusplus
-extern "C"
-{
+extern "C" {
 #endif
 
-#include <zuzu/lmsg.h>
-#include <zuzu/protocols/nametable.h>
+#define NSVC_PORT 0
+#define NS_MAX_PATH 64
+#define NS_MAX_SERVICES 512
 
-    /**
-     * @brief Registers a service with the specified name with sysd.
-     *
-     * @param name The name of the service to register.
-     * @param port The port to register.
-     * @return Handle Returns the registered port on success, or a negative error code on failure.
-     */
-    Err RegisterService(const char *name, Handle port);
+typedef enum {
+    NS_REGISTER = 1, /* register port into nt */
+    NS_LOOKUP        /* Look up a name  */
+} NsvcOpcode;
 
-    /**
-     * @brief Looks up a service by name and returns its handle.
-     *
-     * @param name The name of the service to look up.
-     *
-     * @return Handle Returns the handle of the granted port to the service on success, or a
-     * negative error code on failure.
-     */
-    Handle LookupService(const char *name);
+typedef struct {
+    NsvcOpcode cmd;
+    Handle handle; /* NT_REGISTER: the granted slot. unused otherwise */
+    Spid pid;      /* NT_LOOKUP_PID / NT_SCRUB_PID target */
+    char *path;    /* points into the lmsg buf; unused for pid ops */
+} NsvcRequest;
 
-    /**
-     * @brief Inverse lookup: Looks up a service by PID, gets its port. (sysd only)
-     *
-     * @param Pid The PID of the service to look up
-     *
-     * @return Handle Return the handle of the granted port to the service on success, or
-     * a negative error code on failure.
-     **/
-    Handle LookupServicePid(Pid pid);
+/**
+ * @brief Registers a service with the specified name with sysd.
+ *
+ * @param name The name of the service to register.
+ * @param port The port to register.
+ * @return Handle Returns the registered port on success, or a negative error code on failure.
+ */
+Err RegisterService(const char *name, Handle port);
 
-    /**
-     * @brief On process death, remove an entry from the nametable. (sysd only)
-     *
-     * @param pid PID of the process to clean up
-     *
-     * @return Err ZUZU_OK on success, ERR_* on fail
-     *
-     **/
-    Err ScrubServicePid(Pid pid);
-
-    /**
-     * @brief Looks up a service by name and returns its handle and PID.
-     *
-     * @param name The name of the service to look up.
-     * @param out_pid The PID as an out-param.
-     *
-     * @return Handle Returns the handle of the granted port to the service on success, or a
-     * negative error code on failure.
-     */
-    Handle LookupServiceWithPid(const char *name, Pid *out_pid);
+/**
+ * @brief Looks up a service by name and returns its handle.
+ *
+ * @param name The name of the service to look up.
+ *
+ * @return Handle Returns the handle of the granted port to the service on success, or a
+ * negative error code on failure.
+ */
+Handle LookupService(const char *name);
 
 #ifdef __cplusplus
 }

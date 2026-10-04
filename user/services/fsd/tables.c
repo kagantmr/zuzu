@@ -1,104 +1,148 @@
 #include "tables.h"
 #include "backend/backend.h"
-#include <zuzu/memprot.h>
-#include <zuzu/umem.h>
 #include <string.h>
+#include <zuzu/udbg.h>
+#include <zuzu/zuzu.h>
 
-static fsd_client_t client_table[FSD_MAX_CLIENTS];
-static fsd_file_t   file_table[FSD_MAX_FILES];
+static FsdClient g_clients[FSD_MAX_CLIENTS];
+static FsdFile g_files[FSD_MAX_FILES];
 
 static const fs_backend_t *g_backend;
 static void *g_ctx;
 
-void tables_init(const fs_backend_t *b, void *ctx) {
+void TablesInit(const fs_backend_t *b, void *ctx)
+{
     g_backend = b;
     g_ctx = ctx;
 }
 
-Err client_register(uint32_t pid, Handle shm, uint32_t size)
+Err ClientRegister(Handle shm, Marker *badge)
 {
-    if (client_find(pid) != NULL) return ERR_DUPLICATE; /* already registered */
-    if (size < FSD_SHM_MIN || size > FSD_SHM_MAX) return ERR_MALFORMED;
-    for (int i = 0; i < FSD_MAX_CLIENTS; i++)
-    {
-        if (client_table[i].pid == 0)
-        {
-            void *p = ZuzuMemMap(shm, 0, PROT_RW, 0);
-            if (ZuzuPtrIsErr(p)) return ERR_NOMEM;
-            client_table[i].pid = pid;
-            client_table[i].shm_handle = shm;
-            client_table[i].buf = p;
-            client_table[i].shm_size = size;
-            return ZUZU_OK;
-        }
+    SvcResult q = HandleQuery(shm, QUERY_SIZE);
+    if (q.r0 != ZUZU_OK)
+        return (Err)q.r0;
+    uint32_t size = (uint32_t)q.r1;
+    if (size < FSD_SHM_MIN || size > FSD_SHM_MAX || (size & (FSD_PAGE_SIZE - 1)) != 0)
+        return ERR_BADARG;
+    /* rest unchanged */
+
+    for (uint32_t i = 0; i < FSD_MAX_CLIENTS; i++) {
+        FsdClient *c = &g_clients[i];
+        if (c->in_use)
+            continue;
+
+        void *va = MemMap(shm, 0, PROT_RW);
+        if (PtrIsErr(va))
+            return ERR_NOMEM;
+
+        uint32_t gen = (c->gen + 1) & 0xFFFFFFU;
+        if (gen == 0)
+            gen = 1;
+        *c = (FsdClient){
+            .in_use = true, .gen = gen, .shm_handle = shm, .live = -1, .buf = va, .shm_size = size};
+        *badge = FSD_BADGE(gen, i);
+        return ZUZU_OK;
     }
-    return ERR_NOMEM; /* no free slot */
+    return ERR_NOMEM;
 }
 
-fsd_client_t *client_find(uint32_t pid)
+FsdClient *ClientFind(Marker badge)
 {
-    for (int i = 0; i < FSD_MAX_CLIENTS; i++)
-        if (client_table[i].pid == pid) return &client_table[i];
-
-    return NULL;
+    if (badge == MARKER_NONE)
+        return NULL;
+    uint32_t slot = FSD_BADGE_SLOT(badge);
+    if (slot >= FSD_MAX_CLIENTS)
+        return NULL;
+    FsdClient *c = &g_clients[slot];
+    if (!c->in_use || c->gen != FSD_BADGE_GEN(badge))
+        return NULL;
+    return c;
 }
 
-void client_drop(uint32_t pid)
-{
-    fsd_client_t *c = client_find(pid);
-    if (!c) return;
+uint32_t ClientSlot(const FsdClient *c) { return (uint32_t)(c - g_clients); }
 
+void ClientDrop(FsdClient *c)
+{
+    uint32_t slot = ClientSlot(c);
     for (uint32_t fd = 0; fd < FSD_MAX_FILES; fd++)
-        if (file_get(pid, fd)) file_close(pid, fd);
+        if (FileGet(slot, fd))
+            FileClose(slot, fd);
 
-    if (c->buf) ZuzuMemUnmap(c->buf);
+    MemUnmap(c->buf);
+    HandleClose(c->shm_handle);
+    if (c->live >= 0)
+        HandleClose(c->live);
+    uint32_t gen = c->gen;
     memset(c, 0, sizeof(*c));
+    c->gen = gen;
 }
 
-/* files */
-Err file_open(uint32_t pid, const char *path, uint32_t mode, uint32_t *fd_out) {
-    fsd_client_t *client = client_find(pid);
-    if (!client)
-        return ERR_NOENT;
+uint32_t ClientsReapDead(void)
+{
+    uint32_t reaped = 0;
+    for (uint32_t i = 0; i < FSD_MAX_CLIENTS; i++) {
+        FsdClient *c = &g_clients[i];
+        if (!c->in_use || c->live < 0)
+            continue;
+        SvcResult q = HandleQuery(c->live, QUERY_STATUS);
+        if (q.r0 != ZUZU_OK || (Err)q.r1 != ERR_DEAD)
+            continue;
+        UserspaceDebugLog("fsd: client slot=%u died, dropping its session", i);
+        ClientDrop(c);
+        reaped++;
+    }
+    return reaped;
+}
 
+Err FileOpen(uint32_t slot, const char *path, uint32_t mode, uint32_t *fd_out)
+{
     size_t file_count = 0;
     for (int i = 0; i < FSD_MAX_FILES; i++)
-        if (file_table[i].pid == pid) file_count++;
+        if (g_files[i].in_use && g_files[i].slot == slot)
+            file_count++;
+    if (file_count >= FSD_MAX_FILES_PER_CLIENT)
+        return ERR_BUFFULL;
 
-    if (file_count >= FSD_MAX_FILES_PER_CLIENT) return ERR_BUFFULL;
-
-    /* lowest fd not in use by this pid */
     uint32_t fd = 0;
-    while (fd < FSD_MAX_FILES && file_get(pid, fd)) fd++;
-    if (fd == FSD_MAX_FILES) return ERR_BUFFULL;
+    while (fd < FSD_MAX_FILES && FileGet(slot, fd))
+        fd++;
+    if (fd == FSD_MAX_FILES)
+        return ERR_BUFFULL;
 
-    /* any free pool slot */
-    int slot = -1;
+    int idx = -1;
     for (int i = 0; i < FSD_MAX_FILES; i++)
-        if (file_table[i].pid == 0) { slot = i; break; }
-    if (slot < 0) return ERR_BUFFULL;
+        if (!g_files[i].in_use) {
+            idx = i;
+            break;
+        }
+    if (idx < 0)
+        return ERR_BUFFULL;
 
-    Err rc = g_backend->open(g_ctx, file_table[slot].backend_file, path, mode);
-    if (rc != ZUZU_OK) return rc;
+    Err rc = g_backend->open(g_ctx, g_files[idx].backend_file, path, mode);
+    if (rc != ZUZU_OK)
+        return rc;
 
-    file_table[slot].pid = pid;
-    file_table[slot].fd  = fd;
+    g_files[idx].in_use = true;
+    g_files[idx].slot = slot;
+    g_files[idx].fd = fd;
     *fd_out = fd;
     return ZUZU_OK;
 }
 
-void *file_get(uint32_t pid, uint32_t fd) {
+void *FileGet(uint32_t slot, uint32_t fd)
+{
     for (int i = 0; i < FSD_MAX_FILES; i++)
-        if (file_table[i].pid == pid && file_table[i].fd == fd)
-            return file_table[i].backend_file;
+        if (g_files[i].in_use && g_files[i].slot == slot && g_files[i].fd == fd)
+            return g_files[i].backend_file;
     return NULL;
 }
 
-Err file_close(uint32_t pid, uint32_t fd) {
+Err FileClose(uint32_t slot, uint32_t fd)
+{
     for (int i = 0; i < FSD_MAX_FILES; i++) {
-        if (file_table[i].pid == pid && file_table[i].fd == fd) {
-            Err rc = g_backend->close(g_ctx, file_table[i].backend_file);
-            memset(&file_table[i], 0, sizeof(file_table[i]));
+        if (g_files[i].in_use && g_files[i].slot == slot && g_files[i].fd == fd) {
+            Err rc = g_backend->close(g_ctx, g_files[i].backend_file);
+            memset(&g_files[i], 0, sizeof(g_files[i]));
             return rc;
         }
     }

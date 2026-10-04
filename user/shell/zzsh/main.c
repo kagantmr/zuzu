@@ -1,93 +1,40 @@
-#include "zuzu/types.h"
 #include "zzsh.h"
 #include <ansi.h>
-#include <string.h>
+#include <fs/fsd_client.h>
 #include <stdbool.h>
 #include <stdio.h>
-#include <zuzu/service.h>
-#include <malloc.h>
-#include <zuzu/syspage.h>
-#include <zuzu/fsd_client.h>
-#include <zuzu/protocols/nic.h>
-#include <zuzu/protocols/exec.h>
-#include <zuzu/channel.h>
-#include <zuzu/user_layout.h>
+#include <stdlib.h>
+#include <string.h>
+#include <util/spawn.h>
+#include <zuzu/err.h>
+#include <zuzu/zuzu.h>
 
-static Handle sysd_port;
-static Pid sysd_pid;
-static FsdConn fsd_conn;   /* session with the filesystem daemon */
+#define PROMPT ANSI_BOLD ANSI_CYAN "zzsh" ANSI_GREEN "~>" ANSI_RESET
+
+static FsdConn fsd_conn;
 static char cwd[256] = "/";
-
-// -------------------- Prompt --------------------
-#define PROMPT \
-    ANSI_BOLD ANSI_GREEN "zzsh" ANSI_RESET \
-    ANSI_CYAN " ~>" ANSI_RESET " "
-
-// -------------------- History --------------------
-static char history[HISTORY_MAX][LINE_BUFFER_SIZE];
-static int  hist_head  = 0; // next write slot
-static int  hist_count = 0; // entries stored (capped at HISTORY_MAX)
-
-static void hist_push(const char *line)
-{
-    if (!line[0]) return;
-    int last = (hist_head - 1 + HISTORY_MAX) % HISTORY_MAX;
-    if (hist_count > 0 && strcmp(history[last], line) == 0)
-        return;
-    strncpy(history[hist_head], line, LINE_BUFFER_SIZE - 1);
-    history[hist_head][LINE_BUFFER_SIZE - 1] = '\0';
-    hist_head = (hist_head + 1) % HISTORY_MAX;
-    if (hist_count < HISTORY_MAX) hist_count++;
-}
-
-// offset 1 = most recent, 2 = one before that, etc.
-static const char *hist_get(int offset)
-{
-    if (offset < 1 || offset > hist_count) return NULL;
-    return history[(hist_head - offset + HISTORY_MAX * 2) % HISTORY_MAX];
-}
-
-// -------------------------------------------------
 
 static void strip(char *s)
 {
     char *src = s, *dst = s;
-    while (*src == ' ') src++;
+    while (*src == ' ')
+        src++;
     while (*src) {
         if (*src == ' ' && (dst == s || *(dst - 1) == ' '))
             src++;
         else
             *dst++ = *src++;
     }
-    if (dst > s && *(dst - 1) == ' ') dst--;
+    if (dst > s && *(dst - 1) == ' ')
+        dst--;
     *dst = '\0';
-}
-
-int setup(void)
-{
-
-    sysd_port = LookupServiceWithPid("/svc/sysd", &sysd_pid);
-    if (sysd_port < 0)
-        return sysd_port;
-
-    if (stdio_use_tty(0) < 0)
-        return -1;
-
-    return 0;
 }
 
 static bool ensure_fsd(void)
 {
+    if (fsd_conn.ready)
+        return true;
     return FsdConnect(&fsd_conn, FSD_SHM_DEFAULT) == ZUZU_OK;
-}
-
-// Redraws prompt + current line content, clears to end of line.
-// Used when history navigation changes what's displayed.
-static void redraw_line(const char *line)
-{
-    printf("\r%s", PROMPT);
-    printf("%s", line);
-    printf("\033[K");
 }
 
 static bool normalize_path(const char *path, char *out, size_t out_size)
@@ -184,70 +131,6 @@ static bool stat_path(const char *path, FsdStat *st)
     return FsdGetStat(&fsd_conn, path, st) == ZUZU_OK;
 }
 
-static const char *path_basename(const char *path)
-{
-    const char *base = path;
-    while (*path) {
-        if (*path == '/')
-            base = path + 1;
-        path++;
-    }
-    return base;
-}
-
-static bool path_is_zzsh(const char *path)
-{
-    const char *base = path_basename(path);
-    return strcmp(base, "zzsh") == 0 || strcmp(base, "zzsh.elf") == 0;
-}
-
-static void print_exec_error(int32_t code)
-{
-    switch (code) {
-        case ERR_NOENT:
-            printf("%s", ANSI_RED "zzsh: spawn failed (not found)\n" ANSI_RESET);
-            break;
-        case ERR_NOMEM:
-            printf("%s", ANSI_RED "zzsh: spawn failed (out of memory)\n" ANSI_RESET);
-            break;
-        case EXEC_EBADELF:
-            printf("%s", ANSI_RED "zzsh: spawn failed (bad ELF)\n" ANSI_RESET);
-            break;
-        case EXEC_EIO:
-            printf("%s", ANSI_RED "zzsh: spawn failed (I/O error)\n" ANSI_RESET);
-            break;
-        default: {
-            char msg[64];
-            snprintf(msg, sizeof(msg), "zzsh: spawn failed (err %d)\n", code);
-            printf("%s%s%s", ANSI_RED, msg, ANSI_RESET);
-            break;
-        }
-    }
-}
-
-static bool exec_reply_valid(const ExecReply *reply)
-{
-    if (reply->entry < USER_ELF_BASE || reply->entry >= USER_STACK_GUARD_VA)
-        return false;
-
-    if (reply->sp < USER_STACK_BASE || reply->sp > USER_STACK_TOP)
-        return false;
-
-    if ((reply->sp & 0x3u) != 0)
-        return false;
-
-    if (reply->argc == 0)
-        return reply->argv_va == 0;
-
-    if (reply->argv_va < USER_STACK_BASE || reply->argv_va >= USER_STACK_TOP)
-        return false;
-
-    if ((reply->argv_va & 0x3u) != 0)
-        return false;
-
-    return true;
-}
-
 /* ---- ls ---- */
 
 static void cmd_ls(const char *arg)
@@ -271,8 +154,8 @@ static void cmd_ls(const char *arg)
     for (;;) {
         FsdDirEntry entries[32];
         uint32_t count = 0;
-        if (FsdReadDir(&fsd_conn, path, start, entries,
-                        sizeof(entries) / sizeof(entries[0]), &count) != ZUZU_OK) {
+        if (FsdReadDir(&fsd_conn, path, start, entries, sizeof(entries) / sizeof(entries[0]),
+                       &count) != ZUZU_OK) {
             if (start == 0)
                 printf("%s", ANSI_RED "ls: cannot read directory\n" ANSI_RESET);
             return;
@@ -280,11 +163,10 @@ static void cmd_ls(const char *arg)
 
         for (uint32_t i = 0; i < count; i++) {
             if (entries[i].type == FSD_TYPE_DIR) {
-                snprintf(line, sizeof(line), ANSI_BOLD ANSI_CYAN "%-13s" ANSI_RESET "  <DIR>\n",
-                         entries[i].name);
+                (void)snprintf(line, sizeof(line),
+                               ANSI_BOLD ANSI_CYAN "%-13s" ANSI_RESET "  <DIR>\n", entries[i].name);
             } else {
-                snprintf(line, sizeof(line), "%-13s  %u\n",
-                         entries[i].name, entries[i].size);
+                (void)snprintf(line, sizeof(line), "%-13s  %u\n", entries[i].name, entries[i].size);
             }
             printf("%s", line);
         }
@@ -321,14 +203,16 @@ static void cmd_cat(const char *path)
         return;
     }
 
-    char chunk[4096];
+    /* printf formats into a 1 KiB buffer, so keep chunks well under that. */
+    char chunk[512];
     while (1) {
         uint32_t got = 0;
         if (FsdRead(&fsd_conn, fd, chunk, sizeof(chunk) - 1, &got) != ZUZU_OK)
             break;
-        if (got == 0) break;
+        if (got == 0)
+            break;
 
-        chunk[got] = '\0';  /* null-terminate for printf */
+        chunk[got] = '\0'; /* null-terminate for printf */
         printf("%s", chunk);
     }
 
@@ -336,384 +220,300 @@ static void cmd_cat(const char *path)
     printf("\n");
 }
 
-/* ---- resolve ---- */
+/* ---- run ---- */
 
-static void cmd_resolve(const char *name)
+static void *read_file(const char *path, size_t *len)
 {
-    if (!name || !name[0]) {
-        printf("%s", "usage: resolve <name>\n");
-        return;
+    FsdStat st;
+    uint32_t fd;
+    if (FsdGetStat(&fsd_conn, path, &st) != ZUZU_OK || st.type != FSD_TYPE_FILE)
+        return NULL;
+    if (FsdOpen(&fsd_conn, path, FSD_MODE_READ, &fd) != ZUZU_OK)
+        return NULL;
+
+    uint8_t *buf = malloc(st.size ? st.size : 1);
+    size_t off = 0;
+    while (buf && off < st.size) {
+        uint32_t got = 0;
+        if (FsdRead(&fsd_conn, fd, buf + off, st.size - (uint32_t)off, &got) != ZUZU_OK || got == 0)
+            break;
+        off += got;
     }
+    FsdClose(&fsd_conn, fd);
 
-    char packed[4] = { 0 };
-    strncpy(packed, name, sizeof(packed));
-
-    Pid pid;
-    Handle h = LookupServiceWithPid(name, &pid);
-
-    if (h < 0) {
-        printf("%s", ANSI_RED "resolve: not found\n" ANSI_RESET);
-        return;
+    if (off != st.size) {
+        free(buf);
+        return NULL;
     }
-
-    char buf[64];
-    snprintf(buf, sizeof(buf), "port=%d pid=%u\n", h, pid);
-    printf("%s", buf);
+    *len = off;
+    return buf;
 }
 
-/* ---- exec from SD ---- */
-
-static void cmd_exec(const char *line)
+static void cmd_run(const char *line)
 {
     if (!ensure_fsd()) {
         printf("%s", ANSI_RED "zzsh: fsd unavailable\n" ANSI_RESET);
         return;
     }
 
-    /* ---- tokenize ---- */
     char buf[LINE_BUFFER_SIZE];
-    strncpy(buf, line, sizeof(buf) - 1);
-    buf[sizeof(buf) - 1] = '\0';
+    memcpy(buf, line, strlen(line) + 1);
 
-    char *tokens[16];
-    int token_count = 0;
-    char *p = buf;
-    while (*p && token_count < 16) {
-        while (*p == ' ') p++;
-        if (!*p) break;
-        tokens[token_count++] = p;
-        while (*p && *p != ' ') p++;
-        if (*p) *p++ = '\0';
-    }
-    if (token_count == 0) return;
-
-    /* ---- resolve path from first token ---- */
-    char path[256];
-    if (!resolve_path(tokens[0], path, sizeof(path))) {
-        printf("%s", "zzsh: path too long\n");
-        return;
-    }
-
-    if (path_is_zzsh(path)) {
-        printf("%s", ANSI_RED "zzsh: refusing to spawn itself\n" ANSI_RESET);
-        return;
-    }
-
-    /* ---- build argbuf: "tok0\0tok1\0tok2\0" ---- */
-    char argbuf[512];
+    char argbuf[LINE_BUFFER_SIZE];
     size_t argpos = 0;
-    for (int i = 0; i < token_count; i++) {
-        size_t len = strlen(tokens[i]) + 1;
-        if (argpos + len > sizeof(argbuf)) break;
-        memcpy(argbuf + argpos, tokens[i], len);
-        argpos += len;
+    uint32_t argc = 0;
+    char *p = buf;
+    char *cmd = NULL;
+    while (*p) {
+        while (*p == ' ')
+            p++;
+        if (!*p)
+            break;
+        char *tok = p;
+        while (*p && *p != ' ')
+            p++;
+        if (*p)
+            *p++ = '\0';
+        if (!cmd)
+            cmd = tok;
+        size_t n = strlen(tok) + 1;
+        memcpy(argbuf + argpos, tok, n);
+        argpos += n;
+        argc++;
     }
+    if (!cmd)
+        return;
 
-    /* ---- pspawn locally, ask sysd to inject, then kickstart ---- */
-    const char *name = path_basename(path);
-    TSpawnResult ts = ZuzuPSpawn(name);
-    if (ts.taskHandle < 0) {
-        printf("%s", ANSI_RED "zzsh: spawn failed\n" ANSI_RESET);
+    char path[256];
+    size_t len = 0;
+    void *image = NULL;
+    if (strchr(cmd, '/')) {
+        if (resolve_path(cmd, path, sizeof(path)))
+            image = read_file(path, &len);
+    } else {
+        char rel[256];
+        if (snprintf(rel, sizeof(rel), "/bin/%s", cmd) < (int)sizeof(rel) &&
+            resolve_path(rel, path, sizeof(path)))
+            image = read_file(path, &len);
+        if (!image && resolve_path(cmd, path, sizeof(path)))
+            image = read_file(path, &len);
+    }
+    if (!image) {
+        printf("zzsh: %s: command not found\n", cmd);
         return;
     }
 
-    int32_t sysd_task_handle = ZuzuGrant(ts.taskHandle, (int32_t)sysd_pid, 0);
-    if (sysd_task_handle < 0) {
-        ZuzuPKill(ts.taskHandle);                    /* <-- NEW */
-        printf("%s", ANSI_RED "zzsh: spawn failed (sysd reject)\n" ANSI_RESET);
+    /* Release our tty session before the child attaches, so it becomes the
+     * foreground; stdio re-attaches on the next printf/getchar. */
+    stdio_close_tty();
+
+    const char *name = strrchr(path, '/');
+    name = name ? name + 1 : path;
+    Spid pid;
+    Handle task;
+    Err rc = SpawnProcess(image, len, name, argbuf, argpos, argc, &pid, &task);
+    free(image);
+    if (rc != ZUZU_OK) {
+        printf(ANSI_RED "zzsh: %s: spawn failed (err %d)\n" ANSI_RESET, cmd, rc);
         return;
     }
 
-    size_t path_len = strlen(path);
-    size_t req_len = sizeof(ExecRequestHeader) + path_len + 1 + argpos;
-    if (req_len > LMSG_BUF_SIZE) {
-        ZuzuPKill(ts.taskHandle);                    /* <-- NEW */
-        printf("%s", ANSI_RED "zzsh: command too long\n" ANSI_RESET);
-        return;
-    }
-
-    ExecRequestHeader *hdr = (ExecRequestHeader *)LmsgBuf();
-    hdr->cmd = SYSD_EXEC;
-    hdr->_pad = 0;
-    hdr->taskHandle = (uint16_t)sysd_task_handle;
-    hdr->path_len = (uint16_t)path_len;
-    hdr->argc = (uint16_t)token_count;
-    hdr->pid = ts.pid;
-
-    char *payload = (char *)LmsgBuf() + sizeof(*hdr);
-    memcpy(payload, path, path_len + 1);
-    memcpy(payload + path_len + 1, argbuf, argpos);
-
-    int32_t rc = ChannelCall((Handle)sysd_port, LmsgBuf(), (uint32_t)req_len,
-                           LmsgBuf(), (uint32_t)sizeof(ExecReply));
-    if (rc < 0) {
-        ZuzuPKill(ts.taskHandle);
-        print_exec_error(rc);
-        return;
-    }
-    if (rc == (int32_t)sizeof(Err)) {
-        ZuzuPKill(ts.taskHandle);
-        print_exec_error(*(const Err *)LmsgBuf());
-        return;
-    }
-    if (rc != (int32_t)sizeof(ExecReply)) {
-        ZuzuPKill(ts.taskHandle);
-        printf("%s", ANSI_RED "zzsh: bad exec reply\n" ANSI_RESET);
-        return;
-    }
-
-    ExecReply *reply = (ExecReply *)LmsgBuf();
-    if (!exec_reply_valid(reply)) {
-        ZuzuPKill(ts.taskHandle);
-        print_exec_error(EXEC_EBADELF);
-        return;
-    }
-
-    if (ZuzuKickstart(ts.taskHandle, reply->entry, reply->sp,
-                   reply->argc, reply->argv_va) != 0) {
-        ZuzuPKill(ts.taskHandle);
-        printf("%s", ANSI_RED "zzsh: kickstart failed\n" ANSI_RESET);
-        return;
-    }
-
-    int32_t exit_status = 0;
-    ZuzuWait(ts.pid, &exit_status, 0);
+    WaitOn(task, TIMEOUT_INFINITE);
+    HandleClose(task);
+    HandleClose((Handle)pid);
 }
 
 /* ---- dispatch ---- */
 
-void command_dispatch(const char *line)
+static void cmd_help(void)
 {
-    if (strcmp(line, "help") == 0)
-    {
-        printf("%s",
-            ANSI_BOLD ANSI_CYAN "zzsh " ZZSH_VER "\n" ANSI_RESET
-            ANSI_BOLD "  help" ANSI_RESET "          show this message\n"
-            ANSI_BOLD "  echo <text>" ANSI_RESET "   print text\n"
-            ANSI_BOLD "  clear" ANSI_RESET "         clear the screen\n"
-            ANSI_BOLD "  free" ANSI_RESET "          show free physical pages\n"
-            ANSI_BOLD "  pwd" ANSI_RESET "           print current directory\n"
-            ANSI_BOLD "  cd <path>" ANSI_RESET "     change current directory\n"
-            ANSI_BOLD "  pid" ANSI_RESET "           show shell PID\n"
-            ANSI_BOLD "  sleep <ms>" ANSI_RESET "    sleep for <ms> milliseconds\n"
-            ANSI_BOLD "  ls [path]" ANSI_RESET "     list directory on SD\n"
-            ANSI_BOLD "  cat <file>" ANSI_RESET "    print file contents from SD\n"
-            ANSI_BOLD "  resolve <name>" ANSI_RESET " look up a nametable entry\n"
-            ANSI_BOLD "  <path>" ANSI_RESET "        run executable from SD\n"
-        );
-    }
-    else if (strcmp(line, "clear") == 0)
-    {
-        printf("%s", ANSI_CLEAR);
-    }
-    else if (strcmp(line, "free") == 0)
-    {
-        // read info page
-        const Syspage *sp = (const Syspage *)0x1000;
-        uint32_t fp = sp->mem_free_kb; // free pages (4KB each)
-        uint32_t tp = sp->mem_total_kb / 4;
-        char buf[64];
-        snprintf(buf, sizeof(buf), "%u pages free (%u KB), %u pages full\n", fp / 4, fp, tp - fp / 4);
-        printf("%s", buf);
-    }
-    else if (strcmp(line, "pwd") == 0)
-    {
-        printf("%s", cwd);
-        printf("\n");
-    }
-    else if (strcmp(line, "cd") == 0)
-    {
+    printf("%s",
+           ANSI_BOLD ANSI_CYAN "zzsh " ZZSH_VER "\n" ANSI_RESET ANSI_BOLD "  help" ANSI_RESET
+                               "          show this message\n" ANSI_BOLD "  clear" ANSI_RESET
+                               "         clear the screen\n" ANSI_BOLD "  pwd" ANSI_RESET
+                               "           print current directory\n" ANSI_BOLD
+                               "  cd <path>" ANSI_RESET "     change current directory\n" ANSI_BOLD
+                               "  ls [path]" ANSI_RESET "     list directory\n" ANSI_BOLD
+                               "  cat <file>" ANSI_RESET "    print file contents\n" ANSI_BOLD
+                               "  exit" ANSI_RESET "          leave the shell\n" ANSI_BOLD
+                               "  <program>" ANSI_RESET "     run /bin/<program> or a path\n");
+}
+
+static void cmd_cd(const char *arg)
+{
+    char path[256];
+    FsdStat st;
+
+    if (!arg || !arg[0]) {
         printf("%s", "usage: cd <path>\n");
+        return;
     }
-    else if (strncmp(line, "cd ", 3) == 0)
-    {
-        char path[256];
-        FsdStat st;
 
-        if (!resolve_path(line + 3, path, sizeof(path))) {
-            printf("%s", "cd: path too long\n");
-            return;
-        }
+    if (!resolve_path(arg, path, sizeof(path))) {
+        printf("%s", "cd: path too long\n");
+        return;
+    }
 
-        if (strcmp(path, "/") == 0) {
-            strncpy(cwd, "/", sizeof(cwd) - 1);
-            cwd[sizeof(cwd) - 1] = '\0';
-            return;
-        }
-
+    if (strcmp(path, "/") != 0) {
         if (!stat_path(path, &st)) {
             printf("%s", ANSI_RED "cd: not found\n" ANSI_RESET);
             return;
         }
-
         if (st.type != FSD_TYPE_DIR) {
             printf("%s", ANSI_RED "cd: not a directory\n" ANSI_RESET);
             return;
         }
+    }
 
-        strncpy(cwd, path, sizeof(cwd) - 1);
-        cwd[sizeof(cwd) - 1] = '\0';
-    }
-    else if (strcmp(line, "pid") == 0)
-    {
-        uint32_t p = ZuzuGetPid();
-        char buf[32];
-        snprintf(buf, sizeof(buf), "pid: %u\n", p);
-        printf("%s", buf);
-    }
-    else if (strncmp(line, "sleep ", 6) == 0)
-    {
-        uint32_t ms = 0;
-        const char *p = line + 6;
-        while (*p >= '0' && *p <= '9')
-            ms = ms * 10 + (uint32_t)(*p++ - '0');
-        ZuzuSleep(ms);
-    }
-    else if (strncmp(line, "echo ", 5) == 0)
-    {
-        printf("%s", line + 5);
-        printf("\n");
-    }
-    else if (strcmp(line, "nicstat") == 0)
-    {
-        int32_t nic_port = LookupService("/dev/eth0");
-        if (nic_port < 0) {
-            printf("%s", "nicstat: nic0 not found\n");
-        } else {
-            Message r = ZuzuMsgCall(nic_port, NIC_CMD_STATS, 0, 0);
-            char buf[48];
-            snprintf(buf, sizeof(buf), "nic0: irq_count=%u\n", (uint32_t)r.w2);
-            printf("%s", buf);
-        }
-    }
-    else if (strncmp(line, "ls", 2) == 0 && (line[2] == '\0' || line[2] == ' '))
-    {
-        const char *arg = (line[2] == ' ') ? line + 3 : NULL;
-        cmd_ls(arg);
-    }
+    memcpy(cwd, path, strlen(path) + 1);
+}
+
+/* Returns false when the shell should exit. */
+bool command_dispatch(const char *line)
+{
+    if (strcmp(line, "exit") == 0)
+        return false;
+
+    if (strcmp(line, "help") == 0)
+        cmd_help();
+    else if (strcmp(line, "clear") == 0)
+        printf("%s", ANSI_CLEAR);
+    else if (strcmp(line, "pwd") == 0)
+        printf("%s\n", cwd);
+    else if (strcmp(line, "cd") == 0)
+        cmd_cd(NULL);
+    else if (strncmp(line, "cd ", 3) == 0)
+        cmd_cd(line + 3);
+    else if (strcmp(line, "ls") == 0)
+        cmd_ls(NULL);
+    else if (strncmp(line, "ls ", 3) == 0)
+        cmd_ls(line + 3);
     else if (strcmp(line, "cat") == 0)
-    {
-        printf("%s", "usage: cat <file>\n");
-    }
+        cmd_cat(NULL);
     else if (strncmp(line, "cat ", 4) == 0)
-    {
         cmd_cat(line + 4);
-    }
-    else if (strcmp(line, "resolve") == 0)
-    {
-        printf("%s", "usage: resolve <name>\n");
-    }
-    else if (strncmp(line, "resolve ", 8) == 0)
-    {
-        cmd_resolve(line + 8);
-    }
     else
-    {
-        cmd_exec(line);
+        cmd_run(line);
+
+    return true;
+}
+
+static char history[HISTORY_MAX][LINE_BUFFER_SIZE];
+static int hist_head; /* next write slot */
+static int hist_count;
+
+static void hist_push(const char *line)
+{
+    int last = (hist_head - 1 + HISTORY_MAX) % HISTORY_MAX;
+    if (hist_count > 0 && strcmp(history[last], line) == 0)
+        return;
+    memcpy(history[hist_head], line, strlen(line) + 1);
+    hist_head = (hist_head + 1) % HISTORY_MAX;
+    if (hist_count < HISTORY_MAX)
+        hist_count++;
+}
+
+/* offset 1 = most recent */
+static const char *hist_get(int offset)
+{
+    if (offset < 1 || offset > hist_count)
+        return NULL;
+    return history[(hist_head - offset + HISTORY_MAX) % HISTORY_MAX];
+}
+
+static void redraw_line(const char *line) { printf("\r%s%s\033[K", PROMPT, line); }
+
+/* Raw mode: zzsh does its own echo, backspace and history. Returns false on EOF (^D on an empty
+ * line). */
+static bool read_line(char *line)
+{
+    enum { ST_NORMAL, ST_ESC, ST_CSI } state = ST_NORMAL;
+    char saved[LINE_BUFFER_SIZE];
+    size_t pos = 0;
+    int hist_pos = 0;
+
+    line[0] = '\0';
+    for (;;) {
+        int c = getchar();
+        if (c == EOF)
+            return false;
+
+        if (state == ST_ESC) {
+            state = (c == '[') ? ST_CSI : ST_NORMAL;
+            continue;
+        }
+        if (state == ST_CSI) {
+            state = ST_NORMAL;
+            const char *h = NULL;
+            if (c == 'A' && hist_pos < hist_count) {
+                if (hist_pos == 0)
+                    memcpy(saved, line, pos + 1);
+                h = hist_get(++hist_pos);
+            } else if (c == 'B' && hist_pos > 0) {
+                h = --hist_pos ? hist_get(hist_pos) : saved;
+            }
+            if (h) {
+                pos = strlen(h);
+                memcpy(line, h, pos + 1);
+                redraw_line(line);
+            }
+            continue;
+        }
+
+        if (c == '\033') {
+            state = ST_ESC;
+        } else if (c == '\r' || c == '\n') {
+            printf("\n");
+            return true;
+        } else if (c == 0x04) {
+            if (pos == 0)
+                return false;
+        } else if (c == 0x03) {
+            printf("^C\n");
+            line[0] = '\0';
+            return true;
+        } else if (c == 0x15) {
+            pos = 0;
+            line[0] = '\0';
+            redraw_line(line);
+        } else if (c == 127 || c == '\b') {
+            if (pos > 0) {
+                line[--pos] = '\0';
+                printf("\b \b");
+            }
+        } else if (c >= 0x20 && c < 0x7f && pos < LINE_BUFFER_SIZE - 1) {
+            line[pos++] = (char)c;
+            line[pos] = '\0';
+            printf("%c", c);
+        }
     }
 }
 
+static void __attribute__((destructor)) ShellDetachFsd(void) { FsdDetach(&fsd_conn); }
+
 int main(void)
 {
-    if (setup() < 0) return 1;
-
-    char line[LINE_BUFFER_SIZE];
-    line[0] = '\0';
-    char saved[LINE_BUFFER_SIZE]; // live edit saved during history browse
-    size_t pos   = 0;
-    int hist_pos = 0; // 0 = live edit, >0 = offset into history
-
-    // Escape sequence parser state
-    typedef enum { ST_NORMAL, ST_ESC, ST_CSI } input_state_t;
-    input_state_t state = ST_NORMAL;
-
+    stdio_set_raw(1);
     if (stdio_open_tty() != 0)
         return 1;
 
     printf("%s", ANSI_BOLD ANSI_CYAN "zzsh " ZZSH_VER "\n" ANSI_RESET);
-    printf("%s", PROMPT);
 
-    while (1)
-    {
-        int ch = getchar();
-        if (ch == EOF) {
-            ZuzuSleep(5);
+    for (;;) {
+        printf("%s", PROMPT);
+
+        char line[LINE_BUFFER_SIZE];
+        if (!read_line(line))
+            break;
+
+        strip(line);
+        if (!line[0])
             continue;
-        }
-
-        char c = (char)ch;
-
-        // --- escape sequence state machine ---
-        if (state == ST_ESC) {
-            if (c == '[') { state = ST_CSI; continue; }
-            state = ST_NORMAL;
-        } else if (state == ST_CSI) {
-            state = ST_NORMAL;
-            if (c == 'A') {
-                // up arrow: go back in history
-                if (hist_pos == 0) {
-                    memcpy(saved, line, pos);
-                    saved[pos] = '\0';
-                }
-                if (hist_pos < hist_count) {
-                    hist_pos++;
-                    const char *h = hist_get(hist_pos);
-                    if (h) {
-                        strncpy(line, h, LINE_BUFFER_SIZE - 1);
-                        line[LINE_BUFFER_SIZE - 1] = '\0';
-                        pos = strlen(line);
-                        redraw_line(line);
-                    }
-                }
-            } else if (c == 'B') {
-                // down arrow: go forward in history
-                if (hist_pos > 0) {
-                    hist_pos--;
-                    if (hist_pos == 0) {
-                        strncpy(line, saved, LINE_BUFFER_SIZE - 1);
-                        line[LINE_BUFFER_SIZE - 1] = '\0';
-                        pos = strlen(line);
-                    } else {
-                        const char *h = hist_get(hist_pos);
-                        if (h) {
-                            strncpy(line, h, LINE_BUFFER_SIZE - 1);
-                            line[LINE_BUFFER_SIZE - 1] = '\0';
-                            pos = strlen(line);
-                        }
-                    }
-                    redraw_line(line);
-                }
-            }
-            // left/right/other CSI sequences ignored
-            continue;
-        }
-
-        if (c == '\033') { state = ST_ESC; continue; }
-
-        // --- normal character handling ---
-        if (c == '\r' || c == '\n') {
-            printf("\r\n");
-            line[pos] = '\0';
-            strip(line);
-            hist_pos = 0;
-            if (line[0]) {
-                hist_push(line);
-                command_dispatch(line);
-            }
-            pos = 0;
-            printf("\r\033[K");
-            printf("%s", PROMPT);
-        } else if (c == 127 || c == '\b') {
-            if (pos > 0) {
-                pos--;
-                printf("\b \b");
-            }
-        } else if (c >= 0x20 && c < 0x7f && pos < LINE_BUFFER_SIZE - 1) {
-            line[pos++] = c;
-            char echo[2] = { c, '\0' };
-            printf("%s", echo);
-        }
+        hist_push(line);
+        if (!command_dispatch(line))
+            break;
     }
 
+    printf("\n");
     return 0;
 }
