@@ -1,5 +1,5 @@
-#ifndef _ZUZU_OBSERVER_H
-#define _ZUZU_OBSERVER_H
+#ifndef KERNEL_IPC_OBSERVER_H
+#define KERNEL_IPC_OBSERVER_H
 
 #include "event.h"
 #include <stdint.h>
@@ -32,4 +32,4 @@ void ObserverNotify(ObserverSet *s);
 /* Drops every observer and its event reference. */
 void ObserverClear(ObserverSet *s);
 
-#endif /* _ZUZU_OBSERVER_H */
+#endif /* KERNEL_IPC_OBSERVER_H */

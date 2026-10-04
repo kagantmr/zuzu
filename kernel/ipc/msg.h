@@ -1,5 +1,5 @@
-#ifndef _ZUZU_KERNEL_IPC_MSG_H
-#define _ZUZU_KERNEL_IPC_MSG_H
+#ifndef KERNEL_IPC_MSG_H
+#define KERNEL_IPC_MSG_H
 
 #include "kernel/task/task.h"
 #include "kernel/space/handle.h"
@@ -31,4 +31,4 @@ void __hot ReplyDeliverToCaller(TaskObject *target, uint32_t xlen, Handle grante
 
 void PortReceive(PortObject *port, Duration timeout, CpuState *frame);
 
-#endif /* _ZUZU_KERNEL_IPC_MSG_H */
+#endif /* KERNEL_IPC_MSG_H */
