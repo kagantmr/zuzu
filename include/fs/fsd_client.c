@@ -7,7 +7,7 @@
 static Err FsdCall(Handle port, const FsdRequest *req, FsdResponse *resp, Handle grant,
                    Handle *granted)
 {
-    memcpy(MessageBuf(), req, sizeof(*req));
+    memcpy(GetMessageBox(), req, sizeof(*req));
     SvcResult r = Call(port, sizeof(*req), grant);
     if (granted)
         *granted = (Handle)r.r3;
@@ -15,7 +15,7 @@ static Err FsdCall(Handle port, const FsdRequest *req, FsdResponse *resp, Handle
         return (Err)r.r0;
     if ((uint32_t)r.r1 < sizeof(*resp))
         return ERR_MALFORMED;
-    memcpy(resp, MessageBuf(), sizeof(*resp));
+    memcpy(resp, GetMessageBox(), sizeof(*resp));
     return resp->status;
 }
 

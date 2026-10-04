@@ -320,7 +320,7 @@ static Err NetdHandshake(void)
 
     MsgWriter w;
     MsgWriterInit(&w);
-    MsgPutU32(&w, NETD_DRVHANDSHAKE_INIT);
+    MsgPutByte(&w, NETD_DRVHANDSHAKE_INIT);
     MsgPutU32(&w, mac_lo);
     MsgPutU32(&w, mac_hi);
     Err rc = NetdGrant(netd_port, &w, g_doorbell_ev, PERM_WAIT | PERM_SEND, NULL);
@@ -328,14 +328,14 @@ static Err NetdHandshake(void)
         return rc;
 
     MsgWriterInit(&w);
-    MsgPutU32(&w, NETD_DRVHANDSHAKE_STAGE2);
+    MsgPutByte(&w, NETD_DRVHANDSHAKE_STAGE2);
     rc = NetdGrant(netd_port, &w, shm_tx_handle, PERM_MAP, NULL);
     if (rc != ZUZU_OK)
         return rc;
 
     SvcResult reply;
     MsgWriterInit(&w);
-    MsgPutU32(&w, NETD_DRVHANDSHAKE_STAGE3);
+    MsgPutByte(&w, NETD_DRVHANDSHAKE_STAGE3);
     rc = NetdGrant(netd_port, &w, shm_rx_handle, PERM_MAP, &reply);
     if (rc != ZUZU_OK)
         return rc;
@@ -343,7 +343,7 @@ static Err NetdHandshake(void)
     uint32_t len = (uint32_t)reply.r1;
     if (len == 0 || len > sizeof(ifname))
         return ERR_MALFORMED;
-    memcpy(ifname, MessageBuf(), len);
+    memcpy(ifname, GetMessageBox(), len);
     if (ifname[len - 1] != '\0')
         return ERR_MALFORMED;
 

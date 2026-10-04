@@ -104,7 +104,7 @@ static void DownPushStr(Session *s, const char *str)
 
 static void ReplyStatus(Err status)
 {
-    memcpy(MessageBuf(), &status, sizeof(status));
+    memcpy(MessageBox(), &status, sizeof(status));
     Reply(sizeof(status), -1);
 }
 
@@ -211,7 +211,7 @@ static void HandleConnect(bool provider, const PortWaitResult *r)
         ReplyStatus(ERR_BADARG);
         return;
     }
-    memcpy(&req, MessageBuf(), sizeof(req));
+    memcpy(&req, MessageBox(), sizeof(req));
     req.alias[TTY_NAME_MAX - 1] = '\0';
 
     int ep = -1;
@@ -280,7 +280,7 @@ static void HandleConnect(bool provider, const PortWaitResult *r)
 
     TtyConnectReply rep = {
         .status = ZUZU_OK, .bit = SESSION_BIT(slot), .index = SESSION_INDEX(g_gen[slot], slot)};
-    memcpy(MessageBuf(), &rep, sizeof(rep));
+    memcpy(MessageBox(), &rep, sizeof(rep));
     Err rc = Reply(sizeof(rep), (Handle)bell.r1);
     HandleClose((Handle)bell.r1);
     if (rc != ZUZU_OK) {
@@ -332,7 +332,7 @@ static void HandleRequest(const PortWaitResult *r)
 {
     uint32_t cmd = 0;
     if (r->xlen >= sizeof(cmd))
-        memcpy(&cmd, MessageBuf(), sizeof(cmd));
+        memcpy(&cmd, MessageBox(), sizeof(cmd));
     else {
         if (r->granted >= 0)
             HandleClose(r->granted);
@@ -351,7 +351,7 @@ static void HandleRequest(const PortWaitResult *r)
         TtyNotifyRequest req;
         Session *s = NULL;
         if (r->xlen >= sizeof(req)) {
-            memcpy(&req, MessageBuf(), sizeof(req));
+            memcpy(&req, MessageBox(), sizeof(req));
             s = SessionFor(req.index);
         }
         if (!s || r->granted < 0 || req.bit >= 31) {
@@ -372,7 +372,7 @@ static void HandleRequest(const PortWaitResult *r)
         TtySetModeRequest req;
         Session *s = NULL;
         if (r->xlen >= sizeof(req)) {
-            memcpy(&req, MessageBuf(), sizeof(req));
+            memcpy(&req, MessageBox(), sizeof(req));
             s = SessionFor(req.index);
         }
         if (!s || s->provider || (req.flags & ~TTY_MODE_ALL)) {
@@ -388,7 +388,7 @@ static void HandleRequest(const PortWaitResult *r)
         TtyCloseRequest req;
         Session *s = NULL;
         if (r->xlen >= sizeof(req)) {
-            memcpy(&req, MessageBuf(), sizeof(req));
+            memcpy(&req, MessageBox(), sizeof(req));
             s = SessionFor(req.index);
         }
         if (!s) {
@@ -403,7 +403,7 @@ static void HandleRequest(const PortWaitResult *r)
         TtyWatchRequest req;
         Session *s = NULL;
         if (r->xlen >= sizeof(req)) {
-            memcpy(&req, MessageBuf(), sizeof(req));
+            memcpy(&req, MessageBox(), sizeof(req));
             s = SessionFor(req.index);
         }
         if (!s || r->granted < 0) {

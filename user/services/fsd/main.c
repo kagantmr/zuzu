@@ -36,7 +36,7 @@ static void CloseGrant(const PortWaitResult *r)
 
 static void ReplyResponse(const FsdResponse *resp, Handle grant)
 {
-    memcpy(MessageBuf(), resp, sizeof(*resp));
+    memcpy(MessageBox(), resp, sizeof(*resp));
     Err rc = Reply(sizeof(*resp), grant);
     if (rc != ZUZU_OK)
         UserspaceDebugLog("fsd: reply failed: %d", (int)rc);
@@ -244,7 +244,7 @@ static void HandleAttach(const PortWaitResult *r)
     }
 
     FsdRequest req;
-    memcpy(&req, MessageBuf(), sizeof(req));
+    memcpy(&req, MessageBox(), sizeof(req));
 
     Marker badge = 0;
     Err rc = ClientRegister(r->granted, &badge);
@@ -264,7 +264,7 @@ static void HandleAttach(const PortWaitResult *r)
     FsdResponse resp;
     memset(&resp, 0, sizeof(resp));
     resp.size = sizeof(resp);
-    memcpy(MessageBuf(), &resp, sizeof(resp));
+    memcpy(MessageBox(), &resp, sizeof(resp));
     rc = Reply(sizeof(resp), (Handle)dup.r1);
     HandleClose((Handle)dup.r1);
     if (rc != ZUZU_OK) {
@@ -340,7 +340,7 @@ static void HandleRequest(const PortWaitResult *r)
     }
 
     FsdRequest req;
-    memcpy(&req, MessageBuf(), sizeof(req));
+    memcpy(&req, MessageBox(), sizeof(req));
     if (req.size < sizeof(req)) {
         CloseGrant(r);
         ReplyStatus(ERR_MALFORMED);

@@ -19,7 +19,7 @@ extern "C" {
  *
  * @return void* Pointer to the message buffer.
  */
-static inline void *MessageBuf(void) { return ZuzuTLS()->msg_buf; }
+static inline void *GetMessageBox(void) { return ZuzuTLS()->msg_buf; }
 
 /**
  * @brief Writes data to the current thread's message buffer.
@@ -34,7 +34,7 @@ static inline Err MsgWrite(const void *src, size_t len)
 {
     if (len > MSG_BUF_SIZE)
         return ERR_OVERFLOW;
-    memcpy(MessageBuf(), src, len);
+    memcpy(GetMessageBox(), src, len);
     return (Err)len;
 }
 
@@ -51,7 +51,7 @@ static inline Err MsgRead(void *dst, size_t len)
 {
     if (len > MSG_BUF_SIZE)
         return ERR_OVERFLOW;
-    memcpy(dst, MessageBuf(), len);
+    memcpy(dst, GetMessageBox(), len);
     return len;
 }
 
@@ -65,7 +65,7 @@ typedef struct {
 
 static inline void MsgWriterInit(MsgWriter *w)
 {
-    w->buf = MessageBuf();
+    w->buf = GetMessageBox();
     w->off = 0;
     w->cap = MSG_BUF_SIZE;
     w->ovf = false;
@@ -79,6 +79,16 @@ static inline void MsgPutU32(MsgWriter *w, uint32_t v)
     }
     memcpy(w->buf + w->off, &v, 4); /* alignment-safe, matches reader */
     w->off += 4;
+}
+
+static inline void MsgPutByte(MsgWriter *w, uint8_t v)
+{
+    if (w->off + 1 > w->cap) {
+        w->ovf = true;
+        return;
+    }
+    *(w->buf + w->off) = v;
+    w->off += 1;
 }
 
 static inline void MsgPutStr(MsgWriter *w, const char *s)

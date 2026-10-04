@@ -28,7 +28,7 @@ static inline Handle RequestDevice(Handle devsvc_port, const char *const *compat
     if (count == 0 || count > DEVM_MAX_COMPAT)
         return ERR_BADARG;
 
-    char *b = MessageBuf();
+    char *b = GetMessageBox();
     uint32_t cmd = DEVM_REQUEST;
     memcpy(b + 0, &cmd, 4);
     memcpy(b + 4, &count, 4);
@@ -47,7 +47,7 @@ static inline Handle RequestDevice(Handle devsvc_port, const char *const *compat
         return (Handle)r.r0;
 
     if (out_matched)
-        memcpy(out_matched, MessageBuf(), sizeof(uint32_t));
+        memcpy(out_matched, GetMessageBox(), sizeof(uint32_t));
 
     return (Handle)r.r3;
 }

@@ -1,12 +1,13 @@
 // #include <stdio.h>
 
 #include <dev/protocols/devm.h>
+#include <net/protocols/netd.h>
 #include <net/protocols/nic.h>
 #include <types.h>
 #include <util/channel.h>
 #include <util/log.h>
-#include <zuzu/zuzu.h>
 #include <zuzu/service.h>
+#include <zuzu/zuzu.h>
 
 #include "common/globals.h"
 #include "common/netrand.h"
@@ -21,10 +22,8 @@
 #include "app/dns.h"
 
 NicRing *tx_ring, *rx_ring;
-Handle nic_port;
-Handle nic_ntfn;
-Handle tx_doorbell;
-Handle netd_handles[2];
+Handle g_svc_port = -1;
+Handle g_nic_doorbell_ev = -1;
 netif_t netif; /* filled at startup (htonl isn't constant); DHCP overwrites later */
 
 #define LEGACY_POLL_CAP 50u
@@ -60,79 +59,66 @@ static __attribute__((cold)) void on_dhcp_bound(void)
     dns_query("google.com", on_resolved); /* smoke test now that we have DNS */
 }
 
-__attribute__((cold)) int PerformDriverHandshake()
+static Err InitNetdServices(void)
 {
-    Handle port = CreatePort();
 
-    Err rc = RegisterService("/svc/netd", port);
-    if (rc < 0) {
+    Err retval = ZUZU_OK;
+
+    g_svc_port = CreatePort();
+    if (g_svc_port < 0) {
+        return g_svc_port;
+    }
+
+    retval = RegisterService("/svc/netd", g_svc_port);
+    if (retval < 0) {
         LOG_ERROR(LOG_TAG, "registration failed");
-        return ERR_SYSDOWN;
+        return retval;
     }
 
-    /* lan9118drv is kicked off in the same boot-manifest batch as netd, so
-     * this lookup can race lan9118drv's own devmgr rendezvous + NIC setup.
-     * Retry for a bit instead of failing outright on a boot-order race
-     * (mirrors pl011drv's wait_for_devmgr()). */
-    nic_port = -1;
-    for (int tries = 0; tries < 200 && nic_port < 0; tries++) {
-        nic_port = LookupService("/dev/eth0");
-        if (nic_port < 0)
-            Sleep(10);
-    }
-    if (nic_port < 0) {
-        LOG_ERROR(LOG_TAG, "couldn't find nic0");
-        return ERR_NOENT;
-    }
-    LOG_INFO(LOG_TAG, "nic0 port=%d", nic_port);
+    return retval;
+}
 
-    // w1 = status (ZUZU_OK / -err); w2 = mac_lo, w3 = mac_hi carry the MAC bytes
-    Message r = ZuzuMsgCall(nic_port, NIC_CMD_GETMAC, 0, 0);
-    if ((int32_t)r.w1 != ZUZU_OK) {
-        LOG_ERROR(LOG_TAG, "GETMAC failed");
-        return 1;
-    }
-    /* L3 config (ip/netmask/gateway/dns) stays zero until DHCP binds it. */
-    netif.mac[0] = (r.w2 >> 0) & 0xff;
-    netif.mac[1] = (r.w2 >> 8) & 0xff;
-    netif.mac[2] = (r.w2 >> 16) & 0xff;
-    netif.mac[3] = (r.w2 >> 24) & 0xff;
-    netif.mac[4] = (r.w3 >> 0) & 0xff;
-    netif.mac[5] = (r.w3 >> 8) & 0xff;
-    LOG_INFO(LOG_TAG, "MAC %02x:%02x:%02x:%02x:%02x:%02x", netif.mac[0], netif.mac[1], netif.mac[2],
-             netif.mac[3], netif.mac[4], netif.mac[5]);
-
-    // w1 = shmem handle, w2 = rx doorbell, w3 = tx doorbell (all >= 0 on success)
-    r = Call(nic_port, NIC_CMD_GETBUF, 0, 0);
-    if ((int32_t)r.w0 != 0 || (int32_t)r.w1 < 0 || (int32_t)r.w2 < 0 || (int32_t)r.w3 < 0) {
-        LOG_ERROR(LOG_TAG, "NIC_GETBUF failed");
-        return 1;
-    }
-
-    void *addr = MemMap((int32_t)r.w1, 0, PROT_RW, 0);
-    if (PtrIsErr(addr)) {
-        LOG_ERROR(LOG_TAG, "shmem attach failed");
-        return ERR_SYSDOWN;
-    }
-    LOG_INFO(LOG_TAG, "Address of shmem: %p", (VirtAddr)addr);
-
-    rx_ring = (nic_ring_t *)((uint8_t *)addr + NIC_RX_OFFSET);
-    tx_ring = (nic_ring_t *)((uint8_t *)addr + NIC_TX_OFFSET);
-
-    netd_port = port;
-    nic_ntfn = (Handle)r.w2;
-    tx_doorbell = (Handle)r.w3;
-    netd_handles[1] = nic_ntfn;
-    LOG_INFO(LOG_TAG, "service port=%d nic_ntfn=%d tx_doorbell=%d nic_port=%d", netd_port, nic_ntfn,
-             tx_doorbell, nic_port);
+/**
+ * @brief Whenever a NIC sends NETD_DRVHANDSHAKE_INIT, does the 3-message handshake.
+ */
+static __attribute__((cold)) Err PerformDriverHandshake(void)
+{
+    // first handshake init from driver contains MAC address in the messagebox
+    
     return ZUZU_OK;
+}
+
+static Err WaitForDriver(void)
+{
+    Err retval = ZUZU_OK;
+    while (1) {
+        PortWaitResult res = FormatToPortWait(WaitOn(g_svc_port, TIMEOUT_INFINITE));
+        if (res.status != ZUZU_OK)
+            return res.status;
+        // see if we got a proper handshake initiation
+        if (res.xlen >= 1 && *((uint8_t *)GetMessageBox()) == NETD_DRVHANDSHAKE_INIT) {
+            g_nic_doorbell_ev = res.granted; // if we got the grant that means it succeeded
+            retval = PerformDriverHandshake();
+            if (retval < 0)
+                return retval;
+            break;
+        }
+    }
+    return retval;  
 }
 
 int main()
 {
-    if (PerformDriverHandshake() < 0) {
-        return ERR_SYSDOWN;
-    }
+    Err retval = ZUZU_OK;
+
+    retval = InitNetdServices();
+    if (retval < 0)
+        return retval;
+
+    /* then wait for a driver to register, because without a driver netd wouldnt do anything */
+    retval = WaitForDriver();
+    if (retval < 0)
+        return retval;
 
     timer_init();
     netrand_init();
