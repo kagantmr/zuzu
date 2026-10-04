@@ -1,5 +1,5 @@
-#ifndef PMM_H
-#define PMM_H
+#ifndef KERNEL_MM_PMM_PMM_H
+#define KERNEL_MM_PMM_PMM_H
 
 #include "kernel/ipc/event.h"
 

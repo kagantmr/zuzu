@@ -1,5 +1,5 @@
-#ifndef ZUZU_PMM_INTERNAL_H
-#define ZUZU_PMM_INTERNAL_H
+#ifndef KERNEL_MM_PMM_PMM_INTERNAL_H
+#define KERNEL_MM_PMM_PMM_INTERNAL_H
 
 /* Cross-TU glue shared by pmm.c and pmm_pressure.c. Not part of the public
  * pmm.h API -- do not include from outside kernel/mm/pmm/. */
@@ -26,4 +26,4 @@ extern ListHead pmm_subscribers;
  * allocation that can move free_frames across a watermark. */
 void PmmSignalSubscribers(void);
 
-#endif /* ZUZU_PMM_INTERNAL_H */
+#endif /* KERNEL_MM_PMM_PMM_INTERNAL_H */

@@ -1,5 +1,5 @@
-#ifndef _ZUZU_MEM_OBJECT_H
-#define _ZUZU_MEM_OBJECT_H
+#ifndef KERNEL_MM_MEM_OBJECT_H
+#define KERNEL_MM_MEM_OBJECT_H
 
 #include <types.h>
 #include "kernel/mm/pmm/pmm.h"
@@ -26,4 +26,4 @@ MemObject *MemObjCreateDevice(PhysAddr phys_base, size_t size, Irq irq);
 void MemObjUnref(MemObject *mem);
 void MemObjUnmapAndDrop(AddressSpace *as, VirtAddr mapped_va, MemObject *mem);
 
-#endif /* _ZUZU_MEM_OBJECT_H */
+#endif /* KERNEL_MM_MEM_OBJECT_H */
