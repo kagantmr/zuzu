@@ -26,6 +26,7 @@ static Handle stdio_event = -1;
 static TtyConn stdio_conn;
 static char stdio_alias[TTY_NAME_MAX];
 static int stdio_pushback = EOF;
+static bool stdio_focused;
 static uint32_t stdio_mode = TTY_MODE_COOKED | TTY_MODE_ECHO;
 
 static void stdio_disconnect(void)
@@ -39,6 +40,7 @@ static void stdio_disconnect(void)
         TtyClientClose(stdio_port, &stdio_conn);
     }
     stdio_state = STDIO_IDLE;
+    stdio_focused = false;
     stdio_pushback = EOF;
 }
 
@@ -153,6 +155,12 @@ static int stdio_stream_getc(void)
 
     if (stdio_open_tty() != 0)
         return EOF;
+
+    if (!stdio_focused) {
+        if (TtyClientFocus(stdio_port, &stdio_conn) != ZUZU_OK)
+            return EOF;
+        stdio_focused = true;
+    }
 
     TtyShm *shm = stdio_conn.shm;
     for (;;) {

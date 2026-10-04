@@ -45,6 +45,8 @@ _Static_assert(sizeof(TtyShm) <= 4096, "TtyShm must fit in the one shared page")
     6 /* grant: a port the caller owns (PERM_WAIT|PERM_TXFR). {cmd, index}; ttysvc closes the      \
          session when that port dies */
 
+#define TTY_FOCUS 7 /* {cmd, index}, consumers only: take the foreground for input */
+
 #define TTY_MODE_RAW 0u /* default: bytes pass through untouched */
 #define TTY_MODE_COOKED                                                                            \
     (1u << 0) /* line editing (^H DEL ^U ^W), whole lines, ^D = EOF, ^C = flag; '\n' -> "\r\n" on  \
@@ -71,6 +73,7 @@ typedef struct {
     uint32_t index;
 } TtyCloseRequest;
 typedef TtyCloseRequest TtyWatchRequest;
+typedef TtyCloseRequest TtyFocusRequest;
 typedef struct {
     Err status;
     uint32_t bit;
@@ -130,7 +133,7 @@ static inline Err TtyCall(Handle tty_port, const void *req, uint32_t len, Handle
     Err status;
     if ((uint32_t)r.r1 < sizeof(status))
         return ERR_MALFORMED;
-    memcpy(&status, MessageBuf(), sizeof(status));
+    memcpy(&status, GetMessageBox(), sizeof(status));
     return status;
 }
 
@@ -172,7 +175,7 @@ static inline Err TtyClientConnect(Handle tty_port, uint32_t cmd, const char *al
         rc = ERR_MALFORMED;
     TtyConnectReply rep;
     if (rc == ZUZU_OK)
-        memcpy(&rep, MessageBuf(), sizeof(rep));
+        memcpy(&rep, GetMessageBox(), sizeof(rep));
     if (rc != ZUZU_OK) {
         if (doorbell >= 0)
             HandleClose(doorbell);
@@ -212,6 +215,12 @@ static inline Err TtyClientConnect(Handle tty_port, uint32_t cmd, const char *al
 static inline Err TtyClientSetMode(Handle tty_port, const TtyConn *c, uint32_t flags)
 {
     TtySetModeRequest req = {.cmd = TTY_SETMODE, .index = c->index, .flags = flags};
+    return TtyCall(tty_port, &req, sizeof(req), -1, NULL);
+}
+
+static inline Err TtyClientFocus(Handle tty_port, const TtyConn *c)
+{
+    TtyFocusRequest req = {.cmd = TTY_FOCUS, .index = c->index};
     return TtyCall(tty_port, &req, sizeof(req), -1, NULL);
 }
 
