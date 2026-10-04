@@ -7,8 +7,8 @@
 // an undefined-instruction exception instead of executing, which is how
 // arch/arm/exceptions/exception.c catches first-use-after-switch.
 
-#ifndef ZUZU_ARM_IMPL_FPU_H
-#define ZUZU_ARM_IMPL_FPU_H
+#ifndef ARCH_ARM_IMPL_FPU_H
+#define ARCH_ARM_IMPL_FPU_H
 
 #include <stdint.h>
 
@@ -40,4 +40,4 @@ static inline void ArchFpuEnableAccess(void)
     __asm__ volatile("isb" ::: "memory");
 }
 
-#endif // ZUZU_ARM_IMPL_FPU_H
+#endif // ARCH_ARM_IMPL_FPU_H

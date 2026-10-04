@@ -4,8 +4,8 @@
 // TLB flushes. Architectures without ASIDs provide a trivial implementation.
 // AddressSpace embeds an AsidToken by value, so this is a concrete type.
 
-#ifndef ZUZU_ARCH_ASID_H
-#define ZUZU_ARCH_ASID_H
+#ifndef ARCH_ASID_H
+#define ARCH_ASID_H
 
 #include <stdint.h>
 
@@ -38,4 +38,4 @@ static inline uint32_t AsidCurrentGeneration(void) { return asid_generation; }
  */
 void AsidSetActive(Asid asid);
 
-#endif // ZUZU_ARCH_ASID_H
+#endif // ARCH_ASID_H

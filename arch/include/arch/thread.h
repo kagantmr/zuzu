@@ -2,9 +2,9 @@
 //
 //   void ArchSetTlsPointer(TaskObject *t);  -- expose TLS/thread ptr to user mode
 
-#ifndef ZUZU_ARCH_THREAD_H
-#define ZUZU_ARCH_THREAD_H
+#ifndef ARCH_THREAD_H
+#define ARCH_THREAD_H
 
 #include <arch_impl/thread.h>
 
-#endif // ZUZU_ARCH_THREAD_H
+#endif // ARCH_THREAD_H

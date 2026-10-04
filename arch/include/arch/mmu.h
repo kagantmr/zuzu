@@ -7,8 +7,8 @@
  * (AddressSpace, MemProt, VirtMemType) come from kernel/mm/vmm/vmm.h.
  */
 
-#ifndef ZUZU_ARCH_MMU_H
-#define ZUZU_ARCH_MMU_H
+#ifndef ARCH_MMU_H
+#define ARCH_MMU_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -75,4 +75,4 @@ void ArchMmuInitTtbr1(AddressSpace *as);
 /* Inline, architecture-private helpers (e.g. ArchRelocateStacks). */
 #include <arch_impl/mmu.h>
 
-#endif // ZUZU_ARCH_MMU_H
+#endif // ARCH_MMU_H

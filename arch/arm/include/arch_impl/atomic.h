@@ -2,8 +2,8 @@
 //
 // Do not include directly from neutral code; include <arch/atomic.h> instead.
 
-#ifndef ZUZU_ARM_IMPL_ATOMIC_H
-#define ZUZU_ARM_IMPL_ATOMIC_H
+#ifndef ARCH_ARM_IMPL_ATOMIC_H
+#define ARCH_ARM_IMPL_ATOMIC_H
 
 #include <stdint.h>
 
@@ -31,4 +31,4 @@ static inline uint32_t ArchStoreExclusive(volatile uint32_t *addr, uint32_t val)
     return result;
 }
 
-#endif // ZUZU_ARM_IMPL_ATOMIC_H
+#endif // ARCH_ARM_IMPL_ATOMIC_H

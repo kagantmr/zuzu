@@ -3,8 +3,8 @@
 //   void ArchTimerInit(void);  - start the periodic tick that drives
 //                                   the scheduler via the kernel tick subsystem.
 
-#ifndef ZUZU_ARCH_TIMER_H
-#define ZUZU_ARCH_TIMER_H
+#ifndef ARCH_TIMER_H
+#define ARCH_TIMER_H
 
 #include <stdint.h>
 #include <types.h>
@@ -22,4 +22,4 @@ static inline uint64_t ArchDeadlineFromMs(uint32_t ms)
     return (uint64_t)ArchTimerNow() + delta;
 }
 
-#endif // ZUZU_ARCH_TIMER_H
+#endif // ARCH_TIMER_H

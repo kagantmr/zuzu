@@ -2,8 +2,8 @@
 //
 // Do not include directly from neutral code; include <arch/cpu.h> instead.
 
-#ifndef ZUZU_ARM_IMPL_CPU_H
-#define ZUZU_ARM_IMPL_CPU_H
+#ifndef ARCH_ARM_IMPL_CPU_H
+#define ARCH_ARM_IMPL_CPU_H
 
 #include <stdint.h>
 
@@ -38,4 +38,4 @@ static inline void ArchIrqRestore(Cpsr state) {
     __asm__ volatile("msr cpsr_c, %0" :: "r"(state) : "memory");
 }
 
-#endif // ZUZU_ARM_IMPL_CPU_H
+#endif // ARCH_ARM_IMPL_CPU_H

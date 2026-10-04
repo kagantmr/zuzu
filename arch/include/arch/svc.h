@@ -1,5 +1,5 @@
-#ifndef _ARCH_ZUZU_SVC_H
-#define _ARCH_ZUZU_SVC_H
+#ifndef ARCH_SVC_H
+#define ARCH_SVC_H
 
 #include <stdint.h>
 #include "regs.h"
@@ -46,4 +46,4 @@ SvcResult ArchInvokeSvc4(uint32_t svc_num, Register a0, Register a1, Register a2
 }
 #endif
 
-#endif /* _ARCH_ZUZU_SVC_H */
+#endif /* ARCH_SVC_H */

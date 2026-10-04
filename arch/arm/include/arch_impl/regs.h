@@ -5,8 +5,8 @@
 // arch/arm/exceptions/entry.S exactly — the assembly writes these fields by
 // offset.
 
-#ifndef ZUZU_ARM_IMPL_REGS_H
-#define ZUZU_ARM_IMPL_REGS_H
+#ifndef ARCH_ARM_IMPL_REGS_H
+#define ARCH_ARM_IMPL_REGS_H
 
 #include <compiler.h>
 #include <snprintf.h>
@@ -102,4 +102,4 @@ static inline bool ArchFlagsInIrqContext(Register flags)
     return ((uint32_t)flags & 0x1Fu) == 0x12u;
 }
 
-#endif // ZUZU_ARM_IMPL_REGS_H
+#endif // ARCH_ARM_IMPL_REGS_H

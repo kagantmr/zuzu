@@ -26,8 +26,8 @@
 //                                                       -- human-readable mode/flag string
 //   bool ArchFlagsInIrqContext(Register flags);    -- true if flags denotes IRQ context
 
-#ifndef ZUZU_ARCH_REGS_H
-#define ZUZU_ARCH_REGS_H
+#ifndef ARCH_REGS_H
+#define ARCH_REGS_H
 
 #include <arch_impl/regs.h>   /* CpuState + accessors (CpuContext for arch use) */
 
@@ -36,4 +36,4 @@ static __always_inline void ArchSetInFrame(CpuState *f, unsigned i, int value)
     *ArchGetFromFrame(f, i) = (Register)value;
 } 
 
-#endif // ZUZU_ARCH_REGS_H
+#endif // ARCH_REGS_H

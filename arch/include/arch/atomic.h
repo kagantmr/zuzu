@@ -3,9 +3,9 @@
 //   uint32_t ArchLoadExclusive(volatile uint32_t *);
 //   uint32_t ArchStoreExclusive(volatile uint32_t *, uint32_t);
 
-#ifndef ZUZU_ARCH_ATOMIC_H
-#define ZUZU_ARCH_ATOMIC_H
+#ifndef ARCH_ATOMIC_H
+#define ARCH_ATOMIC_H
 
 #include <arch_impl/atomic.h>
 
-#endif // ZUZU_ARCH_ATOMIC_H
+#endif // ARCH_ATOMIC_H

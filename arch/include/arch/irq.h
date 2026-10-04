@@ -4,8 +4,8 @@
 // interrupt controller (GICv2 on ARM). Global IRQ-flag control lives in
 // <arch/cpu.h>; this header is about individual IRQ lines and handlers.
 
-#ifndef ZUZU_ARCH_IRQ_H
-#define ZUZU_ARCH_IRQ_H
+#ifndef ARCH_IRQ_H
+#define ARCH_IRQ_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -62,4 +62,4 @@ bool ArchIrqHasHandler(uint32_t irq_id);
  *  NULL if none. */
 void *ArchIrqHandlerAddr(uint32_t irq_id);
 
-#endif // ZUZU_ARCH_IRQ_H
+#endif // ARCH_IRQ_H

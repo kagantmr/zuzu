@@ -2,8 +2,8 @@
 //
 // Do not include directly from neutral code; include <arch/tls.h> instead.
 
-#ifndef ZUZU_ARM_IMPL_TLS_H
-#define ZUZU_ARM_IMPL_TLS_H
+#ifndef ARCH_ARM_IMPL_TLS_H
+#define ARCH_ARM_IMPL_TLS_H
 
 #include <stdint.h>
 
@@ -19,4 +19,4 @@ static inline uintptr_t ArchGetTlsPointer(void)
     return tp;
 }
 
-#endif // ZUZU_ARM_IMPL_TLS_H
+#endif // ARCH_ARM_IMPL_TLS_H

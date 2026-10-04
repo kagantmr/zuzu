@@ -3,8 +3,8 @@
 // Used around code loading (ZXF) and DMA-visible memory to keep the I/D caches
 // coherent with main memory.
 
-#ifndef ZUZU_ARCH_CACHE_H
-#define ZUZU_ARCH_CACHE_H
+#ifndef ARCH_CACHE_H
+#define ARCH_CACHE_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -17,4 +17,4 @@ void ArchCacheCleanDcacheRange(uintptr_t start, size_t size);
  *  code being published is only reachable through a kernel alias. */
 void ArchCacheInvalidateIcacheAll(void);
 
-#endif // ZUZU_ARCH_CACHE_H
+#endif // ARCH_CACHE_H

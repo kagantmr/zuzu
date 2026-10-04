@@ -11,8 +11,8 @@
 //        fp, stopping at the first frame that doesn't look like valid
 //        kernel stack. Returns the number of addresses written.
 
-#ifndef ZUZU_ARCH_BACKTRACE_H
-#define ZUZU_ARCH_BACKTRACE_H
+#ifndef ARCH_BACKTRACE_H
+#define ARCH_BACKTRACE_H
 
 #include <arch/regs.h>
 #include <stddef.h>
@@ -20,4 +20,4 @@
 
 #include <arch_impl/backtrace.h> /* ArchBacktraceWalk() */
 
-#endif // ZUZU_ARCH_BACKTRACE_H
+#endif // ARCH_BACKTRACE_H

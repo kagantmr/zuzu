@@ -1,5 +1,5 @@
-#ifndef ZUZU_ARM_IMPL_PMCCNTR_H
-#define ZUZU_ARM_IMPL_PMCCNTR_H
+#ifndef ARCH_ARM_IMPL_PMCCNTR_H
+#define ARCH_ARM_IMPL_PMCCNTR_H
 
 #include <arch/barrier.h>
 #include <types.h>

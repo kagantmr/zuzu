@@ -3,8 +3,8 @@
 // Do not include directly from neutral code; include <arch/mmu.h> instead,
 // which pulls this in for the inline bits.
 
-#ifndef ZUZU_ARM_IMPL_MMU_H
-#define ZUZU_ARM_IMPL_MMU_H
+#ifndef ARCH_ARM_IMPL_MMU_H
+#define ARCH_ARM_IMPL_MMU_H
 
 #include <stddef.h>
 
@@ -52,4 +52,4 @@ static inline void ArchRelocateStacks(size_t offset)
         : "r0", "r4", "memory");
 }
 
-#endif // ZUZU_ARM_IMPL_MMU_H
+#endif // ARCH_ARM_IMPL_MMU_H

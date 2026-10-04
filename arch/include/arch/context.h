@@ -5,8 +5,8 @@
 // "returns" into the right place. The callee-saved switch context and any
 // FP save area are arch-private details hidden behind these calls.
 
-#ifndef ZUZU_ARCH_CONTEXT_H
-#define ZUZU_ARCH_CONTEXT_H
+#ifndef ARCH_CONTEXT_H
+#define ARCH_CONTEXT_H
 
 #include <stdint.h>
 #include <arch/regs.h>
@@ -32,4 +32,4 @@ void *ArchTaskUserInit(void *kstack_top, uintptr_t entry, uintptr_t user_sp,
  */
 void *ArchTaskKernelInit(void *kstack_top, void (*entry)(void));
 
-#endif // ZUZU_ARCH_CONTEXT_H
+#endif // ARCH_CONTEXT_H

@@ -2,8 +2,8 @@
 // This file defines the register offsets and function prototypes for initializing and interacting with the GICv2 interrupt controller. 
 // The GIC is responsible for managing peripheral interrupts and delivering them to the CPU.
 
-#ifndef GICV2_H
-#define GICV2_H
+#ifndef ARCH_ARM_GICV2_H
+#define ARCH_ARM_GICV2_H
 
 #include <stdint.h>
 #include <types.h>
