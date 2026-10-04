@@ -23,7 +23,7 @@ typedef struct {
 
 MemObject *MemObjCreateShm(PhysAddr *page_addrs, size_t page_count);
 MemObject *MemObjCreateDevice(PhysAddr phys_base, size_t size, Irq irq);
-void MemObjDestroy(MemObject *mem);
+void MemObjUnref(MemObject *mem);
 void MemObjUnmapAndDrop(AddressSpace *as, VirtAddr mapped_va, MemObject *mem);
 
 #endif /* _ZUZU_MEM_OBJECT_H */

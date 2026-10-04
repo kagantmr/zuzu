@@ -156,7 +156,7 @@ void SvcCreate(CpuState *frame)
                ArchSetInFrame(frame, 0, ERR_NOMEM); return);
     
         Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
-        ENSURE(-1 != new_handle, MemObjDestroy(mem); ArchSetInFrame(frame, 0, ERR_NOMEM); return);
+        ENSURE(-1 != new_handle, MemObjUnref(mem); ArchSetInFrame(frame, 0, ERR_NOMEM); return);
     
         HandleTableEntry *entry =
             HandleTableGet(&CURRENT_SPACE->handle_table, new_handle);

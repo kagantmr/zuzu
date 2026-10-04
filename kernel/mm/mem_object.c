@@ -37,7 +37,7 @@ MemObject *MemObjCreateShm(PhysAddr *page_addrs, size_t page_count)
     return mem;
 }
 
-void MemObjDestroy(MemObject *mem)
+void MemObjUnref(MemObject *mem)
 {
     if (!mem) return;
     if (mem->ref_count > 0) mem->ref_count--;
@@ -60,5 +60,5 @@ void MemObjUnmapAndDrop(AddressSpace *as, VirtAddr mapped_va, MemObject *mem) {
                         (mem->kind == MEMKIND_DEVICE)
                             ? mem->dev.size
                             : mem->shm.page_count * PAGE_SIZE);
-    MemObjDestroy(mem);
+    MemObjUnref(mem);
 }
