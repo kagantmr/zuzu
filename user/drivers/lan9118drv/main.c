@@ -18,16 +18,12 @@
 
 #define IRQ_BIT (0)
 
-// on another event object, which is granted over to netd
-#define TX_DOORBELL_BIT (0)
-#define RX_DOORBELL_BIT (1)
-
 #define WAIT_MS 25
 
 #define IRQ_MASK (1u << IRQ_BIT)
 
-#define TX_DOORBELL_MASK (1u << TX_DOORBELL_BIT)
-#define RX_DOORBELL_MASK (1u << RX_DOORBELL_BIT)
+#define TX_DOORBELL_MASK NIC_DOORBELL_TX
+#define RX_DOORBELL_MASK NIC_DOORBELL_RX
 
 static volatile Lan9118Mmio *nic;
 static uint8_t mac[6];
@@ -262,7 +258,7 @@ void ServiceIrq(void)
                     continue;
                 }
                 nic_stats[NIC_STAT_RX_PACKETS]++;
-                Signal(g_doorbell_ev, RX_DOORBELL_BIT, false);
+                Signal(g_doorbell_ev, RX_DOORBELL_MASK, false);
             }
         }
     }
@@ -299,6 +295,15 @@ static Err NetdGrant(Handle netd_port, const MsgWriter *w, Handle h, HandlePerms
     if (r.r0 != ZUZU_OK) {
         LOG_ERROR(LOG_TAG, "handshake call failed: %s", StrToError((Err)r.r0));
         return (Err)r.r0;
+    }
+
+    Err status;
+    if ((uint32_t)r.r1 < sizeof(status))
+        return ERR_MALFORMED;
+    memcpy(&status, GetMessageBox(), sizeof(status));
+    if (status != ZUZU_OK) {
+        LOG_ERROR(LOG_TAG, "netd rejected handshake: %s", StrToError(status));
+        return status;
     }
 
     if (out)
@@ -340,10 +345,10 @@ static Err NetdHandshake(void)
     if (rc != ZUZU_OK)
         return rc;
 
-    uint32_t len = (uint32_t)reply.r1;
+    uint32_t len = (uint32_t)reply.r1 - sizeof(Err);
     if (len == 0 || len > sizeof(ifname))
         return ERR_MALFORMED;
-    memcpy(ifname, GetMessageBox(), len);
+    memcpy(ifname, (const char *)GetMessageBox() + sizeof(Err), len);
     if (ifname[len - 1] != '\0')
         return ERR_MALFORMED;
 

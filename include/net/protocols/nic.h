@@ -9,6 +9,10 @@ extern "C" {
 #endif
 
 // should be 1 byte
+/* bits on the doorbell event shared by the driver and netd */
+#define NIC_DOORBELL_TX (1u << 0) /* netd -> driver: frames queued in tx ring */
+#define NIC_DOORBELL_RX (1u << 1) /* driver -> netd: frames queued in rx ring */
+
 typedef enum {
     NIC_STAT_IRQ = 0,      // interrupts serviced
     NIC_STAT_RX_PACKETS,   // frames delivered to the rx ring
