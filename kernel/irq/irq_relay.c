@@ -10,7 +10,7 @@ const IrqOwner *GetIrqOwnersList(void)
     return irq_owners;
 }
 
-static void __hot RelayIsr(void *ctx)
+static void __hot RelayIrqHandler(void *ctx)
 {
     Irq irq_num = (Irq)(VirtAddr)ctx;
     ArchIrqMaskLine(irq_num);
@@ -49,7 +49,7 @@ Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev, uint32_t bi
     {
         irq_owners[irq_num] =
             (IrqOwner){.bound_ev = NULL, .owner = owner, .pending = false, .bit = bit};
-        ArchIrqRegister(irq_num, RelayIsr, (void *)(VirtAddr)irq_num);
+        ArchIrqRegister(irq_num, RelayIrqHandler, (void *)(VirtAddr)irq_num);
     }
     irq_owners[irq_num].bit = bit;
 
