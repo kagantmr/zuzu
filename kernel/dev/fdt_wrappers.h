@@ -1,5 +1,5 @@
-#ifndef ZUZU_FDT_H
-#define ZUZU_FDT_H
+#ifndef KERNEL_DEV_FDT_WRAPPERS_H
+#define KERNEL_DEV_FDT_WRAPPERS_H
 
 #include <stdbool.h>
 #include <stddef.h>
