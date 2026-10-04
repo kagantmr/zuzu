@@ -96,7 +96,7 @@ SpaceObject *SpaceFindBySpid(Spid spid);
  * table, address space). Idempotent.
  *
  * Does not necessarily free the SpaceObject itself: if the space's last
- * task is still parked as a zombie (state == ZOMBIE, not yet reaped), the
+ * task is still parked as a zombie (state == TASK_STATE_ZOMBIE, not yet reaped), the
  * struct is kept alive so that task's owner backpointer stays valid.
  * TaskDestroy calls SpaceFinalize() once that last task is actually freed.
  */
@@ -112,7 +112,7 @@ void SpaceFinalize(SpaceObject *sp);
 
 /**
  * @brief Undo TaskFault's freeze: clear frozen and re-queue any
- * sibling tasks that were left READY but unlinked from their run queue.
+ * sibling tasks that were left TASK_STATE_READY but unlinked from their run queue.
  */
 void SpaceUnfreeze(SpaceObject *owner);
 

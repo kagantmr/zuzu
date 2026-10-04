@@ -126,15 +126,15 @@ static const char *TaskStateToString(TaskState state)
 {
     switch (state)
     {
-    case READY:
+    case TASK_STATE_READY:
         return "READY";
-    case RUNNING:
+    case TASK_STATE_RUNNING:
         return "RUNNING";
-    case BLOCKED:
+    case TASK_STATE_BLOCKED:
         return "BLOCKED";
-    case ZOMBIE:
+    case TASK_STATE_ZOMBIE:
         return "ZOMBIE";
-    case FROZEN:
+    case TASK_STATE_FROZEN:
         return "FROZEN";
     default:
         return "UNKNOWN";
@@ -162,7 +162,7 @@ static const char *HandleTypeStr(HandleType t)
     }
 }
 
-static const char *IpcStateStr(MsgState s)
+static const char *IpcStateStr(IpcState s)
 {
     switch (s)
     {

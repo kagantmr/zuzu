@@ -12,7 +12,7 @@
 static uint32_t bitmap[BITMAP_WORDS(MAX_KSTACKS)];
 static PhysAddr slot_pa[MAX_KSTACKS];
 
-VirtAddr KernelStackAlloc(void)
+VirtAddr KStackAlloc(void)
 {
 	int found = BitmapFindFirstZero(bitmap, MAX_KSTACKS);
 	if (found >= 0) {
@@ -23,7 +23,7 @@ VirtAddr KernelStackAlloc(void)
 			return 0;
 		slot_pa[slot] = page_pa;
 
-		VirtAddr slot_va = KernelStackTopFromSlot((int)slot) - KSTACK_SLOT_SIZE;
+		VirtAddr slot_va = KStackTopFromSlot((int)slot) - KSTACK_SLOT_SIZE;
 
 		/* Map the usable stack page (above the guard). */
 		bool result = VmmMapRange(VmmGetKernelAddressSpace(), slot_va + KSTACK_GUARD_SIZE,
@@ -51,15 +51,15 @@ VirtAddr KernelStackAlloc(void)
 		ArchSyncBarrier();
 
 		BitmapSet(bitmap, slot);
-		return KernelStackTopFromSlot((int)slot);
+		return KStackTopFromSlot((int)slot);
 	}
 	return 0; /* pool exhausted */
 }
 
-void KernelStackFree(VirtAddr stack_top)
+void KStackFree(VirtAddr stack_top)
 {
-	int slot = KernelStackSlotFromTop(stack_top);
-	VirtAddr mapped_va = KernelStackTopFromSlot(slot) - KSTACK_SLOT_SIZE + KSTACK_GUARD_SIZE;
+	int slot = KStackSlotFromTop(stack_top);
+	VirtAddr mapped_va = KStackTopFromSlot(slot) - KSTACK_SLOT_SIZE + KSTACK_GUARD_SIZE;
 	VmmUnmapRange(VmmGetKernelAddressSpace(), mapped_va, PAGE_SIZE, true);
 	PmmFreeFrame(slot_pa[slot]);
 	slot_pa[slot] = 0;

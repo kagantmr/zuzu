@@ -101,7 +101,7 @@ void CallBlockAsSender(TaskObject *caller, PortObject *port,
     caller->msg_xfer_len = xlen;
     caller->pending_grant_handle = grant_handle;
     list_add_tail(&caller->node, &port->sender_queue.node);
-    caller->state = BLOCKED;
+    caller->state = TASK_STATE_BLOCKED;
     if (PortHasPending(port))
         ObserverNotify(&port->observers);
     Schedule();
@@ -152,7 +152,7 @@ __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port,
     caller->ipc_state = IPC_WAITING;
     caller->blocked_port = port;
     caller->pending_reply_cap = rc;
-    caller->state = BLOCKED;
+    caller->state = TASK_STATE_BLOCKED;
 
     if (unlikely(SchedAnyCpuTakers(rx))) {
         SchedAdd(rx);
@@ -175,7 +175,7 @@ void ReplyDeliverToCaller(TaskObject *target, uint32_t xlen, Handle granted)
     target->blocked_port = NULL;
     target->pending_reply_cap = NULL;
     target->reply_holder = NULL;
-    target->state = READY;
+    target->state = TASK_STATE_READY;
     SchedAdd(target);
 }
 
@@ -190,7 +190,7 @@ void ReplyFailCaller(TaskObject *target, Err err)
     target->blocked_port = NULL;
     target->pending_reply_cap = NULL;
     target->reply_holder = NULL;
-    target->state = READY;
+    target->state = TASK_STATE_READY;
     SchedAdd(target);
 }
 

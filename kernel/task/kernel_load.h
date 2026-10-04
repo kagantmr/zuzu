@@ -10,7 +10,7 @@
  * @brief Create a Space with a single Task, load a ZXF image into it, and
  * set up its initial argv/entry/sp.
  *
- * @param leave_frozen If true, the Task is left FROZEN with no trap frame
+ * @param leave_frozen If true, the Task is left TASK_STATE_FROZEN with no trap frame
  * set up; the caller is expected to kickstart it later.
  */
 SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *name,

@@ -176,7 +176,7 @@ void SpaceDestroy(SpaceObject *sp)
         ListNode *next = task_node->next;
         TaskObject *task = container_of(task_node, TaskObject, space_node);
         TaskRef(task);
-        if (task->state != ZOMBIE)
+        if (task->state != TASK_STATE_ZOMBIE)
             TaskTerminate(task, ERR_DEAD);
         if (task != current_task)
             TaskDestroy(task);
@@ -241,7 +241,7 @@ void SpaceUnfreeze(SpaceObject *owner)
     ListNode *n = owner->tasks.node.next;
     while (n != &owner->tasks.node) {
         TaskObject *t = container_of(n, TaskObject, space_node);
-        if (t->state == READY && !t->node.next)
+        if (t->state == TASK_STATE_READY && !t->node.next)
             SchedAdd(t);
         n = n->next;
     }

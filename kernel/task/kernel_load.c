@@ -382,9 +382,9 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
         t->kernel_sp = (uint32_t *)ArchTaskUserInit(
             (void *)stack_top, (uintptr_t)img.entry, (uintptr_t)sp, USER_ELF_BASE, argc,
             (uint32_t)argv_va, &t->trap_frame);
-        t->state = READY;
+        t->state = TASK_STATE_READY;
     }
-    /* leave_frozen: task stays FROZEN (TaskCreate's default) with no
+    /* leave_frozen: task stays TASK_STATE_FROZEN (TaskCreate's default) with no
      * trap frame set up yet. The caller is expected to start it later with
      * MNGTASK_START, which performs the deferred ArchTaskUserInit
      * call with the entry/sp it supplies at that time. */

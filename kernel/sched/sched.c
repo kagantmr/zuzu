@@ -315,7 +315,7 @@ void __hot SchedSwitchNext(TaskObject *next)
     }
 
     current_task = next;
-    current_task->state = RUNNING;
+    current_task->state = TASK_STATE_RUNNING;
     on_idle_stack = false;
 
     current_task->slice_deadline =
@@ -404,7 +404,7 @@ void SchedBlockOn(ListHead *queue, Duration timeout)
     current_task->wait_slot.owner  = current_task;
     list_add_tail(&current_task->wait_slot.node, &queue->node);
 
-    current_task->state = BLOCKED;
+    current_task->state = TASK_STATE_BLOCKED;
 
     if (TIMEOUT_INFINITE != timeout)
     {
@@ -425,15 +425,15 @@ void SchedUnblock(TaskObject *t) {
     t->wake_deadline = 0;
     t->ipc_state = IPC_NONE;
     t->blocked_port = NULL;
-    t->state = READY;
+    t->state = TASK_STATE_READY;
     // caller does switch
 }
 
 void __hot Schedule(void)
 {
-    if (current_task != NULL && current_task->state == RUNNING)
+    if (current_task != NULL && current_task->state == TASK_STATE_RUNNING)
     {
-        current_task->state = READY;
+        current_task->state = TASK_STATE_READY;
         SchedAdd(current_task);
     }
 

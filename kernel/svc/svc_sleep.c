@@ -9,8 +9,8 @@ void SvcSleep(CpuState *frame)
 
     current_task->wake_deadline = ArchDeadlineFromMs(duration_ms);
 
-    // Change state to BLOCKED and insert into sleep queue
-    current_task->state = BLOCKED;
+    // Change state to TASK_STATE_BLOCKED and insert into sleep queue
+    current_task->state = TASK_STATE_BLOCKED;
     SchedInsertSleepQueue(current_task);
     // Schedule someone else immediately
     Schedule();
