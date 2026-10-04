@@ -21,7 +21,7 @@ void __hot SvcCall(CpuState *frame)
     Err grant_err = ValidateGrantHandle(CURRENT_SPACE, grant_handle);
     ENSURE_ERR(frame, (grant_err == ZUZU_OK), grant_err);
 
-    EphemeralReplyObject *rc = &current_task->reply_cap_storage;
+    ReplyObject *rc = &current_task->reply_cap_storage;
     rc->caller_task = current_task;
     rc->caller_tid = current_task->tid;
 

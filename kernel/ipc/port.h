@@ -26,7 +26,7 @@ typedef struct
 {
     TaskObject *caller_task; // fast path
     Tid caller_tid;      // for cross-check: caller->tid == caller_tid
-} EphemeralReplyObject;
+} ReplyObject;
 
 PortObject *PortCreate(SpaceObject *owner);
 void PortDestroy(PortObject *port);

@@ -44,7 +44,7 @@ void PmmKEventSignal(void)
                 continue;
             }
 
-            EventSignal(sub->ev, KEVENT_MEMMGMT_BIT, false);
+            EventSignal(sub->ev, EVENT_MEMMGMT_BIT, false);
         }
     } else if (pmm_state.in_pressure && free_pct > HIGH_WATER_PCT) {
         pmm_state.in_pressure = false;
@@ -60,7 +60,7 @@ int PmmSubscribe(EventObject *ev)
     if (!new_node)
         return ERR_NOMEM;
     new_node->ev = ev;
-    ev->bound_mask |= KEVENT_MEMMGMT_BIT;
+    ev->bound_mask |= EVENT_MEMMGMT_BIT;
     list_add_tail(&new_node->node, &pmm_subscribers.node);
     ev->ref_count++;
 

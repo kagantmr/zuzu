@@ -55,11 +55,11 @@ struct TaskObjectStruct
     ListNode destroy_node;    /**< Node for destruction. */
     MsgState ipc_state;       /**< IPC state. */
     PortObject *blocked_port; /**< Blocked port. */
-    EphemeralReplyObject reply_cap_storage;
+    ReplyObject reply_cap_storage;
     Handle pending_grant_handle; /**< Waiting for reply. */
-    EphemeralReplyObject
+    ReplyObject
         *pending_reply_cap; /**< Set while this task is a blocked caller, waiting for its reply. */
-    EphemeralReplyObject
+    ReplyObject
         *reply_cap;           /**< Set while this task is a receiver mid-call, waiting to Reply. */
     TaskObject *reply_holder; /**< Server currently holding this task's reply cap, or NULL. */
     PhysAddr msg_buf_phys_addr; /**< Physical address of the message buffer. */

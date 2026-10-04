@@ -9,7 +9,7 @@
 typedef struct SpaceObjectStruct SpaceObject;
 
 
-#define KEVENT_MEMMGMT_BIT (1u << 0)
+#define EVENT_MEMMGMT_BIT (1u << 0)
 
 typedef struct EventObjectStruct
 {

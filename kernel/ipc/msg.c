@@ -92,7 +92,7 @@ Err GrantHandleAcross(SpaceObject *from, SpaceObject *to, Handle handle_to_grant
 
 
 void CallBlockAsSender(TaskObject *caller, PortObject *port,
-                               EphemeralReplyObject *rc,
+                               ReplyObject *rc,
                                uint32_t xlen, Handle grant_handle)
 {
     caller->ipc_state = IPC_WAITING;
@@ -107,7 +107,7 @@ void CallBlockAsSender(TaskObject *caller, PortObject *port,
     Schedule();
 }
 
-void DeliverCallToReceiver(TaskObject *caller, TaskObject *rx, EphemeralReplyObject *rc,
+void DeliverCallToReceiver(TaskObject *caller, TaskObject *rx, ReplyObject *rc,
                             size_t xlen, Handle granted)
 {
     CpuState *rx_frame = rx->trap_frame;
@@ -122,7 +122,7 @@ void DeliverCallToReceiver(TaskObject *caller, TaskObject *rx, EphemeralReplyObj
 }
 
 __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port,
-                                   EphemeralReplyObject *rc, size_t xlen, Handle grant_handle,
+                                   ReplyObject *rc, size_t xlen, Handle grant_handle,
                                    CpuState *frame)
 {
     ListNode *node = port->receiver_queue.node.next;

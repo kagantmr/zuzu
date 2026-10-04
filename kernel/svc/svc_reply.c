@@ -22,7 +22,7 @@ void SvcReply(CpuState *frame)
 
     ENSURE_ERR(frame, (xlen <= MSG_BUF_SIZE), ERR_OVERFLOW);
 
-    EphemeralReplyObject *rc = current_task->reply_cap;
+    ReplyObject *rc = current_task->reply_cap;
 
     if (rc) {
         TaskObject *target = rc->caller_task;
