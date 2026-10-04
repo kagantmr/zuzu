@@ -1,5 +1,5 @@
 # Programs staged onto the SD card image (plain ELF, run from the shell).
-# speedtest
+speedtest
 # speedtest_ipc_child
 # test
 zuzufetch
