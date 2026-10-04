@@ -3,8 +3,8 @@
  * @brief Space object definitions & methods.
  */
 
-#ifndef _ZUZU_OBJECTS_SPACE_H
-#define _ZUZU_OBJECTS_SPACE_H
+#ifndef KERNEL_SPACE_SPACE_H
+#define KERNEL_SPACE_SPACE_H
 
 #include "handle.h"
 #include "kernel/mm/vmm/vmm.h"
@@ -124,4 +124,4 @@ void SpaceUnref(SpaceObject *sp);
 /* No live tasks left: the condition observers wait for. */
 bool SpaceIsHollow(const SpaceObject *sp);
 
-#endif /* _ZUZU_OBJECTS_SPACE_H */
+#endif /* KERNEL_SPACE_SPACE_H */
