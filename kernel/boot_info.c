@@ -31,7 +31,7 @@ static void collect_dev_cb(const char *compatible, const char *path, uint64_t ph
     /* Attempt to capture a second reg entry if present */
     if (path) {
         uint64_t p2 = 0, s2 = 0;
-        if (FdtGetRegPhysAddr(path, 1, &p2, &s2)) {
+        if (FdtGetRegPa(path, 1, &p2, &s2)) {
             d->phys2 = p2;
             d->size2 = s2;
             d->nregs = 2;
