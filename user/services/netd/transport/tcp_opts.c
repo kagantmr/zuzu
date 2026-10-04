@@ -50,4 +50,3 @@ size_t TcpBuildOptions(uint8_t *dst, size_t cap, const TcpOptsOut *opts)
         dst[len++] = TCP_OPT_KIND_NOP;
     return len;
 }
-

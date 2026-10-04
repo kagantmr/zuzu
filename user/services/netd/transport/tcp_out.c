@@ -1,8 +1,8 @@
 #include "tcp_out.h"
 #include "../common/txframe.h"
 #include "../net/ip.h"
-#include "tcp_pcb.h"
 #include "tcp_opts.h"
+#include "tcp_pcb.h"
 #include <convert.h>
 #include <string.h>
 #include <zuzu/log.h>
@@ -60,11 +60,10 @@ int tcp_output(TcpPcb *pcb, uint8_t flags, const uint8_t *data, uint16_t data_le
 
     size_t optlen = 0;
     if (flags & TCP_SYN) {
-        TcpOptsOut o = { .opts_present = TCP_OPT_MSS_BIT, .mss = TCP_MSS };
+        TcpOptsOut o = {.opts_present = TCP_OPT_MSS_BIT, .mss = TCP_MSS};
         optlen = TcpBuildOptions(buf + sizeof(TcpHdr), sizeof(buf) - sizeof(TcpHdr), &o);
     }
     th->data_offset = (uint8_t)(((sizeof(TcpHdr) + optlen) / 4) << 4);
-
 
     if (data_len)
         memcpy(buf + sizeof(TcpHdr) + optlen, data, data_len);
@@ -72,7 +71,7 @@ int tcp_output(TcpPcb *pcb, uint8_t flags, const uint8_t *data, uint16_t data_le
     uint16_t seg_len = sizeof(TcpHdr) + optlen + data_len;
     th->checksum = htons(tcp_checksum(pcb->local_ip, pcb->remote_ip, buf, seg_len));
 
-    int rc = ip_tx(buf, seg_len , pcb->local_ip, pcb->remote_ip, IP_PROTO_TCP);
+    int rc = ip_tx(buf, seg_len, pcb->local_ip, pcb->remote_ip, IP_PROTO_TCP);
     LOG_INFO(LOG_TAG, "ip_tx rc=%d", rc);
     if (rc != ZUZU_OK)
         return rc;

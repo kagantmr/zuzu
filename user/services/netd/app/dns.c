@@ -23,11 +23,10 @@ static dns_entry_t dns_table[DNS_MAX_TABLE];
 static uint16_t dns_next_id = 1;
 static port_t dns_client_port; /* ephemeral source port, allocated in dns_init */
 
-typedef struct
-{
+typedef struct {
     char name[DNS_MAX_NAME];
-    ipv4_addr_t ip;        /* 0 => negative entry: name has no address */
-    uint32_t expiry_ms;    /* absolute, vs net_now_ms(); 0 => slot empty */
+    ipv4_addr_t ip;     /* 0 => negative entry: name has no address */
+    uint32_t expiry_ms; /* absolute, vs net_now_ms(); 0 => slot empty */
 } dns_cache_t;
 
 static dns_cache_t dns_cache[DNS_CACHE_N];
@@ -38,9 +37,14 @@ static dns_cache_t *dns_cache_lookup(const char *name)
     uint32_t now = net_now_ms();
     for (int i = 0; i < DNS_CACHE_N; i++) {
         dns_cache_t *e = &dns_cache[i];
-        if (!e->expiry_ms) continue;
-        if ((int32_t)(now - e->expiry_ms) >= 0) { e->expiry_ms = 0; continue; }
-        if (strcmp(e->name, name) == 0) return e;
+        if (!e->expiry_ms)
+            continue;
+        if ((int32_t)(now - e->expiry_ms) >= 0) {
+            e->expiry_ms = 0;
+            continue;
+        }
+        if (strcmp(e->name, name) == 0)
+            return e;
     }
     return NULL;
 }
@@ -49,17 +53,24 @@ static dns_cache_t *dns_cache_lookup(const char *name)
 static void dns_cache_put(const char *name, ipv4_addr_t ip, uint32_t ttl_s)
 {
     size_t n = strlen(name);
-    if (n >= DNS_MAX_NAME) return;
-    if (ip && ttl_s == 0) return; /* RFC 1035: TTL 0 means do not cache */
+    if (n >= DNS_MAX_NAME)
+        return;
+    if (ip && ttl_s == 0)
+        return; /* RFC 1035: TTL 0 means do not cache */
 
-    if (ttl_s < DNS_TTL_MIN) ttl_s = DNS_TTL_MIN;
-    if (ttl_s > DNS_TTL_MAX) ttl_s = DNS_TTL_MAX;
+    if (ttl_s < DNS_TTL_MIN)
+        ttl_s = DNS_TTL_MIN;
+    if (ttl_s > DNS_TTL_MAX)
+        ttl_s = DNS_TTL_MAX;
 
     uint32_t now = net_now_ms();
     dns_cache_t *victim = NULL;
     for (int i = 0; i < DNS_CACHE_N; i++) {
         dns_cache_t *e = &dns_cache[i];
-        if (!e->expiry_ms || strcmp(e->name, name) == 0) { victim = e; break; }
+        if (!e->expiry_ms || strcmp(e->name, name) == 0) {
+            victim = e;
+            break;
+        }
         if (!victim || (int32_t)(e->expiry_ms - victim->expiry_ms) < 0)
             victim = e; /* evict the soonest to expire */
     }
@@ -234,10 +245,14 @@ static __attribute__((cold)) void dns_recv(ipv4_addr_t src_ip, port_t src_port, 
         // 3. read TYPE, CLASS, RDLENGTH (unaligned, use memcpy)
         uint16_t type, class_, rdlength;
         uint32_t ttl;
-        memcpy(&type,     data + off,     2); type     = ntohs(type);
-        memcpy(&class_,   data + off + 2, 2); class_   = ntohs(class_);
-        memcpy(&ttl,      data + off + 4, 4); ttl      = ntohl(ttl);
-        memcpy(&rdlength, data + off + 8, 2); rdlength = ntohs(rdlength);
+        memcpy(&type, data + off, 2);
+        type = ntohs(type);
+        memcpy(&class_, data + off + 2, 2);
+        class_ = ntohs(class_);
+        memcpy(&ttl, data + off + 4, 4);
+        ttl = ntohl(ttl);
+        memcpy(&rdlength, data + off + 8, 2);
+        rdlength = ntohs(rdlength);
 
         // 4. bounds check the rdata
         if ((size_t)off + 10 + rdlength > len)
@@ -246,7 +261,7 @@ static __attribute__((cold)) void dns_recv(ipv4_addr_t src_ip, port_t src_port, 
         // 5. is it the A record we want?
         if (type == DNS_TYPE_A && class_ == DNS_CLASS_IN && rdlength == 4) {
             ipv4_addr_t ip;
-            memcpy(&ip, data + off + 10, 4);   // already network order
+            memcpy(&ip, data + off + 10, 4); // already network order
             dns_cache_put(slot->name, ip, ttl);
             slot->cb(slot->name, ip, ZUZU_OK);
             slot->in_use = false;
@@ -368,8 +383,7 @@ __attribute__((cold)) void dns_query(const char *name, dns_callback_t cb)
     }
 
     dns_cache_t *hit = dns_cache_lookup(name);
-    if (hit)
-    {
+    if (hit) {
         if (cb)
             cb(name, hit->ip, hit->ip ? ZUZU_OK : ERR_NOENT);
         return;

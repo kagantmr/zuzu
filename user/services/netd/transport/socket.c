@@ -4,9 +4,9 @@
 #include "zuzu/memprot.h"
 #include "zuzu/ntfn.h"
 #include "zuzu/types.h"
-#include <zuzu/umem.h>
-#include <zuzu/msg.h>
 #include <stdlib.h>
+#include <zuzu/msg.h>
+#include <zuzu/umem.h>
 
 #define CONNTABLE_BUCKETS 128
 
@@ -107,7 +107,6 @@ ConnTableEnt *ConnTableCreateEntry(void)
     if (conn->ctlport < 0)
         goto fail_rx_ntfn;
 
-        
     return conn;
 
 fail_rx_ntfn:

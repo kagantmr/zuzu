@@ -2,8 +2,8 @@
 #include "../net/ip.h"
 #include "port.h"
 #include "tcp.h"
-#include "tcp_out.h"
 #include "tcp_opts.h"
+#include "tcp_out.h"
 #include "tcp_pcb.h"
 #include <convert.h>
 #include <string.h>
@@ -128,13 +128,15 @@ static void consume_fin(int slot, TcpPcb *pcb)
 
 static void TcpConsumeMss(TcpPcb *pcb, const TcpSegment *s)
 {
-    if (!(s->opts_present & TCP_OPT_MSS_BIT)) return;
+    if (!(s->opts_present & TCP_OPT_MSS_BIT))
+        return;
     uint16_t m = s->mss;
-    if (m < 536) m = 536;
-    if (m > TCP_MSS) m = TCP_MSS;
+    if (m < 536)
+        m = 536;
+    if (m > TCP_MSS)
+        m = TCP_MSS;
     pcb->snd_mss = m;
 }
-
 
 /* ------------------------------------------------------------------ */
 /* per-state handlers                                                 */
@@ -150,7 +152,8 @@ static void on_syn_sent(TcpPcb *pcb, const TcpSegment *s)
         TcpConsumeMss(pcb, s);
         tcp_output(pcb, TCP_ACK, NULL, 0);
     } else if ((s->flags & TCP_SYN) && !(s->flags & TCP_ACK)) {
-        pcb->rcv_nxt = s->seq + 1; pcb->rcv_rsq = pcb->rcv_nxt;
+        pcb->rcv_nxt = s->seq + 1;
+        pcb->rcv_rsq = pcb->rcv_nxt;
         pcb->snd_nxt = pcb->snd_una;
         TcpConsumeMss(pcb, s);
         tcp_output(pcb, TCP_SYN | TCP_ACK, NULL, 0);
@@ -220,7 +223,7 @@ static void on_established(int slot, TcpPcb *pcb, const TcpSegment *s)
             tcp_output(pcb, TCP_ACK, NULL, 0); /* ack what we got */
 
             /* TODO: application logic wired directly into the transport.
-       * This canned HTTP reply should move behind an app-layer callback. */
+             * This canned HTTP reply should move behind an app-layer callback. */
             if (pcb->on_data)
                 pcb->on_data(slot);
 
@@ -317,7 +320,8 @@ static void on_close_wait(TcpPcb *pcb, const TcpSegment *s)
         pcb->snd_una = s->ack;
         pcb->buffered_bytes -= MIN(delta, pcb->buffered_bytes);
         rto_stop(pcb);
-        if (pcb->snd_nxt != pcb->snd_una) rto_start(pcb);
+        if (pcb->snd_nxt != pcb->snd_una)
+            rto_start(pcb);
     }
     if (s->flags & TCP_FIN) {
         /* peer retransmitted their FIN; re-ACK it */
@@ -448,24 +452,24 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
     if (hdr_len < 20 || hdr_len > len)
         return;
 
-    TcpSegment seg = { .src_ip = src_ip,
-                       .src_port = ntohs(th->src_port),
-                       .dst_port = ntohs(th->dst_port),
-                       .seq = ntohl(th->seq),
-                       .ack = ntohl(th->ack),
-                       .flags = th->flags,
-                       .payload = data + hdr_len,
-                       .payload_len = (uint16_t)(len - hdr_len),
-                       .window = ntohs(th->window) };
+    TcpSegment seg = {.src_ip = src_ip,
+                      .src_port = ntohs(th->src_port),
+                      .dst_port = ntohs(th->dst_port),
+                      .seq = ntohl(th->seq),
+                      .ack = ntohl(th->ack),
+                      .flags = th->flags,
+                      .payload = data + hdr_len,
+                      .payload_len = (uint16_t)(len - hdr_len),
+                      .window = ntohs(th->window)};
 
     if (!TcpParseOptions(data + sizeof(TcpHdr), hdr_len - sizeof(TcpHdr), &seg)) {
         LOG_INFO(LOG_TAG, "malformed TCP options from %u.%u.%u.%u", IP4(src_ip));
     }
 
     /* TEST HOOK: deliver the first data segment in two halves, tail half
-   * first, forcing the reordering no real sender will give us. The tail
-   * lands past rcv_nxt (StoreOoo), the head then fills the hole
-   * (FwdMerge). Remove after both log lines are seen. */
+     * first, forcing the reordering no real sender will give us. The tail
+     * lands past rcv_nxt (StoreOoo), the head then fills the hole
+     * (FwdMerge). Remove after both log lines are seen. */
     static bool hook_done = false;
     if (!hook_done && seg.payload_len >= 2 && !(seg.flags & TCP_FIN)) {
         hook_done = true;
