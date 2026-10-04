@@ -1,5 +1,5 @@
-#ifndef INITRD_H
-#define INITRD_H
+#ifndef KERNEL_LOADER_INITRD_H
+#define KERNEL_LOADER_INITRD_H
 
 #include <stddef.h>
 #include <stdbool.h>
@@ -19,4 +19,4 @@ void initrd_init(const void *start, size_t size);
  */
 bool initrd_find(const char *name, const void **data_out, size_t *size_out);
 
-#endif // INITRD_H
+#endif // KERNEL_LOADER_INITRD_H
