@@ -33,7 +33,7 @@ void PmmSignalSubscribers(void)
         // walk subscribers and signal them
         // drop dead events: EventUnref, KFree(subscriber)
         ListNode *pos, *tmp;
-        list_for_each_safe(pos, tmp, &pmm_subscribers.node)
+        LIST_FOR_EACH_SAFE(pos, tmp, &pmm_subscribers.node)
         {
             PmmSubscriber *sub = container_of(pos, PmmSubscriber, node);
             // safe to remove sub from list here
