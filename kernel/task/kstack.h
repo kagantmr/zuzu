@@ -1,5 +1,5 @@
-#ifndef KERNEL_STACK_H
-#define KERNEL_STACK_H
+#ifndef KERNEL_TASK_KSTACK_H
+#define KERNEL_TASK_KSTACK_H
 
 #include <types.h>
 #include BOARD_LAYOUT_H

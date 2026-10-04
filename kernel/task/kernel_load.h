@@ -1,5 +1,5 @@
-#ifndef ZUZU_KERNEL_LOAD_H
-#define ZUZU_KERNEL_LOAD_H
+#ifndef KERNEL_TASK_KERNEL_LOAD_H
+#define KERNEL_TASK_KERNEL_LOAD_H
 
 #include "kernel/space/space.h"
 #include <stddef.h>
@@ -17,4 +17,4 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
                                 const char *argbuf, size_t argbuf_len, uint32_t argc,
                                 bool leave_frozen);
 
-#endif /* ZUZU_KERNEL_LOAD_H */
+#endif /* KERNEL_TASK_KERNEL_LOAD_H */
