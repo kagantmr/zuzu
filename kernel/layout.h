@@ -1,5 +1,5 @@
-#ifndef LAYOUT_H
-#define LAYOUT_H
+#ifndef KERNEL_LAYOUT_H
+#define KERNEL_LAYOUT_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -30,7 +30,7 @@ typedef struct {
     void     *heap_start_va;     // VA used by kmalloc/heap
     void     *heap_end_va;       // optional
 
-} ZuzuRamLayout;
+} RamLayout;
 
 
 #endif

@@ -1,5 +1,5 @@
-#ifndef ZUZU_FDT_H
-#define ZUZU_FDT_H
+#ifndef KERNEL_DEV_FDT_WRAPPERS_H
+#define KERNEL_DEV_FDT_WRAPPERS_H
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -39,7 +39,7 @@ bool FdtGetReg(const char *path, int index, uint64_t *out_addr, uint64_t *out_si
 /* Get the chosen/ linux,initrd-start/end attributes from the FDT to get the initrd */
 bool FdtGetInitrd(uint64_t *out_start, uint64_t *out_end);
 
-bool FdtGetRegPhysAddr(const char *path, int index, uint64_t *out_addr, uint64_t *out_size);
+bool FdtGetRegPa(const char *path, int index, uint64_t *out_addr, uint64_t *out_size);
 
 /* Simple string queries */
 const char *FdtModel(void);

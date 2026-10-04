@@ -2,8 +2,8 @@
 // This file defines the register offsets and function prototypes for initializing and interacting with the GICv2 interrupt controller. 
 // The GIC is responsible for managing peripheral interrupts and delivering them to the CPU.
 
-#ifndef GICV2_H
-#define GICV2_H
+#ifndef ARCH_ARM_GICV2_H
+#define ARCH_ARM_GICV2_H
 
 #include <stdint.h>
 #include <types.h>
@@ -28,7 +28,7 @@
 /**
  * @brief Initialize the GICv2 distributor and CPU interface.
  */
-void gic_init(uintptr_t gicd_base_addr, uintptr_t gicc_base_addr);
+void GicInit(uintptr_t gicd_base_addr, uintptr_t gicc_base_addr);
 
 /**
  * @brief Set up a specific IRQ in the GIC.
@@ -58,16 +58,16 @@ void GicV2SetPriority(Irq irq_id, uint8_t priority);
  *
  * @return The raw IAR value.
  */
-uint32_t gic_acknowledge(void);
+uint32_t GicAcknowledge(void);
 
 /**
  * @brief Signal the end of an IRQ to the GIC.
  *
- * Callers must pass the raw IAR value returned by gic_acknowledge().
+ * Callers must pass the raw IAR value returned by GicAcknowledge().
  *
  * @param iar The raw IAR value to signal completion for.
  */
-void gic_end(uint32_t iar);
+void GicEnd(uint32_t iar);
 
 
 #endif

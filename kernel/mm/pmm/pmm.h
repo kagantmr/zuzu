@@ -1,5 +1,5 @@
-#ifndef PMM_H
-#define PMM_H
+#ifndef KERNEL_MM_PMM_PMM_H
+#define KERNEL_MM_PMM_PMM_H
 
 #include "kernel/ipc/event.h"
 
@@ -15,16 +15,16 @@
 
 typedef uint32_t Pfn;
 
-static inline PhysAddr PfnToPhys(Pfn pfn)
+static inline PhysAddr PfnToPa(Pfn pfn)
 {
     return (PhysAddr)pfn << PAGE_SHIFT;
 }
-static inline Pfn PhysToPfn(PhysAddr pa)
+static inline Pfn PaToPfn(PhysAddr pa)
 {
     return (Pfn)(pa >> PAGE_SHIFT);
 }
 
-#define PHYS_NULL ((PhysAddr)0)
+#define PA_NULL ((PhysAddr)0)
 
 typedef struct {
     size_t total_frames;
@@ -53,7 +53,7 @@ Err PmmUnmarkRange(PhysAddr start, PhysAddr end);
 
 /**
  * @brief Allocates a physical frame, and returns a pointer to it.
- * @return Address of the allocated frame, or PHYS_NULL if none are free.
+ * @return Address of the allocated frame, or PA_NULL if none are free.
  */
 PhysAddr PmmAllocFrame(void);
 
@@ -62,7 +62,7 @@ PhysAddr PmmAllocFrame(void);
  *
  * @param n_frames Number of frames to allocate.
  *
- * @return Address of the first allocated frame, or PHYS_NULL if none are free.
+ * @return Address of the first allocated frame, or PA_NULL if none are free.
  */
 PhysAddr PmmAllocFramesContig(size_t n_frames);
 
@@ -81,7 +81,7 @@ void PmmFreeFrame(PhysAddr addr);
  * @param n_frames Number of frames to allocate.
  * @param align_frames Alignment in frames (must be power of two).
  *
- * @return Address of the first allocated frame, or PHYS_NULL if none are free.
+ * @return Address of the first allocated frame, or PA_NULL if none are free.
  */
 PhysAddr PmmAllocFramesContigAligned(size_t n_frames, size_t align_frames);
 

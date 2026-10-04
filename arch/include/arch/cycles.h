@@ -1,5 +1,5 @@
-#ifndef ARCH_CYCLEMEASUREMENT_H
-#define ARCH_CYCLEMEASUREMENT_H
+#ifndef ARCH_CYCLES_H
+#define ARCH_CYCLES_H
 
 #include <arch_impl/pmccntr.h>
 

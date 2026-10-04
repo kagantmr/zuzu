@@ -2,7 +2,7 @@
 
 static void ObserverRelease(Observer *o)
 {
-    EventDropReference(o->ev);
+    EventUnref(o->ev);
     o->ev = NULL;
     o->bit = 0;
 }

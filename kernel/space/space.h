@@ -3,8 +3,8 @@
  * @brief Space object definitions & methods.
  */
 
-#ifndef _ZUZU_OBJECTS_SPACE_H
-#define _ZUZU_OBJECTS_SPACE_H
+#ifndef KERNEL_SPACE_SPACE_H
+#define KERNEL_SPACE_SPACE_H
 
 #include "handle.h"
 #include "kernel/mm/vmm/vmm.h"
@@ -56,20 +56,20 @@ static inline void TcbSlotFree(SpaceObject *p, int slot)
 }
 
 /* Physical base of the frame backing this slot's TCB page. */
-static inline PhysAddr TcbSlotPhysAddr(SpaceObject *p, uint32_t slot)
+static inline PhysAddr TcbSlotPa(SpaceObject *p, uint32_t slot)
 {
     return p->tcb_page_pa[slot / SLOTS_PER_PAGE] + ((slot % SLOTS_PER_PAGE) * TCB_SLOT_SIZE);
 }
 
 /* Kernel VA of this slot. */
-static inline VirtAddr TcbSlotKVirtAddr(SpaceObject *p, uint32_t slot)
+static inline VirtAddr TcbSlotKernelVa(SpaceObject *p, uint32_t slot)
 {
     return PA_TO_VA(p->tcb_page_pa[slot / SLOTS_PER_PAGE]) +
            ((slot % SLOTS_PER_PAGE) * TCB_SLOT_SIZE);
 }
 
 /* User VA of this slot. */
-static inline VirtAddr TcbSlotUVirtAddr(SpaceObject *p, uint32_t slot)
+static inline VirtAddr TcbSlotUserVa(SpaceObject *p, uint32_t slot)
 {
     return p->tcb_page_va + ((slot / SLOTS_PER_PAGE) * PAGE_SIZE) +
            ((slot % SLOTS_PER_PAGE) * TCB_SLOT_SIZE);
@@ -96,7 +96,7 @@ SpaceObject *SpaceFindBySpid(Spid spid);
  * table, address space). Idempotent.
  *
  * Does not necessarily free the SpaceObject itself: if the space's last
- * task is still parked as a zombie (state == ZOMBIE, not yet reaped), the
+ * task is still parked as a zombie (state == TASK_STATE_ZOMBIE, not yet reaped), the
  * struct is kept alive so that task's owner backpointer stays valid.
  * TaskDestroy calls SpaceFinalize() once that last task is actually freed.
  */
@@ -112,7 +112,7 @@ void SpaceFinalize(SpaceObject *sp);
 
 /**
  * @brief Undo TaskFault's freeze: clear frozen and re-queue any
- * sibling tasks that were left READY but unlinked from their run queue.
+ * sibling tasks that were left TASK_STATE_READY but unlinked from their run queue.
  */
 void SpaceUnfreeze(SpaceObject *owner);
 
@@ -124,4 +124,4 @@ void SpaceUnref(SpaceObject *sp);
 /* No live tasks left: the condition observers wait for. */
 bool SpaceIsHollow(const SpaceObject *sp);
 
-#endif /* _ZUZU_OBJECTS_SPACE_H */
+#endif /* KERNEL_SPACE_SPACE_H */

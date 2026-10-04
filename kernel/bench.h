@@ -6,8 +6,8 @@
 // is discarded and BENCH_ITERS samples have been collected. Nothing here
 // exists outside CONFIG_ZUZU_BENCH builds.
 
-#ifndef ZUZU_KERNEL_BENCH_H
-#define ZUZU_KERNEL_BENCH_H
+#ifndef KERNEL_BENCH_H
+#define KERNEL_BENCH_H
 
 #ifdef CONFIG_ZUZU_BENCH
 
@@ -61,4 +61,4 @@ static inline void bench_record(BenchStat *s, uint32_t cycles)
 
 #endif /* CONFIG_ZUZU_BENCH */
 
-#endif /* ZUZU_KERNEL_BENCH_H */
+#endif /* KERNEL_BENCH_H */

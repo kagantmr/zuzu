@@ -1,5 +1,5 @@
-#ifndef _ZUZU_IRQ_RELAY_H
-#define _ZUZU_IRQ_RELAY_H
+#ifndef KERNEL_IRQ_IRQ_RELAY_H
+#define KERNEL_IRQ_IRQ_RELAY_H
 
 #include "kernel/ipc/event.h"
 #include "stdbool.h"
@@ -23,4 +23,4 @@ Err IrqRelayRearm(SpaceObject *owner, Irq irq_num);
  *  diagnostics (core/panic.c). */
 const IrqOwner *GetIrqOwnersList(void);
 
-#endif /* _ZUZU_IRQ_RELAY_H */
+#endif /* KERNEL_IRQ_IRQ_RELAY_H */

@@ -1,5 +1,5 @@
-#ifndef ZUZU_VMM_INTERNAL_H
-#define ZUZU_VMM_INTERNAL_H
+#ifndef KERNEL_MM_VMM_VMM_INTERNAL_H
+#define KERNEL_MM_VMM_VMM_INTERNAL_H
 
 /* Cross-TU glue shared by vmm_region.c, vmm_map.c, vmm_boot.c, and
  * ioremap.c. Not part of the public vmm.h API -- do not include from
@@ -13,4 +13,4 @@ extern bool g_mmu_enabled;
 
 VirtMemRegion *VmmFindRegion(AddressSpace *as, uintptr_t va);
 
-#endif /* ZUZU_VMM_INTERNAL_H */
+#endif /* KERNEL_MM_VMM_VMM_INTERNAL_H */

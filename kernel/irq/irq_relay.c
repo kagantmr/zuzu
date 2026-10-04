@@ -10,7 +10,7 @@ const IrqOwner *GetIrqOwnersList(void)
     return irq_owners;
 }
 
-static void __hot RelayIsr(void *ctx)
+static void __hot RelayIrqHandler(void *ctx)
 {
     Irq irq_num = (Irq)(VirtAddr)ctx;
     ArchIrqMaskLine(irq_num);
@@ -25,7 +25,7 @@ static void __hot RelayIsr(void *ctx)
     else if (ev)
     {
         irq_owners[irq_num].bound_ev = NULL;
-        EventDropReference(ev);
+        EventUnref(ev);
     }
 }
 
@@ -49,14 +49,14 @@ Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev, uint32_t bi
     {
         irq_owners[irq_num] =
             (IrqOwner){.bound_ev = NULL, .owner = owner, .pending = false, .bit = bit};
-        ArchIrqRegister(irq_num, RelayIsr, (void *)(VirtAddr)irq_num);
+        ArchIrqRegister(irq_num, RelayIrqHandler, (void *)(VirtAddr)irq_num);
     }
     irq_owners[irq_num].bit = bit;
 
     if (irq_owners[irq_num].bound_ev)
     {
         EventObject *old = irq_owners[irq_num].bound_ev;
-        EventDropReference(old);
+        EventUnref(old);
     }
 
     irq_owners[irq_num].bound_ev = ev;
@@ -79,7 +79,7 @@ void IrqReleaseAll(SpaceObject *owner)
     {
         if (irq_owners[irq_num].owner == owner)
         {
-            EventDropReference(irq_owners[irq_num].bound_ev);
+            EventUnref(irq_owners[irq_num].bound_ev);
             irq_owners[irq_num] = (IrqOwner){.bound_ev = NULL, .owner = NULL, .pending = false};
             ArchIrqMaskLine(irq_num);
         }

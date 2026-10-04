@@ -16,13 +16,13 @@
 #include <arch/regs.h>
 #include <string.h>
 
-/* Initial CPSR for a user thread: USR mode (0x10), IRQs enabled. */
+/* Initial Cpsr for a user thread: USR mode (0x10), IRQs enabled. */
 #define ARM_CPSR_USER     0x10u
 
 /* Entry trampoline that pops the exception frame and returns to user mode. */
-extern void process_entry_trampoline(void);
+extern void task_entry_trampoline(void);
 
-void *arch_thread_user_init(void *kstack_top, uintptr_t entry, uintptr_t user_sp,
+void *ArchTaskUserInit(void *kstack_top, uintptr_t entry, uintptr_t user_sp,
                             uintptr_t user_lr, uint32_t a0, uint32_t a1,
                             CpuState **trap_frame_out)
 {
@@ -43,12 +43,12 @@ void *arch_thread_user_init(void *kstack_top, uintptr_t entry, uintptr_t user_sp
     sp -= sizeof(CpuContext);
     CpuContext *ctx = (CpuContext *)sp;
     memset(ctx, 0, sizeof(*ctx));
-    ctx->lr = (Register)process_entry_trampoline;
+    ctx->lr = (Register)task_entry_trampoline;
 
     return (void *)sp;
 }
 
-void *arch_thread_kernel_init(void *kstack_top, void (*entry)(void))
+void *ArchTaskKernelInit(void *kstack_top, void (*entry)(void))
 {
     uintptr_t sp = (uintptr_t)kstack_top;
 

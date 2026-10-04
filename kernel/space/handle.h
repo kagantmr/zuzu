@@ -1,5 +1,5 @@
-#ifndef _ZUZU_HANDLE_H
-#define _ZUZU_HANDLE_H
+#ifndef KERNEL_SPACE_HANDLE_H
+#define KERNEL_SPACE_HANDLE_H
 
 #include <bitmap.h>
 #include <compiler.h>
@@ -162,4 +162,4 @@ Err HandleCopyInto(HandleTable *dst_table, HandleTableEntry *src, HandlePerms pe
 
 void HandleRelease(SpaceObject *sp, HandleTableEntry *entry);
 
-#endif /* _ZUZU_HANDLE_H */
+#endif /* KERNEL_SPACE_HANDLE_H */

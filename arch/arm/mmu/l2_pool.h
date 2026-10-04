@@ -3,8 +3,8 @@
  * To optimize memory usage for page tables, we allocate L2 page tables in chunks of four. Each 4KB page from PMM can hold four 1KB L2 tables.
  * This pool manages those pages and tracks which of the four slots are in use with a bitmap.
  */
-#ifndef L2_POOL_H
-#define L2_POOL_H
+#ifndef ARCH_ARM_L2_POOL_H
+#define ARCH_ARM_L2_POOL_H
 
 #include <stddef.h>
 #include <stdint.h>

@@ -56,7 +56,7 @@ static void IdleTask(void)
     on_idle_stack = true;
     for (;;)
     {
-        VmmActivateAddrspace(VmmGetKernelAddrspace());
+        VmmActivateAddressSpace(VmmGetKernelAddressSpace());
         SchedConsumeDestroyQueue();
         SchedIdleWait();
         Schedule();
@@ -68,7 +68,7 @@ static void SchedInitIdleTask(void)
     VirtAddr sp = (VirtAddr)idle_stack + sizeof(idle_stack);
     sp &= ~(VirtAddr)7U;
 
-    idle_task.kernel_sp = (uint32_t *)arch_thread_kernel_init((void *)sp, IdleTask);
+    idle_task.kernel_sp = (uint32_t *)ArchTaskKernelInit((void *)sp, IdleTask);
 }
 
 void SchedInit(void)
@@ -231,18 +231,18 @@ static void SchedIdleWait(void)
 {
     for (;;)
     {
-        arch_global_irq_disable();
+        ArchGlobalIrqDisable();
 
         if (SchedIsWorkPending())
         {
             if (do_resched)
                 do_resched = 0;
-            arch_global_irq_enable();
+            ArchGlobalIrqEnable();
             return;
         }
 
         __asm__ volatile("wfi" ::: "memory");
-        arch_global_irq_enable();
+        ArchGlobalIrqEnable();
 
         if (SchedIsWorkPending())
         {
@@ -315,7 +315,7 @@ void __hot SchedSwitchNext(TaskObject *next)
     }
 
     current_task = next;
-    current_task->state = RUNNING;
+    current_task->state = TASK_STATE_RUNNING;
     on_idle_stack = false;
 
     current_task->slice_deadline =
@@ -329,7 +329,7 @@ void __hot SchedSwitchNext(TaskObject *next)
     {
         if (!fpu_access_enabled)
         {
-            ArchFpuTrapEnable();
+            ArchFpuEnableAccess();
             fpu_access_enabled = true;
         }
     }
@@ -337,7 +337,7 @@ void __hot SchedSwitchNext(TaskObject *next)
     {
         if (fpu_access_enabled)
         {
-            arch_fpu_trap_disable();
+            ArchFpuTrapDisable();
             fpu_access_enabled = false;
         }
     }
@@ -346,9 +346,9 @@ void __hot SchedSwitchNext(TaskObject *next)
     if (unlikely(current_task->owner->as &&
                  (!prev_proc || prev_proc->as != current_task->owner->as)))
     {
-        VmmActivateAddrspace(current_task->owner->as);
+        VmmActivateAddressSpace(current_task->owner->as);
     }
-    arch_set_thread_ptr(current_task);
+    ArchSetTlsPointer(current_task);
     ContextSwitch(prev, current_task);
 }
 
@@ -404,7 +404,7 @@ void SchedBlockOn(ListHead *queue, Duration timeout)
     current_task->wait_slot.owner  = current_task;
     list_add_tail(&current_task->wait_slot.node, &queue->node);
 
-    current_task->state = BLOCKED;
+    current_task->state = TASK_STATE_BLOCKED;
 
     if (TIMEOUT_INFINITE != timeout)
     {
@@ -425,15 +425,15 @@ void SchedUnblock(TaskObject *t) {
     t->wake_deadline = 0;
     t->ipc_state = IPC_NONE;
     t->blocked_port = NULL;
-    t->state = READY;
+    t->state = TASK_STATE_READY;
     // caller does switch
 }
 
 void __hot Schedule(void)
 {
-    if (current_task != NULL && current_task->state == RUNNING)
+    if (current_task != NULL && current_task->state == TASK_STATE_RUNNING)
     {
-        current_task->state = READY;
+        current_task->state = TASK_STATE_READY;
         SchedAdd(current_task);
     }
 

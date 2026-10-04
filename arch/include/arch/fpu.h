@@ -8,14 +8,14 @@
 // restore-of-current / retry sequence before handing control back.
 //
 //   typedef /* opaque */ FpuState;        -- one thread's saved FPU regs
-//   void arch_fpu_trap_disable(void);        -- next FPU access traps
-//   void ArchFpuTrapEnable(void);         -- FPU instructions run normally
+//   void ArchFpuTrapDisable(void);        -- next FPU access traps
+//   void ArchFpuEnableAccess(void);         -- FPU instructions run normally
 //   void ArchFpuSaveState(FpuState *state);      -- save live FPU regs
 //   void ArchFpuRestoreState(const FpuState *state); -- load live FPU regs
 
-#ifndef ZUZU_ARCH_FPU_H
-#define ZUZU_ARCH_FPU_H
+#ifndef ARCH_FPU_H
+#define ARCH_FPU_H
 
 #include <arch_impl/fpu.h>
 
-#endif // ZUZU_ARCH_FPU_H
+#endif // ARCH_FPU_H

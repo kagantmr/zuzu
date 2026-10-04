@@ -1,5 +1,5 @@
-#ifndef _ZUZU_OBJECTS_PORT_H
-#define _ZUZU_OBJECTS_PORT_H
+#ifndef KERNEL_IPC_PORT_H
+#define KERNEL_IPC_PORT_H
 
 #include <list.h>
 #include <stdbool.h>
@@ -26,13 +26,13 @@ typedef struct
 {
     TaskObject *caller_task; // fast path
     Tid caller_tid;      // for cross-check: caller->tid == caller_tid
-} EphemeralReplyObject;
+} ReplyObject;
 
 PortObject *PortCreate(SpaceObject *owner);
-void PortDestroy(PortObject *port);
+void PortUnref(PortObject *port);
 void PortKill(PortObject *port);
 
 /* A caller is queued with nobody receiving: the condition observers wait for. */
 bool PortHasPending(const PortObject *port);
 
-#endif /* _ZUZU_OBJECTS_PORT_H */
+#endif /* KERNEL_IPC_PORT_H */

@@ -2,8 +2,8 @@
  * arch_impl/armv7_mmu.h - ARMv7-A short-descriptor translation table format.
  */
 
-#ifndef ZUZU_ARM_ARMV7_MMU_H
-#define ZUZU_ARM_ARMV7_MMU_H
+#ifndef ARCH_ARM_IMPL_ARMV7_MMU_H
+#define ARCH_ARM_IMPL_ARMV7_MMU_H
 
 #define MMU_BIT(n) (1U << (n))
 
@@ -142,4 +142,4 @@ _Static_assert(L1_SECT_BOOT_DEVICE == 0x00C16U, "boot device section descriptor 
 #define TTBCR_PD0_BIT  4U
 #define TTBCR_N_SPLIT_2GB 0x1U /* N=1: TTBR0 covers [0, 0x80000000) */
 
-#endif /* ZUZU_ARM_ARMV7_MMU_H */
+#endif /* ARCH_ARM_IMPL_ARMV7_MMU_H */

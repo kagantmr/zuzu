@@ -34,7 +34,7 @@ _Noreturn void kmain(void)
     /* DTB and boot_info were initialized in early(); do not touch DTB again */
 
     SchedInit();
-    arch_global_irq_enable();
+    ArchGlobalIrqEnable();
 
     SyspageInit();
     BootInfoInit();
@@ -55,7 +55,7 @@ _Noreturn void kmain(void)
 
     /* Load and spawn every boot program listed in boot.manifest (see
      * kernel/loader/boot_programs.c). */
-    CreateRootSvc(initrd_pa, initrd_size);
+    CreateRootService(initrd_pa, initrd_size);
 
     RegisterTickCb(sched_tick);
 

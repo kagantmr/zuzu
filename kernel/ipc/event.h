@@ -9,7 +9,7 @@
 typedef struct SpaceObjectStruct SpaceObject;
 
 
-#define KEVENT_MEMMGMT_BIT (1u << 0)
+#define EVENT_MEMMGMT_BIT (1u << 0)
 
 typedef struct EventObjectStruct
 {
@@ -37,7 +37,7 @@ void EventSignal(EventObject *ev, EventWord bits, bool bcast);
 
 void EventWait(EventObject *ev,Duration timeout, CpuState *frame);
 
-void EventDropReference(EventObject *ev);
+void EventUnref(EventObject *ev);
 void EventKill(EventObject *ev);
 
 EventObject *EventCreate(SpaceObject *owner);

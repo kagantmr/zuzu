@@ -22,11 +22,11 @@ void SvcReply(CpuState *frame)
 
     ENSURE_ERR(frame, (xlen <= MSG_BUF_SIZE), ERR_OVERFLOW);
 
-    EphemeralReplyObject *rc = current_task->reply_cap;
+    ReplyObject *rc = current_task->reply_cap;
 
     if (rc) {
         TaskObject *target = rc->caller_task;
-        if (!target || target->tid != rc->caller_tid || target->state == ZOMBIE ||
+        if (!target || target->tid != rc->caller_tid || target->state == TASK_STATE_ZOMBIE ||
             target->ipc_state != IPC_WAITING)
         {
             current_task->reply_cap = NULL;

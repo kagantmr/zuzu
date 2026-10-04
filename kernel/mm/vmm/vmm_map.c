@@ -18,10 +18,10 @@ bool VmmMapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size,
     // check overflow
     if (va > UINTPTR_MAX - size) return false;
 
-    if (as->type == ADDRSPACE_USER && (prot & PROT_WRITE) && (prot & PROT_EXEC))
+    if (as->type == ADDRESS_SPACE_USER && (prot & PROT_WRITE) && (prot & PROT_EXEC))
         return false;
 
-    if (as->type == ADDRSPACE_USER) {
+    if (as->type == ADDRESS_SPACE_USER) {
         // For user address spaces, enforce canonical user VA range [0, USER_VA_TOP).
         // end is exclusive, so end == USER_VA_TOP is valid.
         if (va >= USER_VA_TOP || va + size > USER_VA_TOP) {
@@ -29,7 +29,7 @@ bool VmmMapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size,
         }
     }
 
-    return arch_mmu_map(as, va, pa, size, prot, memtype);
+    return ArchMmuMap(as, va, pa, size, prot, memtype);
 }
 
 bool VmmUnmapRange(AddressSpace *as, VirtAddr va, size_t size, bool flush) {
@@ -38,7 +38,7 @@ bool VmmUnmapRange(AddressSpace *as, VirtAddr va, size_t size, bool flush) {
     if ((va % PAGE_SIZE) != 0) return false;    // page granularity
     if ((size % PAGE_SIZE) != 0) return false;  // page granularity
 
-    return arch_mmu_unmap(as, va, size, flush);
+    return ArchMmuUnmap(as, va, size, flush);
 }
 
 bool VmmProtectPage(AddressSpace *as, VirtAddr va, size_t size, MemProt new_prot)
@@ -54,22 +54,22 @@ bool VmmProtectPage(AddressSpace *as, VirtAddr va, size_t size, MemProt new_prot
     if (r->flags & VM_FLAG_PINNED)                 /* tcb_page/syspage */
         return false;
 
-    if (!arch_mmu_protect(as, va, size, new_prot))
+    if (!ArchMmuProtect(as, va, size, new_prot))
         return false;
 
     r->prot = new_prot;                            /* keep region truth in sync */
     return true;
 }
 
-void VmmActivateAddrspace(AddressSpace *as) {
+void VmmActivateAddressSpace(AddressSpace *as) {
     if (!as) return;
     if (as == g_current_addrspace) return;
 
     if (!g_mmu_enabled) {
-        arch_mmu_enable(as);
+        ArchMmuEnable(as);
         g_mmu_enabled = true;
     } else {
-        arch_mmu_switch(as);
+        ArchMmuSwitch(as);
     }
 
     g_current_addrspace = as;

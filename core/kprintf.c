@@ -20,10 +20,10 @@ static void kprintf_outc(void *ctx, char c) {
 }
 
 void kprintf(const char* fmt, ...) {
-    uint32_t state = arch_irq_save();
+    uint32_t state = ArchIrqSave();
     va_list args;
     va_start(args, fmt);
     vstrfmt(kprintf_outc, (void *)kernel_console_putc, fmt, &args);
     va_end(args);
-    arch_irq_restore(state);
+    ArchIrqRestore(state);
 }

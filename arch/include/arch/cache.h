@@ -3,18 +3,18 @@
 // Used around code loading (ZXF) and DMA-visible memory to keep the I/D caches
 // coherent with main memory.
 
-#ifndef ZUZU_ARCH_CACHE_H
-#define ZUZU_ARCH_CACHE_H
+#ifndef ARCH_CACHE_H
+#define ARCH_CACHE_H
 
 #include <stddef.h>
 #include <stdint.h>
 
 /** Clean (write back) D-cache lines covering [start, start+size). */
-void arch_cache_clean_dcache_range(uintptr_t start, size_t size);
+void ArchCacheCleanDcacheRange(uintptr_t start, size_t size);
 
 /** Invalidate the whole I-cache (and branch predictor) to the point of
  *  unification. Address-independent, so it is the safe counterpart when the
  *  code being published is only reachable through a kernel alias. */
-void arch_cache_invalidate_icache_all(void);
+void ArchCacheInvalidateIcacheAll(void);
 
-#endif // ZUZU_ARCH_CACHE_H
+#endif // ARCH_CACHE_H

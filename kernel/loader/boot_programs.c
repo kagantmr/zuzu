@@ -88,13 +88,13 @@ static void CreateRootSpace(const char *path)
                                                .size = initrd_page_count * PAGE_SIZE,
                                                .prot = PROT_READ | VM_PROT_USER,
                                                .memtype = VM_MEM_NORMAL,
-                                               .owner = VM_OWNER_SHARED,
+                                               .owner = VM_BACKING_SHARED,
                                                .flags = VM_FLAG_NONE});
 
     size_t bootinfo_pages = (sizeof(BootInfo) + PAGE_SIZE - 1) / PAGE_SIZE;
     for (size_t i = 0; i < bootinfo_pages; i++)
     {
-        if (!VmmMapUserPage(space->as, BootInfoPhysAddr() + (i * PAGE_SIZE),
+        if (!VmmMapUserPage(space->as, BootInfoPa() + (i * PAGE_SIZE),
                             USER_BOOTINFO_VA + (i * PAGE_SIZE), PROT_READ))
         {
             KERROR("Failed to map boot info page %zu for %s", i, path);
@@ -105,7 +105,7 @@ static void CreateRootSpace(const char *path)
                                                .size = bootinfo_pages * PAGE_SIZE,
                                                .prot = PROT_READ | VM_PROT_USER,
                                                .memtype = VM_MEM_NORMAL,
-                                               .owner = VM_OWNER_SHARED,
+                                               .owner = VM_BACKING_SHARED,
                                                .flags = VM_FLAG_NONE});
 
     SchedAdd(space->main_task);
@@ -168,7 +168,7 @@ static char *FindRootsvcPath(const char *manifest_data, size_t manifest_size)
     return NULL;
 }
 
-void CreateRootSvc(PhysAddr initrd_pa, size_t initrd_size)
+void CreateRootService(PhysAddr initrd_pa, size_t initrd_size)
 {
     g_initrd_pa = initrd_pa;
     g_initrd_size = initrd_size;

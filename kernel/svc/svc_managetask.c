@@ -45,14 +45,14 @@ void SvcManageTask(CpuState *frame)
     switch (verb)
     {
     case MNGTASK_START: {
-        ENSURE_ERR(frame, target->state == FROZEN, ERR_BUSY);
+        ENSURE_ERR(frame, target->state == TASK_STATE_FROZEN, ERR_BUSY);
         KickstartArgs kargs;
         ENSURE_ERR(frame, CopyFromUser(&kargs, (const void *)(*ArchGetFromFrame(frame, 2)), sizeof(kargs)), ERR_BADPTR);
 
-        target->kernel_sp = (uint32_t *)arch_thread_user_init(
+        target->kernel_sp = (uint32_t *)ArchTaskUserInit(
             (void *)target->kernel_stack_top, (VirtAddr)kargs.entry, (VirtAddr)kargs.sp, USER_ELF_BASE,
             kargs.r0, kargs.r1, &target->trap_frame);
-        target->state = READY;
+        target->state = TASK_STATE_READY;
         SchedAdd(target);
         ArchSetInFrame(frame, 0, ZUZU_OK);
     } break;
@@ -62,9 +62,9 @@ void SvcManageTask(CpuState *frame)
         /* Already dead: a second TaskTerminate would TaskDestroy it while it
          * may still sit on the destroy queue, and the last handle close would
          * then free it under the reaper. */
-        if (target->state != ZOMBIE)
+        if (target->state != TASK_STATE_ZOMBIE)
         {
-            if (target->state == FAULTED)
+            if (target->state == TASK_STATE_FAULTED)
                 SpaceUnfreeze(target->owner);
             TaskTerminate(target, ERR_DEAD);
         }
@@ -74,7 +74,7 @@ void SvcManageTask(CpuState *frame)
     case MNGTASK_SET_PRIORITY: {
         uint32_t val = (uint32_t)(*ArchGetFromFrame(frame, 2));
         ENSURE_ERR(frame, val <= current_task->max_prio, ERR_NOPERM);
-        bool requeue = (target->state == READY);   /* only READY tasks are on a run queue */
+        bool requeue = (target->state == TASK_STATE_READY);   /* only TASK_STATE_READY tasks are on a run queue */
         if (requeue)
             SchedRemoveRunQueue(target);
         target->priority = val;
@@ -100,9 +100,9 @@ void SvcManageTask(CpuState *frame)
         break;
 
     case MNGTASK_RESUME: {
-        ENSURE_ERR(frame, target->state == FAULTED, ERR_BADARG);
+        ENSURE_ERR(frame, target->state == TASK_STATE_FAULTED, ERR_BADARG);
         SpaceUnfreeze(target->owner);
-        target->state = READY;
+        target->state = TASK_STATE_READY;
         SchedAdd(target);
         ArchSetInFrame(frame, 0, ZUZU_OK);
     } break;

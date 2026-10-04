@@ -20,7 +20,7 @@
 #include "util/log.h"
 
 PmmState pmm_state;
-extern ZuzuRamLayout kernel_layout;
+extern RamLayout kernel_layout;
 extern void SyspageUpdateMem(void);
 
 static bool PmmIsRecorded(PhysAddr pa)
@@ -30,7 +30,7 @@ static bool PmmIsRecorded(PhysAddr pa)
     if ((pa % PAGE_SIZE) != 0)
         return false;
 
-    const Pfn pfn = PhysToPfn(pa);
+    const Pfn pfn = PaToPfn(pa);
     return (pfn >= pmm_state.pfn_base && pfn < pmm_state.pfn_end);
 }
 
@@ -41,7 +41,7 @@ static void PmmRebuildFreelist(void)
         size_t byte_idx = i / 8;
         size_t bit_idx = i % 8;
         if (!(pmm_state.bitmap[byte_idx] & (1U << bit_idx))) {
-            PhysAddr pa = PfnToPhys(pmm_state.pfn_base + i);
+            PhysAddr pa = PfnToPa(pmm_state.pfn_base + i);
             PhysAddr *page_va = (PhysAddr *)PA_TO_VA(pa);
             *page_va = pmm_state.freelist_head;
             pmm_state.freelist_head = pa;
@@ -118,7 +118,7 @@ static PhysAddr PmmTakeFreeFrame(void)
     pmm_state.freelist_head = next_pa;
 
     /* Keep bitmap in sync */
-    size_t index = PhysToPfn(pa) - pmm_state.pfn_base;
+    size_t index = PaToPfn(pa) - pmm_state.pfn_base;
     size_t byte_idx = index / 8;
     size_t bit_idx = index % 8;
 
@@ -129,7 +129,7 @@ static PhysAddr PmmTakeFreeFrame(void)
     pmm_state.free_frames--;
     assert(pmm_state.free_frames <= pmm_state.total_frames);
 
-    PmmKEventSignal();
+    PmmSignalSubscribers();
     return pa;
 }
 
@@ -162,8 +162,8 @@ static void PmmReserveBootRegions(void)
 void PmmInit(void)
 {
     // Compute PFN range from phys_region
-    pmm_state.pfn_base = PhysToPfn(kernel_layout.ram_start);
-    pmm_state.pfn_end = PhysToPfn(kernel_layout.ram_end);
+    pmm_state.pfn_base = PaToPfn(kernel_layout.ram_start);
+    pmm_state.pfn_end = PaToPfn(kernel_layout.ram_end);
     pmm_state.total_frames = pmm_state.pfn_end - pmm_state.pfn_base;
     pmm_state.free_frames = pmm_state.total_frames;
 
@@ -214,8 +214,8 @@ Err PmmMarkRange(PhysAddr start, PhysAddr end)
     PhysAddr astart = align_down(start, PAGE_SIZE);
     PhysAddr aend = align_up(end, PAGE_SIZE);
 
-    Pfn start_pfn = PhysToPfn(astart);
-    Pfn end_pfn = PhysToPfn(aend);
+    Pfn start_pfn = PaToPfn(astart);
+    Pfn end_pfn = PaToPfn(aend);
 
     /* PFN bounds check (pfn_end is exclusive) */
     if (start_pfn < pmm_state.pfn_base || end_pfn > pmm_state.pfn_end) {
@@ -260,8 +260,8 @@ Err PmmUnmarkRange(const PhysAddr start, const PhysAddr end)
     const PhysAddr astart = align_down(start, PAGE_SIZE);
     const PhysAddr aend = align_up(end, PAGE_SIZE);
 
-    const Pfn start_pfn = PhysToPfn(astart);
-    Pfn end_pfn = PhysToPfn(aend);
+    const Pfn start_pfn = PaToPfn(astart);
+    Pfn end_pfn = PaToPfn(aend);
 
     if (start_pfn < pmm_state.pfn_base || end_pfn > pmm_state.pfn_end) {
         return ERR_BADARG;
@@ -307,7 +307,7 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
 {
 
     if (n_frames == 0 || pmm_state.free_frames < n_frames) {
-        return PHYS_NULL;
+        return PA_NULL;
     }
 
     assert(pmm_state.bitmap != NULL);
@@ -337,21 +337,21 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
 
             if (consecutive == n_frames) {
                 /* Mark pages as allocated */
-                PhysAddr start_pa = PfnToPhys(pmm_state.pfn_base + start_index);
-                PhysAddr end_pa = PfnToPhys(pmm_state.pfn_base + start_index + n_frames);
+                PhysAddr start_pa = PfnToPa(pmm_state.pfn_base + start_index);
+                PhysAddr end_pa = PfnToPa(pmm_state.pfn_base + start_index + n_frames);
                 if (PmmMarkRange(start_pa, end_pa) != ZUZU_OK) {
-                    return PHYS_NULL; /* marking failed */
+                    return PA_NULL; /* marking failed */
                 }
 
                 /* Keep freelist in sync without a full O(total_pages) rebuild. */
                 PmmFreelistRemoveRange(start_pa, end_pa);
 
                 Pfn pfn = pmm_state.pfn_base + start_index;
-                PhysAddr addr = PfnToPhys(pfn);
+                PhysAddr addr = PfnToPa(pfn);
                 assert(addr % PAGE_SIZE == 0);
                 assert(pfn >= pmm_state.pfn_base && (pfn + n_frames) <= pmm_state.pfn_end);
                 SyspageUpdateMem(); // update free memory info in syspage
-                PmmKEventSignal();
+                PmmSignalSubscribers();
                 return addr;
             }
         } else {
@@ -359,14 +359,14 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
         }
     }
 
-    return PHYS_NULL;
+    return PA_NULL;
 }
 
 void PmmFreeFrame(const PhysAddr addr)
 {
     assert(addr % PAGE_SIZE == 0);
 
-    const Pfn pfn = PhysToPfn(addr);
+    const Pfn pfn = PaToPfn(addr);
 
     /* bounds: pfn must be inside [pfn_base, pfn_end) */
     assert(pfn >= pmm_state.pfn_base && pfn < pmm_state.pfn_end);
@@ -405,17 +405,17 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
 {
 
     if (n_frames == 0) {
-        return PHYS_NULL;
+        return PA_NULL;
     }
     if (align_frames == 0)
         align_frames = 1;
     // Require power-of-two alignment (common + cheap)
     if ((align_frames & (align_frames - 1)) != 0) {
-        return PHYS_NULL;
+        return PA_NULL;
     }
 
     if (pmm_state.free_frames < n_frames) {
-        return PHYS_NULL;
+        return PA_NULL;
     }
 
     assert(pmm_state.bitmap != NULL);
@@ -447,18 +447,18 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
             consecutive++;
 
             if (consecutive == n_frames) {
-                const uintptr_t start_pa = PfnToPhys(pmm_state.pfn_base + start_index);
-                const uintptr_t end_pa = PfnToPhys(pmm_state.pfn_base + start_index + n_frames);
+                const uintptr_t start_pa = PfnToPa(pmm_state.pfn_base + start_index);
+                const uintptr_t end_pa = PfnToPa(pmm_state.pfn_base + start_index + n_frames);
 
                 if (PmmMarkRange(start_pa, end_pa) != ZUZU_OK) {
-                    return PHYS_NULL;
+                    return PA_NULL;
                 }
 
                 /* Keep freelist in sync without a full O(total_pages) rebuild. */
                 PmmFreelistRemoveRange(start_pa, end_pa);
 
                 SyspageUpdateMem(); // update free memory info in syspage
-                PmmKEventSignal();
+                PmmSignalSubscribers();
 
                 return start_pa;
             }
@@ -467,7 +467,7 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
         }
     }
 
-    return PHYS_NULL;
+    return PA_NULL;
 }
 
 size_t PmmAllocFramesScattered(const size_t n_frames, PhysAddr *out_addrs)

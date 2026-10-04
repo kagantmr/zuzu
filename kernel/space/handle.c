@@ -55,8 +55,8 @@ void HandleRelease(SpaceObject *sp, HandleTableEntry *entry)
 {
     switch (entry->type)
     {
-    case HANDLE_PORT:  PortDestroy(entry->port);           break;
-    case HANDLE_EVENT: EventDropReference(entry->event);   break;
+    case HANDLE_PORT:  PortUnref(entry->port);           break;
+    case HANDLE_EVENT: EventUnref(entry->event);   break;
     case HANDLE_MEM:   MemObjUnmapAndDrop(sp->as, entry->mapped_va, entry->mem); break;
     case HANDLE_TASK:  TaskUnref(entry->task);             break;
     case HANDLE_SPACE: SpaceUnref(entry->space);           break;

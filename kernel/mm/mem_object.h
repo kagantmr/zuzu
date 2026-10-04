@@ -1,5 +1,5 @@
-#ifndef _ZUZU_MEM_OBJECT_H
-#define _ZUZU_MEM_OBJECT_H
+#ifndef KERNEL_MM_MEM_OBJECT_H
+#define KERNEL_MM_MEM_OBJECT_H
 
 #include <types.h>
 #include "kernel/mm/pmm/pmm.h"
@@ -7,13 +7,13 @@
 
 typedef enum
 {
-    MEMTYPE_NONE,
-    MEMTYPE_DEVICE,
-    MEMTYPE_SHARED,
-} MemType;
+    MEMKIND_NONE,
+    MEMKIND_DEVICE,
+    MEMKIND_SHARED,
+} MemKind;
 
 typedef struct {
-    MemType kind;      // MEMTYPE_DEVICE / MEMTYPE_SHARED
+    MemKind kind;      // MEMKIND_DEVICE / MEMKIND_SHARED
     size_t ref_count;
     union {
         struct { PhysAddr phys_base; size_t size; Irq irq; } dev;
@@ -23,7 +23,7 @@ typedef struct {
 
 MemObject *MemObjCreateShm(PhysAddr *page_addrs, size_t page_count);
 MemObject *MemObjCreateDevice(PhysAddr phys_base, size_t size, Irq irq);
-void MemObjDestroy(MemObject *mem);
+void MemObjUnref(MemObject *mem);
 void MemObjUnmapAndDrop(AddressSpace *as, VirtAddr mapped_va, MemObject *mem);
 
-#endif /* _ZUZU_MEM_OBJECT_H */
+#endif /* KERNEL_MM_MEM_OBJECT_H */

@@ -6,7 +6,7 @@
 #include "kernel/sched/sched.h"
 #include <zuzu/err.h>
 
-static KHeapSlabCache port_cache;
+static KSlabCache port_cache;
 
 static PortObject *PortObjAlloc(void)
 {
@@ -53,7 +53,7 @@ void PortKill(PortObject *port) {
     ObserverNotify(&port->observers);
 }
 
-void PortDestroy(PortObject *port) {
+void PortUnref(PortObject *port) {
     if (!port)
         return;
     if (port->ref_count > 0)

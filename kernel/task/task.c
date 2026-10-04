@@ -9,15 +9,15 @@
 #include <string.h>
 #include <zuzu/err.h>
 
-#define MAX_THREADS 1024
+#define MAX_TASKS 1024
 
 #define LOG_FMT(fmt) "(task) " fmt
 #include "core/ensure.h"
 #include <util/log.h>
 
 static Tid next_tid = 1;
-static TaskObject *task_table[MAX_THREADS];
-static KHeapSlabCache task_cache;
+static TaskObject *task_table[MAX_TASKS];
+static KSlabCache task_cache;
 
 static Tid RegisterTask(TaskObject *task)
 {
@@ -25,14 +25,14 @@ static Tid RegisterTask(TaskObject *task)
         return 0;
 
     /* Advance next_tid until its hashed slot is free, so the assigned tid
-     * always satisfies tid % MAX_THREADS == slot, which keeps
+     * always satisfies tid % MAX_TASKS == slot, which keeps
      * TaskObjectUnregister O(1). */
-    Tid start = next_tid % MAX_THREADS;
+    Tid start = next_tid % MAX_TASKS;
     Tid slot = start;
     while (task_table[slot] != NULL)
     {
         next_tid++;
-        slot = next_tid % MAX_THREADS;
+        slot = next_tid % MAX_TASKS;
         if (slot == start)
         {
             return 0;
@@ -54,7 +54,7 @@ static void TaskObjectUnregister(TaskObject *task)
     if (!task || task->tid == 0)
         return;
 
-    uint32_t slot = (uint32_t)task->tid % MAX_THREADS;
+    uint32_t slot = (uint32_t)task->tid % MAX_TASKS;
     if (task_table[slot] == task)
         task_table[slot] = NULL;
 }
@@ -101,7 +101,7 @@ void TaskUnref(TaskObject *t)
     {
         KSlabFree(&task_cache, t);
     }
-    else if (t->ref_count == 0 && t->state == FROZEN)
+    else if (t->ref_count == 0 && t->state == TASK_STATE_FROZEN)
     {
         /* Never started and nobody can start it now: nothing else will ever
          * reap it, so its kernel stack and TCB slot would leak. */
@@ -121,7 +121,7 @@ void TaskDestroy(TaskObject *task)
     if (task->space_node.prev && task->space_node.next)
         list_remove(&task->space_node);
     SpaceObject *owner = task->owner;
-    if (owner && task->state != ZOMBIE)
+    if (owner && task->state != TASK_STATE_ZOMBIE)
         owner->live_tasks--;
     /* Release the TCB slot; scrub it so a reused slot never shows a
      * previous task's tid/spid. tcb_page_pa == 0 means the page is
@@ -129,13 +129,13 @@ void TaskDestroy(TaskObject *task)
     if (owner && task->tcb_slot < TCB_MAX_SLOTS &&
         owner->tcb_page_pa[task->tcb_slot / SLOTS_PER_PAGE])
     {
-        memset((void *)TcbSlotKVirtAddr(owner, task->tcb_slot), 0, TCB_SLOT_SIZE);
+        memset((void *)TcbSlotKernelVa(owner, task->tcb_slot), 0, TCB_SLOT_SIZE);
         TcbSlotFree(owner, task->tcb_slot);
     }
     if (owner && owner->main_task == task)
         owner->main_task = NULL;
     if (task->kernel_stack_top)
-        KernelStackFree(task->kernel_stack_top);
+        KStackFree(task->kernel_stack_top);
 
     if (owner && owner->torn_down && list_empty(&owner->tasks))
         SpaceFinalize(owner);
@@ -150,12 +150,12 @@ void TaskDestroy(TaskObject *task)
 void TaskWaitExit(TaskObject *task, Duration timeout, CpuState *frame)
 {
     ENSURE_ERR(frame, task != current_task, ERR_BADARG);
-    if (task->state == ZOMBIE)
+    if (task->state == TASK_STATE_ZOMBIE)
     {
         SetExitResult(frame, task->exit_status, TASK_EXITED);
         return;
     }
-    if (task->state == FAULTED)
+    if (task->state == TASK_STATE_FAULTED)
     {
         SetExitResult(frame, task->fault_reason, TASK_FAULTED);
         return;
@@ -176,7 +176,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
     memset(task, 0, sizeof(*task));
     ObserverInit(&task->observers);
 
-    task->kernel_stack_top = KernelStackAlloc();
+    task->kernel_stack_top = KStackAlloc();
     if (!task->kernel_stack_top)
     {
         KSlabFree(&task_cache, task);
@@ -186,7 +186,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
     task->tid = RegisterTask(task);
     if (task->tid == 0)
     {
-        KernelStackFree(task->kernel_stack_top);
+        KStackFree(task->kernel_stack_top);
         KSlabFree(&task_cache, task);
         return NULL;
     }
@@ -194,7 +194,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
     task->owner = owner;
     task->sleep_slot = -1;
     list_init(&task->joiners);
-    task->state = FROZEN;
+    task->state = TASK_STATE_FROZEN;
     task->ipc_state = IPC_NONE;
     task->priority = SCHED_PRIO_DEFAULT;
     task->time_slice = 5;
@@ -205,7 +205,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
     if (tcb_slot_idx < 0)
     {
         TaskObjectUnregister(task);
-        KernelStackFree(task->kernel_stack_top);
+        KStackFree(task->kernel_stack_top);
         KSlabFree(&task_cache, task);
         return NULL;
     }
@@ -222,15 +222,15 @@ TaskObject *TaskCreate(SpaceObject *owner)
                 PmmFreeFrame(pa);
             TcbSlotFree(owner, tcb_slot_idx);
             TaskObjectUnregister(task);
-            KernelStackFree(task->kernel_stack_top);
+            KStackFree(task->kernel_stack_top);
             KSlabFree(&task_cache, task);
             return NULL;
         }
         memset((void *)PA_TO_VA(pa), 0, PAGE_SIZE);
         owner->tcb_page_pa[tcb_page] = pa;
     }
-    ThreadLocalData *tcb = (ThreadLocalData *)TcbSlotKVirtAddr(owner, (uint32_t)tcb_slot_idx);
-    VirtAddr tcb_va = TcbSlotUVirtAddr(owner, (uint32_t)tcb_slot_idx);
+    ThreadLocalData *tcb = (ThreadLocalData *)TcbSlotKernelVa(owner, (uint32_t)tcb_slot_idx);
+    VirtAddr tcb_va = TcbSlotUserVa(owner, (uint32_t)tcb_slot_idx);
     memset(tcb, 0, TCB_SLOT_SIZE);
     tcb->msg_buf = (void *)(tcb_va + offsetof(ThreadLocalData, buf));
     tcb->tid = task->tid;
@@ -238,7 +238,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
     task->task_info_va = tcb_va;
     task->tcb_slot = (uint8_t)tcb_slot_idx;
     task->msg_buf_phys_addr =
-        TcbSlotPhysAddr(owner, (uint32_t)tcb_slot_idx) + offsetof(ThreadLocalData, buf);
+        TcbSlotPa(owner, (uint32_t)tcb_slot_idx) + offsetof(ThreadLocalData, buf);
 
     list_add_tail(&task->space_node, &owner->tasks.node);
     owner->live_tasks++;
@@ -274,7 +274,7 @@ void TaskAbortWait(TaskObject *t, Err err)
 
 bool TaskIsDead(const TaskObject *task)
 {
-    return task->state == ZOMBIE || task->state == FAULTED;
+    return task->state == TASK_STATE_ZOMBIE || task->state == TASK_STATE_FAULTED;
 }
 
 void TaskTerminate(TaskObject *task, Err exit_status)
@@ -303,7 +303,7 @@ void TaskTerminate(TaskObject *task, Err exit_status)
     if (task->reply_cap)
     {
         TaskObject *caller = task->reply_cap->caller_task;
-        if (caller && caller->tid == task->reply_cap->caller_tid && caller->state != ZOMBIE &&
+        if (caller && caller->tid == task->reply_cap->caller_tid && caller->state != TASK_STATE_ZOMBIE &&
             caller->ipc_state == IPC_WAITING)
         {
             TaskAbortWait(caller, ERR_DEAD);
@@ -312,9 +312,9 @@ void TaskTerminate(TaskObject *task, Err exit_status)
         task->reply_cap = NULL;
     }
 
-    task->state = ZOMBIE;
+    task->state = TASK_STATE_ZOMBIE;
     ObserverNotify(&task->observers);
-    if (owner && entry_state != ZOMBIE)
+    if (owner && entry_state != TASK_STATE_ZOMBIE)
         owner->live_tasks--;
     bool space_hollow = owner && owner->live_tasks == 0;
 
@@ -343,7 +343,7 @@ void TaskTerminate(TaskObject *task, Err exit_status)
 
 void TaskFault(TaskObject *task, Err reason)
 {
-    task->state = FAULTED;
+    task->state = TASK_STATE_FAULTED;
     task->fault_reason = reason;
     task->owner->frozen = true;
     ObserverNotify(&task->observers);
@@ -352,7 +352,7 @@ void TaskFault(TaskObject *task, Err reason)
     ListNode *n = task->owner->tasks.node.next;
     while (n != &task->owner->tasks.node) {
         TaskObject *t = container_of(n, TaskObject, space_node);
-        if (t != task && t->state == READY && t->node.next)
+        if (t != task && t->state == TASK_STATE_READY && t->node.next)
             SchedRemoveRunQueue(t);
         n = n->next;
     }

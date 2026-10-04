@@ -8,42 +8,42 @@
 #define ASID_COUNT 256       // ARMv7-A short-descriptor ASID space (8-bit)
 #define ASID_BITMAP_BYTES 32 // ASID_COUNT / 8
 
-static asid_t asid_bitmap[ASID_BITMAP_BYTES]; // 256 bits
+static Asid asid_bitmap[ASID_BITMAP_BYTES]; // 256 bits
 static uint8_t dirty_bitmap[ASID_BITMAP_BYTES];
 uint32_t asid_generation = 1;
-static asid_t next_asid = 1;
-static asid_t active_asid;
+static Asid next_asid = 1;
+static Asid active_asid;
 
-static inline bool asid_bit_test(uint8_t *bitmap, int i) { return bitmap[i / 8] & (1 << (i % 8)); }
-static inline void asid_bit_set(uint8_t *bitmap,int i)
+static inline bool AsidBitTest(uint8_t *bitmap, int i) { return bitmap[i / 8] & (1 << (i % 8)); }
+static inline void AsidBitSet(uint8_t *bitmap,int i)
 {
-    bitmap[i / 8] = (asid_t)(bitmap[i / 8] | (1U << (i % 8)));
+    bitmap[i / 8] = (Asid)(bitmap[i / 8] | (1U << (i % 8)));
 }
-static inline void asid_bit_clear(uint8_t *bitmap,int i)
+static inline void AsidBitClear(uint8_t *bitmap,int i)
 {
-    bitmap[i / 8] = (asid_t)(bitmap[i / 8] & ~(1U << (i % 8)));
+    bitmap[i / 8] = (Asid)(bitmap[i / 8] & ~(1U << (i % 8)));
 }
 
-void AsidSetActive(asid_t a)
+void AsidSetActive(Asid a)
 {
     active_asid = a;
-    asid_bit_set(dirty_bitmap, a);
+    AsidBitSet(dirty_bitmap, a);
 }
 
 
 // Scan [lo, hi) for a free ASID; claim it and advance next_asid. Returns the
 // claimed ASID, or 0 if the range had none free.
-static int asid_claim_in_range(int lo, int hi)
+static int AsidClaimInRange(int lo, int hi)
 {
     for (int i = lo; i < hi; i++)
     {
-        if (!asid_bit_test(asid_bitmap, i))
+        if (!AsidBitTest(asid_bitmap, i))
         {
-            asid_bit_set(asid_bitmap,i);
-            next_asid = (asid_t)(i + 1);
-            if (asid_bit_test(dirty_bitmap, i)) {          // only flush if it was ever installed
-                arch_mmu_flush_tlb_asid((uint8_t)i);
-                ArchCtxSync();
+            AsidBitSet(asid_bitmap,i);
+            next_asid = (Asid)(i + 1);
+            if (AsidBitTest(dirty_bitmap, i)) {          // only flush if it was ever installed
+                ArchMmuFlushTlbAsid((uint8_t)i);
+                ArchSyncBarrier();
             }
             return i;
         }
@@ -52,30 +52,30 @@ static int asid_claim_in_range(int lo, int hi)
 }
 
 
-asid_token_t asid_alloc(void)
+AsidToken AsidAlloc(void)
 {
     // Try the current generation: from next_asid forward, then wrap to the start.
-    int i = asid_claim_in_range(next_asid, ASID_COUNT);
+    int i = AsidClaimInRange(next_asid, ASID_COUNT);
     if (!i)
-        i = asid_claim_in_range(1, next_asid);
+        i = AsidClaimInRange(1, next_asid);
     if (i)
-        return (asid_token_t){.asid = (asid_t)i, .generation = asid_generation};
+        return (AsidToken){.asid = (Asid)i, .generation = asid_generation};
 
     // No free ASIDs: flush the whole TLB and start a new generation.
-    arch_mmu_flush_tlb();
+    ArchMmuFlushTlb();
     memset(asid_bitmap, 0, ASID_BITMAP_BYTES);
     memset(dirty_bitmap, 0, ASID_BITMAP_BYTES);
-    asid_bit_set(asid_bitmap,0);                             /* kernel */
+    AsidBitSet(asid_bitmap,0);                             /* kernel */
 
-    if (active_asid) asid_bit_set(asid_bitmap,active_asid);  /* running AS keeps its tag */
+    if (active_asid) AsidBitSet(asid_bitmap,active_asid);  /* running AS keeps its tag */
     asid_generation++;
     next_asid = 1;
-    i = asid_claim_in_range(1, ASID_COUNT);      /* first genuinely free one */
+    i = AsidClaimInRange(1, ASID_COUNT);      /* first genuinely free one */
 
-    return (asid_token_t){.asid = (asid_t)i, .generation = asid_generation};
+    return (AsidToken){.asid = (Asid)i, .generation = asid_generation};
 }
 
-void asid_free(asid_token_t token)
+void AsidFree(AsidToken token)
 {
     if (token.asid == 0)
         return;
@@ -86,5 +86,5 @@ void asid_free(asid_token_t token)
     if (token.generation != asid_generation)
         return;
 
-    asid_bit_clear(asid_bitmap,token.asid);
+    AsidBitClear(asid_bitmap,token.asid);
 }

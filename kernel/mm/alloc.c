@@ -12,14 +12,14 @@
 #define LOG_FMT(fmt) "(mm) " fmt
 #include <util/log.h>
 
-extern ZuzuRamLayout kernel_layout;
+extern RamLayout kernel_layout;
 
-KMemBlock* heap_head = NULL;
-static KMemBlock* heap_tail = NULL;
+KHeapBlock* heap_head = NULL;
+static KHeapBlock* heap_tail = NULL;
 
 /* Doubly-linked so a slab can be pulled from the middle of full/partial in
  * O(1) when a free/alloc changes its fill state. */
-static __always_inline void SlabListPush(KHeapSlab **head, KHeapSlab *slab)
+static __always_inline void SlabListPush(KSlab **head, KSlab *slab)
 {
     slab->prev = NULL;
     slab->next = *head;
@@ -28,7 +28,7 @@ static __always_inline void SlabListPush(KHeapSlab **head, KHeapSlab *slab)
     *head = slab;
 }
 
-static __always_inline void SlabListRemove(KHeapSlab **head, KHeapSlab *slab)
+static __always_inline void SlabListRemove(KSlab **head, KSlab *slab)
 {
     if (slab->prev)
         slab->prev->next = slab->next;
@@ -40,13 +40,13 @@ static __always_inline void SlabListRemove(KHeapSlab **head, KHeapSlab *slab)
 }
 
 /* New slab page, all slots free, pushed onto the cache's partial list. */
-static KHeapSlab *SlabGrow(KHeapSlabCache *cache)
+static KSlab *SlabGrow(KSlabCache *cache)
 {
     PhysAddr pa = PmmAllocFrame();
     if (!pa) return NULL;
 
-    KHeapSlab *slab = (KHeapSlab *)PA_TO_VA(pa);
-    size_t hdr_size = align_up(sizeof(KHeapSlab), 8);
+    KSlab *slab = (KSlab *)PA_TO_VA(pa);
+    size_t hdr_size = align_up(sizeof(KSlab), 8);
     uint8_t *data = (uint8_t *)slab + hdr_size;
     size_t usable = PAGE_SIZE - hdr_size;
 
@@ -66,7 +66,7 @@ static KHeapSlab *SlabGrow(KHeapSlabCache *cache)
     return slab;
 }
 
-static void CreateSlabCache(KHeapSlabCache *cache, size_t obj_size)
+static void CreateSlabCache(KSlabCache *cache, size_t obj_size)
 {
     // enforce minimum: must fit a freelist pointer
     if (obj_size < sizeof(void *))
@@ -77,12 +77,12 @@ static void CreateSlabCache(KHeapSlabCache *cache, size_t obj_size)
     cache->full = NULL;
     cache->empty_hold = NULL;
     // at least one object must fit in a slab page after the header
-    assert(cache->obj_size <= PAGE_SIZE - align_up(sizeof(KHeapSlab), 8));
+    assert(cache->obj_size <= PAGE_SIZE - align_up(sizeof(KSlab), 8));
 }
 
-static void *__hot SlabAlloc(KHeapSlabCache *cache)
+static void *__hot SlabAlloc(KSlabCache *cache)
 {
-    KHeapSlab *slab = cache->partial;
+    KSlab *slab = cache->partial;
 
     if (unlikely(!slab)) {
         // Reuse the held empty slab before touching the PMM.
@@ -109,13 +109,13 @@ static void *__hot SlabAlloc(KHeapSlabCache *cache)
     return obj;
 }
 
-static __always_inline void SlabFree(KHeapSlabCache *cache, void *ptr)
+static __always_inline void SlabFree(KSlabCache *cache, void *ptr)
 {
     assert(cache != NULL);
     assert(ptr != NULL);
 
     // the slab header is at the page-aligned base of this pointer
-    KHeapSlab *slab = (KHeapSlab *)align_down((uintptr_t)ptr, PAGE_SIZE);
+    KSlab *slab = (KSlab *)align_down((uintptr_t)ptr, PAGE_SIZE);
     assert(slab->owner_cache == cache);
 
     bool was_full = (slab->free_head == NULL);
@@ -142,20 +142,20 @@ static __always_inline void SlabFree(KHeapSlabCache *cache, void *ptr)
 
 /* Generic slab-cache API for subsystems that want a dedicated fixed-size
  * object pool. Callers KSlabInit a zeroed cache before the first KSlabAlloc. */
-void KSlabInit(KHeapSlabCache *cache, size_t obj_size)
+void KSlabInit(KSlabCache *cache, size_t obj_size)
 {
     CreateSlabCache(cache, obj_size);
 }
 
-void *KSlabAlloc(KHeapSlabCache *cache) { return SlabAlloc(cache); }
+void *KSlabAlloc(KSlabCache *cache) { return SlabAlloc(cache); }
 
-void KSlabFree(KHeapSlabCache *cache, void *ptr)
+void KSlabFree(KSlabCache *cache, void *ptr)
 {
     if (ptr)
         SlabFree(cache, ptr);
 }
 
-static void HeapAppendBlk(KMemBlock *block)
+static void HeapAppendBlk(KHeapBlock *block)
 {
     block->next = NULL;
     block->prev = heap_tail;
@@ -182,7 +182,7 @@ static bool HeapGrow(size_t min_payload)
     }
 
     VirtAddr heap_va = PA_TO_VA(heap_pa);
-    KMemBlock *block = (KMemBlock *)heap_va;
+    KHeapBlock *block = (KHeapBlock *)heap_va;
     block->size = align_down(pages * PAGE_SIZE - HDR, ALIGNMENT);
     block->state = KBLOCK_FREE;
     block->next = NULL;
@@ -208,9 +208,9 @@ static bool HeapGrow(size_t min_payload)
 
 /* Absorb block->next into block when the two are physically adjacent and
  * next is free. Maintains prev links and heap_tail. */
-static void HeapMerge(KMemBlock *block)
+static void HeapMerge(KHeapBlock *block)
 {
-    KMemBlock *next = block->next;
+    KHeapBlock *next = block->next;
     if (!next || next->state != KBLOCK_FREE)
         return;
     if ((uint8_t *)block + HDR + block->size != (uint8_t *)next)
@@ -231,15 +231,15 @@ void* KMalloc(size_t size) {
     size_t req = align_up(size, ALIGNMENT); // align area up
 
     for (int pass = 0; pass < 2; pass++) {
-        for (KMemBlock *current_block = heap_head; current_block;
+        for (KHeapBlock *current_block = heap_head; current_block;
              current_block = current_block->next) {
             if (current_block->state != KBLOCK_FREE || current_block->size < req)
                 continue;
 
             size_t leftover = current_block->size - req;
             if (leftover >= HDR + MIN_PAYLOAD + (ALIGNMENT - 1)) { // split
-                KMemBlock *new_block =
-                    (KMemBlock *)(void *)((uint8_t *)current_block + HDR + req);
+                KHeapBlock *new_block =
+                    (KHeapBlock *)(void *)((uint8_t *)current_block + HDR + req);
 
                 new_block->size = align_down(leftover - HDR, ALIGNMENT);
                 new_block->state = KBLOCK_FREE;
@@ -301,7 +301,7 @@ void KFree(void* ptr) {
         return;
     }
 
-    KMemBlock *header = (KMemBlock *)(void *)((uint8_t *)ptr - HDR);
+    KHeapBlock *header = (KHeapBlock *)(void *)((uint8_t *)ptr - HDR);
 
     if (header->state == KBLOCK_FREE) {
         KERROR("Double free in kernel heap");

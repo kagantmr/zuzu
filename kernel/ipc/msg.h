@@ -1,5 +1,5 @@
-#ifndef _ZUZU_KERNEL_IPC_MSG_H
-#define _ZUZU_KERNEL_IPC_MSG_H
+#ifndef KERNEL_IPC_MSG_H
+#define KERNEL_IPC_MSG_H
 
 #include "kernel/task/task.h"
 #include "kernel/space/handle.h"
@@ -17,12 +17,12 @@ Err AllocateGrantSlot(SpaceObject *from, SpaceObject *to, Handle handle_to_grant
 Err GrantHandleAcross(SpaceObject *from, SpaceObject *to, Handle handle_to_grant, Handle *out);
 
 void __hot CallBlockAsSender(TaskObject *caller, PortObject *port,
-                               EphemeralReplyObject *rc,
+                               ReplyObject *rc,
                                uint32_t xlen, Handle grant_handle);
-void __hot DeliverCallToReceiver(TaskObject *caller, TaskObject *rx, EphemeralReplyObject *rc,
+void __hot DeliverCallToReceiver(TaskObject *caller, TaskObject *rx, ReplyObject *rc,
                                    size_t xlen, Handle granted);
 bool __hot CallHandoffToReceiver(TaskObject *caller, PortObject *port,
-                                   EphemeralReplyObject *rc, size_t xlen, Handle grant_handle,
+                                   ReplyObject *rc, size_t xlen, Handle grant_handle,
                                    CpuState *frame);
 
 void ReplyFailCaller(TaskObject *target, Err err);
@@ -31,4 +31,4 @@ void __hot ReplyDeliverToCaller(TaskObject *target, uint32_t xlen, Handle grante
 
 void PortReceive(PortObject *port, Duration timeout, CpuState *frame);
 
-#endif /* _ZUZU_KERNEL_IPC_MSG_H */
+#endif /* KERNEL_IPC_MSG_H */

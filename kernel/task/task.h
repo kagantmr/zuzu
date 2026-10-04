@@ -14,19 +14,19 @@ typedef struct SpaceObjectStruct SpaceObject;
 
 typedef enum TaskStateEnum
 {
-    READY = 0, // ready to run, in run queue
-    RUNNING,   // on CPU
-    BLOCKED,   // waiting for IPC or timeout
-    ZOMBIE,    // exited (Quit or killed), not yet reaped
-    FROZEN,    // not runnable yet
-    FAULTED, // ran into an exception, or parent/owner stopped it
+    TASK_STATE_READY = 0, // ready to run, in run queue
+    TASK_STATE_RUNNING,   // on CPU
+    TASK_STATE_BLOCKED,   // waiting for IPC or timeout
+    TASK_STATE_ZOMBIE,    // exited (Quit or killed), not yet reaped
+    TASK_STATE_FROZEN,    // not runnable yet
+    TASK_STATE_FAULTED, // ran into an exception, or parent/owner stopped it
 } TaskState;
 
-typedef enum MsgStateEnum
+typedef enum IpcStateEnum
 {
     IPC_NONE = 0,
     IPC_WAITING,
-} MsgState;
+} IpcState;
 
 typedef struct TaskObjectStruct TaskObject;
 
@@ -53,13 +53,13 @@ struct TaskObjectStruct
     int16_t sleep_slot;       /**< Sleep slot. */
     TaskState state;          /**< State of the task. */
     ListNode destroy_node;    /**< Node for destruction. */
-    MsgState ipc_state;       /**< IPC state. */
+    IpcState ipc_state;       /**< IPC state. */
     PortObject *blocked_port; /**< Blocked port. */
-    EphemeralReplyObject reply_cap_storage;
+    ReplyObject reply_cap_storage;
     Handle pending_grant_handle; /**< Waiting for reply. */
-    EphemeralReplyObject
+    ReplyObject
         *pending_reply_cap; /**< Set while this task is a blocked caller, waiting for its reply. */
-    EphemeralReplyObject
+    ReplyObject
         *reply_cap;           /**< Set while this task is a receiver mid-call, waiting to Reply. */
     TaskObject *reply_holder; /**< Server currently holding this task's reply cap, or NULL. */
     PhysAddr msg_buf_phys_addr; /**< Physical address of the message buffer. */
@@ -93,7 +93,7 @@ void TaskRef(TaskObject *t);
 void TaskUnref(TaskObject *t);
 
 /**
- * @brief Unify self-directed Quit and external Term: mark the task ZOMBIE,
+ * @brief Unify self-directed Quit and external Term: mark the task TASK_STATE_ZOMBIE,
  * wake any already-blocked joiners, and if it was the last task in its
  * space, tear that space down as a consequence (see SpaceDestroy).
  */

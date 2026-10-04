@@ -19,7 +19,7 @@ AddressSpace *g_kernel_as = NULL;
 AddressSpace *g_current_addrspace = NULL;
 bool g_mmu_enabled = false;
 
-static KHeapSlabCache addrspace_cache;
+static KSlabCache addrspace_cache;
 
 #define LOG_FMT(fmt) "(vmm) " fmt
 #include <util/log.h>
@@ -42,7 +42,7 @@ static int RegionCmpStart(const void *key, const void *elem)
     return 0;
 }
 
-AddressSpace *VmmGetKernelAddrspace(void)
+AddressSpace *VmmGetKernelAddressSpace(void)
 {
     return g_kernel_as;
 }
@@ -69,7 +69,7 @@ bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, Vi
     PhysAddr new_pa = 0;
     bool allocated_new = false;
 
-    if (r->owner == VM_OWNER_SHARED && r->backing) {
+    if (r->owner == VM_BACKING_SHARED && r->backing) {
         MemObject *mem = (MemObject *)r->backing;
         if (page_va < r->vaddr_start)
             return false;
@@ -87,7 +87,7 @@ bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, Vi
             mem->shm.page_addrs[page_index] = new_pa;
             allocated_new = true;
         }
-    } else if (r->owner == VM_OWNER_ANON) {
+    } else if (r->owner == VM_BACKING_ANON) {
         new_pa = PmmAllocFrame();
         if (new_pa == 0)
             return false;
@@ -99,7 +99,7 @@ bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, Vi
 
     if (!VmmMapRange(as, page_va, new_pa, PAGE_SIZE, r->prot, r->memtype)) {
         if (allocated_new) {
-            if (r->owner == VM_OWNER_SHARED && r->backing) {
+            if (r->owner == VM_BACKING_SHARED && r->backing) {
                 MemObject *mem = (MemObject *)r->backing;
                 size_t page_index = (size_t)((page_va - r->vaddr_start) / PAGE_SIZE);
                 if (page_index < mem->shm.page_count && mem->shm.page_addrs[page_index] == new_pa)
@@ -113,7 +113,7 @@ bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, Vi
     return true;
 }
 
-AddressSpace *AddrspaceCreate(AsType type)
+AddressSpace *AddressSpaceCreate(AddressSpaceType type)
 {
     if (!addrspace_cache.obj_size)
         KSlabInit(&addrspace_cache, sizeof(AddressSpace));
@@ -122,19 +122,19 @@ AddressSpace *AddrspaceCreate(AsType type)
         return NULL;
     }
     memset(as, 0, sizeof(*as));
-    as->asid_token = (asid_token_t){0};
+    as->asid_token = (AsidToken){0};
 
-    as->pt_root_physaddr = arch_mmu_create_tables(type);
+    as->pt_root_physaddr = ArchMmuCreateTables(type);
 
     if (as->pt_root_physaddr == 0) {
         KSlabFree(&addrspace_cache, as);
         return NULL;
     }
 
-    if (type == ADDRSPACE_USER) {
-        as->asid_token = asid_alloc();
+    if (type == ADDRESS_SPACE_USER) {
+        as->asid_token = AsidAlloc();
         if (as->asid_token.asid == 0) {
-            arch_mmu_free_tables(as->pt_root_physaddr, type);
+            ArchMmuFreeTables(as->pt_root_physaddr, type);
             KSlabFree(&addrspace_cache, as);
             return NULL;
         }
@@ -142,10 +142,10 @@ AddressSpace *AddrspaceCreate(AsType type)
 
     if (!vm_region_vec_init(&as->regions)) {
         if (as->asid_token.asid != 0) {
-            arch_mmu_flush_tlb_asid(as->asid_token.asid);
-            asid_free(as->asid_token);
+            ArchMmuFlushTlbAsid(as->asid_token.asid);
+            AsidFree(as->asid_token);
         }
-        arch_mmu_free_tables(as->pt_root_physaddr, type);
+        ArchMmuFreeTables(as->pt_root_physaddr, type);
         KSlabFree(&addrspace_cache, as);
         return NULL;
     }
@@ -154,7 +154,7 @@ AddressSpace *AddrspaceCreate(AsType type)
     return as;
 }
 
-void AddrspaceDestroy(AddressSpace *as)
+void AddressSpaceDestroy(AddressSpace *as)
 {
     if (!as) return;
     if (as == g_current_addrspace) {
@@ -164,7 +164,7 @@ void AddrspaceDestroy(AddressSpace *as)
 
     /* Prevent stale translations from surviving ASID reuse. */
     if (as->asid_token.asid != 0)
-        arch_mmu_flush_tlb_asid(as->asid_token.asid);
+        ArchMmuFlushTlbAsid(as->asid_token.asid);
 
     for (uint32_t i = 0; i < as->regions.len; i++) {
         VirtMemRegion *r = vm_region_vec_get(&as->regions, i);
@@ -174,9 +174,9 @@ void AddrspaceDestroy(AddressSpace *as)
     }
 
     if (as->asid_token.asid != 0)
-        asid_free(as->asid_token);
+        AsidFree(as->asid_token);
 
-    arch_mmu_free_tables(as->pt_root_physaddr, as->type);
+    ArchMmuFreeTables(as->pt_root_physaddr, as->type);
     vm_region_vec_destroy(&as->regions);
     KSlabFree(&addrspace_cache, as);
 }

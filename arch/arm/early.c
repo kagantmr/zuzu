@@ -22,7 +22,7 @@
 #include "core/kprintf.h"
 #include <string.h>
 
-ZuzuRamLayout kernel_layout;
+RamLayout kernel_layout;
 
 #define LOG_FMT(fmt) "(early) " fmt
 #include "core/log.h"
@@ -40,8 +40,8 @@ static void early_map_ram_sections(uintptr_t ram_base, size_t ram_size) {
         l1[L1_IDX(PA_TO_VA(pa))] = entry;
     }
 
-    arch_mmu_flush_tlb();
-    ArchCtxSync();
+    ArchMmuFlushTlb();
+    ArchSyncBarrier();
 }
 
 static void pmu_init(void) {
@@ -79,7 +79,7 @@ _Noreturn void early(void *dtb_ptr);
 _Noreturn void early(void *dtb_ptr)
 {
     /* Console-before-everything: a no-op unless the board overrides it.
-     * arch_platform_init_devices() replaces the sink with the real driver. */
+     * ArchPlatformInitDevices() replaces the sink with the real driver. */
     kprintf_init(arch_early_putc);
 
     KDEBUG("early: dtb pa=%p", dtb_ptr);
@@ -122,7 +122,7 @@ _Noreturn void early(void *dtb_ptr)
     kernel_layout.kernel_start_va = (uintptr_t)PA_TO_VA(kernel_layout.kernel_start_pa);
     kernel_layout.kernel_end_va = (uintptr_t)PA_TO_VA(kernel_layout.kernel_end_pa);
 
-    /* boot_info_init_from_dtb() copies everything out of the DTB and shuts
+    /* BootInfoInitFromFdt() copies everything out of the DTB and shuts
      * down libfdt access, so capture what the cleanup below needs first. */
     PhysAddr dtb_end_pa = kernel_layout.dtb_start_pa + FdtTotalSize();
     struct { uint64_t addr, size; } rsv[8];
@@ -130,7 +130,7 @@ _Noreturn void early(void *dtb_ptr)
     while (rsv_cnt < 8 && FdtGetReservedMem(rsv_cnt, &rsv[rsv_cnt].addr, &rsv[rsv_cnt].size))
         rsv_cnt++;
 
-    boot_info_init_from_dtb();
+    BootInfoInitFromFdt();
 
     /* The boot-only sections and the DTB are no longer needed once the
      * PMM-backed kernel L1 is live and DTB data has been copied out. The DTB
@@ -151,13 +151,13 @@ _Noreturn void early(void *dtb_ptr)
     KDEBUG("early: dropping identity map");
     VmmRemoveIdentityMapping();
     KDEBUG("early: ttbr1 split");
-    arch_mmu_init_ttbr1(VmmGetKernelAddrspace());
+    ArchMmuInitTtbr1(VmmGetKernelAddressSpace());
     KDEBUG("early: kernel lockdown");
     VmmLockdownKernelMapping();
 
     KDEBUG("early: irq + platform devices");
-    arch_irq_init();
-    arch_platform_init_devices();
+    ArchIrqInit();
+    ArchPlatformInitDevices();
 
     KINFO("Freed DTB and boot space (%zu KiB)",
           ((PhysAddr)_boot_end - (PhysAddr)_boot_start + dtb_end_pa - kernel_layout.dtb_start_pa) / 1024);

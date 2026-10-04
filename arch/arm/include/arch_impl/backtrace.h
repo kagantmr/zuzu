@@ -3,8 +3,8 @@
 // Do not include directly from neutral code; include <arch/backtrace.h>
 // instead.
 
-#ifndef ZUZU_ARM_IMPL_BACKTRACE_H
-#define ZUZU_ARM_IMPL_BACKTRACE_H
+#ifndef ARCH_ARM_IMPL_BACKTRACE_H
+#define ARCH_ARM_IMPL_BACKTRACE_H
 
 #include <arch_impl/regs.h>
 #include <stddef.h>
@@ -24,7 +24,7 @@
  * @param max_depth       Capacity of out[].
  * @return Number of addresses written to out[].
  */
-static inline size_t arch_backtrace_walk(Register fp, Register kernel_va_base, uint32_t *out,
+static inline size_t ArchBacktraceWalk(Register fp, Register kernel_va_base, uint32_t *out,
                                           size_t max_depth)
 {
     size_t depth = 0;
@@ -45,4 +45,4 @@ static inline size_t arch_backtrace_walk(Register fp, Register kernel_va_base, u
     return depth;
 }
 
-#endif // ZUZU_ARM_IMPL_BACKTRACE_H
+#endif // ARCH_ARM_IMPL_BACKTRACE_H

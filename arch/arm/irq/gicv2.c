@@ -11,7 +11,7 @@ volatile uint32_t *gicd_base, *gicc_base;
 /**
  * Helper to write to GICD.
  */
-static inline void gicd_write(uint32_t off, uint32_t val)
+static inline void GicdWrite(uint32_t off, uint32_t val)
 {
     gicd_base[off >> 2] = val;
 }
@@ -19,7 +19,7 @@ static inline void gicd_write(uint32_t off, uint32_t val)
 /**
  * Helper to read from GICD.
  */
-static inline uint32_t gicd_read(uint32_t off)
+static inline uint32_t GicdRead(uint32_t off)
 {
     return gicd_base[off >> 2];
 }
@@ -27,7 +27,7 @@ static inline uint32_t gicd_read(uint32_t off)
 /**
  * Helper to write to GICC.
  */
-static inline void gicc_write(uint32_t off, uint32_t val)
+static inline void GiccWrite(uint32_t off, uint32_t val)
 {
     gicc_base[off >> 2] = val;
 }
@@ -35,63 +35,63 @@ static inline void gicc_write(uint32_t off, uint32_t val)
 /**
  * Helper to read from GICC.
  */
-static inline uint32_t gicc_read(const uint32_t offset)
+static inline uint32_t GiccRead(const uint32_t offset)
 {
     return gicc_base[offset >> 2];
 }
 
 /* ---- Controller introspection (arch/irq.h contract) --------------------- */
 
-bool arch_irq_ready(void)
+bool ArchIrqReady(void)
 {
     return gicd_base && gicc_base;
 }
 
-uint32_t arch_irq_priority_mask(void)
+uint32_t ArchIrqPriorityMask(void)
 {
-    return gicc_read(GICC_PMR);
+    return GiccRead(GICC_PMR);
 }
 
-uint32_t arch_irq_enabled_word(uint32_t word)
+uint32_t ArchIrqEnabledWord(uint32_t word)
 {
-    return gicd_read(GICD_ISENABLER + (word * 4U));
+    return GicdRead(GICD_ISENABLER + (word * 4U));
 }
 
-uint32_t arch_irq_pending_word(uint32_t word)
+uint32_t ArchIrqPendingWord(uint32_t word)
 {
-    return gicd_read(GICD_ISPENDER + (word * 4U));
+    return GicdRead(GICD_ISPENDER + (word * 4U));
 }
 
-void gic_init(uintptr_t gicd_base_addr, uintptr_t gicc_base_addr) {
+void GicInit(uintptr_t gicd_base_addr, uintptr_t gicc_base_addr) {
 
     gicd_base = (volatile uint32_t *)gicd_base_addr;
     gicc_base = (volatile uint32_t *)gicc_base_addr;
 
     // Disable first
-    gicd_write(GICD_CTLR, 0x0);
-    gicc_write(GICC_CTLR, 0x0);
+    GicdWrite(GICD_CTLR, 0x0);
+    GiccWrite(GICC_CTLR, 0x0);
 
     // Put all interrupts into Group 1 (non-secure)
     // For 256 IRQs => 256/32 = 8 registers
     for (uint32_t i = 0; i < 8; i++) {
-        gicd_write(GICD_IGROUPR + (i * 4), 0x00000000U); // Group 0 (secure)
+        GicdWrite(GICD_IGROUPR + (i * 4), 0x00000000U); // Group 0 (secure)
     }
 
     // Set priorities for *all* interrupts (including SGI/PPI 0-31)
     // 256 IRQs => IPRIORITYR regs are 4 IRQs per word => 256/4 = 64 words
     for (uint32_t reg = 0; reg < 64; reg++) {
-        gicd_write(GICD_IPRIORITYR + (reg * 4), 0xA0A0A0A0);
+        GicdWrite(GICD_IPRIORITYR + (reg * 4), 0xA0A0A0A0);
     }
 
     // Target CPU0 for SPIs only (32+). ITARGETSR[0..7] are SGI/PPI and are banked/read-only-ish.
     for (uint32_t reg = 8; reg < 64; reg++) {
-        gicd_write(GICD_ITARGETSR + (reg * 4), 0x01010101);
+        GicdWrite(GICD_ITARGETSR + (reg * 4), 0x01010101);
     }
 
     // Enable both groups in Distributor and CPU interface
-    gicd_write(GICD_CTLR, 0x1);   // EnableGrp0 | EnableGrp1
-    gicc_write(GICC_PMR, 0xFF);   // allow all priorities
-    gicc_write(GICC_CTLR, 0x1);   // EnableGrp0 | EnableGrp1
+    GicdWrite(GICD_CTLR, 0x1);   // EnableGrp0 | EnableGrp1
+    GiccWrite(GICC_PMR, 0xFF);   // allow all priorities
+    GiccWrite(GICC_CTLR, 0x1);   // EnableGrp0 | EnableGrp1
 }
 
 void GicV2ConfigureIrq(Irq irq_id) {
@@ -100,9 +100,9 @@ void GicV2ConfigureIrq(Irq irq_id) {
     if (irq_id >= 32) {
         uint32_t cfg_off = GICD_ICFGR + ((irq_id / 16) * 4);
         uint32_t shift = ((irq_id % 16) * 2) + 1;
-        uint32_t cfg = gicd_read(cfg_off);
+        uint32_t cfg = GicdRead(cfg_off);
         cfg &= ~(1U << shift);
-        gicd_write(cfg_off, cfg);
+        GicdWrite(cfg_off, cfg);
     }
 
     // For SPIs (irq >= 32), set target to CPU0
@@ -111,10 +111,10 @@ void GicV2ConfigureIrq(Irq irq_id) {
         uint32_t reg_offset = GICD_ITARGETSR + (irq_id & ~3U);  // 4-byte aligned
         uint32_t byte_shift = (irq_id % 4) * 8;
         
-        uint32_t val = gicd_read(reg_offset);
+        uint32_t val = GicdRead(reg_offset);
         val &= ~(0xFFU << byte_shift);      // Clear this IRQ's byte
         val |= (0x01U << byte_shift);       // Set CPU0 as target
-        gicd_write(reg_offset, val);
+        GicdWrite(reg_offset, val);
     }
 }
 
@@ -123,36 +123,36 @@ void GicV2SetPriority(Irq irq_id, uint8_t priority)
     uint32_t reg_offset = GICD_IPRIORITYR + (irq_id & ~3U);
     uint32_t byte_shift = (irq_id % 4) * 8;
 
-    uint32_t val = gicd_read(reg_offset);
+    uint32_t val = GicdRead(reg_offset);
     val &= ~(0xFFU << byte_shift);
     val |= ((uint32_t)priority << byte_shift);
-    gicd_write(reg_offset, val);
+    GicdWrite(reg_offset, val);
 }
 
 
 void GicV2UnmaskIrq(Irq irq_id) {
     // Enable the interrupt
-    gicd_write(GICD_ISENABLER + ((irq_id / 32) * 4), (1 << (irq_id % 32)));
+    GicdWrite(GICD_ISENABLER + ((irq_id / 32) * 4), (1 << (irq_id % 32)));
 }
 
 void GicV2MaskIrq(Irq irq_id) {
-    gicd_write(GICD_ICENABLER + ((irq_id / 32) * 4), (1 << (irq_id % 32)));  // Write 1 to disable
+    GicdWrite(GICD_ICENABLER + ((irq_id / 32) * 4), (1 << (irq_id % 32)));  // Write 1 to disable
 }
 
 
-uint32_t gic_acknowledge(void) {
-    return gicc_read(GICC_IAR); // Returns raw IAR value, caller must extract INTID and check for spurious (1023)
+uint32_t GicAcknowledge(void) {
+    return GiccRead(GICC_IAR); // Returns raw IAR value, caller must extract INTID and check for spurious (1023)
 }
 
 
-void gic_end(uint32_t iar) {
+void GicEnd(uint32_t iar) {
     /* dsb sy, not ish: EOIR is a device write, and the Inner Shareable domain
      * does not order Device memory. The driver's interrupt-clearing writes must
      * have completed before we signal EOIR, or the GIC still sees the line
      * asserted and re-delivers. QEMU models neither domain, so this is
      * invisible there and only bites on real silicon. */
     ArchDsbSy();
-    gicc_write(GICC_EOIR, iar); // Signal end of interrupt
+    GiccWrite(GICC_EOIR, iar); // Signal end of interrupt
 }
 
 #include "drivers/driver.h"
@@ -179,7 +179,7 @@ static void GicV2Probe(const FdtDevice *dev)
 	if (!gicd_va || !gicc_va)
 		panic("Failed to ioremap GIC");
 
-	gic_init((uintptr_t)gicd_va, (uintptr_t)gicc_va);
+	GicInit((uintptr_t)gicd_va, (uintptr_t)gicc_va);
 }
 
 static const char *const GIC_COMPAT[] = { "arm,gic-400", "arm,cortex-a15-gic", "arm,gic-v2",

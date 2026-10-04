@@ -22,7 +22,7 @@ typedef struct {
 
 ListHead pmm_subscribers;
 
-void PmmKEventSignal(void)
+void PmmSignalSubscribers(void)
 {
     size_t free_pct = (pmm_state.free_frames * 100) / pmm_state.total_frames;
 
@@ -31,7 +31,7 @@ void PmmKEventSignal(void)
         KWARN("Memory usage exceeded low-water mark, signalling subscribers");
 
         // walk subscribers and signal them
-        // drop dead events: EventDropReference, KFree(subscriber)
+        // drop dead events: EventUnref, KFree(subscriber)
         ListNode *pos, *tmp;
         list_for_each_safe(pos, tmp, &pmm_subscribers.node)
         {
@@ -39,12 +39,12 @@ void PmmKEventSignal(void)
             // safe to remove sub from list here
             if (!sub->ev->alive) {
                 list_remove(pos);
-                EventDropReference(sub->ev);
+                EventUnref(sub->ev);
                 KFree(sub);
                 continue;
             }
 
-            EventSignal(sub->ev, KEVENT_MEMMGMT_BIT, false);
+            EventSignal(sub->ev, EVENT_MEMMGMT_BIT, false);
         }
     } else if (pmm_state.in_pressure && free_pct > HIGH_WATER_PCT) {
         pmm_state.in_pressure = false;
@@ -60,7 +60,7 @@ int PmmSubscribe(EventObject *ev)
     if (!new_node)
         return ERR_NOMEM;
     new_node->ev = ev;
-    ev->bound_mask |= KEVENT_MEMMGMT_BIT;
+    ev->bound_mask |= EVENT_MEMMGMT_BIT;
     list_add_tail(&new_node->node, &pmm_subscribers.node);
     ev->ref_count++;
 
