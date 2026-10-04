@@ -114,7 +114,7 @@ static void CheckKittenState(Kitten *k)
 static bool VersionOk(void)
 {
     const Syspage *sp = (const Syspage *)SYSPAGE_VA;
-    return sp->kernel_ver >= 0x00000200; /* major minor patch: gotta be at least 0x00 00 02 00 */
+    return sp->kernel_ver >= 0x00020000; /* major minor patch: gotta be at least 0x00 00 02 00 */
 }
 
 static void SpawnStage1(void)
