@@ -24,7 +24,7 @@
  * @param max_depth       Capacity of out[].
  * @return Number of addresses written to out[].
  */
-static inline size_t arch_backtrace_walk(Register fp, Register kernel_va_base, uint32_t *out,
+static inline size_t ArchBacktraceWalk(Register fp, Register kernel_va_base, uint32_t *out,
                                           size_t max_depth)
 {
     size_t depth = 0;

@@ -22,13 +22,13 @@ typedef int32_t Register;
  * Layout must match the stmfd sequence in entry.S exactly,
  * the assembly writes directly into this struct by offset.
  */
-typedef struct exception_frame
+typedef struct CpuStateStruct
 {
     Register r[13];        /* r0-r12 */
     Register sp_usr;       /* user SP saved via SRS */
     Register lr_usr;       /* user LR saved via SRS */
     Register return_pc;    /* adjusted return address (LR - offset) */
-    Register return_cpsr;  /* saved CPSR/SPSR value you return with */
+    Register return_cpsr;  /* saved Cpsr/SPSR value you return with */
 } CpuState;
 
 typedef struct
@@ -44,21 +44,21 @@ typedef struct
  * caller is judged too large to inline into otherwise. */
 static __always_inline Register *ArchGetFromFrame(CpuState *f, unsigned i) { return &f->r[i]; }
 
-static __always_inline Register arch_regs_pc(const CpuState *f)    { return f->return_pc; }
-static __always_inline Register arch_regs_sp(const CpuState *f)    { return f->sp_usr; }
-static __always_inline Register arch_regs_lr(const CpuState *f)    { return f->lr_usr; }
-static __always_inline Register arch_regs_flags(const CpuState *f) { return f->return_cpsr; }
-static __always_inline Register arch_regs_fp(const CpuState *f)    { return f->r[11]; }
+static __always_inline Register ArchFramePc(const CpuState *f)    { return f->return_pc; }
+static __always_inline Register ArchFrameSp(const CpuState *f)    { return f->sp_usr; }
+static __always_inline Register ArchFrameLr(const CpuState *f)    { return f->lr_usr; }
+static __always_inline Register ArchFrameFlags(const CpuState *f) { return f->return_cpsr; }
+static __always_inline Register ArchFrameFp(const CpuState *f)    { return f->r[11]; }
 
 /* Live reads of current CPU state (see <arch/regs.h>). */
-static inline Register arch_current_fp(void)
+static inline Register ArchCurrentFramePointer(void)
 {
     Register fp;
     __asm__ volatile("mov %0, r11" : "=r"(fp));
     return fp;
 }
 
-static inline Register arch_current_flags(void)
+static inline Register ArchCurrentFlags(void)
 {
     Register cpsr;
     __asm__ volatile("mrs %0, cpsr" : "=r"(cpsr));
@@ -86,7 +86,7 @@ static inline const char *arm_cpsr_mode_name(uint32_t cpsr)
 }
 
 /* Diagnostics-only (see <arch/regs.h>): mode + Thumb/IRQ/FIQ + NZCV string. */
-static inline void arch_flags_decode(char *buf, size_t bufsz, Register flags)
+static inline void ArchFlagsDecode(char *buf, size_t bufsz, Register flags)
 {
     uint32_t cpsr = (uint32_t)flags;
     (void)snprintf(buf, bufsz, "[%s %s irq=%s fiq=%s %c%c%c%c]", arm_cpsr_mode_name(cpsr),
@@ -97,7 +97,7 @@ static inline void arch_flags_decode(char *buf, size_t bufsz, Register flags)
 }
 
 /* Diagnostics-only (see <arch/regs.h>): true if flags denotes IRQ mode. */
-static inline bool arch_flags_in_irq_context(Register flags)
+static inline bool ArchFlagsInIrqContext(Register flags)
 {
     return ((uint32_t)flags & 0x1Fu) == 0x12u;
 }

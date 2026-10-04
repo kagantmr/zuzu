@@ -20,4 +20,4 @@ void arch_early_putc(char c)
 	uart[0] = (uint32_t)(uint8_t)c;
 }
 
-void arch_platform_init_devices(void) { DriverProbeAll(); }
+void ArchPlatformInitDevices(void) { DriverProbeAll(); }

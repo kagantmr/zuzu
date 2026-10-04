@@ -69,7 +69,7 @@ typedef struct AddressSpaceStruct
     PhysAddr pt_root_physaddr; // physical address of level-1 table
     vm_region_vec_t regions;
     AsType type;
-    asid_token_t asid_token;
+    AsidToken asid_token;
 } AddressSpace;
 
 #define IOREMAP_SIZE (IOREMAP_END - IOREMAP_BASE + 1)
@@ -176,7 +176,7 @@ bool VmmMapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size,
  *
  * Responsibilities (what this function does):
  *   - Clear page table entries for the VA range
- *   - Invalidate TLB entries (via arch_mmu_unmap)
+ *   - Invalidate TLB entries (via ArchMmuUnmap)
  *   - Optionally free empty L2 tables (architecture-dependent)
  *
  * What this function does NOT do:
@@ -187,7 +187,7 @@ bool VmmMapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size,
  * If the region owns its pages (VM_OWNER_ANON), the caller must walk
  * page tables BEFORE unmapping to discover which PAs to free.
  *
- * TLB Handling: VmmUnmapRange calls arch_mmu_unmap, which handles
+ * TLB Handling: VmmUnmapRange calls ArchMmuUnmap, which handles
  * TLB invalidation. If the addrspace is active (TTBR0), the TLB must
  * be invalidated for this to take effect.
  */

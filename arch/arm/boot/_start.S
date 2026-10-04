@@ -67,7 +67,7 @@ _start:
     /* Board hook, still in HYP: last chance to touch HYP-only state.
      * Must not touch the stack -- SP_hyp is whatever the firmware left, and a
      * fault here happens before any console or HYP vectors exist, so it hangs
-     * silently. Contract: clobbers r1 only, preserves r0 (the CPSR we are
+     * silently. Contract: clobbers r1 only, preserves r0 (the Cpsr we are
      * about to edit), returns via bx lr. */
     bl      board_hyp_setup
 

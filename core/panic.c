@@ -187,11 +187,11 @@ typedef struct
 
 static void BtraceWalk(FpBacktrace *bt)
 {
-    Register fp = panic_fault_ctx.frame ? arch_regs_fp(panic_fault_ctx.frame) /* fp at fault time */
-                                        : arch_current_fp();
+    Register fp = panic_fault_ctx.frame ? ArchFrameFp(panic_fault_ctx.frame) /* fp at fault time */
+                                        : ArchCurrentFramePointer();
 
     bt->depth =
-        (int)arch_backtrace_walk(fp, (Register)KERNEL_VA_BASE, bt->addresses, BACKTRACE_MAX_DEPTH);
+        (int)ArchBacktraceWalk(fp, (Register)KERNEL_VA_BASE, bt->addresses, BACKTRACE_MAX_DEPTH);
 }
 
 /* ------------------------------------------------------------------ */
@@ -358,10 +358,10 @@ static void PanicPrintFault(void)
     /* SPSR tells us what mode was running when the fault occurred */
     if (panic_fault_ctx.frame)
     {
-        arch_flags_decode(dec, sizeof(dec), arch_regs_flags(panic_fault_ctx.frame));
+        ArchFlagsDecode(dec, sizeof(dec), ArchFrameFlags(panic_fault_ctx.frame));
         PanicNewline();
         (void)snprintf(line, sizeof(line), "SPSR:  0x%08X  %s  (interrupted context)",
-                       arch_regs_flags(panic_fault_ctx.frame), dec);
+                       ArchFrameFlags(panic_fault_ctx.frame), dec);
         PanicPutLine(line);
     }
 }
@@ -381,21 +381,21 @@ static void PanicDumpCpuState(void)
 
     PanicHeader("CPU STATE");
 
-    FormatKSym(sym, sizeof(sym), (VirtAddr)arch_regs_pc(f));
-    (void)snprintf(line, sizeof(line), "pc:     0x%08X  %s", arch_regs_pc(f), sym);
+    FormatKSym(sym, sizeof(sym), (VirtAddr)ArchFramePc(f));
+    (void)snprintf(line, sizeof(line), "pc:     0x%08X  %s", ArchFramePc(f), sym);
     PanicPutLine(line);
 
-    FormatKSym(sym, sizeof(sym), (VirtAddr)arch_regs_lr(f));
-    (void)snprintf(line, sizeof(line), "lr:     0x%08X  %s", arch_regs_lr(f), sym);
+    FormatKSym(sym, sizeof(sym), (VirtAddr)ArchFrameLr(f));
+    (void)snprintf(line, sizeof(line), "lr:     0x%08X  %s", ArchFrameLr(f), sym);
     PanicPutLine(line);
 
-    (void)snprintf(line, sizeof(line), "sp:     0x%08X", arch_regs_sp(f));
+    (void)snprintf(line, sizeof(line), "sp:     0x%08X", ArchFrameSp(f));
     PanicPutLine(line);
 
     {
         char dec[64];
-        arch_flags_decode(dec, sizeof(dec), arch_regs_flags(f));
-        (void)snprintf(line, sizeof(line), "flags:  0x%08X  %s", arch_regs_flags(f), dec);
+        ArchFlagsDecode(dec, sizeof(dec), ArchFrameFlags(f));
+        (void)snprintf(line, sizeof(line), "flags:  0x%08X  %s", ArchFrameFlags(f), dec);
         PanicPutLine(line);
     }
 
@@ -545,13 +545,13 @@ static void PanicPrintSpace(void)
                                 (*ArchGetFromFrame(tf, j)));
             PanicPutLine(line);
         }
-        (void)snprintf(line, sizeof(line), "  sp = %08X   lr = %08X   pc = %08X", arch_regs_sp(tf),
-                       arch_regs_lr(tf), arch_regs_pc(tf));
+        (void)snprintf(line, sizeof(line), "  sp = %08X   lr = %08X   pc = %08X", ArchFrameSp(tf),
+                       ArchFrameLr(tf), ArchFramePc(tf));
         PanicPutLine(line);
         {
             char dec[64];
-            arch_flags_decode(dec, sizeof(dec), arch_regs_flags(tf));
-            (void)snprintf(line, sizeof(line), "  cpsr = %08X  %s", arch_regs_flags(tf), dec);
+            ArchFlagsDecode(dec, sizeof(dec), ArchFrameFlags(tf));
+            (void)snprintf(line, sizeof(line), "  cpsr = %08X  %s", ArchFrameFlags(tf), dec);
             PanicPutLine(line);
         }
     }
@@ -668,7 +668,7 @@ static void PanicPrintIrq(void)
 
     PanicHeader("IRQ / GIC");
 
-    if (!arch_irq_ready())
+    if (!ArchIrqReady())
     {
         PanicPutLine("interrupt controller not yet initialized");
         return;
@@ -676,7 +676,7 @@ static void PanicPrintIrq(void)
 
 #define IRQ_WORDS (MAX_IRQS / 32u)
 
-    uint32_t pmr = arch_irq_priority_mask();
+    uint32_t pmr = ArchIrqPriorityMask();
     (void)snprintf(line, sizeof(line), "priority mask: 0x%02X  (%s)", pmr,
                    pmr == 0xFFU ? "all priorities pass" : "filtered");
     PanicPutLine(line);
@@ -690,7 +690,7 @@ static void PanicPrintIrq(void)
      */
     uint32_t enabled_words[IRQ_WORDS];
     for (uint32_t w = 0; w < IRQ_WORDS; w++)
-        enabled_words[w] = arch_irq_enabled_word(w);
+        enabled_words[w] = ArchIrqEnabledWord(w);
 
     PanicNewline();
     PanicPutLine("enabled IRQs:");
@@ -716,7 +716,7 @@ static void PanicPrintIrq(void)
             else if (ArchIrqHasHandler(irq))
             {
                 char sym[64];
-                FormatKSym(sym, sizeof(sym), (uint32_t)(uintptr_t)arch_irq_handler_addr(irq));
+                FormatKSym(sym, sizeof(sym), (uint32_t)(uintptr_t)ArchIrqHandlerAddr(irq));
                 (void)snprintf(line, sizeof(line), "  IRQ %-3u  [kernel: %s]", irq, sym);
             }
             else
@@ -731,15 +731,15 @@ static void PanicPrintIrq(void)
         PanicPutLine("  (none)");
 
     /* Pending IRQs: skip SGIs; cross-reference enabled bitmap */
-    Register cpsr = arch_current_flags();
-    bool in_irq_mode = arch_flags_in_irq_context(cpsr);
+    Register cpsr = ArchCurrentFlags();
+    bool in_irq_mode = ArchFlagsInIrqContext(cpsr);
 
     PanicNewline();
     PanicPutLine("pending IRQs:");
     int any_pending = 0;
     for (uint32_t word = 0; word < IRQ_WORDS; word++)
     {
-        uint32_t pend = arch_irq_pending_word(word);
+        uint32_t pend = ArchIrqPendingWord(word);
         if (!pend)
             continue;
         for (uint32_t bit = 0; bit < 32U; bit++)
@@ -866,7 +866,7 @@ _Noreturn void __attribute__((cold)) panic(const char *fmt, ...)
 
     void *caller_ra;
 
-    arch_global_irq_disable();
+    ArchGlobalIrqDisable();
 
     if (entered_panic)
         goto panic_loop;

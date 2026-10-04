@@ -27,7 +27,7 @@ static inline void ArchIsb(void) { __asm__ volatile("isb" ::: "memory"); }
 /**
  * Issues an Inner Shareable DSB and an ISB follwoing it.
  */
-static inline void ArchCtxSync(void) { __asm__ volatile("dsb ish\n\tisb" ::: "memory"); }
+static inline void ArchSyncBarrier(void) { __asm__ volatile("dsb ish\n\tisb" ::: "memory"); }
 
 /**
  * Full system domain DSB.

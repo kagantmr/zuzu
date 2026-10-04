@@ -145,7 +145,7 @@ SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
 
 fail_as:
     if (sp->as)
-        arch_mmu_free_user_pages(sp->as);
+        ArchMmuFreeUserPages(sp->as);
     AddrspaceDestroy(sp->as);
     memset(sp->tcb_page_pa, 0, sizeof(sp->tcb_page_pa));
 fail_handles:
@@ -209,7 +209,7 @@ void SpaceDestroy(SpaceObject *sp)
 
     if (sp->as)
     {
-        arch_mmu_free_user_pages(sp->as);
+        ArchMmuFreeUserPages(sp->as);
         AddrspaceDestroy(sp->as);
         sp->as = NULL;
     }

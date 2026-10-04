@@ -68,7 +68,7 @@ static void SchedInitIdleTask(void)
     VirtAddr sp = (VirtAddr)idle_stack + sizeof(idle_stack);
     sp &= ~(VirtAddr)7U;
 
-    idle_task.kernel_sp = (uint32_t *)arch_thread_kernel_init((void *)sp, IdleTask);
+    idle_task.kernel_sp = (uint32_t *)ArchTaskKernelInit((void *)sp, IdleTask);
 }
 
 void SchedInit(void)
@@ -231,18 +231,18 @@ static void SchedIdleWait(void)
 {
     for (;;)
     {
-        arch_global_irq_disable();
+        ArchGlobalIrqDisable();
 
         if (SchedIsWorkPending())
         {
             if (do_resched)
                 do_resched = 0;
-            arch_global_irq_enable();
+            ArchGlobalIrqEnable();
             return;
         }
 
         __asm__ volatile("wfi" ::: "memory");
-        arch_global_irq_enable();
+        ArchGlobalIrqEnable();
 
         if (SchedIsWorkPending())
         {
@@ -329,7 +329,7 @@ void __hot SchedSwitchNext(TaskObject *next)
     {
         if (!fpu_access_enabled)
         {
-            ArchFpuTrapEnable();
+            ArchFpuEnableAccess();
             fpu_access_enabled = true;
         }
     }
@@ -337,7 +337,7 @@ void __hot SchedSwitchNext(TaskObject *next)
     {
         if (fpu_access_enabled)
         {
-            arch_fpu_trap_disable();
+            ArchFpuTrapDisable();
             fpu_access_enabled = false;
         }
     }
@@ -348,7 +348,7 @@ void __hot SchedSwitchNext(TaskObject *next)
     {
         VmmActivateAddrspace(current_task->owner->as);
     }
-    arch_set_thread_ptr(current_task);
+    ArchSetTlsPointer(current_task);
     ContextSwitch(prev, current_task);
 }
 

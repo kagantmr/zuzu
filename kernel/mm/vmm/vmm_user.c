@@ -129,8 +129,8 @@ Err VmmMapMemObject(SpaceObject *space, HandleTableEntry *entry, MemProt prot, V
         }
 
         // flush TLB for this VA
-        arch_mmu_flush_tlb_va(va_base);
-        ArchCtxSync();
+        ArchMmuFlushTlbVa(va_base);
+        ArchSyncBarrier();
     }
     break;
     default:
@@ -354,9 +354,9 @@ Err InjectInKittenSpace(SpaceObject *kitten, SpaceObject *parent, InjectArgs *ar
             PhysAddr pa = ArchMmuTranslate(kitten->as->pt_root_physaddr,
                                             args->dest_vaddr + (i * PAGE_SIZE));
             if (pa)
-                arch_cache_clean_dcache_range(PA_TO_VA(pa), PAGE_SIZE);
+                ArchCacheCleanDcacheRange(PA_TO_VA(pa), PAGE_SIZE);
         }
-        arch_cache_invalidate_icache_all();
+        ArchCacheInvalidateIcacheAll();
     }
 
     if (!enclosing)

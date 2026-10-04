@@ -1,7 +1,7 @@
 // arch/atomic.h - Neutral atomic-primitive contract.
 //
-//   uint32_t arch_ldrex(volatile uint32_t *);
-//   uint32_t arch_strex(volatile uint32_t *, uint32_t);
+//   uint32_t ArchLoadExclusive(volatile uint32_t *);
+//   uint32_t ArchStoreExclusive(volatile uint32_t *, uint32_t);
 
 #ifndef ZUZU_ARCH_ATOMIC_H
 #define ZUZU_ARCH_ATOMIC_H

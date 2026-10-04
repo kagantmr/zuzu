@@ -202,8 +202,8 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
         if ((prot & PROT_EXEC) && file_pages > 0)
         {
             for (uint32_t page = 0; page < file_pages; page++)
-                arch_cache_clean_dcache_range(PA_TO_VA(segment_pages[page]), PAGE_SIZE);
-            arch_cache_invalidate_icache_all();
+                ArchCacheCleanDcacheRange(PA_TO_VA(segment_pages[page]), PAGE_SIZE);
+            ArchCacheInvalidateIcacheAll();
         }
 
         if (file_pages > 0)
@@ -379,14 +379,14 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
 
     if (!leave_frozen)
     {
-        t->kernel_sp = (uint32_t *)arch_thread_user_init(
+        t->kernel_sp = (uint32_t *)ArchTaskUserInit(
             (void *)stack_top, (uintptr_t)img.entry, (uintptr_t)sp, USER_ELF_BASE, argc,
             (uint32_t)argv_va, &t->trap_frame);
         t->state = READY;
     }
     /* leave_frozen: task stays FROZEN (TaskCreate's default) with no
      * trap frame set up yet. The caller is expected to start it later with
-     * MNGTASK_START, which performs the deferred arch_thread_user_init
+     * MNGTASK_START, which performs the deferred ArchTaskUserInit
      * call with the entry/sp it supplies at that time. */
 
     KTRACE("space create: spid=%d name=%s tid=%u owner_task=%p as=%p", p->spid, p->name,

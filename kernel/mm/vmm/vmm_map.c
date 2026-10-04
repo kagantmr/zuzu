@@ -29,7 +29,7 @@ bool VmmMapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size,
         }
     }
 
-    return arch_mmu_map(as, va, pa, size, prot, memtype);
+    return ArchMmuMap(as, va, pa, size, prot, memtype);
 }
 
 bool VmmUnmapRange(AddressSpace *as, VirtAddr va, size_t size, bool flush) {
@@ -38,7 +38,7 @@ bool VmmUnmapRange(AddressSpace *as, VirtAddr va, size_t size, bool flush) {
     if ((va % PAGE_SIZE) != 0) return false;    // page granularity
     if ((size % PAGE_SIZE) != 0) return false;  // page granularity
 
-    return arch_mmu_unmap(as, va, size, flush);
+    return ArchMmuUnmap(as, va, size, flush);
 }
 
 bool VmmProtectPage(AddressSpace *as, VirtAddr va, size_t size, MemProt new_prot)
@@ -54,7 +54,7 @@ bool VmmProtectPage(AddressSpace *as, VirtAddr va, size_t size, MemProt new_prot
     if (r->flags & VM_FLAG_PINNED)                 /* tcb_page/syspage */
         return false;
 
-    if (!arch_mmu_protect(as, va, size, new_prot))
+    if (!ArchMmuProtect(as, va, size, new_prot))
         return false;
 
     r->prot = new_prot;                            /* keep region truth in sync */
@@ -66,10 +66,10 @@ void VmmActivateAddrspace(AddressSpace *as) {
     if (as == g_current_addrspace) return;
 
     if (!g_mmu_enabled) {
-        arch_mmu_enable(as);
+        ArchMmuEnable(as);
         g_mmu_enabled = true;
     } else {
-        arch_mmu_switch(as);
+        ArchMmuSwitch(as);
     }
 
     g_current_addrspace = as;

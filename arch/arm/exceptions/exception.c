@@ -27,13 +27,13 @@ BENCH_STAT(g_bench_lazy_map_fault, "lazy-map translation fault");
 
 typedef enum
 {
-    EXC_UNDEF = 1,
-    EXC_PREFETCH_ABORT = 3,
-    EXC_DATA_ABORT = 4,
-    EXC_RESERVED = 5,
-    EXC_IRQ = 6,
-    EXC_FIQ = 7
-} ExcType;
+    EXCEPTION_UNDEF = 1,
+    EXCEPTION_PREFETCH_ABORT = 3,
+    EXCEPTION_DATA_ABORT = 4,
+    EXCEPTION_RESERVED = 5,
+    EXCEPTION_IRQ = 6,
+    EXCEPTION_FIQ = 7
+} ExceptionType;
 
 // Decode FSR status bits (works for both DFSR and IFSR)
 static const char *DecodeFsr(uint32_t fsr)
@@ -205,17 +205,17 @@ static bool __hot ServiceDemandPage(SpaceObject *space, uint32_t dfar, uint32_t 
     return false;
 }
 
-void __hot ExceptionDispatch(ExcType exctype, CpuState *frame);
+void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame);
 
 /* Every syscall and every fault funnels through here; EXC_SVC dominates
  * the traffic in any workload that isn't fault-heavy. */
-void __hot ExceptionDispatch(ExcType exctype, CpuState *frame)
+void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
 {
     SpaceObject *current_space = current_task ? current_task->owner : NULL;
 
     switch (exctype)
     {
-    case EXC_UNDEF:
+    case EXCEPTION_UNDEF:
     {
         /* Undef sets LR = faulting PC + 4 in ARM state but + 2 in Thumb;
          * entry.S subtracts 4 unconditionally, so nudge Thumb faults back. */
@@ -224,7 +224,7 @@ void __hot ExceptionDispatch(ExcType exctype, CpuState *frame)
 
         if (current_task && current_task != fpu_owner)
         {
-            ArchFpuTrapEnable();
+            ArchFpuEnableAccess();
             fpu_access_enabled = true;
             if (fpu_owner)
                 ArchFpuSaveState(&fpu_owner->fpu_state);
@@ -259,7 +259,7 @@ void __hot ExceptionDispatch(ExcType exctype, CpuState *frame)
     }
     break;
 
-    case EXC_PREFETCH_ABORT:
+    case EXCEPTION_PREFETCH_ABORT:
     {
         /**
          * Prefetch abort is also impossible to return from.
@@ -297,7 +297,7 @@ void __hot ExceptionDispatch(ExcType exctype, CpuState *frame)
     }
     break;
 
-    case EXC_DATA_ABORT:
+    case EXCEPTION_DATA_ABORT:
     {
 #ifdef CONFIG_ZUZU_BENCH
         uint32_t bench_start = BENCH_BEGIN();
@@ -395,19 +395,19 @@ void __hot ExceptionDispatch(ExcType exctype, CpuState *frame)
         }
     }
     break;
-    case EXC_IRQ:
+    case EXCEPTION_IRQ:
     {
-        arch_irq_dispatch();
+        ArchIrqDispatch();
     }
     break;
 
-    case EXC_FIQ:
+    case EXCEPTION_FIQ:
     {
         KERROR("No support for FIQ");
     }
     break;
 
-    case EXC_RESERVED:
+    case EXCEPTION_RESERVED:
     default:
     {
         panic_fault_ctx = (PanicFaultContext){

@@ -8,12 +8,12 @@
 #include "kernel/task/task.h"
 
 /**
- * arch_set_thread_ptr - publish the thread pointer to user-readable TPIDRURO.
+ * ArchSetTlsPointer - publish the thread pointer to user-readable TPIDRURO.
  *
  * Writes the thread's info VA to the ARM TPIDRURO register (cp15, c13, c0, 3),
  * so user-mode can read it via mrc p15, 0, rt, c13, c0, 3 for TLS / thread IDs.
  */
-static inline void arch_set_thread_ptr(TaskObject *t)
+static inline void ArchSetTlsPointer(TaskObject *t)
 {
 	if (!t)
 		return;

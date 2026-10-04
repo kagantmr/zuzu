@@ -9,7 +9,7 @@
 
 /**
  * Reads the ARM TPIDRURO register (cp15, c13, c0, 3), which the kernel
- * fills in via arch_set_thread_ptr() on context switch. User mode uses
+ * fills in via ArchSetTlsPointer() on context switch. User mode uses
  * this for TLS / TCB lookup.
  */
 static inline uintptr_t ArchGetTlsPointer(void)

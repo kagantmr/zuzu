@@ -8,7 +8,7 @@
 #include <stdint.h>
 
 /** Atomically load a 32-bit value, tagging the exclusive monitor. */
-static inline uint32_t arch_ldrex(volatile uint32_t *addr)
+static inline uint32_t ArchLoadExclusive(volatile uint32_t *addr)
 {
     uint32_t val;
     __asm__ volatile(
@@ -20,7 +20,7 @@ static inline uint32_t arch_ldrex(volatile uint32_t *addr)
 }
 
 /** Conditionally store; returns 0 on success, non-zero if the monitor was lost. */
-static inline uint32_t arch_strex(volatile uint32_t *addr, uint32_t val)
+static inline uint32_t ArchStoreExclusive(volatile uint32_t *addr, uint32_t val)
 {
     uint32_t result;
     __asm__ volatile(

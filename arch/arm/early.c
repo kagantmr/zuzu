@@ -40,8 +40,8 @@ static void early_map_ram_sections(uintptr_t ram_base, size_t ram_size) {
         l1[L1_IDX(PA_TO_VA(pa))] = entry;
     }
 
-    arch_mmu_flush_tlb();
-    ArchCtxSync();
+    ArchMmuFlushTlb();
+    ArchSyncBarrier();
 }
 
 static void pmu_init(void) {
@@ -79,7 +79,7 @@ _Noreturn void early(void *dtb_ptr);
 _Noreturn void early(void *dtb_ptr)
 {
     /* Console-before-everything: a no-op unless the board overrides it.
-     * arch_platform_init_devices() replaces the sink with the real driver. */
+     * ArchPlatformInitDevices() replaces the sink with the real driver. */
     kprintf_init(arch_early_putc);
 
     KDEBUG("early: dtb pa=%p", dtb_ptr);
@@ -151,13 +151,13 @@ _Noreturn void early(void *dtb_ptr)
     KDEBUG("early: dropping identity map");
     VmmRemoveIdentityMapping();
     KDEBUG("early: ttbr1 split");
-    arch_mmu_init_ttbr1(VmmGetKernelAddrspace());
+    ArchMmuInitTtbr1(VmmGetKernelAddrspace());
     KDEBUG("early: kernel lockdown");
     VmmLockdownKernelMapping();
 
     KDEBUG("early: irq + platform devices");
-    arch_irq_init();
-    arch_platform_init_devices();
+    ArchIrqInit();
+    ArchPlatformInitDevices();
 
     KINFO("Freed DTB and boot space (%zu KiB)",
           ((PhysAddr)_boot_end - (PhysAddr)_boot_start + dtb_end_pa - kernel_layout.dtb_start_pa) / 1024);

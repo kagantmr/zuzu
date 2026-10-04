@@ -7,7 +7,7 @@
 #define ZUZU_ARCH_PLATFORM_H
 
 /** Discover and initialize platform devices. Called once during early boot. */
-void arch_platform_init_devices(void);
+void ArchPlatformInitDevices(void);
 
 /** Best-effort console character output usable from the top of early boot,
  * before device discovery. arch/arm/platform.c writes the board's UART0. */

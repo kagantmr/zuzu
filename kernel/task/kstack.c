@@ -36,7 +36,7 @@ VirtAddr KernelStackAlloc(void)
 		}
 
 		/* Unmap the guard page (may have been part of a section mapping). */
-		if (!arch_mmu_unmap_page(VmmGetKernelAddrspace(), slot_va)) {
+		if (!ArchMmuUnmapPage(VmmGetKernelAddrspace(), slot_va)) {
 			/* If translation is already absent, the guard page is already in
 			 * the desired state and this is not an allocation failure. */
 			if (ArchMmuTranslate(VmmGetKernelAddrspace()->pt_root_physaddr, slot_va) != 0) {
@@ -47,8 +47,8 @@ VirtAddr KernelStackAlloc(void)
 				return 0;
 			}
 		}
-		arch_mmu_flush_tlb_va(slot_va);
-		ArchCtxSync();
+		ArchMmuFlushTlbVa(slot_va);
+		ArchSyncBarrier();
 
 		BitmapSet(bitmap, slot);
 		return KernelStackTopFromSlot((int)slot);

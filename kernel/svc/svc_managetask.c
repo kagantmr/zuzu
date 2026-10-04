@@ -49,7 +49,7 @@ void SvcManageTask(CpuState *frame)
         KickstartArgs kargs;
         ENSURE_ERR(frame, CopyFromUser(&kargs, (const void *)(*ArchGetFromFrame(frame, 2)), sizeof(kargs)), ERR_BADPTR);
 
-        target->kernel_sp = (uint32_t *)arch_thread_user_init(
+        target->kernel_sp = (uint32_t *)ArchTaskUserInit(
             (void *)target->kernel_stack_top, (VirtAddr)kargs.entry, (VirtAddr)kargs.sp, USER_ELF_BASE,
             kargs.r0, kargs.r1, &target->trap_frame);
         target->state = READY;

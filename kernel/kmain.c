@@ -34,7 +34,7 @@ _Noreturn void kmain(void)
     /* DTB and boot_info were initialized in early(); do not touch DTB again */
 
     SchedInit();
-    arch_global_irq_enable();
+    ArchGlobalIrqEnable();
 
     SyspageInit();
     BootInfoInit();
