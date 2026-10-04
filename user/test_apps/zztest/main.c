@@ -671,21 +671,21 @@ static int32_t RunServer(void *p)
 
         uint8_t req[MSG_BUF_SIZE];
         uint32_t len = r.xlen > MSG_BUF_SIZE ? MSG_BUF_SIZE : r.xlen;
-        memcpy(req, MessageBox(), len);
+        memcpy(req, GetMessageBox(), len);
         uint32_t op = 0;
         if (len >= 4)
             memcpy(&op, req, 4);
 
         switch (op) {
         case OP_ECHO: {
-            uint8_t *out = MessageBox();
+            uint8_t *out = GetMessageBox();
             for (uint32_t i = 4; i < len; i++)
                 out[i - 4] = (uint8_t)(req[i] ^ 0xFF);
             Reply(len > 4 ? len - 4 : 0, -1);
         } break;
         case OP_MARKER: {
             uint32_t m = (uint32_t)r.sender;
-            memcpy(MessageBox(), &m, 4);
+            memcpy(GetMessageBox(), &m, 4);
             Reply(4, -1);
         } break;
         case OP_GRANT_INFO: {
@@ -695,12 +695,12 @@ static int32_t RunServer(void *p)
                 info[2] = (uint32_t)HandleQuery(r.granted, QUERY_PERMS).r1;
                 HandleClose(r.granted);
             }
-            memcpy(MessageBox(), info, sizeof(info));
+            memcpy(GetMessageBox(), info, sizeof(info));
             Reply(sizeof(info), -1);
         } break;
         case OP_GRANT_BACK: {
             SvcResult d = HandleDuplicate(s->ev, PERM_SEND | PERM_TXFR, MARKER_NONE);
-            memcpy(MessageBox(), "ok!!", 4);
+            memcpy(GetMessageBox(), "ok!!", 4);
             Reply(4, (Handle)d.r1);
             HandleClose((Handle)d.r1);
         } break;
@@ -713,7 +713,7 @@ static int32_t RunServer(void *p)
         default:
             if (r.granted >= 0)
                 HandleClose(r.granted);
-            memcpy(MessageBox(), "????", 4);
+            memcpy(GetMessageBox(), "????", 4);
             Reply(4, -1);
             break;
         }
@@ -722,7 +722,7 @@ static int32_t RunServer(void *p)
 
 static SvcResult Rpc(Handle port, uint32_t op, const void *body, uint32_t blen, Handle grant)
 {
-    uint8_t *buf = MessageBox();
+    uint8_t *buf = GetMessageBox();
     memcpy(buf, &op, 4);
     if (blen)
         memcpy(buf + 4, body, blen);
@@ -759,7 +759,7 @@ static void TestIpc(void)
     CheckEq(r.r3, -1, "no grant -> granted == -1");
     bool match = true;
     for (int i = 0; i < 16; i++)
-        match &= ((uint8_t *)MessageBox())[i] == (uint8_t)(body[i] ^ 0xFF);
+        match &= ((uint8_t *)GetMessageBox())[i] == (uint8_t)(body[i] ^ 0xFF);
     Check(match, "reply payload round-trips through MessageBuf");
 
     r = Rpc(srv.port, OP_ECHO, NULL, 0, -1);
@@ -768,9 +768,9 @@ static void TestIpc(void)
 
     uint8_t big[MSG_BUF_SIZE];
     memset(big, 0x11, sizeof(big));
-    memcpy(MessageBox(), big, sizeof(big));
+    memcpy(GetMessageBox(), big, sizeof(big));
     uint32_t op = OP_ECHO;
-    memcpy(MessageBox(), &op, 4);
+    memcpy(GetMessageBox(), &op, 4);
     r = Call(srv.port, MSG_BUF_SIZE, -1);
     CheckEq(r.r0, ZUZU_OK, "maximum-size request OK");
     CheckEq(r.r1, MSG_BUF_SIZE - 4, "maximum-size reply length");
@@ -788,10 +788,10 @@ static void TestIpc(void)
     SvcResult marked = HandleDuplicate(srv.port, PERM_SEND, 0xBEEF);
     r = Rpc((Handle)marked.r1, OP_MARKER, NULL, 0, -1);
     uint32_t seen = 0;
-    memcpy(&seen, MessageBox(), 4);
+    memcpy(&seen, GetMessageBox(), 4);
     CheckEq((int32_t)seen, 0xBEEF, "receiver sees the sender's marker");
     r = Rpc(srv.port, OP_MARKER, NULL, 0, -1);
-    memcpy(&seen, MessageBox(), 4);
+    memcpy(&seen, GetMessageBox(), 4);
     CheckEq((int32_t)seen, MARKER_NONE, "unmarked caller has marker 0");
     HandleClose((Handle)marked.r1);
     HandleClose((Handle)no_send.r1);
@@ -806,7 +806,7 @@ static void TestIpc(void)
     r = Rpc(srv.port, OP_GRANT_INFO, NULL, 0, (Handle)gd.r1);
     CheckEq(r.r0, ZUZU_OK, "Call with a grant OK");
     uint32_t info[3];
-    memcpy(info, MessageBox(), sizeof(info));
+    memcpy(info, GetMessageBox(), sizeof(info));
     Check((int32_t)info[0] >= 0, "receiver got a handle");
     CheckEq((int32_t)info[1], ZH_EVENT, "granted handle keeps its type");
     CheckEq((int32_t)info[2], PERM_SEND | PERM_TXFR, "granted handle keeps its perms verbatim");
@@ -1588,7 +1588,7 @@ typedef struct {
 static int32_t BufferOwner(void *p)
 {
     ThreadProbe *t = p;
-    uint8_t *buf = MessageBox();
+    uint8_t *buf = GetMessageBox();
     memset(buf, (int)(0x30 + t->id), 64);
     ZuzuTLS()->msg_recv_len = t->id; /* any other per-thread TLS field */
     t->ready = 1;
@@ -1656,7 +1656,7 @@ static int32_t StressClient(void *p)
             bad++;
             continue;
         }
-        const uint8_t *out = MessageBox();
+        const uint8_t *out = GetMessageBox();
         for (uint32_t i = 0; i < len; i++) {
             if (out[i] != (uint8_t)(body[i] ^ 0xFF)) {
                 bad++;
@@ -1734,7 +1734,7 @@ static void TestStress(void)
         PortWaitResult r = FormatToPortWait(WaitOn(port, 2000));
         uint32_t idx = 99;
         if (r.status == ZUZU_OK && r.xlen >= 8)
-            memcpy(&idx, (uint8_t *)MessageBox() + 4, 4);
+            memcpy(&idx, (uint8_t *)GetMessageBox() + 4, 4);
         in_order += (r.status == ZUZU_OK && idx == (uint32_t)i);
         Reply(0, -1);
     }

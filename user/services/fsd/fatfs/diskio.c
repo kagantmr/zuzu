@@ -28,7 +28,7 @@ static uint32_t g_block_count = 0;
 static Err SdCall(uint32_t cmd, uint32_t lba, uint32_t count, SdReply *rep, Handle *granted)
 {
     SdRequest req = { .cmd = cmd, .lba = lba, .count = count };
-    memcpy(MessageBox(), &req, sizeof(req));
+    memcpy(GetMessageBox(), &req, sizeof(req));
     SvcResult r = Call(g_sd_port, sizeof(req), -1);
     if (granted)
         *granted = (Handle)r.r3;
@@ -37,7 +37,7 @@ static Err SdCall(uint32_t cmd, uint32_t lba, uint32_t count, SdReply *rep, Hand
     if ((uint32_t)r.r1 < sizeof(Err))
         return ERR_MALFORMED;
     memset(rep, 0, sizeof(*rep));
-    memcpy(rep, MessageBox(), (uint32_t)r.r1 < sizeof(*rep) ? (uint32_t)r.r1 : sizeof(*rep));
+    memcpy(rep, GetMessageBox(), (uint32_t)r.r1 < sizeof(*rep) ? (uint32_t)r.r1 : sizeof(*rep));
     return rep->status;
 }
 

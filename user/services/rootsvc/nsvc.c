@@ -48,7 +48,7 @@ Handle NsvcInit(void)
 
 static void ReplyStatus(Err status)
 {
-    memcpy(MessageBox(), &status, sizeof(status));
+    memcpy(GetMessageBox(), &status, sizeof(status));
     Reply(sizeof(status), -1);
 }
 
@@ -114,7 +114,7 @@ void NsvcMain(void)
             continue;
 
         NsvcRequest req;
-        if (NsvcUnpack(MessageBox(), result.xlen, &req) != ZUZU_OK) {
+        if (NsvcUnpack(GetMessageBox(), result.xlen, &req) != ZUZU_OK) {
             ReplyStatus(ERR_BADARG);
             continue;
         }

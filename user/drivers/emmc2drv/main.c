@@ -288,7 +288,7 @@ static int Emmc2Transfer(int op, uint32_t block_num, uint32_t *buf)
 
 static void ReplyStatus(Err status)
 {
-    memcpy(MessageBuf(), &status, sizeof(status));
+    memcpy(GetMessageBox(), &status, sizeof(status));
     Reply(sizeof(status), -1);
 }
 
@@ -304,7 +304,7 @@ static void ServeGetBuf(void)
     /* The card's capacity is not queried, so block_count is reported unknown. */
     SdReply rep = {
         .status = ZUZU_OK, .buf_size = SD_BUF_SIZE, .block_size = SD_BLOCK_SIZE, .block_count = 0};
-    memcpy(MessageBuf(), &rep, sizeof(rep));
+    memcpy(GetMessageBox(), &rep, sizeof(rep));
     Reply(sizeof(rep), (Handle)dup.r1);
     HandleClose((Handle)dup.r1);
 }
@@ -333,7 +333,7 @@ static void HandleRequest(const PortWaitResult *r)
         ReplyStatus(ERR_BADARG);
         return;
     }
-    memcpy(&cmd, MessageBuf(), sizeof(cmd));
+    memcpy(&cmd, GetMessageBox(), sizeof(cmd));
 
     switch (cmd) {
     case SD_CMD_GET_BUF:
@@ -346,7 +346,7 @@ static void HandleRequest(const PortWaitResult *r)
             ReplyStatus(ERR_BADARG);
             break;
         }
-        memcpy(&req, MessageBuf(), sizeof(req));
+        memcpy(&req, GetMessageBox(), sizeof(req));
         ServeTransfer(&req);
         break;
     }
