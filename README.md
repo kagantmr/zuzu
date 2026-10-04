@@ -29,8 +29,8 @@ handles for, and nothing else.
 **Kernel**
 - Address spaces, USR-mode execution, ASID-tagged TLB
 - Preemptive priority scheduling, up to 255 threads per process
-- IPC: messages, long messages, notifications, `WaitAny`, markers, shared memory
-- ELF/ZXF loading from an initrd, process lifecycle, kernel-attested labels
+- IPC: messages, events, shared memory
+- ELF/ZXF loading from an initrd, process lifecycle
 
 **zuzuOS**
 - Supervisor/init, a standalone name server, a VFS server, a device manager
@@ -51,37 +51,31 @@ Under active development. The kernel ABI is stable between minors of the same ma
 
 All documentation has been moved to the zuzu docs website. Visit [https://kagantmr.github.io/zuzu-docs](https://kagantmr.github.io/zuzu-docs) for the latest information on the kernel, userspace, and development.
 
-## Building
-
-<!-- TODO: fill in from the build system once the arch cleanup lands.
-     Should cover: toolchain prerequisites, `make BOARD=vexpress`,
-     `make BOARD=rpi4`, running under QEMU, and deploying to hardware. -->
-
-**Requirements:** `arm-none-eabi` toolchain, QEMU with `arm-softmmu`, also `gmake`.
-
 ## Repository layout
 
 ```
 zuzu/
-├── CONTRIBUTING.md // How to contribute to zuzu
-├── LICENSE         // MIT license
-├── Makefile        // Top-level build entry point
-├── README.md       // You're here!
-├── ZUZUSD          // Put custom files in here to put them into the SD card image
-├── arch            // Architecture-specific kernel code (ARMv7-A)
-├── core            // Bare kernel: kprintf, ksym, panic, etc.
-├── docs            // Doscumentation
-├── drivers         // UART driver
-├── include         // Shared headers
-├── initrd          // Put files in here to put them into the initrd image
-├── kernel          // Kernel code: scheduling, IPC, memory management, etc.
-├── klib            // Kernel library: string, memory, etc.
-├── lib             // Userspace library: ZCRT
-├── mk              // Build system: Makefile fragments, scripts, etc.
-├── scripts         // elf2zxf, Raspberry Pi config, etc.
-├── user            // Userspace processes: shell, VFS, network stack, etc.
-└── vendor          // Third-party libraries and dependencies
-
+├── CONTRIBUTING.md        // How to contribute to zuzu
+├── Kconfig                // Top-level kernel configuration
+├── LICENSE                // MIT license
+├── Makefile               // Top-level build entry point
+├── README.md              // You're here!
+├── arch                   // Architecture-specific kernel code (ARMv7-A)
+├── bsp                    // Per-board support: layout, boot and SD manifests, linker scripts
+├── core                   // Bare kernel: kprintf, ksym, panic, etc.
+├── docs                   // Documentation
+├── drivers                // Kernel-side drivers: UART, RTC
+├── include                // Shared headers and the userspace IPC runtime (sync, net, fs, dev, util)
+├── initrdroot             // Optional: files here are packed into the initrd (not tracked by default)
+├── kernel                 // Kernel code: scheduling, IPC, memory management, etc.
+├── klib                   // Kernel library: string, memory, etc.
+├── lib                    // Userspace library: ZCRT, newlib
+├── requirements.txt       // Host-side Python dependencies
+├── scripts                // Makefile fragments, elf2zxf, Raspberry Pi config, etc.
+├── sdroot                 // Files copied as-is into the SD card image
+├── tests                  // QEMU test runner and manifests
+├── user                   // Userspace: drivers, services (fsd, netd, ttysvc), shell, apps
+└── vendor                 // Third-party libraries (kconfiglib, libfdt)
 ```
 
 ## Versioning
