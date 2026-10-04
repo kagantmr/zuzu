@@ -31,7 +31,7 @@ void PmmSignalSubscribers(void)
         KWARN("Memory usage exceeded low-water mark, signalling subscribers");
 
         // walk subscribers and signal them
-        // drop dead events: EventDropReference, KFree(subscriber)
+        // drop dead events: EventUnref, KFree(subscriber)
         ListNode *pos, *tmp;
         list_for_each_safe(pos, tmp, &pmm_subscribers.node)
         {
@@ -39,7 +39,7 @@ void PmmSignalSubscribers(void)
             // safe to remove sub from list here
             if (!sub->ev->alive) {
                 list_remove(pos);
-                EventDropReference(sub->ev);
+                EventUnref(sub->ev);
                 KFree(sub);
                 continue;
             }

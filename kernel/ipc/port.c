@@ -53,7 +53,7 @@ void PortKill(PortObject *port) {
     ObserverNotify(&port->observers);
 }
 
-void PortDestroy(PortObject *port) {
+void PortUnref(PortObject *port) {
     if (!port)
         return;
     if (port->ref_count > 0)

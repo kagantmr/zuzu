@@ -29,7 +29,7 @@ typedef struct
 } ReplyObject;
 
 PortObject *PortCreate(SpaceObject *owner);
-void PortDestroy(PortObject *port);
+void PortUnref(PortObject *port);
 void PortKill(PortObject *port);
 
 /* A caller is queued with nobody receiving: the condition observers wait for. */

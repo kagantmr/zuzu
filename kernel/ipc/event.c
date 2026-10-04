@@ -60,7 +60,7 @@ void EventKill(EventObject *ev)
     }
 }
 
-void EventDropReference(EventObject *ev)
+void EventUnref(EventObject *ev)
 {
     if (!ev)
         return;
@@ -92,7 +92,7 @@ void EventDestroy(EventObject *ev)
     if (!ev || !ev->alive)
         return;
     EventKill(ev);
-    EventDropReference(ev);
+    EventUnref(ev);
 }
 
 void EventWait(EventObject *ev,Duration timeout, CpuState *frame) {

@@ -25,7 +25,7 @@ static void __hot RelayIrqHandler(void *ctx)
     else if (ev)
     {
         irq_owners[irq_num].bound_ev = NULL;
-        EventDropReference(ev);
+        EventUnref(ev);
     }
 }
 
@@ -56,7 +56,7 @@ Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev, uint32_t bi
     if (irq_owners[irq_num].bound_ev)
     {
         EventObject *old = irq_owners[irq_num].bound_ev;
-        EventDropReference(old);
+        EventUnref(old);
     }
 
     irq_owners[irq_num].bound_ev = ev;
@@ -79,7 +79,7 @@ void IrqReleaseAll(SpaceObject *owner)
     {
         if (irq_owners[irq_num].owner == owner)
         {
-            EventDropReference(irq_owners[irq_num].bound_ev);
+            EventUnref(irq_owners[irq_num].bound_ev);
             irq_owners[irq_num] = (IrqOwner){.bound_ev = NULL, .owner = NULL, .pending = false};
             ArchIrqMaskLine(irq_num);
         }
