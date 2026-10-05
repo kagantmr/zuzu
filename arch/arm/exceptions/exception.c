@@ -23,6 +23,7 @@
 
 #ifdef CONFIG_ZUZU_BENCH
 BENCH_STAT(g_bench_lazy_map_fault, "lazy-map translation fault");
+BENCH_STAT(g_bench_irq_dispatch, "irq: ArchIrqDispatch");
 #endif
 
 typedef enum {
@@ -363,7 +364,13 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
         }
     } break;
     case EXCEPTION_IRQ: {
+#ifdef CONFIG_ZUZU_BENCH
+        uint32_t bench_start = BENCH_BEGIN();
+#endif
         ArchIrqDispatch();
+#ifdef CONFIG_ZUZU_BENCH
+        BENCH_END(g_bench_irq_dispatch, bench_start);
+#endif
     } break;
 
     case EXCEPTION_FIQ: {

@@ -13,8 +13,21 @@
 #define CAL_ROUNDS 5
 #define SERVER_STACK (16 * 1024)
 #define MSG_QUIT 0xFFFFFFFFu
+#define HEAVY 1100
+#define PAGE 4096u
+#define INJECT_MAX_PAGES 256u
+
+#define TIMED(buf, i, expr)                                                                        \
+    do {                                                                                           \
+        uint32_t t0_ = ArchMeasure();                                                              \
+        expr;                                                                                      \
+        (buf)[i] = ArchMeasure() - t0_;                                                            \
+    } while (0)
 
 static uint32_t g_samples[SAMPLES];
+static uint32_t g_samples_b[SAMPLES];
+static uint32_t g_samples_c[SAMPLES];
+static uint32_t g_samples_d[SAMPLES];
 static uint32_t g_overhead;
 static uint32_t g_khz;
 
@@ -107,6 +120,12 @@ static void Report(const char *name, uint32_t n)
            min, med, p99, max, mean, sd, CyclesToNs(med));
 }
 
+static void ReportBuf(const char *name, const uint32_t *buf, uint32_t n)
+{
+    memcpy(g_samples, buf, n * sizeof(uint32_t));
+    Report(name, n);
+}
+
 static void BenchNullSyscall(void)
 {
     for (uint32_t i = 0; i < WARMUP; i++)
@@ -154,11 +173,7 @@ static void ServerEntry(Server *s)
 
 static void BenchIpc(const char *kind, Handle port, uint32_t len)
 {
-<<<<<<< HEAD
-    uint8_t *buf = MessageBuf();
-=======
     uint8_t *buf = GetMessageBox();
->>>>>>> feat/netd-tcp
     memset(buf, 0xA5, len < 4 ? 4 : len);
     buf[0] = 0;
     buf[1] = buf[2] = buf[3] = 0;
@@ -199,11 +214,7 @@ static void RunIpc(void)
     BenchIpc("ipc same-space", srv.port, 256);
 
     uint32_t quit = MSG_QUIT;
-<<<<<<< HEAD
-    memcpy(MessageBuf(), &quit, 4);
-=======
     memcpy(GetMessageBox(), &quit, 4);
->>>>>>> feat/netd-tcp
     Call(srv.port, 4, -1);
     WaitOn(task, 1000);
     HandleClose(task);
@@ -245,6 +256,197 @@ static void RunIpcCross(void)
     HandleClose(port);
 }
 
+static void BenchHandleOps(void)
+{
+    Handle ev = CreateEvent();
+    if (ev < 0) {
+        printf("handle bench setup failed\n");
+        return;
+    }
+    for (uint32_t i = 0; i < WARMUP; i++) {
+        SvcResult d = HandleDuplicate(ev, PERM_SEND, MARKER_NONE);
+        HandleClose((Handle)d.r1);
+    }
+    for (uint32_t i = 0; i < SAMPLES; i++) {
+        SvcResult d;
+        TIMED(g_samples, i, d = HandleDuplicate(ev, PERM_SEND, MARKER_NONE));
+        TIMED(g_samples_b, i, HandleClose((Handle)d.r1));
+    }
+    Report("handle duplicate", SAMPLES);
+    ReportBuf("handle close", g_samples_b, SAMPLES);
+
+    for (uint32_t i = 0; i < WARMUP; i++)
+        Signal(ev, 1, false);
+    for (uint32_t i = 0; i < SAMPLES; i++)
+        TIMED(g_samples, i, Signal(ev, 1, false));
+    Report("signal (no waiter)", SAMPLES);
+
+    for (uint32_t i = 0; i < SAMPLES; i++)
+        TIMED(g_samples, i, HandleRestrict(ev, PERM_ALL));
+    Report("handle restrict", SAMPLES);
+    HandleClose(ev);
+}
+
+static void BenchCreateObjects(void)
+{
+    for (uint32_t i = 0; i < HEAVY; i++) {
+        Handle h;
+        TIMED(g_samples, i, h = CreatePort());
+        TIMED(g_samples_b, i, HandleClose(h));
+    }
+    Report("create port", HEAVY);
+    ReportBuf("destroy port (close)", g_samples_b, HEAVY);
+
+    for (uint32_t i = 0; i < HEAVY; i++) {
+        Handle h;
+        TIMED(g_samples, i, h = CreateEvent());
+        TIMED(g_samples_b, i, HandleClose(h));
+    }
+    Report("create event", HEAVY);
+    ReportBuf("destroy event (close)", g_samples_b, HEAVY);
+
+    static const uint32_t pages[] = {1, 16, 256};
+    for (uint32_t k = 0; k < sizeof(pages) / sizeof(pages[0]); k++) {
+        char name[40];
+        uint32_t n = pages[k] >= 256 ? 256 : HEAVY;
+        for (uint32_t i = 0; i < n; i++) {
+            Handle h;
+            TIMED(g_samples, i, h = CreateMem(pages[k]));
+            if (h < 0) {
+                printf("create mem %u pages failed: %d\n", (unsigned)pages[k], (int)h);
+                return;
+            }
+            TIMED(g_samples_b, i, HandleClose(h));
+        }
+        snprintf(name, sizeof(name), "create mem %up", (unsigned)pages[k]);
+        Report(name, n);
+        snprintf(name, sizeof(name), "free mem %up (close)", (unsigned)pages[k]);
+        ReportBuf(name, g_samples_b, n);
+    }
+}
+
+static void BenchMemMap(void)
+{
+    static const uint32_t pages[] = {1, 16, 64};
+    for (uint32_t k = 0; k < sizeof(pages) / sizeof(pages[0]); k++) {
+        uint32_t size = pages[k] * PAGE;
+        char name[40];
+        for (uint32_t i = 0; i < HEAVY; i++) {
+            volatile uint8_t *va;
+            TIMED(g_samples, i, va = MemMapAnon(size, 0, PROT_RW));
+            if (PtrIsErr((const void *)va)) {
+                printf("map %up failed\n", (unsigned)pages[k]);
+                return;
+            }
+            TIMED(g_samples_b, i, for (uint32_t o = 0; o < size; o += PAGE) va[o] = 1);
+            TIMED(g_samples_c, i, MemUnmap((void *)va));
+        }
+        snprintf(name, sizeof(name), "mem map anon %up", (unsigned)pages[k]);
+        Report(name, HEAVY);
+        snprintf(name, sizeof(name), "touch %up (lazy faults)", (unsigned)pages[k]);
+        ReportBuf(name, g_samples_b, HEAVY);
+        snprintf(name, sizeof(name), "mem unmap backed %up", (unsigned)pages[k]);
+        ReportBuf(name, g_samples_c, HEAVY);
+    }
+
+    uint8_t *va = MemMapAnon(PAGE, 0, PROT_RW);
+    if (PtrIsErr(va))
+        return;
+    for (uint32_t i = 0; i < SAMPLES; i++)
+        TIMED(g_samples, i, MemProtect((VirtAddr)va, PAGE, (i & 1) ? PROT_RW : PROT_READ));
+    Report("mem protect 1p", SAMPLES);
+    MemUnmap(va);
+}
+
+static void BlockEntry(Handle *port)
+{
+    WaitOn(*port, TIMEOUT_INFINITE);
+    Quit(0);
+}
+
+static void BenchTasks(void)
+{
+    Handle port = CreatePort();
+    uint8_t *stack = MemMapAnon(SERVER_STACK, 0, PROT_RW);
+    if (port < 0 || PtrIsErr(stack)) {
+        printf("task bench setup failed\n");
+        return;
+    }
+    stack[0] = 0;
+    for (uint32_t i = 0; i < HEAVY; i++) {
+        Handle t;
+        TIMED(g_samples, i, t = CreateTask(-1));
+        if (t < 0) {
+            printf("create task failed: %d\n", (int)t);
+            return;
+        }
+        TIMED(g_samples_b, i, TaskSetPriority(t, 1));
+        TIMED(g_samples_c, i,
+              TaskStart(t, (void *)BlockEntry, stack + SERVER_STACK, (uint32_t)(uintptr_t)&port,
+                        0));
+        Yield();
+        TIMED(g_samples_d, i, TaskKill(t));
+        HandleClose(t);
+    }
+    Report("create task", HEAVY);
+    ReportBuf("task set_priority (frozen)", g_samples_b, HEAVY);
+    ReportBuf("task start", g_samples_c, HEAVY);
+    ReportBuf("task kill (blocked)", g_samples_d, HEAVY);
+    HandleClose(port);
+    MemUnmap(stack);
+}
+
+static void BenchSpaces(void)
+{
+    uint8_t *src = MemMapAnon(INJECT_MAX_PAGES * PAGE, 0, PROT_RW);
+    if (PtrIsErr(src)) {
+        printf("space bench setup failed\n");
+        return;
+    }
+    for (uint32_t o = 0; o < INJECT_MAX_PAGES * PAGE; o += PAGE)
+        src[o] = 1;
+
+    static const uint32_t pages[] = {0, 1, 16, 256};
+    for (uint32_t k = 0; k < sizeof(pages) / sizeof(pages[0]); k++) {
+        uint32_t n = pages[k] >= 256 ? 128 : HEAVY;
+        char name[48];
+        for (uint32_t i = 0; i < n; i++) {
+            Handle sp;
+            TIMED(g_samples, i, sp = CreateSpace("speedtest-bench"));
+            if (sp < 0) {
+                printf("create space failed: %d\n", (int)sp);
+                return;
+            }
+            if (pages[k]) {
+                TIMED(g_samples_b, i,
+                      MemInject(sp, USER_ELF_BASE, src, pages[k] * PAGE, PROT_RW, 0));
+            } else {
+                g_samples_b[i] = 0;
+            }
+            TIMED(g_samples_c, i, HandleDestroy(sp));
+        }
+        snprintf(name, sizeof(name), "create space (%up injected)", (unsigned)pages[k]);
+        Report(name, n);
+        if (pages[k]) {
+            snprintf(name, sizeof(name), "mem inject %up", (unsigned)pages[k]);
+            ReportBuf(name, g_samples_b, n);
+        }
+        snprintf(name, sizeof(name), "destroy space (%up backed)", (unsigned)pages[k]);
+        ReportBuf(name, g_samples_c, n);
+    }
+    MemUnmap(src);
+}
+
+static void RunSection(const char *title, void (*fn)(void))
+{
+    BenchReset();
+    fn();
+    printf("-- kernel stats: %s\n", title);
+    Sleep(250);
+    BenchDump();
+    Sleep(250);
+}
+
 int main(void)
 {
     if (stdio_open_tty() != 0)
@@ -255,9 +457,14 @@ int main(void)
     printf("speedtest: %u samples, %u warmup, clock %u.%03u MHz, timer overhead %u cyc\n", SAMPLES,
            WARMUP, g_khz / 1000, g_khz % 1000, g_overhead);
 
-    BenchNullSyscall();
-    BenchYield();
-    RunIpc();
-    RunIpcCross();
+    RunSection("null syscall", BenchNullSyscall);
+    RunSection("yield", BenchYield);
+    RunSection("handle ops", BenchHandleOps);
+    RunSection("create objects", BenchCreateObjects);
+    RunSection("mem map", BenchMemMap);
+    RunSection("tasks", BenchTasks);
+    RunSection("spaces", BenchSpaces);
+    RunSection("ipc same-space", RunIpc);
+    RunSection("ipc cross-space", RunIpcCross);
     return 0;
 }

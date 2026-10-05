@@ -17,8 +17,18 @@ typedef enum {
     SVC_BIND,
     SVC_MANAGEMEMORY,
     SVC_MANAGETASK,
+#ifdef CONFIG_ZUZU_BENCH
+    SVC_BENCH,
+#endif
     SVC_TOTAL_COUNT
 } SvcNumber;
+
+#ifdef CONFIG_ZUZU_BENCH
+typedef enum {
+    BENCH_RESET,
+    BENCH_DUMP,
+} BenchVerb;
+#endif
 
 typedef uint8_t Svc;
 

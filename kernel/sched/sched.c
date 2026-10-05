@@ -9,6 +9,7 @@
 #include <arch/thread.h>
 
 #include "core/panic.h"
+#include "kernel/bench.h"
 #include "kernel/mm/vmm/vmm.h"
 #include "kernel/time/tick.h"
 #include "types.h"
@@ -20,6 +21,10 @@
 
 #define IDLE_STACK_BYTES 1024
 #define SLEEP_QUEUE_SIZE 512
+
+#ifdef CONFIG_ZUZU_BENCH
+BENCH_STAT(g_bench_reap_task, "sched: reap one task");
+#endif
 
 static ListHead task_destroy_queue = LIST_HEAD_INIT(task_destroy_queue);
 TaskObject *current_task;
@@ -134,7 +139,13 @@ static void SchedConsumeDestroyQueue(void)
             continue;
         }
 
+#ifdef CONFIG_ZUZU_BENCH
+        uint32_t bench_start = BENCH_BEGIN();
+#endif
         TaskDestroy(t);
+#ifdef CONFIG_ZUZU_BENCH
+        BENCH_END(g_bench_reap_task, bench_start);
+#endif
     }
 
     while (!ListIsEmpty(&deferred)) {

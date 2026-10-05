@@ -318,6 +318,14 @@ static inline Err IrqRearm(Handle dev_handle)
     return ArchInvokeSvc(SVC_MANAGEHANDLE, dev_handle, MNGHNDL_IRQ_REARM, 0, 0);
 }
 
+#ifdef CONFIG_ZUZU_BENCH
+static inline void BenchReset(void) { ArchInvokeSvc(SVC_BENCH, BENCH_RESET, 0, 0, 0); }
+static inline void BenchDump(void) { ArchInvokeSvc(SVC_BENCH, BENCH_DUMP, 0, 0, 0); }
+#else
+static inline void BenchReset(void) {}
+static inline void BenchDump(void) {}
+#endif
+
 static inline int PtrIsErr(const void *p) { return (VirtAddr)p >= (VirtAddr)(-4095); }
 
 #ifdef __cplusplus
