@@ -77,7 +77,7 @@ void ip_rx(uint8_t *data, uint16_t len, const uint8_t *src_mac)
         icmp_rx(payload, payload_len, hdr->src_ip);
         break;
     case IP_PROTO_UDP:
-        udp_rx(payload, payload_len, hdr->src_ip, hdr->dst_ip);
+        UdpRecv(payload, payload_len, hdr->src_ip, hdr->dst_ip);
         break;
     case IP_PROTO_TCP:
         tcp_rx(hdr->src_ip, hdr->dst_ip, payload, payload_len);

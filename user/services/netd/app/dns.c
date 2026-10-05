@@ -313,7 +313,7 @@ __attribute__((cold)) void DnsInit(void)
         LOG_ERROR(LOG_TAG, "no ephemeral port available for DNS");
         return;
     }
-    udp_bind(dns_client_port, DnsRecv);
+    UdpBind(dns_client_port, DnsRecv);
 }
 
 static __attribute__((cold)) int DnsEncodeName(uint8_t *out, size_t cap, const char *name)
@@ -370,7 +370,7 @@ static __attribute__((cold)) int DnsSendQuery(uint16_t id, const char *name)
     pkt[pos++] = 0;
     pkt[pos++] = DNS_CLASS_IN;
 
-    return udp_tx(netif.dns, dns_client_port, DNS_PORT, pkt, pos);
+    return UdpSend(netif.dns, dns_client_port, DNS_PORT, pkt, pos);
 }
 
 __attribute__((cold)) void DnsQuery(const char *name, DnsCallback cb)

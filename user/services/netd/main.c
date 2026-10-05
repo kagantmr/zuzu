@@ -40,7 +40,7 @@ static void udp_echo_handler(ipv4_addr_t src_ip, NetPort src_port, NetPort dst_p
 {
     LOG_INFO(LOG_TAG, "UDP packet, from: %u.%u.%u.%u:%d, to: %u.%u.%u.%u:%d", IP4(src_ip), src_port,
              IP4(netif.ip), dst_port);
-    udp_tx(src_ip, dst_port, src_port, data, len);
+    UdpSend(src_ip, dst_port, src_port, data, len);
 }
 
 static __attribute__((cold)) void on_resolved(const char *name, ipv4_addr_t ip, int status)
@@ -204,12 +204,12 @@ int main()
     netrand_init();
 
     arp_init();
-    udp_init();
+    UdpInit();
     port_init();
     DnsInit();
     dhcp_init(on_dhcp_bound); /* kicks off DORA; on_dhcp_bound fires when bound */
 
-    udp_bind(7, udp_echo_handler);
+    UdpBind(7, udp_echo_handler);
 
     LOG_INFO(LOG_TAG, "online");
 
