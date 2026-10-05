@@ -80,6 +80,7 @@ typedef struct {
     uint32_t rcv_nxt;
     uint32_t rcv_rsq;
     uint16_t snd_wnd;
+    uint32_t rcv_adv;
     TcpOooRange ranges[TCP_OOO_MAX];
     size_t nranges;
     bool active;
@@ -91,6 +92,8 @@ typedef struct {
     void (*on_close)(int slot);
     TimerHandle rto_timer;
     TimerHandle tw_timer;
+    TimerHandle persist_timer;
+    Duration persist_ms;
     bool fin_sent;
     Duration rto_ms;  /* current backoff value */
     uint32_t fin_seq; /* the FIN's position in sequence space */

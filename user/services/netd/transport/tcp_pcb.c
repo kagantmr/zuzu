@@ -13,6 +13,7 @@ int tcp_pcb_alloc(void)
             tcp_pcbs[i].fin_pending = false;
             tcp_pcbs[i].rto_timer = TIMER_NONE;
             tcp_pcbs[i].tw_timer = TIMER_NONE;
+            tcp_pcbs[i].persist_timer = TIMER_NONE;
             return i;
         }
     }
@@ -53,6 +54,7 @@ void TcpPcbRelease(TcpPcb *pcb)
 {
     rto_stop(pcb);
     timer_cancel(pcb->tw_timer);
+    timer_cancel(pcb->persist_timer);
     pcb->tw_timer = TIMER_NONE;
     port_release(pcb->local_port);
     tcp_pcb_free(tcp_pcb_index(pcb));

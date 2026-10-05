@@ -167,6 +167,7 @@ static void on_syn_sent(TcpPcb *pcb, const TcpSegment *s)
     if (((s->flags & TCP_SYN) && (s->flags & TCP_ACK)) && s->ack == pcb->snd_nxt) {
         pcb->rcv_nxt = s->seq + 1;
         pcb->rcv_rsq = pcb->rcv_nxt;
+        pcb->rcv_adv = pcb->rcv_rsq + TCP_RCV_BUF;
         pcb->snd_una = s->ack;
         TcpHandshakeDone(pcb);
         TcpConsumeMss(pcb, s);
@@ -174,6 +175,7 @@ static void on_syn_sent(TcpPcb *pcb, const TcpSegment *s)
     } else if ((s->flags & TCP_SYN) && !(s->flags & TCP_ACK)) {
         pcb->rcv_nxt = s->seq + 1;
         pcb->rcv_rsq = pcb->rcv_nxt;
+        pcb->rcv_adv = pcb->rcv_rsq + TCP_RCV_BUF;
         pcb->snd_nxt = pcb->snd_una;
         TcpConsumeMss(pcb, s);
         tcp_output(pcb, TCP_SYN | TCP_ACK, NULL, 0);
@@ -350,6 +352,7 @@ static void on_listening(TcpPcb *listener, const TcpSegment *s)
     np->remote_port = s->src_port;
     np->rcv_nxt = s->seq + 1; /* their SYN's phantom byte */
     np->rcv_rsq = np->rcv_nxt;
+    np->rcv_adv = np->rcv_rsq + TCP_RCV_BUF;
     np->snd_wnd = s->window;
 
     np->snd_nxt = netrand_u32(); /* our ISN */
@@ -517,5 +520,7 @@ int tcp_recv(int idx, uint8_t *buf, uint16_t sz)
         memcpy(buf + first, pcb->rcv_buf, n - first); // wrap, rest from ring start
 
     pcb->rcv_rsq += n; // twin of snd_una += delta, frees buffer space
+    if (pcb->rcv_rsq + TCP_RCV_BUF - pcb->rcv_adv >= MIN(TCP_RCV_BUF / 2, pcb->snd_mss))
+        tcp_output(pcb, TCP_ACK, NULL, 0);
     return n;
 }

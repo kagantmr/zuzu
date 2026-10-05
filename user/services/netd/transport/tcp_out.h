@@ -18,6 +18,9 @@ int tcp_xmit(TcpPcb *pcb);
 /* Retransmission timeout callback. arg is the owning TcpPcb *. */
 void tcp_rto_cb(void *arg);
 
+/* Persist (zero-window probe) timer callback. arg is the owning TcpPcb *. */
+void tcp_persist_cb(void *arg);
+
 void rto_stop(TcpPcb *pcb);
 void rto_start(TcpPcb *pcb);
 

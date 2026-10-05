@@ -50,14 +50,11 @@ int tcp_output(TcpPcb *pcb, uint8_t flags, const uint8_t *data, uint16_t data_le
     th->ack = (flags & TCP_ACK) ? htonl(pcb->rcv_nxt) : 0;
     th->flags = flags;
 
-    size_t occupied =
-        (pcb->nranges ? pcb->ranges[pcb->nranges - 1].end : pcb->rcv_nxt) - pcb->rcv_rsq;
-    uint16_t win = occupied < TCP_RCV_BUF ? TCP_RCV_BUF - occupied : 0;
     uint32_t end  = pcb->nranges ? pcb->ranges[pcb->nranges - 1].end : pcb->rcv_nxt;
     uint32_t edge = pcb->rcv_rsq + TCP_RCV_BUF;
     if (seq_lt(pcb->rcv_adv, edge) && edge - pcb->rcv_adv < MIN(TCP_RCV_BUF / 2, pcb->snd_mss))
         edge = pcb->rcv_adv;        /* receiver SWS: don't announce a tiny increase */
-    win = seq_lt(end, edge) ? edge - end : 0;
+    uint16_t win = seq_lt(end, edge) ? edge - end : 0;
     pcb->rcv_adv = end + win;
     th->window = htons(win);
     // th->window = htons(4); // crippled window for test
@@ -128,8 +125,11 @@ int tcp_xmit(TcpPcb *pcb)
             pcb->rtt_seq = seg_seq + seglen; /* ACK must pass the segment's end */
         }
     }
+    uint32_t data_end = pcb->snd_una + pcb->buffered_bytes;
+    bool fin_acked = pcb->fin_sent && seq_leq(pcb->snd_max, pcb->snd_una);
+
     /* all data sent; emit the FIN alone if it hasn't gone out yet */
-    if (pcb->fin_pending && seq_leq(pcb->snd_nxt, pcb->snd_una + pcb->buffered_bytes)) {
+    if (pcb->fin_pending && !fin_acked && pcb->snd_nxt == data_end) {
         int rc = tcp_output(pcb, TCP_FIN | TCP_ACK, NULL, 0);
         if (rc == ZUZU_OK) {
             pcb->fin_sent = true;
@@ -139,7 +139,46 @@ int tcp_xmit(TcpPcb *pcb)
     if (sent)
         rto_start(pcb);
 
+    bool blocked = seq_lt(pcb->snd_nxt, data_end) &&
+                   seq_leq(pcb->snd_una + pcb->snd_wnd, pcb->snd_nxt) &&
+                   pcb->snd_max == pcb->snd_una;
+    if (blocked) {
+        if (pcb->persist_timer == TIMER_NONE) {
+            if (!pcb->persist_ms)
+                pcb->persist_ms = pcb->rto_ms;
+            pcb->persist_timer = timer_arm(net_now_ms() + pcb->persist_ms, tcp_persist_cb, pcb);
+        }
+    } else {
+        timer_cancel(pcb->persist_timer);
+        pcb->persist_timer = TIMER_NONE;
+        pcb->persist_ms = 0;
+    }
+
     return ZUZU_OK;
+}
+
+void tcp_persist_cb(void *arg)
+{
+    TcpPcb *pcb = (TcpPcb *)arg;
+    pcb->persist_timer = TIMER_NONE;
+
+    uint32_t data_end = pcb->snd_una + pcb->buffered_bytes;
+    bool blocked = seq_lt(pcb->snd_nxt, data_end) &&
+                   seq_leq(pcb->snd_una + pcb->snd_wnd, pcb->snd_nxt);
+    if (!blocked) {
+        tcp_xmit(pcb);
+        return;
+    }
+
+    uint32_t saved = pcb->snd_nxt;
+    pcb->snd_nxt = pcb->snd_una - 1;
+    tcp_output(pcb, TCP_ACK, NULL, 0);
+    pcb->snd_nxt = saved;
+
+    pcb->persist_ms *= 2;
+    if (pcb->persist_ms > TCP_RTO_MAX)
+        pcb->persist_ms = TCP_RTO_MAX;
+    pcb->persist_timer = timer_arm(net_now_ms() + pcb->persist_ms, tcp_persist_cb, pcb);
 }
 
 void tcp_rto_cb(void *arg)

@@ -52,7 +52,7 @@ static void http_on_data(int slot)
         chunk[n] = '\0';
         LOG_INFO(LOG_TAG, "app read %d: %s", n, chunk);
     }
-    /* the resp string + tcp_send + tcp_close, moved verbatim */
+
     static const char *resp = "HTTP/1.0 200 OK\r\n"
                               "Content-Type: text/html\r\n"
                               "Connection: close\r\n"
@@ -62,7 +62,7 @@ static void http_on_data(int slot)
                               "</body></html>\r\n";
 
     tcp_send(slot, (const uint8_t *)resp, strlen(resp));
-    tcp_close(slot); /* close after responding */
+    tcp_close(slot);
 }
 
 int tcp_listen(int port)
