@@ -336,8 +336,10 @@ static void on_listening(TcpPcb *listener, const TcpSegment *s)
         return;
 
     int nidx = tcp_pcb_alloc();
-    if (nidx < 0)
-        return; /* no slot; todo: RST */
+    if (nidx < 0) {
+        tcp_send_rst(s->src_ip, netif.ip, s);
+        return;
+    }
     TcpPcb *np = &tcp_pcbs[nidx];
     np->on_data = listener->on_data;
     np->on_close = listener->on_close;
