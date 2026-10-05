@@ -87,10 +87,19 @@ static void StoreOoo(TcpPcb *pcb, const TcpSegment *s)
 static void time_wait_cb(void *arg)
 {
     TcpPcb *pcb = (TcpPcb *)arg;
-    rto_stop(pcb);
-    port_release(pcb->local_port);
-    tcp_pcb_free(tcp_pcb_index(pcb));
+    pcb->tw_timer = TIMER_NONE;
+    TcpPcbRelease(pcb);
     LOG_INFO(LOG_TAG, "TIME_WAIT expired, connection freed");
+}
+
+static void TcpEnterTimeWait(TcpPcb *pcb)
+{
+    rto_stop(pcb);
+    timer_cancel(pcb->tw_timer);
+    pcb->state = TCP_TIME_WAIT;
+    pcb->tw_timer = timer_arm(net_now_ms() + TCP_TIME_WAIT_MS, time_wait_cb, pcb);
+    if (pcb->tw_timer == TIMER_NONE)
+        TcpPcbRelease(pcb);
 }
 
 /* Copy in-order payload into the receive ring and advance rcv_nxt. */
@@ -107,12 +116,13 @@ static void deliver_data(TcpPcb *pcb, const uint8_t *payload, uint16_t payload_l
     pcb->rcv_nxt += n;
 }
 
-static void consume_fin(int slot, TcpPcb *pcb)
+static bool consume_fin(int slot, TcpPcb *pcb)
 {
-    if (!pcb->fin_seen)
-        return;
+    if (!pcb->fin_seen || pcb->fin_rcvd)
+        return false;
     if (pcb->rcv_nxt != pcb->fin_seq)
-        return;
+        return false;
+    pcb->fin_rcvd = true;
     pcb->rcv_nxt += 1;
     tcp_output(pcb, TCP_ACK, NULL, 0);
 
@@ -121,9 +131,11 @@ static void consume_fin(int slot, TcpPcb *pcb)
         if (pcb->on_close)
             pcb->on_close(slot);
     } else if (pcb->state == TCP_FIN_WAIT_1) {
-        pcb->state = TCP_TIME_WAIT;
-        timer_arm(net_now_ms() + TCP_TIME_WAIT_MS, time_wait_cb, pcb);
+        pcb->state = TCP_CLOSING;
+    } else if (pcb->state == TCP_FIN_WAIT_2) {
+        TcpEnterTimeWait(pcb);
     }
+    return true;
 }
 
 static void TcpConsumeMss(TcpPcb *pcb, const TcpSegment *s)
@@ -142,13 +154,21 @@ static void TcpConsumeMss(TcpPcb *pcb, const TcpSegment *s)
 /* per-state handlers                                                 */
 /* ------------------------------------------------------------------ */
 
+static void TcpHandshakeDone(TcpPcb *pcb)
+{
+    rto_stop(pcb);
+    pcb->retries = 0;
+    pcb->rto_ms = 1000;
+    pcb->state = TCP_ESTABLISHED;
+}
+
 static void on_syn_sent(TcpPcb *pcb, const TcpSegment *s)
 {
     if (((s->flags & TCP_SYN) && (s->flags & TCP_ACK)) && s->ack == pcb->snd_nxt) {
         pcb->rcv_nxt = s->seq + 1;
         pcb->rcv_rsq = pcb->rcv_nxt;
         pcb->snd_una = s->ack;
-        pcb->state = TCP_ESTABLISHED;
+        TcpHandshakeDone(pcb);
         TcpConsumeMss(pcb, s);
         tcp_output(pcb, TCP_ACK, NULL, 0);
     } else if ((s->flags & TCP_SYN) && !(s->flags & TCP_ACK)) {
@@ -188,141 +208,122 @@ static void TcpRttUpdate(TcpPcb *pcb, uint32_t R)
              pcb->rto_ms);
 }
 
-static void on_established(int slot, TcpPcb *pcb, const TcpSegment *s)
+static bool TcpProcessAck(TcpPcb *pcb, const TcpSegment *s)
 {
-    if (seq_lt(pcb->snd_una, s->ack) && seq_leq(s->ack, pcb->snd_nxt)) {
-        size_t delta = s->ack - pcb->snd_una; // how many bytes got confirmed
+    if (!(s->flags & TCP_ACK) || !seq_lt(pcb->snd_una, s->ack) || !seq_leq(s->ack, pcb->snd_max))
+        return false;
 
-        if (pcb->rtt_timing && seq_leq(pcb->rtt_seq, s->ack)) {
-            uint32_t R = net_now_ms() - pcb->rtt_start;
-            TcpRttUpdate(pcb, R);
-            pcb->rtt_timing = false;
-        }
+    size_t delta = s->ack - pcb->snd_una;
 
-        pcb->snd_una = s->ack;
-        pcb->buffered_bytes -= MIN(delta, pcb->buffered_bytes);
-        if (pcb->snd_nxt == pcb->snd_una) {
-            rto_stop(pcb);
-            LOG_INFO(LOG_TAG, "data acked, RTO cancelled");
-        } else {
-            rto_stop(pcb);
-            rto_start(pcb);
-            LOG_INFO(LOG_TAG, "partially acked, RTO restarted");
-        }
+    if (pcb->rtt_timing && seq_leq(pcb->rtt_seq, s->ack)) {
+        TcpRttUpdate(pcb, net_now_ms() - pcb->rtt_start);
+        pcb->rtt_timing = false;
     }
 
-    if (seq_lt(pcb->snd_nxt, s->ack)) {
-        tcp_output(pcb, TCP_ACK, NULL, 0);
-        return;
+    pcb->snd_una = s->ack;
+    if (seq_lt(pcb->snd_nxt, pcb->snd_una))
+        pcb->snd_nxt = pcb->snd_una;
+    pcb->retries = 0;
+    pcb->buffered_bytes -= MIN(delta, pcb->buffered_bytes);
+
+    rto_stop(pcb);
+    if (pcb->snd_max != pcb->snd_una)
+        rto_start(pcb);
+    return true;
+}
+
+static inline bool TcpFinAcked(const TcpPcb *pcb)
+{
+    return pcb->fin_sent && seq_leq(pcb->snd_max, pcb->snd_una);
+}
+
+static void TcpRecvText(int slot, TcpPcb *pcb, const TcpSegment *s)
+{
+    if ((s->flags & TCP_FIN) && !pcb->fin_seen) {
+        pcb->fin_seq = s->seq + s->payload_len;
+        pcb->fin_seen = true;
     }
 
+    bool acked = false;
     if (s->payload_len) {
         if (s->seq == pcb->rcv_nxt) {
             deliver_data(pcb, s->payload, s->payload_len);
             FwdMerge(pcb);
-            tcp_output(pcb, TCP_ACK, NULL, 0); /* ack what we got */
+            if (!(pcb->fin_seen && pcb->rcv_nxt == pcb->fin_seq)) {
+                tcp_output(pcb, TCP_ACK, NULL, 0); /* ack what we got */
+                acked = true;
+            }
 
             /* TODO: application logic wired directly into the transport.
              * This canned HTTP reply should move behind an app-layer callback. */
             if (pcb->on_data)
                 pcb->on_data(slot);
-
-            consume_fin(slot, pcb);
         } else if (seq_lt(pcb->rcv_nxt, s->seq)) {
             StoreOoo(pcb, s);
             LOG_INFO(LOG_TAG, "OOO seg: seq=%u rcv_nxt=%u len=%u", s->seq, pcb->rcv_nxt,
                      s->payload_len);
             tcp_output(pcb, TCP_ACK, NULL, 0); /* dup-ACK: still want rcv_nxt */
+            acked = true;
         } else {
             /* case 3: old duplicate */
             LOG_INFO(LOG_TAG, "dup seg: seq=%u rcv_nxt=%u len=%u", s->seq, pcb->rcv_nxt,
                      s->payload_len);
             tcp_output(pcb, TCP_ACK, NULL, 0); /* re-ACK: we already have this */
+            acked = true;
         }
     }
 
-    if (s->flags & TCP_FIN) {
-        if (!pcb->fin_seen) {
-            pcb->fin_seq = s->seq + s->payload_len;
-            pcb->fin_seen = true;
-        }
+    bool consumed = consume_fin(slot, pcb);
+    if ((s->flags & TCP_FIN) && !consumed && !acked)
         tcp_output(pcb, TCP_ACK, NULL, 0);
-        consume_fin(slot, pcb);
-    }
 }
 
-static void on_fin_wait_1(TcpPcb *pcb, const TcpSegment *s)
+static void on_established(int slot, TcpPcb *pcb, const TcpSegment *s)
 {
-    if (seq_lt(pcb->snd_una, s->ack) && seq_leq(s->ack, pcb->snd_nxt)) {
-        size_t delta = s->ack - pcb->snd_una;
+    TcpProcessAck(pcb, s);
 
-        if (pcb->rtt_timing && seq_leq(pcb->rtt_seq, s->ack)) {
-            uint32_t R = net_now_ms() - pcb->rtt_start;
-            TcpRttUpdate(pcb, R);
-            pcb->rtt_timing = false;
-        }
-
-        pcb->snd_una = s->ack;
-
-        if (pcb->snd_nxt == pcb->snd_una) {
-            pcb->buffered_bytes -= MIN(delta, pcb->buffered_bytes);
-            rto_stop(pcb);
-            LOG_INFO(LOG_TAG, "response acknowledged");
-        }
-    }
-    bool our_fin_acked = seq_leq(pcb->snd_nxt, pcb->snd_una);
-
-    if (s->flags & TCP_FIN) {
-        /* their FIN arrived (with or without acking ours) */
-        pcb->rcv_nxt = s->seq + 1;
+    if ((s->flags & TCP_ACK) && seq_lt(pcb->snd_max, s->ack)) {
         tcp_output(pcb, TCP_ACK, NULL, 0);
-        pcb->state = TCP_TIME_WAIT;
-        timer_arm(net_now_ms() + TCP_TIME_WAIT_MS, time_wait_cb, pcb);
-    } else if (our_fin_acked) {
+        return;
+    }
+
+    TcpRecvText(slot, pcb, s);
+}
+
+static void on_fin_wait_1(int slot, TcpPcb *pcb, const TcpSegment *s)
+{
+    TcpProcessAck(pcb, s);
+    if (TcpFinAcked(pcb))
         pcb->state = TCP_FIN_WAIT_2;
-    }
+
+    TcpRecvText(slot, pcb, s);
 }
 
-static void on_fin_wait_2(TcpPcb *pcb, const TcpSegment *s)
+static void on_fin_wait_2(int slot, TcpPcb *pcb, const TcpSegment *s)
 {
-    if (s->flags & TCP_FIN) {
-        pcb->rcv_nxt = s->seq + 1;
+    TcpProcessAck(pcb, s);
+    TcpRecvText(slot, pcb, s);
+}
+
+static void on_closing(TcpPcb *pcb, const TcpSegment *s)
+{
+    if (TcpProcessAck(pcb, s) && TcpFinAcked(pcb))
+        TcpEnterTimeWait(pcb);
+    else if (s->flags & TCP_FIN)
         tcp_output(pcb, TCP_ACK, NULL, 0);
-        pcb->state = TCP_TIME_WAIT;
-        timer_arm(net_now_ms() + TCP_TIME_WAIT_MS, time_wait_cb, pcb);
-    }
 }
 
-static void on_last_ack(int slot, TcpPcb *pcb, const TcpSegment *s)
+static void on_last_ack(TcpPcb *pcb, const TcpSegment *s)
 {
-    if (seq_lt(pcb->snd_una, s->ack) && seq_leq(s->ack, pcb->snd_nxt)) {
-        pcb->snd_una = s->ack;
-        if (seq_leq(pcb->snd_nxt, pcb->snd_una)) { /* our FIN acked */
-            rto_stop(pcb);
-            port_release(pcb->local_port);
-            tcp_pcb_free(slot);
-            LOG_INFO(LOG_TAG, "LAST_ACK done, connection freed");
-        }
+    if (TcpProcessAck(pcb, s) && TcpFinAcked(pcb)) {
+        TcpPcbRelease(pcb);
+        LOG_INFO(LOG_TAG, "LAST_ACK done, connection freed");
     }
 }
 
 static void on_close_wait(TcpPcb *pcb, const TcpSegment *s)
 {
-    if (seq_lt(pcb->snd_una, s->ack) && seq_leq(s->ack, pcb->snd_nxt)) {
-        size_t delta = s->ack - pcb->snd_una;
-
-        if (pcb->rtt_timing && seq_leq(pcb->rtt_seq, s->ack)) {
-            uint32_t R = net_now_ms() - pcb->rtt_start;
-            TcpRttUpdate(pcb, R);
-            pcb->rtt_timing = false;
-        }
-
-        pcb->snd_una = s->ack;
-        pcb->buffered_bytes -= MIN(delta, pcb->buffered_bytes);
-        rto_stop(pcb);
-        if (pcb->snd_nxt != pcb->snd_una)
-            rto_start(pcb);
-    }
+    TcpProcessAck(pcb, s);
     if (s->flags & TCP_FIN) {
         /* peer retransmitted their FIN; re-ACK it */
         tcp_output(pcb, TCP_ACK, NULL, 0);
@@ -338,7 +339,6 @@ static void on_listening(TcpPcb *listener, const TcpSegment *s)
     if (nidx < 0)
         return; /* no slot; todo: RST */
     TcpPcb *np = &tcp_pcbs[nidx];
-    memset(np, 0, sizeof(*np));
     np->on_data = listener->on_data;
     np->on_close = listener->on_close;
     np->active = true;
@@ -352,10 +352,13 @@ static void on_listening(TcpPcb *listener, const TcpSegment *s)
 
     np->snd_nxt = netrand_u32(); /* our ISN */
     np->snd_una = np->snd_nxt;
+    np->snd_max = np->snd_nxt;
     np->rto_ms = 1000;
     np->state = TCP_SYN_RCVD;
+    np->snd_mss = 536;
     TcpConsumeMss(np, s);
     tcp_output(np, TCP_SYN | TCP_ACK, NULL, 0); /* SYN-ACK */
+    rto_start(np);
     LOG_INFO(LOG_TAG, "SYN from %u.%u.%u.%u, now SYN_RCVD", IP4(s->src_ip));
 }
 
@@ -363,8 +366,11 @@ static void on_syn_rcvd(TcpPcb *pcb, const TcpSegment *s)
 {
     if (s->flags & TCP_ACK && s->ack == pcb->snd_nxt) {
         pcb->snd_una = s->ack;
-        pcb->state = TCP_ESTABLISHED;
+        TcpHandshakeDone(pcb);
         LOG_INFO(LOG_TAG, "handshake complete, ESTABLISHED (server)");
+    } else if ((s->flags & TCP_SYN) && !(s->flags & TCP_ACK) && s->seq + 1 == pcb->rcv_nxt) {
+        pcb->snd_nxt = pcb->snd_una;
+        tcp_output(pcb, TCP_SYN | TCP_ACK, NULL, 0);
     }
 }
 
@@ -398,9 +404,7 @@ static void tcp_dispatch(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const TcpSegmen
         if (accept) {
             if (pcb->state == TCP_SYN_SENT)
                 LOG_INFO(LOG_TAG, "connection refused");
-            rto_stop(pcb);
-            port_release(pcb->local_port);
-            tcp_pcb_free(slot);
+            TcpPcbRelease(pcb);
         }
         return;
     }
@@ -415,13 +419,16 @@ static void tcp_dispatch(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const TcpSegmen
         on_established(slot, pcb, seg);
         break;
     case TCP_FIN_WAIT_1:
-        on_fin_wait_1(pcb, seg);
+        on_fin_wait_1(slot, pcb, seg);
         break;
     case TCP_FIN_WAIT_2:
-        on_fin_wait_2(pcb, seg);
+        on_fin_wait_2(slot, pcb, seg);
         break;
     case TCP_LAST_ACK:
-        on_last_ack(slot, pcb, seg);
+        on_last_ack(pcb, seg);
+        break;
+    case TCP_CLOSING:
+        on_closing(pcb, seg);
         break;
     case TCP_LISTENING:
         on_listening(pcb, seg);
@@ -432,8 +439,27 @@ static void tcp_dispatch(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const TcpSegmen
     case TCP_CLOSE_WAIT:
         on_close_wait(pcb, seg);
         break;
+    case TCP_TIME_WAIT:
+        if (seg->flags & TCP_FIN) {
+            tcp_output(pcb, TCP_ACK, NULL, 0);
+            TcpEnterTimeWait(pcb);
+        }
+        break;
     default:
         break;
+    }
+
+    if (pcb->active) {
+        switch (pcb->state) {
+        case TCP_ESTABLISHED:
+        case TCP_CLOSE_WAIT:
+        case TCP_FIN_WAIT_1:
+        case TCP_LAST_ACK:
+            tcp_xmit(pcb);
+            break;
+        default:
+            break;
+        }
     }
 }
 
@@ -466,34 +492,14 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
         LOG_INFO(LOG_TAG, "malformed TCP options from %u.%u.%u.%u", IP4(src_ip));
     }
 
-    /* TEST HOOK: deliver the first data segment in two halves, tail half
-     * first, forcing the reordering no real sender will give us. The tail
-     * lands past rcv_nxt (StoreOoo), the head then fills the hole
-     * (FwdMerge). Remove after both log lines are seen. */
-    static bool hook_done = false;
-    if (!hook_done && seg.payload_len >= 2 && !(seg.flags & TCP_FIN)) {
-        hook_done = true;
-        uint16_t half = seg.payload_len / 2;
-        TcpSegment tail = seg, head = seg;
-        tail.seq += half;
-        tail.payload += half;
-        tail.payload_len -= half;
-        uint16_t overlap = MIN(12, seg.payload_len - half);
-        head.payload_len = half + overlap;
-        LOG_INFO(LOG_TAG, "TEST: splitting seq=%u len=%u head=%u tail=%u overlap=%u", seg.seq,
-                 seg.payload_len, head.payload_len, tail.payload_len, overlap);
-        tcp_dispatch(src_ip, dst_ip, &tail);
-        tcp_dispatch(src_ip, dst_ip, &head);
-        return;
-    }
-
     tcp_dispatch(src_ip, dst_ip, &seg);
 }
 
 int tcp_recv(int idx, uint8_t *buf, uint16_t sz)
 {
     TcpPcb *pcb = &tcp_pcbs[idx];
-    if (pcb->state != TCP_ESTABLISHED && pcb->state != TCP_CLOSE_WAIT)
+    if (pcb->state != TCP_ESTABLISHED && pcb->state != TCP_CLOSE_WAIT &&
+        pcb->state != TCP_FIN_WAIT_1 && pcb->state != TCP_FIN_WAIT_2)
         return ERR_NOTCONN;
 
     size_t avail = pcb->rcv_nxt - pcb->rcv_rsq; // readable bytes

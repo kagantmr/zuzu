@@ -21,22 +21,24 @@ int tcp_connect(ipv4_addr_t remote_ip, NetPort remote_port)
     pcb->local_ip = netif.ip;
     pcb->local_port = port_alloc();
     if (pcb->local_port == 0) {
-        tcp_pcb_free(idx);
+        TcpPcbRelease(pcb);
         return ERR_NOMEM;
     }
     pcb->snd_nxt = netrand_u32();
     pcb->snd_una = pcb->snd_nxt;
+    pcb->snd_max = pcb->snd_nxt;
     pcb->rcv_nxt = 0;
     pcb->rcv_rsq = pcb->rcv_nxt;
     pcb->rto_ms = 1000;
     pcb->snd_mss = TCP_MSS;
     pcb->state = TCP_SYN_SENT;
     int rc = tcp_output(pcb, TCP_SYN, NULL, 0);
+    rto_start(pcb);
     if (rc != ZUZU_OK) {
-        port_release(pcb->local_port);
-        tcp_pcb_free(idx);
+        TcpPcbRelease(pcb);
         return rc;
     }
+    rto_start(pcb);
     LOG_INFO(LOG_TAG, "SYN -> %u.%u.%u.%u:%u", IP4(remote_ip), remote_port);
     return idx;
 }
@@ -81,13 +83,23 @@ int tcp_close(int idx)
 {
     TcpPcb *pcb = &tcp_pcbs[idx];
 
-    pcb->fin_pending = true; /* stream ends after last buffered byte */
-
-    if (pcb->state == TCP_ESTABLISHED)
+    switch (pcb->state) {
+    case TCP_LISTENING:
+    case TCP_SYN_SENT:
+        TcpPcbRelease(pcb);
+        return ZUZU_OK;
+    case TCP_ESTABLISHED:
+    case TCP_SYN_RCVD:
         pcb->state = TCP_FIN_WAIT_1; /* active close */
-    else if (pcb->state == TCP_CLOSE_WAIT)
+        break;
+    case TCP_CLOSE_WAIT:
         pcb->state = TCP_LAST_ACK; /* passive close */
+        break;
+    default:
+        return ERR_NOTCONN;
+    }
 
-    tcp_xmit(pcb); /* emits FIN (piggybacked or bare) */
+    pcb->fin_pending = true; /* stream ends after last buffered byte */
+    tcp_xmit(pcb);           /* emits FIN (piggybacked or bare) */
     return ZUZU_OK;
 }

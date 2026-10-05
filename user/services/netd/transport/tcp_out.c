@@ -78,6 +78,8 @@ int tcp_output(TcpPcb *pcb, uint8_t flags, const uint8_t *data, uint16_t data_le
 
     /* SYN and FIN each consume one sequence number; data consumes data_len. */
     pcb->snd_nxt += data_len + ((flags & TCP_SYN) ? 1 : 0) + ((flags & TCP_FIN) ? 1 : 0);
+    if (seq_lt(pcb->snd_max, pcb->snd_nxt))
+        pcb->snd_max = pcb->snd_nxt;
 
     return ZUZU_OK;
 }
@@ -86,15 +88,17 @@ int tcp_xmit(TcpPcb *pcb)
 {
     bool sent = false;
     while (1) {
-        size_t unsent = (pcb->snd_una + pcb->buffered_bytes) - pcb->snd_nxt;
-        if (!unsent)
+        uint32_t data_end = pcb->snd_una + pcb->buffered_bytes;
+        if (seq_leq(data_end, pcb->snd_nxt))
             break;
+        size_t unsent = data_end - pcb->snd_nxt;
         size_t window_edge = pcb->snd_una + pcb->snd_wnd;
         if (seq_leq(window_edge, pcb->snd_nxt))
             break;
         size_t sendable = window_edge - pcb->snd_nxt;
         sent = true;
         size_t seglen = MIN(MIN(unsent, sendable), pcb->snd_mss);
+        if (seglen == 0) break;
         uint8_t data[TCP_MSS];
         size_t off = pcb->snd_nxt & (TCP_SND_BUF - 1);
         size_t first = MIN(seglen, TCP_SND_BUF - off);
@@ -102,8 +106,10 @@ int tcp_xmit(TcpPcb *pcb)
         if (first < seglen)
             memcpy(data + first, pcb->snd_buf, seglen - first);
         uint8_t flags = TCP_ACK;
-        if (pcb->fin_pending && pcb->snd_nxt + seglen == pcb->snd_una + pcb->buffered_bytes)
+        if (pcb->fin_pending && pcb->snd_nxt + seglen == pcb->snd_una + pcb->buffered_bytes) {
             flags |= TCP_FIN; /* this is the last data segment */
+            pcb->fin_sent = true;
+        }
 
         uint32_t seg_seq = pcb->snd_nxt; /* before tcp_output advances it */
         int rc = tcp_output(pcb, flags, data, seglen);
@@ -119,8 +125,10 @@ int tcp_xmit(TcpPcb *pcb)
     /* all data sent; emit the FIN alone if it hasn't gone out yet */
     if (pcb->fin_pending && seq_leq(pcb->snd_nxt, pcb->snd_una + pcb->buffered_bytes)) {
         int rc = tcp_output(pcb, TCP_FIN | TCP_ACK, NULL, 0);
-        if (rc == ZUZU_OK)
+        if (rc == ZUZU_OK) {
+            pcb->fin_sent = true;
             sent = true;
+        }
     }
     if (sent)
         rto_start(pcb);
@@ -132,8 +140,16 @@ void tcp_rto_cb(void *arg)
 {
     TcpPcb *pcb = (TcpPcb *)arg;
     pcb->rto_timer = TIMER_NONE;
-    if (pcb->snd_nxt == pcb->snd_una)
-        return; // window empty, don't do anything
+    if (pcb->snd_max == pcb->snd_una)
+        return; // nothing outstanding, don't do anything
+
+    if (++pcb->retries > (pcb->state == TCP_SYN_SENT || pcb->state == TCP_SYN_RCVD
+                              ? TCP_SYN_RETRIES
+                              : TCP_DATA_RETRIES)) {
+        LOG_INFO(LOG_TAG, "retransmit limit reached, dropping connection");
+        TcpPcbRelease(pcb);
+        return;
+    }
 
     /* exponential backoff, capped */
     pcb->rtt_timing = false; /* Karn: timed segment now ambiguous, drop the sample */
@@ -145,6 +161,13 @@ void tcp_rto_cb(void *arg)
              pcb->snd_una, pcb->rto_ms);
 
     pcb->snd_nxt = pcb->snd_una;
+
+    if (pcb->state == TCP_SYN_SENT || pcb->state == TCP_SYN_RCVD) {
+        tcp_output(pcb, pcb->state == TCP_SYN_SENT ? TCP_SYN : TCP_SYN | TCP_ACK, NULL, 0);
+        rto_start(pcb);
+        return;
+    }
+
     tcp_xmit(pcb);
 }
 

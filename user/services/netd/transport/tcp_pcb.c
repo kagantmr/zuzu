@@ -1,4 +1,6 @@
 #include "tcp_pcb.h"
+#include "tcp_out.h"
+#include "port.h"
 
 TcpPcb tcp_pcbs[TCP_MAX_PCB];
 
@@ -10,6 +12,7 @@ int tcp_pcb_alloc(void)
             tcp_pcbs[i].active = true;
             tcp_pcbs[i].fin_pending = false;
             tcp_pcbs[i].rto_timer = TIMER_NONE;
+            tcp_pcbs[i].tw_timer = TIMER_NONE;
             return i;
         }
     }
@@ -44,4 +47,13 @@ int tcp_pcb_find_listener(ipv4_addr_t local_ip, NetPort local_port)
         }
     }
     return ERR_NOENT;
+}
+
+void TcpPcbRelease(TcpPcb *pcb)
+{
+    rto_stop(pcb);
+    timer_cancel(pcb->tw_timer);
+    pcb->tw_timer = TIMER_NONE;
+    port_release(pcb->local_port);
+    tcp_pcb_free(tcp_pcb_index(pcb));
 }

@@ -46,6 +46,8 @@ _Static_assert(sizeof(TcpHdr) == 20, "TCP header size");
 #define TCP_SND_BUF (1024 * 32)
 #define TCP_RCV_BUF (1024 * 32)
 #define TCP_TIME_WAIT_MS 5000 /* linger 5s before freeing (real TCP uses 2*MSL ~minutes) */
+#define TCP_SYN_RETRIES 6
+#define TCP_DATA_RETRIES 12
 
 typedef enum {
     TCP_CLOSED = 0,
@@ -56,6 +58,7 @@ typedef enum {
     TCP_TIME_WAIT,   /* got their FIN, linger before close */
     TCP_CLOSE_WAIT,  /* they sent FIN first (passive close) */
     TCP_LAST_ACK,    /* passive close: we sent our FIN, waiting for ack */
+    TCP_CLOSING,     /* simultaneous close: both FINs out, ours not yet acked */
     TCP_LISTENING,
     TCP_SYN_RCVD
 } tcp_state_t;
@@ -73,6 +76,7 @@ typedef struct {
     tcp_state_t state;
     uint32_t snd_nxt;
     uint32_t snd_una;
+    uint32_t snd_max; /* highest sequence number ever sent, one past the last byte */
     uint32_t rcv_nxt;
     uint32_t rcv_rsq;
     uint16_t snd_wnd;
@@ -86,9 +90,12 @@ typedef struct {
     void (*on_data)(int slot);    // data arrival callback
     void (*on_close)(int slot);
     TimerHandle rto_timer;
+    TimerHandle tw_timer;
+    bool fin_sent;
     Duration rto_ms;  /* current backoff value */
     uint32_t fin_seq; /* the FIN's position in sequence space */
     bool fin_seen;    /* have we been told about a FIN at all? */
+    bool fin_rcvd;    /* has the FIN been consumed in order? */
     Duration srtt;
     Duration rttvar;
     bool rtt_valid;     /* have we taken the first RTT sample? */
@@ -96,6 +103,7 @@ typedef struct {
     uint32_t rtt_seq;   /* which byte we're waiting for the ACK to pass */
     bool rtt_timing;    /* is a stopwatch currently running? */
     uint16_t snd_mss;
+    int retries;
     uint32_t cwnd;
     uint32_t ssthresh;
     uint32_t dupacks;
