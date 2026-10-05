@@ -53,6 +53,12 @@ int tcp_output(TcpPcb *pcb, uint8_t flags, const uint8_t *data, uint16_t data_le
     size_t occupied =
         (pcb->nranges ? pcb->ranges[pcb->nranges - 1].end : pcb->rcv_nxt) - pcb->rcv_rsq;
     uint16_t win = occupied < TCP_RCV_BUF ? TCP_RCV_BUF - occupied : 0;
+    uint32_t end  = pcb->nranges ? pcb->ranges[pcb->nranges - 1].end : pcb->rcv_nxt;
+    uint32_t edge = pcb->rcv_rsq + TCP_RCV_BUF;
+    if (seq_lt(pcb->rcv_adv, edge) && edge - pcb->rcv_adv < MIN(TCP_RCV_BUF / 2, pcb->snd_mss))
+        edge = pcb->rcv_adv;        /* receiver SWS: don't announce a tiny increase */
+    win = seq_lt(end, edge) ? edge - end : 0;
+    pcb->rcv_adv = end + win;
     th->window = htons(win);
     // th->window = htons(4); // crippled window for test
     th->checksum = 0;
