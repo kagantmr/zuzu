@@ -398,7 +398,7 @@ void PmmFreeFrame(const PhysAddr addr)
     }
 
     /* already free -> double free: a live bug, not a bad argument */
-    panic("pmm: double free of frame %x", pfn);
+    panic("pmm: double free of frame %x", (unsigned int)pfn);
 }
 
 PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
