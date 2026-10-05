@@ -16,6 +16,7 @@ typedef struct {
     uint8_t *bitmap;        // pointer to bitmap memory
     size_t bitmap_bytes;    // size of bitmap in bytes
     PhysAddr freelist_head; // PA of first free page (or 0 if none)
+    bool freelist_ready;    // list built; free in bitmap <=> linked from here on
     bool in_pressure;       // notify if memory is going low to signal via Event
 } PmmState;
 
