@@ -23,14 +23,14 @@ capstone. It is still the project I most wanted to build. It is named after our 
 ## Design
 
 Everything the kernel exposes is a **handle**. Holding a handle *is* the
-permission to use the object it names. A process can do exactly what it holds
+permission to use the object it names. A task can do exactly what its space holds
 handles for, and nothing else.
 
 **Kernel**
 - Address spaces, USR-mode execution, ASID-tagged TLB
 - Preemptive priority scheduling, up to 255 threads per process
 - IPC: messages, events, shared memory
-- ELF/ZXF loading from an initrd, process lifecycle
+- ELF/ZXF loading from an initrd, task lifecycle
 
 **zuzuOS**
 - Supervisor/init, a standalone name server, a VFS server, a device manager
