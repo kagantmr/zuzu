@@ -10,16 +10,16 @@
 
 typedef struct {
     uint16_t id;
-    dns_callback_t cb;
+    DnsCallback cb;
     bool in_use;
     char name[DNS_MAX_NAME];  /* original name requested, reported to the callback */
     char qname[DNS_MAX_NAME]; /* name currently being queried (may be a CNAME target) */
     uint32_t sent_ms;         /* time of the most recent send, for the timeout check */
     uint8_t retries_left;     /* retransmits remaining for the current query */
     uint8_t cname_hops;       /* CNAME redirections followed so far (loop guard) */
-} dns_entry_t;
+} DnsTableEntry;
 
-static dns_entry_t dns_table[DNS_MAX_TABLE];
+static DnsTableEntry dns_table[DNS_MAX_TABLE];
 static uint16_t dns_next_id = 1;
 static NetPort dns_client_port; /* ephemeral source port, allocated in dns_init */
 
@@ -27,16 +27,16 @@ typedef struct {
     char name[DNS_MAX_NAME];
     ipv4_addr_t ip;     /* 0 => negative entry: name has no address */
     uint32_t expiry_ms; /* absolute, vs net_now_ms(); 0 => slot empty */
-} dns_cache_t;
+} DnsCacheEntry;
 
-static dns_cache_t dns_cache[DNS_CACHE_N];
+static DnsCacheEntry dns_cache[DNS_CACHE_N];
 
 /* Live cache entry for `name`, or NULL. Expired entries are cleared in passing. */
-static dns_cache_t *dns_cache_lookup(const char *name)
+static DnsCacheEntry *DnsCacheLookup(const char *name)
 {
     uint32_t now = net_now_ms();
     for (int i = 0; i < DNS_CACHE_N; i++) {
-        dns_cache_t *e = &dns_cache[i];
+        DnsCacheEntry *e = &dns_cache[i];
         if (!e->expiry_ms)
             continue;
         if ((int32_t)(now - e->expiry_ms) >= 0) {
@@ -50,7 +50,7 @@ static dns_cache_t *dns_cache_lookup(const char *name)
 }
 
 /* Insert/refresh `name` -> `ip` (ip == 0 for a negative entry). ttl is seconds. */
-static void dns_cache_put(const char *name, ipv4_addr_t ip, uint32_t ttl_s)
+static void DnsCacheInsert(const char *name, ipv4_addr_t ip, uint32_t ttl_s)
 {
     size_t n = strlen(name);
     if (n >= DNS_MAX_NAME)
@@ -64,9 +64,9 @@ static void dns_cache_put(const char *name, ipv4_addr_t ip, uint32_t ttl_s)
         ttl_s = DNS_TTL_MAX;
 
     uint32_t now = net_now_ms();
-    dns_cache_t *victim = NULL;
+    DnsCacheEntry *victim = NULL;
     for (int i = 0; i < DNS_CACHE_N; i++) {
-        dns_cache_t *e = &dns_cache[i];
+        DnsCacheEntry *e = &dns_cache[i];
         if (!e->expiry_ms || strcmp(e->name, name) == 0) {
             victim = e;
             break;
@@ -77,22 +77,22 @@ static void dns_cache_put(const char *name, ipv4_addr_t ip, uint32_t ttl_s)
 
     memcpy(victim->name, name, n + 1);
     victim->ip = ip;
-    victim->expiry_ms = now + ttl_s * 1000;
+    victim->expiry_ms = now + (ttl_s * 1000);
 }
 
-static __attribute__((cold)) int dns_send_query(uint16_t id, const char *name);
+static __attribute__((cold)) int DnsSendQuery(uint16_t id, const char *name);
 
 /* (Re)issue the query held in slot->qname under a fresh transaction ID and a
    full retransmit budget. Returns the underlying send result. */
-static __attribute__((cold)) int dns_start(dns_entry_t *slot)
+static __attribute__((cold)) int DnsStart(DnsTableEntry *slot)
 {
     slot->id = dns_next_id++;
     slot->sent_ms = net_now_ms();
     slot->retries_left = DNS_MAX_RETRIES;
-    return dns_send_query(slot->id, slot->qname);
+    return DnsSendQuery(slot->id, slot->qname);
 }
 
-static __attribute__((cold)) int dns_skip_name(const uint8_t *pkt, uint16_t len, uint16_t off)
+static __attribute__((cold)) int DnsSkipName(const uint8_t *pkt, uint16_t len, uint16_t off)
 {
     while (1) {
         if (off >= len)
@@ -101,13 +101,13 @@ static __attribute__((cold)) int dns_skip_name(const uint8_t *pkt, uint16_t len,
         uint8_t byte = pkt[off];
         if (byte == 0)
             return off + 1;
-        else if ((byte & 0xC0) == 0xC0) {
+        if ((byte & 0xC0) == 0xC0) {
             if ((off + 1) < len)
                 return off + 2;
-            else
-                return ERR_MALFORMED;
-        } else
-            off += 1 + byte;
+            return ERR_MALFORMED;
+        }
+
+        off += 1 + byte;
     }
 }
 
@@ -115,8 +115,7 @@ static __attribute__((cold)) int dns_skip_name(const uint8_t *pkt, uint16_t len,
    NUL-terminated dotted string. Compression pointers are followed, but only
    backwards and a bounded number of times, so a crafted packet can't loop us.
    Returns 0 on success or a negative error. */
-static int dns_decode_name(const uint8_t *pkt, uint16_t len, uint16_t off, char *out,
-                           size_t out_cap)
+static int DnsDecodeName(const uint8_t *pkt, uint16_t len, uint16_t off, char *out, size_t out_cap)
 {
     size_t outpos = 0;
     int jumps = 0;
@@ -128,7 +127,9 @@ static int dns_decode_name(const uint8_t *pkt, uint16_t len, uint16_t off, char 
 
         if (b == 0) {
             break;
-        } else if ((b & 0xC0) == 0xC0) {
+        }
+
+        if ((b & 0xC0) == 0xC0) {
             if ((uint16_t)(off + 1) >= len)
                 return ERR_MALFORMED;
             uint16_t ptr = (uint16_t)(((b & 0x3F) << 8) | pkt[off + 1]);
@@ -160,11 +161,11 @@ static int dns_decode_name(const uint8_t *pkt, uint16_t len, uint16_t off, char 
     return 0;
 }
 
-void dns_tick(void)
+void DnsTick(void)
 {
     uint32_t now = net_now_ms();
     for (int i = 0; i < DNS_MAX_TABLE; i++) {
-        dns_entry_t *slot = &dns_table[i];
+        DnsTableEntry *slot = &dns_table[i];
         if (!slot->in_use)
             continue;
         if ((int32_t)(now - slot->sent_ms) < DNS_TIMEOUT_MS)
@@ -174,7 +175,7 @@ void dns_tick(void)
             /* Lost datagram? Resend the same query (same ID) and restart the clock. */
             slot->retries_left--;
             slot->sent_ms = now;
-            int rc = dns_send_query(slot->id, slot->qname);
+            int rc = DnsSendQuery(slot->id, slot->qname);
             if (rc != ZUZU_OK) {
                 slot->cb(slot->name, 0, rc);
                 slot->in_use = false;
@@ -186,8 +187,8 @@ void dns_tick(void)
     }
 }
 
-static __attribute__((cold)) void dns_recv(ipv4_addr_t src_ip, NetPort src_port, NetPort dst_port,
-                                           const uint8_t *data, uint16_t len)
+static __attribute__((cold)) void DnsRecv(ipv4_addr_t src_ip, NetPort src_port, NetPort dst_port,
+                                          const uint8_t *data, uint16_t len)
 {
     (void)src_ip;
     (void)src_port;
@@ -195,7 +196,7 @@ static __attribute__((cold)) void dns_recv(ipv4_addr_t src_ip, NetPort src_port,
     if (len < sizeof(dns_hdr_t))
         return;
     dns_hdr_t *h = (dns_hdr_t *)data;
-    dns_entry_t *slot = NULL;
+    DnsTableEntry *slot = NULL;
 
     uint16_t id = ntohs(h->id);
     for (int i = 0; i < DNS_MAX_TABLE; i++) {
@@ -213,14 +214,14 @@ static __attribute__((cold)) void dns_recv(ipv4_addr_t src_ip, NetPort src_port,
         return;
     if (flags & RCODE_MASK) {
         // no need to distinguish RCODE error codes
-        dns_cache_put(slot->name, 0, DNS_NEG_TTL);
+        DnsCacheInsert(slot->name, 0, DNS_NEG_TTL);
         slot->cb(slot->name, 0, ERR_NOENT);
         slot->in_use = false;
         return;
     }
 
-    int off = sizeof(dns_hdr_t);         // questions start at byte 12
-    off = dns_skip_name(data, len, off); // walk past the question's name
+    int off = sizeof(dns_hdr_t);       // questions start at byte 12
+    off = DnsSkipName(data, len, off); // walk past the question's name
     if (off < 0) {
         slot->cb(slot->name, 0, ERR_NOENT);
         slot->in_use = false;
@@ -234,7 +235,7 @@ static __attribute__((cold)) void dns_recv(ipv4_addr_t src_ip, NetPort src_port,
 
     for (uint16_t a = 0; a < ancount; a++) {
         // 1. skip this RR's name
-        off = dns_skip_name(data, len, off);
+        off = DnsSkipName(data, len, off);
         if (off < 0)
             break; // malformed
 
@@ -243,12 +244,12 @@ static __attribute__((cold)) void dns_recv(ipv4_addr_t src_ip, NetPort src_port,
             break;
 
         // 3. read TYPE, CLASS, RDLENGTH (unaligned, use memcpy)
-        uint16_t type, class_, rdlength;
+        uint16_t type, class_value, rdlength;
         uint32_t ttl;
         memcpy(&type, data + off, 2);
         type = ntohs(type);
-        memcpy(&class_, data + off + 2, 2);
-        class_ = ntohs(class_);
+        memcpy(&class_value, data + off + 2, 2);
+        class_value = ntohs(class_value);
         memcpy(&ttl, data + off + 4, 4);
         ttl = ntohl(ttl);
         memcpy(&rdlength, data + off + 8, 2);
@@ -259,10 +260,10 @@ static __attribute__((cold)) void dns_recv(ipv4_addr_t src_ip, NetPort src_port,
             break;
 
         // 5. is it the A record we want?
-        if (type == DNS_TYPE_A && class_ == DNS_CLASS_IN && rdlength == 4) {
+        if (type == DNS_TYPE_A && class_value == DNS_CLASS_IN && rdlength == 4) {
             ipv4_addr_t ip;
             memcpy(&ip, data + off + 10, 4); // already network order
-            dns_cache_put(slot->name, ip, ttl);
+            DnsCacheInsert(slot->name, ip, ttl);
             slot->cb(slot->name, ip, ZUZU_OK);
             slot->in_use = false;
             return;
@@ -270,9 +271,9 @@ static __attribute__((cold)) void dns_recv(ipv4_addr_t src_ip, NetPort src_port,
 
         // 6. a CNAME points at another name; remember it in case the server
         //    didn't inline the A record, then chase it after this loop.
-        if (type == DNS_TYPE_CNAME && class_ == DNS_CLASS_IN) {
-            if (dns_decode_name(data, len, (uint16_t)(off + 10), cname_target,
-                                sizeof(cname_target)) == 0)
+        if (type == DNS_TYPE_CNAME && class_value == DNS_CLASS_IN) {
+            if (DnsDecodeName(data, len, (uint16_t)(off + 10), cname_target,
+                              sizeof(cname_target)) == 0)
                 have_cname = true;
         }
 
@@ -285,7 +286,7 @@ static __attribute__((cold)) void dns_recv(ipv4_addr_t src_ip, NetPort src_port,
     if (have_cname && slot->cname_hops < DNS_MAX_CNAME) {
         slot->cname_hops++;
         memcpy(slot->qname, cname_target, strlen(cname_target) + 1);
-        int rc = dns_start(slot);
+        int rc = DnsStart(slot);
         if (rc != ZUZU_OK) {
             slot->cb(slot->name, 0, rc);
             slot->in_use = false;
@@ -293,13 +294,12 @@ static __attribute__((cold)) void dns_recv(ipv4_addr_t src_ip, NetPort src_port,
         return;
     }
 
-    dns_cache_put(slot->name, 0, DNS_NEG_TTL);
+    DnsCacheInsert(slot->name, 0, DNS_NEG_TTL);
     slot->cb(slot->name, 0, ERR_NOENT);
     slot->in_use = false;
-    return;
 }
 
-__attribute__((cold)) void dns_init(void)
+__attribute__((cold)) void DnsInit(void)
 {
     for (int i = 0; i < DNS_MAX_TABLE; i++) {
         dns_table[i].in_use = false;
@@ -313,10 +313,10 @@ __attribute__((cold)) void dns_init(void)
         LOG_ERROR(LOG_TAG, "no ephemeral port available for DNS");
         return;
     }
-    udp_bind(dns_client_port, dns_recv);
+    udp_bind(dns_client_port, DnsRecv);
 }
 
-static __attribute__((cold)) int encode_name(uint8_t *out, size_t cap, const char *name)
+static __attribute__((cold)) int DnsEncodeName(uint8_t *out, size_t cap, const char *name)
 {
     size_t pos = 0;
     const char *p = name;
@@ -348,7 +348,7 @@ static __attribute__((cold)) int encode_name(uint8_t *out, size_t cap, const cha
     return (int)pos;
 }
 
-static __attribute__((cold)) int dns_send_query(uint16_t id, const char *name)
+static __attribute__((cold)) int DnsSendQuery(uint16_t id, const char *name)
 {
     uint8_t pkt[sizeof(dns_hdr_t) + DNS_MAX_NAME + 1 + 4];
     size_t pos = sizeof(dns_hdr_t);
@@ -360,7 +360,7 @@ static __attribute__((cold)) int dns_send_query(uint16_t id, const char *name)
     h->nscount = 0;
     h->arcount = 0;
 
-    int nlen = encode_name(pkt + pos, sizeof(pkt) - pos, name);
+    int nlen = DnsEncodeName(pkt + pos, sizeof(pkt) - pos, name);
     if (nlen < 0)
         return ERR_MALFORMED;
     pos += nlen;
@@ -373,7 +373,7 @@ static __attribute__((cold)) int dns_send_query(uint16_t id, const char *name)
     return udp_tx(netif.dns, dns_client_port, DNS_PORT, pkt, pos);
 }
 
-__attribute__((cold)) void dns_query(const char *name, dns_callback_t cb)
+__attribute__((cold)) void DnsQuery(const char *name, DnsCallback cb)
 {
     size_t nlen_host = strlen(name);
     if (nlen_host >= DNS_MAX_NAME) {
@@ -382,14 +382,14 @@ __attribute__((cold)) void dns_query(const char *name, dns_callback_t cb)
         return;
     }
 
-    dns_cache_t *hit = dns_cache_lookup(name);
+    DnsCacheEntry *hit = DnsCacheLookup(name);
     if (hit) {
         if (cb)
             cb(name, hit->ip, hit->ip ? ZUZU_OK : ERR_NOENT);
         return;
     }
 
-    dns_entry_t *slot = NULL;
+    DnsTableEntry *slot = NULL;
     for (int i = 0; i < DNS_MAX_TABLE; i++) {
         if (!dns_table[i].in_use) {
             slot = &dns_table[i];
@@ -408,7 +408,7 @@ __attribute__((cold)) void dns_query(const char *name, dns_callback_t cb)
     memcpy(slot->name, name, nlen_host + 1);
     memcpy(slot->qname, name, nlen_host + 1);
 
-    int rc = dns_start(slot);
+    int rc = DnsStart(slot);
     if (rc != ZUZU_OK) {
         slot->in_use = false; // unavoidable
         if (cb)

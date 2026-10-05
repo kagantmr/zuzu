@@ -35,10 +35,10 @@ _Static_assert(sizeof(dns_hdr_t) == 12, "header size wrong");
 #define DNS_FLAG_RD 0x0100 /* bit 8:  recursion desired */
 #define DNS_FLAG_TC 0x0200 /* bit 9:  truncated, try over TCP */
 
-typedef void (*dns_callback_t)(const char *name, ipv4_addr_t ip, int status);
+typedef void (*DnsCallback)(const char *name, ipv4_addr_t ip, int status);
 
-void dns_init(void);
-void dns_query(const char *name, dns_callback_t cb);
-void dns_tick(void);
+void DnsInit(void);
+void DnsQuery(const char *name, DnsCallback cb);
+void DnsTick(void);
 
 #endif

@@ -60,7 +60,7 @@ static __attribute__((cold)) void on_dhcp_bound(void)
 {
     LOG_INFO(LOG_TAG, "network up: ip %u.%u.%u.%u gw %u.%u.%u.%u dns %u.%u.%u.%u", IP4(netif.ip),
              IP4(netif.gateway), IP4(netif.dns));
-    dns_query("google.com", on_resolved); /* smoke test now that we have DNS */
+    DnsQuery("google.com", on_resolved); /* smoke test now that we have DNS */
 }
 
 static Err InitNetdServices(void)
@@ -206,7 +206,7 @@ int main()
     arp_init();
     udp_init();
     port_init();
-    dns_init();
+    DnsInit();
     dhcp_init(on_dhcp_bound); /* kicks off DORA; on_dhcp_bound fires when bound */
 
     udp_bind(7, udp_echo_handler);
@@ -256,7 +256,7 @@ int main()
         /* 5. legacy pollers, still bounded by the cap above */
         arp_tick();
         dhcp_tick();
-        dns_tick();
+        DnsTick();
     }
 
     return 0;
