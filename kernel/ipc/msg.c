@@ -101,7 +101,7 @@ void CallBlockAsSender(TaskObject *caller, PortObject *port, ReplyObject *rc, ui
     caller->pending_reply_cap = rc;
     caller->msg_xfer_len = xlen;
     caller->pending_grant_handle = grant_handle;
-    list_add_tail(&caller->node, &port->sender_queue.node);
+    ListAddTail(&caller->node, &port->sender_queue.node);
     caller->state = TASK_STATE_BLOCKED;
     if (PortHasPending(port))
         ObserverNotify(&port->observers);
@@ -146,7 +146,7 @@ __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port, ReplyObje
         return false;
     }
 
-    list_remove(node);
+    ListRemove(node);
 
     DeliverCallToReceiver(caller, rx, rc, xlen, granted);
     SchedUnblock(rx);
@@ -202,14 +202,14 @@ void PortReceive(PortObject *port, Duration timeout, CpuState *frame)
     ENSURE_ERR(frame, port->alive, ERR_DEAD);
     ENSURE_ERR(frame, !current_task->reply_cap, ERR_BUSY);
 
-    while (!list_empty(&port->sender_queue)) {
+    while (!ListIsEmpty(&port->sender_queue)) {
         ListNode *node = port->sender_queue.node.next;
         TaskObject *caller = container_of(node, TaskObject, node);
 
         Handle granted;
         Err rc = AllocateGrantSlot(caller->owner, current_task->owner, caller->pending_grant_handle,
                                    &granted);
-        list_remove(node);
+        ListRemove(node);
         if (ZUZU_OK != rc) {
             TaskAbortWait(caller, rc);
             continue;

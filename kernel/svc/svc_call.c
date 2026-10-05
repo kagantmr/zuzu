@@ -26,7 +26,7 @@ void __hot SvcCall(CpuState *frame)
 
     current_task->port_marker = entry->marker;
 
-    if (!list_empty(&port->receiver_queue)) {
+    if (!ListIsEmpty(&port->receiver_queue)) {
         if (!CallHandoffToReceiver(current_task, port, rc, xlen, grant_handle, frame)) {
             return;
         }

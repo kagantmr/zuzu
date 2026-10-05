@@ -3,7 +3,7 @@
 
 int txframe_init(txframe_t *f, uint16_t headroom)
 {
-    nic_frame_t *slot = packet_ring_reserve(tx_ring);
+    NicFrame *slot = PacketRingReserve(tx_ring);
     if (!slot)
         return ERR_BUFFULL;
     f->slot = slot;

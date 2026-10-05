@@ -68,7 +68,7 @@ static inline Err ChannelCall(Handle port, const void *buf, size_t len, void *re
 {
     if (len > MSG_BUF_SIZE)
         return ERR_BADARG;
-    memcpy(MessageBuf(), buf, len);
+    memcpy(GetMessageBox(), buf, len);
 
     SvcResult r = Call(port, (uint32_t)len, -1);
     if ((Err)r.r0 < 0)
@@ -78,7 +78,7 @@ static inline Err ChannelCall(Handle port, const void *buf, size_t len, void *re
     if (got > reply_cap)
         got = (uint32_t)reply_cap;
     if (got && reply)
-        memcpy(reply, MessageBuf(), got);
+        memcpy(reply, GetMessageBox(), got);
 
     return (Err)got;
 }
@@ -98,7 +98,7 @@ static inline Err ChannelReply(Handle reply_handle, const void *buf, size_t len)
     if (len > MSG_BUF_SIZE)
         return ERR_OVERFLOW;
     if (len && buf)
-        memcpy(MessageBuf(), buf, len);
+        memcpy(GetMessageBox(), buf, len);
     return Reply((uint32_t)len, -1);
 }
 

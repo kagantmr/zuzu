@@ -65,8 +65,8 @@ static void SetExitResult(CpuState *frame, Err value, TaskWaitOutcome outcome)
 
 static void WakeWaiters(ListHead *list, Err value, TaskWaitOutcome outcome)
 {
-    while (!list_empty(list)) {
-        ListNode *node = list_pop_front(list);
+    while (!ListIsEmpty(list)) {
+        ListNode *node = ListPopFront(list);
         TaskObject *waiter = container_of(node, WaitSlot, node)->owner;
         if (waiter->trap_frame)
             SetExitResult(waiter->trap_frame, value, outcome);
@@ -109,7 +109,7 @@ void TaskDestroy(TaskObject *task)
         fpu_owner = NULL;
     // may already be unlinked by TaskTerminate, guard is safe
     if (task->space_node.prev && task->space_node.next)
-        list_remove(&task->space_node);
+        ListRemove(&task->space_node);
     SpaceObject *owner = task->owner;
     if (owner && task->state != TASK_STATE_ZOMBIE)
         owner->live_tasks--;
@@ -126,7 +126,7 @@ void TaskDestroy(TaskObject *task)
     if (task->kernel_stack_top)
         KStackFree(task->kernel_stack_top);
 
-    if (owner && owner->torn_down && list_empty(&owner->tasks))
+    if (owner && owner->torn_down && ListIsEmpty(&owner->tasks))
         SpaceFinalize(owner);
 
     ObserverClear(&task->observers);
@@ -178,7 +178,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
 
     task->owner = owner;
     task->sleep_slot = -1;
-    list_init(&task->joiners);
+    ListInit(&task->joiners);
     task->state = TASK_STATE_FROZEN;
     task->ipc_state = IPC_NONE;
     task->priority = SCHED_PRIO_DEFAULT;
@@ -222,7 +222,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
     task->msg_buf_phys_addr =
         TcbSlotPa(owner, (uint32_t)tcb_slot_idx) + offsetof(ThreadLocalData, buf);
 
-    list_add_tail(&task->space_node, &owner->tasks.node);
+    ListAddTail(&task->space_node, &owner->tasks.node);
     owner->live_tasks++;
 
     if (!owner->main_task)
@@ -242,7 +242,7 @@ void TaskUnlinkWaits(TaskObject *t)
         SchedRemoveRunQueue(t);
     SchedRemoveSleepQueue(t);
     if (t->wait_slot.node.prev && t->wait_slot.node.next)
-        list_remove(&t->wait_slot.node);
+        ListRemove(&t->wait_slot.node);
 }
 
 void TaskAbortWait(TaskObject *t, Err err)

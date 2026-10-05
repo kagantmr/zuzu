@@ -15,6 +15,11 @@ _Static_assert(sizeof(dns_hdr_t) == 12, "header size wrong");
 #define DNS_MAX_TABLE 16
 #define DNS_MAX_NAME 253
 
+#define DNS_CACHE_N 8     /* resolved-name cache entries */
+#define DNS_TTL_MIN 30    /* seconds: floor on a cached lifetime */
+#define DNS_TTL_MAX 86400 /* seconds: cap on a cached lifetime */
+#define DNS_NEG_TTL 30    /* seconds: lifetime of a negative (no-address) entry */
+
 #define DNS_TIMEOUT_MS 2000 /* per-attempt timeout */
 #define DNS_MAX_RETRIES 2   /* extra retransmits after the first send */
 #define DNS_MAX_CNAME 8     /* CNAME redirections to follow before giving up */
@@ -30,10 +35,10 @@ _Static_assert(sizeof(dns_hdr_t) == 12, "header size wrong");
 #define DNS_FLAG_RD 0x0100 /* bit 8:  recursion desired */
 #define DNS_FLAG_TC 0x0200 /* bit 9:  truncated, try over TCP */
 
-typedef void (*dns_callback_t)(const char *name, ipv4_addr_t ip, int status);
+typedef void (*DnsCallback)(const char *name, ipv4_addr_t ip, int status);
 
-void dns_init(void);
-void dns_query(const char *name, dns_callback_t cb);
-void dns_tick(void);
+void DnsInit(void);
+void DnsQuery(const char *name, DnsCallback cb);
+void DnsTick(void);
 
 #endif

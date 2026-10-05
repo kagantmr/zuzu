@@ -2,6 +2,7 @@
 #include "../net/ip.h"
 #include "port.h"
 #include "tcp.h"
+#include "tcp_opts.h"
 #include "tcp_out.h"
 #include "tcp_pcb.h"
 #include <convert.h>
@@ -27,7 +28,7 @@ static void FwdMerge(TcpPcb *pcb)
     }
 }
 
-static void StoreOoo(TcpPcb *pcb, const tcp_seg_t *s)
+static void StoreOoo(TcpPcb *pcb, const TcpSegment *s)
 {
     uint32_t seg_start = s->seq;
     uint32_t seg_end = s->seq + s->payload_len;
@@ -117,25 +118,47 @@ static void consume_fin(int slot, TcpPcb *pcb)
 
     if (pcb->state == TCP_ESTABLISHED) {
         pcb->state = TCP_CLOSE_WAIT;
-        tcp_close(slot);
+        if (pcb->on_close)
+            pcb->on_close(slot);
     } else if (pcb->state == TCP_FIN_WAIT_1) {
         pcb->state = TCP_TIME_WAIT;
         timer_arm(net_now_ms() + TCP_TIME_WAIT_MS, time_wait_cb, pcb);
     }
 }
 
+static void TcpConsumeMss(TcpPcb *pcb, const TcpSegment *s)
+{
+    if (!(s->opts_present & TCP_OPT_MSS_BIT))
+        return;
+    uint16_t m = s->mss;
+    if (m < 536)
+        m = 536;
+    if (m > TCP_MSS)
+        m = TCP_MSS;
+    pcb->snd_mss = m;
+}
+
 /* ------------------------------------------------------------------ */
 /* per-state handlers                                                 */
 /* ------------------------------------------------------------------ */
 
-static void on_syn_sent(TcpPcb *pcb, const tcp_seg_t *s)
+static void on_syn_sent(TcpPcb *pcb, const TcpSegment *s)
 {
     if (((s->flags & TCP_SYN) && (s->flags & TCP_ACK)) && s->ack == pcb->snd_nxt) {
         pcb->rcv_nxt = s->seq + 1;
         pcb->rcv_rsq = pcb->rcv_nxt;
         pcb->snd_una = s->ack;
         pcb->state = TCP_ESTABLISHED;
+        TcpConsumeMss(pcb, s);
         tcp_output(pcb, TCP_ACK, NULL, 0);
+    } else if ((s->flags & TCP_SYN) && !(s->flags & TCP_ACK)) {
+        pcb->rcv_nxt = s->seq + 1;
+        pcb->rcv_rsq = pcb->rcv_nxt;
+        pcb->snd_nxt = pcb->snd_una;
+        TcpConsumeMss(pcb, s);
+        tcp_output(pcb, TCP_SYN | TCP_ACK, NULL, 0);
+        pcb->state = TCP_SYN_RCVD;
+        LOG_INFO(LOG_TAG, "simultaneous open: SYN from %u.%u.%u.%u, now SYN_RCVD", IP4(s->src_ip));
     }
 }
 
@@ -165,7 +188,7 @@ static void TcpRttUpdate(TcpPcb *pcb, uint32_t R)
              pcb->rto_ms);
 }
 
-static void on_established(int slot, TcpPcb *pcb, const tcp_seg_t *s)
+static void on_established(int slot, TcpPcb *pcb, const TcpSegment *s)
 {
     if (seq_lt(pcb->snd_una, s->ack) && seq_leq(s->ack, pcb->snd_nxt)) {
         size_t delta = s->ack - pcb->snd_una; // how many bytes got confirmed
@@ -228,7 +251,7 @@ static void on_established(int slot, TcpPcb *pcb, const tcp_seg_t *s)
     }
 }
 
-static void on_fin_wait_1(TcpPcb *pcb, const tcp_seg_t *s)
+static void on_fin_wait_1(TcpPcb *pcb, const TcpSegment *s)
 {
     if (seq_lt(pcb->snd_una, s->ack) && seq_leq(s->ack, pcb->snd_nxt)) {
         size_t delta = s->ack - pcb->snd_una;
@@ -260,7 +283,7 @@ static void on_fin_wait_1(TcpPcb *pcb, const tcp_seg_t *s)
     }
 }
 
-static void on_fin_wait_2(TcpPcb *pcb, const tcp_seg_t *s)
+static void on_fin_wait_2(TcpPcb *pcb, const TcpSegment *s)
 {
     if (s->flags & TCP_FIN) {
         pcb->rcv_nxt = s->seq + 1;
@@ -270,9 +293,9 @@ static void on_fin_wait_2(TcpPcb *pcb, const tcp_seg_t *s)
     }
 }
 
-static void on_last_ack(int slot, TcpPcb *pcb, const tcp_seg_t *s)
+static void on_last_ack(int slot, TcpPcb *pcb, const TcpSegment *s)
 {
-    if (seq_lt(pcb->snd_una, s->ack)) {
+    if (seq_lt(pcb->snd_una, s->ack) && seq_leq(s->ack, pcb->snd_nxt)) {
         pcb->snd_una = s->ack;
         if (seq_leq(pcb->snd_nxt, pcb->snd_una)) { /* our FIN acked */
             rto_stop(pcb);
@@ -283,7 +306,30 @@ static void on_last_ack(int slot, TcpPcb *pcb, const tcp_seg_t *s)
     }
 }
 
-static void on_listening(TcpPcb *listener, const tcp_seg_t *s)
+static void on_close_wait(TcpPcb *pcb, const TcpSegment *s)
+{
+    if (seq_lt(pcb->snd_una, s->ack) && seq_leq(s->ack, pcb->snd_nxt)) {
+        size_t delta = s->ack - pcb->snd_una;
+
+        if (pcb->rtt_timing && seq_leq(pcb->rtt_seq, s->ack)) {
+            uint32_t R = net_now_ms() - pcb->rtt_start;
+            TcpRttUpdate(pcb, R);
+            pcb->rtt_timing = false;
+        }
+
+        pcb->snd_una = s->ack;
+        pcb->buffered_bytes -= MIN(delta, pcb->buffered_bytes);
+        rto_stop(pcb);
+        if (pcb->snd_nxt != pcb->snd_una)
+            rto_start(pcb);
+    }
+    if (s->flags & TCP_FIN) {
+        /* peer retransmitted their FIN; re-ACK it */
+        tcp_output(pcb, TCP_ACK, NULL, 0);
+    }
+}
+
+static void on_listening(TcpPcb *listener, const TcpSegment *s)
 {
     if (!((s->flags & TCP_SYN) && !(s->flags & TCP_ACK)))
         return;
@@ -294,6 +340,7 @@ static void on_listening(TcpPcb *listener, const tcp_seg_t *s)
     TcpPcb *np = &tcp_pcbs[nidx];
     memset(np, 0, sizeof(*np));
     np->on_data = listener->on_data;
+    np->on_close = listener->on_close;
     np->active = true;
     np->local_ip = netif.ip;
     np->local_port = listener->local_port; /* same port we listen on */
@@ -307,11 +354,12 @@ static void on_listening(TcpPcb *listener, const tcp_seg_t *s)
     np->snd_una = np->snd_nxt;
     np->rto_ms = 1000;
     np->state = TCP_SYN_RCVD;
+    TcpConsumeMss(np, s);
     tcp_output(np, TCP_SYN | TCP_ACK, NULL, 0); /* SYN-ACK */
     LOG_INFO(LOG_TAG, "SYN from %u.%u.%u.%u, now SYN_RCVD", IP4(s->src_ip));
 }
 
-static void on_syn_rcvd(TcpPcb *pcb, const tcp_seg_t *s)
+static void on_syn_rcvd(TcpPcb *pcb, const TcpSegment *s)
 {
     if (s->flags & TCP_ACK && s->ack == pcb->snd_nxt) {
         pcb->snd_una = s->ack;
@@ -324,7 +372,7 @@ static void on_syn_rcvd(TcpPcb *pcb, const tcp_seg_t *s)
 /* entry points                                                       */
 /* ------------------------------------------------------------------ */
 
-static void tcp_dispatch(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const tcp_seg_t *seg)
+static void tcp_dispatch(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const TcpSegment *seg)
 {
     int slot = tcp_pcb_find(netif.ip, seg->dst_port, src_ip, seg->src_port);
     if (slot < 0) {
@@ -381,6 +429,9 @@ static void tcp_dispatch(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const tcp_seg_t
     case TCP_SYN_RCVD:
         on_syn_rcvd(pcb, seg);
         break;
+    case TCP_CLOSE_WAIT:
+        on_close_wait(pcb, seg);
+        break;
     default:
         break;
     }
@@ -388,13 +439,12 @@ static void tcp_dispatch(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const tcp_seg_t
 
 void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_t len)
 {
-
     if (len < sizeof(TcpHdr))
         return;
     if (tcp_checksum(src_ip, dst_ip, data, len))
         return;
 
-    LOG_INFO(LOG_TAG, "tcp_rx: len=%u", len);
+    LOG_DEBUG(LOG_TAG, "tcp_rx: len=%u", len);
 
     TcpHdr *th = (TcpHdr *)data;
     uint16_t hdr_len = (th->data_offset >> 4) * 4;
@@ -402,15 +452,19 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
     if (hdr_len < 20 || hdr_len > len)
         return;
 
-    tcp_seg_t seg = {.src_ip = src_ip,
-                     .src_port = ntohs(th->src_port),
-                     .dst_port = ntohs(th->dst_port),
-                     .seq = ntohl(th->seq),
-                     .ack = ntohl(th->ack),
-                     .flags = th->flags,
-                     .payload = data + hdr_len,
-                     .payload_len = (uint16_t)(len - hdr_len),
-                     .window = ntohs(th->window)};
+    TcpSegment seg = {.src_ip = src_ip,
+                      .src_port = ntohs(th->src_port),
+                      .dst_port = ntohs(th->dst_port),
+                      .seq = ntohl(th->seq),
+                      .ack = ntohl(th->ack),
+                      .flags = th->flags,
+                      .payload = data + hdr_len,
+                      .payload_len = (uint16_t)(len - hdr_len),
+                      .window = ntohs(th->window)};
+
+    if (!TcpParseOptions(data + sizeof(TcpHdr), hdr_len - sizeof(TcpHdr), &seg)) {
+        LOG_INFO(LOG_TAG, "malformed TCP options from %u.%u.%u.%u", IP4(src_ip));
+    }
 
     /* TEST HOOK: deliver the first data segment in two halves, tail half
      * first, forcing the reordering no real sender will give us. The tail
@@ -420,7 +474,7 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
     if (!hook_done && seg.payload_len >= 2 && !(seg.flags & TCP_FIN)) {
         hook_done = true;
         uint16_t half = seg.payload_len / 2;
-        tcp_seg_t tail = seg, head = seg;
+        TcpSegment tail = seg, head = seg;
         tail.seq += half;
         tail.payload += half;
         tail.payload_len -= half;
@@ -439,7 +493,7 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
 int tcp_recv(int idx, uint8_t *buf, uint16_t sz)
 {
     TcpPcb *pcb = &tcp_pcbs[idx];
-    if (pcb->state != TCP_ESTABLISHED)
+    if (pcb->state != TCP_ESTABLISHED && pcb->state != TCP_CLOSE_WAIT)
         return ERR_NOTCONN;
 
     size_t avail = pcb->rcv_nxt - pcb->rcv_rsq; // readable bytes

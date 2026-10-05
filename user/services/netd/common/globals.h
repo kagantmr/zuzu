@@ -2,6 +2,7 @@
 #define NETD_GLOBALS_H
 
 #include <net/packetring.h>
+#include <net/protocols/nic.h>
 #include <stdbool.h>
 #include <types.h>
 #include <zuzu/err.h>
@@ -18,9 +19,10 @@
         (unsigned)(((x) >> 24) & 0xff)
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
 
 typedef uint32_t ipv4_addr_t;
-typedef uint16_t port_t;
+typedef uint16_t NetPort;
 typedef uint8_t mac_addr_t[6];
 
 /* One network interface's L2/L3 config. */
@@ -64,14 +66,12 @@ static inline bool rate_allow(rate_limiter_t *rl, uint32_t rate, uint32_t burst)
     return true;
 }
 
-extern nic_ring_t *tx_ring, *rx_ring;
-extern Handle nic_port;
-extern Handle nic_ntfn;
-extern Handle tx_doorbell; /* notification netd signals to kick the driver's TX drain */
-extern Handle netd_handles[2];
+extern NicRing *tx_ring, *rx_ring;
+extern NicStatsBlock *stats;
+extern Handle g_svc_port;
+extern Handle g_event;
+extern Handle g_nic_doorbell_ev; /* shared with the NIC driver: RX bit in, TX bit out */
 extern netif_t netif;
 
-#define drv_port nic_port
-#define netd_port netd_handles[0]
 
 #endif

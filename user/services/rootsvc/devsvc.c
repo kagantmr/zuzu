@@ -67,7 +67,7 @@ void DevsvcMain(void)
             continue;
 
         DevmRequest req;
-        if (DevmUnpack(MessageBuf(), result.xlen, &req) != ZUZU_OK)
+        if (DevmUnpack(GetMessageBox(), result.xlen, &req) != ZUZU_OK)
             continue;
 
         switch (req.cmd) {
@@ -91,7 +91,7 @@ void DevsvcMain(void)
             if (dup.r0 != ZUZU_OK)
                 break;
 
-            memcpy(MessageBuf(), &matched_index, sizeof(matched_index));
+            memcpy(GetMessageBox(), &matched_index, sizeof(matched_index));
             Reply(sizeof(matched_index), (Handle)dup.r1);
         } break;
         default:

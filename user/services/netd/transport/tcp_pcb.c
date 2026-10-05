@@ -23,7 +23,7 @@ void tcp_pcb_free(int h)
     tcp_pcbs[h].active = false;
 }
 
-int tcp_pcb_find(ipv4_addr_t local_ip, port_t local_port, ipv4_addr_t remote_ip, port_t remote_port)
+int tcp_pcb_find(ipv4_addr_t local_ip, NetPort local_port, ipv4_addr_t remote_ip, NetPort remote_port)
 {
     for (int i = 0; i < TCP_MAX_PCB; i++) {
         if (tcp_pcbs[i].local_ip == local_ip && tcp_pcbs[i].local_port == local_port &&
@@ -35,7 +35,7 @@ int tcp_pcb_find(ipv4_addr_t local_ip, port_t local_port, ipv4_addr_t remote_ip,
     return ERR_NOENT;
 }
 
-int tcp_pcb_find_listener(ipv4_addr_t local_ip, port_t local_port)
+int tcp_pcb_find_listener(ipv4_addr_t local_ip, NetPort local_port)
 {
     for (int i = 0; i < TCP_MAX_PCB; i++) {
         if (tcp_pcbs[i].active && tcp_pcbs[i].state == TCP_LISTENING &&

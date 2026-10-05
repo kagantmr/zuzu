@@ -48,8 +48,8 @@ SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
     ObserverInit(&sp->observers);
     sp->parent_spid = parent ? parent->spid : -1;
 
-    list_init(&sp->tasks);
-    list_init(&sp->waiters);
+    ListInit(&sp->tasks);
+    ListInit(&sp->waiters);
 
     HandleTableInit(&sp->handle_table);
     sp->as = AddressSpaceCreate(ADDRESS_SPACE_USER);
@@ -182,8 +182,8 @@ void SpaceDestroy(SpaceObject *sp)
         task_node = next;
     }
 
-    while (!list_empty(&sp->waiters)) {
-        ListNode *node = list_pop_front(&sp->waiters);
+    while (!ListIsEmpty(&sp->waiters)) {
+        ListNode *node = ListPopFront(&sp->waiters);
         WaitSlot *slot = container_of(node, WaitSlot, node);
         TaskAbortWait(slot->owner, ERR_DEAD);
     }
@@ -220,7 +220,7 @@ void SpaceFinalize(SpaceObject *sp)
 {
     if (!sp)
         return;
-    if (!sp->torn_down || !list_empty(&sp->tasks) || sp->ref_count != 0)
+    if (!sp->torn_down || !ListIsEmpty(&sp->tasks) || sp->ref_count != 0)
         return;
     ObserverClear(&sp->observers);
     KSlabFree(&space_cache, sp);

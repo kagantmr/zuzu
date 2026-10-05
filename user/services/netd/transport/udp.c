@@ -8,17 +8,17 @@
 #include <string.h>
 
 typedef struct {
-    port_t port;
-    udp_handler_t handler;
-} udp_entry_t;
+    NetPort port;
+    UdpCallback handler;
+} UdpTableEntry;
 
-static udp_entry_t udp_table[UDP_MAX_TABLE];
+static UdpTableEntry udp_table[UDP_MAX_TABLE];
 
 /* Checksum over the UDP pseudo-header + the contiguous UDP segment (header and
    payload). For TX the header's checksum field must be 0 on entry; for RX it
    holds the sender's value and a valid segment folds back to 0. */
-static uint16_t udp_checksum(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *seg,
-                             uint16_t seg_len)
+static uint16_t UdpChecksum(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *seg,
+                            uint16_t seg_len)
 {
     uint8_t pseudo[12];
     memcpy(&pseudo[0], &src_ip, 4);
@@ -33,7 +33,7 @@ static uint16_t udp_checksum(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8
     return inet_csum_fold(accum);
 }
 
-__attribute__((cold)) void udp_init(void)
+__attribute__((cold)) void UdpInit(void)
 {
     for (size_t i = 0; i < UDP_MAX_TABLE; i++) {
         udp_table[i].port = 0;
@@ -41,36 +41,34 @@ __attribute__((cold)) void udp_init(void)
     }
 }
 
-__attribute__((cold)) int udp_bind(port_t port, udp_handler_t handler)
+__attribute__((cold)) int UdpBind(NetPort port, UdpCallback handler)
 {
     if (!port || !handler) {
         return ERR_NOPERM; // port 0 is reserved
     }
     int first_free = -1;
-    for (size_t i = 0; i < UDP_MAX_TABLE; i++) {
-        if (udp_table[i].port == port && udp_table[i].handler) {
+    for (int i = 0; i < UDP_MAX_TABLE; i++) {
+        if (udp_table[i].port == port && udp_table[i].handler)
             return ERR_DUPLICATE;
-        }
-        if (!udp_table[i].handler && first_free == -1) {
+
+        if (!udp_table[i].handler && first_free == -1)
             first_free = i;
-        }
     }
 
-    if (first_free == -1) {
+    if (first_free == -1)
         return ERR_NOMEM;
-    }
 
     udp_table[first_free].port = port;
     udp_table[first_free].handler = handler;
     return ZUZU_OK;
 }
 
-void udp_rx(void *data, uint16_t len, ipv4_addr_t src_ip, ipv4_addr_t dst_ip)
+void UdpRecv(void *data, uint16_t len, ipv4_addr_t src_ip, ipv4_addr_t dst_ip)
 {
     if (len < 8) {
         return;
     }
-    udp_hdr_t *hdr = (udp_hdr_t *)data;
+    UdpHeader *hdr = (UdpHeader *)data;
     uint16_t ulen = ntohs(hdr->length);
     if (ulen < 8 || len < ulen) {
         return;
@@ -78,12 +76,12 @@ void udp_rx(void *data, uint16_t len, ipv4_addr_t src_ip, ipv4_addr_t dst_ip)
     if (hdr->checksum != 0) {
         /* A zero checksum means the sender opted out (legal in IPv4); otherwise
            verify it over the pseudo-header + segment and drop on mismatch. */
-        if (udp_checksum(src_ip, dst_ip, (const uint8_t *)data, ulen) != 0) {
+        if (UdpChecksum(src_ip, dst_ip, (const uint8_t *)data, ulen) != 0) {
             return;
         }
     }
     // demux
-    port_t dport = ntohs(hdr->dst_port);
+    NetPort dport = ntohs(hdr->dst_port);
     for (size_t i = 0; i < UDP_MAX_TABLE; i++) {
         if (udp_table[i].port == dport && udp_table[i].handler) {
             udp_table[i].handler(src_ip, ntohs(hdr->src_port), dport, (uint8_t *)data + 8,
@@ -93,8 +91,8 @@ void udp_rx(void *data, uint16_t len, ipv4_addr_t src_ip, ipv4_addr_t dst_ip)
     }
 }
 
-int udp_tx(ipv4_addr_t dst_ip, port_t src_port, port_t dst_port, const uint8_t *payload,
-           uint16_t payload_len)
+int UdpSend(ipv4_addr_t dst_ip, NetPort src_port, NetPort dst_port, const uint8_t *payload,
+            uint16_t payload_len)
 {
     if (payload_len > UDP_MAX_PAYLOAD) {
         return ERR_OVERFLOW;
@@ -103,7 +101,7 @@ int udp_tx(ipv4_addr_t dst_ip, port_t src_port, port_t dst_port, const uint8_t *
     /* Reserve room for the Ethernet + IP + UDP headers in front of the payload,
        then copy the caller's payload once into its final position in the slot. */
     txframe_t f;
-    int rc = txframe_init(&f, sizeof(eth_hdr_t) + sizeof(ip_header_t) + sizeof(udp_hdr_t));
+    int rc = txframe_init(&f, sizeof(eth_hdr_t) + sizeof(ip_header_t) + sizeof(UdpHeader));
     if (rc != ZUZU_OK)
         return rc;
 
@@ -114,19 +112,19 @@ int udp_tx(ipv4_addr_t dst_ip, port_t src_port, port_t dst_port, const uint8_t *
         memcpy(dst, payload, payload_len);
     }
 
-    udp_hdr_t *hdr = (udp_hdr_t *)txframe_prepend(&f, sizeof(udp_hdr_t));
+    UdpHeader *hdr = (UdpHeader *)txframe_prepend(&f, sizeof(UdpHeader));
     if (!hdr)
         return ERR_OVERFLOW;
 
     hdr->src_port = htons(src_port);
     hdr->dst_port = htons(dst_port);
-    hdr->length = htons((uint16_t)(sizeof(udp_hdr_t) + payload_len));
+    hdr->length = htons((uint16_t)(sizeof(UdpHeader) + payload_len));
     hdr->checksum = 0; /* must be zero while computing the checksum */
 
     /* Checksum covers the pseudo-header and the whole contiguous segment. A
        computed value of 0 is transmitted as 0xFFFF so the receiver doesn't
        mistake it for "no checksum" (RFC 768). */
-    uint16_t cs = htons(udp_checksum(netif.ip, dst_ip, txframe_data(&f), txframe_len(&f)));
+    uint16_t cs = htons(UdpChecksum(netif.ip, dst_ip, txframe_data(&f), txframe_len(&f)));
     hdr->checksum = cs ? cs : 0xFFFF;
 
     return ip_send(&f, netif.ip, dst_ip, IP_PROTO_UDP);

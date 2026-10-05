@@ -143,7 +143,7 @@ static void ServerEntry(Server *s)
             Quit(r.status);
         uint32_t first = 0;
         if (r.xlen >= 4)
-            memcpy(&first, MessageBuf(), 4);
+            memcpy(&first, GetMessageBox(), 4);
         if (first == MSG_QUIT) {
             Reply(0, -1);
             Quit(0);
@@ -154,7 +154,11 @@ static void ServerEntry(Server *s)
 
 static void BenchIpc(const char *kind, Handle port, uint32_t len)
 {
+<<<<<<< HEAD
     uint8_t *buf = MessageBuf();
+=======
+    uint8_t *buf = GetMessageBox();
+>>>>>>> feat/netd-tcp
     memset(buf, 0xA5, len < 4 ? 4 : len);
     buf[0] = 0;
     buf[1] = buf[2] = buf[3] = 0;
@@ -195,7 +199,11 @@ static void RunIpc(void)
     BenchIpc("ipc same-space", srv.port, 256);
 
     uint32_t quit = MSG_QUIT;
+<<<<<<< HEAD
     memcpy(MessageBuf(), &quit, 4);
+=======
+    memcpy(GetMessageBox(), &quit, 4);
+>>>>>>> feat/netd-tcp
     Call(srv.port, 4, -1);
     WaitOn(task, 1000);
     HandleClose(task);

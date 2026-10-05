@@ -83,7 +83,7 @@ static __attribute__((cold)) int dhcp_send_discover(void)
 
     buf[len++] = DHCP_OPT_END;
 
-    int rc = udp_tx(BROADCAST_IP, DHCP_CLIENT_PORT, DHCP_SERVER_PORT, buf, len);
+    int rc = UdpSend(BROADCAST_IP, DHCP_CLIENT_PORT, DHCP_SERVER_PORT, buf, len);
     if (rc == ZUZU_OK) {
         dhcp.state = DHCP_SELECTING;
         dhcp.sent_ms = net_now_ms();
@@ -106,7 +106,7 @@ static __attribute__((cold)) int dhcp_send_request(void)
 
     buf[len++] = DHCP_OPT_END;
 
-    int rc = udp_tx(BROADCAST_IP, DHCP_CLIENT_PORT, DHCP_SERVER_PORT, buf, len);
+    int rc = UdpSend(BROADCAST_IP, DHCP_CLIENT_PORT, DHCP_SERVER_PORT, buf, len);
     if (rc == ZUZU_OK) {
         dhcp.state = DHCP_REQUESTING;
         dhcp.sent_ms = net_now_ms();
@@ -133,7 +133,7 @@ static __attribute__((cold)) int dhcp_send_renew(ipv4_addr_t dst)
 
     buf[len++] = DHCP_OPT_END;
 
-    int rc = udp_tx(dst, DHCP_CLIENT_PORT, DHCP_SERVER_PORT, buf, len);
+    int rc = UdpSend(dst, DHCP_CLIENT_PORT, DHCP_SERVER_PORT, buf, len);
     if (rc == ZUZU_OK)
         dhcp.sent_ms = net_now_ms();
     return rc;
@@ -154,7 +154,7 @@ static __attribute__((cold)) int dhcp_send_decline(void)
 
     buf[len++] = DHCP_OPT_END;
 
-    return udp_tx(BROADCAST_IP, DHCP_CLIENT_PORT, DHCP_SERVER_PORT, buf, len);
+    return UdpSend(BROADCAST_IP, DHCP_CLIENT_PORT, DHCP_SERVER_PORT, buf, len);
 }
 
 static const uint8_t *dhcp_find_option(const uint8_t *data, uint16_t len, uint8_t code,
@@ -267,7 +267,7 @@ static __attribute__((cold)) void dhcp_begin_acd(const uint8_t *data, uint16_t l
     arp_acd_start(dhcp.offered_ip, dhcp_acd_done);
 }
 
-static __attribute__((cold)) void dhcp_recv(ipv4_addr_t src_ip, port_t src_port, port_t dst_port,
+static __attribute__((cold)) void dhcp_recv(ipv4_addr_t src_ip, NetPort src_port, NetPort dst_port,
                                             const uint8_t *data, uint16_t len)
 {
     if (len < sizeof(dhcp_msg_t))
@@ -323,7 +323,7 @@ __attribute__((cold)) void dhcp_init(dhcp_bound_cb_t on_bound)
     /* DHCP's client port is fixed at 68 (servers reply there), so claim it
        explicitly rather than allocating an ephemeral one. */
     port_reserve(DHCP_CLIENT_PORT);
-    udp_bind(DHCP_CLIENT_PORT, dhcp_recv);
+    UdpBind(DHCP_CLIENT_PORT, dhcp_recv);
     dhcp_restart();
 }
 

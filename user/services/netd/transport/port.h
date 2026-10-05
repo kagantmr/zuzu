@@ -18,12 +18,12 @@ void port_init(void);
 
 /* Claim a specific local port (for protocol-fixed ports like DHCP's 68).
    Returns false if the port is 0 or already held. */
-bool port_reserve(port_t port);
+bool port_reserve(NetPort port);
 
 /* Claim an unused port from the ephemeral range. Returns 0 if none are free. */
-port_t port_alloc(void);
+NetPort port_alloc(void);
 
 /* Release a port previously taken via port_reserve()/port_alloc(). */
-void port_release(port_t port);
+void port_release(NetPort port);
 
 #endif

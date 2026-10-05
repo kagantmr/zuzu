@@ -23,14 +23,14 @@ typedef enum {
 
 #ifndef __ZUZU__
 
-void log_set_level(LogLevel min_level);
-LogLevel log_get_level(void);
-void log_write(LogLevel level, const char *tag, const char *fmt, ...);
+void LogSetLevel(LogLevel min_level);
+LogLevel LogGetLevel(void);
+void LogWrite(LogLevel level, const char *tag, const char *fmt, ...);
 
-#define LOG_DEBUG(tag, fmt, ...) log_write(LOG_LEVEL_DEBUG, tag, fmt, ##__VA_ARGS__)
-#define LOG_INFO(tag, fmt, ...) log_write(LOG_LEVEL_INFO, tag, fmt, ##__VA_ARGS__)
-#define LOG_WARN(tag, fmt, ...) log_write(LOG_LEVEL_WARN, tag, fmt, ##__VA_ARGS__)
-#define LOG_ERROR(tag, fmt, ...) log_write(LOG_LEVEL_ERROR, tag, fmt, ##__VA_ARGS__)
+#define LOG_DEBUG(tag, fmt, ...) LogWrite(LOG_LEVEL_DEBUG, tag, fmt, ##__VA_ARGS__)
+#define LOG_INFO(tag, fmt, ...) LogWrite(LOG_LEVEL_INFO, tag, fmt, ##__VA_ARGS__)
+#define LOG_WARN(tag, fmt, ...) LogWrite(LOG_LEVEL_WARN, tag, fmt, ##__VA_ARGS__)
+#define LOG_ERROR(tag, fmt, ...) LogWrite(LOG_LEVEL_ERROR, tag, fmt, ##__VA_ARGS__)
 
 #else
 #ifndef CONFIG_LOG_LEVEL

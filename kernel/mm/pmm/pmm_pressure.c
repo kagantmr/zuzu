@@ -33,12 +33,12 @@ void PmmSignalSubscribers(void)
         // walk subscribers and signal them
         // drop dead events: EventUnref, KFree(subscriber)
         ListNode *pos, *tmp;
-        list_for_each_safe(pos, tmp, &pmm_subscribers.node)
+        LIST_FOR_EACH_SAFE(pos, tmp, &pmm_subscribers.node)
         {
             PmmSubscriber *sub = container_of(pos, PmmSubscriber, node);
             // safe to remove sub from list here
             if (!sub->ev->alive) {
-                list_remove(pos);
+                ListRemove(pos);
                 EventUnref(sub->ev);
                 KFree(sub);
                 continue;
@@ -61,7 +61,7 @@ int PmmSubscribe(EventObject *ev)
         return ERR_NOMEM;
     new_node->ev = ev;
     ev->bound_mask |= EVENT_MEMMGMT_BIT;
-    list_add_tail(&new_node->node, &pmm_subscribers.node);
+    ListAddTail(&new_node->node, &pmm_subscribers.node);
     ev->ref_count++;
 
     return ZUZU_OK;

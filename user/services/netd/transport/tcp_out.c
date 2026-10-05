@@ -1,6 +1,7 @@
 #include "tcp_out.h"
 #include "../common/txframe.h"
 #include "../net/ip.h"
+#include "tcp_opts.h"
 #include "tcp_pcb.h"
 #include <convert.h>
 #include <string.h>
@@ -24,7 +25,6 @@ uint16_t tcp_checksum(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *seg
 /* arm if not armed; set flag   */
 void rto_start(TcpPcb *pcb)
 {
-
     if (pcb->rto_timer != TIMER_NONE)
         return;
     pcb->rto_timer = timer_arm(net_now_ms() + pcb->rto_ms, tcp_rto_cb, pcb);
@@ -48,7 +48,6 @@ int tcp_output(TcpPcb *pcb, uint8_t flags, const uint8_t *data, uint16_t data_le
     th->dst_port = htons(pcb->remote_port);
     th->seq = htonl(pcb->snd_nxt);
     th->ack = (flags & TCP_ACK) ? htonl(pcb->rcv_nxt) : 0;
-    th->data_offset = (5 << 4); /* 20-byte header, no options */
     th->flags = flags;
 
     size_t occupied =
@@ -59,10 +58,17 @@ int tcp_output(TcpPcb *pcb, uint8_t flags, const uint8_t *data, uint16_t data_le
     th->checksum = 0;
     th->urgent_ptr = 0;
 
-    if (data_len)
-        memcpy(buf + sizeof(TcpHdr), data, data_len);
+    size_t optlen = 0;
+    if (flags & TCP_SYN) {
+        TcpOptsOut o = {.opts_present = TCP_OPT_MSS_BIT, .mss = TCP_MSS};
+        optlen = TcpBuildOptions(buf + sizeof(TcpHdr), sizeof(buf) - sizeof(TcpHdr), &o);
+    }
+    th->data_offset = (uint8_t)(((sizeof(TcpHdr) + optlen) / 4) << 4);
 
-    uint16_t seg_len = sizeof(TcpHdr) + data_len;
+    if (data_len)
+        memcpy(buf + sizeof(TcpHdr) + optlen, data, data_len);
+
+    uint16_t seg_len = sizeof(TcpHdr) + optlen + data_len;
     th->checksum = htons(tcp_checksum(pcb->local_ip, pcb->remote_ip, buf, seg_len));
 
     int rc = ip_tx(buf, seg_len, pcb->local_ip, pcb->remote_ip, IP_PROTO_TCP);
@@ -88,7 +94,7 @@ int tcp_xmit(TcpPcb *pcb)
             break;
         size_t sendable = window_edge - pcb->snd_nxt;
         sent = true;
-        size_t seglen = MIN(MIN(unsent, sendable), TCP_MSS);
+        size_t seglen = MIN(MIN(unsent, sendable), pcb->snd_mss);
         uint8_t data[TCP_MSS];
         size_t off = pcb->snd_nxt & (TCP_SND_BUF - 1);
         size_t first = MIN(seglen, TCP_SND_BUF - off);
@@ -145,7 +151,7 @@ void tcp_rto_cb(void *arg)
 int tcp_send(int idx, const uint8_t *data, uint16_t len)
 {
     TcpPcb *pcb = &tcp_pcbs[idx];
-    if (pcb->state != TCP_ESTABLISHED)
+    if (pcb->state != TCP_ESTABLISHED && pcb->state != TCP_CLOSE_WAIT)
         return ERR_NOTCONN;
     LOG_INFO(LOG_TAG, "Buffered bytes: %u", pcb->buffered_bytes);
     size_t free = TCP_SND_BUF - pcb->buffered_bytes;
@@ -163,7 +169,7 @@ int tcp_send(int idx, const uint8_t *data, uint16_t len)
     return n;
 }
 
-void tcp_send_rst(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const tcp_seg_t *seg)
+void tcp_send_rst(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const TcpSegment *seg)
 {
     uint8_t buf[sizeof(TcpHdr)]; /* bare header, no payload */
     TcpHdr *th = (TcpHdr *)buf;

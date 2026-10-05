@@ -2,9 +2,12 @@
 #include <dev/protocols/devm.h>
 #include <net/packetring.h>
 #include <net/protocols/nic.h>
+#include <net/protocols/netd.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <types.h>
+#include <util/msg.h>
 #include <util/devices.h>
 #include <util/log.h>
 #include <zuzu/service.h>
@@ -13,23 +16,19 @@
 
 #define LOG_TAG "lan9118drv"
 
-#define PORT_BIT (0)
-#define IRQ_BIT (1)
+#define IRQ_BIT (0)
 
-// on another event object, which is granted over to netd
-#define TX_DOORBELL_BIT (0)
-#define RX_DOORBELL_BIT (1)
+#define WAIT_MS 25
 
-#define PORT_MASK (1u << PORT_BIT)
 #define IRQ_MASK (1u << IRQ_BIT)
 
-#define TX_DOORBELL_MASK (1u << TX_DOORBELL_BIT)
-#define RX_DOORBELL_MASK (1u << RX_DOORBELL_BIT)
+#define TX_DOORBELL_MASK NIC_DOORBELL_TX
+#define RX_DOORBELL_MASK NIC_DOORBELL_RX
 
 static volatile Lan9118Mmio *nic;
 static uint8_t mac[6];
+static char ifname[16];
 static Handle g_event = -1;
-static Handle svc_port = -1;
 static Handle shm_tx_handle = -1, shm_rx_handle = -1;
 static Handle dev_handle = -1;
 static Handle g_doorbell_ev = -1;
@@ -37,7 +36,7 @@ static void *shm_tx, *shm_rx;
 static NicRing *rx_ring, *tx_ring;
 
 static uint16_t tx_tag = 0;
-static uint32_t nic_stats[NIC_STAT_COUNT];
+static volatile uint32_t *nic_stats;
 
 static Handle WaitForService(const char *path)
 {
@@ -49,39 +48,44 @@ static Handle WaitForService(const char *path)
     }
 }
 
-static void InitPacketRings(void)
+static Err InitPacketRings(void)
 {
 
-    shm_tx_handle = CreateMem(NIC_SHM_BYTES); // packet size = 1536, ring_size = 16
+    shm_tx_handle = CreateMem(NIC_SHM_BYTES / 4096); // packet size = 1536, ring_size = 16
     if (shm_tx_handle < 0) {
         LOG_ERROR(LOG_TAG, "CreateMem failed: %s", StrToError(shm_tx_handle));
-        return;
+        return shm_tx_handle;
     }
     shm_tx = MemMap(shm_tx_handle, 0, PROT_RW);
     if (PtrIsErr(shm_tx)) {
         LOG_ERROR(LOG_TAG, "MemMap on shm_tx failed: %s", StrToError((Err)shm_tx));
-        return;
+        return (Err)shm_tx;
     }
 
-    shm_rx_handle = CreateMem(NIC_SHM_BYTES); // packet size = 1536, ring_size = 16
+    shm_rx_handle = CreateMem(NIC_SHM_BYTES / 4096); // packet size = 1536, ring_size = 16
     if (shm_rx_handle < 0) {
         LOG_ERROR(LOG_TAG, "CreateMem failed: %s", StrToError(shm_rx_handle));
-        return;
+        return shm_rx_handle;
     }
     shm_rx = MemMap(shm_rx_handle, 0, PROT_RW);
     if (PtrIsErr(shm_rx)) {
         LOG_ERROR(LOG_TAG, "MemMap on shm_rx failed: %s", StrToError((Err)shm_rx));
-        return;
+        return (Err)shm_rx;
     }
 
     // create two offsets
     rx_ring = (NicRing *)shm_rx;
     tx_ring = (NicRing *)shm_tx;
 
+    nic_stats = ((NicStatsBlock *)((uint8_t *)shm_rx + NIC_STATS_OFFSET))->stat;
+    memset((void *)nic_stats, 0, sizeof(NicStatsBlock));
+
     tx_ring->head = 0;
     tx_ring->tail = 0;
     rx_ring->head = 0;
     rx_ring->tail = 0;
+
+    return ZUZU_OK;
 }
 
 static void NicTxFrame(NicFrame *f)
@@ -195,45 +199,29 @@ static Err Lan9118Setup(void)
     return ZUZU_OK;
 }
 
-void InitLan9118Svcs(void)
+static Err InitLan9118Svcs(void)
 {
     Err rc;
-
-    svc_port = CreatePort();
-    if (svc_port < 0) {
-        LOG_ERROR(LOG_TAG, "CreatePort failed: %s", StrToError(svc_port));
-        return;
-    }
 
     g_event = CreateEvent();
     if (g_event < 0) {
         LOG_ERROR(LOG_TAG, "CreateEvent failed: %s", StrToError(g_event));
-        return;
+        return g_event;
     }
 
     rc = BindIrq(g_event, dev_handle, IRQ_BIT);
     if (rc < 0) {
         LOG_ERROR(LOG_TAG, "BindIrq failed: %s", StrToError(rc));
-        return;
+        return rc;
     }
 
     g_doorbell_ev = CreateEvent();
     if (g_doorbell_ev < 0) {
-        LOG_ERROR(LOG_TAG, "tx doorbell registration failed");
-        return;
+        LOG_ERROR(LOG_TAG, "doorbell creation failed: %s", StrToError(g_doorbell_ev));
+        return g_doorbell_ev;
     }
 
-    rc = Bind(EVENT_PORT, g_event, svc_port, PORT_BIT);
-    if (rc < 0) {
-        LOG_ERROR(LOG_TAG, "Bind failed: %s", StrToError(rc));
-        return;
-    }
-
-    rc = RegisterService("/dev/eth0", svc_port);
-    if (rc < 0) {
-        LOG_ERROR(LOG_TAG, "service registration failed: %s", StrToError(rc));
-        return;
-    }
+    return ZUZU_OK;
 }
 
 void ServiceIrq(void)
@@ -270,19 +258,57 @@ void ServiceIrq(void)
                     continue;
                 }
                 nic_stats[NIC_STAT_RX_PACKETS]++;
-                Signal(g_doorbell_ev, RX_DOORBELL_BIT, false);
+                Signal(g_doorbell_ev, RX_DOORBELL_MASK, false);
             }
-        }
-    }
-    if (sts & INT_TSFL) {
-        /* drain TX status FIFO */
-        while ((nic->tx_fifo_inf >> 16) & 0xFF) {
-            uint32_t tx_sts = nic->tx_status_fifo_port;
-            (void)tx_sts;
         }
     }
 
     IrqRearm(dev_handle);
+}
+
+static void ServiceTx(void)
+{
+    NicFrame *f;
+    while ((f = PacketRingPeek(tx_ring)) != NULL) {
+        NicTxFrame(f);
+        PacketRingConsume(tx_ring);
+    }
+
+    while ((nic->tx_fifo_inf >> 16) & 0xFF)
+        (void)nic->tx_status_fifo_port;
+}
+
+static Err NetdGrant(Handle netd_port, const MsgWriter *w, Handle h, HandlePerms perms,
+                     SvcResult *out)
+{
+    if (w->ovf)
+        return ERR_OVERFLOW;
+
+    SvcResult dup = HandleDuplicate(h, perms | PERM_TXFR, MARKER_NONE);
+    if (dup.r0 != ZUZU_OK) {
+        LOG_ERROR(LOG_TAG, "duplicate failed (handle %d): %s", h, StrToError((Err)dup.r0));
+        return (Err)dup.r0;
+    }
+
+    SvcResult r = Call(netd_port, w->off, (Handle)dup.r1);
+    HandleClose((Handle)dup.r1);
+    if (r.r0 != ZUZU_OK) {
+        LOG_ERROR(LOG_TAG, "handshake call failed: %s", StrToError((Err)r.r0));
+        return (Err)r.r0;
+    }
+
+    Err status;
+    if ((uint32_t)r.r1 < sizeof(status))
+        return ERR_MALFORMED;
+    memcpy(&status, GetMessageBox(), sizeof(status));
+    if (status != ZUZU_OK) {
+        LOG_ERROR(LOG_TAG, "netd rejected handshake: %s", StrToError(status));
+        return status;
+    }
+
+    if (out)
+        *out = r;
+    return ZUZU_OK;
 }
 
 static Err NetdHandshake(void)
@@ -293,6 +319,40 @@ static Err NetdHandshake(void)
         return ERR_SYSDOWN;
     }
 
+    uint32_t mac_lo = 0, mac_hi = 0;
+    memcpy(&mac_lo, &mac[0], 4);
+    memcpy(&mac_hi, &mac[4], 2);
+
+    MsgWriter w;
+    MsgWriterInit(&w);
+    MsgPutByte(&w, NETD_DRVHANDSHAKE_INIT);
+    MsgPutU32(&w, mac_lo);
+    MsgPutU32(&w, mac_hi);
+    Err rc = NetdGrant(netd_port, &w, g_doorbell_ev, PERM_WAIT | PERM_SEND, NULL);
+    if (rc != ZUZU_OK)
+        return rc;
+
+    MsgWriterInit(&w);
+    MsgPutByte(&w, NETD_DRVHANDSHAKE_STAGE2);
+    rc = NetdGrant(netd_port, &w, shm_tx_handle, PERM_MAP, NULL);
+    if (rc != ZUZU_OK)
+        return rc;
+
+    SvcResult reply;
+    MsgWriterInit(&w);
+    MsgPutByte(&w, NETD_DRVHANDSHAKE_STAGE3);
+    rc = NetdGrant(netd_port, &w, shm_rx_handle, PERM_MAP, &reply);
+    if (rc != ZUZU_OK)
+        return rc;
+
+    uint32_t len = (uint32_t)reply.r1 - sizeof(Err);
+    if (len == 0 || len > sizeof(ifname))
+        return ERR_MALFORMED;
+    memcpy(ifname, (const char *)GetMessageBox() + sizeof(Err), len);
+    if (ifname[len - 1] != '\0')
+        return ERR_MALFORMED;
+
+    LOG_INFO(LOG_TAG, "registered with netd as %s", ifname);
     return ZUZU_OK;
 }
 
@@ -307,22 +367,30 @@ int main(void)
     if (retval != 0)
         return retval;
 
-    InitPacketRings();
-    InitLan9118Svcs();
+    retval = InitPacketRings();
+    if (retval != ZUZU_OK)
+        return retval;
+
+    retval = InitLan9118Svcs();
+    if (retval != ZUZU_OK)
+        return retval;
 
     retval = NetdHandshake();
     if (retval != ZUZU_OK)
         return retval;
 
     for (;;) {
-        EventWaitResult res = FormatToEventWait(WaitOn(g_event, 50));
-
+        EventWaitResult res = FormatToEventWait(WaitOn(g_event, WAIT_MS));
         if (ZUZU_OK == res.status) {
-            if (res.bits & IRQ_BIT)
+            if (res.bits & IRQ_MASK)
                 ServiceIrq();
-            if (res.bits & PORT_BIT) {
-            }
         }
+
+        res = FormatToEventWait(WaitOn(g_doorbell_ev, WAIT_MS));
+        if (ZUZU_OK == res.status && (res.bits & TX_DOORBELL_MASK))
+            ServiceTx();
+
+        ServiceTx();
     }
 
     return 0;

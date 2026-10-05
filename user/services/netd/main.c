@@ -1,14 +1,12 @@
 // #include <stdio.h>
 
 #include <dev/protocols/devm.h>
+#include <net/protocols/netd.h>
 #include <net/protocols/nic.h>
 #include <types.h>
-#include <util/channel.h>
 #include <util/log.h>
-#include <zuzu/msg.h>
 #include <zuzu/service.h>
-#include <zuzu/task.h>
-#include <zuzu/umem.h>
+#include <zuzu/zuzu.h>
 
 #include "common/globals.h"
 #include "common/netrand.h"
@@ -21,26 +19,28 @@
 
 #include "app/dhcp.h"
 #include "app/dns.h"
-#include "zuzu/cap.h"
 
-nic_ring_t *tx_ring, *rx_ring;
-Handle nic_port;
-Handle nic_ntfn;
-Handle tx_doorbell;
-Handle netd_handles[2];
+NicRing *tx_ring, *rx_ring;
+NicStatsBlock *stats;
+Handle g_svc_port = -1;
+Handle g_event = -1;
+Handle g_nic_doorbell_ev = -1;
 netif_t netif; /* filled at startup (htonl isn't constant); DHCP overwrites later */
 
 #define LEGACY_POLL_CAP 50u
+#define LOOP_SLICE_MS 10u
+#define PORT_BIT 0
+#define PORT_MASK (1u << PORT_BIT)
 
 /**
  * UDP echo handler
  */
-static void udp_echo_handler(ipv4_addr_t src_ip, port_t src_port, port_t dst_port,
+static void udp_echo_handler(ipv4_addr_t src_ip, NetPort src_port, NetPort dst_port,
                              const uint8_t *data, uint16_t len)
 {
     LOG_INFO(LOG_TAG, "UDP packet, from: %u.%u.%u.%u:%d, to: %u.%u.%u.%u:%d", IP4(src_ip), src_port,
              IP4(netif.ip), dst_port);
-    udp_tx(src_ip, dst_port, src_port, data, len);
+    UdpSend(src_ip, dst_port, src_port, data, len);
 }
 
 static __attribute__((cold)) void on_resolved(const char *name, ipv4_addr_t ip, int status)
@@ -60,93 +60,156 @@ static __attribute__((cold)) void on_dhcp_bound(void)
 {
     LOG_INFO(LOG_TAG, "network up: ip %u.%u.%u.%u gw %u.%u.%u.%u dns %u.%u.%u.%u", IP4(netif.ip),
              IP4(netif.gateway), IP4(netif.dns));
-    dns_query("google.com", on_resolved); /* smoke test now that we have DNS */
+    DnsQuery("google.com", on_resolved); /* smoke test now that we have DNS */
 }
 
-__attribute__((cold)) int get_shm()
+static Err InitNetdServices(void)
 {
-    Handle port = ZuzuPortCreate();
 
-    Err rc = RegisterService("/svc/netd", port);
-    if (rc < 0) {
+    Err retval = ZUZU_OK;
+
+    g_svc_port = CreatePort();
+    if (g_svc_port < 0) {
+        return g_svc_port;
+    }
+
+    g_event = CreateEvent();
+    if (g_event < 0)
+        return g_event;
+
+    retval = Bind(EVENT_PORT, g_event, g_svc_port, PORT_BIT);
+    if (retval < 0) {
+        LOG_ERROR(LOG_TAG, "port bind failed");
+        return retval;
+    }
+
+    retval = RegisterService("/svc/netd", g_svc_port);
+    if (retval < 0) {
         LOG_ERROR(LOG_TAG, "registration failed");
-        return ERR_SYSDOWN;
+        return retval;
     }
 
-    /* lan9118drv is kicked off in the same boot-manifest batch as netd, so
-     * this lookup can race lan9118drv's own devmgr rendezvous + NIC setup.
-     * Retry for a bit instead of failing outright on a boot-order race
-     * (mirrors pl011drv's wait_for_devmgr()). */
-    nic_port = -1;
-    for (int tries = 0; tries < 200 && nic_port < 0; tries++) {
-        nic_port = LookupService("/dev/eth0");
-        if (nic_port < 0)
-            ZuzuSleep(10);
-    }
-    if (nic_port < 0) {
-        LOG_ERROR(LOG_TAG, "couldn't find nic0");
-        return ERR_NOENT;
-    }
-    LOG_INFO(LOG_TAG, "nic0 port=%d", nic_port);
+    return retval;
+}
 
-    // w1 = status (ZUZU_OK / -err); w2 = mac_lo, w3 = mac_hi carry the MAC bytes
-    Message r = ZuzuMsgCall(nic_port, NIC_CMD_GETMAC, 0, 0);
-    if ((int32_t)r.w1 != ZUZU_OK) {
-        LOG_ERROR(LOG_TAG, "GETMAC failed");
-        return 1;
-    }
-    /* L3 config (ip/netmask/gateway/dns) stays zero until DHCP binds it. */
-    netif.mac[0] = (r.w2 >> 0) & 0xff;
-    netif.mac[1] = (r.w2 >> 8) & 0xff;
-    netif.mac[2] = (r.w2 >> 16) & 0xff;
-    netif.mac[3] = (r.w2 >> 24) & 0xff;
-    netif.mac[4] = (r.w3 >> 0) & 0xff;
-    netif.mac[5] = (r.w3 >> 8) & 0xff;
-    LOG_INFO(LOG_TAG, "MAC %02x:%02x:%02x:%02x:%02x:%02x", netif.mac[0], netif.mac[1], netif.mac[2],
-             netif.mac[3], netif.mac[4], netif.mac[5]);
+static void RejectCall(Err err, Handle granted)
+{
+    if (granted >= 0)
+        HandleClose(granted);
+    MsgWrite(&err, sizeof(err));
+    Reply(sizeof(err), -1);
+}
 
-    // w1 = shmem handle, w2 = rx doorbell, w3 = tx doorbell (all >= 0 on success)
-    r = ZuzuMsgCall(nic_port, NIC_CMD_GETBUF, 0, 0);
-    if ((int32_t)r.w0 != 0 || (int32_t)r.w1 < 0 || (int32_t)r.w2 < 0 || (int32_t)r.w3 < 0) {
-        LOG_ERROR(LOG_TAG, "NIC_GETBUF failed");
-        return 1;
-    }
-
-    void *addr = ZuzuMemMap((int32_t)r.w1, 0, PROT_RW, 0);
-    if (ZuzuPtrIsErr(addr)) {
-        LOG_ERROR(LOG_TAG, "shmem attach failed");
-        return ERR_SYSDOWN;
-    }
-    LOG_INFO(LOG_TAG, "Address of shmem: %p", (VirtAddr)addr);
-
-    rx_ring = (nic_ring_t *)((uint8_t *)addr + NIC_RX_OFFSET);
-    tx_ring = (nic_ring_t *)((uint8_t *)addr + NIC_TX_OFFSET);
-
-    netd_port = port;
-    nic_ntfn = (Handle)r.w2;
-    tx_doorbell = (Handle)r.w3;
-    netd_handles[1] = nic_ntfn;
-    LOG_INFO(LOG_TAG, "service port=%d nic_ntfn=%d tx_doorbell=%d nic_port=%d", netd_port, nic_ntfn,
-             tx_doorbell, nic_port);
+static Err CheckStage(const PortWaitResult *r, uint8_t opcode, Marker drv_marker)
+{
+    if (r->xlen != 1 || *(uint8_t *)GetMessageBox() != opcode)
+        return ERR_BADARG;
+    if (r->granted < 0)
+        return ERR_BADHANDLE;
+    if (r->sender != drv_marker)
+        return ERR_BADHANDLE;
     return ZUZU_OK;
+}
+
+/**
+ * @brief Whenever a NIC sends NETD_DRVHANDSHAKE_INIT, does the 3-message handshake.
+ */
+static __attribute__((cold)) Err PerformDriverHandshake(PortWaitResult res)
+{
+    if (res.granted < 0) {
+        RejectCall(ERR_BADHANDLE, -1);
+        return ERR_BADHANDLE;
+    }
+    g_nic_doorbell_ev = res.granted;
+
+    Marker drv_marker = res.sender;
+    const uint8_t *msg = GetMessageBox();
+    memcpy(&netif.mac[0], msg + 1, 4); // mac lo
+    memcpy(&netif.mac[4], msg + 5, 2); // low 16 bits of mac hi
+
+    Err rc = ZUZU_OK;
+    MsgWrite(&rc, sizeof(rc));
+    PortWaitResult r = FormatToPortWait(ReplyRecv(sizeof(rc), -1, g_svc_port, TIMEOUT_INFINITE));
+    if (r.status != ZUZU_OK)
+        return r.status;
+    rc = CheckStage(&r, NETD_DRVHANDSHAKE_STAGE2, drv_marker);
+    if (rc != ZUZU_OK) {
+        RejectCall(rc, r.granted);
+        return rc;
+    }
+    tx_ring = (NicRing *)MemMap(r.granted, 0, PROT_RW);
+    if (PtrIsErr(tx_ring)) {
+        RejectCall(ERR_BADHANDLE, r.granted);
+        return ERR_BADHANDLE;
+    }
+
+    rc = ZUZU_OK;
+    MsgWrite(&rc, sizeof(rc));
+    r = FormatToPortWait(ReplyRecv(sizeof(rc), -1, g_svc_port, TIMEOUT_INFINITE));
+    if (r.status != ZUZU_OK)
+        return r.status;
+    rc = CheckStage(&r, NETD_DRVHANDSHAKE_STAGE3, drv_marker);
+    if (rc != ZUZU_OK) {
+        RejectCall(rc, r.granted);
+        return rc;
+    }
+    rx_ring = (NicRing *)MemMap(r.granted, 0, PROT_RW);
+    if (PtrIsErr(rx_ring)) {
+        RejectCall(ERR_BADHANDLE, r.granted);
+        return ERR_BADHANDLE;
+    }
+    stats = (NicStatsBlock *)((uint8_t *)rx_ring + NIC_STATS_OFFSET);
+
+    MsgWriter w;
+    MsgWriterInit(&w);
+    MsgPutU32(&w, ZUZU_OK);
+    MsgPutStr(&w, "eth0");
+    return Reply(w.off, -1);
+}
+
+static Err WaitForDriver(void)
+{
+    Err retval = ZUZU_OK;
+    while (1) {
+        PortWaitResult res = FormatToPortWait(WaitOn(g_svc_port, TIMEOUT_INFINITE));
+        if (res.status != ZUZU_OK)
+            return res.status;
+        // see if we got a proper handshake initiation
+        if (res.xlen >= 9 && *((uint8_t *)GetMessageBox()) == NETD_DRVHANDSHAKE_INIT) {
+            retval = PerformDriverHandshake(res);
+            if (retval < 0)
+                return retval;
+            break;
+        }
+
+        RejectCall(ERR_BADARG, res.granted);
+    }
+    return retval;
 }
 
 int main()
 {
-    if (get_shm() < 0) {
-        return ERR_SYSDOWN;
-    }
+    Err retval = ZUZU_OK;
+
+    retval = InitNetdServices();
+    if (retval < 0)
+        return retval;
+
+    /* then wait for a driver to register, because without a driver netd wouldnt do anything */
+    retval = WaitForDriver();
+    if (retval < 0)
+        return retval;
 
     timer_init();
     netrand_init();
 
     arp_init();
-    udp_init();
+    UdpInit();
     port_init();
-    dns_init();
+    DnsInit();
     dhcp_init(on_dhcp_bound); /* kicks off DORA; on_dhcp_bound fires when bound */
 
-    udp_bind(7, udp_echo_handler);
+    UdpBind(7, udp_echo_handler);
 
     LOG_INFO(LOG_TAG, "online");
 
@@ -163,17 +226,28 @@ int main()
         else
             sleep_ms = next - now > LEGACY_POLL_CAP ? LEGACY_POLL_CAP : next - now;
 
-        /* 2. sleep until a packet arrives or the deadline elapses */
-        WaitanyResult result;
-        int32_t recv_rc = ZuzuWaitany(netd_handles, 2, sleep_ms, &result);
+        /* 2. wait on the doorbell, then on the public port; a slice each so the
+            timer deadline still holds */
+        uint32_t slice = sleep_ms / 2;
+        if (slice > LOOP_SLICE_MS)
+            slice = LOOP_SLICE_MS;
+        if (sleep_ms != TIMEOUT_POLL && slice == 0)
+            slice = 1;
+
+        WaitOn(g_nic_doorbell_ev, slice);
 
         /* 3. DRAIN RX FIRST: process inbound before any timer fires */
-        if (recv_rc >= 0 && result.kind == WAITANY_KIND_NTFN) {
-            nic_frame_t frame;
-            while (packet_ring_pop(&frame, rx_ring) == 0)
-                eth_rx(frame.data, frame.len);
-        } else if (recv_rc >= 0 && result.kind == WAITANY_KIND_CALL) {
-            ZuzuMsgReply(result.source, ERR_NOSYS, 0, 0);
+        NicFrame *frame;
+        while ((frame = PacketRingPeek(rx_ring)) != NULL) {
+            eth_rx(frame->data, (uint16_t)frame->len);
+            PacketRingConsume(rx_ring);
+        }
+
+        EventWaitResult ev = FormatToEventWait(WaitOn(g_event, slice));
+        if (ev.status == ZUZU_OK && (ev.bits & PORT_MASK)) {
+            PortWaitResult call;
+            while ((call = FormatToPortWait(WaitOn(g_svc_port, TIMEOUT_POLL))).status == ZUZU_OK)
+                RejectCall(ERR_NOSYS, call.granted);
         }
 
         /* 4. THEN fire expired timers */
@@ -182,7 +256,7 @@ int main()
         /* 5. legacy pollers, still bounded by the cap above */
         arp_tick();
         dhcp_tick();
-        dns_tick();
+        DnsTick();
     }
 
     return 0;

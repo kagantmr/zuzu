@@ -24,6 +24,7 @@
 typedef struct {
     bool in_use;
     bool provider;
+    bool wants_input; /* has asked for the foreground at least once */
     int endpoint;
     uint32_t order; /* attach order, for foreground promotion */
     TtyShm *shm;
@@ -104,7 +105,7 @@ static void DownPushStr(Session *s, const char *str)
 
 static void ReplyStatus(Err status)
 {
-    memcpy(MessageBuf(), &status, sizeof(status));
+    memcpy(GetMessageBox(), &status, sizeof(status));
     Reply(sizeof(status), -1);
 }
 
@@ -188,7 +189,8 @@ static void PromoteForeground(Endpoint *ep)
     int best = -1;
     for (int i = 0; i < MAX_SESSIONS; i++) {
         Session *s = &g_sessions[i];
-        if (!s->in_use || s->provider || s->endpoint != (int)(ep - g_endpoints))
+        if (!s->in_use || s->provider || !s->wants_input ||
+            s->endpoint != (int)(ep - g_endpoints))
             continue;
         if (best < 0 || s->order < g_sessions[best].order)
             best = i;
@@ -211,7 +213,7 @@ static void HandleConnect(bool provider, const PortWaitResult *r)
         ReplyStatus(ERR_BADARG);
         return;
     }
-    memcpy(&req, MessageBuf(), sizeof(req));
+    memcpy(&req, GetMessageBox(), sizeof(req));
     req.alias[TTY_NAME_MAX - 1] = '\0';
 
     int ep = -1;
@@ -280,7 +282,7 @@ static void HandleConnect(bool provider, const PortWaitResult *r)
 
     TtyConnectReply rep = {
         .status = ZUZU_OK, .bit = SESSION_BIT(slot), .index = SESSION_INDEX(g_gen[slot], slot)};
-    memcpy(MessageBuf(), &rep, sizeof(rep));
+    memcpy(GetMessageBox(), &rep, sizeof(rep));
     Err rc = Reply(sizeof(rep), (Handle)bell.r1);
     HandleClose((Handle)bell.r1);
     if (rc != ZUZU_OK) {
@@ -292,14 +294,10 @@ static void HandleConnect(bool provider, const PortWaitResult *r)
         return;
     }
 
-    if (provider) {
+    if (provider)
         g_endpoints[ep].provider = slot;
-    } else if (g_endpoints[ep].fg < 0) {
-        g_endpoints[ep].fg = slot;
-    }
-    UserspaceDebugLog("ttysvc: %s slot=%d endpoint=%s%s", provider ? "provide" : "attach", slot,
-                      g_endpoints[ep].alias,
-                      (!provider && g_endpoints[ep].fg != slot) ? " (background)" : "");
+    UserspaceDebugLog("ttysvc: %s slot=%d endpoint=%s", provider ? "provide" : "attach", slot,
+                      g_endpoints[ep].alias);
 }
 
 static Session *SessionFor(uint32_t index)
@@ -317,9 +315,8 @@ static void CloseSession(Session *s, int slot)
     Endpoint *ep = &g_endpoints[s->endpoint];
     if (s->provider) {
         ep->provider = -1;
-    } else if (ep->fg == slot) {
-        if (ep->provider >= 0)
-            RouteOutbound(s, &g_sessions[ep->provider]); /* flush its last words */
+    } else if (ep->provider >= 0) {
+        RouteOutbound(s, &g_sessions[ep->provider]); /* flush its last words */
     }
     bool was_fg = !s->provider && ep->fg == slot;
     ReleaseSession(slot);
@@ -332,7 +329,7 @@ static void HandleRequest(const PortWaitResult *r)
 {
     uint32_t cmd = 0;
     if (r->xlen >= sizeof(cmd))
-        memcpy(&cmd, MessageBuf(), sizeof(cmd));
+        memcpy(&cmd, GetMessageBox(), sizeof(cmd));
     else {
         if (r->granted >= 0)
             HandleClose(r->granted);
@@ -351,7 +348,7 @@ static void HandleRequest(const PortWaitResult *r)
         TtyNotifyRequest req;
         Session *s = NULL;
         if (r->xlen >= sizeof(req)) {
-            memcpy(&req, MessageBuf(), sizeof(req));
+            memcpy(&req, GetMessageBox(), sizeof(req));
             s = SessionFor(req.index);
         }
         if (!s || r->granted < 0 || req.bit >= 31) {
@@ -372,7 +369,7 @@ static void HandleRequest(const PortWaitResult *r)
         TtySetModeRequest req;
         Session *s = NULL;
         if (r->xlen >= sizeof(req)) {
-            memcpy(&req, MessageBuf(), sizeof(req));
+            memcpy(&req, GetMessageBox(), sizeof(req));
             s = SessionFor(req.index);
         }
         if (!s || s->provider || (req.flags & ~TTY_MODE_ALL)) {
@@ -384,11 +381,33 @@ static void HandleRequest(const PortWaitResult *r)
         ReplyStatus(ZUZU_OK);
         return;
     }
+    case TTY_FOCUS: {
+        TtyFocusRequest req;
+        Session *s = NULL;
+        if (r->xlen >= sizeof(req)) {
+            memcpy(&req, GetMessageBox(), sizeof(req));
+            s = SessionFor(req.index);
+        }
+        if (!s || s->provider) {
+            ReplyStatus(ERR_BADARG);
+            return;
+        }
+        Endpoint *ep = &g_endpoints[s->endpoint];
+        int slot = (int)INDEX_SLOT(req.index);
+        s->wants_input = true;
+        if (ep->fg != slot) {
+            ep->fg = slot;
+            s->line_len = 0;
+            s->dirty = true;
+        }
+        ReplyStatus(ZUZU_OK);
+        return;
+    }
     case TTY_CLOSE: {
         TtyCloseRequest req;
         Session *s = NULL;
         if (r->xlen >= sizeof(req)) {
-            memcpy(&req, MessageBuf(), sizeof(req));
+            memcpy(&req, GetMessageBox(), sizeof(req));
             s = SessionFor(req.index);
         }
         if (!s) {
@@ -403,7 +422,7 @@ static void HandleRequest(const PortWaitResult *r)
         TtyWatchRequest req;
         Session *s = NULL;
         if (r->xlen >= sizeof(req)) {
-            memcpy(&req, MessageBuf(), sizeof(req));
+            memcpy(&req, GetMessageBox(), sizeof(req));
             s = SessionFor(req.index);
         }
         if (!s || r->granted < 0) {
@@ -586,8 +605,11 @@ static void ServiceAll(void)
         Session *p = &g_sessions[ep->provider];
         Session *f = ep->fg >= 0 ? &g_sessions[ep->fg] : NULL;
         RouteInbound(p, f);
-        if (f)
-            RouteOutbound(f, p);
+        for (int j = 0; j < MAX_SESSIONS; j++) {
+            Session *c = &g_sessions[j];
+            if (c->in_use && !c->provider && c->endpoint == i)
+                RouteOutbound(c, p);
+        }
     }
 
     for (int i = 0; i < MAX_SESSIONS; i++) {
