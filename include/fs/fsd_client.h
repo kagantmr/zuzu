@@ -90,6 +90,21 @@ Err FsdClose(FsdConn *c, uint32_t fd);
 Err FsdRead(FsdConn *c, uint32_t fd, void *dst, uint32_t count, uint32_t *got);
 
 /**
+ * @brief Reads up to `count` bytes from `fd` straight into a shm object, at byte offset
+ * `obj_off`, with no copy through the session buffer.
+ *
+ * @param c An attached connection.
+ * @param fd The file descriptor to read from.
+ * @param obj A shm object handle you own; fsd gets a PERM_MAP duplicate for the call.
+ * @param obj_off Byte offset into the object where the data goes.
+ * @param count Maximum number of bytes to read; obj_off + count must fit in the object.
+ * @param got Out-param set to the number of bytes actually read.
+ * @return Err ZUZU_OK on success, or a negative error code on failure.
+ */
+Err FsdReadObj(FsdConn *c, uint32_t fd, Handle obj, uint32_t obj_off, uint32_t count,
+               uint32_t *got);
+
+/**
  * @brief Writes up to `count` bytes from `src` to `fd`.
  *
  * @param c An attached connection.

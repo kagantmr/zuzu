@@ -222,31 +222,33 @@ static void cmd_cat(const char *path)
 
 /* ---- run ---- */
 
-static void *read_file(const char *path, size_t *len)
+static Handle read_image(const char *path, size_t *len)
 {
     FsdStat st;
     uint32_t fd;
-    if (FsdGetStat(&fsd_conn, path, &st) != ZUZU_OK || st.type != FSD_TYPE_FILE)
-        return NULL;
+    if (FsdGetStat(&fsd_conn, path, &st) != ZUZU_OK || st.type != FSD_TYPE_FILE || st.size == 0)
+        return -1;
     if (FsdOpen(&fsd_conn, path, FSD_MODE_READ, &fd) != ZUZU_OK)
-        return NULL;
+        return -1;
 
-    uint8_t *buf = malloc(st.size ? st.size : 1);
+    Handle obj = CreateMem((st.size + FSD_PAGE_SIZE - 1) / FSD_PAGE_SIZE);
     size_t off = 0;
-    while (buf && off < st.size) {
+    while (obj >= 0 && off < st.size) {
         uint32_t got = 0;
-        if (FsdRead(&fsd_conn, fd, buf + off, st.size - (uint32_t)off, &got) != ZUZU_OK || got == 0)
+        if (FsdReadObj(&fsd_conn, fd, obj, (uint32_t)off, st.size - (uint32_t)off, &got) !=
+                ZUZU_OK ||
+            got == 0)
             break;
         off += got;
     }
     FsdClose(&fsd_conn, fd);
 
-    if (off != st.size) {
-        free(buf);
-        return NULL;
+    if (obj >= 0 && off != st.size) {
+        HandleClose(obj);
+        return -1;
     }
     *len = off;
-    return buf;
+    return obj;
 }
 
 static void cmd_run(const char *line)
@@ -286,19 +288,19 @@ static void cmd_run(const char *line)
 
     char path[256];
     size_t len = 0;
-    void *image = NULL;
+    Handle image = -1;
     if (strchr(cmd, '/')) {
         if (resolve_path(cmd, path, sizeof(path)))
-            image = read_file(path, &len);
+            image = read_image(path, &len);
     } else {
         char rel[256];
         if (snprintf(rel, sizeof(rel), "/bin/%s", cmd) < (int)sizeof(rel) &&
             resolve_path(rel, path, sizeof(path)))
-            image = read_file(path, &len);
-        if (!image && resolve_path(cmd, path, sizeof(path)))
-            image = read_file(path, &len);
+            image = read_image(path, &len);
+        if (image < 0 && resolve_path(cmd, path, sizeof(path)))
+            image = read_image(path, &len);
     }
-    if (!image) {
+    if (image < 0) {
         printf("zzsh: %s: command not found\n", cmd);
         return;
     }
@@ -311,8 +313,8 @@ static void cmd_run(const char *line)
     name = name ? name + 1 : path;
     Spid pid;
     Handle task;
-    Err rc = SpawnProcess(image, len, name, argbuf, argpos, argc, &pid, &task);
-    free(image);
+    Err rc = SpawnProcessObj(image, len, name, argbuf, argpos, argc, &pid, &task);
+    HandleClose(image);
     if (rc != ZUZU_OK) {
         printf(ANSI_RED "zzsh: %s: spawn failed (err %d)\n" ANSI_RESET, cmd, rc);
         return;

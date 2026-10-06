@@ -274,6 +274,50 @@ static void HandleAttach(const PortWaitResult *r)
     }
 }
 
+static Err ReadIntoObject(FsdClient *c, const FsdRequest *req, Handle obj, FsdResponse *resp)
+{
+    void *file = FileGet(ClientSlot(c), req->fd);
+    if (!file)
+        return ERR_NOENT;
+
+    SvcResult size = HandleQuery(obj, QUERY_SIZE);
+    if (size.r0 != ZUZU_OK)
+        return (Err)size.r0;
+    if (req->data_off > (uint32_t)size.r1 || req->data_len > (uint32_t)size.r1 - req->data_off)
+        return ERR_MALFORMED;
+
+    uint8_t *va = MemMap(obj, 0, PROT_RW);
+    if (PtrIsErr(va))
+        return (Err)(intptr_t)va;
+
+    uint32_t got = 0;
+    Err rc = g_backend->read(g_ctx, file, va + req->data_off, req->data_len, &got);
+    MemUnmap(va);
+    resp->count = got;
+    return rc;
+}
+
+static void HandleReadObj(const PortWaitResult *r, const FsdRequest *req)
+{
+    FsdClient *c = ClientFind(r->sender);
+    if (!c) {
+        CloseGrant(r);
+        ReplyStatus(ERR_NOTCONN);
+        return;
+    }
+    if (r->granted < 0) {
+        ReplyStatus(ERR_BADARG);
+        return;
+    }
+
+    FsdResponse resp;
+    memset(&resp, 0, sizeof(resp));
+    resp.size = sizeof(resp);
+    resp.status = ReadIntoObject(c, req, r->granted, &resp);
+    HandleClose(r->granted);
+    ReplyResponse(&resp, -1);
+}
+
 static void HandleWatch(const PortWaitResult *r)
 {
     FsdClient *c = ClientFind(r->sender);
@@ -359,6 +403,10 @@ static void HandleRequest(const PortWaitResult *r)
 
     if (req.cmd == FSD_WATCH) {
         HandleWatch(r);
+        return;
+    }
+    if (req.cmd == FSD_READ_OBJ) {
+        HandleReadObj(r, &req);
         return;
     }
 

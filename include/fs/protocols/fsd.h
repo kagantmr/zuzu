@@ -92,6 +92,8 @@ typedef enum {
     FSD_DETACH,     /* free the session                          */
     FSD_WATCH, /* badged; grant: a port the client owns (PERM_WAIT|PERM_TXFR). fsd frees the session
                   when it dies */
+    FSD_READ_OBJ, /* badged; grant: a shm object (PERM_MAP|PERM_TXFR). fd, data_off = byte offset
+                     into the object, data_len = count -> count; the data lands in the object */
 } FsdCommand;
 
 #define FSD_DATA_OFF 128u /* payload starts here; data_off >= FSD_DATA_OFF */

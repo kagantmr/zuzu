@@ -29,6 +29,19 @@ extern "C" {
 Err SpawnProcess(const void *image, size_t size, const char *name, const char *argbuf,
                  size_t argbuf_len, uint32_t argc, Spid *out_pid, Handle *out_task);
 
+/**
+ * @brief Like SpawnProcess(), but the image is already in a shm object (for example read there
+ * by FsdReadObj). Read-only and executable segments whose file offset is page-aligned are mapped
+ * straight from the object with no copy; everything else is copied as in SpawnProcess().
+ *
+ * @param image_obj A shm object handle holding the image; the caller keeps it and may close it
+ * once this returns, since the child's mappings hold their own references.
+ * @param size      Size of the image in bytes.
+ * @return As SpawnProcess().
+ */
+Err SpawnProcessObj(Handle image_obj, size_t size, const char *name, const char *argbuf,
+                    size_t argbuf_len, uint32_t argc, Spid *out_pid, Handle *out_task);
+
 #ifdef __cplusplus
 }
 #endif

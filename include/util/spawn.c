@@ -102,14 +102,24 @@ static Err ParseImage(const void *data, size_t size, SpawnImage *out)
 #define SPAWN_ARGV_MAX_PAGES 4u
 #define SPAWN_ARGV_VA (USER_ELF_BASE - (SPAWN_ARGV_MAX_PAGES * PAGE_SIZE))
 
-static Err LoadSegment(Handle space_handle, const void *data, const SpawnSeg *seg)
+static Err LoadSegment(Handle space_handle, Handle image_obj, const void *data, size_t size,
+                       const SpawnSeg *seg)
 {
     uint32_t prot = seg->prot;
 
     size_t file_pages = PAGE_ROUND_UP(seg->file_size) / PAGE_SIZE;
     size_t mem_pages = PAGE_ROUND_UP(seg->mem_size) / PAGE_SIZE;
 
-    if (file_pages > 0) {
+    bool direct = image_obj >= 0 && file_pages > 0 && !(prot & PROT_WRITE) &&
+                  (seg->file_offset & (PAGE_SIZE - 1)) == 0 &&
+                  seg->file_offset + (file_pages * PAGE_SIZE) <= PAGE_ROUND_UP(size);
+
+    if (direct) {
+        Err rc = MemInjectObj(space_handle, image_obj, (VirtAddr)seg->vaddr, seg->file_offset,
+                              file_pages * PAGE_SIZE, prot);
+        if (rc != ZUZU_OK)
+            return rc;
+    } else if (file_pages > 0) {
         Err rc = MemInjectBytes(space_handle, (VirtAddr)seg->vaddr,
                                 (const uint8_t *)data + seg->file_offset, seg->file_size, prot);
         if (rc != ZUZU_OK)
@@ -167,8 +177,9 @@ static Err LayoutArgv(Handle space_handle, const char *argbuf, size_t argbuf_len
     return ZUZU_OK;
 }
 
-Err SpawnProcess(const void *image, size_t size, const char *name, const char *argbuf,
-                 size_t argbuf_len, uint32_t argc, Spid *out_pid, Handle *out_task)
+static Err SpawnFromImage(Handle image_obj, const void *image, size_t size, const char *name,
+                          const char *argbuf, size_t argbuf_len, uint32_t argc, Spid *out_pid,
+                          Handle *out_task)
 {
     SpawnImage img;
     Err prc = ParseImage(image, size, &img);
@@ -182,7 +193,7 @@ Err SpawnProcess(const void *image, size_t size, const char *name, const char *a
         return (Err)space_handle;
 
     for (uint32_t i = 0; i < img.seg_count; i++) {
-        Err rc = LoadSegment(space_handle, image, &img.segs[i]);
+        Err rc = LoadSegment(space_handle, image_obj, image, size, &img.segs[i]);
         if (rc != ZUZU_OK) {
             HandleDestroy(space_handle);
             return rc;
@@ -220,4 +231,21 @@ Err SpawnProcess(const void *image, size_t size, const char *name, const char *a
     if (out_task)
         *out_task = task_handle;
     return ZUZU_OK;
+}
+
+Err SpawnProcess(const void *image, size_t size, const char *name, const char *argbuf,
+                 size_t argbuf_len, uint32_t argc, Spid *out_pid, Handle *out_task)
+{
+    return SpawnFromImage(-1, image, size, name, argbuf, argbuf_len, argc, out_pid, out_task);
+}
+
+Err SpawnProcessObj(Handle image_obj, size_t size, const char *name, const char *argbuf,
+                    size_t argbuf_len, uint32_t argc, Spid *out_pid, Handle *out_task)
+{
+    void *view = MemMap(image_obj, 0, PROT_READ);
+    if (PtrIsErr(view))
+        return (Err)(intptr_t)view;
+    Err rc = SpawnFromImage(image_obj, view, size, name, argbuf, argbuf_len, argc, out_pid, out_task);
+    MemUnmap(view);
+    return rc;
 }

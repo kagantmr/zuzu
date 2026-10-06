@@ -207,6 +207,29 @@ Err FsdRead(FsdConn *c, uint32_t fd, void *dst, uint32_t count, uint32_t *got)
     return ZUZU_OK;
 }
 
+Err FsdReadObj(FsdConn *c, uint32_t fd, Handle obj, uint32_t obj_off, uint32_t count,
+               uint32_t *got)
+{
+    SvcResult dup = HandleDuplicate(obj, PERM_MAP | PERM_TXFR, MARKER_NONE);
+    if (dup.r0 != ZUZU_OK)
+        return (Err)dup.r0;
+
+    FsdRequest req;
+    FsdInitRequest(&req, FSD_READ_OBJ);
+    req.fd = fd;
+    req.data_off = obj_off;
+    req.data_len = count;
+    FsdResponse resp;
+    Err rc = FsdCall(c->port, &req, &resp, (Handle)dup.r1, NULL);
+    HandleClose((Handle)dup.r1);
+    if (rc != ZUZU_OK)
+        return rc;
+
+    if (got)
+        *got = resp.count > count ? count : resp.count;
+    return ZUZU_OK;
+}
+
 Err FsdWrite(FsdConn *c, uint32_t fd, const void *src, uint32_t count, uint32_t *put)
 {
     uint32_t cap = c->size - FSD_DATA_OFF;
