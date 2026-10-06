@@ -434,6 +434,15 @@ static void BenchSpaces(void)
         snprintf(name, sizeof(name), "destroy space (%up backed)", (unsigned)pages[k]);
         ReportBuf(name, g_samples_c, n);
     }
+    for (uint32_t i = 0; i < HEAVY; i++) {
+        Handle sp = CreateSpace("speedtest-bench");
+        if (sp < 0)
+            break;
+        TIMED(g_samples, i,
+              MemInject(sp, USER_ELF_BASE, src, 16 * PAGE, PROT_READ | PROT_EXEC, 0));
+        HandleDestroy(sp);
+    }
+    ReportBuf("mem inject 16p (exec)", g_samples, HEAVY);
     MemUnmap(src);
 }
 
