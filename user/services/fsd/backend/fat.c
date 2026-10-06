@@ -102,6 +102,7 @@ static Err fat_stat(void *ctx, const char *path, FsdStat *out)
         return fres_to_err(rc);
     out->size = (uint32_t)fno.fsize;
     out->type = (fno.fattrib & AM_DIR) ? FSD_TYPE_DIR : FSD_TYPE_FILE;
+    out->mtime = ((uint32_t)fno.fdate << 16) | fno.ftime;
     return ZUZU_OK;
 }
 

@@ -73,6 +73,7 @@ typedef struct {
     uint32_t size;   // file size in bytes
     uint8_t type;    /* FsdFileType value */
     uint8_t _pad[3]; // padding for alignment
+    uint32_t mtime;  // FAT date << 16 | FAT time; 0 when the backend cannot say
 } FsdStat;
 
 _Static_assert(sizeof(FsdDirEntry) <= 64, "dirent should stay cache-line-ish");
