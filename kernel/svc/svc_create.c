@@ -6,13 +6,6 @@
 #include <types.h>
 #include <zuzu/err.h>
 
-static void FreeScatteredPages(PhysAddr *addrs, size_t count)
-{
-    for (size_t i = 0; i < count; i++)
-        PmmFreeFrame(addrs[i]);
-    KFree(addrs);
-}
-
 void SvcCreate(CpuState *frame)
 {
     // Dispatch based on type
@@ -128,16 +121,14 @@ void SvcCreate(CpuState *frame)
         size_t page_count = (size_t)(*ArchGetFromFrame(frame, 1));
         ENSURE_ERR(frame, (page_count > 0), ERR_BADARG);
 
+        ENSURE_ERR(frame, page_count <= PmmGetStats().free_frames, ERR_NOMEM);
+        ENSURE_ERR(frame, page_count <= SIZE_MAX / sizeof(PhysAddr), ERR_NOMEM);
+
         PhysAddr *page_addrs = KZAlloc(page_count * sizeof(PhysAddr));
         ENSURE_ERR(frame, (NULL != page_addrs), ERR_NOMEM);
 
-        size_t got = PmmAllocFramesScattered(page_count, page_addrs);
-        ENSURE(got == page_count, FreeScatteredPages(page_addrs, got);
-               ArchSetInFrame(frame, 0, ERR_NOMEM); return);
-
         MemObject *mem = MemObjCreateShm(page_addrs, page_count);
-        ENSURE(NULL != mem, FreeScatteredPages(page_addrs, page_count);
-               ArchSetInFrame(frame, 0, ERR_NOMEM); return);
+        ENSURE(NULL != mem, KFree(page_addrs); ArchSetInFrame(frame, 0, ERR_NOMEM); return);
 
         Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
         ENSURE(-1 != new_handle, MemObjUnref(mem); ArchSetInFrame(frame, 0, ERR_NOMEM); return);
