@@ -468,6 +468,18 @@ static void BenchSpaces(void)
     MemUnmap(src);
 }
 
+static void BenchSleep(void)
+{
+    static const uint32_t ms[] = {1, 5, 10};
+    for (uint32_t k = 0; k < sizeof(ms) / sizeof(ms[0]); k++) {
+        char name[32];
+        for (uint32_t i = 0; i < 200; i++)
+            TIMED(g_samples, i, Sleep(ms[k]));
+        snprintf(name, sizeof(name), "sleep %ums", (unsigned)ms[k]);
+        Report(name, 200);
+    }
+}
+
 static void RunSection(const char *title, void (*fn)(void))
 {
     BenchReset();
@@ -490,6 +502,7 @@ int main(void)
 
     RunSection("null syscall", BenchNullSyscall);
     RunSection("yield", BenchYield);
+    RunSection("sleep", BenchSleep);
     RunSection("handle ops", BenchHandleOps);
     RunSection("create objects", BenchCreateObjects);
     RunSection("mem map", BenchMemMap);

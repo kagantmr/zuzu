@@ -40,6 +40,7 @@ static ListHead run_queues[SCHED_PRIORITY_LEVELS];
 
 static ListHead sleep_wheel[SLEEP_QUEUE_SIZE];
 static uint32_t wheel_occ[BITMAP_WORDS(SLEEP_QUEUE_SIZE)];
+static uint64_t wheel_min[SLEEP_QUEUE_SIZE];
 static uint64_t wheel_now_slot;
 static uint32_t slot_shift;
 
@@ -170,6 +171,18 @@ static bool SchedIsWorkPending(void)
     return false;
 }
 
+static uint64_t WheelBucketMin(uint32_t slot)
+{
+    uint64_t min = UINT64_MAX;
+    ListHead *bucket = &sleep_wheel[slot];
+    for (ListNode *n = bucket->node.next; n != &bucket->node; n = n->next) {
+        TaskObject *t = container_of(n, TaskObject, timeout_node);
+        if (t->wake_deadline < min)
+            min = t->wake_deadline;
+    }
+    return min;
+}
+
 void SchedRemoveSleepQueue(TaskObject *t)
 {
     if (t->sleep_slot < 0)
@@ -179,6 +192,8 @@ void SchedRemoveSleepQueue(TaskObject *t)
     uint32_t slot = (uint32_t)t->sleep_slot;
     if (ListIsEmpty(&sleep_wheel[slot]))
         BitmapClr(wheel_occ, slot);
+    else if (t->wake_deadline == wheel_min[slot])
+        wheel_min[slot] = WheelBucketMin(slot);
     t->sleep_slot = -1;
 }
 
@@ -191,10 +206,21 @@ void SchedInsertSleepQueue(TaskObject *t)
         abs_slot = wheel_now_slot + SLEEP_QUEUE_SIZE - 1;
     }
     uint32_t slot = (uint32_t)(abs_slot % SLEEP_QUEUE_SIZE);
+    if (ListIsEmpty(&sleep_wheel[slot]) || t->wake_deadline < wheel_min[slot])
+        wheel_min[slot] = t->wake_deadline;
     ListAddTail(&t->timeout_node, &sleep_wheel[slot].node);
     BitmapSet(wheel_occ, slot);
     t->sleep_slot = (int16_t)slot;
     SchedArmTimer();
+}
+
+static void SchedWakeTimedOut(TaskObject *t)
+{
+    t->sleep_slot = -1;
+    if (t->trap_frame)
+        ArchSetInFrame(t->trap_frame, 0, ERR_TIMEOUT);
+    SchedUnblock(t);
+    SchedAdd(t);
 }
 
 static void SchedWakeSleepers(void)
@@ -218,14 +244,29 @@ static void SchedWakeSleepers(void)
                 continue;
             }
 
-            if (t->trap_frame)
-                ArchSetInFrame(t->trap_frame, 0, ERR_TIMEOUT);
-            SchedUnblock(t);
-            SchedAdd(t);
+            SchedWakeTimedOut(t);
         }
 
         BitmapClr(wheel_occ, slot);
     }
+
+    uint64_t now = ArchTimerNow();
+    uint32_t cur = (uint32_t)(wheel_now_slot % SLEEP_QUEUE_SIZE);
+    ListHead *bucket = &sleep_wheel[cur];
+    ListNode *node = bucket->node.next;
+    while (node != &bucket->node) {
+        ListNode *next = node->next;
+        TaskObject *t = container_of(node, TaskObject, timeout_node);
+        if (t->wake_deadline <= now) {
+            ListRemove(node);
+            SchedWakeTimedOut(t);
+        }
+        node = next;
+    }
+    if (ListIsEmpty(bucket))
+        BitmapClr(wheel_occ, cur);
+    else
+        wheel_min[cur] = WheelBucketMin(cur);
 }
 
 static void SchedIdleWait(void)
@@ -360,8 +401,11 @@ static void SchedArmTimer(void)
     uint64_t deadline = UINT64_MAX;
 
     uint32_t k = WheelScanFromNow();
-    if (k < SLEEP_QUEUE_SIZE)
-        deadline = (wheel_now_slot + k + 1) << slot_shift;
+    if (k < SLEEP_QUEUE_SIZE) {
+        uint32_t slot = (uint32_t)((wheel_now_slot + k) % SLEEP_QUEUE_SIZE);
+        uint64_t slot_end = (wheel_now_slot + k + 1) << slot_shift;
+        deadline = wheel_min[slot] < slot_end ? wheel_min[slot] : slot_end;
+    }
 
     if (current_task && SchedAnyCpuTakers(current_task) && current_task->slice_deadline < deadline)
         deadline = current_task->slice_deadline;
