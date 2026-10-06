@@ -1291,6 +1291,80 @@ static void TestSpaces(void)
     HandleDestroy(longname);
 }
 
+/* ---------------- 7b. MemInjectObj ---------------- */
+
+static void TestInjectObj(void)
+{
+    BeginSection("injectobj");
+
+    Handle obj = CreateMem(1);
+    Check(obj >= 0, "CreateMem(1)");
+    uint8_t *w = MemMap(obj, 0, PROT_RW);
+    Check(!PtrIsErr(w), "map the object to fill it");
+    memset(w, 0, 4096);
+    memcpy(w, kCodeQuit42, sizeof(kCodeQuit42));
+
+    Handle sp = CreateSpace("zz-injectobj");
+    CheckEq(MemInjectObj(sp, obj, USER_ELF_BASE + 1, 0, 4096, PROT_READ), ERR_BADARG,
+            "unaligned destination -> BADARG");
+    CheckEq(MemInjectObj(sp, obj, USER_ELF_BASE, 1, 4096, PROT_READ), ERR_BADARG,
+            "unaligned offset -> BADARG");
+    CheckEq(MemInjectObj(sp, obj, USER_ELF_BASE, 0, 0, PROT_READ), ERR_BADARG,
+            "zero length -> BADARG");
+    CheckEq(MemInjectObj(sp, obj, USER_ELF_BASE, 0, 100, PROT_READ), ERR_BADARG,
+            "length not page-aligned -> BADARG");
+    CheckEq(MemInjectObj(sp, obj, USER_ELF_BASE, 0, 4096, PROT_WRITE | PROT_EXEC), ERR_BADARG,
+            "W+X -> BADARG");
+    CheckEq(MemInjectObj(sp, obj, USER_ELF_BASE, 0, 4096, (MemProt)8), ERR_BADARG,
+            "unknown prot bits -> BADARG");
+    CheckEq(MemInjectObj(sp, obj, 0x80000000u, 0, 4096, PROT_READ), ERR_BADARG,
+            "destination in kernel space -> BADARG");
+    CheckEq(MemInjectObj(sp, obj, USER_ELF_BASE, 4096, 4096, PROT_READ), ERR_BADARG,
+            "offset past the end of the object -> BADARG");
+    CheckEq(MemInjectObj(sp, obj, USER_ELF_BASE, 0, 8192, PROT_READ), ERR_BADARG,
+            "length past the end of the object -> BADARG");
+    CheckEq(MemInjectObj(-2, obj, USER_ELF_BASE, 0, 4096, PROT_READ), ERR_BADHANDLE,
+            "invalid space -> BADHANDLE");
+    CheckEq(MemInjectObj(sp, -2, USER_ELF_BASE, 0, 4096, PROT_READ), ERR_BADHANDLE,
+            "invalid object -> BADHANDLE");
+    Handle evt = CreateEvent();
+    CheckEq(MemInjectObj(sp, evt, USER_ELF_BASE, 0, 4096, PROT_READ), ERR_BADTYPE,
+            "event as the object -> BADTYPE");
+    HandleClose(evt);
+    SvcResult weak_obj = HandleDuplicate(obj, PERM_WAIT, MARKER_NONE);
+    CheckEq(MemInjectObj(sp, (Handle)weak_obj.r1, USER_ELF_BASE, 0, 4096, PROT_READ), ERR_NOPERM,
+            "object without PERM_MAP -> NOPERM");
+    HandleClose((Handle)weak_obj.r1);
+    SvcResult weak_sp = HandleDuplicate(sp, PERM_WAIT, MARKER_NONE);
+    CheckEq(MemInjectObj((Handle)weak_sp.r1, obj, USER_ELF_BASE, 0, 4096, PROT_READ), ERR_NOPERM,
+            "space without PERM_CNTL -> NOPERM");
+    HandleClose((Handle)weak_sp.r1);
+
+    CheckEq(MemInjectObj(sp, HANDLE_ANON, 0x40000000u, 0, 8192, PROT_RW), ZUZU_OK,
+            "HANDLE_ANON reserves a demand-zero region");
+    CheckEq(MemInjectObj(sp, HANDLE_ANON, 0x40000000u, 0, 4096, PROT_RW), ERR_NOMEM,
+            "overlapping an existing region -> NOMEM");
+    CheckEq(MemInjectObj(sp, obj, USER_ELF_BASE, 0, 4096, PROT_READ | PROT_EXEC), ZUZU_OK,
+            "map the object as code");
+    CheckEq(MemInjectObj(sp, obj, USER_ELF_BASE, 0, 4096, PROT_READ), ERR_NOMEM,
+            "mapping it again over itself -> NOMEM");
+
+    Handle task = CreateTask(sp);
+    Check(task >= 0, "CreateTask in the space");
+    CheckEq(MemInjectObj(sp, HANDLE_ANON, 0x50000000u, 0, 4096, PROT_RW), ERR_BUSY,
+            "mapping once a task exists -> BUSY");
+
+    CheckEq(HandleClose(obj), ZUZU_OK, "close the parent's handle while the child maps it");
+    CheckEq(TaskStart(task, (void *)USER_ELF_BASE, (void *)USR_SP, 0, 0), ZUZU_OK,
+            "start the task");
+    SpaceWaitResult sw = FormatToSpaceWait(WaitOn(sp, 2000));
+    CheckEq(sw.status, ZUZU_OK, "the space finishes");
+    CheckEq(sw.exit_status, 42, "the code mapped from the object ran");
+
+    HandleClose(task);
+    CheckEq(HandleDestroy(sp), ZUZU_OK, "destroy the space");
+}
+
 /* ---------------- 8. hostile arguments ---------------- */
 
 static void TestSecurity(void)
@@ -1816,6 +1890,7 @@ static void RunSuite(void)
     TestObservers();
     TestTasks();
     TestSpaces();
+    TestInjectObj();
     TestKittens();
     TestTaskLifetime();
     TestManyThreads();

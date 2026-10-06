@@ -49,7 +49,8 @@ typedef struct VirtMemRegionStruct {
     VirtMemType memtype;
     VirtMemBacking owner; // ownership: who allocated/owns the backing pages
     VirtMemFlags flags;
-    void *backing; // optional backing MemObject for shared and device mappings
+    void *backing; // optional backing MemObject for shared and device mappings; the region owns a ref
+    size_t backing_page_offset; // first page of a shared backing object this region maps
 } VirtMemRegion;
 
 typedef enum {
@@ -215,6 +216,7 @@ Err VmmMapMemObj(SpaceObject *space, HandleTableEntry *entry, MemProt prot, Virt
 Err VmmUnmapUserRegion(SpaceObject *space, VirtAddr va);
 
 Err InjectIntoSpace(SpaceObject *kitten, SpaceObject *parent, InjectArgs *args);
+Err InjectObjIntoSpace(SpaceObject *kitten, SpaceObject *parent, const InjectObjArgs *args);
 
 Err VmmProtectUserRange(SpaceObject *space, VirtAddr va, size_t size, MemProt new_prot);
 

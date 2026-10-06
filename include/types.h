@@ -108,6 +108,7 @@ typedef enum {
     MNGMEM_UNMAP,
     MNGMEM_PROTECT,
     MNGMEM_INJECT,
+    MNGMEM_INJECTOBJ,
 } ManageMemoryVerb;
 
 typedef enum {
@@ -160,6 +161,14 @@ typedef struct {
                          // PROT_WRITE)
     uint32_t flags;      // ASINJECT_FLAG_* bits; 0 for the original copy-in behavior
 } InjectArgs;
+
+typedef struct {
+    Handle mem;          // shm object in the current space, or HANDLE_ANON for demand-zero memory
+    VirtAddr dest_vaddr; // destination virtual address in the target space
+    size_t offset;       // byte offset into the object; ignored for HANDLE_ANON
+    size_t len;          // bytes to map
+    MemProt prot;        // protection of the destination mapping
+} InjectObjArgs;
 
 #ifdef __cplusplus
 }

@@ -20,6 +20,7 @@ MemObject *MemObjCreateDevice(PhysAddr phys_base, size_t size, Irq irq)
     ENSURE_RET(mem, NULL);
     mem->kind = MEMKIND_DEVICE;
     mem->ref_count = 1;
+    mem->exec_synced = false;
     mem->dev.phys_base = phys_base;
     mem->dev.size = size;
     mem->dev.irq = irq;
@@ -32,9 +33,16 @@ MemObject *MemObjCreateShm(PhysAddr *page_addrs, size_t page_count)
     ENSURE_RET(mem, NULL);
     mem->kind = MEMKIND_SHARED;
     mem->ref_count = 1;
+    mem->exec_synced = false;
     mem->shm.page_addrs = page_addrs;
     mem->shm.page_count = page_count;
     return mem;
+}
+
+void MemObjRef(MemObject *mem)
+{
+    if (mem)
+        mem->ref_count++;
 }
 
 void MemObjUnref(MemObject *mem)

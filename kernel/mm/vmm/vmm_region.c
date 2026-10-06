@@ -74,7 +74,8 @@ bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, Vi
         if (page_va < r->vaddr_start)
             return false;
 
-        size_t page_index = (size_t)((page_va - r->vaddr_start) / PAGE_SIZE);
+        size_t page_index =
+            (size_t)((page_va - r->vaddr_start) / PAGE_SIZE) + r->backing_page_offset;
         if (page_index >= mem->shm.page_count)
             return false;
 
@@ -101,7 +102,8 @@ bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, Vi
         if (allocated_new) {
             if (r->owner == VM_BACKING_SHARED && r->backing) {
                 MemObject *mem = (MemObject *)r->backing;
-                size_t page_index = (size_t)((page_va - r->vaddr_start) / PAGE_SIZE);
+                size_t page_index =
+                    (size_t)((page_va - r->vaddr_start) / PAGE_SIZE) + r->backing_page_offset;
                 if (page_index < mem->shm.page_count && mem->shm.page_addrs[page_index] == new_pa)
                     mem->shm.page_addrs[page_index] = 0;
             }
@@ -172,6 +174,7 @@ void AddressSpaceDestroy(AddressSpace *as)
         if (!r)
             continue;
         VmmUnmapRange(as, r->vaddr_start, r->size, false);
+        MemObjUnref((MemObject *)r->backing);
     }
 
     if (as->asid_token.asid != 0)
@@ -219,6 +222,7 @@ bool VmmAddRegion(AddressSpace *restrict as, const VirtMemRegion *restrict regio
             (as->regions.len - ins) * sizeof(VirtMemRegion));
     as->regions.data[ins] = *region;
     as->regions.len++;
+    MemObjRef((MemObject *)region->backing);
     return true;
 }
 
@@ -259,8 +263,10 @@ bool VmmRemoveRegion(AddressSpace *as, uintptr_t vaddr, size_t size)
 
     VmmUnmapRange(as, vaddr, size, true);
 
+    MemObject *backing = (MemObject *)r->backing;
     uint32_t idx = (uint32_t)(r - as->regions.data);
     memmove(r, r + 1, (as->regions.len - idx - 1) * sizeof(VirtMemRegion));
     as->regions.len--;
+    MemObjUnref(backing);
     return true;
 }

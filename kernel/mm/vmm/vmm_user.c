@@ -1,5 +1,6 @@
 #include "core/ensure.h"
 #include "core/panic.h"
+#include "kernel/bench.h"
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/space/space.h"
 #include "vmm_internal.h"
@@ -156,7 +157,8 @@ Err VmmUnmapUserRegion(SpaceObject *space, VirtAddr va)
                 break;
             }
         }
-        ENSURE(found_in_table, KWARN("Couldn't find unmap entry in handle table"));
+        ENSURE(found_in_table || found->owner == VM_BACKING_SHARED,
+               KWARN("Couldn't find unmap entry in handle table"));
     }
     }
 
@@ -234,6 +236,14 @@ bool VmmCheckUserFault(AddressSpace *as, VirtAddr va, size_t len, bool write)
     return true;
 }
 
+#ifdef CONFIG_ZUZU_BENCH
+BENCH_STAT(g_bench_inject_alloc, "inject: PmmAllocFrame");
+BENCH_STAT(g_bench_inject_check, "inject: VmmCheckUserFault src");
+BENCH_STAT(g_bench_inject_copy, "inject: memcpy page");
+BENCH_STAT(g_bench_inject_map, "inject: VmmMapUserPage");
+BENCH_STAT(g_bench_inject_clean, "inject: dcache clean (exec)");
+#endif
+
 Err InjectIntoSpace(SpaceObject *kitten, SpaceObject *parent, InjectArgs *args)
 {
 
@@ -299,7 +309,13 @@ Err InjectIntoSpace(SpaceObject *kitten, SpaceObject *parent, InjectArgs *args)
         PhysAddr page = enclosing ? ArchMmuTranslate(kitten->as->pt_root_physaddr, dst_page) : 0;
         bool fresh = (page == 0);
         if (fresh) {
+#ifdef CONFIG_ZUZU_BENCH
+            uint32_t bench_start = BENCH_BEGIN();
+#endif
             page = PmmAllocFrame();
+#ifdef CONFIG_ZUZU_BENCH
+            BENCH_END(g_bench_inject_alloc, bench_start);
+#endif
             if (!page)
                 goto rollback_nomem;
             page_addrs[i] = page;
@@ -310,27 +326,49 @@ Err InjectIntoSpace(SpaceObject *kitten, SpaceObject *parent, InjectArgs *args)
         if (bytes_to_copy > PAGE_SIZE)
             bytes_to_copy = PAGE_SIZE;
 
+#ifdef CONFIG_ZUZU_BENCH
+        uint32_t bench_start = BENCH_BEGIN();
+#endif
         if (!VmmCheckUserFault(parent->as, (uintptr_t)args->src_buf + offset, bytes_to_copy, false))
             goto rollback_badarg;
+#ifdef CONFIG_ZUZU_BENCH
+        BENCH_END(g_bench_inject_check, bench_start);
+        bench_start = BENCH_BEGIN();
+#endif
         memcpy((void *)PA_TO_VA(page), (const void *)((uintptr_t)args->src_buf + offset),
                bytes_to_copy);
+#ifdef CONFIG_ZUZU_BENCH
+        BENCH_END(g_bench_inject_copy, bench_start);
+#endif
 
         if (fresh && bytes_to_copy < PAGE_SIZE)
             memset((void *)(PA_TO_VA(page) + bytes_to_copy), 0, PAGE_SIZE - bytes_to_copy);
 
+#ifdef CONFIG_ZUZU_BENCH
+        bench_start = BENCH_BEGIN();
+#endif
         if (fresh && !VmmMapUserPage(kitten->as, page, dst_page, args->prot)) {
             PmmFreeFrame(page);
             page_addrs[i] = 0;
             goto rollback_nomem;
         }
+#ifdef CONFIG_ZUZU_BENCH
+        BENCH_END(g_bench_inject_map, bench_start);
+#endif
     }
 
     if (args->prot & PROT_EXEC) {
         for (size_t i = 0; i < page_count; i++) {
             PhysAddr pa =
                 ArchMmuTranslate(kitten->as->pt_root_physaddr, args->dest_vaddr + (i * PAGE_SIZE));
+#ifdef CONFIG_ZUZU_BENCH
+            uint32_t bench_clean = BENCH_BEGIN();
+#endif
             if (pa)
                 ArchCacheCleanDcacheRange(PA_TO_VA(pa), PAGE_SIZE);
+#ifdef CONFIG_ZUZU_BENCH
+            BENCH_END(g_bench_inject_clean, bench_clean);
+#endif
         }
         ArchCacheInvalidateIcacheAll();
     }
@@ -370,4 +408,74 @@ rollback_nomem:
     }
     KFree(page_addrs);
     return ERR_NOMEM;
+}
+
+Err InjectObjIntoSpace(SpaceObject *kitten, SpaceObject *parent, const InjectObjArgs *args)
+{
+    ENSURE_RET(args->len && !(args->len % PAGE_SIZE), ERR_BADARG);
+    ENSURE_RET(!(args->dest_vaddr % PAGE_SIZE) && !(args->offset % PAGE_SIZE), ERR_BADARG);
+    ENSURE_RET(!(args->prot & ~(uint32_t)(PROT_EXEC | PROT_WRITE | PROT_READ)), ERR_BADARG);
+    ENSURE_RET(!((args->prot & PROT_WRITE) && (args->prot & PROT_EXEC)), ERR_BADARG);
+    ENSURE_RET(args->dest_vaddr < USER_VA_TOP && args->len <= USER_VA_TOP - args->dest_vaddr,
+               ERR_BADARG);
+    ENSURE_RET(ListIsEmpty(&kitten->tasks), ERR_BUSY);
+
+    VirtMemRegion region = {
+        .vaddr_start = args->dest_vaddr,
+        .size = args->len,
+        .prot = args->prot | VM_PROT_USER,
+        .memtype = VM_MEM_NORMAL,
+        .flags = VM_FLAG_NONE,
+    };
+
+    if (args->mem == HANDLE_ANON) {
+        region.owner = VM_BACKING_ANON;
+        ENSURE_RET(VmmAddRegion(kitten->as, &region), ERR_NOMEM);
+        return ZUZU_OK;
+    }
+
+    HandleTableEntry *entry = HandleTableLookup(&parent->handle_table, args->mem);
+    ENSURE_RET(entry, ERR_BADHANDLE);
+    ENSURE_RET(entry->type == HANDLE_MEM, ERR_BADTYPE);
+    ENSURE_RET(entry->perms & PERM_MAP, ERR_NOPERM);
+
+    MemObject *mem = entry->mem;
+    ENSURE_RET(mem && mem->kind == MEMKIND_SHARED, ERR_BADTYPE);
+
+    size_t obj_bytes = mem->shm.page_count * PAGE_SIZE;
+    ENSURE_RET(args->offset < obj_bytes && args->len <= obj_bytes - args->offset, ERR_BADARG);
+
+    size_t first = args->offset / PAGE_SIZE;
+    size_t pages = args->len / PAGE_SIZE;
+
+    if (args->prot & PROT_EXEC) {
+        for (size_t i = 0; i < pages; i++)
+            ENSURE_RET(mem->shm.page_addrs[first + i], ERR_BADARG);
+    }
+
+    region.owner = VM_BACKING_SHARED;
+    region.backing = mem;
+    region.backing_page_offset = first;
+    ENSURE_RET(VmmAddRegion(kitten->as, &region), ERR_NOMEM);
+
+    for (size_t i = 0; i < pages; i++) {
+        PhysAddr pa = mem->shm.page_addrs[first + i];
+        if (!pa)
+            continue;
+        if (!VmmMapUserPage(kitten->as, pa, args->dest_vaddr + (i * PAGE_SIZE), args->prot)) {
+            VmmRemoveRegion(kitten->as, args->dest_vaddr, args->len);
+            return ERR_NOMEM;
+        }
+    }
+
+    if ((args->prot & PROT_EXEC) && !mem->exec_synced) {
+        for (size_t i = 0; i < mem->shm.page_count; i++) {
+            if (mem->shm.page_addrs[i])
+                ArchCacheCleanDcacheRange(PA_TO_VA(mem->shm.page_addrs[i]), PAGE_SIZE);
+        }
+        ArchCacheInvalidateIcacheAll();
+        mem->exec_synced = true;
+    }
+
+    return ZUZU_OK;
 }

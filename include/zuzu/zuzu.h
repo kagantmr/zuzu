@@ -262,6 +262,20 @@ static inline Err MemInject(Handle kitten_space_handle, VirtAddr dest_vaddr, con
                          (Register)(VirtAddr)&args, 0);
 }
 
+static inline Err MemInjectObj(Handle kitten_space_handle, Handle mem_handle, VirtAddr dest_vaddr,
+                               size_t offset, size_t size, MemProt prot)
+{
+    InjectObjArgs args = {
+        .mem = mem_handle,
+        .dest_vaddr = dest_vaddr,
+        .offset = offset,
+        .len = size,
+        .prot = prot,
+    };
+    return ArchInvokeSvc(SVC_MANAGEMEMORY, MNGMEM_INJECTOBJ, kitten_space_handle,
+                         (Register)(VirtAddr)&args, 0);
+}
+
 static inline SvcResult Call(Handle port, uint32_t xlen, Handle grant_handle)
 {
     return ArchInvokeSvc4(SVC_CALL, port, (Register)xlen, grant_handle, 0);
