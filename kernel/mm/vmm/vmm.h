@@ -215,7 +215,6 @@ Err VmmMapMemObj(SpaceObject *space, HandleTableEntry *entry, MemProt prot, Virt
 
 Err VmmUnmapUserRegion(SpaceObject *space, VirtAddr va);
 
-Err InjectIntoSpace(SpaceObject *kitten, SpaceObject *parent, InjectArgs *args);
 Err InjectObjIntoSpace(SpaceObject *kitten, SpaceObject *parent, const InjectObjArgs *args);
 
 Err VmmProtectUserRange(SpaceObject *space, VirtAddr va, size_t size, MemProt new_prot);

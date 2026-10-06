@@ -99,6 +99,9 @@ static Err ParseImage(const void *data, size_t size, SpawnImage *out)
     return ParseZxf(data, size, out);
 }
 
+#define SPAWN_ARGV_MAX_PAGES 4u
+#define SPAWN_ARGV_VA (USER_ELF_BASE - (SPAWN_ARGV_MAX_PAGES * PAGE_SIZE))
+
 static Err LoadSegment(Handle space_handle, const void *data, const SpawnSeg *seg)
 {
     uint32_t prot = seg->prot;
@@ -107,25 +110,16 @@ static Err LoadSegment(Handle space_handle, const void *data, const SpawnSeg *se
     size_t mem_pages = PAGE_ROUND_UP(seg->mem_size) / PAGE_SIZE;
 
     if (file_pages > 0) {
-        /* Zero-padded so the tail of the boundary page (file content mixed
-         * with BSS, when file_size isn't page-aligned) comes out zeroed,
-         * same as the kernel's own ELF loader. */
-        uint8_t *buf = malloc(file_pages * PAGE_SIZE);
-        if (!buf)
-            return ERR_NOMEM;
-        memset(buf, 0, file_pages * PAGE_SIZE);
-        memcpy(buf, (const uint8_t *)data + seg->file_offset, seg->file_size);
-
-        Err rc =
-            MemInject(space_handle, (VirtAddr)seg->vaddr, buf, file_pages * PAGE_SIZE, prot, 0);
-        free(buf);
+        Err rc = MemInjectBytes(space_handle, (VirtAddr)seg->vaddr,
+                                (const uint8_t *)data + seg->file_offset, seg->file_size, prot);
         if (rc != ZUZU_OK)
             return rc;
     }
 
     if (mem_pages > file_pages) {
-        Err rc = MemInject(space_handle, (VirtAddr)seg->vaddr + (file_pages * PAGE_SIZE), NULL,
-                           (mem_pages - file_pages) * PAGE_SIZE, prot, ASINJECT_FLAG_RESERVE);
+        Err rc = MemInjectObj(space_handle, HANDLE_ANON,
+                              (VirtAddr)seg->vaddr + (file_pages * PAGE_SIZE), 0,
+                              (mem_pages - file_pages) * PAGE_SIZE, prot);
         if (rc != ZUZU_OK)
             return rc;
     }
@@ -133,65 +127,43 @@ static Err LoadSegment(Handle space_handle, const void *data, const SpawnSeg *se
     return ZUZU_OK;
 }
 
-/* Lays out argv the same way kernel/task/kernel_load.c's KernelSpaceLoad
- * does: strings just below USR_SP, then the (argc+1)-slot pointer array
- * (NULL-terminated) just below that. Returns the resulting sp and, if
- * argc > 0, the argv pointer array's VA in *out_argv_va. */
 static Err LayoutArgv(Handle space_handle, const char *argbuf, size_t argbuf_len, uint32_t argc,
                       VirtAddr *out_sp, VirtAddr *out_argv_va)
 {
-    VirtAddr sp = USR_SP;
+    *out_sp = USR_SP;
     *out_argv_va = 0;
 
-    if (argc == 0) {
-        *out_sp = sp;
+    if (argc == 0)
         return ZUZU_OK;
-    }
 
-    sp -= argbuf_len;
-    sp &= ~(VirtAddr)3U;
-    VirtAddr strings_va = sp;
-
-    sp -= (VirtAddr)(argc + 1) * sizeof(uint32_t);
-    sp &= ~(VirtAddr)7U;
-    VirtAddr argv_va = sp;
-
-    if (argv_va < USER_STACK_BASE)
+    size_t table_bytes = (size_t)(argc + 1) * sizeof(uint32_t);
+    size_t block_len = table_bytes + argbuf_len;
+    if (PAGE_ROUND_UP(block_len) > SPAWN_ARGV_MAX_PAGES * PAGE_SIZE)
         return ERR_BADARG;
-
-    /* Build the whole [ptr array][strings] block locally, at the exact byte
-     * offsets it will land at in the target stack, then inject it as one
-     * page-aligned write -- MemInject fills in place since this falls
-     * entirely inside the stack region SpaceCreate already reserved. */
-    VirtAddr block_start = PAGE_ROUND_DOWN(argv_va);
-    VirtAddr block_end = PAGE_ROUND_UP(USR_SP);
-    size_t block_len = block_end - block_start;
 
     uint8_t *block = malloc(block_len);
     if (!block)
         return ERR_NOMEM;
-    memset(block, 0, block_len);
 
-    VirtAddr str_va = strings_va;
+    VirtAddr str_va = SPAWN_ARGV_VA + table_bytes;
     const char *str_src = argbuf;
     for (uint32_t a = 0; a <= argc; a++) {
         uint32_t slot = (a < argc) ? (uint32_t)str_va : 0;
-        memcpy(block + (argv_va + a * sizeof(uint32_t) - block_start), &slot, sizeof(slot));
+        memcpy(block + (a * sizeof(uint32_t)), &slot, sizeof(slot));
         if (a < argc) {
             size_t l = strlen(str_src) + 1;
             str_va += l;
             str_src += l;
         }
     }
-    memcpy(block + (strings_va - block_start), argbuf, argbuf_len);
+    memcpy(block + table_bytes, argbuf, argbuf_len);
 
-    Err rc = MemInject(space_handle, block_start, block, block_len, PROT_RW, 0);
+    Err rc = MemInjectBytes(space_handle, SPAWN_ARGV_VA, block, block_len, PROT_RW);
     free(block);
     if (rc != ZUZU_OK)
         return rc;
 
-    *out_sp = sp;
-    *out_argv_va = argv_va;
+    *out_argv_va = SPAWN_ARGV_VA;
     return ZUZU_OK;
 }
 

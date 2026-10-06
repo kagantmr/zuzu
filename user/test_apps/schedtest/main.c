@@ -46,8 +46,8 @@ static bool KittenInject(Kitten *k, const uint32_t *code, size_t bytes)
 {
     memset(g_code_page, 0, sizeof(g_code_page));
     memcpy(g_code_page, code, bytes);
-    return MemInject(k->space, USER_ELF_BASE, g_code_page, sizeof(g_code_page),
-                     PROT_READ | PROT_EXEC, 0) == ZUZU_OK;
+    return MemInjectBytes(k->space, USER_ELF_BASE, g_code_page, sizeof(g_code_page),
+                          PROT_READ | PROT_EXEC) == ZUZU_OK;
 }
 
 static bool KittenLaunch(Kitten *k)

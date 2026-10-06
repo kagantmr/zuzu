@@ -240,8 +240,8 @@ static void RunIpcCross(void)
     memcpy(g_code_page, kEchoCode, sizeof(kEchoCode));
     Handle task = -1;
     SvcResult g = HandleGrant(port, space, PERM_ALL);
-    if (MemInject(space, USER_ELF_BASE, g_code_page, sizeof(g_code_page), PROT_READ | PROT_EXEC,
-                  0) == ZUZU_OK &&
+    if (MemInjectBytes(space, USER_ELF_BASE, g_code_page, sizeof(g_code_page),
+                       PROT_READ | PROT_EXEC) == ZUZU_OK &&
         g.r0 == ZUZU_OK && (task = CreateTask(space)) >= 0 &&
         TaskStart(task, (void *)USER_ELF_BASE, (void *)USR_SP, (uint32_t)g.r1, 0) == ZUZU_OK) {
         BenchIpc("ipc cross-space", port, 4);
@@ -410,6 +410,17 @@ static void BenchSpaces(void)
     for (uint32_t k = 0; k < sizeof(pages) / sizeof(pages[0]); k++) {
         uint32_t n = pages[k] >= 256 ? 128 : HEAVY;
         char name[48];
+        Handle obj = -1;
+        if (pages[k]) {
+            obj = CreateMem(pages[k]);
+            uint8_t *w = MemMap(obj, 0, PROT_RW);
+            if (obj < 0 || PtrIsErr(w)) {
+                printf("injectobj setup failed\n");
+                return;
+            }
+            memcpy(w, src, pages[k] * PAGE);
+            MemUnmap(w);
+        }
         for (uint32_t i = 0; i < n; i++) {
             Handle sp;
             TIMED(g_samples, i, sp = CreateSpace("speedtest-bench"));
@@ -419,30 +430,38 @@ static void BenchSpaces(void)
             }
             if (pages[k]) {
                 TIMED(g_samples_b, i,
-                      MemInject(sp, USER_ELF_BASE, src, pages[k] * PAGE, PROT_RW, 0));
+                      MemInjectObj(sp, obj, USER_ELF_BASE, 0, pages[k] * PAGE, PROT_RW));
             } else {
                 g_samples_b[i] = 0;
             }
             TIMED(g_samples_c, i, HandleDestroy(sp));
         }
-        snprintf(name, sizeof(name), "create space (%up injected)", (unsigned)pages[k]);
+        if (obj >= 0)
+            HandleClose(obj);
+        snprintf(name, sizeof(name), "create space (%up mapped)", (unsigned)pages[k]);
         Report(name, n);
         if (pages[k]) {
-            snprintf(name, sizeof(name), "mem inject %up", (unsigned)pages[k]);
+            snprintf(name, sizeof(name), "injectobj %up (rw)", (unsigned)pages[k]);
             ReportBuf(name, g_samples_b, n);
         }
-        snprintf(name, sizeof(name), "destroy space (%up backed)", (unsigned)pages[k]);
+        snprintf(name, sizeof(name), "destroy space (%up mapped)", (unsigned)pages[k]);
         ReportBuf(name, g_samples_c, n);
     }
+
     for (uint32_t i = 0; i < HEAVY; i++) {
         Handle sp = CreateSpace("speedtest-bench");
-        if (sp < 0)
+        Handle obj = CreateMem(16);
+        uint8_t *w = MemMap(obj, 0, PROT_RW);
+        if (sp < 0 || obj < 0 || PtrIsErr(w))
             break;
+        memcpy(w, src, 16 * PAGE);
+        MemUnmap(w);
         TIMED(g_samples, i,
-              MemInject(sp, USER_ELF_BASE, src, 16 * PAGE, PROT_READ | PROT_EXEC, 0));
+              MemInjectObj(sp, obj, USER_ELF_BASE, 0, 16 * PAGE, PROT_READ | PROT_EXEC));
+        HandleClose(obj);
         HandleDestroy(sp);
     }
-    ReportBuf("mem inject 16p (exec)", g_samples, HEAVY);
+    ReportBuf("injectobj 16p (exec, fresh object)", g_samples, HEAVY);
     MemUnmap(src);
 }
 

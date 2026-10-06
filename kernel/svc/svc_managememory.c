@@ -41,24 +41,6 @@ void SvcManageMemory(CpuState *frame)
 
         ArchSetInFrame(frame, 0, VmmProtectUserRange(CURRENT_SPACE, va, size, new_prot));
     } break;
-    case MNGMEM_INJECT: {
-
-        Handle kitten_space_handle = (*ArchGetFromFrame(frame, 1));
-
-        HandleTableEntry *entry =
-            HandleTableLookup(&CURRENT_SPACE->handle_table, kitten_space_handle);
-        ENSURE_ERR(frame, entry, ERR_BADHANDLE);
-        ENSURE_ERR(frame, (HANDLE_SPACE == entry->type), ERR_BADTYPE);
-        ENSURE_ERR(frame, !entry->space->torn_down, ERR_DEAD);
-        ENSURE_ERR(frame, entry->perms & PERM_CNTL, ERR_NOPERM);
-
-        InjectArgs kargs;
-        ENSURE_ERR(frame,
-                   CopyFromUser(&kargs, (const void *)(*ArchGetFromFrame(frame, 2)), sizeof(kargs)),
-                   ERR_BADPTR);
-
-        ArchSetInFrame(frame, 0, InjectIntoSpace(entry->space, CURRENT_SPACE, &kargs));
-    } break;
     case MNGMEM_INJECTOBJ: {
         Handle kitten_space_handle = (*ArchGetFromFrame(frame, 1));
 

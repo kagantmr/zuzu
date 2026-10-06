@@ -6,7 +6,7 @@
  * number of failed checks.
  *
  * Same-space worker threads play the IPC/event peers. Anything that needs a
- * second address space (faults, space lifecycle, MemInject) injects a few
+ * second address space (faults, space lifecycle, MemInjectObj) injects a few
  * hand-assembled ARM words into a kitten Space, so the suite needs neither
  * the initrd nor a second binary. A faulting kitten makes the kernel print
  * an "Oops!" register dump: that is expected.
@@ -229,10 +229,10 @@ static Err KittenCreateEx(Kitten *k, const uint32_t *code, size_t bytes, bool wi
     memcpy(g_code_page, code, bytes);
     Err rc = ZUZU_OK;
     if (with_data)
-        rc = MemInject(k->space, KITTEN_DATA_VA, NULL, 4096, PROT_RW, ASINJECT_FLAG_RESERVE);
+        rc = MemInjectObj(k->space, HANDLE_ANON, KITTEN_DATA_VA, 0, 4096, PROT_RW);
     if (rc == ZUZU_OK)
-        rc = MemInject(k->space, USER_ELF_BASE, g_code_page, sizeof(g_code_page),
-                       PROT_READ | PROT_EXEC, 0);
+        rc = MemInjectBytes(k->space, USER_ELF_BASE, g_code_page, sizeof(g_code_page),
+                            PROT_READ | PROT_EXEC);
     if (rc != ZUZU_OK) {
         HandleDestroy(k->space);
         return rc;
@@ -1102,7 +1102,7 @@ static void TestTasks(void)
     atomic_store(&g_flag, 0);
 }
 
-/* ---------------- 7. spaces, faults, MemInject ---------------- */
+/* ---------------- 7. spaces and faults ---------------- */
 
 static void TestSpaces(void)
 {
@@ -1226,53 +1226,13 @@ static void TestSpaces(void)
     CheckEq(TaskResume(k.task), ERR_BADARG, "Resume on a task that is no longer faulted -> BADARG");
     KittenFree(&k);
 
-    /* MemInject contract */
     Handle sp = CreateSpace("zz-inject");
-    memset(g_code_page, 0x90, sizeof(g_code_page));
-    CheckEq(MemInject(sp, USER_ELF_BASE + 1, g_code_page, 4096, PROT_READ, 0), ERR_BADARG,
-            "unaligned destination -> BADARG");
-    CheckEq(MemInject(sp, USER_ELF_BASE, g_code_page, 0, PROT_READ, 0), ERR_BADARG,
-            "zero length -> BADARG");
-    CheckEq(MemInject(sp, USER_ELF_BASE, g_code_page, 4096, PROT_WRITE | PROT_EXEC, 0), ERR_BADARG,
-            "W+X -> BADARG");
-    CheckEq(MemInject(sp, USER_ELF_BASE, g_code_page, 4096, (MemProt)8, 0), ERR_BADARG,
-            "unknown prot bits -> BADARG");
-    CheckEq(MemInject(sp, 0x80000000u, g_code_page, 4096, PROT_READ, 0), ERR_BADARG,
-            "destination in kernel space -> BADARG");
-    CheckEq(MemInject(sp, USER_ELF_BASE, NULL, 4096, PROT_READ, 0), ERR_BADARG,
-            "NULL source -> BADARG");
-    CheckEq(MemInject(sp, USER_ELF_BASE, g_code_page, 4096, PROT_READ, ASINJECT_FLAG_RESERVE),
-            ERR_BADARG, "RESERVE with a source -> BADARG");
-    CheckEq(MemInject(sp, USER_ELF_BASE, NULL, 100, PROT_READ, ASINJECT_FLAG_RESERVE), ERR_BADARG,
-            "RESERVE length not page-aligned -> BADARG");
-    CheckEq(MemInject(sp, USER_ELF_BASE, (const void *)0xC0000000u, 4096, PROT_READ, 0), ERR_BADARG,
-            "source pointer into the kernel -> BADARG");
-    CheckEq(MemInject(sp, 0x40000000u, NULL, 8192, PROT_RW, ASINJECT_FLAG_RESERVE), ZUZU_OK,
-            "RESERVE a demand-zero region");
-    CheckEq(MemInject(sp, 0x40000000u, NULL, 8192, PROT_RW, ASINJECT_FLAG_RESERVE), ERR_NOMEM,
-            "RESERVE over an existing region -> NOMEM");
-    CheckEq(MemInject(sp, 0x40000000u, g_code_page, 4096, PROT_RW, 0), ZUZU_OK,
-            "inject into a reserved region fills it in place");
-    CheckEq(MemInject(sp, 0x50000000u, NULL, 4096, PROT_READ, ASINJECT_FLAG_RESERVE), ZUZU_OK,
-            "RESERVE a read-only region");
-    CheckEq(MemInject(sp, 0x50000000u, g_code_page, 4096, PROT_RW, 0), ERR_BADARG,
-            "inject may not exceed the region's own prot");
-    CheckEq(MemInject(-1, USER_ELF_BASE, g_code_page, 4096, PROT_READ, 0), ERR_BADHANDLE,
-            "MemInject(invalid space) -> BADHANDLE");
-    Handle evt = CreateEvent();
-    CheckEq(MemInject(evt, USER_ELF_BASE, g_code_page, 4096, PROT_READ, 0), ERR_BADTYPE,
-            "MemInject(event) -> BADTYPE");
-    HandleClose(evt);
     SvcResult weak = HandleDuplicate(sp, PERM_WAIT, MARKER_NONE);
-    CheckEq(MemInject((Handle)weak.r1, USER_ELF_BASE, g_code_page, 4096, PROT_READ, 0), ERR_NOPERM,
-            "MemInject without PERM_CNTL -> NOPERM");
     CheckEq(CreateTask((Handle)weak.r1), ERR_NOPERM,
             "CreateTask without PERM_CNTL on the Space -> NOPERM");
     HandleClose((Handle)weak.r1);
     Handle task = CreateTask(sp);
     Check(task >= 0, "CreateTask in a kitten Space OK");
-    CheckEq(MemInject(sp, USER_ELF_BASE, g_code_page, 4096, PROT_READ, 0), ERR_BUSY,
-            "injecting once a task exists -> BUSY");
     HandleClose(task);
     CheckEq(HandleDestroy(sp), ZUZU_OK, "Destroy(space) OK");
     CheckEq(HandleQuery(sp, QUERY_TYPE).r0, ERR_BADHANDLE, "the Space handle is gone");

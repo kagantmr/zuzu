@@ -248,20 +248,6 @@ static inline Err MemProtect(VirtAddr va, size_t size, MemProt new_prot)
     return ArchInvokeSvc(SVC_MANAGEMEMORY, MNGMEM_PROTECT, (Register)va, (Register)size, new_prot);
 }
 
-static inline Err MemInject(Handle kitten_space_handle, VirtAddr dest_vaddr, const void *src_buf,
-                            size_t size, MemProt prot, uint32_t flags)
-{
-    InjectArgs args = {
-        .dest_vaddr = dest_vaddr,
-        .src_buf = src_buf,
-        .len = size,
-        .prot = prot,
-        .flags = flags,
-    };
-    return ArchInvokeSvc(SVC_MANAGEMEMORY, MNGMEM_INJECT, kitten_space_handle,
-                         (Register)(VirtAddr)&args, 0);
-}
-
 static inline Err MemInjectObj(Handle kitten_space_handle, Handle mem_handle, VirtAddr dest_vaddr,
                                size_t offset, size_t size, MemProt prot)
 {
@@ -341,6 +327,30 @@ static inline void BenchDump(void) {}
 #endif
 
 static inline int PtrIsErr(const void *p) { return (VirtAddr)p >= (VirtAddr)(-4095); }
+
+/** @brief Copies len bytes into a fresh object and maps it at va in the target space, rounded up
+ * to whole pages and zero-padded. The object is released once the mapping holds it. */
+static inline Err MemInjectBytes(Handle kitten_space_handle, VirtAddr va, const void *src,
+                                 size_t len, MemProt prot)
+{
+    size_t pages = (len + 0xFFFU) >> 12;
+    Handle obj = CreateMem(pages);
+    if (obj < 0)
+        return (Err)obj;
+
+    uint8_t *w = (uint8_t *)MemMap(obj, 0, PROT_RW);
+    if (PtrIsErr(w)) {
+        HandleClose(obj);
+        return (Err)(intptr_t)w;
+    }
+    memcpy(w, src, len);
+    memset(w + len, 0, (pages << 12) - len);
+    MemUnmap(w);
+
+    Err rc = MemInjectObj(kitten_space_handle, obj, va, 0, pages << 12, prot);
+    HandleClose(obj);
+    return rc;
+}
 
 #ifdef __cplusplus
 }

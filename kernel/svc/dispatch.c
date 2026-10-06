@@ -80,7 +80,6 @@ static const char *const svc_bench_names[SVC_TOTAL_COUNT][SVC_BENCH_VERBS] = {
     [SVC_MANAGEMEMORY] = {[MNGMEM_MAP] = "mem.map",
                           [MNGMEM_UNMAP] = "mem.unmap",
                           [MNGMEM_PROTECT] = "mem.protect",
-                          [MNGMEM_INJECT] = "mem.inject",
                           [MNGMEM_INJECTOBJ] = "mem.injectobj"},
     [SVC_MANAGETASK] = {[MNGTASK_START] = "task.start",
                         [MNGTASK_KILL] = "task.kill",
