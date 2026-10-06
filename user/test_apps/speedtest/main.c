@@ -240,15 +240,18 @@ static void RunIpcCross(void)
     memcpy(g_code_page, kEchoCode, sizeof(kEchoCode));
     Handle task = -1;
     SvcResult g = HandleGrant(port, space, PERM_ALL);
-    if (MemInjectBytes(space, USER_ELF_BASE, g_code_page, sizeof(g_code_page),
-                       PROT_READ | PROT_EXEC) == ZUZU_OK &&
-        g.r0 == ZUZU_OK && (task = CreateTask(space)) >= 0 &&
-        TaskStart(task, (void *)USER_ELF_BASE, (void *)USR_SP, (uint32_t)g.r1, 0) == ZUZU_OK) {
+    Err inj = MemInjectBytes(space, USER_ELF_BASE, g_code_page, sizeof(g_code_page),
+                             PROT_READ | PROT_EXEC);
+    Err start = ERR_BADARG;
+    if (inj == ZUZU_OK && g.r0 == ZUZU_OK && (task = CreateTask(space)) >= 0)
+        start = TaskStart(task, (void *)USER_ELF_BASE, (void *)USR_SP, (uint32_t)g.r1, 0);
+    if (start == ZUZU_OK) {
         BenchIpc("ipc cross-space", port, 4);
         BenchIpc("ipc cross-space", port, 64);
         BenchIpc("ipc cross-space", port, 256);
     } else {
-        printf("cross-space setup failed\n");
+        printf("cross-space setup failed: grant %d inject %d task %d start %d\n", (int)g.r0,
+               (int)inj, (int)task, (int)start);
     }
     if (task >= 0)
         HandleClose(task);
