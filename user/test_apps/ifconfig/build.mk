@@ -1,0 +1,1 @@
+obj-y += ifconfig.o

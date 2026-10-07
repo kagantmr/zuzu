@@ -164,6 +164,9 @@ static __attribute__((cold)) Err PerformDriverHandshake(PortWaitResult res)
     MsgWriterInit(&w);
     MsgPutU32(&w, ZUZU_OK);
     MsgPutStr(&w, "eth0");
+
+    strncpy(netif.name, "eth0", 8);
+    
     return Reply(w.off, -1);
 }
 
@@ -245,9 +248,25 @@ int main()
 
         EventWaitResult ev = FormatToEventWait(WaitOn(g_event, slice));
         if (ev.status == ZUZU_OK && (ev.bits & PORT_MASK)) {
-            PortWaitResult call;
+            PortWaitResult call = FormatToPortWait(WaitOn(g_svc_port, TIMEOUT_POLL));
+            NetdOpcode op;
+            MsgRead(&op, sizeof(op));
+            switch(op) {
+                case NETD_GET_NETIF: {
+                    MsgWrite(&netif, sizeof(netif));
+                    Reply(sizeof(netif), (-1));
+                } break;
+                default: {
+                    RejectCall(ERR_NOSYS, call.granted);
+                    LOG_ERROR(LOG_TAG, "Unknown command"); 
+                    continue;
+                }
+            }
+            if (call.granted >= 0)
+                HandleClose(call.granted);
+            /* 
             while ((call = FormatToPortWait(WaitOn(g_svc_port, TIMEOUT_POLL))).status == ZUZU_OK)
-                RejectCall(ERR_NOSYS, call.granted);
+                RejectCall(ERR_NOSYS, call.granted);*/
         }
 
         /* 4. THEN fire expired timers */

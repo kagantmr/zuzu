@@ -32,6 +32,7 @@ typedef struct {
     ipv4_addr_t gateway;
     ipv4_addr_t dns;
     mac_addr_t mac;
+    char name[8];
 } netif_t;
 
 static inline uint32_t net_now_ms(void)
