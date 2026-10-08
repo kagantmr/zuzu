@@ -7,7 +7,7 @@
 
 typedef volatile uint32_t MMIORegister;
 
-typedef struct __attribute__((packed)) {
+typedef struct {
     MMIORegister timing[4];
     MMIORegister upbase;
     MMIORegister lpbase;
@@ -23,6 +23,18 @@ typedef struct __attribute__((packed)) {
     MMIORegister pcell_id[4];
 } Pl111Mmio;
 
+#define PL111_CTRL_EN (1U << 0)
+#define PL111_CTRL_BPP_565 (6U << 1)
+#define PL111_CTRL_TFT (1U << 5)
+#define PL111_CTRL_BGR (1U << 8)
+#define PL111_CTRL_PWR (1U << 11)
+
+#define FB_WIDTH 640U
+#define FB_HEIGHT 480U
+#define FB_BYTES (FB_WIDTH * FB_HEIGHT * 2U)
+#define FB_PAGES (FB_BYTES / 4096U)
+
+_Static_assert(FB_BYTES % 4096U == 0, "framebuffer is a whole number of pages");
 _Static_assert(offsetof(Pl111Mmio, upbase) == 0x10, "upbase offset");
 _Static_assert(offsetof(Pl111Mmio, control) == 0x18, "control offset");
 _Static_assert(offsetof(Pl111Mmio, lpcurr) == 0x30, "lpcurr offset");
