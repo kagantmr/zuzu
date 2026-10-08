@@ -10,7 +10,7 @@
 #include <zuzu/err.h>
 #include <zuzu/zuzu.h>
 
-#define PROMPT ANSI_BOLD ANSI_CYAN "zzsh" ANSI_GREEN "~>" ANSI_RESET
+#define PROMPT ANSI_BOLD ANSI_CYAN "zzsh " ANSI_GREEN "~>" ANSI_RESET
 
 static FsdConn fsd_conn;
 static char cwd[256] = "/";

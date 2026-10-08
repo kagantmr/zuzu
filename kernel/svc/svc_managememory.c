@@ -1,4 +1,5 @@
 #include "core/ensure.h"
+#include "kernel/mm/mem_object.h"
 #include "kernel/mm/vmm/vmm.h"
 #include "kernel/space/space.h"
 #include "svc.h"
@@ -57,6 +58,53 @@ void SvcManageMemory(CpuState *frame)
                    ERR_BADPTR);
 
         ArchSetInFrame(frame, 0, InjectObjIntoSpace(entry->space, CURRENT_SPACE, &kargs));
+    } break;
+    case MNGMEM_DMAMAP: {
+        DmaMapArgs kargs;
+        ENSURE_ERR(frame,
+                   CopyFromUser(&kargs, (const void *)(*ArchGetFromFrame(frame, 1)), sizeof(kargs)),
+                   ERR_BADPTR);
+
+        HandleTableEntry *dev = HandleTableLookup(&CURRENT_SPACE->handle_table, kargs.dev);
+        ENSURE_ERR(frame, dev, ERR_BADHANDLE);
+        ENSURE_ERR(frame, (HANDLE_MEM == dev->type), ERR_BADTYPE);
+        ENSURE_ERR(frame, dev->perms & PERM_MAP, ERR_NOPERM);
+
+        HandleTableEntry *mem = HandleTableLookup(&CURRENT_SPACE->handle_table, kargs.mem);
+        ENSURE_ERR(frame, mem, ERR_BADHANDLE);
+        ENSURE_ERR(frame, (HANDLE_MEM == mem->type), ERR_BADTYPE);
+        ENSURE_ERR(frame, mem->perms & PERM_MAP, ERR_NOPERM);
+
+        uintptr_t bus_addr = 0;
+        Err rc = MemObjDmaMap(dev->mem, mem->mem, kargs.offset, kargs.len, kargs.dir, &bus_addr);
+        ArchSetInFrame(frame, 0, rc);
+        ArchSetInFrame(frame, 1, (rc == ZUZU_OK) ? (Register)bus_addr : 0);
+    } break;
+    case MNGMEM_DMAUNMAP: {
+        Handle dev_handle = (*ArchGetFromFrame(frame, 1));
+        uintptr_t bus_addr = (uintptr_t)(*ArchGetFromFrame(frame, 2));
+        size_t len = (size_t)(*ArchGetFromFrame(frame, 3));
+
+        HandleTableEntry *dev = HandleTableLookup(&CURRENT_SPACE->handle_table, dev_handle);
+        ENSURE_ERR(frame, dev, ERR_BADHANDLE);
+        ENSURE_ERR(frame, (HANDLE_MEM == dev->type), ERR_BADTYPE);
+        ENSURE_ERR(frame, dev->perms & PERM_MAP, ERR_NOPERM);
+
+        ArchSetInFrame(frame, 0, MemObjDmaUnmap(dev->mem, bus_addr, len));
+    } break;
+    case MNGMEM_DMASYNC: {
+        Handle dev_handle = (*ArchGetFromFrame(frame, 1));
+        uintptr_t raw = (uintptr_t)(*ArchGetFromFrame(frame, 2));
+        size_t len = (size_t)(*ArchGetFromFrame(frame, 3));
+        DmaSyncOp op = (DmaSyncOp)(raw & 1U);
+        uintptr_t bus_addr = raw & ~(uintptr_t)1U;
+
+        HandleTableEntry *dev = HandleTableLookup(&CURRENT_SPACE->handle_table, dev_handle);
+        ENSURE_ERR(frame, dev, ERR_BADHANDLE);
+        ENSURE_ERR(frame, (HANDLE_MEM == dev->type), ERR_BADTYPE);
+        ENSURE_ERR(frame, dev->perms & PERM_MAP, ERR_NOPERM);
+
+        ArchSetInFrame(frame, 0, MemObjDmaSync(dev->mem, bus_addr, len, op));
     } break;
     default:
         ArchSetInFrame(frame, 0, ERR_BADARG);

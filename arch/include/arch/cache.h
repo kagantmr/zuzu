@@ -17,7 +17,11 @@ void ArchCacheCleanDcacheRangePou(uintptr_t start, size_t size);
  *  code being published is only reachable through a kernel alias. */
 void ArchCacheInvalidateIcacheAll(void);
 
-
+/** Clean and invalidate D-cache lines to PoC covering [start, start+size). */
 void ArchCacheCleanInvalidateDcacheRange(uintptr_t start, size_t size);
+
+/** Invalidate D-cache lines to PoC covering [start, start+size). Discards dirty
+ *  data, so the range must be cache-line aligned. */
+void ArchCacheInvalidateDcacheRange(uintptr_t start, size_t size);
 
 #endif // ARCH_CACHE_H

@@ -57,10 +57,24 @@ typedef enum {
 } ZuzuObjectCode;
 
 typedef enum {
-    MEM_CONTIG   = (1U << 0), // physically contiguous, allocated and zeroed at creation
+    MEM_CONTIG = (1U << 0), // physically contiguous, allocated and zeroed at creation
     MEM_UNCACHED = (1U << 1),
     MEM_FLAGS_ALL = (MEM_CONTIG | MEM_UNCACHED)
 } CreateMemoryFlags;
+
+typedef enum {
+    DMA_TO_DEVICE = 1,
+    DMA_FROM_DEVICE = 2,
+    DMA_BIDIRECTIONAL = 3,
+} DmaDir;
+
+typedef struct {
+    Handle dev;
+    Handle mem;
+    size_t offset;
+    size_t len;
+    DmaDir dir;
+} DmaMapArgs;
 
 /**
  * @brief This struct represents the 4 arguments passed into ManageHandle() to start a task.
@@ -78,19 +92,34 @@ typedef struct {
     uint32_t xlen;
     Handle granted;
 } PortWaitResult;
+
 typedef struct {
     Err status;
     EventWord bits;
 } EventWaitResult;
+
 typedef struct {
     Err status;
     TaskWaitOutcome outcome;
     int32_t value;
 } TaskWaitResult;
+
 typedef struct {
     Err status;
     Err exit_status;
 } SpaceWaitResult;
+
+typedef struct {
+    Err status;
+    uintptr_t bus_addr;
+} DmaMapResult;
+
+#define DMA_ALIGN 64U
+
+typedef enum {
+    DMA_SYNC_FOR_DEVICE,
+    DMA_SYNC_FOR_CPU
+} DmaSyncOp;
 
 /* Kernel event types users can subscribe to */
 typedef enum {
@@ -114,6 +143,9 @@ typedef enum {
     MNGMEM_UNMAP,
     MNGMEM_PROTECT,
     MNGMEM_INJECTOBJ,
+    MNGMEM_DMAMAP,
+    MNGMEM_DMAUNMAP,
+    MNGMEM_DMASYNC
 } ManageMemoryVerb;
 
 typedef enum {

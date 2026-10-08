@@ -352,6 +352,19 @@ static inline Err MemInjectBytes(Handle kitten_space_handle, VirtAddr va, const 
     return rc;
 }
 
+// zuzu.h
+static inline SvcResult DmaMap(Handle dev, Handle mem, size_t offset, size_t len, DmaDir dir)
+{
+    DmaMapArgs args = {.dev = dev, .mem = mem, .offset = offset, .len = len, .dir = dir};
+    return ArchInvokeSvc4(SVC_MANAGEMEMORY, MNGMEM_DMAMAP, (Register)&args, 0, 0);
+} 
+
+static inline Err DmaSync(Handle dev, uintptr_t bus_addr, size_t len, DmaSyncOp op)
+{
+    return ArchInvokeSvc(SVC_MANAGEMEMORY, MNGMEM_DMASYNC, dev, (Register)(bus_addr | op),
+                         (Register)len);
+}
+
 #ifdef __cplusplus
 }
 #endif

@@ -19,12 +19,14 @@
 #define UDBG_ENABLED 1
 
 #include <arch/svc.h>
+#include <dev/protocols/devm.h>
 #include <stdatomic.h>
 #include <string.h>
 #include <sync/primitives.h>
 #include <util/msg.h>
 #include <util/tls.h>
 #include <zuzu/err.h>
+#include <zuzu/service.h>
 #include <zuzu/syspage.h>
 #include <zuzu/udbg.h>
 #include <zuzu/user_layout.h>
@@ -40,7 +42,7 @@ enum { ZH_PORT = 1, ZH_MEM, ZH_EVENT, ZH_TASK, ZH_SPACE };
 
 /* ---------------- harness ---------------- */
 
-#define MAX_SECTIONS 16
+#define MAX_SECTIONS 24
 typedef struct {
     const char *name;
     int pass;
@@ -1375,6 +1377,140 @@ static void TestInjectObj(void)
     CheckEq(HandleDestroy(sp), ZUZU_OK, "destroy the space");
 }
 
+/* ---------------- 7b. DMA mappings ---------------- */
+
+static Handle RequestAnyDevice(void)
+{
+    static const char *const kCompats[] = {"arm,pl111", "arm,pl011", "arm,pl181",
+                                           "brcm,bcm2711-emmc2"};
+    Handle devsvc = LookupService("/svc/devsvc");
+    if (devsvc < 0)
+        return devsvc;
+    Handle dev = RequestDevice(devsvc, kCompats, sizeof(kCompats) / sizeof(kCompats[0]), NULL);
+    HandleClose(devsvc);
+    return dev;
+}
+
+static void TestDma(void)
+{
+    BeginSection("dma");
+
+    Handle dev = RequestAnyDevice();
+    if (dev < 0) {
+        UserspaceDebugLog("zztest: no device from devsvc (%d), skipping dma", (int)dev);
+        return;
+    }
+
+    Handle buf = CreateMem(4, MEM_CONTIG);
+    Check(buf >= 0, "CreateMem(4, MEM_CONTIG) for DMA");
+    Handle plain = CreateMem(4, 0);
+
+    DmaMapResult r = DmaMap(dev, buf, 0, 16384, DMA_TO_DEVICE);
+    CheckEq(r.status, ZUZU_OK, "DmaMap(contig buffer) OK");
+    Check(r.bus_addr != 0 && (r.bus_addr % 4096) == 0, "DmaMap returns a page-aligned bus address");
+    CheckEq(DmaUnmap(dev, r.bus_addr, 8192), ERR_NOENT, "DmaUnmap(wrong length) -> NOENT");
+    CheckEq(DmaUnmap(dev, r.bus_addr, 16384), ZUZU_OK, "DmaUnmap OK");
+    CheckEq(DmaUnmap(dev, r.bus_addr, 16384), ERR_NOENT, "DmaUnmap twice -> NOENT");
+
+    DmaMapResult s = DmaMap(dev, buf, 0, 16384, DMA_BIDIRECTIONAL);
+    CheckEq(s.status, ZUZU_OK, "DmaMap for sync checks");
+    CheckEq(DmaSync(dev, s.bus_addr, 16384, DMA_SYNC_FOR_DEVICE), ZUZU_OK,
+            "DmaSync(whole range, for device) OK");
+    CheckEq(DmaSync(dev, s.bus_addr, 16384, DMA_SYNC_FOR_CPU), ZUZU_OK,
+            "DmaSync(whole range, for cpu) OK");
+    CheckEq(DmaSync(dev, s.bus_addr + 4096 + DMA_ALIGN, DMA_ALIGN, DMA_SYNC_FOR_DEVICE), ZUZU_OK,
+            "DmaSync(one cache line, for device) OK");
+    CheckEq(DmaSync(dev, s.bus_addr + 4096 + DMA_ALIGN, DMA_ALIGN, DMA_SYNC_FOR_CPU), ZUZU_OK,
+            "DmaSync(one cache line, for cpu) OK");
+    CheckEq(DmaSync(dev, s.bus_addr + 16384 - DMA_ALIGN, DMA_ALIGN, DMA_SYNC_FOR_CPU), ZUZU_OK,
+            "DmaSync(last cache line) OK");
+    CheckEq(DmaSync(dev, s.bus_addr + 32, DMA_ALIGN, DMA_SYNC_FOR_DEVICE), ERR_BADARG,
+            "DmaSync(unaligned start) -> BADARG");
+    CheckEq(DmaSync(dev, s.bus_addr, 100, DMA_SYNC_FOR_DEVICE), ERR_BADARG,
+            "DmaSync(unaligned length) -> BADARG");
+    CheckEq(DmaSync(dev, s.bus_addr, 0, DMA_SYNC_FOR_DEVICE), ERR_BADARG,
+            "DmaSync(len 0) -> BADARG");
+    CheckEq(DmaSync(dev, s.bus_addr + 16384 - DMA_ALIGN, 2 * DMA_ALIGN, DMA_SYNC_FOR_CPU),
+            ERR_NOENT, "DmaSync(range past the mapping) -> NOENT");
+    CheckEq(DmaSync(dev, s.bus_addr, 16384 + DMA_ALIGN, DMA_SYNC_FOR_CPU), ERR_NOENT,
+            "DmaSync(longer than the mapping) -> NOENT");
+    CheckEq(DmaSync(dev, s.bus_addr + 16384, DMA_ALIGN, DMA_SYNC_FOR_CPU), ERR_NOENT,
+            "DmaSync(just past the mapping) -> NOENT");
+    CheckEq(DmaSync(buf, s.bus_addr, DMA_ALIGN, DMA_SYNC_FOR_CPU), ERR_BADTYPE,
+            "DmaSync(shm object as the device) -> BADTYPE");
+    CheckEq(DmaUnmap(dev, s.bus_addr, 16384), ZUZU_OK, "DmaUnmap after sync checks");
+    CheckEq(DmaSync(dev, s.bus_addr, DMA_ALIGN, DMA_SYNC_FOR_CPU), ERR_NOENT,
+            "DmaSync after DmaUnmap -> NOENT");
+
+    Handle unc = CreateMem(1, MEM_CONTIG | MEM_UNCACHED);
+    DmaMapResult ur = DmaMap(dev, unc, 0, 4096, DMA_FROM_DEVICE);
+    CheckEq(ur.status, ZUZU_OK, "DmaMap(uncached buffer) OK");
+    CheckEq(DmaSync(dev, ur.bus_addr, 4096, DMA_SYNC_FOR_CPU), ZUZU_OK,
+            "DmaSync(uncached) is a no-op OK");
+    CheckEq(DmaUnmap(dev, ur.bus_addr, 4096), ZUZU_OK, "DmaUnmap(uncached buffer) OK");
+    HandleClose(unc);
+
+    DmaMapResult part = DmaMap(dev, buf, 4096, 8192, DMA_FROM_DEVICE);
+    CheckEq(part.status, ZUZU_OK, "DmaMap(sub-range) OK");
+    CheckEq(DmaUnmap(dev, part.bus_addr, 8192), ZUZU_OK, "DmaUnmap(sub-range) OK");
+
+    CheckEq(DmaMap(dev, plain, 0, 4096, DMA_TO_DEVICE).status, ERR_BADTYPE,
+            "DmaMap(non-contig buffer) -> BADTYPE");
+    CheckEq(DmaMap(buf, buf, 0, 4096, DMA_TO_DEVICE).status, ERR_BADTYPE,
+            "DmaMap(shm object as the device) -> BADTYPE");
+    CheckEq(DmaMap(dev, dev, 0, 4096, DMA_TO_DEVICE).status, ERR_BADTYPE,
+            "DmaMap(device object as the buffer) -> BADTYPE");
+    CheckEq(DmaUnmap(buf, 0, 4096), ERR_BADTYPE, "DmaUnmap(shm object as the device) -> BADTYPE");
+    Handle ev = CreateEvent();
+    CheckEq(DmaMap(ev, buf, 0, 4096, DMA_TO_DEVICE).status, ERR_BADTYPE,
+            "DmaMap(event as the device) -> BADTYPE");
+    HandleClose(ev);
+    CheckEq(DmaMap(dev, 5000, 0, 4096, DMA_TO_DEVICE).status, ERR_BADHANDLE,
+            "DmaMap(invalid buffer handle) -> BADHANDLE");
+
+    CheckEq(DmaMap(dev, buf, 0, 4096, (DmaDir)0).status, ERR_BADARG, "DmaMap(dir 0) -> BADARG");
+    CheckEq(DmaMap(dev, buf, 0, 4096, (DmaDir)4).status, ERR_BADARG, "DmaMap(dir 4) -> BADARG");
+    CheckEq(DmaMap(dev, buf, 0, 0, DMA_TO_DEVICE).status, ERR_BADARG, "DmaMap(len 0) -> BADARG");
+    CheckEq(DmaMap(dev, buf, 100, 4096, DMA_TO_DEVICE).status, ERR_BADARG,
+            "DmaMap(unaligned offset) -> BADARG");
+    CheckEq(DmaMap(dev, buf, 0, 100, DMA_TO_DEVICE).status, ERR_BADARG,
+            "DmaMap(unaligned length) -> BADARG");
+    CheckEq(DmaMap(dev, buf, 16384, 4096, DMA_TO_DEVICE).status, ERR_BADARG,
+            "DmaMap(offset past the end) -> BADARG");
+    CheckEq(DmaMap(dev, buf, 4096, 16384, DMA_TO_DEVICE).status, ERR_BADARG,
+            "DmaMap(range past the end) -> BADARG");
+
+    SvcResult weak = HandleDuplicate(buf, PERM_WAIT, MARKER_NONE);
+    CheckEq(DmaMap(dev, (Handle)weak.r1, 0, 4096, DMA_TO_DEVICE).status, ERR_NOPERM,
+            "DmaMap(buffer without PERM_MAP) -> NOPERM");
+    HandleClose((Handle)weak.r1);
+
+    HandleClose(buf);
+    HandleClose(plain);
+
+    /* A mapping keeps the buffer alive after its last handle closes. */
+    for (int round = 0; round < 2; round++) {
+        Handle warm = CreateMem(4, MEM_CONTIG);
+        DmaMapResult wr = DmaMap(dev, warm, 0, 16384, DMA_BIDIRECTIONAL);
+        HandleClose(warm);
+        DmaUnmap(dev, wr.bus_addr, 16384);
+    }
+    SleepAndSettle();
+    uint32_t before = PagesFree();
+    Handle pinned = CreateMem(4, MEM_CONTIG);
+    DmaMapResult pr = DmaMap(dev, pinned, 0, 16384, DMA_BIDIRECTIONAL);
+    CheckEq(pr.status, ZUZU_OK, "DmaMap for the lifetime check");
+    HandleClose(pinned);
+    SleepAndSettle();
+    CheckEq((int32_t)PagesFree(), (int32_t)before - 4,
+            "closing the buffer handle keeps DMA-mapped pages");
+    CheckEq(DmaUnmap(dev, pr.bus_addr, 16384), ZUZU_OK, "DmaUnmap the orphaned buffer");
+    SleepAndSettle();
+    CheckEq((int32_t)PagesFree(), (int32_t)before, "DmaUnmap frees the orphaned buffer");
+
+    HandleClose(dev);
+}
+
 /* ---------------- 8. hostile arguments ---------------- */
 
 static void TestSecurity(void)
@@ -1901,6 +2037,7 @@ static void RunSuite(void)
     TestTasks();
     TestSpaces();
     TestInjectObj();
+    TestDma();
     TestKittens();
     TestTaskLifetime();
     TestManyThreads();
