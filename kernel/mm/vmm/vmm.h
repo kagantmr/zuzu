@@ -22,6 +22,7 @@ typedef struct HandleTableEntryStruct HandleTableEntry;
 typedef enum {
     VM_MEM_NORMAL = 0,
     VM_MEM_DEVICE = 1,
+    VM_MEM_NORMAL_NC = 2
 } VirtMemType;
 
 typedef enum {
@@ -38,8 +39,8 @@ typedef enum {
 
 typedef enum {
     VM_FLAG_NONE = 0,
-    VM_FLAG_PINNED = 1U << 0, // must stay mapped
-    VM_FLAG_GUARD = 1U << 2,  // guard page/region
+    VM_FLAG_PINNED = (1U << 0), // must stay mapped
+    VM_FLAG_GUARD = (1U << 2),  // guard page/region
 } VirtMemFlags;
 
 typedef struct VirtMemRegionStruct {

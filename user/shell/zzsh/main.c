@@ -231,7 +231,7 @@ static Handle read_image(const char *path, uint32_t size)
     if (FsdOpen(&fsd_conn, path, FSD_MODE_READ, &fd) != ZUZU_OK)
         return -1;
 
-    Handle obj = CreateMem((size + FSD_PAGE_SIZE - 1) / FSD_PAGE_SIZE);
+    Handle obj = CreateMem((size + FSD_PAGE_SIZE - 1) / FSD_PAGE_SIZE, 0);
     uint32_t off = 0;
     while (obj >= 0 && off < size) {
         uint32_t got = 0;

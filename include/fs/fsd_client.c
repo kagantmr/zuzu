@@ -59,7 +59,7 @@ Err FsdAttach(FsdConn *c, Handle port, Spid pid, uint32_t want_size)
     if (want_size > FSD_SHM_MAX)
         want_size = FSD_SHM_MAX;
 
-    c->shm = CreateMem(want_size / FSD_PAGE_SIZE);
+    c->shm = CreateMem(want_size / FSD_PAGE_SIZE, 0);
     if (c->shm < 0)
         return c->shm;
 

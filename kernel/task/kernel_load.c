@@ -185,7 +185,7 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
          * rather than by VA for the same reason. */
         if ((prot & PROT_EXEC) && file_pages > 0) {
             for (uint32_t page = 0; page < file_pages; page++)
-                ArchCacheCleanDcacheRange(PA_TO_VA(segment_pages[page]), PAGE_SIZE);
+                ArchCacheCleanDcacheRangePou(PA_TO_VA(segment_pages[page]), PAGE_SIZE);
             ArchCacheInvalidateIcacheAll();
         }
 

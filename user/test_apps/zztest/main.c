@@ -326,7 +326,7 @@ static void TestHandles(void)
 
     Handle ev = CreateEvent();
     Handle port = CreatePort();
-    Handle mem = CreateMem(1);
+    Handle mem = CreateMem(1, 0);
     Check(ev >= 0 && port >= 0 && mem >= 0, "CreateEvent/Port/Mem succeed");
     Check(ev != port && port != mem, "distinct handles");
 
@@ -447,7 +447,7 @@ static void TestMemory(void)
     CheckEq(MemUnmap(a), ZUZU_OK, "Unmap(anon) OK");
 
     /* Shared memory objects */
-    Handle mem = CreateMem(2);
+    Handle mem = CreateMem(2, 0);
     Check(mem >= 0, "CreateMem(2) OK");
     uint8_t *m = MemMap(mem, 0, PROT_RW);
     Check(!PtrIsErr(m) && ((uintptr_t)m % 4096) == 0, "MemMap(mem) OK");
@@ -468,8 +468,54 @@ static void TestMemory(void)
     CheckEq(HandleClose(mem), ZUZU_OK, "Close(mapped mem handle) OK");
     CheckEq(MemUnmap(m), ERR_NOENT, "closing the handle unmapped the region");
 
-    CheckEq(CreateMem(0), ERR_BADARG, "CreateMem(0) -> BADARG");
-    CheckEq(CreateMem(100000), ERR_NOMEM, "CreateMem(more than RAM) -> NOMEM");
+    CheckEq(CreateMem(0, 0), ERR_BADARG, "CreateMem(0) -> BADARG");
+    CheckEq(CreateMem(100000, 0), ERR_NOMEM, "CreateMem(more than RAM) -> NOMEM");
+
+    /* Contiguous and uncached memory */
+    CheckEq(CreateMem(1, (CreateMemoryFlags)0x80), ERR_BADARG, "CreateMem(unknown flag) -> BADARG");
+    CheckEq(CreateMem(1, MEM_UNCACHED), ERR_BADARG, "MEM_UNCACHED without MEM_CONTIG -> BADARG");
+    CheckEq(CreateMem(0, MEM_CONTIG), ERR_BADARG, "CreateMem(0, MEM_CONTIG) -> BADARG");
+    CheckEq(CreateMem(100000, MEM_CONTIG), ERR_NOMEM, "MEM_CONTIG larger than RAM -> NOMEM");
+
+    for (int round = 0; round < 2; round++) {
+        Handle warm = CreateMem(4, MEM_CONTIG);
+        uint8_t *wp = MemMap(warm, 0, PROT_RW);
+        memset((void *)wp, 1, 16384);
+        HandleClose(warm);
+    }
+    SleepAndSettle();
+    uint32_t contig_before = PagesFree();
+    Handle cm = CreateMem(4, MEM_CONTIG);
+    Check(cm >= 0, "CreateMem(4, MEM_CONTIG) OK");
+    SleepAndSettle();
+    CheckEq((int32_t)PagesFree(), (int32_t)contig_before - 4,
+            "MEM_CONTIG allocates every page up front");
+    volatile uint8_t *cp = MemMap(cm, 0, PROT_RW);
+    Check(!PtrIsErr((void *)cp), "MemMap(MEM_CONTIG) OK");
+    bool contig_zero = true;
+    for (size_t i = 0; i < 4 * 4096; i++)
+        contig_zero = contig_zero && (cp[i] == 0);
+    Check(contig_zero, "MEM_CONTIG memory is zeroed");
+    HandleClose(cm);
+    SleepAndSettle();
+    CheckEq((int32_t)PagesFree(), (int32_t)contig_before, "closing MEM_CONTIG memory frees every page");
+
+    Handle um = CreateMem(2, MEM_CONTIG | MEM_UNCACHED);
+    Check(um >= 0, "CreateMem(2, CONTIG|UNCACHED) OK");
+    CheckEq(PtrErr(MemMap(um, 0, PROT_READ | PROT_EXEC)), ERR_NOPERM,
+            "mapping uncached memory executable -> NOPERM");
+    volatile uint8_t *up = MemMap(um, 0, PROT_RW);
+    Check(!PtrIsErr((void *)up), "MemMap(uncached) OK");
+    bool uncached_zero = true;
+    for (size_t i = 0; i < 2 * 4096; i++)
+        uncached_zero = uncached_zero && (up[i] == 0);
+    Check(uncached_zero, "uncached memory is zeroed");
+    up[0] = 0xA5;
+    up[8191] = 0x5A;
+    Check(up[0] == 0xA5 && up[8191] == 0x5A, "uncached memory reads back what was written");
+    Check(MemProtect((VirtAddr)up, 8192, PROT_READ | PROT_EXEC) != ZUZU_OK,
+          "MemProtect(uncached, +X) refused");
+    HandleClose(um);
 
     /* No page leaks across map/touch/unmap. One warm-up round absorbs lazy
      * one-time kernel allocations before the baseline is taken. */
@@ -477,7 +523,7 @@ static void TestMemory(void)
         uint8_t *w = MemMapAnon(16384, 0, PROT_RW);
         memset((void *)w, 1, 16384);
         MemUnmap(w);
-        Handle sm = CreateMem(4);
+        Handle sm = CreateMem(4, 0);
         uint8_t *sv = MemMap(sm, 0, PROT_RW);
         memset((void *)sv, 2, 16384);
         HandleClose(sm);
@@ -488,7 +534,7 @@ static void TestMemory(void)
         uint8_t *w = MemMapAnon(16384, 0, PROT_RW);
         memset((void *)w, 1, 16384);
         MemUnmap(w);
-        Handle sm = CreateMem(4);
+        Handle sm = CreateMem(4, 0);
         uint8_t *sv = MemMap(sm, 0, PROT_RW);
         memset((void *)sv, 2, 16384);
         HandleClose(sm);
@@ -630,7 +676,7 @@ static void TestEvents(void)
             "Bind without PERM_WAIT on the target -> NOPERM");
     HandleClose((Handle)no_wait_port.r1);
     CheckEq(BindIrq(ev, 5000, 0), ERR_BADHANDLE, "BindIrq(invalid device) -> BADHANDLE");
-    Handle shm = CreateMem(1);
+    Handle shm = CreateMem(1, 0);
     CheckEq(BindIrq(ev, shm, 0), ERR_BADTYPE, "BindIrq(non-device memory) -> BADTYPE");
     HandleClose(shm);
 
@@ -893,7 +939,7 @@ static void TestIpc(void)
     HandleClose(p2);
 
     CheckEq(WaitOn(-1, 0).r0, ERR_BADHANDLE, "WaitOn(invalid) -> BADHANDLE");
-    Handle mem = CreateMem(1);
+    Handle mem = CreateMem(1, 0);
     CheckEq(WaitOn(mem, 0).r0, ERR_BADTYPE, "WaitOn(mem) -> BADTYPE");
     HandleClose(mem);
 
@@ -1257,7 +1303,7 @@ static void TestInjectObj(void)
 {
     BeginSection("injectobj");
 
-    Handle obj = CreateMem(1);
+    Handle obj = CreateMem(1, 0);
     Check(obj >= 0, "CreateMem(1)");
     uint8_t *w = MemMap(obj, 0, PROT_RW);
     Check(!PtrIsErr(w), "map the object to fill it");
@@ -1299,6 +1345,10 @@ static void TestInjectObj(void)
     CheckEq(MemInjectObj((Handle)weak_sp.r1, obj, USER_ELF_BASE, 0, 4096, PROT_READ), ERR_NOPERM,
             "space without PERM_CNTL -> NOPERM");
     HandleClose((Handle)weak_sp.r1);
+    Handle uncached = CreateMem(1, MEM_CONTIG | MEM_UNCACHED);
+    CheckEq(MemInjectObj(sp, uncached, 0x60000000u, 0, 4096, PROT_READ), ERR_BADARG,
+            "injecting uncached memory -> BADARG");
+    HandleClose(uncached);
 
     CheckEq(MemInjectObj(sp, HANDLE_ANON, 0x40000000u, 0, 8192, PROT_RW), ZUZU_OK,
             "HANDLE_ANON reserves a demand-zero region");
@@ -1351,7 +1401,7 @@ static void TestSecurity(void)
     CheckEq(HandleClose((Handle)0xFFFFFC00u), ERR_BADHANDLE,
             "Close(garbage generation) -> BADHANDLE");
 
-    Handle mem = CreateMem(1);
+    Handle mem = CreateMem(1, 0);
     CheckEq(PtrErr(MemMap(mem, 0xC0000000u, PROT_RW)), ERR_BADARG,
             "MemMap(mem) with a kernel-space hint -> BADARG");
     HandleClose(mem);
@@ -1807,7 +1857,7 @@ static void LeakRound(void)
     }
     Handle p = CreatePort();
     Handle e = CreateEvent();
-    Handle m = CreateMem(2);
+    Handle m = CreateMem(2, 0);
     uint8_t *v = MemMap(m, 0, PROT_RW);
     memset((void *)v, 3, 8192);
     HandleClose(m);

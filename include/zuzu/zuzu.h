@@ -80,9 +80,9 @@ static inline Handle CreateEvent(void) { return ArchInvokeSvc(SVC_CREATE, OBJECT
  *
  * @return The handle of the created memory.
  */
-static inline Handle CreateMem(size_t page_count)
+static inline Handle CreateMem(size_t page_count, CreateMemoryFlags flags)
 {
-    return ArchInvokeSvc(SVC_CREATE, OBJECT_MEMORY, (Register)page_count, 0, 0);
+    return ArchInvokeSvc(SVC_CREATE, OBJECT_MEMORY, (Register)page_count, flags, 0);
 }
 
 /**
@@ -334,7 +334,7 @@ static inline Err MemInjectBytes(Handle kitten_space_handle, VirtAddr va, const 
                                  size_t len, MemProt prot)
 {
     size_t pages = (len + 0xFFFU) >> 12;
-    Handle obj = CreateMem(pages);
+    Handle obj = CreateMem(pages, 0);
     if (obj < 0)
         return (Err)obj;
 

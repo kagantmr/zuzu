@@ -24,11 +24,12 @@ typedef struct {
         struct {
             PhysAddr *page_addrs;
             size_t page_count;
+            CreateMemoryFlags flags;
         } shm;
     };
 } MemObject;
 
-MemObject *MemObjCreateShm(PhysAddr *page_addrs, size_t page_count);
+MemObject *MemObjCreateShm(PhysAddr *page_addrs, size_t page_count, CreateMemoryFlags flags);
 MemObject *MemObjCreateDevice(PhysAddr phys_base, size_t size, Irq irq);
 void MemObjRef(MemObject *mem);
 void MemObjUnref(MemObject *mem);

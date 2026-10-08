@@ -58,6 +58,7 @@ Err VmmMapMemObj(SpaceObject *space, HandleTableEntry *entry, MemProt prot, Virt
     switch (mem->kind) {
     case MEMKIND_SHARED: {
         size_t size = entry->mem->shm.page_count * PAGE_SIZE;
+        ENSURE_RET(!((mem->shm.flags & MEM_UNCACHED) && (prot & PROT_EXEC)), ERR_NOPERM);
 
         if (hint == 0) {
             va_base = VmmFindFreeVa(space->as, USER_MMAP_BASE, USER_DEVICE_BASE, size);
@@ -74,7 +75,8 @@ Err VmmMapMemObj(SpaceObject *space, HandleTableEntry *entry, MemProt prot, Virt
         VirtMemRegion region = {.vaddr_start = va_base,
                                 .size = size,
                                 .prot = prot | VM_PROT_USER,
-                                .memtype = VM_MEM_NORMAL,
+                                .memtype = (mem->shm.flags & MEM_UNCACHED) ? VM_MEM_NORMAL_NC
+                                                                           : VM_MEM_NORMAL,
                                 .owner = VM_BACKING_SHARED,
                                 .backing = mem,
                                 .flags = VM_FLAG_NONE};
@@ -266,6 +268,7 @@ Err InjectObjIntoSpace(SpaceObject *kitten, SpaceObject *parent, const InjectObj
 
     MemObject *mem = entry->mem;
     ENSURE_RET(mem && mem->kind == MEMKIND_SHARED, ERR_BADTYPE);
+    ENSURE_RET(!(mem->shm.flags & MEM_UNCACHED), ERR_BADARG);
 
     size_t obj_bytes = mem->shm.page_count * PAGE_SIZE;
     ENSURE_RET(args->offset < obj_bytes && args->len <= obj_bytes - args->offset, ERR_BADARG);
@@ -296,7 +299,7 @@ Err InjectObjIntoSpace(SpaceObject *kitten, SpaceObject *parent, const InjectObj
     if ((args->prot & PROT_EXEC) && !mem->exec_synced) {
         for (size_t i = 0; i < mem->shm.page_count; i++) {
             if (mem->shm.page_addrs[i])
-                ArchCacheCleanDcacheRange(PA_TO_VA(mem->shm.page_addrs[i]), PAGE_SIZE);
+                ArchCacheCleanDcacheRangePou(PA_TO_VA(mem->shm.page_addrs[i]), PAGE_SIZE);
         }
         ArchCacheInvalidateIcacheAll();
         mem->exec_synced = true;

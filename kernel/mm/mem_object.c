@@ -27,7 +27,7 @@ MemObject *MemObjCreateDevice(PhysAddr phys_base, size_t size, Irq irq)
     return mem;
 }
 
-MemObject *MemObjCreateShm(PhysAddr *page_addrs, size_t page_count)
+MemObject *MemObjCreateShm(PhysAddr *page_addrs, size_t page_count, CreateMemoryFlags flags)
 {
     MemObject *mem = MemObjAlloc();
     ENSURE_RET(mem, NULL);
@@ -36,6 +36,7 @@ MemObject *MemObjCreateShm(PhysAddr *page_addrs, size_t page_count)
     mem->exec_synced = false;
     mem->shm.page_addrs = page_addrs;
     mem->shm.page_count = page_count;
+    mem->shm.flags = flags;
     return mem;
 }
 

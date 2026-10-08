@@ -9,12 +9,15 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/** Clean (write back) D-cache lines covering [start, start+size). */
-void ArchCacheCleanDcacheRange(uintptr_t start, size_t size);
+/** Clean (write back) D-cache lines to PoU covering [start, start+size). */
+void ArchCacheCleanDcacheRangePou(uintptr_t start, size_t size);
 
 /** Invalidate the whole I-cache (and branch predictor) to the point of
  *  unification. Address-independent, so it is the safe counterpart when the
  *  code being published is only reachable through a kernel alias. */
 void ArchCacheInvalidateIcacheAll(void);
+
+
+void ArchCacheCleanInvalidateDcacheRange(uintptr_t start, size_t size);
 
 #endif // ARCH_CACHE_H

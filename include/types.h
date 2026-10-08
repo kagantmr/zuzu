@@ -56,6 +56,12 @@ typedef enum {
     OBJECT_CODE_COUNT
 } ZuzuObjectCode;
 
+typedef enum {
+    MEM_CONTIG   = (1U << 0), // physically contiguous, allocated and zeroed at creation
+    MEM_UNCACHED = (1U << 1),
+    MEM_FLAGS_ALL = (MEM_CONTIG | MEM_UNCACHED)
+} CreateMemoryFlags;
+
 /**
  * @brief This struct represents the 4 arguments passed into ManageHandle() to start a task.
  */

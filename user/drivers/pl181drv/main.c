@@ -366,7 +366,7 @@ static int Pl181DrvSetup(void)
     if (Pl181Setup() < 0)
         return -1;
 
-    g_buf_mem = CreateMem(SD_BUF_SIZE / 4096);
+    g_buf_mem = CreateMem(SD_BUF_SIZE / 4096, 0);
     if (g_buf_mem < 0) {
         LOG_ERROR(LOG_TAG, "shmem failed");
         return -1;

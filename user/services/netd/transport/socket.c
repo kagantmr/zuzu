@@ -74,11 +74,11 @@ ConnTableEnt *ConnTableCreateEntry(void)
     if (!conn)
         return NULL;
 
-    conn->tx_shm = CreateMem(UDP_SOCK_RBUFSZ / 4096);
+    conn->tx_shm = CreateMem(UDP_SOCK_RBUFSZ / 4096, 0);
     if (conn->tx_shm < 0)
         goto fail_conn;
 
-    conn->rx_shm = CreateMem(UDP_SOCK_RBUFSZ / 4096);
+    conn->rx_shm = CreateMem(UDP_SOCK_RBUFSZ / 4096, 0);
     if (conn->rx_shm < 0)
         goto fail_tx_shm;
 

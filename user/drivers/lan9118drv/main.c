@@ -51,7 +51,7 @@ static Handle WaitForService(const char *path)
 static Err InitPacketRings(void)
 {
 
-    shm_tx_handle = CreateMem(NIC_SHM_BYTES / 4096); // packet size = 1536, ring_size = 16
+    shm_tx_handle = CreateMem(NIC_SHM_BYTES / 4096, 0); // packet size = 1536, ring_size = 16
     if (shm_tx_handle < 0) {
         LOG_ERROR(LOG_TAG, "CreateMem failed: %s", StrToError(shm_tx_handle));
         return shm_tx_handle;
@@ -62,7 +62,7 @@ static Err InitPacketRings(void)
         return (Err)shm_tx;
     }
 
-    shm_rx_handle = CreateMem(NIC_SHM_BYTES / 4096); // packet size = 1536, ring_size = 16
+    shm_rx_handle = CreateMem(NIC_SHM_BYTES / 4096, 0); // packet size = 1536, ring_size = 16
     if (shm_rx_handle < 0) {
         LOG_ERROR(LOG_TAG, "CreateMem failed: %s", StrToError(shm_rx_handle));
         return shm_rx_handle;

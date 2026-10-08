@@ -147,7 +147,7 @@ static inline Err TtyClientConnect(Handle tty_port, uint32_t cmd, const char *al
 {
     memset(c, 0, sizeof(*c));
     c->live = -1;
-    c->mem = CreateMem(1);
+    c->mem = CreateMem(1, 0);
     if (c->mem < 0)
         return (Err)c->mem;
     void *va = MemMap(c->mem, 0, PROT_RW);
