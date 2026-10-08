@@ -11,6 +11,7 @@ bin/pl181drv|none
 bin/fsd|none
 bin/lan9118drv|none
 bin/netd|none
+bin/pl111drv|none
 bin/zzsh|none:late
 
 # Syscall regression suite (user/test_apps/zztest). Noisy: it faults kittens on purpose.
