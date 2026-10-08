@@ -39,15 +39,36 @@ Err DevsvcHandshake(void)
     return ZUZU_OK;
 }
 
-static void DrawColorBars(volatile uint16_t *fb)
+static uint8_t Wave(uint32_t phase)
 {
-    static const uint16_t bars[8] = {0xFFFF, 0xFFE0, 0x07FF, 0x07E0,
-                                     0xF81F, 0xF800, 0x001F, 0x0000};
-    const uint32_t bar_width = FB_WIDTH / 8U;
+    uint32_t p = phase & 127U;
+    uint32_t hump = (p * (128U - p) * 255U) / 4096U;
+    return (phase & 128U) ? (uint8_t)(128U - (hump / 2U)) : (uint8_t)(128U + (hump / 2U));
+}
 
-    for (uint32_t y = 0; y < FB_HEIGHT; y++)
-        for (uint32_t x = 0; x < FB_WIDTH; x++)
-            fb[(y * FB_WIDTH) + x] = bars[x / bar_width];
+static uint16_t Rgb565(uint32_t r, uint32_t g, uint32_t b)
+{
+    return (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+}
+
+static void DrawPlasma(volatile uint16_t *fb)
+{
+    uint8_t wave[256];
+    uint16_t palette[256];
+
+    for (uint32_t i = 0; i < 256U; i++) {
+        wave[i] = Wave(i);
+        palette[i] = Rgb565(Wave(i), Wave(i + 85U), Wave(i + 170U));
+    }
+
+    for (uint32_t y = 0; y < FB_HEIGHT; y++) {
+        for (uint32_t x = 0; x < FB_WIDTH; x++) {
+            uint32_t v = wave[(x * 5U / 4U) & 255U] + wave[(y * 3U / 2U) & 255U] +
+                         wave[((x + y) * 3U / 4U) & 255U] +
+                         wave[((x * x + y * y) / 512U) & 255U];
+            fb[(y * FB_WIDTH) + x] = palette[v / 4U];
+        }
+    }
 }
 
 Err Pl111Setup(void)
@@ -79,7 +100,7 @@ Err Pl111Setup(void)
     }
     LOG_INFO(LOG_TAG, "framebuffer at bus address %x", res.bus_addr);
 
-    DrawColorBars(g_fb);
+    DrawPlasma(g_fb);
 
     pl111->timing[0] = 0x2F0F5F9C;
     pl111->timing[1] = 0x210A05DF;
@@ -108,7 +129,7 @@ int main(void)
     if (retval < 0)
         return retval;
 
-    Sleep(3000);
+    
     
     return 0;
 }
