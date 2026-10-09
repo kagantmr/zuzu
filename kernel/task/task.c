@@ -182,6 +182,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
     task->state = TASK_STATE_FROZEN;
     task->ipc_state = IPC_NONE;
     task->priority = SCHED_PRIO_DEFAULT;
+    task->base_prio = SCHED_PRIO_DEFAULT;
     task->time_slice = 5;
     task->max_prio = SCHED_PRIORITY_LEVELS - 1;
     task->tcb_slot = TCB_SLOT_NONE;
@@ -332,3 +333,5 @@ void TaskFault(TaskObject *task, Err reason)
         n = n->next;
     }
 }
+
+void TaskRecomputePriority(TaskObject *t) { SchedSetEffective(t, t->base_prio); }

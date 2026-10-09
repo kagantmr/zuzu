@@ -550,3 +550,16 @@ void SchedTick(void)
         do_resched = 1;
     SchedArmTimer();
 }
+
+void SchedSetEffective(TaskObject *t, Prio prio)
+{
+    bool requeue =
+        (t->state == TASK_STATE_READY); /* only TASK_STATE_READY tasks are on a run queue */
+    if (requeue)
+        SchedRemoveRunQueue(t);
+    t->priority = prio;
+    if (requeue)
+        SchedAdd(t);
+    if (t == current_task && SchedAnyCpuTakers(current_task))
+        SchedSetReschedFlag();
+}

@@ -2,8 +2,8 @@
 #include "kernel/ipc/port.h"
 #include "kernel/space/space.h"
 #include "svc.h"
-#include <arch/regs.h>
 #include <arch/cache.h>
+#include <arch/regs.h>
 #include <types.h>
 #include <zuzu/err.h>
 
@@ -37,8 +37,10 @@ void SvcCreate(CpuState *frame)
         ENSURE_ERR(frame, (NULL != task), ERR_BUSY);
         task->max_prio = (current_task->max_prio < target_space->max_prio) ? current_task->max_prio
                                                                            : target_space->max_prio;
-        task->priority =
-            (current_task->priority < task->max_prio) ? current_task->priority : task->max_prio;
+
+        task->base_prio =
+            (current_task->base_prio < task->max_prio) ? current_task->base_prio : task->max_prio;
+        task->priority = task->base_prio;
 
         Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
         ENSURE(-1 != new_handle, TaskDestroy(task); ArchSetInFrame(frame, 0, ERR_NOMEM); return);
@@ -131,7 +133,6 @@ void SvcCreate(CpuState *frame)
 
         PhysAddr *page_addrs = KZAlloc(page_count * sizeof(PhysAddr));
         ENSURE_ERR(frame, (NULL != page_addrs), ERR_NOMEM);
-
 
         MemObject *mem = MemObjCreateShm(page_addrs, page_count, flags);
         ENSURE(NULL != mem, KFree(page_addrs); ArchSetInFrame(frame, 0, ERR_NOMEM); return);

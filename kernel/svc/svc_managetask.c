@@ -21,9 +21,8 @@ void SvcManageTask(CpuState *frame)
         switch (verb) {
         case MNGTASK_SET_PRIORITY:
             ENSURE_ERR(frame, val <= current_task->max_prio, ERR_NOPERM);
-            current_task->priority = val;
-            if (SchedAnyCpuTakers(current_task))
-                SchedSetReschedFlag();
+            current_task->base_prio = val;
+            TaskRecomputePriority(current_task);
             break;
         case MNGTASK_SET_MAX_PRIO:
             ENSURE_ERR(frame, val <= current_task->max_prio, ERR_NOPERM);
@@ -78,15 +77,8 @@ void SvcManageTask(CpuState *frame)
     case MNGTASK_SET_PRIORITY: {
         uint32_t val = (uint32_t)(*ArchGetFromFrame(frame, 2));
         ENSURE_ERR(frame, val <= current_task->max_prio, ERR_NOPERM);
-        bool requeue = (target->state ==
-                        TASK_STATE_READY); /* only TASK_STATE_READY tasks are on a run queue */
-        if (requeue)
-            SchedRemoveRunQueue(target);
-        target->priority = val;
-        if (requeue)
-            SchedAdd(target);
-        if (target == current_task && SchedAnyCpuTakers(current_task))
-            SchedSetReschedFlag();
+        target->base_prio = val;
+        TaskRecomputePriority(target);
         ArchSetInFrame(frame, 0, ZUZU_OK);
     } break;
 

@@ -32,6 +32,7 @@ size_t SchedGetReadyQueue(TaskObject **out, size_t max_out);
 size_t SchedGetSleepers(TaskObject **out, size_t max_out);
 void SchedBlockOn(ListHead *queue, Duration timeout);
 void SchedUnblock(TaskObject *t);
+void SchedSetEffective(TaskObject *t, Prio prio);
 
 // Direct-switch support for callers (e.g. IPC handoff) that want to switch
 // straight to a specific task instead of going through SchedAdd()+

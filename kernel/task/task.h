@@ -11,6 +11,7 @@
 #include <types.h>
 
 typedef struct SpaceObjectStruct SpaceObject;
+typedef uint32_t Prio;
 
 typedef enum TaskStateEnum {
     TASK_STATE_READY = 0, // ready to run, in run queue
@@ -62,8 +63,10 @@ struct TaskObjectStruct {
     size_t msg_xfer_len;           /**< Length of the message buffer transfer. */
     Marker port_marker;            /**< Port marker. */
     WaitSlot wait_slot;            /**< Wait slot. */
-    uint32_t priority, time_slice; /**< Priority and time slice. */
-    uint32_t max_prio;
+    Prio priority;
+    Prio base_prio;
+    Duration time_slice; /**< Priority and time slice. */
+    Prio max_prio;
     uint8_t queued_prio; /**< Run-queue level the node is linked at; valid while node is linked. */
     Time slice_deadline; /**< Deadline for the time slice. */
     SpaceObject *owner;  /**< Backpointer to the owning Space. */
@@ -72,7 +75,7 @@ struct TaskObjectStruct {
     uint8_t tcb_slot;   /**< Index into owner's TCB page, TCB_SLOT_NONE if unassigned. */
     FpuState fpu_state; /**< Lazily saved/restored, see kernel/sched/sched.c fpu_owner. */
     ObserverSet observers;
-    uint32_t ref_count;
+    size_t ref_count;
     bool released;
 };
 
@@ -87,6 +90,7 @@ void TaskUnlinkWaits(TaskObject *t);
 void TaskAbortWait(TaskObject *t, Err err);
 void TaskRef(TaskObject *t);
 void TaskUnref(TaskObject *t);
+void TaskRecomputePriority(TaskObject *t);
 
 /**
  * @brief Unify self-directed Quit and external Term: mark the task TASK_STATE_ZOMBIE,
