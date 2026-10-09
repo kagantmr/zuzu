@@ -101,7 +101,7 @@ void CallBlockAsSender(TaskObject *caller, PortObject *port, ReplyObject *rc, ui
     caller->pending_reply_cap = rc;
     caller->msg_xfer_len = xlen;
     caller->pending_grant_handle = grant_handle;
-    ListAddTail(&caller->node, &port->sender_queue.node);
+    SchedWaitQueueAddTask(&port->sender_queue, caller);
     caller->state = TASK_STATE_BLOCKED;
     if (PortHasPending(port))
         ObserverNotify(&port->observers);

@@ -30,7 +30,7 @@ static ListHead task_destroy_queue = LIST_HEAD_INIT(task_destroy_queue);
 TaskObject *current_task;
 TaskObject *fpu_owner = NULL;
 
-volatile uint8_t do_resched = 0;
+volatile bool do_resched = 0;
 
 static TaskObject idle_task; // only kernel_sp is used
 static uint8_t idle_stack[IDLE_STACK_BYTES] __attribute__((aligned(8)));
@@ -445,7 +445,7 @@ void SchedBlockOn(ListHead *queue, Duration timeout)
     }
 
     current_task->wait_slot.owner = current_task;
-    ListAddTail(&current_task->wait_slot.node, &queue->node);
+    SchedWaitQueueAdd(queue, &current_task->wait_slot);
 
     current_task->state = TASK_STATE_BLOCKED;
 
@@ -562,4 +562,22 @@ void SchedSetEffective(TaskObject *t, Prio prio)
         SchedAdd(t);
     if (t == current_task && SchedAnyCpuTakers(current_task))
         SchedSetReschedFlag();
+}
+
+void SchedWaitQueueAdd(ListHead *q, WaitSlot *slot)
+{
+    ListNode *pos = q->node.prev;
+    while (pos != &q->node &&
+           container_of(pos, WaitSlot, node)->owner->priority < slot->owner->priority)
+        pos = pos->prev;
+    ListAddHead(&slot->node, pos);
+}
+
+void SchedWaitQueueAddTask(ListHead *q, TaskObject *t)
+{
+    ListNode *pos = q->node.prev;
+    while (pos != &q->node &&
+           container_of(pos, TaskObject, node)->priority < t->priority)
+        pos = pos->prev;
+    ListAddHead(&t->node, pos);
 }

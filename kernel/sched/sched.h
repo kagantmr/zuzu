@@ -40,7 +40,9 @@ void SchedSetEffective(TaskObject *t, Prio prio);
 // SchedSwitchNext and the priority argument for SchedAnyCpuTakers.
 bool SchedAnyCpuTakers(const TaskObject *t);
 void SchedSwitchNext(TaskObject *next);
+void SchedWaitQueueAdd(ListHead *q, WaitSlot *slot);
+void SchedWaitQueueAddTask(ListHead *q, TaskObject *t);
 
-extern volatile uint8_t do_resched;
+extern volatile bool do_resched;
 
 #endif

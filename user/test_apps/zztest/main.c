@@ -1877,12 +1877,29 @@ static void TestPriorities(void)
     Worker *hwt = WorkerStartAt(WaitThenLog, &high_wait, 5);
     Signal(ev3, 1, false);
     Sleep(20);
-    CheckKnown(atomic_load(&g_log_len) >= 1 && atomic_load(&g_log[0]) == 20,
-               "an event wakes its highest-priority waiter first");
+    Check(atomic_load(&g_log_len) >= 1 && atomic_load(&g_log[0]) == 20,
+          "an event wakes its highest-priority waiter first");
     Signal(ev3, 1, false);
     WorkerJoin(lwt);
     WorkerJoin(hwt);
     HandleClose(ev3);
+
+    Handle ev4 = CreateEvent();
+    PrioJob first_wait = {.h = ev4, .id = 10};
+    PrioJob second_wait = {.h = ev4, .id = 11};
+    LogReset();
+    Worker *fw = WorkerStartAt(WaitThenLog, &first_wait, 3);
+    Sleep(20);
+    Worker *sw2 = WorkerStartAt(WaitThenLog, &second_wait, 3);
+    Sleep(20);
+    Signal(ev4, 1, false);
+    Sleep(20);
+    Check(atomic_load(&g_log_len) >= 1 && atomic_load(&g_log[0]) == 10,
+          "equal-priority waiters are woken in arrival order");
+    Signal(ev4, 1, false);
+    WorkerJoin(fw);
+    WorkerJoin(sw2);
+    HandleClose(ev4);
 
     Handle port2 = CreatePort();
     PrioJob rx_low = {.h = port2, .id = 10};
@@ -1893,8 +1910,8 @@ static void TestPriorities(void)
     Worker *rh = WorkerStartAt(ServeOnceLogged, &rx_high, 5);
     memcpy(GetMessageBox(), &op, sizeof(op));
     Call(port2, sizeof(op), -1);
-    CheckKnown(atomic_load(&g_log_len) >= 1 && atomic_load(&g_log[0]) == 20,
-               "a Call is delivered to the highest-priority waiting server");
+    Check(atomic_load(&g_log_len) >= 1 && atomic_load(&g_log[0]) == 20,
+          "a Call is delivered to the highest-priority waiting server");
     Call(port2, sizeof(op), -1);
     WorkerJoin(rl);
     WorkerJoin(rh);
@@ -1913,7 +1930,7 @@ static void TestPriorities(void)
     PortWaitResult second = FormatToPortWait(WaitOn(port3, 2000));
     Reply(0, -1);
     Check(first.status == ZUZU_OK && second.status == ZUZU_OK, "both queued callers are served");
-    CheckKnown(first_id == 20, "the highest-priority queued caller is served first");
+    Check(first_id == 20, "the highest-priority queued caller is served first");
     WorkerJoin(cl);
     WorkerJoin(ch);
     HandleClose(port3);
