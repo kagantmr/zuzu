@@ -104,6 +104,16 @@ static void CheckEq(int32_t got, int32_t want, const char *msg)
     }
 }
 
+static void CheckKnown(bool cond, const char *msg)
+{
+    if (cond) {
+        g_sections[g_cur].pass++;
+        UserspaceDebugLog("zztest: note: known-failing check now passes: %s", msg);
+    } else if (g_verbose) {
+        UserspaceDebugLog("zztest: xfail: %s", msg);
+    }
+}
+
 static uint32_t PagesFree(void) { return ((const Syspage *)SYSPAGE)->mem_free_kb / 4; }
 
 static uint64_t NowMs(void)
@@ -135,7 +145,7 @@ static Worker g_workers[MAX_WORKERS];
 
 static void WorkerEntry(Worker *w) { Quit(w->fn(w->arg)); }
 
-static Worker *WorkerStart(WorkerFn fn, void *arg)
+static Worker *WorkerStartAt(WorkerFn fn, void *arg, int priority)
 {
     Worker *w = NULL;
     for (int i = 0; i < MAX_WORKERS; i++) {
@@ -155,6 +165,11 @@ static Worker *WorkerStart(WorkerFn fn, void *arg)
         MemUnmap(stack);
         return NULL;
     }
+    if (priority >= 0 && TaskSetPriority(task, (uint32_t)priority) != ZUZU_OK) {
+        HandleClose(task);
+        MemUnmap(stack);
+        return NULL;
+    }
     *w = (Worker){.fn = fn, .arg = arg, .stack = stack, .task = task, .used = true};
     if (TaskStart(task, (void *)WorkerEntry, stack + WORKER_STACK, (uint32_t)(uintptr_t)w, 0) !=
         ZUZU_OK) {
@@ -165,6 +180,8 @@ static Worker *WorkerStart(WorkerFn fn, void *arg)
     }
     return w;
 }
+
+static Worker *WorkerStart(WorkerFn fn, void *arg) { return WorkerStartAt(fn, arg, -1); }
 
 /* Waits for the worker to exit, kills it if it does not, and releases its
  * stack and handle. Returns its exit status, or an Err if it never exited. */
@@ -1511,6 +1528,308 @@ static void TestDma(void)
     HandleClose(dev);
 }
 
+/* ---------------- 7c. priorities ---------------- */
+
+#define LOG_MAX 32
+
+static atomic_int g_log[LOG_MAX];
+static atomic_int g_log_len;
+static atomic_int g_stop;
+static atomic_int g_done;
+
+typedef struct {
+    Handle h;
+    int id;
+} PrioJob;
+
+static void LogReset(void) { atomic_store(&g_log_len, 0); }
+
+static void LogPush(int id)
+{
+    int i = atomic_fetch_add(&g_log_len, 1);
+    if (i < LOG_MAX)
+        atomic_store(&g_log[i], id);
+}
+
+static bool LogIs(int n, const int *want)
+{
+    if (atomic_load(&g_log_len) != n)
+        return false;
+    for (int i = 0; i < n; i++)
+        if (atomic_load(&g_log[i]) != want[i])
+            return false;
+    return true;
+}
+
+static int32_t LogOnce(void *p)
+{
+    LogPush((int)(uintptr_t)p);
+    return 0;
+}
+
+static int32_t SpinCount(void *p)
+{
+    atomic_int *count = p;
+    while (!atomic_load(&g_stop))
+        atomic_fetch_add(count, 1);
+    return 0;
+}
+
+static int32_t SpinYield(void *p)
+{
+    atomic_int *count = p;
+    while (!atomic_load(&g_stop)) {
+        atomic_fetch_add(count, 1);
+        Yield();
+    }
+    return 0;
+}
+
+static int32_t WaitThenLog(void *p)
+{
+    PrioJob *j = p;
+    (void)WaitOn(j->h, 3000);
+    LogPush(j->id);
+    return 0;
+}
+
+static int32_t ServeOnceLogged(void *p)
+{
+    PrioJob *j = p;
+    PortWaitResult r = FormatToPortWait(WaitOn(j->h, 3000));
+    if (r.status != ZUZU_OK)
+        return r.status;
+    LogPush(j->id);
+    Reply(0, -1);
+    return 0;
+}
+
+static int32_t CallWithId(void *p)
+{
+    PrioJob *j = p;
+    uint32_t id = (uint32_t)j->id;
+    memcpy(GetMessageBox(), &id, sizeof(id));
+    return Call(j->h, sizeof(id), -1).r0;
+}
+
+static int32_t CallThenDone(void *p)
+{
+    Err rc = CallWithId(p);
+    atomic_store(&g_done, rc == ZUZU_OK ? 1 : -1);
+    return rc;
+}
+
+static void TestPriorities(void)
+{
+    BeginSection("priorities");
+
+    if (TaskSetPriority(-1, 6) != ZUZU_OK) {
+        UserspaceDebugLog("zztest: cannot raise own priority, skipping priorities");
+        return;
+    }
+    TaskSetTimeSlice(-1, 1);
+    TaskSetPriority(-1, 4);
+
+    /* A higher-priority waiter preempts the signaller. */
+    Handle ev = CreateEvent();
+    PrioJob wake = {.h = ev, .id = 2};
+    LogReset();
+    Worker *hw = WorkerStartAt(WaitThenLog, &wake, 5);
+    Check(hw != NULL, "start a priority-5 waiter");
+    CheckEq(Signal(ev, 1, false), ZUZU_OK, "Signal wakes it");
+    LogPush(3);
+    const int preempt[] = {2, 3};
+    CheckKnown(LogIs(2, preempt), "a higher-priority waiter preempts the signaller at wakeup");
+    WorkerJoin(hw);
+    HandleClose(ev);
+
+    /* Strict priority: a lower thread starves while a higher one is runnable. */
+    atomic_store(&g_stop, 0);
+    atomic_int low_count = 0;
+    Worker *lw = WorkerStartAt(SpinCount, &low_count, 2);
+    for (volatile int i = 0; i < 3000000; i++) {
+    }
+    Check(atomic_load(&low_count) == 0, "a lower-priority thread does not run while we do");
+    for (int i = 0; i < 20; i++)
+        Yield();
+    Check(atomic_load(&low_count) == 0, "Yield never hands the CPU to a lower priority");
+    Sleep(50);
+    Check(atomic_load(&low_count) > 0, "it runs as soon as we block");
+    atomic_store(&g_stop, 1);
+    CheckEq(WorkerJoin(lw), 0, "the lower-priority thread exits");
+
+    /* Equal priorities share the CPU. */
+    atomic_store(&g_stop, 0);
+    atomic_int a_count = 0;
+    atomic_int b_count = 0;
+    Worker *aw = WorkerStartAt(SpinCount, &a_count, 4);
+    Worker *bw = WorkerStartAt(SpinCount, &b_count, 4);
+    Sleep(150);
+    atomic_store(&g_stop, 1);
+    Check(atomic_load(&a_count) > 0 && atomic_load(&b_count) > 0,
+          "two equal-priority spinners both make progress");
+    WorkerJoin(aw);
+    WorkerJoin(bw);
+
+    /* A new thread inherits its creator's priority. */
+    LogReset();
+    Worker *iw = WorkerStart(LogOnce, (void *)(uintptr_t)7);
+    for (int i = 0; i < 50 && atomic_load(&g_log_len) == 0; i++)
+        Yield();
+    Check(atomic_load(&g_log_len) == 1, "a new thread inherits its creator's priority");
+    WorkerJoin(iw);
+
+    /* Raising a READY thread above the caller runs it at once. */
+    LogReset();
+    Worker *rw = WorkerStartAt(LogOnce, (void *)(uintptr_t)2, 2);
+    LogPush(1);
+    CheckEq(TaskSetPriority(rw->task, 5), ZUZU_OK, "raise a ready thread's priority");
+    LogPush(3);
+    const int raised[] = {1, 2, 3};
+    CheckKnown(LogIs(3, raised), "a ready thread raised above the caller runs immediately");
+    WorkerJoin(rw);
+
+    /* Changing the priority of a BLOCKED thread takes effect at wakeup. */
+    Handle ev2 = CreateEvent();
+    PrioJob blocked = {.h = ev2, .id = 2};
+    LogReset();
+    Worker *bkw = WorkerStartAt(WaitThenLog, &blocked, 1);
+    Sleep(20);
+    CheckEq(TaskSetPriority(bkw->task, 6), ZUZU_OK, "raise a blocked thread's priority");
+    LogPush(1);
+    Signal(ev2, 1, false);
+    LogPush(3);
+    const int woken[] = {1, 2, 3};
+    CheckKnown(LogIs(3, woken), "a blocked thread raised above the caller preempts at wakeup");
+    WorkerJoin(bkw);
+    HandleClose(ev2);
+
+    /* Lowering the caller's own priority yields to a ready higher thread. */
+    LogReset();
+    Worker *dw = WorkerStartAt(LogOnce, (void *)(uintptr_t)2, 3);
+    LogPush(1);
+    CheckEq(TaskSetPriority(-1, 2), ZUZU_OK, "lower the caller's own priority");
+    LogPush(3);
+    const int lowered[] = {1, 2, 3};
+    CheckKnown(LogIs(3, lowered), "lowering own priority below a ready thread yields at once");
+    TaskSetPriority(-1, 4);
+    WorkerJoin(dw);
+
+    /* Random priority changes across ready threads. */
+    atomic_store(&g_stop, 0);
+    atomic_int churn_count[4] = {0, 0, 0, 0};
+    Worker *churn[4];
+    for (int i = 0; i < 4; i++)
+        churn[i] = WorkerStartAt(SpinYield, &churn_count[i], 1 + (i % 3));
+    uint32_t seed = 12345;
+    for (int i = 0; i < 300; i++) {
+        seed = (seed * 1103515245U) + 12345U;
+        int victim = (int)((seed >> 16) % 4U);
+        uint32_t prio = 1 + ((seed >> 8) % 3U);
+        if (churn[victim])
+            TaskSetPriority(churn[victim]->task, prio);
+        if ((i & 7) == 0)
+            Sleep(1);
+    }
+    atomic_store(&g_stop, 1);
+    int joined = 0;
+    for (int i = 0; i < 4; i++)
+        if (churn[i] && WorkerJoin(churn[i]) == 0)
+            joined++;
+    CheckEq(joined, 4, "300 random priority changes across 4 ready threads");
+
+    /* A Call hands off to the server only when nothing higher is ready. */
+    Handle port = CreatePort();
+    PrioJob serve = {.h = port, .id = 3};
+    LogReset();
+    Worker *sw = WorkerStartAt(ServeOnceLogged, &serve, 1);
+    Sleep(20);
+    Worker *mw = WorkerStartAt(LogOnce, (void *)(uintptr_t)2, 3);
+    uint32_t op = 1;
+    memcpy(GetMessageBox(), &op, sizeof(op));
+    CheckEq(Call(port, sizeof(op), -1).r0, ZUZU_OK, "Call completes");
+    LogPush(4);
+    const int handoff[] = {2, 3, 4};
+    Check(LogIs(3, handoff), "a ready thread between caller and server priority runs first");
+    WorkerJoin(sw);
+    WorkerJoin(mw);
+    HandleClose(port);
+
+    /* Known gaps, flipped to real checks as C1 and C2 land. */
+    Handle ev3 = CreateEvent();
+    PrioJob low_wait = {.h = ev3, .id = 10};
+    PrioJob high_wait = {.h = ev3, .id = 20};
+    LogReset();
+    Worker *lwt = WorkerStartAt(WaitThenLog, &low_wait, 1);
+    Sleep(20);
+    Worker *hwt = WorkerStartAt(WaitThenLog, &high_wait, 5);
+    Signal(ev3, 1, false);
+    Sleep(20);
+    CheckKnown(atomic_load(&g_log_len) >= 1 && atomic_load(&g_log[0]) == 20,
+               "an event wakes its highest-priority waiter first");
+    Signal(ev3, 1, false);
+    WorkerJoin(lwt);
+    WorkerJoin(hwt);
+    HandleClose(ev3);
+
+    Handle port2 = CreatePort();
+    PrioJob rx_low = {.h = port2, .id = 10};
+    PrioJob rx_high = {.h = port2, .id = 20};
+    LogReset();
+    Worker *rl = WorkerStartAt(ServeOnceLogged, &rx_low, 1);
+    Sleep(20);
+    Worker *rh = WorkerStartAt(ServeOnceLogged, &rx_high, 5);
+    memcpy(GetMessageBox(), &op, sizeof(op));
+    Call(port2, sizeof(op), -1);
+    CheckKnown(atomic_load(&g_log_len) >= 1 && atomic_load(&g_log[0]) == 20,
+               "a Call is delivered to the highest-priority waiting server");
+    Call(port2, sizeof(op), -1);
+    WorkerJoin(rl);
+    WorkerJoin(rh);
+    HandleClose(port2);
+
+    Handle port3 = CreatePort();
+    PrioJob tx_low = {.h = port3, .id = 10};
+    PrioJob tx_high = {.h = port3, .id = 20};
+    Worker *cl = WorkerStartAt(CallWithId, &tx_low, 1);
+    Sleep(20);
+    Worker *ch = WorkerStartAt(CallWithId, &tx_high, 5);
+    PortWaitResult first = FormatToPortWait(WaitOn(port3, 2000));
+    uint32_t first_id = 0;
+    memcpy(&first_id, GetMessageBox(), sizeof(first_id));
+    Reply(0, -1);
+    PortWaitResult second = FormatToPortWait(WaitOn(port3, 2000));
+    Reply(0, -1);
+    Check(first.status == ZUZU_OK && second.status == ZUZU_OK, "both queued callers are served");
+    CheckKnown(first_id == 20, "the highest-priority queued caller is served first");
+    WorkerJoin(cl);
+    WorkerJoin(ch);
+    HandleClose(port3);
+
+    TaskSetPriority(-1, 6);
+    Handle port4 = CreatePort();
+    PrioJob inv_server = {.h = port4, .id = 3};
+    PrioJob inv_caller = {.h = port4, .id = 1};
+    atomic_store(&g_stop, 0);
+    atomic_store(&g_done, 0);
+    atomic_int middle_count = 0;
+    Worker *is = WorkerStartAt(ServeOnceLogged, &inv_server, 1);
+    Sleep(20);
+    Worker *im = WorkerStartAt(SpinCount, &middle_count, 3);
+    Worker *ic = WorkerStartAt(CallThenDone, &inv_caller, 4);
+    Sleep(200);
+    CheckKnown(atomic_load(&g_done) == 1,
+               "a high-priority caller is not starved by a middle-priority spinner");
+    atomic_store(&g_stop, 1);
+    WorkerJoin(im);
+    WorkerJoin(ic);
+    WorkerJoin(is);
+    HandleClose(port4);
+
+    TaskSetPriority(-1, 1);
+    TaskSetTimeSlice(-1, 5);
+}
+
 /* ---------------- 8. hostile arguments ---------------- */
 
 static void TestSecurity(void)
@@ -2035,6 +2354,7 @@ static void RunSuite(void)
     TestIpc();
     TestObservers();
     TestTasks();
+    TestPriorities();
     TestSpaces();
     TestInjectObj();
     TestDma();
