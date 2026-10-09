@@ -112,6 +112,7 @@ typedef struct {
 typedef struct {
     Err status;
     uintptr_t bus_addr;
+    uint32_t id;
 } DmaMapResult;
 
 #define DMA_ALIGN 64U
@@ -145,7 +146,8 @@ typedef enum {
     MNGMEM_INJECTOBJ,
     MNGMEM_DMAMAP,
     MNGMEM_DMAUNMAP,
-    MNGMEM_DMASYNC
+    MNGMEM_DMASYNC,
+    MNGMEM_DMAADOPT,
 } ManageMemoryVerb;
 
 typedef enum {
@@ -154,6 +156,11 @@ typedef enum {
     QUERY_MARKER,
     QUERY_STATUS,
     QUERY_SIZE,
+    QUERY_DMA_COUNT,
+    QUERY_DMA_ID,
+    QUERY_DMA_BUS,
+    QUERY_DMA_LEN,
+    QUERY_DMA_DIR,
     QUERY_WHAT_COUNT
 } QueryWhat;
 

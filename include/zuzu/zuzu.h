@@ -220,9 +220,14 @@ static inline Err HandleDestroy(Handle h)
     return ArchInvokeSvc(SVC_MANAGEHANDLE, h, MNGHNDL_DESTROY, 0, 0);
 }
 
+static inline SvcResult HandleQueryAt(Handle h, QueryWhat what, size_t index)
+{
+    return ArchInvokeSvc4(SVC_MANAGEHANDLE, h, MNGHNDL_QUERY, what, (Register)index);
+}
+
 static inline SvcResult HandleQuery(Handle h, QueryWhat what)
 {
-    return ArchInvokeSvc4(SVC_MANAGEHANDLE, h, MNGHNDL_QUERY, what, 0);
+    return HandleQueryAt(h, what, 0);
 }
 
 static inline void *MemMap(Handle mem_handle, VirtAddr hint_va, MemProt prot)
@@ -357,6 +362,7 @@ static inline DmaMapResult FormatToDmaMap(SvcResult r)
     return (DmaMapResult){
         .status = (Err)r.r0,
         .bus_addr = (uintptr_t)r.r1,
+        .id = (uint32_t)r.r2,
     };
 }
 
@@ -367,10 +373,15 @@ static inline DmaMapResult DmaMap(Handle dev, Handle mem, size_t offset, size_t 
         ArchInvokeSvc4(SVC_MANAGEMEMORY, MNGMEM_DMAMAP, (Register)(VirtAddr)&args, 0, 0));
 }
 
-static inline Err DmaUnmap(Handle dev, uintptr_t bus_addr, size_t len)
+static inline Err DmaUnmap(Handle dev, uint32_t id)
 {
-    return ArchInvokeSvc(SVC_MANAGEMEMORY, MNGMEM_DMAUNMAP, dev, (Register)bus_addr,
-                         (Register)len);
+    return ArchInvokeSvc(SVC_MANAGEMEMORY, MNGMEM_DMAUNMAP, dev, (Register)id, 0);
+}
+
+static inline Handle DmaAdopt(Handle dev, uint32_t id)
+{
+    SvcResult r = ArchInvokeSvc4(SVC_MANAGEMEMORY, MNGMEM_DMAADOPT, dev, (Register)id, 0);
+    return (r.r0 == 0) ? (Handle)r.r1 : (Handle)r.r0;
 }
 
 static inline Err DmaSync(Handle dev, uintptr_t bus_addr, size_t len, DmaSyncOp op)

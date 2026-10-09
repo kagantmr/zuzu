@@ -38,6 +38,7 @@ MemObject *MemObjCreateDevice(PhysAddr phys_base, size_t size, Irq irq)
     mem->dev.dma_limit = UINTPTR_MAX;
     mem->dev.bus_offset = 0;
     mem->dev.dma_maps = NULL;
+    mem->dev.dma_next_id = 1;
     mem->dev.dma_map_count = 0;
     return mem;
 }
@@ -97,7 +98,7 @@ void MemObjUnmapAndDrop(AddressSpace *as, VirtAddr mapped_va, MemObject *mem)
 }
 
 Err MemObjDmaMap(MemObject *dev, MemObject *mem, size_t offset, size_t len, DmaDir dir,
-                 uintptr_t *bus_addr)
+                 uintptr_t *bus_addr, uint32_t *id)
 {
     ENSURE_RET(dev->kind == MEMKIND_DEVICE, ERR_BADTYPE);
     ENSURE_RET(mem->kind == MEMKIND_SHARED && (mem->shm.flags & MEM_CONTIG), ERR_BADTYPE);
@@ -119,6 +120,9 @@ Err MemObjDmaMap(MemObject *dev, MemObject *mem, size_t offset, size_t len, DmaD
     DmaMapping *m = DmaMappingAlloc();
     ENSURE_RET(m, ERR_NOMEM);
 
+    m->id = dev->dev.dma_next_id++;
+    if (dev->dev.dma_next_id == 0)
+        dev->dev.dma_next_id = 1;
     m->mem = mem;
     m->dir = dir;
     m->len = len;
@@ -131,17 +135,18 @@ Err MemObjDmaMap(MemObject *dev, MemObject *mem, size_t offset, size_t len, DmaD
     dev->dev.dma_map_count++;
 
     *bus_addr = bus;
+    *id = m->id;
     return ZUZU_OK;
 }
 
-Err MemObjDmaUnmap(MemObject *dev, uintptr_t bus_addr, size_t len)
+Err MemObjDmaUnmap(MemObject *dev, uint32_t id)
 {
     ENSURE_RET(dev->kind == MEMKIND_DEVICE, ERR_BADTYPE);
 
     DmaMapping **link = &dev->dev.dma_maps;
     while (*link) {
         DmaMapping *m = *link;
-        if (m->bus_addr == bus_addr && m->len == len) {
+        if (m->id == id) {
             if ((m->dir & DMA_FROM_DEVICE) && !(m->mem->shm.flags & MEM_UNCACHED)) {
                 PhysAddr phys = m->mem->shm.page_addrs[0] + m->offset;
                 ArchCacheInvalidateDcacheRange(PA_TO_VA(phys), m->len);
@@ -178,4 +183,24 @@ Err MemObjDmaSync(MemObject *dev, uintptr_t bus, size_t len, DmaSyncOp op)
         return ZUZU_OK;
     }   
     return ERR_NOENT;
+}
+
+const DmaMapping *MemObjDmaNth(const MemObject *dev, size_t index)
+{
+    if (dev->kind != MEMKIND_DEVICE)
+        return NULL;
+    const DmaMapping *m = dev->dev.dma_maps;
+    while (m && index--)
+        m = m->next;
+    return m;
+}
+
+const DmaMapping *MemObjDmaFind(const MemObject *dev, uint32_t id)
+{
+    if (dev->kind != MEMKIND_DEVICE)
+        return NULL;
+    for (const DmaMapping *m = dev->dev.dma_maps; m; m = m->next)
+        if (m->id == id)
+            return m;
+    return NULL;
 }

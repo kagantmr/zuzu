@@ -1425,9 +1425,10 @@ static void TestDma(void)
     DmaMapResult r = DmaMap(dev, buf, 0, 16384, DMA_TO_DEVICE);
     CheckEq(r.status, ZUZU_OK, "DmaMap(contig buffer) OK");
     Check(r.bus_addr != 0 && (r.bus_addr % 4096) == 0, "DmaMap returns a page-aligned bus address");
-    CheckEq(DmaUnmap(dev, r.bus_addr, 8192), ERR_NOENT, "DmaUnmap(wrong length) -> NOENT");
-    CheckEq(DmaUnmap(dev, r.bus_addr, 16384), ZUZU_OK, "DmaUnmap OK");
-    CheckEq(DmaUnmap(dev, r.bus_addr, 16384), ERR_NOENT, "DmaUnmap twice -> NOENT");
+    Check(r.id != 0, "DmaMap returns a nonzero mapping id");
+    CheckEq(DmaUnmap(dev, r.id + 1000), ERR_NOENT, "DmaUnmap(unknown id) -> NOENT");
+    CheckEq(DmaUnmap(dev, r.id), ZUZU_OK, "DmaUnmap OK");
+    CheckEq(DmaUnmap(dev, r.id), ERR_NOENT, "DmaUnmap twice -> NOENT");
 
     DmaMapResult s = DmaMap(dev, buf, 0, 16384, DMA_BIDIRECTIONAL);
     CheckEq(s.status, ZUZU_OK, "DmaMap for sync checks");
@@ -1455,21 +1456,74 @@ static void TestDma(void)
             "DmaSync(just past the mapping) -> NOENT");
     CheckEq(DmaSync(buf, s.bus_addr, DMA_ALIGN, DMA_SYNC_FOR_CPU), ERR_BADTYPE,
             "DmaSync(shm object as the device) -> BADTYPE");
-    CheckEq(DmaUnmap(dev, s.bus_addr, 16384), ZUZU_OK, "DmaUnmap after sync checks");
+    CheckEq(DmaUnmap(dev, s.id), ZUZU_OK, "DmaUnmap after sync checks");
     CheckEq(DmaSync(dev, s.bus_addr, DMA_ALIGN, DMA_SYNC_FOR_CPU), ERR_NOENT,
             "DmaSync after DmaUnmap -> NOENT");
+
+    int32_t dma_base = HandleQuery(dev, QUERY_DMA_COUNT).r1;
+    DmaMapResult q = DmaMap(dev, buf, 4096, 8192, DMA_FROM_DEVICE);
+    CheckEq(q.status, ZUZU_OK, "DmaMap for query checks");
+    CheckEq(HandleQuery(dev, QUERY_DMA_COUNT).r1, dma_base + 1,
+            "QUERY_DMA_COUNT counts the mapping");
+    CheckEq((int32_t)HandleQueryAt(dev, QUERY_DMA_ID, 0).r1, (int32_t)q.id,
+            "QUERY_DMA_ID lists the newest mapping first");
+    CheckEq((int32_t)HandleQueryAt(dev, QUERY_DMA_BUS, q.id).r1, (int32_t)q.bus_addr,
+            "QUERY_DMA_BUS returns the bus address");
+    CheckEq(HandleQueryAt(dev, QUERY_DMA_LEN, q.id).r1, 8192, "QUERY_DMA_LEN returns the length");
+    CheckEq(HandleQueryAt(dev, QUERY_DMA_DIR, q.id).r1, DMA_FROM_DEVICE,
+            "QUERY_DMA_DIR returns the direction");
+    CheckEq(HandleQueryAt(dev, QUERY_DMA_ID, (size_t)dma_base + 1).r0, ERR_NOENT,
+            "QUERY_DMA_ID past the last mapping -> NOENT");
+    CheckEq(HandleQueryAt(dev, QUERY_DMA_BUS, q.id + 1000).r0, ERR_NOENT,
+            "QUERY_DMA_BUS with an unknown id -> NOENT");
+
+    DmaMapResult q2 = DmaMap(dev, buf, 0, 4096, DMA_TO_DEVICE);
+    Check(q2.id != q.id, "mapping ids are unique");
+    CheckEq((int32_t)HandleQueryAt(dev, QUERY_DMA_ID, 0).r1, (int32_t)q2.id,
+            "a newer mapping is listed first");
+    CheckEq(DmaUnmap(dev, q2.id), ZUZU_OK, "DmaUnmap by id leaves the other mapping alone");
+    CheckEq(HandleQueryAt(dev, QUERY_DMA_LEN, q.id).r1, 8192, "the older mapping survives");
+
+    Handle adopted = DmaAdopt(dev, q.id);
+    Check(adopted >= 0, "DmaAdopt returns a handle");
+    CheckEq(HandleQuery(adopted, QUERY_TYPE).r1, ZH_MEM, "the adopted handle is a mem handle");
+    CheckEq(HandleQuery(adopted, QUERY_SIZE).r1, 4 * 4096, "it is the whole buffer");
+    uint8_t *orig_map = MemMap(buf, 0, PROT_RW);
+    uint8_t *adopt_map = MemMap(adopted, 0, PROT_RW);
+    Check(!PtrIsErr(orig_map) && !PtrIsErr(adopt_map), "both handles map");
+    if (!PtrIsErr(orig_map) && !PtrIsErr(adopt_map)) {
+        ((volatile uint8_t *)orig_map)[5000] = 0xA5;
+        CheckEq(((volatile uint8_t *)adopt_map)[5000], 0xA5,
+                "the adopted handle sees the same pages");
+        MemUnmap(adopt_map);
+        MemUnmap(orig_map);
+    }
+    HandleClose(adopted);
+
+    CheckEq(DmaAdopt(dev, q.id + 1000), ERR_NOENT, "DmaAdopt(unknown id) -> NOENT");
+    CheckEq(DmaAdopt(buf, q.id), ERR_BADTYPE, "DmaAdopt(shm object as the device) -> BADTYPE");
+    CheckEq(HandleQuery(buf, QUERY_DMA_COUNT).r0, ERR_BADTYPE,
+            "QUERY_DMA_COUNT on a shm object -> BADTYPE");
+    SvcResult no_map_dev = HandleDuplicate(dev, PERM_WAIT, MARKER_NONE);
+    CheckEq(DmaAdopt((Handle)no_map_dev.r1, q.id), ERR_NOPERM,
+            "DmaAdopt without PERM_MAP -> NOPERM");
+    CheckEq(HandleQueryAt((Handle)no_map_dev.r1, QUERY_DMA_ID, 0).r0, ERR_NOPERM,
+            "QUERY_DMA_ID without PERM_MAP -> NOPERM");
+    HandleClose((Handle)no_map_dev.r1);
+    CheckEq(DmaUnmap(dev, q.id), ZUZU_OK, "DmaUnmap the queried mapping");
+    CheckEq(HandleQuery(dev, QUERY_DMA_COUNT).r1, dma_base, "QUERY_DMA_COUNT drops again");
 
     Handle unc = CreateMem(1, MEM_CONTIG | MEM_UNCACHED);
     DmaMapResult ur = DmaMap(dev, unc, 0, 4096, DMA_FROM_DEVICE);
     CheckEq(ur.status, ZUZU_OK, "DmaMap(uncached buffer) OK");
     CheckEq(DmaSync(dev, ur.bus_addr, 4096, DMA_SYNC_FOR_CPU), ZUZU_OK,
             "DmaSync(uncached) is a no-op OK");
-    CheckEq(DmaUnmap(dev, ur.bus_addr, 4096), ZUZU_OK, "DmaUnmap(uncached buffer) OK");
+    CheckEq(DmaUnmap(dev, ur.id), ZUZU_OK, "DmaUnmap(uncached buffer) OK");
     HandleClose(unc);
 
     DmaMapResult part = DmaMap(dev, buf, 4096, 8192, DMA_FROM_DEVICE);
     CheckEq(part.status, ZUZU_OK, "DmaMap(sub-range) OK");
-    CheckEq(DmaUnmap(dev, part.bus_addr, 8192), ZUZU_OK, "DmaUnmap(sub-range) OK");
+    CheckEq(DmaUnmap(dev, part.id), ZUZU_OK, "DmaUnmap(sub-range) OK");
 
     CheckEq(DmaMap(dev, plain, 0, 4096, DMA_TO_DEVICE).status, ERR_BADTYPE,
             "DmaMap(non-contig buffer) -> BADTYPE");
@@ -1477,7 +1531,7 @@ static void TestDma(void)
             "DmaMap(shm object as the device) -> BADTYPE");
     CheckEq(DmaMap(dev, dev, 0, 4096, DMA_TO_DEVICE).status, ERR_BADTYPE,
             "DmaMap(device object as the buffer) -> BADTYPE");
-    CheckEq(DmaUnmap(buf, 0, 4096), ERR_BADTYPE, "DmaUnmap(shm object as the device) -> BADTYPE");
+    CheckEq(DmaUnmap(buf, 1), ERR_BADTYPE, "DmaUnmap(shm object as the device) -> BADTYPE");
     Handle ev = CreateEvent();
     CheckEq(DmaMap(ev, buf, 0, 4096, DMA_TO_DEVICE).status, ERR_BADTYPE,
             "DmaMap(event as the device) -> BADTYPE");
@@ -1510,7 +1564,7 @@ static void TestDma(void)
         Handle warm = CreateMem(4, MEM_CONTIG);
         DmaMapResult wr = DmaMap(dev, warm, 0, 16384, DMA_BIDIRECTIONAL);
         HandleClose(warm);
-        DmaUnmap(dev, wr.bus_addr, 16384);
+        DmaUnmap(dev, wr.id);
     }
     SleepAndSettle();
     uint32_t before = PagesFree();
@@ -1521,7 +1575,7 @@ static void TestDma(void)
     SleepAndSettle();
     CheckEq((int32_t)PagesFree(), (int32_t)before - 4,
             "closing the buffer handle keeps DMA-mapped pages");
-    CheckEq(DmaUnmap(dev, pr.bus_addr, 16384), ZUZU_OK, "DmaUnmap the orphaned buffer");
+    CheckEq(DmaUnmap(dev, pr.id), ZUZU_OK, "DmaUnmap the orphaned buffer");
     SleepAndSettle();
     CheckEq((int32_t)PagesFree(), (int32_t)before, "DmaUnmap frees the orphaned buffer");
 
@@ -1639,7 +1693,7 @@ static void TestPriorities(void)
     CheckEq(Signal(ev, 1, false), ZUZU_OK, "Signal wakes it");
     LogPush(3);
     const int preempt[] = {2, 3};
-    CheckKnown(LogIs(2, preempt), "a higher-priority waiter preempts the signaller at wakeup");
+    Check(LogIs(2, preempt), "a higher-priority waiter preempts the signaller at wakeup");
     WorkerJoin(hw);
     HandleClose(ev);
 
@@ -1686,7 +1740,7 @@ static void TestPriorities(void)
     CheckEq(TaskSetPriority(rw->task, 5), ZUZU_OK, "raise a ready thread's priority");
     LogPush(3);
     const int raised[] = {1, 2, 3};
-    CheckKnown(LogIs(3, raised), "a ready thread raised above the caller runs immediately");
+    Check(LogIs(3, raised), "a ready thread raised above the caller runs immediately");
     WorkerJoin(rw);
 
     /* Changing the priority of a BLOCKED thread takes effect at wakeup. */
@@ -1700,7 +1754,7 @@ static void TestPriorities(void)
     Signal(ev2, 1, false);
     LogPush(3);
     const int woken[] = {1, 2, 3};
-    CheckKnown(LogIs(3, woken), "a blocked thread raised above the caller preempts at wakeup");
+    Check(LogIs(3, woken), "a blocked thread raised above the caller preempts at wakeup");
     WorkerJoin(bkw);
     HandleClose(ev2);
 
@@ -1711,7 +1765,7 @@ static void TestPriorities(void)
     CheckEq(TaskSetPriority(-1, 2), ZUZU_OK, "lower the caller's own priority");
     LogPush(3);
     const int lowered[] = {1, 2, 3};
-    CheckKnown(LogIs(3, lowered), "lowering own priority below a ready thread yields at once");
+    Check(LogIs(3, lowered), "lowering own priority below a ready thread yields at once");
     TaskSetPriority(-1, 4);
     WorkerJoin(dw);
 

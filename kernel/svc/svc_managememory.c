@@ -76,21 +76,49 @@ void SvcManageMemory(CpuState *frame)
         ENSURE_ERR(frame, mem->perms & PERM_MAP, ERR_NOPERM);
 
         uintptr_t bus_addr = 0;
-        Err rc = MemObjDmaMap(dev->mem, mem->mem, kargs.offset, kargs.len, kargs.dir, &bus_addr);
+        uint32_t id = 0;
+        Err rc =
+            MemObjDmaMap(dev->mem, mem->mem, kargs.offset, kargs.len, kargs.dir, &bus_addr, &id);
         ArchSetInFrame(frame, 0, rc);
         ArchSetInFrame(frame, 1, (rc == ZUZU_OK) ? (Register)bus_addr : 0);
+        ArchSetInFrame(frame, 2, (rc == ZUZU_OK) ? (Register)id : 0);
     } break;
     case MNGMEM_DMAUNMAP: {
         Handle dev_handle = (*ArchGetFromFrame(frame, 1));
-        uintptr_t bus_addr = (uintptr_t)(*ArchGetFromFrame(frame, 2));
-        size_t len = (size_t)(*ArchGetFromFrame(frame, 3));
+        uint32_t id = (uint32_t)(*ArchGetFromFrame(frame, 2));
 
         HandleTableEntry *dev = HandleTableLookup(&CURRENT_SPACE->handle_table, dev_handle);
         ENSURE_ERR(frame, dev, ERR_BADHANDLE);
         ENSURE_ERR(frame, (HANDLE_MEM == dev->type), ERR_BADTYPE);
         ENSURE_ERR(frame, dev->perms & PERM_MAP, ERR_NOPERM);
 
-        ArchSetInFrame(frame, 0, MemObjDmaUnmap(dev->mem, bus_addr, len));
+        ArchSetInFrame(frame, 0, MemObjDmaUnmap(dev->mem, id));
+    } break;
+    case MNGMEM_DMAADOPT: {
+        Handle dev_handle = (*ArchGetFromFrame(frame, 1));
+        uint32_t id = (uint32_t)(*ArchGetFromFrame(frame, 2));
+
+        HandleTableEntry *dev = HandleTableLookup(&CURRENT_SPACE->handle_table, dev_handle);
+        ENSURE_ERR(frame, dev, ERR_BADHANDLE);
+        ENSURE_ERR(frame, (HANDLE_MEM == dev->type), ERR_BADTYPE);
+        ENSURE_ERR(frame, dev->mem && dev->mem->kind == MEMKIND_DEVICE, ERR_BADTYPE);
+        ENSURE_ERR(frame, dev->perms & PERM_MAP, ERR_NOPERM);
+
+        const DmaMapping *m = MemObjDmaFind(dev->mem, id);
+        ENSURE_ERR(frame, m, ERR_NOENT);
+
+        Handle slot = HandleTableFindFree(&CURRENT_SPACE->handle_table);
+        ENSURE_ERR(frame, -1 != slot, ERR_NOMEM);
+        HandleTableEntry *fresh = HandleTableGet(&CURRENT_SPACE->handle_table, slot);
+        HandleEntryClaim(&CURRENT_SPACE->handle_table, fresh);
+        MemObjRef(m->mem);
+        fresh->type = HANDLE_MEM;
+        fresh->mem = m->mem;
+        fresh->perms = PERM_MAP;
+        fresh->mapped_va = 0;
+
+        ArchSetInFrame(frame, 0, ZUZU_OK);
+        ArchSetInFrame(frame, 1, (Register)HANDLE_PACK(slot, fresh->generation));
     } break;
     case MNGMEM_DMASYNC: {
         Handle dev_handle = (*ArchGetFromFrame(frame, 1));
