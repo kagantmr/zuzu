@@ -118,7 +118,8 @@ static void SchedEnqueue(TaskObject *t, bool front)
         do_resched = 1;
     }
 
-    if (current_task && !in_tick && t != current_task && !slice_armed && t->priority >= current_task->priority)
+    if (current_task && !in_tick && t != current_task && !slice_armed &&
+        t->priority >= current_task->priority)
         SchedArmTimer();
 }
 
@@ -361,8 +362,11 @@ void __hot SchedSwitchNext(TaskObject *next)
     current_task->state = TASK_STATE_RUNNING;
     on_idle_stack = false;
 
-    current_task->slice_deadline =
-        ArchTimerNow() + ((uint64_t)current_task->time_slice * (ArchTimerFreq() / TICK_HZ));
+    uint64_t slice = current_task->slice_remaining
+                         ? current_task->slice_remaining
+                         : (uint64_t)current_task->time_slice * (ArchTimerFreq() / TICK_HZ);
+    current_task->slice_deadline = ArchTimerNow() + slice;
+    current_task->slice_remaining = 0;
     SchedArmTimer();
 
     if (unlikely(next == prev))
@@ -410,7 +414,7 @@ static void SchedArmTimer(void)
     uint64_t deadline = UINT64_MAX;
 
     slice_armed = current_task && SchedAnyCpuTakers(current_task);
-    
+
     uint32_t k = WheelScanFromNow();
     if (k < SLEEP_QUEUE_SIZE) {
         uint32_t slot = (uint32_t)((wheel_now_slot + k) % SLEEP_QUEUE_SIZE);
@@ -471,7 +475,17 @@ void __hot Schedule(void)
 {
     if (current_task != NULL && current_task->state == TASK_STATE_RUNNING) {
         current_task->state = TASK_STATE_READY;
-        SchedAdd(current_task);
+
+        uint64_t now = ArchTimerNow();
+        bool preempted =
+            now < current_task->slice_deadline && (ready_mask >> (current_task->priority + 1)) != 0;
+
+        if (preempted) {
+            current_task->slice_remaining = current_task->slice_deadline - now;
+            SchedAddFront(current_task);
+        } else {
+            SchedAdd(current_task);
+        }
     }
 
     SchedDoHousekeeping();
@@ -523,16 +537,14 @@ size_t SchedGetSleepers(TaskObject **out, size_t max_out)
     return total;
 }
 
-void SchedSetReschedFlag(void) {
-    do_resched = 1;
-}
+void SchedSetReschedFlag(void) { do_resched = 1; }
 
 void SchedTick(void)
 {
     in_tick = true;
     SchedWakeSleepers();
     in_tick = false;
-    
+
     if (current_task && SchedAnyCpuTakers(current_task) &&
         ArchTimerNow() >= current_task->slice_deadline)
         do_resched = 1;

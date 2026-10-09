@@ -1770,6 +1770,25 @@ static void TestPriorities(void)
           "a sleeper's wakeup does not rotate equal-priority peers before the slice ends");
     WorkerJoin(peer);
     WorkerJoin(sl);
+    TaskSetTimeSlice(-1, 50);
+    Sleep(1);
+    LogReset();
+    Worker *equal_peer = WorkerStartAt(LogOnce, (void *)(uintptr_t)2, 4);
+    Worker *preemptor = WorkerStartAt(LogOnce, (void *)(uintptr_t)3, 5);
+    LogPush(1);
+    const int kept_place[] = {3, 1};
+    Check(LogIs(2, kept_place),
+          "a task preempted by a higher priority resumes ahead of an equal peer");
+    WorkerJoin(equal_peer);
+    WorkerJoin(preemptor);
+
+    LogReset();
+    Worker *yield_peer = WorkerStartAt(LogOnce, (void *)(uintptr_t)2, 4);
+    Yield();
+    LogPush(1);
+    const int yielded[] = {2, 1};
+    Check(LogIs(2, yielded), "Yield still lets an equal-priority peer run first");
+    WorkerJoin(yield_peer);
     TaskSetTimeSlice(-1, 1);
 
     /* Raising a READY thread above the caller runs it at once. */

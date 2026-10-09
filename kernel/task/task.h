@@ -46,6 +46,7 @@ struct TaskObjectStruct {
     ListNode timeout_node;    /**< Node for timeout queue. */
     ListHead joiners;         /**< List of joiners. */
     Time wake_deadline;       /**< Deadline for waking up. */
+    Time slice_remaining;     /**< Remaining time slices. */
     int16_t sleep_slot;       /**< Sleep slot. */
     TaskState state;          /**< State of the task. */
     ListNode destroy_node;    /**< Node for destruction. */
