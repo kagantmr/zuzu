@@ -100,6 +100,17 @@ svc_handler:
     bic sp, sp, #7
     bl SvcTrap
     mov sp, r4
+    ldr r0, =do_resched
+    ldrb r1, [r0]
+    cmp r1, #0
+    beq .svc_no_schedule
+    mov r1, #0
+    strb r1, [r0]
+    mov r4, sp
+    bic sp, sp, #7
+    bl Schedule
+    mov sp, r4
+.svc_no_schedule:
     exception_exit
 
 prefetch_abort_handler:
