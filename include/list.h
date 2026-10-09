@@ -29,6 +29,22 @@ typedef struct {
     }
 
 /**
+    * @brief Adds a new node to the start of the list.
+    *
+    *
+    * @param node Pointer to the new node to be added.
+    * @param head Pointer to the head of the list.
+    */
+static __always_inline void ListAddHead(ListNode *node, ListNode *head)
+{
+    ListNode *first = head->next;
+    node->next = first;
+    node->prev = head;
+    first->prev = node;
+    head->next = node;
+}
+    
+/**
  * @brief Adds a new node to the end of the list.
  *
  * On the IPC hot path this runs on every Call/Reply/WaitOn

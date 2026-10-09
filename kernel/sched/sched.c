@@ -94,7 +94,7 @@ void SchedInit(void)
     SchedInitIdleTask();
 }
 
-void SchedAdd(TaskObject *t)
+static void SchedEnqueue(TaskObject *t, bool front)
 {
     if (!t)
         return;
@@ -108,7 +108,10 @@ void SchedAdd(TaskObject *t)
         priority = SCHED_PRIO_DEFAULT;
 
     t->queued_prio = (uint8_t)priority;
-    ListAddTail(&t->node, &run_queues[priority].node);
+    if (front)
+        ListAddHead(&t->node, &run_queues[priority].node);
+    else
+        ListAddTail(&t->node, &run_queues[priority].node);
     ready_mask |= (1U << priority);
 
     if (current_task && t->priority > current_task->priority) {
@@ -118,6 +121,10 @@ void SchedAdd(TaskObject *t)
     if (current_task && !in_tick && t != current_task && !slice_armed && t->priority >= current_task->priority)
         SchedArmTimer();
 }
+
+void SchedAdd(TaskObject *t) { SchedEnqueue(t, false); }
+
+void SchedAddFront(TaskObject *t) { SchedEnqueue(t, true); }
 
 void SchedQueueDestroyTask(TaskObject *t)
 {
@@ -403,8 +410,6 @@ static void SchedArmTimer(void)
     uint64_t deadline = UINT64_MAX;
 
     slice_armed = current_task && SchedAnyCpuTakers(current_task);
-    if (slice_armed && current_task->slice_deadline < deadline)
-        deadline = current_task->slice_deadline;
     
     uint32_t k = WheelScanFromNow();
     if (k < SLEEP_QUEUE_SIZE) {
@@ -413,7 +418,7 @@ static void SchedArmTimer(void)
         deadline = wheel_min[slot] < slot_end ? wheel_min[slot] : slot_end;
     }
 
-    if (current_task && SchedAnyCpuTakers(current_task) && current_task->slice_deadline < deadline)
+    if (slice_armed && current_task->slice_deadline < deadline)
         deadline = current_task->slice_deadline;
 
     if (deadline == UINT64_MAX) {

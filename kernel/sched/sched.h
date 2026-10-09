@@ -20,6 +20,7 @@ extern TaskObject *fpu_owner;
 
 void SchedInit(void);
 void SchedAdd(TaskObject *t);
+void SchedAddFront(TaskObject *t);
 void SchedQueueDestroyTask(TaskObject *t);
 void __hot Schedule(void);
 void SchedTick(void);
