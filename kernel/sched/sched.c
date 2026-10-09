@@ -36,6 +36,8 @@ static TaskObject idle_task; // only kernel_sp is used
 static uint8_t idle_stack[IDLE_STACK_BYTES] __attribute__((aligned(8)));
 static bool on_idle_stack;
 
+static bool slice_armed;
+static bool in_tick;
 static ListHead run_queues[SCHED_PRIORITY_LEVELS];
 
 static ListHead sleep_wheel[SLEEP_QUEUE_SIZE];
@@ -112,6 +114,9 @@ void SchedAdd(TaskObject *t)
     if (current_task && t->priority > current_task->priority) {
         do_resched = 1;
     }
+
+    if (current_task && !in_tick && t != current_task && !slice_armed && t->priority >= current_task->priority)
+        SchedArmTimer();
 }
 
 void SchedQueueDestroyTask(TaskObject *t)
@@ -277,12 +282,12 @@ static void SchedIdleWait(void)
         if (SchedIsWorkPending()) {
             if (do_resched)
                 do_resched = 0;
-            ArchGlobalIrqEnable();
             return;
         }
 
         __asm__ volatile("wfi" ::: "memory");
         ArchGlobalIrqEnable();
+        ArchGlobalIrqDisable();
 
         if (SchedIsWorkPending()) {
             if (do_resched)
@@ -330,9 +335,6 @@ bool __hot SchedAnyCpuTakers(const TaskObject *t)
     return at_or_above != 0;
 }
 
-/* Called from Schedule() (every voluntary reschedule) and directly from
- * the Call direct-handoff path -- one of the hottest functions in the
- * kernel. */
 void __hot SchedSwitchNext(TaskObject *next)
 {
     TaskObject *prev = current_task;
@@ -400,6 +402,10 @@ static void SchedArmTimer(void)
     uint64_t now = ArchTimerNow();
     uint64_t deadline = UINT64_MAX;
 
+    slice_armed = current_task && SchedAnyCpuTakers(current_task);
+    if (slice_armed && current_task->slice_deadline < deadline)
+        deadline = current_task->slice_deadline;
+    
     uint32_t k = WheelScanFromNow();
     if (k < SLEEP_QUEUE_SIZE) {
         uint32_t slot = (uint32_t)((wheel_now_slot + k) % SLEEP_QUEUE_SIZE);
@@ -512,4 +518,18 @@ size_t SchedGetSleepers(TaskObject **out, size_t max_out)
     return total;
 }
 
-void SchedSetReschedFlag(void) { do_resched = 1; }
+void SchedSetReschedFlag(void) {
+    do_resched = 1;
+}
+
+void SchedTick(void)
+{
+    in_tick = true;
+    SchedWakeSleepers();
+    in_tick = false;
+    
+    if (current_task && SchedAnyCpuTakers(current_task) &&
+        ArchTimerNow() >= current_task->slice_deadline)
+        do_resched = 1;
+    SchedArmTimer();
+}

@@ -1621,6 +1621,21 @@ static int32_t LogOnce(void *p)
     return 0;
 }
 
+static atomic_int g_first_ms;
+
+static int32_t StampOnce(void *p)
+{
+    (void)p;
+    atomic_store(&g_first_ms, (int)NowMs());
+    return 0;
+}
+
+static int32_t SleepOnce(void *p)
+{
+    Sleep((Duration)(uintptr_t)p);
+    return 0;
+}
+
 static int32_t SpinCount(void *p)
 {
     atomic_int *count = p;
@@ -1732,6 +1747,30 @@ static void TestPriorities(void)
         Yield();
     Check(atomic_load(&g_log_len) == 1, "a new thread inherits its creator's priority");
     WorkerJoin(iw);
+
+    LogReset();
+    Worker *pw = WorkerStart(LogOnce, (void *)(uintptr_t)8);
+    for (int i = 0; i < 50000000 && atomic_load(&g_log_len) == 0; i++) {
+    }
+    Check(atomic_load(&g_log_len) == 1, "a peer readied while we run alone gets a slice");
+    WorkerJoin(pw);
+
+    TaskSetTimeSlice(-1, 5);
+    atomic_store(&g_first_ms, 0);
+    Worker *sl = WorkerStartAt(SleepOnce, (void *)(uintptr_t)2, 3);
+    Sleep(1);
+    int start_ms = (int)NowMs();
+    Worker *peer = WorkerStart(StampOnce, NULL);
+    for (int i = 0; i < 300000000 && atomic_load(&g_first_ms) == 0; i++) {
+    }
+    int waited_ms = atomic_load(&g_first_ms) - start_ms;
+    UserspaceDebugLog("zztest: note: the equal-priority peer first ran %d ms into our slice",
+                      waited_ms);
+    Check(atomic_load(&g_first_ms) != 0 && waited_ms >= 30,
+          "a sleeper's wakeup does not rotate equal-priority peers before the slice ends");
+    WorkerJoin(peer);
+    WorkerJoin(sl);
+    TaskSetTimeSlice(-1, 1);
 
     /* Raising a READY thread above the caller runs it at once. */
     LogReset();

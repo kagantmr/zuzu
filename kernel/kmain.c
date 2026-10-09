@@ -26,7 +26,7 @@
  * wraps SchedSetReschedFlag rather than being registered alongside it —
  * a second call to RegisterTickCb would silently replace the first and
  * stop preemption. */
-static void sched_tick(void) { SchedSetReschedFlag(); }
+static void sched_tick(void) { SchedTick(); }
 
 _Noreturn void kmain(void)
 {
