@@ -124,7 +124,7 @@ static void SpawnStage1(void)
 
     const void *manifest_data;
     size_t manifest_size;
-    if (!cpio_find(initrd_base, initrd_size, "boot.manifest", &manifest_data, &manifest_size)) {
+    if (!CpioFind(initrd_base, initrd_size, "boot.manifest", &manifest_data, &manifest_size)) {
         UserspaceDebugLog("rootsvc: no boot.manifest in initrd");
         return;
     }
@@ -169,7 +169,7 @@ static void SpawnStage1(void)
 
         const void *zxf_data;
         size_t zxf_size;
-        if (!cpio_find(initrd_base, initrd_size, path, &zxf_data, &zxf_size)) {
+        if (!CpioFind(initrd_base, initrd_size, path, &zxf_data, &zxf_size)) {
             UserspaceDebugLog("rootsvc: missing boot program %s", path);
             line = line_end + 1;
             continue;

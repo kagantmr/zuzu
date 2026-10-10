@@ -30,12 +30,14 @@ static ListHead task_destroy_queue = LIST_HEAD_INIT(task_destroy_queue);
 TaskObject *current_task;
 TaskObject *fpu_owner = NULL;
 
-volatile uint8_t do_resched = 0;
+volatile bool do_resched = 0;
 
 static TaskObject idle_task; // only kernel_sp is used
 static uint8_t idle_stack[IDLE_STACK_BYTES] __attribute__((aligned(8)));
 static bool on_idle_stack;
 
+static bool slice_armed;
+static bool in_tick;
 static ListHead run_queues[SCHED_PRIORITY_LEVELS];
 
 static ListHead sleep_wheel[SLEEP_QUEUE_SIZE];
@@ -92,7 +94,7 @@ void SchedInit(void)
     SchedInitIdleTask();
 }
 
-void SchedAdd(TaskObject *t)
+static void SchedEnqueue(TaskObject *t, bool front)
 {
     if (!t)
         return;
@@ -106,13 +108,24 @@ void SchedAdd(TaskObject *t)
         priority = SCHED_PRIO_DEFAULT;
 
     t->queued_prio = (uint8_t)priority;
-    ListAddTail(&t->node, &run_queues[priority].node);
+    if (front)
+        ListAddHead(&t->node, &run_queues[priority].node);
+    else
+        ListAddTail(&t->node, &run_queues[priority].node);
     ready_mask |= (1U << priority);
 
     if (current_task && t->priority > current_task->priority) {
         do_resched = 1;
     }
+
+    if (current_task && !in_tick && t != current_task && !slice_armed &&
+        t->priority >= current_task->priority)
+        SchedArmTimer();
 }
+
+void SchedAdd(TaskObject *t) { SchedEnqueue(t, false); }
+
+void SchedAddFront(TaskObject *t) { SchedEnqueue(t, true); }
 
 void SchedQueueDestroyTask(TaskObject *t)
 {
@@ -277,12 +290,12 @@ static void SchedIdleWait(void)
         if (SchedIsWorkPending()) {
             if (do_resched)
                 do_resched = 0;
-            ArchGlobalIrqEnable();
             return;
         }
 
         __asm__ volatile("wfi" ::: "memory");
         ArchGlobalIrqEnable();
+        ArchGlobalIrqDisable();
 
         if (SchedIsWorkPending()) {
             if (do_resched)
@@ -330,9 +343,6 @@ bool __hot SchedAnyCpuTakers(const TaskObject *t)
     return at_or_above != 0;
 }
 
-/* Called from Schedule() (every voluntary reschedule) and directly from
- * the Call direct-handoff path -- one of the hottest functions in the
- * kernel. */
 void __hot SchedSwitchNext(TaskObject *next)
 {
     TaskObject *prev = current_task;
@@ -352,8 +362,11 @@ void __hot SchedSwitchNext(TaskObject *next)
     current_task->state = TASK_STATE_RUNNING;
     on_idle_stack = false;
 
-    current_task->slice_deadline =
-        ArchTimerNow() + ((uint64_t)current_task->time_slice * (ArchTimerFreq() / TICK_HZ));
+    uint64_t slice = current_task->slice_remaining
+                         ? current_task->slice_remaining
+                         : (uint64_t)current_task->time_slice * (ArchTimerFreq() / TICK_HZ);
+    current_task->slice_deadline = ArchTimerNow() + slice;
+    current_task->slice_remaining = 0;
     SchedArmTimer();
 
     if (unlikely(next == prev))
@@ -400,6 +413,8 @@ static void SchedArmTimer(void)
     uint64_t now = ArchTimerNow();
     uint64_t deadline = UINT64_MAX;
 
+    slice_armed = current_task && SchedAnyCpuTakers(current_task);
+
     uint32_t k = WheelScanFromNow();
     if (k < SLEEP_QUEUE_SIZE) {
         uint32_t slot = (uint32_t)((wheel_now_slot + k) % SLEEP_QUEUE_SIZE);
@@ -407,7 +422,7 @@ static void SchedArmTimer(void)
         deadline = wheel_min[slot] < slot_end ? wheel_min[slot] : slot_end;
     }
 
-    if (current_task && SchedAnyCpuTakers(current_task) && current_task->slice_deadline < deadline)
+    if (slice_armed && current_task->slice_deadline < deadline)
         deadline = current_task->slice_deadline;
 
     if (deadline == UINT64_MAX) {
@@ -430,7 +445,7 @@ void SchedBlockOn(ListHead *queue, Duration timeout)
     }
 
     current_task->wait_slot.owner = current_task;
-    ListAddTail(&current_task->wait_slot.node, &queue->node);
+    SchedWaitQueueAdd(queue, &current_task->wait_slot);
 
     current_task->state = TASK_STATE_BLOCKED;
 
@@ -460,7 +475,17 @@ void __hot Schedule(void)
 {
     if (current_task != NULL && current_task->state == TASK_STATE_RUNNING) {
         current_task->state = TASK_STATE_READY;
-        SchedAdd(current_task);
+
+        uint64_t now = ArchTimerNow();
+        bool preempted =
+            now < current_task->slice_deadline && (ready_mask >> (current_task->priority + 1)) != 0;
+
+        if (preempted) {
+            current_task->slice_remaining = current_task->slice_deadline - now;
+            SchedAddFront(current_task);
+        } else {
+            SchedAdd(current_task);
+        }
     }
 
     SchedDoHousekeeping();
@@ -513,3 +538,46 @@ size_t SchedGetSleepers(TaskObject **out, size_t max_out)
 }
 
 void SchedSetReschedFlag(void) { do_resched = 1; }
+
+void SchedTick(void)
+{
+    in_tick = true;
+    SchedWakeSleepers();
+    in_tick = false;
+
+    if (current_task && SchedAnyCpuTakers(current_task) &&
+        ArchTimerNow() >= current_task->slice_deadline)
+        do_resched = 1;
+    SchedArmTimer();
+}
+
+void SchedSetEffective(TaskObject *t, Prio prio)
+{
+    bool requeue =
+        (t->state == TASK_STATE_READY); /* only TASK_STATE_READY tasks are on a run queue */
+    if (requeue)
+        SchedRemoveRunQueue(t);
+    t->priority = prio;
+    if (requeue)
+        SchedAdd(t);
+    if (t == current_task && SchedAnyCpuTakers(current_task))
+        SchedSetReschedFlag();
+}
+
+void SchedWaitQueueAdd(ListHead *q, WaitSlot *slot)
+{
+    ListNode *pos = q->node.prev;
+    while (pos != &q->node &&
+           container_of(pos, WaitSlot, node)->owner->priority < slot->owner->priority)
+        pos = pos->prev;
+    ListAddHead(&slot->node, pos);
+}
+
+void SchedWaitQueueAddTask(ListHead *q, TaskObject *t)
+{
+    ListNode *pos = q->node.prev;
+    while (pos != &q->node &&
+           container_of(pos, TaskObject, node)->priority < t->priority)
+        pos = pos->prev;
+    ListAddHead(&t->node, pos);
+}

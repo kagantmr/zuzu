@@ -63,15 +63,15 @@ static Err ParseZxf(const void *data, size_t size, SpawnImage *out)
 
 static Err ParseElf(const void *data, size_t size, SpawnImage *out)
 {
-    uint32_t entry = elf_validate(data, size);
+    uint32_t entry = ElfValidate(data, size);
     if (entry == 0)
         return ERR_MALFORMED;
 
     out->entry = entry;
     out->seg_count = 0;
-    int n = elf_phdr_count(data);
+    int n = ElfPhdrCount(data);
     for (int i = 0; i < n; i++) {
-        const Elf32_Phdr *ph = elf_phdr_get(data, i);
+        const Elf32_Phdr *ph = ElfPhdrGet(data, i);
         if (ph->p_type != PT_LOAD)
             continue;
         if (out->seg_count == SPAWN_MAX_SEGS)

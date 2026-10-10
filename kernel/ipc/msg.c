@@ -101,8 +101,9 @@ void CallBlockAsSender(TaskObject *caller, PortObject *port, ReplyObject *rc, ui
     caller->pending_reply_cap = rc;
     caller->msg_xfer_len = xlen;
     caller->pending_grant_handle = grant_handle;
-    ListAddTail(&caller->node, &port->sender_queue.node);
+    SchedWaitQueueAddTask(&port->sender_queue, caller);
     caller->state = TASK_STATE_BLOCKED;
+    PortBoostServers(port);
     if (PortHasPending(port))
         ObserverNotify(&port->observers);
     Schedule();
@@ -119,8 +120,11 @@ void DeliverCallToReceiver(TaskObject *caller, TaskObject *rx, ReplyObject *rc, 
     if (xlen)
         MsgBufCopy(caller, rx, xlen);
 
+    rx->serving_port = caller->blocked_port;
+    ListAddTail(&rx->serve_node, &rx->serving_port->active_servers.node);
     rx->reply_cap = rc;
     caller->reply_holder = rx;
+    TaskRecomputePriority(rx);
 }
 
 __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port, ReplyObject *rc, size_t xlen,
@@ -148,13 +152,13 @@ __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port, ReplyObje
 
     ListRemove(node);
 
-    DeliverCallToReceiver(caller, rx, rc, xlen, granted);
-    SchedUnblock(rx);
-
     caller->ipc_state = IPC_WAITING;
     caller->blocked_port = port;
     caller->pending_reply_cap = rc;
     caller->state = TASK_STATE_BLOCKED;
+    
+    DeliverCallToReceiver(caller, rx, rc, xlen, granted);
+    SchedUnblock(rx);
 
     if (unlikely(SchedAnyCpuTakers(rx))) {
         SchedAdd(rx);
@@ -218,6 +222,7 @@ void PortReceive(PortObject *port, Duration timeout, CpuState *frame)
         caller->pending_grant_handle = -1;
         DeliverCallToReceiver(caller, current_task, caller->pending_reply_cap, caller->msg_xfer_len,
                               granted);
+        PortBoostServers(port);
         if (PortHasPending(port))
             ObserverNotify(&port->observers);
         return;

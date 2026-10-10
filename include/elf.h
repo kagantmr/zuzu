@@ -53,7 +53,7 @@ typedef struct {
  * @param size Size of the ELF file data in bytes.
  * @return uint32_t Returns entry point if the ELF file is valid, otherwise returns 0.
  */
-uint32_t elf_validate(const void *data, size_t size);
+uint32_t ElfValidate(const void *data, size_t size);
 
 /**
  * @brief Returns the number of program headers in the ELF file.
@@ -61,7 +61,7 @@ uint32_t elf_validate(const void *data, size_t size);
  * @param data Pointer to the ELF file data in memory.
  * @return int Number of program headers.
  */
-int elf_phdr_count(const void *data);
+int ElfPhdrCount(const void *data);
 
 /**
  * @brief Returns a pointer to the program header at the specified index.
@@ -70,6 +70,6 @@ int elf_phdr_count(const void *data);
  * @param index Index of the program header to retrieve.
  * @return Elf32_Phdr* Pointer to the program header, or NULL if index is out of bounds.
  */
-const Elf32_Phdr *elf_phdr_get(const void *data, int index);
+const Elf32_Phdr *ElfPhdrGet(const void *data, int index);
 
 #endif // ELF_H

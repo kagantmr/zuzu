@@ -54,7 +54,7 @@ static void CreateRootSpace(const char *path)
     const void *zxf_data;
     size_t zxf_size;
 
-    if (!initrd_find(path, &zxf_data, &zxf_size)) {
+    if (!InitrdFind(path, &zxf_data, &zxf_size)) {
         KERROR("Missing boot program %s", path);
         return;
     }
@@ -166,7 +166,7 @@ void CreateRootService(PhysAddr initrd_pa, size_t initrd_size)
 
     const void *manifest_data;
     size_t manifest_size;
-    if (!initrd_find("boot.manifest", &manifest_data, &manifest_size))
+    if (!InitrdFind("boot.manifest", &manifest_data, &manifest_size))
         panic("Boot manifest not found");
 
     char *rootsvc_path = FindRootsvcPath(manifest_data, manifest_size);

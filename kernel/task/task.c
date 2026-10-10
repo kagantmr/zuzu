@@ -182,6 +182,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
     task->state = TASK_STATE_FROZEN;
     task->ipc_state = IPC_NONE;
     task->priority = SCHED_PRIO_DEFAULT;
+    task->base_prio = SCHED_PRIO_DEFAULT;
     task->time_slice = 5;
     task->max_prio = SCHED_PRIORITY_LEVELS - 1;
     task->tcb_slot = TCB_SLOT_NONE;
@@ -274,8 +275,10 @@ void TaskTerminate(TaskObject *task, Err exit_status)
      * storage, about to become invalid. Tell the server holding it so a
      * later Reply fails cleanly instead of reading freed memory. */
     if (task->pending_reply_cap && task->reply_holder) {
-        task->reply_holder->reply_cap = NULL;
+        TaskClearReplyCap(task->reply_holder);
         task->reply_holder = NULL;
+    } else if (task->pending_reply_cap && task->blocked_port) {
+        PortBoostServers(task->blocked_port);
     }
 
     /* (b) task was holding a reply cap (received a Call, hasn't Replied
@@ -289,6 +292,7 @@ void TaskTerminate(TaskObject *task, Err exit_status)
             caller->reply_holder = NULL;
         }
         task->reply_cap = NULL;
+        TaskDetachServing(task);
     }
 
     task->state = TASK_STATE_ZOMBIE;
@@ -330,5 +334,60 @@ void TaskFault(TaskObject *task, Err reason)
         if (t != task && t->state == TASK_STATE_READY && t->node.next)
             SchedRemoveRunQueue(t);
         n = n->next;
+    }
+}
+
+#define PRIORITY_PROPAGATION_DEPTH 8
+
+static void RecomputePriorityAt(TaskObject *t, unsigned depth)
+{
+    Prio eff = t->base_prio;
+    ReplyObject *rc = t->reply_cap;
+    if (rc) {
+        TaskObject *caller = rc->caller_task;
+        if (caller && caller->tid == rc->caller_tid && caller->state != TASK_STATE_ZOMBIE &&
+            caller->ipc_state == IPC_WAITING && caller->priority > eff)
+            eff = caller->priority;
+    }
+
+    if (t->serving_port && !ListIsEmpty(&t->serving_port->sender_queue)) {
+        TaskObject *head = container_of(t->serving_port->sender_queue.node.next, TaskObject, node);
+        if (head->priority > eff)
+            eff = head->priority;
+    }
+
+    if (eff == t->priority)
+        return;
+
+    SchedSetEffective(t, eff);
+
+    if (t->reply_holder && depth < PRIORITY_PROPAGATION_DEPTH)
+        RecomputePriorityAt(t->reply_holder, depth + 1);
+}
+
+void TaskRecomputePriority(TaskObject *t) { RecomputePriorityAt(t, 0); }
+
+void TaskDetachServing(TaskObject *t)
+{
+    if (!t->serving_port)
+        return;
+    ListRemove(&t->serve_node);
+    t->serving_port = NULL;
+}
+
+void TaskClearReplyCap(TaskObject *t)
+{
+    t->reply_cap = NULL;
+    TaskDetachServing(t);
+    TaskRecomputePriority(t);
+}
+
+void PortBoostServers(PortObject *port)
+{
+    ListNode *n = port->active_servers.node.next;
+    while (n != &port->active_servers.node) {
+        ListNode *next = n->next;
+        TaskRecomputePriority(container_of(n, TaskObject, serve_node));
+        n = next;
     }
 }
