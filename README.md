@@ -5,8 +5,8 @@
 ![Boot screen](docs/img/shell.png)
 
 zuzu is a microkernel written from scratch in C and ARM assembly, targeting
-AArch32 / ARMv7-A. **zuzuOS** is the userspace that runs on top of it: drivers,
-a filesystem server, a network stack, and a shell which are packed all as ordinary isolated processes communicating through IPC. It currently runs on QEMU's `vexpress-a15` (Cortex-A15) and is physically tested on the **Raspberry Pi 4**
+AArch32 / ARMv7-A. **zuzuOS** is the userspace that runs on top of it with drivers,
+a filesystem server, a network stack, and a shell. It currently runs on QEMU's `vexpress-a15` (Cortex-A15) and is physically tested on the **Raspberry Pi 4**
 (BCM2711, Cortex-A72).
 
 Microkernels have a reputation for being too slow for practical use. I believe this is a
