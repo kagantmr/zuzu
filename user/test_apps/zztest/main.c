@@ -1684,6 +1684,39 @@ static int32_t ServeThenLog(void *p)
     return 0;
 }
 
+typedef struct {
+    Handle in;
+    Handle out;
+    Handle gate;
+    int id;
+} ChainJob;
+
+static int32_t ChainRelay(void *p)
+{
+    ChainJob *j = p;
+    PortWaitResult r = FormatToPortWait(WaitOn(j->in, 5000));
+    if (r.status != ZUZU_OK)
+        return r.status;
+    uint32_t op = 1;
+    memcpy(GetMessageBox(), &op, sizeof(op));
+    Call(j->out, sizeof(op), -1);
+    Reply(0, -1);
+    return 0;
+}
+
+static int32_t GatedServer(void *p)
+{
+    ChainJob *j = p;
+    PortWaitResult r = FormatToPortWait(WaitOn(j->in, 5000));
+    if (r.status != ZUZU_OK)
+        return r.status;
+    if (j->gate >= 0)
+        (void)WaitOn(j->gate, 5000);
+    LogPush(j->id);
+    Reply(0, -1);
+    return 0;
+}
+
 static int32_t CallWithId(void *p)
 {
     PrioJob *j = p;
@@ -1984,6 +2017,164 @@ static void TestPriorities(void)
     WorkerJoin(ic);
     WorkerJoin(is);
     HandleClose(port4);
+
+    Handle chain_p1 = CreatePort();
+    Handle chain_p2 = CreatePort();
+    ChainJob chain_c = {.in = chain_p2, .gate = -1, .id = 7};
+    ChainJob chain_b = {.in = chain_p1, .out = chain_p2, .gate = -1};
+    PrioJob chain_a = {.h = chain_p1, .id = 1};
+    atomic_store(&g_stop, 0);
+    atomic_store(&g_done, 0);
+    atomic_int chain_spin = 0;
+    Worker *chain_cw = WorkerStartAt(GatedServer, &chain_c, 1);
+    Worker *chain_bw = WorkerStartAt(ChainRelay, &chain_b, 2);
+    Sleep(20);
+    Worker *chain_mw = WorkerStartAt(SpinCount, &chain_spin, 3);
+    Worker *chain_aw = WorkerStartAt(CallThenDone, &chain_a, 5);
+    Sleep(200);
+    Check(atomic_load(&g_done) == 1, "inheritance carries through a chain of calls");
+    atomic_store(&g_stop, 1);
+    WorkerJoin(chain_mw);
+    WorkerJoin(chain_aw);
+    WorkerJoin(chain_bw);
+    WorkerJoin(chain_cw);
+    HandleClose(chain_p1);
+    HandleClose(chain_p2);
+
+    Handle prop_p1 = CreatePort();
+    Handle prop_p2 = CreatePort();
+    Handle prop_gate = CreateEvent();
+    ChainJob prop_c = {.in = prop_p2, .gate = prop_gate, .id = 8};
+    ChainJob prop_b = {.in = prop_p1, .out = prop_p2, .gate = -1};
+    PrioJob prop_a = {.h = prop_p1, .id = 1};
+    atomic_store(&g_stop, 0);
+    atomic_store(&g_done, 0);
+    LogReset();
+    atomic_int prop_spin = 0;
+    Worker *prop_cw = WorkerStartAt(GatedServer, &prop_c, 1);
+    Worker *prop_bw = WorkerStartAt(ChainRelay, &prop_b, 2);
+    Sleep(20);
+    Worker *prop_aw = WorkerStartAt(CallThenDone, &prop_a, 2);
+    Sleep(50);
+    Worker *prop_mw = WorkerStartAt(SpinCount, &prop_spin, 3);
+    CheckEq(TaskSetPriority(prop_bw->task, 5), ZUZU_OK, "raise the middle task of a call chain");
+    Signal(prop_gate, 1, false);
+    Sleep(100);
+    const int propagated[] = {8};
+    Check(LogIs(1, propagated),
+          "raising a waiting caller's priority raises the server it waits on");
+    atomic_store(&g_stop, 1);
+    WorkerJoin(prop_mw);
+    WorkerJoin(prop_aw);
+    WorkerJoin(prop_bw);
+    WorkerJoin(prop_cw);
+    HandleClose(prop_p1);
+    HandleClose(prop_p2);
+    HandleClose(prop_gate);
+
+    Handle kill_port = CreatePort();
+    Handle kill_gate = CreateEvent();
+    ChainJob kill_srv = {.in = kill_port, .gate = kill_gate, .id = 9};
+    PrioJob kill_caller = {.h = kill_port, .id = 1};
+    atomic_store(&g_stop, 0);
+    LogReset();
+    atomic_int kill_spin = 0;
+    Worker *kill_sw = WorkerStartAt(GatedServer, &kill_srv, 1);
+    Sleep(20);
+    Worker *kill_cw = WorkerStartAt(CallThenDone, &kill_caller, 5);
+    Sleep(50);
+    Worker *kill_mw = WorkerStartAt(SpinCount, &kill_spin, 3);
+    TaskKill(kill_cw->task);
+    Signal(kill_gate, 1, false);
+    Sleep(100);
+    Check(atomic_load(&g_log_len) == 0,
+          "a server falls back to its own priority when its caller dies");
+    atomic_store(&g_stop, 1);
+    WorkerJoin(kill_mw);
+    WorkerJoin(kill_cw);
+    WorkerJoin(kill_sw);
+    HandleClose(kill_port);
+    HandleClose(kill_gate);
+
+    Handle queue_port = CreatePort();
+    Handle queue_gate = CreateEvent();
+    ChainJob queue_srv = {.in = queue_port, .gate = queue_gate, .id = 11};
+    PrioJob queue_low = {.h = queue_port, .id = 1};
+    PrioJob queue_high = {.h = queue_port, .id = 2};
+    atomic_store(&g_stop, 0);
+    LogReset();
+    atomic_int queue_spin = 0;
+    Worker *queue_sw = WorkerStartAt(GatedServer, &queue_srv, 1);
+    Sleep(20);
+    Worker *queue_lw = WorkerStartAt(CallWithId, &queue_low, 2);
+    Sleep(50);
+    Worker *queue_mw = WorkerStartAt(SpinCount, &queue_spin, 3);
+    Worker *queue_hw = WorkerStartAt(CallWithId, &queue_high, 5);
+    Sleep(50);
+    Signal(queue_gate, 1, false);
+    Sleep(100);
+    const int boosted_by_queue[] = {11};
+    Check(LogIs(1, boosted_by_queue),
+          "a busy server is boosted by a higher-priority caller queued behind it");
+    atomic_store(&g_stop, 1);
+    TaskKill(queue_hw->task);
+    WorkerJoin(queue_mw);
+    WorkerJoin(queue_lw);
+    WorkerJoin(queue_hw);
+    WorkerJoin(queue_sw);
+    HandleClose(queue_port);
+    HandleClose(queue_gate);
+
+    Handle drop_port = CreatePort();
+    Handle drop_gate = CreateEvent();
+    ChainJob drop_srv = {.in = drop_port, .gate = drop_gate, .id = 12};
+    PrioJob drop_low = {.h = drop_port, .id = 1};
+    PrioJob drop_high = {.h = drop_port, .id = 2};
+    atomic_store(&g_stop, 0);
+    LogReset();
+    atomic_int drop_spin = 0;
+    Worker *drop_sw = WorkerStartAt(GatedServer, &drop_srv, 1);
+    Sleep(20);
+    Worker *drop_lw = WorkerStartAt(CallWithId, &drop_low, 2);
+    Sleep(50);
+    Worker *drop_mw = WorkerStartAt(SpinCount, &drop_spin, 3);
+    Worker *drop_hw = WorkerStartAt(CallWithId, &drop_high, 5);
+    Sleep(50);
+    TaskKill(drop_hw->task);
+    Signal(drop_gate, 1, false);
+    Sleep(100);
+    Check(atomic_load(&g_log_len) == 0,
+          "a server stops being boosted when the caller queued behind it dies");
+    atomic_store(&g_stop, 1);
+    WorkerJoin(drop_mw);
+    WorkerJoin(drop_lw);
+    WorkerJoin(drop_hw);
+    WorkerJoin(drop_sw);
+    HandleClose(drop_port);
+    HandleClose(drop_gate);
+
+    Handle mutual_a = CreatePort();
+    Handle mutual_b = CreatePort();
+    ChainJob mutual_p = {.in = mutual_a, .out = mutual_b, .gate = -1};
+    ChainJob mutual_q = {.in = mutual_b, .out = mutual_a, .gate = -1};
+    PrioJob mutual_x = {.h = mutual_a, .id = 1};
+    PrioJob mutual_y = {.h = mutual_b, .id = 2};
+    Worker *mutual_pw = WorkerStartAt(ChainRelay, &mutual_p, 1);
+    Worker *mutual_qw = WorkerStartAt(ChainRelay, &mutual_q, 1);
+    Sleep(20);
+    Worker *mutual_xw = WorkerStartAt(CallWithId, &mutual_x, 4);
+    Worker *mutual_yw = WorkerStartAt(CallWithId, &mutual_y, 5);
+    CheckEq(Sleep(100), ZUZU_OK, "priority boosting terminates when servers wait on each other");
+    TaskKill(mutual_xw->task);
+    TaskKill(mutual_yw->task);
+    TaskKill(mutual_pw->task);
+    TaskKill(mutual_qw->task);
+    WorkerJoin(mutual_xw);
+    WorkerJoin(mutual_yw);
+    WorkerJoin(mutual_pw);
+    WorkerJoin(mutual_qw);
+    HandleClose(mutual_a);
+    HandleClose(mutual_b);
 
     TaskSetPriority(-1, 1);
     TaskSetTimeSlice(-1, 5);

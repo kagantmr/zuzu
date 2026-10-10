@@ -65,6 +65,8 @@ struct TaskObjectStruct {
     WaitSlot wait_slot;            /**< Wait slot. */
     Prio priority;
     Prio base_prio;
+    ListNode serve_node;
+    PortObject *serving_port;
     Duration time_slice; /**< Priority and time slice. */
     Prio max_prio;
     uint8_t queued_prio; /**< Run-queue level the node is linked at; valid while node is linked. */
@@ -91,6 +93,9 @@ void TaskAbortWait(TaskObject *t, Err err);
 void TaskRef(TaskObject *t);
 void TaskUnref(TaskObject *t);
 void TaskRecomputePriority(TaskObject *t);
+void TaskDetachServing(TaskObject *t);
+void TaskClearReplyCap(TaskObject *t);
+void PortBoostServers(PortObject *port);
 
 /**
  * @brief Unify self-directed Quit and external Term: mark the task TASK_STATE_ZOMBIE,

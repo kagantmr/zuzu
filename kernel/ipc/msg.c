@@ -103,6 +103,7 @@ void CallBlockAsSender(TaskObject *caller, PortObject *port, ReplyObject *rc, ui
     caller->pending_grant_handle = grant_handle;
     SchedWaitQueueAddTask(&port->sender_queue, caller);
     caller->state = TASK_STATE_BLOCKED;
+    PortBoostServers(port);
     if (PortHasPending(port))
         ObserverNotify(&port->observers);
     Schedule();
@@ -119,6 +120,8 @@ void DeliverCallToReceiver(TaskObject *caller, TaskObject *rx, ReplyObject *rc, 
     if (xlen)
         MsgBufCopy(caller, rx, xlen);
 
+    rx->serving_port = caller->blocked_port;
+    ListAddTail(&rx->serve_node, &rx->serving_port->active_servers.node);
     rx->reply_cap = rc;
     caller->reply_holder = rx;
     TaskRecomputePriority(rx);
@@ -219,6 +222,7 @@ void PortReceive(PortObject *port, Duration timeout, CpuState *frame)
         caller->pending_grant_handle = -1;
         DeliverCallToReceiver(caller, current_task, caller->pending_reply_cap, caller->msg_xfer_len,
                               granted);
+        PortBoostServers(port);
         if (PortHasPending(port))
             ObserverNotify(&port->observers);
         return;

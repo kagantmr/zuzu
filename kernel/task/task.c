@@ -275,9 +275,10 @@ void TaskTerminate(TaskObject *task, Err exit_status)
      * storage, about to become invalid. Tell the server holding it so a
      * later Reply fails cleanly instead of reading freed memory. */
     if (task->pending_reply_cap && task->reply_holder) {
-        task->reply_holder->reply_cap = NULL;
-        TaskRecomputePriority(task->reply_holder);
+        TaskClearReplyCap(task->reply_holder);
         task->reply_holder = NULL;
+    } else if (task->pending_reply_cap && task->blocked_port) {
+        PortBoostServers(task->blocked_port);
     }
 
     /* (b) task was holding a reply cap (received a Call, hasn't Replied
@@ -291,6 +292,7 @@ void TaskTerminate(TaskObject *task, Err exit_status)
             caller->reply_holder = NULL;
         }
         task->reply_cap = NULL;
+        TaskDetachServing(task);
     }
 
     task->state = TASK_STATE_ZOMBIE;
@@ -348,6 +350,12 @@ static void RecomputePriorityAt(TaskObject *t, unsigned depth)
             eff = caller->priority;
     }
 
+    if (t->serving_port && !ListIsEmpty(&t->serving_port->sender_queue)) {
+        TaskObject *head = container_of(t->serving_port->sender_queue.node.next, TaskObject, node);
+        if (head->priority > eff)
+            eff = head->priority;
+    }
+
     if (eff == t->priority)
         return;
 
@@ -358,3 +366,28 @@ static void RecomputePriorityAt(TaskObject *t, unsigned depth)
 }
 
 void TaskRecomputePriority(TaskObject *t) { RecomputePriorityAt(t, 0); }
+
+void TaskDetachServing(TaskObject *t)
+{
+    if (!t->serving_port)
+        return;
+    ListRemove(&t->serve_node);
+    t->serving_port = NULL;
+}
+
+void TaskClearReplyCap(TaskObject *t)
+{
+    t->reply_cap = NULL;
+    TaskDetachServing(t);
+    TaskRecomputePriority(t);
+}
+
+void PortBoostServers(PortObject *port)
+{
+    ListNode *n = port->active_servers.node.next;
+    while (n != &port->active_servers.node) {
+        ListNode *next = n->next;
+        TaskRecomputePriority(container_of(n, TaskObject, serve_node));
+        n = next;
+    }
+}
