@@ -1,8 +1,7 @@
 // crt0.s - userspace C runtime startup code for ARMv7-A
 
 .section .text, "ax"
-// The kernel kickstarts _start in ARM state, so crt0 must assemble as ARM
-// even when the rest of the program is Thumb (-mthumb tier-2 builds).
+// The kernel kickstarts _start in ARM state, so crt0 must assemble as ARM.
 .arm
 .global _start
 
@@ -11,9 +10,7 @@ _start:
     mov r7, r1              // save argv
 
 #ifdef ZUZU_NEWLIB
-    // newlib owns the init/teardown protocol. __libc_init_array
-    // walks .preinit_array/.init_array; exit() flushes stdio, runs
-    // atexit handlers, then enters the _exit stub (lib/posix/stubs.c).
+
     bl __libc_init_array
     mov r0, r6              // argc
     mov r1, r7              // argv
@@ -21,12 +18,6 @@ _start:
     bl exit                 // r0 = main's return value; does not return
 3:  b 3b
 
-    // This newlib is built with HAVE_INIT_FINI: __libc_init_array calls
-    // _init and __libc_fini_array calls _fini. Those normally come from
-    // crti.o/crtn.o, which -nostartfiles omits; provide empty ones.
-    // newlib's Thumb `bl _init` only
-    // gets the interworking blx fixup if the symbol is a tagged ARM
-    // function, otherwise the CPU decodes ARM code in Thumb state.
 .global _init
 .type _init, %function
 _init:
