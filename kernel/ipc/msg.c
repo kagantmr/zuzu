@@ -121,6 +121,7 @@ void DeliverCallToReceiver(TaskObject *caller, TaskObject *rx, ReplyObject *rc, 
 
     rx->reply_cap = rc;
     caller->reply_holder = rx;
+    TaskRecomputePriority(rx);
 }
 
 __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port, ReplyObject *rc, size_t xlen,
@@ -148,13 +149,13 @@ __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port, ReplyObje
 
     ListRemove(node);
 
-    DeliverCallToReceiver(caller, rx, rc, xlen, granted);
-    SchedUnblock(rx);
-
     caller->ipc_state = IPC_WAITING;
     caller->blocked_port = port;
     caller->pending_reply_cap = rc;
     caller->state = TASK_STATE_BLOCKED;
+    
+    DeliverCallToReceiver(caller, rx, rc, xlen, granted);
+    SchedUnblock(rx);
 
     if (unlikely(SchedAnyCpuTakers(rx))) {
         SchedAdd(rx);

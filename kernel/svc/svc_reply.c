@@ -29,6 +29,7 @@ void SvcReply(CpuState *frame)
         if (!target || target->tid != rc->caller_tid || target->state == TASK_STATE_ZOMBIE ||
             target->ipc_state != IPC_WAITING) {
             current_task->reply_cap = NULL;
+            TaskRecomputePriority(current_task);
             if (recv_handle == -1) {
                 ArchSetInFrame(frame, 0, ERR_DEAD);
                 return;
@@ -37,8 +38,10 @@ void SvcReply(CpuState *frame)
             Handle granted;
             Err grant_err = GrantHandleAcross(CURRENT_SPACE, target->owner, grant_handle, &granted);
             current_task->reply_cap = NULL;
+            TaskRecomputePriority(current_task);
             if (grant_err != ZUZU_OK) {
                 ReplyFailCaller(target, grant_err);
+                TaskRecomputePriority(current_task);
                 ArchSetInFrame(frame, 0, grant_err);
                 return;
             }

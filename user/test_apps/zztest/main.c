@@ -1673,6 +1673,17 @@ static int32_t ServeOnceLogged(void *p)
     return 0;
 }
 
+static int32_t ServeThenLog(void *p)
+{
+    PrioJob *j = p;
+    PortWaitResult r = FormatToPortWait(WaitOn(j->h, 3000));
+    if (r.status != ZUZU_OK)
+        return r.status;
+    Reply(0, -1);
+    LogPush(j->id);
+    return 0;
+}
+
 static int32_t CallWithId(void *p)
 {
     PrioJob *j = p;
@@ -1861,11 +1872,30 @@ static void TestPriorities(void)
     memcpy(GetMessageBox(), &op, sizeof(op));
     CheckEq(Call(port, sizeof(op), -1).r0, ZUZU_OK, "Call completes");
     LogPush(4);
-    const int handoff[] = {2, 3, 4};
-    Check(LogIs(3, handoff), "a ready thread between caller and server priority runs first");
+    const int served_first[] = {3, 4};
+    Check(LogIs(2, served_first),
+          "a server runs at its caller's priority, ahead of a thread in between");
     WorkerJoin(sw);
     WorkerJoin(mw);
+    const int then_middle[] = {3, 4, 2};
+    Check(LogIs(3, then_middle), "the thread in between runs once the call is done");
     HandleClose(port);
+
+    Handle decay_port = CreatePort();
+    PrioJob decay_job = {.h = decay_port, .id = 5};
+    LogReset();
+    Worker *dsw = WorkerStartAt(ServeThenLog, &decay_job, 1);
+    Sleep(20);
+    uint32_t decay_op = 1;
+    memcpy(GetMessageBox(), &decay_op, sizeof(decay_op));
+    CheckEq(Call(decay_port, sizeof(decay_op), -1).r0, ZUZU_OK, "Call to the decay server");
+    LogPush(4);
+    const int caller_first[] = {4};
+    Check(LogIs(1, caller_first), "a server drops back to its own priority after Reply");
+    WorkerJoin(dsw);
+    const int server_after[] = {4, 5};
+    Check(LogIs(2, server_after), "the server finishes after the caller has resumed");
+    HandleClose(decay_port);
 
     /* Known gaps, flipped to real checks as C1 and C2 land. */
     Handle ev3 = CreateEvent();
@@ -1947,8 +1977,8 @@ static void TestPriorities(void)
     Worker *im = WorkerStartAt(SpinCount, &middle_count, 3);
     Worker *ic = WorkerStartAt(CallThenDone, &inv_caller, 4);
     Sleep(200);
-    CheckKnown(atomic_load(&g_done) == 1,
-               "a high-priority caller is not starved by a middle-priority spinner");
+    Check(atomic_load(&g_done) == 1,
+          "a high-priority caller is not starved by a middle-priority spinner");
     atomic_store(&g_stop, 1);
     WorkerJoin(im);
     WorkerJoin(ic);

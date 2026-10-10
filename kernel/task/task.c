@@ -276,6 +276,7 @@ void TaskTerminate(TaskObject *task, Err exit_status)
      * later Reply fails cleanly instead of reading freed memory. */
     if (task->pending_reply_cap && task->reply_holder) {
         task->reply_holder->reply_cap = NULL;
+        TaskRecomputePriority(task->reply_holder);
         task->reply_holder = NULL;
     }
 
@@ -334,4 +335,26 @@ void TaskFault(TaskObject *task, Err reason)
     }
 }
 
-void TaskRecomputePriority(TaskObject *t) { SchedSetEffective(t, t->base_prio); }
+#define PRIORITY_PROPAGATION_DEPTH 8
+
+static void RecomputePriorityAt(TaskObject *t, unsigned depth)
+{
+    Prio eff = t->base_prio;
+    ReplyObject *rc = t->reply_cap;
+    if (rc) {
+        TaskObject *caller = rc->caller_task;
+        if (caller && caller->tid == rc->caller_tid && caller->state != TASK_STATE_ZOMBIE &&
+            caller->ipc_state == IPC_WAITING && caller->priority > eff)
+            eff = caller->priority;
+    }
+
+    if (eff == t->priority)
+        return;
+
+    SchedSetEffective(t, eff);
+
+    if (t->reply_holder && depth < PRIORITY_PROPAGATION_DEPTH)
+        RecomputePriorityAt(t->reply_holder, depth + 1);
+}
+
+void TaskRecomputePriority(TaskObject *t) { RecomputePriorityAt(t, 0); }
