@@ -12,7 +12,7 @@ Syspage *g_sp;
 static PhysAddr g_syspage_pa;
 extern uint32_t rtc_epoch;
 
-static void dev_cb(const char *compatible, uint64_t phys, uint64_t size, uint32_t irq)
+static void DeviceCallback(const char *compatible, uint64_t phys, uint64_t size, uint32_t irq)
 {
     (void)phys;
     (void)size;
@@ -59,7 +59,7 @@ void SyspageInit(void)
 
     strncpy(g_sp->version, "zuzu-" ZUZU_CODENAME "-" ZUZU_VERSION, sizeof(g_sp->version));
 
-    snprintf(g_sp->build, sizeof(g_sp->build), "%s %s", __DATE__, __TIME__);
+    (void)snprintf(g_sp->build, sizeof(g_sp->build), "%s %s", __DATE__, __TIME__);
 
     strncpy(g_sp->machine, boot_info_model(), sizeof(g_sp->machine) - 1);
     strncpy(g_sp->cpu, boot_info_cpu_compat(), sizeof(g_sp->cpu) - 1);
@@ -68,11 +68,12 @@ void SyspageInit(void)
     g_sp->tick_hz = GetTickRate();
     g_sp->boot_time_s = rtc_epoch;
 
-    BootInfoEnumerateDevs(dev_cb);
+    BootInfoEnumerateDevs(DeviceCallback);
 
     SyspageUpdateMem();
 }
 PhysAddr SyspagePa(void) { return g_syspage_pa; }
+
 void SyspageUpdateMem(void)
 {
     if (!g_sp)
