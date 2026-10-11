@@ -97,6 +97,9 @@ void TaskDetachServing(TaskObject *t);
 void TaskClearReplyCap(TaskObject *t);
 void PortBoostServers(PortObject *port);
 
+/** Mirrors base_prio and max_prio into the task's user-visible TCB header. */
+void TaskSyncTcbPrio(TaskObject *t);
+
 /**
  * @brief Unify self-directed Quit and external Term: mark the task TASK_STATE_ZOMBIE,
  * wake any already-blocked joiners, and if it was the last task in its
