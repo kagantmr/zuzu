@@ -29,6 +29,22 @@ extern "C" {
 Err SpawnProcess(const void *image, size_t size, const char *name, const char *argbuf,
                  size_t argbuf_len, uint32_t argc, Spid *out_pid, Handle *out_task);
 
+#define SPAWN_PRIO_INHERIT (-1)
+
+typedef struct {
+    int32_t prio;
+    int32_t max_prio;
+} SpawnAttr;
+
+/**
+ * @brief SpawnProcess() with explicit scheduling attributes. A field set to SPAWN_PRIO_INHERIT
+ * keeps the value the new task inherits from the caller. prio must not exceed max_prio, and
+ * neither may exceed the caller's own max priority.
+ */
+Err SpawnProcessAttr(const void *image, size_t size, const char *name, const char *argbuf,
+                     size_t argbuf_len, uint32_t argc, const SpawnAttr *attr, Spid *out_pid,
+                     Handle *out_task);
+
 /**
  * @brief Like SpawnProcess(), but the image is already in a shm object (for example read there
  * by FsdReadObj). Read-only and executable segments whose file offset is page-aligned are mapped

@@ -220,6 +220,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
     tcb->spid = owner->spid;
     task->task_info_va = tcb_va;
     task->tcb_slot = (uint8_t)tcb_slot_idx;
+    TaskSyncTcbPrio(task);
     task->msg_buf_phys_addr =
         TcbSlotPa(owner, (uint32_t)tcb_slot_idx) + offsetof(ThreadLocalData, buf);
 
@@ -391,3 +392,13 @@ void PortBoostServers(PortObject *port)
         n = next;
     }
 }
+void TaskSyncTcbPrio(TaskObject *t)
+{
+    SpaceObject *owner = t->owner;
+    if (!owner || t->tcb_slot >= TCB_MAX_SLOTS || !owner->tcb_page_pa[t->tcb_slot / SLOTS_PER_PAGE])
+        return;
+    ThreadLocalData *tcb = (ThreadLocalData *)TcbSlotKernelVa(owner, t->tcb_slot);
+    tcb->prio = (uint8_t)t->base_prio;
+    tcb->max_prio = (uint8_t)t->max_prio;
+}
+

@@ -2180,6 +2180,75 @@ static void TestPriorities(void)
     TaskSetTimeSlice(-1, 5);
 }
 
+static int32_t TcbPack(void)
+{
+    const ThreadLocalData *tls = ZuzuTLS();
+    return (int32_t)(tls->prio | (tls->max_prio << 8));
+}
+
+static int32_t TcbReadOwn(void *arg)
+{
+    (void)arg;
+    return TcbPack();
+}
+
+static int32_t TcbSetSelf(void *arg)
+{
+    (void)arg;
+    TaskSetPriority(-1, 2);
+    return TcbPack();
+}
+
+static int32_t TcbClampSelf(void *arg)
+{
+    (void)arg;
+    TaskSetPriority(-1, 4);
+    TaskSetMaxPriority(-1, 1);
+    return TcbPack();
+}
+
+static int32_t TcbGated(void *arg)
+{
+    volatile int *go = arg;
+    while (!*go)
+        Sleep(5);
+    return TcbPack();
+}
+
+static void TestTcbPriority(void)
+{
+    BeginSection("tcb priority");
+
+    CheckEq(TcbPack(), 1 | (7 << 8), "own TCB shows base 1, max 7");
+
+    Worker *w = WorkerStartAt(TcbReadOwn, NULL, 3);
+    Check(w != NULL, "worker at priority 3 starts");
+    if (w)
+        CheckEq(WorkerJoin(w), 3 | (7 << 8), "new thread's TCB shows the priority it was given");
+
+    w = WorkerStart(TcbSetSelf, NULL);
+    Check(w != NULL, "self-set worker starts");
+    if (w)
+        CheckEq(WorkerJoin(w), 2 | (7 << 8), "SetPriority(-1) updates the TCB");
+
+    w = WorkerStart(TcbClampSelf, NULL);
+    Check(w != NULL, "self-clamp worker starts");
+    if (w)
+        CheckEq(WorkerJoin(w), 1 | (1 << 8), "lowering own max clamps base and updates the TCB");
+
+    static volatile int go;
+    go = 0;
+    w = WorkerStart(TcbGated, (void *)&go);
+    Check(w != NULL, "gated worker starts");
+    if (w) {
+        CheckEq(TaskSetPriority(w->task, 4), ZUZU_OK, "SetPriority on a thread handle");
+        CheckEq(TaskSetMaxPriority(w->task, 2), ZUZU_OK, "SetMaxPriority on a thread handle");
+        CheckEq(TaskSetPriority(w->task, 5), ERR_NOPERM, "priority above the target's max is refused");
+        go = 1;
+        CheckEq(WorkerJoin(w), 2 | (2 << 8), "handle path updates the target's TCB and clamps base");
+    }
+}
+
 /* ---------------- 8. hostile arguments ---------------- */
 
 static void TestSecurity(void)
@@ -2479,7 +2548,7 @@ static int32_t BufferOwner(void *p)
     ThreadProbe *t = p;
     uint8_t *buf = GetMessageBox();
     memset(buf, (int)(0x30 + t->id), 64);
-    ZuzuTLS()->msg_recv_len = t->id; /* any other per-thread TLS field */
+    ZuzuTLS()->padding[0] = (uint8_t)t->id;
     t->ready = 1;
     while (!t->go)
         Sleep(5);
@@ -2487,7 +2556,7 @@ static int32_t BufferOwner(void *p)
         if (buf[i] != (uint8_t)(0x30 + t->id))
             return -1;
     }
-    return ZuzuTLS()->msg_recv_len == t->id ? (int32_t)t->id : -2;
+    return ZuzuTLS()->padding[0] == (uint8_t)t->id ? (int32_t)t->id : -2;
 }
 
 static void TestManyThreads(void)
@@ -2705,6 +2774,7 @@ static void RunSuite(void)
     TestObservers();
     TestTasks();
     TestPriorities();
+    TestTcbPriority();
     TestSpaces();
     TestInjectObj();
     TestDma();

@@ -41,6 +41,7 @@ void SvcCreate(CpuState *frame)
         task->base_prio =
             (current_task->base_prio < task->max_prio) ? current_task->base_prio : task->max_prio;
         task->priority = task->base_prio;
+        TaskSyncTcbPrio(task);
 
         Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
         ENSURE(-1 != new_handle, TaskDestroy(task); ArchSetInFrame(frame, 0, ERR_NOMEM); return);
