@@ -16,6 +16,7 @@ import time
 
 ANSI = re.compile(rb"\x1b\[[0-9;?]*[a-zA-Z]")
 PROMPT = b"zzsh ~>"
+READY = b"listening on :80"
 OK = b"ALL PASS"
 BAD = (b"FAILED", b"FATAL:", b"PANIC", b"KERNEL PANIC")
 
@@ -100,6 +101,8 @@ def main():
         if args.prompt_only:
             print("\n[smoke] reached shell prompt", file=sys.stderr)
             return 0
+        con.pos = 0
+        con.wait_for(READY, args.timeout)
         con.send(b"cd bin")
         con.wait_for(PROMPT, 15.0)
         con.send(b"zztest")

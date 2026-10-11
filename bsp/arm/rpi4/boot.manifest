@@ -1,12 +1,13 @@
 # zuzu initrd boot manifest v3
-# format: <program>|<role>[:flags]
-# role: none, file   flags: late
+# format: <program>|<role>[:flags][|<service-path>]
+# a service-path is awaited in nsvc before any "late" entry is spawned
+# role: none, file   flags: late, prio=N, maxprio=N (comma separated)
 # "file" is packed into the initrd but never spawned.
 
 bin/rootsvc
 
-bin/ttysvc|none
-bin/pl011drv|none
-bin/emmc2drv|none
-bin/fsd|none
+bin/ttysvc|none:prio=2,maxprio=2|/svc/tty
+bin/pl011drv|none:prio=2,maxprio=2
+bin/emmc2drv|none:prio=3,maxprio=3|/dev/mmc0
+bin/fsd|none:prio=3,maxprio=3|/svc/fsd
 bin/zzsh|tty:late
