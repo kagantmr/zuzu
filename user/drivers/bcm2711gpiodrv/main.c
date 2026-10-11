@@ -101,7 +101,7 @@ static void WaitForButton(uint32_t button)
         }
 
         /* Sleep briefly to prevent 100% CPU usage during the polling test */
-        ZuzuSleep(10);
+        Sleep(10);
     }
 }
 
@@ -117,25 +117,25 @@ static void Test1(void)
     LOG_INFO(LOG_TAG, "Test 1: Will cycle between various colours for 10s");
     LOG_INFO(LOG_TAG, "Blue");
     LedDisplayColor(true, false, false);
-    ZuzuSleep(2000);
+    Sleep(2000);
     LOG_INFO(LOG_TAG, "Red");
     LedDisplayColor(false, false, true);
-    ZuzuSleep(2000);
+    Sleep(2000);
     LOG_INFO(LOG_TAG, "Green");
     LedDisplayColor(false, true, false);
-    ZuzuSleep(2000);
+    Sleep(2000);
     LOG_INFO(LOG_TAG, "Magenta");
     LedDisplayColor(true, false, true);
-    ZuzuSleep(2000);
+    Sleep(2000);
     LOG_INFO(LOG_TAG, "Cyan");
     LedDisplayColor(true, true, false);
-    ZuzuSleep(2000);
+    Sleep(2000);
     LOG_INFO(LOG_TAG, "Yellow");
     LedDisplayColor(false, true, true);
-    ZuzuSleep(2000);
+    Sleep(2000);
     LOG_INFO(LOG_TAG, "White");
     LedDisplayColor(true, true, true);
-    ZuzuSleep(2000);
+    Sleep(2000);
     LOG_INFO(LOG_TAG, "None");
     LedDisplayColor(false, false, false);
 }
@@ -146,7 +146,7 @@ static void Test2(void)
 
     WaitForButton(ZP_PIN_POWER_BTN);
     GpioWrite(ZP_PIN_BUZZER, 1);
-    ZuzuSleep(2000);
+    Sleep(2000);
     GpioWrite(ZP_PIN_BUZZER, 0);
 }
 
@@ -188,13 +188,13 @@ int main(void)
 
     static const char *const block_compat[] = {
         "brcm,bcm2711-gpio"}; /* note: pl180, the PL18x primecell */
-    Handle mmio_handle = DevmRequestDevice(devmgr_port, block_compat, 1, NULL);
+    Handle mmio_handle = RequestDevice(devmgr_port, block_compat, 1, NULL);
     if (mmio_handle < 0) {
         LOG_ERROR(LOG_TAG, "GPIO not found");
         return mmio_handle;
     }
 
-    gpio = (Bcm2711GpioMMIO *)ZuzuMemMap(mmio_handle, 0, PROT_RW, 0);
+    gpio = (Bcm2711GpioMMIO *)MemMap(mmio_handle, 0, PROT_RW);
 
     /* 1. Configure Buttons (Inputs with Pull-Ups) */
     GpioSetMode(ZP_PIN_POWER_BTN, GPIO_FSEL_INPUT);
