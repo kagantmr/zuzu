@@ -27,7 +27,7 @@ permission to use the object it names. A task can do exactly what its space hold
 handles for, and nothing else.
 
 **Kernel**
-- Address spaces, USR-mode execution, ASID-tagged TLB
+- Address spaces, PMM, VMM, syscall and exception handling, ASIDs
 - Preemptive priority scheduling, up to 255 threads per process
 - IPC: messages, events, shared memory
 - ELF/ZXF loading from an initrd, task lifecycle
