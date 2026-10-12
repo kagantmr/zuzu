@@ -45,6 +45,8 @@ typedef int32_t Err;
 #define ERR_IO (-106)        /* device or filesystem I/O error                 */
 #define ERR_OUTDATED                                                                               \
     (-107) /* this feature is deprecated or there is a version mismatch between binaries    */
+#define ERR_CONNRESET (-108)   /* connection was reset by the peer                */
+#define ERR_CONNREFUSED (-109) /* peer actively refused the connection            */
 
 /**
  * Fatal error codes (comes from critical processes and is delivered to the kernel)
