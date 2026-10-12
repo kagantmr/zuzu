@@ -218,6 +218,7 @@ static bool TcpProcessAck(TcpPcb *pcb, const TcpSegment *s)
         return false;
 
     size_t delta = s->ack - pcb->snd_una;
+    size_t acked = MIN(delta, pcb->buffered_bytes);
 
     if (pcb->rtt_timing && seq_leq(pcb->rtt_seq, s->ack)) {
         TcpRttUpdate(pcb, net_now_ms() - pcb->rtt_start);
@@ -228,7 +229,17 @@ static bool TcpProcessAck(TcpPcb *pcb, const TcpSegment *s)
     if (seq_lt(pcb->snd_nxt, pcb->snd_una))
         pcb->snd_nxt = pcb->snd_una;
     pcb->retries = 0;
-    pcb->buffered_bytes -= MIN(delta, pcb->buffered_bytes);
+    pcb->buffered_bytes -= acked;
+
+    if (!pcb->in_recovery) {
+        pcb->dupacks = 0;
+        if (pcb->cwnd < pcb->ssthresh)
+            pcb->cwnd += MIN(acked, pcb->snd_mss);
+        else
+            pcb->cwnd += MAX(1U, (uint32_t)pcb->snd_mss * pcb->snd_mss / pcb->cwnd);
+        if (pcb->cwnd > TCP_SND_BUF)
+            pcb->cwnd = TCP_SND_BUF;
+    }
 
     rto_stop(pcb);
     if (pcb->snd_max != pcb->snd_una)
