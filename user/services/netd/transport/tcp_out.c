@@ -92,7 +92,7 @@ int tcp_output(TcpPcb *pcb, uint8_t flags, uint16_t data_len)
     th->checksum = htons(tcp_checksum(pcb->local_ip, pcb->remote_ip, (const uint8_t *)th, seg_len));
 
     rc = ip_send(&f, pcb->local_ip, pcb->remote_ip, IP_PROTO_TCP);
-    LOG_INFO(LOG_TAG, "ip_tx rc=%d", rc);
+    LOG_DEBUG(LOG_TAG, "ip_tx rc=%d", rc);
     if (rc != ZUZU_OK)
         return rc;
 
@@ -270,7 +270,7 @@ int tcp_send(int idx, const uint8_t *data, uint16_t len)
         return ERR_NOTCONN;
     if (!TcpSndBufAlloc(pcb))
         return ERR_NOMEM;
-    LOG_INFO(LOG_TAG, "Buffered bytes: %u", pcb->buffered_bytes);
+    LOG_DEBUG(LOG_TAG, "Buffered bytes: %u", pcb->buffered_bytes);
     size_t free = pcb->snd_size - pcb->buffered_bytes;
     if (free == 0) {
         pcb->snd_blocked = true;
