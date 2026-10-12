@@ -29,8 +29,8 @@ typedef struct {
 #define PL111_CTRL_BGR (1U << 8)
 #define PL111_CTRL_PWR (1U << 11)
 
-#define FB_WIDTH 640U
-#define FB_HEIGHT 480U
+#define FB_WIDTH 1024U
+#define FB_HEIGHT 768U
 #define FB_BYTES (FB_WIDTH * FB_HEIGHT * 2U)
 #define FB_PAGES (FB_BYTES / 4096U)
 

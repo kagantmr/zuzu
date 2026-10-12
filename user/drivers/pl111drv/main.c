@@ -102,9 +102,9 @@ Err Pl111Setup(void)
 
     DrawPlasma(g_fb);
 
-    pl111->timing[0] = 0x2F0F5F9C;
-    pl111->timing[1] = 0x210A05DF;
-    pl111->timing[2] = 0x027F0000;
+    pl111->timing[0] = 0x2F0F5FFC;
+    pl111->timing[1] = 0x210A06FF;
+    pl111->timing[2] = 0x03FF0000;
     pl111->upbase = res.bus_addr;
 
     uint32_t control = PL111_CTRL_BPP_565 | PL111_CTRL_TFT;
