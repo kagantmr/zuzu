@@ -110,3 +110,9 @@ int tcp_close(int idx)
     tcp_xmit(pcb);           /* emits FIN (piggybacked or bare) */
     return ZUZU_OK;
 }
+
+void TcpCcInit(TcpPcb *pcb) {
+    pcb->cwnd = 10 * pcb->snd_mss; /* IW10, RFC 6928; */
+    pcb->ssthresh = UINT32_MAX;
+    pcb->recover = pcb->snd_nxt;
+}

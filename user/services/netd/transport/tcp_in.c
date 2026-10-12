@@ -171,6 +171,7 @@ static void on_syn_sent(TcpPcb *pcb, const TcpSegment *s)
         pcb->snd_una = s->ack;
         TcpHandshakeDone(pcb);
         TcpConsumeMss(pcb, s);
+        TcpCcInit(pcb);
         tcp_output(pcb, TCP_ACK, NULL, 0);
     } else if ((s->flags & TCP_SYN) && !(s->flags & TCP_ACK)) {
         pcb->rcv_nxt = s->seq + 1;
@@ -178,6 +179,7 @@ static void on_syn_sent(TcpPcb *pcb, const TcpSegment *s)
         pcb->rcv_adv = pcb->rcv_rsq + TCP_RCV_BUF;
         pcb->snd_nxt = pcb->snd_una;
         TcpConsumeMss(pcb, s);
+        TcpCcInit(pcb);
         tcp_output(pcb, TCP_SYN | TCP_ACK, NULL, 0);
         pcb->state = TCP_SYN_RCVD;
         LOG_INFO(LOG_TAG, "simultaneous open: SYN from %u.%u.%u.%u, now SYN_RCVD", IP4(s->src_ip));
@@ -362,6 +364,7 @@ static void on_listening(TcpPcb *listener, const TcpSegment *s)
     np->state = TCP_SYN_RCVD;
     np->snd_mss = 536;
     TcpConsumeMss(np, s);
+    TcpCcInit(np);
     tcp_output(np, TCP_SYN | TCP_ACK, NULL, 0); /* SYN-ACK */
     rto_start(np);
     LOG_INFO(LOG_TAG, "SYN from %u.%u.%u.%u, now SYN_RCVD", IP4(s->src_ip));

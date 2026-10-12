@@ -96,7 +96,7 @@ int tcp_xmit(TcpPcb *pcb)
         if (seq_leq(data_end, pcb->snd_nxt))
             break;
         size_t unsent = data_end - pcb->snd_nxt;
-        size_t window_edge = pcb->snd_una + pcb->snd_wnd;
+        size_t window_edge = pcb->snd_una + MIN(pcb->snd_wnd, pcb->cwnd);
         if (seq_leq(window_edge, pcb->snd_nxt))
             break;
 

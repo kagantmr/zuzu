@@ -84,6 +84,7 @@ typedef struct {
     TcpOooRange ranges[TCP_OOO_MAX];
     size_t nranges;
     bool active;
+    bool in_recovery;
     bool fin_pending;
     uint8_t snd_buf[TCP_SND_BUF]; // size must be a power of 2
     size_t buffered_bytes;        // how many bytes are buffered?
@@ -139,6 +140,7 @@ _Static_assert((TCP_RCV_BUF & (TCP_RCV_BUF - 1)) == 0, "TCP_RCV_BUF must be powe
 
 int tcp_connect(ipv4_addr_t remote_ip, NetPort remote_port); // , callback later)
 void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_t len);
+void TcpCcInit(TcpPcb *pcb);
 int tcp_send(int idx, const uint8_t *data, uint16_t len);
 int tcp_recv(int idx, uint8_t *buf, uint16_t sz);
 int tcp_listen(int port);
