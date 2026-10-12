@@ -50,10 +50,10 @@ int tcp_output(TcpPcb *pcb, uint8_t flags, const uint8_t *data, uint16_t data_le
     th->ack = (flags & TCP_ACK) ? htonl(pcb->rcv_nxt) : 0;
     th->flags = flags;
 
-    uint32_t end  = pcb->nranges ? pcb->ranges[pcb->nranges - 1].end : pcb->rcv_nxt;
+    uint32_t end = pcb->nranges ? pcb->ranges[pcb->nranges - 1].end : pcb->rcv_nxt;
     uint32_t edge = pcb->rcv_rsq + TCP_RCV_BUF;
     if (seq_lt(pcb->rcv_adv, edge) && edge - pcb->rcv_adv < MIN(TCP_RCV_BUF / 2, pcb->snd_mss))
-        edge = pcb->rcv_adv;        /* receiver SWS: don't announce a tiny increase */
+        edge = pcb->rcv_adv; /* receiver SWS: don't announce a tiny increase */
     uint16_t win = seq_lt(end, edge) ? edge - end : 0;
     pcb->rcv_adv = end + win;
     th->window = htons(win);
@@ -91,6 +91,7 @@ int tcp_xmit(TcpPcb *pcb)
 {
     bool sent = false;
     while (1) {
+
         uint32_t data_end = pcb->snd_una + pcb->buffered_bytes;
         if (seq_leq(data_end, pcb->snd_nxt))
             break;
@@ -98,10 +99,24 @@ int tcp_xmit(TcpPcb *pcb)
         size_t window_edge = pcb->snd_una + pcb->snd_wnd;
         if (seq_leq(window_edge, pcb->snd_nxt))
             break;
+
         size_t sendable = window_edge - pcb->snd_nxt;
-        sent = true;
+
         size_t seglen = MIN(MIN(unsent, sendable), pcb->snd_mss);
-        if (seglen == 0) break;
+
+        bool retrans = seq_lt(pcb->snd_nxt, pcb->snd_max);
+        bool full = seglen >= pcb->snd_mss;
+        bool drains = seglen == unsent;
+        bool idle = pcb->snd_max == pcb->snd_una;
+        bool fin = pcb->fin_pending && drains;
+        bool half = seglen >= pcb->max_snd_wnd / 2;
+
+        if (!retrans && !(full || half || fin || (drains && (idle || pcb->nodelay))))
+            break;
+
+        if (seglen == 0)
+            break;
+
         uint8_t data[TCP_MSS];
         size_t off = pcb->snd_nxt & (TCP_SND_BUF - 1);
         size_t first = MIN(seglen, TCP_SND_BUF - off);
@@ -118,6 +133,7 @@ int tcp_xmit(TcpPcb *pcb)
         int rc = tcp_output(pcb, flags, data, seglen);
         if (rc != ZUZU_OK)
             return rc;
+        sent = true;
 
         if (!pcb->rtt_timing) { /* only one measurement in flight */
             pcb->rtt_timing = true;
@@ -163,8 +179,8 @@ void tcp_persist_cb(void *arg)
     pcb->persist_timer = TIMER_NONE;
 
     uint32_t data_end = pcb->snd_una + pcb->buffered_bytes;
-    bool blocked = seq_lt(pcb->snd_nxt, data_end) &&
-                   seq_leq(pcb->snd_una + pcb->snd_wnd, pcb->snd_nxt);
+    bool blocked =
+        seq_lt(pcb->snd_nxt, data_end) && seq_leq(pcb->snd_una + pcb->snd_wnd, pcb->snd_nxt);
     if (!blocked) {
         tcp_xmit(pcb);
         return;

@@ -415,6 +415,8 @@ static void tcp_dispatch(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const TcpSegmen
     }
 
     pcb->snd_wnd = seg->window;
+    if (seg->window > pcb->max_snd_wnd)
+        pcb->max_snd_wnd = seg->window;
 
     switch (pcb->state) {
     case TCP_SYN_SENT:

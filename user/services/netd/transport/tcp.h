@@ -109,6 +109,8 @@ typedef struct {
     int retries;
     uint32_t cwnd;
     uint32_t ssthresh;
+    bool nodelay;
+    uint32_t max_snd_wnd;
     uint32_t dupacks;
     uint32_t recover;
 } TcpPcb;
@@ -140,6 +142,7 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
 int tcp_send(int idx, const uint8_t *data, uint16_t len);
 int tcp_recv(int idx, uint8_t *buf, uint16_t sz);
 int tcp_listen(int port);
+int tcp_set_nodelay(int idx, bool on);
 int tcp_close(int idx);
 
 #endif

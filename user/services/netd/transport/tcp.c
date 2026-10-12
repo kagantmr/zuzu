@@ -60,9 +60,16 @@ static void http_on_data(int slot)
                               "<html><body><h1>Hello from ZuzuOS!</h1>"
                               "<p>Served by netd, powered by the Zuzu microkernel.</p>"
                               "</body></html>\r\n";
-
     tcp_send(slot, (const uint8_t *)resp, strlen(resp));
     tcp_close(slot);
+}
+
+int tcp_set_nodelay(int idx, bool on)
+{
+    tcp_pcbs[idx].nodelay = on;
+    if (on)
+        tcp_xmit(&tcp_pcbs[idx]);
+    return ZUZU_OK;
 }
 
 int tcp_listen(int port)
