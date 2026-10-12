@@ -178,49 +178,6 @@ static void cmd_ls(const char *arg)
     }
 }
 
-/* ---- cat ---- */
-
-static void cmd_cat(const char *path)
-{
-    if (!ensure_fsd()) {
-        printf("%s", ANSI_RED "cat: fsd unavailable\n" ANSI_RESET);
-        return;
-    }
-
-    if (!path || !path[0]) {
-        printf("%s", "usage: cat <file>\n");
-        return;
-    }
-
-    char abs_path[256];
-    if (!resolve_path(path, abs_path, sizeof(abs_path))) {
-        printf("%s", "cat: path too long\n");
-        return;
-    }
-
-    uint32_t fd = 0;
-    if (FsdOpen(&fsd_conn, abs_path, FSD_MODE_READ, &fd) != ZUZU_OK) {
-        printf("%s", ANSI_RED "cat: file not found\n" ANSI_RESET);
-        return;
-    }
-
-    /* printf formats into a 1 KiB buffer, so keep chunks well under that. */
-    char chunk[512];
-    while (1) {
-        uint32_t got = 0;
-        if (FsdRead(&fsd_conn, fd, chunk, sizeof(chunk) - 1, &got) != ZUZU_OK)
-            break;
-        if (got == 0)
-            break;
-
-        chunk[got] = '\0'; /* null-terminate for printf */
-        printf("%s", chunk);
-    }
-
-    FsdClose(&fsd_conn, fd);
-    printf("\n");
-}
-
 /* ---- run ---- */
 
 static ImgCache g_images;
@@ -413,10 +370,6 @@ bool command_dispatch(const char *line)
         cmd_ls(NULL);
     else if (strncmp(line, "ls ", 3) == 0)
         cmd_ls(line + 3);
-    else if (strcmp(line, "cat") == 0)
-        cmd_cat(NULL);
-    else if (strncmp(line, "cat ", 4) == 0)
-        cmd_cat(line + 4);
     else
         cmd_run(line);
 
