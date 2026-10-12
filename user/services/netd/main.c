@@ -14,6 +14,7 @@
 #include "link/arp.h"
 #include "link/eth.h"
 #include "transport/port.h"
+#include "transport/session.h"
 #include "transport/tcp.h"
 #include "transport/udp.h"
 
@@ -226,6 +227,10 @@ int main()
     TimerInit();
     netrand_init();
 
+    retval = SessionInit(g_event);
+    if (retval < 0)
+        return retval;
+
     arp_init();
     UdpInit();
     port_init();
@@ -269,12 +274,17 @@ int main()
         EventWaitResult ev = FormatToEventWait(WaitOn(g_event, slice));
         if (ev.status == ZUZU_OK && (ev.bits & PORT_MASK)) {
             PortWaitResult call;
-            while ((call = FormatToPortWait(WaitOn(g_svc_port, TIMEOUT_POLL))).status == ZUZU_OK)
-                RejectCall(ERR_NOSYS, call.granted);
+            while ((call = FormatToPortWait(WaitOn(g_svc_port, TIMEOUT_POLL))).status == ZUZU_OK) {
+                if (!SessionHandle(&call))
+                    RejectCall(ERR_NOSYS, call.granted);
+            }
         }
+        if (ev.status == ZUZU_OK)
+            SessionDoorbell(ev.bits);
 
         /* 4. THEN fire expired timers */
         TimerRunExpired();
+        SessionReapDead();
 
         /* 5. legacy pollers, still bounded by the cap above */
         arp_tick();
