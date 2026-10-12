@@ -197,6 +197,28 @@ void tcp_persist_cb(void *arg)
     pcb->persist_timer = timer_arm(net_now_ms() + pcb->persist_ms, tcp_persist_cb, pcb);
 }
 
+void TcpRetransmitHead(TcpPcb *pcb)
+{
+    uint32_t saved = pcb->snd_nxt;
+    uint32_t data_end = pcb->snd_una + pcb->buffered_bytes;
+    size_t len = seq_lt(pcb->snd_una, data_end) ? MIN(pcb->snd_mss, data_end - pcb->snd_una) : 0;
+    uint8_t data[TCP_MSS];
+    uint8_t flags = TCP_ACK;
+
+    size_t off = pcb->snd_una & (TCP_SND_BUF - 1);
+    size_t first = MIN(len, TCP_SND_BUF - off);
+    memcpy(data, pcb->snd_buf + off, first);
+    if (first < len)
+        memcpy(data + first, pcb->snd_buf, len - first);
+    if (pcb->fin_sent && pcb->snd_una + len == data_end)
+        flags |= TCP_FIN;
+
+    pcb->snd_nxt = pcb->snd_una;
+    tcp_output(pcb, flags, data, len);
+    pcb->snd_nxt = saved;
+    pcb->rtt_timing = false;
+}
+
 void tcp_rto_cb(void *arg)
 {
     TcpPcb *pcb = (TcpPcb *)arg;

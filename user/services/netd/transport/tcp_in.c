@@ -212,8 +212,31 @@ static void TcpRttUpdate(TcpPcb *pcb, uint32_t R)
              pcb->rto_ms);
 }
 
+static void TcpOnDupAck(TcpPcb *pcb)
+{
+    pcb->dupacks++;
+    if (pcb->in_recovery) {
+        pcb->cwnd += pcb->snd_mss;
+        return;
+    }
+    if (pcb->dupacks == 3 && seq_leq(pcb->recover, pcb->snd_una)) {
+        uint32_t flight = pcb->snd_max - pcb->snd_una;
+        pcb->ssthresh = MAX(flight / 2, 2U * pcb->snd_mss);
+        pcb->recover = pcb->snd_max;
+        pcb->in_recovery = true;
+        TcpRetransmitHead(pcb);
+        pcb->cwnd = pcb->ssthresh + (3 * pcb->snd_mss);
+    }
+}
+
 static bool TcpProcessAck(TcpPcb *pcb, const TcpSegment *s)
 {
+    if ((s->flags & TCP_ACK) && s->ack == pcb->snd_una && s->payload_len == 0 &&
+        !(s->flags & (TCP_SYN | TCP_FIN)) && pcb->snd_max != pcb->snd_una) {
+        TcpOnDupAck(pcb);
+        return false;
+    }
+
     if (!(s->flags & TCP_ACK) || !seq_lt(pcb->snd_una, s->ack) || !seq_leq(s->ack, pcb->snd_max))
         return false;
 
@@ -231,7 +254,18 @@ static bool TcpProcessAck(TcpPcb *pcb, const TcpSegment *s)
     pcb->retries = 0;
     pcb->buffered_bytes -= acked;
 
-    if (!pcb->in_recovery) {
+    if (pcb->in_recovery) {
+        if (seq_leq(pcb->recover, pcb->snd_una)) {
+            pcb->cwnd = MIN(pcb->ssthresh, (pcb->snd_max - pcb->snd_una) + pcb->snd_mss);
+            pcb->in_recovery = false;
+            pcb->dupacks = 0;
+        } else {
+            TcpRetransmitHead(pcb);
+            pcb->cwnd = pcb->cwnd > acked ? pcb->cwnd - acked : pcb->snd_mss;
+            if (acked >= pcb->snd_mss)
+                pcb->cwnd += pcb->snd_mss;
+        }
+    } else {
         pcb->dupacks = 0;
         if (pcb->cwnd < pcb->ssthresh)
             pcb->cwnd += MIN(acked, pcb->snd_mss);
