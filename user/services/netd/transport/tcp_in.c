@@ -40,9 +40,8 @@ static void StoreOoo(TcpPcb *pcb, const TcpSegment *s)
         seg_start = pcb->rcv_nxt;        // clip left edge forward
 
     /* case 2: future data (hole before it)  */
-    uint32_t reach = seg_end - pcb->rcv_rsq;
-    if (reach > pcb->rcv_size) {
-        LOG_INFO(LOG_TAG, "OOO seg beyond window, dropping: reach=%u", reach);
+    if (seq_lt(pcb->rcv_adv, seg_end)) {
+        LOG_INFO(LOG_TAG, "OOO seg beyond window, dropping: end=%u adv=%u", seg_end, pcb->rcv_adv);
         return; /* peer will retransmit */
     }
 
@@ -116,9 +115,8 @@ static void TcpEnterTimeWait(TcpPcb *pcb)
 /* Copy in-order payload into the receive ring and advance rcv_nxt. */
 static void deliver_data(TcpPcb *pcb, const uint8_t *payload, uint16_t payload_len)
 {
-    size_t used = pcb->rcv_nxt - pcb->rcv_rsq;
-    size_t free = pcb->rcv_size - used;
-    size_t n = MIN(payload_len, free);
+    size_t room = seq_lt(pcb->rcv_nxt, pcb->rcv_adv) ? pcb->rcv_adv - pcb->rcv_nxt : 0;
+    size_t n = MIN(payload_len, room);
     size_t off = pcb->rcv_nxt & (pcb->rcv_size - 1);
     size_t first = MIN(n, pcb->rcv_size - off);
     memcpy(pcb->rcv_buf + off, payload, first);
