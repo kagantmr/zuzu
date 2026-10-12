@@ -45,6 +45,7 @@ _Static_assert(sizeof(TcpHdr) == 20, "TCP header size");
 #define TCP_MAX_OPTS 40
 #define TCP_SND_BUF (1024 * 32)
 #define TCP_RCV_BUF (1024 * 32)
+#define TCP_BUF_BUDGET (2 * 1024 * 1024)
 #define TCP_TIME_WAIT_MS 5000 /* linger 5s before freeing (real TCP uses 2*MSL ~minutes) */
 #define TCP_SYN_RETRIES 6
 #define TCP_DATA_RETRIES 12
@@ -86,9 +87,11 @@ typedef struct {
     bool active;
     bool in_recovery;
     bool fin_pending;
-    uint8_t snd_buf[TCP_SND_BUF]; // size must be a power of 2
-    size_t buffered_bytes;        // how many bytes are buffered?
-    uint8_t rcv_buf[TCP_RCV_BUF]; // size must be a power of 2
+    uint8_t *snd_buf;
+    size_t snd_size; // power of two
+    size_t buffered_bytes;
+    uint8_t *rcv_buf;
+    size_t rcv_size; // power of two
     void (*on_data)(int slot);    // data arrival callback
     void (*on_close)(int slot);
     TimerHandle rto_timer;

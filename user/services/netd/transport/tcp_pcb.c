@@ -1,8 +1,38 @@
 #include "tcp_pcb.h"
 #include "tcp_out.h"
 #include "port.h"
+#include <stdlib.h>
 
 TcpPcb tcp_pcbs[TCP_MAX_PCB];
+
+static size_t buf_used;
+
+static bool TcpBufAlloc(uint8_t **buf, size_t size)
+{
+    if (*buf)
+        return true;
+    if (buf_used + size > TCP_BUF_BUDGET)
+        return false;
+    uint8_t *p = malloc(size);
+    if (!p)
+        return false;
+    *buf = p;
+    buf_used += size;
+    return true;
+}
+
+static void TcpBufFree(uint8_t **buf, size_t size)
+{
+    if (!*buf)
+        return;
+    free(*buf);
+    *buf = NULL;
+    buf_used -= size;
+}
+
+bool TcpRcvBufAlloc(TcpPcb *pcb) { return TcpBufAlloc(&pcb->rcv_buf, pcb->rcv_size); }
+
+bool TcpSndBufAlloc(TcpPcb *pcb) { return TcpBufAlloc(&pcb->snd_buf, pcb->snd_size); }
 
 int tcp_pcb_alloc(void)
 {
@@ -10,6 +40,8 @@ int tcp_pcb_alloc(void)
         if (!tcp_pcbs[i].active) {
             memset(&tcp_pcbs[i], 0, sizeof(TcpPcb));
             tcp_pcbs[i].active = true;
+            tcp_pcbs[i].snd_size = TCP_SND_BUF;
+            tcp_pcbs[i].rcv_size = TCP_RCV_BUF;
             tcp_pcbs[i].fin_pending = false;
             tcp_pcbs[i].rto_timer = TIMER_NONE;
             tcp_pcbs[i].tw_timer = TIMER_NONE;
@@ -24,6 +56,8 @@ void tcp_pcb_free(int h)
 {
     if (h < 0 || h > TCP_MAX_PCB - 1)
         return;
+    TcpBufFree(&tcp_pcbs[h].snd_buf, tcp_pcbs[h].snd_size);
+    TcpBufFree(&tcp_pcbs[h].rcv_buf, tcp_pcbs[h].rcv_size);
     tcp_pcbs[h].active = false;
 }
 

@@ -32,7 +32,7 @@ int tcp_connect(ipv4_addr_t remote_ip, NetPort remote_port)
     pcb->rto_ms = 1000;
     pcb->snd_mss = TCP_MSS;
     pcb->state = TCP_SYN_SENT;
-    int rc = tcp_output(pcb, TCP_SYN, NULL, 0);
+    int rc = tcp_output(pcb, TCP_SYN, 0);
     rto_start(pcb);
     if (rc != ZUZU_OK) {
         TcpPcbRelease(pcb);
@@ -45,7 +45,6 @@ int tcp_connect(ipv4_addr_t remote_ip, NetPort remote_port)
 
 static void http_on_data(int slot)
 {
-    TcpPcb *pcb = &tcp_pcbs[slot];
     uint8_t chunk[256];
     int n;
     while ((n = tcp_recv(slot, chunk, sizeof(chunk) - 1)) > 0) {
