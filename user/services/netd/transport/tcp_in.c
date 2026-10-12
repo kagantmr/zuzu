@@ -87,7 +87,6 @@ static void StoreOoo(TcpPcb *pcb, const TcpSegment *s)
 static void time_wait_cb(void *arg)
 {
     TcpPcb *pcb = (TcpPcb *)arg;
-    pcb->tw_timer = TIMER_NONE;
     TcpPcbRelease(pcb);
     LOG_INFO(LOG_TAG, "TIME_WAIT expired, connection freed");
 }
@@ -95,11 +94,8 @@ static void time_wait_cb(void *arg)
 static void TcpEnterTimeWait(TcpPcb *pcb)
 {
     rto_stop(pcb);
-    timer_cancel(pcb->tw_timer);
     pcb->state = TCP_TIME_WAIT;
-    pcb->tw_timer = timer_arm(net_now_ms() + TCP_TIME_WAIT_MS, time_wait_cb, pcb);
-    if (pcb->tw_timer == TIMER_NONE)
-        TcpPcbRelease(pcb);
+    TimerArm(&pcb->tw_timer, net_now_ms() + TCP_TIME_WAIT_MS, time_wait_cb, pcb);
 }
 
 /* Copy in-order payload into the receive ring and advance rcv_nxt. */

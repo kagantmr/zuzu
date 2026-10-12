@@ -200,7 +200,7 @@ int main()
     if (retval < 0)
         return retval;
 
-    timer_init();
+    TimerInit();
     netrand_init();
 
     arp_init();
@@ -217,7 +217,7 @@ int main()
         /* 1. size the sleep: until the next timer, but never longer than the
             cap, so the legacy pollers still get serviced. */
         uint32_t now = net_now_ms();
-        uint32_t next = timer_next_deadline();
+        uint32_t next = TimerNextDeadline();
         uint32_t sleep_ms;
         if (next == TIMER_NO_DEADLINE)
             sleep_ms = LEGACY_POLL_CAP;
@@ -251,7 +251,7 @@ int main()
         }
 
         /* 4. THEN fire expired timers */
-        timer_run_expired();
+        TimerRunExpired();
 
         /* 5. legacy pollers, still bounded by the cap above */
         arp_tick();

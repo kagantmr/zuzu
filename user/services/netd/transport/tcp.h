@@ -94,9 +94,9 @@ typedef struct {
     size_t rcv_size; // power of two
     void (*on_data)(int slot);    // data arrival callback
     void (*on_close)(int slot);
-    TimerHandle rto_timer;
-    TimerHandle tw_timer;
-    TimerHandle persist_timer;
+    Timer rto_timer;
+    Timer tw_timer;
+    Timer persist_timer;
     Duration persist_ms;
     bool fin_sent;
     Duration rto_ms;  /* current backoff value */

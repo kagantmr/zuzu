@@ -26,18 +26,15 @@ uint16_t tcp_checksum(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *seg
 /* arm if not armed; set flag   */
 void rto_start(TcpPcb *pcb)
 {
-    if (pcb->rto_timer != TIMER_NONE)
+    if (pcb->rto_timer.armed)
         return;
-    pcb->rto_timer = timer_arm(net_now_ms() + pcb->rto_ms, tcp_rto_cb, pcb);
+    TimerArm(&pcb->rto_timer, net_now_ms() + pcb->rto_ms, tcp_rto_cb, pcb);
 }
 
 /* cancel if armed; clear flag  */
 void rto_stop(TcpPcb *pcb)
 {
-    if (pcb->rto_timer == TIMER_NONE)
-        return;
-    timer_cancel(pcb->rto_timer);
-    pcb->rto_timer = TIMER_NONE;
+    TimerCancel(&pcb->rto_timer);
 }
 
 static void TcpCopyOut(const TcpPcb *pcb, uint32_t seq, uint8_t *dst, size_t len)
@@ -173,14 +170,13 @@ int tcp_xmit(TcpPcb *pcb)
                    seq_leq(pcb->snd_una + pcb->snd_wnd, pcb->snd_nxt) &&
                    pcb->snd_max == pcb->snd_una;
     if (blocked) {
-        if (pcb->persist_timer == TIMER_NONE) {
+        if (!pcb->persist_timer.armed) {
             if (!pcb->persist_ms)
                 pcb->persist_ms = pcb->rto_ms;
-            pcb->persist_timer = timer_arm(net_now_ms() + pcb->persist_ms, tcp_persist_cb, pcb);
+            TimerArm(&pcb->persist_timer, net_now_ms() + pcb->persist_ms, tcp_persist_cb, pcb);
         }
     } else {
-        timer_cancel(pcb->persist_timer);
-        pcb->persist_timer = TIMER_NONE;
+        TimerCancel(&pcb->persist_timer);
         pcb->persist_ms = 0;
     }
 
@@ -190,7 +186,6 @@ int tcp_xmit(TcpPcb *pcb)
 void tcp_persist_cb(void *arg)
 {
     TcpPcb *pcb = (TcpPcb *)arg;
-    pcb->persist_timer = TIMER_NONE;
 
     uint32_t data_end = pcb->snd_una + pcb->buffered_bytes;
     bool blocked =
@@ -208,7 +203,7 @@ void tcp_persist_cb(void *arg)
     pcb->persist_ms *= 2;
     if (pcb->persist_ms > TCP_RTO_MAX)
         pcb->persist_ms = TCP_RTO_MAX;
-    pcb->persist_timer = timer_arm(net_now_ms() + pcb->persist_ms, tcp_persist_cb, pcb);
+    TimerArm(&pcb->persist_timer, net_now_ms() + pcb->persist_ms, tcp_persist_cb, pcb);
 }
 
 void TcpRetransmitHead(TcpPcb *pcb)
@@ -230,7 +225,6 @@ void TcpRetransmitHead(TcpPcb *pcb)
 void tcp_rto_cb(void *arg)
 {
     TcpPcb *pcb = (TcpPcb *)arg;
-    pcb->rto_timer = TIMER_NONE;
     if (pcb->snd_max == pcb->snd_una)
         return; // nothing outstanding, don't do anything
 

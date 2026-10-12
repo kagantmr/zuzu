@@ -43,9 +43,6 @@ int tcp_pcb_alloc(void)
             tcp_pcbs[i].snd_size = TCP_SND_BUF;
             tcp_pcbs[i].rcv_size = TCP_RCV_BUF;
             tcp_pcbs[i].fin_pending = false;
-            tcp_pcbs[i].rto_timer = TIMER_NONE;
-            tcp_pcbs[i].tw_timer = TIMER_NONE;
-            tcp_pcbs[i].persist_timer = TIMER_NONE;
             return i;
         }
     }
@@ -56,6 +53,9 @@ void tcp_pcb_free(int h)
 {
     if (h < 0 || h > TCP_MAX_PCB - 1)
         return;
+    TimerCancel(&tcp_pcbs[h].rto_timer);
+    TimerCancel(&tcp_pcbs[h].tw_timer);
+    TimerCancel(&tcp_pcbs[h].persist_timer);
     TcpBufFree(&tcp_pcbs[h].snd_buf, tcp_pcbs[h].snd_size);
     TcpBufFree(&tcp_pcbs[h].rcv_buf, tcp_pcbs[h].rcv_size);
     tcp_pcbs[h].active = false;
@@ -86,10 +86,6 @@ int tcp_pcb_find_listener(ipv4_addr_t local_ip, NetPort local_port)
 
 void TcpPcbRelease(TcpPcb *pcb)
 {
-    rto_stop(pcb);
-    timer_cancel(pcb->tw_timer);
-    timer_cancel(pcb->persist_timer);
-    pcb->tw_timer = TIMER_NONE;
     port_release(pcb->local_port);
     tcp_pcb_free(tcp_pcb_index(pcb));
 }
