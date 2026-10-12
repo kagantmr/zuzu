@@ -26,6 +26,9 @@ void TcpPcbRelease(TcpPcb *pcb, int err);
 
 /* Lazily allocate the receive/send ring. False when the heap or the global
  * TCP_BUF_BUDGET is exhausted. */
+/* Return both rings to the heap and the budget; safe to call repeatedly. */
+void TcpBufsFree(TcpPcb *pcb);
+
 bool TcpRcvBufAlloc(TcpPcb *pcb);
 bool TcpSndBufAlloc(TcpPcb *pcb);
 

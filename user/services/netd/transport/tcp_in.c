@@ -108,6 +108,7 @@ static void TcpEnterTimeWait(TcpPcb *pcb)
 {
     rto_stop(pcb);
     TimerCancel(&pcb->fin_wait2_timer);
+    TcpBufsFree(pcb);
     pcb->state = TCP_TIME_WAIT;
     TimerArm(&pcb->tw_timer, net_now_ms() + TCP_TIME_WAIT_MS, time_wait_cb, pcb);
 }

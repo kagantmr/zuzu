@@ -49,6 +49,12 @@ int tcp_pcb_alloc(void)
     return ERR_NOMEM;
 }
 
+void TcpBufsFree(TcpPcb *pcb)
+{
+    TcpBufFree(&pcb->snd_buf, pcb->snd_size);
+    TcpBufFree(&pcb->rcv_buf, pcb->rcv_size);
+}
+
 void tcp_pcb_free(int h)
 {
     if (h < 0 || h > TCP_MAX_PCB - 1)
@@ -57,8 +63,7 @@ void tcp_pcb_free(int h)
     TimerCancel(&tcp_pcbs[h].tw_timer);
     TimerCancel(&tcp_pcbs[h].persist_timer);
     TimerCancel(&tcp_pcbs[h].fin_wait2_timer);
-    TcpBufFree(&tcp_pcbs[h].snd_buf, tcp_pcbs[h].snd_size);
-    TcpBufFree(&tcp_pcbs[h].rcv_buf, tcp_pcbs[h].rcv_size);
+    TcpBufsFree(&tcp_pcbs[h]);
     tcp_pcbs[h].active = false;
 }
 

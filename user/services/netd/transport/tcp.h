@@ -38,7 +38,7 @@ _Static_assert(sizeof(TcpHdr) == 20, "TCP header size");
 /* Internal presence bitmask */
 #define TCP_OPT_MSS_BIT (1u << 0)
 
-#define TCP_MAX_PCB 64
+#define TCP_MAX_PCB 128
 #define TCP_MSS 1460
 #define TCP_RTO_MAX 60000
 #define TCP_OOO_MAX 8
@@ -46,7 +46,8 @@ _Static_assert(sizeof(TcpHdr) == 20, "TCP header size");
 #define TCP_SND_BUF (1024 * 32)
 #define TCP_RCV_BUF (1024 * 32)
 #define TCP_BUF_BUDGET (2 * 1024 * 1024)
-#define TCP_TIME_WAIT_MS 5000 /* linger 5s before freeing (real TCP uses 2*MSL ~minutes) */
+#define TCP_MSL_MS 30000
+#define TCP_TIME_WAIT_MS (2 * TCP_MSL_MS)
 #define TCP_SYN_RETRIES 6
 #define TCP_LISTEN_BACKLOG 16
 #define TCP_FIN_WAIT2_MS 60000
