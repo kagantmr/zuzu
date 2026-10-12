@@ -60,9 +60,7 @@ static void http_on_data(int slot)
                               "<html><body><h1>Hello from ZuzuOS!</h1>"
                               "<p>Served by netd, powered by the Zuzu microkernel.</p>"
                               "</body></html>\r\n";
-    static uint8_t big[32768];            /* TEMP-TEST */
-    memset(big, 'A', sizeof(big));        /* TEMP-TEST */
-    tcp_send(slot, big, sizeof(big));     /* TEMP-TEST */
+    tcp_send(slot, (const uint8_t *)resp, strlen(resp));
     tcp_close(slot);
 }
 

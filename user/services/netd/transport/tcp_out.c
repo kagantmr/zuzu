@@ -229,6 +229,13 @@ void tcp_rto_cb(void *arg)
         return;
     }
 
+    uint32_t flight = pcb->snd_max - pcb->snd_una;
+    pcb->ssthresh = MAX(flight / 2, 2U * pcb->snd_mss);
+    pcb->cwnd = pcb->snd_mss;
+    pcb->dupacks = 0;
+    pcb->in_recovery = false;
+    pcb->recover = pcb->snd_max;
+    
     tcp_xmit(pcb);
 }
 
