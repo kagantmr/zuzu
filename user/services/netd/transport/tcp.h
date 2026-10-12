@@ -49,6 +49,7 @@ _Static_assert(sizeof(TcpHdr) == 20, "TCP header size");
 #define TCP_TIME_WAIT_MS 5000 /* linger 5s before freeing (real TCP uses 2*MSL ~minutes) */
 #define TCP_SYN_RETRIES 6
 #define TCP_LISTEN_BACKLOG 16
+#define TCP_FIN_WAIT2_MS 60000
 #define TCP_DATA_RETRIES 12
 
 typedef enum {
@@ -109,6 +110,7 @@ typedef struct {
     Timer rto_timer;
     Timer tw_timer;
     Timer persist_timer;
+    Timer fin_wait2_timer;
     Duration persist_ms;
     bool fin_sent;
     Duration rto_ms;  /* current backoff value */

@@ -56,6 +56,7 @@ void tcp_pcb_free(int h)
     TimerCancel(&tcp_pcbs[h].rto_timer);
     TimerCancel(&tcp_pcbs[h].tw_timer);
     TimerCancel(&tcp_pcbs[h].persist_timer);
+    TimerCancel(&tcp_pcbs[h].fin_wait2_timer);
     TcpBufFree(&tcp_pcbs[h].snd_buf, tcp_pcbs[h].snd_size);
     TcpBufFree(&tcp_pcbs[h].rcv_buf, tcp_pcbs[h].rcv_size);
     tcp_pcbs[h].active = false;

@@ -91,9 +91,23 @@ static void time_wait_cb(void *arg)
     LOG_INFO(LOG_TAG, "TIME_WAIT expired, connection freed");
 }
 
+static void fin_wait2_cb(void *arg)
+{
+    TcpPcb *pcb = (TcpPcb *)arg;
+    TcpPcbRelease(pcb, ERR_TIMEOUT);
+    LOG_INFO(LOG_TAG, "FIN_WAIT_2 timed out, connection freed");
+}
+
+static void TcpEnterFinWait2(TcpPcb *pcb)
+{
+    pcb->state = TCP_FIN_WAIT_2;
+    TimerArm(&pcb->fin_wait2_timer, net_now_ms() + TCP_FIN_WAIT2_MS, fin_wait2_cb, pcb);
+}
+
 static void TcpEnterTimeWait(TcpPcb *pcb)
 {
     rto_stop(pcb);
+    TimerCancel(&pcb->fin_wait2_timer);
     pcb->state = TCP_TIME_WAIT;
     TimerArm(&pcb->tw_timer, net_now_ms() + TCP_TIME_WAIT_MS, time_wait_cb, pcb);
 }
@@ -355,7 +369,7 @@ static void on_fin_wait_1(int slot, TcpPcb *pcb, const TcpSegment *s)
 {
     TcpProcessAck(pcb, s);
     if (TcpFinAcked(pcb))
-        pcb->state = TCP_FIN_WAIT_2;
+        TcpEnterFinWait2(pcb);
 
     TcpRecvText(slot, pcb, s);
 }
