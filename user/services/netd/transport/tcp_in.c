@@ -87,7 +87,7 @@ static void StoreOoo(TcpPcb *pcb, const TcpSegment *s)
 static void time_wait_cb(void *arg)
 {
     TcpPcb *pcb = (TcpPcb *)arg;
-    TcpPcbRelease(pcb);
+    TcpPcbRelease(pcb, ZUZU_OK);
     LOG_INFO(LOG_TAG, "TIME_WAIT expired, connection freed");
 }
 
@@ -124,8 +124,7 @@ static bool consume_fin(int slot, TcpPcb *pcb)
 
     if (pcb->state == TCP_ESTABLISHED) {
         pcb->state = TCP_CLOSE_WAIT;
-        if (pcb->on_close)
-            pcb->on_close(slot);
+        TCP_NOTIFY(pcb, on_close, slot);
     } else if (pcb->state == TCP_FIN_WAIT_1) {
         pcb->state = TCP_CLOSING;
     } else if (pcb->state == TCP_FIN_WAIT_2) {
@@ -164,7 +163,7 @@ static bool TcpHandshakeDone(TcpPcb *pcb)
 static void TcpAbort(TcpPcb *pcb)
 {
     tcp_output(pcb, TCP_RST | TCP_ACK, 0);
-    TcpPcbRelease(pcb);
+    TcpPcbRelease(pcb, ERR_NOMEM);
 }
 
 static void on_syn_sent(TcpPcb *pcb, const TcpSegment *s)
@@ -181,6 +180,7 @@ static void on_syn_sent(TcpPcb *pcb, const TcpSegment *s)
         TcpConsumeMss(pcb, s);
         TcpCcInit(pcb);
         tcp_output(pcb, TCP_ACK, 0);
+        TCP_NOTIFY(pcb, on_established, tcp_pcb_index(pcb));
     } else if ((s->flags & TCP_SYN) && !(s->flags & TCP_ACK)) {
         pcb->rcv_nxt = s->seq + 1;
         pcb->rcv_rsq = pcb->rcv_nxt;
@@ -286,6 +286,11 @@ static bool TcpProcessAck(TcpPcb *pcb, const TcpSegment *s)
     rto_stop(pcb);
     if (pcb->snd_max != pcb->snd_una)
         rto_start(pcb);
+
+    if (pcb->snd_blocked && pcb->snd_size - pcb->buffered_bytes >= pcb->snd_size / 4) {
+        pcb->snd_blocked = false;
+        TCP_NOTIFY(pcb, on_writable, tcp_pcb_index(pcb));
+    }
     return true;
 }
 
@@ -313,8 +318,7 @@ static void TcpRecvText(int slot, TcpPcb *pcb, const TcpSegment *s)
 
             /* TODO: application logic wired directly into the transport.
              * This canned HTTP reply should move behind an app-layer callback. */
-            if (pcb->on_data)
-                pcb->on_data(slot);
+            TCP_NOTIFY(pcb, on_data, slot);
         } else if (seq_lt(pcb->rcv_nxt, s->seq)) {
             StoreOoo(pcb, s);
             LOG_INFO(LOG_TAG, "OOO seg: seq=%u rcv_nxt=%u len=%u", s->seq, pcb->rcv_nxt,
@@ -373,7 +377,7 @@ static void on_closing(TcpPcb *pcb, const TcpSegment *s)
 static void on_last_ack(TcpPcb *pcb, const TcpSegment *s)
 {
     if (TcpProcessAck(pcb, s) && TcpFinAcked(pcb)) {
-        TcpPcbRelease(pcb);
+        TcpPcbRelease(pcb, ZUZU_OK);
         LOG_INFO(LOG_TAG, "LAST_ACK done, connection freed");
     }
 }
@@ -392,14 +396,22 @@ static void on_listening(TcpPcb *listener, const TcpSegment *s)
     if (!((s->flags & TCP_SYN) && !(s->flags & TCP_ACK)))
         return;
 
+    int pending = 0;
+    for (int i = 0; i < TCP_MAX_PCB; i++) {
+        if (tcp_pcbs[i].active && tcp_pcbs[i].state == TCP_SYN_RCVD &&
+            tcp_pcbs[i].parent == tcp_pcb_index(listener) + 1)
+            pending++;
+    }
+    if (pending >= listener->backlog)
+        return;
+
     int nidx = tcp_pcb_alloc();
     if (nidx < 0) {
         tcp_send_rst(s->src_ip, netif.ip, s);
         return;
     }
     TcpPcb *np = &tcp_pcbs[nidx];
-    np->on_data = listener->on_data;
-    np->on_close = listener->on_close;
+    np->parent = tcp_pcb_index(listener) + 1;
     np->active = true;
     np->local_ip = netif.ip;
     np->local_port = listener->local_port; /* same port we listen on */
@@ -432,6 +444,11 @@ static void on_syn_rcvd(TcpPcb *pcb, const TcpSegment *s)
             return;
         }
         LOG_INFO(LOG_TAG, "handshake complete, ESTABLISHED (server)");
+        if (pcb->parent) {
+            pcb->cb = tcp_pcbs[pcb->parent - 1].cb;
+            pcb->ctx = tcp_pcbs[pcb->parent - 1].ctx;
+        }
+        TCP_NOTIFY(pcb, on_established, tcp_pcb_index(pcb));
     } else if ((s->flags & TCP_SYN) && !(s->flags & TCP_ACK) && s->seq + 1 == pcb->rcv_nxt) {
         pcb->snd_nxt = pcb->snd_una;
         tcp_output(pcb, TCP_SYN | TCP_ACK, 0);
@@ -468,7 +485,7 @@ static void tcp_dispatch(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const TcpSegmen
         if (accept) {
             if (pcb->state == TCP_SYN_SENT)
                 LOG_INFO(LOG_TAG, "connection refused");
-            TcpPcbRelease(pcb);
+            TcpPcbRelease(pcb, pcb->state == TCP_SYN_SENT ? ERR_CONNREFUSED : ERR_CONNRESET);
         }
         return;
     }

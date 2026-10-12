@@ -48,6 +48,7 @@ _Static_assert(sizeof(TcpHdr) == 20, "TCP header size");
 #define TCP_BUF_BUDGET (2 * 1024 * 1024)
 #define TCP_TIME_WAIT_MS 5000 /* linger 5s before freeing (real TCP uses 2*MSL ~minutes) */
 #define TCP_SYN_RETRIES 6
+#define TCP_LISTEN_BACKLOG 16
 #define TCP_DATA_RETRIES 12
 
 typedef enum {
@@ -68,6 +69,14 @@ typedef struct {
     uint32_t start;
     uint32_t end;
 } TcpOooRange;
+
+typedef struct {
+    void (*on_established)(int slot);
+    void (*on_data)(int slot);
+    void (*on_writable)(int slot);
+    void (*on_close)(int slot);
+    void (*on_closed)(int slot, int err);
+} TcpCallbacks;
 
 typedef struct {
     ipv4_addr_t local_ip;
@@ -92,8 +101,11 @@ typedef struct {
     size_t buffered_bytes;
     uint8_t *rcv_buf;
     size_t rcv_size; // power of two
-    void (*on_data)(int slot);    // data arrival callback
-    void (*on_close)(int slot);
+    const TcpCallbacks *cb;
+    void *ctx;
+    bool snd_blocked;
+    int backlog; /* listeners: max connections in SYN_RCVD */
+    int parent;  /* accepted children: listener slot + 1, else 0 */
     Timer rto_timer;
     Timer tw_timer;
     Timer persist_timer;
@@ -141,12 +153,14 @@ typedef struct {
 _Static_assert((TCP_SND_BUF & (TCP_SND_BUF - 1)) == 0, "TCP_SND_BUF must be power of two");
 _Static_assert((TCP_RCV_BUF & (TCP_RCV_BUF - 1)) == 0, "TCP_RCV_BUF must be power of two");
 
-int tcp_connect(ipv4_addr_t remote_ip, NetPort remote_port); // , callback later)
+int tcp_connect(ipv4_addr_t remote_ip, NetPort remote_port, const TcpCallbacks *cb, void *ctx);
 void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_t len);
 void TcpCcInit(TcpPcb *pcb);
 int tcp_send(int idx, const uint8_t *data, uint16_t len);
 int tcp_recv(int idx, uint8_t *buf, uint16_t sz);
-int tcp_listen(int port);
+int tcp_listen(int port, int backlog, const TcpCallbacks *cb, void *ctx);
+void *tcp_get_ctx(int slot);
+void tcp_set_ctx(int slot, void *ctx);
 int tcp_set_nodelay(int idx, bool on);
 int tcp_close(int idx);
 

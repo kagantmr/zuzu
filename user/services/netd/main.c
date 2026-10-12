@@ -43,12 +43,35 @@ static void udp_echo_handler(ipv4_addr_t src_ip, NetPort src_port, NetPort dst_p
     UdpSend(src_ip, dst_port, src_port, data, len);
 }
 
+static void HttpOnData(int slot)
+{
+    uint8_t chunk[256];
+    int n;
+    while ((n = tcp_recv(slot, chunk, sizeof(chunk) - 1)) > 0) {
+        chunk[n] = '\0';
+        LOG_INFO(LOG_TAG, "app read %d: %s", n, chunk);
+    }
+
+    static const char *resp = "HTTP/1.0 200 OK\r\n"
+                              "Content-Type: text/html\r\n"
+                              "Connection: close\r\n"
+                              "\r\n"
+                              "<html><body><h1>Hello from ZuzuOS!</h1>"
+                              "<p>Served by netd, powered by the Zuzu microkernel.</p>"
+                              "</body></html>\r\n";
+
+    tcp_send(slot, (const uint8_t *)resp, strlen(resp));
+    tcp_close(slot);
+}
+
+static const TcpCallbacks http_callbacks = {.on_data = HttpOnData};
+
 static __attribute__((cold)) void on_resolved(const char *name, ipv4_addr_t ip, int status)
 {
     if (status == ZUZU_OK) {
         LOG_INFO(LOG_TAG, "%s -> %u.%u.%u.%u", name, IP4(ip));
         // tcp_connect(ip, 80);
-        int s = tcp_listen(80);
+        int s = tcp_listen(80, 0, &http_callbacks, NULL);
         LOG_INFO(LOG_TAG, "listening on :80 (slot %d)", s);
     } else {
         LOG_INFO(LOG_TAG, "%s failed: %d", name, status);

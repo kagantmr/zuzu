@@ -13,8 +13,16 @@ int tcp_pcb_alloc(void);
 /* Release a slot back to the pool. Safe to call with an out-of-range index. */
 void tcp_pcb_free(int h);
 
-/* Cancel the PCB's timers, release its port and return the slot to the pool. */
-void TcpPcbRelease(TcpPcb *pcb);
+/* Tear a connection down: fire on_closed(err) once, cancel the PCB's timers,
+ * release its port and return the slot to the pool. err is ZUZU_OK for an
+ * orderly end. */
+void TcpPcbRelease(TcpPcb *pcb, int err);
+
+#define TCP_NOTIFY(pcb, ev, ...)                                                                   \
+    do {                                                                                           \
+        if ((pcb)->cb && (pcb)->cb->ev)                                                            \
+            (pcb)->cb->ev(__VA_ARGS__);                                                            \
+    } while (0)
 
 /* Lazily allocate the receive/send ring. False when the heap or the global
  * TCP_BUF_BUDGET is exhausted. */

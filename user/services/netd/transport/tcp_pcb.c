@@ -84,8 +84,13 @@ int tcp_pcb_find_listener(ipv4_addr_t local_ip, NetPort local_port)
     return ERR_NOENT;
 }
 
-void TcpPcbRelease(TcpPcb *pcb)
+void TcpPcbRelease(TcpPcb *pcb, int err)
 {
+    const TcpCallbacks *cb = pcb->cb;
+    pcb->cb = NULL;
+    pcb->state = TCP_CLOSED;
+    if (cb && cb->on_closed)
+        cb->on_closed(tcp_pcb_index(pcb), err);
     port_release(pcb->local_port);
     tcp_pcb_free(tcp_pcb_index(pcb));
 }

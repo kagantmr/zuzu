@@ -232,7 +232,7 @@ void tcp_rto_cb(void *arg)
                               ? TCP_SYN_RETRIES
                               : TCP_DATA_RETRIES)) {
         LOG_INFO(LOG_TAG, "retransmit limit reached, dropping connection");
-        TcpPcbRelease(pcb);
+        TcpPcbRelease(pcb, ERR_TIMEOUT);
         return;
     }
 
@@ -272,9 +272,13 @@ int tcp_send(int idx, const uint8_t *data, uint16_t len)
         return ERR_NOMEM;
     LOG_INFO(LOG_TAG, "Buffered bytes: %u", pcb->buffered_bytes);
     size_t free = pcb->snd_size - pcb->buffered_bytes;
-    if (free == 0)
+    if (free == 0) {
+        pcb->snd_blocked = true;
         return 0; // backpressure
+    }
     size_t n = MIN(len, free);
+    if (n < len)
+        pcb->snd_blocked = true;
     size_t off = (pcb->snd_una + pcb->buffered_bytes) & (pcb->snd_size - 1); // where the write starts
     size_t first = MIN(n, pcb->snd_size - off); // bytes before hitting the physical end
     memcpy(pcb->snd_buf + off, data, first);
