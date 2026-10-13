@@ -230,10 +230,10 @@ Err SpawnProcess(const void *image, size_t size, const char *name, const char *a
         return (Err)task_handle;
     }
 
-    SvcResult grant = HandleGrant(NSVC_PORT, space_handle, PERM_SEND);
-    if (grant.r0 != ZUZU_OK) {
+    Err grc = HandleGrantTo(NSVC_PORT, space_handle, PERM_SEND, NULL);
+    if (grc != ZUZU_OK) {
         HandleDestroy(space_handle);
-        return (Err)grant.r0;
+        return grc;
     }
 
     rc = TaskStart(task_handle, (void *)img.entry, (void *)sp, argc, (uint32_t)argv_va);

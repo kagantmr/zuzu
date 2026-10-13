@@ -12,9 +12,9 @@ Err RegisterService(const char *name, Handle port)
     if (w.ovf)
         return ERR_OVERFLOW;
 
-    SvcResult r = Call(NSVC_PORT, w.off, port);
-    if (r.r0 != ZUZU_OK)
-        return (Err)r.r0;
+    Err rc = CallPort(NSVC_PORT, w.off, port, NULL, NULL);
+    if (rc != ZUZU_OK)
+        return rc;
 
     Err status;
     MsgRead(&status, sizeof(status));
@@ -30,8 +30,9 @@ Handle LookupService(const char *name)
     if (w.ovf)
         return ERR_OVERFLOW;
 
-    SvcResult r = Call(NSVC_PORT, w.off, -1);
-    if (r.r0 != ZUZU_OK)
-        return (Handle)r.r0;
-    return (Handle)r.r3; /* nsvc regrants the found port via its Reply */
+    Handle found = -1;
+    Err rc = CallPort(NSVC_PORT, w.off, -1, NULL, &found);
+    if (rc != ZUZU_OK)
+        return (Handle)rc;
+    return found;
 }

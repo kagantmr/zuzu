@@ -42,14 +42,15 @@ static inline Handle RequestDevice(Handle devsvc_port, const char *const *compat
         off += n;
     }
 
-    SvcResult r = Call(devsvc_port, off, -1);
-    if (r.r0 != ZUZU_OK)
-        return (Handle)r.r0;
+    Handle found = -1;
+    Err rc = CallPort(devsvc_port, off, -1, NULL, &found);
+    if (rc != ZUZU_OK)
+        return (Handle)rc;
 
     if (out_matched)
         memcpy(out_matched, GetMessageBox(), sizeof(uint32_t));
 
-    return (Handle)r.r3;
+    return found;
 }
 
 #ifdef __cplusplus

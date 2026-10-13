@@ -8,12 +8,14 @@ static Err FsdCall(Handle port, const FsdRequest *req, FsdResponse *resp, Handle
                    Handle *granted)
 {
     memcpy(GetMessageBox(), req, sizeof(*req));
-    SvcResult r = Call(port, sizeof(*req), grant);
+    uint32_t got = 0;
+    Handle back = -1;
+    Err rc = CallPort(port, sizeof(*req), grant, &got, &back);
     if (granted)
-        *granted = (Handle)r.r3;
-    if (r.r0 != ZUZU_OK)
-        return (Err)r.r0;
-    if ((uint32_t)r.r1 < sizeof(*resp))
+        *granted = back;
+    if (rc != ZUZU_OK)
+        return rc;
+    if (got < sizeof(*resp))
         return ERR_MALFORMED;
     memcpy(resp, GetMessageBox(), sizeof(*resp));
     return resp->status;
@@ -72,10 +74,11 @@ Err FsdAttach(FsdConn *c, Handle port, Spid pid, uint32_t want_size)
     c->buf = (uint8_t *)va;
     c->size = want_size;
 
-    SvcResult dup = HandleDuplicate(c->shm, PERM_MAP | PERM_TXFR, MARKER_NONE);
-    if (dup.r0 != ZUZU_OK) {
+    Handle dup;
+    Err drc = HandleDup(c->shm, PERM_MAP | PERM_TXFR, MARKER_NONE, &dup);
+    if (drc != ZUZU_OK) {
         FsdTeardown(c);
-        return (Err)dup.r0;
+        return drc;
     }
 
     FsdRequest req;
@@ -83,8 +86,8 @@ Err FsdAttach(FsdConn *c, Handle port, Spid pid, uint32_t want_size)
     req.data_len = want_size;
     FsdResponse resp;
     Handle badged = -1;
-    Err rc = FsdCall(port, &req, &resp, (Handle)dup.r1, &badged);
-    HandleClose((Handle)dup.r1);
+    Err rc = FsdCall(port, &req, &resp, dup, &badged);
+    HandleClose(dup);
     if (rc == ZUZU_OK && badged < 0)
         rc = ERR_MALFORMED;
     if (rc != ZUZU_OK) {
@@ -100,14 +103,14 @@ Err FsdAttach(FsdConn *c, Handle port, Spid pid, uint32_t want_size)
     /* Best effort: without it fsd only frees the session on FSD_DETACH. */
     c->live = CreatePort();
     if (c->live >= 0) {
-        SvcResult watch = HandleDuplicate(c->live, PERM_WAIT | PERM_TXFR, MARKER_NONE);
-        Err wrc = (Err)watch.r0;
+        Handle watch;
+        Err wrc = HandleDup(c->live, PERM_WAIT | PERM_TXFR, MARKER_NONE, &watch);
         if (wrc == ZUZU_OK) {
             FsdRequest wreq;
             FsdInitRequest(&wreq, FSD_WATCH);
             FsdResponse wresp;
-            wrc = FsdCall(c->port, &wreq, &wresp, (Handle)watch.r1, NULL);
-            HandleClose((Handle)watch.r1);
+            wrc = FsdCall(c->port, &wreq, &wresp, watch, NULL);
+            HandleClose(watch);
         }
         if (wrc != ZUZU_OK) {
             HandleClose(c->live);
