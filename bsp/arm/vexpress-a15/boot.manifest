@@ -12,6 +12,7 @@ bin/pl181drv|none:prio=3,maxprio=3|/dev/mmc0
 bin/fsd|none:prio=3,maxprio=3|/svc/fsd
 bin/lan9118drv|none:prio=5,maxprio=5
 bin/netd|none:prio=4,maxprio=4|/svc/netd
+bin/gfxsvc|none:prio=1,maxprio=1|/svc/gfx
 bin/pl111drv|none:prio=1,maxprio=1
 bin/zzsh|none:late
 
