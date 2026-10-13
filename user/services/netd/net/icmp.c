@@ -20,7 +20,7 @@ void IcmpRx(uint8_t *payload, size_t payload_len, Ipv4Addr src_ip)
     IcmpHdr *hdr = (IcmpHdr *)payload;
     switch (hdr->type) {
     case ICMP_ECHO_REPLY: {
-        LOG_INFO(LOG_TAG, "ICMP echo reply from %u.%u.%u.%u", IP4(src_ip));
+        LOG_DEBUG(LOG_TAG, "ICMP echo reply from %u.%u.%u.%u", IP4(src_ip));
         break;
     }
     case ICMP_ECHO_REQUEST: {

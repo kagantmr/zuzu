@@ -226,7 +226,7 @@ void TcpRtoCb(void *arg)
     if (++pcb->retries > (pcb->state == TCP_SYN_SENT || pcb->state == TCP_SYN_RCVD
                               ? TCP_SYN_RETRIES
                               : TCP_DATA_RETRIES)) {
-        LOG_INFO(LOG_TAG, "retransmit limit reached, dropping connection");
+        LOG_DEBUG(LOG_TAG, "retransmit limit reached, dropping connection");
         TcpPcbRelease(pcb, ERR_TIMEOUT);
         return;
     }
@@ -237,7 +237,7 @@ void TcpRtoCb(void *arg)
     if (pcb->rto_ms > TCP_RTO_MAX)
         pcb->rto_ms = TCP_RTO_MAX;
 
-    LOG_INFO(LOG_TAG, "RTO fired: snd_nxt=%u snd_una=%u (rto now %u ms)", (uint32_t)pcb->snd_nxt,
+    LOG_DEBUG(LOG_TAG, "RTO fired: snd_nxt=%u snd_una=%u (rto now %u ms)", (uint32_t)pcb->snd_nxt,
              pcb->snd_una, pcb->rto_ms);
 
     pcb->snd_nxt = pcb->snd_una;

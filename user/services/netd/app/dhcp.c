@@ -263,7 +263,7 @@ static __attribute__((cold)) void DhcpBeginAcd(const uint8_t *data, uint16_t len
     memcpy(dhcp.ack_buf, data, len);
     dhcp.ack_len = len;
     dhcp.state = DHCP_PROBING;
-    LOG_INFO(LOG_TAG, "probing %u.%u.%u.%u before binding", IP4(dhcp.offered_ip));
+    LOG_DEBUG(LOG_TAG, "probing %u.%u.%u.%u before binding", IP4(dhcp.offered_ip));
     ArpAcdStart(dhcp.offered_ip, DhcpAcdDone);
 }
 

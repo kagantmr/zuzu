@@ -127,7 +127,7 @@ void ArpLearn(Ipv4Addr ip, const uint8_t *mac_addr)
 
     if (was_pending && e->qlen) {
         /* flush everything that was waiting on this address */
-        LOG_INFO(LOG_TAG, "learned %u.%u.%u.%u: flushing %u queued", IP4(ip), e->qlen);
+        LOG_DEBUG(LOG_TAG, "learned %u.%u.%u.%u: flushing %u queued", IP4(ip), e->qlen);
         for (uint8_t i = 0; i < e->qlen; i++) {
             EthTx(e->mac, e->queue[i].ethertype, e->queue[i].data, e->queue[i].len);
             free(e->queue[i].data);
@@ -171,7 +171,7 @@ void ArpSendFrame(Ipv4Addr ip, uint16_t ethertype, TxFrame *f)
         ArpRequest(ip);
         e->probes = 1;
         e->last_tx_ms = NetNowMs();
-        LOG_INFO(LOG_TAG, "ARP miss %u.%u.%u.%u: queued %u, probing", IP4(ip), e->qlen);
+        LOG_DEBUG(LOG_TAG, "ARP miss %u.%u.%u.%u: queued %u, probing", IP4(ip), e->qlen);
     }
 }
 
@@ -187,7 +187,7 @@ void ArpTick(void)
             ArpAcdProbe(acd.ip);
             acd.probes++;
             acd.next_ms = now + ACD_PROBE_MS;
-            LOG_INFO(LOG_TAG, "ACD probe %u for %u.%u.%u.%u", acd.probes, IP4(acd.ip));
+            LOG_DEBUG(LOG_TAG, "ACD probe %u for %u.%u.%u.%u", acd.probes, IP4(acd.ip));
         } else {
             ArpAcdFinish(false); /* no answer: address is free */
         }
@@ -201,7 +201,7 @@ void ArpTick(void)
                     ArpRequest(e->ip);
                     e->probes++;
                     e->last_tx_ms = now;
-                    LOG_INFO(LOG_TAG, "ARP retransmit %u.%u.%u.%u probe %u", IP4(e->ip), e->probes);
+                    LOG_DEBUG(LOG_TAG, "ARP retransmit %u.%u.%u.%u probe %u", IP4(e->ip), e->probes);
                 } else {
                     LOG_WARN(LOG_TAG, "ARP gave up %u.%u.%u.%u, dropped %u queued", IP4(e->ip),
                              e->qlen);

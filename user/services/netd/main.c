@@ -38,7 +38,7 @@ Netif netif; /* filled at startup (htonl isn't constant); DHCP overwrites later 
 static void UdpEchoHandler(Ipv4Addr src_ip, NetPort src_port, NetPort dst_port, const uint8_t *data,
                            uint16_t len)
 {
-    LOG_INFO(LOG_TAG, "UDP packet, from: %u.%u.%u.%u:%d, to: %u.%u.%u.%u:%d", IP4(src_ip), src_port,
+    LOG_DEBUG(LOG_TAG, "UDP packet, from: %u.%u.%u.%u:%d, to: %u.%u.%u.%u:%d", IP4(src_ip), src_port,
              IP4(netif.ip), dst_port);
     UdpSend(src_ip, dst_port, src_port, data, len);
 }
@@ -90,9 +90,9 @@ static void RejectCall(Err err, Handle granted)
 static void OnResolved(const char *name, Ipv4Addr ip, int status)
 {
     if (status == ZUZU_OK) {
-        LOG_INFO(LOG_TAG, "%s -> %u.%u.%u.%u", name, IP4(ip));
+        LOG_DEBUG(LOG_TAG, "%s -> %u.%u.%u.%u", name, IP4(ip));
     } else {
-        LOG_INFO(LOG_TAG, "%s failed: %d", name, status);
+        LOG_DEBUG(LOG_TAG, "%s failed: %d", name, status);
     }
 }
 
@@ -108,13 +108,6 @@ static void HandleNetdCall(const PortWaitResult *call)
             .ip = netif.ip, .netmask = netif.netmask, .gateway = netif.gateway, .dns = netif.dns};
         
         memcpy(out.mac, netif.mac, sizeof(out.mac));
-    if (stats) {
-        out.rx_packets = stats->stat[NIC_STAT_RX_PACKETS];
-        out.tx_packets = stats->stat[NIC_STAT_TX_PACKETS];
-        out.rx_ring_full = stats->stat[NIC_STAT_RX_RING_FULL];
-        out.rx_errors = stats->stat[NIC_STAT_RX_ERRORS];
-        out.tx_drops = stats->stat[NIC_STAT_TX_DROPS];
-    }
         strncpy(out.name, "eth0", sizeof(out.name) - 1);
         MsgWrite(&out, sizeof(out));
         Reply(sizeof(out), -1);
@@ -194,9 +187,6 @@ static __attribute__((cold)) Err PerformDriverHandshake(PortWaitResult res)
     MsgWriterInit(&w);
     MsgPutU32(&w, ZUZU_OK);
     MsgPutStr(&w, "eth0");
-
-    strncpy(netif.name, "eth0", 8);
-    
     return Reply(w.off, -1);
 }
 

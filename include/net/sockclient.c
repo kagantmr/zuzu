@@ -140,7 +140,7 @@ static int AllocSock(void)
 
 static Err MapMem(SockConn *s)
 {
-    s->mem = CreateMem(SOCK_MEM_PAGES);
+    s->mem = CreateMem(SOCK_MEM_PAGES, 0);
     if (s->mem < 0)
         return (Err)s->mem;
     void *va = MemMap(s->mem, 0, PROT_RW);

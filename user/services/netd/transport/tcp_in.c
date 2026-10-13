@@ -41,7 +41,7 @@ static void StoreOoo(TcpPcb *pcb, const TcpSegment *s)
 
     /* case 2: future data (hole before it)  */
     if (SeqLt(pcb->rcv_adv, seg_end)) {
-        LOG_INFO(LOG_TAG, "OOO seg beyond window, dropping: end=%u adv=%u", seg_end, pcb->rcv_adv);
+        LOG_DEBUG(LOG_TAG, "OOO seg beyond window, dropping: end=%u adv=%u", seg_end, pcb->rcv_adv);
         return; /* peer will retransmit */
     }
 
@@ -87,14 +87,14 @@ static void TimeWaitCb(void *arg)
 {
     TcpPcb *pcb = (TcpPcb *)arg;
     TcpPcbRelease(pcb, ZUZU_OK);
-    LOG_INFO(LOG_TAG, "TIME_WAIT expired, connection freed");
+    LOG_DEBUG(LOG_TAG, "TIME_WAIT expired, connection freed");
 }
 
 static void FinWait2Cb(void *arg)
 {
     TcpPcb *pcb = (TcpPcb *)arg;
     TcpPcbRelease(pcb, ERR_TIMEOUT);
-    LOG_INFO(LOG_TAG, "FIN_WAIT_2 timed out, connection freed");
+    LOG_DEBUG(LOG_TAG, "FIN_WAIT_2 timed out, connection freed");
 }
 
 static void TcpEnterFinWait2(TcpPcb *pcb)
@@ -203,7 +203,7 @@ static void OnSynSent(TcpPcb *pcb, const TcpSegment *s)
         TcpCcInit(pcb);
         TcpOutput(pcb, TCP_SYN | TCP_ACK, 0);
         pcb->state = TCP_SYN_RCVD;
-        LOG_INFO(LOG_TAG, "simultaneous open: SYN from %u.%u.%u.%u, now SYN_RCVD", IP4(s->src_ip));
+        LOG_DEBUG(LOG_TAG, "simultaneous open: SYN from %u.%u.%u.%u, now SYN_RCVD", IP4(s->src_ip));
     }
 }
 
@@ -385,7 +385,7 @@ static void OnLastAck(TcpPcb *pcb, const TcpSegment *s)
 {
     if (TcpProcessAck(pcb, s) && TcpFinAcked(pcb)) {
         TcpPcbRelease(pcb, ZUZU_OK);
-        LOG_INFO(LOG_TAG, "LAST_ACK done, connection freed");
+        LOG_DEBUG(LOG_TAG, "LAST_ACK done, connection freed");
     }
 }
 
@@ -439,7 +439,7 @@ static void OnListening(TcpPcb *listener, const TcpSegment *s)
     TcpCcInit(np);
     TcpOutput(np, TCP_SYN | TCP_ACK, 0); /* SYN-ACK */
     RtoStart(np);
-    LOG_INFO(LOG_TAG, "SYN from %u.%u.%u.%u, now SYN_RCVD", IP4(s->src_ip));
+    LOG_DEBUG(LOG_TAG, "SYN from %u.%u.%u.%u, now SYN_RCVD", IP4(s->src_ip));
 }
 
 static void OnSynRcvd(TcpPcb *pcb, const TcpSegment *s)
@@ -450,7 +450,7 @@ static void OnSynRcvd(TcpPcb *pcb, const TcpSegment *s)
             TcpAbort(pcb);
             return;
         }
-        LOG_INFO(LOG_TAG, "handshake complete, ESTABLISHED (server)");
+        LOG_DEBUG(LOG_TAG, "handshake complete, ESTABLISHED (server)");
         if (pcb->parent) {
             pcb->cb = tcp_pcbs[pcb->parent - 1].cb;
             pcb->ctx = tcp_pcbs[pcb->parent - 1].ctx;
@@ -473,7 +473,7 @@ static void TcpDispatch(Ipv4Addr src_ip, Ipv4Addr dst_ip, const TcpSegment *seg)
         if ((seg->flags & TCP_SYN) && !(seg->flags & TCP_ACK))
             slot = TcpPcbFindListener(netif.ip, seg->dst_port);
         if (slot < 0) {
-            LOG_INFO(LOG_TAG, "no PCB: dst_port=%u netif.ip=%u.%u.%u.%u flags=0x%02x",
+            LOG_DEBUG(LOG_TAG, "no PCB: dst_port=%u netif.ip=%u.%u.%u.%u flags=0x%02x",
                      seg->dst_port, IP4(netif.ip), seg->flags);
             if (!(seg->flags & TCP_RST))
                 TcpSendRst(src_ip, dst_ip, seg);
@@ -491,7 +491,7 @@ static void TcpDispatch(Ipv4Addr src_ip, Ipv4Addr dst_ip, const TcpSegment *seg)
 
         if (accept) {
             if (pcb->state == TCP_SYN_SENT)
-                LOG_INFO(LOG_TAG, "connection refused");
+                LOG_DEBUG(LOG_TAG, "connection refused");
             TcpPcbRelease(pcb, pcb->state == TCP_SYN_SENT ? ERR_CONNREFUSED : ERR_CONNRESET);
         }
         return;
@@ -578,7 +578,7 @@ void TcpRx(Ipv4Addr src_ip, Ipv4Addr dst_ip, const uint8_t *data, uint16_t len)
                       .window = ntohs(th->window)};
 
     if (!TcpParseOptions(data + sizeof(TcpHdr), hdr_len - sizeof(TcpHdr), &seg)) {
-        LOG_INFO(LOG_TAG, "malformed TCP options from %u.%u.%u.%u", IP4(src_ip));
+        LOG_DEBUG(LOG_TAG, "malformed TCP options from %u.%u.%u.%u", IP4(src_ip));
     }
 
     TcpDispatch(src_ip, dst_ip, &seg);

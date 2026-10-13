@@ -41,7 +41,7 @@ int TcpConnect(Ipv4Addr remote_ip, NetPort remote_port, const TcpCallbacks *cb, 
     RtoStart(pcb);
     pcb->cb = cb;
     pcb->ctx = ctx;
-    LOG_INFO(LOG_TAG, "SYN -> %u.%u.%u.%u:%u", IP4(remote_ip), remote_port);
+    LOG_DEBUG(LOG_TAG, "SYN -> %u.%u.%u.%u:%u", IP4(remote_ip), remote_port);
     return idx;
 }
 int TcpListen(int port, int backlog, const TcpCallbacks *cb, void *ctx)

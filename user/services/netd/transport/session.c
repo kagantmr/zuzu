@@ -113,11 +113,11 @@ static void HandleAttach(const PortWaitResult *call)
     Err sent = Reply(sizeof(rep), bell);
     HandleClose(bell);
     if (sent != ZUZU_OK) {
-        LOG_INFO(LOG_TAG, "session %d: reply grant failed rc=%d", slot, sent);
+        LOG_DEBUG(LOG_TAG, "session %d: reply grant failed rc=%d", slot, sent);
         ReleaseSession(slot);
         return;
     }
-    LOG_INFO(LOG_TAG, "session %d attached", slot);
+    LOG_DEBUG(LOG_TAG, "session %d attached", slot);
 }
 
 static void HandleNotify(const PortWaitResult *call)
