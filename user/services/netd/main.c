@@ -18,7 +18,6 @@
 #include "transport/udp.h"
 
 #include "app/dhcp.h"
-#include "app/dns.h"
 
 NicRing *tx_ring, *rx_ring;
 NicStatsBlock *stats;
@@ -87,15 +86,6 @@ static void RejectCall(Err err, Handle granted)
     Reply(sizeof(err), -1);
 }
 
-static void OnResolved(const char *name, Ipv4Addr ip, int status)
-{
-    if (status == ZUZU_OK) {
-        LOG_DEBUG(LOG_TAG, "%s -> %u.%u.%u.%u", name, IP4(ip));
-    } else {
-        LOG_DEBUG(LOG_TAG, "%s failed: %d", name, status);
-    }
-}
-
 static void HandleNetdCall(const PortWaitResult *call)
 {
     uint8_t op = call->xlen >= 1 ? *(const uint8_t *)GetMessageBox() : 0;
@@ -111,10 +101,6 @@ static void HandleNetdCall(const PortWaitResult *call)
         strncpy(out.name, "eth0", sizeof(out.name) - 1);
         MsgWrite(&out, sizeof(out));
         Reply(sizeof(out), -1);
-    } break;
-    case NETD_DNS_RESOLVE: {
-        DnsQuery("google.com", OnResolved);
-        RejectCall(ERR_NOSYS, call->granted);
     } break;
     default: {
         RejectCall(ERR_NOSYS, call->granted);
@@ -233,7 +219,6 @@ int main()
     ArpInit();
     UdpInit();
     PortInit();
-    DnsInit();
     DhcpInit(OnDhcpBound); /* kicks off DORA; OnDhcpBound fires when bound */
 
     UdpBind(7, UdpEchoHandler);
@@ -290,7 +275,6 @@ int main()
         /* 5. legacy pollers, still bounded by the cap above */
         ArpTick();
         DhcpTick();
-        DnsTick();
     }
 
     return 0;
