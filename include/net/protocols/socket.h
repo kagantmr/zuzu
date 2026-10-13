@@ -25,7 +25,7 @@ extern "C" {
 #define SOCK_ATTACH (SOCK_CMD_BASE + 1) /* grant: liveness port (PERM_WAIT|PERM_TXFR). {cmd}; reply SockAttachReply, grants netd's doorbell */
 #define SOCK_NOTIFY (SOCK_CMD_BASE + 2) /* grant: the app's event. {cmd, session, bit} */
 #define SOCK_OPEN (SOCK_CMD_BASE + 3)   /* grant: the socket's memory object. {cmd, session, kind}; reply SockOpenReply */
-#define SOCK_BIND (SOCK_CMD_BASE + 4)   /* {cmd, sock, port}; port 0 picks an ephemeral one */
+#define SOCK_BIND (SOCK_CMD_BASE + 4)   /* {cmd, session, sock, port}; port 0 picks an ephemeral one */
 #define SOCK_LISTEN (SOCK_CMD_BASE + 5) /* {cmd, sock, port, backlog}, TCP only */
 #define SOCK_CONNECT (SOCK_CMD_BASE + 6) /* {cmd, sock, ip, port}; completes asynchronously */
 #define SOCK_ACCEPT (SOCK_CMD_BASE + 7)  /* grant: memory object for the new socket. {cmd, sock}; ERR_BUFEMPTY if none pending */
@@ -65,7 +65,7 @@ typedef struct {
 } SockShm;
 
 #define SOCK_HDR_BYTES 256u
-#define SOCK_MEM_BYTES (SOCK_HDR_BYTES + 2u * SOCK_RING_SIZE)
+#define SOCK_MEM_BYTES (SOCK_HDR_BYTES + (2u * SOCK_RING_SIZE))
 #define SOCK_MEM_PAGES ((SOCK_MEM_BYTES + 4095u) / 4096u)
 
 _Static_assert(sizeof(SockShm) <= SOCK_HDR_BYTES, "SockShm must fit its header area");
@@ -104,6 +104,7 @@ typedef struct {
     uint32_t session;
     uint32_t kind;
 } SockOpenRequest;
+
 typedef struct {
     Err status;
     uint32_t sock;
@@ -111,11 +112,26 @@ typedef struct {
 
 typedef struct {
     uint32_t cmd;
+    uint32_t session;
     uint32_t sock;
-    uint32_t a; /* bind/listen: port, connect: ip, setopt: option */
-    uint32_t b; /* listen: backlog, connect: port, setopt: value */
+    uint32_t a;
+    uint32_t b;
 } SockRequest;
 
+
+
+/* ---- client API ----
+ * Sockets are small integers. The first SockOpen attaches this process to
+ * netd; there is no setup call. Not thread-safe. Negative returns are Err. */
+
+#define SOCK_DGRAM_MAX 1472u
+
+int SockOpen(uint32_t kind);
+Err SockBind(int sock, uint16_t port);
+Err SockSendTo(int sock, uint32_t ip, uint16_t port, const void *buf, uint16_t len);
+/* Returns the datagram length (truncated to cap) or a negative error. */
+int SockRecvFrom(int sock, void *buf, uint16_t cap, uint32_t *ip, uint16_t *port, Duration timeout);
+Err SockClose(int sock);
 
 #ifdef __cplusplus
 }
