@@ -1,5 +1,6 @@
 #include "session.h"
 #include "../common/globals.h"
+#include "socket.h"
 #include <string.h>
 #include <util/log.h>
 #include <util/msg.h>
@@ -48,12 +49,14 @@ static Session *SessionFor(uint32_t index, Marker caller)
 
 static void ReleaseSession(int slot)
 {
+    SocketCloseAll(slot);
     Session *s = &g_sessions[slot];
     if (s->app_event >= 0)
         HandleClose(s->app_event);
     if (s->live >= 0)
         HandleClose(s->live);
     *s = (Session){.app_event = -1, .live = -1};
+    ListInit(&s->sockets);
 }
 
 Err SessionInit(Handle doorbell_event)
@@ -62,8 +65,11 @@ Err SessionInit(Handle doorbell_event)
     g_death = CreateEvent();
     if (g_death < 0)
         return (Err)g_death;
-    for (int i = 0; i < SESSION_MAX; i++)
+    for (int i = 0; i < SESSION_MAX; i++) {
         g_sessions[i] = (Session){.app_event = -1, .live = -1};
+        ListInit(&g_sessions[i].sockets);
+    }
+    SocketInit();
     return ZUZU_OK;
 }
 
@@ -93,8 +99,9 @@ static void HandleAttach(const PortWaitResult *call)
         return;
     }
 
-    g_sessions[slot] = (Session){
-        .in_use = true, .owner = call->sender, .live = call->granted, .app_event = -1};
+    g_sessions[slot] =
+        (Session){.in_use = true, .owner = call->sender, .live = call->granted, .app_event = -1};
+    ListInit(&g_sessions[slot].sockets);
     g_gen[slot] = (g_gen[slot] + 1) & 0xFFFFFFU;
     if (g_gen[slot] == 0)
         g_gen[slot] = 1;
@@ -135,6 +142,86 @@ static void HandleNotify(const PortWaitResult *call)
     ReplyStatus(ZUZU_OK);
 }
 
+static bool DecodeSockRequest(const PortWaitResult *call, SockRequest *req, int *slot)
+{
+    if (call->xlen < sizeof(*req))
+        return false;
+    memcpy(req, GetMessageBox(), sizeof(*req));
+    if (!SessionFor(req->session, call->sender))
+        return false;
+    *slot = (int)INDEX_SLOT(req->session);
+    return true;
+}
+
+static void HandleSockOpen(const PortWaitResult *call)
+{
+    SockOpenRequest req;
+    if (call->xlen < sizeof(req) || call->granted < 0) {
+        DropGrant(call);
+        ReplyStatus(ERR_BADARG);
+        return;
+    }
+    memcpy(&req, GetMessageBox(), sizeof(req));
+    if (!SessionFor(req.session, call->sender)) {
+        DropGrant(call);
+        ReplyStatus(ERR_NOTCONN);
+        return;
+    }
+
+    uint32_t id = 0;
+    Err rc = SocketOpen((int)INDEX_SLOT(req.session), req.kind, call->granted, &id);
+    if (rc != ZUZU_OK) {
+        DropGrant(call);
+        ReplyStatus(rc);
+        return;
+    }
+    SockOpenReply rep = {.status = ZUZU_OK, .sock = id};
+    MsgWrite(&rep, sizeof(rep));
+    Reply(sizeof(rep), -1);
+}
+
+static void HandleSockBind(const PortWaitResult *call)
+{
+    SockRequest req;
+    int slot;
+    if (!DecodeSockRequest(call, &req, &slot)) {
+        DropGrant(call);
+        ReplyStatus(ERR_NOTCONN);
+        return;
+    }
+    Socket *sock = SocketFor(req.sock, slot);
+    if (!sock) {
+        DropGrant(call);
+        ReplyStatus(ERR_NOENT);
+        return;
+    }
+    if (req.a > 0xFFFFU) {
+        DropGrant(call);
+        ReplyStatus(ERR_BADARG);
+        return;
+    }
+    DropGrant(call);
+    ReplyStatus(SocketBind(sock, (NetPort)req.a));
+}
+
+static void HandleSockClose(const PortWaitResult *call)
+{
+    SockRequest req;
+    int slot;
+    DropGrant(call);
+    if (!DecodeSockRequest(call, &req, &slot)) {
+        ReplyStatus(ERR_NOTCONN);
+        return;
+    }
+    Socket *sock = SocketFor(req.sock, slot);
+    if (!sock) {
+        ReplyStatus(ERR_NOENT);
+        return;
+    }
+    SocketClose(sock);
+    ReplyStatus(ZUZU_OK);
+}
+
 bool SessionHandle(const PortWaitResult *call)
 {
     uint32_t cmd = 0;
@@ -151,6 +238,15 @@ bool SessionHandle(const PortWaitResult *call)
     case SOCK_NOTIFY:
         HandleNotify(call);
         break;
+    case SOCK_OPEN:
+        HandleSockOpen(call);
+        break;
+    case SOCK_BIND:
+        HandleSockBind(call);
+        break;
+    case SOCK_CLOSE:
+        HandleSockClose(call);
+        break;
     default:
         DropGrant(call);
         ReplyStatus(ERR_NOSYS);
@@ -159,12 +255,43 @@ bool SessionHandle(const PortWaitResult *call)
     return true;
 }
 
+ListHead *SessionSockets(int slot)
+{
+    if (slot < 0 || slot >= SESSION_MAX || !g_sessions[slot].in_use)
+        return NULL;
+    return &g_sessions[slot].sockets;
+}
+
+void SessionSocketCount(int slot, int delta)
+{
+    if (slot < 0 || slot >= SESSION_MAX || !g_sessions[slot].in_use)
+        return;
+    g_sessions[slot].nsockets += delta;
+}
+
+bool SessionSocketsFull(int slot)
+{
+    if (slot < 0 || slot >= SESSION_MAX || !g_sessions[slot].in_use)
+        return true;
+    return g_sessions[slot].nsockets >= SESSION_SOCKETS_MAX;
+}
+
 void SessionDoorbell(EventWord bits)
 {
     for (int i = 0; i < SESSION_MAX; i++) {
         if ((bits & SESSION_BIT(i)) && g_sessions[i].in_use)
             g_sessions[i].dirty = true;
     }
+}
+
+void SessionKick(int slot)
+{
+    if (slot < 0 || slot >= SESSION_MAX)
+        return;
+    Session *s = &g_sessions[slot];
+    if (!s->in_use || s->app_event < 0)
+        return;
+    Signal(s->app_event, 1U << s->app_bit, false);
 }
 
 void SessionReapDead(void)

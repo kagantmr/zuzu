@@ -41,7 +41,7 @@ __attribute__((cold)) void UdpInit(void)
     }
 }
 
-__attribute__((cold)) int UdpBind(NetPort port, UdpCallback handler)
+int UdpBind(NetPort port, UdpCallback handler)
 {
     if (!port || !handler) {
         return ERR_NOPERM; // port 0 is reserved
@@ -61,6 +61,15 @@ __attribute__((cold)) int UdpBind(NetPort port, UdpCallback handler)
     udp_table[first_free].port = port;
     udp_table[first_free].handler = handler;
     return ZUZU_OK;
+}
+
+void UdpUnbind(NetPort port) {
+    for (int i = 0; i < UDP_MAX_TABLE; i++) {
+        if (udp_table[i].port == port && udp_table[i].handler) {
+            udp_table[i].port = 0;
+            udp_table[i].handler = NULL;
+        }
+    }
 }
 
 void UdpRecv(void *data, uint16_t len, ipv4_addr_t src_ip, ipv4_addr_t dst_ip)

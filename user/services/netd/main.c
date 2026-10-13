@@ -17,6 +17,7 @@
 #include "transport/session.h"
 #include "transport/tcp.h"
 #include "transport/udp.h"
+#include "transport/socket.h"
 
 #include "app/dhcp.h"
 #include "app/dns.h"
@@ -281,6 +282,8 @@ int main()
         }
         if (ev.status == ZUZU_OK)
             SessionDoorbell(ev.bits);
+
+        SocketPump();
 
         /* 4. THEN fire expired timers */
         TimerRunExpired();

@@ -20,6 +20,7 @@ typedef void (*UdpCallback)(ipv4_addr_t src_ip, NetPort src_port, NetPort dst_po
                               const uint8_t *data, uint16_t len);
 void UdpInit(void);
 int UdpBind(NetPort port, UdpCallback handler);
+void UdpUnbind(NetPort port);
 void UdpRecv(void *data, uint16_t len, ipv4_addr_t src_ip, ipv4_addr_t dst_ip);
 int UdpSend(ipv4_addr_t dst_ip, NetPort src_port, NetPort dst_port, const uint8_t *payload,
            uint16_t payload_len);
