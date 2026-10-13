@@ -14,7 +14,7 @@
 #include "zuzu/service.h"
 
 #include <string.h>
-#include <util/msg.h>
+#include <zuzu/msg.h>
 #include <zuzu/udbg.h>
 #include <zuzu/zuzu.h>
 

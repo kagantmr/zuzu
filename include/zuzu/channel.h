@@ -25,7 +25,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <string.h>
-#include <util/msg.h>
+#include <zuzu/msg.h>
 #include <zuzu/err.h>
 #include <zuzu/zuzu.h>
 

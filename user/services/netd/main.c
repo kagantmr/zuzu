@@ -1,4 +1,4 @@
-#include <dev/protocols/devm.h>
+#include <dev/devm.h>
 #include <net/protocols/netd.h>
 #include <net/protocols/nic.h>
 #include <types.h>

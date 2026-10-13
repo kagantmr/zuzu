@@ -1,7 +1,7 @@
 #include <dev/protocols/fb.h>
 #include <stdio.h>
 #include <string.h>
-#include <util/msg.h>
+#include <zuzu/msg.h>
 #include <zuzu/service.h>
 #include <zuzu/zuzu.h>
 

@@ -7,7 +7,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <types.h>
-#include <util/shm_ring.h>
+#include <zuzu/shm_ring.h>
 #include <zuzu/err.h>
 
 /*

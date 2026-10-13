@@ -1,4 +1,4 @@
-#include <dev/protocols/tty.h>
+#include <dev/tty.h>
 #include <errno.h>
 #include <string.h>
 #include <zuzu/service.h>

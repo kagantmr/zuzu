@@ -1,10 +1,10 @@
-#include "dev/protocols/devm.h"
+#include "dev/devm.h"
 #include "dev/protocols/mmcdrv.h"
 #include "pl181drv.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
-#include <util/msg.h>
+#include <zuzu/msg.h>
 #include <zuzu/service.h>
 #include <zuzu/udbg.h>
 #include <zuzu/zuzu.h>

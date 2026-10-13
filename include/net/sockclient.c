@@ -2,7 +2,7 @@
 #include <net/protocols/socket.h>
 #include <stdlib.h>
 #include <string.h>
-#include <util/msg.h>
+#include <zuzu/msg.h>
 #include <zuzu/service.h>
 #include <zuzu/zuzu.h>
 

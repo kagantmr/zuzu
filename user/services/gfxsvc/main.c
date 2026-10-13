@@ -2,7 +2,7 @@
 #include <dev/protocols/fbdrv.h>
 #include <string.h>
 #include <types.h>
-#include <util/msg.h>
+#include <zuzu/msg.h>
 #include <zuzu/service.h>
 #include <zuzu/zuzu.h>
 

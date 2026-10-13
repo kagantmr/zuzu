@@ -1,9 +1,9 @@
 #include "pl011drv.h"
-#include <dev/protocols/devm.h>
-#include <dev/protocols/tty.h>
+#include <dev/devm.h>
+#include <dev/tty.h>
 #include <string.h>
-#include <util/msg.h>
-#include <util/shm_ring.h>
+#include <zuzu/msg.h>
+#include <zuzu/shm_ring.h>
 #include <zuzu/err.h>
 #include <zuzu/service.h>
 #include <zuzu/udbg.h>

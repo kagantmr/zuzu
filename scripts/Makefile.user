@@ -144,7 +144,7 @@ $(ZCRT_ARCHIVE): $(ZCRT_OBJS)
 # and include/zuzu/err.c stay off this list, same as before the include/
 # reorg, so this tier keeps using newlib's own libc for those symbols.
 NEWLIB_ZCRT_SRCS := $(filter-out include/util/spawn.c,$(shell find include/sync include/net include/fs include/util -name '*.c')) \
-                     include/zuzu/service.c include/sbrk.c
+                     include/zuzu/service.c include/zuzu/ring.c include/sbrk.c
 NEWLIB_ZCRT_OBJS := $(patsubst %.c,$(O)/user/zcrt/%.o,$(NEWLIB_ZCRT_SRCS))
 NEWLIB_STUB_SRCS := $(wildcard lib/posix/*.c)
 NEWLIB_STUB_OBJS := $(patsubst lib/%.c,$(O)/lib/%.o,$(NEWLIB_STUB_SRCS))
