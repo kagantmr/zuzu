@@ -115,7 +115,7 @@ USER_APP_OBJS := $(foreach p,$(BOARD_PROGS),$(USER_$(p)_OBJS))
 LIB_PROG_OBJS := $(foreach p,$(LIB_PROGS),$(USER_$(p)_OBJS))
 
 # zcrt: the user-side runtime for tier-1 — klib rebuilt with user flags, the
-# ZCRT libc (lib/), and the IPC runtime (include/{sync,net,fs,dev,util}/,
+# ZCRT libc (lib/), and the IPC runtime (include/{sync,net,fs,dev,util,ipc}/,
 # include/zuzu/*.c). klib/arm/*.S (hand-tuned memcpy/memset) is picked up
 # separately -- it's not covered by the flat klib/*.c wildcard, and needs its
 # own .S compile rule below. klib/*.c stays a separate wildcard since klib/ is
@@ -143,7 +143,7 @@ $(ZCRT_ARCHIVE): $(ZCRT_OBJS)
 # blanket `find include` like ZCRT_CSRCS above: include/{convert,stdlib}.c
 # and include/zuzu/err.c stay off this list, same as before the include/
 # reorg, so this tier keeps using newlib's own libc for those symbols.
-NEWLIB_ZCRT_SRCS := $(filter-out include/util/spawn.c,$(shell find include/sync include/net include/fs include/util -name '*.c')) \
+NEWLIB_ZCRT_SRCS := $(filter-out include/util/spawn.c,$(shell find include/sync include/net include/fs include/util include/ipc -name '*.c')) \
                      include/zuzu/service.c include/sbrk.c
 NEWLIB_ZCRT_OBJS := $(patsubst %.c,$(O)/user/zcrt/%.o,$(NEWLIB_ZCRT_SRCS))
 NEWLIB_STUB_SRCS := $(wildcard lib/posix/*.c)

@@ -1,5 +1,5 @@
 #include "lan9118.h"
-#include <dev/protocols/devm.h>
+#include <dev/devm.h>
 #include <net/packetring.h>
 #include <net/protocols/nic.h>
 #include <net/protocols/netd.h>
@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <types.h>
-#include <util/msg.h>
+#include <ipc/msg.h>
 #include <util/devices.h>
 #include <util/log.h>
 #include <zuzu/service.h>

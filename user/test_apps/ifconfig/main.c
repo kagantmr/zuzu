@@ -1,6 +1,6 @@
 #include <net/protocols/netd.h>
 #include <stdio.h>
-#include <util/msg.h>
+#include <ipc/msg.h>
 #include <zuzu/service.h>
 #include <zuzu/zuzu.h>
 

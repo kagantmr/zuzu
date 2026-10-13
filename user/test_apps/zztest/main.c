@@ -19,11 +19,11 @@
 #define UDBG_ENABLED 1
 
 #include <arch/svc.h>
-#include <dev/protocols/devm.h>
+#include <dev/devm.h>
 #include <stdatomic.h>
 #include <string.h>
 #include <sync/primitives.h>
-#include <util/msg.h>
+#include <ipc/msg.h>
 #include <util/tls.h>
 #include <zuzu/err.h>
 #include <zuzu/service.h>

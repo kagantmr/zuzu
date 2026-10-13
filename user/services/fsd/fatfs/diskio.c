@@ -3,7 +3,7 @@
 
 #include <zuzu/zuzu.h>
 #include "dev/protocols/mmcdrv.h"
-#include <util/msg.h>
+#include <ipc/msg.h>
 #include <zuzu/service.h>
 #include <string.h>
 #include <stdint.h>

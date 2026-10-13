@@ -1,6 +1,6 @@
 #include <fs/fsd_client.h>
 #include <string.h>
-#include <util/msg.h>
+#include <ipc/msg.h>
 #include <zuzu/service.h>
 #include <zuzu/zuzu.h>
 

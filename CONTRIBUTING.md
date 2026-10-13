@@ -12,7 +12,7 @@ zuzu is a microkernel, so contribution paths may look vastly different.
 - Covers daemons, protocol handling, service policy, shell/tools, and most iteration work
 - Typical folders:
 - `user/`
-- `include/zuzu/protocols/`
+- `include/*/protocols/` (wire definitions)
 - `docs/`
 
 ### Kernelspace path (high bar)

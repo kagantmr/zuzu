@@ -2,7 +2,7 @@
 #include <types.h>
 #include <zuzu/service.h>
 #include <zuzu/zuzu.h>
-#include <dev/protocols/devm.h>
+#include <dev/devm.h>
 
 #define LOG_TAG "pl111drv"
 #include <util/log.h>

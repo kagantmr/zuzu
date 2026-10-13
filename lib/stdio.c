@@ -1,9 +1,9 @@
 #include <ctype.h>
-#include <dev/protocols/tty.h>
+#include <dev/tty.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <util/msg.h>
+#include <ipc/msg.h>
 #include <zuzu/err.h>
 #include <zuzu/service.h>
 #include <zuzu/udbg.h>
