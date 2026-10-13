@@ -320,7 +320,7 @@ static void cmd_run(const char *line)
 
     WaitOn(task, TIMEOUT_INFINITE);
     HandleClose(task);
-    HandleClose((Handle)pid);
+    HandleDestroy((Handle)pid);
 }
 
 /* ---- dispatch ---- */
