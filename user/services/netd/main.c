@@ -125,6 +125,24 @@ static void RejectCall(Err err, Handle granted)
     Reply(sizeof(err), -1);
 }
 
+static void HandleNetdCall(const PortWaitResult *call)
+{
+    uint8_t op = call->xlen >= 1 ? *(const uint8_t *)GetMessageBox() : 0;
+    if (op != NETD_GET_NETIF) {
+        RejectCall(ERR_NOSYS, call->granted);
+        return;
+    }
+    if (call->granted >= 0)
+        HandleClose(call->granted);
+
+    NetdNetif out = {
+        .ip = netif.ip, .netmask = netif.netmask, .gateway = netif.gateway, .dns = netif.dns};
+    memcpy(out.mac, netif.mac, sizeof(out.mac));
+    strncpy(out.name, "eth0", sizeof(out.name) - 1);
+    MsgWrite(&out, sizeof(out));
+    Reply(sizeof(out), -1);
+}
+
 static Err CheckStage(const PortWaitResult *r, uint8_t opcode, Marker drv_marker)
 {
     if (r->xlen != 1 || *(uint8_t *)GetMessageBox() != opcode)
@@ -277,7 +295,7 @@ int main()
             PortWaitResult call;
             while ((call = FormatToPortWait(WaitOn(g_svc_port, TIMEOUT_POLL))).status == ZUZU_OK) {
                 if (!SessionHandle(&call))
-                    RejectCall(ERR_NOSYS, call.granted);
+                    HandleNetdCall(&call);
             }
         }
         if (ev.status == ZUZU_OK)

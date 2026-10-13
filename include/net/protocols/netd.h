@@ -5,6 +5,8 @@
 extern "C" {
 #endif
 
+#include <stdint.h>
+
 typedef enum {
     /* Interface management */
     NETD_GET_NETIF = 1,
@@ -38,6 +40,15 @@ typedef enum {
 
     NETD_OPCODE_COUNT
 } NetdOpcode;
+
+typedef struct {
+    uint32_t ip;
+    uint32_t netmask;
+    uint32_t gateway;
+    uint32_t dns;
+    uint8_t mac[6];
+    char name[8];
+} NetdNetif;
 
 typedef struct {
     NetdOpcode op;
