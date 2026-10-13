@@ -229,8 +229,6 @@ static void TcpRttUpdate(TcpPcb *pcb, uint32_t R)
         rto = TCP_RTO_MAX;
     pcb->rto_ms = rto;
 
-    LOG_INFO(LOG_TAG, "RTT sample R=%u srtt=%u rttvar=%u rto=%u", R, pcb->srtt, pcb->rttvar,
-             pcb->rto_ms);
 }
 
 static void TcpOnDupAck(TcpPcb *pcb)
@@ -334,14 +332,10 @@ static void TcpRecvText(int slot, TcpPcb *pcb, const TcpSegment *s)
             TCP_NOTIFY(pcb, on_data, slot);
         } else if (seq_lt(pcb->rcv_nxt, s->seq)) {
             StoreOoo(pcb, s);
-            LOG_INFO(LOG_TAG, "OOO seg: seq=%u rcv_nxt=%u len=%u", s->seq, pcb->rcv_nxt,
-                     s->payload_len);
             tcp_output(pcb, TCP_ACK, 0); /* dup-ACK: still want rcv_nxt */
             acked = true;
         } else {
             /* case 3: old duplicate */
-            LOG_INFO(LOG_TAG, "dup seg: seq=%u rcv_nxt=%u len=%u", s->seq, pcb->rcv_nxt,
-                     s->payload_len);
             tcp_output(pcb, TCP_ACK, 0); /* re-ACK: we already have this */
             acked = true;
         }
@@ -566,7 +560,6 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
     if (tcp_checksum(src_ip, dst_ip, data, len))
         return;
 
-    LOG_DEBUG(LOG_TAG, "tcp_rx: len=%u", len);
 
     TcpHdr *th = (TcpHdr *)data;
     uint16_t hdr_len = (th->data_offset >> 4) * 4;
