@@ -599,6 +599,8 @@ int tcp_recv(int idx, uint8_t *buf, uint16_t sz)
         return ERR_NOTCONN;
 
     size_t avail = pcb->rcv_nxt - pcb->rcv_rsq; // readable bytes
+    if (pcb->fin_rcvd && avail)
+        avail--; /* the FIN takes a sequence number but carries no byte */
     size_t n = MIN(sz, avail);                  // what actually fits in caller's buf
     if (!n)
         return 0;

@@ -71,12 +71,11 @@ int tcp_output(TcpPcb *pcb, uint8_t flags, uint16_t data_len)
     th->ack = (flags & TCP_ACK) ? htonl(pcb->rcv_nxt) : 0;
     th->flags = flags;
 
-    uint32_t end = pcb->nranges ? pcb->ranges[pcb->nranges - 1].end : pcb->rcv_nxt;
     uint32_t edge = pcb->rcv_rsq + pcb->rcv_size;
     if (seq_lt(pcb->rcv_adv, edge) && edge - pcb->rcv_adv < MIN(pcb->rcv_size / 2, pcb->snd_mss))
         edge = pcb->rcv_adv; /* receiver SWS: don't announce a tiny increase */
-    uint16_t win = seq_lt(end, edge) ? edge - end : 0;
-    pcb->rcv_adv = end + win;
+    uint16_t win = seq_lt(pcb->rcv_nxt, edge) ? edge - pcb->rcv_nxt : 0;
+    pcb->rcv_adv = pcb->rcv_nxt + win;
     th->window = htons(win);
     // th->window = htons(4); // crippled window for test
     th->checksum = 0;
