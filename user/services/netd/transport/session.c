@@ -222,6 +222,69 @@ static void HandleSockClose(const PortWaitResult *call)
     ReplyStatus(ZUZU_OK);
 }
 
+static Socket *LookupSock(const PortWaitResult *call, SockRequest *req, int *slot)
+{
+    if (!DecodeSockRequest(call, req, slot))
+        return NULL;
+    return SocketFor(req->sock, *slot);
+}
+
+static void HandleSockConnect(const PortWaitResult *call)
+{
+    SockRequest req;
+    int slot;
+    DropGrant(call);
+    Socket *sock = LookupSock(call, &req, &slot);
+    if (!sock) {
+        ReplyStatus(ERR_NOENT);
+        return;
+    }
+    if (req.b > 0xFFFFu) {
+        ReplyStatus(ERR_BADARG);
+        return;
+    }
+    ReplyStatus(SocketConnect(sock, req.a, (NetPort)req.b));
+}
+
+static void HandleSockListen(const PortWaitResult *call)
+{
+    SockRequest req;
+    int slot;
+    DropGrant(call);
+    Socket *sock = LookupSock(call, &req, &slot);
+    if (!sock) {
+        ReplyStatus(ERR_NOENT);
+        return;
+    }
+    if (req.a > 0xFFFFu) {
+        ReplyStatus(ERR_BADARG);
+        return;
+    }
+    ReplyStatus(SocketListen(sock, (NetPort)req.a, (int)req.b));
+}
+
+static void HandleSockAccept(const PortWaitResult *call)
+{
+    SockRequest req;
+    int slot;
+    Socket *listener = call->granted >= 0 ? LookupSock(call, &req, &slot) : NULL;
+    if (!listener) {
+        DropGrant(call);
+        ReplyStatus(call->granted < 0 ? ERR_BADARG : ERR_NOENT);
+        return;
+    }
+    uint32_t id = 0;
+    Err rc = SocketAccept(slot, listener, call->granted, &id);
+    if (rc != ZUZU_OK) {
+        DropGrant(call);
+        ReplyStatus(rc);
+        return;
+    }
+    SockOpenReply rep = {.status = ZUZU_OK, .sock = id};
+    MsgWrite(&rep, sizeof(rep));
+    Reply(sizeof(rep), -1);
+}
+
 bool SessionHandle(const PortWaitResult *call)
 {
     uint32_t cmd = 0;
@@ -246,6 +309,15 @@ bool SessionHandle(const PortWaitResult *call)
         break;
     case SOCK_CLOSE:
         HandleSockClose(call);
+        break;
+    case SOCK_CONNECT:
+        HandleSockConnect(call);
+        break;
+    case SOCK_LISTEN:
+        HandleSockListen(call);
+        break;
+    case SOCK_ACCEPT:
+        HandleSockAccept(call);
         break;
     default:
         DropGrant(call);
