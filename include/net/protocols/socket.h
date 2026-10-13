@@ -133,6 +133,21 @@ Err SockSendTo(int sock, uint32_t ip, uint16_t port, const void *buf, uint16_t l
 int SockRecvFrom(int sock, void *buf, uint16_t cap, uint32_t *ip, uint16_t *port, Duration timeout);
 Err SockClose(int sock);
 
+/* TCP: SockConnect waits until the connection is up or fails. SockAccept
+ * returns a new socket. SockSend blocks until all bytes are queued and
+ * returns len. SockRecv returns the byte count, 0 on end of stream, or a
+ * negative error. */
+Err SockConnect(int sock, uint32_t ip, uint16_t port, Duration timeout);
+Err SockListen(int sock, uint16_t port, int backlog);
+int SockAccept(int sock, Duration timeout);
+int SockSend(int sock, const void *buf, uint32_t len);
+int SockRecv(int sock, void *buf, uint32_t cap, Duration timeout);
+
+/* Blocks until netd rings this process (data, a connection, a state change).
+ * With several sockets: check each with TIMEOUT_POLL (never blocks, never
+ * eats a wakeup, returns ERR_TIMEOUT when idle), then SockWait. */
+Err SockWait(Duration timeout);
+
 #ifdef __cplusplus
 }
 #endif

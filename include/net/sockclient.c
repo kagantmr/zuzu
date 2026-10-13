@@ -116,12 +116,8 @@ static SockConn *Conn(int sock)
     return &g_conns[sock];
 }
 
-int SockOpen(uint32_t kind)
+static int AllocSock(void)
 {
-    Err rc = Attach();
-    if (rc != ZUZU_OK)
-        return rc;
-
     int sock = 0;
     while (sock < g_nconns && g_conns[sock].used)
         sock++;
@@ -134,9 +130,12 @@ int SockOpen(uint32_t kind)
         g_conns = table;
         g_nconns = grown;
     }
-    SockConn *s = &g_conns[sock];
-    memset(s, 0, sizeof(*s));
+    memset(&g_conns[sock], 0, sizeof(SockConn));
+    return sock;
+}
 
+static Err MapMem(SockConn *s)
+{
     s->mem = CreateMem(SOCK_MEM_PAGES);
     if (s->mem < 0)
         return (Err)s->mem;
@@ -146,19 +145,43 @@ int SockOpen(uint32_t kind)
         return (Err)va;
     }
     s->shm = (SockShm *)va;
+    return ZUZU_OK;
+}
 
+static void UnmapMem(SockConn *s)
+{
+    MemUnmap(s->shm);
+    HandleClose(s->mem);
+    s->shm = NULL;
+}
+
+static Err CallWithMem(const void *req, uint32_t len, const SockConn *s)
+{
     SvcResult page = HandleDuplicate(s->mem, PERM_MAP | PERM_TXFR, MARKER_NONE);
-    if (page.r0 != ZUZU_OK) {
-        MemUnmap(va);
-        HandleClose(s->mem);
+    if (page.r0 != ZUZU_OK)
         return (Err)page.r0;
-    }
-    SockOpenRequest req = {.cmd = SOCK_OPEN, .session = g_client.session, .kind = kind};
-    rc = SockCall(g_client.port, &req, sizeof(req), (Handle)page.r1, NULL);
+    Err rc = SockCall(g_client.port, req, len, (Handle)page.r1, NULL);
     HandleClose((Handle)page.r1);
+    return rc;
+}
+
+int SockOpen(uint32_t kind)
+{
+    Err rc = Attach();
+    if (rc != ZUZU_OK)
+        return rc;
+    int sock = AllocSock();
+    if (sock < 0)
+        return sock;
+    SockConn *s = &g_conns[sock];
+    rc = MapMem(s);
+    if (rc != ZUZU_OK)
+        return rc;
+
+    SockOpenRequest req = {.cmd = SOCK_OPEN, .session = g_client.session, .kind = kind};
+    rc = CallWithMem(&req, sizeof(req), s);
     if (rc != ZUZU_OK) {
-        MemUnmap(va);
-        HandleClose(s->mem);
+        UnmapMem(s);
         return rc;
     }
     SockOpenReply rep;
@@ -236,6 +259,8 @@ int SockRecvFrom(int sock, void *buf, uint16_t cap, uint32_t *ip, uint16_t *port
         }
         if (s->shm->state == SOCK_STATE_CLOSED)
             return ERR_NOTCONN;
+        if (timeout == TIMEOUT_POLL)
+            return ERR_TIMEOUT;
         EventWaitResult w = FormatToEventWait(WaitOn(g_client.event, timeout));
         if (w.status != ZUZU_OK)
             return w.status;
@@ -253,4 +278,156 @@ Err SockClose(int sock)
     HandleClose(s->mem);
     s->used = false;
     return rc;
+}
+
+Err SockConnect(int sock, uint32_t ip, uint16_t port, Duration timeout)
+{
+    SockConn *s = Conn(sock);
+    if (!s)
+        return ERR_BADARG;
+    SockRequest req = {
+        .cmd = SOCK_CONNECT, .session = g_client.session, .sock = s->id, .a = ip, .b = port};
+    Err rc = SockCall(g_client.port, &req, sizeof(req), -1, NULL);
+    if (rc != ZUZU_OK)
+        return rc;
+    for (;;) {
+        uint32_t state = s->shm->state;
+        if (state == SOCK_STATE_ESTABLISHED)
+            return ZUZU_OK;
+        if (state == SOCK_STATE_CLOSED)
+            return s->shm->error ? (Err)s->shm->error : ERR_NOTCONN;
+        if (timeout == TIMEOUT_POLL)
+            return ERR_TIMEOUT;
+        EventWaitResult w = FormatToEventWait(WaitOn(g_client.event, timeout));
+        if (w.status != ZUZU_OK)
+            return w.status;
+    }
+}
+
+Err SockListen(int sock, uint16_t port, int backlog)
+{
+    SockConn *s = Conn(sock);
+    if (!s)
+        return ERR_BADARG;
+    SockRequest req = {.cmd = SOCK_LISTEN,
+                       .session = g_client.session,
+                       .sock = s->id,
+                       .a = port,
+                       .b = (uint32_t)backlog};
+    return SockCall(g_client.port, &req, sizeof(req), -1, NULL);
+}
+
+static SockConn g_spare;
+static bool g_spare_ready;
+
+int SockAccept(int sock, Duration timeout)
+{
+    SockConn *l = Conn(sock);
+    if (!l)
+        return ERR_BADARG;
+    uint32_t listener_id = l->id;
+
+    int nsock = AllocSock();
+    if (nsock < 0)
+        return nsock;
+    if (!g_spare_ready) {
+        memset(&g_spare, 0, sizeof(g_spare));
+        Err mapped = MapMem(&g_spare);
+        if (mapped != ZUZU_OK)
+            return mapped;
+        g_spare_ready = true;
+    }
+
+    for (;;) {
+        SockRequest req = {.cmd = SOCK_ACCEPT, .session = g_client.session, .sock = listener_id};
+        Err rc = CallWithMem(&req, sizeof(req), &g_spare);
+        if (rc == ZUZU_OK)
+            break;
+        if (rc != ERR_BUFEMPTY)
+            return rc;
+        if (timeout == TIMEOUT_POLL)
+            return ERR_TIMEOUT;
+        EventWaitResult w = FormatToEventWait(WaitOn(g_client.event, timeout));
+        if (w.status != ZUZU_OK)
+            return w.status;
+    }
+    SockOpenReply rep;
+    memcpy(&rep, GetMessageBox(), sizeof(rep));
+    g_conns[nsock] = g_spare;
+    g_conns[nsock].id = rep.sock;
+    g_conns[nsock].used = true;
+    g_spare_ready = false;
+    return nsock;
+}
+
+Err SockWait(Duration timeout)
+{
+    if (!g_client.attached)
+        return ERR_NOTCONN;
+    EventWaitResult w = FormatToEventWait(WaitOn(g_client.event, timeout));
+    return w.status;
+}
+
+int SockSend(int sock, const void *buf, uint32_t len)
+{
+    SockConn *s = Conn(sock);
+    if (!s)
+        return ERR_BADARG;
+    uint8_t *ring = SockTxData(s->shm);
+    const uint8_t *p = buf;
+    uint32_t left = len;
+    while (left) {
+        if (s->shm->state == SOCK_STATE_CLOSED)
+            return s->shm->error ? (int)s->shm->error : ERR_NOTCONN;
+        uint32_t used = s->tx_head - s->shm->tx.tail;
+        if (used > SOCK_RING_SIZE)
+            used = SOCK_RING_SIZE;
+        uint32_t room = SOCK_RING_SIZE - used;
+        if (room == 0) {
+            EventWaitResult w = FormatToEventWait(WaitOn(g_client.event, TIMEOUT_INFINITE));
+            if (w.status != ZUZU_OK)
+                return w.status;
+            continue;
+        }
+        uint32_t n = left < room ? left : room;
+        SockRingWrite(ring, s->tx_head, p, n);
+        s->tx_head += n;
+        p += n;
+        left -= n;
+        ArchSyncBarrier();
+        s->shm->tx.head = s->tx_head;
+        Signal(g_client.doorbell, 1U << g_client.bit, false);
+    }
+    return (int)len;
+}
+
+int SockRecv(int sock, void *buf, uint32_t cap, Duration timeout)
+{
+    SockConn *s = Conn(sock);
+    if (!s)
+        return ERR_BADARG;
+    const uint8_t *ring = SockRxData(s->shm);
+    for (;;) {
+        uint32_t avail = s->shm->rx.head - s->rx_tail;
+        if (avail > SOCK_RING_SIZE)
+            avail = SOCK_RING_SIZE;
+        if (avail) {
+            uint32_t n = avail < cap ? avail : cap;
+            SockRingRead(ring, s->rx_tail, buf, n);
+            s->rx_tail += n;
+            ArchSyncBarrier();
+            s->shm->rx.tail = s->rx_tail;
+            Signal(g_client.doorbell, 1U << g_client.bit, false);
+            return (int)n;
+        }
+        if (s->shm->flags & SOCK_F_EOF)
+            return 0;
+        if (s->shm->state == SOCK_STATE_CLOSED)
+            return s->shm->error ? (int)s->shm->error : 0;
+        if (timeout == TIMEOUT_POLL)
+            return ERR_TIMEOUT;
+        EventWaitResult w = FormatToEventWait(WaitOn(g_client.event, timeout));
+        if (w.status != ZUZU_OK)
+            return w.status;
+    }
 }
