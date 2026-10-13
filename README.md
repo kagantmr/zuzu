@@ -45,7 +45,7 @@ handles for, and nothing else.
 
 ## Status
 
-Under active development. The kernel ABI is stable between minors of the same major. See roadmap for recent development updates.
+zuzu is still under active development. The kernel ABI is stable between minors of the same major. See roadmap for recent development updates.
 
 ## Documentation
 
