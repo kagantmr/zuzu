@@ -3,7 +3,7 @@
 #include "socket.h"
 #include <string.h>
 #include <util/log.h>
-#include <ipc/msg.h>
+#include <zuzu/msg.h>
 
 #define SESSION_BIT(slot) ((uint32_t)(slot) + 1U)
 #define SESSION_INDEX(gen, slot) ((((uint32_t)(gen)) << 8) | ((uint32_t)(slot) & 0xFFu))

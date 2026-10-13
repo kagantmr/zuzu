@@ -23,7 +23,7 @@
 #include <stdatomic.h>
 #include <string.h>
 #include <sync/primitives.h>
-#include <ipc/msg.h>
+#include <zuzu/msg.h>
 #include <util/tls.h>
 #include <zuzu/err.h>
 #include <zuzu/service.h>

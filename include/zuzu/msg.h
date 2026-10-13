@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 
-#include "tls.h"
+#include <util/tls.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>

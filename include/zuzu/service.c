@@ -1,4 +1,4 @@
-#include <ipc/msg.h>
+#include <zuzu/msg.h>
 #include <zuzu/err.h>
 #include <zuzu/service.h>
 #include <zuzu/zuzu.h>

@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <types.h>
-#include <util/msg.h>
+#include <zuzu/msg.h>
 #include <zuzu/zuzu.h>
 
 #ifdef __cplusplus

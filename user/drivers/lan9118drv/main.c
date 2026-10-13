@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <types.h>
-#include <ipc/msg.h>
+#include <zuzu/msg.h>
 #include <util/devices.h>
 #include <util/log.h>
 #include <zuzu/service.h>

@@ -1,5 +1,5 @@
 #include <string.h>
-#include <util/ring.h>
+#include <zuzu/ring.h>
 
 void RingInit(RingBuffer *r, uint8_t *buf, uint32_t size)
 {

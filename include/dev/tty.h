@@ -9,8 +9,8 @@ extern "C" {
 #include <stdint.h>
 #include <string.h>
 #include <types.h>
-#include <util/msg.h>
-#include <util/shm_ring.h>
+#include <zuzu/msg.h>
+#include <zuzu/shm_ring.h>
 #include <zuzu/err.h>
 #include <zuzu/zuzu.h>
 

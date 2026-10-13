@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
-#include <ipc/msg.h>
+#include <zuzu/msg.h>
 #include <zuzu/service.h>
 #include <zuzu/udbg.h>
 #include <zuzu/zuzu.h>

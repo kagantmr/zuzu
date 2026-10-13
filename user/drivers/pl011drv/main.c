@@ -2,8 +2,8 @@
 #include <dev/devm.h>
 #include <dev/tty.h>
 #include <string.h>
-#include <ipc/msg.h>
-#include <ipc/shm_ring.h>
+#include <zuzu/msg.h>
+#include <zuzu/shm_ring.h>
 #include <zuzu/err.h>
 #include <zuzu/service.h>
 #include <zuzu/udbg.h>
