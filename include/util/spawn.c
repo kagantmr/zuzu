@@ -127,9 +127,9 @@ static Err LoadSegment(Handle space_handle, Handle image_obj, const void *data, 
     }
 
     if (mem_pages > file_pages) {
-        Err rc = MemInjectObj(space_handle, HANDLE_ANON,
-                              (VirtAddr)seg->vaddr + (file_pages * PAGE_SIZE), 0,
-                              (mem_pages - file_pages) * PAGE_SIZE, prot);
+        Err rc =
+            MemInjectObj(space_handle, HANDLE_ANON, (VirtAddr)seg->vaddr + (file_pages * PAGE_SIZE),
+                         0, (mem_pages - file_pages) * PAGE_SIZE, prot);
         if (rc != ZUZU_OK)
             return rc;
     }
@@ -216,13 +216,17 @@ static Err SpawnFromImage(Handle image_obj, const void *image, size_t size, cons
         return (Err)task_handle;
     }
 
-    if (attr && attr->prio != SPAWN_PRIO_INHERIT) {
-        rc = TaskSetPriority(task_handle, (uint32_t)attr->prio);
-        if (rc != ZUZU_OK) {
-            HandleDestroy(space_handle);
-            return rc;
+    Err grc = HandleGrantTo(NSVC_PORT, space_handle, PERM_SEND, NULL);
+    if (grc != ZUZU_OK) {
+        if (attr && attr->prio != SPAWN_PRIO_INHERIT) {
+            rc = TaskSetPriority(task_handle, (uint32_t)attr->prio);
+            if (rc != ZUZU_OK) {
+                HandleDestroy(space_handle);
+                return rc;
+            }
         }
     }
+
     if (attr && attr->max_prio != SPAWN_PRIO_INHERIT) {
         rc = TaskSetMaxPriority(task_handle, (uint32_t)attr->max_prio);
         if (rc != ZUZU_OK) {
@@ -234,7 +238,7 @@ static Err SpawnFromImage(Handle image_obj, const void *image, size_t size, cons
     SvcResult grant = HandleGrant(NSVC_PORT, space_handle, PERM_SEND);
     if (grant.r0 != ZUZU_OK) {
         HandleDestroy(space_handle);
-        return (Err)grant.r0;
+        return grc;
     }
 
     rc = TaskStart(task_handle, (void *)img.entry, (void *)sp, argc, (uint32_t)argv_va);
@@ -255,15 +259,13 @@ Err SpawnProcessAttr(const void *image, size_t size, const char *name, const cha
                      size_t argbuf_len, uint32_t argc, const SpawnAttr *attr, Spid *out_pid,
                      Handle *out_task)
 {
-    return SpawnFromImage(-1, image, size, name, argbuf, argbuf_len, argc, attr, out_pid,
-                          out_task);
+    return SpawnFromImage(-1, image, size, name, argbuf, argbuf_len, argc, attr, out_pid, out_task);
 }
 
 Err SpawnProcess(const void *image, size_t size, const char *name, const char *argbuf,
                  size_t argbuf_len, uint32_t argc, Spid *out_pid, Handle *out_task)
 {
-    return SpawnFromImage(-1, image, size, name, argbuf, argbuf_len, argc, NULL, out_pid,
-                          out_task);
+    return SpawnFromImage(-1, image, size, name, argbuf, argbuf_len, argc, NULL, out_pid, out_task);
 }
 
 Err SpawnProcessObj(Handle image_obj, size_t size, const char *name, const char *argbuf,

@@ -10,7 +10,6 @@ extern "C" {
 typedef enum {
     /* Interface management */
     NETD_GET_NETIF = 1,
-    NETD_GET_ALL_IFS,
     NETD_DRVHANDSHAKE_INIT, /* Used by NIC driver to hand the doorbell over to netd */
     NETD_DRVHANDSHAKE_STAGE2, /* hands over TX shm */
     NETD_DRVHANDSHAKE_STAGE3, /* hands over RX shm */

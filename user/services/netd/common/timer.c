@@ -1,47 +1,52 @@
 #include "timer.h"
 #include "globals.h"
-#include <string.h>
 
-static timer_t timers[TIMER_MAX];
+static ListHead timers;
 
-void timer_init(void) { memset(timers, 0, sizeof(timer_t) * TIMER_MAX); }
+void TimerInit(void) { ListInit(&timers); }
 
-TimerHandle timer_arm(uint32_t deadline_ms, void (*cb)(void *arg), void *arg)
+void TimerCancel(Timer *t)
 {
-    for (int i = 0; i < TIMER_MAX; i++) {
-        if (!timers[i].active) {
-            timers[i].active = true;
-            timers[i].cb = cb;
-            timers[i].deadline_ms = deadline_ms;
-            timers[i].arg = arg;
-            return i;
-        }
+    if (!t->armed)
+        return;
+    ListRemove(&t->node);
+    t->armed = false;
+}
+
+void TimerArm(Timer *t, uint32_t deadline_ms, void (*cb)(void *arg), void *arg)
+{
+    TimerCancel(t);
+    t->deadline_ms = deadline_ms;
+    t->cb = cb;
+    t->arg = arg;
+
+    ListNode *pos;
+    LIST_FOR_EACH(pos, &timers.node)
+    {
+        Timer *other = container_of(pos, Timer, node);
+        if ((int32_t)(other->deadline_ms - deadline_ms) > 0)
+            break;
     }
-    return TIMER_NONE;
+    ListAddTail(&t->node, pos);
+    t->armed = true;
 }
 
-void timer_cancel(TimerHandle h)
+uint32_t TimerNextDeadline(void)
 {
-    if (h < 0 || h >= TIMER_MAX)
-        return; /* TIMER_NONE and garbage: harmless no-op */
-    timers[h].active = false;
-}
-uint32_t timer_next_deadline(void)
-{
-    uint32_t earliest = TIMER_NO_DEADLINE;
-    for (int i = 0; i < TIMER_MAX; i++)
-        if (timers[i].active && timers[i].deadline_ms < earliest)
-            earliest = timers[i].deadline_ms;
-    return earliest;
+    if (timers.node.next == &timers.node)
+        return TIMER_NO_DEADLINE;
+    return container_of(timers.node.next, Timer, node)->deadline_ms;
 }
 
-void timer_run_expired(void)
+void TimerRunExpired(void)
 {
-    uint32_t now = net_now_ms();
-    for (int i = 0; i < TIMER_MAX; i++) {
-        if (timers[i].active && (int32_t)(now - timers[i].deadline_ms) >= 0) {
-            timers[i].active = false; /* deactivate BEFORE the callback */
-            timers[i].cb(timers[i].arg);
-        }
+    uint32_t now = NetNowMs();
+    while (timers.node.next != &timers.node) {
+        Timer *t = container_of(timers.node.next, Timer, node);
+        if ((int32_t)(now - t->deadline_ms) < 0)
+            break;
+        ListRemove(&t->node);
+        t->armed = false;
+        t->cb(t->arg);
     }
 }

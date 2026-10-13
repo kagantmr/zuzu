@@ -125,13 +125,15 @@ static inline Err TtyCall(Handle tty_port, const void *req, uint32_t len, Handle
                           Handle *granted)
 {
     MsgWrite(req, len);
-    SvcResult r = Call(tty_port, len, grant);
+    uint32_t got = 0;
+    Handle back = -1;
+    Err rc = CallPort(tty_port, len, grant, &got, &back);
     if (granted)
-        *granted = (Handle)r.r3;
-    if (r.r0 != ZUZU_OK)
-        return (Err)r.r0;
+        *granted = back;
+    if (rc != ZUZU_OK)
+        return rc;
     Err status;
-    if ((uint32_t)r.r1 < sizeof(status))
+    if (got < sizeof(status))
         return ERR_MALFORMED;
     memcpy(&status, GetMessageBox(), sizeof(status));
     return status;
@@ -158,19 +160,20 @@ static inline Err TtyClientConnect(Handle tty_port, uint32_t cmd, const char *al
     c->shm = (TtyShm *)va;
 
     /* Grants copy perms verbatim and need PERM_TXFR: send a dup. */
-    SvcResult page = HandleDuplicate(c->mem, PERM_MAP | PERM_TXFR, MARKER_NONE);
-    if (page.r0 != ZUZU_OK) {
+    Handle page;
+    Err prc = HandleDup(c->mem, PERM_MAP | PERM_TXFR, MARKER_NONE, &page);
+    if (prc != ZUZU_OK) {
         MemUnmap(va);
         HandleClose(c->mem);
-        return (Err)page.r0;
+        return prc;
     }
 
     TtyConnectRequest req = {.cmd = cmd};
     if (alias)
         strncpy(req.alias, alias, TTY_NAME_MAX - 1);
     Handle doorbell = -1;
-    Err rc = TtyCall(tty_port, &req, sizeof(req), (Handle)page.r1, &doorbell);
-    HandleClose((Handle)page.r1);
+    Err rc = TtyCall(tty_port, &req, sizeof(req), page, &doorbell);
+    HandleClose(page);
     if (rc == ZUZU_OK && doorbell < 0)
         rc = ERR_MALFORMED;
     TtyConnectReply rep;
@@ -190,12 +193,12 @@ static inline Err TtyClientConnect(Handle tty_port, uint32_t cmd, const char *al
     /* Best effort: without it ttysvc only frees the session on TTY_CLOSE. */
     c->live = CreatePort();
     if (c->live >= 0) {
-        SvcResult watch = HandleDuplicate(c->live, PERM_WAIT | PERM_TXFR, MARKER_NONE);
+        Handle watch;
         TtyWatchRequest wreq = {.cmd = TTY_WATCH, .index = c->index};
-        Err wrc = (Err)watch.r0;
+        Err wrc = HandleDup(c->live, PERM_WAIT | PERM_TXFR, MARKER_NONE, &watch);
         if (wrc == ZUZU_OK) {
-            wrc = TtyCall(tty_port, &wreq, sizeof(wreq), (Handle)watch.r1, NULL);
-            HandleClose((Handle)watch.r1);
+            wrc = TtyCall(tty_port, &wreq, sizeof(wreq), watch, NULL);
+            HandleClose(watch);
         }
         if (wrc != ZUZU_OK) {
             HandleClose(c->live);
@@ -203,12 +206,13 @@ static inline Err TtyClientConnect(Handle tty_port, uint32_t cmd, const char *al
         }
     }
 
-    SvcResult mine = HandleDuplicate(my_event, PERM_SEND | PERM_TXFR, MARKER_NONE);
-    if (mine.r0 != ZUZU_OK)
-        return (Err)mine.r0;
+    Handle mine;
+    rc = HandleDup(my_event, PERM_SEND | PERM_TXFR, MARKER_NONE, &mine);
+    if (rc != ZUZU_OK)
+        return rc;
     TtyNotifyRequest notify = {.cmd = TTY_NOTIFY, .index = c->index, .bit = my_bit};
-    rc = TtyCall(tty_port, &notify, sizeof(notify), (Handle)mine.r1, NULL);
-    HandleClose((Handle)mine.r1);
+    rc = TtyCall(tty_port, &notify, sizeof(notify), mine, NULL);
+    HandleClose(mine);
     return rc;
 }
 

@@ -11,6 +11,7 @@ extern "C" {
 #include <stdint.h>
 #include <string.h>
 #include <types.h>
+#include <zuzu/err.h>
 
 /**
  * @brief Terminates the calling task with the specified exit status.
@@ -323,6 +324,92 @@ static inline Err IrqRearm(Handle dev_handle)
     return ArchInvokeSvc(SVC_MANAGEHANDLE, dev_handle, MNGHNDL_IRQ_REARM, 0, 0);
 }
 
+
+/** @brief Duplicates h into a new handle written to *out. */
+static inline Err HandleDup(Handle h, HandlePerms perms, Marker marker, Handle *out)
+{
+    SvcResult r = HandleDuplicate(h, perms, marker);
+    if (r.r0 == ZUZU_OK && out)
+        *out = (Handle)r.r1;
+    return (Err)r.r0;
+}
+
+/** @brief Grants h into target_space's table; *out is its slot in the target. */
+static inline Err HandleGrantTo(Handle h, Handle target_space_handle, HandlePerms perms,
+                                Handle *out)
+{
+    SvcResult r = HandleGrant(h, target_space_handle, perms);
+    if (r.r0 == ZUZU_OK && out)
+        *out = (Handle)r.r1;
+    return (Err)r.r0;
+}
+
+static inline Err HandleQueryValue(Handle h, QueryWhat what, uint32_t *out)
+{
+    SvcResult r = HandleQuery(h, what);
+    if (r.r0 == ZUZU_OK && out)
+        *out = (uint32_t)r.r1;
+    return (Err)r.r0;
+}
+
+static inline Err HandleQuerySize(Handle h, size_t *out)
+{
+    uint32_t v = 0;
+    Err rc = HandleQueryValue(h, QUERY_SIZE, &v);
+    if (rc == ZUZU_OK && out)
+        *out = v;
+    return rc;
+}
+
+/** @brief True if h is a live handle whose object has not died. */
+static inline bool HandleIsAlive(Handle h)
+{
+    uint32_t st = 0;
+    return HandleQueryValue(h, QUERY_STATUS, &st) == ZUZU_OK && (Err)st != ERR_DEAD;
+}
+
+/**
+ * @brief Call() that reports the reply length and any handle the server
+ * granted back through *reply_len / *reply_grant (either may be NULL).
+ */
+static inline Err CallPort(Handle port, uint32_t xlen, Handle grant_handle, uint32_t *reply_len,
+                           Handle *reply_grant)
+{
+    SvcResult r = Call(port, xlen, grant_handle);
+    if (r.r0 != ZUZU_OK)
+        return (Err)r.r0;
+    if (reply_len)
+        *reply_len = (uint32_t)r.r1;
+    if (reply_grant)
+        *reply_grant = (Handle)r.r3;
+    return ZUZU_OK;
+}
+
+static inline PortWaitResult WaitOnPort(Handle port, Duration timeout)
+{
+    return FormatToPortWait(WaitOn(port, timeout));
+}
+
+static inline EventWaitResult WaitOnEvent(Handle ev, Duration timeout)
+{
+    return FormatToEventWait(WaitOn(ev, timeout));
+}
+
+static inline TaskWaitResult WaitOnTask(Handle task, Duration timeout)
+{
+    return FormatToTaskWait(WaitOn(task, timeout));
+}
+
+static inline SpaceWaitResult WaitOnSpace(Handle space, Duration timeout)
+{
+    return FormatToSpaceWait(WaitOn(space, timeout));
+}
+
+static inline PortWaitResult ReplyRecvPort(uint32_t xlen, Handle grant_handle, Handle recv_port,
+                                           Duration timeout)
+{
+    return FormatToPortWait(ReplyRecv(xlen, grant_handle, recv_port, timeout));
+}
 #ifdef CONFIG_ZUZU_BENCH
 static inline void BenchReset(void) { ArchInvokeSvc(SVC_BENCH, BENCH_RESET, 0, 0, 0); }
 static inline void BenchDump(void) { ArchInvokeSvc(SVC_BENCH, BENCH_DUMP, 0, 0, 0); }

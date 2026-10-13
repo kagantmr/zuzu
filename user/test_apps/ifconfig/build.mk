@@ -1,1 +1,2 @@
-obj-y += ifconfig.o
+prog-y    := ifconfig
+prog-tier := zcrt

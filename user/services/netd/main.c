@@ -1,5 +1,3 @@
-// #include <stdio.h>
-
 #include <dev/protocols/devm.h>
 #include <net/protocols/netd.h>
 #include <net/protocols/nic.h>
@@ -14,18 +12,19 @@
 #include "link/arp.h"
 #include "link/eth.h"
 #include "transport/port.h"
+#include "transport/session.h"
+#include "transport/socket.h"
 #include "transport/tcp.h"
 #include "transport/udp.h"
 
 #include "app/dhcp.h"
-#include "app/dns.h"
 
 NicRing *tx_ring, *rx_ring;
 NicStatsBlock *stats;
 Handle g_svc_port = -1;
 Handle g_event = -1;
 Handle g_nic_doorbell_ev = -1;
-netif_t netif; /* filled at startup (htonl isn't constant); DHCP overwrites later */
+Netif netif; /* filled at startup (htonl isn't constant); DHCP overwrites later */
 
 #define LEGACY_POLL_CAP 50u
 #define LOOP_SLICE_MS 10u
@@ -35,32 +34,19 @@ netif_t netif; /* filled at startup (htonl isn't constant); DHCP overwrites late
 /**
  * UDP echo handler
  */
-static void udp_echo_handler(ipv4_addr_t src_ip, NetPort src_port, NetPort dst_port,
-                             const uint8_t *data, uint16_t len)
+static void UdpEchoHandler(Ipv4Addr src_ip, NetPort src_port, NetPort dst_port, const uint8_t *data,
+                           uint16_t len)
 {
-    LOG_INFO(LOG_TAG, "UDP packet, from: %u.%u.%u.%u:%d, to: %u.%u.%u.%u:%d", IP4(src_ip), src_port,
+    LOG_DEBUG(LOG_TAG, "UDP packet, from: %u.%u.%u.%u:%d, to: %u.%u.%u.%u:%d", IP4(src_ip), src_port,
              IP4(netif.ip), dst_port);
     UdpSend(src_ip, dst_port, src_port, data, len);
 }
 
-static __attribute__((cold)) void on_resolved(const char *name, ipv4_addr_t ip, int status)
-{
-    if (status == ZUZU_OK) {
-        LOG_INFO(LOG_TAG, "%s -> %u.%u.%u.%u", name, IP4(ip));
-        // tcp_connect(ip, 80);
-        int s = tcp_listen(80);
-        LOG_INFO(LOG_TAG, "listening on :80 (slot %d)", s);
-    } else {
-        LOG_INFO(LOG_TAG, "%s failed: %d", name, status);
-    }
-}
-
 /* Fires once the lease is first acquired: the network is now usable. */
-static __attribute__((cold)) void on_dhcp_bound(void)
+static __attribute__((cold)) void OnDhcpBound(void)
 {
     LOG_INFO(LOG_TAG, "network up: ip %u.%u.%u.%u gw %u.%u.%u.%u dns %u.%u.%u.%u", IP4(netif.ip),
              IP4(netif.gateway), IP4(netif.dns));
-    DnsQuery("google.com", on_resolved); /* smoke test now that we have DNS */
 }
 
 static Err InitNetdServices(void)
@@ -100,6 +86,29 @@ static void RejectCall(Err err, Handle granted)
     Reply(sizeof(err), -1);
 }
 
+static void HandleNetdCall(const PortWaitResult *call)
+{
+    uint8_t op = call->xlen >= 1 ? *(const uint8_t *)GetMessageBox() : 0;
+    switch (op) {
+    case NETD_GET_NETIF: {
+        if (call->granted >= 0)
+            HandleClose(call->granted);
+
+        NetdNetif out = {
+            .ip = netif.ip, .netmask = netif.netmask, .gateway = netif.gateway, .dns = netif.dns};
+        
+        memcpy(out.mac, netif.mac, sizeof(out.mac));
+        strncpy(out.name, "eth0", sizeof(out.name) - 1);
+        MsgWrite(&out, sizeof(out));
+        Reply(sizeof(out), -1);
+    } break;
+    default: {
+        RejectCall(ERR_NOSYS, call->granted);
+        return;
+    }
+    }
+}
+
 static Err CheckStage(const PortWaitResult *r, uint8_t opcode, Marker drv_marker)
 {
     if (r->xlen != 1 || *(uint8_t *)GetMessageBox() != opcode)
@@ -129,7 +138,7 @@ static __attribute__((cold)) Err PerformDriverHandshake(PortWaitResult res)
 
     Err rc = ZUZU_OK;
     MsgWrite(&rc, sizeof(rc));
-    PortWaitResult r = FormatToPortWait(ReplyRecv(sizeof(rc), -1, g_svc_port, TIMEOUT_INFINITE));
+    PortWaitResult r = ReplyRecvPort(sizeof(rc), -1, g_svc_port, TIMEOUT_INFINITE);
     if (r.status != ZUZU_OK)
         return r.status;
     rc = CheckStage(&r, NETD_DRVHANDSHAKE_STAGE2, drv_marker);
@@ -145,7 +154,7 @@ static __attribute__((cold)) Err PerformDriverHandshake(PortWaitResult res)
 
     rc = ZUZU_OK;
     MsgWrite(&rc, sizeof(rc));
-    r = FormatToPortWait(ReplyRecv(sizeof(rc), -1, g_svc_port, TIMEOUT_INFINITE));
+    r = ReplyRecvPort(sizeof(rc), -1, g_svc_port, TIMEOUT_INFINITE);
     if (r.status != ZUZU_OK)
         return r.status;
     rc = CheckStage(&r, NETD_DRVHANDSHAKE_STAGE3, drv_marker);
@@ -164,9 +173,6 @@ static __attribute__((cold)) Err PerformDriverHandshake(PortWaitResult res)
     MsgWriterInit(&w);
     MsgPutU32(&w, ZUZU_OK);
     MsgPutStr(&w, "eth0");
-
-    strncpy(netif.name, "eth0", 8);
-    
     return Reply(w.off, -1);
 }
 
@@ -174,7 +180,7 @@ static Err WaitForDriver(void)
 {
     Err retval = ZUZU_OK;
     while (1) {
-        PortWaitResult res = FormatToPortWait(WaitOn(g_svc_port, TIMEOUT_INFINITE));
+        PortWaitResult res = WaitOnPort(g_svc_port, TIMEOUT_INFINITE);
         if (res.status != ZUZU_OK)
             return res.status;
         // see if we got a proper handshake initiation
@@ -203,24 +209,27 @@ int main()
     if (retval < 0)
         return retval;
 
-    timer_init();
-    netrand_init();
+    TimerInit();
+    NetRandInit();
 
-    arp_init();
+    retval = SessionInit(g_event);
+    if (retval < 0)
+        return retval;
+
+    ArpInit();
     UdpInit();
-    port_init();
-    DnsInit();
-    dhcp_init(on_dhcp_bound); /* kicks off DORA; on_dhcp_bound fires when bound */
+    PortInit();
+    DhcpInit(OnDhcpBound); /* kicks off DORA; OnDhcpBound fires when bound */
 
-    UdpBind(7, udp_echo_handler);
+    UdpBind(7, UdpEchoHandler);
 
     LOG_INFO(LOG_TAG, "online");
 
     while (1) {
         /* 1. size the sleep: until the next timer, but never longer than the
             cap, so the legacy pollers still get serviced. */
-        uint32_t now = net_now_ms();
-        uint32_t next = timer_next_deadline();
+        uint32_t now = NetNowMs();
+        uint32_t next = TimerNextDeadline();
         uint32_t sleep_ms;
         if (next == TIMER_NO_DEADLINE)
             sleep_ms = LEGACY_POLL_CAP;
@@ -242,40 +251,30 @@ int main()
         /* 3. DRAIN RX FIRST: process inbound before any timer fires */
         NicFrame *frame;
         while ((frame = PacketRingPeek(rx_ring)) != NULL) {
-            eth_rx(frame->data, (uint16_t)frame->len);
+            EthRx(frame->data, (uint16_t)frame->len);
             PacketRingConsume(rx_ring);
         }
 
-        EventWaitResult ev = FormatToEventWait(WaitOn(g_event, slice));
+        EventWaitResult ev = WaitOnEvent(g_event, slice);
         if (ev.status == ZUZU_OK && (ev.bits & PORT_MASK)) {
-            PortWaitResult call = FormatToPortWait(WaitOn(g_svc_port, TIMEOUT_POLL));
-            NetdOpcode op;
-            MsgRead(&op, sizeof(op));
-            switch(op) {
-                case NETD_GET_NETIF: {
-                    MsgWrite(&netif, sizeof(netif));
-                    Reply(sizeof(netif), (-1));
-                } break;
-                default: {
-                    RejectCall(ERR_NOSYS, call.granted);
-                    LOG_ERROR(LOG_TAG, "Unknown command"); 
-                    continue;
-                }
+            PortWaitResult call;
+            while ((call = WaitOnPort(g_svc_port, TIMEOUT_POLL)).status == ZUZU_OK) {
+                if (!SessionHandle(&call))
+                    HandleNetdCall(&call);
             }
-            if (call.granted >= 0)
-                HandleClose(call.granted);
-            /* 
-            while ((call = FormatToPortWait(WaitOn(g_svc_port, TIMEOUT_POLL))).status == ZUZU_OK)
-                RejectCall(ERR_NOSYS, call.granted);*/
         }
+        if (ev.status == ZUZU_OK)
+            SessionDoorbell(ev.bits);
+
+        SocketPump();
 
         /* 4. THEN fire expired timers */
-        timer_run_expired();
+        TimerRunExpired();
+        SessionReapDead();
 
         /* 5. legacy pollers, still bounded by the cap above */
-        arp_tick();
-        dhcp_tick();
-        DnsTick();
+        ArpTick();
+        DhcpTick();
     }
 
     return 0;
