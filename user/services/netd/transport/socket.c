@@ -16,7 +16,7 @@ static ListHead g_by_id[SOCK_HASH];
 static ListHead g_by_port[SOCK_HASH];
 static uint32_t g_next_id = 1;
 
-static Socket *SockOf(int slot) { return tcp_get_ctx(slot); }
+static Socket *SockOf(int slot) { return TcpGetCtx(slot); }
 
 static void SocketTcpTx(Socket *s);
 
@@ -29,7 +29,7 @@ static void RingWrite(SockShm *shm, uint32_t pos, const void *src, uint32_t n)
     memcpy(ring, (const uint8_t *)src + first, n - first);
 }
 
-static void SocketUdpRx(ipv4_addr_t src_ip, NetPort src_port, NetPort dst_port, const uint8_t *data,
+static void SocketUdpRx(Ipv4Addr src_ip, NetPort src_port, NetPort dst_port, const uint8_t *data,
                         uint16_t len)
 {
     Socket *s = SocketByPort(dst_port);
@@ -130,18 +130,18 @@ Err SocketBind(Socket *s, NetPort port)
     if (s->kind != SOCK_KIND_UDP)
         return ERR_BADTYPE;
     if (port == 0) {
-        port = port_alloc();
+        port = PortAlloc();
         if (!port)
             return ERR_NOMEM;
         s->port_alloced = true;
     } else {
-        if (!port_reserve(port))
+        if (!PortReserve(port))
             return ERR_DUPLICATE;
     }
     Err rc = UdpBind(port, SocketUdpRx);
     if (rc != ZUZU_OK) {
         s->port_alloced = false;
-        port_release(port);
+        PortRelease(port);
         return rc;
     }
     s->port = port;
@@ -158,23 +158,23 @@ void SocketClose(Socket *s)
     if (s->kind == SOCK_KIND_TCP) {
         if (s->listener) {
             for (int i = 0; i < s->accept_n; i++) {
-                tcp_set_ctx(s->accept_q[i], NULL);
-                tcp_close(s->accept_q[i]);
+                TcpSetCtx(s->accept_q[i], NULL);
+                TcpClose(s->accept_q[i]);
             }
             s->accept_n = 0;
         } else {
             SocketTcpTx(s);
         }
         if (s->pcb >= 0) {
-            tcp_set_ctx(s->pcb, NULL);
-            tcp_close(s->pcb);
+            TcpSetCtx(s->pcb, NULL);
+            TcpClose(s->pcb);
             s->pcb = -1;
         }
     }
     if (s->port) {
         ListRemove(&s->port_node);
         UdpUnbind(s->port);
-        port_release(s->port);
+        PortRelease(s->port);
     }
     ListRemove(&s->id_node);
     ListRemove(&s->sess_node);
@@ -230,7 +230,7 @@ static void SocketTcpRx(Socket *s)
     uint8_t buf[512];
     while (room) {
         uint16_t want = (uint16_t)MIN(room, sizeof(buf));
-        int n = tcp_recv(s->pcb, buf, want);
+        int n = TcpRecv(s->pcb, buf, want);
         if (n <= 0) {
             drained = true;
             break;
@@ -270,7 +270,7 @@ static void SocketTcpTx(Socket *s)
     while (avail) {
         uint16_t chunk = (uint16_t)MIN(avail, sizeof(buf));
         RingRead(s->shm, s->tx_tail, buf, chunk);
-        int n = tcp_send(s->pcb, buf, chunk);
+        int n = TcpSend(s->pcb, buf, chunk);
         if (n <= 0)
             break;
         s->tx_tail += (uint32_t)n;
@@ -298,7 +298,7 @@ static void SockOnEstablished(int slot)
             s->shm->accept_pending = (uint32_t)s->accept_n;
             SessionKick(s->session);
         } else {
-            tcp_close(slot);
+            TcpClose(slot);
         }
         return;
     }
@@ -415,7 +415,7 @@ Err SocketConnect(Socket *s, uint32_t ip, NetPort port)
         return ERR_BADTYPE;
     if (s->pcb >= 0 || s->listener)
         return ERR_BUSY;
-    int slot = tcp_connect(ip, port, &g_sock_cb, s);
+    int slot = TcpConnect(ip, port, &g_sock_cb, s);
     if (slot < 0)
         return slot;
     s->pcb = slot;
@@ -433,9 +433,9 @@ Err SocketListen(Socket *s, NetPort port, int backlog)
         return ERR_BUSY;
     if (port == 0)
         return ERR_BADARG;
-    if (tcp_pcb_find_listener(netif.ip, port) >= 0)
+    if (TcpPcbFindListener(netif.ip, port) >= 0)
         return ERR_DUPLICATE;
-    int slot = tcp_listen(port, backlog, &g_sock_cb, s);
+    int slot = TcpListen(port, backlog, &g_sock_cb, s);
     if (slot < 0)
         return slot;
     s->pcb = slot;
@@ -472,7 +472,7 @@ Err SocketAccept(int session, Socket *listener, Handle mem, uint32_t *id)
     ns->shm->remote_ip = pcb->remote_ip;
     ns->shm->remote_port = pcb->remote_port;
     ns->shm->state = SOCK_STATE_ESTABLISHED;
-    tcp_set_ctx(slot, ns);
+    TcpSetCtx(slot, ns);
     SocketTcpRx(ns);
     return ZUZU_OK;
 }

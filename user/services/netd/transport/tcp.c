@@ -8,23 +8,23 @@
 #include <string.h>
 #include <util/log.h>
 
-int tcp_connect(ipv4_addr_t remote_ip, NetPort remote_port, const TcpCallbacks *cb, void *ctx)
+int TcpConnect(Ipv4Addr remote_ip, NetPort remote_port, const TcpCallbacks *cb, void *ctx)
 {
-    if (!dhcp_is_bound())
+    if (!DhcpIsBound())
         return ERR_NOTCONN;
-    int idx = tcp_pcb_alloc();
+    int idx = TcpPcbAlloc();
     if (idx < 0)
         return ERR_NOMEM;
     TcpPcb *pcb = &tcp_pcbs[idx];
     pcb->remote_ip = remote_ip;
     pcb->remote_port = remote_port;
     pcb->local_ip = netif.ip;
-    pcb->local_port = port_alloc();
+    pcb->local_port = PortAlloc();
     if (pcb->local_port == 0) {
         TcpPcbRelease(pcb, ZUZU_OK);
         return ERR_NOMEM;
     }
-    pcb->snd_nxt = netrand_u32();
+    pcb->snd_nxt = NetRandU32();
     pcb->snd_una = pcb->snd_nxt;
     pcb->snd_max = pcb->snd_nxt;
     pcb->rcv_nxt = 0;
@@ -32,30 +32,21 @@ int tcp_connect(ipv4_addr_t remote_ip, NetPort remote_port, const TcpCallbacks *
     pcb->rto_ms = 1000;
     pcb->snd_mss = TCP_MSS;
     pcb->state = TCP_SYN_SENT;
-    int rc = tcp_output(pcb, TCP_SYN, 0);
-    rto_start(pcb);
+    int rc = TcpOutput(pcb, TCP_SYN, 0);
+    RtoStart(pcb);
     if (rc != ZUZU_OK) {
         TcpPcbRelease(pcb, ZUZU_OK);
         return rc;
     }
-    rto_start(pcb);
+    RtoStart(pcb);
     pcb->cb = cb;
     pcb->ctx = ctx;
     LOG_INFO(LOG_TAG, "SYN -> %u.%u.%u.%u:%u", IP4(remote_ip), remote_port);
     return idx;
 }
-
-int tcp_set_nodelay(int idx, bool on)
+int TcpListen(int port, int backlog, const TcpCallbacks *cb, void *ctx)
 {
-    tcp_pcbs[idx].nodelay = on;
-    if (on)
-        tcp_xmit(&tcp_pcbs[idx]);
-    return ZUZU_OK;
-}
-
-int tcp_listen(int port, int backlog, const TcpCallbacks *cb, void *ctx)
-{
-    int slot = tcp_pcb_alloc();
+    int slot = TcpPcbAlloc();
     if (slot < 0)
         return ERR_NOMEM;
     TcpPcb *pcb = &tcp_pcbs[slot];
@@ -69,7 +60,7 @@ int tcp_listen(int port, int backlog, const TcpCallbacks *cb, void *ctx)
     return slot;
 }
 
-int tcp_close(int idx)
+int TcpClose(int idx)
 {
     TcpPcb *pcb = &tcp_pcbs[idx];
 
@@ -97,7 +88,7 @@ int tcp_close(int idx)
     }
 
     pcb->fin_pending = true; /* stream ends after last buffered byte */
-    tcp_xmit(pcb);           /* emits FIN (piggybacked or bare) */
+    TcpXmit(pcb);            /* emits FIN (piggybacked or bare) */
     return ZUZU_OK;
 }
 
@@ -107,6 +98,6 @@ void TcpCcInit(TcpPcb *pcb) {
     pcb->recover = pcb->snd_nxt;
 }
 
-void *tcp_get_ctx(int slot) { return tcp_pcbs[slot].ctx; }
+void *TcpGetCtx(int slot) { return tcp_pcbs[slot].ctx; }
 
-void tcp_set_ctx(int slot, void *ctx) { tcp_pcbs[slot].ctx = ctx; }
+void TcpSetCtx(int slot, void *ctx) { tcp_pcbs[slot].ctx = ctx; }

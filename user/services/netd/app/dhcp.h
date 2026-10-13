@@ -21,9 +21,9 @@ typedef struct {
     uint8_t sname[64];  /* server host name (unused) */
     uint8_t file[128];  /* boot file name (unused) */
     uint32_t cookie;    /* DHCP_MAGIC_COOKIE, options begin right after */
-} __attribute__((packed)) dhcp_msg_t;
+} __attribute__((packed)) DhcpMsg;
 
-_Static_assert(sizeof(dhcp_msg_t) == 240, "dhcp_msg_t size");
+_Static_assert(sizeof(DhcpMsg) == 240, "DhcpMsg size");
 
 #define DHCP_CLIENT_PORT 68
 #define DHCP_SERVER_PORT 67
@@ -76,13 +76,13 @@ typedef enum {
     DHCP_BOUND,
     DHCP_RENEWING,
     DHCP_REBINDING
-} dhcp_state_t;
+} DhcpState;
 
 /* Fired once, the first time a lease is acquired (renewals don't re-fire). */
-typedef void (*dhcp_bound_cb_t)(void);
+typedef void (*DhcpBoundCb)(void);
 
-void dhcp_init(dhcp_bound_cb_t on_bound);
-void dhcp_tick(void);
-bool dhcp_is_bound(void);
+void DhcpInit(DhcpBoundCb on_bound);
+void DhcpTick(void);
+bool DhcpIsBound(void);
 
 #endif

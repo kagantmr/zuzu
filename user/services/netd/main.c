@@ -1,5 +1,3 @@
-// #include <stdio.h>
-
 #include <dev/protocols/devm.h>
 #include <net/protocols/netd.h>
 #include <net/protocols/nic.h>
@@ -27,7 +25,7 @@ NicStatsBlock *stats;
 Handle g_svc_port = -1;
 Handle g_event = -1;
 Handle g_nic_doorbell_ev = -1;
-netif_t netif; /* filled at startup (htonl isn't constant); DHCP overwrites later */
+Netif netif; /* filled at startup (htonl isn't constant); DHCP overwrites later */
 
 #define LEGACY_POLL_CAP 50u
 #define LOOP_SLICE_MS 10u
@@ -37,37 +35,16 @@ netif_t netif; /* filled at startup (htonl isn't constant); DHCP overwrites late
 /**
  * UDP echo handler
  */
-static void udp_echo_handler(ipv4_addr_t src_ip, NetPort src_port, NetPort dst_port,
-                             const uint8_t *data, uint16_t len)
+static void UdpEchoHandler(Ipv4Addr src_ip, NetPort src_port, NetPort dst_port, const uint8_t *data,
+                           uint16_t len)
 {
     LOG_INFO(LOG_TAG, "UDP packet, from: %u.%u.%u.%u:%d, to: %u.%u.%u.%u:%d", IP4(src_ip), src_port,
              IP4(netif.ip), dst_port);
     UdpSend(src_ip, dst_port, src_port, data, len);
 }
 
-static void HttpOnData(int slot)
-{
-    uint8_t chunk[256];
-    int n;
-    while ((n = tcp_recv(slot, chunk, sizeof(chunk) - 1)) > 0) {
-        chunk[n] = '\0';
-        LOG_INFO(LOG_TAG, "app read %d: %s", n, chunk);
-    }
-
-    static const char *resp = "HTTP/1.0 200 OK\r\n"
-                              "Content-Type: text/html\r\n"
-                              "Connection: close\r\n"
-                              "\r\n"
-                              "<html><body><h1>Hello from ZuzuOS!</h1>"
-                              "<p>Served by netd, powered by the Zuzu microkernel.</p>"
-                              "</body></html>\r\n";
-
-    tcp_send(slot, (const uint8_t *)resp, strlen(resp));
-    tcp_close(slot);
-}
-
 /* Fires once the lease is first acquired: the network is now usable. */
-static __attribute__((cold)) void on_dhcp_bound(void)
+static __attribute__((cold)) void OnDhcpBound(void)
 {
     LOG_INFO(LOG_TAG, "network up: ip %u.%u.%u.%u gw %u.%u.%u.%u dns %u.%u.%u.%u", IP4(netif.ip),
              IP4(netif.gateway), IP4(netif.dns));
@@ -110,7 +87,7 @@ static void RejectCall(Err err, Handle granted)
     Reply(sizeof(err), -1);
 }
 
-static void on_resolved(const char *name, ipv4_addr_t ip, int status)
+static void OnResolved(const char *name, Ipv4Addr ip, int status)
 {
     if (status == ZUZU_OK) {
         LOG_INFO(LOG_TAG, "%s -> %u.%u.%u.%u", name, IP4(ip));
@@ -143,7 +120,7 @@ static void HandleNetdCall(const PortWaitResult *call)
         Reply(sizeof(out), -1);
     } break;
     case NETD_DNS_RESOLVE: {
-        DnsQuery("google.com", on_resolved);
+        DnsQuery("google.com", OnResolved);
         RejectCall(ERR_NOSYS, call->granted);
     } break;
     default: {
@@ -182,7 +159,7 @@ static __attribute__((cold)) Err PerformDriverHandshake(PortWaitResult res)
 
     Err rc = ZUZU_OK;
     MsgWrite(&rc, sizeof(rc));
-    PortWaitResult r = FormatToPortWait(ReplyRecv(sizeof(rc), -1, g_svc_port, TIMEOUT_INFINITE));
+    PortWaitResult r = ReplyRecvPort(sizeof(rc), -1, g_svc_port, TIMEOUT_INFINITE);
     if (r.status != ZUZU_OK)
         return r.status;
     rc = CheckStage(&r, NETD_DRVHANDSHAKE_STAGE2, drv_marker);
@@ -198,7 +175,7 @@ static __attribute__((cold)) Err PerformDriverHandshake(PortWaitResult res)
 
     rc = ZUZU_OK;
     MsgWrite(&rc, sizeof(rc));
-    r = FormatToPortWait(ReplyRecv(sizeof(rc), -1, g_svc_port, TIMEOUT_INFINITE));
+    r = ReplyRecvPort(sizeof(rc), -1, g_svc_port, TIMEOUT_INFINITE);
     if (r.status != ZUZU_OK)
         return r.status;
     rc = CheckStage(&r, NETD_DRVHANDSHAKE_STAGE3, drv_marker);
@@ -224,7 +201,7 @@ static Err WaitForDriver(void)
 {
     Err retval = ZUZU_OK;
     while (1) {
-        PortWaitResult res = FormatToPortWait(WaitOn(g_svc_port, TIMEOUT_INFINITE));
+        PortWaitResult res = WaitOnPort(g_svc_port, TIMEOUT_INFINITE);
         if (res.status != ZUZU_OK)
             return res.status;
         // see if we got a proper handshake initiation
@@ -254,26 +231,26 @@ int main()
         return retval;
 
     TimerInit();
-    netrand_init();
+    NetRandInit();
 
     retval = SessionInit(g_event);
     if (retval < 0)
         return retval;
 
-    arp_init();
+    ArpInit();
     UdpInit();
-    port_init();
+    PortInit();
     DnsInit();
-    dhcp_init(on_dhcp_bound); /* kicks off DORA; on_dhcp_bound fires when bound */
+    DhcpInit(OnDhcpBound); /* kicks off DORA; OnDhcpBound fires when bound */
 
-    UdpBind(7, udp_echo_handler);
+    UdpBind(7, UdpEchoHandler);
 
     LOG_INFO(LOG_TAG, "online");
 
     while (1) {
         /* 1. size the sleep: until the next timer, but never longer than the
             cap, so the legacy pollers still get serviced. */
-        uint32_t now = net_now_ms();
+        uint32_t now = NetNowMs();
         uint32_t next = TimerNextDeadline();
         uint32_t sleep_ms;
         if (next == TIMER_NO_DEADLINE)
@@ -296,14 +273,14 @@ int main()
         /* 3. DRAIN RX FIRST: process inbound before any timer fires */
         NicFrame *frame;
         while ((frame = PacketRingPeek(rx_ring)) != NULL) {
-            eth_rx(frame->data, (uint16_t)frame->len);
+            EthRx(frame->data, (uint16_t)frame->len);
             PacketRingConsume(rx_ring);
         }
 
-        EventWaitResult ev = FormatToEventWait(WaitOn(g_event, slice));
+        EventWaitResult ev = WaitOnEvent(g_event, slice);
         if (ev.status == ZUZU_OK && (ev.bits & PORT_MASK)) {
             PortWaitResult call;
-            while ((call = FormatToPortWait(WaitOn(g_svc_port, TIMEOUT_POLL))).status == ZUZU_OK) {
+            while ((call = WaitOnPort(g_svc_port, TIMEOUT_POLL)).status == ZUZU_OK) {
                 if (!SessionHandle(&call))
                     HandleNetdCall(&call);
             }
@@ -318,8 +295,8 @@ int main()
         SessionReapDead();
 
         /* 5. legacy pollers, still bounded by the cap above */
-        arp_tick();
-        dhcp_tick();
+        ArpTick();
+        DhcpTick();
         DnsTick();
     }
 

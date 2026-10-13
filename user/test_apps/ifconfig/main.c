@@ -18,10 +18,11 @@ int main(void)
 
     uint8_t op = NETD_GET_NETIF;
     MsgWrite(&op, sizeof(op));
-    SvcResult res = Call(netd, sizeof(op), -1);
-    if (res.r0 != ZUZU_OK || (uint32_t)res.r1 < sizeof(NetdNetif)) {
-        printf("ifconfig: netd call failed (%d)\n", (int)res.r0);
-        return res.r0 != ZUZU_OK ? (int)res.r0 : ERR_MALFORMED;
+    uint32_t got = 0;
+    Err rc = CallPort(netd, sizeof(op), -1, &got, NULL);
+    if (rc != ZUZU_OK || got < sizeof(NetdNetif)) {
+        printf("ifconfig: netd call failed (%d)\n", rc);
+        return rc != ZUZU_OK ? rc : ERR_MALFORMED;
     }
 
     NetdNetif nif;

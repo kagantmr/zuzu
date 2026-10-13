@@ -20,7 +20,7 @@ typedef struct __attribute__((packed)) {
     uint8_t spa[4]; // sender protocol address (IP)
     uint8_t tha[6]; // target hardware address (MAC)
     uint8_t tpa[4]; // target protocol address (IP)
-} arp_packet_t;
+} ArpPacket;
 
 #define ARP_MAX_ENTRIES 64 /* bound the table itself (this is also fix #6) */
 #define ARP_MAX_QUEUE 3    /* pending packets per unresolved IP */
@@ -34,45 +34,44 @@ typedef struct __attribute__((packed)) {
 #define ACD_PROBE_NUM 3
 #define ACD_PROBE_MS 1000
 
-typedef enum { ARP_FREE = 0, ARP_INCOMPLETE, ARP_REACHABLE } arp_state_t;
+typedef enum { ARP_FREE = 0, ARP_INCOMPLETE, ARP_REACHABLE } ArpState;
 
 typedef struct {
     uint8_t *data;
     uint16_t len;
     uint16_t ethertype;
-} arp_pending_t;
+} ArpPending;
 
 typedef struct {
-    ipv4_addr_t ip;
+    Ipv4Addr ip;
     uint8_t mac[6];
-    arp_state_t state;
+    ArpState state;
     uint8_t probes;      /* requests sent while INCOMPLETE */
     uint32_t last_tx_ms; /* last probe time   */
     uint32_t expire_ms;  /* REACHABLE aging   */
-    arp_pending_t queue[ARP_MAX_QUEUE];
+    ArpPending queue[ARP_MAX_QUEUE];
     uint8_t qlen;
-} arp_entry_t;
+} ArpEntry;
 
-void arp_init(void);
-void arp_learn(ipv4_addr_t ip, const uint8_t *mac_addr);
-int arp_rx(uint8_t *data, uint16_t len);
-int arp_request(ipv4_addr_t ip);
-int arp_lookup(ipv4_addr_t ip, uint8_t *mac_out);
+void ArpInit(void);
+void ArpLearn(Ipv4Addr ip, const uint8_t *mac_addr);
+int ArpRx(uint8_t *data, uint16_t len);
+int ArpRequest(Ipv4Addr ip);
 /* Send a zero-copy frame to ip, resolving the MAC first. On a cache hit the
    frame's tx-ring slot is committed in place; otherwise the built bytes are
    copied into the pending queue and ARP resolution is triggered. The builder's
    slot is always either committed or abandoned by this call. */
-void arp_send_frame(ipv4_addr_t ip, uint16_t ethertype, txframe_t *f);
+void ArpSendFrame(Ipv4Addr ip, uint16_t ethertype, TxFrame *f);
 /* Drive ARP retransmits and cache aging; call once per netd event-loop wake. */
-void arp_tick(void);
+void ArpTick(void);
 
 /* RFC 5227 address-conflict detection. Probe `ip` with gratuitous ARP requests
    (sender protocol address 0.0.0.0, so caches are not polluted with a yet-to-be
    -claimed address) and report the verdict via on_result: true if another host
    already answers for `ip`, false if it appears free after ACD_PROBE_NUM probes.
-   on_result fires asynchronously, driven by arp_tick / arp_rx. DHCP uses this to
+   on_result fires asynchronously, driven by ArpTick / ArpRx. DHCP uses this to
    validate an offered lease before committing it. A new call replaces any probe
    already in flight. */
-void arp_acd_start(ipv4_addr_t ip, void (*on_result)(bool conflict));
+void ArpAcdStart(Ipv4Addr ip, void (*on_result)(bool conflict));
 
 #endif /* NETD_ARP_H */

@@ -32,13 +32,15 @@ static int g_nconns;
 static Err SockCall(Handle port, const void *req, uint32_t len, Handle grant, Handle *granted)
 {
     MsgWrite(req, len);
-    SvcResult r = Call(port, len, grant);
+    uint32_t got = 0;
+    Handle back = -1;
+    Err rc = CallPort(port, len, grant, &got, &back);
     if (granted)
-        *granted = (Handle)r.r3;
-    if (r.r0 != ZUZU_OK)
-        return (Err)r.r0;
+        *granted = back;
+    if (rc != ZUZU_OK)
+        return rc;
     Err status;
-    if ((uint32_t)r.r1 < sizeof(status))
+    if (got < sizeof(status))
         return ERR_MALFORMED;
     memcpy(&status, GetMessageBox(), sizeof(status));
     return status;
@@ -75,13 +77,14 @@ static Err Attach(void)
     if (c.live < 0 || c.event < 0)
         return ERR_NOMEM;
 
-    SvcResult watch = HandleDuplicate(c.live, PERM_WAIT | PERM_TXFR, MARKER_NONE);
-    if (watch.r0 != ZUZU_OK)
-        return (Err)watch.r0;
+    Handle watch;
+    Err rc = HandleDup(c.live, PERM_WAIT | PERM_TXFR, MARKER_NONE, &watch);
+    if (rc != ZUZU_OK)
+        return rc;
     SockAttachRequest req = {.cmd = SOCK_ATTACH};
     Handle bell = -1;
-    Err rc = SockCall(netd, &req, sizeof(req), (Handle)watch.r1, &bell);
-    HandleClose((Handle)watch.r1);
+    rc = SockCall(netd, &req, sizeof(req), watch, &bell);
+    HandleClose(watch);
     if (rc == ZUZU_OK && bell < 0)
         rc = ERR_MALFORMED;
     if (rc != ZUZU_OK) {
@@ -95,12 +98,13 @@ static Err Attach(void)
     c.bit = rep.bit;
     c.session = rep.session;
 
-    SvcResult mine = HandleDuplicate(c.event, PERM_SEND | PERM_TXFR, MARKER_NONE);
-    if (mine.r0 != ZUZU_OK)
-        return (Err)mine.r0;
+    Handle mine;
+    rc = HandleDup(c.event, PERM_SEND | PERM_TXFR, MARKER_NONE, &mine);
+    if (rc != ZUZU_OK)
+        return rc;
     SockNotifyRequest note = {.cmd = SOCK_NOTIFY, .session = c.session, .bit = 0};
-    rc = SockCall(netd, &note, sizeof(note), (Handle)mine.r1, NULL);
-    HandleClose((Handle)mine.r1);
+    rc = SockCall(netd, &note, sizeof(note), mine, NULL);
+    HandleClose(mine);
     if (rc != ZUZU_OK)
         return rc;
 
@@ -157,11 +161,12 @@ static void UnmapMem(SockConn *s)
 
 static Err CallWithMem(const void *req, uint32_t len, const SockConn *s)
 {
-    SvcResult page = HandleDuplicate(s->mem, PERM_MAP | PERM_TXFR, MARKER_NONE);
-    if (page.r0 != ZUZU_OK)
-        return (Err)page.r0;
-    Err rc = SockCall(g_client.port, req, len, (Handle)page.r1, NULL);
-    HandleClose((Handle)page.r1);
+    Handle page;
+    Err rc = HandleDup(s->mem, PERM_MAP | PERM_TXFR, MARKER_NONE, &page);
+    if (rc != ZUZU_OK)
+        return rc;
+    rc = SockCall(g_client.port, req, len, page, NULL);
+    HandleClose(page);
     return rc;
 }
 
@@ -261,7 +266,7 @@ int SockRecvFrom(int sock, void *buf, uint16_t cap, uint32_t *ip, uint16_t *port
             return ERR_NOTCONN;
         if (timeout == TIMEOUT_POLL)
             return ERR_TIMEOUT;
-        EventWaitResult w = FormatToEventWait(WaitOn(g_client.event, timeout));
+        EventWaitResult w = WaitOnEvent(g_client.event, timeout);
         if (w.status != ZUZU_OK)
             return w.status;
     }
@@ -298,7 +303,7 @@ Err SockConnect(int sock, uint32_t ip, uint16_t port, Duration timeout)
             return s->shm->error ? (Err)s->shm->error : ERR_NOTCONN;
         if (timeout == TIMEOUT_POLL)
             return ERR_TIMEOUT;
-        EventWaitResult w = FormatToEventWait(WaitOn(g_client.event, timeout));
+        EventWaitResult w = WaitOnEvent(g_client.event, timeout);
         if (w.status != ZUZU_OK)
             return w.status;
     }
@@ -347,7 +352,7 @@ int SockAccept(int sock, Duration timeout)
             return rc;
         if (timeout == TIMEOUT_POLL)
             return ERR_TIMEOUT;
-        EventWaitResult w = FormatToEventWait(WaitOn(g_client.event, timeout));
+        EventWaitResult w = WaitOnEvent(g_client.event, timeout);
         if (w.status != ZUZU_OK)
             return w.status;
     }
@@ -364,7 +369,7 @@ Err SockWait(Duration timeout)
 {
     if (!g_client.attached)
         return ERR_NOTCONN;
-    EventWaitResult w = FormatToEventWait(WaitOn(g_client.event, timeout));
+    EventWaitResult w = WaitOnEvent(g_client.event, timeout);
     return w.status;
 }
 
@@ -384,7 +389,7 @@ int SockSend(int sock, const void *buf, uint32_t len)
             used = SOCK_RING_SIZE;
         uint32_t room = SOCK_RING_SIZE - used;
         if (room == 0) {
-            EventWaitResult w = FormatToEventWait(WaitOn(g_client.event, TIMEOUT_INFINITE));
+            EventWaitResult w = WaitOnEvent(g_client.event, TIMEOUT_INFINITE);
             if (w.status != ZUZU_OK)
                 return w.status;
             continue;
@@ -426,7 +431,7 @@ int SockRecv(int sock, void *buf, uint32_t cap, Duration timeout)
             return s->shm->error ? (int)s->shm->error : 0;
         if (timeout == TIMEOUT_POLL)
             return ERR_TIMEOUT;
-        EventWaitResult w = FormatToEventWait(WaitOn(g_client.event, timeout));
+        EventWaitResult w = WaitOnEvent(g_client.event, timeout);
         if (w.status != ZUZU_OK)
             return w.status;
     }

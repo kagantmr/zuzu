@@ -25,8 +25,8 @@ static NetPort dns_client_port; /* ephemeral source port, allocated in dns_init 
 
 typedef struct {
     char name[DNS_MAX_NAME];
-    ipv4_addr_t ip;     /* 0 => negative entry: name has no address */
-    uint32_t expiry_ms; /* absolute, vs net_now_ms(); 0 => slot empty */
+    Ipv4Addr ip;        /* 0 => negative entry: name has no address */
+    uint32_t expiry_ms; /* absolute, vs NetNowMs(); 0 => slot empty */
 } DnsCacheEntry;
 
 static DnsCacheEntry dns_cache[DNS_CACHE_N];
@@ -34,7 +34,7 @@ static DnsCacheEntry dns_cache[DNS_CACHE_N];
 /* Live cache entry for `name`, or NULL. Expired entries are cleared in passing. */
 static DnsCacheEntry *DnsCacheLookup(const char *name)
 {
-    uint32_t now = net_now_ms();
+    uint32_t now = NetNowMs();
     for (int i = 0; i < DNS_CACHE_N; i++) {
         DnsCacheEntry *e = &dns_cache[i];
         if (!e->expiry_ms)
@@ -50,7 +50,7 @@ static DnsCacheEntry *DnsCacheLookup(const char *name)
 }
 
 /* Insert/refresh `name` -> `ip` (ip == 0 for a negative entry). ttl is seconds. */
-static void DnsCacheInsert(const char *name, ipv4_addr_t ip, uint32_t ttl_s)
+static void DnsCacheInsert(const char *name, Ipv4Addr ip, uint32_t ttl_s)
 {
     size_t n = strlen(name);
     if (n >= DNS_MAX_NAME)
@@ -63,7 +63,7 @@ static void DnsCacheInsert(const char *name, ipv4_addr_t ip, uint32_t ttl_s)
     if (ttl_s > DNS_TTL_MAX)
         ttl_s = DNS_TTL_MAX;
 
-    uint32_t now = net_now_ms();
+    uint32_t now = NetNowMs();
     DnsCacheEntry *victim = NULL;
     for (int i = 0; i < DNS_CACHE_N; i++) {
         DnsCacheEntry *e = &dns_cache[i];
@@ -87,7 +87,7 @@ static __attribute__((cold)) int DnsSendQuery(uint16_t id, const char *name);
 static __attribute__((cold)) int DnsStart(DnsTableEntry *slot)
 {
     slot->id = dns_next_id++;
-    slot->sent_ms = net_now_ms();
+    slot->sent_ms = NetNowMs();
     slot->retries_left = DNS_MAX_RETRIES;
     return DnsSendQuery(slot->id, slot->qname);
 }
@@ -163,7 +163,7 @@ static int DnsDecodeName(const uint8_t *pkt, uint16_t len, uint16_t off, char *o
 
 void DnsTick(void)
 {
-    uint32_t now = net_now_ms();
+    uint32_t now = NetNowMs();
     for (int i = 0; i < DNS_MAX_TABLE; i++) {
         DnsTableEntry *slot = &dns_table[i];
         if (!slot->in_use)
@@ -187,15 +187,15 @@ void DnsTick(void)
     }
 }
 
-static __attribute__((cold)) void DnsRecv(ipv4_addr_t src_ip, NetPort src_port, NetPort dst_port,
+static __attribute__((cold)) void DnsRecv(Ipv4Addr src_ip, NetPort src_port, NetPort dst_port,
                                           const uint8_t *data, uint16_t len)
 {
     (void)src_ip;
     (void)src_port;
     (void)dst_port;
-    if (len < sizeof(dns_hdr_t))
+    if (len < sizeof(DnsHdr))
         return;
-    dns_hdr_t *h = (dns_hdr_t *)data;
+    DnsHdr *h = (DnsHdr *)data;
     DnsTableEntry *slot = NULL;
 
     uint16_t id = ntohs(h->id);
@@ -220,7 +220,7 @@ static __attribute__((cold)) void DnsRecv(ipv4_addr_t src_ip, NetPort src_port, 
         return;
     }
 
-    int off = sizeof(dns_hdr_t);       // questions start at byte 12
+    int off = sizeof(DnsHdr);          // questions start at byte 12
     off = DnsSkipName(data, len, off); // walk past the question's name
     if (off < 0) {
         slot->cb(slot->name, 0, ERR_NOENT);
@@ -261,7 +261,7 @@ static __attribute__((cold)) void DnsRecv(ipv4_addr_t src_ip, NetPort src_port, 
 
         // 5. is it the A record we want?
         if (type == DNS_TYPE_A && class_value == DNS_CLASS_IN && rdlength == 4) {
-            ipv4_addr_t ip;
+            Ipv4Addr ip;
             memcpy(&ip, data + off + 10, 4); // already network order
             DnsCacheInsert(slot->name, ip, ttl);
             slot->cb(slot->name, ip, ZUZU_OK);
@@ -308,7 +308,7 @@ __attribute__((cold)) void DnsInit(void)
         dns_table[i].sent_ms = 0;
     }
     memset(dns_cache, 0, sizeof(dns_cache));
-    dns_client_port = port_alloc();
+    dns_client_port = PortAlloc();
     if (dns_client_port == 0) {
         LOG_ERROR(LOG_TAG, "no ephemeral port available for DNS");
         return;
@@ -350,9 +350,9 @@ static __attribute__((cold)) int DnsEncodeName(uint8_t *out, size_t cap, const c
 
 static __attribute__((cold)) int DnsSendQuery(uint16_t id, const char *name)
 {
-    uint8_t pkt[sizeof(dns_hdr_t) + DNS_MAX_NAME + 1 + 4];
-    size_t pos = sizeof(dns_hdr_t);
-    dns_hdr_t *h = (dns_hdr_t *)pkt;
+    uint8_t pkt[sizeof(DnsHdr) + DNS_MAX_NAME + 1 + 4];
+    size_t pos = sizeof(DnsHdr);
+    DnsHdr *h = (DnsHdr *)pkt;
     h->id = htons(id);
     h->flags = htons(DNS_FLAG_RD);
     h->qdcount = htons(1);

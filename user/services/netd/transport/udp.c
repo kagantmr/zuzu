@@ -17,8 +17,7 @@ static UdpTableEntry udp_table[UDP_MAX_TABLE];
 /* Checksum over the UDP pseudo-header + the contiguous UDP segment (header and
    payload). For TX the header's checksum field must be 0 on entry; for RX it
    holds the sender's value and a valid segment folds back to 0. */
-static uint16_t UdpChecksum(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *seg,
-                            uint16_t seg_len)
+static uint16_t UdpChecksum(Ipv4Addr src_ip, Ipv4Addr dst_ip, const uint8_t *seg, uint16_t seg_len)
 {
     uint8_t pseudo[12];
     memcpy(&pseudo[0], &src_ip, 4);
@@ -28,9 +27,9 @@ static uint16_t UdpChecksum(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_
     pseudo[10] = (uint8_t)(seg_len >> 8);
     pseudo[11] = (uint8_t)(seg_len & 0xFF);
 
-    uint32_t accum = inet_csum_partial(pseudo, sizeof(pseudo), 0);
-    accum = inet_csum_partial(seg, seg_len, accum);
-    return inet_csum_fold(accum);
+    uint32_t accum = InetCsumPartial(pseudo, sizeof(pseudo), 0);
+    accum = InetCsumPartial(seg, seg_len, accum);
+    return InetCsumFold(accum);
 }
 
 __attribute__((cold)) void UdpInit(void)
@@ -72,7 +71,7 @@ void UdpUnbind(NetPort port) {
     }
 }
 
-void UdpRecv(void *data, uint16_t len, ipv4_addr_t src_ip, ipv4_addr_t dst_ip)
+void UdpRecv(void *data, uint16_t len, Ipv4Addr src_ip, Ipv4Addr dst_ip)
 {
     if (len < 8) {
         return;
@@ -100,7 +99,7 @@ void UdpRecv(void *data, uint16_t len, ipv4_addr_t src_ip, ipv4_addr_t dst_ip)
     }
 }
 
-int UdpSend(ipv4_addr_t dst_ip, NetPort src_port, NetPort dst_port, const uint8_t *payload,
+int UdpSend(Ipv4Addr dst_ip, NetPort src_port, NetPort dst_port, const uint8_t *payload,
             uint16_t payload_len)
 {
     if (payload_len > UDP_MAX_PAYLOAD) {
@@ -109,19 +108,19 @@ int UdpSend(ipv4_addr_t dst_ip, NetPort src_port, NetPort dst_port, const uint8_
 
     /* Reserve room for the Ethernet + IP + UDP headers in front of the payload,
        then copy the caller's payload once into its final position in the slot. */
-    txframe_t f;
-    int rc = txframe_init(&f, sizeof(eth_hdr_t) + sizeof(ip_header_t) + sizeof(UdpHeader));
+    TxFrame f;
+    int rc = TxFrameInit(&f, sizeof(EthHdr) + sizeof(IpHeader) + sizeof(UdpHeader));
     if (rc != ZUZU_OK)
         return rc;
 
     if (payload_len) {
-        void *dst = txframe_append(&f, payload_len);
+        void *dst = TxFrameAppend(&f, payload_len);
         if (!dst)
             return ERR_OVERFLOW;
         memcpy(dst, payload, payload_len);
     }
 
-    UdpHeader *hdr = (UdpHeader *)txframe_prepend(&f, sizeof(UdpHeader));
+    UdpHeader *hdr = (UdpHeader *)TxFramePrepend(&f, sizeof(UdpHeader));
     if (!hdr)
         return ERR_OVERFLOW;
 
@@ -133,8 +132,8 @@ int UdpSend(ipv4_addr_t dst_ip, NetPort src_port, NetPort dst_port, const uint8_
     /* Checksum covers the pseudo-header and the whole contiguous segment. A
        computed value of 0 is transmitted as 0xFFFF so the receiver doesn't
        mistake it for "no checksum" (RFC 768). */
-    uint16_t cs = htons(UdpChecksum(netif.ip, dst_ip, txframe_data(&f), txframe_len(&f)));
+    uint16_t cs = htons(UdpChecksum(netif.ip, dst_ip, TxFrameData(&f), TxFrameLen(&f)));
     hdr->checksum = cs ? cs : 0xFFFF;
 
-    return ip_send(&f, netif.ip, dst_ip, IP_PROTO_UDP);
+    return IpSend(&f, netif.ip, dst_ip, IP_PROTO_UDP);
 }

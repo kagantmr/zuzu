@@ -20,9 +20,9 @@ typedef struct __attribute__((packed)) {
 _Static_assert(sizeof(TcpHdr) == 20, "TCP header size");
 
 /* wraparound-safe sequence number comparisons (RFC 1323 style) */
-#define seq_lt(a, b) ((int32_t)((a) - (b)) < 0)
-#define seq_leq(a, b) ((int32_t)((a) - (b)) <= 0)
-#define seq_max(a, b) (seq_lt((a), (b)) ? (b) : (a))
+static inline bool SeqLt(uint32_t a, uint32_t b) { return (int32_t)(a - b) < 0; }
+static inline bool SeqLeq(uint32_t a, uint32_t b) { return (int32_t)(a - b) <= 0; }
+static inline uint32_t SeqMax(uint32_t a, uint32_t b) { return SeqLt(a, b) ? b : a; }
 
 #define TCP_FIN 0x01
 #define TCP_SYN 0x02
@@ -65,7 +65,7 @@ typedef enum {
     TCP_CLOSING,     /* simultaneous close: both FINs out, ours not yet acked */
     TCP_LISTENING,
     TCP_SYN_RCVD
-} tcp_state_t;
+} TcpState;
 
 typedef struct {
     uint32_t start;
@@ -81,11 +81,11 @@ typedef struct {
 } TcpCallbacks;
 
 typedef struct {
-    ipv4_addr_t local_ip;
+    Ipv4Addr local_ip;
     NetPort local_port;
-    ipv4_addr_t remote_ip;
+    Ipv4Addr remote_ip;
     NetPort remote_port;
-    tcp_state_t state;
+    TcpState state;
     uint32_t snd_nxt;
     uint32_t snd_una;
     uint32_t snd_max; /* highest sequence number ever sent, one past the last byte */
@@ -121,21 +121,20 @@ typedef struct {
     Duration srtt;
     Duration rttvar;
     bool rtt_valid;     /* have we taken the first RTT sample? */
-    Duration rtt_start; /* when we sent the timed segment (net_now_ms) */
+    Duration rtt_start; /* when we sent the timed segment (NetNowMs) */
     uint32_t rtt_seq;   /* which byte we're waiting for the ACK to pass */
     bool rtt_timing;    /* is a stopwatch currently running? */
     uint16_t snd_mss;
     int retries;
     uint32_t cwnd;
     uint32_t ssthresh;
-    bool nodelay;
     uint32_t max_snd_wnd;
     uint32_t dupacks;
     uint32_t recover;
 } TcpPcb;
 
 typedef struct {
-    ipv4_addr_t src_ip;
+    Ipv4Addr src_ip;
     NetPort src_port;
     NetPort dst_port;
     uint32_t seq; /* their sequence number */
@@ -156,15 +155,14 @@ typedef struct {
 _Static_assert((TCP_SND_BUF & (TCP_SND_BUF - 1)) == 0, "TCP_SND_BUF must be power of two");
 _Static_assert((TCP_RCV_BUF & (TCP_RCV_BUF - 1)) == 0, "TCP_RCV_BUF must be power of two");
 
-int tcp_connect(ipv4_addr_t remote_ip, NetPort remote_port, const TcpCallbacks *cb, void *ctx);
-void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_t len);
+int TcpConnect(Ipv4Addr remote_ip, NetPort remote_port, const TcpCallbacks *cb, void *ctx);
+void TcpRx(Ipv4Addr src_ip, Ipv4Addr dst_ip, const uint8_t *data, uint16_t len);
 void TcpCcInit(TcpPcb *pcb);
-int tcp_send(int idx, const uint8_t *data, uint16_t len);
-int tcp_recv(int idx, uint8_t *buf, uint16_t sz);
-int tcp_listen(int port, int backlog, const TcpCallbacks *cb, void *ctx);
-void *tcp_get_ctx(int slot);
-void tcp_set_ctx(int slot, void *ctx);
-int tcp_set_nodelay(int idx, bool on);
-int tcp_close(int idx);
+int TcpSend(int idx, const uint8_t *data, uint16_t len);
+int TcpRecv(int idx, uint8_t *buf, uint16_t sz);
+int TcpListen(int port, int backlog, const TcpCallbacks *cb, void *ctx);
+void *TcpGetCtx(int slot);
+void TcpSetCtx(int slot, void *ctx);
+int TcpClose(int idx);
 
 #endif

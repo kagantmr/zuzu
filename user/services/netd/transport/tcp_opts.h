@@ -1,7 +1,7 @@
 #ifndef TCP_OPTIONS_H
 #define TCP_OPTIONS_H
 
-#include "tcp.h" /* for tcp_seg_t */
+#include "tcp.h" /* for TcpSeg */
 #include <stdbool.h>
 #include <stddef.h>
 

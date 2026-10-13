@@ -13,7 +13,7 @@
 
 #define LOG_TAG "netd"
 
-/* expand a network-order ipv4_addr_t to four %u args (a.b.c.d) */
+/* expand a network-order Ipv4Addr to four %u args (a.b.c.d) */
 #define IP4(x)                                                                                     \
     (unsigned)((x) & 0xff), (unsigned)(((x) >> 8) & 0xff), (unsigned)(((x) >> 16) & 0xff),         \
         (unsigned)(((x) >> 24) & 0xff)
@@ -21,20 +21,20 @@
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
-typedef uint32_t ipv4_addr_t;
+typedef uint32_t Ipv4Addr;
 typedef uint16_t NetPort;
-typedef uint8_t mac_addr_t[6];
+typedef uint8_t MacAddr[6];
 
 /* One network interface's L2/L3 config. */
 typedef struct {
-    ipv4_addr_t ip;
-    ipv4_addr_t netmask;
-    ipv4_addr_t gateway;
-    ipv4_addr_t dns;
-    mac_addr_t mac;
-} netif_t;
+    Ipv4Addr ip;
+    Ipv4Addr netmask;
+    Ipv4Addr gateway;
+    Ipv4Addr dns;
+    MacAddr mac;
+} Netif;
 
-static inline uint32_t net_now_ms(void)
+static inline uint32_t NetNowMs(void)
 {
     Syspage *sp = (Syspage *)SYSPAGE;
     uint32_t hz = sp->tick_hz ? sp->tick_hz : 1000u;
@@ -44,11 +44,11 @@ static inline uint32_t net_now_ms(void)
 typedef struct {
     uint32_t tokens;
     uint32_t last_ms;
-} rate_limiter_t;
+} RateLimiter;
 
-static inline bool rate_allow(rate_limiter_t *rl, uint32_t rate, uint32_t burst)
+static inline bool RateAllow(RateLimiter *rl, uint32_t rate, uint32_t burst)
 {
-    uint32_t now = net_now_ms();
+    uint32_t now = NetNowMs();
     if (rl->last_ms == 0) { /* first use: start full */
         rl->tokens = burst;
         rl->last_ms = now ? now : 1;
@@ -71,7 +71,6 @@ extern NicStatsBlock *stats;
 extern Handle g_svc_port;
 extern Handle g_event;
 extern Handle g_nic_doorbell_ev; /* shared with the NIC driver: RX bit in, TX bit out */
-extern netif_t netif;
-
+extern Netif netif;
 
 #endif

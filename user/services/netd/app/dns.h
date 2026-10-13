@@ -8,9 +8,9 @@ typedef struct {
     uint16_t id;
     uint16_t flags;
     uint16_t qdcount, ancount, nscount, arcount;
-} __attribute__((packed)) dns_hdr_t;
+} __attribute__((packed)) DnsHdr;
 
-_Static_assert(sizeof(dns_hdr_t) == 12, "header size wrong");
+_Static_assert(sizeof(DnsHdr) == 12, "header size wrong");
 
 #define DNS_MAX_TABLE 16
 #define DNS_MAX_NAME 253
@@ -35,7 +35,7 @@ _Static_assert(sizeof(dns_hdr_t) == 12, "header size wrong");
 #define DNS_FLAG_RD 0x0100 /* bit 8:  recursion desired */
 #define DNS_FLAG_TC 0x0200 /* bit 9:  truncated, try over TCP */
 
-typedef void (*DnsCallback)(const char *name, ipv4_addr_t ip, int status);
+typedef void (*DnsCallback)(const char *name, Ipv4Addr ip, int status);
 
 void DnsInit(void);
 void DnsQuery(const char *name, DnsCallback cb);

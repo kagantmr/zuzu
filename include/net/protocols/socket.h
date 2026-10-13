@@ -29,13 +29,10 @@ extern "C" {
 #define SOCK_LISTEN (SOCK_CMD_BASE + 5) /* {cmd, sock, port, backlog}, TCP only */
 #define SOCK_CONNECT (SOCK_CMD_BASE + 6) /* {cmd, sock, ip, port}; completes asynchronously */
 #define SOCK_ACCEPT (SOCK_CMD_BASE + 7)  /* grant: memory object for the new socket. {cmd, sock}; ERR_BUFEMPTY if none pending */
-#define SOCK_SETOPT (SOCK_CMD_BASE + 8)  /* {cmd, sock, opt, value} */
 #define SOCK_CLOSE (SOCK_CMD_BASE + 9)   /* {cmd, sock} */
 
 #define SOCK_KIND_TCP 1u
 #define SOCK_KIND_UDP 2u
-
-#define SOCK_OPT_NODELAY 1u
 
 typedef enum {
     SOCK_STATE_OPEN = 0, /* created, not bound or connected */

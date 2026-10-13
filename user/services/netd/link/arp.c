@@ -9,19 +9,19 @@
 
 #define LOG_TAG "netd"
 
-static arp_entry_t arp_table[ARP_MAX_ENTRIES];
+static ArpEntry arp_table[ARP_MAX_ENTRIES];
 
 /* In-flight RFC 5227 conflict detection. Only one tentative address is probed at
    a time (DHCP validates a single offered lease). */
 static struct {
     bool active;
-    ipv4_addr_t ip;   /* tentative address under test */
+    Ipv4Addr ip;      /* tentative address under test */
     uint8_t probes;   /* probes sent so far */
     uint32_t next_ms; /* when to send the next probe / declare free */
     void (*on_result)(bool conflict);
 } acd;
 
-__attribute__((cold)) void arp_init()
+__attribute__((cold)) void ArpInit()
 {
     memset(arp_table, 0, sizeof(arp_table)); /* every slot ARP_FREE */
     memset(&acd, 0, sizeof(acd));
@@ -29,9 +29,9 @@ __attribute__((cold)) void arp_init()
 
 /* An ACD probe is an ARP request with the sender protocol address left at
    0.0.0.0 (RFC 5227 2.1.1): it asks "who has ip" without claiming ip ourselves. */
-static __attribute__((cold)) void arp_acd_probe(ipv4_addr_t ip)
+static __attribute__((cold)) void ArpAcdProbe(Ipv4Addr ip)
 {
-    arp_packet_t pkt;
+    ArpPacket pkt;
     memset(&pkt, 0, sizeof(pkt));
     pkt.htype = htons(1);
     pkt.ptype = htons(ETH_TYPE_IP);
@@ -40,22 +40,22 @@ static __attribute__((cold)) void arp_acd_probe(ipv4_addr_t ip)
     pkt.oper = htons(ARP_OPER_REQST);
     memcpy(pkt.sha, netif.mac, 6); /* our MAC; spa stays 0.0.0.0 */
     memcpy(pkt.tpa, &ip, 4);
-    mac_addr_t dst_mac = BROADCAST_MAC;
-    eth_tx(dst_mac, ETH_TYPE_ARP, (uint8_t *)&pkt, sizeof(arp_packet_t));
+    MacAddr dst_mac = BROADCAST_MAC;
+    EthTx(dst_mac, ETH_TYPE_ARP, (uint8_t *)&pkt, sizeof(ArpPacket));
 }
 
-void arp_acd_start(ipv4_addr_t ip, void (*on_result)(bool conflict))
+void ArpAcdStart(Ipv4Addr ip, void (*on_result)(bool conflict))
 {
     acd.active = true;
     acd.ip = ip;
     acd.probes = 0;
-    acd.next_ms = net_now_ms(); /* first probe goes out on the next arp_tick */
+    acd.next_ms = NetNowMs(); /* first probe goes out on the next ArpTick */
     acd.on_result = on_result;
 }
 
 /* End the probe and report the verdict. The callback may start a fresh probe
    (e.g. DHCP declining and re-running DORA), so snapshot and clear first. */
-static void arp_acd_finish(bool conflict)
+static void ArpAcdFinish(bool conflict)
 {
     if (!acd.active)
         return;
@@ -65,7 +65,7 @@ static void arp_acd_finish(bool conflict)
         cb(conflict);
 }
 
-static arp_entry_t *arp_find(ipv4_addr_t ip)
+static ArpEntry *ArpFind(Ipv4Addr ip)
 {
     for (int i = 0; i < ARP_MAX_ENTRIES; i++)
         if (arp_table[i].state != ARP_FREE && arp_table[i].ip == ip)
@@ -73,16 +73,16 @@ static arp_entry_t *arp_find(ipv4_addr_t ip)
     return NULL;
 }
 
-static void arp_free_entry(arp_entry_t *e)
+static void ArpFreeEntry(ArpEntry *e)
 {
     for (uint8_t i = 0; i < e->qlen; i++)
         free(e->queue[i].data);
     memset(e, 0, sizeof(*e)); /* state -> ARP_FREE, qlen -> 0 */
 }
 
-static arp_entry_t *arp_find_or_create(ipv4_addr_t ip)
+static ArpEntry *ArpFindOrCreate(Ipv4Addr ip)
 {
-    arp_entry_t *e = arp_find(ip);
+    ArpEntry *e = ArpFind(ip);
     if (e)
         return e;
 
@@ -99,7 +99,7 @@ static arp_entry_t *arp_find_or_create(ipv4_addr_t ip)
 
     /* table full: evict the REACHABLE entry closest to expiry. Never evict an
        in-flight INCOMPLETE resolution (it owns queued packets and a probe). */
-    arp_entry_t *victim = NULL;
+    ArpEntry *victim = NULL;
     for (int i = 0; i < ARP_MAX_ENTRIES; i++) {
         if (arp_table[i].state == ARP_REACHABLE &&
             (!victim || (int32_t)(arp_table[i].expire_ms - victim->expire_ms) < 0))
@@ -108,67 +108,56 @@ static arp_entry_t *arp_find_or_create(ipv4_addr_t ip)
     if (!victim)
         return NULL;
 
-    arp_free_entry(victim);
+    ArpFreeEntry(victim);
     victim->ip = ip;
     victim->state = ARP_INCOMPLETE;
     return victim;
 }
 
-void arp_learn(ipv4_addr_t ip, const uint8_t *mac_addr)
+void ArpLearn(Ipv4Addr ip, const uint8_t *mac_addr)
 {
-    arp_entry_t *e = arp_find_or_create(ip);
+    ArpEntry *e = ArpFindOrCreate(ip);
     if (!e)
         return; /* table saturated with pending resolutions */
 
     bool was_pending = (e->state != ARP_REACHABLE);
     memcpy(e->mac, mac_addr, 6);
     e->state = ARP_REACHABLE;
-    e->expire_ms = net_now_ms() + ARP_REACHABLE_MS;
+    e->expire_ms = NetNowMs() + ARP_REACHABLE_MS;
 
     if (was_pending && e->qlen) {
         /* flush everything that was waiting on this address */
         LOG_INFO(LOG_TAG, "learned %u.%u.%u.%u: flushing %u queued", IP4(ip), e->qlen);
         for (uint8_t i = 0; i < e->qlen; i++) {
-            eth_tx(e->mac, e->queue[i].ethertype, e->queue[i].data, e->queue[i].len);
+            EthTx(e->mac, e->queue[i].ethertype, e->queue[i].data, e->queue[i].len);
             free(e->queue[i].data);
         }
         e->qlen = 0;
     }
 }
-
-int arp_lookup(ipv4_addr_t ip, uint8_t *mac_out)
-{
-    arp_entry_t *e = arp_find(ip);
-    if (e && e->state == ARP_REACHABLE) {
-        memcpy(mac_out, e->mac, 6);
-        return ZUZU_OK;
-    }
-    return ERR_NOENT;
-}
-
-void arp_send_frame(ipv4_addr_t ip, uint16_t ethertype, txframe_t *f)
+void ArpSendFrame(Ipv4Addr ip, uint16_t ethertype, TxFrame *f)
 {
     if (ip == BROADCAST_IP) {
-        mac_addr_t bcast = BROADCAST_MAC;
-        eth_send_frame(f, bcast, ethertype);
+        MacAddr bcast = BROADCAST_MAC;
+        EthSendFrame(f, bcast, ethertype);
         return;
     }
-    arp_entry_t *e = arp_find_or_create(ip);
+    ArpEntry *e = ArpFindOrCreate(ip);
     if (!e)
         return; /* table full, drop (slot abandoned) */
 
     if (e->state == ARP_REACHABLE) { /* fast path: commit the slot in place */
-        eth_send_frame(f, e->mac, ethertype);
+        EthSendFrame(f, e->mac, ethertype);
         return;
     }
 
     /* Unresolved: we cannot hold a ring slot across an ARP round-trip, so copy
        the built bytes out into the pending queue and abandon the slot. */
     if (e->qlen < ARP_MAX_QUEUE) { /* bounded enqueue */
-        uint16_t len = txframe_len(f);
+        uint16_t len = TxFrameLen(f);
         uint8_t *copy = malloc(len);
         if (copy) {
-            memcpy(copy, txframe_data(f), len);
+            memcpy(copy, TxFrameData(f), len);
             e->queue[e->qlen].data = copy;
             e->queue[e->qlen].len = len;
             e->queue[e->qlen].ethertype = ethertype;
@@ -179,87 +168,87 @@ void arp_send_frame(ipv4_addr_t ip, uint16_t ethertype, txframe_t *f)
     }
 
     if (e->probes == 0) { /* kick off resolution exactly once */
-        arp_request(ip);
+        ArpRequest(ip);
         e->probes = 1;
-        e->last_tx_ms = net_now_ms();
+        e->last_tx_ms = NetNowMs();
         LOG_INFO(LOG_TAG, "ARP miss %u.%u.%u.%u: queued %u, probing", IP4(ip), e->qlen);
     }
 }
 
-void arp_tick(void)
+void ArpTick(void)
 {
-    uint32_t now = net_now_ms();
+    uint32_t now = NetNowMs();
 
     /* Drive in-flight address-conflict detection: space out the probes, then
        declare the address free once they all go unanswered. A conflicting reply
-       short-circuits this from arp_rx. */
+       short-circuits this from ArpRx. */
     if (acd.active && (int32_t)(now - acd.next_ms) >= 0) {
         if (acd.probes < ACD_PROBE_NUM) {
-            arp_acd_probe(acd.ip);
+            ArpAcdProbe(acd.ip);
             acd.probes++;
             acd.next_ms = now + ACD_PROBE_MS;
             LOG_INFO(LOG_TAG, "ACD probe %u for %u.%u.%u.%u", acd.probes, IP4(acd.ip));
         } else {
-            arp_acd_finish(false); /* no answer: address is free */
+            ArpAcdFinish(false); /* no answer: address is free */
         }
     }
 
     for (int i = 0; i < ARP_MAX_ENTRIES; i++) {
-        arp_entry_t *e = &arp_table[i];
+        ArpEntry *e = &arp_table[i];
         if (e->state == ARP_INCOMPLETE) {
             if ((int32_t)(now - e->last_tx_ms) >= ARP_PROBE_MS) {
                 if (e->probes < ARP_MAX_PROBES) {
-                    arp_request(e->ip);
+                    ArpRequest(e->ip);
                     e->probes++;
                     e->last_tx_ms = now;
                     LOG_INFO(LOG_TAG, "ARP retransmit %u.%u.%u.%u probe %u", IP4(e->ip), e->probes);
                 } else {
                     LOG_WARN(LOG_TAG, "ARP gave up %u.%u.%u.%u, dropped %u queued", IP4(e->ip),
                              e->qlen);
-                    arp_free_entry(e); /* frees queued packets too */
+                    ArpFreeEntry(e); /* frees queued packets too */
                 }
             }
         } else if (e->state == ARP_REACHABLE) {
             if ((int32_t)(now - e->expire_ms) >= 0)
-                arp_free_entry(e); /* age out */
+                ArpFreeEntry(e); /* age out */
         }
     }
 }
 
-int arp_rx(uint8_t *data, uint16_t len)
+int ArpRx(uint8_t *data, uint16_t len)
 {
-    ipv4_addr_t ip = netif.ip;
-    if (len < sizeof(arp_packet_t))
+    Ipv4Addr ip = netif.ip;
+    if (len < sizeof(ArpPacket))
         return ERR_MALFORMED;
-    arp_packet_t *pkt = (arp_packet_t *)data;
+    ArpPacket *pkt = (ArpPacket *)data;
     if (ntohs(pkt->htype) != 1 || ntohs(pkt->ptype) != ETH_TYPE_IP || pkt->hlen != 6 ||
         pkt->plen != 4) {
         return ERR_MALFORMED;
     }
 
-    ipv4_addr_t spa;
+    Ipv4Addr spa;
     memcpy(&spa, pkt->spa, 4);
 
     /* RFC 5227 conflict: while probing a tentative address, any packet from a
        different host that either sources from it (spa == acd.ip) or simultaneously
        probes it (spa == 0, tpa == acd.ip) means the address is taken. */
     if (acd.active && memcmp(pkt->sha, netif.mac, 6) != 0) {
-        ipv4_addr_t tpa;
+        Ipv4Addr tpa;
         memcpy(&tpa, pkt->tpa, 4);
         if (spa == acd.ip || (spa == 0 && tpa == acd.ip)) {
             LOG_WARN(LOG_TAG, "ACD: %u.%u.%u.%u already in use", IP4(acd.ip));
-            arp_acd_finish(true);
+            ArpAcdFinish(true);
         }
     }
 
-    arp_learn(spa, pkt->sha);
+    ArpLearn(spa, pkt->sha);
 
     uint16_t op = ntohs(pkt->oper);
     switch (op) {
     case (ARP_OPER_REQST): {
-        static rate_limiter_t arp_reply_rl;
-        if (memcmp(pkt->tpa, &ip, 4) == 0 && rate_allow(&arp_reply_rl, 16, 16)) {
-            arp_packet_t pkt_out;
+        static RateLimiter arp_reply_rl;
+        if (memcmp(pkt->tpa, &ip, 4) == 0 && RateAllow(&arp_reply_rl, 16, 16)) {
+            ArpPacket pkt_out;
             pkt_out.htype = htons(1);
             pkt_out.ptype = htons(ETH_TYPE_IP);
             pkt_out.hlen = 6;
@@ -269,7 +258,7 @@ int arp_rx(uint8_t *data, uint16_t len)
             memcpy(pkt_out.spa, &ip, 4);       // our IP
             memcpy(pkt_out.tha, pkt->sha, 6);  // their MAC
             memcpy(pkt_out.tpa, pkt->spa, 4);  // their IP
-            eth_tx(pkt->sha, ETH_TYPE_ARP, (uint8_t *)&pkt_out, sizeof(arp_packet_t));
+            EthTx(pkt->sha, ETH_TYPE_ARP, (uint8_t *)&pkt_out, sizeof(ArpPacket));
         }
         break;
     }
@@ -281,21 +270,21 @@ int arp_rx(uint8_t *data, uint16_t len)
     return ZUZU_OK;
 }
 
-__attribute__((cold)) int arp_request(ipv4_addr_t ip)
+__attribute__((cold)) int ArpRequest(Ipv4Addr ip)
 {
-    arp_packet_t pkt;
+    ArpPacket pkt;
     memset(&pkt, 0, sizeof(pkt));
     pkt.htype = htons(1);
     pkt.ptype = htons(ETH_TYPE_IP);
     pkt.hlen = 6;
     pkt.plen = 4;
-    ipv4_addr_t our_ip = netif.ip;
+    Ipv4Addr our_ip = netif.ip;
     pkt.oper = htons(1);           // request
     memcpy(pkt.sha, netif.mac, 6); // our MAC
     memcpy(pkt.spa, &our_ip, 4);   // our IP
     // broadcast frame, no need to set it
     memcpy(pkt.tpa, &ip, 4); // their IP
-    mac_addr_t dst_mac = BROADCAST_MAC;
-    eth_tx(dst_mac, ETH_TYPE_ARP, (uint8_t *)&pkt, sizeof(arp_packet_t));
+    MacAddr dst_mac = BROADCAST_MAC;
+    EthTx(dst_mac, ETH_TYPE_ARP, (uint8_t *)&pkt, sizeof(ArpPacket));
     return ZUZU_OK;
 }

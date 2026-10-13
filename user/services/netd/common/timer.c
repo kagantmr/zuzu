@@ -40,7 +40,7 @@ uint32_t TimerNextDeadline(void)
 
 void TimerRunExpired(void)
 {
-    uint32_t now = net_now_ms();
+    uint32_t now = NetNowMs();
     while (timers.node.next != &timers.node) {
         Timer *t = container_of(timers.node.next, Timer, node);
         if ((int32_t)(now - t->deadline_ms) < 0)

@@ -9,7 +9,7 @@
 
 typedef struct {
     ListNode node;
-    uint32_t deadline_ms; /* absolute, vs net_now_ms() */
+    uint32_t deadline_ms; /* absolute, vs NetNowMs() */
     void (*cb)(void *arg);
     void *arg;
     bool armed;

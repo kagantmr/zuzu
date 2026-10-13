@@ -85,15 +85,16 @@ static void HandleAttach(const PortWaitResult *call)
         ReplyStatus(ERR_BUSY);
         return;
     }
-    SvcResult bell = HandleDuplicate(g_doorbell, PERM_SEND | PERM_TXFR, MARKER_NONE);
-    if (bell.r0 != ZUZU_OK) {
+    Handle bell;
+    Err rc = HandleDup(g_doorbell, PERM_SEND | PERM_TXFR, MARKER_NONE, &bell);
+    if (rc != ZUZU_OK) {
         DropGrant(call);
-        ReplyStatus((Err)bell.r0);
+        ReplyStatus(rc);
         return;
     }
-    Err rc = Bind(EVENT_PORT, g_death, call->granted, (uint32_t)slot);
+    rc = Bind(EVENT_PORT, g_death, call->granted, (uint32_t)slot);
     if (rc != ZUZU_OK) {
-        HandleClose((Handle)bell.r1);
+        HandleClose(bell);
         DropGrant(call);
         ReplyStatus(rc);
         return;
@@ -109,8 +110,8 @@ static void HandleAttach(const PortWaitResult *call)
     SockAttachReply rep = {
         .status = ZUZU_OK, .session = SESSION_INDEX(g_gen[slot], slot), .bit = SESSION_BIT(slot)};
     MsgWrite(&rep, sizeof(rep));
-    Err sent = Reply(sizeof(rep), (Handle)bell.r1);
-    HandleClose((Handle)bell.r1);
+    Err sent = Reply(sizeof(rep), bell);
+    HandleClose(bell);
     if (sent != ZUZU_OK) {
         LOG_INFO(LOG_TAG, "session %d: reply grant failed rc=%d", slot, sent);
         ReleaseSession(slot);
@@ -368,15 +369,14 @@ void SessionKick(int slot)
 
 void SessionReapDead(void)
 {
-    EventWaitResult d = FormatToEventWait(WaitOn(g_death, TIMEOUT_POLL));
+    EventWaitResult d = WaitOnEvent(g_death, TIMEOUT_POLL);
     if (d.status != ZUZU_OK)
         return;
     for (int slot = 0; slot < SESSION_MAX; slot++) {
         Session *s = &g_sessions[slot];
         if (!(d.bits & (1U << slot)) || !s->in_use || s->live < 0)
             continue;
-        SvcResult q = HandleQuery(s->live, QUERY_STATUS);
-        if (q.r0 != ZUZU_OK || (Err)q.r1 != ERR_DEAD)
+        if (HandleIsAlive(s->live))
             continue;
         LOG_DEBUG(LOG_TAG, "session %d: app died", slot);
         ReleaseSession(slot);

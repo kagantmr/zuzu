@@ -8,7 +8,7 @@
 #include <string.h>
 #include <util/log.h>
 
-uint16_t tcp_checksum(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *seg, uint16_t seg_len)
+uint16_t TcpChecksum(Ipv4Addr src_ip, Ipv4Addr dst_ip, const uint8_t *seg, uint16_t seg_len)
 {
     uint8_t pseudo[12];
     memcpy(&pseudo[0], &src_ip, 4);
@@ -18,24 +18,21 @@ uint16_t tcp_checksum(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *seg
     pseudo[10] = (uint8_t)(seg_len >> 8);
     pseudo[11] = (uint8_t)(seg_len & 0xFF);
 
-    uint32_t accum = inet_csum_partial(pseudo, sizeof(pseudo), 0);
-    accum = inet_csum_partial(seg, seg_len, accum);
-    return inet_csum_fold(accum);
+    uint32_t accum = InetCsumPartial(pseudo, sizeof(pseudo), 0);
+    accum = InetCsumPartial(seg, seg_len, accum);
+    return InetCsumFold(accum);
 }
 
 /* arm if not armed; set flag   */
-void rto_start(TcpPcb *pcb)
+void RtoStart(TcpPcb *pcb)
 {
     if (pcb->rto_timer.armed)
         return;
-    TimerArm(&pcb->rto_timer, net_now_ms() + pcb->rto_ms, tcp_rto_cb, pcb);
+    TimerArm(&pcb->rto_timer, NetNowMs() + pcb->rto_ms, TcpRtoCb, pcb);
 }
 
 /* cancel if armed; clear flag  */
-void rto_stop(TcpPcb *pcb)
-{
-    TimerCancel(&pcb->rto_timer);
-}
+void RtoStop(TcpPcb *pcb) { TimerCancel(&pcb->rto_timer); }
 
 static void TcpCopyOut(const TcpPcb *pcb, uint32_t seq, uint8_t *dst, size_t len)
 {
@@ -46,7 +43,7 @@ static void TcpCopyOut(const TcpPcb *pcb, uint32_t seq, uint8_t *dst, size_t len
         memcpy(dst + first, pcb->snd_buf, len - first);
 }
 
-int tcp_output(TcpPcb *pcb, uint8_t flags, uint16_t data_len)
+int TcpOutput(TcpPcb *pcb, uint8_t flags, uint16_t data_len)
 {
     uint8_t opts[TCP_MAX_OPTS];
     size_t optlen = 0;
@@ -55,13 +52,13 @@ int tcp_output(TcpPcb *pcb, uint8_t flags, uint16_t data_len)
         optlen = TcpBuildOptions(opts, sizeof(opts), &o);
     }
 
-    txframe_t f;
-    int rc = txframe_init(&f, sizeof(eth_hdr_t) + sizeof(ip_header_t));
+    TxFrame f;
+    int rc = TxFrameInit(&f, sizeof(EthHdr) + sizeof(IpHeader));
     if (rc != ZUZU_OK)
         return rc;
 
-    TcpHdr *th = txframe_append(&f, sizeof(TcpHdr) + optlen);
-    uint8_t *payload = txframe_append(&f, data_len);
+    TcpHdr *th = TxFrameAppend(&f, sizeof(TcpHdr) + optlen);
+    uint8_t *payload = TxFrameAppend(&f, data_len);
     if (!th || !payload)
         return ERR_OVERFLOW;
 
@@ -72,9 +69,9 @@ int tcp_output(TcpPcb *pcb, uint8_t flags, uint16_t data_len)
     th->flags = flags;
 
     uint32_t edge = pcb->rcv_rsq + pcb->rcv_size;
-    if (seq_lt(pcb->rcv_adv, edge) && edge - pcb->rcv_adv < MIN(pcb->rcv_size / 2, pcb->snd_mss))
+    if (SeqLt(pcb->rcv_adv, edge) && edge - pcb->rcv_adv < MIN(pcb->rcv_size / 2, pcb->snd_mss))
         edge = pcb->rcv_adv; /* receiver SWS: don't announce a tiny increase */
-    uint16_t win = seq_lt(pcb->rcv_nxt, edge) ? edge - pcb->rcv_nxt : 0;
+    uint16_t win = SeqLt(pcb->rcv_nxt, edge) ? edge - pcb->rcv_nxt : 0;
     pcb->rcv_adv = pcb->rcv_nxt + win;
     th->window = htons(win);
     // th->window = htons(4); // crippled window for test
@@ -88,45 +85,45 @@ int tcp_output(TcpPcb *pcb, uint8_t flags, uint16_t data_len)
         TcpCopyOut(pcb, pcb->snd_nxt, payload, data_len);
 
     uint16_t seg_len = sizeof(TcpHdr) + optlen + data_len;
-    th->checksum = htons(tcp_checksum(pcb->local_ip, pcb->remote_ip, (const uint8_t *)th, seg_len));
+    th->checksum = htons(TcpChecksum(pcb->local_ip, pcb->remote_ip, (const uint8_t *)th, seg_len));
 
-    rc = ip_send(&f, pcb->local_ip, pcb->remote_ip, IP_PROTO_TCP);
+    rc = IpSend(&f, pcb->local_ip, pcb->remote_ip, IP_PROTO_TCP);
     if (rc != ZUZU_OK)
         return rc;
 
     /* SYN and FIN each consume one sequence number; data consumes data_len. */
     pcb->snd_nxt += data_len + ((flags & TCP_SYN) ? 1 : 0) + ((flags & TCP_FIN) ? 1 : 0);
-    if (seq_lt(pcb->snd_max, pcb->snd_nxt))
+    if (SeqLt(pcb->snd_max, pcb->snd_nxt))
         pcb->snd_max = pcb->snd_nxt;
 
     return ZUZU_OK;
 }
 
-int tcp_xmit(TcpPcb *pcb)
+int TcpXmit(TcpPcb *pcb)
 {
     bool sent = false;
     while (1) {
 
         uint32_t data_end = pcb->snd_una + pcb->buffered_bytes;
-        if (seq_leq(data_end, pcb->snd_nxt))
+        if (SeqLeq(data_end, pcb->snd_nxt))
             break;
         size_t unsent = data_end - pcb->snd_nxt;
         size_t window_edge = pcb->snd_una + MIN(pcb->snd_wnd, pcb->cwnd);
-        if (seq_leq(window_edge, pcb->snd_nxt))
+        if (SeqLeq(window_edge, pcb->snd_nxt))
             break;
 
         size_t sendable = window_edge - pcb->snd_nxt;
 
         size_t seglen = MIN(MIN(unsent, sendable), pcb->snd_mss);
 
-        bool retrans = seq_lt(pcb->snd_nxt, pcb->snd_max);
+        bool retrans = SeqLt(pcb->snd_nxt, pcb->snd_max);
         bool full = seglen >= pcb->snd_mss;
         bool drains = seglen == unsent;
         bool idle = pcb->snd_max == pcb->snd_una;
         bool fin = pcb->fin_pending && drains;
         bool half = seglen >= pcb->max_snd_wnd / 2;
 
-        if (!retrans && !(full || half || fin || (drains && (idle || pcb->nodelay))))
+        if (!retrans && !(full || half || fin || (drains && idle)))
             break;
 
         if (seglen == 0)
@@ -138,40 +135,40 @@ int tcp_xmit(TcpPcb *pcb)
             pcb->fin_sent = true;
         }
 
-        uint32_t seg_seq = pcb->snd_nxt; /* before tcp_output advances it */
-        int rc = tcp_output(pcb, flags, seglen);
+        uint32_t seg_seq = pcb->snd_nxt; /* before TcpOutput advances it */
+        int rc = TcpOutput(pcb, flags, seglen);
         if (rc != ZUZU_OK)
             return rc;
         sent = true;
 
         if (!pcb->rtt_timing) { /* only one measurement in flight */
             pcb->rtt_timing = true;
-            pcb->rtt_start = net_now_ms();
+            pcb->rtt_start = NetNowMs();
             pcb->rtt_seq = seg_seq + seglen; /* ACK must pass the segment's end */
         }
     }
     uint32_t data_end = pcb->snd_una + pcb->buffered_bytes;
-    bool fin_acked = pcb->fin_sent && seq_leq(pcb->snd_max, pcb->snd_una);
+    bool fin_acked = pcb->fin_sent && SeqLeq(pcb->snd_max, pcb->snd_una);
 
     /* all data sent; emit the FIN alone if it hasn't gone out yet */
     if (pcb->fin_pending && !fin_acked && pcb->snd_nxt == data_end) {
-        int rc = tcp_output(pcb, TCP_FIN | TCP_ACK, 0);
+        int rc = TcpOutput(pcb, TCP_FIN | TCP_ACK, 0);
         if (rc == ZUZU_OK) {
             pcb->fin_sent = true;
             sent = true;
         }
     }
     if (sent)
-        rto_start(pcb);
+        RtoStart(pcb);
 
-    bool blocked = seq_lt(pcb->snd_nxt, data_end) &&
-                   seq_leq(pcb->snd_una + pcb->snd_wnd, pcb->snd_nxt) &&
+    bool blocked = SeqLt(pcb->snd_nxt, data_end) &&
+                   SeqLeq(pcb->snd_una + pcb->snd_wnd, pcb->snd_nxt) &&
                    pcb->snd_max == pcb->snd_una;
     if (blocked) {
         if (!pcb->persist_timer.armed) {
             if (!pcb->persist_ms)
                 pcb->persist_ms = pcb->rto_ms;
-            TimerArm(&pcb->persist_timer, net_now_ms() + pcb->persist_ms, tcp_persist_cb, pcb);
+            TimerArm(&pcb->persist_timer, NetNowMs() + pcb->persist_ms, TcpPersistCb, pcb);
         }
     } else {
         TimerCancel(&pcb->persist_timer);
@@ -181,46 +178,46 @@ int tcp_xmit(TcpPcb *pcb)
     return ZUZU_OK;
 }
 
-void tcp_persist_cb(void *arg)
+void TcpPersistCb(void *arg)
 {
     TcpPcb *pcb = (TcpPcb *)arg;
 
     uint32_t data_end = pcb->snd_una + pcb->buffered_bytes;
     bool blocked =
-        seq_lt(pcb->snd_nxt, data_end) && seq_leq(pcb->snd_una + pcb->snd_wnd, pcb->snd_nxt);
+        SeqLt(pcb->snd_nxt, data_end) && SeqLeq(pcb->snd_una + pcb->snd_wnd, pcb->snd_nxt);
     if (!blocked) {
-        tcp_xmit(pcb);
+        TcpXmit(pcb);
         return;
     }
 
     uint32_t saved = pcb->snd_nxt;
     pcb->snd_nxt = pcb->snd_una - 1;
-    tcp_output(pcb, TCP_ACK, 0);
+    TcpOutput(pcb, TCP_ACK, 0);
     pcb->snd_nxt = saved;
 
     pcb->persist_ms *= 2;
     if (pcb->persist_ms > TCP_RTO_MAX)
         pcb->persist_ms = TCP_RTO_MAX;
-    TimerArm(&pcb->persist_timer, net_now_ms() + pcb->persist_ms, tcp_persist_cb, pcb);
+    TimerArm(&pcb->persist_timer, NetNowMs() + pcb->persist_ms, TcpPersistCb, pcb);
 }
 
 void TcpRetransmitHead(TcpPcb *pcb)
 {
     uint32_t saved = pcb->snd_nxt;
     uint32_t data_end = pcb->snd_una + pcb->buffered_bytes;
-    size_t len = seq_lt(pcb->snd_una, data_end) ? MIN(pcb->snd_mss, data_end - pcb->snd_una) : 0;
+    size_t len = SeqLt(pcb->snd_una, data_end) ? MIN(pcb->snd_mss, data_end - pcb->snd_una) : 0;
     uint8_t flags = TCP_ACK;
 
     if (pcb->fin_sent && pcb->snd_una + len == data_end)
         flags |= TCP_FIN;
 
     pcb->snd_nxt = pcb->snd_una;
-    tcp_output(pcb, flags, len);
+    TcpOutput(pcb, flags, len);
     pcb->snd_nxt = saved;
     pcb->rtt_timing = false;
 }
 
-void tcp_rto_cb(void *arg)
+void TcpRtoCb(void *arg)
 {
     TcpPcb *pcb = (TcpPcb *)arg;
     if (pcb->snd_max == pcb->snd_una)
@@ -246,8 +243,8 @@ void tcp_rto_cb(void *arg)
     pcb->snd_nxt = pcb->snd_una;
 
     if (pcb->state == TCP_SYN_SENT || pcb->state == TCP_SYN_RCVD) {
-        tcp_output(pcb, pcb->state == TCP_SYN_SENT ? TCP_SYN : TCP_SYN | TCP_ACK, 0);
-        rto_start(pcb);
+        TcpOutput(pcb, pcb->state == TCP_SYN_SENT ? TCP_SYN : TCP_SYN | TCP_ACK, 0);
+        RtoStart(pcb);
         return;
     }
 
@@ -257,11 +254,11 @@ void tcp_rto_cb(void *arg)
     pcb->dupacks = 0;
     pcb->in_recovery = false;
     pcb->recover = pcb->snd_max;
-    
-    tcp_xmit(pcb);
+
+    TcpXmit(pcb);
 }
 
-int tcp_send(int idx, const uint8_t *data, uint16_t len)
+int TcpSend(int idx, const uint8_t *data, uint16_t len)
 {
     TcpPcb *pcb = &tcp_pcbs[idx];
     if (pcb->state != TCP_ESTABLISHED && pcb->state != TCP_CLOSE_WAIT)
@@ -283,11 +280,11 @@ int tcp_send(int idx, const uint8_t *data, uint16_t len)
         memcpy(pcb->snd_buf, data + first, n - first);
     }
     pcb->buffered_bytes += n;
-    tcp_xmit(pcb);
+    TcpXmit(pcb);
     return n;
 }
 
-void tcp_send_rst(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const TcpSegment *seg)
+void TcpSendRst(Ipv4Addr src_ip, Ipv4Addr dst_ip, const TcpSegment *seg)
 {
     uint8_t buf[sizeof(TcpHdr)]; /* bare header, no payload */
     TcpHdr *th = (TcpHdr *)buf;
@@ -311,6 +308,6 @@ void tcp_send_rst(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const TcpSegment *seg)
         th->ack = htonl(seg->seq + seg_len); /* acknowledge their span */
     }
 
-    th->checksum = htons(tcp_checksum(dst_ip, src_ip, buf, sizeof(buf)));
-    ip_tx(buf, sizeof(buf), dst_ip, src_ip, IP_PROTO_TCP);
+    th->checksum = htons(TcpChecksum(dst_ip, src_ip, buf, sizeof(buf)));
+    IpTx(buf, sizeof(buf), dst_ip, src_ip, IP_PROTO_TCP);
 }

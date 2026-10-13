@@ -22,8 +22,8 @@ static void RangesDelete(TcpPcb *pcb, size_t i)
 
 static void FwdMerge(TcpPcb *pcb)
 {
-    while (pcb->nranges > 0 && seq_leq(pcb->ranges[0].start, pcb->rcv_nxt)) {
-        pcb->rcv_nxt = seq_max(pcb->rcv_nxt, pcb->ranges[0].end);
+    while (pcb->nranges > 0 && SeqLeq(pcb->ranges[0].start, pcb->rcv_nxt)) {
+        pcb->rcv_nxt = SeqMax(pcb->rcv_nxt, pcb->ranges[0].end);
         RangesDelete(pcb, 0);
     }
 }
@@ -34,13 +34,13 @@ static void StoreOoo(TcpPcb *pcb, const TcpSegment *s)
     uint32_t seg_end = s->seq + s->payload_len;
 
     /* left-truncate the SEGMENT against rcv_nxt */
-    if (seq_leq(seg_end, pcb->rcv_nxt))
+    if (SeqLeq(seg_end, pcb->rcv_nxt))
         return;                          // wholly old, drop
-    if (seq_lt(seg_start, pcb->rcv_nxt)) // partially old
+    if (SeqLt(seg_start, pcb->rcv_nxt))  // partially old
         seg_start = pcb->rcv_nxt;        // clip left edge forward
 
     /* case 2: future data (hole before it)  */
-    if (seq_lt(pcb->rcv_adv, seg_end)) {
+    if (SeqLt(pcb->rcv_adv, seg_end)) {
         LOG_INFO(LOG_TAG, "OOO seg beyond window, dropping: end=%u adv=%u", seg_end, pcb->rcv_adv);
         return; /* peer will retransmit */
     }
@@ -59,7 +59,7 @@ static void StoreOoo(TcpPcb *pcb, const TcpSegment *s)
         memcpy(pcb->rcv_buf, p + first, seg_len - first);
 
     size_t i = 0;
-    while (i < pcb->nranges && seq_lt(pcb->ranges[i].start, seg_start))
+    while (i < pcb->nranges && SeqLt(pcb->ranges[i].start, seg_start))
         i++;
 
     memmove(&pcb->ranges[i + 1], &pcb->ranges[i], (pcb->nranges - i) * sizeof(pcb->ranges[0]));
@@ -69,8 +69,8 @@ static void StoreOoo(TcpPcb *pcb, const TcpSegment *s)
 
     /* phase 2: fuse touching neighbors in one pass */
     for (size_t k = 0; k + 1 < pcb->nranges;) {
-        if (seq_leq(pcb->ranges[k + 1].start, pcb->ranges[k].end)) {
-            pcb->ranges[k].end = seq_max(pcb->ranges[k].end, pcb->ranges[k + 1].end);
+        if (SeqLeq(pcb->ranges[k + 1].start, pcb->ranges[k].end)) {
+            pcb->ranges[k].end = SeqMax(pcb->ranges[k].end, pcb->ranges[k + 1].end);
             RangesDelete(pcb, k + 1); /* don't advance k, re-check new neighbor */
         } else {
             k++;
@@ -83,14 +83,14 @@ static void StoreOoo(TcpPcb *pcb, const TcpSegment *s)
 /* helpers                                                            */
 /* ------------------------------------------------------------------ */
 
-static void time_wait_cb(void *arg)
+static void TimeWaitCb(void *arg)
 {
     TcpPcb *pcb = (TcpPcb *)arg;
     TcpPcbRelease(pcb, ZUZU_OK);
     LOG_INFO(LOG_TAG, "TIME_WAIT expired, connection freed");
 }
 
-static void fin_wait2_cb(void *arg)
+static void FinWait2Cb(void *arg)
 {
     TcpPcb *pcb = (TcpPcb *)arg;
     TcpPcbRelease(pcb, ERR_TIMEOUT);
@@ -100,22 +100,22 @@ static void fin_wait2_cb(void *arg)
 static void TcpEnterFinWait2(TcpPcb *pcb)
 {
     pcb->state = TCP_FIN_WAIT_2;
-    TimerArm(&pcb->fin_wait2_timer, net_now_ms() + TCP_FIN_WAIT2_MS, fin_wait2_cb, pcb);
+    TimerArm(&pcb->fin_wait2_timer, NetNowMs() + TCP_FIN_WAIT2_MS, FinWait2Cb, pcb);
 }
 
 static void TcpEnterTimeWait(TcpPcb *pcb)
 {
-    rto_stop(pcb);
+    RtoStop(pcb);
     TimerCancel(&pcb->fin_wait2_timer);
     TcpBufsFree(pcb);
     pcb->state = TCP_TIME_WAIT;
-    TimerArm(&pcb->tw_timer, net_now_ms() + TCP_TIME_WAIT_MS, time_wait_cb, pcb);
+    TimerArm(&pcb->tw_timer, NetNowMs() + TCP_TIME_WAIT_MS, TimeWaitCb, pcb);
 }
 
 /* Copy in-order payload into the receive ring and advance rcv_nxt. */
-static void deliver_data(TcpPcb *pcb, const uint8_t *payload, uint16_t payload_len)
+static void DeliverData(TcpPcb *pcb, const uint8_t *payload, uint16_t payload_len)
 {
-    size_t room = seq_lt(pcb->rcv_nxt, pcb->rcv_adv) ? pcb->rcv_adv - pcb->rcv_nxt : 0;
+    size_t room = SeqLt(pcb->rcv_nxt, pcb->rcv_adv) ? pcb->rcv_adv - pcb->rcv_nxt : 0;
     size_t n = MIN(payload_len, room);
     size_t off = pcb->rcv_nxt & (pcb->rcv_size - 1);
     size_t first = MIN(n, pcb->rcv_size - off);
@@ -125,7 +125,7 @@ static void deliver_data(TcpPcb *pcb, const uint8_t *payload, uint16_t payload_l
     pcb->rcv_nxt += n;
 }
 
-static bool consume_fin(int slot, TcpPcb *pcb)
+static bool ConsumeFin(int slot, TcpPcb *pcb)
 {
     if (!pcb->fin_seen || pcb->fin_rcvd)
         return false;
@@ -133,7 +133,7 @@ static bool consume_fin(int slot, TcpPcb *pcb)
         return false;
     pcb->fin_rcvd = true;
     pcb->rcv_nxt += 1;
-    tcp_output(pcb, TCP_ACK, 0);
+    TcpOutput(pcb, TCP_ACK, 0);
 
     if (pcb->state == TCP_ESTABLISHED) {
         pcb->state = TCP_CLOSE_WAIT;
@@ -166,7 +166,7 @@ static bool TcpHandshakeDone(TcpPcb *pcb)
 {
     if (!TcpRcvBufAlloc(pcb))
         return false;
-    rto_stop(pcb);
+    RtoStop(pcb);
     pcb->retries = 0;
     pcb->rto_ms = 1000;
     pcb->state = TCP_ESTABLISHED;
@@ -175,11 +175,11 @@ static bool TcpHandshakeDone(TcpPcb *pcb)
 
 static void TcpAbort(TcpPcb *pcb)
 {
-    tcp_output(pcb, TCP_RST | TCP_ACK, 0);
+    TcpOutput(pcb, TCP_RST | TCP_ACK, 0);
     TcpPcbRelease(pcb, ERR_NOMEM);
 }
 
-static void on_syn_sent(TcpPcb *pcb, const TcpSegment *s)
+static void OnSynSent(TcpPcb *pcb, const TcpSegment *s)
 {
     if (((s->flags & TCP_SYN) && (s->flags & TCP_ACK)) && s->ack == pcb->snd_nxt) {
         pcb->rcv_nxt = s->seq + 1;
@@ -192,8 +192,8 @@ static void on_syn_sent(TcpPcb *pcb, const TcpSegment *s)
         }
         TcpConsumeMss(pcb, s);
         TcpCcInit(pcb);
-        tcp_output(pcb, TCP_ACK, 0);
-        TCP_NOTIFY(pcb, on_established, tcp_pcb_index(pcb));
+        TcpOutput(pcb, TCP_ACK, 0);
+        TCP_NOTIFY(pcb, on_established, TcpPcbIndex(pcb));
     } else if ((s->flags & TCP_SYN) && !(s->flags & TCP_ACK)) {
         pcb->rcv_nxt = s->seq + 1;
         pcb->rcv_rsq = pcb->rcv_nxt;
@@ -201,7 +201,7 @@ static void on_syn_sent(TcpPcb *pcb, const TcpSegment *s)
         pcb->snd_nxt = pcb->snd_una;
         TcpConsumeMss(pcb, s);
         TcpCcInit(pcb);
-        tcp_output(pcb, TCP_SYN | TCP_ACK, 0);
+        TcpOutput(pcb, TCP_SYN | TCP_ACK, 0);
         pcb->state = TCP_SYN_RCVD;
         LOG_INFO(LOG_TAG, "simultaneous open: SYN from %u.%u.%u.%u, now SYN_RCVD", IP4(s->src_ip));
     }
@@ -238,7 +238,7 @@ static void TcpOnDupAck(TcpPcb *pcb)
         pcb->cwnd += pcb->snd_mss;
         return;
     }
-    if (pcb->dupacks == 3 && seq_leq(pcb->recover, pcb->snd_una)) {
+    if (pcb->dupacks == 3 && SeqLeq(pcb->recover, pcb->snd_una)) {
         uint32_t flight = pcb->snd_max - pcb->snd_una;
         pcb->ssthresh = MAX(flight / 2, 2U * pcb->snd_mss);
         pcb->recover = pcb->snd_max;
@@ -256,25 +256,25 @@ static bool TcpProcessAck(TcpPcb *pcb, const TcpSegment *s)
         return false;
     }
 
-    if (!(s->flags & TCP_ACK) || !seq_lt(pcb->snd_una, s->ack) || !seq_leq(s->ack, pcb->snd_max))
+    if (!(s->flags & TCP_ACK) || !SeqLt(pcb->snd_una, s->ack) || !SeqLeq(s->ack, pcb->snd_max))
         return false;
 
     size_t delta = s->ack - pcb->snd_una;
     size_t acked = MIN(delta, pcb->buffered_bytes);
 
-    if (pcb->rtt_timing && seq_leq(pcb->rtt_seq, s->ack)) {
-        TcpRttUpdate(pcb, net_now_ms() - pcb->rtt_start);
+    if (pcb->rtt_timing && SeqLeq(pcb->rtt_seq, s->ack)) {
+        TcpRttUpdate(pcb, NetNowMs() - pcb->rtt_start);
         pcb->rtt_timing = false;
     }
 
     pcb->snd_una = s->ack;
-    if (seq_lt(pcb->snd_nxt, pcb->snd_una))
+    if (SeqLt(pcb->snd_nxt, pcb->snd_una))
         pcb->snd_nxt = pcb->snd_una;
     pcb->retries = 0;
     pcb->buffered_bytes -= acked;
 
     if (pcb->in_recovery) {
-        if (seq_leq(pcb->recover, pcb->snd_una)) {
+        if (SeqLeq(pcb->recover, pcb->snd_una)) {
             pcb->cwnd = MIN(pcb->ssthresh, (pcb->snd_max - pcb->snd_una) + pcb->snd_mss);
             pcb->in_recovery = false;
             pcb->dupacks = 0;
@@ -294,20 +294,20 @@ static bool TcpProcessAck(TcpPcb *pcb, const TcpSegment *s)
             pcb->cwnd = pcb->snd_size;
     }
 
-    rto_stop(pcb);
+    RtoStop(pcb);
     if (pcb->snd_max != pcb->snd_una)
-        rto_start(pcb);
+        RtoStart(pcb);
 
     if (pcb->snd_blocked && pcb->snd_size - pcb->buffered_bytes >= pcb->snd_size / 4) {
         pcb->snd_blocked = false;
-        TCP_NOTIFY(pcb, on_writable, tcp_pcb_index(pcb));
+        TCP_NOTIFY(pcb, on_writable, TcpPcbIndex(pcb));
     }
     return true;
 }
 
 static inline bool TcpFinAcked(const TcpPcb *pcb)
 {
-    return pcb->fin_sent && seq_leq(pcb->snd_max, pcb->snd_una);
+    return pcb->fin_sent && SeqLeq(pcb->snd_max, pcb->snd_una);
 }
 
 static void TcpRecvText(int slot, TcpPcb *pcb, const TcpSegment *s)
@@ -320,45 +320,45 @@ static void TcpRecvText(int slot, TcpPcb *pcb, const TcpSegment *s)
     bool acked = false;
     if (s->payload_len) {
         if (s->seq == pcb->rcv_nxt) {
-            deliver_data(pcb, s->payload, s->payload_len);
+            DeliverData(pcb, s->payload, s->payload_len);
             FwdMerge(pcb);
             if (!(pcb->fin_seen && pcb->rcv_nxt == pcb->fin_seq)) {
-                tcp_output(pcb, TCP_ACK, 0); /* ack what we got */
+                TcpOutput(pcb, TCP_ACK, 0); /* ack what we got */
                 acked = true;
             }
 
             /* TODO: application logic wired directly into the transport.
              * This canned HTTP reply should move behind an app-layer callback. */
             TCP_NOTIFY(pcb, on_data, slot);
-        } else if (seq_lt(pcb->rcv_nxt, s->seq)) {
+        } else if (SeqLt(pcb->rcv_nxt, s->seq)) {
             StoreOoo(pcb, s);
-            tcp_output(pcb, TCP_ACK, 0); /* dup-ACK: still want rcv_nxt */
+            TcpOutput(pcb, TCP_ACK, 0); /* dup-ACK: still want rcv_nxt */
             acked = true;
         } else {
             /* case 3: old duplicate */
-            tcp_output(pcb, TCP_ACK, 0); /* re-ACK: we already have this */
+            TcpOutput(pcb, TCP_ACK, 0); /* re-ACK: we already have this */
             acked = true;
         }
     }
 
-    bool consumed = consume_fin(slot, pcb);
+    bool consumed = ConsumeFin(slot, pcb);
     if ((s->flags & TCP_FIN) && !consumed && !acked)
-        tcp_output(pcb, TCP_ACK, 0);
+        TcpOutput(pcb, TCP_ACK, 0);
 }
 
-static void on_established(int slot, TcpPcb *pcb, const TcpSegment *s)
+static void OnEstablished(int slot, TcpPcb *pcb, const TcpSegment *s)
 {
     TcpProcessAck(pcb, s);
 
-    if ((s->flags & TCP_ACK) && seq_lt(pcb->snd_max, s->ack)) {
-        tcp_output(pcb, TCP_ACK, 0);
+    if ((s->flags & TCP_ACK) && SeqLt(pcb->snd_max, s->ack)) {
+        TcpOutput(pcb, TCP_ACK, 0);
         return;
     }
 
     TcpRecvText(slot, pcb, s);
 }
 
-static void on_fin_wait_1(int slot, TcpPcb *pcb, const TcpSegment *s)
+static void OnFinWait1(int slot, TcpPcb *pcb, const TcpSegment *s)
 {
     TcpProcessAck(pcb, s);
     if (TcpFinAcked(pcb))
@@ -367,21 +367,21 @@ static void on_fin_wait_1(int slot, TcpPcb *pcb, const TcpSegment *s)
     TcpRecvText(slot, pcb, s);
 }
 
-static void on_fin_wait_2(int slot, TcpPcb *pcb, const TcpSegment *s)
+static void OnFinWait2(int slot, TcpPcb *pcb, const TcpSegment *s)
 {
     TcpProcessAck(pcb, s);
     TcpRecvText(slot, pcb, s);
 }
 
-static void on_closing(TcpPcb *pcb, const TcpSegment *s)
+static void OnClosing(TcpPcb *pcb, const TcpSegment *s)
 {
     if (TcpProcessAck(pcb, s) && TcpFinAcked(pcb))
         TcpEnterTimeWait(pcb);
     else if (s->flags & TCP_FIN)
-        tcp_output(pcb, TCP_ACK, 0);
+        TcpOutput(pcb, TCP_ACK, 0);
 }
 
-static void on_last_ack(TcpPcb *pcb, const TcpSegment *s)
+static void OnLastAck(TcpPcb *pcb, const TcpSegment *s)
 {
     if (TcpProcessAck(pcb, s) && TcpFinAcked(pcb)) {
         TcpPcbRelease(pcb, ZUZU_OK);
@@ -389,16 +389,16 @@ static void on_last_ack(TcpPcb *pcb, const TcpSegment *s)
     }
 }
 
-static void on_close_wait(TcpPcb *pcb, const TcpSegment *s)
+static void OnCloseWait(TcpPcb *pcb, const TcpSegment *s)
 {
     TcpProcessAck(pcb, s);
     if (s->flags & TCP_FIN) {
         /* peer retransmitted their FIN; re-ACK it */
-        tcp_output(pcb, TCP_ACK, 0);
+        TcpOutput(pcb, TCP_ACK, 0);
     }
 }
 
-static void on_listening(TcpPcb *listener, const TcpSegment *s)
+static void OnListening(TcpPcb *listener, const TcpSegment *s)
 {
     if (!((s->flags & TCP_SYN) && !(s->flags & TCP_ACK)))
         return;
@@ -406,19 +406,19 @@ static void on_listening(TcpPcb *listener, const TcpSegment *s)
     int pending = 0;
     for (int i = 0; i < TCP_MAX_PCB; i++) {
         if (tcp_pcbs[i].active && tcp_pcbs[i].state == TCP_SYN_RCVD &&
-            tcp_pcbs[i].parent == tcp_pcb_index(listener) + 1)
+            tcp_pcbs[i].parent == TcpPcbIndex(listener) + 1)
             pending++;
     }
     if (pending >= listener->backlog)
         return;
 
-    int nidx = tcp_pcb_alloc();
+    int nidx = TcpPcbAlloc();
     if (nidx < 0) {
-        tcp_send_rst(s->src_ip, netif.ip, s);
+        TcpSendRst(s->src_ip, netif.ip, s);
         return;
     }
     TcpPcb *np = &tcp_pcbs[nidx];
-    np->parent = tcp_pcb_index(listener) + 1;
+    np->parent = TcpPcbIndex(listener) + 1;
     np->active = true;
     np->local_ip = netif.ip;
     np->local_port = listener->local_port; /* same port we listen on */
@@ -429,7 +429,7 @@ static void on_listening(TcpPcb *listener, const TcpSegment *s)
     np->rcv_adv = np->rcv_rsq + np->rcv_size;
     np->snd_wnd = s->window;
 
-    np->snd_nxt = netrand_u32(); /* our ISN */
+    np->snd_nxt = NetRandU32(); /* our ISN */
     np->snd_una = np->snd_nxt;
     np->snd_max = np->snd_nxt;
     np->rto_ms = 1000;
@@ -437,12 +437,12 @@ static void on_listening(TcpPcb *listener, const TcpSegment *s)
     np->snd_mss = 536;
     TcpConsumeMss(np, s);
     TcpCcInit(np);
-    tcp_output(np, TCP_SYN | TCP_ACK, 0); /* SYN-ACK */
-    rto_start(np);
+    TcpOutput(np, TCP_SYN | TCP_ACK, 0); /* SYN-ACK */
+    RtoStart(np);
     LOG_INFO(LOG_TAG, "SYN from %u.%u.%u.%u, now SYN_RCVD", IP4(s->src_ip));
 }
 
-static void on_syn_rcvd(TcpPcb *pcb, const TcpSegment *s)
+static void OnSynRcvd(TcpPcb *pcb, const TcpSegment *s)
 {
     if (s->flags & TCP_ACK && s->ack == pcb->snd_nxt) {
         pcb->snd_una = s->ack;
@@ -455,10 +455,10 @@ static void on_syn_rcvd(TcpPcb *pcb, const TcpSegment *s)
             pcb->cb = tcp_pcbs[pcb->parent - 1].cb;
             pcb->ctx = tcp_pcbs[pcb->parent - 1].ctx;
         }
-        TCP_NOTIFY(pcb, on_established, tcp_pcb_index(pcb));
+        TCP_NOTIFY(pcb, on_established, TcpPcbIndex(pcb));
     } else if ((s->flags & TCP_SYN) && !(s->flags & TCP_ACK) && s->seq + 1 == pcb->rcv_nxt) {
         pcb->snd_nxt = pcb->snd_una;
-        tcp_output(pcb, TCP_SYN | TCP_ACK, 0);
+        TcpOutput(pcb, TCP_SYN | TCP_ACK, 0);
     }
 }
 
@@ -466,17 +466,17 @@ static void on_syn_rcvd(TcpPcb *pcb, const TcpSegment *s)
 /* entry points                                                       */
 /* ------------------------------------------------------------------ */
 
-static void tcp_dispatch(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const TcpSegment *seg)
+static void TcpDispatch(Ipv4Addr src_ip, Ipv4Addr dst_ip, const TcpSegment *seg)
 {
-    int slot = tcp_pcb_find(netif.ip, seg->dst_port, src_ip, seg->src_port);
+    int slot = TcpPcbFind(netif.ip, seg->dst_port, src_ip, seg->src_port);
     if (slot < 0) {
         if ((seg->flags & TCP_SYN) && !(seg->flags & TCP_ACK))
-            slot = tcp_pcb_find_listener(netif.ip, seg->dst_port);
+            slot = TcpPcbFindListener(netif.ip, seg->dst_port);
         if (slot < 0) {
             LOG_INFO(LOG_TAG, "no PCB: dst_port=%u netif.ip=%u.%u.%u.%u flags=0x%02x",
                      seg->dst_port, IP4(netif.ip), seg->flags);
             if (!(seg->flags & TCP_RST))
-                tcp_send_rst(src_ip, dst_ip, seg);
+                TcpSendRst(src_ip, dst_ip, seg);
             return;
         }
     }
@@ -503,35 +503,35 @@ static void tcp_dispatch(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const TcpSegmen
 
     switch (pcb->state) {
     case TCP_SYN_SENT:
-        on_syn_sent(pcb, seg);
+        OnSynSent(pcb, seg);
         break;
     case TCP_ESTABLISHED:
-        on_established(slot, pcb, seg);
+        OnEstablished(slot, pcb, seg);
         break;
     case TCP_FIN_WAIT_1:
-        on_fin_wait_1(slot, pcb, seg);
+        OnFinWait1(slot, pcb, seg);
         break;
     case TCP_FIN_WAIT_2:
-        on_fin_wait_2(slot, pcb, seg);
+        OnFinWait2(slot, pcb, seg);
         break;
     case TCP_LAST_ACK:
-        on_last_ack(pcb, seg);
+        OnLastAck(pcb, seg);
         break;
     case TCP_CLOSING:
-        on_closing(pcb, seg);
+        OnClosing(pcb, seg);
         break;
     case TCP_LISTENING:
-        on_listening(pcb, seg);
+        OnListening(pcb, seg);
         break;
     case TCP_SYN_RCVD:
-        on_syn_rcvd(pcb, seg);
+        OnSynRcvd(pcb, seg);
         break;
     case TCP_CLOSE_WAIT:
-        on_close_wait(pcb, seg);
+        OnCloseWait(pcb, seg);
         break;
     case TCP_TIME_WAIT:
         if (seg->flags & TCP_FIN) {
-            tcp_output(pcb, TCP_ACK, 0);
+            TcpOutput(pcb, TCP_ACK, 0);
             TcpEnterTimeWait(pcb);
         }
         break;
@@ -545,7 +545,7 @@ static void tcp_dispatch(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const TcpSegmen
         case TCP_CLOSE_WAIT:
         case TCP_FIN_WAIT_1:
         case TCP_LAST_ACK:
-            tcp_xmit(pcb);
+            TcpXmit(pcb);
             break;
         default:
             break;
@@ -553,11 +553,11 @@ static void tcp_dispatch(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const TcpSegmen
     }
 }
 
-void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_t len)
+void TcpRx(Ipv4Addr src_ip, Ipv4Addr dst_ip, const uint8_t *data, uint16_t len)
 {
     if (len < sizeof(TcpHdr))
         return;
-    if (tcp_checksum(src_ip, dst_ip, data, len))
+    if (TcpChecksum(src_ip, dst_ip, data, len))
         return;
 
 
@@ -581,10 +581,10 @@ void tcp_rx(ipv4_addr_t src_ip, ipv4_addr_t dst_ip, const uint8_t *data, uint16_
         LOG_INFO(LOG_TAG, "malformed TCP options from %u.%u.%u.%u", IP4(src_ip));
     }
 
-    tcp_dispatch(src_ip, dst_ip, &seg);
+    TcpDispatch(src_ip, dst_ip, &seg);
 }
 
-int tcp_recv(int idx, uint8_t *buf, uint16_t sz)
+int TcpRecv(int idx, uint8_t *buf, uint16_t sz)
 {
     TcpPcb *pcb = &tcp_pcbs[idx];
     if (pcb->state != TCP_ESTABLISHED && pcb->state != TCP_CLOSE_WAIT &&
@@ -607,6 +607,6 @@ int tcp_recv(int idx, uint8_t *buf, uint16_t sz)
 
     pcb->rcv_rsq += n; // twin of snd_una += delta, frees buffer space
     if (pcb->rcv_rsq + pcb->rcv_size - pcb->rcv_adv >= MIN(pcb->rcv_size / 2, pcb->snd_mss))
-        tcp_output(pcb, TCP_ACK, 0);
+        TcpOutput(pcb, TCP_ACK, 0);
     return n;
 }
