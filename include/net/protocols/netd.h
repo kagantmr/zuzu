@@ -48,6 +48,11 @@ typedef struct {
     uint32_t dns;
     uint8_t mac[6];
     char name[8];
+    uint32_t rx_packets;
+    uint32_t tx_packets;
+    uint32_t rx_ring_full;
+    uint32_t rx_errors;
+    uint32_t tx_drops;
 } NetdNetif;
 
 typedef struct {

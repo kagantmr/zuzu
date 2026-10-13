@@ -66,8 +66,6 @@ static void HttpOnData(int slot)
     tcp_close(slot);
 }
 
-static const TcpCallbacks http_callbacks = {.on_data = HttpOnData};
-
 /* Fires once the lease is first acquired: the network is now usable. */
 static __attribute__((cold)) void on_dhcp_bound(void)
 {
@@ -133,6 +131,13 @@ static void HandleNetdCall(const PortWaitResult *call)
             .ip = netif.ip, .netmask = netif.netmask, .gateway = netif.gateway, .dns = netif.dns};
         
         memcpy(out.mac, netif.mac, sizeof(out.mac));
+    if (stats) {
+        out.rx_packets = stats->stat[NIC_STAT_RX_PACKETS];
+        out.tx_packets = stats->stat[NIC_STAT_TX_PACKETS];
+        out.rx_ring_full = stats->stat[NIC_STAT_RX_RING_FULL];
+        out.rx_errors = stats->stat[NIC_STAT_RX_ERRORS];
+        out.tx_drops = stats->stat[NIC_STAT_TX_DROPS];
+    }
         strncpy(out.name, "eth0", sizeof(out.name) - 1);
         MsgWrite(&out, sizeof(out));
         Reply(sizeof(out), -1);

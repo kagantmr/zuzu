@@ -34,5 +34,8 @@ int main(void)
     printf("  NETMASK  %u.%u.%u.%u\n", IP4(nif.netmask));
     printf("  GATEWAY  %u.%u.%u.%u\n", IP4(nif.gateway));
     printf("  DNS      %u.%u.%u.%u\n", IP4(nif.dns));
+    printf("  RX       %u packets, %u errors, %u dropped (ring full)\n", nif.rx_packets,
+           nif.rx_errors, nif.rx_ring_full);
+    printf("  TX       %u packets, %u dropped\n", nif.tx_packets, nif.tx_drops);
     return 0;
 }
