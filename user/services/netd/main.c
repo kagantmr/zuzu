@@ -15,9 +15,9 @@
 #include "link/eth.h"
 #include "transport/port.h"
 #include "transport/session.h"
+#include "transport/socket.h"
 #include "transport/tcp.h"
 #include "transport/udp.h"
-#include "transport/socket.h"
 
 #include "app/dhcp.h"
 #include "app/dns.h"
@@ -68,24 +68,11 @@ static void HttpOnData(int slot)
 
 static const TcpCallbacks http_callbacks = {.on_data = HttpOnData};
 
-static __attribute__((cold)) void on_resolved(const char *name, ipv4_addr_t ip, int status)
-{
-    if (status == ZUZU_OK) {
-        LOG_INFO(LOG_TAG, "%s -> %u.%u.%u.%u", name, IP4(ip));
-        // tcp_connect(ip, 80);
-        int s = tcp_listen(80, 0, &http_callbacks, NULL);
-        LOG_INFO(LOG_TAG, "listening on :80 (slot %d)", s);
-    } else {
-        LOG_INFO(LOG_TAG, "%s failed: %d", name, status);
-    }
-}
-
 /* Fires once the lease is first acquired: the network is now usable. */
 static __attribute__((cold)) void on_dhcp_bound(void)
 {
     LOG_INFO(LOG_TAG, "network up: ip %u.%u.%u.%u gw %u.%u.%u.%u dns %u.%u.%u.%u", IP4(netif.ip),
              IP4(netif.gateway), IP4(netif.dns));
-    DnsQuery("google.com", on_resolved); /* smoke test now that we have DNS */
 }
 
 static Err InitNetdServices(void)
@@ -125,22 +112,40 @@ static void RejectCall(Err err, Handle granted)
     Reply(sizeof(err), -1);
 }
 
+static void on_resolved(const char *name, ipv4_addr_t ip, int status)
+{
+    if (status == ZUZU_OK) {
+        LOG_INFO(LOG_TAG, "%s -> %u.%u.%u.%u", name, IP4(ip));
+    } else {
+        LOG_INFO(LOG_TAG, "%s failed: %d", name, status);
+    }
+}
+
 static void HandleNetdCall(const PortWaitResult *call)
 {
     uint8_t op = call->xlen >= 1 ? *(const uint8_t *)GetMessageBox() : 0;
-    if (op != NETD_GET_NETIF) {
+    switch (op) {
+    case NETD_GET_NETIF: {
+        if (call->granted >= 0)
+            HandleClose(call->granted);
+
+        NetdNetif out = {
+            .ip = netif.ip, .netmask = netif.netmask, .gateway = netif.gateway, .dns = netif.dns};
+        
+        memcpy(out.mac, netif.mac, sizeof(out.mac));
+        strncpy(out.name, "eth0", sizeof(out.name) - 1);
+        MsgWrite(&out, sizeof(out));
+        Reply(sizeof(out), -1);
+    } break;
+    case NETD_DNS_RESOLVE: {
+        DnsQuery("google.com", on_resolved);
+        RejectCall(ERR_NOSYS, call->granted);
+    } break;
+    default: {
         RejectCall(ERR_NOSYS, call->granted);
         return;
     }
-    if (call->granted >= 0)
-        HandleClose(call->granted);
-
-    NetdNetif out = {
-        .ip = netif.ip, .netmask = netif.netmask, .gateway = netif.gateway, .dns = netif.dns};
-    memcpy(out.mac, netif.mac, sizeof(out.mac));
-    strncpy(out.name, "eth0", sizeof(out.name) - 1);
-    MsgWrite(&out, sizeof(out));
-    Reply(sizeof(out), -1);
+    }
 }
 
 static Err CheckStage(const PortWaitResult *r, uint8_t opcode, Marker drv_marker)

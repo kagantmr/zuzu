@@ -299,14 +299,17 @@ void SessionReapDead(void)
     EventWaitResult d = FormatToEventWait(WaitOn(g_death, TIMEOUT_POLL));
     if (d.status != ZUZU_OK)
         return;
+    if (d.status == ZUZU_OK)
+        LOG_DEBUG(LOG_TAG, "death bits=%x", d.bits);          /* temp */
     for (int slot = 0; slot < SESSION_MAX; slot++) {
         Session *s = &g_sessions[slot];
         if (!(d.bits & (1U << slot)) || !s->in_use || s->live < 0)
             continue;
         SvcResult q = HandleQuery(s->live, QUERY_STATUS);
+        LOG_DEBUG(LOG_TAG, "slot %d query r0=%d r1=%d", slot, (int)q.r0, (int)q.r1);   /* temp, inside the loop */
         if (q.r0 != ZUZU_OK || (Err)q.r1 != ERR_DEAD)
             continue;
-        LOG_INFO(LOG_TAG, "session %d: app died", slot);
+        LOG_DEBUG(LOG_TAG, "session %d: app died", slot);
         ReleaseSession(slot);
     }
 }
