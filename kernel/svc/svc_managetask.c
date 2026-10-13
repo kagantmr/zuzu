@@ -21,11 +21,18 @@ void SvcManageTask(CpuState *frame)
         switch (verb) {
         case MNGTASK_SET_PRIORITY:
             ENSURE_ERR(frame, val <= current_task->max_prio, ERR_NOPERM);
-            current_task->priority = val;
+            current_task->base_prio = val;
+            TaskRecomputePriority(current_task);
+            TaskSyncTcbPrio(current_task);
             break;
         case MNGTASK_SET_MAX_PRIO:
             ENSURE_ERR(frame, val <= current_task->max_prio, ERR_NOPERM);
             current_task->max_prio = val;
+            if (current_task->base_prio > val) {
+                current_task->base_prio = val;
+                TaskRecomputePriority(current_task);
+            }
+            TaskSyncTcbPrio(current_task);
             break;
         case MNGTASK_SET_TIMESLICE:
             current_task->time_slice = val;
@@ -75,14 +82,10 @@ void SvcManageTask(CpuState *frame)
 
     case MNGTASK_SET_PRIORITY: {
         uint32_t val = (uint32_t)(*ArchGetFromFrame(frame, 2));
-        ENSURE_ERR(frame, val <= current_task->max_prio, ERR_NOPERM);
-        bool requeue = (target->state ==
-                        TASK_STATE_READY); /* only TASK_STATE_READY tasks are on a run queue */
-        if (requeue)
-            SchedRemoveRunQueue(target);
-        target->priority = val;
-        if (requeue)
-            SchedAdd(target);
+        ENSURE_ERR(frame, val <= current_task->max_prio && val <= target->max_prio, ERR_NOPERM);
+        target->base_prio = val;
+        TaskRecomputePriority(target);
+        TaskSyncTcbPrio(target);
         ArchSetInFrame(frame, 0, ZUZU_OK);
     } break;
 
@@ -90,6 +93,11 @@ void SvcManageTask(CpuState *frame)
         uint32_t val = (uint32_t)(*ArchGetFromFrame(frame, 2));
         ENSURE_ERR(frame, val <= current_task->max_prio, ERR_NOPERM);
         target->max_prio = val;
+        if (target->base_prio > target->max_prio) {
+            target->base_prio = target->max_prio;
+            TaskRecomputePriority(target);
+        }
+        TaskSyncTcbPrio(target);
         ArchSetInFrame(frame, 0, ZUZU_OK);
     } break;
 

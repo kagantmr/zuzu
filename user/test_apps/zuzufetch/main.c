@@ -77,8 +77,8 @@ static int build_info(char info[][INFO_LINE_LEN])
 
     /* memory */
     uint32_t ram_mb = sp->mem_total_kb / 1024;
-    uint32_t free_mb = sp->mem_free_kb / 1024;
-    (void)snprintf(tmp, sizeof(tmp), "%u MB free / %u MB total", free_mb, ram_mb);
+    float free_mb = ((float)sp->mem_free_kb / 1024);
+    (void)snprintf(tmp, sizeof(tmp), "%.1f MB free / %u MB total", free_mb, ram_mb);
     fmt_kv(info[n], INFO_LINE_LEN, "Memory:", tmp);
     n++;
 

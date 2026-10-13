@@ -60,6 +60,25 @@ typedef struct {
     /* todo: arguments for socket open-close */
 } NetdHandshakeData;
 
+#define IP4(x)                                                                                     \
+    (unsigned)((x) & 0xff), (unsigned)(((x) >> 8) & 0xff), (unsigned)(((x) >> 16) & 0xff),         \
+        (unsigned)(((x) >> 24) & 0xff)
+
+typedef uint32_t Ipv4Addr;
+typedef uint16_t NetPort;
+typedef uint8_t MacAddr[6];
+
+/* One network interface's L2/L3 config. */
+typedef struct {
+    Ipv4Addr ip;
+    Ipv4Addr netmask;
+    Ipv4Addr gateway;
+    Ipv4Addr dns;
+    MacAddr mac;
+    char name[8];
+} NetdNetif;
+
+
 #ifdef __cplusplus
 }
 #endif

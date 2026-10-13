@@ -64,6 +64,8 @@ bool VmmProtectPage(AddressSpace *as, VirtAddr va, size_t size, MemProt new_prot
         return false;
     if (r->memtype == VM_MEM_DEVICE && (new_prot & PROT_EXEC))
         return false;              /* no executable MMIO */
+    if (r->memtype == VM_MEM_NORMAL_NC && (new_prot & PROT_EXEC))
+        return false;
     if (r->flags & VM_FLAG_PINNED) /* tcb_page/syspage */
         return false;
 

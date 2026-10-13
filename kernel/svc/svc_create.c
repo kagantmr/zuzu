@@ -2,16 +2,10 @@
 #include "kernel/ipc/port.h"
 #include "kernel/space/space.h"
 #include "svc.h"
+#include <arch/cache.h>
 #include <arch/regs.h>
 #include <types.h>
 #include <zuzu/err.h>
-
-static void FreeScatteredPages(PhysAddr *addrs, size_t count)
-{
-    for (size_t i = 0; i < count; i++)
-        PmmFreeFrame(addrs[i]);
-    KFree(addrs);
-}
 
 void SvcCreate(CpuState *frame)
 {
@@ -43,8 +37,11 @@ void SvcCreate(CpuState *frame)
         ENSURE_ERR(frame, (NULL != task), ERR_BUSY);
         task->max_prio = (current_task->max_prio < target_space->max_prio) ? current_task->max_prio
                                                                            : target_space->max_prio;
-        task->priority =
-            (current_task->priority < task->max_prio) ? current_task->priority : task->max_prio;
+
+        task->base_prio =
+            (current_task->base_prio < task->max_prio) ? current_task->base_prio : task->max_prio;
+        task->priority = task->base_prio;
+        TaskSyncTcbPrio(task);
 
         Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
         ENSURE(-1 != new_handle, TaskDestroy(task); ArchSetInFrame(frame, 0, ERR_NOMEM); return);
@@ -122,22 +119,34 @@ void SvcCreate(CpuState *frame)
         ArchSetInFrame(frame, 0, (Register)HANDLE_PACK(new_handle, entry->generation));
     } break;
     case OBJECT_MEMORY: {
-        // MEMORY: r0=type, r1=page_count. Only SHM is user-creatable; Device
+        // MEMORY: r0=type, r1=page_count, r2=flags. Only SHM is user-creatable; Device
         // MemObjects come from kernel/boot-time injection (InjectDeviceObjectsToRootSvc
         // in boot_programs.c), never this path.
+        CreateMemoryFlags flags = (CreateMemoryFlags)(*ArchGetFromFrame(frame, 2));
+        ENSURE_ERR(frame, !(flags & ~MEM_FLAGS_ALL), ERR_BADARG);
+        ENSURE_ERR(frame, !(flags & MEM_UNCACHED) || (flags & MEM_CONTIG), ERR_BADARG);
+
         size_t page_count = (size_t)(*ArchGetFromFrame(frame, 1));
         ENSURE_ERR(frame, (page_count > 0), ERR_BADARG);
+
+        ENSURE_ERR(frame, page_count <= PmmGetStats().free_frames, ERR_NOMEM);
+        ENSURE_ERR(frame, page_count <= SIZE_MAX / sizeof(PhysAddr), ERR_NOMEM);
 
         PhysAddr *page_addrs = KZAlloc(page_count * sizeof(PhysAddr));
         ENSURE_ERR(frame, (NULL != page_addrs), ERR_NOMEM);
 
-        size_t got = PmmAllocFramesScattered(page_count, page_addrs);
-        ENSURE(got == page_count, FreeScatteredPages(page_addrs, got);
-               ArchSetInFrame(frame, 0, ERR_NOMEM); return);
+        MemObject *mem = MemObjCreateShm(page_addrs, page_count, flags);
+        ENSURE(NULL != mem, KFree(page_addrs); ArchSetInFrame(frame, 0, ERR_NOMEM); return);
 
-        MemObject *mem = MemObjCreateShm(page_addrs, page_count);
-        ENSURE(NULL != mem, FreeScatteredPages(page_addrs, page_count);
-               ArchSetInFrame(frame, 0, ERR_NOMEM); return);
+        if (flags & MEM_CONTIG) {
+            PhysAddr base = PmmAllocFramesContig(page_count);
+            ENSURE(PA_NULL != base, MemObjUnref(mem); ArchSetInFrame(frame, 0, ERR_NOMEM); return);
+            memset((void *)PA_TO_VA(base), 0, page_count * PAGE_SIZE);
+            if (flags & MEM_UNCACHED)
+                ArchCacheCleanInvalidateDcacheRange(PA_TO_VA(base), page_count * PAGE_SIZE);
+            for (size_t i = 0; i < page_count; i++)
+                page_addrs[i] = base + (i * PAGE_SIZE);
+        }
 
         Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
         ENSURE(-1 != new_handle, MemObjUnref(mem); ArchSetInFrame(frame, 0, ERR_NOMEM); return);

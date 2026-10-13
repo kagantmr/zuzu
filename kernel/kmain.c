@@ -26,7 +26,7 @@
  * wraps SchedSetReschedFlag rather than being registered alongside it —
  * a second call to RegisterTickCb would silently replace the first and
  * stop preemption. */
-static void sched_tick(void) { SchedSetReschedFlag(); }
+static void sched_tick(void) { SchedTick(); }
 
 _Noreturn void kmain(void)
 {
@@ -51,7 +51,7 @@ _Noreturn void kmain(void)
           initrd_size);
     SyspageSetInitrdSz((uint32_t)initrd_size);
 
-    initrd_init((const void *)PA_TO_VA((uintptr_t)initrd_pa), initrd_size);
+    InitrdInit((const void *)PA_TO_VA((uintptr_t)initrd_pa), initrd_size);
 
     /* Load and spawn every boot program listed in boot.manifest (see
      * kernel/loader/boot_programs.c). */

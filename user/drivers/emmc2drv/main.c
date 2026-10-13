@@ -387,7 +387,7 @@ static int Emmc2ServiceInit(void)
     if (Emmc2HwInit() < 0)
         return -1;
 
-    g_buf_mem = CreateMem(SD_BUF_SIZE / 4096);
+    g_buf_mem = CreateMem(SD_BUF_SIZE / 4096, 0);
     if (g_buf_mem < 0)
         return -1;
     void *shm_addr = MemMap(g_buf_mem, 0, PROT_RW);

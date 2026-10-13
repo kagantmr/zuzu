@@ -1,7 +1,7 @@
 #include "elf.h"
 #include <string.h>
 
-uint32_t elf_validate(const void *data, size_t size)
+uint32_t ElfValidate(const void *data, size_t size)
 {
     if (size < sizeof(Elf32_Ehdr))
         return 0;
@@ -14,19 +14,19 @@ uint32_t elf_validate(const void *data, size_t size)
     if (ehdr->e_phentsize != sizeof(Elf32_Phdr)) {
         return 0;
     }
-    uint64_t ph_end = ehdr->e_phoff + (uint64_t)ehdr->e_phnum * ehdr->e_phentsize;
+    uint64_t ph_end = ehdr->e_phoff + ((uint64_t)ehdr->e_phnum * ehdr->e_phentsize);
     if (ph_end > size)
         return 0;
     return ehdr->e_entry;
 }
 
-int elf_phdr_count(const void *data)
+int ElfPhdrCount(const void *data)
 {
     const Elf32_Ehdr *ehdr = data;
     return ehdr->e_phnum;
 }
 
-const Elf32_Phdr *elf_phdr_get(const void *data, int index)
+const Elf32_Phdr *ElfPhdrGet(const void *data, int index)
 {
     const Elf32_Ehdr *ehdr = data;
     return (const Elf32_Phdr *)(const void *)((const uint8_t *)data + ehdr->e_phoff) + index;

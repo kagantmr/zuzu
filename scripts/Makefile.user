@@ -56,7 +56,8 @@ endef
 #
 # <group> is organisational only. What gets packaged where is the board's
 # call, not the directory's -- see BOOT_PROGS/SD_PROGS below.
-USER_PROG_DIRS := $(patsubst %/build.mk,%,$(wildcard user/*/*/build.mk))
+USER_PROG_DIRS := $(patsubst %/build.mk,%,$(wildcard user/*/*/build.mk) \
+                  $(if $(EXT),$(wildcard $(EXT)/user/*/*/build.mk)))
 
 define read-prog
 prog-y :=
@@ -104,7 +105,9 @@ $(foreach p,$(BOOT_PROGS) $(SD_PROGS),$(if $(USER_DIR_$(p)),,\
 $(foreach p,$(USER_PROGS) $(LIB_PROGS),\
   $(eval USER_$(p)_SRCS := $(shell find $(USER_DIR_$(p)) -name '*.c')))
 $(foreach p,$(USER_PROGS) $(LIB_PROGS),\
-  $(eval USER_$(p)_OBJS := $(patsubst user/%.c,$(O)/user/%.o,$(USER_$(p)_SRCS))))
+  $(eval USER_$(p)_OBJS := $(patsubst user/%.c,$(O)/user/%.o,\
+    $(if $(EXT),$(patsubst $(EXT)/user/%.c,$(O)/user/ext/%.o,$(USER_$(p)_SRCS)),\
+      $(USER_$(p)_SRCS)))))
 
 # Only build what this board actually packages.
 BOARD_PROGS   := $(sort $(BOOT_PROGS) $(SD_PROGS))
@@ -179,6 +182,21 @@ $(O)/user/newlib_apps/%.o: user/newlib_apps/%.c $(FLAGS_STAMP) $(KCONFIG_AUTOCON
 	@echo "  CC[nl]  $<"
 	@$(NEWLIB_CC) $(NEWLIB_USER_CFLAGS_C) -c $< -o $@
 	@$(call record-cmd,$(NEWLIB_CC) $(NEWLIB_USER_CFLAGS_C) -c $< -o $@)
+
+ifneq ($(EXT),)
+$(O)/user/ext/newlib_apps/%.o: $(EXT)/user/newlib_apps/%.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF) $(NEWLIB_INC_STAMPS)
+	$(call check-newlib-toolchain)
+	@mkdir -p $(dir $@)
+	@echo "  CC[nl]  $<"
+	@$(NEWLIB_CC) $(NEWLIB_USER_CFLAGS_C) -c $< -o $@
+	@$(call record-cmd,$(NEWLIB_CC) $(NEWLIB_USER_CFLAGS_C) -c $< -o $@)
+
+$(O)/user/ext/%.o: $(EXT)/user/%.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
+	@mkdir -p $(dir $@)
+	@echo "  CC      $<"
+	@$(USER_CC) $(USER_CFLAGS) -c $< -o $@
+	@$(call record-cmd,$(USER_CC) $(USER_CFLAGS) -c $< -o $@)
+endif
 
 $(O)/lib/posix/%.o: lib/posix/%.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF) $(NEWLIB_INC_STAMPS)
 	$(call check-newlib-toolchain)

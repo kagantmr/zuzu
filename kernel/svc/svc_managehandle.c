@@ -1,9 +1,44 @@
 #include "core/ensure.h"
 #include "kernel/irq/irq_relay.h"
+#include "kernel/mm/mem_object.h"
 #include "kernel/space/handle.h"
 #include "kernel/space/space.h"
 #include "svc.h"
 #include <arch/regs.h>
+
+static Err QueryDma(const HandleTableEntry *entry, QueryWhat what, uint32_t arg, Register *value)
+{
+    if (HANDLE_MEM != entry->type || !entry->mem || entry->mem->kind != MEMKIND_DEVICE)
+        return ERR_BADTYPE;
+    if (!(entry->perms & PERM_MAP))
+        return ERR_NOPERM;
+
+    const MemObject *dev = entry->mem;
+    if (QUERY_DMA_COUNT == what) {
+        *value = (Register)dev->dev.dma_map_count;
+        return ZUZU_OK;
+    }
+
+    const DmaMapping *m = (QUERY_DMA_ID == what) ? MemObjDmaNth(dev, arg) : MemObjDmaFind(dev, arg);
+    if (!m)
+        return ERR_NOENT;
+
+    switch (what) {
+    case QUERY_DMA_ID:
+        *value = (Register)m->id;
+        break;
+    case QUERY_DMA_BUS:
+        *value = (Register)m->bus_addr;
+        break;
+    case QUERY_DMA_LEN:
+        *value = (Register)m->len;
+        break;
+    default:
+        *value = (Register)m->dir;
+        break;
+    }
+    return ZUZU_OK;
+}
 
 void SvcManageHandle(CpuState *frame)
 {
@@ -89,6 +124,14 @@ void SvcManageHandle(CpuState *frame)
                         : (Register)(entry->mem->shm.page_count * PAGE_SIZE);
 
             break;
+        case QUERY_DMA_COUNT:
+        case QUERY_DMA_ID:
+        case QUERY_DMA_BUS:
+        case QUERY_DMA_LEN:
+        case QUERY_DMA_DIR: {
+            Err rc = QueryDma(entry, what, (uint32_t)(*ArchGetFromFrame(frame, 3)), &value);
+            ENSURE_ERR(frame, ZUZU_OK == rc, rc);
+        } break;
         default:
             ArchSetInFrame(frame, 0, ERR_BADARG);
             return;

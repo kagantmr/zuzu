@@ -194,6 +194,9 @@ static __attribute__((cold)) Err PerformDriverHandshake(PortWaitResult res)
     MsgWriterInit(&w);
     MsgPutU32(&w, ZUZU_OK);
     MsgPutStr(&w, "eth0");
+
+    strncpy(netif.name, "eth0", 8);
+    
     return Reply(w.off, -1);
 }
 

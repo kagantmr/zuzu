@@ -19,6 +19,7 @@ typedef struct {
     size_t ref_count;
     bool alive;
     ObserverSet observers;
+    ListHead active_servers;
 } PortObject;
 
 typedef struct {

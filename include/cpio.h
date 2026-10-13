@@ -37,7 +37,7 @@ typedef struct cpio_header {
  * @param size_out Pointer to a variable that will receive the size of the file's data
  * @return true if the file was found, false otherwise.
  */
-bool cpio_find(const void *base, size_t size, const char *name, const void **data_out,
+bool CpioFind(const void *base, size_t size, const char *name, const void **data_out,
                size_t *size_out);
 
 #ifdef __cplusplus

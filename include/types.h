@@ -56,6 +56,26 @@ typedef enum {
     OBJECT_CODE_COUNT
 } ZuzuObjectCode;
 
+typedef enum {
+    MEM_CONTIG = (1U << 0), // physically contiguous, allocated and zeroed at creation
+    MEM_UNCACHED = (1U << 1),
+    MEM_FLAGS_ALL = (MEM_CONTIG | MEM_UNCACHED)
+} CreateMemoryFlags;
+
+typedef enum {
+    DMA_TO_DEVICE = 1,
+    DMA_FROM_DEVICE = 2,
+    DMA_BIDIRECTIONAL = 3,
+} DmaDir;
+
+typedef struct {
+    Handle dev;
+    Handle mem;
+    size_t offset;
+    size_t len;
+    DmaDir dir;
+} DmaMapArgs;
+
 /**
  * @brief This struct represents the 4 arguments passed into ManageHandle() to start a task.
  */
@@ -72,19 +92,35 @@ typedef struct {
     uint32_t xlen;
     Handle granted;
 } PortWaitResult;
+
 typedef struct {
     Err status;
     EventWord bits;
 } EventWaitResult;
+
 typedef struct {
     Err status;
     TaskWaitOutcome outcome;
     int32_t value;
 } TaskWaitResult;
+
 typedef struct {
     Err status;
     Err exit_status;
 } SpaceWaitResult;
+
+typedef struct {
+    Err status;
+    uintptr_t bus_addr;
+    uint32_t id;
+} DmaMapResult;
+
+#define DMA_ALIGN 64U
+
+typedef enum {
+    DMA_SYNC_FOR_DEVICE,
+    DMA_SYNC_FOR_CPU
+} DmaSyncOp;
 
 /* Kernel event types users can subscribe to */
 typedef enum {
@@ -107,7 +143,11 @@ typedef enum {
     MNGMEM_MAP,
     MNGMEM_UNMAP,
     MNGMEM_PROTECT,
-    MNGMEM_INJECT,
+    MNGMEM_INJECTOBJ,
+    MNGMEM_DMAMAP,
+    MNGMEM_DMAUNMAP,
+    MNGMEM_DMASYNC,
+    MNGMEM_DMAADOPT,
 } ManageMemoryVerb;
 
 typedef enum {
@@ -116,6 +156,11 @@ typedef enum {
     QUERY_MARKER,
     QUERY_STATUS,
     QUERY_SIZE,
+    QUERY_DMA_COUNT,
+    QUERY_DMA_ID,
+    QUERY_DMA_BUS,
+    QUERY_DMA_LEN,
+    QUERY_DMA_DIR,
     QUERY_WHAT_COUNT
 } QueryWhat;
 
@@ -145,21 +190,13 @@ typedef enum {
 
 #define SIGNAL_BROADCAST (1U << 0)
 
-/* InjectArgs.flags */
-#define ASINJECT_FLAG_RESERVE                                                                      \
-    0x1U /* reserve [dest_vaddr, dest_vaddr+len) as demand-zero                                    \
-          * anon memory in the target AS; src_buf must                                             \
-          * be NULL, no bytes are copied up front. */
-
 typedef struct {
-    uint32_t _reserved;
-    VirtAddr dest_vaddr; // destination virtual address in the target task's address space
-    const void *src_buf; // pointer to the source buffer in the current task's address space
-    size_t len;          // length of the source buffer in bytes
-    MemProt prot;        // memory protection flags for the destination mapping (e.g., PROT_READ |
-                         // PROT_WRITE)
-    uint32_t flags;      // ASINJECT_FLAG_* bits; 0 for the original copy-in behavior
-} InjectArgs;
+    Handle mem;          // shm object in the current space, or HANDLE_ANON for demand-zero memory
+    VirtAddr dest_vaddr; // destination virtual address in the target space
+    size_t offset;       // byte offset into the object; ignored for HANDLE_ANON
+    size_t len;          // bytes to map
+    MemProt prot;        // protection of the destination mapping
+} InjectObjArgs;
 
 #ifdef __cplusplus
 }

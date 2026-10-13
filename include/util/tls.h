@@ -28,8 +28,8 @@ typedef struct {
     void *msg_buf; /* this slot's buf; kernel owns the location */
     Tid tid;
     Spid spid;
-    size_t msg_recv_len;
-    uint8_t padding[TCB_HDR_SIZE - 16];
+    uint8_t prio, max_prio;
+    uint8_t padding[TCB_HDR_SIZE - 14];
     uint8_t buf[MSG_BUF_SIZE];
 } ThreadLocalData;
 

@@ -59,10 +59,18 @@ static uint32_t l1_section_desc(uintptr_t pa, MemProt prot, VirtMemType memtype)
         e |= MMU_BIT(L1_SECT_XN_BIT);
     if (prot & VM_PROT_USER)
         e |= MMU_BIT(L1_SECT_NG_BIT);
-    if (memtype == VM_MEM_DEVICE)
+    switch (memtype) {
+    case VM_MEM_DEVICE:
         e |= L1_SECT_ATTR_DEVICE;
-    else
+        break;
+    case VM_MEM_NORMAL_NC:
+        e |= L1_SECT_ATTR_NORMAL_NC | MMU_BIT(L1_SECT_S_BIT);
+        break;
+    case VM_MEM_NORMAL:
+    default:
         e |= L1_SECT_ATTR_NORMAL | MMU_BIT(L1_SECT_S_BIT);
+        break;
+    }
 
     return e;
 }
@@ -77,10 +85,18 @@ static uint32_t l2_page_desc(uintptr_t pa, MemProt prot, VirtMemType memtype)
         e |= MMU_BIT(L2_PAGE_XN_BIT);
     if (prot & VM_PROT_USER)
         e |= MMU_BIT(L2_PAGE_NG_BIT); // ASID-tagged, not visible across address spaces
-    if (memtype == VM_MEM_DEVICE)
+    switch (memtype) {
+    case VM_MEM_DEVICE:
         e |= L2_PAGE_ATTR_DEVICE;
-    else
+        break;
+    case VM_MEM_NORMAL_NC:
+        e |= L2_PAGE_ATTR_NORMAL_NC | MMU_BIT(L2_PAGE_S_BIT);
+        break;
+    case VM_MEM_NORMAL:
+    default:
         e |= L2_PAGE_ATTR_NORMAL | MMU_BIT(L2_PAGE_S_BIT);
+        break;
+    }
 
     return e;
 }
@@ -484,6 +500,7 @@ static bool ArchMmuBreakSection(uint32_t *l1, uint32_t l1_idx, uint8_t asid)
     uint32_t tex = (section >> L1_SECT_TEX_SHIFT) & TEX_MASK;
     uint32_t ap2 = (section >> L1_SECT_AP2_BIT) & 0x1U;
     uint32_t ng = (section >> L1_SECT_NG_BIT) & 0x1U;
+    uint32_t s = (section >> L1_SECT_S_BIT) & 0x1U;
 
     uintptr_t l2_pa = (uintptr_t)L2PtPoolAlloc();
     if (!l2_pa)
@@ -493,7 +510,7 @@ static bool ArchMmuBreakSection(uint32_t *l1, uint32_t l1_idx, uint8_t asid)
 
     const uint32_t attrs = (xn << L2_PAGE_XN_BIT) | (cb << L2_PAGE_B_BIT) |
                            (ap << L2_PAGE_AP_SHIFT) | (tex << L2_PAGE_TEX_SHIFT) |
-                           (ap2 << L2_PAGE_AP2_BIT) | (ng << L2_PAGE_NG_BIT);
+                           (s << L2_PAGE_S_BIT) | (ap2 << L2_PAGE_AP2_BIT) | (ng << L2_PAGE_NG_BIT);
 
     /* Replicate the section mapping at 4 KB granularity */
     for (uint32_t i = 0; i < L2_ENTRIES; i++) {

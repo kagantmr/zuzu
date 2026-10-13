@@ -81,9 +81,9 @@ static inline Handle CreateEvent(void) { return ArchInvokeSvc(SVC_CREATE, OBJECT
  *
  * @return The handle of the created memory.
  */
-static inline Handle CreateMem(size_t page_count)
+static inline Handle CreateMem(size_t page_count, CreateMemoryFlags flags)
 {
-    return ArchInvokeSvc(SVC_CREATE, OBJECT_MEMORY, (Register)page_count, 0, 0);
+    return ArchInvokeSvc(SVC_CREATE, OBJECT_MEMORY, (Register)page_count, flags, 0);
 }
 
 /**
@@ -221,9 +221,14 @@ static inline Err HandleDestroy(Handle h)
     return ArchInvokeSvc(SVC_MANAGEHANDLE, h, MNGHNDL_DESTROY, 0, 0);
 }
 
+static inline SvcResult HandleQueryAt(Handle h, QueryWhat what, size_t index)
+{
+    return ArchInvokeSvc4(SVC_MANAGEHANDLE, h, MNGHNDL_QUERY, what, (Register)index);
+}
+
 static inline SvcResult HandleQuery(Handle h, QueryWhat what)
 {
-    return ArchInvokeSvc4(SVC_MANAGEHANDLE, h, MNGHNDL_QUERY, what, 0);
+    return HandleQueryAt(h, what, 0);
 }
 
 static inline void *MemMap(Handle mem_handle, VirtAddr hint_va, MemProt prot)
@@ -249,17 +254,17 @@ static inline Err MemProtect(VirtAddr va, size_t size, MemProt new_prot)
     return ArchInvokeSvc(SVC_MANAGEMEMORY, MNGMEM_PROTECT, (Register)va, (Register)size, new_prot);
 }
 
-static inline Err MemInject(Handle kitten_space_handle, VirtAddr dest_vaddr, const void *src_buf,
-                            size_t size, MemProt prot, uint32_t flags)
+static inline Err MemInjectObj(Handle kitten_space_handle, Handle mem_handle, VirtAddr dest_vaddr,
+                               size_t offset, size_t size, MemProt prot)
 {
-    InjectArgs args = {
+    InjectObjArgs args = {
+        .mem = mem_handle,
         .dest_vaddr = dest_vaddr,
-        .src_buf = src_buf,
+        .offset = offset,
         .len = size,
         .prot = prot,
-        .flags = flags,
     };
-    return ArchInvokeSvc(SVC_MANAGEMEMORY, MNGMEM_INJECT, kitten_space_handle,
+    return ArchInvokeSvc(SVC_MANAGEMEMORY, MNGMEM_INJECTOBJ, kitten_space_handle,
                          (Register)(VirtAddr)&args, 0);
 }
 
@@ -405,8 +410,72 @@ static inline PortWaitResult ReplyRecvPort(uint32_t xlen, Handle grant_handle, H
 {
     return FormatToPortWait(ReplyRecv(xlen, grant_handle, recv_port, timeout));
 }
+#ifdef CONFIG_ZUZU_BENCH
+static inline void BenchReset(void) { ArchInvokeSvc(SVC_BENCH, BENCH_RESET, 0, 0, 0); }
+static inline void BenchDump(void) { ArchInvokeSvc(SVC_BENCH, BENCH_DUMP, 0, 0, 0); }
+#else
+static inline void BenchReset(void) {}
+static inline void BenchDump(void) {}
+#endif
 
 static inline int PtrIsErr(const void *p) { return (VirtAddr)p >= (VirtAddr)(-4095); }
+
+/** @brief Copies len bytes into a fresh object and maps it at va in the target space, rounded up
+ * to whole pages and zero-padded. The object is released once the mapping holds it. */
+static inline Err MemInjectBytes(Handle kitten_space_handle, VirtAddr va, const void *src,
+                                 size_t len, MemProt prot)
+{
+    size_t pages = (len + 0xFFFU) >> 12;
+    Handle obj = CreateMem(pages, 0);
+    if (obj < 0)
+        return (Err)obj;
+
+    uint8_t *w = (uint8_t *)MemMap(obj, 0, PROT_RW);
+    if (PtrIsErr(w)) {
+        HandleClose(obj);
+        return (Err)(intptr_t)w;
+    }
+    memcpy(w, src, len);
+    memset(w + len, 0, (pages << 12) - len);
+    MemUnmap(w);
+
+    Err rc = MemInjectObj(kitten_space_handle, obj, va, 0, pages << 12, prot);
+    HandleClose(obj);
+    return rc;
+}
+
+static inline DmaMapResult FormatToDmaMap(SvcResult r)
+{
+    return (DmaMapResult){
+        .status = (Err)r.r0,
+        .bus_addr = (uintptr_t)r.r1,
+        .id = (uint32_t)r.r2,
+    };
+}
+
+static inline DmaMapResult DmaMap(Handle dev, Handle mem, size_t offset, size_t len, DmaDir dir)
+{
+    DmaMapArgs args = {.dev = dev, .mem = mem, .offset = offset, .len = len, .dir = dir};
+    return FormatToDmaMap(
+        ArchInvokeSvc4(SVC_MANAGEMEMORY, MNGMEM_DMAMAP, (Register)(VirtAddr)&args, 0, 0));
+}
+
+static inline Err DmaUnmap(Handle dev, uint32_t id)
+{
+    return ArchInvokeSvc(SVC_MANAGEMEMORY, MNGMEM_DMAUNMAP, dev, (Register)id, 0);
+}
+
+static inline Handle DmaAdopt(Handle dev, uint32_t id)
+{
+    SvcResult r = ArchInvokeSvc4(SVC_MANAGEMEMORY, MNGMEM_DMAADOPT, dev, (Register)id, 0);
+    return (r.r0 == 0) ? (Handle)r.r1 : (Handle)r.r0;
+}
+
+static inline Err DmaSync(Handle dev, uintptr_t bus_addr, size_t len, DmaSyncOp op)
+{
+    return ArchInvokeSvc(SVC_MANAGEMEMORY, MNGMEM_DMASYNC, dev, (Register)(bus_addr | op),
+                         (Register)len);
+}
 
 #ifdef __cplusplus
 }

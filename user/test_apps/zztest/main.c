@@ -6,7 +6,7 @@
  * number of failed checks.
  *
  * Same-space worker threads play the IPC/event peers. Anything that needs a
- * second address space (faults, space lifecycle, MemInject) injects a few
+ * second address space (faults, space lifecycle, MemInjectObj) injects a few
  * hand-assembled ARM words into a kitten Space, so the suite needs neither
  * the initrd nor a second binary. A faulting kitten makes the kernel print
  * an "Oops!" register dump: that is expected.
@@ -19,12 +19,14 @@
 #define UDBG_ENABLED 1
 
 #include <arch/svc.h>
+#include <dev/protocols/devm.h>
 #include <stdatomic.h>
 #include <string.h>
 #include <sync/primitives.h>
 #include <util/msg.h>
 #include <util/tls.h>
 #include <zuzu/err.h>
+#include <zuzu/service.h>
 #include <zuzu/syspage.h>
 #include <zuzu/udbg.h>
 #include <zuzu/user_layout.h>
@@ -40,7 +42,7 @@ enum { ZH_PORT = 1, ZH_MEM, ZH_EVENT, ZH_TASK, ZH_SPACE };
 
 /* ---------------- harness ---------------- */
 
-#define MAX_SECTIONS 16
+#define MAX_SECTIONS 24
 typedef struct {
     const char *name;
     int pass;
@@ -102,6 +104,16 @@ static void CheckEq(int32_t got, int32_t want, const char *msg)
     }
 }
 
+static void CheckKnown(bool cond, const char *msg)
+{
+    if (cond) {
+        g_sections[g_cur].pass++;
+        UserspaceDebugLog("zztest: note: known-failing check now passes: %s", msg);
+    } else if (g_verbose) {
+        UserspaceDebugLog("zztest: xfail: %s", msg);
+    }
+}
+
 static uint32_t PagesFree(void) { return ((const Syspage *)SYSPAGE)->mem_free_kb / 4; }
 
 static uint64_t NowMs(void)
@@ -133,7 +145,7 @@ static Worker g_workers[MAX_WORKERS];
 
 static void WorkerEntry(Worker *w) { Quit(w->fn(w->arg)); }
 
-static Worker *WorkerStart(WorkerFn fn, void *arg)
+static Worker *WorkerStartAt(WorkerFn fn, void *arg, int priority)
 {
     Worker *w = NULL;
     for (int i = 0; i < MAX_WORKERS; i++) {
@@ -153,6 +165,11 @@ static Worker *WorkerStart(WorkerFn fn, void *arg)
         MemUnmap(stack);
         return NULL;
     }
+    if (priority >= 0 && TaskSetPriority(task, (uint32_t)priority) != ZUZU_OK) {
+        HandleClose(task);
+        MemUnmap(stack);
+        return NULL;
+    }
     *w = (Worker){.fn = fn, .arg = arg, .stack = stack, .task = task, .used = true};
     if (TaskStart(task, (void *)WorkerEntry, stack + WORKER_STACK, (uint32_t)(uintptr_t)w, 0) !=
         ZUZU_OK) {
@@ -163,6 +180,8 @@ static Worker *WorkerStart(WorkerFn fn, void *arg)
     }
     return w;
 }
+
+static Worker *WorkerStart(WorkerFn fn, void *arg) { return WorkerStartAt(fn, arg, -1); }
 
 /* Waits for the worker to exit, kills it if it does not, and releases its
  * stack and handle. Returns its exit status, or an Err if it never exited. */
@@ -229,10 +248,10 @@ static Err KittenCreateEx(Kitten *k, const uint32_t *code, size_t bytes, bool wi
     memcpy(g_code_page, code, bytes);
     Err rc = ZUZU_OK;
     if (with_data)
-        rc = MemInject(k->space, KITTEN_DATA_VA, NULL, 4096, PROT_RW, ASINJECT_FLAG_RESERVE);
+        rc = MemInjectObj(k->space, HANDLE_ANON, KITTEN_DATA_VA, 0, 4096, PROT_RW);
     if (rc == ZUZU_OK)
-        rc = MemInject(k->space, USER_ELF_BASE, g_code_page, sizeof(g_code_page),
-                       PROT_READ | PROT_EXEC, 0);
+        rc = MemInjectBytes(k->space, USER_ELF_BASE, g_code_page, sizeof(g_code_page),
+                            PROT_READ | PROT_EXEC);
     if (rc != ZUZU_OK) {
         HandleDestroy(k->space);
         return rc;
@@ -326,7 +345,7 @@ static void TestHandles(void)
 
     Handle ev = CreateEvent();
     Handle port = CreatePort();
-    Handle mem = CreateMem(1);
+    Handle mem = CreateMem(1, 0);
     Check(ev >= 0 && port >= 0 && mem >= 0, "CreateEvent/Port/Mem succeed");
     Check(ev != port && port != mem, "distinct handles");
 
@@ -447,7 +466,7 @@ static void TestMemory(void)
     CheckEq(MemUnmap(a), ZUZU_OK, "Unmap(anon) OK");
 
     /* Shared memory objects */
-    Handle mem = CreateMem(2);
+    Handle mem = CreateMem(2, 0);
     Check(mem >= 0, "CreateMem(2) OK");
     uint8_t *m = MemMap(mem, 0, PROT_RW);
     Check(!PtrIsErr(m) && ((uintptr_t)m % 4096) == 0, "MemMap(mem) OK");
@@ -468,8 +487,54 @@ static void TestMemory(void)
     CheckEq(HandleClose(mem), ZUZU_OK, "Close(mapped mem handle) OK");
     CheckEq(MemUnmap(m), ERR_NOENT, "closing the handle unmapped the region");
 
-    CheckEq(CreateMem(0), ERR_BADARG, "CreateMem(0) -> BADARG");
-    CheckEq(CreateMem(100000), ERR_NOMEM, "CreateMem(more than RAM) -> NOMEM");
+    CheckEq(CreateMem(0, 0), ERR_BADARG, "CreateMem(0) -> BADARG");
+    CheckEq(CreateMem(100000, 0), ERR_NOMEM, "CreateMem(more than RAM) -> NOMEM");
+
+    /* Contiguous and uncached memory */
+    CheckEq(CreateMem(1, (CreateMemoryFlags)0x80), ERR_BADARG, "CreateMem(unknown flag) -> BADARG");
+    CheckEq(CreateMem(1, MEM_UNCACHED), ERR_BADARG, "MEM_UNCACHED without MEM_CONTIG -> BADARG");
+    CheckEq(CreateMem(0, MEM_CONTIG), ERR_BADARG, "CreateMem(0, MEM_CONTIG) -> BADARG");
+    CheckEq(CreateMem(100000, MEM_CONTIG), ERR_NOMEM, "MEM_CONTIG larger than RAM -> NOMEM");
+
+    for (int round = 0; round < 2; round++) {
+        Handle warm = CreateMem(4, MEM_CONTIG);
+        uint8_t *wp = MemMap(warm, 0, PROT_RW);
+        memset((void *)wp, 1, 16384);
+        HandleClose(warm);
+    }
+    SleepAndSettle();
+    uint32_t contig_before = PagesFree();
+    Handle cm = CreateMem(4, MEM_CONTIG);
+    Check(cm >= 0, "CreateMem(4, MEM_CONTIG) OK");
+    SleepAndSettle();
+    CheckEq((int32_t)PagesFree(), (int32_t)contig_before - 4,
+            "MEM_CONTIG allocates every page up front");
+    volatile uint8_t *cp = MemMap(cm, 0, PROT_RW);
+    Check(!PtrIsErr((void *)cp), "MemMap(MEM_CONTIG) OK");
+    bool contig_zero = true;
+    for (size_t i = 0; i < 4 * 4096; i++)
+        contig_zero = contig_zero && (cp[i] == 0);
+    Check(contig_zero, "MEM_CONTIG memory is zeroed");
+    HandleClose(cm);
+    SleepAndSettle();
+    CheckEq((int32_t)PagesFree(), (int32_t)contig_before, "closing MEM_CONTIG memory frees every page");
+
+    Handle um = CreateMem(2, MEM_CONTIG | MEM_UNCACHED);
+    Check(um >= 0, "CreateMem(2, CONTIG|UNCACHED) OK");
+    CheckEq(PtrErr(MemMap(um, 0, PROT_READ | PROT_EXEC)), ERR_NOPERM,
+            "mapping uncached memory executable -> NOPERM");
+    volatile uint8_t *up = MemMap(um, 0, PROT_RW);
+    Check(!PtrIsErr((void *)up), "MemMap(uncached) OK");
+    bool uncached_zero = true;
+    for (size_t i = 0; i < 2 * 4096; i++)
+        uncached_zero = uncached_zero && (up[i] == 0);
+    Check(uncached_zero, "uncached memory is zeroed");
+    up[0] = 0xA5;
+    up[8191] = 0x5A;
+    Check(up[0] == 0xA5 && up[8191] == 0x5A, "uncached memory reads back what was written");
+    Check(MemProtect((VirtAddr)up, 8192, PROT_READ | PROT_EXEC) != ZUZU_OK,
+          "MemProtect(uncached, +X) refused");
+    HandleClose(um);
 
     /* No page leaks across map/touch/unmap. One warm-up round absorbs lazy
      * one-time kernel allocations before the baseline is taken. */
@@ -477,7 +542,7 @@ static void TestMemory(void)
         uint8_t *w = MemMapAnon(16384, 0, PROT_RW);
         memset((void *)w, 1, 16384);
         MemUnmap(w);
-        Handle sm = CreateMem(4);
+        Handle sm = CreateMem(4, 0);
         uint8_t *sv = MemMap(sm, 0, PROT_RW);
         memset((void *)sv, 2, 16384);
         HandleClose(sm);
@@ -488,7 +553,7 @@ static void TestMemory(void)
         uint8_t *w = MemMapAnon(16384, 0, PROT_RW);
         memset((void *)w, 1, 16384);
         MemUnmap(w);
-        Handle sm = CreateMem(4);
+        Handle sm = CreateMem(4, 0);
         uint8_t *sv = MemMap(sm, 0, PROT_RW);
         memset((void *)sv, 2, 16384);
         HandleClose(sm);
@@ -630,7 +695,7 @@ static void TestEvents(void)
             "Bind without PERM_WAIT on the target -> NOPERM");
     HandleClose((Handle)no_wait_port.r1);
     CheckEq(BindIrq(ev, 5000, 0), ERR_BADHANDLE, "BindIrq(invalid device) -> BADHANDLE");
-    Handle shm = CreateMem(1);
+    Handle shm = CreateMem(1, 0);
     CheckEq(BindIrq(ev, shm, 0), ERR_BADTYPE, "BindIrq(non-device memory) -> BADTYPE");
     HandleClose(shm);
 
@@ -893,7 +958,7 @@ static void TestIpc(void)
     HandleClose(p2);
 
     CheckEq(WaitOn(-1, 0).r0, ERR_BADHANDLE, "WaitOn(invalid) -> BADHANDLE");
-    Handle mem = CreateMem(1);
+    Handle mem = CreateMem(1, 0);
     CheckEq(WaitOn(mem, 0).r0, ERR_BADTYPE, "WaitOn(mem) -> BADTYPE");
     HandleClose(mem);
 
@@ -1102,7 +1167,7 @@ static void TestTasks(void)
     atomic_store(&g_flag, 0);
 }
 
-/* ---------------- 7. spaces, faults, MemInject ---------------- */
+/* ---------------- 7. spaces and faults ---------------- */
 
 static void TestSpaces(void)
 {
@@ -1226,53 +1291,13 @@ static void TestSpaces(void)
     CheckEq(TaskResume(k.task), ERR_BADARG, "Resume on a task that is no longer faulted -> BADARG");
     KittenFree(&k);
 
-    /* MemInject contract */
     Handle sp = CreateSpace("zz-inject");
-    memset(g_code_page, 0x90, sizeof(g_code_page));
-    CheckEq(MemInject(sp, USER_ELF_BASE + 1, g_code_page, 4096, PROT_READ, 0), ERR_BADARG,
-            "unaligned destination -> BADARG");
-    CheckEq(MemInject(sp, USER_ELF_BASE, g_code_page, 0, PROT_READ, 0), ERR_BADARG,
-            "zero length -> BADARG");
-    CheckEq(MemInject(sp, USER_ELF_BASE, g_code_page, 4096, PROT_WRITE | PROT_EXEC, 0), ERR_BADARG,
-            "W+X -> BADARG");
-    CheckEq(MemInject(sp, USER_ELF_BASE, g_code_page, 4096, (MemProt)8, 0), ERR_BADARG,
-            "unknown prot bits -> BADARG");
-    CheckEq(MemInject(sp, 0x80000000u, g_code_page, 4096, PROT_READ, 0), ERR_BADARG,
-            "destination in kernel space -> BADARG");
-    CheckEq(MemInject(sp, USER_ELF_BASE, NULL, 4096, PROT_READ, 0), ERR_BADARG,
-            "NULL source -> BADARG");
-    CheckEq(MemInject(sp, USER_ELF_BASE, g_code_page, 4096, PROT_READ, ASINJECT_FLAG_RESERVE),
-            ERR_BADARG, "RESERVE with a source -> BADARG");
-    CheckEq(MemInject(sp, USER_ELF_BASE, NULL, 100, PROT_READ, ASINJECT_FLAG_RESERVE), ERR_BADARG,
-            "RESERVE length not page-aligned -> BADARG");
-    CheckEq(MemInject(sp, USER_ELF_BASE, (const void *)0xC0000000u, 4096, PROT_READ, 0), ERR_BADARG,
-            "source pointer into the kernel -> BADARG");
-    CheckEq(MemInject(sp, 0x40000000u, NULL, 8192, PROT_RW, ASINJECT_FLAG_RESERVE), ZUZU_OK,
-            "RESERVE a demand-zero region");
-    CheckEq(MemInject(sp, 0x40000000u, NULL, 8192, PROT_RW, ASINJECT_FLAG_RESERVE), ERR_NOMEM,
-            "RESERVE over an existing region -> NOMEM");
-    CheckEq(MemInject(sp, 0x40000000u, g_code_page, 4096, PROT_RW, 0), ZUZU_OK,
-            "inject into a reserved region fills it in place");
-    CheckEq(MemInject(sp, 0x50000000u, NULL, 4096, PROT_READ, ASINJECT_FLAG_RESERVE), ZUZU_OK,
-            "RESERVE a read-only region");
-    CheckEq(MemInject(sp, 0x50000000u, g_code_page, 4096, PROT_RW, 0), ERR_BADARG,
-            "inject may not exceed the region's own prot");
-    CheckEq(MemInject(-1, USER_ELF_BASE, g_code_page, 4096, PROT_READ, 0), ERR_BADHANDLE,
-            "MemInject(invalid space) -> BADHANDLE");
-    Handle evt = CreateEvent();
-    CheckEq(MemInject(evt, USER_ELF_BASE, g_code_page, 4096, PROT_READ, 0), ERR_BADTYPE,
-            "MemInject(event) -> BADTYPE");
-    HandleClose(evt);
     SvcResult weak = HandleDuplicate(sp, PERM_WAIT, MARKER_NONE);
-    CheckEq(MemInject((Handle)weak.r1, USER_ELF_BASE, g_code_page, 4096, PROT_READ, 0), ERR_NOPERM,
-            "MemInject without PERM_CNTL -> NOPERM");
     CheckEq(CreateTask((Handle)weak.r1), ERR_NOPERM,
             "CreateTask without PERM_CNTL on the Space -> NOPERM");
     HandleClose((Handle)weak.r1);
     Handle task = CreateTask(sp);
     Check(task >= 0, "CreateTask in a kitten Space OK");
-    CheckEq(MemInject(sp, USER_ELF_BASE, g_code_page, 4096, PROT_READ, 0), ERR_BUSY,
-            "injecting once a task exists -> BUSY");
     HandleClose(task);
     CheckEq(HandleDestroy(sp), ZUZU_OK, "Destroy(space) OK");
     CheckEq(HandleQuery(sp, QUERY_TYPE).r0, ERR_BADHANDLE, "the Space handle is gone");
@@ -1289,6 +1314,939 @@ static void TestSpaces(void)
         CreateSpace("a-very-long-space-name-that-is-well-past-the-32-byte-name-field");
     Check(longname >= 0, "an over-long Space name is truncated, not rejected");
     HandleDestroy(longname);
+}
+
+/* ---------------- 7b. MemInjectObj ---------------- */
+
+static void TestInjectObj(void)
+{
+    BeginSection("injectobj");
+
+    Handle obj = CreateMem(1, 0);
+    Check(obj >= 0, "CreateMem(1)");
+    uint8_t *w = MemMap(obj, 0, PROT_RW);
+    Check(!PtrIsErr(w), "map the object to fill it");
+    memset(w, 0, 4096);
+    memcpy(w, kCodeQuit42, sizeof(kCodeQuit42));
+
+    Handle sp = CreateSpace("zz-injectobj");
+    CheckEq(MemInjectObj(sp, obj, USER_ELF_BASE + 1, 0, 4096, PROT_READ), ERR_BADARG,
+            "unaligned destination -> BADARG");
+    CheckEq(MemInjectObj(sp, obj, USER_ELF_BASE, 1, 4096, PROT_READ), ERR_BADARG,
+            "unaligned offset -> BADARG");
+    CheckEq(MemInjectObj(sp, obj, USER_ELF_BASE, 0, 0, PROT_READ), ERR_BADARG,
+            "zero length -> BADARG");
+    CheckEq(MemInjectObj(sp, obj, USER_ELF_BASE, 0, 100, PROT_READ), ERR_BADARG,
+            "length not page-aligned -> BADARG");
+    CheckEq(MemInjectObj(sp, obj, USER_ELF_BASE, 0, 4096, PROT_WRITE | PROT_EXEC), ERR_BADARG,
+            "W+X -> BADARG");
+    CheckEq(MemInjectObj(sp, obj, USER_ELF_BASE, 0, 4096, (MemProt)8), ERR_BADARG,
+            "unknown prot bits -> BADARG");
+    CheckEq(MemInjectObj(sp, obj, 0x80000000u, 0, 4096, PROT_READ), ERR_BADARG,
+            "destination in kernel space -> BADARG");
+    CheckEq(MemInjectObj(sp, obj, USER_ELF_BASE, 4096, 4096, PROT_READ), ERR_BADARG,
+            "offset past the end of the object -> BADARG");
+    CheckEq(MemInjectObj(sp, obj, USER_ELF_BASE, 0, 8192, PROT_READ), ERR_BADARG,
+            "length past the end of the object -> BADARG");
+    CheckEq(MemInjectObj(-2, obj, USER_ELF_BASE, 0, 4096, PROT_READ), ERR_BADHANDLE,
+            "invalid space -> BADHANDLE");
+    CheckEq(MemInjectObj(sp, -2, USER_ELF_BASE, 0, 4096, PROT_READ), ERR_BADHANDLE,
+            "invalid object -> BADHANDLE");
+    Handle evt = CreateEvent();
+    CheckEq(MemInjectObj(sp, evt, USER_ELF_BASE, 0, 4096, PROT_READ), ERR_BADTYPE,
+            "event as the object -> BADTYPE");
+    HandleClose(evt);
+    SvcResult weak_obj = HandleDuplicate(obj, PERM_WAIT, MARKER_NONE);
+    CheckEq(MemInjectObj(sp, (Handle)weak_obj.r1, USER_ELF_BASE, 0, 4096, PROT_READ), ERR_NOPERM,
+            "object without PERM_MAP -> NOPERM");
+    HandleClose((Handle)weak_obj.r1);
+    SvcResult weak_sp = HandleDuplicate(sp, PERM_WAIT, MARKER_NONE);
+    CheckEq(MemInjectObj((Handle)weak_sp.r1, obj, USER_ELF_BASE, 0, 4096, PROT_READ), ERR_NOPERM,
+            "space without PERM_CNTL -> NOPERM");
+    HandleClose((Handle)weak_sp.r1);
+    Handle uncached = CreateMem(1, MEM_CONTIG | MEM_UNCACHED);
+    CheckEq(MemInjectObj(sp, uncached, 0x60000000u, 0, 4096, PROT_READ), ERR_BADARG,
+            "injecting uncached memory -> BADARG");
+    HandleClose(uncached);
+
+    CheckEq(MemInjectObj(sp, HANDLE_ANON, 0x40000000u, 0, 8192, PROT_RW), ZUZU_OK,
+            "HANDLE_ANON reserves a demand-zero region");
+    CheckEq(MemInjectObj(sp, HANDLE_ANON, 0x40000000u, 0, 4096, PROT_RW), ERR_NOMEM,
+            "overlapping an existing region -> NOMEM");
+    CheckEq(MemInjectObj(sp, obj, USER_ELF_BASE, 0, 4096, PROT_READ | PROT_EXEC), ZUZU_OK,
+            "map the object as code");
+    CheckEq(MemInjectObj(sp, obj, USER_ELF_BASE, 0, 4096, PROT_READ), ERR_NOMEM,
+            "mapping it again over itself -> NOMEM");
+
+    Handle task = CreateTask(sp);
+    Check(task >= 0, "CreateTask in the space");
+    CheckEq(MemInjectObj(sp, HANDLE_ANON, 0x50000000u, 0, 4096, PROT_RW), ERR_BUSY,
+            "mapping once a task exists -> BUSY");
+
+    CheckEq(HandleClose(obj), ZUZU_OK, "close the parent's handle while the child maps it");
+    CheckEq(TaskStart(task, (void *)USER_ELF_BASE, (void *)USR_SP, 0, 0), ZUZU_OK,
+            "start the task");
+    SpaceWaitResult sw = FormatToSpaceWait(WaitOn(sp, 2000));
+    CheckEq(sw.status, ZUZU_OK, "the space finishes");
+    CheckEq(sw.exit_status, 42, "the code mapped from the object ran");
+
+    HandleClose(task);
+    CheckEq(HandleDestroy(sp), ZUZU_OK, "destroy the space");
+}
+
+/* ---------------- 7b. DMA mappings ---------------- */
+
+static Handle RequestAnyDevice(void)
+{
+    static const char *const kCompats[] = {"arm,pl111", "arm,pl011", "arm,pl181",
+                                           "brcm,bcm2711-emmc2"};
+    Handle devsvc = LookupService("/svc/devsvc");
+    if (devsvc < 0)
+        return devsvc;
+    Handle dev = RequestDevice(devsvc, kCompats, sizeof(kCompats) / sizeof(kCompats[0]), NULL);
+    HandleClose(devsvc);
+    return dev;
+}
+
+static void TestDma(void)
+{
+    BeginSection("dma");
+
+    Handle dev = RequestAnyDevice();
+    if (dev < 0) {
+        UserspaceDebugLog("zztest: no device from devsvc (%d), skipping dma", (int)dev);
+        return;
+    }
+
+    Handle buf = CreateMem(4, MEM_CONTIG);
+    Check(buf >= 0, "CreateMem(4, MEM_CONTIG) for DMA");
+    Handle plain = CreateMem(4, 0);
+
+    DmaMapResult r = DmaMap(dev, buf, 0, 16384, DMA_TO_DEVICE);
+    CheckEq(r.status, ZUZU_OK, "DmaMap(contig buffer) OK");
+    Check(r.bus_addr != 0 && (r.bus_addr % 4096) == 0, "DmaMap returns a page-aligned bus address");
+    Check(r.id != 0, "DmaMap returns a nonzero mapping id");
+    CheckEq(DmaUnmap(dev, r.id + 1000), ERR_NOENT, "DmaUnmap(unknown id) -> NOENT");
+    CheckEq(DmaUnmap(dev, r.id), ZUZU_OK, "DmaUnmap OK");
+    CheckEq(DmaUnmap(dev, r.id), ERR_NOENT, "DmaUnmap twice -> NOENT");
+
+    DmaMapResult s = DmaMap(dev, buf, 0, 16384, DMA_BIDIRECTIONAL);
+    CheckEq(s.status, ZUZU_OK, "DmaMap for sync checks");
+    CheckEq(DmaSync(dev, s.bus_addr, 16384, DMA_SYNC_FOR_DEVICE), ZUZU_OK,
+            "DmaSync(whole range, for device) OK");
+    CheckEq(DmaSync(dev, s.bus_addr, 16384, DMA_SYNC_FOR_CPU), ZUZU_OK,
+            "DmaSync(whole range, for cpu) OK");
+    CheckEq(DmaSync(dev, s.bus_addr + 4096 + DMA_ALIGN, DMA_ALIGN, DMA_SYNC_FOR_DEVICE), ZUZU_OK,
+            "DmaSync(one cache line, for device) OK");
+    CheckEq(DmaSync(dev, s.bus_addr + 4096 + DMA_ALIGN, DMA_ALIGN, DMA_SYNC_FOR_CPU), ZUZU_OK,
+            "DmaSync(one cache line, for cpu) OK");
+    CheckEq(DmaSync(dev, s.bus_addr + 16384 - DMA_ALIGN, DMA_ALIGN, DMA_SYNC_FOR_CPU), ZUZU_OK,
+            "DmaSync(last cache line) OK");
+    CheckEq(DmaSync(dev, s.bus_addr + 32, DMA_ALIGN, DMA_SYNC_FOR_DEVICE), ERR_BADARG,
+            "DmaSync(unaligned start) -> BADARG");
+    CheckEq(DmaSync(dev, s.bus_addr, 100, DMA_SYNC_FOR_DEVICE), ERR_BADARG,
+            "DmaSync(unaligned length) -> BADARG");
+    CheckEq(DmaSync(dev, s.bus_addr, 0, DMA_SYNC_FOR_DEVICE), ERR_BADARG,
+            "DmaSync(len 0) -> BADARG");
+    CheckEq(DmaSync(dev, s.bus_addr + 16384 - DMA_ALIGN, 2 * DMA_ALIGN, DMA_SYNC_FOR_CPU),
+            ERR_NOENT, "DmaSync(range past the mapping) -> NOENT");
+    CheckEq(DmaSync(dev, s.bus_addr, 16384 + DMA_ALIGN, DMA_SYNC_FOR_CPU), ERR_NOENT,
+            "DmaSync(longer than the mapping) -> NOENT");
+    CheckEq(DmaSync(dev, s.bus_addr + 16384, DMA_ALIGN, DMA_SYNC_FOR_CPU), ERR_NOENT,
+            "DmaSync(just past the mapping) -> NOENT");
+    CheckEq(DmaSync(buf, s.bus_addr, DMA_ALIGN, DMA_SYNC_FOR_CPU), ERR_BADTYPE,
+            "DmaSync(shm object as the device) -> BADTYPE");
+    CheckEq(DmaUnmap(dev, s.id), ZUZU_OK, "DmaUnmap after sync checks");
+    CheckEq(DmaSync(dev, s.bus_addr, DMA_ALIGN, DMA_SYNC_FOR_CPU), ERR_NOENT,
+            "DmaSync after DmaUnmap -> NOENT");
+
+    int32_t dma_base = HandleQuery(dev, QUERY_DMA_COUNT).r1;
+    DmaMapResult q = DmaMap(dev, buf, 4096, 8192, DMA_FROM_DEVICE);
+    CheckEq(q.status, ZUZU_OK, "DmaMap for query checks");
+    CheckEq(HandleQuery(dev, QUERY_DMA_COUNT).r1, dma_base + 1,
+            "QUERY_DMA_COUNT counts the mapping");
+    CheckEq((int32_t)HandleQueryAt(dev, QUERY_DMA_ID, 0).r1, (int32_t)q.id,
+            "QUERY_DMA_ID lists the newest mapping first");
+    CheckEq((int32_t)HandleQueryAt(dev, QUERY_DMA_BUS, q.id).r1, (int32_t)q.bus_addr,
+            "QUERY_DMA_BUS returns the bus address");
+    CheckEq(HandleQueryAt(dev, QUERY_DMA_LEN, q.id).r1, 8192, "QUERY_DMA_LEN returns the length");
+    CheckEq(HandleQueryAt(dev, QUERY_DMA_DIR, q.id).r1, DMA_FROM_DEVICE,
+            "QUERY_DMA_DIR returns the direction");
+    CheckEq(HandleQueryAt(dev, QUERY_DMA_ID, (size_t)dma_base + 1).r0, ERR_NOENT,
+            "QUERY_DMA_ID past the last mapping -> NOENT");
+    CheckEq(HandleQueryAt(dev, QUERY_DMA_BUS, q.id + 1000).r0, ERR_NOENT,
+            "QUERY_DMA_BUS with an unknown id -> NOENT");
+
+    DmaMapResult q2 = DmaMap(dev, buf, 0, 4096, DMA_TO_DEVICE);
+    Check(q2.id != q.id, "mapping ids are unique");
+    CheckEq((int32_t)HandleQueryAt(dev, QUERY_DMA_ID, 0).r1, (int32_t)q2.id,
+            "a newer mapping is listed first");
+    CheckEq(DmaUnmap(dev, q2.id), ZUZU_OK, "DmaUnmap by id leaves the other mapping alone");
+    CheckEq(HandleQueryAt(dev, QUERY_DMA_LEN, q.id).r1, 8192, "the older mapping survives");
+
+    Handle adopted = DmaAdopt(dev, q.id);
+    Check(adopted >= 0, "DmaAdopt returns a handle");
+    CheckEq(HandleQuery(adopted, QUERY_TYPE).r1, ZH_MEM, "the adopted handle is a mem handle");
+    CheckEq(HandleQuery(adopted, QUERY_SIZE).r1, 4 * 4096, "it is the whole buffer");
+    uint8_t *orig_map = MemMap(buf, 0, PROT_RW);
+    uint8_t *adopt_map = MemMap(adopted, 0, PROT_RW);
+    Check(!PtrIsErr(orig_map) && !PtrIsErr(adopt_map), "both handles map");
+    if (!PtrIsErr(orig_map) && !PtrIsErr(adopt_map)) {
+        ((volatile uint8_t *)orig_map)[5000] = 0xA5;
+        CheckEq(((volatile uint8_t *)adopt_map)[5000], 0xA5,
+                "the adopted handle sees the same pages");
+        MemUnmap(adopt_map);
+        MemUnmap(orig_map);
+    }
+    HandleClose(adopted);
+
+    CheckEq(DmaAdopt(dev, q.id + 1000), ERR_NOENT, "DmaAdopt(unknown id) -> NOENT");
+    CheckEq(DmaAdopt(buf, q.id), ERR_BADTYPE, "DmaAdopt(shm object as the device) -> BADTYPE");
+    CheckEq(HandleQuery(buf, QUERY_DMA_COUNT).r0, ERR_BADTYPE,
+            "QUERY_DMA_COUNT on a shm object -> BADTYPE");
+    SvcResult no_map_dev = HandleDuplicate(dev, PERM_WAIT, MARKER_NONE);
+    CheckEq(DmaAdopt((Handle)no_map_dev.r1, q.id), ERR_NOPERM,
+            "DmaAdopt without PERM_MAP -> NOPERM");
+    CheckEq(HandleQueryAt((Handle)no_map_dev.r1, QUERY_DMA_ID, 0).r0, ERR_NOPERM,
+            "QUERY_DMA_ID without PERM_MAP -> NOPERM");
+    HandleClose((Handle)no_map_dev.r1);
+    CheckEq(DmaUnmap(dev, q.id), ZUZU_OK, "DmaUnmap the queried mapping");
+    CheckEq(HandleQuery(dev, QUERY_DMA_COUNT).r1, dma_base, "QUERY_DMA_COUNT drops again");
+
+    Handle unc = CreateMem(1, MEM_CONTIG | MEM_UNCACHED);
+    DmaMapResult ur = DmaMap(dev, unc, 0, 4096, DMA_FROM_DEVICE);
+    CheckEq(ur.status, ZUZU_OK, "DmaMap(uncached buffer) OK");
+    CheckEq(DmaSync(dev, ur.bus_addr, 4096, DMA_SYNC_FOR_CPU), ZUZU_OK,
+            "DmaSync(uncached) is a no-op OK");
+    CheckEq(DmaUnmap(dev, ur.id), ZUZU_OK, "DmaUnmap(uncached buffer) OK");
+    HandleClose(unc);
+
+    DmaMapResult part = DmaMap(dev, buf, 4096, 8192, DMA_FROM_DEVICE);
+    CheckEq(part.status, ZUZU_OK, "DmaMap(sub-range) OK");
+    CheckEq(DmaUnmap(dev, part.id), ZUZU_OK, "DmaUnmap(sub-range) OK");
+
+    CheckEq(DmaMap(dev, plain, 0, 4096, DMA_TO_DEVICE).status, ERR_BADTYPE,
+            "DmaMap(non-contig buffer) -> BADTYPE");
+    CheckEq(DmaMap(buf, buf, 0, 4096, DMA_TO_DEVICE).status, ERR_BADTYPE,
+            "DmaMap(shm object as the device) -> BADTYPE");
+    CheckEq(DmaMap(dev, dev, 0, 4096, DMA_TO_DEVICE).status, ERR_BADTYPE,
+            "DmaMap(device object as the buffer) -> BADTYPE");
+    CheckEq(DmaUnmap(buf, 1), ERR_BADTYPE, "DmaUnmap(shm object as the device) -> BADTYPE");
+    Handle ev = CreateEvent();
+    CheckEq(DmaMap(ev, buf, 0, 4096, DMA_TO_DEVICE).status, ERR_BADTYPE,
+            "DmaMap(event as the device) -> BADTYPE");
+    HandleClose(ev);
+    CheckEq(DmaMap(dev, 5000, 0, 4096, DMA_TO_DEVICE).status, ERR_BADHANDLE,
+            "DmaMap(invalid buffer handle) -> BADHANDLE");
+
+    CheckEq(DmaMap(dev, buf, 0, 4096, (DmaDir)0).status, ERR_BADARG, "DmaMap(dir 0) -> BADARG");
+    CheckEq(DmaMap(dev, buf, 0, 4096, (DmaDir)4).status, ERR_BADARG, "DmaMap(dir 4) -> BADARG");
+    CheckEq(DmaMap(dev, buf, 0, 0, DMA_TO_DEVICE).status, ERR_BADARG, "DmaMap(len 0) -> BADARG");
+    CheckEq(DmaMap(dev, buf, 100, 4096, DMA_TO_DEVICE).status, ERR_BADARG,
+            "DmaMap(unaligned offset) -> BADARG");
+    CheckEq(DmaMap(dev, buf, 0, 100, DMA_TO_DEVICE).status, ERR_BADARG,
+            "DmaMap(unaligned length) -> BADARG");
+    CheckEq(DmaMap(dev, buf, 16384, 4096, DMA_TO_DEVICE).status, ERR_BADARG,
+            "DmaMap(offset past the end) -> BADARG");
+    CheckEq(DmaMap(dev, buf, 4096, 16384, DMA_TO_DEVICE).status, ERR_BADARG,
+            "DmaMap(range past the end) -> BADARG");
+
+    SvcResult weak = HandleDuplicate(buf, PERM_WAIT, MARKER_NONE);
+    CheckEq(DmaMap(dev, (Handle)weak.r1, 0, 4096, DMA_TO_DEVICE).status, ERR_NOPERM,
+            "DmaMap(buffer without PERM_MAP) -> NOPERM");
+    HandleClose((Handle)weak.r1);
+
+    HandleClose(buf);
+    HandleClose(plain);
+
+    /* A mapping keeps the buffer alive after its last handle closes. */
+    for (int round = 0; round < 2; round++) {
+        Handle warm = CreateMem(4, MEM_CONTIG);
+        DmaMapResult wr = DmaMap(dev, warm, 0, 16384, DMA_BIDIRECTIONAL);
+        HandleClose(warm);
+        DmaUnmap(dev, wr.id);
+    }
+    SleepAndSettle();
+    uint32_t before = PagesFree();
+    Handle pinned = CreateMem(4, MEM_CONTIG);
+    DmaMapResult pr = DmaMap(dev, pinned, 0, 16384, DMA_BIDIRECTIONAL);
+    CheckEq(pr.status, ZUZU_OK, "DmaMap for the lifetime check");
+    HandleClose(pinned);
+    SleepAndSettle();
+    CheckEq((int32_t)PagesFree(), (int32_t)before - 4,
+            "closing the buffer handle keeps DMA-mapped pages");
+    CheckEq(DmaUnmap(dev, pr.id), ZUZU_OK, "DmaUnmap the orphaned buffer");
+    SleepAndSettle();
+    CheckEq((int32_t)PagesFree(), (int32_t)before, "DmaUnmap frees the orphaned buffer");
+
+    HandleClose(dev);
+}
+
+/* ---------------- 7c. priorities ---------------- */
+
+#define LOG_MAX 32
+
+static atomic_int g_log[LOG_MAX];
+static atomic_int g_log_len;
+static atomic_int g_stop;
+static atomic_int g_done;
+
+typedef struct {
+    Handle h;
+    int id;
+} PrioJob;
+
+static void LogReset(void) { atomic_store(&g_log_len, 0); }
+
+static void LogPush(int id)
+{
+    int i = atomic_fetch_add(&g_log_len, 1);
+    if (i < LOG_MAX)
+        atomic_store(&g_log[i], id);
+}
+
+static bool LogIs(int n, const int *want)
+{
+    if (atomic_load(&g_log_len) != n)
+        return false;
+    for (int i = 0; i < n; i++)
+        if (atomic_load(&g_log[i]) != want[i])
+            return false;
+    return true;
+}
+
+static int32_t LogOnce(void *p)
+{
+    LogPush((int)(uintptr_t)p);
+    return 0;
+}
+
+static atomic_int g_first_ms;
+
+static int32_t StampOnce(void *p)
+{
+    (void)p;
+    atomic_store(&g_first_ms, (int)NowMs());
+    return 0;
+}
+
+static int32_t SleepOnce(void *p)
+{
+    Sleep((Duration)(uintptr_t)p);
+    return 0;
+}
+
+static int32_t SpinCount(void *p)
+{
+    atomic_int *count = p;
+    while (!atomic_load(&g_stop))
+        atomic_fetch_add(count, 1);
+    return 0;
+}
+
+static int32_t SpinYield(void *p)
+{
+    atomic_int *count = p;
+    while (!atomic_load(&g_stop)) {
+        atomic_fetch_add(count, 1);
+        Yield();
+    }
+    return 0;
+}
+
+static int32_t WaitThenLog(void *p)
+{
+    PrioJob *j = p;
+    (void)WaitOn(j->h, 3000);
+    LogPush(j->id);
+    return 0;
+}
+
+static int32_t ServeOnceLogged(void *p)
+{
+    PrioJob *j = p;
+    PortWaitResult r = FormatToPortWait(WaitOn(j->h, 3000));
+    if (r.status != ZUZU_OK)
+        return r.status;
+    LogPush(j->id);
+    Reply(0, -1);
+    return 0;
+}
+
+static int32_t ServeThenLog(void *p)
+{
+    PrioJob *j = p;
+    PortWaitResult r = FormatToPortWait(WaitOn(j->h, 3000));
+    if (r.status != ZUZU_OK)
+        return r.status;
+    Reply(0, -1);
+    LogPush(j->id);
+    return 0;
+}
+
+typedef struct {
+    Handle in;
+    Handle out;
+    Handle gate;
+    int id;
+} ChainJob;
+
+static int32_t ChainRelay(void *p)
+{
+    ChainJob *j = p;
+    PortWaitResult r = FormatToPortWait(WaitOn(j->in, 5000));
+    if (r.status != ZUZU_OK)
+        return r.status;
+    uint32_t op = 1;
+    memcpy(GetMessageBox(), &op, sizeof(op));
+    Call(j->out, sizeof(op), -1);
+    Reply(0, -1);
+    return 0;
+}
+
+static int32_t GatedServer(void *p)
+{
+    ChainJob *j = p;
+    PortWaitResult r = FormatToPortWait(WaitOn(j->in, 5000));
+    if (r.status != ZUZU_OK)
+        return r.status;
+    if (j->gate >= 0)
+        (void)WaitOn(j->gate, 5000);
+    LogPush(j->id);
+    Reply(0, -1);
+    return 0;
+}
+
+static int32_t CallWithId(void *p)
+{
+    PrioJob *j = p;
+    uint32_t id = (uint32_t)j->id;
+    memcpy(GetMessageBox(), &id, sizeof(id));
+    return Call(j->h, sizeof(id), -1).r0;
+}
+
+static int32_t CallThenDone(void *p)
+{
+    Err rc = CallWithId(p);
+    atomic_store(&g_done, rc == ZUZU_OK ? 1 : -1);
+    return rc;
+}
+
+static void TestPriorities(void)
+{
+    BeginSection("priorities");
+
+    if (TaskSetPriority(-1, 6) != ZUZU_OK) {
+        UserspaceDebugLog("zztest: cannot raise own priority, skipping priorities");
+        return;
+    }
+    TaskSetTimeSlice(-1, 1);
+    TaskSetPriority(-1, 4);
+
+    /* A higher-priority waiter preempts the signaller. */
+    Handle ev = CreateEvent();
+    PrioJob wake = {.h = ev, .id = 2};
+    LogReset();
+    Worker *hw = WorkerStartAt(WaitThenLog, &wake, 5);
+    Check(hw != NULL, "start a priority-5 waiter");
+    CheckEq(Signal(ev, 1, false), ZUZU_OK, "Signal wakes it");
+    LogPush(3);
+    const int preempt[] = {2, 3};
+    Check(LogIs(2, preempt), "a higher-priority waiter preempts the signaller at wakeup");
+    WorkerJoin(hw);
+    HandleClose(ev);
+
+    /* Strict priority: a lower thread starves while a higher one is runnable. */
+    atomic_store(&g_stop, 0);
+    atomic_int low_count = 0;
+    Worker *lw = WorkerStartAt(SpinCount, &low_count, 2);
+    for (volatile int i = 0; i < 3000000; i++) {
+    }
+    Check(atomic_load(&low_count) == 0, "a lower-priority thread does not run while we do");
+    for (int i = 0; i < 20; i++)
+        Yield();
+    Check(atomic_load(&low_count) == 0, "Yield never hands the CPU to a lower priority");
+    Sleep(50);
+    Check(atomic_load(&low_count) > 0, "it runs as soon as we block");
+    atomic_store(&g_stop, 1);
+    CheckEq(WorkerJoin(lw), 0, "the lower-priority thread exits");
+
+    /* Equal priorities share the CPU. */
+    atomic_store(&g_stop, 0);
+    atomic_int a_count = 0;
+    atomic_int b_count = 0;
+    Worker *aw = WorkerStartAt(SpinCount, &a_count, 4);
+    Worker *bw = WorkerStartAt(SpinCount, &b_count, 4);
+    Sleep(150);
+    atomic_store(&g_stop, 1);
+    Check(atomic_load(&a_count) > 0 && atomic_load(&b_count) > 0,
+          "two equal-priority spinners both make progress");
+    WorkerJoin(aw);
+    WorkerJoin(bw);
+
+    /* A new thread inherits its creator's priority. */
+    LogReset();
+    Worker *iw = WorkerStart(LogOnce, (void *)(uintptr_t)7);
+    for (int i = 0; i < 50 && atomic_load(&g_log_len) == 0; i++)
+        Yield();
+    Check(atomic_load(&g_log_len) == 1, "a new thread inherits its creator's priority");
+    WorkerJoin(iw);
+
+    LogReset();
+    Worker *pw = WorkerStart(LogOnce, (void *)(uintptr_t)8);
+    for (int i = 0; i < 50000000 && atomic_load(&g_log_len) == 0; i++) {
+    }
+    Check(atomic_load(&g_log_len) == 1, "a peer readied while we run alone gets a slice");
+    WorkerJoin(pw);
+
+    TaskSetTimeSlice(-1, 5);
+    atomic_store(&g_first_ms, 0);
+    Worker *sl = WorkerStartAt(SleepOnce, (void *)(uintptr_t)2, 3);
+    Sleep(1);
+    int start_ms = (int)NowMs();
+    Worker *peer = WorkerStart(StampOnce, NULL);
+    for (int i = 0; i < 300000000 && atomic_load(&g_first_ms) == 0; i++) {
+    }
+    int waited_ms = atomic_load(&g_first_ms) - start_ms;
+    UserspaceDebugLog("zztest: note: the equal-priority peer first ran %d ms into our slice",
+                      waited_ms);
+    Check(atomic_load(&g_first_ms) != 0 && waited_ms >= 30,
+          "a sleeper's wakeup does not rotate equal-priority peers before the slice ends");
+    WorkerJoin(peer);
+    WorkerJoin(sl);
+    TaskSetTimeSlice(-1, 50);
+    Sleep(1);
+    LogReset();
+    Worker *equal_peer = WorkerStartAt(LogOnce, (void *)(uintptr_t)2, 4);
+    Worker *preemptor = WorkerStartAt(LogOnce, (void *)(uintptr_t)3, 5);
+    LogPush(1);
+    const int kept_place[] = {3, 1};
+    Check(LogIs(2, kept_place),
+          "a task preempted by a higher priority resumes ahead of an equal peer");
+    WorkerJoin(equal_peer);
+    WorkerJoin(preemptor);
+
+    LogReset();
+    Worker *yield_peer = WorkerStartAt(LogOnce, (void *)(uintptr_t)2, 4);
+    Yield();
+    LogPush(1);
+    const int yielded[] = {2, 1};
+    Check(LogIs(2, yielded), "Yield still lets an equal-priority peer run first");
+    WorkerJoin(yield_peer);
+    TaskSetTimeSlice(-1, 1);
+
+    /* Raising a READY thread above the caller runs it at once. */
+    LogReset();
+    Worker *rw = WorkerStartAt(LogOnce, (void *)(uintptr_t)2, 2);
+    LogPush(1);
+    CheckEq(TaskSetPriority(rw->task, 5), ZUZU_OK, "raise a ready thread's priority");
+    LogPush(3);
+    const int raised[] = {1, 2, 3};
+    Check(LogIs(3, raised), "a ready thread raised above the caller runs immediately");
+    WorkerJoin(rw);
+
+    /* Changing the priority of a BLOCKED thread takes effect at wakeup. */
+    Handle ev2 = CreateEvent();
+    PrioJob blocked = {.h = ev2, .id = 2};
+    LogReset();
+    Worker *bkw = WorkerStartAt(WaitThenLog, &blocked, 1);
+    Sleep(20);
+    CheckEq(TaskSetPriority(bkw->task, 6), ZUZU_OK, "raise a blocked thread's priority");
+    LogPush(1);
+    Signal(ev2, 1, false);
+    LogPush(3);
+    const int woken[] = {1, 2, 3};
+    Check(LogIs(3, woken), "a blocked thread raised above the caller preempts at wakeup");
+    WorkerJoin(bkw);
+    HandleClose(ev2);
+
+    /* Lowering the caller's own priority yields to a ready higher thread. */
+    LogReset();
+    Worker *dw = WorkerStartAt(LogOnce, (void *)(uintptr_t)2, 3);
+    LogPush(1);
+    CheckEq(TaskSetPriority(-1, 2), ZUZU_OK, "lower the caller's own priority");
+    LogPush(3);
+    const int lowered[] = {1, 2, 3};
+    Check(LogIs(3, lowered), "lowering own priority below a ready thread yields at once");
+    TaskSetPriority(-1, 4);
+    WorkerJoin(dw);
+
+    /* Random priority changes across ready threads. */
+    atomic_store(&g_stop, 0);
+    atomic_int churn_count[4] = {0, 0, 0, 0};
+    Worker *churn[4];
+    for (int i = 0; i < 4; i++)
+        churn[i] = WorkerStartAt(SpinYield, &churn_count[i], 1 + (i % 3));
+    uint32_t seed = 12345;
+    for (int i = 0; i < 300; i++) {
+        seed = (seed * 1103515245U) + 12345U;
+        int victim = (int)((seed >> 16) % 4U);
+        uint32_t prio = 1 + ((seed >> 8) % 3U);
+        if (churn[victim])
+            TaskSetPriority(churn[victim]->task, prio);
+        if ((i & 7) == 0)
+            Sleep(1);
+    }
+    atomic_store(&g_stop, 1);
+    int joined = 0;
+    for (int i = 0; i < 4; i++)
+        if (churn[i] && WorkerJoin(churn[i]) == 0)
+            joined++;
+    CheckEq(joined, 4, "300 random priority changes across 4 ready threads");
+
+    /* A Call hands off to the server only when nothing higher is ready. */
+    Handle port = CreatePort();
+    PrioJob serve = {.h = port, .id = 3};
+    LogReset();
+    Worker *sw = WorkerStartAt(ServeOnceLogged, &serve, 1);
+    Sleep(20);
+    Worker *mw = WorkerStartAt(LogOnce, (void *)(uintptr_t)2, 3);
+    uint32_t op = 1;
+    memcpy(GetMessageBox(), &op, sizeof(op));
+    CheckEq(Call(port, sizeof(op), -1).r0, ZUZU_OK, "Call completes");
+    LogPush(4);
+    const int served_first[] = {3, 4};
+    Check(LogIs(2, served_first),
+          "a server runs at its caller's priority, ahead of a thread in between");
+    WorkerJoin(sw);
+    WorkerJoin(mw);
+    const int then_middle[] = {3, 4, 2};
+    Check(LogIs(3, then_middle), "the thread in between runs once the call is done");
+    HandleClose(port);
+
+    Handle decay_port = CreatePort();
+    PrioJob decay_job = {.h = decay_port, .id = 5};
+    LogReset();
+    Worker *dsw = WorkerStartAt(ServeThenLog, &decay_job, 1);
+    Sleep(20);
+    uint32_t decay_op = 1;
+    memcpy(GetMessageBox(), &decay_op, sizeof(decay_op));
+    CheckEq(Call(decay_port, sizeof(decay_op), -1).r0, ZUZU_OK, "Call to the decay server");
+    LogPush(4);
+    const int caller_first[] = {4};
+    Check(LogIs(1, caller_first), "a server drops back to its own priority after Reply");
+    WorkerJoin(dsw);
+    const int server_after[] = {4, 5};
+    Check(LogIs(2, server_after), "the server finishes after the caller has resumed");
+    HandleClose(decay_port);
+
+    /* Known gaps, flipped to real checks as C1 and C2 land. */
+    Handle ev3 = CreateEvent();
+    PrioJob low_wait = {.h = ev3, .id = 10};
+    PrioJob high_wait = {.h = ev3, .id = 20};
+    LogReset();
+    Worker *lwt = WorkerStartAt(WaitThenLog, &low_wait, 1);
+    Sleep(20);
+    Worker *hwt = WorkerStartAt(WaitThenLog, &high_wait, 5);
+    Signal(ev3, 1, false);
+    Sleep(20);
+    Check(atomic_load(&g_log_len) >= 1 && atomic_load(&g_log[0]) == 20,
+          "an event wakes its highest-priority waiter first");
+    Signal(ev3, 1, false);
+    WorkerJoin(lwt);
+    WorkerJoin(hwt);
+    HandleClose(ev3);
+
+    Handle ev4 = CreateEvent();
+    PrioJob first_wait = {.h = ev4, .id = 10};
+    PrioJob second_wait = {.h = ev4, .id = 11};
+    LogReset();
+    Worker *fw = WorkerStartAt(WaitThenLog, &first_wait, 3);
+    Sleep(20);
+    Worker *sw2 = WorkerStartAt(WaitThenLog, &second_wait, 3);
+    Sleep(20);
+    Signal(ev4, 1, false);
+    Sleep(20);
+    Check(atomic_load(&g_log_len) >= 1 && atomic_load(&g_log[0]) == 10,
+          "equal-priority waiters are woken in arrival order");
+    Signal(ev4, 1, false);
+    WorkerJoin(fw);
+    WorkerJoin(sw2);
+    HandleClose(ev4);
+
+    Handle port2 = CreatePort();
+    PrioJob rx_low = {.h = port2, .id = 10};
+    PrioJob rx_high = {.h = port2, .id = 20};
+    LogReset();
+    Worker *rl = WorkerStartAt(ServeOnceLogged, &rx_low, 1);
+    Sleep(20);
+    Worker *rh = WorkerStartAt(ServeOnceLogged, &rx_high, 5);
+    memcpy(GetMessageBox(), &op, sizeof(op));
+    Call(port2, sizeof(op), -1);
+    Check(atomic_load(&g_log_len) >= 1 && atomic_load(&g_log[0]) == 20,
+          "a Call is delivered to the highest-priority waiting server");
+    Call(port2, sizeof(op), -1);
+    WorkerJoin(rl);
+    WorkerJoin(rh);
+    HandleClose(port2);
+
+    Handle port3 = CreatePort();
+    PrioJob tx_low = {.h = port3, .id = 10};
+    PrioJob tx_high = {.h = port3, .id = 20};
+    Worker *cl = WorkerStartAt(CallWithId, &tx_low, 1);
+    Sleep(20);
+    Worker *ch = WorkerStartAt(CallWithId, &tx_high, 5);
+    PortWaitResult first = FormatToPortWait(WaitOn(port3, 2000));
+    uint32_t first_id = 0;
+    memcpy(&first_id, GetMessageBox(), sizeof(first_id));
+    Reply(0, -1);
+    PortWaitResult second = FormatToPortWait(WaitOn(port3, 2000));
+    Reply(0, -1);
+    Check(first.status == ZUZU_OK && second.status == ZUZU_OK, "both queued callers are served");
+    Check(first_id == 20, "the highest-priority queued caller is served first");
+    WorkerJoin(cl);
+    WorkerJoin(ch);
+    HandleClose(port3);
+
+    TaskSetPriority(-1, 6);
+    Handle port4 = CreatePort();
+    PrioJob inv_server = {.h = port4, .id = 3};
+    PrioJob inv_caller = {.h = port4, .id = 1};
+    atomic_store(&g_stop, 0);
+    atomic_store(&g_done, 0);
+    atomic_int middle_count = 0;
+    Worker *is = WorkerStartAt(ServeOnceLogged, &inv_server, 1);
+    Sleep(20);
+    Worker *im = WorkerStartAt(SpinCount, &middle_count, 3);
+    Worker *ic = WorkerStartAt(CallThenDone, &inv_caller, 4);
+    Sleep(200);
+    Check(atomic_load(&g_done) == 1,
+          "a high-priority caller is not starved by a middle-priority spinner");
+    atomic_store(&g_stop, 1);
+    WorkerJoin(im);
+    WorkerJoin(ic);
+    WorkerJoin(is);
+    HandleClose(port4);
+
+    Handle chain_p1 = CreatePort();
+    Handle chain_p2 = CreatePort();
+    ChainJob chain_c = {.in = chain_p2, .gate = -1, .id = 7};
+    ChainJob chain_b = {.in = chain_p1, .out = chain_p2, .gate = -1};
+    PrioJob chain_a = {.h = chain_p1, .id = 1};
+    atomic_store(&g_stop, 0);
+    atomic_store(&g_done, 0);
+    atomic_int chain_spin = 0;
+    Worker *chain_cw = WorkerStartAt(GatedServer, &chain_c, 1);
+    Worker *chain_bw = WorkerStartAt(ChainRelay, &chain_b, 2);
+    Sleep(20);
+    Worker *chain_mw = WorkerStartAt(SpinCount, &chain_spin, 3);
+    Worker *chain_aw = WorkerStartAt(CallThenDone, &chain_a, 5);
+    Sleep(200);
+    Check(atomic_load(&g_done) == 1, "inheritance carries through a chain of calls");
+    atomic_store(&g_stop, 1);
+    WorkerJoin(chain_mw);
+    WorkerJoin(chain_aw);
+    WorkerJoin(chain_bw);
+    WorkerJoin(chain_cw);
+    HandleClose(chain_p1);
+    HandleClose(chain_p2);
+
+    Handle prop_p1 = CreatePort();
+    Handle prop_p2 = CreatePort();
+    Handle prop_gate = CreateEvent();
+    ChainJob prop_c = {.in = prop_p2, .gate = prop_gate, .id = 8};
+    ChainJob prop_b = {.in = prop_p1, .out = prop_p2, .gate = -1};
+    PrioJob prop_a = {.h = prop_p1, .id = 1};
+    atomic_store(&g_stop, 0);
+    atomic_store(&g_done, 0);
+    LogReset();
+    atomic_int prop_spin = 0;
+    Worker *prop_cw = WorkerStartAt(GatedServer, &prop_c, 1);
+    Worker *prop_bw = WorkerStartAt(ChainRelay, &prop_b, 2);
+    Sleep(20);
+    Worker *prop_aw = WorkerStartAt(CallThenDone, &prop_a, 2);
+    Sleep(50);
+    Worker *prop_mw = WorkerStartAt(SpinCount, &prop_spin, 3);
+    CheckEq(TaskSetPriority(prop_bw->task, 5), ZUZU_OK, "raise the middle task of a call chain");
+    Signal(prop_gate, 1, false);
+    Sleep(100);
+    const int propagated[] = {8};
+    Check(LogIs(1, propagated),
+          "raising a waiting caller's priority raises the server it waits on");
+    atomic_store(&g_stop, 1);
+    WorkerJoin(prop_mw);
+    WorkerJoin(prop_aw);
+    WorkerJoin(prop_bw);
+    WorkerJoin(prop_cw);
+    HandleClose(prop_p1);
+    HandleClose(prop_p2);
+    HandleClose(prop_gate);
+
+    Handle kill_port = CreatePort();
+    Handle kill_gate = CreateEvent();
+    ChainJob kill_srv = {.in = kill_port, .gate = kill_gate, .id = 9};
+    PrioJob kill_caller = {.h = kill_port, .id = 1};
+    atomic_store(&g_stop, 0);
+    LogReset();
+    atomic_int kill_spin = 0;
+    Worker *kill_sw = WorkerStartAt(GatedServer, &kill_srv, 1);
+    Sleep(20);
+    Worker *kill_cw = WorkerStartAt(CallThenDone, &kill_caller, 5);
+    Sleep(50);
+    Worker *kill_mw = WorkerStartAt(SpinCount, &kill_spin, 3);
+    TaskKill(kill_cw->task);
+    Signal(kill_gate, 1, false);
+    Sleep(100);
+    Check(atomic_load(&g_log_len) == 0,
+          "a server falls back to its own priority when its caller dies");
+    atomic_store(&g_stop, 1);
+    WorkerJoin(kill_mw);
+    WorkerJoin(kill_cw);
+    WorkerJoin(kill_sw);
+    HandleClose(kill_port);
+    HandleClose(kill_gate);
+
+    Handle queue_port = CreatePort();
+    Handle queue_gate = CreateEvent();
+    ChainJob queue_srv = {.in = queue_port, .gate = queue_gate, .id = 11};
+    PrioJob queue_low = {.h = queue_port, .id = 1};
+    PrioJob queue_high = {.h = queue_port, .id = 2};
+    atomic_store(&g_stop, 0);
+    LogReset();
+    atomic_int queue_spin = 0;
+    Worker *queue_sw = WorkerStartAt(GatedServer, &queue_srv, 1);
+    Sleep(20);
+    Worker *queue_lw = WorkerStartAt(CallWithId, &queue_low, 2);
+    Sleep(50);
+    Worker *queue_mw = WorkerStartAt(SpinCount, &queue_spin, 3);
+    Worker *queue_hw = WorkerStartAt(CallWithId, &queue_high, 5);
+    Sleep(50);
+    Signal(queue_gate, 1, false);
+    Sleep(100);
+    const int boosted_by_queue[] = {11};
+    Check(LogIs(1, boosted_by_queue),
+          "a busy server is boosted by a higher-priority caller queued behind it");
+    atomic_store(&g_stop, 1);
+    TaskKill(queue_hw->task);
+    WorkerJoin(queue_mw);
+    WorkerJoin(queue_lw);
+    WorkerJoin(queue_hw);
+    WorkerJoin(queue_sw);
+    HandleClose(queue_port);
+    HandleClose(queue_gate);
+
+    Handle drop_port = CreatePort();
+    Handle drop_gate = CreateEvent();
+    ChainJob drop_srv = {.in = drop_port, .gate = drop_gate, .id = 12};
+    PrioJob drop_low = {.h = drop_port, .id = 1};
+    PrioJob drop_high = {.h = drop_port, .id = 2};
+    atomic_store(&g_stop, 0);
+    LogReset();
+    atomic_int drop_spin = 0;
+    Worker *drop_sw = WorkerStartAt(GatedServer, &drop_srv, 1);
+    Sleep(20);
+    Worker *drop_lw = WorkerStartAt(CallWithId, &drop_low, 2);
+    Sleep(50);
+    Worker *drop_mw = WorkerStartAt(SpinCount, &drop_spin, 3);
+    Worker *drop_hw = WorkerStartAt(CallWithId, &drop_high, 5);
+    Sleep(50);
+    TaskKill(drop_hw->task);
+    Signal(drop_gate, 1, false);
+    Sleep(100);
+    Check(atomic_load(&g_log_len) == 0,
+          "a server stops being boosted when the caller queued behind it dies");
+    atomic_store(&g_stop, 1);
+    WorkerJoin(drop_mw);
+    WorkerJoin(drop_lw);
+    WorkerJoin(drop_hw);
+    WorkerJoin(drop_sw);
+    HandleClose(drop_port);
+    HandleClose(drop_gate);
+
+    Handle mutual_a = CreatePort();
+    Handle mutual_b = CreatePort();
+    ChainJob mutual_p = {.in = mutual_a, .out = mutual_b, .gate = -1};
+    ChainJob mutual_q = {.in = mutual_b, .out = mutual_a, .gate = -1};
+    PrioJob mutual_x = {.h = mutual_a, .id = 1};
+    PrioJob mutual_y = {.h = mutual_b, .id = 2};
+    Worker *mutual_pw = WorkerStartAt(ChainRelay, &mutual_p, 1);
+    Worker *mutual_qw = WorkerStartAt(ChainRelay, &mutual_q, 1);
+    Sleep(20);
+    Worker *mutual_xw = WorkerStartAt(CallWithId, &mutual_x, 4);
+    Worker *mutual_yw = WorkerStartAt(CallWithId, &mutual_y, 5);
+    CheckEq(Sleep(100), ZUZU_OK, "priority boosting terminates when servers wait on each other");
+    TaskKill(mutual_xw->task);
+    TaskKill(mutual_yw->task);
+    TaskKill(mutual_pw->task);
+    TaskKill(mutual_qw->task);
+    WorkerJoin(mutual_xw);
+    WorkerJoin(mutual_yw);
+    WorkerJoin(mutual_pw);
+    WorkerJoin(mutual_qw);
+    HandleClose(mutual_a);
+    HandleClose(mutual_b);
+
+    TaskSetPriority(-1, 1);
+    TaskSetTimeSlice(-1, 5);
+}
+
+static int32_t TcbPack(void)
+{
+    const ThreadLocalData *tls = ZuzuTLS();
+    return (int32_t)(tls->prio | (tls->max_prio << 8));
+}
+
+static int32_t TcbReadOwn(void *arg)
+{
+    (void)arg;
+    return TcbPack();
+}
+
+static int32_t TcbSetSelf(void *arg)
+{
+    (void)arg;
+    TaskSetPriority(-1, 2);
+    return TcbPack();
+}
+
+static int32_t TcbClampSelf(void *arg)
+{
+    (void)arg;
+    TaskSetPriority(-1, 4);
+    TaskSetMaxPriority(-1, 1);
+    return TcbPack();
+}
+
+static int32_t TcbGated(void *arg)
+{
+    volatile int *go = arg;
+    while (!*go)
+        Sleep(5);
+    return TcbPack();
+}
+
+static void TestTcbPriority(void)
+{
+    BeginSection("tcb priority");
+
+    CheckEq(TcbPack(), 1 | (7 << 8), "own TCB shows base 1, max 7");
+
+    Worker *w = WorkerStartAt(TcbReadOwn, NULL, 3);
+    Check(w != NULL, "worker at priority 3 starts");
+    if (w)
+        CheckEq(WorkerJoin(w), 3 | (7 << 8), "new thread's TCB shows the priority it was given");
+
+    w = WorkerStart(TcbSetSelf, NULL);
+    Check(w != NULL, "self-set worker starts");
+    if (w)
+        CheckEq(WorkerJoin(w), 2 | (7 << 8), "SetPriority(-1) updates the TCB");
+
+    w = WorkerStart(TcbClampSelf, NULL);
+    Check(w != NULL, "self-clamp worker starts");
+    if (w)
+        CheckEq(WorkerJoin(w), 1 | (1 << 8), "lowering own max clamps base and updates the TCB");
+
+    static volatile int go;
+    go = 0;
+    w = WorkerStart(TcbGated, (void *)&go);
+    Check(w != NULL, "gated worker starts");
+    if (w) {
+        CheckEq(TaskSetPriority(w->task, 4), ZUZU_OK, "SetPriority on a thread handle");
+        CheckEq(TaskSetMaxPriority(w->task, 2), ZUZU_OK, "SetMaxPriority on a thread handle");
+        CheckEq(TaskSetPriority(w->task, 5), ERR_NOPERM, "priority above the target's max is refused");
+        go = 1;
+        CheckEq(WorkerJoin(w), 2 | (2 << 8), "handle path updates the target's TCB and clamps base");
+    }
 }
 
 /* ---------------- 8. hostile arguments ---------------- */
@@ -1317,7 +2275,7 @@ static void TestSecurity(void)
     CheckEq(HandleClose((Handle)0xFFFFFC00u), ERR_BADHANDLE,
             "Close(garbage generation) -> BADHANDLE");
 
-    Handle mem = CreateMem(1);
+    Handle mem = CreateMem(1, 0);
     CheckEq(PtrErr(MemMap(mem, 0xC0000000u, PROT_RW)), ERR_BADARG,
             "MemMap(mem) with a kernel-space hint -> BADARG");
     HandleClose(mem);
@@ -1590,7 +2548,7 @@ static int32_t BufferOwner(void *p)
     ThreadProbe *t = p;
     uint8_t *buf = GetMessageBox();
     memset(buf, (int)(0x30 + t->id), 64);
-    ZuzuTLS()->msg_recv_len = t->id; /* any other per-thread TLS field */
+    ZuzuTLS()->padding[0] = (uint8_t)t->id;
     t->ready = 1;
     while (!t->go)
         Sleep(5);
@@ -1598,7 +2556,7 @@ static int32_t BufferOwner(void *p)
         if (buf[i] != (uint8_t)(0x30 + t->id))
             return -1;
     }
-    return ZuzuTLS()->msg_recv_len == t->id ? (int32_t)t->id : -2;
+    return ZuzuTLS()->padding[0] == (uint8_t)t->id ? (int32_t)t->id : -2;
 }
 
 static void TestManyThreads(void)
@@ -1773,7 +2731,7 @@ static void LeakRound(void)
     }
     Handle p = CreatePort();
     Handle e = CreateEvent();
-    Handle m = CreateMem(2);
+    Handle m = CreateMem(2, 0);
     uint8_t *v = MemMap(m, 0, PROT_RW);
     memset((void *)v, 3, 8192);
     HandleClose(m);
@@ -1815,7 +2773,11 @@ static void RunSuite(void)
     TestIpc();
     TestObservers();
     TestTasks();
+    TestPriorities();
+    TestTcbPriority();
     TestSpaces();
+    TestInjectObj();
+    TestDma();
     TestKittens();
     TestTaskLifetime();
     TestManyThreads();

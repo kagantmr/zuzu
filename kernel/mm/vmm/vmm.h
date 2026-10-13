@@ -22,6 +22,7 @@ typedef struct HandleTableEntryStruct HandleTableEntry;
 typedef enum {
     VM_MEM_NORMAL = 0,
     VM_MEM_DEVICE = 1,
+    VM_MEM_NORMAL_NC = 2
 } VirtMemType;
 
 typedef enum {
@@ -38,8 +39,8 @@ typedef enum {
 
 typedef enum {
     VM_FLAG_NONE = 0,
-    VM_FLAG_PINNED = 1U << 0, // must stay mapped
-    VM_FLAG_GUARD = 1U << 2,  // guard page/region
+    VM_FLAG_PINNED = (1U << 0), // must stay mapped
+    VM_FLAG_GUARD = (1U << 2),  // guard page/region
 } VirtMemFlags;
 
 typedef struct VirtMemRegionStruct {
@@ -49,7 +50,8 @@ typedef struct VirtMemRegionStruct {
     VirtMemType memtype;
     VirtMemBacking owner; // ownership: who allocated/owns the backing pages
     VirtMemFlags flags;
-    void *backing; // optional backing MemObject for shared and device mappings
+    void *backing; // optional backing MemObject for shared and device mappings; the region owns a ref
+    size_t backing_page_offset; // first page of a shared backing object this region maps
 } VirtMemRegion;
 
 typedef enum {
@@ -214,7 +216,7 @@ Err VmmMapMemObj(SpaceObject *space, HandleTableEntry *entry, MemProt prot, Virt
 
 Err VmmUnmapUserRegion(SpaceObject *space, VirtAddr va);
 
-Err InjectIntoSpace(SpaceObject *kitten, SpaceObject *parent, InjectArgs *args);
+Err InjectObjIntoSpace(SpaceObject *kitten, SpaceObject *parent, const InjectObjArgs *args);
 
 Err VmmProtectUserRange(SpaceObject *space, VirtAddr va, size_t size, MemProt new_prot);
 

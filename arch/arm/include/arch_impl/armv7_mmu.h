@@ -92,6 +92,12 @@
     ((TEX_NORMAL_WBWA << L2_PAGE_TEX_SHIFT) | MMU_BIT(L2_PAGE_C_BIT) | MMU_BIT(L2_PAGE_B_BIT))
 #define L2_PAGE_ATTR_DEVICE MMU_BIT(L2_PAGE_B_BIT)
 
+#define TEX_NORMAL_NC 0x1U /* TEX=0b001 with C=0,B=0: Normal Non-cacheable */
+
+#define L1_SECT_ATTR_NORMAL_NC (TEX_NORMAL_NC << L1_SECT_TEX_SHIFT)
+
+#define L2_PAGE_ATTR_NORMAL_NC (TEX_NORMAL_NC << L2_PAGE_TEX_SHIFT)
+
 /* Covers TEX, C and B -- everything that identifies the memory type. */
 #define L2_PAGE_ATTR_MASK                                                                          \
     ((TEX_MASK << L2_PAGE_TEX_SHIFT) | MMU_BIT(L2_PAGE_C_BIT) | MMU_BIT(L2_PAGE_B_BIT))
@@ -119,7 +125,7 @@
 #define L1_SECT_BOOT_DEVICE                                                                        \
     (L1_SECTION_TAG | L1_SECT_ATTR_DEVICE | (AP_USER_RW << L1_SECT_AP_SHIFT) |                     \
      MMU_BIT(L1_SECT_XN_BIT))
-
+    
 /* ---- Encoding self-checks ----------------------------------------------- */
 
 #ifndef __ASSEMBLER__

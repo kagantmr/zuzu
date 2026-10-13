@@ -65,11 +65,12 @@ static void MonitorKitten(Handle task, Handle space, const char *path)
     Bind(EVENT_SPACE, g_monitor_ev, space, bit);
 }
 
-static void SpawnKitten(const void *zxf_data, size_t zxf_size, const char *path)
+static void SpawnKitten(const void *zxf_data, size_t zxf_size, const char *path,
+                        const SpawnAttr *attr)
 {
     Spid pid;
     Handle task;
-    Err rc = SpawnProcess(zxf_data, zxf_size, path, NULL, 0, 0, &pid, &task);
+    Err rc = SpawnProcessAttr(zxf_data, zxf_size, path, NULL, 0, 0, attr, &pid, &task);
     if (rc != ZUZU_OK) {
         UserspaceDebugLog("rootsvc: failed to spawn %s: %d", path, rc);
         return;
@@ -117,68 +118,172 @@ static bool VersionOk(void)
     return sp->kernel_ver >= 0x00020000; /* major minor patch: gotta be at least 0x00 00 02 00 */
 }
 
-static void SpawnStage1(void)
+static bool ParseUint(const char *s, const char *end, int32_t *out)
+{
+    if (s >= end)
+        return false;
+    int32_t v = 0;
+    for (; s < end; s++) {
+        if (*s < '0' || *s > '9')
+            return false;
+        v = v * 10 + (*s - '0');
+        if (v > 255)
+            return false;
+    }
+    *out = v;
+    return true;
+}
+
+static bool FlagSet(const char *p, const char *end, const char *name)
+{
+    size_t nlen = strlen(name);
+    while (p < end) {
+        const char *tok_end = p;
+        while (tok_end < end && *tok_end != ',')
+            tok_end++;
+        if ((size_t)(tok_end - p) == nlen && strncmp(p, name, nlen) == 0)
+            return true;
+        p = tok_end + 1;
+    }
+    return false;
+}
+
+static bool ParseFlags(const char *p, const char *end, SpawnAttr *attr)
+{
+    while (p < end) {
+        const char *tok_end = p;
+        while (tok_end < end && *tok_end != ',')
+            tok_end++;
+        size_t len = (size_t)(tok_end - p);
+        if (len > 5 && strncmp(p, "prio=", 5) == 0) {
+            if (!ParseUint(p + 5, tok_end, &attr->prio))
+                return false;
+        } else if (len > 8 && strncmp(p, "maxprio=", 8) == 0) {
+            if (!ParseUint(p + 8, tok_end, &attr->max_prio))
+                return false;
+        }
+        p = tok_end + 1;
+    }
+    return true;
+}
+
+#define MAX_AWAITED 16
+#define AWAIT_STEP_MS 5
+#define AWAIT_TIMEOUT_MS 3000
+
+static char g_awaited[MAX_AWAITED][NS_MAX_PATH];
+static uint32_t g_awaited_count;
+
+static void AwaitServices(void)
+{
+    for (uint32_t i = 0; i < g_awaited_count; i++) {
+        Duration waited = 0;
+        for (;;) {
+            Handle h = LookupService(g_awaited[i]);
+            if (h >= 0) {
+                HandleClose(h);
+                break;
+            }
+            if (waited >= AWAIT_TIMEOUT_MS) {
+                UserspaceDebugLog("rootsvc: %s never registered, continuing", g_awaited[i]);
+                break;
+            }
+            Sleep(AWAIT_STEP_MS);
+            waited += AWAIT_STEP_MS;
+        }
+    }
+}
+
+static void SpawnPass(bool late_pass)
 {
     const void *initrd_base = (const void *)INITRD_VA;
     size_t initrd_size = g_bootinfo->initrd_size;
 
     const void *manifest_data;
     size_t manifest_size;
-    if (!cpio_find(initrd_base, initrd_size, "boot.manifest", &manifest_data, &manifest_size)) {
+    if (!CpioFind(initrd_base, initrd_size, "boot.manifest", &manifest_data, &manifest_size)) {
         UserspaceDebugLog("rootsvc: no boot.manifest in initrd");
         return;
     }
 
     const char *line = (const char *)manifest_data;
     const char *end = line + manifest_size;
-    bool skipped_own_entry = false;
 
     while (line < end) {
         const char *line_end = line;
         while (line_end < end && *line_end != '\n')
             line_end++;
         size_t line_len = (size_t)(line_end - line);
+        const char *next = line_end + 1;
 
-        if (line_len == 0 || line[0] == '#') {
-            line = line_end + 1;
-            continue;
-        }
-
-        const char *pipe = memchr(line, '|', line_len);
-        if (!pipe) {
-            if (!skipped_own_entry)
-                skipped_own_entry = true;
-            line = line_end + 1;
+        const char *pipe = line_len ? memchr(line, '|', line_len) : NULL;
+        if (line_len == 0 || line[0] == '#' || !pipe) {
+            line = next;
             continue;
         }
 
         size_t path_len = (size_t)(pipe - line);
         char path[64];
         if (path_len >= sizeof(path)) {
-            line = line_end + 1;
+            line = next;
             continue;
         }
         memcpy(path, line, path_len);
         path[path_len] = '\0';
 
         const char *role = pipe + 1;
-        if (strncmp(role, "file", 4) == 0) {
-            line = line_end + 1;
-            continue; /* packed but never spawned */
+        const char *field_end = memchr(role, '|', (size_t)(line_end - role));
+        const char *svc_path = field_end ? field_end + 1 : NULL;
+        if (!field_end)
+            field_end = line_end;
+
+        SpawnAttr attr = {.prio = SPAWN_PRIO_INHERIT, .max_prio = SPAWN_PRIO_INHERIT};
+        const char *colon = memchr(role, ':', (size_t)(field_end - role));
+        bool late = false;
+        if (colon) {
+            if (!ParseFlags(colon + 1, field_end, &attr)) {
+                UserspaceDebugLog("rootsvc: bad flags for %s, skipping", path);
+                line = next;
+                continue;
+            }
+            late = FlagSet(colon + 1, field_end, "late");
+        }
+
+        if (strncmp(role, "file", 4) == 0 || late != late_pass) {
+            line = next;
+            continue;
         }
 
         const void *zxf_data;
         size_t zxf_size;
-        if (!cpio_find(initrd_base, initrd_size, path, &zxf_data, &zxf_size)) {
+        if (!CpioFind(initrd_base, initrd_size, path, &zxf_data, &zxf_size)) {
             UserspaceDebugLog("rootsvc: missing boot program %s", path);
-            line = line_end + 1;
+            line = next;
             continue;
         }
 
-        SpawnKitten(zxf_data, zxf_size, path);
+        SpawnKitten(zxf_data, zxf_size, path, &attr);
 
-        line = line_end + 1;
+        if (!late_pass && svc_path && svc_path < line_end && g_awaited_count < MAX_AWAITED) {
+            size_t n = (size_t)(line_end - svc_path);
+            while (n > 0 && (svc_path[n - 1] == '\r' || svc_path[n - 1] == ' '))
+                n--;
+            if (n > 0 && n < NS_MAX_PATH) {
+                memcpy(g_awaited[g_awaited_count], svc_path, n);
+                g_awaited[g_awaited_count][n] = '\0';
+                g_awaited_count++;
+            }
+        }
+
+        line = next;
     }
+}
+
+static void SpawnStage1(void)
+{
+    SpawnPass(false);
+    AwaitServices();
+    SpawnPass(true);
 }
 
 int main(void)

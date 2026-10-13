@@ -23,11 +23,29 @@ endif
 ARCH  ?= arm
 BOARD ?= vexpress-a15
 
+# EXT points at an out-of-tree project (e.g. a product repo that carries zuzu
+# as a submodule). It may add boards (EXT/bsp/<arch>/<board>/), drivers
+# (EXT/drivers/{build.mk,Kconfig}), headers (EXT/include/) and user programs
+# (EXT/user/<group>/<prog>/build.mk). Its objects build under $(O)/ext/ and
+# $(O)/user/ext/. Empty (default) means a plain in-tree build.
+EXT ?=
+override EXT := $(patsubst %/,%,$(EXT))
+ifneq ($(EXT),)
+ifeq ($(wildcard $(EXT)/.),)
+$(error EXT=$(EXT) is not a directory)
+endif
+endif
+export EXT_KCONFIG := $(or $(and $(EXT),$(wildcard $(EXT)/Kconfig)),/dev/null)
+
 # Otherwise make takes the first rule in the include chain as the default goal.
 .DEFAULT_GOAL := all
 
 include arch/$(ARCH)/arch.mk
 include scripts/Makefile.lib
+
+ifneq ($(EXT),)
+BOARDS += $(patsubst $(EXT)/bsp/$(ARCH)/%/board.mk,%,$(wildcard $(EXT)/bsp/$(ARCH)/*/board.mk))
+endif
 
 # ---- configuration -------------------------------------------------------------
 ifeq ($(filter $(BOARD),$(BOARDS)),)
@@ -53,7 +71,9 @@ $(foreach v,$(filter CONFIG_%,$(.VARIABLES)),\
 # ---- derived paths ---------------------------------------------------------
 ARCH_DIR       = arch/$(ARCH)
 BSP_DIR        = bsp/$(ARCH)
-BOARD_DIR      = $(BSP_DIR)/$(BOARD)
+# An EXT board of the same name shadows the in-tree one.
+_EXT_BOARD_DIR = $(EXT)/$(BSP_DIR)/$(BOARD)
+BOARD_DIR     := $(strip $(if $(and $(EXT),$(wildcard $(_EXT_BOARD_DIR)/board.mk)),$(_EXT_BOARD_DIR),$(BSP_DIR)/$(BOARD)))
 
 # Board-specific metadata (CPUFLAGS_<board>, DTB_<board>, QEMU_*_<board>,
 # UBOOT_<board>, ...) lives in the board's own directory — see
@@ -83,7 +103,8 @@ IMG            = $(O)/zuzu.img
 
 # Board may override the arch-default cpu flags via CPUFLAGS_<board>.
 CPUFLAGS = $(if $(CPUFLAGS_$(BOARD)),$(CPUFLAGS_$(BOARD)),$(ARCH_CPUFLAGS))
-INCLUDES = -I. -Iinclude -Iarch/include -Iarch/$(ARCH)/include
+INCLUDES = -I. -Iinclude -Iarch/include -Iarch/$(ARCH)/include \
+           $(if $(and $(EXT),$(wildcard $(EXT)/include/.)),-I$(EXT)/include)
 
 LTO_FLAG = $(if $(filter y,$(CONFIG_LTO)),-flto=auto)
 
@@ -96,7 +117,8 @@ KCONFIG_DEFCONFIG = $(BOARD_DIR)/defconfig
 KCONFIG_DIR       = $(O)/include/config
 KCONFIG_AUTOCONF  = $(KCONFIG_DIR)/autoconf.h
 KCONFIG_AUTOCONF_MK = $(KCONFIG_DIR)/auto.conf
-KCONFIG_FILES     = $(shell find . -name Kconfig -not -path './build/*' 2>/dev/null)
+KCONFIG_FILES     = $(shell find . -name Kconfig -not -path './build/*' 2>/dev/null) $(if $(EXT),$(wildcard $(EXT)/Kconfig)) \
+                    $(if $(EXT),$(wildcard $(EXT)/drivers/Kconfig))
 KCONF             = python3 scripts/kconf.py --kconfig Kconfig
 
 # Goals that must not drag in config generation, or that would recurse.
@@ -259,9 +281,13 @@ KERNEL_LIBGCC = $(shell $(CC) $(CPUFLAGS) -print-libgcc-file-name)
 # again into zcrt with USER_CFLAGS (Makefile.user). lib/ is userspace-only.
 # Only the selected board's directory is read, so unselected boards never
 # contribute objects.
-KERNEL_MANIFEST_DIRS = core drivers kernel klib $(ARCH_DIR) $(BOARD_DIR) vendor/libfdt
+KERNEL_MANIFEST_DIRS = core drivers kernel klib $(ARCH_DIR) $(BOARD_DIR) vendor/libfdt \
+                       $(if $(and $(EXT),$(wildcard $(EXT)/drivers/build.mk)),$(EXT)/drivers)
 
-OBJS := $(addprefix $(O)/,$(call collect-objs,$(KERNEL_MANIFEST_DIRS)))
+# EXT sources are mapped to $(O)/ext/ so objects never land outside $(O),
+# whatever EXT's path (it is usually ../).
+OBJS := $(patsubst $(EXT)/%,ext/%,$(call collect-objs,$(KERNEL_MANIFEST_DIRS)))
+OBJS := $(addprefix $(O)/,$(OBJS))
 DEPS := $(OBJS:.o=.d)
 
 # Vendored third-party source: its type/const-correctness is upstream's
@@ -286,6 +312,20 @@ $(O)/%.o: %.S $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
 	@echo "  AS      $<"
 	@$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
 	@$(call record-cmd,$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@)
+
+ifneq ($(EXT),)
+$(O)/ext/%.o: $(EXT)/%.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
+	@mkdir -p $(dir $@)
+	@echo "  CC      $<"
+	@$(CC) $(CFLAGS) -c $< -o $@
+	@$(call record-cmd,$(CC) $(CFLAGS) -c $< -o $@)
+
+$(O)/ext/%.o: $(EXT)/%.S $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
+	@mkdir -p $(dir $@)
+	@echo "  AS      $<"
+	@$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
+	@$(call record-cmd,$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@)
+endif
 
 # Two-pass link: pass 1 exists only to give symbol.py a symbol table to read,
 # which pass 2 links in. Safe because ksymtab.c is pure data (no .text), so the
@@ -353,12 +393,12 @@ help:
 	@echo '  distclean           also remove .baseline/ and .cache/'
 	@echo ''
 	@echo 'Run:'
-	@echo '  run                 boot under QEMU'
+	@echo '  run                 boot under QEMU (NET=user|bridged|pcap, GRAPHIC=1 for a window)'
 	@echo '  debug               boot stopped, gdb on tcp::1234'
 	@echo '  smoke               boot headless and check it came up'
 	@echo '  smoke-all           smoke every board'
-	@echo '  run-bridged         boot with a bridged NIC (needs sudo)'
-	@echo '  run-pcap            boot and capture traffic to a pcap'
+	@echo '  run-bridged         same as run NET=bridged (needs sudo)'
+	@echo '  run-pcap            same as run NET=pcap (capture traffic to a pcap)'
 	@echo ''
 	@echo 'Configure (per board, in $(O)/.config):'
 	@echo '  menuconfig          interactive configuration'

@@ -58,6 +58,7 @@ Err VmmMapMemObj(SpaceObject *space, HandleTableEntry *entry, MemProt prot, Virt
     switch (mem->kind) {
     case MEMKIND_SHARED: {
         size_t size = entry->mem->shm.page_count * PAGE_SIZE;
+        ENSURE_RET(!((mem->shm.flags & MEM_UNCACHED) && (prot & PROT_EXEC)), ERR_NOPERM);
 
         if (hint == 0) {
             va_base = VmmFindFreeVa(space->as, USER_MMAP_BASE, USER_DEVICE_BASE, size);
@@ -74,7 +75,8 @@ Err VmmMapMemObj(SpaceObject *space, HandleTableEntry *entry, MemProt prot, Virt
         VirtMemRegion region = {.vaddr_start = va_base,
                                 .size = size,
                                 .prot = prot | VM_PROT_USER,
-                                .memtype = VM_MEM_NORMAL,
+                                .memtype = (mem->shm.flags & MEM_UNCACHED) ? VM_MEM_NORMAL_NC
+                                                                           : VM_MEM_NORMAL,
                                 .owner = VM_BACKING_SHARED,
                                 .backing = mem,
                                 .flags = VM_FLAG_NONE};
@@ -156,7 +158,8 @@ Err VmmUnmapUserRegion(SpaceObject *space, VirtAddr va)
                 break;
             }
         }
-        ENSURE(found_in_table, KWARN("Couldn't find unmap entry in handle table"));
+        ENSURE(found_in_table || found->owner == VM_BACKING_SHARED,
+               KWARN("Couldn't find unmap entry in handle table"));
     }
     }
 
@@ -234,140 +237,73 @@ bool VmmCheckUserFault(AddressSpace *as, VirtAddr va, size_t len, bool write)
     return true;
 }
 
-Err InjectIntoSpace(SpaceObject *kitten, SpaceObject *parent, InjectArgs *args)
+Err InjectObjIntoSpace(SpaceObject *kitten, SpaceObject *parent, const InjectObjArgs *args)
 {
-
-    ENSURE_RET(args->len, ERR_BADARG);
+    ENSURE_RET(args->len && !(args->len % PAGE_SIZE), ERR_BADARG);
+    ENSURE_RET(!(args->dest_vaddr % PAGE_SIZE) && !(args->offset % PAGE_SIZE), ERR_BADARG);
     ENSURE_RET(!(args->prot & ~(uint32_t)(PROT_EXEC | PROT_WRITE | PROT_READ)), ERR_BADARG);
     ENSURE_RET(!((args->prot & PROT_WRITE) && (args->prot & PROT_EXEC)), ERR_BADARG);
     ENSURE_RET(args->dest_vaddr < USER_VA_TOP && args->len <= USER_VA_TOP - args->dest_vaddr,
                ERR_BADARG);
-    ENSURE_RET(args->dest_vaddr % PAGE_SIZE == 0, ERR_BADARG);
-
     ENSURE_RET(ListIsEmpty(&kitten->tasks), ERR_BUSY);
 
-    if (args->flags & ASINJECT_FLAG_RESERVE) {
-        /* Reserve-only mode: register anon memory in the target AS with no
-         * pages allocated or copied; pages get allocated, zeroed, and mapped
-         * lazily on first touch via the normal fault path. */
-        ENSURE_RET(args->src_buf == NULL && args->len % PAGE_SIZE == 0, ERR_BADARG);
+    VirtMemRegion region = {
+        .vaddr_start = args->dest_vaddr,
+        .size = args->len,
+        .prot = args->prot | VM_PROT_USER,
+        .memtype = VM_MEM_NORMAL,
+        .flags = VM_FLAG_NONE,
+    };
 
-        VirtMemRegion region = {
-            .vaddr_start = args->dest_vaddr,
-            .size = args->len,
-            .prot = args->prot | VM_PROT_USER,
-            .memtype = VM_MEM_NORMAL,
-            .owner = VM_BACKING_ANON,
-            .flags = VM_FLAG_NONE,
-        };
+    if (args->mem == HANDLE_ANON) {
+        region.owner = VM_BACKING_ANON;
         ENSURE_RET(VmmAddRegion(kitten->as, &region), ERR_NOMEM);
-
         return ZUZU_OK;
     }
 
-    ENSURE_RET(args->src_buf != NULL, ERR_BADARG);
+    HandleTableEntry *entry = HandleTableLookup(&parent->handle_table, args->mem);
+    ENSURE_RET(entry, ERR_BADHANDLE);
+    ENSURE_RET(entry->type == HANDLE_MEM, ERR_BADTYPE);
+    ENSURE_RET(entry->perms & PERM_MAP, ERR_NOPERM);
 
-    size_t page_count = (args->len + PAGE_SIZE - 1) / PAGE_SIZE;
+    MemObject *mem = entry->mem;
+    ENSURE_RET(mem && mem->kind == MEMKIND_SHARED, ERR_BADTYPE);
+    ENSURE_RET(!(mem->shm.flags & MEM_UNCACHED), ERR_BADARG);
 
-    /* If the destination lies entirely inside an existing anon region (e.g.
-     * a pre-reserved stack), fill pages in place instead of creating a new
-     * region. Injected prot must not exceed the region's own prot. */
-    VirtMemRegion *enclosing = NULL;
-    for (uint32_t i = 0; i < kitten->as->regions.len; i++) {
-        VirtMemRegion *r = vm_region_vec_get(&kitten->as->regions, i);
-        if (!r)
-            continue;
-        if (args->dest_vaddr >= r->vaddr_start && args->dest_vaddr - r->vaddr_start < r->size &&
-            page_count * PAGE_SIZE <= r->size - (args->dest_vaddr - r->vaddr_start)) {
-            enclosing = r;
-            break;
-        }
-    }
-    if (enclosing) {
-        ENSURE_RET(!(enclosing->flags & VM_FLAG_GUARD) && enclosing->owner == VM_BACKING_ANON &&
-                       enclosing->memtype == VM_MEM_NORMAL &&
-                       !((args->prot | VM_PROT_USER) & ~enclosing->prot),
-                   ERR_BADARG);
-    }
+    size_t obj_bytes = mem->shm.page_count * PAGE_SIZE;
+    ENSURE_RET(args->offset < obj_bytes && args->len <= obj_bytes - args->offset, ERR_BADARG);
 
-    PhysAddr *page_addrs = KCalloc(page_count, sizeof(PhysAddr));
-    ENSURE_RET(page_addrs, ERR_NOMEM);
-
-    for (size_t i = 0; i < page_count; i++) {
-        VirtAddr dst_page = args->dest_vaddr + (i * PAGE_SIZE);
-
-        PhysAddr page = enclosing ? ArchMmuTranslate(kitten->as->pt_root_physaddr, dst_page) : 0;
-        bool fresh = (page == 0);
-        if (fresh) {
-            page = PmmAllocFrame();
-            if (!page)
-                goto rollback_nomem;
-            page_addrs[i] = page;
-        }
-
-        size_t offset = (i * PAGE_SIZE);
-        size_t bytes_to_copy = args->len - offset;
-        if (bytes_to_copy > PAGE_SIZE)
-            bytes_to_copy = PAGE_SIZE;
-
-        if (!VmmCheckUserFault(parent->as, (uintptr_t)args->src_buf + offset, bytes_to_copy, false))
-            goto rollback_badarg;
-        memcpy((void *)PA_TO_VA(page), (const void *)((uintptr_t)args->src_buf + offset),
-               bytes_to_copy);
-
-        if (fresh && bytes_to_copy < PAGE_SIZE)
-            memset((void *)(PA_TO_VA(page) + bytes_to_copy), 0, PAGE_SIZE - bytes_to_copy);
-
-        if (fresh && !VmmMapUserPage(kitten->as, page, dst_page, args->prot)) {
-            PmmFreeFrame(page);
-            page_addrs[i] = 0;
-            goto rollback_nomem;
-        }
-    }
+    size_t first = args->offset / PAGE_SIZE;
+    size_t pages = args->len / PAGE_SIZE;
 
     if (args->prot & PROT_EXEC) {
-        for (size_t i = 0; i < page_count; i++) {
-            PhysAddr pa =
-                ArchMmuTranslate(kitten->as->pt_root_physaddr, args->dest_vaddr + (i * PAGE_SIZE));
-            if (pa)
-                ArchCacheCleanDcacheRange(PA_TO_VA(pa), PAGE_SIZE);
+        for (size_t i = 0; i < pages; i++)
+            ENSURE_RET(mem->shm.page_addrs[first + i], ERR_BADARG);
+    }
+
+    region.owner = VM_BACKING_SHARED;
+    region.backing = mem;
+    region.backing_page_offset = first;
+    ENSURE_RET(VmmAddRegion(kitten->as, &region), ERR_NOMEM);
+
+    for (size_t i = 0; i < pages; i++) {
+        PhysAddr pa = mem->shm.page_addrs[first + i];
+        if (!pa)
+            continue;
+        if (!VmmMapUserPage(kitten->as, pa, args->dest_vaddr + (i * PAGE_SIZE), args->prot)) {
+            VmmRemoveRegion(kitten->as, args->dest_vaddr, args->len);
+            return ERR_NOMEM;
+        }
+    }
+
+    if ((args->prot & PROT_EXEC) && !mem->exec_synced) {
+        for (size_t i = 0; i < mem->shm.page_count; i++) {
+            if (mem->shm.page_addrs[i])
+                ArchCacheCleanDcacheRangePou(PA_TO_VA(mem->shm.page_addrs[i]), PAGE_SIZE);
         }
         ArchCacheInvalidateIcacheAll();
+        mem->exec_synced = true;
     }
 
-    if (!enclosing) {
-        VirtMemRegion region = {
-            .vaddr_start = args->dest_vaddr,
-            .size = page_count * PAGE_SIZE,
-            .prot = args->prot | VM_PROT_USER,
-            .memtype = VM_MEM_NORMAL,
-            .owner = VM_BACKING_ANON,
-            .flags = VM_FLAG_NONE,
-        };
-        if (!VmmAddRegion(kitten->as, &region))
-            goto rollback_nomem;
-    }
-
-    KFree(page_addrs);
     return ZUZU_OK;
-
-rollback_badarg:
-    for (size_t j = 0; j < page_count; j++) {
-        if (page_addrs[j]) {
-            VmmUnmapRange(kitten->as, args->dest_vaddr + (j * PAGE_SIZE), PAGE_SIZE, true);
-            PmmFreeFrame(page_addrs[j]);
-        }
-    }
-    KFree(page_addrs);
-    return ERR_BADARG;
-
-rollback_nomem:
-    for (size_t j = 0; j < page_count; j++) {
-        if (page_addrs[j]) {
-            VmmUnmapRange(kitten->as, args->dest_vaddr + (j * PAGE_SIZE), PAGE_SIZE, true);
-            PmmFreeFrame(page_addrs[j]);
-        }
-    }
-    KFree(page_addrs);
-    return ERR_NOMEM;
 }

@@ -24,6 +24,7 @@ PortObject *PortCreate(SpaceObject *owner)
 
     ListInit(&new_port->sender_queue);
     ListInit(&new_port->receiver_queue);
+    ListInit(&new_port->active_servers);
     new_port->owner_spid = owner->spid;
     new_port->ref_count = 1;
     new_port->alive = true;
@@ -48,6 +49,13 @@ void PortKill(PortObject *port)
         ListNode *n = ListPopFront(&port->receiver_queue);
         WaitSlot *slot = container_of(n, WaitSlot, node);
         TaskAbortWait(slot->owner, ERR_DEAD);
+    }
+
+    while (!ListIsEmpty(&port->active_servers)) {
+        ListNode *n = ListPopFront(&port->active_servers);
+        TaskObject *server = container_of(n, TaskObject, serve_node);
+        server->serving_port = NULL;
+        TaskRecomputePriority(server);
     }
 
     ObserverNotify(&port->observers);

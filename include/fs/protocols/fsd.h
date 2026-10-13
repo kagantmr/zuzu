@@ -73,6 +73,7 @@ typedef struct {
     uint32_t size;   // file size in bytes
     uint8_t type;    /* FsdFileType value */
     uint8_t _pad[3]; // padding for alignment
+    uint32_t mtime;  // FAT date << 16 | FAT time; 0 when the backend cannot say
 } FsdStat;
 
 _Static_assert(sizeof(FsdDirEntry) <= 64, "dirent should stay cache-line-ish");
@@ -92,6 +93,8 @@ typedef enum {
     FSD_DETACH,     /* free the session                          */
     FSD_WATCH, /* badged; grant: a port the client owns (PERM_WAIT|PERM_TXFR). fsd frees the session
                   when it dies */
+    FSD_READ_OBJ, /* badged; grant: a shm object (PERM_MAP|PERM_TXFR). fd, data_off = byte offset
+                     into the object, data_len = count -> count; the data lands in the object */
 } FsdCommand;
 
 #define FSD_DATA_OFF 128u /* payload starts here; data_off >= FSD_DATA_OFF */

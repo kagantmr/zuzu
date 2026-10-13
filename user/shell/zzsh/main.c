@@ -5,11 +5,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <util/imgcache.h>
 #include <util/spawn.h>
 #include <zuzu/err.h>
 #include <zuzu/zuzu.h>
 
-#define PROMPT ANSI_BOLD ANSI_CYAN "zzsh" ANSI_GREEN "~>" ANSI_RESET
+#define PROMPT ANSI_BOLD ANSI_CYAN "zzsh " ANSI_GREEN "~>" ANSI_RESET
 
 static FsdConn fsd_conn;
 static char cwd[256] = "/";
@@ -177,76 +178,53 @@ static void cmd_ls(const char *arg)
     }
 }
 
-/* ---- cat ---- */
-
-static void cmd_cat(const char *path)
-{
-    if (!ensure_fsd()) {
-        printf("%s", ANSI_RED "cat: fsd unavailable\n" ANSI_RESET);
-        return;
-    }
-
-    if (!path || !path[0]) {
-        printf("%s", "usage: cat <file>\n");
-        return;
-    }
-
-    char abs_path[256];
-    if (!resolve_path(path, abs_path, sizeof(abs_path))) {
-        printf("%s", "cat: path too long\n");
-        return;
-    }
-
-    uint32_t fd = 0;
-    if (FsdOpen(&fsd_conn, abs_path, FSD_MODE_READ, &fd) != ZUZU_OK) {
-        printf("%s", ANSI_RED "cat: file not found\n" ANSI_RESET);
-        return;
-    }
-
-    /* printf formats into a 1 KiB buffer, so keep chunks well under that. */
-    char chunk[512];
-    while (1) {
-        uint32_t got = 0;
-        if (FsdRead(&fsd_conn, fd, chunk, sizeof(chunk) - 1, &got) != ZUZU_OK)
-            break;
-        if (got == 0)
-            break;
-
-        chunk[got] = '\0'; /* null-terminate for printf */
-        printf("%s", chunk);
-    }
-
-    FsdClose(&fsd_conn, fd);
-    printf("\n");
-}
-
 /* ---- run ---- */
 
-static void *read_file(const char *path, size_t *len)
-{
-    FsdStat st;
-    uint32_t fd;
-    if (FsdGetStat(&fsd_conn, path, &st) != ZUZU_OK || st.type != FSD_TYPE_FILE)
-        return NULL;
-    if (FsdOpen(&fsd_conn, path, FSD_MODE_READ, &fd) != ZUZU_OK)
-        return NULL;
+static ImgCache g_images;
 
-    uint8_t *buf = malloc(st.size ? st.size : 1);
-    size_t off = 0;
-    while (buf && off < st.size) {
+static Handle read_image(const char *path, uint32_t size)
+{
+    uint32_t fd;
+    if (FsdOpen(&fsd_conn, path, FSD_MODE_READ, &fd) != ZUZU_OK)
+        return -1;
+
+    Handle obj = CreateMem((size + FSD_PAGE_SIZE - 1) / FSD_PAGE_SIZE, 0);
+    uint32_t off = 0;
+    while (obj >= 0 && off < size) {
         uint32_t got = 0;
-        if (FsdRead(&fsd_conn, fd, buf + off, st.size - (uint32_t)off, &got) != ZUZU_OK || got == 0)
+        if (FsdReadObj(&fsd_conn, fd, obj, off, size - off, &got) != ZUZU_OK || got == 0)
             break;
         off += got;
     }
     FsdClose(&fsd_conn, fd);
 
-    if (off != st.size) {
-        free(buf);
-        return NULL;
+    if (obj >= 0 && off != size) {
+        HandleClose(obj);
+        return -1;
     }
-    *len = off;
-    return buf;
+    return obj;
+}
+
+/* Returns the image object for path, from the cache when the file is unchanged. *owned is
+ * true when the caller must close the handle, false when the cache keeps it. */
+static Handle load_image(const char *path, size_t *len, bool *owned)
+{
+    FsdStat st;
+    if (FsdGetStat(&fsd_conn, path, &st) != ZUZU_OK || st.type != FSD_TYPE_FILE || st.size == 0)
+        return -1;
+
+    *len = st.size;
+    Handle obj = ImgCacheGet(&g_images, path, st.size, st.mtime);
+    if (obj >= 0) {
+        *owned = false;
+        return obj;
+    }
+
+    obj = read_image(path, st.size);
+    if (obj < 0)
+        return -1;
+    *owned = !ImgCachePut(&g_images, path, st.size, st.mtime, obj);
+    return obj;
 }
 
 static void cmd_run(const char *line)
@@ -286,19 +264,20 @@ static void cmd_run(const char *line)
 
     char path[256];
     size_t len = 0;
-    void *image = NULL;
+    Handle image = -1;
+    bool owned = true;
     if (strchr(cmd, '/')) {
         if (resolve_path(cmd, path, sizeof(path)))
-            image = read_file(path, &len);
+            image = load_image(path, &len, &owned);
     } else {
         char rel[256];
         if (snprintf(rel, sizeof(rel), "/bin/%s", cmd) < (int)sizeof(rel) &&
             resolve_path(rel, path, sizeof(path)))
-            image = read_file(path, &len);
-        if (!image && resolve_path(cmd, path, sizeof(path)))
-            image = read_file(path, &len);
+            image = load_image(path, &len, &owned);
+        if (image < 0 && resolve_path(cmd, path, sizeof(path)))
+            image = load_image(path, &len, &owned);
     }
-    if (!image) {
+    if (image < 0) {
         printf("zzsh: %s: command not found\n", cmd);
         return;
     }
@@ -311,8 +290,11 @@ static void cmd_run(const char *line)
     name = name ? name + 1 : path;
     Spid pid;
     Handle task;
-    Err rc = SpawnProcess(image, len, name, argbuf, argpos, argc, &pid, &task);
-    free(image);
+    Err rc = SpawnProcessObj(image, len, name, argbuf, argpos, argc, &pid, &task);
+    if (owned)
+        HandleClose(image);
+    else if (rc != ZUZU_OK)
+        ImgCacheDrop(&g_images, path);
     if (rc != ZUZU_OK) {
         printf(ANSI_RED "zzsh: %s: spawn failed (err %d)\n" ANSI_RESET, cmd, rc);
         return;
@@ -388,10 +370,6 @@ bool command_dispatch(const char *line)
         cmd_ls(NULL);
     else if (strncmp(line, "ls ", 3) == 0)
         cmd_ls(line + 3);
-    else if (strcmp(line, "cat") == 0)
-        cmd_cat(NULL);
-    else if (strncmp(line, "cat ", 4) == 0)
-        cmd_cat(line + 4);
     else
         cmd_run(line);
 

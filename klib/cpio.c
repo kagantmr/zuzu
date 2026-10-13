@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 
-static uint32_t parse_hex8(const char *s)
+static uint32_t ParseHex8(const char *s)
 {
     uint32_t val = 0;
     for (int i = 0; i < 8; i++) {
@@ -18,7 +18,7 @@ static uint32_t parse_hex8(const char *s)
     return val;
 }
 
-bool cpio_find(const void *base, size_t size, const char *name, const void **data_out,
+bool CpioFind(const void *base, size_t size, const char *name, const void **data_out,
                size_t *size_out)
 {
     const uint8_t *ptr = base;
@@ -32,8 +32,8 @@ bool cpio_find(const void *base, size_t size, const char *name, const void **dat
         if (memcmp(hdr->magic, "070701", 6) != 0)
             return false;
 
-        uint32_t namesize = parse_hex8(hdr->namesize);
-        uint32_t filesize = parse_hex8(hdr->filesize);
+        uint32_t namesize = ParseHex8(hdr->namesize);
+        uint32_t filesize = ParseHex8(hdr->filesize);
 
         // Bound-check the header + name before dereferencing entry_name below.
         if (ptr + align_up(sizeof(cpio_hdr_t) + namesize, 4) > end)
