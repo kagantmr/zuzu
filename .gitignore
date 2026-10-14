@@ -89,6 +89,7 @@ sd.img
 
 # Pi firmware, fetched with `make rpi4-firmware` (not vendored).
 firmware/
+docs/*.md
 
 __pycache__/
 *.pyc
