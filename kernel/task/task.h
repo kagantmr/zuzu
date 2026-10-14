@@ -40,7 +40,7 @@ struct TaskObjectStruct {
     VirtAddr kernel_stack_top; /**< Top of the kernel stack for freeing. */
     CpuState *trap_frame;     /**< Pointer to saved user registers for IPC and context switching. */
     Tid tid;                  /**< Task ID. */
-    uint32_t *kernel_sp;      /**< Current kernel stack pointer for context switching. */
+    void *kernel_sp;      /**< Current kernel stack pointer for context switching. */
     Err exit_status;          /**< Exit status of the task. */
     ListNode node;            /**< Embedded, not pointers. */
     ListNode space_node;      /**< Membership in owner space task list. */
@@ -81,8 +81,6 @@ struct TaskObjectStruct {
     bool released;
 };
 
-_Static_assert(offsetof(TaskObject, kernel_sp) == 12,
-               "switch.S expects task->kernel_sp at offset 12");
 
 void TaskDestroy(TaskObject *task);
 TaskObject *TaskCreate(SpaceObject *owner);

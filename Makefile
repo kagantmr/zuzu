@@ -244,7 +244,7 @@ CFLAGS   = -ffreestanding -O$(CONFIG_CC_OPT_LEVEL) $(LTO_FLAG) -fno-omit-frame-p
            -Wvla -Walloca \
            -Wnull-dereference -Wduplicated-cond -Wduplicated-branches -Wlogical-op \
            -fno-common \
-           $(CPUFLAGS) $(INCLUDES) -Ivendor/libfdt -MMD -MP \
+           $(CPUFLAGS) $(INCLUDES) -I$(O)/include -Ivendor/libfdt -MMD -MP \
            -include $(KCONFIG_AUTOCONF) \
            -D__ZUZU__ -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"' \
            -DBOARD_BOOT_H='"$(BOARD_BOOT_H)"' \
@@ -300,6 +300,27 @@ $(O)/vendor/libfdt/%.o: CFLAGS := $(CFLAGS_NOVENDOR)
 $(O)/kernel/boot_info.o: CFLAGS := $(CFLAGS_NOVENDOR)
 $(O)/kernel/dev/fdt_wrappers.o: CFLAGS := $(CFLAGS_NOVENDOR)
 
+# ---- asm offsets ------------------------------------------------------------
+# Struct offsets for assembly, computed by the C compiler: asm-offsets.c is
+# compiled to assembly only (never linked) and its "->SYM value" markers are
+# turned into #defines. LTO is filtered out because -flto makes -S emit
+# bytecode instead of assembly.
+ASM_OFFSETS = $(O)/include/generated/asm-offsets.h
+
+$(O)/asm-offsets.s: $(ARCH_DIR)/asm-offsets.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
+	@mkdir -p $(dir $@)
+	@echo "  CC      $<"
+	@$(CC) $(filter-out $(LTO_FLAG),$(CFLAGS)) -S $< -o $@
+
+$(ASM_OFFSETS): $(O)/asm-offsets.s
+	@mkdir -p $(dir $@)
+	@echo "  GEN     $@"
+	@{ echo '#ifndef ASM_OFFSETS_H'; echo '#define ASM_OFFSETS_H'; \
+	   sed -n 's/^.*->\([A-Za-z_][A-Za-z0-9_]*\) \(-\{0,1\}[0-9][0-9]*\).*$$/#define \1 \2/p' $<; \
+	   echo '#endif'; } > $@.tmp && mv $@.tmp $@
+
+-include $(O)/asm-offsets.d
+
 # ---- compilation rules ------------------------------------------------------
 $(O)/%.o: %.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
 	@mkdir -p $(dir $@)
@@ -307,7 +328,7 @@ $(O)/%.o: %.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
 	@$(CC) $(CFLAGS) -c $< -o $@
 	@$(call record-cmd,$(CC) $(CFLAGS) -c $< -o $@)
 
-$(O)/%.o: %.S $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
+$(O)/%.o: %.S $(FLAGS_STAMP) $(KCONFIG_AUTOCONF) $(ASM_OFFSETS)
 	@mkdir -p $(dir $@)
 	@echo "  AS      $<"
 	@$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
@@ -320,7 +341,7 @@ $(O)/ext/%.o: $(EXT)/%.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
 	@$(CC) $(CFLAGS) -c $< -o $@
 	@$(call record-cmd,$(CC) $(CFLAGS) -c $< -o $@)
 
-$(O)/ext/%.o: $(EXT)/%.S $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
+$(O)/ext/%.o: $(EXT)/%.S $(FLAGS_STAMP) $(KCONFIG_AUTOCONF) $(ASM_OFFSETS)
 	@mkdir -p $(dir $@)
 	@echo "  AS      $<"
 	@$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
