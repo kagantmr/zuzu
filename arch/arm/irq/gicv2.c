@@ -34,9 +34,21 @@ bool ArchIrqReady(void) { return gicd_base && gicc_base; }
 
 uint32_t ArchIrqPriorityMask(void) { return GiccRead(GICC_PMR); }
 
-uint32_t ArchIrqEnabledWord(uint32_t word) { return GicdRead(GICD_ISENABLER + (word * 4U)); }
+bool ArchIrqIsEnabled(uint32_t line)
+{
+    if (line >= MAX_IRQS)
+        return false;
+    return (GicdRead(GICD_ISENABLER + ((line / 32U) * 4U)) >> (line % 32U)) & 1U;
+}
 
-uint32_t ArchIrqPendingWord(uint32_t word) { return GicdRead(GICD_ISPENDER + (word * 4U)); }
+bool ArchIrqIsPending(uint32_t line)
+{
+    if (line >= MAX_IRQS)
+        return false;
+    return (GicdRead(GICD_ISPENDER + ((line / 32U) * 4U)) >> (line % 32U)) & 1U;
+}
+
+uint32_t ArchIrqFirstDeviceLine(void) { return 16U; }
 
 void GicInit(uintptr_t gicd_base_addr, uintptr_t gicc_base_addr)
 {

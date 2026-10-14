@@ -38,22 +38,21 @@ void ArchIrqDispatch(void);
 
 /** True if an IRQ line is reserved by the kernel/arch (e.g. the tick timer)
  *  and therefore cannot be claimed by a userspace driver. */
-bool ArchIrqIsOwnedByKernel(uint32_t irq_id);
+bool ArchIrqIsOwnedByKernel(Irq irq_id);
 
 /* ---- Controller introspection (for diagnostics / panic dumps) ----------- */
-/* Lines are reported 32 per "word"; there are MAX_IRQS/32 words. */
 
 /** True once the interrupt controller has been initialized. */
 bool ArchIrqReady(void);
 
+uint32_t ArchIrqFirstDeviceLine(void);
+
 /** Current priority-mask threshold (controller-defined units). */
 uint32_t ArchIrqPriorityMask(void);
 
-/** Bitmap word of enabled IRQ lines [word*32, word*32+32). */
-uint32_t ArchIrqEnabledWord(uint32_t word);
+bool ArchIrqIsEnabled(uint32_t line);
 
-/** Bitmap word of pending IRQ lines [word*32, word*32+32). */
-uint32_t ArchIrqPendingWord(uint32_t word);
+bool ArchIrqIsPending(uint32_t line);
 
 /** True if a kernel-level handler is registered for this IRQ line. */
 bool ArchIrqHasHandler(uint32_t irq_id);
