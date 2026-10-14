@@ -227,9 +227,8 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
         bool from_user = (frame->return_cpsr & 0x1F) == 0x10;
 
         if (from_user && current_space) {
-            KERROR("Oops! '%s' (SPID %d, TID %d) killed: undefined instruction @ 0x%08X\n",
+            KERROR("Oops! '%s' (SPID %d, TID %d) faulted: undefined instruction @ 0x%08X\n",
                    current_space->name, current_space->spid, current_task->tid, frame->return_pc);
-            DumpRegisters(frame);
             TaskFault(current_task, KILLED_FAULT_UNDEF);
             Schedule();
         } else {
@@ -262,7 +261,6 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
                    current_space->name, current_space->spid, current_task->tid, ifar,
                    DecodeFsr(ifsr));
             TaskFault(current_task, KILLED_FAULT_PREFETCH);
-            DumpRegisters(frame);
             Schedule();
         } else {
             panic_fault_ctx = (PanicFaultContext){
@@ -329,7 +327,6 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
             KDEBUG("Oops! '%s' (SPID %d, TID %d) killed: data abort @ 0x%08X (%s %s)\n",
                    current_space->name, current_space->spid, current_task->tid, dfar,
                    (dfsr & (1 << 11)) ? "write" : "read", DecodeFsr(dfsr));
-            DumpRegisters(frame);
             TaskFault(current_task, KILLED_FAULT_DATA);
             Schedule();
         } else if (from_svc && current_space && current_space->as && dfar < KERNEL_VA_BASE) {
@@ -345,7 +342,6 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
                    current_space->name, current_space->spid, current_task->tid,
                    (int)current_task->state, (unsigned)frame->return_pc, dfar,
                    (dfsr & (1 << 11)) ? "write" : "read", DecodeFsr(dfsr));
-            DumpRegisters(frame);
             TaskFault(current_task, KILLED_FAULT_DATA);
             Schedule();
         } else {
