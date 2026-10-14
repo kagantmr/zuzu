@@ -31,9 +31,9 @@
 
 #include <arch_impl/regs.h> /* CpuState + accessors (CpuContext for arch use) */
 
-static __always_inline void ArchSetInFrame(CpuState *f, unsigned i, int value)
+static __always_inline void ArchSetInFrame(CpuState *f, unsigned i, Register value)
 {
-    *ArchGetFromFrame(f, i) = (Register)value;
+    *ArchGetFromFrame(f, i) = value;
 }
 
 #endif // ARCH_REGS_H
