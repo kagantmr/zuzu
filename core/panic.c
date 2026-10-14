@@ -274,7 +274,7 @@ static void PanicPrintHeader(const char *reason, void *caller_ra)
     PanicNewline();
 
     /* Top-level banner — red, same dash-rule format as section headers */
-    PanicPuts(C_RED "KERNEL PANIC ");
+    PanicPuts(C_RED "Oops! zuzu has panicked. ");
     for (int i = 13; i < RULE_COL; i++)
         uart_putc('-');
     PanicPuts(C_RESET "\n");
@@ -827,8 +827,5 @@ _Noreturn void __attribute__((cold)) panic(const char *fmt, ...)
     ConstructPanicScreen(fmt ? reason : NULL, caller_ra);
 
 panic_loop:
-    __asm__ volatile("1:\n"
-                     "    wfi\n"
-                     "    b 1b\n");
-    __builtin_unreachable();
+    ArchCpuHalt();
 }

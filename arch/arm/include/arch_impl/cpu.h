@@ -36,4 +36,19 @@ static inline void ArchIrqRestore(Cpsr state)
     __asm__ volatile("msr cpsr_c, %0" ::"r"(state) : "memory");
 }
 
+static inline void ArchCpuIdle(void) { __asm__ volatile("wfi" ::: "memory"); }
+
+static inline _Noreturn void ArchCpuHalt(void)
+{
+    for (;;)
+        __asm__ volatile("wfi" ::: "memory");
+}
+
+static inline uintptr_t ArchCurrentStackPointer(void)
+{
+    uintptr_t sp;
+    __asm__ volatile("mov %0, sp" : "=r"(sp));
+    return sp;
+}
+
 #endif // ARCH_ARM_IMPL_CPU_H

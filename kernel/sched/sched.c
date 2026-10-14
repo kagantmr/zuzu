@@ -293,7 +293,7 @@ static void SchedIdleWait(void)
             return;
         }
 
-        __asm__ volatile("wfi" ::: "memory");
+        ArchCpuIdle();
         ArchGlobalIrqEnable();
         ArchGlobalIrqDisable();
 
