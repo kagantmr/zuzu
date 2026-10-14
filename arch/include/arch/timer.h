@@ -1,7 +1,4 @@
 // arch/timer.h - Neutral periodic-timer contract.
-//
-//   void ArchTimerInit(void);  - start the periodic tick that drives
-//                                   the scheduler via the kernel tick subsystem.
 
 #ifndef ARCH_TIMER_H
 #define ARCH_TIMER_H
@@ -9,7 +6,7 @@
 #include <stdint.h>
 #include <types.h>
 
-void ArchTimerInit(void);
+void ArchTimerInit(void (*on_expire)(void));
 
 Time ArchTimerNow(void);
 uint32_t ArchTimerFreq(void);
