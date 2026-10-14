@@ -38,7 +38,7 @@ void ArchIrqDispatch(void);
 
 /** True if an IRQ line is reserved by the kernel/arch (e.g. the tick timer)
  *  and therefore cannot be claimed by a userspace driver. */
-bool ArchIrqIsOwnedByKernel(Irq irq_id);
+bool ArchIrqIsOwnedByKernel(uint32_t irq_id);
 
 /* ---- Controller introspection (for diagnostics / panic dumps) ----------- */
 
