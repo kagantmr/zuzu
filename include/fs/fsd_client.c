@@ -321,3 +321,46 @@ Err FsdUnlink(FsdConn *c, const char *path)
     FsdResponse resp;
     return FsdPathCall(c, FSD_UNLINK, path, 0, 0, &resp);
 }
+
+Err FsdReadImage(FsdConn *c, const char *path, Handle *obj, size_t *len)
+{
+    FsdStat st;
+    Err rc = FsdGetStat(c, path, &st);
+    if (rc != ZUZU_OK)
+        return rc;
+    if (st.type != FSD_TYPE_FILE || st.size == 0)
+        return ERR_BADARG;
+
+    uint32_t fd;
+    rc = FsdOpen(c, path, FSD_MODE_READ, &fd);
+    if (rc != ZUZU_OK)
+        return rc;
+
+    Handle h = CreateMem((st.size + FSD_PAGE_SIZE - 1) / FSD_PAGE_SIZE, 0);
+    if (h < 0) {
+        FsdClose(c, fd);
+        return (Err)h;
+    }
+
+    uint32_t off = 0;
+    while (off < st.size) {
+        uint32_t got = 0;
+        rc = FsdReadObj(c, fd, h, off, st.size - off, &got);
+        if (rc != ZUZU_OK)
+            break;
+        if (got == 0) {
+            rc = ERR_IO;
+            break;
+        }
+        off += got;
+    }
+    FsdClose(c, fd);
+
+    if (rc != ZUZU_OK) {
+        HandleClose(h);
+        return rc;
+    }
+    *obj = h;
+    *len = st.size;
+    return ZUZU_OK;
+}

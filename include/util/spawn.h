@@ -58,6 +58,13 @@ Err SpawnProcessAttr(const void *image, size_t size, const char *name, const cha
 Err SpawnProcessObj(Handle image_obj, size_t size, const char *name, const char *argbuf,
                     size_t argbuf_len, uint32_t argc, Spid *out_pid, Handle *out_task);
 
+/**
+ * @brief SpawnProcessObj() with explicit scheduling attributes; see SpawnProcessAttr().
+ */
+Err SpawnProcessObjAttr(Handle image_obj, size_t size, const char *name, const char *argbuf,
+                        size_t argbuf_len, uint32_t argc, const SpawnAttr *attr, Spid *out_pid,
+                        Handle *out_task);
+
 #ifdef __cplusplus
 }
 #endif

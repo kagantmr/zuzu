@@ -1,5 +1,6 @@
 #include "rootsvc.h"
 #include <cpio.h>
+#include <fs/fsd_client.h>
 #include <string.h>
 #include <util/spawn.h>
 #include <util/tls.h>
@@ -14,6 +15,13 @@
 #define MAX_KITTENS 30
 #define STACK_SIZE (16 * 1024)
 #define INITRD_VA (USER_MMAP_BASE + (MAX_TCB_PAGES * PAGE_SIZE))
+#define SD_SERVICES_MANIFEST "/etc/services.manifest"
+#define MANIFEST_PATH_MAX 64
+
+typedef enum {
+    SOURCE_INITRD,
+    SOURCE_SD,
+} ImageSource;
 
 typedef struct {
     bool active;
@@ -25,6 +33,7 @@ typedef struct {
 static Kitten g_kittens[MAX_KITTENS];
 static uint32_t g_kitten_count;
 static Handle g_monitor_ev;
+static FsdConn g_fsd;
 const BootInfo *g_bootinfo;
 
 static Handle SpawnThread(void (*entry)(void))
@@ -77,6 +86,51 @@ static void SpawnKitten(const void *zxf_data, size_t zxf_size, const char *path,
     }
     UserspaceDebugLog("rootsvc: spawned %s", path);
     MonitorKitten(task, (Handle)pid, path);
+}
+
+static void SpawnKittenFromSd(const char *path, const SpawnAttr *attr)
+{
+    char sd_path[MANIFEST_PATH_MAX + 1];
+    size_t n = strlen(path);
+    if (n >= MANIFEST_PATH_MAX)
+        return;
+    sd_path[0] = '/';
+    memcpy(sd_path + 1, path, n + 1);
+
+    Handle obj;
+    size_t len;
+    Err rc = FsdReadImage(&g_fsd, sd_path, &obj, &len);
+    if (rc != ZUZU_OK) {
+        UserspaceDebugLog("rootsvc: missing SD program %s: %d", sd_path, rc);
+        return;
+    }
+
+    Spid pid;
+    Handle task;
+    rc = SpawnProcessObjAttr(obj, len, path, NULL, 0, 0, attr, &pid, &task);
+    HandleClose(obj);
+    if (rc != ZUZU_OK) {
+        UserspaceDebugLog("rootsvc: failed to spawn %s: %d", sd_path, rc);
+        return;
+    }
+    UserspaceDebugLog("rootsvc: spawned %s from SD", sd_path);
+    MonitorKitten(task, (Handle)pid, path);
+}
+
+static const char *BaseName(const char *path)
+{
+    const char *slash = strrchr(path, '/');
+    return slash ? slash + 1 : path;
+}
+
+static bool KittenNamed(const char *path)
+{
+    const char *name = BaseName(path);
+    for (uint32_t i = 0; i < g_kitten_count; i++) {
+        if (g_kittens[i].active && strcmp(BaseName(g_kittens[i].path), name) == 0)
+            return true;
+    }
+    return false;
 }
 
 static void HandleKittenFault(Kitten *k)
@@ -194,19 +248,13 @@ static void AwaitServices(void)
     }
 }
 
-static void SpawnPass(bool late_pass)
+static void SpawnPass(const char *manifest, size_t manifest_size, ImageSource source,
+                      bool late_pass)
 {
     const void *initrd_base = (const void *)INITRD_VA;
     size_t initrd_size = g_bootinfo->initrd_size;
 
-    const void *manifest_data;
-    size_t manifest_size;
-    if (!CpioFind(initrd_base, initrd_size, "boot.manifest", &manifest_data, &manifest_size)) {
-        UserspaceDebugLog("rootsvc: no boot.manifest in initrd");
-        return;
-    }
-
-    const char *line = (const char *)manifest_data;
+    const char *line = manifest;
     const char *end = line + manifest_size;
 
     while (line < end) {
@@ -223,7 +271,7 @@ static void SpawnPass(bool late_pass)
         }
 
         size_t path_len = (size_t)(pipe - line);
-        char path[64];
+        char path[MANIFEST_PATH_MAX];
         if (path_len >= sizeof(path)) {
             line = next;
             continue;
@@ -254,15 +302,23 @@ static void SpawnPass(bool late_pass)
             continue;
         }
 
-        const void *zxf_data;
-        size_t zxf_size;
-        if (!CpioFind(initrd_base, initrd_size, path, &zxf_data, &zxf_size)) {
-            UserspaceDebugLog("rootsvc: missing boot program %s", path);
-            line = next;
-            continue;
+        if (source == SOURCE_SD) {
+            if (KittenNamed(path)) {
+                UserspaceDebugLog("rootsvc: %s already runs from initrd, skipping SD copy", path);
+                line = next;
+                continue;
+            }
+            SpawnKittenFromSd(path, &attr);
+        } else {
+            const void *zxf_data;
+            size_t zxf_size;
+            if (!CpioFind(initrd_base, initrd_size, path, &zxf_data, &zxf_size)) {
+                UserspaceDebugLog("rootsvc: missing boot program %s", path);
+                line = next;
+                continue;
+            }
+            SpawnKitten(zxf_data, zxf_size, path, &attr);
         }
-
-        SpawnKitten(zxf_data, zxf_size, path, &attr);
 
         if (!late_pass && svc_path && svc_path < line_end && g_awaited_count < MAX_AWAITED) {
             size_t n = (size_t)(line_end - svc_path);
@@ -279,11 +335,59 @@ static void SpawnPass(bool late_pass)
     }
 }
 
-static void SpawnStage1(void)
+static bool OpenSdManifest(Handle *obj, const char **data, size_t *size)
 {
-    SpawnPass(false);
+    Err rc = FsdConnect(&g_fsd, FSD_SHM_DEFAULT);
+    if (rc != ZUZU_OK) {
+        UserspaceDebugLog("rootsvc: fsd unavailable (%d), no SD services", rc);
+        return false;
+    }
+
+    rc = FsdReadImage(&g_fsd, SD_SERVICES_MANIFEST, obj, size);
+    if (rc != ZUZU_OK) {
+        UserspaceDebugLog("rootsvc: no %s (%d), no SD services", SD_SERVICES_MANIFEST, rc);
+        return false;
+    }
+
+    void *view = MemMap(*obj, 0, PROT_READ);
+    if (PtrIsErr(view)) {
+        HandleClose(*obj);
+        return false;
+    }
+    *data = (const char *)view;
+    return true;
+}
+
+static void SpawnStages(void)
+{
+    const void *boot_manifest;
+    size_t boot_size;
+    if (!CpioFind((const void *)INITRD_VA, g_bootinfo->initrd_size, "boot.manifest",
+                  &boot_manifest, &boot_size)) {
+        UserspaceDebugLog("rootsvc: no boot.manifest in initrd");
+        return;
+    }
+
+    SpawnPass(boot_manifest, boot_size, SOURCE_INITRD, false);
     AwaitServices();
-    SpawnPass(true);
+
+    Handle sd_obj = -1;
+    const char *sd_manifest = NULL;
+    size_t sd_size = 0;
+    if (OpenSdManifest(&sd_obj, &sd_manifest, &sd_size)) {
+        g_awaited_count = 0;
+        SpawnPass(sd_manifest, sd_size, SOURCE_SD, false);
+        AwaitServices();
+    }
+
+    SpawnPass(boot_manifest, boot_size, SOURCE_INITRD, true);
+
+    if (sd_manifest) {
+        SpawnPass(sd_manifest, sd_size, SOURCE_SD, true);
+        MemUnmap((void *)(uintptr_t)sd_manifest);
+        HandleClose(sd_obj);
+    }
+    FsdDetach(&g_fsd);
 }
 
 int main(void)
@@ -305,8 +409,8 @@ int main(void)
     SpawnThread(DevsvcMain);
     SpawnThread(NsvcMain);
 
-    SpawnStage1();
-    UserspaceDebugLog("rootsvc: stage1 spawned %u kitten(s), monitoring", g_kitten_count);
+    SpawnStages();
+    UserspaceDebugLog("rootsvc: spawned %u kitten(s), monitoring", g_kitten_count);
 
     for (;;) {
         EventWaitResult r = FormatToEventWait(WaitOn(g_monitor_ev, TIMEOUT_INFINITE));

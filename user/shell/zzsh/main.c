@@ -182,29 +182,6 @@ static void cmd_ls(const char *arg)
 
 static ImgCache g_images;
 
-static Handle read_image(const char *path, uint32_t size)
-{
-    uint32_t fd;
-    if (FsdOpen(&fsd_conn, path, FSD_MODE_READ, &fd) != ZUZU_OK)
-        return -1;
-
-    Handle obj = CreateMem((size + FSD_PAGE_SIZE - 1) / FSD_PAGE_SIZE, 0);
-    uint32_t off = 0;
-    while (obj >= 0 && off < size) {
-        uint32_t got = 0;
-        if (FsdReadObj(&fsd_conn, fd, obj, off, size - off, &got) != ZUZU_OK || got == 0)
-            break;
-        off += got;
-    }
-    FsdClose(&fsd_conn, fd);
-
-    if (obj >= 0 && off != size) {
-        HandleClose(obj);
-        return -1;
-    }
-    return obj;
-}
-
 /* Returns the image object for path, from the cache when the file is unchanged. *owned is
  * true when the caller must close the handle, false when the cache keeps it. */
 static Handle load_image(const char *path, size_t *len, bool *owned)
@@ -220,8 +197,7 @@ static Handle load_image(const char *path, size_t *len, bool *owned)
         return obj;
     }
 
-    obj = read_image(path, st.size);
-    if (obj < 0)
+    if (FsdReadImage(&fsd_conn, path, &obj, len) != ZUZU_OK)
         return -1;
     *owned = !ImgCachePut(&g_images, path, st.size, st.mtime, obj);
     return obj;

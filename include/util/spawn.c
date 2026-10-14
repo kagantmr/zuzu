@@ -268,14 +268,22 @@ Err SpawnProcess(const void *image, size_t size, const char *name, const char *a
     return SpawnFromImage(-1, image, size, name, argbuf, argbuf_len, argc, NULL, out_pid, out_task);
 }
 
-Err SpawnProcessObj(Handle image_obj, size_t size, const char *name, const char *argbuf,
-                    size_t argbuf_len, uint32_t argc, Spid *out_pid, Handle *out_task)
+Err SpawnProcessObjAttr(Handle image_obj, size_t size, const char *name, const char *argbuf,
+                        size_t argbuf_len, uint32_t argc, const SpawnAttr *attr, Spid *out_pid,
+                        Handle *out_task)
 {
     void *view = MemMap(image_obj, 0, PROT_READ);
     if (PtrIsErr(view))
         return (Err)(intptr_t)view;
-    Err rc = SpawnFromImage(image_obj, view, size, name, argbuf, argbuf_len, argc, NULL, out_pid,
+    Err rc = SpawnFromImage(image_obj, view, size, name, argbuf, argbuf_len, argc, attr, out_pid,
                             out_task);
     MemUnmap(view);
     return rc;
+}
+
+Err SpawnProcessObj(Handle image_obj, size_t size, const char *name, const char *argbuf,
+                    size_t argbuf_len, uint32_t argc, Spid *out_pid, Handle *out_task)
+{
+    return SpawnProcessObjAttr(image_obj, size, name, argbuf, argbuf_len, argc, NULL, out_pid,
+                               out_task);
 }

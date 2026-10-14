@@ -5,6 +5,7 @@
 #   ALLOW_USER_FAULTS=1 tolerate "Oops! Segmentation fault" and "Oops! '...' killed:" lines,
 #                       for tests that fault clients on purpose
 #   SD_MANIFEST=<file>  build a fresh SD image from this manifest and boot with it
+#   SVC_MANIFEST=<file> with SD_MANIFEST: also stage these SD services (default: none)
 #
 # Builds <board> with the given boot manifest, boots it under QEMU and waits
 # for a "<VERDICT>: PASSED|FAILED" line. Exit status:
@@ -32,8 +33,12 @@ cd "$ROOT" || exit 2
 SD_IMG=$ROOT/build/arm-$BOARD/sd.img
 if [ -n "${SD_MANIFEST:-}" ]; then
     SD_MANIFEST=$(cd "$(dirname "$SD_MANIFEST")" && pwd)/$(basename "$SD_MANIFEST")
-    if ! "$MAKE" BOARD="$BOARD" BOOT_MANIFEST="$MANIFEST" SD_MANIFEST="$SD_MANIFEST" O="$OUT" \
-            sdimg >"$OUT/sdimg.log" 2>&1; then
+    SVC=
+    if [ -n "${SVC_MANIFEST:-}" ]; then
+        SVC=$(cd "$(dirname "$SVC_MANIFEST")" && pwd)/$(basename "$SVC_MANIFEST")
+    fi
+    if ! "$MAKE" BOARD="$BOARD" BOOT_MANIFEST="$MANIFEST" SD_MANIFEST="$SD_MANIFEST" \
+            SVC_MANIFEST="$SVC" O="$OUT" sdimg >"$OUT/sdimg.log" 2>&1; then
         echo "sdimg failed; see $OUT/sdimg.log" >&2
         exit 2
     fi

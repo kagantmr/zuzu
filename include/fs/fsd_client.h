@@ -171,6 +171,19 @@ Err FsdFstat(FsdConn *c, uint32_t fd, FsdStat *st);
 Err FsdReadDir(FsdConn *c, const char *path, uint32_t start, FsdDirEntry *out, uint32_t max,
                uint32_t *count);
 
+/**
+ * @brief Reads a whole regular file into a fresh shm object, e.g. a program image for
+ * SpawnProcessObj().
+ *
+ * @param c An attached connection.
+ * @param path Path of the file to read.
+ * @param obj Out-param set to the new object's handle on success; the caller closes it.
+ * @param len Out-param set to the file size in bytes on success.
+ * @return Err ZUZU_OK on success, ERR_BADARG if path is not a non-empty regular file,
+ * or another negative error code on failure.
+ */
+Err FsdReadImage(FsdConn *c, const char *path, Handle *obj, size_t *len);
+
 #ifdef __cplusplus
 }
 #endif

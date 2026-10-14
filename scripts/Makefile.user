@@ -88,6 +88,9 @@ ZCRT_PROGS   := $(filter-out $(NEWLIB_PROGS),$(USER_PROGS))
 # because a board asked for it, not because of where its source lives.
 BOOT_MANIFEST := $(BOARD_DIR)/boot.manifest
 SD_MANIFEST   := $(BOARD_DIR)/sd.manifest
+# Optional: services rootsvc spawns from the SD card after fsd is up. Staged
+# as /etc/services.manifest, programs into /sbin.
+SVC_MANIFEST  := $(wildcard $(BOARD_DIR)/services.manifest)
 
 # First |-field of each non-comment, non-blank line, basename only:
 # "bin/zzsh|tty:late|/env/zzsh" -> zzsh
@@ -97,8 +100,9 @@ manifest-progs = $(sort $(notdir $(shell awk -F'|' \
 
 BOOT_PROGS := $(call manifest-progs,$(BOOT_MANIFEST))
 SD_PROGS   := $(call manifest-progs,$(SD_MANIFEST))
+SVC_PROGS  := $(if $(SVC_MANIFEST),$(call manifest-progs,$(SVC_MANIFEST)))
 
-$(foreach p,$(BOOT_PROGS) $(SD_PROGS),$(if $(USER_DIR_$(p)),,\
+$(foreach p,$(BOOT_PROGS) $(SD_PROGS) $(SVC_PROGS),$(if $(USER_DIR_$(p)),,\
   $(error $(p) is listed in a manifest for BOARD=$(BOARD) but no \
     user/*/$(p)/build.mk declares it)))
 
@@ -110,7 +114,7 @@ $(foreach p,$(USER_PROGS) $(LIB_PROGS),\
       $(USER_$(p)_SRCS)))))
 
 # Only build what this board actually packages.
-BOARD_PROGS   := $(sort $(BOOT_PROGS) $(SD_PROGS))
+BOARD_PROGS   := $(sort $(BOOT_PROGS) $(SD_PROGS) $(SVC_PROGS))
 USER_APP_OBJS := $(foreach p,$(BOARD_PROGS),$(USER_$(p)_OBJS))
 LIB_PROG_OBJS := $(foreach p,$(LIB_PROGS),$(USER_$(p)_OBJS))
 
