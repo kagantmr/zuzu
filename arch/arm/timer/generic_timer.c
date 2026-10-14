@@ -1,7 +1,6 @@
 // generic_timer.c - ARMv7-A generic timer implementation
 
 #include "arch/arm/timer/generic_timer.h"
-#include "kernel/time/tick.h"
 #include <arch/irq.h>
 #include <arch/timer.h>
 #include <stdint.h>
@@ -80,16 +79,14 @@ static inline uint64_t ReadCntpct(void)
 
 static uint32_t freq = 0;
 
+static void (*expire_handler)(void);
+
 static void ArmGenericTimerHandler(void *ctx)
 {
     (void)ctx;
-    /* One-shot: no TVAL reload. Mask our own line so we don't re-fire on the
-     * same expired CVAL before the scheduler re-arms; SchedArmTimer() (run
-     * from Schedule() on the IRQ-return path) sets the next deadline and
-     * clears IMASK again. tick_announce keeps uptime / any tick callback
-     * alive -- it just no longer paces the scheduler. */
-    WriteCntvCtl(0x3); /* ENABLE=1, IMASK=1 */
-    tick_announce();
+    WriteCntvCtl(0x3);
+    if (expire_handler)
+        expire_handler();
 }
 
 void ArchTimerInit(void)
@@ -106,7 +103,12 @@ void ArchTimerInit(void)
     /* Enabled + masked; SchedArmTimer() programs CVAL and unmasks on the
      * first Schedule(). Until then nothing needs a timer wakeup. */
     WriteCntvCtl(0x3); /* ENABLE=1, IMASK=1 */
+
+    if (expire_handler)
+        expire_handler();
 }
+
+void ArchTimerSetHandler(void (*on_expire)(void)) { expire_handler = on_expire; }
 
 Time ArchTimerNow(void) { return ReadCntpct(); }
 uint32_t ArchTimerFreq(void) { return freq; }

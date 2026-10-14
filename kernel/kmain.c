@@ -6,6 +6,8 @@
 #include <arch/mmu.h>
 #include <arch/platform.h>
 
+#include <arch/timer.h>
+
 #include "boot_info.h"
 #include "core/panic.h"
 #include "kernel/sched/sched.h"
@@ -58,6 +60,7 @@ _Noreturn void kmain(void)
     CreateRootService(initrd_pa, initrd_size);
 
     RegisterTickCb(sched_tick);
+    ArchTimerSetHandler(tick_announce);
 
     KINFO("Entering idle");
 

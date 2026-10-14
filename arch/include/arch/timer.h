@@ -6,7 +6,9 @@
 #include <stdint.h>
 #include <types.h>
 
-void ArchTimerInit(void (*on_expire)(void));
+// arch/include/arch/timer.h
+void ArchTimerInit(void);
+void ArchTimerSetHandler(void (*on_expire)(void));
 
 Time ArchTimerNow(void);
 uint32_t ArchTimerFreq(void);
