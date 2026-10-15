@@ -57,7 +57,7 @@ gdb.txt
 *.dts
 !scripts/uboot-vexpress.cmd
 
-# editor stuff
+# editor stuff
 .vscode/
 .dir-locals.el
 .dir-locals.el.save
