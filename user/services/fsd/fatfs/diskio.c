@@ -2,6 +2,8 @@
 #include "diskio.h"
 
 #include <zuzu/zuzu.h>
+#include <zuzu/uptime.h>
+#include <stdbool.h>
 #include "dev/protocols/mmcdrv.h"
 #include <zuzu/msg.h>
 #include <zuzu/service.h>
@@ -188,9 +190,30 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
     }
 }
 
+/* zuzu keeps no wall clock, so timestamps count up from 2025-01-01 00:00:00 at
+ * boot. They only have to change when a file is rewritten: zzsh's image cache
+ * decides staleness by (size, mtime). FAT resolution is 2 seconds. */
+static bool IsLeap(uint32_t y) { return (y % 4u == 0 && y % 100u != 0) || y % 400u == 0; }
+
 DWORD get_fattime(void)
 {
-    return ((DWORD)(2025 - 1980) << 25)
-         | ((DWORD)1 << 21)
-         | ((DWORD)1 << 16);
+    static const uint8_t month_days[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    uint64_t s = UptimeMs() / 1000u;
+    uint32_t days = (uint32_t)(s / 86400u);
+    uint32_t secs = (uint32_t)(s % 86400u);
+
+    uint32_t year = 2025;
+    while (days >= (IsLeap(year) ? 366u : 365u)) {
+        days -= IsLeap(year) ? 366u : 365u;
+        year++;
+    }
+    uint32_t mon = 0;
+    while (days >= month_days[mon] + (mon == 1 && IsLeap(year) ? 1u : 0u)) {
+        days -= month_days[mon] + (mon == 1 && IsLeap(year) ? 1u : 0u);
+        mon++;
+    }
+
+    return ((DWORD)(year - 1980) << 25) | ((DWORD)(mon + 1) << 21) | ((DWORD)(days + 1) << 16) |
+           ((DWORD)(secs / 3600u) << 11) | ((DWORD)((secs / 60u) % 60u) << 5) |
+           (DWORD)((secs % 60u) / 2u);
 }
