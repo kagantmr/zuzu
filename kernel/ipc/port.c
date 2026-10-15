@@ -25,6 +25,7 @@ PortObject *PortCreate(SpaceObject *owner)
     ListInit(&new_port->sender_queue);
     ListInit(&new_port->receiver_queue);
     ListInit(&new_port->active_servers);
+    new_port->held = NULL;
     new_port->owner_spid = owner->spid;
     new_port->ref_count = 1;
     new_port->alive = true;

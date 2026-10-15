@@ -2589,12 +2589,19 @@ static void TestHold(void)
     CheckEq(WaitOnPort(p2, 1000).status, ZUZU_OK, "a 65th call arrives");
     CheckEq(Hold(&tb), ERR_NOMEM, "parking it -> NOMEM");
     CheckEq(Reply(0, -1), ZUZU_OK, "it can still be answered directly");
-    CheckEq(HandleDestroy(p2), ZUZU_OK, "destroy the port with 64 parked calls");
-    sw = FormatToSpaceWait(WaitOn(k.space, 3000));
-    CheckEq(sw.status, ZUZU_OK, "every parked caller is released");
     for (int i = 0; i < PORT_HELD_SLOTS_TEST; i++)
         HandleClose(extra[i]);
     KittenFree(&k);
+
+    KittenCreate(&k, kCodeCallQuit, sizeof(kCodeCallQuit));
+    KittenStart(&k, (uint32_t)GrantPortInto(p2, k.space), 0);
+    WaitOnPort(p2, 1000);
+    CheckEq(Hold(&tb), ZUZU_OK, "callers dying frees all 64 slots for reuse");
+    CheckEq(ReplyTo(tb, 0, -1), ZUZU_OK, "and the new parked call is answered");
+    sw = FormatToSpaceWait(WaitOn(k.space, 1000));
+    CheckEq(sw.exit_status, ZUZU_OK, "its caller completes");
+    KittenFree(&k);
+    HandleClose(p2);
 }
 
 /* ---------------- 8. hostile arguments ---------------- */
