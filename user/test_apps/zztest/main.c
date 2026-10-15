@@ -2335,6 +2335,67 @@ static void TestSuspend(void)
     HandleClose(ev);
 }
 
+/* r0 = a port handle; Call(r0, xlen 0, no grant); quit with the reply status */
+static const uint32_t kCodeCallQuit[] = {0xE3A01000, 0xE3E02000, 0xEF000005, 0xEF000000};
+
+/* ---------------- waiter re-sort (#25) ---------------- */
+
+static void TestWaiterResort(void)
+{
+    BeginSection("waiter re-sort");
+    TaskSetPriority(-1, 6);
+
+    Handle ev = CreateEvent();
+    Kitten w[3];
+    for (int i = 0; i < 3; i++) {
+        KittenCreate(&w[i], kCodeWaitQuitBits, sizeof(kCodeWaitQuitBits));
+        TaskSetPriority(w[i].task, (uint32_t)i + 1);
+        SvcResult g = HandleGrant(ev, w[i].space, PERM_WAIT);
+        KittenStart(&w[i], (uint32_t)g.r1, 0);
+    }
+    Sleep(30);
+    CheckEq(TaskSetPriority(w[0].task, 5), ZUZU_OK, "raise the lowest event waiter above the rest");
+    Signal(ev, 1, false);
+    SpaceWaitResult sw = FormatToSpaceWait(WaitOn(w[0].space, 500));
+    CheckEq(sw.status, ZUZU_OK, "the raised waiter is woken first");
+    CheckEq(sw.exit_status, 1, "and receives the signalled bits");
+    CheckEq(WaitOn(w[1].space, 0).r0, ERR_TIMEOUT, "the other waiters keep waiting");
+    CheckEq(WaitOn(w[2].space, 0).r0, ERR_TIMEOUT, "the other waiters keep waiting");
+    for (int i = 0; i < 3; i++)
+        KittenFree(&w[i]);
+    HandleClose(ev);
+
+    Handle port = CreatePort();
+    Kitten c[3];
+    for (int i = 0; i < 3; i++) {
+        KittenCreate(&c[i], kCodeCallQuit, sizeof(kCodeCallQuit));
+        TaskSetPriority(c[i].task, (uint32_t)i + 1);
+        Handle dup = -1, in_kitten = -1;
+        HandleDup(port, PERM_SEND | PERM_TXFR, (Marker)(i + 1), &dup);
+        HandleGrantTo(dup, c[i].space, PERM_SEND, &in_kitten);
+        HandleClose(dup);
+        KittenStart(&c[i], (uint32_t)in_kitten, 0);
+    }
+    Sleep(30);
+    CheckEq(TaskSetPriority(c[0].task, 5), ZUZU_OK, "raise the lowest queued caller above the rest");
+    PortWaitResult r = WaitOnPort(port, 500);
+    CheckEq(r.status, ZUZU_OK, "receive the first queued call");
+    CheckEq((int32_t)r.sender, 1, "the raised caller is received first");
+    Reply(0, -1);
+    for (int n = 0; n < 2; n++) {
+        r = WaitOnPort(port, 500);
+        if (r.status == ZUZU_OK)
+            Reply(0, -1);
+    }
+    for (int i = 0; i < 3; i++) {
+        sw = FormatToSpaceWait(WaitOn(c[i].space, 1000));
+        CheckEq(sw.exit_status, ZUZU_OK, "every caller gets its reply");
+        KittenFree(&c[i]);
+    }
+    HandleClose(port);
+    TaskSetPriority(-1, 4);
+}
+
 /* ---------------- 8. hostile arguments ---------------- */
 
 static void TestSecurity(void)
@@ -2864,6 +2925,7 @@ static void RunSuite(void)
     TestTcbPriority();
     TestSpaces();
     TestSuspend();
+    TestWaiterResort();
     TestInjectObj();
     TestDma();
     TestKittens();

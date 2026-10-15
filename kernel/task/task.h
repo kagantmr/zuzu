@@ -34,6 +34,7 @@ typedef struct TaskObjectStruct TaskObject;
 typedef struct WaitSlotStruct {
     ListNode node;     /**< Node in the wait queue. */
     TaskObject *owner; /**< Owner task of this wait slot. */
+    ListHead *queue; /**< Queue the slot was last added to; valid while node is linked. */
 } WaitSlot;
 
 struct TaskObjectStruct {
@@ -79,7 +80,8 @@ struct TaskObjectStruct {
     ObserverSet observers;
     size_t ref_count;
     bool released;
-    bool suspended; /**< Is this process suspended by a task in the parent space or a sibling task? */
+    bool suspended;  /**< Is this process suspended by the parent space or a sibling task?
+                      */
 };
 
 void TaskDestroy(TaskObject *task);
