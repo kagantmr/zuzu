@@ -15,7 +15,6 @@
 
 #define BIT_IRQ 0
 #define BIT_KICK 1 /* ttysvc rings this on our event */
-#define POLL_MS 10 /* safety net  */
 #define MASK(bit) (1U << (bit))
 
 static volatile Pl011Mmio *uart;
@@ -156,7 +155,7 @@ int main(void)
     UserspaceDebugLog("pl011drv: entering event loop");
 
     for (;;) {
-        EventWaitResult ev = FormatToEventWait(WaitOn(g_event, POLL_MS));
+        EventWaitResult ev = FormatToEventWait(WaitOn(g_event, TIMEOUT_INFINITE));
         bool irq = ev.status == ZUZU_OK && (ev.bits & MASK(BIT_IRQ));
 
         bool rx = false;

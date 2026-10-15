@@ -4,8 +4,8 @@
 #include <zuzu/service.h>
 #include <zuzu/zuzu.h>
 
+#define CONSOLE_DRAIN_MS 20 /* bounds the exit-time flush if no provider ever drains */
 #define CONSOLE_BIT_KICK 0
-#define CONSOLE_POLL_MS 20
 #define CONSOLE_ATTACH_RETRIES 100
 
 static Handle console_port;
@@ -57,7 +57,7 @@ int zuzu_console_set_raw(int enable)
 }
 
 /* Lets ttysvc hand the foreground to the next session. Crashed or killed
- * programs never get here; ttysvc has no peer-death detection yet. */
+ * programs never get here; ttysvc reaps those through their liveness port. */
 void ConsoleClose(void)
 {
     if (!console_ready)
@@ -66,7 +66,7 @@ void ConsoleClose(void)
     TtyShm *shm = console_conn.shm;
     for (int i = 0; i < CONSOLE_ATTACH_RETRIES && ShmRingAvail(&shm->up_hdr) > 0; i++) {
         Signal(console_conn.doorbell, 1U << console_conn.bit, false);
-        WaitOn(console_event, CONSOLE_POLL_MS);
+        WaitOn(console_event, CONSOLE_DRAIN_MS);
     }
     TtyClientClose(console_port, &console_conn);
     console_ready = 0;
@@ -88,7 +88,7 @@ int ConsoleWrite(const char *buf, int len)
         left -= w;
         Signal(console_conn.doorbell, 1U << console_conn.bit, false);
         if (left > 0)
-            WaitOn(console_event, CONSOLE_POLL_MS);
+            WaitOn(console_event, TIMEOUT_INFINITE);
     }
     return len;
 }
@@ -104,10 +104,12 @@ int ConsoleRead(char *buf, int len)
     TtyShm *shm = console_conn.shm;
     for (;;) {
         uint32_t got = ShmRingPop(&shm->down_hdr, shm->down_data, (uint8_t *)buf, (uint32_t)len);
-        if (got > 0)
+        if (got > 0) {
+            Signal(console_conn.doorbell, 1U << console_conn.bit, false);
             return (int)got;
+        }
         if (TtyEofPending(shm))
             return 0;
-        WaitOn(console_event, CONSOLE_POLL_MS);
+        WaitOn(console_event, TIMEOUT_INFINITE);
     }
 }
