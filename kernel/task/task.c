@@ -274,6 +274,11 @@ void TaskTerminate(TaskObject *task, Err exit_status)
     task->suspended = false;
     TaskUnlinkWaits(task);
 
+    if (task->held_port) {
+        task->held_port->held[task->held_slot].caller = NULL;
+        task->held_port = NULL;
+    }
+
     /* (a) task was a caller mid-call: its reply cap lives in its own TCB
      * storage, about to become invalid. Tell the server holding it so a
      * later Reply fails cleanly instead of reading freed memory. */

@@ -16,6 +16,7 @@ void SvcWaitOn(CpuState *frame)
 
     switch (entry->type) {
     case HANDLE_PORT: {
+        current_task->serving_handle = h;
         PortReceive(entry->port, timeout, frame);
     } break;
     case HANDLE_EVENT: {

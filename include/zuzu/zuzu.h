@@ -479,6 +479,14 @@ static inline Err DmaSync(Handle dev, uintptr_t bus_addr, size_t len, DmaSyncOp 
                          (Register)len);
 }
 
+static inline Err Hold(Ticket *out)
+{
+    SvcResult r = ArchInvokeSvc4(SVC_HOLD, 0, 0, 0, 0);
+    if (r.r0 == ZUZU_OK && out)
+        *out = (Ticket)r.r1;
+    return (Err)r.r0;
+}
+
 #ifdef __cplusplus
 }
 #endif

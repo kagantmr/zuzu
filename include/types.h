@@ -19,6 +19,7 @@ typedef uint32_t Duration;  /* for sleep and other timeout-taking syscalls */
 typedef uint64_t Time;      /* wall-clock time */
 typedef int32_t Err;        /* Error code */
 typedef uint32_t Marker;
+typedef uint32_t Ticket;
 typedef uint32_t EventWord;
 
 /* ---- Common IPC types ---- */

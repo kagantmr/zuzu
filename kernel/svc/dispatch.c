@@ -44,6 +44,7 @@ static SvcEntry svc_table[SVC_TOTAL_COUNT] = {
     [SVC_BIND] = SvcBind,
     [SVC_MANAGEMEMORY] = SvcManageMemory,
     [SVC_MANAGETASK] = SvcManageTask,
+    [SVC_HOLD] = SvcHold,
 #ifdef CONFIG_ZUZU_BENCH
     [SVC_BENCH] = SvcBenchControl,
 #endif
@@ -86,6 +87,7 @@ static const char *const svc_bench_names[SVC_TOTAL_COUNT][SVC_BENCH_VERBS] = {
                         [MNGTASK_RESUME] = "task.resume",
                         [MNGTASK_GET_REGS] = "task.get_regs",
                         [MNGTASK_SET_REGS] = "task.set_regs"},
+    [SVC_HOLD] = {[0] = "hold"}
 };
 
 static BenchStat *SvcBenchSlot(Svc svc_num, CpuState *frame)

@@ -229,3 +229,43 @@ void PortReceive(PortObject *port, Duration timeout, CpuState *frame)
 
     SchedBlockOn(&port->receiver_queue, timeout);
 }
+
+static uint16_t held_gen;
+
+Err PortHoldCurrent(TaskObject *server, Ticket *out)
+{
+    ReplyObject *rc = server->reply_cap;
+    PortObject *port = server->serving_port;
+    if (!rc || !port)
+        return ERR_BADARG;
+
+    TaskObject *caller = rc->caller_task;
+    if (!caller || caller->tid != rc->caller_tid || caller->ipc_state != IPC_WAITING) {
+        TaskClearReplyCap(server);
+        return ERR_DEAD;
+    }
+
+    if (!port->held) {
+        port->held = KZAlloc(PORT_HELD_SLOTS * sizeof(HeldCall));
+        if (!port->held)
+            return ERR_NOMEM;
+    }
+    uint32_t slot = 0;
+    while (slot < PORT_HELD_SLOTS && port->held[slot].caller)
+        slot++;
+    if (slot == PORT_HELD_SLOTS)
+        return ERR_NOMEM;
+
+    held_gen = (uint16_t)((held_gen + 1U) & 0x7FFFU);
+    if (!held_gen)
+        held_gen = 1;
+
+    port->held[slot] = (HeldCall){.caller = caller, .caller_tid = caller->tid, .gen = held_gen};
+    caller->reply_holder = NULL;
+    caller->held_port = port;
+    caller->held_slot = (uint8_t)slot;
+
+    *out = TICKET_PACK(HANDLE_INDEX(server->serving_handle), slot, held_gen);
+    TaskClearReplyCap(server);
+    return ZUZU_OK;
+}

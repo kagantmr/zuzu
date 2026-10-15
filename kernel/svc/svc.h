@@ -153,4 +153,11 @@ void SvcManageMemory(CpuState *frame);
  */
 void SvcManageTask(CpuState *frame);
 
+/**
+ * @brief Service call function for controlling tasks.
+ *
+ * @param frame The CPU state frame to use for the service call.
+ */
+void SvcHold(CpuState *frame);
+
 #endif /* KERNEL_SVC_SVC_H */

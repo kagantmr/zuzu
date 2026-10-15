@@ -58,6 +58,17 @@ void PortKill(PortObject *port)
         TaskRecomputePriority(server);
     }
 
+    if (port->held) {
+        for (uint32_t i = 0; i < PORT_HELD_SLOTS; i++) {
+            TaskObject *c = port->held[i].caller;
+            if (!c)
+                continue;
+            port->held[i].caller = NULL;
+            c->held_port = NULL;
+            TaskAbortWait(c, ERR_DEAD);
+        }
+    }
+
     ObserverNotify(&port->observers);
 }
 
@@ -71,6 +82,7 @@ void PortUnref(PortObject *port)
         return;
     PortKill(port);
     ObserverClear(&port->observers);
+    KFree(port->held);
     PortObjFree(port);
 }
 

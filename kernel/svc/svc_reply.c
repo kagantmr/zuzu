@@ -53,5 +53,6 @@ void SvcReply(CpuState *frame)
         return;
     }
 
+    current_task->serving_handle = recv_handle;
     PortReceive(recv_entry->port, timeout, frame);
 }

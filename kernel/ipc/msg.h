@@ -4,6 +4,14 @@
 #include "kernel/space/handle.h"
 #include "kernel/task/task.h"
 
+#define TICKET_PACK(index, slot, gen)                                                              \
+    (((uint32_t)(gen) << 16) | ((uint32_t)(slot) << 10) | ((uint32_t)(index) & HANDLE_INDEX_MASK))
+#define TICKET_INDEX(t) ((uint32_t)(t) & HANDLE_INDEX_MASK)
+#define TICKET_SLOT(t) (((uint32_t)(t) >> 10) & 0x3Fu)
+#define TICKET_GEN(t) (((uint32_t)(t) >> 16) & 0x7FFFu)
+
+Err PortHoldCurrent(TaskObject *server, Ticket *out);
+
 void MsgBufCopy(TaskObject *restrict src, TaskObject *restrict dst, size_t len);
 
 HandleTableEntry __hot *ValidateCallPort(SpaceObject *space, Handle handle, CpuState *frame);

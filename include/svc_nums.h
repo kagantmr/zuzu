@@ -17,6 +17,7 @@ typedef enum {
     SVC_BIND,
     SVC_MANAGEMEMORY,
     SVC_MANAGETASK,
+    SVC_HOLD,
 #ifdef CONFIG_ZUZU_BENCH
     SVC_BENCH,
 #endif

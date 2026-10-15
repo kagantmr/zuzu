@@ -82,6 +82,9 @@ struct TaskObjectStruct {
     bool released;
     bool suspended;  /**< Is this process suspended by the parent space or a sibling task?
                       */
+    PortObject *held_port; /**< Port this caller is parked on, or NULL. */
+    uint8_t held_slot;
+    Handle serving_handle; /**< Handle the current call was received through. */
 };
 
 void TaskDestroy(TaskObject *task);

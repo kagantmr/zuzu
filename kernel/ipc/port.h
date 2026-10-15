@@ -11,7 +11,15 @@
 typedef struct TaskObjectStruct TaskObject;
 typedef struct SpaceObjectStruct SpaceObject;
 
-/** */
+#define PORT_HELD_SLOTS 64
+
+typedef struct {
+    TaskObject *caller; /* NULL = free */
+    Tid caller_tid;
+    uint16_t gen;
+} HeldCall;
+
+
 typedef struct {
     ListHead sender_queue;
     ListHead receiver_queue;
@@ -20,6 +28,7 @@ typedef struct {
     bool alive;
     ObserverSet observers;
     ListHead active_servers;
+    HeldCall *held;
 } PortObject;
 
 typedef struct {
