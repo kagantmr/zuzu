@@ -296,10 +296,6 @@ bool command_dispatch(const char *line)
         cmd_cd(NULL);
     else if (strncmp(line, "cd ", 3) == 0)
         cmd_cd(line + 3);
-    else if (strcmp(line, "ls") == 0)
-        cmd_ls(NULL);
-    else if (strncmp(line, "ls ", 3) == 0)
-        cmd_ls(line + 3);
     else
         cmd_run(line);
 
