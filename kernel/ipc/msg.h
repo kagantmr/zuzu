@@ -12,6 +12,8 @@
 
 Err PortHoldCurrent(TaskObject *server, Ticket *out);
 
+TaskObject *PortTakeHeld(TaskObject *server, Ticket ticket, Err *err);
+
 void MsgBufCopy(TaskObject *restrict src, TaskObject *restrict dst, size_t len);
 
 HandleTableEntry __hot *ValidateCallPort(SpaceObject *space, Handle handle, CpuState *frame);

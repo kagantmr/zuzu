@@ -36,6 +36,7 @@
 #define WORKER_STACK (16 * 1024)
 #define MAX_WORKERS 16
 #define JOIN_TIMEOUT_MS 3000
+#define PORT_HELD_SLOTS_TEST 64
 
 /* HandleType is kernel-private (kernel/space/handle.h); QUERY_TYPE returns
  * these raw values. */
@@ -2396,6 +2397,206 @@ static void TestWaiterResort(void)
     TaskSetPriority(-1, 4);
 }
 
+/* r0 = a ticket; ReplyTo(r0, xlen 0, no grant); quit with the result */
+static const uint32_t kCodeReplyTicket[] = {0xE1A03000, 0xE3A00000, 0xE3E01000,
+                                            0xE3E02000, 0xEF000006, 0xEF000000};
+
+/* ---------------- hold (#26) ---------------- */
+
+typedef struct {
+    Handle port;
+    uint32_t tag;
+    Err status;
+    uint32_t reply_len;
+    uint32_t reply_word;
+    Handle granted;
+} HoldCaller;
+
+typedef struct {
+    Handle port;
+    Ticket ticket;
+    uint32_t word;
+    Err rc;
+} HoldHelper;
+
+static int32_t HoldCallerFn(void *arg)
+{
+    HoldCaller *c = arg;
+    memcpy(GetMessageBox(), &c->tag, sizeof(c->tag));
+    SvcResult r = Call(c->port, sizeof(c->tag), -1);
+    c->status = (Err)r.r0;
+    c->reply_len = (uint32_t)r.r1;
+    c->granted = (Handle)r.r3;
+    if (r.r0 == ZUZU_OK && (uint32_t)r.r1 >= sizeof(c->reply_word))
+        memcpy(&c->reply_word, GetMessageBox(), sizeof(c->reply_word));
+    return 0;
+}
+
+static int32_t HoldAnswerFn(void *arg)
+{
+    HoldHelper *h = arg;
+    memcpy(GetMessageBox(), &h->word, sizeof(h->word));
+    h->rc = ReplyTo(h->ticket, sizeof(h->word), -1);
+    return 0;
+}
+
+static int32_t HoldParkFn(void *arg)
+{
+    HoldHelper *h = arg;
+    PortWaitResult r = WaitOnPort(h->port, 1000);
+    if (r.status != ZUZU_OK)
+        return r.status;
+    h->rc = Hold(&h->ticket);
+    return 0;
+}
+
+static uint32_t HeldTag(void)
+{
+    uint32_t tag = 0;
+    memcpy(&tag, GetMessageBox(), sizeof(tag));
+    return tag;
+}
+
+static void HoldSetReply(uint32_t word) { memcpy(GetMessageBox(), &word, sizeof(word)); }
+
+static Handle GrantPortInto(Handle port, Handle space)
+{
+    Handle dup = -1, in_space = -1;
+    HandleDup(port, PERM_SEND | PERM_TXFR, MARKER_NONE, &dup);
+    HandleGrantTo(dup, space, PERM_SEND, &in_space);
+    HandleClose(dup);
+    return in_space;
+}
+
+static void TestHold(void)
+{
+    BeginSection("hold");
+
+    Handle port = CreatePort();
+    Ticket ta = 0, tb = 0, tc = 0;
+    PortWaitResult r;
+
+    CheckEq(Hold(&ta), ERR_BADARG, "Hold with no call in hand -> BADARG");
+
+    HoldCaller a = {.port = port, .tag = 0xA};
+    Worker *wa = WorkerStart(HoldCallerFn, &a);
+    r = WaitOnPort(port, 1000);
+    CheckEq(r.status, ZUZU_OK, "receive A");
+    CheckEq(HeldTag(), 0xA, "it is A's request");
+    CheckEq(Hold(&ta), ZUZU_OK, "park A");
+    Check(ta != 0, "the ticket is non-zero");
+    CheckEq(Hold(&tb), ERR_BADARG, "Hold twice -> BADARG");
+
+    HoldCaller b = {.port = port, .tag = 0xB};
+    Worker *wb = WorkerStart(HoldCallerFn, &b);
+    r = WaitOnPort(port, 1000);
+    CheckEq(HeldTag(), 0xB, "the server receives B while A is parked");
+    HoldSetReply(0xB0);
+    CheckEq(Reply(4, -1), ZUZU_OK, "reply to B");
+    WorkerJoin(wb);
+    CheckEq(b.reply_word, 0xB0, "B gets its reply");
+    CheckEq(WaitOn(wa->task, 30).r0, ERR_TIMEOUT, "A is still parked");
+
+    HoldSetReply(0xA0);
+    CheckEq(ReplyTo(ta, 4, -1), ZUZU_OK, "answer A by its ticket");
+    WorkerJoin(wa);
+    CheckEq(a.status, ZUZU_OK, "A's call completes");
+    CheckEq(a.reply_len, 4, "with the answer's length");
+    CheckEq(a.reply_word, 0xA0, "and its payload");
+    CheckEq(ReplyTo(ta, 0, -1), ERR_NOENT, "a ticket answers only once");
+
+    HoldCaller c = {.port = port, .tag = 0xC};
+    Worker *wc = WorkerStart(HoldCallerFn, &c);
+    WaitOnPort(port, 1000);
+    Hold(&tc);
+    CheckEq(ReplyTo(tc ^ (1u << 16), 0, -1), ERR_NOENT, "a forged generation -> NOENT");
+    HoldHelper ans = {.ticket = tc, .word = 0xC0};
+    WorkerJoin(WorkerStart(HoldAnswerFn, &ans));
+    CheckEq(ans.rc, ZUZU_OK, "another thread of the server answers");
+    WorkerJoin(wc);
+    CheckEq(c.reply_word, 0xC0, "the caller gets that thread's payload");
+
+    HoldCaller d = {.port = port, .tag = 0xD};
+    Worker *wd = WorkerStart(HoldCallerFn, &d);
+    WaitOnPort(port, 1000);
+    Hold(&tb);
+    Handle gev = CreateEvent();
+    Handle gdup = -1;
+    HandleDup(gev, PERM_SEND | PERM_TXFR, MARKER_NONE, &gdup);
+    CheckEq(ReplyTo(tb, 0, gdup), ZUZU_OK, "answer a parked call with a granted handle");
+    WorkerJoin(wd);
+    Check(d.granted >= 0, "the parked caller receives the grant");
+    CheckEq(HandleQuery(d.granted, QUERY_TYPE).r1, ZH_EVENT, "and it is the granted event");
+    HandleClose(d.granted);
+    HandleClose(gdup);
+    HandleClose(gev);
+
+    HoldHelper park = {.port = port};
+    Worker *wp = WorkerStart(HoldParkFn, &park);
+    Sleep(10);
+    HoldCaller e = {.port = port, .tag = 0xE};
+    Worker *we = WorkerStart(HoldCallerFn, &e);
+    CheckEq(WorkerJoin(wp), 0, "a server thread parks a call and exits");
+    CheckEq(park.rc, ZUZU_OK, "its Hold succeeded");
+    HoldSetReply(0xE0);
+    CheckEq(ReplyTo(park.ticket, 4, -1), ZUZU_OK, "the call outlives the thread that parked it");
+    WorkerJoin(we);
+    CheckEq(e.reply_word, 0xE0, "and its caller gets the answer");
+
+    Handle alias = -1;
+    HandleDup(port, PERM_WAIT, MARKER_NONE, &alias);
+    HoldCaller f = {.port = port, .tag = 0xF};
+    Worker *wf = WorkerStart(HoldCallerFn, &f);
+    WaitOnPort(alias, 1000);
+    CheckEq(Hold(&tb), ZUZU_OK, "park a call received through a second handle");
+    HandleClose(alias);
+    CheckEq(ReplyTo(tb, 0, -1), ERR_BADHANDLE, "closing that handle invalidates its tickets");
+
+    Kitten k;
+    KittenCreate(&k, kCodeReplyTicket, sizeof(kCodeReplyTicket));
+    KittenStart(&k, tb, 0);
+    SpaceWaitResult sw = FormatToSpaceWait(WaitOn(k.space, 2000));
+    CheckEq(sw.exit_status, ERR_BADHANDLE, "a ticket means nothing in another Space");
+    KittenFree(&k);
+
+    CheckEq(HandleDestroy(port), ZUZU_OK, "destroy the port with a call still parked");
+    WorkerJoin(wf);
+    CheckEq(f.status, ERR_DEAD, "the parked caller fails with DEAD");
+
+    Handle p2 = CreatePort();
+    KittenCreate(&k, kCodeCallQuit, sizeof(kCodeCallQuit));
+    KittenStart(&k, (uint32_t)GrantPortInto(p2, k.space), 0);
+    WaitOnPort(p2, 1000);
+    CheckEq(Hold(&tb), ZUZU_OK, "park a call from another Space");
+    KittenFree(&k);
+    CheckEq(ReplyTo(tb, 0, -1), ERR_NOENT, "a caller that died while parked -> NOENT");
+
+    KittenCreate(&k, kCodeCallQuit, sizeof(kCodeCallQuit));
+    Handle in_k = GrantPortInto(p2, k.space);
+    Handle extra[PORT_HELD_SLOTS_TEST];
+    KittenStart(&k, (uint32_t)in_k, 0);
+    for (int i = 0; i < PORT_HELD_SLOTS_TEST; i++) {
+        extra[i] = CreateTask(k.space);
+        TaskStart(extra[i], (void *)USER_ELF_BASE, (void *)USR_SP, (uint32_t)in_k, 0);
+    }
+    int parked = 0;
+    for (int i = 0; i < PORT_HELD_SLOTS_TEST; i++) {
+        if (WaitOnPort(p2, 1000).status != ZUZU_OK || Hold(&tb) != ZUZU_OK)
+            break;
+        parked++;
+    }
+    CheckEq(parked, PORT_HELD_SLOTS_TEST, "a port parks 64 calls");
+    CheckEq(WaitOnPort(p2, 1000).status, ZUZU_OK, "a 65th call arrives");
+    CheckEq(Hold(&tb), ERR_NOMEM, "parking it -> NOMEM");
+    CheckEq(Reply(0, -1), ZUZU_OK, "it can still be answered directly");
+    CheckEq(HandleDestroy(p2), ZUZU_OK, "destroy the port with 64 parked calls");
+    sw = FormatToSpaceWait(WaitOn(k.space, 3000));
+    CheckEq(sw.status, ZUZU_OK, "every parked caller is released");
+    for (int i = 0; i < PORT_HELD_SLOTS_TEST; i++)
+        HandleClose(extra[i]);
+    KittenFree(&k);
+}
+
 /* ---------------- 8. hostile arguments ---------------- */
 
 static void TestSecurity(void)
@@ -2926,6 +3127,7 @@ static void RunSuite(void)
     TestSpaces();
     TestSuspend();
     TestWaiterResort();
+    TestHold();
     TestInjectObj();
     TestDma();
     TestKittens();

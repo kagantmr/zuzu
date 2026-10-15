@@ -269,3 +269,34 @@ Err PortHoldCurrent(TaskObject *server, Ticket *out)
     TaskClearReplyCap(server);
     return ZUZU_OK;
 }
+
+TaskObject *PortTakeHeld(TaskObject *server, Ticket ticket, Err *err)
+{
+    HandleTableEntry *e =
+        HandleTableGet(&server->owner->handle_table, (Handle)TICKET_INDEX(ticket));
+    if (!e || e->type != HANDLE_PORT || !e->port) {
+        *err = ERR_BADHANDLE;
+        return NULL;
+    }
+    if (!(e->perms & PERM_WAIT)) {
+        *err = ERR_NOPERM;
+        return NULL;
+    }
+
+    PortObject *port = e->port;
+    HeldCall *h = port->held ? &port->held[TICKET_SLOT(ticket)] : NULL;
+    if (!h || !h->caller || h->gen != TICKET_GEN(ticket)) {
+        *err = ERR_NOENT;
+        return NULL;
+    }
+
+    TaskObject *caller = h->caller;
+    if (caller->tid != h->caller_tid || caller->ipc_state != IPC_WAITING) {
+        *err = ERR_NOENT;
+        return NULL;
+    }
+
+    h->caller = NULL;
+    caller->held_port = NULL;
+    return caller;
+}

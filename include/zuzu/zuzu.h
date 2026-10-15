@@ -487,6 +487,11 @@ static inline Err Hold(Ticket *out)
     return (Err)r.r0;
 }
 
+static inline Err ReplyTo(Ticket t, uint32_t xlen, Handle grant)
+{
+    return ArchInvokeSvc(SVC_REPLY, (Register)xlen, grant, -1, (Register)t);
+}
+
 #ifdef __cplusplus
 }
 #endif
