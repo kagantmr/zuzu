@@ -321,9 +321,9 @@ static void BenchCreateObjects(void)
             }
             TIMED(g_samples_b, i, HandleClose(h));
         }
-        snprintf(name, sizeof(name), "create mem %up", (unsigned)pages[k]);
+        (void)snprintf(name, sizeof(name), "create mem %up", (unsigned)pages[k]);
         Report(name, n);
-        snprintf(name, sizeof(name), "free mem %up (close)", (unsigned)pages[k]);
+        (void)snprintf(name, sizeof(name), "free mem %up (close)", (unsigned)pages[k]);
         ReportBuf(name, g_samples_b, n);
     }
 }
