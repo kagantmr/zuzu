@@ -223,6 +223,10 @@ static const uint32_t kCodeLoadThenQuit7[] = {0xE5901000, 0xE3A00007, 0xEF000000
 /* r0 = a space handle (start argument); quit with ManageHandle(r0, CLOSE / DESTROY) */
 static const uint32_t kCodeCloseHandle[] = {0xE3A01002, 0xEF000008, 0xEF000000};
 static const uint32_t kCodeDestroyHandle[] = {0xE3A01004, 0xEF000008, 0xEF000000};
+static const uint32_t kCodeCount[] = {0xE2844001, 0xEAFFFFFD}; /* 1: add r4,r4,#1; b 1b */
+static const uint32_t kCodeLoopThenQuit9[] = {0xEAFFFFFE, 0xE3A00009, 0xEF000000};
+/* r0 = an event handle; r1 = INFINITE; WaitOn(r0); quit with the bits it returned */
+static const uint32_t kCodeWaitQuitBits[] = {0xE3E01000, 0xEF000007, 0xE1A00001, 0xEF000000};
 
 static uint8_t g_code_page[4096] __attribute__((aligned(4096)));
 
@@ -1142,7 +1146,7 @@ static void TestTasks(void)
     CheckEq(TaskKill((Handle)no_ctl.r1), ERR_NOPERM, "TaskKill without PERM_CNTL -> NOPERM");
     CheckEq(WaitOn(self_task, 0).r0, ERR_TIMEOUT, "an unstarted (frozen) task is not dead");
     CheckEq(TaskResume(self_task), ERR_BADARG, "Resume on a task that has not faulted -> BADARG");
-    CheckEq(TaskSuspend(self_task), ERR_NOSYS, "Suspend is not implemented -> NOSYS");
+    CheckEq(TaskSuspend(self_task), ERR_BADARG, "Suspend on an unstarted task -> BADARG");
     CheckEq(TaskSetTimeSlice(self_task, 30000), ZUZU_OK, "SetTimeSlice OK");
     CheckEq(TaskSetPriority(self_task, 2), ZUZU_OK, "SetPriority on another task OK");
     CheckEq(TaskSetPriority(self_task, 9), ERR_NOPERM, "SetPriority above max -> NOPERM");
@@ -1228,15 +1232,18 @@ static void TestSpaces(void)
     /* Registers and kill */
     CheckEq(KittenCreate(&k, kCodeLoop, sizeof(kCodeLoop)), ZUZU_OK, "build a spinning kitten");
     CheckEq(KittenStart(&k, 0x1234, 0x5678), ZUZU_OK, "start it with r0/r1 arguments");
-    Register regs[ARCH_NUM_GP_REGS];
-    CheckEq(TaskGetRegs(k.task, regs), ZUZU_OK, "GetRegs OK");
-    CheckEq(regs[0], 0x1234, "r0 holds the first start argument");
-    CheckEq(regs[1], 0x5678, "r1 holds the second start argument");
-    regs[0] = 0xCAFE;
-    CheckEq(TaskSetRegs(k.task, regs), ZUZU_OK, "SetRegs OK");
-    Register back[ARCH_NUM_GP_REGS];
-    TaskGetRegs(k.task, back);
-    CheckEq(back[0], 0xCAFE, "SetRegs is visible to GetRegs");
+    TaskRegs regs;
+    CheckEq(TaskGetRegs(k.task, &regs), ERR_BUSY, "GetRegs on a running task -> BUSY");
+    CheckEq(TaskSuspend(k.task), ZUZU_OK, "suspend it to inspect it");
+    CheckEq(TaskGetRegs(k.task, &regs), ZUZU_OK, "GetRegs OK");
+    CheckEq(regs.gp[0], 0x1234, "r0 holds the first start argument");
+    CheckEq(regs.gp[1], 0x5678, "r1 holds the second start argument");
+    regs.gp[0] = 0xCAFE;
+    CheckEq(TaskSetRegs(k.task, &regs), ZUZU_OK, "SetRegs OK");
+    TaskRegs back;
+    TaskGetRegs(k.task, &back);
+    CheckEq(back.gp[0], 0xCAFE, "SetRegs is visible to GetRegs");
+    CheckEq(TaskResume(k.task), ZUZU_OK, "resume it");
     CheckEq(WaitOn(k.space, 40).r0, ERR_TIMEOUT, "a running kitten is not hollow");
     CheckEq(TaskKill(k.task), ZUZU_OK, "TaskKill on a running task in another Space");
     sw = FormatToSpaceWait(WaitOn(k.space, 2000));
@@ -1284,10 +1291,10 @@ static void TestSpaces(void)
     KittenStart(&k, 0, 0);
     TaskWaitResult tw = FormatToTaskWait(WaitOn(k.task, 2000));
     CheckEq(tw.outcome, TASK_FAULTED, "it faults loading from address 0");
-    CheckEq(TaskGetRegs(k.task, regs), ZUZU_OK, "GetRegs on a faulted task OK");
-    CheckEq(regs[0], 0, "r0 holds the bad address");
-    regs[0] = USER_SYSPAGE_VA;
-    CheckEq(TaskSetRegs(k.task, regs), ZUZU_OK, "patch r0 to a readable address");
+    CheckEq(TaskGetRegs(k.task, &regs), ZUZU_OK, "GetRegs on a faulted task OK");
+    CheckEq(regs.gp[0], 0, "r0 holds the bad address");
+    regs.gp[0] = USER_SYSPAGE_VA;
+    CheckEq(TaskSetRegs(k.task, &regs), ZUZU_OK, "patch r0 to a readable address");
     CheckEq(TaskResume(k.task), ZUZU_OK, "TaskResume OK");
     sw = FormatToSpaceWait(WaitOn(k.space, 2000));
     CheckEq(sw.status, ZUZU_OK, "the resumed kitten runs on");
@@ -2253,6 +2260,81 @@ static void TestTcbPriority(void)
     }
 }
 
+/* ---------------- suspend and inspect ---------------- */
+
+static void TestSuspend(void)
+{
+    BeginSection("suspend and inspect");
+
+    Kitten k;
+    TaskRegs a, b;
+    SpaceWaitResult sw;
+
+    KittenCreate(&k, kCodeCount, sizeof(kCodeCount));
+    KittenStart(&k, 0, 0);
+    Sleep(20);
+    CheckEq(TaskSuspend(k.task), ZUZU_OK, "suspend a spinning kitten");
+    CheckEq(TaskSuspend(k.task), ZUZU_OK, "suspending twice is a no-op");
+    CheckEq(TaskGetRegs(k.task, &a), ZUZU_OK, "GetRegs on a suspended task OK");
+    Sleep(30);
+    TaskGetRegs(k.task, &b);
+    CheckEq(b.gp[4], a.gp[4], "a suspended task does not run");
+    Check((uint32_t)a.pc >= USER_ELF_BASE && (uint32_t)a.pc < USER_ELF_BASE + sizeof(kCodeCount),
+          "pc is inside its code");
+    CheckEq((uint32_t)a.sp, (uint32_t)USR_SP, "sp is its untouched stack top");
+    CheckEq((uint32_t)a.flags & 0x1Fu, 0x10u, "it is stopped in user mode");
+    CheckEq(TaskResume(k.task), ZUZU_OK, "resume it");
+    CheckEq(TaskResume(k.task), ERR_BADARG, "resume a running task -> BADARG");
+    Sleep(30);
+    TaskSuspend(k.task);
+    TaskGetRegs(k.task, &b);
+    Check(b.gp[4] != a.gp[4], "after resume it runs again");
+
+    b.flags = (Register)(0xF0000000u | 0xC0u | 0x13u);
+    CheckEq(TaskSetRegs(k.task, &b), ZUZU_OK, "SetRegs with privileged flags is accepted");
+    TaskGetRegs(k.task, &a);
+    CheckEq((uint32_t)a.flags & 0x1Fu, 0x10u, "the mode is forced back to user");
+    CheckEq((uint32_t)a.flags & 0xC0u, 0u, "IRQ/FIQ masks are never taken from the caller");
+    CheckEq((uint32_t)a.flags & 0xF0000000u, 0xF0000000u, "condition flags are kept");
+    a.pc += 2;
+    CheckEq(TaskSetRegs(k.task, &a), ERR_BADARG, "misaligned ARM pc -> BADARG");
+
+    CheckEq(TaskKill(k.task), ZUZU_OK, "kill a suspended task");
+    sw = FormatToSpaceWait(WaitOn(k.space, 2000));
+    CheckEq(sw.exit_status, ERR_DEAD, "a killed suspended task dies");
+    CheckEq(TaskSuspend(k.task), ERR_DEAD, "suspend a dead task -> DEAD");
+    KittenFree(&k);
+
+    KittenCreate(&k, kCodeLoopThenQuit9, sizeof(kCodeLoopThenQuit9));
+    KittenStart(&k, 0, 0);
+    Sleep(10);
+    TaskSuspend(k.task);
+    TaskGetRegs(k.task, &a);
+    CheckEq((uint32_t)a.pc, (uint32_t)USER_ELF_BASE, "it sits on its loop");
+    a.pc = (Register)(USER_ELF_BASE + 4u);
+    CheckEq(TaskSetRegs(k.task, &a), ZUZU_OK, "move pc past the loop");
+    TaskResume(k.task);
+    sw = FormatToSpaceWait(WaitOn(k.space, 2000));
+    CheckEq(sw.exit_status, 9, "SetRegs redirected execution");
+    KittenFree(&k);
+
+    Handle ev = CreateEvent();
+    KittenCreate(&k, kCodeWaitQuitBits, sizeof(kCodeWaitQuitBits));
+    SvcResult g = HandleGrant(ev, k.space, PERM_WAIT);
+    KittenStart(&k, (uint32_t)g.r1, 0);
+    Sleep(20);
+    CheckEq(TaskSuspend(k.task), ZUZU_OK, "suspend a task blocked in WaitOn");
+    CheckEq(TaskGetRegs(k.task, &a), ZUZU_OK, "GetRegs on a blocked suspended task OK");
+    CheckEq(TaskSetRegs(k.task, &a), ERR_BUSY, "SetRegs while it is mid-syscall -> BUSY");
+    Signal(ev, 5, false);
+    CheckEq(WaitOn(k.space, 100).r0, ERR_TIMEOUT, "woken while suspended, it stays parked");
+    CheckEq(TaskResume(k.task), ZUZU_OK, "resume it");
+    sw = FormatToSpaceWait(WaitOn(k.space, 2000));
+    CheckEq(sw.exit_status, 5, "it returns the bits signalled while it was suspended");
+    KittenFree(&k);
+    HandleClose(ev);
+}
+
 /* ---------------- 8. hostile arguments ---------------- */
 
 static void TestSecurity(void)
@@ -2266,10 +2348,11 @@ static void TestSecurity(void)
     CheckEq(ArchInvokeSvc(SVC_MANAGETASK, k.task, MNGTASK_START, 0, 0), ERR_BADPTR,
             "Start with a NULL args pointer -> BADPTR");
     KittenStart(&k, 0, 0);
-    CheckEq(TaskGetRegs(k.task, (Register *)0xC0000000u), ERR_BADPTR,
+    TaskSuspend(k.task);
+    CheckEq(TaskGetRegs(k.task, (TaskRegs *)0xC0000000u), ERR_BADPTR,
             "GetRegs into kernel memory -> BADPTR");
     CheckEq(TaskGetRegs(k.task, NULL), ERR_BADPTR, "GetRegs into NULL -> BADPTR");
-    CheckEq(TaskSetRegs(k.task, (const Register *)0xC0000000u), ERR_BADPTR,
+    CheckEq(TaskSetRegs(k.task, (const TaskRegs *)0xC0000000u), ERR_BADPTR,
             "SetRegs from kernel memory -> BADPTR");
     KittenFree(&k);
 
@@ -2780,6 +2863,7 @@ static void RunSuite(void)
     TestPriorities();
     TestTcbPriority();
     TestSpaces();
+    TestSuspend();
     TestInjectObj();
     TestDma();
     TestKittens();

@@ -101,6 +101,7 @@ static void SchedEnqueue(TaskObject *t, bool front)
         return;
     if (t->owner && t->owner->frozen)
         return;
+    if (t->suspended) return;
     if (t->node.next || t->node.prev)
         return; // double enqueue guard
 
@@ -554,7 +555,7 @@ void SchedTimerExpired(void)
 void SchedSetEffective(TaskObject *t, Prio prio)
 {
     bool requeue =
-        (t->state == TASK_STATE_READY); /* only TASK_STATE_READY tasks are on a run queue */
+        (t->state == TASK_STATE_READY) && (t->node.next); /* only TASK_STATE_READY tasks are on a run queue */
     if (requeue)
         SchedRemoveRunQueue(t);
     t->priority = prio;

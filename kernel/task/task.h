@@ -79,6 +79,7 @@ struct TaskObjectStruct {
     ObserverSet observers;
     size_t ref_count;
     bool released;
+    bool suspended; /**< Is this process suspended by a task in the parent space or a sibling task? */
 };
 
 void TaskDestroy(TaskObject *task);

@@ -135,8 +135,8 @@ static bool KittenNamed(const char *path)
 
 static void HandleKittenFault(Kitten *k)
 {
-    Register regs[ARCH_NUM_GP_REGS];
-    Err rc = TaskGetRegs(k->task, regs);
+    TaskRegs regs;
+    Err rc = TaskGetRegs(k->task, &regs);
     UserspaceDebugLog("rootsvc: %s faulted (get_regs rc=%d)", k->path, rc);
 
     /* No recovery policy yet so just take the kitten down. Once there's

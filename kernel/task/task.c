@@ -271,6 +271,7 @@ void TaskTerminate(TaskObject *task, Err exit_status)
     TaskState entry_state = task->state;
 
     task->exit_status = exit_status;
+    task->suspended = false;
     TaskUnlinkWaits(task);
 
     /* (a) task was a caller mid-call: its reply cap lives in its own TCB

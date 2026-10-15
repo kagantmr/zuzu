@@ -66,6 +66,47 @@ static inline Register ArchCurrentFlags(void)
 /* Count of ArchGetFromFrame() slots (r0-r12 on ARM) -- see <arch/regs.h>. */
 #define ARCH_NUM_GP_REGS 13
 
+/* User-visible register set for TaskGetRegs/TaskSetRegs -- see <arch/regs.h>. */
+typedef struct {
+    Register gp[ARCH_NUM_GP_REGS]; /* r0-r12 */
+    Register sp;
+    Register lr;
+    Register pc;
+    Register flags; /* CPSR */
+} TaskRegs;
+
+#define ARM_CPSR_MODE_USR 0x10u
+#define ARM_CPSR_T (1u << 5)
+
+#define ARM_CPSR_USER_BITS (0xF8000000u | 0x06000000u | 0x000F0000u | 0x0000FC00u | (1u << 9) | \
+                            ARM_CPSR_T)
+
+static inline void ArchFrameToRegs(const CpuState *f, TaskRegs *out)
+{
+    for (unsigned i = 0; i < ARCH_NUM_GP_REGS; i++)
+        out->gp[i] = f->r[i];
+    out->sp = f->sp_usr;
+    out->lr = f->lr_usr;
+    out->pc = f->return_pc;
+    out->flags = f->return_cpsr;
+}
+
+static inline bool ArchRegsToFrame(CpuState *f, const TaskRegs *in)
+{
+    uint32_t cpsr = ((uint32_t)in->flags & ARM_CPSR_USER_BITS) | ARM_CPSR_MODE_USR;
+    uint32_t align = (cpsr & ARM_CPSR_T) ? 1u : 3u;
+    if ((uint32_t)in->pc & align)
+        return false;
+
+    for (unsigned i = 0; i < ARCH_NUM_GP_REGS; i++)
+        f->r[i] = in->gp[i];
+    f->sp_usr = in->sp;
+    f->lr_usr = in->lr;
+    f->return_pc = in->pc;
+    f->return_cpsr = (Register)cpsr;
+    return true;
+}
+
 static inline const char *arm_cpsr_mode_name(uint32_t cpsr)
 {
     switch (cpsr & 0x1Fu) {

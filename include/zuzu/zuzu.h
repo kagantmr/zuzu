@@ -139,12 +139,14 @@ static inline Err TaskResume(Handle h)
     return ArchInvokeSvc(SVC_MANAGETASK, h, MNGTASK_RESUME, 0, 0);
 }
 
-static inline Err TaskGetRegs(Handle h, Register out[ARCH_NUM_GP_REGS])
+
+static inline Err TaskGetRegs(Handle h, TaskRegs *out)
 {
     return ArchInvokeSvc(SVC_MANAGETASK, h, MNGTASK_GET_REGS, (Register)(VirtAddr)out, 0);
 }
 
-static inline Err TaskSetRegs(Handle h, const Register in[ARCH_NUM_GP_REGS])
+
+static inline Err TaskSetRegs(Handle h, const TaskRegs *in)
 {
     return ArchInvokeSvc(SVC_MANAGETASK, h, MNGTASK_SET_REGS, (Register)(VirtAddr)in, 0);
 }

@@ -26,6 +26,8 @@
 //                                                       -- human-readable mode/flag string
 //   bool ArchFlagsInIrqContext(Register flags);    -- true if flags denotes IRQ context
 
+
+
 #ifndef ARCH_REGS_H
 #define ARCH_REGS_H
 
