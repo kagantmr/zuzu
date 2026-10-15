@@ -12,7 +12,6 @@
 #include "kernel/bench.h"
 #include "kernel/mm/vmm/vmm.h"
 #include "kernel/clock.h"
-#include "kernel/syspage.h"
 #include "types.h"
 #include <arch/cpu.h>
 #include <arch/timer.h>
@@ -544,7 +543,6 @@ void SchedSetReschedFlag(void) { do_resched = 1; }
 
 void SchedTimerExpired(void)
 {
-    SyspageUpdateUptime();
     in_tick = true;
     SchedWakeSleepers();
     in_tick = false;

@@ -28,6 +28,7 @@
 #include <zuzu/err.h>
 #include <zuzu/service.h>
 #include <zuzu/syspage.h>
+#include <zuzu/uptime.h>
 #include <zuzu/udbg.h>
 #include <zuzu/user_layout.h>
 #include <zuzu/zuzu.h>
@@ -116,13 +117,9 @@ static void CheckKnown(bool cond, const char *msg)
 
 static uint32_t PagesFree(void) { return ((const Syspage *)SYSPAGE)->mem_free_kb / 4; }
 
-static uint64_t NowMs(void)
-{
-    const Syspage *sp = (const Syspage *)SYSPAGE;
-    return sp->uptime_ticks * 1000u / sp->tick_hz;
-}
+static uint64_t NowMs(void) { return UptimeMs(); }
 
-static uint64_t TickMs(void) { return 1000u / ((const Syspage *)SYSPAGE)->tick_hz; }
+static uint64_t TickMs(void) { return 1; }
 
 static void SleepAndSettle(void)
 {
@@ -322,12 +319,17 @@ static void TestBasics(void)
 
     const Syspage *sp = (const Syspage *)SYSPAGE;
     CheckEq((int32_t)sp->magic, (int32_t)0x50050CA7, "syspage magic");
-    Check(sp->tick_hz > 0, "syspage tick_hz is set");
+    Check(sp->counter_freq > 0, "syspage counter_freq is set");
     Check(sp->mem_total_kb > 0 && sp->mem_free_kb <= sp->mem_total_kb,
           "syspage memory totals are sane");
-    uint64_t u0 = sp->uptime_ticks;
+    uint64_t u0 = UptimeMs();
     Sleep(20);
-    Check(sp->uptime_ticks > u0, "syspage uptime advances");
+    Check(UptimeMs() >= u0 + 20, "uptime advances across a 20 ms sleep");
+    uint64_t us0 = UptimeUs();
+    uint32_t spins = 0;
+    while (UptimeUs() == us0 && spins < 1000000u)
+        spins++;
+    Check(UptimeUs() != us0, "uptime is live without a timer interrupt");
     CheckEq(MemUnmap((void *)USER_BOOTINFO_VA), ERR_NOENT,
             "BootInfo page is not mapped into ordinary Spaces");
     CheckEq(MemUnmap((void *)USER_SYSPAGE_VA), ERR_NOPERM, "syspage region is pinned");

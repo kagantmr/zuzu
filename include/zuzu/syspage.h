@@ -28,16 +28,15 @@ typedef struct {
     char cpu[24];        // from DTB, constant after boot
     size_t mem_total_kb; // set at SyspageInit()
     size_t mem_free_kb;  // updated
-    Time boot_time_s;    // when did the kernel boot?
-    Tick uptime_ticks;   // raw scheduler ticks since timer start
-    uint32_t tick_hz;    // ticks per second
+    uint64_t counter_freq; // Hz of the user-readable counter (<arch/counter.h>)
+    uint64_t counter_boot; // counter value at boot; uptime = counter - counter_boot
     uint8_t dev_count;   // how many devices are in the devs[] array
     size_t initrd_size;  // size of initrd
     SyspageDevEntry devs[SYSPAGE_MAX_DEVICES]; // filled from DTB walk at boot
     uint32_t _reserved;
 } Syspage;
 
-_Static_assert(offsetof(Syspage, _reserved) == 3980, "syspage ABI");
+_Static_assert(offsetof(Syspage, _reserved) == 3976, "syspage ABI");
 _Static_assert(sizeof(Syspage) <= 4096, "Syspage must fit in one page");
 
 #ifdef __cplusplus

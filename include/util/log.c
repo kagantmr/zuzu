@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <util/log.h>
 #include <zuzu/syspage.h>
+#include <zuzu/uptime.h>
 
 static LogLevel g_min_level = CONFIG_LOG_LEVEL;
 
@@ -60,8 +61,7 @@ void LogWrite(LogLevel level, const char *tag, const char *fmt, ...)
     const char *lvl_label = LevelToLabel(level);
     const char *lvl_style = LevelToStyle(level);
     const char *safe_tag = tag ? tag : "";
-    Syspage *sp = (Syspage *)SYSPAGE;
-    unsigned long long ticks = (unsigned long long)sp->uptime_ticks;
+    unsigned long long ticks = (unsigned long long)UptimeMs();
 
     char msg_buf[192];
     va_list ap;

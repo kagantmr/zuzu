@@ -7,6 +7,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <zuzu/syspage.h>
+#include <zuzu/uptime.h>
 
 typedef uint64_t Time;
 
@@ -28,28 +29,21 @@ struct tm {
 };
 
 /**
- * @brief Returns the current time in seconds since the epoch (January 1, 1970).
+ * @brief Fills ts with the time since boot. zuzu keeps no wall clock; the epoch is boot.
  *
- * @return ztime_t The current time in seconds since the epoch.
- */
-static inline Time TimeNow(void)
-{
-    Syspage *sp = (Syspage *)SYSPAGE;
-    return sp->boot_time_s + (sp->uptime_ticks / sp->tick_hz);
-}
-
-/**
- * @brief Fills the provided timespec structure with the current time.
- *
- * @param ts Pointer to a timespec structure that will be filled with the current time.
+ * @param ts Pointer to a timespec structure that will be filled with the uptime.
  */
 static inline void ClockGetTime(struct timespec *ts)
 {
-    Syspage *sp = (Syspage *)SYSPAGE;
-    Time ticks = sp->uptime_ticks;
-    uint32_t hz = sp->tick_hz;
-    ts->tv_sec = ticks / hz;
-    ts->tv_nsec = ((ticks % hz) * 1000000000ULL) / hz;
+    uint64_t counts = UptimeCounts();
+    uint64_t f = ((const volatile Syspage *)SYSPAGE)->counter_freq;
+    if (!f) {
+        ts->tv_sec = 0;
+        ts->tv_nsec = 0;
+        return;
+    }
+    ts->tv_sec = counts / f;
+    ts->tv_nsec = (long)(((counts % f) * 1000000000ULL) / f);
 }
 
 #ifdef __cplusplus

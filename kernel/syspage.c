@@ -3,14 +3,13 @@
 #include "core/version.h"
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/mm/vmm/vmm.h"
-#include "kernel/clock.h"
+#include <arch/timer.h>
 #include <stdio.h>
 #include <string.h>
 #include <zuzu/syspage.h>
 
 Syspage *g_sp;
 static PhysAddr g_syspage_pa;
-extern uint32_t rtc_epoch;
 
 static void DeviceCallback(const char *compatible, uint64_t phys, uint64_t size, uint32_t irq)
 {
@@ -65,8 +64,8 @@ void SyspageInit(void)
     strncpy(g_sp->cpu, boot_info_cpu_compat(), sizeof(g_sp->cpu) - 1);
 
     g_sp->mem_total_kb = (uint32_t)((PmmGetStats().total_frames * (uint64_t)PAGE_SIZE) / 1024);
-    g_sp->tick_hz = 1000;
-    g_sp->boot_time_s = rtc_epoch;
+    g_sp->counter_freq = ArchTimerFreq();
+    g_sp->counter_boot = ArchTimerNow();
 
     BootInfoEnumerateDevs(DeviceCallback);
 
@@ -79,13 +78,6 @@ void SyspageUpdateMem(void)
     if (!g_sp)
         return;
     g_sp->mem_free_kb = (uint32_t)((PmmGetStats().free_frames * (uint64_t)PAGE_SIZE) / 1024);
-}
-
-void SyspageUpdateUptime(void)
-{
-    if (!g_sp)
-        return;
-    g_sp->uptime_ticks = ClockNowMs();
 }
 
 void SyspageSetInitrdSz(uint32_t size)

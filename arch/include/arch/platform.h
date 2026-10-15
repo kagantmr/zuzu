@@ -1,7 +1,7 @@
 // arch/platform.h - Neutral platform/device bring-up contract.
 //
 // Discover and initialize the platform's core devices (console UART, interrupt
-// controller, timer, RTC, ...). On ARM this is DTB-driven and board-independent.
+// controller, timer, ...). On ARM this is DTB-driven and board-independent.
 
 #ifndef ARCH_PLATFORM_H
 #define ARCH_PLATFORM_H

@@ -5,6 +5,7 @@
 #include <zuzu/msg.h>
 #include <zuzu/err.h>
 #include <zuzu/syspage.h>
+#include <zuzu/uptime.h>
 #include <zuzu/user_layout.h>
 #include <zuzu/zuzu.h>
 
@@ -55,7 +56,6 @@ static uint32_t CyclesToNs(uint32_t cycles)
     return (uint32_t)(((uint64_t)cycles * 1000000u) / g_khz);
 }
 
-static inline uint32_t Ticks(void) { return ((volatile const Syspage *)SYSPAGE)->uptime_ticks; }
 
 static uint32_t CalibrateOverhead(void)
 {
@@ -69,23 +69,17 @@ static uint32_t CalibrateOverhead(void)
 
 static uint32_t CalibrateKhz(void)
 {
-    uint32_t hz = ((const Syspage *)SYSPAGE)->tick_hz;
-    uint32_t span = hz / 10;
-    if (span == 0)
-        span = 1;
+    const uint64_t span_us = 100000u;
     uint32_t est[CAL_ROUNDS];
 
     for (int r = 0; r < CAL_ROUNDS; r++) {
-        uint32_t t0 = Ticks();
-        while (Ticks() == t0)
-            ;
+        uint64_t t1 = UptimeUs();
         uint32_t c0 = ArchMeasure();
-        uint32_t t1 = Ticks();
-        while (Ticks() - t1 < span)
+        while (UptimeUs() - t1 < span_us)
             ;
         uint32_t c1 = ArchMeasure();
-        uint32_t t2 = Ticks();
-        est[r] = (uint32_t)(((uint64_t)(c1 - c0) * hz) / ((uint64_t)(t2 - t1) * 1000u));
+        uint64_t t2 = UptimeUs();
+        est[r] = (uint32_t)(((uint64_t)(c1 - c0) * 1000u) / (t2 - t1));
     }
     return Median(est, CAL_ROUNDS);
 }

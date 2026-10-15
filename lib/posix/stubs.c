@@ -8,6 +8,7 @@
 #include <sys/times.h>
 #include <unistd.h>
 #include <zuzu/syspage.h>
+#include <zuzu/uptime.h>
 #include <zuzu/zuzu.h>
 
 #define MAX_FD 32
@@ -331,9 +332,8 @@ int _open(const char *name, int flags, ...)
 static char *__env[1] = {NULL};
 char **environ = __env;
 
-/* Wall clock derived from the syspage tick source: boot epoch plus uptime.
- * If the kernel never learned the wall time boot_time_s is 0 and this reads
- * as seconds since boot, which is still monotonic. */
+/* zuzu keeps no wall clock: this is time since boot, so time() and
+ * gettimeofday() start at 0 on every boot. */
 int _gettimeofday(struct timeval *tv, void *tz)
 {
     (void)tz;
@@ -342,20 +342,17 @@ int _gettimeofday(struct timeval *tv, void *tz)
         return -1;
     }
 
-    const Syspage *sp = (const Syspage *)SYSPAGE_VA;
-    uint32_t hz = sp->tick_hz ? sp->tick_hz : 1000u;
-    uint64_t ticks = sp->uptime_ticks;
-
-    tv->tv_sec = (time_t)(sp->boot_time_s + ticks / hz);
-    tv->tv_usec = (suseconds_t)((ticks % hz) * 1000000ull / hz);
+    uint64_t us = UptimeUs();
+    tv->tv_sec = (time_t)(us / 1000000u);
+    tv->tv_usec = (suseconds_t)(us % 1000000u);
     return 0;
 }
 
-/* Elapsed real time in scheduler ticks; no user/kernel split is tracked. */
+/* Elapsed real time in milliseconds (newlib's CLOCKS_PER_SEC); no user/kernel
+ * split is tracked. */
 clock_t _times(struct tms *buf)
 {
-    const Syspage *sp = (const Syspage *)SYSPAGE_VA;
-    clock_t ticks = (clock_t)sp->uptime_ticks;
+    clock_t ticks = (clock_t)UptimeMs();
 
     if (buf) {
         buf->tms_utime = ticks;

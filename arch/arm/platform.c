@@ -4,8 +4,6 @@
 
 #include BOARD_BOOT_H
 
-uint32_t rtc_epoch;
-
 #define EARLY_UART_FR (0x18u / 4u)
 #define EARLY_UART_TXFF (1u << 5)
 
