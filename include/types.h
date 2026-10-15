@@ -26,13 +26,17 @@ typedef uint32_t EventWord;
 #define TIMEOUT_POLL 0u
 #define TIMEOUT_INFINITE UINT32_MAX
 
+#define TIMESLICE_DEFAULT_US 50000u /* 50 ms, same as the old default of 5 ticks */
+#define TIMESLICE_MIN_US 100u       /* below this, the comparator storms */
+#define TIMESLICE_MAX_US 1000000u   /* 1 s */
+
 /* Handle sentinels  */
 
 #define HANDLE_ANON ((Handle) - 1) /* MemMap handle for anonymous memory (MemMapAnon) */
 #define MARKER_NONE 0              /* Means unbadged */
 
 /* First handle slot in rootsvc's table where the kernel loader seeds device
- * MemObjects (kernel/loader/boot_programs.c); devsvc indexes from here. */
+ * MemObjects */
 #define DEVICE_HANDLE_BASE 16
 
 typedef enum {
@@ -117,10 +121,7 @@ typedef struct {
 
 #define DMA_ALIGN 64U
 
-typedef enum {
-    DMA_SYNC_FOR_DEVICE,
-    DMA_SYNC_FOR_CPU
-} DmaSyncOp;
+typedef enum { DMA_SYNC_FOR_DEVICE, DMA_SYNC_FOR_CPU } DmaSyncOp;
 
 /* Kernel event types users can subscribe to */
 typedef enum {

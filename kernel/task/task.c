@@ -61,7 +61,7 @@ static void SetExitResult(CpuState *frame, Err value, TaskWaitOutcome outcome)
 {
     ArchSetInFrame(frame, 0, ZUZU_OK);
     ArchSetInFrame(frame, 1, (Register)value);
-    ArchSetInFrame(frame, 3, outcome);
+    ArchSetInFrame(frame, 3, (Register)outcome);
 }
 
 static void WakeWaiters(ListHead *list, Err value, TaskWaitOutcome outcome)
@@ -185,7 +185,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
     task->ipc_state = IPC_NONE;
     task->priority = SCHED_PRIO_DEFAULT;
     task->base_prio = SCHED_PRIO_DEFAULT;
-    task->time_slice = 5;
+    task->time_slice_us = TIMESLICE_DEFAULT_US;
     task->max_prio = SCHED_PRIORITY_LEVELS - 1;
     task->tcb_slot = TCB_SLOT_NONE;
 

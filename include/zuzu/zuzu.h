@@ -124,9 +124,9 @@ static inline Err TaskSetMaxPriority(Handle h, uint32_t val)
     return ArchInvokeSvc(SVC_MANAGETASK, h, MNGTASK_SET_MAX_PRIO, (Register)val, 0);
 }
 
-static inline Err TaskSetTimeSlice(Handle h, uint32_t val)
+static inline Err TaskSetTimeSlice(Handle h, uint32_t slice_us)
 {
-    return ArchInvokeSvc(SVC_MANAGETASK, h, MNGTASK_SET_TIMESLICE, (Register)val, 0);
+    return ArchInvokeSvc(SVC_MANAGETASK, h, MNGTASK_SET_TIMESLICE, (Register)slice_us, 0);
 }
 
 static inline Err TaskSuspend(Handle h)

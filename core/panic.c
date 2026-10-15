@@ -448,7 +448,7 @@ static void PanicPrintSpace(void)
 
     (void)snprintf(line, sizeof(line), "tid=%-4u  state=%-7s  prio=%u  slice=%u", current_task->tid,
                    TaskStateToString(current_task->state), current_task->priority,
-                   current_task->time_slice);
+                   current_task->time_slice_us);
     PanicPutLine(line);
 
     if (space) {

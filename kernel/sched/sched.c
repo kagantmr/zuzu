@@ -362,11 +362,9 @@ void __hot SchedSwitchNext(TaskObject *next)
     current_task->state = TASK_STATE_RUNNING;
     on_idle_stack = false;
 
-    #define SLICE_UNITS_PER_SEC 100
-    
     uint64_t slice = current_task->slice_remaining
                          ? current_task->slice_remaining
-                         : (uint64_t)current_task->time_slice * (ArchTimerFreq() / SLICE_UNITS_PER_SEC);
+                         : ClockUsToCounts(current_task->time_slice_us);
     current_task->slice_deadline = ArchTimerNow() + slice;
     current_task->slice_remaining = 0;
     SchedArmTimer();

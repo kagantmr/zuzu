@@ -1143,7 +1143,7 @@ static void TestTasks(void)
     CheckEq(WaitOn(self_task, 0).r0, ERR_TIMEOUT, "an unstarted (frozen) task is not dead");
     CheckEq(TaskResume(self_task), ERR_BADARG, "Resume on a task that has not faulted -> BADARG");
     CheckEq(TaskSuspend(self_task), ERR_NOSYS, "Suspend is not implemented -> NOSYS");
-    CheckEq(TaskSetTimeSlice(self_task, 3), ZUZU_OK, "SetTimeSlice OK");
+    CheckEq(TaskSetTimeSlice(self_task, 30000), ZUZU_OK, "SetTimeSlice OK");
     CheckEq(TaskSetPriority(self_task, 2), ZUZU_OK, "SetPriority on another task OK");
     CheckEq(TaskSetPriority(self_task, 9), ERR_NOPERM, "SetPriority above max -> NOPERM");
     CheckEq(ArchInvokeSvc(SVC_MANAGETASK, self_task, MNGTASK_VERB_COUNT, 0, 0), ERR_BADARG,
@@ -1156,7 +1156,9 @@ static void TestTasks(void)
     Worker *pw = WorkerStart(PriorityWorker, NULL);
     CheckEq(WorkerJoin(pw), 0, "priority rules: can lower but never raise past max_prio");
     CheckEq(TaskSetPriority(-1, 1), ZUZU_OK, "SetPriority(-1) on the caller OK");
-    CheckEq(TaskSetTimeSlice(-1, 5), ZUZU_OK, "SetTimeSlice(-1) OK");
+    CheckEq(TaskSetTimeSlice(-1, 50000), ZUZU_OK, "SetTimeSlice(-1) OK");
+    CheckEq(TaskSetTimeSlice(-1, TIMESLICE_MIN_US - 1), ERR_BADARG, "timeslice below min -> BADARG");
+    CheckEq(TaskSetTimeSlice(-1, TIMESLICE_MAX_US + 1), ERR_BADARG, "timeslice above max -> BADARG");
 
     /* Many short-lived threads: slots and stacks are recycled. */
     int ok = 0;
@@ -1742,7 +1744,7 @@ static void TestPriorities(void)
         UserspaceDebugLog("zztest: cannot raise own priority, skipping priorities");
         return;
     }
-    TaskSetTimeSlice(-1, 1);
+    TaskSetTimeSlice(-1, 10000);
     TaskSetPriority(-1, 4);
 
     /* A higher-priority waiter preempts the signaller. */
@@ -1801,7 +1803,7 @@ static void TestPriorities(void)
     Check(atomic_load(&g_log_len) == 1, "a peer readied while we run alone gets a slice");
     WorkerJoin(pw);
 
-    TaskSetTimeSlice(-1, 5);
+    TaskSetTimeSlice(-1, 50000);
     atomic_store(&g_first_ms, 0);
     Worker *sl = WorkerStartAt(SleepOnce, (void *)(uintptr_t)2, 3);
     Sleep(1);
@@ -1816,7 +1818,7 @@ static void TestPriorities(void)
           "a sleeper's wakeup does not rotate equal-priority peers before the slice ends");
     WorkerJoin(peer);
     WorkerJoin(sl);
-    TaskSetTimeSlice(-1, 50);
+    TaskSetTimeSlice(-1, 500000);
     Sleep(1);
     LogReset();
     Worker *equal_peer = WorkerStartAt(LogOnce, (void *)(uintptr_t)2, 4);
@@ -1835,7 +1837,7 @@ static void TestPriorities(void)
     const int yielded[] = {2, 1};
     Check(LogIs(2, yielded), "Yield still lets an equal-priority peer run first");
     WorkerJoin(yield_peer);
-    TaskSetTimeSlice(-1, 1);
+    TaskSetTimeSlice(-1, 10000);
 
     /* Raising a READY thread above the caller runs it at once. */
     LogReset();
@@ -2179,7 +2181,7 @@ static void TestPriorities(void)
     HandleClose(mutual_b);
 
     TaskSetPriority(-1, 1);
-    TaskSetTimeSlice(-1, 5);
+    TaskSetTimeSlice(-1, 5000);
 }
 
 static int32_t TcbPack(void)
