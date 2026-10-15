@@ -274,7 +274,7 @@ static void PanicPrintHeader(const char *reason, void *caller_ra)
     PanicNewline();
 
     /* Top-level banner — red, same dash-rule format as section headers */
-    PanicPuts(C_RED "KERNEL PANIC ");
+    PanicPuts(C_RED "Oops! zuzu has panicked. ");
     for (int i = 13; i < RULE_COL; i++)
         uart_putc('-');
     PanicPuts(C_RESET "\n");
@@ -634,88 +634,60 @@ static void PanicPrintIrq(void)
         return;
     }
 
-#define IRQ_WORDS (MAX_IRQS / 32u)
-
     uint32_t pmr = ArchIrqPriorityMask();
     (void)snprintf(line, sizeof(line), "priority mask: 0x%02X  (%s)", pmr,
                    pmr == 0xFFU ? "all priorities pass" : "filtered");
     PanicPutLine(line);
 
     const IrqOwner *owners = GetIrqOwnersList();
-
-    /*
-     * Snapshot enabled bitmap; used both for the enabled section and
-     * later to identify the likely triggering IRQ in the pending section.
-     * Skip SGIs (0-15) — always enabled on the controller.
-     */
-    uint32_t enabled_words[IRQ_WORDS];
-    for (uint32_t w = 0; w < IRQ_WORDS; w++)
-        enabled_words[w] = ArchIrqEnabledWord(w);
+    uint32_t first = ArchIrqFirstDeviceLine();
 
     PanicNewline();
     PanicPutLine("enabled IRQs:");
     int any_enabled = 0;
-    for (uint32_t word = 0; word < IRQ_WORDS; word++) {
-        uint32_t ena = enabled_words[word];
-        if (!ena)
+    for (uint32_t irq = first; irq < MAX_IRQS; irq++) {
+        if (!ArchIrqIsEnabled(irq))
             continue;
-        for (uint32_t bit = 0; bit < 32U; bit++) {
-            if (!(ena & (1U << bit)))
-                continue;
-            uint32_t irq = (word * 32U) + bit;
-            if (irq < 16U)
-                continue; /* SGI - always on, skip */
 
-            if (owners && irq < MAX_IRQS && owners[irq].owner) {
-                (void)snprintf(line, sizeof(line), "  IRQ %-3u  [%s]", irq,
-                               owners[irq].owner->name);
-            } else if (ArchIrqHasHandler(irq)) {
-                char sym[64];
-                FormatKSym(sym, sizeof(sym), (uint32_t)(uintptr_t)ArchIrqHandlerAddr(irq));
-                (void)snprintf(line, sizeof(line), "  IRQ %-3u  [kernel: %s]", irq, sym);
-            } else {
-                (void)snprintf(line, sizeof(line), "  IRQ %-3u  [no handler]", irq);
-            }
-            PanicPutLine(line);
-            any_enabled = 1;
+        if (owners && owners[irq].owner) {
+            (void)snprintf(line, sizeof(line), "  IRQ %-3u  [%s]", irq, owners[irq].owner->name);
+        } else if (ArchIrqHasHandler(irq)) {
+            char sym[64];
+            FormatKSym(sym, sizeof(sym), (uint32_t)(uintptr_t)ArchIrqHandlerAddr(irq));
+            (void)snprintf(line, sizeof(line), "  IRQ %-3u  [kernel: %s]", irq, sym);
+        } else {
+            (void)snprintf(line, sizeof(line), "  IRQ %-3u  [no handler]", irq);
         }
+        PanicPutLine(line);
+        any_enabled = 1;
     }
     if (!any_enabled)
         PanicPutLine("  (none)");
 
-    /* Pending IRQs: skip SGIs; cross-reference enabled bitmap */
     Register cpsr = ArchCurrentFlags();
     bool in_irq_mode = ArchFlagsInIrqContext(cpsr);
 
     PanicNewline();
     PanicPutLine("pending IRQs:");
     int any_pending = 0;
-    for (uint32_t word = 0; word < IRQ_WORDS; word++) {
-        uint32_t pend = ArchIrqPendingWord(word);
-        if (!pend)
+    for (uint32_t irq = first; irq < MAX_IRQS; irq++) {
+        if (!ArchIrqIsPending(irq))
             continue;
-        for (uint32_t bit = 0; bit < 32U; bit++) {
-            if (!(pend & (1U << bit)))
-                continue;
-            uint32_t irq = (word * 32U) + bit;
-            if (irq < 16U)
-                continue;
 
-            bool has_handler = ArchIrqHasHandler(irq);
-            bool also_enabled = (enabled_words[word] & (1U << bit)) != 0;
+        bool has_handler = ArchIrqHasHandler(irq);
+        bool also_enabled = ArchIrqIsEnabled(irq);
 
-            if (!has_handler) {
-                (void)snprintf(line, sizeof(line),
-                               "  IRQ %-3u" C_RED "  *** NO HANDLER ***" C_RESET, irq);
-            } else if (also_enabled && in_irq_mode) {
-                (void)snprintf(line, sizeof(line),
-                               "  IRQ %-3u" C_RED "  *** triggered this panic ***" C_RESET, irq);
-            } else {
-                (void)snprintf(line, sizeof(line), "  IRQ %-3u  (pending, unserviced)", irq);
-            }
-            PanicPutLine(line);
-            any_pending = 1;
+        if (!has_handler) {
+            (void)snprintf(line, sizeof(line),
+                           "  IRQ %-3u" C_RED "  *** NO HANDLER ***" C_RESET, irq);
+        } else if (also_enabled && in_irq_mode) {
+            (void)snprintf(line, sizeof(line),
+                           "  IRQ %-3u" C_RED "  *** triggered this panic ***" C_RESET, irq);
+        } else {
+            (void)snprintf(line, sizeof(line), "  IRQ %-3u  (pending, unserviced)", irq);
         }
+        PanicPutLine(line);
+        any_pending = 1;
     }
     if (!any_pending)
         PanicPutLine("  (none)");
@@ -827,8 +799,5 @@ _Noreturn void __attribute__((cold)) panic(const char *fmt, ...)
     ConstructPanicScreen(fmt ? reason : NULL, caller_ra);
 
 panic_loop:
-    __asm__ volatile("1:\n"
-                     "    wfi\n"
-                     "    b 1b\n");
-    __builtin_unreachable();
+    ArchCpuHalt();
 }

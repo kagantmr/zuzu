@@ -1,0 +1,21 @@
+// arch_impl/cycles.h - ARM cycle counter (architecture-private).
+//
+// Do not include directly from neutral code; include <arch/cycles.h> instead.
+// PMCCNTR is enabled and opened to user mode in arch/arm/early.c.
+
+#ifndef ARCH_ARM_IMPL_CYCLES_H
+#define ARCH_ARM_IMPL_CYCLES_H
+
+#include <arch/barrier.h>
+#include <stdint.h>
+
+static inline __attribute__((always_inline)) uint32_t ArchMeasure(void)
+{
+    uint32_t cycles;
+    ArchIsb();
+    __asm__ volatile("mrc p15, 0, %0, c9, c13, 0" : "=r"(cycles) : : "memory");
+    ArchIsb();
+    return cycles;
+}
+
+#endif // ARCH_ARM_IMPL_CYCLES_H

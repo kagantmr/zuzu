@@ -122,7 +122,7 @@ KCONFIG_FILES     = $(shell find . -name Kconfig -not -path './build/*' 2>/dev/n
 KCONF             = python3 scripts/kconf.py --kconfig Kconfig
 
 # Goals that must not drag in config generation, or that would recurse.
-no-config-goals := clean distclean help %config scripts/config rpi4-firmware
+no-config-goals := clean distclean help hal-check %config scripts/config rpi4-firmware
 
 ifeq ($(filter $(no-config-goals),$(MAKECMDGOALS)),)
 # Hard include, not -include: a generator that silently failed would
@@ -244,7 +244,7 @@ CFLAGS   = -ffreestanding -O$(CONFIG_CC_OPT_LEVEL) $(LTO_FLAG) -fno-omit-frame-p
            -Wvla -Walloca \
            -Wnull-dereference -Wduplicated-cond -Wduplicated-branches -Wlogical-op \
            -fno-common \
-           $(CPUFLAGS) $(INCLUDES) -Ivendor/libfdt -MMD -MP \
+           $(CPUFLAGS) $(INCLUDES) -I$(O)/include -Ivendor/libfdt -MMD -MP \
            -include $(KCONFIG_AUTOCONF) \
            -D__ZUZU__ -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"' \
            -DBOARD_BOOT_H='"$(BOARD_BOOT_H)"' \
@@ -300,6 +300,27 @@ $(O)/vendor/libfdt/%.o: CFLAGS := $(CFLAGS_NOVENDOR)
 $(O)/kernel/boot_info.o: CFLAGS := $(CFLAGS_NOVENDOR)
 $(O)/kernel/dev/fdt_wrappers.o: CFLAGS := $(CFLAGS_NOVENDOR)
 
+# ---- asm offsets ------------------------------------------------------------
+# Struct offsets for assembly, computed by the C compiler: asm-offsets.c is
+# compiled to assembly only (never linked) and its "->SYM value" markers are
+# turned into #defines. LTO is filtered out because -flto makes -S emit
+# bytecode instead of assembly.
+ASM_OFFSETS = $(O)/include/generated/asm-offsets.h
+
+$(O)/asm-offsets.s: $(ARCH_DIR)/asm-offsets.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
+	@mkdir -p $(dir $@)
+	@echo "  CC      $<"
+	@$(CC) $(filter-out $(LTO_FLAG),$(CFLAGS)) -S $< -o $@
+
+$(ASM_OFFSETS): $(O)/asm-offsets.s
+	@mkdir -p $(dir $@)
+	@echo "  GEN     $@"
+	@{ echo '#ifndef ASM_OFFSETS_H'; echo '#define ASM_OFFSETS_H'; \
+	   sed -n 's/^.*->\([A-Za-z_][A-Za-z0-9_]*\) \(-\{0,1\}[0-9][0-9]*\).*$$/#define \1 \2/p' $<; \
+	   echo '#endif'; } > $@.tmp && mv $@.tmp $@
+
+-include $(O)/asm-offsets.d
+
 # ---- compilation rules ------------------------------------------------------
 $(O)/%.o: %.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
 	@mkdir -p $(dir $@)
@@ -307,7 +328,7 @@ $(O)/%.o: %.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
 	@$(CC) $(CFLAGS) -c $< -o $@
 	@$(call record-cmd,$(CC) $(CFLAGS) -c $< -o $@)
 
-$(O)/%.o: %.S $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
+$(O)/%.o: %.S $(FLAGS_STAMP) $(KCONFIG_AUTOCONF) $(ASM_OFFSETS)
 	@mkdir -p $(dir $@)
 	@echo "  AS      $<"
 	@$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
@@ -320,7 +341,7 @@ $(O)/ext/%.o: $(EXT)/%.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
 	@$(CC) $(CFLAGS) -c $< -o $@
 	@$(call record-cmd,$(CC) $(CFLAGS) -c $< -o $@)
 
-$(O)/ext/%.o: $(EXT)/%.S $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
+$(O)/ext/%.o: $(EXT)/%.S $(FLAGS_STAMP) $(KCONFIG_AUTOCONF) $(ASM_OFFSETS)
 	@mkdir -p $(dir $@)
 	@echo "  AS      $<"
 	@$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
@@ -360,6 +381,22 @@ analyze:
 	@$(MAKE) clean
 	@mkdir -p $(O)
 	@$(MAKE) ANALYZE=1 kernel 2>&1 | tee $(O)/analyzer.log
+
+# Fails if architecture code leaks into the neutral directories: inline asm,
+# arch_impl/ or arch/$(ARCH)/ includes, coprocessor access. Device names are
+# fine (drivers/ is where they belong); per-arch subdirectories such as
+# klib/$(ARCH)/ are skipped.
+HAL_NEUTRAL_DIRS = kernel core klib drivers
+HAL_LEAK_RE      = __asm__|asm[[:space:]]+volatile|<arch_impl/|arch/$(ARCH)/|p15,|mrc |mcr
+
+.PHONY: hal-check
+hal-check:
+	@hits=$$(grep -rnE '$(HAL_LEAK_RE)' $(HAL_NEUTRAL_DIRS) \
+	    --include='*.c' --include='*.h' --include='*.S' --exclude-dir=$(ARCH)); \
+	if [ -n "$$hits" ]; then \
+	    echo "  HAL     arch code in neutral dirs:"; echo "$$hits"; exit 1; \
+	fi; \
+	echo "  HAL     clean"
 
 .PHONY: kernel dump
 kernel: $(TARGET) links
@@ -420,6 +457,7 @@ help:
 	@echo '  compile_commands.json   clangd database'
 	@echo '  dump                objdump -D to $(O)/zuzu.dump'
 	@echo '  analyze             clean rebuild under -fanalyzer'
+	@echo '  hal-check           fail if arch code leaks into kernel/ core/ klib/ drivers/'
 	@echo '  print-<VAR>         print a make variable, e.g. -s print-CFLAGS'
 
 # ZUZUSD/ was the pre-$(O) SD staging dir; drop it so old checkouts tidy up.

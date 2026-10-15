@@ -19,11 +19,17 @@
  * @param user_sp         Initial user stack pointer.
  * @param user_lr         Return address if the user entry returns.
  * @param a0,a1           First two argument register values.
- * @param trap_frame_out  If non-NULL, receives the built trap frame pointer.
  * @return The initial kernel stack pointer (store in thread->kernel_sp).
  */
 void *ArchTaskUserInit(void *kstack_top, uintptr_t entry, uintptr_t user_sp, uintptr_t user_lr,
-                       uint32_t a0, uint32_t a1, CpuState **trap_frame_out);
+                       uint32_t a0, uint32_t a1);
+
+/**
+ * The user-mode trap frame of a thread whose kernel stack tops out at kstack_top.
+ * Every entry from user mode saves the user registers here, so the address is
+ * fixed for the thread's whole life.
+ */
+CpuState *ArchUserFrame(uintptr_t kstack_top);
 
 /**
  * Build a fresh kernel stack for a thread that begins in KERNEL mode at `entry`

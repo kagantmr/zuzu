@@ -5,6 +5,7 @@
 #include "kernel/sched/sched.h"
 #include "kernel/space/space.h"
 #include "kstack.h"
+#include <arch/context.h>
 #include <stddef.h>
 #include <string.h>
 #include <zuzu/err.h>
@@ -68,8 +69,7 @@ static void WakeWaiters(ListHead *list, Err value, TaskWaitOutcome outcome)
     while (!ListIsEmpty(list)) {
         ListNode *node = ListPopFront(list);
         TaskObject *waiter = container_of(node, WaitSlot, node)->owner;
-        if (waiter->trap_frame)
-            SetExitResult(waiter->trap_frame, value, outcome);
+        SetExitResult(waiter->trap_frame, value, outcome);
         SchedUnblock(waiter);
         SchedAdd(waiter);
     }
@@ -168,6 +168,8 @@ TaskObject *TaskCreate(SpaceObject *owner)
         KSlabFree(&task_cache, task);
         return NULL;
     }
+    task->trap_frame = ArchUserFrame(task->kernel_stack_top);
+    memset(task->trap_frame, 0, sizeof(*task->trap_frame));
 
     task->tid = RegisterTask(task);
     if (task->tid == 0) {
@@ -249,8 +251,7 @@ void TaskUnlinkWaits(TaskObject *t)
 
 void TaskAbortWait(TaskObject *t, Err err)
 {
-    if (t->trap_frame)
-        ArchSetInFrame(t->trap_frame, 0, err);
+    ArchSetInFrame(t->trap_frame, 0, err);
     t->pending_reply_cap = NULL;
     SchedUnblock(t);
     SchedAdd(t);

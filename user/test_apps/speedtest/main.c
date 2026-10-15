@@ -314,7 +314,7 @@ static void BenchCreateObjects(void)
         uint32_t n = pages[k] >= 256 ? 256 : HEAVY;
         for (uint32_t i = 0; i < n; i++) {
             Handle h;
-            TIMED(g_samples, i, h = CreateMem(pages[k]));
+            TIMED(g_samples, i, h = CreateMem(pages[k], 0));
             if (h < 0) {
                 printf("create mem %u pages failed: %d\n", (unsigned)pages[k], (int)h);
                 return;
@@ -415,7 +415,7 @@ static void BenchSpaces(void)
         char name[48];
         Handle obj = -1;
         if (pages[k]) {
-            obj = CreateMem(pages[k]);
+            obj = CreateMem(pages[k], 0);
             uint8_t *w = MemMap(obj, 0, PROT_RW);
             if (obj < 0 || PtrIsErr(w)) {
                 printf("injectobj setup failed\n");
@@ -453,7 +453,7 @@ static void BenchSpaces(void)
 
     for (uint32_t i = 0; i < HEAVY; i++) {
         Handle sp = CreateSpace("speedtest-bench");
-        Handle obj = CreateMem(16);
+        Handle obj = CreateMem(16, 0);
         uint8_t *w = MemMap(obj, 0, PROT_RW);
         if (sp < 0 || obj < 0 || PtrIsErr(w))
             break;

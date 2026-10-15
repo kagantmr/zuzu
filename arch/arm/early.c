@@ -83,7 +83,7 @@ _Noreturn void early(void *dtb_ptr)
 {
     /* Console-before-everything: a no-op unless the board overrides it.
      * ArchPlatformInitDevices() replaces the sink with the real driver. */
-    kprintf_init(arch_early_putc);
+    kprintf_init(ArchEarlyPutc);
 
     KDEBUG("early: dtb pa=%p", dtb_ptr);
     FdtInit((const void *)PA_TO_VA((PhysAddr)dtb_ptr));

@@ -1,6 +1,8 @@
 // switch.S - context switch implementation for ARMv7
 // ContextSwitch saves/restores CPU state for context switching.
 
+#include <generated/asm-offsets.h>
+
 .fpu vfpv4
 
 #ifdef CONFIG_TIME_MEASURE
@@ -31,10 +33,10 @@ ContextSwitch:
 
     push {r4-r11, lr}
 
-    str sp, [r0, #12]
+    str sp, [r0, #TASK_KERNEL_SP]
 
 .load_next:
-    ldr sp, [r1, #12]
+    ldr sp, [r1, #TASK_KERNEL_SP]
 
     pop {r4-r11, lr}
 

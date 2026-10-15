@@ -1,14 +1,10 @@
 #include "core/ensure.h"
 #include "core/panic.h"
 #include "kernel/bench.h"
-#include "kernel/layout.h"
 #include "kernel/space/space.h"
-#include "kernel/task/kstack.h"
 #include "svc.h"
 #include "svc_nums.h"
 #include <compiler.h>
-
-extern RamLayout kernel_layout;
 
 typedef void (*SvcEntry)(CpuState *);
 
@@ -117,29 +113,10 @@ static BenchStat *SvcBenchSlot(Svc svc_num, CpuState *frame)
 }
 #endif
 
-static __hot bool IsNormalFrame(const CpuState *frame)
-{
-    uintptr_t p = (uintptr_t)frame;
-    if (unlikely(p == 0 || (p & 0x3U) != 0))
-        return false;
-
-    if (likely(kernel_layout.stack_base_va && kernel_layout.stack_top_va &&
-               p >= kernel_layout.stack_base_va &&
-               p + sizeof(CpuState) <= kernel_layout.stack_top_va))
-        return true;
-
-    if (p >= KSTACK_REGION_BASE && p + sizeof(CpuState) <= KSTACK_REGION_TOP)
-        return true;
-
-    return false;
-}
-
 void __hot SvcDispatch(Svc svc_num, CpuState *frame)
 {
     ENSURE_ERR(frame, current_task, ERR_BADARG);
-    ENSURE_GOTO(IsNormalFrame(frame), PanicOnWeirdFrame);
-
-    current_task->trap_frame = frame;
+    ENSURE_GOTO(frame == current_task->trap_frame, PanicOnWeirdFrame);
 
     if (likely(svc_num < SVC_TOTAL_COUNT && svc_table[svc_num])) {
 #ifdef CONFIG_ZUZU_BENCH

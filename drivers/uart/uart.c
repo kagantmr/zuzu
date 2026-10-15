@@ -6,6 +6,7 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <arch/cpu.h>
 #include <string.h>
 
 static const struct uart_driver *active_driver;
@@ -14,10 +15,7 @@ static uintptr_t active_base;
 static inline void ensure_driver(void)
 {
     if (!active_driver) {
-        __asm__ volatile("1:\n"
-                         "    wfi\n"
-                         "    b 1b\n");
-        __builtin_unreachable();
+        ArchCpuHalt();
     }
 }
 

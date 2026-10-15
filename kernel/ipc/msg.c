@@ -135,10 +135,9 @@ __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port, ReplyObje
         panic("CallHandoffToReceiver: called with empty receiver_queue (port=%p)", (void *)port);
     WaitSlot *rx_slot = container_of(node, WaitSlot, node);
     TaskObject *rx = rx_slot->owner;
-    if (!rx || !rx->trap_frame)
-        panic("CallHandoffToReceiver: queued receiver with no trap frame "
-              "(port=%p slot=%p owner=%p)",
-              (void *)port, (void *)rx_slot, (void *)rx);
+    if (!rx)
+        panic("CallHandoffToReceiver: queued receiver slot with no owner (port=%p slot=%p)",
+              (void *)port, (void *)rx_slot);
 
     /* grant_handle was already validated (existence + grantable) in
      * SvcCall before either path was chosen; only allocation in rx's

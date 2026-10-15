@@ -230,8 +230,7 @@ void SchedInsertSleepQueue(TaskObject *t)
 static void SchedWakeTimedOut(TaskObject *t)
 {
     t->sleep_slot = -1;
-    if (t->trap_frame)
-        ArchSetInFrame(t->trap_frame, 0, ERR_TIMEOUT);
+    ArchSetInFrame(t->trap_frame, 0, ERR_TIMEOUT);
     SchedUnblock(t);
     SchedAdd(t);
 }
@@ -293,7 +292,7 @@ static void SchedIdleWait(void)
             return;
         }
 
-        __asm__ volatile("wfi" ::: "memory");
+        ArchCpuIdle();
         ArchGlobalIrqEnable();
         ArchGlobalIrqDisable();
 

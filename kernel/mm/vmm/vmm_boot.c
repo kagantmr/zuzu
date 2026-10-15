@@ -8,6 +8,7 @@
 #include "kernel/layout.h"
 #include "kernel/mm/alloc.h"
 
+#include <arch/cpu.h>
 #include <arch/asid.h>
 #include <arch/barrier.h>
 #include <arch/mmu.h>
@@ -92,8 +93,7 @@ void VmmRemoveIdentityMapping(void)
     PhysAddr map_pa_end = (ram_pa_base + ram_size + SECTION_SIZE - 1) & ~(SECTION_SIZE - 1);
     size_t map_size = map_pa_end - map_pa_start;
 
-    PhysAddr cur_sp = 0;
-    __asm__ volatile("mov %0, sp" : "=r"(cur_sp));
+    PhysAddr cur_sp = ArchCurrentStackPointer();
 
     if (cur_sp < KERNEL_VA_BASE) {
         uint32_t offset = KERNEL_VA_OFFSET;

@@ -31,7 +31,7 @@ void EventSignal(EventObject *ev, EventWord bits, bool bcast)
         ListNode *node = ListPopFront(&ev->wait_queue);
         WaitSlot *slot = container_of(node, WaitSlot, node);
         TaskObject *waiter = slot->owner;
-        assert(waiter && waiter->trap_frame);
+        assert(waiter);
         ArchSetInFrame(waiter->trap_frame, 0, ZUZU_OK);
         (*ArchGetFromFrame(waiter->trap_frame, 1)) = (Register)ev->word;
         SchedUnblock(waiter);

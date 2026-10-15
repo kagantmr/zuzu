@@ -14,4 +14,10 @@
  * void     ArchIrqRestore(uint32_t s);   -- restore prior IRQ state          */
 #include <arch_impl/cpu.h>
 
+void ArchCpuIdle(void);
+
+_Noreturn void ArchCpuHalt(void);
+
+uintptr_t ArchCurrentStackPointer(void);
+
 #endif // ARCH_CPU_H

@@ -61,7 +61,7 @@ void SvcManageTask(CpuState *frame)
 
         target->kernel_sp = (uint32_t *)ArchTaskUserInit(
             (void *)target->kernel_stack_top, (VirtAddr)kargs.entry, (VirtAddr)kargs.sp,
-            USER_ELF_BASE, kargs.r0, kargs.r1, &target->trap_frame);
+            USER_ELF_BASE, kargs.r0, kargs.r1);
         target->state = TASK_STATE_READY;
         SchedAdd(target);
         ArchSetInFrame(frame, 0, ZUZU_OK);
@@ -119,7 +119,8 @@ void SvcManageTask(CpuState *frame)
     } break;
 
     case MNGTASK_GET_REGS: {
-        ENSURE_ERR(frame, target->trap_frame, ERR_DEAD);
+        ENSURE_ERR(frame, target->state != TASK_STATE_ZOMBIE, ERR_DEAD);
+        ENSURE_ERR(frame, target->state != TASK_STATE_FROZEN, ERR_BADARG);
         Register regs[ARCH_NUM_GP_REGS];
         for (unsigned i = 0; i < ARCH_NUM_GP_REGS; i++)
             regs[i] = *ArchGetFromFrame(target->trap_frame, i);
@@ -129,7 +130,8 @@ void SvcManageTask(CpuState *frame)
     } break;
 
     case MNGTASK_SET_REGS: {
-        ENSURE_ERR(frame, target->trap_frame, ERR_DEAD);
+        ENSURE_ERR(frame, target->state != TASK_STATE_ZOMBIE, ERR_DEAD);
+        ENSURE_ERR(frame, target->state != TASK_STATE_FROZEN, ERR_BADARG);
         Register regs[ARCH_NUM_GP_REGS];
         ENSURE_ERR(frame,
                    CopyFromUser(regs, (const void *)(*ArchGetFromFrame(frame, 2)), sizeof(regs)),
