@@ -16,7 +16,7 @@ import time
 
 ANSI = re.compile(rb"\x1b\[[0-9;?]*[a-zA-Z]")
 PROMPT = b"zzsh ~>"
-READY = b"listening on :80"
+READY = b"network up:"
 OK = b"ALL PASS"
 BAD = (b"FAILED", b"FATAL:", b"PANIC", b"KERNEL PANIC")
 

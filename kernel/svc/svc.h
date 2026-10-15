@@ -10,12 +10,6 @@
 #include <svc_nums.h>
 #include <zuzu/err.h>
 
-/*
- * zuzu Syscall ABI (ARMv7-A)
- *
- * Syscall numbers encoded in the lower 8 bits of SVC immediate.
- * Arguments in r0-r3, results in r0-r3 (r0 is the status).
- */
 
 #define CURRENT_SPACE (current_task->owner)
 
