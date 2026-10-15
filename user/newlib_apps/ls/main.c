@@ -35,7 +35,7 @@ int main(int argc, char *argv[])
            break;
        }
        
-       printf("%s\t", entry->d_name);
+       printf("%-10s\t", entry->d_name);
 
        if(i % 5 == 0){
            printf("\n");
