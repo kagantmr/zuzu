@@ -78,7 +78,7 @@ docs/doxygen/
 
 build/
 sd.img
-.*/
+.cache/*
 
 # Build baselines captured by scripts/baseline.sh.
 .baseline/
