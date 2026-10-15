@@ -9,61 +9,39 @@ extern "C" {
 
 typedef int32_t Err;
 
-/*
- * These codes are part of the syscall contract: the number
- * and its meaning never change, and no code is ever removed or renumbered.
- * New kernel codes may only be added in the reserved -13..-99 band.
- *
- */
 #define ZUZU_OK 0
 
-#define ERR_NOPERM (-1)     /* caller lacks the right for this operation      */
-#define ERR_NOENT (-2)      /* a name or id (not a handle) does not exist     */
-#define ERR_BUSY (-3)       /* object exists but is in the wrong state/in use */
-#define ERR_NOMEM (-4)      /* kernel resource exhausted: PMM, kmalloc, table, VA */
-#define ERR_BADTYPE (-5)    /* handle exists but is the wrong type here       */
-#define ERR_BADARG (-6)     /* a passed value is invalid (flag, size, count)  */
-#define ERR_NOSYS (-7)      /* no such syscall, or no such RPC operation      */
-#define ERR_BADPTR (-8)     /* user pointer invalid, unmapped, or uncopyable  */
-#define ERR_DEAD (-9)       /* object was destroyed / peer gone               */
-#define ERR_TIMEOUT (-10)   /* deadline expired; also: poll found nothing     */
-#define ERR_OVERFLOW (-11)  /* caller size/payload exceeds a static limit     */
-#define ERR_BADHANDLE (-12) /* handle index names no live entry in the table  */
+#define ERR_NOPERM (-1)
+#define ERR_NOENT (-2)
+#define ERR_BUSY (-3)
+#define ERR_NOMEM (-4)
+#define ERR_BADTYPE (-5)
+#define ERR_BADARG (-6)
+#define ERR_NOSYS (-7)
+#define ERR_BADPTR (-8)
+#define ERR_DEAD (-9)
+#define ERR_TIMEOUT (-10)
+#define ERR_OVERFLOW (-11)
+#define ERR_BADHANDLE (-12)
 
-/* -13 .. -99  reserved for future zuzu kernel codes  */
-
-/*
- * zuzuOS server/library codes (-100 and up). these may be added to or renumbered
- * with the OS. Same rule still holds here: one code, one meaning.
- */
-#define ERR_BUFFULL (-100)   /* ring/channel is full (writer side)             */
-#define ERR_BUFEMPTY (-101)  /* ring/channel is empty (reader side)            */
-#define ERR_SYSDOWN (-102)   /* a required service is not running              */
-#define ERR_NOTCONN (-103)   /* connection/session is not established          */
-#define ERR_DUPLICATE (-104) /* duplicate registration/request rejected        */
-#define ERR_MALFORMED (-105) /* received bytes fail to parse (wire/packet)     */
-#define ERR_IO (-106)        /* device or filesystem I/O error                 */
+#define ERR_BUFFULL (-100)
+#define ERR_BUFEMPTY (-101)
+#define ERR_SYSDOWN (-102)
+#define ERR_NOTCONN (-103)
+#define ERR_DUPLICATE (-104)
+#define ERR_MALFORMED (-105)
+#define ERR_IO (-106)
 #define ERR_OUTDATED                                                                               \
-    (-107) /* this feature is deprecated or there is a version mismatch between binaries    */
-#define ERR_CONNRESET (-108)   /* connection was reset by the peer                */
-#define ERR_CONNREFUSED (-109) /* peer actively refused the connection            */
+    (-107)
+#define ERR_CONNRESET (-108)
+#define ERR_CONNREFUSED (-109)
 
-/**
- * Fatal error codes (comes from critical processes and is delivered to the kernel)
- *
- * Do NOT use these codes as the exit code.
- */
 #define FATAL_TAG 0xFA7A0000u
 #define FATAL_TAG_MASK 0xFFFF0000u
 #define FATAL_REASON_MASK 0x0000FFFFu
 #define FATAL_KERNEL_OUTDATED 1
 #define FATAL_KERNEL_REFERLMSG 2
 
-/**
- * Killed exit codes.
- *
- * Delivered when a process suddenly exits.
- */
 typedef enum {
     KILLED_BY_PARENT,
     KILLED_FAULT_DATA,
@@ -73,12 +51,6 @@ typedef enum {
     KILLED_OOM,
 } KilledReason;
 
-/**
- * @brief Returns a human-readable string describing the given error code.
- *
- * @param err The error code to describe.
- * @return const char* A pointer to a string describing the error code.
- */
 const char *StrToError(Err errcode);
 
 #ifdef __cplusplus

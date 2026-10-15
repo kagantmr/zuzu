@@ -71,7 +71,7 @@ void MemObjUnref(MemObject *mem)
     if (mem->ref_count == 0) {
         if (mem->kind == MEMKIND_SHARED) {
             for (size_t i = 0; i < mem->shm.page_count; i++)
-                if (mem->shm.page_addrs[i] != 0) /* demand-paged: skip unfaulted slots */
+                if (mem->shm.page_addrs[i] != 0)
                     PmmFreeFrame(mem->shm.page_addrs[i]);
             KFree(mem->shm.page_addrs);
         }

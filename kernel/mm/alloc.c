@@ -17,8 +17,6 @@ extern RamLayout kernel_layout;
 KHeapBlock *heap_head = NULL;
 static KHeapBlock *heap_tail = NULL;
 
-/* Doubly-linked so a slab can be pulled from the middle of full/partial in
- * O(1) when a free/alloc changes its fill state. */
 static __always_inline void SlabListPush(KSlab **head, KSlab *slab)
 {
     slab->prev = NULL;
@@ -39,7 +37,6 @@ static __always_inline void SlabListRemove(KSlab **head, KSlab *slab)
     slab->next = slab->prev = NULL;
 }
 
-/* New slab page, all slots free, pushed onto the cache's partial list. */
 static KSlab *SlabGrow(KSlabCache *cache)
 {
     PhysAddr pa = PmmAllocFrame();
@@ -56,7 +53,6 @@ static KSlab *SlabGrow(KSlabCache *cache)
     slab->used = 0;
     slab->free_head = NULL;
 
-    // build freelist: chain all slots together
     for (size_t i = 0; i < slab->capacity; i++) {
         void *slot = data + (i * cache->obj_size);
         *(void **)slot = slab->free_head;
@@ -69,15 +65,12 @@ static KSlab *SlabGrow(KSlabCache *cache)
 
 static void CreateSlabCache(KSlabCache *cache, size_t obj_size)
 {
-    // enforce minimum: must fit a freelist pointer
     if (obj_size < sizeof(void *))
         obj_size = sizeof(void *);
-    // align up to 8 for ARM alignment
     cache->obj_size = align_up(obj_size, 8);
     cache->partial = NULL;
     cache->full = NULL;
     cache->empty_hold = NULL;
-    // at least one object must fit in a slab page after the header
     assert(cache->obj_size <= PAGE_SIZE - align_up(sizeof(KSlab), 8));
 }
 
@@ -86,7 +79,6 @@ static void *__hot SlabAlloc(KSlabCache *cache)
     KSlab *slab = cache->partial;
 
     if (unlikely(!slab)) {
-        // Reuse the held empty slab before touching the PMM.
         if (cache->empty_hold) {
             slab = cache->empty_hold;
             cache->empty_hold = NULL;
@@ -98,13 +90,11 @@ static void *__hot SlabAlloc(KSlabCache *cache)
         }
     }
 
-    // pop from freelist
     void *obj = slab->free_head;
     slab->free_head = *(void **)obj;
     slab->used++;
 
     if (unlikely(!slab->free_head)) {
-        // slab is now full: move partial -> full
         SlabListRemove(&cache->partial, slab);
         SlabListPush(&cache->full, slab);
     }
@@ -116,13 +106,11 @@ static __always_inline void SlabFree(KSlabCache *cache, void *ptr)
     assert(cache != NULL);
     assert(ptr != NULL);
 
-    // the slab header is at the page-aligned base of this pointer
     KSlab *slab = (KSlab *)align_down((uintptr_t)ptr, PAGE_SIZE);
     assert(slab->owner_cache == cache);
 
     bool was_full = (slab->free_head == NULL);
 
-    // push onto freelist
     *(void **)ptr = slab->free_head;
     slab->free_head = ptr;
     slab->used--;
@@ -142,8 +130,6 @@ static __always_inline void SlabFree(KSlabCache *cache, void *ptr)
     }
 }
 
-/* Generic slab-cache API for subsystems that want a dedicated fixed-size
- * object pool. Callers KSlabInit a zeroed cache before the first KSlabAlloc. */
 void KSlabInit(KSlabCache *cache, size_t obj_size) { CreateSlabCache(cache, obj_size); }
 
 void *KSlabAlloc(KSlabCache *cache) { return SlabAlloc(cache); }
@@ -205,8 +191,6 @@ static bool HeapGrow(size_t min_payload)
     return true;
 }
 
-/* Absorb block->next into block when the two are physically adjacent and
- * next is free. Maintains prev links and heap_tail. */
 static void HeapMerge(KHeapBlock *block)
 {
     KHeapBlock *next = block->next;
@@ -228,7 +212,7 @@ void *KMalloc(size_t size)
     if (!size) {
         return NULL;
     }
-    size_t req = align_up(size, ALIGNMENT); // align area up
+    size_t req = align_up(size, ALIGNMENT);
 
     for (int pass = 0; pass < 2; pass++) {
         for (KHeapBlock *current_block = heap_head; current_block;
@@ -237,7 +221,7 @@ void *KMalloc(size_t size)
                 continue;
 
             size_t leftover = current_block->size - req;
-            if (leftover >= HDR + MIN_PAYLOAD + (ALIGNMENT - 1)) { // split
+            if (leftover >= HDR + MIN_PAYLOAD + (ALIGNMENT - 1)) {
                 KHeapBlock *new_block =
                     (KHeapBlock *)(void *)((uint8_t *)current_block + HDR + req);
 
@@ -289,7 +273,6 @@ void KFree(void *ptr)
         return;
     }
 
-    // Sanity check: ptr must be aligned
     if (((uintptr_t)ptr % ALIGNMENT) != 0) {
         KERROR("KFree: pointer not aligned");
         return;
@@ -313,11 +296,8 @@ void KFree(void *ptr)
     }
     header->state = KBLOCK_FREE;
 
-    // Forward merge: absorb the next block if adjacent and free.
     HeapMerge(header);
 
-    // Backward merge: O(1) via prev pointer. Absorbs header (and whatever it
-    // just merged) into prev.
     if (header->prev && header->prev->state == KBLOCK_FREE)
         HeapMerge(header->prev);
 }

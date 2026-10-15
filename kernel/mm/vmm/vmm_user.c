@@ -12,7 +12,7 @@ Err VmmMapAnon(SpaceObject *space, VirtAddr hint, size_t size, MemProt prot, Vir
 {
     if (size == 0)
         return ERR_BADARG;
-    if (size > 32 * 1024 * 1024) // 32MB static cap
+    if (size > 32 * 1024 * 1024)
         return ERR_OVERFLOW;
     if (size % PAGE_SIZE != 0)
         return ERR_BADARG;
@@ -81,7 +81,7 @@ Err VmmMapMemObj(SpaceObject *space, HandleTableEntry *entry, MemProt prot, Virt
                                 .backing = mem,
                                 .flags = VM_FLAG_NONE};
         if (!VmmAddRegion(space->as, &region))
-            return ERR_NOMEM; // OOM
+            return ERR_NOMEM;
     } break;
     case MEMKIND_DEVICE: {
         size_t size_aligned = align_up(mem->dev.size, PAGE_SIZE);
@@ -116,7 +116,6 @@ Err VmmMapMemObj(SpaceObject *space, HandleTableEntry *entry, MemProt prot, Virt
             return ERR_NOMEM;
         }
 
-        // flush TLB for this VA
         ArchMmuFlushTlbVa(va_base);
         ArchSyncBarrier();
     } break;
@@ -214,7 +213,6 @@ bool VmmCheckUserFault(AddressSpace *as, VirtAddr va, size_t len, bool write)
 
     while (page_va < end_va) {
         if (ArchMmuTranslate(as->pt_root_physaddr, page_va) != 0) {
-            // Already mapped — nothing to do
             page_va += PAGE_SIZE;
             continue;
         }

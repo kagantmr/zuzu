@@ -1,7 +1,3 @@
-// entry.S - exception entry points and trampoline for process entry
-// Assembly code for the exception entry points for ARMv7.
-// Basic handlers for exceptions, they route to ExceptionDispatch.
-
 .syntax unified
 .arm
 
@@ -18,66 +14,63 @@
 .extern do_resched
 
 task_entry_trampoline:
-    // frame at SP: r0-r12, sp_usr, lr_usr, return_pc, return_cpsr
 
     add r0, sp, #52
-    ldm r0, {r13, r14}^     // loads frame[52]->r13_usr, frame[56]->r14_usr, no mode change
-    nop                        // A1085W: no banked-reg access in the next instruction
-    ldmia sp!, {r0-r12}        // restore regs (13 words)
-    add sp, sp, #8             // skip sp_usr/lr_usr
-    rfeia sp!                  // pop return_pc + return_cpsr into PC/Cpsr
+    ldm r0, {r13, r14}^
+    nop
+    ldmia sp!, {r0-r12}
+    add sp, sp, #8
+    rfeia sp!
 
 .macro exception_entry, lr_adjust
     sub lr, lr, #\lr_adjust
-    srsdb sp!, #0x13          // push [return_pc, cpsr]
-    cpsid i, #0x13            // SVC, IRQs off
-    sub sp, sp, #8            // reserve [sp_usr, lr_usr]
-    stmdb sp!, {r0-r12}       // push r0-r12
-    // frame is now complete except sp_usr/lr_usr
+    srsdb sp!, #0x13
+    cpsid i, #0x13
+    sub sp, sp, #8
+    stmdb sp!, {r0-r12}
     add r0, sp, #52
-    stm r0, {r13, r14}^       // stores r13_usr -> [r0], r14_usr -> [r0+4], no mode change
-    nop                       // A1085W: no banked-reg access in the next instruction
+    stm r0, {r13, r14}^
+    nop
 .endm
 
 .macro exception_exit
     add r0, sp, #52
-    ldm r0, {r13, r14}^       // loads frame[52]->r13_usr, frame[56]->r14_usr, no mode change
-    nop                       // A1085W: no banked-reg access in the next instruction
-    ldmia sp!, {r0-r12}       // restore r0-r12
-    add sp, sp, #8            // skip sp_usr/lr_usr
-    rfeia sp!                 // restore pc + cpsr
+    ldm r0, {r13, r14}^
+    nop
+    ldmia sp!, {r0-r12}
+    add sp, sp, #8
+    rfeia sp!
 .endm
 
 .macro exception_dispatch_call, type
     mov r0, #\type
     mov r1, sp
     mov r4, sp
-    bic sp, sp, #7            // AAPCS: force 8-byte alignment; the interrupted SP may be 4 mod 8
+    bic sp, sp, #7
     bl ExceptionDispatch
     mov sp, r4
 .endm
 
 reset_handler:
-    cpsid if             // Mask interrupts
-    cps #0x13            // SVC mode
+    cpsid if
+    cps #0x13
 
-    b _start             // Go to startup code
+    b _start
 1:
     b 1b
 
 irq_handler:
     exception_entry 4
     exception_dispatch_call 6
-    // Check flag to see if we need to call the scheduler
     ldr r0, =do_resched
     ldrb r1, [r0]
     cmp r1, #0
     beq .no_schedule
 .do_schedule:
     mov r1, #0
-    strb r1, [r0]          // Clear flag
+    strb r1, [r0]
     mov r4, sp
-    bic sp, sp, #7         // AAPCS: force 8-byte alignment; see exception_dispatch_call
+    bic sp, sp, #7
     bl Schedule
     mov sp, r4
 .no_schedule:

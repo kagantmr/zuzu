@@ -1,8 +1,3 @@
-// arch_impl/cycles.h - ARM cycle counter (architecture-private).
-//
-// Do not include directly from neutral code; include <arch/cycles.h> instead.
-// PMCCNTR is enabled and opened to user mode in arch/arm/early.c.
-
 #ifndef ARCH_ARM_IMPL_CYCLES_H
 #define ARCH_ARM_IMPL_CYCLES_H
 

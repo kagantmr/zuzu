@@ -1,8 +1,3 @@
-// arch_impl/counter.h - ARM user-readable counter (architecture-private).
-//
-// Do not include directly from neutral code; include <arch/counter.h> instead.
-// CNTVCT, opened to user mode by CNTKCTL.PL0VCTEN in ArchTimerInit().
-
 #ifndef ARCH_ARM_IMPL_COUNTER_H
 #define ARCH_ARM_IMPL_COUNTER_H
 

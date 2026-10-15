@@ -13,91 +13,31 @@ extern "C" {
 #include <types.h>
 #include <zuzu/err.h>
 
-/**
- * @brief Terminates the calling task with the specified exit status.
- *
- * @param exit_status The exit status to return to the caller.
- *
- * @return Never returns.
- */
 static inline void Quit(Err exit_status) { ArchInvokeSvc(SVC_QUIT, exit_status, 0, 0, 0); }
 
-/**
- * @brief Yields the calling task voluntarily, allowing other tasks to run.
- */
 static inline void Yield(void) { ArchInvokeSvc(SVC_YIELD, 0, 0, 0, 0); }
 
-/**
- * @brief Suspends the calling process for a specified number of milliseconds.
- *
- * @param ms The number of milliseconds to sleep.
- *
- * @return ZUZU_OK unconditionally.
- */
 static inline Err Sleep(Duration ms) { return ArchInvokeSvc(SVC_SLEEP, (Register)ms, 0, 0, 0); }
 
-/**
- * @brief Creates a task object in the specified space.
- *
- * @param space_handle The handle of the space to create the task in.
- *
- * @return The handle of the created task.
- */
 static inline Handle CreateTask(Handle space_handle)
 {
     return ArchInvokeSvc(SVC_CREATE, OBJECT_TASK, space_handle, 0, 0);
 }
 
-/**
- * @brief Creates a space object with the specified name.
- *
- * @param name The name of the space to create.
- *
- * @return The handle of the created space.
- */
 static inline Handle CreateSpace(const char *name)
 {
     return ArchInvokeSvc(SVC_CREATE, OBJECT_SPACE, (VirtAddr)name, strlen(name), 0);
 }
 
-/**
- * @brief Creates a port object.
- *
- * @return The handle of the created port.
- */
 static inline Handle CreatePort(void) { return ArchInvokeSvc(SVC_CREATE, OBJECT_PORT, 0, 0, 0); }
 
-/**
- * @brief Creates an event object.
- *
- * @return The handle of the created event.
- */
 static inline Handle CreateEvent(void) { return ArchInvokeSvc(SVC_CREATE, OBJECT_EVENT, 0, 0, 0); }
 
-/**
- * @brief Creates a memory object with the specified page count.
- *
- * @param page_count The number of pages to allocate.
- *
- * @return The handle of the created memory.
- */
 static inline Handle CreateMem(size_t page_count, CreateMemoryFlags flags)
 {
     return ArchInvokeSvc(SVC_CREATE, OBJECT_MEMORY, (Register)page_count, flags, 0);
 }
 
-/**
- * @brief Starts a task with the specified handle, entry point, stack pointer, and initial register
- * values.
- *
- * @param h The handle of the task to start.
- * @param entry The entry point of the task.
- * @param sp The stack pointer of the task.
- * @param r0 The initial value of register r0.
- * @param r1 The initial value of register r1.
- *
- * @return ZUZU_OK if the task was started successfully, error code otherwise.
- */
 static inline Err TaskStart(Handle h, void *entry, void *sp, uint32_t r0, uint32_t r1)
 {
     KickstartArgs args = {
@@ -139,28 +79,16 @@ static inline Err TaskResume(Handle h)
     return ArchInvokeSvc(SVC_MANAGETASK, h, MNGTASK_RESUME, 0, 0);
 }
 
-
 static inline Err TaskGetRegs(Handle h, TaskRegs *out)
 {
     return ArchInvokeSvc(SVC_MANAGETASK, h, MNGTASK_GET_REGS, (Register)(VirtAddr)out, 0);
 }
-
 
 static inline Err TaskSetRegs(Handle h, const TaskRegs *in)
 {
     return ArchInvokeSvc(SVC_MANAGETASK, h, MNGTASK_SET_REGS, (Register)(VirtAddr)in, 0);
 }
 
-/**
- * @brief Blocks on any waitable handle (Port, Event, Task, Space) until
- * something arrives or timeout elapses. What r1-r3 mean depends entirely
- * on the handle's type:
- *   Port:  r1 = sender's port marker, r2 = xlen, r3 = granted handle (or -1)
- *   Event: r1 = signaled bits
- *   Task:  r1 = exit_status (exited) or fault reason (faulted), r3 = TASK_EXITED / TASK_FAULTED
- *   Space: r1 = last_exit_status
- * r0 is always the status (ZUZU_OK or an Err).
- */
 static inline SvcResult WaitOn(Handle h, Duration timeout)
 {
     return ArchInvokeSvc4(SVC_WAITON, h, (Register)timeout, 0, 0);
@@ -184,8 +112,6 @@ static inline EventWaitResult FormatToEventWait(SvcResult r)
     };
 }
 
-/** @brief .value is exit_status when .outcome == TASK_EXITED, or
- * fault_reason when .outcome == TASK_FAULTED. */
 static inline TaskWaitResult FormatToTaskWait(SvcResult r)
 {
     return (TaskWaitResult){
@@ -302,32 +228,21 @@ static inline Err BindIrq(Handle ev_handle, Handle dev_handle, uint32_t bit)
     return ArchInvokeSvc(SVC_BIND, EVENT_IRQ, ev_handle, dev_handle, (Register)bit);
 }
 
-/** @brief type must be EVENT_PORT, EVENT_TASK, or EVENT_SPACE; target is a
- * handle of the matching kind. */
 static inline Err Bind(EventType type, Handle ev_handle, Handle target, uint32_t bit)
 {
     return ArchInvokeSvc(SVC_BIND, type, ev_handle, target, (Register)bit);
 }
 
-/** @brief Grants handle h directly into target_space's table (you need
- * PERM_CNTL over target_space). r1 = the new handle's value in the
- * *target's* table, though the target itself has to already know the convention
- * (e.g. "slot 0") to find it. */
 static inline SvcResult HandleGrant(Handle h, Handle target_space_handle, HandlePerms perms)
 {
     return ArchInvokeSvc4(SVC_MANAGEHANDLE, h, MNGHNDL_GRANT, target_space_handle, perms);
 }
 
-/** @brief Unmasks the IRQ line of a device handle this space bound with
- * BindIrq. The kernel masks the line on every interrupt; call this once the
- * device's interrupt source has been cleared. */
 static inline Err IrqRearm(Handle dev_handle)
 {
     return ArchInvokeSvc(SVC_MANAGEHANDLE, dev_handle, MNGHNDL_IRQ_REARM, 0, 0);
 }
 
-
-/** @brief Duplicates h into a new handle written to *out. */
 static inline Err HandleDup(Handle h, HandlePerms perms, Marker marker, Handle *out)
 {
     SvcResult r = HandleDuplicate(h, perms, marker);
@@ -336,7 +251,6 @@ static inline Err HandleDup(Handle h, HandlePerms perms, Marker marker, Handle *
     return (Err)r.r0;
 }
 
-/** @brief Grants h into target_space's table; *out is its slot in the target. */
 static inline Err HandleGrantTo(Handle h, Handle target_space_handle, HandlePerms perms,
                                 Handle *out)
 {
@@ -363,17 +277,12 @@ static inline Err HandleQuerySize(Handle h, size_t *out)
     return rc;
 }
 
-/** @brief True if h is a live handle whose object has not died. */
 static inline bool HandleIsAlive(Handle h)
 {
     uint32_t st = 0;
     return HandleQueryValue(h, QUERY_STATUS, &st) == ZUZU_OK && (Err)st != ERR_DEAD;
 }
 
-/**
- * @brief Call() that reports the reply length and any handle the server
- * granted back through *reply_len / *reply_grant (either may be NULL).
- */
 static inline Err CallPort(Handle port, uint32_t xlen, Handle grant_handle, uint32_t *reply_len,
                            Handle *reply_grant)
 {
@@ -422,8 +331,6 @@ static inline void BenchDump(void) {}
 
 static inline int PtrIsErr(const void *p) { return (VirtAddr)p >= (VirtAddr)(-4095); }
 
-/** @brief Copies len bytes into a fresh object and maps it at va in the target space, rounded up
- * to whole pages and zero-padded. The object is released once the mapping holds it. */
 static inline Err MemInjectBytes(Handle kitten_space_handle, VirtAddr va, const void *src,
                                  size_t len, MemProt prot)
 {

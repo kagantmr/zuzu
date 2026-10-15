@@ -30,7 +30,7 @@ static SvcEntry svc_table[SVC_TOTAL_COUNT] = {
     [SVC_QUIT] = SvcQuit,
     [SVC_YIELD] = SvcYield,
 #ifdef DEBUG
-    [SVC_LOG] = SvcDebugLog, /* defined in svc_log.c; DEBUG builds only */
+    [SVC_LOG] = SvcDebugLog,
 #else
     [SVC_LOG] = NULL,
 #endif

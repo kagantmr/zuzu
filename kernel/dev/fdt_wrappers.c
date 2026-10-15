@@ -386,11 +386,6 @@ static bool FdtTranslateAddress(const char *node_path, uint64_t raw_addr, uint64
     if (!node_path || !out_phys || !g_fdt_ready)
         return false;
 
-    /* static, not a stack local: same rationale as FdtEnumerateDevices()'s
-     * buffers below -- this is only ever reached from that function's
-     * single-threaded, non-reentrant boot-time device walk (via
-     * FdtGetRegPa), and the 256-byte buffer alone was most of what
-     * pushed this function over the 512-byte frame budget. */
     static char current_path[256];
     size_t len = strlen(node_path);
     if (len >= sizeof(current_path))
@@ -400,11 +395,7 @@ static bool FdtTranslateAddress(const char *node_path, uint64_t raw_addr, uint64
     uint64_t addr = raw_addr;
 
     while (true) {
-        /* get_parent_path() fully overwrites its output (memcpy of the
-         * whole input) before truncating it in place, so it's safe to
-         * call with the same buffer as both path and parent -- avoids a
-         * second 256-byte stack buffer just to shuttle the result back
-         * into current_path every iteration. */
+        
         if (!get_parent_path(current_path, current_path, sizeof(current_path)))
             break;
 

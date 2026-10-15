@@ -8,36 +8,30 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 
-typedef int32_t Handle;     /* Index into kernel-managed handle table */
-typedef int32_t Spid;       /* zuzu Space ID or -err */
-typedef int32_t Tid;        /* zuzu Task ID or -err */
-typedef uint64_t Tick;      /* Monotonic tick counts */
-typedef uintptr_t PhysAddr; /* Physical memory address */
-typedef uintptr_t VirtAddr; /* Virtual memory address */
-typedef uint32_t Irq;       /* IRQ number */
-typedef uint32_t Duration;  /* for sleep and other timeout-taking syscalls */
-typedef uint64_t Time;      /* wall-clock time */
-typedef int32_t Err;        /* Error code */
+typedef int32_t Handle;
+typedef int32_t Spid;
+typedef int32_t Tid;
+typedef uint64_t Tick;
+typedef uintptr_t PhysAddr;
+typedef uintptr_t VirtAddr;
+typedef uint32_t Irq;
+typedef uint32_t Duration;
+typedef uint64_t Time;
+typedef int32_t Err;
 typedef uint32_t Marker;
 typedef uint32_t Ticket;
 typedef uint32_t EventWord;
 
-/* ---- Common IPC types ---- */
-
 #define TIMEOUT_POLL 0u
 #define TIMEOUT_INFINITE UINT32_MAX
 
-#define TIMESLICE_DEFAULT_US 50000u /* 50 ms, same as the old default of 5 ticks */
-#define TIMESLICE_MIN_US 100u       /* below this, the comparator storms */
-#define TIMESLICE_MAX_US 1000000u   /* 1 s */
+#define TIMESLICE_DEFAULT_US 50000u
+#define TIMESLICE_MIN_US 100u
+#define TIMESLICE_MAX_US 1000000u
 
-/* Handle sentinels  */
+#define HANDLE_ANON ((Handle) - 1)
+#define MARKER_NONE 0
 
-#define HANDLE_ANON ((Handle) - 1) /* MemMap handle for anonymous memory (MemMapAnon) */
-#define MARKER_NONE 0              /* Means unbadged */
-
-/* First handle slot in rootsvc's table where the kernel loader seeds device
- * MemObjects */
 #define DEVICE_HANDLE_BASE 16
 
 typedef enum {
@@ -49,9 +43,6 @@ typedef enum {
     PERM_ALL = (PERM_WAIT | PERM_SEND | PERM_TXFR | PERM_MAP | PERM_CNTL)
 } HandlePerms;
 
-/**
- * @brief Enum for the first argument of Create().
- */
 typedef enum {
     OBJECT_TASK = 0,
     OBJECT_SPACE,
@@ -62,7 +53,7 @@ typedef enum {
 } ZuzuObjectCode;
 
 typedef enum {
-    MEM_CONTIG = (1U << 0), // physically contiguous, allocated and zeroed at creation
+    MEM_CONTIG = (1U << 0),
     MEM_UNCACHED = (1U << 1),
     MEM_FLAGS_ALL = (MEM_CONTIG | MEM_UNCACHED)
 } CreateMemoryFlags;
@@ -81,9 +72,6 @@ typedef struct {
     DmaDir dir;
 } DmaMapArgs;
 
-/**
- * @brief This struct represents the 4 arguments passed into ManageHandle() to start a task.
- */
 typedef struct {
     void *entry;
     void *sp;
@@ -124,19 +112,18 @@ typedef struct {
 
 typedef enum { DMA_SYNC_FOR_DEVICE, DMA_SYNC_FOR_CPU } DmaSyncOp;
 
-/* Kernel event types users can subscribe to */
 typedef enum {
-    EVENT_MEMMGMT = 1, /* memory pressure */
-    EVENT_IRQ,         /* interrupts */
-    EVENT_PORT,        /* port events */
-    EVENT_TASK,        /* task events */
-    EVENT_SPACE,       /* space events */
+    EVENT_MEMMGMT = 1,
+    EVENT_IRQ,
+    EVENT_PORT,
+    EVENT_TASK,
+    EVENT_SPACE,
 } EventType;
 
 typedef enum {
-    PROT_READ = 1U << 0,  // read access
-    PROT_WRITE = 1U << 1, // write access
-    PROT_EXEC = 1U << 2   // execute access
+    PROT_READ = 1U << 0,
+    PROT_WRITE = 1U << 1,
+    PROT_EXEC = 1U << 2
 } MemProt;
 
 #define PROT_RW ((PROT_READ) | (PROT_WRITE))
@@ -193,11 +180,11 @@ typedef enum {
 #define SIGNAL_BROADCAST (1U << 0)
 
 typedef struct {
-    Handle mem;          // shm object in the current space, or HANDLE_ANON for demand-zero memory
-    VirtAddr dest_vaddr; // destination virtual address in the target space
-    size_t offset;       // byte offset into the object; ignored for HANDLE_ANON
-    size_t len;          // bytes to map
-    MemProt prot;        // protection of the destination mapping
+    Handle mem;
+    VirtAddr dest_vaddr;
+    size_t offset;
+    size_t len;
+    MemProt prot;
 } InjectObjArgs;
 
 #ifdef __cplusplus

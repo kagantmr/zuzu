@@ -25,9 +25,6 @@ static Tid RegisterTask(TaskObject *task)
     if (!task)
         return 0;
 
-    /* Advance next_tid until its hashed slot is free, so the assigned tid
-     * always satisfies tid % MAX_TASKS == slot, which keeps
-     * TaskObjectUnregister O(1). */
     Tid start = next_tid % MAX_TASKS;
     Tid slot = start;
     while (task_table[slot] != NULL) {
@@ -93,9 +90,8 @@ void TaskUnref(TaskObject *t)
     if (t->ref_count == 0 && t->released) {
         KSlabFree(&task_cache, t);
     } else if (t->ref_count == 0 && t->state == TASK_STATE_FROZEN) {
-        /* Never started and nobody can start it now: nothing else will ever
-         * reap it, so its kernel stack and TCB slot would leak. */
-        TaskDestroy(t); /* also frees the object: ref_count is 0 */
+        
+        TaskDestroy(t);
     }
 }
 
@@ -107,15 +103,12 @@ void TaskDestroy(TaskObject *task)
     TaskObjectUnregister(task);
     if (fpu_owner == task)
         fpu_owner = NULL;
-    // may already be unlinked by TaskTerminate, guard is safe
     if (task->space_node.prev && task->space_node.next)
         ListRemove(&task->space_node);
     SpaceObject *owner = task->owner;
     if (owner && task->state != TASK_STATE_ZOMBIE)
         owner->live_tasks--;
-    /* Release the TCB slot; scrub it so a reused slot never shows a
-     * previous task's tid/spid. tcb_page_pa == 0 means the page is
-     * already gone (Space teardown fail paths). */
+    
     if (owner && task->tcb_slot < TCB_MAX_SLOTS &&
         owner->tcb_page_pa[task->tcb_slot / SLOTS_PER_PAGE]) {
         memset((void *)TcbSlotKernelVa(owner, task->tcb_slot), 0, TCB_SLOT_SIZE);
@@ -196,8 +189,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
         KSlabFree(&task_cache, task);
         return NULL;
     }
-    /* Space creation only backs TCB page 0; slots on later pages get theirs
-     * here, on first use (they are freed with the Space's anon regions). */
+    
     uint32_t tcb_page = (uint32_t)tcb_slot_idx / SLOTS_PER_PAGE;
     if (!owner->tcb_page_pa[tcb_page]) {
         PhysAddr pa = PmmAllocFrame();
@@ -279,9 +271,6 @@ void TaskTerminate(TaskObject *task, Err exit_status)
         task->held_port = NULL;
     }
 
-    /* (a) task was a caller mid-call: its reply cap lives in its own TCB
-     * storage, about to become invalid. Tell the server holding it so a
-     * later Reply fails cleanly instead of reading freed memory. */
     if (task->pending_reply_cap && task->reply_holder) {
         TaskClearReplyCap(task->reply_holder);
         task->reply_holder = NULL;
@@ -289,9 +278,6 @@ void TaskTerminate(TaskObject *task, Err exit_status)
         PortBoostServers(task->blocked_port);
     }
 
-    /* (b) task was holding a reply cap (received a Call, hasn't Replied
-     * yet): wake its caller with ERR_DEAD instead of leaving it blocked
-     * forever. */
     if (task->reply_cap) {
         TaskObject *caller = task->reply_cap->caller_task;
         if (caller && caller->tid == task->reply_cap->caller_tid &&
@@ -317,11 +303,9 @@ void TaskTerminate(TaskObject *task, Err exit_status)
 
     WakeWaitList(&task->joiners, exit_status);
 
-    /* The last task of a Space stays a zombie until the Space is destroyed. */
     if (space_hollow)
         return;
     if (task == current_task) {
-        /* Can't free our own kernel stack while running on it. */
         SchedQueueDestroyTask(task);
     } else {
         TaskDestroy(task);
@@ -346,7 +330,6 @@ void TaskFault(TaskObject *task, Err reason)
 }
 
 #define PRIORITY_PROPAGATION_DEPTH 8
-
 
 static void RecomputePriorityAt(TaskObject *t, unsigned depth);
 
@@ -425,4 +408,3 @@ void TaskSyncTcbPrio(TaskObject *t)
     tcb->prio = (uint8_t)t->base_prio;
     tcb->max_prio = (uint8_t)t->max_prio;
 }
-

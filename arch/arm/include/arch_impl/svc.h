@@ -1,14 +1,10 @@
-// arch_impl/svc.h - ARM syscall trap (architecture-private).
-//
-// Do not include directly from neutral code; include <arch/svc.h> instead.
-
 #ifndef ARCH_ARM_IMPL_SVC_H
 #define ARCH_ARM_IMPL_SVC_H
 
 #ifdef __thumb__
 #define ARCH_SVC_MAGIC 0x23
 #else
-#define ARCH_SVC_MAGIC 0x112023 /* November 2023, Zuzu's birthday */
+#define ARCH_SVC_MAGIC 0x112023
 #endif
 
 #ifndef __ASSEMBLER__

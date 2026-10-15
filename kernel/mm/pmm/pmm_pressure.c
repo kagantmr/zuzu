@@ -1,7 +1,3 @@
-/* Low-memory-pressure notification: subscribers register an Event and get
- * signalled when free frames cross the low/high watermarks. Independent
- * of the actual allocator algorithm in pmm.c. */
-
 #include "pmm_internal.h"
 
 #include "kernel/ipc/event.h"
@@ -9,8 +5,8 @@
 
 #include <zuzu/err.h>
 
-#define LOW_WATER_PCT 20  // fire when free < 20%
-#define HIGH_WATER_PCT 30 // clear when free > 30%
+#define LOW_WATER_PCT 20
+#define HIGH_WATER_PCT 30
 
 #define LOG_FMT(fmt) "(pmm) " fmt
 #include "util/log.h"
@@ -30,13 +26,10 @@ void PmmSignalSubscribers(void)
         pmm_state.in_pressure = true;
         KWARN("Memory usage exceeded low-water mark, signalling subscribers");
 
-        // walk subscribers and signal them
-        // drop dead events: EventUnref, KFree(subscriber)
         ListNode *pos, *tmp;
         LIST_FOR_EACH_SAFE(pos, tmp, &pmm_subscribers.node)
         {
             PmmSubscriber *sub = container_of(pos, PmmSubscriber, node);
-            // safe to remove sub from list here
             if (!sub->ev->alive) {
                 ListRemove(pos);
                 EventUnref(sub->ev);

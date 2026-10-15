@@ -13,7 +13,7 @@ Err CondVarInit(CondVariable *cv)
 Err CondVarDestroy(CondVariable *cv) { return SemDestroy(&cv->sem); }
 
 Err CondVarWait(CondVariable *cv, Zone *z)
-{ // z held on entry
+{
     uint32_t ticket = atomic_load(&cv->seq);
     atomic_fetch_add(&cv->waiters, 1);
     ZoneExit(z);
@@ -25,7 +25,7 @@ Err CondVarWait(CondVariable *cv, Zone *z)
 }
 
 Err CondVarSignal(CondVariable *cv)
-{ // z held by caller
+{
     atomic_fetch_add(&cv->seq, 1);
     if (atomic_load(&cv->waiters) > 0)
         SemPost(&cv->sem);
@@ -33,7 +33,7 @@ Err CondVarSignal(CondVariable *cv)
 }
 
 Err CondVarBroadcast(CondVariable *cv)
-{ // z held by caller
+{
     atomic_fetch_add(&cv->seq, 1);
     int n = atomic_load(&cv->waiters);
     for (int i = 0; i < n; i++)

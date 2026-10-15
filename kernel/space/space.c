@@ -56,7 +56,6 @@ SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
     if (!sp->as)
         goto fail_handles;
 
-    /* Map syspage into user space. */
     if (!VmmMapUserPage(sp->as, SyspagePa(), USER_SYSPAGE_VA, PROT_READ))
         goto fail_as;
 
@@ -88,14 +87,13 @@ SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
         .vaddr_start = tcb_user_va,
         .size = MAX_TCB_PAGES * PAGE_SIZE,
         .prot = PROT_READ | PROT_WRITE | VM_PROT_USER,
-        .owner = VM_BACKING_ANON, // GUARD dropped so pages 1..N demand-back; PINNED still blocks
-                                  // user unmap.
+        .owner = VM_BACKING_ANON,
         .flags = VM_FLAG_PINNED,
     };
     if (!VmmAddRegion(sp->as, &tcb_region))
         goto fail_as;
 
-    sp->tcb_page_va = tcb_user_va; /* user-visible VA */
+    sp->tcb_page_va = tcb_user_va;
 
     VirtMemRegion stack_region = {
         .vaddr_start = USER_STACK_BASE,
@@ -119,8 +117,6 @@ SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
     if (!VmmAddRegion(sp->as, &stack_guard))
         goto fail_as;
 
-    /* Initialize the TCB page via the kernel alias; slot claiming for the
-     * first task happens in TaskCreate, not here. */
     memset((void *)PA_TO_VA(tcb_page0_phys_addr), 0, PAGE_SIZE);
     memset(sp->tcb_slot_bitmap, 0, sizeof(sp->tcb_slot_bitmap));
 
@@ -272,7 +268,6 @@ void SpaceWaitHollow(SpaceObject *sp, Duration timeout, CpuState *frame)
 bool SpaceIsHollow(const SpaceObject *sp) { return sp->live_tasks == 0; }
 bool SpaceIsSelfOrAncestor(const SpaceObject *sp, const SpaceObject *target)
 {
-    /* Bounded: a dead ancestor's spid can be reused by an unrelated space. */
     for (uint32_t depth = 0; sp && depth < MAX_SPACES; depth++) {
         if (sp == target)
             return true;

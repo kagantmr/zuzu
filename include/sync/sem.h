@@ -1,5 +1,3 @@
-/* sem.h - zuzuOS notification-based semaphore library. */
-
 #ifndef ZUZU_SYNC_SEM
 #define ZUZU_SYNC_SEM
 
@@ -9,7 +7,7 @@
 
 typedef struct sem {
     _Atomic int count;
-    Handle event; /* kernel event object waiters block on */
+    Handle event;
 } Semaphore;
 
 Err SemInit(Semaphore *s, int initial_count);

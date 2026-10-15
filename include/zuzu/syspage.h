@@ -16,23 +16,23 @@ extern "C" {
 #define SYSPAGE (void *)SYSPAGE_VA
 
 typedef struct {
-    char name[SYSPAGE_DEV_NAME_LEN]; /* "PL111 CLCD", "SMSC LAN9118", etc */
+    char name[SYSPAGE_DEV_NAME_LEN];
 } SyspageDevEntry;
 
 typedef struct {
-    uint32_t magic;      // Must be 0x50050CA7 "zoozoo cat"
-    uint32_t kernel_ver; // Top byte reserved, next 3 bytes are kernel version (major, minor, patch)
-    char version[24];    // version string, constant after boot
-    char build[24];      // build timestamp, constant after boot
-    char machine[20];    // from DTB, constant after boot
-    char cpu[24];        // from DTB, constant after boot
-    size_t mem_total_kb; // set at SyspageInit()
-    size_t mem_free_kb;  // updated
-    uint64_t counter_freq; // Hz of the user-readable counter (<arch/counter.h>)
-    uint64_t counter_boot; // counter value at boot; uptime = counter - counter_boot
-    uint8_t dev_count;   // how many devices are in the devs[] array
-    size_t initrd_size;  // size of initrd
-    SyspageDevEntry devs[SYSPAGE_MAX_DEVICES]; // filled from DTB walk at boot
+    uint32_t magic;
+    uint32_t kernel_ver;
+    char version[24];
+    char build[24];
+    char machine[20];
+    char cpu[24];
+    size_t mem_total_kb;
+    size_t mem_free_kb;
+    uint64_t counter_freq;
+    uint64_t counter_boot;
+    uint8_t dev_count;
+    size_t initrd_size;
+    SyspageDevEntry devs[SYSPAGE_MAX_DEVICES];
     uint32_t _reserved;
 } Syspage;
 

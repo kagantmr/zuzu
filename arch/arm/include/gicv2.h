@@ -1,15 +1,9 @@
-// gicv2.h - ARM Generic Interrupt Controller v2 definitions
-// This file defines the register offsets and function prototypes for initializing and interacting
-// with the GICv2 interrupt controller. The GIC is responsible for managing peripheral interrupts
-// and delivering them to the CPU.
-
 #ifndef ARCH_ARM_GICV2_H
 #define ARCH_ARM_GICV2_H
 
 #include <stdint.h>
 #include <types.h>
 
-/* Distributor */
 #define GICD_CTLR 0x000
 #define GICD_IGROUPR 0x080
 #define GICD_ISENABLER 0x100
@@ -19,54 +13,23 @@
 #define GICD_ITARGETSR 0x800
 #define GICD_ICFGR 0xC00
 
-/* CPU Interface */
 #define GICC_CTLR 0x000
 #define GICC_PMR 0x004
 #define GICC_IAR 0x00C
 #define GICC_EOIR 0x010
 
-/**
- * @brief Initialize the GICv2 distributor and CPU interface.
- */
 void GicInit(uintptr_t gicd_base_addr, uintptr_t gicc_base_addr);
 
-/**
- * @brief Set up a specific IRQ in the GIC.
- * @param irq_id The IRQ number to enable.
- */
 void GicV2ConfigureIrq(Irq irq_id);
 
-/**
- * @brief Enable a specific IRQ in the GIC.
- * @param irq_id The IRQ number to enable.
- */
 void GicV2UnmaskIrq(Irq irq_id);
 
-/**
- * @brief Disable a specific IRQ in the GIC.
- * @param irq_id The IRQ number to disable.
- */
 void GicV2MaskIrq(uint32_t irq_id);
 
 void GicV2SetPriority(Irq irq_id, uint8_t priority);
 
-/**
- * @brief Acknowledge an IRQ and return the raw IAR value.
- *
- * This function returns the raw Interrupt Acknowledge Register (IAR)
- * value, which contains the INTID in the low 10 bits.
- *
- * @return The raw IAR value.
- */
 uint32_t GicAcknowledge(void);
 
-/**
- * @brief Signal the end of an IRQ to the GIC.
- *
- * Callers must pass the raw IAR value returned by GicAcknowledge().
- *
- * @param iar The raw IAR value to signal completion for.
- */
 void GicEnd(uint32_t iar);
 
 #endif

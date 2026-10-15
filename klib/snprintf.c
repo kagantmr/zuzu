@@ -3,7 +3,7 @@
 typedef struct {
     char *buf;
     size_t pos;
-    size_t max; // max chars to write (excluding null terminator)
+    size_t max;
 } snprintf_ctx_t;
 
 static void snprintf_outc(void *ctx, char c)

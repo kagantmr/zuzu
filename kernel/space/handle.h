@@ -16,8 +16,8 @@
 #include "kernel/mm/mem_object.h"
 #include "kernel/task/task.h"
 
-#define HANDLE_INDEX_BITS 10u                              /* log2(HANDLE_MAX_SLOTS) */
-#define HANDLE_INDEX_MASK ((1u << HANDLE_INDEX_BITS) - 1u) /* 0x3FF */
+#define HANDLE_INDEX_BITS 10u
+#define HANDLE_INDEX_MASK ((1u << HANDLE_INDEX_BITS) - 1u)
 
 #define HANDLE_PACK(index, gen)                                                                    \
     (((uint32_t)(gen) << HANDLE_INDEX_BITS) | ((uint32_t)(index) & HANDLE_INDEX_MASK))
@@ -37,9 +37,9 @@ typedef enum {
 } HandleType;
 
 typedef struct HandleTableEntryStruct {
-    HandleType type; /* HANDLE_* */
+    HandleType type;
     HandlePerms perms;
-    VirtAddr mapped_va; /* For shm and device: destroy() checks before freeing */
+    VirtAddr mapped_va;
     union {
         PortObject *port;
         MemObject *mem;
@@ -47,14 +47,13 @@ typedef struct HandleTableEntryStruct {
         TaskObject *task;
         SpaceObject *space;
     };
-    Marker marker; /* Added in zuzu 1.1: Same handle can be stamped with a marker to demux
-                      clients sharing a port */
+    Marker marker; 
     uint32_t generation;
 } HandleTableEntry;
 
 #define HANDLE_BLOCK_SLOTS 64U
 #define HANDLE_MAX_BLOCKS 16U
-#define HANDLE_MAX_SLOTS (HANDLE_BLOCK_SLOTS * HANDLE_MAX_BLOCKS) /* 1024 */
+#define HANDLE_MAX_SLOTS (HANDLE_BLOCK_SLOTS * HANDLE_MAX_BLOCKS)
 
 typedef HandleTableEntry HandleBlock[HANDLE_BLOCK_SLOTS];
 
@@ -74,8 +73,6 @@ static inline void HandleTableDestroy(HandleTable *t)
     BitmapZero(t->slot_bitmap, HANDLE_MAX_SLOTS);
 }
 
-/* Bounds check + two-level index, hit on every send/recv/call/reply/notify/
- * irq/memmap syscall. One extra branch + deref over a flat array. */
 static __always_inline HandleTableEntry *HandleTableGet(HandleTable *t, Handle i)
 {
     if (unlikely((uint32_t)i >= HANDLE_MAX_SLOTS))
@@ -86,7 +83,6 @@ static __always_inline HandleTableEntry *HandleTableGet(HandleTable *t, Handle i
     return &(*blk)[(uint32_t)i % HANDLE_BLOCK_SLOTS];
 }
 
-/* Backs the leaf block holding slot `i`, allocating it on first use. */
 static inline bool HandleBlockEnsure(HandleTable *t, uint32_t i)
 {
     uint32_t b = i / HANDLE_BLOCK_SLOTS;
@@ -95,7 +91,6 @@ static inline bool HandleBlockEnsure(HandleTable *t, uint32_t i)
     return t->blocks[b] != NULL;
 }
 
-/* Returns a free slot index, allocating its leaf block on first use. */
 static inline Handle HandleTableFindFree(HandleTable *t)
 {
     int slot = BitmapFindFirstZero(t->slot_bitmap, HANDLE_MAX_SLOTS);
@@ -119,7 +114,6 @@ static inline HandleTableEntry *HandleTableGetOrAlloc(HandleTable *t, Handle i)
     return &(*t->blocks[(uint32_t)i / HANDLE_BLOCK_SLOTS])[(uint32_t)i % HANDLE_BLOCK_SLOTS];
 }
 
-/* Recover a slot index from a HandleEntry * by finding its leaf block. */
 static inline uint32_t HandleEntryIndex(const HandleTable *t, const HandleTableEntry *e)
 {
     for (uint32_t b = 0; b < HANDLE_MAX_BLOCKS; b++) {
@@ -130,8 +124,6 @@ static inline uint32_t HandleEntryIndex(const HandleTable *t, const HandleTableE
     return HANDLE_MAX_SLOTS;
 }
 
-/* Mark a slot allocated. Call once, after every error check has passed and
- * the entry's type/union are filled in. */
 static inline void HandleEntryClaim(HandleTable *t, HandleTableEntry *e)
 {
     uint32_t i = HandleEntryIndex(t, e);

@@ -6,9 +6,9 @@ extern "C" {
 #include <stdint.h>
 
 typedef struct {
-    uint32_t size;          /* power of 2 */
-    volatile uint32_t head; /* producer-owned */
-    volatile uint32_t tail; /* consumer-owned */
+    uint32_t size;
+    volatile uint32_t head;
+    volatile uint32_t tail;
 } ShmRingHdr;
 
 static inline void ShmRingInit(ShmRingHdr *r, uint32_t size)
@@ -28,7 +28,7 @@ static inline uint32_t ShmRingPush(ShmRingHdr *r, uint8_t *data, const uint8_t *
         len = cap;
     for (uint32_t i = 0; i < len; i++)
         data[(r->head + i) & (r->size - 1)] = src[i];
-    r->head += len; /* publish after the writes */
+    r->head += len;
     return len;
 }
 

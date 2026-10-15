@@ -1,11 +1,3 @@
-// kernel/bench.h - PMCCNTR min/avg/max instrumentation for CONFIG_ZUZU_BENCH builds.
-//
-// Each measurement point declares a BENCH_STAT() at file scope and brackets the
-// code under test with BENCH_BEGIN()/BENCH_END(). Nothing is printed while
-// sampling: userland resets the stats and dumps them on demand through
-// SVC_BENCH (BenchReset()/BenchDump()). Nothing here exists outside
-// CONFIG_ZUZU_BENCH builds.
-
 #ifndef KERNEL_BENCH_H
 #define KERNEL_BENCH_H
 

@@ -5,9 +5,9 @@
 #include <stdint.h>
 #include <types.h>
 
-void SyspageInit(void);                 /* call once at boot after PMM + DTB ready */
-PhysAddr SyspagePa(void);               /* returns the physical page address       */
-void SyspageUpdateMem(void);            /* call from PMM alloc/free                */
-void SyspageSetInitrdSz(uint32_t size); /* call from initrd setup code           */
+void SyspageInit(void);
+PhysAddr SyspagePa(void);
+void SyspageUpdateMem(void);
+void SyspageSetInitrdSz(uint32_t size);
 
 #endif

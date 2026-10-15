@@ -30,7 +30,6 @@ static void DeviceCallback(const char *compatible, uint64_t phys, uint64_t size,
     if (strncmp(src, "cortex", 6) == 0)
         return;
 
-    /* build the display name */
     char name[SYSPAGE_DEV_NAME_LEN];
     int i = 0;
     while (src[i] && i < SYSPAGE_DEV_NAME_LEN - 1) {
@@ -39,7 +38,6 @@ static void DeviceCallback(const char *compatible, uint64_t phys, uint64_t size,
     }
     name[i] = '\0';
 
-    /* skip duplicates */
     for (uint8_t j = 0; j < g_sp->dev_count; j++)
         if (strncmp(g_sp->devs[j].name, name, SYSPAGE_DEV_NAME_LEN) == 0)
             return;
@@ -50,7 +48,7 @@ static void DeviceCallback(const char *compatible, uint64_t phys, uint64_t size,
 
 void SyspageInit(void)
 {
-    g_syspage_pa = PmmAllocFrame(); // reserve the first page for the syspage
+    g_syspage_pa = PmmAllocFrame();
     g_sp = (Syspage *)PA_TO_VA(g_syspage_pa);
     memset(g_sp, 0, sizeof(Syspage));
     g_sp->magic = 0x50050CA7;

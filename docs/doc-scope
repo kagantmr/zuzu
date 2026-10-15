@@ -1,0 +1,7 @@
+# Paths `make doc-check` holds to the strict documentation rules: every file
+# needs a @file block, Doxygen must report zero warnings, and clang
+# -Wdocumentation must be clean. Add a directory or file once it fully passes
+# (`make doc-report DIR=<path>` shows what is left); never remove one.
+#
+# Goal: kernel/ core/ klib/ arch/ include/zuzu/ include/sync/ include/types.h
+#       include/time.h include/svc_nums.h

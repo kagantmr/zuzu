@@ -13,7 +13,7 @@ int RingPush(RingBuffer *r, uint8_t byte)
 {
     uint32_t next = (r->head + 1) & (r->size - 1);
     if (next == r->tail)
-        return -1; // full
+        return -1;
     r->buf[r->head & (r->size - 1)] = byte;
     r->head = next;
     return 0;
@@ -22,7 +22,7 @@ int RingPush(RingBuffer *r, uint8_t byte)
 int RingPop(RingBuffer *r, uint8_t *out)
 {
     if (r->tail == r->head)
-        return -1; // empty
+        return -1;
     *out = r->buf[r->tail & (r->size - 1)];
     r->tail = (r->tail + 1) & (r->size - 1);
     return 0;

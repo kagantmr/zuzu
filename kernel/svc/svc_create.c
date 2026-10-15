@@ -9,12 +9,9 @@
 
 void SvcCreate(CpuState *frame)
 {
-    // Dispatch based on type
     ZuzuObjectCode type = (ZuzuObjectCode)(*ArchGetFromFrame(frame, 0));
     switch (type) {
     case OBJECT_TASK: {
-        // TASK: r0=type, r1=space_handle (a kitten Space you hold a handle
-        // to, or -1 to spawn a sibling Task in your own Space)
         Handle space_handle = (Handle)(*ArchGetFromFrame(frame, 1));
         SpaceObject *target_space;
 
@@ -56,7 +53,6 @@ void SvcCreate(CpuState *frame)
         ArchSetInFrame(frame, 0, (Register)HANDLE_PACK(new_handle, entry->generation));
     } break;
     case OBJECT_PORT: {
-        // PORT: r0=type
         PortObject *new_port = PortCreate(CURRENT_SPACE);
         ENSURE_ERR(frame, (NULL != new_port), ERR_NOMEM);
 
@@ -72,7 +68,6 @@ void SvcCreate(CpuState *frame)
         ArchSetInFrame(frame, 0, (Register)HANDLE_PACK(new_handle, entry->generation));
     } break;
     case OBJECT_EVENT: {
-        // EVENT: r0=type
         EventObject *new_event = EventCreate(CURRENT_SPACE);
         ENSURE_ERR(frame, (NULL != new_event), ERR_NOMEM);
 
@@ -89,11 +84,10 @@ void SvcCreate(CpuState *frame)
         ArchSetInFrame(frame, 0, (Register)HANDLE_PACK(new_handle, entry->generation));
     } break;
     case OBJECT_SPACE: {
-        // SPACE: r0=type, r1=name_ptr, r2=name_len
         VirtAddr name_ptr = (VirtAddr)(*ArchGetFromFrame(frame, 1));
         size_t name_len = (size_t)(*ArchGetFromFrame(frame, 2));
 
-        char kname[32]; // matches SpaceObject.name[32]
+        char kname[32];
         if (name_len >= sizeof(kname))
             name_len = sizeof(kname) - 1;
 
@@ -119,9 +113,6 @@ void SvcCreate(CpuState *frame)
         ArchSetInFrame(frame, 0, (Register)HANDLE_PACK(new_handle, entry->generation));
     } break;
     case OBJECT_MEMORY: {
-        // MEMORY: r0=type, r1=page_count, r2=flags. Only SHM is user-creatable; Device
-        // MemObjects come from kernel/boot-time injection (InjectDeviceObjectsToRootSvc
-        // in boot_programs.c), never this path.
         CreateMemoryFlags flags = (CreateMemoryFlags)(*ArchGetFromFrame(frame, 2));
         ENSURE_ERR(frame, !(flags & ~MEM_FLAGS_ALL), ERR_BADARG);
         ENSURE_ERR(frame, !(flags & MEM_UNCACHED) || (flags & MEM_CONTIG), ERR_BADARG);

@@ -1,18 +1,8 @@
-// arch_impl/thread.h - ARM thread-pointer register access (architecture-private).
-//
-// Do not include directly from neutral code; include <arch/thread.h> instead.
-
 #ifndef ARCH_ARM_IMPL_THREAD_H
 #define ARCH_ARM_IMPL_THREAD_H
 
 #include "kernel/task/task.h"
 
-/**
- * ArchSetTlsPointer - publish the thread pointer to user-readable TPIDRURO.
- *
- * Writes the thread's info VA to the ARM TPIDRURO register (cp15, c13, c0, 3),
- * so user-mode can read it via mrc p15, 0, rt, c13, c0, 3 for TLS / thread IDs.
- */
 static inline void ArchSetTlsPointer(TaskObject *t)
 {
     if (!t)

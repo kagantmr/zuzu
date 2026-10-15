@@ -65,7 +65,6 @@ char *strncpy(char *dest, const char *src, size_t n)
         n--;
     }
 
-    // Pad remaining bytes with NUL to match strncpy semantics.
     while (n > 0) {
         *dest++ = '\0';
         n--;
@@ -98,7 +97,6 @@ char *strrchr(const char *s, int c)
     return (char *)(uintptr_t)last;
 }
 
-// --- helpers for vstrfmt field width and padding ---
 static void emit_repeat(void (*outc)(void *ctx, char), void *ctx, char ch, int count)
 {
     while (count-- > 0)
@@ -125,8 +123,6 @@ static int parse_int(const char **pp)
     return v;
 }
 
-// Convert unsigned value to string in given base. Returns length.
-// Output is in forward order in buf (null-terminated).
 static int utoa_ull(char *buf, unsigned long long v, unsigned base, int uppercase)
 {
     static const char digs_lo[] = "0123456789abcdef";
@@ -139,7 +135,6 @@ static int utoa_ull(char *buf, unsigned long long v, unsigned base, int uppercas
     if (base < 2)
         base = 10;
 
-    // Fast paths for power-of-two bases (no division)
     if (base == 16) {
         if (v == 0)
             tmp[n++] = '0';
@@ -170,12 +165,9 @@ static int utoa_ull(char *buf, unsigned long long v, unsigned base, int uppercas
             v /= 10ULL;
         }
     } else {
-        // Fallback: support only bases we explicitly handle in this kernel
-        // (Add other bases here if needed.)
         tmp[n++] = '?';
     }
 
-    // reverse into buf
     for (int i = 0; i < n; i++)
         buf[i] = tmp[n - 1 - i];
     buf[n] = '\0';
@@ -220,13 +212,6 @@ static long long get_signed_arg(va_list *args, length_t len)
     }
 }
 
-// ---- helpers for %f/%e/%g ----
-// All double math below stays in floating point -- only the final
-// truncating cast to unsigned long long is used to pull out decimal digits.
-
-// Fills `digits[0..prec-1]` with frac's decimal expansion (frac in [0,1)),
-// rounding the last digit half-up. *carry_out is 1 if the rounding rippled
-// past the first digit (caller must then bump the integer part by one).
 static void format_fixed_digits(double frac, int prec, char *digits, int *carry_out)
 {
     for (int i = 0; i < prec; i++) {
@@ -256,8 +241,6 @@ static void format_fixed_digits(double frac, int prec, char *digits, int *carry_
     }
 }
 
-// Normalizes av (> 0) to `sigdigits` significant decimal digits (rounded)
-// plus a base-10 exponent, i.e. av == 0.d0d1...d(sigdigits-1) * 10^(exp+1).
 static void format_efmt_digits(double av, int sigdigits, char *digits, int *exp_out)
 {
     int exp = 0;
@@ -305,9 +288,8 @@ void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list 
             outc(ctx, *fmt++);
             continue;
         }
-        fmt++; // skip '%'
+        fmt++;
 
-        // ---- flags ----
         int left = 0;
         int zero = 0;
         int plus = 0;
@@ -343,7 +325,6 @@ void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list 
             break;
         }
 
-        // ---- width ----
         int width = 0;
         if (*fmt == '*') {
             fmt++;
@@ -356,21 +337,19 @@ void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list 
             width = parse_int(&fmt);
         }
 
-        // ---- precision ----
-        int prec = -1; // -1 means "not specified"
+        int prec = -1;
         if (*fmt == '.') {
             fmt++;
             if (*fmt == '*') {
                 fmt++;
                 prec = va_arg(*args, int);
                 if (prec < 0)
-                    prec = -1; // like printf
+                    prec = -1;
             } else {
                 prec = is_digit(*fmt) ? parse_int(&fmt) : 0;
             }
         }
 
-        // ---- length ----
         length_t len = LEN_NONE;
         if (*fmt == 'h') {
             fmt++;
@@ -391,12 +370,10 @@ void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list 
             len = LEN_Z;
         }
 
-        // spec
         char spec = *fmt ? *fmt++ : '\0';
         if (!spec)
             break;
 
-        // When precision is specified for integers, '0' flag is ignored unless left aligned.
         if (prec >= 0)
             zero = 0;
 
@@ -442,7 +419,6 @@ void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list 
 
             if (v < 0) {
                 signch = '-';
-                // avoid overflow on LLONG_MIN: use two's complement trick
                 uv = (unsigned long long)(~(unsigned long long)v) + 1ULL;
             } else {
                 if (plus)
@@ -455,7 +431,6 @@ void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list 
             char num[65];
             int nlen = utoa_ull(num, uv, 10, 0);
 
-            // precision: minimum digits
             int zpad = 0;
             if (prec > nlen)
                 zpad = prec - nlen;
@@ -501,14 +476,12 @@ void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list 
 
             unsigned long long v = get_unsigned_arg(args, len);
 
-            // conversion (v==0 with precision==0 -> empty per printf)
             char num[65];
             int nlen = 0;
             if (!(prec == 0 && v == 0)) {
                 nlen = utoa_ull(num, v, base, uppercase);
             }
 
-            // alternate form
             if (alt) {
                 if ((spec == 'x' || spec == 'X') && v != 0) {
                     prefix = "0x";
@@ -517,7 +490,6 @@ void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list 
                     prefix = "0b";
                     prefix_len = 2;
                 } else if (spec == 'o') {
-                    // '#' for octal => ensure a leading zero when it would not otherwise exist
                     if (v != 0 && (prec <= nlen)) {
                         prefix = "0";
                         prefix_len = 1;
@@ -530,7 +502,6 @@ void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list 
                 }
             }
 
-            // precision: minimum digits
             int zpad = 0;
             if (prec > nlen)
                 zpad = prec - nlen;
@@ -546,7 +517,6 @@ void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list 
             if (prefix_len)
                 emit_strn(outc, ctx, prefix, prefix_len);
 
-            // width zero-padding goes after prefix
             if (!left && padch == '0')
                 emit_repeat(outc, ctx, '0', wpad);
 
@@ -561,14 +531,13 @@ void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list 
 
         case 'p':
         case 'P': {
-            // Pointer: always prints 0x/0X and defaults precision to pointer width.
             uintptr_t pv = (uintptr_t)va_arg(*args, void *);
             int uppercase = (spec == 'P');
 
             const char *prefix = "0x";
             int prefix_len = 2;
 
-            int ptr_digits = (int)(sizeof(void *) * 2); // hex digits
+            int ptr_digits = (int)(sizeof(void *) * 2);
 
             int eff_prec = prec;
             if (eff_prec < 0)
@@ -594,7 +563,6 @@ void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list 
 
             emit_strn(outc, ctx, prefix, prefix_len);
 
-            // width zero-padding goes after 0x/0X
             if (!left && padch == '0')
                 emit_repeat(outc, ctx, '0', wpad);
 
@@ -615,7 +583,7 @@ void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list 
         case 'G': {
             double val = va_arg(*args, double);
             int uppercase = (spec == 'F' || spec == 'E' || spec == 'G');
-            char base_spec = (char)(spec | 0x20); // 'f', 'e' or 'g'
+            char base_spec = (char)(spec | 0x20);
 
             char signch = 0;
             if (__builtin_signbit(val))
@@ -635,7 +603,7 @@ void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list 
                 numbuf[1] = s[1];
                 numbuf[2] = s[2];
                 nlen = 3;
-                signch = 0; // NaN never carries a sign
+                signch = 0;
             } else if (__builtin_isinf(val)) {
                 const char *s = uppercase ? "INF" : "inf";
                 numbuf[0] = s[0];
@@ -694,7 +662,7 @@ void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list 
                     numbuf[nlen++] = '0';
                 for (int i = 0; i < elen; i++)
                     numbuf[nlen++] = ebuf[i];
-            } else { // 'g'/'G'
+            } else {
                 int p = (prec < 0) ? 6 : (prec == 0 ? 1 : prec);
                 if (p > 17)
                     p = 17;
@@ -709,7 +677,6 @@ void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list 
                 }
 
                 if (exp10 < -4 || exp10 >= p) {
-                    // %e-style, precision p-1, trailing mantissa zeros trimmed
                     int fdig = p - 1;
                     if (!alt) {
                         while (fdig > 0 && mdigits[fdig] == '0')
@@ -731,7 +698,6 @@ void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list 
                     for (int i = 0; i < elen; i++)
                         numbuf[nlen++] = ebuf[i];
                 } else {
-                    // %f-style, p - 1 - exp10 digits after the point
                     int fracdigits = p - 1 - exp10;
                     if (fracdigits < 0)
                         fracdigits = 0;
@@ -780,7 +746,6 @@ void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list 
         }
 
         default:
-            // Unknown spec: print it literally
             outc(ctx, spec);
             break;
         }

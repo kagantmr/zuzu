@@ -63,7 +63,6 @@ void SvcManageHandle(CpuState *frame)
         ArchSetInFrame(frame, 1, new_handle);
     } break;
     case MNGHNDL_RESTRICT: {
-        /* r2 = perms mask */
         HandlePerms mask = (HandlePerms)(*ArchGetFromFrame(frame, 2));
         entry->perms &= mask;
         ArchSetInFrame(frame, 0, ZUZU_OK);
@@ -87,7 +86,6 @@ void SvcManageHandle(CpuState *frame)
         ArchSetInFrame(frame, 0, ZUZU_OK);
     } break;
     case MNGHNDL_QUERY: {
-        /* r2 = what */
         QueryWhat what = (QueryWhat)(*ArchGetFromFrame(frame, 2));
         Register value;
         switch (what) {

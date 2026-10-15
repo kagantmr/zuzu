@@ -1,7 +1,3 @@
-/**
- * exception.c - ARMv7 exception handling
- */
-
 #include "core/log.h"
 #include "core/panic.h"
 #include "kernel/bench.h"
@@ -32,10 +28,8 @@ typedef enum {
     EXCEPTION_FIQ = 7
 } ExceptionType;
 
-// Decode FSR status bits (works for both DFSR and IFSR)
 static const char *DecodeFsr(uint32_t fsr)
 {
-    // Status = FS[10] : FS[3:0]
     uint32_t status = (fsr & 0xF) | ((fsr >> 6) & 0x10);
 
     switch (status) {
@@ -103,16 +97,13 @@ static bool __hot ServiceDemandPage(SpaceObject *space, uint32_t dfar, uint32_t 
 
 void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame);
 
-/* Every syscall and every fault funnels through here; EXC_SVC dominates
- * the traffic in any workload that isn't fault-heavy. */
 void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
 {
     SpaceObject *current_space = current_task ? current_task->owner : NULL;
 
     switch (exctype) {
     case EXCEPTION_UNDEF: {
-        /* Undef sets LR = faulting PC + 4 in ARM state but + 2 in Thumb;
-         * entry.S subtracts 4 unconditionally, so nudge Thumb faults back. */
+        
         if (frame->return_cpsr & (1 << 5))
             frame->return_pc += 2;
 
@@ -126,10 +117,6 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
             break;
         }
 
-        /**
-         * Any other undefined instruction is NOT returnable. Kill the task or
-         * panic.
-         */
         bool from_user = (frame->return_cpsr & 0x1F) == 0x10;
 
         if (from_user && current_space) {
@@ -149,13 +136,7 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
     } break;
 
     case EXCEPTION_PREFETCH_ABORT: {
-        /**
-         * Prefetch abort is also impossible to return from.
-         * This means either pc is corrupted, or we haven't mapped
-         * whatever text seciton was trying to be executed.
-         * Retrieve IFAR and IFSR and kill the task or panic.
-         */
-
+        
         uint32_t ifar, ifsr;
         __asm__ volatile("mrc p15, 0, %0, c6, c0, 2" : "=r"(ifar));
         __asm__ volatile("mrc p15, 0, %0, c5, c0, 1" : "=r"(ifsr));
@@ -186,10 +167,6 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
         uint32_t bench_start = BENCH_BEGIN();
 #endif
 
-        /**
-         * Could be anything from a page fault to an alignment issue.
-         * Check who's triggered it, and what the reason was.
-         */
         uint32_t dfar, dfsr;
         __asm__ volatile("mrc p15, 0, %0, c6, c0, 0" : "=r"(dfar));
         __asm__ volatile("mrc p15, 0, %0, c5, c0, 0" : "=r"(dfsr));
@@ -200,7 +177,6 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
         uint32_t fault_status = (dfsr & 0xF) | ((dfsr >> 6) & 0x10);
         bool is_translation = (fault_status == 0x05 || fault_status == 0x07);
 
-        /* Kernel stack overflow, guard page hit regardless of source mode */
         if (dfar >= KSTACK_REGION_BASE && dfar < KSTACK_REGION_TOP) {
             uint32_t offset_in_slot = (dfar - KSTACK_REGION_BASE) % KSTACK_SLOT_SIZE;
             if (offset_in_slot < 0x1000) {
@@ -218,9 +194,7 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
         }
 
         if (likely(from_user && current_space && current_space->as)) {
-            /* Lazy mapping is the intended, expected reason userspace
-             * takes a data abort at all -- the segfault/kill fallthrough
-             * below is the actually-unlikely case. */
+            
             if (likely(is_translation && dfar < KERNEL_VA_BASE) &&
                 ServiceDemandPage(current_space, dfar, dfsr)) {
 #ifdef CONFIG_ZUZU_BENCH
@@ -251,8 +225,7 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
             TaskFault(current_task, KILLED_FAULT_DATA);
             Schedule();
         } else {
-            /* Kernel VA fault while in SVC mode, or no address space, or
-             * any other non-user/non-SVC kernel-mode abort: panic. */
+            
             panic_fault_ctx = (PanicFaultContext){
                 .valid = 1,
                 .far = dfar,

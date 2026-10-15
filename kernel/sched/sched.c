@@ -32,7 +32,7 @@ TaskObject *fpu_owner = NULL;
 
 volatile bool do_resched = 0;
 
-static TaskObject idle_task; // only kernel_sp is used
+static TaskObject idle_task;
 static uint8_t idle_stack[IDLE_STACK_BYTES] __attribute__((aligned(8)));
 static bool on_idle_stack;
 
@@ -103,7 +103,7 @@ static void SchedEnqueue(TaskObject *t, bool front)
         return;
     if (t->suspended) return;
     if (t->node.next || t->node.prev)
-        return; // double enqueue guard
+        return;
 
     uint32_t priority = t->priority;
     if (priority >= SCHED_PRIORITY_LEVELS)
@@ -133,7 +133,6 @@ void SchedQueueDestroyTask(TaskObject *t)
 {
     if (!t)
         return;
-    /* Guard against double-enqueue: if node is already linked, skip. */
     if (t->destroy_node.next || t->destroy_node.prev) {
         return;
     }
@@ -351,7 +350,7 @@ void __hot SchedSwitchNext(TaskObject *next)
     if (unlikely(next == &idle_task)) {
         bool from_idle = (prev == NULL && on_idle_stack);
         current_task = NULL;
-        SchedArmTimer(); /* no slice to run out; sleepers still need waking */
+        SchedArmTimer();
         if (from_idle) {
             return;
         }
@@ -394,7 +393,7 @@ void __hot SchedSwitchNext(TaskObject *next)
     ContextSwitch(prev, current_task);
 }
 
-#define MIN_TIMER_SLACK (ArchTimerFreq() / 500000u) /* 2us, any CNTFRQ */
+#define MIN_TIMER_SLACK (ArchTimerFreq() / 500000u)
 
 static uint32_t WheelScanFromNow(void)
 {
@@ -427,8 +426,7 @@ static void SchedArmTimer(void)
         deadline = current_task->slice_deadline;
 
     if (deadline == UINT64_MAX) {
-        /* Nothing sleeping and no peer to preempt for: no wakeup needed.
-         * A device IRQ still wakes the CPU from WFI. */
+        
         ArchTimerDisable();
         return;
     }
@@ -469,7 +467,6 @@ void SchedUnblock(TaskObject *t)
     t->ipc_state = IPC_NONE;
     t->blocked_port = NULL;
     t->state = TASK_STATE_READY;
-    // caller does switch
 }
 
 void __hot Schedule(void)
@@ -492,7 +489,7 @@ void __hot Schedule(void)
     SchedDoHousekeeping();
 
     TaskObject *next = SchedPickNext();
-    SchedSwitchNext(next); /* sets the slice deadline and arms the timer */
+    SchedSwitchNext(next);
 }
 
 size_t SchedGetReadyQueue(TaskObject **out, size_t max_out)

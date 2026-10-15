@@ -10,8 +10,8 @@
 #include <zuzu/err.h>
 
 typedef struct {
-    ObserverSet *set; /* NULL: the object is already released, nothing to attach to */
-    bool ready;       /* its condition (dead / hollow / has a pending caller) already holds */
+    ObserverSet *set;
+    bool ready;
 } BindTarget;
 
 static Err BindLookupTarget(EventType type, Handle h, uint32_t bit, BindTarget *out)
@@ -42,7 +42,6 @@ static Err BindLookupTarget(EventType type, Handle h, uint32_t bit, BindTarget *
         TaskObject *task = entry->task;
         if (!task)
             return ERR_BADHANDLE;
-        /* A released task is never cleaned up again: an observer added now would leak. */
         *out = (BindTarget){task->released ? NULL : &task->observers, TaskIsDead(task)};
     } break;
     default: {
@@ -102,7 +101,6 @@ void SvcBind(CpuState *frame)
         Err rc = BindLookupTarget(event_type, h, bit, &target);
         if (rc == ZUZU_OK && target.set)
             rc = ObserverAdd(target.set, ev, bit);
-        /* Only the new observer hears about a condition that already holds. */
         if (rc == ZUZU_OK && target.ready)
             EventSignal(ev, (1U << bit), false);
         ArchSetInFrame(frame, 0, rc);

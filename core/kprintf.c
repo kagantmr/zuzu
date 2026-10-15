@@ -1,5 +1,3 @@
-// kprintf.c - Kernel printf implementation
-
 #include "core/kprintf.h"
 #include <arch/cpu.h>
 #include <snprintf.h>

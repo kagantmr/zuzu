@@ -11,26 +11,14 @@ typedef struct SpaceObjectStruct SpaceObject;
 #define EVENT_MEMMGMT_BIT (1u << 0)
 
 typedef struct EventObjectStruct {
-    EventWord word;      // 31-bit signal mask (bit 31 reserved), atomic-ish (IRQs off)
-    ListHead wait_queue; // tasks blocked in WaitOn()
+    EventWord word;
+    ListHead wait_queue;
     Spid owner_spid;
     size_t ref_count;
     bool alive;
-    EventWord bound_mask; /* bits claimed by kernel bindings; user Signal() may not raise these */
+    EventWord bound_mask;
 } EventObject;
 
-/**
- * @brief Signal one or more bits on an event object.
- *
- * ORs @p bits into the event's word and wakes at most one waiter.
- * If a waiter is woken, it receives the accumulated word and the word is
- * cleared. If no waiter is queued, bits stay pending for the next wait.
- *
- * @param ev  Live event object. Must not be NULL.
- * @param bits  Bits to signal. Bit 31 is reserved and must be zero.
- * @pre         Caller has verified @p ev is alive and @p bits is valid.
- * @pre         IRQs disabled.
- */
 void EventSignal(EventObject *ev, EventWord bits, bool bcast);
 
 void EventWait(EventObject *ev, Duration timeout, CpuState *frame);

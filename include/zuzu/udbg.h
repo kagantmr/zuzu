@@ -1,14 +1,3 @@
-/** udbg.h -- DEBUG-only userspace -> kernel-console logging.
- *
- * Writes straight to the kernel console via the retired 0x02 syscall slot, so
- * it works from the very first instruction of any process -- including sysd
- * and devmgr, which run long before pl011drv exists and therefore have no tty
- * to print to. Compiled out entirely unless DEBUG is defined.
- *
- * This is a debugging aid, not ABI: it is absent from release builds and must
- * never be depended on by shipped code.
- */
-
 #ifndef ZUZU_UDBG_H
 #define ZUZU_UDBG_H
 
@@ -20,8 +9,6 @@
 extern "C" {
 #endif
 
-/* Off for now; build with -DUDBG_ENABLED=1 (or flip this default) to get the
- * [udbg spid=N] lines back. */
 #ifndef UDBG_ENABLED
 #define UDBG_ENABLED 0
 #endif
@@ -31,7 +18,6 @@ extern "C" {
 #include <stdarg.h>
 #include <stdio.h>
 
-/** Emit one line to the kernel console. Truncated past ~240 bytes. */
 static inline void UserspaceDebugLog(const char *fmt, ...)
 {
     char line[240];
@@ -45,7 +31,7 @@ static inline void UserspaceDebugLog(const char *fmt, ...)
     ArchInvokeSvc(SVC_LOG, (uint32_t)(uintptr_t)line, (Register)len, 0, 0);
 }
 
-#else /* !DEBUG */
+#else
 
 static inline void UserspaceDebugLog(const char *fmt, ...) { (void)fmt; }
 

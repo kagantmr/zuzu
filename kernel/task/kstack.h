@@ -4,14 +4,12 @@
 #include <types.h>
 #include BOARD_LAYOUT_H
 
-#define MAX_KSTACKS 256 /* system-wide kernel stack pool (each is a resident physical stack) */
-#define KSTACK_SLOT_SIZE 0x2000 /* 8KB per slot: 4KB guard (unmapped) + 4KB usable page */
+#define MAX_KSTACKS 256
+#define KSTACK_SLOT_SIZE 0x2000
 #define KSTACK_GUARD_SIZE 0x1000
 
-/* VA window scales with the pool size, not a hardcoded slot count. */
 #define KSTACK_REGION_TOP (KSTACK_REGION_BASE + (MAX_KSTACKS * KSTACK_SLOT_SIZE))
 
-/* The kstack VA window must fit under IOREMAP_END. */
 _Static_assert(KSTACK_REGION_TOP <= IOREMAP_END, "kstack region overflows the ioremap window");
 
 static inline int KStackSlotFromTop(VirtAddr stack_top)

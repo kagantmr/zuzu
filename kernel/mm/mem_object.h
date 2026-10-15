@@ -26,7 +26,7 @@ typedef struct DmaMappingStruct {
 } DmaMapping;
 
 typedef struct MemObjectStruct {
-    MemKind kind; // MEMKIND_DEVICE / MEMKIND_SHARED
+    MemKind kind;
     size_t ref_count;
     bool exec_synced;
     union {

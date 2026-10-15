@@ -1,8 +1,3 @@
-// arch_impl/backtrace.h - ARM (AAPCS) frame-pointer stack walk.
-//
-// Do not include directly from neutral code; include <arch/backtrace.h>
-// instead.
-
 #ifndef ARCH_ARM_IMPL_BACKTRACE_H
 #define ARCH_ARM_IMPL_BACKTRACE_H
 
@@ -10,20 +5,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/**
- * Walk the AAPCS frame-pointer chain starting at fp, collecting return
- * addresses into out[]. GCC's ARM prologue stores [fp] = saved lr,
- * [fp-4] = saved fp, so each step is a pair of loads.
- *
- * @param fp              Starting frame pointer (r11): live, or captured
- *                         from a fault frame.
- * @param kernel_va_base  Lowest VA considered a plausible kernel frame
- *                         pointer; below this, the chain is treated as
- *                         exhausted rather than followed into garbage.
- * @param out             Destination array for collected return addresses.
- * @param max_depth       Capacity of out[].
- * @return Number of addresses written to out[].
- */
 static inline size_t ArchBacktraceWalk(Register fp, Register kernel_va_base, uint32_t *out,
                                        size_t max_depth)
 {

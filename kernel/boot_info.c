@@ -29,7 +29,6 @@ static void collect_dev_cb(const char *compatible, const char *path, uint64_t ph
     d->phys2 = 0;
     d->size2 = 0;
     d->irq = irq;
-    /* Attempt to capture a second reg entry if present */
     if (path) {
         uint64_t p2 = 0, s2 = 0;
         if (FdtGetRegPa(path, 1, &p2, &s2)) {
@@ -44,7 +43,6 @@ static void collect_dev_cb(const char *compatible, const char *path, uint64_t ph
 void BootInfoInitFromFdt(void)
 {
 
-    /* dtb subsystem must already be initialized. */
     uint32_t count = FdtDeviceCount();
     if (count == 0)
         return;
@@ -56,7 +54,6 @@ void BootInfoInitFromFdt(void)
     g_boot_info.devs = arr;
     g_boot_info.count = 0;
 
-    /* copy model and cpu strings */
     const char *m = FdtModel();
     if (m && m[0]) {
         g_boot_info.model = (char *)KMalloc(strlen(m) + 1);
@@ -70,7 +67,6 @@ void BootInfoInitFromFdt(void)
             strcpy(g_boot_info.cpu_compat, c);
     }
     FdtEnumerateDevices(collect_dev_cb);
-    /* if fewer devices than predicted, we leave the array sized to count */
 
     uint64_t initrd_start = 0, initrd_end = 0;
     if (FdtGetInitrd(&initrd_start, &initrd_end)) {
@@ -79,7 +75,6 @@ void BootInfoInitFromFdt(void)
         g_boot_info.has_initrd = true;
     }
 
-    /* Shutdown DTB access to prevent any future libfdt reads */
     FdtShutdown();
 }
 
@@ -138,9 +133,6 @@ void BootInfoInit(void)
     bi->initrd_pa = g_boot_info.initrd_pa;
     bi->initrd_size = g_boot_info.initrd_size;
 
-    /* FdtDevice mirrors BootInfoDevEntry field-for-field, so copy it
-     * straight through with no filtering/renaming (unlike Syspage's dev_cb,
-     * which is cosmetic-only and must not carry physical addresses). */
     uint32_t count = g_boot_info.count;
     if (count > BOOTINFO_MAX_DEVICES)
         count = BOOTINFO_MAX_DEVICES;

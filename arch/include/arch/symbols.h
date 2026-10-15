@@ -1,9 +1,3 @@
-// arch/symbols.h - Neutral linker-symbol contract.
-//
-// These symbols are emitted by the per-board linker script and mark kernel
-// image / stack / initrd boundaries. Names are architecture-neutral; every
-// board's linker.ld must define them.
-
 #ifndef ARCH_SYMBOLS_H
 #define ARCH_SYMBOLS_H
 

@@ -1,4 +1,3 @@
-
 #include <cpio.h>
 #include <stdint.h>
 #include <string.h>
@@ -28,14 +27,12 @@ bool CpioFind(const void *base, size_t size, const char *name, const void **data
 
         const cpio_hdr_t *hdr = (const cpio_hdr_t *)ptr;
 
-        // validate magic
         if (memcmp(hdr->magic, "070701", 6) != 0)
             return false;
 
         uint32_t namesize = ParseHex8(hdr->namesize);
         uint32_t filesize = ParseHex8(hdr->filesize);
 
-        // Bound-check the header + name before dereferencing entry_name below.
         if (ptr + align_up(sizeof(cpio_hdr_t) + namesize, 4) > end)
             return false;
 
@@ -44,26 +41,20 @@ bool CpioFind(const void *base, size_t size, const char *name, const void **data
         if (cmp_name[0] == '.' && cmp_name[1] == '/')
             cmp_name += 2;
 
-        // sentinel = end of archive
         if (memcmp(entry_name, "TRAILER!!!", 10) == 0)
             return false;
 
-        // data starts after header + name, aligned to 4 bytes
         const uint8_t *data = ptr + align_up(sizeof(cpio_hdr_t) + namesize, 4);
 
-        // Bound-check the payload too: a corrupted filesize would otherwise
-        // hand the caller a (data, size) pair that reads past the archive.
         if (data + filesize > end)
             return false;
 
-        // is this the file we want?
         if (strcmp(cmp_name, name) == 0) {
             *data_out = data;
             *size_out = filesize;
             return true;
         }
 
-        // advance to next entry
         ptr = data + align_up(filesize, 4);
     }
     return false;

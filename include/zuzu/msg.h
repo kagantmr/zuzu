@@ -12,24 +12,8 @@ extern "C" {
 #include <types.h>
 #include <zuzu/err.h>
 
-/**
- * @brief Accessor for the current thread's local message buffer. This is
- * the primary IPC payload transport: Call()/Reply() move exactly the bytes
- * written here, up to MSG_BUF_SIZE.
- *
- * @return void* Pointer to the message buffer.
- */
 static inline void *GetMessageBox(void) { return ZuzuTLS()->msg_buf; }
 
-/**
- * @brief Writes data to the current thread's message buffer.
- *
- * @param src Pointer to the source data to write.
- * @param len Length of the data to write in bytes.
- *
- * @return Err Returns the number of bytes written on success, or a negative error code on failure
- * (e.g., ERR_OVERFLOW if len exceeds MSG_BUF_SIZE).
- */
 static inline Err MsgWrite(const void *src, size_t len)
 {
     if (len > MSG_BUF_SIZE)
@@ -38,15 +22,6 @@ static inline Err MsgWrite(const void *src, size_t len)
     return (Err)len;
 }
 
-/**
- * @brief Reads data from the current thread's message buffer.
- *
- * @param dst Pointer to the destination buffer where the data will be read into.
- * @param len Length of the data to read in bytes.
- *
- * @return Err Returns the number of bytes read on success, or a negative error code on failure
- * (e.g., ERR_OVERFLOW if len exceeds MSG_BUF_SIZE).
- */
 static inline Err MsgRead(void *dst, size_t len)
 {
     if (len > MSG_BUF_SIZE)
@@ -55,12 +30,11 @@ static inline Err MsgRead(void *dst, size_t len)
     return len;
 }
 
-/* message buffer write cursor */
 typedef struct {
-    char *buf;    /* == MessageBuf() */
-    uint32_t off; /* bytes written so far */
-    uint32_t cap; /* MSG_BUF_SIZE */
-    bool ovf;     /* set if any append would exceed cap */
+    char *buf;
+    uint32_t off;
+    uint32_t cap;
+    bool ovf;
 } MsgWriter;
 
 static inline void MsgWriterInit(MsgWriter *w)
@@ -77,7 +51,7 @@ static inline void MsgPutU32(MsgWriter *w, uint32_t v)
         w->ovf = true;
         return;
     }
-    memcpy(w->buf + w->off, &v, 4); /* alignment-safe, matches reader */
+    memcpy(w->buf + w->off, &v, 4);
     w->off += 4;
 }
 
@@ -93,7 +67,7 @@ static inline void MsgPutByte(MsgWriter *w, uint8_t v)
 
 static inline void MsgPutStr(MsgWriter *w, const char *s)
 {
-    uint32_t n = (uint32_t)strlen(s) + 1; /* include the NUL */
+    uint32_t n = (uint32_t)strlen(s) + 1;
     if (w->off + n > w->cap) {
         w->ovf = true;
         return;

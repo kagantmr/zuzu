@@ -5,7 +5,6 @@ const char *StrToError(Err err)
     switch (err) {
     case ZUZU_OK:
         return "ERR_OK";
-    /* frozen kernel band */
     case ERR_NOPERM:
         return "ERR_NOPERM";
     case ERR_NOENT:
@@ -30,7 +29,6 @@ const char *StrToError(Err err)
         return "ERR_OVERFLOW";
     case ERR_BADHANDLE:
         return "ERR_BADHANDLE";
-    /* zuzuOS server/library band */
     case ERR_BUFFULL:
         return "ERR_BUFFULL";
     case ERR_BUFEMPTY:
@@ -49,9 +47,6 @@ const char *StrToError(Err err)
         break;
     }
 
-    /* Unknown code: format the number so post-freeze callers that meet a code
-     * they weren't compiled against still print something useful. Not reentrant;
-     * fine for the single-threaded diagnostic paths that use it. */
     static char buf[16];
     int32_t v = (int32_t)err;
     int neg = v < 0;

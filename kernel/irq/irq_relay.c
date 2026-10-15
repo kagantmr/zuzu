@@ -27,7 +27,6 @@ bool IrqIsValid(Irq irq_num) { return (irq_num < MAX_IRQS) && !ArchIrqIsOwnedByK
 
 Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev, uint32_t bit)
 {
-    /* Ownership: free line is ours to claim; a line owned by someone else is busy. */
     SpaceObject *current_owner = irq_owners[irq_num].owner;
     if (current_owner && current_owner != owner)
         return ERR_BUSY;
@@ -35,7 +34,6 @@ Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev, uint32_t bi
     if (!ev->alive)
         return ERR_DEAD;
 
-    /* Claim the line on first bind. */
     if (!current_owner) {
         irq_owners[irq_num] =
             (IrqOwner){.bound_ev = NULL, .owner = owner, .pending = false, .bit = bit};

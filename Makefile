@@ -398,6 +398,23 @@ hal-check:
 	fi; \
 	echo "  HAL     clean"
 
+# Strict documentation gate (see docs/Doxyfile, docs/doc-scope). doc-check
+# holds every path listed in docs/doc-scope to the rules; doc-report shows what
+# is left for one path without it being in scope yet.
+DOC_SCOPE      = $(shell grep -vE '^[[:space:]]*(\#|$$)' docs/doc-scope 2>/dev/null)
+DOC_GCC_ONLY   = -Wduplicated-cond -Wduplicated-branches -Wlogical-op -fanalyzer -MMD -MP -MD \
+                 $(LTO_FLAG)
+DOC_KFLAGS     = $(filter-out $(DOC_GCC_ONLY),$(CFLAGS))
+DOC_UFLAGS     = -ffreestanding $(INCLUDES) -include $(KCONFIG_AUTOCONF) -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"'
+
+.PHONY: doc-check doc-report
+doc-check doc-report: $(KCONFIG_AUTOCONF)
+	@mkdir -p $(O)
+	$(file >$(O)/doc-kflags,$(DOC_KFLAGS))
+	$(file >$(O)/doc-uflags,$(DOC_UFLAGS))
+	@sh scripts/doc_check.sh $(O)/doc-kflags $(O)/doc-uflags \
+	    $(if $(filter doc-report,$@),$(or $(DIR),$(error doc-report needs DIR=<path>)),$(DOC_SCOPE))
+
 .PHONY: kernel dump
 kernel: $(TARGET) links
 
@@ -458,6 +475,8 @@ help:
 	@echo '  dump                objdump -D to $(O)/zuzu.dump'
 	@echo '  analyze             clean rebuild under -fanalyzer'
 	@echo '  hal-check           fail if arch code leaks into kernel/ core/ klib/ drivers/'
+	@echo '  doc-check           strict docs over docs/doc-scope (@file, doxygen, clang)'
+	@echo '  doc-report DIR=p    the same checks for one path, not yet in scope'
 	@echo '  print-<VAR>         print a make variable, e.g. -s print-CFLAGS'
 
 # ZUZUSD/ was the pre-$(O) SD staging dir; drop it so old checkouts tidy up.

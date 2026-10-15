@@ -23,11 +23,9 @@
 #define LOG_FMT(fmt) "(main) " fmt
 #include "core/log.h"
 
-
 _Noreturn void kmain(void)
 {
     KINFO("Booting %s", "zuzu-" ZUZU_CODENAME "-" ZUZU_VERSION);
-    /* DTB and boot_info were initialized in early(); do not touch DTB again */
 
     SchedInit();
     ArchGlobalIrqEnable();
@@ -35,8 +33,6 @@ _Noreturn void kmain(void)
     SyspageInit();
     BootInfoInit();
 
-    /* The initrd always comes from the bootloader/firmware now (u-boot's
-     * bootm, or the Pi firmware on rpi4), via the DTB /chosen node. */
     uint64_t chosen_pa, chosen_size;
     if (!boot_info_initrd(&chosen_pa, &chosen_size))
         panic("No bootloader-supplied initrd (DTB /chosen)");
@@ -49,8 +45,6 @@ _Noreturn void kmain(void)
 
     InitrdInit((const void *)PA_TO_VA((uintptr_t)initrd_pa), initrd_size);
 
-    /* Load and spawn every boot program listed in boot.manifest (see
-     * kernel/loader/boot_programs.c). */
     CreateRootService(initrd_pa, initrd_size);
 
     KINFO("Kernel up");

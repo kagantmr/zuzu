@@ -8,7 +8,6 @@
 #include <bitmap.h>
 #include <types.h>
 
-/* Bit N set = kstack slot N in use. */
 static uint32_t bitmap[BITMAP_WORDS(MAX_KSTACKS)];
 static PhysAddr slot_pa[MAX_KSTACKS];
 
@@ -25,7 +24,6 @@ VirtAddr KStackAlloc(void)
 
         VirtAddr slot_va = KStackTopFromSlot((int)slot) - KSTACK_SLOT_SIZE;
 
-        /* Map the usable stack page (above the guard). */
         bool result = VmmMapRange(VmmGetKernelAddressSpace(), slot_va + KSTACK_GUARD_SIZE, page_pa,
                                   PAGE_SIZE, PROT_READ | PROT_WRITE, VM_MEM_NORMAL);
         if (!result) {
@@ -34,10 +32,8 @@ VirtAddr KStackAlloc(void)
             return 0;
         }
 
-        /* Unmap the guard page (may have been part of a section mapping). */
         if (!ArchMmuUnmapPage(VmmGetKernelAddressSpace(), slot_va)) {
-            /* If translation is already absent, the guard page is already in
-             * the desired state and this is not an allocation failure. */
+            
             if (ArchMmuTranslate(VmmGetKernelAddressSpace()->pt_root_physaddr, slot_va) != 0) {
                 VmmUnmapRange(VmmGetKernelAddressSpace(), slot_va + KSTACK_GUARD_SIZE, PAGE_SIZE,
                               true);
@@ -52,7 +48,7 @@ VirtAddr KStackAlloc(void)
         BitmapSet(bitmap, slot);
         return KStackTopFromSlot((int)slot);
     }
-    return 0; /* pool exhausted */
+    return 0;
 }
 
 void KStackFree(VirtAddr stack_top)

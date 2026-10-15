@@ -139,9 +139,6 @@ __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port, ReplyObje
         panic("CallHandoffToReceiver: queued receiver slot with no owner (port=%p slot=%p)",
               (void *)port, (void *)rx_slot);
 
-    /* grant_handle was already validated (existence + grantable) in
-     * SvcCall before either path was chosen; only allocation in rx's
-     * table remains, and can still fail with ERR_NOMEM. */
     Handle granted;
     Err err = AllocateGrantSlot(caller->owner, rx->owner, grant_handle, &granted);
     if (err != ZUZU_OK) {

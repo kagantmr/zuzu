@@ -13,7 +13,6 @@ void SvcManageMemory(CpuState *frame)
         VirtAddr out;
         Handle mem_handle = (*ArchGetFromFrame(frame, 1));
         uint32_t hint_prot = (uint32_t)(*ArchGetFromFrame(frame, 3));
-        // (hint_va & ~0xFFF) | (prot & 0x7)
         MemProt prot = (hint_prot & 0x7);
         VirtAddr hint = (hint_prot & (unsigned)~(0xFFF));
 

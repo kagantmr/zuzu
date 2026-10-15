@@ -1,7 +1,3 @@
-/* Address-space and region-list bookkeeping: create/destroy an
- * AddressSpace, add/remove/find VirtMemRegion entries, and the lazy
- * page-fault handler that realizes a region's backing on first touch. */
-
 #include "vmm_internal.h"
 
 #include "kernel/mm/alloc.h"
@@ -165,7 +161,6 @@ void AddressSpaceDestroy(AddressSpace *as)
               as->asid_token.asid);
     }
 
-    /* Prevent stale translations from surviving ASID reuse. */
     if (as->asid_token.asid != 0)
         ArchMmuFlushTlbAsid(as->asid_token.asid);
 

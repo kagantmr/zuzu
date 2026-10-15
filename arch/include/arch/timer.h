@@ -1,12 +1,9 @@
-// arch/timer.h - Neutral periodic-timer contract.
-
 #ifndef ARCH_TIMER_H
 #define ARCH_TIMER_H
 
 #include <stdint.h>
 #include <types.h>
 
-// arch/include/arch/timer.h
 void ArchTimerInit(void);
 void ArchTimerSetHandler(void (*on_expire)(void));
 

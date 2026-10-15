@@ -1,5 +1,3 @@
-// version.h - Kernel version information and macros
-
 #ifndef ZUZU_VERSION_H
 #define ZUZU_VERSION_H
 

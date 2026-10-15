@@ -1,5 +1,3 @@
-// irq.c - ARM IRQ handling implementation
-
 #include "arch/arm/include/gicv2.h"
 #include "arch/arm/timer/generic_timer.h"
 #include <arch/irq.h>
@@ -17,7 +15,7 @@ void *handler_ctx[MAX_IRQS];
 bool ArchIrqIsOwnedByKernel(uint32_t irq_id)
 {
     switch (irq_id) {
-    case TIMER_IRQ_VIRT: // ARM generic timer CNTV PPI
+    case TIMER_IRQ_VIRT:
         return true;
     default:
         return false;
@@ -26,7 +24,6 @@ bool ArchIrqIsOwnedByKernel(uint32_t irq_id)
 
 void ArchIrqInit(void)
 {
-    // Clear handler table
     for (uint32_t i = 0; i < MAX_IRQS; i++) {
         handler_table[i] = NULL;
         handler_ctx[i] = NULL;
@@ -58,11 +55,11 @@ void ArchIrqSetPrio(Irq irq_id, uint8_t prio) { GicV2SetPriority(irq_id, prio); 
 
 void ArchIrqMaskLine(uint32_t irq_id)
 {
-    GicV2MaskIrq(irq_id); // Delegate to GIC function
+    GicV2MaskIrq(irq_id);
 }
 void ArchIrqUnmaskLine(uint32_t irq_id)
 {
-    GicV2UnmaskIrq(irq_id); // Delegate to GIC function
+    GicV2UnmaskIrq(irq_id);
 }
 
 void ArchIrqDispatch(void)
@@ -71,7 +68,7 @@ void ArchIrqDispatch(void)
     uint32_t irq_id = iar & 0x3FF;
 
     if (irq_id == 1023) {
-        return; // Spurious interrupt, ignore
+        return;
     }
     if (irq_id < MAX_IRQS && handler_table[irq_id] != NULL) {
         handler_table[irq_id](handler_ctx[irq_id]);

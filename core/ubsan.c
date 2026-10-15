@@ -1,7 +1,3 @@
-/*
- * core/ubsan.c - minimal freestanding UBSan runtime.
- */
-
 #include <stdint.h>
 
 #define LOG_FMT(fmt) "(ubsan) " fmt
@@ -17,12 +13,10 @@ struct source_location {
 struct type_descriptor {
     uint16_t type_kind;
     uint16_t type_info;
-    char type_name[1]; /* NUL-terminated, flexible in practice */
+    char type_name[1];
 };
 
 typedef unsigned long value_handle;
-
-/* ---- per-check data blobs (libsanitizer/ubsan/ubsan_handlers.h) --------- */
 
 struct type_mismatch_data_v1 {
     struct source_location loc;
@@ -72,8 +66,6 @@ struct invalid_builtin_data {
     uint8_t kind;
 };
 
-/* ---- helpers ----------------------------------------------------------- */
-
 static const char *loc_file(const struct source_location *loc)
 {
     return (loc && loc->filename) ? loc->filename : "<unknown>";
@@ -91,8 +83,6 @@ static const char *td_name(const struct type_descriptor *td)
                ubsan__l ? ubsan__l->line : 0u, ubsan__l ? ubsan__l->column : 0u);                  \
         panic("UBSan: " fmt, ##__VA_ARGS__);                                                       \
     } while (0)
-
-/* ---- handlers -------------------------------------------------------- */
 
 #define UBSAN_HANDLER __attribute__((used))
 

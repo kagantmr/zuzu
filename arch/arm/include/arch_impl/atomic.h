@@ -1,13 +1,8 @@
-// arch_impl/atomic.h - ARM atomic primitives via LDREX/STREX (architecture-private).
-//
-// Do not include directly from neutral code; include <arch/atomic.h> instead.
-
 #ifndef ARCH_ARM_IMPL_ATOMIC_H
 #define ARCH_ARM_IMPL_ATOMIC_H
 
 #include <stdint.h>
 
-/** Atomically load a 32-bit value, tagging the exclusive monitor. */
 static inline uint32_t ArchLoadExclusive(volatile uint32_t *addr)
 {
     uint32_t val;
@@ -15,7 +10,6 @@ static inline uint32_t ArchLoadExclusive(volatile uint32_t *addr)
     return val;
 }
 
-/** Conditionally store; returns 0 on success, non-zero if the monitor was lost. */
 static inline uint32_t ArchStoreExclusive(volatile uint32_t *addr, uint32_t val)
 {
     uint32_t result;

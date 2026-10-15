@@ -70,9 +70,7 @@ void SvcManageTask(CpuState *frame)
 
     case MNGTASK_KILL: {
         ENSURE_ERR(frame, target != current_task, ERR_BADARG);
-        /* Already dead: a second TaskTerminate would TaskDestroy it while it
-         * may still sit on the destroy queue, and the last handle close would
-         * then free it under the reaper. */
+        
         if (target->state != TASK_STATE_ZOMBIE) {
             if (target->state == TASK_STATE_FAULTED)
                 SpaceUnfreeze(target->owner);

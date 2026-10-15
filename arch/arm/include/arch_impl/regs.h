@@ -1,10 +1,3 @@
-// arch_impl/regs.h - ARM saved-register layouts (architecture-private).
-//
-// Do not include directly from architecture-neutral code; include <arch/regs.h>
-// instead. The struct layout below must match the stmfd/srs sequence in
-// arch/arm/exceptions/entry.S exactly — the assembly writes these fields by
-// offset.
-
 #ifndef ARCH_ARM_IMPL_REGS_H
 #define ARCH_ARM_IMPL_REGS_H
 
@@ -14,32 +7,21 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Natural register-width integer for this architecture (32-bit on ARMv7-A). */
 typedef int32_t Register;
 
-/**
- * Represents a process's saved CPU state at the time of an exception.
- * Layout must match the stmfd sequence in entry.S exactly,
- * the assembly writes directly into this struct by offset.
- */
 typedef struct CpuStateStruct {
-    Register r[13];       /* r0-r12 */
-    Register sp_usr;      /* user SP saved via SRS */
-    Register lr_usr;      /* user LR saved via SRS */
-    Register return_pc;   /* adjusted return address (LR - offset) */
-    Register return_cpsr; /* saved Cpsr/SPSR value you return with */
+    Register r[13];
+    Register sp_usr;
+    Register lr_usr;
+    Register return_pc;
+    Register return_cpsr;
 } CpuState;
 
 typedef struct {
     Register r4, r5, r6, r7, r8, r9, r10, r11;
-    Register lr; // return address (or entry point for a new task)
+    Register lr;
 } CpuContext;
 
-/* ---- Accessors (the neutral contract; see <arch/regs.h>) ----------------- */
-/* Syscall ABI slots: arg i / return value i map to r[i] on ARM. Called many
- * times per syscall (every arg read, every return-value write); always_inline
- * guarantees the pointer arithmetic never survives as a real call even if a
- * caller is judged too large to inline into otherwise. */
 static __always_inline Register *ArchGetFromFrame(CpuState *f, unsigned i) { return &f->r[i]; }
 
 static __always_inline Register ArchFramePc(const CpuState *f) { return f->return_pc; }
@@ -49,7 +31,6 @@ static __always_inline Register ArchFrameFlags(const CpuState *f) { return f->re
 static __always_inline Register ArchFrameFp(const CpuState *f) { return f->r[11]; }
 static __always_inline uint32_t ArchFrameSvcNum(const CpuState *f) { return (uint32_t)f->r[12]; }
 
-/* Live reads of current CPU state (see <arch/regs.h>). */
 static inline Register ArchCurrentFramePointer(void)
 {
     Register fp;
@@ -64,16 +45,14 @@ static inline Register ArchCurrentFlags(void)
     return cpsr;
 }
 
-/* Count of ArchGetFromFrame() slots (r0-r12 on ARM) -- see <arch/regs.h>. */
 #define ARCH_NUM_GP_REGS 13
 
-/* User-visible register set for TaskGetRegs/TaskSetRegs -- see <arch/regs.h>. */
 typedef struct {
-    Register gp[ARCH_NUM_GP_REGS]; /* r0-r12 */
+    Register gp[ARCH_NUM_GP_REGS];
     Register sp;
     Register lr;
     Register pc;
-    Register flags; /* CPSR */
+    Register flags;
 } TaskRegs;
 
 #define ARM_CPSR_MODE_USR 0x10u
@@ -134,7 +113,6 @@ static inline const char *arm_cpsr_mode_name(uint32_t cpsr)
     }
 }
 
-/* Diagnostics-only (see <arch/regs.h>): mode + Thumb/IRQ/FIQ + NZCV string. */
 static inline void ArchFlagsDecode(char *buf, size_t bufsz, Register flags)
 {
     uint32_t cpsr = (uint32_t)flags;
@@ -145,7 +123,6 @@ static inline void ArchFlagsDecode(char *buf, size_t bufsz, Register flags)
                    (cpsr >> 28) & 1u ? 'V' : 'v');
 }
 
-/* Diagnostics-only (see <arch/regs.h>): true if flags denotes IRQ mode. */
 static inline bool ArchFlagsInIrqContext(Register flags)
 {
     return ((uint32_t)flags & 0x1Fu) == 0x12u;

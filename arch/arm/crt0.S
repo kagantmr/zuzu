@@ -1,23 +1,20 @@
-// crt0.s - userspace C runtime startup code for ARMv7-A
-
 .section .text, "ax"
-// The kernel kickstarts _start in ARM state, so crt0 must assemble as ARM.
 .arm
 
 #include <arch_impl/svc.h>
 .global _start
 
 _start:
-    mov r6, r0              // save argc
-    mov r7, r1              // save argv
+    mov r6, r0
+    mov r7, r1
 
 #ifdef ZUZU_NEWLIB
 
     bl __libc_init_array
-    mov r0, r6              // argc
-    mov r1, r7              // argv
+    mov r0, r6
+    mov r1, r7
     bl main
-    bl exit                 // r0 = main's return value; does not return
+    bl exit
 3:  b 3b
 
 .global _init
@@ -32,7 +29,6 @@ _fini:
     bx lr
 .size _fini, . - _fini
 #else
-    // run constructors
     ldr r4, =__init_array_start
     ldr r5, =__init_array_end
 1:
@@ -42,12 +38,11 @@ _fini:
     blx r3
     b 1b
 2:
-    mov r0, r6              // argc
-    mov r1, r7              // argv
+    mov r0, r6
+    mov r1, r7
     bl main
 
-    // run destructors in reverse order
-    mov r6, r0              // save main's return value
+    mov r6, r0
     ldr r4, =__fini_array_start
     ldr r5, =__fini_array_end
 4:

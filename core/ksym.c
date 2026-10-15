@@ -1,7 +1,6 @@
 #include "ksym.h"
 #include <stddef.h>
 
-/* Weak stubs for first-pass linking; replaced by ksymtab.o in final link */
 __attribute__((weak)) volatile const uint32_t ksym_count = 0;
 static const ksym_entry_t ksym_fallback_table[] = {{0, ""}};
 __attribute__((weak)) const ksym_entry_t *ksym_table = ksym_fallback_table;

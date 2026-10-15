@@ -1,25 +1,9 @@
-// context.c - ARM thread bootstrap (initial kernel-stack construction).
-//
-// Builds the kernel-stack layout that the context switch (switch.S) and the
-// user-entry trampoline (entry.S) expect for a freshly created thread:
-//
-//   higher addr  ┌─────────────────────────┐  kstack_top
-//                │ exception frame (CpuState) │  (user-entry threads only)
-//                ├─────────────────────────┤
-//                │ switch context (CpuContext) │  lr = trampoline / entry
-//   lower addr   └─────────────────────────┘  <- returned kernel_sp
-//
-// FPU state is not part of the kernel stack: it's saved lazily into
-// TaskObject::fpu_state (see arch/fpu.h), so ContextSwitch never touches it.
-
 #include <arch/context.h>
 #include <arch/regs.h>
 #include <string.h>
 
-/* Initial Cpsr for a user thread: USR mode (0x10), IRQs enabled. */
 #define ARM_CPSR_USER 0x10u
 
-/* Entry trampoline that pops the exception frame and returns to user mode. */
 extern void task_entry_trampoline(void);
 
 CpuState *ArchUserFrame(uintptr_t kstack_top) { return (CpuState *)(kstack_top - sizeof(CpuState)); }
