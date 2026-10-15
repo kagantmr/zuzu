@@ -11,7 +11,6 @@
 #include "boot_info.h"
 #include "core/panic.h"
 #include "kernel/sched/sched.h"
-#include "kernel/time/tick.h"
 
 #include "core/version.h"
 #include "kernel/loader/boot_programs.h"
@@ -24,11 +23,6 @@
 #define LOG_FMT(fmt) "(main) " fmt
 #include "core/log.h"
 
-/* RegisterTickCb keeps a single slot (see kernel/time/tick.c), so this
- * wraps SchedSetReschedFlag rather than being registered alongside it —
- * a second call to RegisterTickCb would silently replace the first and
- * stop preemption. */
-static void sched_tick(void) { SchedTick(); }
 
 _Noreturn void kmain(void)
 {
@@ -59,10 +53,7 @@ _Noreturn void kmain(void)
      * kernel/loader/boot_programs.c). */
     CreateRootService(initrd_pa, initrd_size);
 
-    RegisterTickCb(sched_tick);
-    ArchTimerSetHandler(tick_announce);
-
-    KINFO("Entering idle");
+    KINFO("Kernel up");
 
     Schedule();
 

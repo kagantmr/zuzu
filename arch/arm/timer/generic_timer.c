@@ -49,28 +49,10 @@ static inline void WriteCntvCtl(uint32_t v)
  * tolerates and the next call heals. */
 static uint64_t cnt_last;
 
-static inline uint64_t ReadCntpct(void)
+static inline uint64_t ReadCntvct(void)
 {
-    /* CNTPCT (physical count). QEMU's TCG generic-timer model intermittently
-     * returns this register with the halves misplaced -- the real count in
-     * the high word, low word zero (a ~2^32 forward jump), or both words
-     * zero. It happens reliably enough (~1 in 6, worse from exception
-     * context) to poison every deadline derived from it. Two mitigations:
-     *   - if the low word is 0 and the high word isn't, it's the swap: undo it
-     *   - clamp against a monotonic anchor: real advance between any two
-     *     kernel reads is far below one second (~2^26 counts), so anything
-     *     outside [last, last + 2^26) is the glitch -> pin to last.
-     */
     uint64_t v;
-    __asm__ volatile("mrrc p15, 0, %Q0, %R0, c14" : "=r"(v)::"memory");
-
-    /* Swap glitch: real count in the high word, low word zero. Undo it. */
-    if ((uint32_t)v == 0 && (v >> 32) != 0)
-        v >>= 32;
-    /* The counter is strictly monotonic; a value below the last one we
-     * returned (covers the words-zeroed glitch too) is bogus -- pin it.
-     * A large *forward* jump is legitimate after a long WFI, so never clamp
-     * those. */
+    __asm__ volatile("isb\n mrrc p15, 1, %Q0, %R0, c14" : "=r"(v)::"memory");
     if (v < cnt_last)
         v = cnt_last;
     cnt_last = v;
@@ -89,9 +71,20 @@ static void ArmGenericTimerHandler(void *ctx)
         expire_handler();
 }
 
+static inline void EnableUserCounterRead(void)
+{
+    uint32_t v;
+    __asm__ volatile("mrc p15, 0, %0, c14, c1, 0" : "=r"(v));   /* CNTKCTL */
+    v &= ~0x303U;   /* PL0PCTEN, PL0VCTEN, PL0VTEN, PL0PTEN off */
+    v |= 0x2U;      /* PL0VCTEN: user may read CNTVCT, nothing else */
+    __asm__ volatile("mcr p15, 0, %0, c14, c1, 0" ::"r"(v));
+    __asm__ volatile("isb");
+}
+
 void ArchTimerInit(void)
 {
     freq = ReadCntFrq();
+    EnableUserCounterRead();
 
     /* Silence CNTP at the source so its interrupt line stays deasserted */
     WriteCntpCtl(0x2); /* ENABLE=0, IMASK=1 */
@@ -104,13 +97,12 @@ void ArchTimerInit(void)
      * first Schedule(). Until then nothing needs a timer wakeup. */
     WriteCntvCtl(0x3); /* ENABLE=1, IMASK=1 */
 
-    if (expire_handler)
-        expire_handler();
+
 }
 
 void ArchTimerSetHandler(void (*on_expire)(void)) { expire_handler = on_expire; }
 
-Time ArchTimerNow(void) { return ReadCntpct(); }
+Time ArchTimerNow(void) { return ReadCntvct(); }
 uint32_t ArchTimerFreq(void) { return freq; }
 static uint64_t cntv_cval_shadow = ~0ULL; /* sentinel: no real deadline is ever this value */
 

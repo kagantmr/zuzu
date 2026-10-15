@@ -3,7 +3,7 @@
 #include "core/version.h"
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/mm/vmm/vmm.h"
-#include "kernel/time/tick.h"
+#include "kernel/clock.h"
 #include <stdio.h>
 #include <string.h>
 #include <zuzu/syspage.h>
@@ -65,7 +65,7 @@ void SyspageInit(void)
     strncpy(g_sp->cpu, boot_info_cpu_compat(), sizeof(g_sp->cpu) - 1);
 
     g_sp->mem_total_kb = (uint32_t)((PmmGetStats().total_frames * (uint64_t)PAGE_SIZE) / 1024);
-    g_sp->tick_hz = GetTickRate();
+    g_sp->tick_hz = 1000;
     g_sp->boot_time_s = rtc_epoch;
 
     BootInfoEnumerateDevs(DeviceCallback);
@@ -85,7 +85,7 @@ void SyspageUpdateUptime(void)
 {
     if (!g_sp)
         return;
-    g_sp->uptime_ticks = GetTicks();
+    g_sp->uptime_ticks = ClockNowMs();
 }
 
 void SyspageSetInitrdSz(uint32_t size)

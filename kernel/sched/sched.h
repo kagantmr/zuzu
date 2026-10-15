@@ -23,7 +23,7 @@ void SchedAdd(TaskObject *t);
 void SchedAddFront(TaskObject *t);
 void SchedQueueDestroyTask(TaskObject *t);
 void __hot Schedule(void);
-void SchedTick(void);
+void SchedTimerExpired(void);
 void SchedRemoveSleepQueue(TaskObject *t);
 void SchedSetReschedFlag(void);
 void SchedRemoveRunQueue(TaskObject *t);

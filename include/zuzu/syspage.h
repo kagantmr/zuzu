@@ -32,7 +32,7 @@ typedef struct {
     Tick uptime_ticks;   // raw scheduler ticks since timer start
     uint32_t tick_hz;    // ticks per second
     uint8_t dev_count;   // how many devices are in the devs[] array
-    size_t initrd_size;  // size of initrd (for sysd and likely fsd in the future)
+    size_t initrd_size;  // size of initrd
     SyspageDevEntry devs[SYSPAGE_MAX_DEVICES]; // filled from DTB walk at boot
     uint32_t _reserved;
 } Syspage;

@@ -11,7 +11,8 @@
 #include "core/panic.h"
 #include "kernel/bench.h"
 #include "kernel/mm/vmm/vmm.h"
-#include "kernel/time/tick.h"
+#include "kernel/clock.h"
+#include "kernel/syspage.h"
 #include "types.h"
 #include <arch/cpu.h>
 #include <arch/timer.h>
@@ -92,6 +93,7 @@ void SchedInit(void)
     current_task = NULL;
     on_idle_stack = false;
     SchedInitIdleTask();
+    ArchTimerSetHandler(SchedTimerExpired);
 }
 
 static void SchedEnqueue(TaskObject *t, bool front)
@@ -361,9 +363,11 @@ void __hot SchedSwitchNext(TaskObject *next)
     current_task->state = TASK_STATE_RUNNING;
     on_idle_stack = false;
 
+    #define SLICE_UNITS_PER_SEC 100
+    
     uint64_t slice = current_task->slice_remaining
                          ? current_task->slice_remaining
-                         : (uint64_t)current_task->time_slice * (ArchTimerFreq() / TICK_HZ);
+                         : (uint64_t)current_task->time_slice * (ArchTimerFreq() / SLICE_UNITS_PER_SEC);
     current_task->slice_deadline = ArchTimerNow() + slice;
     current_task->slice_remaining = 0;
     SchedArmTimer();
@@ -538,8 +542,9 @@ size_t SchedGetSleepers(TaskObject **out, size_t max_out)
 
 void SchedSetReschedFlag(void) { do_resched = 1; }
 
-void SchedTick(void)
+void SchedTimerExpired(void)
 {
+    SyspageUpdateUptime();
     in_tick = true;
     SchedWakeSleepers();
     in_tick = false;
