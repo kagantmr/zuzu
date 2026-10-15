@@ -1,0 +1,24 @@
+name: arm-toolchain
+description: Install the pinned Arm GNU Toolchain (arm-none-eabi, with newlib) on PATH
+
+runs:
+  using: composite
+  steps:
+    - name: Cache toolchain
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: /opt/arm-gnu-toolchain
+        key: arm-gnu-toolchain-${{ env.ARM_TOOLCHAIN }}-x86_64
+    - name: Download toolchain
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        url="https://developer.arm.com/-/media/Files/downloads/gnu/${ARM_TOOLCHAIN}/binrel/arm-gnu-toolchain-${ARM_TOOLCHAIN}-x86_64-arm-none-eabi.tar.xz"
+        mkdir -p /opt/arm-gnu-toolchain
+        curl -sSL "$url" | tar -xJ -C /opt/arm-gnu-toolchain --strip-components=1
+    - name: Put it on PATH
+      shell: bash
+      run: |
+        echo "/opt/arm-gnu-toolchain/bin" >> "$GITHUB_PATH"
+        /opt/arm-gnu-toolchain/bin/arm-none-eabi-gcc --version | head -1

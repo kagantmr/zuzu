@@ -1,0 +1,59 @@
+name: ci
+
+on:
+  push:
+    branches: [main, "devel/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ARM_TOOLCHAIN: 15.2.rel1
+  DOXYGEN_VERSION: 1.18.0
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        board: [vexpress-a15, virt, rpi4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/arm-toolchain
+      - name: Build
+        run: make BOARD=${{ matrix.board }} -j"$(nproc)"
+
+  checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/arm-toolchain
+      - name: Install clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+      - name: Install Doxygen ${{ env.DOXYGEN_VERSION }}
+        run: |
+          v=${DOXYGEN_VERSION//./_}
+          curl -sSL "https://github.com/doxygen/doxygen/releases/download/Release_${v}/doxygen-${DOXYGEN_VERSION}.linux.bin.tar.gz" | tar -xz -C /opt
+          echo "/opt/doxygen-${DOXYGEN_VERSION}/bin" >> "$GITHUB_PATH"
+      - name: HAL leak check
+        run: make hal-check
+      - name: Strict docs (docs/doc-scope)
+        run: make BOARD=vexpress-a15 doc-check
+
+  smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/arm-toolchain
+      - name: Install QEMU and FAT tools
+        run: sudo apt-get update && sudo apt-get install -y qemu-system-arm mtools dosfstools
+      - name: Build kernel, initrd and SD card
+        run: |
+          make BOARD=vexpress-a15 -j"$(nproc)"
+          make BOARD=vexpress-a15 build/arm-vexpress-a15/zuzu.img sdimg
+      - name: Boot and run zztest
+        run: make BOARD=vexpress-a15 smoke SMOKE_TIMEOUT=300
