@@ -17,13 +17,12 @@ endif
 
 # ---- tier-2 (newlib) flags --------------------------------------------------
 # Newlib's headers must win over include/, but <zuzu/...> must still resolve.
-# This dir exposes zuzu/ alone. (Goes away with the klib/ split.)
 NEWLIB_INC = build/newlib-include
 
 NEWLIB_USER_CFLAGS = -O$(CONFIG_USER_CC_OPT_LEVEL) -Wall -Wextra -mthumb \
                      $(CPUFLAGS) -I. -I$(NEWLIB_INC) -Iarch/include -Iarch/$(ARCH)/include \
                      -idirafter include \
-                     -MMD -MP -g $(ARCH_USER_FP) \
+                     -MD -MP -g $(ARCH_USER_FP) \
                      -include $(KCONFIG_AUTOCONF) \
                      -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"'
 

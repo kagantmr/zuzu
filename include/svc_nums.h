@@ -31,6 +31,6 @@ typedef enum {
 } BenchVerb;
 #endif
 
-typedef uint8_t Svc;
+typedef uint32_t Svc;
 
 #endif /* SYSCALL_NUMS_H */

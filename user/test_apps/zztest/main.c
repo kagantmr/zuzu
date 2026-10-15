@@ -197,37 +197,40 @@ static int32_t WorkerJoin(Worker *w)
 
 /* ---------------- kitten Spaces from raw ARM code ---------------- */
 
+/* One syscall in raw ARM code: mov r12, #n; svc #ARCH_SVC_MAGIC */
+#define SYS(n) (0xE3A0C000u | (uint32_t)(n)), (0xEF000000u | ARCH_SVC_MAGIC)
+
 static const uint32_t kCodeLoop[] = {0xEAFFFFFE};                      /* b . */
-static const uint32_t kCodeQuit42[] = {0xE3A0002A, 0xEF000000};        /* mov r0,#42; svc QUIT */
+static const uint32_t kCodeQuit42[] = {0xE3A0002A, SYS(SVC_QUIT)};        /* mov r0,#42; svc QUIT */
 static const uint32_t kCodeFaultData[] = {0xE3A00000, 0xE5901000};     /* mov r0,#0; ldr r1,[r0] */
 static const uint32_t kCodeFaultPrefetch[] = {0xE3A00000, 0xE12FFF10}; /* mov r0,#0; bx r0 */
 static const uint32_t kCodeFaultUndef[] = {0xE7F000F0};                /* udf */
 static const uint32_t kCodeReadSyspage[] = {0xE3A01A01, 0xE5910000,
-                                            0xEF000000}; /* mov r1,#0x1000; ldr r0,[r1]; svc QUIT */
+                                            SYS(SVC_QUIT)}; /* mov r1,#0x1000; ldr r0,[r1]; svc QUIT */
 static const uint32_t kCodeReadBootInfo[] = {0xE3A01A02, 0xE5910000,
-                                             0xEF000000}; /* mov r1,#0x2000; ldr r0,[r1]; ... */
+                                             SYS(SVC_QUIT)}; /* mov r1,#0x2000; ldr r0,[r1]; ... */
 static const uint32_t kCodeReadKernel[] = {0xE3A01103, 0xE5910000,
-                                           0xEF000000}; /* mov r1,#0xC0000000; ldr r0,[r1] */
+                                           SYS(SVC_QUIT)}; /* mov r1,#0xC0000000; ldr r0,[r1] */
 static const uint32_t kCodeWriteCode[] = {0xE3A01801, 0xE5810000,
-                                          0xEF000000}; /* mov r1,#0x10000; str r0,[r1] (RX page) */
+                                          SYS(SVC_QUIT)}; /* mov r1,#0x10000; str r0,[r1] (RX page) */
 static const uint32_t kCodeExecData[] = {0xE3A01101,
                                          0xE12FFF11}; /* mov r1,#0x40000000; bx r1 (RW, no exec) */
 static const uint32_t kCodeStack[] = {
     0xE3A02009, 0xE50D2008, 0xE51D0008,
-    0xEF000000}; /* mov r2,#9; str r2,[sp,#-8]; ldr r0,[sp,#-8]; QUIT */
-static const uint32_t kCodeYieldLoop[] = {0xE3A04064, 0xEF000001, 0xE2544001, 0x1AFFFFFC,
-                                          0xE3A00005, 0xEF000000}; /* 100x YIELD, QUIT 5 */
-static const uint32_t kCodeSleepQuit[] = {0xE3A00014, 0xEF000002, 0xE3A00006,
-                                          0xEF000000}; /* SLEEP 20; QUIT 6 */
+    SYS(SVC_QUIT)}; /* mov r2,#9; str r2,[sp,#-8]; ldr r0,[sp,#-8]; QUIT */
+static const uint32_t kCodeYieldLoop[] = {0xE3A04064, SYS(SVC_YIELD), 0xE2544001, 0x1AFFFFFB,
+                                          0xE3A00005, SYS(SVC_QUIT)}; /* 100x YIELD, QUIT 5 */
+static const uint32_t kCodeSleepQuit[] = {0xE3A00014, SYS(SVC_SLEEP), 0xE3A00006,
+                                          SYS(SVC_QUIT)}; /* SLEEP 20; QUIT 6 */
 /* ldr r1,[r0] (r0 comes in as the start argument); mov r0,#7; svc QUIT */
-static const uint32_t kCodeLoadThenQuit7[] = {0xE5901000, 0xE3A00007, 0xEF000000};
+static const uint32_t kCodeLoadThenQuit7[] = {0xE5901000, 0xE3A00007, SYS(SVC_QUIT)};
 /* r0 = a space handle (start argument); quit with ManageHandle(r0, CLOSE / DESTROY) */
-static const uint32_t kCodeCloseHandle[] = {0xE3A01002, 0xEF000008, 0xEF000000};
-static const uint32_t kCodeDestroyHandle[] = {0xE3A01004, 0xEF000008, 0xEF000000};
+static const uint32_t kCodeCloseHandle[] = {0xE3A01002, SYS(SVC_MANAGEHANDLE), SYS(SVC_QUIT)};
+static const uint32_t kCodeDestroyHandle[] = {0xE3A01004, SYS(SVC_MANAGEHANDLE), SYS(SVC_QUIT)};
 static const uint32_t kCodeCount[] = {0xE2844001, 0xEAFFFFFD}; /* 1: add r4,r4,#1; b 1b */
-static const uint32_t kCodeLoopThenQuit9[] = {0xEAFFFFFE, 0xE3A00009, 0xEF000000};
+static const uint32_t kCodeLoopThenQuit9[] = {0xEAFFFFFE, 0xE3A00009, SYS(SVC_QUIT)};
 /* r0 = an event handle; r1 = INFINITE; WaitOn(r0); quit with the bits it returned */
-static const uint32_t kCodeWaitQuitBits[] = {0xE3E01000, 0xEF000007, 0xE1A00001, 0xEF000000};
+static const uint32_t kCodeWaitQuitBits[] = {0xE3E01000, SYS(SVC_WAITON), 0xE1A00001, SYS(SVC_QUIT)};
 
 static uint8_t g_code_page[4096] __attribute__((aligned(4096)));
 
@@ -315,6 +318,8 @@ static void TestBasics(void)
     CheckEq(ArchInvokeSvc(SVC_TOTAL_COUNT, 0, 0, 0, 0), ERR_NOSYS,
             "svc number == SVC_TOTAL_COUNT -> NOSYS");
     CheckEq(ArchInvokeSvc(0xFF, 0, 0, 0, 0), ERR_NOSYS, "svc number 0xFF -> NOSYS");
+    CheckEq(ArchInvokeSvc(0x100 | SVC_YIELD, 0, 0, 0, 0), ERR_NOSYS,
+            "svc number 0x101 is not truncated to YIELD -> NOSYS");
 #ifdef DEBUG
     CheckEq(ArchInvokeSvc(SVC_LOG, 0, 8, 0, 0), ERR_BADPTR, "Log(NULL, 8) -> BADPTR");
     CheckEq(ArchInvokeSvc(SVC_LOG, (Register) "x", 0, 0, 0), ERR_BADPTR, "Log(ptr, 0) -> BADPTR");
@@ -2337,7 +2342,7 @@ static void TestSuspend(void)
 }
 
 /* r0 = a port handle; Call(r0, xlen 0, no grant); quit with the reply status */
-static const uint32_t kCodeCallQuit[] = {0xE3A01000, 0xE3E02000, 0xEF000005, 0xEF000000};
+static const uint32_t kCodeCallQuit[] = {0xE3A01000, 0xE3E02000, SYS(SVC_CALL), SYS(SVC_QUIT)};
 
 /* ---------------- waiter re-sort (#25) ---------------- */
 
@@ -2399,7 +2404,7 @@ static void TestWaiterResort(void)
 
 /* r0 = a ticket; ReplyTo(r0, xlen 0, no grant); quit with the result */
 static const uint32_t kCodeReplyTicket[] = {0xE1A03000, 0xE3A00000, 0xE3E01000,
-                                            0xE3E02000, 0xEF000006, 0xEF000000};
+                                            0xE3E02000, SYS(SVC_REPLY), SYS(SVC_QUIT)};
 
 /* ---------------- hold (#26) ---------------- */
 

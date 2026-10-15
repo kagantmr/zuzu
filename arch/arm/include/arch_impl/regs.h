@@ -47,6 +47,7 @@ static __always_inline Register ArchFrameSp(const CpuState *f) { return f->sp_us
 static __always_inline Register ArchFrameLr(const CpuState *f) { return f->lr_usr; }
 static __always_inline Register ArchFrameFlags(const CpuState *f) { return f->return_cpsr; }
 static __always_inline Register ArchFrameFp(const CpuState *f) { return f->r[11]; }
+static __always_inline uint32_t ArchFrameSvcNum(const CpuState *f) { return (uint32_t)f->r[12]; }
 
 /* Live reads of current CPU state (see <arch/regs.h>). */
 static inline Register ArchCurrentFramePointer(void)

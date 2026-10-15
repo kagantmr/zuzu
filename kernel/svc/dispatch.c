@@ -135,6 +135,6 @@ void __hot SvcDispatch(Svc svc_num, CpuState *frame)
     return;
 PanicOnWeirdFrame:
     panic("Corrupt trap_frame at syscall dispatch: spid=%u svc=%u frame=%p",
-          (unsigned)(CURRENT_SPACE ? CURRENT_SPACE->spid : 0), svc_num, (void *)frame);
+          (unsigned)(CURRENT_SPACE ? CURRENT_SPACE->spid : 0), (unsigned)svc_num, (void *)frame);
     __builtin_unreachable();
 }

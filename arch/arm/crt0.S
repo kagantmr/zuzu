@@ -3,6 +3,8 @@
 .section .text, "ax"
 // The kernel kickstarts _start in ARM state, so crt0 must assemble as ARM.
 .arm
+
+#include <arch_impl/svc.h>
 .global _start
 
 _start:
@@ -57,7 +59,8 @@ _fini:
     b 4b
 5:
     mov r0, r6
-    svc #0
+    mov r12, #0
+    svc #ARCH_SVC_MAGIC
 3:  b 3b
 #endif
 

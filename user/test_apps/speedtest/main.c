@@ -216,9 +216,12 @@ static void RunIpc(void)
     MemUnmap(stack);
 }
 
+/* One syscall in raw ARM code: mov r12, #n; svc #ARCH_SVC_MAGIC */
+#define SYS(n) (0xE3A0C000u | (uint32_t)(n)), (0xEF000000u | ARCH_SVC_MAGIC)
+
 static const uint32_t kEchoCode[] = {
-    0xE1A04000, 0xE1A00004, 0xE3E01000, 0xEF000007, 0xE3500000, 0x1A000005, 0xE1A00002,
-    0xE3E01000, 0xE1A02004, 0xE3E03000, 0xEF000006, 0xEAFFFFF7, 0xEF000000,
+    0xE1A04000, 0xE1A00004, 0xE3E01000, SYS(SVC_WAITON), 0xE3500000, 0x1A000006, 0xE1A00002,
+    0xE3E01000, 0xE1A02004, 0xE3E03000, SYS(SVC_REPLY),  0xEAFFFFF6, SYS(SVC_QUIT),
 };
 
 static uint8_t g_code_page[4096] __attribute__((aligned(4096)));

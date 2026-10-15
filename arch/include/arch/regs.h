@@ -10,6 +10,7 @@
 //   Register  ArchFrameLr(const CpuState *f);     -- saved user LR
 //   Register  ArchFrameFlags(const CpuState *f);  -- saved status/flags
 //   Register  ArchFrameFp(const CpuState *f);      -- saved frame pointer (for backtrace)
+//   uint32_t  ArchFrameSvcNum(const CpuState *f);  -- syscall number of a trap from user mode
 //
 // The two below read live CPU state (not a saved frame) — for diagnostics
 // (e.g. core/panic.c) that need "where are we right now" rather than "where
