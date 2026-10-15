@@ -132,52 +132,6 @@ static bool stat_path(const char *path, FsdStat *st)
     return FsdGetStat(&fsd_conn, path, st) == ZUZU_OK;
 }
 
-/* ---- ls ---- */
-
-static void cmd_ls(const char *arg)
-{
-    if (!ensure_fsd()) {
-        printf("%s", ANSI_RED "ls: fsd unavailable\n" ANSI_RESET);
-        return;
-    }
-
-    char path[256];
-    if (!resolve_path(arg, path, sizeof(path))) {
-        printf("%s", "path too long\n");
-        return;
-    }
-
-    char line[96];
-    uint32_t start = 0;
-
-    /* fsd returns at most a bufferful of dirents per call; page through the
-     * directory by advancing `start` until a short batch ends it. */
-    for (;;) {
-        FsdDirEntry entries[32];
-        uint32_t count = 0;
-        if (FsdReadDir(&fsd_conn, path, start, entries, sizeof(entries) / sizeof(entries[0]),
-                       &count) != ZUZU_OK) {
-            if (start == 0)
-                printf("%s", ANSI_RED "ls: cannot read directory\n" ANSI_RESET);
-            return;
-        }
-
-        for (uint32_t i = 0; i < count; i++) {
-            if (entries[i].type == FSD_TYPE_DIR) {
-                (void)snprintf(line, sizeof(line),
-                               ANSI_BOLD ANSI_CYAN "%-13s" ANSI_RESET "  <DIR>\n", entries[i].name);
-            } else {
-                (void)snprintf(line, sizeof(line), "%-13s  %u\n", entries[i].name, entries[i].size);
-            }
-            printf("%s", line);
-        }
-
-        if (count < sizeof(entries) / sizeof(entries[0]))
-            break;
-        start += count;
-    }
-}
-
 /* ---- run ---- */
 
 static ImgCache g_images;
