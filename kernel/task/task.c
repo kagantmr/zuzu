@@ -342,6 +342,19 @@ void TaskFault(TaskObject *task, Err reason)
 
 #define PRIORITY_PROPAGATION_DEPTH 8
 
+
+static void RecomputePriorityAt(TaskObject *t, unsigned depth);
+
+static void PortBoostServersAt(PortObject *port, unsigned depth)
+{
+    ListNode *n = port->active_servers.node.next;
+    while (n != &port->active_servers.node) {
+        ListNode *next = n->next;
+        RecomputePriorityAt(container_of(n, TaskObject, serve_node), depth);
+        n = next;
+    }
+}
+
 static void RecomputePriorityAt(TaskObject *t, unsigned depth)
 {
     Prio eff = t->base_prio;
@@ -366,6 +379,10 @@ static void RecomputePriorityAt(TaskObject *t, unsigned depth)
 
     if (t->reply_holder && depth < PRIORITY_PROPAGATION_DEPTH)
         RecomputePriorityAt(t->reply_holder, depth + 1);
+    
+    if (t->state == TASK_STATE_BLOCKED && t->node.next && t->blocked_port &&
+        depth < PRIORITY_PROPAGATION_DEPTH)
+        PortBoostServersAt(t->blocked_port, depth + 1);
 }
 
 void TaskRecomputePriority(TaskObject *t) { RecomputePriorityAt(t, 0); }

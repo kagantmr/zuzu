@@ -554,13 +554,26 @@ void SchedTimerExpired(void)
 
 void SchedSetEffective(TaskObject *t, Prio prio)
 {
-    bool requeue =
-        (t->state == TASK_STATE_READY) && (t->node.next); /* only TASK_STATE_READY tasks are on a run queue */
-    if (requeue)
+    bool on_run = t->state == TASK_STATE_READY && t->node.next;
+    bool on_wait = t->wait_slot.node.next != NULL;
+    bool on_senders = t->state == TASK_STATE_BLOCKED && t->node.next && t->blocked_port;
+
+    if (on_run)
         SchedRemoveRunQueue(t);
+    if (on_wait)
+        ListRemove(&t->wait_slot.node);
+    if (on_senders)
+        ListRemove(&t->node);
+
     t->priority = prio;
-    if (requeue)
+
+    if (on_run)
         SchedAdd(t);
+    if (on_wait)
+        SchedWaitQueueAdd(t->wait_slot.queue, &t->wait_slot);
+    if (on_senders)
+        SchedWaitQueueAddTask(&t->blocked_port->sender_queue, t);
+
     if (t == current_task && SchedAnyCpuTakers(current_task))
         SchedSetReschedFlag();
 }
@@ -571,6 +584,7 @@ void SchedWaitQueueAdd(ListHead *q, WaitSlot *slot)
     while (pos != &q->node &&
            container_of(pos, WaitSlot, node)->owner->priority < slot->owner->priority)
         pos = pos->prev;
+    slot->queue = q;
     ListAddHead(&slot->node, pos);
 }
 
