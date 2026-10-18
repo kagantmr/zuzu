@@ -1,3 +1,8 @@
+/**
+ * @file cv.c
+ * @brief Implementation of condition variables.
+ */
+
 #include <stdatomic.h>
 #include <sync/cv.h>
 #include <sync/sem.h>

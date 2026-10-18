@@ -1,3 +1,8 @@
+/**
+ * @file sem.h
+ * @brief Semaphore implementation.
+ */
+
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <sync/sem.h>
