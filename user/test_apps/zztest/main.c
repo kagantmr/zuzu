@@ -3410,6 +3410,34 @@ static void TestMapPerms(void)
     HandleClose(mem);
 }
 
+static void TestBoundBits(void)
+{
+    BeginSection("event bit reuse");
+
+    Handle ev = CreateEvent();
+    Handle p1 = CreatePort();
+    CheckEq(Bind(EVENT_PORT, ev, p1, 3), ZUZU_OK, "bind a port to bit 3");
+    CheckEq(Signal(ev, 1u << 3, false), ERR_NOPERM, "a bound bit cannot be signalled");
+    CheckEq(Bind(EVENT_PORT, ev, p1, 5), ZUZU_OK, "rebind the same port to bit 5");
+    CheckEq(Signal(ev, 1u << 3, false), ZUZU_OK, "bit 3 is free again after the rebind");
+    CheckEq(Signal(ev, 1u << 5, false), ERR_NOPERM, "bit 5 is bound now");
+    WaitOn(ev, TIMEOUT_POLL);
+    HandleClose(p1);
+    CheckEq(Signal(ev, 1u << 5, false), ZUZU_OK, "bit 5 is free once the port is gone");
+    WaitOn(ev, TIMEOUT_POLL);
+
+    Handle p2 = CreatePort();
+    Handle p3 = CreatePort();
+    Bind(EVENT_PORT, ev, p2, 7);
+    Bind(EVENT_PORT, ev, p3, 7);
+    HandleClose(p2);
+    CheckEq(Signal(ev, 1u << 7, false), ERR_NOPERM, "a bit two objects share stays bound");
+    HandleClose(p3);
+    CheckEq(Signal(ev, 1u << 7, false), ZUZU_OK, "and frees when the last one goes");
+    WaitOn(ev, TIMEOUT_POLL);
+    HandleClose(ev);
+}
+
 static void RunSuite(void)
 {
     TestBasics();
@@ -3430,6 +3458,7 @@ static void RunSuite(void)
     TestHardening();
     TestCallTimeout();
     TestMapPerms();
+    TestBoundBits();
     TestDma();
     TestKittens();
     TestTaskLifetime();
