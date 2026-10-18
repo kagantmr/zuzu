@@ -18,6 +18,13 @@ static uint32_t next_spid = 1;
 static SpaceObject *spaces[MAX_SPACES];
 static KSlabCache space_cache;
 
+static void SpidAdvance(void)
+{
+    next_spid++;
+    if (next_spid == 0 || next_spid > (uint32_t)INT32_MAX)
+        next_spid = 1;
+}
+
 static Spid SpidAlloc(SpaceObject *sp)
 {
     uint32_t start = next_spid % MAX_SPACES;
@@ -25,14 +32,15 @@ static Spid SpidAlloc(SpaceObject *sp)
     do {
         if (spaces[slot] == NULL)
             break;
-        next_spid++;
+        SpidAdvance();
         slot = next_spid % MAX_SPACES;
     } while (slot != start);
 
     if (spaces[slot] != NULL)
         return 0;
 
-    Spid spid = (Spid)next_spid++;
+    Spid spid = (Spid)next_spid;
+    SpidAdvance();
     spaces[slot] = sp;
     return spid;
 }

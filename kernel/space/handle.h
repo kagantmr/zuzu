@@ -23,6 +23,8 @@
     (((uint32_t)(gen) << HANDLE_INDEX_BITS) | ((uint32_t)(index) & HANDLE_INDEX_MASK))
 #define HANDLE_INDEX(h) ((uint32_t)(h) & HANDLE_INDEX_MASK)
 #define HANDLE_GEN(h) ((uint32_t)(h) >> HANDLE_INDEX_BITS)
+#define HANDLE_GEN_BITS (31u - HANDLE_INDEX_BITS)
+#define HANDLE_GEN_MASK ((1u << HANDLE_GEN_BITS) - 1u)
 
 typedef struct SpaceObjectStruct SpaceObject;
 
@@ -136,7 +138,7 @@ static inline void HandleEntryFree(HandleTable *t, HandleTableEntry *e)
     uint32_t i = HandleEntryIndex(t, e);
     if (i < HANDLE_MAX_SLOTS)
         BitmapClr(t->slot_bitmap, i);
-    uint32_t next_gen = e->generation + 1;
+    uint32_t next_gen = (e->generation + 1) & HANDLE_GEN_MASK;
     memset(e, 0, sizeof(*e));
     e->generation = next_gen;
 }
