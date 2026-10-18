@@ -334,14 +334,14 @@ static Err NetdHandshake(void)
 
     MsgWriterInit(&w);
     MsgPutByte(&w, NETD_DRVHANDSHAKE_STAGE2);
-    rc = NetdGrant(netd_port, &w, shm_tx_handle, PERM_MAP, NULL);
+    rc = NetdGrant(netd_port, &w, shm_tx_handle, PERM_MAP | PERM_WRITE, NULL);
     if (rc != ZUZU_OK)
         return rc;
 
     SvcResult reply;
     MsgWriterInit(&w);
     MsgPutByte(&w, NETD_DRVHANDSHAKE_STAGE3);
-    rc = NetdGrant(netd_port, &w, shm_rx_handle, PERM_MAP, &reply);
+    rc = NetdGrant(netd_port, &w, shm_rx_handle, PERM_MAP | PERM_WRITE, &reply);
     if (rc != ZUZU_OK)
         return rc;
 

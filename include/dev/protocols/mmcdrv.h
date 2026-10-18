@@ -17,7 +17,7 @@ extern "C" {
 
 #define SD_CMD_GET_BUF                                                                             \
     1 /* req {cmd}. reply {Err status; u32 buf_size; u32 block_size; u32 block_count}              \
-         and GRANTS a dup (PERM_MAP|PERM_TXFR) of the driver-owned buffer page.                    \
+         and GRANTS a dup (PERM_MAP|PERM_WRITE|PERM_TXFR) of the driver-owned buffer page.                    \
          A second GET_BUF re-grants the same buffer. block_count may be 0 if unknown. */
 #define SD_CMD_READ 2 /* req {cmd, lba, count}; data lands at buffer offset 0; reply {Err status}  \
                        */

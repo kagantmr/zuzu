@@ -216,6 +216,8 @@ bool VmmAddRegion(AddressSpace *restrict as, const VirtMemRegion *restrict regio
     memmove(&as->regions.data[ins + 1], &as->regions.data[ins],
             (as->regions.len - ins) * sizeof(VirtMemRegion));
     as->regions.data[ins] = *region;
+    if (!as->regions.data[ins].max_prot)
+        as->regions.data[ins].max_prot = region->prot & (PROT_READ | PROT_WRITE | PROT_EXEC);
     as->regions.len++;
     MemObjRef((MemObject *)region->backing);
     return true;

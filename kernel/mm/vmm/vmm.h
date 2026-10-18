@@ -41,6 +41,7 @@ typedef struct VirtMemRegionStruct {
     VirtAddr vaddr_start;
     size_t size;
     MemProt prot;
+    MemProt max_prot;
     VirtMemType memtype;
     VirtMemBacking owner;
     VirtMemFlags flags;

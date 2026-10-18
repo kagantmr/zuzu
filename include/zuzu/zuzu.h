@@ -737,15 +737,17 @@ static inline Handle CreateMem(size_t page_count, CreateMemoryFlags flags)
  * @syscall_group memory
  * @syscall_blocking no
  * @syscall_sig (mem, hint | prot) -> r0 address or error
- * @param[in] mem_handle Memory object handle with PERM_MAP.
+ * @param[in] mem_handle Memory object handle with PERM_MAP, plus PERM_WRITE to map writable and
+ *                       PERM_EXEC to map executable.
  * @param[in] hint_va    Page-aligned address to map at, or 0 to let the kernel choose.
- * @param[in] prot       PROT_READ / PROT_WRITE / PROT_EXEC.
+ * @param[in] prot       PROT_READ / PROT_WRITE / PROT_EXEC, but never writable and executable.
  * @return The mapped address, or an error encoded as a pointer; check with PtrIsErr().
  * @retval ERR_BADHANDLE @p mem_handle is not a live handle.
  * @retval ERR_BADTYPE   @p mem_handle is not a memory object.
- * @retval ERR_NOPERM    @p mem_handle lacks PERM_MAP, or PROT_EXEC on uncached memory.
+ * @retval ERR_NOPERM    @p mem_handle lacks PERM_MAP, or the PERM_WRITE / PERM_EXEC @p prot asks
+ *                       for, or PROT_EXEC on uncached memory.
  * @retval ERR_BUSY      This handle is already mapped.
- * @retval ERR_BADARG    @p hint_va is unusable.
+ * @retval ERR_BADARG    @p hint_va is unusable, or @p prot is both writable and executable.
  * @retval ERR_NOMEM     No address space or page tables left.
  */
 static inline void *MemMap(Handle mem_handle, VirtAddr hint_va, MemProt prot)
@@ -805,8 +807,10 @@ static inline Err MemUnmap(void *va)
  * @syscall_sig (va, size, prot) -> r0 status
  * @param[in] va       Start of the range, page-aligned.
  * @param[in] size     Length in bytes.
- * @param[in] new_prot PROT_READ / PROT_WRITE / PROT_EXEC.
+ * @param[in] new_prot PROT_READ / PROT_WRITE / PROT_EXEC, but never writable and executable.
  * @return ZUZU_OK, or an error code.
+ * @retval ERR_NOPERM @p new_prot is beyond what the mapping was allowed when it was made: the
+ *                    PERM_WRITE / PERM_EXEC of the handle it came from, or what the injector chose.
  * @retval ERR_BADARG The range is not mapped, not aligned, or the protection is not allowed.
  */
 static inline Err MemProtect(VirtAddr va, size_t size, MemProt new_prot)
@@ -829,11 +833,14 @@ static inline Err MemProtect(VirtAddr va, size_t size, MemProt new_prot)
  * @param[in] dest_vaddr          Page-aligned address in the target space.
  * @param[in] offset              Byte offset into the object; ignored for HANDLE_ANON.
  * @param[in] size                Bytes to map.
- * @param[in] prot                Protection of the target mapping.
+ * @param[in] prot                Protection of the target mapping, never writable and
+ *                                executable. It also becomes the ceiling MemProtect() cannot
+ *                                raise in the target space.
  * @return ZUZU_OK, or an error code.
  * @retval ERR_BADHANDLE A handle is not live.
  * @retval ERR_BADTYPE   @p kitten_space_handle is not a space, or @p mem_handle is not memory.
- * @retval ERR_NOPERM    Missing PERM_CNTL on the space or PERM_MAP on the object.
+ * @retval ERR_NOPERM    Missing PERM_CNTL on the space or PERM_MAP on the object, or @p prot
+ *                       needs a PERM_WRITE / PERM_EXEC the object handle lacks.
  * @retval ERR_DEAD      The target space has been torn down.
  * @retval ERR_BADARG    Misaligned or out-of-range addresses, offset or size.
  * @retval ERR_BUSY      The target range is already mapped.

@@ -15,6 +15,7 @@ void SvcManageMemory(CpuState *frame)
         uint32_t hint_prot = (uint32_t)(*ArchGetFromFrame(frame, 3));
         MemProt prot = (hint_prot & 0x7);
         VirtAddr hint = (hint_prot & (unsigned)~(0xFFF));
+        ENSURE_ERR(frame, !((prot & PROT_WRITE) && (prot & PROT_EXEC)), ERR_BADARG);
 
         if (mem_handle == HANDLE_ANON) {
             size_t size = (size_t)(*ArchGetFromFrame(frame, 2));
@@ -114,7 +115,7 @@ void SvcManageMemory(CpuState *frame)
         MemObjRef(m->mem);
         fresh->type = HANDLE_MEM;
         fresh->mem = m->mem;
-        fresh->perms = PERM_MAP;
+        fresh->perms = PERM_MAP | PERM_WRITE;
         fresh->mapped_va = 0;
 
         ArchSetInFrame(frame, 0, ZUZU_OK);

@@ -149,7 +149,7 @@ static inline Err TtyClientConnect(Handle tty_port, uint32_t cmd, const char *al
 
     /* Grants copy perms verbatim and need PERM_TXFR: send a dup. */
     Handle page;
-    Err prc = HandleDup(c->mem, PERM_MAP | PERM_TXFR, MARKER_NONE, &page);
+    Err prc = HandleDup(c->mem, PERM_MAP | PERM_WRITE | PERM_TXFR, MARKER_NONE, &page);
     if (prc != ZUZU_OK) {
         MemUnmap(va);
         HandleClose(c->mem);

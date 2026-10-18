@@ -96,8 +96,10 @@ typedef enum {
     PERM_TXFR = (1U << 2), /**< Object with this handle can be granted to others. */
     PERM_MAP = (1U << 3),  /**< Object with this handle can be mapped into the Space. */
     PERM_CNTL = (1U << 4), /**< Object with this handle's permissions can be altered */
-    PERM_ALL = (PERM_WAIT | PERM_SEND | PERM_TXFR | PERM_MAP |
-                PERM_CNTL) /**< Object with all permissions. */
+    PERM_WRITE = (1U << 5), /**< Object with this handle can be mapped writable. */
+    PERM_EXEC = (1U << 6),  /**< Object with this handle can be mapped executable. */
+    PERM_ALL = (PERM_WAIT | PERM_SEND | PERM_TXFR | PERM_MAP | PERM_CNTL | PERM_WRITE |
+                PERM_EXEC) /**< Object with all permissions. */
 } HandlePerms;
 
 /** @brief Type enum for Create() and Query(). */

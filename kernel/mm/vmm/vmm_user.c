@@ -34,6 +34,7 @@ Err VmmMapAnon(SpaceObject *space, VirtAddr hint, size_t size, MemProt prot, Vir
         .vaddr_start = va,
         .size = size,
         .prot = prot | VM_PROT_USER,
+        .max_prot = PROT_READ | PROT_WRITE | PROT_EXEC,
         .memtype = VM_MEM_NORMAL,
         .owner = VM_BACKING_ANON,
         .flags = VM_FLAG_NONE,
@@ -45,10 +46,18 @@ Err VmmMapAnon(SpaceObject *space, VirtAddr hint, size_t size, MemProt prot, Vir
     return ZUZU_OK;
 }
 
+static MemProt HandleProtLimit(HandlePerms perms)
+{
+    return (MemProt)(PROT_READ | ((perms & PERM_WRITE) ? PROT_WRITE : 0) |
+                     ((perms & PERM_EXEC) ? PROT_EXEC : 0));
+}
+
 Err VmmMapMemObj(SpaceObject *space, HandleTableEntry *entry, MemProt prot, VirtAddr hint,
                  VirtAddr *out)
 {
     MemObject *mem = entry->mem;
+    MemProt limit = HandleProtLimit(entry->perms);
+    ENSURE_RET(!(prot & ~limit), ERR_NOPERM);
 
     ENSURE_RET(!entry->mapped_va, ERR_BUSY);
     ENSURE_RET(mem, ERR_BADHANDLE);
@@ -75,6 +84,7 @@ Err VmmMapMemObj(SpaceObject *space, HandleTableEntry *entry, MemProt prot, Virt
         VirtMemRegion region = {.vaddr_start = va_base,
                                 .size = size,
                                 .prot = prot | VM_PROT_USER,
+                                .max_prot = limit,
                                 .memtype = (mem->shm.flags & MEM_UNCACHED) ? VM_MEM_NORMAL_NC
                                                                            : VM_MEM_NORMAL,
                                 .owner = VM_BACKING_SHARED,
@@ -107,6 +117,7 @@ Err VmmMapMemObj(SpaceObject *space, HandleTableEntry *entry, MemProt prot, Virt
             .backing = mem,
             .size = size_aligned,
             .prot = prot | VM_PROT_USER,
+            .max_prot = limit,
             .memtype = VM_MEM_DEVICE,
             .owner = VM_BACKING_NONE,
             .flags = VM_FLAG_NONE,
@@ -175,6 +186,10 @@ Err VmmProtectUserRange(SpaceObject *space, VirtAddr va, size_t size, MemProt ne
     ENSURE_RET((va < USER_VA_TOP && size <= USER_VA_TOP - va), ERR_BADARG);
     ENSURE_RET(!(new_prot & ~(uint32_t)(PROT_EXEC | PROT_WRITE | PROT_READ)), ERR_BADARG);
     ENSURE_RET(!((new_prot & PROT_WRITE) && (new_prot & PROT_EXEC)), ERR_BADARG);
+
+    const VirtMemRegion *r = VmmFindRegion(space->as, va);
+    ENSURE_RET(r, ERR_BADARG);
+    ENSURE_RET(!(new_prot & ~r->max_prot), ERR_NOPERM);
 
     ENSURE_RET(VmmProtectPage(space->as, va, size, new_prot | VM_PROT_USER), ERR_BADARG);
 
@@ -253,6 +268,8 @@ Err InjectObjIntoSpace(SpaceObject *kitten, SpaceObject *parent, const InjectObj
         .flags = VM_FLAG_NONE,
     };
 
+    region.max_prot = args->prot;
+
     if (args->mem == HANDLE_ANON) {
         region.owner = VM_BACKING_ANON;
         ENSURE_RET(VmmAddRegion(kitten->as, &region), ERR_NOMEM);
@@ -263,6 +280,7 @@ Err InjectObjIntoSpace(SpaceObject *kitten, SpaceObject *parent, const InjectObj
     ENSURE_RET(entry, ERR_BADHANDLE);
     ENSURE_RET(entry->type == HANDLE_MEM, ERR_BADTYPE);
     ENSURE_RET(entry->perms & PERM_MAP, ERR_NOPERM);
+    ENSURE_RET(!(args->prot & ~HandleProtLimit(entry->perms)), ERR_NOPERM);
 
     MemObject *mem = entry->mem;
     ENSURE_RET(mem && mem->kind == MEMKIND_SHARED, ERR_BADTYPE);

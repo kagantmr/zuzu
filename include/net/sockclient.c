@@ -133,7 +133,7 @@ static void UnmapMem(SockConn *s)
 static Err CallWithMem(const void *req, uint32_t len, const SockConn *s)
 {
     Handle page;
-    Err rc = HandleDup(s->mem, PERM_MAP | PERM_TXFR, MARKER_NONE, &page);
+    Err rc = HandleDup(s->mem, PERM_MAP | PERM_WRITE | PERM_TXFR, MARKER_NONE, &page);
     if (rc != ZUZU_OK)
         return rc;
     rc = SockCall(g_client.port, req, len, page, NULL);

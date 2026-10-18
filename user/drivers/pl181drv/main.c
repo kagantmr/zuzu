@@ -252,7 +252,7 @@ static void ReplyStatus(Err status)
 static void ServeGetBuf(void)
 {
     /* Grants copy perms verbatim and need PERM_TXFR: send a dup. */
-    SvcResult dup = HandleDuplicate(g_buf_mem, PERM_MAP | PERM_TXFR, MARKER_NONE);
+    SvcResult dup = HandleDuplicate(g_buf_mem, PERM_MAP | PERM_WRITE | PERM_TXFR, MARKER_NONE);
     if (dup.r0 != ZUZU_OK) {
         ReplyStatus((Err)dup.r0);
         return;

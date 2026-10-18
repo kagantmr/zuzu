@@ -75,7 +75,7 @@ Err FsdAttach(FsdConn *c, Handle port, Spid pid, uint32_t want_size)
     c->size = want_size;
 
     Handle dup;
-    Err drc = HandleDup(c->shm, PERM_MAP | PERM_TXFR, MARKER_NONE, &dup);
+    Err drc = HandleDup(c->shm, PERM_MAP | PERM_WRITE | PERM_TXFR, MARKER_NONE, &dup);
     if (drc != ZUZU_OK) {
         FsdTeardown(c);
         return drc;
@@ -213,7 +213,7 @@ Err FsdRead(FsdConn *c, uint32_t fd, void *dst, uint32_t count, uint32_t *got)
 Err FsdReadObj(FsdConn *c, uint32_t fd, Handle obj, uint32_t obj_off, uint32_t count,
                uint32_t *got)
 {
-    SvcResult dup = HandleDuplicate(obj, PERM_MAP | PERM_TXFR, MARKER_NONE);
+    SvcResult dup = HandleDuplicate(obj, PERM_MAP | PERM_WRITE | PERM_TXFR, MARKER_NONE);
     if (dup.r0 != ZUZU_OK)
         return (Err)dup.r0;
 
