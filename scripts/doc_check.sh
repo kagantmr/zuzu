@@ -58,11 +58,11 @@ fi
 
 for f in $files; do
     case "$f" in
+    include/*.c | include/*.h) flags_file=$uflags_file ;;
     *.c) flags_file=$kflags_file ;;
-    include/*.h) flags_file=$uflags_file ;;
     *) continue ;;
     esac
-    out=$(eval "$CLANG $CLANG_DOC $(cat "$flags_file") -x c $f" 2>&1)
+    out=$(eval "$CLANG $(cat "$flags_file") $CLANG_DOC -x c $f" 2>&1)
     hits=$(echo "$out" | grep -E '^[^ :]+:[0-9]+:[0-9]+: (error|warning):' |
         while IFS=: read -r path line col rest; do
             in_scope "$path" && echo "$path:$line:$col:$rest"

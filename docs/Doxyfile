@@ -42,6 +42,7 @@ EXPAND_ONLY_PREDEF     = YES
 SEARCH_INCLUDES        = YES
 INCLUDE_PATH           = include arch/include arch/arm/include
 PREDEFINED             = __zuzu__ \
+                         __DOXYGEN__ \
                          __ZUZU__ \
                          CONFIG_ZUZU_BENCH \
                          DEBUG \
