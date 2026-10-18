@@ -95,13 +95,12 @@ void SvcCreate(CpuState *frame)
                    ERR_BADPTR);
         kname[name_len] = '\0';
 
+        Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
+        ENSURE_ERR(frame, (-1 != new_handle), ERR_NOMEM);
+
         SpaceObject *space = SpaceCreate(kname, CURRENT_SPACE);
         ENSURE_ERR(frame, (NULL != space), ERR_NOMEM);
         space->max_prio = current_task->max_prio;
-
-        Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
-        ENSURE(-1 != new_handle, SpaceDestroy(space); SpaceFinalize(space);
-               ArchSetInFrame(frame, 0, ERR_NOMEM); return);
 
         HandleTableEntry *entry = HandleTableGet(&CURRENT_SPACE->handle_table, new_handle);
         HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
