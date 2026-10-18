@@ -1208,7 +1208,7 @@ static inline Err Hold(Ticket *out)
  * The reply is the first @p xlen bytes of the answering thread's message box.
  * Any thread of the space that parked the call may answer; a ticket answers
  * once and is meaningless in other spaces. The call in hand, if any, is not
- * affected.t
+ * affected.
  *
  * @syscall_num SVC_REPLY (ticket in r3)
  * @syscall_group ipc

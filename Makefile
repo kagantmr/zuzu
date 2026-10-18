@@ -415,6 +415,17 @@ doc-check doc-report: $(KCONFIG_AUTOCONF)
 	@sh scripts/doc_check.sh $(O)/doc-kflags $(O)/doc-uflags \
 	    $(if $(filter doc-report,$@),$(or $(DIR),$(error doc-report needs DIR=<path>)),$(DOC_SCOPE))
 
+# Generated zuzu-docs pages (scripts/gen_docs.py) from the headers in docs/doc-publish.
+DOC_PUBLIC = $(wildcard $(shell grep -vE '^[[:space:]]*(\#|$$)' docs/doc-publish))
+DOCS_OUT  ?= ../zuzu-docs
+
+.PHONY: docs-site
+docs-site:
+	@rm -rf docs/doxygen && mkdir -p docs/doxygen
+	@{ cat docs/Doxyfile; echo 'WARN_AS_ERROR = NO'; } | \
+	    ZUZU_DOC_INPUT="docs/groups.dox $(DOC_PUBLIC)" doxygen - >/dev/null
+	@python3 scripts/gen_docs.py --xml docs/doxygen/xml --out $(DOCS_OUT) --clean
+
 .PHONY: kernel dump
 kernel: $(TARGET) links
 
@@ -477,6 +488,7 @@ help:
 	@echo '  hal-check           fail if arch code leaks into kernel/ core/ klib/ drivers/'
 	@echo '  doc-check           strict docs over docs/doc-scope (@file, doxygen, clang)'
 	@echo '  doc-report DIR=p    the same checks for one path, not yet in scope'
+	@echo '  docs-site           regenerate zuzu-docs pages into DOCS_OUT (../zuzu-docs)'
 	@echo '  print-<VAR>         print a make variable, e.g. -s print-CFLAGS'
 
 # ZUZUSD/ was the pre-$(O) SD staging dir; drop it so old checkouts tidy up.

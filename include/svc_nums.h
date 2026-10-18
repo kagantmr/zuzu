@@ -23,10 +23,10 @@ typedef enum {
     SVC_BIND,         /**< Bind system call. */
     SVC_MANAGEMEMORY, /**< ManageMemory system call. */
     SVC_MANAGETASK,   /**< ManageTask system call. */
+    SVC_HOLD,         /**< Hold system call. */
 #ifdef CONFIG_ZUZU_BENCH
     SVC_BENCH, /**< !!DEBUG-ONLY!! Bench system call. */
 #endif /* CONFIG_ZUZU_BENCH */
-    SVC_HOLD, /**< Hold system call. */
     SVC_TOTAL_COUNT /**< Number of system calls. */
 } SvcNumber;
 

@@ -1,9 +1,20 @@
+/**
+ * @file context.c
+ * @brief Task context function implementations
+ */
+
 #include <arch/context.h>
 #include <arch/regs.h>
 #include <string.h>
 
+/**
+ * @brief ARM user CPSR value.
+ */
 #define ARM_CPSR_USER 0x10u
 
+/**
+ * @brief Entry point of the idle task.
+ */
 extern void task_entry_trampoline(void);
 
 CpuState *ArchUserFrame(uintptr_t kstack_top) { return (CpuState *)(kstack_top - sizeof(CpuState)); }
