@@ -2343,7 +2343,8 @@ static void TestSuspend(void)
 }
 
 /* r0 = a port handle; Call(r0, xlen 0, no grant); quit with the reply status */
-static const uint32_t kCodeCallQuit[] = {0xE3A01000, 0xE3E02000, SYS(SVC_CALL), SYS(SVC_QUIT)};
+static const uint32_t kCodeCallQuit[] = {0xE3A01000, 0xE3E02000, 0xE3E03000, SYS(SVC_CALL),
+                                         SYS(SVC_QUIT)}; /* r3 = -1: no timeout */
 
 /* ---------------- waiter re-sort (#25) ---------------- */
 
@@ -3289,6 +3290,62 @@ static void TestHardening(void)
     HandleClose(g_srv_port);
 }
 
+static volatile Err g_late_rc;
+
+static int32_t SrvSlowThenFast(void *arg)
+{
+    (void)arg;
+    PortWaitResult r = FormatToPortWait(WaitOn(g_srv_port, 5000));
+    if (r.status != ZUZU_OK)
+        return r.status;
+    Sleep(200);
+    g_late_rc = Reply(0, -1);
+    r = FormatToPortWait(WaitOn(g_srv_port, 5000));
+    if (r.status != ZUZU_OK)
+        return r.status;
+    Reply(0, -1);
+    return 0;
+}
+
+static void TestCallTimeout(void)
+{
+    BeginSection("call timeout");
+
+    g_srv_port = CreatePort();
+    uint64_t t0 = NowMs();
+    CheckEq(CallTimeout(g_srv_port, 0, -1, 60).r0, ERR_TIMEOUT, "a call nobody receives times out");
+    uint64_t dt = NowMs() - t0;
+    Check(dt + TickMs() >= 60 && dt < 400, "after about the timeout");
+    CheckEq(WaitOnPort(g_srv_port, TIMEOUT_POLL).status, ERR_TIMEOUT,
+            "the timed-out call left the port's queue");
+    CheckEq(CallTimeout(g_srv_port, 0, -1, TIMEOUT_POLL).r0, ERR_TIMEOUT,
+            "a call with TIMEOUT_POLL returns at once");
+    CheckEq(WaitOnPort(g_srv_port, TIMEOUT_POLL).status, ERR_TIMEOUT, "and queues nothing");
+
+    g_late_rc = ZUZU_OK;
+    Worker *srv = WorkerStart(SrvSlowThenFast, NULL);
+    Sleep(20);
+    CheckEq(CallTimeout(g_srv_port, 0, -1, 60).r0, ERR_TIMEOUT,
+            "a call the server holds too long times out");
+    CheckEq(CallTimeout(g_srv_port, 0, -1, 3000).r0, ZUZU_OK,
+            "the next call gets its own reply");
+    CheckEq(WorkerJoin(srv), 0, "the server finishes both");
+    Check(g_late_rc != ZUZU_OK, "the late reply to the timed-out call is refused");
+
+    g_srv_got = 0;
+    Worker *quick = WorkerStart(SrvOnce, NULL);
+    Sleep(20);
+    CheckEq(CallTimeout(g_srv_port, 0, -1, 100).r0, ZUZU_OK, "a reply inside the timeout is OK");
+    CheckEq(WorkerJoin(quick), 0, "the server returns");
+    Handle ev = CreateEvent();
+    t0 = NowMs();
+    CheckEq(WaitOn(ev, 300).r0, ERR_TIMEOUT, "a later wait still times out");
+    dt = NowMs() - t0;
+    Check(dt + TickMs() >= 300, "and is not cut short by the answered call's timer");
+    HandleClose(ev);
+    HandleClose(g_srv_port);
+}
+
 static void RunSuite(void)
 {
     TestBasics();
@@ -3307,6 +3364,7 @@ static void RunSuite(void)
     TestInjectObj();
     TestMsg();
     TestHardening();
+    TestCallTimeout();
     TestDma();
     TestKittens();
     TestTaskLifetime();
