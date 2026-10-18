@@ -1,7 +1,17 @@
+/**
+ * @file
+ * @brief Program image cache implementation.
+ */
+
 #include <string.h>
 #include <util/imgcache.h>
 #include <zuzu/zuzu.h>
 
+/**
+ * @brief Marks every slot free the first time the cache is used.
+ *
+ * @param[in,out] c The cache.
+ */
 static void Init(ImgCache *c)
 {
     if (c->ready)
@@ -12,6 +22,13 @@ static void Init(ImgCache *c)
     c->ready = true;
 }
 
+/**
+ * @brief Finds the occupied slot for @p path.
+ *
+ * @param[in] c    The cache.
+ * @param[in] path Path to look for.
+ * @return The slot, or NULL.
+ */
 static ImgCacheEntry *Find(ImgCache *c, const char *path)
 {
     for (int i = 0; i < IMGCACHE_SLOTS; i++) {
@@ -21,6 +38,11 @@ static ImgCacheEntry *Find(ImgCache *c, const char *path)
     return NULL;
 }
 
+/**
+ * @brief Closes a slot's image object and marks the slot free.
+ *
+ * @param[in,out] e Slot to free.
+ */
 static void Evict(ImgCacheEntry *e)
 {
     HandleClose(e->obj);

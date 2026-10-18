@@ -39,7 +39,7 @@ Err ZoneDestroy(Zone *z);
  * @brief Try entering a Zone and block if it is occupied.
  * 
  * @param[in] The zone to enter to.
- * @return ZUZU_OK on success, ERR_DEAD if the holder has died.
+ * @return ZUZU_OK on success.
  */
 Err ZoneEnter(Zone *z);
 

@@ -1,3 +1,8 @@
+/**
+ * @file
+ * @brief Userspace leveled logging.
+ */
+
 #include "ansi.h"
 #include <stdarg.h>
 #include <stdio.h>
@@ -5,8 +10,15 @@
 #include <zuzu/syspage.h>
 #include <zuzu/uptime.h>
 
+/** @brief Lowest level LogWrite() prints; set with LogSetLevel(). */
 static LogLevel g_min_level = CONFIG_LOG_LEVEL;
 
+/**
+ * @brief Returns the fixed-width label printed for a level.
+ *
+ * @param[in] level Log level.
+ * @return "TRACE".."FATAL", or "UNK".
+ */
 static const char *LevelToLabel(LogLevel level)
 {
     switch (level) {
@@ -27,6 +39,12 @@ static const char *LevelToLabel(LogLevel level)
     }
 }
 
+/**
+ * @brief Returns the ANSI colour sequence used for a level.
+ *
+ * @param[in] level Log level.
+ * @return An escape sequence, or "" for unknown levels.
+ */
 static const char *LevelToStyle(LogLevel level)
 {
     switch (level) {

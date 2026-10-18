@@ -1,3 +1,8 @@
+/**
+ * @file
+ * @brief Look-ups in the syspage device list.
+ */
+
 #ifndef ZUZU_DEVICES_H
 #define ZUZU_DEVICES_H
 
@@ -9,12 +14,10 @@ extern "C" {
 #include <zuzu/syspage.h>
 
 /**
- * @brief Finds a device by name in the system page.
+ * @brief Finds a device by its display name in the syspage device list.
  *
- * @param name The name of the device to find.
- *
- * @return const SyspageDevEntry* Returns a pointer to the device structure if found, or NULL if not
- * found.
+ * @param[in] name Display name, as listed in the syspage (e.g. "PL111 CLCD").
+ * @return The entry, or NULL if no device has that name.
  */
 static inline const SyspageDevEntry *FindDeviceInSyspage(const char *name)
 {
@@ -26,11 +29,10 @@ static inline const SyspageDevEntry *FindDeviceInSyspage(const char *name)
 }
 
 /**
- * @brief Checks if a device with the specified name is present in the system page.
+ * @brief Tells whether a device with this display name is in the syspage device list.
  *
- * @param name The name of the device to check for.
- *
- * @return int Returns 1 if the device is present, 0 otherwise.
+ * @param[in] name Display name to look for.
+ * @return 1 if present, 0 otherwise.
  */
 static inline int DevicePresentInSyspage(const char *name)
 {
