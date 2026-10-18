@@ -231,6 +231,11 @@ void SchedInsertSleepQueue(TaskObject *t)
 static void SchedWakeTimedOut(TaskObject *t)
 {
     t->sleep_slot = -1;
+    if (t->ipc_state == IPC_WAITING) {
+        TaskCancelCall(t);
+        ArchSetInFrame(t->trap_frame, 1, 0);
+        ArchSetInFrame(t->trap_frame, 3, (Register)-1);
+    }
     ArchSetInFrame(t->trap_frame, 0, ERR_TIMEOUT);
     SchedUnblock(t);
     SchedAdd(t);

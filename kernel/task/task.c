@@ -249,6 +249,24 @@ void TaskAbortWait(TaskObject *t, Err err)
     SchedAdd(t);
 }
 
+void TaskCancelCall(TaskObject *t)
+{
+    if (t->held_port) {
+        t->held_port->held[t->held_slot].caller = NULL;
+        t->held_port = NULL;
+    } else if (t->node.prev && t->node.next) {
+        ListRemove(&t->node);
+    }
+
+    if (t->pending_reply_cap && t->reply_holder) {
+        TaskClearReplyCap(t->reply_holder);
+        t->reply_holder = NULL;
+    } else if (t->pending_reply_cap && t->blocked_port) {
+        PortBoostServers(t->blocked_port);
+    }
+    t->pending_reply_cap = NULL;
+}
+
 bool TaskIsDead(const TaskObject *task)
 {
     return task->state == TASK_STATE_ZOMBIE || task->state == TASK_STATE_FAULTED;

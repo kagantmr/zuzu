@@ -93,8 +93,18 @@ Err GrantHandleAcross(SpaceObject *from, SpaceObject *to, Handle handle_to_grant
     return AllocateGrantSlot(from, to, handle_to_grant, out);
 }
 
+static void CallArmTimeout(TaskObject *caller, Duration timeout)
+{
+    if (timeout == TIMEOUT_INFINITE) {
+        caller->wake_deadline = 0;
+        return;
+    }
+    caller->wake_deadline = ArchDeadlineFromMs(timeout);
+    SchedInsertSleepQueue(caller);
+}
+
 void CallBlockAsSender(TaskObject *caller, PortObject *port, ReplyObject *rc, uint32_t xlen,
-                       Handle grant_handle)
+                       Handle grant_handle, Duration timeout)
 {
     caller->ipc_state = IPC_WAITING;
     caller->blocked_port = port;
@@ -103,6 +113,7 @@ void CallBlockAsSender(TaskObject *caller, PortObject *port, ReplyObject *rc, ui
     caller->pending_grant_handle = grant_handle;
     SchedWaitQueueAddTask(&port->sender_queue, caller);
     caller->state = TASK_STATE_BLOCKED;
+    CallArmTimeout(caller, timeout);
     PortBoostServers(port);
     if (PortHasPending(port))
         ObserverNotify(&port->observers);
@@ -128,7 +139,7 @@ void DeliverCallToReceiver(TaskObject *caller, TaskObject *rx, ReplyObject *rc, 
 }
 
 __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port, ReplyObject *rc, size_t xlen,
-                                 Handle grant_handle, CpuState *frame)
+                                 Handle grant_handle, Duration timeout, CpuState *frame)
 {
     ListNode *node = port->receiver_queue.node.next;
     if (node == &port->receiver_queue.node)
@@ -152,7 +163,8 @@ __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port, ReplyObje
     caller->blocked_port = port;
     caller->pending_reply_cap = rc;
     caller->state = TASK_STATE_BLOCKED;
-    
+    CallArmTimeout(caller, timeout);
+
     DeliverCallToReceiver(caller, rx, rc, xlen, granted);
     SchedUnblock(rx);
 
@@ -174,6 +186,8 @@ void ReplyDeliverToCaller(TaskObject *target, uint32_t xlen, Handle granted)
     if (xlen)
         MsgBufCopy(current_task, target, xlen);
 
+    SchedRemoveSleepQueue(target);
+    target->wake_deadline = 0;
     target->ipc_state = IPC_NONE;
     target->blocked_port = NULL;
     target->pending_reply_cap = NULL;
@@ -189,6 +203,8 @@ void ReplyFailCaller(TaskObject *target, Err err)
     (*ArchGetFromFrame(target_frame, 1)) = 0;
     (*ArchGetFromFrame(target_frame, 3)) = (Register)-1;
 
+    SchedRemoveSleepQueue(target);
+    target->wake_deadline = 0;
     target->ipc_state = IPC_NONE;
     target->blocked_port = NULL;
     target->pending_reply_cap = NULL;

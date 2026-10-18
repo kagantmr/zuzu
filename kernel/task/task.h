@@ -92,6 +92,7 @@ void TaskWaitExit(TaskObject *task, Duration timeout, CpuState *frame);
 void WakeWaitList(ListHead *list, Err status);
 void TaskUnlinkWaits(TaskObject *t);
 void TaskAbortWait(TaskObject *t, Err err);
+void TaskCancelCall(TaskObject *t);
 void TaskRef(TaskObject *t);
 void TaskUnref(TaskObject *t);
 void TaskRecomputePriority(TaskObject *t);

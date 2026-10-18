@@ -25,11 +25,11 @@ Err AllocateGrantSlot(SpaceObject *from, SpaceObject *to, Handle handle_to_grant
 Err GrantHandleAcross(SpaceObject *from, SpaceObject *to, Handle handle_to_grant, Handle *out);
 
 void __hot CallBlockAsSender(TaskObject *caller, PortObject *port, ReplyObject *rc, uint32_t xlen,
-                             Handle grant_handle);
+                             Handle grant_handle, Duration timeout);
 void __hot DeliverCallToReceiver(TaskObject *caller, TaskObject *rx, ReplyObject *rc, size_t xlen,
                                  Handle granted);
 bool __hot CallHandoffToReceiver(TaskObject *caller, PortObject *port, ReplyObject *rc, size_t xlen,
-                                 Handle grant_handle, CpuState *frame);
+                                 Handle grant_handle, Duration timeout, CpuState *frame);
 
 void ReplyFailCaller(TaskObject *target, Err err);
 

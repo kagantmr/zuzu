@@ -1027,21 +1027,28 @@ static inline Err DmaSync(Handle dev, uintptr_t bus_addr, size_t len, DmaSyncOp 
 static inline Handle CreatePort(void) { return ArchInvokeSvc(SVC_CREATE, OBJECT_PORT, 0, 0, 0); }
 
 /**
- * @brief Sends a message to a port and blocks until the server replies.
+ * @brief Sends a message to a port and blocks until the server replies, or until a timeout.
  *
  * The request is the first @p xlen bytes of the caller's message box; the
  * reply arrives in the same place. Callers queue by priority, and the server
  * runs at the caller's priority while serving (priority inheritance).
  *
+ * The timeout covers the whole call: waiting to be received and waiting for the reply. When it
+ * expires the call is withdrawn. A server that already took it finds its reply capability gone,
+ * so a late Reply() fails and cannot be mistaken for the answer to a later call.
+ *
  * @syscall_num SVC_CALL
  * @syscall_group ipc
  * @syscall_blocking yes
- * @syscall_sig (port, xlen, grant) -> r0 status, r1 reply length, r3 granted handle
+ * @syscall_sig (port, xlen, grant, timeout) -> r0 status, r1 reply length, r3 granted handle
  * @param[in] port         Port handle with PERM_SEND.
  * @param[in] xlen         Request length in bytes, at most MSG_BUF_SIZE.
  * @param[in] grant_handle Handle (with PERM_TXFR) to copy to the server, or -1.
+ * @param[in] timeout      Milliseconds to wait for the reply, or TIMEOUT_INFINITE. TIMEOUT_POLL
+ *                         always returns ERR_TIMEOUT, since a call cannot finish without blocking.
  * @return r0 is the status; r1 the reply length; r3 a handle granted back, or -1.
  * @retval ZUZU_OK       The reply is in the message box.
+ * @retval ERR_TIMEOUT   No reply within @p timeout.
  * @retval ERR_OVERFLOW  @p xlen is larger than MSG_BUF_SIZE.
  * @retval ERR_BADHANDLE @p port or @p grant_handle is not a live handle.
  * @retval ERR_BADTYPE   @p port is not a port.
@@ -1049,9 +1056,24 @@ static inline Handle CreatePort(void) { return ArchInvokeSvc(SVC_CREATE, OBJECT_
  * @retval ERR_DEAD      The port died, or the server died before replying.
  * @retval ERR_NOMEM     The server's handle table is full (when granting).
  */
+static inline SvcResult CallTimeout(Handle port, uint32_t xlen, Handle grant_handle,
+                                    Duration timeout)
+{
+    return ArchInvokeSvc4(SVC_CALL, port, (Register)xlen, grant_handle, (Register)timeout);
+}
+
+/**
+ * @brief Call() with no timeout: blocks until the server replies.
+ *
+ * @param[in] port         Port handle with PERM_SEND.
+ * @param[in] xlen         Request length in bytes, at most MSG_BUF_SIZE.
+ * @param[in] grant_handle Handle (with PERM_TXFR) to copy to the server, or -1.
+ * @return As CallTimeout().
+ * @see CallTimeout()
+ */
 static inline SvcResult Call(Handle port, uint32_t xlen, Handle grant_handle)
 {
-    return ArchInvokeSvc4(SVC_CALL, port, (Register)xlen, grant_handle, 0);
+    return CallTimeout(port, xlen, grant_handle, TIMEOUT_INFINITE);
 }
 
 /**
@@ -1138,6 +1160,31 @@ static inline PortWaitResult WaitOnPort(Handle port, Duration timeout)
 }
 
 /**
+ * @brief CallTimeout() that stores the reply length and any granted handle.
+ *
+ * @param[in]  port         Port handle with PERM_SEND.
+ * @param[in]  xlen         Request length in bytes.
+ * @param[in]  grant_handle Handle to copy to the server, or -1.
+ * @param[in]  timeout      Milliseconds to wait for the reply, or TIMEOUT_INFINITE.
+ * @param[out] reply_len    Receives the reply length; may be NULL.
+ * @param[out] reply_grant  Receives a handle granted back, or -1; may be NULL.
+ * @return As CallTimeout().
+ * @see CallTimeout()
+ */
+static inline Err CallPortTimeout(Handle port, uint32_t xlen, Handle grant_handle,
+                                  Duration timeout, uint32_t *reply_len, Handle *reply_grant)
+{
+    SvcResult r = CallTimeout(port, xlen, grant_handle, timeout);
+    if (r.r0 != ZUZU_OK)
+        return (Err)r.r0;
+    if (reply_len)
+        *reply_len = (uint32_t)r.r1;
+    if (reply_grant)
+        *reply_grant = (Handle)r.r3;
+    return ZUZU_OK;
+}
+
+/**
  * @brief Call() that stores the reply length and any granted handle.
  *
  * @param[in]  port         Port handle with PERM_SEND.
@@ -1151,14 +1198,7 @@ static inline PortWaitResult WaitOnPort(Handle port, Duration timeout)
 static inline Err CallPort(Handle port, uint32_t xlen, Handle grant_handle, uint32_t *reply_len,
                            Handle *reply_grant)
 {
-    SvcResult r = Call(port, xlen, grant_handle);
-    if (r.r0 != ZUZU_OK)
-        return (Err)r.r0;
-    if (reply_len)
-        *reply_len = (uint32_t)r.r1;
-    if (reply_grant)
-        *reply_grant = (Handle)r.r3;
-    return ZUZU_OK;
+    return CallPortTimeout(port, xlen, grant_handle, TIMEOUT_INFINITE, reply_len, reply_grant);
 }
 
 /**
