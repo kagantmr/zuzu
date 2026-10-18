@@ -327,8 +327,7 @@ static void TcpRecvText(int slot, TcpPcb *pcb, const TcpSegment *s)
                 acked = true;
             }
 
-            /* TODO: application logic wired directly into the transport.
-             * This canned HTTP reply should move behind an app-layer callback. */
+
             TCP_NOTIFY(pcb, on_data, slot);
         } else if (SeqLt(pcb->rcv_nxt, s->seq)) {
             StoreOoo(pcb, s);

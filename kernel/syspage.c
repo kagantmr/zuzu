@@ -51,7 +51,7 @@ void SyspageInit(void)
     g_syspage_pa = PmmAllocFrame();
     g_sp = (Syspage *)PA_TO_VA(g_syspage_pa);
     memset(g_sp, 0, sizeof(Syspage));
-    g_sp->magic = 0x50050CA7;
+    g_sp->magic = SYSPAGE_MAGIC;
     g_sp->kernel_ver = (ZUZU_VERSION_MAJOR << 16) | (ZUZU_VERSION_MINOR << 8) | ZUZU_VERSION_PATCH;
 
     strncpy(g_sp->version, "zuzu-" ZUZU_CODENAME "-" ZUZU_VERSION, sizeof(g_sp->version));
@@ -76,11 +76,4 @@ void SyspageUpdateMem(void)
     if (!g_sp)
         return;
     g_sp->mem_free_kb = (uint32_t)((PmmGetStats().free_frames * (uint64_t)PAGE_SIZE) / 1024);
-}
-
-void SyspageSetInitrdSz(uint32_t size)
-{
-    if (!g_sp)
-        return;
-    g_sp->initrd_size = size;
 }

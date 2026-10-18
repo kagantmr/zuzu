@@ -12,7 +12,7 @@ extern "C" {
  * Block-device protocol shared by every SD/MMC driver ("/dev/mmc0").
  * One client at a time; every request is answered with exactly one reply and
  * is synchronous: the reply is sent once the transfer has finished. All
- * payloads are written to / read from MessageBuf().
+ * payloads are written to / read from the message box.
  */
 
 #define SD_CMD_GET_BUF                                                                             \

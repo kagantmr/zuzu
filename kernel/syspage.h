@@ -8,6 +8,5 @@
 void SyspageInit(void);
 PhysAddr SyspagePa(void);
 void SyspageUpdateMem(void);
-void SyspageSetInitrdSz(uint32_t size);
 
 #endif

@@ -120,23 +120,11 @@ typedef struct {
 } TtyConn;
 
 /* One request/reply round trip. On success *granted is the handle the reply
- * granted (or -1) and the reply payload is still in MessageBuf(). */
+ * granted (or -1) and the reply payload is still in the message box. */
 static inline Err TtyCall(Handle tty_port, const void *req, uint32_t len, Handle grant,
                           Handle *granted)
 {
-    MsgWrite(req, len);
-    uint32_t got = 0;
-    Handle back = -1;
-    Err rc = CallPort(tty_port, len, grant, &got, &back);
-    if (granted)
-        *granted = back;
-    if (rc != ZUZU_OK)
-        return rc;
-    Err status;
-    if (got < sizeof(status))
-        return ERR_MALFORMED;
-    memcpy(&status, GetMessageBox(), sizeof(status));
-    return status;
+    return MsgCallStatus(tty_port, req, len, grant, granted);
 }
 
 /*

@@ -17,7 +17,8 @@ fi
 
 CLANG=${CLANG:-clang}
 CLANG_DOC="--target=armv7a-none-eabi -fsyntax-only -Wno-everything -Wdocumentation \
--Wdocumentation-unknown-command -Werror"
+-Wdocumentation-unknown-command -Werror \
+-fcomment-block-commands=syscall,reg"
 files=$(find "$@" \( -name '*.c' -o -name '*.h' \) -not -path '*/dtb/*' | sort)
 fail=0
 
@@ -28,21 +29,32 @@ if [ -n "$missing" ]; then
     fail=1
 fi
 
-mkdir -p docs/doxygen
-if ! ZUZU_DOC_INPUT="docs/groups.dox $*" doxygen docs/Doxyfile >/dev/null 2>&1; then
-    echo "  DOC     doxygen: $(grep -c . docs/doxygen/warnings.log) warning line(s):"
-    sed 's/^/          /' docs/doxygen/warnings.log
-    fail=1
-fi
-
 in_scope() {
-    p=${1#./}
+    p=${1#$PWD/}
+    p=${p#./}
     for s in $scope; do
         case "$p" in "${s%/}"|"${s%/}"/*) return 0 ;; esac
     done
     return 1
 }
 scope="$*"
+
+companions=""
+for s in "$@"; do
+    case "$s" in *.c) [ -f "${s%.c}.h" ] && companions="$companions ${s%.c}.h" ;; esac
+done
+
+mkdir -p docs/doxygen
+ZUZU_DOC_INPUT="docs/groups.dox $* $companions" doxygen docs/Doxyfile >/dev/null 2>&1
+dox=$(grep -E '^[^ :]+:[0-9]+: (warning|error):' docs/doxygen/warnings.log |
+    while IFS=: read -r path line rest; do
+        in_scope "$path" && echo "${path#$PWD/}:$line:$rest"
+    done)
+if [ -n "$dox" ]; then
+    echo "  DOC     doxygen: $(echo "$dox" | wc -l | tr -d ' ') finding(s):"
+    echo "$dox" | sed 's/^/          /'
+    fail=1
+fi
 
 for f in $files; do
     case "$f" in

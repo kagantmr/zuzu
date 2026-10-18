@@ -30,7 +30,7 @@ Err ZoneEnter(Zone *z)
     while (1) {
         int expected = 0;
         if (atomic_compare_exchange_weak(&z->locked, &expected, 1)) {
-            z->owner = ZuzuTLS()->tid;
+            z->owner = GetTls()->tid;
             return ZUZU_OK;
         }
         WaitOn(z->event, TIMEOUT_INFINITE);
@@ -50,7 +50,7 @@ Err ZoneTryEnter(Zone *z)
 {
     int expected = 0;
     if (atomic_compare_exchange_strong(&z->locked, &expected, 1)) {
-        z->owner = ZuzuTLS()->tid;
+        z->owner = GetTls()->tid;
         return ZUZU_OK;
     }
     return ERR_BUSY;

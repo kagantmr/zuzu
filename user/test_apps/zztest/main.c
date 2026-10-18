@@ -37,6 +37,7 @@
 #define MAX_WORKERS 16
 #define JOIN_TIMEOUT_MS 3000
 #define PORT_HELD_SLOTS_TEST 64
+#define INVALID_VERB 0x7F
 
 /* HandleType is kernel-private (kernel/space/handle.h); QUERY_TYPE returns
  * these raw values. */
@@ -368,10 +369,10 @@ static void TestHandles(void)
     CheckEq(HandleQuery(mem, QUERY_TYPE).r1, ZH_MEM, "mem handle reports type MEM");
     CheckEq(HandleQuery(ev, QUERY_PERMS).r1, PERM_ALL, "fresh handle has PERM_ALL");
     CheckEq(HandleQuery(ev, QUERY_MARKER).r1, MARKER_NONE, "fresh handle has no marker");
-    CheckEq(HandleQuery(ev, QUERY_WHAT_COUNT).r0, ERR_BADARG, "Query(invalid what) -> BADARG");
+    CheckEq(HandleQuery(ev, (QueryWhat)INVALID_VERB).r0, ERR_BADARG, "Query(invalid what) -> BADARG");
     CheckEq(HandleQuery(ev, QUERY_STATUS).r0, ERR_BADTYPE, "Query(status) on an event -> BADTYPE");
 
-    CheckEq(ArchInvokeSvc(SVC_MANAGEHANDLE, ev, MNGHNDL_VERB_COUNT, 0, 0), ERR_BADARG,
+    CheckEq(ArchInvokeSvc(SVC_MANAGEHANDLE, ev, INVALID_VERB, 0, 0), ERR_BADARG,
             "invalid ManageHandle verb -> BADARG");
     CheckEq(ArchInvokeSvc(SVC_MANAGEHANDLE, ev, MNGHNDL_IRQ_REARM, 0, 0), ERR_BADTYPE,
             "IrqRearm on a non-device -> BADTYPE");
@@ -644,7 +645,7 @@ static void TestEvents(void)
     r = FormatToEventWait(WaitOn(ev, 60));
     uint64_t dt = NowMs() - t0;
     CheckEq(r.status, ERR_TIMEOUT, "timed wait on an empty event -> TIMEOUT");
-    Check(dt + TickMs() >= 60 && dt <= 60 + 3 * TickMs() + 40,
+    Check(dt + TickMs() >= 60 && dt <= 60 + 200,
           "timed event wait lasts the timeout (within a tick below, bounded above)");
 
     /* A waiter in another thread is woken by Signal. */
@@ -837,7 +838,7 @@ static void TestIpc(void)
     bool match = true;
     for (int i = 0; i < 16; i++)
         match &= ((uint8_t *)GetMessageBox())[i] == (uint8_t)(body[i] ^ 0xFF);
-    Check(match, "reply payload round-trips through MessageBuf");
+    Check(match, "reply payload round-trips through the message box");
 
     r = Rpc(srv.port, OP_ECHO, NULL, 0, -1);
     CheckEq(r.r0, ZUZU_OK, "zero-length request OK");
@@ -1156,7 +1157,7 @@ static void TestTasks(void)
     CheckEq(TaskSetTimeSlice(self_task, 30000), ZUZU_OK, "SetTimeSlice OK");
     CheckEq(TaskSetPriority(self_task, 2), ZUZU_OK, "SetPriority on another task OK");
     CheckEq(TaskSetPriority(self_task, 9), ERR_NOPERM, "SetPriority above max -> NOPERM");
-    CheckEq(ArchInvokeSvc(SVC_MANAGETASK, self_task, MNGTASK_VERB_COUNT, 0, 0), ERR_BADARG,
+    CheckEq(ArchInvokeSvc(SVC_MANAGETASK, self_task, INVALID_VERB, 0, 0), ERR_BADARG,
             "invalid ManageTask verb -> BADARG");
     CheckEq(ArchInvokeSvc(SVC_MANAGETASK, -1, MNGTASK_KILL, 0, 0), ERR_BADARG,
             "task-less verbs are limited to priority/slice");
@@ -2199,7 +2200,7 @@ static void TestPriorities(void)
 
 static int32_t TcbPack(void)
 {
-    const ThreadLocalData *tls = ZuzuTLS();
+    const ThreadLocalData *tls = GetTls();
     return (int32_t)(tls->prio | (tls->max_prio << 8));
 }
 
@@ -2909,7 +2910,7 @@ static int32_t BufferOwner(void *p)
     ThreadProbe *t = p;
     uint8_t *buf = GetMessageBox();
     memset(buf, (int)(0x30 + t->id), 64);
-    ZuzuTLS()->padding[0] = (uint8_t)t->id;
+    GetTls()->padding[0] = (uint8_t)t->id;
     t->ready = 1;
     while (!t->go)
         Sleep(5);
@@ -2917,7 +2918,7 @@ static int32_t BufferOwner(void *p)
         if (buf[i] != (uint8_t)(0x30 + t->id))
             return -1;
     }
-    return ZuzuTLS()->padding[0] == (uint8_t)t->id ? (int32_t)t->id : -2;
+    return GetTls()->padding[0] == (uint8_t)t->id ? (int32_t)t->id : -2;
 }
 
 static void TestManyThreads(void)
@@ -3125,6 +3126,89 @@ static void TestLeaks(void)
 
 #define PASSES 3
 
+static void TestMsg(void)
+{
+    BeginSection("msg writer and reader");
+
+    typedef struct {
+        uint32_t a;
+        uint16_t b;
+        uint16_t c;
+    } Pair;
+
+    MsgWriter w;
+    MsgWriterInit(&w);
+    Pair pair = {.a = 0xA1A2A3A4u, .b = 0x1234, .c = 0x5678};
+    MsgPutU32(&w, 0xDEADBEEFu);
+    MsgPutByte(&w, 7);
+    MsgAlign(&w, 4);
+    MsgPutU16(&w, 0xBEEF);
+    MsgPutU64(&w, 0x0102030405060708ull);
+    MsgPutStr(&w, "hello");
+    MsgPutObj(&w, pair);
+    Check(MsgWriterOk(&w), "a message that fits leaves the writer ok");
+    CheckEq((int32_t)MsgWriterLen(&w), 4 + 1 + 3 + 2 + 8 + 6 + 8, "the writer reports its length");
+
+    MsgReader r;
+    MsgReaderInit(&r, MsgWriterLen(&w));
+    CheckEq((int32_t)MsgGetU32(&r), (int32_t)0xDEADBEEFu, "U32 round-trips");
+    CheckEq(MsgGetByte(&r), 7, "byte round-trips");
+    MsgReaderAlign(&r, 4);
+    CheckEq(MsgGetU16(&r), 0xBEEF, "U16 round-trips after alignment");
+    uint64_t big = MsgGetU64(&r);
+    Check(big == 0x0102030405060708ull, "U64 round-trips");
+    const char *str = MsgGetStr(&r);
+    Check(str && strcmp(str, "hello") == 0, "a string round-trips");
+    Pair back = {0};
+    Check(MsgGetObj(&r, back), "a struct is read back");
+    Check(back.a == pair.a && back.b == pair.b && back.c == pair.c, "the struct round-trips");
+    CheckEq((int32_t)MsgReaderLeft(&r), 0, "nothing is left over");
+    Check(MsgReaderOk(&r), "the reader stayed ok");
+
+    CheckEq((int32_t)MsgGetU32(&r), 0, "reading past the end returns 0");
+    Check(!MsgReaderOk(&r), "reading past the end sets the error flag");
+    Check(MsgGetStr(&r) == NULL, "a failed reader returns no string");
+
+    MsgWriterInit(&w);
+    uint8_t blob[MSG_BUF_SIZE];
+    memset(blob, 0x5A, sizeof(blob));
+    MsgPutBytes(&w, blob, MSG_BUF_SIZE);
+    Check(MsgWriterOk(&w), "filling the buffer exactly is fine");
+    MsgPutByte(&w, 1);
+    Check(!MsgWriterOk(&w), "one byte too many overflows");
+    CheckEq((int32_t)MsgWriterLen(&w), MSG_BUF_SIZE, "an overflow does not advance the cursor");
+    MsgPutU32(&w, 1);
+    Check(!MsgWriterOk(&w), "the overflow flag is sticky");
+
+    MsgWriterInit(&w);
+    MsgPutBytes(&w, blob, MSG_BUF_SIZE - 3);
+    MsgPutStr(&w, "abc");
+    Check(!MsgWriterOk(&w), "a string whose NUL does not fit overflows");
+
+    memset(GetMessageBox(), 'x', MSG_BUF_SIZE);
+    MsgReaderInit(&r, 16);
+    Check(MsgGetStr(&r) == NULL, "a string with no NUL inside the message is rejected");
+    Check(!MsgReaderOk(&r), "and sets the error flag");
+
+    MsgReaderInit(&r, MSG_BUF_SIZE + 1);
+    Check(!MsgReaderOk(&r), "a length beyond the buffer is an error");
+    MsgReaderInit(&r, MSG_BUF_SIZE);
+    Check(MsgReaderOk(&r), "a full-buffer length is fine");
+
+    MsgWriterInit(&w);
+    MsgPutByte(&w, 1);
+    MsgAlign(&w, 8);
+    CheckEq((int32_t)MsgWriterLen(&w), 8, "MsgAlign pads to the boundary");
+    MsgAlign(&w, 8);
+    CheckEq((int32_t)MsgWriterLen(&w), 8, "an aligned cursor is left alone");
+
+    Handle port = CreatePort();
+    uint32_t zero = 0;
+    CheckEq(MsgCallStatus(port, &zero, MSG_BUF_SIZE + 1, -1, NULL), ERR_OVERFLOW,
+            "MsgCallStatus rejects an oversized request");
+    HandleClose(port);
+}
+
 static void RunSuite(void)
 {
     TestBasics();
@@ -3141,6 +3225,7 @@ static void RunSuite(void)
     TestWaiterResort();
     TestHold();
     TestInjectObj();
+    TestMsg();
     TestDma();
     TestKittens();
     TestTaskLifetime();

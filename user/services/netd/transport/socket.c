@@ -4,7 +4,6 @@
 #include "tcp.h"
 #include "tcp_pcb.h"
 #include "udp.h"
-#include <arch/barrier.h>
 #include <malloc.h>
 #include <string.h>
 #include <util/log.h>
@@ -20,15 +19,6 @@ static Socket *SockOf(int slot) { return TcpGetCtx(slot); }
 
 static void SocketTcpTx(Socket *s);
 
-static void RingWrite(SockShm *shm, uint32_t pos, const void *src, uint32_t n)
-{
-    uint8_t *ring = SockRxData(shm);
-    uint32_t off = pos & (SOCK_RING_SIZE - 1);
-    uint32_t first = MIN(n, SOCK_RING_SIZE - off);
-    memcpy(ring + off, src, first);
-    memcpy(ring, (const uint8_t *)src + first, n - first);
-}
-
 static void SocketUdpRx(Ipv4Addr src_ip, NetPort src_port, NetPort dst_port, const uint8_t *data,
                         uint16_t len)
 {
@@ -38,7 +28,7 @@ static void SocketUdpRx(Ipv4Addr src_ip, NetPort src_port, NetPort dst_port, con
     if (s->shm->state == SOCK_STATE_CLOSED)
         return;
     size_t rec = (sizeof(SockDgramHdr) + len + 3) & ~3U;
-    uint32_t tail = s->shm->rx.tail;
+    uint32_t tail = ShmRingLoadTail(&s->shm->rx);
     uint32_t used = s->rx_head - tail;
     if (used > SOCK_RING_SIZE)
         used = SOCK_RING_SIZE; /* corrupted tail: treat as full */
@@ -47,11 +37,10 @@ static void SocketUdpRx(Ipv4Addr src_ip, NetPort src_port, NetPort dst_port, con
         return;
     }
     SockDgramHdr h = {.peer_ip = src_ip, .peer_port = src_port, .len = len};
-    RingWrite(s->shm, s->rx_head, &h, sizeof(h));
-    RingWrite(s->shm, s->rx_head + sizeof(h), data, len);
+    ShmRingWriteAt(SockRxData(s->shm), SOCK_RING_SIZE, s->rx_head, &h, sizeof(h));
+    ShmRingWriteAt(SockRxData(s->shm), SOCK_RING_SIZE, s->rx_head + sizeof(h), data, len);
     s->rx_head += rec;
-    ArchSyncBarrier(); /* the data must be visible before the head moves */
-    s->shm->rx.head = s->rx_head;
+    ShmRingPublishHead(&s->shm->rx, s->rx_head);
     SessionKick(s->session);
 }
 
@@ -207,20 +196,11 @@ Socket *SocketByPort(NetPort p)
     return NULL;
 }
 
-static void RingRead(SockShm *shm, uint32_t pos, void *dst, uint32_t n)
-{
-    const uint8_t *ring = SockTxData(shm);
-    uint32_t off = pos & (SOCK_RING_SIZE - 1);
-    uint32_t first = MIN(n, SOCK_RING_SIZE - off);
-    memcpy(dst, ring + off, first);
-    memcpy((uint8_t *)dst + first, ring, n - first);
-}
-
 static void SocketTcpRx(Socket *s)
 {
     if (s->pcb < 0 || s->listener)
         return;
-    uint32_t used = s->rx_head - s->shm->rx.tail;
+    uint32_t used = s->rx_head - ShmRingLoadTail(&s->shm->rx);
     if (used > SOCK_RING_SIZE)
         used = SOCK_RING_SIZE;
     uint32_t room = SOCK_RING_SIZE - used;
@@ -235,16 +215,14 @@ static void SocketTcpRx(Socket *s)
             drained = true;
             break;
         }
-        RingWrite(s->shm, s->rx_head, buf, (uint32_t)n);
+        ShmRingWriteAt(SockRxData(s->shm), SOCK_RING_SIZE, s->rx_head, buf, (uint32_t)n);
         s->rx_head += (uint32_t)n;
         room -= (uint32_t)n;
         moved += (uint32_t)n;
     }
 
-    if (moved) {
-        ArchSyncBarrier();
-        s->shm->rx.head = s->rx_head;
-    }
+    if (moved)
+        ShmRingPublishHead(&s->shm->rx, s->rx_head);
     bool eof = s->peer_closed && drained && !(s->shm->flags & SOCK_F_EOF);
     if (eof)
         s->shm->flags |= SOCK_F_EOF;
@@ -256,12 +234,13 @@ static void SocketTcpTx(Socket *s)
 {
     if (s->pcb < 0 || s->listener)
         return;
-    uint32_t avail = s->shm->tx.head - s->tx_tail;
+    uint32_t head = ShmRingLoadHead(&s->shm->tx);
+    uint32_t avail = head - s->tx_tail;
     if (avail == 0)
         return;
     if (avail > SOCK_RING_SIZE) {
-        s->tx_tail = s->shm->tx.head;
-        s->shm->tx.tail = s->tx_tail;
+        s->tx_tail = head;
+        ShmRingPublishTail(&s->shm->tx, s->tx_tail);
         return;
     }
     uint32_t sent = 0;
@@ -269,7 +248,7 @@ static void SocketTcpTx(Socket *s)
     uint8_t buf[512];
     while (avail) {
         uint16_t chunk = (uint16_t)MIN(avail, sizeof(buf));
-        RingRead(s->shm, s->tx_tail, buf, chunk);
+        ShmRingReadAt(SockTxData(s->shm), SOCK_RING_SIZE, s->tx_tail, buf, chunk);
         int n = TcpSend(s->pcb, buf, chunk);
         if (n <= 0)
             break;
@@ -281,8 +260,7 @@ static void SocketTcpTx(Socket *s)
     }
 
     if (sent) {
-        ArchSyncBarrier();
-        s->shm->tx.tail = s->tx_tail;
+        ShmRingPublishTail(&s->shm->tx, s->tx_tail);
         SessionKick(s->session);
     }
 }
@@ -367,27 +345,27 @@ static void SocketPumpOne(Socket *s)
         SocketTcpTx(s);
         return;
     }
-    uint32_t head = s->shm->tx.head;
+    uint32_t head = ShmRingLoadHead(&s->shm->tx);
     uint32_t avail = head - s->tx_tail;
     if (avail == 0)
         return;
     if (avail > SOCK_RING_SIZE) {
         s->tx_tail = head;
-        s->shm->tx.tail = head;
+        ShmRingPublishTail(&s->shm->tx, head);
         return;
     }
 
     int budget = 16;
     while (avail >= sizeof(SockDgramHdr) && budget--) {
         SockDgramHdr h;
-        RingRead(s->shm, s->tx_tail, &h, sizeof(h));
+        ShmRingReadAt(SockTxData(s->shm), SOCK_RING_SIZE, s->tx_tail, &h, sizeof(h));
         uint32_t rec = (sizeof(h) + h.len + 3) & ~3u;
         if (h.len > UDP_MAX_PAYLOAD || rec > avail) {
             s->tx_tail = head;
             break;
         }
         uint8_t buf[UDP_MAX_PAYLOAD];
-        RingRead(s->shm, s->tx_tail + sizeof(h), buf, h.len);
+        ShmRingReadAt(SockTxData(s->shm), SOCK_RING_SIZE, s->tx_tail + sizeof(h), buf, h.len);
         if (s->port) {
             int rc = UdpSend(h.peer_ip, s->port, h.peer_port, buf, h.len);
             if (rc == ERR_BUFFULL)
@@ -396,8 +374,7 @@ static void SocketPumpOne(Socket *s)
         s->tx_tail += rec;
         avail -= rec;
     }
-    ArchSyncBarrier();
-    s->shm->tx.tail = s->tx_tail;
+    ShmRingPublishTail(&s->shm->tx, s->tx_tail);
 }
 
 void SocketPump(void)

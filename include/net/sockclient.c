@@ -1,4 +1,3 @@
-#include <arch/barrier.h>
 #include <net/protocols/socket.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,35 +30,7 @@ static int g_nconns;
 
 static Err SockCall(Handle port, const void *req, uint32_t len, Handle grant, Handle *granted)
 {
-    MsgWrite(req, len);
-    uint32_t got = 0;
-    Handle back = -1;
-    Err rc = CallPort(port, len, grant, &got, &back);
-    if (granted)
-        *granted = back;
-    if (rc != ZUZU_OK)
-        return rc;
-    Err status;
-    if (got < sizeof(status))
-        return ERR_MALFORMED;
-    memcpy(&status, GetMessageBox(), sizeof(status));
-    return status;
-}
-
-static void SockRingWrite(uint8_t *ring, uint32_t pos, const void *src, uint32_t n)
-{
-    uint32_t off = pos & (SOCK_RING_SIZE - 1);
-    uint32_t first = n < SOCK_RING_SIZE - off ? n : SOCK_RING_SIZE - off;
-    memcpy(ring + off, src, first);
-    memcpy(ring, (const uint8_t *)src + first, n - first);
-}
-
-static void SockRingRead(const uint8_t *ring, uint32_t pos, void *dst, uint32_t n)
-{
-    uint32_t off = pos & (SOCK_RING_SIZE - 1);
-    uint32_t first = n < SOCK_RING_SIZE - off ? n : SOCK_RING_SIZE - off;
-    memcpy(dst, ring + off, first);
-    memcpy((uint8_t *)dst + first, ring, n - first);
+    return MsgCallStatus(port, req, len, grant, granted);
 }
 
 static Err Attach(void)
@@ -170,7 +141,7 @@ static Err CallWithMem(const void *req, uint32_t len, const SockConn *s)
     return rc;
 }
 
-int SockOpen(uint32_t kind)
+int SockOpen(SockType kind)
 {
     Err rc = Attach();
     if (rc != ZUZU_OK)
@@ -215,17 +186,16 @@ Err SockSendTo(int sock, uint32_t ip, uint16_t port, const void *buf, uint16_t l
     if (s->shm->state == SOCK_STATE_CLOSED)
         return ERR_NOTCONN;
     uint32_t rec = (sizeof(SockDgramHdr) + len + 3u) & ~3u;
-    uint32_t used = s->tx_head - s->shm->tx.tail;
+    uint32_t used = s->tx_head - ShmRingLoadTail(&s->shm->tx);
     if (used > SOCK_RING_SIZE || rec > SOCK_RING_SIZE - used)
         return ERR_BUFFULL;
 
     uint8_t *ring = SockTxData(s->shm);
     SockDgramHdr h = {.peer_ip = ip, .peer_port = port, .len = len};
-    SockRingWrite(ring, s->tx_head, &h, sizeof(h));
-    SockRingWrite(ring, s->tx_head + sizeof(h), buf, len);
+    ShmRingWriteAt(ring, SOCK_RING_SIZE, s->tx_head, &h, sizeof(h));
+    ShmRingWriteAt(ring, SOCK_RING_SIZE, s->tx_head + sizeof(h), buf, len);
     s->tx_head += rec;
-    ArchSyncBarrier();
-    s->shm->tx.head = s->tx_head;
+    ShmRingPublishHead(&s->shm->tx, s->tx_head);
     Signal(g_client.doorbell, 1U << g_client.bit, false);
     return ZUZU_OK;
 }
@@ -237,7 +207,7 @@ int SockRecvFrom(int sock, void *buf, uint16_t cap, uint32_t *ip, uint16_t *port
         return ERR_BADARG;
     const uint8_t *ring = SockRxData(s->shm);
     for (;;) {
-        uint32_t head = s->shm->rx.head;
+        uint32_t head = ShmRingLoadHead(&s->shm->rx);
         uint32_t avail = head - s->rx_tail;
         if (avail > SOCK_RING_SIZE) {
             s->rx_tail = head;
@@ -245,21 +215,21 @@ int SockRecvFrom(int sock, void *buf, uint16_t cap, uint32_t *ip, uint16_t *port
         }
         if (avail >= sizeof(SockDgramHdr)) {
             SockDgramHdr h;
-            SockRingRead(ring, s->rx_tail, &h, sizeof(h));
+            ShmRingReadAt(ring, SOCK_RING_SIZE, s->rx_tail, &h, sizeof(h));
             uint32_t rec = (sizeof(h) + h.len + 3u) & ~3u;
             if (h.len > SOCK_DGRAM_MAX || rec > avail) {
                 s->rx_tail = head;
-                s->shm->rx.tail = head;
+                ShmRingPublishTail(&s->shm->rx, head);
                 return ERR_MALFORMED;
             }
             uint16_t n = h.len < cap ? h.len : cap;
-            SockRingRead(ring, s->rx_tail + sizeof(h), buf, n);
+            ShmRingReadAt(ring, SOCK_RING_SIZE, s->rx_tail + sizeof(h), buf, n);
             if (ip)
                 *ip = h.peer_ip;
             if (port)
                 *port = h.peer_port;
             s->rx_tail += rec;
-            s->shm->rx.tail = s->rx_tail;
+            ShmRingPublishTail(&s->shm->rx, s->rx_tail);
             return n;
         }
         if (s->shm->state == SOCK_STATE_CLOSED)
@@ -384,7 +354,7 @@ int SockSend(int sock, const void *buf, uint32_t len)
     while (left) {
         if (s->shm->state == SOCK_STATE_CLOSED)
             return s->shm->error ? (int)s->shm->error : ERR_NOTCONN;
-        uint32_t used = s->tx_head - s->shm->tx.tail;
+        uint32_t used = s->tx_head - ShmRingLoadTail(&s->shm->tx);
         if (used > SOCK_RING_SIZE)
             used = SOCK_RING_SIZE;
         uint32_t room = SOCK_RING_SIZE - used;
@@ -395,12 +365,11 @@ int SockSend(int sock, const void *buf, uint32_t len)
             continue;
         }
         uint32_t n = left < room ? left : room;
-        SockRingWrite(ring, s->tx_head, p, n);
+        ShmRingWriteAt(ring, SOCK_RING_SIZE, s->tx_head, p, n);
         s->tx_head += n;
         p += n;
         left -= n;
-        ArchSyncBarrier();
-        s->shm->tx.head = s->tx_head;
+        ShmRingPublishHead(&s->shm->tx, s->tx_head);
         Signal(g_client.doorbell, 1U << g_client.bit, false);
     }
     return (int)len;
@@ -413,15 +382,14 @@ int SockRecv(int sock, void *buf, uint32_t cap, Duration timeout)
         return ERR_BADARG;
     const uint8_t *ring = SockRxData(s->shm);
     for (;;) {
-        uint32_t avail = s->shm->rx.head - s->rx_tail;
+        uint32_t avail = ShmRingLoadHead(&s->shm->rx) - s->rx_tail;
         if (avail > SOCK_RING_SIZE)
             avail = SOCK_RING_SIZE;
         if (avail) {
             uint32_t n = avail < cap ? avail : cap;
-            SockRingRead(ring, s->rx_tail, buf, n);
+            ShmRingReadAt(ring, SOCK_RING_SIZE, s->rx_tail, buf, n);
             s->rx_tail += n;
-            ArchSyncBarrier();
-            s->shm->rx.tail = s->rx_tail;
+            ShmRingPublishTail(&s->shm->rx, s->rx_tail);
             Signal(g_client.doorbell, 1U << g_client.bit, false);
             return (int)n;
         }

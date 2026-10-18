@@ -1,3 +1,8 @@
+/**
+ * @file udbg.h
+ * @brief Userspace debug logging through the kernel console.
+ */
+
 #ifndef ZUZU_UDBG_H
 #define ZUZU_UDBG_H
 
@@ -9,6 +14,12 @@
 extern "C" {
 #endif
 
+/**
+ * @brief Per-file switch for UserspaceDebugLog().
+ *
+ * Define this to 1 before including the header to turn logging on in that file. Logging is
+ * compiled in only when this is 1 and the build defines DEBUG; otherwise calls compile to nothing.
+ */
 #ifndef UDBG_ENABLED
 #define UDBG_ENABLED 0
 #endif
@@ -18,6 +29,15 @@ extern "C" {
 #include <stdarg.h>
 #include <stdio.h>
 
+/**
+ * @brief Format a message and send it to the kernel console.
+ *
+ * Messages longer than 239 characters are truncated. In builds without DEBUG, or in files that
+ * do not define UDBG_ENABLED as 1, this does nothing.
+ *
+ * @param[in] fmt A printf-style format string.
+ * @param[in] ... The values to format.
+ */
 static inline void UserspaceDebugLog(const char *fmt, ...)
 {
     char line[240];
@@ -33,6 +53,12 @@ static inline void UserspaceDebugLog(const char *fmt, ...)
 
 #else
 
+/**
+ * @brief Disabled form of UserspaceDebugLog(); does nothing.
+ *
+ * @param[in] fmt Ignored.
+ * @param[in] ... Ignored.
+ */
 static inline void UserspaceDebugLog(const char *fmt, ...) { (void)fmt; }
 
 #endif /* DEBUG */

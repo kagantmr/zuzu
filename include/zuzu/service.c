@@ -1,3 +1,8 @@
+/**
+ * @file service.c
+ * @brief Implementation of utilities to look up or register services to and from the name service.
+ */
+
 #include <zuzu/msg.h>
 #include <zuzu/err.h>
 #include <zuzu/service.h>

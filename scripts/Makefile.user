@@ -5,8 +5,7 @@ USER_LIBGCC = $(shell $(USER_CC) $(CPUFLAGS) $(ARCH_USER_FP) -print-libgcc-file-
 
 USER_CFLAGS  = -ffreestanding -nostdlib -O$(CONFIG_USER_CC_OPT_LEVEL) -Wall -Wextra -Wshadow \
                $(CPUFLAGS) $(INCLUDES) -MMD -MP -g $(ARCH_USER_FP) \
-               -include $(KCONFIG_AUTOCONF) \
-               -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"'
+               -include $(KCONFIG_AUTOCONF)
 USER_LDFLAGS = -nostdlib -Wl,-T,user/user.ld
 
 ifeq ($(CONFIG_DEBUG_BUILD),y)
@@ -23,8 +22,7 @@ NEWLIB_USER_CFLAGS = -O$(CONFIG_USER_CC_OPT_LEVEL) -Wall -Wextra -mthumb \
                      $(CPUFLAGS) -I. -I$(NEWLIB_INC) -Iarch/include -Iarch/$(ARCH)/include \
                      -idirafter include \
                      -MD -MP -g $(ARCH_USER_FP) \
-                     -include $(KCONFIG_AUTOCONF) \
-                     -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"'
+                     -include $(KCONFIG_AUTOCONF)
 
 # C-only additions: -include force-includes C declarations, which breaks
 # crt0-newlib.o's assembler compile (also built with NEWLIB_USER_CFLAGS,
@@ -147,7 +145,7 @@ $(ZCRT_ARCHIVE): $(ZCRT_OBJS)
 # and include/zuzu/err.c stay off this list, same as before the include/
 # reorg, so this tier keeps using newlib's own libc for those symbols.
 NEWLIB_ZCRT_SRCS := $(filter-out include/util/spawn.c,$(shell find include/sync include/net include/fs include/util -name '*.c')) \
-                     include/zuzu/service.c include/zuzu/ring.c include/sbrk.c
+                     include/zuzu/service.c include/zuzu/shm_ring.c include/sbrk.c
 NEWLIB_ZCRT_OBJS := $(patsubst %.c,$(O)/user/zcrt/%.o,$(NEWLIB_ZCRT_SRCS))
 NEWLIB_STUB_SRCS := $(wildcard lib/posix/*.c)
 NEWLIB_STUB_OBJS := $(patsubst lib/%.c,$(O)/lib/%.o,$(NEWLIB_STUB_SRCS))

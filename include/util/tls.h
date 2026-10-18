@@ -38,7 +38,7 @@ _Static_assert(sizeof(ThreadLocalData) == TCB_SLOT_SIZE, "ThreadData must fill i
 /**
  * TLS accessor for the current thread's TCB.
  */
-static inline ThreadLocalData *ZuzuTLS(void) { return (ThreadLocalData *)ArchGetTlsPointer(); }
+static inline ThreadLocalData *GetTls(void) { return (ThreadLocalData *)ArchGetTlsPointer(); }
 
 #ifdef __cplusplus
 }
