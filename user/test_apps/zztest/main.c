@@ -2700,7 +2700,9 @@ static void TestSync(void)
     CheckEq(ZoneInit(&g_zone), ZUZU_OK, "ZoneInit");
     CheckEq(ZoneTryEnter(&g_zone), ZUZU_OK, "ZoneTryEnter on a free zone");
     CheckEq(ZoneTryEnter(&g_zone), ERR_BUSY, "ZoneTryEnter on a held zone -> BUSY");
-    CheckEq(ZoneExit(&g_zone), ZUZU_OK, "ZoneExit");
+    ZoneExit(&g_zone);
+    CheckEq(ZoneTryEnter(&g_zone), ZUZU_OK, "ZoneExit releases the zone");
+    ZoneExit(&g_zone);
     g_counter = 0;
     Worker *w[3];
     for (int i = 0; i < 3; i++)
