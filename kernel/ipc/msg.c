@@ -156,7 +156,7 @@ __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port, ReplyObje
     DeliverCallToReceiver(caller, rx, rc, xlen, granted);
     SchedUnblock(rx);
 
-    if (unlikely(SchedAnyCpuTakers(rx))) {
+    if (unlikely(rx->suspended || (rx->owner && rx->owner->frozen) || SchedAnyCpuTakers(rx))) {
         SchedAdd(rx);
         Schedule();
     } else {
