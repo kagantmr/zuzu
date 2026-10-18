@@ -38,7 +38,7 @@ Err ZoneDestroy(Zone *z);
 /**
  * @brief Try entering a Zone and block if it is occupied.
  * 
- * @param[in] The zone to enter to.
+ * @param[in] z The zone to enter to.
  * @return ZUZU_OK on success.
  */
 Err ZoneEnter(Zone *z);
@@ -46,14 +46,14 @@ Err ZoneEnter(Zone *z);
 /**
  * @brief Exit a Zone.
  * 
- * @param[in] The zone to exit from.
+ * @param[in] z The zone to exit from.
  */
 void ZoneExit(Zone *z);
 
 /**
  * @brief Try entering a Zone and return with an error if occupied.
  * 
- * @param[in] The zone to enter to.
+ * @param[in] z The zone to enter to.
  * @return ZUZU_OK on success, ERR_BUSY if the zone is occupied.
  */
 Err ZoneTryEnter(Zone *z);
