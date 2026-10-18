@@ -52,10 +52,9 @@ static bool AddrSpaceCopyOut(AddressSpace *as, VirtAddr va, const void *src, siz
     return true;
 }
 
-static void KernelLoadFail(SpaceObject *sp, TaskObject *t)
+static void KernelLoadFail(SpaceObject *sp)
 {
     SpaceDestroy(sp);
-    TaskDestroy(t);
 }
 
 SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *name,
@@ -89,7 +88,7 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
                 KERROR("ZXF load segments overlap: [%08X, %08X) and [%08X, %08X)", seg_i->vaddr,
                        seg_i->vaddr + seg_i->mem_size, seg_j->vaddr,
                        seg_j->vaddr + seg_j->mem_size);
-                KernelLoadFail(p, t);
+                KernelLoadFail(p);
                 return NULL;
             }
         }
@@ -98,7 +97,7 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
     for (int i = 0; i < img.seg_count; i++) {
         const ZXFSegment *seg = &img.segs[i];
         if (seg->file_offset + seg->file_size > zxf_size) {
-            KernelLoadFail(p, t);
+            KernelLoadFail(p);
             return NULL;
         }
         
@@ -109,7 +108,7 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
         if (file_pages > 0) {
             segment_pages = KMalloc(file_pages * sizeof(uintptr_t));
             if (!segment_pages) {
-                KernelLoadFail(p, t);
+                KernelLoadFail(p);
                 return NULL;
             }
         }
@@ -131,7 +130,7 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
                     PmmFreeFrame(segment_pages[j]);
                 }
                 KFree(segment_pages);
-                KernelLoadFail(p, t);
+                KernelLoadFail(p);
                 return NULL;
             }
 
@@ -158,7 +157,7 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
                     PmmFreeFrame(segment_pages[j]);
                 }
                 KFree(segment_pages);
-                KernelLoadFail(p, t);
+                KernelLoadFail(p);
                 return NULL;
             }
         }
@@ -186,7 +185,7 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
                     PmmFreeFrame(segment_pages[j]);
                 }
                 KFree(segment_pages);
-                KernelLoadFail(p, t);
+                KernelLoadFail(p);
                 return NULL;
             }
 
@@ -204,7 +203,7 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
             };
             if (!VmmAddRegion(p->as, &bss_region)) {
                 KERROR("Failed to add BSS region at VA %08X", bss_region.vaddr_start);
-                KernelLoadFail(p, t);
+                KernelLoadFail(p);
                 return NULL;
             }
         }
@@ -217,14 +216,14 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
 
     if ((argc > 0) != (argbuf && argbuf_len > 0)) {
         KERROR("Invalid argv payload: argc=%u argbuf_len=%u", argc, (unsigned)argbuf_len);
-        KernelLoadFail(p, t);
+        KernelLoadFail(p);
         return NULL;
     }
 
     if (argbuf && argbuf_len > 0 && argc > 0) {
         if ((argbuf)[argbuf_len - 1] != '\0') {
             KERROR("Invalid argv payload: missing trailing NUL");
-            KernelLoadFail(p, t);
+            KernelLoadFail(p);
             return NULL;
         }
 
@@ -236,28 +235,28 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
         }
         if (nul_count < argc) {
             KERROR("Invalid argv payload: argc exceeds NUL-delimited strings");
-            KernelLoadFail(p, t);
+            KernelLoadFail(p);
             return NULL;
         }
 
         size_t argv_slots = (size_t)argc + 1U;
         if (argv_slots <= (size_t)argc) {
             KERROR("Invalid argv payload: argc too large");
-            KernelLoadFail(p, t);
+            KernelLoadFail(p);
             return NULL;
         }
 
         size_t argv_bytes = argv_slots * sizeof(uint32_t);
         if (argv_bytes / sizeof(uint32_t) != argv_slots) {
             KERROR("Invalid argv payload: argv bytes overflow");
-            KernelLoadFail(p, t);
+            KernelLoadFail(p);
             return NULL;
         }
         VirtAddr check_sp = USR_SP;
 
         if (argbuf_len > (size_t)(check_sp - user_stack_base)) {
             KERROR("argv payload does not fit user stack");
-            KernelLoadFail(p, t);
+            KernelLoadFail(p);
             return NULL;
         }
 
@@ -266,7 +265,7 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
 
         if (argv_bytes > (size_t)(check_sp - user_stack_base)) {
             KERROR("argv pointer array does not fit user stack");
-            KernelLoadFail(p, t);
+            KernelLoadFail(p);
             return NULL;
         }
 
@@ -275,7 +274,7 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
 
         if (check_sp < user_stack_base) {
             KERROR("argv layout underflowed user stack");
-            KernelLoadFail(p, t);
+            KernelLoadFail(p);
             return NULL;
         }
 
@@ -289,12 +288,12 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
 
         if (!VmmCheckUserFault(p->as, argv_va, (size_t)(USR_SP - argv_va), true)) {
             KERROR("failed to fault in argv stack pages");
-            KernelLoadFail(p, t);
+            KernelLoadFail(p);
             return NULL;
         }
 
         if (!AddrSpaceCopyOut(p->as, strings_va, argbuf, argbuf_len)) {
-            KernelLoadFail(p, t);
+            KernelLoadFail(p);
             return NULL;
         }
 
@@ -303,7 +302,7 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
         for (uint32_t a = 0; a <= argc; a++) {
             uint32_t slot = (a < argc) ? (uint32_t)str_va : 0;
             if (!AddrSpaceCopyOut(p->as, argv_va + (a * sizeof(uint32_t)), &slot, sizeof(slot))) {
-                KernelLoadFail(p, t);
+                KernelLoadFail(p);
                 return NULL;
             }
             if (a < argc) {
