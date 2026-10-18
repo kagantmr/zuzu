@@ -1,4 +1,4 @@
-#include <net/protocols/socket.h>
+#include <net/socket.h>
 #include <stdlib.h>
 #include <string.h>
 #include <zuzu/msg.h>

@@ -2,7 +2,7 @@
 #define NETD_SOCKET_H
 
 #include "../common/globals.h"
-#include <net/protocols/socket.h>
+#include <net/socket.h>
 #include <list.h>
 #include <types.h>
 

@@ -1,5 +1,5 @@
-#ifndef SOCKET_PROTOCOL_H
-#define SOCKET_PROTOCOL_H
+#ifndef NET_SOCKET_H
+#define NET_SOCKET_H
 
 #ifdef __cplusplus
 extern "C" {
