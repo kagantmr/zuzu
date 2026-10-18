@@ -45,7 +45,7 @@ enum { ZH_PORT = 1, ZH_MEM, ZH_EVENT, ZH_TASK, ZH_SPACE };
 
 /* ---------------- harness ---------------- */
 
-#define MAX_SECTIONS 24
+#define MAX_SECTIONS 64
 typedef struct {
     const char *name;
     int pass;
@@ -3346,6 +3346,70 @@ static void TestCallTimeout(void)
     HandleClose(g_srv_port);
 }
 
+static void TestMapPerms(void)
+{
+    BeginSection("map permissions");
+
+    Handle mem = CreateMem(2, 0);
+    SvcResult ro = HandleDuplicate(mem, PERM_MAP, MARKER_NONE);
+    SvcResult rw = HandleDuplicate(mem, PERM_MAP | PERM_WRITE, MARKER_NONE);
+    SvcResult rx = HandleDuplicate(mem, PERM_MAP | PERM_EXEC, MARKER_NONE);
+
+    CheckEq(PtrErr(MemMap((Handle)ro.r1, 0, PROT_RW)), ERR_NOPERM, "writable map needs PERM_WRITE");
+    CheckEq(PtrErr(MemMap((Handle)ro.r1, 0, PROT_READ | PROT_EXEC)), ERR_NOPERM,
+            "executable map needs PERM_EXEC");
+    CheckEq(PtrErr(MemMap((Handle)rw.r1, 0, PROT_READ | PROT_EXEC)), ERR_NOPERM,
+            "PERM_WRITE alone does not allow executable");
+    CheckEq(PtrErr(MemMap((Handle)rx.r1, 0, PROT_RW)), ERR_NOPERM,
+            "PERM_EXEC alone does not allow writable");
+    CheckEq(PtrErr(MemMap(mem, 0, PROT_READ | PROT_WRITE | PROT_EXEC)), ERR_BADARG,
+            "a writable and executable map -> BADARG");
+    CheckEq(PtrErr(MemMapAnon(4096, 0, PROT_READ | PROT_WRITE | PROT_EXEC)), ERR_BADARG,
+            "also for anonymous memory");
+
+    uint8_t *p = MemMap((Handle)ro.r1, 0, PROT_READ);
+    Check(!PtrIsErr(p), "a read-only map needs only PERM_MAP");
+    CheckEq(MemProtect((VirtAddr)p, 4096, PROT_READ | PROT_WRITE), ERR_NOPERM,
+            "Protect cannot raise a read-only object mapping to writable");
+    CheckEq(MemProtect((VirtAddr)p, 4096, PROT_READ | PROT_EXEC), ERR_NOPERM,
+            "or to executable");
+    CheckEq(MemUnmap(p), ZUZU_OK, "unmap it");
+
+    p = MemMap((Handle)rw.r1, 0, PROT_RW);
+    Check(!PtrIsErr(p), "a writable map with PERM_WRITE");
+    p[0] = 1;
+    p[4096] = 1;
+    CheckEq(MemProtect((VirtAddr)p, 4096, PROT_READ), ZUZU_OK, "Protect can lower it");
+    CheckEq(MemProtect((VirtAddr)p, 4096, PROT_READ | PROT_EXEC), ERR_NOPERM,
+            "but not add execute the handle never had");
+    CheckEq(MemUnmap(p), ZUZU_OK, "unmap it");
+
+    uint8_t *a = MemMapAnon(4096, 0, PROT_RW);
+    a[0] = 1;
+    CheckEq(MemProtect((VirtAddr)a, 4096, PROT_READ | PROT_EXEC), ZUZU_OK,
+            "anonymous memory can switch from writable to executable");
+    CheckEq(MemProtect((VirtAddr)a, 4096, PROT_RW), ZUZU_OK, "and back");
+    CheckEq(MemProtect((VirtAddr)a, 4096, PROT_READ | PROT_WRITE | PROT_EXEC), ERR_BADARG,
+            "but never both at once");
+    MemUnmap(a);
+
+    Handle sp = CreateSpace("zz-perms");
+    CheckEq(MemInjectObj(sp, (Handle)ro.r1, USER_ELF_BASE, 0, 4096, PROT_RW), ERR_NOPERM,
+            "injectobj of a writable mapping needs PERM_WRITE");
+    CheckEq(MemInjectObj(sp, (Handle)ro.r1, USER_ELF_BASE, 0, 4096, PROT_READ | PROT_EXEC),
+            ERR_NOPERM, "injectobj of an executable mapping needs PERM_EXEC");
+    CheckEq(MemInjectObj(sp, (Handle)ro.r1, USER_ELF_BASE, 0, 4096, PROT_READ), ZUZU_OK,
+            "a read-only injectobj needs only PERM_MAP");
+    CheckEq(MemInjectObj(sp, (Handle)rx.r1, USER_ELF_BASE + 4096, 0, 4096, PROT_READ | PROT_EXEC),
+            ZUZU_OK, "an executable injectobj with PERM_EXEC");
+    HandleDestroy(sp);
+
+    HandleClose((Handle)ro.r1);
+    HandleClose((Handle)rw.r1);
+    HandleClose((Handle)rx.r1);
+    HandleClose(mem);
+}
+
 static void RunSuite(void)
 {
     TestBasics();
@@ -3365,6 +3429,7 @@ static void RunSuite(void)
     TestMsg();
     TestHardening();
     TestCallTimeout();
+    TestMapPerms();
     TestDma();
     TestKittens();
     TestTaskLifetime();
