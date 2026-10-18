@@ -1,5 +1,11 @@
+/**
+ * @file
+ * @brief ARMv7-A kernel entry: from the boot loader to early() in the higher half.
+ */
+
 .section .text.boot, "ax"
 
+/** CPSR mode numbers. */
 .equ MODE_IRQ,        0x12
 .equ MODE_ABT,        0x17
 .equ MODE_UND,        0x1b
@@ -9,22 +15,44 @@
 #include BOARD_BOOT_H
 .equ TTBR0_BOOT_ATTRS, TTBR_WALK_ATTRS
 
+/**
+ * L1 indexes for the boot mapping: the kernel's virtual offset and the first
+ * RAM section at its physical and virtual addresses, all in 1 MiB units.
+ */
 .equ VA_OFFSET_IDX,     (BOARD_KERNEL_VA_OFFSET >> 20)
 .equ RAM_LOW_IDX_BASE,  (BOARD_RAM_PA_BASE >> 20)
 .equ RAM_HIGH_IDX_BASE, (RAM_LOW_IDX_BASE + VA_OFFSET_IDX)
+/** RAM mapped before early() runs; the kernel image must fit in it. */
 .equ BOOTSTRAP_RAM_MB,  8
 
+/** Switches to a mode and points its sp at a linker symbol. */
 .macro SET_MODE_STACK_PHYS mode, top_sym
     cps     #\mode
     ldr     sp, =\top_sym
 .endm
 
+/** Switches to a mode and points its sp at a linker symbol plus r1. Clobbers r0. */
 .macro SET_MODE_STACK_VIRT mode, top_sym
     cps     #\mode
     ldr     r0, =\top_sym
     add     sp, r0, r1
 .endm
 
+/**
+ * _start
+ *
+ * Entered with the MMU off and r2 = physical address of the device tree, as in
+ * the Linux ARM boot protocol. Only CPU 0 boots; the others wait in wfe.
+ *
+ * From HYP mode, the timers are opened to PL1, CNTVOFF and the HYP traps are
+ * cleared, board_hyp_setup runs, and the CPU drops to SVC mode with IRQ and FIQ
+ * masked.
+ *
+ * In SVC mode: sets up the stacks, starts the UART and prints "zu", checks the
+ * device tree magic, builds early_l1 with early_paging_init, enables the MMU
+ * and caches with TTBR0 only, and jumps to higher_half_entry at its virtual
+ * address. r4 carries the device tree address throughout.
+ */
 .global _start
 .type _start, %function
 
@@ -123,18 +151,32 @@ svc_entry:
 
 .size _start, . - _start
 
+/** Board hook run in HYP mode before dropping to SVC; does nothing unless a board overrides it. */
 .weak board_hyp_setup
 .type board_hyp_setup, %function
 board_hyp_setup:
     bx      lr
 .size board_hyp_setup, . - board_hyp_setup
 
+/** Board hook that routes the UART pins before early_uart_init; does nothing by default. */
 .weak board_console_pinmux
 .type board_console_pinmux, %function
 board_console_pinmux:
     bx      lr
 .size board_console_pinmux, . - board_console_pinmux
 
+/**
+ * early_paging_init
+ *
+ * Clears early_l1 and fills it with sections:
+ * - the first BOOTSTRAP_RAM_MB of RAM, at its physical and at its virtual address;
+ * - the 2 MiB holding the device tree, at both addresses;
+ * - the board's peripherals, at their physical address, as device memory.
+ *
+ * In:       r0 = physical address of the device tree.
+ * Out:      r0 = physical address of early_l1.
+ * Clobbers: r2, r5-r8, r10-r12.
+ */
 .global early_paging_init
 .type early_paging_init, %function
 
@@ -206,6 +248,7 @@ early_paging_init:
 
 .section .text.boot, "ax"
 
+/** PL011 register offsets. */
 .equ UART_DR,    0x00
 .equ UART_FR,    0x18
 .equ UART_IBRD,  0x24
@@ -214,6 +257,13 @@ early_paging_init:
 .equ UART_CR,    0x30
 .equ UART_ICR,   0x44
 
+/**
+ * early_uart_init
+ *
+ * Runs board_console_pinmux, then sets the PL011 to the board's baud divisors,
+ * 8 bits with FIFOs, and enables transmit and receive.
+ * Clobbers: r0, r1.
+ */
 .type early_uart_init, %function
 early_uart_init:
     push    {lr}
@@ -235,6 +285,13 @@ early_uart_init:
     bx      lr
 .size early_uart_init, . - early_uart_init
 
+/**
+ * early_uart_putc
+ *
+ * Writes one byte once the transmit FIFO has room.
+ * In:       r0 = byte.
+ * Clobbers: r1, r2.
+ */
 .global early_uart_putc
 .type early_uart_putc, %function
 early_uart_putc:
@@ -247,6 +304,7 @@ early_uart_putc:
     bx      lr
 .size early_uart_putc, . - early_uart_putc
 
+/** dtb_panic: prints dtb_panic_msg and halts. Never returns. */
 .type dtb_panic, %function
 dtb_panic:
     ldr     r5, =dtb_panic_msg
@@ -267,6 +325,12 @@ dtb_panic_msg:
 .balign 4
 
 .section .text.boot, "ax"
+/**
+ * setup_mode_stacks
+ *
+ * Points the IRQ, abort, undefined and SVC stacks at their physical tops and
+ * returns in SVC mode.
+ */
 .type setup_mode_stacks, %function
 setup_mode_stacks:
     SET_MODE_STACK_PHYS MODE_IRQ, __irq_stack_top__
@@ -278,6 +342,12 @@ setup_mode_stacks:
 .size setup_mode_stacks, . - setup_mode_stacks
 
 .section .text, "ax"
+/**
+ * setup_mode_stacks_higher_half
+ *
+ * Moves the same stacks to their virtual addresses and returns in SVC mode.
+ * Clobbers: r0, r1.
+ */
 .type setup_mode_stacks_higher_half, %function
 setup_mode_stacks_higher_half:
     ldr     r1, =BOARD_KERNEL_VA_OFFSET
@@ -291,6 +361,13 @@ setup_mode_stacks_higher_half:
 .size setup_mode_stacks_higher_half, . - setup_mode_stacks_higher_half
 
 .section .text, "ax"
+/**
+ * higher_half_entry
+ *
+ * First code run at virtual addresses: clears .bss, points VBAR at vector_table,
+ * moves the mode stacks to virtual addresses, prints "zu", and calls
+ * early(r4 = device tree address).
+ */
 .global higher_half_entry
 .type higher_half_entry, %function
 

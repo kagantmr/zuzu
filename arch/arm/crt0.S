@@ -1,7 +1,20 @@
+/**
+ * @file
+ * @brief User program entry point.
+ */
+
 .section .text, "ax"
 .arm
 
 #include <arch_impl/svc.h>
+/**
+ * _start
+ *
+ * Entered from the kernel with r0 = argc and r1 = argv. Runs the constructors,
+ * calls main(argc, argv), runs the destructors in reverse, and quits with main's
+ * return value (r12 = SVC_QUIT, which is 0). With newlib, __libc_init_array and
+ * exit() do the constructor and destructor work instead. Never returns.
+ */
 .global _start
 
 _start:
@@ -17,6 +30,7 @@ _start:
     bl exit
 3:  b 3b
 
+/** Empty _init and _fini, which newlib's __libc_init_array expects to exist. */
 .global _init
 .type _init, %function
 _init:
