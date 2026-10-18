@@ -280,14 +280,14 @@ static inline SvcResult HandleQuery(Handle h, QueryWhat what) { return HandleQue
  * @syscall_group handle
  * @syscall_blocking no
  * @syscall_sig (h, target_space, perms) -> r0 status, r1 handle in the target
- * @param[in] h                   Handle to grant.
+ * @param[in] h                   Handle to grant, with PERM_TXFR.
  * @param[in] target_space_handle Space to receive it, with PERM_CNTL.
  * @param[in] perms               Permissions for the copy; intersected with those of @p h.
  * @return r0 is the status; r1 the handle's value in the target's table.
  * @retval ZUZU_OK       The target's handle value is in r1.
  * @retval ERR_BADHANDLE @p h or @p target_space_handle is not a live handle.
  * @retval ERR_BADTYPE   @p target_space_handle is not a space.
- * @retval ERR_NOPERM    @p target_space_handle lacks PERM_CNTL.
+ * @retval ERR_NOPERM    @p target_space_handle lacks PERM_CNTL, or @p h lacks PERM_TXFR.
  * @retval ERR_DEAD      The target space has been torn down.
  * @retval ERR_NOMEM     The target's handle table is full.
  */
@@ -1041,8 +1041,9 @@ static inline Handle CreatePort(void) { return ArchInvokeSvc(SVC_CREATE, OBJECT_
  * runs at the caller's priority while serving (priority inheritance).
  *
  * The timeout covers the whole call: waiting to be received and waiting for the reply. When it
- * expires the call is withdrawn. A server that already took it finds its reply capability gone,
- * so a late Reply() fails and cannot be mistaken for the answer to a later call.
+ * expires the call is withdrawn. A server that already took it finds its reply capability gone:
+ * a late Reply() returns ERR_BADHANDLE, and a late ReplyRecv() just waits for the next call, so
+ * the stale answer cannot be mistaken for the reply to a later call.
  *
  * @syscall_num SVC_CALL
  * @syscall_group ipc
@@ -1086,7 +1087,9 @@ static inline SvcResult Call(Handle port, uint32_t xlen, Handle grant_handle)
 /**
  * @brief Answers the call the caller is holding.
  *
- * The reply is the first @p xlen bytes of the server's message box.
+ * The reply is the first @p xlen bytes of the server's message box. If the
+ * caller's CallTimeout() expired after the call was received, the call has been
+ * withdrawn and there is nothing to answer.
  *
  * @syscall_num SVC_REPLY
  * @syscall_group ipc
@@ -1097,7 +1100,8 @@ static inline SvcResult Call(Handle port, uint32_t xlen, Handle grant_handle)
  * @return ZUZU_OK, or an error code.
  * @retval ERR_OVERFLOW  @p xlen is larger than MSG_BUF_SIZE.
  * @retval ERR_DEAD      The caller has died.
- * @retval ERR_BADHANDLE There is no call to answer, or @p grant_handle is not live.
+ * @retval ERR_BADHANDLE There is no call to answer (none was received, or the caller timed out
+ *                       and withdrew it), or @p grant_handle is not live.
  * @retval ERR_NOPERM    @p grant_handle lacks PERM_TXFR; the caller is failed with this error.
  * @retval ERR_NOMEM     The caller's handle table is full; the caller is failed with this error.
  */
@@ -1366,14 +1370,14 @@ static inline Err Bind(EventType type, Handle ev_handle, Handle target, uint32_t
  * @syscall_blocking no
  * @syscall_sig (EVENT_IRQ, event, device, bit) -> r0 status
  * @param[in] ev_handle  Event handle with PERM_CNTL.
- * @param[in] dev_handle Device handle whose interrupt to take.
+ * @param[in] dev_handle Device handle with PERM_MAP whose interrupt to take.
  * @param[in] bit        Bit number, 0-30.
  * @return ZUZU_OK, or an error code.
  * @retval ERR_BADHANDLE A handle is not live.
  * @retval ERR_BADTYPE   @p ev_handle is not an event, or @p dev_handle is not a device.
- * @retval ERR_NOPERM    @p ev_handle lacks PERM_CNTL.
+ * @retval ERR_NOPERM    @p ev_handle lacks PERM_CNTL, or @p dev_handle lacks PERM_MAP.
  * @retval ERR_BADARG    The device has no interrupt, or @p bit is out of range.
- * @retval ERR_BUSY      The interrupt is already bound.
+ * @retval ERR_BUSY      Another space has already bound the interrupt.
  * @retval ERR_DEAD      The event has been destroyed.
  */
 static inline Err BindIrq(Handle ev_handle, Handle dev_handle, uint32_t bit)
@@ -1411,12 +1415,12 @@ static inline Err BindMemMgmt(Handle ev_handle)
  * @syscall_group event
  * @syscall_blocking no
  * @syscall_sig (device) -> r0 status
- * @param[in] dev_handle Device handle whose interrupt this space bound.
+ * @param[in] dev_handle Device handle with PERM_MAP whose interrupt this space bound.
  * @return ZUZU_OK, or an error code.
  * @retval ERR_BADHANDLE @p dev_handle is not a live handle.
  * @retval ERR_BADTYPE   @p dev_handle is not a device.
  * @retval ERR_BADARG    The device has no interrupt.
- * @retval ERR_NOPERM    This space did not bind the interrupt.
+ * @retval ERR_NOPERM    @p dev_handle lacks PERM_MAP, or this space did not bind the interrupt.
  */
 static inline Err IrqRearm(Handle dev_handle)
 {

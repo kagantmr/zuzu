@@ -32,7 +32,8 @@ AsidToken AsidAlloc(void);
 
 /**
  * @brief Let go of an existing ASID token.
- * 
+ *
+ * @param[in] token Token from AsidAlloc(); a token from an older generation is ignored.
  */
 void AsidFree(AsidToken token);
 
@@ -50,6 +51,8 @@ static inline uint32_t AsidCurrentGeneration(void) { return asid_generation; }
 
 /**
  * @brief Activates the provided ASID by marking it on the ASID bitmap.
+ *
+ * @param[in] asid ASID now loaded on the CPU.
  */
 void AsidSetActive(Asid asid);
 

@@ -1,8 +1,21 @@
+/**
+ * @file
+ * @brief ARMv7-A MMU helpers used while switching to the higher-half mapping.
+ */
+
 #ifndef ARCH_ARM_IMPL_MMU_H
 #define ARCH_ARM_IMPL_MMU_H
 
 #include <stddef.h>
 
+/**
+ * @brief Moves the stacks of every exception mode by @p offset.
+ *
+ * Adds @p offset to sp and fp in SVC mode and to sp in IRQ, abort and undefined
+ * modes, with IRQs and FIQs masked, then returns to the calling mode.
+ *
+ * @param[in] offset Byte distance from the old (physical) to the new (virtual) addresses.
+ */
 static inline void ArchRelocateStacks(size_t offset)
 {
     __asm__ volatile(

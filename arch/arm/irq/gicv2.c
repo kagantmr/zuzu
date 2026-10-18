@@ -1,17 +1,47 @@
+/**
+ * @file
+ * @brief GICv2 driver.
+ */
+
 #include "arch/arm/include/gicv2.h"
 #include <arch/barrier.h>
 #include <arch/irq.h>
 #include <stdbool.h>
 #include <types.h>
 
-volatile uint32_t *gicd_base, *gicc_base;
+volatile uint32_t *gicd_base; /**< Mapped GIC distributor; NULL until GicInit(). */
+volatile uint32_t *gicc_base; /**< Mapped GIC CPU interface; NULL until GicInit(). */
 
+/**
+ * @brief Writes a distributor register.
+ *
+ * @param[in] off Register offset.
+ * @param[in] val Value.
+ */
 static inline void GicdWrite(uint32_t off, uint32_t val) { gicd_base[off >> 2] = val; }
 
+/**
+ * @brief Reads a distributor register.
+ *
+ * @param[in] off Register offset.
+ * @return The register value.
+ */
 static inline uint32_t GicdRead(uint32_t off) { return gicd_base[off >> 2]; }
 
+/**
+ * @brief Writes a CPU interface register.
+ *
+ * @param[in] off Register offset.
+ * @param[in] val Value.
+ */
 static inline void GiccWrite(uint32_t off, uint32_t val) { gicc_base[off >> 2] = val; }
 
+/**
+ * @brief Reads a CPU interface register.
+ *
+ * @param[in] offset Register offset.
+ * @return The register value.
+ */
 static inline uint32_t GiccRead(const uint32_t offset) { return gicc_base[offset >> 2]; }
 
 bool ArchIrqReady(void) { return gicd_base && gicc_base; }
@@ -122,6 +152,12 @@ void GicEnd(uint32_t iar)
 #define LOG_FMT(fmt) "(board) " fmt
 #include "core/log.h"
 
+/**
+ * @brief Maps the GIC described by the device tree and initializes it; panics if it cannot be
+ * mapped.
+ *
+ * @param[in] dev Device tree node.
+ */
 static void GicV2Probe(const FdtDevice *dev)
 {
     uint64_t gicd = dev->phys, s_d = dev->size;
@@ -142,6 +178,7 @@ static void GicV2Probe(const FdtDevice *dev)
     GicInit((uintptr_t)gicd_va, (uintptr_t)gicc_va);
 }
 
+/** @brief Device tree compatible strings this driver binds to. */
 static const char *const GIC_COMPAT[] = {"arm,gic-400", "arm,cortex-a15-gic", "arm,gic-v2", NULL};
 
 ZUZU_DRIVER(gicv2, ZUZU_DRV_IRQCHIP) = {

@@ -1,10 +1,15 @@
+/**
+ * @file
+ * @brief ARMv7-A syscall entry: the svc instruction and its registers.
+ */
+
 #ifndef ARCH_ARM_IMPL_SVC_H
 #define ARCH_ARM_IMPL_SVC_H
 
 #ifdef __thumb__
-#define ARCH_SVC_MAGIC 0x23
+#define ARCH_SVC_MAGIC 0x23 /**< svc immediate in Thumb code, which only has 8 bits. */
 #else
-#define ARCH_SVC_MAGIC 0x112023
+#define ARCH_SVC_MAGIC 0x112023 /**< svc immediate in ARM code: zuzu's birthday, 2023-11-20. */
 #endif
 
 #ifndef __ASSEMBLER__
@@ -16,6 +21,16 @@
 extern "C" {
 #endif
 
+/**
+ * @brief Makes a syscall and returns r0.
+ *
+ * @param[in] svc_num Syscall number, passed in r12.
+ * @param[in] a0      Argument in r0.
+ * @param[in] a1      Argument in r1.
+ * @param[in] a2      Argument in r2.
+ * @param[in] a3      Argument in r3.
+ * @return r0 after the call.
+ */
 static __always_inline Register ArchInvokeSvc(uint32_t svc_num, Register a0, Register a1,
                                               Register a2, Register a3)
 {
@@ -31,10 +46,24 @@ static __always_inline Register ArchInvokeSvc(uint32_t svc_num, Register a0, Reg
     return r0;
 }
 
+/** @brief r0-r3 after a syscall. */
 typedef struct {
-    Register r0, r1, r2, r3;
+    Register r0; /**< Status, or the primary result. */
+    Register r1; /**< Second result register. */
+    Register r2; /**< Third result register. */
+    Register r3; /**< Fourth result register. */
 } SvcResult;
 
+/**
+ * @brief Makes a syscall and returns r0-r3.
+ *
+ * @param[in] svc_num Syscall number, passed in r12.
+ * @param[in] a0      Argument in r0.
+ * @param[in] a1      Argument in r1.
+ * @param[in] a2      Argument in r2.
+ * @param[in] a3      Argument in r3.
+ * @return r0-r3 after the call.
+ */
 static __always_inline SvcResult ArchInvokeSvc4(uint32_t svc_num, Register a0, Register a1,
                                                 Register a2, Register a3)
 {

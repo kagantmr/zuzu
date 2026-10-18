@@ -1,3 +1,8 @@
+/**
+ * @file
+ * @brief ARMv7-A exception handling: undefined instructions, aborts, IRQs.
+ */
+
 #include "core/log.h"
 #include "core/panic.h"
 #include "kernel/bench.h"
@@ -19,15 +24,22 @@ BENCH_STAT(g_bench_lazy_map_fault, "lazy-map translation fault");
 BENCH_STAT(g_bench_irq_dispatch, "irq: ArchIrqDispatch");
 #endif
 
+/** @brief Exception kinds, numbered by their vector slot. */
 typedef enum {
-    EXCEPTION_UNDEF = 1,
-    EXCEPTION_PREFETCH_ABORT = 3,
-    EXCEPTION_DATA_ABORT = 4,
-    EXCEPTION_RESERVED = 5,
-    EXCEPTION_IRQ = 6,
-    EXCEPTION_FIQ = 7
+    EXCEPTION_UNDEF = 1,          /**< Undefined instruction, including lazy VFP traps. */
+    EXCEPTION_PREFETCH_ABORT = 3, /**< Instruction fetch fault. */
+    EXCEPTION_DATA_ABORT = 4,     /**< Data access fault. */
+    EXCEPTION_RESERVED = 5,       /**< Unused vector. */
+    EXCEPTION_IRQ = 6,            /**< Interrupt. */
+    EXCEPTION_FIQ = 7             /**< Fast interrupt; not supported. */
 } ExceptionType;
 
+/**
+ * @brief Describes the status field of a DFSR or IFSR.
+ *
+ * @param[in] fsr Fault status register value.
+ * @return A short description, or "Unknown fault".
+ */
 static const char *DecodeFsr(uint32_t fsr)
 {
     uint32_t status = (fsr & 0xF) | ((fsr >> 6) & 0x10);
@@ -72,6 +84,16 @@ static const char *DecodeFsr(uint32_t fsr)
     }
 }
 
+/**
+ * @brief Maps the page behind a translation fault if it falls in a region that is filled on demand.
+ *
+ * Guard and device regions, and accesses the region's protection forbids, are not served.
+ *
+ * @param[in] space Faulting space.
+ * @param[in] dfar  Faulting address.
+ * @param[in] dfsr  Fault status; bit 11 set means a write.
+ * @return true if the page is now mapped and the access can be retried.
+ */
 static bool __hot ServiceDemandPage(SpaceObject *space, uint32_t dfar, uint32_t dfsr)
 {
     AddressSpace *as = space->as;
@@ -95,6 +117,15 @@ static bool __hot ServiceDemandPage(SpaceObject *space, uint32_t dfar, uint32_t 
     return false;
 }
 
+/**
+ * @brief Handles every exception except SVC, called from the vectors.
+ *
+ * User faults kill the task; kernel faults panic, except demand-paging faults
+ * on user addresses during a syscall.
+ *
+ * @param[in]     exctype Which exception.
+ * @param[in,out] frame   Saved registers.
+ */
 void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame);
 
 void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)

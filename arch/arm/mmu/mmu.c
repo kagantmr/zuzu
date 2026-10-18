@@ -1,3 +1,8 @@
+/**
+ * @file
+ * @brief ARMv7-A translation tables: creating, mapping, protecting and tearing down.
+ */
+
 #include "kernel/mm/pmm/pmm.h"
 #include "l2_pool.h"
 #include "types.h"
@@ -9,26 +14,61 @@
 #include <stdint.h>
 #include <string.h>
 
+/** @brief Unmaps up to this many pages flush them one by one; larger ones flush the whole ASID. */
 #define UNMAP_TLBI_PAGE_THRESHOLD 16U
 
+/**
+ * @brief Maps one 4 KiB page, allocating an L2 table or splitting a section as needed.
+ *
+ * @param[in] as      Address space.
+ * @param[in] va      Virtual address.
+ * @param[in] pa      Physical address.
+ * @param[in] memtype Memory type.
+ * @param[in] prot    Protection.
+ * @return false if @p va is out of range or no L2 table could be allocated.
+ */
 static bool ArchMmuMapPage(AddressSpace *as, uintptr_t va, uintptr_t pa, VirtMemType memtype,
                            MemProt prot);
 
+/**
+ * @brief Entries in an L1 table of the given kind.
+ *
+ * @param[in] type User or kernel.
+ * @return 2048 for user tables, 4096 for the kernel's.
+ */
 static inline size_t l1_entry_count(AddressSpaceType type)
 {
     return (type == ADDRESS_SPACE_USER) ? L1_ENTRIES_USER : L1_ENTRIES_KERNEL;
 }
 
+/**
+ * @brief Size of an L1 table of the given kind.
+ *
+ * @param[in] type User or kernel.
+ * @return Size in bytes.
+ */
 static inline size_t l1_table_bytes(AddressSpaceType type)
 {
     return l1_entry_count(type) * L1_DESC_BYTES;
 }
 
+/**
+ * @brief Pages taken by an L1 table of the given kind.
+ *
+ * @param[in] type User or kernel.
+ * @return Number of pages.
+ */
 static inline size_t l1_table_pages(AddressSpaceType type)
 {
     return l1_table_bytes(type) / PAGE_SIZE;
 }
 
+/**
+ * @brief AP[1:0] bits for a protection.
+ *
+ * @param[in] prot Protection.
+ * @return AP_USER_RW, AP_USER_RO or AP_KERNEL_RW.
+ */
 static inline uint32_t ap_bits(MemProt prot)
 {
     if (prot & VM_PROT_USER)
@@ -36,6 +76,16 @@ static inline uint32_t ap_bits(MemProt prot)
     return AP_KERNEL_RW;
 }
 
+/**
+ * @brief Builds a section descriptor.
+ *
+ * User mappings are not-global; mappings without PROT_EXEC are execute-never.
+ *
+ * @param[in] pa      Physical address of the section.
+ * @param[in] prot    Protection.
+ * @param[in] memtype Memory type.
+ * @return The descriptor.
+ */
 static uint32_t l1_section_desc(uintptr_t pa, MemProt prot, VirtMemType memtype)
 {
     uint32_t e = (uint32_t)(pa & L1_SECTION_BASE_MASK) | L1_SECTION_TAG;
@@ -61,6 +111,14 @@ static uint32_t l1_section_desc(uintptr_t pa, MemProt prot, VirtMemType memtype)
     return e;
 }
 
+/**
+ * @brief Builds a small page descriptor, like l1_section_desc() does for sections.
+ *
+ * @param[in] pa      Physical address of the page.
+ * @param[in] prot    Protection.
+ * @param[in] memtype Memory type.
+ * @return The descriptor.
+ */
 static uint32_t l2_page_desc(uintptr_t pa, MemProt prot, VirtMemType memtype)
 {
     uint32_t e = (uint32_t)(pa & L2_SMALL_BASE_MASK) | L2_SMALL_TAG;
@@ -86,6 +144,13 @@ static uint32_t l2_page_desc(uintptr_t pa, MemProt prot, VirtMemType memtype)
     return e;
 }
 
+/**
+ * @brief Replaces the access permissions and execute-never bit of a section descriptor.
+ *
+ * @param[in] e    Descriptor.
+ * @param[in] prot New protection.
+ * @return The updated descriptor.
+ */
 static uint32_t l1_section_set_prot(uint32_t e, MemProt prot)
 {
     e &= ~((AP_MASK << L1_SECT_AP_SHIFT) | MMU_BIT(L1_SECT_AP2_BIT) | MMU_BIT(L1_SECT_XN_BIT));
@@ -95,6 +160,13 @@ static uint32_t l1_section_set_prot(uint32_t e, MemProt prot)
     return e;
 }
 
+/**
+ * @brief Replaces the access permissions and execute-never bit of a small page descriptor.
+ *
+ * @param[in] e    Descriptor.
+ * @param[in] prot New protection.
+ * @return The updated descriptor.
+ */
 static uint32_t l2_page_set_prot(uint32_t e, MemProt prot)
 {
     e &= ~((AP_MASK << L2_PAGE_AP_SHIFT) | MMU_BIT(L2_PAGE_AP2_BIT) | MMU_BIT(L2_PAGE_XN_BIT));
@@ -104,6 +176,12 @@ static uint32_t l2_page_set_prot(uint32_t e, MemProt prot)
     return e;
 }
 
+/**
+ * @brief TTBR value for a table: its address plus the walk attributes.
+ *
+ * @param[in] ttbr_pa Physical address of the L1 table.
+ * @return The TTBR value.
+ */
 static inline uint32_t ttbr_value(uintptr_t ttbr_pa) { return (uint32_t)ttbr_pa | TTBR_WALK_ATTRS; }
 
 uintptr_t ArchMmuCreateTables(AddressSpaceType type)
@@ -382,7 +460,7 @@ void ArchMmuFlushTlbVaAsid(uintptr_t va, uint8_t asid)
                      : "memory");
 }
 
-PhysAddr ArchMmuTranslate(PhysAddr ttbr_pa, VirtAddr va)
+uintptr_t ArchMmuTranslate(uintptr_t ttbr_pa, uintptr_t va)
 {
     if (ttbr_pa == 0) {
         return 0;
@@ -417,6 +495,12 @@ PhysAddr ArchMmuTranslate(PhysAddr ttbr_pa, VirtAddr va)
     return 0;
 }
 
+/**
+ * @brief Builds an L1 descriptor pointing to an L2 table.
+ *
+ * @param[in] l2_pa Physical address of the L2 table.
+ * @return The descriptor, or 0 if @p l2_pa is 0.
+ */
 static uint32_t ArchMmuMakeL1Pte(uintptr_t l2_pa)
 {
     if (!l2_pa)
@@ -424,6 +508,14 @@ static uint32_t ArchMmuMakeL1Pte(uintptr_t l2_pa)
     return (uint32_t)(l2_pa & L1_L2PTR_BASE_MASK) | L1_L2PTR_TAG;
 }
 
+/**
+ * @brief Replaces a section with an L2 table mapping the same 1 MiB with the same attributes.
+ *
+ * @param[in,out] l1     L1 table.
+ * @param[in]     l1_idx Index of the section.
+ * @param[in]     asid   ASID whose TLB entries are flushed afterwards.
+ * @return false if no L2 table could be allocated.
+ */
 static bool ArchMmuBreakSection(uint32_t *l1, uint32_t l1_idx, uint8_t asid)
 {
     uint32_t section = l1[l1_idx];
@@ -527,6 +619,13 @@ bool ArchMmuUnmapPage(AddressSpace *as, uintptr_t va)
     return true;
 }
 
+/**
+ * @brief Finds what backs the region containing an address.
+ *
+ * @param[in] as Address space.
+ * @param[in] va Virtual address.
+ * @return The region's backing, or VM_BACKING_ANON if no region contains @p va.
+ */
 static VirtMemBacking mmu_region_owner_for_va(const AddressSpace *as, uintptr_t va)
 {
     if (!as)

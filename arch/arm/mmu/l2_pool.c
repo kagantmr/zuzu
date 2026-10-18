@@ -1,3 +1,8 @@
+/**
+ * @file
+ * @brief Allocator for 1 KiB L2 page tables, four to a page.
+ */
+
 #include "l2_pool.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm/pmm.h"
@@ -5,12 +10,18 @@
 #include <arch/mmu.h>
 #include <string.h>
 
+/** @brief Size of one L2 table. */
 #define L2_TABLE_SIZE 1024U
+/** @brief L2 tables per page. */
 #define L2_PER_PAGE (PAGE_SIZE / L2_TABLE_SIZE)
+/** @brief used_mask of a page whose tables are all in use. */
 #define L2_SLOTS_FULL ((1u << L2_PER_PAGE) - 1u)
+/** @brief Offset bits within a page. */
 #define PAGE_OFFSET_MASK (PAGE_SIZE - 1u)
 
+/** @brief Pages with L2 tables, most recent first. */
 static L2PtPoolEntry *pool_head = NULL;
+/** @brief Slab cache for L2PtPoolEntry records. */
 static KSlabCache l2_entry_cache;
 
 uintptr_t L2PtPoolAlloc(void)

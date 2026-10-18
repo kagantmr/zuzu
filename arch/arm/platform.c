@@ -1,11 +1,16 @@
+/**
+ * @file
+ * @brief ARMv7-A platform hooks: early UART output and device probing.
+ */
+
 #include "drivers/driver.h"
 #include <arch/platform.h>
 #include <stdint.h>
 
 #include BOARD_BOOT_H
 
-#define EARLY_UART_FR (0x18u / 4u)
-#define EARLY_UART_TXFF (1u << 5)
+#define EARLY_UART_FR (0x18u / 4u) /**< Word index of the PL011 flag register. */
+#define EARLY_UART_TXFF (1u << 5) /**< PL011 flag: transmit FIFO full. */
 
 void ArchEarlyPutc(char c)
 {

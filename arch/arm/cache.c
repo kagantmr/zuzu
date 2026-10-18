@@ -1,8 +1,13 @@
+/**
+ * @file
+ * @brief ARMv7-A cache maintenance by virtual address.
+ */
+
 #include <arch/barrier.h>
 #include <arch/cache.h>
 #include <types.h>
 
-#define CACHE_LINE 64u
+#define CACHE_LINE 64u /**< D-cache line size the range operations step by. */
 
 void ArchCacheCleanDcacheRangePou(uintptr_t start, size_t size)
 {

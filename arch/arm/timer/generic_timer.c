@@ -1,9 +1,19 @@
+/**
+ * @file
+ * @brief ARM generic timer: the virtual timer as the kernel's one-shot deadline.
+ */
+
 #include "arch/arm/timer/generic_timer.h"
 #include <arch/irq.h>
 #include <arch/timer.h>
 #include <stdint.h>
 #include <types.h>
 
+/**
+ * @brief Reads the counter frequency (CNTFRQ).
+ *
+ * @return Ticks per second.
+ */
 static inline uint32_t ReadCntFrq(void)
 {
     uint32_t v;
@@ -11,14 +21,27 @@ static inline uint32_t ReadCntFrq(void)
     return v;
 }
 
+/**
+ * @brief Writes the physical timer control register (CNTP_CTL).
+ *
+ * @param[in] v New value.
+ */
 static inline void WriteCntpCtl(uint32_t v)
 {
     __asm__ volatile("mcr p15, 0, %0, c14, c2, 1" ::"r"(v));
     __asm__ volatile("isb");
 }
 
+/** @brief Last value written to CNTV_CTL, to skip redundant writes. */
 static uint32_t cntv_ctl_shadow = ~0U;
 
+/**
+ * @brief Writes the virtual timer control register (CNTV_CTL) if it changed.
+ *
+ * Bit 0 enables the timer, bit 1 masks its interrupt.
+ *
+ * @param[in] v New value.
+ */
 static inline void WriteCntvCtl(uint32_t v)
 {
     if (v == cntv_ctl_shadow)
@@ -28,8 +51,16 @@ static inline void WriteCntvCtl(uint32_t v)
     __asm__ volatile("isb");
 }
 
+/** @brief Highest count read so far. */
 static uint64_t cnt_last;
 
+/**
+ * @brief Reads the virtual count, never returning less than a previous read.
+ *
+ * Some QEMU versions return out-of-order values; clamping keeps time monotonic.
+ *
+ * @return The counter value.
+ */
 static inline uint64_t ReadCntvct(void)
 {
     uint64_t v;
@@ -40,10 +71,17 @@ static inline uint64_t ReadCntvct(void)
     return v;
 }
 
+/** @brief Counter frequency, read at init. */
 static uint32_t freq = 0;
 
+/** @brief Called when a deadline passes. */
 static void (*expire_handler)(void);
 
+/**
+ * @brief Timer interrupt: masks the timer and runs the expiry handler.
+ *
+ * @param[in] ctx Unused.
+ */
 static void ArmGenericTimerHandler(void *ctx)
 {
     (void)ctx;
@@ -52,6 +90,7 @@ static void ArmGenericTimerHandler(void *ctx)
         expire_handler();
 }
 
+/** @brief Lets user code read the virtual count, and nothing else (CNTKCTL). */
 static inline void EnableUserCounterRead(void)
 {
     uint32_t v;
@@ -81,6 +120,7 @@ void ArchTimerSetHandler(void (*on_expire)(void)) { expire_handler = on_expire; 
 
 Time ArchTimerNow(void) { return ReadCntvct(); }
 uint32_t ArchTimerFreq(void) { return freq; }
+/** @brief Last value written to CNTV_CVAL, to skip redundant writes. */
 static uint64_t cntv_cval_shadow = ~0ULL;
 
 void ArchTimerSetDeadline(Time abs_count)
@@ -101,6 +141,11 @@ void ArchTimerDisable(void) { WriteCntvCtl(0x2);  }
 #define LOG_FMT(fmt) "(board) " fmt
 #include "core/log.h"
 
+/**
+ * @brief Driver probe: initializes the timer.
+ *
+ * @param[in] dev Device tree node; unused.
+ */
 static void GenericTimerProbe(const FdtDevice *dev)
 {
     (void)dev;
