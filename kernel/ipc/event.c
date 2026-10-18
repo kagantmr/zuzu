@@ -5,6 +5,7 @@
 #include "kernel/mm/alloc.h"
 #include "kernel/sched/sched.h"
 #include "kernel/space/space.h"
+#include <string.h>
 
 #include <assert.h>
 #include <types.h>
@@ -69,6 +70,23 @@ void EventUnref(EventObject *ev)
     EventObjFree(ev);
 }
 
+void EventBindBit(EventObject *ev, uint32_t bit)
+{
+    if (bit >= 31)
+        return;
+    if (ev->bound_refs[bit] < UINT16_MAX)
+        ev->bound_refs[bit]++;
+    ev->bound_mask |= (1U << bit);
+}
+
+void EventUnbindBit(EventObject *ev, uint32_t bit)
+{
+    if (bit >= 31 || ev->bound_refs[bit] == 0)
+        return;
+    if (--ev->bound_refs[bit] == 0)
+        ev->bound_mask &= ~(1U << bit);
+}
+
 EventObject *EventCreate(SpaceObject *owner)
 {
     EventObject *ev = EventObjAlloc();
@@ -80,6 +98,7 @@ EventObject *EventCreate(SpaceObject *owner)
     ListInit(&ev->wait_queue);
     ev->word = 0;
     ev->bound_mask = 0;
+    memset(ev->bound_refs, 0, sizeof(ev->bound_refs));
 
     return ev;
 }

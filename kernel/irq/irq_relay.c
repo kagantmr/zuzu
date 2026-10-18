@@ -19,6 +19,7 @@ static void __hot RelayIrqHandler(void *ctx)
         irq_owners[irq_num].pending = false;
     } else if (ev) {
         irq_owners[irq_num].bound_ev = NULL;
+        EventUnbindBit(ev, irq_owners[irq_num].bit);
         EventUnref(ev);
     }
 }
@@ -39,16 +40,16 @@ Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev, uint32_t bi
             (IrqOwner){.bound_ev = NULL, .owner = owner, .pending = false, .bit = bit};
         ArchIrqRegister(irq_num, RelayIrqHandler, (void *)(VirtAddr)irq_num);
     }
-    irq_owners[irq_num].bit = bit;
-
     if (irq_owners[irq_num].bound_ev) {
         EventObject *old = irq_owners[irq_num].bound_ev;
+        EventUnbindBit(old, irq_owners[irq_num].bit);
         EventUnref(old);
     }
 
+    irq_owners[irq_num].bit = bit;
     irq_owners[irq_num].bound_ev = ev;
     irq_owners[irq_num].bound_ev->ref_count++;
-    irq_owners[irq_num].bound_ev->bound_mask |= (1U << irq_owners[irq_num].bit);
+    EventBindBit(ev, bit);
 
     if (irq_owners[irq_num].pending) {
         EventSignal(irq_owners[irq_num].bound_ev, (1U << irq_owners[irq_num].bit), false);
@@ -59,15 +60,23 @@ Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev, uint32_t bi
     return ZUZU_OK;
 }
 
+void IrqRelease(SpaceObject *owner, Irq irq_num)
+{
+    if (irq_num >= MAX_IRQS || irq_owners[irq_num].owner != owner)
+        return;
+    EventObject *ev = irq_owners[irq_num].bound_ev;
+    if (ev) {
+        EventUnbindBit(ev, irq_owners[irq_num].bit);
+        EventUnref(ev);
+    }
+    irq_owners[irq_num] = (IrqOwner){.bound_ev = NULL, .owner = NULL, .pending = false};
+    ArchIrqMaskLine(irq_num);
+}
+
 void IrqReleaseAll(SpaceObject *owner)
 {
-    for (Irq irq_num = 0; irq_num < MAX_IRQS; irq_num++) {
-        if (irq_owners[irq_num].owner == owner) {
-            EventUnref(irq_owners[irq_num].bound_ev);
-            irq_owners[irq_num] = (IrqOwner){.bound_ev = NULL, .owner = NULL, .pending = false};
-            ArchIrqMaskLine(irq_num);
-        }
-    }
+    for (Irq irq_num = 0; irq_num < MAX_IRQS; irq_num++)
+        IrqRelease(owner, irq_num);
 }
 
 Err IrqRelayRearm(SpaceObject *owner, Irq irq_num)

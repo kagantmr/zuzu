@@ -53,7 +53,7 @@ int PmmSubscribe(EventObject *ev)
     if (!new_node)
         return ERR_NOMEM;
     new_node->ev = ev;
-    ev->bound_mask |= EVENT_MEMMGMT_BIT;
+    EventBindBit(ev, 0);
     ListAddTail(&new_node->node, &pmm_subscribers.node);
     ev->ref_count++;
 

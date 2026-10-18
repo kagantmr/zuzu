@@ -17,11 +17,15 @@ typedef struct EventObjectStruct {
     size_t ref_count;
     bool alive;
     EventWord bound_mask;
+    uint16_t bound_refs[31];
 } EventObject;
 
 void EventSignal(EventObject *ev, EventWord bits, bool bcast);
 
 void EventWait(EventObject *ev, Duration timeout, CpuState *frame);
+
+void EventBindBit(EventObject *ev, uint32_t bit);
+void EventUnbindBit(EventObject *ev, uint32_t bit);
 
 void EventUnref(EventObject *ev);
 void EventKill(EventObject *ev);

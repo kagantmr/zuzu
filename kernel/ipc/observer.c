@@ -2,6 +2,7 @@
 
 static void ObserverRelease(Observer *o)
 {
+    EventUnbindBit(o->ev, o->bit);
     EventUnref(o->ev);
     o->ev = NULL;
     o->bit = 0;
@@ -17,8 +18,11 @@ Err ObserverAdd(ObserverSet *s, EventObject *ev, uint32_t bit)
 {
     for (int i = 0; i < MAX_OBSERVERS; i++) {
         if (s->slot[i].ev == ev) {
-            s->slot[i].bit = (uint8_t)bit;
-            ev->bound_mask |= (1U << bit);
+            if (s->slot[i].bit != bit) {
+                EventUnbindBit(ev, s->slot[i].bit);
+                EventBindBit(ev, bit);
+                s->slot[i].bit = (uint8_t)bit;
+            }
             return ZUZU_OK;
         }
     }
@@ -32,7 +36,7 @@ Err ObserverAdd(ObserverSet *s, EventObject *ev, uint32_t bit)
         if (!s->slot[i].ev) {
             s->slot[i] = (Observer){.ev = ev, .bit = (uint8_t)bit};
             ev->ref_count++;
-            ev->bound_mask |= (1U << bit);
+            EventBindBit(ev, bit);
             return ZUZU_OK;
         }
     }

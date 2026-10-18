@@ -16,6 +16,7 @@ typedef struct {
 
 bool IrqIsValid(Irq irq_num);
 void IrqReleaseAll(SpaceObject *owner);
+void IrqRelease(SpaceObject *owner, Irq irq_num);
 Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev, uint32_t bit);
 Err IrqRelayRearm(SpaceObject *owner, Irq irq_num);
 
