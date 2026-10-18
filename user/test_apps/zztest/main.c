@@ -3211,6 +3211,84 @@ static void TestMsg(void)
     HandleClose(port);
 }
 
+static volatile int g_srv_got;
+static Handle g_srv_port;
+
+static int32_t SrvOnce(void *arg)
+{
+    (void)arg;
+    PortWaitResult r = FormatToPortWait(WaitOn(g_srv_port, 5000));
+    if (r.status != ZUZU_OK)
+        return r.status;
+    g_srv_got = 1;
+    Reply(0, -1);
+    return 0;
+}
+
+static int32_t HardeningCaller(void *arg)
+{
+    (void)arg;
+    return CallPort(g_srv_port, 0, -1, NULL, NULL);
+}
+
+static void TestHardening(void)
+{
+    BeginSection("hardening");
+
+    static Handle fill[1200];
+    int held = 0;
+    while (held < 1200) {
+        Handle h = CreateEvent();
+        if (h < 0)
+            break;
+        fill[held++] = h;
+    }
+    Check(held > 0 && held < 1200, "the handle table fills up");
+    CheckEq(CreateSpace("zz-full"), ERR_NOMEM, "CreateSpace with a full handle table -> NOMEM");
+    CheckEq(CreateSpace("zz-full"), ERR_NOMEM, "and again, nothing was left behind");
+    for (int i = 0; i < held; i++)
+        HandleClose(fill[i]);
+    Handle sp = CreateSpace("zz-roomy");
+    Check(sp >= 0, "CreateSpace works once there is room");
+    HandleDestroy(sp);
+
+    Handle ev = CreateEvent();
+    SvcResult noxfer = HandleDuplicate(ev, PERM_WAIT | PERM_SEND, MARKER_NONE);
+    SvcResult xfer = HandleDuplicate(ev, PERM_WAIT | PERM_SEND | PERM_TXFR, MARKER_NONE);
+    sp = CreateSpace("zz-grant");
+    CheckEq(HandleGrant((Handle)noxfer.r1, sp, PERM_ALL).r0, ERR_NOPERM,
+            "Grant without PERM_TXFR -> NOPERM");
+    CheckEq(HandleGrant((Handle)xfer.r1, sp, PERM_ALL).r0, ZUZU_OK, "Grant with PERM_TXFR");
+    HandleDestroy(sp);
+    HandleClose((Handle)noxfer.r1);
+    HandleClose((Handle)xfer.r1);
+    HandleClose(ev);
+
+    Handle churn = CreateEvent();
+    int ok = 1;
+    for (int i = 0; i < 3000; i++) {
+        HandleClose(churn);
+        churn = CreateEvent();
+        ok &= churn >= 0;
+    }
+    Check(ok, "handles stay valid across heavy slot reuse");
+    HandleClose(churn);
+
+    g_srv_got = 0;
+    g_srv_port = CreatePort();
+    Worker *srv = WorkerStart(SrvOnce, NULL);
+    Sleep(20);
+    CheckEq(TaskSuspend(srv->task), ZUZU_OK, "suspend a receiver blocked on a port");
+    Worker *cl = WorkerStart(HardeningCaller, NULL);
+    Sleep(30);
+    CheckEq(g_srv_got, 0, "a call does not switch to a suspended receiver");
+    CheckEq(TaskResume(srv->task), ZUZU_OK, "resume the receiver");
+    CheckEq(WorkerJoin(srv), 0, "the receiver then takes the call");
+    CheckEq(WorkerJoin(cl), 0, "and the caller gets its reply");
+    CheckEq(g_srv_got, 1, "the receiver ran after the resume");
+    HandleClose(g_srv_port);
+}
+
 static void RunSuite(void)
 {
     TestBasics();
@@ -3228,6 +3306,7 @@ static void RunSuite(void)
     TestHold();
     TestInjectObj();
     TestMsg();
+    TestHardening();
     TestDma();
     TestKittens();
     TestTaskLifetime();
