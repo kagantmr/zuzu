@@ -48,8 +48,9 @@ void SvcManageMemory(CpuState *frame)
             HandleTableLookup(&CURRENT_SPACE->handle_table, kitten_space_handle);
         ENSURE_ERR(frame, entry, ERR_BADHANDLE);
         ENSURE_ERR(frame, (HANDLE_SPACE == entry->type), ERR_BADTYPE);
-        ENSURE_ERR(frame, !entry->space->torn_down, ERR_DEAD);
+        ENSURE_ERR(frame, entry->space, ERR_BADHANDLE);
         ENSURE_ERR(frame, entry->perms & PERM_CNTL, ERR_NOPERM);
+        ENSURE_ERR(frame, !entry->space->torn_down, ERR_DEAD);
 
         InjectObjArgs kargs;
         ENSURE_ERR(frame,

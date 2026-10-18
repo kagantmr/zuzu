@@ -80,12 +80,13 @@ void SvcBind(CpuState *frame)
         HandleTableEntry *dev_entry = HandleTableLookup(&CURRENT_SPACE->handle_table, dev_handle);
 
         ENSURE_ERR(frame, dev_entry, ERR_BADHANDLE);
-        ENSURE_ERR(frame, (dev_entry->type == HANDLE_MEM && dev_entry->mem->kind == MEMKIND_DEVICE),
-                   ERR_BADTYPE);
+        ENSURE_ERR(frame, dev_entry->type == HANDLE_MEM, ERR_BADTYPE);
 
         MemObject *dev_mem_obj = dev_entry->mem;
 
         ENSURE_ERR(frame, (dev_mem_obj), ERR_BADHANDLE);
+        ENSURE_ERR(frame, dev_mem_obj->kind == MEMKIND_DEVICE, ERR_BADTYPE);
+        ENSURE_ERR(frame, dev_entry->perms & PERM_MAP, ERR_NOPERM);
 
         ENSURE_ERR(frame, IrqIsValid(dev_mem_obj->dev.irq), ERR_BADARG);
         ENSURE_ERR(frame, (bit < 31U), ERR_BADARG);

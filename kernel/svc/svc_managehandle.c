@@ -148,6 +148,7 @@ void SvcManageHandle(CpuState *frame)
         ENSURE_ERR(frame, space_entry->perms & PERM_CNTL, ERR_NOPERM);
         SpaceObject *target_space = space_entry->space;
         ENSURE_ERR(frame, target_space && !target_space->torn_down, ERR_DEAD);
+        ENSURE_ERR(frame, entry->perms & PERM_TXFR, ERR_NOPERM);
 
         Handle new_handle;
         Err rc = HandleCopyInto(&target_space->handle_table, entry, entry->perms & perms,
@@ -160,6 +161,7 @@ void SvcManageHandle(CpuState *frame)
         ENSURE_ERR(frame, HANDLE_MEM == entry->type, ERR_BADTYPE);
         MemObject *dev = entry->mem;
         ENSURE_ERR(frame, dev && dev->kind == MEMKIND_DEVICE, ERR_BADTYPE);
+        ENSURE_ERR(frame, entry->perms & PERM_MAP, ERR_NOPERM);
         ENSURE_ERR(frame, IrqIsValid(dev->dev.irq), ERR_BADARG);
         ArchSetInFrame(frame, 0, IrqRelayRearm(CURRENT_SPACE, dev->dev.irq));
     } break;

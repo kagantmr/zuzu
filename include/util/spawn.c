@@ -315,7 +315,7 @@ static Err SpawnFromImage(Handle image_obj, const void *image, size_t size, cons
         }
     }
 
-    rc = HandleGrantTo(NSVC_PORT, space_handle, PERM_SEND, NULL);
+    rc = HandleGrantTo(NSVC_PORT, space_handle, PERM_SEND | PERM_TXFR, NULL);
     if (rc != ZUZU_OK) {
         HandleDestroy(space_handle);
         return rc;
