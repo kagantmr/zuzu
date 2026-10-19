@@ -1,20 +1,28 @@
+/**
+ * @file
+ * @brief Memory and string functions, and the formatting core.
+ */
+
 #ifndef STRING_H
 #define STRING_H
 
 #include <stdarg.h>
 #include <stddef.h>
 
+/** @brief Character sink for vstrfmt(): receives @p ctx and each output character. */
 typedef void (*strfmt_outc_t)(void *ctx, char c);
 
+/** @brief Rounds @p addr down to a multiple of @p align, a power of two. */
 #define align_down(addr, align) ((addr) & ~((align) - 1u))
+/** @brief Rounds @p addr up to a multiple of @p align, a power of two. */
 #define align_up(addr, align) (((addr) + (align) - 1) & ~((align) - 1u))
 
 /**
  * @brief Copy n bytes from source to destination.
  *
- * @param dest Pointer to the destination memory area.
- * @param src  Pointer to the source memory area.
- * @param n    Number of bytes to copy.
+ * @param[out] dest Pointer to the destination memory area.
+ * @param[in]  src  Pointer to the source memory area; must not overlap @p dest.
+ * @param[in]  n    Number of bytes to copy.
  * @return Pointer to the destination memory area.
  */
 void *memcpy(void *dest, const void *src, size_t n);
@@ -22,9 +30,9 @@ void *memcpy(void *dest, const void *src, size_t n);
 /**
  * @brief Set n bytes of memory to a specified value.
  *
- * @param ptr Pointer to the memory area to set.
- * @param x   Value to set (interpreted as an unsigned char).
- * @param n   Number of bytes to set.
+ * @param[out] dst Pointer to the memory area to set.
+ * @param[in]  c   Value to set (interpreted as an unsigned char).
+ * @param[in]  n   Number of bytes to set.
  * @return Pointer to the memory area.
  */
 void *memset(void *dst, int c, size_t n);
@@ -32,18 +40,19 @@ void *memset(void *dst, int c, size_t n);
 /**
  * @brief Move n bytes from source to destination, handling overlapping regions.
  *
- * @param dest Pointer to the destination memory area.
- * @param src  Pointer to the source memory area.
- * @param n    Number of bytes to move.
+ * @param[out] dest Pointer to the destination memory area.
+ * @param[in]  src  Pointer to the source memory area.
+ * @param[in]  n    Number of bytes to move.
  * @return Pointer to the destination memory area.
  */
 void *memmove(void *dest, const void *src, size_t n);
 
 /**
  * @brief Compare two memory areas byte by byte.
- * @param str1 Pointer to the first memory area.
- * @param str2 Pointer to the second memory area.
- * @param count Number of bytes to compare.
+ *
+ * @param[in] str1  Pointer to the first memory area.
+ * @param[in] str2  Pointer to the second memory area.
+ * @param[in] count Number of bytes to compare.
  * @return An integer less than, equal to, or greater than zero if str1 is found, respectively, to
  * be less than, to match, or be greater than str2.
  */
@@ -51,42 +60,48 @@ int memcmp(const void *str1, const void *str2, size_t count);
 
 /**
  * @brief Scan a memory area for the first occurrence of a specified byte.
- * @param s Pointer to the memory area to scan.
- * @param c Byte value to search for (interpreted as an unsigned char).
- * @param n Number of bytes to scan.
+ *
+ * @param[in] s Pointer to the memory area to scan.
+ * @param[in] c Byte value to search for (interpreted as an unsigned char).
+ * @param[in] n Number of bytes to scan.
+ * @return Pointer to the byte, or NULL if it does not occur in the first @p n bytes.
  */
 void *memchr(const void *s, int c, size_t n);
 
 /**
  * @brief Calculate the length of a null-terminated string.
  *
- * @param s Pointer to the input string.
+ * @param[in] s Pointer to the input string.
  * @return Number of characters in the string (excluding the null terminator).
  */
 size_t strlen(const char *s);
 
 /**
  * @brief Calculate the length of a string up to a maximum number of characters.
- * @param s Pointer to the input string.
- * @param maxlen Maximum number of characters to examine.
- * @return Number of characters in the string up to maxlen (excluding the null terminator
+ *
+ * @param[in] s      Pointer to the input string.
+ * @param[in] maxlen Maximum number of characters to examine.
+ * @return Number of characters in the string, at most @p maxlen (excluding the null terminator).
  */
 size_t strnlen(const char *s, size_t maxlen);
 
 /**
  * @brief Copy a string from src to dest.
  *
- * @param dest Destination buffer.
- * @param src  Source string.
+ * @param[out] dest Destination buffer, large enough for @p src and its NUL.
+ * @param[in]  src  Source string.
  * @return Pointer to dest.
  */
 char *strcpy(char *dest, const char *src);
 
 /**
- * @brief Copy a string from src to dest.
+ * @brief Copy at most @p n characters of a string, padding with NULs up to @p n.
  *
- * @param dest Destination buffer.
- * @param src  Source string.
+ * The result is not NUL-terminated if @p src has @p n or more characters.
+ *
+ * @param[out] dest Destination buffer of at least @p n bytes.
+ * @param[in]  src  Source string.
+ * @param[in]  n    Bytes to write.
  * @return Pointer to dest.
  */
 char *strncpy(char *dest, const char *src, size_t n);
@@ -94,8 +109,8 @@ char *strncpy(char *dest, const char *src, size_t n);
 /**
  * @brief Compare two strings lexicographically.
  *
- * @param s1 First string.
- * @param s2 Second string.
+ * @param[in] s1 First string.
+ * @param[in] s2 Second string.
  * @return 0 if equal, <0 if s1<s2, >0 if s1>s2.
  */
 int strcmp(const char *s1, const char *s2);
@@ -103,28 +118,31 @@ int strcmp(const char *s1, const char *s2);
 /**
  * @brief Compare up to n characters of two strings.
  *
- * @param s1 First string.
- * @param s2 Second string.
- * @param n  Maximum number of characters to compare.
+ * @param[in] s1 First string.
+ * @param[in] s2 Second string.
+ * @param[in] n  Maximum number of characters to compare.
  * @return 0 if equal, <0 if s1<s2, >0 if s1>s2.
  */
 int strncmp(const char *s1, const char *s2, size_t n);
 
 /**
  * @brief Locate the first occurrence of a character in a string.
- * @param s Pointer to the input string.
- * @param c Character to locate (as an int, but treated as char).
+ *
+ * @param[in] s Pointer to the input string.
+ * @param[in] c Character to locate (as an int, but treated as char).
  * @return Pointer to the first occurrence of c in s, or NULL if not found.
  */
 char *strchr(const char *s, int c);
 
 /**
  * @brief Locate the last occurrence of a character in a string.
- * @param s Pointer to the input string.
- * @param c Character to locate (as an int, but treated as char).
+ *
+ * @param[in] s Pointer to the input string.
+ * @param[in] c Character to locate (as an int, but treated as char).
  * @return Pointer to the last occurrence of c in s, or NULL if not found.
  */
 char *strrchr(const char *s, int c);
+
 /**
  * @brief Format a string according to a format specifier list using va_list.
  *
@@ -137,10 +155,10 @@ char *strrchr(const char *s, int c);
  *
  * Examples: %zu (unsigned size_t), %zd (signed size_t), %zx (size_t in hex)
  *
- * @param outc    Function pointer to output a single character.
- * @param ctx     Context pointer passed to outc.
- * @param fstring Format string.
- * @param args    Pointer to va_list of arguments matching the format specifiers.
+ * @param[in]     outc    Function pointer to output a single character.
+ * @param[in]     ctx     Context pointer passed to outc.
+ * @param[in]     fstring Format string.
+ * @param[in,out] args    Pointer to va_list of arguments matching the format specifiers.
  */
 void vstrfmt(strfmt_outc_t outc, void *ctx, const char *fstring, va_list *args);
 
@@ -151,10 +169,10 @@ void vstrfmt(strfmt_outc_t outc, void *ctx, const char *fstring, va_list *args);
  * 0, in which case buf is left untouched). Same format specifiers as
  * vstrfmt/strfmt.
  *
- * @param buf  Destination buffer, or NULL if size is 0.
- * @param size Size of buf in bytes, including the terminating NUL.
- * @param fmt  Format string.
- * @param args Variable arguments matching the format specifiers.
+ * @param[out] buf  Destination buffer, or NULL if size is 0.
+ * @param[in]  size Size of buf in bytes, including the terminating NUL.
+ * @param[in]  fmt  Format string.
+ * @param[in]  args Variable arguments matching the format specifiers.
  * @return The number of characters that would have been written had size
  *         been unlimited (excluding the terminating NUL).
  */
@@ -162,10 +180,11 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list args);
 
 /**
  * @brief Format a string into a fixed-size buffer.
- * @param buf  Destination buffer, or NULL if size is 0.
- * @param size Size of buf in bytes, including the terminating NUL.
- * @param fmt  Format string.
- * @param ...  Variable arguments matching the format specifiers.
+ *
+ * @param[out] buf  Destination buffer, or NULL if size is 0.
+ * @param[in]  size Size of buf in bytes, including the terminating NUL.
+ * @param[in]  fmt  Format string.
+ * @param[in]  ...  Variable arguments matching the format specifiers.
  * @return The number of characters that would have been written had size
  *         been unlimited (excluding the terminating NUL).
  */

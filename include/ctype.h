@@ -1,3 +1,8 @@
+/**
+ * @file
+ * @brief Character classification and case conversion, for the C locale.
+ */
+
 #ifndef CTYPE_H
 #define CTYPE_H
 
@@ -7,11 +12,17 @@ extern "C" {
 
 /**
  * @brief Checks if the given character is a digit (0-9).
+ *
+ * @param[in] c Character, as an unsigned char value or EOF.
+ * @return Non-zero if it is, 0 otherwise.
  */
 static inline int isdigit(int c) { return (c >= '0' && c <= '9'); }
 
 /**
  * @brief Checks if the given character is a hexadecimal digit (0-9, a-f, A-F).
+ *
+ * @param[in] c Character, as an unsigned char value or EOF.
+ * @return Non-zero if it is, 0 otherwise.
  */
 static inline int isxdigit(int c)
 {
@@ -20,6 +31,9 @@ static inline int isxdigit(int c)
 
 /**
  * @brief Checks if the given character is an alphanumeric character (a-z, A-Z, 0-9).
+ *
+ * @param[in] c Character, as an unsigned char value or EOF.
+ * @return Non-zero if it is, 0 otherwise.
  */
 static inline int isalnum(int c)
 {
@@ -29,57 +43,90 @@ static inline int isalnum(int c)
 /**
  * @brief Checks if the given character is a whitespace character (space, tab, newline, vertical
  * tab, form feed, carriage return).
+ *
+ * @param[in] c Character, as an unsigned char value or EOF.
+ * @return Non-zero if it is, 0 otherwise.
  */
 static inline int isspace(int c) { return c == ' ' || (c >= '\t' && c <= '\r'); }
 
 /**
  * @brief Checks if the given character is an uppercase letter (A-Z).
+ *
+ * @param[in] c Character, as an unsigned char value or EOF.
+ * @return Non-zero if it is, 0 otherwise.
  */
 static inline int isupper(int c) { return (c >= 'A' && c <= 'Z'); }
 
 /**
  * @brief Checks if the given character is a lowercase letter (a-z).
+ *
+ * @param[in] c Character, as an unsigned char value or EOF.
+ * @return Non-zero if it is, 0 otherwise.
  */
 static inline int islower(int c) { return (c >= 'a' && c <= 'z'); }
 
 /**
  * @brief Checks if the given character is a printable character (including space).
+ *
+ * @param[in] c Character, as an unsigned char value or EOF.
+ * @return Non-zero if it is, 0 otherwise.
  */
 static inline int isprint(int c) { return (c >= 0x20 && c <= 0x7E); }
 
 /**
  * @brief Checks if the given character is a graphical character (printable and not a space).
+ *
+ * @param[in] c Character, as an unsigned char value or EOF.
+ * @return Non-zero if it is, 0 otherwise.
  */
 static inline int isgraph(int c) { return (c > 0x20 && c <= 0x7E); }
 
 /**
  * @brief Checks if the given character is a blank character (space or horizontal tab).
+ *
+ * @param[in] c Character, as an unsigned char value or EOF.
+ * @return Non-zero if it is, 0 otherwise.
  */
 static inline int isblank(int c) { return (c == ' ' || c == '\t'); }
 
 /**
  * @brief Checks if the given character is a control character (non-printable).
+ *
+ * @param[in] c Character, as an unsigned char value or EOF.
+ * @return Non-zero if it is, 0 otherwise.
  */
 static inline int iscntrl(int c) { return (c >= 0 && c < 0x20) || c == 0x7F; }
 
 /**
  * @brief Checks if the given character is a punctuation character (printable but not alphanumeric
  * or space).
+ *
+ * @param[in] c Character, as an unsigned char value or EOF.
+ * @return Non-zero if it is, 0 otherwise.
  */
 static inline int ispunct(int c) { return isprint(c) && !isalnum(c) && c != ' '; }
 
 /**
  * @brief Converts the given character to uppercase if it is a lowercase letter.
+ *
+ * @param[in] c Character, as an unsigned char value or EOF.
+ * @return The converted character, or @p c unchanged.
  */
 static inline int toupper(int c) { return islower(c) ? c - 32 : c; }
 
 /**
  * @brief Converts the given character to lowercase if it is an uppercase letter.
+ *
+ * @param[in] c Character, as an unsigned char value or EOF.
+ * @return The converted character, or @p c unchanged.
  */
 static inline int tolower(int c) { return isupper(c) ? c + 32 : c; }
 
 /**
  * @brief Checks if the given character is an alphabetic character (a-z, A-Z).
+ *
+ * @param[in] c Character, as an unsigned char value or EOF.
+ * @return Non-zero if it is, 0 otherwise.
  */
 static inline int isalpha(int c) { return (islower(c) || isupper(c)); }
 

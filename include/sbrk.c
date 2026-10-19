@@ -1,10 +1,16 @@
+/**
+ * @file
+ * @brief Program break over one demand-paged reservation.
+ */
+
 #include <sbrk.h>
 #include <zuzu/zuzu.h>
 
-#define HEAP_RESERVE                                                                               \
-    (32 * 1024 * 1024) /* VA reservation; demand-paged, costs no RAM until touched */
+/** @brief Size of the heap reservation; demand-paged, so it costs no RAM until touched. */
+#define HEAP_RESERVE (32 * 1024 * 1024)
 
-static Arena heap; /* the single owner of heap VA in this process */
+/** @brief This process's heap. */
+static Arena heap;
 
 void *sbrk(intptr_t incr)
 {

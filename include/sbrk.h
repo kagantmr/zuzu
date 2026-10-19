@@ -1,20 +1,29 @@
+/**
+ * @file
+ * @brief Program break for the heap allocator.
+ */
+
 #ifndef SBRK_H
 #define SBRK_H
 
 #include <types.h>
 
+/** @brief The heap's reservation and current break. */
 typedef struct arena {
-    VirtAddr base;   // heap_base
-    VirtAddr brk;    // heap_brk
-    VirtAddr mapped; // heap_end
+    VirtAddr base;   /**< Start of the reservation. */
+    VirtAddr brk;    /**< Current break. */
+    VirtAddr mapped; /**< End of the reservation. */
 } Arena;
 
 /**
- * @brief Adjusts the program's data segment size by the specified increment.
+ * @brief Moves the program break by @p incr bytes.
  *
- * @param incr The number of bytes to increase (or decrease if negative) the data segment size.
- * @return void* Returns the previous end of the data segment (the old program break), or (void *)-1
- * on error.
+ * The first call reserves 32 MiB of anonymous memory, filled on demand; the
+ * break moves within that reservation only.
+ *
+ * @param[in] incr Bytes to grow by, or a negative number to shrink by.
+ * @return The previous break, or (void *)-1 if the reservation cannot be made or the break would
+ *         leave it.
  */
 void *sbrk(intptr_t incr);
 

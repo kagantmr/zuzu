@@ -1,8 +1,25 @@
+/**
+ * @file
+ * @brief Number and string conversion.
+ */
+
 #include "convert.h"
 #include "stddef.h"
 
+/**
+ * @brief Tells whether a character is a decimal digit.
+ *
+ * @param[in] c Character.
+ * @return Non-zero for '0'-'9'.
+ */
 static inline int is_digit(char c) { return (c >= '0' && c <= '9'); }
 
+/**
+ * @brief Tells whether a character is a hexadecimal digit.
+ *
+ * @param[in] c Character.
+ * @return Non-zero for 0-9, a-f and A-F.
+ */
 static inline int is_hex(char c)
 {
     return ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));

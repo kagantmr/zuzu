@@ -1,3 +1,8 @@
+/**
+ * @file
+ * @brief Socket client: the app side of the netd socket protocol.
+ */
+
 #include <net/socket.h>
 #include <stdlib.h>
 #include <string.h>
@@ -5,34 +10,58 @@
 #include <zuzu/service.h>
 #include <zuzu/zuzu.h>
 
+/** @brief This app's connection to netd. */
 typedef struct {
-    Handle port;     /* /svc/netd */
-    Handle live;     /* port we own; netd watches it to notice our death */
-    Handle doorbell; /* send-only dup of netd's event */
-    Handle event;    /* ours; netd rings bit 0 */
-    uint32_t bit;    /* bit to ring on `doorbell` */
-    uint32_t session;
-    bool attached;
+    Handle port;      /**< /svc/netd. */
+    Handle live;      /**< Port this app owns; netd watches it to notice the app's death. */
+    Handle doorbell;  /**< netd's event, send-only. */
+    Handle event;     /**< This app's event; netd rings bit 0. */
+    uint32_t bit;     /**< Bit to ring on @c doorbell. */
+    uint32_t session; /**< Session id netd assigned. */
+    bool attached;    /**< Whether Attach() has succeeded. */
 } SockClient;
 
+/** @brief One socket, indexed by its socket number. */
 typedef struct {
-    bool used;
-    SockShm *shm;
-    Handle mem;
-    uint32_t id;
-    uint32_t tx_head;
-    uint32_t rx_tail;
+    bool used;        /**< Slot holds an open socket. */
+    SockShm *shm;     /**< Mapped shared memory. */
+    Handle mem;       /**< The shared memory object. */
+    uint32_t id;      /**< netd's id for the socket. */
+    uint32_t tx_head; /**< Private tx write position; published after each write. */
+    uint32_t rx_tail; /**< Private rx read position; published after each read. */
 } SockConn;
 
+/** @brief The netd connection, shared by all sockets. */
 static SockClient g_client;
+/** @brief Socket table; grows on demand. */
 static SockConn *g_conns;
+/** @brief Slots in g_conns. */
 static int g_nconns;
 
+/**
+ * @brief Sends a socket command to netd and waits for its status.
+ *
+ * @param[in]  port    netd's port.
+ * @param[in]  req     Request.
+ * @param[in]  len     Request length.
+ * @param[in]  grant   Handle to grant, or -1.
+ * @param[out] granted Handle netd granted back; may be NULL.
+ * @return netd's status, or the IPC error.
+ */
 static Err SockCall(Handle port, const void *req, uint32_t len, Handle grant, Handle *granted)
 {
     return MsgCallStatus(port, req, len, grant, granted);
 }
 
+/**
+ * @brief Attaches to netd once: hands it a liveness port and this app's event, and takes its
+ * doorbell.
+ *
+ * @return ZUZU_OK, or an error code.
+ * @retval ERR_SYSDOWN   /svc/netd is not registered.
+ * @retval ERR_NOMEM     Out of handles.
+ * @retval ERR_MALFORMED netd did not grant a doorbell.
+ */
 static Err Attach(void)
 {
     if (g_client.attached)
@@ -84,6 +113,12 @@ static Err Attach(void)
     return ZUZU_OK;
 }
 
+/**
+ * @brief Looks up an open socket.
+ *
+ * @param[in] sock Socket number.
+ * @return The socket, or NULL if @p sock is not open.
+ */
 static SockConn *Conn(int sock)
 {
     if (sock < 0 || sock >= g_nconns || !g_conns[sock].used)
@@ -91,6 +126,12 @@ static SockConn *Conn(int sock)
     return &g_conns[sock];
 }
 
+/**
+ * @brief Finds a free socket number, doubling the table when it is full. The slot is not marked
+ * used.
+ *
+ * @return The socket number, or ERR_NOMEM.
+ */
 static int AllocSock(void)
 {
     int sock = 0;
@@ -109,6 +150,12 @@ static int AllocSock(void)
     return sock;
 }
 
+/**
+ * @brief Creates and maps a socket's shared memory.
+ *
+ * @param[in,out] s Socket to fill in.
+ * @return ZUZU_OK, or the error from creating or mapping the memory.
+ */
 static Err MapMem(SockConn *s)
 {
     s->mem = CreateMem(SOCK_MEM_PAGES, 0);
@@ -123,6 +170,11 @@ static Err MapMem(SockConn *s)
     return ZUZU_OK;
 }
 
+/**
+ * @brief Unmaps and closes a socket's shared memory.
+ *
+ * @param[in,out] s Socket.
+ */
 static void UnmapMem(SockConn *s)
 {
     MemUnmap(s->shm);
@@ -130,6 +182,14 @@ static void UnmapMem(SockConn *s)
     s->shm = NULL;
 }
 
+/**
+ * @brief Sends a command that grants netd a mappable, writable copy of a socket's memory.
+ *
+ * @param[in] req Request.
+ * @param[in] len Request length.
+ * @param[in] s   Socket whose memory to grant.
+ * @return netd's status, or the IPC error.
+ */
 static Err CallWithMem(const void *req, uint32_t len, const SockConn *s)
 {
     Handle page;
@@ -292,7 +352,9 @@ Err SockListen(int sock, uint16_t port, int backlog)
     return SockCall(g_client.port, &req, sizeof(req), -1, NULL);
 }
 
+/** @brief Memory prepared for the next accepted connection, kept across SockAccept() retries. */
 static SockConn g_spare;
+/** @brief Whether g_spare holds mapped memory. */
 static bool g_spare_ready;
 
 int SockAccept(int sock, Duration timeout)

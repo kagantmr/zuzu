@@ -31,6 +31,7 @@ typedef struct {
  * @param[in]  size Size of @p buf in bytes.
  */
 void ArenaInit(Arena *a, void *buf, size_t size);
+
 /**
  * @brief Takes @p size bytes from the arena, with no alignment.
  *
@@ -39,6 +40,7 @@ void ArenaInit(Arena *a, void *buf, size_t size);
  * @return The memory, or NULL if fewer than @p size bytes are left.
  */
 void *ArenaAlloc(Arena *a, size_t size);
+
 /**
  * @brief Takes @p size bytes from the arena, aligned to @p align.
  *
@@ -50,12 +52,14 @@ void *ArenaAlloc(Arena *a, size_t size);
  * @return The memory, or NULL if padding plus @p size does not fit.
  */
 void *ArenaAllocAligned(Arena *a, size_t size, size_t align);
+
 /**
  * @brief Releases every allocation at once; the buffer is kept for reuse.
  *
  * @param[in,out] a Arena to reset.
  */
 void ArenaReset(Arena *a);
+
 /**
  * @brief Forgets the buffer and zeroes the arena. The buffer itself is not freed.
  *

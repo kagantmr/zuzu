@@ -2,7 +2,8 @@
 #define ZUZU_FSD_CLIENT_H
 
 /**
- * fsd_client.h - minimal client for the fsd protocol.
+ * @file
+ * @brief Minimal client for the fsd protocol.
  *
  * fsd requires the client to own the shared buffer: create it and grant it
  * to fsd with FSD_ATTACH, which returns a badged port for the session. This
@@ -18,24 +19,25 @@
 extern "C" {
 #endif
 
+/** @brief A session with fsd. */
 typedef struct {
-    Handle port;   /* badged handle to fsd's port (the session)    */
-    Handle shm;    /* our shm handle                               */
-    uint8_t *buf;  /* mapped base of the shared buffer             */
-    uint32_t size; /* buffer size (page-aligned)                   */
-    Handle live;   /* port we own; fsd watches it to notice our death */
-    bool ready;
+    Handle port;   /**< Badged handle to fsd's port: the session. */
+    Handle shm;    /**< The shared buffer's memory object. */
+    uint8_t *buf;  /**< Mapped shared buffer. */
+    uint32_t size; /**< Buffer size, page-aligned. */
+    Handle live;   /**< Port this client owns; fsd watches it to notice the client's death. */
+    bool ready;    /**< Whether the session is attached. */
 } FsdConn;
 
 /**
  * @brief Attaches a client's shared buffer to an already-resolved fsd port.
  *
- * @param c The connection state to initialize.
- * @param port Unmarked handle to fsd's port; the caller keeps ownership.
- * @param pid Unused; kept for source compatibility.
- * @param want_size Requested shared buffer size; clamped to [FSD_SHM_MIN, FSD_SHM_MAX]
+ * @param[in,out] c The connection state to initialize.
+ * @param[in] port Unmarked handle to fsd's port; the caller keeps ownership.
+ * @param[in] pid Unused; kept for source compatibility.
+ * @param[in] want_size Requested shared buffer size; clamped to [FSD_SHM_MIN, FSD_SHM_MAX]
  * and page-aligned.
- * @return Err ZUZU_OK on success, or a negative error code on failure.
+ * @return ZUZU_OK, or an error code.
  */
 Err FsdAttach(FsdConn *c, Handle port, Spid pid, uint32_t want_size);
 
@@ -43,130 +45,130 @@ Err FsdAttach(FsdConn *c, Handle port, Spid pid, uint32_t want_size);
  * @brief Establishes a session by resolving fsd over the nameserver, then attaching.
  * For ordinary clients.
  *
- * @param c The connection state to initialize.
- * @param want_size Requested shared buffer size; see FsdAttach().
- * @return Err ZUZU_OK on success, or a negative error code on failure.
+ * @param[in,out] c The connection state to initialize.
+ * @param[in] want_size Requested shared buffer size; see FsdAttach().
+ * @return ZUZU_OK, or an error code.
  */
 Err FsdConnect(FsdConn *c, uint32_t want_size);
 
 /**
  * @brief Ends the session: fsd closes the fds it owns and frees the session.
  *
- * @param c An attached connection.
- * @return Err ZUZU_OK on success, or a negative error code on failure.
+ * @param[in,out] c An attached connection.
+ * @return ZUZU_OK, or an error code.
  */
 Err FsdDetach(FsdConn *c);
 
 /**
  * @brief Opens a file by path.
  *
- * @param c An attached connection.
- * @param path Path to open.
- * @param mode FSD_MODE_* flags.
- * @param fd Out-param set to the opened file descriptor on success.
- * @return Err ZUZU_OK on success, or a negative error code on failure.
+ * @param[in,out] c An attached connection.
+ * @param[in] path Path to open.
+ * @param[in] mode FSD_MODE_* flags.
+ * @param[out] fd Receives the opened file descriptor on success.
+ * @return ZUZU_OK, or an error code.
  */
 Err FsdOpen(FsdConn *c, const char *path, uint32_t mode, uint32_t *fd);
 
 /**
  * @brief Closes a file descriptor previously returned by FsdOpen().
  *
- * @param c An attached connection.
- * @param fd The file descriptor to close.
- * @return Err ZUZU_OK on success, or a negative error code on failure.
+ * @param[in,out] c An attached connection.
+ * @param[in] fd The file descriptor to close.
+ * @return ZUZU_OK, or an error code.
  */
 Err FsdClose(FsdConn *c, uint32_t fd);
 
 /**
- * @brief Reads up to `count` bytes from `fd` into `dst`.
+ * @brief Reads up to @p count bytes from @p fd into @p dst.
  *
- * @param c An attached connection.
- * @param fd The file descriptor to read from.
- * @param dst Destination buffer; may be NULL to discard the data.
- * @param count Maximum number of bytes to read.
- * @param got Out-param set to the number of bytes actually read.
- * @return Err ZUZU_OK on success, or a negative error code on failure.
+ * @param[in,out] c An attached connection.
+ * @param[in] fd The file descriptor to read from.
+ * @param[out] dst Destination buffer; may be NULL to discard the data.
+ * @param[in] count Maximum number of bytes to read.
+ * @param[out] got Receives the number of bytes actually read.
+ * @return ZUZU_OK, or an error code.
  */
 Err FsdRead(FsdConn *c, uint32_t fd, void *dst, uint32_t count, uint32_t *got);
 
 /**
- * @brief Reads up to `count` bytes from `fd` straight into a shm object, at byte offset
- * `obj_off`, with no copy through the session buffer.
+ * @brief Reads up to @p count bytes from @p fd straight into a shm object, at byte offset
+ * @p obj_off, with no copy through the session buffer.
  *
- * @param c An attached connection.
- * @param fd The file descriptor to read from.
- * @param obj A shm object handle you own; fsd gets a PERM_MAP duplicate for the call.
- * @param obj_off Byte offset into the object where the data goes.
- * @param count Maximum number of bytes to read; obj_off + count must fit in the object.
- * @param got Out-param set to the number of bytes actually read.
- * @return Err ZUZU_OK on success, or a negative error code on failure.
+ * @param[in,out] c An attached connection.
+ * @param[in] fd The file descriptor to read from.
+ * @param[in] obj A memory object you own; fsd gets a PERM_MAP | PERM_WRITE copy for the call.
+ * @param[in] obj_off Byte offset into the object where the data goes.
+ * @param[in] count Maximum number of bytes to read; obj_off + count must fit in the object.
+ * @param[out] got Receives the number of bytes actually read.
+ * @return ZUZU_OK, or an error code.
  */
 Err FsdReadObj(FsdConn *c, uint32_t fd, Handle obj, uint32_t obj_off, uint32_t count,
                uint32_t *got);
 
 /**
- * @brief Writes up to `count` bytes from `src` to `fd`.
+ * @brief Writes up to @p count bytes from @p src to @p fd.
  *
- * @param c An attached connection.
- * @param fd The file descriptor to write to.
- * @param src Source buffer.
- * @param count Maximum number of bytes to write.
- * @param put Out-param set to the number of bytes actually written.
- * @return Err ZUZU_OK on success, or a negative error code on failure.
+ * @param[in,out] c An attached connection.
+ * @param[in] fd The file descriptor to write to.
+ * @param[in] src Source buffer.
+ * @param[in] count Maximum number of bytes to write.
+ * @param[out] put Receives the number of bytes actually written.
+ * @return ZUZU_OK, or an error code.
  */
 Err FsdWrite(FsdConn *c, uint32_t fd, const void *src, uint32_t count, uint32_t *put);
 
 /**
- * @brief Repositions the file offset of `fd`.
+ * @brief Repositions the file offset of @p fd.
  *
- * @param c An attached connection.
- * @param fd The file descriptor.
- * @param offset Offset relative to `whence`.
- * @param whence An FsdWhence value.
- * @param newpos Out-param set to the new absolute position; may be NULL.
- * @return Err ZUZU_OK on success, or a negative error code on failure.
+ * @param[in,out] c An attached connection.
+ * @param[in] fd The file descriptor.
+ * @param[in] offset Offset relative to @p whence.
+ * @param[in] whence An FsdWhence value.
+ * @param[out] newpos Receives the new absolute position; may be NULL.
+ * @return ZUZU_OK, or an error code.
  */
 Err FsdSeek(FsdConn *c, uint32_t fd, int64_t offset, uint32_t whence, int64_t *newpos);
 
 /**
  * @brief Removes a file or empty directory.
  *
- * @param c An attached connection.
- * @param path Path to remove.
- * @return Err ZUZU_OK on success, or a negative error code on failure.
+ * @param[in,out] c An attached connection.
+ * @param[in] path Path to remove.
+ * @return ZUZU_OK, or an error code.
  */
 Err FsdUnlink(FsdConn *c, const char *path);
 
 /**
  * @brief Stats a file by path.
  *
- * @param c An attached connection.
- * @param path Path to stat.
- * @param st Out-param filled with the file's stat info.
- * @return Err ZUZU_OK on success, or a negative error code on failure.
+ * @param[in,out] c An attached connection.
+ * @param[in] path Path to stat.
+ * @param[out] st Receives the file's stat info.
+ * @return ZUZU_OK, or an error code.
  */
 Err FsdGetStat(FsdConn *c, const char *path, FsdStat *st);
 
 /**
  * @brief Stats an open file by descriptor.
  *
- * @param c An attached connection.
- * @param fd The file descriptor.
- * @param st Out-param filled with the file's stat info.
- * @return Err ZUZU_OK on success, or a negative error code on failure.
+ * @param[in,out] c An attached connection.
+ * @param[in] fd The file descriptor.
+ * @param[out] st Receives the file's stat info.
+ * @return ZUZU_OK, or an error code.
  */
 Err FsdFstat(FsdConn *c, uint32_t fd, FsdStat *st);
 
 /**
- * @brief Reads directory entries starting at `start`.
+ * @brief Reads directory entries starting at @p start.
  *
- * @param c An attached connection.
- * @param path Directory path.
- * @param start Index of the first entry to return.
- * @param out Destination array of entries.
- * @param max Capacity of `out`, in entries.
- * @param count Out-param set to the number of entries actually returned.
- * @return Err ZUZU_OK on success, or a negative error code on failure.
+ * @param[in,out] c An attached connection.
+ * @param[in] path Directory path.
+ * @param[in] start Index of the first entry to return.
+ * @param[out] out Destination array of entries.
+ * @param[in] max Capacity of @p out, in entries.
+ * @param[out] count Receives the number of entries actually returned.
+ * @return ZUZU_OK, or an error code.
  */
 Err FsdReadDir(FsdConn *c, const char *path, uint32_t start, FsdDirEntry *out, uint32_t max,
                uint32_t *count);
@@ -175,12 +177,13 @@ Err FsdReadDir(FsdConn *c, const char *path, uint32_t start, FsdDirEntry *out, u
  * @brief Reads a whole regular file into a fresh shm object, e.g. a program image for
  * SpawnProcessObj().
  *
- * @param c An attached connection.
- * @param path Path of the file to read.
- * @param obj Out-param set to the new object's handle on success; the caller closes it.
- * @param len Out-param set to the file size in bytes on success.
- * @return Err ZUZU_OK on success, ERR_BADARG if path is not a non-empty regular file,
- * or another negative error code on failure.
+ * @param[in,out] c An attached connection.
+ * @param[in] path Path of the file to read.
+ * @param[out] obj Receives the new object's handle on success; the caller closes it.
+ * @param[out] len Receives the file size in bytes on success.
+ * @return ZUZU_OK, or an error code.
+ * @retval ERR_BADARG @p path is not a non-empty regular file.
+ * @retval ERR_IO     The file ended before its stated size.
  */
 Err FsdReadImage(FsdConn *c, const char *path, Handle *obj, size_t *len);
 

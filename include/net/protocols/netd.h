@@ -1,3 +1,8 @@
+/**
+ * @file
+ * @brief netd's service protocol: driver handshake and network interface queries.
+ */
+
 #ifndef NETD_PROTOCOL_H
 #define NETD_PROTOCOL_H
 
@@ -7,60 +12,63 @@ extern "C" {
 
 #include <stdint.h>
 
+/** @brief One-byte opcodes on netd's service port. */
 typedef enum {
-    /* Interface management */
-    NETD_GET_NETIF = 1,
-    NETD_DRVHANDSHAKE_INIT, /* Used by NIC driver to hand the doorbell over to netd */
-    NETD_DRVHANDSHAKE_STAGE2, /* hands over TX shm */
-    NETD_DRVHANDSHAKE_STAGE3, /* hands over RX shm */
-    NETD_DRVNOTIFY,
-    NETD_DRVWATCH,
+    NETD_GET_NETIF = 1,       /**< Read the interface configuration (NetdNetif). */
+    NETD_DRVHANDSHAKE_INIT,   /**< Driver begins: grants its doorbell and sends its MAC. */
+    NETD_DRVHANDSHAKE_STAGE2, /**< Grants the tx ring's memory. */
+    NETD_DRVHANDSHAKE_STAGE3, /**< Grants the rx ring's memory; the reply holds the name. */
+    NETD_DRVNOTIFY,           /**< Reserved; unused. */
+    NETD_DRVWATCH,            /**< Reserved; unused. */
 
-    /* UDP operations */
-    SOCKET_UDP,
-    SOCKET_UDP_RECV,
-    SOCKET_UDP_SENDTO,
+    SOCKET_UDP,        /**< Reserved; sockets use the SOCK_* commands in net/socket.h. */
+    SOCKET_UDP_RECV,   /**< Reserved. */
+    SOCKET_UDP_SENDTO, /**< Reserved. */
 
-    /* TCP operations */
-    SOCKET_TCP,
-    SOCKET_TCP_RECV,
-    SOCKET_TCP_SEND,
-    SOCKET_TCP_ACCEPT,
+    SOCKET_TCP,        /**< Reserved. */
+    SOCKET_TCP_RECV,   /**< Reserved. */
+    SOCKET_TCP_SEND,   /**< Reserved. */
+    SOCKET_TCP_ACCEPT, /**< Reserved. */
 
-    /* Connection & Lifecycle Management */
-    SOCKET_BIND,
-    SOCKET_CONNECT,
-    SOCKET_LISTEN,
-    SOCKET_CLOSE,
+    SOCKET_BIND,    /**< Reserved. */
+    SOCKET_CONNECT, /**< Reserved. */
+    SOCKET_LISTEN,  /**< Reserved. */
+    SOCKET_CLOSE,   /**< Reserved. */
 
-    /* lower-level Sockets */
-    SOCKET_IP,
-    SOCKET_FRAME,
+    SOCKET_IP,    /**< Reserved: raw IP sockets. */
+    SOCKET_FRAME, /**< Reserved: raw Ethernet sockets. */
 
-    NETD_OPCODE_COUNT
+    NETD_OPCODE_COUNT /**< Number of opcodes. */
 } NetdOpcode;
 
+/** @brief Request carrying a bare NetdOpcode; currently unused. */
 typedef struct {
-    NetdOpcode op;
-    /* todo: arguments for socket open-close */
+    NetdOpcode op; /**< The opcode. */
 } NetdHandshakeData;
 
+/**
+ * @brief Expands an IPv4 address in network byte order into four printf arguments, for
+ * "%u.%u.%u.%u".
+ */
 #define IP4(x)                                                                                     \
     (unsigned)((x) & 0xff), (unsigned)(((x) >> 8) & 0xff), (unsigned)(((x) >> 16) & 0xff),         \
         (unsigned)(((x) >> 24) & 0xff)
 
+/** @brief IPv4 address in network byte order. */
 typedef uint32_t Ipv4Addr;
+/** @brief TCP or UDP port. */
 typedef uint16_t NetPort;
+/** @brief Ethernet MAC address. */
 typedef uint8_t MacAddr[6];
 
-/* One network interface's L2/L3 config. */
+/** @brief One network interface's configuration, as NETD_GET_NETIF returns it. */
 typedef struct {
-    Ipv4Addr ip;
-    Ipv4Addr netmask;
-    Ipv4Addr gateway;
-    Ipv4Addr dns;
-    MacAddr mac;
-    char name[8];
+    Ipv4Addr ip;      /**< Interface address. */
+    Ipv4Addr netmask; /**< Subnet mask. */
+    Ipv4Addr gateway; /**< Default gateway. */
+    Ipv4Addr dns;     /**< DNS server. */
+    MacAddr mac;      /**< Hardware address. */
+    char name[8];     /**< Interface name, NUL-terminated. */
 } NetdNetif;
 
 

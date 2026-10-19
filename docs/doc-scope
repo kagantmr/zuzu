@@ -6,8 +6,4 @@
 # Goal: kernel/ core/ klib/ arch/ include/zuzu/ include/sync/ include/types.h
 #       include/svc_nums.h
 
-include/types.h
-include/svc_nums.h
-include/zuzu/err.h
-include/zuzu/err.c
-include/zuzu/zuzu.h
+include
