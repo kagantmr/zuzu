@@ -1,7 +1,8 @@
 # Headers published to the zuzu-docs Reference (make docs-site, docs.yml).
 # One path or glob per line. zuzu.h becomes the syscall pages, sync/*.h the
 # sync primitives, types.h/err.h/syspage.h their own pages, and every other
-# header a page under Reference > Libraries.
+# header a page under Reference > Libraries; arch/ headers go under
+# Internals > Arch layer.
 include/zuzu/zuzu.h
 include/zuzu/err.h
 include/zuzu/syspage.h
@@ -9,3 +10,10 @@ include/svc_nums.h
 include/types.h
 include/sync/*.h
 include/util/*.h
+include/net/*.h
+include/net/protocols/*.h
+include/fs/*.h
+include/fs/protocols/*.h
+include/dev/*.h
+include/dev/protocols/*.h
+include/*.h
