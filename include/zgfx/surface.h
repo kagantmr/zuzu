@@ -86,5 +86,9 @@ void ZgfxSetClip(Surface *s, Rect r);
 void ZgfxPutPixel(Surface *s, int x, int y, Color c);
 Color ZgfxGetPixel(const Surface *s, int x, int y);
 void ZgfxFillRect(Surface *s, Rect r, Color c);
+void ZgfxHLine(Surface *s, int x, int y, int len, Color c);
+void ZgfxVLine(Surface *s, int x, int y, int len, Color c);
+void ZgfxDrawRect(Surface *s, Rect r, Color c);
+void ZgfxDrawLine(Surface *s, int x0, int y0, int x1, int y1, Color c);
 
 #endif /* ZGFX_SURFACE_H */

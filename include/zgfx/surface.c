@@ -106,3 +106,52 @@ void ZgfxFillRect(Surface *s, Rect r, Color c)
         break;
     }
 }
+
+void ZgfxHLine(Surface *s, int x, int y, int len, Color c)
+{
+    ZgfxFillRect(s, (Rect){x, y, len, 1}, c);
+}
+
+void ZgfxVLine(Surface *s, int x, int y, int len, Color c)
+{
+    ZgfxFillRect(s, (Rect){x, y, 1, len}, c);
+}
+
+void ZgfxDrawRect(Surface *s, Rect r, Color c)
+{
+    if (ZgfxRectIsEmpty(r))
+        return;
+
+    ZgfxHLine(s, r.x, r.y, r.w, c);
+    if (r.h > 1)
+        ZgfxHLine(s, r.x, r.y + r.h - 1, r.w, c);
+    if (r.h > 2) {
+        ZgfxVLine(s, r.x, r.y + 1, r.h - 2, c);
+        if (r.w > 1)
+            ZgfxVLine(s, r.x + r.w - 1, r.y + 1, r.h - 2, c);
+    }
+}
+
+void ZgfxDrawLine(Surface *s, int x0, int y0, int x1, int y1, Color c)
+{
+    int dx = x1 > x0 ? x1 - x0 : x0 - x1;
+    int dy = y1 > y0 ? y0 - y1 : y1 - y0;
+    int sx = x0 < x1 ? 1 : -1;
+    int sy = y0 < y1 ? 1 : -1;
+    int err = dx + dy;
+
+    for (;;) {
+        ZgfxPutPixel(s, x0, y0, c);
+        if (x0 == x1 && y0 == y1)
+            break;
+        int e2 = 2 * err;
+        if (e2 >= dy) {
+            err += dy;
+            x0 += sx;
+        }
+        if (e2 <= dx) {
+            err += dx;
+            y0 += sy;
+        }
+    }
+}
