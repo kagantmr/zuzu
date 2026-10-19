@@ -1,3 +1,8 @@
+/**
+ * @file fdt_wrappers.c
+ * @brief Implementation of the device tree wrappers over libfdt.
+ */
+
 #include "fdt_wrappers.h"
 #include "core/log.h"
 #include <libfdt.h>
@@ -6,11 +11,21 @@
 #include <stdint.h>
 #include <string.h>
 
+/** @brief The device tree blob in use, or NULL before FdtInit(). */
 static const void *g_fdt;
+/** @brief Whether g_fdt points at a blob whose header was checked. */
 static bool g_fdt_ready;
+/** @brief Backing store for the string FdtModel() returns. */
 static char s_model[64];
+/** @brief Backing store for the string FdtCpuCompat() returns. */
 static char s_cpu[64];
 
+/**
+ * @brief Read a big-endian 32-bit word from possibly unaligned memory.
+ *
+ * @param[in] p Pointer to the four bytes.
+ * @return The value in host order.
+ */
 static inline uint32_t read_be32(const void *p)
 {
     const uint8_t *b = (const uint8_t *)p;
@@ -34,6 +49,16 @@ bool FdtInit(const void *base)
     return true;
 }
 
+/**
+ * @brief Take the next component of a slash-separated path.
+ *
+ * @param[in] s The path.
+ * @param[in] pos Offset to start from; leading slashes are skipped.
+ * @param[out] seg Receives a pointer to the start of the component inside @p s.
+ * @param[out] seg_len Receives the component's length.
+ * @param[out] next_pos Receives the offset just past the component.
+ * @return true if a component was found, false at the end of the path.
+ */
 static inline bool path_peek_segment(const char *s, int pos, const char **seg, int *seg_len,
                                      int *next_pos)
 {
@@ -55,6 +80,16 @@ static inline bool path_peek_segment(const char *s, int pos, const char **seg, i
     return true;
 }
 
+/**
+ * @brief Compare a path component with a node name, letting a name without a unit address match.
+ *
+ * "uart" matches "uart@9000000" but "uart@1" does not match "uart@2".
+ *
+ * @param[in] seg The path component, not NUL-terminated.
+ * @param[in] seg_len The component's length.
+ * @param[in] node_name The node's full name.
+ * @return true if they match.
+ */
 static inline bool segment_matches_node(const char *seg, int seg_len, const char *node_name)
 {
     if (!seg || !node_name || seg_len <= 0)
@@ -85,6 +120,12 @@ static inline bool segment_matches_node(const char *seg, int seg_len, const char
     return at_len >= 0 && seg_len == at_len && memcmp(seg, node_name, (size_t)seg_len) == 0;
 }
 
+/**
+ * @brief Find a node by path, accepting components without a unit address.
+ *
+ * @param[in] path Absolute path of the node.
+ * @return The node's offset in the blob, or a negative libfdt error.
+ */
 static int FdtPathOffset(const char *path)
 {
     if (!g_fdt_ready || !path || path[0] != '/')
@@ -126,6 +167,15 @@ static int FdtPathOffset(const char *path)
     return parent;
 }
 
+/**
+ * @brief Look up a property of a node.
+ *
+ * @param[in] path Absolute path of the node.
+ * @param[in] prop Name of the property.
+ * @param[out] out_value Receives a pointer into the blob.
+ * @param[out] out_len Receives the property's length in bytes.
+ * @return true if the node and property exist.
+ */
 static bool FdtGetProperty(const char *path, const char *prop, const void **out_value,
                            uint32_t *out_len)
 {
@@ -146,6 +196,14 @@ static bool FdtGetProperty(const char *path, const char *prop, const void **out_
     return true;
 }
 
+/**
+ * @brief Read a property's first 32-bit cell.
+ *
+ * @param[in] path Absolute path of the node.
+ * @param[in] prop Name of the property.
+ * @param[out] out Receives the value.
+ * @return true if the property exists and is at least four bytes long.
+ */
 static bool FdtGetU32(const char *path, const char *prop, uint32_t *out)
 {
     if (!path || !prop || !out || !g_fdt_ready)
@@ -160,6 +218,14 @@ static bool FdtGetU32(const char *path, const char *prop, uint32_t *out)
     return true;
 }
 
+/**
+ * @brief Compute the path of a node's parent.
+ *
+ * @param[in] path Absolute path of the node.
+ * @param[out] parent Receives the parent's path; "/" for a child of the root.
+ * @param[in] parent_cap Size of @p parent in bytes.
+ * @return false for the root itself or if @p path does not fit.
+ */
 static bool get_parent_path(const char *path, char *parent, size_t parent_cap)
 {
     if (!path || !parent || parent_cap == 0)
@@ -250,6 +316,14 @@ bool FdtGetReservedMem(uint32_t index, uint64_t *out_addr, uint64_t *out_size)
     return fdt_get_mem_rsv(g_fdt, (int)index, out_addr, out_size) == 0;
 }
 
+/**
+ * @brief Read a one- or two-cell big-endian number.
+ *
+ * @param[in] val Pointer to the property value.
+ * @param[in] len Length of the value, which must be 4 or 8.
+ * @param[out] out Receives the number.
+ * @return true if @p len is 4 or 8.
+ */
 static bool read_be_cells(const void *val, uint32_t len, uint64_t *out)
 {
     if (len == 4) {
@@ -286,6 +360,15 @@ bool FdtGetInitrd(uint64_t *out_start, uint64_t *out_end)
     return true;
 }
 
+/**
+ * @brief Copy a string property, truncating to the buffer.
+ *
+ * @param[in] path Absolute path of the node.
+ * @param[in] prop Name of the property.
+ * @param[out] out Receives the NUL-terminated string.
+ * @param[in] out_cap Size of @p out in bytes.
+ * @return true if the property exists and holds a terminated string.
+ */
 static bool FdtGetString(const char *path, const char *prop, char *out, size_t out_cap)
 {
     if (!path || !prop || !out || out_cap == 0 || !g_fdt_ready)
@@ -313,6 +396,17 @@ static bool FdtGetString(const char *path, const char *prop, char *out, size_t o
     return true;
 }
 
+/**
+ * @brief Translate an address through one node's @c ranges property.
+ *
+ * A node with no @c ranges, or an empty one, passes the address through unchanged, as does an
+ * address no range covers.
+ *
+ * @param[in] node_path Path of the node whose ranges apply.
+ * @param[in] child_addr The address in the node's own address space.
+ * @param[out] out_parent_addr Receives the address in the parent's space.
+ * @return false if the cell sizes are unsupported or @c ranges is malformed.
+ */
 static bool apply_ranges(const char *node_path, uint64_t child_addr, uint64_t *out_parent_addr)
 {
     if (!node_path || !out_parent_addr)
@@ -381,6 +475,14 @@ static bool apply_ranges(const char *node_path, uint64_t child_addr, uint64_t *o
     return true;
 }
 
+/**
+ * @brief Translate a node's address up to the root by applying each ancestor's @c ranges.
+ *
+ * @param[in] node_path Path of the node the address belongs to.
+ * @param[in] raw_addr The address as written in the node.
+ * @param[out] out_phys Receives the translated address.
+ * @return true on success.
+ */
 static bool FdtTranslateAddress(const char *node_path, uint64_t raw_addr, uint64_t *out_phys)
 {
     if (!node_path || !out_phys || !g_fdt_ready)
@@ -433,6 +535,15 @@ bool FdtGetRegPa(const char *path, int index, uint64_t *out_addr, uint64_t *out_
     return true;
 }
 
+/**
+ * @brief Resolve a single-cell interrupt through an ancestor's @c interrupt-map.
+ *
+ * @param[in] path Path of the node.
+ * @param[in] child_irq The interrupt number as written in the node.
+ * @param[out] out_irq_num Receives the GIC interrupt ID.
+ * @param[out] out_flags Receives the interrupt flags.
+ * @return true if a map entry matched.
+ */
 static bool FdtResolveIrqViaMap(const char *path, uint32_t child_irq, uint32_t *out_irq_num,
                                 uint32_t *out_flags)
 {
@@ -475,6 +586,19 @@ static bool FdtResolveIrqViaMap(const char *path, uint32_t child_irq, uint32_t *
     return false;
 }
 
+/**
+ * @brief Read one interrupt of a node as a GIC interrupt ID.
+ *
+ * Three-cell specifiers are decoded directly, with shared peripheral numbers offset by 32 and
+ * private ones by 16. A single-cell specifier goes through FdtResolveIrqArch() and then the
+ * interrupt map.
+ *
+ * @param[in] path Path of the node.
+ * @param[in] index Which interrupt to read, from 0.
+ * @param[out] out_irq_num Receives the GIC interrupt ID.
+ * @param[out] out_flags Receives the interrupt flags.
+ * @return true on success.
+ */
 static bool FdtGetIrq(const char *path, int index, uint32_t *out_irq_num, uint32_t *out_flags)
 {
     if (!path || !out_irq_num || !out_flags || index < 0)

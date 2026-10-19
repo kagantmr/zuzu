@@ -1,3 +1,8 @@
+/**
+ * @file kstack.c
+ * @brief Implementation of the kernel stack allocator.
+ */
+
 #include "kstack.h"
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/mm/vmm/vmm.h"
@@ -8,8 +13,12 @@
 #include <bitmap.h>
 #include <types.h>
 
+/** @brief One bit per slot, set while the slot is in use. */
 static uint32_t bitmap[BITMAP_WORDS(MAX_KSTACKS)];
+
+/** @brief The frame backing each slot's stack, or 0 while free. */
 static PhysAddr slot_pa[MAX_KSTACKS];
+
 
 VirtAddr KStackAlloc(void)
 {

@@ -1,3 +1,8 @@
+/**
+ * @file svc.c
+ * @brief Generic svc utilities implementation.
+ */
+
 #include "svc.h"
 
 #include "kernel/space/space.h"

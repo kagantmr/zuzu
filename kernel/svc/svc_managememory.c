@@ -1,3 +1,8 @@
+/**
+ * @file svc_managememory.c
+ * @brief Implementation of the ManageMemory() svc.
+ */
+
 #include "core/ensure.h"
 #include "kernel/mm/mem_object.h"
 #include "kernel/mm/vmm/vmm.h"

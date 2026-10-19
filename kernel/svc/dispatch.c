@@ -1,3 +1,8 @@
+/**
+ * @file dispatch.c
+ * @brief Service call dispatcher implementation.
+ */
+
 #include "core/ensure.h"
 #include "core/panic.h"
 #include "kernel/bench.h"
@@ -6,9 +11,17 @@
 #include "svc_nums.h"
 #include <compiler.h>
 
+/**
+ * @brief Represents a svc entry point.
+ */
 typedef void (*SvcEntry)(CpuState *);
 
 #ifdef CONFIG_ZUZU_BENCH
+/**
+ * @brief Null syscall to benchmark.
+ * 
+ * @param[in] frame The caller's CPU frame.
+ */
 static void SvcBenchControl(CpuState *frame)
 {
     switch ((BenchVerb)(*ArchGetFromFrame(frame, 0))) {
@@ -26,6 +39,9 @@ static void SvcBenchControl(CpuState *frame)
 }
 #endif
 
+/**
+ * @brief Table of svc entry points.
+ */
 static SvcEntry svc_table[SVC_TOTAL_COUNT] = {
     [SVC_QUIT] = SvcQuit,
     [SVC_YIELD] = SvcYield,
@@ -53,8 +69,14 @@ static SvcEntry svc_table[SVC_TOTAL_COUNT] = {
 #ifdef CONFIG_ZUZU_BENCH
 #define SVC_BENCH_VERBS 16u
 
+/**
+ * @brief Table of benchmark verbs
+ */
 static BenchStat svc_bench[SVC_TOTAL_COUNT][SVC_BENCH_VERBS];
 
+/**
+ * @brief Table of benchmark names.
+ */
 static const char *const svc_bench_names[SVC_TOTAL_COUNT][SVC_BENCH_VERBS] = {
     [SVC_CREATE] = {[OBJECT_TASK] = "create.task",
                     [OBJECT_SPACE] = "create.space",
@@ -90,6 +112,12 @@ static const char *const svc_bench_names[SVC_TOTAL_COUNT][SVC_BENCH_VERBS] = {
     [SVC_HOLD] = {[0] = "hold"}
 };
 
+/**
+ * @brief Get the benchmark slot to fill.
+ * 
+ * @param[in] svc_num The svc number to look up.
+ * @param[in] frame The frame to fill.
+ */
 static BenchStat *SvcBenchSlot(Svc svc_num, CpuState *frame)
 {
     uint32_t verb = 0;

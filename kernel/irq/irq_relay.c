@@ -1,12 +1,26 @@
+/**
+ * @file irq_relay.c
+ * @brief Implementation of the interrupt relay.
+ */
+
 #include "irq_relay.h"
 #include "kernel/sched/sched.h"
 #include <arch/irq.h>
 #include <compiler.h>
 
+/** @brief Owner and binding of every interrupt line, indexed by line. */
 static IrqOwner irq_owners[MAX_IRQS];
 
 const IrqOwner *GetIrqOwnersList(void) { return irq_owners; }
 
+/**
+ * @brief Interrupt handler for every owned line: mask the line and signal the bound event.
+ *
+ * If no live event is bound the interrupt is remembered as pending and delivered on the next
+ * bind. A dead event is dropped.
+ *
+ * @param[in] ctx The interrupt line, passed as a pointer.
+ */
 static void __hot RelayIrqHandler(void *ctx)
 {
     Irq irq_num = (Irq)(VirtAddr)ctx;

@@ -1,3 +1,8 @@
+/**
+ * @file svc_managehandle.c
+ * @brief Implementation of the ManageHandle() svc.
+ */
+
 #include "core/ensure.h"
 #include "kernel/irq/irq_relay.h"
 #include "kernel/mm/mem_object.h"
@@ -6,6 +11,19 @@
 #include "svc.h"
 #include <arch/regs.h>
 
+/**
+ * @brief Do DMA-related queries.
+ * 
+ * @param[in] entry The DMA memory to query.
+ * @param[in] what What aspect is being queried?
+ * @param[in] arg Extra argument.
+ * @param[out] value The register to write the result to.
+ * 
+ * @return Err
+ * @retval ERR_BADTYPE This is not a DMA memory object.
+ * @retval ERR_NOPERM  You do not have the rights to query this object.
+ * @retval ERR_NOENT   This device does not have DMA objects.
+ */
 static Err QueryDma(const HandleTableEntry *entry, QueryWhat what, uint32_t arg, Register *value)
 {
     if (HANDLE_MEM != entry->type || !entry->mem || entry->mem->kind != MEMKIND_DEVICE)

@@ -1,3 +1,8 @@
+/**
+ * @file svc_waiton.c
+ * @brief Implementation of the WaitOn() svc.
+ */
+
 #include "kernel/ipc/msg.h"
 #include "kernel/space/space.h"
 #include "svc.h"

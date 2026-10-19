@@ -1,3 +1,8 @@
+/**
+ * @file handle.c
+ * @brief Handle utilities implementation
+ */
+
 #include "handle.h"
 #include "core/ensure.h"
 #include "kernel/ipc/event.h"
@@ -51,6 +56,16 @@ Err HandleCopyInto(HandleTable *dst_table, HandleTableEntry *src, HandlePerms pe
     return ZUZU_OK;
 }
 
+/**
+ * @brief Check if the handle table holds a memory object @p mem, except @p except.
+ * 
+ * @param[in] t The table to check.
+ * @param[in] mem The memory object to match.
+ * @param[in] except The exception handle entry.
+ * 
+ * @return bool
+ * @retval true If the conditions are met.
+ */
 static bool HandleTableHoldsMem(HandleTable *t, const MemObject *mem,
                                 const HandleTableEntry *except)
 {

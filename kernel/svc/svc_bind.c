@@ -1,3 +1,8 @@
+/**
+ * @file svc_bind.c
+ * @brief Implementation of the Bind() svc.
+ */
+
 #include "core/ensure.h"
 #include "kernel/ipc/observer.h"
 #include "kernel/ipc/port.h"
@@ -9,11 +14,29 @@
 #include <types.h>
 #include <zuzu/err.h>
 
+/**
+ * @brief Represents a Bind() target.
+ */
 typedef struct {
-    ObserverSet *set;
-    bool ready;
+    ObserverSet *set; /**< Set of observers to bind into. */
+    bool ready;       /**< If the target is ready. */
 } BindTarget;
 
+/**
+ * @brief Finds and validates the target of the Bind().
+ * 
+ * @param[in] type The type of event to bind.
+ * @param[in] h The handle to bind to.
+ * @param[in] bit The bit to bind to.
+ * @param[out] out The validated binding target.
+ * 
+ * @return Err
+ * @retval ERR_BADHANDLE This handle is invalid.
+ * @retval ERR_BADTYPE   This handle cannot be bound to.
+ * @retval ERR_NOPERM    You do not have the permissions to bind to this.
+ * @retval ERR_BADARG    This bit is reserved.
+ * @retval ERR_DEAD      The port you are trying to bind to has died.
+ */
 static Err BindLookupTarget(EventType type, Handle h, uint32_t bit, BindTarget *out)
 {
     HandleType want = (type == EVENT_PORT)   ? HANDLE_PORT

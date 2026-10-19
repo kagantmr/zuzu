@@ -1,3 +1,8 @@
+/**
+ * @file svc_managetask.c
+ * @brief Implementation of the ManageTask() svc.
+ */
+
 #include "core/ensure.h"
 #include "kernel/sched/sched.h"
 #include "kernel/space/space.h"

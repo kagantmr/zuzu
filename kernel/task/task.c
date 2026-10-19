@@ -1,3 +1,8 @@
+/**
+ * @file task.c
+ * @brief Implementation of tasks: creation, teardown, faults and priority inheritance.
+ */
+
 #include "kernel/ipc/msg.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm/pmm.h"
@@ -10,16 +15,26 @@
 #include <string.h>
 #include <zuzu/err.h>
 
+/** @brief Size of the task table, which bounds the tasks that can exist at once. */
 #define MAX_TASKS 1024
 
 #define LOG_FMT(fmt) "(task) " fmt
 #include "core/ensure.h"
 #include <util/log.h>
 
+/** @brief The ID the next task will try to take. */
 static Tid next_tid = 1;
+/** @brief Live tasks, indexed by ID modulo MAX_TASKS. */
 static TaskObject *task_table[MAX_TASKS];
+/** @brief Allocator for task objects. */
 static KSlabCache task_cache;
 
+/**
+ * @brief Pick an ID for a task and enter it in the task table.
+ *
+ * @param[in] task The task.
+ * @return The ID, or 0 if the task is NULL or every slot is taken.
+ */
 static Tid RegisterTask(TaskObject *task)
 {
     if (!task)
@@ -44,6 +59,11 @@ static Tid RegisterTask(TaskObject *task)
     return task->tid;
 }
 
+/**
+ * @brief Remove a task from the task table.
+ *
+ * @param[in] task The task.
+ */
 static void TaskObjectUnregister(TaskObject *task)
 {
     if (!task || task->tid == 0)
@@ -54,6 +74,13 @@ static void TaskObjectUnregister(TaskObject *task)
         task_table[slot] = NULL;
 }
 
+/**
+ * @brief Write the result of a wait on a task into a trap frame.
+ *
+ * @param[in] frame The waiter's trap frame.
+ * @param[in] value The exit status or fault reason, returned in r1.
+ * @param[in] outcome Whether the task exited or faulted, returned in r3.
+ */
 static void SetExitResult(CpuState *frame, Err value, TaskWaitOutcome outcome)
 {
     ArchSetInFrame(frame, 0, ZUZU_OK);
@@ -61,6 +88,13 @@ static void SetExitResult(CpuState *frame, Err value, TaskWaitOutcome outcome)
     ArchSetInFrame(frame, 3, (Register)outcome);
 }
 
+/**
+ * @brief Wake every task on a list with the result of a wait on a task.
+ *
+ * @param[in] list The list of wait slots.
+ * @param[in] value The exit status or fault reason.
+ * @param[in] outcome Whether the task exited or faulted.
+ */
 static void WakeWaiters(ListHead *list, Err value, TaskWaitOutcome outcome)
 {
     while (!ListIsEmpty(list)) {
@@ -347,10 +381,17 @@ void TaskFault(TaskObject *task, Err reason)
     }
 }
 
+/** @brief How many links of a chain of calls a priority change is passed along. */
 #define PRIORITY_PROPAGATION_DEPTH 8
 
 static void RecomputePriorityAt(TaskObject *t, unsigned depth);
 
+/**
+ * @brief Recompute the priority of every task serving a port, at a given propagation depth.
+ *
+ * @param[in] port The port.
+ * @param[in] depth How many links the change has already travelled.
+ */
 static void PortBoostServersAt(PortObject *port, unsigned depth)
 {
     ListNode *n = port->active_servers.node.next;
@@ -361,6 +402,12 @@ static void PortBoostServersAt(PortObject *port, unsigned depth)
     }
 }
 
+/**
+ * @brief Recompute one task's effective priority and pass any change along the chain of calls.
+ *
+ * @param[in] t The task.
+ * @param[in] depth How many links the change has already travelled.
+ */
 static void RecomputePriorityAt(TaskObject *t, unsigned depth)
 {
     Prio eff = t->base_prio;

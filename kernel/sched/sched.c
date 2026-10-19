@@ -1,3 +1,8 @@
+/**
+ * @file sched.c
+ * @brief Implementation of the scheduler: run queues, the sleep wheel and context switching.
+ */
+
 #include "sched.h"
 #include "kernel/space/space.h"
 #include <arch/context.h>
@@ -19,36 +24,56 @@
 #include <bitmap.h>
 #include <stdint.h>
 
+/** @brief Size of the stack the idle loop runs on. */
 #define IDLE_STACK_BYTES 1024
+/** @brief Number of slots in the sleep wheel. */
 #define SLEEP_QUEUE_SIZE 512
 
 #ifdef CONFIG_ZUZU_BENCH
+/** @brief Time taken to destroy one reaped task. */
 BENCH_STAT(g_bench_reap_task, "sched: reap one task");
 #endif
 
+/** @brief Tasks that have exited and wait to be destroyed off their own stack. */
 static ListHead task_destroy_queue = LIST_HEAD_INIT(task_destroy_queue);
+/** @brief The running task, or NULL while the idle loop runs. */
 TaskObject *current_task;
+/** @brief The task whose registers are currently in the FPU. */
 TaskObject *fpu_owner = NULL;
 
+/** @brief Reschedule request, checked on interrupt exit. */
 volatile bool do_resched = 0;
 
+/** @brief The task run when nothing else is ready. */
 static TaskObject idle_task;
+/** @brief Stack for the idle task. */
 static uint8_t idle_stack[IDLE_STACK_BYTES] __attribute__((aligned(8)));
+/** @brief Whether the CPU is running on the idle stack. */
 static bool on_idle_stack;
 
+/** @brief Whether the timer is currently set for the running task's slice end. */
 static bool slice_armed;
+/** @brief Set while the timer interrupt handler is running. */
 static bool in_tick;
+/** @brief One FIFO queue of ready tasks per priority level. */
 static ListHead run_queues[SCHED_PRIORITY_LEVELS];
 
+/** @brief Tasks with a timeout, bucketed by the slot their deadline falls in. */
 static ListHead sleep_wheel[SLEEP_QUEUE_SIZE];
+/** @brief One bit per sleep wheel slot, set while the slot has tasks. */
 static uint32_t wheel_occ[BITMAP_WORDS(SLEEP_QUEUE_SIZE)];
+/** @brief The earliest deadline in each sleep wheel slot. */
 static uint64_t wheel_min[SLEEP_QUEUE_SIZE];
+/** @brief The sleep wheel slot that time has reached. */
 static uint64_t wheel_now_slot;
+/** @brief Log2 of the number of timer ticks one sleep wheel slot covers. */
 static uint32_t slot_shift;
 
+/** @brief Whether the running task may use the FPU without trapping. */
 bool fpu_access_enabled = true;
 
 _Static_assert(SCHED_PRIORITY_LEVELS <= 32, "ready_mask is a uint32_t");
+/** @brief One bit per priority level, set while its run queue is not empty. */
 static uint32_t ready_mask = 0;
 
 #define LOG_FMT(fmt) "(sched) " fmt
@@ -59,6 +84,9 @@ static void SchedArmTimer(void);
 static void SchedConsumeDestroyQueue(void);
 static void SchedIdleWait(void);
 
+/**
+ * @brief The idle loop: reap dead tasks, wait for work, then reschedule.
+ */
 static void IdleTask(void)
 {
     on_idle_stack = true;
@@ -70,6 +98,9 @@ static void IdleTask(void)
     }
 }
 
+/**
+ * @brief Prepare the idle task's stack so the first switch to it starts the idle loop.
+ */
 static void SchedInitIdleTask(void)
 {
     VirtAddr sp = (VirtAddr)idle_stack + sizeof(idle_stack);
@@ -95,6 +126,15 @@ void SchedInit(void)
     ArchTimerSetHandler(SchedTimerExpired);
 }
 
+/**
+ * @brief Put a ready task on the run queue of its priority.
+ *
+ * Does nothing for a task in a frozen space, a suspended task, or one already queued. May request
+ * a reschedule if the task outranks the running one.
+ *
+ * @param[in] t The task.
+ * @param[in] front Whether to put it at the front of its queue instead of the back.
+ */
 static void SchedEnqueue(TaskObject *t, bool front)
 {
     if (!t)
@@ -139,6 +179,9 @@ void SchedQueueDestroyTask(TaskObject *t)
     ListAddTail(&t->destroy_node, &task_destroy_queue.node);
 }
 
+/**
+ * @brief Destroy every queued task except the running one, which stays queued.
+ */
 static void SchedConsumeDestroyQueue(void)
 {
     ListHead deferred = LIST_HEAD_INIT(deferred);
@@ -172,6 +215,11 @@ static void SchedConsumeDestroyQueue(void)
     }
 }
 
+/**
+ * @brief Check whether anything is ready to run or a reschedule was requested.
+ *
+ * @return true if the idle loop should stop waiting.
+ */
 static bool SchedIsWorkPending(void)
 {
     if (do_resched)
@@ -185,6 +233,12 @@ static bool SchedIsWorkPending(void)
     return false;
 }
 
+/**
+ * @brief Find the earliest deadline among the tasks in a sleep wheel slot.
+ *
+ * @param[in] slot The slot.
+ * @return The earliest deadline, or UINT64_MAX if the slot is empty.
+ */
 static uint64_t WheelBucketMin(uint32_t slot)
 {
     uint64_t min = UINT64_MAX;
@@ -228,6 +282,13 @@ void SchedInsertSleepQueue(TaskObject *t)
     SchedArmTimer();
 }
 
+/**
+ * @brief Wake a task whose timeout expired, returning ERR_TIMEOUT from its syscall.
+ *
+ * A caller waiting on a call has the call withdrawn first.
+ *
+ * @param[in] t The task.
+ */
 static void SchedWakeTimedOut(TaskObject *t)
 {
     t->sleep_slot = -1;
@@ -241,6 +302,12 @@ static void SchedWakeTimedOut(TaskObject *t)
     SchedAdd(t);
 }
 
+/**
+ * @brief Wake every sleeper whose deadline has passed.
+ *
+ * Handles the slots time has moved past, then the tasks in the current slot that are already due.
+ * Tasks whose deadline lies beyond the wheel are put back.
+ */
 static void SchedWakeSleepers(void)
 {
     uint64_t now_slot = ArchTimerNow() >> slot_shift;
@@ -287,6 +354,9 @@ static void SchedWakeSleepers(void)
         wheel_min[cur] = WheelBucketMin(cur);
 }
 
+/**
+ * @brief Halt the CPU until an interrupt makes some task ready or requests a reschedule.
+ */
 static void SchedIdleWait(void)
 {
     for (;;) {
@@ -310,12 +380,20 @@ static void SchedIdleWait(void)
     }
 }
 
+/**
+ * @brief Reap dead tasks and wake expired sleepers; run on every reschedule.
+ */
 static void SchedDoHousekeeping(void)
 {
     SchedConsumeDestroyQueue();
     SchedWakeSleepers();
 }
 
+/**
+ * @brief Take the first task of the highest non-empty priority level off its run queue.
+ *
+ * @return The task, or the idle task when nothing is ready.
+ */
 static TaskObject *SchedPickNext(void)
 {
     for (int level = SCHED_PRIORITY_LEVELS - 1; level >= 0; level--) {
@@ -398,8 +476,14 @@ void __hot SchedSwitchNext(TaskObject *next)
     ContextSwitch(prev, current_task);
 }
 
+/** @brief Smallest interval the timer is armed for, so a deadline never lands in the past. */
 #define MIN_TIMER_SLACK (ArchTimerFreq() / 500000u)
 
+/**
+ * @brief Find the first occupied sleep wheel slot at or after the current time.
+ *
+ * @return The distance in slots, or SLEEP_QUEUE_SIZE if the wheel is empty.
+ */
 static uint32_t WheelScanFromNow(void)
 {
     uint32_t start = (uint32_t)(wheel_now_slot % SLEEP_QUEUE_SIZE);
@@ -413,6 +497,10 @@ static uint32_t WheelScanFromNow(void)
     return SLEEP_QUEUE_SIZE;
 }
 
+/**
+ * @brief Program the timer for the next thing that needs it: a sleeper's deadline or the end of
+ * the running task's slice. Turns the timer off when neither exists.
+ */
 static void SchedArmTimer(void)
 {
     uint64_t now = ArchTimerNow();

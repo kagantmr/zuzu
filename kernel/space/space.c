@@ -1,3 +1,8 @@
+/**
+ * @file space.c
+ * @brief Implementation of spaces: creation, teardown and lookup.
+ */
+
 #include "space.h"
 
 #include "kernel/irq/irq_relay.h"
@@ -14,10 +19,14 @@
 #include "core/ensure.h"
 #include "core/log.h"
 
+/** @brief The ID the next space will try to take. */
 static uint32_t next_spid = 1;
+/** @brief Live spaces, indexed by ID modulo MAX_SPACES. */
 static SpaceObject *spaces[MAX_SPACES];
+/** @brief Allocator for space objects. */
 static KSlabCache space_cache;
 
+/** @brief Move to the next space ID, wrapping to 1 before it can go negative. */
 static void SpidAdvance(void)
 {
     next_spid++;
@@ -25,6 +34,12 @@ static void SpidAdvance(void)
         next_spid = 1;
 }
 
+/**
+ * @brief Pick an ID for a new space and register it in the table.
+ *
+ * @param[in] sp The space being created.
+ * @return The ID, or 0 if every slot is taken.
+ */
 static Spid SpidAlloc(SpaceObject *sp)
 {
     uint32_t start = next_spid % MAX_SPACES;

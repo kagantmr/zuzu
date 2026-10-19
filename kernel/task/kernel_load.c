@@ -1,3 +1,8 @@
+/**
+ * @file kernel_load.c
+ * @brief Kernel task loader implementation.
+ */
+
 #include "kernel_load.h"
 
 #include "kernel/mm/alloc.h"
@@ -19,6 +24,15 @@
 #define LOG_FMT(fmt) "(kload) " fmt
 #include "core/log.h"
 
+/**
+ * @brief Check if two ZXF segments @p a and @p b overlap.
+ * 
+ * @param[in] a The first ZXF segment
+ * @param[in] b The second ZXF segment.
+ * 
+ * @return bool
+ * @retval true If the segments do overlap.
+ */
 static bool ZxfSegChkOverlap(const ZXFSegment *a, const ZXFSegment *b)
 {
     uint32_t a_start = (uint32_t)a->vaddr;
@@ -32,6 +46,16 @@ static bool ZxfSegChkOverlap(const ZXFSegment *a, const ZXFSegment *b)
     return (a_start < b_end) && (b_start < a_end);
 }
 
+/**
+ * @brief Copy out from a buffer into a target space at a certain address relative to that space.
+ * 
+ * @param[in] as The address space to inject.
+ * @param[in] va The VA to inject the data at.
+ * @param[in] src The buffer to read from.
+ * @param[in] len The length of the data.
+ * 
+ * @return bool
+ */
 static bool AddrSpaceCopyOut(AddressSpace *as, VirtAddr va, const void *src, size_t len)
 {
     const uint8_t *s = src;
@@ -52,6 +76,11 @@ static bool AddrSpaceCopyOut(AddressSpace *as, VirtAddr va, const void *src, siz
     return true;
 }
 
+/**
+ * @brief Fail the kernel loading of a space.
+ * 
+ * @param[in] sp The space to fail.
+ */
 static void KernelLoadFail(SpaceObject *sp)
 {
     SpaceDestroy(sp);

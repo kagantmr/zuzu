@@ -1,3 +1,8 @@
+/**
+ * @file svc_hold.c
+ * @brief Implementation of the Hold() svc.
+ */
+
 #include "kernel/ipc/msg.h"
 #include "svc.h"
 #include <arch/regs.h>

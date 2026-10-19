@@ -1,3 +1,8 @@
+/**
+ * @file svc_sleep.c
+ * @brief Implementation of the Sleep() svc.
+ */
+
 #include "kernel/sched/sched.h"
 #include "svc.h"
 #include <arch/timer.h>
