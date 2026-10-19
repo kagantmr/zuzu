@@ -1,3 +1,8 @@
+/**
+ * @file event.c
+ * @brief Event object function implementations.
+ */
+
 #include "event.h"
 
 #include "core/ensure.h"
@@ -11,8 +16,16 @@
 #include <types.h>
 #include <zuzu/err.h>
 
+/**
+ * @brief Heap cache for event object slabs.
+ */
 static KSlabCache event_cache;
 
+/**
+ * @brief Allocate a new event object from the slab.
+ *
+ * @return EventObject* A freshly allocated event object.
+ */
 static EventObject *EventObjAlloc(void)
 {
     if (!event_cache.obj_size)
@@ -20,6 +33,11 @@ static EventObject *EventObjAlloc(void)
     return KSlabAlloc(&event_cache);
 }
 
+/**
+ * @brief Free an existing event object.
+ *
+ * @param[in] ev The object to free.
+ */
 static void EventObjFree(EventObject *ev) { KSlabFree(&event_cache, ev); }
 
 void EventSignal(EventObject *ev, EventWord bits, bool bcast)

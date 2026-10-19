@@ -1,5 +1,16 @@
+/**
+ * @file observer.c
+ * @brief Observer functions implementation
+ */
+
+
 #include "observer.h"
 
+/**
+ * @brief Release an observer's event.
+ * 
+ * @param[in] o The observer to release.
+ */
 static void ObserverRelease(Observer *o)
 {
     EventUnbindBit(o->ev, o->bit);

@@ -1,3 +1,8 @@
+/**
+ * @file msg.h
+ * @brief Message-passing function implementation.
+ */
+
 #include "msg.h"
 #include "core/ensure.h"
 #include "core/panic.h"
@@ -15,7 +20,7 @@
 BENCH_STAT(g_bench_ipc_buf_copy_memcpy, "ipc_buf_copy: memcpy");
 BENCH_STAT(g_bench_ipc_buf_copy_wordcopy, "ipc_buf_copy: hand-rolled word-copy");
 static uint8_t g_bench_wordcopy_scratch[MSG_BUF_SIZE] __attribute__((aligned(4)));
-#endif
+#endif /* CONFIG_ZUZU_BENCH */
 
 void __hot MsgBufCopy(TaskObject *restrict src, TaskObject *restrict dst, size_t len)
 {
@@ -93,6 +98,12 @@ Err GrantHandleAcross(SpaceObject *from, SpaceObject *to, Handle handle_to_grant
     return AllocateGrantSlot(from, to, handle_to_grant, out);
 }
 
+/**
+ * @brief Arm the timer and insert the caller into the sleep queue.
+ * 
+ * @param[in] caller The caller to wake upon timeout.
+ * @param[in] timeout Duration to arm the timeout on.
+ */
 static void CallArmTimeout(TaskObject *caller, Duration timeout)
 {
     if (timeout == TIMEOUT_INFINITE) {
@@ -243,6 +254,9 @@ void PortReceive(PortObject *port, Duration timeout, CpuState *frame)
     SchedBlockOn(&port->receiver_queue, timeout);
 }
 
+/**
+ * @brief Hold() svc ticket generation.
+ */
 static uint16_t held_gen;
 
 Err PortHoldCurrent(TaskObject *server, Ticket *out)
