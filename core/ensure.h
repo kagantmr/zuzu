@@ -1,3 +1,8 @@
+/**
+ * @file ensure.h
+ * @brief Ensure macro definitions.
+ */
+
 #ifndef CORE_ENSURE_H
 #define CORE_ENSURE_H
 

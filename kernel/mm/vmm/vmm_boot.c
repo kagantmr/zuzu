@@ -1,3 +1,8 @@
+/**
+ * @file vmm_boot.c
+ * @brief Kernel address space bootstrap, identity mapping removal, and kernel image lockdown.
+ */
+
 #include "vmm_internal.h"
 
 #include "core/panic.h"
@@ -10,7 +15,9 @@
 #include <arch/mmu.h>
 #include <string.h>
 
+/** @brief The kernel's physical memory layout, filled in during early boot. */
 extern RamLayout kernel_layout;
+/** @brief The boot-time first-level translation table the early MMU setup builds. */
 extern uint32_t early_l1[];
 
 #define LOG_FMT(fmt) "(vmm) " fmt

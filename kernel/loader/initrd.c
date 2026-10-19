@@ -1,10 +1,17 @@
+/**
+ * @file initrd.c
+ * @brief Initrd lookup on top of the cpio reader.
+ */
+
 #include "initrd.h"
 #include <assert.h>
 #include <convert.h>
 #include <cpio.h>
 #include <string.h>
 
+/** @brief Kernel virtual address of the archive. */
 static const void *initrd_base;
+/** @brief Size of the archive in bytes. */
 static size_t initrd_size;
 
 void InitrdInit(const void *start, size_t size)

@@ -1,3 +1,8 @@
+/**
+ * @file string.c
+ * @brief String and memory-block functions and the printf-style formatting core.
+ */
+
 #include "string.h"
 #include <stdint.h>
 
@@ -97,20 +102,48 @@ char *strrchr(const char *s, int c)
     return (char *)(uintptr_t)last;
 }
 
+/**
+ * @brief Emits one character several times.
+ *
+ * @param[in] outc Character sink.
+ * @param[in,out] ctx Passed to @p outc.
+ * @param[in] ch Character to emit.
+ * @param[in] count Number of repetitions; nothing is emitted if not positive.
+ */
 static void emit_repeat(void (*outc)(void *ctx, char), void *ctx, char ch, int count)
 {
     while (count-- > 0)
         outc(ctx, ch);
 }
 
+/**
+ * @brief Emits the first @p n characters of a string.
+ *
+ * @param[in] outc Character sink.
+ * @param[in,out] ctx Passed to @p outc.
+ * @param[in] s Characters to emit.
+ * @param[in] n Number of characters.
+ */
 static void emit_strn(void (*outc)(void *ctx, char), void *ctx, const char *s, int n)
 {
     for (int i = 0; i < n; i++)
         outc(ctx, s[i]);
 }
 
+/**
+ * @brief Tells whether a character is a decimal digit.
+ *
+ * @param[in] c Character to test.
+ * @return Nonzero for '0' to '9', otherwise 0.
+ */
 static int is_digit(char c) { return (c >= '0' && c <= '9'); }
 
+/**
+ * @brief Parses a run of decimal digits and advances past it.
+ *
+ * @param[in,out] pp Points at the first digit; updated to the first non-digit.
+ * @return The parsed value.
+ */
 static int parse_int(const char **pp)
 {
     const char *p = *pp;
@@ -123,6 +156,18 @@ static int parse_int(const char **pp)
     return v;
 }
 
+/**
+ * @brief Writes an unsigned number as text, NUL-terminated.
+ *
+ * Supports bases 2, 8, 10 and 16; a base below 2 is treated as 10, and any other
+ * base yields "?". @p buf must hold at least 66 bytes.
+ *
+ * @param[out] buf Destination.
+ * @param[in] v Value to convert.
+ * @param[in] base Numeric base.
+ * @param[in] uppercase Nonzero to use A-F instead of a-f for base 16.
+ * @return The number of characters written, excluding the terminator.
+ */
 static int utoa_ull(char *buf, unsigned long long v, unsigned base, int uppercase)
 {
     static const char digs_lo[] = "0123456789abcdef";
@@ -174,8 +219,23 @@ static int utoa_ull(char *buf, unsigned long long v, unsigned base, int uppercas
     return n;
 }
 
-typedef enum { LEN_NONE, LEN_HH, LEN_H, LEN_L, LEN_LL, LEN_Z } length_t;
+/** @brief Length modifier of a conversion specification. */
+typedef enum {
+    LEN_NONE, /**< No modifier. */
+    LEN_HH, /**< hh: char. */
+    LEN_H, /**< h: short. */
+    LEN_L, /**< l: long. */
+    LEN_LL, /**< ll: long long. */
+    LEN_Z /**< z: size_t. */
+} length_t;
 
+/**
+ * @brief Fetches the next unsigned integer argument, sized by the length modifier.
+ *
+ * @param[in,out] args Argument list, advanced past the value.
+ * @param[in] len Length modifier.
+ * @return The argument, narrowed for hh and h and widened to 64 bits.
+ */
 static unsigned long long get_unsigned_arg(va_list *args, length_t len)
 {
     switch (len) {
@@ -194,6 +254,13 @@ static unsigned long long get_unsigned_arg(va_list *args, length_t len)
     }
 }
 
+/**
+ * @brief Fetches the next signed integer argument, sized by the length modifier.
+ *
+ * @param[in,out] args Argument list, advanced past the value.
+ * @param[in] len Length modifier.
+ * @return The argument, narrowed for hh and h and widened to 64 bits.
+ */
 static long long get_signed_arg(va_list *args, length_t len)
 {
     switch (len) {
@@ -212,6 +279,14 @@ static long long get_signed_arg(va_list *args, length_t len)
     }
 }
 
+/**
+ * @brief Produces the digits of a fraction for %f, rounding to nearest.
+ *
+ * @param[in] frac Fractional part, in [0, 1).
+ * @param[in] prec Number of digits to produce.
+ * @param[out] digits Receives @p prec characters, not terminated.
+ * @param[out] carry_out Set to 1 if rounding carried into the integer part, else 0.
+ */
 static void format_fixed_digits(double frac, int prec, char *digits, int *carry_out)
 {
     for (int i = 0; i < prec; i++) {
@@ -241,6 +316,14 @@ static void format_fixed_digits(double frac, int prec, char *digits, int *carry_
     }
 }
 
+/**
+ * @brief Produces significant digits and a decimal exponent for %e and %g.
+ *
+ * @param[in] av Positive value to convert.
+ * @param[in] sigdigits Number of significant digits to produce.
+ * @param[out] digits Receives @p sigdigits characters, not terminated.
+ * @param[out] exp_out Receives the decimal exponent of the first digit.
+ */
 static void format_efmt_digits(double av, int sigdigits, char *digits, int *exp_out)
 {
     int exp = 0;

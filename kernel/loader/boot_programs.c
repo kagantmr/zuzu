@@ -1,3 +1,8 @@
+/**
+ * @file boot_programs.c
+ * @brief Reads boot.manifest and loads the root service with its boot resources.
+ */
+
 #include <arch/mmu.h>
 #include <arch/platform.h>
 
@@ -21,13 +26,27 @@
 #define LOG_FMT(fmt) "(loader) " fmt
 #include "core/log.h"
 
+/** @brief The root service's space, or NULL before it is loaded. */
 static SpaceObject *s_rootsvc;
 
+/** @brief Physical address of the initrd. */
 static PhysAddr g_initrd_pa;
+/** @brief Size of the initrd in bytes. */
 static size_t g_initrd_size;
 
+/** @brief Directory prepended to manifest entries that name no directory. */
 #define BOOT_PROGRAM_PREFIX "bin/"
 
+/**
+ * @brief BootInfoEnumerateDevs() callback that gives the root service a device memory handle.
+ *
+ * Handles are placed consecutively from DEVICE_HANDLE_BASE. Failures skip the device silently.
+ *
+ * @param[in] compatible Unused.
+ * @param[in] phys Physical base of the device.
+ * @param[in] size Size of the device's register block.
+ * @param[in] irq Interrupt number of the device.
+ */
 static void InjectDeviceObjects(const char *compatible, uint64_t phys, uint64_t size, uint32_t irq)
 {
     (void)compatible;
@@ -49,6 +68,13 @@ static void InjectDeviceObjects(const char *compatible, uint64_t phys, uint64_t 
     HandleEntryClaim(&s_rootsvc->handle_table, entry);
 }
 
+/**
+ * @brief Load a program from the initrd as the root service and schedule it.
+ *
+ * Also injects the device handles and maps the initrd and BootInfo page into it. Logs an error and returns early on failure.
+ *
+ * @param[in] path Initrd path of the program.
+ */
 static void CreateRootSpace(const char *path)
 {
     const void *zxf_data;
@@ -105,6 +131,12 @@ static void CreateRootSpace(const char *path)
     SchedAdd(space->main_task);
 }
 
+/**
+ * @brief Turn a manifest entry into an initrd path.
+ *
+ * @param[in] path_in The manifest entry; "bin/" is prepended if it contains no slash.
+ * @return A newly allocated path the caller must free, or NULL if the input is empty or allocation fails.
+ */
 static char *NormalizeManifestPath(const char *path_in)
 {
     if (!path_in || !path_in[0])
@@ -129,6 +161,15 @@ static char *NormalizeManifestPath(const char *path_in)
     return path;
 }
 
+/**
+ * @brief Find the root service's path in the manifest.
+ *
+ * Takes the first line that is not empty and does not start with '#', ignoring trailing spaces, tabs and carriage returns.
+ *
+ * @param[in] manifest_data The manifest text.
+ * @param[in] manifest_size Size of the manifest in bytes.
+ * @return A newly allocated path the caller must free, or NULL if there is no entry, the line is too long or allocation fails.
+ */
 static char *FindRootsvcPath(const char *manifest_data, size_t manifest_size)
 {
     const char *line_start = manifest_data;

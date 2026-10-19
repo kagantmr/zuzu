@@ -1,7 +1,20 @@
+/**
+ * @file cpio.c
+ * @brief Lookup of a file in a cpio (new ASCII) archive.
+ */
+
 #include <cpio.h>
 #include <stdint.h>
 #include <string.h>
 
+/**
+ * @brief Parses 8 hex digits into a number.
+ *
+ * Characters that are not hex digits are skipped without changing the value.
+ *
+ * @param[in] s At least 8 characters; need not be NUL-terminated.
+ * @return The parsed value.
+ */
 static uint32_t ParseHex8(const char *s)
 {
     uint32_t val = 0;

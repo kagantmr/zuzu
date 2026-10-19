@@ -1,12 +1,22 @@
+/**
+ * @file mem_object.c
+ * @brief Memory object lifetime, reference counting, and DMA mapping management.
+ */
 #include "mem_object.h"
 #include "core/ensure.h"
 #include "kernel/mm/alloc.h"
 #include <arch/cache.h>
 #include <string.h>
 
+/** @brief Slab cache for MemObject allocations; initialised lazily. */
 static KSlabCache mem_obj_cache;
+/** @brief Slab cache for DmaMapping allocations; initialised lazily. */
 static KSlabCache dma_map_cache;
 
+/**
+ * @brief Allocate a MemObject from its slab cache, initialising the cache on first use.
+ * @return Uninitialised object, or NULL on allocation failure.
+ */
 static MemObject *MemObjAlloc(void)
 {
     if (!mem_obj_cache.obj_size)
@@ -14,8 +24,16 @@ static MemObject *MemObjAlloc(void)
     return KSlabAlloc(&mem_obj_cache);
 }
 
+/**
+ * @brief Return a MemObject to its slab cache.
+ * @param[in] mem Object to free.
+ */
 static void MemObjFree(MemObject *mem) { KSlabFree(&mem_obj_cache, mem); }
 
+/**
+ * @brief Allocate a DmaMapping from its slab cache, initialising the cache on first use.
+ * @return Uninitialised mapping, or NULL on allocation failure.
+ */
 static DmaMapping *DmaMappingAlloc(void)
 {
     if (!dma_map_cache.obj_size)
@@ -23,6 +41,10 @@ static DmaMapping *DmaMappingAlloc(void)
     return KSlabAlloc(&dma_map_cache);
 }
 
+/**
+ * @brief Return a DmaMapping to its slab cache.
+ * @param[in] m Mapping to free.
+ */
 static void DmaMappingFree(DmaMapping *m) { KSlabFree(&dma_map_cache, m); }
 
 MemObject *MemObjCreateDevice(PhysAddr phys_base, size_t size, Irq irq)

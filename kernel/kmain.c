@@ -1,3 +1,8 @@
+/**
+ * @file kmain.c
+ * @brief Kernel main: initialises the scheduler, syspage and boot info, then loads the root service.
+ */
+
 #include "kernel/kmain.h"
 
 #include <arch/cpu.h>

@@ -1,3 +1,8 @@
+/**
+ * @file bsearch.c
+ * @brief Binary search over a sorted array.
+ */
+
 #include "stdlib.h"
 #include <stddef.h>
 #include <stdint.h>

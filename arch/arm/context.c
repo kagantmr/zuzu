@@ -13,7 +13,7 @@
 #define ARM_CPSR_USER 0x10u
 
 /**
- * @brief Entry point of the idle task.
+ * @brief Where a new user task first runs; the saved lr of its initial CpuContext.
  */
 extern void task_entry_trampoline(void);
 

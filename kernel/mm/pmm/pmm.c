@@ -1,3 +1,7 @@
+/**
+ * @file pmm.c
+ * @brief Physical memory manager: bitmap plus doubly linked free list of frames.
+ */
 #include "pmm_internal.h"
 
 #include "core/panic.h"
@@ -20,13 +24,29 @@
 #define LOG_FMT(fmt) "(pmm) " fmt
 #include "util/log.h"
 
+/** @brief The single PMM state instance. */
 PmmState pmm_state;
+/** @brief Boot-time RAM layout describing kernel, stack, DTB and bitmap placement. */
 extern RamLayout kernel_layout;
+/** @brief Refresh the memory statistics published in the system page. */
 extern void SyspageUpdateMem(void);
 
-typedef struct { PhysAddr next; PhysAddr prev; } FreeNode;
+/** @brief Free-list node stored inside each free frame. */
+typedef struct {
+    PhysAddr next; /**< Physical address of the next free frame, 0 at the tail. */
+    PhysAddr prev; /**< Physical address of the previous free frame, 0 at the head. */
+} FreeNode;
+/**
+ * @brief Get the free-list node stored in a frame, via the kernel direct map.
+ * @param[in] pa Physical address of the frame.
+ * @return Pointer to the node.
+ */
 static inline FreeNode *Node(PhysAddr pa) { return (FreeNode *)PA_TO_VA(pa); }
 
+/**
+ * @brief Insert a frame at the head of the free list.
+ * @param[in] pa Physical address of the frame.
+ */
 static inline void PushNode(PhysAddr pa)
 {
     FreeNode *node = Node(pa);
@@ -37,6 +57,10 @@ static inline void PushNode(PhysAddr pa)
     pmm_state.freelist_head = pa;
 }
 
+/**
+ * @brief Remove the head of the free list.
+ * @return Physical address of the removed frame, or 0 if the list is empty.
+ */
 static inline PhysAddr PopNode(void)
 {
     PhysAddr pa = pmm_state.freelist_head;
@@ -49,6 +73,10 @@ static inline PhysAddr PopNode(void)
     return pa;
 }
 
+/**
+ * @brief Remove an arbitrary frame from the free list.
+ * @param[in] pa Physical address of a frame currently on the list.
+ */
 static inline void UnlinkNode(PhysAddr pa)
 {
     PhysAddr prev = Node(pa)->prev;
@@ -57,6 +85,14 @@ static inline void UnlinkNode(PhysAddr pa)
     if (next) Node(next)->prev = prev;
 }
 
+/**
+ * @brief Check whether an address is a plausible free-list link.
+ *
+ * Used to validate node pointers read from frame memory.
+ *
+ * @param[in] pa Physical address to test.
+ * @return True for 0 (list terminator) or a page-aligned address inside managed RAM.
+ */
 static bool PmmIsRecorded(PhysAddr pa)
 {
     if (pa == 0)
@@ -68,6 +104,9 @@ static bool PmmIsRecorded(PhysAddr pa)
     return (pfn >= pmm_state.pfn_base && pfn < pmm_state.pfn_end);
 }
 
+/**
+ * @brief Rebuild the free list from the allocation bitmap and mark it ready.
+ */
 static void PmmRebuildFreelist(void)
 {
     pmm_state.freelist_head = 0;
@@ -82,6 +121,14 @@ static void PmmRebuildFreelist(void)
     pmm_state.freelist_ready = true;
 }
 
+/**
+ * @brief Pop a free frame and mark it allocated.
+ *
+ * Validates the list links first and rebuilds the list from the bitmap if they
+ * look corrupt. Signals memory-pressure subscribers after the take.
+ *
+ * @return Physical address of the frame, or 0 if none is free.
+ */
 static PhysAddr PmmTakeFreeFrame(void)
 {
     if (pmm_state.freelist_head == 0)
@@ -120,6 +167,9 @@ static PhysAddr PmmTakeFreeFrame(void)
     return pa;
 }
 
+/**
+ * @brief Mark boot, DTB, kernel, bitmap, stack, reserved-memory and initrd regions as allocated.
+ */
 static void PmmReserveBootRegions(void)
 {
     PmmMarkRange((PhysAddr)_boot_start, (PhysAddr)_boot_end);
@@ -371,8 +421,11 @@ void PmmFreeFrame(const PhysAddr addr)
 }
 
 #ifdef CONFIG_ZUZU_BENCH
+/** @brief Benchmark: bitmap scan time in the aligned contiguous allocator. */
 BENCH_STAT(g_bench_pmm_scan, "pmm contig: bitmap scan");
+/** @brief Benchmark: time to mark the range (unlinking from the free list). */
 BENCH_STAT(g_bench_pmm_freelist, "pmm contig: mark (unlinks)");
+/** @brief Benchmark: syspage update and subscriber signalling time. */
 BENCH_STAT(g_bench_pmm_tail, "pmm contig: syspage+signal");
 #endif
 

@@ -1,3 +1,11 @@
+/**
+ * @file alloc.c
+ * @brief Kernel heap and slab caches.
+ *
+ * The heap is a doubly linked list of blocks in address order, searched first-fit and merged
+ * with free neighbours on free. Slab caches carve one page each into equal objects.
+ */
+
 #include "alloc.h"
 #include "core/panic.h"
 #include "kernel/layout.h"
@@ -12,11 +20,19 @@
 #define LOG_FMT(fmt) "(mm) " fmt
 #include <util/log.h>
 
+/** @brief Kernel RAM layout; the heap bounds are kept up to date here. */
 extern RamLayout kernel_layout;
 
 KHeapBlock *heap_head = NULL;
+/** @brief Last heap block in address order. */
 static KHeapBlock *heap_tail = NULL;
 
+/**
+ * @brief Pushes a slab on the front of a slab list.
+ *
+ * @param[in,out] head List head.
+ * @param[in,out] slab Slab to add.
+ */
 static __always_inline void SlabListPush(KSlab **head, KSlab *slab)
 {
     slab->prev = NULL;
@@ -26,6 +42,12 @@ static __always_inline void SlabListPush(KSlab **head, KSlab *slab)
     *head = slab;
 }
 
+/**
+ * @brief Unlinks a slab from a slab list.
+ *
+ * @param[in,out] head List head.
+ * @param[in,out] slab Slab to remove.
+ */
 static __always_inline void SlabListRemove(KSlab **head, KSlab *slab)
 {
     if (slab->prev)
@@ -37,6 +59,12 @@ static __always_inline void SlabListRemove(KSlab **head, KSlab *slab)
     slab->next = slab->prev = NULL;
 }
 
+/**
+ * @brief Adds a fresh page-sized slab to a cache's partial list.
+ *
+ * @param[in,out] cache The cache to grow.
+ * @return The new slab, or NULL if no frame was available.
+ */
 static KSlab *SlabGrow(KSlabCache *cache)
 {
     PhysAddr pa = PmmAllocFrame();
@@ -63,6 +91,12 @@ static KSlab *SlabGrow(KSlabCache *cache)
     return slab;
 }
 
+/**
+ * @brief Sets up a cache for objects of a given size.
+ *
+ * @param[out] cache    Cache to set up.
+ * @param[in]  obj_size Requested object size.
+ */
 static void CreateSlabCache(KSlabCache *cache, size_t obj_size)
 {
     if (obj_size < sizeof(void *))
@@ -74,6 +108,12 @@ static void CreateSlabCache(KSlabCache *cache, size_t obj_size)
     assert(cache->obj_size <= PAGE_SIZE - align_up(sizeof(KSlab), 8));
 }
 
+/**
+ * @brief Takes an object from a cache, reusing the spare slab or growing.
+ *
+ * @param[in,out] cache The cache.
+ * @return The object, or NULL if out of frames.
+ */
 static void *__hot SlabAlloc(KSlabCache *cache)
 {
     KSlab *slab = cache->partial;
@@ -101,6 +141,12 @@ static void *__hot SlabAlloc(KSlabCache *cache)
     return obj;
 }
 
+/**
+ * @brief Returns an object to its slab, moving or releasing the slab as it changes state.
+ *
+ * @param[in,out] cache The owning cache.
+ * @param[in]     ptr   The object.
+ */
 static __always_inline void SlabFree(KSlabCache *cache, void *ptr)
 {
     assert(cache != NULL);
@@ -140,6 +186,11 @@ void KSlabFree(KSlabCache *cache, void *ptr)
         SlabFree(cache, ptr);
 }
 
+/**
+ * @brief Links a block at the end of the heap list.
+ *
+ * @param[in,out] block Block to append.
+ */
 static void HeapAppendBlk(KHeapBlock *block)
 {
     block->next = NULL;
@@ -153,6 +204,12 @@ static void HeapAppendBlk(KHeapBlock *block)
     heap_tail = block;
 }
 
+/**
+ * @brief Adds a segment able to hold a payload and updates the heap bounds.
+ *
+ * @param[in] min_payload Smallest payload the segment must hold.
+ * @return true on success, false if no contiguous frames were available.
+ */
 static bool HeapGrow(size_t min_payload)
 {
     size_t wanted = align_up(min_payload + HDR + MIN_PAYLOAD, PAGE_SIZE);
@@ -191,6 +248,11 @@ static bool HeapGrow(size_t min_payload)
     return true;
 }
 
+/**
+ * @brief Merges a block with the following one if both are free and adjacent.
+ *
+ * @param[in,out] block The earlier block.
+ */
 static void HeapMerge(KHeapBlock *block)
 {
     KHeapBlock *next = block->next;

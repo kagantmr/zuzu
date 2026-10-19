@@ -1,3 +1,7 @@
+/**
+ * @file panic.c
+ * @brief Kernel panic: renders a diagnostic screen on the UART and halts the CPU.
+ */
 #include "core/panic.h"
 #include "kernel/task/task.h"
 #include <arch/backtrace.h>
@@ -24,35 +28,63 @@
 #include "kernel/irq/irq_relay.h"
 #endif
 
+/**
+ * @brief Kernel memory layout (stack and heap bounds) used to classify and report addresses.
+ */
 extern RamLayout kernel_layout;
 
 PanicFaultContext panic_fault_ctx;
 
+/** @brief Maximum number of backtrace frames printed. */
 #define BACKTRACE_MAX_DEPTH 16
+/** @brief Maximum number of ready tasks listed on the panic screen. */
 #define PANIC_READY_MAX 8
+/** @brief Maximum number of sleeping tasks listed on the panic screen. */
 #define PANIC_SLEEP_MAX 8
+/** @brief Maximum number of handle table entries listed on the panic screen. */
 #define PANIC_HANDLE_MAX 16
+/** @brief Column at which section header rules end. */
 #define RULE_COL 72
+/** @brief Size of the line formatting buffers, in bytes. */
 #define LINE_BUF 160
 
 #ifndef MMIO_VA_BASE
+/** @brief Lowest virtual address treated as MMIO/high kernel space when classifying FAR. */
 #define MMIO_VA_BASE IOREMAP_BASE
 #endif
 
+/** @brief ANSI escape: yellow foreground. */
 #define C_YELLOW "\033[33m"
+/** @brief ANSI escape: light gray foreground. */
 #define C_GRAY "\033[37m"
+/** @brief ANSI escape: dim gray foreground. */
 #define C_DIM "\033[90m"
+/** @brief ANSI escape: bright red foreground. */
 #define C_RED "\033[91m"
+/** @brief ANSI escape: reset attributes. */
 #define C_RESET "\033[0m"
 
+/**
+ * @brief Write a NUL-terminated string to the UART, bypassing the console layer.
+ *
+ * @param[in] s String to write.
+ */
 static void PanicPuts(const char *s)
 {
     while (*s)
         uart_putc(*s++);
 }
 
+/**
+ * @brief Write a newline to the UART.
+ */
 static void PanicNewline(void) { uart_putc('\n'); }
 
+/**
+ * @brief Print a yellow section title followed by a dash rule up to ::RULE_COL.
+ *
+ * @param[in] name Section title.
+ */
 static void PanicHeader(const char *name)
 {
     PanicPuts("\n" C_YELLOW);
@@ -64,6 +96,11 @@ static void PanicHeader(const char *name)
     PanicPuts(C_RESET "\n");
 }
 
+/**
+ * @brief Print one indented gray line to the UART.
+ *
+ * @param[in] s Line text, without trailing newline.
+ */
 static void PanicPutLine(const char *s)
 {
     PanicPuts("  " C_GRAY);
@@ -71,6 +108,12 @@ static void PanicPutLine(const char *s)
     PanicPuts(C_RESET "\n");
 }
 
+/**
+ * @brief Classify a fault address into a coarse memory region.
+ *
+ * @param[in] addr Faulting virtual address.
+ * @return Region description, or NULL if the address matches no known region.
+ */
 static const char *FarRegion(uint32_t addr)
 {
 
@@ -94,6 +137,12 @@ static const char *FarRegion(uint32_t addr)
     return NULL;
 }
 
+/**
+ * @brief Convert a task state to its display name.
+ *
+ * @param[in] state Task state.
+ * @return Upper-case state name, or "UNKNOWN".
+ */
 static const char *TaskStateToString(TaskState state)
 {
     switch (state) {
@@ -112,6 +161,12 @@ static const char *TaskStateToString(TaskState state)
     }
 }
 
+/**
+ * @brief Convert a handle type to its display name.
+ *
+ * @param[in] t Handle type.
+ * @return Upper-case type name, or "UNKNOWN".
+ */
 static const char *HandleTypeStr(HandleType t)
 {
     switch (t) {
@@ -132,6 +187,12 @@ static const char *HandleTypeStr(HandleType t)
     }
 }
 
+/**
+ * @brief Convert an IPC state to its display name.
+ *
+ * @param[in] s IPC state.
+ * @return Upper-case state name, or "UNKNOWN".
+ */
 static const char *IpcStateStr(IpcState s)
 {
     switch (s) {
@@ -144,11 +205,19 @@ static const char *IpcStateStr(IpcState s)
     }
 }
 
+/** @brief Captured frame-pointer backtrace. */
 typedef struct {
-    uint32_t addresses[BACKTRACE_MAX_DEPTH];
-    int depth;
+    uint32_t addresses[BACKTRACE_MAX_DEPTH];  /**< Return addresses, innermost first. */
+    int depth;                                /**< Number of valid entries in addresses. */
 } FpBacktrace;
 
+/**
+ * @brief Walk the frame-pointer chain and record return addresses.
+ *  *
+ *  * Starts from the fault frame pointer when a fault context frame exists, otherwise from the current frame pointer.
+ *
+ * @param[in] bt Backtrace to fill.
+ */
 static void BtraceWalk(FpBacktrace *bt)
 {
     Register fp = panic_fault_ctx.frame ? ArchFrameFp(panic_fault_ctx.frame)
@@ -158,13 +227,21 @@ static void BtraceWalk(FpBacktrace *bt)
         (int)ArchBacktraceWalk(fp, (Register)KERNEL_VA_BASE, bt->addresses, BACKTRACE_MAX_DEPTH);
 }
 
+/** @brief Heap usage totals gathered for the panic screen. */
 typedef struct {
-    size_t used_bytes;
-    size_t free_bytes;
-    size_t total_bytes;
-    size_t block_count;
+    size_t used_bytes;   /**< Bytes in allocated blocks. */
+    size_t free_bytes;   /**< Bytes in free blocks. */
+    size_t total_bytes;  /**< Sum of all block sizes. */
+    size_t block_count;  /**< Number of blocks walked. */
 } PanicHeapStats;
 
+/**
+ * @brief Compute heap usage by walking the heap block list.
+ * 
+ * Walks at most 8192 blocks to stay safe on a corrupted list.
+ *
+ * @param[in] st Statistics to fill; zeroed first.
+ */
 static void GetPanicHeapSnapshot(PanicHeapStats *st)
 {
     memset(st, 0, sizeof(*st));
@@ -182,6 +259,13 @@ static void GetPanicHeapSnapshot(PanicHeapStats *st)
     }
 }
 
+/**
+ * @brief Format an address as "name+0xOFFSET", "name", or "<?>" when unresolved.
+ *
+ * @param[in] buf Output buffer.
+ * @param[in] bufsz Size of @p buf in bytes.
+ * @param[in] addr Address to symbolize.
+ */
 static void FormatKSym(char *buf, int bufsz, uint32_t addr)
 {
     const char *name = KSymLookup(addr);
@@ -194,6 +278,7 @@ static void FormatKSym(char *buf, int bufsz, uint32_t addr)
         (void)snprintf(buf, (size_t)bufsz, "<?>");
 }
 
+/** @brief ASCII-art logo lines printed at the top of the panic screen. */
 static const char *panic_logo[] = {
     "      " C_GRAY "@@@@@@" C_RESET,
     "        " C_GRAY "%@@" C_RESET "         " C_GRAY "%@@@  @" C_RESET,
@@ -207,8 +292,15 @@ static const char *panic_logo[] = {
     "        " C_GRAY "@@  @" C_RESET "      " C_GRAY "@@ @@" C_RESET,
     "         " C_GRAY "@@@" C_RESET "        " C_GRAY "@@@" C_RESET,
 };
+/** @brief Number of lines in ::panic_logo. */
 #define PANIC_LOGO_LINES (sizeof(panic_logo) / sizeof(panic_logo[0]))
 
+/**
+ * @brief Print the logo, banner, reason, execution context and caller address.
+ *
+ * @param[in] reason Panic reason text, or NULL for "unknown".
+ * @param[in] caller_ra Return address of the panic() caller.
+ */
 static void PanicPrintHeader(const char *reason, void *caller_ra)
 {
     char line[LINE_BUF];
@@ -248,6 +340,9 @@ static void PanicPrintHeader(const char *reason, void *caller_ra)
     PanicPutLine(line);
 }
 
+/**
+ * @brief Print the FAULT section (type, decoding, access, FAR, FSR, SPSR) when ::panic_fault_ctx is valid; otherwise print nothing.
+ */
 static void PanicPrintFault(void)
 {
     if (!panic_fault_ctx.valid)
@@ -293,6 +388,9 @@ static void PanicPrintFault(void)
     }
 }
 
+/**
+ * @brief Print the CPU STATE section (pc, lr, sp, flags and general registers) of the fault frame; prints nothing when there is no frame.
+ */
 static void PanicDumpCpuState(void)
 {
     if (!panic_fault_ctx.frame)
@@ -332,6 +430,11 @@ static void PanicDumpCpuState(void)
     }
 }
 
+/**
+ * @brief Print the BACKTRACE section and an addr2line command line for the recorded frames.
+ *
+ * @param[in] bt Backtrace to print.
+ */
 static void PanicPrintBt(FpBacktrace *bt)
 {
     char line[LINE_BUF];
@@ -362,6 +465,9 @@ static void PanicPrintBt(FpBacktrace *bt)
 }
 
 #ifdef CONFIG_PANIC_SECTION_PROCESS
+/**
+ * @brief Print the CURRENT SPACE section: task and space identity, address space, user stack, handle table, user trap frame and IPC state.
+ */
 static void PanicPrintSpace(void)
 {
     char line[LINE_BUF];
@@ -472,6 +578,9 @@ static void PanicPrintSpace(void)
 #endif /* CONFIG_PANIC_SECTION_PROCESS */
 
 #ifdef CONFIG_PANIC_SECTION_SCHEDULER
+/**
+ * @brief Print the SCHEDULER section: current task plus truncated ready and sleeping task lists.
+ */
 static void PanicDumpSched(void)
 {
     char line[LINE_BUF];
@@ -539,6 +648,9 @@ static void PanicDumpSched(void)
 #endif /* CONFIG_PANIC_SECTION_SCHEDULER */
 
 #ifdef CONFIG_PANIC_SECTION_IRQ
+/**
+ * @brief Print the IRQ / GIC section: priority mask, enabled IRQs with owners and pending IRQs.
+ */
 static void PanicPrintIrq(void)
 {
     char line[LINE_BUF];
@@ -611,6 +723,9 @@ static void PanicPrintIrq(void)
 #endif /* CONFIG_PANIC_SECTION_IRQ */
 
 #ifdef CONFIG_PANIC_SECTION_MEMORY
+/**
+ * @brief Print the MEMORY section: PMM page counts, heap usage and kernel stack bounds.
+ */
 static void PanicPrintMemoryStats(void)
 {
     char line[LINE_BUF];
@@ -649,6 +764,12 @@ static void PanicPrintMemoryStats(void)
 }
 #endif /* CONFIG_PANIC_SECTION_MEMORY */
 
+/**
+ * @brief Print the full panic screen, including the optional sections enabled by configuration.
+ *
+ * @param[in] reason Panic reason text, or NULL.
+ * @param[in] caller_ra Return address of the panic() caller.
+ */
 static void ConstructPanicScreen(const char *reason, void *caller_ra)
 {
     uart_putc('\a');
@@ -678,6 +799,7 @@ static void ConstructPanicScreen(const char *reason, void *caller_ra)
     PanicNewline();
 }
 
+/** @brief Set on first entry to panic(); a nested panic halts without printing. */
 static bool entered_panic = false;
 
 _Noreturn void __attribute__((cold)) panic(const char *fmt, ...)

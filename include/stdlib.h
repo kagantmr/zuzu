@@ -13,7 +13,14 @@
 extern "C" {
 #endif
 
-/** @brief Converts a decimal string to an integer; documented in convert.h. */
+/**
+ * @brief Converts a decimal string to an integer.
+ *
+ * Skips leading whitespace, accepts a sign, and stops at the first non-digit. No overflow check.
+ *
+ * @param[in] str The null-terminated string.
+ * @return The converted value.
+ */
 int atoi(const char *str);
 
 /**

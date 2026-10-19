@@ -1,3 +1,8 @@
+/**
+ * @file vmm_user.c
+ * @brief User-facing mapping operations: anonymous and object mappings, unmap, protect, and fault checks.
+ */
+
 #include "core/ensure.h"
 #include "core/panic.h"
 #include "kernel/mm/pmm/pmm.h"
@@ -46,6 +51,12 @@ Err VmmMapAnon(SpaceObject *space, VirtAddr hint, size_t size, MemProt prot, Vir
     return ZUZU_OK;
 }
 
+/**
+ * @brief Translate handle permissions into the widest protection a mapping may have.
+ *
+ * @param[in] perms Permissions held by the handle.
+ * @return Read always, plus write and execute if the handle allows them.
+ */
 static MemProt HandleProtLimit(HandlePerms perms)
 {
     return (MemProt)(PROT_READ | ((perms & PERM_WRITE) ? PROT_WRITE : 0) |

@@ -1,3 +1,8 @@
+/**
+ * @file syspage.c
+ * @brief Builds and updates the system information page.
+ */
+
 #include "syspage.h"
 #include "boot_info.h"
 #include "core/version.h"
@@ -8,9 +13,21 @@
 #include <string.h>
 #include <zuzu/syspage.h>
 
+/** @brief Kernel mapping of the syspage; NULL before SyspageInit(). */
 Syspage *g_sp;
+/** @brief Physical address of the syspage. */
 static PhysAddr g_syspage_pa;
 
+/**
+ * @brief BootInfoEnumerateDevs() callback that records a device name in the syspage.
+ *
+ * Only compatible strings with an "arm," or "smsc," vendor prefix are kept, minus Cortex CPU entries and duplicates. The name is upper-cased.
+ *
+ * @param[in] compatible The device's compatible string.
+ * @param[in] phys Unused.
+ * @param[in] size Unused.
+ * @param[in] irq Unused.
+ */
 static void DeviceCallback(const char *compatible, uint64_t phys, uint64_t size, uint32_t irq)
 {
     (void)phys;

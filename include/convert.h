@@ -24,16 +24,6 @@ extern "C" {
 int atoh(const char *str);
 
 /**
- * @brief Convert a decimal string to an integer.
- *
- * Skips leading whitespace, accepts a sign, and stops at the first non-digit. No overflow check.
- *
- * @param[in] str Pointer to the null-terminated string.
- * @return The converted integer value.
- */
-int atoi(const char *str);
-
-/**
  * @brief Convert a signed integer to a string.
  *
  * @param[in]  value Integer value to convert.

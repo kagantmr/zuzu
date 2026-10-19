@@ -1,3 +1,8 @@
+/**
+ * @file boot_info.c
+ * @brief Saves device tree information and builds the BootInfo page for userspace.
+ */
+
 #include "boot_info.h"
 #include "kernel/dev/fdt_wrappers.h"
 #include "kernel/mm/alloc.h"
@@ -11,9 +16,22 @@
 #define LOG_FMT(fmt) "(boot_info) " fmt
 #include "core/log.h"
 
+/** @brief Boot information saved from the device tree. */
 static KernelBootInfo g_boot_info = {0};
+/** @brief Physical address of the BootInfo page shared with userspace. */
 static PhysAddr g_bootinfo_pa;
 
+/**
+ * @brief FdtEnumerateDevices() callback that appends one device to the saved array.
+ *
+ * Also reads the node's second register block, if it has one.
+ *
+ * @param[in] compatible The device's compatible string; NULL is stored as empty.
+ * @param[in] path The node's path, used to look up the second register block; may be NULL.
+ * @param[in] phys Physical base of the first register block.
+ * @param[in] size Size of the first register block.
+ * @param[in] irq Interrupt number of the device.
+ */
 static void collect_dev_cb(const char *compatible, const char *path, uint64_t phys, uint64_t size,
                            uint32_t irq)
 {

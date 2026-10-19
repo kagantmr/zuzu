@@ -1,3 +1,7 @@
+/**
+ * @file pmm_pressure.c
+ * @brief Low-memory pressure detection and subscriber notification.
+ */
 #include "pmm_internal.h"
 
 #include "kernel/ipc/event.h"
@@ -5,17 +9,21 @@
 
 #include <zuzu/err.h>
 
+/** @brief Free-memory percentage below which subscribers are signalled. */
 #define LOW_WATER_PCT 20
+/** @brief Free-memory percentage above which memory pressure is cleared. */
 #define HIGH_WATER_PCT 30
 
 #define LOG_FMT(fmt) "(pmm) " fmt
 #include "util/log.h"
 
+/** @brief A low-memory subscriber entry. */
 typedef struct {
-    ListNode node;
-    EventObject *ev;
+    ListNode node;  /**< Link in pmm_subscribers. */
+    EventObject *ev; /**< Event to signal; a reference is held. */
 } PmmSubscriber;
 
+/** @brief List of PmmSubscriber entries. */
 ListHead pmm_subscribers;
 
 void PmmSignalSubscribers(void)

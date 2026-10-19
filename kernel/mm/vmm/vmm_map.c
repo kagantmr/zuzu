@@ -1,3 +1,8 @@
+/**
+ * @file vmm_map.c
+ * @brief Range mapping, unmapping, protection changes, and address space activation.
+ */
+
 #include "vmm_internal.h"
 
 #include "kernel/mm/pmm/pmm.h"
