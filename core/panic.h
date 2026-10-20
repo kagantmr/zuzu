@@ -11,8 +11,8 @@
 /** @brief Fault details recorded by an exception handler so the panic screen can print them. */
 typedef struct {
     int valid;                  /**< Non-zero when the remaining fields describe a real fault. */
-    uint32_t far;               /**< Fault address register value. */
-    uint32_t fsr;               /**< Fault status register value. */
+    Register far;               /**< Fault address register value. */
+    Register fsr;               /**< Fault status register value. */
     const char *fault_type;     /**< Short fault class name, or NULL. */
     const char *fault_decoded;  /**< Human-readable decoding of the status, or NULL. */
     const char *access_type;    /**< Kind of access that faulted (for example read or write), or NULL. */
