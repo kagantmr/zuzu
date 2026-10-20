@@ -23,19 +23,19 @@
  * @param[in]  max_depth      Capacity of @p out.
  * @return The number of addresses stored.
  */
-static inline size_t ArchBacktraceWalk(Register fp, Register kernel_va_base, uint32_t *out,
+static inline size_t ArchBacktraceWalk(Register fp, Register kernel_va_base, uintptr_t *out,
                                        size_t max_depth)
 {
     size_t depth = 0;
-    uint32_t cur = (uint32_t)fp;
-    uint32_t base = (uint32_t)kernel_va_base;
+    uintptr_t cur = (uintptr_t)fp;
+    uintptr_t base = (uintptr_t)kernel_va_base;
 
     while (depth < max_depth) {
-        if (cur == 0 || (cur & 0x3u) || cur < base)
+        if (cur == 0 || (cur & 0x3U) || cur < base)
             break;
-        uint32_t lr = *(uint32_t *)(uintptr_t)cur;
+        uintptr_t lr = *(uintptr_t *)cur;
         out[depth++] = lr;
-        uint32_t prev = *(uint32_t *)(uintptr_t)(cur - 4);
+        uintptr_t prev = *(uintptr_t *)(cur - 4);
         if (prev <= cur)
             break;
         cur = prev;
