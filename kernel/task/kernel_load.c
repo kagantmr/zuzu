@@ -1,3 +1,8 @@
+/**
+ * @file kernel_load.c
+ * @brief Kernel task loader implementation.
+ */
+
 #include "kernel_load.h"
 
 #include "kernel/mm/alloc.h"
@@ -19,6 +24,15 @@
 #define LOG_FMT(fmt) "(kload) " fmt
 #include "core/log.h"
 
+/**
+ * @brief Check if two ZXF segments @p a and @p b overlap.
+ * 
+ * @param[in] a The first ZXF segment
+ * @param[in] b The second ZXF segment.
+ * 
+ * @return bool
+ * @retval true If the segments do overlap.
+ */
 static bool ZxfSegChkOverlap(const ZXFSegment *a, const ZXFSegment *b)
 {
     uint32_t a_start = (uint32_t)a->vaddr;
@@ -32,8 +46,16 @@ static bool ZxfSegChkOverlap(const ZXFSegment *a, const ZXFSegment *b)
     return (a_start < b_end) && (b_start < a_end);
 }
 
-/* Copy into another address space through the kernel alias of each page.
- * The target pages must already be faulted in (see VmmCheckUserFault). */
+/**
+ * @brief Copy out from a buffer into a target space at a certain address relative to that space.
+ * 
+ * @param[in] as The address space to inject.
+ * @param[in] va The VA to inject the data at.
+ * @param[in] src The buffer to read from.
+ * @param[in] len The length of the data.
+ * 
+ * @return bool
+ */
 static bool AddrSpaceCopyOut(AddressSpace *as, VirtAddr va, const void *src, size_t len)
 {
     const uint8_t *s = src;
@@ -54,13 +76,14 @@ static bool AddrSpaceCopyOut(AddressSpace *as, VirtAddr va, const void *src, siz
     return true;
 }
 
-/* On failure after Space+Task were both created: torn_down teardown of
- * everything the space owns, then free the (never-launched) task itself,
- * which in turn frees the now-empty space via SpaceFinalize. */
-static void KernelLoadFail(SpaceObject *sp, TaskObject *t)
+/**
+ * @brief Fail the kernel loading of a space.
+ * 
+ * @param[in] sp The space to fail.
+ */
+static void KernelLoadFail(SpaceObject *sp)
 {
     SpaceDestroy(sp);
-    TaskDestroy(t);
 }
 
 SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *name,
@@ -78,8 +101,7 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
     p->max_prio = SCHED_PRIORITY_LEVELS - 1;
     TaskObject *t = TaskCreate(p);
     if (!t) {
-        /* p->tasks is still empty here, so SpaceDestroy's own finalize
-         * check frees p immediately -- no separate SpaceFinalize call. */
+        
         SpaceDestroy(p);
         return NULL;
     }
@@ -95,7 +117,7 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
                 KERROR("ZXF load segments overlap: [%08X, %08X) and [%08X, %08X)", seg_i->vaddr,
                        seg_i->vaddr + seg_i->mem_size, seg_j->vaddr,
                        seg_j->vaddr + seg_j->mem_size);
-                KernelLoadFail(p, t);
+                KernelLoadFail(p);
                 return NULL;
             }
         }
@@ -104,13 +126,10 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
     for (int i = 0; i < img.seg_count; i++) {
         const ZXFSegment *seg = &img.segs[i];
         if (seg->file_offset + seg->file_size > zxf_size) {
-            KernelLoadFail(p, t);
+            KernelLoadFail(p);
             return NULL;
         }
-        /* [filesz, memsz) is BSS: zero by definition, with no file
-         * content behind it. Only [0, page_align_up(filesz)) needs an
-         * eager alloc+copy; the rest is registered as anon and faults
-         * in lazily on first touch, same as the stack reserve. */
+        
         size_t file_pages = (seg->file_size + PAGE_SIZE - 1) / PAGE_SIZE;
         size_t mem_pages = (seg->mem_size + PAGE_SIZE - 1) / PAGE_SIZE;
 
@@ -118,7 +137,7 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
         if (file_pages > 0) {
             segment_pages = KMalloc(file_pages * sizeof(uintptr_t));
             if (!segment_pages) {
-                KernelLoadFail(p, t);
+                KernelLoadFail(p);
                 return NULL;
             }
         }
@@ -140,17 +159,12 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
                     PmmFreeFrame(segment_pages[j]);
                 }
                 KFree(segment_pages);
-                KernelLoadFail(p, t);
+                KernelLoadFail(p);
                 return NULL;
             }
 
             segment_pages[page] = page_pa;
 
-            /* Every page here is < file_pages, so file_offset < p_filesz
-             * always holds; the page containing p_filesz (the boundary
-             * page) is part file content, part BSS, so the tail past
-             * p_filesz must be explicitly zeroed - PmmAllocFrame() can
-             * return a recycled frame with arbitrary contents. */
             VirtAddr file_offset = page * PAGE_SIZE;
             size_t bytes_to_copy = seg->file_size - file_offset;
             if (bytes_to_copy > PAGE_SIZE)
@@ -172,17 +186,11 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
                     PmmFreeFrame(segment_pages[j]);
                 }
                 KFree(segment_pages);
-                KernelLoadFail(p, t);
+                KernelLoadFail(p);
                 return NULL;
             }
         }
 
-        /* Publish the code through the kernel alias, not seg->vaddr: that is a
-         * VA in p->as, which is not the active translation regime here, and
-         * cache maintenance by VA takes a translation fault when the address
-         * does not translate (DFSR.CM). QEMU does not model that, so this only
-         * ever showed up on real hardware. The I-cache is invalidated whole
-         * rather than by VA for the same reason. */
         if ((prot & PROT_EXEC) && file_pages > 0) {
             for (uint32_t page = 0; page < file_pages; page++)
                 ArchCacheCleanDcacheRangePou(PA_TO_VA(segment_pages[page]), PAGE_SIZE);
@@ -206,7 +214,7 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
                     PmmFreeFrame(segment_pages[j]);
                 }
                 KFree(segment_pages);
-                KernelLoadFail(p, t);
+                KernelLoadFail(p);
                 return NULL;
             }
 
@@ -224,14 +232,12 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
             };
             if (!VmmAddRegion(p->as, &bss_region)) {
                 KERROR("Failed to add BSS region at VA %08X", bss_region.vaddr_start);
-                KernelLoadFail(p, t);
+                KernelLoadFail(p);
                 return NULL;
             }
         }
     }
 
-    /* Stack region + guard were reserved by SpaceCreate; pages fault
-     * in on demand. */
     const VirtAddr user_stack_base = USER_STACK_BASE;
 
     VirtAddr sp = USR_SP;
@@ -239,14 +245,14 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
 
     if ((argc > 0) != (argbuf && argbuf_len > 0)) {
         KERROR("Invalid argv payload: argc=%u argbuf_len=%u", argc, (unsigned)argbuf_len);
-        KernelLoadFail(p, t);
+        KernelLoadFail(p);
         return NULL;
     }
 
     if (argbuf && argbuf_len > 0 && argc > 0) {
         if ((argbuf)[argbuf_len - 1] != '\0') {
             KERROR("Invalid argv payload: missing trailing NUL");
-            KernelLoadFail(p, t);
+            KernelLoadFail(p);
             return NULL;
         }
 
@@ -258,28 +264,28 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
         }
         if (nul_count < argc) {
             KERROR("Invalid argv payload: argc exceeds NUL-delimited strings");
-            KernelLoadFail(p, t);
+            KernelLoadFail(p);
             return NULL;
         }
 
         size_t argv_slots = (size_t)argc + 1U;
         if (argv_slots <= (size_t)argc) {
             KERROR("Invalid argv payload: argc too large");
-            KernelLoadFail(p, t);
+            KernelLoadFail(p);
             return NULL;
         }
 
         size_t argv_bytes = argv_slots * sizeof(uint32_t);
         if (argv_bytes / sizeof(uint32_t) != argv_slots) {
             KERROR("Invalid argv payload: argv bytes overflow");
-            KernelLoadFail(p, t);
+            KernelLoadFail(p);
             return NULL;
         }
         VirtAddr check_sp = USR_SP;
 
         if (argbuf_len > (size_t)(check_sp - user_stack_base)) {
             KERROR("argv payload does not fit user stack");
-            KernelLoadFail(p, t);
+            KernelLoadFail(p);
             return NULL;
         }
 
@@ -288,7 +294,7 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
 
         if (argv_bytes > (size_t)(check_sp - user_stack_base)) {
             KERROR("argv pointer array does not fit user stack");
-            KernelLoadFail(p, t);
+            KernelLoadFail(p);
             return NULL;
         }
 
@@ -297,7 +303,7 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
 
         if (check_sp < user_stack_base) {
             KERROR("argv layout underflowed user stack");
-            KernelLoadFail(p, t);
+            KernelLoadFail(p);
             return NULL;
         }
 
@@ -309,26 +315,23 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
         sp &= ~7U;
         argv_va = sp;
 
-        /* Fault in the stack pages the argv block spans, then write them
-         * through the kernel alias (the target AS is not active here). */
         if (!VmmCheckUserFault(p->as, argv_va, (size_t)(USR_SP - argv_va), true)) {
             KERROR("failed to fault in argv stack pages");
-            KernelLoadFail(p, t);
+            KernelLoadFail(p);
             return NULL;
         }
 
         if (!AddrSpaceCopyOut(p->as, strings_va, argbuf, argbuf_len)) {
-            KernelLoadFail(p, t);
+            KernelLoadFail(p);
             return NULL;
         }
 
-        /* String offsets in the target stack mirror offsets in argbuf. */
         VirtAddr str_va = strings_va;
         const char *str_src = argbuf;
         for (uint32_t a = 0; a <= argc; a++) {
             uint32_t slot = (a < argc) ? (uint32_t)str_va : 0;
             if (!AddrSpaceCopyOut(p->as, argv_va + (a * sizeof(uint32_t)), &slot, sizeof(slot))) {
-                KernelLoadFail(p, t);
+                KernelLoadFail(p);
                 return NULL;
             }
             if (a < argc) {
@@ -342,14 +345,10 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
     if (!leave_frozen) {
         t->kernel_sp =
             (uint32_t *)ArchTaskUserInit((void *)stack_top, (uintptr_t)img.entry, (uintptr_t)sp,
-                                         USER_ELF_BASE, argc, (uint32_t)argv_va, &t->trap_frame);
+                                         USER_ELF_BASE, argc, (uint32_t)argv_va);
         t->state = TASK_STATE_READY;
     }
-    /* leave_frozen: task stays TASK_STATE_FROZEN (TaskCreate's default) with no
-     * trap frame set up yet. The caller is expected to start it later with
-     * MNGTASK_START, which performs the deferred ArchTaskUserInit
-     * call with the entry/sp it supplies at that time. */
-
+    
     KTRACE("space create: spid=%d name=%s tid=%u owner_task=%p as=%p", p->spid, p->name, t->tid,
            (void *)t, (void *)p->as);
     return p;

@@ -1,23 +1,26 @@
-// arch_impl/cpu.h - ARM CPU / interrupt-flag control (architecture-private).
-//
-// Do not include directly from neutral code; include <arch/cpu.h> instead.
+/**
+ * @file
+ * @brief ARMv7-A CPU control.
+ */
 
 #ifndef ARCH_ARM_IMPL_CPU_H
 #define ARCH_ARM_IMPL_CPU_H
 
 #include <stdint.h>
 
+/** @brief A saved CPSR, as returned by ArchIrqSave(). */
 typedef uint32_t Cpsr;
 
-/** Disable global IRQs (cpsid i). */
+/** @brief Masks IRQs on this CPU (cpsid i). */
 static inline void ArchGlobalIrqDisable(void) { __asm__ volatile("cpsid i" ::: "memory"); }
 
-/** Enable global IRQs (cpsie i). */
+/** @brief Unmasks IRQs on this CPU (cpsie i). */
 static inline void ArchGlobalIrqEnable(void) { __asm__ volatile("cpsie i" ::: "memory"); }
 
 /**
- * Save Cpsr and disable IRQs, returning the previous state for restoration.
- * @return The previous Cpsr value before disabling IRQs.
+ * @brief Masks IRQs and returns the previous CPSR, for ArchIrqRestore().
+ *
+ * @return The CPSR before masking.
  */
 static inline Cpsr ArchIrqSave(void)
 {
@@ -28,12 +31,35 @@ static inline Cpsr ArchIrqSave(void)
 }
 
 /**
- * Restore the Cpsr to re-enable IRQs if they were previously enabled.
- * @param state The Cpsr value to restore, typically from ArchIrqSave().
+ * @brief Restores the IRQ mask saved by ArchIrqSave().
+ *
+ * @param[in] state Value returned by ArchIrqSave().
  */
 static inline void ArchIrqRestore(Cpsr state)
 {
     __asm__ volatile("msr cpsr_c, %0" ::"r"(state) : "memory");
+}
+
+/** @brief Waits for an interrupt (wfi). */
+static inline void ArchCpuIdle(void) { __asm__ volatile("wfi" ::: "memory"); }
+
+/** @brief Loops on wfi forever. Does not mask interrupts itself. */
+static inline _Noreturn void ArchCpuHalt(void)
+{
+    for (;;)
+        __asm__ volatile("wfi" ::: "memory");
+}
+
+/**
+ * @brief Reads the stack pointer of the current mode.
+ *
+ * @return The current sp.
+ */
+static inline uintptr_t ArchCurrentStackPointer(void)
+{
+    uintptr_t sp;
+    __asm__ volatile("mov %0, sp" : "=r"(sp));
+    return sp;
 }
 
 #endif // ARCH_ARM_IMPL_CPU_H

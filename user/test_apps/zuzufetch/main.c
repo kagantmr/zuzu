@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <util/version.h>
 #include <zuzu/syspage.h>
+#include <zuzu/uptime.h>
 #include <zuzu/zuzu.h>
 
 #define LOGO_WIDTH 50
@@ -83,7 +84,7 @@ static int build_info(char info[][INFO_LINE_LEN])
     n++;
 
     /* uptime */
-    (void)snprintf(tmp, sizeof(tmp), "%llu s", sp->uptime_ticks / sp->tick_hz);
+    (void)snprintf(tmp, sizeof(tmp), "%llu s", (unsigned long long)(UptimeMs() / 1000u));
     fmt_kv(info[n], INFO_LINE_LEN, "Uptime:", tmp);
     n++;
 

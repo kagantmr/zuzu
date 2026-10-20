@@ -1,92 +1,68 @@
 /**
  * @file zone.h
- * @brief Notification-based zones (zuzuOS user-space mutex).
- *
- * A zone provides mutual exclusion between threads of a process. Uncontended
- * enter/exit is a single atomic op; contended waiters block on a kernel
- * event object rather than spinning.
+ * @brief Critical zone synchronization utilities.
  */
 
-#ifndef ZUZU_SYNC_ZONE
-#define ZUZU_SYNC_ZONE
+#ifndef ZUZU_SYNC_ZONE_H
+#define ZUZU_SYNC_ZONE_H
 
 #include "zuzu/err.h"
 #include <stdatomic.h>
 #include <types.h>
 
 /**
- * @defgroup sync_zone Zone
- * @ingroup sync
- * @brief Mutual exclusion for zuzu user-space threads.
- * @{
- */
-
-/**
- * @brief An initialised zone.
- *
- * Treat as opaque since layout may change. Zero-initialisation is *not* a valid
- * unlocked state, always call @ref ZoneInit.
+ * @brief Struct describing a zone.
  */
 typedef struct {
-    Tid owner;          ///< Owning thread while locked; undefined when unlocked.
-    _Atomic int locked; ///< 0 = free, 1 = held. Contended waiters spin-check then block.
-    Handle event;       ///< Kernel event object waiters block on.
+    Tid owner; /**< Current owner. -1 means no owner. */
+    _Atomic int locked; /**< Atomic integer showing the zone is entered. */
+    Handle event; /**< On contention, the event to use. */
 } Zone;
 
 /**
- * @brief Initialise a zone to the unlocked state.
- * @param z  Storage for the zone. Contents are overwritten.
- * @return @c ERR_OK on success.
- * @retval ERR_INVAL  @p z is NULL.
- * @retval ERR_NOMEM  Could not allocate the backing event object.
+ * @brief Create a Zone.
+ * 
+ * @param[in] z Pointer to a zone object to initialize.
+ * @return ZUZU_OK on success, negative error code if the Event object couldn't be created.
  */
 Err ZoneInit(Zone *z);
 
 /**
- * @brief Release a zone and its backing event object.
- *
- * The zone must be unlocked and have no waiters. Using @p z afterwards is
- * UB.
- *
- * @param z  Zone to destroy.
- * @return @c ERR_OK on success.
- * @retval ERR_INVAL  @p z is NULL or uninitialised.
- * @retval ERR_BUSY   The zone is held or has waiters.
+ * @brief Destroy a Zone.
+ * 
+ * @param[in] z Pointer to a zone object to destroy.
+ * @return ZUZU_OK on success, negative error code if the Event object couldn't be destroyed.
  */
 Err ZoneDestroy(Zone *z);
 
 /**
- * @brief Acquire the zone, blocking until it is free.
- * @param z  Initialised zone.
- * @return @c ERR_OK once the zone is held by the caller.
- * @retval ERR_INVAL  @p z is NULL or uninitialised.
- * @retval ERR_DEAD   Backing event object was destroyed.
- * @note Blocking. Recursive entry by the owner is undefined behaviour.
- * @see ZoneExit, ZoneTryEnter
+ * @brief Try entering a Zone and block if it is occupied.
+ * 
+ * @param[in] z The zone to enter to.
+ * @return ZUZU_OK on success.
  */
 Err ZoneEnter(Zone *z);
 
 /**
- * @brief Release the zone, waking one waiter if any.
- * @param z  Zone currently held by the caller.
- * @return @c ERR_OK on success.
- * @retval ERR_INVAL  @p z is NULL or uninitialised.
- * @retval ERR_PERM   The calling thread is not the owner.
- * @see ZoneEnter
+ * @brief Exit a Zone.
+ * 
+ * @param[in] z The zone to exit from.
  */
-Err ZoneExit(Zone *z);
+void ZoneExit(Zone *z);
 
 /**
- * @brief Try to acquire the zone without blocking.
- * @param z  Initialised zone.
- * @return @c ERR_OK if the zone was acquired.
- * @retval ERR_BUSY   The zone is currently held.
- * @retval ERR_INVAL  @p z is NULL or uninitialised.
- * @see ZoneEnter
+ * @brief Try entering a Zone and return with an error if occupied.
+ * 
+ * @param[in] z The zone to enter to.
+ * @return ZUZU_OK on success, ERR_BUSY if the zone is occupied.
  */
 Err ZoneTryEnter(Zone *z);
 
-/// Release callback for the @ref IN_ZONE cleanup attribute. @private
+/** 
+ * @brief Helper for IN_ZONE macro.
+ * 
+ * @param[in] zp Pointer to a pointer to a zone.
+ */
 static inline void _ZoneCleanup(Zone **zp)
 {
     if (*zp)
@@ -94,23 +70,11 @@ static inline void _ZoneCleanup(Zone **zp)
 }
 
 /**
- * @brief Scoped zone guard: acquire now, release when the block exits.
- *
- * @param zptr  Pointer to an initialised @ref Zone.
- *
- * @code
- * IN_ZONE(&z) {
- *     // critical section; zone released on any exit from this block
- * }
- * @endcode
- *
- * @warning Do not @c longjmp or thread-exit out of the block.
+ * @brief Zone enter and exit wrapper.
  */
 #define IN_ZONE(zptr)                                                                              \
     for (Zone * _zone_guard __attribute__((cleanup(_ZoneCleanup))) = (ZoneEnter(zptr), (zptr)),    \
                             *_zone_once = _zone_guard;                                             \
          _zone_once; _zone_once = NULL)
 
-/** @} */ // sync_zone
-
-#endif /* ZUZU_SYNC_ZONE */
+#endif /* ZUZU_SYNC_ZONE_H */

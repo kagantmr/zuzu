@@ -1,16 +1,21 @@
-// arch/platform.h - Neutral platform/device bring-up contract.
-//
-// Discover and initialize the platform's core devices (console UART, interrupt
-// controller, timer, RTC, ...). On ARM this is DTB-driven and board-independent.
+/**
+ * @file
+ * @brief Board bring-up hooks the kernel calls during early boot.
+ */
 
 #ifndef ARCH_PLATFORM_H
 #define ARCH_PLATFORM_H
 
-/** Discover and initialize platform devices. Called once during early boot. */
+/** @brief Probes and starts the board's devices from the device tree. */
 void ArchPlatformInitDevices(void);
 
-/** Best-effort console character output usable from the top of early boot,
- * before device discovery. arch/arm/platform.c writes the board's UART0. */
-void arch_early_putc(char c);
+/**
+ * @brief Writes one character to the boot UART by polling, before any console driver runs.
+ *
+ * A '\n' is sent as "\r\n".
+ *
+ * @param[in] c Character to write.
+ */
+void ArchEarlyPutc(char c);
 
 #endif // ARCH_PLATFORM_H

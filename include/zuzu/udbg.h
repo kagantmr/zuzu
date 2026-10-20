@@ -1,12 +1,6 @@
-/** udbg.h -- DEBUG-only userspace -> kernel-console logging.
- *
- * Writes straight to the kernel console via the retired 0x02 syscall slot, so
- * it works from the very first instruction of any process -- including sysd
- * and devmgr, which run long before pl011drv exists and therefore have no tty
- * to print to. Compiled out entirely unless DEBUG is defined.
- *
- * This is a debugging aid, not ABI: it is absent from release builds and must
- * never be depended on by shipped code.
+/**
+ * @file udbg.h
+ * @brief Userspace debug logging through the kernel console.
  */
 
 #ifndef ZUZU_UDBG_H
@@ -20,8 +14,12 @@
 extern "C" {
 #endif
 
-/* Off for now; build with -DUDBG_ENABLED=1 (or flip this default) to get the
- * [udbg spid=N] lines back. */
+/**
+ * @brief Per-file switch for UserspaceDebugLog().
+ *
+ * Define this to 1 before including the header to turn logging on in that file. Logging is
+ * compiled in only when this is 1 and the build defines DEBUG; otherwise calls compile to nothing.
+ */
 #ifndef UDBG_ENABLED
 #define UDBG_ENABLED 0
 #endif
@@ -31,7 +29,15 @@ extern "C" {
 #include <stdarg.h>
 #include <stdio.h>
 
-/** Emit one line to the kernel console. Truncated past ~240 bytes. */
+/**
+ * @brief Format a message and send it to the kernel console.
+ *
+ * Messages longer than 239 characters are truncated. In builds without DEBUG, or in files that
+ * do not define UDBG_ENABLED as 1, this does nothing.
+ *
+ * @param[in] fmt A printf-style format string.
+ * @param[in] ... The values to format.
+ */
 static inline void UserspaceDebugLog(const char *fmt, ...)
 {
     char line[240];
@@ -45,8 +51,14 @@ static inline void UserspaceDebugLog(const char *fmt, ...)
     ArchInvokeSvc(SVC_LOG, (uint32_t)(uintptr_t)line, (Register)len, 0, 0);
 }
 
-#else /* !DEBUG */
+#else
 
+/**
+ * @brief Disabled form of UserspaceDebugLog(); does nothing.
+ *
+ * @param[in] fmt Ignored.
+ * @param[in] ... Ignored.
+ */
 static inline void UserspaceDebugLog(const char *fmt, ...) { (void)fmt; }
 
 #endif /* DEBUG */

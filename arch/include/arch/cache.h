@@ -1,7 +1,7 @@
-// arch/cache.h - Neutral cache-maintenance contract.
-//
-// Used around code loading (ZXF) and DMA-visible memory to keep the I/D caches
-// coherent with main memory.
+/**
+ * @file cache.h
+ * @brief Definition of cache functions.
+ */
 
 #ifndef ARCH_CACHE_H
 #define ARCH_CACHE_H
@@ -9,19 +9,33 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/** Clean (write back) D-cache lines to PoU covering [start, start+size). */
+/**
+ * @brief Clean the D-Cache range to the Point of Unity (PoU).
+ * 
+ * @param[in] start The start address to wipe from the cache.
+ * @param[in] size The size of the block the wipe from the cache.
+ */
 void ArchCacheCleanDcacheRangePou(uintptr_t start, size_t size);
 
-/** Invalidate the whole I-cache (and branch predictor) to the point of
- *  unification. Address-independent, so it is the safe counterpart when the
- *  code being published is only reachable through a kernel alias. */
+/**
+ * @brief Invalidate all of the I-cache.
+ */
 void ArchCacheInvalidateIcacheAll(void);
 
-/** Clean and invalidate D-cache lines to PoC covering [start, start+size). */
+/**
+ * @brief Clean the D-Cache range to the Point of Coherence (PoC).
+ * 
+ * @param[in] start The start address to wipe from the cache.
+ * @param[in] size The size of the block the wipe from the cache.
+ */
 void ArchCacheCleanInvalidateDcacheRange(uintptr_t start, size_t size);
 
-/** Invalidate D-cache lines to PoC covering [start, start+size). Discards dirty
- *  data, so the range must be cache-line aligned. */
+/**
+ * @brief Invalidate the D-Cache range.
+ * 
+ * @param[in] start The start address to wipe from the cache.
+ * @param[in] size The size of the block the wipe from the cache.
+ */
 void ArchCacheInvalidateDcacheRange(uintptr_t start, size_t size);
 
 #endif // ARCH_CACHE_H

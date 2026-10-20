@@ -1,7 +1,13 @@
+/**
+ * @file handle.c
+ * @brief Handle utilities implementation
+ */
+
 #include "handle.h"
 #include "core/ensure.h"
 #include "kernel/ipc/event.h"
 #include "kernel/ipc/port.h"
+#include "kernel/irq/irq_relay.h"
 #include "kernel/mm/mem_object.h"
 #include "kernel/task/task.h"
 #include "space.h"
@@ -50,6 +56,27 @@ Err HandleCopyInto(HandleTable *dst_table, HandleTableEntry *src, HandlePerms pe
     return ZUZU_OK;
 }
 
+/**
+ * @brief Check if the handle table holds a memory object @p mem, except @p except.
+ * 
+ * @param[in] t The table to check.
+ * @param[in] mem The memory object to match.
+ * @param[in] except The exception handle entry.
+ * 
+ * @return bool
+ * @retval true If the conditions are met.
+ */
+static bool HandleTableHoldsMem(HandleTable *t, const MemObject *mem,
+                                const HandleTableEntry *except)
+{
+    for (Handle i = 0; i < (Handle)HANDLE_MAX_SLOTS; i++) {
+        HandleTableEntry *e = HandleTableGet(t, i);
+        if (e && e != except && e->type == HANDLE_MEM && e->mem == mem)
+            return true;
+    }
+    return false;
+}
+
 void HandleRelease(SpaceObject *sp, HandleTableEntry *entry)
 {
     switch (entry->type) {
@@ -59,9 +86,14 @@ void HandleRelease(SpaceObject *sp, HandleTableEntry *entry)
     case HANDLE_EVENT:
         EventUnref(entry->event);
         break;
-    case HANDLE_MEM:
-        MemObjUnmapAndDrop(sp->as, entry->mapped_va, entry->mem);
-        break;
+    case HANDLE_MEM: {
+        MemObject *mem = entry->mem;
+        bool device = mem && mem->kind == MEMKIND_DEVICE;
+        Irq irq = device ? mem->dev.irq : 0;
+        MemObjUnmapAndDrop(sp->as, entry->mapped_va, mem);
+        if (device && !HandleTableHoldsMem(&sp->handle_table, mem, entry))
+            IrqRelease(sp, irq);
+    } break;
     case HANDLE_TASK:
         TaskUnref(entry->task);
         break;

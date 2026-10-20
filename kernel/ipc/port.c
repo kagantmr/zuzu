@@ -1,3 +1,8 @@
+/**
+ * @file port.c
+ * @brief Port functions implementation.
+ */
+
 #include "port.h"
 #include "core/ensure.h"
 #include "kernel/ipc/msg.h"
@@ -6,8 +11,16 @@
 #include "kernel/space/space.h"
 #include <zuzu/err.h>
 
+/**
+ * @brief Slab cache to allocate ports fast.
+ */
 static KSlabCache port_cache;
 
+/**
+ * @brief Allocate a port object from its slab cache.
+ *
+ * @return PortObject*
+ */
 static PortObject *PortObjAlloc(void)
 {
     if (!port_cache.obj_size)
@@ -15,6 +28,11 @@ static PortObject *PortObjAlloc(void)
     return KSlabAlloc(&port_cache);
 }
 
+/**
+ * @brief Free a port object.
+ *
+ * @param[in] port The port to free.
+ */
 static void PortObjFree(PortObject *port) { KSlabFree(&port_cache, port); }
 
 PortObject *PortCreate(SpaceObject *owner)
@@ -25,6 +43,7 @@ PortObject *PortCreate(SpaceObject *owner)
     ListInit(&new_port->sender_queue);
     ListInit(&new_port->receiver_queue);
     ListInit(&new_port->active_servers);
+    new_port->held = NULL;
     new_port->owner_spid = owner->spid;
     new_port->ref_count = 1;
     new_port->alive = true;
@@ -58,6 +77,17 @@ void PortKill(PortObject *port)
         TaskRecomputePriority(server);
     }
 
+    if (port->held) {
+        for (uint32_t i = 0; i < PORT_HELD_SLOTS; i++) {
+            TaskObject *c = port->held[i].caller;
+            if (!c)
+                continue;
+            port->held[i].caller = NULL;
+            c->held_port = NULL;
+            TaskAbortWait(c, ERR_DEAD);
+        }
+    }
+
     ObserverNotify(&port->observers);
 }
 
@@ -71,6 +101,7 @@ void PortUnref(PortObject *port)
         return;
     PortKill(port);
     ObserverClear(&port->observers);
+    KFree(port->held);
     PortObjFree(port);
 }
 

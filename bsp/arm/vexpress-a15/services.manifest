@@ -1,0 +1,9 @@
+# zuzu SD services manifest, staged to /etc/services.manifest
+# format: <program>|<role>[:flags][|<service-path>]  (same as boot.manifest)
+# Spawned by rootsvc once /svc/fsd is up; programs are staged into /sbin.
+# A service-path is awaited before the initrd's "late" entries are spawned.
+# An entry whose name already runs from the initrd is skipped.
+
+sbin/lan9118drv|none:prio=5,maxprio=5
+sbin/netd|none:prio=4,maxprio=4|/svc/netd
+sbin/pl111drv|none:prio=1,maxprio=1

@@ -1,22 +1,21 @@
-// compiler.h - branch/placement hints shared by kernel and userspace.
-//
-// likely()/unlikely() steer the branch predictor and let the compiler lay
-// out the fast path fall-through with the slow path/error path pushed out
-// of line. __hot/__cold bias whole-function placement and inlining
-// priority the same way, for functions too big to wrap every branch in
-// likely()/unlikely() individually. __always_inline forces a call site to
-// disappear entirely (right for tiny leaves called from a hot loop, wrong
-// for anything with its own loop or non-trivial body). __noinline is the
-// opposite: keep a rarely-taken function out-of-line so it doesn't bloat
-// the icache footprint of every hot caller that happens to reach it.
+/**
+ * @file
+ * @brief Branch and placement hints shared by the kernel and userspace.
+ */
 
 #ifndef ZUZU_COMPILER_H
 #define ZUZU_COMPILER_H
 
+/**
+ * @brief Hints that @p x is usually true, so the compiler lays out that path as the fall-through.
+ */
 #define likely(x) __builtin_expect(!!(x), 1)
+/** @brief Hints that @p x is usually false, moving that path out of line. */
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
+/** @brief Marks a function as hot: optimized harder and placed with other hot code. */
 #define __hot __attribute__((hot))
+/** @brief Inlines a function at every call site; for tiny leaves on hot paths. */
 #define __always_inline __attribute__((always_inline)) inline
 
 #endif /* ZUZU_COMPILER_H */

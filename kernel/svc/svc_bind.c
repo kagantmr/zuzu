@@ -1,3 +1,8 @@
+/**
+ * @file svc_bind.c
+ * @brief Implementation of the Bind() svc.
+ */
+
 #include "core/ensure.h"
 #include "kernel/ipc/observer.h"
 #include "kernel/ipc/port.h"
@@ -9,11 +14,29 @@
 #include <types.h>
 #include <zuzu/err.h>
 
+/**
+ * @brief Represents a Bind() target.
+ */
 typedef struct {
-    ObserverSet *set; /* NULL: the object is already released, nothing to attach to */
-    bool ready;       /* its condition (dead / hollow / has a pending caller) already holds */
+    ObserverSet *set; /**< Set of observers to bind into. */
+    bool ready;       /**< If the target is ready. */
 } BindTarget;
 
+/**
+ * @brief Finds and validates the target of the Bind().
+ * 
+ * @param[in] type The type of event to bind.
+ * @param[in] h The handle to bind to.
+ * @param[in] bit The bit to bind to.
+ * @param[out] out The validated binding target.
+ * 
+ * @return Err
+ * @retval ERR_BADHANDLE This handle is invalid.
+ * @retval ERR_BADTYPE   This handle cannot be bound to.
+ * @retval ERR_NOPERM    You do not have the permissions to bind to this.
+ * @retval ERR_BADARG    This bit is reserved.
+ * @retval ERR_DEAD      The port you are trying to bind to has died.
+ */
 static Err BindLookupTarget(EventType type, Handle h, uint32_t bit, BindTarget *out)
 {
     HandleType want = (type == EVENT_PORT)   ? HANDLE_PORT
@@ -42,7 +65,6 @@ static Err BindLookupTarget(EventType type, Handle h, uint32_t bit, BindTarget *
         TaskObject *task = entry->task;
         if (!task)
             return ERR_BADHANDLE;
-        /* A released task is never cleaned up again: an observer added now would leak. */
         *out = (BindTarget){task->released ? NULL : &task->observers, TaskIsDead(task)};
     } break;
     default: {
@@ -81,12 +103,13 @@ void SvcBind(CpuState *frame)
         HandleTableEntry *dev_entry = HandleTableLookup(&CURRENT_SPACE->handle_table, dev_handle);
 
         ENSURE_ERR(frame, dev_entry, ERR_BADHANDLE);
-        ENSURE_ERR(frame, (dev_entry->type == HANDLE_MEM && dev_entry->mem->kind == MEMKIND_DEVICE),
-                   ERR_BADTYPE);
+        ENSURE_ERR(frame, dev_entry->type == HANDLE_MEM, ERR_BADTYPE);
 
         MemObject *dev_mem_obj = dev_entry->mem;
 
         ENSURE_ERR(frame, (dev_mem_obj), ERR_BADHANDLE);
+        ENSURE_ERR(frame, dev_mem_obj->kind == MEMKIND_DEVICE, ERR_BADTYPE);
+        ENSURE_ERR(frame, dev_entry->perms & PERM_MAP, ERR_NOPERM);
 
         ENSURE_ERR(frame, IrqIsValid(dev_mem_obj->dev.irq), ERR_BADARG);
         ENSURE_ERR(frame, (bit < 31U), ERR_BADARG);
@@ -102,7 +125,6 @@ void SvcBind(CpuState *frame)
         Err rc = BindLookupTarget(event_type, h, bit, &target);
         if (rc == ZUZU_OK && target.set)
             rc = ObserverAdd(target.set, ev, bit);
-        /* Only the new observer hears about a condition that already holds. */
         if (rc == ZUZU_OK && target.ready)
             EventSignal(ev, (1U << bit), false);
         ArchSetInFrame(frame, 0, rc);

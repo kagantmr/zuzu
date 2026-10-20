@@ -16,5 +16,7 @@ bin/gfxsvc|none:prio=1,maxprio=1|/svc/gfx
 bin/pl111drv|none:prio=1,maxprio=1
 bin/zzsh|none:late
 
+# Everything else is spawned from the SD card: see services.manifest.
+
 # Syscall regression suite (user/test_apps/zztest). Noisy: it faults kittens on purpose.
 # bin/zztest|none

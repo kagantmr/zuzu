@@ -226,7 +226,7 @@ static __attribute__((cold)) void DhcpEnterBound(const uint8_t *data, uint16_t l
     }
     /* T1/T2 per RFC 2131: renew at half the lease, rebind at 7/8. */
     dhcp.t1_secs = dhcp.lease_secs / 2;
-    dhcp.t2_secs = dhcp.lease_secs - dhcp.lease_secs / 8;
+    dhcp.t2_secs = dhcp.lease_secs - (dhcp.lease_secs / 8);
 
     dhcp.bound_ms = NetNowMs();
     dhcp.retries = 0;
@@ -342,8 +342,6 @@ void DhcpTick(void)
 
     switch (dhcp.state) {
     case DHCP_INIT:
-        return; /* nothing in flight */
-
     case DHCP_PROBING:
         return; /* ACD runs on ArpTick's clock */
 

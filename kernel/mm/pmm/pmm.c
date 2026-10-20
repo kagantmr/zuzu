@@ -1,3 +1,7 @@
+/**
+ * @file pmm.c
+ * @brief Physical memory manager: bitmap plus doubly linked free list of frames.
+ */
 #include "pmm_internal.h"
 
 #include "core/panic.h"
@@ -5,7 +9,7 @@
 #include "kernel/bench.h"
 #include "kernel/dev/fdt_wrappers.h"
 #include "kernel/layout.h"
-#include "kernel/mm/vmm/vmm.h" // PA_TO_VA / VA_TO_PA helpers
+#include "kernel/mm/vmm/vmm.h"
 #include "zuzu/err.h"
 #include <arch/symbols.h>
 
@@ -20,13 +24,29 @@
 #define LOG_FMT(fmt) "(pmm) " fmt
 #include "util/log.h"
 
+/** @brief The single PMM state instance. */
 PmmState pmm_state;
+/** @brief Boot-time RAM layout describing kernel, stack, DTB and bitmap placement. */
 extern RamLayout kernel_layout;
+/** @brief Refresh the memory statistics published in the system page. */
 extern void SyspageUpdateMem(void);
 
-typedef struct { PhysAddr next; PhysAddr prev; } FreeNode;
+/** @brief Free-list node stored inside each free frame. */
+typedef struct {
+    PhysAddr next; /**< Physical address of the next free frame, 0 at the tail. */
+    PhysAddr prev; /**< Physical address of the previous free frame, 0 at the head. */
+} FreeNode;
+/**
+ * @brief Get the free-list node stored in a frame, via the kernel direct map.
+ * @param[in] pa Physical address of the frame.
+ * @return Pointer to the node.
+ */
 static inline FreeNode *Node(PhysAddr pa) { return (FreeNode *)PA_TO_VA(pa); }
 
+/**
+ * @brief Insert a frame at the head of the free list.
+ * @param[in] pa Physical address of the frame.
+ */
 static inline void PushNode(PhysAddr pa)
 {
     FreeNode *node = Node(pa);
@@ -37,6 +57,10 @@ static inline void PushNode(PhysAddr pa)
     pmm_state.freelist_head = pa;
 }
 
+/**
+ * @brief Remove the head of the free list.
+ * @return Physical address of the removed frame, or 0 if the list is empty.
+ */
 static inline PhysAddr PopNode(void)
 {
     PhysAddr pa = pmm_state.freelist_head;
@@ -49,6 +73,10 @@ static inline PhysAddr PopNode(void)
     return pa;
 }
 
+/**
+ * @brief Remove an arbitrary frame from the free list.
+ * @param[in] pa Physical address of a frame currently on the list.
+ */
 static inline void UnlinkNode(PhysAddr pa)
 {
     PhysAddr prev = Node(pa)->prev;
@@ -57,10 +85,18 @@ static inline void UnlinkNode(PhysAddr pa)
     if (next) Node(next)->prev = prev;
 }
 
+/**
+ * @brief Check whether an address is a plausible free-list link.
+ *
+ * Used to validate node pointers read from frame memory.
+ *
+ * @param[in] pa Physical address to test.
+ * @return True for 0 (list terminator) or a page-aligned address inside managed RAM.
+ */
 static bool PmmIsRecorded(PhysAddr pa)
 {
     if (pa == 0)
-        return true; // freelist terminator
+        return true;
     if ((pa % PAGE_SIZE) != 0)
         return false;
 
@@ -68,6 +104,9 @@ static bool PmmIsRecorded(PhysAddr pa)
     return (pfn >= pmm_state.pfn_base && pfn < pmm_state.pfn_end);
 }
 
+/**
+ * @brief Rebuild the free list from the allocation bitmap and mark it ready.
+ */
 static void PmmRebuildFreelist(void)
 {
     pmm_state.freelist_head = 0;
@@ -82,6 +121,14 @@ static void PmmRebuildFreelist(void)
     pmm_state.freelist_ready = true;
 }
 
+/**
+ * @brief Pop a free frame and mark it allocated.
+ *
+ * Validates the list links first and rebuilds the list from the bitmap if they
+ * look corrupt. Signals memory-pressure subscribers after the take.
+ *
+ * @return Physical address of the frame, or 0 if none is free.
+ */
 static PhysAddr PmmTakeFreeFrame(void)
 {
     if (pmm_state.freelist_head == 0)
@@ -105,13 +152,12 @@ static PhysAddr PmmTakeFreeFrame(void)
 
     PhysAddr pa = PopNode();
 
-    /* Keep bitmap in sync */
     size_t index = PaToPfn(pa) - pmm_state.pfn_base;
     size_t byte_idx = index / 8;
     size_t bit_idx = index % 8;
 
     assert(byte_idx < pmm_state.bitmap_bytes);
-    assert(!(pmm_state.bitmap[byte_idx] & (1U << bit_idx))); /* must be free in bitmap */
+    assert(!(pmm_state.bitmap[byte_idx] & (1U << bit_idx)));
 
     pmm_state.bitmap[byte_idx] |= (uint8_t)(1U << bit_idx);
     pmm_state.free_frames--;
@@ -121,27 +167,23 @@ static PhysAddr PmmTakeFreeFrame(void)
     return pa;
 }
 
+/**
+ * @brief Mark boot, DTB, kernel, bitmap, stack, reserved-memory and initrd regions as allocated.
+ */
 static void PmmReserveBootRegions(void)
 {
     PmmMarkRange((PhysAddr)_boot_start, (PhysAddr)_boot_end);
-    /* The DTB is wherever the bootloader put it, not necessarily adjacent
-     * to the kernel (QEMU's Linux-boot path and the Pi firmware both place
-     * it independently). Reserve its actual extent. */
+    
     PmmMarkRange(kernel_layout.dtb_start_pa, kernel_layout.dtb_start_pa + FdtTotalSize());
     PmmMarkRange(kernel_layout.kernel_start_pa, kernel_layout.kernel_end_pa);
     PmmMarkRange(kernel_layout.bitmap_start_pa, kernel_layout.bitmap_end_pa);
 
-    // All mode stacks
     PmmMarkRange((PhysAddr)__stack_region_base__, (PhysAddr)__stack_region_end__);
 
-    /* Firmware /memreserve/ ranges (e.g. secondary-core spin tables on the
-     * Pi 4). Ranges outside managed RAM are rejected by PmmMarkRange. */
     uint64_t rsv_addr, rsv_size;
     for (uint32_t i = 0; FdtGetReservedMem(i, &rsv_addr, &rsv_size); i++)
         PmmMarkRange((PhysAddr)rsv_addr, (PhysAddr)(rsv_addr + rsv_size));
 
-    /* A bootloader-supplied initrd (DTB /chosen) lives outside the kernel
-     * image, wherever it was loaded, so it needs its own reservation. */
     uint64_t initrd_start, initrd_end;
     if (FdtGetInitrd(&initrd_start, &initrd_end))
         PmmMarkRange((PhysAddr)initrd_start, (PhysAddr)initrd_end);
@@ -149,39 +191,30 @@ static void PmmReserveBootRegions(void)
 
 void PmmInit(void)
 {
-    // Compute PFN range from phys_region
     pmm_state.pfn_base = PaToPfn(kernel_layout.ram_start);
     pmm_state.pfn_end = PaToPfn(kernel_layout.ram_end);
     pmm_state.total_frames = pmm_state.pfn_end - pmm_state.pfn_base;
     pmm_state.free_frames = pmm_state.total_frames;
 
-    // Place bitmap after kernel, page-aligned
     PhysAddr bitmap_start_pa = align_up(kernel_layout.kernel_end_pa, PAGE_SIZE);
     size_t bitmap_bytes = (pmm_state.total_frames + 7) / 8;
     size_t bitmap_size = align_up(bitmap_bytes, PAGE_SIZE);
     PhysAddr bitmap_end_pa = bitmap_start_pa + bitmap_size;
 
-    // Sanity checks
     assert(bitmap_end_pa <= kernel_layout.stack_base_pa);
     assert(bitmap_end_pa <= kernel_layout.ram_end);
 
-    // Record in layout (physical placement)
     kernel_layout.bitmap_start_pa = bitmap_start_pa;
     kernel_layout.bitmap_end_pa = bitmap_end_pa;
 
-    // Establish dereferenceable VA for the bitmap.
-    // After identity mapping is removed, the bitmap MUST be accessed via VA.
     kernel_layout.bitmap_va = (uint8_t *)PA_TO_VA(kernel_layout.bitmap_start_pa);
 
-    // Install and zero (use VA pointer)
     pmm_state.bitmap = kernel_layout.bitmap_va;
     pmm_state.bitmap_bytes = bitmap_bytes;
     memset(pmm_state.bitmap, 0, bitmap_size);
 
-    // Reserve boot-time regions
     PmmReserveBootRegions();
 
-    // Build the freelist from all free pages in the bitmap
     PmmRebuildFreelist();
 
     ListInit(&pmm_subscribers);
@@ -192,20 +225,17 @@ PmmStats PmmGetStats(void)
     return (PmmStats){.total_frames = pmm_state.total_frames, .free_frames = pmm_state.free_frames};
 }
 
-/* mark: mark pages in [start, end) as USED */
 Err PmmMarkRange(PhysAddr start, PhysAddr end)
 {
     if (start >= end)
         return ERR_BADARG;
 
-    /* Align the range to page boundaries */
     PhysAddr astart = align_down(start, PAGE_SIZE);
     PhysAddr aend = align_up(end, PAGE_SIZE);
 
     Pfn start_pfn = PaToPfn(astart);
     Pfn end_pfn = PaToPfn(aend);
 
-    /* PFN bounds check (pfn_end is exclusive) */
     if (start_pfn < pmm_state.pfn_base || end_pfn > pmm_state.pfn_end) {
         return ERR_BADARG;
     }
@@ -221,14 +251,12 @@ Err PmmMarkRange(PhysAddr start, PhysAddr end)
         size_t byte_idx = index / 8;
         size_t bit_idx = index % 8;
 
-        /* safety: ensure we do not walk past bitmap */
         assert(byte_idx < pmm_state.bitmap_bytes);
         if (byte_idx >= pmm_state.bitmap_bytes)
             break;
 
         uint8_t mask = (uint8_t)(1U << bit_idx);
 
-        /* Only flip and update counters if bit was previously 0 */
         if (!(pmm_state.bitmap[byte_idx] & mask)) {
             pmm_state.bitmap[byte_idx] |= mask;
             if (pmm_state.free_frames > 0)
@@ -251,7 +279,6 @@ Err PmmMarkRange(PhysAddr start, PhysAddr end)
     return ZUZU_OK;
 }
 
-/* unmark: mark pages in [start, end) as FREE */
 Err PmmUnmarkRange(const PhysAddr start, const PhysAddr end)
 {
     if (start >= end)
@@ -283,7 +310,6 @@ Err PmmUnmarkRange(const PhysAddr start, const PhysAddr end)
 
         const uint8_t mask = (uint8_t)(1U << bit_idx);
 
-        /* Only flip and update counters if bit was previously 1 */
         if (pmm_state.bitmap[byte_idx] & mask) {
             pmm_state.bitmap[byte_idx] &= ~mask;
             if (pmm_state.free_frames < pmm_state.total_frames)
@@ -329,33 +355,32 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
         uint8_t mask = (uint8_t)(1U << bit_idx);
 
         if (byte_idx >= pmm_state.bitmap_bytes) {
-            break; /* beyond managed pages */
+            break;
         }
 
-        if (!(pmm_state.bitmap[byte_idx] & mask)) { /* free */
+        if (!(pmm_state.bitmap[byte_idx] & mask)) {
             if (consecutive == 0) {
                 start_index = index;
             }
             consecutive++;
 
             if (consecutive == n_frames) {
-                /* Mark pages as allocated */
                 PhysAddr start_pa = PfnToPa(pmm_state.pfn_base + start_index);
                 PhysAddr end_pa = PfnToPa(pmm_state.pfn_base + start_index + n_frames);
                 if (PmmMarkRange(start_pa, end_pa) != ZUZU_OK) {
-                    return PA_NULL; /* marking failed */
+                    return PA_NULL;
                 }
 
                 Pfn pfn = pmm_state.pfn_base + start_index;
                 PhysAddr addr = PfnToPa(pfn);
                 assert(addr % PAGE_SIZE == 0);
                 assert(pfn >= pmm_state.pfn_base && (pfn + n_frames) <= pmm_state.pfn_end);
-                SyspageUpdateMem(); // update free memory info in syspage
+                SyspageUpdateMem();
                 PmmSignalSubscribers();
                 return addr;
             }
         } else {
-            consecutive = 0; /* reset */
+            consecutive = 0;
         }
     }
 
@@ -368,7 +393,6 @@ void PmmFreeFrame(const PhysAddr addr)
 
     const Pfn pfn = PaToPfn(addr);
 
-    /* bounds: pfn must be inside [pfn_base, pfn_end) */
     assert(pfn >= pmm_state.pfn_base && pfn < pmm_state.pfn_end);
 
     size_t index = pfn - pmm_state.pfn_base;
@@ -382,26 +406,26 @@ void PmmFreeFrame(const PhysAddr addr)
 
     const uint8_t mask = (uint8_t)(1U << bit_idx);
 
-    /* if bit set -> allocated -> free it */
     if (pmm_state.bitmap[byte_idx] & mask) {
         pmm_state.bitmap[byte_idx] &= ~mask;
         pmm_state.free_frames++;
         assert(pmm_state.free_frames <= pmm_state.total_frames);
 
-        /* Push onto freelist */
         PushNode(addr);
 
         SyspageUpdateMem();
         return;
     }
 
-    /* already free -> double free: a live bug, not a bad argument */
     panic("pmm: double free of frame %x", (unsigned int)pfn);
 }
 
 #ifdef CONFIG_ZUZU_BENCH
+/** @brief Benchmark: bitmap scan time in the aligned contiguous allocator. */
 BENCH_STAT(g_bench_pmm_scan, "pmm contig: bitmap scan");
+/** @brief Benchmark: time to mark the range (unlinking from the free list). */
 BENCH_STAT(g_bench_pmm_freelist, "pmm contig: mark (unlinks)");
+/** @brief Benchmark: syspage update and subscriber signalling time. */
 BENCH_STAT(g_bench_pmm_tail, "pmm contig: syspage+signal");
 #endif
 
@@ -413,7 +437,6 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
     }
     if (align_frames == 0)
         align_frames = 1;
-    // Require power-of-two alignment (common + cheap)
     if ((align_frames & (align_frames - 1)) != 0) {
         return PA_NULL;
     }
@@ -434,7 +457,6 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
 #endif
 
     for (size_t index = 0; index < total_pages; index++) {
-        // Enforce alignment on the start of a run
         if (consecutive == 0) {
             if (((pmm_state.pfn_base + index) & (align_frames - 1)) != 0) {
                 continue;
@@ -448,7 +470,7 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
         if (byte_idx >= pmm_state.bitmap_bytes)
             break;
 
-        if (!(pmm_state.bitmap[byte_idx] & mask)) { // free
+        if (!(pmm_state.bitmap[byte_idx] & mask)) {
             if (consecutive == 0)
                 start_index = index;
             consecutive++;
@@ -470,7 +492,7 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
                 bench_step = BENCH_BEGIN();
 #endif
 
-                SyspageUpdateMem(); // update free memory info in syspage
+                SyspageUpdateMem();
                 PmmSignalSubscribers();
 #ifdef CONFIG_ZUZU_BENCH
                 BENCH_END(g_bench_pmm_tail, bench_step);
@@ -504,6 +526,6 @@ size_t PmmAllocFramesScattered(const size_t n_frames, PhysAddr *out_addrs)
         }
         out_addrs[i] = new_page;
     }
-    SyspageUpdateMem(); // update free memory info in syspage
+    SyspageUpdateMem();
     return n_frames;
 }

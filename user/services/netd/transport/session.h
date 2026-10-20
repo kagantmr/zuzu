@@ -1,7 +1,7 @@
 #ifndef NETD_SESSION_H
 #define NETD_SESSION_H
 
-#include <net/protocols/socket.h>
+#include <net/socket.h>
 #include <types.h>
 #include <zuzu/zuzu.h>
 #include <list.h>

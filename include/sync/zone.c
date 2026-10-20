@@ -1,3 +1,8 @@
+/**
+ * @file zone.h
+ * @brief Implementation for zone synchronization utilities.
+ */
+
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <sync/zone.h>
@@ -27,31 +32,33 @@ Err ZoneDestroy(Zone *z)
 
 Err ZoneEnter(Zone *z)
 {
-    while (1) {
-        int expected = 0;
-        if (atomic_compare_exchange_weak(&z->locked, &expected, 1)) {
-            z->owner = ZuzuTLS()->tid;
-            return ZUZU_OK;
-        }
+    int c = 0;
+    if (atomic_compare_exchange_strong(&z->locked, &c, 1))
+        goto acquired;                          /* fast path, no syscall */
+
+    if (c != 2)
+        c = atomic_exchange(&z->locked, 2);     /* announce a waiter */
+    while (c != 0) {
         WaitOn(z->event, TIMEOUT_INFINITE);
+        c = atomic_exchange(&z->locked, 2);     /* take it, keep "waiters" set */
     }
-    return ERR_DEAD;
+acquired:
+    z->owner = GetTls()->tid;
+    return ZUZU_OK;
 }
 
-Err ZoneExit(Zone *z)
+void ZoneExit(Zone *z)
 {
     z->owner = 0;
-    atomic_store(&z->locked, 0);
-    Signal(z->event, 1, false);
-    return ZUZU_OK;
+    if (atomic_exchange(&z->locked, 0) == 2)    /* only signal if someone may wait */
+        Signal(z->event, 1, false);
 }
 
 Err ZoneTryEnter(Zone *z)
 {
-    int expected = 0;
-    if (atomic_compare_exchange_strong(&z->locked, &expected, 1)) {
-        z->owner = ZuzuTLS()->tid;
-        return ZUZU_OK;
-    }
-    return ERR_BUSY;
+    int c = 0;
+    if (!atomic_compare_exchange_strong(&z->locked, &c, 1))
+        return ERR_BUSY;    /* held (1 or 2): never block, never touch the waiters state */
+    z->owner = GetTls()->tid;
+    return ZUZU_OK;
 }

@@ -1,3 +1,8 @@
+/**
+ * @file svc_managememory.c
+ * @brief Implementation of the ManageMemory() svc.
+ */
+
 #include "core/ensure.h"
 #include "kernel/mm/mem_object.h"
 #include "kernel/mm/vmm/vmm.h"
@@ -13,9 +18,9 @@ void SvcManageMemory(CpuState *frame)
         VirtAddr out;
         Handle mem_handle = (*ArchGetFromFrame(frame, 1));
         uint32_t hint_prot = (uint32_t)(*ArchGetFromFrame(frame, 3));
-        // (hint_va & ~0xFFF) | (prot & 0x7)
         MemProt prot = (hint_prot & 0x7);
         VirtAddr hint = (hint_prot & (unsigned)~(0xFFF));
+        ENSURE_ERR(frame, !((prot & PROT_WRITE) && (prot & PROT_EXEC)), ERR_BADARG);
 
         if (mem_handle == HANDLE_ANON) {
             size_t size = (size_t)(*ArchGetFromFrame(frame, 2));
@@ -49,8 +54,9 @@ void SvcManageMemory(CpuState *frame)
             HandleTableLookup(&CURRENT_SPACE->handle_table, kitten_space_handle);
         ENSURE_ERR(frame, entry, ERR_BADHANDLE);
         ENSURE_ERR(frame, (HANDLE_SPACE == entry->type), ERR_BADTYPE);
-        ENSURE_ERR(frame, !entry->space->torn_down, ERR_DEAD);
+        ENSURE_ERR(frame, entry->space, ERR_BADHANDLE);
         ENSURE_ERR(frame, entry->perms & PERM_CNTL, ERR_NOPERM);
+        ENSURE_ERR(frame, !entry->space->torn_down, ERR_DEAD);
 
         InjectObjArgs kargs;
         ENSURE_ERR(frame,
@@ -114,7 +120,7 @@ void SvcManageMemory(CpuState *frame)
         MemObjRef(m->mem);
         fresh->type = HANDLE_MEM;
         fresh->mem = m->mem;
-        fresh->perms = PERM_MAP;
+        fresh->perms = PERM_MAP | PERM_WRITE;
         fresh->mapped_va = 0;
 
         ArchSetInFrame(frame, 0, ZUZU_OK);

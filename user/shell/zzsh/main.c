@@ -132,78 +132,9 @@ static bool stat_path(const char *path, FsdStat *st)
     return FsdGetStat(&fsd_conn, path, st) == ZUZU_OK;
 }
 
-/* ---- ls ---- */
-
-static void cmd_ls(const char *arg)
-{
-    if (!ensure_fsd()) {
-        printf("%s", ANSI_RED "ls: fsd unavailable\n" ANSI_RESET);
-        return;
-    }
-
-    char path[256];
-    if (!resolve_path(arg, path, sizeof(path))) {
-        printf("%s", "path too long\n");
-        return;
-    }
-
-    char line[96];
-    uint32_t start = 0;
-
-    /* fsd returns at most a bufferful of dirents per call; page through the
-     * directory by advancing `start` until a short batch ends it. */
-    for (;;) {
-        FsdDirEntry entries[32];
-        uint32_t count = 0;
-        if (FsdReadDir(&fsd_conn, path, start, entries, sizeof(entries) / sizeof(entries[0]),
-                       &count) != ZUZU_OK) {
-            if (start == 0)
-                printf("%s", ANSI_RED "ls: cannot read directory\n" ANSI_RESET);
-            return;
-        }
-
-        for (uint32_t i = 0; i < count; i++) {
-            if (entries[i].type == FSD_TYPE_DIR) {
-                (void)snprintf(line, sizeof(line),
-                               ANSI_BOLD ANSI_CYAN "%-13s" ANSI_RESET "  <DIR>\n", entries[i].name);
-            } else {
-                (void)snprintf(line, sizeof(line), "%-13s  %u\n", entries[i].name, entries[i].size);
-            }
-            printf("%s", line);
-        }
-
-        if (count < sizeof(entries) / sizeof(entries[0]))
-            break;
-        start += count;
-    }
-}
-
 /* ---- run ---- */
 
 static ImgCache g_images;
-
-static Handle read_image(const char *path, uint32_t size)
-{
-    uint32_t fd;
-    if (FsdOpen(&fsd_conn, path, FSD_MODE_READ, &fd) != ZUZU_OK)
-        return -1;
-
-    Handle obj = CreateMem((size + FSD_PAGE_SIZE - 1) / FSD_PAGE_SIZE, 0);
-    uint32_t off = 0;
-    while (obj >= 0 && off < size) {
-        uint32_t got = 0;
-        if (FsdReadObj(&fsd_conn, fd, obj, off, size - off, &got) != ZUZU_OK || got == 0)
-            break;
-        off += got;
-    }
-    FsdClose(&fsd_conn, fd);
-
-    if (obj >= 0 && off != size) {
-        HandleClose(obj);
-        return -1;
-    }
-    return obj;
-}
 
 /* Returns the image object for path, from the cache when the file is unchanged. *owned is
  * true when the caller must close the handle, false when the cache keeps it. */
@@ -220,8 +151,7 @@ static Handle load_image(const char *path, size_t *len, bool *owned)
         return obj;
     }
 
-    obj = read_image(path, st.size);
-    if (obj < 0)
+    if (FsdReadImage(&fsd_conn, path, &obj, len) != ZUZU_OK)
         return -1;
     *owned = !ImgCachePut(&g_images, path, st.size, st.mtime, obj);
     return obj;
@@ -366,10 +296,6 @@ bool command_dispatch(const char *line)
         cmd_cd(NULL);
     else if (strncmp(line, "cd ", 3) == 0)
         cmd_cd(line + 3);
-    else if (strcmp(line, "ls") == 0)
-        cmd_ls(NULL);
-    else if (strncmp(line, "ls ", 3) == 0)
-        cmd_ls(line + 3);
     else
         cmd_run(line);
 

@@ -1,8 +1,7 @@
-// arch/irq.h - Neutral interrupt-controller contract.
-//
-// Per-line interrupt management and dispatch, backed by the architecture's
-// interrupt controller (GICv2 on ARM). Global IRQ-flag control lives in
-// <arch/cpu.h>; this header is about individual IRQ lines and handlers.
+/**
+ * @file irq.h
+ * @brief Architecture neutral interrupt handling interface.
+ */
 
 #ifndef ARCH_IRQ_H
 #define ARCH_IRQ_H
@@ -10,56 +9,123 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-typedef void (*IrqHandler)(void *ctx); /* generic IRQ handler */
+/**
+ * @brief Interrupt handler function pointer type.
+ */
+typedef void (*IrqHandler)(void *ctx);
 
-// Must cover the GIC's configured SPI range (GicInit() sets up 256 lines);
-// real hardware (e.g. rpi4/BCM2711) uses SPI numbers well past 128.
+/**
+ * @brief The maximum number of interrupts allowed in the interface.
+ */
 #define MAX_IRQS 256
 
-/** Initialize the interrupt subsystem (handler table + controller). */
+/**
+ * @brief Initialize the interrupt subsystem.
+ */
 void ArchIrqInit(void);
 
-/** Register a handler for an IRQ line. Returns true on success. */
+/**
+ * @brief Register a handler for an interrupt.
+ * 
+ * @param[in] irq_id Interrupt number.
+ * @param[in] handler The handler to register.
+ * @param[in] ctx  The arguments to pass to the handler.
+ * 
+ * @return bool true if registration is complete.
+ */
 bool ArchIrqRegister(uint32_t irq_id, IrqHandler handler, void *ctx);
 
-/** Unregister the handler for an IRQ line. Returns true on success. */
-
-/** Disable a single IRQ line at the controller. */
+/**
+ * @brief Mask an interrupt, ignoring it if it fires or not.
+ * 
+ * @param[in] irq_id The interrupt number.
+ */
 void ArchIrqMaskLine(uint32_t irq_id);
 
-/** Enable a single IRQ line at the controller. */
+/**
+ * @brief Unmask an interrupt and allow it to interrupt execution.
+ * 
+ * @param[in] irq_id The interrupt number.
+ */
 void ArchIrqUnmaskLine(uint32_t irq_id);
 
-/** Set an IRQ line's priority (controller-defined units; lower preempts higher). */
+/**
+ * @brief Change the priority of an interrupt.
+ * 
+ * @param[in] irq_id The interrupt number.
+ * @param[in] prio The new priority
+ */
 void ArchIrqSetPrio(uint32_t irq_id, uint8_t prio);
 
-/** Dispatch the currently-pending IRQ to its registered handler. */
+/**
+ * @brief Interrupt dispatch (inside the exception handler).
+ */
 void ArchIrqDispatch(void);
 
-/** True if an IRQ line is reserved by the kernel/arch (e.g. the tick timer)
- *  and therefore cannot be claimed by a userspace driver. */
+/**
+ * @brief returns true if the interrupt with the given number is kernel-owned.
+ * 
+ * @param[in] irq_id The interrupt number.
+ * 
+ * @return bool true if the interrupt is kernel owned.
+ */
 bool ArchIrqIsOwnedByKernel(uint32_t irq_id);
 
-/* ---- Controller introspection (for diagnostics / panic dumps) ----------- */
-/* Lines are reported 32 per "word"; there are MAX_IRQS/32 words. */
-
-/** True once the interrupt controller has been initialized. */
+/**
+ * @brief Check if the interrupt controller is initialized.
+ * 
+ * @return bool true if the interrupt controller is ready.
+ */
 bool ArchIrqReady(void);
 
-/** Current priority-mask threshold (controller-defined units). */
+/**
+ * @brief Getter for the first index peripheral interrupts start.
+ * 
+ * @return uint32_t The start value.
+ */
+uint32_t ArchIrqFirstDeviceLine(void);
+
+/**
+ * @brief Getter for the interrupt priority mask
+ * 
+ * @return uint32_t The mask value.
+ */
 uint32_t ArchIrqPriorityMask(void);
 
-/** Bitmap word of enabled IRQ lines [word*32, word*32+32). */
-uint32_t ArchIrqEnabledWord(uint32_t word);
+/**
+ * @brief Check if an interrupt is enabled. 
+ * 
+ * @param[in] line The interrupt number.
+ * 
+ * @return bool true if the interrupt is enabled.
+ */
+bool ArchIrqIsEnabled(uint32_t line);
 
-/** Bitmap word of pending IRQ lines [word*32, word*32+32). */
-uint32_t ArchIrqPendingWord(uint32_t word);
+/**
+ * @brief Check if an interrupt is pending. 
+ * 
+ * @param[in] line The interrupt number.
+ * 
+ * @return bool true if the interrupt is pending.
+ */
+bool ArchIrqIsPending(uint32_t line);
 
-/** True if a kernel-level handler is registered for this IRQ line. */
+/**
+ * @brief Check if the interrupt has a handler
+ * 
+ * @param[in] irq_id The interrupt number.
+ * 
+ * @return bool true if the interrupt is assigned a handler.
+ */
 bool ArchIrqHasHandler(uint32_t irq_id);
 
-/** Address of the registered handler, for symbolization in diagnostics;
- *  NULL if none. */
+/**
+ * @brief Get the handler routine for the given interrupt number.
+ * 
+ * @param[in] irq_id The interrupt number.
+ * 
+ * @return void* Function pointer of the handler.
+ */
 void *ArchIrqHandlerAddr(uint32_t irq_id);
 
 #endif // ARCH_IRQ_H

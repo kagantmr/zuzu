@@ -1,3 +1,8 @@
+/**
+ * @file svc_waiton.c
+ * @brief Implementation of the WaitOn() svc.
+ */
+
 #include "kernel/ipc/msg.h"
 #include "kernel/space/space.h"
 #include "svc.h"
@@ -16,6 +21,7 @@ void SvcWaitOn(CpuState *frame)
 
     switch (entry->type) {
     case HANDLE_PORT: {
+        current_task->serving_handle = h;
         PortReceive(entry->port, timeout, frame);
     } break;
     case HANDLE_EVENT: {

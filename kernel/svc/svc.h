@@ -1,3 +1,8 @@
+/**
+ * @file svc.h
+ * @brief Implementation of svc utilities.
+ */
+
 #ifndef KERNEL_SVC_SVC_H
 #define KERNEL_SVC_SVC_H
 
@@ -10,49 +15,51 @@
 #include <svc_nums.h>
 #include <zuzu/err.h>
 
-/*
- * zuzu Syscall ABI (ARMv7-A)
- *
- * Syscall numbers encoded in the lower 8 bits of SVC immediate.
- * Arguments in r0-r3, results in r0-r3 (r0 is the status).
+/**
+ * @brief Macro for the current space (current task's owner space)
  */
-
 #define CURRENT_SPACE (current_task->owner)
 
 /**
- * @brief Copies data from a kernel address to a user address, checking for page faults.
+ * @brief Copy out a kernel buffer to a user buffer, checking for faults.
  *
- * @param uaddr The user address to copy to.
- * @param kaddr The kernel address to copy from.
- * @param len The number of bytes to copy.
- * @return true if the copy was successful, false otherwise.
+ * @param[out] uaddr The user address.
+ * @param[in] kaddr The kernel address.
+ * @param[in] len The length of the data.
+ *
+ * @return bool
+ * @retval true if the copy succeeded
  */
 bool CopyToUser(void *restrict uaddr, const void *restrict kaddr, size_t len);
 
 /**
- * @brief Copies data from a user address to a kernel address, checking for page faults.
+ * @brief Copy in a user buffer to a kernel buffer, checking for faults.
  *
- * @param kaddr The kernel address to copy to.
- * @param uaddr The user address to copy from.
- * @param len The number of bytes to copy.
- * @return true if the copy was successful, false otherwise.
+ * @param[in] kaddr The kernel address.
+ * @param[out] uaddr The user address.
+ * @param[in] len The length of the data.
+ *
+ * @return bool
+ * @retval true if the copy succeeded
  */
 bool CopyFromUser(void *restrict kaddr, const void *restrict uaddr, size_t len);
 
 /**
- * @brief Dispatches a service call, handling the appropriate service function.
+ * @brief Dispatch the incoming svc.
+ * 
+ * @param[in] svc_num The svc number to dispatch.
+ * @param[in,out] frame The CPU frame to act on.
  *
- * @param svc_num The service number to dispatch.
- * @param frame The CPU state frame to use for the service call.
  */
 void __hot SvcDispatch(Svc svc_num, CpuState *frame);
 
 /**
- * @brief Checks if a user pointer is normal, i.e., within the user address space.
+ * @brief Inline general checker for userspace pointers.
+ * 
+ * @param[in] addr The address to check.
+ * @param[in] len The size of the buffer.
  *
- * @param addr The user address to check.
- * @param len The number of bytes to check.
- * @return true if the pointer is normal, false otherwise.
+ * @return true if the range does not wrap and lies entirely below the top of user space.
  */
 static inline bool IsUserPtrNormal(const uintptr_t addr, const size_t len)
 {
@@ -65,98 +72,109 @@ static inline bool IsUserPtrNormal(const uintptr_t addr, const size_t len)
     return true;
 }
 
+/**
+ * @brief External definition of the current task pointer.
+ */
 extern TaskObject *current_task;
 
-/*
- * Service call functions.
- */
-
 /**
- * @brief Service call function for quitting the calling task.
+ * @brief Entry point for the Quit syscall.
  *
- * @param frame The CPU state frame to use for the service call.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcQuit(CpuState *frame);
 
 /**
- * @brief Service call function for yielding the CPU.
+ * @brief Entry point for the Yield syscall.
  *
- * @param frame The CPU state frame to use for the service call.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcYield(CpuState *frame);
 
 /**
- * @brief Service call function for sleeping.
+ * @brief Entry point for the Sleep syscall.
  *
- * @param frame The CPU state frame to use for the service call.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcSleep(CpuState *frame);
 
 #ifdef DEBUG
+/**
+ * @brief Entry point for the Log syscall (debug builds only).
+ *
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
+ */
 void SvcDebugLog(CpuState *frame);
 #endif
 
 /**
- * @brief Service call function for creating objects.
+ * @brief Entry point for the Create syscall.
  *
- * @param frame The CPU state frame to use for the service call.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcCreate(CpuState *frame);
 
 /**
- * @brief Service call function for calling a port.
+ * @brief Entry point for the Call syscall.
  *
- * @param frame The CPU state frame to use for the service call.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcCall(CpuState *frame);
 
 /**
- * @brief Service call function for replying to a call.
+ * @brief Entry point for the Reply and ReplyRecv syscall.
  *
- * @param frame The CPU state frame to use for the service call.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcReply(CpuState *frame);
 
 /**
- * @brief Service call function for waiting on handles.
+ * @brief Entry point for the WaitOn syscall.
  *
- * @param frame The CPU state frame to use for the service call.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcWaitOn(CpuState *frame);
 
 /**
- * @brief Service call function for controlling handles.
+ * @brief Entry point for the ManageHandle syscall.
  *
- * @param frame The CPU state frame to use for the service call.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcManageHandle(CpuState *frame);
 
 /**
- * @brief Service call function for signaling events.
+ * @brief Entry point for the Signal syscall.
  *
- * @param frame The CPU state frame to use for the service call.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcSignal(CpuState *frame);
 
 /**
- * @brief Service call function for binding events to kernel objects.
+ * @brief Entry point for the Bind syscall.
  *
- * @param frame The CPU state frame to use for the service call.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcBind(CpuState *frame);
 
 /**
- * @brief Service call function for controlling memory.
+ * @brief Entry point for the ManageMemory syscall.
  *
- * @param frame The CPU state frame to use for the service call.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcManageMemory(CpuState *frame);
 
 /**
- * @brief Service call function for controlling tasks.
+ * @brief Entry point for the ManageTask syscall.
  *
- * @param frame The CPU state frame to use for the service call.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcManageTask(CpuState *frame);
+
+/**
+ * @brief Entry point for the Hold syscall.
+ *
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
+ */
+void SvcHold(CpuState *frame);
 
 #endif /* KERNEL_SVC_SVC_H */

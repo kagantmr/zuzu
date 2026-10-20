@@ -1,17 +1,33 @@
+/**
+ * @file syspage.c
+ * @brief Builds and updates the system information page.
+ */
+
 #include "syspage.h"
 #include "boot_info.h"
 #include "core/version.h"
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/mm/vmm/vmm.h"
-#include "kernel/time/tick.h"
+#include <arch/timer.h>
 #include <stdio.h>
 #include <string.h>
 #include <zuzu/syspage.h>
 
+/** @brief Kernel mapping of the syspage; NULL before SyspageInit(). */
 Syspage *g_sp;
+/** @brief Physical address of the syspage. */
 static PhysAddr g_syspage_pa;
-extern uint32_t rtc_epoch;
 
+/**
+ * @brief BootInfoEnumerateDevs() callback that records a device name in the syspage.
+ *
+ * Only compatible strings with an "arm," or "smsc," vendor prefix are kept, minus Cortex CPU entries and duplicates. The name is upper-cased.
+ *
+ * @param[in] compatible The device's compatible string.
+ * @param[in] phys Unused.
+ * @param[in] size Unused.
+ * @param[in] irq Unused.
+ */
 static void DeviceCallback(const char *compatible, uint64_t phys, uint64_t size, uint32_t irq)
 {
     (void)phys;
@@ -31,7 +47,6 @@ static void DeviceCallback(const char *compatible, uint64_t phys, uint64_t size,
     if (strncmp(src, "cortex", 6) == 0)
         return;
 
-    /* build the display name */
     char name[SYSPAGE_DEV_NAME_LEN];
     int i = 0;
     while (src[i] && i < SYSPAGE_DEV_NAME_LEN - 1) {
@@ -40,7 +55,6 @@ static void DeviceCallback(const char *compatible, uint64_t phys, uint64_t size,
     }
     name[i] = '\0';
 
-    /* skip duplicates */
     for (uint8_t j = 0; j < g_sp->dev_count; j++)
         if (strncmp(g_sp->devs[j].name, name, SYSPAGE_DEV_NAME_LEN) == 0)
             return;
@@ -51,10 +65,10 @@ static void DeviceCallback(const char *compatible, uint64_t phys, uint64_t size,
 
 void SyspageInit(void)
 {
-    g_syspage_pa = PmmAllocFrame(); // reserve the first page for the syspage
+    g_syspage_pa = PmmAllocFrame();
     g_sp = (Syspage *)PA_TO_VA(g_syspage_pa);
     memset(g_sp, 0, sizeof(Syspage));
-    g_sp->magic = 0x50050CA7;
+    g_sp->magic = SYSPAGE_MAGIC;
     g_sp->kernel_ver = (ZUZU_VERSION_MAJOR << 16) | (ZUZU_VERSION_MINOR << 8) | ZUZU_VERSION_PATCH;
 
     strncpy(g_sp->version, "zuzu-" ZUZU_CODENAME "-" ZUZU_VERSION, sizeof(g_sp->version));
@@ -65,8 +79,8 @@ void SyspageInit(void)
     strncpy(g_sp->cpu, boot_info_cpu_compat(), sizeof(g_sp->cpu) - 1);
 
     g_sp->mem_total_kb = (uint32_t)((PmmGetStats().total_frames * (uint64_t)PAGE_SIZE) / 1024);
-    g_sp->tick_hz = GetTickRate();
-    g_sp->boot_time_s = rtc_epoch;
+    g_sp->counter_freq = ArchTimerFreq();
+    g_sp->counter_boot = ArchTimerNow();
 
     BootInfoEnumerateDevs(DeviceCallback);
 
@@ -79,18 +93,4 @@ void SyspageUpdateMem(void)
     if (!g_sp)
         return;
     g_sp->mem_free_kb = (uint32_t)((PmmGetStats().free_frames * (uint64_t)PAGE_SIZE) / 1024);
-}
-
-void SyspageUpdateUptime(void)
-{
-    if (!g_sp)
-        return;
-    g_sp->uptime_ticks = GetTicks();
-}
-
-void SyspageSetInitrdSz(uint32_t size)
-{
-    if (!g_sp)
-        return;
-    g_sp->initrd_size = size;
 }

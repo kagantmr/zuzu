@@ -1,3 +1,8 @@
+/**
+ * @file
+ * @brief Freestanding stdlib subset.
+ */
+
 #include "stdlib.h"
 #include <convert.h>
 #include <stddef.h>
@@ -7,6 +12,12 @@
 int abs(int j) { return j < 0 ? -j : j; }
 
 /* strtol/strtoul: basic implementation, supports base 0 and 2..36, 0x prefix */
+/**
+ * @brief Skips leading whitespace.
+ *
+ * @param[in] s String.
+ * @return The first non-whitespace character.
+ */
 static const char *skip_ws(const char *s)
 {
     while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r' || *s == '\f' || *s == '\v')
@@ -160,6 +171,13 @@ double strtod(const char *nptr, char **endptr)
 }
 
 /* qsort: simple quicksort with recursion */
+/**
+ * @brief Swaps two equal-sized byte ranges.
+ *
+ * @param[in,out] a    First range.
+ * @param[in,out] b    Second range.
+ * @param[in]     size Bytes in each.
+ */
 static void swap_bytes(char *a, char *b, size_t size)
 {
     while (size--) {
@@ -169,6 +187,14 @@ static void swap_bytes(char *a, char *b, size_t size)
     }
 }
 
+/**
+ * @brief Recursive quicksort step with the middle element as pivot.
+ *
+ * @param[in,out] base   Array.
+ * @param[in]     nmemb  Elements.
+ * @param[in]     size   Element size.
+ * @param[in]     compar Comparison function.
+ */
 static void qsort_inner(char *base, size_t nmemb, size_t size,
                         int (*compar)(const void *, const void *))
 {
@@ -203,6 +229,7 @@ void qsort(void *base, size_t nmemb, size_t size, int (*compar)(const void *, co
  * (kernel/mm/vmm.c) shares it. */
 
 /* rand/srand: minimal LCG */
+/** @brief rand() state. */
 static unsigned long rand_state = 1;
 
 void srand(unsigned int seed) { rand_state = seed ? seed : 1; }

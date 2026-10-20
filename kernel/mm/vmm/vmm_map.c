@@ -1,5 +1,7 @@
-/* Page-table-level mapping mechanics: map/unmap/protect a VA range,
- * activate an address space, and validate+demand-fault a user access. */
+/**
+ * @file vmm_map.c
+ * @brief Range mapping, unmapping, protection changes, and address space activation.
+ */
 
 #include "vmm_internal.h"
 
@@ -20,7 +22,6 @@ bool VmmMapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size, MemPro
     if ((pa % 0x1000) != 0)
         return false;
 
-    // check overflow
     if (va > UINTPTR_MAX - size)
         return false;
 
@@ -28,8 +29,6 @@ bool VmmMapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size, MemPro
         return false;
 
     if (as->type == ADDRESS_SPACE_USER) {
-        // For user address spaces, enforce canonical user VA range [0, USER_VA_TOP).
-        // end is exclusive, so end == USER_VA_TOP is valid.
         if (va >= USER_VA_TOP || va + size > USER_VA_TOP) {
             return false;
         }
@@ -45,9 +44,9 @@ bool VmmUnmapRange(AddressSpace *as, VirtAddr va, size_t size, bool flush)
     if (size == 0)
         return false;
     if ((va % PAGE_SIZE) != 0)
-        return false; // page granularity
+        return false;
     if ((size % PAGE_SIZE) != 0)
-        return false; // page granularity
+        return false;
 
     return ArchMmuUnmap(as, va, size, flush);
 }
@@ -59,20 +58,20 @@ bool VmmProtectPage(AddressSpace *as, VirtAddr va, size_t size, MemProt new_prot
 
     VirtMemRegion *r = VmmFindRegion(as, va);
     if (!r)
-        return false;                         /* no region → refuse */
-    if (va + size > r->vaddr_start + r->size) /* must not span regions */
+        return false;
+    if (va + size > r->vaddr_start + r->size)
         return false;
     if (r->memtype == VM_MEM_DEVICE && (new_prot & PROT_EXEC))
-        return false;              /* no executable MMIO */
+        return false;
     if (r->memtype == VM_MEM_NORMAL_NC && (new_prot & PROT_EXEC))
         return false;
-    if (r->flags & VM_FLAG_PINNED) /* tcb_page/syspage */
+    if (r->flags & VM_FLAG_PINNED)
         return false;
 
     if (!ArchMmuProtect(as, va, size, new_prot))
         return false;
 
-    r->prot = new_prot; /* keep region truth in sync */
+    r->prot = new_prot;
     return true;
 }
 

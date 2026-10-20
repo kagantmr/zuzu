@@ -1,3 +1,8 @@
+/**
+ * @file msg.h
+ * @brief Message-passing function implementation.
+ */
+
 #include "msg.h"
 #include "core/ensure.h"
 #include "core/panic.h"
@@ -15,7 +20,7 @@
 BENCH_STAT(g_bench_ipc_buf_copy_memcpy, "ipc_buf_copy: memcpy");
 BENCH_STAT(g_bench_ipc_buf_copy_wordcopy, "ipc_buf_copy: hand-rolled word-copy");
 static uint8_t g_bench_wordcopy_scratch[MSG_BUF_SIZE] __attribute__((aligned(4)));
-#endif
+#endif /* CONFIG_ZUZU_BENCH */
 
 void __hot MsgBufCopy(TaskObject *restrict src, TaskObject *restrict dst, size_t len)
 {
@@ -93,8 +98,24 @@ Err GrantHandleAcross(SpaceObject *from, SpaceObject *to, Handle handle_to_grant
     return AllocateGrantSlot(from, to, handle_to_grant, out);
 }
 
+/**
+ * @brief Arm the timer and insert the caller into the sleep queue.
+ * 
+ * @param[in] caller The caller to wake upon timeout.
+ * @param[in] timeout Duration to arm the timeout on.
+ */
+static void CallArmTimeout(TaskObject *caller, Duration timeout)
+{
+    if (timeout == TIMEOUT_INFINITE) {
+        caller->wake_deadline = 0;
+        return;
+    }
+    caller->wake_deadline = ArchDeadlineFromMs(timeout);
+    SchedInsertSleepQueue(caller);
+}
+
 void CallBlockAsSender(TaskObject *caller, PortObject *port, ReplyObject *rc, uint32_t xlen,
-                       Handle grant_handle)
+                       Handle grant_handle, Duration timeout)
 {
     caller->ipc_state = IPC_WAITING;
     caller->blocked_port = port;
@@ -103,6 +124,7 @@ void CallBlockAsSender(TaskObject *caller, PortObject *port, ReplyObject *rc, ui
     caller->pending_grant_handle = grant_handle;
     SchedWaitQueueAddTask(&port->sender_queue, caller);
     caller->state = TASK_STATE_BLOCKED;
+    CallArmTimeout(caller, timeout);
     PortBoostServers(port);
     if (PortHasPending(port))
         ObserverNotify(&port->observers);
@@ -128,21 +150,17 @@ void DeliverCallToReceiver(TaskObject *caller, TaskObject *rx, ReplyObject *rc, 
 }
 
 __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port, ReplyObject *rc, size_t xlen,
-                                 Handle grant_handle, CpuState *frame)
+                                 Handle grant_handle, Duration timeout, CpuState *frame)
 {
     ListNode *node = port->receiver_queue.node.next;
     if (node == &port->receiver_queue.node)
         panic("CallHandoffToReceiver: called with empty receiver_queue (port=%p)", (void *)port);
     WaitSlot *rx_slot = container_of(node, WaitSlot, node);
     TaskObject *rx = rx_slot->owner;
-    if (!rx || !rx->trap_frame)
-        panic("CallHandoffToReceiver: queued receiver with no trap frame "
-              "(port=%p slot=%p owner=%p)",
-              (void *)port, (void *)rx_slot, (void *)rx);
+    if (!rx)
+        panic("CallHandoffToReceiver: queued receiver slot with no owner (port=%p slot=%p)",
+              (void *)port, (void *)rx_slot);
 
-    /* grant_handle was already validated (existence + grantable) in
-     * SvcCall before either path was chosen; only allocation in rx's
-     * table remains, and can still fail with ERR_NOMEM. */
     Handle granted;
     Err err = AllocateGrantSlot(caller->owner, rx->owner, grant_handle, &granted);
     if (err != ZUZU_OK) {
@@ -156,11 +174,12 @@ __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port, ReplyObje
     caller->blocked_port = port;
     caller->pending_reply_cap = rc;
     caller->state = TASK_STATE_BLOCKED;
-    
+    CallArmTimeout(caller, timeout);
+
     DeliverCallToReceiver(caller, rx, rc, xlen, granted);
     SchedUnblock(rx);
 
-    if (unlikely(SchedAnyCpuTakers(rx))) {
+    if (unlikely(rx->suspended || (rx->owner && rx->owner->frozen) || SchedAnyCpuTakers(rx))) {
         SchedAdd(rx);
         Schedule();
     } else {
@@ -178,6 +197,8 @@ void ReplyDeliverToCaller(TaskObject *target, uint32_t xlen, Handle granted)
     if (xlen)
         MsgBufCopy(current_task, target, xlen);
 
+    SchedRemoveSleepQueue(target);
+    target->wake_deadline = 0;
     target->ipc_state = IPC_NONE;
     target->blocked_port = NULL;
     target->pending_reply_cap = NULL;
@@ -193,6 +214,8 @@ void ReplyFailCaller(TaskObject *target, Err err)
     (*ArchGetFromFrame(target_frame, 1)) = 0;
     (*ArchGetFromFrame(target_frame, 3)) = (Register)-1;
 
+    SchedRemoveSleepQueue(target);
+    target->wake_deadline = 0;
     target->ipc_state = IPC_NONE;
     target->blocked_port = NULL;
     target->pending_reply_cap = NULL;
@@ -229,4 +252,78 @@ void PortReceive(PortObject *port, Duration timeout, CpuState *frame)
     }
 
     SchedBlockOn(&port->receiver_queue, timeout);
+}
+
+/**
+ * @brief Hold() svc ticket generation.
+ */
+static uint16_t held_gen;
+
+Err PortHoldCurrent(TaskObject *server, Ticket *out)
+{
+    ReplyObject *rc = server->reply_cap;
+    PortObject *port = server->serving_port;
+    if (!rc || !port)
+        return ERR_BADARG;
+
+    TaskObject *caller = rc->caller_task;
+    if (!caller || caller->tid != rc->caller_tid || caller->ipc_state != IPC_WAITING) {
+        TaskClearReplyCap(server);
+        return ERR_DEAD;
+    }
+
+    if (!port->held) {
+        port->held = KZAlloc(PORT_HELD_SLOTS * sizeof(HeldCall));
+        if (!port->held)
+            return ERR_NOMEM;
+    }
+    uint32_t slot = 0;
+    while (slot < PORT_HELD_SLOTS && port->held[slot].caller)
+        slot++;
+    if (slot == PORT_HELD_SLOTS)
+        return ERR_NOMEM;
+
+    held_gen = (uint16_t)((held_gen + 1U) & 0x7FFFU);
+    if (!held_gen)
+        held_gen = 1;
+
+    port->held[slot] = (HeldCall){.caller = caller, .caller_tid = caller->tid, .gen = held_gen};
+    caller->reply_holder = NULL;
+    caller->held_port = port;
+    caller->held_slot = (uint8_t)slot;
+
+    *out = TICKET_PACK(HANDLE_INDEX(server->serving_handle), slot, held_gen);
+    TaskClearReplyCap(server);
+    return ZUZU_OK;
+}
+
+TaskObject *PortTakeHeld(TaskObject *server, Ticket ticket, Err *err)
+{
+    HandleTableEntry *e =
+        HandleTableGet(&server->owner->handle_table, (Handle)TICKET_INDEX(ticket));
+    if (!e || e->type != HANDLE_PORT || !e->port) {
+        *err = ERR_BADHANDLE;
+        return NULL;
+    }
+    if (!(e->perms & PERM_WAIT)) {
+        *err = ERR_NOPERM;
+        return NULL;
+    }
+
+    PortObject *port = e->port;
+    HeldCall *h = port->held ? &port->held[TICKET_SLOT(ticket)] : NULL;
+    if (!h || !h->caller || h->gen != TICKET_GEN(ticket)) {
+        *err = ERR_NOENT;
+        return NULL;
+    }
+
+    TaskObject *caller = h->caller;
+    if (caller->tid != h->caller_tid || caller->ipc_state != IPC_WAITING) {
+        *err = ERR_NOENT;
+        return NULL;
+    }
+
+    h->caller = NULL;
+    caller->held_port = NULL;
+    return caller;
 }

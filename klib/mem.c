@@ -1,3 +1,8 @@
+/**
+ * @file mem.c
+ * @brief Memory functions: memmove(), memcmp() and memchr().
+ */
+
 #include "string.h"
 #include <stdint.h>
 

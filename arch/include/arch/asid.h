@@ -1,39 +1,58 @@
-// arch/asid.h - Neutral address-space-identifier contract.
-//
-// ASIDs tag TLB entries with a process identity so context switches avoid full
-// TLB flushes. Architectures without ASIDs provide a trivial implementation.
-// AddressSpace embeds an AsidToken by value, so this is a concrete type.
+/**
+ * @file asid.h
+ * @brief Address Space Identifier (ASID) functionality.
+ */
 
 #ifndef ARCH_ASID_H
 #define ARCH_ASID_H
 
 #include <stdint.h>
 
+/**
+ * @brief on ARMv7, an ASID is 8 bits.
+ * 
+ * TODO: Make this arch-specific.
+ */
 typedef uint8_t Asid;
 
+/**
+ * @brief Represents an ASID token (with an ASID and its generation.)
+ */
 typedef struct {
-    Asid asid;
-    uint32_t generation;
+    Asid asid; /**< ASID value. */
+    uint32_t generation; /**< Its generation. */
 } AsidToken;
 
-/** Allocate an ASID token for an address space (may roll the generation). */
+/**
+ * @brief Allocate a new ASID token.
+ * 
+ * @return AsidToken
+ */
 AsidToken AsidAlloc(void);
 
-/** Release a previously allocated ASID token. */
+/**
+ * @brief Let go of an existing ASID token.
+ *
+ * @param[in] token Token from AsidAlloc(); a token from an older generation is ignored.
+ */
 void AsidFree(AsidToken token);
 
-/** Current ASID generation number. */
+/**
+ * @brief Current global generation value.
+ */
 extern uint32_t asid_generation;
+
+/**
+ * @brief ASID generation accessor.
+ * 
+ * @return uint32_t the ASID generation.
+ */
 static inline uint32_t AsidCurrentGeneration(void) { return asid_generation; }
 
 /**
- * Record the ASID just installed in the live translation-context register
- * (CONTEXTIDR on ARM). Rollover in AsidAlloc() reserves this ASID rather
- * than handing it to someone else, so a process that keeps running across a
- * rollover doesn't collide with a freshly allocated one still using the same
- * tag. Call this exactly where the architecture writes the real ASID into
- * hardware -- not before, and not for the reserved/parking ASID a switch may
- * transit through first.
+ * @brief Activates the provided ASID by marking it on the ASID bitmap.
+ *
+ * @param[in] asid ASID now loaded on the CPU.
  */
 void AsidSetActive(Asid asid);
 

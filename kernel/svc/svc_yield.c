@@ -1,3 +1,8 @@
+/**
+ * @file svc_yield.c
+ * @brief Implementation of the Yield() svc.
+ */
+
 #include "kernel/sched/sched.h"
 #include "svc.h"
 

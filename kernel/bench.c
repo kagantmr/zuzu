@@ -1,6 +1,12 @@
+/**
+ * @file bench.c
+ * @brief Global list of benchmark statistics, with dump and reset.
+ */
+
 #include "core/kprintf.h"
 #include "kernel/bench.h"
 
+/** @brief Head of the list of every statistic that has recorded a sample. */
 static BenchStat *bench_list;
 
 void BenchLink(BenchStat *s)

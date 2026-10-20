@@ -1,3 +1,8 @@
+/**
+ * @file kmain.c
+ * @brief Kernel main: initialises the scheduler, syspage and boot info, then loads the root service.
+ */
+
 #include "kernel/kmain.h"
 
 #include <arch/cpu.h>
@@ -6,10 +11,11 @@
 #include <arch/mmu.h>
 #include <arch/platform.h>
 
+#include <arch/timer.h>
+
 #include "boot_info.h"
 #include "core/panic.h"
 #include "kernel/sched/sched.h"
-#include "kernel/time/tick.h"
 
 #include "core/version.h"
 #include "kernel/loader/boot_programs.h"
@@ -22,16 +28,9 @@
 #define LOG_FMT(fmt) "(main) " fmt
 #include "core/log.h"
 
-/* RegisterTickCb keeps a single slot (see kernel/time/tick.c), so this
- * wraps SchedSetReschedFlag rather than being registered alongside it —
- * a second call to RegisterTickCb would silently replace the first and
- * stop preemption. */
-static void sched_tick(void) { SchedTick(); }
-
 _Noreturn void kmain(void)
 {
     KINFO("Booting %s", "zuzu-" ZUZU_CODENAME "-" ZUZU_VERSION);
-    /* DTB and boot_info were initialized in early(); do not touch DTB again */
 
     SchedInit();
     ArchGlobalIrqEnable();
@@ -39,8 +38,6 @@ _Noreturn void kmain(void)
     SyspageInit();
     BootInfoInit();
 
-    /* The initrd always comes from the bootloader/firmware now (u-boot's
-     * bootm, or the Pi firmware on rpi4), via the DTB /chosen node. */
     uint64_t chosen_pa, chosen_size;
     if (!boot_info_initrd(&chosen_pa, &chosen_size))
         panic("No bootloader-supplied initrd (DTB /chosen)");
@@ -49,17 +46,12 @@ _Noreturn void kmain(void)
     size_t initrd_size = (size_t)chosen_size;
     KINFO("initrd: bootloader-supplied at pa=%p size=%zu", (void *)(uintptr_t)initrd_pa,
           initrd_size);
-    SyspageSetInitrdSz((uint32_t)initrd_size);
 
     InitrdInit((const void *)PA_TO_VA((uintptr_t)initrd_pa), initrd_size);
 
-    /* Load and spawn every boot program listed in boot.manifest (see
-     * kernel/loader/boot_programs.c). */
     CreateRootService(initrd_pa, initrd_size);
 
-    RegisterTickCb(sched_tick);
-
-    KINFO("Entering idle");
+    KINFO("Kernel up");
 
     Schedule();
 

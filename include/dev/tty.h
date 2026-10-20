@@ -1,3 +1,19 @@
+/**
+ * @file
+ * @brief ttysvc protocol and client helpers.
+ *
+ * ttysvc joins providers (UART and console drivers) to consumers (programs)
+ * through named endpoints. Each session, either kind, shares one page with
+ * ttysvc that holds two byte rings: @c up carries bytes from the session's
+ * owner to ttysvc, @c down carries bytes from ttysvc to the owner. For a
+ * driver, up is what was received and down is what to transmit; for a
+ * program, up is its output and down is its input.
+ *
+ * A session's @c index is (generation << 8) | slot, so an index from a closed
+ * session never matches a reused slot. It is guessable, so any peer can close
+ * or re-mode another's session.
+ */
+
 #ifndef TTY_PROTOCOL_H
 #define TTY_PROTOCOL_H
 
@@ -14,81 +30,109 @@ extern "C" {
 #include <zuzu/err.h>
 #include <zuzu/zuzu.h>
 
+/** @brief Longest endpoint alias, including the NUL. */
 #define TTY_NAME_MAX 16
+/** @brief Bytes in each ring. */
 #define TTY_RING_DATA_SIZE 1024u
 
+/** @brief Out-of-band signals from ttysvc to a consumer. */
 typedef struct {
-    volatile uint32_t eof_seq;
-    volatile uint32_t eof_ack;
-    volatile uint32_t eof_pos;
-    volatile uint32_t intr_seq;
+    volatile uint32_t eof_seq;  /**< Bumped by ttysvc for each ^D in cooked mode. */
+    volatile uint32_t eof_ack;  /**< Last eof_seq the consumer has handled. */
+    volatile uint32_t eof_pos;  /**< down ring position the EOF applies at. */
+    volatile uint32_t intr_seq; /**< Bumped by ttysvc for each ^C in cooked mode. */
 } TtyCtl;
 
+/** @brief The page a session shares with ttysvc. */
 typedef struct {
-    ShmRingHdr up_hdr;
-    uint8_t up_data[TTY_RING_DATA_SIZE];
-    ShmRingHdr down_hdr;
-    uint8_t down_data[TTY_RING_DATA_SIZE];
-    TtyCtl ctl;
+    ShmRingHdr up_hdr;                     /**< Owner to ttysvc ring. */
+    uint8_t up_data[TTY_RING_DATA_SIZE];   /**< Its data. */
+    ShmRingHdr down_hdr;                   /**< ttysvc to owner ring. */
+    uint8_t down_data[TTY_RING_DATA_SIZE]; /**< Its data. */
+    TtyCtl ctl;                            /**< EOF and interrupt signals. */
 } TtyShm;
 
 _Static_assert(sizeof(TtyShm) <= 4096, "TtyShm must fit in the one shared page");
 
-#define TTY_PROVIDE                                                                                \
-    1 /* grant: CreateMem(1) page.  {cmd, alias}; reply TtyConnectReply, grants ttysvc's doorbell  \
-       */
-#define TTY_ATTACH 2  /* grant: CreateMem(1) page.  same payload/reply as TTY_PROVIDE */
-#define TTY_NOTIFY 3  /* grant: the peer's own doorbell. {cmd, index, bit} */
-#define TTY_SETMODE 4 /* {cmd, index, flags}, consumers only */
-#define TTY_CLOSE 5   /* {cmd, index} */
-#define TTY_WATCH                                                                                  \
-    6 /* grant: a port the caller owns (PERM_WAIT|PERM_TXFR). {cmd, index}; ttysvc closes the      \
-         session when that port dies */
+/**
+ * @brief Provide an endpoint (drivers). TtyConnectRequest; grants the session page. Replies
+ * TtyConnectReply and grants ttysvc's doorbell.
+ */
+#define TTY_PROVIDE 1
+/** @brief Attach to an endpoint (programs). Same request and reply as TTY_PROVIDE. */
+#define TTY_ATTACH 2
+/** @brief Give ttysvc the caller's event. TtyNotifyRequest; grants the event. */
+#define TTY_NOTIFY 3
+/** @brief Set a consumer's mode. TtySetModeRequest. */
+#define TTY_SETMODE 4
+/** @brief End a session. TtyCloseRequest. */
+#define TTY_CLOSE 5
+/**
+ * @brief Tie a session to the caller's life. TtyWatchRequest; grants a port the caller owns
+ * (PERM_WAIT | PERM_TXFR). ttysvc closes the session when that port dies.
+ */
+#define TTY_WATCH 6
+/** @brief Take the endpoint's input (consumers). TtyFocusRequest. */
+#define TTY_FOCUS 7
 
-#define TTY_FOCUS 7 /* {cmd, index}, consumers only: take the foreground for input */
-
-#define TTY_MODE_RAW 0u /* default: bytes pass through untouched */
-#define TTY_MODE_COOKED                                                                            \
-    (1u << 0) /* line editing (^H DEL ^U ^W), whole lines, ^D = EOF, ^C = flag; '\n' -> "\r\n" on  \
-                 output */
-#define TTY_MODE_ECHO (1u << 1) /* ttysvc echoes typed characters back */
+/** @brief Mode: bytes pass through untouched. The default. */
+#define TTY_MODE_RAW 0u
+/**
+ * @brief Mode: line editing (^H, DEL, ^U, ^W), input delivered a line at a time, ^D signals
+ * EOF and ^C an interrupt; '\n' becomes "\r\n" on output.
+ */
+#define TTY_MODE_COOKED (1u << 0)
+/** @brief Mode: ttysvc echoes typed characters. */
+#define TTY_MODE_ECHO (1u << 1)
+/** @brief Every mode flag. */
 #define TTY_MODE_ALL (TTY_MODE_COOKED | TTY_MODE_ECHO)
 
+/** @brief TTY_PROVIDE and TTY_ATTACH request. */
 typedef struct {
-    uint32_t cmd;
-    char alias[TTY_NAME_MAX];
+    uint32_t cmd;             /**< TTY_PROVIDE or TTY_ATTACH. */
+    char alias[TTY_NAME_MAX]; /**< Endpoint name; empty attaches to the default endpoint. */
 } TtyConnectRequest;
+
+/** @brief TTY_NOTIFY request. */
 typedef struct {
-    uint32_t cmd;
-    uint32_t index;
-    uint32_t bit;
+    uint32_t cmd;   /**< TTY_NOTIFY. */
+    uint32_t index; /**< Session index. */
+    uint32_t bit;   /**< Bit ttysvc rings on the caller's event. */
 } TtyNotifyRequest;
+
+/** @brief TTY_SETMODE request. */
 typedef struct {
-    uint32_t cmd;
-    uint32_t index;
-    uint32_t flags;
+    uint32_t cmd;   /**< TTY_SETMODE. */
+    uint32_t index; /**< Session index. */
+    uint32_t flags; /**< TTY_MODE_* flags. */
 } TtySetModeRequest;
+
+/** @brief TTY_CLOSE request. */
 typedef struct {
-    uint32_t cmd;
-    uint32_t index;
+    uint32_t cmd;   /**< The command. */
+    uint32_t index; /**< Session index. */
 } TtyCloseRequest;
+
+/** @brief TTY_WATCH request; same layout as TtyCloseRequest. */
 typedef TtyCloseRequest TtyWatchRequest;
+/** @brief TTY_FOCUS request; same layout as TtyCloseRequest. */
 typedef TtyCloseRequest TtyFocusRequest;
+
+/** @brief TTY_PROVIDE and TTY_ATTACH reply. */
 typedef struct {
-    Err status;
-    uint32_t bit;
-    uint32_t index;
+    Err status;     /**< ZUZU_OK, or an error code. */
+    uint32_t bit;   /**< Bit to ring on ttysvc's doorbell. */
+    uint32_t index; /**< Session index for later requests. */
 } TtyConnectReply;
 
-/* `index` identifies the caller's session in ttysvc: (generation << 8) | slot,
- * so an index from a closed session never matches a reused slot. TODO: it is guessable,
- * so any peer can close or re-mode another's session; bind sessions to
- * unforgeable per-session handles once peers get per-peer authority. */
-
-/*
- * Consumer-side EOF/interrupt checks. EOF is ordered against data: it only
- * reports once everything typed before the ^D has been read from `down`.
- * Call TtyEofPending in the read loop after draining; it consumes the EOF.
+/**
+ * @brief Consumer: tells whether an EOF is due, and consumes it.
+ *
+ * EOF is ordered against data: it only reports once everything typed before
+ * the ^D has been read from @c down. Call it in the read loop after draining.
+ *
+ * @param[in,out] s Session page.
+ * @return true once, for each ^D.
  */
 static inline bool TtyEofPending(TtyShm *s)
 {
@@ -100,6 +144,13 @@ static inline bool TtyEofPending(TtyShm *s)
     return true;
 }
 
+/**
+ * @brief Consumer: tells whether ^C was pressed since the last check.
+ *
+ * @param[in]     s    Session page.
+ * @param[in,out] seen Last intr_seq seen; updated.
+ * @return true if there has been an interrupt since @p seen.
+ */
 static inline bool TtyInterrupted(const TtyShm *s, uint32_t *seen)
 {
     if (s->ctl.intr_seq == *seen)
@@ -108,41 +159,45 @@ static inline bool TtyInterrupted(const TtyShm *s, uint32_t *seen)
     return true;
 }
 
-/* ---- client helpers (providers and consumers) ---- */
-
+/** @brief A session with ttysvc, for providers and consumers alike. */
 typedef struct {
-    TtyShm *shm;
-    Handle mem;
-    Handle doorbell; /* send-only dup of ttysvc's event */
-    uint32_t bit;    /* bit to ring on `doorbell` */
-    uint32_t index;
-    Handle live; /* port we own; ttysvc watches it to notice our death */
+    TtyShm *shm;     /**< Mapped session page. */
+    Handle mem;      /**< The session page's memory object. */
+    Handle doorbell; /**< ttysvc's event, send-only. */
+    uint32_t bit;    /**< Bit to ring on @c doorbell. */
+    uint32_t index;  /**< Session index. */
+    Handle live;     /**< Port this client owns; ttysvc watches it to notice the client's death. */
 } TtyConn;
 
-/* One request/reply round trip. On success *granted is the handle the reply
- * granted (or -1) and the reply payload is still in MessageBuf(). */
+/**
+ * @brief One request and reply with ttysvc.
+ *
+ * @param[in]  tty_port Handle to ttysvc.
+ * @param[in]  req      Request.
+ * @param[in]  len      Request length.
+ * @param[in]  grant    Handle to grant, or -1.
+ * @param[out] granted  Handle the reply granted, or -1; may be NULL.
+ * @return ttysvc's status; on ZUZU_OK the reply is still in the message buffer.
+ */
 static inline Err TtyCall(Handle tty_port, const void *req, uint32_t len, Handle grant,
                           Handle *granted)
 {
-    MsgWrite(req, len);
-    uint32_t got = 0;
-    Handle back = -1;
-    Err rc = CallPort(tty_port, len, grant, &got, &back);
-    if (granted)
-        *granted = back;
-    if (rc != ZUZU_OK)
-        return rc;
-    Err status;
-    if (got < sizeof(status))
-        return ERR_MALFORMED;
-    memcpy(&status, GetMessageBox(), sizeof(status));
-    return status;
+    return MsgCallStatus(tty_port, req, len, grant, granted);
 }
 
-/*
- * cmd is TTY_PROVIDE or TTY_ATTACH. `my_event` is the event the caller waits
- * on; ttysvc rings `my_bit` on it. Returns ERR_NOENT if no endpoint exists
- * yet; consumers that start before their provider should retry.
+/**
+ * @brief Opens a session: creates the page, connects, asks ttysvc to watch the caller, and
+ * hands over the caller's event.
+ *
+ * @param[in]  tty_port Handle to ttysvc.
+ * @param[in]  cmd      TTY_PROVIDE or TTY_ATTACH.
+ * @param[in]  alias    Endpoint name, or NULL for the default.
+ * @param[in]  my_event Event the caller waits on.
+ * @param[in]  my_bit   Bit ttysvc rings on it.
+ * @param[out] c        The session.
+ * @return ZUZU_OK, or an error code.
+ * @retval ERR_NOENT     No such endpoint yet; a consumer that starts before its provider retries.
+ * @retval ERR_MALFORMED ttysvc did not grant a doorbell.
  */
 static inline Err TtyClientConnect(Handle tty_port, uint32_t cmd, const char *alias,
                                    Handle my_event, uint32_t my_bit, TtyConn *c)
@@ -159,9 +214,8 @@ static inline Err TtyClientConnect(Handle tty_port, uint32_t cmd, const char *al
     }
     c->shm = (TtyShm *)va;
 
-    /* Grants copy perms verbatim and need PERM_TXFR: send a dup. */
     Handle page;
-    Err prc = HandleDup(c->mem, PERM_MAP | PERM_TXFR, MARKER_NONE, &page);
+    Err prc = HandleDup(c->mem, PERM_MAP | PERM_WRITE | PERM_TXFR, MARKER_NONE, &page);
     if (prc != ZUZU_OK) {
         MemUnmap(va);
         HandleClose(c->mem);
@@ -190,7 +244,6 @@ static inline Err TtyClientConnect(Handle tty_port, uint32_t cmd, const char *al
     c->bit = rep.bit;
     c->index = rep.index;
 
-    /* Best effort: without it ttysvc only frees the session on TTY_CLOSE. */
     c->live = CreatePort();
     if (c->live >= 0) {
         Handle watch;
@@ -216,18 +269,40 @@ static inline Err TtyClientConnect(Handle tty_port, uint32_t cmd, const char *al
     return rc;
 }
 
+/**
+ * @brief Sets a consumer's mode.
+ *
+ * @param[in] tty_port Handle to ttysvc.
+ * @param[in] c        The session.
+ * @param[in] flags    TTY_MODE_* flags.
+ * @return ttysvc's status.
+ */
 static inline Err TtyClientSetMode(Handle tty_port, const TtyConn *c, uint32_t flags)
 {
     TtySetModeRequest req = {.cmd = TTY_SETMODE, .index = c->index, .flags = flags};
     return TtyCall(tty_port, &req, sizeof(req), -1, NULL);
 }
 
+/**
+ * @brief Makes a consumer the one that receives the endpoint's input.
+ *
+ * @param[in] tty_port Handle to ttysvc.
+ * @param[in] c        The session.
+ * @return ttysvc's status.
+ */
 static inline Err TtyClientFocus(Handle tty_port, const TtyConn *c)
 {
     TtyFocusRequest req = {.cmd = TTY_FOCUS, .index = c->index};
     return TtyCall(tty_port, &req, sizeof(req), -1, NULL);
 }
 
+/**
+ * @brief Closes a session and releases its page and handles, whatever ttysvc answers.
+ *
+ * @param[in]     tty_port Handle to ttysvc.
+ * @param[in,out] c        The session.
+ * @return ttysvc's status.
+ */
 static inline Err TtyClientClose(Handle tty_port, TtyConn *c)
 {
     TtyCloseRequest req = {.cmd = TTY_CLOSE, .index = c->index};

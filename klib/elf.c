@@ -1,3 +1,8 @@
+/**
+ * @file elf.c
+ * @brief ELF32 header validation and program header access.
+ */
+
 #include "elf.h"
 #include <string.h>
 

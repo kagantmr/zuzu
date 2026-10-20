@@ -1,6 +1,7 @@
-// arch_impl/tls.h - ARM user-mode thread-pointer read (architecture-private).
-//
-// Do not include directly from neutral code; include <arch/tls.h> instead.
+/**
+ * @file
+ * @brief ARMv7-A thread pointer read.
+ */
 
 #ifndef ARCH_ARM_IMPL_TLS_H
 #define ARCH_ARM_IMPL_TLS_H
@@ -8,9 +9,9 @@
 #include <stdint.h>
 
 /**
- * Reads the ARM TPIDRURO register (cp15, c13, c0, 3), which the kernel
- * fills in via ArchSetTlsPointer() on context switch. User mode uses
- * this for TLS / TCB lookup.
+ * @brief Reads the user read-only thread ID register (TPIDRURO).
+ *
+ * @return The current task's info block address.
  */
 static inline uintptr_t ArchGetTlsPointer(void)
 {

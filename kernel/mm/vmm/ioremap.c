@@ -1,6 +1,7 @@
-/* Kernel-VA window for MMIO device mappings: a section-granularity
- * allocator over [IOREMAP_BASE, IOREMAP_MAX_SLOT) plus the small table
- * that tracks each live mapping so IoUnmap() can find it again. */
+/**
+ * @file ioremap.c
+ * @brief Section-granular mapping of device memory into the kernel ioremap window.
+ */
 
 #include "vmm_internal.h"
 
@@ -8,42 +9,60 @@
 #include <bitmap.h>
 #include <stdint.h>
 
-// Bitmap: 256 bits = 8 x uint32_t
-static uint32_t ioremap_bitmap[8]; // Bit N = slot N allocated
+/** @brief Occupancy bitmap of the ioremap window, one bit per section slot. */
+static uint32_t ioremap_bitmap[8];
 
-/* IOREMAP_MAX_SLOT is defined in vmm.h as pure text substitution (SECTION_SIZE
- * isn't visible there yet, see the comment at its definition); this is the
- * first point in this TU where both arch/mmu.h (SECTION_SIZE) and vmm.h
- * (KSTACK_REGION_BASE, IOREMAP_BASE, IOREMAP_SLOTS) are in scope together. */
 _Static_assert(IOREMAP_MAX_SLOT <= IOREMAP_SLOTS,
                "kstack region base falls outside the ioremap window");
 
+/** @brief Bookkeeping for one live ioremap mapping. */
 typedef struct {
-    VirtAddr va;       // Base VA (0 = unused entry)
-    uint32_t sections; // Number of 1MB sections
+    VirtAddr va;       /**< Section-aligned start of the mapping; 0 marks a free entry. */
+    uint32_t sections; /**< Number of sections mapped. */
 } IoremapEntry;
 
+/** @brief Table of live ioremap mappings. */
 static IoremapEntry ioremap_table[IOREMAP_MAX_ENTRIES];
 
-// Find N contiguous free slots. Bounded to IOREMAP_MAX_SLOT, not
-// IOREMAP_SLOTS: slots beyond that would land on the kstack region
-// (see IOREMAP_MAX_SLOT in vmm.h).
+/**
+ * @brief Find a run of free slots in the ioremap window.
+ *
+ * @param[in] n Number of consecutive slots needed.
+ * @return Index of the first slot of the run, or a negative value if none exists.
+ */
 static int BitmapFindFree(uint32_t n)
 {
     return BitmapFindClearRun(ioremap_bitmap, IOREMAP_MAX_SLOT, n);
 }
 
+/**
+ * @brief Mark a run of ioremap slots as used.
+ *
+ * @param[in] start First slot.
+ * @param[in] count Number of slots.
+ */
 static void BitmapAlloc(uint32_t start, uint32_t count)
 {
     BitmapSetRange(ioremap_bitmap, start, count);
 }
 
+/**
+ * @brief Mark a run of ioremap slots as free.
+ *
+ * @param[in] start First slot.
+ * @param[in] count Number of slots.
+ */
 static void BitmapFree(uint32_t start, uint32_t count)
 {
     BitmapClrRange(ioremap_bitmap, start, count);
 }
 
-// Find ioremap_table entry by VA
+/**
+ * @brief Look up the table entry for a mapping.
+ *
+ * @param[in] va Section-aligned start address of the mapping.
+ * @return The entry, or NULL if none matches.
+ */
 static IoremapEntry *IoremapFind(VirtAddr va)
 {
     for (size_t i = 0; i < IOREMAP_MAX_ENTRIES; i++) {
@@ -54,7 +73,11 @@ static IoremapEntry *IoremapFind(VirtAddr va)
     return NULL;
 }
 
-// Find free slot in ioremap_table
+/**
+ * @brief Find an unused table entry.
+ *
+ * @return A free entry, or NULL if the table is full.
+ */
 static IoremapEntry *IoremapAllocEntry(void)
 {
     for (size_t i = 0; i < IOREMAP_MAX_ENTRIES; i++) {
@@ -81,9 +104,7 @@ void *IoRemap(PhysAddr phys, size_t size)
     if (slot < 0) {
         return NULL;
     }
-    /* Belt-and-suspenders: BitmapFindFree is already bounded to
-     * IOREMAP_MAX_SLOT, but a mapping must never be allowed to land on the
-     * kstack region even if that bound is ever loosened by mistake. */
+    
     if ((uint32_t)slot + sections_needed > IOREMAP_MAX_SLOT) {
         return NULL;
     }

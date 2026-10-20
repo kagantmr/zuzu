@@ -1,6 +1,7 @@
-// entry.S - exception entry points and trampoline for process entry
-// Assembly code for the exception entry points for ARMv7.
-// Basic handlers for exceptions, they route to ExceptionDispatch.
+/**
+ * @file
+ * @brief ARMv7-A exception entry and exit: builds the CpuState trap frame on the SVC stack.
+ */
 
 .syntax unified
 .arm
@@ -15,84 +16,117 @@
 .global fiq_handler
 .global task_entry_trampoline
 
+/** Set by the scheduler when a reschedule is due on the way back to the interrupted task. */
 .extern do_resched
 
+/**
+ * task_entry_trampoline
+ *
+ * Where a new user task first runs: ArchTaskUserInit() makes its CpuContext
+ * return here, with sp at the CpuState it prepared. Loads that frame and
+ * enters user mode, like exception_exit.
+ */
 task_entry_trampoline:
-    // frame at SP: r0-r12, sp_usr, lr_usr, return_pc, return_cpsr
 
     add r0, sp, #52
-    ldm r0, {r13, r14}^     // loads frame[52]->r13_usr, frame[56]->r14_usr, no mode change
-    nop                        // A1085W: no banked-reg access in the next instruction
-    ldmia sp!, {r0-r12}        // restore regs (13 words)
-    add sp, sp, #8             // skip sp_usr/lr_usr
-    rfeia sp!                  // pop return_pc + return_cpsr into PC/Cpsr
+    ldm r0, {r13, r14}^
+    nop
+    ldmia sp!, {r0-r12}
+    add sp, sp, #8
+    rfeia sp!
 
+/**
+ * exception_entry lr_adjust
+ *
+ * Turns the exception-mode lr into the return address (lr - lr_adjust), saves it
+ * and the SPSR on the SVC stack (srsdb), switches to SVC mode with IRQs masked
+ * and pushes the rest of a CpuState: r0-r12, then the user sp and lr. On exit
+ * sp points at the CpuState. Clobbers r0.
+ */
 .macro exception_entry, lr_adjust
     sub lr, lr, #\lr_adjust
-    srsdb sp!, #0x13          // push [return_pc, cpsr]
-    cpsid i, #0x13            // SVC, IRQs off
-    sub sp, sp, #8            // reserve [sp_usr, lr_usr]
-    stmdb sp!, {r0-r12}       // push r0-r12
-    // frame is now complete except sp_usr/lr_usr
+    srsdb sp!, #0x13
+    cpsid i, #0x13
+    sub sp, sp, #8
+    stmdb sp!, {r0-r12}
     add r0, sp, #52
-    stm r0, {r13, r14}^       // stores r13_usr -> [r0], r14_usr -> [r0+4], no mode change
-    nop                       // A1085W: no banked-reg access in the next instruction
+    stm r0, {r13, r14}^
+    nop
 .endm
 
+/**
+ * exception_exit
+ *
+ * Reloads the user sp and lr and r0-r12 from the CpuState at sp, then returns
+ * with rfe, which restores pc and CPSR.
+ */
 .macro exception_exit
     add r0, sp, #52
-    ldm r0, {r13, r14}^       // loads frame[52]->r13_usr, frame[56]->r14_usr, no mode change
-    nop                       // A1085W: no banked-reg access in the next instruction
-    ldmia sp!, {r0-r12}       // restore r0-r12
-    add sp, sp, #8            // skip sp_usr/lr_usr
-    rfeia sp!                 // restore pc + cpsr
+    ldm r0, {r13, r14}^
+    nop
+    ldmia sp!, {r0-r12}
+    add sp, sp, #8
+    rfeia sp!
 .endm
 
+/**
+ * exception_dispatch_call type
+ *
+ * Calls ExceptionDispatch(type, frame) with sp aligned to 8 bytes as the AAPCS
+ * requires; r4 keeps the unaligned sp. type is an ExceptionType.
+ */
 .macro exception_dispatch_call, type
     mov r0, #\type
     mov r1, sp
     mov r4, sp
-    bic sp, sp, #7            // AAPCS: force 8-byte alignment; the interrupted SP may be 4 mod 8
+    bic sp, sp, #7
     bl ExceptionDispatch
     mov sp, r4
 .endm
 
+/** Reset vector: masks interrupts, enters SVC mode and restarts the boot code. */
 reset_handler:
-    cpsid if             // Mask interrupts
-    cps #0x13            // SVC mode
+    cpsid if
+    cps #0x13
 
-    b _start             // Go to startup code
+    b _start
 1:
     b 1b
 
+/** IRQ vector: dispatches the interrupt, then reschedules if do_resched was set. */
 irq_handler:
     exception_entry 4
     exception_dispatch_call 6
-    // Check flag to see if we need to call the scheduler
     ldr r0, =do_resched
     ldrb r1, [r0]
     cmp r1, #0
     beq .no_schedule
 .do_schedule:
     mov r1, #0
-    strb r1, [r0]          // Clear flag
+    strb r1, [r0]
     mov r4, sp
-    bic sp, sp, #7         // AAPCS: force 8-byte alignment; see exception_dispatch_call
+    bic sp, sp, #7
     bl Schedule
     mov sp, r4
 .no_schedule:
     exception_exit
 
+/** Unused vector; ExceptionDispatch() panics. */
 reserved_handler:
     exception_entry 4
     exception_dispatch_call 5
     exception_exit
 
+/** Data abort vector. lr is 8 past the faulting instruction, so returning retries it. */
 data_abort_handler:
     exception_entry 8
     exception_dispatch_call 4
     exception_exit
 
+/**
+ * SVC vector: SvcTrap() runs the syscall on the CpuState at sp, then the task
+ * is rescheduled if do_resched was set. Returns to the instruction after svc.
+ */
 svc_handler:
     exception_entry 0
     mov r0, sp
@@ -113,16 +147,22 @@ svc_handler:
 .svc_no_schedule:
     exception_exit
 
+/** Prefetch abort vector. */
 prefetch_abort_handler:
     exception_entry 4
     exception_dispatch_call 3
     exception_exit
 
+/**
+ * Undefined instruction vector. Returning re-executes the instruction, which is
+ * what the lazy VFP switch wants once access has been granted.
+ */
 undef_handler:
     exception_entry 4
     exception_dispatch_call 1
     exception_exit
 
+/** FIQ vector; FIQs are not used. */
 fiq_handler:
     exception_entry 4
     exception_dispatch_call 7

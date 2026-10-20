@@ -1,3 +1,8 @@
+/**
+ * @file
+ * @brief Console I/O over ttysvc: printf and scanf families, and choosing the terminal.
+ */
+
 #ifndef STDIO_H
 #define STDIO_H
 
@@ -7,7 +12,7 @@
 #include <stdint.h>
 
 #ifndef EOF
-#define EOF (-1)
+#define EOF (-1) /**< Returned by input functions at end of input or on error. */
 #endif
 
 #ifdef __cplusplus
@@ -17,10 +22,9 @@ extern "C" {
 /**
  * @brief Writes formatted output to the standard output stream (stdout).
  *
- * @param format A C string that contains a format string that follows the same specifications as
- * printf.
- * @param ... Additional arguments to be formatted and printed according to the format string.
- * @return int The number of characters printed (excluding the null byte used to end output to
+ * @param[in] format printf format.
+ * @param[in] ... Arguments.
+ * @return The number of characters printed (excluding the null byte used to end output to
  * strings), or a negative value if an error occurs.
  */
 int printf(const char *format, ...);
@@ -28,10 +32,9 @@ int printf(const char *format, ...);
 /**
  * @brief Writes formatted output to the standard output stream (stdout) using a va_list.
  *
- * @param format A C string that contains a format string that follows the same specifications as
- * printf.
- * @param args A va_list of arguments to be formatted and printed according to the format string.
- * @return int The number of characters printed (excluding the null byte used to end output to
+ * @param[in] format printf format.
+ * @param[in] args Arguments.
+ * @return The number of characters printed (excluding the null byte used to end output to
  * strings), or a negative value if an error occurs.
  */
 int vprintf(const char *format, va_list args);
@@ -39,12 +42,10 @@ int vprintf(const char *format, va_list args);
 /**
  * @brief Writes formatted output to a string.
  *
- * @param buf A pointer to the buffer where the formatted string will be stored.
- * @param format A C string that contains a format string that follows the same specifications as
- * printf
- * @param ... Additional arguments to be formatted and stored in the buffer according to the format
- * string.
- * @return int The number of characters written to the buffer (excluding the null byte used to end
+ * @param[out] buf Output buffer; must be large enough, as nothing limits the length.
+ * @param[in] format printf format.
+ * @param[in] ... Arguments.
+ * @return The number of characters written to the buffer (excluding the null byte used to end
  * output to strings), or a negative value if an error occurs.
  */
 int sprintf(char *buf, const char *format, ...);
@@ -52,12 +53,10 @@ int sprintf(char *buf, const char *format, ...);
 /**
  * @brief Writes formatted output to a string using a va_list.
  *
- * @param buf A pointer to the buffer where the formatted string will be stored.
- * @param format A C string that contains a format string that follows the same specifications as
- * printf
- * @param args A va_list of arguments to be formatted and stored in the buffer according to the
- * format string.
- * @return int The number of characters written to the buffer (excluding the null byte used to end
+ * @param[out] buf Output buffer; must be large enough, as nothing limits the length.
+ * @param[in] format printf format.
+ * @param[in] args Arguments.
+ * @return The number of characters written to the buffer (excluding the null byte used to end
  * output to strings), or a negative value if an error occurs.
  */
 int vsprintf(char *buf, const char *format, va_list args);
@@ -65,36 +64,34 @@ int vsprintf(char *buf, const char *format, va_list args);
 /**
  * @brief Reads a character from the standard input stream (stdin).
  *
- * @return int The character read as an unsigned char cast to an int or EOF on end of file or error.
+ * @return The character read as an unsigned char cast to an int or EOF on end of file or error.
  */
 int getchar(void);
 
 /**
- * @brief Reads formatted input from the standard input stream (stdin).
+ * @brief Reads one line from the console and parses it, like sscanf().
  *
- * @param format A C string that contains a format string that follows the same specifications as
- * scanf.
- * @param ... Additional arguments where the input will be stored according to the format string.
- * @return int The number of input items successfully matched and assigned, or EOF if an input
+ * @param[in] format scanf format.
+ * @param[out] ... Where to store the converted items.
+ * @return The number of input items successfully matched and assigned, or EOF if an input
  * failure occurs before any items are matched.
  */
 int scanf(const char *format, ...);
 
 /**
- * @brief Reads formatted input from the standard input stream (stdin) using a va_list.
+ * @brief scanf() taking a va_list.
  *
- * @param format A C string that contains a format string that follows the same specifications as
- * scanf.
- * @param args A va_list of arguments where the input will be stored according to the format string.
- * @return int The number of input items successfully matched and assigned, or EOF if an input
+ * @param[in] format scanf format.
+ * @param[out] args Where to store the converted items.
+ * @return The number of input items successfully matched and assigned, or EOF if an input
  * failure occurs before any items are matched.
  */
 int vscanf(const char *format, va_list args);
 
 /**
- * @brief Registers a UART device for use with the standard I/O functions.
+ * @brief Connects stdio to ttysvc now, rather than on first use.
  *
- * @return int Returns 0 on success, or a negative value if an error occurs.
+ * @return 0 on success, or -1.
  */
 int stdio_open_tty(void);
 
@@ -102,6 +99,11 @@ int stdio_open_tty(void);
  * @brief Switches the console between cooked (line editing and echo by the
  * terminal service, the default) and raw (every byte passed through; the
  * caller echoes). In raw mode printf still turns "\n" into "\r\n".
+ *
+ * The setting survives a reconnect.
+ *
+ * @param[in] enable Non-zero for raw, 0 for cooked.
+ * @return 0 on success, or -1.
  */
 int stdio_set_raw(int enable);
 
@@ -114,13 +116,18 @@ void stdio_close_tty(void);
 /**
  * @brief Routes the standard I/O functions to a specific TTY device.
  *
- * @param name A ttysvc alias (e.g. "tty0"), or "" for the default endpoint.
- * @return int Returns 0 on success, or a negative value if an error occurs.
+ * Reconnects at once, so a bad alias is reported here rather than at the next printf.
+ *
+ * @param[in] name A ttysvc alias (e.g. "tty0"), or "" for the default endpoint.
+ * @return 0 on success, or -1.
  */
 int stdio_route_tty(const char *name);
 
 /**
- * @brief Sets the standard I/O functions to use a specific TTY device by index.
+ * @brief stdio_route_tty() to "tty<index>".
+ *
+ * @param[in] index Terminal number; only its last decimal digit is used.
+ * @return As stdio_route_tty().
  */
 int stdio_use_tty(uint32_t index);
 

@@ -1,3 +1,8 @@
+/**
+ * @file sem.h
+ * @brief Semaphore implementation.
+ */
+
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <sync/sem.h>
@@ -35,12 +40,9 @@ Err SemWait(Semaphore *s)
         int expected = atomic_load(&s->count);
         while (expected > 0) {
             if (atomic_compare_exchange_weak(&s->count, &expected, expected - 1)) {
-                return ZUZU_OK; // got a unit, no syscall
+                return ZUZU_OK;
             }
-            // CAS failed but expected still > 0 → someone else raced us, retry with updated
-            // expected
         }
-        // count is <= 0 → nothing available, block
         WaitOn(s->event, TIMEOUT_INFINITE);
     }
 }

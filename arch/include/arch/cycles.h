@@ -1,6 +1,16 @@
+/**
+ * @file cycles.h
+ * @brief Architecture-netural cycle measurement
+ */
+
 #ifndef ARCH_CYCLES_H
 #define ARCH_CYCLES_H
 
-#include <arch_impl/pmccntr.h>
+#include <stdint.h>
 
-#endif
+/**
+ * Include arch implementation. 
+ */
+#include <arch_impl/cycles.h>
+
+#endif // ARCH_CYCLES_H

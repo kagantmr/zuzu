@@ -1,8 +1,23 @@
+/**
+ * @file zxf.c
+ * @brief Validation of ZXF executable images.
+ */
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 #include <util/zxf.h>
 
+/**
+ * @brief Continues a CRC-32 (reflected, polynomial 0xEDB88320) over a buffer.
+ *
+ * The caller supplies the initial value and applies the final inversion.
+ *
+ * @param[in] data Bytes to add to the checksum.
+ * @param[in] len Number of bytes.
+ * @param[in] crc Running CRC value.
+ * @return The updated CRC value.
+ */
 static uint32_t ZxfCrc32Partial(const void *data, size_t len, uint32_t crc)
 {
     const uint8_t *bytes = (const uint8_t *)data;
@@ -64,15 +79,11 @@ bool ZxfParse(const void *data, size_t size, ZXFImage *out)
     out->size = size;
     out->entry = (uint32_t)hdr->entry;
     out->seg_count = hdr->seg_count;
-    /* base is the whole loaded image (page-aligned by every caller) and
-     * seg_table_offset/block_table_offset are fixed struct-size multiples
-     * from elf2zxf.py, so this pointer is actually aligned; the cast just
-     * has to go through (const void *) to tell the compiler that. */
+    
     out->segs = (const ZXFSegment *)(const void *)(base + hdr->seg_table_offset);
 
     bool blocktype_optional = false;
     for (int i = 0; i < hdr->block_count; i++) {
-        /* Same alignment rationale as out->segs above. */
         const ZXFBlock *block =
             &((const ZXFBlock *)(const void *)(base + hdr->block_table_offset))[i];
         if (block->flags == REQUIRED)

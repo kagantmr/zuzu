@@ -1,77 +1,60 @@
-#include <zuzu/err.h>
+/**
+ * @file err.c
+ * @brief Implementation of the StrToError function.
+ */
+
+#include "err.h"
 
 const char *StrToError(Err err)
 {
     switch (err) {
     case ZUZU_OK:
-        return "ERR_OK";
-    /* frozen kernel band */
+        return "Success";
     case ERR_NOPERM:
-        return "ERR_NOPERM";
+        return "Permission denied";
     case ERR_NOENT:
-        return "ERR_NOENT";
+        return "Entry not found";
     case ERR_BUSY:
-        return "ERR_BUSY";
+        return "Object is busy";
     case ERR_NOMEM:
-        return "ERR_NOMEM";
+        return "Out of memory";
     case ERR_BADTYPE:
-        return "ERR_BADTYPE";
+        return "Invalid type";
     case ERR_BADARG:
-        return "ERR_BADARG";
+        return "Invalid arguments";
     case ERR_NOSYS:
-        return "ERR_NOSYS";
+        return "Function not implemented";
     case ERR_BADPTR:
-        return "ERR_BADPTR";
+        return "Bad address";
     case ERR_DEAD:
-        return "ERR_DEAD";
+        return "Object or peer no longer exists";
     case ERR_TIMEOUT:
-        return "ERR_TIMEOUT";
+        return "Wait timed out";
     case ERR_OVERFLOW:
-        return "ERR_OVERFLOW";
+        return "Size exceeds the limit";
     case ERR_BADHANDLE:
-        return "ERR_BADHANDLE";
-    /* zuzuOS server/library band */
+        return "Invalid handle";
     case ERR_BUFFULL:
-        return "ERR_BUFFULL";
+        return "Destination full";
     case ERR_BUFEMPTY:
-        return "ERR_BUFEMPTY";
+        return "Source empty";
     case ERR_SYSDOWN:
-        return "ERR_SYSDOWN";
+        return "System is down";
     case ERR_NOTCONN:
-        return "ERR_NOTCONN";
+        return "Not connected";
     case ERR_DUPLICATE:
-        return "ERR_DUPLICATE";
+        return "Duplicate request";
     case ERR_MALFORMED:
-        return "ERR_MALFORMED";
+        return "Malformed data";
     case ERR_IO:
-        return "ERR_IO";
+        return "Input/output error";
+    case ERR_OUTDATED:
+        return "Cannot work in outdated system";
+    case ERR_CONNREFUSED:
+        return "Connection refused";
+    case ERR_CONNRESET:
+        return "Connection reset";
     default:
-        break;
+        return "Unknown error";
     }
-
-    /* Unknown code: format the number so post-freeze callers that meet a code
-     * they weren't compiled against still print something useful. Not reentrant;
-     * fine for the single-threaded diagnostic paths that use it. */
-    static char buf[16];
-    int32_t v = (int32_t)err;
-    int neg = v < 0;
-    uint32_t n = neg ? (uint32_t)(-(int64_t)v) : (uint32_t)v;
-    char tmp[12];
-    int i = 0;
-    do {
-        tmp[i++] = (char)('0' + (n % 10));
-        n /= 10;
-    } while (n);
-
-    int p = 0;
-    buf[p++] = 'E';
-    buf[p++] = 'R';
-    buf[p++] = 'R';
-    buf[p++] = ' ';
-    if (neg)
-        buf[p++] = '-';
-    while (i > 0)
-        buf[p++] = tmp[--i];
-    buf[p] = '\0';
-    return buf;
 }

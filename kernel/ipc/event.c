@@ -1,3 +1,8 @@
+/**
+ * @file event.c
+ * @brief Event object function implementations.
+ */
+
 #include "event.h"
 
 #include "core/ensure.h"
@@ -5,13 +10,22 @@
 #include "kernel/mm/alloc.h"
 #include "kernel/sched/sched.h"
 #include "kernel/space/space.h"
+#include <string.h>
 
 #include <assert.h>
 #include <types.h>
 #include <zuzu/err.h>
 
+/**
+ * @brief Heap cache for event object slabs.
+ */
 static KSlabCache event_cache;
 
+/**
+ * @brief Allocate a new event object from the slab.
+ *
+ * @return EventObject* A freshly allocated event object.
+ */
 static EventObject *EventObjAlloc(void)
 {
     if (!event_cache.obj_size)
@@ -19,6 +33,11 @@ static EventObject *EventObjAlloc(void)
     return KSlabAlloc(&event_cache);
 }
 
+/**
+ * @brief Free an existing event object.
+ *
+ * @param[in] ev The object to free.
+ */
 static void EventObjFree(EventObject *ev) { KSlabFree(&event_cache, ev); }
 
 void EventSignal(EventObject *ev, EventWord bits, bool bcast)
@@ -31,7 +50,7 @@ void EventSignal(EventObject *ev, EventWord bits, bool bcast)
         ListNode *node = ListPopFront(&ev->wait_queue);
         WaitSlot *slot = container_of(node, WaitSlot, node);
         TaskObject *waiter = slot->owner;
-        assert(waiter && waiter->trap_frame);
+        assert(waiter);
         ArchSetInFrame(waiter->trap_frame, 0, ZUZU_OK);
         (*ArchGetFromFrame(waiter->trap_frame, 1)) = (Register)ev->word;
         SchedUnblock(waiter);
@@ -69,6 +88,23 @@ void EventUnref(EventObject *ev)
     EventObjFree(ev);
 }
 
+void EventBindBit(EventObject *ev, uint32_t bit)
+{
+    if (bit >= 31)
+        return;
+    if (ev->bound_refs[bit] < UINT16_MAX)
+        ev->bound_refs[bit]++;
+    ev->bound_mask |= (1U << bit);
+}
+
+void EventUnbindBit(EventObject *ev, uint32_t bit)
+{
+    if (bit >= 31 || ev->bound_refs[bit] == 0)
+        return;
+    if (--ev->bound_refs[bit] == 0)
+        ev->bound_mask &= ~(1U << bit);
+}
+
 EventObject *EventCreate(SpaceObject *owner)
 {
     EventObject *ev = EventObjAlloc();
@@ -80,6 +116,7 @@ EventObject *EventCreate(SpaceObject *owner)
     ListInit(&ev->wait_queue);
     ev->word = 0;
     ev->bound_mask = 0;
+    memset(ev->bound_refs, 0, sizeof(ev->bound_refs));
 
     return ev;
 }

@@ -6,17 +6,10 @@
 .global memset
 .type memset,%function
 
-/**
-void *memset(void *dst, int c, size_t n)
-
- */
 memset:
 
-/* push everything, we're going to use all regs */
     push {r4-r11}
-/* save original ptr in r12 (aapcs says its caller saved */
     mov ip, r0
-/* 1. Align to 4 bytes */
 copy_align_to_word:
     and r3, r0, #3
     cmp r3, #0
@@ -42,7 +35,6 @@ prepare_fill_word:
     mov r9, r1
     mov r10, r1
     mov r11, r1
-/* while n >= 32, do stmia r0!, {r4-r11} (32 bytes), r2 <- r2 - 32 */
 stmia_loop:
     cmp r2, #32
     blt str_loop
@@ -51,7 +43,6 @@ stmia_loop:
 
     sub r2, r2, #32
     b stmia_loop
-/* while n >= 4, str r1, [r0], #4 */
 str_loop:
     cmp r2, #4
     blt strb_loop
@@ -60,7 +51,6 @@ str_loop:
 
     sub r2, r2, #4
     b str_loop
-/* while n > 0, copy remaining bytes one by one */
 strb_loop:
     cmp r2, #0
     beq done

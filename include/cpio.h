@@ -1,4 +1,7 @@
-// cpio.h - CPIO archive handling
+/**
+ * @file
+ * @brief Finding files in a cpio archive (new ASCII format), as used for the initrd.
+ */
 
 #ifndef CPIO_H
 #define CPIO_H
@@ -10,31 +13,32 @@
 extern "C" {
 #endif
 
+/** @brief A cpio member header: 110 bytes, numbers as 8 hex digits. */
 typedef struct cpio_header {
-    char magic[6];     // "070701" for new ASCII format
-    char ino[8];       // inode number
-    char mode[8];      // file mode
-    char uid[8];       // user ID of owner
-    char gid[8];       // group ID of owner
-    char nlink[8];     // number of links
-    char mtime[8];     // modification time
-    char filesize[8];  // size of the file in bytes
-    char devmajor[8];  // major device number
-    char devminor[8];  // minor device number
-    char rdevmajor[8]; // major device number for special files
-    char rdevminor[8]; // minor device number for special files
-    char namesize[8];  // length of the filename, including null terminator
-    char check[8];     // always set to zero
-} cpio_hdr_t;          // exactly 110 bytes
+    char magic[6];     /**< "070701". */
+    char ino[8];       /**< Inode number. */
+    char mode[8];      /**< File mode. */
+    char uid[8];       /**< Owner. */
+    char gid[8];       /**< Group. */
+    char nlink[8];     /**< Link count. */
+    char mtime[8];     /**< Modification time. */
+    char filesize[8];  /**< Size of the file data. */
+    char devmajor[8];  /**< Major number of the device holding the file. */
+    char devminor[8];  /**< Minor number of that device. */
+    char rdevmajor[8]; /**< Major number, for device files. */
+    char rdevminor[8]; /**< Minor number, for device files. */
+    char namesize[8];  /**< Length of the name that follows, including the NUL. */
+    char check[8];     /**< Always 0. */
+} cpio_hdr_t;
 
 /**
  * @brief Finds a file in a CPIO archive.
  *
- * @param base Pointer to the start of the CPIO archive in memory.
- * @param size Size of the CPIO archive in bytes.
- * @param name Name of the file to find (null-terminated string).
- * @param data_out Pointer to a variable that will receive the pointer to the file's data
- * @param size_out Pointer to a variable that will receive the size of the file's data
+ * @param[in]  base     Start of the archive in memory.
+ * @param[in]  size     Size of the archive in bytes.
+ * @param[in]  name     Name of the file to find.
+ * @param[out] data_out Receives a pointer to the file's data, inside the archive.
+ * @param[out] size_out Receives the size of the file's data.
  * @return true if the file was found, false otherwise.
  */
 bool CpioFind(const void *base, size_t size, const char *name, const void **data_out,

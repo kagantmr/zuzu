@@ -1,3 +1,8 @@
+/**
+ * @file svc_managetask.c
+ * @brief Implementation of the ManageTask() svc.
+ */
+
 #include "core/ensure.h"
 #include "kernel/sched/sched.h"
 #include "kernel/space/space.h"
@@ -35,7 +40,8 @@ void SvcManageTask(CpuState *frame)
             TaskSyncTcbPrio(current_task);
             break;
         case MNGTASK_SET_TIMESLICE:
-            current_task->time_slice = val;
+            ENSURE_ERR(frame, val >= TIMESLICE_MIN_US && val <= TIMESLICE_MAX_US, ERR_BADARG);
+            current_task->time_slice_us = val;
             break;
         default:
             break;
@@ -61,7 +67,7 @@ void SvcManageTask(CpuState *frame)
 
         target->kernel_sp = (uint32_t *)ArchTaskUserInit(
             (void *)target->kernel_stack_top, (VirtAddr)kargs.entry, (VirtAddr)kargs.sp,
-            USER_ELF_BASE, kargs.r0, kargs.r1, &target->trap_frame);
+            USER_ELF_BASE, kargs.r0, kargs.r1);
         target->state = TASK_STATE_READY;
         SchedAdd(target);
         ArchSetInFrame(frame, 0, ZUZU_OK);
@@ -69,9 +75,7 @@ void SvcManageTask(CpuState *frame)
 
     case MNGTASK_KILL: {
         ENSURE_ERR(frame, target != current_task, ERR_BADARG);
-        /* Already dead: a second TaskTerminate would TaskDestroy it while it
-         * may still sit on the destroy queue, and the last handle close would
-         * then free it under the reaper. */
+        
         if (target->state != TASK_STATE_ZOMBIE) {
             if (target->state == TASK_STATE_FAULTED)
                 SpaceUnfreeze(target->owner);
@@ -102,40 +106,62 @@ void SvcManageTask(CpuState *frame)
     } break;
 
     case MNGTASK_SET_TIMESLICE: {
-        target->time_slice = (uint32_t)(*ArchGetFromFrame(frame, 2));
+        uint32_t val = (uint32_t)(*ArchGetFromFrame(frame, 2));
+        ENSURE_ERR(frame, val >= TIMESLICE_MIN_US && val <= TIMESLICE_MAX_US, ERR_BADARG);
+        target->time_slice_us = val;
         ArchSetInFrame(frame, 0, ZUZU_OK);
     } break;
 
-    case MNGTASK_SUSPEND:
-        ArchSetInFrame(frame, 0, ERR_NOSYS);
-        break;
+    case MNGTASK_SUSPEND: {
+        ENSURE_ERR(frame, target->state != TASK_STATE_ZOMBIE, ERR_DEAD);
+        ENSURE_ERR(frame,
+                   target->state != TASK_STATE_FROZEN && target->state != TASK_STATE_FAULTED,
+                   ERR_BADARG);
+        ArchSetInFrame(frame, 0, ZUZU_OK);
+        if (target->suspended)
+            break;
+        target->suspended = true;
+        if (target->state == TASK_STATE_READY)
+            SchedRemoveRunQueue(target);
+        if (target == current_task)
+            Schedule();
+    } break;
 
     case MNGTASK_RESUME: {
-        ENSURE_ERR(frame, target->state == TASK_STATE_FAULTED, ERR_BADARG);
-        SpaceUnfreeze(target->owner);
-        target->state = TASK_STATE_READY;
-        SchedAdd(target);
+        if (target->state == TASK_STATE_FAULTED) {
+            SpaceUnfreeze(target->owner);
+            target->state = TASK_STATE_READY;
+            SchedAdd(target);
+        } else {
+            ENSURE_ERR(frame, target->suspended, ERR_BADARG);
+            target->suspended = false;
+            if (target->state == TASK_STATE_READY && !target->node.next)
+                SchedAdd(target);
+        }
         ArchSetInFrame(frame, 0, ZUZU_OK);
     } break;
 
     case MNGTASK_GET_REGS: {
-        ENSURE_ERR(frame, target->trap_frame, ERR_DEAD);
-        Register regs[ARCH_NUM_GP_REGS];
-        for (unsigned i = 0; i < ARCH_NUM_GP_REGS; i++)
-            regs[i] = *ArchGetFromFrame(target->trap_frame, i);
-        ENSURE_ERR(frame, CopyToUser((void *)(*ArchGetFromFrame(frame, 2)), regs, sizeof(regs)),
+        ENSURE_ERR(frame, target->state != TASK_STATE_ZOMBIE, ERR_DEAD);
+        ENSURE_ERR(frame, target->state == TASK_STATE_FAULTED || target->suspended, ERR_BUSY);
+        TaskRegs regs;
+        ArchFrameToRegs(target->trap_frame, &regs);
+        ENSURE_ERR(frame, CopyToUser((void *)(*ArchGetFromFrame(frame, 2)), &regs, sizeof(regs)),
                    ERR_BADPTR);
         ArchSetInFrame(frame, 0, ZUZU_OK);
     } break;
 
     case MNGTASK_SET_REGS: {
-        ENSURE_ERR(frame, target->trap_frame, ERR_DEAD);
-        Register regs[ARCH_NUM_GP_REGS];
+        ENSURE_ERR(frame, target->state != TASK_STATE_ZOMBIE, ERR_DEAD);
         ENSURE_ERR(frame,
-                   CopyFromUser(regs, (const void *)(*ArchGetFromFrame(frame, 2)), sizeof(regs)),
+                   target->state == TASK_STATE_FAULTED ||
+                       (target->suspended && target->state != TASK_STATE_BLOCKED),
+                   ERR_BUSY);
+        TaskRegs regs;
+        ENSURE_ERR(frame,
+                   CopyFromUser(&regs, (const void *)(*ArchGetFromFrame(frame, 2)), sizeof(regs)),
                    ERR_BADPTR);
-        for (unsigned i = 0; i < ARCH_NUM_GP_REGS; i++)
-            ArchSetInFrame(target->trap_frame, i, (int)regs[i]);
+        ENSURE_ERR(frame, ArchRegsToFrame(target->trap_frame, &regs), ERR_BADARG);
         ArchSetInFrame(frame, 0, ZUZU_OK);
     } break;
 

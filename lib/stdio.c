@@ -11,7 +11,7 @@
 
 #define STDIO_PRINTF_BUF_SIZE 1024
 #define STDIO_BIT_KICK 0
-#define STDIO_POLL_MS 20
+#define STDIO_DRAIN_MS 20 /* bounds the exit-time flush if no provider ever drains */
 #define STDIO_ATTACH_RETRIES 100
 
 typedef enum {
@@ -35,7 +35,7 @@ static void stdio_disconnect(void)
         TtyShm *shm = stdio_conn.shm;
         for (int i = 0; i < STDIO_ATTACH_RETRIES && ShmRingAvail(&shm->up_hdr) > 0; i++) {
             Signal(stdio_conn.doorbell, 1U << stdio_conn.bit, false);
-            WaitOn(stdio_event, STDIO_POLL_MS);
+            WaitOn(stdio_event, STDIO_DRAIN_MS);
         }
         TtyClientClose(stdio_port, &stdio_conn);
     }
@@ -139,7 +139,7 @@ static void stdio_write(const char *s, size_t n)
         n -= w;
         stdio_kick();
         if (n > 0)
-            WaitOn(stdio_event, STDIO_POLL_MS);
+            WaitOn(stdio_event, TIMEOUT_INFINITE);
     }
 }
 
@@ -163,13 +163,20 @@ static int stdio_stream_getc(void)
     }
 
     TtyShm *shm = stdio_conn.shm;
+    static bool consumed;
     for (;;) {
         uint8_t b = 0;
-        if (ShmRingPop(&shm->down_hdr, shm->down_data, &b, 1) == 1)
+        if (ShmRingPop(&shm->down_hdr, shm->down_data, &b, 1) == 1) {
+            consumed = true;
             return b;
+        }
         if (TtyEofPending(shm))
             return EOF;
-        WaitOn(stdio_event, STDIO_POLL_MS);
+        if (consumed) {
+            consumed = false;
+            stdio_kick();
+        }
+        WaitOn(stdio_event, TIMEOUT_INFINITE);
     }
 }
 

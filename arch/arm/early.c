@@ -1,10 +1,8 @@
-// Early boot init (board-independent ARM path)
-//
-// Runs in the higher half right after _start.S enables the MMU. The sequence
-// here is the same for every ARM board: parse the DTB, map RAM, bring up the
-// PMM/heap/VMM, tear down the identity mapping, then init IRQs and devices.
-// Anything board-specific is supplied by the DTB and the per-board layout.h /
-// linker.ld / _start.S, so this file does not change when adding a board.
+/**
+ * @file
+ * @brief ARMv7-A early boot: from _start's first C call to kmain().
+ */
+
 #include "core/kprintf.h"
 #include "core/panic.h"
 #include "kernel/boot_info.h"
@@ -22,13 +20,22 @@
 #include <arch_impl/armv7_mmu.h>
 #include <string.h>
 
+/** @brief Physical and virtual layout of RAM and the kernel image, filled in by early(). */
 RamLayout kernel_layout;
 
 #define LOG_FMT(fmt) "(early) " fmt
 #include "core/log.h"
 
+/** @brief L1 table _start turns the MMU on with; in the boot section, freed after boot. */
 __attribute__((section(".bss.boot"), aligned(16384))) uint32_t early_l1[4096];
 
+/**
+ * @brief Maps all of RAM as 1 MiB sections in early_l1, both at its physical address and in the
+ * linear map.
+ *
+ * @param[in] ram_base Physical start of RAM.
+ * @param[in] ram_size Size of RAM in bytes.
+ */
 static void early_map_ram_sections(uintptr_t ram_base, size_t ram_size)
 {
     uint32_t *l1 = (uint32_t *)PA_TO_VA((uintptr_t)early_l1);
@@ -45,18 +52,20 @@ static void early_map_ram_sections(uintptr_t ram_base, size_t ram_size)
     ArchSyncBarrier();
 }
 
+/** @brief Starts the PMU cycle counter, counting every cycle, and lets user code read it. */
 static void pmu_init(void)
 {
     uint32_t pmcr;
     __asm__ volatile("mrc p15, 0, %0, c9, c12, 0" : "=r"(pmcr));
-    pmcr |= (1 << 0);   // E: enable all counters
-    pmcr |= (1 << 2);   // C: reset cycle counter to 0
-    pmcr &= ~(1u << 3); // D: CLEAR divider — count every cycle, not every 64th
+    pmcr |= (1 << 0);
+    pmcr |= (1 << 2);
+    pmcr &= ~(1u << 3);
     __asm__ volatile("mcr p15, 0, %0, c9, c12, 0" ::"r"(pmcr));
-    __asm__ volatile("mcr p15, 0, %0, c9, c14, 0" ::"r"(0x00000001)); // PMUSERENR: user read
-    __asm__ volatile("mcr p15, 0, %0, c9, c12, 1" ::"r"(0x80000000)); // PMCNTENSET: enable CCNT
+    __asm__ volatile("mcr p15, 0, %0, c9, c14, 0" ::"r"(0x00000001));
+    __asm__ volatile("mcr p15, 0, %0, c9, c12, 1" ::"r"(0x80000000));
 }
 
+/** @brief Grants cp10/cp11 access and enables the VFP (FPEXC.EN). */
 static void vfp_init(void)
 {
     uint32_t cpacr;
@@ -68,8 +77,11 @@ static void vfp_init(void)
                      "vmsr fpexc, %0" ::"r"(1u << 30));
 }
 
-/* Debug helper, not called from C; kept for use from a debugger/disasm
- * session. External linkage only, so it still needs a prototype. */
+/**
+ * @brief Reads the PMU cycle counter.
+ *
+ * @return The cycle count.
+ */
 int rdcyc(void);
 int rdcyc(void)
 {
@@ -78,12 +90,20 @@ int rdcyc(void)
     return (int)value;
 }
 
+/**
+ * @brief First C function, called by _start with the MMU on.
+ *
+ * Parses the device tree, maps RAM, starts the PMM, heap and VMM, frees the boot
+ * memory, drops the identity map, splits TTBR0/TTBR1, probes the board's devices
+ * and calls kmain().
+ *
+ * @param[in] dtb_ptr Physical address of the device tree blob.
+ */
 _Noreturn void early(void *dtb_ptr);
 _Noreturn void early(void *dtb_ptr)
 {
-    /* Console-before-everything: a no-op unless the board overrides it.
-     * ArchPlatformInitDevices() replaces the sink with the real driver. */
-    kprintf_init(arch_early_putc);
+    
+    kprintf_init(ArchEarlyPutc);
 
     KDEBUG("early: dtb pa=%p", dtb_ptr);
     FdtInit((const void *)PA_TO_VA((PhysAddr)dtb_ptr));
@@ -99,9 +119,6 @@ _Noreturn void early(void *dtb_ptr)
     if (!FdtGetReg("/memory", 0, &ram_base, &ram_size))
         panic("Failed to find memory cell in DTB");
 
-    /* The kernel linear map covers [PA_TO_VA(ram_base), IOREMAP_BASE); RAM
-     * beyond that window (e.g. the Pi 4's 2-8 GiB) is unusable without
-     * highmem support, and mapping it would wrap into the ioremap region. */
     uint64_t linear_max = (uint64_t)(IOREMAP_BASE - PA_TO_VA((PhysAddr)ram_base));
     if (ram_size > linear_max)
         ram_size = linear_max;
@@ -118,14 +135,11 @@ _Noreturn void early(void *dtb_ptr)
     KDEBUG("early: vmm bootstrap");
     VmmBootstrap();
 
-    /* fill kernel layout VAs now that paging/higher-half mapping exists */
     kernel_layout.stack_base_va = (uintptr_t)PA_TO_VA(kernel_layout.stack_base_pa);
     kernel_layout.stack_top_va = (uintptr_t)PA_TO_VA(kernel_layout.stack_top_pa);
     kernel_layout.kernel_start_va = (uintptr_t)PA_TO_VA(kernel_layout.kernel_start_pa);
     kernel_layout.kernel_end_va = (uintptr_t)PA_TO_VA(kernel_layout.kernel_end_pa);
 
-    /* BootInfoInitFromFdt() copies everything out of the DTB and shuts
-     * down libfdt access, so capture what the cleanup below needs first. */
     PhysAddr dtb_end_pa = kernel_layout.dtb_start_pa + FdtTotalSize();
     struct {
         uint64_t addr, size;
@@ -136,15 +150,9 @@ _Noreturn void early(void *dtb_ptr)
 
     BootInfoInitFromFdt();
 
-    /* The boot-only sections and the DTB are no longer needed once the
-     * PMM-backed kernel L1 is live and DTB data has been copied out. The DTB
-     * is freed by its own extent: it need not be adjacent to the kernel.
-     */
     PmmUnmarkRange(kernel_layout.dtb_start_pa, dtb_end_pa);
     PmmUnmarkRange((PhysAddr)_boot_start, (PhysAddr)_boot_end);
 
-    /* Re-assert firmware-reserved ranges in case they overlap what was just
-     * freed (e.g. spin tables sharing a page with a low-memory DTB). */
     for (uint32_t i = 0; i < rsv_cnt; i++)
         PmmMarkRange((PhysAddr)rsv[i].addr, (PhysAddr)(rsv[i].addr + rsv[i].size));
 

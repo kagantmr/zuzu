@@ -7,6 +7,7 @@
 #include <types.h>
 #include <zuzu/err.h>
 #include <zuzu/syspage.h>
+#include <zuzu/uptime.h>
 
 #define BROADCAST_MAC {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
 #define BROADCAST_IP 0xFFFFFFFF
@@ -34,12 +35,7 @@ typedef struct {
     MacAddr mac;
 } Netif;
 
-static inline uint32_t NetNowMs(void)
-{
-    Syspage *sp = (Syspage *)SYSPAGE;
-    uint32_t hz = sp->tick_hz ? sp->tick_hz : 1000u;
-    return (uint32_t)((sp->uptime_ticks * 1000ull) / hz);
-}
+static inline uint32_t NetNowMs(void) { return (uint32_t)UptimeMs(); }
 
 typedef struct {
     uint32_t tokens;

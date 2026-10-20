@@ -1,34 +1,29 @@
-// context.c - ARM thread bootstrap (initial kernel-stack construction).
-//
-// Builds the kernel-stack layout that the context switch (switch.S) and the
-// user-entry trampoline (entry.S) expect for a freshly created thread:
-//
-//   higher addr  ┌─────────────────────────┐  kstack_top
-//                │ exception frame (CpuState) │  (user-entry threads only)
-//                ├─────────────────────────┤
-//                │ switch context (CpuContext) │  lr = trampoline / entry
-//   lower addr   └─────────────────────────┘  <- returned kernel_sp
-//
-// FPU state is not part of the kernel stack: it's saved lazily into
-// TaskObject::fpu_state (see arch/fpu.h), so ContextSwitch never touches it.
+/**
+ * @file context.c
+ * @brief Task context function implementations
+ */
 
 #include <arch/context.h>
 #include <arch/regs.h>
 #include <string.h>
 
-/* Initial Cpsr for a user thread: USR mode (0x10), IRQs enabled. */
+/**
+ * @brief ARM user CPSR value.
+ */
 #define ARM_CPSR_USER 0x10u
 
-/* Entry trampoline that pops the exception frame and returns to user mode. */
+/**
+ * @brief Where a new user task first runs; the saved lr of its initial CpuContext.
+ */
 extern void task_entry_trampoline(void);
 
-void *ArchTaskUserInit(void *kstack_top, uintptr_t entry, uintptr_t user_sp, uintptr_t user_lr,
-                       uint32_t a0, uint32_t a1, CpuState **trap_frame_out)
-{
-    uintptr_t sp = (uintptr_t)kstack_top;
+CpuState *ArchUserFrame(uintptr_t kstack_top) { return (CpuState *)(kstack_top - sizeof(CpuState)); }
 
-    sp -= sizeof(CpuState);
-    CpuState *f = (CpuState *)sp;
+void *ArchTaskUserInit(void *kstack_top, uintptr_t entry, uintptr_t user_sp, uintptr_t user_lr,
+                       uint32_t a0, uint32_t a1)
+{
+    CpuState *f = ArchUserFrame((uintptr_t)kstack_top);
+    uintptr_t sp = (uintptr_t)f;
     memset(f, 0, sizeof(*f));
     *ArchGetFromFrame(f, 0) = (Register)a0;
     *ArchGetFromFrame(f, 1) = (Register)a1;
@@ -36,8 +31,6 @@ void *ArchTaskUserInit(void *kstack_top, uintptr_t entry, uintptr_t user_sp, uin
     f->lr_usr = (Register)user_lr;
     f->return_pc = (Register)entry;
     f->return_cpsr = ARM_CPSR_USER;
-    if (trap_frame_out)
-        *trap_frame_out = f;
 
     sp -= sizeof(CpuContext);
     CpuContext *ctx = (CpuContext *)sp;

@@ -1,3 +1,8 @@
+/**
+ * @file svc_reply.c
+ * @brief Implementation of the Reply() svc.
+ */
+
 #include "core/ensure.h"
 #include "kernel/ipc/msg.h"
 #include "kernel/space/space.h"
@@ -12,6 +17,25 @@ void SvcReply(CpuState *frame)
     Handle recv_handle = (Handle)(*ArchGetFromFrame(frame, 2));
     Duration timeout = (Duration)(*ArchGetFromFrame(frame, 3));
 
+    Ticket ticket = (Ticket)(*ArchGetFromFrame(frame, 3));
+    if (recv_handle == -1 && ticket != 0) {
+        ENSURE_ERR(frame, (xlen <= MSG_BUF_SIZE), ERR_OVERFLOW);
+        Err err = ZUZU_OK;
+        TaskObject *target = PortTakeHeld(current_task, ticket, &err);
+        ENSURE_ERR(frame, target, err);
+
+        Handle granted;
+        Err grant_err = GrantHandleAcross(CURRENT_SPACE, target->owner, grant_handle, &granted);
+        if (grant_err != ZUZU_OK) {
+            ReplyFailCaller(target, grant_err);
+            ArchSetInFrame(frame, 0, grant_err);
+            return;
+        }
+        ReplyDeliverToCaller(target, xlen, granted);
+        ArchSetInFrame(frame, 0, ZUZU_OK);
+        return;
+    }
+    
     HandleTableEntry *recv_entry = NULL;
     if (recv_handle != -1) {
         recv_entry = HandleTableLookup(&CURRENT_SPACE->handle_table, recv_handle);
@@ -53,5 +77,6 @@ void SvcReply(CpuState *frame)
         return;
     }
 
+    current_task->serving_handle = recv_handle;
     PortReceive(recv_entry->port, timeout, frame);
 }

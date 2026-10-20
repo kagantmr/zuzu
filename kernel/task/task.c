@@ -1,3 +1,8 @@
+/**
+ * @file task.c
+ * @brief Implementation of tasks: creation, teardown, faults and priority inheritance.
+ */
+
 #include "kernel/ipc/msg.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm/pmm.h"
@@ -5,28 +10,36 @@
 #include "kernel/sched/sched.h"
 #include "kernel/space/space.h"
 #include "kstack.h"
+#include <arch/context.h>
 #include <stddef.h>
 #include <string.h>
 #include <zuzu/err.h>
 
+/** @brief Size of the task table, which bounds the tasks that can exist at once. */
 #define MAX_TASKS 1024
 
 #define LOG_FMT(fmt) "(task) " fmt
 #include "core/ensure.h"
 #include <util/log.h>
 
+/** @brief The ID the next task will try to take. */
 static Tid next_tid = 1;
+/** @brief Live tasks, indexed by ID modulo MAX_TASKS. */
 static TaskObject *task_table[MAX_TASKS];
+/** @brief Allocator for task objects. */
 static KSlabCache task_cache;
 
+/**
+ * @brief Pick an ID for a task and enter it in the task table.
+ *
+ * @param[in] task The task.
+ * @return The ID, or 0 if the task is NULL or every slot is taken.
+ */
 static Tid RegisterTask(TaskObject *task)
 {
     if (!task)
         return 0;
 
-    /* Advance next_tid until its hashed slot is free, so the assigned tid
-     * always satisfies tid % MAX_TASKS == slot, which keeps
-     * TaskObjectUnregister O(1). */
     Tid start = next_tid % MAX_TASKS;
     Tid slot = start;
     while (task_table[slot] != NULL) {
@@ -46,6 +59,11 @@ static Tid RegisterTask(TaskObject *task)
     return task->tid;
 }
 
+/**
+ * @brief Remove a task from the task table.
+ *
+ * @param[in] task The task.
+ */
 static void TaskObjectUnregister(TaskObject *task)
 {
     if (!task || task->tid == 0)
@@ -56,20 +74,33 @@ static void TaskObjectUnregister(TaskObject *task)
         task_table[slot] = NULL;
 }
 
+/**
+ * @brief Write the result of a wait on a task into a trap frame.
+ *
+ * @param[in] frame The waiter's trap frame.
+ * @param[in] value The exit status or fault reason, returned in r1.
+ * @param[in] outcome Whether the task exited or faulted, returned in r3.
+ */
 static void SetExitResult(CpuState *frame, Err value, TaskWaitOutcome outcome)
 {
     ArchSetInFrame(frame, 0, ZUZU_OK);
     ArchSetInFrame(frame, 1, (Register)value);
-    ArchSetInFrame(frame, 3, outcome);
+    ArchSetInFrame(frame, 3, (Register)outcome);
 }
 
+/**
+ * @brief Wake every task on a list with the result of a wait on a task.
+ *
+ * @param[in] list The list of wait slots.
+ * @param[in] value The exit status or fault reason.
+ * @param[in] outcome Whether the task exited or faulted.
+ */
 static void WakeWaiters(ListHead *list, Err value, TaskWaitOutcome outcome)
 {
     while (!ListIsEmpty(list)) {
         ListNode *node = ListPopFront(list);
         TaskObject *waiter = container_of(node, WaitSlot, node)->owner;
-        if (waiter->trap_frame)
-            SetExitResult(waiter->trap_frame, value, outcome);
+        SetExitResult(waiter->trap_frame, value, outcome);
         SchedUnblock(waiter);
         SchedAdd(waiter);
     }
@@ -93,9 +124,8 @@ void TaskUnref(TaskObject *t)
     if (t->ref_count == 0 && t->released) {
         KSlabFree(&task_cache, t);
     } else if (t->ref_count == 0 && t->state == TASK_STATE_FROZEN) {
-        /* Never started and nobody can start it now: nothing else will ever
-         * reap it, so its kernel stack and TCB slot would leak. */
-        TaskDestroy(t); /* also frees the object: ref_count is 0 */
+        
+        TaskDestroy(t);
     }
 }
 
@@ -107,15 +137,12 @@ void TaskDestroy(TaskObject *task)
     TaskObjectUnregister(task);
     if (fpu_owner == task)
         fpu_owner = NULL;
-    // may already be unlinked by TaskTerminate, guard is safe
     if (task->space_node.prev && task->space_node.next)
         ListRemove(&task->space_node);
     SpaceObject *owner = task->owner;
     if (owner && task->state != TASK_STATE_ZOMBIE)
         owner->live_tasks--;
-    /* Release the TCB slot; scrub it so a reused slot never shows a
-     * previous task's tid/spid. tcb_page_pa == 0 means the page is
-     * already gone (Space teardown fail paths). */
+    
     if (owner && task->tcb_slot < TCB_MAX_SLOTS &&
         owner->tcb_page_pa[task->tcb_slot / SLOTS_PER_PAGE]) {
         memset((void *)TcbSlotKernelVa(owner, task->tcb_slot), 0, TCB_SLOT_SIZE);
@@ -168,6 +195,8 @@ TaskObject *TaskCreate(SpaceObject *owner)
         KSlabFree(&task_cache, task);
         return NULL;
     }
+    task->trap_frame = ArchUserFrame(task->kernel_stack_top);
+    memset(task->trap_frame, 0, sizeof(*task->trap_frame));
 
     task->tid = RegisterTask(task);
     if (task->tid == 0) {
@@ -183,7 +212,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
     task->ipc_state = IPC_NONE;
     task->priority = SCHED_PRIO_DEFAULT;
     task->base_prio = SCHED_PRIO_DEFAULT;
-    task->time_slice = 5;
+    task->time_slice_us = TIMESLICE_DEFAULT_US;
     task->max_prio = SCHED_PRIORITY_LEVELS - 1;
     task->tcb_slot = TCB_SLOT_NONE;
 
@@ -194,8 +223,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
         KSlabFree(&task_cache, task);
         return NULL;
     }
-    /* Space creation only backs TCB page 0; slots on later pages get theirs
-     * here, on first use (they are freed with the Space's anon regions). */
+    
     uint32_t tcb_page = (uint32_t)tcb_slot_idx / SLOTS_PER_PAGE;
     if (!owner->tcb_page_pa[tcb_page]) {
         PhysAddr pa = PmmAllocFrame();
@@ -249,11 +277,28 @@ void TaskUnlinkWaits(TaskObject *t)
 
 void TaskAbortWait(TaskObject *t, Err err)
 {
-    if (t->trap_frame)
-        ArchSetInFrame(t->trap_frame, 0, err);
+    ArchSetInFrame(t->trap_frame, 0, err);
     t->pending_reply_cap = NULL;
     SchedUnblock(t);
     SchedAdd(t);
+}
+
+void TaskCancelCall(TaskObject *t)
+{
+    if (t->held_port) {
+        t->held_port->held[t->held_slot].caller = NULL;
+        t->held_port = NULL;
+    } else if (t->node.prev && t->node.next) {
+        ListRemove(&t->node);
+    }
+
+    if (t->pending_reply_cap && t->reply_holder) {
+        TaskClearReplyCap(t->reply_holder);
+        t->reply_holder = NULL;
+    } else if (t->pending_reply_cap && t->blocked_port) {
+        PortBoostServers(t->blocked_port);
+    }
+    t->pending_reply_cap = NULL;
 }
 
 bool TaskIsDead(const TaskObject *task)
@@ -270,11 +315,14 @@ void TaskTerminate(TaskObject *task, Err exit_status)
     TaskState entry_state = task->state;
 
     task->exit_status = exit_status;
+    task->suspended = false;
     TaskUnlinkWaits(task);
 
-    /* (a) task was a caller mid-call: its reply cap lives in its own TCB
-     * storage, about to become invalid. Tell the server holding it so a
-     * later Reply fails cleanly instead of reading freed memory. */
+    if (task->held_port) {
+        task->held_port->held[task->held_slot].caller = NULL;
+        task->held_port = NULL;
+    }
+
     if (task->pending_reply_cap && task->reply_holder) {
         TaskClearReplyCap(task->reply_holder);
         task->reply_holder = NULL;
@@ -282,9 +330,6 @@ void TaskTerminate(TaskObject *task, Err exit_status)
         PortBoostServers(task->blocked_port);
     }
 
-    /* (b) task was holding a reply cap (received a Call, hasn't Replied
-     * yet): wake its caller with ERR_DEAD instead of leaving it blocked
-     * forever. */
     if (task->reply_cap) {
         TaskObject *caller = task->reply_cap->caller_task;
         if (caller && caller->tid == task->reply_cap->caller_tid &&
@@ -310,11 +355,9 @@ void TaskTerminate(TaskObject *task, Err exit_status)
 
     WakeWaitList(&task->joiners, exit_status);
 
-    /* The last task of a Space stays a zombie until the Space is destroyed. */
     if (space_hollow)
         return;
     if (task == current_task) {
-        /* Can't free our own kernel stack while running on it. */
         SchedQueueDestroyTask(task);
     } else {
         TaskDestroy(task);
@@ -338,8 +381,33 @@ void TaskFault(TaskObject *task, Err reason)
     }
 }
 
+/** @brief How many links of a chain of calls a priority change is passed along. */
 #define PRIORITY_PROPAGATION_DEPTH 8
 
+static void RecomputePriorityAt(TaskObject *t, unsigned depth);
+
+/**
+ * @brief Recompute the priority of every task serving a port, at a given propagation depth.
+ *
+ * @param[in] port The port.
+ * @param[in] depth How many links the change has already travelled.
+ */
+static void PortBoostServersAt(PortObject *port, unsigned depth)
+{
+    ListNode *n = port->active_servers.node.next;
+    while (n != &port->active_servers.node) {
+        ListNode *next = n->next;
+        RecomputePriorityAt(container_of(n, TaskObject, serve_node), depth);
+        n = next;
+    }
+}
+
+/**
+ * @brief Recompute one task's effective priority and pass any change along the chain of calls.
+ *
+ * @param[in] t The task.
+ * @param[in] depth How many links the change has already travelled.
+ */
 static void RecomputePriorityAt(TaskObject *t, unsigned depth)
 {
     Prio eff = t->base_prio;
@@ -364,6 +432,10 @@ static void RecomputePriorityAt(TaskObject *t, unsigned depth)
 
     if (t->reply_holder && depth < PRIORITY_PROPAGATION_DEPTH)
         RecomputePriorityAt(t->reply_holder, depth + 1);
+    
+    if (t->state == TASK_STATE_BLOCKED && t->node.next && t->blocked_port &&
+        depth < PRIORITY_PROPAGATION_DEPTH)
+        PortBoostServersAt(t->blocked_port, depth + 1);
 }
 
 void TaskRecomputePriority(TaskObject *t) { RecomputePriorityAt(t, 0); }
@@ -401,4 +473,3 @@ void TaskSyncTcbPrio(TaskObject *t)
     tcb->prio = (uint8_t)t->base_prio;
     tcb->max_prio = (uint8_t)t->max_prio;
 }
-

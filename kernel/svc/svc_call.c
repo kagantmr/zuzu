@@ -1,3 +1,8 @@
+/**
+ * @file svc_call.c
+ * @brief Implementation of the Call() svc.
+ */
+
 #include "core/ensure.h"
 #include "kernel/ipc/msg.h"
 #include "kernel/sched/sched.h"
@@ -10,6 +15,7 @@ void __hot SvcCall(CpuState *frame)
     Handle handle = (Handle)(*ArchGetFromFrame(frame, 0));
     uint32_t xlen = (uint32_t)(*ArchGetFromFrame(frame, 1));
     Handle grant_handle = (Handle)(*ArchGetFromFrame(frame, 2));
+    Duration timeout = (Duration)(*ArchGetFromFrame(frame, 3));
     ENSURE_ERR(frame, (xlen <= MSG_BUF_SIZE), ERR_OVERFLOW);
 
     HandleTableEntry *entry = ValidateCallPort(CURRENT_SPACE, handle, frame);
@@ -19,6 +25,7 @@ void __hot SvcCall(CpuState *frame)
 
     Err grant_err = ValidateGrantHandle(CURRENT_SPACE, grant_handle);
     ENSURE_ERR(frame, (grant_err == ZUZU_OK), grant_err);
+    ENSURE_ERR(frame, (timeout != TIMEOUT_POLL), ERR_TIMEOUT);
 
     ReplyObject *rc = &current_task->reply_cap_storage;
     rc->caller_task = current_task;
@@ -27,10 +34,10 @@ void __hot SvcCall(CpuState *frame)
     current_task->port_marker = entry->marker;
 
     if (!ListIsEmpty(&port->receiver_queue)) {
-        if (!CallHandoffToReceiver(current_task, port, rc, xlen, grant_handle, frame)) {
+        if (!CallHandoffToReceiver(current_task, port, rc, xlen, grant_handle, timeout, frame)) {
             return;
         }
     } else {
-        CallBlockAsSender(current_task, port, rc, xlen, grant_handle);
+        CallBlockAsSender(current_task, port, rc, xlen, grant_handle, timeout);
     }
 }

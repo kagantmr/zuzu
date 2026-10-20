@@ -1,18 +1,27 @@
+/**
+ * @file dispatch.c
+ * @brief Service call dispatcher implementation.
+ */
+
 #include "core/ensure.h"
 #include "core/panic.h"
 #include "kernel/bench.h"
-#include "kernel/layout.h"
 #include "kernel/space/space.h"
-#include "kernel/task/kstack.h"
 #include "svc.h"
 #include "svc_nums.h"
 #include <compiler.h>
 
-extern RamLayout kernel_layout;
-
+/**
+ * @brief Represents a svc entry point.
+ */
 typedef void (*SvcEntry)(CpuState *);
 
 #ifdef CONFIG_ZUZU_BENCH
+/**
+ * @brief Null syscall to benchmark.
+ * 
+ * @param[in] frame The caller's CPU frame.
+ */
 static void SvcBenchControl(CpuState *frame)
 {
     switch ((BenchVerb)(*ArchGetFromFrame(frame, 0))) {
@@ -30,11 +39,14 @@ static void SvcBenchControl(CpuState *frame)
 }
 #endif
 
+/**
+ * @brief Table of svc entry points.
+ */
 static SvcEntry svc_table[SVC_TOTAL_COUNT] = {
     [SVC_QUIT] = SvcQuit,
     [SVC_YIELD] = SvcYield,
 #ifdef DEBUG
-    [SVC_LOG] = SvcDebugLog, /* defined in svc_log.c; DEBUG builds only */
+    [SVC_LOG] = SvcDebugLog,
 #else
     [SVC_LOG] = NULL,
 #endif
@@ -48,16 +60,24 @@ static SvcEntry svc_table[SVC_TOTAL_COUNT] = {
     [SVC_BIND] = SvcBind,
     [SVC_MANAGEMEMORY] = SvcManageMemory,
     [SVC_MANAGETASK] = SvcManageTask,
+    [SVC_HOLD] = SvcHold,
 #ifdef CONFIG_ZUZU_BENCH
     [SVC_BENCH] = SvcBenchControl,
 #endif
 };
 
 #ifdef CONFIG_ZUZU_BENCH
+/** @brief Verbs tracked per syscall in the benchmark tables. */
 #define SVC_BENCH_VERBS 16u
 
+/**
+ * @brief Table of benchmark verbs
+ */
 static BenchStat svc_bench[SVC_TOTAL_COUNT][SVC_BENCH_VERBS];
 
+/**
+ * @brief Table of benchmark names.
+ */
 static const char *const svc_bench_names[SVC_TOTAL_COUNT][SVC_BENCH_VERBS] = {
     [SVC_CREATE] = {[OBJECT_TASK] = "create.task",
                     [OBJECT_SPACE] = "create.space",
@@ -90,8 +110,16 @@ static const char *const svc_bench_names[SVC_TOTAL_COUNT][SVC_BENCH_VERBS] = {
                         [MNGTASK_RESUME] = "task.resume",
                         [MNGTASK_GET_REGS] = "task.get_regs",
                         [MNGTASK_SET_REGS] = "task.set_regs"},
+    [SVC_HOLD] = {[0] = "hold"}
 };
 
+/**
+ * @brief Get the benchmark slot to fill.
+ * 
+ * @param[in] svc_num The svc number to look up.
+ * @param[in] frame The frame to fill.
+ * @return The slot for this syscall and verb, or NULL if it has no name in the table.
+ */
 static BenchStat *SvcBenchSlot(Svc svc_num, CpuState *frame)
 {
     uint32_t verb = 0;
@@ -117,29 +145,10 @@ static BenchStat *SvcBenchSlot(Svc svc_num, CpuState *frame)
 }
 #endif
 
-static __hot bool IsNormalFrame(const CpuState *frame)
-{
-    uintptr_t p = (uintptr_t)frame;
-    if (unlikely(p == 0 || (p & 0x3U) != 0))
-        return false;
-
-    if (likely(kernel_layout.stack_base_va && kernel_layout.stack_top_va &&
-               p >= kernel_layout.stack_base_va &&
-               p + sizeof(CpuState) <= kernel_layout.stack_top_va))
-        return true;
-
-    if (p >= KSTACK_REGION_BASE && p + sizeof(CpuState) <= KSTACK_REGION_TOP)
-        return true;
-
-    return false;
-}
-
 void __hot SvcDispatch(Svc svc_num, CpuState *frame)
 {
     ENSURE_ERR(frame, current_task, ERR_BADARG);
-    ENSURE_GOTO(IsNormalFrame(frame), PanicOnWeirdFrame);
-
-    current_task->trap_frame = frame;
+    ENSURE_GOTO(frame == current_task->trap_frame, PanicOnWeirdFrame);
 
     if (likely(svc_num < SVC_TOTAL_COUNT && svc_table[svc_num])) {
 #ifdef CONFIG_ZUZU_BENCH
@@ -156,6 +165,6 @@ void __hot SvcDispatch(Svc svc_num, CpuState *frame)
     return;
 PanicOnWeirdFrame:
     panic("Corrupt trap_frame at syscall dispatch: spid=%u svc=%u frame=%p",
-          (unsigned)(CURRENT_SPACE ? CURRENT_SPACE->spid : 0), svc_num, (void *)frame);
+          (unsigned)(CURRENT_SPACE ? CURRENT_SPACE->spid : 0), (unsigned)svc_num, (void *)frame);
     __builtin_unreachable();
 }

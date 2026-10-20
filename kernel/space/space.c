@@ -1,3 +1,8 @@
+/**
+ * @file space.c
+ * @brief Implementation of spaces: creation, teardown and lookup.
+ */
+
 #include "space.h"
 
 #include "kernel/irq/irq_relay.h"
@@ -14,10 +19,27 @@
 #include "core/ensure.h"
 #include "core/log.h"
 
+/** @brief The ID the next space will try to take. */
 static uint32_t next_spid = 1;
+/** @brief Live spaces, indexed by ID modulo MAX_SPACES. */
 static SpaceObject *spaces[MAX_SPACES];
+/** @brief Allocator for space objects. */
 static KSlabCache space_cache;
 
+/** @brief Move to the next space ID, wrapping to 1 before it can go negative. */
+static void SpidAdvance(void)
+{
+    next_spid++;
+    if (next_spid == 0 || next_spid > (uint32_t)INT32_MAX)
+        next_spid = 1;
+}
+
+/**
+ * @brief Pick an ID for a new space and register it in the table.
+ *
+ * @param[in] sp The space being created.
+ * @return The ID, or 0 if every slot is taken.
+ */
 static Spid SpidAlloc(SpaceObject *sp)
 {
     uint32_t start = next_spid % MAX_SPACES;
@@ -25,14 +47,15 @@ static Spid SpidAlloc(SpaceObject *sp)
     do {
         if (spaces[slot] == NULL)
             break;
-        next_spid++;
+        SpidAdvance();
         slot = next_spid % MAX_SPACES;
     } while (slot != start);
 
     if (spaces[slot] != NULL)
         return 0;
 
-    Spid spid = (Spid)next_spid++;
+    Spid spid = (Spid)next_spid;
+    SpidAdvance();
     spaces[slot] = sp;
     return spid;
 }
@@ -56,7 +79,6 @@ SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
     if (!sp->as)
         goto fail_handles;
 
-    /* Map syspage into user space. */
     if (!VmmMapUserPage(sp->as, SyspagePa(), USER_SYSPAGE_VA, PROT_READ))
         goto fail_as;
 
@@ -88,14 +110,13 @@ SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
         .vaddr_start = tcb_user_va,
         .size = MAX_TCB_PAGES * PAGE_SIZE,
         .prot = PROT_READ | PROT_WRITE | VM_PROT_USER,
-        .owner = VM_BACKING_ANON, // GUARD dropped so pages 1..N demand-back; PINNED still blocks
-                                  // user unmap.
+        .owner = VM_BACKING_ANON,
         .flags = VM_FLAG_PINNED,
     };
     if (!VmmAddRegion(sp->as, &tcb_region))
         goto fail_as;
 
-    sp->tcb_page_va = tcb_user_va; /* user-visible VA */
+    sp->tcb_page_va = tcb_user_va;
 
     VirtMemRegion stack_region = {
         .vaddr_start = USER_STACK_BASE,
@@ -119,8 +140,6 @@ SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
     if (!VmmAddRegion(sp->as, &stack_guard))
         goto fail_as;
 
-    /* Initialize the TCB page via the kernel alias; slot claiming for the
-     * first task happens in TaskCreate, not here. */
     memset((void *)PA_TO_VA(tcb_page0_phys_addr), 0, PAGE_SIZE);
     memset(sp->tcb_slot_bitmap, 0, sizeof(sp->tcb_slot_bitmap));
 
@@ -272,7 +291,6 @@ void SpaceWaitHollow(SpaceObject *sp, Duration timeout, CpuState *frame)
 bool SpaceIsHollow(const SpaceObject *sp) { return sp->live_tasks == 0; }
 bool SpaceIsSelfOrAncestor(const SpaceObject *sp, const SpaceObject *target)
 {
-    /* Bounded: a dead ancestor's spid can be reused by an unrelated space. */
     for (uint32_t depth = 0; sp && depth < MAX_SPACES; depth++) {
         if (sp == target)
             return true;

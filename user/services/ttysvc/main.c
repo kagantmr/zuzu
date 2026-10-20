@@ -6,16 +6,16 @@
 #include <zuzu/udbg.h>
 #include <zuzu/zuzu.h>
 
-#define MAX_SESSIONS 30 /* event bits 1..30; bit 0 is the port */
+#define MAX_SESSIONS 15 /* doorbell bits 1..15, death bits 16..30; bit 0 is the port */
 #define MAX_ENDPOINTS 8
 #define LINE_MAX_LEN 256
 #define PORT_BIT 0
 #define SESSION_BIT(slot) ((uint32_t)(slot) + 1U)
+#define DEATH_BIT(slot) ((uint32_t)(slot) + 1U + MAX_SESSIONS)
 #define MASK(bit) (1U << (bit))
 #define SESSION_INDEX(gen, slot) ((((uint32_t)(gen)) << 8) | ((uint32_t)(slot) & 0xFFu))
 #define INDEX_SLOT(index) ((uint32_t)(index) & 0xFFu)
 #define INDEX_GEN(index) ((uint32_t)(index) >> 8)
-#define POLL_MS 10 /* safety net: bits are hints, rings are the truth */
 
 /* Peers can write anywhere in the shared page, so none of ttysvc's decisions
  * trust a header field the peer could have scribbled on: masks use
@@ -51,11 +51,10 @@ typedef struct {
 static Session g_sessions[MAX_SESSIONS];
 static Endpoint g_endpoints[MAX_ENDPOINTS];
 static Handle g_port = -1;
+/* Bit 0: the port. SESSION_BIT: rung by peers. DEATH_BIT: bound to the peer's
+ * liveness port. The ranges stay apart because the kernel refuses a user
+ * Signal() on a bit a binding has claimed. */
 static Handle g_event = -1;
-/* Liveness ports are bound here, bit = session slot. Kept apart from g_event
- * because peers ring their session's bit on g_event, and the kernel refuses
- * user Signal() on a bit a binding has claimed. */
-static Handle g_death = -1;
 static uint32_t g_gen[MAX_SESSIONS];
 static uint32_t g_order;
 static uint32_t g_auto_count;
@@ -437,7 +436,7 @@ static void HandleRequest(const PortWaitResult *r)
             return;
         }
         int slot = (int)INDEX_SLOT(req.index);
-        Err rc = Bind(EVENT_PORT, g_death, r->granted, (uint32_t)slot);
+        Err rc = Bind(EVENT_PORT, g_event, r->granted, DEATH_BIT(slot));
         if (rc != ZUZU_OK) {
             HandleClose(r->granted);
             if (rc == ERR_DEAD)
@@ -579,14 +578,11 @@ static void RouteOutbound(Session *f, Session *p)
     }
 }
 
-static void ReapDead(void)
+static void ReapDead(EventWord bits)
 {
-    EventWaitResult d = FormatToEventWait(WaitOn(g_death, TIMEOUT_POLL));
-    if (d.status != ZUZU_OK)
-        return;
     for (int slot = 0; slot < MAX_SESSIONS; slot++) {
         Session *s = &g_sessions[slot];
-        if (!(d.bits & MASK(slot)) || !s->in_use || s->live < 0)
+        if (!(bits & MASK(DEATH_BIT(slot))) || !s->in_use || s->live < 0)
             continue;
         SvcResult q = HandleQuery(s->live, QUERY_STATUS);
         if (q.r0 != ZUZU_OK || (Err)q.r1 != ERR_DEAD)
@@ -631,8 +627,7 @@ int main(void)
 
     g_port = CreatePort();
     g_event = CreateEvent();
-    g_death = CreateEvent();
-    if (g_port < 0 || g_event < 0 || g_death < 0)
+    if (g_port < 0 || g_event < 0)
         return ERR_NOMEM;
     Err rc = Bind(EVENT_PORT, g_event, g_port, PORT_BIT);
     if (rc != ZUZU_OK) {
@@ -646,8 +641,9 @@ int main(void)
         return rc;
 
     for (;;) {
-        WaitOn(g_event, POLL_MS);
-        ReapDead();
+        EventWaitResult w = FormatToEventWait(WaitOn(g_event, TIMEOUT_INFINITE));
+        if (w.status == ZUZU_OK)
+            ReapDead(w.bits);
 
         for (;;) {
             PortWaitResult r = FormatToPortWait(WaitOn(g_port, TIMEOUT_POLL));

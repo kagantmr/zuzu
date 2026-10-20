@@ -1,8 +1,13 @@
-#ifndef ZUZU_SYNC_PRIMITIVES
-#define ZUZU_SYNC_PRIMITIVES
+/**
+ * @file primitives.h
+ * @brief Umbrella header for synchronization primitives.
+ */
+
+#ifndef ZUZU_SYNC_PRIMITIVES_H
+#define ZUZU_SYNC_PRIMITIVES_H
 
 #include "cv.h"
 #include "sem.h"
 #include "zone.h"
 
-#endif
+#endif /* ZUZU_SYNC_PRIMITIVES_H */

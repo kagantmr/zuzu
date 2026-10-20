@@ -1,10 +1,20 @@
+/**
+ * @file svc_log.c
+ * @brief Implementation of the Log() svc.
+ */
+
 #include "core/log.h"
 #include "kernel/space/space.h"
 #include "svc.h"
 #include <arch/regs.h>
 
 #ifdef DEBUG
+
+/**
+ * @brief Maximum amount of system log line.
+ */
 #define SYSLOG_MAX 240u
+
 void SvcDebugLog(CpuState *frame)
 {
     VirtAddr uptr = (VirtAddr)(*ArchGetFromFrame(frame, 0));

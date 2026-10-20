@@ -1,3 +1,8 @@
+/**
+ * @file
+ * @brief Program loading: image parsing, segment mapping and argv layout.
+ */
+
 #include <elf.h>
 #include <stdbool.h>
 #include <util/spawn.h>
@@ -11,31 +16,51 @@
 #include <malloc.h>
 #include <string.h>
 
+/** @brief Rounds a size up to a whole number of pages. */
 #define PAGE_ROUND_UP(x) (((x) + PAGE_SIZE - 1) & ~(size_t)(PAGE_SIZE - 1))
+/** @brief Rounds an address down to its page. */
 #define PAGE_ROUND_DOWN(x) ((x) & ~(VirtAddr)(PAGE_SIZE - 1))
 
+/** @brief Most load segments an image may have. */
 #define SPAWN_MAX_SEGS 8
 
+/** @brief A load segment, in a form common to ZXF and ELF. */
 typedef struct {
-    uint32_t file_offset;
-    uint32_t file_size;
-    uint32_t vaddr;
-    uint32_t mem_size;
-    uint32_t prot;
+    uint32_t file_offset; /**< Offset of the segment's bytes in the image. */
+    uint32_t file_size;   /**< Bytes present in the image. */
+    uint32_t vaddr;       /**< Page-aligned load address. */
+    uint32_t mem_size;    /**< Size in memory; the rest past file_size is zero-filled. */
+    uint32_t prot;        /**< PROT_READ / PROT_WRITE / PROT_EXEC. */
 } SpawnSeg;
 
+/** @brief A parsed image: entry point and load segments. */
 typedef struct {
-    uint32_t entry;
-    uint32_t seg_count;
-    SpawnSeg segs[SPAWN_MAX_SEGS];
+    uint32_t entry;                /**< Entry point address. */
+    uint32_t seg_count;            /**< Number of entries in @c segs. */
+    SpawnSeg segs[SPAWN_MAX_SEGS]; /**< Load segments. */
 } SpawnImage;
 
+/**
+ * @brief Checks that a segment's file range lies inside the image and its address is page-aligned.
+ *
+ * @param[in] s    Segment to check.
+ * @param[in] size Image size in bytes.
+ * @return true if the segment is usable.
+ */
 static bool SegInBounds(const SpawnSeg *s, size_t size)
 {
     return s->file_size <= s->mem_size && s->file_offset <= size &&
            s->file_size <= size - s->file_offset && (s->vaddr & (PAGE_SIZE - 1)) == 0;
 }
 
+/**
+ * @brief Reads the load segments of a ZXF image.
+ *
+ * @param[in]  data Image bytes.
+ * @param[in]  size Image size in bytes.
+ * @param[out] out  Entry point and segments.
+ * @return ZUZU_OK, ERR_MALFORMED for an invalid image, or ERR_OVERFLOW for too many segments.
+ */
 static Err ParseZxf(const void *data, size_t size, SpawnImage *out)
 {
     ZXFImage img;
@@ -61,6 +86,14 @@ static Err ParseZxf(const void *data, size_t size, SpawnImage *out)
     return ZUZU_OK;
 }
 
+/**
+ * @brief Reads the PT_LOAD segments of an ARM ELF32 executable.
+ *
+ * @param[in]  data Image bytes.
+ * @param[in]  size Image size in bytes.
+ * @param[out] out  Entry point and segments.
+ * @return ZUZU_OK, ERR_MALFORMED for an invalid image or segment, or ERR_OVERFLOW for too many segments.
+ */
 static Err ParseElf(const void *data, size_t size, SpawnImage *out)
 {
     uint32_t entry = ElfValidate(data, size);
@@ -92,6 +125,14 @@ static Err ParseElf(const void *data, size_t size, SpawnImage *out)
     return out->seg_count ? ZUZU_OK : ERR_MALFORMED;
 }
 
+/**
+ * @brief Parses an image as ELF if it starts with the ELF magic, otherwise as ZXF.
+ *
+ * @param[in]  data Image bytes.
+ * @param[in]  size Image size in bytes.
+ * @param[out] out  Entry point and segments.
+ * @return As ParseElf() or ParseZxf().
+ */
 static Err ParseImage(const void *data, size_t size, SpawnImage *out)
 {
     if (size >= 4 && memcmp(data, ELF_MAGIC, 4) == 0)
@@ -99,9 +140,25 @@ static Err ParseImage(const void *data, size_t size, SpawnImage *out)
     return ParseZxf(data, size, out);
 }
 
+/** @brief Most pages the argv block (pointer table plus strings) may use. */
 #define SPAWN_ARGV_MAX_PAGES 4u
+/** @brief Where the argv block is placed in the new space, just below the program. */
 #define SPAWN_ARGV_VA (USER_ELF_BASE - (SPAWN_ARGV_MAX_PAGES * PAGE_SIZE))
 
+/**
+ * @brief Maps one segment into the new space.
+ *
+ * Read-only, page-aligned segments are mapped straight from @p image_obj
+ * when there is one; otherwise the bytes are copied. Any part of the
+ * segment beyond its file bytes becomes demand-zero memory.
+ *
+ * @param[in] space_handle New space.
+ * @param[in] image_obj    Memory object holding the image, or -1.
+ * @param[in] data         Image bytes.
+ * @param[in] size         Image size in bytes.
+ * @param[in] seg          Segment to map.
+ * @return ZUZU_OK, or the error from MemInjectObj() / MemInjectBytes().
+ */
 static Err LoadSegment(Handle space_handle, Handle image_obj, const void *data, size_t size,
                        const SpawnSeg *seg)
 {
@@ -137,6 +194,17 @@ static Err LoadSegment(Handle space_handle, Handle image_obj, const void *data, 
     return ZUZU_OK;
 }
 
+/**
+ * @brief Builds argv in the new space: a NULL-terminated pointer table followed by the strings.
+ *
+ * @param[in]  space_handle New space.
+ * @param[in]  argbuf       argv strings back to back, or NULL.
+ * @param[in]  argbuf_len   Length of @p argbuf.
+ * @param[in]  argc         Number of strings.
+ * @param[out] out_sp       Initial stack pointer for the task.
+ * @param[out] out_argv_va  Address of the pointer table in the new space, or 0 if argc is 0.
+ * @return ZUZU_OK, ERR_BADARG if argv needs more than SPAWN_ARGV_MAX_PAGES, or ERR_NOMEM.
+ */
 static Err LayoutArgv(Handle space_handle, const char *argbuf, size_t argbuf_len, uint32_t argc,
                       VirtAddr *out_sp, VirtAddr *out_argv_va)
 {
@@ -177,6 +245,21 @@ static Err LayoutArgv(Handle space_handle, const char *argbuf, size_t argbuf_len
     return ZUZU_OK;
 }
 
+/**
+ * @brief Common body of all SpawnProcess* variants.
+ *
+ * @param[in]  image_obj  Memory object holding the image, or -1.
+ * @param[in]  image      Image bytes.
+ * @param[in]  size       Image size in bytes.
+ * @param[in]  name       Name for the new space.
+ * @param[in]  argbuf     argv strings back to back, or NULL.
+ * @param[in]  argbuf_len Length of @p argbuf.
+ * @param[in]  argc       Number of strings.
+ * @param[in]  attr       Scheduling settings, or NULL.
+ * @param[out] out_pid    Receives the new space's handle; may be NULL.
+ * @param[out] out_task   Receives the new task's handle; may be NULL.
+ * @return As SpawnProcessAttr().
+ */
 static Err SpawnFromImage(Handle image_obj, const void *image, size_t size, const char *name,
                           const char *argbuf, size_t argbuf_len, uint32_t argc,
                           const SpawnAttr *attr, Spid *out_pid, Handle *out_task)
@@ -216,17 +299,6 @@ static Err SpawnFromImage(Handle image_obj, const void *image, size_t size, cons
         return (Err)task_handle;
     }
 
-    Err grc = HandleGrantTo(NSVC_PORT, space_handle, PERM_SEND, NULL);
-    if (grc != ZUZU_OK) {
-        if (attr && attr->prio != SPAWN_PRIO_INHERIT) {
-            rc = TaskSetPriority(task_handle, (uint32_t)attr->prio);
-            if (rc != ZUZU_OK) {
-                HandleDestroy(space_handle);
-                return rc;
-            }
-        }
-    }
-
     if (attr && attr->max_prio != SPAWN_PRIO_INHERIT) {
         rc = TaskSetMaxPriority(task_handle, (uint32_t)attr->max_prio);
         if (rc != ZUZU_OK) {
@@ -235,10 +307,18 @@ static Err SpawnFromImage(Handle image_obj, const void *image, size_t size, cons
         }
     }
 
-    SvcResult grant = HandleGrant(NSVC_PORT, space_handle, PERM_SEND);
-    if (grant.r0 != ZUZU_OK) {
+    if (attr && attr->prio != SPAWN_PRIO_INHERIT) {
+        rc = TaskSetPriority(task_handle, (uint32_t)attr->prio);
+        if (rc != ZUZU_OK) {
+            HandleDestroy(space_handle);
+            return rc;
+        }
+    }
+
+    rc = HandleGrantTo(NSVC_PORT, space_handle, PERM_SEND | PERM_TXFR, NULL);
+    if (rc != ZUZU_OK) {
         HandleDestroy(space_handle);
-        return grc;
+        return rc;
     }
 
     rc = TaskStart(task_handle, (void *)img.entry, (void *)sp, argc, (uint32_t)argv_va);
@@ -248,8 +328,7 @@ static Err SpawnFromImage(Handle image_obj, const void *image, size_t size, cons
     }
 
     if (out_pid)
-        *out_pid =
-            space_handle; /* the handle IS the pid-bearing token for the space we just made */
+        *out_pid = space_handle;
     if (out_task)
         *out_task = task_handle;
     return ZUZU_OK;
@@ -268,14 +347,22 @@ Err SpawnProcess(const void *image, size_t size, const char *name, const char *a
     return SpawnFromImage(-1, image, size, name, argbuf, argbuf_len, argc, NULL, out_pid, out_task);
 }
 
-Err SpawnProcessObj(Handle image_obj, size_t size, const char *name, const char *argbuf,
-                    size_t argbuf_len, uint32_t argc, Spid *out_pid, Handle *out_task)
+Err SpawnProcessObjAttr(Handle image_obj, size_t size, const char *name, const char *argbuf,
+                        size_t argbuf_len, uint32_t argc, const SpawnAttr *attr, Spid *out_pid,
+                        Handle *out_task)
 {
     void *view = MemMap(image_obj, 0, PROT_READ);
     if (PtrIsErr(view))
         return (Err)(intptr_t)view;
-    Err rc = SpawnFromImage(image_obj, view, size, name, argbuf, argbuf_len, argc, NULL, out_pid,
+    Err rc = SpawnFromImage(image_obj, view, size, name, argbuf, argbuf_len, argc, attr, out_pid,
                             out_task);
     MemUnmap(view);
     return rc;
+}
+
+Err SpawnProcessObj(Handle image_obj, size_t size, const char *name, const char *argbuf,
+                    size_t argbuf_len, uint32_t argc, Spid *out_pid, Handle *out_task)
+{
+    return SpawnProcessObjAttr(image_obj, size, name, argbuf, argbuf_len, argc, NULL, out_pid,
+                               out_task);
 }

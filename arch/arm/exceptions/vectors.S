@@ -1,9 +1,11 @@
-// vectors.S - exception vector table for ARMv7
-// This file defines the exception vector table, which is placed at a fixed address.
-// The table base pointer is set by loading to the VBAR register.
+/**
+ * @file
+ * @brief ARMv7-A exception vector table; VBAR points here once the kernel runs in the higher half.
+ */
 
+/** 32-byte aligned, as VBAR requires. One branch per exception, in hardware order. */
 .section .vectors, "ax"
-.align 5        // 32-byte alignment
+.align 5
 .global vector_table
 
 vector_table:

@@ -5,6 +5,7 @@
 #include <zuzu/msg.h>
 #include <zuzu/err.h>
 #include <zuzu/syspage.h>
+#include <zuzu/uptime.h>
 #include <zuzu/user_layout.h>
 #include <zuzu/zuzu.h>
 
@@ -55,7 +56,6 @@ static uint32_t CyclesToNs(uint32_t cycles)
     return (uint32_t)(((uint64_t)cycles * 1000000u) / g_khz);
 }
 
-static inline uint32_t Ticks(void) { return ((volatile const Syspage *)SYSPAGE)->uptime_ticks; }
 
 static uint32_t CalibrateOverhead(void)
 {
@@ -69,23 +69,17 @@ static uint32_t CalibrateOverhead(void)
 
 static uint32_t CalibrateKhz(void)
 {
-    uint32_t hz = ((const Syspage *)SYSPAGE)->tick_hz;
-    uint32_t span = hz / 10;
-    if (span == 0)
-        span = 1;
+    const uint64_t span_us = 100000u;
     uint32_t est[CAL_ROUNDS];
 
     for (int r = 0; r < CAL_ROUNDS; r++) {
-        uint32_t t0 = Ticks();
-        while (Ticks() == t0)
-            ;
+        uint64_t t1 = UptimeUs();
         uint32_t c0 = ArchMeasure();
-        uint32_t t1 = Ticks();
-        while (Ticks() - t1 < span)
+        while (UptimeUs() - t1 < span_us)
             ;
         uint32_t c1 = ArchMeasure();
-        uint32_t t2 = Ticks();
-        est[r] = (uint32_t)(((uint64_t)(c1 - c0) * hz) / ((uint64_t)(t2 - t1) * 1000u));
+        uint64_t t2 = UptimeUs();
+        est[r] = (uint32_t)(((uint64_t)(c1 - c0) * 1000u) / (t2 - t1));
     }
     return Median(est, CAL_ROUNDS);
 }
@@ -222,9 +216,12 @@ static void RunIpc(void)
     MemUnmap(stack);
 }
 
+/* One syscall in raw ARM code: mov r12, #n; svc #ARCH_SVC_MAGIC */
+#define SYS(n) (0xE3A0C000u | (uint32_t)(n)), (0xEF000000u | ARCH_SVC_MAGIC)
+
 static const uint32_t kEchoCode[] = {
-    0xE1A04000, 0xE1A00004, 0xE3E01000, 0xEF000007, 0xE3500000, 0x1A000005, 0xE1A00002,
-    0xE3E01000, 0xE1A02004, 0xE3E03000, 0xEF000006, 0xEAFFFFF7, 0xEF000000,
+    0xE1A04000, 0xE1A00004, 0xE3E01000, SYS(SVC_WAITON), 0xE3500000, 0x1A000006, 0xE1A00002,
+    0xE3E01000, 0xE1A02004, 0xE3E03000, SYS(SVC_REPLY),  0xEAFFFFF6, SYS(SVC_QUIT),
 };
 
 static uint8_t g_code_page[4096] __attribute__((aligned(4096)));
@@ -314,16 +311,16 @@ static void BenchCreateObjects(void)
         uint32_t n = pages[k] >= 256 ? 256 : HEAVY;
         for (uint32_t i = 0; i < n; i++) {
             Handle h;
-            TIMED(g_samples, i, h = CreateMem(pages[k]));
+            TIMED(g_samples, i, h = CreateMem(pages[k], 0));
             if (h < 0) {
                 printf("create mem %u pages failed: %d\n", (unsigned)pages[k], (int)h);
                 return;
             }
             TIMED(g_samples_b, i, HandleClose(h));
         }
-        snprintf(name, sizeof(name), "create mem %up", (unsigned)pages[k]);
+        (void)snprintf(name, sizeof(name), "create mem %up", (unsigned)pages[k]);
         Report(name, n);
-        snprintf(name, sizeof(name), "free mem %up (close)", (unsigned)pages[k]);
+        (void)snprintf(name, sizeof(name), "free mem %up (close)", (unsigned)pages[k]);
         ReportBuf(name, g_samples_b, n);
     }
 }
@@ -415,7 +412,7 @@ static void BenchSpaces(void)
         char name[48];
         Handle obj = -1;
         if (pages[k]) {
-            obj = CreateMem(pages[k]);
+            obj = CreateMem(pages[k], 0);
             uint8_t *w = MemMap(obj, 0, PROT_RW);
             if (obj < 0 || PtrIsErr(w)) {
                 printf("injectobj setup failed\n");
@@ -453,7 +450,7 @@ static void BenchSpaces(void)
 
     for (uint32_t i = 0; i < HEAVY; i++) {
         Handle sp = CreateSpace("speedtest-bench");
-        Handle obj = CreateMem(16);
+        Handle obj = CreateMem(16, 0);
         uint8_t *w = MemMap(obj, 0, PROT_RW);
         if (sp < 0 || obj < 0 || PtrIsErr(w))
             break;

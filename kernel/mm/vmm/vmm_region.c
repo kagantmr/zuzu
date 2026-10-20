@@ -1,6 +1,7 @@
-/* Address-space and region-list bookkeeping: create/destroy an
- * AddressSpace, add/remove/find VirtMemRegion entries, and the lazy
- * page-fault handler that realizes a region's backing on first touch. */
+/**
+ * @file vmm_region.c
+ * @brief Address space lifetime, the sorted region list, and demand paging.
+ */
 
 #include "vmm_internal.h"
 
@@ -19,11 +20,19 @@ AddressSpace *g_kernel_as = NULL;
 AddressSpace *g_current_addrspace = NULL;
 bool g_mmu_enabled = false;
 
+/** @brief Slab cache that AddressSpace objects are allocated from. */
 static KSlabCache addrspace_cache;
 
 #define LOG_FMT(fmt) "(vmm) " fmt
 #include <util/log.h>
 
+/**
+ * @brief bsearch comparator that matches the region containing an address.
+ *
+ * @param[in] key Pointer to the uintptr_t address being looked up.
+ * @param[in] elem Region to compare against.
+ * @return Negative if the address is below the region, positive if above, 0 if inside.
+ */
 static int RegionContainsVa(const void *key, const void *elem)
 {
     uintptr_t va = *(const uintptr_t *)key;
@@ -35,6 +44,13 @@ static int RegionContainsVa(const void *key, const void *elem)
     return 0;
 }
 
+/**
+ * @brief bsearch comparator that matches the region starting at an address.
+ *
+ * @param[in] key Pointer to the uintptr_t start address being looked up.
+ * @param[in] elem Region to compare against.
+ * @return Negative, zero, or positive as the address is below, equal to, or above the region start.
+ */
 static int RegionCmpStart(const void *key, const void *elem)
 {
     uintptr_t va = *(const uintptr_t *)key;
@@ -165,7 +181,6 @@ void AddressSpaceDestroy(AddressSpace *as)
               as->asid_token.asid);
     }
 
-    /* Prevent stale translations from surviving ASID reuse. */
     if (as->asid_token.asid != 0)
         ArchMmuFlushTlbAsid(as->asid_token.asid);
 
@@ -221,6 +236,8 @@ bool VmmAddRegion(AddressSpace *restrict as, const VirtMemRegion *restrict regio
     memmove(&as->regions.data[ins + 1], &as->regions.data[ins],
             (as->regions.len - ins) * sizeof(VirtMemRegion));
     as->regions.data[ins] = *region;
+    if (!as->regions.data[ins].max_prot)
+        as->regions.data[ins].max_prot = region->prot & (PROT_READ | PROT_WRITE | PROT_EXEC);
     as->regions.len++;
     MemObjRef((MemObject *)region->backing);
     return true;

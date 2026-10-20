@@ -1,67 +1,67 @@
-#include <arch/barrier.h>
-#include <net/protocols/socket.h>
+/**
+ * @file
+ * @brief Socket client: the app side of the netd socket protocol.
+ */
+
+#include <net/socket.h>
 #include <stdlib.h>
 #include <string.h>
 #include <zuzu/msg.h>
 #include <zuzu/service.h>
 #include <zuzu/zuzu.h>
 
+/** @brief This app's connection to netd. */
 typedef struct {
-    Handle port;     /* /svc/netd */
-    Handle live;     /* port we own; netd watches it to notice our death */
-    Handle doorbell; /* send-only dup of netd's event */
-    Handle event;    /* ours; netd rings bit 0 */
-    uint32_t bit;    /* bit to ring on `doorbell` */
-    uint32_t session;
-    bool attached;
+    Handle port;      /**< /svc/netd. */
+    Handle live;      /**< Port this app owns; netd watches it to notice the app's death. */
+    Handle doorbell;  /**< netd's event, send-only. */
+    Handle event;     /**< This app's event; netd rings bit 0. */
+    uint32_t bit;     /**< Bit to ring on @c doorbell. */
+    uint32_t session; /**< Session id netd assigned. */
+    bool attached;    /**< Whether Attach() has succeeded. */
 } SockClient;
 
+/** @brief One socket, indexed by its socket number. */
 typedef struct {
-    bool used;
-    SockShm *shm;
-    Handle mem;
-    uint32_t id;
-    uint32_t tx_head;
-    uint32_t rx_tail;
+    bool used;        /**< Slot holds an open socket. */
+    SockShm *shm;     /**< Mapped shared memory. */
+    Handle mem;       /**< The shared memory object. */
+    uint32_t id;      /**< netd's id for the socket. */
+    uint32_t tx_head; /**< Private tx write position; published after each write. */
+    uint32_t rx_tail; /**< Private rx read position; published after each read. */
 } SockConn;
 
+/** @brief The netd connection, shared by all sockets. */
 static SockClient g_client;
+/** @brief Socket table; grows on demand. */
 static SockConn *g_conns;
+/** @brief Slots in g_conns. */
 static int g_nconns;
 
+/**
+ * @brief Sends a socket command to netd and waits for its status.
+ *
+ * @param[in]  port    netd's port.
+ * @param[in]  req     Request.
+ * @param[in]  len     Request length.
+ * @param[in]  grant   Handle to grant, or -1.
+ * @param[out] granted Handle netd granted back; may be NULL.
+ * @return netd's status, or the IPC error.
+ */
 static Err SockCall(Handle port, const void *req, uint32_t len, Handle grant, Handle *granted)
 {
-    MsgWrite(req, len);
-    uint32_t got = 0;
-    Handle back = -1;
-    Err rc = CallPort(port, len, grant, &got, &back);
-    if (granted)
-        *granted = back;
-    if (rc != ZUZU_OK)
-        return rc;
-    Err status;
-    if (got < sizeof(status))
-        return ERR_MALFORMED;
-    memcpy(&status, GetMessageBox(), sizeof(status));
-    return status;
+    return MsgCallStatus(port, req, len, grant, granted);
 }
 
-static void SockRingWrite(uint8_t *ring, uint32_t pos, const void *src, uint32_t n)
-{
-    uint32_t off = pos & (SOCK_RING_SIZE - 1);
-    uint32_t first = n < SOCK_RING_SIZE - off ? n : SOCK_RING_SIZE - off;
-    memcpy(ring + off, src, first);
-    memcpy(ring, (const uint8_t *)src + first, n - first);
-}
-
-static void SockRingRead(const uint8_t *ring, uint32_t pos, void *dst, uint32_t n)
-{
-    uint32_t off = pos & (SOCK_RING_SIZE - 1);
-    uint32_t first = n < SOCK_RING_SIZE - off ? n : SOCK_RING_SIZE - off;
-    memcpy(dst, ring + off, first);
-    memcpy((uint8_t *)dst + first, ring, n - first);
-}
-
+/**
+ * @brief Attaches to netd once: hands it a liveness port and this app's event, and takes its
+ * doorbell.
+ *
+ * @return ZUZU_OK, or an error code.
+ * @retval ERR_SYSDOWN   /svc/netd is not registered.
+ * @retval ERR_NOMEM     Out of handles.
+ * @retval ERR_MALFORMED netd did not grant a doorbell.
+ */
 static Err Attach(void)
 {
     if (g_client.attached)
@@ -113,6 +113,12 @@ static Err Attach(void)
     return ZUZU_OK;
 }
 
+/**
+ * @brief Looks up an open socket.
+ *
+ * @param[in] sock Socket number.
+ * @return The socket, or NULL if @p sock is not open.
+ */
 static SockConn *Conn(int sock)
 {
     if (sock < 0 || sock >= g_nconns || !g_conns[sock].used)
@@ -120,6 +126,12 @@ static SockConn *Conn(int sock)
     return &g_conns[sock];
 }
 
+/**
+ * @brief Finds a free socket number, doubling the table when it is full. The slot is not marked
+ * used.
+ *
+ * @return The socket number, or ERR_NOMEM.
+ */
 static int AllocSock(void)
 {
     int sock = 0;
@@ -138,6 +150,12 @@ static int AllocSock(void)
     return sock;
 }
 
+/**
+ * @brief Creates and maps a socket's shared memory.
+ *
+ * @param[in,out] s Socket to fill in.
+ * @return ZUZU_OK, or the error from creating or mapping the memory.
+ */
 static Err MapMem(SockConn *s)
 {
     s->mem = CreateMem(SOCK_MEM_PAGES, 0);
@@ -152,6 +170,11 @@ static Err MapMem(SockConn *s)
     return ZUZU_OK;
 }
 
+/**
+ * @brief Unmaps and closes a socket's shared memory.
+ *
+ * @param[in,out] s Socket.
+ */
 static void UnmapMem(SockConn *s)
 {
     MemUnmap(s->shm);
@@ -159,10 +182,18 @@ static void UnmapMem(SockConn *s)
     s->shm = NULL;
 }
 
+/**
+ * @brief Sends a command that grants netd a mappable, writable copy of a socket's memory.
+ *
+ * @param[in] req Request.
+ * @param[in] len Request length.
+ * @param[in] s   Socket whose memory to grant.
+ * @return netd's status, or the IPC error.
+ */
 static Err CallWithMem(const void *req, uint32_t len, const SockConn *s)
 {
     Handle page;
-    Err rc = HandleDup(s->mem, PERM_MAP | PERM_TXFR, MARKER_NONE, &page);
+    Err rc = HandleDup(s->mem, PERM_MAP | PERM_WRITE | PERM_TXFR, MARKER_NONE, &page);
     if (rc != ZUZU_OK)
         return rc;
     rc = SockCall(g_client.port, req, len, page, NULL);
@@ -170,7 +201,7 @@ static Err CallWithMem(const void *req, uint32_t len, const SockConn *s)
     return rc;
 }
 
-int SockOpen(uint32_t kind)
+int SockOpen(SockType kind)
 {
     Err rc = Attach();
     if (rc != ZUZU_OK)
@@ -215,17 +246,16 @@ Err SockSendTo(int sock, uint32_t ip, uint16_t port, const void *buf, uint16_t l
     if (s->shm->state == SOCK_STATE_CLOSED)
         return ERR_NOTCONN;
     uint32_t rec = (sizeof(SockDgramHdr) + len + 3u) & ~3u;
-    uint32_t used = s->tx_head - s->shm->tx.tail;
+    uint32_t used = s->tx_head - ShmRingLoadTail(&s->shm->tx);
     if (used > SOCK_RING_SIZE || rec > SOCK_RING_SIZE - used)
         return ERR_BUFFULL;
 
     uint8_t *ring = SockTxData(s->shm);
     SockDgramHdr h = {.peer_ip = ip, .peer_port = port, .len = len};
-    SockRingWrite(ring, s->tx_head, &h, sizeof(h));
-    SockRingWrite(ring, s->tx_head + sizeof(h), buf, len);
+    ShmRingWriteAt(ring, SOCK_RING_SIZE, s->tx_head, &h, sizeof(h));
+    ShmRingWriteAt(ring, SOCK_RING_SIZE, s->tx_head + sizeof(h), buf, len);
     s->tx_head += rec;
-    ArchSyncBarrier();
-    s->shm->tx.head = s->tx_head;
+    ShmRingPublishHead(&s->shm->tx, s->tx_head);
     Signal(g_client.doorbell, 1U << g_client.bit, false);
     return ZUZU_OK;
 }
@@ -237,7 +267,7 @@ int SockRecvFrom(int sock, void *buf, uint16_t cap, uint32_t *ip, uint16_t *port
         return ERR_BADARG;
     const uint8_t *ring = SockRxData(s->shm);
     for (;;) {
-        uint32_t head = s->shm->rx.head;
+        uint32_t head = ShmRingLoadHead(&s->shm->rx);
         uint32_t avail = head - s->rx_tail;
         if (avail > SOCK_RING_SIZE) {
             s->rx_tail = head;
@@ -245,21 +275,21 @@ int SockRecvFrom(int sock, void *buf, uint16_t cap, uint32_t *ip, uint16_t *port
         }
         if (avail >= sizeof(SockDgramHdr)) {
             SockDgramHdr h;
-            SockRingRead(ring, s->rx_tail, &h, sizeof(h));
+            ShmRingReadAt(ring, SOCK_RING_SIZE, s->rx_tail, &h, sizeof(h));
             uint32_t rec = (sizeof(h) + h.len + 3u) & ~3u;
             if (h.len > SOCK_DGRAM_MAX || rec > avail) {
                 s->rx_tail = head;
-                s->shm->rx.tail = head;
+                ShmRingPublishTail(&s->shm->rx, head);
                 return ERR_MALFORMED;
             }
             uint16_t n = h.len < cap ? h.len : cap;
-            SockRingRead(ring, s->rx_tail + sizeof(h), buf, n);
+            ShmRingReadAt(ring, SOCK_RING_SIZE, s->rx_tail + sizeof(h), buf, n);
             if (ip)
                 *ip = h.peer_ip;
             if (port)
                 *port = h.peer_port;
             s->rx_tail += rec;
-            s->shm->rx.tail = s->rx_tail;
+            ShmRingPublishTail(&s->shm->rx, s->rx_tail);
             return n;
         }
         if (s->shm->state == SOCK_STATE_CLOSED)
@@ -322,7 +352,9 @@ Err SockListen(int sock, uint16_t port, int backlog)
     return SockCall(g_client.port, &req, sizeof(req), -1, NULL);
 }
 
+/** @brief Memory prepared for the next accepted connection, kept across SockAccept() retries. */
 static SockConn g_spare;
+/** @brief Whether g_spare holds mapped memory. */
 static bool g_spare_ready;
 
 int SockAccept(int sock, Duration timeout)
@@ -384,7 +416,7 @@ int SockSend(int sock, const void *buf, uint32_t len)
     while (left) {
         if (s->shm->state == SOCK_STATE_CLOSED)
             return s->shm->error ? (int)s->shm->error : ERR_NOTCONN;
-        uint32_t used = s->tx_head - s->shm->tx.tail;
+        uint32_t used = s->tx_head - ShmRingLoadTail(&s->shm->tx);
         if (used > SOCK_RING_SIZE)
             used = SOCK_RING_SIZE;
         uint32_t room = SOCK_RING_SIZE - used;
@@ -395,12 +427,11 @@ int SockSend(int sock, const void *buf, uint32_t len)
             continue;
         }
         uint32_t n = left < room ? left : room;
-        SockRingWrite(ring, s->tx_head, p, n);
+        ShmRingWriteAt(ring, SOCK_RING_SIZE, s->tx_head, p, n);
         s->tx_head += n;
         p += n;
         left -= n;
-        ArchSyncBarrier();
-        s->shm->tx.head = s->tx_head;
+        ShmRingPublishHead(&s->shm->tx, s->tx_head);
         Signal(g_client.doorbell, 1U << g_client.bit, false);
     }
     return (int)len;
@@ -413,15 +444,14 @@ int SockRecv(int sock, void *buf, uint32_t cap, Duration timeout)
         return ERR_BADARG;
     const uint8_t *ring = SockRxData(s->shm);
     for (;;) {
-        uint32_t avail = s->shm->rx.head - s->rx_tail;
+        uint32_t avail = ShmRingLoadHead(&s->shm->rx) - s->rx_tail;
         if (avail > SOCK_RING_SIZE)
             avail = SOCK_RING_SIZE;
         if (avail) {
             uint32_t n = avail < cap ? avail : cap;
-            SockRingRead(ring, s->rx_tail, buf, n);
+            ShmRingReadAt(ring, SOCK_RING_SIZE, s->rx_tail, buf, n);
             s->rx_tail += n;
-            ArchSyncBarrier();
-            s->shm->rx.tail = s->rx_tail;
+            ShmRingPublishTail(&s->shm->rx, s->rx_tail);
             Signal(g_client.doorbell, 1U << g_client.bit, false);
             return (int)n;
         }

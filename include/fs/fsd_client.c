@@ -1,9 +1,24 @@
+/**
+ * @file
+ * @brief Client side of the fsd protocol.
+ */
+
 #include <fs/fsd_client.h>
 #include <string.h>
 #include <zuzu/msg.h>
 #include <zuzu/service.h>
 #include <zuzu/zuzu.h>
 
+/**
+ * @brief Sends a request to fsd and copies the reply out of the message buffer.
+ *
+ * @param[in]  port    Port to call.
+ * @param[in]  req     Request.
+ * @param[out] resp    Reply.
+ * @param[in]  grant   Handle to grant, or -1.
+ * @param[out] granted Handle fsd granted back, or -1; may be NULL.
+ * @return The reply's status, the IPC error, or ERR_MALFORMED for a short reply.
+ */
 static Err FsdCall(Handle port, const FsdRequest *req, FsdResponse *resp, Handle grant,
                    Handle *granted)
 {
@@ -21,6 +36,12 @@ static Err FsdCall(Handle port, const FsdRequest *req, FsdResponse *resp, Handle
     return resp->status;
 }
 
+/**
+ * @brief Zeroes a request and fills in its size, command and default payload offset.
+ *
+ * @param[out] r   Request.
+ * @param[in]  cmd An FsdCommand.
+ */
 static void FsdInitRequest(FsdRequest *r, uint32_t cmd)
 {
     memset(r, 0, sizeof(*r));
@@ -29,11 +50,24 @@ static void FsdInitRequest(FsdRequest *r, uint32_t cmd)
     r->data_off = FSD_DATA_OFF;
 }
 
+/**
+ * @brief FsdCall() on the session port, with no grants.
+ *
+ * @param[in]  c    Connection.
+ * @param[in]  req  Request.
+ * @param[out] resp Reply.
+ * @return As FsdCall().
+ */
 static Err FsdTransact(FsdConn *c, const FsdRequest *req, FsdResponse *resp)
 {
     return FsdCall(c->port, req, resp, -1, NULL);
 }
 
+/**
+ * @brief Unmaps and closes the shared buffer and the liveness port.
+ *
+ * @param[in,out] c Connection.
+ */
 static void FsdTeardown(FsdConn *c)
 {
     if (c->buf)
@@ -75,7 +109,7 @@ Err FsdAttach(FsdConn *c, Handle port, Spid pid, uint32_t want_size)
     c->size = want_size;
 
     Handle dup;
-    Err drc = HandleDup(c->shm, PERM_MAP | PERM_TXFR, MARKER_NONE, &dup);
+    Err drc = HandleDup(c->shm, PERM_MAP | PERM_WRITE | PERM_TXFR, MARKER_NONE, &dup);
     if (drc != ZUZU_OK) {
         FsdTeardown(c);
         return drc;
@@ -100,7 +134,6 @@ Err FsdAttach(FsdConn *c, Handle port, Spid pid, uint32_t want_size)
     c->port = badged;
     c->ready = true;
 
-    /* Best effort: without it fsd only frees the session on FSD_DETACH. */
     c->live = CreatePort();
     if (c->live >= 0) {
         Handle watch;
@@ -149,6 +182,17 @@ Err FsdDetach(FsdConn *c)
     return rc;
 }
 
+/**
+ * @brief Sends a command whose payload is a path, copied into the shared buffer.
+ *
+ * @param[in]  c     Connection.
+ * @param[in]  cmd   An FsdCommand.
+ * @param[in]  path  NUL-terminated path.
+ * @param[in]  start Value for FsdRequest::offset.
+ * @param[in]  mode  Value for FsdRequest::mode.
+ * @param[out] resp  Reply.
+ * @return As FsdCall(), or ERR_OVERFLOW if the path does not fit in the buffer.
+ */
 static Err FsdPathCall(FsdConn *c, uint32_t cmd, const char *path, uint32_t start, uint32_t mode,
                        FsdResponse *resp)
 {
@@ -213,7 +257,7 @@ Err FsdRead(FsdConn *c, uint32_t fd, void *dst, uint32_t count, uint32_t *got)
 Err FsdReadObj(FsdConn *c, uint32_t fd, Handle obj, uint32_t obj_off, uint32_t count,
                uint32_t *got)
 {
-    SvcResult dup = HandleDuplicate(obj, PERM_MAP | PERM_TXFR, MARKER_NONE);
+    SvcResult dup = HandleDuplicate(obj, PERM_MAP | PERM_WRITE | PERM_TXFR, MARKER_NONE);
     if (dup.r0 != ZUZU_OK)
         return (Err)dup.r0;
 
@@ -320,4 +364,47 @@ Err FsdUnlink(FsdConn *c, const char *path)
 {
     FsdResponse resp;
     return FsdPathCall(c, FSD_UNLINK, path, 0, 0, &resp);
+}
+
+Err FsdReadImage(FsdConn *c, const char *path, Handle *obj, size_t *len)
+{
+    FsdStat st;
+    Err rc = FsdGetStat(c, path, &st);
+    if (rc != ZUZU_OK)
+        return rc;
+    if (st.type != FSD_TYPE_FILE || st.size == 0)
+        return ERR_BADARG;
+
+    uint32_t fd;
+    rc = FsdOpen(c, path, FSD_MODE_READ, &fd);
+    if (rc != ZUZU_OK)
+        return rc;
+
+    Handle h = CreateMem((st.size + FSD_PAGE_SIZE - 1) / FSD_PAGE_SIZE, 0);
+    if (h < 0) {
+        FsdClose(c, fd);
+        return (Err)h;
+    }
+
+    uint32_t off = 0;
+    while (off < st.size) {
+        uint32_t got = 0;
+        rc = FsdReadObj(c, fd, h, off, st.size - off, &got);
+        if (rc != ZUZU_OK)
+            break;
+        if (got == 0) {
+            rc = ERR_IO;
+            break;
+        }
+        off += got;
+    }
+    FsdClose(c, fd);
+
+    if (rc != ZUZU_OK) {
+        HandleClose(h);
+        return rc;
+    }
+    *obj = h;
+    *len = st.size;
+    return ZUZU_OK;
 }

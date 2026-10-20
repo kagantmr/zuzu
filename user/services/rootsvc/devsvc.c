@@ -87,7 +87,7 @@ void DevsvcMain(void)
                 break;
 
             SvcResult dup = HandleDuplicate(DEVICE_HANDLE_BASE + matched_index,
-                                            (PERM_MAP | PERM_TXFR), MARKER_NONE);
+                                            (PERM_MAP | PERM_WRITE | PERM_TXFR), MARKER_NONE);
             if (dup.r0 != ZUZU_OK)
                 break;
 

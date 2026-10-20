@@ -1,3 +1,8 @@
+/**
+ * @file
+ * @brief Small command-line argument helpers.
+ */
+
 #ifndef ZUZU_ARGS_H
 #define ZUZU_ARGS_H
 
@@ -5,61 +10,64 @@
 extern "C" {
 #endif
 
+/** @brief One accepted option; an array of these ends with an entry whose @c name is NULL. */
 typedef struct {
-    const char *name; // long name, e.g. "verbose"
-    char shortname;   // short flag, e.g. 'v', 0 if none
-    int has_arg;      // 0 = flag, 1 = required arg
-    const char *help; // help string for usage
+    const char *name; /**< Long name without dashes, e.g. "verbose". */
+    char shortname;   /**< Short flag, e.g. 'v'; 0 if none. */
+    int has_arg;      /**< 0 for a flag, 1 if the option takes a value. */
+    const char *help; /**< One-line description for ArgsUsage(). */
 } ArgSpec;
 
+/** @brief Result of ArgsParse(). */
 typedef struct {
-    int argc;                    // number of arguments (including program name)
-    char **argv;                 // array of argument strings
-    const char *positionals[16]; // array of positional arguments (up to 16)
-    int positional_count;        // number of positional arguments
+    int argc;                    /**< Argument count, including the program name. */
+    char **argv;                 /**< The argument strings. */
+    const char *positionals[16]; /**< Arguments that are not options or option values; at most 16 kept. */
+    int positional_count;        /**< Number of entries in @c positionals. */
 } Args;
 
 /**
- * @brief Parses command-line arguments based on the provided specification.
+ * @brief Collects the positional arguments, skipping options and their values.
  *
- * @param out Pointer to an Args structure that will be filled with the parsed arguments.
- * @param argc The number of command-line arguments.
- * @param argv The array of command-line argument strings.
- * @param spec The specification of expected arguments, including their names, short flags, and
- * whether they require an argument.
+ * Options are recognised (so their values are not taken as positionals) but
+ * not stored; query them with ArgsHas() / ArgsGet(). Unknown long options
+ * are ignored.
  *
- * @return int Returns 0 on success, or a negative value on error (e.g., unknown argument, missing
- * required argument).
+ * @param[out] out  Filled with argc/argv and the positionals.
+ * @param[in]  argc Argument count.
+ * @param[in]  argv Argument strings.
+ * @param[in]  spec Accepted options, ending with a NULL @c name.
+ * @return 0, or -1 if an option that takes a value is the last argument.
  */
 int ArgsParse(Args *out, int argc, char **argv, const ArgSpec *spec);
 
 /**
- * @brief Checks if a specific argument is present in the parsed arguments.
+ * @brief Tells whether an argument string appears on the command line.
  *
- * @param args Pointer to the parsed Args structure.
- * @param name The name of the argument to check for (long name).
+ * Compares whole argv entries, so pass the option as typed, e.g. "--verbose" or "-v".
  *
- * @return int Returns 1 if the argument is present, 0 otherwise.
+ * @param[in] args Parsed arguments.
+ * @param[in] name Exact argument string to look for.
+ * @return 1 if present, 0 otherwise.
  */
 int ArgsHas(const Args *args, const char *name);
 
 /**
- * @brief Retrieves the value of a specific argument from the parsed arguments.
+ * @brief Returns the argument that follows @p name on the command line.
  *
- * @param args Pointer to the parsed Args structure.
- * @param name The name of the argument to retrieve the value for (long name).
+ * Compares whole argv entries, so pass the option as typed, e.g. "--out".
  *
- * @return const char* Returns the value of the argument if present, or NULL if the argument is not
- * found or does not have a value.
+ * @param[in] args Parsed arguments.
+ * @param[in] name Exact argument string to look for.
+ * @return The next argument, or NULL if @p name is absent or last.
  */
 const char *ArgsGet(const Args *args, const char *name);
 
 /**
- * @brief Prints the usage information for the program based on the provided argument specification.
+ * @brief Prints a usage line and one line per option to stdout.
  *
- * @param progname The name of the program (typically argv[0]).
- * @param spec The specification of expected arguments, including their names, short flags, and help
- * strings.
+ * @param[in] progname Program name, usually argv[0].
+ * @param[in] spec     Accepted options, ending with a NULL @c name.
  */
 void ArgsUsage(const char *progname, const ArgSpec *spec);
 

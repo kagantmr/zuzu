@@ -1,3 +1,8 @@
+/**
+ * @file err.h
+ * @brief Names error types from the kernel and the userspace IPC contracts.
+ */
+
 #ifndef ZUZU_ERR_H
 #define ZUZU_ERR_H
 
@@ -7,77 +12,96 @@ extern "C" {
 
 #include <stdint.h>
 
+/** @brief Generic error code type. Never positive */
 typedef int32_t Err;
 
-/*
- * These codes are part of the syscall contract: the number
- * and its meaning never change, and no code is ever removed or renumbered.
- * New kernel codes may only be added in the reserved -13..-99 band.
- *
- */
+/** @brief No error has occurred, the operation was successful. */
 #define ZUZU_OK 0
 
-#define ERR_NOPERM (-1)     /* caller lacks the right for this operation      */
-#define ERR_NOENT (-2)      /* a name or id (not a handle) does not exist     */
-#define ERR_BUSY (-3)       /* object exists but is in the wrong state/in use */
-#define ERR_NOMEM (-4)      /* kernel resource exhausted: PMM, kmalloc, table, VA */
-#define ERR_BADTYPE (-5)    /* handle exists but is the wrong type here       */
-#define ERR_BADARG (-6)     /* a passed value is invalid (flag, size, count)  */
-#define ERR_NOSYS (-7)      /* no such syscall, or no such RPC operation      */
-#define ERR_BADPTR (-8)     /* user pointer invalid, unmapped, or uncopyable  */
-#define ERR_DEAD (-9)       /* object was destroyed / peer gone               */
-#define ERR_TIMEOUT (-10)   /* deadline expired; also: poll found nothing     */
-#define ERR_OVERFLOW (-11)  /* caller size/payload exceeds a static limit     */
-#define ERR_BADHANDLE (-12) /* handle index names no live entry in the table  */
+/** @brief Caller does not have the necessary permission for this operation. */
+#define ERR_NOPERM (-1)
 
-/* -13 .. -99  reserved for future zuzu kernel codes  */
+/** @brief The requested entry in a list, table etc. could not be found */
+#define ERR_NOENT (-2)
 
-/*
- * zuzuOS server/library codes (-100 and up). these may be added to or renumbered
- * with the OS. Same rule still holds here: one code, one meaning.
- */
-#define ERR_BUFFULL (-100)   /* ring/channel is full (writer side)             */
-#define ERR_BUFEMPTY (-101)  /* ring/channel is empty (reader side)            */
-#define ERR_SYSDOWN (-102)   /* a required service is not running              */
-#define ERR_NOTCONN (-103)   /* connection/session is not established          */
-#define ERR_DUPLICATE (-104) /* duplicate registration/request rejected        */
-#define ERR_MALFORMED (-105) /* received bytes fail to parse (wire/packet)     */
-#define ERR_IO (-106)        /* device or filesystem I/O error                 */
-#define ERR_OUTDATED                                                                               \
-    (-107) /* this feature is deprecated or there is a version mismatch between binaries    */
-#define ERR_CONNRESET (-108)   /* connection was reset by the peer                */
-#define ERR_CONNREFUSED (-109) /* peer actively refused the connection            */
+/** @brief The requested resource is being used, is referenced, or currently unavailable. Try again
+ * or ensure no other party is using it. */
+#define ERR_BUSY (-3)
 
-/**
- * Fatal error codes (comes from critical processes and is delivered to the kernel)
- *
- * Do NOT use these codes as the exit code.
- */
-#define FATAL_TAG 0xFA7A0000u
-#define FATAL_TAG_MASK 0xFFFF0000u
-#define FATAL_REASON_MASK 0x0000FFFFu
-#define FATAL_KERNEL_OUTDATED 1
-#define FATAL_KERNEL_REFERLMSG 2
+/** @brief Memory for this operation could not be allocated. */
+#define ERR_NOMEM (-4)
 
-/**
- * Killed exit codes.
- *
- * Delivered when a process suddenly exits.
- */
+/** @brief Type-check failed, this handle is not the required type. */
+#define ERR_BADTYPE (-5)
+
+/** @brief Argument is NULL or otherwise unusable. */
+#define ERR_BADARG (-6)
+
+/** @brief This operation is not supported by the system. */
+#define ERR_NOSYS (-7)
+
+/** @brief The pointer does not point to the required data, is NULL, or unfit. */
+#define ERR_BADPTR (-8)
+
+/** @brief Object owner has died. */
+#define ERR_DEAD (-9)
+
+/** @brief Wait timed out. */
+#define ERR_TIMEOUT (-10)
+
+/** @brief The transport request will not fit into the destination. */
+#define ERR_OVERFLOW (-11)
+
+/** @brief This handle is not a valid handle for this operation. */
+#define ERR_BADHANDLE (-12)
+
+/** @brief Buffer full, cannot receive anymore */
+#define ERR_BUFFULL (-100)
+
+/** @brief Buffer empty, cannot send anymore */
+#define ERR_BUFEMPTY (-101)
+
+/** @brief System is not up (yet). */
+#define ERR_SYSDOWN (-102)
+
+/** @brief System is not connected. */
+#define ERR_NOTCONN (-103)
+
+/** @brief This is a duplicate, and having duplicates in this operation would be invalid. */
+#define ERR_DUPLICATE (-104)
+
+/** @brief Format is incorrect. */
+#define ERR_MALFORMED (-105)
+
+/** @brief Input/output has failed. */
+#define ERR_IO (-106)
+
+/** @brief This request is outdated, or operation cannot continue due to an issue with outdated
+ * code/data. */
+#define ERR_OUTDATED (-107)
+
+/** @brief TCP connection reset */
+#define ERR_CONNRESET (-108)
+
+/** @brief TCP connection refused. */
+#define ERR_CONNREFUSED (-109)
+
+/** @brief Task kill reason. */
 typedef enum {
-    KILLED_BY_PARENT,
-    KILLED_FAULT_DATA,
-    KILLED_FAULT_PREFETCH,
-    KILLED_FAULT_UNDEF,
-    KILLED_FAULT_ALIGN,
-    KILLED_OOM,
+    KILLED_BY_PARENT,      /**< Parent destroyed the task object. */
+    KILLED_FAULT_DATA,     /**< The task caused a data abort */
+    KILLED_FAULT_PREFETCH, /**< The task caused a prefetch abort */
+    KILLED_FAULT_UNDEF,    /**< The task executed an undefined instruction */
+    KILLED_FAULT_ALIGN,    /**< The task accessed unaligned memory. */
+    KILLED_OOM,            /**< The task was victim to an OOM service. */
 } KilledReason;
 
 /**
- * @brief Returns a human-readable string describing the given error code.
+ * @brief Converts an error code into a short explanatory string, or ERR -XXX if the error is
+ * unknown.
  *
- * @param err The error code to describe.
- * @return const char* A pointer to a string describing the error code.
+ * @param[in] errcode Numeric error code.
+ * @return Explanatory string.
  */
 const char *StrToError(Err errcode);
 
@@ -85,4 +109,4 @@ const char *StrToError(Err errcode);
 }
 #endif
 
-#endif // ZUZU_ERR_H
+#endif /*  ZUZU_ERR_H */

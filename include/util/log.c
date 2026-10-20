@@ -1,11 +1,24 @@
+/**
+ * @file
+ * @brief Userspace leveled logging.
+ */
+
 #include "ansi.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <util/log.h>
 #include <zuzu/syspage.h>
+#include <zuzu/uptime.h>
 
+/** @brief Lowest level LogWrite() prints; set with LogSetLevel(). */
 static LogLevel g_min_level = CONFIG_LOG_LEVEL;
 
+/**
+ * @brief Returns the fixed-width label printed for a level.
+ *
+ * @param[in] level Log level.
+ * @return "TRACE".."FATAL", or "UNK".
+ */
 static const char *LevelToLabel(LogLevel level)
 {
     switch (level) {
@@ -26,6 +39,12 @@ static const char *LevelToLabel(LogLevel level)
     }
 }
 
+/**
+ * @brief Returns the ANSI colour sequence used for a level.
+ *
+ * @param[in] level Log level.
+ * @return An escape sequence, or "" for unknown levels.
+ */
 static const char *LevelToStyle(LogLevel level)
 {
     switch (level) {
@@ -60,8 +79,7 @@ void LogWrite(LogLevel level, const char *tag, const char *fmt, ...)
     const char *lvl_label = LevelToLabel(level);
     const char *lvl_style = LevelToStyle(level);
     const char *safe_tag = tag ? tag : "";
-    Syspage *sp = (Syspage *)SYSPAGE;
-    unsigned long long ticks = (unsigned long long)sp->uptime_ticks;
+    unsigned long long ticks = (unsigned long long)UptimeMs();
 
     char msg_buf[192];
     va_list ap;

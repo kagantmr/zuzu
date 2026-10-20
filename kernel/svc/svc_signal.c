@@ -1,3 +1,8 @@
+/**
+ * @file svc_signal.c
+ * @brief Implementation of the Signal() svc.
+ */
+
 #include "core/ensure.h"
 #include "kernel/ipc/port.h"
 #include "kernel/space/space.h"

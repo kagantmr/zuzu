@@ -1,3 +1,8 @@
+/**
+ * @file
+ * @brief Type-safe growable arrays, generated per element type by DEFINE_VEC().
+ */
+
 #ifndef VECTOR_H
 #define VECTOR_H
 
@@ -12,18 +17,38 @@ extern "C" {
 
 #ifdef __ZUZU__
 #include "kernel/mm/alloc.h"
+/** @brief Allocates zeroed memory: KZAlloc() in the kernel, malloc() in userspace. */
 #define VEC_ALLOC(sz) KZAlloc(sz)
+/** @brief Frees memory from VEC_ALLOC(). */
 #define VEC_FREE(ptr) KFree(ptr)
 #else
 #include <malloc.h>
+/** @brief Allocates memory with malloc(). */
 #define VEC_ALLOC(sz) malloc(sz)
+/** @brief Frees memory from VEC_ALLOC(). */
 #define VEC_FREE(ptr) free(ptr)
 #endif
 
+/** @brief Allocates an array of @p count elements of @p type. */
 #define VEC_ALLOC_T(type, count) ((type *)VEC_ALLOC((count) * sizeof(type)))
 
+/** @brief Capacity of a new vector. */
 #define VEC_INITIAL_CAP 16
 
+/**
+ * @brief Defines a vector type for elements of @p type, and its functions.
+ *
+ * Generates:
+ * - `name##_vec_t`: { type *data; uint32_t len; uint32_t cap; }
+ * - `bool name##_vec_init(v)`: allocates VEC_INITIAL_CAP zeroed slots; false if out of memory.
+ * - `type *name##_vec_get(v, i)`: slot @c i, or NULL if @c i >= cap. Bounds are checked against
+ *   the capacity, not the length.
+ * - `const type *name##_vec_get_const(v, i)`: the same for a const vector.
+ * - `int name##_vec_grow(v)`: doubles the capacity, zeroing the new slots; -1 if out of memory.
+ * - `void name##_vec_destroy(v)`: frees the storage.
+ * - `bool name##_vec_push(v, item)`: appends a copy of *item, growing as needed; false if out of
+ *   memory.
+ */
 #define DEFINE_VEC(name, type)                                                                     \
                                                                                                    \
     typedef struct {                                                                               \

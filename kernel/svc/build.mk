@@ -13,3 +13,4 @@ obj-y += svc_waiton.o
 obj-y += svc_yield.o
 obj-y += dispatch.o
 obj-y += svc_log.o
+obj-y += svc_hold.o

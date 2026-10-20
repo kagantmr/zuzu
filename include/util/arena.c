@@ -1,3 +1,8 @@
+/**
+ * @file
+ * @brief Bump allocator implementation.
+ */
+
 #include <string.h>
 #include <util/arena.h>
 

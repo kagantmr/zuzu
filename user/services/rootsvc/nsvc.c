@@ -1,6 +1,8 @@
 #include "rootsvc.h"
+#include <malloc.h>
 #include <stdbool.h>
 #include <string.h>
+#include <util/fnv1a.h>
 #include <zuzu/msg.h>
 #include <zuzu/err.h>
 #include <zuzu/service.h>
@@ -9,13 +11,26 @@
 
 Handle g_nsvc_port;
 
-typedef struct {
+#define NS_BUCKETS 64u
+
+typedef struct NsEntry {
+    struct NsEntry *next;
     char path[NS_MAX_PATH];
     Handle handle; /* slot in nsvc's own table, regrantable */
-    bool in_use;
 } NsEntry;
 
-static NsEntry g_registry[NS_MAX_SERVICES];
+static NsEntry *g_buckets[NS_BUCKETS];
+
+static NsEntry **NsBucket(const char *path) { return &g_buckets[Fnv1aHash(path) % NS_BUCKETS]; }
+
+static NsEntry *NsFind(const char *path)
+{
+    for (NsEntry *e = *NsBucket(path); e; e = e->next) {
+        if (strncmp(e->path, path, NS_MAX_PATH) == 0)
+            return e;
+    }
+    return NULL;
+}
 
 static Err NsvcUnpack(const char *buf, uint32_t xlen, NsvcRequest *out)
 {
@@ -59,48 +74,36 @@ static void NsvcRegister(const NsvcRequest *req, Handle granted)
         return;
     }
 
-    int free_slot = -1;
-    int found = -1;
-    for (int i = 0; i < NS_MAX_SERVICES; i++) {
-        if (!g_registry[i].in_use) {
-            if (free_slot == -1)
-                free_slot = i;
-            continue;
+    NsEntry *e = NsFind(req->path);
+    if (e) {
+        HandleClose(e->handle);
+    } else {
+        e = malloc(sizeof(*e));
+        if (!e) {
+            HandleClose(granted);
+            ReplyStatus(ERR_NOMEM);
+            return;
         }
-        if (strncmp(g_registry[i].path, req->path, NS_MAX_PATH) == 0) {
-            found = i;
-            break;
-        }
+        strncpy(e->path, req->path, NS_MAX_PATH - 1);
+        e->path[NS_MAX_PATH - 1] = '\0';
+        NsEntry **bucket = NsBucket(e->path);
+        e->next = *bucket;
+        *bucket = e;
     }
 
-    int slot = (found >= 0) ? found : free_slot;
-    if (slot < 0) {
-        ReplyStatus(ERR_NOMEM);
-        return;
-    }
-
-    NsEntry *e = &g_registry[slot];
-    strncpy(e->path, req->path, NS_MAX_PATH - 1);
-    e->path[NS_MAX_PATH - 1] = '\0';
     e->handle = granted;
-    e->in_use = true;
     ReplyStatus(ZUZU_OK);
 }
 
 static void NsvcLookup(const NsvcRequest *req)
 {
-    for (int i = 0; i < NS_MAX_SERVICES; i++) {
-        if (!g_registry[i].in_use)
-            continue;
-        if (strncmp(g_registry[i].path, req->path, NS_MAX_PATH) != 0)
-            continue;
-
-        SvcResult dup = HandleDuplicate(g_registry[i].handle, (PERM_SEND | PERM_TXFR), MARKER_NONE);
+    NsEntry *e = NsFind(req->path);
+    if (e) {
+        SvcResult dup = HandleDuplicate(e->handle, (PERM_SEND | PERM_TXFR), MARKER_NONE);
         if (dup.r0 == ZUZU_OK) {
             Reply(0, (Handle)dup.r1);
             return;
         }
-        break;
     }
     Reply(0, -1); /* not found */
 }

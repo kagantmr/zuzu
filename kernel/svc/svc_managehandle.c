@@ -1,3 +1,8 @@
+/**
+ * @file svc_managehandle.c
+ * @brief Implementation of the ManageHandle() svc.
+ */
+
 #include "core/ensure.h"
 #include "kernel/irq/irq_relay.h"
 #include "kernel/mm/mem_object.h"
@@ -6,6 +11,19 @@
 #include "svc.h"
 #include <arch/regs.h>
 
+/**
+ * @brief Do DMA-related queries.
+ * 
+ * @param[in] entry The DMA memory to query.
+ * @param[in] what What aspect is being queried?
+ * @param[in] arg Extra argument.
+ * @param[out] value The register to write the result to.
+ * 
+ * @return Err
+ * @retval ERR_BADTYPE This is not a DMA memory object.
+ * @retval ERR_NOPERM  You do not have the rights to query this object.
+ * @retval ERR_NOENT   This device does not have DMA objects.
+ */
 static Err QueryDma(const HandleTableEntry *entry, QueryWhat what, uint32_t arg, Register *value)
 {
     if (HANDLE_MEM != entry->type || !entry->mem || entry->mem->kind != MEMKIND_DEVICE)
@@ -63,7 +81,6 @@ void SvcManageHandle(CpuState *frame)
         ArchSetInFrame(frame, 1, new_handle);
     } break;
     case MNGHNDL_RESTRICT: {
-        /* r2 = perms mask */
         HandlePerms mask = (HandlePerms)(*ArchGetFromFrame(frame, 2));
         entry->perms &= mask;
         ArchSetInFrame(frame, 0, ZUZU_OK);
@@ -87,7 +104,6 @@ void SvcManageHandle(CpuState *frame)
         ArchSetInFrame(frame, 0, ZUZU_OK);
     } break;
     case MNGHNDL_QUERY: {
-        /* r2 = what */
         QueryWhat what = (QueryWhat)(*ArchGetFromFrame(frame, 2));
         Register value;
         switch (what) {
@@ -150,6 +166,7 @@ void SvcManageHandle(CpuState *frame)
         ENSURE_ERR(frame, space_entry->perms & PERM_CNTL, ERR_NOPERM);
         SpaceObject *target_space = space_entry->space;
         ENSURE_ERR(frame, target_space && !target_space->torn_down, ERR_DEAD);
+        ENSURE_ERR(frame, entry->perms & PERM_TXFR, ERR_NOPERM);
 
         Handle new_handle;
         Err rc = HandleCopyInto(&target_space->handle_table, entry, entry->perms & perms,
@@ -162,6 +179,7 @@ void SvcManageHandle(CpuState *frame)
         ENSURE_ERR(frame, HANDLE_MEM == entry->type, ERR_BADTYPE);
         MemObject *dev = entry->mem;
         ENSURE_ERR(frame, dev && dev->kind == MEMKIND_DEVICE, ERR_BADTYPE);
+        ENSURE_ERR(frame, entry->perms & PERM_MAP, ERR_NOPERM);
         ENSURE_ERR(frame, IrqIsValid(dev->dev.irq), ERR_BADARG);
         ArchSetInFrame(frame, 0, IrqRelayRearm(CURRENT_SPACE, dev->dev.irq));
     } break;

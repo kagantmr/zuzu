@@ -57,7 +57,7 @@ gdb.txt
 *.dts
 !scripts/uboot-vexpress.cmd
 
-# editor stuff
+# editor stuff
 .vscode/
 .dir-locals.el
 .dir-locals.el.save
@@ -78,7 +78,7 @@ docs/doxygen/
 
 build/
 sd.img
-.*/
+.cache/*
 
 # Build baselines captured by scripts/baseline.sh.
 .baseline/
@@ -89,6 +89,7 @@ sd.img
 
 # Pi firmware, fetched with `make rpi4-firmware` (not vendored).
 firmware/
+docs/*.md
 
 __pycache__/
 *.pyc

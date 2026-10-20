@@ -1,3 +1,8 @@
+/**
+ * @file svc_quit.c
+ * @brief Implementation of the Quit() svc.
+ */
+
 #include "kernel/bench.h"
 #include "kernel/sched/sched.h"
 #include "kernel/task/task.h"

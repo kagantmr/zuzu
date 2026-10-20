@@ -1,3 +1,8 @@
+/**
+ * @file
+ * @brief assert(): panics in the kernel, quits the program in userspace; nothing with NDEBUG.
+ */
+
 #ifndef ZCRT_ASSERT_H
 #define ZCRT_ASSERT_H
 
@@ -6,10 +11,12 @@ extern "C" {
 #endif
 
 #ifdef NDEBUG
+/** @brief Does nothing; NDEBUG is defined. */
 #define assert(cond) ((void)0)
 #else
 #ifdef __ZUZU__
 #include <core/panic.h>
+/** @brief Panics with the condition, file and line if @p cond is false. */
 #define assert(cond)                                                                               \
     do {                                                                                           \
         if (!(cond))                                                                               \
@@ -17,7 +24,7 @@ extern "C" {
     } while (0)
 #else
 #include <zuzu/zuzu.h>
-        // User space assert is just quit for now
+/** @brief Quits the program with -1 if @p cond is false. */
 #define assert(cond)                                                                               \
     do {                                                                                           \
         if (!(cond)) {                                                                             \
