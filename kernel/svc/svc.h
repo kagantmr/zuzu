@@ -48,7 +48,7 @@ bool CopyFromUser(void *restrict kaddr, const void *restrict uaddr, size_t len);
  * @brief Dispatch the incoming svc.
  * 
  * @param[in] svc_num The svc number to dispatch.
- * @param[inout] frame The CPU frame to act on.
+ * @param[in,out] frame The CPU frame to act on.
  *
  */
 void __hot SvcDispatch(Svc svc_num, CpuState *frame);
@@ -80,21 +80,21 @@ extern TaskObject *current_task;
 /**
  * @brief Entry point for the Quit syscall.
  *
- * @param[inout] frame The caller's trap frame: arguments in, results out.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcQuit(CpuState *frame);
 
 /**
  * @brief Entry point for the Yield syscall.
  *
- * @param[inout] frame The caller's trap frame: arguments in, results out.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcYield(CpuState *frame);
 
 /**
  * @brief Entry point for the Sleep syscall.
  *
- * @param[inout] frame The caller's trap frame: arguments in, results out.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcSleep(CpuState *frame);
 
@@ -102,7 +102,7 @@ void SvcSleep(CpuState *frame);
 /**
  * @brief Entry point for the Log syscall (debug builds only).
  *
- * @param[inout] frame The caller's trap frame: arguments in, results out.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcDebugLog(CpuState *frame);
 #endif
@@ -110,70 +110,70 @@ void SvcDebugLog(CpuState *frame);
 /**
  * @brief Entry point for the Create syscall.
  *
- * @param[inout] frame The caller's trap frame: arguments in, results out.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcCreate(CpuState *frame);
 
 /**
  * @brief Entry point for the Call syscall.
  *
- * @param[inout] frame The caller's trap frame: arguments in, results out.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcCall(CpuState *frame);
 
 /**
  * @brief Entry point for the Reply and ReplyRecv syscall.
  *
- * @param[inout] frame The caller's trap frame: arguments in, results out.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcReply(CpuState *frame);
 
 /**
  * @brief Entry point for the WaitOn syscall.
  *
- * @param[inout] frame The caller's trap frame: arguments in, results out.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcWaitOn(CpuState *frame);
 
 /**
  * @brief Entry point for the ManageHandle syscall.
  *
- * @param[inout] frame The caller's trap frame: arguments in, results out.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcManageHandle(CpuState *frame);
 
 /**
  * @brief Entry point for the Signal syscall.
  *
- * @param[inout] frame The caller's trap frame: arguments in, results out.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcSignal(CpuState *frame);
 
 /**
  * @brief Entry point for the Bind syscall.
  *
- * @param[inout] frame The caller's trap frame: arguments in, results out.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcBind(CpuState *frame);
 
 /**
  * @brief Entry point for the ManageMemory syscall.
  *
- * @param[inout] frame The caller's trap frame: arguments in, results out.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcManageMemory(CpuState *frame);
 
 /**
  * @brief Entry point for the ManageTask syscall.
  *
- * @param[inout] frame The caller's trap frame: arguments in, results out.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcManageTask(CpuState *frame);
 
 /**
  * @brief Entry point for the Hold syscall.
  *
- * @param[inout] frame The caller's trap frame: arguments in, results out.
+ * @param[in,out] frame The caller's trap frame: arguments in, results out.
  */
 void SvcHold(CpuState *frame);
 

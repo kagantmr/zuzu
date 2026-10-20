@@ -52,7 +52,7 @@ void EventSignal(EventObject *ev, EventWord bits, bool bcast);
  *
  * @param[in] ev The event to wait on
  * @param[in] timeout The duration, in ms, to block for the event.
- * @param[inout] frame The CPU frame to mutate when waking.
+ * @param[in,out] frame The CPU frame to mutate when waking.
  */
 void EventWait(EventObject *ev, Duration timeout, CpuState *frame);
 

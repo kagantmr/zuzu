@@ -361,7 +361,7 @@ static void format_efmt_digits(double av, int sigdigits, char *digits, int *exp_
     *exp_out = exp;
 }
 
-void vstrfmt(void (*outc)(void *ctx, char), void *ctx, const char *fmt, va_list *args)
+void vstrfmt(strfmt_outc_t outc, void *ctx, const char *fmt, va_list *args)
 {
     if (!outc || !fmt)
         return;

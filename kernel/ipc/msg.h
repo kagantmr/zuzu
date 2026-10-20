@@ -71,7 +71,7 @@ void MsgBufCopy(TaskObject *restrict src, TaskObject *restrict dst, size_t len);
  *
  * @param[in] space The caller space.
  * @param[in] handle The handle to verify.
- * @param[inout] frame The task's CPU frame.
+ * @param[in,out] frame The task's CPU frame.
  *
  * @return HandleTableEntry* The validated port entry.
  */

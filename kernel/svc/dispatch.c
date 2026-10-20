@@ -67,6 +67,7 @@ static SvcEntry svc_table[SVC_TOTAL_COUNT] = {
 };
 
 #ifdef CONFIG_ZUZU_BENCH
+/** @brief Verbs tracked per syscall in the benchmark tables. */
 #define SVC_BENCH_VERBS 16u
 
 /**
@@ -117,6 +118,7 @@ static const char *const svc_bench_names[SVC_TOTAL_COUNT][SVC_BENCH_VERBS] = {
  * 
  * @param[in] svc_num The svc number to look up.
  * @param[in] frame The frame to fill.
+ * @return The slot for this syscall and verb, or NULL if it has no name in the table.
  */
 static BenchStat *SvcBenchSlot(Svc svc_num, CpuState *frame)
 {

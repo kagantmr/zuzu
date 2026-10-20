@@ -17,3 +17,6 @@ include/fs/protocols/*.h
 include/dev/*.h
 include/dev/protocols/*.h
 include/*.h
+arch/include/arch/*.h
+arch/arm/include/arch_impl/*.h
+arch/arm/include/gicv2.h

@@ -16,7 +16,7 @@ if [ $# -eq 0 ]; then
 fi
 
 CLANG=${CLANG:-clang}
-CLANG_DOC="--target=armv7a-none-eabi -fsyntax-only -Wno-everything -Wdocumentation \
+CLANG_DOC="-DCONFIG_ZUZU_BENCH --target=armv7a-none-eabi -fsyntax-only -Wno-everything -Wdocumentation \
 -Wdocumentation-unknown-command -Werror \
 -fcomment-block-commands=syscall,reg"
 files=$(find "$@" \( -name '*.c' -o -name '*.h' \) -not -path '*/dtb/*' | sort)

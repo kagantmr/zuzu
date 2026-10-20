@@ -162,32 +162,10 @@ char *strrchr(const char *s, int c);
  */
 void vstrfmt(strfmt_outc_t outc, void *ctx, const char *fstring, va_list *args);
 
-/**
- * @brief Format a string into a fixed-size buffer using a va_list.
- *
- * Writes at most size-1 characters plus a terminating NUL (unless size is
- * 0, in which case buf is left untouched). Same format specifiers as
- * vstrfmt/strfmt.
- *
- * @param[out] buf  Destination buffer, or NULL if size is 0.
- * @param[in]  size Size of buf in bytes, including the terminating NUL.
- * @param[in]  fmt  Format string.
- * @param[in]  args Variable arguments matching the format specifiers.
- * @return The number of characters that would have been written had size
- *         been unlimited (excluding the terminating NUL).
- */
+/** @brief Bounded formatted output into a buffer; documented in snprintf.h. */
 int vsnprintf(char *buf, size_t size, const char *fmt, va_list args);
 
-/**
- * @brief Format a string into a fixed-size buffer.
- *
- * @param[out] buf  Destination buffer, or NULL if size is 0.
- * @param[in]  size Size of buf in bytes, including the terminating NUL.
- * @param[in]  fmt  Format string.
- * @param[in]  ...  Variable arguments matching the format specifiers.
- * @return The number of characters that would have been written had size
- *         been unlimited (excluding the terminating NUL).
- */
+/** @brief Bounded formatted output into a buffer; documented in snprintf.h. */
 int snprintf(char *buf, size_t size, const char *fmt, ...);
 
 #endif
