@@ -12,6 +12,7 @@ static Handle console_port;
 static Handle console_event = -1;
 static TtyConn console_conn;
 static int console_ready;
+static int console_focused;
 static uint32_t console_mode = TTY_MODE_COOKED | TTY_MODE_ECHO;
 
 static int ConsoleOpen(void)
@@ -70,6 +71,7 @@ void ConsoleClose(void)
     }
     TtyClientClose(console_port, &console_conn);
     console_ready = 0;
+    console_focused = 0;
 }
 
 int ConsoleWrite(const char *buf, int len)
@@ -99,6 +101,14 @@ int ConsoleRead(char *buf, int len)
     if (ConsoleOpen() != 0) {
         errno = EIO;
         return -1;
+    }
+
+    if (!console_focused) {
+        if (TtyClientFocus(console_port, &console_conn) != ZUZU_OK) {
+            errno = EIO;
+            return -1;
+        }
+        console_focused = 1;
     }
 
     TtyShm *shm = console_conn.shm;
