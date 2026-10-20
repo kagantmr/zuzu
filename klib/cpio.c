@@ -1,9 +1,22 @@
+/**
+ * @file cpio.c
+ * @brief Lookup of a file in a cpio (new ASCII) archive.
+ */
 
 #include <cpio.h>
-#include <string.h>
 #include <stdint.h>
+#include <string.h>
 
-static uint32_t parse_hex8(const char *s) {
+/**
+ * @brief Parses 8 hex digits into a number.
+ *
+ * Characters that are not hex digits are skipped without changing the value.
+ *
+ * @param[in] s At least 8 characters; need not be NUL-terminated.
+ * @return The parsed value.
+ */
+static uint32_t ParseHex8(const char *s)
+{
     uint32_t val = 0;
     for (int i = 0; i < 8; i++) {
         char c = s[i];
@@ -17,26 +30,22 @@ static uint32_t parse_hex8(const char *s) {
     return val;
 }
 
-
-bool cpio_find(const void *base, size_t size, const char *name,
-               const void **data_out, size_t *size_out)
-                {
+bool CpioFind(const void *base, size_t size, const char *name, const void **data_out,
+               size_t *size_out)
+{
     const uint8_t *ptr = base;
     const uint8_t *end = base + size;
 
-
     while (ptr + sizeof(cpio_hdr_t) <= end) {
-        
+
         const cpio_hdr_t *hdr = (const cpio_hdr_t *)ptr;
 
-        // validate magic
         if (memcmp(hdr->magic, "070701", 6) != 0)
             return false;
 
-        uint32_t namesize = parse_hex8(hdr->namesize);
-        uint32_t filesize = parse_hex8(hdr->filesize);
+        uint32_t namesize = ParseHex8(hdr->namesize);
+        uint32_t filesize = ParseHex8(hdr->filesize);
 
-        // Bound-check the header + name before dereferencing entry_name below.
         if (ptr + align_up(sizeof(cpio_hdr_t) + namesize, 4) > end)
             return false;
 
@@ -45,26 +54,20 @@ bool cpio_find(const void *base, size_t size, const char *name,
         if (cmp_name[0] == '.' && cmp_name[1] == '/')
             cmp_name += 2;
 
-        // sentinel = end of archive
         if (memcmp(entry_name, "TRAILER!!!", 10) == 0)
             return false;
 
-        // data starts after header + name, aligned to 4 bytes
         const uint8_t *data = ptr + align_up(sizeof(cpio_hdr_t) + namesize, 4);
 
-        // Bound-check the payload too: a corrupted filesize would otherwise
-        // hand the caller a (data, size) pair that reads past the archive.
         if (data + filesize > end)
             return false;
 
-        // is this the file we want?
         if (strcmp(cmp_name, name) == 0) {
             *data_out = data;
             *size_out = filesize;
             return true;
         }
 
-        // advance to next entry
         ptr = data + align_up(filesize, 4);
     }
     return false;

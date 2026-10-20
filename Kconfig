@@ -7,11 +7,15 @@ source "core/Kconfig"
 source "kernel/Kconfig"
 source "drivers/Kconfig"
 
+# Out-of-tree project options; EXT_KCONFIG is exported by the Makefile and is
+# empty (no-op) without EXT=.
+osource "$(EXT_KCONFIG)"
+
 menu "Build options"
 
 choice
 	prompt "Kernel optimization level"
-	default CC_OPT_O3
+	default CC_OPT_O2
 config CC_OPT_O0
 	bool "-O0 (no optimization)"
 config CC_OPT_O2

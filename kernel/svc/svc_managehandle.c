@@ -1,0 +1,190 @@
+/**
+ * @file svc_managehandle.c
+ * @brief Implementation of the ManageHandle() svc.
+ */
+
+#include "core/ensure.h"
+#include "kernel/irq/irq_relay.h"
+#include "kernel/mm/mem_object.h"
+#include "kernel/space/handle.h"
+#include "kernel/space/space.h"
+#include "svc.h"
+#include <arch/regs.h>
+
+/**
+ * @brief Do DMA-related queries.
+ * 
+ * @param[in] entry The DMA memory to query.
+ * @param[in] what What aspect is being queried?
+ * @param[in] arg Extra argument.
+ * @param[out] value The register to write the result to.
+ * 
+ * @return Err
+ * @retval ERR_BADTYPE This is not a DMA memory object.
+ * @retval ERR_NOPERM  You do not have the rights to query this object.
+ * @retval ERR_NOENT   This device does not have DMA objects.
+ */
+static Err QueryDma(const HandleTableEntry *entry, QueryWhat what, uint32_t arg, Register *value)
+{
+    if (HANDLE_MEM != entry->type || !entry->mem || entry->mem->kind != MEMKIND_DEVICE)
+        return ERR_BADTYPE;
+    if (!(entry->perms & PERM_MAP))
+        return ERR_NOPERM;
+
+    const MemObject *dev = entry->mem;
+    if (QUERY_DMA_COUNT == what) {
+        *value = (Register)dev->dev.dma_map_count;
+        return ZUZU_OK;
+    }
+
+    const DmaMapping *m = (QUERY_DMA_ID == what) ? MemObjDmaNth(dev, arg) : MemObjDmaFind(dev, arg);
+    if (!m)
+        return ERR_NOENT;
+
+    switch (what) {
+    case QUERY_DMA_ID:
+        *value = (Register)m->id;
+        break;
+    case QUERY_DMA_BUS:
+        *value = (Register)m->bus_addr;
+        break;
+    case QUERY_DMA_LEN:
+        *value = (Register)m->len;
+        break;
+    default:
+        *value = (Register)m->dir;
+        break;
+    }
+    return ZUZU_OK;
+}
+
+void SvcManageHandle(CpuState *frame)
+{
+    Handle h = (Handle)(*ArchGetFromFrame(frame, 0));
+    ManageHandleVerb verb = (ManageHandleVerb)(*ArchGetFromFrame(frame, 1));
+
+    HandleTableEntry *entry = HandleTableLookup(&CURRENT_SPACE->handle_table, h);
+
+    ENSURE_ERR(frame, entry, ERR_BADHANDLE);
+
+    switch (verb) {
+    case MNGHNDL_DUPLICATE: {
+        Marker handle_marker = (Marker)(*ArchGetFromFrame(frame, 3));
+        HandlePerms perms = (HandlePerms)(*ArchGetFromFrame(frame, 2));
+        if (!(HANDLE_PORT == entry->type && entry->port->owner_spid == CURRENT_SPACE->spid))
+            handle_marker = entry->marker;
+        Handle new_handle;
+        Err rc = HandleCopyInto(&CURRENT_SPACE->handle_table, entry, entry->perms & perms,
+                                handle_marker, &new_handle);
+        ENSURE_ERR(frame, ZUZU_OK == rc, rc);
+        ArchSetInFrame(frame, 0, ZUZU_OK);
+        ArchSetInFrame(frame, 1, new_handle);
+    } break;
+    case MNGHNDL_RESTRICT: {
+        HandlePerms mask = (HandlePerms)(*ArchGetFromFrame(frame, 2));
+        entry->perms &= mask;
+        ArchSetInFrame(frame, 0, ZUZU_OK);
+    } break;
+
+    case MNGHNDL_CLOSE: {
+        if (HANDLE_SPACE == entry->type) {
+            ENSURE_ERR(frame, entry->space, ERR_BADHANDLE);
+            ENSURE_ERR(frame, !SpaceIsSelfOrAncestor(CURRENT_SPACE, entry->space), ERR_BADARG);
+        }
+        HandleRelease(CURRENT_SPACE, entry);
+        ArchSetInFrame(frame, 0, ZUZU_OK);
+    } break;
+    case MNGHNDL_DESTROY: {
+        if (HANDLE_SPACE == entry->type) {
+            ENSURE_ERR(frame, entry->space, ERR_BADHANDLE);
+            ENSURE_ERR(frame, !SpaceIsSelfOrAncestor(CURRENT_SPACE, entry->space), ERR_BADARG);
+            SpaceDestroy(entry->space);
+        }
+        HandleRelease(CURRENT_SPACE, entry);
+        ArchSetInFrame(frame, 0, ZUZU_OK);
+    } break;
+    case MNGHNDL_QUERY: {
+        QueryWhat what = (QueryWhat)(*ArchGetFromFrame(frame, 2));
+        Register value;
+        switch (what) {
+        case QUERY_TYPE:
+            value = (Register)entry->type;
+            break;
+        case QUERY_PERMS:
+            value = (Register)entry->perms;
+            break;
+        case QUERY_MARKER:
+            value = (Register)entry->marker;
+            break;
+        case QUERY_STATUS:
+
+            if (HANDLE_TASK == entry->type) {
+                ENSURE_ERR(frame, entry->task, ERR_BADHANDLE);
+                value = (Register)entry->task->exit_status;
+            } else if (HANDLE_SPACE == entry->type) {
+                ENSURE_ERR(frame, entry->space, ERR_BADHANDLE);
+                value = (Register)entry->space->last_exit_status;
+            } else if (HANDLE_PORT == entry->type) {
+                ENSURE_ERR(frame, entry->port, ERR_BADHANDLE);
+                value = (Register)(entry->port->alive ? ZUZU_OK : ERR_DEAD);
+            } else {
+                ArchSetInFrame(frame, 0, ERR_BADTYPE);
+                return;
+            }
+            break;
+        case QUERY_SIZE:
+            ENSURE_ERR(frame, HANDLE_MEM == entry->type, ERR_BADTYPE);
+            ENSURE_ERR(frame, entry->mem, ERR_BADHANDLE);
+            value = (entry->mem->kind == MEMKIND_DEVICE)
+                        ? (Register)entry->mem->dev.size
+                        : (Register)(entry->mem->shm.page_count * PAGE_SIZE);
+
+            break;
+        case QUERY_DMA_COUNT:
+        case QUERY_DMA_ID:
+        case QUERY_DMA_BUS:
+        case QUERY_DMA_LEN:
+        case QUERY_DMA_DIR: {
+            Err rc = QueryDma(entry, what, (uint32_t)(*ArchGetFromFrame(frame, 3)), &value);
+            ENSURE_ERR(frame, ZUZU_OK == rc, rc);
+        } break;
+        default:
+            ArchSetInFrame(frame, 0, ERR_BADARG);
+            return;
+        }
+        ArchSetInFrame(frame, 0, ZUZU_OK);
+        ArchSetInFrame(frame, 1, value);
+    } break;
+    case MNGHNDL_GRANT: {
+        Handle target_space_handle = (Handle)(*ArchGetFromFrame(frame, 2));
+        HandlePerms perms = (HandlePerms)(*ArchGetFromFrame(frame, 3));
+
+        HandleTableEntry *space_entry =
+            HandleTableLookup(&CURRENT_SPACE->handle_table, target_space_handle);
+        ENSURE_ERR(frame, space_entry, ERR_BADHANDLE);
+        ENSURE_ERR(frame, HANDLE_SPACE == space_entry->type, ERR_BADTYPE);
+        ENSURE_ERR(frame, space_entry->perms & PERM_CNTL, ERR_NOPERM);
+        SpaceObject *target_space = space_entry->space;
+        ENSURE_ERR(frame, target_space && !target_space->torn_down, ERR_DEAD);
+        ENSURE_ERR(frame, entry->perms & PERM_TXFR, ERR_NOPERM);
+
+        Handle new_handle;
+        Err rc = HandleCopyInto(&target_space->handle_table, entry, entry->perms & perms,
+                                entry->marker, &new_handle);
+        ENSURE_ERR(frame, ZUZU_OK == rc, rc);
+        ArchSetInFrame(frame, 0, ZUZU_OK);
+        ArchSetInFrame(frame, 1, new_handle);
+    } break;
+    case MNGHNDL_IRQ_REARM: {
+        ENSURE_ERR(frame, HANDLE_MEM == entry->type, ERR_BADTYPE);
+        MemObject *dev = entry->mem;
+        ENSURE_ERR(frame, dev && dev->kind == MEMKIND_DEVICE, ERR_BADTYPE);
+        ENSURE_ERR(frame, entry->perms & PERM_MAP, ERR_NOPERM);
+        ENSURE_ERR(frame, IrqIsValid(dev->dev.irq), ERR_BADARG);
+        ArchSetInFrame(frame, 0, IrqRelayRearm(CURRENT_SPACE, dev->dev.irq));
+    } break;
+    default:
+        ArchSetInFrame(frame, 0, ERR_BADARG);
+        break;
+    }
+}

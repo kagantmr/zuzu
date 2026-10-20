@@ -1,50 +1,44 @@
-// arch_impl/mmu.h - ARM MMU inline helpers (architecture-private).
-//
-// Do not include directly from neutral code; include <arch/mmu.h> instead,
-// which pulls this in for the inline bits.
+/**
+ * @file
+ * @brief ARMv7-A MMU helpers used while switching to the higher-half mapping.
+ */
 
-#ifndef ZUZU_ARM_IMPL_MMU_H
-#define ZUZU_ARM_IMPL_MMU_H
+#ifndef ARCH_ARM_IMPL_MMU_H
+#define ARCH_ARM_IMPL_MMU_H
 
 #include <stddef.h>
 
 /**
- * Relocate the per-mode kernel stacks by a fixed offset. MUST be inlined into
- * its caller (early VMM bring-up): it adjusts SP/FP of the current frame in
- * place while walking the SVC/IRQ/ABT/UND banked stack pointers, so it cannot
- * be a normal (frame-creating) function call.
+ * @brief Moves the stacks of every exception mode by @p offset.
+ *
+ * Adds @p offset to sp and fp in SVC mode and to sp in IRQ, abort and undefined
+ * modes, with IRQs and FIQs masked, then returns to the calling mode.
+ *
+ * @param[in] offset Byte distance from the old (physical) to the new (virtual) addresses.
  */
-static inline void arch_relocate_stacks(size_t offset)
+static inline void ArchRelocateStacks(size_t offset)
 {
     __asm__ volatile(
-        // Save current mode (should be SVC)
         "mrs    r0, cpsr\n\t"
-        "mov    r4, r0\n\t" // r4 = saved CPSR
+        "mov    r4, r0\n\t"
 
-        // Disable IRQ/FIQ during mode switches (safety)
-        "orr    r0, r0, #0xC0\n\t" // Set I and F bits
+        "orr    r0, r0, #0xC0\n\t"
         "msr    cpsr_c, r0\n\t"
 
-        // --- Relocate SVC stack (current mode) ---
         "add    sp, sp, %0\n\t"
         "add    fp, fp, %0\n\t"
 
-        // --- Switch to IRQ mode and relocate ---
-        "cps    #0x12\n\t" // IRQ mode
+        "cps    #0x12\n\t"
         "add    sp, sp, %0\n\t"
 
-        // --- Switch to ABT mode and relocate ---
-        "cps    #0x17\n\t" // Abort mode
+        "cps    #0x17\n\t"
         "add    sp, sp, %0\n\t"
 
-        // --- Switch to UND mode and relocate ---
-        "cps    #0x1B\n\t" // Undefined mode
+        "cps    #0x1B\n\t"
         "add    sp, sp, %0\n\t"
 
-        // --- Return to SVC mode ---
-        "cps    #0x13\n\t" // Back to SVC
+        "cps    #0x13\n\t"
 
-        // Restore original CPSR (re-enables interrupts if they were enabled)
         "msr    cpsr_c, r4\n\t"
 
         :
@@ -52,4 +46,4 @@ static inline void arch_relocate_stacks(size_t offset)
         : "r0", "r4", "memory");
 }
 
-#endif // ZUZU_ARM_IMPL_MMU_H
+#endif // ARCH_ARM_IMPL_MMU_H

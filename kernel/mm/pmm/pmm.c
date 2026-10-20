@@ -1,0 +1,531 @@
+/**
+ * @file pmm.c
+ * @brief Physical memory manager: bitmap plus doubly linked free list of frames.
+ */
+#include "pmm_internal.h"
+
+#include "core/panic.h"
+
+#include "kernel/bench.h"
+#include "kernel/dev/fdt_wrappers.h"
+#include "kernel/layout.h"
+#include "kernel/mm/vmm/vmm.h"
+#include "zuzu/err.h"
+#include <arch/symbols.h>
+
+#include <assert.h>
+#include <list.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+
+#include <types.h>
+
+#define LOG_FMT(fmt) "(pmm) " fmt
+#include "util/log.h"
+
+/** @brief The single PMM state instance. */
+PmmState pmm_state;
+/** @brief Boot-time RAM layout describing kernel, stack, DTB and bitmap placement. */
+extern RamLayout kernel_layout;
+/** @brief Refresh the memory statistics published in the system page. */
+extern void SyspageUpdateMem(void);
+
+/** @brief Free-list node stored inside each free frame. */
+typedef struct {
+    PhysAddr next; /**< Physical address of the next free frame, 0 at the tail. */
+    PhysAddr prev; /**< Physical address of the previous free frame, 0 at the head. */
+} FreeNode;
+/**
+ * @brief Get the free-list node stored in a frame, via the kernel direct map.
+ * @param[in] pa Physical address of the frame.
+ * @return Pointer to the node.
+ */
+static inline FreeNode *Node(PhysAddr pa) { return (FreeNode *)PA_TO_VA(pa); }
+
+/**
+ * @brief Insert a frame at the head of the free list.
+ * @param[in] pa Physical address of the frame.
+ */
+static inline void PushNode(PhysAddr pa)
+{
+    FreeNode *node = Node(pa);
+    node->next = pmm_state.freelist_head;
+    node->prev = 0;
+    if (pmm_state.freelist_head)
+        Node(pmm_state.freelist_head)->prev = pa;
+    pmm_state.freelist_head = pa;
+}
+
+/**
+ * @brief Remove the head of the free list.
+ * @return Physical address of the removed frame, or 0 if the list is empty.
+ */
+static inline PhysAddr PopNode(void)
+{
+    PhysAddr pa = pmm_state.freelist_head;
+    if (!pa)
+        return 0;
+    PhysAddr next = Node(pa)->next;
+    pmm_state.freelist_head = next;
+    if (next)
+        Node(next)->prev = 0;
+    return pa;
+}
+
+/**
+ * @brief Remove an arbitrary frame from the free list.
+ * @param[in] pa Physical address of a frame currently on the list.
+ */
+static inline void UnlinkNode(PhysAddr pa)
+{
+    PhysAddr prev = Node(pa)->prev;
+    PhysAddr next = Node(pa)->next;
+    if (prev) Node(prev)->next = next; else pmm_state.freelist_head = next;
+    if (next) Node(next)->prev = prev;
+}
+
+/**
+ * @brief Check whether an address is a plausible free-list link.
+ *
+ * Used to validate node pointers read from frame memory.
+ *
+ * @param[in] pa Physical address to test.
+ * @return True for 0 (list terminator) or a page-aligned address inside managed RAM.
+ */
+static bool PmmIsRecorded(PhysAddr pa)
+{
+    if (pa == 0)
+        return true;
+    if ((pa % PAGE_SIZE) != 0)
+        return false;
+
+    const Pfn pfn = PaToPfn(pa);
+    return (pfn >= pmm_state.pfn_base && pfn < pmm_state.pfn_end);
+}
+
+/**
+ * @brief Rebuild the free list from the allocation bitmap and mark it ready.
+ */
+static void PmmRebuildFreelist(void)
+{
+    pmm_state.freelist_head = 0;
+    for (size_t i = 0; i < pmm_state.total_frames; i++) {
+        size_t byte_idx = i / 8;
+        size_t bit_idx = i % 8;
+        if (!(pmm_state.bitmap[byte_idx] & (1U << bit_idx))) {
+            PhysAddr pa = PfnToPa(pmm_state.pfn_base + i);
+            PushNode(pa);
+        }
+    }
+    pmm_state.freelist_ready = true;
+}
+
+/**
+ * @brief Pop a free frame and mark it allocated.
+ *
+ * Validates the list links first and rebuilds the list from the bitmap if they
+ * look corrupt. Signals memory-pressure subscribers after the take.
+ *
+ * @return Physical address of the frame, or 0 if none is free.
+ */
+static PhysAddr PmmTakeFreeFrame(void)
+{
+    if (pmm_state.freelist_head == 0)
+        return (PhysAddr)0;
+
+    if (!PmmIsRecorded(pmm_state.freelist_head)) {
+        PmmRebuildFreelist();
+        if (pmm_state.freelist_head == 0)
+            return (PhysAddr)0;
+    }
+
+    if (!PmmIsRecorded(Node(pmm_state.freelist_head)->next)) {
+        PmmRebuildFreelist();
+        if (pmm_state.freelist_head == 0)
+            return (PhysAddr)0;
+        if (!PmmIsRecorded(Node(pmm_state.freelist_head)->next)) {
+            pmm_state.freelist_head = 0;
+            return (PhysAddr)0;
+        }
+    }
+
+    PhysAddr pa = PopNode();
+
+    size_t index = PaToPfn(pa) - pmm_state.pfn_base;
+    size_t byte_idx = index / 8;
+    size_t bit_idx = index % 8;
+
+    assert(byte_idx < pmm_state.bitmap_bytes);
+    assert(!(pmm_state.bitmap[byte_idx] & (1U << bit_idx)));
+
+    pmm_state.bitmap[byte_idx] |= (uint8_t)(1U << bit_idx);
+    pmm_state.free_frames--;
+    assert(pmm_state.free_frames <= pmm_state.total_frames);
+
+    PmmSignalSubscribers();
+    return pa;
+}
+
+/**
+ * @brief Mark boot, DTB, kernel, bitmap, stack, reserved-memory and initrd regions as allocated.
+ */
+static void PmmReserveBootRegions(void)
+{
+    PmmMarkRange((PhysAddr)_boot_start, (PhysAddr)_boot_end);
+    
+    PmmMarkRange(kernel_layout.dtb_start_pa, kernel_layout.dtb_start_pa + FdtTotalSize());
+    PmmMarkRange(kernel_layout.kernel_start_pa, kernel_layout.kernel_end_pa);
+    PmmMarkRange(kernel_layout.bitmap_start_pa, kernel_layout.bitmap_end_pa);
+
+    PmmMarkRange((PhysAddr)__stack_region_base__, (PhysAddr)__stack_region_end__);
+
+    uint64_t rsv_addr, rsv_size;
+    for (uint32_t i = 0; FdtGetReservedMem(i, &rsv_addr, &rsv_size); i++)
+        PmmMarkRange((PhysAddr)rsv_addr, (PhysAddr)(rsv_addr + rsv_size));
+
+    uint64_t initrd_start, initrd_end;
+    if (FdtGetInitrd(&initrd_start, &initrd_end))
+        PmmMarkRange((PhysAddr)initrd_start, (PhysAddr)initrd_end);
+}
+
+void PmmInit(void)
+{
+    pmm_state.pfn_base = PaToPfn(kernel_layout.ram_start);
+    pmm_state.pfn_end = PaToPfn(kernel_layout.ram_end);
+    pmm_state.total_frames = pmm_state.pfn_end - pmm_state.pfn_base;
+    pmm_state.free_frames = pmm_state.total_frames;
+
+    PhysAddr bitmap_start_pa = align_up(kernel_layout.kernel_end_pa, PAGE_SIZE);
+    size_t bitmap_bytes = (pmm_state.total_frames + 7) / 8;
+    size_t bitmap_size = align_up(bitmap_bytes, PAGE_SIZE);
+    PhysAddr bitmap_end_pa = bitmap_start_pa + bitmap_size;
+
+    assert(bitmap_end_pa <= kernel_layout.stack_base_pa);
+    assert(bitmap_end_pa <= kernel_layout.ram_end);
+
+    kernel_layout.bitmap_start_pa = bitmap_start_pa;
+    kernel_layout.bitmap_end_pa = bitmap_end_pa;
+
+    kernel_layout.bitmap_va = (uint8_t *)PA_TO_VA(kernel_layout.bitmap_start_pa);
+
+    pmm_state.bitmap = kernel_layout.bitmap_va;
+    pmm_state.bitmap_bytes = bitmap_bytes;
+    memset(pmm_state.bitmap, 0, bitmap_size);
+
+    PmmReserveBootRegions();
+
+    PmmRebuildFreelist();
+
+    ListInit(&pmm_subscribers);
+}
+
+PmmStats PmmGetStats(void)
+{
+    return (PmmStats){.total_frames = pmm_state.total_frames, .free_frames = pmm_state.free_frames};
+}
+
+Err PmmMarkRange(PhysAddr start, PhysAddr end)
+{
+    if (start >= end)
+        return ERR_BADARG;
+
+    PhysAddr astart = align_down(start, PAGE_SIZE);
+    PhysAddr aend = align_up(end, PAGE_SIZE);
+
+    Pfn start_pfn = PaToPfn(astart);
+    Pfn end_pfn = PaToPfn(aend);
+
+    if (start_pfn < pmm_state.pfn_base || end_pfn > pmm_state.pfn_end) {
+        return ERR_BADARG;
+    }
+
+    assert(pmm_state.bitmap != NULL);
+    assert(pmm_state.pfn_end > pmm_state.pfn_base);
+    assert(pmm_state.total_frames == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
+    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_frames);
+
+    bool needs_rebuild = false;
+    for (Pfn pfn = start_pfn; pfn < end_pfn; pfn++) {
+        size_t index = pfn - pmm_state.pfn_base;
+        size_t byte_idx = index / 8;
+        size_t bit_idx = index % 8;
+
+        assert(byte_idx < pmm_state.bitmap_bytes);
+        if (byte_idx >= pmm_state.bitmap_bytes)
+            break;
+
+        uint8_t mask = (uint8_t)(1U << bit_idx);
+
+        if (!(pmm_state.bitmap[byte_idx] & mask)) {
+            pmm_state.bitmap[byte_idx] |= mask;
+            if (pmm_state.free_frames > 0)
+                pmm_state.free_frames--;
+            assert(pmm_state.free_frames <= pmm_state.total_frames);
+
+            if (pmm_state.freelist_ready) {
+                const FreeNode *node = Node(PfnToPa(pfn));
+                if (PmmIsRecorded(node->prev) && PmmIsRecorded(node->next))
+                    UnlinkNode(PfnToPa(pfn));
+                else
+                    needs_rebuild = true;
+            }
+        }
+    }
+
+    if (needs_rebuild)
+        PmmRebuildFreelist();
+
+    return ZUZU_OK;
+}
+
+Err PmmUnmarkRange(const PhysAddr start, const PhysAddr end)
+{
+    if (start >= end)
+        return ERR_BADARG;
+
+    const PhysAddr astart = align_down(start, PAGE_SIZE);
+    const PhysAddr aend = align_up(end, PAGE_SIZE);
+
+    const Pfn start_pfn = PaToPfn(astart);
+    Pfn end_pfn = PaToPfn(aend);
+
+    if (start_pfn < pmm_state.pfn_base || end_pfn > pmm_state.pfn_end) {
+        return ERR_BADARG;
+    }
+
+    assert(pmm_state.bitmap != NULL);
+    assert(pmm_state.pfn_end > pmm_state.pfn_base);
+    assert(pmm_state.total_frames == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
+    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_frames);
+
+    for (Pfn pfn = start_pfn; pfn < end_pfn; pfn++) {
+        const size_t index = pfn - pmm_state.pfn_base;
+        const size_t byte_idx = index / 8;
+        const size_t bit_idx = index % 8;
+
+        assert(byte_idx < pmm_state.bitmap_bytes);
+        if (byte_idx >= pmm_state.bitmap_bytes)
+            break;
+
+        const uint8_t mask = (uint8_t)(1U << bit_idx);
+
+        if (pmm_state.bitmap[byte_idx] & mask) {
+            pmm_state.bitmap[byte_idx] &= ~mask;
+            if (pmm_state.free_frames < pmm_state.total_frames)
+                pmm_state.free_frames++;
+            assert(pmm_state.free_frames <= pmm_state.total_frames);
+
+            if (pmm_state.freelist_ready)
+                PushNode(PfnToPa(pfn));
+        }
+    }
+
+    return ZUZU_OK;
+}
+
+PhysAddr PmmAllocFrame(void)
+{
+    PhysAddr pa = PmmTakeFreeFrame();
+    if (pa != 0) {
+        SyspageUpdateMem();
+    }
+    return pa;
+}
+PhysAddr PmmAllocFramesContig(size_t n_frames)
+{
+
+    if (n_frames == 0 || pmm_state.free_frames < n_frames) {
+        return PA_NULL;
+    }
+
+    assert(pmm_state.bitmap != NULL);
+    assert(pmm_state.total_frames == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
+    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_frames);
+    assert(pmm_state.free_frames <= pmm_state.total_frames);
+    assert(n_frames <= pmm_state.total_frames);
+
+    size_t total_pages = pmm_state.total_frames;
+    size_t consecutive = 0;
+    size_t start_index = 0;
+
+    for (size_t index = 0; index < total_pages; index++) {
+        size_t byte_idx = index / 8;
+        size_t bit_idx = index % 8;
+        uint8_t mask = (uint8_t)(1U << bit_idx);
+
+        if (byte_idx >= pmm_state.bitmap_bytes) {
+            break;
+        }
+
+        if (!(pmm_state.bitmap[byte_idx] & mask)) {
+            if (consecutive == 0) {
+                start_index = index;
+            }
+            consecutive++;
+
+            if (consecutive == n_frames) {
+                PhysAddr start_pa = PfnToPa(pmm_state.pfn_base + start_index);
+                PhysAddr end_pa = PfnToPa(pmm_state.pfn_base + start_index + n_frames);
+                if (PmmMarkRange(start_pa, end_pa) != ZUZU_OK) {
+                    return PA_NULL;
+                }
+
+                Pfn pfn = pmm_state.pfn_base + start_index;
+                PhysAddr addr = PfnToPa(pfn);
+                assert(addr % PAGE_SIZE == 0);
+                assert(pfn >= pmm_state.pfn_base && (pfn + n_frames) <= pmm_state.pfn_end);
+                SyspageUpdateMem();
+                PmmSignalSubscribers();
+                return addr;
+            }
+        } else {
+            consecutive = 0;
+        }
+    }
+
+    return PA_NULL;
+}
+
+void PmmFreeFrame(const PhysAddr addr)
+{
+    assert(addr % PAGE_SIZE == 0);
+
+    const Pfn pfn = PaToPfn(addr);
+
+    assert(pfn >= pmm_state.pfn_base && pfn < pmm_state.pfn_end);
+
+    size_t index = pfn - pmm_state.pfn_base;
+    size_t byte_idx = index / 8;
+    size_t bit_idx = index % 8;
+
+    assert(byte_idx < pmm_state.bitmap_bytes);
+
+    assert(pmm_state.bitmap != NULL);
+    assert(pmm_state.free_frames <= pmm_state.total_frames);
+
+    const uint8_t mask = (uint8_t)(1U << bit_idx);
+
+    if (pmm_state.bitmap[byte_idx] & mask) {
+        pmm_state.bitmap[byte_idx] &= ~mask;
+        pmm_state.free_frames++;
+        assert(pmm_state.free_frames <= pmm_state.total_frames);
+
+        PushNode(addr);
+
+        SyspageUpdateMem();
+        return;
+    }
+
+    panic("pmm: double free of frame %x", (unsigned int)pfn);
+}
+
+#ifdef CONFIG_ZUZU_BENCH
+/** @brief Benchmark: bitmap scan time in the aligned contiguous allocator. */
+BENCH_STAT(g_bench_pmm_scan, "pmm contig: bitmap scan");
+/** @brief Benchmark: time to mark the range (unlinking from the free list). */
+BENCH_STAT(g_bench_pmm_freelist, "pmm contig: mark (unlinks)");
+/** @brief Benchmark: syspage update and subscriber signalling time. */
+BENCH_STAT(g_bench_pmm_tail, "pmm contig: syspage+signal");
+#endif
+
+PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
+{
+
+    if (n_frames == 0) {
+        return PA_NULL;
+    }
+    if (align_frames == 0)
+        align_frames = 1;
+    if ((align_frames & (align_frames - 1)) != 0) {
+        return PA_NULL;
+    }
+
+    if (pmm_state.free_frames < n_frames) {
+        return PA_NULL;
+    }
+
+    assert(pmm_state.bitmap != NULL);
+    assert(pmm_state.total_frames == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
+    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_frames);
+
+    const size_t total_pages = pmm_state.total_frames;
+    size_t consecutive = 0;
+    size_t start_index = 0;
+#ifdef CONFIG_ZUZU_BENCH
+    uint32_t bench_scan_start = BENCH_BEGIN();
+#endif
+
+    for (size_t index = 0; index < total_pages; index++) {
+        if (consecutive == 0) {
+            if (((pmm_state.pfn_base + index) & (align_frames - 1)) != 0) {
+                continue;
+            }
+        }
+
+        size_t byte_idx = index / 8;
+        size_t bit_idx = index % 8;
+        uint8_t mask = (uint8_t)(1U << bit_idx);
+
+        if (byte_idx >= pmm_state.bitmap_bytes)
+            break;
+
+        if (!(pmm_state.bitmap[byte_idx] & mask)) {
+            if (consecutive == 0)
+                start_index = index;
+            consecutive++;
+
+            if (consecutive == n_frames) {
+                const uintptr_t start_pa = PfnToPa(pmm_state.pfn_base + start_index);
+                const uintptr_t end_pa = PfnToPa(pmm_state.pfn_base + start_index + n_frames);
+
+#ifdef CONFIG_ZUZU_BENCH
+                BENCH_END(g_bench_pmm_scan, bench_scan_start);
+                uint32_t bench_step = BENCH_BEGIN();
+#endif
+                if (PmmMarkRange(start_pa, end_pa) != ZUZU_OK) {
+                    return PA_NULL;
+                }
+
+#ifdef CONFIG_ZUZU_BENCH
+                BENCH_END(g_bench_pmm_freelist, bench_step);
+                bench_step = BENCH_BEGIN();
+#endif
+
+                SyspageUpdateMem();
+                PmmSignalSubscribers();
+#ifdef CONFIG_ZUZU_BENCH
+                BENCH_END(g_bench_pmm_tail, bench_step);
+#endif
+
+                return start_pa;
+            }
+        } else {
+            consecutive = 0;
+        }
+    }
+
+    return PA_NULL;
+}
+
+size_t PmmAllocFramesScattered(const size_t n_frames, PhysAddr *out_addrs)
+{
+    if (n_frames == 0 || !out_addrs || pmm_state.free_frames < n_frames) {
+        return 0;
+    }
+    assert(pmm_state.bitmap != NULL);
+    assert(pmm_state.total_frames == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
+    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_frames);
+    assert(pmm_state.free_frames <= pmm_state.total_frames);
+    assert(n_frames <= pmm_state.total_frames);
+    for (size_t i = 0; i < n_frames; i++) {
+        const PhysAddr new_page = PmmTakeFreeFrame();
+        if (new_page == 0) {
+            SyspageUpdateMem();
+            return i;
+        }
+        out_addrs[i] = new_page;
+    }
+    SyspageUpdateMem();
+    return n_frames;
+}

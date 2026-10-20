@@ -1,5 +1,5 @@
 # bsp/arm/vexpress-a15/board.mk - Versatile Express Cortex-A15 (QEMU-only)
-# board metadata. Included by mk/config.mk once BOARD=vexpress-a15 is
+# board metadata. Included by Makefile once BOARD=vexpress-a15 is
 # selected. See arch/arm/arch.mk's header comment for the variable list a
 # board.mk may define.
 

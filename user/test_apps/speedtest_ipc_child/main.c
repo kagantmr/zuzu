@@ -18,8 +18,8 @@
  * message) that echo_server_thread honors, letting speedtest reap this
  * process with ZuzuWait instead of leaving it running.
  */
-#include <zuzu/zuzu.h>
 #include <stdlib.h>
+#include <zuzu/zuzu.h>
 
 /* Must match speedtest's MSG_QUIT (user/test_apps/speedtest/globals.h) --
  * there's no shared header since this sentinel is the only thing the two

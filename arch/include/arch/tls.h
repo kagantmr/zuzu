@@ -1,11 +1,13 @@
-// arch/tls.h - Neutral thread-pointer read contract.
-//
-//   uintptr_t arch_get_thread_ptr(void);  - read the TLS/thread ptr published
-//                                            by arch_set_thread_ptr()
+/**
+ * @file tls.h
+ * @brief Architecture neutral TLS definitions
+ */
+#ifndef ARCH_TLS_H
+#define ARCH_TLS_H
 
-#ifndef ZUZU_ARCH_TLS_H
-#define ZUZU_ARCH_TLS_H
-
+/**
+ * Include arch implementation. 
+ */
 #include <arch_impl/tls.h>
 
-#endif // ZUZU_ARCH_TLS_H
+#endif // ARCH_TLS_H

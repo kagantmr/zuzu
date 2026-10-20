@@ -6,6 +6,20 @@
 
 PCAP_FILE ?= /tmp/zuzu.pcap
 
+# `make run` knobs:
+#   NET=user|bridged|pcap   user (default): the board's usual user-mode NIC;
+#                           bridged: vmnet-bridged on en0 (runs QEMU under sudo);
+#                           pcap: user-mode NIC with traffic dumped to PCAP_FILE
+#   GRAPHIC=1               open QEMU's display window, scaled to fit when resized (the
+#                           serial console stays on this terminal), instead of -nographic
+#   GFX_BACKEND=<name>      display backend for GRAPHIC=1; cocoa on macOS, gtk elsewhere
+comma := ,
+NET         ?=
+GRAPHIC     ?=
+GFX_BACKEND ?= $(if $(filter Darwin,$(HOST_OS)),cocoa,gtk)
+QEMU_DISPLAY = $(if $(filter 1 y yes,$(GRAPHIC)),\
+                   -display $(GFX_BACKEND)$(comma)zoom-to-fit=on -serial mon:stdio,-nographic)
+
 QEMU_MACHINE = $(QEMU_MACH_$(BOARD))
 QEMU_CPU     = $(QEMU_CPU_$(BOARD))
 QEMU_BIN     = $(if $(QEMU_BIN_$(BOARD)),$(QEMU_BIN_$(BOARD)),qemu-system-arm)
@@ -47,7 +61,7 @@ endif
 # dtb_get_chosen_initrd() (kernel/dtb/dtb.c) already reads exactly that --
 # it just never had anything to read on this path before.
 QEMU_ARGS = -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m $(QEMU_MEM) \
-            -dtb $(DTB_FILE) -initrd $(INITRD) -nographic $(QEMU_DRIVE)
+            -dtb $(DTB_FILE) -initrd $(INITRD) $(QEMU_DISPLAY) $(QEMU_DRIVE)
 
 run:         run-direct
 run-bridged: run-direct-bridged
@@ -81,23 +95,33 @@ endif
 smoke-all:
 	@for b in $(BOARDS); do $(MAKE) --no-print-directory BOARD=$$b smoke || exit 1; done
 
+QEMU_RUN_NET = $(if $(filter bridged,$(NET)), \
+                   -nic vmnet-bridged$(comma)model=$(QEMU_NIC_MODEL)$(comma)ifname=en0$(comma)mac=52:54:00:ab:cd:ef, \
+               $(if $(filter pcap,$(NET)), \
+                   -net nic$(comma)model=$(QEMU_NIC_MODEL) -net user$(comma)id=n0 \
+                   -object filter-dump$(comma)id=f0$(comma)netdev=n0$(comma)file=$(PCAP_FILE), \
+                   $(QEMU_NET)))
+QEMU_RUN_SUDO = $(if $(filter bridged,$(NET)),sudo)
+QEMU_RUN_TAGS = $(if $(NET), [$(NET)])$(if $(filter 1 y yes,$(GRAPHIC)), [graphic])
+
 run-direct: $(QEMU_KERNEL) $(DTB_FILE) $(INITRD)
-	@echo "  QEMU    $(QEMU_KERNEL)"
-	@$(QEMU_BIN) $(QEMU_ARGS) -kernel $(QEMU_KERNEL) $(QEMU_NET)
+	@case "$(NET)" in ""|user|bridged|pcap) ;; \
+	    *) echo "  ERROR   NET='$(NET)': want user, bridged or pcap"; exit 1;; esac
+	@case "$(NET)" in bridged|pcap) \
+	    if [ -z "$(QEMU_NIC_MODEL)" ]; then \
+	        echo "  ERROR   BOARD '$(BOARD)' has no QEMU_NIC_MODEL_$(BOARD) set" \
+	             "in its board.mk -- NET=$(NET) needs a NIC model matching a" \
+	             "userspace driver this board actually has."; exit 1; fi;; esac
+	@echo "  QEMU    $(QEMU_KERNEL)$(QEMU_RUN_TAGS)"
+	@$(QEMU_RUN_SUDO) $(QEMU_BIN) $(QEMU_ARGS) -kernel $(QEMU_KERNEL) $(QEMU_RUN_NET)
+	@if [ "$(NET)" = pcap ]; then \
+	    echo "  PCAP    wrote $(PCAP_FILE) (read with: tcpdump -nr $(PCAP_FILE))"; fi
 
-run-direct-bridged: $(QEMU_KERNEL) $(DTB_FILE) $(INITRD)
-	$(call check-qemu-nic-model)
-	@echo "  QEMU    $(QEMU_KERNEL) [bridged]"
-	@sudo $(QEMU_BIN) $(QEMU_ARGS) -kernel $(QEMU_KERNEL) \
-	    -nic vmnet-bridged,model=$(QEMU_NIC_MODEL),ifname=en0,mac=52:54:00:ab:cd:ef
+run-direct-bridged:
+	@$(MAKE) --no-print-directory run-direct NET=bridged
 
-run-direct-pcap: $(QEMU_KERNEL) $(DTB_FILE) $(INITRD)
-	$(call check-qemu-nic-model)
-	@echo "  QEMU    $(QEMU_KERNEL) [pcap -> $(PCAP_FILE)]"
-	@$(QEMU_BIN) $(QEMU_ARGS) -kernel $(QEMU_KERNEL) \
-	    -net nic,model=$(QEMU_NIC_MODEL) -net user,id=n0 \
-	    -object filter-dump,id=f0,netdev=n0,file=$(PCAP_FILE)
-	@echo "  PCAP    wrote $(PCAP_FILE) (read with: tcpdump -nr $(PCAP_FILE))"
+run-direct-pcap:
+	@$(MAKE) --no-print-directory run-direct NET=pcap
 
 # $(TARGET) (the ELF) is never what QEMU boots here -- it only applies the
 # ARM boot protocol to raw images -- but it's kept as a prerequisite so
@@ -219,7 +243,7 @@ sdimg-uboot: $(UBOOT_SD_IMG)
 # Flags shared by every U-Boot run/debug variant; each target adds net +
 # extras (mirrors QEMU_ARGS's split for the direct-boot variants in qemu.mk).
 QEMU_UBOOT_ARGS = -M $(QEMU_MACHINE) -cpu $(QEMU_CPU) -m $(QEMU_MEM) \
-                  -nographic -kernel $(UBOOT_BIN) \
+                  $(QEMU_DISPLAY) -kernel $(UBOOT_BIN) \
                   -drive file=$(UBOOT_SD_IMG),if=sd,format=raw
 
 run-uboot: sdimg-uboot $(UBOOT_BIN)

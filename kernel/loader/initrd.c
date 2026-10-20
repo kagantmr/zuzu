@@ -1,19 +1,27 @@
+/**
+ * @file initrd.c
+ * @brief Initrd lookup on top of the cpio reader.
+ */
+
 #include "initrd.h"
-#include <convert.h>
-#include <string.h>
-#include <cpio.h>
 #include <assert.h>
+#include <convert.h>
+#include <cpio.h>
+#include <string.h>
 
-
+/** @brief Kernel virtual address of the archive. */
 static const void *initrd_base;
-static size_t      initrd_size;
+/** @brief Size of the archive in bytes. */
+static size_t initrd_size;
 
-void initrd_init(const void *start, size_t size) {
-    assert(sizeof(cpio_hdr_t) == 110); // must be at least large enough to hold one header
-    initrd_base = start;     // just remember where the archive is
-    initrd_size = size;      // that's it. no walking, no parsing.
+void InitrdInit(const void *start, size_t size)
+{
+    assert(size > sizeof(cpio_hdr_t));
+    initrd_base = start;
+    initrd_size = size;
 }
 
-bool initrd_find(const char *name, const void **data_out, size_t *size_out) {
-    return cpio_find(initrd_base, initrd_size, name, data_out, size_out);
+bool InitrdFind(const char *name, const void **data_out, size_t *size_out)
+{
+    return CpioFind(initrd_base, initrd_size, name, data_out, size_out);
 }

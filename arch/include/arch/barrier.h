@@ -1,8 +1,14 @@
-// arch/barrier.h - Neutral memory-barrier / event contract.
+/**
+ * @file barrier.h
+ * @brief Synchronization barrier utilities.
+ */
 
-#ifndef ZUZU_ARCH_BARRIER_H
-#define ZUZU_ARCH_BARRIER_H
+#ifndef ARCH_BARRIER_H
+#define ARCH_BARRIER_H
 
+/**
+ * Include arch implementation. 
+ */
 #include <arch_impl/barrier.h>
 
-#endif // ZUZU_ARCH_BARRIER_H
+#endif // ARCH_BARRIER_H

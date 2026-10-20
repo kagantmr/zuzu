@@ -1,29 +1,41 @@
-// arch/cache.h - Neutral cache-maintenance contract.
-//
-// Used around code loading (ELF) and DMA-visible memory to keep the I/D caches
-// coherent with main memory.
+/**
+ * @file cache.h
+ * @brief Definition of cache functions.
+ */
 
-#ifndef ZUZU_ARCH_CACHE_H
-#define ZUZU_ARCH_CACHE_H
+#ifndef ARCH_CACHE_H
+#define ARCH_CACHE_H
 
 #include <stddef.h>
 #include <stdint.h>
 
-/** Clean (write back) D-cache lines covering [start, start+size). */
-void arch_cache_clean_dcache_range(uintptr_t start, size_t size);
+/**
+ * @brief Clean the D-Cache range to the Point of Unity (PoU).
+ * 
+ * @param[in] start The start address to wipe from the cache.
+ * @param[in] size The size of the block the wipe from the cache.
+ */
+void ArchCacheCleanDcacheRangePou(uintptr_t start, size_t size);
 
-/** Invalidate I-cache lines covering [start, start+size). */
-void arch_cache_invalidate_icache_range(uintptr_t start, size_t size);
+/**
+ * @brief Invalidate all of the I-cache.
+ */
+void ArchCacheInvalidateIcacheAll(void);
 
-/** Make freshly written code at [start, start+size) executable
- *  (clean D-cache + invalidate I-cache). Both ranges are addressed in the
- *  *currently active* translation regime -- cache maintenance by VA faults if
- *  the address does not translate. */
-void arch_cache_flush_code_range(uintptr_t start, size_t size);
+/**
+ * @brief Clean the D-Cache range to the Point of Coherence (PoC).
+ * 
+ * @param[in] start The start address to wipe from the cache.
+ * @param[in] size The size of the block the wipe from the cache.
+ */
+void ArchCacheCleanInvalidateDcacheRange(uintptr_t start, size_t size);
 
-/** Invalidate the whole I-cache (and branch predictor) to the point of
- *  unification. Address-independent, so it is the safe counterpart when the
- *  code being published is only reachable through a kernel alias. */
-void arch_cache_invalidate_icache_all(void);
+/**
+ * @brief Invalidate the D-Cache range.
+ * 
+ * @param[in] start The start address to wipe from the cache.
+ * @param[in] size The size of the block the wipe from the cache.
+ */
+void ArchCacheInvalidateDcacheRange(uintptr_t start, size_t size);
 
-#endif // ZUZU_ARCH_CACHE_H
+#endif // ARCH_CACHE_H

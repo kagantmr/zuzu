@@ -1,24 +1,24 @@
-// arch_impl/thread.h - ARM thread-pointer register access (architecture-private).
-//
-// Do not include directly from neutral code; include <arch/thread.h> instead.
+/**
+ * @file
+ * @brief ARMv7-A thread pointer write.
+ */
 
-#ifndef ZUZU_ARM_IMPL_THREAD_H
-#define ZUZU_ARM_IMPL_THREAD_H
+#ifndef ARCH_ARM_IMPL_THREAD_H
+#define ARCH_ARM_IMPL_THREAD_H
 
-#include "kernel/proc/thread.h"
+#include "kernel/task/task.h"
 
 /**
- * arch_set_thread_ptr - publish the thread pointer to user-readable TPIDRURO.
+ * @brief Loads a task's info block address into TPIDRURO, where user code reads it.
  *
- * Writes the thread's info VA to the ARM TPIDRURO register (cp15, c13, c0, 3),
- * so user-mode can read it via mrc p15, 0, rt, c13, c0, 3 for TLS / thread IDs.
+ * @param[in] t Task about to run; NULL leaves the register unchanged.
  */
-static inline void arch_set_thread_ptr(Thread *t)
+static inline void ArchSetTlsPointer(TaskObject *t)
 {
-	if (!t)
-		return;
+    if (!t)
+        return;
 
-	__asm__ volatile("mcr p15, 0, %0, c13, c0, 3" :: "r"(t->thread_info_va) : "memory");
+    __asm__ volatile("mcr p15, 0, %0, c13, c0, 3" ::"r"(t->task_info_va) : "memory");
 }
 
-#endif // ZUZU_ARM_IMPL_THREAD_H
+#endif // ARCH_ARM_IMPL_THREAD_H

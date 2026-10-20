@@ -1,37 +1,44 @@
-// cache.c - Cache management functions for ARMv7-A
+/**
+ * @file
+ * @brief ARMv7-A cache maintenance by virtual address.
+ */
 
-#include <arch/cache.h>
 #include <arch/barrier.h>
+#include <arch/cache.h>
+#include <types.h>
 
-#define CACHE_LINE 64u
+#define CACHE_LINE 64u /**< D-cache line size the range operations step by. */
 
-void arch_cache_clean_dcache_range(uintptr_t start, size_t size)
+void ArchCacheCleanDcacheRangePou(uintptr_t start, size_t size)
 {
     uintptr_t addr = start & ~(CACHE_LINE - 1);
     uintptr_t end = start + size;
     for (; addr < end; addr += CACHE_LINE)
-        __asm__ volatile("mcr p15, 0, %0, c7, c11, 1" ::"r"(addr)); // flush out d-cache
-    ArchDsb();                          // put data sync barrier for pipeline to wait
+        __asm__ volatile("mcr p15, 0, %0, c7, c11, 1" ::"r"(addr));
+    ArchDsb();
 }
 
-void arch_cache_invalidate_icache_range(uintptr_t start, size_t size)
+void ArchCacheInvalidateIcacheAll(void)
+{
+    __asm__ volatile("mcr p15, 0, %0, c7, c5, 0" ::"r"(0u));
+    __asm__ volatile("mcr p15, 0, %0, c7, c5, 6" ::"r"(0u));
+    ArchSyncBarrier();
+}
+
+void ArchCacheCleanInvalidateDcacheRange(uintptr_t start, size_t size)
 {
     uintptr_t addr = start & ~(CACHE_LINE - 1);
     uintptr_t end = start + size;
     for (; addr < end; addr += CACHE_LINE)
-        __asm__ volatile("mcr p15, 0, %0, c7, c5, 1" ::"r"(addr));
-    ArchCtxSync();
+        __asm__ volatile("mcr p15, 0, %0, c7, c14, 1" ::"r"(addr));
+    ArchDsb();
 }
 
-void arch_cache_flush_code_range(uintptr_t start, size_t size)
+void ArchCacheInvalidateDcacheRange(uintptr_t start, size_t size)
 {
-    arch_cache_clean_dcache_range(start, size);
-    arch_cache_invalidate_icache_range(start, size);
-}
-
-void arch_cache_invalidate_icache_all(void)
-{
-    __asm__ volatile("mcr p15, 0, %0, c7, c5, 0" ::"r"(0u)); // ICIALLU
-    __asm__ volatile("mcr p15, 0, %0, c7, c5, 6" ::"r"(0u)); // BPIALL
-    ArchCtxSync();
+    uintptr_t addr = start & ~(CACHE_LINE - 1);
+    uintptr_t end = start + size;
+    for (; addr < end; addr += CACHE_LINE)
+        __asm__ volatile("mcr p15, 0, %0, c7, c6, 1" ::"r"(addr));
+    ArchDsb();
 }

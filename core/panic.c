@@ -1,157 +1,131 @@
-// panic.c - Kernel panic screen
-
+/**
+ * @file panic.c
+ * @brief Kernel panic: renders a diagnostic screen on the UART and halts the CPU.
+ */
 #include "core/panic.h"
-#include "kernel/proc/thread.h"
+#include "kernel/task/task.h"
+#include <arch/backtrace.h>
 #include <arch/cpu.h>
 #include <arch/irq.h>
 #include <arch/regs.h>
 #include <arch/symbols.h>
-#include BOARD_LAYOUT_H   /* KERNEL_VA_BASE, USER_VA_TOP, IOREMAP_BASE */
+#include BOARD_LAYOUT_H
 #include "drivers/uart/uart.h"
 #include "kernel/layout.h"
 #include "kernel/mm/alloc.h"
-#include "kernel/mm/pmm.h"
-#include "kernel/ipc/handle.h"
-#include "kernel/proc/process.h"
+#include "kernel/mm/pmm/pmm.h"
 #include "kernel/sched/sched.h"
+#include "kernel/space/handle.h"
+#include "kernel/space/space.h"
 #include "ksym.h"
 #include <list.h>
-#include <string.h>
 #include <snprintf.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include <string.h>
 
 #ifdef CONFIG_PANIC_SECTION_IRQ
-#include "kernel/irq/sys_irq.h"
-extern irq_handler_t      handler_table[MAX_IRQS];
+#include "kernel/irq/irq_relay.h"
 #endif
 
-extern kernel_layout_t kernel_layout;
-
-panic_fault_context_t panic_fault_ctx;
-
-/* ------------------------------------------------------------------ */
-/* Constants                                                           */
-/* ------------------------------------------------------------------ */
-
-#define BACKTRACE_MAX_DEPTH  16
-#define PANIC_READY_MAX       8
-#define PANIC_SLEEP_MAX       8
-#define PANIC_HANDLE_MAX     16
-#define RULE_COL             72
-#define LINE_BUF            160
-
-/*
- * Virtual-layout bounds for pointer sanity checks. KERNEL_VA_BASE / USER_VA_TOP
- * come from the board layout; the MMIO window base maps to IOREMAP_BASE.
+/**
+ * @brief Kernel memory layout (stack and heap bounds) used to classify and report addresses.
  */
+extern RamLayout kernel_layout;
+
+PanicFaultContext panic_fault_ctx;
+
+/** @brief Maximum number of backtrace frames printed. */
+#define BACKTRACE_MAX_DEPTH 16
+/** @brief Maximum number of ready tasks listed on the panic screen. */
+#define PANIC_READY_MAX 8
+/** @brief Maximum number of sleeping tasks listed on the panic screen. */
+#define PANIC_SLEEP_MAX 8
+/** @brief Maximum number of handle table entries listed on the panic screen. */
+#define PANIC_HANDLE_MAX 16
+/** @brief Column at which section header rules end. */
+#define RULE_COL 72
+/** @brief Size of the line formatting buffers, in bytes. */
+#define LINE_BUF 160
+
 #ifndef MMIO_VA_BASE
-#define MMIO_VA_BASE   IOREMAP_BASE
+/** @brief Lowest virtual address treated as MMIO/high kernel space when classifying FAR. */
+#define MMIO_VA_BASE IOREMAP_BASE
 #endif
 
-/* ------------------------------------------------------------------ */
-/* Colors                                                              */
-/* ------------------------------------------------------------------ */
+/** @brief ANSI escape: yellow foreground. */
+#define C_YELLOW "\033[33m"
+/** @brief ANSI escape: light gray foreground. */
+#define C_GRAY "\033[37m"
+/** @brief ANSI escape: dim gray foreground. */
+#define C_DIM "\033[90m"
+/** @brief ANSI escape: bright red foreground. */
+#define C_RED "\033[91m"
+/** @brief ANSI escape: reset attributes. */
+#define C_RESET "\033[0m"
 
-#define C_YELLOW "\033[33m"   /* section headers */
-#define C_GRAY   "\033[37m"   /* normal content  */
-#define C_DIM    "\033[90m"   /* low-emphasis    */
-#define C_RED    "\033[91m"   /* errors only     */
-#define C_RESET  "\033[0m"
-
-/* Legacy aliases used in the logo */
-#define C_AMBER  C_YELLOW
-#define C_WHITE  C_GRAY
-
-/* ------------------------------------------------------------------ */
-/* Low-level output                                                    */
-/* ------------------------------------------------------------------ */
-
-static void panic_puts(const char *s)
+/**
+ * @brief Write a NUL-terminated string to the UART, bypassing the console layer.
+ *
+ * @param[in] s String to write.
+ */
+static void PanicPuts(const char *s)
 {
     while (*s)
         uart_putc(*s++);
 }
 
-static void panic_nl(void)
-{
-    uart_putc('\n');
-}
+/**
+ * @brief Write a newline to the UART.
+ */
+static void PanicNewline(void) { uart_putc('\n'); }
 
-/* Section header: yellow name + dash rule to column RULE_COL */
-static void panic_section(const char *name)
+/**
+ * @brief Print a yellow section title followed by a dash rule up to ::RULE_COL.
+ *
+ * @param[in] name Section title.
+ */
+static void PanicHeader(const char *name)
 {
-    panic_puts("\n" C_YELLOW);
-    panic_puts(name);
+    PanicPuts("\n" C_YELLOW);
+    PanicPuts(name);
     int n = (int)strlen(name);
     uart_putc(' ');
     for (int i = n + 1; i < RULE_COL; i++)
         uart_putc('-');
-    panic_puts(C_RESET "\n");
+    PanicPuts(C_RESET "\n");
 }
 
-/* 2-space indent, gray content */
-static void panic_line(const char *s)
+/**
+ * @brief Print one indented gray line to the UART.
+ *
+ * @param[in] s Line text, without trailing newline.
+ */
+static void PanicPutLine(const char *s)
 {
-    panic_puts("  " C_GRAY);
-    panic_puts(s);
-    panic_puts(C_RESET "\n");
+    PanicPuts("  " C_GRAY);
+    PanicPuts(s);
+    PanicPuts(C_RESET "\n");
 }
 
-/* ------------------------------------------------------------------ */
-/* CPSR / mode decoding                                                */
-/* ------------------------------------------------------------------ */
-
-static const char *cpsr_mode_name(uint32_t cpsr)
+/**
+ * @brief Classify a fault address into a coarse memory region.
+ *
+ * @param[in] addr Faulting virtual address.
+ * @return Region description, or NULL if the address matches no known region.
+ */
+static const char *FarRegion(uint32_t addr)
 {
-    switch (cpsr & 0x1Fu) {
-    case 0x10u: return "USR";
-    case 0x11u: return "FIQ";
-    case 0x12u: return "IRQ";
-    case 0x13u: return "SVC";
-    case 0x1Fu: return "SYS";
-    case 0x16u: return "MON";
-    case 0x17u: return "ABT";
-    case 0x1Au: return "HYP";
-    case 0x1Bu: return "UND";
-    default:    return "???";
-    }
-}
 
-static void cpsr_decode(char *buf, int bufsz, uint32_t cpsr)
-{
-    (void)snprintf(buf, (size_t)bufsz,
-             "[%s %s irq=%s fiq=%s %c%c%c%c]",
-             cpsr_mode_name(cpsr),
-             (cpsr & (1u << 5))  ? "Thumb" : "ARM",
-             (cpsr & (1u << 7))  ? "dis"   : "en",
-             (cpsr & (1u << 6))  ? "dis"   : "en",
-             (cpsr >> 31) & 1u   ? 'N'     : 'n',
-             (cpsr >> 30) & 1u   ? 'Z'     : 'z',
-             (cpsr >> 29) & 1u   ? 'C'     : 'c',
-             (cpsr >> 28) & 1u   ? 'V'     : 'v');
-}
-
-/* ------------------------------------------------------------------ */
-/* FAR range annotation                                                */
-/* ------------------------------------------------------------------ */
-
-static const char *far_region(uint32_t addr)
-{
-    extern char _kernel_start[], _kernel_end[];
-
-    if (addr >= (uint32_t)(uintptr_t)_kernel_start &&
-        addr <  (uint32_t)(uintptr_t)_kernel_end)
+    if (addr >= (uint32_t)(uintptr_t)_kernel_start && addr < (uint32_t)(uintptr_t)_kernel_end)
         return "kernel text/data";
 
-    if (kernel_layout.stack_base_va &&
-        addr >= (uint32_t)kernel_layout.stack_base_va &&
-        addr <  (uint32_t)kernel_layout.stack_top_va)
+    if (kernel_layout.stack_base_va && addr >= (uint32_t)kernel_layout.stack_base_va &&
+        addr < (uint32_t)kernel_layout.stack_top_va)
         return "kernel stack";
 
-    if (kernel_layout.heap_start_va &&
-        addr >= (uint32_t)(uintptr_t)kernel_layout.heap_start_va &&
-        addr <  (uint32_t)(uintptr_t)kernel_layout.heap_end_va)
+    if (kernel_layout.heap_start_va && addr >= (uint32_t)(uintptr_t)kernel_layout.heap_start_va &&
+        addr < (uint32_t)(uintptr_t)kernel_layout.heap_end_va)
         return "kernel heap";
 
     if (addr >= MMIO_VA_BASE)
@@ -163,95 +137,115 @@ static const char *far_region(uint32_t addr)
     return NULL;
 }
 
-/* ------------------------------------------------------------------ */
-/* State name helpers                                                  */
-/* ------------------------------------------------------------------ */
-
-static const char *thread_state_str(int state)
+/**
+ * @brief Convert a task state to its display name.
+ *
+ * @param[in] state Task state.
+ * @return Upper-case state name, or "UNKNOWN".
+ */
+static const char *TaskStateToString(TaskState state)
 {
     switch (state) {
-    case READY:   return "READY";
-    case RUNNING: return "RUNNING";
-    case BLOCKED: return "BLOCKED";
-    case ZOMBIE:  return "ZOMBIE";
-    case FROZEN:  return "FROZEN";
-    default:      return "UNKNOWN";
+    case TASK_STATE_READY:
+        return "READY";
+    case TASK_STATE_RUNNING:
+        return "RUNNING";
+    case TASK_STATE_BLOCKED:
+        return "BLOCKED";
+    case TASK_STATE_ZOMBIE:
+        return "ZOMBIE";
+    case TASK_STATE_FROZEN:
+        return "FROZEN";
+    default:
+        return "UNKNOWN";
     }
 }
 
-static const char *handle_type_str(HandleType t)
+/**
+ * @brief Convert a handle type to its display name.
+ *
+ * @param[in] t Handle type.
+ * @return Upper-case type name, or "UNKNOWN".
+ */
+static const char *HandleTypeStr(HandleType t)
 {
     switch (t) {
-    case HANDLE_FREE:         return "FREE";
-    case HANDLE_PORT:     return "ENDPOINT";
-    case HANDLE_DEVICE:       return "DEVICE";
-    case HANDLE_SHM:        return "SHMEM";
-    case HANDLE_REPLY:        return "REPLY";
-    case HANDLE_NTFN: return "NOTIFICATION";
-    case HANDLE_TASK:         return "TASK";
-    default:                  return "UNKNOWN";
+    case HANDLE_FREE:
+        return "FREE";
+    case HANDLE_PORT:
+        return "PORT";
+    case HANDLE_MEM:
+        return "MEMORY";
+    case HANDLE_EVENT:
+        return "EVENT";
+    case HANDLE_TASK:
+        return "TASK";
+    case HANDLE_SPACE:
+        return "SPACE";
+    default:
+        return "UNKNOWN";
     }
 }
 
-static const char *ipc_state_str(MsgState s)
+/**
+ * @brief Convert an IPC state to its display name.
+ *
+ * @param[in] s IPC state.
+ * @return Upper-case state name, or "UNKNOWN".
+ */
+static const char *IpcStateStr(IpcState s)
 {
     switch (s) {
-    case IPC_NONE:     return "NONE";
-    case IPC_SENDER:   return "SENDER";
-    case IPC_RECEIVER: return "RECEIVER";
-    case IPC_WAITING:  return "WAITING";
-    default:           return "UNKNOWN";
+    case IPC_NONE:
+        return "NONE";
+    case IPC_WAITING:
+        return "WAITING";
+    default:
+        return "UNKNOWN";
     }
 }
 
-/* ------------------------------------------------------------------ */
-/* Backtrace                                                           */
-/* ------------------------------------------------------------------ */
-
+/** @brief Captured frame-pointer backtrace. */
 typedef struct {
-    uint32_t addresses[BACKTRACE_MAX_DEPTH];
-    int      depth;
-} backtrace_t;
+    uint32_t addresses[BACKTRACE_MAX_DEPTH];  /**< Return addresses, innermost first. */
+    int depth;                                /**< Number of valid entries in addresses. */
+} FpBacktrace;
 
-static void backtrace_walk(backtrace_t *bt)
+/**
+ * @brief Walk the frame-pointer chain and record return addresses.
+ *  *
+ *  * Starts from the fault frame pointer when a fault context frame exists, otherwise from the current frame pointer.
+ *
+ * @param[in] bt Backtrace to fill.
+ */
+static void BtraceWalk(FpBacktrace *bt)
 {
-    bt->depth = 0;
+    Register fp = panic_fault_ctx.frame ? ArchFrameFp(panic_fault_ctx.frame)
+                                        : ArchCurrentFramePointer();
 
-    uint32_t fp;
-    if (panic_fault_ctx.frame)
-        fp = (*arch_reg(panic_fault_ctx.frame, 11));  /* fp captured at fault time */
-    else
-        fp = arch_current_fp();
-
-    while (bt->depth < BACKTRACE_MAX_DEPTH) {
-        /* Any aligned kernel VA is potentially a valid frame */
-        if (fp == 0 || (fp & 0x3u) || fp < KERNEL_VA_BASE)
-            break;
-        /* GCC ARM AAPCS prologue: [fp] = saved lr, [fp-4] = saved fp */
-        uint32_t lr = *(uint32_t *)(uintptr_t)fp;
-        bt->addresses[bt->depth++] = lr;
-        uint32_t prev_fp = *(uint32_t *)(uintptr_t)(fp - 4);
-        if (prev_fp <= fp)
-            break;
-        fp = prev_fp;
-    }
+    bt->depth =
+        (int)ArchBacktraceWalk(fp, (Register)KERNEL_VA_BASE, bt->addresses, BACKTRACE_MAX_DEPTH);
 }
 
-/* ------------------------------------------------------------------ */
-/* Heap snapshot                                                       */
-/* ------------------------------------------------------------------ */
-
+/** @brief Heap usage totals gathered for the panic screen. */
 typedef struct {
-    size_t used_bytes;
-    size_t free_bytes;
-    size_t total_bytes;
-    size_t block_count;
-} panic_heap_stats_t;
+    size_t used_bytes;   /**< Bytes in allocated blocks. */
+    size_t free_bytes;   /**< Bytes in free blocks. */
+    size_t total_bytes;  /**< Sum of all block sizes. */
+    size_t block_count;  /**< Number of blocks walked. */
+} PanicHeapStats;
 
-static void panic_heap_snapshot(panic_heap_stats_t *st)
+/**
+ * @brief Compute heap usage by walking the heap block list.
+ * 
+ * Walks at most 8192 blocks to stay safe on a corrupted list.
+ *
+ * @param[in] st Statistics to fill; zeroed first.
+ */
+static void GetPanicHeapSnapshot(PanicHeapStats *st)
 {
     memset(st, 0, sizeof(*st));
-    KMemBlock *block = heap_head;
+    KHeapBlock *block = heap_head;
     size_t seen = 0;
     while (block && seen < 8192) {
         st->block_count++;
@@ -265,26 +259,26 @@ static void panic_heap_snapshot(panic_heap_stats_t *st)
     }
 }
 
-/* ------------------------------------------------------------------ */
-/* Symbol helpers                                                      */
-/* ------------------------------------------------------------------ */
-
-static void sym_format(char *buf, int bufsz, uint32_t addr)
+/**
+ * @brief Format an address as "name+0xOFFSET", "name", or "<?>" when unresolved.
+ *
+ * @param[in] buf Output buffer.
+ * @param[in] bufsz Size of @p buf in bytes.
+ * @param[in] addr Address to symbolize.
+ */
+static void FormatKSym(char *buf, int bufsz, uint32_t addr)
 {
-    const char *name = ksym_lookup(addr);
-    uint32_t   base = ksym_lookup_base(addr);
+    const char *name = KSymLookup(addr);
+    uint32_t base = KSymLookupBaseAddr(addr);
     if (name && base && addr != base)
-        snprintf(buf, (size_t)bufsz, "%s+0x%X", name, addr - base);
+        (void)snprintf(buf, (size_t)bufsz, "%s+0x%X", name, addr - base);
     else if (name)
-        snprintf(buf, (size_t)bufsz, "%s", name);
+        (void)snprintf(buf, (size_t)bufsz, "%s", name);
     else
-        snprintf(buf, (size_t)bufsz, "<?>");
+        (void)snprintf(buf, (size_t)bufsz, "<?>");
 }
 
-/* ------------------------------------------------------------------ */
-/* Logo                                                                */
-/* ------------------------------------------------------------------ */
-
+/** @brief ASCII-art logo lines printed at the top of the panic screen. */
 static const char *panic_logo[] = {
     "      " C_GRAY "@@@@@@" C_RESET,
     "        " C_GRAY "%@@" C_RESET "         " C_GRAY "%@@@  @" C_RESET,
@@ -298,64 +292,58 @@ static const char *panic_logo[] = {
     "        " C_GRAY "@@  @" C_RESET "      " C_GRAY "@@ @@" C_RESET,
     "         " C_GRAY "@@@" C_RESET "        " C_GRAY "@@@" C_RESET,
 };
+/** @brief Number of lines in ::panic_logo. */
 #define PANIC_LOGO_LINES (sizeof(panic_logo) / sizeof(panic_logo[0]))
 
-/* ================================================================== */
-/* Sections                                                            */
-/* ================================================================== */
-
-/* ------------------------------------------------------------------ */
-/* HEADER                                                              */
-/* ------------------------------------------------------------------ */
-
-static void panic_print_header(const char *reason, void *caller_ra)
+/**
+ * @brief Print the logo, banner, reason, execution context and caller address.
+ *
+ * @param[in] reason Panic reason text, or NULL for "unknown".
+ * @param[in] caller_ra Return address of the panic() caller.
+ */
+static void PanicPrintHeader(const char *reason, void *caller_ra)
 {
     char line[LINE_BUF];
     char sym[80];
 
     for (size_t i = 0; i < PANIC_LOGO_LINES; i++) {
-        panic_puts("  ");
-        panic_puts(panic_logo[i]);
-        panic_nl();
+        PanicPuts("  ");
+        PanicPuts(panic_logo[i]);
+        PanicNewline();
     }
-    panic_nl();
+    PanicNewline();
 
-    /* Top-level banner — red, same dash-rule format as section headers */
-    panic_puts(C_RED "KERNEL PANIC ");
+    PanicPuts(C_RED "Oops! zuzu has panicked. ");
     for (int i = 13; i < RULE_COL; i++)
         uart_putc('-');
-    panic_puts(C_RESET "\n");
-    panic_nl();
+    PanicPuts(C_RESET "\n");
+    PanicNewline();
 
-    snprintf(line, sizeof(line), "reason:  %s", reason ? reason : "unknown");
-    panic_line(line);
+    (void)snprintf(line, sizeof(line), "reason:  %s", reason ? reason : "unknown");
+    PanicPutLine(line);
 
-    if (!current_thread) {
-        panic_line("context: BOOT");
+    if (!current_task) {
+        PanicPutLine("context: BOOT");
     } else {
-        ProcessObj *p = current_thread->owner_process;
-        if (p)
-            snprintf(line, sizeof(line),
-                     "context: PROCESS  [pid=%u  %s  tid=%u]",
-                     p->pid, p->name, current_thread->tid);
+        SpaceObject *space = current_task->owner;
+        if (space)
+            (void)snprintf(line, sizeof(line), "context: SPACE  [spid=%d  %s  tid=%u]", space->spid,
+                           space->name, current_task->tid);
         else
-            snprintf(line, sizeof(line),
-                     "context: PROCESS  [tid=%u  no owner]",
-                     current_thread->tid);
-        panic_line(line);
+            (void)snprintf(line, sizeof(line), "context: TASK  [tid=%u  no owner]",
+                           current_task->tid);
+        PanicPutLine(line);
     }
 
-    sym_format(sym, sizeof(sym), (uint32_t)(uintptr_t)caller_ra);
-    snprintf(line, sizeof(line), "caller:  0x%08X  %s",
-             (uint32_t)(uintptr_t)caller_ra, sym);
-    panic_line(line);
+    FormatKSym(sym, sizeof(sym), (uint32_t)(uintptr_t)caller_ra);
+    (void)snprintf(line, sizeof(line), "caller:  0x%08X  %s", (uint32_t)(uintptr_t)caller_ra, sym);
+    PanicPutLine(line);
 }
 
-/* ------------------------------------------------------------------ */
-/* FAULT                                                               */
-/* ------------------------------------------------------------------ */
-
-static void panic_print_fault(void)
+/**
+ * @brief Print the FAULT section (type, decoding, access, FAR, FSR, SPSR) when ::panic_fault_ctx is valid; otherwise print nothing.
+ */
+static void PanicPrintFault(void)
 {
     if (!panic_fault_ctx.valid)
         return;
@@ -363,50 +351,47 @@ static void panic_print_fault(void)
     char line[LINE_BUF];
     char dec[64];
 
-    panic_section("FAULT");
+    PanicHeader("FAULT");
 
     if (panic_fault_ctx.fault_type) {
-        snprintf(line, sizeof(line), "type:    %s", panic_fault_ctx.fault_type);
-        panic_line(line);
+        (void)snprintf(line, sizeof(line), "type:    %s", panic_fault_ctx.fault_type);
+        PanicPutLine(line);
     }
     if (panic_fault_ctx.fault_decoded) {
-        snprintf(line, sizeof(line), "decoded: %s", panic_fault_ctx.fault_decoded);
-        panic_line(line);
+        (void)snprintf(line, sizeof(line), "decoded: %s", panic_fault_ctx.fault_decoded);
+        PanicPutLine(line);
     }
     if (panic_fault_ctx.access_type) {
-        snprintf(line, sizeof(line), "access:  %s", panic_fault_ctx.access_type);
-        panic_line(line);
+        (void)snprintf(line, sizeof(line), "access:  %s", panic_fault_ctx.access_type);
+        PanicPutLine(line);
     }
 
     if (panic_fault_ctx.far || panic_fault_ctx.fsr) {
-        panic_nl();
-        const char *region = far_region(panic_fault_ctx.far);
+        PanicNewline();
+        const char *region = FarRegion(panic_fault_ctx.far);
         if (region)
-            snprintf(line, sizeof(line), "FAR:   0x%08X  [%s]",
-                     panic_fault_ctx.far, region);
+            (void)snprintf(line, sizeof(line), "FAR:   0x%08X  [%s]", panic_fault_ctx.far, region);
         else
-            snprintf(line, sizeof(line), "FAR:   0x%08X", panic_fault_ctx.far);
-        panic_line(line);
+            (void)snprintf(line, sizeof(line), "FAR:   0x%08X", panic_fault_ctx.far);
+        PanicPutLine(line);
 
-        snprintf(line, sizeof(line), "FSR:   0x%08X", panic_fault_ctx.fsr);
-        panic_line(line);
+        (void)snprintf(line, sizeof(line), "FSR:   0x%08X", panic_fault_ctx.fsr);
+        PanicPutLine(line);
     }
 
-    /* SPSR tells us what mode was running when the fault occurred */
     if (panic_fault_ctx.frame) {
-        cpsr_decode(dec, sizeof(dec), arch_regs_flags(panic_fault_ctx.frame));
-        panic_nl();
-        snprintf(line, sizeof(line), "SPSR:  0x%08X  %s  (interrupted context)",
-                 arch_regs_flags(panic_fault_ctx.frame), dec);
-        panic_line(line);
+        ArchFlagsDecode(dec, sizeof(dec), ArchFrameFlags(panic_fault_ctx.frame));
+        PanicNewline();
+        (void)snprintf(line, sizeof(line), "SPSR:  0x%08X  %s  (interrupted context)",
+                       ArchFrameFlags(panic_fault_ctx.frame), dec);
+        PanicPutLine(line);
     }
 }
 
-/* ------------------------------------------------------------------ */
-/* CPU STATE                                                           */
-/* ------------------------------------------------------------------ */
-
-static void panic_print_cpu(void)
+/**
+ * @brief Print the CPU STATE section (pc, lr, sp, flags and general registers) of the fault frame; prints nothing when there is no frame.
+ */
+static void PanicDumpCpuState(void)
 {
     if (!panic_fault_ctx.frame)
         return;
@@ -415,493 +400,433 @@ static void panic_print_cpu(void)
     char sym[80];
     CpuState *f = panic_fault_ctx.frame;
 
-    panic_section("CPU STATE");
+    PanicHeader("CPU STATE");
 
-    sym_format(sym, sizeof(sym), arch_regs_pc(f));
-    snprintf(line, sizeof(line), "pc:     0x%08X  %s", arch_regs_pc(f), sym);
-    panic_line(line);
+    FormatKSym(sym, sizeof(sym), (VirtAddr)ArchFramePc(f));
+    (void)snprintf(line, sizeof(line), "pc:     0x%08X  %s", ArchFramePc(f), sym);
+    PanicPutLine(line);
 
-    sym_format(sym, sizeof(sym), arch_regs_lr(f));
-    snprintf(line, sizeof(line), "lr_usr: 0x%08X  %s", arch_regs_lr(f), sym);
-    panic_line(line);
+    FormatKSym(sym, sizeof(sym), (VirtAddr)ArchFrameLr(f));
+    (void)snprintf(line, sizeof(line), "lr:     0x%08X  %s", ArchFrameLr(f), sym);
+    PanicPutLine(line);
+
+    (void)snprintf(line, sizeof(line), "sp:     0x%08X", ArchFrameSp(f));
+    PanicPutLine(line);
 
     {
         char dec[64];
-        cpsr_decode(dec, sizeof(dec), arch_regs_flags(f));
-        snprintf(line, sizeof(line), "cpsr:   0x%08X  %s", arch_regs_flags(f), dec);
-        panic_line(line);
+        ArchFlagsDecode(dec, sizeof(dec), ArchFrameFlags(f));
+        (void)snprintf(line, sizeof(line), "flags:  0x%08X  %s", ArchFrameFlags(f), dec);
+        PanicPutLine(line);
     }
 
-    panic_nl();
-    snprintf(line, sizeof(line),
-             "r0  = %08X   r1  = %08X   r2  = %08X   r3  = %08X",
-             (*arch_reg(f, 0)), (*arch_reg(f, 1)), (*arch_reg(f, 2)), (*arch_reg(f, 3)));
-    panic_line(line);
-    snprintf(line, sizeof(line),
-             "r4  = %08X   r5  = %08X   r6  = %08X   r7  = %08X",
-             (*arch_reg(f, 4)), (*arch_reg(f, 5)), (*arch_reg(f, 6)), (*arch_reg(f, 7)));
-    panic_line(line);
-    snprintf(line, sizeof(line),
-             "r8  = %08X   r9  = %08X   r10 = %08X   r11 = %08X",
-             (*arch_reg(f, 8)), (*arch_reg(f, 9)), (*arch_reg(f, 10)), (*arch_reg(f, 11)));
-    panic_line(line);
-    snprintf(line, sizeof(line),
-             "r12 = %08X   sp_usr = %08X   lr_usr = %08X",
-             (*arch_reg(f, 12)), arch_regs_sp(f), arch_regs_lr(f));
-    panic_line(line);
+    PanicNewline();
+    for (unsigned i = 0; i < ARCH_NUM_GP_REGS; i += 4) {
+        int off = snprintf(line, sizeof(line), "reg[%2u] = %08X", i, (*ArchGetFromFrame(f, i)));
+        for (unsigned j = i + 1; j < i + 4 && j < ARCH_NUM_GP_REGS; j++)
+            off += snprintf(line + off, sizeof(line) - (size_t)off, "   reg[%2u] = %08X", j,
+                            (*ArchGetFromFrame(f, j)));
+        PanicPutLine(line);
+    }
 }
 
-/* ------------------------------------------------------------------ */
-/* BACKTRACE                                                           */
-/* ------------------------------------------------------------------ */
-
-static void panic_print_backtrace(backtrace_t *bt)
+/**
+ * @brief Print the BACKTRACE section and an addr2line command line for the recorded frames.
+ *
+ * @param[in] bt Backtrace to print.
+ */
+static void PanicPrintBt(FpBacktrace *bt)
 {
     char line[LINE_BUF];
     char sym[80];
 
-    panic_section("BACKTRACE");
+    PanicHeader("BACKTRACE");
 
     if (bt->depth == 0) {
-        panic_line("(no frames)");
+        PanicPutLine("(no frames)");
         return;
     }
 
     for (int i = 0; i < bt->depth; i++) {
         uint32_t addr = bt->addresses[i];
-        sym_format(sym, sizeof(sym), addr);
-        snprintf(line, sizeof(line), "#%-2d  0x%08X  %s", i, addr, sym);
-        panic_line(line);
+        FormatKSym(sym, sizeof(sym), addr);
+        (void)snprintf(line, sizeof(line), "#%-2d  0x%08X  %s", i, addr, sym);
+        PanicPutLine(line);
     }
 
-    /* addr2line hint — print piece-by-piece to avoid buffer constraints */
-    panic_nl();
-    panic_puts("  " C_DIM "addr2line -e " ZUZU_ELF_PATH);
+    PanicNewline();
+    PanicPuts("  " C_DIM "addr2line -e " ZUZU_ELF_PATH);
     for (int i = 0; i < bt->depth; i++) {
         char tmp[12];
-        snprintf(tmp, sizeof(tmp), " 0x%08X", bt->addresses[i]);
-        panic_puts(tmp);
+        (void)snprintf(tmp, sizeof(tmp), " 0x%08X", bt->addresses[i]);
+        PanicPuts(tmp);
     }
-    panic_puts(C_RESET "\n");
+    PanicPuts(C_RESET "\n");
 }
 
-/* ------------------------------------------------------------------ */
-/* CURRENT PROCESS  (CONFIG_PANIC_SECTION_PROCESS)                           */
-/* ------------------------------------------------------------------ */
-
 #ifdef CONFIG_PANIC_SECTION_PROCESS
-static void panic_print_process(void)
+/**
+ * @brief Print the CURRENT SPACE section: task and space identity, address space, user stack, handle table, user trap frame and IPC state.
+ */
+static void PanicPrintSpace(void)
 {
     char line[LINE_BUF];
 
-    panic_section("CURRENT PROCESS");
+    PanicHeader("CURRENT SPACE");
 
-    if (!current_thread) {
-        panic_line("(no current thread - BOOT context)");
+    if (!current_task) {
+        PanicPutLine("(no current task - BOOT context)");
         return;
     }
 
-    ProcessObj *p = current_thread->owner_process;
+    SpaceObject *space = current_task->owner;
 
-    snprintf(line, sizeof(line),
-             "tid=%-4u  state=%-7s  prio=%u  slice=%u  left=%u",
-             current_thread->tid,
-             thread_state_str(current_thread->state),
-             current_thread->priority,
-             current_thread->time_slice,
-             current_thread->ticks_remaining);
-    panic_line(line);
+    (void)snprintf(line, sizeof(line), "tid=%-4u  state=%-7s  prio=%u  slice=%u", current_task->tid,
+                   TaskStateToString(current_task->state), current_task->priority,
+                   current_task->time_slice_us);
+    PanicPutLine(line);
 
-    if (p) {
-        snprintf(line, sizeof(line),
-                 "pid=%-4u  ppid=%-4u  name=%s",
-                 p->pid, p->parent_pid, p->name);
-        panic_line(line);
+    if (space) {
+        (void)snprintf(line, sizeof(line), "spid=%-4d  parent=%-4d  name=%s", space->spid,
+                       space->parent_spid, space->name);
+        PanicPutLine(line);
 
-        if (p->as) {
-            snprintf(line, sizeof(line),
-                     "asid=%u  ttbr0=0x%08X",
-                     p->as->asid_token.asid, (uint32_t)p->as->pt_root_physaddr);
-            panic_line(line);
+        if (space->as) {
+            (void)snprintf(line, sizeof(line), "asid=%u  ttbr0=0x%08X", space->as->asid_token.asid,
+                           (uint32_t)space->as->pt_root_physaddr);
+            PanicPutLine(line);
         }
 
-        snprintf(line, sizeof(line),
-                 "user stack: 0x%08X..0x%08X",
-                 (uint32_t)USER_STACK_BASE, (uint32_t)USER_STACK_TOP);
-        panic_line(line);
+        (void)snprintf(line, sizeof(line), "user stack: 0x%08X..0x%08X", (uint32_t)USER_STACK_BASE,
+                       (uint32_t)USER_STACK_TOP);
+        PanicPutLine(line);
 
-        /* Handle table */
-        HandleTable *ht = &p->handle_table;
+        HandleTable *ht = &space->handle_table;
         {
             int shown = 0;
-            panic_nl();
-            panic_line("handles:");
-            for (uint32_t idx = 1; idx < HANDLE_MAX_SLOTS && shown < PANIC_HANDLE_MAX; idx++) {
-                HandleEntry *e = HandleTableGet(ht, idx);
+            PanicNewline();
+            PanicPutLine("handles:");
+            for (Handle idx = 1; idx < (Handle)HANDLE_MAX_SLOTS && shown < PANIC_HANDLE_MAX;
+                 idx++) {
+                HandleTableEntry *e = HandleTableGet(ht, idx);
                 if (!e || e->type == HANDLE_FREE)
                     continue;
                 void *ptr = NULL;
                 switch (e->type) {
-                case HANDLE_PORT:     ptr = e->port;    break;
-                case HANDLE_DEVICE:       ptr = e->dev;   break;
-                case HANDLE_SHM:        ptr = e->shm;   break;
-                case HANDLE_REPLY:        ptr = e->reply; break;
-                case HANDLE_NTFN: ptr = e->ntfn;  break;
-                case HANDLE_TASK:         ptr = e->task;  break;
-                default:                                   break;
+                case HANDLE_PORT:
+                    ptr = e->port;
+                    break;
+                case HANDLE_MEM:
+                    ptr = e->mem;
+                    break;
+                case HANDLE_EVENT:
+                    ptr = e->event;
+                    break;
+                case HANDLE_TASK:
+                    ptr = e->task;
+                    break;
+                case HANDLE_SPACE:
+                    ptr = e->space;
+                    break;
+                default:
+                    break;
                 }
-                snprintf(line, sizeof(line), "  [%2u]  %-14s  0x%08X",
-                         idx, handle_type_str(e->type),
-                         (uint32_t)(uintptr_t)ptr);
-                panic_line(line);
+                (void)snprintf(line, sizeof(line), "  [%2u]  %-14s  0x%08X", idx,
+                               HandleTypeStr(e->type), (uint32_t)(uintptr_t)ptr);
+                PanicPutLine(line);
                 shown++;
             }
             if (shown == 0)
-                panic_line("  (empty)");
+                PanicPutLine("  (empty)");
         }
     }
 
-    /* User trapframe (saved at syscall/exception entry) */
-    if (current_thread->trap_frame) {
-        CpuState *tf = current_thread->trap_frame;
-        panic_nl();
-        panic_line("user trapframe:");
-        snprintf(line, sizeof(line),
-                 "  r0  = %08X   r1  = %08X   r2  = %08X   r3  = %08X",
-                 (*arch_reg(tf, 0)), (*arch_reg(tf, 1)), (*arch_reg(tf, 2)), (*arch_reg(tf, 3)));
-        panic_line(line);
-        snprintf(line, sizeof(line),
-                 "  r4  = %08X   r5  = %08X   r6  = %08X   r7  = %08X",
-                 (*arch_reg(tf, 4)), (*arch_reg(tf, 5)), (*arch_reg(tf, 6)), (*arch_reg(tf, 7)));
-        panic_line(line);
-        snprintf(line, sizeof(line),
-                 "  r8  = %08X   r9  = %08X   r10 = %08X   r11 = %08X",
-                 (*arch_reg(tf, 8)), (*arch_reg(tf, 9)), (*arch_reg(tf, 10)), (*arch_reg(tf, 11)));
-        panic_line(line);
-        snprintf(line, sizeof(line),
-                 "  r12 = %08X   sp_usr = %08X   lr_usr = %08X   pc = %08X",
-                 (*arch_reg(tf, 12)), arch_regs_sp(tf), arch_regs_lr(tf), arch_regs_pc(tf));
-        panic_line(line);
+    if (current_task->trap_frame) {
+        CpuState *tf = current_task->trap_frame;
+        PanicNewline();
+        PanicPutLine("user trapframe:");
+        for (unsigned i = 0; i < ARCH_NUM_GP_REGS; i += 4) {
+            int off =
+                snprintf(line, sizeof(line), "  reg[%2u] = %08X", i, (*ArchGetFromFrame(tf, i)));
+            for (unsigned j = i + 1; j < i + 4 && j < ARCH_NUM_GP_REGS; j++)
+                off += snprintf(line + off, sizeof(line) - (size_t)off, "   reg[%2u] = %08X", j,
+                                (*ArchGetFromFrame(tf, j)));
+            PanicPutLine(line);
+        }
+        (void)snprintf(line, sizeof(line), "  sp = %08X   lr = %08X   pc = %08X", ArchFrameSp(tf),
+                       ArchFrameLr(tf), ArchFramePc(tf));
+        PanicPutLine(line);
         {
             char dec[64];
-            cpsr_decode(dec, sizeof(dec), arch_regs_flags(tf));
-            snprintf(line, sizeof(line), "  cpsr = %08X  %s", arch_regs_flags(tf), dec);
-            panic_line(line);
+            ArchFlagsDecode(dec, sizeof(dec), ArchFrameFlags(tf));
+            (void)snprintf(line, sizeof(line), "  cpsr = %08X  %s", ArchFrameFlags(tf), dec);
+            PanicPutLine(line);
         }
     }
 
-    /* IPC state */
-    if (current_thread->ipc_state != IPC_NONE) {
-        panic_nl();
-        if (current_thread->blocked_port)
-            snprintf(line, sizeof(line), "IPC: %s  port=0x%08X",
-                     ipc_state_str(current_thread->ipc_state),
-                     (uint32_t)(uintptr_t)current_thread->blocked_port);
+    if (current_task->ipc_state != IPC_NONE) {
+        PanicNewline();
+        if (current_task->blocked_port)
+            (void)snprintf(line, sizeof(line), "IPC: %s  port=0x%08X",
+                           IpcStateStr(current_task->ipc_state),
+                           (uint32_t)(uintptr_t)current_task->blocked_port);
         else
-            snprintf(line, sizeof(line), "IPC: %s",
-                     ipc_state_str(current_thread->ipc_state));
-        panic_line(line);
+            (void)snprintf(line, sizeof(line), "IPC: %s", IpcStateStr(current_task->ipc_state));
+        PanicPutLine(line);
     }
 }
 #endif /* CONFIG_PANIC_SECTION_PROCESS */
 
-/* ------------------------------------------------------------------ */
-/* SCHEDULER  (CONFIG_PANIC_SECTION_SCHEDULER)                               */
-/* ------------------------------------------------------------------ */
-
 #ifdef CONFIG_PANIC_SECTION_SCHEDULER
-static void panic_print_sched(void)
+/**
+ * @brief Print the SCHEDULER section: current task plus truncated ready and sleeping task lists.
+ */
+static void PanicDumpSched(void)
 {
     char line[LINE_BUF];
 
-    panic_section("SCHEDULER");
+    PanicHeader("SCHEDULER");
 
-    if (current_thread) {
-        ProcessObj *p = current_thread->owner_process;
-        snprintf(line, sizeof(line),
-                 "current: tid=%-4u  pid=%-4u  %-16s  %s  prio=%u",
-                 current_thread->tid,
-                 p ? p->pid : 0,
-                 p ? p->name : "(none)",
-                 thread_state_str(current_thread->state),
-                 current_thread->priority);
+    if (current_task) {
+        SpaceObject *space = current_task->owner;
+        (void)snprintf(line, sizeof(line), "current: tid=%-4u  spid=%-4d  %-16s  %s  prio=%u",
+                       current_task->tid, space ? space->spid : 0, space ? space->name : "(none)",
+                       TaskStateToString(current_task->state), current_task->priority);
     } else {
-        snprintf(line, sizeof(line), "current: (idle)");
+        (void)snprintf(line, sizeof(line), "current: (idle)");
     }
-    panic_line(line);
+    PanicPutLine(line);
 
-    /* Ready queue */
-    Thread *ready[PANIC_READY_MAX];
+    TaskObject *ready[PANIC_READY_MAX];
     size_t ready_total = SchedGetReadyQueue(ready, PANIC_READY_MAX);
-    panic_nl();
-    snprintf(line, sizeof(line), "ready (%lu):", (unsigned long)ready_total);
-    panic_line(line);
+    PanicNewline();
+    (void)snprintf(line, sizeof(line), "ready (%lu):", (unsigned long)ready_total);
+    PanicPutLine(line);
     if (ready_total == 0) {
-        panic_line("  (empty)");
+        PanicPutLine("  (empty)");
     } else {
         size_t show = ready_total < PANIC_READY_MAX ? ready_total : PANIC_READY_MAX;
         for (size_t i = 0; i < show; i++) {
-            Thread *t = ready[i];
-            ProcessObj *p = t->owner_process;
-            snprintf(line, sizeof(line),
-                     "  tid=%-4u  pid=%-4u  %-16s  prio=%u",
-                     t->tid, p ? p->pid : 0,
-                     p ? p->name : "(none)",
-                     t->priority);
-            panic_line(line);
+            TaskObject *t = ready[i];
+            SpaceObject *p = t->owner;
+            (void)snprintf(line, sizeof(line), "  tid=%-4u  spid=%-4d  %-16s  prio=%u", t->tid,
+                           p ? p->spid : 0, p ? p->name : "(none)", t->priority);
+            PanicPutLine(line);
         }
         if (ready_total > PANIC_READY_MAX) {
-            snprintf(line, sizeof(line), "  ... +%lu more",
-                     (unsigned long)(ready_total - PANIC_READY_MAX));
-            panic_line(line);
+            (void)snprintf(line, sizeof(line), "  ... +%lu more",
+                           (unsigned long)(ready_total - PANIC_READY_MAX));
+            PanicPutLine(line);
         }
     }
 
-    /* Sleep wheel */
-    Thread *sleepers[PANIC_SLEEP_MAX];
+    TaskObject *sleepers[PANIC_SLEEP_MAX];
     size_t sleep_total = SchedGetSleepers(sleepers, PANIC_SLEEP_MAX);
-    panic_nl();
+    PanicNewline();
     (void)snprintf(line, sizeof(line), "sleeping (%lu):", (unsigned long)sleep_total);
-    panic_line(line);
+    PanicPutLine(line);
 
     if (sleep_total == 0) {
-        panic_line("  (empty)");
+        PanicPutLine("  (empty)");
     } else {
         size_t show = sleep_total < PANIC_SLEEP_MAX ? sleep_total : PANIC_SLEEP_MAX;
         for (size_t i = 0; i < show; i++) {
-            Thread *t = sleepers[i];
-            ProcessObj *p = t->owner_process;
-            (void)snprintf(line, sizeof(line),
-                     "  tid=%-4u  pid=%-4u  %-16s  wake_deadline=%llu",
-                     t->tid, p ? p->pid : 0,
-                     p ? p->name : "(none)",
-                     (unsigned long long)t->wake_deadline);
-            panic_line(line);
+            TaskObject *t = sleepers[i];
+            SpaceObject *p = t->owner;
+            (void)snprintf(line, sizeof(line), "  tid=%-4u  spid=%-4d  %-16s  wake_deadline=%llu",
+                           t->tid, p ? p->spid : 0, p ? p->name : "(none)",
+                           (unsigned long long)t->wake_deadline);
+            PanicPutLine(line);
         }
         if (sleep_total > PANIC_SLEEP_MAX) {
             (void)snprintf(line, sizeof(line), "  ... +%lu more",
-                     (unsigned long)(sleep_total - PANIC_SLEEP_MAX));
-            panic_line(line);
+                           (unsigned long)(sleep_total - PANIC_SLEEP_MAX));
+            PanicPutLine(line);
         }
     }
 }
 #endif /* CONFIG_PANIC_SECTION_SCHEDULER */
 
-/* ------------------------------------------------------------------ */
-/* IRQ / GIC  (CONFIG_PANIC_SECTION_IRQ)                                     */
-/* ------------------------------------------------------------------ */
-
 #ifdef CONFIG_PANIC_SECTION_IRQ
-static void panic_print_irq(void)
+/**
+ * @brief Print the IRQ / GIC section: priority mask, enabled IRQs with owners and pending IRQs.
+ */
+static void PanicPrintIrq(void)
 {
     char line[LINE_BUF];
 
-    panic_section("IRQ / GIC");
+    PanicHeader("IRQ / GIC");
 
-    if (!arch_irq_ready()) {
-        panic_line("interrupt controller not yet initialized");
+    if (!ArchIrqReady()) {
+        PanicPutLine("interrupt controller not yet initialized");
         return;
     }
 
-#define IRQ_WORDS (MAX_IRQS / 32u)
+    uint32_t pmr = ArchIrqPriorityMask();
+    (void)snprintf(line, sizeof(line), "priority mask: 0x%02X  (%s)", pmr,
+                   pmr == 0xFFU ? "all priorities pass" : "filtered");
+    PanicPutLine(line);
 
-    uint32_t pmr = arch_irq_priority_mask();
-    snprintf(line, sizeof(line), "priority mask: 0x%02X  (%s)",
-             pmr, pmr == 0xFFu ? "all priorities pass" : "filtered");
-    panic_line(line);
+    const IrqOwner *owners = GetIrqOwnersList();
+    uint32_t first = ArchIrqFirstDeviceLine();
 
-    const IrqOwner *owners = GetIrqOwners();
-
-    /*
-     * Snapshot enabled bitmap; used both for the enabled section and
-     * later to identify the likely triggering IRQ in the pending section.
-     * Skip SGIs (0-15) — always enabled on the controller.
-     */
-    uint32_t enabled_words[IRQ_WORDS];
-    for (uint32_t w = 0; w < IRQ_WORDS; w++)
-        enabled_words[w] = arch_irq_enabled_word(w);
-
-    panic_nl();
-    panic_line("enabled IRQs:");
+    PanicNewline();
+    PanicPutLine("enabled IRQs:");
     int any_enabled = 0;
-    for (uint32_t word = 0; word < IRQ_WORDS; word++) {
-        uint32_t ena = enabled_words[word];
-        if (!ena) continue;
-        for (uint32_t bit = 0; bit < 32u; bit++) {
-            if (!(ena & (1u << bit))) continue;
-            uint32_t irq = word * 32u + bit;
-            if (irq < 16u) continue;  /* SGI — always on, skip */
+    for (uint32_t irq = first; irq < MAX_IRQS; irq++) {
+        if (!ArchIrqIsEnabled(irq))
+            continue;
 
-            if (owners && irq < MAX_IRQS && owners[irq].owner) {
-                snprintf(line, sizeof(line), "  IRQ %-3u  [%s]",
-                         irq, owners[irq].owner->name);
-            } else if (irq < (uint32_t)MAX_IRQS && handler_table[irq]) {
-                char sym[64];
-                sym_format(sym, sizeof(sym),
-                            (uint32_t)(uintptr_t)handler_table[irq]);
-                snprintf(line, sizeof(line), "  IRQ %-3u  [kernel: %s]", irq, sym);
-            } else {
-                snprintf(line, sizeof(line), "  IRQ %-3u  [no handler]", irq);
-            }
-            panic_line(line);
-            any_enabled = 1;
+        if (owners && owners[irq].owner) {
+            (void)snprintf(line, sizeof(line), "  IRQ %-3u  [%s]", irq, owners[irq].owner->name);
+        } else if (ArchIrqHasHandler(irq)) {
+            char sym[64];
+            FormatKSym(sym, sizeof(sym), (uint32_t)(uintptr_t)ArchIrqHandlerAddr(irq));
+            (void)snprintf(line, sizeof(line), "  IRQ %-3u  [kernel: %s]", irq, sym);
+        } else {
+            (void)snprintf(line, sizeof(line), "  IRQ %-3u  [no handler]", irq);
         }
+        PanicPutLine(line);
+        any_enabled = 1;
     }
     if (!any_enabled)
-        panic_line("  (none)");
+        PanicPutLine("  (none)");
 
-    /* Pending IRQs: skip SGIs; cross-reference enabled bitmap */
-    uint32_t cpsr = arch_current_flags();
-    int in_irq_mode = ((cpsr & 0x1Fu) == 0x12u);
+    Register cpsr = ArchCurrentFlags();
+    bool in_irq_mode = ArchFlagsInIrqContext(cpsr);
 
-    panic_nl();
-    panic_line("pending IRQs:");
+    PanicNewline();
+    PanicPutLine("pending IRQs:");
     int any_pending = 0;
-    for (uint32_t word = 0; word < IRQ_WORDS; word++) {
-        uint32_t pend = arch_irq_pending_word(word);
-        if (!pend) continue;
-        for (uint32_t bit = 0; bit < 32u; bit++) {
-            if (!(pend & (1u << bit))) continue;
-            uint32_t irq = word * 32u + bit;
-            if (irq < 16u) continue;  /* SGI — skip */
+    for (uint32_t irq = first; irq < MAX_IRQS; irq++) {
+        if (!ArchIrqIsPending(irq))
+            continue;
 
-            int has_handler = (irq < (uint32_t)MAX_IRQS &&
-                               handler_table[irq] != NULL);
-            int also_enabled = (enabled_words[word] & (1u << bit)) != 0;
+        bool has_handler = ArchIrqHasHandler(irq);
+        bool also_enabled = ArchIrqIsEnabled(irq);
 
-            if (!has_handler) {
-                snprintf(line, sizeof(line),
-                         "  IRQ %-3u" C_RED "  *** NO HANDLER ***" C_RESET, irq);
-            } else if (also_enabled && in_irq_mode) {
-                snprintf(line, sizeof(line),
-                         "  IRQ %-3u" C_RED "  *** triggered this panic ***" C_RESET, irq);
-            } else {
-                snprintf(line, sizeof(line), "  IRQ %-3u  (pending, unserviced)", irq);
-            }
-            panic_line(line);
-            any_pending = 1;
+        if (!has_handler) {
+            (void)snprintf(line, sizeof(line),
+                           "  IRQ %-3u" C_RED "  *** NO HANDLER ***" C_RESET, irq);
+        } else if (also_enabled && in_irq_mode) {
+            (void)snprintf(line, sizeof(line),
+                           "  IRQ %-3u" C_RED "  *** triggered this panic ***" C_RESET, irq);
+        } else {
+            (void)snprintf(line, sizeof(line), "  IRQ %-3u  (pending, unserviced)", irq);
         }
+        PanicPutLine(line);
+        any_pending = 1;
     }
     if (!any_pending)
-        panic_line("  (none)");
+        PanicPutLine("  (none)");
 }
 #endif /* CONFIG_PANIC_SECTION_IRQ */
 
-/* ------------------------------------------------------------------ */
-/* MEMORY  (CONFIG_PANIC_SECTION_MEMORY)                                     */
-/* ------------------------------------------------------------------ */
-
 #ifdef CONFIG_PANIC_SECTION_MEMORY
-static void panic_print_memory(void)
+/**
+ * @brief Print the MEMORY section: PMM page counts, heap usage and kernel stack bounds.
+ */
+static void PanicPrintMemoryStats(void)
 {
     char line[LINE_BUF];
 
-    panic_section("MEMORY");
+    PanicHeader("MEMORY");
 
     PmmStats pmm_stats = PmmGetStats();
-    snprintf(line, sizeof(line),
-             "PMM:   %lu / %lu pages free  (%lu KB free)",
-             (unsigned long)pmm_stats.free_frames,
-             (unsigned long)pmm_stats.total_frames,
-             (unsigned long)(pmm_stats.free_frames * 4u));
-    panic_line(line);
+    (void)snprintf(line, sizeof(line), "PMM:   %lu / %lu pages free  (%lu KB free)",
+                   (unsigned long)pmm_stats.free_frames, (unsigned long)pmm_stats.total_frames,
+                   (unsigned long)(pmm_stats.free_frames * 4U));
+    PanicPutLine(line);
 
     if (heap_head && kernel_layout.heap_start_va && kernel_layout.heap_end_va) {
-        panic_heap_stats_t hs;
-        panic_heap_snapshot(&hs);
-        snprintf(line, sizeof(line),
-                 "heap:  used=%lu  free=%lu  total=%lu  blocks=%lu",
-                 (unsigned long)hs.used_bytes,
-                 (unsigned long)hs.free_bytes,
-                 (unsigned long)hs.total_bytes,
-                 (unsigned long)hs.block_count);
-        panic_line(line);
+        PanicHeapStats hs;
+        GetPanicHeapSnapshot(&hs);
+        (void)snprintf(line, sizeof(line), "heap:  used=%lu  free=%lu  total=%lu  blocks=%lu",
+                       (unsigned long)hs.used_bytes, (unsigned long)hs.free_bytes,
+                       (unsigned long)hs.total_bytes, (unsigned long)hs.block_count);
+        PanicPutLine(line);
     } else {
-        panic_line("heap:  unavailable");
+        PanicPutLine("heap:  unavailable");
     }
 
     if (kernel_layout.stack_base_va && kernel_layout.stack_top_va) {
-        if (!current_thread) {
-            panic_line("kstack: N/A (BOOT context)");
+        if (!current_task) {
+            PanicPutLine("kstack: N/A (BOOT context)");
         } else {
-            snprintf(line, sizeof(line),
-                     "kstack: 0x%08X..0x%08X  (%lu KB)",
-                     (uint32_t)kernel_layout.stack_base_va,
-                     (uint32_t)kernel_layout.stack_top_va,
-                     (unsigned long)((kernel_layout.stack_top_va -
-                                      kernel_layout.stack_base_va) / 1024u));
-            panic_line(line);
+            (void)snprintf(
+                line, sizeof(line), "kstack: 0x%08X..0x%08X  (%lu KB)",
+                (uint32_t)kernel_layout.stack_base_va, (uint32_t)kernel_layout.stack_top_va,
+                (unsigned long)((kernel_layout.stack_top_va - kernel_layout.stack_base_va) /
+                                1024U));
+            PanicPutLine(line);
         }
     }
 }
 #endif /* CONFIG_PANIC_SECTION_MEMORY */
 
-/* ================================================================== */
-/* Entry point                                                         */
-/* ================================================================== */
-
-static void panic_screen(const char *reason, void *caller_ra)
+/**
+ * @brief Print the full panic screen, including the optional sections enabled by configuration.
+ *
+ * @param[in] reason Panic reason text, or NULL.
+ * @param[in] caller_ra Return address of the panic() caller.
+ */
+static void ConstructPanicScreen(const char *reason, void *caller_ra)
 {
     uart_putc('\a');
-    panic_nl();
+    PanicNewline();
 
-    panic_print_header(reason, caller_ra);
-    panic_print_fault();
-    panic_print_cpu();
+    PanicPrintHeader(reason, caller_ra);
+    PanicPrintFault();
+    PanicDumpCpuState();
 
-    backtrace_t bt;
-    backtrace_walk(&bt);
-    panic_print_backtrace(&bt);
+    FpBacktrace bt;
+    BtraceWalk(&bt);
+    PanicPrintBt(&bt);
 
 #ifdef CONFIG_PANIC_SECTION_PROCESS
-    panic_print_process();
+    PanicPrintSpace();
 #endif
 #ifdef CONFIG_PANIC_SECTION_SCHEDULER
-    panic_print_sched();
+    PanicDumpSched();
 #endif
 #ifdef CONFIG_PANIC_SECTION_IRQ
-    panic_print_irq();
+    PanicPrintIrq();
 #endif
 #ifdef CONFIG_PANIC_SECTION_MEMORY
-    panic_print_memory();
+    PanicPrintMemoryStats();
 #endif
 
-    panic_nl();
+    PanicNewline();
 }
 
-bool entered_panic = false;
+/** @brief Set on first entry to panic(); a nested panic halts without printing. */
+static bool entered_panic = false;
 
 _Noreturn void __attribute__((cold)) panic(const char *fmt, ...)
 {
 
     void *caller_ra;
 
-    arch_global_irq_disable();
+    ArchGlobalIrqDisable();
 
     if (entered_panic)
         goto panic_loop;
-        
+
     entered_panic = true;
 
-    /* Static: panic is terminal and runs with IRQs off, so no reentrancy */
     static char reason[LINE_BUF];
 
     caller_ra = __builtin_return_address(0);
 
-
     if (fmt) {
         va_list ap;
         va_start(ap, fmt);
-        vsnprintf(reason, sizeof(reason), fmt, ap);
+        (void)vsnprintf(reason, sizeof(reason), fmt, ap);
         va_end(ap);
     }
 
-    panic_screen(fmt ? reason : NULL, caller_ra);
+    ConstructPanicScreen(fmt ? reason : NULL, caller_ra);
 
 panic_loop:
-    __asm__ volatile(
-        "1:\n"
-        "    wfi\n"
-        "    b 1b\n");
-    __builtin_unreachable();
+    ArchCpuHalt();
 }

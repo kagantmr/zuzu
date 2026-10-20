@@ -1,7 +1,7 @@
 menu "Logging and panic"
 
 config LOG_LEVEL
-	int "Log level (0 = silent, 5 = everything)"
+	int "Log level (0 = everything incl. trace, 5 = fatal only)"
 	range 0 5
 	default 1
 

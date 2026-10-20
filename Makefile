@@ -23,11 +23,29 @@ endif
 ARCH  ?= arm
 BOARD ?= vexpress-a15
 
+# EXT points at an out-of-tree project (e.g. a product repo that carries zuzu
+# as a submodule). It may add boards (EXT/bsp/<arch>/<board>/), drivers
+# (EXT/drivers/{build.mk,Kconfig}), headers (EXT/include/) and user programs
+# (EXT/user/<group>/<prog>/build.mk). Its objects build under $(O)/ext/ and
+# $(O)/user/ext/. Empty (default) means a plain in-tree build.
+EXT ?=
+override EXT := $(patsubst %/,%,$(EXT))
+ifneq ($(EXT),)
+ifeq ($(wildcard $(EXT)/.),)
+$(error EXT=$(EXT) is not a directory)
+endif
+endif
+export EXT_KCONFIG := $(or $(and $(EXT),$(wildcard $(EXT)/Kconfig)),/dev/null)
+
 # Otherwise make takes the first rule in the include chain as the default goal.
 .DEFAULT_GOAL := all
 
 include arch/$(ARCH)/arch.mk
 include scripts/Makefile.lib
+
+ifneq ($(EXT),)
+BOARDS += $(patsubst $(EXT)/bsp/$(ARCH)/%/board.mk,%,$(wildcard $(EXT)/bsp/$(ARCH)/*/board.mk))
+endif
 
 # ---- configuration -------------------------------------------------------------
 ifeq ($(filter $(BOARD),$(BOARDS)),)
@@ -53,7 +71,9 @@ $(foreach v,$(filter CONFIG_%,$(.VARIABLES)),\
 # ---- derived paths ---------------------------------------------------------
 ARCH_DIR       = arch/$(ARCH)
 BSP_DIR        = bsp/$(ARCH)
-BOARD_DIR      = $(BSP_DIR)/$(BOARD)
+# An EXT board of the same name shadows the in-tree one.
+_EXT_BOARD_DIR = $(EXT)/$(BSP_DIR)/$(BOARD)
+BOARD_DIR     := $(strip $(if $(and $(EXT),$(wildcard $(_EXT_BOARD_DIR)/board.mk)),$(_EXT_BOARD_DIR),$(BSP_DIR)/$(BOARD)))
 
 # Board-specific metadata (CPUFLAGS_<board>, DTB_<board>, QEMU_*_<board>,
 # UBOOT_<board>, ...) lives in the board's own directory — see
@@ -83,7 +103,8 @@ IMG            = $(O)/zuzu.img
 
 # Board may override the arch-default cpu flags via CPUFLAGS_<board>.
 CPUFLAGS = $(if $(CPUFLAGS_$(BOARD)),$(CPUFLAGS_$(BOARD)),$(ARCH_CPUFLAGS))
-INCLUDES = -I. -Iinclude -Iarch/include -Iarch/$(ARCH)/include
+INCLUDES = -I. -Iinclude -Iarch/include -Iarch/$(ARCH)/include \
+           $(if $(and $(EXT),$(wildcard $(EXT)/include/.)),-I$(EXT)/include)
 
 LTO_FLAG = $(if $(filter y,$(CONFIG_LTO)),-flto=auto)
 
@@ -96,11 +117,12 @@ KCONFIG_DEFCONFIG = $(BOARD_DIR)/defconfig
 KCONFIG_DIR       = $(O)/include/config
 KCONFIG_AUTOCONF  = $(KCONFIG_DIR)/autoconf.h
 KCONFIG_AUTOCONF_MK = $(KCONFIG_DIR)/auto.conf
-KCONFIG_FILES     = $(shell find . -name Kconfig -not -path './build/*' 2>/dev/null)
+KCONFIG_FILES     = $(shell find . -name Kconfig -not -path './build/*' 2>/dev/null) $(if $(EXT),$(wildcard $(EXT)/Kconfig)) \
+                    $(if $(EXT),$(wildcard $(EXT)/drivers/Kconfig))
 KCONF             = python3 scripts/kconf.py --kconfig Kconfig
 
 # Goals that must not drag in config generation, or that would recurse.
-no-config-goals := clean distclean help %config scripts/config rpi4-firmware
+no-config-goals := clean distclean help hal-check %config scripts/config rpi4-firmware
 
 ifeq ($(filter $(no-config-goals),$(MAKECMDGOALS)),)
 # Hard include, not -include: a generator that silently failed would
@@ -222,7 +244,7 @@ CFLAGS   = -ffreestanding -O$(CONFIG_CC_OPT_LEVEL) $(LTO_FLAG) -fno-omit-frame-p
            -Wvla -Walloca \
            -Wnull-dereference -Wduplicated-cond -Wduplicated-branches -Wlogical-op \
            -fno-common \
-           $(CPUFLAGS) $(INCLUDES) -Ivendor/libfdt -MMD -MP \
+           $(CPUFLAGS) $(INCLUDES) -I$(O)/include -Ivendor/libfdt -MMD -MP \
            -include $(KCONFIG_AUTOCONF) \
            -D__ZUZU__ -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"' \
            -DBOARD_BOOT_H='"$(BOARD_BOOT_H)"' \
@@ -259,9 +281,13 @@ KERNEL_LIBGCC = $(shell $(CC) $(CPUFLAGS) -print-libgcc-file-name)
 # again into zcrt with USER_CFLAGS (Makefile.user). lib/ is userspace-only.
 # Only the selected board's directory is read, so unselected boards never
 # contribute objects.
-KERNEL_MANIFEST_DIRS = core drivers kernel klib $(ARCH_DIR) $(BOARD_DIR) vendor/libfdt
+KERNEL_MANIFEST_DIRS = core drivers kernel klib $(ARCH_DIR) $(BOARD_DIR) vendor/libfdt \
+                       $(if $(and $(EXT),$(wildcard $(EXT)/drivers/build.mk)),$(EXT)/drivers)
 
-OBJS := $(addprefix $(O)/,$(call collect-objs,$(KERNEL_MANIFEST_DIRS)))
+# EXT sources are mapped to $(O)/ext/ so objects never land outside $(O),
+# whatever EXT's path (it is usually ../).
+OBJS := $(patsubst $(EXT)/%,ext/%,$(call collect-objs,$(KERNEL_MANIFEST_DIRS)))
+OBJS := $(addprefix $(O)/,$(OBJS))
 DEPS := $(OBJS:.o=.d)
 
 # Vendored third-party source: its type/const-correctness is upstream's
@@ -274,6 +300,27 @@ $(O)/vendor/libfdt/%.o: CFLAGS := $(CFLAGS_NOVENDOR)
 $(O)/kernel/boot_info.o: CFLAGS := $(CFLAGS_NOVENDOR)
 $(O)/kernel/dev/fdt_wrappers.o: CFLAGS := $(CFLAGS_NOVENDOR)
 
+# ---- asm offsets ------------------------------------------------------------
+# Struct offsets for assembly, computed by the C compiler: asm-offsets.c is
+# compiled to assembly only (never linked) and its "->SYM value" markers are
+# turned into #defines. LTO is filtered out because -flto makes -S emit
+# bytecode instead of assembly.
+ASM_OFFSETS = $(O)/include/generated/asm-offsets.h
+
+$(O)/asm-offsets.s: $(ARCH_DIR)/asm-offsets.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
+	@mkdir -p $(dir $@)
+	@echo "  CC      $<"
+	@$(CC) $(filter-out $(LTO_FLAG),$(CFLAGS)) -S $< -o $@
+
+$(ASM_OFFSETS): $(O)/asm-offsets.s
+	@mkdir -p $(dir $@)
+	@echo "  GEN     $@"
+	@{ echo '#ifndef ASM_OFFSETS_H'; echo '#define ASM_OFFSETS_H'; \
+	   sed -n 's/^.*->\([A-Za-z_][A-Za-z0-9_]*\) \(-\{0,1\}[0-9][0-9]*\).*$$/#define \1 \2/p' $<; \
+	   echo '#endif'; } > $@.tmp && mv $@.tmp $@
+
+-include $(O)/asm-offsets.d
+
 # ---- compilation rules ------------------------------------------------------
 $(O)/%.o: %.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
 	@mkdir -p $(dir $@)
@@ -281,11 +328,25 @@ $(O)/%.o: %.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
 	@$(CC) $(CFLAGS) -c $< -o $@
 	@$(call record-cmd,$(CC) $(CFLAGS) -c $< -o $@)
 
-$(O)/%.o: %.S $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
+$(O)/%.o: %.S $(FLAGS_STAMP) $(KCONFIG_AUTOCONF) $(ASM_OFFSETS)
 	@mkdir -p $(dir $@)
 	@echo "  AS      $<"
 	@$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
 	@$(call record-cmd,$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@)
+
+ifneq ($(EXT),)
+$(O)/ext/%.o: $(EXT)/%.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF)
+	@mkdir -p $(dir $@)
+	@echo "  CC      $<"
+	@$(CC) $(CFLAGS) -c $< -o $@
+	@$(call record-cmd,$(CC) $(CFLAGS) -c $< -o $@)
+
+$(O)/ext/%.o: $(EXT)/%.S $(FLAGS_STAMP) $(KCONFIG_AUTOCONF) $(ASM_OFFSETS)
+	@mkdir -p $(dir $@)
+	@echo "  AS      $<"
+	@$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
+	@$(call record-cmd,$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@)
+endif
 
 # Two-pass link: pass 1 exists only to give symbol.py a symbol table to read,
 # which pass 2 links in. Safe because ksymtab.c is pure data (no .text), so the
@@ -301,7 +362,7 @@ $(TARGET): $(OBJS) $(LINKER_SCRIPT)
 	@$(CC) $(CFLAGS) -c $(O)/ksymtab.c -o $(O)/ksymtab.o
 	@echo "  LD      (final) $@"
 	@$(LD) $(LDFLAGS) $(O)/ksymtab.o $(OBJS) $(KERNEL_LIBGCC) -o $@
-	@if [ "$(DEBUG_BUILD)" = "0" ]; then \
+	@if [ "$(CONFIG_DEBUG_BUILD)" != "y" ]; then \
 		echo "  STRIP   $@"; \
 		$(OBJCOPY) --strip-debug $@ $@; \
 	fi
@@ -320,6 +381,50 @@ analyze:
 	@$(MAKE) clean
 	@mkdir -p $(O)
 	@$(MAKE) ANALYZE=1 kernel 2>&1 | tee $(O)/analyzer.log
+
+# Fails if architecture code leaks into the neutral directories: inline asm,
+# arch_impl/ or arch/$(ARCH)/ includes, coprocessor access. Device names are
+# fine (drivers/ is where they belong); per-arch subdirectories such as
+# klib/$(ARCH)/ are skipped.
+HAL_NEUTRAL_DIRS = kernel core klib drivers
+HAL_LEAK_RE      = __asm__|asm[[:space:]]+volatile|<arch_impl/|arch/$(ARCH)/|p15,|mrc |mcr
+
+.PHONY: hal-check
+hal-check:
+	@hits=$$(grep -rnE '$(HAL_LEAK_RE)' $(HAL_NEUTRAL_DIRS) \
+	    --include='*.c' --include='*.h' --include='*.S' --exclude-dir=$(ARCH)); \
+	if [ -n "$$hits" ]; then \
+	    echo "  HAL     arch code in neutral dirs:"; echo "$$hits"; exit 1; \
+	fi; \
+	echo "  HAL     clean"
+
+# Strict documentation gate (see docs/Doxyfile, docs/doc-scope). doc-check
+# holds every path listed in docs/doc-scope to the rules; doc-report shows what
+# is left for one path without it being in scope yet.
+DOC_SCOPE      = $(shell grep -vE '^[[:space:]]*(\#|$$)' docs/doc-scope 2>/dev/null)
+DOC_GCC_ONLY   = -Wduplicated-cond -Wduplicated-branches -Wlogical-op -fanalyzer -MMD -MP -MD \
+                 $(LTO_FLAG)
+DOC_KFLAGS     = $(filter-out $(DOC_GCC_ONLY),$(CFLAGS))
+DOC_UFLAGS     = -ffreestanding $(INCLUDES) -include $(KCONFIG_AUTOCONF) -DBOARD_LAYOUT_H='"$(BOARD_LAYOUT_H)"'
+
+.PHONY: doc-check doc-report
+doc-check doc-report: $(KCONFIG_AUTOCONF)
+	@mkdir -p $(O)
+	$(file >$(O)/doc-kflags,$(DOC_KFLAGS))
+	$(file >$(O)/doc-uflags,$(DOC_UFLAGS))
+	@sh scripts/doc_check.sh $(O)/doc-kflags $(O)/doc-uflags \
+	    $(if $(filter doc-report,$@),$(or $(DIR),$(error doc-report needs DIR=<path>)),$(DOC_SCOPE))
+
+# Generated zuzu-docs pages (scripts/gen_docs.py) from the headers in docs/doc-publish.
+DOC_PUBLIC = $(wildcard $(shell grep -vE '^[[:space:]]*(\#|$$)' docs/doc-publish))
+DOCS_OUT  ?= ../zuzu-docs
+
+.PHONY: docs-site
+docs-site:
+	@rm -rf docs/doxygen && mkdir -p docs/doxygen
+	@{ cat docs/Doxyfile; echo 'WARN_AS_ERROR = NO'; } | \
+	    ZUZU_DOC_INPUT="docs/groups.dox $(DOC_PUBLIC)" doxygen - >/dev/null
+	@python3 scripts/gen_docs.py --xml docs/doxygen/xml --out $(DOCS_OUT) --clean
 
 .PHONY: kernel dump
 kernel: $(TARGET) links
@@ -353,12 +458,12 @@ help:
 	@echo '  distclean           also remove .baseline/ and .cache/'
 	@echo ''
 	@echo 'Run:'
-	@echo '  run                 boot under QEMU'
+	@echo '  run                 boot under QEMU (NET=user|bridged|pcap, GRAPHIC=1 for a window)'
 	@echo '  debug               boot stopped, gdb on tcp::1234'
 	@echo '  smoke               boot headless and check it came up'
 	@echo '  smoke-all           smoke every board'
-	@echo '  run-bridged         boot with a bridged NIC (needs sudo)'
-	@echo '  run-pcap            boot and capture traffic to a pcap'
+	@echo '  run-bridged         same as run NET=bridged (needs sudo)'
+	@echo '  run-pcap            same as run NET=pcap (capture traffic to a pcap)'
 	@echo ''
 	@echo 'Configure (per board, in $(O)/.config):'
 	@echo '  menuconfig          interactive configuration'
@@ -380,6 +485,10 @@ help:
 	@echo '  compile_commands.json   clangd database'
 	@echo '  dump                objdump -D to $(O)/zuzu.dump'
 	@echo '  analyze             clean rebuild under -fanalyzer'
+	@echo '  hal-check           fail if arch code leaks into kernel/ core/ klib/ drivers/'
+	@echo '  doc-check           strict docs over docs/doc-scope (@file, doxygen, clang)'
+	@echo '  doc-report DIR=p    the same checks for one path, not yet in scope'
+	@echo '  docs-site           regenerate zuzu-docs pages into DOCS_OUT (../zuzu-docs)'
 	@echo '  print-<VAR>         print a make variable, e.g. -s print-CFLAGS'
 
 # ZUZUSD/ was the pre-$(O) SD staging dir; drop it so old checkouts tidy up.

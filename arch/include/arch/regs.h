@@ -1,30 +1,23 @@
-// arch/regs.h - Neutral saved-register contract.
-//
-// arch_regs_t is the saved trap/exception frame. Neutral code never touches its
-// fields directly; it uses the accessors below (implemented per-arch). Register is
-// the architecture's natural register-width integer.
-//
-//   Register *arch_reg(arch_regs_t *f, unsigned i);  -- syscall ABI slot i (r/w)
-//   Register  arch_regs_pc(const arch_regs_t *f);     -- saved return PC
-//   Register  arch_regs_sp(const arch_regs_t *f);     -- saved user SP
-//   Register  arch_regs_lr(const arch_regs_t *f);     -- saved user LR
-//   Register  arch_regs_flags(const arch_regs_t *f);  -- saved status/flags
-//
-// The two below read live CPU state (not a saved frame) — for diagnostics
-// (e.g. core/panic.c) that need "where are we right now" rather than "where
-// did we trap from".
-//
-//   Register  arch_current_fp(void);                  -- live frame-pointer register
-//   Register  arch_current_flags(void);                -- live status/flags register
+/**
+ * @file
+ * @brief Architecture-neutral access to saved register frames.
+ */
 
-#ifndef ZUZU_ARCH_REGS_H
-#define ZUZU_ARCH_REGS_H
+#ifndef ARCH_REGS_H
+#define ARCH_REGS_H
 
-#include <arch_impl/regs.h>   /* arch_regs_t + accessors (CpuContext for arch use) */
+#include <arch_impl/regs.h>
 
-static __always_inline void arch_reg_set(CpuState *f, unsigned i, int value)
+/**
+ * @brief Overwrites argument/result register @p i of a saved frame.
+ *
+ * @param[in,out] f     Frame to change.
+ * @param[in]     i     Register index, as for ArchGetFromFrame().
+ * @param[in]     value New value.
+ */
+static __always_inline void ArchSetInFrame(CpuState *f, unsigned i, Register value)
 {
-    *arch_reg(f, i) = (Register)value;
-} 
+    *ArchGetFromFrame(f, i) = value;
+}
 
-#endif // ZUZU_ARCH_REGS_H
+#endif // ARCH_REGS_H

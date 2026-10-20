@@ -1,1073 +1,511 @@
-#include "globals.h"
-#include "zuzu/memprot.h"
-#include "zuzu/umem.h"
-
 #include <arch/cycles.h>
-#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <zuzu/bench.h>
-#include <zuzu/cap.h>
-#include <zuzu/channel.h>
-#include <zuzu/lmsg.h>
 #include <zuzu/msg.h>
-#include <zuzu/protocols/exec.h>
-#include <zuzu/service.h>
-#include <zuzu/task.h>
-#include <zuzu/types.h>
+#include <zuzu/err.h>
+#include <zuzu/syspage.h>
+#include <zuzu/uptime.h>
+#include <zuzu/user_layout.h>
+#include <zuzu/zuzu.h>
 
-/* First payload word (w1) the client sends to ask the echo thread to exit.
- * zuzu_msg_recv() of a call hands the receiver: w0 = reply handle,
- * w1 = caller pid, w2/w3 = the caller's w1/w2 - so the sentinel must be
- * checked against w2, not w1. */
+#define SAMPLES 8192
+#define WARMUP 1024
+#define CAL_ROUNDS 5
+#define SERVER_STACK (16 * 1024)
 #define MSG_QUIT 0xFFFFFFFFu
-#define MSG_PING 0u
+#define HEAVY 1100
+#define PAGE 4096u
+#define INJECT_MAX_PAGES 256u
 
-/* ZuzuMsgLcall has no w1/w2 word arguments -- the only thing SysMsgRecv
- * hands the receiver for an lcall is the transferred buffer length in w2
- * (see kernel/ipc/sys_ipc.c). LCALL_QUIT_LEN just needs to be distinct from
- * LCALL_PAYLOAD_LEN and from every size in the CONFIG_ZUZU_BENCH payload-size
- * sweep (0/4/8/16/32/64/128/256, see run_lcall_sweep_benchmark) so the
- * server can tell "shut down" from "echo this". */
-#define LCALL_PAYLOAD_LEN 32u
-#define LCALL_QUIT_LEN 500u
+#define TIMED(buf, i, expr)                                                                        \
+    do {                                                                                           \
+        uint32_t t0_ = ArchMeasure();                                                              \
+        expr;                                                                                      \
+        (buf)[i] = ArchMeasure() - t0_;                                                            \
+    } while (0)
 
-/* Cross-process IPC RTT: same protocol, same iteration count as the
- * existing thread-based run_benchmark(), but a dedicated 500-sample
- * warm-up rather than the shared (5-iteration) WARMUP_ITERATIONS --
- * see run_cross_process_benchmark()'s own comment for why it needs a
- * longer warm-up than the same-process variant. */
-#define XPROC_WARMUP_ITERATIONS 500u
+static uint32_t g_samples[SAMPLES];
+static uint32_t g_samples_b[SAMPLES];
+static uint32_t g_samples_c[SAMPLES];
+static uint32_t g_samples_d[SAMPLES];
+static uint32_t g_overhead;
+static uint32_t g_khz;
 
-/* speedtest_ipc_child lives on the SD card next to speedtest itself (see
- * that file) and is spawned on demand -- there's no boot-time instance to
- * find, so speedtest has to bring its own copy up for every run. */
-#define CHILD_PATH "/bin/speedtest_ipc_child"
-#define CHILD_NAME "speedtest_ipc_child"
-
-/* Every value this suite reports (min-of-N, so *_x100 carries two decimal
- * digits of fixed-point precision for the average). ok = false means the
- * benchmark couldn't run at all (e.g. the cross-process child never
- * registered) -- its row in the Markdown table prints "n/a" rather than a
- * misleading zero. */
-typedef struct {
-	uint32_t min;
-	uint64_t avg_x100;
-	uint32_t max;
-	bool ok;
-} BenchmarkResult;
-
-/* Direct read of the ARMv7 32-bit cycle counter. The PMU is already enabled
- * and opened up for PL0 access at boot (see pmu_init() in arch/arm/early.c),
- * so no setup is needed here. */
-static void echo_server_thread(void *arg)
+static void SortU32(uint32_t *a, uint32_t n)
 {
-	Handle port = *(Handle *)arg;
-
-	for (;;) {
-		Message cmd = ZuzuMsgRecv(port, TIMEOUT_INFINITE);
-
-		if (cmd.w2 == MSG_QUIT) {
-			ZuzuMsgReply(cmd.w0, 1, 0, 0);
-			ZuzuTQuit(ZUZU_OK);
-		}
-
-		ZuzuMsgReply(cmd.w0, 1, 0, 0);
-	}
+    for (uint32_t gap = n / 2; gap > 0; gap /= 2) {
+        for (uint32_t i = gap; i < n; i++) {
+            uint32_t v = a[i];
+            uint32_t j = i;
+            for (; j >= gap && a[j - gap] > v; j -= gap)
+                a[j] = a[j - gap];
+            a[j] = v;
+        }
+    }
 }
 
-/* Same shape as echo_server_thread, but for ZuzuMsgLcall: reads the
- * caller's buffer, writes it straight back, and replies via
- * ZuzuMsgLreply so the round trip actually exercises the lmsg_buf copy
- * on both legs, not just the register-passing fast path. */
-static void lcall_echo_server_thread(void *arg)
+static uint32_t Median(uint32_t *a, uint32_t n)
 {
-	Handle port = *(Handle *)arg;
-	static uint8_t buf[LMSG_BUF_SIZE];
-
-	for (;;) {
-		Message cmd = ZuzuMsgRecv(port, TIMEOUT_INFINITE);
-		uint32_t len = cmd.w2;
-
-		if (len == LCALL_QUIT_LEN) {
-			ZuzuMsgLreply(cmd.w0, 0);
-			ZuzuTQuit(ZUZU_OK);
-		}
-
-		LmsgRead(buf, len);
-		LmsgWrite(buf, len);
-		ZuzuMsgLreply(cmd.w0, len);
-	}
+    SortU32(a, n);
+    return a[n / 2];
 }
 
-/* Rough cycles-per-microsecond estimate, derived by bracketing a known-length
- * sleep with cycle-counter reads. TICK_HZ is 100 (10ms resolution) so a
- * short calibration window would carry a large relative error; 500ms keeps
- * that error near 1-2%. This is only ever used to make the report readable
- * in real time, not as a precise measurement. */
-static uint32_t calibrate_cycles_per_us(void)
+static uint32_t CyclesToNs(uint32_t cycles)
 {
-	ArchIsb();
-	uint32_t start = ArchStartMeasurement();
-	ArchIsb();
-
-	ZuzuSleep(CALIBRATION_MS);
-
-	ArchIsb();
-	uint32_t end = ArchEndMeasurement();
-	ArchIsb();
-
-	return (end - start) / (CALIBRATION_MS * 1000u);
+    return (uint32_t)(((uint64_t)cycles * 1000000u) / g_khz);
 }
 
-static uint32_t g_samples[BENCHMARK_ITERATIONS];
 
-static BenchmarkResult run_benchmark(Handle port)
+static uint32_t CalibrateOverhead(void)
 {
-	for (int i = 0; i < WARMUP_ITERATIONS; i++) {
-		ZuzuMsgCall(port, MSG_PING, 0, 0);
-	}
-
-	uint32_t errors = 0;
-	int32_t first_err_r0 = 0;
-	uint32_t first_err_r1 = 0;
-
-	for (uint32_t i = 0; i < BENCHMARK_ITERATIONS; i++) {
-		ArchIsb();
-		uint32_t start = ArchMeasure();
-		ArchIsb();
-
-		Message r = ZuzuMsgCall(port, MSG_PING, 0, 0);
-
-		ArchIsb();
-		uint32_t end = ArchMeasure();
-		ArchIsb();
-
-		/* Unsigned subtraction: correct mod-2^32 even if PMCCNTR wrapped
-		 * between the two reads. */
-		g_samples[i] = end - start;
-
-		if ((r.w0 != 0 || r.w1 != 1) && errors == 0) {
-			first_err_r0 = r.w0;
-			first_err_r1 = r.w1;
-		}
-		if (r.w0 != 0 || r.w1 != 1) {
-			errors++;
-		}
-	}
-
-	uint32_t min = UINT32_MAX, max = 0;
-	uint64_t sum = 0;
-	for (uint32_t i = 0; i < BENCHMARK_ITERATIONS; i++) {
-		uint32_t c = g_samples[i];
-		if (c < min)
-			min = c;
-		if (c > max)
-			max = c;
-		sum += c;
-	}
-	uint64_t mean_x100 = (sum * 100) / BENCHMARK_ITERATIONS;
-
-	/* "same-process, thread" is the disambiguating half of this label --
-	 * see run_cross_process_benchmark() for the counterpart that spawns
-	 * sender and receiver as separate processes instead. */
-	printf("IPC RTT (same-process, thread; zuzu_msg_call round trip), %u iterations (+%u warm-up)\n",
-	       (unsigned)BENCHMARK_ITERATIONS, (unsigned)WARMUP_ITERATIONS);
-
-	if (errors) {
-		printf("  %u/%u replies were unexpected (first: w0=%d w1=%u)\n", errors,
-		       (unsigned)BENCHMARK_ITERATIONS, first_err_r0, first_err_r1);
-	}
-
-	printf("  min: %u cycles\n", min);
-	printf("  avg: %u.%02u cycles\n", (unsigned)(mean_x100 / 100), (unsigned)(mean_x100 % 100));
-	printf("  max: %u cycles  (max includes scheduler/IRQ jitter; min is the best-case cost)\n",
-	       max);
-
-	uint32_t cycles_per_us = calibrate_cycles_per_us();
-	if (cycles_per_us > 0) {
-		uint64_t min_ns = ((uint64_t)min * 1000) / cycles_per_us;
-		uint64_t avg_ns = ((uint64_t)(sum / BENCHMARK_ITERATIONS) * 1000) / cycles_per_us;
-		printf("  approx (sleep-calibrated @ ~%u cycles/us): min %llu ns, avg %llu ns\n",
-		       cycles_per_us, (unsigned long long)min_ns, (unsigned long long)avg_ns);
-	}
-
-	return (BenchmarkResult){ .min = min, .avg_x100 = mean_x100, .max = max, .ok = true };
+    for (uint32_t i = 0; i < SAMPLES; i++) {
+        uint32_t a = ArchMeasure();
+        uint32_t b = ArchMeasure();
+        g_samples[i] = b - a;
+    }
+    return Median(g_samples, SAMPLES);
 }
 
-/* sysd rendezvous + spawn plumbing for speedtest_ipc_child, mirroring
- * zztest's child_spawn (user/test_apps/zztest/main.c) via the same
- * pspawn -> grant -> SYSD_EXEC -> kickstart path zzsh uses -- minus the
- * mode-string argv this suite doesn't need. */
-static Handle g_sysd_port = -1;
-static Pid g_sysd_pid;
-
-static int sysd_setup(void)
+static uint32_t CalibrateKhz(void)
 {
-	Pid pid;
-	Handle h = LookupServiceWithPid("/svc/sysd", &pid);
-	if (h < 0)
-		return -1;
-	g_sysd_port = h;
-	g_sysd_pid = pid;
-	return 0;
+    const uint64_t span_us = 100000u;
+    uint32_t est[CAL_ROUNDS];
+
+    for (int r = 0; r < CAL_ROUNDS; r++) {
+        uint64_t t1 = UptimeUs();
+        uint32_t c0 = ArchMeasure();
+        while (UptimeUs() - t1 < span_us)
+            ;
+        uint32_t c1 = ArchMeasure();
+        uint64_t t2 = UptimeUs();
+        est[r] = (uint32_t)(((uint64_t)(c1 - c0) * 1000u) / (t2 - t1));
+    }
+    return Median(est, CAL_ROUNDS);
+}
+
+static void Report(const char *name, uint32_t n)
+{
+    for (uint32_t i = 0; i < n; i++)
+        g_samples[i] = g_samples[i] > g_overhead ? g_samples[i] - g_overhead : 0;
+
+    uint64_t sum = 0;
+    for (uint32_t i = 0; i < n; i++)
+        sum += g_samples[i];
+    uint32_t mean = (uint32_t)(sum / n);
+
+    uint64_t var = 0;
+    for (uint32_t i = 0; i < n; i++) {
+        int64_t d = (int64_t)g_samples[i] - mean;
+        var += (uint64_t)(d * d);
+    }
+    var /= n;
+    uint32_t sd = 0;
+    while ((uint64_t)(sd + 1) * (sd + 1) <= var)
+        sd++;
+
+    SortU32(g_samples, n);
+    uint32_t min = g_samples[0];
+    uint32_t med = g_samples[n / 2];
+    uint32_t p99 = g_samples[(n * 99) / 100];
+    uint32_t max = g_samples[n - 1];
+
+    printf("%-22s min %6u  med %6u  p99 %6u  max %7u  mean %6u  sd %5u cyc | med %6u ns\n", name,
+           min, med, p99, max, mean, sd, CyclesToNs(med));
+}
+
+static void ReportBuf(const char *name, const uint32_t *buf, uint32_t n)
+{
+    memcpy(g_samples, buf, n * sizeof(uint32_t));
+    Report(name, n);
+}
+
+static void BenchNullSyscall(void)
+{
+    for (uint32_t i = 0; i < WARMUP; i++)
+        (void)HandleQuery(-1, QUERY_TYPE);
+    for (uint32_t i = 0; i < SAMPLES; i++) {
+        uint32_t s = ArchMeasure();
+        (void)HandleQuery(-1, QUERY_TYPE);
+        g_samples[i] = ArchMeasure() - s;
+    }
+    Report("syscall (null)", SAMPLES);
+}
+
+static void BenchYield(void)
+{
+    for (uint32_t i = 0; i < WARMUP; i++)
+        Yield();
+    for (uint32_t i = 0; i < SAMPLES; i++) {
+        uint32_t s = ArchMeasure();
+        Yield();
+        g_samples[i] = ArchMeasure() - s;
+    }
+    Report("yield (no peer)", SAMPLES);
 }
 
 typedef struct {
-	Handle task;
-	Pid pid;
-} ChildProc;
+    Handle port;
+} Server;
 
-/* Spawns speedtest_ipc_child with `port` granted into its handle table
- * pre-kickstart; the child-side slot is passed as its sole argv[1]. That
- * hands the child a live, already-shared port before it ever runs, so
- * there's no rendezvous step on the far side (no nametable lookup, no
- * polling) -- the first ZuzuMsgRecv in the child and the first
- * ZuzuMsgCall in run_cross_process_benchmark() just meet on the port.
- * Returns 0, or a negative err. */
-static int32_t spawn_ipc_child(Handle port, ChildProc *out)
+static void ServerEntry(Server *s)
 {
-	TSpawnResult ts = ZuzuPSpawn(CHILD_NAME);
-	if (ts.taskHandle < 0)
-		return ts.taskHandle;
-
-	int32_t child_slot = ZuzuGrant(port, ts.pid, 0);
-	if (child_slot < 0) {
-		ZuzuPKill(ts.taskHandle);
-		return child_slot;
-	}
-
-	int32_t sysd_task = ZuzuGrant(ts.taskHandle, g_sysd_pid, 0);
-	if (sysd_task < 0) {
-		ZuzuPKill(ts.taskHandle);
-		return sysd_task;
-	}
-
-	char slot_arg[16];
-	snprintf(slot_arg, sizeof(slot_arg), "%d", (int)child_slot);
-
-	/* argbuf = "speedtest_ipc_child\0<slot>\0" */
-	char argbuf[sizeof(CHILD_NAME) + sizeof(slot_arg)];
-	size_t argpos = 0;
-	memcpy(argbuf + argpos, CHILD_NAME, strlen(CHILD_NAME) + 1);
-	argpos += strlen(CHILD_NAME) + 1;
-	memcpy(argbuf + argpos, slot_arg, strlen(slot_arg) + 1);
-	argpos += strlen(slot_arg) + 1;
-
-	/* request = header + "path\0" + argbuf */
-	size_t path_len = strlen(CHILD_PATH);
-	uint8_t req[sizeof(ExecRequestHeader) + sizeof(CHILD_PATH) + sizeof(argbuf)];
-	ExecRequestHeader *hdr = (ExecRequestHeader *)req;
-	hdr->cmd = SYSD_EXEC;
-	hdr->_pad = 0;
-	hdr->taskHandle = (uint16_t)sysd_task;
-	hdr->path_len = (uint16_t)path_len;
-	hdr->argc = 2;
-	hdr->pid = ts.pid;
-	memcpy(req + sizeof(*hdr), CHILD_PATH, path_len + 1);
-	memcpy(req + sizeof(*hdr) + path_len + 1, argbuf, argpos);
-
-	ExecReply reply;
-	int32_t rc = ChannelCall(g_sysd_port, req,
-				 (uint32_t)(sizeof(*hdr) + path_len + 1 + argpos), &reply,
-				 sizeof(reply));
-	if (rc < 0) {
-		ZuzuPKill(ts.taskHandle);
-		return rc;
-	}
-	/* sysd signals failure with the Err as the whole payload; ChannelCall
-	 * has already copied it into `reply`. */
-	if (rc == (int32_t)sizeof(Err)) {
-		Err err;
-		memcpy(&err, &reply, sizeof(err));
-		ZuzuPKill(ts.taskHandle);
-		return err;
-	}
-	if (rc != (int32_t)sizeof(ExecReply)) {
-		ZuzuPKill(ts.taskHandle);
-		return ERR_MALFORMED;
-	}
-
-	rc = ZuzuKickstart(ts.taskHandle, reply.entry, reply.sp, 2, reply.argv_va);
-	if (rc != 0) {
-		ZuzuPKill(ts.taskHandle);
-		return rc;
-	}
-
-	out->task = ts.taskHandle; /* consumed by kickstart (slot freed) */
-	out->pid = ts.pid;
-	return 0;
+    PortWaitResult r = FormatToPortWait(WaitOn(s->port, TIMEOUT_INFINITE));
+    for (;;) {
+        if (r.status != ZUZU_OK)
+            Quit(r.status);
+        uint32_t first = 0;
+        if (r.xlen >= 4)
+            memcpy(&first, GetMessageBox(), 4);
+        if (first == MSG_QUIT) {
+            Reply(0, -1);
+            Quit(0);
+        }
+        r = FormatToPortWait(ReplyRecv(r.xlen, -1, s->port, TIMEOUT_INFINITE));
+    }
 }
 
-/* Cross-process counterpart to run_benchmark(): identical ping-pong
- * protocol, identical iteration count, against speedtest_ipc_child
- * instead of an in-process thread -- so every extra cycle this reports
- * over the same-process number is the cost of the full context-switch
- * path (TTBR0 write, ASID/TLB handling) that a thread-to-thread handoff
- * never pays, not scheduler-pick-and-register-copy cost.
- *
- * The warm-up is 500 iterations rather than the same-process variant's
- * WARMUP_ITERATIONS (5): the first handful of cross-process round trips
- * also pay for one-time costs a thread-to-thread handoff doesn't have
- * to (the TLB/ASID entries for the child's address space aren't resident
- * until something actually switches into it), and those need to be
- * amortized out of the measured window, not just the branch
- * predictor/icache warm-up the same-process benchmark's 5 iterations
- * cover. */
-static BenchmarkResult run_cross_process_benchmark(void)
+static void BenchIpc(const char *kind, Handle port, uint32_t len)
 {
-	if (sysd_setup() != 0) {
-		printf("IPC RTT (cross-process; zuzu_msg_call round trip): "
-		       "sysd (\"sys\") not registered, skipping\n");
-		return (BenchmarkResult){ .ok = false };
-	}
+    uint8_t *buf = GetMessageBox();
+    memset(buf, 0xA5, len < 4 ? 4 : len);
+    buf[0] = 0;
+    buf[1] = buf[2] = buf[3] = 0;
 
-	Handle port = ZuzuPortCreate();
-	if (port < 0) {
-		printf("IPC RTT (cross-process; zuzu_msg_call round trip): "
-		       "couldn't create echo port, skipping\n");
-		return (BenchmarkResult){ .ok = false };
-	}
-
-	ChildProc child = { 0 };
-	int32_t spawn_rc = spawn_ipc_child(port, &child);
-	if (spawn_rc < 0) {
-		printf("IPC RTT (cross-process; zuzu_msg_call round trip): "
-		       "speedtest_ipc_child failed to spawn (%s), skipping\n",
-		       StrToError(spawn_rc));
-		ZuzuDestroy(port);
-		return (BenchmarkResult){ .ok = false };
-	}
-
-	for (uint32_t i = 0; i < XPROC_WARMUP_ITERATIONS; i++) {
-		ZuzuMsgCall(port, MSG_PING, 0, 0);
-	}
-
-	uint32_t errors = 0;
-	int32_t first_err_r0 = 0;
-	uint32_t first_err_r1 = 0;
-
-	for (uint32_t i = 0; i < BENCHMARK_ITERATIONS; i++) {
-		ArchIsb();
-		uint32_t start = ArchMeasure();
-		ArchIsb();
-
-		Message r = ZuzuMsgCall(port, MSG_PING, 0, 0);
-
-		ArchIsb();
-		uint32_t end = ArchMeasure();
-		ArchIsb();
-
-		/* Unsigned subtraction: correct mod-2^32 even if PMCCNTR wrapped
-		 * between the two reads. */
-		g_samples[i] = end - start;
-
-		if ((r.w0 != 0 || r.w1 != 1) && errors == 0) {
-			first_err_r0 = r.w0;
-			first_err_r1 = r.w1;
-		}
-		if (r.w0 != 0 || r.w1 != 1) {
-			errors++;
-		}
-	}
-
-	uint32_t min = UINT32_MAX, max = 0;
-	uint64_t sum = 0;
-	for (uint32_t i = 0; i < BENCHMARK_ITERATIONS; i++) {
-		uint32_t c = g_samples[i];
-		if (c < min)
-			min = c;
-		if (c > max)
-			max = c;
-		sum += c;
-	}
-	uint64_t mean_x100 = (sum * 100) / BENCHMARK_ITERATIONS;
-
-	printf("IPC RTT (cross-process; zuzu_msg_call round trip), %u iterations (+%u warm-up)\n",
-	       (unsigned)BENCHMARK_ITERATIONS, (unsigned)XPROC_WARMUP_ITERATIONS);
-
-	if (errors) {
-		printf("  %u/%u replies were unexpected (first: w0=%d w1=%u)\n", errors,
-		       (unsigned)BENCHMARK_ITERATIONS, first_err_r0, first_err_r1);
-	}
-
-	printf("  min: %u cycles\n", min);
-	printf("  avg: %u.%02u cycles\n", (unsigned)(mean_x100 / 100), (unsigned)(mean_x100 % 100));
-	printf("  max: %u cycles  (max includes scheduler/IRQ jitter; min is the best-case cost)\n",
-	       max);
-
-	uint32_t cycles_per_us = calibrate_cycles_per_us();
-	if (cycles_per_us > 0) {
-		uint64_t min_ns = ((uint64_t)min * 1000) / cycles_per_us;
-		uint64_t avg_ns = ((uint64_t)(sum / BENCHMARK_ITERATIONS) * 1000) / cycles_per_us;
-		printf("  approx (sleep-calibrated @ ~%u cycles/us): min %llu ns, avg %llu ns\n",
-		       cycles_per_us, (unsigned long long)min_ns, (unsigned long long)avg_ns);
-	}
-
-	ZuzuMsgCall(port, MSG_QUIT, 0, 0);
-	int32_t exit_status;
-	ZuzuWait(child.pid, &exit_status, 0);
-	ZuzuDestroy(port);
-
-	return (BenchmarkResult){ .min = min, .avg_x100 = mean_x100, .max = max, .ok = true };
+    for (uint32_t i = 0; i < WARMUP; i++)
+        (void)Call(port, len, -1);
+    for (uint32_t i = 0; i < SAMPLES; i++) {
+        uint32_t s = ArchMeasure();
+        SvcResult r = Call(port, len, -1);
+        g_samples[i] = ArchMeasure() - s;
+        if (r.r0 != ZUZU_OK) {
+            printf("ipc call failed: %d\n", (int)r.r0);
+            return;
+        }
+    }
+    char name[32];
+    snprintf(name, sizeof(name), "%s rtt %uB", kind, (unsigned)len);
+    Report(name, SAMPLES);
 }
 
-static BenchmarkResult run_lcall_benchmark(Handle port)
+static void RunIpc(void)
 {
-	uint8_t payload[LCALL_PAYLOAD_LEN];
-	memset(payload, 0xA5, sizeof(payload));
+    Server srv = {.port = CreatePort()};
+    uint8_t *stack = MemMapAnon(SERVER_STACK, 0, PROT_RW);
+    Handle task = CreateTask(-1);
+    if (srv.port < 0 || PtrIsErr(stack) || task < 0) {
+        printf("ipc setup failed\n");
+        return;
+    }
+    if (TaskStart(task, (void *)ServerEntry, stack + SERVER_STACK, (uint32_t)(uintptr_t)&srv, 0) !=
+        ZUZU_OK) {
+        printf("ipc server start failed\n");
+        return;
+    }
 
-	for (int i = 0; i < WARMUP_ITERATIONS; i++) {
-		LmsgWrite(payload, sizeof(payload));
-		ZuzuMsgLcall(port, sizeof(payload));
-	}
+    BenchIpc("ipc same-space", srv.port, 4);
+    BenchIpc("ipc same-space", srv.port, 64);
+    BenchIpc("ipc same-space", srv.port, 256);
 
-	uint32_t errors = 0;
-	int32_t first_err_r0 = 0;
-	uint32_t first_err_r1 = 0;
-
-	for (uint32_t i = 0; i < BENCHMARK_ITERATIONS; i++) {
-		LmsgWrite(payload, sizeof(payload));
-
-		ArchIsb();
-		uint32_t start = ArchMeasure();
-		ArchIsb();
-
-		Message r = ZuzuMsgLcall(port, sizeof(payload));
-
-		ArchIsb();
-		uint32_t end = ArchMeasure();
-		ArchIsb();
-
-		/* Unsigned subtraction: correct mod-2^32 even if PMCCNTR wrapped
-		 * between the two reads. */
-		g_samples[i] = end - start;
-
-		if ((r.w0 != 0 || r.w1 != sizeof(payload)) && errors == 0) {
-			first_err_r0 = r.w0;
-			first_err_r1 = r.w1;
-		}
-		if (r.w0 != 0 || r.w1 != sizeof(payload)) {
-			errors++;
-		}
-	}
-
-	uint32_t min = UINT32_MAX, max = 0;
-	uint64_t sum = 0;
-	for (uint32_t i = 0; i < BENCHMARK_ITERATIONS; i++) {
-		uint32_t c = g_samples[i];
-		if (c < min)
-			min = c;
-		if (c > max)
-			max = c;
-		sum += c;
-	}
-	uint64_t mean_x100 = (sum * 100) / BENCHMARK_ITERATIONS;
-
-	printf("IPC LRTT (ZuzuMsgLcall round trip, %u-byte payload), %u iterations (+%u warm-up)\n",
-	       (unsigned)LCALL_PAYLOAD_LEN, (unsigned)BENCHMARK_ITERATIONS,
-	       (unsigned)WARMUP_ITERATIONS);
-
-	if (errors) {
-		printf("  %u/%u replies were unexpected (first: w0=%d w1=%u)\n", errors,
-		       (unsigned)BENCHMARK_ITERATIONS, first_err_r0, first_err_r1);
-	}
-
-	printf("  min: %u cycles\n", min);
-	printf("  avg: %u.%02u cycles\n", (unsigned)(mean_x100 / 100), (unsigned)(mean_x100 % 100));
-	printf("  max: %u cycles  (max includes scheduler/IRQ jitter; min is the best-case cost)\n",
-	       max);
-
-	uint32_t cycles_per_us = calibrate_cycles_per_us();
-	if (cycles_per_us > 0) {
-		uint64_t min_ns = ((uint64_t)min * 1000) / cycles_per_us;
-		uint64_t avg_ns = ((uint64_t)(sum / BENCHMARK_ITERATIONS) * 1000) / cycles_per_us;
-		printf("  approx (sleep-calibrated @ ~%u cycles/us): min %llu ns, avg %llu ns\n",
-		       cycles_per_us, (unsigned long long)min_ns, (unsigned long long)avg_ns);
-	}
-
-	return (BenchmarkResult){ .min = min, .avg_x100 = mean_x100, .max = max, .ok = true };
+    uint32_t quit = MSG_QUIT;
+    memcpy(GetMessageBox(), &quit, 4);
+    Call(srv.port, 4, -1);
+    WaitOn(task, 1000);
+    HandleClose(task);
+    HandleClose(srv.port);
+    MemUnmap(stack);
 }
 
-static BenchmarkResult run_getpid_benchmark(void)
+/* One syscall in raw ARM code: mov r12, #n; svc #ARCH_SVC_MAGIC */
+#define SYS(n) (0xE3A0C000u | (uint32_t)(n)), (0xEF000000u | ARCH_SVC_MAGIC)
+
+static const uint32_t kEchoCode[] = {
+    0xE1A04000, 0xE1A00004, 0xE3E01000, SYS(SVC_WAITON), 0xE3500000, 0x1A000006, 0xE1A00002,
+    0xE3E01000, 0xE1A02004, 0xE3E03000, SYS(SVC_REPLY),  0xEAFFFFF6, SYS(SVC_QUIT),
+};
+
+static uint8_t g_code_page[4096] __attribute__((aligned(4096)));
+
+static void RunIpcCross(void)
 {
-	for (int i = 0; i < WARMUP_ITERATIONS; i++) {
-		(void)ZuzuGetPid();
-	}
-
-	for (uint32_t i = 0; i < BENCHMARK_ITERATIONS; i++) {
-		ArchIsb();
-		uint32_t start = ArchMeasure();
-		ArchIsb();
-
-		(void)ZuzuGetPid();
-
-		ArchIsb();
-		uint32_t end = ArchMeasure();
-		ArchIsb();
-
-		/* Unsigned subtraction: correct mod-2^32 even if PMCCNTR wrapped
-		 * between the two reads. */
-		g_samples[i] = end - start;
-	}
-
-	uint32_t min = UINT32_MAX, max = 0;
-	uint64_t sum = 0;
-	for (uint32_t i = 0; i < BENCHMARK_ITERATIONS; i++) {
-		uint32_t c = g_samples[i];
-		if (c < min)
-			min = c;
-		if (c > max)
-			max = c;
-		sum += c;
-	}
-	uint64_t mean_x100 = (sum * 100) / BENCHMARK_ITERATIONS;
-
-	printf("getpid, %u iterations (+%u warm-up)\n", (unsigned)BENCHMARK_ITERATIONS,
-	       (unsigned)WARMUP_ITERATIONS);
-
-	printf("  min: %u cycles\n", min);
-	printf("  avg: %u.%02u cycles\n", (unsigned)(mean_x100 / 100), (unsigned)(mean_x100 % 100));
-	printf("  max: %u cycles  (max includes scheduler/IRQ jitter; min is the best-case cost)\n",
-	       max);
-
-	uint32_t cycles_per_us = calibrate_cycles_per_us();
-	if (cycles_per_us > 0) {
-		uint64_t min_ns = ((uint64_t)min * 1000) / cycles_per_us;
-		uint64_t avg_ns = ((uint64_t)(sum / BENCHMARK_ITERATIONS) * 1000) / cycles_per_us;
-		printf("  approx (sleep-calibrated @ ~%u cycles/us): min %llu ns, avg %llu ns\n",
-		       cycles_per_us, (unsigned long long)min_ns, (unsigned long long)avg_ns);
-	}
-
-	return (BenchmarkResult){ .min = min, .avg_x100 = mean_x100, .max = max, .ok = true };
+    Handle port = CreatePort();
+    Handle space = CreateSpace("speedtest-echo");
+    if (port < 0 || space < 0) {
+        printf("cross-space setup failed\n");
+        return;
+    }
+    memcpy(g_code_page, kEchoCode, sizeof(kEchoCode));
+    Handle task = -1;
+    SvcResult g = HandleGrant(port, space, PERM_ALL);
+    Err inj = MemInjectBytes(space, USER_ELF_BASE, g_code_page, sizeof(g_code_page),
+                             PROT_READ | PROT_EXEC);
+    Err start = ERR_BADARG;
+    if (inj == ZUZU_OK && g.r0 == ZUZU_OK && (task = CreateTask(space)) >= 0)
+        start = TaskStart(task, (void *)USER_ELF_BASE, (void *)USR_SP, (uint32_t)g.r1, 0);
+    if (start == ZUZU_OK) {
+        BenchIpc("ipc cross-space", port, 4);
+        BenchIpc("ipc cross-space", port, 64);
+        BenchIpc("ipc cross-space", port, 256);
+    } else {
+        printf("cross-space setup failed: grant %d inject %d task %d start %d\n", (int)g.r0,
+               (int)inj, (int)task, (int)start);
+    }
+    if (task >= 0)
+        HandleClose(task);
+    HandleDestroy(space);
+    HandleClose(port);
 }
 
-/* Prints one copy-pasteable Markdown table row covering every column this
- * binary itself measures (min-of-N cycles, matching the "Control (1.1)
- * none" baseline row's convention) -- paste straight into BENCHMARKS.md,
- * fill in the leading label cell for whatever config this run was built
- * with. Kernel-side CONFIG_ZUZU_BENCH counters print their own [BENCH] lines
- * separately on the kernel console; they aren't part of this row since
- * this process has no way to read them back. */
-static void print_markdown_row(BenchmarkResult getpid, BenchmarkResult ipc_thread,
-			       BenchmarkResult ipc_xproc, BenchmarkResult lmsg)
+static void BenchHandleOps(void)
 {
-	char getpid_s[16], thread_s[16], xproc_s[16], lmsg_s[16];
+    Handle ev = CreateEvent();
+    if (ev < 0) {
+        printf("handle bench setup failed\n");
+        return;
+    }
+    for (uint32_t i = 0; i < WARMUP; i++) {
+        SvcResult d = HandleDuplicate(ev, PERM_SEND, MARKER_NONE);
+        HandleClose((Handle)d.r1);
+    }
+    for (uint32_t i = 0; i < SAMPLES; i++) {
+        SvcResult d;
+        TIMED(g_samples, i, d = HandleDuplicate(ev, PERM_SEND, MARKER_NONE));
+        TIMED(g_samples_b, i, HandleClose((Handle)d.r1));
+    }
+    Report("handle duplicate", SAMPLES);
+    ReportBuf("handle close", g_samples_b, SAMPLES);
 
-	if (getpid.ok)
-		snprintf(getpid_s, sizeof(getpid_s), "%u", getpid.min);
-	else
-		snprintf(getpid_s, sizeof(getpid_s), "n/a");
+    for (uint32_t i = 0; i < WARMUP; i++)
+        Signal(ev, 1, false);
+    for (uint32_t i = 0; i < SAMPLES; i++)
+        TIMED(g_samples, i, Signal(ev, 1, false));
+    Report("signal (no waiter)", SAMPLES);
 
-	if (ipc_thread.ok)
-		snprintf(thread_s, sizeof(thread_s), "%u", ipc_thread.min);
-	else
-		snprintf(thread_s, sizeof(thread_s), "n/a");
-
-	if (ipc_xproc.ok)
-		snprintf(xproc_s, sizeof(xproc_s), "%u", ipc_xproc.min);
-	else
-		snprintf(xproc_s, sizeof(xproc_s), "n/a");
-
-	if (lmsg.ok)
-		snprintf(lmsg_s, sizeof(lmsg_s), "%u", lmsg.min);
-	else
-		snprintf(lmsg_s, sizeof(lmsg_s), "n/a");
-
-	printf("\nMarkdown row for BENCHMARKS.md (min cycles; fill in the label):\n");
-	printf("| <label> | %s | %s | %s | %s |\n", getpid_s, thread_s, xproc_s, lmsg_s);
-	printf("(columns: getpid | IPC RTT same-process,thread | "
-	       "IPC RTT cross-process | Lmsg RTT)\n");
+    for (uint32_t i = 0; i < SAMPLES; i++)
+        TIMED(g_samples, i, HandleRestrict(ev, PERM_ALL));
+    Report("handle restrict", SAMPLES);
+    HandleClose(ev);
 }
 
-#ifdef CONFIG_ZUZU_BENCH
-
-static void bench_print(const char *label, const BenchResult *r)
+static void BenchCreateObjects(void)
 {
-	uint64_t avg_x100 = r->count ? (r->sum * 100) / r->count : 0;
-	printf("[BENCH] %-32s min=%-8u avg=%u.%02u max=%-8u (cycles, n=%u)\n", label, r->min,
-	       (uint32_t)(avg_x100 / 100), (uint32_t)(avg_x100 % 100), r->max, r->count);
+    for (uint32_t i = 0; i < HEAVY; i++) {
+        Handle h;
+        TIMED(g_samples, i, h = CreatePort());
+        TIMED(g_samples_b, i, HandleClose(h));
+    }
+    Report("create port", HEAVY);
+    ReportBuf("destroy port (close)", g_samples_b, HEAVY);
+
+    for (uint32_t i = 0; i < HEAVY; i++) {
+        Handle h;
+        TIMED(g_samples, i, h = CreateEvent());
+        TIMED(g_samples_b, i, HandleClose(h));
+    }
+    Report("create event", HEAVY);
+    ReportBuf("destroy event (close)", g_samples_b, HEAVY);
+
+    static const uint32_t pages[] = {1, 16, 256};
+    for (uint32_t k = 0; k < sizeof(pages) / sizeof(pages[0]); k++) {
+        char name[40];
+        uint32_t n = pages[k] >= 256 ? 256 : HEAVY;
+        for (uint32_t i = 0; i < n; i++) {
+            Handle h;
+            TIMED(g_samples, i, h = CreateMem(pages[k], 0));
+            if (h < 0) {
+                printf("create mem %u pages failed: %d\n", (unsigned)pages[k], (int)h);
+                return;
+            }
+            TIMED(g_samples_b, i, HandleClose(h));
+        }
+        (void)snprintf(name, sizeof(name), "create mem %up", (unsigned)pages[k]);
+        Report(name, n);
+        (void)snprintf(name, sizeof(name), "free mem %up (close)", (unsigned)pages[k]);
+        ReportBuf(name, g_samples_b, n);
+    }
 }
 
-/* User-side SVC entry/exit: PMCCNTR read immediately before a trivial
- * syscall (getpid) and immediately after it returns. Running min/max/sum
- * only -- 100000 samples is too big to keep as raw data. */
-static void run_svc_entry_exit_benchmark(void)
+static void BenchMemMap(void)
 {
-	for (uint32_t i = 0; i < ZUZU_BENCH_WARMUP_ITERS; i++) {
-		(void)ZuzuGetPid();
-	}
+    static const uint32_t pages[] = {1, 16, 64};
+    for (uint32_t k = 0; k < sizeof(pages) / sizeof(pages[0]); k++) {
+        uint32_t size = pages[k] * PAGE;
+        char name[40];
+        for (uint32_t i = 0; i < HEAVY; i++) {
+            volatile uint8_t *va;
+            TIMED(g_samples, i, va = MemMapAnon(size, 0, PROT_RW));
+            if (PtrIsErr((const void *)va)) {
+                printf("map %up failed\n", (unsigned)pages[k]);
+                return;
+            }
+            TIMED(g_samples_b, i, for (uint32_t o = 0; o < size; o += PAGE) va[o] = 1);
+            TIMED(g_samples_c, i, MemUnmap((void *)va));
+        }
+        snprintf(name, sizeof(name), "mem map anon %up", (unsigned)pages[k]);
+        Report(name, HEAVY);
+        snprintf(name, sizeof(name), "touch %up (lazy faults)", (unsigned)pages[k]);
+        ReportBuf(name, g_samples_b, HEAVY);
+        snprintf(name, sizeof(name), "mem unmap backed %up", (unsigned)pages[k]);
+        ReportBuf(name, g_samples_c, HEAVY);
+    }
 
-	BenchResult r = { 0 };
-	for (uint32_t i = 0; i < ZUZU_BENCH_ITERS; i++) {
-		uint32_t start = ArchMeasure();
-		(void)ZuzuGetPid();
-		uint32_t end = ArchMeasure();
-		bench_result_record(&r, end - start);
-	}
-
-	bench_print("SVC entry/exit (getpid)", &r);
+    uint8_t *va = MemMapAnon(PAGE, 0, PROT_RW);
+    if (PtrIsErr(va))
+        return;
+    for (uint32_t i = 0; i < SAMPLES; i++)
+        TIMED(g_samples, i, MemProtect((VirtAddr)va, PAGE, (i & 1) ? PROT_RW : PROT_READ));
+    Report("mem protect 1p", SAMPLES);
+    MemUnmap(va);
 }
 
-/* Drives ZuzuMsgCall/ZuzuMsgRecv enough times for the kernel-side
- * CONFIG_ZUZU_BENCH counters bracketing the handle-table lookup, the direct-switch
- * IPC handoff, and reply-cap alloc/free (see kernel/ipc/sys_msg.c and
- * kernel/mm/alloc.c) to clear their warm-up and self-report on the kernel
- * console. This process only needs to generate the traffic -- the
- * measurement and its printout live entirely in the kernel. */
-static void run_kernel_ipc_bench_driver(Handle port)
+static void BlockEntry(Handle *port)
 {
-	for (uint32_t i = 0; i < ZUZU_BENCH_WARMUP_ITERS + ZUZU_BENCH_ITERS; i++) {
-		ZuzuMsgCall(port, MSG_PING, 0, 0);
-	}
+    WaitOn(*port, TIMEOUT_INFINITE);
+    Quit(0);
 }
 
-/* Payload-size sweep on Lmsg RTT: same ping-pong protocol as
- * run_lcall_benchmark(), swept across a fixed set of sizes so the slope
- * against payload size can be cross-referenced with the memcpy-only cost
- * (see ipc_buf_copy() in kernel/ipc/sys_msg.c) -- whatever doesn't scale
- * with size is the walk/dispatch flat tax; whatever does is the copy. */
-#define LMSG_SWEEP_ITERS 20000u
-#define LMSG_SWEEP_WARMUP_ITERS 500u
-
-static void run_lcall_sweep_benchmark(Handle port)
+static void BenchTasks(void)
 {
-	static const uint32_t sizes[] = { 0, 4, 8, 16, 32, 64, 128, 256 };
-	static uint8_t payload[256];
-	memset(payload, 0xA5, sizeof(payload));
-
-	printf("Lmsg RTT payload-size sweep (zuzu_msg_lcall round trip), %u iterations per size (+%u warm-up)\n",
-	       (unsigned)LMSG_SWEEP_ITERS, (unsigned)LMSG_SWEEP_WARMUP_ITERS);
-
-	for (size_t s = 0; s < sizeof(sizes) / sizeof(sizes[0]); s++) {
-		uint32_t len = sizes[s];
-
-		for (uint32_t i = 0; i < LMSG_SWEEP_WARMUP_ITERS; i++) {
-			if (len)
-				LmsgWrite(payload, len);
-			ZuzuMsgLcall(port, len);
-		}
-
-		BenchResult r = { 0 };
-		for (uint32_t i = 0; i < LMSG_SWEEP_ITERS; i++) {
-			if (len)
-				LmsgWrite(payload, len);
-
-			ArchIsb();
-			uint32_t start = ArchMeasure();
-			ArchIsb();
-
-			ZuzuMsgLcall(port, len);
-
-			ArchIsb();
-			uint32_t end = ArchMeasure();
-			ArchIsb();
-
-			bench_result_record(&r, end - start);
-		}
-
-		char label[32];
-		snprintf(label, sizeof(label), "Lmsg RTT (%uB payload)", (unsigned)len);
-		bench_print(label, &r);
-	}
+    Handle port = CreatePort();
+    uint8_t *stack = MemMapAnon(SERVER_STACK, 0, PROT_RW);
+    if (port < 0 || PtrIsErr(stack)) {
+        printf("task bench setup failed\n");
+        return;
+    }
+    stack[0] = 0;
+    for (uint32_t i = 0; i < HEAVY; i++) {
+        Handle t;
+        TIMED(g_samples, i, t = CreateTask(-1));
+        if (t < 0) {
+            printf("create task failed: %d\n", (int)t);
+            return;
+        }
+        TIMED(g_samples_b, i, TaskSetPriority(t, 1));
+        TIMED(g_samples_c, i,
+              TaskStart(t, (void *)BlockEntry, stack + SERVER_STACK, (uint32_t)(uintptr_t)&port,
+                        0));
+        Yield();
+        TIMED(g_samples_d, i, TaskKill(t));
+        HandleClose(t);
+    }
+    Report("create task", HEAVY);
+    ReportBuf("task set_priority (frozen)", g_samples_b, HEAVY);
+    ReportBuf("task start", g_samples_c, HEAVY);
+    ReportBuf("task kill (blocked)", g_samples_d, HEAVY);
+    HandleClose(port);
+    MemUnmap(stack);
 }
 
-/* Drives ZuzuMemMap/write/ZuzuMemUnmap enough times for the kernel-side
- * SysMemMap and lazy-mapping-translation-fault counters to self-report.
- * 2 pages (not 1): SysMemMap's own standalone VmmCheckUserFault microbench
- * (see kernel/mm/sys_mm.c) needs a 4KB-and-then-some region to run its
- * 2-page-spanning check against. */
-static void run_kernel_memmap_bench_driver(void)
+static void BenchSpaces(void)
 {
-	for (uint32_t i = 0; i < ZUZU_BENCH_WARMUP_ITERS + ZUZU_BENCH_ITERS; i++) {
-		uint32_t *region = ZuzuMemMap(HANDLE_ANON, 2 * 4096, PROT_RW, 0);
-		*region = 0xCAFEBABE;
-		ZuzuMemUnmap(region);
-	}
+    uint8_t *src = MemMapAnon(INJECT_MAX_PAGES * PAGE, 0, PROT_RW);
+    if (PtrIsErr(src)) {
+        printf("space bench setup failed\n");
+        return;
+    }
+    for (uint32_t o = 0; o < INJECT_MAX_PAGES * PAGE; o += PAGE)
+        src[o] = 1;
+
+    static const uint32_t pages[] = {0, 1, 16, 256};
+    for (uint32_t k = 0; k < sizeof(pages) / sizeof(pages[0]); k++) {
+        uint32_t n = pages[k] >= 256 ? 128 : HEAVY;
+        char name[48];
+        Handle obj = -1;
+        if (pages[k]) {
+            obj = CreateMem(pages[k], 0);
+            uint8_t *w = MemMap(obj, 0, PROT_RW);
+            if (obj < 0 || PtrIsErr(w)) {
+                printf("injectobj setup failed\n");
+                return;
+            }
+            memcpy(w, src, pages[k] * PAGE);
+            MemUnmap(w);
+        }
+        for (uint32_t i = 0; i < n; i++) {
+            Handle sp;
+            TIMED(g_samples, i, sp = CreateSpace("speedtest-bench"));
+            if (sp < 0) {
+                printf("create space failed: %d\n", (int)sp);
+                return;
+            }
+            if (pages[k]) {
+                TIMED(g_samples_b, i,
+                      MemInjectObj(sp, obj, USER_ELF_BASE, 0, pages[k] * PAGE, PROT_RW));
+            } else {
+                g_samples_b[i] = 0;
+            }
+            TIMED(g_samples_c, i, HandleDestroy(sp));
+        }
+        if (obj >= 0)
+            HandleClose(obj);
+        snprintf(name, sizeof(name), "create space (%up mapped)", (unsigned)pages[k]);
+        Report(name, n);
+        if (pages[k]) {
+            snprintf(name, sizeof(name), "injectobj %up (rw)", (unsigned)pages[k]);
+            ReportBuf(name, g_samples_b, n);
+        }
+        snprintf(name, sizeof(name), "destroy space (%up mapped)", (unsigned)pages[k]);
+        ReportBuf(name, g_samples_c, n);
+    }
+
+    for (uint32_t i = 0; i < HEAVY; i++) {
+        Handle sp = CreateSpace("speedtest-bench");
+        Handle obj = CreateMem(16, 0);
+        uint8_t *w = MemMap(obj, 0, PROT_RW);
+        if (sp < 0 || obj < 0 || PtrIsErr(w))
+            break;
+        memcpy(w, src, 16 * PAGE);
+        MemUnmap(w);
+        TIMED(g_samples, i,
+              MemInjectObj(sp, obj, USER_ELF_BASE, 0, 16 * PAGE, PROT_READ | PROT_EXEC));
+        HandleClose(obj);
+        HandleDestroy(sp);
+    }
+    ReportBuf("injectobj 16p (exec, fresh object)", g_samples, HEAVY);
+    MemUnmap(src);
 }
 
-/* Mirrors echo_server_thread, but receives via ZuzuWaitany instead of
- * ZuzuMsgRecv -- for a WAITANY_KIND_CALL match, the reply handle comes back
- * as result.source and the caller's w1 payload as result.w2 (see
- * WaitanyResult in zuzu/types.h and waitany_deliver_sender() in
- * kernel/ipc/sys_msg.c), so the quit sentinel has to be checked there
- * instead of cmd.w2. */
-static void waitany_echo_server_thread(void *arg)
+static void BenchSleep(void)
 {
-	Handle port = *(Handle *)arg;
-
-	for (;;) {
-		Handle handles[1] = { port };
-		WaitanyResult res;
-		Err err = ZuzuWaitany(handles, 1, TIMEOUT_INFINITE, &res);
-		if (err != 0 || res.kind != WAITANY_KIND_CALL)
-			continue;
-
-		if (res.w2 == MSG_QUIT) {
-			ZuzuMsgReply((Handle)res.source, 1, 0, 0);
-			ZuzuTQuit(ZUZU_OK);
-		}
-		ZuzuMsgReply((Handle)res.source, 1, 0, 0);
-	}
+    static const uint32_t ms[] = {1, 5, 10};
+    for (uint32_t k = 0; k < sizeof(ms) / sizeof(ms[0]); k++) {
+        char name[32];
+        for (uint32_t i = 0; i < 200; i++)
+            TIMED(g_samples, i, Sleep(ms[k]));
+        snprintf(name, sizeof(name), "sleep %ums", (unsigned)ms[k]);
+        Report(name, 200);
+    }
 }
 
-/* WaitAny RTT baseline: identical protocol and min-of-N discipline to
- * run_benchmark()'s IPC RTT, except the receiver blocks in ZuzuWaitany on a
- * single handle instead of ZuzuMsgRecv -- msg/lmsg/handle-lookup/direct-
- * handoff/reply-cap all have their own line item already; this is WaitAny's,
- * measured the same "client times its own round trip" way. */
-static void run_waitany_benchmark(Handle port)
+static void RunSection(const char *title, void (*fn)(void))
 {
-	for (uint32_t i = 0; i < ZUZU_BENCH_WARMUP_ITERS; i++) {
-		ZuzuMsgCall(port, MSG_PING, 0, 0);
-	}
-
-	BenchResult r = { 0 };
-	for (uint32_t i = 0; i < ZUZU_BENCH_ITERS; i++) {
-		ArchIsb();
-		uint32_t start = ArchMeasure();
-		ArchIsb();
-
-		ZuzuMsgCall(port, MSG_PING, 0, 0);
-
-		ArchIsb();
-		uint32_t end = ArchMeasure();
-		ArchIsb();
-
-		bench_result_record(&r, end - start);
-	}
-
-	bench_print("WaitAny RTT (single waiter, zuzu_msg_call round trip)", &r);
+    BenchReset();
+    fn();
+    printf("-- kernel stats: %s\n", title);
+    Sleep(250);
+    BenchDump();
+    Sleep(250);
 }
-
-/* Kernel caps a single WaitAny call at WAITANY_MAX_HANDLES (16, see
- * kernel/ipc/sys_msg.c) -- matched here as the sweep's largest fan-out and
- * as the fixed size of the handle array below. */
-#define WAITANY_FANOUT_MAX 16u
-
-typedef struct {
-	Handle handles[WAITANY_FANOUT_MAX];
-	uint32_t count;
-} WaitanyFanoutArg;
-
-/* Waits on every handle in arg->handles -- only the last one (handles[count-1],
- * see run_waitany_fanout_benchmark) ever receives traffic, so
- * waitany_try_once's validate+scan loops always walk the full array before
- * finding a match: the worst case for whatever the fan-out cost curve turns
- * out to be. */
-static void waitany_fanout_server_thread(void *arg_)
-{
-	WaitanyFanoutArg *arg = (WaitanyFanoutArg *)arg_;
-
-	for (;;) {
-		WaitanyResult res;
-		Err err = ZuzuWaitany(arg->handles, arg->count, TIMEOUT_INFINITE, &res);
-		if (err != 0 || res.kind != WAITANY_KIND_CALL)
-			continue;
-
-		if (res.w2 == MSG_QUIT) {
-			ZuzuMsgReply((Handle)res.source, 1, 0, 0);
-			ZuzuTQuit(ZUZU_OK);
-		}
-		ZuzuMsgReply((Handle)res.source, 1, 0, 0);
-	}
-}
-
-/* WaitAny fan-out cost: RTT as a function of how many handles a single
- * WaitAny call is waiting on. If waitany_try_once's per-handle validation
- * (see the kernel-side bracket in kernel/ipc/sys_msg.c) is a plain linear
- * scan, this curve should be roughly linear in count; anything worse shows
- * up here too. */
-static void run_waitany_fanout_benchmark(void)
-{
-	static const uint32_t counts[] = { 1, 4, 16 };
-
-	for (size_t c = 0; c < sizeof(counts) / sizeof(counts[0]); c++) {
-		uint32_t n = counts[c];
-		WaitanyFanoutArg arg = { .count = n };
-		bool ok = true;
-
-		for (uint32_t i = 0; i < n; i++) {
-			arg.handles[i] = ZuzuPortCreate();
-			if (arg.handles[i] < 0) {
-				ok = false;
-				break;
-			}
-		}
-		if (!ok) {
-			printf("WaitAny fan-out (%u handles): couldn't create ports, skipping\n",
-			       (unsigned)n);
-			for (uint32_t i = 0; i < n; i++) {
-				if (arg.handles[i] >= 0)
-					ZuzuDestroy(arg.handles[i]);
-			}
-			continue;
-		}
-		Handle live_port = arg.handles[n - 1];
-
-		uint8_t *stack = malloc(THREAD_STACK_SIZE);
-		if (!stack) {
-			printf("WaitAny fan-out (%u handles): couldn't allocate thread stack, skipping\n",
-			       (unsigned)n);
-			for (uint32_t i = 0; i < n; i++)
-				ZuzuDestroy(arg.handles[i]);
-			continue;
-		}
-
-		Tid tid = ZuzuTMake(waitany_fanout_server_thread, stack + THREAD_STACK_SIZE, &arg);
-		if (tid < 0) {
-			printf("WaitAny fan-out (%u handles): couldn't make thread, skipping\n",
-			       (unsigned)n);
-			free(stack);
-			for (uint32_t i = 0; i < n; i++)
-				ZuzuDestroy(arg.handles[i]);
-			continue;
-		}
-
-		for (uint32_t i = 0; i < ZUZU_BENCH_WARMUP_ITERS; i++) {
-			ZuzuMsgCall(live_port, MSG_PING, 0, 0);
-		}
-
-		BenchResult r = { 0 };
-		for (uint32_t i = 0; i < ZUZU_BENCH_ITERS; i++) {
-			ArchIsb();
-			uint32_t start = ArchMeasure();
-			ArchIsb();
-
-			ZuzuMsgCall(live_port, MSG_PING, 0, 0);
-
-			ArchIsb();
-			uint32_t end = ArchMeasure();
-			ArchIsb();
-
-			bench_result_record(&r, end - start);
-		}
-
-		char label[48];
-		snprintf(label, sizeof(label), "WaitAny RTT (fan-out, %u handles)", (unsigned)n);
-		bench_print(label, &r);
-
-		ZuzuMsgCall(live_port, MSG_QUIT, 0, 0);
-		ZuzuTJoin(tid);
-		free(stack);
-		for (uint32_t i = 0; i < n; i++)
-			ZuzuDestroy(arg.handles[i]);
-	}
-}
-
-#define WAITANY_SENDER_MAX 16u
-
-typedef struct {
-	Handle port;
-	uint32_t tag;
-} WaitanySenderArg;
-
-static void waitany_sender_thread(void *arg_)
-{
-	WaitanySenderArg *arg = (WaitanySenderArg *)arg_;
-	ZuzuMsgCall(arg->port, arg->tag, 0, 0);
-	/* SysTMake seeds the thread's user_lr with USER_ELF_BASE, so returning
-	 * from a thread entry re-enters _start and runs main again. */
-	ZuzuTQuit(ZUZU_OK);
-}
-
-/* Not a timing bench: correctness-adjacent check for whether WaitAny's
- * wake order under N pending senders on the same port stays FIFO as N
- * grows. All N sender threads are spawned first and given a short sleep to
- * pile up in the port's sender_queue before draining starts, so this is a
- * best-effort ordering check under whatever this scheduler actually does,
- * not a hard real-time guarantee -- the printed sequence is the ground
- * truth, the PASS/FAIL line just flags whether it stayed monotonic. */
-static void run_waitany_wakeorder_check(void)
-{
-	static const uint32_t counts[] = { 1, 4, 16 };
-
-	for (size_t c = 0; c < sizeof(counts) / sizeof(counts[0]); c++) {
-		uint32_t n = counts[c];
-
-		Handle port = ZuzuPortCreate();
-		if (port < 0) {
-			printf("WaitAny wake-order (%u senders): couldn't create port, skipping\n",
-			       (unsigned)n);
-			continue;
-		}
-
-		uint8_t *stacks = malloc((size_t)n * THREAD_STACK_SIZE);
-		if (!stacks) {
-			printf("WaitAny wake-order (%u senders): couldn't allocate stacks, skipping\n",
-			       (unsigned)n);
-			ZuzuDestroy(port);
-			continue;
-		}
-
-		static WaitanySenderArg args[WAITANY_SENDER_MAX];
-		Tid tids[WAITANY_SENDER_MAX];
-
-		for (uint32_t i = 0; i < n; i++) {
-			args[i].port = port;
-			args[i].tag = i;
-			tids[i] = ZuzuTMake(waitany_sender_thread, stacks + (i + 1) * THREAD_STACK_SIZE,
-					     &args[i]);
-		}
-
-		ZuzuSleep(10);
-
-		printf("WaitAny wake order (%u senders): ", (unsigned)n);
-		bool fifo_ok = true;
-		uint32_t prev = 0;
-		for (uint32_t i = 0; i < n; i++) {
-			Handle handles[1] = { port };
-			WaitanyResult res;
-			Err err = ZuzuWaitany(handles, 1, TIMEOUT_INFINITE, &res);
-			if (err != 0 || res.kind != WAITANY_KIND_CALL) {
-				printf("(waitany error %d) ", err);
-				fifo_ok = false;
-				break;
-			}
-			printf("%u ", (unsigned)res.w2);
-			if (i > 0 && res.w2 < prev)
-				fifo_ok = false;
-			prev = res.w2;
-			ZuzuMsgReply((Handle)res.source, 1, 0, 0);
-		}
-		printf("-- %s\n", fifo_ok ? "FIFO order held" : "order NOT monotonic");
-
-		for (uint32_t i = 0; i < n; i++)
-			ZuzuTJoin(tids[i]);
-		free(stacks);
-		ZuzuDestroy(port);
-	}
-}
-
-#endif /* CONFIG_ZUZU_BENCH */
 
 int main(void)
 {
-	printf("zuzuOS general speed suite\n");
+    if (stdio_open_tty() != 0)
+        return 1;
 
-	printf("getpid():");
+    g_khz = CalibrateKhz();
+    g_overhead = CalibrateOverhead();
+    printf("speedtest: %u samples, %u warmup, clock %u.%03u MHz, timer overhead %u cyc\n", SAMPLES,
+           WARMUP, g_khz / 1000, g_khz % 1000, g_overhead);
 
-	BenchmarkResult r_getpid = run_getpid_benchmark();
-
-#ifdef CONFIG_ZUZU_BENCH
-	run_svc_entry_exit_benchmark();
-#endif
-
-	Handle port = ZuzuPortCreate();
-	if (port < 0) {
-		printf("Couldn't get handle: %s\n", StrToError(port));
-		return 1;
-	}
-
-	uint8_t *stack = malloc(THREAD_STACK_SIZE);
-	if (!stack) {
-		printf("Couldn't allocate thread stack\n");
-		ZuzuDestroy(port);
-		return 1;
-	}
-
-	/* Descending frame model: stack pointer starts at the top of the block. */
-	Tid tid = ZuzuTMake(echo_server_thread, stack + THREAD_STACK_SIZE, &port);
-	if (tid < 0) {
-		printf("Couldn't make thread: %s\n", StrToError(tid));
-		free(stack);
-		ZuzuDestroy(port);
-		return 1;
-	}
-
-	BenchmarkResult r_ipc_thread = run_benchmark(port);
-
-#ifdef CONFIG_ZUZU_BENCH
-	run_kernel_ipc_bench_driver(port);
-#endif
-
-	ZuzuMsgCall(port, MSG_QUIT, 0, 0);
-	ZuzuTJoin(tid);
-
-	free(stack);
-	ZuzuDestroy(port);
-
-	/* run_cross_process_benchmark() owns speedtest_ipc_child's full
-	 * lifecycle -- spawn, benchmark, MSG_QUIT, ZuzuWait -- nothing to
-	 * clean up here. */
-	BenchmarkResult r_ipc_xproc = run_cross_process_benchmark();
-
-	Handle lport = ZuzuPortCreate();
-	if (lport < 0) {
-		printf("Couldn't get lcall handle: %s\n", StrToError(lport));
-		return 1;
-	}
-
-	uint8_t *lstack = malloc(THREAD_STACK_SIZE);
-	if (!lstack) {
-		printf("Couldn't allocate lcall thread stack\n");
-		ZuzuDestroy(lport);
-		return 1;
-	}
-
-	Tid ltid = ZuzuTMake(lcall_echo_server_thread, lstack + THREAD_STACK_SIZE, &lport);
-	if (ltid < 0) {
-		printf("Couldn't make lcall thread: %s\n", StrToError(ltid));
-		free(lstack);
-		ZuzuDestroy(lport);
-		return 1;
-	}
-
-	BenchmarkResult r_lmsg = run_lcall_benchmark(lport);
-
-#ifdef CONFIG_ZUZU_BENCH
-	run_lcall_sweep_benchmark(lport);
-#endif
-
-	ZuzuMsgLcall(lport, LCALL_QUIT_LEN);
-	ZuzuTJoin(ltid);
-
-	free(lstack);
-	ZuzuDestroy(lport);
-
-#ifdef CONFIG_ZUZU_BENCH
-	{
-		Handle waport = ZuzuPortCreate();
-		if (waport < 0) {
-			printf("Couldn't get waitany handle: %s\n", StrToError(waport));
-		} else {
-			uint8_t *wastack = malloc(THREAD_STACK_SIZE);
-			if (!wastack) {
-				printf("Couldn't allocate waitany thread stack\n");
-				ZuzuDestroy(waport);
-			} else {
-				Tid watid = ZuzuTMake(waitany_echo_server_thread,
-						      wastack + THREAD_STACK_SIZE, &waport);
-				if (watid < 0) {
-					printf("Couldn't make waitany thread: %s\n",
-					       StrToError(watid));
-					free(wastack);
-					ZuzuDestroy(waport);
-				} else {
-					run_waitany_benchmark(waport);
-
-					ZuzuMsgCall(waport, MSG_QUIT, 0, 0);
-					ZuzuTJoin(watid);
-					free(wastack);
-					ZuzuDestroy(waport);
-				}
-			}
-		}
-
-		run_waitany_fanout_benchmark();
-		run_waitany_wakeorder_check();
-	}
-#endif
-
-#ifdef CONFIG_ZUZU_BENCH
-	/* Drives SysMemMap and the lazy-mapping translation-fault path; both
-	 * self-report on the kernel console once their warm-up clears. */
-	run_kernel_memmap_bench_driver();
-#endif
-
-	print_markdown_row(r_getpid, r_ipc_thread, r_ipc_xproc, r_lmsg);
-
-	return 0;
+    RunSection("null syscall", BenchNullSyscall);
+    RunSection("yield", BenchYield);
+    RunSection("sleep", BenchSleep);
+    RunSection("handle ops", BenchHandleOps);
+    RunSection("create objects", BenchCreateObjects);
+    RunSection("mem map", BenchMemMap);
+    RunSection("tasks", BenchTasks);
+    RunSection("spaces", BenchSpaces);
+    RunSection("ipc same-space", RunIpc);
+    RunSection("ipc cross-space", RunIpcCross);
+    return 0;
 }

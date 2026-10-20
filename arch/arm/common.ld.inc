@@ -124,7 +124,7 @@ SECTIONS
     __und_stack_top__  = __abt_stack_base__;
     __und_stack_base__ = __und_stack_top__ - __und_stack_size__;
 
-    __stack_region_base__ = __und_stack_base__;    /* low end, for pmm_mark_range */
+    __stack_region_base__ = __und_stack_base__;    /* low end, for PmmMarkRange */
 
     /* Discard unwanted sections */
     /DISCARD/ : {

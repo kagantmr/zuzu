@@ -1,0 +1,58 @@
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "include/**"
+      - "docs/Doxyfile"
+      - "docs/groups.dox"
+      - "docs/doc-publish"
+      - "scripts/gen_docs.py"
+      - "Makefile"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs
+  cancel-in-progress: true
+
+env:
+  DOXYGEN_VERSION: 1.18.0
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Doxygen ${{ env.DOXYGEN_VERSION }}
+        run: |
+          v=${DOXYGEN_VERSION//./_}
+          curl -sSL "https://github.com/doxygen/doxygen/releases/download/Release_${v}/doxygen-${DOXYGEN_VERSION}.linux.bin.tar.gz" | tar -xz -C /opt
+          echo "/opt/doxygen-${DOXYGEN_VERSION}/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: kagantmr/zuzu-docs
+          ssh-key: ${{ secrets.ZUZU_DOCS_DEPLOY_KEY }}
+          path: site
+
+      - name: Generate pages
+        run: make docs-site DOCS_OUT=site
+
+      - name: Commit and push
+        working-directory: site
+        run: |
+          git config user.name "zuzu-docs-bot"
+          git config user.email "zuzu-docs-bot@users.noreply.github.com"
+          git add -A docs/reference
+          if git diff --cached --quiet; then
+            echo "no changes"
+            exit 0
+          fi
+          git commit -m "docs: regenerate from kagantmr/zuzu@${GITHUB_SHA::7}"
+          git push

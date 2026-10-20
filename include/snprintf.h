@@ -1,3 +1,8 @@
+/**
+ * @file
+ * @brief Bounded formatted output.
+ */
+
 #ifndef ZUZU_SNPRINTF_H
 #define ZUZU_SNPRINTF_H
 
@@ -9,36 +14,27 @@ extern "C" {
 #endif
 
 /**
- * @brief Format a string into a buffer with size limit.
- * 
- * Follows C99 snprintf semantics:
- * - Writes at most (size - 1) characters plus null terminator
- * - Returns total characters that *would* have been written
- *   (excluding null), even if output was truncated
- * - If size is 0, nothing is written but return value is still
- *   the total length
+ * @brief Formats into a buffer, C99-style.
  *
- * Built on top of vstrfmt's callback architecture.
+ * Writes at most @p size - 1 characters and a NUL. With @p size 0 nothing is
+ * written. Safe to nest: each call keeps its own state.
  *
- * Note: supports nested calls on the same core using per-call context.
- * It is not intended as a cross-core synchronization primitive.
+ * @param[out] buf  Output buffer.
+ * @param[in]  size Size of @p buf.
+ * @param[in]  fmt  printf format.
+ * @param[in]  ...  Arguments.
+ * @return The length the full output would have, excluding the NUL, even when truncated.
  */
 int snprintf(char *buf, size_t size, const char *fmt, ...);
 
 /**
- * @brief Format a string into a buffer with size limit using a va_list.
- * 
- * Follows C99 vsnprintf semantics:
- * - Writes at most (size - 1) characters plus null terminator
- * - Returns total characters that *would* have been written
- *  (excluding null), even if output was truncated
- * - If size is 0, nothing is written but return value is still
- * the total length
- * 
- * Built on top of vstrfmt's callback architecture.
- * 
- * Note: supports nested calls on the same core using per-call context.
- * It is not intended as a cross-core synchronization primitive.
+ * @brief snprintf() taking a va_list.
+ *
+ * @param[out] buf  Output buffer.
+ * @param[in]  size Size of @p buf.
+ * @param[in]  fmt  printf format.
+ * @param[in]  args Arguments.
+ * @return As snprintf().
  */
 int vsnprintf(char *buf, size_t size, const char *fmt, va_list args);
 

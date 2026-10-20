@@ -1,49 +1,78 @@
-// asid.c - ASID management for ARM MMU
+/**
+ * @file
+ * @brief ARMv7-A ASID allocator with generations.
+ */
 
 #include <arch/asid.h>
 #include <arch/barrier.h>
 #include <arch/mmu.h>
 #include <string.h>
 
-#define ASID_COUNT 256       // ARMv7-A short-descriptor ASID space (8-bit)
-#define ASID_BITMAP_BYTES 32 // ASID_COUNT / 8
+#define ASID_COUNT 256 /**< Number of hardware ASIDs. */
+#define ASID_BITMAP_BYTES 32 /**< Bytes in a bitmap of all ASIDs. */
 
-static asid_t asid_bitmap[ASID_BITMAP_BYTES]; // 256 bits
+/** @brief ASIDs handed out in the current generation. */
+static Asid asid_bitmap[ASID_BITMAP_BYTES];
+/** @brief ASIDs that may still have TLB entries since the last full flush. */
 static uint8_t dirty_bitmap[ASID_BITMAP_BYTES];
+/** @brief Current generation; bumped each time the ASIDs run out and are recycled. */
 uint32_t asid_generation = 1;
-static asid_t next_asid = 1;
-static asid_t active_asid;
+/** @brief Where the next allocation starts searching. */
+static Asid next_asid = 1;
+/** @brief ASID loaded on the CPU, kept across a rollover. */
+static Asid active_asid;
 
-static inline bool asid_bit_test(uint8_t *bitmap, int i) { return bitmap[i / 8] & (1 << (i % 8)); }
-static inline void asid_bit_set(uint8_t *bitmap,int i)
+/**
+ * @brief Tests a bit in an ASID bitmap.
+ *
+ * @param[in] bitmap Bitmap.
+ * @param[in] i      ASID.
+ * @return true if set.
+ */
+static inline bool AsidBitTest(uint8_t *bitmap, int i) { return bitmap[i / 8] & (1 << (i % 8)); }
+/**
+ * @brief Sets a bit in an ASID bitmap.
+ *
+ * @param[in,out] bitmap Bitmap.
+ * @param[in]     i      ASID.
+ */
+static inline void AsidBitSet(uint8_t *bitmap, int i)
 {
-    bitmap[i / 8] = (asid_t)(bitmap[i / 8] | (1U << (i % 8)));
+    bitmap[i / 8] = (Asid)(bitmap[i / 8] | (1U << (i % 8)));
 }
-static inline void asid_bit_clear(uint8_t *bitmap,int i)
+/**
+ * @brief Clears a bit in an ASID bitmap.
+ *
+ * @param[in,out] bitmap Bitmap.
+ * @param[in]     i      ASID.
+ */
+static inline void AsidBitClear(uint8_t *bitmap, int i)
 {
-    bitmap[i / 8] = (asid_t)(bitmap[i / 8] & ~(1U << (i % 8)));
+    bitmap[i / 8] = (Asid)(bitmap[i / 8] & ~(1U << (i % 8)));
 }
 
-void AsidSetActive(asid_t a)
+void AsidSetActive(Asid a)
 {
     active_asid = a;
-    asid_bit_set(dirty_bitmap, a);
+    AsidBitSet(dirty_bitmap, a);
 }
 
-
-// Scan [lo, hi) for a free ASID; claim it and advance next_asid. Returns the
-// claimed ASID, or 0 if the range had none free.
-static int asid_claim_in_range(int lo, int hi)
+/**
+ * @brief Claims the first free ASID in [@p lo, @p hi), flushing its old TLB entries if it was used.
+ *
+ * @param[in] lo First ASID to try.
+ * @param[in] hi One past the last.
+ * @return The ASID, or 0 if none is free.
+ */
+static int AsidClaimInRange(int lo, int hi)
 {
-    for (int i = lo; i < hi; i++)
-    {
-        if (!asid_bit_test(asid_bitmap, i))
-        {
-            asid_bit_set(asid_bitmap,i);
-            next_asid = (asid_t)(i + 1);
-            if (asid_bit_test(dirty_bitmap, i)) {          // only flush if it was ever installed
-                arch_mmu_flush_tlb_asid((uint8_t)i);
-                ArchCtxSync();
+    for (int i = lo; i < hi; i++) {
+        if (!AsidBitTest(asid_bitmap, i)) {
+            AsidBitSet(asid_bitmap, i);
+            next_asid = (Asid)(i + 1);
+            if (AsidBitTest(dirty_bitmap, i)) {
+                ArchMmuFlushTlbAsid((uint8_t)i);
+                ArchSyncBarrier();
             }
             return i;
         }
@@ -51,40 +80,35 @@ static int asid_claim_in_range(int lo, int hi)
     return 0;
 }
 
-
-asid_token_t asid_alloc(void)
+AsidToken AsidAlloc(void)
 {
-    // Try the current generation: from next_asid forward, then wrap to the start.
-    int i = asid_claim_in_range(next_asid, ASID_COUNT);
+    int i = AsidClaimInRange(next_asid, ASID_COUNT);
     if (!i)
-        i = asid_claim_in_range(1, next_asid);
+        i = AsidClaimInRange(1, next_asid);
     if (i)
-        return (asid_token_t){.asid = (asid_t)i, .generation = asid_generation};
+        return (AsidToken){.asid = (Asid)i, .generation = asid_generation};
 
-    // No free ASIDs: flush the whole TLB and start a new generation.
-    arch_mmu_flush_tlb();
+    ArchMmuFlushTlb();
     memset(asid_bitmap, 0, ASID_BITMAP_BYTES);
     memset(dirty_bitmap, 0, ASID_BITMAP_BYTES);
-    asid_bit_set(asid_bitmap,0);                             /* kernel */
+    AsidBitSet(asid_bitmap, 0);
 
-    if (active_asid) asid_bit_set(asid_bitmap,active_asid);  /* running AS keeps its tag */
+    if (active_asid)
+        AsidBitSet(asid_bitmap, active_asid);
     asid_generation++;
     next_asid = 1;
-    i = asid_claim_in_range(1, ASID_COUNT);      /* first genuinely free one */
+    i = AsidClaimInRange(1, ASID_COUNT);
 
-    return (asid_token_t){.asid = (asid_t)i, .generation = asid_generation};
+    return (AsidToken){.asid = (Asid)i, .generation = asid_generation};
 }
 
-void asid_free(asid_token_t token)
+void AsidFree(AsidToken token)
 {
     if (token.asid == 0)
         return;
 
-    // If this token is from an old generation, the bitmap was
-    // already wiped during the rollover. The bit either belongs
-    // to a new process now or is already clear. Don't touch it.
     if (token.generation != asid_generation)
         return;
 
-    asid_bit_clear(asid_bitmap,token.asid);
+    AsidBitClear(asid_bitmap, token.asid);
 }

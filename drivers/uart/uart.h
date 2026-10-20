@@ -12,7 +12,7 @@
 struct uart_driver {
     void (*init)(uintptr_t base_addr);
     void (*putc)(char c);
-    int  (*puts)(const char *string); // Optional, falls back to putc loop
+    int (*puts)(const char *string); // Optional, falls back to putc loop
 };
 
 void uart_set_driver(const struct uart_driver *driver, uintptr_t base_addr);
@@ -28,9 +28,7 @@ void uart_init(uintptr_t base_addr);
  * @brief Swap the UART base address to a new one.
  * @param new_base_addr New base address for UART.
  */
-static inline void uart_swap(uintptr_t new_base_addr) {
-    uart_init(new_base_addr);
-}
+static inline void uart_swap(uintptr_t new_base_addr) { uart_init(new_base_addr); }
 
 /**
  * @brief Send a single character over UART.
@@ -44,7 +42,6 @@ void uart_putc(char c);
  * @return UART_OK on full transmission, UART_FAIL on failure.
  */
 int uart_puts(const char *string);
-
 
 /**
  * @brief Send formatted string over UART.

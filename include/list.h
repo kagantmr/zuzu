@@ -1,3 +1,8 @@
+/**
+ * @file
+ * @brief Intrusive circular doubly linked list with a sentinel head.
+ */
+
 #ifndef LIB_LIST_H
 #define LIB_LIST_H
 
@@ -8,35 +13,61 @@ extern "C" {
 #include <compiler.h>
 #include <stddef.h>
 
-typedef struct list_node {
-    struct list_node *prev, *next;
+/** @brief A link, embedded in the listed object. */
+typedef struct ListNodeStruct {
+    struct ListNodeStruct *prev; /**< Previous node. */
+    struct ListNodeStruct *next; /**< Next node. */
 } ListNode;
 
-typedef struct list_head {
-    ListNode node;  // sentinel node (empty list points to itself)
+/** @brief A list: the sentinel node, which points to itself when the list is empty. */
+typedef struct {
+    ListNode node; /**< The sentinel. */
 } ListHead;
 
-#define list_for_each(pos, head) \
-    for (pos = (head)->next; pos != (head); pos = pos->next)
+/** @brief Walks a list with @p n holding the next node, so @p pos may be removed. */
+#define LIST_FOR_EACH_SAFE(pos, n, head)                                                           \
+    for ((pos) = (head)->next, (n) = (pos)->next; (pos) != (head); (pos) = (n), (n) = (pos)->next)
 
-#define list_for_each_safe(pos, n, head) \
-    for (pos = (head)->next, n = pos->next; pos != (head); pos = n, n = pos->next)
+/** @brief Walks a list from @p head's sentinel; @p pos must not be removed. */
+#define LIST_FOR_EACH(pos, head) for ((pos) = (head)->next; (pos) != (head); (pos) = (pos)->next)
 
-#define LIST_HEAD_INIT(name) { { &(name).node, &(name).node } }
+/** @brief Static initializer for an empty ListHead named @p name. */
+#define LIST_HEAD_INIT(name)                                                                      \
+    {                                                                                              \
+        {                                                                                          \
+            &(name).node, &(name).node                                                             \
+        }                                                                                          \
+    }
 
+/**
+ * @brief Adds a new node to the start of the list.
+ *
+ * @param[in,out] node Pointer to the new node to be added.
+ * @param[in,out] head Pointer to the head of the list.
+ */
+static __always_inline void ListAddHead(ListNode *node, ListNode *head)
+{
+    ListNode *first = head->next;
+    node->next = first;
+    node->prev = head;
+    first->prev = node;
+    head->next = node;
+}
+    
 /**
  * @brief Adds a new node to the end of the list.
  *
- * On the IPC hot path this runs on every SysMsgSend/Recv/Call
- * block-and-enqueue and every waitany registration -- a true leaf (no
- * loop, no calls), so always_inline turns it back into straight-line
- * pointer stores instead of a call/ret across TUs.
+ * On the IPC hot path this runs on every Call/Reply/WaitOn
+ * block-and-enqueue -- a true leaf (no loop, no calls), so always_inline
+ * turns it back into straight-line pointer stores instead of a call/ret
+ * across TUs.
  *
- * @param node Pointer to the new node to be added.
- * @param head Pointer to the head of the list.
+ * @param[in,out] node Pointer to the new node to be added.
+ * @param[in,out] head Pointer to the head of the list.
  */
-static __always_inline void list_add_tail(ListNode* node, ListNode* head) {
-    ListNode* tail = head->prev;
+static __always_inline void ListAddTail(ListNode *node, ListNode *head)
+{
+    ListNode *tail = head->prev;
     tail->next = node;
     node->prev = tail;
     node->next = head;
@@ -46,67 +77,55 @@ static __always_inline void list_add_tail(ListNode* node, ListNode* head) {
 /**
  * @brief Removes a node from the list.
  *
- * Same leaf shape as list_add_tail: called from list_pop_front on every
- * IPC dequeue and from every timeout-cancel path.
+ * Same leaf shape as ListAddTail(): called from ListPopFront() on every
+ * IPC dequeue and from every timeout-cancel path. The node's links are set to NULL.
  *
- * @param node Pointer to the node to be removed.
+ * @param[in,out] node Pointer to the node to be removed.
  */
-static __always_inline void list_remove(ListNode* node) {
-    ListNode* prev = node->prev;
-    ListNode* next = node->next;
+static __always_inline void ListRemove(ListNode *node)
+{
+    ListNode *prev = node->prev;
+    ListNode *next = node->next;
     prev->next = next;
     next->prev = prev;
     node->next = node->prev = NULL;
 }
 
-#define container_of(ptr, type, member) \
-    ((type*)(void*)((char*)(ptr) - offsetof(type, member)))
+/** @brief Gets the object of type @p type that embeds @p ptr as its field @p member. */
+#define container_of(ptr, type, member) ((type *)(void *)((char *)(ptr) - offsetof(type, member)))
 
 /**
  * @brief Initializes a list head.
- * 
- * @param head Pointer to the list head to be initialized.
+ *
+ * @param[out] head Pointer to the list head to be initialized.
  */
-static inline void list_init(ListHead *head) {
+static inline void ListInit(ListHead *head)
+{
     head->node.next = &head->node;
     head->node.prev = &head->node;
 }
 
 /**
  * @brief Checks if the list is empty.
- * 
- * @param head Pointer to the list head.
- * @return int Returns 1 if the list is empty, 0 otherwise.
+ *
+ * @param[in] head Pointer to the list head.
+ * @return 1 if the list is empty, 0 otherwise.
  */
-static inline int list_empty(const ListHead *head) {
-    return head->node.next == &head->node;
-}
-
-/**
- * @brief Inserts a new node before an existing node in the list.
- * 
- * @param new Pointer to the new node to be inserted.
- * @param existing Pointer to the existing node before which the new node will be inserted.
- */
-static inline void list_insert_before(ListNode *new, ListNode *existing) {
-    new->next = existing;
-    new->prev = existing->prev;
-    existing->prev->next = new;
-    existing->prev = new;
-}
+static inline int ListIsEmpty(const ListHead *head) { return head->node.next == &head->node; }
 
 /**
  * @brief Pops the first node from the list and returns it.
- * 
- * @param head Pointer to the list head.
- * @return list_node_t* Pointer to the popped node, or NULL if the list is empty.
+ *
+ * @param[in,out] head Pointer to the list head.
+ * @return Pointer to the popped node, or NULL if the list is empty.
  */
-static inline ListNode* list_pop_front(ListHead *head) {
-    if (list_empty(head)) {
+static inline ListNode *ListPopFront(ListHead *head)
+{
+    if (ListIsEmpty(head)) {
         return NULL;
     }
     ListNode *first = head->node.next;
-    list_remove(first);
+    ListRemove(first);
     return first;
 }
 

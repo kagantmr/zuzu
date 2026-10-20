@@ -1,5 +1,5 @@
 # bsp/arm/virt/board.mk - QEMU `virt` machine (synthetic, QEMU-only, no
-# on-board firmware) board metadata. Included by mk/config.mk once
+# on-board firmware) board metadata. Included by Makefile once
 # BOARD=virt is selected. See arch/arm/arch.mk's header comment for the
 # variable list a board.mk may define.
 

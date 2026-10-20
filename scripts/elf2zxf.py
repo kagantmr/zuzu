@@ -42,9 +42,14 @@ with open(args.filename, 'rb') as f:
                           0,            # checksum (filled later)
                           b'',          # build_id (16s zero-pads)
                           b'')          # reserved2 (4s zero-pads)
+    PAGE = 4096
+    def pad_to_page(n):
+        return (n + PAGE - 1) // PAGE * PAGE
     seg_table = b''
-    off = 64 + 24 * len(segs)
+    off = pad_to_page(64 + 24 * len(segs))
+    seg_offsets = []
     for s in segs:
+        seg_offsets.append(off)
         zf = 0
         if s['p_flags'] & 0x4: zf |= 0x1   # R
         if s['p_flags'] & 0x2: zf |= 0x2   # W
@@ -57,9 +62,11 @@ with open(args.filename, 'rb') as f:
                              zf,
                              s['p_align'].bit_length() - 1,
                              0)                      # reserved
-        off += s['p_filesz']
-    seg_data = b''.join(x.data() for x in segs)
-    buf = bytearray(hdr + seg_table + seg_data)
+        off = pad_to_page(off + s['p_filesz'])
+    head = hdr + seg_table
+    buf = bytearray(head + b'\0' * (seg_offsets[0] - len(head)))
+    for s, o in zip(segs, seg_offsets):
+        buf += s.data() + b'\0' * (pad_to_page(s['p_filesz']) - s['p_filesz'])
     # build_id: hash over buf with checksum+build_id already zero
     build_id = hashlib.sha256(buf).digest()[:16]
     print("Hash:", build_id.hex())

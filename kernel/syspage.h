@@ -1,14 +1,30 @@
+/**
+ * @file syspage.h
+ * @brief The kernel-filled system information page.
+ */
+
 #ifndef KERNEL_SYSPAGE_H
 #define KERNEL_SYSPAGE_H
 
-#include <zuzu/types.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <types.h>
 
-void SyspageInit(void);		      /* call once at boot after PMM + DTB ready */
-PhysAddr SyspagePhysAddr(void);	      /* returns the physical page address       */
-void SyspageUpdateMem(void);	      /* call from PMM alloc/free                */
-void SyspageUpdateUptime(void);	      /* call from tick handler                  */
-void SyspageSetInitrdSz(size_t size); /* call from initrd setup code             */
+/**
+ * @brief Build the system information page: version, build, machine, CPU, memory totals, timer and device names.
+ */
+void SyspageInit(void);
+/**
+ * @brief Get the physical address of the syspage.
+ *
+ * @return The physical address.
+ */
+PhysAddr SyspagePa(void);
+/**
+ * @brief Refresh the free memory figure in the syspage from the frame allocator.
+ *
+ * Does nothing before SyspageInit().
+ */
+void SyspageUpdateMem(void);
 
 #endif

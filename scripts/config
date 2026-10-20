@@ -34,6 +34,11 @@ def main():
     g.add_argument("--list", action="store_true")
     args = ap.parse_args()
 
+    ext = os.environ.get("EXT", "")
+    ext_kconfig = pathlib.Path(ext) / "Kconfig" if ext else None
+    os.environ.setdefault("EXT_KCONFIG",
+                          str(ext_kconfig) if ext_kconfig and ext_kconfig.is_file() else "/dev/null")
+
     out = ROOT / "build" / f"{args.arch}-{args.board}"
     cfg = out / ".config"
     inc = out / "include" / "config"
@@ -41,7 +46,7 @@ def main():
     if not cfg.exists():
         subprocess.run([sys.executable, str(ROOT / "scripts" / "kconf.py"), "olddefconfig",
                         "--config", str(cfg), "--out", str(inc),
-                        "--defconfig", str(ROOT / "arch" / args.arch / args.board / "defconfig")],
+                        "--defconfig", str(ROOT / "bsp" / args.arch / args.board / "defconfig")],
                        check=True, cwd=ROOT)
 
     os.chdir(ROOT)

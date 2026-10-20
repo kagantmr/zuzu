@@ -1,41 +1,65 @@
-// arch_impl/cpu.h - ARM CPU / interrupt-flag control (architecture-private).
-//
-// Do not include directly from neutral code; include <arch/cpu.h> instead.
+/**
+ * @file
+ * @brief ARMv7-A CPU control.
+ */
 
-#ifndef ZUZU_ARM_IMPL_CPU_H
-#define ZUZU_ARM_IMPL_CPU_H
+#ifndef ARCH_ARM_IMPL_CPU_H
+#define ARCH_ARM_IMPL_CPU_H
 
 #include <stdint.h>
 
-typedef uint32_t CPSR;
+/** @brief A saved CPSR, as returned by ArchIrqSave(). */
+typedef uint32_t Cpsr;
 
-/** Disable global IRQs (cpsid i). */
-static inline void arch_global_irq_disable(void) {
-    __asm__ volatile("cpsid i" ::: "memory");
-}
+/** @brief Masks IRQs on this CPU (cpsid i). */
+static inline void ArchGlobalIrqDisable(void) { __asm__ volatile("cpsid i" ::: "memory"); }
 
-/** Enable global IRQs (cpsie i). */
-static inline void arch_global_irq_enable(void) {
-    __asm__ volatile("cpsie i" ::: "memory");
-}
+/** @brief Unmasks IRQs on this CPU (cpsie i). */
+static inline void ArchGlobalIrqEnable(void) { __asm__ volatile("cpsie i" ::: "memory"); }
 
 /**
- * Save CPSR and disable IRQs, returning the previous state for restoration.
- * @return The previous CPSR value before disabling IRQs.
+ * @brief Masks IRQs and returns the previous CPSR, for ArchIrqRestore().
+ *
+ * @return The CPSR before masking.
  */
-static inline CPSR arch_irq_save(void) {
+static inline Cpsr ArchIrqSave(void)
+{
     uint32_t cpsr;
-    __asm__ volatile("mrs %0, cpsr" : "=r"(cpsr) :: "memory");
+    __asm__ volatile("mrs %0, cpsr" : "=r"(cpsr)::"memory");
     __asm__ volatile("cpsid i" ::: "memory");
     return cpsr;
 }
 
 /**
- * Restore the CPSR to re-enable IRQs if they were previously enabled.
- * @param state The CPSR value to restore, typically from arch_irq_save().
+ * @brief Restores the IRQ mask saved by ArchIrqSave().
+ *
+ * @param[in] state Value returned by ArchIrqSave().
  */
-static inline void arch_irq_restore(CPSR state) {
-    __asm__ volatile("msr cpsr_c, %0" :: "r"(state) : "memory");
+static inline void ArchIrqRestore(Cpsr state)
+{
+    __asm__ volatile("msr cpsr_c, %0" ::"r"(state) : "memory");
 }
 
-#endif // ZUZU_ARM_IMPL_CPU_H
+/** @brief Waits for an interrupt (wfi). */
+static inline void ArchCpuIdle(void) { __asm__ volatile("wfi" ::: "memory"); }
+
+/** @brief Loops on wfi forever. Does not mask interrupts itself. */
+static inline _Noreturn void ArchCpuHalt(void)
+{
+    for (;;)
+        __asm__ volatile("wfi" ::: "memory");
+}
+
+/**
+ * @brief Reads the stack pointer of the current mode.
+ *
+ * @return The current sp.
+ */
+static inline uintptr_t ArchCurrentStackPointer(void)
+{
+    uintptr_t sp;
+    __asm__ volatile("mov %0, sp" : "=r"(sp));
+    return sp;
+}
+
+#endif // ARCH_ARM_IMPL_CPU_H

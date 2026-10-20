@@ -1,17 +1,33 @@
-// arch/cpu.h - Neutral CPU / interrupt-flag control contract.
-//
-// Global interrupt enable/disable and save/restore for critical sections.
-// The active architecture supplies the inline implementation.
+/**
+ * @file cpu.h
+ * @brief Architecture-netural CPU state.
+ */
 
-#ifndef ZUZU_ARCH_CPU_H
-#define ZUZU_ARCH_CPU_H
+#ifndef ARCH_CPU_H
+#define ARCH_CPU_H
 
 #include <stdint.h>
 
-/* void     arch_global_irq_disable(void);
- * void     arch_global_irq_enable(void);
- * uint32_t arch_irq_save(void);            -- disable IRQs, return prior state
- * void     arch_irq_restore(uint32_t s);   -- restore prior IRQ state          */
+/**
+ * Include arch implementation. 
+ */
 #include <arch_impl/cpu.h>
 
-#endif // ZUZU_ARCH_CPU_H
+/**
+ * @brief Wait until an interrupt occurs.
+ */
+void ArchCpuIdle(void);
+
+/**
+ * @brief Disable interrupts, and spin in an interrupt waiting loop.
+ */
+_Noreturn void ArchCpuHalt(void);
+
+/**
+ * @brief Get the current stack pointer value.
+ * 
+ * @return The stack pointer value.
+ */
+uintptr_t ArchCurrentStackPointer(void);
+
+#endif // ARCH_CPU_H

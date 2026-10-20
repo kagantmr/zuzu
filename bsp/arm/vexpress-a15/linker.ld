@@ -6,7 +6,7 @@ KERNEL_PA_BASE = 0x80000000;        /* Physical RAM base */
  * reading guest memory at boot — not a value QEMU exposes as configurable,
  * just what its arm_boot code does for this machine. U-Boot's bootm can
  * still load the uImage payload here too; it just needs telling (see
- * UBOOT_KERNEL_LOAD in mk/uboot.mk). */
+ * UBOOT_KERNEL_LOAD in scripts/Makefile.run). */
 BOOT_OFFSET    = 0x10000;
 
 INCLUDE "arch/arm/common.ld.inc"

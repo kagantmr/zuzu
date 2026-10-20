@@ -1,31 +1,48 @@
 #ifndef ZUZU_DIRENT_SHIM_H
 #define ZUZU_DIRENT_SHIM_H
 
-/* Minimal opendir/readdir/closedir shim for tier-2 (newlib) programs.
+/**
+ * @file
+ * @brief Minimal opendir/readdir/closedir for tier-2 (newlib) programs.
  *
- * This newlib build's own <dirent.h> hard #errors on this target (no host
- * directory backend), so this project-local header shadows it (see
- * mk/user.mk's $(NEWLIB_INC)/dirent.h symlink rule) and lib/posix/dirent.c
- * implements it directly over fsd's FSD_READDIR wire op via fsd_client.h --
- * the same call zzsh's own `ls` already uses.
+ * newlib's own <dirent.h> refuses to build on this target, so this header
+ * shadows it. lib/posix/dirent.c implements it with FsdReadDir().
  */
 
 #ifdef __cplusplus
-extern "C"
-{
+extern "C" {
 #endif
 
-    typedef struct DIR DIR;
+/** @brief An open directory; opaque. */
+typedef struct DIR DIR;
 
-    struct dirent
-    {
-        unsigned char d_type; /* FsdFileType: FSD_TYPE_FILE/DIR/SYMLINK */
-        char d_name[56];      /* matches FsdDirEntry.name */
-    };
+/** @brief One directory entry. */
+struct dirent {
+    unsigned char d_type; /**< An FsdFileType. */
+    char d_name[56];      /**< NUL-terminated name, as in FsdDirEntry. */
+};
 
-    DIR *opendir(const char *path);
-    struct dirent *readdir(DIR *dirp);
-    int closedir(DIR *dirp);
+/**
+ * @brief Opens a directory for reading.
+ *
+ * @param[in] path Directory path.
+ * @return The directory, or NULL with errno set.
+ */
+DIR *opendir(const char *path);
+/**
+ * @brief Returns the next entry.
+ *
+ * @param[in,out] dirp Directory from opendir().
+ * @return The entry, valid until the next call, or NULL at the end.
+ */
+struct dirent *readdir(DIR *dirp);
+/**
+ * @brief Closes a directory.
+ *
+ * @param[in] dirp Directory from opendir().
+ * @return 0.
+ */
+int closedir(DIR *dirp);
 
 #ifdef __cplusplus
 }

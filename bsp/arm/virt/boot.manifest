@@ -1,14 +1,18 @@
-# zuzu initrd boot manifest v2
-# format: <program-or-path>|<role>[:flags][|<service-path>]
-# role: init, dev, tty, none, file   flags: late
+# zuzu initrd boot manifest v3
+# format: <program>|<role>[:flags][|<service-path>]
+# a service-path is awaited in nsvc before any "late" entry is spawned
+# role: none, file   flags: late, prio=N, maxprio=N (comma separated)
 # "file" is packed into the initrd but never spawned.
-#
-# No SD/MMC and no NIC on this board: pl181drv/fsd/lan9118drv/netd are left
-# out rather than spawned to fail.
 
-bin/sysd|init
-bin/devmgr|dev
-# sysd spawns nameserver itself; it only needs to be present.
-bin/nameserver|file
-bin/pl011drv|tty|/dev/uart0
-bin/zzsh|tty:late|/env/zzsh
+bin/rootsvc
+
+bin/ttysvc|none:prio=2,maxprio=2|/svc/tty
+bin/pl011drv|none:prio=2,maxprio=2
+# bin/pl181drv|none:prio=3,maxprio=3
+# bin/fsd|none:prio=3,maxprio=3
+# bin/lan9118drv
+# bin/netd|none:prio=4,maxprio=4
+bin/zzsh|none:late
+
+# Syscall regression suite (user/test_apps/zztest). Noisy: it faults kittens on purpose.
+# bin/zztest|none

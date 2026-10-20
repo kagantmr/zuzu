@@ -1,64 +1,85 @@
-// kernel/bench.h - PMCCNTR min/avg/max instrumentation for CONFIG_ZUZU_BENCH builds.
-//
-// Each measurement point declares a BENCH_STAT() at file scope, brackets the
-// code under test with BENCH_BEGIN()/BENCH_END(), and gets a one-line
-// min/avg/max summary printed to the kernel console the moment the warm-up
-// is discarded and BENCH_ITERS samples have been collected. Nothing here
-// exists outside CONFIG_ZUZU_BENCH builds.
+/**
+ * @file bench.h
+ * @brief Cycle-count micro-benchmark helpers, compiled only when CONFIG_ZUZU_BENCH is set.
+ */
 
-#ifndef ZUZU_KERNEL_BENCH_H
-#define ZUZU_KERNEL_BENCH_H
+#ifndef KERNEL_BENCH_H
+#define KERNEL_BENCH_H
 
 #ifdef CONFIG_ZUZU_BENCH
 
 #include <arch/cycles.h>
 #include <stdbool.h>
-#include <zuzu/types.h>
+#include <types.h>
 
-#include "core/kprintf.h"
-
-#define BENCH_WARMUP_ITERS 500u
-#define BENCH_ITERS        100000u
-
-typedef struct {
-	const char *name;
-	uint32_t min;
-	uint32_t max;
-	uint64_t sum;
-	uint32_t warmup_left;
-	uint32_t count;
-	bool reported;
+/**
+ * @brief Running statistics for one benchmarked code path, in cycles.
+ */
+typedef struct BenchStat {
+    const char *name; /**< Label printed when the statistics are dumped. */
+    uint32_t min; /**< Smallest sample recorded since the last reset. */
+    uint32_t max; /**< Largest sample recorded since the last reset. */
+    uint64_t sum; /**< Sum of all samples, used to compute the average. */
+    uint32_t count; /**< Number of samples recorded. */
+    bool linked; /**< The statistic has been added to the global list. */
+    struct BenchStat *next; /**< Next statistic in the global list. */
 } BenchStat;
 
-#define BENCH_STAT(varname, label) \
-	static BenchStat varname = { .name = (label), .warmup_left = BENCH_WARMUP_ITERS }
+/**
+ * @brief Add a statistic to the global list that BenchDumpAll() and BenchResetAll() walk.
+ *
+ * Called automatically by bench_record() on the first sample.
+ *
+ * @param[in,out] s The statistic to link; its @c linked flag is set.
+ */
+void BenchLink(BenchStat *s);
+/**
+ * @brief Print the minimum, average and maximum of every linked statistic that has samples.
+ */
+void BenchDumpAll(void);
+/**
+ * @brief Clear the samples of every linked statistic.
+ */
+void BenchResetAll(void);
 
+/**
+ * @brief Define a file-local BenchStat.
+ *
+ * @param varname Name of the variable to define.
+ * @param label String printed for the statistic when dumped.
+ */
+#define BENCH_STAT(varname, label) static BenchStat varname = {.name = (label)}
+
+/**
+ * @brief Add one sample to a statistic, linking it on first use.
+ *
+ * @param[in,out] s The statistic to update.
+ * @param[in] cycles The measured duration in cycles.
+ */
 static inline void bench_record(BenchStat *s, uint32_t cycles)
 {
-	if (s->reported)
-		return;
-	if (s->warmup_left > 0) {
-		s->warmup_left--;
-		return;
-	}
-	if (s->count == 0 || cycles < s->min)
-		s->min = cycles;
-	if (cycles > s->max)
-		s->max = cycles;
-	s->sum += cycles;
-	s->count++;
-	if (s->count == BENCH_ITERS) {
-		uint64_t avg_x100 = (s->sum * 100) / s->count;
-		kprintf("[BENCH] %-32s min=%-8u avg=%u.%02u max=%-8u (cycles, n=%u)\n", s->name,
-			s->min, (uint32_t)(avg_x100 / 100), (uint32_t)(avg_x100 % 100), s->max,
-			s->count);
-		s->reported = true;
-	}
+    if (!s->linked)
+        BenchLink(s);
+    if (s->count == 0 || cycles < s->min)
+        s->min = cycles;
+    if (cycles > s->max)
+        s->max = cycles;
+    s->sum += cycles;
+    s->count++;
 }
 
+/**
+ * @brief Take the starting cycle count of a measurement.
+ */
 #define BENCH_BEGIN() ArchMeasure()
+/**
+ * @brief Record the cycles elapsed since a BENCH_BEGIN() reading into a statistic.
+ *
+ * @param stat The BenchStat variable to update (not a pointer).
+ * @param start_val The value returned by BENCH_BEGIN().
+ */
 #define BENCH_END(stat, start_val) bench_record(&(stat), ArchMeasure() - (start_val))
 
 #endif /* CONFIG_ZUZU_BENCH */
 
-#endif /* ZUZU_KERNEL_BENCH_H */
+#endif /* KERNEL_BENCH_H */

@@ -1,0 +1,14 @@
+/**
+ * @file svc_yield.c
+ * @brief Implementation of the Yield() svc.
+ */
+
+#include "kernel/sched/sched.h"
+#include "svc.h"
+
+void SvcYield(CpuState *frame)
+{
+    ArchSetInFrame(frame, 0, ZUZU_OK);
+    current_task->slice_deadline = 0;
+    Schedule();
+}

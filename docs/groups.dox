@@ -7,3 +7,50 @@
  * documentation. Each sub-group (Zone, Semaphore, CondVariable) becomes
  * one primitive page.
  */
+
+/**
+ * @defgroup syscalls System calls
+ * @brief The zuzu syscall interface, as wrapped by <zuzu/zuzu.h>.
+ */
+
+/**
+ * @defgroup syscalls_misc Basics
+ * @ingroup syscalls
+ * @brief Exiting, yielding, sleeping and waiting on any handle.
+ */
+
+/**
+ * @defgroup syscalls_handle Handles
+ * @ingroup syscalls
+ * @brief Duplicating, restricting, granting, querying and closing handles.
+ */
+
+/**
+ * @defgroup syscalls_task Tasks
+ * @ingroup syscalls
+ * @brief Creating, starting, stopping, inspecting and tuning tasks.
+ */
+
+/**
+ * @defgroup syscalls_space Spaces
+ * @ingroup syscalls
+ * @brief Creating spaces and waiting for them to empty.
+ */
+
+/**
+ * @defgroup syscalls_memory Memory and DMA
+ * @ingroup syscalls
+ * @brief Memory objects, mappings, injection and DMA.
+ */
+
+/**
+ * @defgroup syscalls_ipc IPC
+ * @ingroup syscalls
+ * @brief Ports, calls, replies and parked calls.
+ */
+
+/**
+ * @defgroup syscalls_event Events
+ * @ingroup syscalls
+ * @brief Event objects, signalling and binding sources to event bits.
+ */

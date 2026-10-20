@@ -1,35 +1,46 @@
-// arch/context.h - Neutral thread bootstrap / switch-context contract.
-//
-// The kernel never constructs initial kernel-stack frames by hand; the arch
-// layer builds them so that a newly created thread, when first scheduled,
-// "returns" into the right place. The callee-saved switch context and any
-// FP save area are arch-private details hidden behind these calls.
+/**
+ * @file context.h
+ * @brief Task context function definitions
+ */
 
-#ifndef ZUZU_ARCH_CONTEXT_H
-#define ZUZU_ARCH_CONTEXT_H
+#ifndef ARCH_CONTEXT_H
+#define ARCH_CONTEXT_H
 
-#include <stdint.h>
 #include <arch/regs.h>
+#include <stdint.h>
 
 /**
- * Build a fresh kernel stack for a thread that will drop into USER mode.
- *
- * @param kstack_top      Top of the thread's kernel stack.
- * @param entry           User entry point (PC).
- * @param user_sp         Initial user stack pointer.
- * @param user_lr         Return address if the user entry returns.
- * @param a0,a1           First two argument register values.
- * @param trap_frame_out  If non-NULL, receives the built trap frame pointer.
- * @return The initial kernel stack pointer (store in thread->kernel_sp).
+ * @brief Initializes a task's execution context.
+ * 
+ * @param[in] kstack_top The kernel stack of the task.
+ * @param[in] entry The entry point of the task.
+ * @param[in] user_sp The initial stack pointer of the user program
+ * @param[in] user_lr The initial link register of the user program
+ * @param[in] a0 Initial first register value
+ * @param[in] a1 Initial second register value
+ * 
+ * @return void* The user stack pointer after pushing the context.
  */
-void *arch_thread_user_init(void *kstack_top, uintptr_t entry, uintptr_t user_sp,
-                            uintptr_t user_lr, uint32_t a0, uint32_t a1,
-                            CpuState **trap_frame_out);
+void *ArchTaskUserInit(void *kstack_top, uintptr_t entry, uintptr_t user_sp, uintptr_t user_lr,
+                       uint32_t a0, uint32_t a1);
 
 /**
- * Build a fresh kernel stack for a thread that begins in KERNEL mode at `entry`
- * (e.g. the idle thread). Returns the initial kernel stack pointer.
+ * @brief Arch-neutral accessor for a task's context.
+ * 
+ * @param[in] kstack_top Start of the kernel stack.
+ * 
+ * @return CpuState* The CPU state struct of the task.
  */
-void *arch_thread_kernel_init(void *kstack_top, void (*entry)(void));
+CpuState *ArchUserFrame(uintptr_t kstack_top);
 
-#endif // ZUZU_ARCH_CONTEXT_H
+/**
+ * @brief Initialize a task's context that is running on the kernel
+ * 
+ * @param[in] kstack_top Start of the kernel stack.
+ * @param[in] entry The entry point function.
+ * 
+ * @return void* The stack pointer after pushing the context.
+ */
+void *ArchTaskKernelInit(void *kstack_top, void (*entry)(void));
+
+#endif // ARCH_CONTEXT_H

@@ -1,15 +1,28 @@
-#include "string.h" 
+/**
+ * @file snprintf.c
+ * @brief Bounded formatted output, built on vstrfmt().
+ */
 
+#include "string.h"
+
+/** @brief Output state for snprintf_outc(). */
 typedef struct {
-    char *buf;
-    size_t pos;
-    size_t max;  // max chars to write (excluding null terminator)
+    char *buf; /**< Destination buffer, or NULL to only count. */
+    size_t pos; /**< Characters produced so far, including any dropped. */
+    size_t max; /**< Characters that fit, excluding the terminator. */
 } snprintf_ctx_t;
 
+/**
+ * @brief vstrfmt() sink that stores a character if it fits and always counts it.
+ *
+ * @param[in,out] ctx A snprintf_ctx_t.
+ * @param[in] c The character to emit.
+ */
 static void snprintf_outc(void *ctx, char c)
 {
     snprintf_ctx_t *s = (snprintf_ctx_t *)ctx;
-    if (s->pos < s->max && s->buf) s->buf[s->pos] = c;
+    if (s->pos < s->max && s->buf)
+        s->buf[s->pos] = c;
     s->pos++;
 }
 

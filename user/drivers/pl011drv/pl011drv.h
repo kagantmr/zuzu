@@ -1,10 +1,10 @@
 #ifndef PL011DRV_H
 #define PL011DRV_H
 
-#define PL011DRV_VER "v2.0"
+#define PL011DRV_VER "v3.0"
 
-#include <zuzu/zuzu.h>
 #include <stdbool.h>
+#include <zuzu/zuzu.h>
 
 // pl011drv is based around the pl011 hardware
 
@@ -15,22 +15,22 @@
 
 // ------------------- PL011 constants -------------------
 typedef struct {
-    uint32_t DR;        // 0x00
-    uint32_t RSR;       // 0x04
-    uint32_t _res0[4];  // 0x08-0x14
-    uint32_t FR;        // 0x18
-    uint32_t _res1;     // 0x1C
-    uint32_t ILPR;      // 0x20
-    uint32_t IBRD;      // 0x24
-    uint32_t FBRD;      // 0x28
-    uint32_t LCRH;      // 0x2C
-    uint32_t CR;        // 0x30
-    uint32_t IFLS;      // 0x34
-    uint32_t IMSC;      // 0x38
-    uint32_t RIS;       // 0x3C
-    uint32_t MIS;       // 0x40
-    uint32_t ICR;       // 0x44
-} pl011_t;
+    uint32_t dr;      // 0x00
+    uint32_t rsr;     // 0x04
+    uint32_t res0[4]; // 0x08-0x14
+    uint32_t fr;      // 0x18
+    uint32_t res1;    // 0x1C
+    uint32_t ilpr;    // 0x20
+    uint32_t ibrd;    // 0x24
+    uint32_t fbrd;    // 0x28
+    uint32_t lcrh;    // 0x2C
+    uint32_t cr;      // 0x30
+    uint32_t ifls;    // 0x34
+    uint32_t imsc;    // 0x38
+    uint32_t ris;     // 0x3C
+    uint32_t mis;     // 0x40
+    uint32_t icr;     // 0x44
+} Pl011Mmio;
 
 #define IMSC_RXIM (1u << 4) // RX interrupt mask
 #define IMSC_TXIM (1u << 5) // TX interrupt mask
@@ -51,23 +51,5 @@ typedef struct {
 #define CR_UARTEN (1u << 0)
 #define CR_TXE (1u << 8)
 #define CR_RXE (1u << 9)
-
-// ------------------- Ringbuffer -------------------
-
-#define UART_RINGBUF_MAX 1024
-
-#include <ring.h>
-#include <zuzu/channel.h>
-
-int pl011drv_setup(void);
-
-/* PL011DRV lmsg API: send/receive via the per-thread lmsg buffer */
-static inline int32_t pl011drv_write(int32_t port, uint32_t len) {
-    return ChannelSend((Handle)port, LmsgBuf(), len);
-}
-
-static inline Message pl011drv_read(int32_t port, uint32_t max_len) {
-    return ZuzuMsgLcall(port, max_len);
-}
 
 #endif
