@@ -1,151 +1,44 @@
-# Contributing to zuzu
+# Contributing to zuzu and zuzuOS
 
-Thanks for contributing to zuzu!
+Thanks for contributing to zuzu & zuzuOS!
 
-This document is a practical starting point for code, docs, and design contributions.
+## LLM policy
 
-## Two contribution paths
-zuzu is a microkernel, so contribution paths may look vastly different.
+The project accepts LLM-aided contributions, but requires human supervision at all costs. Low-effort and unchecked LLM-generated code will **not** be accepted, especially in the kernel.
 
-### Userspace path (default)
-- Preferred path for most contributions
-- Covers daemons, protocol handling, service policy, shell/tools, and most iteration work
-- Typical folders:
-- `user/`
-- `include/*/protocols/` (wire definitions)
-- `docs/`
+## zuzuOS contributions
 
-### Kernelspace path (high bar)
-- Kernel changes are expected to be rare and deliberate.
-- Kernel architecture ports are exempt from this rule, but please reach out before starting a new port to discuss the design and scope.
-- Typical folders:
-- `kernel/`
-- `arch/`
-- `core/`
+Contributing to zuzuOS is highly encouraged as zuzuOS is currently at a very early stage. The sections below detail various contribution paths one might prefer.
 
-Kernelspace PRs should include a short justification explaining why this cannot remain a userspace policy change.
+### Utilities
 
-## Project principles
-- Keep the kernel minimal and policy-free where possible
-- Prefer userspace policy and capability mediation over kernel special cases
-- Keep changes understandable and easy to debug on QEMU
+Shell utilities such as `rmdir`,`ls`,`cat` etc., network shell utilities such as `arp`... When making these, make sure that your application is safe and the underlying service is supported. If not, then you might also want to contribute in Services! 
 
-## Prerequisites
-- ARM embedded toolchain (`arm-none-eabi-*`)
-- QEMU system emulator (`qemu-system-arm`)
-- `make`
+### Services
 
-See README for platform-specific install commands.
+Services (or daemons) are long running tasks that serve some functionality like time, networking, filesystem access etc. When making a server, be sure that:
 
-## Build and run
-Build:
-- `make -j4`
+- Your service correctly serves the service it is supposed to, and is secure.
+- Your service does not abuse resources.
+- Old methods like thread-per-connection may be wasteful, prefer an event loop around zuzu primitives instead.
 
-Run:
-- `make run`
+### Drivers
 
-## Debugging
-Use the debug target and connect GDB as described in README.
+When writing device drivers, be sure that you are aware of the BSP layer, and how to modify it. Drivers, especially those able to perform DMA, must be written **carefully** as to not put the device or the operating system in a fragile state.
 
-## Branch and commit guidance
-- Keep commits as small as possible
-- One logical change per commit
-- Write clear commit messages
+- Prefer an event loop.
+- Be especially sure that you are able to guarantee DMA accesses cannot be messed with since without an IOMMU DMA is practically unsafe.
 
-Preferred branch naming:
-- userspace/<topic>
-- kernel/<topic>
 
-Commit message style:
-- changetype(subsystem): short summary
-- body explaining why and impact
+## zuzu contributions
 
-Example:
-- refactor(ipc): enforce endpoint handle validation in recv path
+The zuzu ukernel is much more mature than zuzuOS, having more work spent on it. Contribution to zuzu will be strictly checked and verified, and evaluated in terms of need, size and security.
 
-## Code style guidance
-- Match existing style in each file
-- Keep functions short and single-purpose
-- Prefer explicit error paths and return codes
-- Avoid unrelated refactors in the same patch
+### Architecture ports
 
-## Kernel and userspace boundaries
-When in doubt:
-- Kernel owns mechanisms (scheduling, memory, IPC primitives)
-- Userspace owns policy (service naming, authorization, daemon behavior)
+Ports of zuzu are being planned for various architectures such as AArch64, RISC-V, x86_64 and PowerPC. To port zuzu to a new architecture, please get in contact first to plan the scope and size of the port.
 
-For security-sensitive service access:
-- Prefer userspace mediation by trusted daemons
-- Avoid hardcoding service policy in kernel paths
+### Bug fixes
 
-Decision rule:
-- If it can be enforced in userspace with existing IPC/handle primitives, keep it in userspace.
+Kernel bug fixes are an important part of zuzu, and it would be appreciated!
 
-## Testing checklist
-
-### For userspace PRs
-- Build succeeds: `make -j4`
-- Boot still works in QEMU
-- Changed daemon path is exercised manually
-- No obvious regression in related userspace services
-
-If your userspace change touches IPC, include at least:
-- successful path test
-- failure path test (bad handle, no permission, not found)
-
-### For kernelspace PRs
-- All userspace checks above
-- Boot + scheduler sanity after repeated runs
-- Fault path coverage for changed logic (invalid handle/pointer/permission paths)
-- One regression note listing subsystems at risk
-
-If your kernel change touches one of these, include focused evidence:
-- IPC dispatch/validation
-- scheduler/context switching
-- memory mapping and address-space transitions
-- exception or IRQ entry paths
-
-## Documentation expectations
-If behavior changes, update docs in the same PR:
-- README when user-visible workflow changes
-- docs files for architecture and protocol updates
-
-## Pull request checklist
-- Problem statement and motivation
-- Summary of approach
-- Risks and limitations
-- Test notes
-- Follow-up items if intentionally deferred
-
-Required extra fields for kernelspace PRs:
-- Why userspace is insufficient
-- Invariants preserved (what must remain true)
-- Rollback plan if regression appears
-
-## Good first contribution ideas
-- Improve diagnostics around syscall and IPC errors
-- Add small targeted tests for userspace daemons
-- Tighten docs around boot, IPC, and memory behavior
-- Fix broken doc links and missing docs files
-
-Not a good first contribution:
-- Kernel scheduler, MMU, exception entry, or syscall ABI refactors
-
-## Naming convention
-
-zuzu and zuzuOS will start to follow camelCase for functions and types. Legacy code may use snake_case;
-when touching a subsystem, modernize its naming as part of that refactor.
-
-## Questions and design proposals
-For larger changes:
-- Write a short design note first
-- Include alternatives considered
-- Call out kernel/userspace boundary decisions
-
-A suggested template is:
-- context
-- goals
-- non-goals
-- design
-- migration plan
-- risks
