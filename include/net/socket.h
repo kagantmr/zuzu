@@ -22,6 +22,7 @@ extern "C" {
 #include <types.h>
 #include <zuzu/err.h>
 #include <zuzu/shm_ring.h>
+#include <net/protocols/netd.h>
 
 /** @brief Bytes in each ring, per direction; a power of two. */
 #define SOCK_RING_SIZE 8192u
