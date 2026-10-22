@@ -183,8 +183,8 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
         } else {
             panic_fault_ctx = (PanicFaultContext){
                 .valid = 1,
-                .far = ifar,
-                .fsr = ifsr,
+                .far = (Register)ifar,
+                .fsr = (Register)ifsr,
                 .fault_type = "Prefetch abort",
                 .fault_decoded = DecodeFsr(ifsr),
                 .frame = frame,
@@ -213,8 +213,8 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
             if (offset_in_slot < 0x1000) {
                 panic_fault_ctx = (PanicFaultContext){
                     .valid = 1,
-                    .far = dfar,
-                    .fsr = dfsr,
+                    .far = (Register)dfar,
+                    .fsr = (Register)dfsr,
                     .fault_type = "Data abort (kernel stack overflow)",
                     .fault_decoded = DecodeFsr(dfsr),
                     .access_type = (dfsr & (1 << 11)) ? "Write" : "Read",
@@ -259,8 +259,8 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
             
             panic_fault_ctx = (PanicFaultContext){
                 .valid = 1,
-                .far = dfar,
-                .fsr = dfsr,
+                .far = (Register)dfar,
+                .fsr = (Register)dfsr,
                 .fault_type = "Data abort",
                 .fault_decoded = DecodeFsr(dfsr),
                 .access_type = (dfsr & (1 << 11)) ? "Write" : "Read",

@@ -35,7 +35,7 @@ const char *KSymLookup(uintptr_t addr)
     return result;
 }
 
-uint32_t KSymLookupBaseAddr(uint32_t addr)
+uintptr_t KSymLookupBaseAddr(uintptr_t addr)
 {
     if (ksym_count == 0)
         return 0;
