@@ -22,13 +22,12 @@ Services (or daemons) are long running tasks that serve some functionality like 
 - Your service does not abuse resources.
 - Old methods like thread-per-connection may be wasteful, prefer an event loop around zuzu primitives instead.
 
-### Drivers
+### Drivers
 
 When writing device drivers, be sure that you are aware of the BSP layer, and how to modify it. Drivers, especially those able to perform DMA, must be written **carefully** as to not put the device or the operating system in a fragile state.
 
 - Prefer an event loop.
 - Be especially sure that you are able to guarantee DMA accesses cannot be messed with since without an IOMMU DMA is practically unsafe.
-
 
 ## zuzu contributions
 
@@ -42,3 +41,11 @@ Ports of zuzu are being planned for various architectures such as AArch64, RISC-
 
 Kernel bug fixes are an important part of zuzu, and it would be appreciated!
 
+## Style
+
+- Code is C11 formatted with the repository's `.clang-format`; run `clang-format` on what you change, not on whole files.
+- Functions and types are `PascalCase` (`KSymLookup`, `PanicFaultContext`), variables and fields are `snake_case`, macros are `UPPER_SNAKE_CASE`, and anything architecture-specific lives under `arch/` behind an `Arch`-prefixed function. 
+- Code outside `arch/` must stay correct at both 32 and 64 bits: use `uintptr_t` for addresses, never `uint32_t`. 
+- A change must compile with no warnings. 
+- Every function, type and macro gets a Doxygen `@brief` (`make doc-check` lists what's missing). 
+- Commits follow Conventional Commits with a scope, e.g. `fix(irq): ...` or `docs(arch): ...`.
