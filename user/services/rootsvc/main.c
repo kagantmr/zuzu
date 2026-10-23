@@ -2,6 +2,7 @@
 #include <cpio.h>
 #include <fs/fsd_client.h>
 #include <string.h>
+#include <ztask/ztask.h>
 #include <util/spawn.h>
 #include <util/tls.h>
 #include <zuzu/bootinfo.h>
@@ -35,25 +36,6 @@ static uint32_t g_kitten_count;
 static Handle g_monitor_ev;
 static FsdConn g_fsd;
 const BootInfo *g_bootinfo;
-
-static Handle SpawnThread(void (*entry)(void))
-{
-
-    void *stack = MemMapAnon(STACK_SIZE, 0, PROT_READ | PROT_WRITE);
-    if (PtrIsErr(stack))
-        return (Handle)stack;
-
-    Handle h = CreateTask(-1);
-    if (h < 0)
-        return h;
-
-    Err rc = TaskStart(h, entry, ((char *)stack + STACK_SIZE), 0, 0);
-    if (rc != ZUZU_OK) {
-        HandleClose(h);
-        return rc;
-    }
-    return h;
-}
 
 static void MonitorKitten(Handle task, Handle space, const char *path)
 {
@@ -406,8 +388,8 @@ int main(void)
     g_bootinfo = (const BootInfo *)USER_BOOTINFO_VA;
     g_monitor_ev = CreateEvent();
 
-    SpawnThread(DevsvcMain);
-    SpawnThread(NsvcMain);
+    ZTaskSpawnDetached(DevsvcMain, STACK_SIZE);
+    ZTaskSpawnDetached(NsvcMain, STACK_SIZE);
 
     SpawnStages();
     UserspaceDebugLog("rootsvc: spawned %u kitten(s), monitoring", g_kitten_count);
