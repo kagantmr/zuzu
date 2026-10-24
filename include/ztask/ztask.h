@@ -12,12 +12,14 @@ typedef struct ZTask {
     Handle handle;
     void *base;
     size_t size;
+    void (*entry)(void *);
+    void *arg;
     int detached;
 } ZTask;
 
-ZTask *ZTaskSpawn(void (*entry)(void), size_t stack_size);
+ZTask *ZTaskSpawn(void (*entry)(void *), void *arg, size_t stack_size);
 
-Err ZTaskSpawnDetached(void (*entry)(void), size_t stack_size);
+Err ZTaskSpawnDetached(void (*entry)(void *), void *arg, size_t stack_size);
 
 Err ZTaskJoin(ZTask *t, Duration timeout, int32_t *exit_status);
 

@@ -2,15 +2,15 @@
 #include <zuzu/err.h>
 #include <zuzu/zuzu.h>
 
-static void ZTaskTrampoline(ZTask *t, void (*entry)(void))
+static void ZTaskTrampoline(ZTask *t)
 {
-    entry();
+    t->entry(t->arg);
     if (t->detached)
         ArchUnmapAndQuit(t->base);
     Quit(ZUZU_OK);
 }
 
-static ZTask *Spawn(void (*entry)(void), size_t stack_size, int detached)
+static ZTask *Spawn(void (*entry)(void *), void *arg, size_t stack_size, int detached)
 {
     if (stack_size == 0)
         stack_size = ZTASK_DEFAULT_STACK;
@@ -25,6 +25,8 @@ static ZTask *Spawn(void (*entry)(void), size_t stack_size, int detached)
     ZTask *t = (ZTask *)top;
     t->base = base;
     t->size = stack_size;
+    t->entry = entry;
+    t->arg = arg;
     t->detached = detached;
 
     t->handle = CreateTask(-1);
@@ -34,8 +36,7 @@ static ZTask *Spawn(void (*entry)(void), size_t stack_size, int detached)
         return (ZTask *)(intptr_t)rc;
     }
 
-    Err rc = TaskStart(t->handle, ZTaskTrampoline, t, (uint32_t)(VirtAddr)t,
-                       (uint32_t)(VirtAddr)entry);
+    Err rc = TaskStart(t->handle, ZTaskTrampoline, t, (uint32_t)(VirtAddr)t, 0);
     if (rc != ZUZU_OK) {
         HandleClose(t->handle);
         MemUnmap(base);
@@ -44,15 +45,15 @@ static ZTask *Spawn(void (*entry)(void), size_t stack_size, int detached)
     return t;
 }
 
-ZTask *ZTaskSpawn(void (*entry)(void), size_t stack_size)
+ZTask *ZTaskSpawn(void (*entry)(void *), void *arg, size_t stack_size)
 {
-    return Spawn(entry, stack_size, 0);
+    return Spawn(entry, arg, stack_size, 0);
 }
 
-Err ZTaskSpawnDetached(void (*entry)(void), size_t stack_size)
+Err ZTaskSpawnDetached(void (*entry)(void *), void *arg, size_t stack_size)
 {
     Handle h;
-    ZTask *t = Spawn(entry, stack_size, 1);
+    ZTask *t = Spawn(entry, arg, stack_size, 1);
     if (PtrIsErr(t))
         return (Err)(intptr_t)t;
     h = t->handle;

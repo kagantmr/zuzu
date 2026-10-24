@@ -8,8 +8,8 @@
 extern const BootInfo *g_bootinfo;
 extern Handle g_nsvc_port;
 
-void DevsvcMain(void);
-void NsvcMain(void);
+void DevsvcMain(void *arg);
+void NsvcMain(void *arg);
 Handle NsvcInit(void);
 
 #endif

@@ -52,8 +52,9 @@ static int DevmUnpack(const char *buf, uint32_t xlen, DevmRequest *out)
     return ZUZU_OK;
 }
 
-void DevsvcMain(void)
+void DevsvcMain(void *arg)
 {
+    (void)arg;
     UserspaceDebugLog("devsvc: up");
     g_devsvc_port = CreatePort();
     if (g_devsvc_port < 0)

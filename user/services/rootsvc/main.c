@@ -162,7 +162,7 @@ static bool ParseUint(const char *s, const char *end, int32_t *out)
     for (; s < end; s++) {
         if (*s < '0' || *s > '9')
             return false;
-        v = v * 10 + (*s - '0');
+        v = (v * 10) + (*s - '0');
         if (v > 255)
             return false;
     }
@@ -388,8 +388,8 @@ int main(void)
     g_bootinfo = (const BootInfo *)USER_BOOTINFO_VA;
     g_monitor_ev = CreateEvent();
 
-    ZTaskSpawnDetached(DevsvcMain, STACK_SIZE);
-    ZTaskSpawnDetached(NsvcMain, STACK_SIZE);
+    ZTaskSpawnDetached(DevsvcMain, NULL, STACK_SIZE);
+    ZTaskSpawnDetached(NsvcMain, NULL, STACK_SIZE);
 
     SpawnStages();
     UserspaceDebugLog("rootsvc: spawned %u kitten(s), monitoring", g_kitten_count);
