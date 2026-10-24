@@ -136,7 +136,7 @@ static inline Err FbDrvConnect(Handle gfx_port, const FbDrvCtl *info, Handle fb_
     c->ctl->buf_size = info->buf_size;
 
     Handle page;
-    Err rc = HandleDup(c->ctl_mem, PERM_MAP | PERM_TXFR, MARKER_NONE, &page);
+    Err rc = HandleDup(c->ctl_mem, PERM_MAP | PERM_WRITE | PERM_TXFR, MARKER_NONE, &page);
     if (rc == ZUZU_OK) {
         FbDrvRequest req = {.cmd = FBDRV_PROVIDE};
         Handle bell = -1;
@@ -155,7 +155,7 @@ static inline Err FbDrvConnect(Handle gfx_port, const FbDrvCtl *info, Handle fb_
     }
 
     if (rc == ZUZU_OK)
-        rc = FbDrvGrantCall(gfx_port, FBDRV_SETBUF, 0, fb_mem, PERM_MAP);
+        rc = FbDrvGrantCall(gfx_port, FBDRV_SETBUF, 0, fb_mem, PERM_MAP | PERM_WRITE);
     if (rc == ZUZU_OK)
         rc = FbDrvGrantCall(gfx_port, FBDRV_NOTIFY, my_bit, my_event, PERM_SEND);
     if (rc == ZUZU_OK) {

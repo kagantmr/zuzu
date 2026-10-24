@@ -214,7 +214,7 @@ static void ServeGetBuf(Handle live)
         return;
     }
 
-    SvcResult dup = HandleDuplicate(g_disp.fb_mem, PERM_MAP | PERM_TXFR, MARKER_NONE);
+    SvcResult dup = HandleDuplicate(g_disp.fb_mem, PERM_MAP | PERM_WRITE | PERM_TXFR, MARKER_NONE);
     if (dup.r0 != ZUZU_OK) {
         HandleClose(live);
         ReplyStatus((Err)dup.r0);
