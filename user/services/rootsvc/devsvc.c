@@ -26,8 +26,16 @@ static int DevmUnpack(const char *buf, uint32_t xlen, DevmRequest *out)
         return ERR_BADARG;
     }
 
-    /* 3. Bounded walk of `count` NUL-terminated strings. */
     uint32_t off = 8;
+    uint32_t nth = 0;
+    if (cmd == DEVM_REQUEST_NTH) {
+        if (xlen < 12)
+            return ERR_BADARG;
+        memcpy(&nth, buf + 8, 4);
+        off = 12;
+    }
+
+    /* 3. Bounded walk of `count` NUL-terminated strings. */
     for (uint32_t i = 0; i < count; i++) {
         if (off >= xlen) {
             return ERR_BADARG; /* ran out before string i */
@@ -49,7 +57,44 @@ static int DevmUnpack(const char *buf, uint32_t xlen, DevmRequest *out)
 
     out->cmd = (DevmRequestType)cmd;
     out->count = count;
+    out->nth = nth;
     return ZUZU_OK;
+}
+
+static bool FindDevice(const DevmRequest *req, uint32_t *out)
+{
+    if (req->cmd == DEVM_REQUEST_NTH) {
+        uint32_t seen = 0;
+        for (uint32_t d = 0; d < g_bootinfo->dev_count; d++) {
+            for (uint32_t i = 0; i < req->count; i++) {
+                if (strcmp(req->strings[i], g_bootinfo->devs[d].compatible) != 0)
+                    continue;
+                if (seen++ == req->nth) {
+                    *out = d;
+                    return true;
+                }
+                break;
+            }
+        }
+        return false;
+    }
+
+    for (uint32_t i = 0; i < req->count; i++) {
+        for (uint32_t d = 0; d < g_bootinfo->dev_count; d++) {
+            if (strcmp(req->strings[i], g_bootinfo->devs[d].compatible) == 0) {
+                *out = d;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static void ReplyNoDevice(void)
+{
+    uint32_t none = UINT32_MAX;
+    memcpy(GetMessageBox(), &none, sizeof(none));
+    Reply(sizeof(none), -1);
 }
 
 void DevsvcMain(void *arg)
@@ -72,25 +117,20 @@ void DevsvcMain(void *arg)
             continue;
 
         switch (req.cmd) {
-        case DEVM_REQUEST: {
+        case DEVM_REQUEST:
+        case DEVM_REQUEST_NTH: {
             uint32_t matched_index = 0;
-            bool found = false;
-            for (uint32_t i = 0; i < req.count && !found; i++) {
-                for (uint32_t d = 0; d < g_bootinfo->dev_count; d++) {
-                    if (strcmp(req.strings[i], g_bootinfo->devs[d].compatible) == 0) {
-                        matched_index = d;
-                        found = true;
-                        break;
-                    }
-                }
-            }
-            if (!found)
+            if (!FindDevice(&req, &matched_index)) {
+                ReplyNoDevice();
                 break;
+            }
 
             SvcResult dup = HandleDuplicate(DEVICE_HANDLE_BASE + matched_index,
                                             (PERM_MAP | PERM_WRITE | PERM_TXFR), MARKER_NONE);
-            if (dup.r0 != ZUZU_OK)
+            if (dup.r0 != ZUZU_OK) {
+                ReplyNoDevice();
                 break;
+            }
 
             memcpy(GetMessageBox(), &matched_index, sizeof(matched_index));
             Reply(sizeof(matched_index), (Handle)dup.r1);

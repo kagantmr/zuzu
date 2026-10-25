@@ -1,10 +1,10 @@
 #include <dev/devm.h>
 #include <zuzu/zuzu.h>
 #include <zuzu/service.h>
+#include <util/log.h>
 
 #define LOG_TAG "pl050drv"
-
-#include <util/log.h>
+static const char *const DEV_COMPAT[] = {"arm,pl050"};
 
 /**
  * taken from OSDev
@@ -27,7 +27,8 @@ static void GetDevices(void) {
         LOG_ERROR(LOG_TAG, "Couldn't find devsvc");
         return;
     }
-    RequestDevice(devsvc_port, "arm,pl050", 2, uint32_t *out_matched)
+    uint32_t matched;
+    RequestDevice(devsvc_port, DEV_COMPAT, 1, &matched);
 }
 
 int main() {
