@@ -74,7 +74,7 @@ static void DrawCell(uint32_t col, uint32_t row, char ch, bool invert)
         uint16_t *dst = Pixel(col * FONT_GLYPH_W, (row * FONT_GLYPH_H) + gy);
         uint16_t bits = glyph[gy];
         for (uint32_t gx = 0; gx < FONT_GLYPH_W; gx++)
-            dst[gx] = (bits & (0x8000U >> gx)) ? fg : bg;
+            dst[gx] = ((bits >> (FONT_GLYPH_W - 1U - gx)) & 1U) ? fg : bg;
     }
 }
 
