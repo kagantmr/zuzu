@@ -230,7 +230,7 @@ $(NEWLIB_CRT0): $(ARCH_DIR)/crt0.S
 LVGL_DIR     := vendor/lvgl
 LVGL_SRCS    := $(shell find $(LVGL_DIR)/src -name '*.c' \
                   -not -path '$(LVGL_DIR)/src/drivers/*' \
-                  -not -path '$(LVGL_DIR)/src/libs/*') \
+                  -not -path '$(LVGL_DIR)/src/libs/*' 2>/dev/null) \
                 lib/lvgl/lv_os_zuzu.c
 LVGL_OBJS    := $(patsubst %.c,$(O)/user/lvgl/%.o,$(LVGL_SRCS))
 LVGL_CFLAGS  := $(filter-out -Wall -Wextra -Wshadow,$(USER_CFLAGS)) -w \

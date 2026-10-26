@@ -1,23 +1,36 @@
+/**
+ * @file
+ * @brief Implementation of the US keymap and the escape sequences for special keys.
+ */
+
 #include <dev/hid.h>
 #include <dev/keymap.h>
 #include <string.h>
 
+/** @brief Either Shift key. */
 #define MODS_SHIFT (KEYMOD_LSHIFT | KEYMOD_RSHIFT)
+/** @brief Either Ctrl key. */
 #define MODS_CTRL (KEYMOD_LCTRL | KEYMOD_RCTRL)
+/** @brief Either Alt key. */
 #define MODS_ALT (KEYMOD_LALT | KEYMOD_RALT)
+/** @brief The escape byte. */
 #define ESC 0x1B
 
+/** @brief Unshifted characters for usages A through slash, indexed by usage minus HID_KEY_A. */
 static const char k_plain[] = "abcdefghijklmnopqrstuvwxyz1234567890\r\x1b\x7f\t -=[]\\#;'`,./";
+/** @brief Shifted characters for the same usages as k_plain. */
 static const char k_shifted[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*()\r\x1b\x7f\t _+{}|~:\"~<>?";
 
 _Static_assert(sizeof(k_plain) - 1 == HID_KEY_SLASH - HID_KEY_A + 1, "plain table covers 0x04..0x38");
 _Static_assert(sizeof(k_shifted) == sizeof(k_plain), "shifted table matches");
 
+/** @brief A key that sends a fixed escape sequence. */
 typedef struct {
-    uint8_t usage;
-    const char *seq;
+    uint8_t usage;   /**< HID usage of the key. */
+    const char *seq; /**< The bytes it sends, as a string. */
 } SpecialKey;
 
+/** @brief Arrow, navigation and function keys. */
 static const SpecialKey k_special[] = {
     {HID_KEY_UP, "\x1b[A"},      {HID_KEY_DOWN, "\x1b[B"},     {HID_KEY_RIGHT, "\x1b[C"},
     {HID_KEY_LEFT, "\x1b[D"},    {HID_KEY_HOME, "\x1b[H"},     {HID_KEY_END, "\x1b[F"},
@@ -36,6 +49,12 @@ void KeymapInit(KeymapState *s)
     s->num = true;
 }
 
+/**
+ * @brief Finds the escape sequence for a special key.
+ *
+ * @param[in] usage HID usage of the key.
+ * @return The sequence, or NULL if the key is not a special key.
+ */
 static const char *SpecialSeq(uint8_t usage)
 {
     for (size_t i = 0; i < sizeof(k_special) / sizeof(k_special[0]); i++) {
@@ -45,6 +64,12 @@ static const char *SpecialSeq(uint8_t usage)
     return NULL;
 }
 
+/**
+ * @brief Maps a keypad key to the navigation key it acts as when Num Lock is off.
+ *
+ * @param[in] usage HID usage of a keypad key.
+ * @return The navigation key's usage, or HID_KEY_NONE.
+ */
 static uint8_t KeypadNav(uint8_t usage)
 {
     switch (usage) {
@@ -62,6 +87,12 @@ static uint8_t KeypadNav(uint8_t usage)
     }
 }
 
+/**
+ * @brief Gives the character a keypad key types.
+ *
+ * @param[in] usage HID usage of a keypad key.
+ * @return The character, or 0 if the key types none.
+ */
 static char KeypadChar(uint8_t usage)
 {
     if (usage >= HID_KEY_KP_1 && usage <= HID_KEY_KP_9)
@@ -78,6 +109,12 @@ static char KeypadChar(uint8_t usage)
     }
 }
 
+/**
+ * @brief Applies Ctrl to a character.
+ *
+ * @param[in] c The unshifted character.
+ * @return The control character, or @p c if Ctrl has no effect on it.
+ */
 static char ApplyCtrl(char c)
 {
     if (c >= 'a' && c <= 'z')

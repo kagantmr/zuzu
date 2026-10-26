@@ -1105,8 +1105,8 @@
  *  LV_FONT_DEFAULT yourself, either:
  *    - from the build system, e.g. -DLV_FONT_DEFAULT='&my_font_24', or
  *    - in the header given by LV_FONT_CUSTOM_INCLUDE, e.g.
- *          #define LV_FONT_CUSTOM_DECLARE  LV_FONT_DECLARE(my_font_24)
- *          #define LV_FONT_DEFAULT         &my_font_24
+ *          define LV_FONT_CUSTOM_DECLARE  LV_FONT_DECLARE(my_font_24)
+ *          define LV_FONT_DEFAULT         &my_font_24
  *
  *  If you do not, LV_FONT_DEFAULT falls back to a builtin font,
  *  which is no longer compiled in, causing a link error.

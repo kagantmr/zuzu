@@ -102,11 +102,11 @@ _Static_assert(sizeof(TtyShm) <= 4096, "TtyShm must fit in the one shared page")
 #define TTY_ECHO (1u << 1)
 /** @brief ^C raises an interrupt (intr_seq) instead of arriving as a byte. */
 #define TTY_ISIG (1u << 2)
-/** @brief A typed '\r' becomes '\n'. */
+/** @brief A typed carriage return becomes a newline. */
 #define TTY_ICRNL (1u << 3)
 /** @brief Output processing is on; required for TTY_ONLCR. */
 #define TTY_OPOST (1u << 4)
-/** @brief With TTY_OPOST, '\n' in output (and echo) becomes "\r\n". */
+/** @brief With TTY_OPOST, a newline in output (and echo) becomes a carriage return and a newline. */
 #define TTY_ONLCR (1u << 5)
 /** @brief The usual line mode: ICANON, ISIG, ICRNL, OPOST and ONLCR. Echo is separate. */
 #define TTY_MODE_COOKED (TTY_ICANON | TTY_ISIG | TTY_ICRNL | TTY_OPOST | TTY_ONLCR)

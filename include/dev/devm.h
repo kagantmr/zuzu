@@ -41,16 +41,16 @@ typedef struct {
 } DevmRequest;
 
 /**
- * @brief Asks devsvc for a device's memory object.
- *
- * The strings are tried in order; the first one that matches a device in the
- * boot device list wins. The handle carries PERM_MAP | PERM_WRITE | PERM_TXFR.
+ * @brief Sends a device request to devsvc and unpacks the reply.
  *
  * @param[in]  devsvc_port Handle to /svc/devsvc.
- * @param[in]  compats     Compatible strings, most specific first.
+ * @param[in]  cmd         DEVM_REQUEST or DEVM_REQUEST_NTH.
+ * @param[in]  nth         DEVM_REQUEST_NTH only: matches to skip, 0 for the first.
+ * @param[in]  compats     Compatible strings.
  * @param[in]  count       Number of strings, 1 to DEVM_MAX_COMPAT.
  * @param[out] out_matched Receives the device's index in the boot device list; may be NULL.
  * @return The device handle, or a negative error code.
+ * @retval ERR_NOENT    No device matched.
  * @retval ERR_BADARG   @p count is 0 or above DEVM_MAX_COMPAT.
  * @retval ERR_OVERFLOW The strings do not fit in the message buffer.
  */
@@ -86,6 +86,21 @@ static inline Handle DevmCall(Handle devsvc_port, uint32_t cmd, uint32_t nth,
     return found;
 }
 
+/**
+ * @brief Asks devsvc for a device's memory object.
+ *
+ * The strings are tried in order; the first one that matches a device in the
+ * boot device list wins. The handle carries PERM_MAP | PERM_WRITE | PERM_TXFR.
+ *
+ * @param[in]  devsvc_port Handle to /svc/devsvc.
+ * @param[in]  compats     Compatible strings, most specific first.
+ * @param[in]  count       Number of strings, 1 to DEVM_MAX_COMPAT.
+ * @param[out] out_matched Receives the device's index in the boot device list; may be NULL.
+ * @return The device handle, or a negative error code.
+ * @retval ERR_NOENT    No device matched.
+ * @retval ERR_BADARG   @p count is 0 or above DEVM_MAX_COMPAT.
+ * @retval ERR_OVERFLOW The strings do not fit in the message buffer.
+ */
 static inline Handle RequestDevice(Handle devsvc_port, const char *const *compats, uint32_t count,
                                    uint32_t *out_matched)
 {

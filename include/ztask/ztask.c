@@ -1,7 +1,17 @@
+/**
+ * @file
+ * @brief Implementation of tasks used as threads.
+ */
+
 #include <ztask/ztask.h>
 #include <zuzu/err.h>
 #include <zuzu/zuzu.h>
 
+/**
+ * @brief First code every ZTask runs: calls the entry function, then ends the task.
+ *
+ * @param[in] t The task's control block, passed in r0.
+ */
 static void ZTaskTrampoline(ZTask *t)
 {
     t->entry(t->arg);
@@ -10,6 +20,15 @@ static void ZTaskTrampoline(ZTask *t)
     Quit(ZUZU_OK);
 }
 
+/**
+ * @brief Maps a stack, places the control block on it and starts the task.
+ *
+ * @param[in] entry      Function the task runs.
+ * @param[in] arg        Argument passed to @p entry.
+ * @param[in] stack_size Stack size in bytes, or 0 for the default.
+ * @param[in] detached   Non-zero if the task frees its own stack.
+ * @return The task, or an error code encoded as a pointer.
+ */
 static ZTask *Spawn(void (*entry)(void *), void *arg, size_t stack_size, int detached)
 {
     if (stack_size == 0)

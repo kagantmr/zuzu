@@ -6,7 +6,6 @@ kilo
 nettest
 ifconfig
 cat
-fbtest
 ls
 rm
 termtest

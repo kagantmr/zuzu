@@ -106,8 +106,23 @@ char *strcpy(char *dest, const char *src);
  */
 char *strncpy(char *dest, const char *src, size_t n);
 
+/**
+ * @brief Append a string to the end of another.
+ *
+ * @param[in,out] dest Destination string, with room for the result and its NUL.
+ * @param[in]     src  String to append.
+ * @return Pointer to dest.
+ */
 char *strcat(char *dest, const char *src);
 
+/**
+ * @brief Append at most @p n characters of a string to the end of another, then a NUL.
+ *
+ * @param[in,out] dest Destination string, with room for the result, @p n bytes and a NUL.
+ * @param[in]     src  String to append from.
+ * @param[in]     n    Most characters to append.
+ * @return Pointer to dest.
+ */
 char *strncat(char *dest, const char *src, size_t n);
 
 /**
