@@ -1,4 +1,5 @@
 #include "kmi.h"
+#include "ps2dec.h"
 #include <dev/devm.h>
 #include <util/log.h>
 #include <zuzu/service.h>
@@ -13,7 +14,7 @@ typedef enum { KMI_ROLE_NONE = 0, KMI_ROLE_KBD = 1, KMI_ROLE_MOUSE = 2 } KmiRole
 typedef struct {
     volatile Pl050Mmio *kmi;
     Handle kmi_dev_h;
-    // decoder state here
+    Ps2Decoder dec;
     KmiRole role;
     uint8_t irq_pos;
 } KmiPort;
@@ -191,11 +192,24 @@ static Err PortProbe(KmiPort *p)
             p->role = KMI_ROLE_NONE;
             return rc;
         }
+        Ps2DecoderInit(&p->dec);
     }
     return ZUZU_OK;
 }
 
-static void PortDrain(KmiPort *p); // read DATA while RXFULL, feed decoder
+static void PortDrain(KmiPort *p)
+{
+    while (p->kmi->stat & KMISTAT_RXFULL) {
+        uint8_t byte = (uint8_t)p->kmi->data;
+        if (p->role != KMI_ROLE_KBD)
+            continue;
+
+        Ps2KeyEvent ev;
+        if (Ps2DecoderFeed(&p->dec, byte, &ev))
+            LOG_INFO(LOG_TAG, "port %u usage %02x %s", (unsigned)p->irq_pos, ev.usage,
+                     ev.pressed ? "down" : "up");
+    }
+}
 
 int main()
 {
@@ -230,10 +244,24 @@ int main()
         return ERR_NOENT;
     }
 
+    if (ports[0].role) ports[0].kmi->cr = KMICR_EN | KMICR_RXINTREN;
+    if (ports[1].role) ports[1].kmi->cr = KMICR_EN | KMICR_RXINTREN;
+        
     for (;;) {
         EventWaitResult r = WaitOnEvent(g_kmi_irq_ev, TIMEOUT_INFINITE);
         if (r.status != ZUZU_OK)
             continue;
+
+        if (r.bits & (1U << 0)) {
+            PortDrain(&ports[0]);
+            IrqRearm(ports[0].kmi_dev_h);
+        }
+
+        if (r.bits & (1U << 1))  {
+            PortDrain(&ports[1]);
+            IrqRearm(ports[1].kmi_dev_h);
+        }
+        
     }
     return 0;
 }
