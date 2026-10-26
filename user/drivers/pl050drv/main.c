@@ -39,7 +39,6 @@ static bool g_tty_up;
 
 static Err KmiTx(KmiPort *p, uint8_t byte)
 {
-    LOG_DEBUG(LOG_TAG, "port %u tx %02x", (unsigned)p->irq_pos, byte);
     uint64_t start = UptimeMs();
     while (!(p->kmi->stat & KMISTAT_TXEMPTY)) {
         if (UptimeMs() - start > KMI_TX_TIMEOUT_MS)
@@ -56,7 +55,6 @@ static int KmiRx(KmiPort *p, Duration to_ms)
         uint32_t stat = p->kmi->stat;
         if (stat & KMISTAT_RXFULL) {
             uint8_t byte = (uint8_t)p->kmi->data;
-            LOG_DEBUG(LOG_TAG, "port %u rx %02x", (unsigned)p->irq_pos, byte);
             return byte;
         }
         if (UptimeMs() - start >= to_ms)
