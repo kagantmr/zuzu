@@ -53,7 +53,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y qemu-system-arm mtools dosfstools
       - name: Build kernel, initrd and SD card
         run: |
-          make BOARD=vexpress-a15 -j"$(nproc)"
-          make BOARD=vexpress-a15 build/arm-vexpress-a15/zuzu.img sdimg
+          make BOARD=vexpress-a15 CONSOLE=serial -j"$(nproc)"
+          make BOARD=vexpress-a15 CONSOLE=serial build/arm-vexpress-a15/zuzu.img sdimg
       - name: Boot and run zztest
-        run: make BOARD=vexpress-a15 smoke SMOKE_TIMEOUT=300
+        run: make BOARD=vexpress-a15 CONSOLE=serial smoke SMOKE_TIMEOUT=300
