@@ -91,6 +91,7 @@ zuzuOS versions are named after drinks.
 ## Credits
 
 - zuzu logo designed by Zoz
+- zuzuFONT created by Esther
 
 ## License
 

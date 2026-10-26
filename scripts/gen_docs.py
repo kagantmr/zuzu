@@ -9,7 +9,7 @@ listed in ``docs/doc-publish``) and writes Markdown for MkDocs under
 - ``syscalls/<name>.md``: one page per function in a ``syscalls_*`` group,
   syscalls (``@syscall_num``) and library helpers alike;
 - one page per header in ``HEADERS`` (types, errors, syspage);
-- ``sync/<name>.md``: one page per ``include/sync`` header;
+- ``ztask/<name>.md``: one page per ``include/ztask`` header;
 - ``lib/<dir>/<name>.md``: one page per other header, and ``lib/index.md``
   listing them;
 - ``docs/internals/arch/<path>.md``: one page per ``arch/`` header, and an
@@ -36,7 +36,7 @@ from pathlib import Path
 
 REF = Path("docs/reference")
 SYSCALLS = REF / "syscalls"
-SYNC = REF / "sync"
+SYNC = REF / "ztask"
 LIB = REF / "lib"
 ARCH = Path("docs/internals/arch")
 SINCE = "2.0"
@@ -548,7 +548,7 @@ def build(xmldir: Path) -> dict[Path, str]:
             continue
         if path in HEADERS or path in NO_PAGE or not path.startswith("include/"):
             continue
-        if path.startswith("include/sync/"):
+        if path.startswith("include/ztask/"):
             if Path(path).name not in SYNC_SKIP:
                 classes = [ic.text for ic in cd.findall("innerclass")]
                 title = classes[0] if len(classes) == 1 else Path(path).stem

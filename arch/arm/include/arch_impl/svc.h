@@ -16,6 +16,8 @@
 
 #include "regs.h"
 #include <stdint.h>
+#include <svc_nums.h>
+#include <types.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -77,6 +79,30 @@ static __always_inline SvcResult ArchInvokeSvc4(uint32_t svc_num, Register a0, R
                      : "r"(ip), [magic] "i"(ARCH_SVC_MAGIC)
                      : "memory");
     return (SvcResult){.r0 = r0, .r1 = r1, .r2 = r2, .r3 = r3};
+}
+
+/**
+ * @brief Unmaps a region and ends the calling task without touching memory in between.
+ *
+ * For a task whose stack lives in the region being unmapped. Between the two
+ * syscalls only registers are used, so nothing reads or writes the freed stack.
+ *
+ * @param[in] va Start address of the mapping to remove.
+ */
+static __always_inline void __attribute__((noreturn)) ArchUnmapAndQuit(void *va)
+{
+    register Register r1 __asm__("r1") = (Register)va;
+    __asm__ volatile("mov r0, %[unmap]\n\t"
+                     "mov r12, %[nmem]\n\t"
+                     "svc %[magic]\n\t"
+                     "mov r0, #0\n\t"
+                     "mov r12, %[nquit]\n\t"
+                     "svc %[magic]"
+                     :
+                     : "r"(r1), [unmap] "i"(MNGMEM_UNMAP), [nmem] "i"(SVC_MANAGEMEMORY),
+                       [nquit] "i"(SVC_QUIT), [magic] "i"(ARCH_SVC_MAGIC)
+                     : "r0", "r12", "memory");
+    __builtin_unreachable();
 }
 
 #ifdef __cplusplus

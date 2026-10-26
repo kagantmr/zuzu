@@ -28,6 +28,8 @@ static char stdio_alias[TTY_NAME_MAX];
 static int stdio_pushback = EOF;
 static bool stdio_focused;
 static uint32_t stdio_mode = TTY_MODE_COOKED | TTY_MODE_ECHO;
+static uint32_t stdio_intr_seen;
+static void (*stdio_intr_handler)(void);
 
 static void stdio_disconnect(void)
 {
@@ -88,8 +90,24 @@ int stdio_open_tty(void)
         TtyClientClose(stdio_port, &stdio_conn);
         return -1;
     }
+    stdio_intr_seen = stdio_conn.shm->ctl.intr_seq;
     stdio_state = STDIO_READY;
     return 0;
+}
+
+void stdio_on_interrupt(void (*handler)(void)) { stdio_intr_handler = handler; }
+
+/* ^C while ISIG is set: run the program's handler, or end the program. */
+static void stdio_check_interrupt(void)
+{
+    if (stdio_state != STDIO_READY || !TtyInterrupted(stdio_conn.shm, &stdio_intr_seen))
+        return;
+    if (stdio_intr_handler) {
+        stdio_intr_handler();
+        return;
+    }
+    stdio_disconnect();
+    Quit(130);
 }
 
 /* Raw mode hands every byte through untouched, so the caller does its own
@@ -133,13 +151,16 @@ static void stdio_kick(void) { Signal(stdio_conn.doorbell, 1U << stdio_conn.bit,
 static void stdio_write(const char *s, size_t n)
 {
     TtyShm *shm = stdio_conn.shm;
+    stdio_check_interrupt();
     while (n > 0) {
         uint32_t w = ShmRingPush(&shm->up_hdr, shm->up_data, (const uint8_t *)s, (uint32_t)n);
         s += w;
         n -= w;
         stdio_kick();
-        if (n > 0)
+        if (n > 0) {
             WaitOn(stdio_event, TIMEOUT_INFINITE);
+            stdio_check_interrupt();
+        }
     }
 }
 
@@ -170,6 +191,7 @@ static int stdio_stream_getc(void)
             consumed = true;
             return b;
         }
+        stdio_check_interrupt();
         if (TtyEofPending(shm))
             return EOF;
         if (consumed) {

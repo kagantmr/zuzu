@@ -22,7 +22,7 @@
 #include <dev/devm.h>
 #include <stdatomic.h>
 #include <string.h>
-#include <sync/primitives.h>
+#include <ztask/primitives.h>
 #include <zuzu/msg.h>
 #include <util/tls.h>
 #include <zuzu/err.h>

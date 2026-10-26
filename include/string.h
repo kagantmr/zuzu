@@ -106,6 +106,10 @@ char *strcpy(char *dest, const char *src);
  */
 char *strncpy(char *dest, const char *src, size_t n);
 
+char *strcat(char *dest, const char *src);
+
+char *strncat(char *dest, const char *src, size_t n);
+
 /**
  * @brief Compare two strings lexicographically.
  *

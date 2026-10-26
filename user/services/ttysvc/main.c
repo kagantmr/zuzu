@@ -8,6 +8,7 @@
 
 #define MAX_SESSIONS 15 /* doorbell bits 1..15, death bits 16..30; bit 0 is the port */
 #define MAX_ENDPOINTS 8
+#define MAX_PROVIDERS 4
 #define LINE_MAX_LEN 256
 #define PORT_BIT 0
 #define SESSION_BIT(slot) ((uint32_t)(slot) + 1U)
@@ -24,6 +25,7 @@
 typedef struct {
     bool in_use;
     bool provider;
+    uint32_t dir; /* providers only: TTY_DIR_* */
     bool wants_input; /* has asked for the foreground at least once */
     int endpoint;
     uint32_t order; /* attach order, for foreground promotion */
@@ -44,8 +46,10 @@ typedef struct {
 typedef struct {
     bool in_use;
     char alias[TTY_NAME_MAX];
-    int provider; /* session slot, or -1 while the provider is away */
+    int providers[MAX_PROVIDERS]; /* session slots, -1 for an empty entry */
     int fg;       /* session slot of the foreground consumer, or -1 */
+    uint32_t cols; /* window size reported by a provider, 0 while unknown */
+    uint32_t rows;
 } Endpoint;
 
 static Session g_sessions[MAX_SESSIONS];
@@ -94,12 +98,6 @@ static void DownPush(Session *s, uint8_t b)
     s->dirty = true;
 }
 
-static void DownPushStr(Session *s, const char *str)
-{
-    while (*str)
-        DownPush(s, (uint8_t)*str++);
-}
-
 /* ---- replies ---- */
 
 static void ReplyStatus(Err status)
@@ -123,12 +121,93 @@ static int NewEndpoint(const char *alias)
 {
     for (int i = 0; i < MAX_ENDPOINTS; i++) {
         if (!g_endpoints[i].in_use) {
-            g_endpoints[i] = (Endpoint){.in_use = true, .provider = -1, .fg = -1};
+            g_endpoints[i] = (Endpoint){.in_use = true, .fg = -1};
+            for (int j = 0; j < MAX_PROVIDERS; j++)
+                g_endpoints[i].providers[j] = -1;
             strncpy(g_endpoints[i].alias, alias, TTY_NAME_MAX - 1);
             return i;
         }
     }
     return -1;
+}
+
+static int ProviderCount(const Endpoint *ep)
+{
+    int n = 0;
+    for (int i = 0; i < MAX_PROVIDERS; i++) {
+        if (ep->providers[i] >= 0)
+            n++;
+    }
+    return n;
+}
+
+static bool AddProvider(Endpoint *ep, int slot)
+{
+    for (int i = 0; i < MAX_PROVIDERS; i++) {
+        if (ep->providers[i] < 0) {
+            ep->providers[i] = slot;
+            return true;
+        }
+    }
+    return false;
+}
+
+static void RemoveProvider(Endpoint *ep, int slot)
+{
+    for (int i = 0; i < MAX_PROVIDERS; i++) {
+        if (ep->providers[i] == slot)
+            ep->providers[i] = -1;
+    }
+}
+
+static Session *OutputAt(const Endpoint *ep, int i)
+{
+    int slot = ep->providers[i];
+    if (slot < 0 || !(g_sessions[slot].dir & TTY_DIR_OUT))
+        return NULL;
+    return &g_sessions[slot];
+}
+
+static bool HasOutput(const Endpoint *ep)
+{
+    for (int i = 0; i < MAX_PROVIDERS; i++) {
+        if (OutputAt(ep, i))
+            return true;
+    }
+    return false;
+}
+
+/* Room for the slowest output provider: a byte is only taken from a program
+ * or the keyboard once every display and UART can take it too. With no output
+ * provider there is no room, so output waits for one. */
+static uint32_t OutFree(const Endpoint *ep)
+{
+    uint32_t room = 0;
+    bool any = false;
+    for (int i = 0; i < MAX_PROVIDERS; i++) {
+        Session *o = OutputAt(ep, i);
+        if (!o)
+            continue;
+        uint32_t f = DownFree(o);
+        room = any && room < f ? room : f;
+        any = true;
+    }
+    return room;
+}
+
+static void OutPush(const Endpoint *ep, uint8_t b)
+{
+    for (int i = 0; i < MAX_PROVIDERS; i++) {
+        Session *o = OutputAt(ep, i);
+        if (o)
+            DownPush(o, b);
+    }
+}
+
+static void OutPushStr(const Endpoint *ep, const char *str)
+{
+    while (*str)
+        OutPush(ep, (uint8_t)*str++);
 }
 
 static void AutoAlias(char out[TTY_NAME_MAX])
@@ -161,7 +240,7 @@ static int DefaultEndpoint(void)
 {
     int first = -1;
     for (int i = 0; i < MAX_ENDPOINTS; i++) {
-        if (!g_endpoints[i].in_use || g_endpoints[i].provider < 0)
+        if (!g_endpoints[i].in_use || ProviderCount(&g_endpoints[i]) == 0)
             continue;
         if (g_endpoints[i].fg < 0)
             return i;
@@ -219,13 +298,15 @@ static void HandleConnect(bool provider, const PortWaitResult *r)
     bool new_ep = false;
     Err err = ZUZU_OK;
     if (provider) {
+        if (req.dir & ~TTY_DIR_BOTH)
+            err = ERR_BADARG;
         if (req.alias[0] == '\0')
             AutoAlias(req.alias);
         ep = FindEndpoint(req.alias);
-        if (ep >= 0) {
-            if (g_endpoints[ep].provider >= 0)
-                err = ERR_DUPLICATE; /* alias is live */
-        } else {
+        if (err == ZUZU_OK && ep >= 0) {
+            if (ProviderCount(&g_endpoints[ep]) >= MAX_PROVIDERS)
+                err = ERR_BUSY;
+        } else if (err == ZUZU_OK) {
             ep = NewEndpoint(req.alias);
             new_ep = true;
             if (ep < 0)
@@ -266,6 +347,7 @@ static void HandleConnect(bool provider, const PortWaitResult *r)
     Session *s = &g_sessions[slot];
     *s = (Session){.in_use = true,
                    .provider = provider,
+                   .dir = provider ? (req.dir ? req.dir : TTY_DIR_BOTH) : 0,
                    .endpoint = ep,
                    .order = g_order++,
                    .shm = (TtyShm *)va,
@@ -294,9 +376,9 @@ static void HandleConnect(bool provider, const PortWaitResult *r)
     }
 
     if (provider)
-        g_endpoints[ep].provider = slot;
-    UserspaceDebugLog("ttysvc: %s slot=%d endpoint=%s", provider ? "provide" : "attach", slot,
-                      g_endpoints[ep].alias);
+        AddProvider(&g_endpoints[ep], slot);
+    UserspaceDebugLog("ttysvc: %s slot=%d endpoint=%s dir=%u", provider ? "provide" : "attach",
+                      slot, g_endpoints[ep].alias, (unsigned)s->dir);
 }
 
 static Session *SessionFor(uint32_t index)
@@ -307,15 +389,15 @@ static Session *SessionFor(uint32_t index)
     return &g_sessions[slot];
 }
 
-static void RouteOutbound(Session *f, Session *p);
+static void RouteOutbound(Session *f, const Endpoint *ep);
 
 static void CloseSession(Session *s, int slot)
 {
     Endpoint *ep = &g_endpoints[s->endpoint];
     if (s->provider) {
-        ep->provider = -1;
-    } else if (ep->provider >= 0) {
-        RouteOutbound(s, &g_sessions[ep->provider]); /* flush its last words */
+        RemoveProvider(ep, slot);
+    } else if (HasOutput(ep)) {
+        RouteOutbound(s, ep); /* flush its last words */
     }
     bool was_fg = !s->provider && ep->fg == slot;
     ReleaseSession(slot);
@@ -448,6 +530,65 @@ static void HandleRequest(const PortWaitResult *r)
         ReplyStatus(ZUZU_OK);
         return;
     }
+    case TTY_GETMODE: {
+        TtyGetModeRequest req;
+        Session *s = NULL;
+        if (r->xlen >= sizeof(req)) {
+            memcpy(&req, GetMessageBox(), sizeof(req));
+            s = SessionFor(req.index);
+        }
+        TtyModeReply rep = {.status = (s && !s->provider) ? ZUZU_OK : ERR_BADARG,
+                            .flags = s ? s->mode : 0};
+        memcpy(GetMessageBox(), &rep, sizeof(rep));
+        Reply(sizeof(rep), -1);
+        return;
+    }
+    case TTY_SETWINSZ: {
+        TtySetWinszRequest req;
+        Session *s = NULL;
+        if (r->xlen >= sizeof(req)) {
+            memcpy(&req, GetMessageBox(), sizeof(req));
+            s = SessionFor(req.index);
+        }
+        if (!s || !s->provider || req.cols == 0 || req.rows == 0 || req.cols > 0xFFFFU ||
+            req.rows > 0xFFFFU) {
+            ReplyStatus(ERR_BADARG);
+            return;
+        }
+        int epi = s->endpoint;
+        Endpoint *ep = &g_endpoints[epi];
+        if (ep->cols != req.cols || ep->rows != req.rows) {
+            ep->cols = req.cols;
+            ep->rows = req.rows;
+            for (int i = 0; i < MAX_SESSIONS; i++) {
+                Session *c = &g_sessions[i];
+                if (c->in_use && !c->provider && c->endpoint == epi) {
+                    c->shm->ctl.winch_seq++;
+                    c->dirty = true;
+                }
+            }
+        }
+        ReplyStatus(ZUZU_OK);
+        return;
+    }
+    case TTY_GETWINSZ: {
+        TtyGetWinszRequest req;
+        Session *s = NULL;
+        if (r->xlen >= sizeof(req)) {
+            memcpy(&req, GetMessageBox(), sizeof(req));
+            s = SessionFor(req.index);
+        }
+        TtyWinszReply rep = {.status = ERR_BADARG};
+        if (s) {
+            const Endpoint *ep = &g_endpoints[s->endpoint];
+            rep.status = (ep->cols && ep->rows) ? ZUZU_OK : ERR_NOENT;
+            rep.cols = ep->cols;
+            rep.rows = ep->rows;
+        }
+        memcpy(GetMessageBox(), &rep, sizeof(rep));
+        Reply(sizeof(rep), -1);
+        return;
+    }
     default:
         break;
     }
@@ -460,40 +601,62 @@ static void HandleRequest(const PortWaitResult *r)
 
 static bool IsPrintable(uint8_t c) { return c >= 0x20 && c < 0x7F; }
 
-/* One typed byte from the provider through the foreground consumer's
+static bool OnlcrOn(uint32_t mode) { return (mode & TTY_OPOST) && (mode & TTY_ONLCR); }
+
+static uint32_t EchoCost(uint32_t mode, uint8_t c) { return (c == '\n' && OnlcrOn(mode)) ? 2U : 1U; }
+
+static void EchoByte(const Endpoint *ep, uint32_t mode, uint8_t c)
+{
+    if (c == '\n' && OnlcrOn(mode))
+        OutPush(ep, '\r');
+    OutPush(ep, c);
+}
+
+/* One typed byte from an input provider through the foreground consumer's
  * filter. Returns false if it cannot be handled yet (a ring is full); the
  * byte then stays in the provider's up ring and is retried next pass. */
-static bool ProcessInbound(Session *f, Session *p, uint8_t c)
+static bool ProcessInboundOne(Session *f, const Endpoint *ep, uint8_t c)
 {
-    bool echo = (f->mode & TTY_MODE_ECHO) != 0;
-    uint32_t pfree = DownFree(p);
+    uint32_t m = f->mode;
+    bool echo = (m & TTY_ECHO) != 0 && HasOutput(ep);
+    uint32_t room = OutFree(ep);
 
-    if (!(f->mode & TTY_MODE_COOKED)) {
-        if (DownFree(f) < 1 || (echo && pfree < 2))
+    if ((m & TTY_ICRNL) && c == '\r')
+        c = '\n';
+
+    if ((m & TTY_ISIG) && c == 0x03) { /* ^C: flag only, ttysvc never kills anything */
+        if (echo && room < 4)
             return false;
-        DownPush(f, c);
+        f->shm->ctl.intr_seq++;
+        f->line_len = 0;
+        f->dirty = true;
         if (echo) {
-            if (c == '\r') {
-                DownPush(p, '\r');
-                DownPush(p, '\n');
-            } else {
-                DownPush(p, c);
-            }
+            OutPush(ep, '^');
+            OutPush(ep, 'C');
+            EchoByte(ep, m, '\n');
         }
         return true;
     }
 
+    if (!(m & TTY_ICANON)) {
+        if (DownFree(f) < 1 || (echo && room < EchoCost(m, c)))
+            return false;
+        DownPush(f, c);
+        if (echo)
+            EchoByte(ep, m, c);
+        return true;
+    }
+
     switch (c) {
-    case '\r':
     case '\n':
-        if (DownFree(f) < f->line_len + 1U || (echo && pfree < 2))
+        if (DownFree(f) < f->line_len + 1U || (echo && room < EchoCost(m, '\n')))
             return false;
         for (uint32_t i = 0; i < f->line_len; i++)
             DownPush(f, (uint8_t)f->line[i]);
         DownPush(f, '\n');
         f->line_len = 0;
         if (echo)
-            DownPushStr(p, "\r\n");
+            EchoByte(ep, m, '\n');
         return true;
     case 0x04: /* ^D */
         if (f->line_len == 0 && f->shm->ctl.eof_ack == f->eof_seq) {
@@ -502,24 +665,15 @@ static bool ProcessInbound(Session *f, Session *p, uint8_t c)
             f->dirty = true;
         }
         return true; /* ^D mid-line is dropped */
-    case 0x03:       /* ^C: flag only, ttysvc never kills anything */
-        if (echo && pfree < 4)
-            return false;
-        f->shm->ctl.intr_seq++;
-        f->line_len = 0;
-        f->dirty = true;
-        if (echo)
-            DownPushStr(p, "^C\r\n");
-        return true;
     case 0x08:
     case 0x7F:
         if (f->line_len == 0)
             return true;
-        if (echo && pfree < 3)
+        if (echo && room < 3)
             return false;
         f->line_len--;
         if (echo)
-            DownPushStr(p, "\b \b");
+            OutPushStr(ep, "\b \b");
         return true;
     case 0x15: /* ^U */
     case 0x17: /* ^W */
@@ -533,47 +687,70 @@ static bool ProcessInbound(Session *f, Session *p, uint8_t c)
                 keep--;
         }
         uint32_t erase = f->line_len - keep;
-        if (echo && pfree < 3 * erase)
+        if (echo && room < 3 * erase)
             return false;
         f->line_len = keep;
         if (echo) {
             for (uint32_t i = 0; i < erase; i++)
-                DownPushStr(p, "\b \b");
+                OutPushStr(ep, "\b \b");
         }
         return true;
     }
     default:
         if (!IsPrintable(c) || f->line_len >= LINE_MAX_LEN - 1)
             return true;
-        if (echo && pfree < 1)
+        if (echo && room < 1)
             return false;
         f->line[f->line_len++] = (char)c;
         if (echo)
-            DownPush(p, c);
+            OutPush(ep, c);
         return true;
     }
 }
 
-static void RouteInbound(Session *p, Session *f)
+/* ^C reaches every other consumer of the endpoint that has ISIG set, so a
+ * program that is running (and not the one reading) is interrupted too. */
+static void InterruptOthers(const Endpoint *ep, const Session *fg)
+{
+    int epi = (int)(ep - g_endpoints);
+    for (int i = 0; i < MAX_SESSIONS; i++) {
+        Session *s = &g_sessions[i];
+        if (!s->in_use || s->provider || s->endpoint != epi || s == fg || !(s->mode & TTY_ISIG))
+            continue;
+        s->shm->ctl.intr_seq++;
+        s->line_len = 0;
+        s->dirty = true;
+    }
+}
+
+static bool ProcessInbound(Session *f, const Endpoint *ep, uint8_t c)
+{
+    bool ok = ProcessInboundOne(f, ep, c);
+    if (ok && c == 0x03)
+        InterruptOthers(ep, f);
+    return ok;
+}
+
+static void RouteInbound(Session *p, Session *f, const Endpoint *ep)
 {
     while (UpAvail(p) > 0) {
-        if (f && !ProcessInbound(f, p, UpPeek(p)))
+        if (f && !ProcessInbound(f, ep, UpPeek(p)))
             break;
         UpDrop(p); /* with no foreground consumer the byte is discarded */
     }
 }
 
-static void RouteOutbound(Session *f, Session *p)
+static void RouteOutbound(Session *f, const Endpoint *ep)
 {
-    bool cooked = (f->mode & TTY_MODE_COOKED) != 0;
+    bool onlcr = OnlcrOn(f->mode);
     while (UpAvail(f) > 0) {
         uint8_t c = UpPeek(f);
-        bool crlf = cooked && c == '\n';
-        if (DownFree(p) < (crlf ? 2U : 1U))
+        bool crlf = onlcr && c == '\n';
+        if (OutFree(ep) < (crlf ? 2U : 1U))
             break;
         if (crlf)
-            DownPush(p, '\r');
-        DownPush(p, c);
+            OutPush(ep, '\r');
+        OutPush(ep, c);
         UpDrop(f);
     }
 }
@@ -596,15 +773,18 @@ static void ServiceAll(void)
 {
     for (int i = 0; i < MAX_ENDPOINTS; i++) {
         Endpoint *ep = &g_endpoints[i];
-        if (!ep->in_use || ep->provider < 0)
+        if (!ep->in_use || ProviderCount(ep) == 0)
             continue;
-        Session *p = &g_sessions[ep->provider];
         Session *f = ep->fg >= 0 ? &g_sessions[ep->fg] : NULL;
-        RouteInbound(p, f);
+        for (int k = 0; k < MAX_PROVIDERS; k++) {
+            int slot = ep->providers[k];
+            if (slot >= 0 && (g_sessions[slot].dir & TTY_DIR_IN))
+                RouteInbound(&g_sessions[slot], f, ep);
+        }
         for (int j = 0; j < MAX_SESSIONS; j++) {
             Session *c = &g_sessions[j];
             if (c->in_use && !c->provider && c->endpoint == i)
-                RouteOutbound(c, p);
+                RouteOutbound(c, ep);
         }
     }
 

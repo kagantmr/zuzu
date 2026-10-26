@@ -4,9 +4,9 @@
  */
 
 #include <stdatomic.h>
-#include <sync/cv.h>
-#include <sync/sem.h>
-#include <sync/zone.h>
+#include <ztask/cv.h>
+#include <ztask/sem.h>
+#include <ztask/zone.h>
 
 Err CondVarInit(CondVariable *cv)
 {

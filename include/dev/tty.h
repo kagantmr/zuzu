@@ -2,12 +2,18 @@
  * @file
  * @brief ttysvc protocol and client helpers.
  *
- * ttysvc joins providers (UART and console drivers) to consumers (programs)
+ * ttysvc joins providers (UART, keyboard and console drivers) to consumers (programs)
  * through named endpoints. Each session, either kind, shares one page with
  * ttysvc that holds two byte rings: @c up carries bytes from the session's
  * owner to ttysvc, @c down carries bytes from ttysvc to the owner. For a
  * driver, up is what was received and down is what to transmit; for a
  * program, up is its output and down is its input.
+ *
+ * An endpoint may have several providers, each with a direction. An input
+ * provider (a keyboard) only fills its up ring; an output provider (a
+ * display) only drains its down ring; a UART does both. Input from every
+ * input provider reaches the foreground program, and a program's output goes
+ * to every output provider.
  *
  * A session's @c index is (generation << 8) | slot, so an index from a closed
  * session never matches a reused slot. It is guessable, so any peer can close
@@ -40,7 +46,8 @@ typedef struct {
     volatile uint32_t eof_seq;  /**< Bumped by ttysvc for each ^D in cooked mode. */
     volatile uint32_t eof_ack;  /**< Last eof_seq the consumer has handled. */
     volatile uint32_t eof_pos;  /**< down ring position the EOF applies at. */
-    volatile uint32_t intr_seq; /**< Bumped by ttysvc for each ^C in cooked mode. */
+    volatile uint32_t intr_seq; /**< Bumped by ttysvc for each ^C while TTY_ISIG is set. */
+    volatile uint32_t winch_seq; /**< Bumped by ttysvc when the endpoint's window size changes. */
 } TtyCtl;
 
 /** @brief The page a session shares with ttysvc. */
@@ -61,6 +68,12 @@ _Static_assert(sizeof(TtyShm) <= 4096, "TtyShm must fit in the one shared page")
 #define TTY_PROVIDE 1
 /** @brief Attach to an endpoint (programs). Same request and reply as TTY_PROVIDE. */
 #define TTY_ATTACH 2
+/** @brief Provider direction: supplies input, ttysvc reads its up ring. */
+#define TTY_DIR_IN (1u << 0)
+/** @brief Provider direction: consumes output, ttysvc fills its down ring. */
+#define TTY_DIR_OUT (1u << 1)
+/** @brief Provider direction: both, as a UART. The default. */
+#define TTY_DIR_BOTH (TTY_DIR_IN | TTY_DIR_OUT)
 /** @brief Give ttysvc the caller's event. TtyNotifyRequest; grants the event. */
 #define TTY_NOTIFY 3
 /** @brief Set a consumer's mode. TtySetModeRequest. */
@@ -74,23 +87,39 @@ _Static_assert(sizeof(TtyShm) <= 4096, "TtyShm must fit in the one shared page")
 #define TTY_WATCH 6
 /** @brief Take the endpoint's input (consumers). TtyFocusRequest. */
 #define TTY_FOCUS 7
+/** @brief Read a consumer's mode. TtyGetModeRequest; replies TtyModeReply. */
+#define TTY_GETMODE 8
+/** @brief Set the endpoint's window size (providers). TtySetWinszRequest. */
+#define TTY_SETWINSZ 9
+/** @brief Read the endpoint's window size. TtyGetWinszRequest; replies TtyWinszReply. */
+#define TTY_GETWINSZ 10
 
 /** @brief Mode: bytes pass through untouched. The default. */
 #define TTY_MODE_RAW 0u
-/**
- * @brief Mode: line editing (^H, DEL, ^U, ^W), input delivered a line at a time, ^D signals
- * EOF and ^C an interrupt; '\n' becomes "\r\n" on output.
- */
-#define TTY_MODE_COOKED (1u << 0)
+/** @brief Input is collected a line at a time, with line editing (^H, DEL, ^U, ^W) and ^D as EOF. */
+#define TTY_ICANON (1u << 0)
+/** @brief ttysvc echoes typed characters. */
+#define TTY_ECHO (1u << 1)
+/** @brief ^C raises an interrupt (intr_seq) instead of arriving as a byte. */
+#define TTY_ISIG (1u << 2)
+/** @brief A typed '\r' becomes '\n'. */
+#define TTY_ICRNL (1u << 3)
+/** @brief Output processing is on; required for TTY_ONLCR. */
+#define TTY_OPOST (1u << 4)
+/** @brief With TTY_OPOST, '\n' in output (and echo) becomes "\r\n". */
+#define TTY_ONLCR (1u << 5)
+/** @brief The usual line mode: ICANON, ISIG, ICRNL, OPOST and ONLCR. Echo is separate. */
+#define TTY_MODE_COOKED (TTY_ICANON | TTY_ISIG | TTY_ICRNL | TTY_OPOST | TTY_ONLCR)
 /** @brief Mode: ttysvc echoes typed characters. */
-#define TTY_MODE_ECHO (1u << 1)
+#define TTY_MODE_ECHO TTY_ECHO
 /** @brief Every mode flag. */
-#define TTY_MODE_ALL (TTY_MODE_COOKED | TTY_MODE_ECHO)
+#define TTY_MODE_ALL (TTY_ICANON | TTY_ECHO | TTY_ISIG | TTY_ICRNL | TTY_OPOST | TTY_ONLCR)
 
 /** @brief TTY_PROVIDE and TTY_ATTACH request. */
 typedef struct {
     uint32_t cmd;             /**< TTY_PROVIDE or TTY_ATTACH. */
     char alias[TTY_NAME_MAX]; /**< Endpoint name; empty attaches to the default endpoint. */
+    uint32_t dir;             /**< TTY_PROVIDE: TTY_DIR_* flags, 0 for TTY_DIR_BOTH. Ignored by TTY_ATTACH. */
 } TtyConnectRequest;
 
 /** @brief TTY_NOTIFY request. */
@@ -106,6 +135,39 @@ typedef struct {
     uint32_t index; /**< Session index. */
     uint32_t flags; /**< TTY_MODE_* flags. */
 } TtySetModeRequest;
+
+/** @brief TTY_GETMODE request. */
+typedef struct {
+    uint32_t cmd;   /**< TTY_GETMODE. */
+    uint32_t index; /**< Session index. */
+} TtyGetModeRequest;
+
+/** @brief TTY_GETMODE reply. */
+typedef struct {
+    Err status;     /**< ZUZU_OK, or an error code. */
+    uint32_t flags; /**< The session's TTY_* mode flags. */
+} TtyModeReply;
+
+/** @brief TTY_SETWINSZ request. */
+typedef struct {
+    uint32_t cmd;   /**< TTY_SETWINSZ. */
+    uint32_t index; /**< Provider session index. */
+    uint32_t cols;  /**< Character columns. */
+    uint32_t rows;  /**< Character rows. */
+} TtySetWinszRequest;
+
+/** @brief TTY_GETWINSZ request. */
+typedef struct {
+    uint32_t cmd;   /**< TTY_GETWINSZ. */
+    uint32_t index; /**< Session index. */
+} TtyGetWinszRequest;
+
+/** @brief TTY_GETWINSZ reply. */
+typedef struct {
+    Err status;    /**< ZUZU_OK, ERR_NOENT if no provider has set a size. */
+    uint32_t cols; /**< Character columns. */
+    uint32_t rows; /**< Character rows. */
+} TtyWinszReply;
 
 /** @brief TTY_CLOSE request. */
 typedef struct {
@@ -159,6 +221,21 @@ static inline bool TtyInterrupted(const TtyShm *s, uint32_t *seen)
     return true;
 }
 
+/**
+ * @brief Consumer: tells whether the window size changed since the last check.
+ *
+ * @param[in]     s    Session page.
+ * @param[in,out] seen Last winch_seq seen; updated.
+ * @return true if the size changed since @p seen.
+ */
+static inline bool TtyWinchPending(const TtyShm *s, uint32_t *seen)
+{
+    if (s->ctl.winch_seq == *seen)
+        return false;
+    *seen = s->ctl.winch_seq;
+    return true;
+}
+
 /** @brief A session with ttysvc, for providers and consumers alike. */
 typedef struct {
     TtyShm *shm;     /**< Mapped session page. */
@@ -192,15 +269,18 @@ static inline Err TtyCall(Handle tty_port, const void *req, uint32_t len, Handle
  * @param[in]  tty_port Handle to ttysvc.
  * @param[in]  cmd      TTY_PROVIDE or TTY_ATTACH.
  * @param[in]  alias    Endpoint name, or NULL for the default.
+ * @param[in]  dir      TTY_PROVIDE only: TTY_DIR_* flags, 0 for TTY_DIR_BOTH.
  * @param[in]  my_event Event the caller waits on.
  * @param[in]  my_bit   Bit ttysvc rings on it.
  * @param[out] c        The session.
  * @return ZUZU_OK, or an error code.
  * @retval ERR_NOENT     No such endpoint yet; a consumer that starts before its provider retries.
  * @retval ERR_MALFORMED ttysvc did not grant a doorbell.
+ * @retval ERR_BADARG    @p dir has unknown flags.
+ * @retval ERR_BUSY      The endpoint already has its most providers.
  */
-static inline Err TtyClientConnect(Handle tty_port, uint32_t cmd, const char *alias,
-                                   Handle my_event, uint32_t my_bit, TtyConn *c)
+static inline Err TtyClientConnectDir(Handle tty_port, uint32_t cmd, const char *alias,
+                                      uint32_t dir, Handle my_event, uint32_t my_bit, TtyConn *c)
 {
     memset(c, 0, sizeof(*c));
     c->live = -1;
@@ -222,7 +302,7 @@ static inline Err TtyClientConnect(Handle tty_port, uint32_t cmd, const char *al
         return prc;
     }
 
-    TtyConnectRequest req = {.cmd = cmd};
+    TtyConnectRequest req = {.cmd = cmd, .dir = dir};
     if (alias)
         strncpy(req.alias, alias, TTY_NAME_MAX - 1);
     Handle doorbell = -1;
@@ -270,6 +350,23 @@ static inline Err TtyClientConnect(Handle tty_port, uint32_t cmd, const char *al
 }
 
 /**
+ * @brief TtyClientConnectDir() with TTY_DIR_BOTH: the usual provider or consumer session.
+ *
+ * @param[in]  tty_port Handle to ttysvc.
+ * @param[in]  cmd      TTY_PROVIDE or TTY_ATTACH.
+ * @param[in]  alias    Endpoint name, or NULL for the default.
+ * @param[in]  my_event Event the caller waits on.
+ * @param[in]  my_bit   Bit ttysvc rings on it.
+ * @param[out] c        The session.
+ * @return As TtyClientConnectDir().
+ */
+static inline Err TtyClientConnect(Handle tty_port, uint32_t cmd, const char *alias,
+                                   Handle my_event, uint32_t my_bit, TtyConn *c)
+{
+    return TtyClientConnectDir(tty_port, cmd, alias, 0, my_event, my_bit, c);
+}
+
+/**
  * @brief Sets a consumer's mode.
  *
  * @param[in] tty_port Handle to ttysvc.
@@ -281,6 +378,64 @@ static inline Err TtyClientSetMode(Handle tty_port, const TtyConn *c, uint32_t f
 {
     TtySetModeRequest req = {.cmd = TTY_SETMODE, .index = c->index, .flags = flags};
     return TtyCall(tty_port, &req, sizeof(req), -1, NULL);
+}
+
+/**
+ * @brief Reads a consumer's mode.
+ *
+ * @param[in]  tty_port Handle to ttysvc.
+ * @param[in]  c        The session.
+ * @param[out] flags    The TTY_* mode flags.
+ * @return ttysvc's status.
+ */
+static inline Err TtyClientGetMode(Handle tty_port, const TtyConn *c, uint32_t *flags)
+{
+    TtyGetModeRequest req = {.cmd = TTY_GETMODE, .index = c->index};
+    Err rc = TtyCall(tty_port, &req, sizeof(req), -1, NULL);
+    if (rc != ZUZU_OK)
+        return rc;
+    TtyModeReply rep;
+    memcpy(&rep, GetMessageBox(), sizeof(rep));
+    *flags = rep.flags;
+    return rep.status;
+}
+
+/**
+ * @brief Sets the endpoint's window size (providers).
+ *
+ * @param[in] tty_port Handle to ttysvc.
+ * @param[in] c        The provider session.
+ * @param[in] cols     Character columns.
+ * @param[in] rows     Character rows.
+ * @return ttysvc's status.
+ */
+static inline Err TtyClientSetWinsz(Handle tty_port, const TtyConn *c, uint32_t cols, uint32_t rows)
+{
+    TtySetWinszRequest req = {.cmd = TTY_SETWINSZ, .index = c->index, .cols = cols, .rows = rows};
+    return TtyCall(tty_port, &req, sizeof(req), -1, NULL);
+}
+
+/**
+ * @brief Reads the endpoint's window size.
+ *
+ * @param[in]  tty_port Handle to ttysvc.
+ * @param[in]  c        The session.
+ * @param[out] cols     Character columns.
+ * @param[out] rows     Character rows.
+ * @return ttysvc's status; ERR_NOENT if no provider has set a size.
+ */
+static inline Err TtyClientGetWinsz(Handle tty_port, const TtyConn *c, uint32_t *cols,
+                                    uint32_t *rows)
+{
+    TtyGetWinszRequest req = {.cmd = TTY_GETWINSZ, .index = c->index};
+    Err rc = TtyCall(tty_port, &req, sizeof(req), -1, NULL);
+    if (rc != ZUZU_OK)
+        return rc;
+    TtyWinszReply rep;
+    memcpy(&rep, GetMessageBox(), sizeof(rep));
+    *cols = rep.cols;
+    *rows = rep.rows;
+    return rep.status;
 }
 
 /**

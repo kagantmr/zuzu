@@ -108,8 +108,9 @@ static void NsvcLookup(const NsvcRequest *req)
     Reply(0, -1); /* not found */
 }
 
-void NsvcMain(void)
+void NsvcMain(void *arg)
 {
+    (void)arg;
     UserspaceDebugLog("nsvc: up");
     for (;;) {
         PortWaitResult result = FormatToPortWait(WaitOn(g_nsvc_port, TIMEOUT_INFINITE));
