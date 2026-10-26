@@ -158,7 +158,11 @@ $(NEWLIB_INC)/dirent.h:
 	@mkdir -p $(NEWLIB_INC)
 	@ln -sfn ../../include/dirent.h $(NEWLIB_INC)/dirent.h
 
-NEWLIB_INC_STAMPS = $(NEWLIB_INC)/zuzu $(NEWLIB_INC)/dirent.h
+$(NEWLIB_INC)/termios.h:
+	@mkdir -p $(NEWLIB_INC)
+	@ln -sfn ../../include/termios.h $(NEWLIB_INC)/termios.h
+
+NEWLIB_INC_STAMPS = $(NEWLIB_INC)/zuzu $(NEWLIB_INC)/dirent.h $(NEWLIB_INC)/termios.h
 
 $(O)/user/newlib_apps/%.o: user/newlib_apps/%.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF) $(NEWLIB_INC_STAMPS)
 	$(call check-newlib-toolchain)

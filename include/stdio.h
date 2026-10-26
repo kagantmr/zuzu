@@ -108,6 +108,16 @@ int stdio_open_tty(void);
 int stdio_set_raw(int enable);
 
 /**
+ * @brief Sets what happens when the user presses ^C while the program is in cooked mode.
+ *
+ * The default ends the program with status 130. A handler runs in the program's own thread, the
+ * next time it reads or writes the console. Raw mode receives ^C as the byte 0x03 instead.
+ *
+ * @param[in] handler Function to call, or NULL for the default.
+ */
+void stdio_on_interrupt(void (*handler)(void));
+
+/**
  * @brief Detaches from the tty so another program can take the foreground.
  * The next stdio call attaches again.
  */

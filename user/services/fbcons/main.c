@@ -13,6 +13,7 @@
 
 static Handle g_event = -1;
 static TtyConn g_tty;
+static Handle g_tty_port = -1;
 
 static bool Drain(void)
 {
@@ -35,13 +36,13 @@ static bool Drain(void)
 
 static Err SetupTty(void)
 {
-    Handle tty_port = -1;
-    while (tty_port < 0) {
-        tty_port = LookupService("/svc/tty");
-        if (tty_port < 0)
+    while (g_tty_port < 0) {
+        g_tty_port = LookupService("/svc/tty");
+        if (g_tty_port < 0)
             Sleep(10);
     }
-    return TtyClientConnectDir(tty_port, TTY_PROVIDE, ALIAS, TTY_DIR_OUT, g_event, BIT_KICK, &g_tty);
+    return TtyClientConnectDir(g_tty_port, TTY_PROVIDE, ALIAS, TTY_DIR_OUT, g_event, BIT_KICK,
+                               &g_tty);
 }
 
 int main(void)
@@ -64,6 +65,10 @@ int main(void)
         LOG_ERROR(LOG_TAG, "tty provide rc=%d", rc);
         return 1;
     }
+
+    rc = TtyClientSetWinsz(g_tty_port, &g_tty, DisplayCols(), DisplayRows());
+    if (rc != ZUZU_OK)
+        LOG_ERROR(LOG_TAG, "window size rc=%d", rc);
 
     Handle ready = CreatePort();
     if (ready >= 0)

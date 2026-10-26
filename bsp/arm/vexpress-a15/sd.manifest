@@ -8,3 +8,4 @@ ifconfig
 cat
 fbtest
 ls
+termtest
