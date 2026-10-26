@@ -2,12 +2,18 @@
  * @file
  * @brief ttysvc protocol and client helpers.
  *
- * ttysvc joins providers (UART and console drivers) to consumers (programs)
+ * ttysvc joins providers (UART, keyboard and console drivers) to consumers (programs)
  * through named endpoints. Each session, either kind, shares one page with
  * ttysvc that holds two byte rings: @c up carries bytes from the session's
  * owner to ttysvc, @c down carries bytes from ttysvc to the owner. For a
  * driver, up is what was received and down is what to transmit; for a
  * program, up is its output and down is its input.
+ *
+ * An endpoint may have several providers, each with a direction. An input
+ * provider (a keyboard) only fills its up ring; an output provider (a
+ * display) only drains its down ring; a UART does both. Input from every
+ * input provider reaches the foreground program, and a program's output goes
+ * to every output provider.
  *
  * A session's @c index is (generation << 8) | slot, so an index from a closed
  * session never matches a reused slot. It is guessable, so any peer can close
@@ -61,6 +67,12 @@ _Static_assert(sizeof(TtyShm) <= 4096, "TtyShm must fit in the one shared page")
 #define TTY_PROVIDE 1
 /** @brief Attach to an endpoint (programs). Same request and reply as TTY_PROVIDE. */
 #define TTY_ATTACH 2
+/** @brief Provider direction: supplies input, ttysvc reads its up ring. */
+#define TTY_DIR_IN (1u << 0)
+/** @brief Provider direction: consumes output, ttysvc fills its down ring. */
+#define TTY_DIR_OUT (1u << 1)
+/** @brief Provider direction: both, as a UART. The default. */
+#define TTY_DIR_BOTH (TTY_DIR_IN | TTY_DIR_OUT)
 /** @brief Give ttysvc the caller's event. TtyNotifyRequest; grants the event. */
 #define TTY_NOTIFY 3
 /** @brief Set a consumer's mode. TtySetModeRequest. */
@@ -91,6 +103,7 @@ _Static_assert(sizeof(TtyShm) <= 4096, "TtyShm must fit in the one shared page")
 typedef struct {
     uint32_t cmd;             /**< TTY_PROVIDE or TTY_ATTACH. */
     char alias[TTY_NAME_MAX]; /**< Endpoint name; empty attaches to the default endpoint. */
+    uint32_t dir;             /**< TTY_PROVIDE: TTY_DIR_* flags, 0 for TTY_DIR_BOTH. Ignored by TTY_ATTACH. */
 } TtyConnectRequest;
 
 /** @brief TTY_NOTIFY request. */
@@ -192,15 +205,18 @@ static inline Err TtyCall(Handle tty_port, const void *req, uint32_t len, Handle
  * @param[in]  tty_port Handle to ttysvc.
  * @param[in]  cmd      TTY_PROVIDE or TTY_ATTACH.
  * @param[in]  alias    Endpoint name, or NULL for the default.
+ * @param[in]  dir      TTY_PROVIDE only: TTY_DIR_* flags, 0 for TTY_DIR_BOTH.
  * @param[in]  my_event Event the caller waits on.
  * @param[in]  my_bit   Bit ttysvc rings on it.
  * @param[out] c        The session.
  * @return ZUZU_OK, or an error code.
  * @retval ERR_NOENT     No such endpoint yet; a consumer that starts before its provider retries.
  * @retval ERR_MALFORMED ttysvc did not grant a doorbell.
+ * @retval ERR_BADARG    @p dir has unknown flags.
+ * @retval ERR_BUSY      The endpoint already has its most providers.
  */
-static inline Err TtyClientConnect(Handle tty_port, uint32_t cmd, const char *alias,
-                                   Handle my_event, uint32_t my_bit, TtyConn *c)
+static inline Err TtyClientConnectDir(Handle tty_port, uint32_t cmd, const char *alias,
+                                      uint32_t dir, Handle my_event, uint32_t my_bit, TtyConn *c)
 {
     memset(c, 0, sizeof(*c));
     c->live = -1;
@@ -222,7 +238,7 @@ static inline Err TtyClientConnect(Handle tty_port, uint32_t cmd, const char *al
         return prc;
     }
 
-    TtyConnectRequest req = {.cmd = cmd};
+    TtyConnectRequest req = {.cmd = cmd, .dir = dir};
     if (alias)
         strncpy(req.alias, alias, TTY_NAME_MAX - 1);
     Handle doorbell = -1;
@@ -267,6 +283,23 @@ static inline Err TtyClientConnect(Handle tty_port, uint32_t cmd, const char *al
     rc = TtyCall(tty_port, &notify, sizeof(notify), mine, NULL);
     HandleClose(mine);
     return rc;
+}
+
+/**
+ * @brief TtyClientConnectDir() with TTY_DIR_BOTH: the usual provider or consumer session.
+ *
+ * @param[in]  tty_port Handle to ttysvc.
+ * @param[in]  cmd      TTY_PROVIDE or TTY_ATTACH.
+ * @param[in]  alias    Endpoint name, or NULL for the default.
+ * @param[in]  my_event Event the caller waits on.
+ * @param[in]  my_bit   Bit ttysvc rings on it.
+ * @param[out] c        The session.
+ * @return As TtyClientConnectDir().
+ */
+static inline Err TtyClientConnect(Handle tty_port, uint32_t cmd, const char *alias,
+                                   Handle my_event, uint32_t my_bit, TtyConn *c)
+{
+    return TtyClientConnectDir(tty_port, cmd, alias, 0, my_event, my_bit, c);
 }
 
 /**
