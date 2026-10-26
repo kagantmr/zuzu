@@ -1,5 +1,5 @@
-#ifndef USER_DRIVERS_PL050DRV_HID_H
-#define USER_DRIVERS_PL050DRV_HID_H
+#ifndef DEV_HID_H
+#define DEV_HID_H
 
 enum {
     HID_KEY_NONE = 0,
@@ -108,4 +108,4 @@ enum {
     HID_KEY_RGUI = 0xE7,
 };
 
-#endif /* USER_DRIVERS_PL050DRV_HID_H */
+#endif /* DEV_HID_H */

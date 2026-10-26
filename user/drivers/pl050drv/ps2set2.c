@@ -1,5 +1,5 @@
 #include "ps2set2.h"
-#include "hid.h"
+#include <dev/hid.h>
 
 static const uint8_t k_base[0x84] = {
     [0x01] = HID_KEY_F9,

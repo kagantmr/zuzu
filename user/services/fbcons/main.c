@@ -41,7 +41,7 @@ static Err SetupTty(void)
         if (tty_port < 0)
             Sleep(10);
     }
-    return TtyClientConnect(tty_port, TTY_PROVIDE, ALIAS, g_event, BIT_KICK, &g_tty);
+    return TtyClientConnectDir(tty_port, TTY_PROVIDE, ALIAS, TTY_DIR_OUT, g_event, BIT_KICK, &g_tty);
 }
 
 int main(void)

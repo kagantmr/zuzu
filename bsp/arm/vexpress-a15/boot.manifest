@@ -16,7 +16,7 @@ bin/pl111drv|none:prio=1,maxprio=1
 bin/gfxsvc|none:prio=1,maxprio=1|/svc/gfx
 bin/fbcons|none:prio=1,maxprio=1|/svc/fbcons
 bin/pl050drv|none:late,prio=3,maxprio=3
-bin/zzsh|none:late
+bin/zzsh|none:late,respawn
 
 # Everything else is spawned from the SD card: see services.manifest.
 
