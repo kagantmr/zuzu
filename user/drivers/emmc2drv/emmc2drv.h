@@ -2,7 +2,7 @@
 #define EMMC2DRV_H
 #include <stdint.h>
 
-typedef struct __attribute__((packed)) {
+typedef struct {
     volatile uint32_t sdma_addr;        // 0x000
     volatile uint32_t block_size_count; // 0x004
     volatile uint32_t argument;         // 0x008

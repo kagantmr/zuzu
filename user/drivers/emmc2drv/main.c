@@ -31,6 +31,7 @@ static Handle block_dev_handle = -1;
 static Handle g_event = -1;
 static Handle g_buf_mem = -1;
 static uint32_t *shmem_buf = NULL;
+static uint32_t g_dma_bus;
 static int current_op = 0;
 
 static void BusyDelay(uint32_t n)
@@ -366,6 +367,43 @@ static Handle WaitForDevsvc(void)
     }
 }
 
+static Err Emmc2DmaBufInit(void)
+{
+    SvcResult count = HandleQuery(block_dev_handle, QUERY_DMA_COUNT);
+    if (count.r0 == ZUZU_OK && count.r1 > 0) {
+        uint32_t id = (uint32_t)HandleQueryAt(block_dev_handle, QUERY_DMA_ID, 0).r1;
+        SvcResult len = HandleQueryAt(block_dev_handle, QUERY_DMA_LEN, id);
+        SvcResult dir = HandleQueryAt(block_dev_handle, QUERY_DMA_DIR, id);
+        SvcResult bus = HandleQueryAt(block_dev_handle, QUERY_DMA_BUS, id);
+
+        if (len.r0 == ZUZU_OK && dir.r0 == ZUZU_OK && bus.r0 == ZUZU_OK &&
+            (uint32_t)len.r1 >= SD_BUF_SIZE && (DmaDir)dir.r1 == DMA_BIDIRECTIONAL) {
+            Handle adopted = DmaAdopt(block_dev_handle, id);
+            if (adopted >= 0) {
+                g_buf_mem = adopted;
+                g_dma_bus = (uint32_t)bus.r1;
+                LOG_INFO(LOG_TAG, "adopted DMA buffer, bus 0x%08x", g_dma_bus);
+                return ZUZU_OK;
+            }
+            LOG_WARN(LOG_TAG, "DmaAdopt failed: %s", StrToError(adopted));
+        }
+        DmaUnmap(block_dev_handle, id);
+    }
+
+    g_buf_mem = CreateMem(SD_BUF_SIZE / 4096, MEM_CONTIG | MEM_UNCACHED);
+    if (g_buf_mem < 0)
+        return g_buf_mem;
+
+    DmaMapResult m = DmaMap(block_dev_handle, g_buf_mem, 0, SD_BUF_SIZE, DMA_BIDIRECTIONAL);
+    if (m.status != ZUZU_OK) {
+        LOG_ERROR(LOG_TAG, "DmaMap failed: %s", StrToError(m.status));
+        HandleClose(g_buf_mem);
+        return m.status;
+    }
+    g_dma_bus = (uint32_t)m.bus_addr;
+    return ZUZU_OK;
+}
+
 static int Emmc2ServiceInit(void)
 {
     Handle devsvc_port = WaitForDevsvc();
@@ -387,8 +425,7 @@ static int Emmc2ServiceInit(void)
     if (Emmc2HwInit() < 0)
         return -1;
 
-    g_buf_mem = CreateMem(SD_BUF_SIZE / 4096, 0);
-    if (g_buf_mem < 0)
+    if (Emmc2DmaBufInit() != ZUZU_OK)
         return -1;
     void *shm_addr = MemMap(g_buf_mem, 0, PROT_RW);
     if (PtrIsErr(shm_addr))
