@@ -99,6 +99,12 @@ void SvcManageHandle(CpuState *frame)
             ENSURE_ERR(frame, entry->space, ERR_BADHANDLE);
             ENSURE_ERR(frame, !SpaceIsSelfOrAncestor(CURRENT_SPACE, entry->space), ERR_BADARG);
             SpaceDestroy(entry->space);
+        } else if (HANDLE_PORT == entry->type && entry->port &&
+                    entry->port->owner_spid == CURRENT_SPACE->spid) {
+            PortKill(entry->port);
+        } else if (HANDLE_EVENT == entry->type && entry->event &&
+                    entry->event->owner_spid == CURRENT_SPACE->spid) {
+            EventKill(entry->event);
         }
         HandleRelease(CURRENT_SPACE, entry);
         ArchSetInFrame(frame, 0, ZUZU_OK);
