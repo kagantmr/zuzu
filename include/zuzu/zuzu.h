@@ -179,6 +179,7 @@ static inline SvcResult HandleDuplicate(Handle h, HandlePerms perms, Marker mark
  * @param[in] mask Permissions to keep; everything outside it is removed.
  * @return ZUZU_OK, or an error code.
  * @retval ERR_BADHANDLE @p h is not a live handle.
+ * @retval ERR_BUSY Can't restrict because @p h is mapped, unmap or MemProtect before you Restrict.
  */
 static inline Err HandleRestrict(Handle h, HandlePerms mask)
 {
