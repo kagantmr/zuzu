@@ -718,6 +718,122 @@ static void TestEvents(void)
     HandleClose(ev);
 }
 
+/* ---------------- 4a. event masks (#44) ---------------- */
+
+typedef struct {
+    Handle ev;
+    EventWord mask;
+    bool all;
+    EventWord got;
+    Err status;
+    volatile int done;
+} MaskJob;
+
+static int32_t WaitMasked(void *p)
+{
+    MaskJob *j = p;
+    EventWaitResult r = WaitOnEvent(j->ev, 2000, j->mask, j->all);
+    j->status = r.status;
+    j->got = r.bits;
+    j->done = 1;
+    return 0;
+}
+
+static void TestEventMasks(void)
+{
+    BeginSection("event masks");
+
+    Handle ev = CreateEvent();
+    EventWaitResult r;
+
+    /* Mask 0 keeps the old behaviour: every pending bit, all cleared. */
+    Signal(ev, 0x5, false);
+    r = WaitOnEvent(ev, TIMEOUT_POLL, 0, false);
+    CheckEq(r.status, ZUZU_OK, "mask 0 takes any pending bit");
+    CheckEq((int32_t)r.bits, 0x5, "mask 0 returns every pending bit");
+    CheckEq(WaitOnEvent(ev, TIMEOUT_POLL, 0, false).status, ERR_TIMEOUT, "and clears them all");
+
+    /* A mask takes only its own bits and leaves the rest pending. */
+    Signal(ev, 0x2, false);
+    CheckEq(WaitOnEvent(ev, TIMEOUT_POLL, 0x1, false).status, ERR_TIMEOUT,
+            "a pending bit outside the mask does not satisfy the wait");
+    r = WaitOnEvent(ev, TIMEOUT_POLL, 0x2, false);
+    CheckEq(r.status, ZUZU_OK, "the bit is still pending for a waiter that wants it");
+    CheckEq((int32_t)r.bits, 0x2, "and is delivered to it");
+
+    Signal(ev, 0x3, false);
+    r = WaitOnEvent(ev, TIMEOUT_POLL, 0x1, false);
+    CheckEq((int32_t)r.bits, 0x1, "a masked wait returns only the bits in its mask");
+    r = WaitOnEvent(ev, TIMEOUT_POLL, 0, false);
+    CheckEq((int32_t)r.bits, 0x2, "and clears only those");
+
+    /* A Signal wakes only a waiter whose mask matches. */
+    MaskJob want0 = {.ev = ev, .mask = 0x1};
+    MaskJob want1 = {.ev = ev, .mask = 0x2};
+    Worker *a = WorkerStart(WaitMasked, &want0);
+    Worker *b = WorkerStart(WaitMasked, &want1);
+    Sleep(40);
+    Signal(ev, 0x2, false);
+    Sleep(40);
+    CheckEq(want1.done, 1, "Signal wakes the waiter whose mask matches");
+    CheckEq((int32_t)want1.got, 0x2, "with its bit");
+    CheckEq(want0.done, 0, "a waiter whose mask does not match stays blocked");
+    Signal(ev, 0x1, false);
+    WorkerJoin(a);
+    WorkerJoin(b);
+    CheckEq(want0.status, ZUZU_OK, "the other waiter wakes on its own bit");
+    CheckEq((int32_t)want0.got, 0x1, "with only that bit");
+
+    /* Broadcast wakes every matching waiter, and only those. */
+    MaskJob bc1 = {.ev = ev, .mask = 0x4};
+    MaskJob bc2 = {.ev = ev, .mask = 0x4 | 0x8};
+    MaskJob bc3 = {.ev = ev, .mask = 0x10};
+    a = WorkerStart(WaitMasked, &bc1);
+    b = WorkerStart(WaitMasked, &bc2);
+    Worker *c = WorkerStart(WaitMasked, &bc3);
+    Sleep(40);
+    Signal(ev, 0x4, true);
+    Sleep(40);
+    CheckEq(bc1.done + bc2.done, 2, "broadcast wakes every waiter whose mask matches");
+    Check(bc1.got == 0x4 && bc2.got == 0x4, "each gets the shared bit");
+    CheckEq(bc3.done, 0, "a waiter with a different mask stays blocked");
+    Signal(ev, 0x10, false);
+    WorkerJoin(a);
+    WorkerJoin(b);
+    WorkerJoin(c);
+    CheckEq(WaitOnEvent(ev, TIMEOUT_POLL, 0, false).status, ERR_TIMEOUT,
+            "the broadcast bit was cleared once delivered");
+
+    /* WAIT_ALL */
+    CheckEq(WaitOnEvent(ev, TIMEOUT_POLL, 0, true).status, ERR_BADARG, "WAIT_ALL with mask 0 -> BADARG");
+
+    Signal(ev, 0x1, false);
+    CheckEq(WaitOnEvent(ev, TIMEOUT_POLL, 0x3, true).status, ERR_TIMEOUT,
+            "WAIT_ALL is not satisfied by part of its mask");
+    Signal(ev, 0x2, false);
+    r = WaitOnEvent(ev, TIMEOUT_POLL, 0x3, true);
+    CheckEq(r.status, ZUZU_OK, "WAIT_ALL returns once every bit is pending");
+    CheckEq((int32_t)r.bits, 0x3, "with the whole mask");
+
+    Signal(ev, 0x1 | 0x4, false);
+    r = WaitOnEvent(ev, TIMEOUT_POLL, 0x5, true);
+    CheckEq((int32_t)r.bits, 0x5, "WAIT_ALL returns exactly its mask");
+    CheckEq(WaitOnEvent(ev, TIMEOUT_POLL, 0, false).status, ERR_TIMEOUT, "and clears it");
+
+    MaskJob all = {.ev = ev, .mask = 0x3, .all = true};
+    a = WorkerStart(WaitMasked, &all);
+    Sleep(40);
+    Signal(ev, 0x1, false);
+    Sleep(40);
+    CheckEq(all.done, 0, "a blocked WAIT_ALL waiter ignores a partial signal");
+    Signal(ev, 0x2, false);
+    WorkerJoin(a);
+    CheckEq(all.status, ZUZU_OK, "it wakes when the last bit arrives");
+    CheckEq((int32_t)all.got, 0x3, "with every bit of its mask");
+
+    HandleClose(ev);
+}
+
 /* ---------------- 5. ipc ---------------- */
 
 enum {
@@ -3444,6 +3560,7 @@ static void RunSuite(void)
     TestHandles();
     TestMemory();
     TestEvents();
+    TestEventMasks();
     TestIpc();
     TestObservers();
     TestTasks();

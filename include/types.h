@@ -89,6 +89,11 @@ typedef uint32_t EventWord;
  */
 #define DEVICE_HANDLE_BASE 16
 
+/**
+ * @brief WaitOn argument 3 MSB: waits until all bits are signalled. 
+ */
+#define EVENT_WAIT_ALL (1u << 31)
+
 /** @brief Permissions enum for an object. */
 typedef enum {
     PERM_WAIT = (1U << 0), /**< This handle can be used for a WaitOn(). */
