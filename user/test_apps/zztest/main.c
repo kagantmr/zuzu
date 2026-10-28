@@ -2727,6 +2727,76 @@ static void TestHold(void)
     HandleClose(p2);
 }
 
+/* ---------------- owner destroy (#47) ---------------- */
+
+/* r1 = INFINITE; WaitOn(r0); quit with the status it returned */
+static const uint32_t kCodeWaitQuitStatus[] = {0xE3E01000, SYS(SVC_WAITON), SYS(SVC_QUIT)};
+
+static void TestOwnerDestroy(void)
+{
+    BeginSection("owner destroy");
+    Kitten k;
+    SpaceWaitResult sw;
+
+    /* The owner destroying an Event wakes a waiter in another Space with DEAD. */
+    Handle ev = CreateEvent();
+    KittenCreate(&k, kCodeWaitQuitStatus, sizeof(kCodeWaitQuitStatus));
+    SvcResult g = HandleGrant(ev, k.space, PERM_WAIT);
+    Check(g.r0 == ZUZU_OK, "grant an event to a kitten");
+    KittenStart(&k, (uint32_t)g.r1, 0);
+    Sleep(20);
+    CheckEq(WaitOn(k.space, TIMEOUT_POLL).r0, ERR_TIMEOUT, "the kitten blocks on the event");
+    CheckEq(HandleDestroy(ev), ZUZU_OK, "the owner destroys the event");
+    sw = FormatToSpaceWait(WaitOn(k.space, 2000));
+    CheckEq(sw.exit_status, ERR_DEAD, "the kitten's wait ends with DEAD");
+    KittenFree(&k);
+
+    /* Closing (not destroying) the owner's handle leaves the granted one working. */
+    ev = CreateEvent();
+    KittenCreate(&k, kCodeWaitQuitStatus, sizeof(kCodeWaitQuitStatus));
+    g = HandleGrant(ev, k.space, PERM_WAIT);
+    KittenStart(&k, (uint32_t)g.r1, 0);
+    Sleep(20);
+    CheckEq(HandleClose(ev), ZUZU_OK, "the owner closes its handle");
+    CheckEq(WaitOn(k.space, 100).r0, ERR_TIMEOUT, "a close does not kill the event for others");
+    KittenFree(&k);
+
+    /* The owner destroying a Port fails a queued caller in another Space with DEAD. */
+    Handle port = CreatePort();
+    KittenCreate(&k, kCodeCallQuit, sizeof(kCodeCallQuit));
+    Handle in_k = GrantPortInto(port, k.space);
+    Check(in_k >= 0, "grant a port to a kitten");
+    KittenStart(&k, (uint32_t)in_k, 0);
+    Sleep(20);
+    CheckEq(WaitOn(k.space, TIMEOUT_POLL).r0, ERR_TIMEOUT, "the kitten's call is queued");
+    CheckEq(HandleDestroy(port), ZUZU_OK, "the owner destroys the port");
+    sw = FormatToSpaceWait(WaitOn(k.space, 2000));
+    CheckEq(sw.exit_status, ERR_DEAD, "the queued call fails with DEAD");
+    KittenFree(&k);
+
+    /* A Call made after the owner destroyed the Port fails at once. */
+    port = CreatePort();
+    KittenCreate(&k, kCodeCallQuit, sizeof(kCodeCallQuit));
+    in_k = GrantPortInto(port, k.space);
+    HandleDestroy(port);
+    KittenStart(&k, (uint32_t)in_k, 0);
+    sw = FormatToSpaceWait(WaitOn(k.space, 2000));
+    CheckEq(sw.exit_status, ERR_DEAD, "a call on a destroyed port -> DEAD");
+    KittenFree(&k);
+
+    /* A holder that is not the owner only drops its own handle. */
+    ev = CreateEvent();
+    KittenCreate(&k, kCodeDestroyHandle, sizeof(kCodeDestroyHandle));
+    g = HandleGrant(ev, k.space, PERM_ALL);
+    KittenStart(&k, (uint32_t)g.r1, 0);
+    sw = FormatToSpaceWait(WaitOn(k.space, 2000));
+    CheckEq(sw.exit_status, ZUZU_OK, "a non-owner's Destroy succeeds");
+    CheckEq(Signal(ev, 1, false), ZUZU_OK, "the event still works for its owner");
+    CheckEq(WaitOnEvent(ev, TIMEOUT_POLL, 0, false).status, ZUZU_OK, "and its bit is delivered");
+    KittenFree(&k);
+    HandleClose(ev);
+}
+
 /* ---------------- 8. hostile arguments ---------------- */
 
 static void TestSecurity(void)
@@ -3603,6 +3673,7 @@ static void RunSuite(void)
     TestSuspend();
     TestWaiterResort();
     TestHold();
+    TestOwnerDestroy();
     TestInjectObj();
     TestMsg();
     TestHardening();
