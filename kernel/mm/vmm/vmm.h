@@ -399,6 +399,16 @@ bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r,
 bool VmmRegionProt(AddressSpace *as, VirtAddr va, MemProt *out);
 
 /**
+ * @brief Limit the protection of the region that contains @p va.
+ *
+ * @param[in]  as  The address space.
+ * @param[in]  va  An address inside the region.
+ * @param[in] allowed The region's allowed protection.
+ * @return true if @p va is inside a region.
+ */
+bool VmmRegionLimitProt(AddressSpace *as, VirtAddr va, MemProt allowed);
+
+/**
  * @brief Make the kernel image mappings privileged read-only at the page-table level.
  *
  * Rewrites the access permission bits of the section and small-page entries that cover the kernel
