@@ -34,6 +34,23 @@ static EventObject *EventObjAlloc(void)
 }
 
 /**
+ * @brief Checks if the bitmask matches the signalled bits.
+ * 
+ * @param[in] word The word to check
+ * @param[in] mask The mask to use
+ * @param[in] all If all of the bits must be checked
+ * 
+ * @return EventWord
+ */
+static EventWord EventTake(EventWord word, EventWord mask, bool all)
+{
+    EventWord hit = word & mask;
+    if (all)
+        return (hit == mask) ? mask : 0;
+    return hit;
+}
+
+/**
  * @brief Free an existing event object.
  *
  * @param[in] ev The object to free.
@@ -42,26 +59,28 @@ static void EventObjFree(EventObject *ev) { KSlabFree(&event_cache, ev); }
 
 void EventSignal(EventObject *ev, EventWord bits, bool bcast)
 {
-    assert(ev && ev->alive && !(bits & (1U << 31)));
+    assert(ev && ev->alive && !(bits & EVENT_WAIT_ALL));
     ev->word |= bits;
 
-    bool delivered = false;
-    while (!ListIsEmpty(&ev->wait_queue)) {
-        ListNode *node = ListPopFront(&ev->wait_queue);
-        WaitSlot *slot = container_of(node, WaitSlot, node);
-        TaskObject *waiter = slot->owner;
-        assert(waiter);
-        ArchSetInFrame(waiter->trap_frame, 0, ZUZU_OK);
-        (*ArchGetFromFrame(waiter->trap_frame, 1)) = (Register)ev->word;
-        SchedUnblock(waiter);
-        SchedAdd(waiter);
-        delivered = true;
-        if (!bcast)
-            break;
+    EventWord delivered = 0;
+    ListNode *n = ev->wait_queue.node.next;
+    while (n != &ev->wait_queue.node) {
+        ListNode *next = n->next;
+        TaskObject *w = container_of(n, WaitSlot, node)->owner;
+        EventWord got = EventTake(ev->word, w->wait_mask, w->wait_all);
+        if (got) {
+            ListRemove(n);
+            ArchSetInFrame(w->trap_frame, 0, ZUZU_OK);
+            (*ArchGetFromFrame(w->trap_frame, 1)) = (Register)got;
+            SchedUnblock(w);
+            SchedAdd(w);
+            delivered |= got;
+            if (!bcast)
+                break;
+        }
+        n = next;
     }
-
-    if (delivered)
-        ev->word = 0;
+    ev->word &= ~delivered;
 }
 
 void EventKill(EventObject *ev)
@@ -129,15 +148,21 @@ void EventDestroy(EventObject *ev)
     EventUnref(ev);
 }
 
-void EventWait(EventObject *ev, Duration timeout, CpuState *frame)
+void EventWait(EventObject *ev, Duration timeout, CpuState *frame, EventWord mask, bool waitall)
 {
     ENSURE_ERR(frame, ev->alive, ERR_DEAD);
-    if (ev->word) {
+    ENSURE_ERR(frame, !(waitall && mask == 0), ERR_BADARG);
+    if (mask == 0)
+        mask = ~EVENT_WAIT_ALL;          /* 0 means every bit */
+
+    EventWord got = EventTake(ev->word, mask, waitall);
+    if (got) {
+        ev->word &= ~got;
         ArchSetInFrame(frame, 0, ZUZU_OK);
-        ArchSetInFrame(frame, 1, (Register)ev->word);
-        ev->word = 0;
+        ArchSetInFrame(frame, 1, (Register)got);
         return;
     }
-
+    current_task->wait_mask = mask;
+    current_task->wait_all = waitall;
     SchedBlockOn(&ev->wait_queue, timeout);
 }

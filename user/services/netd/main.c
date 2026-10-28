@@ -255,7 +255,7 @@ int main()
             PacketRingConsume(rx_ring);
         }
 
-        EventWaitResult ev = WaitOnEvent(g_event, slice);
+        EventWaitResult ev = WaitOnEvent(g_event, slice, 0, false);
         if (ev.status == ZUZU_OK && (ev.bits & PORT_MASK)) {
             PortWaitResult call;
             while ((call = WaitOnPort(g_svc_port, TIMEOUT_POLL)).status == ZUZU_OK) {
