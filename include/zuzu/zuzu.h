@@ -96,7 +96,6 @@ static inline Err Sleep(Duration ms) { return ArchInvokeSvc(SVC_SLEEP, (Register
  * @param[in] h       Port, event, task or space handle with PERM_WAIT.
  * @param[in] timeout Milliseconds to wait; TIMEOUT_POLL checks and returns at
  *                    once, TIMEOUT_INFINITE waits forever.
- * @param[in] mask
  * @return r0 is the status; r1-r3 as in the table above.
  * @retval ZUZU_OK       Something arrived.
  * @retval ERR_TIMEOUT   Nothing arrived within @p timeout (or nothing was there, for a poll).
