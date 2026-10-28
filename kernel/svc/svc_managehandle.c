@@ -83,12 +83,6 @@ void SvcManageHandle(CpuState *frame)
     } break;
     case MNGHNDL_RESTRICT: {
         HandlePerms mask = (HandlePerms)(*ArchGetFromFrame(frame, 2));
-        if (entry->type == HANDLE_MEM && entry->mapped_va) {
-            MemProt allowed = PROT_READ;
-            if (mask & PERM_WRITE) allowed |= PROT_WRITE;
-            if (mask & PERM_EXEC)  allowed |= PROT_EXEC;
-            VmmRegionLimitProt(CURRENT_SPACE->as, entry->mapped_va, allowed);
-        }
         HandlePerms dropped = entry->perms & ~mask;
         if (entry->type == HANDLE_MEM && entry->mapped_va && dropped) {
             MemProt prot = 0;
@@ -96,6 +90,11 @@ void SvcManageHandle(CpuState *frame)
             ENSURE_ERR(frame, !(dropped & PERM_MAP), ERR_BUSY);
             ENSURE_ERR(frame, !((dropped & PERM_WRITE) && (prot & PROT_WRITE)), ERR_BUSY);
             ENSURE_ERR(frame, !((dropped & PERM_EXEC) && (prot & PROT_EXEC)), ERR_BUSY);
+
+            MemProt allowed = PROT_READ;
+            if (mask & PERM_WRITE) allowed |= PROT_WRITE;
+            if (mask & PERM_EXEC)  allowed |= PROT_EXEC;
+            VmmRegionLimitProt(CURRENT_SPACE->as, entry->mapped_va, allowed);
         }
         entry->perms &= mask;
         ArchSetInFrame(frame, 0, ZUZU_OK);
