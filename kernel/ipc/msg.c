@@ -254,6 +254,8 @@ void PortReceive(PortObject *port, Duration timeout, CpuState *frame)
     SchedBlockOn(&port->receiver_queue, timeout);
 }
 
+// static uint16_t next_gen removed
+
 Err PortHoldCurrent(TaskObject *server, Ticket *out)
 {
     ReplyObject *rc = server->reply_cap;
