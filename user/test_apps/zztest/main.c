@@ -3606,12 +3606,6 @@ static void TestMapPerms(void)
             "but never both at once");
     MemUnmap(a);
 
-    uint8_t *a2 = MemMapAnon(8192, 0, PROT_RW);
-    a2[0] = 1; a2[4096] = 1; /* fault both pages in */
-    CheckEq(MemProtect((VirtAddr)a2, 4096, PROT_READ), ZUZU_OK,
-            "anonymous memory can still be protected page by page");
-    MemUnmap(a2);
-
     Handle sp = CreateSpace("zz-perms");
     CheckEq(MemInjectObj(sp, (Handle)ro.r1, USER_ELF_BASE, 0, 4096, PROT_RW), ERR_NOPERM,
             "injectobj of a writable mapping needs PERM_WRITE");
@@ -3622,6 +3616,17 @@ static void TestMapPerms(void)
     CheckEq(MemInjectObj(sp, (Handle)rx.r1, USER_ELF_BASE + 4096, 0, 4096, PROT_READ | PROT_EXEC),
             ZUZU_OK, "an executable injectobj with PERM_EXEC");
     HandleDestroy(sp);
+
+    uint8_t *a2 = MemMapAnon(8192, 0, PROT_RW);
+    CheckEq(MemProtect((VirtAddr)a2, 4096, PROT_READ), ERR_BADARG,
+            "Protect of part of an anonymous mapping -> BADARG");
+    CheckEq(MemProtect((VirtAddr)a2, 8192, PROT_READ), ZUZU_OK,
+            "an untouched anonymous mapping can be protected");
+    Check(a2[4096] == 0, "a page faulted in after Protect is readable");
+    CheckEq(MemProtect((VirtAddr)a2, 8192, PROT_RW), ZUZU_OK, "and can be made writable again");
+    a2[0] = 1; a2[4096] = 1;
+    Check(a2[0] == 1 && a2[4096] == 1, "pages faulted in later use the region's current prot");
+    MemUnmap(a2);
 
     HandleClose((Handle)ro.r1);
     HandleClose((Handle)rw.r1);
