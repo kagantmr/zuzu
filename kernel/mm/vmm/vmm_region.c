@@ -287,3 +287,12 @@ bool VmmRemoveRegion(AddressSpace *as, uintptr_t vaddr, size_t size)
     MemObjUnref(backing);
     return true;
 }
+
+bool VmmRegionProt(AddressSpace *as, VirtAddr va, MemProt *out)
+{
+    const VirtMemRegion *r = VmmFindRegion(as, va);
+    if (!r || !out)
+        return false;
+    *out = r->prot;
+    return true;
+}
