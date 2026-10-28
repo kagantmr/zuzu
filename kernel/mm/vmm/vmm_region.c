@@ -296,3 +296,12 @@ bool VmmRegionProt(AddressSpace *as, VirtAddr va, MemProt *out)
     *out = r->prot;
     return true;
 }
+
+bool VmmRegionLimitProt(AddressSpace *as, VirtAddr va, MemProt allowed)
+{
+    VirtMemRegion *r = VmmFindRegion(as, va);
+    if (!r)
+        return false;
+    r->max_prot &= allowed;
+    return true;
+}
