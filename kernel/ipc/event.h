@@ -53,8 +53,10 @@ void EventSignal(EventObject *ev, EventWord bits, bool bcast);
  * @param[in] ev The event to wait on
  * @param[in] timeout The duration, in ms, to block for the event.
  * @param[in,out] frame The CPU frame to mutate when waking.
+ * @param[in] mask The bit mask specifying the bits to wait on
+ * @param[in] waitall Only wake waiter when all bits are signalled.
  */
-void EventWait(EventObject *ev, Duration timeout, CpuState *frame);
+void EventWait(EventObject *ev, Duration timeout, CpuState *frame, EventWord mask, bool waitall);
 
 /**
  * @brief Reserve a bit of an event object, except the 31st, which is reserved for errors.
