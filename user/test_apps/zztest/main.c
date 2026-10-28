@@ -3495,10 +3495,37 @@ static void TestMapPerms(void)
     Check(!PtrIsErr(p), "a writable map with PERM_WRITE");
     p[0] = 1;
     p[4096] = 1;
-    CheckEq(MemProtect((VirtAddr)p, 4096, PROT_READ), ZUZU_OK, "Protect can lower it");
-    CheckEq(MemProtect((VirtAddr)p, 4096, PROT_READ | PROT_EXEC), ERR_NOPERM,
+    CheckEq(MemProtect((VirtAddr)p, 4096, PROT_READ), ERR_BADARG,
+            "Protect of part of an object mapping -> BADARG");
+    CheckEq(MemProtect((VirtAddr)p + 4096, 4096, PROT_READ), ERR_BADARG,
+            "also when the part ends where the mapping ends");
+    CheckEq(HandleRestrict((Handle)rw.r1, PERM_MAP), ERR_BUSY,
+            "Restrict cannot drop PERM_WRITE while the mapping is writable");
+    CheckEq(MemProtect((VirtAddr)p, 8192, PROT_READ), ZUZU_OK, "Protect can lower the whole mapping");
+    CheckEq(MemProtect((VirtAddr)p, 8192, PROT_READ | PROT_EXEC), ERR_NOPERM,
             "but not add execute the handle never had");
+    CheckEq(HandleRestrict((Handle)rw.r1, PERM_MAP), ZUZU_OK,
+            "once the mapping is read-only, PERM_WRITE can be dropped");
+    CheckEq(MemProtect((VirtAddr)p, 8192, PROT_RW), ERR_NOPERM,
+            "and the mapping can no longer be made writable (sealed)");
+    CheckEq(HandleRestrict((Handle)rw.r1, 0), ERR_BUSY,
+            "Restrict cannot drop PERM_MAP while the handle is mapped");
     CheckEq(MemUnmap(p), ZUZU_OK, "unmap it");
+    CheckEq(HandleRestrict((Handle)rw.r1, 0), ZUZU_OK, "after unmapping, PERM_MAP can be dropped");
+
+    p = MemMap((Handle)rx.r1, 0, PROT_READ | PROT_EXEC);
+    Check(!PtrIsErr(p), "an executable map with PERM_EXEC");
+    CheckEq(HandleRestrict((Handle)rx.r1, PERM_MAP), ERR_BUSY,
+            "Restrict cannot drop PERM_EXEC while the mapping is executable");
+    CheckEq(MemUnmap(p), ZUZU_OK, "unmap it");
+
+    SvcResult spare = HandleDuplicate(mem, PERM_MAP | PERM_WRITE, MARKER_NONE);
+    CheckEq(HandleRestrict((Handle)spare.r1, PERM_WAIT), ZUZU_OK,
+            "a memory handle that is not mapped can drop PERM_MAP");
+    HandleClose((Handle)spare.r1);
+    Handle rev = CreateEvent();
+    CheckEq(HandleRestrict(rev, PERM_WAIT), ZUZU_OK, "an event can drop PERM_MAP");
+    HandleClose(rev);
 
     uint8_t *a = MemMapAnon(4096, 0, PROT_RW);
     a[0] = 1;
@@ -3508,6 +3535,12 @@ static void TestMapPerms(void)
     CheckEq(MemProtect((VirtAddr)a, 4096, PROT_READ | PROT_WRITE | PROT_EXEC), ERR_BADARG,
             "but never both at once");
     MemUnmap(a);
+
+    uint8_t *a2 = MemMapAnon(8192, 0, PROT_RW);
+    a2[0] = 1; a2[4096] = 1; /* fault both pages in */
+    CheckEq(MemProtect((VirtAddr)a2, 4096, PROT_READ), ZUZU_OK,
+            "anonymous memory can still be protected page by page");
+    MemUnmap(a2);
 
     Handle sp = CreateSpace("zz-perms");
     CheckEq(MemInjectObj(sp, (Handle)ro.r1, USER_ELF_BASE, 0, 4096, PROT_RW), ERR_NOPERM,
