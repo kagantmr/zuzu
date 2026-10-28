@@ -140,8 +140,6 @@ EventObject *EventCreate(SpaceObject *owner)
     return ev;
 }
 
-<<<<<<< HEAD
-=======
 void EventDestroy(EventObject *ev)
 {
     if (!ev || !ev->alive)
@@ -150,7 +148,6 @@ void EventDestroy(EventObject *ev)
     EventUnref(ev);
 }
 
->>>>>>> 6d4d9859 (fix(event): oops, bring back EventDestroy)
 void EventWait(EventObject *ev, Duration timeout, CpuState *frame, EventWord mask, bool waitall)
 {
     ENSURE_ERR(frame, ev->alive, ERR_DEAD);
