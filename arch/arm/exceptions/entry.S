@@ -56,7 +56,6 @@ task_entry_trampoline:
      stm r0, {r1, r2}
  .endm
  
- /* SVC is already in SVC mode with IRQs masked, so it skips the mode switch. */
  .macro svc_entry
      srsdb sp!, #0x13
      sub sp, sp, #8
@@ -136,7 +135,7 @@ data_abort_handler:
  * is rescheduled if do_resched was set. Returns to the instruction after svc.
  */
 svc_handler:
-    exception_entry 0
+    svc_entry
     mov r0, sp
     mov r4, sp
     bic sp, sp, #7
