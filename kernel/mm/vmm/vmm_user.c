@@ -1,6 +1,7 @@
 /**
  * @file vmm_user.c
- * @brief User-facing mapping operations: anonymous and object mappings, unmap, protect, and fault checks.
+ * @brief User-facing mapping operations: anonymous and object mappings, unmap, protect, and fault
+ * checks.
  */
 
 #include "core/ensure.h"
@@ -201,6 +202,9 @@ Err VmmProtectUserRange(SpaceObject *space, VirtAddr va, size_t size, MemProt ne
     const VirtMemRegion *r = VmmFindRegion(space->as, va);
     ENSURE_RET(r, ERR_BADARG);
     ENSURE_RET(!(new_prot & ~r->max_prot), ERR_NOPERM);
+
+    ENSURE_RET(r->owner != VM_BACKING_SHARED || (va == r->vaddr_start && size == r->size),
+               ERR_BADARG);
 
     ENSURE_RET(VmmProtectPage(space->as, va, size, new_prot | VM_PROT_USER), ERR_BADARG);
 
