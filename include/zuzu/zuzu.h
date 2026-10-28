@@ -96,6 +96,7 @@ static inline Err Sleep(Duration ms) { return ArchInvokeSvc(SVC_SLEEP, (Register
  * @param[in] h       Port, event, task or space handle with PERM_WAIT.
  * @param[in] timeout Milliseconds to wait; TIMEOUT_POLL checks and returns at
  *                    once, TIMEOUT_INFINITE waits forever.
+ * @param[in] mask
  * @return r0 is the status; r1-r3 as in the table above.
  * @retval ZUZU_OK       Something arrived.
  * @retval ERR_TIMEOUT   Nothing arrived within @p timeout (or nothing was there, for a poll).
@@ -1442,16 +1443,20 @@ static inline EventWaitResult FormatToEventWait(SvcResult r)
 }
 
 /**
- * @brief Waits for bits on an event, then clears them.
+ * @brief Waits for bits on an event, then clears the bits it returns.
  *
  * @param[in] ev      Event handle with PERM_WAIT.
  * @param[in] timeout Milliseconds to wait, or TIMEOUT_POLL / TIMEOUT_INFINITE.
+ * @param[in] mask    Bits to wait for (bits 0-30); 0 means all bits.
+ * @param[in] waitall If true, wait until every bit in @p mask is pending;
+ *                    otherwise any one of them is enough.
  * @return The unpacked result; status as for WaitOn().
  * @see WaitOn()
  */
-static inline EventWaitResult WaitOnEvent(Handle ev, Duration timeout)
+static inline EventWaitResult WaitOnEvent(Handle ev, Duration timeout, EventWord mask, bool waitall)
 {
-    return FormatToEventWait(WaitOn(ev, timeout));
+    EventWord m = (mask & ~EVENT_WAIT_ALL) | (waitall ? EVENT_WAIT_ALL : 0);
+    return FormatToEventWait(ArchInvokeSvc4(SVC_WAITON, ev, (Register)timeout, (Register)m, 0));
 }
 
 /** @} */
