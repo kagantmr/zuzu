@@ -8,6 +8,7 @@
 #include "kernel/mm/mem_object.h"
 #include "kernel/space/handle.h"
 #include "kernel/space/space.h"
+#include "kernel/mm/vmm/vmm.h"
 #include "svc.h"
 #include <arch/regs.h>
 
@@ -82,6 +83,14 @@ void SvcManageHandle(CpuState *frame)
     } break;
     case MNGHNDL_RESTRICT: {
         HandlePerms mask = (HandlePerms)(*ArchGetFromFrame(frame, 2));
+        HandlePerms dropped = entry->perms & ~mask;
+        if (entry->type == HANDLE_MEM && entry->mapped_va && dropped) {
+            MemProt prot = 0;
+            ENSURE_ERR(frame, VmmRegionProt(CURRENT_SPACE->as, entry->mapped_va, &prot), ERR_BUSY);
+            ENSURE_ERR(frame, !(dropped & PERM_MAP), ERR_BUSY);
+            ENSURE_ERR(frame, !((dropped & PERM_WRITE) && (prot & PROT_WRITE)), ERR_BUSY);
+            ENSURE_ERR(frame, !((dropped & PERM_EXEC) && (prot & PROT_EXEC)), ERR_BUSY);
+        }
         entry->perms &= mask;
         ArchSetInFrame(frame, 0, ZUZU_OK);
     } break;
