@@ -35,6 +35,8 @@ device_tree_end=0x03100000
 arm_peri_high=0
 
 # ---- Debugging -------------------------------------------------------------
+enable_jtag_gpio=1
+
 # Uncomment to make start4.elf log its own progress to the UART before it
 # hands off to the kernel.
 #uart_2ndstage=1
