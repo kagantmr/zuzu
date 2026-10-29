@@ -65,7 +65,7 @@ static void InjectDeviceObjects(const char *compatible, uint64_t phys, uint64_t 
     entry->mem = mem;
     entry->perms = PERM_ALL;
     entry->mapped_va = 0;
-    mem->owner_spid = 1;
+    mem->owner_spid = s_rootsvc->spid;
     HandleEntryClaim(&s_rootsvc->handle_table, entry);
 }
 
