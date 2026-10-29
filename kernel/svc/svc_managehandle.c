@@ -6,20 +6,20 @@
 #include "core/ensure.h"
 #include "kernel/irq/irq_relay.h"
 #include "kernel/mm/mem_object.h"
+#include "kernel/mm/vmm/vmm.h"
 #include "kernel/space/handle.h"
 #include "kernel/space/space.h"
-#include "kernel/mm/vmm/vmm.h"
 #include "svc.h"
 #include <arch/regs.h>
 
 /**
  * @brief Do DMA-related queries.
- * 
+ *
  * @param[in] entry The DMA memory to query.
  * @param[in] what What aspect is being queried?
  * @param[in] arg Extra argument.
  * @param[out] value The register to write the result to.
- * 
+ *
  * @return Err
  * @retval ERR_BADTYPE This is not a DMA memory object.
  * @retval ERR_NOPERM  You do not have the rights to query this object.
@@ -59,6 +59,33 @@ static Err QueryDma(const HandleTableEntry *entry, QueryWhat what, uint32_t arg,
     return ZUZU_OK;
 }
 
+/**
+ * @brief Return true if @p e belongs to @p sp.
+ *
+ * @param[in] e The handle entry.
+ * @param[in] sp The space to check
+ *
+ * @return bool
+ *
+ */
+static bool HandleOwnsObject(const HandleTableEntry *e, const SpaceObject *sp)
+{
+    switch (e->type) {
+    case HANDLE_PORT:
+        return e->port->owner_spid == sp->spid;
+    case HANDLE_EVENT:
+        return e->event->owner_spid == sp->spid;
+    case HANDLE_MEM:
+        return e->mem->owner_spid == sp->spid;
+    case HANDLE_TASK:
+        return e->task->owner == sp;
+    case HANDLE_SPACE:
+        return e->space->parent_spid == sp->spid;
+    default:
+        return false;
+    }
+}
+
 void SvcManageHandle(CpuState *frame)
 {
     Handle h = (Handle)(*ArchGetFromFrame(frame, 0));
@@ -72,7 +99,7 @@ void SvcManageHandle(CpuState *frame)
     case MNGHNDL_DUPLICATE: {
         Marker handle_marker = (Marker)(*ArchGetFromFrame(frame, 3));
         HandlePerms perms = (HandlePerms)(*ArchGetFromFrame(frame, 2));
-        if (!(HANDLE_PORT == entry->type && entry->port->owner_spid == CURRENT_SPACE->spid))
+        if (!HandleOwnsObject(entry, CURRENT_SPACE))
             handle_marker = entry->marker;
         Handle new_handle;
         Err rc = HandleCopyInto(&CURRENT_SPACE->handle_table, entry, entry->perms & perms,
@@ -92,8 +119,10 @@ void SvcManageHandle(CpuState *frame)
             ENSURE_ERR(frame, !((dropped & PERM_EXEC) && (prot & PROT_EXEC)), ERR_BUSY);
 
             MemProt allowed = PROT_READ;
-            if (mask & PERM_WRITE) allowed |= PROT_WRITE;
-            if (mask & PERM_EXEC)  allowed |= PROT_EXEC;
+            if (mask & PERM_WRITE)
+                allowed |= PROT_WRITE;
+            if (mask & PERM_EXEC)
+                allowed |= PROT_EXEC;
             VmmRegionLimitProt(CURRENT_SPACE->as, entry->mapped_va, allowed);
         }
         entry->perms &= mask;
@@ -114,10 +143,10 @@ void SvcManageHandle(CpuState *frame)
             ENSURE_ERR(frame, !SpaceIsSelfOrAncestor(CURRENT_SPACE, entry->space), ERR_BADARG);
             SpaceDestroy(entry->space);
         } else if (HANDLE_PORT == entry->type && entry->port &&
-                    entry->port->owner_spid == CURRENT_SPACE->spid) {
+                   entry->port->owner_spid == CURRENT_SPACE->spid) {
             PortKill(entry->port);
         } else if (HANDLE_EVENT == entry->type && entry->event &&
-                    entry->event->owner_spid == CURRENT_SPACE->spid) {
+                   entry->event->owner_spid == CURRENT_SPACE->spid) {
             EventKill(entry->event);
         }
         HandleRelease(CURRENT_SPACE, entry);
