@@ -361,28 +361,44 @@ static Handle WaitForDevsvc(void)
     }
 }
 
+/* A restarted driver finds the mappings its previous instance left on the
+ * device. Adopt the first one that fits and unmap every other one, so none of
+ * them stays pinned. */
 static Err Emmc2DmaBufInit(void)
 {
-    SvcResult count = HandleQuery(block_dev_handle, QUERY_DMA_COUNT);
-    if (count.r0 == ZUZU_OK && count.r1 > 0) {
-        uint32_t id = (uint32_t)HandleQueryAt(block_dev_handle, QUERY_DMA_ID, 0).r1;
-        SvcResult len = HandleQueryAt(block_dev_handle, QUERY_DMA_LEN, id);
-        SvcResult dir = HandleQueryAt(block_dev_handle, QUERY_DMA_DIR, id);
-        SvcResult bus = HandleQueryAt(block_dev_handle, QUERY_DMA_BUS, id);
+    bool adopted = false;
+    size_t index = 0;
+    for (;;) {
+        SvcResult idr = HandleQueryAt(block_dev_handle, QUERY_DMA_ID, index);
+        if (idr.r0 != ZUZU_OK)
+            break;
+        uint32_t id = (uint32_t)idr.r1;
 
-        if (len.r0 == ZUZU_OK && dir.r0 == ZUZU_OK && bus.r0 == ZUZU_OK &&
-            (uint32_t)len.r1 >= SD_BUF_SIZE && (DmaDir)dir.r1 == DMA_BIDIRECTIONAL) {
-            Handle adopted = DmaAdopt(block_dev_handle, id);
-            if (adopted >= 0) {
-                g_buf_mem = adopted;
-                g_dma_bus = (uint32_t)bus.r1;
-                LOG_INFO(LOG_TAG, "adopted DMA buffer, bus 0x%08x", g_dma_bus);
-                return ZUZU_OK;
+        if (!adopted) {
+            SvcResult len = HandleQueryAt(block_dev_handle, QUERY_DMA_LEN, id);
+            SvcResult dir = HandleQueryAt(block_dev_handle, QUERY_DMA_DIR, id);
+            SvcResult bus = HandleQueryAt(block_dev_handle, QUERY_DMA_BUS, id);
+            if (len.r0 == ZUZU_OK && dir.r0 == ZUZU_OK && bus.r0 == ZUZU_OK &&
+                (uint32_t)len.r1 >= SD_BUF_SIZE && (DmaDir)dir.r1 == DMA_BIDIRECTIONAL) {
+                Handle h = DmaAdopt(block_dev_handle, id);
+                if (h >= 0) {
+                    g_buf_mem = h;
+                    g_dma_bus = (uint32_t)bus.r1;
+                    adopted = true;
+                    LOG_INFO(LOG_TAG, "adopted DMA buffer, bus 0x%08x", g_dma_bus);
+                    index++; /* keep this one; look at the next */
+                    continue;
+                }
+                LOG_WARN(LOG_TAG, "DmaAdopt failed: %s", StrToError(h));
             }
-            LOG_WARN(LOG_TAG, "DmaAdopt failed: %s", StrToError(adopted));
         }
-        DmaUnmap(block_dev_handle, id);
+
+        /* Unmapping shifts the list, so the same index names the next mapping. */
+        if (DmaUnmap(block_dev_handle, id) != ZUZU_OK)
+            index++;
     }
+    if (adopted)
+        return ZUZU_OK;
 
     g_buf_mem = CreateMem(SD_BUF_SIZE / 4096, MEM_CONTIG);
     if (g_buf_mem < 0)
