@@ -388,13 +388,30 @@ static void TestHandles(void)
     CheckEq(HandleRestrict((Handle)dup2.r1, PERM_WAIT), ZUZU_OK, "Restrict OK");
     CheckEq(HandleQuery((Handle)dup2.r1, QUERY_PERMS).r1, PERM_WAIT, "Restrict narrows perms");
 
-    /* Markers: only the creator of a port may stamp one. */
+    /* Markers: the owner of any object may stamp one; everyone else's dups inherit. */
     SvcResult mk = HandleDuplicate(port, PERM_SEND, 0xBEEF);
     CheckEq(HandleQuery((Handle)mk.r1, QUERY_MARKER).r1, 0xBEEF,
-            "creator stamps a marker on a port dup");
+            "the owner stamps a marker on a port dup");
     SvcResult mk_ev = HandleDuplicate(ev, PERM_SEND, 0xBEEF);
-    CheckEq(HandleQuery((Handle)mk_ev.r1, QUERY_MARKER).r1, MARKER_NONE,
-            "markers are ignored on non-port dups");
+    CheckEq(HandleQuery((Handle)mk_ev.r1, QUERY_MARKER).r1, 0xBEEF,
+            "the owner stamps a marker on an event dup");
+    SvcResult mk_mem = HandleDuplicate(mem, PERM_MAP, 0xBEEF);
+    CheckEq(HandleQuery((Handle)mk_mem.r1, QUERY_MARKER).r1, 0xBEEF,
+            "the owner stamps a marker on a memory dup");
+
+    /* A task in a kitten Space is owned by that Space, not by us. */
+    Kitten mk_k;
+    KittenCreate(&mk_k, kCodeQuit42, sizeof(kCodeQuit42));
+    SvcResult mk_t = HandleDuplicate(mk_k.task, PERM_WAIT, 0x99);
+    CheckEq(HandleQuery((Handle)mk_t.r1, QUERY_MARKER).r1, MARKER_NONE,
+            "a non-owner's dup keeps the source's marker");
+    SvcResult mk_sp = HandleDuplicate(mk_k.space, PERM_WAIT, 0x77);
+    CheckEq(HandleQuery((Handle)mk_sp.r1, QUERY_MARKER).r1, 0x77,
+            "the parent stamps a marker on its child Space");
+    HandleClose((Handle)mk_t.r1);
+    HandleClose((Handle)mk_sp.r1);
+    HandleClose((Handle)mk_mem.r1);
+    KittenFree(&mk_k);
 
     /* Closing invalidates: a stale value is rejected even after the slot is reused. */
     Handle stale = (Handle)dup.r1;
