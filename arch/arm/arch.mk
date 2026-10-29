@@ -17,6 +17,14 @@ ARCH_CROSS    ?= arm-none-eabi-
 # in that board's board.mk).
 ARCH_CPUFLAGS ?= -mcpu=cortex-a15
 ARCH_USER_FP  ?= -mfloat-abi=hard -mfpu=vfpv4
+ARCH_USER_ISA ?= -mthumb
+
+# Kernel-only code generation, on top of CPUFLAGS.
+ARCH_KERNEL_CFLAGS ?=
+
+# Target triple of a newlib-bundling toolchain for tier-2 programs. Empty
+# skips the toolchain search.
+ARCH_NEWLIB_TRIPLE ?= arm-none-eabi
 
 # Supported boards for this architecture.
 BOARDS = vexpress-a15 rpi4 virt

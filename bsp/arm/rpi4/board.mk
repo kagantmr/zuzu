@@ -10,8 +10,8 @@
 # its address in r2 -- this DTB is only ever consulted on the QEMU path.
 # QEMU's raspi4b machine has fixed 2G RAM and lives in qemu-system-aarch64.
 # To regenerate after editing rpi4.dts: `make build/dtb/rpi4.dtb` (still
-# wired up in scripts/Makefile.image), then copy over arch/arm/dtb/rpi4/bcm2711-rpi-4-b.dtb.
-DTB_rpi4        = arch/arm/dtb/rpi4/bcm2711-rpi-4-b.dtb
+# wired up in scripts/Makefile.image), then copy over bsp/arm/rpi4/bcm2711-rpi-4-b.dtb.
+DTB_rpi4        = bsp/arm/rpi4/bcm2711-rpi-4-b.dtb
 QEMU_MACH_rpi4  = raspi4b
 QEMU_CPU_rpi4   = cortex-a72
 QEMU_BIN_rpi4   = qemu-system-aarch64

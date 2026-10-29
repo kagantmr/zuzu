@@ -3,7 +3,7 @@
 # selected. See arch/arm/arch.mk's header comment for the variable list a
 # board.mk may define.
 
-DTB_vexpress-a15       = arch/arm/dtb/vexpress-a15/vexpress-v2p-ca15-tc1.dtb
+DTB_vexpress-a15       = bsp/arm/vexpress-a15/vexpress-v2p-ca15-tc1.dtb
 QEMU_MACH_vexpress-a15 = vexpress-a15
 QEMU_CPU_vexpress-a15  = cortex-a15
 QEMU_NET_vexpress-a15  = -nic user,model=lan9118

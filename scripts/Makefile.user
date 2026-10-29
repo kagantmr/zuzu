@@ -18,7 +18,7 @@ endif
 # Newlib's headers must win over include/, but <zuzu/...> must still resolve.
 NEWLIB_INC = build/newlib-include
 
-NEWLIB_USER_CFLAGS = -O$(CONFIG_USER_CC_OPT_LEVEL) -Wall -Wextra -mthumb \
+NEWLIB_USER_CFLAGS = -O$(CONFIG_USER_CC_OPT_LEVEL) -Wall -Wextra $(ARCH_USER_ISA) \
                      $(CPUFLAGS) -I. -I$(NEWLIB_INC) -Iarch/include -Iarch/$(ARCH)/include \
                      -idirafter include \
                      -MD -MP -g $(ARCH_USER_FP) \
@@ -32,14 +32,14 @@ NEWLIB_USER_CFLAGS_C = $(NEWLIB_USER_CFLAGS) \
                         -include include/newlib_compat.h -DSSIZE_MAX=0x7fffffff
 
 NEWLIB_USER_LDFLAGS = -nostartfiles -Wl,-T,user/user.ld \
-                      -mthumb $(CPUFLAGS) $(ARCH_USER_FP)
+                      $(ARCH_USER_ISA) $(CPUFLAGS) $(ARCH_USER_FP)
 
 # Fails only when a tier-2 recipe actually runs, so kernel/tier-1-only
 # builds on a machine without a newlib toolchain are unaffected.
 define check-newlib-toolchain
 	@if [ -z "$(NEWLIB_CROSS)" ]; then \
-		echo "  ERROR   no newlib-capable arm-none-eabi-gcc found for tier-2 build."; \
-		echo "          install one (e.g. Arm GNU Toolchain) or set NEWLIB_CROSS=/path/to/arm-none-eabi-"; \
+		echo "  ERROR   no newlib-capable $(or $(ARCH_NEWLIB_TRIPLE),$(ARCH))-gcc found for tier-2 build."; \
+		echo "          install one (e.g. Arm GNU Toolchain) or set NEWLIB_CROSS=/path/to/$(or $(ARCH_NEWLIB_TRIPLE),<triple>)-"; \
 		exit 1; \
 	fi
 endef
@@ -117,13 +117,13 @@ LIB_PROG_OBJS := $(foreach p,$(LIB_PROGS),$(USER_$(p)_OBJS))
 
 # zcrt: the user-side runtime for tier-1 — klib rebuilt with user flags, the
 # ZCRT libc (lib/), and the IPC runtime (include/{sync,net,fs,dev,util}/,
-# include/zuzu/*.c). klib/arm/*.S (hand-tuned memcpy/memset) is picked up
+# include/zuzu/*.c). klib/$(ARCH)/*.S (hand-tuned memcpy/memset) is picked up
 # separately -- it's not covered by the flat klib/*.c wildcard, and needs its
 # own .S compile rule below. klib/*.c stays a separate wildcard since klib/ is
 # untouched and lives outside include/.
 ZCRT_CSRCS := $(wildcard klib/*.c) lib/malloc.c lib/stdio.c \
               $(shell find include -name '*.c')
-ZCRT_SSRCS := $(shell find klib -name '*.S')
+ZCRT_SSRCS := $(wildcard klib/$(ARCH)/*.S)
 ZCRT_SRCS  := $(ZCRT_CSRCS) $(ZCRT_SSRCS)
 ZCRT_OBJS  := $(patsubst %.c,$(O)/user/zcrt/%.o,$(ZCRT_CSRCS)) \
               $(patsubst %.S,$(O)/user/zcrt/%.o,$(ZCRT_SSRCS))
