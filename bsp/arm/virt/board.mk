@@ -6,7 +6,7 @@
 # gic-version=2 is pinned explicitly since it happens to match
 # cortex-a15's default here, but a future -cpu change on this board could
 # silently switch to a GICv3, which this kernel has no driver for.
-DTB_virt        = arch/arm/dtb/virt/virt.dtb
+DTB_virt        = bsp/arm/virt/virt.dtb
 QEMU_MACH_virt  = virt,gic-version=2
 QEMU_CPU_virt   = cortex-a15
 QEMU_MEM_virt   = 1G
