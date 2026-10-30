@@ -4,6 +4,7 @@
  */
 
 #include "event.h"
+#include "observer.h"
 
 #include "core/ensure.h"
 #include "core/panic.h"
@@ -34,12 +35,23 @@ static EventObject *EventObjAlloc(void)
 }
 
 /**
+ * @brief Signals the parents of an event if the child has pending bits.
+ *
+ * @param[in] ev The event to notify the parents of
+ */
+static void EventNotifyParents(EventObject *ev)
+{
+    if (ev->word)
+        ObserverNotify(&ev->observers);
+}
+
+/**
  * @brief Checks if the bitmask matches the signalled bits.
- * 
+ *
  * @param[in] word The word to check
  * @param[in] mask The mask to use
  * @param[in] all If all of the bits must be checked
- * 
+ *
  * @return EventWord
  */
 static EventWord EventTake(EventWord word, EventWord mask, bool all)
@@ -81,6 +93,7 @@ void EventSignal(EventObject *ev, EventWord bits, bool bcast)
         n = next;
     }
     ev->word &= ~delivered;
+    EventNotifyParents(ev);
 }
 
 void EventKill(EventObject *ev)
@@ -93,6 +106,8 @@ void EventKill(EventObject *ev)
         WaitSlot *slot = container_of(n, WaitSlot, node);
         TaskAbortWait(slot->owner, ERR_DEAD);
     }
+    ObserverNotify(&ev->observers);
+    ObserverClear(&ev->observers);
 }
 
 void EventUnref(EventObject *ev)
@@ -136,6 +151,8 @@ EventObject *EventCreate(SpaceObject *owner)
     ev->word = 0;
     ev->bound_mask = 0;
     memset(ev->bound_refs, 0, sizeof(ev->bound_refs));
+    ev->child_count = 0;
+    ObserverInit(&ev->observers);
 
     return ev;
 }
@@ -153,11 +170,12 @@ void EventWait(EventObject *ev, Duration timeout, CpuState *frame, EventWord mas
     ENSURE_ERR(frame, ev->alive, ERR_DEAD);
     ENSURE_ERR(frame, !(waitall && mask == 0), ERR_BADARG);
     if (mask == 0)
-        mask = ~EVENT_WAIT_ALL;          /* 0 means every bit */
+        mask = ~EVENT_WAIT_ALL; /* 0 means every bit */
 
     EventWord got = EventTake(ev->word, mask, waitall);
     if (got) {
         ev->word &= ~got;
+        EventNotifyParents(ev);
         ArchSetInFrame(frame, 0, ZUZU_OK);
         ArchSetInFrame(frame, 1, (Register)got);
         return;
