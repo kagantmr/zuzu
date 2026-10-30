@@ -49,6 +49,17 @@ zuzu is still under active development. Contributions are appreciated, please re
 All documentation is at the zuzu docs website.
 Visit [https://kagantmr.github.io/zuzu-docs](https://kagantmr.github.io/zuzu-docs) for the latest information on zuzu, zuzuOS and their development.
 
+## Third-party components
+
+zuzu's own code is MIT-licensed. The components below keep their own licenses.
+
+| Component         | Location                   | License       | Upstream                                                        |
+| ----------------- | -------------------------- | ------------- | --------------------------------------------------------------- |
+| libfdt            | `vendor/libfdt/`           | BSD-2-Clause  | [dgibson/dtc](https://github.com/dgibson/dtc)                   |
+| Kconfiglib 14.1.0 | `vendor/kconfiglib/`       | ISC           | [ulfalizer/Kconfiglib](https://github.com/ulfalizer/Kconfiglib) |
+| LVGL              | `vendor/lvgl/` (submodule) | MIT           | [lvgl/lvgl](https://github.com/lvgl/lvgl)                       |
+| FatFs R0.16       | `user/services/fsd/fatfs/` | FatFs license | [elm-chan.org/fsw/ff](http://elm-chan.org/fsw/ff/)              |
+
 ## Credits
 
 - zuzu logo designed by Zoz
