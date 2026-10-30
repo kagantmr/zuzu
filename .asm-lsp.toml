@@ -1,0 +1,53 @@
+[default_config]
+assembler = "gas"
+instruction_set = "arm64"
+
+[default_config.opts]
+compiler = "aarch64-none-elf-gcc"
+diagnostics = true
+default_diagnostics = true
+
+[[project]]
+path = "arch/aarch64"
+assembler = "gas"
+instruction_set = "arm64"
+
+[project.opts]
+compiler = "aarch64-none-elf-gcc"
+compile_flags_txt = ["cc", "-I.", "-Iinclude", "-Iarch/include", "-Iarch/aarch64/include", '-DBOARD_BOOT_H="bsp/aarch64/rpi4/boot.h"']
+
+[[project]]
+path = "bsp/aarch64"
+assembler = "gas"
+instruction_set = "arm64"
+
+[project.opts]
+compiler = "aarch64-none-elf-gcc"
+compile_flags_txt = ["cc", "-I.", "-Iinclude", "-Iarch/include", "-Iarch/aarch64/include"]
+
+[[project]]
+path = "arch/arm"
+assembler = "gas"
+instruction_set = "arm"
+
+[project.opts]
+compiler = "arm-none-eabi-gcc"
+compile_flags_txt = ["cc", "-mcpu=cortex-a15", "-I.", "-Iinclude", "-Iarch/include", "-Iarch/arm/include", '-DBOARD_BOOT_H="bsp/arm/vexpress-a15/boot.h"']
+
+[[project]]
+path = "bsp/arm"
+assembler = "gas"
+instruction_set = "arm"
+
+[project.opts]
+compiler = "arm-none-eabi-gcc"
+compile_flags_txt = ["cc", "-mcpu=cortex-a15", "-I.", "-Iinclude", "-Iarch/include", "-Iarch/arm/include"]
+
+[[project]]
+path = "klib/arm"
+assembler = "gas"
+instruction_set = "arm"
+
+[project.opts]
+compiler = "arm-none-eabi-gcc"
+compile_flags_txt = ["cc", "-mcpu=cortex-a15", "-I.", "-Iinclude"]
