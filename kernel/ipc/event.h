@@ -8,6 +8,7 @@
 #ifndef KERNEL_IPC_EVENT_H
 #define KERNEL_IPC_EVENT_H
 
+#include "observer_types.h"
 #include <arch/regs.h>
 #include <list.h>
 #include <stdbool.h>
@@ -35,6 +36,8 @@ typedef struct EventObjectStruct {
     bool alive;              /**< Is the Event destroyed? */
     EventWord bound_mask;    /**< Bitmask of bound bits. */
     uint16_t bound_refs[31]; /**< Each bit's bound reference counter. */
+    ObserverSet observers;   /**< Parent events this event is bound into. */
+    uint8_t child_count;     /**< Events bound into this one; nonzero means it is a parent. */
 } EventObject;
 
 /**
@@ -53,8 +56,10 @@ void EventSignal(EventObject *ev, EventWord bits, bool bcast);
  * @param[in] ev The event to wait on
  * @param[in] timeout The duration, in ms, to block for the event.
  * @param[in,out] frame The CPU frame to mutate when waking.
+ * @param[in] mask The bit mask specifying the bits to wait on
+ * @param[in] waitall Only wake waiter when all bits are signalled.
  */
-void EventWait(EventObject *ev, Duration timeout, CpuState *frame);
+void EventWait(EventObject *ev, Duration timeout, CpuState *frame, EventWord mask, bool waitall);
 
 /**
  * @brief Reserve a bit of an event object, except the 31st, which is reserved for errors.

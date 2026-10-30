@@ -6,8 +6,7 @@
 
 zuzu is a microkernel written from scratch in C and ARM assembly, targeting
 AArch32 / ARMv7-A. **zuzuOS** is the userspace that runs on top of it with drivers,
-a filesystem server, a network stack, and a shell. It currently runs on QEMU's `vexpress-a15` (Cortex-A15) and is physically tested on the **Raspberry Pi 4**
-(BCM2711, Cortex-A72).
+a filesystem server, a network stack, and a shell. It currently runs on QEMU's `vexpress-a15` (Cortex-A15) and is physically tested on the **Raspberry Pi 4**.
 
 Microkernels have a reputation for being too slow for practical use. I believe this is a
 reputation earned by Mach in the early 1990s and never fully shaken. zuzu is an
@@ -18,7 +17,7 @@ systems where isolation matters most.
 
 This began as a hobby project, a way to put every piece of systems programming
 I cared about into one place and became a master's thesis and undergraduate
-capstone. It is still the project I most wanted to build. It is named after our cat, Zuzu, a Scottish Fold.
+capstone. It is still the project I most wanted to build. It is named after our family cat, Zuzu, a Scottish Fold.
 
 ## Design
 
@@ -36,20 +35,16 @@ handles for, and nothing else.
 - Supervisor/init, a standalone name server, a VFS server, a device manager
 - A UART driver and an interactive shell
 - Userspace device drivers
-- A network stack running entirely in userspace: LAN9118 driver -> Ethernet /
-  ARP / IPv4 / ICMP -> UDP/TCP, with a full state machine, RFC 6298
-  retransmission timing with Karn's algorithm, and out-of-order reassembly
-
-**Crash recovery**
-- Will be implemented in the next major version of zuzuOS.
+- A network stack and socket interface
 
 ## Status
 
-zuzu is still under active development. The kernel ABI is stable between minors of the same major. See roadmap for recent development updates.
+zuzu is still under active development. Contributions are welcome, please read CONTRIBUTING.md!
 
 ## Documentation
 
-All documentation has been moved to the zuzu docs website. Visit [https://kagantmr.github.io/zuzu-docs](https://kagantmr.github.io/zuzu-docs) for the latest information on the kernel, userspace, and development.
+All documentation is at the zuzu docs website. 
+Visit [https://kagantmr.github.io/zuzu-docs](https://kagantmr.github.io/zuzu-docs) for the latest information on the kernel, userspace, and development.
 
 ## Repository layout
 
