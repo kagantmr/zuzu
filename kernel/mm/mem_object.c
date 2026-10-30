@@ -21,7 +21,10 @@ static MemObject *MemObjAlloc(void)
 {
     if (!mem_obj_cache.obj_size)
         KSlabInit(&mem_obj_cache, sizeof(MemObject));
-    return KSlabAlloc(&mem_obj_cache);
+    MemObject *obj = KSlabAlloc(&mem_obj_cache);
+    if (obj)
+        obj->owner_spid = -1;
+    return obj;
 }
 
 /**

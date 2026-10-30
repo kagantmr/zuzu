@@ -25,7 +25,9 @@ void SvcWaitOn(CpuState *frame)
         PortReceive(entry->port, timeout, frame);
     } break;
     case HANDLE_EVENT: {
-        EventWait(entry->event, timeout, frame);
+        EventWord mask = (~EVENT_WAIT_ALL & (unsigned)(*ArchGetFromFrame(frame, 2)));
+        bool waitall = EVENT_WAIT_ALL & (unsigned)(*ArchGetFromFrame(frame, 2));
+        EventWait(entry->event, timeout, frame, mask, waitall);
     } break;
     case HANDLE_SPACE: {
         SpaceWaitHollow(entry->space, timeout, frame);

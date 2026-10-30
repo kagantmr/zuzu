@@ -68,9 +68,8 @@ bool VmmProtectPage(AddressSpace *as, VirtAddr va, size_t size, MemProt new_prot
     if (r->flags & VM_FLAG_PINNED)
         return false;
 
-    if (!ArchMmuProtect(as, va, size, new_prot))
-        return false;
-
+    (void)ArchMmuProtect(as, va, size, new_prot);
+    
     r->prot = new_prot;
     return true;
 }

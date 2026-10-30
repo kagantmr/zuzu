@@ -120,6 +120,7 @@ void SvcManageMemory(CpuState *frame)
         MemObjRef(m->mem);
         fresh->type = HANDLE_MEM;
         fresh->mem = m->mem;
+        m->mem->owner_spid = CURRENT_SPACE->spid;
         fresh->perms = PERM_MAP | PERM_WRITE;
         fresh->mapped_va = 0;
 
