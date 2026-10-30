@@ -8,6 +8,7 @@
 #ifndef KERNEL_IPC_EVENT_H
 #define KERNEL_IPC_EVENT_H
 
+#include "observer_types.h"
 #include <arch/regs.h>
 #include <list.h>
 #include <stdbool.h>
@@ -35,6 +36,8 @@ typedef struct EventObjectStruct {
     bool alive;              /**< Is the Event destroyed? */
     EventWord bound_mask;    /**< Bitmask of bound bits. */
     uint16_t bound_refs[31]; /**< Each bit's bound reference counter. */
+    ObserverSet observers;   /**< Parent events this event is bound into. */
+    uint8_t child_count;     /**< Events bound into this one; nonzero means it is a parent. */
 } EventObject;
 
 /**

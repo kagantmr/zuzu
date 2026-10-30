@@ -90,17 +90,17 @@ typedef uint32_t EventWord;
 #define DEVICE_HANDLE_BASE 16
 
 /**
- * @brief WaitOn argument 3 MSB: waits until all bits are signalled. 
+ * @brief WaitOn argument 3 MSB: waits until all bits are signalled.
  */
 #define EVENT_WAIT_ALL (1u << 31)
 
 /** @brief Permissions enum for an object. */
 typedef enum {
-    PERM_WAIT = (1U << 0), /**< This handle can be used for a WaitOn(). */
-    PERM_SEND = (1U << 1), /**< Object with this handle can be Signal()led or Call()ed. */
-    PERM_TXFR = (1U << 2), /**< Object with this handle can be granted to others. */
-    PERM_MAP = (1U << 3),  /**< Object with this handle can be mapped into the Space. */
-    PERM_CNTL = (1U << 4), /**< Object with this handle's permissions can be altered */
+    PERM_WAIT = (1U << 0),  /**< This handle can be used for a WaitOn(). */
+    PERM_SEND = (1U << 1),  /**< Object with this handle can be Signal()led or Call()ed. */
+    PERM_TXFR = (1U << 2),  /**< Object with this handle can be granted to others. */
+    PERM_MAP = (1U << 3),   /**< Object with this handle can be mapped into the Space. */
+    PERM_CNTL = (1U << 4),  /**< Object with this handle's permissions can be altered */
     PERM_WRITE = (1U << 5), /**< Object with this handle can be mapped writable. */
     PERM_EXEC = (1U << 6),  /**< Object with this handle can be mapped executable. */
     PERM_ALL = (PERM_WAIT | PERM_SEND | PERM_TXFR | PERM_MAP | PERM_CNTL | PERM_WRITE |
@@ -207,6 +207,7 @@ typedef enum {
     EVENT_PORT,        /**< Call()ed on port, used to multiplex */
     EVENT_TASK,        /**< A task died */
     EVENT_SPACE,       /**< A space is hollowed out. */
+    EVENT_EVENT,       /**< Another Event has pending bits. */
 } EventType;
 
 /** @brief Permission bits for memory objects. */
