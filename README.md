@@ -2,7 +2,7 @@
 
 **A capability-based microkernel for ARMv7-A.**
 
-![Boot screen](docs/img/shell.png)
+![Boot screen](docs/img/shell_new.png)
 
 zuzu is a microkernel written from scratch in C and ARM assembly, targeting
 AArch32 / ARMv7-A. **zuzuOS** is the userspace that runs on top of it with drivers,
