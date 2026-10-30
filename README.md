@@ -73,19 +73,10 @@ zuzu/
 └── vendor                 // Third-party libraries (kconfiglib, libfdt)
 ```
 
-## Versioning
-
-Kernel releases are tagged `zuzu-vX.Y.Z-<codename>`, where the codename tracks
-the major version. 
-
-Major versions are named after how a cat sits: **Loaf**
-(1.x), **Prowl** (2.x), **Knead** (3.x), **Pounce** (4.x).
-
-zuzuOS versions are named after drinks.
-
 ## Credits
 
 - zuzu logo designed by Zoz
+- zuzufont designed by Esther (fbcons)
 
 ## License
 
