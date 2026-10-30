@@ -1,511 +1,184 @@
-#include <arch/cycles.h>
-#include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include <zuzu/msg.h>
-#include <zuzu/err.h>
-#include <zuzu/syspage.h>
 #include <zuzu/uptime.h>
-#include <zuzu/user_layout.h>
-#include <zuzu/zuzu.h>
 
-#define SAMPLES 8192
-#define WARMUP 1024
-#define CAL_ROUNDS 5
-#define SERVER_STACK (16 * 1024)
-#define MSG_QUIT 0xFFFFFFFFu
-#define HEAVY 1100
-#define PAGE 4096u
-#define INJECT_MAX_PAGES 256u
-
-#define TIMED(buf, i, expr)                                                                        \
-    do {                                                                                           \
-        uint32_t t0_ = ArchMeasure();                                                              \
-        expr;                                                                                      \
-        (buf)[i] = ArchMeasure() - t0_;                                                            \
-    } while (0)
-
-static uint32_t g_samples[SAMPLES];
-static uint32_t g_samples_b[SAMPLES];
-static uint32_t g_samples_c[SAMPLES];
-static uint32_t g_samples_d[SAMPLES];
-static uint32_t g_overhead;
-static uint32_t g_khz;
-
-static void SortU32(uint32_t *a, uint32_t n)
-{
-    for (uint32_t gap = n / 2; gap > 0; gap /= 2) {
-        for (uint32_t i = gap; i < n; i++) {
-            uint32_t v = a[i];
-            uint32_t j = i;
-            for (; j >= gap && a[j - gap] > v; j -= gap)
-                a[j] = a[j - gap];
-            a[j] = v;
-        }
-    }
-}
-
-static uint32_t Median(uint32_t *a, uint32_t n)
-{
-    SortU32(a, n);
-    return a[n / 2];
-}
-
-static uint32_t CyclesToNs(uint32_t cycles)
-{
-    return (uint32_t)(((uint64_t)cycles * 1000000u) / g_khz);
-}
-
-
-static uint32_t CalibrateOverhead(void)
-{
-    for (uint32_t i = 0; i < SAMPLES; i++) {
-        uint32_t a = ArchMeasure();
-        uint32_t b = ArchMeasure();
-        g_samples[i] = b - a;
-    }
-    return Median(g_samples, SAMPLES);
-}
-
-static uint32_t CalibrateKhz(void)
-{
-    const uint64_t span_us = 100000u;
-    uint32_t est[CAL_ROUNDS];
-
-    for (int r = 0; r < CAL_ROUNDS; r++) {
-        uint64_t t1 = UptimeUs();
-        uint32_t c0 = ArchMeasure();
-        while (UptimeUs() - t1 < span_us)
-            ;
-        uint32_t c1 = ArchMeasure();
-        uint64_t t2 = UptimeUs();
-        est[r] = (uint32_t)(((uint64_t)(c1 - c0) * 1000u) / (t2 - t1));
-    }
-    return Median(est, CAL_ROUNDS);
-}
-
-static void Report(const char *name, uint32_t n)
-{
-    for (uint32_t i = 0; i < n; i++)
-        g_samples[i] = g_samples[i] > g_overhead ? g_samples[i] - g_overhead : 0;
-
-    uint64_t sum = 0;
-    for (uint32_t i = 0; i < n; i++)
-        sum += g_samples[i];
-    uint32_t mean = (uint32_t)(sum / n);
-
-    uint64_t var = 0;
-    for (uint32_t i = 0; i < n; i++) {
-        int64_t d = (int64_t)g_samples[i] - mean;
-        var += (uint64_t)(d * d);
-    }
-    var /= n;
-    uint32_t sd = 0;
-    while ((uint64_t)(sd + 1) * (sd + 1) <= var)
-        sd++;
-
-    SortU32(g_samples, n);
-    uint32_t min = g_samples[0];
-    uint32_t med = g_samples[n / 2];
-    uint32_t p99 = g_samples[(n * 99) / 100];
-    uint32_t max = g_samples[n - 1];
-
-    printf("%-22s min %6u  med %6u  p99 %6u  max %7u  mean %6u  sd %5u cyc | med %6u ns\n", name,
-           min, med, p99, max, mean, sd, CyclesToNs(med));
-}
-
-static void ReportBuf(const char *name, const uint32_t *buf, uint32_t n)
-{
-    memcpy(g_samples, buf, n * sizeof(uint32_t));
-    Report(name, n);
-}
-
-static void BenchNullSyscall(void)
-{
-    for (uint32_t i = 0; i < WARMUP; i++)
-        (void)HandleQuery(-1, QUERY_TYPE);
-    for (uint32_t i = 0; i < SAMPLES; i++) {
-        uint32_t s = ArchMeasure();
-        (void)HandleQuery(-1, QUERY_TYPE);
-        g_samples[i] = ArchMeasure() - s;
-    }
-    Report("syscall (null)", SAMPLES);
-}
-
-static void BenchYield(void)
-{
-    for (uint32_t i = 0; i < WARMUP; i++)
-        Yield();
-    for (uint32_t i = 0; i < SAMPLES; i++) {
-        uint32_t s = ArchMeasure();
-        Yield();
-        g_samples[i] = ArchMeasure() - s;
-    }
-    Report("yield (no peer)", SAMPLES);
-}
+#include "speedtest.h"
 
 typedef struct {
-    Handle port;
-} Server;
+    const char *name;
+    void (*fn)(void);
+    const char *desc;
+} Section;
 
-static void ServerEntry(Server *s)
-{
-    PortWaitResult r = FormatToPortWait(WaitOn(s->port, TIMEOUT_INFINITE));
-    for (;;) {
-        if (r.status != ZUZU_OK)
-            Quit(r.status);
-        uint32_t first = 0;
-        if (r.xlen >= 4)
-            memcpy(&first, GetMessageBox(), 4);
-        if (first == MSG_QUIT) {
-            Reply(0, -1);
-            Quit(0);
-        }
-        r = FormatToPortWait(ReplyRecv(r.xlen, -1, s->port, TIMEOUT_INFINITE));
-    }
-}
-
-static void BenchIpc(const char *kind, Handle port, uint32_t len)
-{
-    uint8_t *buf = GetMessageBox();
-    memset(buf, 0xA5, len < 4 ? 4 : len);
-    buf[0] = 0;
-    buf[1] = buf[2] = buf[3] = 0;
-
-    for (uint32_t i = 0; i < WARMUP; i++)
-        (void)Call(port, len, -1);
-    for (uint32_t i = 0; i < SAMPLES; i++) {
-        uint32_t s = ArchMeasure();
-        SvcResult r = Call(port, len, -1);
-        g_samples[i] = ArchMeasure() - s;
-        if (r.r0 != ZUZU_OK) {
-            printf("ipc call failed: %d\n", (int)r.r0);
-            return;
-        }
-    }
-    char name[32];
-    snprintf(name, sizeof(name), "%s rtt %uB", kind, (unsigned)len);
-    Report(name, SAMPLES);
-}
-
-static void RunIpc(void)
-{
-    Server srv = {.port = CreatePort()};
-    uint8_t *stack = MemMapAnon(SERVER_STACK, 0, PROT_RW);
-    Handle task = CreateTask(-1);
-    if (srv.port < 0 || PtrIsErr(stack) || task < 0) {
-        printf("ipc setup failed\n");
-        return;
-    }
-    if (TaskStart(task, (void *)ServerEntry, stack + SERVER_STACK, (uint32_t)(uintptr_t)&srv, 0) !=
-        ZUZU_OK) {
-        printf("ipc server start failed\n");
-        return;
-    }
-
-    BenchIpc("ipc same-space", srv.port, 4);
-    BenchIpc("ipc same-space", srv.port, 64);
-    BenchIpc("ipc same-space", srv.port, 256);
-
-    uint32_t quit = MSG_QUIT;
-    memcpy(GetMessageBox(), &quit, 4);
-    Call(srv.port, 4, -1);
-    WaitOn(task, 1000);
-    HandleClose(task);
-    HandleClose(srv.port);
-    MemUnmap(stack);
-}
-
-/* One syscall in raw ARM code: mov r12, #n; svc #ARCH_SVC_MAGIC */
-#define SYS(n) (0xE3A0C000u | (uint32_t)(n)), (0xEF000000u | ARCH_SVC_MAGIC)
-
-static const uint32_t kEchoCode[] = {
-    0xE1A04000, 0xE1A00004, 0xE3E01000, SYS(SVC_WAITON), 0xE3500000, 0x1A000006, 0xE1A00002,
-    0xE3E01000, 0xE1A02004, 0xE3E03000, SYS(SVC_REPLY),  0xEAFFFFF6, SYS(SVC_QUIT),
+static const Section kSections[] = {
+    {"timer", BenchTimer, "cycle counter and uptime read cost"},
+    {"syscall", BenchNullSyscall, "null syscall, valid handle query"},
+    {"yield", BenchYield, "yield with nothing else runnable"},
+    {"sleep", BenchSleep, "sleep and timeout accuracy (overshoot)"},
+    {"handle", BenchHandleOps, "duplicate, close, signal, restrict"},
+    {"hscale", BenchHandleScaling, "handle op cost vs handles held"},
+    {"objects", BenchCreateObjects, "create/destroy port, event, mem"},
+    {"memmap", BenchMemMap, "map, fault, unmap, protect"},
+    {"tasks", BenchTasks, "create, start, kill tasks"},
+    {"spaces", BenchSpaces, "create/destroy spaces, inject"},
+    {"sched", BenchSched, "context switch, event ping-pong, wake latency"},
+    {"ipc", RunIpc, "same-space IPC size sweep"},
+    {"ipcx", RunIpcCross, "cross-space IPC size sweep"},
+    {"membw", BenchMemBandwidth, "read/write/copy bandwidth vs size"},
+    {"memlat", BenchMemLatency, "load latency vs working set"},
+    {"noise", BenchNoise, "spin loop interruption trace"},
+    {"fs", BenchFs, "SD card file throughput via fsd"},
 };
 
-static uint8_t g_code_page[4096] __attribute__((aligned(4096)));
+static bool g_kstats = true;
 
-static void RunIpcCross(void)
+static bool InList(const char *list, const char *name)
 {
-    Handle port = CreatePort();
-    Handle space = CreateSpace("speedtest-echo");
-    if (port < 0 || space < 0) {
-        printf("cross-space setup failed\n");
-        return;
-    }
-    memcpy(g_code_page, kEchoCode, sizeof(kEchoCode));
-    Handle task = -1;
-    SvcResult g = HandleGrant(port, space, PERM_ALL);
-    Err inj = MemInjectBytes(space, USER_ELF_BASE, g_code_page, sizeof(g_code_page),
-                             PROT_READ | PROT_EXEC);
-    Err start = ERR_BADARG;
-    if (inj == ZUZU_OK && g.r0 == ZUZU_OK && (task = CreateTask(space)) >= 0)
-        start = TaskStart(task, (void *)USER_ELF_BASE, (void *)USR_SP, (uint32_t)g.r1, 0);
-    if (start == ZUZU_OK) {
-        BenchIpc("ipc cross-space", port, 4);
-        BenchIpc("ipc cross-space", port, 64);
-        BenchIpc("ipc cross-space", port, 256);
-    } else {
-        printf("cross-space setup failed: grant %d inject %d task %d start %d\n", (int)g.r0,
-               (int)inj, (int)task, (int)start);
-    }
-    if (task >= 0)
-        HandleClose(task);
-    HandleDestroy(space);
-    HandleClose(port);
-}
-
-static void BenchHandleOps(void)
-{
-    Handle ev = CreateEvent();
-    if (ev < 0) {
-        printf("handle bench setup failed\n");
-        return;
-    }
-    for (uint32_t i = 0; i < WARMUP; i++) {
-        SvcResult d = HandleDuplicate(ev, PERM_SEND, MARKER_NONE);
-        HandleClose((Handle)d.r1);
-    }
-    for (uint32_t i = 0; i < SAMPLES; i++) {
-        SvcResult d;
-        TIMED(g_samples, i, d = HandleDuplicate(ev, PERM_SEND, MARKER_NONE));
-        TIMED(g_samples_b, i, HandleClose((Handle)d.r1));
-    }
-    Report("handle duplicate", SAMPLES);
-    ReportBuf("handle close", g_samples_b, SAMPLES);
-
-    for (uint32_t i = 0; i < WARMUP; i++)
-        Signal(ev, 1, false);
-    for (uint32_t i = 0; i < SAMPLES; i++)
-        TIMED(g_samples, i, Signal(ev, 1, false));
-    Report("signal (no waiter)", SAMPLES);
-
-    for (uint32_t i = 0; i < SAMPLES; i++)
-        TIMED(g_samples, i, HandleRestrict(ev, PERM_ALL));
-    Report("handle restrict", SAMPLES);
-    HandleClose(ev);
-}
-
-static void BenchCreateObjects(void)
-{
-    for (uint32_t i = 0; i < HEAVY; i++) {
-        Handle h;
-        TIMED(g_samples, i, h = CreatePort());
-        TIMED(g_samples_b, i, HandleClose(h));
-    }
-    Report("create port", HEAVY);
-    ReportBuf("destroy port (close)", g_samples_b, HEAVY);
-
-    for (uint32_t i = 0; i < HEAVY; i++) {
-        Handle h;
-        TIMED(g_samples, i, h = CreateEvent());
-        TIMED(g_samples_b, i, HandleClose(h));
-    }
-    Report("create event", HEAVY);
-    ReportBuf("destroy event (close)", g_samples_b, HEAVY);
-
-    static const uint32_t pages[] = {1, 16, 256};
-    for (uint32_t k = 0; k < sizeof(pages) / sizeof(pages[0]); k++) {
-        char name[40];
-        uint32_t n = pages[k] >= 256 ? 256 : HEAVY;
-        for (uint32_t i = 0; i < n; i++) {
-            Handle h;
-            TIMED(g_samples, i, h = CreateMem(pages[k], 0));
-            if (h < 0) {
-                printf("create mem %u pages failed: %d\n", (unsigned)pages[k], (int)h);
-                return;
-            }
-            TIMED(g_samples_b, i, HandleClose(h));
-        }
-        (void)snprintf(name, sizeof(name), "create mem %up", (unsigned)pages[k]);
-        Report(name, n);
-        (void)snprintf(name, sizeof(name), "free mem %up (close)", (unsigned)pages[k]);
-        ReportBuf(name, g_samples_b, n);
-    }
-}
-
-static void BenchMemMap(void)
-{
-    static const uint32_t pages[] = {1, 16, 64};
-    for (uint32_t k = 0; k < sizeof(pages) / sizeof(pages[0]); k++) {
-        uint32_t size = pages[k] * PAGE;
-        char name[40];
-        for (uint32_t i = 0; i < HEAVY; i++) {
-            volatile uint8_t *va;
-            TIMED(g_samples, i, va = MemMapAnon(size, 0, PROT_RW));
-            if (PtrIsErr((const void *)va)) {
-                printf("map %up failed\n", (unsigned)pages[k]);
-                return;
-            }
-            TIMED(g_samples_b, i, for (uint32_t o = 0; o < size; o += PAGE) va[o] = 1);
-            TIMED(g_samples_c, i, MemUnmap((void *)va));
-        }
-        snprintf(name, sizeof(name), "mem map anon %up", (unsigned)pages[k]);
-        Report(name, HEAVY);
-        snprintf(name, sizeof(name), "touch %up (lazy faults)", (unsigned)pages[k]);
-        ReportBuf(name, g_samples_b, HEAVY);
-        snprintf(name, sizeof(name), "mem unmap backed %up", (unsigned)pages[k]);
-        ReportBuf(name, g_samples_c, HEAVY);
-    }
-
-    uint8_t *va = MemMapAnon(PAGE, 0, PROT_RW);
-    if (PtrIsErr(va))
-        return;
-    for (uint32_t i = 0; i < SAMPLES; i++)
-        TIMED(g_samples, i, MemProtect((VirtAddr)va, PAGE, (i & 1) ? PROT_RW : PROT_READ));
-    Report("mem protect 1p", SAMPLES);
-    MemUnmap(va);
-}
-
-static void BlockEntry(Handle *port)
-{
-    WaitOn(*port, TIMEOUT_INFINITE);
-    Quit(0);
-}
-
-static void BenchTasks(void)
-{
-    Handle port = CreatePort();
-    uint8_t *stack = MemMapAnon(SERVER_STACK, 0, PROT_RW);
-    if (port < 0 || PtrIsErr(stack)) {
-        printf("task bench setup failed\n");
-        return;
-    }
-    stack[0] = 0;
-    for (uint32_t i = 0; i < HEAVY; i++) {
-        Handle t;
-        TIMED(g_samples, i, t = CreateTask(-1));
-        if (t < 0) {
-            printf("create task failed: %d\n", (int)t);
-            return;
-        }
-        TIMED(g_samples_b, i, TaskSetPriority(t, 1));
-        TIMED(g_samples_c, i,
-              TaskStart(t, (void *)BlockEntry, stack + SERVER_STACK, (uint32_t)(uintptr_t)&port,
-                        0));
-        Yield();
-        TIMED(g_samples_d, i, TaskKill(t));
-        HandleClose(t);
-    }
-    Report("create task", HEAVY);
-    ReportBuf("task set_priority (frozen)", g_samples_b, HEAVY);
-    ReportBuf("task start", g_samples_c, HEAVY);
-    ReportBuf("task kill (blocked)", g_samples_d, HEAVY);
-    HandleClose(port);
-    MemUnmap(stack);
-}
-
-static void BenchSpaces(void)
-{
-    uint8_t *src = MemMapAnon(INJECT_MAX_PAGES * PAGE, 0, PROT_RW);
-    if (PtrIsErr(src)) {
-        printf("space bench setup failed\n");
-        return;
-    }
-    for (uint32_t o = 0; o < INJECT_MAX_PAGES * PAGE; o += PAGE)
-        src[o] = 1;
-
-    static const uint32_t pages[] = {0, 1, 16, 256};
-    for (uint32_t k = 0; k < sizeof(pages) / sizeof(pages[0]); k++) {
-        uint32_t n = pages[k] >= 256 ? 128 : HEAVY;
-        char name[48];
-        Handle obj = -1;
-        if (pages[k]) {
-            obj = CreateMem(pages[k], 0);
-            uint8_t *w = MemMap(obj, 0, PROT_RW);
-            if (obj < 0 || PtrIsErr(w)) {
-                printf("injectobj setup failed\n");
-                return;
-            }
-            memcpy(w, src, pages[k] * PAGE);
-            MemUnmap(w);
-        }
-        for (uint32_t i = 0; i < n; i++) {
-            Handle sp;
-            TIMED(g_samples, i, sp = CreateSpace("speedtest-bench"));
-            if (sp < 0) {
-                printf("create space failed: %d\n", (int)sp);
-                return;
-            }
-            if (pages[k]) {
-                TIMED(g_samples_b, i,
-                      MemInjectObj(sp, obj, USER_ELF_BASE, 0, pages[k] * PAGE, PROT_RW));
-            } else {
-                g_samples_b[i] = 0;
-            }
-            TIMED(g_samples_c, i, HandleDestroy(sp));
-        }
-        if (obj >= 0)
-            HandleClose(obj);
-        snprintf(name, sizeof(name), "create space (%up mapped)", (unsigned)pages[k]);
-        Report(name, n);
-        if (pages[k]) {
-            snprintf(name, sizeof(name), "injectobj %up (rw)", (unsigned)pages[k]);
-            ReportBuf(name, g_samples_b, n);
-        }
-        snprintf(name, sizeof(name), "destroy space (%up mapped)", (unsigned)pages[k]);
-        ReportBuf(name, g_samples_c, n);
-    }
-
-    for (uint32_t i = 0; i < HEAVY; i++) {
-        Handle sp = CreateSpace("speedtest-bench");
-        Handle obj = CreateMem(16, 0);
-        uint8_t *w = MemMap(obj, 0, PROT_RW);
-        if (sp < 0 || obj < 0 || PtrIsErr(w))
+    size_t n = strlen(name);
+    for (const char *p = list; *p;) {
+        const char *e = strchr(p, ',');
+        size_t len = e ? (size_t)(e - p) : strlen(p);
+        if (len == n && strncmp(p, name, n) == 0)
+            return true;
+        if (!e)
             break;
-        memcpy(w, src, 16 * PAGE);
-        MemUnmap(w);
-        TIMED(g_samples, i,
-              MemInjectObj(sp, obj, USER_ELF_BASE, 0, 16 * PAGE, PROT_READ | PROT_EXEC));
-        HandleClose(obj);
-        HandleDestroy(sp);
+        p = e + 1;
     }
-    ReportBuf("injectobj 16p (exec, fresh object)", g_samples, HEAVY);
-    MemUnmap(src);
+    return false;
 }
 
-static void BenchSleep(void)
+static void Usage(void)
 {
-    static const uint32_t ms[] = {1, 5, 10};
-    for (uint32_t k = 0; k < sizeof(ms) / sizeof(ms[0]); k++) {
-        char name[32];
-        for (uint32_t i = 0; i < 200; i++)
-            TIMED(g_samples, i, Sleep(ms[k]));
-        snprintf(name, sizeof(name), "sleep %ums", (unsigned)ms[k]);
-        Report(name, 200);
-    }
+    printf("usage: speedtest [-o FILE] [-r] [-n N] [-s LIST] [-x LIST] [-t MS] [-K] [-l]\n"
+           "  -o FILE  save results as CSV on the SD card (graph with scripts/speedtest_plot.py)\n"
+           "  -r       also save every raw sample (large file)\n"
+           "  -n N     samples per microbenchmark (16..%u, default %u)\n"
+           "  -s LIST  run only these sections (comma-separated)\n"
+           "  -x LIST  skip these sections\n"
+           "  -t MS    noise spin duration (default 2000)\n"
+           "  -K       skip kernel bench counter dumps\n"
+           "  -l       list sections\n",
+           SAMPLES, SAMPLES);
 }
 
-static void RunSection(const char *title, void (*fn)(void))
+static void RunSection(const Section *s)
 {
+    OutSection(s->name);
+    printf("== %s: %s\n", s->name, s->desc);
+    uint32_t khz0 = MeasureKhz(20, 3);
+    uint64_t t0 = UptimeUs();
     BenchReset();
-    fn();
-    printf("-- kernel stats: %s\n", title);
-    Sleep(250);
-    BenchDump();
-    Sleep(250);
+    s->fn();
+    uint64_t dt = UptimeUs() - t0;
+    uint32_t khz1 = MeasureKhz(20, 3);
+    uint32_t d0 = khz0 > g_khz ? khz0 - g_khz : g_khz - khz0;
+    uint32_t d1 = khz1 > g_khz ? khz1 - g_khz : g_khz - khz1;
+    if ((uint64_t)(d0 > d1 ? d0 : d1) * 200 > g_khz)
+        printf("!! clock drift in %s: %u -> %u kHz (calibrated %u), cycle figures suspect\n",
+               s->name, (unsigned)khz0, (unsigned)khz1, (unsigned)g_khz);
+    OutMeta("clock_khz_before", "%u", (unsigned)khz0);
+    OutMeta("clock_khz_after", "%u", (unsigned)khz1);
+    OutMeta("duration_ms", "%llu", (unsigned long long)(dt / 1000));
+    OutFlush();
+#ifdef CONFIG_ZUZU_BENCH
+    if (g_kstats) {
+        printf("-- kernel stats: %s\n", s->name);
+        Sleep(250);
+        BenchDump();
+        Sleep(250);
+    }
+#endif
 }
 
-int main(void)
+static char *Absolute(const char *p, char *buf, size_t n)
+{
+    if (p[0] == '/')
+        return (char *)p;
+    snprintf(buf, n, "/%s", p);
+    return buf;
+}
+
+int main(int argc, char **argv)
 {
     if (stdio_open_tty() != 0)
         return 1;
 
-    g_khz = CalibrateKhz();
-    g_overhead = CalibrateOverhead();
-    printf("speedtest: %u samples, %u warmup, clock %u.%03u MHz, timer overhead %u cyc\n", SAMPLES,
-           WARMUP, g_khz / 1000, g_khz % 1000, g_overhead);
+    const char *out = NULL;
+    const char *only = NULL;
+    const char *skip = NULL;
+    bool raw = false;
 
-    RunSection("null syscall", BenchNullSyscall);
-    RunSection("yield", BenchYield);
-    RunSection("sleep", BenchSleep);
-    RunSection("handle ops", BenchHandleOps);
-    RunSection("create objects", BenchCreateObjects);
-    RunSection("mem map", BenchMemMap);
-    RunSection("tasks", BenchTasks);
-    RunSection("spaces", BenchSpaces);
-    RunSection("ipc same-space", RunIpc);
-    RunSection("ipc cross-space", RunIpcCross);
+    for (int i = 1; i < argc; i++) {
+        const char *a = argv[i];
+        const char *v = i + 1 < argc ? argv[i + 1] : NULL;
+        if (!strcmp(a, "-o") && v) {
+            out = v;
+            i++;
+        } else if (!strcmp(a, "-r")) {
+            raw = true;
+        } else if (!strcmp(a, "-n") && v) {
+            long n = strtol(v, NULL, 10);
+            g_n = n < 16 ? 16 : n > SAMPLES ? SAMPLES : (uint32_t)n;
+            g_warmup = g_n / 8;
+            i++;
+        } else if (!strcmp(a, "-s") && v) {
+            only = v;
+            i++;
+        } else if (!strcmp(a, "-x") && v) {
+            skip = v;
+            i++;
+        } else if (!strcmp(a, "-t") && v) {
+            long t = strtol(v, NULL, 10);
+            g_noise_ms = t < 10 ? 10 : t > 4000 ? 4000 : (uint32_t)t;
+            i++;
+        } else if (!strcmp(a, "-K")) {
+            g_kstats = false;
+        } else if (!strcmp(a, "-l")) {
+            for (uint32_t k = 0; k < ARRAY_LEN(kSections); k++)
+                printf("  %-8s %s\n", kSections[k].name, kSections[k].desc);
+            return 0;
+        } else {
+            Usage();
+            return !strcmp(a, "-h") ? 0 : 1;
+        }
+    }
+
+    char pathbuf[128];
+    if (out && OutOpen(Absolute(out, pathbuf, sizeof(pathbuf)), raw) != 0)
+        printf("speedtest: continuing without output file\n");
+
+    g_khz = MeasureKhz(100, 5);
+    g_overhead = CalibrateOverhead();
+    printf("speedtest: %u samples, %u warmup, clock %u.%03u MHz, timer overhead %u cyc\n",
+           (unsigned)g_n, (unsigned)g_warmup, (unsigned)(g_khz / 1000), (unsigned)(g_khz % 1000),
+           (unsigned)g_overhead);
+
+    OutPrintf("# zuzu speedtest results v1\n");
+    OutPrintf("# M,section,key,value\n");
+    OutPrintf("# S,section,name,unit,n,min,p1,p5,p10,p25,p50,p75,p90,p95,p99,p999,max,mean,sd\n");
+    OutPrintf("# R,section,name,unit,n,v0,v1,...\n");
+    OutPrintf("# P,section,series,xlabel,ylabel,x,y\n");
+    OutMeta("version", "1");
+    OutMeta("clock_khz", "%u", (unsigned)g_khz);
+    OutMeta("timer_overhead_cyc", "%u", (unsigned)g_overhead);
+    OutMeta("samples", "%u", (unsigned)g_n);
+    OutMeta("warmup", "%u", (unsigned)g_warmup);
+    OutMeta("uptime_ms", "%llu", (unsigned long long)UptimeMs());
+    OutMeta("raw", "%u", raw ? 1u : 0u);
+
+    uint64_t t0 = UptimeUs();
+    for (uint32_t k = 0; k < ARRAY_LEN(kSections); k++) {
+        const Section *s = &kSections[k];
+        if (only && !InList(only, s->name))
+            continue;
+        if (skip && InList(skip, s->name))
+            continue;
+        RunSection(s);
+    }
+    OutSection("end");
+    OutMeta("total_ms", "%llu", (unsigned long long)((UptimeUs() - t0) / 1000));
+    printf("speedtest: done in %llu ms\n", (unsigned long long)((UptimeUs() - t0) / 1000));
+    OutClose();
     return 0;
 }
