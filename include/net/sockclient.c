@@ -296,7 +296,7 @@ int SockRecvFrom(int sock, void *buf, uint16_t cap, uint32_t *ip, uint16_t *port
             return ERR_NOTCONN;
         if (timeout == TIMEOUT_POLL)
             return ERR_TIMEOUT;
-        EventWaitResult w = WaitOnEvent(g_client.event, timeout);
+        EventWaitResult w = WaitOnEvent(g_client.event, timeout, 0, false);
         if (w.status != ZUZU_OK)
             return w.status;
     }
@@ -333,7 +333,7 @@ Err SockConnect(int sock, uint32_t ip, uint16_t port, Duration timeout)
             return s->shm->error ? (Err)s->shm->error : ERR_NOTCONN;
         if (timeout == TIMEOUT_POLL)
             return ERR_TIMEOUT;
-        EventWaitResult w = WaitOnEvent(g_client.event, timeout);
+        EventWaitResult w = WaitOnEvent(g_client.event, timeout, 0, false);
         if (w.status != ZUZU_OK)
             return w.status;
     }
@@ -384,7 +384,7 @@ int SockAccept(int sock, Duration timeout)
             return rc;
         if (timeout == TIMEOUT_POLL)
             return ERR_TIMEOUT;
-        EventWaitResult w = WaitOnEvent(g_client.event, timeout);
+        EventWaitResult w = WaitOnEvent(g_client.event, timeout, 0, false);
         if (w.status != ZUZU_OK)
             return w.status;
     }
@@ -401,7 +401,7 @@ Err SockWait(Duration timeout)
 {
     if (!g_client.attached)
         return ERR_NOTCONN;
-    EventWaitResult w = WaitOnEvent(g_client.event, timeout);
+    EventWaitResult w = WaitOnEvent(g_client.event, timeout, 0, false);
     return w.status;
 }
 
@@ -421,7 +421,7 @@ int SockSend(int sock, const void *buf, uint32_t len)
             used = SOCK_RING_SIZE;
         uint32_t room = SOCK_RING_SIZE - used;
         if (room == 0) {
-            EventWaitResult w = WaitOnEvent(g_client.event, TIMEOUT_INFINITE);
+            EventWaitResult w = WaitOnEvent(g_client.event, TIMEOUT_INFINITE, 0, false);
             if (w.status != ZUZU_OK)
                 return w.status;
             continue;
@@ -461,7 +461,7 @@ int SockRecv(int sock, void *buf, uint32_t cap, Duration timeout)
             return s->shm->error ? (int)s->shm->error : 0;
         if (timeout == TIMEOUT_POLL)
             return ERR_TIMEOUT;
-        EventWaitResult w = WaitOnEvent(g_client.event, timeout);
+        EventWaitResult w = WaitOnEvent(g_client.event, timeout, 0, false);
         if (w.status != ZUZU_OK)
             return w.status;
     }

@@ -113,6 +113,8 @@ struct TaskObjectStruct {
     PortObject *held_port;    /**< The port holding this task's call after a park, or NULL. */
     uint8_t held_slot;        /**< Slot in @c held_port's table. */
     Handle serving_handle;    /**< Handle of the port this task last received on. */
+    EventWord wait_mask; /**< Bits this task is waiting for on an event. */
+    bool wait_all;       /**< Wake only when every bit in wait_mask is pending. */
 };
 
 /**
