@@ -39,26 +39,29 @@ typedef struct MemObjectStruct {
     bool exec_synced; /**< Whether instruction/data caches have been synced for execution. */
     union {
         struct {
-            PhysAddr phys_base;      /**< Physical base address of the device window. */
-            size_t size;             /**< Size of the window in bytes. */
-            Irq irq;                 /**< Interrupt line associated with the device. */
-            uintptr_t dma_limit;     /**< Highest bus address the device can reach. */
-            uintptr_t bus_offset;    /**< Offset added to a physical address to form a bus address. */
-            DmaMapping *dma_maps;    /**< Head of the list of active DMA mappings. */
-            uint32_t dma_next_id;    /**< Next mapping id to hand out (never 0). */
-            size_t dma_map_count;    /**< Number of active DMA mappings. */
-        } dev; /**< Valid when kind is MEMKIND_DEVICE. */
+            PhysAddr phys_base;   /**< Physical base address of the device window. */
+            size_t size;          /**< Size of the window in bytes. */
+            Irq irq;              /**< Interrupt line associated with the device. */
+            uintptr_t dma_limit;  /**< Highest bus address the device can reach. */
+            uintptr_t bus_offset; /**< Offset added to a physical address to form a bus address. */
+            DmaMapping *dma_maps; /**< Head of the list of active DMA mappings. */
+            uint32_t dma_next_id; /**< Next mapping id to hand out (never 0). */
+            size_t dma_map_count; /**< Number of active DMA mappings. */
+        } dev;                    /**< Valid when kind is MEMKIND_DEVICE. */
         struct {
             PhysAddr *page_addrs;    /**< Heap array of physical frame addresses (owned). */
             size_t page_count;       /**< Number of entries in @c page_addrs. */
             CreateMemoryFlags flags; /**< Creation flags (e.g. MEM_CONTIG, MEM_UNCACHED). */
-        } shm; /**< Valid when kind is MEMKIND_SHARED. */
+        } shm;                       /**< Valid when kind is MEMKIND_SHARED. */
     };
+    Spid owner_spid; /**< Space that may stamp markers on, revoke or destroy this object; -1 if
+                        none. */
 } MemObject;
 
 /**
  * @brief Create a shared-memory object that takes ownership of the given frames.
- * @param[in] page_addrs Heap-allocated array of physical frame addresses; ownership passes to the object.
+ * @param[in] page_addrs Heap-allocated array of physical frame addresses; ownership passes to the
+ * object.
  * @param[in] page_count Number of entries in @p page_addrs.
  * @param[in] flags Memory creation flags.
  * @return New object with reference count 1, or NULL if allocation failed.
@@ -94,7 +97,8 @@ void MemObjUnref(MemObject *mem);
 /**
  * @brief Remove a mapping of an object from an address space, then drop a reference.
  * @param[in,out] as Address space the object is mapped into.
- * @param[in] mapped_va Virtual address of the mapping, or 0 if it was never mapped (skips the unmap).
+ * @param[in] mapped_va Virtual address of the mapping, or 0 if it was never mapped (skips the
+ * unmap).
  * @param[in,out] mem Object whose reference is dropped.
  */
 void MemObjUnmapAndDrop(AddressSpace *as, VirtAddr mapped_va, MemObject *mem);
@@ -115,7 +119,8 @@ void MemObjUnmapAndDrop(AddressSpace *as, VirtAddr mapped_va, MemObject *mem);
  * @param[out] id Receives the mapping id.
  * @return ZUZU_OK on success, or an error code.
  * @retval ERR_BADTYPE @p dev is not a device object, or @p mem is not contiguous shared memory.
- * @retval ERR_BADARG Invalid direction, zero or unaligned range, out-of-bounds range, or beyond the DMA limit.
+ * @retval ERR_BADARG Invalid direction, zero or unaligned range, out-of-bounds range, or beyond the
+ * DMA limit.
  * @retval ERR_NOMEM Mapping limit reached or allocation failed.
  */
 Err MemObjDmaMap(MemObject *dev, MemObject *mem, size_t offset, size_t len, DmaDir dir,

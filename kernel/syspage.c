@@ -75,7 +75,13 @@ void SyspageInit(void)
 
     (void)snprintf(g_sp->build, sizeof(g_sp->build), "%s %s", __DATE__, __TIME__);
 
-    strncpy(g_sp->machine, boot_info_model(), sizeof(g_sp->machine) - 1);
+    const char *model = boot_info_model();
+    strncpy(g_sp->machine, model, sizeof(g_sp->machine) - 1);
+    if (strlen(model) > sizeof(g_sp->machine) - 1) {
+        char *space = strrchr(g_sp->machine, ' ');
+        if (space)
+            *space = '\0';
+    }
     strncpy(g_sp->cpu, boot_info_cpu_compat(), sizeof(g_sp->cpu) - 1);
 
     g_sp->mem_total_kb = (uint32_t)((PmmGetStats().total_frames * (uint64_t)PAGE_SIZE) / 1024);

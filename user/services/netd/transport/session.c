@@ -369,7 +369,7 @@ void SessionKick(int slot)
 
 void SessionReapDead(void)
 {
-    EventWaitResult d = WaitOnEvent(g_death, TIMEOUT_POLL);
+    EventWaitResult d = WaitOnEvent(g_death, TIMEOUT_POLL, 0, false);
     if (d.status != ZUZU_OK)
         return;
     for (int slot = 0; slot < SESSION_MAX; slot++) {
