@@ -1,4 +1,8 @@
-/* kernel/ipc/observer_types.h */
+/**
+ * @file observer_types.h
+ * 
+ * @brief Observer type definitions.
+ */
 #ifndef KERNEL_IPC_OBSERVER_TYPES_H
 #define KERNEL_IPC_OBSERVER_TYPES_H
 
