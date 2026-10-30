@@ -388,13 +388,30 @@ static void TestHandles(void)
     CheckEq(HandleRestrict((Handle)dup2.r1, PERM_WAIT), ZUZU_OK, "Restrict OK");
     CheckEq(HandleQuery((Handle)dup2.r1, QUERY_PERMS).r1, PERM_WAIT, "Restrict narrows perms");
 
-    /* Markers: only the creator of a port may stamp one. */
+    /* Markers: the owner of any object may stamp one; everyone else's dups inherit. */
     SvcResult mk = HandleDuplicate(port, PERM_SEND, 0xBEEF);
     CheckEq(HandleQuery((Handle)mk.r1, QUERY_MARKER).r1, 0xBEEF,
-            "creator stamps a marker on a port dup");
+            "the owner stamps a marker on a port dup");
     SvcResult mk_ev = HandleDuplicate(ev, PERM_SEND, 0xBEEF);
-    CheckEq(HandleQuery((Handle)mk_ev.r1, QUERY_MARKER).r1, MARKER_NONE,
-            "markers are ignored on non-port dups");
+    CheckEq(HandleQuery((Handle)mk_ev.r1, QUERY_MARKER).r1, 0xBEEF,
+            "the owner stamps a marker on an event dup");
+    SvcResult mk_mem = HandleDuplicate(mem, PERM_MAP, 0xBEEF);
+    CheckEq(HandleQuery((Handle)mk_mem.r1, QUERY_MARKER).r1, 0xBEEF,
+            "the owner stamps a marker on a memory dup");
+
+    /* A task in a kitten Space is owned by that Space, not by us. */
+    Kitten mk_k;
+    KittenCreate(&mk_k, kCodeQuit42, sizeof(kCodeQuit42));
+    SvcResult mk_t = HandleDuplicate(mk_k.task, PERM_WAIT, 0x99);
+    CheckEq(HandleQuery((Handle)mk_t.r1, QUERY_MARKER).r1, MARKER_NONE,
+            "a non-owner's dup keeps the source's marker");
+    SvcResult mk_sp = HandleDuplicate(mk_k.space, PERM_WAIT, 0x77);
+    CheckEq(HandleQuery((Handle)mk_sp.r1, QUERY_MARKER).r1, 0x77,
+            "the parent stamps a marker on its child Space");
+    HandleClose((Handle)mk_t.r1);
+    HandleClose((Handle)mk_sp.r1);
+    HandleClose((Handle)mk_mem.r1);
+    KittenFree(&mk_k);
 
     /* Closing invalidates: a stale value is rejected even after the slot is reused. */
     Handle stale = (Handle)dup.r1;
@@ -715,6 +732,122 @@ static void TestEvents(void)
     HandleClose((Handle)wait_only.r1);
     HandleClose((Handle)send_only.r1);
     HandleClose(bp);
+    HandleClose(ev);
+}
+
+/* ---------------- 4a. event masks (#44) ---------------- */
+
+typedef struct {
+    Handle ev;
+    EventWord mask;
+    bool all;
+    EventWord got;
+    Err status;
+    volatile int done;
+} MaskJob;
+
+static int32_t WaitMasked(void *p)
+{
+    MaskJob *j = p;
+    EventWaitResult r = WaitOnEvent(j->ev, 2000, j->mask, j->all);
+    j->status = r.status;
+    j->got = r.bits;
+    j->done = 1;
+    return 0;
+}
+
+static void TestEventMasks(void)
+{
+    BeginSection("event masks");
+
+    Handle ev = CreateEvent();
+    EventWaitResult r;
+
+    /* Mask 0 keeps the old behaviour: every pending bit, all cleared. */
+    Signal(ev, 0x5, false);
+    r = WaitOnEvent(ev, TIMEOUT_POLL, 0, false);
+    CheckEq(r.status, ZUZU_OK, "mask 0 takes any pending bit");
+    CheckEq((int32_t)r.bits, 0x5, "mask 0 returns every pending bit");
+    CheckEq(WaitOnEvent(ev, TIMEOUT_POLL, 0, false).status, ERR_TIMEOUT, "and clears them all");
+
+    /* A mask takes only its own bits and leaves the rest pending. */
+    Signal(ev, 0x2, false);
+    CheckEq(WaitOnEvent(ev, TIMEOUT_POLL, 0x1, false).status, ERR_TIMEOUT,
+            "a pending bit outside the mask does not satisfy the wait");
+    r = WaitOnEvent(ev, TIMEOUT_POLL, 0x2, false);
+    CheckEq(r.status, ZUZU_OK, "the bit is still pending for a waiter that wants it");
+    CheckEq((int32_t)r.bits, 0x2, "and is delivered to it");
+
+    Signal(ev, 0x3, false);
+    r = WaitOnEvent(ev, TIMEOUT_POLL, 0x1, false);
+    CheckEq((int32_t)r.bits, 0x1, "a masked wait returns only the bits in its mask");
+    r = WaitOnEvent(ev, TIMEOUT_POLL, 0, false);
+    CheckEq((int32_t)r.bits, 0x2, "and clears only those");
+
+    /* A Signal wakes only a waiter whose mask matches. */
+    MaskJob want0 = {.ev = ev, .mask = 0x1};
+    MaskJob want1 = {.ev = ev, .mask = 0x2};
+    Worker *a = WorkerStart(WaitMasked, &want0);
+    Worker *b = WorkerStart(WaitMasked, &want1);
+    Sleep(40);
+    Signal(ev, 0x2, false);
+    Sleep(40);
+    CheckEq(want1.done, 1, "Signal wakes the waiter whose mask matches");
+    CheckEq((int32_t)want1.got, 0x2, "with its bit");
+    CheckEq(want0.done, 0, "a waiter whose mask does not match stays blocked");
+    Signal(ev, 0x1, false);
+    WorkerJoin(a);
+    WorkerJoin(b);
+    CheckEq(want0.status, ZUZU_OK, "the other waiter wakes on its own bit");
+    CheckEq((int32_t)want0.got, 0x1, "with only that bit");
+
+    /* Broadcast wakes every matching waiter, and only those. */
+    MaskJob bc1 = {.ev = ev, .mask = 0x4};
+    MaskJob bc2 = {.ev = ev, .mask = 0x4 | 0x8};
+    MaskJob bc3 = {.ev = ev, .mask = 0x10};
+    a = WorkerStart(WaitMasked, &bc1);
+    b = WorkerStart(WaitMasked, &bc2);
+    Worker *c = WorkerStart(WaitMasked, &bc3);
+    Sleep(40);
+    Signal(ev, 0x4, true);
+    Sleep(40);
+    CheckEq(bc1.done + bc2.done, 2, "broadcast wakes every waiter whose mask matches");
+    Check(bc1.got == 0x4 && bc2.got == 0x4, "each gets the shared bit");
+    CheckEq(bc3.done, 0, "a waiter with a different mask stays blocked");
+    Signal(ev, 0x10, false);
+    WorkerJoin(a);
+    WorkerJoin(b);
+    WorkerJoin(c);
+    CheckEq(WaitOnEvent(ev, TIMEOUT_POLL, 0, false).status, ERR_TIMEOUT,
+            "the broadcast bit was cleared once delivered");
+
+    /* WAIT_ALL */
+    CheckEq(WaitOnEvent(ev, TIMEOUT_POLL, 0, true).status, ERR_BADARG, "WAIT_ALL with mask 0 -> BADARG");
+
+    Signal(ev, 0x1, false);
+    CheckEq(WaitOnEvent(ev, TIMEOUT_POLL, 0x3, true).status, ERR_TIMEOUT,
+            "WAIT_ALL is not satisfied by part of its mask");
+    Signal(ev, 0x2, false);
+    r = WaitOnEvent(ev, TIMEOUT_POLL, 0x3, true);
+    CheckEq(r.status, ZUZU_OK, "WAIT_ALL returns once every bit is pending");
+    CheckEq((int32_t)r.bits, 0x3, "with the whole mask");
+
+    Signal(ev, 0x1 | 0x4, false);
+    r = WaitOnEvent(ev, TIMEOUT_POLL, 0x5, true);
+    CheckEq((int32_t)r.bits, 0x5, "WAIT_ALL returns exactly its mask");
+    CheckEq(WaitOnEvent(ev, TIMEOUT_POLL, 0, false).status, ERR_TIMEOUT, "and clears it");
+
+    MaskJob all = {.ev = ev, .mask = 0x3, .all = true};
+    a = WorkerStart(WaitMasked, &all);
+    Sleep(40);
+    Signal(ev, 0x1, false);
+    Sleep(40);
+    CheckEq(all.done, 0, "a blocked WAIT_ALL waiter ignores a partial signal");
+    Signal(ev, 0x2, false);
+    WorkerJoin(a);
+    CheckEq(all.status, ZUZU_OK, "it wakes when the last bit arrives");
+    CheckEq((int32_t)all.got, 0x3, "with every bit of its mask");
+
     HandleClose(ev);
 }
 
@@ -2611,6 +2744,76 @@ static void TestHold(void)
     HandleClose(p2);
 }
 
+/* ---------------- owner destroy (#47) ---------------- */
+
+/* r1 = INFINITE; WaitOn(r0); quit with the status it returned */
+static const uint32_t kCodeWaitQuitStatus[] = {0xE3E01000, SYS(SVC_WAITON), SYS(SVC_QUIT)};
+
+static void TestOwnerDestroy(void)
+{
+    BeginSection("owner destroy");
+    Kitten k;
+    SpaceWaitResult sw;
+
+    /* The owner destroying an Event wakes a waiter in another Space with DEAD. */
+    Handle ev = CreateEvent();
+    KittenCreate(&k, kCodeWaitQuitStatus, sizeof(kCodeWaitQuitStatus));
+    SvcResult g = HandleGrant(ev, k.space, PERM_WAIT);
+    Check(g.r0 == ZUZU_OK, "grant an event to a kitten");
+    KittenStart(&k, (uint32_t)g.r1, 0);
+    Sleep(20);
+    CheckEq(WaitOn(k.space, TIMEOUT_POLL).r0, ERR_TIMEOUT, "the kitten blocks on the event");
+    CheckEq(HandleDestroy(ev), ZUZU_OK, "the owner destroys the event");
+    sw = FormatToSpaceWait(WaitOn(k.space, 2000));
+    CheckEq(sw.exit_status, ERR_DEAD, "the kitten's wait ends with DEAD");
+    KittenFree(&k);
+
+    /* Closing (not destroying) the owner's handle leaves the granted one working. */
+    ev = CreateEvent();
+    KittenCreate(&k, kCodeWaitQuitStatus, sizeof(kCodeWaitQuitStatus));
+    g = HandleGrant(ev, k.space, PERM_WAIT);
+    KittenStart(&k, (uint32_t)g.r1, 0);
+    Sleep(20);
+    CheckEq(HandleClose(ev), ZUZU_OK, "the owner closes its handle");
+    CheckEq(WaitOn(k.space, 100).r0, ERR_TIMEOUT, "a close does not kill the event for others");
+    KittenFree(&k);
+
+    /* The owner destroying a Port fails a queued caller in another Space with DEAD. */
+    Handle port = CreatePort();
+    KittenCreate(&k, kCodeCallQuit, sizeof(kCodeCallQuit));
+    Handle in_k = GrantPortInto(port, k.space);
+    Check(in_k >= 0, "grant a port to a kitten");
+    KittenStart(&k, (uint32_t)in_k, 0);
+    Sleep(20);
+    CheckEq(WaitOn(k.space, TIMEOUT_POLL).r0, ERR_TIMEOUT, "the kitten's call is queued");
+    CheckEq(HandleDestroy(port), ZUZU_OK, "the owner destroys the port");
+    sw = FormatToSpaceWait(WaitOn(k.space, 2000));
+    CheckEq(sw.exit_status, ERR_DEAD, "the queued call fails with DEAD");
+    KittenFree(&k);
+
+    /* A Call made after the owner destroyed the Port fails at once. */
+    port = CreatePort();
+    KittenCreate(&k, kCodeCallQuit, sizeof(kCodeCallQuit));
+    in_k = GrantPortInto(port, k.space);
+    HandleDestroy(port);
+    KittenStart(&k, (uint32_t)in_k, 0);
+    sw = FormatToSpaceWait(WaitOn(k.space, 2000));
+    CheckEq(sw.exit_status, ERR_DEAD, "a call on a destroyed port -> DEAD");
+    KittenFree(&k);
+
+    /* A holder that is not the owner only drops its own handle. */
+    ev = CreateEvent();
+    KittenCreate(&k, kCodeDestroyHandle, sizeof(kCodeDestroyHandle));
+    g = HandleGrant(ev, k.space, PERM_ALL);
+    KittenStart(&k, (uint32_t)g.r1, 0);
+    sw = FormatToSpaceWait(WaitOn(k.space, 2000));
+    CheckEq(sw.exit_status, ZUZU_OK, "a non-owner's Destroy succeeds");
+    CheckEq(Signal(ev, 1, false), ZUZU_OK, "the event still works for its owner");
+    CheckEq(WaitOnEvent(ev, TIMEOUT_POLL, 0, false).status, ZUZU_OK, "and its bit is delivered");
+    KittenFree(&k);
+    HandleClose(ev);
+}
+
 /* ---------------- 8. hostile arguments ---------------- */
 
 static void TestSecurity(void)
@@ -3379,10 +3582,37 @@ static void TestMapPerms(void)
     Check(!PtrIsErr(p), "a writable map with PERM_WRITE");
     p[0] = 1;
     p[4096] = 1;
-    CheckEq(MemProtect((VirtAddr)p, 4096, PROT_READ), ZUZU_OK, "Protect can lower it");
-    CheckEq(MemProtect((VirtAddr)p, 4096, PROT_READ | PROT_EXEC), ERR_NOPERM,
+    CheckEq(MemProtect((VirtAddr)p, 4096, PROT_READ), ERR_BADARG,
+            "Protect of part of an object mapping -> BADARG");
+    CheckEq(MemProtect((VirtAddr)p + 4096, 4096, PROT_READ), ERR_BADARG,
+            "also when the part ends where the mapping ends");
+    CheckEq(HandleRestrict((Handle)rw.r1, PERM_MAP), ERR_BUSY,
+            "Restrict cannot drop PERM_WRITE while the mapping is writable");
+    CheckEq(MemProtect((VirtAddr)p, 8192, PROT_READ), ZUZU_OK, "Protect can lower the whole mapping");
+    CheckEq(MemProtect((VirtAddr)p, 8192, PROT_READ | PROT_EXEC), ERR_NOPERM,
             "but not add execute the handle never had");
+    CheckEq(HandleRestrict((Handle)rw.r1, PERM_MAP), ZUZU_OK,
+            "once the mapping is read-only, PERM_WRITE can be dropped");
+    CheckEq(MemProtect((VirtAddr)p, 8192, PROT_RW), ERR_NOPERM,
+            "and the mapping can no longer be made writable (sealed)");
+    CheckEq(HandleRestrict((Handle)rw.r1, 0), ERR_BUSY,
+            "Restrict cannot drop PERM_MAP while the handle is mapped");
     CheckEq(MemUnmap(p), ZUZU_OK, "unmap it");
+    CheckEq(HandleRestrict((Handle)rw.r1, 0), ZUZU_OK, "after unmapping, PERM_MAP can be dropped");
+
+    p = MemMap((Handle)rx.r1, 0, PROT_READ | PROT_EXEC);
+    Check(!PtrIsErr(p), "an executable map with PERM_EXEC");
+    CheckEq(HandleRestrict((Handle)rx.r1, PERM_MAP), ERR_BUSY,
+            "Restrict cannot drop PERM_EXEC while the mapping is executable");
+    CheckEq(MemUnmap(p), ZUZU_OK, "unmap it");
+
+    SvcResult spare = HandleDuplicate(mem, PERM_MAP | PERM_WRITE, MARKER_NONE);
+    CheckEq(HandleRestrict((Handle)spare.r1, PERM_WAIT), ZUZU_OK,
+            "a memory handle that is not mapped can drop PERM_MAP");
+    HandleClose((Handle)spare.r1);
+    Handle rev = CreateEvent();
+    CheckEq(HandleRestrict(rev, PERM_WAIT), ZUZU_OK, "an event can drop PERM_MAP");
+    HandleClose(rev);
 
     uint8_t *a = MemMapAnon(4096, 0, PROT_RW);
     a[0] = 1;
@@ -3403,6 +3633,17 @@ static void TestMapPerms(void)
     CheckEq(MemInjectObj(sp, (Handle)rx.r1, USER_ELF_BASE + 4096, 0, 4096, PROT_READ | PROT_EXEC),
             ZUZU_OK, "an executable injectobj with PERM_EXEC");
     HandleDestroy(sp);
+
+    uint8_t *a2 = MemMapAnon(8192, 0, PROT_RW);
+    CheckEq(MemProtect((VirtAddr)a2, 4096, PROT_READ), ERR_BADARG,
+            "Protect of part of an anonymous mapping -> BADARG");
+    CheckEq(MemProtect((VirtAddr)a2, 8192, PROT_READ), ZUZU_OK,
+            "an untouched anonymous mapping can be protected");
+    Check(a2[4096] == 0, "a page faulted in after Protect is readable");
+    CheckEq(MemProtect((VirtAddr)a2, 8192, PROT_RW), ZUZU_OK, "and can be made writable again");
+    a2[0] = 1; a2[4096] = 1;
+    Check(a2[0] == 1 && a2[4096] == 1, "pages faulted in later use the region's current prot");
+    MemUnmap(a2);
 
     HandleClose((Handle)ro.r1);
     HandleClose((Handle)rw.r1);
@@ -3438,12 +3679,143 @@ static void TestBoundBits(void)
     HandleClose(ev);
 }
 
+/* ---------------- recursive events (#50) ---------------- */
+
+/* Blocks on the event in arg for up to 2 s; returns the bits it got, or the error. */
+static int32_t RecWaitThread(void *arg)
+{
+    EventWaitResult r = FormatToEventWait(WaitOn((Handle)(intptr_t)arg, 2000));
+    return r.status == ZUZU_OK ? (int32_t)r.bits : r.status;
+}
+
+static void TestRecursiveEvents(void)
+{
+    BeginSection("recursive events");
+    EventWaitResult r;
+
+    /* A child's bits raise the parent's bound bit; the bits stay in the child. */
+    Handle p = CreateEvent();
+    Handle c = CreateEvent();
+    CheckEq(Bind(EVENT_EVENT, p, c, 3), ZUZU_OK, "bind a child event to bit 3 of a parent");
+    CheckEq(Signal(c, 0x5, false), ZUZU_OK, "signal the child");
+    r = FormatToEventWait(WaitOn(p, TIMEOUT_POLL));
+    CheckEq(r.status, ZUZU_OK, "the parent is raised");
+    CheckEq(r.bits, 1u << 3, "on the bound bit");
+    r = FormatToEventWait(WaitOn(c, TIMEOUT_POLL));
+    CheckEq(r.bits, 0x5, "the child still holds its bits");
+    CheckEq(WaitOn(p, TIMEOUT_POLL).r0, ERR_TIMEOUT, "an empty child leaves the parent quiet");
+    CheckEq(Signal(p, 1u << 3, false), ERR_NOPERM, "the bound parent bit cannot be signalled");
+
+    /* Level-triggered: a partial take from the child re-raises the parent. */
+    Signal(c, 0x5, false);
+    WaitOn(p, TIMEOUT_POLL);
+    r = WaitOnEvent(c, TIMEOUT_POLL, 0x1, false);
+    CheckEq(r.bits, 0x1, "a masked wait takes part of the child");
+    r = FormatToEventWait(WaitOn(p, TIMEOUT_POLL));
+    CheckEq(r.bits, 1u << 3, "the bits left behind raise the parent again");
+    WaitOn(c, TIMEOUT_POLL);
+    CheckEq(WaitOn(p, TIMEOUT_POLL).r0, ERR_TIMEOUT, "once drained, the parent stays quiet");
+
+    /* A task blocked on the parent is woken by a signal on the child. */
+    Worker *w = WorkerStart(RecWaitThread, (void *)(intptr_t)p);
+    Sleep(20);
+    Signal(c, 0x2, false);
+    CheckEq(WorkerJoin(w), (int32_t)(1u << 3), "a blocked parent waiter wakes on the child's signal");
+    WaitOn(c, TIMEOUT_POLL);
+
+    /* A direct waiter on the child takes everything: the parent is not raised for nothing. */
+    w = WorkerStart(RecWaitThread, (void *)(intptr_t)c);
+    Sleep(20);
+    Signal(c, 0x8, false);
+    CheckEq(WorkerJoin(w), 0x8, "a direct waiter on the child takes the bits");
+    CheckEq(WaitOn(p, TIMEOUT_POLL).r0, ERR_TIMEOUT, "and the parent is not raised");
+
+    /* A child that already has bits raises the parent at Bind. */
+    Handle p2 = CreateEvent();
+    Signal(c, 0x10, false);
+    CheckEq(Bind(EVENT_EVENT, p2, c, 0), ZUZU_OK, "bind a child that already has bits");
+    r = FormatToEventWait(WaitOn(p2, TIMEOUT_POLL));
+    CheckEq(r.bits, 1u << 0, "the parent is raised at once");
+    r = FormatToEventWait(WaitOn(p, TIMEOUT_POLL));
+    CheckEq(r.bits, 1u << 3, "every parent of the child is raised");
+    WaitOn(c, TIMEOUT_POLL);
+
+    /* Two layers only. */
+    Handle q = CreateEvent();
+    Handle x = CreateEvent();
+    CheckEq(Bind(EVENT_EVENT, p, p, 1), ERR_BADARG, "an event cannot be its own child");
+    CheckEq(Bind(EVENT_EVENT, q, p, 1), ERR_BADARG, "a parent cannot become a child");
+    CheckEq(Bind(EVENT_EVENT, c, x, 1), ERR_BADARG, "a child cannot become a parent");
+    Handle port = CreatePort();
+    CheckEq(Bind(EVENT_EVENT, p, port, 1), ERR_BADTYPE, "the child must be an event");
+    SvcResult send_only = HandleDuplicate(x, PERM_SEND, MARKER_NONE);
+    CheckEq(Bind(EVENT_EVENT, q, (Handle)send_only.r1, 1), ERR_NOPERM,
+            "the child handle needs PERM_WAIT");
+    CheckEq(Bind(EVENT_EVENT, q, x, 31), ERR_BADARG, "bit 31 -> BADARG");
+    HandleClose((Handle)send_only.r1);
+    HandleClose(port);
+
+    /* One child takes at most four parents. */
+    Handle f[5];
+    for (int i = 0; i < 5; i++)
+        f[i] = CreateEvent();
+    for (int i = 0; i < 4; i++)
+        Bind(EVENT_EVENT, f[i], x, 2);
+    CheckEq(Bind(EVENT_EVENT, f[4], x, 2), ERR_NOMEM, "a fifth parent -> NOMEM");
+    Signal(x, 0x1, false);
+    bool all4 = true;
+    for (int i = 0; i < 4; i++)
+        all4 = all4 && FormatToEventWait(WaitOn(f[i], TIMEOUT_POLL)).bits == (1u << 2);
+    Check(all4, "all four parents are raised");
+    WaitOn(x, TIMEOUT_POLL);
+    for (int i = 0; i < 5; i++)
+        HandleClose(f[i]);
+
+    /* Destroying the child raises its parents; the child then reports DEAD. */
+    SvcResult keep = HandleDuplicate(c, PERM_WAIT, MARKER_NONE);
+    CheckEq(HandleDestroy(c), ZUZU_OK, "the owner destroys the child");
+    r = FormatToEventWait(WaitOn(p, TIMEOUT_POLL));
+    CheckEq(r.bits, 1u << 3, "its parent is raised");
+    CheckEq(WaitOn((Handle)keep.r1, TIMEOUT_POLL).r0, ERR_DEAD, "and the child is DEAD");
+    HandleClose((Handle)keep.r1);
+    WaitOn(p2, TIMEOUT_POLL);
+    CheckEq(Signal(p, 1u << 3, false), ZUZU_OK, "the parent bit is free once the child is gone");
+    WaitOn(p, TIMEOUT_POLL);
+
+    /* With its child gone, a former parent may become a child. */
+    CheckEq(Bind(EVENT_EVENT, q, p, 4), ZUZU_OK, "a former parent can become a child");
+
+    HandleClose(q);
+    HandleClose(x);
+    HandleClose(p2);
+    HandleClose(p);
+
+    /* No leaks across bind/signal/destroy rounds. */
+    for (int round = 0; round < 25; round++) {
+        if (round == 3) {
+            SleepAndSettle();
+            g_section_pages = PagesFree();
+        }
+        Handle rp = CreateEvent();
+        Handle rc = CreateEvent();
+        Bind(EVENT_EVENT, rp, rc, 1);
+        Signal(rc, 0x3, false);
+        WaitOn(rp, TIMEOUT_POLL);
+        HandleClose(rc);
+        HandleClose(rp);
+    }
+    SleepAndSettle();
+    CheckEq((int32_t)PagesFree(), (int32_t)g_section_pages,
+            "no free-page change after 22 bind/signal/close rounds");
+}
+
 static void RunSuite(void)
 {
     TestBasics();
     TestHandles();
     TestMemory();
     TestEvents();
+    TestEventMasks();
     TestIpc();
     TestObservers();
     TestTasks();
@@ -3453,12 +3825,14 @@ static void RunSuite(void)
     TestSuspend();
     TestWaiterResort();
     TestHold();
+    TestOwnerDestroy();
     TestInjectObj();
     TestMsg();
     TestHardening();
     TestCallTimeout();
     TestMapPerms();
     TestBoundBits();
+    TestRecursiveEvents();
     TestDma();
     TestKittens();
     TestTaskLifetime();

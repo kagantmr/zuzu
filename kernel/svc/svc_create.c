@@ -132,6 +132,7 @@ void SvcCreate(CpuState *frame)
 
         MemObject *mem = MemObjCreateShm(page_addrs, page_count, flags);
         ENSURE(NULL != mem, KFree(page_addrs); ArchSetInFrame(frame, 0, ERR_NOMEM); return);
+        mem->owner_spid = CURRENT_SPACE->spid;
 
         if (flags & MEM_CONTIG) {
             PhysAddr base = PmmAllocFramesContig(page_count);

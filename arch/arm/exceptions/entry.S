@@ -3,6 +3,7 @@
  * @brief ARMv7-A exception entry and exit: builds the CpuState trap frame on the SVC stack.
  */
 
+.arch armv7ve
 .syntax unified
 .arm
 
@@ -43,31 +44,37 @@ task_entry_trampoline:
  * and pushes the rest of a CpuState: r0-r12, then the user sp and lr. On exit
  * sp points at the CpuState. Clobbers r0.
  */
-.macro exception_entry, lr_adjust
-    sub lr, lr, #\lr_adjust
-    srsdb sp!, #0x13
-    cpsid i, #0x13
-    sub sp, sp, #8
-    stmdb sp!, {r0-r12}
-    add r0, sp, #52
-    stm r0, {r13, r14}^
-    nop
-.endm
-
-/**
- * exception_exit
- *
- * Reloads the user sp and lr and r0-r12 from the CpuState at sp, then returns
- * with rfe, which restores pc and CPSR.
- */
-.macro exception_exit
-    add r0, sp, #52
-    ldm r0, {r13, r14}^
-    nop
-    ldmia sp!, {r0-r12}
-    add sp, sp, #8
-    rfeia sp!
-.endm
+ .macro exception_entry, lr_adjust
+     sub lr, lr, #\lr_adjust
+     srsdb sp!, #0x13
+     cpsid i, #0x13
+     sub sp, sp, #8
+     stmdb sp!, {r0-r12}
+     add r0, sp, #52
+     mrs r1, SP_usr
+     mrs r2, LR_usr
+     stm r0, {r1, r2}
+ .endm
+ 
+ .macro svc_entry
+     srsdb sp!, #0x13
+     sub sp, sp, #8
+     stmdb sp!, {r0-r12}
+     add r0, sp, #52
+     mrs r1, SP_usr
+     mrs r2, LR_usr
+     stm r0, {r1, r2}
+ .endm
+ 
+ .macro exception_exit
+     add r0, sp, #52
+     ldm r0, {r1, r2}
+     msr SP_usr, r1
+     msr LR_usr, r2
+     ldmia sp!, {r0-r12}
+     add sp, sp, #8
+     rfeia sp!
+ .endm
 
 /**
  * exception_dispatch_call type
@@ -128,7 +135,7 @@ data_abort_handler:
  * is rescheduled if do_resched was set. Returns to the instruction after svc.
  */
 svc_handler:
-    exception_entry 0
+    svc_entry
     mov r0, sp
     mov r4, sp
     bic sp, sp, #7

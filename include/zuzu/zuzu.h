@@ -179,6 +179,7 @@ static inline SvcResult HandleDuplicate(Handle h, HandlePerms perms, Marker mark
  * @param[in] mask Permissions to keep; everything outside it is removed.
  * @return ZUZU_OK, or an error code.
  * @retval ERR_BADHANDLE @p h is not a live handle.
+ * @retval ERR_BUSY Can't restrict because @p h is mapped, unmap or MemProtect before you Restrict.
  */
 static inline Err HandleRestrict(Handle h, HandlePerms mask)
 {
@@ -1330,9 +1331,10 @@ static inline Err Signal(Handle ev_handle, EventWord bits, bool broadcast)
  *
  * | @p type     | @p target | The bit is set when                    |
  * |-------------|-----------|----------------------------------------|
- * | EVENT_PORT  | port      | a caller is queued with nobody receiving |
+ * | EVENT_PORT  | port      | a caller is queued, nobody receiving   |
  * | EVENT_TASK  | task      | the task exits or faults               |
  * | EVENT_SPACE | space     | the space has no live tasks left       |
+ * | EVENT_EVENT | event     | the child event has pending bits       |
  *
  * If the condition already holds, the bit is set at once. The bit then
  * belongs to the kernel: Signal() may not set it. An object accepts at most
@@ -1442,16 +1444,20 @@ static inline EventWaitResult FormatToEventWait(SvcResult r)
 }
 
 /**
- * @brief Waits for bits on an event, then clears them.
+ * @brief Waits for bits on an event, then clears the bits it returns.
  *
  * @param[in] ev      Event handle with PERM_WAIT.
  * @param[in] timeout Milliseconds to wait, or TIMEOUT_POLL / TIMEOUT_INFINITE.
+ * @param[in] mask    Bits to wait for (bits 0-30); 0 means all bits.
+ * @param[in] waitall If true, wait until every bit in @p mask is pending;
+ *                    otherwise any one of them is enough.
  * @return The unpacked result; status as for WaitOn().
  * @see WaitOn()
  */
-static inline EventWaitResult WaitOnEvent(Handle ev, Duration timeout)
+static inline EventWaitResult WaitOnEvent(Handle ev, Duration timeout, EventWord mask, bool waitall)
 {
-    return FormatToEventWait(WaitOn(ev, timeout));
+    EventWord m = (mask & ~EVENT_WAIT_ALL) | (waitall ? EVENT_WAIT_ALL : 0);
+    return FormatToEventWait(ArchInvokeSvc4(SVC_WAITON, ev, (Register)timeout, (Register)m, 0));
 }
 
 /** @} */
