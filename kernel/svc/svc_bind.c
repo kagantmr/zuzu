@@ -24,12 +24,12 @@ typedef struct {
 
 /**
  * @brief Finds and validates the target of the Bind().
- * 
+ *
  * @param[in] type The type of event to bind.
  * @param[in] h The handle to bind to.
  * @param[in] bit The bit to bind to.
  * @param[out] out The validated binding target.
- * 
+ *
  * @return Err
  * @retval ERR_BADHANDLE This handle is invalid.
  * @retval ERR_BADTYPE   This handle cannot be bound to.
@@ -124,8 +124,30 @@ void SvcBind(CpuState *frame)
         BindTarget target;
         Err rc = BindLookupTarget(event_type, h, bit, &target);
         if (rc == ZUZU_OK && target.set)
-            rc = ObserverAdd(target.set, ev, bit);
+            rc = ObserverAdd(target.set, ev, bit, false);
         if (rc == ZUZU_OK && target.ready)
+            EventSignal(ev, (1U << bit), false);
+        ArchSetInFrame(frame, 0, rc);
+    } break;
+    case EVENT_EVENT: {
+        Handle h = (Handle)(*ArchGetFromFrame(frame, 2));
+        uint32_t bit = (uint32_t)(*ArchGetFromFrame(frame, 3));
+        HandleTableEntry *ce = HandleTableLookup(&CURRENT_SPACE->handle_table, h);
+
+        ENSURE_ERR(frame, ce, ERR_BADHANDLE);
+        ENSURE_ERR(frame, ce->type == HANDLE_EVENT && ce->event, ERR_BADTYPE);
+        ENSURE_ERR(frame, ce->perms & PERM_WAIT, ERR_NOPERM);
+        ENSURE_ERR(frame, bit < 31U, ERR_BADARG);
+
+        EventObject *child = ce->event;
+        ENSURE_ERR(frame, child->alive, ERR_DEAD);
+        /* Two layers: no self-binding, a child cannot be a parent, a parent cannot be a child. */
+        ENSURE_ERR(frame, child != ev, ERR_BADARG);
+        ENSURE_ERR(frame, child->child_count == 0, ERR_BADARG);
+        ENSURE_ERR(frame, ObserverEmpty(&ev->observers), ERR_BADARG);
+
+        Err rc = ObserverAdd(&child->observers, ev, bit, true);
+        if (rc == ZUZU_OK && child->word)
             EventSignal(ev, (1U << bit), false);
         ArchSetInFrame(frame, 0, rc);
     } break;
