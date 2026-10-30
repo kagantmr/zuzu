@@ -290,7 +290,7 @@ int main()
     if (ports[1].role) ports[1].kmi->cr = KMICR_EN | KMICR_RXINTREN;
         
     for (;;) {
-        EventWaitResult r = WaitOnEvent(g_kmi_irq_ev, TIMEOUT_INFINITE);
+        EventWaitResult r = WaitOnEvent(g_kmi_irq_ev, TIMEOUT_INFINITE, 0, false);
         if (r.status != ZUZU_OK)
             continue;
 
