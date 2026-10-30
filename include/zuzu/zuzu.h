@@ -1331,9 +1331,10 @@ static inline Err Signal(Handle ev_handle, EventWord bits, bool broadcast)
  *
  * | @p type     | @p target | The bit is set when                    |
  * |-------------|-----------|----------------------------------------|
- * | EVENT_PORT  | port      | a caller is queued with nobody receiving |
+ * | EVENT_PORT  | port      | a caller is queued, nobody receiving   |
  * | EVENT_TASK  | task      | the task exits or faults               |
  * | EVENT_SPACE | space     | the space has no live tasks left       |
+ * | EVENT_EVENT | event     | the child event has pending bits       |
  *
  * If the condition already holds, the bit is set at once. The bit then
  * belongs to the kernel: Signal() may not set it. An object accepts at most

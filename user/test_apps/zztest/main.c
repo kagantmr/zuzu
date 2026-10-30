@@ -3679,6 +3679,136 @@ static void TestBoundBits(void)
     HandleClose(ev);
 }
 
+/* ---------------- recursive events (#50) ---------------- */
+
+/* Blocks on the event in arg for up to 2 s; returns the bits it got, or the error. */
+static int32_t RecWaitThread(void *arg)
+{
+    EventWaitResult r = FormatToEventWait(WaitOn((Handle)(intptr_t)arg, 2000));
+    return r.status == ZUZU_OK ? (int32_t)r.bits : r.status;
+}
+
+static void TestRecursiveEvents(void)
+{
+    BeginSection("recursive events");
+    EventWaitResult r;
+
+    /* A child's bits raise the parent's bound bit; the bits stay in the child. */
+    Handle p = CreateEvent();
+    Handle c = CreateEvent();
+    CheckEq(Bind(EVENT_EVENT, p, c, 3), ZUZU_OK, "bind a child event to bit 3 of a parent");
+    CheckEq(Signal(c, 0x5, false), ZUZU_OK, "signal the child");
+    r = FormatToEventWait(WaitOn(p, TIMEOUT_POLL));
+    CheckEq(r.status, ZUZU_OK, "the parent is raised");
+    CheckEq(r.bits, 1u << 3, "on the bound bit");
+    r = FormatToEventWait(WaitOn(c, TIMEOUT_POLL));
+    CheckEq(r.bits, 0x5, "the child still holds its bits");
+    CheckEq(WaitOn(p, TIMEOUT_POLL).r0, ERR_TIMEOUT, "an empty child leaves the parent quiet");
+    CheckEq(Signal(p, 1u << 3, false), ERR_NOPERM, "the bound parent bit cannot be signalled");
+
+    /* Level-triggered: a partial take from the child re-raises the parent. */
+    Signal(c, 0x5, false);
+    WaitOn(p, TIMEOUT_POLL);
+    r = WaitOnEvent(c, TIMEOUT_POLL, 0x1, false);
+    CheckEq(r.bits, 0x1, "a masked wait takes part of the child");
+    r = FormatToEventWait(WaitOn(p, TIMEOUT_POLL));
+    CheckEq(r.bits, 1u << 3, "the bits left behind raise the parent again");
+    WaitOn(c, TIMEOUT_POLL);
+    CheckEq(WaitOn(p, TIMEOUT_POLL).r0, ERR_TIMEOUT, "once drained, the parent stays quiet");
+
+    /* A task blocked on the parent is woken by a signal on the child. */
+    Worker *w = WorkerStart(RecWaitThread, (void *)(intptr_t)p);
+    Sleep(20);
+    Signal(c, 0x2, false);
+    CheckEq(WorkerJoin(w), (int32_t)(1u << 3), "a blocked parent waiter wakes on the child's signal");
+    WaitOn(c, TIMEOUT_POLL);
+
+    /* A direct waiter on the child takes everything: the parent is not raised for nothing. */
+    w = WorkerStart(RecWaitThread, (void *)(intptr_t)c);
+    Sleep(20);
+    Signal(c, 0x8, false);
+    CheckEq(WorkerJoin(w), 0x8, "a direct waiter on the child takes the bits");
+    CheckEq(WaitOn(p, TIMEOUT_POLL).r0, ERR_TIMEOUT, "and the parent is not raised");
+
+    /* A child that already has bits raises the parent at Bind. */
+    Handle p2 = CreateEvent();
+    Signal(c, 0x10, false);
+    CheckEq(Bind(EVENT_EVENT, p2, c, 0), ZUZU_OK, "bind a child that already has bits");
+    r = FormatToEventWait(WaitOn(p2, TIMEOUT_POLL));
+    CheckEq(r.bits, 1u << 0, "the parent is raised at once");
+    r = FormatToEventWait(WaitOn(p, TIMEOUT_POLL));
+    CheckEq(r.bits, 1u << 3, "every parent of the child is raised");
+    WaitOn(c, TIMEOUT_POLL);
+
+    /* Two layers only. */
+    Handle q = CreateEvent();
+    Handle x = CreateEvent();
+    CheckEq(Bind(EVENT_EVENT, p, p, 1), ERR_BADARG, "an event cannot be its own child");
+    CheckEq(Bind(EVENT_EVENT, q, p, 1), ERR_BADARG, "a parent cannot become a child");
+    CheckEq(Bind(EVENT_EVENT, c, x, 1), ERR_BADARG, "a child cannot become a parent");
+    Handle port = CreatePort();
+    CheckEq(Bind(EVENT_EVENT, p, port, 1), ERR_BADTYPE, "the child must be an event");
+    SvcResult send_only = HandleDuplicate(x, PERM_SEND, MARKER_NONE);
+    CheckEq(Bind(EVENT_EVENT, q, (Handle)send_only.r1, 1), ERR_NOPERM,
+            "the child handle needs PERM_WAIT");
+    CheckEq(Bind(EVENT_EVENT, q, x, 31), ERR_BADARG, "bit 31 -> BADARG");
+    HandleClose((Handle)send_only.r1);
+    HandleClose(port);
+
+    /* One child takes at most four parents. */
+    Handle f[5];
+    for (int i = 0; i < 5; i++)
+        f[i] = CreateEvent();
+    for (int i = 0; i < 4; i++)
+        Bind(EVENT_EVENT, f[i], x, 2);
+    CheckEq(Bind(EVENT_EVENT, f[4], x, 2), ERR_NOMEM, "a fifth parent -> NOMEM");
+    Signal(x, 0x1, false);
+    bool all4 = true;
+    for (int i = 0; i < 4; i++)
+        all4 = all4 && FormatToEventWait(WaitOn(f[i], TIMEOUT_POLL)).bits == (1u << 2);
+    Check(all4, "all four parents are raised");
+    WaitOn(x, TIMEOUT_POLL);
+    for (int i = 0; i < 5; i++)
+        HandleClose(f[i]);
+
+    /* Destroying the child raises its parents; the child then reports DEAD. */
+    SvcResult keep = HandleDuplicate(c, PERM_WAIT, MARKER_NONE);
+    CheckEq(HandleDestroy(c), ZUZU_OK, "the owner destroys the child");
+    r = FormatToEventWait(WaitOn(p, TIMEOUT_POLL));
+    CheckEq(r.bits, 1u << 3, "its parent is raised");
+    CheckEq(WaitOn((Handle)keep.r1, TIMEOUT_POLL).r0, ERR_DEAD, "and the child is DEAD");
+    HandleClose((Handle)keep.r1);
+    WaitOn(p2, TIMEOUT_POLL);
+    CheckEq(Signal(p, 1u << 3, false), ZUZU_OK, "the parent bit is free once the child is gone");
+    WaitOn(p, TIMEOUT_POLL);
+
+    /* With its child gone, a former parent may become a child. */
+    CheckEq(Bind(EVENT_EVENT, q, p, 4), ZUZU_OK, "a former parent can become a child");
+
+    HandleClose(q);
+    HandleClose(x);
+    HandleClose(p2);
+    HandleClose(p);
+
+    /* No leaks across bind/signal/destroy rounds. */
+    for (int round = 0; round < 25; round++) {
+        if (round == 3) {
+            SleepAndSettle();
+            g_section_pages = PagesFree();
+        }
+        Handle rp = CreateEvent();
+        Handle rc = CreateEvent();
+        Bind(EVENT_EVENT, rp, rc, 1);
+        Signal(rc, 0x3, false);
+        WaitOn(rp, TIMEOUT_POLL);
+        HandleClose(rc);
+        HandleClose(rp);
+    }
+    SleepAndSettle();
+    CheckEq((int32_t)PagesFree(), (int32_t)g_section_pages,
+            "no free-page change after 22 bind/signal/close rounds");
+}
+
 static void RunSuite(void)
 {
     TestBasics();
@@ -3702,6 +3832,7 @@ static void RunSuite(void)
     TestCallTimeout();
     TestMapPerms();
     TestBoundBits();
+    TestRecursiveEvents();
     TestDma();
     TestKittens();
     TestTaskLifetime();
