@@ -21,53 +21,77 @@ _start:
     mov x19, x0 // saving the DTB pointer before anything
 
     // park if core id != 0
-    mrs MPIDR_EL1, x0 
-    and x0, x0, #0xFF
-    beq     1f
+    mrs x0, MPIDR_EL1
+    and x0, x0, #0xff
+    cbz x0, 1f
 0:
     wfe
     b       0b
 1:
-    mrs     r0, cpsr
-    and     r1, r0, #0x1F
-    cmp     r1, #MODE_HYP
-    bne     svc_entry
+    mrs     x0, CurrentEL
+    lsr     x0, x0, #2
+    cmp     x0, #1 // SVC is EL1 in AArch64, if we're alr EL1 skip the hypervisor mess
+    b.eq    el1_entry
+    cmp     x0, #2 // HYP is EL2
+    b.eq    from_el2
+    b       0b     // park, we didn't expect to land in this mode
 
-    mrc     p15, 4, r1, c14, c1, 0
-    orr     r1, r1, #0x3
-    mcr     p15, 4, r1, c14, c1, 0
-    mov     r1, #0
-    mcrr    p15, 4, r1, r1, c14
 
-    mcr     p15, 4, r1, c1, c1, 0
-    mcr     p15, 4, r1, c1, c1, 1
-    mcr     p15, 4, r1, c1, c1, 2
-    mcr     p15, 4, r1, c1, c1, 3
+from_el2:
+    // we run AArch64, so set HCR's MSB to indicate that
+    mov     x0, #1
+    lsl     x0, x0, #31
+    msr     HCR_EL2, x0
 
-    bic     r0, r0, #0x1F
-    orr     r0, r0, #(MODE_SVC | 0xC0)
-    msr     spsr_cxsf, r0
-    ldr     r1, =svc_entry
-    msr     elr_hyp, r1
+
+    // CNTHCTL_EL2 decides whether EL1/EL0 may touch the physical counter and timer.
+    mov     x0, #3
+    msr     CNTHCTL_EL2, x0
+
+    // hypervisor timer offset, clear it
+    msr     CNTVOFF_EL2, xzr
+
+    // el1 can use fpu, simd, sve
+    ldr x0, =0x33FF
+    msr CPTR_EL2, x0  
+
+    // d, a, i, f masked, EL1, use SP_EL1
+    ldr x0, =0x3C5
+    msr SPSR_EL2, x0  
+
+
+    ldr x0, =el1_entry
+    msr ELR_EL2, x0  
+
+    isb  // enforce the changes went through, even though eret probably does this on its own we must be safe
     eret
 
-svc_entry:
+el1_entry:
+    ldr     x0, =0x30D00800
+    msr     SCTLR_EL1, x0
+    isb
 
-    mov     r4, r2
+    ldr x0, =__svc_stack_top__
+    mov sp, x0
 
     bl      early_uart_init
 
-    mov     r0, #'z'
+    mov     w0, #'z'
     bl      early_uart_putc
-    mov     r0, #'u'
+    mov     w0, #'u'
     bl      early_uart_putc
+    mov     x0, x19
+    bl      early_uart_puthex
 
-    ldr     r0, [r4]
-    ldr     r1, =0xedfe0dd0
-    cmp     r0, r1
-    beq     1f
-    bl      dtb_panic
-1:
+    ldr     w0, [x19]
+    ldr     w1, =0xedfe0dd0
+    cmp     w0, w1
+    b.eq     2f
+    b      dtb_panic
+2:
+    wfe
+    b 2b
+
 
 .size _start, . - _start
 
@@ -75,7 +99,7 @@ svc_entry:
 .weak board_console_pinmux
 .type board_console_pinmux, %function
 board_console_pinmux:
-    bx      lr
+    ret
 .size board_console_pinmux, . - board_console_pinmux
 
 /** PL011 register offsets. */
@@ -92,57 +116,87 @@ board_console_pinmux:
  *
  * Runs board_console_pinmux, then sets the PL011 to the board's baud divisors,
  * 8 bits with FIFOs, and enables transmit and receive.
- * Clobbers: r0, r1.
+ * Clobbers: x0, x1.
  */
 .type early_uart_init, %function
 early_uart_init:
-    push    {lr}
+    stp x29, x30, [sp, #-16]!
     bl      board_console_pinmux
-    pop     {lr}
-    ldr     r1, =BOARD_UART0_BASE
-    mov     r0, #0
-    str     r0, [r1, #UART_CR]
-    ldr     r0, =0x7FF
-    str     r0, [r1, #UART_ICR]
-    mov     r0, #BOARD_UART_IBRD
-    str     r0, [r1, #UART_IBRD]
-    mov     r0, #BOARD_UART_FBRD
-    str     r0, [r1, #UART_FBRD]
-    mov     r0, #0x70
-    str     r0, [r1, #UART_LCRH]
-    ldr     r0, =0x301
-    str     r0, [r1, #UART_CR]
-    bx      lr
+    ldp x29, x30, [sp], #16
+    
+    ldr     x1, =BOARD_UART0_BASE
+    mov     w0, #0
+    str     w0, [x1, #UART_CR]
+    ldr     w0, =0x7FF
+    str     w0, [x1, #UART_ICR]
+    mov     w0, #BOARD_UART_IBRD
+    str     w0, [x1, #UART_IBRD]
+    mov     w0, #BOARD_UART_FBRD
+    str     w0, [x1, #UART_FBRD]
+    mov     w0, #0x70
+    str     w0, [x1, #UART_LCRH]
+    ldr     w0, =0x301
+    str     w0, [x1, #UART_CR]
+    ret
 .size early_uart_init, . - early_uart_init
 
 /**
  * early_uart_putc
  *
  * Writes one byte once the transmit FIFO has room.
- * In:       r0 = byte.
- * Clobbers: r1, r2.
+ * In:       x0 = byte.
+ * Clobbers: x1, x2.
  */
 .global early_uart_putc
 .type early_uart_putc, %function
 early_uart_putc:
-    ldr     r1, =BOARD_UART0_BASE
+    ldr     x1, =BOARD_UART0_BASE
 1:
-    ldr     r2, [r1, #UART_FR]
-    tst     r2, #(1 << 5)
-    bne     1b
-    str     r0, [r1, #UART_DR]
-    bx      lr
+    ldr     w2, [x1, #UART_FR]
+    tst     w2, #(1 << 5)
+    b.ne     1b
+    str     w0, [x1, #UART_DR]
+    ret
 .size early_uart_putc, . - early_uart_putc
+
+/**
+ * early_uart_puthex
+ *
+ * Prints x0 as 16 hex digits, most significant first.
+ * In:       x0 = value.
+ * Clobbers: x0-x2.
+ */
+.global early_uart_puthex
+.type early_uart_puthex, %function
+early_uart_puthex:
+    stp     x29, x30, [sp, #-32]!
+    stp     x20, x21, [sp, #16]
+    mov     x20, x0
+    mov     w21, #16
+1:
+    ror     x20, x20, #60
+    and     x0, x20, #0xf
+    add     x0, x0, #'0'
+    cmp     x0, #'9'
+    b.ls    2f
+    add     x0, x0, #('a' - '9' - 1)
+2:
+    bl      early_uart_putc
+    subs    w21, w21, #1
+    b.ne    1b
+    ldp     x20, x21, [sp, #16]
+    ldp     x29, x30, [sp], #32
+    ret
+.size early_uart_puthex, . - early_uart_puthex
 
 /** dtb_panic: prints dtb_panic_msg and halts. Never returns. */
 .type dtb_panic, %function
 dtb_panic:
-    ldr     r5, =dtb_panic_msg
+    ldr     x20, =dtb_panic_msg
 1:
-    ldrb    r6, [r5], #1
-    cmp     r6, #0
-    beq     2f
-    mov     r0, r6
+    ldrb    w21, [x20], #1
+    cbz     w21, 2f
+    mov     w0, w21
     bl      early_uart_putc
     b       1b
 2:
