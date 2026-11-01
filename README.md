@@ -46,8 +46,13 @@ zuzu is still under active development. Contributions are appreciated, please re
 
 ## Documentation
 
+<<<<<<< Updated upstream
 All documentation is at the zuzu docs website.
 Visit [https://kagantmr.github.io/zuzu-docs](https://kagantmr.github.io/zuzu-docs) for the latest information on zuzu, zuzuOS and their development.
+=======
+All documentation is at the zuzu docs website. 
+Visit [zuzukernel.com](https://zuzukernel.com) for the latest information on the kernel, userspace, and development.
+>>>>>>> Stashed changes
 
 ## Third-party components
 
