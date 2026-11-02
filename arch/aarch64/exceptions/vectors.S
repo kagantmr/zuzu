@@ -38,4 +38,23 @@ vector_table:
     ventry unhandled    // 0x180  cur EL, SP_EL0, SError
 
 unhandled:
-    b unhandled
+    mrs x0, ESR_EL1
+    bl early_uart_puthex
+
+    mov x0, '\n'
+    bl early_uart_putc
+
+    mrs x0, ELR_EL1
+    bl early_uart_puthex
+    
+    mov x0, '\n'
+    bl early_uart_putc
+
+    mrs x0, FAR_EL1
+    bl early_uart_puthex
+    
+    mov x0, '\n'
+    bl early_uart_putc
+    
+dead:
+    b dead

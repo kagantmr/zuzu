@@ -74,15 +74,17 @@ el1_entry:
     ldr x0, =__svc_stack_top__
     mov sp, x0
 
+    adr x0, vector_table
+    msr VBAR_EL1, x0
+    isb
+
     bl      early_uart_init
 
     mov     w0, #'z'
     bl      early_uart_putc
     mov     w0, #'u'
     bl      early_uart_putc
-    mov     x0, x19
-    bl      early_uart_puthex
-
+    
     ldr     w0, [x19]
     ldr     w1, =0xedfe0dd0
     cmp     w0, w1
