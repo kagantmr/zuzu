@@ -162,6 +162,9 @@ char *strrchr(const char *s, int c);
  */
 void vstrfmt(strfmt_outc_t outc, void *ctx, const char *fstring, va_list *args);
 
+int strfmt_float(va_list *args, char spec, int prec, int alt, int plus, int space, char *numbuf,
+                 char *signch_out);
+
 /** @brief Bounded formatted output into a buffer; documented in snprintf.h. */
 int vsnprintf(char *buf, size_t size, const char *fmt, va_list args);
 

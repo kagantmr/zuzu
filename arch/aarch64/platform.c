@@ -3,7 +3,6 @@
  * @brief ARMv7-A platform hooks: early UART output and device probing.
  */
 
-#include "drivers/driver.h"
 #include <arch/platform.h>
 #include <stdint.h>
 
@@ -23,4 +22,7 @@ void ArchEarlyPutc(char c)
     uart[0] = (uint32_t)(uint8_t)c;
 }
 
+#if 0
+#include "drivers/driver.h"
 void ArchPlatformInitDevices(void) { DriverProbeAll(); }
+#endif
