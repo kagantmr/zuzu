@@ -74,22 +74,20 @@ el1_entry:
     ldr x0, =__svc_stack_top__
     mov sp, x0
 
-    adr x0, vector_table
-    msr VBAR_EL1, x0
-    isb
-
     bl      early_uart_init
-
-    mov     w0, #'z'
-    bl      early_uart_putc
-    mov     w0, #'u'
-    bl      early_uart_putc
 
     ldr     w0, [x19]
     ldr     w1, =0xedfe0dd0
     cmp     w0, w1
     b.ne    dtb_panic
 mmu_setup:
+    ldr x0, =boot_l0_low
+    ldr x1, =boot_l1 + 4096
+1:
+    stp xzr, xzr, [x0], #16
+    cmp x0, x1
+    b.lo 1b
+
     ldr x0, =boot_l1
     orr x0, x0, #0b11
 
@@ -126,11 +124,8 @@ mmu_setup:
     msr SCTLR_EL1, x0
     isb
 
-    mov     w0, #'v'
-    bl      early_uart_putc
-
-    mrs x0, SCTLR_EL1
-    bl  early_uart_puthex
+    ldr x0, =higher_half_entry
+    br  x0
 hang:
     wfi
     b hang
@@ -250,6 +245,26 @@ dtb_panic:
 dtb_panic_msg:
     .asciz "\r\nPANIC: x0 is not a DTB (missing -dtb?)\r\n"
 .balign 4
+
+.section .text
+.balign 4096
+higher_half_entry:
+
+    ldr x0, =vector_table
+    msr VBAR_EL1, x0
+    isb
+
+    ldr x0, =__svc_stack_top__
+    ldr x1, =KERNEL_VA_BASE
+    add x0, x0, x1
+    mov sp, x0
+
+    mov x0, x19
+    bl early
+
+2:
+    wfi
+    b 2b
 
 .section .bss.boot, "aw", %nobits
 .balign 4096

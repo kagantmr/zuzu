@@ -8,7 +8,7 @@
  * computed with the exact same formula below (some had just pre-baked the
  * arithmetic into a literal instead of writing the expression). */
 
-KERNEL_VA_BASE = 0xC0000000;        /* Virtual kernel base (higher-half) */
+KERNEL_VA_BASE = 0xFFFF000000000000;        /* Virtual kernel base (higher-half) */
 
 /* Boot physical address. The image is objcopy'd to a flat binary whose
  * first byte must be _start (the firmware/QEMU jumps straight to the load

@@ -7,7 +7,7 @@
  * RAM starts at PA 0 on the BCM2711; the firmware loads a 32-bit kernel at
  * 0x8000 by default (see linker.ld BOOT_OFFSET). */
 #define KERNEL_PA_BASE 0x00000000UL
-#define KERNEL_VA_BASE 0xC0000000UL
+#define KERNEL_VA_BASE 0xFFFF000000000000UL
 #define KERNEL_VA_OFFSET (KERNEL_VA_BASE - KERNEL_PA_BASE)
 
 /* Kernel virtual regions */

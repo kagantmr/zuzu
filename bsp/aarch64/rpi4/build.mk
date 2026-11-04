@@ -1,1 +1,1 @@
-obj-y += boot_hooks.o
+# obj-y += boot_hooks.o

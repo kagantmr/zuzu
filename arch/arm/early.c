@@ -36,7 +36,7 @@ __attribute__((section(".bss.boot"), aligned(16384))) uint32_t early_l1[4096];
  * @param[in] ram_base Physical start of RAM.
  * @param[in] ram_size Size of RAM in bytes.
  */
-static void early_map_ram_sections(uintptr_t ram_base, size_t ram_size)
+static void EarlyMapRamSections(uintptr_t ram_base, size_t ram_size)
 {
     uint32_t *l1 = (uint32_t *)PA_TO_VA((uintptr_t)early_l1);
     uintptr_t pa_start = ram_base & ~(SECTION_SIZE - 1);
@@ -126,7 +126,7 @@ _Noreturn void early(void *dtb_ptr)
     kernel_layout.ram_start = (PhysAddr)ram_base;
     kernel_layout.ram_end = (PhysAddr)(ram_base + ram_size);
     KDEBUG("early: ram [%p..%p)", (void *)kernel_layout.ram_start, (void *)kernel_layout.ram_end);
-    early_map_ram_sections(kernel_layout.ram_start, (size_t)ram_size);
+    EarlyMapRamSections(kernel_layout.ram_start, (size_t)ram_size);
 
     KDEBUG("early: pmm");
     PmmInit();

@@ -16,9 +16,9 @@
  */
 static inline uint32_t ReadCntFrq(void)
 {
-    uint32_t v;
-    __asm__ volatile("mrc p15, 0, %0, c14, c0, 0" : "=r"(v));
-    return v;
+    uint64_t v;
+    __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(v));
+    return (uint32_t)v;
 }
 
 /**
@@ -28,7 +28,7 @@ static inline uint32_t ReadCntFrq(void)
  */
 static inline void WriteCntpCtl(uint32_t v)
 {
-    __asm__ volatile("mcr p15, 0, %0, c14, c2, 1" ::"r"(v));
+    __asm__ volatile("msr cntp_ctl_el0, %0" ::"r"((uint64_t)v));
     __asm__ volatile("isb");
 }
 
@@ -47,7 +47,7 @@ static inline void WriteCntvCtl(uint32_t v)
     if (v == cntv_ctl_shadow)
         return;
     cntv_ctl_shadow = v;
-    __asm__ volatile("mcr p15, 0, %0, c14, c3, 1" ::"r"(v));
+    __asm__ volatile("msr cntv_ctl_el0, %0" ::"r"((uint64_t)v));
     __asm__ volatile("isb");
 }
 
@@ -64,7 +64,7 @@ static uint64_t cnt_last;
 static inline uint64_t ReadCntvct(void)
 {
     uint64_t v;
-    __asm__ volatile("isb\n mrrc p15, 1, %Q0, %R0, c14" : "=r"(v)::"memory");
+    __asm__ volatile("isb\n mrs %0, cntvct_el0" : "=r"(v)::"memory");
     if (v < cnt_last)
         v = cnt_last;
     cnt_last = v;
@@ -93,11 +93,11 @@ static void ArmGenericTimerHandler(void *ctx)
 /** @brief Lets user code read the virtual count, and nothing else (CNTKCTL). */
 static inline void EnableUserCounterRead(void)
 {
-    uint32_t v;
-    __asm__ volatile("mrc p15, 0, %0, c14, c1, 0" : "=r"(v));
-    v &= ~0x303U;
-    v |= 0x2U;
-    __asm__ volatile("mcr p15, 0, %0, c14, c1, 0" ::"r"(v));
+    uint64_t v;
+    __asm__ volatile("mrs %0, cntkctl_el1" : "=r"(v));
+    v &= ~0x303ULL;
+    v |= 0x2ULL;
+    __asm__ volatile("msr cntkctl_el1, %0" ::"r"(v));
     __asm__ volatile("isb");
 }
 
@@ -127,8 +127,7 @@ void ArchTimerSetDeadline(Time abs_count)
 {
     if (abs_count != cntv_cval_shadow) {
         cntv_cval_shadow = abs_count;
-        __asm__ volatile("mcrr p15, 3, %0, %1, c14" ::"r"((uint32_t)abs_count),
-                         "r"((uint32_t)(abs_count >> 32)));
+        __asm__ volatile("msr cntv_cval_el0, %0" ::"r"((uint64_t)abs_count));
         __asm__ volatile("isb");
     }
     WriteCntvCtl(0x1);

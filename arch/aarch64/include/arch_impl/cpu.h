@@ -1,6 +1,6 @@
 /**
  * @file
- * @brief ARMv7-A CPU control.
+ * @brief AArch64 CPU control.
  */
 
 #ifndef ARCH_ARM_IMPL_CPU_H
@@ -9,13 +9,13 @@
 #include <stdint.h>
 
 /** @brief A saved CPSR, as returned by ArchIrqSave(). */
-typedef uint32_t Cpsr;
+typedef uint64_t Cpsr;
 
 /** @brief Masks IRQs on this CPU (cpsid i). */
-static inline void ArchGlobalIrqDisable(void) { __asm__ volatile("cpsid i" ::: "memory"); }
+static inline void ArchGlobalIrqDisable(void) { __asm__ volatile("msr daifset, #2" ::: "memory"); }
 
 /** @brief Unmasks IRQs on this CPU (cpsie i). */
-static inline void ArchGlobalIrqEnable(void) { __asm__ volatile("cpsie i" ::: "memory"); }
+static inline void ArchGlobalIrqEnable(void) { __asm__ volatile("msr daifclr, #2" ::: "memory"); }
 
 /**
  * @brief Masks IRQs and returns the previous CPSR, for ArchIrqRestore().
@@ -24,9 +24,9 @@ static inline void ArchGlobalIrqEnable(void) { __asm__ volatile("cpsie i" ::: "m
  */
 static inline Cpsr ArchIrqSave(void)
 {
-    uint32_t cpsr;
-    __asm__ volatile("mrs %0, cpsr" : "=r"(cpsr)::"memory");
-    __asm__ volatile("cpsid i" ::: "memory");
+    uint64_t cpsr;
+    __asm__ volatile("mrs %0, daif" : "=r"(cpsr)::"memory");
+    ArchGlobalIrqDisable();
     return cpsr;
 }
 
@@ -37,7 +37,7 @@ static inline Cpsr ArchIrqSave(void)
  */
 static inline void ArchIrqRestore(Cpsr state)
 {
-    __asm__ volatile("msr cpsr_c, %0" ::"r"(state) : "memory");
+    __asm__ volatile("msr daif, %0" ::"r"(state) : "memory");
 }
 
 /** @brief Waits for an interrupt (wfi). */
