@@ -6,10 +6,10 @@
 
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/mm/vmm/vmm.h"
+#include <arch/asid.h>
 #include <arch/mmu.h>
 #include <arch_impl/aarch64_mmu.h>
 #include <string.h>
-#include <arch/asid.h>
 #include <zuzu/user_layout.h>
 
 /**
@@ -258,15 +258,15 @@ static bool FitsBlock(VirtAddr va, PhysAddr pa, size_t left)
     return !((va | pa) & (size - 1)) && left >= size;
 }
 
-bool ArchMmuMap(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, MemProt prot,
-                VirtMemType memtype)
+static bool MapRange(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, MemProt prot,
+                     VirtMemType memtype, bool allow_blocks)
 {
     if ((va | pa | size) & (PAGE_SIZE - 1))
         return false;
 
     AArch64Pte *root = RootOf(as);
     AArch64Pte attrs = ProtToDesc(prot, memtype) | PTE_VALID;
-    bool blocks = !(prot & VM_PROT_USER);
+    bool blocks = allow_blocks && as->type != ADDRESS_SPACE_USER;
 
     for (size_t off = 0; off < size;) {
         if (blocks && FitsBlock(va + off, pa + off, size - off)) {
@@ -289,6 +289,19 @@ bool ArchMmuMap(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, MemPr
     __asm__ volatile("dsb ishst" ::: "memory");
     return true;
 }
+
+bool ArchMmuMap(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, MemProt prot,
+                VirtMemType memtype)
+{
+    return MapRange(as, va, pa, size, prot, memtype, true);
+}
+
+bool ArchMmuMapPages(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, MemProt prot,
+                VirtMemType memtype)
+{
+    return MapRange(as, va, pa, size, prot, memtype, false);
+}
+
 
 /** @brief Context of ClearSlot(). */
 typedef struct {
@@ -375,21 +388,23 @@ bool ArchMmuProtect(AddressSpace *as, uintptr_t va, size_t size, MemProt prot)
 
 void ArchMmuSwitch(AddressSpace *as)
 {
-    if (!as || as->pt_root_physaddr == 0) return;
+    if (!as || as->pt_root_physaddr == 0)
+        return;
     if (as->asid_token.generation != AsidCurrentGeneration()) {
         AsidFree(as->asid_token);
         as->asid_token = AsidAlloc();
     }
     uint64_t ttbr = as->pt_root_physaddr | ((uint64_t)as->asid_token.asid << 48);
-    __asm__ volatile(
-        "msr ttbr0_el1, %0\n"
-        "isb\n"
-        :: "r"(ttbr) : "memory");
+    __asm__ volatile("msr ttbr0_el1, %0\n"
+                     "isb\n" ::"r"(ttbr)
+                     : "memory");
     AsidSetActive(as->asid_token.asid);
 }
 
-void ArchMmuEnable(AddressSpace *as) {
-    if (!as || as->pt_root_physaddr == 0) return;
+void ArchMmuEnable(AddressSpace *as)
+{
+    if (!as || as->pt_root_physaddr == 0)
+        return;
     ArchMmuSwitch(as);
     ArchMmuFlushTlb();
 }

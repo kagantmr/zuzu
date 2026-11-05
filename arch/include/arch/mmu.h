@@ -56,6 +56,26 @@ bool ArchMmuMap(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, MemPr
                 VirtMemType memtype);
 
 /**
+ * @brief Maps a physically contiguous range page by page.
+ *
+ * The range must be page-aligned. An architecture may map it with larger blocks where
+ * @p va, @p pa and @p size are aligned to them: AArch64 uses 2 MiB blocks for kernel
+ * mappings and pages for user ones. If a page cannot be mapped, the pages mapped so far are
+ * unmapped again. No TLB maintenance is done: the range is expected to be unmapped beforehand.
+ *
+ * @param[in,out] as      Address space.
+ * @param[in]     va      Virtual start.
+ * @param[in]     pa      Physical start.
+ * @param[in]     size    Size in bytes.
+ * @param[in]     prot    Protection.
+ * @param[in]     memtype Memory type.
+ * @return false if the range is misaligned or outside the space, or a table could not be
+ *         allocated.
+ */
+bool ArchMmuMapPages(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, MemProt prot,
+                VirtMemType memtype);
+
+/**
  * @brief Unmaps a range. The pages themselves are not freed.
  *
  * @param[in,out] as    Address space.
