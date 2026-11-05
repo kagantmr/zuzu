@@ -255,8 +255,6 @@ higher_half_entry:
     isb
 
     ldr x0, =__svc_stack_top__
-    ldr x1, =KERNEL_VA_BASE
-    add x0, x0, x1
     mov sp, x0
 
     mov x0, x19

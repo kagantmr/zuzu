@@ -126,6 +126,11 @@ SECTIONS
 
     __stack_region_base__ = __und_stack_base__;    /* low end, for PmmMarkRange */
 
+    __kstack_base  = __svc_stack_base__ + (KERNEL_VA_BASE - KERNEL_PA_BASE);
+    __kstack_top   = __svc_stack_top__  + (KERNEL_VA_BASE - KERNEL_PA_BASE);
+    _boot_start_va = _boot_start        + (KERNEL_VA_BASE - KERNEL_PA_BASE);
+    _boot_end_va   = _boot_end          + (KERNEL_VA_BASE - KERNEL_PA_BASE);
+    
     /* Discard unwanted sections */
     /DISCARD/ : {
         *(.ARM.exidx*)
