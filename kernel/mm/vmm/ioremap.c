@@ -98,7 +98,7 @@ void *IoRemap(PhysAddr phys, size_t size)
     uintptr_t offset = phys - phys_aligned;
     size_t total_size = size + offset;
     size_t aligned_size = align_up(total_size, SECTION_SIZE);
-    uint32_t sections_needed = aligned_size / SECTION_SIZE;
+    uint32_t sections_needed = (uint32_t)(aligned_size / SECTION_SIZE);
 
     int slot = BitmapFindFree(sections_needed);
     if (slot < 0) {
@@ -145,7 +145,7 @@ void IoUnmap(void *va)
     size_t size = entry->sections * SECTION_SIZE;
     VmmUnmapRange(g_kernel_as, entry->va, size, true);
 
-    uint32_t slot_start = (entry->va - IOREMAP_BASE) / SECTION_SIZE;
+    uint32_t slot_start = (uint32_t)((entry->va - IOREMAP_BASE) / SECTION_SIZE);
     BitmapFree(slot_start, entry->sections);
 
     entry->va = 0;
