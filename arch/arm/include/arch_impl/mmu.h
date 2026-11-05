@@ -8,6 +8,9 @@
 
 #include <stddef.h>
 
+/** @brief Size of the largest block a single top-level entry maps (an ARMv7 section, 1 MiB). */
+#define SECTION_SIZE 0x100000u
+
 /**
  * @brief Moves the stacks of every exception mode by @p offset.
  *

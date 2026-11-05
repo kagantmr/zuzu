@@ -13,9 +13,6 @@
 /** @brief A translation table entry at any level. */
 typedef uint64_t AArch64Pte;
 
-/** @brief Size of the largest block a single top-level entry maps (an ARMv7 section, 1 MiB). */
-#define SECTION_SIZE 0x200000UL
-
 /** @brief Entries in one translation table. */
 #define PTE_ENTRIES 512U
 /** @brief Index of the last translation level, where entries map 4 KiB pages. */
