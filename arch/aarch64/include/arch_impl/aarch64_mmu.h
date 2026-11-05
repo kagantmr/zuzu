@@ -17,6 +17,8 @@ typedef uint64_t AArch64Pte;
 #define PTE_ENTRIES 512U
 /** @brief Index of the last translation level, where entries map 4 KiB pages. */
 #define PTE_LEVEL_LAST 3
+/** @brief Level whose blocks ArchMmuMap() uses for kernel mappings: 2 MiB. */
+#define PTE_LEVEL_BLOCK 2
 
 /** @brief Entry is in use; any access through an entry without it faults. */
 #define PTE_VALID (1UL << 0)

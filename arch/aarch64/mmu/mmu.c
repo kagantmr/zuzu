@@ -117,22 +117,23 @@ static AArch64Pte *NextTable(AArch64Pte *entry)
 }
 
 /**
- * @brief Finds the level 3 entry for @p va, creating the tables on the way.
+ * @brief Finds the entry for @p va at @p level, creating the tables above it on the way.
  *
- * @param[in,out] root Level 0 table.
- * @param[in]     va   Virtual address.
+ * @param[in,out] root  Level 0 table.
+ * @param[in]     va    Virtual address.
+ * @param[in]     level Level of the entry wanted, 1 to 3.
  * @return The entry, or NULL if a block is in the way or no frame is free.
  */
-static AArch64Pte *WalkToL3(AArch64Pte *root, VirtAddr va)
+static AArch64Pte *WalkTo(AArch64Pte *root, VirtAddr va, int level)
 {
     AArch64Pte *table = root;
-    for (int level = 0; level < PTE_LEVEL_LAST; level++) {
-        table = NextTable(&table[PteIndex(va, level)]);
+    for (int l = 0; l < level; l++) {
+        table = NextTable(&table[PteIndex(va, l)]);
         if (!table)
             return NULL;
     }
 
-    return &table[PteIndex(va, PTE_LEVEL_LAST)];
+    return &table[PteIndex(va, level)];
 }
 
 /**
@@ -243,6 +244,20 @@ void ArchMmuFreeTables(uintptr_t ttbr_pa, AddressSpaceType type)
     FreeLevel((AArch64Pte *)PA_TO_VA(ttbr_pa), 0);
 }
 
+/**
+ * @brief Tells whether a 2 MiB block can map [@p va, @p va + @p left) from @p pa.
+ *
+ * @param[in] va   Virtual address.
+ * @param[in] pa   Physical address.
+ * @param[in] left Bytes still to map.
+ * @return true if both addresses are 2 MiB-aligned and at least 2 MiB is left.
+ */
+static bool FitsBlock(VirtAddr va, PhysAddr pa, size_t left)
+{
+    uint64_t size = PteLevelSize(PTE_LEVEL_BLOCK);
+    return !((va | pa) & (size - 1)) && left >= size;
+}
+
 bool ArchMmuMap(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, MemProt prot,
                 VirtMemType memtype)
 {
@@ -250,46 +265,67 @@ bool ArchMmuMap(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, MemPr
         return false;
 
     AArch64Pte *root = RootOf(as);
-    AArch64Pte desc = ProtToDesc(prot, memtype) | PTE_VALID | PTE_TABLE_OR_PAGE;
+    AArch64Pte attrs = ProtToDesc(prot, memtype) | PTE_VALID;
+    bool blocks = !(prot & VM_PROT_USER);
 
-    for (size_t off = 0; off < size; off += PAGE_SIZE) {
-        AArch64Pte *slot = WalkToL3(root, va + off);
+    for (size_t off = 0; off < size;) {
+        if (blocks && FitsBlock(va + off, pa + off, size - off)) {
+            AArch64Pte *slot = WalkTo(root, va + off, PTE_LEVEL_BLOCK);
+            if (slot && !(*slot & PTE_VALID)) {
+                *slot = (pa + off) | attrs;
+                off += PteLevelSize(PTE_LEVEL_BLOCK);
+                continue;
+            }
+        }
+
+        AArch64Pte *slot = WalkTo(root, va + off, PTE_LEVEL_LAST);
         if (!slot) {
             ArchMmuUnmap(as, va, off, false);
             return false;
         }
-        *slot = (pa + off) | desc;
+        *slot = (pa + off) | attrs | PTE_TABLE_OR_PAGE;
+        off += PAGE_SIZE;
     }
     __asm__ volatile("dsb ishst" ::: "memory");
     return true;
 }
 
+/** @brief Context of ClearSlot(). */
+typedef struct {
+    VirtAddr end; /**< End of the range being unmapped, exclusive. */
+    bool found;   /**< Set when any entry was cleared. */
+} ClearCtx;
+
 /**
- * @brief WalkRange() callback for ArchMmuUnmap(): clears page entries and leaves blocks alone.
+ * @brief WalkRange() callback for ArchMmuUnmap(): clears pages, and blocks the range covers whole.
+ *
+ * A block the range only partly covers is left mapped.
  *
  * @param[in,out] slot  Leaf entry.
  * @param[in]     level Its level.
- * @param[in]     va    Unused.
- * @param[out]    ctx   bool set to true when a page was cleared.
+ * @param[in]     va    Where the range enters the entry.
+ * @param[in,out] ctx   ClearCtx.
  */
 static void ClearSlot(AArch64Pte *slot, int level, VirtAddr va, void *ctx)
 {
-    (void)va;
-    if (level != PTE_LEVEL_LAST)
+    ClearCtx *c = ctx;
+    uint64_t size = PteLevelSize(level);
+
+    if (level != PTE_LEVEL_LAST && ((va & (size - 1)) || c->end - va < size))
         return;
     *slot = 0;
-    *(bool *)ctx = true;
+    c->found = true;
 }
 
 bool ArchMmuUnmap(AddressSpace *as, uintptr_t va, size_t size, bool flush)
 {
-    bool found = false;
+    ClearCtx c = {.end = va + size, .found = false};
 
-    WalkRange(RootOf(as), va, size, ClearSlot, &found);
+    WalkRange(RootOf(as), va, size, ClearSlot, &c);
     __asm__ volatile("dsb ishst" ::: "memory");
-    if (flush && found)
+    if (flush && c.found)
         ArchMmuFlushTlbAsid(as->asid_token.asid);
-    return found;
+    return c.found;
 }
 
 /** @brief Context of ProtectSlot(). */
