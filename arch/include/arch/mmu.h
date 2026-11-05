@@ -7,6 +7,7 @@
 #define ARCH_MMU_H
 
 #include "kernel/mm/vmm/vmm.h"
+#include <arch/asid.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -39,10 +40,10 @@ void ArchMmuFreeTables(uintptr_t ttbr_pa, AddressSpaceType type);
 /**
  * @brief Maps a physically contiguous range.
  *
- * A range whose @p va, @p pa and @p size are all section-aligned is mapped with
- * sections; otherwise it must be page-aligned and is mapped page by page. If a
- * page cannot be mapped, the pages mapped so far are unmapped again. No TLB
- * maintenance is done: the range is expected to be unmapped beforehand.
+ * The range must be page-aligned. An architecture may map it with larger blocks where
+ * @p va, @p pa and @p size are aligned to them AArch64
+ * maps page by page. If a page cannot be mapped, the pages mapped so far are unmapped
+ * again. No TLB maintenance is done: the range is expected to be unmapped beforehand.
  *
  * @param[in,out] as      Address space.
  * @param[in]     va      Virtual start.
@@ -71,7 +72,7 @@ bool ArchMmuUnmap(AddressSpace *as, uintptr_t va, size_t size, bool flush);
  * @brief Changes the protection of the mapped pages in a range, then flushes the space's TLB
  * entries.
  *
- * A section inside the range changes as a whole. Unmapped pages are skipped.
+ * A section or block inside the range changes as a whole. Unmapped pages are skipped.
  *
  * @param[in,out] as   Address space.
  * @param[in]     va   Virtual start.
@@ -106,7 +107,7 @@ void ArchMmuFlushTlb(void);
  *
  * @param[in] asid ASID; 0 invalidates the whole TLB.
  */
-void ArchMmuFlushTlbAsid(uint8_t asid);
+void ArchMmuFlushTlbAsid(Asid asid);
 
 /**
  * @brief Invalidates the TLB entries for one page in every ASID.
@@ -121,7 +122,7 @@ void ArchMmuFlushTlbVa(uintptr_t va);
  * @param[in] va   Any address in the page.
  * @param[in] asid ASID.
  */
-void ArchMmuFlushTlbVaAsid(uintptr_t va, uint8_t asid);
+void ArchMmuFlushTlbVaAsid(uintptr_t va, Asid asid);
 
 /**
  * @brief Walks a table in software to find what a virtual address maps to.
@@ -151,8 +152,10 @@ bool ArchMmuUnmapPage(AddressSpace *as, uintptr_t va);
 void ArchMmuFreeUserPages(AddressSpace *as);
 
 /**
- * @brief Makes the kernel's tables the upper-half (TTBR1) tables and splits the address space
- * at 2 GiB.
+ * @brief Makes the kernel's tables the upper-half (TTBR1) tables and flushes the TLB.
+ *
+ * On ARMv7 this also splits the address space at 2 GiB. On AArch64 TCR_EL1 already splits
+ * it, so the kernel's tables must map everything the kernel is running from before the call.
  *
  * @param[in] as The kernel's address space.
  */

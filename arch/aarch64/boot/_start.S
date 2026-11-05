@@ -107,7 +107,7 @@ mmu_setup:
     ldr x3, =0xFF00 // device, normal writeback
     msr MAIR_EL1, x3 
 
-    ldr x3, =0x2B5103510 // T0SZ=16 -> 0x10; walk cacheability and shareability for TTBR0 -> 0x3500; T1SZ=16 -> 16<<16 = 0x100000; TTBR1 cacheability, shareability and TG1=2 -> 0xB5000000; IPS=2 -> 2<<32.
+    ldr x3, =0x12B5103510 // AS=1 -> 16-bit ASIDs, 1<<36; T0SZ=16 -> 0x10; walk cacheability and shareability for TTBR0 -> 0x3500; T1SZ=16 -> 16<<16 = 0x100000; TTBR1 cacheability, shareability and TG1=2 -> 0xB5000000; IPS=2 -> 2<<32.
     msr TCR_EL1, x3
 
     msr TTBR0_EL1, x1
