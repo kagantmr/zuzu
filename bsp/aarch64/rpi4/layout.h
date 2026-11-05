@@ -12,7 +12,7 @@
 
 /* Kernel virtual regions */
 #define IOREMAP_BASE 0xFFFF800000000000UL
-#define KSTACK_REGION_BASE 0xFFFF800100000000UL /* 4 GB of ioremap below the stacks */
+#define KSTACK_REGION_BASE 0xFFFF800040000000UL /* 1 GB of ioremap below the stacks */
 #define IOREMAP_END 0xFFFF8FFFFFFFFFFFUL        /* inclusive */
 
 #endif /* RPI4_LAYOUT_H */

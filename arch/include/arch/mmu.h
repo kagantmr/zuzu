@@ -11,8 +11,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/** @brief Size of the largest block a single top-level entry maps (an ARMv7 section, 1 MiB). */
-#define SECTION_SIZE 0x100000u
 
 /**
  * @brief Create page tables for a given address space type and return its base.

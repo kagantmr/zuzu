@@ -9,6 +9,8 @@
 /** @brief Mask with bit @p n set. */
 #define MMU_BIT(n) (1U << (n))
 
+#define SECTION_SIZE 0x100000u
+
 /** @brief Type field of an L1 descriptor, bits [1:0]. */
 #define DESC_TYPE_MASK 0x3U
 /** @brief L1 type: no mapping; any access faults. */
