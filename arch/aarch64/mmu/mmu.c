@@ -386,10 +386,22 @@ bool ArchMmuProtect(AddressSpace *as, uintptr_t va, size_t size, MemProt prot)
     return c.changed;
 }
 
+static AArch64Pte empty_l0[PTE_ENTRIES] __attribute__((aligned(PAGE_SIZE)));
+
 void ArchMmuSwitch(AddressSpace *as)
 {
     if (!as || as->pt_root_physaddr == 0)
         return;
+
+    if (as->type == ADDRESS_SPACE_KERNEL) {
+        uint64_t ttbr = VA_TO_PA((VirtAddr)empty_l0);
+        __asm__ volatile("msr ttbr0_el1, %0\n"
+                         "isb\n" ::"r"(ttbr)
+                         : "memory");
+        AsidSetActive(0);
+        return;
+    }
+    
     if (as->asid_token.generation != AsidCurrentGeneration()) {
         AsidFree(as->asid_token);
         as->asid_token = AsidAlloc();
