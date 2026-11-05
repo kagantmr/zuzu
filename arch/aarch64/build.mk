@@ -6,4 +6,5 @@ obj-y += bringup_stubs.o
 # obj-y += vfp.o
 
 subdir-y += boot exceptions
-# subdir-y += irq mmu timer
+subdir-y += mmu
+# subdir-y += irq timer
