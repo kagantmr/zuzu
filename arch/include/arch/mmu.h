@@ -41,9 +41,9 @@ void ArchMmuFreeTables(uintptr_t ttbr_pa, AddressSpaceType type);
  * @brief Maps a physically contiguous range.
  *
  * The range must be page-aligned. An architecture may map it with larger blocks where
- * @p va, @p pa and @p size are aligned to them AArch64
- * maps page by page. If a page cannot be mapped, the pages mapped so far are unmapped
- * again. No TLB maintenance is done: the range is expected to be unmapped beforehand.
+ * @p va, @p pa and @p size are aligned to them: AArch64 uses 2 MiB blocks for kernel
+ * mappings and pages for user ones. If a page cannot be mapped, the pages mapped so far are
+ * unmapped again. No TLB maintenance is done: the range is expected to be unmapped beforehand.
  *
  * @param[in,out] as      Address space.
  * @param[in]     va      Virtual start.

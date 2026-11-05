@@ -1,9 +1,10 @@
 /**
  * @file
- * @brief ARMv7-A platform hooks: early UART output and device probing.
+ * @brief AArch64 platform hooks: early UART output and device probing.
  */
 
 #include <arch/platform.h>
+#include "kernel/mm/vmm/vmm.h"
 #include <stdint.h>
 
 #include BOARD_BOOT_H
@@ -13,7 +14,7 @@
 
 void ArchEarlyPutc(char c)
 {
-    volatile uint32_t *uart = (volatile uint32_t *)(uintptr_t)BOARD_UART0_BASE;
+    volatile uint32_t *uart = (volatile uint32_t *)PA_TO_VA(BOARD_UART0_BASE);
 
     if (c == '\n')
         ArchEarlyPutc('\r');
