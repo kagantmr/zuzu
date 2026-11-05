@@ -54,6 +54,8 @@ _Noreturn void early(void *dtb_ptr)
     kernel_layout.kernel_end_pa   = VA_TO_PA((VirtAddr)_kernel_end);
     kernel_layout.stack_base_pa   = VA_TO_PA((VirtAddr)__kstack_base);
     kernel_layout.stack_top_pa    = VA_TO_PA((VirtAddr)__kstack_top);
+    kernel_layout.boot_start_pa   = VA_TO_PA((VirtAddr)_boot_start_va);
+    kernel_layout.boot_end_pa     = VA_TO_PA((VirtAddr)_boot_end_va);
 
     uint64_t linear_max = (uint64_t)(IOREMAP_BASE - PA_TO_VA((PhysAddr)base));
     if (size > linear_max)
@@ -63,6 +65,8 @@ _Noreturn void early(void *dtb_ptr)
     kernel_layout.ram_end = (PhysAddr)(base + size);
     KDEBUG("early: ram [%p..%p)", (void *)kernel_layout.ram_start, (void *)kernel_layout.ram_end);
     // EarlyMapRamSections(kernel_layout.ram_start, (size_t)size);
+    PmmInit();
+    KHeapInit();
 
     ArchCpuHalt();
 }

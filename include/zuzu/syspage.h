@@ -57,8 +57,8 @@ typedef struct {
     char build[24];      /**< Build date. */
     char machine[20];    /**< Machine zuzu is booting on. */
     char cpu[24];        /**< CPU within the machine. */
-    size_t mem_total_kb; /**< Total memory in kilobytes. */
-    size_t mem_free_kb;  /**< Free memory in kilobytes. */
+    uint32_t mem_total_kb; /**< Total memory in kilobytes. */
+    uint32_t mem_free_kb;  /**< Free memory in kilobytes. */
     uint64_t counter_freq;                     /**< Counter frequency.  */
     uint64_t counter_boot;                     /**< Counter value at boot. */
     uint8_t dev_count;                         /**< Device count. */

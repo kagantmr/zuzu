@@ -18,6 +18,9 @@ typedef struct {
 
     uintptr_t dtb_start_pa; /**< Physical address of the device tree blob. */
 
+    uintptr_t boot_start_pa; /**< Physical start of the boot-only section. */
+    uintptr_t boot_end_pa; /**< Physical end of the boot-only section. */
+
     uintptr_t kernel_start_pa; /**< Physical start of the kernel image. */
     uintptr_t kernel_end_pa; /**< Physical end of the kernel image. */
     uintptr_t kernel_start_va; /**< Virtual start of the kernel image. */

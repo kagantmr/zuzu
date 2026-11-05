@@ -20,7 +20,7 @@
 #endif
 
 /** @brief Physical frame number (physical address divided by PAGE_SIZE). */
-typedef uint32_t Pfn;
+typedef size_t Pfn;
 
 /**
  * @brief Convert a frame number to its physical address.

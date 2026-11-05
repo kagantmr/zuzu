@@ -172,13 +172,13 @@ static PhysAddr PmmTakeFreeFrame(void)
  */
 static void PmmReserveBootRegions(void)
 {
-    PmmMarkRange((PhysAddr)_boot_start, (PhysAddr)_boot_end);
+    PmmMarkRange(kernel_layout.boot_start_pa, kernel_layout.boot_end_pa);
     
     PmmMarkRange(kernel_layout.dtb_start_pa, kernel_layout.dtb_start_pa + FdtTotalSize());
     PmmMarkRange(kernel_layout.kernel_start_pa, kernel_layout.kernel_end_pa);
     PmmMarkRange(kernel_layout.bitmap_start_pa, kernel_layout.bitmap_end_pa);
 
-    PmmMarkRange((PhysAddr)__stack_region_base__, (PhysAddr)__stack_region_end__);
+    PmmMarkRange(kernel_layout.stack_base_pa, kernel_layout.stack_top_pa);
 
     uint64_t rsv_addr, rsv_size;
     for (uint32_t i = 0; FdtGetReservedMem(i, &rsv_addr, &rsv_size); i++)
