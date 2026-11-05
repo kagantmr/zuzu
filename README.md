@@ -25,7 +25,7 @@ zuzu is still under active development. Contributions are appreciated, please re
 | Task lifecycle & scheduling                            | done    | Loaf                          |
 | Loaf rewrite                                           | done    | Prowl                         |
 | Object management                                      | done    | Prowl                         |
-| AArch64 port                                           | pending | Prowl 2.x                     |
+| AArch64 port                                           | IN PROGRESS | Prowl 2.1.1                   |
 | Settlement of the object model semantics               | pending | Knead                         |
 | Global lap and SMP                                     | done    | Knead                         |
 
