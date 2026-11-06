@@ -39,8 +39,8 @@ void ArchMmuFreeTables(uintptr_t ttbr_pa, AddressSpaceType type);
  * @brief Maps a physically contiguous range.
  *
  * The range must be page-aligned. An architecture may map it with larger blocks where
- * @p va, @p pa and @p size are aligned to them: AArch64 uses 2 MiB blocks for kernel
- * mappings and pages for user ones. If a page cannot be mapped, the pages mapped so far are
+ * @p va, @p pa and @p size are aligned to them: ARMv7 uses 1 MiB sections and AArch64 2 MiB
+ * blocks for kernel mappings, and both use pages for user ones. If a page cannot be mapped, the pages mapped so far are
  * unmapped again. No TLB maintenance is done: the range is expected to be unmapped beforehand.
  *
  * @param[in,out] as      Address space.
@@ -59,8 +59,8 @@ bool ArchMmuMap(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, MemPr
  * @brief Maps a physically contiguous range page by page.
  *
  * The range must be page-aligned. An architecture may map it with larger blocks where
- * @p va, @p pa and @p size are aligned to them: AArch64 uses 2 MiB blocks for kernel
- * mappings and pages for user ones. If a page cannot be mapped, the pages mapped so far are
+ * @p va, @p pa and @p size are aligned to them: ARMv7 uses 1 MiB sections and AArch64 2 MiB
+ * blocks for kernel mappings, and both use pages for user ones. If a page cannot be mapped, the pages mapped so far are
  * unmapped again. No TLB maintenance is done: the range is expected to be unmapped beforehand.
  *
  * @param[in,out] as      Address space.
@@ -178,6 +178,29 @@ void ArchMmuFreeUserPages(AddressSpace *as);
  * @param[in] as The kernel's address space.
  */
 void ArchMmuInitTtbr1(AddressSpace *as);
+
+/**
+ * @brief Starts running on a freshly built kernel address space.
+ *
+ * Called once by VmmBootstrap() after it has mapped RAM. Maps whatever else the kernel still
+ * needs from the boot tables and installs the space. AArch64 maps the board's peripheral window
+ * and loads the space into TTBR1; ARMv7 keeps the boot identity mapping and switches TTBR0 to it.
+ *
+ * @param[in,out] as The kernel's address space.
+ * @return false if a mapping could not be made.
+ */
+bool ArchMmuInstallKernelSpace(AddressSpace *as);
+
+/**
+ * @brief Stops translating through the boot identity mapping.
+ *
+ * Afterwards no address below the kernel half reaches physical memory until a user space is
+ * switched in. AArch64 loads an empty TTBR0 table and flushes the TLB; ARMv7 moves its stacks
+ * to the higher half and unmaps the identity range.
+ *
+ * @param[in,out] as The kernel's address space.
+ */
+void ArchMmuDropIdentity(AddressSpace *as);
 
 #include <arch_impl/mmu.h>
 

@@ -64,9 +64,19 @@ _Noreturn void early(void *dtb_ptr)
     kernel_layout.ram_start = (PhysAddr)base;
     kernel_layout.ram_end = (PhysAddr)(base + size);
     KDEBUG("early: ram [%p..%p)", (void *)kernel_layout.ram_start, (void *)kernel_layout.ram_end);
-    // EarlyMapRamSections(kernel_layout.ram_start, (size_t)size);
     PmmInit();
     KHeapInit();
+    VmmBootstrap();
+
+    kernel_layout.stack_base_va = (uintptr_t)PA_TO_VA(kernel_layout.stack_base_pa);
+    kernel_layout.stack_top_va = (uintptr_t)PA_TO_VA(kernel_layout.stack_top_pa);
+    kernel_layout.kernel_start_va = (uintptr_t)PA_TO_VA(kernel_layout.kernel_start_pa);
+    kernel_layout.kernel_end_va = (uintptr_t)PA_TO_VA(kernel_layout.kernel_end_pa);
+
+    VmmRemoveIdentityMapping();
+    VmmLockdownKernelMapping();
+    PmmUnmarkRange(kernel_layout.boot_start_pa, kernel_layout.boot_end_pa);
+    KDEBUG("early: running on the kernel's own tables");
 
     ArchCpuHalt();
 }

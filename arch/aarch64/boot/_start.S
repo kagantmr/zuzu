@@ -254,7 +254,7 @@ higher_half_entry:
     msr VBAR_EL1, x0
     isb
 
-    ldr x0, =__svc_stack_top__
+    ldr x0, =__kstack_top
     mov sp, x0
 
     mov x0, x19

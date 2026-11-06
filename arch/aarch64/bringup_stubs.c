@@ -27,6 +27,16 @@ _Noreturn void panic(const char *fmt, ...)
     ArchCpuHalt();
 }
 
+void ArchUnhandledException(uint64_t esr, uint64_t elr, uint64_t far);
+
+/* Until the exception handlers are ported: report the fault and halt. */
+void ArchUnhandledException(uint64_t esr, uint64_t elr, uint64_t far)
+{
+    kprintf("\nUNHANDLED EXCEPTION: ESR=%016llx ELR=%016llx FAR=%016llx\n",
+            (unsigned long long)esr, (unsigned long long)elr, (unsigned long long)far);
+    ArchCpuHalt();
+}
+
 /* Until timer/generic_timer.c links (it needs the GIC): raw counter reads for log timestamps. */
 Time ArchTimerNow(void)
 {

@@ -58,6 +58,7 @@ SECTIONS
     } : text
 
     . = ALIGN(4096);
+    _rodata_start = .;
 
     /* --- Read-only Data --- */
     /* LMA must match VMA offset: if VMA is aligned, LMA must be too */

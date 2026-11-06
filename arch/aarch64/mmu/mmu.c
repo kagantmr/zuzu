@@ -12,6 +12,8 @@
 #include <string.h>
 #include <zuzu/user_layout.h>
 
+#include BOARD_BOOT_H
+
 /**
  * @brief Callback run by WalkRange() on each leaf entry.
  *
@@ -557,4 +559,22 @@ void ArchMmuInitTtbr1(AddressSpace *as)
                      "dsb ish\n"
                      "isb\n" ::"r"(as->pt_root_physaddr)
                      : "memory");
+}
+
+bool ArchMmuInstallKernelSpace(AddressSpace *as)
+{
+    size_t periph_size = (size_t)BOARD_PERIPH_MB << 20;
+
+    if (!ArchMmuMap(as, PA_TO_VA(BOARD_PERIPH_PA_BASE), BOARD_PERIPH_PA_BASE, periph_size,
+                    PROT_READ | PROT_WRITE, VM_MEM_DEVICE))
+        return false;
+
+    ArchMmuInitTtbr1(as);
+    return true;
+}
+
+void ArchMmuDropIdentity(AddressSpace *as)
+{
+    ArchMmuSwitch(as);
+    ArchMmuFlushTlb();
 }

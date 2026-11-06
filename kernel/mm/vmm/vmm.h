@@ -166,9 +166,10 @@ VirtAddr VmmFindFreeVa(const AddressSpace *as, VirtAddr lo, VirtAddr hi, size_t 
 /**
  * @brief Build the kernel address space and switch to it.
  *
- * Copies the early boot tables, registers the higher-half RAM mapping and the boot identity
- * mapping as regions, and marks the MMU as enabled. Panics on allocation failure. Does nothing if
- * the kernel space already exists.
+ * Maps all of RAM at its linear-map address, the kernel image with pages and the rest with the
+ * largest blocks that fit, registers it as a region, installs the space with
+ * ArchMmuInstallKernelSpace() and marks the MMU as enabled. Panics on failure. Does nothing if the
+ * kernel space already exists.
  */
 void VmmBootstrap(void);
 
@@ -332,8 +333,7 @@ Err VmmProtectUserRange(SpaceObject *space, VirtAddr va, size_t size, MemProt ne
 /**
  * @brief Drop the boot-time identity mapping of RAM.
  *
- * Relocates stacks to the higher half first if the stack pointer is still in the identity range.
- * Afterwards the kernel runs purely in the higher half.
+ * Calls ArchMmuDropIdentity(). Afterwards the kernel runs purely in the higher half.
  */
 void VmmRemoveIdentityMapping(void);
 
@@ -410,10 +410,10 @@ bool VmmRegionProt(AddressSpace *as, VirtAddr va, MemProt *out);
 bool VmmRegionLimitProt(AddressSpace *as, VirtAddr va, MemProt allowed);
 
 /**
- * @brief Make the kernel image mappings privileged read-only at the page-table level.
+ * @brief Make the kernel's code read-only and executable, and its read-only data read-only.
  *
- * Rewrites the access permission bits of the section and small-page entries that cover the kernel
- * image, then flushes the TLB.
+ * .text becomes read and execute, .rodata read only; .data and .bss stay read and write. The TLB
+ * is flushed.
  */
 void VmmLockdownKernelMapping(void);
 
