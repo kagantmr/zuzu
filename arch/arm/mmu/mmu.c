@@ -8,11 +8,18 @@
 #include "types.h"
 #include <arch/asid.h>
 #include <arch/barrier.h>
+#include <arch/cpu.h>
 #include <arch/mmu.h>
 #include <arch_impl/armv7_mmu.h>
 #include <assert.h>
 #include <stdint.h>
 #include <string.h>
+#include "kernel/layout.h"
+
+#include BOARD_BOOT_H
+
+/** @brief The kernel's physical memory layout, filled in during early boot. */
+extern RamLayout kernel_layout;
 
 /** @brief Unmaps up to this many pages flush them one by one; larger ones flush the whole ASID. */
 #define UNMAP_TLBI_PAGE_THRESHOLD 16U
@@ -222,52 +229,97 @@ void ArchMmuFreeTables(uintptr_t ttbr_pa, AddressSpaceType type)
     }
 }
 
+/**
+ * @brief Undoes part of a MapRange(): clears the sections and pages mapped in [@p va, @p va + @p size).
+ *
+ * @param[in,out] as   Address space.
+ * @param[in]     va   Start of what was mapped.
+ * @param[in]     size Bytes mapped so far.
+ */
+static void UnmapRangeMixed(AddressSpace *as, uintptr_t va, size_t size)
+{
+    uint32_t *l1 = (uint32_t *)PA_TO_VA(as->pt_root_physaddr);
+
+    for (uintptr_t off = 0; off < size;) {
+        uintptr_t cur = va + off;
+        uint32_t idx = L1_IDX(cur);
+
+        if ((cur % SECTION_SIZE) == 0 && (l1[idx] & DESC_TYPE_MASK) == DESC_SECTION) {
+            l1[idx] = 0;
+            off += SECTION_SIZE;
+        } else {
+            ArchMmuUnmapPage(as, cur);
+            off += PAGE_SIZE;
+        }
+    }
+    ArchDsb();
+}
+
+/**
+ * @brief Maps a page-aligned range, with sections wherever a whole empty section fits if allowed.
+ *
+ * @param[in,out] as             Address space.
+ * @param[in]     va             Virtual start.
+ * @param[in]     pa             Physical start.
+ * @param[in]     size           Size in bytes.
+ * @param[in]     prot           Protection.
+ * @param[in]     memtype        Memory type.
+ * @param[in]     allow_sections Whether sections may be used; user spaces never get them.
+ * @return false if the range is misaligned or outside the space, or a table could not be
+ *         allocated; nothing stays mapped then.
+ */
+static bool MapRange(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, MemProt prot,
+                     VirtMemType memtype, bool allow_sections)
+{
+    if (!as || size == 0)
+        return false;
+    if ((va | pa | size) % PAGE_SIZE)
+        return false;
+    if (as->type == ADDRESS_SPACE_USER && (va >= USER_VA_TOP || size > (USER_VA_TOP - va)))
+        return false;
+
+    uint32_t *l1 = (uint32_t *)PA_TO_VA(as->pt_root_physaddr);
+    size_t max_idx = l1_entry_count(as->type);
+    bool sections = allow_sections && as->type != ADDRESS_SPACE_USER;
+
+    for (uintptr_t off = 0; off < size;) {
+        uintptr_t cur_va = va + off;
+        uintptr_t cur_pa = pa + off;
+        size_t idx = L1_IDX(cur_va);
+
+        if (idx >= max_idx) {
+            UnmapRangeMixed(as, va, off);
+            return false;
+        }
+
+        if (sections && (cur_va % SECTION_SIZE) == 0 && (cur_pa % SECTION_SIZE) == 0 &&
+            size - off >= SECTION_SIZE && (l1[idx] & DESC_TYPE_MASK) == DESC_FAULT) {
+            l1[idx] = l1_section_desc(cur_pa, prot, memtype);
+            off += SECTION_SIZE;
+            continue;
+        }
+
+        if (!ArchMmuMapPage(as, cur_va, cur_pa, memtype, prot)) {
+            UnmapRangeMixed(as, va, off);
+            return false;
+        }
+        off += PAGE_SIZE;
+    }
+
+    ArchDsb();
+    return true;
+}
+
 bool ArchMmuMap(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, MemProt prot,
                 VirtMemType memtype)
 {
-    if (!as || size == 0) {
-        return false;
-    }
+    return MapRange(as, va, pa, size, prot, memtype, true);
+}
 
-    if (as->type == ADDRESS_SPACE_USER) {
-        if (va >= USER_VA_TOP || size > (USER_VA_TOP - va)) {
-            return false;
-        }
-    }
-
-    if ((va % SECTION_SIZE) == 0 && (pa % SECTION_SIZE) == 0 && (size % SECTION_SIZE) == 0) {
-        uint32_t *l1_table = (uint32_t *)PA_TO_VA(as->pt_root_physaddr);
-        size_t max_idx = l1_entry_count(as->type);
-
-        for (uintptr_t offset = 0; offset < size; offset += SECTION_SIZE) {
-            uintptr_t curr_va = va + offset;
-            uintptr_t curr_pa = pa + offset;
-
-            size_t idx = L1_IDX(curr_va);
-            if (idx >= max_idx)
-                return false;
-
-            l1_table[idx] = l1_section_desc(curr_pa, prot, memtype);
-        }
-
-        ArchDsb();
-        return true;
-    }
-
-    if ((va % PAGE_SIZE == 0) && (pa % PAGE_SIZE == 0) && (size % PAGE_SIZE == 0)) {
-        for (uintptr_t offset = 0; offset < size; offset += PAGE_SIZE) {
-            if (!ArchMmuMapPage(as, va + offset, pa + offset, memtype, prot)) {
-                for (uintptr_t rollback = 0; rollback < offset; rollback += PAGE_SIZE) {
-                    ArchMmuUnmapPage(as, va + rollback);
-                }
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    return false;
+bool ArchMmuMapPages(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, MemProt prot,
+                     VirtMemType memtype)
+{
+    return MapRange(as, va, pa, size, prot, memtype, false);
 }
 
 bool ArchMmuUnmap(AddressSpace *as, uintptr_t va, size_t size, bool flush)
@@ -699,4 +751,58 @@ void ArchMmuInitTtbr1(AddressSpace *as)
 
     ArchMmuFlushTlb();
     ArchSyncBarrier();
+}
+
+/**
+ * @brief The RAM range ArchMmuInstallKernelSpace() identity-maps, widened to whole sections.
+ *
+ * @param[out] start Physical start, section-aligned.
+ * @param[out] size  Size in bytes, a whole number of sections.
+ */
+static void IdentityRange(uintptr_t *start, size_t *size)
+{
+    uintptr_t lo = kernel_layout.ram_start & ~(uintptr_t)(SECTION_SIZE - 1);
+    uintptr_t hi = (kernel_layout.ram_end + SECTION_SIZE - 1) & ~(uintptr_t)(SECTION_SIZE - 1);
+
+    *start = lo;
+    *size = hi - lo;
+}
+
+bool ArchMmuInstallKernelSpace(AddressSpace *as)
+{
+    uintptr_t id_start;
+    size_t id_size;
+
+    IdentityRange(&id_start, &id_size);
+    if (!ArchMmuMap(as, id_start, id_start, id_size, PROT_READ | PROT_WRITE | PROT_EXEC,
+                    VM_MEM_NORMAL))
+        return false;
+
+    if (!ArchMmuMap(as, BOARD_PERIPH_PA_BASE, BOARD_PERIPH_PA_BASE,
+                    (size_t)BOARD_PERIPH_MB * SECTION_SIZE, PROT_READ | PROT_WRITE, VM_MEM_DEVICE))
+        return false;
+
+    ArchDsb();
+    __asm__ volatile("mcr p15, 0, %0, c13, c0, 1" ::"r"(0U) : "memory");
+    ArchIsb();
+    __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"(ttbr_value(as->pt_root_physaddr))
+                     : "memory");
+    ArchIsb();
+    AsidSetActive(0);
+
+    ArchMmuFlushTlb();
+    ArchSyncBarrier();
+    return true;
+}
+
+void ArchMmuDropIdentity(AddressSpace *as)
+{
+    uintptr_t id_start;
+    size_t id_size;
+
+    if (ArchCurrentStackPointer() < KERNEL_VA_BASE)
+        ArchRelocateStacks(KERNEL_VA_OFFSET);
+
+    IdentityRange(&id_start, &id_size);
+    ArchMmuUnmap(as, id_start, id_size, true);
 }

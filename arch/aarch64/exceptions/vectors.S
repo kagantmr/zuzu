@@ -39,22 +39,9 @@ vector_table:
 
 unhandled:
     mrs x0, ESR_EL1
-    bl early_uart_puthex
+    mrs x1, ELR_EL1
+    mrs x2, FAR_EL1
+    bl ArchUnhandledException
 
-    mov x0, '\n'
-    bl early_uart_putc
-
-    mrs x0, ELR_EL1
-    bl early_uart_puthex
-    
-    mov x0, '\n'
-    bl early_uart_putc
-
-    mrs x0, FAR_EL1
-    bl early_uart_puthex
-    
-    mov x0, '\n'
-    bl early_uart_putc
-    
 dead:
     b dead

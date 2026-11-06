@@ -1,4 +1,4 @@
-# obj-y += cache.o
+obj-y += cache.o
 obj-y += platform.o
 # obj-y += context.o
 obj-y += early.o

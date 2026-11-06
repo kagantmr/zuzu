@@ -13,9 +13,9 @@
 typedef void (*strfmt_outc_t)(void *ctx, char c);
 
 /** @brief Rounds @p addr down to a multiple of @p align, a power of two. */
-#define align_down(addr, align) ((addr) & ~((align) - 1u))
+#define align_down(addr, align) ((addr) & ~(__typeof__(addr))((align) - 1u))
 /** @brief Rounds @p addr up to a multiple of @p align, a power of two. */
-#define align_up(addr, align) (((addr) + (align) - 1) & ~((align) - 1u))
+#define align_up(addr, align) (((addr) + (align) - 1) & ~(__typeof__(addr))((align) - 1u))
 
 /**
  * @brief Copy n bytes from source to destination.

@@ -8,6 +8,8 @@
 
 extern char _kernel_start[]; /**< Virtual start of the kernel image. */
 extern char _kernel_end[];   /**< Virtual end of the kernel image. */
+extern char _rodata_start[]; /**< Virtual start of .rodata, page-aligned; .text ends here. */
+extern char _data_start[];   /**< Virtual start of .data, page-aligned; .rodata ends here. */
 
 extern char _kernel_phys_start[];    /**< Physical start of the kernel image. */
 extern char _kernel_phys_end[];      /**< Physical end of the kernel image. */
