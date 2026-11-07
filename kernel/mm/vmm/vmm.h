@@ -374,6 +374,21 @@ void IoUnmap(void *va);
 bool VmmCheckUserFault(AddressSpace *as, VirtAddr va, size_t len, bool write);
 
 /**
+ * @brief Serve a translation fault on a user address by mapping the page behind it.
+ *
+ * Arch-independent part of demand paging: the exception handler decodes the fault and calls this
+ * for translation faults only. Guard and device regions, and accesses the region's protection
+ * forbids, are not served.
+ *
+ * @param[in,out] as The faulting address space.
+ * @param[in] va The faulting address.
+ * @param[in] write Whether the access was a write.
+ * @return true if the page is now mapped and the access can be retried.
+ * @retval false @p va is outside user space or any region, or the region cannot be demand-paged.
+ */
+bool VmmDemandPage(AddressSpace *as, VirtAddr va, bool write);
+
+/**
  * @brief Populate one page of a region.
  *
  * Anonymous regions get a zeroed frame. Shared regions use, or allocate and zero, the page at the

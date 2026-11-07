@@ -85,39 +85,6 @@ static const char *DecodeFsr(uint32_t fsr)
 }
 
 /**
- * @brief Maps the page behind a translation fault if it falls in a region that is filled on demand.
- *
- * Guard and device regions, and accesses the region's protection forbids, are not served.
- *
- * @param[in] space Faulting space.
- * @param[in] dfar  Faulting address.
- * @param[in] dfsr  Fault status; bit 11 set means a write.
- * @return true if the page is now mapped and the access can be retried.
- */
-static bool __hot ServiceDemandPage(SpaceObject *space, uint32_t dfar, uint32_t dfsr)
-{
-    AddressSpace *as = space->as;
-    for (uint32_t i = 0; i < as->regions.len; i++) {
-        VirtMemRegion *r = vm_region_vec_get(&as->regions, i);
-        if (!r)
-            continue;
-        if (dfar >= r->vaddr_start && dfar < r->vaddr_start + r->size) {
-            if (unlikely(r->flags & VM_FLAG_GUARD))
-                continue;
-            if (unlikely(r->memtype == VM_MEM_DEVICE))
-                continue;
-            if (unlikely(!(dfsr & (1 << 11)) && !(r->prot & PROT_READ)))
-                continue;
-            if (unlikely((dfsr & (1 << 11)) && !(r->prot & PROT_WRITE)))
-                continue;
-            uintptr_t page_va = align_down(dfar, PAGE_SIZE);
-            return VmmPageFaultHandle(as, r, page_va);
-        }
-    }
-    return false;
-}
-
-/**
  * @brief Handles every exception except SVC, called from the vectors.
  *
  * User faults kill the task; kernel faults panic, except demand-paging faults
@@ -229,7 +196,7 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
         if (likely(from_user && current_space && current_space->as)) {
             
             if (likely(is_translation && dfar < KERNEL_VA_BASE) &&
-                ServiceDemandPage(current_space, dfar, dfsr)) {
+                VmmDemandPage(current_space->as, dfar, (dfsr & (1 << 11)) != 0)) {
 #ifdef CONFIG_ZUZU_BENCH
                 BENCH_END(g_bench_lazy_map_fault, bench_start);
 #endif
@@ -243,7 +210,7 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
             TaskFault(current_task, KILLED_FAULT_DATA);
             Schedule();
         } else if (from_svc && current_space && current_space->as && dfar < KERNEL_VA_BASE) {
-            if (is_translation && ServiceDemandPage(current_space, dfar, dfsr)) {
+            if (is_translation && VmmDemandPage(current_space->as, dfar, (dfsr & (1 << 11)) != 0)) {
 #ifdef CONFIG_ZUZU_BENCH
                 BENCH_END(g_bench_lazy_map_fault, bench_start);
 #endif

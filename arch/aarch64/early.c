@@ -16,6 +16,7 @@
 #include <arch/cpu.h>
 #include <arch/irq.h>
 #include <arch/platform.h>
+#include <arch/fpu.h>
 #include <arch/symbols.h>
 #include <arch_impl/sysreg.h>
 #include <string.h>
@@ -123,6 +124,7 @@ _Noreturn void early(void *dtb_ptr)
     kernel_layout.boot_end_pa     = VA_TO_PA((VirtAddr)_boot_end_va);
 
     PmuInit();
+    ArchFpuTrapDisable();
     PmmInit();
     KHeapInit();
     VmmBootstrap();
