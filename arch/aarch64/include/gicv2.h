@@ -3,8 +3,8 @@
  * @brief GICv2 interrupt controller registers and driver.
  */
 
-#ifndef ARCH_ARM_GICV2_H
-#define ARCH_ARM_GICV2_H
+#ifndef ARCH_AARCH64_GICV2_H
+#define ARCH_AARCH64_GICV2_H
 
 #include <stdint.h>
 #include <types.h>

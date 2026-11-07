@@ -3,25 +3,25 @@
  * @brief AArch64 CPU control.
  */
 
-#ifndef ARCH_ARM_IMPL_CPU_H
-#define ARCH_ARM_IMPL_CPU_H
+#ifndef ARCH_AARCH64_IMPL_CPU_H
+#define ARCH_AARCH64_IMPL_CPU_H
 
 #include <arch_impl/sysreg.h>
 #include <stdint.h>
 
-/** @brief A saved CPSR, as returned by ArchIrqSave(). */
+/** @brief A saved DAIF, as returned by ArchIrqSave(). */
 typedef uint64_t Cpsr;
 
-/** @brief Masks IRQs on this CPU (cpsid i). */
+/** @brief Masks IRQs on this CPU (msr daifset, #2). */
 static inline void ArchGlobalIrqDisable(void) { __asm__ volatile("msr daifset, #2" ::: "memory"); }
 
-/** @brief Unmasks IRQs on this CPU (cpsie i). */
+/** @brief Unmasks IRQs on this CPU (msr daifclr, #2). */
 static inline void ArchGlobalIrqEnable(void) { __asm__ volatile("msr daifclr, #2" ::: "memory"); }
 
 /**
- * @brief Masks IRQs and returns the previous CPSR, for ArchIrqRestore().
+ * @brief Masks IRQs and returns the previous DAIF, for ArchIrqRestore().
  *
- * @return The CPSR before masking.
+ * @return DAIF before masking.
  */
 static inline Cpsr ArchIrqSave(void)
 {
@@ -62,4 +62,4 @@ static inline uintptr_t ArchCurrentStackPointer(void)
     return sp;
 }
 
-#endif // ARCH_ARM_IMPL_CPU_H
+#endif // ARCH_AARCH64_IMPL_CPU_H
