@@ -1,7 +1,7 @@
 # arch/aarch64/arch.mk - AArch64 build settings.
 
 # Toolchain (overridable from the environment / command line via CROSS).
-ARCH_CROSS    ?= aarch64-none-elf
+ARCH_CROSS    ?= aarch64-none-elf-
 ARCH_NEWLIB_TRIPLE ?= aarch64-none-elf
 
 # Code generation. CPUFLAGS may be overridden per board (see CPUFLAGS_<board>
