@@ -13,6 +13,7 @@
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/mm/vmm/vmm.h"
 #include <arch/barrier.h>
+#include <arch/fpu.h>
 #include <arch/irq.h>
 #include <arch/mmu.h>
 #include <arch/platform.h>
@@ -65,7 +66,7 @@ static void pmu_init(void)
     __asm__ volatile("mcr p15, 0, %0, c9, c12, 1" ::"r"(0x80000000));
 }
 
-/** @brief Grants cp10/cp11 access and enables the VFP (FPEXC.EN). */
+/** @brief Enables the VFP (FPEXC.EN), then removes cp10/cp11 access so the first use traps. */
 static void vfp_init(void)
 {
     uint32_t cpacr;
@@ -75,6 +76,7 @@ static void vfp_init(void)
     __asm__ volatile("isb");
     __asm__ volatile(".fpu vfpv4\n\t"
                      "vmsr fpexc, %0" ::"r"(1u << 30));
+    ArchFpuTrapDisable();
 }
 
 /**

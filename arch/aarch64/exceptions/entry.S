@@ -72,9 +72,41 @@
     add sp, sp, #CPU_STATE_SIZE
 .endm
 
+/**
+ * RESCHED_CHECK
+ *
+ * If the scheduler set do_resched, clears it and calls Schedule(). Clobbers the caller-saved
+ * registers; the frame at sp is untouched.
+ */
+.macro RESCHED_CHECK
+    adrp x0, do_resched
+    ldrb w1, [x0, :lo12:do_resched]
+    cbz  w1, 1f
+    strb wzr, [x0, :lo12:do_resched]
+    bl   Schedule
+1:
+.endm
+
 .text
+
+/**
+ * task_entry_trampoline
+ *
+ * Where a new user task first runs: ArchTaskUserInit() makes its CpuContext return here, with
+ * sp at the CpuState it prepared. Enters EL0 through ret_to_user.
+ */
 .global task_entry_trampoline
 task_entry_trampoline:
+    b ret_to_user
+
+/**
+ * ret_to_user
+ *
+ * Common exit to EL0: reschedules if one is due, then restores the CpuState at sp and erets.
+ * sp is the task's kernel stack top after the restore, where the next EL0 exception saves.
+ */
+ret_to_user:
+    RESCHED_CHECK
     RESTORE_STATE
     eret
 
@@ -114,6 +146,17 @@ el1_sync:
     RESTORE_STATE
     eret
 
+el0_sync:
+    SAVE_STATE
+    mov x0, sp
+    bl UserSyncException
+    b ret_to_user
+
+el0_irq:
+    SAVE_STATE
+    bl ArchIrqDispatch
+    b ret_to_user
+
 /**
  * BAD_VECTOR label, offset
  *
@@ -133,8 +176,6 @@ el1_sync:
     BAD_VECTOR bad_el1t_irq,  0x080
     BAD_VECTOR bad_el1t_fiq,  0x100
     BAD_VECTOR bad_el1h_fiq,  0x300
-    BAD_VECTOR el0_sync,      0x400
-    BAD_VECTOR el0_irq,       0x480
     BAD_VECTOR bad_el0_fiq,   0x500
 
 el0_aarch32:
@@ -146,6 +187,7 @@ el0_aarch32:
 el1_irq:
     SAVE_STATE
     bl ArchIrqDispatch
+    RESCHED_CHECK
     RESTORE_STATE
     eret
 

@@ -70,7 +70,7 @@ static uint64_t wheel_now_slot;
 static uint32_t slot_shift;
 
 /** @brief Whether the running task may use the FPU without trapping. */
-bool fpu_access_enabled = true;
+bool fpu_access_enabled = false;
 
 _Static_assert(SCHED_PRIORITY_LEVELS <= 32, "ready_mask is a uint32_t");
 /** @brief One bit per priority level, set while its run queue is not empty. */
