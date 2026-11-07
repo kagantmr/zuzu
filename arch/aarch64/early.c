@@ -80,6 +80,15 @@ static void EarlyTick(void)
     ArchTimerSetDeadline(ArchTimerNow() + ArchTimerFreq() / 10);
 }
 
+static void PmuInit(void)
+{
+    WRITE_SYSREG(pmcr_el0, (READ_SYSREG(pmcr_el0) | 1 | (1 << 2)) & ~(1UL << 3));
+    WRITE_SYSREG(pmccfiltr_el0, 0);
+    WRITE_SYSREG(pmuserenr_el0, 1);
+    WRITE_SYSREG(pmcntenset_el0, 1UL << 31);
+    Isb();
+}
+
 /**
  * @brief First C function, called by _start with the MMU on.
  *
@@ -113,6 +122,7 @@ _Noreturn void early(void *dtb_ptr)
     kernel_layout.boot_start_pa   = VA_TO_PA((VirtAddr)_boot_start_va);
     kernel_layout.boot_end_pa     = VA_TO_PA((VirtAddr)_boot_end_va);
 
+    PmuInit();
     PmmInit();
     KHeapInit();
     VmmBootstrap();

@@ -59,6 +59,10 @@ from_el2:
     ldr x0, =0x3C5
     msr SPSR_EL2, x0
 
+    // disable pmu traps to el2
+    mrs  x0, pmcr_el0
+    ubfx x0, x0, #11, #5    // PMCR.N = number of counters
+    msr  mdcr_el2, x0       // HPMN = N, TPM = TPMCR = 0
 
     ldr x0, =el1_entry
     msr ELR_EL2, x0
