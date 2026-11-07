@@ -182,6 +182,9 @@ void KernelSyncException(CpuState *frame)
     case 0x21: // instruction abort, same EL (jumped somewhere bad)
 
     case 0x00: // undefined instruction
+        panic_fault_ctx.fault_type = EcName(ec);
+        panic_fault_ctx.access_type = "execute";
+        panic("Kernel-level undefined instruction");
     case 0x3C: // brk / __builtin_trap()
     case 0x22: // pc misaligned
     case 0x26: // sp misaligned
