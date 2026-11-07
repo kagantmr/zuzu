@@ -81,36 +81,63 @@ vector_table:
     ventry unhandled    // 0x000  EL1, SP_EL0, sync
     ventry unhandled    // 0x080  EL1, SP_EL0, IRQ
     ventry unhandled    // 0x100  EL1, SP_EL0, FIQ
-    ventry unhandled    // 0x180  EL1, SP_EL0, SError
+    ventry el1_serror   // 0x180  EL1, SP_EL0, SError
 
-    ventry unhandled    // 0x200  EL1, SP_EL1, sync
-    
+    ventry el1_sync     // 0x200  EL1, SP_EL1, sync
+
     ventry el1_irq      // 0x280  EL1, SP_EL1, IRQ
-    
+
     ventry unhandled    // 0x300  EL1, SP_EL1, FIQ
-    ventry unhandled    // 0x380  EL1, SP_EL1, SError
+    ventry el1_serror   // 0x380  EL1, SP_EL1, SError
 
-    ventry unhandled    // 0x400  EL0 AArch64, sync
-    ventry unhandled    // 0x480  EL0 AArch64, IRQ
+    ventry el0_sync     // 0x400  EL0 AArch64, sync
+    ventry el0_irq      // 0x480  EL0 AArch64, IRQ
     ventry unhandled    // 0x500  EL0 AArch64, FIQ
-    ventry unhandled    // 0x580  EL0 AArch64, SError
+    ventry el1_serror   // 0x580  EL0 AArch64, SError
 
-    ventry unhandled    // 0x600  EL0 AArch32, sync
-    ventry unhandled    // 0x680  EL0 AArch32, IRQ
-    ventry unhandled    // 0x700  EL0 AArch32, FIQ
-    ventry unhandled    // 0x780  EL0 AArch32, SError
+    // zuzu currently does NOT have bwds compat with AArch32. 
+    // AArch32 mode isn't a thing
+    ventry el0_aarch32  // 0x600  EL0 AArch32, sync
+    ventry el0_aarch32  // 0x680  EL0 AArch32, IRQ
+    ventry el0_aarch32  // 0x700  EL0 AArch32, FIQ
+    ventry el1_serror   // 0x780  EL0 AArch32, SError
 
+el1_sync:
+    SAVE_STATE
+    mov x0, sp
+    bl KernelSyncException
+    RESTORE_STATE
+    eret
+
+el0_sync:
+    b unhandled
+
+el0_irq:
+    b unhandled
+
+el0_aarch32:
+    SAVE_STATE
+    mov x0, sp
+    bl AArch32Entry
+    b .
+  
 el1_irq:
     SAVE_STATE
     bl ArchIrqDispatch
     RESTORE_STATE
     eret
 
+el1_serror:                       // used for 0x180, 0x380, 0x580, 0x780
+    SAVE_STATE
+    mov x0, sp
+    bl SErrorException        // never returns
+    b .
+
 unhandled:
     mrs x0, ESR_EL1
     mrs x1, ELR_EL1
     mrs x2, FAR_EL1
-    bl ArchUnhandledException
+    bl UnhandledException
 
 dead:
     b dead

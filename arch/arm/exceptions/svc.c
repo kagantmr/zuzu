@@ -20,5 +20,5 @@ void __hot SvcTrap(CpuState *frame)
 {
     if (unlikely((frame->return_cpsr & 0x1F) != 0x10))
         return;
-    SvcDispatch(ArchFrameSvcNum(frame), frame);
+    SvcDispatch(FrameSvcNum(frame), frame);
 }

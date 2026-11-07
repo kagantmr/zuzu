@@ -15,7 +15,7 @@ void ArchCacheCleanDcacheRangePou(uintptr_t start, size_t size)
     uintptr_t end = start + size;
     for (; addr < end; addr += CACHE_LINE)
         __asm__ volatile("mcr p15, 0, %0, c7, c11, 1" ::"r"(addr));
-    ArchDsb();
+    Dsb();
 }
 
 void ArchCacheInvalidateIcacheAll(void)
@@ -31,7 +31,7 @@ void ArchCacheCleanInvalidateDcacheRange(uintptr_t start, size_t size)
     uintptr_t end = start + size;
     for (; addr < end; addr += CACHE_LINE)
         __asm__ volatile("mcr p15, 0, %0, c7, c14, 1" ::"r"(addr));
-    ArchDsb();
+    Dsb();
 }
 
 void ArchCacheInvalidateDcacheRange(uintptr_t start, size_t size)
@@ -40,5 +40,5 @@ void ArchCacheInvalidateDcacheRange(uintptr_t start, size_t size)
     uintptr_t end = start + size;
     for (; addr < end; addr += CACHE_LINE)
         __asm__ volatile("mcr p15, 0, %0, c7, c6, 1" ::"r"(addr));
-    ArchDsb();
+    Dsb();
 }

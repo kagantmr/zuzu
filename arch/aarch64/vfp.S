@@ -7,12 +7,12 @@
 .text
 
 /**
- * ArchFpuSaveState(FpuState *state)
+ * FpuSaveState(FpuState *state)
  * In:       r0 = state.
  * Clobbers: r0, r1.
  */
-.global ArchFpuSaveState
-ArchFpuSaveState:
+.global FpuSaveState
+FpuSaveState:
     vstmia r0!, {d0-d15}
     vstmia r0!, {d16-d31}
     vmrs r1, fpscr
@@ -20,12 +20,12 @@ ArchFpuSaveState:
     bx lr
 
 /**
- * ArchFpuRestoreState(const FpuState *state)
+ * FpuRestoreState(const FpuState *state)
  * In:       r0 = state.
  * Clobbers: r0, r1.
  */
-.global ArchFpuRestoreState
-ArchFpuRestoreState:
+.global FpuRestoreState
+FpuRestoreState:
     vldmia r0!, {d0-d15}
     vldmia r0!, {d16-d31}
     ldr r1, [r0]

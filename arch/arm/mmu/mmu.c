@@ -34,7 +34,7 @@ extern RamLayout kernel_layout;
  * @param[in] prot    Protection.
  * @return false if @p va is out of range or no L2 table could be allocated.
  */
-static bool ArchMmuMapPage(AddressSpace *as, uintptr_t va, uintptr_t pa, VirtMemType memtype,
+static bool MmuMapPage(AddressSpace *as, uintptr_t va, uintptr_t pa, VirtMemType memtype,
                            MemProt prot);
 
 /**
@@ -252,7 +252,7 @@ static void UnmapRangeMixed(AddressSpace *as, uintptr_t va, size_t size)
             off += PAGE_SIZE;
         }
     }
-    ArchDsb();
+    Dsb();
 }
 
 /**
@@ -299,14 +299,14 @@ static bool MapRange(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, 
             continue;
         }
 
-        if (!ArchMmuMapPage(as, cur_va, cur_pa, memtype, prot)) {
+        if (!MmuMapPage(as, cur_va, cur_pa, memtype, prot)) {
             UnmapRangeMixed(as, va, off);
             return false;
         }
         off += PAGE_SIZE;
     }
 
-    ArchDsb();
+    Dsb();
     return true;
 }
 
@@ -430,8 +430,8 @@ void ArchMmuEnable(AddressSpace *as)
         return;
     }
 
-    ArchDsb();
-    ArchIsb();
+    Dsb();
+    Isb();
 
     __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"(ttbr_value(as->pt_root_physaddr))
                      : "memory");
@@ -462,12 +462,12 @@ void ArchMmuSwitch(AddressSpace *as)
 
     __asm__ volatile("mcr p15, 0, %0, c13, c0, 1" ::"r"(0U) : "memory");
 
-    ArchIsb();
+    Isb();
 
     __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"(ttbr_value(as->pt_root_physaddr))
                      : "memory");
 
-    ArchIsb();
+    Isb();
 
     __asm__ volatile("mcr p15, 0, %0, c13, c0, 1" ::"r"((uint32_t)as->asid_token.asid)
                      : "memory");
@@ -478,7 +478,7 @@ void ArchMmuSwitch(AddressSpace *as)
      * when everything was going wrong and i literally rewrote waitany
      * qemu won't show this because it doesn't really model the mmu truly
      */
-    ArchIsb();
+    Isb();
 
     AsidSetActive(as->asid_token.asid);
 }
@@ -553,7 +553,7 @@ uintptr_t ArchMmuTranslate(uintptr_t ttbr_pa, uintptr_t va)
  * @param[in] l2_pa Physical address of the L2 table.
  * @return The descriptor, or 0 if @p l2_pa is 0.
  */
-static uint32_t ArchMmuMakeL1Pte(uintptr_t l2_pa)
+static uint32_t MmuMakeL1Pte(uintptr_t l2_pa)
 {
     if (!l2_pa)
         return 0;
@@ -568,7 +568,7 @@ static uint32_t ArchMmuMakeL1Pte(uintptr_t l2_pa)
  * @param[in]     asid   ASID whose TLB entries are flushed afterwards.
  * @return false if no L2 table could be allocated.
  */
-static bool ArchMmuBreakSection(uint32_t *l1, uint32_t l1_idx, uint8_t asid)
+static bool MmuBreakSection(uint32_t *l1, uint32_t l1_idx, uint8_t asid)
 {
     uint32_t section = l1[l1_idx];
     uintptr_t section_pa = section & L1_SECTION_BASE_MASK;
@@ -596,7 +596,7 @@ static bool ArchMmuBreakSection(uint32_t *l1, uint32_t l1_idx, uint8_t asid)
         l2[i] = (uint32_t)(page_pa & L2_SMALL_BASE_MASK) | L2_SMALL_TAG | attrs;
     }
 
-    l1[l1_idx] = ArchMmuMakeL1Pte(l2_pa);
+    l1[l1_idx] = MmuMakeL1Pte(l2_pa);
 
     ArchMmuFlushTlbAsid(asid);
     ArchSyncBarrier();
@@ -604,7 +604,7 @@ static bool ArchMmuBreakSection(uint32_t *l1, uint32_t l1_idx, uint8_t asid)
     return true;
 }
 
-static bool ArchMmuMapPage(AddressSpace *as, uintptr_t va, uintptr_t pa, VirtMemType memtype,
+static bool MmuMapPage(AddressSpace *as, uintptr_t va, uintptr_t pa, VirtMemType memtype,
                            MemProt prot)
 {
     if (!as) {
@@ -632,12 +632,12 @@ static bool ArchMmuMapPage(AddressSpace *as, uintptr_t va, uintptr_t pa, VirtMem
         if (!l2_pa)
             return false;
 
-        l1[l1_idx] = ArchMmuMakeL1Pte(l2_pa);
+        l1[l1_idx] = MmuMakeL1Pte(l2_pa);
         l2 = (uint32_t *)PA_TO_VA(l2_pa);
     } else if (type == DESC_L2) {
         l2 = (uint32_t *)PA_TO_VA(l1_entry & L1_L2PTR_BASE_MASK);
     } else {
-        if (!ArchMmuBreakSection(l1, l1_idx, as->asid_token.asid))
+        if (!MmuBreakSection(l1, l1_idx, as->asid_token.asid))
             return false;
 
         l2 = (uint32_t *)PA_TO_VA(l1[l1_idx] & L1_L2PTR_BASE_MASK);
@@ -645,7 +645,7 @@ static bool ArchMmuMapPage(AddressSpace *as, uintptr_t va, uintptr_t pa, VirtMem
 
     l2[l2_idx] = l2_page_desc(pa, prot, memtype);
 
-    ArchDsb();
+    Dsb();
     return true;
 }
 
@@ -741,7 +741,7 @@ void ArchMmuInitTtbr1(AddressSpace *as)
     __asm__ volatile("mcr p15, 0, %0, c2, c0, 1" ::"r"(ttbr_value(as->pt_root_physaddr))
                      : "memory");
 
-    ArchIsb();
+    Isb();
 
     uint32_t ttbcr;
     __asm__ volatile("mrc p15, 0, %0, c2, c0, 2" : "=r"(ttbcr)::"memory");
@@ -782,12 +782,12 @@ bool ArchMmuInstallKernelSpace(AddressSpace *as)
                     (size_t)BOARD_PERIPH_MB * SECTION_SIZE, PROT_READ | PROT_WRITE, VM_MEM_DEVICE))
         return false;
 
-    ArchDsb();
+    Dsb();
     __asm__ volatile("mcr p15, 0, %0, c13, c0, 1" ::"r"(0U) : "memory");
-    ArchIsb();
+    Isb();
     __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"(ttbr_value(as->pt_root_physaddr))
                      : "memory");
-    ArchIsb();
+    Isb();
     AsidSetActive(0);
 
     ArchMmuFlushTlb();
@@ -801,7 +801,7 @@ void ArchMmuDropIdentity(AddressSpace *as)
     size_t id_size;
 
     if (ArchCurrentStackPointer() < KERNEL_VA_BASE)
-        ArchRelocateStacks(KERNEL_VA_OFFSET);
+        RelocateStacks(KERNEL_VA_OFFSET);
 
     IdentityRange(&id_start, &id_size);
     ArchMmuUnmap(as, id_start, id_size, true);

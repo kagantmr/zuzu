@@ -93,6 +93,7 @@ _Noreturn void early(void *dtb_ptr)
 {
 
     kprintf_init(ArchEarlyPutc);
+    __asm__ volatile("msr daifclr, #4");  // enable SErrors
 
     KDEBUG("early: dtb pa=%p", dtb_ptr);
     FdtInit((const void *)PA_TO_VA((PhysAddr)dtb_ptr));

@@ -9,6 +9,8 @@
 #include <arch/asid.h>
 #include <arch/mmu.h>
 #include <arch_impl/aarch64_mmu.h>
+#include <arch_impl/barrier.h>
+#include <arch_impl/regs.h>
 #include <string.h>
 #include <zuzu/user_layout.h>
 
@@ -396,10 +398,8 @@ void ArchMmuSwitch(AddressSpace *as)
         return;
 
     if (as->type == ADDRESS_SPACE_KERNEL) {
-        uint64_t ttbr = VA_TO_PA((VirtAddr)empty_l0);
-        __asm__ volatile("msr ttbr0_el1, %0\n"
-                         "isb\n" ::"r"(ttbr)
-                         : "memory");
+        WRITE_SYSREG(ttbr0_el1, VA_TO_PA((VirtAddr)empty_l0));
+        Isb();
         AsidSetActive(0);
         return;
     }
@@ -408,10 +408,8 @@ void ArchMmuSwitch(AddressSpace *as)
         AsidFree(as->asid_token);
         as->asid_token = AsidAlloc();
     }
-    uint64_t ttbr = as->pt_root_physaddr | ((uint64_t)as->asid_token.asid << 48);
-    __asm__ volatile("msr ttbr0_el1, %0\n"
-                     "isb\n" ::"r"(ttbr)
-                     : "memory");
+    WRITE_SYSREG(ttbr0_el1, as->pt_root_physaddr | ((uint64_t)as->asid_token.asid << 48));
+    Isb();
     AsidSetActive(as->asid_token.asid);
 }
 
@@ -552,13 +550,10 @@ void ArchMmuFreeUserPages(AddressSpace *as)
 
 void ArchMmuInitTtbr1(AddressSpace *as)
 {
-    __asm__ volatile("dsb ishst\n"
-                     "msr ttbr1_el1, %0\n"
-                     "isb\n"
-                     "tlbi vmalle1\n"
-                     "dsb ish\n"
-                     "isb\n" ::"r"(as->pt_root_physaddr)
-                     : "memory");
+    __asm__ volatile("dsb ishst" ::: "memory");
+    WRITE_SYSREG(ttbr1_el1, as->pt_root_physaddr);
+    Isb();
+    ArchMmuFlushTlb();
 }
 
 bool ArchMmuInstallKernelSpace(AddressSpace *as)

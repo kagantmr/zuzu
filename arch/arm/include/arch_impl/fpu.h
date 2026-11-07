@@ -16,13 +16,13 @@ typedef uint8_t FpuState[32 * 8 + 4] __attribute__((aligned(8)));
  *
  * @param[out] state Where to store them.
  */
-void ArchFpuSaveState(FpuState *state);
+void FpuSaveState(FpuState *state);
 /**
  * @brief Loads the VFP registers.
  *
- * @param[in] state State saved by ArchFpuSaveState().
+ * @param[in] state State saved by FpuSaveState().
  */
-void ArchFpuRestoreState(const FpuState *state);
+void FpuRestoreState(const FpuState *state);
 
 /**
  * @brief Removes cp10/cp11 access in CPACR, so the next VFP instruction traps.
