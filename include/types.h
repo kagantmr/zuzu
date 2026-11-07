@@ -10,6 +10,7 @@
 extern "C" {
 #endif
 
+#include <arch/regs.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -146,8 +147,8 @@ typedef struct {
 typedef struct {
     void *entry; /**< Entry point for the Task. */
     void *sp;    /**< Stack point for the Task. Must be mapped. */
-    uint32_t r0; /**< First  initial register value for the Task. */
-    uint32_t r1; /**< Second initial register value for the Task. */
+    Register r0; /**< First  initial register value for the Task. */
+    Register r1; /**< Second initial register value for the Task. */
 } KickstartArgs;
 
 /** @brief Status code of a task that was being waited on. */

@@ -170,7 +170,7 @@ static Worker *WorkerStartAt(WorkerFn fn, void *arg, int priority)
         return NULL;
     }
     *w = (Worker){.fn = fn, .arg = arg, .stack = stack, .task = task, .used = true};
-    if (TaskStart(task, (void *)WorkerEntry, stack + WORKER_STACK, (uint32_t)(uintptr_t)w, 0) !=
+    if (TaskStart(task, (void *)WorkerEntry, stack + WORKER_STACK, (Register)(uintptr_t)w, 0) !=
         ZUZU_OK) {
         HandleClose(task);
         MemUnmap(stack);
@@ -275,7 +275,7 @@ static Err KittenCreate(Kitten *k, const uint32_t *code, size_t bytes)
     return KittenCreateEx(k, code, bytes, false);
 }
 
-static Err KittenStart(Kitten *k, uint32_t r0, uint32_t r1)
+static Err KittenStart(Kitten *k, Register r0, Register r1)
 {
     return TaskStart(k->task, (void *)USER_ELF_BASE, (void *)USR_SP, r0, r1);
 }
@@ -1351,7 +1351,7 @@ static void TestSpaces(void)
         KittenCreate(&s, self_code[i], sizeof(kCodeCloseHandle));
         SvcResult g = HandleGrant(s.space, s.space, PERM_ALL);
         CheckEq((Err)g.r0, ZUZU_OK, "grant a Space a handle to itself");
-        KittenStart(&s, (uint32_t)g.r1, 0);
+        KittenStart(&s, g.r1, 0);
         TaskWaitResult sw_self = FormatToTaskWait(WaitOn(s.task, 2000));
         CheckEq(sw_self.value, ERR_BADARG,
                 i ? "a Space cannot destroy a handle to itself"
@@ -1363,7 +1363,7 @@ static void TestSpaces(void)
     KittenCreate(&b, kCodeCloseHandle, sizeof(kCodeCloseHandle));
     SvcResult sib = HandleGrant(a.space, b.space, PERM_ALL);
     CheckEq((Err)sib.r0, ZUZU_OK, "grant a Space a handle to its sibling");
-    KittenStart(&b, (uint32_t)sib.r1, 0);
+    KittenStart(&b, sib.r1, 0);
     TaskWaitResult sib_tw = FormatToTaskWait(WaitOn(b.task, 2000));
     CheckEq(sib_tw.value, ZUZU_OK, "a Space may close a handle to its sibling");
     KittenFree(&b);
@@ -2714,10 +2714,10 @@ static void TestHold(void)
     KittenCreate(&k, kCodeCallQuit, sizeof(kCodeCallQuit));
     Handle in_k = GrantPortInto(p2, k.space);
     Handle extra[PORT_HELD_SLOTS_TEST];
-    KittenStart(&k, (uint32_t)in_k, 0);
+    KittenStart(&k, (Register)in_k, 0);
     for (int i = 0; i < PORT_HELD_SLOTS_TEST; i++) {
         extra[i] = CreateTask(k.space);
-        TaskStart(extra[i], (void *)USER_ELF_BASE, (void *)USR_SP, (uint32_t)in_k, 0);
+        TaskStart(extra[i], (void *)USER_ELF_BASE, (void *)USR_SP, (Register)in_k, 0);
     }
     int parked = 0;
     for (int i = 0; i < PORT_HELD_SLOTS_TEST; i++) {
@@ -2783,7 +2783,7 @@ static void TestOwnerDestroy(void)
     KittenCreate(&k, kCodeCallQuit, sizeof(kCodeCallQuit));
     Handle in_k = GrantPortInto(port, k.space);
     Check(in_k >= 0, "grant a port to a kitten");
-    KittenStart(&k, (uint32_t)in_k, 0);
+    KittenStart(&k, (Register)in_k, 0);
     Sleep(20);
     CheckEq(WaitOn(k.space, TIMEOUT_POLL).r0, ERR_TIMEOUT, "the kitten's call is queued");
     CheckEq(HandleDestroy(port), ZUZU_OK, "the owner destroys the port");
@@ -2796,7 +2796,7 @@ static void TestOwnerDestroy(void)
     KittenCreate(&k, kCodeCallQuit, sizeof(kCodeCallQuit));
     in_k = GrantPortInto(port, k.space);
     HandleDestroy(port);
-    KittenStart(&k, (uint32_t)in_k, 0);
+    KittenStart(&k, (Register)in_k, 0);
     sw = FormatToSpaceWait(WaitOn(k.space, 2000));
     CheckEq(sw.exit_status, ERR_DEAD, "a call on a destroyed port -> DEAD");
     KittenFree(&k);
