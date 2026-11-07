@@ -6,6 +6,7 @@
 #include "arch/aarch64/timer/generic_timer.h"
 #include <arch_impl/barrier.h>
 #include <arch_impl/regs.h>
+#include <arch_impl/sysreg.h>
 #include <arch/irq.h>
 #include <arch/timer.h>
 #include <stdint.h>

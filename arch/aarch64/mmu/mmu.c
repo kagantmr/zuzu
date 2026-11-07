@@ -11,6 +11,7 @@
 #include <arch_impl/aarch64_mmu.h>
 #include <arch_impl/barrier.h>
 #include <arch_impl/regs.h>
+#include <arch_impl/sysreg.h>
 #include <string.h>
 #include <zuzu/user_layout.h>
 

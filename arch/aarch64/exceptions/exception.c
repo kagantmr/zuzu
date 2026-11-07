@@ -17,6 +17,7 @@
 #include <arch/irq.h>
 #include <arch/mmu.h>
 #include <arch/regs.h>
+#include <arch_impl/sysreg.h>
 #include <stdint.h>
 
 #ifdef CONFIG_ZUZU_BENCH
