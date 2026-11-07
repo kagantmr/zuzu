@@ -33,17 +33,17 @@ BENCH_STAT(g_bench_irq_dispatch, "irq: ArchIrqDispatch");
 static const char *DecodeDfsc(uint32_t dfsc)
 {
     static const char *const address_size[] = {
-        "address size fault, level 0", "address size fault, level 1",
-        "address size fault, level 2", "address size fault, level 3"};
+        "address size fault, level 0", "address size fault, level 1", "address size fault, level 2",
+        "address size fault, level 3"};
     static const char *const translation[] = {
-        "translation fault, level 0", "translation fault, level 1",
-        "translation fault, level 2", "translation fault, level 3"};
+        "translation fault, level 0", "translation fault, level 1", "translation fault, level 2",
+        "translation fault, level 3"};
     static const char *const access_flag[] = {
-        "access flag fault, level 0", "access flag fault, level 1",
-        "access flag fault, level 2", "access flag fault, level 3"};
+        "access flag fault, level 0", "access flag fault, level 1", "access flag fault, level 2",
+        "access flag fault, level 3"};
     static const char *const permission[] = {
-        "permission fault, level 0", "permission fault, level 1",
-        "permission fault, level 2", "permission fault, level 3"};
+        "permission fault, level 0", "permission fault, level 1", "permission fault, level 2",
+        "permission fault, level 3"};
     static const char *const walk_external[] = {
         "external abort on table walk, level 0", "external abort on table walk, level 1",
         "external abort on table walk, level 2", "external abort on table walk, level 3"};
@@ -174,16 +174,21 @@ void KernelSyncException(CpuState *frame)
     switch (ec) {
     case 0x25: // data abort, same EL
         panic_fault_ctx.far = far;
+        panic_fault_ctx.far_valid = 1;
         panic_fault_ctx.fault_type = "Data abort";
         panic_fault_ctx.fault_decoded = DecodeDfsc(iss & 0x3F);
         panic_fault_ctx.access_type = (iss & (1U << 6)) ? "write" : "read";
         panic("Kernel data abort");
 
     case 0x21: // instruction abort, same EL (jumped somewhere bad)
-
+        panic_fault_ctx.far = far;
+        panic_fault_ctx.far_valid = 1;
+        panic_fault_ctx.fault_type = "Instruction abort";
+        panic_fault_ctx.fault_decoded = DecodeDfsc(iss & 0x3F);
+        panic_fault_ctx.access_type = "execute";
+        panic("Kernel instruction abort at " REG_FMT, REG_ARG(far));
     case 0x00: // undefined instruction
         panic_fault_ctx.fault_type = EcName(ec);
-        panic_fault_ctx.access_type = "execute";
         panic("Kernel-level undefined instruction");
     case 0x3C: // brk / __builtin_trap()
     case 0x22: // pc misaligned
@@ -195,4 +200,36 @@ void KernelSyncException(CpuState *frame)
         panic_fault_ctx.fault_type = EcName(ec);
         panic("unexpected sync exception, EC=0x%x", ec);
     }
+}
+
+/**
+ * @brief Called from the vectors zuzu never expects; panics.
+ *
+ * Covers EL1 running on SP_EL0, every FIQ, and the EL0 slots until user tasks exist.
+ *
+ * @param[in] frame  Registers at the exception.
+ * @param[in] offset Offset of the vector slot in the table.
+ */
+_Noreturn void BadVector(CpuState *frame, uint64_t offset);
+
+_Noreturn void BadVector(CpuState *frame, uint64_t offset)
+{
+    static const char *const origin[] = {"EL1 on SP_EL0", "EL1 on SP_EL1", "EL0 AArch64",
+                                         "EL0 AArch32"};
+    static const char *const kind[] = {"sync", "IRQ", "FIQ", "SError"};
+
+    Register esr = READ_SYSREG(esr_el1);
+    Register far = READ_SYSREG(far_el1);
+    const char *from = origin[(offset >> 9) & 0x3];
+    const char *type = kind[(offset >> 7) & 0x3];
+
+    panic_fault_ctx = (PanicFaultContext){
+        .valid = 1,
+        .fsr = esr,
+        .far = far,
+        .fault_type = "Unexpected exception vector",
+        .fault_decoded = EcName((uint32_t)(esr >> 26)),
+        .frame = frame,
+    };
+    panic("Unexpected %s from %s (vector 0x%03x)", type, from, (unsigned)offset);
 }

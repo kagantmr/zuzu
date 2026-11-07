@@ -184,6 +184,7 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
             panic_fault_ctx = (PanicFaultContext){
                 .valid = 1,
                 .far = (Register)ifar,
+                .far_valid = 1,
                 .fsr = (Register)ifsr,
                 .fault_type = "Prefetch abort",
                 .fault_decoded = DecodeFsr(ifsr),
@@ -214,6 +215,7 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
                 panic_fault_ctx = (PanicFaultContext){
                     .valid = 1,
                     .far = (Register)dfar,
+                    .far_valid = 1,
                     .fsr = (Register)dfsr,
                     .fault_type = "Data abort (kernel stack overflow)",
                     .fault_decoded = DecodeFsr(dfsr),
@@ -260,6 +262,7 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
             panic_fault_ctx = (PanicFaultContext){
                 .valid = 1,
                 .far = (Register)dfar,
+                .far_valid = 1,
                 .fsr = (Register)dfsr,
                 .fault_type = "Data abort",
                 .fault_decoded = DecodeFsr(dfsr),

@@ -1,23 +1,23 @@
 /**
  * @file
- * @brief ARMv7-A frame-pointer stack walk.
+ * @brief AArch64 frame-record stack walk.
  */
 
-#ifndef ARCH_ARM_IMPL_BACKTRACE_H
-#define ARCH_ARM_IMPL_BACKTRACE_H
+#ifndef ARCH_AARCH64_IMPL_BACKTRACE_H
+#define ARCH_AARCH64_IMPL_BACKTRACE_H
 
 #include <arch_impl/regs.h>
 #include <stddef.h>
 #include <stdint.h>
 
 /**
- * @brief Follows the frame-pointer chain and collects return addresses.
+ * @brief Follows the frame-record chain and collects return addresses.
  *
- * Each frame holds the saved lr at fp and the caller's fp at fp - 4. The walk
- * stops at a NULL, misaligned or out-of-range fp, or one that does not move up
- * the stack.
+ * Under AAPCS64 x29 points at a 16-byte frame record: the caller's x29 at fp and the return
+ * address (x30) at fp + 8. The walk stops at a NULL, misaligned or out-of-range fp, or one that
+ * does not move up the stack.
  *
- * @param[in]  fp             Frame pointer to start from.
+ * @param[in]  fp             Frame pointer (x29) to start from.
  * @param[in]  kernel_va_base Lowest address a valid frame may have.
  * @param[out] out            Return addresses, innermost first.
  * @param[in]  max_depth      Capacity of @p out.
@@ -28,14 +28,17 @@ static inline size_t ArchBacktraceWalk(Register fp, Register kernel_va_base, uin
 {
     size_t depth = 0;
     uintptr_t cur = (uintptr_t)fp;
-    uintptr_t base = (uintptr_t)kernel_va_base;
+    const uintptr_t base = (uintptr_t)kernel_va_base;
 
     while (depth < max_depth) {
-        if (cur == 0 || (cur & 0x3U) || cur < base)
+        if (cur == 0 || (cur & 0xFU) || cur < base)
             break;
-        uintptr_t lr = *(uintptr_t *)cur;
+        const uintptr_t *record = (const uintptr_t *)cur;
+        uintptr_t prev = record[0];
+        uintptr_t lr = record[1];
+        if (lr == 0)
+            break;
         out[depth++] = lr;
-        uintptr_t prev = *(uintptr_t *)(cur - 4);
         if (prev <= cur)
             break;
         cur = prev;
@@ -43,4 +46,4 @@ static inline size_t ArchBacktraceWalk(Register fp, Register kernel_va_base, uin
     return depth;
 }
 
-#endif // ARCH_ARM_IMPL_BACKTRACE_H
+#endif // ARCH_AARCH64_IMPL_BACKTRACE_H

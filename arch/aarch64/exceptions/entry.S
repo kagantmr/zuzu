@@ -78,21 +78,21 @@
 .endm
 
 vector_table:
-    ventry unhandled    // 0x000  EL1, SP_EL0, sync
-    ventry unhandled    // 0x080  EL1, SP_EL0, IRQ
-    ventry unhandled    // 0x100  EL1, SP_EL0, FIQ
+    ventry bad_el1t_sync // 0x000  EL1, SP_EL0, sync
+    ventry bad_el1t_irq  // 0x080  EL1, SP_EL0, IRQ
+    ventry bad_el1t_fiq  // 0x100  EL1, SP_EL0, FIQ
     ventry el1_serror   // 0x180  EL1, SP_EL0, SError
 
     ventry el1_sync     // 0x200  EL1, SP_EL1, sync
 
     ventry el1_irq      // 0x280  EL1, SP_EL1, IRQ
 
-    ventry unhandled    // 0x300  EL1, SP_EL1, FIQ
+    ventry bad_el1h_fiq  // 0x300  EL1, SP_EL1, FIQ
     ventry el1_serror   // 0x380  EL1, SP_EL1, SError
 
     ventry el0_sync     // 0x400  EL0 AArch64, sync
     ventry el0_irq      // 0x480  EL0 AArch64, IRQ
-    ventry unhandled    // 0x500  EL0 AArch64, FIQ
+    ventry bad_el0_fiq   // 0x500  EL0 AArch64, FIQ
     ventry el1_serror   // 0x580  EL0 AArch64, SError
 
     // zuzu currently does NOT have bwds compat with AArch32. 
@@ -109,11 +109,28 @@ el1_sync:
     RESTORE_STATE
     eret
 
-el0_sync:
-    b unhandled
+/**
+ * BAD_VECTOR label, offset
+ *
+ * Entry for a vector zuzu never expects: saves the frame and panics, naming the slot by its
+ * offset in the table.
+ */
+.macro BAD_VECTOR label, offset
+\label:
+    SAVE_STATE
+    mov x0, sp
+    mov x1, #\offset
+    bl BadVector
+    b .
+.endm
 
-el0_irq:
-    b unhandled
+    BAD_VECTOR bad_el1t_sync, 0x000
+    BAD_VECTOR bad_el1t_irq,  0x080
+    BAD_VECTOR bad_el1t_fiq,  0x100
+    BAD_VECTOR bad_el1h_fiq,  0x300
+    BAD_VECTOR el0_sync,      0x400
+    BAD_VECTOR el0_irq,       0x480
+    BAD_VECTOR bad_el0_fiq,   0x500
 
 el0_aarch32:
     SAVE_STATE
@@ -132,12 +149,3 @@ el1_serror:                       // used for 0x180, 0x380, 0x580, 0x780
     mov x0, sp
     bl SErrorException        // never returns
     b .
-
-unhandled:
-    mrs x0, ESR_EL1
-    mrs x1, ELR_EL1
-    mrs x2, FAR_EL1
-    bl UnhandledException
-
-dead:
-    b dead

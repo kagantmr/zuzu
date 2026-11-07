@@ -15,19 +15,20 @@
 /** @brief One general-purpose register. */
 typedef uint64_t Register;
 
-/** @brief printf conversion for a Register or an address: 16 upper-case hex digits. Pair with REG_ARG(). */
+/** @brief printf conversion for a Register or an address: 16 upper-case hex digits. Pair with
+ * REG_ARG(). */
 #define REG_FMT "%016llX"
 /** @brief Converts a Register or an address to the argument type REG_FMT expects. */
 #define REG_ARG(r) ((unsigned long long)(uint64_t)(r))
 
-#define READ_SYSREG(name)                                                  \
-    ({                                                                     \
-        uint64_t __v;                                                      \
-        __asm__ volatile("mrs %0, " #name : "=r"(__v));                    \
-        __v;                                                               \
+#define READ_SYSREG(name)                                                                          \
+    ({                                                                                             \
+        uint64_t __v;                                                                              \
+        __asm__ volatile("mrs %0, " #name : "=r"(__v));                                            \
+        __v;                                                                                       \
     })
 
-#define WRITE_SYSREG(name, val)                                            \
+#define WRITE_SYSREG(name, val)                                                                    \
     __asm__ volatile("msr " #name ", %0" ::"r"((uint64_t)(val)) : "memory")
 
 /**
@@ -78,7 +79,13 @@ static __always_inline Register ArchFramePc(const CpuState *f) { return f->retur
  * @param[in] f Frame.
  * @return The saved value.
  */
-static __always_inline Register ArchFrameSp(const CpuState *f) { return f->sp_el0; }
+static __always_inline Register ArchFrameSp(const CpuState *f)
+{
+    if ((f->return_pstate & 0xF) == 0) /* EL0t: user stack */
+        return f->sp_el0;
+    return (Register)(uintptr_t)f + sizeof(CpuState); /* EL1h: kernel stack before entry */
+}
+
 /**
  * @brief lr (x30) of a frame.
  *
