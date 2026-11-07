@@ -17,6 +17,7 @@
 #include <arch/irq.h>
 #include <arch/platform.h>
 #include <arch/symbols.h>
+#include <arch_impl/sysreg.h>
 #include <string.h>
 
 #define LOG_TAG "(early)"

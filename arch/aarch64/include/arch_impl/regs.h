@@ -21,16 +21,6 @@ typedef uint64_t Register;
 /** @brief Converts a Register or an address to the argument type REG_FMT expects. */
 #define REG_ARG(r) ((unsigned long long)(uint64_t)(r))
 
-#define READ_SYSREG(name)                                                                          \
-    ({                                                                                             \
-        uint64_t __v;                                                                              \
-        __asm__ volatile("mrs %0, " #name : "=r"(__v));                                            \
-        __v;                                                                                       \
-    })
-
-#define WRITE_SYSREG(name, val)                                                                    \
-    __asm__ volatile("msr " #name ", %0" ::"r"((uint64_t)(val)) : "memory")
-
 /**
  * @brief Registers saved on exception entry: the trap frame.
  *
@@ -128,7 +118,10 @@ static inline Register ArchCurrentFramePointer(void)
  */
 static inline Register ArchCurrentFlags(void)
 {
-    return READ_SYSREG(nzcv) | READ_SYSREG(daif) | READ_SYSREG(CurrentEL) | 1u;
+    Register nzcv, daif, el;
+    __asm__ volatile("mrs %0, nzcv\n mrs %1, daif\n mrs %2, CurrentEL"
+                     : "=r"(nzcv), "=r"(daif), "=r"(el));
+    return nzcv | daif | el | 1u;
 }
 
 /** @brief Number of general-purpose registers in TaskRegs (x0-x30). */

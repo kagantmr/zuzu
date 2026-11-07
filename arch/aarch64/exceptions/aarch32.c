@@ -5,6 +5,7 @@
 
 #include "core/panic.h"
 #include <arch/regs.h>
+#include <arch_impl/sysreg.h>
 #include <stdint.h>
 
 /**

@@ -6,7 +6,7 @@
 #ifndef ARCH_ARM_IMPL_CPU_H
 #define ARCH_ARM_IMPL_CPU_H
 
-#include <arch_impl/regs.h>
+#include <arch_impl/sysreg.h>
 #include <stdint.h>
 
 /** @brief A saved CPSR, as returned by ArchIrqSave(). */

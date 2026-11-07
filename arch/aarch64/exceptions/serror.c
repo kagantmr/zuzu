@@ -5,6 +5,7 @@
  */
 
 #include <arch/regs.h>
+#include <arch_impl/sysreg.h>
 #include "core/panic.h"
 
 _Noreturn void SErrorException(CpuState *frame);
