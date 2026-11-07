@@ -275,8 +275,8 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
             return NULL;
         }
 
-        size_t argv_bytes = argv_slots * sizeof(uint32_t);
-        if (argv_bytes / sizeof(uint32_t) != argv_slots) {
+        size_t argv_bytes = argv_slots * sizeof(uintptr_t);
+        if (argv_bytes / sizeof(uintptr_t) != argv_slots) {
             KERROR("Invalid argv payload: argv bytes overflow");
             KernelLoadFail(p);
             return NULL;
@@ -290,7 +290,7 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
         }
 
         check_sp -= argbuf_len;
-        check_sp &= ~((uintptr_t)3U);
+        check_sp &= ~((uintptr_t)7U);
 
         if (argv_bytes > (size_t)(check_sp - user_stack_base)) {
             KERROR("argv pointer array does not fit user stack");
@@ -299,7 +299,7 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
         }
 
         check_sp -= argv_bytes;
-        check_sp &= ~((uintptr_t)7U);
+        check_sp &= ~((uintptr_t)15U);
 
         if (check_sp < user_stack_base) {
             KERROR("argv layout underflowed user stack");
@@ -308,11 +308,11 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
         }
 
         sp -= argbuf_len;
-        sp &= ~3U;
+        sp &= ~(VirtAddr)7U;
         VirtAddr strings_va = sp;
 
-        sp -= (argc + 1) * sizeof(uint32_t);
-        sp &= ~7U;
+        sp -= (argc + 1) * sizeof(uintptr_t);
+        sp &= ~(VirtAddr)15U;
         argv_va = sp;
 
         if (!VmmCheckUserFault(p->as, argv_va, (size_t)(USR_SP - argv_va), true)) {
@@ -328,9 +328,9 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
 
         VirtAddr str_va = strings_va;
         const char *str_src = argbuf;
-        for (uint32_t a = 0; a <= argc; a++) {
-            uint32_t slot = (a < argc) ? (uint32_t)str_va : 0;
-            if (!AddrSpaceCopyOut(p->as, argv_va + (a * sizeof(uint32_t)), &slot, sizeof(slot))) {
+        for (size_t a = 0; a <= argc; a++) {
+            uintptr_t slot = (a < argc) ? (uintptr_t)str_va : 0;
+            if (!AddrSpaceCopyOut(p->as, argv_va + (a * sizeof(uintptr_t)), &slot, sizeof(slot))) {
                 KernelLoadFail(p);
                 return NULL;
             }
