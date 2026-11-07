@@ -159,8 +159,8 @@ void KernelSyncException(CpuState *frame);
 
 void KernelSyncException(CpuState *frame)
 {
-    Register esr = READ_SYSREG(esr_el1);
-    Register far = READ_SYSREG(far_el1);
+    Register esr = (Register)READ_SYSREG(esr_el1);
+    Register far = (Register)READ_SYSREG(far_el1);
 
     uint32_t ec = (uint32_t)(esr >> 26);        // what kind of exception
     uint32_t iss = (uint32_t)(esr & 0x1FFFFFF); // details, meaning depends on ec
@@ -219,8 +219,8 @@ _Noreturn void BadVector(CpuState *frame, uint64_t offset)
                                          "EL0 AArch32"};
     static const char *const kind[] = {"sync", "IRQ", "FIQ", "SError"};
 
-    Register esr = READ_SYSREG(esr_el1);
-    Register far = READ_SYSREG(far_el1);
+    Register esr = (Register)READ_SYSREG(esr_el1);
+    Register far = (Register)READ_SYSREG(far_el1);
     const char *from = origin[(offset >> 9) & 0x3];
     const char *type = kind[(offset >> 7) & 0x3];
 
