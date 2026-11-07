@@ -7,6 +7,7 @@
 #define ARCH_ARM_IMPL_THREAD_H
 
 #include "kernel/task/task.h"
+#include "sysreg.h"
 
 /**
  * @brief Loads a task's info block address into TPIDRURO, where user code reads it.
@@ -18,7 +19,7 @@ static inline void ArchSetTlsPointer(TaskObject *t)
     if (!t)
         return;
 
-    __asm__ volatile("mcr p15, 0, %0, c13, c0, 3" ::"r"(t->task_info_va) : "memory");
+    WRITE_SYSREG(tpidrro_el0, t->task_info_va);
 }
 
 #endif // ARCH_ARM_IMPL_THREAD_H

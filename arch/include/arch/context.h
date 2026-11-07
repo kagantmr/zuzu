@@ -22,7 +22,7 @@
  * @return void* The user stack pointer after pushing the context.
  */
 void *ArchTaskUserInit(void *kstack_top, uintptr_t entry, uintptr_t user_sp, uintptr_t user_lr,
-                       uint32_t a0, uint32_t a1);
+                       Register a0, Register a1);
 
 /**
  * @brief Arch-neutral accessor for a task's context.

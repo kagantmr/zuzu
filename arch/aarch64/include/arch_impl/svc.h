@@ -1,16 +1,13 @@
 /**
  * @file
- * @brief ARMv7-A syscall entry: the svc instruction and its registers.
+ * @brief AArch64 syscall entry: the svc instruction and its registers.
+ *
+ * The syscall number is the svc immediate, which the kernel reads from ESR_EL1.ISS[15:0], so
+ * it must be a compile-time constant. Arguments go in x0-x3 and results come back in x0-x3.
  */
 
-#ifndef ARCH_ARM_IMPL_SVC_H
-#define ARCH_ARM_IMPL_SVC_H
-
-#ifdef __thumb__
-#define ARCH_SVC_MAGIC 0x23 /**< svc immediate in Thumb code, which only has 8 bits. */
-#else
-#define ARCH_SVC_MAGIC 0x112023 /**< svc immediate in ARM code: zuzu's birthday, 2023-11-20. */
-#endif
+#ifndef ARCH_AARCH64_IMPL_SVC_H
+#define ARCH_AARCH64_IMPL_SVC_H
 
 #ifndef __ASSEMBLER__
 
@@ -22,62 +19,57 @@ extern "C" {
 #endif
 
 /**
- * @brief Makes a syscall and returns r0.
- *
- * @param[in] svc_num Syscall number, passed in r12.
- * @param[in] a0      Argument in r0.
- * @param[in] a1      Argument in r1.
- * @param[in] a2      Argument in r2.
- * @param[in] a3      Argument in r3.
- * @return r0 after the call.
+ * @brief Loads x0-x3 and issues svc #num; the shared body of ArchInvokeSvc and ArchInvokeSvc4.
  */
-static __always_inline Register ArchInvokeSvc(uint32_t svc_num, Register a0, Register a1,
-                                              Register a2, Register a3)
-{
-    register Register r0 __asm__("r0") = a0;
-    register Register r1 __asm__("r1") = a1;
-    register Register r2 __asm__("r2") = a2;
-    register Register r3 __asm__("r3") = a3;
-    register Register ip __asm__("r12") = (Register)svc_num;
-    __asm__ volatile("svc %[magic]"
-                     : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3)
-                     : "r"(ip), [magic] "i"(ARCH_SVC_MAGIC)
-                     : "memory");
-    return r0;
-}
+#define ARCH_SVC_CALL(num, a0, a1, a2, a3)                                                         \
+    register Register x0_ __asm__("x0") = (Register)(a0);                                          \
+    register Register x1_ __asm__("x1") = (Register)(a1);                                          \
+    register Register x2_ __asm__("x2") = (Register)(a2);                                          \
+    register Register x3_ __asm__("x3") = (Register)(a3);                                          \
+    __asm__ volatile("svc %[imm]"                                                                  \
+                     : "+r"(x0_), "+r"(x1_), "+r"(x2_), "+r"(x3_)                                  \
+                     : [imm] "i"(num)                                                              \
+                     : "memory")
 
-/** @brief r0-r3 after a syscall. */
+/**
+ * @brief Makes a syscall and returns x0.
+ *
+ * @param num Syscall number, a compile-time constant; the svc immediate.
+ * @param a0  Argument in x0.
+ * @param a1  Argument in x1.
+ * @param a2  Argument in x2.
+ * @param a3  Argument in x3.
+ * @return x0 after the call.
+ */
+#define ArchInvokeSvc(num, a0, a1, a2, a3)                                                         \
+    ({                                                                                             \
+        ARCH_SVC_CALL(num, a0, a1, a2, a3);                                                        \
+        x0_;                                                                                       \
+    })
+
+/** @brief x0-x3 after a syscall. */
 typedef struct {
-    Register r0; /**< Status, or the primary result. */
-    Register r1; /**< Second result register. */
-    Register r2; /**< Third result register. */
-    Register r3; /**< Fourth result register. */
+    Register r0; /**< Status, or the primary result (x0). */
+    Register r1; /**< Second result register (x1). */
+    Register r2; /**< Third result register (x2). */
+    Register r3; /**< Fourth result register (x3). */
 } SvcResult;
 
 /**
- * @brief Makes a syscall and returns r0-r3.
+ * @brief Makes a syscall and returns x0-x3.
  *
- * @param[in] svc_num Syscall number, passed in r12.
- * @param[in] a0      Argument in r0.
- * @param[in] a1      Argument in r1.
- * @param[in] a2      Argument in r2.
- * @param[in] a3      Argument in r3.
- * @return r0-r3 after the call.
+ * @param num Syscall number, a compile-time constant; the svc immediate.
+ * @param a0  Argument in x0.
+ * @param a1  Argument in x1.
+ * @param a2  Argument in x2.
+ * @param a3  Argument in x3.
+ * @return x0-x3 after the call, as an SvcResult.
  */
-static __always_inline SvcResult ArchInvokeSvc4(uint32_t svc_num, Register a0, Register a1,
-                                                Register a2, Register a3)
-{
-    register Register r0 __asm__("r0") = a0;
-    register Register r1 __asm__("r1") = a1;
-    register Register r2 __asm__("r2") = a2;
-    register Register r3 __asm__("r3") = a3;
-    register Register ip __asm__("r12") = (Register)svc_num;
-    __asm__ volatile("svc %[magic]"
-                     : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3)
-                     : "r"(ip), [magic] "i"(ARCH_SVC_MAGIC)
-                     : "memory");
-    return (SvcResult){.r0 = r0, .r1 = r1, .r2 = r2, .r3 = r3};
-}
+#define ArchInvokeSvc4(num, a0, a1, a2, a3)                                                        \
+    ({                                                                                             \
+        ARCH_SVC_CALL(num, a0, a1, a2, a3);                                                        \
+        (SvcResult){.r0 = x0_, .r1 = x1_, .r2 = x2_, .r3 = x3_};                                   \
+    })
 
 #ifdef __cplusplus
 }
@@ -85,4 +77,4 @@ static __always_inline SvcResult ArchInvokeSvc4(uint32_t svc_num, Register a0, R
 
 #endif /* !__ASSEMBLER__ */
 
-#endif /* ARCH_ARM_IMPL_SVC_H */
+#endif /* ARCH_AARCH64_IMPL_SVC_H */

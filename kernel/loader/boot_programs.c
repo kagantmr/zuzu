@@ -100,8 +100,8 @@ static void CreateRootSpace(const char *path)
         (initrd_page_offset + (uint32_t)g_initrd_size + PAGE_SIZE - 1) / PAGE_SIZE;
     VirtAddr initrd_base_va = USER_MMAP_BASE + (MAX_TCB_PAGES * PAGE_SIZE);
 
-    for (uint32_t i = 0; i < initrd_page_count; i++) {
-        uint32_t page_pa = initrd_aligned_pa + (i * PAGE_SIZE);
+    for (size_t i = 0; i < initrd_page_count; i++) {
+        PhysAddr page_pa = initrd_aligned_pa + (i * PAGE_SIZE);
         if (!VmmMapUserPage(space->as, page_pa, initrd_base_va + (i * PAGE_SIZE), PROT_READ)) {
             KERROR("Failed to map initrd page %u for %s", i, path);
             return;

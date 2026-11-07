@@ -3,29 +3,28 @@
  * @brief User program entry point.
  */
 
-.section .text, "ax"
-.arm
+.text
 
-#include <arch_impl/svc.h>
 /**
  * _start
  *
- * Entered from the kernel with r0 = argc and r1 = argv. Runs the constructors,
- * calls main(argc, argv), runs the destructors in reverse, and quits with main's
- * return value (r12 = SVC_QUIT, which is 0). With newlib, __libc_init_array and
- * exit() do the constructor and destructor work instead. Never returns.
+ * Entered from the kernel with x0 = argc and x1 = argv. Runs the constructors, calls
+ * main(argc, argv), runs the destructors in reverse, and quits with main's return value
+ * (svc #0 is SVC_QUIT). With newlib, __libc_init_array and exit() do the constructor and
+ * destructor work instead. Never returns.
  */
 .global _start
-
+.type _start, %function
 _start:
-    mov r6, r0
-    mov r7, r1
+    mov x29, xzr            // end of the frame-pointer chain for backtraces
+    mov x30, xzr
+    mov x19, x0
+    mov x20, x1
 
 #ifdef ZUZU_NEWLIB
-
     bl __libc_init_array
-    mov r0, r6
-    mov r1, r7
+    mov x0, x19
+    mov x1, x20
     bl main
     bl exit
 3:  b 3b
@@ -34,42 +33,45 @@ _start:
 .global _init
 .type _init, %function
 _init:
-    bx lr
+    ret
 .size _init, . - _init
 
 .global _fini
 .type _fini, %function
 _fini:
-    bx lr
+    ret
 .size _fini, . - _fini
-#else
-    ldr r4, =__init_array_start
-    ldr r5, =__init_array_end
-1:
-    cmp r4, r5
-    bge 2f
-    ldr r3, [r4], #4
-    blx r3
-    b 1b
-2:
-    mov r0, r6
-    mov r1, r7
-    bl main
 
-    mov r6, r0
-    ldr r4, =__fini_array_start
-    ldr r5, =__fini_array_end
+#else
+    adrp x21, __init_array_start
+    add  x21, x21, :lo12:__init_array_start
+    adrp x22, __init_array_end
+    add  x22, x22, :lo12:__init_array_end
+1:
+    cmp  x21, x22
+    b.hs 2f
+    ldr  x3, [x21], #8      // load the next constructor, step 8 bytes
+    blr  x3
+    b    1b
+2:
+    mov x0, x19
+    mov x1, x20
+    bl  main
+    mov x19, x0             // keep main's return value across the destructors
+
+    adrp x21, __fini_array_start
+    add  x21, x21, :lo12:__fini_array_start
+    adrp x22, __fini_array_end
+    add  x22, x22, :lo12:__fini_array_end
 4:
-    cmp r4, r5
-    bge 5f
-    sub r5, r5, #4
-    ldr r3, [r5]
-    blx r3
-    b 4b
+    cmp  x22, x21
+    b.ls 5f
+    ldr  x3, [x22, #-8]!    // step back 8 bytes first, then load
+    blr  x3
+    b    4b
 5:
-    mov r0, r6
-    mov r12, #0
-    svc #ARCH_SVC_MAGIC
+    mov x0, x19
+    svc #0                  // SVC_QUIT
 3:  b 3b
 #endif
 
