@@ -15,6 +15,7 @@
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/sched/sched.h"
+#include <arch/platform.h>
 #include "kernel/space/handle.h"
 #include "kernel/space/space.h"
 #include "ksym.h"
@@ -64,6 +65,14 @@ PanicFaultContext panic_fault_ctx;
 /** @brief ANSI escape: reset attributes. */
 #define C_RESET "\033[0m"
 
+static void PanicPutc(char c)
+{
+    if (uart_get_driver())
+        uart_putc(c);
+    else
+        ArchEarlyPutc(c);
+}
+
 /**
  * @brief Write a NUL-terminated string to the UART, bypassing the console layer.
  *
@@ -72,13 +81,13 @@ PanicFaultContext panic_fault_ctx;
 static void PanicPuts(const char *s)
 {
     while (*s)
-        uart_putc(*s++);
+        PanicPutc(*s++);
 }
 
 /**
  * @brief Write a newline to the UART.
  */
-static void PanicNewline(void) { uart_putc('\n'); }
+static void PanicNewline(void) { PanicPutc('\n'); }
 
 /**
  * @brief Print a yellow section title followed by a dash rule up to ::RULE_COL.
@@ -90,9 +99,9 @@ static void PanicHeader(const char *name)
     PanicPuts("\n" C_YELLOW);
     PanicPuts(name);
     int n = (int)strlen(name);
-    uart_putc(' ');
+    PanicPutc(' ');
     for (int i = n + 1; i < RULE_COL; i++)
-        uart_putc('-');
+        PanicPutc('-');
     PanicPuts(C_RESET "\n");
 }
 
@@ -130,6 +139,9 @@ static const char *FarRegion(Register addr)
 
     if (addr >= (Register)MMIO_VA_BASE)
         return "MMIO / high kernel";
+
+    if (addr < (Register)PAGE_SIZE)
+        return "NULL page";
 
     if (addr < (Register)USER_VA_TOP)
         return "user space";
@@ -213,18 +225,25 @@ typedef struct {
 
 /**
  * @brief Walk the frame-pointer chain and record return addresses.
- *  *
- *  * Starts from the fault frame pointer when a fault context frame exists, otherwise from the current frame pointer.
+ *
+ * Starts from the fault frame pointer when a fault context frame exists, otherwise from the current
+ * frame pointer. When the faulting pc is not a kernel symbol (a call through a bad pointer), the
+ * function at pc never built a frame record, so the frame's lr is recorded first: it is the caller.
  *
  * @param[in] bt Backtrace to fill.
  */
 static void BtraceWalk(FpBacktrace *bt)
 {
-    Register fp = panic_fault_ctx.frame ? ArchFrameFp(panic_fault_ctx.frame)
-                                        : ArchCurrentFramePointer();
+    const CpuState *frame = panic_fault_ctx.frame;
+    Register fp = frame ? ArchFrameFp(frame) : ArchCurrentFramePointer();
+    size_t start = 0;
 
-    bt->depth =
-        (int)ArchBacktraceWalk(fp, (Register)KERNEL_VA_BASE, bt->addresses, BACKTRACE_MAX_DEPTH);
+    if (frame && !KSymLookup((uintptr_t)ArchFramePc(frame)) &&
+        KSymLookup((uintptr_t)ArchFrameLr(frame)))
+        bt->addresses[start++] = (uintptr_t)ArchFrameLr(frame);
+
+    bt->depth = (int)(start + ArchBacktraceWalk(fp, (Register)KERNEL_VA_BASE, bt->addresses + start,
+                                                BACKTRACE_MAX_DEPTH - start));
 }
 
 /** @brief Heap usage totals gathered for the panic screen. */
@@ -315,7 +334,7 @@ static void PanicPrintHeader(const char *reason, void *caller_ra)
 
     PanicPuts(C_RED "Oops! zuzu has panicked. ");
     for (int i = 13; i < RULE_COL; i++)
-        uart_putc('-');
+        PanicPutc('-');
     PanicPuts(C_RESET "\n");
     PanicNewline();
 
@@ -366,15 +385,19 @@ static void PanicPrintFault(void)
         PanicPutLine(line);
     }
 
-    if (panic_fault_ctx.far || panic_fault_ctx.fsr) {
+    if (panic_fault_ctx.far_valid || panic_fault_ctx.fsr)
         PanicNewline();
+
+    if (panic_fault_ctx.far_valid) {
         const char *region = FarRegion(panic_fault_ctx.far);
         if (region)
             (void)snprintf(line, sizeof(line), "FAR:   0x" REG_FMT "  [%s]", REG_ARG(panic_fault_ctx.far), region);
         else
             (void)snprintf(line, sizeof(line), "FAR:   0x" REG_FMT, REG_ARG(panic_fault_ctx.far));
         PanicPutLine(line);
+    }
 
+    if (panic_fault_ctx.fsr) {
         (void)snprintf(line, sizeof(line), "FSR:   0x" REG_FMT, REG_ARG(panic_fault_ctx.fsr));
         PanicPutLine(line);
     }
@@ -772,7 +795,7 @@ static void PanicPrintMemoryStats(void)
  */
 static void ConstructPanicScreen(const char *reason, void *caller_ra)
 {
-    uart_putc('\a');
+    PanicPutc('\a');
     PanicNewline();
 
     PanicPrintHeader(reason, caller_ra);

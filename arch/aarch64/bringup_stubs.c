@@ -1,10 +1,12 @@
 /**
  * @file bringup_stubs.c
- * @brief Temporary AArch64 bring-up stand-ins; delete each one when its real subsystem links.
+ * @brief Temporary AArch64 bring-up stand-ins
  */
 
 #include "core/kprintf.h"
 #include "core/panic.h"
+#include "kernel/irq/irq_relay.h"
+#include "kernel/sched/sched.h"
 #include "kernel/mm/pmm/pmm_internal.h"
 #include <arch/cpu.h>
 #include <list.h>
@@ -12,33 +14,27 @@
 #include <stdarg.h>
 #include <stdint.h>
 
-PanicFaultContext panic_fault_ctx;
-
-/* Until core/panic.c links (it needs tasks, spaces and the PMM): print the reason and halt. */
-_Noreturn void panic(const char *fmt, ...)
-{
-    char buf[256];
-    va_list args;
-
-    ArchGlobalIrqDisable();
-    va_start(args, fmt);
-    (void)vsnprintf(buf, sizeof(buf), fmt, args);
-    va_end(args);
-    kprintf("\nPANIC: %s\n", buf);
-    ArchCpuHalt();
-}
-
-void UnhandledException(uint64_t esr, uint64_t elr, uint64_t far);
-
-/* Until the exception handlers are ported: report the fault and halt. */
-void UnhandledException(uint64_t esr, uint64_t elr, uint64_t far)
-{
-    kprintf("\nUNHANDLED EXCEPTION: ESR=%016llx ELR=%016llx FAR=%016llx\n",
-            (unsigned long long)esr, (unsigned long long)elr, (unsigned long long)far);
-    ArchCpuHalt();
-}
-
-/* Until kernel/mm/pmm/pmm_pressure.c links (it needs IPC events): no pressure subscribers. */
+/* Until pmm pressure links  */
 ListHead pmm_subscribers;
 
 void PmmSignalSubscribers(void) {}
+
+/* Until scheduler links */
+TaskObject *current_task;
+
+size_t SchedGetReadyQueue(TaskObject **out, size_t max_out)
+{
+    (void)out;
+    (void)max_out;
+    return 0;
+}
+
+size_t SchedGetSleepers(TaskObject **out, size_t max_out)
+{
+    (void)out;
+    (void)max_out;
+    return 0;
+}
+
+/* Until irq relay */
+const IrqOwner *GetIrqOwnersList(void) { return NULL; }

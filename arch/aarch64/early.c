@@ -128,6 +128,7 @@ _Noreturn void early(void *dtb_ptr)
     KDEBUG("early: running on the kernel's own tables");
 
     BootInfoInitFromFdt();
+    
     ArchIrqInit();
     ArchPlatformInitDevices();
 
