@@ -146,6 +146,6 @@ _Noreturn void early(void *dtb_ptr)
     ArchTimerSetHandler(EarlyTick);
     ArchTimerSetDeadline(ArchTimerNow() + (ArchTimerFreq() / 10));
     __asm__ volatile("msr daifclr, #2");
-    for (;;)
-        ArchCpuIdle();
+
+    kmain();
 }
