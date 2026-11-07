@@ -247,7 +247,16 @@ dtb_panic_msg:
 .balign 4
 
 .section .text
-.balign 4096
+
+clear_bss:
+    ldr x0, =_bss_start
+    ldr x1,  =_bss_end
+1:  cmp x0, x1
+    b.hs 2f
+    str xzr, [x0], #8
+    b 1b
+2:  ret
+
 higher_half_entry:
 
     ldr x0, =vector_table
@@ -257,6 +266,8 @@ higher_half_entry:
     ldr x0, =__kstack_top
     mov sp, x0
 
+    bl clear_bss
+    
     mov x0, x19
     bl early
 
