@@ -6,6 +6,7 @@
 #ifndef ARCH_ARM_IMPL_CPU_H
 #define ARCH_ARM_IMPL_CPU_H
 
+#include <arch_impl/regs.h>
 #include <stdint.h>
 
 /** @brief A saved CPSR, as returned by ArchIrqSave(). */
@@ -24,8 +25,7 @@ static inline void ArchGlobalIrqEnable(void) { __asm__ volatile("msr daifclr, #2
  */
 static inline Cpsr ArchIrqSave(void)
 {
-    uint64_t cpsr;
-    __asm__ volatile("mrs %0, daif" : "=r"(cpsr)::"memory");
+    uint64_t cpsr = READ_SYSREG(daif);
     ArchGlobalIrqDisable();
     return cpsr;
 }
@@ -37,7 +37,7 @@ static inline Cpsr ArchIrqSave(void)
  */
 static inline void ArchIrqRestore(Cpsr state)
 {
-    __asm__ volatile("msr daif, %0" ::"r"(state) : "memory");
+    WRITE_SYSREG(daif, state);
 }
 
 /** @brief Waits for an interrupt (wfi). */

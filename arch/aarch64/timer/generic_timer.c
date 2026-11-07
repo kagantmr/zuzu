@@ -3,7 +3,9 @@
  * @brief ARM generic timer: the virtual timer as the kernel's one-shot deadline.
  */
 
-#include "arch/arm/timer/generic_timer.h"
+#include "arch/aarch64/timer/generic_timer.h"
+#include <arch_impl/barrier.h>
+#include <arch_impl/regs.h>
 #include <arch/irq.h>
 #include <arch/timer.h>
 #include <stdint.h>
@@ -16,9 +18,7 @@
  */
 static inline uint32_t ReadCntFrq(void)
 {
-    uint64_t v;
-    __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(v));
-    return (uint32_t)v;
+    return (uint32_t)READ_SYSREG(cntfrq_el0);
 }
 
 /**
@@ -28,8 +28,8 @@ static inline uint32_t ReadCntFrq(void)
  */
 static inline void WriteCntpCtl(uint32_t v)
 {
-    __asm__ volatile("msr cntp_ctl_el0, %0" ::"r"((uint64_t)v));
-    __asm__ volatile("isb");
+    WRITE_SYSREG(cntp_ctl_el0, v);
+    Isb();
 }
 
 /** @brief Last value written to CNTV_CTL, to skip redundant writes. */
@@ -47,8 +47,8 @@ static inline void WriteCntvCtl(uint32_t v)
     if (v == cntv_ctl_shadow)
         return;
     cntv_ctl_shadow = v;
-    __asm__ volatile("msr cntv_ctl_el0, %0" ::"r"((uint64_t)v));
-    __asm__ volatile("isb");
+    WRITE_SYSREG(cntv_ctl_el0, v);
+    Isb();
 }
 
 /** @brief Highest count read so far. */
@@ -63,8 +63,8 @@ static uint64_t cnt_last;
  */
 static inline uint64_t ReadCntvct(void)
 {
-    uint64_t v;
-    __asm__ volatile("isb\n mrs %0, cntvct_el0" : "=r"(v)::"memory");
+    Isb();
+    uint64_t v = READ_SYSREG(cntvct_el0);
     if (v < cnt_last)
         v = cnt_last;
     cnt_last = v;
@@ -93,12 +93,11 @@ static void ArmGenericTimerHandler(void *ctx)
 /** @brief Lets user code read the virtual count, and nothing else (CNTKCTL). */
 static inline void EnableUserCounterRead(void)
 {
-    uint64_t v;
-    __asm__ volatile("mrs %0, cntkctl_el1" : "=r"(v));
+    uint64_t v = READ_SYSREG(cntkctl_el1);
     v &= ~0x303ULL;
     v |= 0x2ULL;
-    __asm__ volatile("msr cntkctl_el1, %0" ::"r"(v));
-    __asm__ volatile("isb");
+    WRITE_SYSREG(cntkctl_el1, v);
+    Isb();
 }
 
 void ArchTimerInit(void)
@@ -127,8 +126,8 @@ void ArchTimerSetDeadline(Time abs_count)
 {
     if (abs_count != cntv_cval_shadow) {
         cntv_cval_shadow = abs_count;
-        __asm__ volatile("msr cntv_cval_el0, %0" ::"r"((uint64_t)abs_count));
-        __asm__ volatile("isb");
+        WRITE_SYSREG(cntv_cval_el0, abs_count);
+        Isb();
     }
     WriteCntvCtl(0x1);
 }

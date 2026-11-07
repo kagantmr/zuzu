@@ -19,7 +19,7 @@
  *
  * @param[in] offset Byte distance from the old (physical) to the new (virtual) addresses.
  */
-static inline void ArchRelocateStacks(size_t offset)
+static inline void RelocateStacks(size_t offset)
 {
     __asm__ volatile(
         "mrs    r0, cpsr\n\t"

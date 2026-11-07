@@ -12,6 +12,8 @@
 #include <stdarg.h>
 #include <stdint.h>
 
+PanicFaultContext panic_fault_ctx;
+
 /* Until core/panic.c links (it needs tasks, spaces and the PMM): print the reason and halt. */
 _Noreturn void panic(const char *fmt, ...)
 {
@@ -26,10 +28,10 @@ _Noreturn void panic(const char *fmt, ...)
     ArchCpuHalt();
 }
 
-void ArchUnhandledException(uint64_t esr, uint64_t elr, uint64_t far);
+void UnhandledException(uint64_t esr, uint64_t elr, uint64_t far);
 
 /* Until the exception handlers are ported: report the fault and halt. */
-void ArchUnhandledException(uint64_t esr, uint64_t elr, uint64_t far)
+void UnhandledException(uint64_t esr, uint64_t elr, uint64_t far)
 {
     kprintf("\nUNHANDLED EXCEPTION: ESR=%016llx ELR=%016llx FAR=%016llx\n",
             (unsigned long long)esr, (unsigned long long)elr, (unsigned long long)far);

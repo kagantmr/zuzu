@@ -142,8 +142,8 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
             ArchFpuEnableAccess();
             fpu_access_enabled = true;
             if (fpu_owner)
-                ArchFpuSaveState(&fpu_owner->fpu_state);
-            ArchFpuRestoreState(&current_task->fpu_state);
+                FpuSaveState(&fpu_owner->fpu_state);
+            FpuRestoreState(&current_task->fpu_state);
             fpu_owner = current_task;
             break;
         }

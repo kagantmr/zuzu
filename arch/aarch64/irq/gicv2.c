@@ -141,7 +141,7 @@ uint32_t GicAcknowledge(void)
 void GicEnd(uint32_t iar)
 {
     
-    ArchDsbSy();
+    DsbSy();
     GiccWrite(GICC_EOIR, iar);
 }
 

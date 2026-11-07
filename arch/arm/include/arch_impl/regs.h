@@ -96,7 +96,7 @@ static __always_inline Register ArchFrameFp(const CpuState *f) { return f->r[11]
  * @param[in] f Frame of an SVC.
  * @return The syscall number.
  */
-static __always_inline uint32_t ArchFrameSvcNum(const CpuState *f) { return (uint32_t)f->r[12]; }
+static __always_inline uint32_t FrameSvcNum(const CpuState *f) { return (uint32_t)f->r[12]; }
 
 /**
  * @brief Reads the current frame pointer (r11).

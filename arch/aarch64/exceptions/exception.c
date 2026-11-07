@@ -1,6 +1,6 @@
 /**
  * @file
- * @brief ARMv7-A exception handling: undefined instructions, aborts, IRQs.
+ * @brief AArch64 synchronous exception handling.
  */
 
 #include "core/log.h"
@@ -24,273 +24,172 @@ BENCH_STAT(g_bench_lazy_map_fault, "lazy-map translation fault");
 BENCH_STAT(g_bench_irq_dispatch, "irq: ArchIrqDispatch");
 #endif
 
-/** @brief Exception kinds, numbered by their vector slot. */
-typedef enum {
-    EXCEPTION_UNDEF = 1,          /**< Undefined instruction, including lazy VFP traps. */
-    EXCEPTION_PREFETCH_ABORT = 3, /**< Instruction fetch fault. */
-    EXCEPTION_DATA_ABORT = 4,     /**< Data access fault. */
-    EXCEPTION_RESERVED = 5,       /**< Unused vector. */
-    EXCEPTION_IRQ = 6,            /**< Interrupt. */
-    EXCEPTION_FIQ = 7             /**< Fast interrupt; not supported. */
-} ExceptionType;
-
 /**
- * @brief Describes the status field of a DFSR or IFSR.
+ * @brief Describes the fault status code of a data or instruction abort.
  *
- * @param[in] fsr Fault status register value.
- * @return A short description, or "Unknown fault".
+ * @param[in] dfsc DFSC or IFSC field, ESR_EL1.ISS[5:0].
+ * @return A static description, with the translation level where the code has one.
  */
-static const char *DecodeFsr(uint32_t fsr)
+static const char *DecodeDfsc(uint32_t dfsc)
 {
-    uint32_t status = (fsr & 0xF) | ((fsr >> 6) & 0x10);
+    static const char *const address_size[] = {
+        "address size fault, level 0", "address size fault, level 1",
+        "address size fault, level 2", "address size fault, level 3"};
+    static const char *const translation[] = {
+        "translation fault, level 0", "translation fault, level 1",
+        "translation fault, level 2", "translation fault, level 3"};
+    static const char *const access_flag[] = {
+        "access flag fault, level 0", "access flag fault, level 1",
+        "access flag fault, level 2", "access flag fault, level 3"};
+    static const char *const permission[] = {
+        "permission fault, level 0", "permission fault, level 1",
+        "permission fault, level 2", "permission fault, level 3"};
+    static const char *const walk_external[] = {
+        "external abort on table walk, level 0", "external abort on table walk, level 1",
+        "external abort on table walk, level 2", "external abort on table walk, level 3"};
+    static const char *const walk_parity[] = {
+        "parity/ECC error on table walk, level 0", "parity/ECC error on table walk, level 1",
+        "parity/ECC error on table walk, level 2", "parity/ECC error on table walk, level 3"};
 
-    switch (status) {
-    case 0x01:
-        return "Alignment fault";
-    case 0x02:
-        return "Debug event";
-    case 0x03:
-        return "Access flag fault (section)";
-    case 0x04:
-        return "Instruction cache maintenance fault";
-    case 0x05:
-        return "Translation fault (section)";
-    case 0x06:
-        return "Access flag fault (page)";
-    case 0x07:
-        return "Translation fault (page)";
-    case 0x08:
-        return "Synchronous external abort";
-    case 0x09:
-        return "Domain fault (section)";
-    case 0x0B:
-        return "Domain fault (page)";
-    case 0x0C:
-        return "External abort on table walk (L1)";
-    case 0x0D:
-        return "Permission fault (section)";
-    case 0x0E:
-        return "External abort on table walk (L2)";
-    case 0x0F:
-        return "Permission fault (page)";
-    case 0x10:
-        return "TLB conflict abort";
-    case 0x16:
-        return "Asynchronous external abort";
-    case 0x19:
-        return "Parity error on memory access";
+    const uint32_t level = dfsc & 0x3U;
+
+    switch (dfsc >> 2) {
+    case 0x0:
+        return address_size[level];
+    case 0x1:
+        return translation[level];
+    case 0x2:
+        return access_flag[level];
+    case 0x3:
+        return permission[level];
+    case 0x5:
+        return walk_external[level];
+    case 0x7:
+        return walk_parity[level];
     default:
-        return "Unknown fault";
+        break;
+    }
+
+    switch (dfsc) {
+    case 0x10:
+        return "synchronous external abort";
+    case 0x11:
+        return "synchronous tag check fault";
+    case 0x18:
+        return "synchronous parity/ECC error";
+    case 0x21:
+        return "alignment fault";
+    case 0x30:
+        return "TLB conflict abort";
+    case 0x31:
+        return "unsupported atomic hardware update";
+    case 0x34:
+        return "lockdown abort";
+    case 0x35:
+        return "unsupported exclusive or atomic access";
+    default:
+        return "unknown fault status";
     }
 }
 
 /**
- * @brief Maps the page behind a translation fault if it falls in a region that is filled on demand.
+ * @brief Names an exception class.
  *
- * Guard and device regions, and accesses the region's protection forbids, are not served.
- *
- * @param[in] space Faulting space.
- * @param[in] dfar  Faulting address.
- * @param[in] dfsr  Fault status; bit 11 set means a write.
- * @return true if the page is now mapped and the access can be retried.
+ * @param[in] ec Exception class, ESR_EL1[31:26].
+ * @return A static name.
  */
-static bool __hot ServiceDemandPage(SpaceObject *space, uint32_t dfar, uint32_t dfsr)
+static const char *EcName(uint32_t ec)
 {
-    AddressSpace *as = space->as;
-    for (uint32_t i = 0; i < as->regions.len; i++) {
-        VirtMemRegion *r = vm_region_vec_get(&as->regions, i);
-        if (!r)
-            continue;
-        if (dfar >= r->vaddr_start && dfar < r->vaddr_start + r->size) {
-            if (unlikely(r->flags & VM_FLAG_GUARD))
-                continue;
-            if (unlikely(r->memtype == VM_MEM_DEVICE))
-                continue;
-            if (unlikely(!(dfsr & (1 << 11)) && !(r->prot & PROT_READ)))
-                continue;
-            if (unlikely((dfsr & (1 << 11)) && !(r->prot & PROT_WRITE)))
-                continue;
-            uintptr_t page_va = align_down(dfar, PAGE_SIZE);
-            return VmmPageFaultHandle(as, r, page_va);
-        }
+    switch (ec) {
+    case 0x00:
+        return "Unknown reason (undefined instruction)";
+    case 0x01:
+        return "Trapped WFI/WFE";
+    case 0x07:
+        return "FP/SIMD access trap";
+    case 0x0E:
+        return "Illegal execution state";
+    case 0x11:
+        return "SVC from AArch32";
+    case 0x15:
+        return "SVC from AArch64";
+    case 0x18:
+        return "Trapped MSR/MRS or system instruction";
+    case 0x20:
+        return "Instruction abort from lower EL";
+    case 0x21:
+        return "Instruction abort from same EL";
+    case 0x22:
+        return "PC alignment fault";
+    case 0x24:
+        return "Data abort from lower EL";
+    case 0x25:
+        return "Data abort from same EL";
+    case 0x26:
+        return "SP alignment fault";
+    case 0x28:
+        return "FP exception from AArch32";
+    case 0x2C:
+        return "FP exception from AArch64";
+    case 0x2F:
+        return "SError";
+    case 0x30:
+        return "Breakpoint from lower EL";
+    case 0x31:
+        return "Breakpoint from same EL";
+    case 0x32:
+        return "Software step from lower EL";
+    case 0x33:
+        return "Software step from same EL";
+    case 0x34:
+        return "Watchpoint from lower EL";
+    case 0x35:
+        return "Watchpoint from same EL";
+    case 0x38:
+        return "BKPT from AArch32";
+    case 0x3C:
+        return "BRK instruction";
+    default:
+        return "Unknown exception class";
     }
-    return false;
 }
 
-/**
- * @brief Handles every exception except SVC, called from the vectors.
- *
- * User faults kill the task; kernel faults panic, except demand-paging faults
- * on user addresses during a syscall.
- *
- * @param[in]     exctype Which exception.
- * @param[in,out] frame   Saved registers.
- */
-void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame);
+void KernelSyncException(CpuState *frame);
 
-void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
+void KernelSyncException(CpuState *frame)
 {
-    SpaceObject *current_space = current_task ? current_task->owner : NULL;
+    Register esr = READ_SYSREG(esr_el1);
+    Register far = READ_SYSREG(far_el1);
 
-    switch (exctype) {
-    case EXCEPTION_UNDEF: {
-        
-        if (frame->return_cpsr & (1 << 5))
-            frame->return_pc += 2;
+    uint32_t ec = (uint32_t)(esr >> 26);        // what kind of exception
+    uint32_t iss = (uint32_t)(esr & 0x1FFFFFF); // details, meaning depends on ec
 
-        if (current_task && current_task != fpu_owner) {
-            ArchFpuEnableAccess();
-            fpu_access_enabled = true;
-            if (fpu_owner)
-                ArchFpuSaveState(&fpu_owner->fpu_state);
-            ArchFpuRestoreState(&current_task->fpu_state);
-            fpu_owner = current_task;
-            break;
-        }
+    panic_fault_ctx = (PanicFaultContext){
+        .valid = 1,
+        .fsr = esr,
+        .frame = frame,
+    };
 
-        bool from_user = (frame->return_cpsr & 0x1F) == 0x10;
+    // fill in the rest depending on the class
+    switch (ec) {
+    case 0x25: // data abort, same EL
+        panic_fault_ctx.far = far;
+        panic_fault_ctx.fault_type = "Data abort";
+        panic_fault_ctx.fault_decoded = DecodeDfsc(iss & 0x3F);
+        panic_fault_ctx.access_type = (iss & (1U << 6)) ? "write" : "read";
+        panic("Kernel data abort");
 
-        if (from_user && current_space) {
-            KERROR("Oops! '%s' (SPID %d, TID %d) faulted: undefined instruction @ 0x%08X\n",
-                   current_space->name, current_space->spid, current_task->tid, frame->return_pc);
-            TaskFault(current_task, KILLED_FAULT_UNDEF);
-            Schedule();
-        } else {
-            panic_fault_ctx = (PanicFaultContext){
-                .valid = 1,
-                .fault_type = "Undefined instruction",
-                .fault_decoded = "Undefined instruction",
-                .frame = frame,
-            };
-            panic("Kernel-level undefined instruction");
-        }
-    } break;
+    case 0x21: // instruction abort, same EL (jumped somewhere bad)
 
-    case EXCEPTION_PREFETCH_ABORT: {
-        
-        uint32_t ifar, ifsr;
-        __asm__ volatile("mrc p15, 0, %0, c6, c0, 2" : "=r"(ifar));
-        __asm__ volatile("mrc p15, 0, %0, c5, c0, 1" : "=r"(ifsr));
+    case 0x00: // undefined instruction
+    case 0x3C: // brk / __builtin_trap()
+    case 0x22: // pc misaligned
+    case 0x26: // sp misaligned
+        panic_fault_ctx.fault_type = EcName(ec);
+        panic("Synchronous exception (%s)", panic_fault_ctx.fault_type);
 
-        bool from_user = (frame->return_cpsr & 0x1F) == 0x10;
-
-        if (from_user && current_space) {
-            KERROR("Oops! '%s' (SPID %d, TID %d) killed: prefetch abort @ 0x%08X (%s)\n",
-                   current_space->name, current_space->spid, current_task->tid, ifar,
-                   DecodeFsr(ifsr));
-            TaskFault(current_task, KILLED_FAULT_PREFETCH);
-            Schedule();
-        } else {
-            panic_fault_ctx = (PanicFaultContext){
-                .valid = 1,
-                .far = (Register)ifar,
-                .fsr = (Register)ifsr,
-                .fault_type = "Prefetch abort",
-                .fault_decoded = DecodeFsr(ifsr),
-                .frame = frame,
-            };
-            panic("Kernel-level prefetch abort");
-        }
-    } break;
-
-    case EXCEPTION_DATA_ABORT: {
-#ifdef CONFIG_ZUZU_BENCH
-        uint32_t bench_start = BENCH_BEGIN();
-#endif
-
-        uint32_t dfar, dfsr;
-        __asm__ volatile("mrc p15, 0, %0, c6, c0, 0" : "=r"(dfar));
-        __asm__ volatile("mrc p15, 0, %0, c5, c0, 0" : "=r"(dfsr));
-
-        bool from_user = (frame->return_cpsr & 0x1F) == 0x10;
-        bool from_svc = (frame->return_cpsr & 0x1F) == 0x13;
-
-        uint32_t fault_status = (dfsr & 0xF) | ((dfsr >> 6) & 0x10);
-        bool is_translation = (fault_status == 0x05 || fault_status == 0x07);
-
-        if (dfar >= KSTACK_REGION_BASE && dfar < KSTACK_REGION_TOP) {
-            uint32_t offset_in_slot = (dfar - KSTACK_REGION_BASE) % KSTACK_SLOT_SIZE;
-            if (offset_in_slot < 0x1000) {
-                panic_fault_ctx = (PanicFaultContext){
-                    .valid = 1,
-                    .far = (Register)dfar,
-                    .fsr = (Register)dfsr,
-                    .fault_type = "Data abort (kernel stack overflow)",
-                    .fault_decoded = DecodeFsr(dfsr),
-                    .access_type = (dfsr & (1 << 11)) ? "Write" : "Read",
-                    .frame = frame,
-                };
-                panic("Kernel stack overflow");
-            }
-        }
-
-        if (likely(from_user && current_space && current_space->as)) {
-            
-            if (likely(is_translation && dfar < KERNEL_VA_BASE) &&
-                ServiceDemandPage(current_space, dfar, dfsr)) {
-#ifdef CONFIG_ZUZU_BENCH
-                BENCH_END(g_bench_lazy_map_fault, bench_start);
-#endif
-                return;
-            }
-
-            KERROR("Oops! Segmentation fault");
-            KDEBUG("Oops! '%s' (SPID %d, TID %d) killed: data abort @ 0x%08X (%s %s)\n",
-                   current_space->name, current_space->spid, current_task->tid, dfar,
-                   (dfsr & (1 << 11)) ? "write" : "read", DecodeFsr(dfsr));
-            TaskFault(current_task, KILLED_FAULT_DATA);
-            Schedule();
-        } else if (from_svc && current_space && current_space->as && dfar < KERNEL_VA_BASE) {
-            if (is_translation && ServiceDemandPage(current_space, dfar, dfsr)) {
-#ifdef CONFIG_ZUZU_BENCH
-                BENCH_END(g_bench_lazy_map_fault, bench_start);
-#endif
-                return;
-            }
-
-            KERROR("Oops! Kernel fault in SVC from '%s' (SPID %d, TID %d, state %d) pc=0x%08X @ "
-                   "0x%08X (%s %s)\n",
-                   current_space->name, current_space->spid, current_task->tid,
-                   (int)current_task->state, (unsigned)frame->return_pc, dfar,
-                   (dfsr & (1 << 11)) ? "write" : "read", DecodeFsr(dfsr));
-            TaskFault(current_task, KILLED_FAULT_DATA);
-            Schedule();
-        } else {
-            
-            panic_fault_ctx = (PanicFaultContext){
-                .valid = 1,
-                .far = (Register)dfar,
-                .fsr = (Register)dfsr,
-                .fault_type = "Data abort",
-                .fault_decoded = DecodeFsr(dfsr),
-                .access_type = (dfsr & (1 << 11)) ? "Write" : "Read",
-                .frame = frame,
-            };
-            panic("Kernel-level data abort");
-        }
-    } break;
-    case EXCEPTION_IRQ: {
-#ifdef CONFIG_ZUZU_BENCH
-        uint32_t bench_start = BENCH_BEGIN();
-#endif
-        ArchIrqDispatch();
-#ifdef CONFIG_ZUZU_BENCH
-        BENCH_END(g_bench_irq_dispatch, bench_start);
-#endif
-    } break;
-
-    case EXCEPTION_FIQ: {
-        KERROR("No support for FIQ");
-    } break;
-
-    case EXCEPTION_RESERVED:
-    default: {
-        panic_fault_ctx = (PanicFaultContext){
-            .valid = 1,
-            .fault_type = "Unknown exception",
-            .frame = frame,
-        };
-        panic("Unknown exception");
-    } break;
+    default: // anything else, kernel svc (0x15) included
+        panic_fault_ctx.fault_type = EcName(ec);
+        panic("unexpected sync exception, EC=0x%x", ec);
     }
 }

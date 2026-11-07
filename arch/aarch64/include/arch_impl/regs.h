@@ -20,6 +20,16 @@ typedef uint64_t Register;
 /** @brief Converts a Register or an address to the argument type REG_FMT expects. */
 #define REG_ARG(r) ((unsigned long long)(uint64_t)(r))
 
+#define READ_SYSREG(name)                                                  \
+    ({                                                                     \
+        uint64_t __v;                                                      \
+        __asm__ volatile("mrs %0, " #name : "=r"(__v));                    \
+        __v;                                                               \
+    })
+
+#define WRITE_SYSREG(name, val)                                            \
+    __asm__ volatile("msr " #name ", %0" ::"r"((uint64_t)(val)) : "memory")
+
 /**
  * @brief Registers saved on exception entry: the trap frame.
  *
@@ -96,7 +106,7 @@ static __always_inline Register ArchFrameFp(const CpuState *f) { return f->x[29]
  * @param[in] f Frame of an SVC.
  * @return The syscall number.
  */
-static __always_inline uint32_t ArchFrameSvcNum(const CpuState *f) { return (uint32_t)f->x[8]; }
+static __always_inline uint32_t FrameSvcNum(const CpuState *f) { return (uint32_t)f->x[8]; }
 
 /**
  * @brief Reads the current frame pointer (x29).
@@ -117,11 +127,7 @@ static inline Register ArchCurrentFramePointer(void)
  */
 static inline Register ArchCurrentFlags(void)
 {
-    Register nzcv, daif, el;
-    __asm__ volatile("mrs %0, nzcv" : "=r"(nzcv));
-    __asm__ volatile("mrs %0, daif" : "=r"(daif));
-    __asm__ volatile("mrs %0, CurrentEL" : "=r"(el));
-    return nzcv | daif | el | 1u;
+    return READ_SYSREG(nzcv) | READ_SYSREG(daif) | READ_SYSREG(CurrentEL) | 1u;
 }
 
 /** @brief Number of general-purpose registers in TaskRegs (x0-x30). */
