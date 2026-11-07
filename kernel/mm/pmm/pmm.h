@@ -55,6 +55,15 @@ typedef struct {
 void PmmInit(void);
 
 /**
+ * @brief Frees the RAM banks that PmmInit() held back.
+ *
+ * PmmInit() frees only the bank holding the kernel image, since the boot tables may map nothing
+ * else. Call this once the kernel's own tables map every bank, after VmmBootstrap(). The
+ * reserved-memory ranges and the initrd stay allocated.
+ */
+void PmmAddBanks(void);
+
+/**
  * @brief Read the current frame counts.
  * @return Total and free frame counts.
  */

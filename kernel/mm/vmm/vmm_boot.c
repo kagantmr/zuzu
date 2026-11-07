@@ -57,31 +57,40 @@ void VmmBootstrap(void)
     if (!vm_region_vec_init(&g_kernel_as->regions))
         panic("Failed to allocate kernel region list");
 
-    PhysAddr ram_start = kernel_layout.ram_start;
-    PhysAddr ram_end = kernel_layout.ram_end;
     PhysAddr image_start = align_down(kernel_layout.kernel_start_pa, PAGE_SIZE);
     PhysAddr image_end = align_up(kernel_layout.kernel_end_pa, PAGE_SIZE);
 
-    MapLinear(ram_start, image_start, false);
-    MapLinear(image_start, image_end, true);
-    MapLinear(image_end, ram_end, false);
+    for (size_t i = 0; i < kernel_layout.ram_bank_count; i++) {
+        PhysAddr bank_start = kernel_layout.ram_banks[i].start;
+        PhysAddr bank_end = kernel_layout.ram_banks[i].end;
 
-    VirtMemRegion ram_region = {
-        .vaddr_start = PA_TO_VA(ram_start),
-        .size = ram_end - ram_start,
-        .prot = PROT_READ | PROT_WRITE | PROT_EXEC,
-        .memtype = VM_MEM_NORMAL,
-        .owner = VM_BACKING_SHARED,
-        .flags = VM_FLAG_PINNED,
-    };
-    VmmAddRegion(g_kernel_as, &ram_region);
+        if (image_start >= bank_start && image_end <= bank_end) {
+            MapLinear(bank_start, image_start, false);
+            MapLinear(image_start, image_end, true);
+            MapLinear(image_end, bank_end, false);
+        } else {
+            MapLinear(bank_start, bank_end, false);
+        }
+
+        VirtMemRegion ram_region = {
+            .vaddr_start = PA_TO_VA(bank_start),
+            .size = bank_end - bank_start,
+            .prot = PROT_READ | PROT_WRITE | PROT_EXEC,
+            .memtype = VM_MEM_NORMAL,
+            .owner = VM_BACKING_SHARED,
+            .flags = VM_FLAG_PINNED,
+        };
+        VmmAddRegion(g_kernel_as, &ram_region);
+        KDEBUG("mapped ram bank [%p..%p)", (void *)bank_start, (void *)bank_end);
+    }
 
     if (!ArchMmuInstallKernelSpace(g_kernel_as))
         panic("Failed to install the kernel address space");
 
     g_mmu_enabled = true;
     g_current_addrspace = g_kernel_as;
-    KDEBUG("kernel space installed, ram [%p..%p)", (void *)ram_start, (void *)ram_end);
+    KDEBUG("kernel space installed, ram [%p..%p)", (void *)kernel_layout.ram_start,
+           (void *)kernel_layout.ram_end);
 }
 
 void VmmRemoveIdentityMapping(void)

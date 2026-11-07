@@ -9,12 +9,23 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/** @brief Most RAM banks the kernel records. */
+#define RAM_BANKS_MAX 4
+
+/**
+ * @brief One physically contiguous range of RAM.
+ */
+typedef struct {
+    uintptr_t start; /**< Physical start. */
+    uintptr_t end;   /**< Physical end, exclusive. */
+} RamBank;
+
 /**
  * @brief Where the kernel, its stack, the frame bitmap and the heap sit in RAM.
  */
 typedef struct {
-    uintptr_t ram_start; /**< Physical start of RAM. */
-    uintptr_t ram_end; /**< Physical end of RAM. */
+    uintptr_t ram_start; /**< Physical start of the lowest RAM bank. */
+    uintptr_t ram_end; /**< Physical end of the highest RAM bank; holes between banks lie inside. */
 
     uintptr_t dtb_start_pa; /**< Physical address of the device tree blob. */
 
@@ -39,6 +50,9 @@ typedef struct {
     uintptr_t heap_end_pa; /**< Physical end of the kernel heap. */
     void *heap_start_va; /**< Virtual start of the kernel heap. */
     void *heap_end_va; /**< Virtual end of the kernel heap. */
+
+    RamBank ram_banks[RAM_BANKS_MAX]; /**< RAM banks from the device tree, sorted by address. */
+    size_t ram_bank_count; /**< Number of entries in ram_banks. */
 } RamLayout;
 
 #endif
