@@ -1,16 +1,11 @@
 /**
  * @file context.c
- * @brief Task context function implementations
+ * @brief AArch64 task context function implementations
  */
 
 #include <arch/context.h>
 #include <arch/regs.h>
 #include <string.h>
-
-/**
- * @brief ARM user CPSR value.
- */
-#define ARM_CPSR_USER 0x10u
 
 /**
  * @brief Where a new user task first runs; the saved lr of its initial CpuContext.
@@ -27,10 +22,10 @@ void *ArchTaskUserInit(void *kstack_top, uintptr_t entry, uintptr_t user_sp, uin
     memset(f, 0, sizeof(*f));
     *ArchGetFromFrame(f, 0) = (Register)a0;
     *ArchGetFromFrame(f, 1) = (Register)a1;
-    f->sp_usr = (Register)user_sp;
-    f->lr_usr = (Register)user_lr;
+    f->sp_el0 = (Register)user_sp;
+    f->x[30] = (Register)user_lr;
     f->return_pc = (Register)entry;
-    f->return_cpsr = ARM_CPSR_USER;
+    f->return_pstate = 0;
 
     sp -= sizeof(CpuContext);
     CpuContext *ctx = (CpuContext *)sp;
