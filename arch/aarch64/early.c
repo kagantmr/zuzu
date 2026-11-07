@@ -72,6 +72,13 @@ static bool ReadRamBanks(void)
     return true;
 }
 
+static void EarlyTick(void)
+{
+    static unsigned n = 0;
+    KDEBUG("tick %u", ++n);
+    ArchTimerSetDeadline(ArchTimerNow() + ArchTimerFreq() / 10);
+}
+
 /**
  * @brief First C function, called by _start with the MMU on.
  *
@@ -119,5 +126,13 @@ _Noreturn void early(void *dtb_ptr)
     PmmUnmarkRange(kernel_layout.boot_start_pa, kernel_layout.boot_end_pa);
     KDEBUG("early: running on the kernel's own tables");
 
-    ArchCpuHalt();
+    BootInfoInitFromFdt();
+    ArchIrqInit();
+    ArchPlatformInitDevices();
+
+    ArchTimerSetHandler(EarlyTick);
+    ArchTimerSetDeadline(ArchTimerNow() + (ArchTimerFreq() / 10));
+    __asm__ volatile("msr daifclr, #2");
+    for (;;)
+        ArchCpuIdle();
 }

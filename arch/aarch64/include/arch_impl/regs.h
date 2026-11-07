@@ -1,10 +1,10 @@
 /**
  * @file
- * @brief ARMv7-A register frames and the user register view.
+ * @brief AArch64 register frames and the user register view.
  */
 
-#ifndef ARCH_ARM_IMPL_REGS_H
-#define ARCH_ARM_IMPL_REGS_H
+#ifndef ARCH_AARCH64_IMPL_REGS_H
+#define ARCH_AARCH64_IMPL_REGS_H
 
 #include <compiler.h>
 #include <snprintf.h>
@@ -13,19 +13,19 @@
 #include <stdint.h>
 
 /** @brief One general-purpose register. */
-typedef int32_t Register;
+typedef uint64_t Register;
 
 /**
- * @brief User registers saved on exception entry: the trap frame.
+ * @brief Registers saved on exception entry: the trap frame.
  *
- * It sits at the top of the task's kernel stack, at kstack_top - sizeof(CpuState).
+ * It sits at the top of the task's kernel stack, at kstack_top - sizeof(CpuState). The size stays
+ * a multiple of 16 so that sp stays aligned below it.
  */
 typedef struct CpuStateStruct {
-    Register r[13];      /**< r0-r12. */
-    Register sp_usr;     /**< User-mode sp (r13_usr). */
-    Register lr_usr;     /**< User-mode lr (r14_usr). */
-    Register return_pc;  /**< Address execution resumes at. */
-    Register return_cpsr; /**< CPSR restored on return (the saved SPSR). */
+    Register x[31];         /**< x0-x30; x29 is fp, x30 is lr. */
+    Register sp_el0;        /**< User sp. */
+    Register return_pc;     /**< ELR_EL1: address execution resumes at. */
+    Register return_pstate; /**< SPSR_EL1: PSTATE restored on return. */
 } CpuState;
 
 /** @brief Kernel registers kept across a context switch, on the kernel stack. */
@@ -42,13 +42,13 @@ typedef struct {
 } CpuContext;
 
 /**
- * @brief Points at argument/result register @p i (r0-r12) of a frame.
+ * @brief Points at general-purpose register @p i (x0-x30) of a frame.
  *
  * @param[in] f Frame.
  * @param[in] i Register index.
  * @return Pointer to the saved register.
  */
-static __always_inline Register *ArchGetFromFrame(CpuState *f, unsigned i) { return &f->r[i]; }
+static __always_inline Register *ArchGetFromFrame(CpuState *f, unsigned i) { return &f->x[i]; }
 
 /**
  * @brief Address execution resumes at of a frame.
@@ -63,80 +63,78 @@ static __always_inline Register ArchFramePc(const CpuState *f) { return f->retur
  * @param[in] f Frame.
  * @return The saved value.
  */
-static __always_inline Register ArchFrameSp(const CpuState *f) { return f->sp_usr; }
+static __always_inline Register ArchFrameSp(const CpuState *f) { return f->sp_el0; }
 /**
- * @brief User lr of a frame.
+ * @brief lr (x30) of a frame.
  *
  * @param[in] f Frame.
  * @return The saved value.
  */
-static __always_inline Register ArchFrameLr(const CpuState *f) { return f->lr_usr; }
+static __always_inline Register ArchFrameLr(const CpuState *f) { return f->x[30]; }
 /**
- * @brief Saved CPSR of a frame.
+ * @brief Saved PSTATE of a frame.
  *
  * @param[in] f Frame.
  * @return The saved value.
  */
-static __always_inline Register ArchFrameFlags(const CpuState *f) { return f->return_cpsr; }
+static __always_inline Register ArchFrameFlags(const CpuState *f) { return f->return_pstate; }
 /**
- * @brief Frame pointer (r11) of a frame.
+ * @brief Frame pointer (x29) of a frame.
  *
  * @param[in] f Frame.
  * @return The saved value.
  */
-static __always_inline Register ArchFrameFp(const CpuState *f) { return f->r[11]; }
+static __always_inline Register ArchFrameFp(const CpuState *f) { return f->x[29]; }
 /**
- * @brief Syscall number of a frame, passed in r12.
+ * @brief Syscall number of a frame, passed in x8.
  *
  * @param[in] f Frame of an SVC.
  * @return The syscall number.
  */
-static __always_inline uint32_t ArchFrameSvcNum(const CpuState *f) { return (uint32_t)f->r[12]; }
+static __always_inline uint32_t ArchFrameSvcNum(const CpuState *f) { return (uint32_t)f->x[8]; }
 
 /**
- * @brief Reads the current frame pointer (r11).
+ * @brief Reads the current frame pointer (x29).
  *
  * @return The current fp.
  */
 static inline Register ArchCurrentFramePointer(void)
 {
     Register fp;
-    __asm__ volatile("mov %0, r11" : "=r"(fp));
+    __asm__ volatile("mov %0, x29" : "=r"(fp));
     return fp;
 }
 
 /**
- * @brief Reads the current CPSR.
+ * @brief Reads the current PSTATE fields that SPSR_EL1 would hold: NZCV, DAIF and CurrentEL.
  *
- * @return The current CPSR.
+ * @return The flags, laid out like SPSR_EL1.
  */
 static inline Register ArchCurrentFlags(void)
 {
-    Register cpsr;
-    __asm__ volatile("mrs %0, cpsr" : "=r"(cpsr));
-    return cpsr;
+    Register nzcv, daif, el;
+    __asm__ volatile("mrs %0, nzcv" : "=r"(nzcv));
+    __asm__ volatile("mrs %0, daif" : "=r"(daif));
+    __asm__ volatile("mrs %0, CurrentEL" : "=r"(el));
+    return nzcv | daif | el | 1u;
 }
 
-/** @brief Number of general-purpose registers in TaskRegs (r0-r12). */
-#define ARCH_NUM_GP_REGS 13
+/** @brief Number of general-purpose registers in TaskRegs (x0-x30). */
+#define ARCH_NUM_GP_REGS 31
 
 /** @brief A task's user registers, as TaskGetRegs() returns and TaskSetRegs() takes them. */
 typedef struct {
-    Register gp[ARCH_NUM_GP_REGS]; /**< r0-r12. */
+    Register gp[ARCH_NUM_GP_REGS]; /**< x0-x30. */
     Register sp;                   /**< User sp. */
-    Register lr;                   /**< User lr. */
+    Register lr;                   /**< User lr; the same as gp[30]. */
     Register pc;                   /**< Address the task resumes at. */
-    Register flags;                /**< CPSR; only ARM_CPSR_USER_BITS can be set. */
+    Register flags;                /**< SPSR; only AARCH64_SPSR_USER_BITS can be set. */
 } TaskRegs;
 
-/** @brief CPSR mode field for user mode. */
-#define ARM_CPSR_MODE_USR 0x10u
-/** @brief CPSR Thumb state bit. */
-#define ARM_CPSR_T (1u << 5)
-
-/** @brief CPSR bits user code may set: N Z C V Q, IT, GE, E and T. */
-#define ARM_CPSR_USER_BITS (0xF8000000u | 0x06000000u | 0x000F0000u | 0x0000FC00u | (1u << 9) | \
-                            ARM_CPSR_T)
+/** @brief SPSR mode field M[3:0] for EL0 (EL0t). */
+#define AARCH64_SPSR_MODE_EL0T 0x0u
+/** @brief SPSR bits user code may set: N Z C V. */
+#define AARCH64_SPSR_USER_BITS 0xF0000000u
 
 /**
  * @brief Copies a frame into the user register view.
@@ -147,96 +145,90 @@ typedef struct {
 static inline void ArchFrameToRegs(const CpuState *f, TaskRegs *out)
 {
     for (unsigned i = 0; i < ARCH_NUM_GP_REGS; i++)
-        out->gp[i] = f->r[i];
-    out->sp = f->sp_usr;
-    out->lr = f->lr_usr;
+        out->gp[i] = f->x[i];
+    out->sp = f->sp_el0;
+    out->lr = f->x[30];
     out->pc = f->return_pc;
-    out->flags = f->return_cpsr;
+    out->flags = f->return_pstate;
 }
 
 /**
- * @brief Copies user registers into a frame, keeping the task in user mode.
+ * @brief Copies user registers into a frame, keeping the task at EL0.
  *
- * Bits outside ARM_CPSR_USER_BITS are dropped and the mode is forced to user.
+ * Bits outside AARCH64_SPSR_USER_BITS are dropped, the mode is forced to EL0t and interrupts stay
+ * unmasked. gp[30] gives lr; the lr field is ignored.
  *
  * @param[out] f  Frame to write.
  * @param[in]  in Registers.
- * @return false, leaving @p f unchanged, if pc is misaligned for the requested ARM or Thumb state.
+ * @return false, leaving @p f unchanged, if pc is not 4-byte aligned.
  */
 static inline bool ArchRegsToFrame(CpuState *f, const TaskRegs *in)
 {
-    uint32_t cpsr = ((uint32_t)in->flags & ARM_CPSR_USER_BITS) | ARM_CPSR_MODE_USR;
-    uint32_t align = (cpsr & ARM_CPSR_T) ? 1u : 3u;
-    if ((uint32_t)in->pc & align)
+    if (in->pc & 3u)
         return false;
 
     for (unsigned i = 0; i < ARCH_NUM_GP_REGS; i++)
-        f->r[i] = in->gp[i];
-    f->sp_usr = in->sp;
-    f->lr_usr = in->lr;
+        f->x[i] = in->gp[i];
+    f->sp_el0 = in->sp;
     f->return_pc = in->pc;
-    f->return_cpsr = (Register)cpsr;
+    f->return_pstate = (in->flags & AARCH64_SPSR_USER_BITS) | AARCH64_SPSR_MODE_EL0T;
     return true;
 }
 
 /**
- * @brief Names the processor mode in a CPSR.
+ * @brief Names the exception level and stack pointer in an SPSR.
  *
- * @param[in] cpsr CPSR value.
- * @return "USR", "SVC", "IRQ" and so on, or "???".
+ * @param[in] spsr SPSR value.
+ * @return "EL0t", "EL1t", "EL1h" and so on, or "???".
  */
-static inline const char *arm_cpsr_mode_name(uint32_t cpsr)
+static inline const char *aarch64_spsr_mode_name(Register spsr)
 {
-    switch (cpsr & 0x1Fu) {
-    case 0x10u:
-        return "USR";
-    case 0x11u:
-        return "FIQ";
-    case 0x12u:
-        return "IRQ";
-    case 0x13u:
-        return "SVC";
-    case 0x1Fu:
-        return "SYS";
-    case 0x16u:
-        return "MON";
-    case 0x17u:
-        return "ABT";
-    case 0x1Au:
-        return "HYP";
-    case 0x1Bu:
-        return "UND";
+    if (spsr & (1u << 4))
+        return "AArch32";
+    switch (spsr & 0xFu) {
+    case 0x0u:
+        return "EL0t";
+    case 0x4u:
+        return "EL1t";
+    case 0x5u:
+        return "EL1h";
+    case 0x8u:
+        return "EL2t";
+    case 0x9u:
+        return "EL2h";
     default:
         return "???";
     }
 }
 
 /**
- * @brief Formats a CPSR for logs, e.g. "[SVC ARM irq=dis fiq=en nZCv]".
+ * @brief Formats an SPSR for logs, e.g. "[EL1h D A I F nZCv]", with masked exceptions in capitals.
  *
  * @param[out] buf   Output buffer.
  * @param[in]  bufsz Size of @p buf.
- * @param[in]  flags CPSR value.
+ * @param[in]  flags SPSR value.
  */
 static inline void ArchFlagsDecode(char *buf, size_t bufsz, Register flags)
 {
-    uint32_t cpsr = (uint32_t)flags;
-    (void)snprintf(buf, bufsz, "[%s %s irq=%s fiq=%s %c%c%c%c]", arm_cpsr_mode_name(cpsr),
-                   (cpsr & (1u << 5)) ? "Thumb" : "ARM", (cpsr & (1u << 7)) ? "dis" : "en",
-                   (cpsr & (1u << 6)) ? "dis" : "en", (cpsr >> 31) & 1u ? 'N' : 'n',
-                   (cpsr >> 30) & 1u ? 'Z' : 'z', (cpsr >> 29) & 1u ? 'C' : 'c',
-                   (cpsr >> 28) & 1u ? 'V' : 'v');
+    (void)snprintf(buf, bufsz, "[%s %c%c%c%c %c%c%c%c]", aarch64_spsr_mode_name(flags),
+                   (flags >> 9) & 1u ? 'D' : 'd', (flags >> 8) & 1u ? 'A' : 'a',
+                   (flags >> 7) & 1u ? 'I' : 'i', (flags >> 6) & 1u ? 'F' : 'f',
+                   (flags >> 31) & 1u ? 'N' : 'n', (flags >> 30) & 1u ? 'Z' : 'z',
+                   (flags >> 29) & 1u ? 'C' : 'c', (flags >> 28) & 1u ? 'V' : 'v');
 }
 
 /**
- * @brief Tells whether a CPSR is in IRQ mode.
+ * @brief Tells whether flags belong to an interrupt handler.
  *
- * @param[in] flags CPSR value.
- * @return true in IRQ mode.
+ * AArch64 has no IRQ mode, so PSTATE cannot tell.
+ *
+ * @param[in] flags SPSR value.
+ * @return false.
  */
 static inline bool ArchFlagsInIrqContext(Register flags)
 {
-    return ((uint32_t)flags & 0x1Fu) == 0x12u;
+    (void)flags;
+    return false;
 }
 
-#endif // ARCH_ARM_IMPL_REGS_H
+#endif // ARCH_AARCH64_IMPL_REGS_H

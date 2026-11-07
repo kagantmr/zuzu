@@ -3,8 +3,8 @@
  * @brief ARMv7-A interrupt registration and dispatch.
  */
 
-#include "arch/arm/include/gicv2.h"
-#include "arch/arm/timer/generic_timer.h"
+#include "arch/aarch64/include/gicv2.h"
+#include "arch/aarch64/timer/generic_timer.h"
 #include <arch/irq.h>
 
 #include <stdbool.h>
