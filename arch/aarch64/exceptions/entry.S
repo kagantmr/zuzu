@@ -5,11 +5,6 @@
 
 #include <generated/asm-offsets.h>
 
-/** 2KB aligned, as VBAR requires. */
-.section .vectors, "ax"
-.align 11
-.global vector_table
-
 .macro ventry label
     .balign 0x80
     b \label
@@ -77,6 +72,16 @@
     add sp, sp, #CPU_STATE_SIZE
 .endm
 
+.text
+.global task_entry_trampoline
+task_entry_trampoline:
+    RESTORE_STATE
+    eret
+
+/** 2KB aligned, as VBAR requires. */
+.section .vectors, "ax"
+.balign 2048
+.global vector_table
 vector_table:
     ventry bad_el1t_sync // 0x000  EL1, SP_EL0, sync
     ventry bad_el1t_irq  // 0x080  EL1, SP_EL0, IRQ
