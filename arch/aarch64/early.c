@@ -25,6 +25,54 @@
 RamLayout kernel_layout;
 
 /**
+ * @brief Fills the RAM banks and the RAM span of kernel_layout from the device tree's @c /memory node.
+ *
+ * Banks are kept sorted by address and cut off where the linear map ends. Empty banks and banks
+ * past RAM_BANKS_MAX are dropped.
+ *
+ * @return false if no usable bank was found.
+ */
+static bool ReadRamBanks(void)
+{
+    const uint64_t linear_end = (uint64_t)(IOREMAP_BASE - PA_TO_VA((PhysAddr)0));
+    RamBank *banks = kernel_layout.ram_banks;
+    size_t count = 0;
+
+    uint64_t base, size;
+    for (int i = 0; FdtGetReg("/memory", i, &base, &size); i++) {
+        uint64_t end = base + size;
+        if (end > linear_end)
+            end = linear_end;
+        base = align_up(base, PAGE_SIZE);
+        end = align_down(end, PAGE_SIZE);
+        if (base >= end)
+            continue;
+        if (count == RAM_BANKS_MAX) {
+            KWARN("early: ignoring ram [%p..%p), too many banks", (void *)base, (void *)end);
+            continue;
+        }
+
+        size_t at = count++;
+        while (at > 0 && banks[at - 1].start > base) {
+            banks[at] = banks[at - 1];
+            at--;
+        }
+        banks[at] = (RamBank){.start = (uintptr_t)base, .end = (uintptr_t)end};
+    }
+
+    kernel_layout.ram_bank_count = count;
+    if (count == 0)
+        return false;
+
+    kernel_layout.ram_start = banks[0].start;
+    kernel_layout.ram_end = banks[count - 1].end;
+    for (size_t i = 0; i < count; i++)
+        KDEBUG("early: ram bank %u [%p..%p)", (unsigned)i, (void *)banks[i].start,
+               (void *)banks[i].end);
+    return true;
+}
+
+/**
  * @brief First C function, called by _start with the MMU on.
  *
  * Parses the device tree, maps RAM, starts the PMM, heap and VMM, frees the boot
@@ -43,9 +91,8 @@ _Noreturn void early(void *dtb_ptr)
     FdtInit((const void *)PA_TO_VA((PhysAddr)dtb_ptr));
     KDEBUG("early: dtb parsed (%u bytes)", FdtTotalSize());
 
-    uint64_t base, size;
-    if (!FdtGetReg("/memory", 0, &base, &size)) {
-        KFATAL("DTB corrupt");
+    if (!ReadRamBanks()) {
+        KFATAL("DTB has no usable memory");
         ArchCpuHalt();
     }
 
@@ -57,16 +104,10 @@ _Noreturn void early(void *dtb_ptr)
     kernel_layout.boot_start_pa   = VA_TO_PA((VirtAddr)_boot_start_va);
     kernel_layout.boot_end_pa     = VA_TO_PA((VirtAddr)_boot_end_va);
 
-    uint64_t linear_max = (uint64_t)(IOREMAP_BASE - PA_TO_VA((PhysAddr)base));
-    if (size > linear_max)
-        size = linear_max;
-
-    kernel_layout.ram_start = (PhysAddr)base;
-    kernel_layout.ram_end = (PhysAddr)(base + size);
-    KDEBUG("early: ram [%p..%p)", (void *)kernel_layout.ram_start, (void *)kernel_layout.ram_end);
     PmmInit();
     KHeapInit();
     VmmBootstrap();
+    PmmAddBanks();
 
     kernel_layout.stack_base_va = (uintptr_t)PA_TO_VA(kernel_layout.stack_base_pa);
     kernel_layout.stack_top_va = (uintptr_t)PA_TO_VA(kernel_layout.stack_top_pa);
