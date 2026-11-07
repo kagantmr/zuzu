@@ -188,7 +188,7 @@ __hot bool CallHandoffToReceiver(TaskObject *caller, PortObject *port, ReplyObje
     return true;
 }
 
-void ReplyDeliverToCaller(TaskObject *target, uint32_t xlen, Handle granted)
+void ReplyDeliverToCaller(TaskObject *target, size_t xlen, Handle granted)
 {
     CpuState *target_frame = target->trap_frame;
     ArchSetInFrame(target_frame, 0, ZUZU_OK);

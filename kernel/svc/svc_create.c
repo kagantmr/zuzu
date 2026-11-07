@@ -118,7 +118,7 @@ void SvcCreate(CpuState *frame)
     } break;
     case OBJECT_MEMORY: {
         CreateMemoryFlags flags = (CreateMemoryFlags)(*ArchGetFromFrame(frame, 2));
-        ENSURE_ERR(frame, !(flags & ~MEM_FLAGS_ALL), ERR_BADARG);
+        ENSURE_ERR(frame, !(flags & (unsigned)~MEM_FLAGS_ALL), ERR_BADARG);
         ENSURE_ERR(frame, !(flags & MEM_UNCACHED) || (flags & MEM_CONTIG), ERR_BADARG);
 
         size_t page_count = (size_t)(*ArchGetFromFrame(frame, 1));
