@@ -162,7 +162,7 @@ typedef struct {
     Err status; /**< If the wait succeeded, returns ZUZU_OK. If the request was nonblocking and the
                    wait timed out, it returns ERR_TIMEOUT. */
     Marker sender;  /**< Marker assigned to the sender's port object. */
-    uint32_t xlen;  /**< Length of the message. */
+    size_t xlen;  /**< Length of the message. */
     Handle granted; /**< Handle to a granted object in the receiver's table */
 } PortWaitResult;
 
@@ -178,7 +178,7 @@ typedef struct {
     Err status; /**< If the wait succeeded, returns ZUZU_OK. If the request was nonblocking and the
                    wait timed out, it returns ERR_TIMEOUT. */
     TaskWaitOutcome outcome; /**< Why the task stopped. */
-    int32_t value;           /**< If exited gracefully, the task's return code. */
+    Err value;           /**< If exited gracefully, the task's return code. */
 } TaskWaitResult;
 
 /** @brief Return values for WaitOn on a space object. */
@@ -192,7 +192,7 @@ typedef struct {
 typedef struct {
     Err status;         /**< ZUZU_OK on success, negative on failure */
     uintptr_t bus_addr; /**< Address as seen by the device. */
-    uint32_t id;        /**< ID of the mapping, for adoption */
+    size_t id;        /**< ID of the mapping, for adoption */
 } DmaMapResult;
 
 /** @brief DmaSync operation verb. */
