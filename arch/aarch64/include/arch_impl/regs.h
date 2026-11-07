@@ -13,7 +13,7 @@
 #include <stdint.h>
 
 /** @brief One general-purpose register. */
-typedef uint64_t Register;
+typedef int64_t Register;
 
 /** @brief printf conversion for a Register or an address: 16 upper-case hex digits. Pair with
  * REG_ARG(). */
@@ -67,7 +67,7 @@ static __always_inline Register ArchFrameSp(const CpuState *f)
 {
     if ((f->return_pstate & 0xF) == 0) /* EL0t: user stack */
         return f->sp_el0;
-    return (Register)(uintptr_t)f + sizeof(CpuState); /* EL1h: kernel stack before entry */
+    return (Register)((uintptr_t)f + sizeof(CpuState)); /* EL1h: kernel stack before entry */
 }
 
 /**

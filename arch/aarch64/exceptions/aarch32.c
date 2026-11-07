@@ -23,7 +23,7 @@ _Noreturn void AArch32Entry(CpuState *frame)
     uint64_t esr = READ_SYSREG(esr_el1);
     panic_fault_ctx = (PanicFaultContext){
         .valid = 1,
-        .fsr = esr,
+        .fsr = (Register)esr,
         .far = 0,
         .fault_type = "AArch32 EL0 entry",
         .fault_decoded = "returned to EL0 in AArch32 state",
