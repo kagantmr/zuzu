@@ -4,6 +4,7 @@
  */
 
 #include <arch/platform.h>
+#include "drivers/driver.h"
 #include "kernel/mm/vmm/vmm.h"
 #include <stdint.h>
 
@@ -23,7 +24,4 @@ void ArchEarlyPutc(char c)
     uart[0] = (uint32_t)(uint8_t)c;
 }
 
-#if 0
-#include "drivers/driver.h"
 void ArchPlatformInitDevices(void) { DriverProbeAll(); }
-#endif

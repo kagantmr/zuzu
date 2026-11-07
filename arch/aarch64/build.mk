@@ -7,4 +7,4 @@ obj-y += bringup_stubs.o
 
 subdir-y += boot exceptions
 subdir-y += mmu
-# subdir-y += irq timer
+subdir-y += irq timer

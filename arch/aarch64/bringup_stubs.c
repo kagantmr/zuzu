@@ -7,7 +7,6 @@
 #include "core/panic.h"
 #include "kernel/mm/pmm/pmm_internal.h"
 #include <arch/cpu.h>
-#include <arch/timer.h>
 #include <list.h>
 #include <snprintf.h>
 #include <stdarg.h>
@@ -35,21 +34,6 @@ void ArchUnhandledException(uint64_t esr, uint64_t elr, uint64_t far)
     kprintf("\nUNHANDLED EXCEPTION: ESR=%016llx ELR=%016llx FAR=%016llx\n",
             (unsigned long long)esr, (unsigned long long)elr, (unsigned long long)far);
     ArchCpuHalt();
-}
-
-/* Until timer/generic_timer.c links (it needs the GIC): raw counter reads for log timestamps. */
-Time ArchTimerNow(void)
-{
-    uint64_t v;
-    __asm__ volatile("isb\n mrs %0, cntvct_el0" : "=r"(v)::"memory");
-    return v;
-}
-
-uint32_t ArchTimerFreq(void)
-{
-    uint64_t v;
-    __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(v));
-    return (uint32_t)v;
 }
 
 /* Until kernel/mm/pmm/pmm_pressure.c links (it needs IPC events): no pressure subscribers. */
