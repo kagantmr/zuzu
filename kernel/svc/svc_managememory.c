@@ -16,7 +16,7 @@ void SvcManageMemory(CpuState *frame)
     switch (verb) {
     case MNGMEM_MAP: {
         VirtAddr out;
-        Handle mem_handle = (*ArchGetFromFrame(frame, 1));
+        Handle mem_handle = (Handle)(*ArchGetFromFrame(frame, 1));
         uint32_t hint_prot = (uint32_t)(*ArchGetFromFrame(frame, 3));
         MemProt prot = (hint_prot & 0x7);
         VirtAddr hint = (hint_prot & (unsigned)~(0xFFF));
@@ -48,7 +48,7 @@ void SvcManageMemory(CpuState *frame)
         ArchSetInFrame(frame, 0, VmmProtectUserRange(CURRENT_SPACE, va, size, new_prot));
     } break;
     case MNGMEM_INJECTOBJ: {
-        Handle kitten_space_handle = (*ArchGetFromFrame(frame, 1));
+        Handle kitten_space_handle = (Handle)(*ArchGetFromFrame(frame, 1));
 
         HandleTableEntry *entry =
             HandleTableLookup(&CURRENT_SPACE->handle_table, kitten_space_handle);
@@ -90,7 +90,7 @@ void SvcManageMemory(CpuState *frame)
         ArchSetInFrame(frame, 2, (rc == ZUZU_OK) ? (Register)id : 0);
     } break;
     case MNGMEM_DMAUNMAP: {
-        Handle dev_handle = (*ArchGetFromFrame(frame, 1));
+        Handle dev_handle = (Handle)(*ArchGetFromFrame(frame, 1));
         uint32_t id = (uint32_t)(*ArchGetFromFrame(frame, 2));
 
         HandleTableEntry *dev = HandleTableLookup(&CURRENT_SPACE->handle_table, dev_handle);
@@ -101,7 +101,7 @@ void SvcManageMemory(CpuState *frame)
         ArchSetInFrame(frame, 0, MemObjDmaUnmap(dev->mem, id));
     } break;
     case MNGMEM_DMAADOPT: {
-        Handle dev_handle = (*ArchGetFromFrame(frame, 1));
+        Handle dev_handle = (Handle)(*ArchGetFromFrame(frame, 1));
         uint32_t id = (uint32_t)(*ArchGetFromFrame(frame, 2));
 
         HandleTableEntry *dev = HandleTableLookup(&CURRENT_SPACE->handle_table, dev_handle);
@@ -128,7 +128,7 @@ void SvcManageMemory(CpuState *frame)
         ArchSetInFrame(frame, 1, (Register)HANDLE_PACK(slot, fresh->generation));
     } break;
     case MNGMEM_DMASYNC: {
-        Handle dev_handle = (*ArchGetFromFrame(frame, 1));
+        Handle dev_handle = (Handle)(*ArchGetFromFrame(frame, 1));
         uintptr_t raw = (uintptr_t)(*ArchGetFromFrame(frame, 2));
         size_t len = (size_t)(*ArchGetFromFrame(frame, 3));
         DmaSyncOp op = (DmaSyncOp)(raw & 1U);
