@@ -197,7 +197,7 @@ static void RunIpc(void)
         printf("ipc setup failed\n");
         return;
     }
-    if (TaskStart(task, (void *)ServerEntry, stack + SERVER_STACK, (uint32_t)(uintptr_t)&srv, 0) !=
+    if (TaskStart(task, (void *)ServerEntry, stack + SERVER_STACK, (Register)(uintptr_t)&srv, 0) !=
         ZUZU_OK) {
         printf("ipc server start failed\n");
         return;
@@ -241,7 +241,7 @@ static void RunIpcCross(void)
                              PROT_READ | PROT_EXEC);
     Err start = ERR_BADARG;
     if (inj == ZUZU_OK && g.r0 == ZUZU_OK && (task = CreateTask(space)) >= 0)
-        start = TaskStart(task, (void *)USER_ELF_BASE, (void *)USR_SP, (uint32_t)g.r1, 0);
+        start = TaskStart(task, (void *)USER_ELF_BASE, (void *)USR_SP, g.r1, 0);
     if (start == ZUZU_OK) {
         BenchIpc("ipc cross-space", port, 4);
         BenchIpc("ipc cross-space", port, 64);
@@ -382,7 +382,7 @@ static void BenchTasks(void)
         }
         TIMED(g_samples_b, i, TaskSetPriority(t, 1));
         TIMED(g_samples_c, i,
-              TaskStart(t, (void *)BlockEntry, stack + SERVER_STACK, (uint32_t)(uintptr_t)&port,
+              TaskStart(t, (void *)BlockEntry, stack + SERVER_STACK, (Register)(uintptr_t)&port,
                         0));
         Yield();
         TIMED(g_samples_d, i, TaskKill(t));

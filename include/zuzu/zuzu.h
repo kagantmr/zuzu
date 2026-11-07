@@ -428,7 +428,7 @@ static inline Handle CreateTask(Handle space_handle)
  * @retval ERR_NOPERM    @p h lacks PERM_CNTL.
  * @retval ERR_BUSY      The task has already been started.
  */
-static inline Err TaskStart(Handle h, void *entry, void *sp, uint32_t r0, uint32_t r1)
+static inline Err TaskStart(Handle h, void *entry, void *sp, Register r0, Register r1)
 {
     KickstartArgs args = {
         .entry = entry,

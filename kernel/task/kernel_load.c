@@ -344,8 +344,8 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
 
     if (!leave_frozen) {
         t->kernel_sp =
-            (uint32_t *)ArchTaskUserInit((void *)stack_top, (uintptr_t)img.entry, (uintptr_t)sp,
-                                         USER_ELF_BASE, argc, (uint32_t)argv_va);
+            ArchTaskUserInit((void *)stack_top, (uintptr_t)img.entry, (uintptr_t)sp,
+                                         USER_ELF_BASE, (Register)argc, (Register)argv_va);
         t->state = TASK_STATE_READY;
     }
     
