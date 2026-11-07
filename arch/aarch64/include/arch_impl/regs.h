@@ -46,16 +46,10 @@ typedef struct CpuStateStruct {
 
 /** @brief Kernel registers kept across a context switch, on the kernel stack. */
 typedef struct {
-    Register r4;  /**< Callee-saved r4. */
-    Register r5;  /**< Callee-saved r5. */
-    Register r6;  /**< Callee-saved r6. */
-    Register r7;  /**< Callee-saved r7. */
-    Register r8;  /**< Callee-saved r8. */
-    Register r9;  /**< Callee-saved r9. */
-    Register r10; /**< Callee-saved r10. */
-    Register r11; /**< Callee-saved r11 (fp). */
-    Register lr;  /**< Where the switch returns to. */
-} CpuContext;
+    Register x19, x20, x21, x22, x23, x24, x25, x26, x27, x28;
+    Register fp; /* x29 */
+    Register lr; /* x30: where ContextSwitch "returns" into this task */
+} CpuContext;    /* 12 * 8 = 96 bytes, already a multiple of 16 */
 
 /**
  * @brief Points at general-purpose register @p i (x0-x30) of a frame.

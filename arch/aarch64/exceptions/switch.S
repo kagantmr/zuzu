@@ -5,62 +5,72 @@
 
 #include <generated/asm-offsets.h>
 
-.fpu vfpv4
-
 /**
- * With CONFIG_TIME_MEASURE, ctx_switch_cost receives the cycle count of the last
- * switch and ctx_switch_start is scratch for it.
+ * With CONFIG_TIME_MEASURE, ctx_switch_cost receives the cycle count of the last switch.
  */
 #ifdef CONFIG_TIME_MEASURE
-.global ctx_switch_start
+.bss
+.balign 8
 .global ctx_switch_cost
+ctx_switch_cost:
+    .quad 0
 #endif
+
+.text
 
 /**
  * ContextSwitch(TaskObject *prev, TaskObject *next)
  *
- * Pushes r4-r11 and lr (a CpuContext) on prev's kernel stack and stores sp in
- * prev->kernel_sp, then loads next->kernel_sp, pops next's CpuContext and returns
- * into next. Clears the exclusive monitor so a half-done ldrex/strex in prev
- * cannot succeed in next.
+ * Pushes x19-x30 (a CpuContext) on prev's kernel stack and stores sp in prev->kernel_sp,
+ * then loads next->kernel_sp, pops next's CpuContext and returns into next. Clears the
+ * exclusive monitor so a half-done ldxr/stxr in prev cannot succeed in next.
  *
- * In:   r0 = prev, or NULL to switch without saving (first switch, dead task).
- *       r1 = next.
- * Out:  Returns in next's context, to the lr saved in its CpuContext.
+ * In:   x0 = prev, or NULL to switch without saving (first switch, dead task).
+ *       x1 = next.
+ * Out:  Returns in next's context, to the x30 saved in its CpuContext.
  */
 .global ContextSwitch
 ContextSwitch:
 
 #ifdef CONFIG_TIME_MEASURE
     isb
-    mrc p15, 0, r12, c9, c13, 0
-    ldr r2, =ctx_switch_start
-    str r12, [r2]
+    mrs x3, pmccntr_el0
     isb
 #endif
 
     clrex
-    cmp r0, #0
-    beq .load_next
+    cbz x0, 1f
 
-    push {r4-r11, lr}
+    sub sp, sp, #96
+    stp x19, x20, [sp, #0]
+    stp x21, x22, [sp, #16]
+    stp x23, x24, [sp, #32]
+    stp x25, x26, [sp, #48]
+    stp x27, x28, [sp, #64]
+    stp x29, x30, [sp, #80]
 
-    str sp, [r0, #TASK_KERNEL_SP]
+    mov x2, sp
+    str x2, [x0, #TASK_KERNEL_SP]
 
-.load_next:
-    ldr sp, [r1, #TASK_KERNEL_SP]
+1:
+    ldr x2, [x1, #TASK_KERNEL_SP]
+    mov sp, x2
 
-    pop {r4-r11, lr}
+    ldp x19, x20, [sp, #0]
+    ldp x21, x22, [sp, #16]
+    ldp x23, x24, [sp, #32]
+    ldp x25, x26, [sp, #48]
+    ldp x27, x28, [sp, #64]
+    ldp x29, x30, [sp, #80]
+    add sp, sp, #96
 
 #ifdef CONFIG_TIME_MEASURE
     isb
-    mrc p15, 0, r3, c9, c13, 0
-    ldr r12, =ctx_switch_start
-    ldr r12, [r12]
-    sub r3, r3, r12
-    ldr r12, =ctx_switch_cost
-    str r3, [r12]
+    mrs x4, pmccntr_el0
+    sub x4, x4, x3
+    adrp x5, ctx_switch_cost
+    str x4, [x5, :lo12:ctx_switch_cost]
     isb
 #endif
 
-    bx lr
+    ret
