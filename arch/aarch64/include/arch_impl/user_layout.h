@@ -1,12 +1,12 @@
 /**
  * @file
- * @brief ARMv7-A user address-space layout.
+ * @brief AArch64 user address-space layout.
  */
 
-#ifndef ARCH_ARM_USER_LAYOUT_H
-#define ARCH_ARM_USER_LAYOUT_H
+#ifndef ARCH_AARCH64_USER_LAYOUT_H
+#define ARCH_AARCH64_USER_LAYOUT_H
 
-/** @brief End of user space; TTBR0 maps everything below (TTBCR.N = 1). */
+/** @brief End of user space; TTBR0 covers it (T0SZ = 16); zuzu uses the low 2 GiB. */
 #define USER_VA_TOP 0x80000000UL
 
 /** @brief Where the syspage is mapped in every space. */

@@ -1,10 +1,10 @@
 /**
  * @file
- * @brief ARMv7-A memory barriers.
+ * @brief AArch64 memory barriers.
  */
 
-#ifndef ARCH_ARM_IMPL_BARRIER_H
-#define ARCH_ARM_IMPL_BARRIER_H
+#ifndef ARCH_AARCH64_IMPL_BARRIER_H
+#define ARCH_AARCH64_IMPL_BARRIER_H
 
 /** @brief Data memory barrier, inner shareable (dmb ish). */
 static inline void ArchDmb(void) { __asm__ volatile("dmb ish" ::: "memory"); }
@@ -21,4 +21,4 @@ static inline void ArchSyncBarrier(void) { __asm__ volatile("dsb ish\n\tisb" :::
 /** @brief Data synchronization barrier, full system (dsb sy). */
 static inline void DsbSy(void) { __asm__ volatile("dsb sy" ::: "memory"); }
 
-#endif // ARCH_ARM_IMPL_BARRIER_H
+#endif // ARCH_AARCH64_IMPL_BARRIER_H

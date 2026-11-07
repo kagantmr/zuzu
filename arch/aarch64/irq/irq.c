@@ -1,6 +1,6 @@
 /**
  * @file
- * @brief ARMv7-A interrupt registration and dispatch.
+ * @brief AArch64 interrupt registration and dispatch.
  */
 
 #include "arch/aarch64/include/gicv2.h"
