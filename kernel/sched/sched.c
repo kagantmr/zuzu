@@ -106,7 +106,7 @@ static void SchedInitIdleTask(void)
     VirtAddr sp = (VirtAddr)idle_stack + sizeof(idle_stack);
     sp &= ~(VirtAddr)7U;
 
-    idle_task.kernel_sp = (uint32_t *)ArchTaskKernelInit((void *)sp, IdleTask);
+    idle_task.kernel_sp = ArchTaskKernelInit((void *)sp, IdleTask);
 }
 
 void SchedInit(void)

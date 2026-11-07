@@ -16,9 +16,9 @@
  */
 #define READ_SYSREG(name)                                                                          \
     ({                                                                                             \
-        uint64_t __v;                                                                              \
-        __asm__ volatile("mrs %0, " #name : "=r"(__v));                                            \
-        __v;                                                                                       \
+        uint64_t sysreg_val;                                                                       \
+        __asm__ volatile("mrs %0, " #name : "=r"(sysreg_val));                                     \
+        sysreg_val;                                                                                \
     })
 
 /**
