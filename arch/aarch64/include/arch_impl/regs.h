@@ -15,6 +15,11 @@
 /** @brief One general-purpose register. */
 typedef uint64_t Register;
 
+/** @brief printf conversion for a Register or an address: 16 upper-case hex digits. Pair with REG_ARG(). */
+#define REG_FMT "%016llX"
+/** @brief Converts a Register or an address to the argument type REG_FMT expects. */
+#define REG_ARG(r) ((unsigned long long)(uint64_t)(r))
+
 /**
  * @brief Registers saved on exception entry: the trap frame.
  *

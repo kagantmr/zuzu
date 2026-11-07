@@ -1,169 +1,116 @@
 /**
  * @file
- * @brief ARMv7-A exception entry and exit: builds the CpuState trap frame on the SVC stack.
+ * @brief AArch64 exception vector table; VBAR points here once the kernel runs in the higher half.
  */
 
-.syntax unified
-.arm
+#include <generated/asm-offsets.h>
 
-.global reset_handler
-.global undef_handler
-.global svc_handler
-.global prefetch_abort_handler
-.global data_abort_handler
-.global reserved_handler
-.global irq_handler
-.global fiq_handler
-.global task_entry_trampoline
+/** 2KB aligned, as VBAR requires. */
+.section .vectors, "ax"
+.align 11
+.global vector_table
 
-/** Set by the scheduler when a reschedule is due on the way back to the interrupted task. */
-.extern do_resched
-
-/**
- * task_entry_trampoline
- *
- * Where a new user task first runs: ArchTaskUserInit() makes its CpuContext
- * return here, with sp at the CpuState it prepared. Loads that frame and
- * enters user mode, like exception_exit.
- */
-task_entry_trampoline:
-
-    add r0, sp, #52
-    ldm r0, {r13, r14}^
-    nop
-    ldmia sp!, {r0-r12}
-    add sp, sp, #8
-    rfeia sp!
-
-/**
- * exception_entry lr_adjust
- *
- * Turns the exception-mode lr into the return address (lr - lr_adjust), saves it
- * and the SPSR on the SVC stack (srsdb), switches to SVC mode with IRQs masked
- * and pushes the rest of a CpuState: r0-r12, then the user sp and lr. On exit
- * sp points at the CpuState. Clobbers r0.
- */
-.macro exception_entry, lr_adjust
-    sub lr, lr, #\lr_adjust
-    srsdb sp!, #0x13
-    cpsid i, #0x13
-    sub sp, sp, #8
-    stmdb sp!, {r0-r12}
-    add r0, sp, #52
-    stm r0, {r13, r14}^
-    nop
+.macro ventry label
+    .balign 0x80
+    b \label
 .endm
 
 /**
- * exception_exit
+ * SAVE_STATE
  *
- * Reloads the user sp and lr and r0-r12 from the CpuState at sp, then returns
- * with rfe, which restores pc and CPSR.
+ * Pushes a CpuState onto the current stack: x0-x30, then SP_EL0, ELR_EL1 and SPSR_EL1.
+ * Leaves sp pointing at the frame.
  */
-.macro exception_exit
-    add r0, sp, #52
-    ldm r0, {r13, r14}^
-    nop
-    ldmia sp!, {r0-r12}
-    add sp, sp, #8
-    rfeia sp!
+.macro SAVE_STATE
+    sub sp, sp, #CPU_STATE_SIZE
+    stp x0,  x1,  [sp, #16 * 0]
+    stp x2,  x3,  [sp, #16 * 1]
+    stp x4,  x5,  [sp, #16 * 2]
+    stp x6,  x7,  [sp, #16 * 3]
+    stp x8,  x9,  [sp, #16 * 4]
+    stp x10, x11, [sp, #16 * 5]
+    stp x12, x13, [sp, #16 * 6]
+    stp x14, x15, [sp, #16 * 7]
+    stp x16, x17, [sp, #16 * 8]
+    stp x18, x19, [sp, #16 * 9]
+    stp x20, x21, [sp, #16 * 10]
+    stp x22, x23, [sp, #16 * 11]
+    stp x24, x25, [sp, #16 * 12]
+    stp x26, x27, [sp, #16 * 13]
+    stp x28, x29, [sp, #16 * 14]
+
+    mrs x21, sp_el0
+    mrs x22, elr_el1
+    mrs x23, spsr_el1
+    stp x30, x21, [sp, #CPU_STATE_X30]
+    stp x22, x23, [sp, #CPU_STATE_PC]
 .endm
 
 /**
- * exception_dispatch_call type
+ * RESTORE_STATE
  *
- * Calls ExceptionDispatch(type, frame) with sp aligned to 8 bytes as the AAPCS
- * requires; r4 keeps the unaligned sp. type is an ExceptionType.
+ * Pops the CpuState at sp back into the registers, SP_EL0, ELR_EL1 and SPSR_EL1.
+ * Follow it with eret.
  */
-.macro exception_dispatch_call, type
-    mov r0, #\type
-    mov r1, sp
-    mov r4, sp
-    bic sp, sp, #7
-    bl ExceptionDispatch
-    mov sp, r4
+.macro RESTORE_STATE
+    ldp x22, x23, [sp, #CPU_STATE_PC]
+    ldp x30, x21, [sp, #CPU_STATE_X30]
+    msr sp_el0, x21
+    msr elr_el1, x22
+    msr spsr_el1, x23
+
+    ldp x0,  x1,  [sp, #16 * 0]
+    ldp x2,  x3,  [sp, #16 * 1]
+    ldp x4,  x5,  [sp, #16 * 2]
+    ldp x6,  x7,  [sp, #16 * 3]
+    ldp x8,  x9,  [sp, #16 * 4]
+    ldp x10, x11, [sp, #16 * 5]
+    ldp x12, x13, [sp, #16 * 6]
+    ldp x14, x15, [sp, #16 * 7]
+    ldp x16, x17, [sp, #16 * 8]
+    ldp x18, x19, [sp, #16 * 9]
+    ldp x20, x21, [sp, #16 * 10]
+    ldp x22, x23, [sp, #16 * 11]
+    ldp x24, x25, [sp, #16 * 12]
+    ldp x26, x27, [sp, #16 * 13]
+    ldp x28, x29, [sp, #16 * 14]
+    add sp, sp, #CPU_STATE_SIZE
 .endm
 
-/** Reset vector: masks interrupts, enters SVC mode and restarts the boot code. */
-reset_handler:
-    cpsid if
-    cps #0x13
+vector_table:
+    ventry unhandled    // 0x000  EL1, SP_EL0, sync
+    ventry unhandled    // 0x080  EL1, SP_EL0, IRQ
+    ventry unhandled    // 0x100  EL1, SP_EL0, FIQ
+    ventry unhandled    // 0x180  EL1, SP_EL0, SError
 
-    b _start
-1:
-    b 1b
+    ventry unhandled    // 0x200  EL1, SP_EL1, sync
+    
+    ventry el1_irq      // 0x280  EL1, SP_EL1, IRQ
+    
+    ventry unhandled    // 0x300  EL1, SP_EL1, FIQ
+    ventry unhandled    // 0x380  EL1, SP_EL1, SError
 
-/** IRQ vector: dispatches the interrupt, then reschedules if do_resched was set. */
-irq_handler:
-    exception_entry 4
-    exception_dispatch_call 6
-    ldr r0, =do_resched
-    ldrb r1, [r0]
-    cmp r1, #0
-    beq .no_schedule
-.do_schedule:
-    mov r1, #0
-    strb r1, [r0]
-    mov r4, sp
-    bic sp, sp, #7
-    bl Schedule
-    mov sp, r4
-.no_schedule:
-    exception_exit
+    ventry unhandled    // 0x400  EL0 AArch64, sync
+    ventry unhandled    // 0x480  EL0 AArch64, IRQ
+    ventry unhandled    // 0x500  EL0 AArch64, FIQ
+    ventry unhandled    // 0x580  EL0 AArch64, SError
 
-/** Unused vector; ExceptionDispatch() panics. */
-reserved_handler:
-    exception_entry 4
-    exception_dispatch_call 5
-    exception_exit
+    ventry unhandled    // 0x600  EL0 AArch32, sync
+    ventry unhandled    // 0x680  EL0 AArch32, IRQ
+    ventry unhandled    // 0x700  EL0 AArch32, FIQ
+    ventry unhandled    // 0x780  EL0 AArch32, SError
 
-/** Data abort vector. lr is 8 past the faulting instruction, so returning retries it. */
-data_abort_handler:
-    exception_entry 8
-    exception_dispatch_call 4
-    exception_exit
+el1_irq:
+    SAVE_STATE
+    bl ArchIrqDispatch
+    RESTORE_STATE
+    eret
 
-/**
- * SVC vector: SvcTrap() runs the syscall on the CpuState at sp, then the task
- * is rescheduled if do_resched was set. Returns to the instruction after svc.
- */
-svc_handler:
-    exception_entry 0
-    mov r0, sp
-    mov r4, sp
-    bic sp, sp, #7
-    bl SvcTrap
-    mov sp, r4
-    ldr r0, =do_resched
-    ldrb r1, [r0]
-    cmp r1, #0
-    beq .svc_no_schedule
-    mov r1, #0
-    strb r1, [r0]
-    mov r4, sp
-    bic sp, sp, #7
-    bl Schedule
-    mov sp, r4
-.svc_no_schedule:
-    exception_exit
+unhandled:
+    mrs x0, ESR_EL1
+    mrs x1, ELR_EL1
+    mrs x2, FAR_EL1
+    bl ArchUnhandledException
 
-/** Prefetch abort vector. */
-prefetch_abort_handler:
-    exception_entry 4
-    exception_dispatch_call 3
-    exception_exit
-
-/**
- * Undefined instruction vector. Returning re-executes the instruction, which is
- * what the lazy VFP switch wants once access has been granted.
- */
-undef_handler:
-    exception_entry 4
-    exception_dispatch_call 1
-    exception_exit
-
-/** FIQ vector; FIQs are not used. */
-fiq_handler:
-    exception_entry 4
-    exception_dispatch_call 7
-    exception_exit
+dead:
+    b dead
