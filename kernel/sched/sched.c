@@ -47,7 +47,7 @@ volatile bool do_resched = 0;
 /** @brief The task run when nothing else is ready. */
 static TaskObject idle_task;
 /** @brief Stack for the idle task. */
-static uint8_t idle_stack[IDLE_STACK_BYTES] __attribute__((aligned(8)));
+static uint8_t idle_stack[IDLE_STACK_BYTES] __attribute__((aligned(16)));
 /** @brief Whether the CPU is running on the idle stack. */
 static bool on_idle_stack;
 
@@ -104,7 +104,7 @@ static void IdleTask(void)
 static void SchedInitIdleTask(void)
 {
     VirtAddr sp = (VirtAddr)idle_stack + sizeof(idle_stack);
-    sp &= ~(VirtAddr)7U;
+    sp &= ~(VirtAddr)15U;
 
     idle_task.kernel_sp = ArchTaskKernelInit((void *)sp, IdleTask);
 }
