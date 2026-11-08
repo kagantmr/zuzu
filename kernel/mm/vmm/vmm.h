@@ -16,7 +16,6 @@
 #include <types.h>
 #include <vector.h>
 #include BOARD_LAYOUT_H
-#include <arch_impl/mmu.h>
 #include <arch/asid.h>
 
 /** @brief Convert a physical address to its kernel higher-half virtual address. */
