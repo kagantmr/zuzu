@@ -37,7 +37,7 @@ typedef struct EventObjectStruct {
     EventWord bound_mask;    /**< Bitmask of bound bits. */
     uint16_t bound_refs[31]; /**< Each bit's bound reference counter. */
     ObserverSet observers;   /**< Parent events this event is bound into. */
-    uint8_t child_count;     /**< Events bound into this one; nonzero means it is a parent. */
+    size_t child_count;     /**< Events bound into this one; nonzero means it is a parent. */
 } EventObject;
 
 /**
