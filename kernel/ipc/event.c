@@ -180,6 +180,7 @@ void EventWait(EventObject *ev, Duration timeout, CpuState *frame, EventWord mas
         ArchSetInFrame(frame, 1, (Register)got);
         return;
     }
+    EventNotifyParents(ev);
     current_task->wait_mask = mask;
     current_task->wait_all = waitall;
     SchedBlockOn(&ev->wait_queue, timeout);
