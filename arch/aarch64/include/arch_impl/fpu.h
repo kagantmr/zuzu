@@ -47,4 +47,14 @@ static inline void ArchFpuEnableAccess(void)
     Isb();
 }
 
+static inline void ArchFpuTrapDisableNoSync(void)
+{
+    WRITE_SYSREG(cpacr_el1, READ_SYSREG(cpacr_el1) & ~CPACR_EL1_FPEN);
+}
+
+static inline void ArchFpuEnableAccessNoSync(void)
+{
+    WRITE_SYSREG(cpacr_el1, READ_SYSREG(cpacr_el1) | CPACR_EL1_FPEN);
+}
+
 #endif // ARCH_AARCH64_IMPL_FPU_H
