@@ -527,8 +527,8 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
             consecutive++;
 
             if (consecutive == n_frames) {
-                const uintptr_t start_pa = PfnToPa(pmm_state.pfn_base + start_index);
-                const uintptr_t end_pa = PfnToPa(pmm_state.pfn_base + start_index + n_frames);
+                const PhysAddr start_pa = PfnToPa(pmm_state.pfn_base + start_index);
+                const PhysAddr end_pa = PfnToPa(pmm_state.pfn_base + start_index + n_frames);
 
 #ifdef CONFIG_ZUZU_BENCH
                 BENCH_END(g_bench_pmm_scan, bench_scan_start);

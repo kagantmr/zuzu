@@ -149,7 +149,7 @@ bool VmmAddRegion(AddressSpace *restrict as, const VirtMemRegion *restrict regio
  * @return true if the region was removed.
  * @retval false No region starts at vaddr with that size.
  */
-bool VmmRemoveRegion(AddressSpace *as, uintptr_t vaddr, size_t size);
+bool VmmRemoveRegion(AddressSpace *as, VirtAddr vaddr, size_t size);
 
 /**
  * @brief Find a gap between existing regions that fits a size.
