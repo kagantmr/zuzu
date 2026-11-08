@@ -16,7 +16,9 @@ args = parser.parse_args()
 
 with open(args.filename, 'rb') as f:
     elf = ELFFile(f)
-    if elf.header['e_type'] != 'ET_EXEC' or elf.header['e_machine'] != 'EM_ARM' or elf.elfclass != 32:
+    archs = {('EM_ARM', 32): 0x01, ('EM_AARCH64', 64): 0x02}
+    arch = archs.get((elf.header['e_machine'], elf.elfclass))
+    if elf.header['e_type'] != 'ET_EXEC' or arch is None:
         print("Incompatible file type")
         sys.exit(1)
     segs = [s for s in elf.iter_segments() if s['p_type'] == 'PT_LOAD']
@@ -29,7 +31,7 @@ with open(args.filename, 'rb') as f:
     hdr = struct.pack('<4sBBBBQQIHHIII16s4s',
                           b'\x7aZXF',   # magic
                           0x01,         # version
-                          0x01,         # arch (ARMv7-A)
+                          arch,         # arch
                           0x02,         # flags (STATIC)
                           0,            # reserved
                           entry,        # from elf.header['e_entry']

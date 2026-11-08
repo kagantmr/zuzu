@@ -52,7 +52,7 @@ bool ZxfParse(const void *data, size_t size, ZXFImage *out)
     if (hdr->version != 0x01)
         return false;
 
-    if (hdr->arch != ARM32)
+    if (hdr->arch != ZXF_ARM && hdr->arch != ZXF_AARCH64)
         return false;
 
     const uint8_t *base = (const uint8_t *)data;
@@ -77,7 +77,7 @@ bool ZxfParse(const void *data, size_t size, ZXFImage *out)
 
     out->base = base;
     out->size = size;
-    out->entry = (uint32_t)hdr->entry;
+    out->entry = hdr->entry;
     out->seg_count = hdr->seg_count;
     
     out->segs = (const ZXFSegment *)(const void *)(base + hdr->seg_table_offset);
