@@ -116,6 +116,8 @@ _Noreturn void early(void *dtb_ptr)
     kernel_layout.kernel_end_pa = (PhysAddr)_kernel_phys_end;
     kernel_layout.stack_base_pa = (PhysAddr)__svc_stack_base__;
     kernel_layout.stack_top_pa = (PhysAddr)__svc_stack_top__;
+    kernel_layout.boot_start_pa = (PhysAddr)_boot_start;
+    kernel_layout.boot_end_pa = (PhysAddr)_boot_end;
 
     uint64_t ram_base, ram_size;
     if (!FdtGetReg("/memory", 0, &ram_base, &ram_size))
