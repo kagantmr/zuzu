@@ -10,6 +10,7 @@
 #include <arch/asid.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <types.h>
 
 
 /**
@@ -21,7 +22,7 @@
  *
  * @return Physical address of the page table root, or 0 when out of memory.
  */
-uintptr_t ArchMmuCreateTables(AddressSpaceType type);
+PhysAddr ArchMmuCreateTables(AddressSpaceType type);
 
 /**
  * @brief Free page tables for a given address space type.
@@ -33,7 +34,7 @@ uintptr_t ArchMmuCreateTables(AddressSpaceType type);
  * @param[in] type The type of the address space.
  *
  */
-void ArchMmuFreeTables(uintptr_t ttbr_pa, AddressSpaceType type);
+void ArchMmuFreeTables(PhysAddr ttbr_pa, AddressSpaceType type);
 
 /**
  * @brief Maps a physically contiguous range.
@@ -52,7 +53,7 @@ void ArchMmuFreeTables(uintptr_t ttbr_pa, AddressSpaceType type);
  * @return false if the range is misaligned or outside the space, or a table could not be
  *         allocated.
  */
-bool ArchMmuMap(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, MemProt prot,
+bool ArchMmuMap(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size, MemProt prot,
                 VirtMemType memtype);
 
 /**
@@ -72,7 +73,7 @@ bool ArchMmuMap(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, MemPr
  * @return false if the range is misaligned or outside the space, or a table could not be
  *         allocated.
  */
-bool ArchMmuMapPages(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, MemProt prot,
+bool ArchMmuMapPages(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size, MemProt prot,
                 VirtMemType memtype);
 
 /**
@@ -84,7 +85,7 @@ bool ArchMmuMapPages(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, 
  * @param[in]     flush Whether to remove the range from the TLB.
  * @return true if anything was mapped there.
  */
-bool ArchMmuUnmap(AddressSpace *as, uintptr_t va, size_t size, bool flush);
+bool ArchMmuUnmap(AddressSpace *as, VirtAddr va, size_t size, bool flush);
 
 /**
  * @brief Changes the protection of the mapped pages in a range, then flushes the space's TLB
@@ -98,7 +99,7 @@ bool ArchMmuUnmap(AddressSpace *as, uintptr_t va, size_t size, bool flush);
  * @param[in]     prot New protection.
  * @return true if any mapping changed.
  */
-bool ArchMmuProtect(AddressSpace *as, uintptr_t va, size_t size, MemProt prot);
+bool ArchMmuProtect(AddressSpace *as, VirtAddr va, size_t size, MemProt prot);
 
 /**
  * @brief Loads an address space's tables and turns the MMU on.
@@ -132,7 +133,7 @@ void ArchMmuFlushTlbAsid(Asid asid);
  *
  * @param[in] va Any address in the page.
  */
-void ArchMmuFlushTlbVa(uintptr_t va);
+void ArchMmuFlushTlbVa(VirtAddr va);
 
 /**
  * @brief Invalidates the TLB entry for one page of one ASID.
@@ -140,7 +141,7 @@ void ArchMmuFlushTlbVa(uintptr_t va);
  * @param[in] va   Any address in the page.
  * @param[in] asid ASID.
  */
-void ArchMmuFlushTlbVaAsid(uintptr_t va, Asid asid);
+void ArchMmuFlushTlbVaAsid(VirtAddr va, Asid asid);
 
 /**
  * @brief Walks a table in software to find what a virtual address maps to.
@@ -149,7 +150,7 @@ void ArchMmuFlushTlbVaAsid(uintptr_t va, Asid asid);
  * @param[in] va      Virtual address.
  * @return The physical address, or 0 if @p va is not mapped.
  */
-uintptr_t ArchMmuTranslate(uintptr_t ttbr_pa, uintptr_t va);
+PhysAddr ArchMmuTranslate(PhysAddr ttbr_pa, VirtAddr va);
 
 /**
  * @brief Clears one page mapping, without TLB maintenance.
@@ -158,7 +159,7 @@ uintptr_t ArchMmuTranslate(uintptr_t ttbr_pa, uintptr_t va);
  * @param[in]     va Virtual address of the page.
  * @return false if the page was not mapped by a page-level entry.
  */
-bool ArchMmuUnmapPage(AddressSpace *as, uintptr_t va);
+bool ArchMmuUnmapPage(AddressSpace *as, VirtAddr va);
 
 /**
  * @brief Frees the anonymous memory still mapped in a user space, before its tables are freed.
