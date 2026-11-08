@@ -119,6 +119,8 @@ static void CheckKnown(bool cond, const char *msg)
 
 static uint32_t PagesFree(void) { return ((const Syspage *)SYSPAGE)->mem_free_kb / 4; }
 
+static size_t PagesMoreThanRam(void) { return (((const Syspage *)SYSPAGE)->mem_total_kb / 4) + 1; }
+
 static uint64_t NowMs(void) { return UptimeMs(); }
 
 static uint64_t TickMs(void) { return 1; }
@@ -198,9 +200,29 @@ static int32_t WorkerJoin(Worker *w)
 
 /* ---------------- kitten Spaces from raw ARM code ---------------- */
 
+#ifdef __aarch64__
+/* One syscall in raw AArch64 code: svc #n */
+#define SYS(n) (0xD4000001u | ((uint32_t)(n) << 5))
+#else
 /* One syscall in raw ARM code: mov r12, #n; svc #ARCH_SVC_MAGIC */
 #define SYS(n) (0xE3A0C000u | (uint32_t)(n)), (0xEF000000u | ARCH_SVC_MAGIC)
+#endif
 
+#ifdef __aarch64__
+static const uint32_t kCodeLoop[] = {0x14000000};
+static const uint32_t kCodeQuit42[] = {0xD2800540, SYS(SVC_QUIT)};
+static const uint32_t kCodeFaultData[] = {0xD2800000, 0xF9400001};
+static const uint32_t kCodeFaultPrefetch[] = {0xD2800000, 0xD61F0000};
+static const uint32_t kCodeFaultUndef[] = {0x00000000};
+static const uint32_t kCodeReadSyspage[] = {0xD2820001, 0xB9400020, SYS(SVC_QUIT)};
+static const uint32_t kCodeReadBootInfo[] = {0xD2840001, 0xB9400020, SYS(SVC_QUIT)};
+static const uint32_t kCodeReadKernel[] = {0xD2FFFFE1, 0xB9400020, SYS(SVC_QUIT)};
+static const uint32_t kCodeWriteCode[] = {0xD2A00021, 0xB9000020, SYS(SVC_QUIT)};
+static const uint32_t kCodeExecData[] = {0xD2A80001, 0xD61F0020};
+static const uint32_t kCodeStack[] = {0xD2800122, 0xF81F03E2, 0xF85F03E0, SYS(SVC_QUIT)};
+static const uint32_t kCodeYieldLoop[] = {0xD2800C84, SYS(SVC_YIELD), 0xF1000484, 0x54FFFFC1, 0xD28000A0, SYS(SVC_QUIT)};
+static const uint32_t kCodeSleepQuit[] = {0xD2800280, SYS(SVC_SLEEP), 0xD28000C0, SYS(SVC_QUIT)};
+#else
 static const uint32_t kCodeLoop[] = {0xEAFFFFFE};                      /* b . */
 static const uint32_t kCodeQuit42[] = {0xE3A0002A, SYS(SVC_QUIT)};        /* mov r0,#42; svc QUIT */
 static const uint32_t kCodeFaultData[] = {0xE3A00000, 0xE5901000};     /* mov r0,#0; ldr r1,[r0] */
@@ -223,15 +245,41 @@ static const uint32_t kCodeYieldLoop[] = {0xE3A04064, SYS(SVC_YIELD), 0xE2544001
                                           0xE3A00005, SYS(SVC_QUIT)}; /* 100x YIELD, QUIT 5 */
 static const uint32_t kCodeSleepQuit[] = {0xE3A00014, SYS(SVC_SLEEP), 0xE3A00006,
                                           SYS(SVC_QUIT)}; /* SLEEP 20; QUIT 6 */
+#endif
 /* ldr r1,[r0] (r0 comes in as the start argument); mov r0,#7; svc QUIT */
+#ifdef __aarch64__
+static const uint32_t kCodeLoadThenQuit7[] = {0xB9400001, 0xD28000E0, SYS(SVC_QUIT)};
+#else
 static const uint32_t kCodeLoadThenQuit7[] = {0xE5901000, 0xE3A00007, SYS(SVC_QUIT)};
+#endif
 /* r0 = a space handle (start argument); quit with ManageHandle(r0, CLOSE / DESTROY) */
+#ifdef __aarch64__
+static const uint32_t kCodeCloseHandle[] = {0xD2800041, SYS(SVC_MANAGEHANDLE), SYS(SVC_QUIT)};
+static const uint32_t kCodeDestroyHandle[] = {0xD2800081, SYS(SVC_MANAGEHANDLE), SYS(SVC_QUIT)};
+static const uint32_t kCodeCount[] = {0x91000484, 0x17FFFFFF};
+static const uint32_t kCodeLoopThenQuit9[] = {0x14000000, 0xD2800120, SYS(SVC_QUIT)};
+#else
 static const uint32_t kCodeCloseHandle[] = {0xE3A01002, SYS(SVC_MANAGEHANDLE), SYS(SVC_QUIT)};
 static const uint32_t kCodeDestroyHandle[] = {0xE3A01004, SYS(SVC_MANAGEHANDLE), SYS(SVC_QUIT)};
 static const uint32_t kCodeCount[] = {0xE2844001, 0xEAFFFFFD}; /* 1: add r4,r4,#1; b 1b */
 static const uint32_t kCodeLoopThenQuit9[] = {0xEAFFFFFE, 0xE3A00009, SYS(SVC_QUIT)};
+#endif
 /* r0 = an event handle; r1 = INFINITE; WaitOn(r0); quit with the bits it returned */
+#ifdef __aarch64__
+static const uint32_t kCodeWaitQuitBits[] = {0x92800001, SYS(SVC_WAITON), 0xAA0103E0, SYS(SVC_QUIT)};
+#else
 static const uint32_t kCodeWaitQuitBits[] = {0xE3E01000, SYS(SVC_WAITON), 0xE1A00001, SYS(SVC_QUIT)};
+#endif
+
+#ifdef __aarch64__
+/* PSTATE.M[4:0]: EL0t; EL1h with DAIF masked as the privileged value SetRegs must refuse */
+#define USER_MODE 0x00u
+#define PRIV_FLAGS (0xF0000000u | 0x3C0u | 0x05u)
+#else
+/* CPSR.M[4:0]: USR; SVC with IRQ/FIQ masked as the privileged value SetRegs must refuse */
+#define USER_MODE 0x10u
+#define PRIV_FLAGS (0xF0000000u | 0xC0u | 0x13u)
+#endif
 
 static uint8_t g_code_page[4096] __attribute__((aligned(4096)));
 
@@ -469,7 +517,7 @@ static void TestMemory(void)
             "over the 32MB cap -> OVERFLOW");
 
     uint8_t *fixed = MemMapAnon(4096, 0x30000000u, PROT_RW);
-    CheckEq((int32_t)fixed, 0x30000000, "a free page-aligned hint is honored");
+    CheckEq((int32_t)(intptr_t)fixed, 0x30000000, "a free page-aligned hint is honored");
     CheckEq(PtrErr(MemMapAnon(4096, 0x30000000u, PROT_RW)), ERR_NOMEM,
             "mapping over an existing region -> NOMEM");
     CheckEq(PtrErr(MemMapAnon(4096, 0x90000000u, PROT_RW)), ERR_BADARG,
@@ -518,13 +566,13 @@ static void TestMemory(void)
     CheckEq(MemUnmap(m), ERR_NOENT, "closing the handle unmapped the region");
 
     CheckEq(CreateMem(0, 0), ERR_BADARG, "CreateMem(0) -> BADARG");
-    CheckEq(CreateMem(100000, 0), ERR_NOMEM, "CreateMem(more than RAM) -> NOMEM");
+    CheckEq(CreateMem(PagesMoreThanRam(), 0), ERR_NOMEM, "CreateMem(more than RAM) -> NOMEM");
 
     /* Contiguous and uncached memory */
     CheckEq(CreateMem(1, (CreateMemoryFlags)0x80), ERR_BADARG, "CreateMem(unknown flag) -> BADARG");
     CheckEq(CreateMem(1, MEM_UNCACHED), ERR_BADARG, "MEM_UNCACHED without MEM_CONTIG -> BADARG");
     CheckEq(CreateMem(0, MEM_CONTIG), ERR_BADARG, "CreateMem(0, MEM_CONTIG) -> BADARG");
-    CheckEq(CreateMem(100000, MEM_CONTIG), ERR_NOMEM, "MEM_CONTIG larger than RAM -> NOMEM");
+    CheckEq(CreateMem(PagesMoreThanRam(), MEM_CONTIG), ERR_NOMEM, "MEM_CONTIG larger than RAM -> NOMEM");
 
     for (int round = 0; round < 2; round++) {
         Handle warm = CreateMem(4, MEM_CONTIG);
@@ -2422,7 +2470,7 @@ static void TestSuspend(void)
     Check((uint32_t)a.pc >= USER_ELF_BASE && (uint32_t)a.pc < USER_ELF_BASE + sizeof(kCodeCount),
           "pc is inside its code");
     CheckEq((uint32_t)a.sp, (uint32_t)USR_SP, "sp is its untouched stack top");
-    CheckEq((uint32_t)a.flags & 0x1Fu, 0x10u, "it is stopped in user mode");
+    CheckEq((uint32_t)a.flags & 0x1Fu, USER_MODE, "it is stopped in user mode");
     CheckEq(TaskResume(k.task), ZUZU_OK, "resume it");
     CheckEq(TaskResume(k.task), ERR_BADARG, "resume a running task -> BADARG");
     Sleep(30);
@@ -2430,10 +2478,10 @@ static void TestSuspend(void)
     TaskGetRegs(k.task, &b);
     Check(b.gp[4] != a.gp[4], "after resume it runs again");
 
-    b.flags = (Register)(0xF0000000u | 0xC0u | 0x13u);
+    b.flags = (Register)PRIV_FLAGS;
     CheckEq(TaskSetRegs(k.task, &b), ZUZU_OK, "SetRegs with privileged flags is accepted");
     TaskGetRegs(k.task, &a);
-    CheckEq((uint32_t)a.flags & 0x1Fu, 0x10u, "the mode is forced back to user");
+    CheckEq((uint32_t)a.flags & 0x1Fu, USER_MODE, "the mode is forced back to user");
     CheckEq((uint32_t)a.flags & 0xC0u, 0u, "IRQ/FIQ masks are never taken from the caller");
     CheckEq((uint32_t)a.flags & 0xF0000000u, 0xF0000000u, "condition flags are kept");
     a.pc += 2;
@@ -2476,8 +2524,12 @@ static void TestSuspend(void)
 }
 
 /* r0 = a port handle; Call(r0, xlen 0, no grant); quit with the reply status */
+#ifdef __aarch64__
+static const uint32_t kCodeCallQuit[] = {0xD2800001, 0x92800002, 0x92800003, SYS(SVC_CALL), SYS(SVC_QUIT)};
+#else
 static const uint32_t kCodeCallQuit[] = {0xE3A01000, 0xE3E02000, 0xE3E03000, SYS(SVC_CALL),
                                          SYS(SVC_QUIT)}; /* r3 = -1: no timeout */
+#endif
 
 /* ---------------- waiter re-sort (#25) ---------------- */
 
@@ -2538,8 +2590,12 @@ static void TestWaiterResort(void)
 }
 
 /* r0 = a ticket; ReplyTo(r0, xlen 0, no grant); quit with the result */
+#ifdef __aarch64__
+static const uint32_t kCodeReplyTicket[] = {0xAA0003E3, 0xD2800000, 0x92800001, 0x92800002, SYS(SVC_REPLY), SYS(SVC_QUIT)};
+#else
 static const uint32_t kCodeReplyTicket[] = {0xE1A03000, 0xE3A00000, 0xE3E01000,
                                             0xE3E02000, SYS(SVC_REPLY), SYS(SVC_QUIT)};
+#endif
 
 /* ---------------- hold (#26) ---------------- */
 
@@ -2747,7 +2803,11 @@ static void TestHold(void)
 /* ---------------- owner destroy (#47) ---------------- */
 
 /* r1 = INFINITE; WaitOn(r0); quit with the status it returned */
+#ifdef __aarch64__
+static const uint32_t kCodeWaitQuitStatus[] = {0x92800001, SYS(SVC_WAITON), SYS(SVC_QUIT)};
+#else
 static const uint32_t kCodeWaitQuitStatus[] = {0xE3E01000, SYS(SVC_WAITON), SYS(SVC_QUIT)};
+#endif
 
 static void TestOwnerDestroy(void)
 {
