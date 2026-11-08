@@ -25,7 +25,7 @@
 #include <stdint.h>
 
 /** @brief Size of the stack the idle loop runs on. */
-#define IDLE_STACK_BYTES 1024
+#define IDLE_STACK_BYTES 4096
 /** @brief Number of slots in the sleep wheel. */
 #define SLEEP_QUEUE_SIZE 512
 
@@ -47,7 +47,7 @@ volatile bool do_resched = 0;
 /** @brief The task run when nothing else is ready. */
 static TaskObject idle_task;
 /** @brief Stack for the idle task. */
-static uint8_t idle_stack[IDLE_STACK_BYTES] __attribute__((aligned(8)));
+static uint8_t idle_stack[IDLE_STACK_BYTES] __attribute__((aligned(16)));
 /** @brief Whether the CPU is running on the idle stack. */
 static bool on_idle_stack;
 
@@ -66,11 +66,15 @@ static uint32_t wheel_occ[BITMAP_WORDS(SLEEP_QUEUE_SIZE)];
 static uint64_t wheel_min[SLEEP_QUEUE_SIZE];
 /** @brief The sleep wheel slot that time has reached. */
 static uint64_t wheel_now_slot;
+/** @brief Bumped whenever the sleep wheel changes in a way that can move the next deadline. */
+static uint32_t wheel_gen;
+/** @brief The wheel_gen the timer was last armed against. */
+static uint32_t armed_gen = ~0U;
 /** @brief Log2 of the number of timer ticks one sleep wheel slot covers. */
 static uint32_t slot_shift;
 
 /** @brief Whether the running task may use the FPU without trapping. */
-bool fpu_access_enabled = true;
+bool fpu_access_enabled = false;
 
 _Static_assert(SCHED_PRIORITY_LEVELS <= 32, "ready_mask is a uint32_t");
 /** @brief One bit per priority level, set while its run queue is not empty. */
@@ -104,9 +108,9 @@ static void IdleTask(void)
 static void SchedInitIdleTask(void)
 {
     VirtAddr sp = (VirtAddr)idle_stack + sizeof(idle_stack);
-    sp &= ~(VirtAddr)7U;
+    sp &= ~(VirtAddr)15U;
 
-    idle_task.kernel_sp = (uint32_t *)ArchTaskKernelInit((void *)sp, IdleTask);
+    idle_task.kernel_sp = ArchTaskKernelInit((void *)sp, IdleTask);
 }
 
 void SchedInit(void)
@@ -258,6 +262,7 @@ void SchedRemoveSleepQueue(TaskObject *t)
     if (t->timeout_node.prev && t->timeout_node.next)
         ListRemove(&t->timeout_node);
     uint32_t slot = (uint32_t)t->sleep_slot;
+    wheel_gen++;
     if (ListIsEmpty(&sleep_wheel[slot]))
         BitmapClr(wheel_occ, slot);
     else if (t->wake_deadline == wheel_min[slot])
@@ -279,6 +284,7 @@ void SchedInsertSleepQueue(TaskObject *t)
     ListAddTail(&t->timeout_node, &sleep_wheel[slot].node);
     BitmapSet(wheel_occ, slot);
     t->sleep_slot = (int16_t)slot;
+    wheel_gen++;
     SchedArmTimer();
 }
 
@@ -310,10 +316,13 @@ static void SchedWakeTimedOut(TaskObject *t)
  */
 static void SchedWakeSleepers(void)
 {
-    uint64_t now_slot = ArchTimerNow() >> slot_shift;
+    uint64_t now = ArchTimerNow();
+    uint64_t now_slot = now >> slot_shift;
     if (now_slot - wheel_now_slot > SLEEP_QUEUE_SIZE)
         wheel_now_slot = now_slot - SLEEP_QUEUE_SIZE;
 
+    if (wheel_now_slot < now_slot)
+        wheel_gen++;
     for (; wheel_now_slot < now_slot; wheel_now_slot++) {
         uint32_t slot = (uint32_t)(wheel_now_slot % SLEEP_QUEUE_SIZE);
         ListHead *bucket = &sleep_wheel[slot];
@@ -335,9 +344,14 @@ static void SchedWakeSleepers(void)
         BitmapClr(wheel_occ, slot);
     }
 
-    uint64_t now = ArchTimerNow();
     uint32_t cur = (uint32_t)(wheel_now_slot % SLEEP_QUEUE_SIZE);
     ListHead *bucket = &sleep_wheel[cur];
+    if (ListIsEmpty(bucket)) {
+        BitmapClr(wheel_occ, cur);
+        return;
+    }
+    if (wheel_min[cur] > now)
+        return;
     ListNode *node = bucket->node.next;
     while (node != &bucket->node) {
         ListNode *next = node->next;
@@ -348,6 +362,7 @@ static void SchedWakeSleepers(void)
         }
         node = next;
     }
+    wheel_gen++;
     if (ListIsEmpty(bucket))
         BitmapClr(wheel_occ, cur);
     else
@@ -396,20 +411,19 @@ static void SchedDoHousekeeping(void)
  */
 static TaskObject *SchedPickNext(void)
 {
-    for (int level = SCHED_PRIORITY_LEVELS - 1; level >= 0; level--) {
-        if (ready_mask & (1U << level)) {
-            if (unlikely(ListIsEmpty(&run_queues[level]))) {
-                ready_mask &= ~(1U << level);
+    while (ready_mask) {
+        int level = 31 - __builtin_clz(ready_mask);
+        if (unlikely(ListIsEmpty(&run_queues[level]))) {
+            ready_mask &= ~(1U << level);
 #ifdef DEBUG
-                panic("ready_mask bit %d set on an empty run queue", level);
+            panic("ready_mask bit %d set on an empty run queue", level);
 #endif
-                continue;
-            }
-            ListNode *next_node = ListPopFront(&run_queues[level]);
-            if (ListIsEmpty(&run_queues[level]))
-                ready_mask &= ~(1U << level);
-            return container_of(next_node, TaskObject, node);
+            continue;
         }
+        ListNode *next_node = ListPopFront(&run_queues[level]);
+        if (ListIsEmpty(&run_queues[level]))
+            ready_mask &= ~(1U << level);
+        return container_of(next_node, TaskObject, node);
     }
     return &idle_task;
 }
@@ -437,6 +451,7 @@ void __hot SchedSwitchNext(TaskObject *next)
         if (from_idle) {
             return;
         }
+        SchedInitIdleTask();
         ContextSwitch(prev, &idle_task);
         return;
     }
@@ -447,22 +462,23 @@ void __hot SchedSwitchNext(TaskObject *next)
 
     uint64_t slice = current_task->slice_remaining
                          ? current_task->slice_remaining
-                         : ClockUsToCounts(current_task->time_slice_us);
+                         : current_task->time_slice_counts;
     current_task->slice_deadline = ArchTimerNow() + slice;
     current_task->slice_remaining = 0;
-    SchedArmTimer();
+    if (slice_armed || armed_gen != wheel_gen || SchedAnyCpuTakers(current_task))
+        SchedArmTimer();
 
     if (unlikely(next == prev))
         return;
 
     if (unlikely(current_task == fpu_owner)) {
         if (!fpu_access_enabled) {
-            ArchFpuEnableAccess();
+            ArchFpuEnableAccessNoSync();
             fpu_access_enabled = true;
         }
     } else {
         if (fpu_access_enabled) {
-            ArchFpuTrapDisable();
+            ArchFpuTrapDisableNoSync();
             fpu_access_enabled = false;
         }
     }
@@ -507,6 +523,7 @@ static void SchedArmTimer(void)
     uint64_t deadline = UINT64_MAX;
 
     slice_armed = current_task && SchedAnyCpuTakers(current_task);
+    armed_gen = wheel_gen;
 
     uint32_t k = WheelScanFromNow();
     if (k < SLEEP_QUEUE_SIZE) {

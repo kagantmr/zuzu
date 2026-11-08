@@ -7,6 +7,7 @@
 #define ARCH_CPU_H
 
 #include <stdint.h>
+#include <types.h>
 
 /**
  * Include arch implementation. 
@@ -28,6 +29,6 @@ _Noreturn void ArchCpuHalt(void);
  * 
  * @return The stack pointer value.
  */
-uintptr_t ArchCurrentStackPointer(void);
+VirtAddr ArchCurrentStackPointer(void);
 
 #endif // ARCH_CPU_H

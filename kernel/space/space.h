@@ -32,6 +32,7 @@ typedef struct SpaceObjectStruct {
     ListHead tasks; /**< All tasks in the space, live or not yet reaped. */
     bool frozen; /**< A task faulted; none of the space's tasks are scheduled until unfrozen. */
     uint32_t live_tasks; /**< The number of tasks that have not exited. */
+    uint32_t irqs_owned; /**< The number of interrupt lines the space owns. */
     Err last_exit_status; /**< The exit status of the last task to exit. */
     ListHead waiters; /**< Tasks waiting for the space to become hollow. */
     PhysAddr tcb_page_pa[MAX_TCB_PAGES]; /**< Physical pages of the TLS window; 0 where not allocated. */

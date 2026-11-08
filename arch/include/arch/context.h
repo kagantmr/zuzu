@@ -8,6 +8,7 @@
 
 #include <arch/regs.h>
 #include <stdint.h>
+#include <types.h>
 
 /**
  * @brief Initializes a task's execution context.
@@ -21,8 +22,8 @@
  * 
  * @return void* The user stack pointer after pushing the context.
  */
-void *ArchTaskUserInit(void *kstack_top, uintptr_t entry, uintptr_t user_sp, uintptr_t user_lr,
-                       uint32_t a0, uint32_t a1);
+void *ArchTaskUserInit(void *kstack_top, VirtAddr entry, VirtAddr user_sp, VirtAddr user_lr,
+                       Register a0, Register a1);
 
 /**
  * @brief Arch-neutral accessor for a task's context.
@@ -31,7 +32,7 @@ void *ArchTaskUserInit(void *kstack_top, uintptr_t entry, uintptr_t user_sp, uin
  * 
  * @return CpuState* The CPU state struct of the task.
  */
-CpuState *ArchUserFrame(uintptr_t kstack_top);
+CpuState *ArchUserFrame(VirtAddr kstack_top);
 
 /**
  * @brief Initialize a task's context that is running on the kernel

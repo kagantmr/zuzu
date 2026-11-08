@@ -25,7 +25,7 @@ zuzu is still under active development. Contributions are appreciated, please re
 | Task lifecycle & scheduling                            | done    | Loaf                          |
 | Loaf rewrite                                           | done    | Prowl                         |
 | Object management                                      | done    | Prowl                         |
-| AArch64 port                                           | pending | Prowl 2.x                     |
+| AArch64 port                                           | IN PROGRESS | Prowl 2.1.1                   |
 | Settlement of the object model semantics               | pending | Knead                         |
 | Global lap and SMP                                     | done    | Knead                         |
 
@@ -46,8 +46,9 @@ zuzu is still under active development. Contributions are appreciated, please re
 
 ## Documentation
 
-All documentation is at the zuzu docs website.
-Visit [https://kagantmr.github.io/zuzu-docs](https://kagantmr.github.io/zuzu-docs) for the latest information on zuzu, zuzuOS and their development.
+All documentation is at the zuzu docs website. 
+Visit [zuzukernel.com](https://zuzukernel.com) for the latest information on the kernel, userspace, and development.
+
 
 ## Third-party components
 

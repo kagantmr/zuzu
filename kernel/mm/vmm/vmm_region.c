@@ -29,13 +29,13 @@ static KSlabCache addrspace_cache;
 /**
  * @brief bsearch comparator that matches the region containing an address.
  *
- * @param[in] key Pointer to the uintptr_t address being looked up.
+ * @param[in] key Pointer to the VirtAddr being looked up.
  * @param[in] elem Region to compare against.
  * @return Negative if the address is below the region, positive if above, 0 if inside.
  */
 static int RegionContainsVa(const void *key, const void *elem)
 {
-    uintptr_t va = *(const uintptr_t *)key;
+    VirtAddr va = *(const VirtAddr *)key;
     const VirtMemRegion *r = (const VirtMemRegion *)elem;
     if (va < r->vaddr_start)
         return -1;
@@ -47,13 +47,13 @@ static int RegionContainsVa(const void *key, const void *elem)
 /**
  * @brief bsearch comparator that matches the region starting at an address.
  *
- * @param[in] key Pointer to the uintptr_t start address being looked up.
+ * @param[in] key Pointer to the VirtAddr start address being looked up.
  * @param[in] elem Region to compare against.
  * @return Negative, zero, or positive as the address is below, equal to, or above the region start.
  */
 static int RegionCmpStart(const void *key, const void *elem)
 {
-    uintptr_t va = *(const uintptr_t *)key;
+    VirtAddr va = *(const VirtAddr *)key;
     const VirtMemRegion *r = (const VirtMemRegion *)elem;
     if (va < r->vaddr_start)
         return -1;
@@ -64,7 +64,7 @@ static int RegionCmpStart(const void *key, const void *elem)
 
 AddressSpace *VmmGetKernelAddressSpace(void) { return g_kernel_as; }
 
-VirtMemRegion *VmmFindRegion(AddressSpace *as, uintptr_t va)
+VirtMemRegion *VmmFindRegion(AddressSpace *as, VirtAddr va)
 {
     if (!as || as->regions.len == 0)
         return NULL;
@@ -181,14 +181,16 @@ void AddressSpaceDestroy(AddressSpace *as)
               as->asid_token.asid);
     }
 
-    if (as->asid_token.asid != 0)
+    bool has_tables = as->pt_root_physaddr != 0;
+    if (has_tables && as->asid_token.asid != 0)
         ArchMmuFlushTlbAsid(as->asid_token.asid);
 
     for (uint32_t i = 0; i < as->regions.len; i++) {
         VirtMemRegion *r = vm_region_vec_get(&as->regions, i);
         if (!r)
             continue;
-        VmmUnmapRange(as, r->vaddr_start, r->size, false);
+        if (has_tables)
+            VmmUnmapRange(as, r->vaddr_start, r->size, false);
         MemObjUnref((MemObject *)r->backing);
     }
 
@@ -268,7 +270,7 @@ VirtAddr VmmFindFreeVa(const AddressSpace *as, VirtAddr lo, VirtAddr hi, size_t 
     return (hi - cand >= size) ? cand : 0;
 }
 
-bool VmmRemoveRegion(AddressSpace *as, uintptr_t vaddr, size_t size)
+bool VmmRemoveRegion(AddressSpace *as, VirtAddr vaddr, size_t size)
 {
     if (!as || size == 0)
         return false;

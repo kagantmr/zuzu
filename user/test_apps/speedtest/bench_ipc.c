@@ -80,7 +80,7 @@ void RunIpc(void)
         printf("ipc setup failed\n");
         return;
     }
-    if (TaskStart(task, (void *)ServerEntry, stack + SERVER_STACK, (uint32_t)(uintptr_t)&srv, 0) !=
+    if (TaskStart(task, (void *)ServerEntry, stack + SERVER_STACK, (Register)(VirtAddr)&srv, 0) !=
         ZUZU_OK) {
         printf("ipc server start failed\n");
         return;
@@ -103,12 +103,21 @@ void RunIpc(void)
     MemUnmap(stack);
 }
 
+#ifdef __aarch64__
+#define SYS(n) (0xD4000001u | ((uint32_t)(n) << 5))
+
+static const uint32_t kEchoCode[] = {
+    0xAA0003E4, 0xAA0403E0, 0x92800001, SYS(SVC_WAITON), 0xB50000E0, 0xAA0203E0,
+    0x92800001, 0xAA0403E2, 0x92800003, SYS(SVC_REPLY),  0x17FFFFFA, SYS(SVC_QUIT),
+};
+#else
 #define SYS(n) (0xE3A0C000u | (uint32_t)(n)), (0xEF000000u | ARCH_SVC_MAGIC)
 
 static const uint32_t kEchoCode[] = {
     0xE1A04000, 0xE1A00004, 0xE3E01000, SYS(SVC_WAITON), 0xE3500000, 0x1A000006, 0xE1A00002,
     0xE3E01000, 0xE1A02004, 0xE3E03000, SYS(SVC_REPLY),  0xEAFFFFF6, SYS(SVC_QUIT),
 };
+#endif
 
 static uint8_t g_code_page[4096] __attribute__((aligned(4096)));
 
@@ -127,7 +136,7 @@ void RunIpcCross(void)
                              PROT_READ | PROT_EXEC);
     Err start = ERR_BADARG;
     if (inj == ZUZU_OK && g.r0 == ZUZU_OK && (task = CreateTask(space)) >= 0)
-        start = TaskStart(task, (void *)USER_ELF_BASE, (void *)USR_SP, (uint32_t)g.r1, 0);
+        start = TaskStart(task, (void *)USER_ELF_BASE, (void *)USR_SP, g.r1, 0);
     if (start == ZUZU_OK) {
         SweepIpc("ipc cross-space", port);
     } else {

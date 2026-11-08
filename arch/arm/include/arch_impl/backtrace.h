@@ -9,6 +9,7 @@
 #include <arch_impl/regs.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <types.h>
 
 /**
  * @brief Follows the frame-pointer chain and collects return addresses.
@@ -23,19 +24,19 @@
  * @param[in]  max_depth      Capacity of @p out.
  * @return The number of addresses stored.
  */
-static inline size_t ArchBacktraceWalk(Register fp, Register kernel_va_base, uint32_t *out,
+static inline size_t ArchBacktraceWalk(Register fp, Register kernel_va_base, VirtAddr *out,
                                        size_t max_depth)
 {
     size_t depth = 0;
-    uint32_t cur = (uint32_t)fp;
-    uint32_t base = (uint32_t)kernel_va_base;
+    VirtAddr cur = (VirtAddr)fp;
+    VirtAddr base = (VirtAddr)kernel_va_base;
 
     while (depth < max_depth) {
-        if (cur == 0 || (cur & 0x3u) || cur < base)
+        if (cur == 0 || (cur & 0x3U) || cur < base)
             break;
-        uint32_t lr = *(uint32_t *)(uintptr_t)cur;
+        VirtAddr lr = *(VirtAddr *)cur;
         out[depth++] = lr;
-        uint32_t prev = *(uint32_t *)(uintptr_t)(cur - 4);
+        VirtAddr prev = *(VirtAddr *)(cur - 4);
         if (prev <= cur)
             break;
         cur = prev;

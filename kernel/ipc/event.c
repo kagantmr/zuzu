@@ -126,6 +126,8 @@ void EventBindBit(EventObject *ev, uint32_t bit)
 {
     if (bit >= 31)
         return;
+    if (!(ev->bound_mask & (1U << bit)))
+        ev->bound_refs[bit] = 0;
     if (ev->bound_refs[bit] < UINT16_MAX)
         ev->bound_refs[bit]++;
     ev->bound_mask |= (1U << bit);
@@ -133,7 +135,7 @@ void EventBindBit(EventObject *ev, uint32_t bit)
 
 void EventUnbindBit(EventObject *ev, uint32_t bit)
 {
-    if (bit >= 31 || ev->bound_refs[bit] == 0)
+    if (bit >= 31 || !(ev->bound_mask & (1U << bit)) || ev->bound_refs[bit] == 0)
         return;
     if (--ev->bound_refs[bit] == 0)
         ev->bound_mask &= ~(1U << bit);
@@ -150,7 +152,6 @@ EventObject *EventCreate(SpaceObject *owner)
     ListInit(&ev->wait_queue);
     ev->word = 0;
     ev->bound_mask = 0;
-    memset(ev->bound_refs, 0, sizeof(ev->bound_refs));
     ev->child_count = 0;
     ObserverInit(&ev->observers);
 
@@ -180,6 +181,7 @@ void EventWait(EventObject *ev, Duration timeout, CpuState *frame, EventWord mas
         ArchSetInFrame(frame, 1, (Register)got);
         return;
     }
+    EventNotifyParents(ev);
     current_task->wait_mask = mask;
     current_task->wait_all = waitall;
     SchedBlockOn(&ev->wait_queue, timeout);

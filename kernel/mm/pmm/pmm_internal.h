@@ -13,7 +13,8 @@
 typedef struct {
     Pfn pfn_base;           /**< First managed frame number. */
     Pfn pfn_end;            /**< One past the last managed frame number. */
-    size_t total_frames;    /**< Number of managed frames. */
+    size_t span_frames;     /**< Frames from pfn_base to pfn_end, holes included; bits in the bitmap. */
+    size_t total_frames;    /**< Frames of RAM in the banks, holes excluded. */
     size_t free_frames;     /**< Number of free frames. */
     uint8_t *bitmap;        /**< Allocation bitmap, one bit per frame (1 = allocated). */
     size_t bitmap_bytes;    /**< Bytes of bitmap actually in use. */

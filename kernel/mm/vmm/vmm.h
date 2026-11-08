@@ -149,7 +149,7 @@ bool VmmAddRegion(AddressSpace *restrict as, const VirtMemRegion *restrict regio
  * @return true if the region was removed.
  * @retval false No region starts at vaddr with that size.
  */
-bool VmmRemoveRegion(AddressSpace *as, uintptr_t vaddr, size_t size);
+bool VmmRemoveRegion(AddressSpace *as, VirtAddr vaddr, size_t size);
 
 /**
  * @brief Find a gap between existing regions that fits a size.
@@ -165,9 +165,10 @@ VirtAddr VmmFindFreeVa(const AddressSpace *as, VirtAddr lo, VirtAddr hi, size_t 
 /**
  * @brief Build the kernel address space and switch to it.
  *
- * Copies the early boot tables, registers the higher-half RAM mapping and the boot identity
- * mapping as regions, and marks the MMU as enabled. Panics on allocation failure. Does nothing if
- * the kernel space already exists.
+ * Maps all of RAM at its linear-map address, the kernel image with pages and the rest with the
+ * largest blocks that fit, registers it as a region, installs the space with
+ * ArchMmuInstallKernelSpace() and marks the MMU as enabled. Panics on failure. Does nothing if the
+ * kernel space already exists.
  */
 void VmmBootstrap(void);
 
@@ -331,8 +332,7 @@ Err VmmProtectUserRange(SpaceObject *space, VirtAddr va, size_t size, MemProt ne
 /**
  * @brief Drop the boot-time identity mapping of RAM.
  *
- * Relocates stacks to the higher half first if the stack pointer is still in the identity range.
- * Afterwards the kernel runs purely in the higher half.
+ * Calls ArchMmuDropIdentity(). Afterwards the kernel runs purely in the higher half.
  */
 void VmmRemoveIdentityMapping(void);
 
@@ -373,6 +373,21 @@ void IoUnmap(void *va);
 bool VmmCheckUserFault(AddressSpace *as, VirtAddr va, size_t len, bool write);
 
 /**
+ * @brief Serve a translation fault on a user address by mapping the page behind it.
+ *
+ * Arch-independent part of demand paging: the exception handler decodes the fault and calls this
+ * for translation faults only. Guard and device regions, and accesses the region's protection
+ * forbids, are not served.
+ *
+ * @param[in,out] as The faulting address space.
+ * @param[in] va The faulting address.
+ * @param[in] write Whether the access was a write.
+ * @return true if the page is now mapped and the access can be retried.
+ * @retval false @p va is outside user space or any region, or the region cannot be demand-paged.
+ */
+bool VmmDemandPage(AddressSpace *as, VirtAddr va, bool write);
+
+/**
  * @brief Populate one page of a region.
  *
  * Anonymous regions get a zeroed frame. Shared regions use, or allocate and zero, the page at the
@@ -409,10 +424,10 @@ bool VmmRegionProt(AddressSpace *as, VirtAddr va, MemProt *out);
 bool VmmRegionLimitProt(AddressSpace *as, VirtAddr va, MemProt allowed);
 
 /**
- * @brief Make the kernel image mappings privileged read-only at the page-table level.
+ * @brief Make the kernel's code read-only and executable, and its read-only data read-only.
  *
- * Rewrites the access permission bits of the section and small-page entries that cover the kernel
- * image, then flushes the TLB.
+ * .text becomes read and execute, .rodata read only; .data and .bss stay read and write. The TLB
+ * is flushed.
  */
 void VmmLockdownKernelMapping(void);
 

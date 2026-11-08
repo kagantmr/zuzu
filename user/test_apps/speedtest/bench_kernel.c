@@ -317,7 +317,7 @@ void BenchTasks(void)
         }
         TIMED(g_samples_b, i, TaskSetPriority(t, 1));
         TIMED(g_samples_c, i,
-              TaskStart(t, (void *)BlockEntry, stack + SERVER_STACK, (uint32_t)(uintptr_t)&port,
+              TaskStart(t, (void *)BlockEntry, stack + SERVER_STACK, (Register)(VirtAddr)&port,
                         0));
         Yield();
         TIMED(g_samples_d, i, TaskKill(t));

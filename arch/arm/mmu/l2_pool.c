@@ -24,7 +24,7 @@ static L2PtPoolEntry *pool_head = NULL;
 /** @brief Slab cache for L2PtPoolEntry records. */
 static KSlabCache l2_entry_cache;
 
-uintptr_t L2PtPoolAlloc(void)
+PhysAddr L2PtPoolAlloc(void)
 {
     for (L2PtPoolEntry *entry = pool_head; entry; entry = entry->next) {
         if (entry->used_mask == L2_SLOTS_FULL)
@@ -33,14 +33,14 @@ uintptr_t L2PtPoolAlloc(void)
         for (unsigned slot = 0; slot < L2_PER_PAGE; slot++) {
             if (!(entry->used_mask & (1 << slot))) {
                 entry->used_mask = (uint8_t)(entry->used_mask | (1U << slot));
-                uintptr_t pa = entry->page_pa + (slot * L2_TABLE_SIZE);
+                PhysAddr pa = entry->page_pa + (slot * L2_TABLE_SIZE);
                 memset((void *)PA_TO_VA(pa), 0, L2_TABLE_SIZE);
                 return pa;
             }
         }
     }
 
-    uintptr_t page_pa = PmmAllocFrame();
+    PhysAddr page_pa = PmmAllocFrame();
     if (!page_pa) {
         return 0;
     }
@@ -69,7 +69,7 @@ void L2PtPoolFree(PhysAddr l2_pa)
         return;
     }
 
-    uintptr_t page_pa = l2_pa & ~PAGE_OFFSET_MASK;
+    PhysAddr page_pa = l2_pa & ~PAGE_OFFSET_MASK;
     int slot = (int)((l2_pa & PAGE_OFFSET_MASK) / L2_TABLE_SIZE);
 
     L2PtPoolEntry *prev = NULL;
