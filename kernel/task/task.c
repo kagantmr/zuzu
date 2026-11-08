@@ -3,6 +3,7 @@
  * @brief Implementation of tasks: creation, teardown, faults and priority inheritance.
  */
 
+#include "kernel/clock.h"
 #include "kernel/ipc/msg.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm/pmm.h"
@@ -213,6 +214,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
     task->priority = SCHED_PRIO_DEFAULT;
     task->base_prio = SCHED_PRIO_DEFAULT;
     task->time_slice_us = TIMESLICE_DEFAULT_US;
+    task->time_slice_counts = ClockUsToCounts(TIMESLICE_DEFAULT_US);
     task->max_prio = SCHED_PRIORITY_LEVELS - 1;
     task->tcb_slot = TCB_SLOT_NONE;
 

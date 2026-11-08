@@ -57,17 +57,22 @@ typedef struct {
     char build[24];      /**< Build date. */
     char machine[20];    /**< Machine zuzu is booting on. */
     char cpu[24];        /**< CPU within the machine. */
-    size_t mem_total_kb; /**< Total memory in kilobytes. */
-    size_t mem_free_kb;  /**< Free memory in kilobytes. */
+    uint32_t mem_total_kb; /**< Total memory in kilobytes. */
+    uint32_t mem_free_kb;  /**< Free memory in kilobytes. */
     uint64_t counter_freq;                     /**< Counter frequency.  */
     uint64_t counter_boot;                     /**< Counter value at boot. */
     uint8_t dev_count;                         /**< Device count. */
     uint32_t _reserved;                        /**< Reserved */
     SyspageDevEntry devs[SYSPAGE_MAX_DEVICES]; /**< Device names list. */
     uint32_t _reserved2;                       /**< Reserved */
+    uint32_t us_mult;  /**< Counter ticks to microseconds: us = (ticks * us_mult) >> us_shift; 0 if
+                          unset. */
+    uint32_t us_shift; /**< Shift paired with us_mult; always at least 32. */
 } Syspage;
 
 _Static_assert(offsetof(Syspage, _reserved2) == 3976, "syspage ABI");
+_Static_assert(offsetof(Syspage, us_mult) == 3980, "syspage ABI");
+_Static_assert(offsetof(Syspage, us_shift) == 3984, "syspage ABI");
 _Static_assert(sizeof(Syspage) <= 4096, "Syspage must fit in one page");
 
 #ifdef __cplusplus

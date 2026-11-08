@@ -107,9 +107,9 @@ static Err Pl011DrvSetup(void)
         return (Err)g_dev;
 
     Pl011Mmio *mmio = MemMap(g_dev, 0, PROT_RW);
-    UserspaceDebugLog("pl011drv: mmio=0x%x", (unsigned)mmio);
+    UserspaceDebugLog("pl011drv: mmio=%p", mmio);
     if (PtrIsErr(mmio))
-        return (Err)mmio;
+        return (Err)(intptr_t)mmio;
     uart = (volatile Pl011Mmio *)mmio;
 
     uart->imsc = 0;

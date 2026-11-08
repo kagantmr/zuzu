@@ -75,9 +75,9 @@ static inline Err Sleep(Duration ms) { return ArchInvokeSvc(SVC_SLEEP, (Register
  * @brief Waits until @p h has something to report, or @p timeout milliseconds pass.
  *
  * The generic wait for ports, events, tasks and spaces; it returns as soon as
- * something arrives. What r1-r3 carry depends on the type of @p h:
+ * something arrives. What r1-r3 carry depends on the handle type:
  *
- * | Handle | r1                           | r2             | r3                           |
+ * | %Handle | r1                           | r2             | r3                           |
  * |--------|------------------------------|----------------|------------------------------|
  * | Port   | sender's marker              | message length | granted handle, or -1        |
  * | Event  | signalled bits (now cleared) |                |                              |
@@ -238,7 +238,7 @@ static inline Err HandleDestroy(Handle h)
  * | QUERY_STATUS     | task exit status, space's last exit status, or ZUZU_OK / ERR_DEAD for a port |
  * | QUERY_SIZE       | size in bytes of a memory object                    |
  * | QUERY_DMA_COUNT  | number of DMA mappings on a device                  |
- * | QUERY_DMA_ID     | id of the @p index-th mapping, 0 = newest           |
+ * | QUERY_DMA_ID     | id of the mapping at @p index, 0 = newest           |
  * | QUERY_DMA_BUS / _LEN / _DIR | bus address, length, direction of mapping @p index (an id) |
  *
  * @syscall_num SVC_MANAGEHANDLE / MNGHNDL_QUERY
@@ -428,7 +428,7 @@ static inline Handle CreateTask(Handle space_handle)
  * @retval ERR_NOPERM    @p h lacks PERM_CNTL.
  * @retval ERR_BUSY      The task has already been started.
  */
-static inline Err TaskStart(Handle h, void *entry, void *sp, uint32_t r0, uint32_t r1)
+static inline Err TaskStart(Handle h, void *entry, void *sp, Register r0, Register r1)
 {
     KickstartArgs args = {
         .entry = entry,

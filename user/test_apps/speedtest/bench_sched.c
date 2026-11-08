@@ -32,7 +32,7 @@ static bool PeerStart(Peer *p, void (*entry)(PingPong *), PingPong *arg, int pri
             return false;
         }
     }
-    return TaskStart(p->task, (void *)entry, p->stack + SERVER_STACK, (uint32_t)(uintptr_t)arg,
+    return TaskStart(p->task, (void *)entry, p->stack + SERVER_STACK, (Register)(VirtAddr)arg,
                      0) == ZUZU_OK;
 }
 

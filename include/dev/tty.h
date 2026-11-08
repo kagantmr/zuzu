@@ -290,7 +290,7 @@ static inline Err TtyClientConnectDir(Handle tty_port, uint32_t cmd, const char 
     void *va = MemMap(c->mem, 0, PROT_RW);
     if (PtrIsErr(va)) {
         HandleClose(c->mem);
-        return (Err)va;
+        return (Err)(intptr_t)va;
     }
     c->shm = (TtyShm *)va;
 

@@ -94,21 +94,21 @@ static void CreateRootSpace(const char *path)
     s_rootsvc = space;
     BootInfoEnumerateDevs(InjectDeviceObjects);
 
-    uint32_t initrd_page_offset = g_initrd_pa & (PAGE_SIZE - 1);
-    uint32_t initrd_aligned_pa = g_initrd_pa - initrd_page_offset;
-    uint32_t initrd_page_count =
+    size_t initrd_page_offset = g_initrd_pa & (PAGE_SIZE - 1);
+    PhysAddr initrd_aligned_pa = g_initrd_pa - initrd_page_offset;
+    size_t initrd_page_count =
         (initrd_page_offset + (uint32_t)g_initrd_size + PAGE_SIZE - 1) / PAGE_SIZE;
-    uintptr_t initrd_base_va = USER_MMAP_BASE + (MAX_TCB_PAGES * PAGE_SIZE);
+    VirtAddr initrd_base_va = USER_MMAP_BASE + (MAX_TCB_PAGES * PAGE_SIZE);
 
-    for (uint32_t i = 0; i < initrd_page_count; i++) {
-        uint32_t page_pa = initrd_aligned_pa + (i * PAGE_SIZE);
+    for (size_t i = 0; i < initrd_page_count; i++) {
+        PhysAddr page_pa = initrd_aligned_pa + (i * PAGE_SIZE);
         if (!VmmMapUserPage(space->as, page_pa, initrd_base_va + (i * PAGE_SIZE), PROT_READ)) {
             KERROR("Failed to map initrd page %u for %s", i, path);
             return;
         }
     }
     VmmAddRegion(space->as, &(VirtMemRegion){.vaddr_start = initrd_base_va,
-                                             .size = initrd_page_count * PAGE_SIZE,
+                                             .size = (initrd_page_count * PAGE_SIZE),
                                              .prot = PROT_READ | VM_PROT_USER,
                                              .memtype = VM_MEM_NORMAL,
                                              .owner = VM_BACKING_SHARED,

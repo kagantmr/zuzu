@@ -98,6 +98,7 @@ struct TaskObjectStruct {
     ListNode serve_node;      /**< Link in the active servers of the port being served. */
     PortObject *serving_port; /**< The port whose call this task is serving, or NULL. */
     uint32_t time_slice_us;   /**< Length of the task's time slice in microseconds. */
+    uint64_t time_slice_counts; /**< time_slice_us converted to timer ticks. */
     Prio max_prio;            /**< Highest priority the task may set. */
     uint8_t queued_prio;      /**< Run queue level the node is linked at; valid while linked. */
     Time slice_deadline;      /**< Counter value at which the running slice ends. */

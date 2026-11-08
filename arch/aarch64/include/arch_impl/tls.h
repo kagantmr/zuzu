@@ -1,0 +1,23 @@
+/**
+ * @file
+ * @brief AArch64 thread pointer read.
+ */
+
+#ifndef ARCH_AARCH64_IMPL_TLS_H
+#define ARCH_AARCH64_IMPL_TLS_H
+
+#include <stdint.h>
+#include <types.h>
+#include <arch_impl/sysreg.h>
+
+/**
+ * @brief Reads the user read-only thread ID register (TPIDRRO_EL0).
+ *
+ * @return The current task's info block address.
+ */
+static inline VirtAddr ArchGetTlsPointer(void)
+{
+    return READ_SYSREG(tpidrro_el0);
+}
+
+#endif // ARCH_AARCH64_IMPL_TLS_H

@@ -112,6 +112,14 @@ def flatten(node: ET.Element | None) -> str:
                 bullet = "-" if tag == "itemizedlist" else f"{i}."
                 out.append(f"{bullet} {_inline(item)}\n")
             out.append("\n")
+        elif tag == "table":
+            rows = []
+            for i, row in enumerate(el.findall("row")):
+                cells = [_cell(e) for e in row.findall("entry")]
+                rows.append("| " + " | ".join(cells) + " |")
+                if i == 0:
+                    rows.append("|" + "---|" * len(cells))
+            out.append("\n\n" + "\n".join(rows) + "\n\n")
         elif tag in ("parameterlist", "xrefsect"):
             pass
         else:
@@ -128,6 +136,10 @@ def flatten(node: ET.Element | None) -> str:
         walk(child)
     text = re.sub(r"[ \t]+\n", "\n", "".join(out))
     return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def _cell(entry: ET.Element) -> str:
+    return " ".join(flatten(entry).split()).replace("|", "\\|")
 
 
 def _codeline(cl: ET.Element) -> str:
