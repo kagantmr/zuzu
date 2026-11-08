@@ -32,7 +32,7 @@ static void KprintfOutc(void *ctx, char c)
 
 void kprintf(const char *fmt, ...)
 {
-    Cpsr state = ArchIrqSave();
+    IrqState state = ArchIrqSave();
     va_list args;
     va_start(args, fmt);
     vstrfmt(KprintfOutc, (void *)kernel_console_putc, fmt, &args);

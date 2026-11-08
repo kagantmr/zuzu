@@ -9,7 +9,7 @@
 #include <stdint.h>
 
 /** @brief A saved CPSR, as returned by ArchIrqSave(). */
-typedef uint32_t Cpsr;
+typedef uint32_t IrqState;
 
 /** @brief Masks IRQs on this CPU (cpsid i). */
 static inline void ArchGlobalIrqDisable(void) { __asm__ volatile("cpsid i" ::: "memory"); }
@@ -22,7 +22,7 @@ static inline void ArchGlobalIrqEnable(void) { __asm__ volatile("cpsie i" ::: "m
  *
  * @return The CPSR before masking.
  */
-static inline Cpsr ArchIrqSave(void)
+static inline IrqState ArchIrqSave(void)
 {
     uint32_t cpsr;
     __asm__ volatile("mrs %0, cpsr" : "=r"(cpsr)::"memory");
@@ -35,7 +35,7 @@ static inline Cpsr ArchIrqSave(void)
  *
  * @param[in] state Value returned by ArchIrqSave().
  */
-static inline void ArchIrqRestore(Cpsr state)
+static inline void ArchIrqRestore(IrqState state)
 {
     __asm__ volatile("msr cpsr_c, %0" ::"r"(state) : "memory");
 }
