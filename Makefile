@@ -414,7 +414,7 @@ doc-check doc-report: $(KCONFIG_AUTOCONF)
 	@mkdir -p $(O)
 	$(file >$(O)/doc-kflags,$(DOC_KFLAGS))
 	$(file >$(O)/doc-uflags,$(DOC_UFLAGS))
-	@sh scripts/doc_check.sh $(O)/doc-kflags $(O)/doc-uflags \
+	@ARCH=$(ARCH) sh scripts/doc_check.sh $(O)/doc-kflags $(O)/doc-uflags \
 	    $(if $(filter doc-report,$@),$(or $(DIR),$(error doc-report needs DIR=<path>)),$(DOC_SCOPE))
 
 # Generated zuzu-docs pages (scripts/gen_docs.py) from the headers in docs/doc-publish.
