@@ -64,7 +64,7 @@ bool ArchIrqIsPending(uint32_t line)
 
 uint32_t ArchIrqFirstDeviceLine(void) { return 16U; }
 
-void GicInit(uintptr_t gicd_base_addr, uintptr_t gicc_base_addr)
+void GicInit(VirtAddr gicd_base_addr, VirtAddr gicc_base_addr)
 {
 
     gicd_base = (volatile uint32_t *)gicd_base_addr;
@@ -141,7 +141,7 @@ uint32_t GicAcknowledge(void)
 void GicEnd(uint32_t iar)
 {
     
-    ArchDsbSy();
+    DsbSy();
     GiccWrite(GICC_EOIR, iar);
 }
 
@@ -175,7 +175,7 @@ static void GicV2Probe(const FdtDevice *dev)
     if (!gicd_va || !gicc_va)
         panic("Failed to ioremap GIC");
 
-    GicInit((uintptr_t)gicd_va, (uintptr_t)gicc_va);
+    GicInit((VirtAddr)gicd_va, (VirtAddr)gicc_va);
 }
 
 /** @brief Device tree compatible strings this driver binds to. */

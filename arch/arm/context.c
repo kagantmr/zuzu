@@ -17,16 +17,16 @@
  */
 extern void task_entry_trampoline(void);
 
-CpuState *ArchUserFrame(uintptr_t kstack_top) { return (CpuState *)(kstack_top - sizeof(CpuState)); }
+CpuState *ArchUserFrame(VirtAddr kstack_top) { return (CpuState *)(kstack_top - sizeof(CpuState)); }
 
-void *ArchTaskUserInit(void *kstack_top, uintptr_t entry, uintptr_t user_sp, uintptr_t user_lr,
-                       uint32_t a0, uint32_t a1)
+void *ArchTaskUserInit(void *kstack_top, VirtAddr entry, VirtAddr user_sp, VirtAddr user_lr,
+                       Register a0, Register a1)
 {
-    CpuState *f = ArchUserFrame((uintptr_t)kstack_top);
-    uintptr_t sp = (uintptr_t)f;
+    CpuState *f = ArchUserFrame((VirtAddr)kstack_top);
+    VirtAddr sp = (VirtAddr)f;
     memset(f, 0, sizeof(*f));
-    *ArchGetFromFrame(f, 0) = (Register)a0;
-    *ArchGetFromFrame(f, 1) = (Register)a1;
+    *ArchGetFromFrame(f, 0) = a0;
+    *ArchGetFromFrame(f, 1) = a1;
     f->sp_usr = (Register)user_sp;
     f->lr_usr = (Register)user_lr;
     f->return_pc = (Register)entry;
@@ -42,7 +42,7 @@ void *ArchTaskUserInit(void *kstack_top, uintptr_t entry, uintptr_t user_sp, uin
 
 void *ArchTaskKernelInit(void *kstack_top, void (*entry)(void))
 {
-    uintptr_t sp = (uintptr_t)kstack_top;
+    VirtAddr sp = (VirtAddr)kstack_top;
 
     sp -= sizeof(CpuContext);
     CpuContext *ctx = (CpuContext *)sp;

@@ -9,6 +9,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <types.h>
 
 /** @brief Segment flag: readable. */
 #define ZXF_R 1
@@ -51,18 +52,18 @@ typedef struct {
 typedef struct {
     const uint8_t *base;    /**< Start of the image bytes. */
     size_t size;            /**< Image size in bytes. */
-    uint32_t entry;         /**< Entry point address. */
+    VirtAddr entry;            /**< Entry point address. */
     uint16_t seg_count;     /**< Number of segments. */
     const ZXFSegment *segs; /**< The segment table, inside the image. */
 } ZXFImage;
 
 /** @brief Target architecture of an image. */
 typedef enum {
-    ARM32 = 0x01, /**< 32-bit ARM. */
-    ARM64,        /**< 64-bit ARM. */
-    X86_64,       /**< x86-64. */
-    RISCV,        /**< RISC-V. */
-    POWPC         /**< PowerPC. */
+    ZXF_ARM = 0x01, /**< 32-bit ARM. */
+    ZXF_AARCH64,    /**< 64-bit ARM. */
+    ZXF_X86_64,     /**< x86-64. */
+    ZXF_RISCV,      /**< RISC-V. */
+    ZXF_PPC         /**< PowerPC. */
 } ZXFArch;
 
 /** @brief Kind of an optional block. */

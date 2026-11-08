@@ -20,12 +20,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        board: [vexpress-a15, virt, rpi4]
+        include:
+          - { arch: arm, board: vexpress-a15, target: arm-none-eabi }
+          - { arch: arm, board: virt, target: arm-none-eabi }
+          - { arch: arm, board: rpi4, target: arm-none-eabi }
+          - { arch: aarch64, board: rpi4, target: aarch64-none-elf }
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/arm-toolchain
+        with:
+          target: ${{ matrix.target }}
       - name: Build
-        run: make BOARD=${{ matrix.board }} -j"$(nproc)"
+        run: make ARCH=${{ matrix.arch }} BOARD=${{ matrix.board }} -j"$(nproc)"
 
   checks:
     runs-on: ubuntu-24.04

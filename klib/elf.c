@@ -4,11 +4,12 @@
  */
 
 #include "elf.h"
+#include <arch/abi.h>
 #include <string.h>
 
 uint32_t ElfValidate(const void *data, size_t size)
 {
-    if (size < sizeof(Elf32_Ehdr))
+    if (ARCH_ELF_MACHINE != ELF_MACHINE_ARM || size < sizeof(Elf32_Ehdr))
         return 0;
     const Elf32_Ehdr *ehdr = (const Elf32_Ehdr *)data;
     if (memcmp(ehdr->e_ident, ELF_MAGIC, 4) != 0 || ehdr->e_ident[4] != ELF_CLASS_32 ||

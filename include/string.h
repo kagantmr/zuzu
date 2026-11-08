@@ -13,9 +13,9 @@
 typedef void (*strfmt_outc_t)(void *ctx, char c);
 
 /** @brief Rounds @p addr down to a multiple of @p align, a power of two. */
-#define align_down(addr, align) ((addr) & ~((align) - 1u))
+#define align_down(addr, align) ((addr) & ~(__typeof__(addr))((align) - 1u))
 /** @brief Rounds @p addr up to a multiple of @p align, a power of two. */
-#define align_up(addr, align) (((addr) + (align) - 1) & ~((align) - 1u))
+#define align_up(addr, align) (((addr) + (align) - 1) & ~(__typeof__(addr))((align) - 1u))
 
 /**
  * @brief Copy n bytes from source to destination.
@@ -161,6 +161,26 @@ char *strrchr(const char *s, int c);
  * @param[in,out] args    Pointer to va_list of arguments matching the format specifiers.
  */
 void vstrfmt(strfmt_outc_t outc, void *ctx, const char *fstring, va_list *args);
+
+/**
+ * @brief Formats one %f, %e or %g conversion for vstrfmt().
+ *
+ * The kernel cannot use floating point,
+ * so its stand-in in core/strfmt_float.c consumes no argument and writes the conversion letter.
+ *
+ * @param[in,out] args       Argument list from vstrfmt.
+ * @param[in]     spec       Conversion letter (f, F, e, E, g or G).
+ * @param[in]     prec       Precision
+ * @param[in]     alt        Nonzero for the # flag
+ * @param[in]     plus       Nonzero for the + flag
+ * @param[in]     space      Nonzero for the space flag
+ * @param[out]    numbuf     Receives the digits without the sign
+ * @param[out]    signch_out Receives the sign character or 0 for none.
+ *
+ * @return Number of characters written to @p numbuf.
+ */
+int strfmt_float(va_list *args, char spec, int prec, int alt, int plus, int space, char *numbuf,
+                 char *signch_out);
 
 /** @brief Bounded formatted output into a buffer; documented in snprintf.h. */
 int vsnprintf(char *buf, size_t size, const char *fmt, va_list args);

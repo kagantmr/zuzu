@@ -8,6 +8,9 @@
 
 #include <stddef.h>
 
+/** @brief Size of the largest block a single top-level entry maps (an ARMv7 section, 1 MiB). */
+#define SECTION_SIZE 0x100000u
+
 /**
  * @brief Moves the stacks of every exception mode by @p offset.
  *
@@ -16,7 +19,7 @@
  *
  * @param[in] offset Byte distance from the old (physical) to the new (virtual) addresses.
  */
-static inline void ArchRelocateStacks(size_t offset)
+static inline void RelocateStacks(size_t offset)
 {
     __asm__ volatile(
         "mrs    r0, cpsr\n\t"

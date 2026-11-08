@@ -164,7 +164,7 @@ static Err MapMem(SockConn *s)
     void *va = MemMap(s->mem, 0, PROT_RW);
     if (PtrIsErr(va)) {
         HandleClose(s->mem);
-        return (Err)va;
+        return (Err)(intptr_t)va;
     }
     s->shm = (SockShm *)va;
     return ZUZU_OK;

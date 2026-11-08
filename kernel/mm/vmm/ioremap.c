@@ -10,7 +10,7 @@
 #include <stdint.h>
 
 /** @brief Occupancy bitmap of the ioremap window, one bit per section slot. */
-static uint32_t ioremap_bitmap[8];
+static uint32_t ioremap_bitmap[(IOREMAP_MAX_SLOT + 31) / 32];
 
 _Static_assert(IOREMAP_MAX_SLOT <= IOREMAP_SLOTS,
                "kstack region base falls outside the ioremap window");
@@ -94,11 +94,11 @@ void *IoRemap(PhysAddr phys, size_t size)
         return NULL;
     }
 
-    uintptr_t phys_aligned = align_down(phys, SECTION_SIZE);
-    uintptr_t offset = phys - phys_aligned;
+    PhysAddr phys_aligned = align_down(phys, SECTION_SIZE);
+    size_t offset = phys - phys_aligned;
     size_t total_size = size + offset;
     size_t aligned_size = align_up(total_size, SECTION_SIZE);
-    uint32_t sections_needed = aligned_size / SECTION_SIZE;
+    uint32_t sections_needed = (uint32_t)(aligned_size / SECTION_SIZE);
 
     int slot = BitmapFindFree(sections_needed);
     if (slot < 0) {
@@ -109,7 +109,7 @@ void *IoRemap(PhysAddr phys, size_t size)
         return NULL;
     }
 
-    uintptr_t va = IOREMAP_BASE + ((uint32_t)slot * SECTION_SIZE);
+    VirtAddr va = IOREMAP_BASE + ((uint32_t)slot * SECTION_SIZE);
 
     if (!VmmMapRange(g_kernel_as, va, phys_aligned, aligned_size, PROT_READ | PROT_WRITE,
                      VM_MEM_DEVICE)) {
@@ -136,7 +136,7 @@ void IoUnmap(void *va)
         return;
     }
 
-    uintptr_t base_va = align_down((uintptr_t)va, SECTION_SIZE);
+    VirtAddr base_va = align_down((VirtAddr)va, SECTION_SIZE);
     IoremapEntry *entry = IoremapFind(base_va);
     if (!entry) {
         return;
@@ -145,7 +145,7 @@ void IoUnmap(void *va)
     size_t size = entry->sections * SECTION_SIZE;
     VmmUnmapRange(g_kernel_as, entry->va, size, true);
 
-    uint32_t slot_start = (entry->va - IOREMAP_BASE) / SECTION_SIZE;
+    uint32_t slot_start = (uint32_t)((entry->va - IOREMAP_BASE) / SECTION_SIZE);
     BitmapFree(slot_start, entry->sections);
 
     entry->va = 0;
