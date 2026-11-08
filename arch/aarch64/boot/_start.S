@@ -30,9 +30,9 @@ _start:
 1:
     mrs     x0, CurrentEL
     lsr     x0, x0, #2
-    cmp     x0, #1 // SVC is EL1 in AArch64, if we're alr EL1 skip the hypervisor mess
+    cmp     x0, #1 // already in EL1: skip the EL2 setup
     b.eq    el1_entry
-    cmp     x0, #2 // HYP is EL2
+    cmp     x0, #2 // EL2: drop to EL1 first
     b.eq    from_el2
     b       0b     // park, we didn't expect to land in this mode
 

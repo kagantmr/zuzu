@@ -4,8 +4,8 @@
 #include <arch_impl/user_layout.h>
 
 /* Kernel physical/virtual split.
- * RAM starts at PA 0 on the BCM2711; the firmware loads a 32-bit kernel at
- * 0x8000 by default (see linker.ld BOOT_OFFSET). */
+ * RAM starts at PA 0 on the BCM2711; the firmware loads a 64-bit kernel at
+ * 0x80000 by default (see linker.ld BOOT_OFFSET). */
 #define KERNEL_PA_BASE 0x00000000UL
 #define KERNEL_VA_BASE 0xFFFF000000000000UL
 #define KERNEL_VA_OFFSET (KERNEL_VA_BASE - KERNEL_PA_BASE)
