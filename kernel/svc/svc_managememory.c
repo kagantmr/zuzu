@@ -115,8 +115,7 @@ void SvcManageMemory(CpuState *frame)
 
         Handle slot = HandleTableFindFree(&CURRENT_SPACE->handle_table);
         ENSURE_ERR(frame, -1 != slot, ERR_NOMEM);
-        HandleTableEntry *fresh = HandleTableGet(&CURRENT_SPACE->handle_table, slot);
-        HandleEntryClaim(&CURRENT_SPACE->handle_table, fresh);
+        HandleTableEntry *fresh = HandleTableClaim(&CURRENT_SPACE->handle_table, slot);
         MemObjRef(m->mem);
         fresh->type = HANDLE_MEM;
         fresh->mem = m->mem;

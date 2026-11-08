@@ -19,9 +19,7 @@ Err HandleCopyInto(HandleTable *dst_table, HandleTableEntry *src, HandlePerms pe
     ENSURE_RET(src->type < HANDLE_TYPE_COUNT && src->type != HANDLE_FREE, ERR_BADTYPE);
     Handle free_handle = HandleTableFindFree(dst_table);
     ENSURE_RET(free_handle >= 0, ERR_NOMEM);
-    HandleTableEntry *dst = HandleTableGet(dst_table, free_handle);
-    ENSURE_RET(dst, ERR_NOENT);
-    HandleEntryClaim(dst_table, dst);
+    HandleTableEntry *dst = HandleTableClaim(dst_table, free_handle);
 
     dst->perms = perms;
     dst->type = src->type;
