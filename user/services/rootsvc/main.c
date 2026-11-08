@@ -37,25 +37,6 @@ static Handle g_monitor_ev;
 static FsdConn g_fsd;
 const BootInfo *g_bootinfo;
 
-static Handle SpawnThread(void (*entry)(void))
-{
-
-    void *stack = MemMapAnon(STACK_SIZE, 0, PROT_READ | PROT_WRITE);
-    if (PtrIsErr(stack))
-        return (Handle)(intptr_t)stack;
-
-    Handle h = CreateTask(-1);
-    if (h < 0)
-        return h;
-
-    Err rc = TaskStart(h, entry, ((char *)stack + STACK_SIZE), 0, 0);
-    if (rc != ZUZU_OK) {
-        HandleClose(h);
-        return rc;
-    }
-    return h;
-}
-
 static void MonitorKitten(Handle task, Handle space, const char *path)
 {
     if (g_kitten_count >= MAX_KITTENS) {
