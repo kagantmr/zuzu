@@ -1,5 +1,10 @@
 name: arm-toolchain
-description: Host Python deps plus the pinned Arm GNU Toolchain (arm-none-eabi, with newlib) on PATH
+description: Host Python deps plus the pinned Arm GNU Toolchain (with newlib) on PATH
+
+inputs:
+  target:
+    description: Toolchain target triple, arm-none-eabi or aarch64-none-elf
+    default: arm-none-eabi
 
 runs:
   using: composite
@@ -18,16 +23,16 @@ runs:
       uses: actions/cache@v4
       with:
         path: /opt/arm-gnu-toolchain
-        key: arm-gnu-toolchain-${{ env.ARM_TOOLCHAIN }}-x86_64
+        key: arm-gnu-toolchain-${{ env.ARM_TOOLCHAIN }}-x86_64-${{ inputs.target }}
     - name: Download toolchain
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
-        url="https://developer.arm.com/-/media/Files/downloads/gnu/${ARM_TOOLCHAIN}/binrel/arm-gnu-toolchain-${ARM_TOOLCHAIN}-x86_64-arm-none-eabi.tar.xz"
+        url="https://developer.arm.com/-/media/Files/downloads/gnu/${ARM_TOOLCHAIN}/binrel/arm-gnu-toolchain-${ARM_TOOLCHAIN}-x86_64-${{ inputs.target }}.tar.xz"
         mkdir -p /opt/arm-gnu-toolchain
         curl -sSL "$url" | tar -xJ -C /opt/arm-gnu-toolchain --strip-components=1
     - name: Put it on PATH
       shell: bash
       run: |
         echo "/opt/arm-gnu-toolchain/bin" >> "$GITHUB_PATH"
-        /opt/arm-gnu-toolchain/bin/arm-none-eabi-gcc --version | head -1
+        /opt/arm-gnu-toolchain/bin/${{ inputs.target }}-gcc --version | head -1
