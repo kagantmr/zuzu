@@ -203,8 +203,7 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
                 return;
             }
 
-            KERROR("Oops! Segmentation fault");
-            KDEBUG("Oops! '%s' (SPID %d, TID %d) killed: data abort @ 0x%08X (%s %s)\n",
+            KERROR("Oops! '%s' (SPID %d, TID %d) killed: data abort @ 0x%08X (%s %s)\n",
                    current_space->name, current_space->spid, current_task->tid, dfar,
                    (dfsr & (1 << 11)) ? "write" : "read", DecodeFsr(dfsr));
             TaskFault(current_task, KILLED_FAULT_DATA);
