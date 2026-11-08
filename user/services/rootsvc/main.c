@@ -41,7 +41,7 @@ static Handle SpawnThread(void (*entry)(void))
 
     void *stack = MemMapAnon(STACK_SIZE, 0, PROT_READ | PROT_WRITE);
     if (PtrIsErr(stack))
-        return (Handle)stack;
+        return (Handle)(intptr_t)stack;
 
     Handle h = CreateTask(-1);
     if (h < 0)
