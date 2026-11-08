@@ -65,9 +65,14 @@ typedef struct {
     uint32_t _reserved;                        /**< Reserved */
     SyspageDevEntry devs[SYSPAGE_MAX_DEVICES]; /**< Device names list. */
     uint32_t _reserved2;                       /**< Reserved */
+    uint32_t us_mult;  /**< Counter ticks to microseconds: us = (ticks * us_mult) >> us_shift; 0 if
+                          unset. */
+    uint32_t us_shift; /**< Shift paired with us_mult; always at least 32. */
 } Syspage;
 
 _Static_assert(offsetof(Syspage, _reserved2) == 3976, "syspage ABI");
+_Static_assert(offsetof(Syspage, us_mult) == 3980, "syspage ABI");
+_Static_assert(offsetof(Syspage, us_shift) == 3984, "syspage ABI");
 _Static_assert(sizeof(Syspage) <= 4096, "Syspage must fit in one page");
 
 #ifdef __cplusplus

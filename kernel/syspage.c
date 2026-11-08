@@ -63,6 +63,26 @@ static void DeviceCallback(const char *compatible, uint64_t phys, uint64_t size,
     g_sp->dev_count++;
 }
 
+/**
+ * @brief Pick the largest shift whose multiplier still fits 32 bits and store the pair.
+ *
+ * @param[in] freq The counter frequency in Hz.
+ */
+static void SyspageSetUsScale(uint64_t freq)
+{
+    g_sp->us_mult = 0;
+    g_sp->us_shift = 0;
+    if (!freq)
+        return;
+    for (uint32_t shift = 32; shift <= 43; shift++) {
+        uint64_t mult = (1000000ULL << shift) / freq;
+        if (mult > UINT32_MAX)
+            break;
+        g_sp->us_mult = (uint32_t)mult;
+        g_sp->us_shift = shift;
+    }
+}
+
 void SyspageInit(void)
 {
     g_syspage_pa = PmmAllocFrame();
@@ -87,6 +107,7 @@ void SyspageInit(void)
     g_sp->mem_total_kb = (uint32_t)((PmmGetStats().total_frames * (uint64_t)PAGE_SIZE) / 1024);
     g_sp->counter_freq = ArchTimerFreq();
     g_sp->counter_boot = ArchTimerNow();
+    SyspageSetUsScale(g_sp->counter_freq);
 
     BootInfoEnumerateDevs(DeviceCallback);
 
