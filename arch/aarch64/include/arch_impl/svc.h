@@ -20,12 +20,19 @@ extern "C" {
 
 /**
  * @brief Loads x0-x3 and issues svc #num; the shared body of ArchInvokeSvc and ArchInvokeSvc4.
+ *
+ * The arguments are evaluated into temporaries first: a function call among them would
+ * otherwise clobber the x0-x3 register variables already loaded.
  */
 #define ARCH_SVC_CALL(num, a0, a1, a2, a3)                                                         \
-    register Register x0_ __asm__("x0") = (Register)(a0);                                          \
-    register Register x1_ __asm__("x1") = (Register)(a1);                                          \
-    register Register x2_ __asm__("x2") = (Register)(a2);                                          \
-    register Register x3_ __asm__("x3") = (Register)(a3);                                          \
+    Register a0_ = (Register)(a0);                                                                 \
+    Register a1_ = (Register)(a1);                                                                 \
+    Register a2_ = (Register)(a2);                                                                 \
+    Register a3_ = (Register)(a3);                                                                 \
+    register Register x0_ __asm__("x0") = a0_;                                                     \
+    register Register x1_ __asm__("x1") = a1_;                                                     \
+    register Register x2_ __asm__("x2") = a2_;                                                     \
+    register Register x3_ __asm__("x3") = a3_;                                                     \
     __asm__ volatile("svc %[imm]"                                                                  \
                      : "+r"(x0_), "+r"(x1_), "+r"(x2_), "+r"(x3_)                                  \
                      : [imm] "i"(num)                                                              \
