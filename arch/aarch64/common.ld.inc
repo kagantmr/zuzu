@@ -1,12 +1,5 @@
-/* arch/arm/common.ld.inc - shared linker-script body for every ARM board.
- *
- * INCLUDE'd by each board's linker.ld after it defines KERNEL_PA_BASE and
- * BOOT_OFFSET -- the only two things that actually differ per board (see
- * arch/arm/arch.mk's board.mk contract comment). Byte-identical across all
- * three boards' linker.ld files before this consolidation, aside from
- * those two constants and __stack_region_end__, which every board already
- * computed with the exact same formula below (some had just pre-baked the
- * arithmetic into a literal instead of writing the expression). */
+/* Shared kernel linker-script body for AArch64 boards; each board's linker.ld defines
+ * KERNEL_PA_BASE and BOOT_OFFSET before INCLUDE'ing it. */
 
 KERNEL_VA_BASE = 0xFFFF000000000000;        /* Virtual kernel base (higher-half) */
 
@@ -36,7 +29,7 @@ SECTIONS
         *(.text.boot.*)
     } : boot
 
-    . = ALIGN(16384);               /* L1 table must be 16KB aligned */
+    . = ALIGN(4096);
     .bss.boot (NOLOAD) : {
         _early_bss_start = .;
         *(.bss.boot)
@@ -105,38 +98,17 @@ SECTIONS
     . = ALIGN(16);
 
 
-    /* Per-mode stack sizes */
-    __svc_stack_size__   = 0x2000;   /* 8 KB */
-    __irq_stack_size__   = 0x400;    /* 1 KB */
-    __abt_stack_size__   = 0x400;    /* 1 KB */
-    __und_stack_size__   = 0x400;    /* 1 KB */
+    __kstack_size__    = 0x2000;
+    __kstack_phys_top  = KERNEL_PA_BASE + 0x00800000;
+    __kstack_phys_base = __kstack_phys_top - __kstack_size__;
 
-    /* Top of the 8 MB bootstrap-mapped region (see _start.S) */
-    __stack_region_end__ = KERNEL_PA_BASE + 0x00800000;
-
-    __svc_stack_top__  = __stack_region_end__;
-    __svc_stack_base__ = __svc_stack_top__ - __svc_stack_size__;
-
-    __irq_stack_top__  = __svc_stack_base__;
-    __irq_stack_base__ = __irq_stack_top__ - __irq_stack_size__;
-
-    __abt_stack_top__  = __irq_stack_base__;
-    __abt_stack_base__ = __abt_stack_top__ - __abt_stack_size__;
-
-    __und_stack_top__  = __abt_stack_base__;
-    __und_stack_base__ = __und_stack_top__ - __und_stack_size__;
-
-    __stack_region_base__ = __und_stack_base__;    /* low end, for PmmMarkRange */
-
-    __kstack_base  = __svc_stack_base__ + (KERNEL_VA_BASE - KERNEL_PA_BASE);
-    __kstack_top   = __svc_stack_top__  + (KERNEL_VA_BASE - KERNEL_PA_BASE);
+    __kstack_base  = __kstack_phys_base + (KERNEL_VA_BASE - KERNEL_PA_BASE);
+    __kstack_top   = __kstack_phys_top  + (KERNEL_VA_BASE - KERNEL_PA_BASE);
     _boot_start_va = _boot_start        + (KERNEL_VA_BASE - KERNEL_PA_BASE);
     _boot_end_va   = _boot_end          + (KERNEL_VA_BASE - KERNEL_PA_BASE);
     
     /* Discard unwanted sections */
     /DISCARD/ : {
-        *(.ARM.exidx*)
-        *(.ARM.extab*)
         *(.comment)
         *(.note.*)
     }
