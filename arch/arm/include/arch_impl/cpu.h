@@ -7,6 +7,7 @@
 #define ARCH_ARM_IMPL_CPU_H
 
 #include <stdint.h>
+#include <types.h>
 
 /** @brief A saved CPSR, as returned by ArchIrqSave(). */
 typedef uint32_t IrqState;
@@ -55,9 +56,9 @@ static inline _Noreturn void ArchCpuHalt(void)
  *
  * @return The current sp.
  */
-static inline uintptr_t ArchCurrentStackPointer(void)
+static inline VirtAddr ArchCurrentStackPointer(void)
 {
-    uintptr_t sp;
+    VirtAddr sp;
     __asm__ volatile("mov %0, sp" : "=r"(sp));
     return sp;
 }

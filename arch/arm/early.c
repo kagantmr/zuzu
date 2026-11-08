@@ -37,13 +37,13 @@ __attribute__((section(".bss.boot"), aligned(16384))) uint32_t early_l1[4096];
  * @param[in] ram_base Physical start of RAM.
  * @param[in] ram_size Size of RAM in bytes.
  */
-static void EarlyMapRamSections(uintptr_t ram_base, size_t ram_size)
+static void EarlyMapRamSections(PhysAddr ram_base, size_t ram_size)
 {
-    uint32_t *l1 = (uint32_t *)PA_TO_VA((uintptr_t)early_l1);
-    uintptr_t pa_start = ram_base & ~(SECTION_SIZE - 1);
-    uintptr_t pa_end = (ram_base + ram_size + SECTION_SIZE - 1) & ~(SECTION_SIZE - 1);
+    uint32_t *l1 = (uint32_t *)PA_TO_VA((PhysAddr)early_l1);
+    PhysAddr pa_start = ram_base & ~(SECTION_SIZE - 1);
+    PhysAddr pa_end = (ram_base + ram_size + SECTION_SIZE - 1) & ~(SECTION_SIZE - 1);
 
-    for (uintptr_t pa = pa_start; pa < pa_end; pa += SECTION_SIZE) {
+    for (PhysAddr pa = pa_start; pa < pa_end; pa += SECTION_SIZE) {
         uint32_t entry = (uint32_t)pa | L1_SECT_BOOT_NORMAL;
         l1[L1_IDX(pa)] = entry;
         l1[L1_IDX(PA_TO_VA(pa))] = entry;
@@ -139,10 +139,10 @@ _Noreturn void early(void *dtb_ptr)
     KDEBUG("early: vmm bootstrap");
     VmmBootstrap();
 
-    kernel_layout.stack_base_va = (uintptr_t)PA_TO_VA(kernel_layout.stack_base_pa);
-    kernel_layout.stack_top_va = (uintptr_t)PA_TO_VA(kernel_layout.stack_top_pa);
-    kernel_layout.kernel_start_va = (uintptr_t)PA_TO_VA(kernel_layout.kernel_start_pa);
-    kernel_layout.kernel_end_va = (uintptr_t)PA_TO_VA(kernel_layout.kernel_end_pa);
+    kernel_layout.stack_base_va = PA_TO_VA(kernel_layout.stack_base_pa);
+    kernel_layout.stack_top_va = PA_TO_VA(kernel_layout.stack_top_pa);
+    kernel_layout.kernel_start_va = PA_TO_VA(kernel_layout.kernel_start_pa);
+    kernel_layout.kernel_end_va = PA_TO_VA(kernel_layout.kernel_end_pa);
 
     PhysAddr dtb_end_pa = kernel_layout.dtb_start_pa + FdtTotalSize();
     struct {

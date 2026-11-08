@@ -8,6 +8,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <types.h>
 
 /**
  * @brief Clean the D-Cache range to the Point of Unity (PoU).
@@ -15,7 +16,7 @@
  * @param[in] start The start address to wipe from the cache.
  * @param[in] size The size of the block the wipe from the cache.
  */
-void ArchCacheCleanDcacheRangePou(uintptr_t start, size_t size);
+void ArchCacheCleanDcacheRangePou(VirtAddr start, size_t size);
 
 /**
  * @brief Invalidate all of the I-cache.
@@ -28,7 +29,7 @@ void ArchCacheInvalidateIcacheAll(void);
  * @param[in] start The start address to wipe from the cache.
  * @param[in] size The size of the block the wipe from the cache.
  */
-void ArchCacheCleanInvalidateDcacheRange(uintptr_t start, size_t size);
+void ArchCacheCleanInvalidateDcacheRange(VirtAddr start, size_t size);
 
 /**
  * @brief Invalidate the D-Cache range.
@@ -36,6 +37,6 @@ void ArchCacheCleanInvalidateDcacheRange(uintptr_t start, size_t size);
  * @param[in] start The start address to wipe from the cache.
  * @param[in] size The size of the block the wipe from the cache.
  */
-void ArchCacheInvalidateDcacheRange(uintptr_t start, size_t size);
+void ArchCacheInvalidateDcacheRange(VirtAddr start, size_t size);
 
 #endif // ARCH_CACHE_H

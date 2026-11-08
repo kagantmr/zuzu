@@ -7,6 +7,7 @@
 #define ARCH_AARCH64_IMPL_TLS_H
 
 #include <stdint.h>
+#include <types.h>
 #include <arch_impl/sysreg.h>
 
 /**
@@ -14,7 +15,7 @@
  *
  * @return The current task's info block address.
  */
-static inline uintptr_t ArchGetTlsPointer(void)
+static inline VirtAddr ArchGetTlsPointer(void)
 {
     return READ_SYSREG(tpidrro_el0);
 }

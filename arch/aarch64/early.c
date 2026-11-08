@@ -59,7 +59,7 @@ static bool ReadRamBanks(void)
             banks[at] = banks[at - 1];
             at--;
         }
-        banks[at] = (RamBank){.start = (uintptr_t)base, .end = (uintptr_t)end};
+        banks[at] = (RamBank){.start = (PhysAddr)base, .end = (PhysAddr)end};
     }
 
     kernel_layout.ram_bank_count = count;
@@ -126,10 +126,10 @@ _Noreturn void early(void *dtb_ptr)
     VmmBootstrap();
     PmmAddBanks();
 
-    kernel_layout.stack_base_va = (uintptr_t)PA_TO_VA(kernel_layout.stack_base_pa);
-    kernel_layout.stack_top_va = (uintptr_t)PA_TO_VA(kernel_layout.stack_top_pa);
-    kernel_layout.kernel_start_va = (uintptr_t)PA_TO_VA(kernel_layout.kernel_start_pa);
-    kernel_layout.kernel_end_va = (uintptr_t)PA_TO_VA(kernel_layout.kernel_end_pa);
+    kernel_layout.stack_base_va = PA_TO_VA(kernel_layout.stack_base_pa);
+    kernel_layout.stack_top_va = PA_TO_VA(kernel_layout.stack_top_pa);
+    kernel_layout.kernel_start_va = PA_TO_VA(kernel_layout.kernel_start_pa);
+    kernel_layout.kernel_end_va = PA_TO_VA(kernel_layout.kernel_end_pa);
 
     VmmRemoveIdentityMapping();
     VmmLockdownKernelMapping();
