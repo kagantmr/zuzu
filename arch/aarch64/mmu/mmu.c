@@ -263,7 +263,19 @@ static bool FitsBlock(VirtAddr va, PhysAddr pa, size_t left)
     return !((va | pa) & (size - 1)) && left >= size;
 }
 
-
+/**
+ * @brief Maps [va, va+size) to [pa, pa+size) in as, with prot and memtype.
+ *
+ * @param[in] as The address space to map the range to.
+ * @param[in] va The virtual address to map the range to.
+ * @param[in] pa The physical address the VA will correspond to.
+ * @param[in] size The size of the range.
+ * @param[in] prot The protection flags of memory.
+ * @param[in] memtype The type of memory the range will be in.
+ * @param[in] allow_blocks Allows use of blocks in PTE construction.
+ *
+ * @return bool
+ */
 static bool MapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size, MemProt prot,
                      VirtMemType memtype, bool allow_blocks)
 {
@@ -303,11 +315,10 @@ bool ArchMmuMap(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size, MemProt
 }
 
 bool ArchMmuMapPages(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size, MemProt prot,
-                VirtMemType memtype)
+                     VirtMemType memtype)
 {
     return MapRange(as, va, pa, size, prot, memtype, false);
 }
-
 
 /** @brief Context of ClearSlot(). */
 typedef struct {
@@ -392,6 +403,9 @@ bool ArchMmuProtect(AddressSpace *as, VirtAddr va, size_t size, MemProt prot)
     return c.changed;
 }
 
+/**
+ * @brief Empty L0 table to switch to when the idle task runs, so TTBR0 doesn't receive the jernelt ables.
+ */
 static AArch64Pte empty_l0[PTE_ENTRIES] __attribute__((aligned(PAGE_SIZE)));
 
 void ArchMmuSwitch(AddressSpace *as)
@@ -405,7 +419,7 @@ void ArchMmuSwitch(AddressSpace *as)
         AsidSetActive(0);
         return;
     }
-    
+
     if (as->asid_token.generation != AsidCurrentGeneration()) {
         AsidFree(as->asid_token);
         as->asid_token = AsidAlloc();

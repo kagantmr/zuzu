@@ -489,7 +489,7 @@ void ArchMmuFlushTlb(void)
     __asm__ volatile("mcr p15, 0, %0, c8, c7, 0" ::"r"(zero) : "memory");
 }
 
-void ArchMmuFlushTlbAsid(uint8_t asid)
+void ArchMmuFlushTlbAsid(Asid asid)
 {
     if (asid == 0) {
         ArchMmuFlushTlb();
@@ -506,7 +506,7 @@ void ArchMmuFlushTlbVa(VirtAddr va)
                      : "memory");
 }
 
-void ArchMmuFlushTlbVaAsid(VirtAddr va, uint8_t asid)
+void ArchMmuFlushTlbVaAsid(VirtAddr va, Asid asid)
 {
     __asm__ volatile("mcr p15, 0, %0, c8, c7, 1" ::"r"((uint32_t)((va & L2_SMALL_BASE_MASK) | asid))
                      : "memory");

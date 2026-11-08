@@ -8,7 +8,13 @@
 #include <arch_impl/sysreg.h>
 #include "core/panic.h"
 
+/**
+ * @brief Handles an AArch64 System Error. Never returns.
+ * 
+ * @param[in] frame The CPU frame at the time the SError was raised.
+ */
 _Noreturn void SErrorException(CpuState *frame);
+
 _Noreturn void SErrorException(CpuState *frame)
 {
     uint64_t esr = READ_SYSREG(esr_el1);

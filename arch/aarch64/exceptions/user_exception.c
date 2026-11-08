@@ -37,11 +37,17 @@ static void KillCurrentTask(const CpuState *frame, KilledReason reason, const ch
     KERROR("Oops! '%s' (SPID %d, TID %d) killed: %s (ESR=" REG_FMT ") @ pc=" REG_FMT,
            space ? space->name : "?", space ? space->spid : -1, current_task->tid, what,
            REG_ARG(esr), REG_ARG(frame->return_pc));
-    TaskFault(current_task, reason);
+    TaskFault(current_task, (Err)reason);
     Schedule();
 }
 
-void UserSyncException(CpuState *frame);
+/**
+ * @brief Handles a synchronous exception arriving
+ * from userspace.
+ * 
+ * @param[in, out] frame The CPU frame at the time the exception was raised.
+ */
+void __hot UserSyncException(CpuState *frame);
 
 void __hot UserSyncException(CpuState *frame)
 {
