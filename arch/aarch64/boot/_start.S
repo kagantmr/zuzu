@@ -75,7 +75,7 @@ el1_entry:
     msr     SCTLR_EL1, x0
     isb
 
-    ldr x0, =__svc_stack_top__
+    ldr x0, =__kstack_phys_top
     mov sp, x0
 
     bl      early_uart_init
