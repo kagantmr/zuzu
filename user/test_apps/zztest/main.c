@@ -107,16 +107,6 @@ static void CheckEq(int32_t got, int32_t want, const char *msg)
     }
 }
 
-static void CheckKnown(bool cond, const char *msg)
-{
-    if (cond) {
-        g_sections[g_cur].pass++;
-        UserspaceDebugLog("zztest: note: known-failing check now passes: %s", msg);
-    } else if (g_verbose) {
-        UserspaceDebugLog("zztest: xfail: %s", msg);
-    }
-}
-
 static uint32_t PagesFree(void) { return ((const Syspage *)SYSPAGE)->mem_free_kb / 4; }
 
 static size_t PagesMoreThanRam(void) { return (((const Syspage *)SYSPAGE)->mem_total_kb / 4) + 1; }
