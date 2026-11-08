@@ -64,7 +64,6 @@ static uint64_t cnt_last;
  */
 static inline uint64_t ReadCntvct(void)
 {
-    Isb();
     uint64_t v = READ_SYSREG(cntvct_el0);
     if (v < cnt_last)
         v = cnt_last;

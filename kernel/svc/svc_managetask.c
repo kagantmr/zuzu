@@ -4,6 +4,7 @@
  */
 
 #include "core/ensure.h"
+#include "kernel/clock.h"
 #include "kernel/sched/sched.h"
 #include "kernel/space/space.h"
 #include "kernel/task/task.h"
@@ -42,6 +43,7 @@ void SvcManageTask(CpuState *frame)
         case MNGTASK_SET_TIMESLICE:
             ENSURE_ERR(frame, val >= TIMESLICE_MIN_US && val <= TIMESLICE_MAX_US, ERR_BADARG);
             current_task->time_slice_us = val;
+            current_task->time_slice_counts = ClockUsToCounts(val);
             break;
         default:
             break;
@@ -109,6 +111,7 @@ void SvcManageTask(CpuState *frame)
         uint32_t val = (uint32_t)(*ArchGetFromFrame(frame, 2));
         ENSURE_ERR(frame, val >= TIMESLICE_MIN_US && val <= TIMESLICE_MAX_US, ERR_BADARG);
         target->time_slice_us = val;
+        target->time_slice_counts = ClockUsToCounts(val);
         ArchSetInFrame(frame, 0, ZUZU_OK);
     } break;
 

@@ -11,7 +11,7 @@ void SvcYield(CpuState *frame)
 {
     ArchSetInFrame(frame, 0, ZUZU_OK);
     if (!SchedAnyCpuTakers(current_task)) {
-        current_task->slice_deadline = ArchTimerNow() + ClockUsToCounts(current_task->time_slice_us);
+        current_task->slice_deadline = ArchTimerNow() + current_task->time_slice_counts;
         return;
     }
         current_task->slice_deadline = 0;
