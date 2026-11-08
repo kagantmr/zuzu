@@ -1,0 +1,20 @@
+[
+  {
+    "label": "rpi4 (JTAG, OpenOCD cpu0)",
+    "adapter": "GDB",
+    "request": "attach",
+    "gdb_path": "arm-none-eabi-gdb",
+    "gdb_args": ["-nx", "-i=dap"],
+    "program": "build/arm-rpi4/zuzu.elf",
+    "target": "localhost:3333"
+  },
+  {
+    "label": "vexpress-a15 (QEMU make debug)",
+    "adapter": "GDB",
+    "request": "attach",
+    "gdb_path": "arm-none-eabi-gdb",
+    "gdb_args": ["-nx", "-i=dap"],
+    "program": "build/arm-vexpress-a15/zuzu.elf",
+    "target": "localhost:1234"
+  }
+]

@@ -26,12 +26,12 @@ bool __hot CopyToUser(void *restrict uaddr, const void *restrict kaddr, size_t l
         return true;
     if (!current_task || !CURRENT_SPACE || !CURRENT_SPACE->as || !uaddr || !kaddr)
         return false;
-    if (!IsUserPtrNormal((uintptr_t)uaddr, len))
+    if (!IsUserPtrNormal((VirtAddr)uaddr, len))
         return false;
 #ifdef CONFIG_ZUZU_BENCH
     uint32_t bench_start = BENCH_BEGIN();
 #endif
-    if (!VmmCheckUserFault(CURRENT_SPACE->as, (uintptr_t)uaddr, len, true))
+    if (!VmmCheckUserFault(CURRENT_SPACE->as, (VirtAddr)uaddr, len, true))
         return false;
 #ifdef CONFIG_ZUZU_BENCH
     BENCH_END(g_bench_copytouser_walk, bench_start);

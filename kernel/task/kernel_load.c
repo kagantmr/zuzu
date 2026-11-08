@@ -133,9 +133,9 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
         size_t file_pages = (seg->file_size + PAGE_SIZE - 1) / PAGE_SIZE;
         size_t mem_pages = (seg->mem_size + PAGE_SIZE - 1) / PAGE_SIZE;
 
-        uintptr_t *segment_pages = NULL;
+        PhysAddr *segment_pages = NULL;
         if (file_pages > 0) {
-            segment_pages = KMalloc(file_pages * sizeof(uintptr_t));
+            segment_pages = KMalloc(file_pages * sizeof(PhysAddr));
             if (!segment_pages) {
                 KernelLoadFail(p);
                 return NULL;
@@ -151,10 +151,10 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
             prot |= PROT_EXEC;
 
         for (uint32_t page = 0; page < file_pages; page++) {
-            uintptr_t page_pa = PmmAllocFrame();
+            PhysAddr page_pa = PmmAllocFrame();
             if (!page_pa) {
                 for (uint32_t j = 0; j < page; j++) {
-                    uintptr_t orphan_va = (uint32_t)seg->vaddr + (j * PAGE_SIZE);
+                    VirtAddr orphan_va = (uint32_t)seg->vaddr + (j * PAGE_SIZE);
                     VmmUnmapRange(p->as, orphan_va, PAGE_SIZE, true);
                     PmmFreeFrame(segment_pages[j]);
                 }
@@ -275,8 +275,8 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
             return NULL;
         }
 
-        size_t argv_bytes = argv_slots * sizeof(uint32_t);
-        if (argv_bytes / sizeof(uint32_t) != argv_slots) {
+        size_t argv_bytes = argv_slots * sizeof(VirtAddr);
+        if (argv_bytes / sizeof(VirtAddr) != argv_slots) {
             KERROR("Invalid argv payload: argv bytes overflow");
             KernelLoadFail(p);
             return NULL;
@@ -290,7 +290,7 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
         }
 
         check_sp -= argbuf_len;
-        check_sp &= ~((uintptr_t)3U);
+        check_sp &= ~((VirtAddr)7U);
 
         if (argv_bytes > (size_t)(check_sp - user_stack_base)) {
             KERROR("argv pointer array does not fit user stack");
@@ -299,7 +299,7 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
         }
 
         check_sp -= argv_bytes;
-        check_sp &= ~((uintptr_t)7U);
+        check_sp &= ~((VirtAddr)15U);
 
         if (check_sp < user_stack_base) {
             KERROR("argv layout underflowed user stack");
@@ -308,11 +308,11 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
         }
 
         sp -= argbuf_len;
-        sp &= ~3U;
+        sp &= ~(VirtAddr)7U;
         VirtAddr strings_va = sp;
 
-        sp -= (argc + 1) * sizeof(uint32_t);
-        sp &= ~7U;
+        sp -= (argc + 1) * sizeof(VirtAddr);
+        sp &= ~(VirtAddr)15U;
         argv_va = sp;
 
         if (!VmmCheckUserFault(p->as, argv_va, (size_t)(USR_SP - argv_va), true)) {
@@ -328,9 +328,9 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
 
         VirtAddr str_va = strings_va;
         const char *str_src = argbuf;
-        for (uint32_t a = 0; a <= argc; a++) {
-            uint32_t slot = (a < argc) ? (uint32_t)str_va : 0;
-            if (!AddrSpaceCopyOut(p->as, argv_va + (a * sizeof(uint32_t)), &slot, sizeof(slot))) {
+        for (size_t a = 0; a <= argc; a++) {
+            VirtAddr slot = (a < argc) ? str_va : 0;
+            if (!AddrSpaceCopyOut(p->as, argv_va + (a * sizeof(VirtAddr)), &slot, sizeof(slot))) {
                 KernelLoadFail(p);
                 return NULL;
             }
@@ -344,8 +344,8 @@ SpaceObject *KernelSpaceLoad(const void *zxf_data, size_t zxf_size, const char *
 
     if (!leave_frozen) {
         t->kernel_sp =
-            (uint32_t *)ArchTaskUserInit((void *)stack_top, (uintptr_t)img.entry, (uintptr_t)sp,
-                                         USER_ELF_BASE, argc, (uint32_t)argv_va);
+            ArchTaskUserInit((void *)stack_top, (VirtAddr)img.entry, (VirtAddr)sp,
+                                         USER_ELF_BASE, (Register)argc, (Register)argv_va);
         t->state = TASK_STATE_READY;
     }
     

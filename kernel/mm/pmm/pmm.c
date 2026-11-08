@@ -110,7 +110,7 @@ static bool PmmIsRecorded(PhysAddr pa)
 static void PmmRebuildFreelist(void)
 {
     pmm_state.freelist_head = 0;
-    for (size_t i = 0; i < pmm_state.total_frames; i++) {
+    for (size_t i = 0; i < pmm_state.span_frames; i++) {
         size_t byte_idx = i / 8;
         size_t bit_idx = i % 8;
         if (!(pmm_state.bitmap[byte_idx] & (1U << bit_idx))) {
@@ -168,18 +168,10 @@ static PhysAddr PmmTakeFreeFrame(void)
 }
 
 /**
- * @brief Mark boot, DTB, kernel, bitmap, stack, reserved-memory and initrd regions as allocated.
+ * @brief Mark the device tree's reserved-memory ranges and the initrd as allocated.
  */
-static void PmmReserveBootRegions(void)
+static void PmmReserveFirmwareRegions(void)
 {
-    PmmMarkRange((PhysAddr)_boot_start, (PhysAddr)_boot_end);
-    
-    PmmMarkRange(kernel_layout.dtb_start_pa, kernel_layout.dtb_start_pa + FdtTotalSize());
-    PmmMarkRange(kernel_layout.kernel_start_pa, kernel_layout.kernel_end_pa);
-    PmmMarkRange(kernel_layout.bitmap_start_pa, kernel_layout.bitmap_end_pa);
-
-    PmmMarkRange((PhysAddr)__stack_region_base__, (PhysAddr)__stack_region_end__);
-
     uint64_t rsv_addr, rsv_size;
     for (uint32_t i = 0; FdtGetReservedMem(i, &rsv_addr, &rsv_size); i++)
         PmmMarkRange((PhysAddr)rsv_addr, (PhysAddr)(rsv_addr + rsv_size));
@@ -189,15 +181,53 @@ static void PmmReserveBootRegions(void)
         PmmMarkRange((PhysAddr)initrd_start, (PhysAddr)initrd_end);
 }
 
+/**
+ * @brief Mark boot, DTB, kernel, bitmap, stack, reserved-memory and initrd regions as allocated.
+ */
+static void PmmReserveBootRegions(void)
+{
+    PmmMarkRange(kernel_layout.boot_start_pa, kernel_layout.boot_end_pa);
+
+    PmmMarkRange(kernel_layout.dtb_start_pa, kernel_layout.dtb_start_pa + FdtTotalSize());
+    PmmMarkRange(kernel_layout.kernel_start_pa, kernel_layout.kernel_end_pa);
+    PmmMarkRange(kernel_layout.bitmap_start_pa, kernel_layout.bitmap_end_pa);
+
+    PmmMarkRange(kernel_layout.stack_base_pa, kernel_layout.stack_top_pa);
+
+    PmmReserveFirmwareRegions();
+}
+
+/**
+ * @brief Tells whether a RAM bank holds the kernel image, and so is mapped by the boot tables.
+ *
+ * @param[in] bank RAM bank.
+ * @return true if the kernel image starts inside @p bank.
+ */
+static bool PmmIsBootBank(const RamBank *bank)
+{
+    return kernel_layout.kernel_start_pa >= bank->start && kernel_layout.kernel_start_pa < bank->end;
+}
+
 void PmmInit(void)
 {
+    if (kernel_layout.ram_bank_count == 0) {
+        kernel_layout.ram_banks[0] =
+            (RamBank){.start = kernel_layout.ram_start, .end = kernel_layout.ram_end};
+        kernel_layout.ram_bank_count = 1;
+    }
+
     pmm_state.pfn_base = PaToPfn(kernel_layout.ram_start);
     pmm_state.pfn_end = PaToPfn(kernel_layout.ram_end);
-    pmm_state.total_frames = pmm_state.pfn_end - pmm_state.pfn_base;
-    pmm_state.free_frames = pmm_state.total_frames;
+    pmm_state.span_frames = pmm_state.pfn_end - pmm_state.pfn_base;
+    pmm_state.total_frames = 0;
+    for (size_t i = 0; i < kernel_layout.ram_bank_count; i++) {
+        const RamBank *bank = &kernel_layout.ram_banks[i];
+        pmm_state.total_frames += PaToPfn(bank->end) - PaToPfn(bank->start);
+    }
+    pmm_state.free_frames = 0;
 
     PhysAddr bitmap_start_pa = align_up(kernel_layout.kernel_end_pa, PAGE_SIZE);
-    size_t bitmap_bytes = (pmm_state.total_frames + 7) / 8;
+    size_t bitmap_bytes = (pmm_state.span_frames + 7) / 8;
     size_t bitmap_size = align_up(bitmap_bytes, PAGE_SIZE);
     PhysAddr bitmap_end_pa = bitmap_start_pa + bitmap_size;
 
@@ -211,13 +241,34 @@ void PmmInit(void)
 
     pmm_state.bitmap = kernel_layout.bitmap_va;
     pmm_state.bitmap_bytes = bitmap_bytes;
-    memset(pmm_state.bitmap, 0, bitmap_size);
+    memset(pmm_state.bitmap, 0xFF, bitmap_size);
+
+    for (size_t i = 0; i < kernel_layout.ram_bank_count; i++) {
+        const RamBank *bank = &kernel_layout.ram_banks[i];
+        if (PmmIsBootBank(bank))
+            PmmUnmarkRange(bank->start, bank->end);
+    }
 
     PmmReserveBootRegions();
 
     PmmRebuildFreelist();
 
     ListInit(&pmm_subscribers);
+}
+
+void PmmAddBanks(void)
+{
+    bool added = false;
+    for (size_t i = 0; i < kernel_layout.ram_bank_count; i++) {
+        const RamBank *bank = &kernel_layout.ram_banks[i];
+        if (PmmIsBootBank(bank))
+            continue;
+        PmmUnmarkRange(bank->start, bank->end);
+        added = true;
+    }
+
+    if (added)
+        PmmReserveFirmwareRegions();
 }
 
 PmmStats PmmGetStats(void)
@@ -242,8 +293,8 @@ Err PmmMarkRange(PhysAddr start, PhysAddr end)
 
     assert(pmm_state.bitmap != NULL);
     assert(pmm_state.pfn_end > pmm_state.pfn_base);
-    assert(pmm_state.total_frames == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
-    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_frames);
+    assert(pmm_state.span_frames == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
+    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.span_frames);
 
     bool needs_rebuild = false;
     for (Pfn pfn = start_pfn; pfn < end_pfn; pfn++) {
@@ -296,8 +347,8 @@ Err PmmUnmarkRange(const PhysAddr start, const PhysAddr end)
 
     assert(pmm_state.bitmap != NULL);
     assert(pmm_state.pfn_end > pmm_state.pfn_base);
-    assert(pmm_state.total_frames == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
-    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_frames);
+    assert(pmm_state.span_frames == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
+    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.span_frames);
 
     for (Pfn pfn = start_pfn; pfn < end_pfn; pfn++) {
         const size_t index = pfn - pmm_state.pfn_base;
@@ -340,12 +391,12 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
     }
 
     assert(pmm_state.bitmap != NULL);
-    assert(pmm_state.total_frames == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
-    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_frames);
+    assert(pmm_state.span_frames == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
+    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.span_frames);
     assert(pmm_state.free_frames <= pmm_state.total_frames);
     assert(n_frames <= pmm_state.total_frames);
 
-    size_t total_pages = pmm_state.total_frames;
+    size_t total_pages = pmm_state.span_frames;
     size_t consecutive = 0;
     size_t start_index = 0;
 
@@ -446,10 +497,10 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
     }
 
     assert(pmm_state.bitmap != NULL);
-    assert(pmm_state.total_frames == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
-    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_frames);
+    assert(pmm_state.span_frames == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
+    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.span_frames);
 
-    const size_t total_pages = pmm_state.total_frames;
+    const size_t total_pages = pmm_state.span_frames;
     size_t consecutive = 0;
     size_t start_index = 0;
 #ifdef CONFIG_ZUZU_BENCH
@@ -476,8 +527,8 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
             consecutive++;
 
             if (consecutive == n_frames) {
-                const uintptr_t start_pa = PfnToPa(pmm_state.pfn_base + start_index);
-                const uintptr_t end_pa = PfnToPa(pmm_state.pfn_base + start_index + n_frames);
+                const PhysAddr start_pa = PfnToPa(pmm_state.pfn_base + start_index);
+                const PhysAddr end_pa = PfnToPa(pmm_state.pfn_base + start_index + n_frames);
 
 #ifdef CONFIG_ZUZU_BENCH
                 BENCH_END(g_bench_pmm_scan, bench_scan_start);
@@ -514,8 +565,8 @@ size_t PmmAllocFramesScattered(const size_t n_frames, PhysAddr *out_addrs)
         return 0;
     }
     assert(pmm_state.bitmap != NULL);
-    assert(pmm_state.total_frames == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
-    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.total_frames);
+    assert(pmm_state.span_frames == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
+    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.span_frames);
     assert(pmm_state.free_frames <= pmm_state.total_frames);
     assert(n_frames <= pmm_state.total_frames);
     for (size_t i = 0; i < n_frames; i++) {

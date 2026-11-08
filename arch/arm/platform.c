@@ -6,6 +6,7 @@
 #include "drivers/driver.h"
 #include <arch/platform.h>
 #include <stdint.h>
+#include <types.h>
 
 #include BOARD_BOOT_H
 
@@ -14,7 +15,7 @@
 
 void ArchEarlyPutc(char c)
 {
-    volatile uint32_t *uart = (volatile uint32_t *)(uintptr_t)BOARD_UART0_BASE;
+    volatile uint32_t *uart = (volatile uint32_t *)(PhysAddr)BOARD_UART0_BASE;
 
     if (c == '\n')
         ArchEarlyPutc('\r');

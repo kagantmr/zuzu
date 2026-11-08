@@ -13,12 +13,16 @@
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/mm/vmm/vmm.h"
 #include <arch/barrier.h>
+#include <arch/fpu.h>
 #include <arch/irq.h>
 #include <arch/mmu.h>
 #include <arch/platform.h>
 #include <arch/symbols.h>
 #include <arch_impl/armv7_mmu.h>
 #include <string.h>
+
+extern char __stack_region_base__[]; /**< Physical bottom of the IRQ, abort, undefined and SVC stacks. */
+extern char __stack_region_end__[];  /**< Physical top of those stacks. */
 
 /** @brief Physical and virtual layout of RAM and the kernel image, filled in by early(). */
 RamLayout kernel_layout;
@@ -36,13 +40,13 @@ __attribute__((section(".bss.boot"), aligned(16384))) uint32_t early_l1[4096];
  * @param[in] ram_base Physical start of RAM.
  * @param[in] ram_size Size of RAM in bytes.
  */
-static void early_map_ram_sections(uintptr_t ram_base, size_t ram_size)
+static void EarlyMapRamSections(PhysAddr ram_base, size_t ram_size)
 {
-    uint32_t *l1 = (uint32_t *)PA_TO_VA((uintptr_t)early_l1);
-    uintptr_t pa_start = ram_base & ~(SECTION_SIZE - 1);
-    uintptr_t pa_end = (ram_base + ram_size + SECTION_SIZE - 1) & ~(SECTION_SIZE - 1);
+    uint32_t *l1 = (uint32_t *)PA_TO_VA((PhysAddr)early_l1);
+    PhysAddr pa_start = ram_base & ~(SECTION_SIZE - 1);
+    PhysAddr pa_end = (ram_base + ram_size + SECTION_SIZE - 1) & ~(SECTION_SIZE - 1);
 
-    for (uintptr_t pa = pa_start; pa < pa_end; pa += SECTION_SIZE) {
+    for (PhysAddr pa = pa_start; pa < pa_end; pa += SECTION_SIZE) {
         uint32_t entry = (uint32_t)pa | L1_SECT_BOOT_NORMAL;
         l1[L1_IDX(pa)] = entry;
         l1[L1_IDX(PA_TO_VA(pa))] = entry;
@@ -65,7 +69,7 @@ static void pmu_init(void)
     __asm__ volatile("mcr p15, 0, %0, c9, c12, 1" ::"r"(0x80000000));
 }
 
-/** @brief Grants cp10/cp11 access and enables the VFP (FPEXC.EN). */
+/** @brief Enables the VFP (FPEXC.EN), then removes cp10/cp11 access so the first use traps. */
 static void vfp_init(void)
 {
     uint32_t cpacr;
@@ -75,6 +79,7 @@ static void vfp_init(void)
     __asm__ volatile("isb");
     __asm__ volatile(".fpu vfpv4\n\t"
                      "vmsr fpexc, %0" ::"r"(1u << 30));
+    ArchFpuTrapDisable();
 }
 
 /**
@@ -112,8 +117,10 @@ _Noreturn void early(void *dtb_ptr)
     kernel_layout.dtb_start_pa = (PhysAddr)dtb_ptr;
     kernel_layout.kernel_start_pa = (PhysAddr)_kernel_phys_start;
     kernel_layout.kernel_end_pa = (PhysAddr)_kernel_phys_end;
-    kernel_layout.stack_base_pa = (PhysAddr)__svc_stack_base__;
-    kernel_layout.stack_top_pa = (PhysAddr)__svc_stack_top__;
+    kernel_layout.stack_base_pa = (PhysAddr)__stack_region_base__;
+    kernel_layout.stack_top_pa = (PhysAddr)__stack_region_end__;
+    kernel_layout.boot_start_pa = (PhysAddr)_boot_start;
+    kernel_layout.boot_end_pa = (PhysAddr)_boot_end;
 
     uint64_t ram_base, ram_size;
     if (!FdtGetReg("/memory", 0, &ram_base, &ram_size))
@@ -126,7 +133,7 @@ _Noreturn void early(void *dtb_ptr)
     kernel_layout.ram_start = (PhysAddr)ram_base;
     kernel_layout.ram_end = (PhysAddr)(ram_base + ram_size);
     KDEBUG("early: ram [%p..%p)", (void *)kernel_layout.ram_start, (void *)kernel_layout.ram_end);
-    early_map_ram_sections(kernel_layout.ram_start, (size_t)ram_size);
+    EarlyMapRamSections(kernel_layout.ram_start, (size_t)ram_size);
 
     KDEBUG("early: pmm");
     PmmInit();
@@ -135,10 +142,10 @@ _Noreturn void early(void *dtb_ptr)
     KDEBUG("early: vmm bootstrap");
     VmmBootstrap();
 
-    kernel_layout.stack_base_va = (uintptr_t)PA_TO_VA(kernel_layout.stack_base_pa);
-    kernel_layout.stack_top_va = (uintptr_t)PA_TO_VA(kernel_layout.stack_top_pa);
-    kernel_layout.kernel_start_va = (uintptr_t)PA_TO_VA(kernel_layout.kernel_start_pa);
-    kernel_layout.kernel_end_va = (uintptr_t)PA_TO_VA(kernel_layout.kernel_end_pa);
+    kernel_layout.stack_base_va = PA_TO_VA(kernel_layout.stack_base_pa);
+    kernel_layout.stack_top_va = PA_TO_VA(kernel_layout.stack_top_pa);
+    kernel_layout.kernel_start_va = PA_TO_VA(kernel_layout.kernel_start_pa);
+    kernel_layout.kernel_end_va = PA_TO_VA(kernel_layout.kernel_end_pa);
 
     PhysAddr dtb_end_pa = kernel_layout.dtb_start_pa + FdtTotalSize();
     struct {

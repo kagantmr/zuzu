@@ -40,11 +40,11 @@ def main():
     with open(args.out, "w") as f:
         f.write('#include <stdint.h>\n')
         f.write('#include "core/ksym.h"\n')
-        f.write('static const ksym_entry_t ksym_entries[] = {\n')
+        f.write('static const KsymEntry ksym_entries[] = {\n')
         for address, name in symbols:
             f.write(f'    {{ 0x{address}, "{name}" }},\n')
         f.write('};\n')
-        f.write('const ksym_entry_t *ksym_table = ksym_entries;\n')
+        f.write('const KsymEntry *ksym_table = ksym_entries;\n')
         f.write(f'volatile const uint32_t ksym_count = {len(symbols)};\n')
 
 

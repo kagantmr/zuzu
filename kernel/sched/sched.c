@@ -25,7 +25,7 @@
 #include <stdint.h>
 
 /** @brief Size of the stack the idle loop runs on. */
-#define IDLE_STACK_BYTES 1024
+#define IDLE_STACK_BYTES 4096
 /** @brief Number of slots in the sleep wheel. */
 #define SLEEP_QUEUE_SIZE 512
 
@@ -47,7 +47,7 @@ volatile bool do_resched = 0;
 /** @brief The task run when nothing else is ready. */
 static TaskObject idle_task;
 /** @brief Stack for the idle task. */
-static uint8_t idle_stack[IDLE_STACK_BYTES] __attribute__((aligned(8)));
+static uint8_t idle_stack[IDLE_STACK_BYTES] __attribute__((aligned(16)));
 /** @brief Whether the CPU is running on the idle stack. */
 static bool on_idle_stack;
 
@@ -70,7 +70,7 @@ static uint64_t wheel_now_slot;
 static uint32_t slot_shift;
 
 /** @brief Whether the running task may use the FPU without trapping. */
-bool fpu_access_enabled = true;
+bool fpu_access_enabled = false;
 
 _Static_assert(SCHED_PRIORITY_LEVELS <= 32, "ready_mask is a uint32_t");
 /** @brief One bit per priority level, set while its run queue is not empty. */
@@ -104,9 +104,9 @@ static void IdleTask(void)
 static void SchedInitIdleTask(void)
 {
     VirtAddr sp = (VirtAddr)idle_stack + sizeof(idle_stack);
-    sp &= ~(VirtAddr)7U;
+    sp &= ~(VirtAddr)15U;
 
-    idle_task.kernel_sp = (uint32_t *)ArchTaskKernelInit((void *)sp, IdleTask);
+    idle_task.kernel_sp = ArchTaskKernelInit((void *)sp, IdleTask);
 }
 
 void SchedInit(void)
@@ -437,6 +437,7 @@ void __hot SchedSwitchNext(TaskObject *next)
         if (from_idle) {
             return;
         }
+        SchedInitIdleTask();
         ContextSwitch(prev, &idle_task);
         return;
     }
