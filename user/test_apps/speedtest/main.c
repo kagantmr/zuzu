@@ -216,6 +216,15 @@ static void RunIpc(void)
     MemUnmap(stack);
 }
 
+#ifdef __aarch64__
+/* One syscall in raw AArch64 code: svc #n */
+#define SYS(n) (0xD4000001u | ((uint32_t)(n) << 5))
+
+static const uint32_t kEchoCode[] = {
+    0xAA0003E4, 0xAA0403E0, 0x92800001, SYS(SVC_WAITON), 0xB50000E0, 0xAA0203E0,
+    0x92800001, 0xAA0403E2, 0x92800003, SYS(SVC_REPLY),  0x17FFFFFA, SYS(SVC_QUIT),
+};
+#else
 /* One syscall in raw ARM code: mov r12, #n; svc #ARCH_SVC_MAGIC */
 #define SYS(n) (0xE3A0C000u | (uint32_t)(n)), (0xEF000000u | ARCH_SVC_MAGIC)
 
@@ -223,6 +232,7 @@ static const uint32_t kEchoCode[] = {
     0xE1A04000, 0xE1A00004, 0xE3E01000, SYS(SVC_WAITON), 0xE3500000, 0x1A000006, 0xE1A00002,
     0xE3E01000, 0xE1A02004, 0xE3E03000, SYS(SVC_REPLY),  0xEAFFFFF6, SYS(SVC_QUIT),
 };
+#endif
 
 static uint8_t g_code_page[4096] __attribute__((aligned(4096)));
 
