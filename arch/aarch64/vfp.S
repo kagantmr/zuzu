@@ -1,6 +1,6 @@
 /**
  * @file
- * @brief Saving and loading the NEON/FPU registers, in the FpuState layout: q0-q31 then FPSR and FPCR.
+ * @brief Saving and loading the NEON/FPU registers, in the FpuState layout: q0-q31 then FPCR and FPSR.
  */
 
 .arch_extension fp
@@ -10,7 +10,7 @@
 /**
  * FpuSaveState(FpuState *state)
  * In:       x0 = state.
- * Clobbers: x0, x1.
+ * Clobbers: x0, x1, x2.
  */
 .global FpuSaveState
 FpuSaveState:
@@ -38,7 +38,7 @@ FpuSaveState:
 /**
  * FpuRestoreState(const FpuState *state)
  * In:       x0 = state.
- * Clobbers: x0, x1.
+ * Clobbers: x0, x1, x2.
  */
 .global FpuRestoreState
 FpuRestoreState:
