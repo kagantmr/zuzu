@@ -66,7 +66,9 @@ static uint32_t wheel_occ[BITMAP_WORDS(SLEEP_QUEUE_SIZE)];
 static uint64_t wheel_min[SLEEP_QUEUE_SIZE];
 /** @brief The sleep wheel slot that time has reached. */
 static uint64_t wheel_now_slot;
+/** @brief Bumped whenever the sleep wheel changes in a way that can move the next deadline. */
 static uint32_t wheel_gen;
+/** @brief The wheel_gen the timer was last armed against. */
 static uint32_t armed_gen = ~0U;
 /** @brief Log2 of the number of timer ticks one sleep wheel slot covers. */
 static uint32_t slot_shift;
