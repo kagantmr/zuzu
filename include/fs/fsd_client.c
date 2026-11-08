@@ -103,7 +103,7 @@ Err FsdAttach(FsdConn *c, Handle port, Spid pid, uint32_t want_size)
     if (PtrIsErr(va)) {
         HandleClose(c->shm);
         c->shm = -1;
-        return (Err)va;
+        return (Err)(intptr_t)va;
     }
     c->buf = (uint8_t *)va;
     c->size = want_size;

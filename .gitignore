@@ -59,6 +59,7 @@ gdb.txt
 
 # editor stuff
 .vscode/
+.asm-lsp.toml
 .dir-locals.el
 .dir-locals.el.save
 .project

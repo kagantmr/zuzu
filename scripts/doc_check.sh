@@ -16,7 +16,12 @@ if [ $# -eq 0 ]; then
 fi
 
 CLANG=${CLANG:-clang}
-CLANG_DOC="-DCONFIG_ZUZU_BENCH --target=armv7a-none-eabi -fsyntax-only -Wno-everything -Wdocumentation \
+ARCH=${ARCH:-arm}
+case "$ARCH" in
+aarch64) clang_target=aarch64-none-elf ;;
+*) clang_target=armv7a-none-eabi ;;
+esac
+CLANG_DOC="-DCONFIG_ZUZU_BENCH --target=$clang_target -fsyntax-only -Wno-everything -Wdocumentation \
 -Wdocumentation-unknown-command -Werror \
 -fcomment-block-commands=syscall,reg"
 files=$(find "$@" \( -name '*.c' -o -name '*.h' \) -not -path '*/dtb/*' | sort)
@@ -57,6 +62,11 @@ if [ -n "$dox" ]; then
 fi
 
 for f in $files; do
+    case "$f" in
+    arch/include/*) ;;
+    arch/"$ARCH"/*) ;;
+    arch/*) continue ;;
+    esac
     case "$f" in
     include/*.c | include/*.h) flags_file=$uflags_file ;;
     *.c) flags_file=$kflags_file ;;

@@ -12,7 +12,7 @@
 
 /** @brief A page carved into L2 tables. */
 typedef struct L2PtPoolEntry {
-    uintptr_t page_pa;          /**< Physical address of the page. */
+    PhysAddr page_pa;          /**< Physical address of the page. */
     uint8_t used_mask;          /**< One bit per table slot in use. */
     struct L2PtPoolEntry *next; /**< Next page in the pool. */
 } L2PtPoolEntry;
@@ -22,7 +22,7 @@ typedef struct L2PtPoolEntry {
  *
  * @return Its physical address, or 0 when out of memory.
  */
-uintptr_t L2PtPoolAlloc(void);
+PhysAddr L2PtPoolAlloc(void);
 
 /**
  * @brief Frees an L2 table; the page goes back to the PMM once all its tables are free.

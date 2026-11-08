@@ -15,6 +15,7 @@
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/sched/sched.h"
+#include <arch/platform.h>
 #include "kernel/space/handle.h"
 #include "kernel/space/space.h"
 #include "ksym.h"
@@ -65,6 +66,19 @@ PanicFaultContext panic_fault_ctx;
 #define C_RESET "\033[0m"
 
 /**
+ * @brief Acts as a putc function, uses the regular UART if possible, falls back to early putc if possible.
+ * 
+ * @param[in] c The character to put out.
+ */
+static void PanicPutc(char c)
+{
+    if (uart_get_driver())
+        uart_putc(c);
+    else
+        ArchEarlyPutc(c);
+}
+
+/**
  * @brief Write a NUL-terminated string to the UART, bypassing the console layer.
  *
  * @param[in] s String to write.
@@ -72,13 +86,13 @@ PanicFaultContext panic_fault_ctx;
 static void PanicPuts(const char *s)
 {
     while (*s)
-        uart_putc(*s++);
+        PanicPutc(*s++);
 }
 
 /**
  * @brief Write a newline to the UART.
  */
-static void PanicNewline(void) { uart_putc('\n'); }
+static void PanicNewline(void) { PanicPutc('\n'); }
 
 /**
  * @brief Print a yellow section title followed by a dash rule up to ::RULE_COL.
@@ -90,9 +104,9 @@ static void PanicHeader(const char *name)
     PanicPuts("\n" C_YELLOW);
     PanicPuts(name);
     int n = (int)strlen(name);
-    uart_putc(' ');
+    PanicPutc(' ');
     for (int i = n + 1; i < RULE_COL; i++)
-        uart_putc('-');
+        PanicPutc('-');
     PanicPuts(C_RESET "\n");
 }
 
@@ -114,24 +128,27 @@ static void PanicPutLine(const char *s)
  * @param[in] addr Faulting virtual address.
  * @return Region description, or NULL if the address matches no known region.
  */
-static const char *FarRegion(uint32_t addr)
+static const char *FarRegion(Register addr)
 {
 
-    if (addr >= (uint32_t)(uintptr_t)_kernel_start && addr < (uint32_t)(uintptr_t)_kernel_end)
+    if (addr >= (Register)(VirtAddr)_kernel_start && addr < (Register)(VirtAddr)_kernel_end)
         return "kernel text/data";
 
-    if (kernel_layout.stack_base_va && addr >= (uint32_t)kernel_layout.stack_base_va &&
-        addr < (uint32_t)kernel_layout.stack_top_va)
+    if (kernel_layout.stack_base_va && addr >= (Register)kernel_layout.stack_base_va &&
+        addr < (Register)kernel_layout.stack_top_va)
         return "kernel stack";
 
-    if (kernel_layout.heap_start_va && addr >= (uint32_t)(uintptr_t)kernel_layout.heap_start_va &&
-        addr < (uint32_t)(uintptr_t)kernel_layout.heap_end_va)
+    if (kernel_layout.heap_start_va && addr >= (Register)(VirtAddr)kernel_layout.heap_start_va &&
+        addr < (Register)(VirtAddr)kernel_layout.heap_end_va)
         return "kernel heap";
 
-    if (addr >= MMIO_VA_BASE)
+    if (addr >= (Register)MMIO_VA_BASE)
         return "MMIO / high kernel";
 
-    if (addr < USER_VA_TOP)
+    if (addr < (Register)PAGE_SIZE)
+        return "NULL page";
+
+    if (addr < (Register)USER_VA_TOP)
         return "user space";
 
     return NULL;
@@ -207,24 +224,31 @@ static const char *IpcStateStr(IpcState s)
 
 /** @brief Captured frame-pointer backtrace. */
 typedef struct {
-    uint32_t addresses[BACKTRACE_MAX_DEPTH];  /**< Return addresses, innermost first. */
+    VirtAddr addresses[BACKTRACE_MAX_DEPTH];  /**< Return addresses, innermost first. */
     int depth;                                /**< Number of valid entries in addresses. */
 } FpBacktrace;
 
 /**
  * @brief Walk the frame-pointer chain and record return addresses.
- *  *
- *  * Starts from the fault frame pointer when a fault context frame exists, otherwise from the current frame pointer.
+ *
+ * Starts from the fault frame pointer when a fault context frame exists, otherwise from the current
+ * frame pointer. When the faulting pc is not a kernel symbol (a call through a bad pointer), the
+ * function at pc never built a frame record, so the frame's lr is recorded first: it is the caller.
  *
  * @param[in] bt Backtrace to fill.
  */
 static void BtraceWalk(FpBacktrace *bt)
 {
-    Register fp = panic_fault_ctx.frame ? ArchFrameFp(panic_fault_ctx.frame)
-                                        : ArchCurrentFramePointer();
+    const CpuState *frame = panic_fault_ctx.frame;
+    Register fp = frame ? ArchFrameFp(frame) : ArchCurrentFramePointer();
+    size_t start = 0;
 
-    bt->depth =
-        (int)ArchBacktraceWalk(fp, (Register)KERNEL_VA_BASE, bt->addresses, BACKTRACE_MAX_DEPTH);
+    if (frame && !KSymLookup((VirtAddr)ArchFramePc(frame)) &&
+        KSymLookup((VirtAddr)ArchFrameLr(frame)))
+        bt->addresses[start++] = (VirtAddr)ArchFrameLr(frame);
+
+    bt->depth = (int)(start + ArchBacktraceWalk(fp, (Register)KERNEL_VA_BASE, bt->addresses + start,
+                                                BACKTRACE_MAX_DEPTH - start));
 }
 
 /** @brief Heap usage totals gathered for the panic screen. */
@@ -266,12 +290,12 @@ static void GetPanicHeapSnapshot(PanicHeapStats *st)
  * @param[in] bufsz Size of @p buf in bytes.
  * @param[in] addr Address to symbolize.
  */
-static void FormatKSym(char *buf, int bufsz, uint32_t addr)
+static void FormatKSym(char *buf, int bufsz, VirtAddr addr)
 {
     const char *name = KSymLookup(addr);
-    uint32_t base = KSymLookupBaseAddr(addr);
+    VirtAddr base = KSymLookupBaseAddr(addr);
     if (name && base && addr != base)
-        (void)snprintf(buf, (size_t)bufsz, "%s+0x%X", name, addr - base);
+        (void)snprintf(buf, (size_t)bufsz, "%s+0x%llX", name, (unsigned long long)(addr - base));
     else if (name)
         (void)snprintf(buf, (size_t)bufsz, "%s", name);
     else
@@ -315,7 +339,7 @@ static void PanicPrintHeader(const char *reason, void *caller_ra)
 
     PanicPuts(C_RED "Oops! zuzu has panicked. ");
     for (int i = 13; i < RULE_COL; i++)
-        uart_putc('-');
+        PanicPutc('-');
     PanicPuts(C_RESET "\n");
     PanicNewline();
 
@@ -335,8 +359,8 @@ static void PanicPrintHeader(const char *reason, void *caller_ra)
         PanicPutLine(line);
     }
 
-    FormatKSym(sym, sizeof(sym), (uint32_t)(uintptr_t)caller_ra);
-    (void)snprintf(line, sizeof(line), "caller:  0x%08X  %s", (uint32_t)(uintptr_t)caller_ra, sym);
+    FormatKSym(sym, sizeof(sym), (VirtAddr)caller_ra);
+    (void)snprintf(line, sizeof(line), "caller:  0x" REG_FMT "  %s", REG_ARG(caller_ra), sym);
     PanicPutLine(line);
 }
 
@@ -366,24 +390,28 @@ static void PanicPrintFault(void)
         PanicPutLine(line);
     }
 
-    if (panic_fault_ctx.far || panic_fault_ctx.fsr) {
+    if (panic_fault_ctx.far_valid || panic_fault_ctx.fsr)
         PanicNewline();
+
+    if (panic_fault_ctx.far_valid) {
         const char *region = FarRegion(panic_fault_ctx.far);
         if (region)
-            (void)snprintf(line, sizeof(line), "FAR:   0x%08X  [%s]", panic_fault_ctx.far, region);
+            (void)snprintf(line, sizeof(line), "FAR:   0x" REG_FMT "  [%s]", REG_ARG(panic_fault_ctx.far), region);
         else
-            (void)snprintf(line, sizeof(line), "FAR:   0x%08X", panic_fault_ctx.far);
+            (void)snprintf(line, sizeof(line), "FAR:   0x" REG_FMT, REG_ARG(panic_fault_ctx.far));
         PanicPutLine(line);
+    }
 
-        (void)snprintf(line, sizeof(line), "FSR:   0x%08X", panic_fault_ctx.fsr);
+    if (panic_fault_ctx.fsr) {
+        (void)snprintf(line, sizeof(line), "FSR:   0x" REG_FMT, REG_ARG(panic_fault_ctx.fsr));
         PanicPutLine(line);
     }
 
     if (panic_fault_ctx.frame) {
         ArchFlagsDecode(dec, sizeof(dec), ArchFrameFlags(panic_fault_ctx.frame));
         PanicNewline();
-        (void)snprintf(line, sizeof(line), "SPSR:  0x%08X  %s  (interrupted context)",
-                       ArchFrameFlags(panic_fault_ctx.frame), dec);
+        (void)snprintf(line, sizeof(line), "SPSR:  0x" REG_FMT "  %s  (interrupted context)",
+                       REG_ARG(ArchFrameFlags(panic_fault_ctx.frame)), dec);
         PanicPutLine(line);
     }
 }
@@ -403,29 +431,29 @@ static void PanicDumpCpuState(void)
     PanicHeader("CPU STATE");
 
     FormatKSym(sym, sizeof(sym), (VirtAddr)ArchFramePc(f));
-    (void)snprintf(line, sizeof(line), "pc:     0x%08X  %s", ArchFramePc(f), sym);
+    (void)snprintf(line, sizeof(line), "pc:     0x" REG_FMT "  %s", REG_ARG(ArchFramePc(f)), sym);
     PanicPutLine(line);
 
     FormatKSym(sym, sizeof(sym), (VirtAddr)ArchFrameLr(f));
-    (void)snprintf(line, sizeof(line), "lr:     0x%08X  %s", ArchFrameLr(f), sym);
+    (void)snprintf(line, sizeof(line), "lr:     0x" REG_FMT "  %s", REG_ARG(ArchFrameLr(f)), sym);
     PanicPutLine(line);
 
-    (void)snprintf(line, sizeof(line), "sp:     0x%08X", ArchFrameSp(f));
+    (void)snprintf(line, sizeof(line), "sp:     0x" REG_FMT, REG_ARG(ArchFrameSp(f)));
     PanicPutLine(line);
 
     {
         char dec[64];
         ArchFlagsDecode(dec, sizeof(dec), ArchFrameFlags(f));
-        (void)snprintf(line, sizeof(line), "flags:  0x%08X  %s", ArchFrameFlags(f), dec);
+        (void)snprintf(line, sizeof(line), "flags:  0x" REG_FMT "  %s", REG_ARG(ArchFrameFlags(f)), dec);
         PanicPutLine(line);
     }
 
     PanicNewline();
     for (unsigned i = 0; i < ARCH_NUM_GP_REGS; i += 4) {
-        int off = snprintf(line, sizeof(line), "reg[%2u] = %08X", i, (*ArchGetFromFrame(f, i)));
+        int off = snprintf(line, sizeof(line), "reg[%2u] = " REG_FMT, i, REG_ARG(*ArchGetFromFrame(f, i)));
         for (unsigned j = i + 1; j < i + 4 && j < ARCH_NUM_GP_REGS; j++)
-            off += snprintf(line + off, sizeof(line) - (size_t)off, "   reg[%2u] = %08X", j,
-                            (*ArchGetFromFrame(f, j)));
+            off += snprintf(line + off, sizeof(line) - (size_t)off, "   reg[%2u] = " REG_FMT, j,
+                            REG_ARG(*ArchGetFromFrame(f, j)));
         PanicPutLine(line);
     }
 }
@@ -448,17 +476,17 @@ static void PanicPrintBt(FpBacktrace *bt)
     }
 
     for (int i = 0; i < bt->depth; i++) {
-        uint32_t addr = bt->addresses[i];
+        VirtAddr addr = bt->addresses[i];
         FormatKSym(sym, sizeof(sym), addr);
-        (void)snprintf(line, sizeof(line), "#%-2d  0x%08X  %s", i, addr, sym);
+        (void)snprintf(line, sizeof(line), "#%-2d  0x" REG_FMT "  %s", i, REG_ARG(addr), sym);
         PanicPutLine(line);
     }
 
     PanicNewline();
     PanicPuts("  " C_DIM "addr2line -e " ZUZU_ELF_PATH);
     for (int i = 0; i < bt->depth; i++) {
-        char tmp[12];
-        (void)snprintf(tmp, sizeof(tmp), " 0x%08X", bt->addresses[i]);
+        char tmp[24];
+        (void)snprintf(tmp, sizeof(tmp), " 0x" REG_FMT, REG_ARG(bt->addresses[i]));
         PanicPuts(tmp);
     }
     PanicPuts(C_RESET "\n");
@@ -492,13 +520,13 @@ static void PanicPrintSpace(void)
         PanicPutLine(line);
 
         if (space->as) {
-            (void)snprintf(line, sizeof(line), "asid=%u  ttbr0=0x%08X", space->as->asid_token.asid,
-                           (uint32_t)space->as->pt_root_physaddr);
+            (void)snprintf(line, sizeof(line), "asid=%u  ttbr0=0x" REG_FMT, space->as->asid_token.asid,
+                           REG_ARG(space->as->pt_root_physaddr));
             PanicPutLine(line);
         }
 
-        (void)snprintf(line, sizeof(line), "user stack: 0x%08X..0x%08X", (uint32_t)USER_STACK_BASE,
-                       (uint32_t)USER_STACK_TOP);
+        (void)snprintf(line, sizeof(line), "user stack: 0x" REG_FMT "..0x" REG_FMT, REG_ARG(USER_STACK_BASE),
+                       REG_ARG(USER_STACK_TOP));
         PanicPutLine(line);
 
         HandleTable *ht = &space->handle_table;
@@ -531,8 +559,8 @@ static void PanicPrintSpace(void)
                 default:
                     break;
                 }
-                (void)snprintf(line, sizeof(line), "  [%2u]  %-14s  0x%08X", idx,
-                               HandleTypeStr(e->type), (uint32_t)(uintptr_t)ptr);
+                (void)snprintf(line, sizeof(line), "  [%2u]  %-14s  0x" REG_FMT, idx,
+                               HandleTypeStr(e->type), REG_ARG(ptr));
                 PanicPutLine(line);
                 shown++;
             }
@@ -547,19 +575,19 @@ static void PanicPrintSpace(void)
         PanicPutLine("user trapframe:");
         for (unsigned i = 0; i < ARCH_NUM_GP_REGS; i += 4) {
             int off =
-                snprintf(line, sizeof(line), "  reg[%2u] = %08X", i, (*ArchGetFromFrame(tf, i)));
+                snprintf(line, sizeof(line), "  reg[%2u] = " REG_FMT, i, REG_ARG(*ArchGetFromFrame(tf, i)));
             for (unsigned j = i + 1; j < i + 4 && j < ARCH_NUM_GP_REGS; j++)
-                off += snprintf(line + off, sizeof(line) - (size_t)off, "   reg[%2u] = %08X", j,
-                                (*ArchGetFromFrame(tf, j)));
+                off += snprintf(line + off, sizeof(line) - (size_t)off, "   reg[%2u] = " REG_FMT, j,
+                                REG_ARG(*ArchGetFromFrame(tf, j)));
             PanicPutLine(line);
         }
-        (void)snprintf(line, sizeof(line), "  sp = %08X   lr = %08X   pc = %08X", ArchFrameSp(tf),
-                       ArchFrameLr(tf), ArchFramePc(tf));
+        (void)snprintf(line, sizeof(line), "  sp = " REG_FMT "   lr = " REG_FMT "   pc = " REG_FMT,
+                       REG_ARG(ArchFrameSp(tf)), REG_ARG(ArchFrameLr(tf)), REG_ARG(ArchFramePc(tf)));
         PanicPutLine(line);
         {
             char dec[64];
             ArchFlagsDecode(dec, sizeof(dec), ArchFrameFlags(tf));
-            (void)snprintf(line, sizeof(line), "  cpsr = %08X  %s", ArchFrameFlags(tf), dec);
+            (void)snprintf(line, sizeof(line), "  flags = " REG_FMT "  %s", REG_ARG(ArchFrameFlags(tf)), dec);
             PanicPutLine(line);
         }
     }
@@ -567,9 +595,9 @@ static void PanicPrintSpace(void)
     if (current_task->ipc_state != IPC_NONE) {
         PanicNewline();
         if (current_task->blocked_port)
-            (void)snprintf(line, sizeof(line), "IPC: %s  port=0x%08X",
+            (void)snprintf(line, sizeof(line), "IPC: %s  port=0x" REG_FMT,
                            IpcStateStr(current_task->ipc_state),
-                           (uint32_t)(uintptr_t)current_task->blocked_port);
+                           REG_ARG(current_task->blocked_port));
         else
             (void)snprintf(line, sizeof(line), "IPC: %s", IpcStateStr(current_task->ipc_state));
         PanicPutLine(line);
@@ -681,7 +709,7 @@ static void PanicPrintIrq(void)
             (void)snprintf(line, sizeof(line), "  IRQ %-3u  [%s]", irq, owners[irq].owner->name);
         } else if (ArchIrqHasHandler(irq)) {
             char sym[64];
-            FormatKSym(sym, sizeof(sym), (uint32_t)(uintptr_t)ArchIrqHandlerAddr(irq));
+            FormatKSym(sym, sizeof(sym), (VirtAddr)ArchIrqHandlerAddr(irq));
             (void)snprintf(line, sizeof(line), "  IRQ %-3u  [kernel: %s]", irq, sym);
         } else {
             (void)snprintf(line, sizeof(line), "  IRQ %-3u  [no handler]", irq);
@@ -754,8 +782,8 @@ static void PanicPrintMemoryStats(void)
             PanicPutLine("kstack: N/A (BOOT context)");
         } else {
             (void)snprintf(
-                line, sizeof(line), "kstack: 0x%08X..0x%08X  (%lu KB)",
-                (uint32_t)kernel_layout.stack_base_va, (uint32_t)kernel_layout.stack_top_va,
+                line, sizeof(line), "kstack: 0x" REG_FMT "..0x" REG_FMT "  (%lu KB)",
+                REG_ARG(kernel_layout.stack_base_va), REG_ARG(kernel_layout.stack_top_va),
                 (unsigned long)((kernel_layout.stack_top_va - kernel_layout.stack_base_va) /
                                 1024U));
             PanicPutLine(line);
@@ -772,7 +800,7 @@ static void PanicPrintMemoryStats(void)
  */
 static void ConstructPanicScreen(const char *reason, void *caller_ra)
 {
-    uart_putc('\a');
+    PanicPutc('\a');
     PanicNewline();
 
     PanicPrintHeader(reason, caller_ra);

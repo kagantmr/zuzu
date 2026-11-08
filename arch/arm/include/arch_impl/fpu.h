@@ -16,13 +16,13 @@ typedef uint8_t FpuState[32 * 8 + 4] __attribute__((aligned(8)));
  *
  * @param[out] state Where to store them.
  */
-void ArchFpuSaveState(FpuState *state);
+void FpuSaveState(FpuState *state);
 /**
  * @brief Loads the VFP registers.
  *
- * @param[in] state State saved by ArchFpuSaveState().
+ * @param[in] state State saved by FpuSaveState().
  */
-void ArchFpuRestoreState(const FpuState *state);
+void FpuRestoreState(const FpuState *state);
 
 /**
  * @brief Removes cp10/cp11 access in CPACR, so the next VFP instruction traps.
@@ -47,6 +47,24 @@ static inline void ArchFpuEnableAccess(void)
     cpacr |= (0xFu << 20);
     __asm__ volatile("mcr p15, 0, %0, c1, c0, 2" ::"r"(cpacr));
     __asm__ volatile("isb" ::: "memory");
+}
+
+/** @brief Clears FP/SIMD access like ArchFpuTrapDisable(), without the isb; the next exception return synchronizes it. */
+static inline void ArchFpuTrapDisableNoSync(void)
+{
+    uint32_t cpacr;
+    __asm__ volatile("mrc p15, 0, %0, c1, c0, 2" : "=r"(cpacr));
+    cpacr &= ~(0xFu << 20);
+    __asm__ volatile("mcr p15, 0, %0, c1, c0, 2" ::"r"(cpacr));
+}
+
+/** @brief Grants FP/SIMD access like ArchFpuEnableAccess(), without the isb; the next exception return synchronizes it. */
+static inline void ArchFpuEnableAccessNoSync(void)
+{
+    uint32_t cpacr;
+    __asm__ volatile("mrc p15, 0, %0, c1, c0, 2" : "=r"(cpacr));
+    cpacr |= (0xFu << 20);
+    __asm__ volatile("mcr p15, 0, %0, c1, c0, 2" ::"r"(cpacr));
 }
 
 #endif // ARCH_ARM_IMPL_FPU_H

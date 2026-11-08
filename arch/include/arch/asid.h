@@ -6,14 +6,8 @@
 #ifndef ARCH_ASID_H
 #define ARCH_ASID_H
 
+#include <arch_impl/asid.h>
 #include <stdint.h>
-
-/**
- * @brief on ARMv7, an ASID is 8 bits.
- * 
- * TODO: Make this arch-specific.
- */
-typedef uint8_t Asid;
 
 /**
  * @brief Represents an ASID token (with an ASID and its generation.)

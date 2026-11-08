@@ -26,7 +26,7 @@ void SvcQuit(CpuState *frame)
 #ifdef CONFIG_ZUZU_BENCH
     BENCH_END(g_bench_quit_terminate, bench_start);
 #endif
-    KDEBUG("Task %d exited with status %d", current_task->tid, exit_status);
+    KTRACE("Task %d exited with status %d", current_task->tid, exit_status);
 
     Schedule();
 }

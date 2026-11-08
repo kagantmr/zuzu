@@ -10,17 +10,20 @@
 extern "C" {
 #endif
 
+#include <arch/regs.h>
 #include <stddef.h>
 #include <stdint.h>
 
+_Static_assert(sizeof(int) == 4, "zuzu types assume a 32-bit int");
+
 /** @brief Index into the Space's object table. */
-typedef int32_t Handle;
+typedef int Handle;
 
 /** @brief Space ID. */
-typedef int32_t Spid;
+typedef int Spid;
 
 /** @brief Task ID. */
-typedef int32_t Tid;
+typedef int Tid;
 
 /** @brief Tick from the CPU timer. */
 typedef uint64_t Tick;
@@ -32,25 +35,25 @@ typedef uintptr_t PhysAddr;
 typedef uintptr_t VirtAddr;
 
 /** @brief Interrupt number. */
-typedef uint32_t Irq;
+typedef unsigned int Irq;
 
 /** @brief Duration of time (usually in ms). */
-typedef uint32_t Duration;
+typedef unsigned int Duration;
 
 /** @brief Time, measured in ticks. */
 typedef uint64_t Time;
 
 /** @brief Non-positive error code. Check zuzu/err.h for error codes. */
-typedef int32_t Err;
+typedef int Err;
 
 /** @brief Stamped value of a distinct object. */
-typedef uint32_t Marker;
+typedef unsigned int Marker;
 
 /** @brief Index into a port's held callers queue. */
-typedef uint32_t Ticket;
+typedef unsigned int Ticket;
 
 /** @brief Bits delivered on an event wakeup. */
-typedef uint32_t EventWord;
+typedef unsigned int EventWord;
 
 /** @brief Pass this sentinel into timeout arguments for the system call to return without blocking.
  */
@@ -146,8 +149,8 @@ typedef struct {
 typedef struct {
     void *entry; /**< Entry point for the Task. */
     void *sp;    /**< Stack point for the Task. Must be mapped. */
-    uint32_t r0; /**< First  initial register value for the Task. */
-    uint32_t r1; /**< Second initial register value for the Task. */
+    Register r0; /**< First  initial register value for the Task. */
+    Register r1; /**< Second initial register value for the Task. */
 } KickstartArgs;
 
 /** @brief Status code of a task that was being waited on. */
@@ -161,7 +164,7 @@ typedef struct {
     Err status; /**< If the wait succeeded, returns ZUZU_OK. If the request was nonblocking and the
                    wait timed out, it returns ERR_TIMEOUT. */
     Marker sender;  /**< Marker assigned to the sender's port object. */
-    uint32_t xlen;  /**< Length of the message. */
+    size_t xlen;  /**< Length of the message. */
     Handle granted; /**< Handle to a granted object in the receiver's table */
 } PortWaitResult;
 
@@ -177,7 +180,7 @@ typedef struct {
     Err status; /**< If the wait succeeded, returns ZUZU_OK. If the request was nonblocking and the
                    wait timed out, it returns ERR_TIMEOUT. */
     TaskWaitOutcome outcome; /**< Why the task stopped. */
-    int32_t value;           /**< If exited gracefully, the task's return code. */
+    Err value;           /**< If exited gracefully, the task's return code. */
 } TaskWaitResult;
 
 /** @brief Return values for WaitOn on a space object. */
@@ -191,7 +194,7 @@ typedef struct {
 typedef struct {
     Err status;         /**< ZUZU_OK on success, negative on failure */
     uintptr_t bus_addr; /**< Address as seen by the device. */
-    uint32_t id;        /**< ID of the mapping, for adoption */
+    size_t id;        /**< ID of the mapping, for adoption */
 } DmaMapResult;
 
 /** @brief DmaSync operation verb. */

@@ -54,7 +54,18 @@ static inline uint64_t UptimeMs(void) { return UptimeCountsTo(UptimeCounts(), 10
  *
  * @return The uptime, rounded down.
  */
-static inline uint64_t UptimeUs(void) { return UptimeCountsTo(UptimeCounts(), 1000000U); }
+static inline uint64_t UptimeUs(void)
+{
+    const volatile Syspage *sp = (const volatile Syspage *)SYSPAGE;
+    uint32_t mult = sp->us_mult;
+    uint32_t shift = sp->us_shift;
+    uint64_t counts = UptimeCounts();
+    if (!mult)
+        return UptimeCountsTo(counts, 1000000U);
+    uint64_t hi = (counts >> 32) * mult;
+    uint64_t lo = ((counts & 0xFFFFFFFFU) * mult) >> 32;
+    return (hi + lo) >> (shift - 32U);
+}
 
 #ifdef __cplusplus
 }

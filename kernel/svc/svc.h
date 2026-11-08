@@ -61,7 +61,7 @@ void __hot SvcDispatch(Svc svc_num, CpuState *frame);
  *
  * @return true if the range does not wrap and lies entirely below the top of user space.
  */
-static inline bool IsUserPtrNormal(const uintptr_t addr, const size_t len)
+static inline bool IsUserPtrNormal(const VirtAddr addr, const size_t len)
 {
     if (addr + len < addr)
         return false;

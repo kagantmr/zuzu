@@ -64,7 +64,7 @@ static uint64_t cnt_last;
 static inline uint64_t ReadCntvct(void)
 {
     uint64_t v;
-    __asm__ volatile("isb\n mrrc p15, 1, %Q0, %R0, c14" : "=r"(v)::"memory");
+    __asm__ volatile("mrrc p15, 1, %Q0, %R0, c14" : "=r"(v)::"memory");
     if (v < cnt_last)
         v = cnt_last;
     cnt_last = v;

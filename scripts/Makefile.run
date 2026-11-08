@@ -49,6 +49,8 @@ QEMU_KERNEL  = $(if $(QEMU_KERNEL_$(BOARD)),$(QEMU_KERNEL_$(BOARD)),$(IMG))
 # virt has no SD/MMC controller QEMU exposes as if=sd here).
 ifeq ($(QEMU_NO_DRIVE_$(BOARD)),y)
 QEMU_DRIVE =
+else ifneq ($(QEMU_DRIVE_$(BOARD)),)
+QEMU_DRIVE = $(QEMU_DRIVE_$(BOARD))
 else
 QEMU_DRIVE = -drive file=$(SD_IMG),if=sd,format=raw
 endif

@@ -41,13 +41,13 @@ _Static_assert(TCB_MAX_SLOTS <= 256, "bitmap is uint64_t[4] = 256 bits");
 
 /** @brief One thread's TCB slot. The header is written by the kernel; treat it as read-only. */
 typedef struct {
-    void *msg_buf;                      /**< Address of @c buf, set by the kernel. */
-    Tid tid;                            /**< Thread ID. */
-    Spid spid;                          /**< ID of the owning space. */
-    uint8_t prio;                       /**< Base priority. */
-    uint8_t max_prio;                   /**< Highest priority the thread may set. */
-    uint8_t padding[TCB_HDR_SIZE - 14]; /**< Pads the header to TCB_HDR_SIZE. */
-    uint8_t buf[MSG_BUF_SIZE];          /**< Message box used by Call(), Reply() and receives. */
+    void *msg_buf;    /**< Address of @c buf, set by the kernel. */
+    Tid tid;          /**< Thread ID. */
+    Spid spid;        /**< ID of the owning space. */
+    uint8_t prio;     /**< Base priority. */
+    uint8_t max_prio; /**< Highest priority the thread may set. */
+    uint8_t padding[TCB_HDR_SIZE - (sizeof(void *) + 10)]; /**< Pads the header to TCB_HDR_SIZE. */
+    uint8_t buf[MSG_BUF_SIZE]; /**< Message box used by Call(), Reply() and receives. */
 } ThreadLocalData;
 
 _Static_assert(sizeof(ThreadLocalData) == TCB_SLOT_SIZE, "ThreadData must fill its slot");

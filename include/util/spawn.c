@@ -28,14 +28,14 @@
 typedef struct {
     uint32_t file_offset; /**< Offset of the segment's bytes in the image. */
     uint32_t file_size;   /**< Bytes present in the image. */
-    uint32_t vaddr;       /**< Page-aligned load address. */
+    VirtAddr vaddr;       /**< Page-aligned load address. */
     uint32_t mem_size;    /**< Size in memory; the rest past file_size is zero-filled. */
     uint32_t prot;        /**< PROT_READ / PROT_WRITE / PROT_EXEC. */
 } SpawnSeg;
 
 /** @brief A parsed image: entry point and load segments. */
 typedef struct {
-    uint32_t entry;                /**< Entry point address. */
+    VirtAddr entry;                /**< Entry point address. */
     uint32_t seg_count;            /**< Number of entries in @c segs. */
     SpawnSeg segs[SPAWN_MAX_SEGS]; /**< Load segments. */
 } SpawnImage;
@@ -214,7 +214,7 @@ static Err LayoutArgv(Handle space_handle, const char *argbuf, size_t argbuf_len
     if (argc == 0)
         return ZUZU_OK;
 
-    size_t table_bytes = (size_t)(argc + 1) * sizeof(uint32_t);
+    size_t table_bytes = (size_t)(argc + 1) * sizeof(VirtAddr);
     size_t block_len = table_bytes + argbuf_len;
     if (PAGE_ROUND_UP(block_len) > SPAWN_ARGV_MAX_PAGES * PAGE_SIZE)
         return ERR_BADARG;
@@ -226,8 +226,8 @@ static Err LayoutArgv(Handle space_handle, const char *argbuf, size_t argbuf_len
     VirtAddr str_va = SPAWN_ARGV_VA + table_bytes;
     const char *str_src = argbuf;
     for (uint32_t a = 0; a <= argc; a++) {
-        uint32_t slot = (a < argc) ? (uint32_t)str_va : 0;
-        memcpy(block + (a * sizeof(uint32_t)), &slot, sizeof(slot));
+        VirtAddr slot = (a < argc) ? str_va : 0;
+        memcpy(block + (a * sizeof(VirtAddr)), &slot, sizeof(slot));
         if (a < argc) {
             size_t l = strlen(str_src) + 1;
             str_va += l;
@@ -321,7 +321,7 @@ static Err SpawnFromImage(Handle image_obj, const void *image, size_t size, cons
         return rc;
     }
 
-    rc = TaskStart(task_handle, (void *)img.entry, (void *)sp, argc, (uint32_t)argv_va);
+    rc = TaskStart(task_handle, (void *)img.entry, (void *)sp, (Register)argc, (Register)argv_va);
     if (rc != ZUZU_OK) {
         HandleDestroy(space_handle);
         return rc;

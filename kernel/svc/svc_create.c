@@ -48,8 +48,7 @@ void SvcCreate(CpuState *frame)
         Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
         ENSURE(-1 != new_handle, TaskDestroy(task); ArchSetInFrame(frame, 0, ERR_NOMEM); return);
 
-        HandleTableEntry *entry = HandleTableGet(&CURRENT_SPACE->handle_table, new_handle);
-        HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
+        HandleTableEntry *entry = HandleTableClaim(&CURRENT_SPACE->handle_table, new_handle);
         entry->type = HANDLE_TASK;
         entry->task = task;
         entry->perms = PERM_ALL;
@@ -64,8 +63,7 @@ void SvcCreate(CpuState *frame)
         Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
         ENSURE(-1 != new_handle, PortUnref(new_port); ArchSetInFrame(frame, 0, ERR_NOMEM); return);
 
-        HandleTableEntry *entry = HandleTableGet(&CURRENT_SPACE->handle_table, new_handle);
-        HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
+        HandleTableEntry *entry = HandleTableClaim(&CURRENT_SPACE->handle_table, new_handle);
         entry->type = HANDLE_PORT;
         entry->port = new_port;
         entry->perms = PERM_ALL;
@@ -80,8 +78,7 @@ void SvcCreate(CpuState *frame)
         ENSURE(-1 != new_handle, EventDestroy(new_event); ArchSetInFrame(frame, 0, ERR_NOMEM);
                return);
 
-        HandleTableEntry *entry = HandleTableGet(&CURRENT_SPACE->handle_table, new_handle);
-        HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
+        HandleTableEntry *entry = HandleTableClaim(&CURRENT_SPACE->handle_table, new_handle);
         entry->type = HANDLE_EVENT;
         entry->event = new_event;
         entry->perms = PERM_ALL;
@@ -107,8 +104,7 @@ void SvcCreate(CpuState *frame)
         ENSURE_ERR(frame, (NULL != space), ERR_NOMEM);
         space->max_prio = current_task->max_prio;
 
-        HandleTableEntry *entry = HandleTableGet(&CURRENT_SPACE->handle_table, new_handle);
-        HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
+        HandleTableEntry *entry = HandleTableClaim(&CURRENT_SPACE->handle_table, new_handle);
         entry->type = HANDLE_SPACE;
         entry->space = space;
         entry->perms = PERM_ALL;
@@ -118,7 +114,7 @@ void SvcCreate(CpuState *frame)
     } break;
     case OBJECT_MEMORY: {
         CreateMemoryFlags flags = (CreateMemoryFlags)(*ArchGetFromFrame(frame, 2));
-        ENSURE_ERR(frame, !(flags & ~MEM_FLAGS_ALL), ERR_BADARG);
+        ENSURE_ERR(frame, !(flags & (unsigned)~MEM_FLAGS_ALL), ERR_BADARG);
         ENSURE_ERR(frame, !(flags & MEM_UNCACHED) || (flags & MEM_CONTIG), ERR_BADARG);
 
         size_t page_count = (size_t)(*ArchGetFromFrame(frame, 1));
@@ -147,8 +143,7 @@ void SvcCreate(CpuState *frame)
         Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
         ENSURE(-1 != new_handle, MemObjUnref(mem); ArchSetInFrame(frame, 0, ERR_NOMEM); return);
 
-        HandleTableEntry *entry = HandleTableGet(&CURRENT_SPACE->handle_table, new_handle);
-        HandleEntryClaim(&CURRENT_SPACE->handle_table, entry);
+        HandleTableEntry *entry = HandleTableClaim(&CURRENT_SPACE->handle_table, new_handle);
         entry->type = HANDLE_MEM;
         entry->mem = mem;
         entry->perms = PERM_ALL;

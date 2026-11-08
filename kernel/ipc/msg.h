@@ -175,7 +175,7 @@ void ReplyFailCaller(TaskObject *target, Err err);
  * @param[in] xlen The message length (max 512).
  * @param[in] granted The handle to grant across.
  */
-void __hot ReplyDeliverToCaller(TaskObject *target, uint32_t xlen, Handle granted);
+void __hot ReplyDeliverToCaller(TaskObject *target, size_t xlen, Handle granted);
 
 /**
  * @brief Block on this port, not waken until a message arrives.
