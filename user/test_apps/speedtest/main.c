@@ -197,7 +197,7 @@ static void RunIpc(void)
         printf("ipc setup failed\n");
         return;
     }
-    if (TaskStart(task, (void *)ServerEntry, stack + SERVER_STACK, (Register)(uintptr_t)&srv, 0) !=
+    if (TaskStart(task, (void *)ServerEntry, stack + SERVER_STACK, (Register)(VirtAddr)&srv, 0) !=
         ZUZU_OK) {
         printf("ipc server start failed\n");
         return;
@@ -392,7 +392,7 @@ static void BenchTasks(void)
         }
         TIMED(g_samples_b, i, TaskSetPriority(t, 1));
         TIMED(g_samples_c, i,
-              TaskStart(t, (void *)BlockEntry, stack + SERVER_STACK, (Register)(uintptr_t)&port,
+              TaskStart(t, (void *)BlockEntry, stack + SERVER_STACK, (Register)(VirtAddr)&port,
                         0));
         Yield();
         TIMED(g_samples_d, i, TaskKill(t));
