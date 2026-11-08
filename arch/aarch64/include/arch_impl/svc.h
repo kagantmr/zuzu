@@ -13,6 +13,8 @@
 
 #include "regs.h"
 #include <stdint.h>
+#include <svc_nums.h>
+#include <types.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -77,6 +79,28 @@ typedef struct {
         ARCH_SVC_CALL(num, a0, a1, a2, a3);                                                        \
         (SvcResult){.r0 = x0_, .r1 = x1_, .r2 = x2_, .r3 = x3_};                                   \
     })
+
+/**
+ * @brief Unmaps a region and ends the calling task without touching memory in between.
+ *
+ * For a task whose stack lives in the region being unmapped. Between the two
+ * syscalls only registers are used, so nothing reads or writes the freed stack.
+ *
+ * @param[in] va Start address of the mapping to remove.
+ */
+static __always_inline void __attribute__((noreturn)) ArchUnmapAndQuit(void *va)
+{
+    register Register x1 __asm__("x1") = (Register)va;
+    __asm__ volatile("mov x0, %[unmap]\n\t"
+                     "svc %[nmem]\n\t"
+                     "mov x0, #0\n\t"
+                     "svc %[nquit]"
+                     :
+                     : "r"(x1), [unmap] "i"(MNGMEM_UNMAP), [nmem] "i"(SVC_MANAGEMEMORY),
+                       [nquit] "i"(SVC_QUIT)
+                     : "x0", "memory");
+    __builtin_unreachable();
+}
 
 #ifdef __cplusplus
 }
