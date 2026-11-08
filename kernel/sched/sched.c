@@ -25,7 +25,7 @@
 #include <stdint.h>
 
 /** @brief Size of the stack the idle loop runs on. */
-#define IDLE_STACK_BYTES 1024
+#define IDLE_STACK_BYTES 4096
 /** @brief Number of slots in the sleep wheel. */
 #define SLEEP_QUEUE_SIZE 512
 
@@ -437,6 +437,7 @@ void __hot SchedSwitchNext(TaskObject *next)
         if (from_idle) {
             return;
         }
+        SchedInitIdleTask();
         ContextSwitch(prev, &idle_task);
         return;
     }
