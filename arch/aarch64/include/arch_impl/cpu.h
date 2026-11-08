@@ -10,7 +10,7 @@
 #include <stdint.h>
 
 /** @brief A saved DAIF, as returned by ArchIrqSave(). */
-typedef uint64_t Cpsr;
+typedef uint64_t IrqState;
 
 /** @brief Masks IRQs on this CPU (msr daifset, #2). */
 static inline void ArchGlobalIrqDisable(void) { __asm__ volatile("msr daifset, #2" ::: "memory"); }
@@ -23,11 +23,11 @@ static inline void ArchGlobalIrqEnable(void) { __asm__ volatile("msr daifclr, #2
  *
  * @return DAIF before masking.
  */
-static inline Cpsr ArchIrqSave(void)
+static inline IrqState ArchIrqSave(void)
 {
-    uint64_t cpsr = READ_SYSREG(daif);
+    uint64_t daif = READ_SYSREG(daif);
     ArchGlobalIrqDisable();
-    return cpsr;
+    return daif;
 }
 
 /**
@@ -35,7 +35,7 @@ static inline Cpsr ArchIrqSave(void)
  *
  * @param[in] state Value returned by ArchIrqSave().
  */
-static inline void ArchIrqRestore(Cpsr state)
+static inline void ArchIrqRestore(IrqState state)
 {
     WRITE_SYSREG(daif, state);
 }
