@@ -1,7 +1,8 @@
 /**
  * @file
- * @brief AArch64 memset(): aligns the destination to 16 bytes, then stores 64-byte blocks with
- * stp. General-purpose registers only, so it is safe in the kernel.
+ * @brief AArch64 memset(): aligns the destination to 16 bytes, zeroes large fills a cache block at
+ * a time with dc zva, then stores 64-byte blocks with stp. General-purpose registers only, so it is
+ * safe in the kernel.
  */
 
 .text
@@ -13,7 +14,7 @@
  * memset(void *dst, int c, size_t n)
  * In:       x0 = dst, w1 = c, x2 = n.
  * Out:      x0 = dst.
- * Clobbers: x1-x4.
+ * Clobbers: x1-x6.
  */
 memset:
     mov     x3, x0
@@ -33,6 +34,31 @@ memset:
     b.ne    .Lset_head
 
 .Lset_aligned:
+    cbnz    x1, .Lset_bulk
+    cmp     x2, #256
+    b.lo    .Lset_bulk
+    mrs     x4, dczid_el0
+    tbnz    x4, #4, .Lset_bulk
+    and     x4, x4, #15
+    mov     x5, #4
+    lsl     x5, x5, x4
+    cmp     x2, x5, lsl #1
+    b.lo    .Lset_bulk
+    sub     x6, x5, #1
+.Lzva_head:
+    tst     x3, x6
+    b.eq    .Lzva_loop
+    stp     xzr, xzr, [x3], #16
+    sub     x2, x2, #16
+    b       .Lzva_head
+.Lzva_loop:
+    dc      zva, x3
+    add     x3, x3, x5
+    sub     x2, x2, x5
+    cmp     x2, x5
+    b.hs    .Lzva_loop
+
+.Lset_bulk:
     cmp     x2, #64
     b.lo    .Lset_16
 .Lset_64:
