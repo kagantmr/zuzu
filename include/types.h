@@ -14,14 +14,16 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 
+_Static_assert(sizeof(int) == 4, "zuzu types assume a 32-bit int");
+
 /** @brief Index into the Space's object table. */
-typedef int32_t Handle;
+typedef int Handle;
 
 /** @brief Space ID. */
-typedef int32_t Spid;
+typedef int Spid;
 
 /** @brief Task ID. */
-typedef int32_t Tid;
+typedef int Tid;
 
 /** @brief Tick from the CPU timer. */
 typedef uint64_t Tick;
@@ -33,25 +35,25 @@ typedef uintptr_t PhysAddr;
 typedef uintptr_t VirtAddr;
 
 /** @brief Interrupt number. */
-typedef uint32_t Irq;
+typedef unsigned int Irq;
 
 /** @brief Duration of time (usually in ms). */
-typedef uint32_t Duration;
+typedef unsigned int Duration;
 
 /** @brief Time, measured in ticks. */
 typedef uint64_t Time;
 
 /** @brief Non-positive error code. Check zuzu/err.h for error codes. */
-typedef int32_t Err;
+typedef int Err;
 
 /** @brief Stamped value of a distinct object. */
-typedef uint32_t Marker;
+typedef unsigned int Marker;
 
 /** @brief Index into a port's held callers queue. */
-typedef uint32_t Ticket;
+typedef unsigned int Ticket;
 
 /** @brief Bits delivered on an event wakeup. */
-typedef uint32_t EventWord;
+typedef unsigned int EventWord;
 
 /** @brief Pass this sentinel into timeout arguments for the system call to return without blocking.
  */
