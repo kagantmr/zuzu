@@ -14,6 +14,36 @@ static uint8_t *g_a;
 static uint8_t *g_b;
 static uint32_t g_cap;
 
+#ifdef __aarch64__
+static void ReadBlock(const void *p, uint32_t bytes)
+{
+    __asm__ volatile("1:\n"
+                     "ldp x2, x3, [%0], #16\n"
+                     "ldp x4, x5, [%0], #16\n"
+                     "ldp x6, x7, [%0], #16\n"
+                     "ldp x8, x9, [%0], #16\n"
+                     "subs %w1, %w1, #64\n"
+                     "b.gt 1b\n"
+                     : "+r"(p), "+r"(bytes)
+                     :
+                     : "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x9", "cc", "memory");
+}
+
+static void WriteBlock(void *p, uint32_t bytes)
+{
+    __asm__ volatile("1:\n"
+                     "stp xzr, xzr, [%0], #16\n"
+                     "stp xzr, xzr, [%0], #16\n"
+                     "stp xzr, xzr, [%0], #16\n"
+                     "stp xzr, xzr, [%0], #16\n"
+                     "subs %w1, %w1, #64\n"
+                     "b.gt 1b\n"
+                     : "+r"(p), "+r"(bytes)
+                     :
+                     : "cc", "memory");
+}
+
+#else
 static void ReadBlock(const void *p, uint32_t bytes)
 {
     __asm__ volatile("1:\n"
@@ -45,6 +75,7 @@ static void WriteBlock(void *p, uint32_t bytes)
                      :
                      : "r2", "r3", "r4", "r5", "r6", "r8", "r9", "r10", "cc", "memory");
 }
+#endif
 
 static bool MemSetup(void)
 {
