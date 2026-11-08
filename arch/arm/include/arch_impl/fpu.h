@@ -49,6 +49,7 @@ static inline void ArchFpuEnableAccess(void)
     __asm__ volatile("isb" ::: "memory");
 }
 
+/** @brief Clears FP/SIMD access like ArchFpuTrapDisable(), without the isb; the next exception return synchronizes it. */
 static inline void ArchFpuTrapDisableNoSync(void)
 {
     uint32_t cpacr;
@@ -57,6 +58,7 @@ static inline void ArchFpuTrapDisableNoSync(void)
     __asm__ volatile("mcr p15, 0, %0, c1, c0, 2" ::"r"(cpacr));
 }
 
+/** @brief Grants FP/SIMD access like ArchFpuEnableAccess(), without the isb; the next exception return synchronizes it. */
 static inline void ArchFpuEnableAccessNoSync(void)
 {
     uint32_t cpacr;

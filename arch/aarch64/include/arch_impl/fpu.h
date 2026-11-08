@@ -47,11 +47,13 @@ static inline void ArchFpuEnableAccess(void)
     Isb();
 }
 
+/** @brief Clears FP/SIMD access like ArchFpuTrapDisable(), without the isb; the next exception return synchronizes it. */
 static inline void ArchFpuTrapDisableNoSync(void)
 {
     WRITE_SYSREG(cpacr_el1, READ_SYSREG(cpacr_el1) & ~CPACR_EL1_FPEN);
 }
 
+/** @brief Grants FP/SIMD access like ArchFpuEnableAccess(), without the isb; the next exception return synchronizes it. */
 static inline void ArchFpuEnableAccessNoSync(void)
 {
     WRITE_SYSREG(cpacr_el1, READ_SYSREG(cpacr_el1) | CPACR_EL1_FPEN);
