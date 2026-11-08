@@ -10,14 +10,11 @@ kernel=zuzu.img
 
 initramfs initrd.cpio followkernel
 
-# Required for any UART console. Without it the firmware does not bring the
-# UART up and the core clock is free to scale, so the baud rate drifts --
-# the usual cause of a Pi that boots but says nothing.
+# Required for any UART console.
 enable_uart=1
 
 # On the Pi 4, uart0 (the PL011) is wired to the Bluetooth module by default
-# and GPIO14/15 carry the mini-UART instead. zuzu drives the PL011, so move
-# Bluetooth out of the way and give uart0 back to the header pins.
+# and GPIO14/15 carry the mini-UART instead.
 dtoverlay=disable-bt
 
 # Pin the UARTCLK the PL011 divisors in boot.h assume (115200 = 48e6/16/26.042).
@@ -33,6 +30,8 @@ device_tree_end=0x03100000
 # Keep peripherals in low mode (0xFE000000) — the default, stated explicitly
 # because boot.h and the DTB depend on it.
 arm_peri_high=0
+
+force_turbo=1
 
 # ---- Debugging -------------------------------------------------------------
 enable_jtag_gpio=1
