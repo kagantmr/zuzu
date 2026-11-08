@@ -21,7 +21,7 @@
 #include <arch_impl/sysreg.h>
 #include <string.h>
 
-#define LOG_TAG "(early)"
+#define LOG_FMT(fmt) "(early) " fmt
 #include "core/log.h"
 
 RamLayout kernel_layout;
@@ -74,13 +74,9 @@ static bool ReadRamBanks(void)
     return true;
 }
 
-static void EarlyTick(void)
-{
-    static unsigned n = 0;
-    KDEBUG("tick %u", ++n);
-    ArchTimerSetDeadline(ArchTimerNow() + ArchTimerFreq() / 10);
-}
-
+/**
+ * @brief Initializes the PMU registers to proper values and allows EL0 access.
+ */
 static void PmuInit(void)
 {
     WRITE_SYSREG(pmcr_el0, (READ_SYSREG(pmcr_el0) | 1 | (1 << 2)) & ~(1UL << 3));
@@ -137,17 +133,29 @@ _Noreturn void early(void *dtb_ptr)
 
     VmmRemoveIdentityMapping();
     VmmLockdownKernelMapping();
-    PmmUnmarkRange(kernel_layout.boot_start_pa, kernel_layout.boot_end_pa);
     KDEBUG("early: running on the kernel's own tables");
 
+    PhysAddr dtb_end_pa = kernel_layout.dtb_start_pa + FdtTotalSize();
+    struct {
+        uint64_t addr, size;
+    } rsv[8];
+    uint32_t rsv_cnt = 0;
+    while (rsv_cnt < 8 && FdtGetReservedMem(rsv_cnt, &rsv[rsv_cnt].addr, &rsv[rsv_cnt].size))
+        rsv_cnt++;
+
     BootInfoInitFromFdt();
-    
+
+    PmmUnmarkRange(kernel_layout.dtb_start_pa, dtb_end_pa);
+    PmmUnmarkRange(kernel_layout.boot_start_pa, kernel_layout.boot_end_pa);
+    for (uint32_t i = 0; i < rsv_cnt; i++)
+        PmmMarkRange((PhysAddr)rsv[i].addr, (PhysAddr)(rsv[i].addr + rsv[i].size));
+    KINFO("Freed DTB and boot space (%zu KiB)",
+          (size_t)(kernel_layout.boot_end_pa - kernel_layout.boot_start_pa + dtb_end_pa -
+                   kernel_layout.dtb_start_pa) /
+              1024);
+
     ArchIrqInit();
     ArchPlatformInitDevices();
-
-    ArchTimerSetHandler(EarlyTick);
-    ArchTimerSetDeadline(ArchTimerNow() + (ArchTimerFreq() / 10));
-    __asm__ volatile("msr daifclr, #2");
 
     kmain();
 }
