@@ -19,7 +19,7 @@ extern "C" {
 #endif
 
 /**
- * @brief Loads x0-x3 and issues svc #num; the shared body of ArchInvokeSvc and ArchInvokeSvc4.
+ * @brief Loads x0-x3 and issues the svc; the shared body of ArchInvokeSvc and ArchInvokeSvc4.
  *
  * The arguments are evaluated into temporaries first: a function call among them would
  * otherwise clobber the x0-x3 register variables already loaded.
