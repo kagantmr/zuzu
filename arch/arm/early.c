@@ -21,6 +21,9 @@
 #include <arch_impl/armv7_mmu.h>
 #include <string.h>
 
+extern char __stack_region_base__[]; /**< Physical bottom of the IRQ, abort, undefined and SVC stacks. */
+extern char __stack_region_end__[];  /**< Physical top of those stacks. */
+
 /** @brief Physical and virtual layout of RAM and the kernel image, filled in by early(). */
 RamLayout kernel_layout;
 
@@ -114,8 +117,8 @@ _Noreturn void early(void *dtb_ptr)
     kernel_layout.dtb_start_pa = (PhysAddr)dtb_ptr;
     kernel_layout.kernel_start_pa = (PhysAddr)_kernel_phys_start;
     kernel_layout.kernel_end_pa = (PhysAddr)_kernel_phys_end;
-    kernel_layout.stack_base_pa = (PhysAddr)__svc_stack_base__;
-    kernel_layout.stack_top_pa = (PhysAddr)__svc_stack_top__;
+    kernel_layout.stack_base_pa = (PhysAddr)__stack_region_base__;
+    kernel_layout.stack_top_pa = (PhysAddr)__stack_region_end__;
     kernel_layout.boot_start_pa = (PhysAddr)_boot_start;
     kernel_layout.boot_end_pa = (PhysAddr)_boot_end;
 
