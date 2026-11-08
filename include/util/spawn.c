@@ -28,14 +28,14 @@
 typedef struct {
     uint32_t file_offset; /**< Offset of the segment's bytes in the image. */
     uint32_t file_size;   /**< Bytes present in the image. */
-    uint32_t vaddr;       /**< Page-aligned load address. */
+    VirtAddr vaddr;       /**< Page-aligned load address. */
     uint32_t mem_size;    /**< Size in memory; the rest past file_size is zero-filled. */
     uint32_t prot;        /**< PROT_READ / PROT_WRITE / PROT_EXEC. */
 } SpawnSeg;
 
 /** @brief A parsed image: entry point and load segments. */
 typedef struct {
-    uint32_t entry;                /**< Entry point address. */
+    VirtAddr entry;                /**< Entry point address. */
     uint32_t seg_count;            /**< Number of entries in @c segs. */
     SpawnSeg segs[SPAWN_MAX_SEGS]; /**< Load segments. */
 } SpawnImage;
