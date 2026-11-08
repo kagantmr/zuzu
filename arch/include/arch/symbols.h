@@ -25,10 +25,9 @@ extern char __abt_stack_base__[];    /**< Bottom of the abort-mode stack. */
 extern char __abt_stack_top__[];     /**< Top of the abort-mode stack. */
 extern char __und_stack_base__[];    /**< Bottom of the undefined-mode stack. */
 extern char __und_stack_top__[];     /**< Top of the undefined-mode stack. */
-
-extern char __kstack_base[];
-extern char __kstack_top[];
-extern char _boot_start_va[];
-extern char _boot_end_va[];
+extern char __kstack_base[];         /**< Virtual kernel stack base. */
+extern char __kstack_top[];          /**< Virtual kernel stack top. */
+extern char _boot_start_va[];        /**< Start of the boot region. */
+extern char _boot_end_va[];          /**< End of the boot region. */
 
 #endif // ARCH_SYMBOLS_H

@@ -42,7 +42,7 @@
  * @param[in] gicd_base_addr Mapped distributor base.
  * @param[in] gicc_base_addr Mapped CPU interface base.
  */
-void GicInit(uintptr_t gicd_base_addr, uintptr_t gicc_base_addr);
+void GicInit(VirtAddr gicd_base_addr, VirtAddr gicc_base_addr);
 
 /**
  * @brief Makes a shared peripheral interrupt level-triggered and routes it to CPU 0.
