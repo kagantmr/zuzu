@@ -23,10 +23,6 @@
 #include "esr.h"
 #include <stdint.h>
 
-#ifdef CONFIG_ZUZU_BENCH
-BENCH_STAT(g_bench_lazy_map_fault, "lazy-map translation fault");
-BENCH_STAT(g_bench_irq_dispatch, "irq: ArchIrqDispatch");
-#endif
 
 const char *DecodeDfsc(uint32_t dfsc)
 {

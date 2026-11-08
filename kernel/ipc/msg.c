@@ -43,7 +43,7 @@ void __hot MsgBufCopy(TaskObject *restrict src, TaskObject *restrict dst, size_t
         bench_start = BENCH_BEGIN();
         const uint32_t *ws = (const uint32_t *)srcp;
         uint32_t *wd = (uint32_t *)(void *)g_bench_wordcopy_scratch;
-        uint32_t nwords = len / 4u;
+        uint32_t nwords = (uint32_t)(len / 4u);
         for (uint32_t i = 0; i < nwords; i++)
             wd[i] = ws[i];
         BENCH_END(g_bench_ipc_buf_copy_wordcopy, bench_start);
