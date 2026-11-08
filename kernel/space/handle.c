@@ -19,9 +19,7 @@ Err HandleCopyInto(HandleTable *dst_table, HandleTableEntry *src, HandlePerms pe
     ENSURE_RET(src->type < HANDLE_TYPE_COUNT && src->type != HANDLE_FREE, ERR_BADTYPE);
     Handle free_handle = HandleTableFindFree(dst_table);
     ENSURE_RET(free_handle >= 0, ERR_NOMEM);
-    HandleTableEntry *dst = HandleTableGet(dst_table, free_handle);
-    ENSURE_RET(dst, ERR_NOENT);
-    HandleEntryClaim(dst_table, dst);
+    HandleTableEntry *dst = HandleTableClaim(dst_table, free_handle);
 
     dst->perms = perms;
     dst->type = src->type;
@@ -69,10 +67,15 @@ Err HandleCopyInto(HandleTable *dst_table, HandleTableEntry *src, HandlePerms pe
 static bool HandleTableHoldsMem(HandleTable *t, const MemObject *mem,
                                 const HandleTableEntry *except)
 {
-    for (Handle i = 0; i < (Handle)HANDLE_MAX_SLOTS; i++) {
-        HandleTableEntry *e = HandleTableGet(t, i);
-        if (e && e != except && e->type == HANDLE_MEM && e->mem == mem)
-            return true;
+    for (uint32_t w = 0; w < BITMAP_WORDS(HANDLE_MAX_SLOTS); w++) {
+        uint32_t bits = t->slot_bitmap[w];
+        while (bits) {
+            uint32_t i = (w * 32U) + (uint32_t)__builtin_ctz(bits);
+            bits &= bits - 1U;
+            HandleTableEntry *e = HandleTableGet(t, (Handle)i);
+            if (e && e != except && e->type == HANDLE_MEM && e->mem == mem)
+                return true;
+        }
     }
     return false;
 }
@@ -91,7 +94,8 @@ void HandleRelease(SpaceObject *sp, HandleTableEntry *entry)
         bool device = mem && mem->kind == MEMKIND_DEVICE;
         Irq irq = device ? mem->dev.irq : 0;
         MemObjUnmapAndDrop(sp->as, entry->mapped_va, mem);
-        if (device && !HandleTableHoldsMem(&sp->handle_table, mem, entry))
+        if (device && IrqIsValid(irq) && GetIrqOwnersList()[irq].owner == sp &&
+            !HandleTableHoldsMem(&sp->handle_table, mem, entry))
             IrqRelease(sp, irq);
     } break;
     case HANDLE_TASK:

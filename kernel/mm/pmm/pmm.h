@@ -20,7 +20,7 @@
 #endif
 
 /** @brief Physical frame number (physical address divided by PAGE_SIZE). */
-typedef uint32_t Pfn;
+typedef size_t Pfn;
 
 /**
  * @brief Convert a frame number to its physical address.
@@ -53,6 +53,15 @@ typedef struct {
  * initialises the subscriber list.
  */
 void PmmInit(void);
+
+/**
+ * @brief Frees the RAM banks that PmmInit() held back.
+ *
+ * PmmInit() frees only the bank holding the kernel image, since the boot tables may map nothing
+ * else. Call this once the kernel's own tables map every bank, after VmmBootstrap(). The
+ * reserved-memory ranges and the initrd stay allocated.
+ */
+void PmmAddBanks(void);
 
 /**
  * @brief Read the current frame counts.

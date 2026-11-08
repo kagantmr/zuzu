@@ -13,7 +13,7 @@ extern "C" {
 #include <stdint.h>
 
 /** @brief Generic error code type. Never positive */
-typedef int32_t Err;
+typedef int Err;
 
 /** @brief No error has occurred, the operation was successful. */
 #define ZUZU_OK 0

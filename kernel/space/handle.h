@@ -63,7 +63,8 @@ typedef enum {
  * with it.
  */
 typedef struct HandleTableEntryStruct {
-    HandleType type;    /**< The kind of object, which selects the member of the union in use. */
+    HandleType type : 8;  /**< The kind of object, which selects the member of the union in use. */
+    uint16_t slot;        /**< This entry's slot index in its table, fixed when its block is made. */
     HandlePerms perms;  /**< What the holder may do with the object. */
     VirtAddr mapped_va; /**< For memory objects, where this handle has it mapped, or 0. */
     union {
@@ -95,7 +96,10 @@ typedef struct {
     HandleBlock *blocks[HANDLE_MAX_BLOCKS]; /**< The blocks; NULL for those not allocated yet. */
     uint32_t
         slot_bitmap[BITMAP_WORDS(HANDLE_MAX_SLOTS)]; /**< One bit per slot, set while in use. */
+    uint32_t full_words; /**< One bit per slot_bitmap word, set while that word is full. */
 } HandleTable;
+
+_Static_assert(BITMAP_WORDS(HANDLE_MAX_SLOTS) == 32, "full_words has one bit per bitmap word");
 
 /**
  * @brief Set up an empty handle table.
@@ -116,6 +120,7 @@ static inline void HandleTableDestroy(HandleTable *t)
         t->blocks[b] = NULL;
     }
     BitmapZero(t->slot_bitmap, HANDLE_MAX_SLOTS);
+    t->full_words = 0;
 }
 
 /**
@@ -145,9 +150,15 @@ static __always_inline HandleTableEntry *HandleTableGet(HandleTable *t, Handle i
 static inline bool HandleBlockEnsure(HandleTable *t, uint32_t i)
 {
     uint32_t b = i / HANDLE_BLOCK_SLOTS;
-    if (!t->blocks[b])
-        t->blocks[b] = KZAlloc(sizeof(HandleBlock));
-    return t->blocks[b] != NULL;
+    if (t->blocks[b])
+        return true;
+    HandleBlock *blk = KZAlloc(sizeof(HandleBlock));
+    if (!blk)
+        return false;
+    for (uint32_t j = 0; j < HANDLE_BLOCK_SLOTS; j++)
+        (*blk)[j].slot = (uint16_t)((b * HANDLE_BLOCK_SLOTS) + j);
+    t->blocks[b] = blk;
+    return true;
 }
 
 /**
@@ -158,8 +169,12 @@ static inline bool HandleBlockEnsure(HandleTable *t, uint32_t i)
  */
 static inline Handle HandleTableFindFree(HandleTable *t)
 {
-    int slot = BitmapFindFirstZero(t->slot_bitmap, HANDLE_MAX_SLOTS);
-    if (slot < 0 || !HandleBlockEnsure(t, (uint32_t)slot))
+    uint32_t open = ~t->full_words;
+    if (!open)
+        return -1;
+    uint32_t w = (uint32_t)__builtin_ctz(open);
+    uint32_t slot = (w * 32U) + (uint32_t)__builtin_ctz(~t->slot_bitmap[w]);
+    if (!HandleBlockEnsure(t, slot))
         return -1;
     return (Handle)slot;
 }
@@ -194,20 +209,16 @@ static inline HandleTableEntry *HandleTableGetOrAlloc(HandleTable *t, Handle i)
 }
 
 /**
- * @brief Find the slot index of an entry by its address.
+ * @brief Get the slot index of an entry.
  *
  * @param[in] t The table the entry belongs to.
  * @param[in] e The entry.
- * @return The slot index, or HANDLE_MAX_SLOTS if @p e is not in the table.
+ * @return The slot index recorded in @p e when its block was allocated.
  */
 static inline uint32_t HandleEntryIndex(const HandleTable *t, const HandleTableEntry *e)
 {
-    for (uint32_t b = 0; b < HANDLE_MAX_BLOCKS; b++) {
-        const HandleTableEntry *base = t->blocks[b] ? (*t->blocks[b]) : NULL;
-        if (base && e >= base && e < base + HANDLE_BLOCK_SLOTS)
-            return (b * HANDLE_BLOCK_SLOTS) + (uint32_t)(e - base);
-    }
-    return HANDLE_MAX_SLOTS;
+    (void)t;
+    return e->slot;
 }
 
 /**
@@ -219,8 +230,29 @@ static inline uint32_t HandleEntryIndex(const HandleTable *t, const HandleTableE
 static inline void HandleEntryClaim(HandleTable *t, HandleTableEntry *e)
 {
     uint32_t i = HandleEntryIndex(t, e);
-    if (i < HANDLE_MAX_SLOTS)
-        BitmapSet(t->slot_bitmap, i);
+    if (i >= HANDLE_MAX_SLOTS)
+        return;
+    BitmapSet(t->slot_bitmap, i);
+    if (t->slot_bitmap[i / 32U] == 0xFFFFFFFFU)
+        t->full_words |= 1U << (i / 32U);
+}
+
+/**
+ * @brief Mark a slot returned by HandleTableFindFree() as in use and get its entry.
+ *
+ * @param[in] t The table.
+ * @param[in] i A slot index from HandleTableFindFree(), whose block therefore exists.
+ * @return The entry.
+ */
+static inline __attribute__((returns_nonnull)) HandleTableEntry *HandleTableClaim(HandleTable *t,
+                                                                                  Handle i)
+{
+    uint32_t slot = (uint32_t)i & (HANDLE_MAX_SLOTS - 1U);
+    HandleTableEntry *e = &(*t->blocks[slot / HANDLE_BLOCK_SLOTS])[slot % HANDLE_BLOCK_SLOTS];
+    BitmapSet(t->slot_bitmap, slot);
+    if (t->slot_bitmap[slot / 32U] == 0xFFFFFFFFU)
+        t->full_words |= 1U << (slot / 32U);
+    return e;
 }
 
 /**
@@ -234,10 +266,14 @@ static inline void HandleEntryClaim(HandleTable *t, HandleTableEntry *e)
 static inline void HandleEntryFree(HandleTable *t, HandleTableEntry *e)
 {
     uint32_t i = HandleEntryIndex(t, e);
-    if (i < HANDLE_MAX_SLOTS)
+    if (i < HANDLE_MAX_SLOTS) {
         BitmapClr(t->slot_bitmap, i);
+        t->full_words &= ~(1U << (i / 32U));
+    }
     uint32_t next_gen = (e->generation + 1) & HANDLE_GEN_MASK;
+    uint16_t slot = e->slot;
     memset(e, 0, sizeof(*e));
+    e->slot = slot;
     e->generation = next_gen;
 }
 

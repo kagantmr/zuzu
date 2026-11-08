@@ -244,7 +244,7 @@ static void HandleConnect(bool provider, const PortWaitResult *r)
     if (err == ZUZU_OK) {
         va = MemMap(r->granted, 0, PROT_RW);
         if (PtrIsErr(va))
-            err = (Err)va;
+            err = (Err)(intptr_t)va;
     }
     SvcResult bell = {.r0 = (Register)err};
     if (err == ZUZU_OK)

@@ -5,4 +5,4 @@ obj-y += snprintf.o
 obj-y += string.o
 obj-y += zxf.o
 
-subdir-y += arm
+subdir-y += $(if $(wildcard klib/$(ARCH)/build.mk),$(ARCH))
