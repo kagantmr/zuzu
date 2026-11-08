@@ -162,9 +162,11 @@ PhysAddr ArchMmuTranslate(PhysAddr ttbr_pa, VirtAddr va);
 bool ArchMmuUnmapPage(AddressSpace *as, VirtAddr va);
 
 /**
- * @brief Frees the anonymous memory still mapped in a user space, before its tables are freed.
+ * @brief Frees the anonymous memory still mapped in a user space, and all of its tables.
  *
- * Pages that belong to memory objects, device mappings and the syspage are left alone.
+ * Pages that belong to memory objects, device mappings and the syspage are left alone. The
+ * space's TLB entries are flushed first, and pt_root_physaddr is 0 afterwards, so
+ * AddressSpaceDestroy() skips the flush and the per-region unmaps.
  *
  * @param[in] as Address space; ignored if NULL.
  */

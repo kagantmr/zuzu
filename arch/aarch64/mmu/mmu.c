@@ -505,63 +505,83 @@ bool ArchMmuUnmapPage(AddressSpace *as, VirtAddr va)
     return true;
 }
 
+/** @brief Walks the sorted region list alongside an ascending scan of user addresses. */
+typedef struct {
+    const AddressSpace *as; /**< Address space being torn down. */
+    uint32_t idx;           /**< First region that may still contain the next address. */
+} RegionCursor;
+
 /**
- * @brief Finds what backs a user address.
+ * @brief Finds what backs a user address, for addresses passed in ascending order.
  *
- * @param[in] as Address space.
- * @param[in] va Virtual address.
+ * @param[in,out] rc Cursor; advanced past regions that end at or below @p va.
+ * @param[in]     va Virtual address, not below the previous call's.
  * @return The backing of the region that contains @p va, or VM_BACKING_ANON if none does.
  */
-static VirtMemBacking RegionOwnerForVa(const AddressSpace *as, VirtAddr va)
+static VirtMemBacking RegionCursorOwner(RegionCursor *rc, VirtAddr va)
 {
-    for (uint32_t i = 0; i < as->regions.len; i++) {
-        const VirtMemRegion *r = vm_region_vec_get_const(&as->regions, i);
-        if (!r)
-            continue;
-
-        VirtAddr start = r->vaddr_start;
-        VirtAddr end = start + r->size;
-        if (end < start)
-            continue;
-
-        if (va >= start && va < end)
-            return r->owner;
+    while (rc->idx < rc->as->regions.len) {
+        const VirtMemRegion *r = &rc->as->regions.data[rc->idx];
+        VirtAddr end = r->vaddr_start + r->size;
+        if (end >= r->vaddr_start && va < end)
+            return va >= r->vaddr_start ? r->owner : VM_BACKING_ANON;
+        rc->idx++;
     }
-
     return VM_BACKING_ANON;
 }
 
 /**
- * @brief WalkRange() callback for ArchMmuFreeUserPages(): frees anonymous pages' frames.
+ * @brief Frees a user table, every table below it, and the anonymous pages they map.
  *
- * Skips blocks, the syspage, device memory and pages owned by memory objects. The entry is not
- * cleared, since the tables are freed right after.
+ * Skips blocks, the syspage, device memory, pages owned by memory objects and pages at or above
+ * USER_VA_TOP. Runs of eight empty entries are skipped with one test.
  *
- * @param[in] slot  Leaf entry.
- * @param[in] level Its level.
- * @param[in] va    Address of the page.
- * @param[in] ctx   The AddressSpace being torn down.
+ * @param[in]     table Table at @p level.
+ * @param[in]     level Translation level of @p table.
+ * @param[in]     base  Virtual address the table's first entry maps.
+ * @param[in,out] rc    Region cursor.
  */
-static void FreeAnonPage(AArch64Pte *slot, int level, VirtAddr va, void *ctx)
+static void FreeUserLevel(AArch64Pte *table, int level, VirtAddr base, RegionCursor *rc)
 {
-    AArch64Pte e = *slot;
+    uint64_t size = PteLevelSize(level);
 
-    if (level != PTE_LEVEL_LAST || va == USER_SYSPAGE_VA)
-        return;
-    if ((e & PTE_ATTRINDX_MASK) == PTE_ATTRINDX(PTE_ATTRINDX_DEVICE))
-        return;
-    if (RegionOwnerForVa((const AddressSpace *)ctx, va) != VM_BACKING_ANON)
-        return;
+    for (unsigned g = 0; g < PTE_ENTRIES; g += 8) {
+        const AArch64Pte *p = &table[g];
+        if (!(p[0] | p[1] | p[2] | p[3] | p[4] | p[5] | p[6] | p[7]))
+            continue;
+        for (unsigned i = g; i < g + 8; i++) {
+            AArch64Pte e = table[i];
+            VirtAddr va = base + (VirtAddr)i * size;
 
-    PmmFreeFrame(e & PTE_ADDR_MASK);
+            if (!(e & PTE_VALID))
+                continue;
+            if (PteIsTable(e, level)) {
+                FreeUserLevel(TableOf(e), level + 1, va, rc);
+                continue;
+            }
+            if (level != PTE_LEVEL_LAST || va >= USER_VA_TOP || va == USER_SYSPAGE_VA)
+                continue;
+            if ((e & PTE_ATTRINDX_MASK) == PTE_ATTRINDX(PTE_ATTRINDX_DEVICE))
+                continue;
+            if (RegionCursorOwner(rc, va) != VM_BACKING_ANON)
+                continue;
+            PmmFreeFrame(e & PTE_ADDR_MASK);
+        }
+    }
+    PmmFreeFrame(VA_TO_PA((VirtAddr)table));
 }
 
 void ArchMmuFreeUserPages(AddressSpace *as)
 {
-    if (!as)
+    if (!as || !as->pt_root_physaddr)
         return;
 
-    WalkRange(RootOf(as), 0, USER_VA_TOP, FreeAnonPage, as);
+    if (as->asid_token.asid != 0)
+        ArchMmuFlushTlbAsid(as->asid_token.asid);
+
+    RegionCursor rc = {.as = as, .idx = 0};
+    FreeUserLevel(RootOf(as), 0, 0, &rc);
+    as->pt_root_physaddr = 0;
 }
 
 void ArchMmuInitTtbr1(AddressSpace *as)

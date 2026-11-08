@@ -181,14 +181,16 @@ void AddressSpaceDestroy(AddressSpace *as)
               as->asid_token.asid);
     }
 
-    if (as->asid_token.asid != 0)
+    bool has_tables = as->pt_root_physaddr != 0;
+    if (has_tables && as->asid_token.asid != 0)
         ArchMmuFlushTlbAsid(as->asid_token.asid);
 
     for (uint32_t i = 0; i < as->regions.len; i++) {
         VirtMemRegion *r = vm_region_vec_get(&as->regions, i);
         if (!r)
             continue;
-        VmmUnmapRange(as, r->vaddr_start, r->size, false);
+        if (has_tables)
+            VmmUnmapRange(as, r->vaddr_start, r->size, false);
         MemObjUnref((MemObject *)r->backing);
     }
 
