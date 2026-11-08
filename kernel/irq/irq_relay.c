@@ -4,6 +4,7 @@
  */
 
 #include "irq_relay.h"
+#include "kernel/space/space.h"
 #include "kernel/sched/sched.h"
 #include <arch/irq.h>
 #include <compiler.h>
@@ -53,6 +54,7 @@ Err IrqBindToEvent(SpaceObject *owner, Irq irq_num, EventObject *ev, uint32_t bi
         irq_owners[irq_num] =
             (IrqOwner){.bound_ev = NULL, .owner = owner, .pending = false, .bit = bit};
         ArchIrqRegister(irq_num, RelayIrqHandler, (void *)(VirtAddr)irq_num);
+        owner->irqs_owned++;
     }
     if (irq_owners[irq_num].bound_ev) {
         EventObject *old = irq_owners[irq_num].bound_ev;
@@ -84,13 +86,16 @@ void IrqRelease(SpaceObject *owner, Irq irq_num)
         EventUnref(ev);
     }
     irq_owners[irq_num] = (IrqOwner){.bound_ev = NULL, .owner = NULL, .pending = false};
+    owner->irqs_owned--;
     ArchIrqMaskLine(irq_num);
 }
 
 void IrqReleaseAll(SpaceObject *owner)
 {
-    for (Irq irq_num = 0; irq_num < MAX_IRQS; irq_num++)
-        IrqRelease(owner, irq_num);
+    for (Irq irq_num = 0; irq_num < MAX_IRQS && owner->irqs_owned; irq_num++) {
+        if (irq_owners[irq_num].owner == owner)
+            IrqRelease(owner, irq_num);
+    }
 }
 
 Err IrqRelayRearm(SpaceObject *owner, Irq irq_num)

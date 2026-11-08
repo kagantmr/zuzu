@@ -209,16 +209,21 @@ void SpaceDestroy(SpaceObject *sp)
 
     IrqReleaseAll(sp);
 
-    for (uint32_t i = 0; i < HANDLE_MAX_SLOTS; i++) {
-        HandleTableEntry *entry = HandleTableGet(&sp->handle_table, (Handle)i);
-        if (!entry || entry->type == HANDLE_FREE)
-            continue;
-        if (entry->type == HANDLE_PORT && entry->port && entry->port->owner_spid == sp->spid)
-            PortKill(entry->port);
-        else if (entry->type == HANDLE_EVENT && entry->event &&
-                 entry->event->owner_spid == sp->spid)
-            EventKill(entry->event);
-        HandleRelease(sp, entry);
+    for (uint32_t w = 0; w < BITMAP_WORDS(HANDLE_MAX_SLOTS); w++) {
+        uint32_t bits = sp->handle_table.slot_bitmap[w];
+        while (bits) {
+            uint32_t i = (w * 32U) + (uint32_t)__builtin_ctz(bits);
+            bits &= bits - 1U;
+            HandleTableEntry *entry = HandleTableGet(&sp->handle_table, (Handle)i);
+            if (!entry || entry->type == HANDLE_FREE)
+                continue;
+            if (entry->type == HANDLE_PORT && entry->port && entry->port->owner_spid == sp->spid)
+                PortKill(entry->port);
+            else if (entry->type == HANDLE_EVENT && entry->event &&
+                     entry->event->owner_spid == sp->spid)
+                EventKill(entry->event);
+            HandleRelease(sp, entry);
+        }
     }
 
     if (sp->as) {

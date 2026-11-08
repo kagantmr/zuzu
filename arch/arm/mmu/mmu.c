@@ -671,69 +671,89 @@ bool ArchMmuUnmapPage(AddressSpace *as, VirtAddr va)
     return true;
 }
 
+/** @brief Walks the sorted region list alongside an ascending scan of user addresses. */
+typedef struct {
+    const AddressSpace *as; /**< Address space being torn down. */
+    uint32_t idx;           /**< First region that may still contain the next address. */
+} RegionCursor;
+
 /**
- * @brief Finds what backs the region containing an address.
+ * @brief Finds what backs a user address, for addresses passed in ascending order.
  *
- * @param[in] as Address space.
- * @param[in] va Virtual address.
- * @return The region's backing, or VM_BACKING_ANON if no region contains @p va.
+ * @param[in,out] rc Cursor; advanced past regions that end at or below @p va.
+ * @param[in]     va Virtual address, not below the previous call's.
+ * @return The backing of the region that contains @p va, or VM_BACKING_ANON if none does.
  */
-static VirtMemBacking mmu_region_owner_for_va(const AddressSpace *as, VirtAddr va)
+static VirtMemBacking RegionCursorOwner(RegionCursor *rc, VirtAddr va)
 {
-    if (!as)
-        return VM_BACKING_ANON;
-
-    for (uint32_t i = 0; i < as->regions.len; i++) {
-        const VirtMemRegion *r = vm_region_vec_get_const(&as->regions, i);
-        if (!r)
-            continue;
-
-        VirtAddr start = r->vaddr_start;
-        VirtAddr end = start + r->size;
-        if (end < start)
-            continue;
-
-        if (va >= start && va < end)
-            return r->owner;
+    while (rc->idx < rc->as->regions.len) {
+        const VirtMemRegion *r = &rc->as->regions.data[rc->idx];
+        VirtAddr end = r->vaddr_start + r->size;
+        if (end >= r->vaddr_start && va < end)
+            return va >= r->vaddr_start ? r->owner : VM_BACKING_ANON;
+        rc->idx++;
     }
-
     return VM_BACKING_ANON;
+}
+
+/**
+ * @brief Frees the anonymous pages an L2 table maps, then the table.
+ *
+ * @param[in]     l2_pa Physical address of the L2 table.
+ * @param[in]     base  Virtual address of the table's section.
+ * @param[in,out] rc    Region cursor.
+ */
+static void FreeUserL2(uint32_t l2_pa, VirtAddr base, RegionCursor *rc)
+{
+    const uint32_t *l2 = (const uint32_t *)PA_TO_VA(l2_pa);
+
+    for (size_t g = 0; g < L2_ENTRIES; g += 8) {
+        const uint32_t *p = &l2[g];
+        if (!(p[0] | p[1] | p[2] | p[3] | p[4] | p[5] | p[6] | p[7]))
+            continue;
+        for (size_t j = g; j < g + 8; j++) {
+            uint32_t e = l2[j];
+            VirtAddr va = base | ((VirtAddr)j << MMU_PAGE_SHIFT);
+
+            if (!(e & L2_SMALL_TAG) || va == USER_SYSPAGE_VA)
+                continue;
+            if ((e & L2_PAGE_ATTR_MASK) == L2_PAGE_ATTR_DEVICE)
+                continue;
+            if (RegionCursorOwner(rc, va) != VM_BACKING_ANON)
+                continue;
+            PmmFreeFrame(e & L2_SMALL_BASE_MASK);
+        }
+    }
+    L2PtPoolFree(l2_pa);
 }
 
 void ArchMmuFreeUserPages(AddressSpace *as)
 {
-    if (!as)
+    if (!as || !as->pt_root_physaddr)
         return;
 
-    uint32_t *l1 = (uint32_t *)PA_TO_VA(as->pt_root_physaddr);
+    if (as->asid_token.asid != 0)
+        ArchMmuFlushTlbAsid(as->asid_token.asid);
 
+    PhysAddr ttbr_pa = as->pt_root_physaddr;
+    const uint32_t *l1 = (const uint32_t *)PA_TO_VA(ttbr_pa);
     size_t entries = l1_entry_count(ADDRESS_SPACE_USER);
-    for (size_t i = 0; i < entries; i++) {
-        uint32_t l1_entry = l1[i];
+    RegionCursor rc = {.as = as, .idx = 0};
 
-        if ((l1_entry & DESC_TYPE_MASK) != DESC_L2)
+    for (size_t g = 0; g < entries; g += 8) {
+        const uint32_t *p = &l1[g];
+        if (!(p[0] | p[1] | p[2] | p[3] | p[4] | p[5] | p[6] | p[7]))
             continue;
-
-        uint32_t *l2 = (uint32_t *)PA_TO_VA(l1_entry & L1_L2PTR_BASE_MASK);
-
-        for (size_t j = 0; j < L2_ENTRIES; j++) {
-            if (!(l2[j] & L2_SMALL_TAG))
-                continue;
-
-            VirtAddr va = ((VirtAddr)i << MMU_SECTION_SHIFT) | ((VirtAddr)j << MMU_PAGE_SHIFT);
-
-            if (va == USER_SYSPAGE_VA)
-                continue;
-
-            if (mmu_region_owner_for_va(as, va) != VM_BACKING_ANON)
-                continue;
-
-            if ((l2[j] & L2_PAGE_ATTR_MASK) == L2_PAGE_ATTR_DEVICE)
-                continue;
-
-            PmmFreeFrame(l2[j] & L2_SMALL_BASE_MASK);
+        for (size_t i = g; i < g + 8; i++) {
+            if ((l1[i] & DESC_TYPE_MASK) == DESC_L2)
+                FreeUserL2(l1[i] & L1_L2PTR_BASE_MASK, (VirtAddr)i << MMU_SECTION_SHIFT, &rc);
         }
     }
+
+    size_t pages = l1_table_pages(ADDRESS_SPACE_USER);
+    for (size_t i = 0; i < pages; i++)
+        PmmFreeFrame(ttbr_pa + i * PAGE_SIZE);
+    as->pt_root_physaddr = 0;
 }
 
 void ArchMmuInitTtbr1(AddressSpace *as)
