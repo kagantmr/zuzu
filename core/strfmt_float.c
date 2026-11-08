@@ -1,7 +1,6 @@
 /**
  * @file strfmt_float.c
- * @brief Kernel stand-in for strfmt_float(): the kernel has no floating point, so %f/%e/%g print
- * the conversion letter.
+ * @brief Kernel stand-in for strfmt_float()
  */
 
 #include <string.h>

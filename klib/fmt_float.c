@@ -5,6 +5,14 @@
 
 #include "string.h"
 
+/**
+ * @brief Writes an unsigned integer in decimal.
+ *
+ * @param[out] buf Receives the digits and a terminating NUL; needs room for 21 characters.
+ * @param[in]  v   Value to write.
+ *
+ * @return Number of digits written, not counting the NUL.
+ */
 static int utoa_dec(char *buf, unsigned long long v)
 {
     char tmp[24];

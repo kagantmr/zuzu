@@ -36,10 +36,19 @@ typedef struct CpuStateStruct {
 
 /** @brief Kernel registers kept across a context switch, on the kernel stack. */
 typedef struct {
-    Register x19, x20, x21, x22, x23, x24, x25, x26, x27, x28; /**< Saved registers per AAPCS64 */
-    Register fp; /* x29 */
-    Register lr; /* x30: where ContextSwitch "returns" into this task */
-} CpuContext;    /* 12 * 8 = 96 bytes, already a multiple of 16 */
+    Register x19; /**< Saved registers per AAPCS64 */
+    Register x20; /**< Saved registers per AAPCS64 */
+    Register x21; /**< Saved registers per AAPCS64 */
+    Register x22; /**< Saved registers per AAPCS64 */
+    Register x23; /**< Saved registers per AAPCS64 */
+    Register x24; /**< Saved registers per AAPCS64 */
+    Register x25; /**< Saved registers per AAPCS64 */
+    Register x26; /**< Saved registers per AAPCS64 */
+    Register x27; /**< Saved registers per AAPCS64 */
+    Register x28; /**< Saved registers per AAPCS64 */
+    Register fp;  /**< x29, frame pointer */
+    Register lr;  /**< x30: where ContextSwitch "returns" into this task */
+} CpuContext;
 
 /**
  * @brief Points at general-purpose register @p i (x0-x30) of a frame.

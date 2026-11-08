@@ -146,6 +146,12 @@ const char *EcName(EsrClass ec)
     }
 }
 
+/**
+ * @brief Handles a synchronous exception from the kernel, mostly by reporting the fault 
+ * and then panicking.
+ * 
+ * @param[in, out] frame The CPU frame at the time the exception was raised.
+ */
 void KernelSyncException(CpuState *frame);
 
 void KernelSyncException(CpuState *frame)
@@ -184,7 +190,7 @@ void KernelSyncException(CpuState *frame)
             if (EsrIsTranslationFault(iss) && VmmDemandPage(space->as, fa, write))
                 return;
 
-            KERROR("Oops! Kernel fault on a user address in a syscall from '%s' (SPID %d, TID %d) "
+            KERROR("Oops! Kernel fault on a user address in a svc from '%s' (SPID %d, TID %d) "
                    "pc=" REG_FMT " @ " REG_FMT " (%s %s)",
                    space->name, space->spid, current_task->tid, REG_ARG(frame->return_pc),
                    REG_ARG(far), write ? "write" : "read", DecodeDfsc(iss & 0x3F));
