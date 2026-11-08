@@ -162,7 +162,7 @@ static Worker *WorkerStartAt(WorkerFn fn, void *arg, int priority)
         return NULL;
     }
     *w = (Worker){.fn = fn, .arg = arg, .stack = stack, .task = task, .used = true};
-    if (TaskStart(task, (void *)WorkerEntry, stack + WORKER_STACK, (Register)(uintptr_t)w, 0) !=
+    if (TaskStart(task, (void *)WorkerEntry, stack + WORKER_STACK, (Register)(VirtAddr)w, 0) !=
         ZUZU_OK) {
         HandleClose(task);
         MemUnmap(stack);
@@ -492,7 +492,7 @@ static void TestMemory(void)
     BeginSection("memory");
 
     uint8_t *a = MemMapAnon(8192, 0, PROT_RW);
-    Check(!PtrIsErr(a) && ((uintptr_t)a % 4096) == 0, "MemMapAnon returns a page-aligned address");
+    Check(!PtrIsErr(a) && ((VirtAddr)a % 4096) == 0, "MemMapAnon returns a page-aligned address");
     volatile uint32_t *p = (volatile uint32_t *)a;
     CheckEq((int32_t)p[0], 0, "fresh anon memory reads as zero (page 0)");
     CheckEq((int32_t)p[1024], 0, "fresh anon memory reads as zero (page 1)");
@@ -537,7 +537,7 @@ static void TestMemory(void)
     Handle mem = CreateMem(2, 0);
     Check(mem >= 0, "CreateMem(2) OK");
     uint8_t *m = MemMap(mem, 0, PROT_RW);
-    Check(!PtrIsErr(m) && ((uintptr_t)m % 4096) == 0, "MemMap(mem) OK");
+    Check(!PtrIsErr(m) && ((VirtAddr)m % 4096) == 0, "MemMap(mem) OK");
     memset((void *)m, 0x77, 8192);
     CheckEq(((volatile uint8_t *)m)[8191], 0x77, "shared memory spans both pages");
     CheckEq(PtrErr(MemMap(mem, 0, PROT_RW)), ERR_BUSY, "mapping a handle twice -> BUSY");
