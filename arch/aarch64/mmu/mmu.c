@@ -234,14 +234,14 @@ static void FreeLevel(AArch64Pte *table, int level)
     PmmFreeFrame(VA_TO_PA((VirtAddr)table));
 }
 
-uintptr_t ArchMmuCreateTables(AddressSpaceType type)
+PhysAddr ArchMmuCreateTables(AddressSpaceType type)
 {
     (void)type;
     PhysAddr pa = AllocTable();
-    return pa == PA_NULL ? 0 : (uintptr_t)pa;
+    return pa == PA_NULL ? 0 : pa;
 }
 
-void ArchMmuFreeTables(uintptr_t ttbr_pa, AddressSpaceType type)
+void ArchMmuFreeTables(PhysAddr ttbr_pa, AddressSpaceType type)
 {
     (void)type;
     if (!ttbr_pa)
@@ -263,7 +263,8 @@ static bool FitsBlock(VirtAddr va, PhysAddr pa, size_t left)
     return !((va | pa) & (size - 1)) && left >= size;
 }
 
-static bool MapRange(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, MemProt prot,
+
+static bool MapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size, MemProt prot,
                      VirtMemType memtype, bool allow_blocks)
 {
     if ((va | pa | size) & (PAGE_SIZE - 1))
@@ -295,13 +296,13 @@ static bool MapRange(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, 
     return true;
 }
 
-bool ArchMmuMap(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, MemProt prot,
+bool ArchMmuMap(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size, MemProt prot,
                 VirtMemType memtype)
 {
     return MapRange(as, va, pa, size, prot, memtype, true);
 }
 
-bool ArchMmuMapPages(AddressSpace *as, uintptr_t va, uintptr_t pa, size_t size, MemProt prot,
+bool ArchMmuMapPages(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size, MemProt prot,
                 VirtMemType memtype)
 {
     return MapRange(as, va, pa, size, prot, memtype, false);
@@ -335,7 +336,7 @@ static void ClearSlot(AArch64Pte *slot, int level, VirtAddr va, void *ctx)
     c->found = true;
 }
 
-bool ArchMmuUnmap(AddressSpace *as, uintptr_t va, size_t size, bool flush)
+bool ArchMmuUnmap(AddressSpace *as, VirtAddr va, size_t size, bool flush)
 {
     ClearCtx c = {.end = va + size, .found = false};
 
@@ -380,7 +381,7 @@ static void ProtectSlot(AArch64Pte *slot, int level, VirtAddr va, void *ctx)
     c->changed = true;
 }
 
-bool ArchMmuProtect(AddressSpace *as, uintptr_t va, size_t size, MemProt prot)
+bool ArchMmuProtect(AddressSpace *as, VirtAddr va, size_t size, MemProt prot)
 {
     ProtectCtx c = {.prot = prot, .changed = false};
 
@@ -445,7 +446,7 @@ void ArchMmuFlushTlbAsid(Asid asid)
                      : "memory");
 }
 
-void ArchMmuFlushTlbVa(uintptr_t va)
+void ArchMmuFlushTlbVa(VirtAddr va)
 {
     __asm__ volatile("dsb ishst\n"
                      "tlbi vaae1, %0\n"
@@ -454,7 +455,7 @@ void ArchMmuFlushTlbVa(uintptr_t va)
                      : "memory");
 }
 
-void ArchMmuFlushTlbVaAsid(uintptr_t va, Asid asid)
+void ArchMmuFlushTlbVaAsid(VirtAddr va, Asid asid)
 {
     if (asid == 0) {
         ArchMmuFlushTlbVa(va);
@@ -468,7 +469,7 @@ void ArchMmuFlushTlbVaAsid(uintptr_t va, Asid asid)
                      : "memory");
 }
 
-uintptr_t ArchMmuTranslate(uintptr_t ttbr_pa, uintptr_t va)
+PhysAddr ArchMmuTranslate(PhysAddr ttbr_pa, VirtAddr va)
 {
     int level;
     AArch64Pte *slot = Lookup((AArch64Pte *)PA_TO_VA(ttbr_pa), va, &level);
@@ -476,10 +477,10 @@ uintptr_t ArchMmuTranslate(uintptr_t ttbr_pa, uintptr_t va)
         return 0;
 
     uint64_t size = PteLevelSize(level);
-    return (uintptr_t)((*slot & PTE_ADDR_MASK & ~(size - 1)) | (va & (size - 1)));
+    return (PhysAddr)((*slot & PTE_ADDR_MASK & ~(size - 1)) | (va & (size - 1)));
 }
 
-bool ArchMmuUnmapPage(AddressSpace *as, uintptr_t va)
+bool ArchMmuUnmapPage(AddressSpace *as, VirtAddr va)
 {
     int level;
     AArch64Pte *slot = Lookup(RootOf(as), va, &level);
