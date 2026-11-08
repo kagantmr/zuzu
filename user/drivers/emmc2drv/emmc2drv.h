@@ -63,6 +63,8 @@ typedef struct {
 
 #define SDHCI_BLKSZ_BOUNDARY_512K (7u << 12)
 
+#define SDHCI_CAN_DO_SDMA (1u << 22)
+
 #define MCI_BLOCK_SIZE 512u
 #define MCI_BLOCK_WORDS (MCI_BLOCK_SIZE / 4u)
 
