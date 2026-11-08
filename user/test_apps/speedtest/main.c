@@ -132,6 +132,18 @@ static void BenchNullSyscall(void)
     Report("syscall (null)", SAMPLES);
 }
 
+static void BenchUptime(void)
+{
+    volatile uint64_t sink = 0;
+    for (uint32_t i = 0; i < SAMPLES; i++)
+        TIMED(g_samples, i, sink += UptimeCounts());
+    Report("uptime counts read", SAMPLES);
+    for (uint32_t i = 0; i < SAMPLES; i++)
+        TIMED(g_samples, i, sink += UptimeUs());
+    Report("uptime us", SAMPLES);
+    (void)sink;
+}
+
 static void BenchYield(void)
 {
     for (uint32_t i = 0; i < WARMUP; i++)
@@ -284,6 +296,27 @@ static void BenchHandleOps(void)
     }
     Report("handle duplicate", SAMPLES);
     ReportBuf("handle close", g_samples_b, SAMPLES);
+
+    static Handle held[768];
+    uint32_t nheld = 0;
+    while (nheld < 768) {
+        SvcResult d = HandleDuplicate(ev, PERM_SEND, MARKER_NONE);
+        if (d.r0 != ZUZU_OK)
+            break;
+        held[nheld++] = (Handle)d.r1;
+    }
+    for (uint32_t i = 0; i < SAMPLES; i++) {
+        SvcResult d;
+        TIMED(g_samples, i, d = HandleDuplicate(ev, PERM_SEND, MARKER_NONE));
+        TIMED(g_samples_b, i, HandleClose((Handle)d.r1));
+    }
+    char name[48];
+    snprintf(name, sizeof(name), "handle duplicate (%u held)", (unsigned)nheld);
+    Report(name, SAMPLES);
+    snprintf(name, sizeof(name), "handle close (%u held)", (unsigned)nheld);
+    ReportBuf(name, g_samples_b, SAMPLES);
+    for (uint32_t i = 0; i < nheld; i++)
+        HandleClose(held[i]);
 
     for (uint32_t i = 0; i < WARMUP; i++)
         Signal(ev, 1, false);
@@ -508,6 +541,7 @@ int main(void)
            WARMUP, g_khz / 1000, g_khz % 1000, g_overhead);
 
     RunSection("null syscall", BenchNullSyscall);
+    RunSection("uptime", BenchUptime);
     RunSection("yield", BenchYield);
     RunSection("sleep", BenchSleep);
     RunSection("handle ops", BenchHandleOps);
