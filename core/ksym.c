@@ -12,7 +12,7 @@ static const KsymEntry KSYM_FALLBACK_TABLE[] = {{0, ""}};
 /** @brief Weak default table pointer, referring to the fallback table; overridden by the generated table. */
 __attribute__((weak)) const KsymEntry *ksym_table = KSYM_FALLBACK_TABLE;
 
-const char *KSymLookup(uintptr_t addr)
+const char *KSymLookup(VirtAddr addr)
 {
     if (ksym_count == 0) {
         return NULL;
@@ -35,14 +35,14 @@ const char *KSymLookup(uintptr_t addr)
     return result;
 }
 
-uintptr_t KSymLookupBaseAddr(uintptr_t addr)
+VirtAddr KSymLookupBaseAddr(VirtAddr addr)
 {
     if (ksym_count == 0)
         return 0;
 
     size_t lo = 0;
     size_t hi = ksym_count - 1;
-    uintptr_t result = 0;
+    VirtAddr result = 0;
     while (lo <= hi) {
         size_t mid = lo + ((hi - lo) / 2);
         if (ksym_table[mid].addr <= addr) {

@@ -152,7 +152,7 @@ static __always_inline void SlabFree(KSlabCache *cache, void *ptr)
     assert(cache != NULL);
     assert(ptr != NULL);
 
-    KSlab *slab = (KSlab *)align_down((uintptr_t)ptr, PAGE_SIZE);
+    KSlab *slab = (KSlab *)align_down((VirtAddr)ptr, PAGE_SIZE);
     assert(slab->owner_cache == cache);
 
     bool was_full = (slab->free_head == NULL);
@@ -171,7 +171,7 @@ static __always_inline void SlabFree(KSlabCache *cache, void *ptr)
         if (cache->empty_hold == NULL) {
             cache->empty_hold = slab;
         } else {
-            PmmFreeFrame(VA_TO_PA((uintptr_t)slab));
+            PmmFreeFrame(VA_TO_PA((VirtAddr)slab));
         }
     }
 }
@@ -335,7 +335,7 @@ void KFree(void *ptr)
         return;
     }
 
-    if (((uintptr_t)ptr % ALIGNMENT) != 0) {
+    if (((VirtAddr)ptr % ALIGNMENT) != 0) {
         KERROR("KFree: pointer not aligned");
         return;
     }

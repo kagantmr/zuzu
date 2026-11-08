@@ -233,12 +233,12 @@ bool VmmCheckUserFault(AddressSpace *as, VirtAddr va, size_t len, bool write)
     if (va > UINTPTR_MAX - len)
         return false;
 
-    const uintptr_t end = va + len;
+    const VirtAddr end = va + len;
     if (as->type == ADDRESS_SPACE_USER && (va >= USER_VA_TOP || end > USER_VA_TOP))
         return false;
 
-    uintptr_t page_va = align_down(va, PAGE_SIZE);
-    const uintptr_t end_va = align_up(end, PAGE_SIZE);
+    VirtAddr page_va = align_down(va, PAGE_SIZE);
+    const VirtAddr end_va = align_up(end, PAGE_SIZE);
 
     while (page_va < end_va) {
         if (ArchMmuTranslate(as->pt_root_physaddr, page_va) != 0) {

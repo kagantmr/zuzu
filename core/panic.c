@@ -65,6 +65,11 @@ PanicFaultContext panic_fault_ctx;
 /** @brief ANSI escape: reset attributes. */
 #define C_RESET "\033[0m"
 
+/**
+ * @brief Acts as a putc function, uses the regular UART if possible, falls back to early putc if possible.
+ * 
+ * @param[in] c The character to put out.
+ */
 static void PanicPutc(char c)
 {
     if (uart_get_driver())
@@ -126,15 +131,15 @@ static void PanicPutLine(const char *s)
 static const char *FarRegion(Register addr)
 {
 
-    if (addr >= (Register)(uintptr_t)_kernel_start && addr < (Register)(uintptr_t)_kernel_end)
+    if (addr >= (Register)(VirtAddr)_kernel_start && addr < (Register)(VirtAddr)_kernel_end)
         return "kernel text/data";
 
     if (kernel_layout.stack_base_va && addr >= (Register)kernel_layout.stack_base_va &&
         addr < (Register)kernel_layout.stack_top_va)
         return "kernel stack";
 
-    if (kernel_layout.heap_start_va && addr >= (Register)(uintptr_t)kernel_layout.heap_start_va &&
-        addr < (Register)(uintptr_t)kernel_layout.heap_end_va)
+    if (kernel_layout.heap_start_va && addr >= (Register)(VirtAddr)kernel_layout.heap_start_va &&
+        addr < (Register)(VirtAddr)kernel_layout.heap_end_va)
         return "kernel heap";
 
     if (addr >= (Register)MMIO_VA_BASE)
@@ -219,7 +224,7 @@ static const char *IpcStateStr(IpcState s)
 
 /** @brief Captured frame-pointer backtrace. */
 typedef struct {
-    uintptr_t addresses[BACKTRACE_MAX_DEPTH];  /**< Return addresses, innermost first. */
+    VirtAddr addresses[BACKTRACE_MAX_DEPTH];  /**< Return addresses, innermost first. */
     int depth;                                /**< Number of valid entries in addresses. */
 } FpBacktrace;
 
@@ -238,9 +243,9 @@ static void BtraceWalk(FpBacktrace *bt)
     Register fp = frame ? ArchFrameFp(frame) : ArchCurrentFramePointer();
     size_t start = 0;
 
-    if (frame && !KSymLookup((uintptr_t)ArchFramePc(frame)) &&
-        KSymLookup((uintptr_t)ArchFrameLr(frame)))
-        bt->addresses[start++] = (uintptr_t)ArchFrameLr(frame);
+    if (frame && !KSymLookup((VirtAddr)ArchFramePc(frame)) &&
+        KSymLookup((VirtAddr)ArchFrameLr(frame)))
+        bt->addresses[start++] = (VirtAddr)ArchFrameLr(frame);
 
     bt->depth = (int)(start + ArchBacktraceWalk(fp, (Register)KERNEL_VA_BASE, bt->addresses + start,
                                                 BACKTRACE_MAX_DEPTH - start));
@@ -285,10 +290,10 @@ static void GetPanicHeapSnapshot(PanicHeapStats *st)
  * @param[in] bufsz Size of @p buf in bytes.
  * @param[in] addr Address to symbolize.
  */
-static void FormatKSym(char *buf, int bufsz, uintptr_t addr)
+static void FormatKSym(char *buf, int bufsz, VirtAddr addr)
 {
     const char *name = KSymLookup(addr);
-    uintptr_t base = KSymLookupBaseAddr(addr);
+    VirtAddr base = KSymLookupBaseAddr(addr);
     if (name && base && addr != base)
         (void)snprintf(buf, (size_t)bufsz, "%s+0x%llX", name, (unsigned long long)(addr - base));
     else if (name)
@@ -354,7 +359,7 @@ static void PanicPrintHeader(const char *reason, void *caller_ra)
         PanicPutLine(line);
     }
 
-    FormatKSym(sym, sizeof(sym), (uintptr_t)caller_ra);
+    FormatKSym(sym, sizeof(sym), (VirtAddr)caller_ra);
     (void)snprintf(line, sizeof(line), "caller:  0x" REG_FMT "  %s", REG_ARG(caller_ra), sym);
     PanicPutLine(line);
 }
@@ -471,7 +476,7 @@ static void PanicPrintBt(FpBacktrace *bt)
     }
 
     for (int i = 0; i < bt->depth; i++) {
-        uintptr_t addr = bt->addresses[i];
+        VirtAddr addr = bt->addresses[i];
         FormatKSym(sym, sizeof(sym), addr);
         (void)snprintf(line, sizeof(line), "#%-2d  0x" REG_FMT "  %s", i, REG_ARG(addr), sym);
         PanicPutLine(line);
@@ -704,7 +709,7 @@ static void PanicPrintIrq(void)
             (void)snprintf(line, sizeof(line), "  IRQ %-3u  [%s]", irq, owners[irq].owner->name);
         } else if (ArchIrqHasHandler(irq)) {
             char sym[64];
-            FormatKSym(sym, sizeof(sym), (uintptr_t)ArchIrqHandlerAddr(irq));
+            FormatKSym(sym, sizeof(sym), (VirtAddr)ArchIrqHandlerAddr(irq));
             (void)snprintf(line, sizeof(line), "  IRQ %-3u  [kernel: %s]", irq, sym);
         } else {
             (void)snprintf(line, sizeof(line), "  IRQ %-3u  [no handler]", irq);

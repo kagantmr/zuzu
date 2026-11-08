@@ -22,6 +22,6 @@ extern bool g_mmu_enabled;
  * @param[in] va The address to look up.
  * @return The containing region, or NULL if there is none.
  */
-VirtMemRegion *VmmFindRegion(AddressSpace *as, uintptr_t va);
+VirtMemRegion *VmmFindRegion(AddressSpace *as, VirtAddr va);
 
 #endif /* KERNEL_MM_VMM_VMM_INTERNAL_H */
