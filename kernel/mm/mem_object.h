@@ -70,6 +70,10 @@ MemObject *MemObjCreateShm(PhysAddr *page_addrs, size_t page_count, CreateMemory
 
 /**
  * @brief Create a device memory object describing an MMIO window.
+ *
+ * The window starts at the page containing @p phys_base, so a mapping of it
+ * begins at that page and the registers sit at @p phys_base's offset within it.
+ *
  * @param[in] phys_base Physical base address of the window.
  * @param[in] size Size of the window in bytes.
  * @param[in] irq Interrupt line of the device.
