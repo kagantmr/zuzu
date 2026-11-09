@@ -57,8 +57,9 @@ MemObject *MemObjCreateDevice(PhysAddr phys_base, size_t size, Irq irq)
     mem->kind = MEMKIND_DEVICE;
     mem->ref_count = 1;
     mem->exec_synced = false;
-    mem->dev.phys_base = phys_base;
-    mem->dev.size = size;
+    PhysAddr page_base = phys_base & ~(PhysAddr)(PAGE_SIZE - 1);
+    mem->dev.phys_base = page_base;
+    mem->dev.size = size + (size_t)(phys_base - page_base);
     mem->dev.irq = irq;
     mem->dev.dma_limit = UINTPTR_MAX;
     mem->dev.bus_offset = 0;
