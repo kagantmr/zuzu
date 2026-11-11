@@ -221,6 +221,7 @@ static inline Err HandleClose(Handle h)
  * @return ZUZU_OK, or an error code.
  * @retval ERR_BADHANDLE @p h is not a live handle.
  * @retval ERR_BADARG    @p h names the caller's own space or one of its ancestors.
+ * @retval ERR_NOPERM    @p h is a space handle without PERM_CNTL; the handle is kept.
  */
 static inline Err HandleDestroy(Handle h)
 {
