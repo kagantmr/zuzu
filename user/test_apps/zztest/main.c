@@ -3968,6 +3968,41 @@ static void TestDmaAdoptRights(void)
     HandleClose(dev);
 }
 
+static void TestDmaMapRights(void)
+{
+    BeginSection("dma map rights");
+
+    Handle dev = RequestAnyDevice();
+    if (dev < 0) {
+        UserspaceDebugLog("zztest: no device from devsvc (%d), skipping dma map", (int)dev);
+        return;
+    }
+    Handle buf = CreateMem(1, MEM_CONTIG);
+    SvcResult ro = HandleDuplicate(buf, PERM_MAP | PERM_TXFR, MARKER_NONE);
+    SvcResult noctl = HandleDuplicate(dev, PERM_MAP | PERM_WRITE | PERM_TXFR, MARKER_NONE);
+
+    DmaMapResult r = DmaMap(dev, (Handle)ro.r1, 0, 4096, DMA_FROM_DEVICE);
+    CheckEq(r.status, ERR_NOPERM, "DmaMap(FROM_DEVICE) without PERM_WRITE -> NOPERM");
+    DmaUnmapIfMapped(dev, r);
+    r = DmaMap(dev, (Handle)ro.r1, 0, 4096, DMA_BIDIRECTIONAL);
+    CheckEq(r.status, ERR_NOPERM, "DmaMap(BIDIRECTIONAL) without PERM_WRITE -> NOPERM");
+    DmaUnmapIfMapped(dev, r);
+    r = DmaMap(dev, (Handle)ro.r1, 0, 4096, DMA_TO_DEVICE);
+    CheckEq(r.status, ZUZU_OK, "DmaMap(TO_DEVICE) without PERM_WRITE still works");
+    DmaUnmapIfMapped(dev, r);
+    r = DmaMap(dev, buf, 0, 4096, DMA_FROM_DEVICE);
+    CheckEq(r.status, ZUZU_OK, "DmaMap(FROM_DEVICE) with PERM_WRITE works");
+    DmaUnmapIfMapped(dev, r);
+    r = DmaMap((Handle)noctl.r1, buf, 0, 4096, DMA_TO_DEVICE);
+    CheckEq(r.status, ERR_NOPERM, "DmaMap without PERM_CNTL on the device -> NOPERM");
+    DmaUnmapIfMapped(dev, r);
+
+    HandleClose((Handle)noctl.r1);
+    HandleClose((Handle)ro.r1);
+    HandleClose(buf);
+    HandleClose(dev);
+}
+
 static void RunSuite(void)
 {
     TestBasics();
@@ -4001,6 +4036,7 @@ static void RunSuite(void)
     TestSync();
     TestReadOnlyCopyOut();
     TestDmaAdoptRights();
+    TestDmaMapRights();
     TestLeaks();
 }
 
