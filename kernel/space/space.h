@@ -31,6 +31,7 @@ typedef struct SpaceObjectStruct {
     uint32_t max_prio; /**< The highest priority a task in this space may set. */
     ListHead tasks; /**< All tasks in the space, live or not yet reaped. */
     bool frozen; /**< A task faulted; none of the space's tasks are scheduled until unfrozen. */
+    uint32_t faulted_tasks; /**< Faulted tasks not yet killed or resumed; unfrozen at zero. */
     uint32_t live_tasks; /**< The number of tasks that have not exited. */
     uint32_t irqs_owned; /**< The number of interrupt lines the space owns. */
     Err last_exit_status; /**< The exit status of the last task to exit. */
@@ -171,6 +172,13 @@ void SpaceFinalize(SpaceObject *sp);
  * @param[in] owner The space to unfreeze.
  */
 void SpaceUnfreeze(SpaceObject *owner);
+
+/**
+ * @brief Account for one faulted task being killed or resumed; unfreeze the space once none are left.
+ *
+ * @param[in] owner The faulted task's space.
+ */
+void SpaceFaultCleared(SpaceObject *owner);
 
 /**
  * @brief Check whether one space is another or descends from it.

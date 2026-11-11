@@ -71,7 +71,7 @@ static Err BindLookupTarget(EventType type, Handle h, uint32_t bit, BindTarget *
         SpaceObject *space = entry->space;
         if (!space)
             return ERR_BADHANDLE;
-        *out = (BindTarget){&space->observers, SpaceIsHollow(space)};
+        *out = (BindTarget){&space->observers, SpaceIsHollow(space) || space->frozen};
     } break;
     }
     return ZUZU_OK;

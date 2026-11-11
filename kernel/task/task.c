@@ -215,6 +215,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
     task->base_prio = SCHED_PRIO_DEFAULT;
     task->time_slice_us = TIMESLICE_DEFAULT_US;
     task->time_slice_counts = ClockUsToCounts(TIMESLICE_DEFAULT_US);
+    task->max_time_slice_us = TIMESLICE_MAX_US;
     task->max_prio = SCHED_PRIORITY_LEVELS - 1;
     task->tcb_slot = TCB_SLOT_NONE;
 
@@ -368,10 +369,13 @@ void TaskTerminate(TaskObject *task, Err exit_status)
 
 void TaskFault(TaskObject *task, Err reason)
 {
+    if (task->state != TASK_STATE_FAULTED)
+        task->owner->faulted_tasks++;
     task->state = TASK_STATE_FAULTED;
     task->fault_reason = reason;
     task->owner->frozen = true;
     ObserverNotify(&task->observers);
+    ObserverNotify(&task->owner->observers);
     WakeWaiters(&task->joiners, reason, TASK_FAULTED);
 
     ListNode *n = task->owner->tasks.node.next;

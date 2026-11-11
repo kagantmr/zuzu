@@ -265,6 +265,16 @@ void SpaceUnfreeze(SpaceObject *owner)
     }
 }
 
+void SpaceFaultCleared(SpaceObject *owner)
+{
+    if (!owner)
+        return;
+    if (owner->faulted_tasks > 0)
+        owner->faulted_tasks--;
+    if (owner->faulted_tasks == 0)
+        SpaceUnfreeze(owner);
+}
+
 void SpaceRef(SpaceObject *sp)
 {
     if (!sp)
