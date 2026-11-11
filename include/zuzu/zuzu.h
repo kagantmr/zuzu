@@ -1269,10 +1269,10 @@ static inline Err Hold(Ticket *out)
  * once and is meaningless in other spaces. The call in hand, if any, is not
  * affected.
  *
- * @syscall_num SVC_REPLY (ticket in r3)
+ * @syscall_num SVC_REPLY (RECV_TICKET in r2, ticket in r3)
  * @syscall_group ipc
  * @syscall_blocking no
- * @syscall_sig (xlen, grant, -1, ticket) -> r0 status
+ * @syscall_sig (xlen, grant, RECV_TICKET, ticket) -> r0 status
  * @param[in] t     Ticket from Hold().
  * @param[in] xlen  Reply length in bytes, at most MSG_BUF_SIZE.
  * @param[in] grant Handle (with PERM_TXFR) to copy to the caller, or -1.
@@ -1284,7 +1284,7 @@ static inline Err Hold(Ticket *out)
  */
 static inline Err ReplyTo(Ticket t, uint32_t xlen, Handle grant)
 {
-    return ArchInvokeSvc(SVC_REPLY, (Register)xlen, grant, -1, (Register)t);
+    return ArchInvokeSvc(SVC_REPLY, (Register)xlen, grant, RECV_TICKET, (Register)t);
 }
 
 /** @} */

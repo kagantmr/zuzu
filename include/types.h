@@ -52,6 +52,9 @@ typedef unsigned int Marker;
 /** @brief Index into a port's held callers queue. */
 typedef unsigned int Ticket;
 
+/** @brief Receive-port value for Reply that means "answer the held call whose ticket is in r3". */
+#define RECV_TICKET (-2)
+
 /** @brief Bits delivered on an event wakeup. */
 typedef unsigned int EventWord;
 

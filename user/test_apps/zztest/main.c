@@ -2577,12 +2577,12 @@ static void TestWaiterResort(void)
     TaskSetPriority(-1, 4);
 }
 
-/* r0 = a ticket; ReplyTo(r0, xlen 0, no grant); quit with the result */
+/* r0 = a ticket; ReplyTo(r0, xlen 0, no grant): r2 = RECV_TICKET (-2); quit with the result */
 #ifdef __aarch64__
-static const uint32_t kCodeReplyTicket[] = {0xAA0003E3, 0xD2800000, 0x92800001, 0x92800002, SYS(SVC_REPLY), SYS(SVC_QUIT)};
+static const uint32_t kCodeReplyTicket[] = {0xAA0003E3, 0xD2800000, 0x92800001, 0x92800022, SYS(SVC_REPLY), SYS(SVC_QUIT)};
 #else
 static const uint32_t kCodeReplyTicket[] = {0xE1A03000, 0xE3A00000, 0xE3E01000,
-                                            0xE3E02000, SYS(SVC_REPLY), SYS(SVC_QUIT)};
+                                            0xE3E02001, SYS(SVC_REPLY), SYS(SVC_QUIT)};
 #endif
 
 /* ---------------- hold (#26) ---------------- */
@@ -4155,6 +4155,27 @@ static void TestClosedEventObservers(void)
     HandleClose(port);
 }
 
+static void TestReplyStrayTimeout(void)
+{
+    BeginSection("reply with a stray timeout");
+
+    Handle p = CreatePort();
+    CallerJob c = {.port = p, .op = OP_ECHO};
+    Worker *w = WorkerStart(CallOnce, &c);
+    CheckEq(FormatToPortWait(WaitOn(p, 2000)).status, ZUZU_OK, "receive a call");
+    CheckEq((Err)ArchInvokeSvc(SVC_REPLY, 0, -1, -1, 500), ZUZU_OK,
+            "Reply without a receive port and with a timeout in r3 is a plain reply");
+    CheckEq(WorkerJoin(w), ZUZU_OK, "and the caller is answered");
+
+    w = WorkerStart(CallOnce, &c);
+    CheckEq(FormatToPortWait(WaitOn(p, 2000)).status, ZUZU_OK, "receive another call");
+    Ticket t = 0;
+    CheckEq(Hold(&t), ZUZU_OK, "hold it");
+    CheckEq(ReplyTo(t, 0, -1), ZUZU_OK, "reply by ticket still works");
+    CheckEq(WorkerJoin(w), ZUZU_OK, "and that caller is answered too");
+    HandleClose(p);
+}
+
 static void RunSuite(void)
 {
     TestBasics();
@@ -4195,6 +4216,7 @@ static void RunSuite(void)
     TestFaultedCount();
     TestMemMgmtRebind();
     TestClosedEventObservers();
+    TestReplyStrayTimeout();
     TestLeaks();
 }
 
