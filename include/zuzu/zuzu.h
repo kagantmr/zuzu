@@ -238,6 +238,7 @@ static inline Err HandleDestroy(Handle h)
  * | QUERY_MARKER     | the handle's marker                                 |
  * | QUERY_STATUS     | task exit status, space's last exit status, or ZUZU_OK / ERR_DEAD for a port |
  * | QUERY_SIZE       | size in bytes of a memory object                    |
+ * | QUERY_FAULTED    | 1 if a space is frozen by a faulted task, else 0    |
  * | QUERY_DMA_COUNT  | number of DMA mappings on a device                  |
  * | QUERY_DMA_ID     | id of the mapping at @p index, 0 = newest           |
  * | QUERY_DMA_BUS / _LEN / _DIR | bus address, length, direction of mapping @p index (an id) |
@@ -1337,7 +1338,7 @@ static inline Err Signal(Handle ev_handle, EventWord bits, bool broadcast)
  * |-------------|-----------|----------------------------------------|
  * | EVENT_PORT  | port      | a caller is queued, nobody receiving   |
  * | EVENT_TASK  | task      | the task exits or faults               |
- * | EVENT_SPACE | space     | the space has no live tasks left       |
+ * | EVENT_SPACE | space     | the space has no live tasks left, or a task in it faulted (see QUERY_FAULTED) |
  * | EVENT_EVENT | event     | the child event has pending bits       |
  *
  * If the condition already holds, the bit is set at once. The bit then

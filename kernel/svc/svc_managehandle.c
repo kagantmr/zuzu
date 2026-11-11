@@ -182,6 +182,11 @@ void SvcManageHandle(CpuState *frame)
                 return;
             }
             break;
+        case QUERY_FAULTED:
+            ENSURE_ERR(frame, HANDLE_SPACE == entry->type, ERR_BADTYPE);
+            ENSURE_ERR(frame, entry->space, ERR_BADHANDLE);
+            value = (Register)(entry->space->frozen ? 1 : 0);
+            break;
         case QUERY_SIZE:
             ENSURE_ERR(frame, HANDLE_MEM == entry->type, ERR_BADTYPE);
             ENSURE_ERR(frame, entry->mem, ERR_BADHANDLE);

@@ -253,7 +253,8 @@ typedef enum {
     QUERY_DMA_ID,    /**< Query the DMA ID for this object: device mmio objects only. */
     QUERY_DMA_BUS,   /**< Query the bus ID for this object. */
     QUERY_DMA_LEN,   /**< Query the DMA length for this object. */
-    QUERY_DMA_DIR    /**< Query the DMA direction for this object. */
+    QUERY_DMA_DIR,   /**< Query the DMA direction for this object. */
+    QUERY_FAULTED    /**< Query whether a Space is frozen by a faulted task. */
 } QueryWhat;
 
 /** @brief ManageHandle operation code. */
