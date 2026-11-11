@@ -33,6 +33,7 @@ Err HandleCopyInto(HandleTable *dst_table, HandleTableEntry *src, HandlePerms pe
     case HANDLE_EVENT:
         dst->event = src->event;
         src->event->ref_count++;
+        src->event->handle_count++;
         break;
     case HANDLE_MEM:
         dst->mem = src->mem;
@@ -87,7 +88,7 @@ void HandleRelease(SpaceObject *sp, HandleTableEntry *entry)
         PortUnref(entry->port);
         break;
     case HANDLE_EVENT:
-        EventUnref(entry->event);
+        EventHandleRelease(entry->event);
         break;
     case HANDLE_MEM: {
         MemObject *mem = entry->mem;

@@ -43,6 +43,9 @@
  * these raw values. */
 enum { ZH_PORT = 1, ZH_MEM, ZH_EVENT, ZH_TASK, ZH_SPACE };
 
+/* The slot index in the low bits of a handle value (kernel/space/handle.h). */
+#define HANDLE_INDEX_OF(h) ((int32_t)((uint32_t)(h) & 0x3FFu))
+
 /* ---------------- harness ---------------- */
 
 #define MAX_SECTIONS 64
@@ -1104,14 +1107,12 @@ static void TestIpc(void)
     HandleClose(idle.port);
     CheckEq(WorkerJoin(iw), ERR_DEAD, "closing a port fails a blocked receiver with DEAD");
 
-    /* Receiving while a call is outstanding is refused; ReplyRecv chains. */
+    /* ReplyRecv chains. */
     Handle p2 = CreatePort();
     CallerJob c1 = {.port = p2, .op = OP_ECHO};
     Worker *c1w = WorkerStart(CallOnce, &c1);
     PortWaitResult got = FormatToPortWait(WaitOn(p2, 2000));
     CheckEq(got.status, ZUZU_OK, "WaitOn(port) receives the call");
-    CheckEq(WaitOn(p2, TIMEOUT_POLL).r0, ERR_BUSY,
-            "second receive with an unanswered call -> BUSY");
     CallerJob c2 = {.port = p2, .op = OP_ECHO};
     Worker *c2w = WorkerStart(CallOnce, &c2);
     Sleep(40);
@@ -2579,12 +2580,12 @@ static void TestWaiterResort(void)
     TaskSetPriority(-1, 4);
 }
 
-/* r0 = a ticket; ReplyTo(r0, xlen 0, no grant); quit with the result */
+/* r0 = a ticket; ReplyTo(r0, xlen 0, no grant): r2 = RECV_TICKET (-2); quit with the result */
 #ifdef __aarch64__
-static const uint32_t kCodeReplyTicket[] = {0xAA0003E3, 0xD2800000, 0x92800001, 0x92800002, SYS(SVC_REPLY), SYS(SVC_QUIT)};
+static const uint32_t kCodeReplyTicket[] = {0xAA0003E3, 0xD2800000, 0x92800001, 0x92800022, SYS(SVC_REPLY), SYS(SVC_QUIT)};
 #else
 static const uint32_t kCodeReplyTicket[] = {0xE1A03000, 0xE3A00000, 0xE3E01000,
-                                            0xE3E02000, SYS(SVC_REPLY), SYS(SVC_QUIT)};
+                                            0xE3E02001, SYS(SVC_REPLY), SYS(SVC_QUIT)};
 #endif
 
 /* ---------------- hold (#26) ---------------- */
@@ -3859,6 +3860,394 @@ static void TestRecursiveEvents(void)
             "no free-page change after 22 bind/signal/close rounds");
 }
 
+/* ---------------- 2.2.1 fixes ---------------- */
+
+static void TestReadOnlyCopyOut(void)
+{
+    BeginSection("copy-out to read-only pages");
+
+    Kitten k;
+    TaskRegs regs;
+    KittenCreate(&k, kCodeCount, sizeof(kCodeCount));
+    KittenStart(&k, 0, 0);
+    Sleep(10);
+    TaskSuspend(k.task);
+
+    static uint8_t before[96];
+    memcpy(before, (const void *)SYSPAGE, sizeof(before));
+    CheckEq(TaskGetRegs(k.task, (TaskRegs *)SYSPAGE), ERR_BADPTR,
+            "GetRegs into the syspage -> BADPTR");
+    Check(memcmp(before, (const void *)SYSPAGE, sizeof(before)) == 0,
+          "the syspage is left unchanged");
+
+    Handle mem = CreateMem(1, 0);
+    uint8_t *rw = MemMap(mem, 0, PROT_RW);
+    SvcResult dup = HandleDuplicate(mem, PERM_ALL, MARKER_NONE);
+    const uint8_t *ro = MemMap((Handle)dup.r1, 0, PROT_READ);
+    Check(!PtrIsErr(rw) && !PtrIsErr(ro), "map a shared object read-write and read-only");
+    if (!PtrIsErr(rw) && !PtrIsErr(ro)) {
+        memset(rw, 0x5A, 4096);
+        CheckEq(((volatile const uint8_t *)ro)[0], 0x5A, "the read-only view is faulted in");
+        CheckEq(TaskGetRegs(k.task, (TaskRegs *)(VirtAddr)ro), ERR_BADPTR,
+                "GetRegs into a read-only shared mapping -> BADPTR");
+        bool intact = true;
+        for (size_t i = 0; i < sizeof(TaskRegs); i++)
+            intact = intact && rw[i] == 0x5A;
+        Check(intact, "the read-only mapping is left unchanged");
+        CheckEq(TaskGetRegs(k.task, (TaskRegs *)(VirtAddr)rw), ZUZU_OK,
+                "GetRegs into the read-write view still works");
+        MemUnmap((void *)ro);
+        MemUnmap(rw);
+    }
+    CheckEq(TaskGetRegs(k.task, &regs), ZUZU_OK, "the caller survives and GetRegs still works");
+    HandleClose((Handle)dup.r1);
+    HandleClose(mem);
+    KittenFree(&k);
+}
+
+/* r0 = a device handle, r1 = a mapping id; quit with ManageMemory(DMAADOPT, r0, r1)'s status */
+#ifdef __aarch64__
+static const uint32_t kCodeDmaAdopt[] = {0xAA0103E2, 0xAA0003E1, 0xD28000E0, SYS(SVC_MANAGEMEMORY),
+                                         SYS(SVC_QUIT)};
+#else
+static const uint32_t kCodeDmaAdopt[] = {0xE1A02001, 0xE1A01000, 0xE3A00007, SYS(SVC_MANAGEMEMORY),
+                                         SYS(SVC_QUIT)}; /* mov r2,r1; mov r1,r0; mov r0,#7 */
+#endif
+
+static void DmaUnmapIfMapped(Handle dev, DmaMapResult r)
+{
+    if (r.status == ZUZU_OK)
+        DmaUnmap(dev, r.id);
+}
+
+static void TestDmaAdoptRights(void)
+{
+    BeginSection("dma adopt rights");
+
+    Handle dev = RequestAnyDevice();
+    if (dev < 0) {
+        UserspaceDebugLog("zztest: no device from devsvc (%d), skipping dma adopt", (int)dev);
+        return;
+    }
+    Handle buf = CreateMem(1, MEM_CONTIG);
+    SvcResult ro = HandleDuplicate(buf, PERM_MAP | PERM_TXFR, MARKER_NONE);
+    SvcResult noctl = HandleDuplicate(dev, PERM_MAP | PERM_WRITE | PERM_TXFR, MARKER_NONE);
+
+    DmaMapResult to = DmaMap(dev, (Handle)ro.r1, 0, 4096, DMA_TO_DEVICE);
+    CheckEq(to.status, ZUZU_OK, "DmaMap(TO_DEVICE) through a read-only handle");
+
+    Handle adopted = DmaAdopt((Handle)noctl.r1, to.id);
+    CheckEq(adopted < 0 ? adopted : ZUZU_OK, ERR_NOPERM,
+            "DmaAdopt without PERM_CNTL on the device -> NOPERM");
+    if (adopted >= 0)
+        HandleClose(adopted);
+    adopted = DmaAdopt(dev, to.id);
+    Check(adopted >= 0, "DmaAdopt with PERM_CNTL works");
+    uint32_t adopted_perms = (uint32_t)HandleQuery(adopted, QUERY_PERMS).r1;
+    CheckEq((int32_t)(adopted_perms & ~(uint32_t)(PERM_MAP | PERM_TXFR)), 0,
+            "the adopted handle has no rights the mapping's handle lacked");
+    HandleClose(adopted);
+
+    DmaMapResult rw = DmaMap(dev, buf, 0, 4096, DMA_TO_DEVICE);
+    Kitten k;
+    KittenCreate(&k, kCodeDmaAdopt, sizeof(kCodeDmaAdopt));
+    SvcResult g = HandleGrant(dev, k.space, PERM_MAP | PERM_CNTL);
+    KittenStart(&k, (Register)g.r1, (Register)rw.id);
+    SpaceWaitResult sw = FormatToSpaceWait(WaitOn(k.space, 2000));
+    CheckEq(sw.exit_status, ZUZU_OK, "another Space adopts the mapping");
+    SvcResult stamped = HandleDuplicate(buf, PERM_ALL, 0xD3A);
+    CheckEq(HandleQuery((Handle)stamped.r1, QUERY_MARKER).r1, 0xD3A,
+            "the creator still owns the buffer after a foreign DmaAdopt");
+    HandleClose((Handle)stamped.r1);
+    KittenFree(&k);
+
+    DmaUnmapIfMapped(dev, rw);
+    DmaUnmapIfMapped(dev, to);
+    HandleClose((Handle)noctl.r1);
+    HandleClose((Handle)ro.r1);
+    HandleClose(buf);
+    HandleClose(dev);
+}
+
+static void TestDmaMapRights(void)
+{
+    BeginSection("dma map rights");
+
+    Handle dev = RequestAnyDevice();
+    if (dev < 0) {
+        UserspaceDebugLog("zztest: no device from devsvc (%d), skipping dma map", (int)dev);
+        return;
+    }
+    Handle buf = CreateMem(1, MEM_CONTIG);
+    SvcResult ro = HandleDuplicate(buf, PERM_MAP | PERM_TXFR, MARKER_NONE);
+    SvcResult noctl = HandleDuplicate(dev, PERM_MAP | PERM_WRITE | PERM_TXFR, MARKER_NONE);
+
+    DmaMapResult r = DmaMap(dev, (Handle)ro.r1, 0, 4096, DMA_FROM_DEVICE);
+    CheckEq(r.status, ERR_NOPERM, "DmaMap(FROM_DEVICE) without PERM_WRITE -> NOPERM");
+    DmaUnmapIfMapped(dev, r);
+    r = DmaMap(dev, (Handle)ro.r1, 0, 4096, DMA_BIDIRECTIONAL);
+    CheckEq(r.status, ERR_NOPERM, "DmaMap(BIDIRECTIONAL) without PERM_WRITE -> NOPERM");
+    DmaUnmapIfMapped(dev, r);
+    r = DmaMap(dev, (Handle)ro.r1, 0, 4096, DMA_TO_DEVICE);
+    CheckEq(r.status, ZUZU_OK, "DmaMap(TO_DEVICE) without PERM_WRITE still works");
+    DmaUnmapIfMapped(dev, r);
+    r = DmaMap(dev, buf, 0, 4096, DMA_FROM_DEVICE);
+    CheckEq(r.status, ZUZU_OK, "DmaMap(FROM_DEVICE) with PERM_WRITE works");
+    DmaUnmapIfMapped(dev, r);
+    r = DmaMap((Handle)noctl.r1, buf, 0, 4096, DMA_TO_DEVICE);
+    CheckEq(r.status, ERR_NOPERM, "DmaMap without PERM_CNTL on the device -> NOPERM");
+    DmaUnmapIfMapped(dev, r);
+
+    HandleClose((Handle)noctl.r1);
+    HandleClose((Handle)ro.r1);
+    HandleClose(buf);
+    HandleClose(dev);
+}
+
+static void TestSpaceDestroyRights(void)
+{
+    BeginSection("space destroy rights");
+
+    Kitten k;
+    KittenCreate(&k, kCodeLoop, sizeof(kCodeLoop));
+    KittenStart(&k, 0, 0);
+    SvcResult watch = HandleDuplicate(k.space, PERM_WAIT, MARKER_NONE);
+    CheckEq(HandleDestroy((Handle)watch.r1), ERR_NOPERM,
+            "Destroy through a PERM_WAIT-only Space handle -> NOPERM");
+    CheckEq(HandleQuery((Handle)watch.r1, QUERY_TYPE).r1, ZH_SPACE, "the handle is not released");
+    CheckEq(WaitOn(k.space, 50).r0, ERR_TIMEOUT, "the Space is still alive");
+    CheckEq(HandleClose((Handle)watch.r1), ZUZU_OK, "the watch handle can still be closed");
+    KittenFree(&k);
+}
+
+static void TestUnansweredReceive(void)
+{
+    BeginSection("receive with an unanswered call");
+
+    Handle p = CreatePort();
+    CallerJob c1 = {.port = p, .op = OP_ECHO};
+    Worker *w1 = WorkerStart(CallOnce, &c1);
+    CheckEq(FormatToPortWait(WaitOn(p, 2000)).status, ZUZU_OK, "receive a call, leave it unanswered");
+    CallerJob c2 = {.port = p, .op = OP_ECHO};
+    Worker *w2 = WorkerStart(CallOnce, &c2);
+    PortWaitResult second = FormatToPortWait(WaitOn(p, 2000));
+    CheckEq(second.status, ZUZU_OK, "the next receive is delivered normally");
+    CheckEq(WorkerJoin(w1), ERR_DEAD, "the unanswered caller gets DEAD");
+    CheckEq(Reply(0, -1), ZUZU_OK, "the second call can be answered");
+    CheckEq(WorkerJoin(w2), ZUZU_OK, "and its caller completes");
+    CheckEq(WaitOn(p, TIMEOUT_POLL).r0, ERR_TIMEOUT, "with no call left, a poll times out");
+    HandleClose(p);
+}
+
+static void TestFaultObservers(void)
+{
+    BeginSection("faults reach space observers");
+
+    Handle ev = CreateEvent();
+    Kitten k;
+    KittenCreate(&k, kCodeFaultData, sizeof(kCodeFaultData));
+    CheckEq(Bind(EVENT_SPACE, ev, k.space, 6), ZUZU_OK, "a supervisor binds the kitten Space");
+    SvcResult q = HandleQuery(k.space, QUERY_FAULTED);
+    Check(q.r0 == ZUZU_OK && q.r1 == 0, "QUERY_FAULTED is 0 before the fault");
+    KittenStart(&k, 0, 0);
+    EventWaitResult r = FormatToEventWait(WaitOn(ev, 2000));
+    CheckEq(r.status, ZUZU_OK, "the fault raises the supervisor's event");
+    CheckEq((int32_t)r.bits, 1 << 6, "on the bound bit");
+    q = HandleQuery(k.space, QUERY_FAULTED);
+    Check(q.r0 == ZUZU_OK && q.r1 == 1, "QUERY_FAULTED reports the fault");
+    CheckEq(WaitOn(k.space, 50).r0, ERR_TIMEOUT, "a faulted Space is not hollow");
+
+    Handle late = CreateEvent();
+    CheckEq(Bind(EVENT_SPACE, late, k.space, 2), ZUZU_OK, "bind after the fault");
+    CheckEq((int32_t)FormatToEventWait(WaitOn(late, TIMEOUT_POLL)).bits, 1 << 2,
+            "a late binding fires at once");
+    CheckEq(HandleQuery(ev, QUERY_FAULTED).r0, ERR_BADTYPE, "QUERY_FAULTED on an event -> BADTYPE");
+    KittenFree(&k);
+    HandleClose(late);
+    HandleClose(ev);
+}
+
+static uint32_t g_fault_then_sleep[16];
+
+static void TestFaultedCount(void)
+{
+    BeginSection("faulted task accounting");
+
+    memcpy(g_fault_then_sleep, kCodeFaultData, sizeof(kCodeFaultData));
+    memcpy((uint8_t *)g_fault_then_sleep + sizeof(kCodeFaultData), kCodeSleepQuit,
+           sizeof(kCodeSleepQuit));
+    VirtAddr sleeper_pc = USER_ELF_BASE + sizeof(kCodeFaultData);
+
+    for (int path = 0; path < 2; path++) {
+        Kitten k;
+        KittenCreate(&k, g_fault_then_sleep, sizeof(kCodeFaultData) + sizeof(kCodeSleepQuit));
+        Handle sleeper = CreateTask(k.space);
+        TaskStart(sleeper, (void *)sleeper_pc, (void *)(USR_SP - 0x400), 0, 0);
+        KittenStart(&k, 0, 0);
+        CheckEq(FormatToTaskWait(WaitOn(k.task, 2000)).outcome, TASK_FAULTED, "one task faults");
+        CheckEq((int32_t)HandleQuery(k.space, QUERY_FAULTED).r1, 1, "the Space is frozen");
+        CheckEq(WaitOn(sleeper, 100).r0, ERR_TIMEOUT, "its sibling does not run while frozen");
+        if (path == 0) {
+            CheckEq(TaskKill(k.task), ZUZU_OK, "kill the faulted task");
+        } else {
+            TaskRegs regs;
+            TaskGetRegs(k.task, &regs);
+            regs.pc = (Register)sleeper_pc;
+            TaskSetRegs(k.task, &regs);
+            CheckEq(TaskResume(k.task), ZUZU_OK, "resume the faulted task elsewhere");
+        }
+        CheckEq((int32_t)HandleQuery(k.space, QUERY_FAULTED).r1, 0,
+                path ? "resuming the only faulted task unfreezes" : "killing the only faulted task unfreezes");
+        CheckEq(FormatToTaskWait(WaitOn(sleeper, 2000)).value, 6, "and the sibling runs to the end");
+        HandleClose(sleeper);
+        KittenFree(&k);
+    }
+}
+
+static void TestMemMgmtRebind(void)
+{
+    BeginSection("memmgmt rebind");
+
+    Handle ev = CreateEvent();
+    CheckEq(BindMemMgmt(ev), ZUZU_OK, "subscribe an event to memory pressure");
+    SleepAndSettle();
+    uint32_t before = PagesFree();
+    bool all_ok = true;
+    for (int i = 0; i < 10000; i++)
+        all_ok = all_ok && BindMemMgmt(ev) == ZUZU_OK;
+    Check(all_ok, "binding the same event 10000 times succeeds");
+    SleepAndSettle();
+    CheckEq((int32_t)PagesFree(), (int32_t)before, "and the kernel heap does not grow");
+    HandleDestroy(ev);
+}
+
+static void TestClosedEventObservers(void)
+{
+    BeginSection("closed events release bindings");
+
+    Handle port = CreatePort();
+    bool all_ok = true;
+    for (int i = 0; i < 12; i++) {
+        Handle e = CreateEvent();
+        all_ok = all_ok && Bind(EVENT_PORT, e, port, 1) == ZUZU_OK;
+        HandleClose(e);
+    }
+    Check(all_ok, "a port keeps accepting bindings from short-lived events");
+
+    Handle e = CreateEvent();
+    SvcResult other = HandleDuplicate(e, PERM_WAIT, MARKER_NONE);
+    Bind(EVENT_PORT, e, port, 3);
+    HandleClose(e);
+    CheckEq(WaitOn((Handle)other.r1, TIMEOUT_POLL).r0, ERR_TIMEOUT,
+            "an event with a handle left stays alive");
+    HandleClose((Handle)other.r1);
+
+    Handle w = CreateEvent();
+    SvcResult keep = HandleDuplicate(w, PERM_WAIT, MARKER_NONE);
+    HandleClose(w);
+    CheckEq(WaitOn((Handle)keep.r1, TIMEOUT_POLL).r0, ERR_TIMEOUT,
+            "closing one of two handles does not kill the event");
+    HandleClose((Handle)keep.r1);
+
+    Handle irqless = CreateEvent();
+    CheckEq(BindMemMgmt(irqless), ZUZU_OK, "subscribe an event to memory pressure");
+    HandleClose(irqless);
+    Handle again = CreateEvent();
+    CheckEq(BindMemMgmt(again), ZUZU_OK, "a new subscription after the old event was closed");
+    HandleClose(again);
+    HandleClose(port);
+}
+
+static void TestReplyStrayTimeout(void)
+{
+    BeginSection("reply with a stray timeout");
+
+    Handle p = CreatePort();
+    CallerJob c = {.port = p, .op = OP_ECHO};
+    Worker *w = WorkerStart(CallOnce, &c);
+    CheckEq(FormatToPortWait(WaitOn(p, 2000)).status, ZUZU_OK, "receive a call");
+    CheckEq((Err)ArchInvokeSvc(SVC_REPLY, 0, -1, -1, 500), ZUZU_OK,
+            "Reply without a receive port and with a timeout in r3 is a plain reply");
+    CheckEq(WorkerJoin(w), ZUZU_OK, "and the caller is answered");
+
+    w = WorkerStart(CallOnce, &c);
+    CheckEq(FormatToPortWait(WaitOn(p, 2000)).status, ZUZU_OK, "receive another call");
+    Ticket t = 0;
+    CheckEq(Hold(&t), ZUZU_OK, "hold it");
+    CheckEq(ReplyTo(t, 0, -1), ZUZU_OK, "reply by ticket still works");
+    CheckEq(WorkerJoin(w), ZUZU_OK, "and that caller is answered too");
+    HandleClose(p);
+}
+
+static void TestStaleTicketHandle(void)
+{
+    BeginSection("tickets check the port handle");
+
+    Handle p = CreatePort();
+    SvcResult keep = HandleDuplicate(p, PERM_ALL, MARKER_NONE);
+    CallerJob c1 = {.port = p, .op = OP_ECHO};
+    Worker *w1 = WorkerStart(CallOnce, &c1);
+    CheckEq(FormatToPortWait(WaitOn(p, 2000)).status, ZUZU_OK, "receive a call on the first port");
+    Ticket old = 0;
+    CheckEq(Hold(&old), ZUZU_OK, "hold it");
+    HandleClose(p);
+
+    Handle q = CreatePort();
+    CheckEq(HANDLE_INDEX_OF(q), HANDLE_INDEX_OF(p), "a new port lands in the freed slot");
+    CallerJob c2 = {.port = q, .op = OP_ECHO};
+    Worker *w2 = WorkerStart(CallOnce, &c2);
+    CheckEq(FormatToPortWait(WaitOn(q, 2000)).status, ZUZU_OK, "receive a call on the new port");
+    Ticket fresh = 0;
+    CheckEq(Hold(&fresh), ZUZU_OK, "hold it too");
+
+    Err rc = ReplyTo(old, 0, -1);
+    Check(rc == ERR_BADHANDLE || rc == ERR_NOENT, "the old ticket is refused");
+    CheckEq(ReplyTo(fresh, 0, -1), ZUZU_OK, "the new port's call was not answered by it");
+    CheckEq(WorkerJoin(w2), ZUZU_OK, "its caller completes");
+
+    HandleClose((Handle)keep.r1);
+    CheckEq(WorkerJoin(w1), ERR_DEAD, "the first caller dies with its port");
+    HandleClose(q);
+}
+
+static int32_t MaxSliceSelfThread(void *arg)
+{
+    (void)arg;
+    int32_t bad = 0;
+    if (TaskSetMaxTimeSlice(-1, 20000) != ZUZU_OK)
+        bad |= 1;
+    if (TaskSetTimeSlice(-1, 30000) != ERR_NOPERM)
+        bad |= 2;
+    if (TaskSetTimeSlice(-1, 20000) != ZUZU_OK)
+        bad |= 4;
+    if (TaskSetMaxTimeSlice(-1, 40000) != ERR_NOPERM)
+        bad |= 8;
+    Handle child = CreateTask(-1);
+    if (TaskSetTimeSlice(child, 30000) != ERR_NOPERM)
+        bad |= 16;
+    if (TaskSetMaxTimeSlice(child, 30000) != ERR_NOPERM)
+        bad |= 32;
+    HandleClose(child);
+    return bad;
+}
+
+static void TestTimeSliceCap(void)
+{
+    BeginSection("timeslice ceiling");
+
+    Handle t = CreateTask(-1);
+    CheckEq(TaskSetMaxTimeSlice(t, 10000), ZUZU_OK, "cap another task's timeslice");
+    CheckEq(TaskSetTimeSlice(t, 10001), ERR_NOPERM, "a timeslice above the cap -> NOPERM");
+    CheckEq(TaskSetTimeSlice(t, 10000), ZUZU_OK, "a timeslice at the cap works");
+    CheckEq(TaskSetTimeSlice(t, 5000), ZUZU_OK, "and one below it");
+    CheckEq(TaskSetMaxTimeSlice(t, 50), ERR_BADARG, "a cap below TIMESLICE_MIN_US -> BADARG");
+    CheckEq(TaskSetMaxTimeSlice(t, TIMESLICE_MAX_US), ZUZU_OK, "the creator can lift the cap again");
+    HandleClose(t);
+
+    Worker *w = WorkerStart(MaxSliceSelfThread, NULL);
+    CheckEq(WorkerJoin(w), 0, "a task cannot raise its own cap, and its children inherit it");
+}
+
 static void RunSuite(void)
 {
     TestBasics();
@@ -3890,6 +4279,18 @@ static void RunSuite(void)
     TestStress();
     TestSecurity();
     TestSync();
+    TestReadOnlyCopyOut();
+    TestDmaAdoptRights();
+    TestDmaMapRights();
+    TestSpaceDestroyRights();
+    TestUnansweredReceive();
+    TestFaultObservers();
+    TestFaultedCount();
+    TestMemMgmtRebind();
+    TestClosedEventObservers();
+    TestReplyStrayTimeout();
+    TestStaleTicketHandle();
+    TestTimeSliceCap();
     TestLeaks();
 }
 

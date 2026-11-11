@@ -42,7 +42,7 @@ typedef struct {
  * @brief Asks devsvc for a device's memory object.
  *
  * The strings are tried in order; the first one that matches a device in the
- * boot device list wins. The handle carries PERM_MAP | PERM_WRITE | PERM_TXFR.
+ * boot device list wins. The handle carries PERM_MAP | PERM_WRITE | PERM_TXFR | PERM_CNTL.
  *
  * @param[in]  devsvc_port Handle to /svc/devsvc.
  * @param[in]  compats     Compatible strings, most specific first.

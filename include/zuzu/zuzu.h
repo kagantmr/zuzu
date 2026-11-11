@@ -84,8 +84,9 @@ static inline Err Sleep(Duration ms) { return ArchInvokeSvc(SVC_SLEEP, (Register
  * | Task   | exit status or fault reason  |                | TASK_EXITED or TASK_FAULTED  |
  * | Space  | last task's exit status      |                |                              |
  *
- * Receiving on a port leaves the caller holding the call: it must Reply() or
- * Hold() before receiving again. Waiting on a task that has already exited or
+ * Receiving on a port leaves the caller holding the call: it should Reply() or
+ * Hold() before receiving again. A call still unanswered at the next receive is
+ * failed with ERR_DEAD. Waiting on a task that has already exited or
  * faulted returns at once with ZUZU_OK. WaitOnPort(), WaitOnEvent(),
  * WaitOnTask() and WaitOnSpace() unpack the result into typed structs.
  *
@@ -103,7 +104,6 @@ static inline Err Sleep(Duration ms) { return ArchInvokeSvc(SVC_SLEEP, (Register
  * @retval ERR_NOPERM    @p h lacks PERM_WAIT.
  * @retval ERR_BADTYPE   @p h is not a port, event, task or space.
  * @retval ERR_DEAD      The port or event was destroyed, or the space was torn down.
- * @retval ERR_BUSY      Port only: the caller still holds an unanswered call.
  * @retval ERR_BADARG    @p h is the caller's own task or own space.
  */
 static inline SvcResult WaitOn(Handle h, Duration timeout)
@@ -191,7 +191,9 @@ static inline Err HandleRestrict(Handle h, HandlePerms mask)
  *
  * The object lives on while other handles or mappings refer to it; closing
  * the last handle to a port kills the port, failing its waiting callers with
- * ERR_DEAD.
+ * ERR_DEAD. Closing the last handle to an event kills it too, even while it is
+ * still bound to a port, task, space, interrupt or memory pressure; those
+ * bindings are dropped.
  *
  * @syscall_num SVC_MANAGEHANDLE / MNGHNDL_CLOSE
  * @syscall_group handle
@@ -221,6 +223,7 @@ static inline Err HandleClose(Handle h)
  * @return ZUZU_OK, or an error code.
  * @retval ERR_BADHANDLE @p h is not a live handle.
  * @retval ERR_BADARG    @p h names the caller's own space or one of its ancestors.
+ * @retval ERR_NOPERM    @p h is a space handle without PERM_CNTL; the handle is kept.
  */
 static inline Err HandleDestroy(Handle h)
 {
@@ -237,6 +240,7 @@ static inline Err HandleDestroy(Handle h)
  * | QUERY_MARKER     | the handle's marker                                 |
  * | QUERY_STATUS     | task exit status, space's last exit status, or ZUZU_OK / ERR_DEAD for a port |
  * | QUERY_SIZE       | size in bytes of a memory object                    |
+ * | QUERY_FAULTED    | 1 if a space is frozen by a faulted task, else 0    |
  * | QUERY_DMA_COUNT  | number of DMA mappings on a device                  |
  * | QUERY_DMA_ID     | id of the mapping at @p index, 0 = newest           |
  * | QUERY_DMA_BUS / _LEN / _DIR | bus address, length, direction of mapping @p index (an id) |
@@ -516,11 +520,34 @@ static inline Err TaskSetMaxPriority(Handle h, uint32_t val)
  * @retval ERR_BADARG    @p slice_us is out of range.
  * @retval ERR_BADHANDLE @p h is not a live handle.
  * @retval ERR_BADTYPE   @p h is not a task.
- * @retval ERR_NOPERM    @p h lacks PERM_CNTL.
+ * @retval ERR_NOPERM    @p h lacks PERM_CNTL, or @p slice_us is above the task's maximum timeslice.
  */
 static inline Err TaskSetTimeSlice(Handle h, uint32_t slice_us)
 {
     return ArchInvokeSvc(SVC_MANAGETASK, h, MNGTASK_SET_TIMESLICE, (Register)slice_us, 0);
+}
+
+/**
+ * @brief Sets the longest timeslice a task may give itself; shortens its current slice if needed.
+ *
+ * New tasks inherit their creator's maximum. Like TaskSetMaxPriority(), a task can
+ * only hand out a maximum up to its own.
+ *
+ * @syscall_num SVC_MANAGETASK / MNGTASK_SET_MAX_TIMESLICE
+ * @syscall_group task
+ * @syscall_blocking no
+ * @syscall_sig (task, max_us) -> r0 status
+ * @param[in] h      Task handle with PERM_CNTL, or -1 for the caller.
+ * @param[in] max_us New maximum in microseconds, within [TIMESLICE_MIN_US, TIMESLICE_MAX_US].
+ * @return ZUZU_OK, or an error code.
+ * @retval ERR_BADARG    @p max_us is out of range.
+ * @retval ERR_NOPERM    @p max_us is above the caller's own maximum, or @p h lacks PERM_CNTL.
+ * @retval ERR_BADHANDLE @p h is not a live handle.
+ * @retval ERR_BADTYPE   @p h is not a task.
+ */
+static inline Err TaskSetMaxTimeSlice(Handle h, uint32_t max_us)
+{
+    return ArchInvokeSvc(SVC_MANAGETASK, h, MNGTASK_SET_MAX_TIMESLICE, (Register)max_us, 0);
 }
 
 /**
@@ -922,15 +949,17 @@ static inline DmaMapResult FormatToDmaMap(SvcResult r)
  * @syscall_group memory
  * @syscall_blocking no
  * @syscall_sig (&args) -> r0 status, r1 bus address, r2 id
- * @param[in] dev    Device handle with PERM_MAP.
- * @param[in] mem    MEM_CONTIG memory object with PERM_MAP.
+ * @param[in] dev    Device handle with PERM_MAP and PERM_CNTL.
+ * @param[in] mem    MEM_CONTIG memory object with PERM_MAP, plus PERM_WRITE unless @p dir is
+ *                   DMA_TO_DEVICE.
  * @param[in] offset Page-aligned byte offset into @p mem.
  * @param[in] len    Page-aligned length; must fit in @p mem.
  * @param[in] dir    Direction of the transfers.
  * @return The status, the address the device must use, and the mapping id.
  * @retval ERR_BADHANDLE @p dev or @p mem is not a live handle.
  * @retval ERR_BADTYPE   @p dev is not a device, or @p mem is not MEM_CONTIG memory.
- * @retval ERR_NOPERM    A handle lacks PERM_MAP.
+ * @retval ERR_NOPERM    A handle lacks PERM_MAP, @p dev lacks PERM_CNTL, or the device would write
+ *                       to @p mem without PERM_WRITE.
  * @retval ERR_BADARG    Bad direction, misaligned or out-of-range window, or beyond the device's DMA reach.
  * @retval ERR_NOMEM     The device has no mapping slots left.
  * @retval ERR_BADPTR    The argument block is unreadable.
@@ -966,19 +995,20 @@ static inline Err DmaUnmap(Handle dev, uint32_t id)
  * @brief Returns a fresh handle to the memory behind an existing DMA mapping.
  *
  * For a restarted driver to take over buffers its predecessor mapped. The new
- * handle has PERM_MAP only.
+ * handle has at most PERM_MAP and PERM_WRITE, and never more than the handle the
+ * mapping was made through. The memory object keeps its owner.
  *
  * @syscall_num SVC_MANAGEMEMORY / MNGMEM_DMAADOPT
  * @syscall_group memory
  * @syscall_blocking no
  * @syscall_sig (dev, id) -> r0 status, r1 memory handle
- * @param[in] dev Device handle with PERM_MAP.
+ * @param[in] dev Device handle with PERM_MAP and PERM_CNTL.
  * @param[in] id  Mapping id, e.g. from HandleQueryAt() with QUERY_DMA_ID.
  * @return The new memory handle, or a negative error code.
  * @retval ERR_NOENT     No mapping with that id.
  * @retval ERR_BADHANDLE @p dev is not a live handle.
  * @retval ERR_BADTYPE   @p dev is not a device.
- * @retval ERR_NOPERM    @p dev lacks PERM_MAP.
+ * @retval ERR_NOPERM    @p dev lacks PERM_MAP or PERM_CNTL.
  * @retval ERR_NOMEM     The caller's handle table is full.
  */
 static inline Handle DmaAdopt(Handle dev, uint32_t id)
@@ -1262,10 +1292,10 @@ static inline Err Hold(Ticket *out)
  * once and is meaningless in other spaces. The call in hand, if any, is not
  * affected.
  *
- * @syscall_num SVC_REPLY (ticket in r3)
+ * @syscall_num SVC_REPLY (RECV_TICKET in r2, ticket in r3)
  * @syscall_group ipc
  * @syscall_blocking no
- * @syscall_sig (xlen, grant, -1, ticket) -> r0 status
+ * @syscall_sig (xlen, grant, RECV_TICKET, ticket) -> r0 status
  * @param[in] t     Ticket from Hold().
  * @param[in] xlen  Reply length in bytes, at most MSG_BUF_SIZE.
  * @param[in] grant Handle (with PERM_TXFR) to copy to the caller, or -1.
@@ -1277,7 +1307,7 @@ static inline Err Hold(Ticket *out)
  */
 static inline Err ReplyTo(Ticket t, uint32_t xlen, Handle grant)
 {
-    return ArchInvokeSvc(SVC_REPLY, (Register)xlen, grant, -1, (Register)t);
+    return ArchInvokeSvc(SVC_REPLY, (Register)xlen, grant, RECV_TICKET, (Register)t);
 }
 
 /** @} */
@@ -1333,7 +1363,7 @@ static inline Err Signal(Handle ev_handle, EventWord bits, bool broadcast)
  * |-------------|-----------|----------------------------------------|
  * | EVENT_PORT  | port      | a caller is queued, nobody receiving   |
  * | EVENT_TASK  | task      | the task exits or faults               |
- * | EVENT_SPACE | space     | the space has no live tasks left       |
+ * | EVENT_SPACE | space     | the space has no live tasks left, or a task in it faulted (see QUERY_FAULTED) |
  * | EVENT_EVENT | event     | the child event has pending bits       |
  *
  * If the condition already holds, the bit is set at once. The bit then

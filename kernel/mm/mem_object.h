@@ -29,6 +29,7 @@ typedef struct DmaMappingStruct {
     size_t offset;                 /**< Byte offset of the mapping within @c mem. */
     size_t len;                    /**< Length of the mapping in bytes. */
     DmaDir dir;                    /**< Transfer direction of the mapping. */
+    HandlePerms perms;             /**< Rights of the memory handle the mapping was made through. */
     uintptr_t bus_addr;            /**< Bus address the device uses to reach the range. */
 } DmaMapping;
 
@@ -115,6 +116,7 @@ void MemObjUnmapAndDrop(AddressSpace *as, VirtAddr mapped_va, MemObject *mem);
  * @param[in] offset Page-aligned byte offset into @p mem.
  * @param[in] len Page-aligned length in bytes, non-zero.
  * @param[in] dir DMA transfer direction.
+ * @param[in] perms Rights of the memory handle used, kept for MNGMEM_DMAADOPT.
  * @param[out] bus_addr Receives the bus address of the range.
  * @param[out] id Receives the mapping id.
  * @return ZUZU_OK on success, or an error code.
@@ -124,7 +126,7 @@ void MemObjUnmapAndDrop(AddressSpace *as, VirtAddr mapped_va, MemObject *mem);
  * @retval ERR_NOMEM Mapping limit reached or allocation failed.
  */
 Err MemObjDmaMap(MemObject *dev, MemObject *mem, size_t offset, size_t len, DmaDir dir,
-                 uintptr_t *bus_addr, uint32_t *id);
+                 HandlePerms perms, uintptr_t *bus_addr, uint32_t *id);
 
 /**
  * @brief Remove a DMA mapping.
