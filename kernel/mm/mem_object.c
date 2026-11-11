@@ -123,7 +123,7 @@ void MemObjUnmapAndDrop(AddressSpace *as, VirtAddr mapped_va, MemObject *mem)
 }
 
 Err MemObjDmaMap(MemObject *dev, MemObject *mem, size_t offset, size_t len, DmaDir dir,
-                 uintptr_t *bus_addr, uint32_t *id)
+                 HandlePerms perms, uintptr_t *bus_addr, uint32_t *id)
 {
     ENSURE_RET(dev->kind == MEMKIND_DEVICE, ERR_BADTYPE);
     ENSURE_RET(mem->kind == MEMKIND_SHARED && (mem->shm.flags & MEM_CONTIG), ERR_BADTYPE);
@@ -150,6 +150,7 @@ Err MemObjDmaMap(MemObject *dev, MemObject *mem, size_t offset, size_t len, DmaD
         dev->dev.dma_next_id = 1;
     m->mem = mem;
     m->dir = dir;
+    m->perms = perms;
     m->len = len;
     m->offset = offset;
     m->bus_addr = bus;

@@ -966,19 +966,20 @@ static inline Err DmaUnmap(Handle dev, uint32_t id)
  * @brief Returns a fresh handle to the memory behind an existing DMA mapping.
  *
  * For a restarted driver to take over buffers its predecessor mapped. The new
- * handle has PERM_MAP only.
+ * handle has at most PERM_MAP and PERM_WRITE, and never more than the handle the
+ * mapping was made through. The memory object keeps its owner.
  *
  * @syscall_num SVC_MANAGEMEMORY / MNGMEM_DMAADOPT
  * @syscall_group memory
  * @syscall_blocking no
  * @syscall_sig (dev, id) -> r0 status, r1 memory handle
- * @param[in] dev Device handle with PERM_MAP.
+ * @param[in] dev Device handle with PERM_MAP and PERM_CNTL.
  * @param[in] id  Mapping id, e.g. from HandleQueryAt() with QUERY_DMA_ID.
  * @return The new memory handle, or a negative error code.
  * @retval ERR_NOENT     No mapping with that id.
  * @retval ERR_BADHANDLE @p dev is not a live handle.
  * @retval ERR_BADTYPE   @p dev is not a device.
- * @retval ERR_NOPERM    @p dev lacks PERM_MAP.
+ * @retval ERR_NOPERM    @p dev lacks PERM_MAP or PERM_CNTL.
  * @retval ERR_NOMEM     The caller's handle table is full.
  */
 static inline Handle DmaAdopt(Handle dev, uint32_t id)

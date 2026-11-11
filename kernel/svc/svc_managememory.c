@@ -84,7 +84,8 @@ void SvcManageMemory(CpuState *frame)
         uintptr_t bus_addr = 0;
         uint32_t id = 0;
         Err rc =
-            MemObjDmaMap(dev->mem, mem->mem, kargs.offset, kargs.len, kargs.dir, &bus_addr, &id);
+            MemObjDmaMap(dev->mem, mem->mem, kargs.offset, kargs.len, kargs.dir, mem->perms,
+                         &bus_addr, &id);
         ArchSetInFrame(frame, 0, rc);
         ArchSetInFrame(frame, 1, (rc == ZUZU_OK) ? (Register)bus_addr : 0);
         ArchSetInFrame(frame, 2, (rc == ZUZU_OK) ? (Register)id : 0);
@@ -109,6 +110,7 @@ void SvcManageMemory(CpuState *frame)
         ENSURE_ERR(frame, (HANDLE_MEM == dev->type), ERR_BADTYPE);
         ENSURE_ERR(frame, dev->mem && dev->mem->kind == MEMKIND_DEVICE, ERR_BADTYPE);
         ENSURE_ERR(frame, dev->perms & PERM_MAP, ERR_NOPERM);
+        ENSURE_ERR(frame, dev->perms & PERM_CNTL, ERR_NOPERM);
 
         const DmaMapping *m = MemObjDmaFind(dev->mem, id);
         ENSURE_ERR(frame, m, ERR_NOENT);
@@ -119,8 +121,7 @@ void SvcManageMemory(CpuState *frame)
         MemObjRef(m->mem);
         fresh->type = HANDLE_MEM;
         fresh->mem = m->mem;
-        m->mem->owner_spid = CURRENT_SPACE->spid;
-        fresh->perms = PERM_MAP | PERM_WRITE;
+        fresh->perms = m->perms & (PERM_MAP | PERM_WRITE);
         fresh->mapped_va = 0;
 
         ArchSetInFrame(frame, 0, ZUZU_OK);
