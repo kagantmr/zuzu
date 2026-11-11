@@ -84,8 +84,9 @@ static inline Err Sleep(Duration ms) { return ArchInvokeSvc(SVC_SLEEP, (Register
  * | Task   | exit status or fault reason  |                | TASK_EXITED or TASK_FAULTED  |
  * | Space  | last task's exit status      |                |                              |
  *
- * Receiving on a port leaves the caller holding the call: it must Reply() or
- * Hold() before receiving again. Waiting on a task that has already exited or
+ * Receiving on a port leaves the caller holding the call: it should Reply() or
+ * Hold() before receiving again. A call still unanswered at the next receive is
+ * failed with ERR_DEAD. Waiting on a task that has already exited or
  * faulted returns at once with ZUZU_OK. WaitOnPort(), WaitOnEvent(),
  * WaitOnTask() and WaitOnSpace() unpack the result into typed structs.
  *
@@ -103,7 +104,6 @@ static inline Err Sleep(Duration ms) { return ArchInvokeSvc(SVC_SLEEP, (Register
  * @retval ERR_NOPERM    @p h lacks PERM_WAIT.
  * @retval ERR_BADTYPE   @p h is not a port, event, task or space.
  * @retval ERR_DEAD      The port or event was destroyed, or the space was torn down.
- * @retval ERR_BUSY      Port only: the caller still holds an unanswered call.
  * @retval ERR_BADARG    @p h is the caller's own task or own space.
  */
 static inline SvcResult WaitOn(Handle h, Duration timeout)
