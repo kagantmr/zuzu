@@ -191,7 +191,9 @@ static inline Err HandleRestrict(Handle h, HandlePerms mask)
  *
  * The object lives on while other handles or mappings refer to it; closing
  * the last handle to a port kills the port, failing its waiting callers with
- * ERR_DEAD.
+ * ERR_DEAD. Closing the last handle to an event kills it too, even while it is
+ * still bound to a port, task, space, interrupt or memory pressure; those
+ * bindings are dropped.
  *
  * @syscall_num SVC_MANAGEHANDLE / MNGHNDL_CLOSE
  * @syscall_group handle
