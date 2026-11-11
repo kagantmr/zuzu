@@ -11,25 +11,52 @@
 #include "kernel/space/handle.h"
 #include "kernel/task/task.h"
 
+#if UINTPTR_MAX > 0xFFFFFFFFu
+/** @brief Bits of the held slot's generation a ticket carries. */
+#define TICKET_GEN_BITS 15u
+/** @brief Bits of the port handle's generation a ticket carries: all of them. */
+#define TICKET_HGEN_BITS HANDLE_GEN_BITS
+#else
+/** @brief Bits of the held slot's generation a ticket carries. */
+#define TICKET_GEN_BITS 8u
+/** @brief Bits of the port handle's generation a ticket carries: only the low ones on 32 bits. */
+#define TICKET_HGEN_BITS 7u
+#endif
+/** @brief Mask of the held slot's generation in a ticket. */
+#define TICKET_GEN_MASK ((1u << TICKET_GEN_BITS) - 1u)
+/** @brief Mask of the port handle's generation in a ticket. */
+#define TICKET_HGEN_MASK ((1u << TICKET_HGEN_BITS) - 1u)
+/** @brief First bit of the port handle's generation in a ticket. */
+#define TICKET_HGEN_SHIFT (16u + TICKET_GEN_BITS)
+
 /**
  * @brief Builds a Hold() ticket.
  *
  * Layout, from bit 0: the handle index of the port the call was received through
- * (bits 0-9), the slot in that port's held table (bits 10-15) and the slot's generation
- * (bits 16-30). Bit 31 stays clear.
+ * (bits 0-9), the slot in that port's held table (bits 10-15), the slot's generation
+ * (TICKET_GEN_BITS from bit 16), then the generation of the port handle
+ * (TICKET_HGEN_BITS). On AArch64 the whole handle generation fits; on ARMv7 only its
+ * low 7 bits do, and the slot generation is 8 bits, so a ticket kept across 128
+ * reuses of its port's handle slot or 255 holds on its held slot can match again.
+ * The top bit stays clear.
  *
  * @param[in] index Handle index of the port in the server's space.
  * @param[in] slot  Slot in the port's held table, below PORT_HELD_SLOTS.
- * @param[in] gen   Generation of the slot, 1-0x7FFF.
+ * @param[in] gen   Generation of the slot, 1 to TICKET_GEN_MASK.
+ * @param[in] hgen  Generation of the port handle.
  */
-#define TICKET_PACK(index, slot, gen)                                                              \
-    (((uint32_t)(gen) << 16) | ((uint32_t)(slot) << 10) | ((uint32_t)(index) & HANDLE_INDEX_MASK))
+#define TICKET_PACK(index, slot, gen, hgen)                                                        \
+    ((((Ticket)(hgen) & TICKET_HGEN_MASK) << TICKET_HGEN_SHIFT) |                                  \
+     ((Ticket)((gen) & TICKET_GEN_MASK) << 16) | ((Ticket)(slot) << 10) |                          \
+     ((Ticket)(index) & HANDLE_INDEX_MASK))
 /** @brief Handle index of the port a ticket was issued on. */
 #define TICKET_INDEX(t) ((uint32_t)(t) & HANDLE_INDEX_MASK)
 /** @brief Slot in the port's held table that a ticket names. */
 #define TICKET_SLOT(t) (((uint32_t)(t) >> 10) & 0x3Fu)
 /** @brief Generation a ticket expects its slot to have; a mismatch means a stale or forged one. */
-#define TICKET_GEN(t) (((uint32_t)(t) >> 16) & 0x7FFFu)
+#define TICKET_GEN(t) ((uint32_t)((t) >> 16) & TICKET_GEN_MASK)
+/** @brief Port handle generation (or its low bits) a ticket was issued under. */
+#define TICKET_HGEN(t) ((uint32_t)((t) >> TICKET_HGEN_SHIFT) & TICKET_HGEN_MASK)
 
 /**
  * @brief Put the current incoming call of @p server on hold, and emit a ticket to @p out
