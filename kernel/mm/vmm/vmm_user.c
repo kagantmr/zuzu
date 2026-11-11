@@ -242,6 +242,11 @@ bool VmmCheckUserFault(AddressSpace *as, VirtAddr va, size_t len, bool write)
 
     while (page_va < end_va) {
         if (ArchMmuTranslate(as->pt_root_physaddr, page_va) != 0) {
+            if (write) {
+                const VirtMemRegion *mapped = VmmFindRegion(as, page_va);
+                if (!mapped || !(mapped->prot & PROT_WRITE))
+                    return false;
+            }
             page_va += PAGE_SIZE;
             continue;
         }

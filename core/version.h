@@ -10,10 +10,10 @@
 /** @brief Minor version number. */
 #define ZUZU_VERSION_MINOR 2
 /** @brief Patch version number. */
-#define ZUZU_VERSION_PATCH 0
+#define ZUZU_VERSION_PATCH 1
 /** @brief Release codename string. */
 #define ZUZU_CODENAME "prowl"
 /** @brief Full version string in "major.minor.patch" form. */
-#define ZUZU_VERSION "2.2.0"
+#define ZUZU_VERSION "2.2.1"
 
 #endif

@@ -32,7 +32,8 @@ typedef struct EventObjectStruct {
     EventWord word;          /**< The word cleared on wake. */
     ListHead wait_queue;     /**< Tasks waiting on this event. */
     Spid owner_spid;         /**< Owner space's ID. */
-    size_t ref_count;        /**< How many Spaces are holding this handle now? */
+    size_t ref_count;        /**< Handles plus internal references (bindings); freed at zero. */
+    size_t handle_count;     /**< Handles to the event; it is killed when the last one goes. */
     bool alive;              /**< Is the Event destroyed? */
     EventWord bound_mask;    /**< Bitmask of bound bits. */
     uint16_t bound_refs[31]; /**< Each bit's bound reference counter. */
@@ -90,6 +91,13 @@ void EventUnref(EventObject *ev);
  * @param[in] ev The event to kill.
  */
 void EventKill(EventObject *ev);
+
+/**
+ * @brief Drop one handle to an event: kill it if that was the last handle, then drop the reference.
+ *
+ * @param[in] ev The event the released handle referred to.
+ */
+void EventHandleRelease(EventObject *ev);
 
 /**
  * @brief Create an event with @p owner as the owner space.
