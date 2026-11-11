@@ -3904,6 +3904,70 @@ static void TestReadOnlyCopyOut(void)
     KittenFree(&k);
 }
 
+/* r0 = a device handle, r1 = a mapping id; quit with ManageMemory(DMAADOPT, r0, r1)'s status */
+#ifdef __aarch64__
+static const uint32_t kCodeDmaAdopt[] = {0xAA0103E2, 0xAA0003E1, 0xD28000E0, SYS(SVC_MANAGEMEMORY),
+                                         SYS(SVC_QUIT)};
+#else
+static const uint32_t kCodeDmaAdopt[] = {0xE1A02001, 0xE1A01000, 0xE3A00007, SYS(SVC_MANAGEMEMORY),
+                                         SYS(SVC_QUIT)}; /* mov r2,r1; mov r1,r0; mov r0,#7 */
+#endif
+
+static void DmaUnmapIfMapped(Handle dev, DmaMapResult r)
+{
+    if (r.status == ZUZU_OK)
+        DmaUnmap(dev, r.id);
+}
+
+static void TestDmaAdoptRights(void)
+{
+    BeginSection("dma adopt rights");
+
+    Handle dev = RequestAnyDevice();
+    if (dev < 0) {
+        UserspaceDebugLog("zztest: no device from devsvc (%d), skipping dma adopt", (int)dev);
+        return;
+    }
+    Handle buf = CreateMem(1, MEM_CONTIG);
+    SvcResult ro = HandleDuplicate(buf, PERM_MAP | PERM_TXFR, MARKER_NONE);
+    SvcResult noctl = HandleDuplicate(dev, PERM_MAP | PERM_WRITE | PERM_TXFR, MARKER_NONE);
+
+    DmaMapResult to = DmaMap(dev, (Handle)ro.r1, 0, 4096, DMA_TO_DEVICE);
+    CheckEq(to.status, ZUZU_OK, "DmaMap(TO_DEVICE) through a read-only handle");
+
+    Handle adopted = DmaAdopt((Handle)noctl.r1, to.id);
+    CheckEq(adopted < 0 ? adopted : ZUZU_OK, ERR_NOPERM,
+            "DmaAdopt without PERM_CNTL on the device -> NOPERM");
+    if (adopted >= 0)
+        HandleClose(adopted);
+    adopted = DmaAdopt(dev, to.id);
+    Check(adopted >= 0, "DmaAdopt with PERM_CNTL works");
+    uint32_t adopted_perms = (uint32_t)HandleQuery(adopted, QUERY_PERMS).r1;
+    CheckEq((int32_t)(adopted_perms & ~(uint32_t)(PERM_MAP | PERM_TXFR)), 0,
+            "the adopted handle has no rights the mapping's handle lacked");
+    HandleClose(adopted);
+
+    DmaMapResult rw = DmaMap(dev, buf, 0, 4096, DMA_TO_DEVICE);
+    Kitten k;
+    KittenCreate(&k, kCodeDmaAdopt, sizeof(kCodeDmaAdopt));
+    SvcResult g = HandleGrant(dev, k.space, PERM_MAP | PERM_CNTL);
+    KittenStart(&k, (Register)g.r1, (Register)rw.id);
+    SpaceWaitResult sw = FormatToSpaceWait(WaitOn(k.space, 2000));
+    CheckEq(sw.exit_status, ZUZU_OK, "another Space adopts the mapping");
+    SvcResult stamped = HandleDuplicate(buf, PERM_ALL, 0xD3A);
+    CheckEq(HandleQuery((Handle)stamped.r1, QUERY_MARKER).r1, 0xD3A,
+            "the creator still owns the buffer after a foreign DmaAdopt");
+    HandleClose((Handle)stamped.r1);
+    KittenFree(&k);
+
+    DmaUnmapIfMapped(dev, rw);
+    DmaUnmapIfMapped(dev, to);
+    HandleClose((Handle)noctl.r1);
+    HandleClose((Handle)ro.r1);
+    HandleClose(buf);
+    HandleClose(dev);
+}
+
 static void RunSuite(void)
 {
     TestBasics();
@@ -3936,6 +4000,7 @@ static void RunSuite(void)
     TestSecurity();
     TestSync();
     TestReadOnlyCopyOut();
+    TestDmaAdoptRights();
     TestLeaks();
 }
 
