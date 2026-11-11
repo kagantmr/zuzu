@@ -139,8 +139,9 @@ size_t PmmAllocFramesScattered(size_t n_frames, PhysAddr *out_addrs);
  * @brief Subscribe an event object to low-memory notifications.
  *
  * The PMM takes a reference on the event and signals EVENT_MEMMGMT_BIT when free
- * memory falls below the low-water mark. Subscribers whose event is no longer
- * alive are dropped on the next signal.
+ * memory falls below the low-water mark. Subscribing an event twice is a no-op.
+ * Subscribers whose event is no longer alive are dropped on the next signal or
+ * subscription.
  *
  * @param[in,out] ev Event object to signal.
  * @return ZUZU_OK on success, or an error code.

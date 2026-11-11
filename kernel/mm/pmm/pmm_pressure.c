@@ -57,6 +57,19 @@ int PmmSubscribe(EventObject *ev)
     if (!ev)
         return ERR_BADARG;
 
+    ListNode *pos, *tmp;
+    LIST_FOR_EACH_SAFE(pos, tmp, &pmm_subscribers.node)
+    {
+        PmmSubscriber *sub = container_of(pos, PmmSubscriber, node);
+        if (sub->ev == ev)
+            return ZUZU_OK;
+        if (!sub->ev->alive) {
+            ListRemove(pos);
+            EventUnref(sub->ev);
+            KFree(sub);
+        }
+    }
+
     PmmSubscriber *new_node = KZAlloc(sizeof(PmmSubscriber));
     if (!new_node)
         return ERR_NOMEM;

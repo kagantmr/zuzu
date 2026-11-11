@@ -4101,6 +4101,23 @@ static void TestFaultedCount(void)
     }
 }
 
+static void TestMemMgmtRebind(void)
+{
+    BeginSection("memmgmt rebind");
+
+    Handle ev = CreateEvent();
+    CheckEq(BindMemMgmt(ev), ZUZU_OK, "subscribe an event to memory pressure");
+    SleepAndSettle();
+    uint32_t before = PagesFree();
+    bool all_ok = true;
+    for (int i = 0; i < 10000; i++)
+        all_ok = all_ok && BindMemMgmt(ev) == ZUZU_OK;
+    Check(all_ok, "binding the same event 10000 times succeeds");
+    SleepAndSettle();
+    CheckEq((int32_t)PagesFree(), (int32_t)before, "and the kernel heap does not grow");
+    HandleDestroy(ev);
+}
+
 static void RunSuite(void)
 {
     TestBasics();
@@ -4139,6 +4156,7 @@ static void RunSuite(void)
     TestUnansweredReceive();
     TestFaultObservers();
     TestFaultedCount();
+    TestMemMgmtRebind();
     TestLeaks();
 }
 
