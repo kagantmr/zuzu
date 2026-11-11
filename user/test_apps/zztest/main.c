@@ -3859,6 +3859,51 @@ static void TestRecursiveEvents(void)
             "no free-page change after 22 bind/signal/close rounds");
 }
 
+/* ---------------- 2.2.1 fixes ---------------- */
+
+static void TestReadOnlyCopyOut(void)
+{
+    BeginSection("copy-out to read-only pages");
+
+    Kitten k;
+    TaskRegs regs;
+    KittenCreate(&k, kCodeCount, sizeof(kCodeCount));
+    KittenStart(&k, 0, 0);
+    Sleep(10);
+    TaskSuspend(k.task);
+
+    static uint8_t before[96];
+    memcpy(before, (const void *)SYSPAGE, sizeof(before));
+    CheckEq(TaskGetRegs(k.task, (TaskRegs *)SYSPAGE), ERR_BADPTR,
+            "GetRegs into the syspage -> BADPTR");
+    Check(memcmp(before, (const void *)SYSPAGE, sizeof(before)) == 0,
+          "the syspage is left unchanged");
+
+    Handle mem = CreateMem(1, 0);
+    uint8_t *rw = MemMap(mem, 0, PROT_RW);
+    SvcResult dup = HandleDuplicate(mem, PERM_ALL, MARKER_NONE);
+    const uint8_t *ro = MemMap((Handle)dup.r1, 0, PROT_READ);
+    Check(!PtrIsErr(rw) && !PtrIsErr(ro), "map a shared object read-write and read-only");
+    if (!PtrIsErr(rw) && !PtrIsErr(ro)) {
+        memset(rw, 0x5A, 4096);
+        CheckEq(((volatile const uint8_t *)ro)[0], 0x5A, "the read-only view is faulted in");
+        CheckEq(TaskGetRegs(k.task, (TaskRegs *)(VirtAddr)ro), ERR_BADPTR,
+                "GetRegs into a read-only shared mapping -> BADPTR");
+        bool intact = true;
+        for (size_t i = 0; i < sizeof(TaskRegs); i++)
+            intact = intact && rw[i] == 0x5A;
+        Check(intact, "the read-only mapping is left unchanged");
+        CheckEq(TaskGetRegs(k.task, (TaskRegs *)(VirtAddr)rw), ZUZU_OK,
+                "GetRegs into the read-write view still works");
+        MemUnmap((void *)ro);
+        MemUnmap(rw);
+    }
+    CheckEq(TaskGetRegs(k.task, &regs), ZUZU_OK, "the caller survives and GetRegs still works");
+    HandleClose((Handle)dup.r1);
+    HandleClose(mem);
+    KittenFree(&k);
+}
+
 static void RunSuite(void)
 {
     TestBasics();
@@ -3890,6 +3935,7 @@ static void RunSuite(void)
     TestStress();
     TestSecurity();
     TestSync();
+    TestReadOnlyCopyOut();
     TestLeaks();
 }
 
