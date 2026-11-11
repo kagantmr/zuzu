@@ -4118,6 +4118,43 @@ static void TestMemMgmtRebind(void)
     HandleDestroy(ev);
 }
 
+static void TestClosedEventObservers(void)
+{
+    BeginSection("closed events release bindings");
+
+    Handle port = CreatePort();
+    bool all_ok = true;
+    for (int i = 0; i < 12; i++) {
+        Handle e = CreateEvent();
+        all_ok = all_ok && Bind(EVENT_PORT, e, port, 1) == ZUZU_OK;
+        HandleClose(e);
+    }
+    Check(all_ok, "a port keeps accepting bindings from short-lived events");
+
+    Handle e = CreateEvent();
+    SvcResult other = HandleDuplicate(e, PERM_WAIT, MARKER_NONE);
+    Bind(EVENT_PORT, e, port, 3);
+    HandleClose(e);
+    CheckEq(WaitOn((Handle)other.r1, TIMEOUT_POLL).r0, ERR_TIMEOUT,
+            "an event with a handle left stays alive");
+    HandleClose((Handle)other.r1);
+
+    Handle w = CreateEvent();
+    SvcResult keep = HandleDuplicate(w, PERM_WAIT, MARKER_NONE);
+    HandleClose(w);
+    CheckEq(WaitOn((Handle)keep.r1, TIMEOUT_POLL).r0, ERR_TIMEOUT,
+            "closing one of two handles does not kill the event");
+    HandleClose((Handle)keep.r1);
+
+    Handle irqless = CreateEvent();
+    CheckEq(BindMemMgmt(irqless), ZUZU_OK, "subscribe an event to memory pressure");
+    HandleClose(irqless);
+    Handle again = CreateEvent();
+    CheckEq(BindMemMgmt(again), ZUZU_OK, "a new subscription after the old event was closed");
+    HandleClose(again);
+    HandleClose(port);
+}
+
 static void RunSuite(void)
 {
     TestBasics();
@@ -4157,6 +4194,7 @@ static void RunSuite(void)
     TestFaultObservers();
     TestFaultedCount();
     TestMemMgmtRebind();
+    TestClosedEventObservers();
     TestLeaks();
 }
 
