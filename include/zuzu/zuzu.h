@@ -520,11 +520,34 @@ static inline Err TaskSetMaxPriority(Handle h, uint32_t val)
  * @retval ERR_BADARG    @p slice_us is out of range.
  * @retval ERR_BADHANDLE @p h is not a live handle.
  * @retval ERR_BADTYPE   @p h is not a task.
- * @retval ERR_NOPERM    @p h lacks PERM_CNTL.
+ * @retval ERR_NOPERM    @p h lacks PERM_CNTL, or @p slice_us is above the task's maximum timeslice.
  */
 static inline Err TaskSetTimeSlice(Handle h, uint32_t slice_us)
 {
     return ArchInvokeSvc(SVC_MANAGETASK, h, MNGTASK_SET_TIMESLICE, (Register)slice_us, 0);
+}
+
+/**
+ * @brief Sets the longest timeslice a task may give itself; shortens its current slice if needed.
+ *
+ * New tasks inherit their creator's maximum. Like TaskSetMaxPriority(), a task can
+ * only hand out a maximum up to its own.
+ *
+ * @syscall_num SVC_MANAGETASK / MNGTASK_SET_MAX_TIMESLICE
+ * @syscall_group task
+ * @syscall_blocking no
+ * @syscall_sig (task, max_us) -> r0 status
+ * @param[in] h      Task handle with PERM_CNTL, or -1 for the caller.
+ * @param[in] max_us New maximum in microseconds, within [TIMESLICE_MIN_US, TIMESLICE_MAX_US].
+ * @return ZUZU_OK, or an error code.
+ * @retval ERR_BADARG    @p max_us is out of range.
+ * @retval ERR_NOPERM    @p max_us is above the caller's own maximum, or @p h lacks PERM_CNTL.
+ * @retval ERR_BADHANDLE @p h is not a live handle.
+ * @retval ERR_BADTYPE   @p h is not a task.
+ */
+static inline Err TaskSetMaxTimeSlice(Handle h, uint32_t max_us)
+{
+    return ArchInvokeSvc(SVC_MANAGETASK, h, MNGTASK_SET_MAX_TIMESLICE, (Register)max_us, 0);
 }
 
 /**

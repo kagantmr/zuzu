@@ -4210,6 +4210,44 @@ static void TestStaleTicketHandle(void)
     HandleClose(q);
 }
 
+static int32_t MaxSliceSelfThread(void *arg)
+{
+    (void)arg;
+    int32_t bad = 0;
+    if (TaskSetMaxTimeSlice(-1, 20000) != ZUZU_OK)
+        bad |= 1;
+    if (TaskSetTimeSlice(-1, 30000) != ERR_NOPERM)
+        bad |= 2;
+    if (TaskSetTimeSlice(-1, 20000) != ZUZU_OK)
+        bad |= 4;
+    if (TaskSetMaxTimeSlice(-1, 40000) != ERR_NOPERM)
+        bad |= 8;
+    Handle child = CreateTask(-1);
+    if (TaskSetTimeSlice(child, 30000) != ERR_NOPERM)
+        bad |= 16;
+    if (TaskSetMaxTimeSlice(child, 30000) != ERR_NOPERM)
+        bad |= 32;
+    HandleClose(child);
+    return bad;
+}
+
+static void TestTimeSliceCap(void)
+{
+    BeginSection("timeslice ceiling");
+
+    Handle t = CreateTask(-1);
+    CheckEq(TaskSetMaxTimeSlice(t, 10000), ZUZU_OK, "cap another task's timeslice");
+    CheckEq(TaskSetTimeSlice(t, 10001), ERR_NOPERM, "a timeslice above the cap -> NOPERM");
+    CheckEq(TaskSetTimeSlice(t, 10000), ZUZU_OK, "a timeslice at the cap works");
+    CheckEq(TaskSetTimeSlice(t, 5000), ZUZU_OK, "and one below it");
+    CheckEq(TaskSetMaxTimeSlice(t, 50), ERR_BADARG, "a cap below TIMESLICE_MIN_US -> BADARG");
+    CheckEq(TaskSetMaxTimeSlice(t, TIMESLICE_MAX_US), ZUZU_OK, "the creator can lift the cap again");
+    HandleClose(t);
+
+    Worker *w = WorkerStart(MaxSliceSelfThread, NULL);
+    CheckEq(WorkerJoin(w), 0, "a task cannot raise its own cap, and its children inherit it");
+}
+
 static void RunSuite(void)
 {
     TestBasics();
@@ -4252,6 +4290,7 @@ static void RunSuite(void)
     TestClosedEventObservers();
     TestReplyStrayTimeout();
     TestStaleTicketHandle();
+    TestTimeSliceCap();
     TestLeaks();
 }
 

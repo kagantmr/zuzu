@@ -281,7 +281,8 @@ typedef enum {
     MNGTASK_SUSPEND,       /**< Suspend an owned task.  */
     MNGTASK_RESUME,        /**< Resume an owned task. */
     MNGTASK_GET_REGS,      /**< Get the register frame of an owned task. */
-    MNGTASK_SET_REGS       /**< Change the register frame of an owned task. */
+    MNGTASK_SET_REGS,      /**< Change the register frame of an owned task. */
+    MNGTASK_SET_MAX_TIMESLICE /**< Change the longest timeslice the caller or an owned task may set. */
 } ManageTaskVerb;
 
 #ifdef __cplusplus
