@@ -49,8 +49,8 @@ typedef int Err;
 /** @brief Stamped value of a distinct object. */
 typedef unsigned int Marker;
 
-/** @brief Index into a port's held callers queue. */
-typedef unsigned int Ticket;
+/** @brief Names a call parked with Hold(); register-wide, so 64 bits on AArch64. */
+typedef uintptr_t Ticket;
 
 /** @brief Receive-port value for Reply that means "answer the held call whose ticket is in r3". */
 #define RECV_TICKET (-2)

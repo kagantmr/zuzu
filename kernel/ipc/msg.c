@@ -304,7 +304,7 @@ Err PortHoldCurrent(TaskObject *server, Ticket *out)
     if (slot == PORT_HELD_SLOTS)
         return ERR_NOMEM;
 
-    uint16_t gen = (uint16_t)((port->held[slot].gen + 1U) & 0x7FFFU);
+    uint16_t gen = (uint16_t)((port->held[slot].gen + 1U) & TICKET_GEN_MASK);
     if (!gen)
         gen = 1;
 
@@ -313,15 +313,23 @@ Err PortHoldCurrent(TaskObject *server, Ticket *out)
     caller->held_port = port;
     caller->held_slot = (uint8_t)slot;
 
-    *out = TICKET_PACK(HANDLE_INDEX(server->serving_handle), slot, gen);
+    *out = TICKET_PACK(HANDLE_INDEX(server->serving_handle), slot, gen,
+                       HANDLE_GEN(server->serving_handle));
     TaskClearReplyCap(server);
     return ZUZU_OK;
 }
 
 TaskObject *PortTakeHeld(TaskObject *server, Ticket ticket, Err *err)
 {
+#if TICKET_HGEN_BITS >= HANDLE_GEN_BITS
+    HandleTableEntry *e = HandleTableLookup(
+        &server->owner->handle_table, (Handle)HANDLE_PACK(TICKET_INDEX(ticket), TICKET_HGEN(ticket)));
+#else
     HandleTableEntry *e =
         HandleTableGet(&server->owner->handle_table, (Handle)TICKET_INDEX(ticket));
+    if (e && (e->type == HANDLE_FREE || (e->generation & TICKET_HGEN_MASK) != TICKET_HGEN(ticket)))
+        e = NULL;
+#endif
     if (!e || e->type != HANDLE_PORT || !e->port) {
         *err = ERR_BADHANDLE;
         return NULL;

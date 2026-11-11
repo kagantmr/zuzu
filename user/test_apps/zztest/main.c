@@ -43,6 +43,9 @@
  * these raw values. */
 enum { ZH_PORT = 1, ZH_MEM, ZH_EVENT, ZH_TASK, ZH_SPACE };
 
+/* The slot index in the low bits of a handle value (kernel/space/handle.h). */
+#define HANDLE_INDEX_OF(h) ((int32_t)((uint32_t)(h) & 0x3FFu))
+
 /* ---------------- harness ---------------- */
 
 #define MAX_SECTIONS 64
@@ -4176,6 +4179,37 @@ static void TestReplyStrayTimeout(void)
     HandleClose(p);
 }
 
+static void TestStaleTicketHandle(void)
+{
+    BeginSection("tickets check the port handle");
+
+    Handle p = CreatePort();
+    SvcResult keep = HandleDuplicate(p, PERM_ALL, MARKER_NONE);
+    CallerJob c1 = {.port = p, .op = OP_ECHO};
+    Worker *w1 = WorkerStart(CallOnce, &c1);
+    CheckEq(FormatToPortWait(WaitOn(p, 2000)).status, ZUZU_OK, "receive a call on the first port");
+    Ticket old = 0;
+    CheckEq(Hold(&old), ZUZU_OK, "hold it");
+    HandleClose(p);
+
+    Handle q = CreatePort();
+    CheckEq(HANDLE_INDEX_OF(q), HANDLE_INDEX_OF(p), "a new port lands in the freed slot");
+    CallerJob c2 = {.port = q, .op = OP_ECHO};
+    Worker *w2 = WorkerStart(CallOnce, &c2);
+    CheckEq(FormatToPortWait(WaitOn(q, 2000)).status, ZUZU_OK, "receive a call on the new port");
+    Ticket fresh = 0;
+    CheckEq(Hold(&fresh), ZUZU_OK, "hold it too");
+
+    Err rc = ReplyTo(old, 0, -1);
+    Check(rc == ERR_BADHANDLE || rc == ERR_NOENT, "the old ticket is refused");
+    CheckEq(ReplyTo(fresh, 0, -1), ZUZU_OK, "the new port's call was not answered by it");
+    CheckEq(WorkerJoin(w2), ZUZU_OK, "its caller completes");
+
+    HandleClose((Handle)keep.r1);
+    CheckEq(WorkerJoin(w1), ERR_DEAD, "the first caller dies with its port");
+    HandleClose(q);
+}
+
 static void RunSuite(void)
 {
     TestBasics();
@@ -4217,6 +4251,7 @@ static void RunSuite(void)
     TestMemMgmtRebind();
     TestClosedEventObservers();
     TestReplyStrayTimeout();
+    TestStaleTicketHandle();
     TestLeaks();
 }
 
