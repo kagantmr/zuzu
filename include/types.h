@@ -49,8 +49,11 @@ typedef int Err;
 /** @brief Stamped value of a distinct object. */
 typedef unsigned int Marker;
 
-/** @brief Index into a port's held callers queue. */
-typedef unsigned int Ticket;
+/** @brief Names a call parked with Hold(); register-wide, so 64 bits on AArch64. */
+typedef uintptr_t Ticket;
+
+/** @brief Receive-port value for Reply that means "answer the held call whose ticket is in r3". */
+#define RECV_TICKET (-2)
 
 /** @brief Bits delivered on an event wakeup. */
 typedef unsigned int EventWord;
@@ -253,7 +256,8 @@ typedef enum {
     QUERY_DMA_ID,    /**< Query the DMA ID for this object: device mmio objects only. */
     QUERY_DMA_BUS,   /**< Query the bus ID for this object. */
     QUERY_DMA_LEN,   /**< Query the DMA length for this object. */
-    QUERY_DMA_DIR    /**< Query the DMA direction for this object. */
+    QUERY_DMA_DIR,   /**< Query the DMA direction for this object. */
+    QUERY_FAULTED    /**< Query whether a Space is frozen by a faulted task. */
 } QueryWhat;
 
 /** @brief ManageHandle operation code. */
@@ -277,7 +281,8 @@ typedef enum {
     MNGTASK_SUSPEND,       /**< Suspend an owned task.  */
     MNGTASK_RESUME,        /**< Resume an owned task. */
     MNGTASK_GET_REGS,      /**< Get the register frame of an owned task. */
-    MNGTASK_SET_REGS       /**< Change the register frame of an owned task. */
+    MNGTASK_SET_REGS,      /**< Change the register frame of an owned task. */
+    MNGTASK_SET_MAX_TIMESLICE /**< Change the longest timeslice the caller or an owned task may set. */
 } ManageTaskVerb;
 
 #ifdef __cplusplus

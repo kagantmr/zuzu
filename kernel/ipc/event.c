@@ -122,6 +122,15 @@ void EventUnref(EventObject *ev)
     EventObjFree(ev);
 }
 
+void EventHandleRelease(EventObject *ev)
+{
+    if (!ev)
+        return;
+    if (ev->handle_count > 0 && --ev->handle_count == 0)
+        EventKill(ev);
+    EventUnref(ev);
+}
+
 void EventBindBit(EventObject *ev, uint32_t bit)
 {
     if (bit >= 31)
@@ -148,6 +157,7 @@ EventObject *EventCreate(SpaceObject *owner)
 
     ev->owner_spid = owner->spid;
     ev->ref_count = 1;
+    ev->handle_count = 1;
     ev->alive = true;
     ListInit(&ev->wait_queue);
     ev->word = 0;

@@ -4,6 +4,7 @@
  */
 
 #include "core/ensure.h"
+#include "kernel/clock.h"
 #include "kernel/ipc/port.h"
 #include "kernel/space/space.h"
 #include "svc.h"
@@ -44,6 +45,11 @@ void SvcCreate(CpuState *frame)
             (current_task->base_prio < task->max_prio) ? current_task->base_prio : task->max_prio;
         task->priority = task->base_prio;
         TaskSyncTcbPrio(task);
+        task->max_time_slice_us = current_task->max_time_slice_us;
+        if (task->time_slice_us > task->max_time_slice_us) {
+            task->time_slice_us = task->max_time_slice_us;
+            task->time_slice_counts = ClockUsToCounts(task->time_slice_us);
+        }
 
         Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);
         ENSURE(-1 != new_handle, TaskDestroy(task); ArchSetInFrame(frame, 0, ERR_NOMEM); return);
