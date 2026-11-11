@@ -368,6 +368,8 @@ void TaskTerminate(TaskObject *task, Err exit_status)
 
 void TaskFault(TaskObject *task, Err reason)
 {
+    if (task->state != TASK_STATE_FAULTED)
+        task->owner->faulted_tasks++;
     task->state = TASK_STATE_FAULTED;
     task->fault_reason = reason;
     task->owner->frozen = true;
