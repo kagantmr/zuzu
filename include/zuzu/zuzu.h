@@ -922,15 +922,17 @@ static inline DmaMapResult FormatToDmaMap(SvcResult r)
  * @syscall_group memory
  * @syscall_blocking no
  * @syscall_sig (&args) -> r0 status, r1 bus address, r2 id
- * @param[in] dev    Device handle with PERM_MAP.
- * @param[in] mem    MEM_CONTIG memory object with PERM_MAP.
+ * @param[in] dev    Device handle with PERM_MAP and PERM_CNTL.
+ * @param[in] mem    MEM_CONTIG memory object with PERM_MAP, plus PERM_WRITE unless @p dir is
+ *                   DMA_TO_DEVICE.
  * @param[in] offset Page-aligned byte offset into @p mem.
  * @param[in] len    Page-aligned length; must fit in @p mem.
  * @param[in] dir    Direction of the transfers.
  * @return The status, the address the device must use, and the mapping id.
  * @retval ERR_BADHANDLE @p dev or @p mem is not a live handle.
  * @retval ERR_BADTYPE   @p dev is not a device, or @p mem is not MEM_CONTIG memory.
- * @retval ERR_NOPERM    A handle lacks PERM_MAP.
+ * @retval ERR_NOPERM    A handle lacks PERM_MAP, @p dev lacks PERM_CNTL, or the device would write
+ *                       to @p mem without PERM_WRITE.
  * @retval ERR_BADARG    Bad direction, misaligned or out-of-range window, or beyond the device's DMA reach.
  * @retval ERR_NOMEM     The device has no mapping slots left.
  * @retval ERR_BADPTR    The argument block is unreadable.

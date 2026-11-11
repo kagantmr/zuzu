@@ -75,11 +75,16 @@ void SvcManageMemory(CpuState *frame)
         ENSURE_ERR(frame, dev, ERR_BADHANDLE);
         ENSURE_ERR(frame, (HANDLE_MEM == dev->type), ERR_BADTYPE);
         ENSURE_ERR(frame, dev->perms & PERM_MAP, ERR_NOPERM);
+        ENSURE_ERR(frame, dev->perms & PERM_CNTL, ERR_NOPERM);
 
         HandleTableEntry *mem = HandleTableLookup(&CURRENT_SPACE->handle_table, kargs.mem);
         ENSURE_ERR(frame, mem, ERR_BADHANDLE);
         ENSURE_ERR(frame, (HANDLE_MEM == mem->type), ERR_BADTYPE);
         ENSURE_ERR(frame, mem->perms & PERM_MAP, ERR_NOPERM);
+        ENSURE_ERR(frame,
+                   (kargs.dir != DMA_FROM_DEVICE && kargs.dir != DMA_BIDIRECTIONAL) ||
+                       (mem->perms & PERM_WRITE),
+                   ERR_NOPERM);
 
         uintptr_t bus_addr = 0;
         uint32_t id = 0;
