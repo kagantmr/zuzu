@@ -80,7 +80,7 @@ void SvcManageTask(CpuState *frame)
         
         if (target->state != TASK_STATE_ZOMBIE) {
             if (target->state == TASK_STATE_FAULTED)
-                SpaceUnfreeze(target->owner);
+                SpaceFaultCleared(target->owner);
             TaskTerminate(target, ERR_DEAD);
         }
         ArchSetInFrame(frame, 0, ZUZU_OK);
@@ -132,8 +132,8 @@ void SvcManageTask(CpuState *frame)
 
     case MNGTASK_RESUME: {
         if (target->state == TASK_STATE_FAULTED) {
-            SpaceUnfreeze(target->owner);
             target->state = TASK_STATE_READY;
+            SpaceFaultCleared(target->owner);
             SchedAdd(target);
         } else {
             ENSURE_ERR(frame, target->suspended, ERR_BADARG);

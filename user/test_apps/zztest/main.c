@@ -4064,6 +4064,43 @@ static void TestFaultObservers(void)
     HandleClose(ev);
 }
 
+static uint32_t g_fault_then_sleep[16];
+
+static void TestFaultedCount(void)
+{
+    BeginSection("faulted task accounting");
+
+    memcpy(g_fault_then_sleep, kCodeFaultData, sizeof(kCodeFaultData));
+    memcpy((uint8_t *)g_fault_then_sleep + sizeof(kCodeFaultData), kCodeSleepQuit,
+           sizeof(kCodeSleepQuit));
+    VirtAddr sleeper_pc = USER_ELF_BASE + sizeof(kCodeFaultData);
+
+    for (int path = 0; path < 2; path++) {
+        Kitten k;
+        KittenCreate(&k, g_fault_then_sleep, sizeof(kCodeFaultData) + sizeof(kCodeSleepQuit));
+        Handle sleeper = CreateTask(k.space);
+        TaskStart(sleeper, (void *)sleeper_pc, (void *)(USR_SP - 0x400), 0, 0);
+        KittenStart(&k, 0, 0);
+        CheckEq(FormatToTaskWait(WaitOn(k.task, 2000)).outcome, TASK_FAULTED, "one task faults");
+        CheckEq((int32_t)HandleQuery(k.space, QUERY_FAULTED).r1, 1, "the Space is frozen");
+        CheckEq(WaitOn(sleeper, 100).r0, ERR_TIMEOUT, "its sibling does not run while frozen");
+        if (path == 0) {
+            CheckEq(TaskKill(k.task), ZUZU_OK, "kill the faulted task");
+        } else {
+            TaskRegs regs;
+            TaskGetRegs(k.task, &regs);
+            regs.pc = (Register)sleeper_pc;
+            TaskSetRegs(k.task, &regs);
+            CheckEq(TaskResume(k.task), ZUZU_OK, "resume the faulted task elsewhere");
+        }
+        CheckEq((int32_t)HandleQuery(k.space, QUERY_FAULTED).r1, 0,
+                path ? "resuming the only faulted task unfreezes" : "killing the only faulted task unfreezes");
+        CheckEq(FormatToTaskWait(WaitOn(sleeper, 2000)).value, 6, "and the sibling runs to the end");
+        HandleClose(sleeper);
+        KittenFree(&k);
+    }
+}
+
 static void RunSuite(void)
 {
     TestBasics();
@@ -4101,6 +4138,7 @@ static void RunSuite(void)
     TestSpaceDestroyRights();
     TestUnansweredReceive();
     TestFaultObservers();
+    TestFaultedCount();
     TestLeaks();
 }
 
