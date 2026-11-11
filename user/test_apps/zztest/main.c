@@ -4003,6 +4003,22 @@ static void TestDmaMapRights(void)
     HandleClose(dev);
 }
 
+static void TestSpaceDestroyRights(void)
+{
+    BeginSection("space destroy rights");
+
+    Kitten k;
+    KittenCreate(&k, kCodeLoop, sizeof(kCodeLoop));
+    KittenStart(&k, 0, 0);
+    SvcResult watch = HandleDuplicate(k.space, PERM_WAIT, MARKER_NONE);
+    CheckEq(HandleDestroy((Handle)watch.r1), ERR_NOPERM,
+            "Destroy through a PERM_WAIT-only Space handle -> NOPERM");
+    CheckEq(HandleQuery((Handle)watch.r1, QUERY_TYPE).r1, ZH_SPACE, "the handle is not released");
+    CheckEq(WaitOn(k.space, 50).r0, ERR_TIMEOUT, "the Space is still alive");
+    CheckEq(HandleClose((Handle)watch.r1), ZUZU_OK, "the watch handle can still be closed");
+    KittenFree(&k);
+}
+
 static void RunSuite(void)
 {
     TestBasics();
@@ -4037,6 +4053,7 @@ static void RunSuite(void)
     TestReadOnlyCopyOut();
     TestDmaAdoptRights();
     TestDmaMapRights();
+    TestSpaceDestroyRights();
     TestLeaks();
 }
 

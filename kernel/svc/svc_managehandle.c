@@ -141,6 +141,7 @@ void SvcManageHandle(CpuState *frame)
         if (HANDLE_SPACE == entry->type) {
             ENSURE_ERR(frame, entry->space, ERR_BADHANDLE);
             ENSURE_ERR(frame, !SpaceIsSelfOrAncestor(CURRENT_SPACE, entry->space), ERR_BADARG);
+            ENSURE_ERR(frame, entry->perms & PERM_CNTL, ERR_NOPERM);
             SpaceDestroy(entry->space);
         } else if (HANDLE_PORT == entry->type && entry->port &&
                    entry->port->owner_spid == CURRENT_SPACE->spid) {
