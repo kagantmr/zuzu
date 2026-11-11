@@ -17,8 +17,8 @@ void SvcReply(CpuState *frame)
     Handle recv_handle = (Handle)(*ArchGetFromFrame(frame, 2));
     Duration timeout = (Duration)(*ArchGetFromFrame(frame, 3));
 
-    Ticket ticket = (Ticket)(*ArchGetFromFrame(frame, 3));
-    if (recv_handle == -1 && ticket != 0) {
+    if (recv_handle == RECV_TICKET) {
+        Ticket ticket = (Ticket)(*ArchGetFromFrame(frame, 3));
         ENSURE_ERR(frame, (xlen <= MSG_BUF_SIZE), ERR_OVERFLOW);
         Err err = ZUZU_OK;
         TaskObject *target = PortTakeHeld(current_task, ticket, &err);

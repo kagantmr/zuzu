@@ -109,7 +109,8 @@ static const char *const svc_bench_names[SVC_TOTAL_COUNT][SVC_BENCH_VERBS] = {
                         [MNGTASK_SUSPEND] = "task.suspend",
                         [MNGTASK_RESUME] = "task.resume",
                         [MNGTASK_GET_REGS] = "task.get_regs",
-                        [MNGTASK_SET_REGS] = "task.set_regs"},
+                        [MNGTASK_SET_REGS] = "task.set_regs",
+                        [MNGTASK_SET_MAX_TIMESLICE] = "task.set_max_timeslice"},
     [SVC_HOLD] = {[0] = "hold"}
 };
 
