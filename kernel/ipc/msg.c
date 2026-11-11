@@ -3,8 +3,10 @@
  * @brief Message-passing function implementation.
  */
 
+#define LOG_FMT(fmt) "(ipc) " fmt
 #include "msg.h"
 #include "core/ensure.h"
+#include "core/log.h"
 #include "core/panic.h"
 #include "kernel/mm/vmm/vmm.h"
 #include "kernel/sched/sched.h"
@@ -224,10 +226,32 @@ void ReplyFailCaller(TaskObject *target, Err err)
     SchedAdd(target);
 }
 
+/**
+ * @brief Fail the call a server is still holding, so it can receive again.
+ *
+ * @param[in] server The task whose reply capability is still set.
+ */
+static void PortDropUnansweredCall(TaskObject *server)
+{
+    ReplyObject *rc = server->reply_cap;
+    TaskObject *caller = rc->caller_task;
+    bool live = caller && caller->tid == rc->caller_tid && caller->state != TASK_STATE_ZOMBIE &&
+                caller->ipc_state == IPC_WAITING;
+    TaskClearReplyCap(server);
+    if (!live)
+        return;
+#ifdef DEBUG
+    KWARN("TID %u received again without answering TID %u; failing it with ERR_DEAD",
+          (unsigned)server->tid, (unsigned)caller->tid);
+#endif
+    ReplyFailCaller(caller, ERR_DEAD);
+}
+
 void PortReceive(PortObject *port, Duration timeout, CpuState *frame)
 {
     ENSURE_ERR(frame, port->alive, ERR_DEAD);
-    ENSURE_ERR(frame, !current_task->reply_cap, ERR_BUSY);
+    if (current_task->reply_cap)
+        PortDropUnansweredCall(current_task);
 
     while (!ListIsEmpty(&port->sender_queue)) {
         ListNode *node = port->sender_queue.node.next;

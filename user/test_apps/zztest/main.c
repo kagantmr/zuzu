@@ -1104,14 +1104,12 @@ static void TestIpc(void)
     HandleClose(idle.port);
     CheckEq(WorkerJoin(iw), ERR_DEAD, "closing a port fails a blocked receiver with DEAD");
 
-    /* Receiving while a call is outstanding is refused; ReplyRecv chains. */
+    /* ReplyRecv chains. */
     Handle p2 = CreatePort();
     CallerJob c1 = {.port = p2, .op = OP_ECHO};
     Worker *c1w = WorkerStart(CallOnce, &c1);
     PortWaitResult got = FormatToPortWait(WaitOn(p2, 2000));
     CheckEq(got.status, ZUZU_OK, "WaitOn(port) receives the call");
-    CheckEq(WaitOn(p2, TIMEOUT_POLL).r0, ERR_BUSY,
-            "second receive with an unanswered call -> BUSY");
     CallerJob c2 = {.port = p2, .op = OP_ECHO};
     Worker *c2w = WorkerStart(CallOnce, &c2);
     Sleep(40);
@@ -4019,6 +4017,25 @@ static void TestSpaceDestroyRights(void)
     KittenFree(&k);
 }
 
+static void TestUnansweredReceive(void)
+{
+    BeginSection("receive with an unanswered call");
+
+    Handle p = CreatePort();
+    CallerJob c1 = {.port = p, .op = OP_ECHO};
+    Worker *w1 = WorkerStart(CallOnce, &c1);
+    CheckEq(FormatToPortWait(WaitOn(p, 2000)).status, ZUZU_OK, "receive a call, leave it unanswered");
+    CallerJob c2 = {.port = p, .op = OP_ECHO};
+    Worker *w2 = WorkerStart(CallOnce, &c2);
+    PortWaitResult second = FormatToPortWait(WaitOn(p, 2000));
+    CheckEq(second.status, ZUZU_OK, "the next receive is delivered normally");
+    CheckEq(WorkerJoin(w1), ERR_DEAD, "the unanswered caller gets DEAD");
+    CheckEq(Reply(0, -1), ZUZU_OK, "the second call can be answered");
+    CheckEq(WorkerJoin(w2), ZUZU_OK, "and its caller completes");
+    CheckEq(WaitOn(p, TIMEOUT_POLL).r0, ERR_TIMEOUT, "with no call left, a poll times out");
+    HandleClose(p);
+}
+
 static void RunSuite(void)
 {
     TestBasics();
@@ -4054,6 +4071,7 @@ static void RunSuite(void)
     TestDmaAdoptRights();
     TestDmaMapRights();
     TestSpaceDestroyRights();
+    TestUnansweredReceive();
     TestLeaks();
 }
 
