@@ -215,6 +215,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
     task->base_prio = SCHED_PRIO_DEFAULT;
     task->time_slice_us = TIMESLICE_DEFAULT_US;
     task->time_slice_counts = ClockUsToCounts(TIMESLICE_DEFAULT_US);
+    task->max_time_slice_us = TIMESLICE_MAX_US;
     task->max_prio = SCHED_PRIORITY_LEVELS - 1;
     task->tcb_slot = TCB_SLOT_NONE;
 

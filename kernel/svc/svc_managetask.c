@@ -12,6 +12,31 @@
 #include <arch/context.h>
 #include <arch/regs.h>
 
+/**
+ * @brief Set a task's time slice.
+ *
+ * @param[in,out] t The task.
+ * @param[in] us The slice in microseconds, already checked against its range and the task's maximum.
+ */
+static void TaskSetSlice(TaskObject *t, uint32_t us)
+{
+    t->time_slice_us = us;
+    t->time_slice_counts = ClockUsToCounts(us);
+}
+
+/**
+ * @brief Set the longest time slice a task may set, shortening its current slice if needed.
+ *
+ * @param[in,out] t The task.
+ * @param[in] us The maximum in microseconds, already checked.
+ */
+static void TaskSetMaxSlice(TaskObject *t, uint32_t us)
+{
+    t->max_time_slice_us = us;
+    if (t->time_slice_us > us)
+        TaskSetSlice(t, us);
+}
+
 void SvcManageTask(CpuState *frame)
 {
     Handle h = (Handle)(*ArchGetFromFrame(frame, 0));
@@ -20,7 +45,7 @@ void SvcManageTask(CpuState *frame)
     if (h == -1) {
         ENSURE_ERR(frame,
                    verb == MNGTASK_SET_PRIORITY || verb == MNGTASK_SET_MAX_PRIO ||
-                       verb == MNGTASK_SET_TIMESLICE,
+                       verb == MNGTASK_SET_TIMESLICE || verb == MNGTASK_SET_MAX_TIMESLICE,
                    ERR_BADARG);
 
         uint32_t val = (uint32_t)(*ArchGetFromFrame(frame, 2));
@@ -42,8 +67,13 @@ void SvcManageTask(CpuState *frame)
             break;
         case MNGTASK_SET_TIMESLICE:
             ENSURE_ERR(frame, val >= TIMESLICE_MIN_US && val <= TIMESLICE_MAX_US, ERR_BADARG);
-            current_task->time_slice_us = val;
-            current_task->time_slice_counts = ClockUsToCounts(val);
+            ENSURE_ERR(frame, val <= current_task->max_time_slice_us, ERR_NOPERM);
+            TaskSetSlice(current_task, val);
+            break;
+        case MNGTASK_SET_MAX_TIMESLICE:
+            ENSURE_ERR(frame, val >= TIMESLICE_MIN_US && val <= TIMESLICE_MAX_US, ERR_BADARG);
+            ENSURE_ERR(frame, val <= current_task->max_time_slice_us, ERR_NOPERM);
+            TaskSetMaxSlice(current_task, val);
             break;
         default:
             break;
@@ -110,8 +140,16 @@ void SvcManageTask(CpuState *frame)
     case MNGTASK_SET_TIMESLICE: {
         uint32_t val = (uint32_t)(*ArchGetFromFrame(frame, 2));
         ENSURE_ERR(frame, val >= TIMESLICE_MIN_US && val <= TIMESLICE_MAX_US, ERR_BADARG);
-        target->time_slice_us = val;
-        target->time_slice_counts = ClockUsToCounts(val);
+        ENSURE_ERR(frame, val <= target->max_time_slice_us, ERR_NOPERM);
+        TaskSetSlice(target, val);
+        ArchSetInFrame(frame, 0, ZUZU_OK);
+    } break;
+
+    case MNGTASK_SET_MAX_TIMESLICE: {
+        uint32_t val = (uint32_t)(*ArchGetFromFrame(frame, 2));
+        ENSURE_ERR(frame, val >= TIMESLICE_MIN_US && val <= TIMESLICE_MAX_US, ERR_BADARG);
+        ENSURE_ERR(frame, val <= current_task->max_time_slice_us, ERR_NOPERM);
+        TaskSetMaxSlice(target, val);
         ArchSetInFrame(frame, 0, ZUZU_OK);
     } break;
 
