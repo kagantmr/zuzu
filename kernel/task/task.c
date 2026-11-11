@@ -372,6 +372,7 @@ void TaskFault(TaskObject *task, Err reason)
     task->fault_reason = reason;
     task->owner->frozen = true;
     ObserverNotify(&task->observers);
+    ObserverNotify(&task->owner->observers);
     WakeWaiters(&task->joiners, reason, TASK_FAULTED);
 
     ListNode *n = task->owner->tasks.node.next;

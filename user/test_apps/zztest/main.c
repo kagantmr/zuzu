@@ -4036,6 +4036,34 @@ static void TestUnansweredReceive(void)
     HandleClose(p);
 }
 
+static void TestFaultObservers(void)
+{
+    BeginSection("faults reach space observers");
+
+    Handle ev = CreateEvent();
+    Kitten k;
+    KittenCreate(&k, kCodeFaultData, sizeof(kCodeFaultData));
+    CheckEq(Bind(EVENT_SPACE, ev, k.space, 6), ZUZU_OK, "a supervisor binds the kitten Space");
+    SvcResult q = HandleQuery(k.space, QUERY_FAULTED);
+    Check(q.r0 == ZUZU_OK && q.r1 == 0, "QUERY_FAULTED is 0 before the fault");
+    KittenStart(&k, 0, 0);
+    EventWaitResult r = FormatToEventWait(WaitOn(ev, 2000));
+    CheckEq(r.status, ZUZU_OK, "the fault raises the supervisor's event");
+    CheckEq((int32_t)r.bits, 1 << 6, "on the bound bit");
+    q = HandleQuery(k.space, QUERY_FAULTED);
+    Check(q.r0 == ZUZU_OK && q.r1 == 1, "QUERY_FAULTED reports the fault");
+    CheckEq(WaitOn(k.space, 50).r0, ERR_TIMEOUT, "a faulted Space is not hollow");
+
+    Handle late = CreateEvent();
+    CheckEq(Bind(EVENT_SPACE, late, k.space, 2), ZUZU_OK, "bind after the fault");
+    CheckEq((int32_t)FormatToEventWait(WaitOn(late, TIMEOUT_POLL)).bits, 1 << 2,
+            "a late binding fires at once");
+    CheckEq(HandleQuery(ev, QUERY_FAULTED).r0, ERR_BADTYPE, "QUERY_FAULTED on an event -> BADTYPE");
+    KittenFree(&k);
+    HandleClose(late);
+    HandleClose(ev);
+}
+
 static void RunSuite(void)
 {
     TestBasics();
@@ -4072,6 +4100,7 @@ static void RunSuite(void)
     TestDmaMapRights();
     TestSpaceDestroyRights();
     TestUnansweredReceive();
+    TestFaultObservers();
     TestLeaks();
 }
 
