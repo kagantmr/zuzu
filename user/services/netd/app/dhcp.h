@@ -2,6 +2,7 @@
 #define DHCP_H
 
 #include "../common/globals.h"
+#include "../common/netif.h"
 #include <types.h>
 
 /* BOOTP/DHCP fixed header (RFC 2131). Options follow the magic cookie. */

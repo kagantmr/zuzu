@@ -6,6 +6,7 @@
 #include "udp.h"
 #include <malloc.h>
 #include <string.h>
+#include "../common/netif.h"
 #include <util/log.h>
 #include <zuzu/zuzu.h>
 

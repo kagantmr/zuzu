@@ -4,6 +4,7 @@
 #include "../link/eth.h"
 #include "../net/ip.h"
 #include <convert.h>
+#include "../common/netif.h"
 #include <stddef.h>
 #include <string.h>
 

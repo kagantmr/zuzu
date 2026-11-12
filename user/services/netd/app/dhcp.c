@@ -6,9 +6,8 @@
 #include <convert.h>
 #include <stddef.h>
 #include <util/log.h>
+#include "../common/netif.h"
 
-/* RFC 2131 caps the safe DHCP message size at 576 bytes; our ACKs are far
-   smaller. Big enough to stash one while ACD runs against the offered IP. */
 #define DHCP_ACK_BUFSZ 576
 
 static struct {

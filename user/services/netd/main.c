@@ -24,7 +24,6 @@ NicStatsBlock *stats;
 Handle g_svc_port = -1;
 Handle g_event = -1;
 Handle g_nic_doorbell_ev = -1;
-Netif netif; /* filled at startup (htonl isn't constant); DHCP overwrites later */
 
 #define LEGACY_POLL_CAP 50u
 #define LOOP_SLICE_MS 10u
