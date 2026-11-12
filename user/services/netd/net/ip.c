@@ -5,6 +5,7 @@
 #include "../transport/udp.h"
 #include "icmp.h"
 #include <convert.h>
+#include "../common/netif.h"
 #include <malloc.h>
 #include <stdio.h>
 #include <string.h>

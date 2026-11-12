@@ -5,6 +5,7 @@
 #include "tcp_opts.h"
 #include "tcp_out.h"
 #include "tcp_pcb.h"
+#include "../common/netif.h"
 #include <convert.h>
 #include <string.h>
 #include <util/log.h>
