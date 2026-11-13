@@ -24,7 +24,7 @@ bool g_mmu_enabled = false;
 static KSlabCache addrspace_cache;
 
 #define LOG_FMT(fmt) "(vmm) " fmt
-#include <util/log.h>
+#include "core/log.h"
 
 /**
  * @brief bsearch comparator that matches the region containing an address.

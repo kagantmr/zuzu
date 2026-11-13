@@ -12,7 +12,7 @@
 struct EventObjectStruct;
 
 /** @brief Limit of observers on an object. */
-#define MAX_OBSERVERS 4
+#define MAX_OBSERVERS 16
 
 /** @brief An observer: the event to signal and which bit. */
 typedef struct {

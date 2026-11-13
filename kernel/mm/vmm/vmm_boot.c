@@ -18,7 +18,7 @@
 extern RamLayout kernel_layout;
 
 #define LOG_FMT(fmt) "(vmm) " fmt
-#include <util/log.h>
+#include "core/log.h"
 
 /**
  * @brief Maps [@p start, @p end) of RAM at its linear-map address, or panics.

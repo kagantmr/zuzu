@@ -21,7 +21,7 @@
 
 #define LOG_FMT(fmt) "(task) " fmt
 #include "core/ensure.h"
-#include <util/log.h>
+#include "core/log.h"
 
 /** @brief The ID the next task will try to take. */
 static Tid next_tid = 1;

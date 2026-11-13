@@ -15,7 +15,7 @@
 #define HIGH_WATER_PCT 30
 
 #define LOG_FMT(fmt) "(pmm) " fmt
-#include "util/log.h"
+#include "core/log.h"
 
 /** @brief A low-memory subscriber entry. */
 typedef struct {

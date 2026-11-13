@@ -9,7 +9,7 @@
 #include "svc.h"
 
 #define LOG_FMT(fmt) "(SvcQuit) " fmt
-#include <util/log.h>
+#include "core/log.h"
 
 #ifdef CONFIG_ZUZU_BENCH
 BENCH_STAT(g_bench_quit_terminate, "quit: TaskTerminate");

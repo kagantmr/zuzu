@@ -14,7 +14,6 @@
 #include "kernel/svc/svc.h"
 #include "kernel/task/kstack.h"
 #include "kernel/task/task.h"
-#include "util/log.h"
 #include <arch/fpu.h>
 #include <arch/irq.h>
 #include <arch/mmu.h>
