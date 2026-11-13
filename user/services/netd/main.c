@@ -16,7 +16,7 @@
 #include "transport/socket.h"
 #include "transport/tcp.h"
 #include "transport/udp.h"
-
+#include "app/dns.h"
 #include "app/dhcp.h"
 
 NicRing *tx_ring, *rx_ring;
@@ -218,8 +218,10 @@ int main()
     ArpInit();
     UdpInit();
     PortInit();
+    DnsInit();
     DhcpInit(OnDhcpBound); /* kicks off DORA; OnDhcpBound fires when bound */
 
+    
     UdpBind(7, UdpEchoHandler);
 
     LOG_INFO(LOG_TAG, "online");
@@ -274,6 +276,7 @@ int main()
         /* 5. legacy pollers, still bounded by the cap above */
         ArpTick();
         DhcpTick();
+        DnsTick();
     }
 
     return 0;
