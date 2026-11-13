@@ -18,7 +18,7 @@
 #include <string.h>
 
 #define LOG_FMT(fmt) "(mm) " fmt
-#include <util/log.h>
+#include "core/log.h"
 
 /** @brief Kernel RAM layout; the heap bounds are kept up to date here. */
 extern RamLayout kernel_layout;

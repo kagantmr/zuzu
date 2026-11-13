@@ -22,7 +22,7 @@
 #include <types.h>
 
 #define LOG_FMT(fmt) "(pmm) " fmt
-#include "util/log.h"
+#include "core/log.h"
 
 /** @brief The single PMM state instance. */
 PmmState pmm_state;
