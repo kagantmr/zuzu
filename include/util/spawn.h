@@ -13,6 +13,7 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 #include <types.h>
+#include <util/pipe.h>
 
 /**
  * @brief Starts a program from an image in memory.
@@ -46,6 +47,9 @@ Err SpawnProcess(const void *image, size_t size, const char *name, const char *a
 typedef struct {
     int32_t prio;     /**< Base priority, or SPAWN_PRIO_INHERIT. */
     int32_t max_prio; /**< Maximum priority, or SPAWN_PRIO_INHERIT. */
+    const PipeEnd *stdin_pipe;  /**< Reader end the child gets as stdin, or NULL for the console. */
+    const PipeEnd *stdout_pipe; /**< Writer end the child gets as stdout, or NULL for the console. */
+    const PipeEnd *stderr_pipe; /**< Writer end the child gets as stderr, or NULL for the console. */
 } SpawnAttr;
 
 /**

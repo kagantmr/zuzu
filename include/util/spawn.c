@@ -6,6 +6,7 @@
 #include <elf.h>
 #include <stdbool.h>
 #include <util/spawn.h>
+#include <util/stdio_redir.h>
 #include <util/tls.h>
 #include <util/zxf.h>
 #include <zuzu/err.h>
@@ -319,6 +320,14 @@ static Err SpawnFromImage(Handle image_obj, const void *image, size_t size, cons
     if (rc != ZUZU_OK) {
         HandleDestroy(space_handle);
         return rc;
+    }
+
+    if (attr && (attr->stdin_pipe || attr->stdout_pipe || attr->stderr_pipe)) {
+        rc = StdioRedirGrant(space_handle, attr->stdin_pipe, attr->stdout_pipe, attr->stderr_pipe);
+        if (rc != ZUZU_OK) {
+            HandleDestroy(space_handle);
+            return rc;
+        }
     }
 
     rc = TaskStart(task_handle, (void *)img.entry, (void *)sp, (Register)argc, (Register)argv_va);
