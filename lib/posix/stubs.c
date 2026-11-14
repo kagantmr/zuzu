@@ -2,11 +2,13 @@
 #include <fcntl.h>
 #include <fs/fsd_client.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/times.h>
 #include <unistd.h>
+#include <util/path.h>
 #include <util/stdio_core.h>
 #include <zuzu/err.h>
 #include <zuzu/syspage.h>
@@ -109,6 +111,8 @@ static int err_to_errno(Err e)
         return EIO;
     }
 }
+
+static int ResolveCwd(const char *name, char *out, size_t size);
 
 static int FsdEnsure(void)
 {
@@ -329,8 +333,11 @@ int _open(const char *name, int flags, ...)
         return -1;
     }
 
+    char abs[PATH_MAX_LEN];
+    if (ResolveCwd(name, abs, sizeof(abs)) != 0)
+        return -1;
     uint32_t fd = 0;
-    Err rc = FsdOpen(&fsd_conn, name, flags_to_fsd_mode(flags), &fd);
+    Err rc = FsdOpen(&fsd_conn, abs, flags_to_fsd_mode(flags), &fd);
     if (rc != ZUZU_OK) {
         errno = err_to_errno(rc);
         return -1;
@@ -339,10 +346,74 @@ int _open(const char *name, int flags, ...)
     return pfd;
 }
 
-/* No spawn hands us an environment yet; newlib's getenv() still needs the
- * symbol to exist and terminate cleanly. */
+/** @brief Used until a parent hands over an environment, so getenv() sees an empty one. */
 static char *__env[1] = {NULL};
 char **environ = __env;
+
+/**
+ * @brief Called by crt0 before anything else: points environ at the environment the parent gave.
+ *
+ * The parent lays out argv and the environment as one block, the environment right after argv's
+ * NULL, so envp is argv + argc + 1. A process started without a block keeps the empty one.
+ *
+ * @param[in] argc Argument count from the parent.
+ * @param[in] argv Argument table from the parent, or NULL.
+ */
+void __zuzu_env_init(int argc, char **argv)
+{
+    if (argc > 0 && argv)
+        environ = argv + argc + 1;
+}
+
+/**
+ * @brief Makes @p name absolute, taking a relative one from the working directory ($PWD).
+ *
+ * @param[in]  name Path as the program gave it.
+ * @param[out] out  Receives the absolute path.
+ * @param[in]  size Size of @p out.
+ * @return 0, or -1 with errno set if it does not fit.
+ */
+static int ResolveCwd(const char *name, char *out, size_t size)
+{
+    if (!name) {
+        errno = EFAULT;
+        return -1;
+    }
+    if (!PathResolve(getenv("PWD"), name, out, size)) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+    return 0;
+}
+
+char *getcwd(char *buf, size_t size)
+{
+    const char *pwd = getenv("PWD");
+    if (!pwd || pwd[0] != '/')
+        pwd = "/";
+    size_t n = strlen(pwd) + 1;
+    if (!buf || size < n) {
+        errno = buf ? ERANGE : EINVAL;
+        return NULL;
+    }
+    memcpy(buf, pwd, n);
+    return buf;
+}
+
+int chdir(const char *path)
+{
+    char abs[PATH_MAX_LEN];
+    if (ResolveCwd(path, abs, sizeof(abs)) != 0)
+        return -1;
+    struct stat st;
+    if (stat(abs, &st) != 0)
+        return -1;
+    if (!S_ISDIR(st.st_mode)) {
+        errno = ENOTDIR;
+        return -1;
+    }
+    return setenv("PWD", abs, 1);
+}
 
 /* zuzu keeps no wall clock: this is time since boot, so time() and
  * gettimeofday() start at 0 on every boot. */
@@ -386,8 +457,11 @@ int _stat(const char *name, struct stat *st)
     if (FsdEnsure() < 0)
         return -1;
 
+    char abs[PATH_MAX_LEN];
+    if (ResolveCwd(name, abs, sizeof(abs)) != 0)
+        return -1;
     FsdStat fst;
-    Err rc = FsdGetStat(&fsd_conn, name, &fst);
+    Err rc = FsdGetStat(&fsd_conn, abs, &fst);
     if (rc != ZUZU_OK) {
         errno = err_to_errno(rc);
         return -1;
@@ -405,7 +479,10 @@ int _unlink(const char *name)
     if (FsdEnsure() < 0)
         return -1;
 
-    Err rc = FsdUnlink(&fsd_conn, name);
+    char abs[PATH_MAX_LEN];
+    if (ResolveCwd(name, abs, sizeof(abs)) != 0)
+        return -1;
+    Err rc = FsdUnlink(&fsd_conn, abs);
     if (rc != ZUZU_OK) {
         errno = err_to_errno(rc);
         return -1;
