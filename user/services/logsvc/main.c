@@ -11,7 +11,6 @@ int main() {
     g_event = CreateEvent();
     
     Bind(EVENT_PORT, g_event, g_logsvc_port, PORT_BIT);
-    RegisterService("/svc/log", g_logsvc_port);
     Err rc = ZUZU_OK;
     rc = RegisterService("/svc/log", g_logsvc_port);
     if (rc != ZUZU_OK) {
