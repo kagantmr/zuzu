@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <util/imgcache.h>
+#include <util/pipe.h>
 #include <util/spawn.h>
 #include <zuzu/err.h>
 #include <zuzu/zuzu.h>
@@ -157,15 +158,15 @@ static Handle load_image(const char *path, size_t *len, bool *owned)
     return obj;
 }
 
-static void cmd_run(const char *line)
-{
-    if (!ensure_fsd()) {
-        printf("%s", ANSI_RED "zzsh: fsd unavailable\n" ANSI_RESET);
-        return;
-    }
+#define PIPELINE_MAX 8
 
+/* Splits `text` into argbuf/argc, finds the program and starts it with the given stdio pipes.
+ * Returns false after printing why. */
+static bool spawn_cmd(const char *text, const PipeEnd *in, const PipeEnd *out, Handle *task_out,
+                      Spid *pid_out)
+{
     char buf[LINE_BUFFER_SIZE];
-    memcpy(buf, line, strlen(line) + 1);
+    memcpy(buf, text, strlen(text) + 1);
 
     char argbuf[LINE_BUFFER_SIZE];
     size_t argpos = 0;
@@ -190,7 +191,7 @@ static void cmd_run(const char *line)
         argc++;
     }
     if (!cmd)
-        return;
+        return false;
 
     char path[256];
     size_t len = 0;
@@ -209,30 +210,166 @@ static void cmd_run(const char *line)
     }
     if (image < 0) {
         printf("zzsh: %s: command not found\n", cmd);
-        return;
+        return false;
     }
-
-    /* Release our tty session before the child attaches, so it becomes the
-     * foreground; stdio re-attaches on the next printf/getchar. */
-    stdio_close_tty();
 
     const char *name = strrchr(path, '/');
     name = name ? name + 1 : path;
-    Spid pid;
-    Handle task;
-    Err rc = SpawnProcessObj(image, len, name, argbuf, argpos, argc, &pid, &task);
+    SpawnAttr attr = {.prio = SPAWN_PRIO_INHERIT,
+                      .max_prio = SPAWN_PRIO_INHERIT,
+                      .stdin_pipe = in,
+                      .stdout_pipe = out};
+    Err rc = SpawnProcessObjAttr(image, len, name, argbuf, argpos, argc, &attr, pid_out, task_out);
     if (owned)
         HandleClose(image);
     else if (rc != ZUZU_OK)
         ImgCacheDrop(&g_images, path);
     if (rc != ZUZU_OK) {
         printf(ANSI_RED "zzsh: %s: spawn failed (err %d)\n" ANSI_RESET, cmd, rc);
-        return;
+        return false;
     }
+    return true;
+}
+
+static void cmd_run_single(const char *line)
+{
+    stdio_close_tty();
+
+    Spid pid;
+    Handle task;
+    if (!spawn_cmd(line, NULL, NULL, &task, &pid))
+        return;
 
     WaitOn(task, TIMEOUT_INFINITE);
     HandleClose(task);
     HandleDestroy((Handle)pid);
+}
+
+static bool is_builtin(const char *text)
+{
+    while (*text == ' ')
+        text++;
+    static const char *const names[] = {"cd", "pwd", "clear", "help", "exit"};
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        size_t n = strlen(names[i]);
+        if (strncmp(text, names[i], n) == 0 && (text[n] == ' ' || text[n] == '\0'))
+            return true;
+    }
+    return false;
+}
+
+/* Runs `a | b | c`: every stage in its own Space, joined by pipes. The shell keeps both ends of
+ * each pipe so it can tell a stage's neighbour when that stage is gone, whether it exited,
+ * faulted or was killed. */
+static void cmd_pipeline(const char *line)
+{
+    char stage[PIPELINE_MAX][LINE_BUFFER_SIZE];
+    int n = 0;
+    const char *p = line;
+    for (;;) {
+        const char *bar = strchr(p, '|');
+        size_t len = bar ? (size_t)(bar - p) : strlen(p);
+        if (n == PIPELINE_MAX) {
+            printf("%s", ANSI_RED "zzsh: too many stages in a pipeline\n" ANSI_RESET);
+            return;
+        }
+        memcpy(stage[n], p, len);
+        stage[n][len] = '\0';
+        strip(stage[n]);
+        if (!stage[n][0]) {
+            printf("%s", ANSI_RED "zzsh: syntax error near '|'\n" ANSI_RESET);
+            return;
+        }
+        if (is_builtin(stage[n])) {
+            printf("%s", ANSI_RED "zzsh: builtins cannot be used in a pipeline\n" ANSI_RESET);
+            return;
+        }
+        n++;
+        if (!bar)
+            break;
+        p = bar + 1;
+    }
+
+    if (!ensure_fsd()) {
+        printf("%s", ANSI_RED "zzsh: fsd unavailable\n" ANSI_RESET);
+        return;
+    }
+
+    PipeEnd pw[PIPELINE_MAX], pr[PIPELINE_MAX];
+    int pipes = 0;
+    for (; pipes < n - 1; pipes++) {
+        if (CreatePipe(PIPE_SIZE_DEFAULT, &pw[pipes], &pr[pipes]) != ZUZU_OK) {
+            printf("%s", ANSI_RED "zzsh: cannot create a pipe\n" ANSI_RESET);
+            goto cleanup_pipes;
+        }
+    }
+
+    stdio_close_tty();
+
+    Handle task[PIPELINE_MAX];
+    Spid pid[PIPELINE_MAX];
+    int started = 0;
+    for (; started < n; started++) {
+        const PipeEnd *in = started > 0 ? &pr[started - 1] : NULL;
+        const PipeEnd *out = started < n - 1 ? &pw[started] : NULL;
+        if (!spawn_cmd(stage[started], in, out, &task[started], &pid[started]))
+            break;
+    }
+
+    Handle ev = CreateEvent();
+    unsigned live = 0;
+    for (int i = 0; i < started; i++) {
+        if (ev < 0 || Bind(EVENT_TASK, ev, task[i], (uint32_t)i) != ZUZU_OK) {
+            HandleDestroy((Handle)pid[i]); /* cannot be watched: end it rather than hang */
+            continue;
+        }
+        live |= 1u << i;
+    }
+    if (started < n) {
+        /* A stage failed to start: the rest would wait on it forever. */
+        for (int i = 0; i < started; i++)
+            HandleDestroy((Handle)pid[i]);
+    }
+
+    while (live) {
+        EventWaitResult r = WaitOnEvent(ev, TIMEOUT_INFINITE, 0, false);
+        if (r.status != ZUZU_OK)
+            break;
+        for (int i = 0; i < started; i++) {
+            if (!(live & (1u << i)) || !(r.bits & (1u << i)))
+                continue;
+            live &= ~(1u << i);
+            if (i < n - 1)
+                PipeMarkClosed(&pw[i], PIPE_WRITER);
+            if (i > 0)
+                PipeMarkClosed(&pr[i - 1], PIPE_READER);
+        }
+    }
+    for (int i = 0; i < started; i++) {
+        HandleClose(task[i]);
+        HandleDestroy((Handle)pid[i]);
+    }
+    if (ev >= 0)
+        HandleClose(ev);
+
+cleanup_pipes:
+    for (int i = 0; i < pipes; i++) {
+        ClosePipe(&pw[i]);
+        ClosePipe(&pr[i]);
+    }
+}
+
+static void cmd_run(const char *line)
+{
+    if (!ensure_fsd()) {
+        printf("%s", ANSI_RED "zzsh: fsd unavailable\n" ANSI_RESET);
+        return;
+    }
+
+    if (strchr(line, '|'))
+        cmd_pipeline(line);
+    else
+        cmd_run_single(line);
 }
 
 /* ---- dispatch ---- */
@@ -248,7 +385,8 @@ static void cmd_help(void)
                                "  ls [path]" ANSI_RESET "     list directory\n" ANSI_BOLD
                                "  cat <file>" ANSI_RESET "    print file contents\n" ANSI_BOLD
                                "  exit" ANSI_RESET "          leave the shell\n" ANSI_BOLD
-                               "  <program>" ANSI_RESET "     run /bin/<program> or a path\n");
+                               "  <program>" ANSI_RESET "     run /bin/<program> or a path\n" ANSI_BOLD
+                               "  a | b" ANSI_RESET "         pipe a's output into b\n");
 }
 
 static void cmd_cd(const char *arg)
@@ -286,7 +424,9 @@ bool command_dispatch(const char *line)
     if (strcmp(line, "exit") == 0)
         return false;
 
-    if (strcmp(line, "help") == 0)
+    if (strchr(line, '|'))
+        cmd_run(line);
+    else if (strcmp(line, "help") == 0)
         cmd_help();
     else if (strcmp(line, "clear") == 0)
         printf("%s", ANSI_CLEAR);
