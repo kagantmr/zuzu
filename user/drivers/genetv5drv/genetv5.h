@@ -84,6 +84,7 @@ _Static_assert(offsetof(GenetDmaCtrl, scb_burst_size) == 0x0c, "layout");
 #define DMA_EN (1u << 0)
 #define DMA_DISABLED (1u << 0)
 
+#define MII_BMCR 0
 #define MII_BMSR 1
 #define MII_PHYSID1 2
 #define MII_PHYSID2 3
@@ -92,12 +93,17 @@ _Static_assert(offsetof(GenetDmaCtrl, scb_burst_size) == 0x0c, "layout");
 #define MII_CTRL1000 9
 #define MII_STAT1000 10
 
+#define BMCR_ANRESTART (1u << 9)
+#define BMCR_ANENABLE (1u << 12)
+
 #define BMSR_LSTATUS (1u << 2)
 #define BMSR_ANEGCOMPLETE (1u << 5)
+#define ADV_CSMA 0x0001u
 #define ADV_10HALF (1u << 5)
 #define ADV_10FULL (1u << 6)
 #define ADV_100HALF (1u << 7)
 #define ADV_100FULL (1u << 8)
+#define CTRL1000_HALF (1u << 8)
 #define CTRL1000_FULL (1u << 9)
 #define STAT1000_FULL (1u << 11)
 
@@ -114,5 +120,30 @@ typedef union {
     };
 } GenetMdioCmd;
 _Static_assert(sizeof(GenetMdioCmd) == 4, "MDIO_CMD is one word");
+
+typedef struct {
+    volatile uint32_t read_ptr;
+    volatile uint32_t read_ptr_hi;
+    volatile uint32_t cons_index;
+    volatile uint32_t prod_index;
+    volatile uint32_t ring_buf_size;
+    volatile uint32_t start_addr;
+    volatile uint32_t start_addr_hi;
+    volatile uint32_t end_addr;
+    volatile uint32_t end_addr_hi;
+    volatile uint32_t mbuf_done_thresh;
+    volatile uint32_t flow_period;
+    volatile uint32_t write_ptr;
+} GenetTxRing;
+_Static_assert(offsetof(GenetTxRing, prod_index) == 0x0c, "layout");
+_Static_assert(offsetof(GenetTxRing, end_addr) == 0x1c, "layout");
+_Static_assert(offsetof(GenetTxRing, write_ptr) == 0x2c, "layout");
+
+typedef struct {
+    volatile uint32_t length_status;   /* 0x0: length in 27:16, flags in 15:0 */
+    volatile uint32_t addr_lo;         /* 0x4: bus address of the frame */
+    volatile uint32_t addr_hi;         /* 0x8: 0 for you */
+} GenetDesc;
+_Static_assert(sizeof(GenetDesc) == 12, "descriptor is 3 words");
 
 #endif /* USER_DRIVERS_GENETV5DRV_GENETV5DRV_H */

@@ -16,6 +16,8 @@
 #define PHY_ADDR 1
 #define MDIO_TIMEOUT 100000
 #define DMA_STOP_TIMEOUT_MS 10
+#define ANEG_POLL_MS 100
+#define ANEG_TIMEOUT_MS 15000
 
 static const char *compats[1] = {"brcm,bcm2711-genet-v5"};
 
@@ -27,6 +29,8 @@ static GenetRbuf *genet_rbuf = NULL;
 static GenetUmac *genet_umac = NULL;
 static GenetDmaCtrl *genet_rdma = NULL;
 static GenetDmaCtrl *genet_tdma = NULL;
+static GenetTxRing *genet_tx_ring = NULL;
+
 static uint8_t mac[6];
 static Handle g_ring_h = -1;
 
@@ -52,6 +56,19 @@ static Err MdioRead(uint32_t reg, uint16_t *out) {
     if (c.fail)
         return ERR_IO;
     *out = c.data;
+    return ZUZU_OK;
+}
+
+static Err MdioWrite(uint32_t reg, uint16_t value)
+{
+    GenetMdioCmd c = { .raw = 0 };
+    c.op = 1; c.phy = PHY_ADDR; c.reg = reg; c.data = value; c.busy = 1;
+    genet_umac->mdio_cmd = c.raw;
+
+    uint32_t timeout = MDIO_TIMEOUT;
+    do { c.raw = genet_umac->mdio_cmd; } while (c.busy && --timeout);
+    if (!timeout)
+        return ERR_TIMEOUT;
     return ZUZU_OK;
 }
 
@@ -156,6 +173,40 @@ static void WriteMac(void)
     genet_umac->mac1 = ((uint32_t)mac[4] << 8) | mac[5];
 }
 
+static Err PhyNegotiate(void)
+{
+    uint16_t ctrl1000 = 0, bmsr = 0;
+    Err rc = MdioRead(MII_CTRL1000, &ctrl1000);
+    if (rc == ZUZU_OK)
+        rc = MdioWrite(MII_ADVERTISE,
+                       ADV_CSMA | ADV_10HALF | ADV_10FULL | ADV_100HALF | ADV_100FULL);
+    if (rc == ZUZU_OK)
+        rc = MdioWrite(MII_CTRL1000, (uint16_t)((ctrl1000 & ~CTRL1000_HALF) | CTRL1000_FULL));
+    if (rc == ZUZU_OK)
+        rc = MdioWrite(MII_BMCR, BMCR_ANENABLE | BMCR_ANRESTART);
+    if (rc != ZUZU_OK) {
+        LOG_ERROR(LOG_TAG, "starting autonegotiation failed: %s", StrToError(rc));
+        return rc;
+    }
+
+    for (uint32_t ms = 0; ms < ANEG_TIMEOUT_MS; ms += ANEG_POLL_MS) {
+        Sleep(ANEG_POLL_MS);
+        rc = MdioRead(MII_BMSR, &bmsr);
+        if (rc == ZUZU_OK)
+            rc = MdioRead(MII_BMSR, &bmsr);
+        if (rc != ZUZU_OK) {
+            LOG_ERROR(LOG_TAG, "MDIO read failed: %s", StrToError(rc));
+            return rc;
+        }
+        if ((bmsr & BMSR_LSTATUS) && (bmsr & BMSR_ANEGCOMPLETE)) {
+            LOG_INFO(LOG_TAG, "autonegotiation done after %u ms", ms + ANEG_POLL_MS);
+            return ZUZU_OK;
+        }
+    }
+    LOG_ERROR(LOG_TAG, "autonegotiation timed out, bmsr %04x", bmsr);
+    return ERR_TIMEOUT;
+}
+
 static Err PhyGetSpeed(uint32_t *umac_speed, uint32_t *mbps)
 {
     uint16_t id1 = 0, id2 = 0, bmsr = 0, adv = 0, lpa = 0, ctrl1000 = 0, stat1000 = 0;
@@ -217,7 +268,9 @@ int main()
     WriteMac();
 
     uint32_t umac_speed = 0, mbps = 0;
-    rc = PhyGetSpeed(&umac_speed, &mbps);
+    rc = PhyNegotiate();
+    if (rc == ZUZU_OK)
+        rc = PhyGetSpeed(&umac_speed, &mbps);
     if (rc != ZUZU_OK)
         return rc;
     SetLink(umac_speed);
@@ -225,8 +278,16 @@ int main()
     LOG_INFO(LOG_TAG, "link %u Mb/s; cmd 0x%08x oob 0x%08x mac0 0x%08x mac1 0x%08x", mbps,
              genet_umac->cmd, genet_ext->rgmii_oob_ctrl, genet_umac->mac0, genet_umac->mac1);
 
+    
     g_ring_h = CreateMem(1, MEM_CONTIG | MEM_UNCACHED);
     DmaMapResult res = DmaMap(g_genet_h, g_ring_h, 0, 4096, DMA_TO_DEVICE);
+    if (res.status != ZUZU_OK) {
+        return res.status;
+    }
+
+    genet_tx_ring = (GenetTxRing *)(genet_base + 0x5000);
+    GenetDesc *tx_desc = (GenetDesc *)(genet_base + 0x4000);
+    GenetDesc *rx_desc = (GenetDesc *)(genet_base + 0x2000);
     
     return ZUZU_OK;
 }
