@@ -7,14 +7,14 @@
 #include <sys/time.h>
 #include <sys/times.h>
 #include <unistd.h>
+#include <util/stdio_core.h>
+#include <zuzu/err.h>
 #include <zuzu/syspage.h>
 #include <zuzu/uptime.h>
 #include <zuzu/zuzu.h>
 
 #define MAX_FD 32
 
-int ConsoleWrite(const char *buf, int len);
-int ConsoleRead(char *buf, int len);
 void ConsoleClose(void);
 void DirentDetach(void);
 extern void *sbrk(intptr_t incr);
@@ -147,7 +147,7 @@ void *_sbrk(intptr_t incr)
     return p;
 }
 
-int _isatty(int file) { return (file >= 0 && file <= 2) ? 1 : 0; }
+int _isatty(int file) { return StdioIsTty(file) ? 1 : 0; }
 
 int _write(int file, char *ptr, int len)
 {
@@ -158,8 +158,14 @@ int _write(int file, char *ptr, int len)
         return -1;
     }
 
-    if (file == 1 || file == 2)
-        return ConsoleWrite(ptr, len);
+    if (file == 1 || file == 2) {
+        int put = StdioWrite(file, ptr, (size_t)len);
+        if (put < 0) {
+            errno = put == ERR_DEAD ? EPIPE : EIO;
+            return -1;
+        }
+        return put;
+    }
 
     int fd = FileSlot(file);
     if (fd < 0)
@@ -186,7 +192,7 @@ void __attribute__((noreturn)) _exit(int status)
 {
     FsdDetach(&fsd_conn);
     DirentDetach();
-    ConsoleClose();
+    StdioFini();
     Quit(status);
     for (;;)
         ;
@@ -197,8 +203,14 @@ int _read(int file, char *ptr, int len)
     if (len <= 0)
         return len == 0 ? 0 : (errno = EINVAL, -1);
 
-    if (file == 0)
-        return ConsoleRead(ptr, len);
+    if (file == 0) {
+        int got = StdioRead(ptr, (size_t)len);
+        if (got < 0) {
+            errno = EIO;
+            return -1;
+        }
+        return got;
+    }
 
     int fd = FileSlot(file);
     if (fd < 0)

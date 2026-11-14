@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <util/stdio_core.h>
 #include <zuzu/msg.h>
 #include <zuzu/err.h>
 #include <zuzu/service.h>
@@ -10,131 +11,34 @@
 #include <zuzu/zuzu.h>
 
 #define STDIO_PRINTF_BUF_SIZE 1024
-#define STDIO_BIT_KICK 0
-#define STDIO_DRAIN_MS 20 /* bounds the exit-time flush if no provider ever drains */
-#define STDIO_ATTACH_RETRIES 100
-
-typedef enum {
-    STDIO_IDLE,
-    STDIO_READY,
-    STDIO_FAILED, /* endpoint never appeared; stop retrying */
-} StdioState;
-
-static StdioState stdio_state = STDIO_IDLE;
-static Handle stdio_port = -1;
-static Handle stdio_event = -1;
-static TtyConn stdio_conn;
-static char stdio_alias[TTY_NAME_MAX];
 static int stdio_pushback = EOF;
-static bool stdio_focused;
-static uint32_t stdio_mode = TTY_MODE_COOKED | TTY_MODE_ECHO;
-static uint32_t stdio_intr_seen;
-static void (*stdio_intr_handler)(void);
 
-static void stdio_disconnect(void)
-{
-    if (stdio_state == STDIO_READY) {
-        TtyShm *shm = stdio_conn.shm;
-        for (int i = 0; i < STDIO_ATTACH_RETRIES && ShmRingAvail(&shm->up_hdr) > 0; i++) {
-            Signal(stdio_conn.doorbell, 1U << stdio_conn.bit, false);
-            WaitOn(stdio_event, STDIO_DRAIN_MS);
-        }
-        TtyClientClose(stdio_port, &stdio_conn);
-    }
-    stdio_state = STDIO_IDLE;
-    stdio_focused = false;
-    stdio_pushback = EOF;
-}
-
-static void __attribute__((destructor)) stdio_fini(void) { stdio_disconnect(); }
+static void __attribute__((destructor)) stdio_fini(void) { StdioFini(); }
 
 /* Idempotent. Connects on first use rather than at startup so services that
- * link this file never block waiting for ttysvc. Returns 0 when attached. */
-int stdio_open_tty(void)
-{
-    if (stdio_state == STDIO_READY)
-        return 0;
-    if (stdio_state == STDIO_FAILED)
-        return -1;
+ * only ever log never open a session. */
+int stdio_open_tty(void) { return StdioOpenTty(); }
 
-    if (stdio_port < 0) {
-        stdio_port = LookupService("/svc/tty");
-        if (stdio_port < 0) {
-            stdio_port = -1;
-            return -1;
-        }
-    }
-    if (stdio_event < 0) {
-        stdio_event = CreateEvent();
-        if (stdio_event < 0) {
-            stdio_event = -1;
-            return -1;
-        }
-    }
-
-    Err rc = ERR_NOENT;
-    for (int i = 0; i < STDIO_ATTACH_RETRIES && rc == ERR_NOENT; i++) {
-        rc = TtyClientConnect(stdio_port, TTY_ATTACH, stdio_alias, stdio_event, STDIO_BIT_KICK,
-                              &stdio_conn);
-        if (rc == ERR_NOENT)
-            Sleep(10);
-    }
-    if (rc != ZUZU_OK) {
-        if (rc == ERR_NOENT)
-            stdio_state = STDIO_FAILED;
-        return -1;
-    }
-
-    rc = TtyClientSetMode(stdio_port, &stdio_conn, stdio_mode);
-    if (rc != ZUZU_OK) {
-        TtyClientClose(stdio_port, &stdio_conn);
-        return -1;
-    }
-    stdio_intr_seen = stdio_conn.shm->ctl.intr_seq;
-    stdio_state = STDIO_READY;
-    return 0;
-}
-
-void stdio_on_interrupt(void (*handler)(void)) { stdio_intr_handler = handler; }
-
-/* ^C while ISIG is set: run the program's handler, or end the program. */
-static void stdio_check_interrupt(void)
-{
-    if (stdio_state != STDIO_READY || !TtyInterrupted(stdio_conn.shm, &stdio_intr_seen))
-        return;
-    if (stdio_intr_handler) {
-        stdio_intr_handler();
-        return;
-    }
-    stdio_disconnect();
-    Quit(130);
-}
+void stdio_on_interrupt(void (*handler)(void)) { StdioOnInterrupt(handler); }
 
 /* Raw mode hands every byte through untouched, so the caller does its own
- * echo and line editing. Output still gets "\n" -> "\r\n" (what cooked mode
- * does in ttysvc). The setting survives a reattach. */
-int stdio_set_raw(int enable)
-{
-    stdio_mode = enable ? TTY_MODE_RAW : (TTY_MODE_COOKED | TTY_MODE_ECHO);
-    if (stdio_state != STDIO_READY)
-        return 0;
-    return TtyClientSetMode(stdio_port, &stdio_conn, stdio_mode) == ZUZU_OK ? 0 : -1;
-}
+ * echo and editing. */
+int stdio_set_raw(int enable) { return StdioSetRaw(enable); }
 
 /* Releases the session so another program can take the foreground; the next
  * printf or getchar attaches again. */
-void stdio_close_tty(void) { stdio_disconnect(); }
+void stdio_close_tty(void)
+{
+    StdioCloseTty();
+    stdio_pushback = EOF;
+}
 
 /* `name` is a ttysvc alias ("" for the default endpoint). Reconnects now so
- * a bad alias is reported here rather than at the first printf. */
+ * a bad name is reported here. */
 int stdio_route_tty(const char *name)
 {
-    if (!name || strlen(name) >= TTY_NAME_MAX)
-        return -1;
-
-    stdio_disconnect();
-    strcpy(stdio_alias, name);
-    return stdio_open_tty();
+    stdio_pushback = EOF;
+    return StdioRouteTty(name);
 }
 
 int stdio_use_tty(uint32_t index)
@@ -144,28 +48,11 @@ int stdio_use_tty(uint32_t index)
     return stdio_route_tty(name);
 }
 
-static void stdio_kick(void) { Signal(stdio_conn.doorbell, 1U << stdio_conn.bit, false); }
+/* Blocks while the pipe is full: on a terminal that is the backpressure ttysvc applies
+ * to a program writing faster than the display drains. */
+static void stdio_write(const char *s, size_t n) { StdioWrite(1, s, n); }
 
-/* Blocks while the up ring is full: that is the backpressure ttysvc applies
- * to a background consumer. */
-static void stdio_write(const char *s, size_t n)
-{
-    TtyShm *shm = stdio_conn.shm;
-    stdio_check_interrupt();
-    while (n > 0) {
-        uint32_t w = ShmRingPush(&shm->up_hdr, shm->up_data, (const uint8_t *)s, (uint32_t)n);
-        s += w;
-        n -= w;
-        stdio_kick();
-        if (n > 0) {
-            WaitOn(stdio_event, TIMEOUT_INFINITE);
-            stdio_check_interrupt();
-        }
-    }
-}
-
-/* Blocks until a byte arrives. Event words are only hints, so the ring and
- * the EOF flag are re-checked on every wakeup. */
+/* Blocks until a byte arrives. Reads in bursts: a terminal hands over a whole line at once. */
 static int stdio_stream_getc(void)
 {
     if (stdio_pushback != EOF) {
@@ -174,32 +61,16 @@ static int stdio_stream_getc(void)
         return c;
     }
 
-    if (stdio_open_tty() != 0)
-        return EOF;
-
-    if (!stdio_focused) {
-        if (TtyClientFocus(stdio_port, &stdio_conn) != ZUZU_OK)
+    static uint8_t buf[128];
+    static int pos, have;
+    if (pos == have) {
+        int n = StdioRead(buf, sizeof(buf));
+        if (n <= 0)
             return EOF;
-        stdio_focused = true;
+        pos = 0;
+        have = n;
     }
-
-    TtyShm *shm = stdio_conn.shm;
-    static bool consumed;
-    for (;;) {
-        uint8_t b = 0;
-        if (ShmRingPop(&shm->down_hdr, shm->down_data, &b, 1) == 1) {
-            consumed = true;
-            return b;
-        }
-        stdio_check_interrupt();
-        if (TtyEofPending(shm))
-            return EOF;
-        if (consumed) {
-            consumed = false;
-            stdio_kick();
-        }
-        WaitOn(stdio_event, TIMEOUT_INFINITE);
-    }
+    return buf[pos++];
 }
 
 int getchar(void) { return stdio_stream_getc(); }
@@ -502,21 +373,22 @@ int vprintf(const char *format, va_list args)
     if (out_len >= sizeof(buf))
         out_len = sizeof(buf) - 1;
 
-    if (stdio_open_tty() == 0) {
-        if (stdio_mode != TTY_MODE_RAW) {
-            stdio_write(buf, out_len);
-            return len;
-        }
-        size_t start = 0;
-        for (size_t i = 0; i < out_len; i++) {
-            if (buf[i] != '\n')
-                continue;
-            stdio_write(buf + start, i - start);
-            stdio_write("\r\n", 2);
-            start = i + 1;
-        }
-        stdio_write(buf + start, out_len - start);
-    } else
+    if (!StdioStream(1)) {
         UserspaceDebugLog("%s", buf);
+        return len;
+    }
+    if (!StdioIsTty(1) || StdioMode() != TTY_MODE_RAW) {
+        stdio_write(buf, out_len);
+        return len;
+    }
+    size_t start = 0;
+    for (size_t i = 0; i < out_len; i++) {
+        if (buf[i] != '\n')
+            continue;
+        stdio_write(buf + start, i - start);
+        stdio_write("\r\n", 2);
+        start = i + 1;
+    }
+    stdio_write(buf + start, out_len - start);
     return len;
 }
