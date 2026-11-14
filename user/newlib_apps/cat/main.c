@@ -8,8 +8,11 @@ int main(int argc, char *argv[])
     ssize_t n;
 
     if (argc < 2) {
-        write(2, "Usage: cat <file>\n", 20);
-        return 1;
+        while ((n = read(0, buf, sizeof(buf))) > 0) {
+            if (write(1, buf, n) < 0)
+                return 1;
+        }
+        return n < 0 ? 1 : 0;
     }
 
     fd = open(argv[1], O_RDONLY);
@@ -19,7 +22,8 @@ int main(int argc, char *argv[])
     }
 
     while ((n = read(fd, buf, sizeof(buf))) > 0) {
-        write(1, buf, n);
+        if (write(1, buf, n) < 0)
+            break;
     }
 
     close(fd);
