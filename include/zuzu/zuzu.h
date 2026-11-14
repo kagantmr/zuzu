@@ -1368,7 +1368,7 @@ static inline Err Signal(Handle ev_handle, EventWord bits, bool broadcast)
  *
  * If the condition already holds, the bit is set at once. The bit then
  * belongs to the kernel: Signal() may not set it. An object accepts at most
- * four bindings.
+ * sixteen bindings.
  *
  * @syscall_num SVC_BIND / EVENT_PORT, EVENT_TASK, EVENT_SPACE
  * @syscall_group event
@@ -1384,7 +1384,7 @@ static inline Err Signal(Handle ev_handle, EventWord bits, bool broadcast)
  * @retval ERR_NOPERM    @p ev_handle lacks PERM_CNTL, or @p target lacks PERM_WAIT.
  * @retval ERR_BADARG    @p bit is out of range, or @p type is unknown.
  * @retval ERR_DEAD      The event or the port has died.
- * @retval ERR_NOMEM     @p target already has four bindings.
+ * @retval ERR_NOMEM     @p target already has sixteen bindings.
  */
 static inline Err Bind(EventType type, Handle ev_handle, Handle target, uint32_t bit)
 {
