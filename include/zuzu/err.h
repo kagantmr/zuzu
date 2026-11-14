@@ -86,6 +86,9 @@ typedef int Err;
 /** @brief TCP connection refused. */
 #define ERR_CONNREFUSED (-109)
 
+/** @brief A blocking call was interrupted (^C on a terminal). */
+#define ERR_INTR (-110)
+
 /** @brief Task kill reason. */
 typedef enum {
     KILLED_BY_PARENT,      /**< Parent destroyed the task object. */
