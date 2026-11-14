@@ -50,6 +50,9 @@ typedef struct {
     const PipeEnd *stdin_pipe;  /**< Reader end the child gets as stdin, or NULL for the console. */
     const PipeEnd *stdout_pipe; /**< Writer end the child gets as stdout, or NULL for the console. */
     const PipeEnd *stderr_pipe; /**< Writer end the child gets as stderr, or NULL for the console. */
+    const char *envbuf;         /**< The child's environment: "NAME=value" strings, NUL-separated. */
+    size_t envbuf_len;          /**< Bytes in @c envbuf, terminators included. */
+    uint32_t envc;              /**< Number of strings in @c envbuf; 0 for no environment. */
 } SpawnAttr;
 
 /**

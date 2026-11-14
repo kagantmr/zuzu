@@ -22,6 +22,9 @@ _start:
     mov x20, x1
 
 #ifdef ZUZU_NEWLIB
+    mov x0, x19
+    mov x1, x20
+    bl __zuzu_env_init
     bl __libc_init_array
     mov x0, x19
     mov x1, x20
