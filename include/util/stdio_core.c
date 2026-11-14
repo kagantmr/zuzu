@@ -12,8 +12,8 @@
 
 /** @brief Bit ttysvc rings on our event. */
 #define STDIO_BIT_KICK 0
-/** @brief Longest wait per step when flushing at exit; bounds it if no provider ever drains. */
-#define STDIO_DRAIN_MS 20 /* bounds the exit-time flush if no provider ever drains */
+/** @brief Longest wait per step when flushing at exit */
+#define STDIO_DRAIN_MS 20
 /** @brief Attach attempts (10 ms apart) before giving up on the endpoint. */
 #define STDIO_ATTACH_RETRIES 100
 
@@ -21,17 +21,17 @@
 typedef enum {
     STDIO_IDLE,   /**< Not connected. */
     STDIO_READY,  /**< Connected. */
-    STDIO_FAILED, /**< The endpoint never appeared; stop retrying. */
+    STDIO_FAILED, /**< The endpoint never appeared. */
 } StdioState;
 
 static StdioState g_state = STDIO_IDLE; /**< Where the terminal session stands. */
-static Handle g_port = -1; /**< Handle to ttysvc. */
-static Handle g_event = -1; /**< Our event, rung by ttysvc. */
-static TtyConn g_conn; /**< The terminal session. */
-static PipeEnd g_tty[3]; /**< The session's rings as stdin, stdout, stderr. */
-static char g_alias[TTY_NAME_MAX]; /**< Endpoint to attach to; empty for the default. */
+static Handle g_port = -1;              /**< Handle to ttysvc. */
+static Handle g_event = -1;             /**< Our event, rung by ttysvc. */
+static TtyConn g_conn;                  /**< The terminal session. */
+static PipeEnd g_tty[3];                /**< The session's rings as stdin, stdout, stderr. */
+static char g_alias[TTY_NAME_MAX];      /**< Endpoint to attach to; empty for the default. */
 static uint32_t g_mode = TTY_MODE_COOKED | TTY_MODE_ECHO; /**< Mode to set on connecting. */
-static bool g_focused; /**< Whether we have taken the foreground. */
+static bool g_focused;               /**< Whether we have taken the foreground. */
 static void (*g_intr_handler)(void); /**< What to run on ^C, or NULL to end the program. */
 
 /** @brief Flushes output, leaves the session and forgets the pipe ends. */
@@ -112,9 +112,9 @@ int StdioRouteTty(const char *alias)
 
 PipeEnd *StdioStream(int fd)
 {
-    PipeEnd *redirected = fd == 0   ? StdioRedirIn()
-                          : fd == 1 ? StdioRedirOut()
-                          : fd == 2 ? StdioRedirErr()
+    PipeEnd *redirected = (fd == 0)  ? StdioRedirIn()
+                          : (fd == 1) ? StdioRedirOut()
+                          : (fd == 2) ? StdioRedirErr()
                                     : NULL;
     if (redirected)
         return redirected;
