@@ -25,9 +25,12 @@ int main(void)
         return rc;
 
     for (;;) {
-        EventWaitResult w = WaitOnEvent(g_event, TIMEOUT_INFINITE, (1U << PORT_BIT), false);
+        EventWaitResult w = WaitOnEvent(g_event, TIMEOUT_INFINITE, 0, false);
         if (w.status == ZUZU_OK) {
-            
+            if (!(w.bits & (1U << PORT_BIT))) {
+                // handle port
+                continue;
+            }
         }
 
         for (;;) {
