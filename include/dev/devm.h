@@ -41,7 +41,7 @@ typedef struct {
 } DevmRequest;
 
 /**
- * @brief Sends a device request to devsvc and unpacks the reply.
+ * @brief Asks devsvc for a device's memory object.
  *
  * The strings are tried in order; the first one that matches a device in the
  * boot device list wins. The handle carries PERM_MAP | PERM_WRITE | PERM_TXFR | PERM_CNTL.
