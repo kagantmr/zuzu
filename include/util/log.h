@@ -38,15 +38,20 @@ void LogSetLevel(LogLevel min_level);
 LogLevel LogGetLevel(void);
 
 /**
- * @brief Prints one log line to stdout: level, uptime in ms, optional tag, message.
+ * @brief Logs one message: to logsvc if it is running, else to stdout as level, uptime in ms,
+ * optional tag and message.
  *
- * Messages longer than 191 characters are cut.
+ * The first call looks for /svc/log and keeps the session; if logsvc is absent the call prints
+ * and looks again at most once a second. Messages longer than 255 characters are cut.
  *
  * @param[in] level Severity; dropped if below the minimum level.
  * @param[in] tag   Short source name shown in parentheses, or NULL.
  * @param[in] fmt   printf-style format.
  */
 void LogWrite(LogLevel level, const char *tag, const char *fmt, ...);
+
+/** @brief Closes the session with logsvc, if there is one. Called when the program exits. */
+void LogShutdown(void);
 
 /** @brief Logs at DEBUG level under @p tag. */
 #define LOG_DEBUG(tag, fmt, ...) LogWrite(LOG_LEVEL_DEBUG, tag, fmt, ##__VA_ARGS__)
