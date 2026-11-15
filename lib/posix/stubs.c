@@ -9,6 +9,7 @@
 #include <sys/times.h>
 #include <unistd.h>
 #include <util/path.h>
+#include <util/log.h>
 #include <util/stdio_core.h>
 #include <zuzu/err.h>
 #include <zuzu/syspage.h>
@@ -196,6 +197,7 @@ void __attribute__((noreturn)) _exit(int status)
 {
     FsdDetach(&fsd_conn);
     DirentDetach();
+    LogShutdown();
     StdioFini();
     Quit(status);
     for (;;)
