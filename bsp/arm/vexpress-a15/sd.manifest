@@ -7,5 +7,6 @@ nettest
 ifconfig
 cat
 ls
+logs
 rm
 termtest
