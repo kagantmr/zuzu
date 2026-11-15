@@ -25,6 +25,18 @@ static FsdConn g_fsd;       /**< Connection to the file service. */
 static ImgCache g_images;   /**< Program images already read, keyed by path and mtime. */
 static int64_t g_out_fd = -1; /**< File a builtin's output goes to, or -1 for the terminal. */
 
+/** @brief Most a builtin may print when it is part of a pipeline. */
+#define CAPTURE_MAX 65536
+
+/** @brief Output a builtin printed inside a pipeline, held until the pipes can take it. */
+typedef struct {
+    char *buf;    /**< The bytes, or NULL if none. */
+    size_t len;   /**< How many. */
+    size_t cap;   /**< Room allocated. */
+} Capture;
+
+static Capture *g_capture; /**< Where ShPrintf() puts output while a pipeline stage runs, or NULL. */
+
 /** @brief Exit status of a command that was not found. */
 #define STATUS_NOT_FOUND 127
 /** @brief Exit status of a command that could not be started. */
@@ -61,6 +73,24 @@ void ShPrintf(const char *fmt, ...)
     if (n >= (int)sizeof(buf))
         n = (int)sizeof(buf) - 1;
 
+    if (g_capture) {
+        Capture *cp = g_capture;
+        if (cp->len + (size_t)n > CAPTURE_MAX)
+            return;
+        if (cp->len + (size_t)n > cp->cap) {
+            size_t want = cp->cap ? cp->cap * 2 : 1024;
+            while (want < cp->len + (size_t)n)
+                want *= 2;
+            char *bigger = realloc(cp->buf, want);
+            if (!bigger)
+                return;
+            cp->buf = bigger;
+            cp->cap = want;
+        }
+        memcpy(cp->buf + cp->len, buf, (size_t)n);
+        cp->len += (size_t)n;
+        return;
+    }
     if (g_out_fd < 0) {
         printf("%s", buf);
         return;
@@ -485,6 +515,25 @@ static const struct {
 #define N_BUILTINS ((int)(sizeof(k_builtins) / sizeof(k_builtins[0])))
 
 /**
+ * @brief Whether a builtin may be a stage of a pipeline.
+ *
+ * Builtins that change the shell itself (the directory, variables, the shell's life) would be
+ * lost or surprising in a pipeline, so they only run on their own.
+ *
+ * @param[in] name Command word, already known to be a builtin.
+ * @return true if it may be piped.
+ */
+static bool BuiltinPipeable(const char *name)
+{
+    static const char *const kOwn[] = {"cd", "exit", "export", "unset", "source", ".", "set"};
+    for (size_t i = 0; i < sizeof(kOwn) / sizeof(kOwn[0]); i++) {
+        if (strcmp(name, kOwn[i]) == 0)
+            return false;
+    }
+    return true;
+}
+
+/**
  * @brief Finds a builtin.
  *
  * @param[in] name Command word.
@@ -586,6 +635,16 @@ typedef struct {
     bool out_active;    /**< Still collecting the last stage's output into a file. */
     uint32_t out_fd;    /**< The file being written. */
     PipeEnd *out_pipe;  /**< The shell's reader end of the pipe from the last stage. */
+    struct {
+        const Capture *cap; /**< What a builtin stage printed, or NULL if the stage is a program. */
+        size_t off;         /**< Bytes already sent. */
+        PipeEnd *w;         /**< The shell's writer end of the pipe the stage's output goes into. */
+        bool active;        /**< Still sending. */
+    } feed[SH_MAX_STAGES];
+    struct {
+        PipeEnd *r;  /**< The shell's reader end of the pipe into a builtin stage. */
+        bool active; /**< Still discarding what arrives. */
+    } drain[SH_MAX_STAGES];
 } Pump;
 
 /**
@@ -625,6 +684,37 @@ static bool PumpStep(Pump *pu)
         }
     }
 
+    for (int i = 0; i < SH_MAX_STAGES; i++) {
+        if (pu->feed[i].active) {
+            const Capture *cp = pu->feed[i].cap;
+            if (pu->feed[i].off < cp->len) {
+                int n = PipeWrite(pu->feed[i].w, cp->buf + pu->feed[i].off,
+                                  cp->len - pu->feed[i].off, TIMEOUT_POLL);
+                if (n > 0) {
+                    pu->feed[i].off += (size_t)n;
+                    did = true;
+                } else if (n == ERR_DEAD) {
+                    pu->feed[i].off = cp->len;
+                }
+            }
+            if (pu->feed[i].off >= cp->len) {
+                PipeMarkClosed(pu->feed[i].w, PIPE_WRITER);
+                pu->feed[i].active = false;
+                did = true;
+            }
+        }
+        if (pu->drain[i].active) {
+            uint8_t sink[256];
+            int n = PipeRead(pu->drain[i].r, sink, sizeof(sink), TIMEOUT_POLL);
+            if (n > 0) {
+                did = true;
+            } else if (n == 0) {
+                pu->drain[i].active = false;
+                did = true;
+            }
+        }
+    }
+
     if (pu->out_active) {
         uint8_t buf[512];
         int n = PipeRead(pu->out_pipe, buf, sizeof(buf), TIMEOUT_POLL);
@@ -645,6 +735,21 @@ static bool PumpStep(Pump *pu)
         }
     }
     return did;
+}
+
+/**
+ * @brief Whether a builtin stage's output is still being sent or its input discarded.
+ *
+ * @param[in] pu The pump.
+ * @return true if either is going on.
+ */
+static bool PumpBusy(const Pump *pu)
+{
+    for (int i = 0; i < SH_MAX_STAGES; i++) {
+        if (pu->feed[i].active || pu->drain[i].active)
+            return true;
+    }
+    return false;
 }
 
 /**
@@ -740,6 +845,11 @@ static int RunPrograms(const ShPipeline *pl)
             ShPrintf("zzsh: a redirect belongs on the first or last command of a pipeline\n");
             return 2;
         }
+        if (FindBuiltin(pl->cmd[i].argv[0]) && pl->cmd[i].in) {
+            ShPrintf("zzsh: %s: input redirection is not supported on builtins\n",
+                     pl->cmd[i].argv[0]);
+            return 1;
+        }
     }
     if (!ShEnsureFsd()) {
         ShPrintf("zzsh: fsd unavailable\n");
@@ -786,14 +896,29 @@ static int RunPrograms(const ShPipeline *pl)
         pipes++;
     }
 
-    stdio_close_tty();
-
     Handle task[SH_MAX_STAGES];
     Spid pid[SH_MAX_STAGES];
     int status[SH_MAX_STAGES] = {0};
+    Capture cap[SH_MAX_STAGES] = {0};
+    bool is_builtin[SH_MAX_STAGES] = {false};
+    for (int i = 0; i < n; i++) {
+        task[i] = -1;
+        BuiltinFn fn = FindBuiltin(pl->cmd[i].argv[0]);
+        if (!fn)
+            continue;
+        is_builtin[i] = true;
+        g_capture = &cap[i];
+        status[i] = fn(pl->cmd[i].argc, (char **)pl->cmd[i].argv);
+        g_capture = NULL;
+    }
+
+    stdio_close_tty();
+
     int started = 0;
     int spawn_status = 0;
     for (; started < n; started++) {
+        if (is_builtin[started])
+            continue;
         const PipeEnd *in = started > 0 ? &pr[started - 1] : (in_open ? &pr[in_pipe] : NULL);
         const PipeEnd *out = started < n - 1 ? &pw[started] : (out_open ? &pw[out_pipe] : NULL);
         spawn_status = SpawnStage(&pl->cmd[started], in, out, &task[started], &pid[started]);
@@ -803,6 +928,8 @@ static int RunPrograms(const ShPipeline *pl)
     if (started < n) {
         /* A stage failed to start: the rest would wait on it forever. */
         for (int i = 0; i < started; i++) {
+            if (is_builtin[i])
+                continue;
             HandleDestroy((Handle)pid[i]);
             HandleClose(task[i]);
         }
@@ -822,9 +949,26 @@ static int RunPrograms(const ShPipeline *pl)
         pu.out_pipe = &pr[out_pipe];
     }
 
+    for (int i = 0; i < n; i++) {
+        if (!is_builtin[i])
+            continue;
+        PipeEnd *sink = i < n - 1 ? &pw[i] : (out_open ? &pw[out_pipe] : NULL);
+        if (sink) {
+            pu.feed[i].cap = &cap[i];
+            pu.feed[i].w = sink;
+            pu.feed[i].active = true;
+        }
+        if (i > 0) {
+            pu.drain[i].r = &pr[i - 1];
+            pu.drain[i].active = true;
+        }
+    }
+
     Handle ev = CreateEvent();
     unsigned live = 0;
     for (int i = 0; i < started; i++) {
+        if (is_builtin[i])
+            continue;
         if (ev < 0 || Bind(EVENT_TASK, ev, task[i], (uint32_t)i) != ZUZU_OK) {
             HandleDestroy((Handle)pid[i]); /* cannot be watched: end it rather than hang */
             status[i] = STATUS_CANNOT_RUN;
@@ -833,9 +977,11 @@ static int RunPrograms(const ShPipeline *pl)
         live |= 1u << i;
     }
 
-    while (live || pu.in_active || pu.out_active) {
+    while (live || pu.in_active || pu.out_active || PumpBusy(&pu)) {
         bool did = PumpStep(&pu);
-        bool pumping = pu.in_active || pu.out_active;
+        bool pumping = pu.in_active || pu.out_active || PumpBusy(&pu);
+        if (!live && !pumping)
+            break;
         Duration wait = !pumping ? TIMEOUT_INFINITE : (did ? TIMEOUT_POLL : PUMP_POLL_MS);
         if (!live && pumping && !did)
             wait = PUMP_POLL_MS;
@@ -862,13 +1008,19 @@ static int RunPrograms(const ShPipeline *pl)
         }
     }
     for (int i = 0; i < started; i++) {
+        if (is_builtin[i])
+            continue;
         HandleClose(task[i]);
         HandleDestroy((Handle)pid[i]);
     }
     if (ev >= 0)
         HandleClose(ev);
+    if (is_builtin[n - 1] && !out_open && cap[n - 1].len > 0)
+        printf("%.*s", (int)cap[n - 1].len, cap[n - 1].buf);
 
 cleanup:
+    for (int i = 0; i < n; i++)
+        free(cap[i].buf);
     for (int i = 0; i < pipes; i++) {
         ClosePipe(&pw[i]);
         ClosePipe(&pr[i]);
@@ -908,8 +1060,8 @@ static int RunPipeline(const ShPipeline *pl)
             ShPrintf("zzsh: missing command\n");
             return 2;
         }
-        if (FindBuiltin(pl->cmd[i].argv[0])) {
-            ShPrintf("zzsh: builtins cannot be used in a pipeline\n");
+        if (FindBuiltin(pl->cmd[i].argv[0]) && !BuiltinPipeable(pl->cmd[i].argv[0])) {
+            ShPrintf("zzsh: %s: cannot be used in a pipeline\n", pl->cmd[i].argv[0]);
             return 2;
         }
     }
