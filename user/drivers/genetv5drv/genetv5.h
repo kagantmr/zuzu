@@ -28,6 +28,17 @@ typedef struct {
 } GenetExt;
 _Static_assert(offsetof(GenetExt, rgmii_oob_ctrl) == 0x0c, "layout");
 
+#define EXT_PWR_DOWN_BIAS (1u << 0)
+#define EXT_PWR_DOWN_DLL (1u << 1)
+#define EXT_ENERGY_DET_MASK (1u << 12)
+#define EXT_IDDQ_GLBL_PWR (1u << 7)
+#define EXT_PHY_RESET (1u << 8)
+#define EXT_PWR_DOWN_PHY_TX (1u << 16)
+#define EXT_PWR_DOWN_PHY_RX (1u << 17)
+#define EXT_PWR_DOWN_PHY_SD (1u << 18)
+#define EXT_PWR_DOWN_PHY_RD (1u << 19)
+#define EXT_PWR_DOWN_PHY_EN (1u << 20)
+
 #define RGMII_LINK (1u << 4)
 #define OOB_DISABLE (1u << 5)
 #define RGMII_MODE_EN (1u << 6)

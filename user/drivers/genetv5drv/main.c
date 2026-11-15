@@ -1,6 +1,7 @@
 #include "dev/devm.h"
 #include "genetv5.h"
 #include <dev/protocols/mbox.h>
+#include <string.h>
 #include <util/log.h>
 #include <zuzu/service.h>
 #include <zuzu/syspage.h>
@@ -18,6 +19,7 @@
 #define DMA_STOP_TIMEOUT_MS 10
 #define ANEG_POLL_MS 100
 #define ANEG_TIMEOUT_MS 15000
+#define ADVERTISE_1000 0
 
 static const char *compats[1] = {"brcm,bcm2711-genet-v5"};
 
@@ -32,7 +34,7 @@ static GenetDmaCtrl *genet_tdma = NULL;
 static GenetTxRing *genet_tx_ring = NULL;
 
 static uint8_t mac[6];
-static Handle g_ring_h = -1;
+static Handle g_tx_buf_h = -1;
 
 static Handle WaitForService(const char *path)
 {
@@ -44,13 +46,19 @@ static Handle WaitForService(const char *path)
     }
 }
 
-static Err MdioRead(uint32_t reg, uint16_t *out) {
-    GenetMdioCmd c = { .raw = 0 };
-    c.op = 2; c.phy = PHY_ADDR; c.reg = reg; c.busy = 1;
-    genet_umac->mdio_cmd = c.raw;              /* one write, everything at once */
+static Err MdioRead(uint32_t reg, uint16_t *out)
+{
+    GenetMdioCmd c = {.raw = 0};
+    c.op = 2;
+    c.phy = PHY_ADDR;
+    c.reg = reg;
+    c.busy = 1;
+    genet_umac->mdio_cmd = c.raw; /* one write, everything at once */
 
     uint32_t timeout = MDIO_TIMEOUT;
-    do { c.raw = genet_umac->mdio_cmd; } while (c.busy && --timeout);   /* one read per loop */
+    do {
+        c.raw = genet_umac->mdio_cmd;
+    } while (c.busy && --timeout); /* one read per loop */
     if (!timeout)
         return ERR_TIMEOUT;
     if (c.fail)
@@ -61,12 +69,18 @@ static Err MdioRead(uint32_t reg, uint16_t *out) {
 
 static Err MdioWrite(uint32_t reg, uint16_t value)
 {
-    GenetMdioCmd c = { .raw = 0 };
-    c.op = 1; c.phy = PHY_ADDR; c.reg = reg; c.data = value; c.busy = 1;
+    GenetMdioCmd c = {.raw = 0};
+    c.op = 1;
+    c.phy = PHY_ADDR;
+    c.reg = reg;
+    c.data = value;
+    c.busy = 1;
     genet_umac->mdio_cmd = c.raw;
 
     uint32_t timeout = MDIO_TIMEOUT;
-    do { c.raw = genet_umac->mdio_cmd; } while (c.busy && --timeout);
+    do {
+        c.raw = genet_umac->mdio_cmd;
+    } while (c.busy && --timeout);
     if (!timeout)
         return ERR_TIMEOUT;
     return ZUZU_OK;
@@ -114,8 +128,8 @@ static Err GetMac(void)
         LOG_ERROR(LOG_TAG, "MboxGetMac failed: %s", StrToError(rc));
         return rc;
     }
-    LOG_INFO(LOG_TAG, "MAC %02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3],
-             mac[4], mac[5]);
+    LOG_INFO(LOG_TAG, "MAC %02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4],
+             mac[5]);
     return ZUZU_OK;
 }
 
@@ -139,6 +153,18 @@ static Err DmaStop(void)
     Sleep(1);
     genet_umac->tx_flush = 0;
     return ZUZU_OK;
+}
+
+static void ExtPowerUp(void)
+{
+    uint32_t reg = genet_ext->pwr_mgmt & ~(EXT_PWR_DOWN_BIAS | EXT_PWR_DOWN_DLL | EXT_ENERGY_DET_MASK);
+    reg &= ~(EXT_PWR_DOWN_PHY_EN | EXT_PWR_DOWN_PHY_RD | EXT_PWR_DOWN_PHY_SD |
+             EXT_PWR_DOWN_PHY_RX | EXT_PWR_DOWN_PHY_TX | EXT_IDDQ_GLBL_PWR);
+    reg |= EXT_PHY_RESET;
+    genet_ext->pwr_mgmt = reg;
+    Sleep(1);
+    reg &= ~EXT_PHY_RESET;
+    genet_ext->pwr_mgmt = reg;
 }
 
 static void UmacReset(void)
@@ -168,8 +194,8 @@ static void UmacReset(void)
 
 static void WriteMac(void)
 {
-    genet_umac->mac0 = ((uint32_t)mac[0] << 24) | ((uint32_t)mac[1] << 16) |
-                       ((uint32_t)mac[2] << 8) | mac[3];
+    genet_umac->mac0 =
+        ((uint32_t)mac[0] << 24) | ((uint32_t)mac[1] << 16) | ((uint32_t)mac[2] << 8) | mac[3];
     genet_umac->mac1 = ((uint32_t)mac[4] << 8) | mac[5];
 }
 
@@ -181,7 +207,9 @@ static Err PhyNegotiate(void)
         rc = MdioWrite(MII_ADVERTISE,
                        ADV_CSMA | ADV_10HALF | ADV_10FULL | ADV_100HALF | ADV_100FULL);
     if (rc == ZUZU_OK)
-        rc = MdioWrite(MII_CTRL1000, (uint16_t)((ctrl1000 & ~CTRL1000_HALF) | CTRL1000_FULL));
+        rc = MdioWrite(MII_CTRL1000,
+                       (uint16_t)((ctrl1000 & ~(CTRL1000_HALF | CTRL1000_FULL)) |
+                                  (ADVERTISE_1000 ? CTRL1000_FULL : 0)));
     if (rc == ZUZU_OK)
         rc = MdioWrite(MII_BMCR, BMCR_ANENABLE | BMCR_ANRESTART);
     if (rc != ZUZU_OK) {
@@ -211,13 +239,20 @@ static Err PhyGetSpeed(uint32_t *umac_speed, uint32_t *mbps)
 {
     uint16_t id1 = 0, id2 = 0, bmsr = 0, adv = 0, lpa = 0, ctrl1000 = 0, stat1000 = 0;
     Err rc = MdioRead(MII_PHYSID1, &id1);
-    if (rc == ZUZU_OK) rc = MdioRead(MII_PHYSID2, &id2);
-    if (rc == ZUZU_OK) rc = MdioRead(MII_BMSR, &bmsr);
-    if (rc == ZUZU_OK) rc = MdioRead(MII_BMSR, &bmsr);
-    if (rc == ZUZU_OK) rc = MdioRead(MII_ADVERTISE, &adv);
-    if (rc == ZUZU_OK) rc = MdioRead(MII_LPA, &lpa);
-    if (rc == ZUZU_OK) rc = MdioRead(MII_CTRL1000, &ctrl1000);
-    if (rc == ZUZU_OK) rc = MdioRead(MII_STAT1000, &stat1000);
+    if (rc == ZUZU_OK)
+        rc = MdioRead(MII_PHYSID2, &id2);
+    if (rc == ZUZU_OK)
+        rc = MdioRead(MII_BMSR, &bmsr);
+    if (rc == ZUZU_OK)
+        rc = MdioRead(MII_BMSR, &bmsr);
+    if (rc == ZUZU_OK)
+        rc = MdioRead(MII_ADVERTISE, &adv);
+    if (rc == ZUZU_OK)
+        rc = MdioRead(MII_LPA, &lpa);
+    if (rc == ZUZU_OK)
+        rc = MdioRead(MII_CTRL1000, &ctrl1000);
+    if (rc == ZUZU_OK)
+        rc = MdioRead(MII_STAT1000, &stat1000);
     if (rc != ZUZU_OK) {
         LOG_ERROR(LOG_TAG, "MDIO read failed: %s", StrToError(rc));
         return rc;
@@ -230,7 +265,8 @@ static Err PhyGetSpeed(uint32_t *umac_speed, uint32_t *mbps)
         return ERR_NOTCONN;
     }
 
-    LOG_INFO(LOG_TAG, "adv %04x lpa %04x ctrl1000 %04x stat1000 %04x", adv, lpa, ctrl1000, stat1000);
+    LOG_INFO(LOG_TAG, "adv %04x lpa %04x ctrl1000 %04x stat1000 %04x", adv, lpa, ctrl1000,
+             stat1000);
     uint16_t common = adv & lpa;
     if ((ctrl1000 & CTRL1000_FULL) && (stat1000 & STAT1000_FULL)) {
         *umac_speed = UMAC_SPEED_1000;
@@ -248,8 +284,8 @@ static Err PhyGetSpeed(uint32_t *umac_speed, uint32_t *mbps)
 static void SetLink(uint32_t umac_speed)
 {
     uint32_t oob = genet_ext->rgmii_oob_ctrl;
-    oob &= ~OOB_DISABLE;
-    oob |= RGMII_LINK | RGMII_MODE_EN | ID_MODE_DIS;
+    oob &= ~(OOB_DISABLE | ID_MODE_DIS);
+    oob |= RGMII_LINK | RGMII_MODE_EN;
     genet_ext->rgmii_oob_ctrl = oob;
 
     genet_umac->cmd = umac_speed << CMD_SPEED_SHIFT;
@@ -258,12 +294,16 @@ static void SetLink(uint32_t umac_speed)
 int main()
 {
     Err rc = MapRegs();
-    if (rc == ZUZU_OK) rc = CheckRev();
-    if (rc == ZUZU_OK) rc = GetMac();
-    if (rc == ZUZU_OK) rc = DmaStop();
+    if (rc == ZUZU_OK)
+        rc = CheckRev();
+    if (rc == ZUZU_OK)
+        rc = GetMac();
+    if (rc == ZUZU_OK)
+        rc = DmaStop();
     if (rc != ZUZU_OK)
         return rc;
 
+    ExtPowerUp();
     UmacReset();
     WriteMac();
 
@@ -278,16 +318,57 @@ int main()
     LOG_INFO(LOG_TAG, "link %u Mb/s; cmd 0x%08x oob 0x%08x mac0 0x%08x mac1 0x%08x", mbps,
              genet_umac->cmd, genet_ext->rgmii_oob_ctrl, genet_umac->mac0, genet_umac->mac1);
 
-    
-    g_ring_h = CreateMem(1, MEM_CONTIG | MEM_UNCACHED);
-    DmaMapResult res = DmaMap(g_genet_h, g_ring_h, 0, 4096, DMA_TO_DEVICE);
+    g_tx_buf_h = CreateMem(1, MEM_CONTIG | MEM_UNCACHED);
+    if (g_tx_buf_h < 0) {
+        LOG_ERROR(LOG_TAG, "CreateMem failed: %s", StrToError(g_tx_buf_h));
+        return g_tx_buf_h;
+    }
+    DmaMapResult res = DmaMap(g_genet_h, g_tx_buf_h, 0, 4096, DMA_TO_DEVICE);
     if (res.status != ZUZU_OK) {
+        LOG_ERROR(LOG_TAG, "DmaMap failed: %s", StrToError(res.status));
         return res.status;
+    }
+    uint8_t *tx_buf = MemMap(g_tx_buf_h, 0, PROT_RW);
+    if (PtrIsErr(tx_buf)) {
+        LOG_ERROR(LOG_TAG, "MemMap of tx buffer failed: %s", StrToError((Err)(VirtAddr)tx_buf));
+        return (Err)(VirtAddr)tx_buf;
     }
 
     genet_tx_ring = (GenetTxRing *)(genet_base + 0x5000);
     GenetDesc *tx_desc = (GenetDesc *)(genet_base + 0x4000);
-    GenetDesc *rx_desc = (GenetDesc *)(genet_base + 0x2000);
-    
-    return ZUZU_OK;
+
+    genet_tdma->scb_burst_size = 8;
+    genet_tx_ring->start_addr = 0;
+    genet_tx_ring->read_ptr = 0;
+    genet_tx_ring->write_ptr = 0;
+    genet_tx_ring->end_addr = (256 * 3) - 1;
+    genet_tx_ring->prod_index = genet_tx_ring->cons_index;
+    genet_tx_ring->mbuf_done_thresh = 1;
+    genet_tx_ring->flow_period = 0;
+    genet_tx_ring->ring_buf_size = (256 << 16) | 2048;
+    genet_tdma->ring_cfg = 1 << 16;
+
+    genet_tdma->ctrl  = (1 << 17) | 1;
+    genet_umac->cmd  |= CMD_TX_EN;
+
+    static const char payload[] = "hello from zuzu";
+    memset(tx_buf, 0, 60);
+    memset(tx_buf, 0xff, 6);
+    memcpy(tx_buf + 6, mac, 6);
+    tx_buf[12] = 0x88;
+    tx_buf[13] = 0xb5;
+    memcpy(tx_buf + 14, payload, sizeof(payload));
+
+    uint32_t prod = genet_tx_ring->prod_index & 0xffff;
+    uint32_t n = prod & 0xff;
+    tx_desc[n].addr_lo = (uint32_t)res.bus_addr;
+    tx_desc[n].addr_hi = 0;
+    tx_desc[n].length_status = (60u << 16) | (0x3fu << 7) | 0x4000u | 0x2000u | 0x0040u;
+    genet_tx_ring->prod_index = prod + 1;
+
+    Sleep(10);
+    LOG_INFO(LOG_TAG, "tx: prod %u cons %u", prod + 1, genet_tx_ring->cons_index & 0xffff);
+
+    for (;;)
+        Sleep(1000);
 }
