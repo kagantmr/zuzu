@@ -20,7 +20,7 @@ int main(void)
         return rc;
     }
 
-    rc = RegisterService("/svc/tty", g_port);
+    rc = RegisterService("/svc/log", g_port);
     if (rc != ZUZU_OK)
         return rc;
 

@@ -71,8 +71,7 @@ _Static_assert(sizeof(LogEntryHdr) == 24, "LogEntryHdr is 24 bytes");
 /** @brief Give logsvc the pipe's event. LogIndexRequest; grants the event. */
 #define LOG_EVENT 2
 /**
- * @brief Tie the session to the caller's life. LogIndexRequest; grants a PERM_WAIT-only handle to
- * the caller's own space. logsvc frees the session when that space dies.
+ * @brief Tie the session to the caller's life.
  */
 #define LOG_WATCH 3
 /** @brief End a session. LogIndexRequest. */

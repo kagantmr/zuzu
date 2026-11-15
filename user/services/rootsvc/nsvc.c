@@ -3,8 +3,8 @@
 #include <stdbool.h>
 #include <string.h>
 #include <util/fnv1a.h>
-#include <zuzu/msg.h>
 #include <zuzu/err.h>
+#include <zuzu/msg.h>
 #include <zuzu/service.h>
 #include <zuzu/udbg.h>
 #include <zuzu/zuzu.h>
@@ -76,20 +76,21 @@ static void NsvcRegister(const NsvcRequest *req, Handle granted)
 
     NsEntry *e = NsFind(req->path);
     if (e) {
-        HandleClose(e->handle);
-    } else {
-        e = malloc(sizeof(*e));
-        if (!e) {
-            HandleClose(granted);
-            ReplyStatus(ERR_NOMEM);
-            return;
-        }
-        strncpy(e->path, req->path, NS_MAX_PATH - 1);
-        e->path[NS_MAX_PATH - 1] = '\0';
-        NsEntry **bucket = NsBucket(e->path);
-        e->next = *bucket;
-        *bucket = e;
+        ReplyStatus(ERR_BUSY);
+        return;
     }
+
+    e = malloc(sizeof(*e));
+    if (!e) {
+        HandleClose(granted);
+        ReplyStatus(ERR_NOMEM);
+        return;
+    }
+    strncpy(e->path, req->path, NS_MAX_PATH - 1);
+    e->path[NS_MAX_PATH - 1] = '\0';
+    NsEntry **bucket = NsBucket(e->path);
+    e->next = *bucket;
+    *bucket = e;
 
     e->handle = granted;
     ReplyStatus(ZUZU_OK);
