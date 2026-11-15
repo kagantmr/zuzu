@@ -9,4 +9,6 @@ kilo
 cat
 ls
 logs
+grep
+logger
 rm
