@@ -17,6 +17,7 @@ _Static_assert(offsetof(GenetSys, tbuf_flush_ctrl) == 0x0c, "layout");
 #define GENET_UMAC_OFF 0x0800
 #define GENET_RDMA_CTRL_OFF 0x3040
 #define GENET_TDMA_CTRL_OFF 0x5040
+#define GENET_INTRL2_0_OFF 0x0200
 
 #define PORT_MODE_EXT_GPHY 3
 #define RBUF_FLUSH_RESET (1u << 1)
@@ -150,5 +151,18 @@ typedef struct {
     volatile uint32_t addr_hi;         /* 0x8: 0 for you */
 } GenetDesc;
 _Static_assert(sizeof(GenetDesc) == 12, "descriptor is 3 words");
+
+typedef struct {
+    volatile uint32_t stat;
+    volatile uint32_t stat_set;
+    volatile uint32_t clear;
+    volatile uint32_t mask_status;
+    volatile uint32_t mask_set;
+    volatile uint32_t mask_clear;
+} GenetIntrl2;
+
+#define RXDMA_MBDONE (1u << 13)
+
+#define TXDMA_MBDONE (1u << 16)
 
 #endif /* USER_DRIVERS_GENETV5DRV_GENETV5DRV_H */

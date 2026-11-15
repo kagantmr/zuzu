@@ -6,7 +6,7 @@
 
 #define DMA_STOP_TIMEOUT_MS 10
 
-Genet g_genet = {.dev = -1};
+Genet g_genet = {.dev = -1, .irq = -1};
 
 static const char *compats[1] = {"brcm,bcm2711-genet-v5"};
 
@@ -40,6 +40,8 @@ Err MapRegs(void)
     g_genet.umac = (GenetUmac *)(g_genet.base + GENET_UMAC_OFF);
     g_genet.rdma = (GenetDmaCtrl *)(g_genet.base + GENET_RDMA_CTRL_OFF);
     g_genet.tdma = (GenetDmaCtrl *)(g_genet.base + GENET_TDMA_CTRL_OFF);
+    g_genet.intrl2_0 = (GenetIntrl2 *)(g_genet.base + GENET_INTRL2_0_OFF);
+
     return ZUZU_OK;
 }
 

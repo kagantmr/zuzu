@@ -11,7 +11,7 @@
 
 /** @brief Driver state shared by all genetv5drv files. */
 typedef struct {
-    Handle dev;
+    Handle dev, irq;
     uint8_t *base;
     GenetSys *sys;
     GenetExt *ext;
@@ -23,6 +23,7 @@ typedef struct {
     GenetRxRing *rx_ring;
     GenetDesc *tx_desc;
     GenetDesc *rx_desc;
+    GenetIntrl2 *intrl2_0;
     uint8_t mac[6];
 } Genet;
 
@@ -55,6 +56,13 @@ void UmacReset(void);
 void WriteMac(void);
 /** @brief Configure RGMII and the UMAC speed. */
 void SetLink(uint32_t umac_speed);
+
+/** @brief Mask and clear every GENET interrupt, then bind the IRQ to an event. */
+Err GenetIrqInit(void);
+/** @brief Let the given INTRL2_0 sources raise the IRQ. */
+void GenetIrqEnable(uint32_t bits);
+/** @brief Wait for the IRQ, acknowledge it and return the sources that fired. */
+uint32_t GenetIrqWait(void);
 
 /** @brief Set up the TX buffer and ring 16, and enable TX. */
 Err GenetTxInit(void);

@@ -11,6 +11,8 @@ int main()
         rc = GetMac();
     if (rc == ZUZU_OK)
         rc = DmaStop();
+    if (rc == ZUZU_OK)
+        rc = GenetIrqInit();
     if (rc != ZUZU_OK)
         return rc;
 
@@ -47,8 +49,11 @@ int main()
     if (rc != ZUZU_OK)
         return rc;
 
+    GenetIrqEnable(RXDMA_MBDONE);
+
     for (;;) {
-        GenetRxPoll();
-        Sleep(10);
+        uint32_t stat = GenetIrqWait();
+        if (stat & RXDMA_MBDONE)
+            GenetRxPoll();
     }
 }
