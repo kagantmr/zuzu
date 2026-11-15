@@ -18,10 +18,6 @@
 #define INDEX_SLOT(index) ((uint32_t)(index) & 0xFFu)
 #define INDEX_GEN(index) ((uint32_t)(index) >> 8)
 
-/* Peers can write anywhere in the shared page, so none of ttysvc's decisions
- * trust a header field the peer could have scribbled on: masks use
- * TTY_RING_DATA_SIZE, and the indices ttysvc owns (up.tail, down.head) are
- * shadowed locally and only published. */
 typedef struct {
     bool in_use;
     bool provider;
