@@ -2,23 +2,40 @@
 #include <zuzu/service.h>
 #include <zuzu/zuzu.h>
 
-Handle g_logsvc_port = -1, g_event = -1;
+#define MAX_SESSIONS 15 /* doorbell bits 1..15, death bits 16..30; bit 0 is the port */
 
+Handle g_port = -1, g_event = -1;
 #define PORT_BIT 0
 
-int main() {
-    g_logsvc_port = CreatePort();
+int main(void)
+{
+
+    g_port = CreatePort();
     g_event = CreateEvent();
-    
-    Bind(EVENT_PORT, g_event, g_logsvc_port, PORT_BIT);
-    Err rc = ZUZU_OK;
-    rc = RegisterService("/svc/log", g_logsvc_port);
+    if (g_port < 0 || g_event < 0)
+        return ERR_NOMEM;
+    Err rc = Bind(EVENT_PORT, g_event, g_port, PORT_BIT);
     if (rc != ZUZU_OK) {
+
         return rc;
     }
 
-    while (1) {
-        EventWaitResult res = WaitOnEvent(g_event, TIMEOUT_INFINITE, 0, false);
-        if (res.status != ZUZU_OK) return res.status;
+    rc = RegisterService("/svc/log", g_port);
+    if (rc != ZUZU_OK)
+        return rc;
+
+    for (;;) {
+        EventWaitResult w = WaitOnEvent(g_event, TIMEOUT_INFINITE, 0, false);
+        if (w.status == ZUZU_OK)
+            continue;
+
+        for (;;) {
+            PortWaitResult r = WaitOnPort(g_port, TIMEOUT_POLL);
+            if (r.status != ZUZU_OK)
+                break;
+            // handle req
+        }
+
+        // service
     }
 }
