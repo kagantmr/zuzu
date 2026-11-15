@@ -8,6 +8,7 @@
 
 bin/rootsvc
 
+bin/logsvc|none:prio=2,maxprio=2|/svc/log
 bin/ttysvc|none:prio=2,maxprio=2|/svc/tty
 bin/pl011drv|none:prio=2,maxprio=2
 bin/pl181drv|none:prio=3,maxprio=3|/dev/mmc0
