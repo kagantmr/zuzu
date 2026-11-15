@@ -76,7 +76,14 @@ static void NsvcRegister(const NsvcRequest *req, Handle granted)
 
     NsEntry *e = NsFind(req->path);
     if (e) {
-        ReplyStatus(ERR_BUSY);
+        if (HandleIsAlive(e->handle)) {
+            HandleClose(granted);
+            ReplyStatus(ERR_DUPLICATE);
+            return;
+        }
+        HandleClose(e->handle);
+        e->handle = granted;
+        ReplyStatus(ZUZU_OK);
         return;
     }
 
