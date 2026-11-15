@@ -20,14 +20,15 @@ int main(void)
         return rc;
     }
 
-    rc = RegisterService("/svc/log", g_port);
+    rc = RegisterService("/svc/tty", g_port);
     if (rc != ZUZU_OK)
         return rc;
 
     for (;;) {
-        EventWaitResult w = WaitOnEvent(g_event, TIMEOUT_INFINITE, 0, false);
-        if (w.status == ZUZU_OK)
-            continue;
+        EventWaitResult w = WaitOnEvent(g_event, TIMEOUT_INFINITE, (1U << PORT_BIT), false);
+        if (w.status == ZUZU_OK) {
+            
+        }
 
         for (;;) {
             PortWaitResult r = WaitOnPort(g_port, TIMEOUT_POLL);
