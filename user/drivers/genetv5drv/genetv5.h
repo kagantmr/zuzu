@@ -151,6 +151,23 @@ _Static_assert(offsetof(GenetTxRing, end_addr) == 0x1c, "layout");
 _Static_assert(offsetof(GenetTxRing, write_ptr) == 0x2c, "layout");
 
 typedef struct {
+    volatile uint32_t write_ptr;
+    volatile uint32_t write_ptr_hi;
+    volatile uint32_t prod_index;
+    volatile uint32_t cons_index;
+    volatile uint32_t ring_buf_size;
+    volatile uint32_t start_addr;
+    volatile uint32_t start_addr_hi;
+    volatile uint32_t end_addr;
+    volatile uint32_t end_addr_hi;
+    volatile uint32_t mbuf_done_thresh;
+    volatile uint32_t xon_xoff_thresh;
+    volatile uint32_t read_ptr;
+} GenetRxRing;
+_Static_assert(offsetof(GenetRxRing, xon_xoff_thresh) == 0x28, "layout");
+_Static_assert(offsetof(GenetRxRing, read_ptr) == 0x2c, "layout");
+
+typedef struct {
     volatile uint32_t length_status;   /* 0x0: length in 27:16, flags in 15:0 */
     volatile uint32_t addr_lo;         /* 0x4: bus address of the frame */
     volatile uint32_t addr_hi;         /* 0x8: 0 for you */

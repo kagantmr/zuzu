@@ -32,9 +32,11 @@ static GenetUmac *genet_umac = NULL;
 static GenetDmaCtrl *genet_rdma = NULL;
 static GenetDmaCtrl *genet_tdma = NULL;
 static GenetTxRing *genet_tx_ring = NULL;
+static GenetRxRing *genet_rx_ring = NULL;
 
 static uint8_t mac[6];
 static Handle g_tx_buf_h = -1;
+static Handle g_rx_buf_h = -1;
 
 static Handle WaitForService(const char *path)
 {
@@ -369,6 +371,59 @@ int main()
     Sleep(10);
     LOG_INFO(LOG_TAG, "tx: prod %u cons %u", prod + 1, genet_tx_ring->cons_index & 0xffff);
 
-    for (;;)
-        Sleep(1000);
+    genet_rx_ring = (GenetRxRing *)(genet_base + 0x3000);
+    GenetDesc *rx_desc = (GenetDesc *)(genet_base + 0x2000);
+
+    g_rx_buf_h = CreateMem(128, MEM_CONTIG | MEM_UNCACHED);
+    if (g_rx_buf_h < 0) {
+        LOG_ERROR(LOG_TAG, "CreateMem failed: %s", StrToError(g_rx_buf_h));
+        return g_rx_buf_h;
+    }
+    
+    DmaMapResult rx_res = DmaMap(g_genet_h, g_rx_buf_h, 0, 4096 * 128, DMA_FROM_DEVICE);
+    if (rx_res.status != ZUZU_OK) {
+        LOG_ERROR(LOG_TAG, "DmaMap failed: %s", StrToError(rx_res.status));
+        return rx_res.status;
+    }
+    uint8_t *rx_buf = MemMap(g_rx_buf_h, 0, PROT_RW);
+    if (PtrIsErr(rx_buf)) {
+        LOG_ERROR(LOG_TAG, "MemMap of rx buffer failed: %s", StrToError((Err)(VirtAddr)rx_buf));
+        return (Err)(VirtAddr)rx_buf;
+    }
+
+    genet_rdma->scb_burst_size = 8;
+    genet_rx_ring->start_addr = 0;
+    genet_rx_ring->read_ptr = 0;
+    genet_rx_ring->write_ptr = 0;
+    genet_rx_ring->end_addr = (256 * 3) - 1;
+    genet_rx_ring->cons_index = genet_rx_ring->prod_index;
+    genet_rx_ring->mbuf_done_thresh = 1;
+    genet_rx_ring->xon_xoff_thresh = 	(5 << 16) | (256 >> 4);
+    genet_rx_ring->ring_buf_size = (256 << 16) | 2048;
+    genet_rdma->ring_cfg = 1 << 16;
+
+    for (int i = 0; i < 256; i++) {
+        rx_desc[i].addr_lo       = rx_res.bus_addr + (i * 2048);
+        rx_desc[i].addr_hi       = 0;
+        rx_desc[i].length_status = (2048 << 16) | 0x8000;
+    }
+
+    genet_rdma->ctrl  = (1 << 17) | 1;
+    genet_umac->cmd  |= CMD_RX_EN;
+    
+    uint32_t cons = genet_rx_ring->cons_index & 0xffff;
+    for (;;) {
+        uint32_t prod = genet_rx_ring->prod_index & 0xffff;
+        while (cons != prod) {
+            uint32_t i = cons & 0xff;
+            uint32_t ls = rx_desc[i].length_status;
+            uint32_t len = (ls >> 16) & 0xfff;
+            uint8_t *f = rx_buf + (i * 2048) + 2;          /* 2 pad bytes from RBUF_ALIGN_2B */
+            LOG_INFO(LOG_TAG, "rx %u bytes from %02x:%02x:%02x:%02x:%02x:%02x type %02x%02x flags %04x",
+                     len - 2, f[6], f[7], f[8], f[9], f[10], f[11], f[12], f[13], ls & 0xffff);
+            cons = (cons + 1) & 0xffff;
+            genet_rx_ring->cons_index = cons;            /* hand the buffer back */
+        }
+        Sleep(10);
+    }
 }
