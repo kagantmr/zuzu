@@ -20,6 +20,9 @@
 
 #include <arch/svc.h>
 #include <dev/devm.h>
+#include <dev/log.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <stdatomic.h>
 #include <string.h>
 #include <ztask/primitives.h>
@@ -4509,6 +4512,251 @@ static void TestPipes(void)
     CheckEq((int32_t)PagesFree(), (int32_t)g_section_pages, "no free-page change after 22 pipe rounds");
 }
 
+/* logsvc: other services log through it too, so every check looks only at records tagged "zzlog". */
+#define ZZ_TAG "zzlog"
+
+static Err LogStats(Handle port, LogStatsReply *rep)
+{
+    LogIndexRequest req = {.cmd = LOG_STATS};
+    Err rc = LogCall(port, &req, sizeof(req), -1, NULL);
+    memcpy(rep, GetMessageBox(), sizeof(*rep));
+    return rc;
+}
+
+/* What a reader of one source saw. */
+typedef struct {
+    int count;       /**< Records read. */
+    int crash;       /**< Of them, stored through LOG_CRASH. */
+    bool ordered;    /**< Sequence numbers strictly rose. */
+    bool intact;     /**< Every message was whole and had the expected shape. */
+    int first_n;     /**< Counter in the first "rec NNNN" message, or -1. */
+    int last_n;      /**< Counter in the last one, or -1. */
+    bool counted_up; /**< Counters rose by exactly one each time. */
+    uint8_t min_seen;/**< Lowest level seen. */
+} LogSeen;
+
+static LogSeen LogReadAll(Handle port, uint32_t from, uint8_t min_level, const char *src)
+{
+    LogSeen seen = {.ordered = true, .intact = true, .first_n = -1, .last_n = -1,
+                    .counted_up = true, .min_seen = 0xFF};
+    LogReader rd;
+    if (LogReaderOpen(port, from, min_level, src, 0, &rd) != ZUZU_OK) {
+        seen.intact = false;
+        seen.count = -1;
+        return seen;
+    }
+    uint32_t prev = 0;
+    for (;;) {
+        LogEntryHdr h;
+        char msg[LOG_MSG_MAX + 1];
+        int rc = LogReaderNext(&rd, &h, msg, 3000);
+        if (rc == 0)
+            break;
+        if (rc < 0) {
+            seen.intact = false;
+            break;
+        }
+        msg[h.length] = '\0';
+        if (seen.count > 0 && !((int32_t)(prev - h.seq) < 0))
+            seen.ordered = false;
+        prev = h.seq;
+        if (h.level < seen.min_seen)
+            seen.min_seen = h.level;
+        if (h.client == 255) {
+            seen.crash++;
+        } else if (strncmp(msg, "rec ", 4) == 0) {
+            int n = atoi(msg + 4);
+            if (seen.first_n < 0)
+                seen.first_n = n;
+            else if (n != seen.last_n + 1)
+                seen.counted_up = false;
+            seen.last_n = n;
+        }
+        seen.count++;
+    }
+    LogReaderClose(&rd);
+    return seen;
+}
+
+static void TestLogsvc(void)
+{
+    BeginSection("logsvc");
+
+    Handle port = LookupService("/svc/log");
+    Check(port >= 0, "/svc/log is registered");
+    if (port < 0)
+        return;
+
+    LogStatsReply st0;
+    CheckEq(LogStats(port, &st0), ZUZU_OK, "LOG_STATS answers");
+
+    CheckEq(LogCall(port, &(uint32_t){99}, sizeof(uint32_t), -1, NULL), ERR_NOSYS,
+            "an unknown command -> NOSYS");
+    CheckEq(LogCall(port, &(uint32_t){LOG_ATTACH}, 2, -1, NULL), ERR_BADARG,
+            "a short request -> BADARG");
+    LogAttachRequest noshare = {.cmd = LOG_ATTACH, .kind = LOG_KIND_WRITER};
+    CheckEq(LogCall(port, &noshare, sizeof(noshare), -1, NULL), ERR_BADARG,
+            "LOG_ATTACH without a page -> BADARG");
+
+    /* The public handle may only attach, claim and read stats. */
+    LogIndexRequest bogus = {.cmd = LOG_CLOSE, .index = 0};
+    CheckEq(LogCall(port, &bogus, sizeof(bogus), -1, NULL), ERR_NOPERM,
+            "LOG_CLOSE on the public handle -> NOPERM");
+    LogCrashRequest cr = {.cmd = LOG_CRASH, .level = LOG_LEVEL_ERROR, .length = 0};
+    CheckEq(LogCall(port, &cr, sizeof(cr), -1, NULL), ERR_NOPERM, "LOG_CRASH on the public handle -> NOPERM");
+    LogLevelRequest console = {.cmd = LOG_SETLEVEL, .level = LOG_LEVEL_FATAL + 1};
+    CheckEq(LogCall(port, &console, sizeof(console), -1, NULL), ERR_NOPERM,
+            "the console level on the public handle -> NOPERM");
+    Handle admin = -1;
+    CheckEq(LogAdminClaim(port, &admin), ERR_BUSY, "the admin handle is already claimed (by rootsvc)");
+
+    LogConn c;
+    CheckEq(LogClientConnect(port, ZZ_TAG, &c), ZUZU_OK, "open a writer session");
+    CheckEq(LogCall(c.port, &cr, sizeof(cr), -1, NULL), ERR_NOPERM, "LOG_CRASH on a session handle -> NOPERM");
+    CheckEq(LogCall(c.port, &console, sizeof(console), -1, NULL), ERR_NOPERM,
+            "the console level on a session handle -> NOPERM");
+    CheckEq(LogCall(c.port, &(LogAttachRequest){.cmd = LOG_ATTACH, .kind = LOG_KIND_WRITER},
+                    sizeof(LogAttachRequest), -1, NULL),
+            ERR_NOPERM, "LOG_ATTACH on a session handle -> NOPERM");
+
+    /* Sessions are told apart by handle, not by the index in the request. */
+    LogConn a, b;
+    CheckEq(LogClientConnect(port, "zza", &a), ZUZU_OK, "open session A");
+    CheckEq(LogClientConnect(port, "zzb", &b), ZUZU_OK, "open session B");
+    Handle a_handle = a.port;
+    LogIndexRequest forge = {.cmd = LOG_CLOSE, .index = b.index};
+    CheckEq(LogCall(a.port, &forge, sizeof(forge), -1, NULL), ZUZU_OK,
+            "A names B's index in LOG_CLOSE: A's own session ends");
+    CheckEq(LogCall(a.port, &forge, sizeof(forge), -1, NULL), ERR_NOPERM,
+            "A's handle no longer works");
+    CheckEq(LogClientWrite(&b, LOG_LEVEL_INFO, NULL, "rec b", 5), ZUZU_OK, "B is untouched");
+    Sleep(50);
+    LogSeen bseen = LogReadAll(port, 0, 0, "zzb");
+    CheckEq(bseen.count, 1, "and B's record was stored");
+    LogConn a2;
+    CheckEq(LogClientConnect(port, "zza2", &a2), ZUZU_OK, "open another session in A's freed slot");
+    CheckEq(LogCall(a_handle, &forge, sizeof(forge), -1, NULL), ERR_NOPERM,
+            "A's old handle does not reach the session that reused its slot");
+    CheckEq(LogClientWrite(&a2, LOG_LEVEL_INFO, NULL, "rec a2", 6), ZUZU_OK, "which still works");
+    ClosePipe(&a.w);
+    LogClientClose(&a2);
+    LogClientClose(&b);
+
+    /* Garbage in the pipe is thrown away and counted; later records still arrive. */
+    uint8_t bad_level[16] = {9, 0, 3, 0};
+    uint8_t bad_len[16] = {2, 0, 0xFF, 0xEA};
+    uint8_t short_body[16] = {2, 0, 100, 0};
+    CheckEq(PipeTryWriteAll(&c.w, bad_level, sizeof(bad_level)), ZUZU_OK, "write a record with a bad level");
+    Sleep(40);
+    CheckEq(PipeTryWriteAll(&c.w, bad_len, sizeof(bad_len)), ZUZU_OK, "write a record with a huge length");
+    Sleep(40);
+    CheckEq(PipeTryWriteAll(&c.w, short_body, sizeof(short_body)), ZUZU_OK, "write a record cut short");
+    Sleep(40);
+    LogStatsReply st1;
+    CheckEq(LogStats(port, &st1), ZUZU_OK, "stats after garbage");
+    CheckEq((int32_t)(st1.malformed - st0.malformed), 3, "three malformed records counted");
+    CheckEq(LogClientWrite(&c, LOG_LEVEL_INFO, NULL, "rec 0000", 8), ZUZU_OK,
+            "a good record after garbage is accepted");
+
+    /* A burst bigger than the pipe: whatever does not fit is dropped and counted, never blocks. */
+    int burst_lost = 0;
+    for (int i = 0; i < 6000; i++) {
+        if (LogClientWrite(&c, LOG_LEVEL_TRACE, "zzburst", "burst", 5) != ZUZU_OK)
+            burst_lost++;
+    }
+    Sleep(300);
+    Check(burst_lost > 0, "a burst larger than the pipe loses some records");
+    CheckEq((int32_t)PipeDropped(&c.w), burst_lost, "the pipe counted every drop");
+    LogStatsReply st2;
+    CheckEq(LogStats(port, &st2), ZUZU_OK, "stats after the burst");
+    Check(st2.dropped >= (uint32_t)burst_lost, "logsvc reports the drops");
+
+    /* Paced flood: no drops, and it wraps the 64 KiB history. */
+    int lost = 0;
+    for (int i = 1; i <= 8000; i++) {
+        char m[32];
+        int n = snprintf(m, sizeof(m), "rec %04d %s", i, (i % 3) ? "aa" : "bbbbbbbbb");
+        if (LogClientWrite(&c, (i % 2000 == 0) ? LOG_LEVEL_ERROR : LOG_LEVEL_DEBUG, NULL, m,
+                           (uint16_t)n) != ZUZU_OK)
+            lost++;
+        if (i % 400 == 0)
+            Sleep(60);
+    }
+    Sleep(300);
+    CheckEq(lost, 0, "a paced flood loses nothing");
+
+    LogSeen all = LogReadAll(port, 0, 0, ZZ_TAG);
+    Check(all.intact && all.ordered, "the history comes back whole and in order");
+    Check(all.counted_up, "no record is missing from the middle");
+    CheckEq(all.last_n, 8000, "the newest record is the last one written");
+    Check(all.first_n > 1, "the oldest records were evicted");
+    Check(all.count > 500 && all.count < 8000, "the history holds a bounded number of records");
+
+    LogSeen errs = LogReadAll(port, 0, LOG_LEVEL_ERROR, ZZ_TAG);
+    Check(errs.count > 0 && errs.min_seen >= LOG_LEVEL_ERROR && errs.intact,
+          "a reader can ask for one level and up");
+
+    LogStatsReply st3;
+    CheckEq(LogStats(port, &st3), ZUZU_OK, "stats before reading past the end");
+    LogSeen none = LogReadAll(port, st3.next_seq + 1000, 0, ZZ_TAG);
+    CheckEq(none.count, 0, "reading from a sequence number past the end gives nothing");
+
+    /* Follow mode delivers new records as they arrive. */
+    LogReader rd;
+    CheckEq(LogReaderOpen(port, 0, 0, "zzfollow", LOG_READ_FOLLOW, &rd), ZUZU_OK, "open a following reader");
+    LogEntryHdr h;
+    char msg[LOG_MSG_MAX];
+    CheckEq(LogReaderNext(&rd, &h, msg, 100), ERR_TIMEOUT, "a following reader waits when caught up");
+    CheckEq(LogClientWrite(&c, LOG_LEVEL_WARN, "zzfollow", "rec live", 8), ZUZU_OK, "write a new record");
+    CheckEq(LogReaderNext(&rd, &h, msg, 1000), 1, "the following reader gets it");
+    CheckEq(h.length, 8, "whole");
+    Check(h.client != 255 && memcmp(h.source, "zzfollow", 8) == 0, "and the source tag is kept");
+    LogReaderClose(&rd);
+
+    /* Per-source level: a session may set its own source's, not another's. */
+    LogConn lv;
+    CheckEq(LogClientConnect(port, "zzlvl", &lv), ZUZU_OK, "open a session for the level test");
+    LogLevelRequest lvl = {.cmd = LOG_SETLEVEL, .level = LOG_LEVEL_ERROR};
+    memcpy(lvl.source, "zzlog", 6);
+    CheckEq(LogCall(lv.port, &lvl, sizeof(lvl), -1, NULL), ERR_NOPERM,
+            "a session cannot set another source's level");
+    memcpy(lvl.source, "zzlvl", 6);
+    CheckEq(LogCall(lv.port, &lvl, sizeof(lvl), -1, NULL), ZUZU_OK, "it can set its own");
+    LogClientWrite(&lv, LOG_LEVEL_INFO, NULL, "rec 1", 5);
+    LogClientWrite(&lv, LOG_LEVEL_ERROR, NULL, "rec 2", 5);
+    Sleep(50);
+    LogSeen lvs = LogReadAll(port, 0, 0, "zzlvl");
+    CheckEq(lvs.count, 1, "records below a source's minimum are dropped");
+    lvl.level = 0;
+    CheckEq(LogCall(lv.port, &lvl, sizeof(lvl), -1, NULL), ZUZU_OK, "clear it again");
+    lvl.level = 99;
+    CheckEq(LogCall(lv.port, &lvl, sizeof(lvl), -1, NULL), ERR_BADARG, "a level out of range -> BADARG");
+    LogClientClose(&lv);
+
+    /* Session table: a full table makes room by evicting the longest-idle session. */
+    LogConn old;
+    CheckEq(LogClientConnect(port, "zzold", &old), ZUZU_OK, "open a session to leave idle");
+    LogConn extra[LOG_MAX_SESSIONS + 1];
+    int made = 0;
+    for (int i = 0; i < LOG_MAX_SESSIONS + 1; i++) {
+        if (LogClientConnect(port, "zzext", &extra[i]) == ZUZU_OK)
+            made++;
+        Sleep(3);
+    }
+    CheckEq(made, LOG_MAX_SESSIONS + 1, "more connects than slots succeed by evicting idle ones");
+    CheckEq(LogClientWrite(&old, LOG_LEVEL_INFO, NULL, "rec x", 5), ERR_DEAD,
+            "the evicted session sees ERR_DEAD on its next write");
+    ClosePipe(&old.w);
+    HandleClose(old.port);
+    CheckEq(LogClientWrite(&extra[LOG_MAX_SESSIONS], LOG_LEVEL_INFO, NULL, "rec y", 5), ZUZU_OK,
+            "the newest session still works");
+    for (int i = 0; i < LOG_MAX_SESSIONS + 1; i++)
+        LogClientClose(&extra[i]);
+
+    LogClientClose(&c);
+    HandleClose(port);
+}
+
 static void RunSuite(void)
 {
     TestBasics();
@@ -4548,6 +4796,7 @@ static void RunSuite(void)
     TestFaultObservers();
     TestFaultedCount();
     TestPipes();
+    TestLogsvc();
     TestMemMgmtRebind();
     TestClosedEventObservers();
     TestReplyStrayTimeout();
