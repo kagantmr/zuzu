@@ -1,6 +1,8 @@
 #include "rootsvc.h"
 #include <cpio.h>
+#include <dev/log.h>
 #include <fs/fsd_client.h>
+#include <stdio.h>
 #include <string.h>
 #include <ztask/ztask.h>
 #include <util/spawn.h>
@@ -34,6 +36,7 @@ typedef struct {
 static Kitten g_kittens[MAX_KITTENS];
 static uint32_t g_kitten_count;
 static Handle g_monitor_ev;
+static Handle g_log_admin = -1;
 static FsdConn g_fsd;
 const BootInfo *g_bootinfo;
 
@@ -115,6 +118,50 @@ static bool KittenNamed(const char *path)
     return false;
 }
 
+/**
+ * @brief Takes the admin handle from logsvc, so that only rootsvc can write crash records.
+ *
+ * @return ZUZU_OK, or the error: no logsvc, or ERR_BUSY if someone else claimed it first.
+ */
+static Err LogAdminConnect(void)
+{
+    Handle pub = LookupService("/svc/log");
+    if (pub < 0)
+        return ERR_NOENT;
+    Err rc = LogAdminClaim(pub, &g_log_admin);
+    HandleClose(pub);
+    if (rc != ZUZU_OK)
+        g_log_admin = -1;
+    return rc;
+}
+
+/**
+ * @brief Tells logsvc that a program died, in the history that debug output cannot evict.
+ *
+ * @param[in] k     The program.
+ * @param[in] what  "faulted" or "exited".
+ * @param[in] name  What @p value is: "reason" or "status".
+ * @param[in] value The fault reason or exit status.
+ */
+static void RecordDeath(const Kitten *k, const char *what, const char *name, int32_t value)
+{
+    char msg[LOG_CRASH_MSG_MAX];
+    int n = snprintf(msg, sizeof(msg), "%s %s: %s=%d", k->path, what, name, (int)value);
+    if (n <= 0)
+        return;
+    uint16_t len = (uint16_t)((size_t)n < sizeof(msg) ? (size_t)n : sizeof(msg) - 1);
+
+    for (int attempt = 0; attempt < 2; attempt++) {
+        if (g_log_admin < 0 && LogAdminConnect() != ZUZU_OK)
+            return;
+        if (LogClientCrash(g_log_admin, LOG_LEVEL_ERROR, BaseName(k->path), msg, len) !=
+            ERR_DEAD)
+            return;
+        HandleClose(g_log_admin); /* logsvc went away: it may have come back, so claim again */
+        g_log_admin = -1;
+    }
+}
+
 static void HandleKittenFault(Kitten *k)
 {
     TaskRegs regs;
@@ -142,8 +189,11 @@ static void CheckKittenState(Kitten *k)
         return;
 
     if (tw.outcome == TASK_FAULTED) {
+        RecordDeath(k, "faulted", "reason", (int32_t)tw.value);
         HandleKittenFault(k); /* tw.value = fault reason */
     } else {
+        if ((int32_t)tw.value != 0)
+            RecordDeath(k, "exited", "status", (int32_t)tw.value);
         ReapKitten(k); /* tw.value = exit_status */
     }
 }
@@ -393,6 +443,14 @@ int main(void)
 
     SpawnStages();
     UserspaceDebugLog("rootsvc: spawned %u kitten(s), monitoring", g_kitten_count);
+
+    for (int i = 0; i < 30 && g_log_admin < 0; i++) {
+        Err rc = LogAdminConnect();
+        if (rc != ZUZU_OK && rc != ERR_NOENT)
+            break; /* claimed by somebody else, or logsvc is broken: no point waiting */
+        if (rc == ERR_NOENT)
+            Sleep(10);
+    }
 
     for (;;) {
         EventWaitResult r = FormatToEventWait(WaitOn(g_monitor_ev, TIMEOUT_INFINITE));

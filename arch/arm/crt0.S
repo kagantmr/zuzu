@@ -23,6 +23,9 @@ _start:
 
 #ifdef ZUZU_NEWLIB
 
+    mov r0, r6
+    mov r1, r7
+    bl __zuzu_env_init
     bl __libc_init_array
     mov r0, r6
     mov r1, r7

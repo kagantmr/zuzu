@@ -54,6 +54,8 @@ const char *StrToError(Err err)
         return "Connection refused";
     case ERR_CONNRESET:
         return "Connection reset";
+    case ERR_INTR:
+        return "Interrupted";
     default:
         return "Unknown error";
     }
