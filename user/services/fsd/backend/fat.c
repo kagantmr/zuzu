@@ -96,6 +96,15 @@ static Err fat_seek(void *ctx, void *file, int64_t off, uint32_t whence, int64_t
 static Err fat_stat(void *ctx, const char *path, FsdStat *out)
 {
     (void)ctx;
+    const char *p = path;
+    while (*p == '/')
+        p++;
+    if (*p == '\0') {
+        out->size = 0;
+        out->type = FSD_TYPE_DIR;
+        out->mtime = 0;
+        return ZUZU_OK;
+    }
     FILINFO fno;
     FRESULT rc = f_stat(path, &fno);
     if (rc != FR_OK)
