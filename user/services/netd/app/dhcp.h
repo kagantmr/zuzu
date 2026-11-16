@@ -76,7 +76,8 @@ typedef enum {
     DHCP_PROBING,
     DHCP_BOUND,
     DHCP_RENEWING,
-    DHCP_REBINDING
+    DHCP_REBINDING,
+    DHCP_REBOOTING
 } DhcpState;
 
 /* Fired once, the first time a lease is acquired (renewals don't re-fire). */
@@ -85,5 +86,7 @@ typedef void (*DhcpBoundCb)(void);
 void DhcpInit(DhcpBoundCb on_bound);
 void DhcpTick(void);
 bool DhcpIsBound(void);
+void DhcpLinkDown(void);
+void DhcpLinkUp(void);
 
 #endif

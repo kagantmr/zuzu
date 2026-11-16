@@ -32,6 +32,7 @@ extern "C" {
 #include <string.h>
 #include <types.h>
 #include <zuzu/msg.h>
+#include <util/pipe.h>
 #include <zuzu/shm_ring.h>
 #include <zuzu/err.h>
 #include <zuzu/zuzu.h>
@@ -43,20 +44,30 @@ extern "C" {
 
 /** @brief Out-of-band signals from ttysvc to a consumer. */
 typedef struct {
-    volatile uint32_t eof_seq;  /**< Bumped by ttysvc for each ^D in cooked mode. */
-    volatile uint32_t eof_ack;  /**< Last eof_seq the consumer has handled. */
-    volatile uint32_t eof_pos;  /**< down ring position the EOF applies at. */
-    volatile uint32_t intr_seq; /**< Bumped by ttysvc for each ^C while TTY_ISIG is set. */
     volatile uint32_t winch_seq; /**< Bumped by ttysvc when the endpoint's window size changes. */
 } TtyCtl;
 
-/** @brief The page a session shares with ttysvc. */
+/** @brief Size of the standard error ring. */
+#define TTY_ERR_DATA_SIZE 512u
+
+/**
+ * @brief The page a session shares with ttysvc.
+ *
+ * The three rings are pipes: a consumer reads @c down as stdin and writes @c up and @c err as
+ * stdout and stderr (see TtyConnPipes()). The control words next to each carry the terminal's
+ * ^D and ^C.
+ */
 typedef struct {
-    ShmRingHdr up_hdr;                     /**< Owner to ttysvc ring. */
+    ShmRingHdr up_hdr;                     /**< Owner to ttysvc ring: stdout. */
     uint8_t up_data[TTY_RING_DATA_SIZE];   /**< Its data. */
-    ShmRingHdr down_hdr;                   /**< ttysvc to owner ring. */
+    ShmRingHdr down_hdr;                   /**< ttysvc to owner ring: stdin. */
     uint8_t down_data[TTY_RING_DATA_SIZE]; /**< Its data. */
-    TtyCtl ctl;                            /**< EOF and interrupt signals. */
+    ShmRingHdr err_hdr;                    /**< Owner to ttysvc ring: stderr. */
+    uint8_t err_data[TTY_ERR_DATA_SIZE];   /**< Its data. */
+    PipeCtl up_ctl;                        /**< Control words of the stdout pipe. */
+    PipeCtl down_ctl;                      /**< Control words of the stdin pipe: ^D and ^C. */
+    PipeCtl err_ctl;                       /**< Control words of the stderr pipe. */
+    TtyCtl ctl;                            /**< Window size signal. */
 } TtyShm;
 
 _Static_assert(sizeof(TtyShm) <= 4096, "TtyShm must fit in the one shared page");
@@ -188,40 +199,6 @@ typedef struct {
 } TtyConnectReply;
 
 /**
- * @brief Consumer: tells whether an EOF is due, and consumes it.
- *
- * EOF is ordered against data: it only reports once everything typed before
- * the ^D has been read from @c down. Call it in the read loop after draining.
- *
- * @param[in,out] s Session page.
- * @return true once, for each ^D.
- */
-static inline bool TtyEofPending(TtyShm *s)
-{
-    if (s->ctl.eof_seq == s->ctl.eof_ack)
-        return false;
-    if (s->down_hdr.tail != s->ctl.eof_pos)
-        return false;
-    s->ctl.eof_ack = s->ctl.eof_seq;
-    return true;
-}
-
-/**
- * @brief Consumer: tells whether ^C was pressed since the last check.
- *
- * @param[in]     s    Session page.
- * @param[in,out] seen Last intr_seq seen; updated.
- * @return true if there has been an interrupt since @p seen.
- */
-static inline bool TtyInterrupted(const TtyShm *s, uint32_t *seen)
-{
-    if (s->ctl.intr_seq == *seen)
-        return false;
-    *seen = s->ctl.intr_seq;
-    return true;
-}
-
-/**
  * @brief Consumer: tells whether the window size changed since the last check.
  *
  * @param[in]     s    Session page.
@@ -244,7 +221,32 @@ typedef struct {
     uint32_t bit;    /**< Bit to ring on @c doorbell. */
     uint32_t index;  /**< Session index. */
     Handle live;     /**< Port this client owns; ttysvc watches it to notice the client's death. */
+    Handle my_event; /**< The caller's event, which ttysvc rings. */
+    uint32_t my_bit; /**< Bit ttysvc rings on @c my_event. */
 } TtyConn;
+
+/**
+ * @brief Makes the three pipe ends of a consumer session: stdin, stdout and stderr.
+ *
+ * The ends borrow the session's page; closing the session (TtyClientClose()) ends them.
+ *
+ * @param[in]  c   A session from TtyClientConnect().
+ * @param[out] in  Reader of the stdin ring.
+ * @param[out] out Writer of the stdout ring.
+ * @param[out] err Writer of the stderr ring.
+ */
+static inline void TtyConnPipes(TtyConn *c, PipeEnd *in, PipeEnd *out, PipeEnd *err)
+{
+    EventWord wait = (EventWord)1U << c->my_bit;
+    EventWord kick = (EventWord)1U << c->bit;
+    TtyShm *s = c->shm;
+    PipeViewInit(in, PIPE_READER, &s->down_hdr, &s->down_ctl, s->down_data, TTY_RING_DATA_SIZE,
+                 c->my_event, wait, c->doorbell, kick);
+    PipeViewInit(out, PIPE_WRITER, &s->up_hdr, &s->up_ctl, s->up_data, TTY_RING_DATA_SIZE,
+                 c->my_event, wait, c->doorbell, kick);
+    PipeViewInit(err, PIPE_WRITER, &s->err_hdr, &s->err_ctl, s->err_data, TTY_ERR_DATA_SIZE,
+                 c->my_event, wait, c->doorbell, kick);
+}
 
 /**
  * @brief One request and reply with ttysvc.
@@ -343,6 +345,8 @@ static inline Err TtyClientConnectDir(Handle tty_port, uint32_t cmd, const char 
     rc = HandleDup(my_event, PERM_SEND | PERM_TXFR, MARKER_NONE, &mine);
     if (rc != ZUZU_OK)
         return rc;
+    c->my_event = my_event;
+    c->my_bit = my_bit;
     TtyNotifyRequest notify = {.cmd = TTY_NOTIFY, .index = c->index, .bit = my_bit};
     rc = TtyCall(tty_port, &notify, sizeof(notify), mine, NULL);
     HandleClose(mine);

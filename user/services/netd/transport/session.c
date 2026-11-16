@@ -1,6 +1,7 @@
 #include "session.h"
 #include "../common/globals.h"
 #include "socket.h"
+#include <net/protocols/nic.h>
 #include <string.h>
 #include <util/log.h>
 #include <zuzu/msg.h>
@@ -9,6 +10,8 @@
 #define SESSION_INDEX(gen, slot) ((((uint32_t)(gen)) << 8) | ((uint32_t)(slot) & 0xFFu))
 #define INDEX_SLOT(index) ((uint32_t)(index) & 0xFFu)
 #define INDEX_GEN(index) ((uint32_t)(index) >> 8)
+
+_Static_assert(SESSION_BIT(SESSION_MAX - 1) < NIC_NETD_BIT, "session bits overlap the NIC bit");
 
 static Session g_sessions[SESSION_MAX];
 static uint32_t g_gen[SESSION_MAX];
@@ -352,7 +355,7 @@ bool SessionSocketsFull(int slot)
 void SessionDoorbell(EventWord bits)
 {
     for (int i = 0; i < SESSION_MAX; i++) {
-        if ((bits & SESSION_BIT(i)) && g_sessions[i].in_use)
+        if ((bits & (1U << SESSION_BIT(i))) && g_sessions[i].in_use)
             g_sessions[i].dirty = true;
     }
 }

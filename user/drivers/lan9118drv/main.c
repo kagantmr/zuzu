@@ -16,37 +16,24 @@
 
 #define LOG_TAG "lan9118drv"
 
-#define IRQ_BIT (0)
-
-#define WAIT_MS 25
+#define IRQ_BIT (2)
 
 #define IRQ_MASK (1u << IRQ_BIT)
 
 #define TX_DOORBELL_MASK NIC_DOORBELL_TX
-#define RX_DOORBELL_MASK NIC_DOORBELL_RX
 
 static volatile Lan9118Mmio *nic;
 static uint8_t mac[6];
 static char ifname[16];
-static Handle g_event = -1;
 static Handle shm_tx_handle = -1, shm_rx_handle = -1;
 static Handle dev_handle = -1;
 static Handle g_doorbell_ev = -1;
+static Handle g_netd_bell = -1;
 static void *shm_tx, *shm_rx;
 static NicRing *rx_ring, *tx_ring;
 
 static uint16_t tx_tag = 0;
 static volatile uint32_t *nic_stats;
-
-static Handle WaitForService(const char *path)
-{
-    for (;;) {
-        Handle h = LookupService(path);
-        if (h >= 0)
-            return h;
-        Sleep(10);
-    }
-}
 
 static Err InitPacketRings(void)
 {
@@ -203,22 +190,16 @@ static Err InitLan9118Svcs(void)
 {
     Err rc;
 
-    g_event = CreateEvent();
-    if (g_event < 0) {
-        LOG_ERROR(LOG_TAG, "CreateEvent failed: %s", StrToError(g_event));
-        return g_event;
-    }
-
-    rc = BindIrq(g_event, dev_handle, IRQ_BIT);
-    if (rc < 0) {
-        LOG_ERROR(LOG_TAG, "BindIrq failed: %s", StrToError(rc));
-        return rc;
-    }
-
     g_doorbell_ev = CreateEvent();
     if (g_doorbell_ev < 0) {
         LOG_ERROR(LOG_TAG, "doorbell creation failed: %s", StrToError(g_doorbell_ev));
         return g_doorbell_ev;
+    }
+
+    rc = BindIrq(g_doorbell_ev, dev_handle, IRQ_BIT);
+    if (rc < 0) {
+        LOG_ERROR(LOG_TAG, "BindIrq failed: %s", StrToError(rc));
+        return rc;
     }
 
     return ZUZU_OK;
@@ -258,7 +239,7 @@ void ServiceIrq(void)
                     continue;
                 }
                 nic_stats[NIC_STAT_RX_PACKETS]++;
-                Signal(g_doorbell_ev, RX_DOORBELL_MASK, false);
+                Signal(g_netd_bell, NIC_NETD_DOORBELL, false);
             }
         }
     }
@@ -351,6 +332,9 @@ static Err NetdHandshake(void)
     memcpy(ifname, (const char *)GetMessageBox() + sizeof(Err), len);
     if (ifname[len - 1] != '\0')
         return ERR_MALFORMED;
+    g_netd_bell = (Handle)reply.r3;
+    if (g_netd_bell < 0)
+        return ERR_MALFORMED;
 
     LOG_INFO(LOG_TAG, "registered with netd as %s", ifname);
     return ZUZU_OK;
@@ -380,17 +364,14 @@ int main(void)
         return retval;
 
     for (;;) {
-        EventWaitResult res = FormatToEventWait(WaitOn(g_event, WAIT_MS));
-        if (ZUZU_OK == res.status) {
-            if (res.bits & IRQ_MASK)
-                ServiceIrq();
-        }
-
-        res = FormatToEventWait(WaitOn(g_doorbell_ev, WAIT_MS));
-        if (ZUZU_OK == res.status && (res.bits & TX_DOORBELL_MASK))
+        EventWaitResult res =
+            WaitOnEvent(g_doorbell_ev, TIMEOUT_INFINITE, IRQ_MASK | TX_DOORBELL_MASK, false);
+        if (res.status != ZUZU_OK)
+            continue;
+        if (res.bits & IRQ_MASK)
+            ServiceIrq();
+        if (res.bits & TX_DOORBELL_MASK)
             ServiceTx();
-
-        ServiceTx();
     }
 
     return 0;

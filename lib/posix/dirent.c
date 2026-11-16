@@ -3,6 +3,7 @@
 #include <fs/fsd_client.h>
 #include <stdlib.h>
 #include <string.h>
+#include <util/path.h>
 
 #define DIR_BATCH 16
 #define DIR_PATH_MAX 256
@@ -27,6 +28,12 @@ DIR *opendir(const char *path)
         return NULL;
     }
 
+    char abs[PATH_MAX_LEN];
+    if (!path || !PathResolve(getenv("PWD"), path, abs, sizeof(abs))) {
+        errno = path ? ENAMETOOLONG : EFAULT;
+        return NULL;
+    }
+    path = abs;
     size_t len = strlen(path);
     if (len >= sizeof(((DIR *)0)->path)) {
         errno = ENAMETOOLONG;

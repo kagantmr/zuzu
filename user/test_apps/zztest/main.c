@@ -20,10 +20,14 @@
 
 #include <arch/svc.h>
 #include <dev/devm.h>
+#include <dev/log.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <stdatomic.h>
 #include <string.h>
 #include <ztask/primitives.h>
 #include <zuzu/msg.h>
+#include <util/pipe.h>
 #include <util/tls.h>
 #include <zuzu/err.h>
 #include <zuzu/service.h>
@@ -38,6 +42,8 @@
 #define JOIN_TIMEOUT_MS 3000
 #define PORT_HELD_SLOTS_TEST 64
 #define INVALID_VERB 0x7F
+/* MAX_OBSERVERS in kernel/ipc/observer_types.h: bindings one object accepts. */
+#define OBSERVER_LIMIT 16
 
 /* HandleType is kernel-private (kernel/space/handle.h); QUERY_TYPE returns
  * these raw values. */
@@ -1182,8 +1188,18 @@ static void TestObservers(void)
             "re-binding the same event just moves its bit");
     CheckEq(Bind(EVENT_TASK, e[2], w->task, 1), ZUZU_OK, "third observer");
     CheckEq(Bind(EVENT_TASK, e[3], w->task, 4), ZUZU_OK, "fourth observer");
+    Handle fill_ev[OBSERVER_LIMIT];
+    int filled = 0;
+    for (; filled < OBSERVER_LIMIT - 4; filled++) {
+        fill_ev[filled] = CreateEvent();
+        if (Bind(EVENT_TASK, fill_ev[filled], w->task, 7) != ZUZU_OK)
+            break;
+    }
+    CheckEq(filled, OBSERVER_LIMIT - 4, "the table takes observers up to its limit");
     CheckEq(Bind(EVENT_TASK, e[4], w->task, 6), ERR_NOMEM,
-            "a fifth distinct event -> NOMEM (table full)");
+            "one distinct event past the limit -> NOMEM (table full)");
+    for (int i = 0; i < filled; i++)
+        HandleClose(fill_ev[i]);
     CheckEq(WaitOn(e[4], TIMEOUT_POLL).r0, ERR_TIMEOUT, "the rejected event was never attached");
     CheckEq(WaitOn(w->task, 20).r0, ERR_TIMEOUT, "(the task is still running)");
     CheckEq((int32_t)PollBits(e[0]), 1 << 3, "observer 1 fires on the retargeted bit only");
@@ -3806,20 +3822,21 @@ static void TestRecursiveEvents(void)
     HandleClose((Handle)send_only.r1);
     HandleClose(port);
 
-    /* One child takes at most four parents. */
-    Handle f[5];
-    for (int i = 0; i < 5; i++)
+    /* One child takes at most OBSERVER_LIMIT parents. */
+    Handle f[OBSERVER_LIMIT + 1];
+    for (int i = 0; i <= OBSERVER_LIMIT; i++)
         f[i] = CreateEvent();
-    for (int i = 0; i < 4; i++)
+    for (int i = 0; i < OBSERVER_LIMIT; i++)
         Bind(EVENT_EVENT, f[i], x, 2);
-    CheckEq(Bind(EVENT_EVENT, f[4], x, 2), ERR_NOMEM, "a fifth parent -> NOMEM");
+    CheckEq(Bind(EVENT_EVENT, f[OBSERVER_LIMIT], x, 2), ERR_NOMEM, "one parent past the limit -> NOMEM");
     Signal(x, 0x1, false);
-    bool all4 = true;
-    for (int i = 0; i < 4; i++)
-        all4 = all4 && FormatToEventWait(WaitOn(f[i], TIMEOUT_POLL)).bits == (1u << 2);
-    Check(all4, "all four parents are raised");
+    bool all_parents = true;
+    for (int i = 0; i < OBSERVER_LIMIT; i++)
+        all_parents =
+            all_parents && FormatToEventWait(WaitOn(f[i], TIMEOUT_POLL)).bits == (1u << 2);
+    Check(all_parents, "all the parents are raised");
     WaitOn(x, TIMEOUT_POLL);
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i <= OBSERVER_LIMIT; i++)
         HandleClose(f[i]);
 
     /* Destroying the child raises its parents; the child then reports DEAD. */
@@ -4248,6 +4265,498 @@ static void TestTimeSliceCap(void)
     CheckEq(WorkerJoin(w), 0, "a task cannot raise its own cap, and its children inherit it");
 }
 
+/* ---------------- pipes ---------------- */
+
+#define PIPE_TEST_SIZE 4096u
+
+static uint8_t PipePattern(size_t i) { return (uint8_t)((i * 7u) + 3u); }
+
+typedef struct {
+    PipeEnd *end;
+    size_t total;
+    size_t chunk;
+} PipeJob;
+
+/* Writes `total` pattern bytes through a (small) ring, blocking as needed. Returns 0 or an error. */
+static int32_t PipeProducer(void *arg)
+{
+    PipeJob *j = arg;
+    uint8_t buf[300];
+    size_t sent = 0;
+    while (sent < j->total) {
+        size_t n = j->total - sent < j->chunk ? j->total - sent : j->chunk;
+        for (size_t i = 0; i < n; i++)
+            buf[i] = PipePattern(sent + i);
+        int rc = PipeWrite(j->end, buf, n, TIMEOUT_INFINITE);
+        if (rc != (int)n)
+            return rc < 0 ? rc : 1;
+        sent += n;
+    }
+    ClosePipe(j->end);
+    return 0;
+}
+
+static int32_t PipeBlockedReader(void *arg)
+{
+    PipeJob *j = arg;
+    uint8_t buf[64];
+    return PipeRead(j->end, buf, sizeof(buf), TIMEOUT_INFINITE);
+}
+
+static int32_t PipeBlockedWriter(void *arg)
+{
+    PipeJob *j = arg;
+    static uint8_t block[512];
+    int total = 0;
+    for (;;) {
+        int rc = PipeWrite(j->end, block, sizeof(block), TIMEOUT_INFINITE);
+        if (rc < 0)
+            return rc;
+        total += rc;
+        if (rc < (int)sizeof(block))
+            return -1000 - total;
+    }
+}
+
+static void TestPipes(void)
+{
+    BeginSection("pipes");
+
+    PipeEnd w, r;
+    CheckEq(CreatePipe(0, &w, &r), ERR_BADARG, "CreatePipe(size 0) -> BADARG");
+    CheckEq(CreatePipe(100, &w, &r), ERR_BADARG, "CreatePipe(size 100) -> BADARG");
+    CheckEq(CreatePipe(PIPE_SIZE_MIN + 1, &w, &r), ERR_BADARG, "CreatePipe(not a power of two) -> BADARG");
+    CheckEq(CreatePipe(PIPE_SIZE_MAX * 2, &w, &r), ERR_BADARG, "CreatePipe(over the maximum) -> BADARG");
+    CheckEq(CreatePipe(PIPE_TEST_SIZE, NULL, &r), ERR_BADARG, "CreatePipe(NULL writer) -> BADARG");
+
+    CheckEq(CreatePipe(PIPE_TEST_SIZE, &w, &r), ZUZU_OK, "CreatePipe(4096)");
+    CheckEq((int32_t)PipeAvail(&r), 0, "a new pipe has nothing to read");
+    CheckEq((int32_t)PipeFree(&w), (int32_t)PIPE_TEST_SIZE, "and all of it free");
+    Check(!PipePeerClosed(&w) && !PipePeerClosed(&r), "neither end sees the peer closed");
+
+    uint8_t out[256], in[256];
+    for (size_t i = 0; i < sizeof(out); i++)
+        out[i] = PipePattern(i);
+    CheckEq(PipeRead(&r, in, sizeof(in), TIMEOUT_POLL), ERR_TIMEOUT, "polling an empty pipe -> TIMEOUT");
+    uint64_t t0 = NowMs();
+    CheckEq(PipeRead(&r, in, sizeof(in), 40), ERR_TIMEOUT, "a timed read of an empty pipe -> TIMEOUT");
+    Check(NowMs() - t0 + TickMs() >= 40, "and it waited the timeout");
+
+    CheckEq(PipeWrite(&w, out, sizeof(out), TIMEOUT_POLL), (int32_t)sizeof(out), "write 256 bytes");
+    CheckEq((int32_t)PipeAvail(&r), (int32_t)sizeof(out), "the reader sees them");
+    CheckEq((int32_t)PipeFree(&w), (int32_t)(PIPE_TEST_SIZE - sizeof(out)), "the writer's room shrank");
+    memset(in, 0, sizeof(in));
+    CheckEq(PipeRead(&r, in, 100, TIMEOUT_POLL), 100, "read 100 of them");
+    CheckEq(PipeRead(&r, in + 100, sizeof(in) - 100, TIMEOUT_POLL), (int32_t)sizeof(in) - 100,
+            "read the rest");
+    Check(memcmp(in, out, sizeof(in)) == 0, "the bytes arrive intact and in order");
+
+    CheckEq(PipeWrite(&w, out, 0, TIMEOUT_POLL), 0, "writing 0 bytes -> 0");
+    CheckEq(PipeRead(&r, in, 0, TIMEOUT_POLL), 0, "reading into 0 bytes -> 0");
+    CheckEq(PipeRead(&w, in, 1, TIMEOUT_POLL), ERR_BADARG, "reading from the writer end -> BADARG");
+    CheckEq(PipeWrite(&r, out, 1, TIMEOUT_POLL), ERR_BADARG, "writing to the reader end -> BADARG");
+    CheckEq(PipeWrite(&w, NULL, 4, TIMEOUT_POLL), ERR_BADARG, "writing from NULL -> BADARG");
+
+    /* Wrap-around: odd-sized transfers walk head and tail across the ring boundary many times. */
+    bool wrap_ok = true;
+    size_t pos = 0, rpos = 0;
+    for (int round = 0; round < 200 && wrap_ok; round++) {
+        size_t n = 37 + (size_t)((round * 11) % 200);
+        uint8_t tmp[300];
+        for (size_t i = 0; i < n; i++)
+            tmp[i] = PipePattern(pos + i);
+        wrap_ok = PipeWrite(&w, tmp, n, TIMEOUT_POLL) == (int)n;
+        pos += n;
+        uint8_t got[300];
+        wrap_ok = wrap_ok && PipeRead(&r, got, n, TIMEOUT_POLL) == (int)n;
+        for (size_t i = 0; wrap_ok && i < n; i++)
+            wrap_ok = got[i] == PipePattern(rpos + i);
+        rpos += n;
+    }
+    Check(wrap_ok, "200 odd-sized transfers wrap the ring without corruption");
+    Check(pos > 3 * PIPE_TEST_SIZE, "and went around it several times");
+
+    /* Full ring. */
+    static uint8_t fill[PIPE_TEST_SIZE + 512];
+    memset(fill, 0xAB, sizeof(fill));
+    CheckEq(PipeWrite(&w, fill, sizeof(fill), TIMEOUT_POLL), (int32_t)PIPE_TEST_SIZE,
+            "a polled write stops when the ring is full");
+    CheckEq((int32_t)PipeFree(&w), 0, "no room left");
+    CheckEq(PipeWrite(&w, fill, 1, TIMEOUT_POLL), ERR_TIMEOUT, "a polled write to a full ring -> TIMEOUT");
+    CheckEq(PipeWrite(&w, fill, 1, 30), ERR_TIMEOUT, "a timed write to a full ring -> TIMEOUT");
+    CheckEq(PipeTryWriteAll(&w, fill, 1), ERR_BUFFULL, "TryWriteAll on a full ring -> BUFFULL");
+    CheckEq((int32_t)PipeDropped(&w), 1, "and the drop is counted");
+    CheckEq(PipeTryWriteAll(&w, fill, PIPE_TEST_SIZE + 1), ERR_OVERFLOW, "TryWriteAll bigger than the ring -> OVERFLOW");
+    CheckEq(PipeRead(&r, fill, 1000, TIMEOUT_POLL), 1000, "drain 1000");
+    CheckEq(PipeTryWriteAll(&w, fill, 1000), ZUZU_OK, "TryWriteAll fits again");
+    CheckEq(PipeTryWriteAll(&w, fill, 1001), ERR_BUFFULL, "TryWriteAll is all or nothing");
+    CheckEq((int32_t)PipeDropped(&r), 2, "the reader sees the drop count too");
+    CheckEq(PipeRead(&r, fill, sizeof(fill), TIMEOUT_POLL), (int32_t)PIPE_TEST_SIZE, "drain the rest");
+
+    /* EOF: the reader gets what was written, then 0. */
+    CheckEq(PipeWrite(&w, out, 50, TIMEOUT_POLL), 50, "write 50, then close the writer");
+    ClosePipe(&w);
+    Check(PipePeerClosed(&r), "the reader sees the writer gone");
+    CheckEq(PipeRead(&r, in, sizeof(in), TIMEOUT_POLL), 50, "buffered bytes survive the close");
+    CheckEq(PipeRead(&r, in, sizeof(in), TIMEOUT_POLL), 0, "then EOF");
+    CheckEq(PipeRead(&r, in, sizeof(in), TIMEOUT_INFINITE), 0, "EOF does not block");
+    ClosePipe(&r);
+
+    /* Broken pipe. */
+    CreatePipe(PIPE_TEST_SIZE, &w, &r);
+    ClosePipe(&r);
+    Check(PipePeerClosed(&w), "the writer sees the reader gone");
+    CheckEq(PipeWrite(&w, out, 10, TIMEOUT_POLL), ERR_DEAD, "writing to a closed reader -> DEAD");
+    CheckEq(PipeTryWriteAll(&w, out, 10), ERR_DEAD, "TryWriteAll to a closed reader -> DEAD");
+    ClosePipe(&w);
+    CheckEq(PipeWrite(&w, out, 1, TIMEOUT_POLL), ERR_BADARG, "a closed end is unusable");
+
+    /* A producer thread pushes 64 KiB through a 4 KiB ring while we read. */
+    CreatePipe(PIPE_TEST_SIZE, &w, &r);
+    PipeJob job = {.end = &w, .total = 65536, .chunk = 300};
+    Worker *pw = WorkerStart(PipeProducer, &job);
+    size_t got_total = 0;
+    bool stream_ok = true;
+    uint8_t buf[500];
+    for (;;) {
+        int n = PipeRead(&r, buf, sizeof(buf), 2000);
+        if (n <= 0) {
+            stream_ok = stream_ok && n == 0;
+            break;
+        }
+        for (int i = 0; i < n; i++)
+            stream_ok = stream_ok && buf[i] == PipePattern(got_total + (size_t)i);
+        got_total += (size_t)n;
+    }
+    CheckEq(WorkerJoin(pw), 0, "the producer finishes");
+    CheckEq((int32_t)got_total, 65536, "all 64 KiB arrive");
+    Check(stream_ok, "in order, then EOF");
+    ClosePipe(&r);
+
+    /* A blocked reader wakes on data. */
+    CreatePipe(PIPE_TEST_SIZE, &w, &r);
+    PipeJob rj = {.end = &r};
+    Worker *bw = WorkerStart(PipeBlockedReader, &rj);
+    Sleep(30);
+    PipeWrite(&w, out, 5, TIMEOUT_POLL);
+    CheckEq(WorkerJoin(bw), 5, "a blocked reader wakes when bytes arrive");
+
+    /* A blocked reader wakes on EOF. */
+    bw = WorkerStart(PipeBlockedReader, &rj);
+    Sleep(30);
+    ClosePipe(&w);
+    CheckEq(WorkerJoin(bw), 0, "a blocked reader wakes with EOF when the writer closes");
+    ClosePipe(&r);
+
+    /* A blocked writer wakes when the reader closes. */
+    CreatePipe(PIPE_TEST_SIZE, &w, &r);
+    PipeJob wj = {.end = &w};
+    bw = WorkerStart(PipeBlockedWriter, &wj);
+    Sleep(50);
+    CheckEq((int32_t)PipeFree(&w), 0, "the writer thread fills the ring and blocks");
+    ClosePipe(&r);
+    int32_t wres = WorkerJoin(bw);
+    Check(wres == ERR_DEAD || wres <= -1000, "a blocked writer wakes when the reader closes");
+    ClosePipe(&w);
+
+    /* A blocked writer wakes when the reader makes room. */
+    CreatePipe(PIPE_TEST_SIZE, &w, &r);
+    memset(fill, 0, PIPE_TEST_SIZE);
+    PipeWrite(&w, fill, PIPE_TEST_SIZE, TIMEOUT_POLL);
+    job = (PipeJob){.end = &w, .total = 100, .chunk = 100};
+    Worker *rw = WorkerStart(PipeProducer, &job);
+    Sleep(30);
+    CheckEq(PipeRead(&r, fill, 100, TIMEOUT_POLL), 100, "make room for a blocked writer");
+    CheckEq(WorkerJoin(rw), 0, "it wakes and finishes");
+    ClosePipe(&r);
+
+    /* Handing an end on: duplicate the handles and open a second reader. */
+    CreatePipe(PIPE_TEST_SIZE, &w, &r);
+    Handle dm = -1, de = -1;
+    CheckEq(PipeDupHandles(&r, PERM_SEND | PERM_WAIT, &dm, &de), ZUZU_OK, "PipeDupHandles");
+    PipeEnd r2;
+    CheckEq(OpenPipe(&r2, PIPE_READER, dm, de, 0, 1), ZUZU_OK, "OpenPipe on the duplicates");
+    CheckEq((int32_t)r2.size, (int32_t)PIPE_TEST_SIZE, "it reads the ring size from the page");
+    PipeWrite(&w, out, 20, TIMEOUT_POLL);
+    CheckEq(PipeRead(&r2, in, sizeof(in), TIMEOUT_POLL), 20, "the second reader sees the bytes");
+    Check(memcmp(in, out, 20) == 0, "intact");
+    ClosePipe(&r2);
+    ClosePipe(&r);
+    ClosePipe(&w);
+
+    PipeEnd bad;
+    Handle small = CreateMem(1, 0);
+    Handle ev = CreateEvent();
+    CheckEq(OpenPipe(&bad, PIPE_READER, small, ev, 0, 1), ERR_BADARG, "OpenPipe on a header-only page -> BADARG");
+    CheckEq(OpenPipe(&bad, PIPE_READER, -1, ev, 0, 1), ERR_BADARG, "OpenPipe(no memory) -> BADARG");
+    CheckEq(OpenPipe(&bad, (PipeRole)0, small, ev, 0, 1), ERR_BADARG, "OpenPipe(bad role) -> BADARG");
+    CheckEq(OpenPipe(&bad, PIPE_READER, small, ev, 3, 3), ERR_BADARG, "OpenPipe(same bit twice) -> BADARG");
+    CheckEq(OpenPipe(&bad, PIPE_READER, small, ev, 31, 1), ERR_BADARG, "OpenPipe(bit 31) -> BADARG");
+    HandleClose(small);
+    HandleClose(ev);
+
+    /* No leaks across create/use/close rounds. */
+    for (int round = 0; round < 25; round++) {
+        if (round == 3) {
+            SleepAndSettle();
+            g_section_pages = PagesFree();
+        }
+        PipeEnd lw, lr;
+        CreatePipe(PIPE_SIZE_DEFAULT, &lw, &lr);
+        PipeWrite(&lw, out, 64, TIMEOUT_POLL);
+        PipeRead(&lr, in, 64, TIMEOUT_POLL);
+        ClosePipe(&lw);
+        ClosePipe(&lr);
+    }
+    SleepAndSettle();
+    CheckEq((int32_t)PagesFree(), (int32_t)g_section_pages, "no free-page change after 22 pipe rounds");
+}
+
+/* logsvc: other services log through it too, so every check looks only at records tagged "zzlog". */
+#define ZZ_TAG "zzlog"
+
+static Err LogStats(Handle port, LogStatsReply *rep)
+{
+    LogIndexRequest req = {.cmd = LOG_STATS};
+    Err rc = LogCall(port, &req, sizeof(req), -1, NULL);
+    memcpy(rep, GetMessageBox(), sizeof(*rep));
+    return rc;
+}
+
+/* What a reader of one source saw. */
+typedef struct {
+    int count;       /**< Records read. */
+    int crash;       /**< Of them, stored through LOG_CRASH. */
+    bool ordered;    /**< Sequence numbers strictly rose. */
+    bool intact;     /**< Every message was whole and had the expected shape. */
+    int first_n;     /**< Counter in the first "rec NNNN" message, or -1. */
+    int last_n;      /**< Counter in the last one, or -1. */
+    bool counted_up; /**< Counters rose by exactly one each time. */
+    uint8_t min_seen;/**< Lowest level seen. */
+} LogSeen;
+
+static LogSeen LogReadAll(Handle port, uint32_t from, uint8_t min_level, const char *src)
+{
+    LogSeen seen = {.ordered = true, .intact = true, .first_n = -1, .last_n = -1,
+                    .counted_up = true, .min_seen = 0xFF};
+    LogReader rd;
+    if (LogReaderOpen(port, from, min_level, src, 0, &rd) != ZUZU_OK) {
+        seen.intact = false;
+        seen.count = -1;
+        return seen;
+    }
+    uint32_t prev = 0;
+    for (;;) {
+        LogEntryHdr h;
+        char msg[LOG_MSG_MAX + 1];
+        int rc = LogReaderNext(&rd, &h, msg, 3000);
+        if (rc == 0)
+            break;
+        if (rc < 0) {
+            seen.intact = false;
+            break;
+        }
+        msg[h.length] = '\0';
+        if (seen.count > 0 && !((int32_t)(prev - h.seq) < 0))
+            seen.ordered = false;
+        prev = h.seq;
+        if (h.level < seen.min_seen)
+            seen.min_seen = h.level;
+        if (h.client == 255) {
+            seen.crash++;
+        } else if (strncmp(msg, "rec ", 4) == 0) {
+            int n = atoi(msg + 4);
+            if (seen.first_n < 0)
+                seen.first_n = n;
+            else if (n != seen.last_n + 1)
+                seen.counted_up = false;
+            seen.last_n = n;
+        }
+        seen.count++;
+    }
+    LogReaderClose(&rd);
+    return seen;
+}
+
+static void TestLogsvc(void)
+{
+    BeginSection("logsvc");
+
+    Handle port = LookupService("/svc/log");
+    Check(port >= 0, "/svc/log is registered");
+    if (port < 0)
+        return;
+
+    LogStatsReply st0;
+    CheckEq(LogStats(port, &st0), ZUZU_OK, "LOG_STATS answers");
+
+    CheckEq(LogCall(port, &(uint32_t){99}, sizeof(uint32_t), -1, NULL), ERR_NOSYS,
+            "an unknown command -> NOSYS");
+    CheckEq(LogCall(port, &(uint32_t){LOG_ATTACH}, 2, -1, NULL), ERR_BADARG,
+            "a short request -> BADARG");
+    LogAttachRequest noshare = {.cmd = LOG_ATTACH, .kind = LOG_KIND_WRITER};
+    CheckEq(LogCall(port, &noshare, sizeof(noshare), -1, NULL), ERR_BADARG,
+            "LOG_ATTACH without a page -> BADARG");
+
+    /* The public handle may only attach, claim and read stats. */
+    LogIndexRequest bogus = {.cmd = LOG_CLOSE, .index = 0};
+    CheckEq(LogCall(port, &bogus, sizeof(bogus), -1, NULL), ERR_NOPERM,
+            "LOG_CLOSE on the public handle -> NOPERM");
+    LogCrashRequest cr = {.cmd = LOG_CRASH, .level = LOG_LEVEL_ERROR, .length = 0};
+    CheckEq(LogCall(port, &cr, sizeof(cr), -1, NULL), ERR_NOPERM, "LOG_CRASH on the public handle -> NOPERM");
+    LogLevelRequest console = {.cmd = LOG_SETLEVEL, .level = LOG_LEVEL_FATAL + 1};
+    CheckEq(LogCall(port, &console, sizeof(console), -1, NULL), ERR_NOPERM,
+            "the console level on the public handle -> NOPERM");
+    Handle admin = -1;
+    CheckEq(LogAdminClaim(port, &admin), ERR_BUSY, "the admin handle is already claimed (by rootsvc)");
+
+    LogConn c;
+    CheckEq(LogClientConnect(port, ZZ_TAG, &c), ZUZU_OK, "open a writer session");
+    CheckEq(LogCall(c.port, &cr, sizeof(cr), -1, NULL), ERR_NOPERM, "LOG_CRASH on a session handle -> NOPERM");
+    CheckEq(LogCall(c.port, &console, sizeof(console), -1, NULL), ERR_NOPERM,
+            "the console level on a session handle -> NOPERM");
+    CheckEq(LogCall(c.port, &(LogAttachRequest){.cmd = LOG_ATTACH, .kind = LOG_KIND_WRITER},
+                    sizeof(LogAttachRequest), -1, NULL),
+            ERR_NOPERM, "LOG_ATTACH on a session handle -> NOPERM");
+
+    /* Sessions are told apart by handle, not by the index in the request. */
+    LogConn a, b;
+    CheckEq(LogClientConnect(port, "zza", &a), ZUZU_OK, "open session A");
+    CheckEq(LogClientConnect(port, "zzb", &b), ZUZU_OK, "open session B");
+    Handle a_handle = a.port;
+    LogIndexRequest forge = {.cmd = LOG_CLOSE, .index = b.index};
+    CheckEq(LogCall(a.port, &forge, sizeof(forge), -1, NULL), ZUZU_OK,
+            "A names B's index in LOG_CLOSE: A's own session ends");
+    CheckEq(LogCall(a.port, &forge, sizeof(forge), -1, NULL), ERR_NOPERM,
+            "A's handle no longer works");
+    CheckEq(LogClientWrite(&b, LOG_LEVEL_INFO, NULL, "rec b", 5), ZUZU_OK, "B is untouched");
+    Sleep(50);
+    LogSeen bseen = LogReadAll(port, 0, 0, "zzb");
+    CheckEq(bseen.count, 1, "and B's record was stored");
+    LogConn a2;
+    CheckEq(LogClientConnect(port, "zza2", &a2), ZUZU_OK, "open another session in A's freed slot");
+    CheckEq(LogCall(a_handle, &forge, sizeof(forge), -1, NULL), ERR_NOPERM,
+            "A's old handle does not reach the session that reused its slot");
+    CheckEq(LogClientWrite(&a2, LOG_LEVEL_INFO, NULL, "rec a2", 6), ZUZU_OK, "which still works");
+    ClosePipe(&a.w);
+    LogClientClose(&a2);
+    LogClientClose(&b);
+
+    /* Garbage in the pipe is thrown away and counted; later records still arrive. */
+    uint8_t bad_level[16] = {9, 0, 3, 0};
+    uint8_t bad_len[16] = {2, 0, 0xFF, 0xEA};
+    uint8_t short_body[16] = {2, 0, 100, 0};
+    CheckEq(PipeTryWriteAll(&c.w, bad_level, sizeof(bad_level)), ZUZU_OK, "write a record with a bad level");
+    Sleep(40);
+    CheckEq(PipeTryWriteAll(&c.w, bad_len, sizeof(bad_len)), ZUZU_OK, "write a record with a huge length");
+    Sleep(40);
+    CheckEq(PipeTryWriteAll(&c.w, short_body, sizeof(short_body)), ZUZU_OK, "write a record cut short");
+    Sleep(40);
+    LogStatsReply st1;
+    CheckEq(LogStats(port, &st1), ZUZU_OK, "stats after garbage");
+    CheckEq((int32_t)(st1.malformed - st0.malformed), 3, "three malformed records counted");
+    CheckEq(LogClientWrite(&c, LOG_LEVEL_INFO, NULL, "rec 0000", 8), ZUZU_OK,
+            "a good record after garbage is accepted");
+
+    /* A burst bigger than the pipe: whatever does not fit is dropped and counted, never blocks. */
+    int burst_lost = 0;
+    for (int i = 0; i < 6000; i++) {
+        if (LogClientWrite(&c, LOG_LEVEL_TRACE, "zzburst", "burst", 5) != ZUZU_OK)
+            burst_lost++;
+    }
+    Sleep(300);
+    Check(burst_lost > 0, "a burst larger than the pipe loses some records");
+    CheckEq((int32_t)PipeDropped(&c.w), burst_lost, "the pipe counted every drop");
+    LogStatsReply st2;
+    CheckEq(LogStats(port, &st2), ZUZU_OK, "stats after the burst");
+    Check(st2.dropped >= (uint32_t)burst_lost, "logsvc reports the drops");
+
+    /* Paced flood: no drops, and it wraps the 64 KiB history. */
+    int lost = 0;
+    for (int i = 1; i <= 8000; i++) {
+        char m[32];
+        int n = snprintf(m, sizeof(m), "rec %04d %s", i, (i % 3) ? "aa" : "bbbbbbbbb");
+        if (LogClientWrite(&c, (i % 2000 == 0) ? LOG_LEVEL_ERROR : LOG_LEVEL_DEBUG, NULL, m,
+                           (uint16_t)n) != ZUZU_OK)
+            lost++;
+        if (i % 400 == 0)
+            Sleep(60);
+    }
+    Sleep(300);
+    CheckEq(lost, 0, "a paced flood loses nothing");
+
+    LogSeen all = LogReadAll(port, 0, 0, ZZ_TAG);
+    Check(all.intact && all.ordered, "the history comes back whole and in order");
+    Check(all.counted_up, "no record is missing from the middle");
+    CheckEq(all.last_n, 8000, "the newest record is the last one written");
+    Check(all.first_n > 1, "the oldest records were evicted");
+    Check(all.count > 500 && all.count < 8000, "the history holds a bounded number of records");
+
+    LogSeen errs = LogReadAll(port, 0, LOG_LEVEL_ERROR, ZZ_TAG);
+    Check(errs.count > 0 && errs.min_seen >= LOG_LEVEL_ERROR && errs.intact,
+          "a reader can ask for one level and up");
+
+    LogStatsReply st3;
+    CheckEq(LogStats(port, &st3), ZUZU_OK, "stats before reading past the end");
+    LogSeen none = LogReadAll(port, st3.next_seq + 1000, 0, ZZ_TAG);
+    CheckEq(none.count, 0, "reading from a sequence number past the end gives nothing");
+
+    /* Follow mode delivers new records as they arrive. */
+    LogReader rd;
+    CheckEq(LogReaderOpen(port, 0, 0, "zzfollow", LOG_READ_FOLLOW, &rd), ZUZU_OK, "open a following reader");
+    LogEntryHdr h;
+    char msg[LOG_MSG_MAX];
+    CheckEq(LogReaderNext(&rd, &h, msg, 100), ERR_TIMEOUT, "a following reader waits when caught up");
+    CheckEq(LogClientWrite(&c, LOG_LEVEL_WARN, "zzfollow", "rec live", 8), ZUZU_OK, "write a new record");
+    CheckEq(LogReaderNext(&rd, &h, msg, 1000), 1, "the following reader gets it");
+    CheckEq(h.length, 8, "whole");
+    Check(h.client != 255 && memcmp(h.source, "zzfollow", 8) == 0, "and the source tag is kept");
+    LogReaderClose(&rd);
+
+    /* Per-source level: a session may set its own source's, not another's. */
+    LogConn lv;
+    CheckEq(LogClientConnect(port, "zzlvl", &lv), ZUZU_OK, "open a session for the level test");
+    LogLevelRequest lvl = {.cmd = LOG_SETLEVEL, .level = LOG_LEVEL_ERROR};
+    memcpy(lvl.source, "zzlog", 6);
+    CheckEq(LogCall(lv.port, &lvl, sizeof(lvl), -1, NULL), ERR_NOPERM,
+            "a session cannot set another source's level");
+    memcpy(lvl.source, "zzlvl", 6);
+    CheckEq(LogCall(lv.port, &lvl, sizeof(lvl), -1, NULL), ZUZU_OK, "it can set its own");
+    LogClientWrite(&lv, LOG_LEVEL_INFO, NULL, "rec 1", 5);
+    LogClientWrite(&lv, LOG_LEVEL_ERROR, NULL, "rec 2", 5);
+    Sleep(50);
+    LogSeen lvs = LogReadAll(port, 0, 0, "zzlvl");
+    CheckEq(lvs.count, 1, "records below a source's minimum are dropped");
+    lvl.level = 0;
+    CheckEq(LogCall(lv.port, &lvl, sizeof(lvl), -1, NULL), ZUZU_OK, "clear it again");
+    lvl.level = 99;
+    CheckEq(LogCall(lv.port, &lvl, sizeof(lvl), -1, NULL), ERR_BADARG, "a level out of range -> BADARG");
+    LogClientClose(&lv);
+
+    /* Session table: a full table makes room by evicting the longest-idle session. */
+    LogConn old;
+    CheckEq(LogClientConnect(port, "zzold", &old), ZUZU_OK, "open a session to leave idle");
+    LogConn extra[LOG_MAX_SESSIONS + 1];
+    int made = 0;
+    for (int i = 0; i < LOG_MAX_SESSIONS + 1; i++) {
+        if (LogClientConnect(port, "zzext", &extra[i]) == ZUZU_OK)
+            made++;
+        Sleep(3);
+    }
+    CheckEq(made, LOG_MAX_SESSIONS + 1, "more connects than slots succeed by evicting idle ones");
+    CheckEq(LogClientWrite(&old, LOG_LEVEL_INFO, NULL, "rec x", 5), ERR_DEAD,
+            "the evicted session sees ERR_DEAD on its next write");
+    ClosePipe(&old.w);
+    HandleClose(old.port);
+    CheckEq(LogClientWrite(&extra[LOG_MAX_SESSIONS], LOG_LEVEL_INFO, NULL, "rec y", 5), ZUZU_OK,
+            "the newest session still works");
+    for (int i = 0; i < LOG_MAX_SESSIONS + 1; i++)
+        LogClientClose(&extra[i]);
+
+    LogClientClose(&c);
+    HandleClose(port);
+}
+
 static void RunSuite(void)
 {
     TestBasics();
@@ -4286,6 +4795,8 @@ static void RunSuite(void)
     TestUnansweredReceive();
     TestFaultObservers();
     TestFaultedCount();
+    TestPipes();
+    TestLogsvc();
     TestMemMgmtRebind();
     TestClosedEventObservers();
     TestReplyStrayTimeout();
