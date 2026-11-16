@@ -247,8 +247,56 @@ static void cmd_help(void)
                                "  cd <path>" ANSI_RESET "     change current directory\n" ANSI_BOLD
                                "  ls [path]" ANSI_RESET "     list directory\n" ANSI_BOLD
                                "  cat <file>" ANSI_RESET "    print file contents\n" ANSI_BOLD
+                               "  tftp [-s ip] <f> [dest]" ANSI_RESET " fetch a file over TFTP\n" ANSI_BOLD
                                "  exit" ANSI_RESET "          leave the shell\n" ANSI_BOLD
                                "  <program>" ANSI_RESET "     run /bin/<program> or a path\n");
+}
+
+#define TFTP_DEFAULT_SERVER "192.168.1.6"
+
+static void cmd_tftp(const char *args)
+{
+    char buf[LINE_BUFFER_SIZE];
+    memcpy(buf, args, strlen(args) + 1);
+    char *argv[4];
+    int argc = 0;
+    for (char *p = buf; *p && argc < 4;) {
+        while (*p == ' ')
+            p++;
+        if (!*p)
+            break;
+        argv[argc++] = p;
+        while (*p && *p != ' ')
+            p++;
+        if (*p)
+            *p++ = '\0';
+    }
+
+    const char *server = TFTP_DEFAULT_SERVER;
+    int i = 0;
+    if (argc >= 2 && strcmp(argv[0], "-s") == 0) {
+        server = argv[1];
+        i = 2;
+    }
+    if (argc - i < 1 || argc - i > 2) {
+        printf("%s", "usage: tftp [-s <ip>] <file> [dest]\n");
+        return;
+    }
+
+    const char *file = argv[i];
+    const char *base = strrchr(file, '/');
+    const char *dest = argc - i == 2 ? argv[i + 1] : (base ? base + 1 : file);
+    char path[256];
+    if (!resolve_path(dest, path, sizeof(path))) {
+        printf("%s", "tftp: path too long\n");
+        return;
+    }
+    if (!ensure_fsd()) {
+        printf("%s", ANSI_RED "tftp: fsd unavailable\n" ANSI_RESET);
+        return;
+    }
+    if (TftpGet(&fsd_conn, server, file, path) == 0)
+        ImgCacheDrop(&g_images, path);
 }
 
 static void cmd_cd(const char *arg)
@@ -296,6 +344,10 @@ bool command_dispatch(const char *line)
         cmd_cd(NULL);
     else if (strncmp(line, "cd ", 3) == 0)
         cmd_cd(line + 3);
+    else if (strcmp(line, "tftp") == 0)
+        cmd_tftp("");
+    else if (strncmp(line, "tftp ", 5) == 0)
+        cmd_tftp(line + 5);
     else
         cmd_run(line);
 
