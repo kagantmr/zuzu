@@ -54,6 +54,7 @@ typedef struct {
 } ArpEntry;
 
 void ArpInit(void);
+void ArpFlush(void);
 void ArpLearn(Ipv4Addr ip, const uint8_t *mac_addr);
 int ArpRx(uint8_t *data, uint16_t len);
 int ArpRequest(Ipv4Addr ip);

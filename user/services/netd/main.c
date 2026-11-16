@@ -27,7 +27,6 @@ Handle g_nic_doorbell_ev = -1;
 Netif netif; /* filled at startup (htonl isn't constant); DHCP overwrites later */
 
 #define LEGACY_POLL_CAP 50u
-#define LOOP_SLICE_MS 10u
 #define PORT_BIT 0
 #define PORT_MASK (1u << PORT_BIT)
 
@@ -40,6 +39,24 @@ static void UdpEchoHandler(Ipv4Addr src_ip, NetPort src_port, NetPort dst_port, 
     LOG_DEBUG(LOG_TAG, "UDP packet, from: %u.%u.%u.%u:%d, to: %u.%u.%u.%u:%d", IP4(src_ip), src_port,
              IP4(netif.ip), dst_port);
     UdpSend(src_ip, dst_port, src_port, data, len);
+}
+
+static bool link_up = true;
+
+static void CheckLink(void)
+{
+    bool up = !stats->link_down;
+    if (up == link_up)
+        return;
+    link_up = up;
+    if (!up) {
+        LOG_INFO(LOG_TAG, "link down");
+        ArpFlush();
+        DhcpLinkDown();
+    } else {
+        LOG_INFO(LOG_TAG, "link up");
+        DhcpLinkUp();
+    }
 }
 
 /* Fires once the lease is first acquired: the network is now usable. */
@@ -169,11 +186,20 @@ static __attribute__((cold)) Err PerformDriverHandshake(PortWaitResult res)
     }
     stats = (NicStatsBlock *)((uint8_t *)rx_ring + NIC_STATS_OFFSET);
 
+    Handle bell;
+    rc = HandleDup(g_event, PERM_SEND | PERM_TXFR, MARKER_NONE, &bell);
+    if (rc != ZUZU_OK) {
+        RejectCall(rc, -1);
+        return rc;
+    }
+
     MsgWriter w;
     MsgWriterInit(&w);
     MsgPutU32(&w, ZUZU_OK);
     MsgPutStr(&w, "eth0");
-    return Reply(w.off, -1);
+    rc = Reply(w.off, bell);
+    HandleClose(bell);
+    return rc;
 }
 
 static Err WaitForDriver(void)
@@ -238,15 +264,9 @@ int main()
         else
             sleep_ms = next - now > LEGACY_POLL_CAP ? LEGACY_POLL_CAP : next - now;
 
-        /* 2. wait on the doorbell, then on the public port; a slice each so the
-            timer deadline still holds */
-        uint32_t slice = sleep_ms / 2;
-        if (slice > LOOP_SLICE_MS)
-            slice = LOOP_SLICE_MS;
-        if (sleep_ms != TIMEOUT_POLL && slice == 0)
-            slice = 1;
-
-        WaitOn(g_nic_doorbell_ev, slice);
+        /* 2. one wait for the driver, the public port and every session */
+        EventWaitResult ev = WaitOnEvent(g_event, sleep_ms, 0, false);
+        CheckLink();
 
         /* 3. DRAIN RX FIRST: process inbound before any timer fires */
         NicFrame *frame;
@@ -255,7 +275,6 @@ int main()
             PacketRingConsume(rx_ring);
         }
 
-        EventWaitResult ev = WaitOnEvent(g_event, slice, 0, false);
         if (ev.status == ZUZU_OK && (ev.bits & PORT_MASK)) {
             PortWaitResult call;
             while ((call = WaitOnPort(g_svc_port, TIMEOUT_POLL)).status == ZUZU_OK) {

@@ -489,7 +489,8 @@ static int BiHelp(int argc, char **argv)
     (void)argv;
     ShPrintf(ANSI_BOLD ANSI_CYAN "zzsh " ZZSH_VER ANSI_RESET "\n"
              "  cd [dir|-]  pwd  echo [-n]  export [N[=V]]  unset N  set  env  history\n"
-             "  type N  test|[ expr ]  sleep S  source F  true  false  clear  help  exit [n]\n\n"
+             "  type N  test|[ expr ]  sleep S  source F  true  false  clear  help  exit [n]\n"
+             "  tftp [-s ip] F [dest]   fetch a file over TFTP\n\n"
              "  NAME=value cmd   set a variable (for one command, or for the shell if alone)\n"
              "  $NAME ${NAME} $? ~ 'quote' \"quote\" \\x   expansion and quoting\n"
              "  a | b            pipe     a > f  a >> f  a < f   redirect\n"
@@ -497,6 +498,35 @@ static int BiHelp(int argc, char **argv)
              "  * ?              wildcards    # comment    PS1  prompt (\\w is the directory)\n"
              "  Tab completes; Up/Down is history; ^A ^E ^K ^U ^W ^L edit.\n"
              "  <program>        run it from $PATH, or give a path\n");
+    return 0;
+}
+
+/** @brief Server tftp fetches from when no -s is given. */
+#define TFTP_DEFAULT_SERVER "192.168.1.6"
+
+static int BiTftp(int argc, char **argv)
+{
+    const char *server = TFTP_DEFAULT_SERVER;
+    int i = 1;
+    if (argc > 2 && strcmp(argv[1], "-s") == 0) {
+        server = argv[2];
+        i = 3;
+    }
+    if (argc - i < 1 || argc - i > 2) {
+        ShPrintf("usage: tftp [-s <ip>] <file> [dest]\n");
+        return 1;
+    }
+    const char *file = argv[i];
+    const char *base = strrchr(file, '/');
+    const char *dest = argc - i == 2 ? argv[i + 1] : (base ? base + 1 : file);
+    char path[PATH_MAX_LEN];
+    if (!PathResolve(g_cwd, dest, path, sizeof(path)) || !ShEnsureFsd()) {
+        ShPrintf("tftp: %s: cannot open\n", dest);
+        return 1;
+    }
+    if (TftpGet(ShFsd(), server, file, path) != 0)
+        return 1;
+    ImgCacheDrop(&g_images, path);
     return 0;
 }
 
@@ -510,6 +540,7 @@ static const struct {
     {"true", BiTrue},     {":", BiTrue},        {"false", BiFalse},     {"clear", BiClear},
     {"history", BiHistory}, {"sleep", BiSleep}, {"type", BiType},       {"source", BiSource},
     {".", BiSource},      {"test", BiTest},     {"[", BiTest},          {"help", BiHelp},
+    {"tftp", BiTftp},
 };
 /** @brief Number of builtins. */
 #define N_BUILTINS ((int)(sizeof(k_builtins) / sizeof(k_builtins[0])))
