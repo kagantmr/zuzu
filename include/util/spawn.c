@@ -6,6 +6,7 @@
 #include <elf.h>
 #include <stdbool.h>
 #include <util/spawn.h>
+#include <util/stdio_redir.h>
 #include <util/tls.h>
 #include <util/zxf.h>
 #include <zuzu/err.h>
@@ -195,27 +196,34 @@ static Err LoadSegment(Handle space_handle, Handle image_obj, const void *data, 
 }
 
 /**
- * @brief Builds argv in the new space: a NULL-terminated pointer table followed by the strings.
+ * @brief Lays out argv and the environment in the new space.
  *
- * @param[in]  space_handle New space.
- * @param[in]  argbuf       argv strings back to back, or NULL.
- * @param[in]  argbuf_len   Length of @p argbuf.
- * @param[in]  argc         Number of strings.
- * @param[out] out_sp       Initial stack pointer for the task.
- * @param[out] out_argv_va  Address of the pointer table in the new space, or 0 if argc is 0.
- * @return ZUZU_OK, ERR_BADARG if argv needs more than SPAWN_ARGV_MAX_PAGES, or ERR_NOMEM.
+ * The block is the usual layout: the argv pointers and a NULL, the environment pointers and a NULL
+ * right after it (so envp is argv + argc + 1), then the strings.
+ *
+ * @param[in]  space_handle Space handle.
+ * @param[in]  argbuf       NUL-separated arguments.
+ * @param[in]  argbuf_len   Bytes in @p argbuf.
+ * @param[in]  argc         Number of arguments.
+ * @param[in]  envbuf       NUL-separated "NAME=value" strings, or NULL.
+ * @param[in]  envbuf_len   Bytes in @p envbuf.
+ * @param[in]  envc         Number of environment strings.
+ * @param[out] out_sp       Initial stack pointer.
+ * @param[out] out_argv_va  Address of the pointer table in the new space, or 0 if there is none.
+ * @return ZUZU_OK, ERR_BADARG if it does not fit, or the injection error.
  */
 static Err LayoutArgv(Handle space_handle, const char *argbuf, size_t argbuf_len, uint32_t argc,
-                      VirtAddr *out_sp, VirtAddr *out_argv_va)
+                      const char *envbuf, size_t envbuf_len, uint32_t envc, VirtAddr *out_sp,
+                      VirtAddr *out_argv_va)
 {
     *out_sp = USR_SP;
     *out_argv_va = 0;
 
-    if (argc == 0)
+    if (argc == 0 && envc == 0)
         return ZUZU_OK;
 
-    size_t table_bytes = (size_t)(argc + 1) * sizeof(VirtAddr);
-    size_t block_len = table_bytes + argbuf_len;
+    size_t table_bytes = ((size_t)argc + 1 + envc + 1) * sizeof(VirtAddr);
+    size_t block_len = table_bytes + argbuf_len + envbuf_len;
     if (PAGE_ROUND_UP(block_len) > SPAWN_ARGV_MAX_PAGES * PAGE_SIZE)
         return ERR_BADARG;
 
@@ -224,17 +232,28 @@ static Err LayoutArgv(Handle space_handle, const char *argbuf, size_t argbuf_len
         return ERR_NOMEM;
 
     VirtAddr str_va = SPAWN_ARGV_VA + table_bytes;
-    const char *str_src = argbuf;
-    for (uint32_t a = 0; a <= argc; a++) {
-        VirtAddr slot = (a < argc) ? str_va : 0;
-        memcpy(block + (a * sizeof(VirtAddr)), &slot, sizeof(slot));
-        if (a < argc) {
-            size_t l = strlen(str_src) + 1;
-            str_va += l;
-            str_src += l;
-        }
+    size_t slot_i = 0;
+    const char *src = argbuf;
+    for (uint32_t a = 0; a < argc; a++) {
+        memcpy(block + (slot_i++ * sizeof(VirtAddr)), &str_va, sizeof(str_va));
+        size_t l = strlen(src) + 1;
+        str_va += l;
+        src += l;
     }
-    memcpy(block + table_bytes, argbuf, argbuf_len);
+    VirtAddr null = 0;
+    memcpy(block + (slot_i++ * sizeof(VirtAddr)), &null, sizeof(null));
+    src = envbuf;
+    for (uint32_t e = 0; e < envc; e++) {
+        memcpy(block + (slot_i++ * sizeof(VirtAddr)), &str_va, sizeof(str_va));
+        size_t l = strlen(src) + 1;
+        str_va += l;
+        src += l;
+    }
+    memcpy(block + (slot_i * sizeof(VirtAddr)), &null, sizeof(null));
+    if (argbuf_len)
+        memcpy(block + table_bytes, argbuf, argbuf_len);
+    if (envbuf_len)
+        memcpy(block + table_bytes + argbuf_len, envbuf, envbuf_len);
 
     Err rc = MemInjectBytes(space_handle, SPAWN_ARGV_VA, block, block_len, PROT_RW);
     free(block);
@@ -255,7 +274,7 @@ static Err LayoutArgv(Handle space_handle, const char *argbuf, size_t argbuf_len
  * @param[in]  argbuf     argv strings back to back, or NULL.
  * @param[in]  argbuf_len Length of @p argbuf.
  * @param[in]  argc       Number of strings.
- * @param[in]  attr       Scheduling settings, or NULL.
+ * @param[in]  attr       Scheduling, stdio and environment settings, or NULL.
  * @param[out] out_pid    Receives the new space's handle; may be NULL.
  * @param[out] out_task   Receives the new task's handle; may be NULL.
  * @return As SpawnProcessAttr().
@@ -269,6 +288,11 @@ static Err SpawnFromImage(Handle image_obj, const void *image, size_t size, cons
     if (prc != ZUZU_OK)
         return prc;
     if ((argc > 0) != (argbuf != NULL && argbuf_len > 0))
+        return ERR_BADARG;
+    const char *envbuf = attr ? attr->envbuf : NULL;
+    size_t envbuf_len = attr ? attr->envbuf_len : 0;
+    uint32_t envc = attr ? attr->envc : 0;
+    if ((envc > 0) != (envbuf != NULL && envbuf_len > 0))
         return ERR_BADARG;
     if (attr && attr->prio != SPAWN_PRIO_INHERIT && attr->max_prio != SPAWN_PRIO_INHERIT &&
         attr->prio > attr->max_prio)
@@ -287,7 +311,8 @@ static Err SpawnFromImage(Handle image_obj, const void *image, size_t size, cons
     }
 
     VirtAddr sp, argv_va;
-    Err rc = LayoutArgv(space_handle, argbuf, argbuf_len, argc, &sp, &argv_va);
+    Err rc = LayoutArgv(space_handle, argbuf, argbuf_len, argc, envbuf, envbuf_len, envc, &sp,
+                        &argv_va);
     if (rc != ZUZU_OK) {
         HandleDestroy(space_handle);
         return rc;
@@ -319,6 +344,14 @@ static Err SpawnFromImage(Handle image_obj, const void *image, size_t size, cons
     if (rc != ZUZU_OK) {
         HandleDestroy(space_handle);
         return rc;
+    }
+
+    if (attr && (attr->stdin_pipe || attr->stdout_pipe || attr->stderr_pipe)) {
+        rc = StdioRedirGrant(space_handle, attr->stdin_pipe, attr->stdout_pipe, attr->stderr_pipe);
+        if (rc != ZUZU_OK) {
+            HandleDestroy(space_handle);
+            return rc;
+        }
     }
 
     rc = TaskStart(task_handle, (void *)img.entry, (void *)sp, (Register)argc, (Register)argv_va);

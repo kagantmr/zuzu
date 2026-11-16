@@ -18,10 +18,6 @@
 #define INDEX_SLOT(index) ((uint32_t)(index) & 0xFFu)
 #define INDEX_GEN(index) ((uint32_t)(index) >> 8)
 
-/* Peers can write anywhere in the shared page, so none of ttysvc's decisions
- * trust a header field the peer could have scribbled on: masks use
- * TTY_RING_DATA_SIZE, and the indices ttysvc owns (up.tail, down.head) are
- * shadowed locally and only published. */
 typedef struct {
     bool in_use;
     bool provider;
@@ -36,6 +32,7 @@ typedef struct {
     uint32_t peer_bit;
     bool dirty; /* peer needs a kick */
     uint32_t up_tail;
+    uint32_t err_tail;
     uint32_t down_head;
     uint32_t eof_seq;
     uint32_t mode;
@@ -76,6 +73,24 @@ static uint32_t DownFree(const Session *s)
 {
     uint32_t used = s->down_head - s->shm->down_hdr.tail;
     return used > TTY_RING_DATA_SIZE ? 0 : TTY_RING_DATA_SIZE - used;
+}
+
+static uint32_t ErrAvail(const Session *s)
+{
+    uint32_t n = s->shm->err_hdr.head - s->err_tail;
+    return n > TTY_ERR_DATA_SIZE ? TTY_ERR_DATA_SIZE : n;
+}
+
+static uint8_t ErrPeek(const Session *s)
+{
+    return s->shm->err_data[s->err_tail & (TTY_ERR_DATA_SIZE - 1)];
+}
+
+static void ErrDrop(Session *s)
+{
+    s->err_tail++;
+    s->shm->err_hdr.tail = s->err_tail;
+    s->dirty = true;
 }
 
 static uint8_t UpPeek(const Session *s)
@@ -360,6 +375,7 @@ static void HandleConnect(bool provider, const PortWaitResult *r)
     memset(s->shm, 0, sizeof(*s->shm));
     ShmRingInit(&s->shm->up_hdr, TTY_RING_DATA_SIZE);
     ShmRingInit(&s->shm->down_hdr, TTY_RING_DATA_SIZE);
+    ShmRingInit(&s->shm->err_hdr, TTY_ERR_DATA_SIZE);
 
     TtyConnectReply rep = {
         .status = ZUZU_OK, .bit = SESSION_BIT(slot), .index = SESSION_INDEX(g_gen[slot], slot)};
@@ -627,7 +643,7 @@ static bool ProcessInboundOne(Session *f, const Endpoint *ep, uint8_t c)
     if ((m & TTY_ISIG) && c == 0x03) { /* ^C: flag only, ttysvc never kills anything */
         if (echo && room < 4)
             return false;
-        f->shm->ctl.intr_seq++;
+        f->shm->down_ctl.intr_seq++;
         f->line_len = 0;
         f->dirty = true;
         if (echo) {
@@ -659,9 +675,9 @@ static bool ProcessInboundOne(Session *f, const Endpoint *ep, uint8_t c)
             EchoByte(ep, m, '\n');
         return true;
     case 0x04: /* ^D */
-        if (f->line_len == 0 && f->shm->ctl.eof_ack == f->eof_seq) {
-            f->shm->ctl.eof_pos = f->down_head;
-            f->shm->ctl.eof_seq = ++f->eof_seq;
+        if (f->line_len == 0 && f->shm->down_ctl.eof_ack == f->eof_seq) {
+            f->shm->down_ctl.eof_pos = f->down_head;
+            f->shm->down_ctl.eof_seq = ++f->eof_seq;
             f->dirty = true;
         }
         return true; /* ^D mid-line is dropped */
@@ -717,7 +733,7 @@ static void InterruptOthers(const Endpoint *ep, const Session *fg)
         Session *s = &g_sessions[i];
         if (!s->in_use || s->provider || s->endpoint != epi || s == fg || !(s->mode & TTY_ISIG))
             continue;
-        s->shm->ctl.intr_seq++;
+        s->shm->down_ctl.intr_seq++;
         s->line_len = 0;
         s->dirty = true;
     }
@@ -740,9 +756,21 @@ static void RouteInbound(Session *p, Session *f, const Endpoint *ep)
     }
 }
 
+/* Output reaches the display from stdout and stderr alike; stderr goes first so an error is
+ * not stuck behind a long stretch of stdout. */
 static void RouteOutbound(Session *f, const Endpoint *ep)
 {
     bool onlcr = OnlcrOn(f->mode);
+    while (ErrAvail(f) > 0) {
+        uint8_t c = ErrPeek(f);
+        bool crlf = onlcr && c == '\n';
+        if (OutFree(ep) < (crlf ? 2U : 1U))
+            return;
+        if (crlf)
+            OutPush(ep, '\r');
+        OutPush(ep, c);
+        ErrDrop(f);
+    }
     while (UpAvail(f) > 0) {
         uint8_t c = UpPeek(f);
         bool crlf = onlcr && c == '\n';

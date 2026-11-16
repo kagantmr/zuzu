@@ -2,7 +2,6 @@
 #include <ansi.h>
 #include <fs/fsd_client.h>
 #include <net/socket.h>
-#include <stdio.h>
 #include <string.h>
 #include <zuzu/err.h>
 #include <zuzu/uptime.h>
@@ -58,7 +57,7 @@ static int tftp_fetch(FsdConn *fsd, int sock, uint32_t server, const char *file,
     uint8_t rrq[SOCK_DGRAM_MAX];
     size_t flen = strlen(file);
     if (flen + 9 > sizeof(rrq)) {
-        printf("tftp: name too long\n");
+        ShPrintf("tftp: name too long\n");
         return -1;
     }
     put16(rrq, OP_RRQ);
@@ -84,7 +83,7 @@ static int tftp_fetch(FsdConn *fsd, int sock, uint32_t server, const char *file,
         int n = SockRecvFrom(sock, pkt, sizeof(pkt), &ip, &port, TFTP_TIMEOUT_MS);
         if (n == ERR_TIMEOUT) {
             if (++tries > TFTP_RETRIES) {
-                printf(ANSI_RED "tftp: timed out\n" ANSI_RESET);
+                ShPrintf(ANSI_RED "tftp: timed out\n" ANSI_RESET);
                 break;
             }
             if (expect == 1)
@@ -94,7 +93,7 @@ static int tftp_fetch(FsdConn *fsd, int sock, uint32_t server, const char *file,
             continue;
         }
         if (n < 0) {
-            printf(ANSI_RED "tftp: recv failed (%s)\n" ANSI_RESET, StrToError(n));
+            ShPrintf(ANSI_RED "tftp: recv failed (%s)\n" ANSI_RESET, StrToError(n));
             break;
         }
         if (ip != server || n < 4 || (tid && port != tid))
@@ -103,7 +102,7 @@ static int tftp_fetch(FsdConn *fsd, int sock, uint32_t server, const char *file,
         uint16_t op = get16(pkt);
         if (op == OP_ERROR) {
             pkt[n < (int)sizeof(pkt) ? n : (int)sizeof(pkt) - 1] = 0;
-            printf(ANSI_RED "tftp: server: %s\n" ANSI_RESET, (char *)pkt + 4);
+            ShPrintf(ANSI_RED "tftp: server: %s\n" ANSI_RESET, (char *)pkt + 4);
             break;
         }
         if (op != OP_DATA)
@@ -121,7 +120,7 @@ static int tftp_fetch(FsdConn *fsd, int sock, uint32_t server, const char *file,
         if (!open) {
             rc = FsdOpen(fsd, dest, FSD_MODE_WRITE | FSD_MODE_CREATE_ALWAYS, &fd);
             if (rc != ZUZU_OK) {
-                printf(ANSI_RED "tftp: %s: open failed (%s)\n" ANSI_RESET, dest, StrToError(rc));
+                ShPrintf(ANSI_RED "tftp: %s: open failed (%s)\n" ANSI_RESET, dest, StrToError(rc));
                 break;
             }
             open = true;
@@ -132,7 +131,7 @@ static int tftp_fetch(FsdConn *fsd, int sock, uint32_t server, const char *file,
             uint32_t put;
             rc = FsdWrite(fsd, fd, pkt + 4, len, &put);
             if (rc != ZUZU_OK || put != len) {
-                printf(ANSI_RED "tftp: write failed (%s)\n" ANSI_RESET, StrToError(rc));
+                ShPrintf(ANSI_RED "tftp: write failed (%s)\n" ANSI_RESET, StrToError(rc));
                 break;
             }
         }
@@ -143,7 +142,7 @@ static int tftp_fetch(FsdConn *fsd, int sock, uint32_t server, const char *file,
 
         if (len < TFTP_BLOCK) {
             uint64_t ms = UptimeMs() - start;
-            printf("%s: %u bytes in %u ms\n", dest, total, (unsigned)ms);
+            ShPrintf("%s: %u bytes in %u ms\n", dest, total, (unsigned)ms);
             result = 0;
             break;
         }
@@ -161,18 +160,18 @@ int TftpGet(FsdConn *fsd, const char *server, const char *file, const char *dest
 {
     uint32_t ip;
     if (!parse_ip(server, &ip)) {
-        printf("tftp: bad address %s\n", server);
+        ShPrintf("tftp: bad address %s\n", server);
         return -1;
     }
 
     int sock = SockOpen(SOCK_KIND_UDP);
     if (sock < 0) {
-        printf(ANSI_RED "tftp: socket failed (%s)\n" ANSI_RESET, StrToError(sock));
+        ShPrintf(ANSI_RED "tftp: socket failed (%s)\n" ANSI_RESET, StrToError(sock));
         return -1;
     }
     Err rc = SockBind(sock, 0);
     if (rc != ZUZU_OK) {
-        printf(ANSI_RED "tftp: bind failed (%s)\n" ANSI_RESET, StrToError(rc));
+        ShPrintf(ANSI_RED "tftp: bind failed (%s)\n" ANSI_RESET, StrToError(rc));
         SockClose(sock);
         return -1;
     }
