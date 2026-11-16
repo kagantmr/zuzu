@@ -42,16 +42,6 @@ static inline uint32_t RegRead(uint32_t off) { return *(volatile uint32_t *)(g_r
 
 static inline void RegWrite(uint32_t off, uint32_t v) { *(volatile uint32_t *)(g_regs + off) = v; }
 
-static Handle WaitForService(const char *path)
-{
-    for (;;) {
-        Handle h = LookupService(path);
-        if (h >= 0)
-            return h;
-        Sleep(10);
-    }
-}
-
 static Err MboxCall(void)
 {
     uint32_t msg = g_buf_bus | MBOX_CH_PROPERTY;

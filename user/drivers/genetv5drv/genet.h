@@ -11,6 +11,8 @@
 #define GENET_BUF_PAGES (GENET_RING_SIZE * GENET_BUF_SIZE / 4096)
 #define GENET_MIN_FRAME 60
 #define GENET_LINK_POLL_MS 1000
+#define GENET_IRQ_BIT 2
+#define GENET_IRQ_MASK (1u << GENET_IRQ_BIT)
 
 /** @brief Order CPU writes to DMA memory before a later doorbell write. */
 static inline void GenetWmb(void) { __asm__ volatile("dmb oshst" ::: "memory"); }
@@ -22,7 +24,7 @@ typedef void (*GenetRxFn)(const uint8_t *frame, uint32_t len);
 
 /** @brief Driver state shared by all genetv5drv files. */
 typedef struct {
-    Handle dev, irq;
+    Handle dev, event;
     uint8_t *base;
     GenetSys *sys;
     GenetExt *ext;
@@ -40,6 +42,7 @@ typedef struct {
     uint32_t mbps;
     uint32_t tx_packets, tx_busy;
     uint32_t rx_packets, rx_errors;
+    uint32_t irqs;
 } Genet;
 
 /** @brief The one GENET instance. */
@@ -74,13 +77,14 @@ void WriteMac(void);
 /** @brief Configure RGMII and the UMAC speed, keeping the TX/RX enables. */
 void SetLink(uint32_t umac_speed);
 
-/** @brief Mask and clear every GENET interrupt, then bind the IRQ to an event. */
+/** @brief Mask every GENET interrupt, create the shared event and bind the IRQ to GENET_IRQ_BIT. */
 Err GenetIrqInit(void);
 /** @brief Let the given INTRL2_0 sources raise the IRQ. */
 void GenetIrqEnable(uint32_t bits);
-/** @brief Wait up to @p timeout ms for the IRQ, acknowledge it and return the sources that fired.
- */
-uint32_t GenetIrqWait(Duration timeout);
+/** @brief Stop the given INTRL2_0 sources from raising the IRQ. */
+void GenetIrqDisable(uint32_t bits);
+/** @brief Acknowledge the IRQ, rearm it and return the unmasked sources that fired. */
+uint32_t GenetIrqAck(void);
 
 /** @brief Set up the TX buffers and ring 16, and enable TX. */
 Err GenetTxInit(void);

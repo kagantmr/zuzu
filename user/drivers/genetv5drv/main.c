@@ -1,12 +1,8 @@
 #include "genet.h"
+#include "netd.h"
+#include <net/protocols/nic.h>
 #include <util/log.h>
 #include <zuzu/uptime.h>
-
-static void RxFrame(const uint8_t *f, uint32_t len)
-{
-    LOG_DEBUG(LOG_TAG, "rx %u bytes from %02x:%02x:%02x:%02x:%02x:%02x type %02x%02x", len, f[6],
-              f[7], f[8], f[9], f[10], f[11], f[12], f[13]);
-}
 
 int main()
 {
@@ -40,6 +36,9 @@ int main()
         rc = GenetRxInit();
     if (rc != ZUZU_OK)
         return rc;
+    rc = ConnectToNetd();
+    if (rc != ZUZU_OK)
+        return rc;
     GenetIrqEnable(RXDMA_MBDONE);
     LOG_INFO(LOG_TAG, "up: %u Mb/s, MAC %02x:%02x:%02x:%02x:%02x:%02x", g_genet.mbps,
              g_genet.mac[0], g_genet.mac[1], g_genet.mac[2], g_genet.mac[3], g_genet.mac[4],
@@ -47,13 +46,30 @@ int main()
 
     uint64_t last_poll = UptimeMs();
     for (;;) {
-        uint32_t stat = GenetIrqWait(GENET_LINK_POLL_MS);
-        if (stat & RXDMA_MBDONE)
-            GenetRxPoll(RxFrame);
+        EventWaitResult r =
+            WaitOnEvent(g_genet.event, GENET_LINK_POLL_MS, GENET_IRQ_MASK | NIC_DOORBELL_TX, false);
+        bool kick_tx = r.status == ZUZU_OK && (r.bits & NIC_DOORBELL_TX);
+
+        if (r.status == ZUZU_OK && (r.bits & GENET_IRQ_MASK)) {
+            uint32_t stat = GenetIrqAck();
+            if (stat & RXDMA_MBDONE)
+                NetdRx();
+            if (stat & TXDMA_MBDONE) {
+                GenetIrqDisable(TXDMA_MBDONE);
+                kick_tx = true;
+            }
+        }
+
+        if (kick_tx && NetdTx() == ERR_BUSY)
+            GenetIrqEnable(TXDMA_MBDONE);
 
         uint64_t now = UptimeMs();
         if (now - last_poll >= GENET_LINK_POLL_MS) {
+            bool was_up = g_genet.link_up;
             PhyPollLink();
+            if (g_genet.link_up != was_up)
+                NetdReportLink();
+            NetdSyncStats();
             last_poll = now;
         }
     }

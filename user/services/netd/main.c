@@ -42,6 +42,24 @@ static void UdpEchoHandler(Ipv4Addr src_ip, NetPort src_port, NetPort dst_port, 
     UdpSend(src_ip, dst_port, src_port, data, len);
 }
 
+static bool link_up = true;
+
+static void CheckLink(void)
+{
+    bool up = !stats->link_down;
+    if (up == link_up)
+        return;
+    link_up = up;
+    if (!up) {
+        LOG_INFO(LOG_TAG, "link down");
+        ArpFlush();
+        DhcpLinkDown();
+    } else {
+        LOG_INFO(LOG_TAG, "link up");
+        DhcpLinkUp();
+    }
+}
+
 /* Fires once the lease is first acquired: the network is now usable. */
 static __attribute__((cold)) void OnDhcpBound(void)
 {
@@ -246,7 +264,8 @@ int main()
         if (sleep_ms != TIMEOUT_POLL && slice == 0)
             slice = 1;
 
-        WaitOn(g_nic_doorbell_ev, slice);
+        WaitOnEvent(g_nic_doorbell_ev, slice, NIC_DOORBELL_RX | NIC_DOORBELL_LINK, false);
+        CheckLink();
 
         /* 3. DRAIN RX FIRST: process inbound before any timer fires */
         NicFrame *frame;

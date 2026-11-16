@@ -1,0 +1,17 @@
+#ifndef DRIVERS_GENETV5DRV_NETD_H
+#define DRIVERS_GENETV5DRV_NETD_H
+
+#include <types.h>
+
+/** @brief Create the shared packet rings and register with netd over the shared event. */
+Err ConnectToNetd(void);
+/** @brief Move every received frame into netd's RX ring and ring its doorbell. */
+void NetdRx(void);
+/** @brief Hand queued frames from netd's TX ring to the hardware; ERR_BUSY if some had to wait. */
+Err NetdTx(void);
+/** @brief Publish g_genet.link_up to netd and ring its link doorbell. */
+void NetdReportLink(void);
+/** @brief Copy the driver counters into the stats block netd reads. */
+void NetdSyncStats(void);
+
+#endif /* DRIVERS_GENETV5DRV_NETD_H */

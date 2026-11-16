@@ -6,19 +6,9 @@
 
 #define DMA_STOP_TIMEOUT_MS 10
 
-Genet g_genet = {.dev = -1, .irq = -1};
+Genet g_genet = {.dev = -1, .event = -1};
 
 static const char *compats[1] = {"brcm,bcm2711-genet-v5"};
-
-static Handle WaitForService(const char *path)
-{
-    for (;;) {
-        Handle h = LookupService(path);
-        if (h >= 0)
-            return h;
-        Sleep(10);
-    }
-}
 
 Err MapRegs(void)
 {

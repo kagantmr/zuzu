@@ -12,4 +12,5 @@ bin/emmc2drv|none:prio=3,maxprio=3|/dev/mmc0
 bin/fsd|none:prio=3,maxprio=3|/svc/fsd
 bin/mboxdrv|none:prio=3,maxprio=3|/svc/mbox
 bin/genetv5drv|none:prio=3,maxprio=3
+bin/netd|none:prio=4,maxprio=4|/svc/netd
 bin/zzsh|tty:late

@@ -80,6 +80,14 @@ static void ArpFreeEntry(ArpEntry *e)
     memset(e, 0, sizeof(*e)); /* state -> ARP_FREE, qlen -> 0 */
 }
 
+void ArpFlush(void)
+{
+    for (int i = 0; i < ARP_MAX_ENTRIES; i++)
+        if (arp_table[i].state != ARP_FREE)
+            ArpFreeEntry(&arp_table[i]);
+    acd.active = false;
+}
+
 static ArpEntry *ArpFindOrCreate(Ipv4Addr ip)
 {
     ArpEntry *e = ArpFind(ip);

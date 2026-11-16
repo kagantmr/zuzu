@@ -41,3 +41,13 @@ Handle LookupService(const char *name)
         return (Handle)rc;
     return found;
 }
+
+Handle WaitForService(const char *path)
+{
+    for (;;) {
+        Handle h = LookupService(path);
+        if (h >= 0)
+            return h;
+        Sleep(10);
+    }
+}
