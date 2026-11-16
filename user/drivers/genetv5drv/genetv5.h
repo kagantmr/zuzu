@@ -152,6 +152,29 @@ typedef struct {
 } GenetDesc;
 _Static_assert(sizeof(GenetDesc) == 12, "descriptor is 3 words");
 
+#define DESC_LEN_SHIFT 16
+#define DESC_LEN_MASK 0xfffu
+#define DESC_OWN (1u << 15)
+#define DESC_EOP (1u << 14)
+#define DESC_SOP (1u << 13)
+#define DESC_TX_QTAG (0x3fu << 7)
+#define DESC_TX_APPEND_CRC (1u << 6)
+#define DESC_RX_BRDCAST (1u << 6)
+#define DESC_RX_MULT (1u << 5)
+#define DESC_RX_LG (1u << 4)
+#define DESC_RX_NO (1u << 3)
+#define DESC_RX_RXER (1u << 2)
+#define DESC_RX_CRC_ERR (1u << 1)
+#define DESC_RX_OV (1u << 0)
+#define DESC_RX_ERRORS 0x1fu
+
+#define GENET_RDESC_OFF 0x2000
+#define GENET_RRING16_OFF 0x3000
+#define GENET_TDESC_OFF 0x4000
+#define GENET_TRING16_OFF 0x5000
+#define DMA_RING16_CFG_EN (1u << 16)
+#define DMA_RING16_BUF_EN (1u << 17)
+
 typedef struct {
     volatile uint32_t stat;
     volatile uint32_t stat_set;
@@ -160,6 +183,8 @@ typedef struct {
     volatile uint32_t mask_set;
     volatile uint32_t mask_clear;
 } GenetIntrl2;
+_Static_assert(offsetof(GenetIntrl2, clear) == 0x08, "layout");
+_Static_assert(offsetof(GenetIntrl2, mask_clear) == 0x14, "layout");
 
 #define RXDMA_MBDONE (1u << 13)
 

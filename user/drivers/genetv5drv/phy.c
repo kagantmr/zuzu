@@ -33,7 +33,7 @@ Err PhyNegotiate(void)
             return rc;
         }
         if ((bmsr & BMSR_LSTATUS) && (bmsr & BMSR_ANEGCOMPLETE)) {
-            LOG_INFO(LOG_TAG, "autonegotiation done after %u ms", ms + ANEG_POLL_MS);
+            LOG_DEBUG(LOG_TAG, "autonegotiation done after %u ms", ms + ANEG_POLL_MS);
             return ZUZU_OK;
         }
     }
@@ -63,16 +63,16 @@ Err PhyGetSpeed(uint32_t *umac_speed, uint32_t *mbps)
         LOG_ERROR(LOG_TAG, "MDIO read failed: %s", StrToError(rc));
         return rc;
     }
-    LOG_INFO(LOG_TAG, "PHY id %04x:%04x link %u aneg %u", id1, id2, !!(bmsr & BMSR_LSTATUS),
-             !!(bmsr & BMSR_ANEGCOMPLETE));
+    LOG_DEBUG(LOG_TAG, "PHY id %04x:%04x link %u aneg %u", id1, id2, !!(bmsr & BMSR_LSTATUS),
+              !!(bmsr & BMSR_ANEGCOMPLETE));
 
     if (!(bmsr & BMSR_LSTATUS) || !(bmsr & BMSR_ANEGCOMPLETE)) {
         LOG_ERROR(LOG_TAG, "no link");
         return ERR_NOTCONN;
     }
 
-    LOG_INFO(LOG_TAG, "adv %04x lpa %04x ctrl1000 %04x stat1000 %04x", adv, lpa, ctrl1000,
-             stat1000);
+    LOG_DEBUG(LOG_TAG, "adv %04x lpa %04x ctrl1000 %04x stat1000 %04x", adv, lpa, ctrl1000,
+              stat1000);
     uint16_t common = adv & lpa;
     if ((ctrl1000 & CTRL1000_FULL) && (stat1000 & STAT1000_FULL)) {
         *umac_speed = UMAC_SPEED_1000;
@@ -85,4 +85,28 @@ Err PhyGetSpeed(uint32_t *umac_speed, uint32_t *mbps)
         *mbps = 10;
     }
     return ZUZU_OK;
+}
+
+void PhyPollLink(void)
+{
+    uint16_t bmsr = 0;
+    if (MdioRead(MII_BMSR, &bmsr) != ZUZU_OK || MdioRead(MII_BMSR, &bmsr) != ZUZU_OK)
+        return;
+    bool up = (bmsr & BMSR_LSTATUS) && (bmsr & BMSR_ANEGCOMPLETE);
+    if (up == g_genet.link_up)
+        return;
+
+    if (!up) {
+        g_genet.link_up = false;
+        LOG_INFO(LOG_TAG, "link down");
+        return;
+    }
+
+    uint32_t umac_speed = 0, mbps = 0;
+    if (PhyGetSpeed(&umac_speed, &mbps) != ZUZU_OK)
+        return;
+    SetLink(umac_speed);
+    g_genet.mbps = mbps;
+    g_genet.link_up = true;
+    LOG_INFO(LOG_TAG, "link up %u Mb/s", mbps);
 }

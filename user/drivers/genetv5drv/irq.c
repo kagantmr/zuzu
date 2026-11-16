@@ -21,13 +21,9 @@ Err GenetIrqInit(void)
 
 void GenetIrqEnable(uint32_t bits) { g_genet.intrl2_0->mask_clear = bits; }
 
-uint32_t GenetIrqWait(void)
+uint32_t GenetIrqWait(Duration timeout)
 {
-    EventWaitResult r = WaitOnEvent(g_genet.irq, 1000, 0, false);
-    LOG_INFO(LOG_TAG, "dbg: wake st %d bits %x stat %08x mask %08x rxprod %u rxcons %u mibrx %u",
-             r.status, r.bits, g_genet.intrl2_0->stat, g_genet.intrl2_0->mask_status,
-             g_genet.rx_ring->prod_index & 0xffff, g_genet.rx_ring->cons_index & 0xffff,
-             *(volatile uint32_t *)((uint8_t *)g_genet.umac + 0x428));
+    EventWaitResult r = WaitOnEvent(g_genet.irq, timeout, 0, false);
     if (r.status != ZUZU_OK)
         return 0;
 

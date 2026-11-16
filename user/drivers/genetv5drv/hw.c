@@ -143,5 +143,6 @@ void SetLink(uint32_t umac_speed)
     oob |= RGMII_LINK | RGMII_MODE_EN;
     g_genet.ext->rgmii_oob_ctrl = oob;
 
-    g_genet.umac->cmd = umac_speed << CMD_SPEED_SHIFT;
+    uint32_t cmd = g_genet.umac->cmd & ~(3u << CMD_SPEED_SHIFT);
+    g_genet.umac->cmd = cmd | (umac_speed << CMD_SPEED_SHIFT);
 }
