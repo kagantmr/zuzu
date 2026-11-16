@@ -491,7 +491,6 @@ static int BiHelp(int argc, char **argv)
              "  cd [dir|-]  pwd  echo [-n]  export [N[=V]]  unset N  set  env  history\n"
              "  type N  test|[ expr ]  sleep S  source F  true  false  clear  help  exit [n]\n"
              "  tftp [-s ip] F [dest]   fetch a file over TFTP\n\n"
-             "  type N  test|[ expr ]  sleep S  source F  true  false  clear  help  exit [n]\n\n"
              "  NAME=value cmd   set a variable (for one command, or for the shell if alone)\n"
              "  $NAME ${NAME} $? ~ 'quote' \"quote\" \\x   expansion and quoting\n"
              "  a | b            pipe     a > f  a >> f  a < f   redirect\n"
