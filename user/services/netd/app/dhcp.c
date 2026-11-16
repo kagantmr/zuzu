@@ -450,15 +450,10 @@ void DhcpTick(void)
             DhcpSendReboot();
             return;
         }
-        if (DhcpLeaseValid()) {
-            LOG_INFO(LOG_TAG, "no DHCP reply after link up, keeping %u.%u.%u.%u",
-                     IP4(netif.ip));
-            dhcp.retries = 0;
-            dhcp.state = DHCP_BOUND;
-        } else {
-            netif.ip = netif.netmask = netif.gateway = netif.dns = 0;
-            DhcpRestart();
-        }
+        LOG_INFO(LOG_TAG, "no DHCP reply for %u.%u.%u.%u after link up, starting over",
+                 IP4(netif.ip));
+        netif.ip = netif.netmask = netif.gateway = netif.dns = 0;
+        DhcpRestart();
         return;
     }
 }

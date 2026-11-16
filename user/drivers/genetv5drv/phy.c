@@ -4,7 +4,7 @@
 
 #define ANEG_POLL_MS 100
 #define ANEG_TIMEOUT_MS 15000
-#define ADVERTISE_1000 0
+#define ADVERTISE_1000 1
 
 Err PhyNegotiate(void)
 {
