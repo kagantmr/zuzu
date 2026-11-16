@@ -6,5 +6,7 @@ zuzufetch
 zztest
 hello_newlib
 kilo
+ifconfig
 cat
 ls
+rm

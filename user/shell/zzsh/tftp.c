@@ -67,12 +67,8 @@ static int tftp_fetch(FsdConn *fsd, int sock, uint32_t server, const char *file,
     uint16_t rrq_len = (uint16_t)(flen + 9);
 
     uint32_t fd;
-    Err rc = FsdOpen(fsd, dest, FSD_MODE_WRITE | FSD_MODE_CREATE_ALWAYS, &fd);
-    if (rc != ZUZU_OK) {
-        printf(ANSI_RED "tftp: %s: open failed (%s)\n" ANSI_RESET, dest, StrToError(rc));
-        return -1;
-    }
-
+    bool open = false;
+    Err rc;
     uint8_t pkt[4 + TFTP_BLOCK];
     uint16_t tid = 0;
     uint16_t expect = 1;
@@ -122,6 +118,15 @@ static int tftp_fetch(FsdConn *fsd, int sock, uint32_t server, const char *file,
             continue;
         }
 
+        if (!open) {
+            rc = FsdOpen(fsd, dest, FSD_MODE_WRITE | FSD_MODE_CREATE_ALWAYS, &fd);
+            if (rc != ZUZU_OK) {
+                printf(ANSI_RED "tftp: %s: open failed (%s)\n" ANSI_RESET, dest, StrToError(rc));
+                break;
+            }
+            open = true;
+        }
+
         uint32_t len = (uint32_t)n - 4;
         if (len) {
             uint32_t put;
@@ -144,9 +149,11 @@ static int tftp_fetch(FsdConn *fsd, int sock, uint32_t server, const char *file,
         }
     }
 
-    FsdClose(fsd, fd);
-    if (result != 0)
-        FsdUnlink(fsd, dest);
+    if (open) {
+        FsdClose(fsd, fd);
+        if (result != 0)
+            FsdUnlink(fsd, dest);
+    }
     return result;
 }
 
