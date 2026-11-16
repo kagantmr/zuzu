@@ -21,7 +21,6 @@
 #define IRQ_MASK (1u << IRQ_BIT)
 
 #define TX_DOORBELL_MASK NIC_DOORBELL_TX
-#define RX_DOORBELL_MASK NIC_DOORBELL_RX
 
 static volatile Lan9118Mmio *nic;
 static uint8_t mac[6];
@@ -29,6 +28,7 @@ static char ifname[16];
 static Handle shm_tx_handle = -1, shm_rx_handle = -1;
 static Handle dev_handle = -1;
 static Handle g_doorbell_ev = -1;
+static Handle g_netd_bell = -1;
 static void *shm_tx, *shm_rx;
 static NicRing *rx_ring, *tx_ring;
 
@@ -239,7 +239,7 @@ void ServiceIrq(void)
                     continue;
                 }
                 nic_stats[NIC_STAT_RX_PACKETS]++;
-                Signal(g_doorbell_ev, RX_DOORBELL_MASK, false);
+                Signal(g_netd_bell, NIC_NETD_DOORBELL, false);
             }
         }
     }
@@ -331,6 +331,9 @@ static Err NetdHandshake(void)
         return ERR_MALFORMED;
     memcpy(ifname, (const char *)GetMessageBox() + sizeof(Err), len);
     if (ifname[len - 1] != '\0')
+        return ERR_MALFORMED;
+    g_netd_bell = (Handle)reply.r3;
+    if (g_netd_bell < 0)
         return ERR_MALFORMED;
 
     LOG_INFO(LOG_TAG, "registered with netd as %s", ifname);

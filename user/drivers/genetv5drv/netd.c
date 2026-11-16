@@ -10,6 +10,7 @@
 #include <zuzu/zuzu.h>
 
 static Handle shm_tx_handle = -1, shm_rx_handle = -1;
+static Handle netd_bell = -1;
 static NicRing *nic_rx, *nic_tx;
 static NicStatsBlock *nic_block;
 static volatile uint32_t *nic_stats;
@@ -127,6 +128,9 @@ static Err NetdHandshake(void)
     memcpy(ifname, (const char *)GetMessageBox() + sizeof(Err), len);
     if (ifname[len - 1] != '\0')
         return ERR_MALFORMED;
+    netd_bell = (Handle)reply.r3;
+    if (netd_bell < 0)
+        return ERR_MALFORMED;
 
     LOG_INFO(LOG_TAG, "registered with netd as %s", ifname);
     return ZUZU_OK;
@@ -159,7 +163,7 @@ void NetdRx(void)
     rx_pushed = false;
     GenetRxPoll(PushFrame);
     if (rx_pushed)
-        Signal(g_genet.event, NIC_DOORBELL_RX, false);
+        Signal(netd_bell, NIC_NETD_DOORBELL, false);
 }
 
 Err NetdTx(void)
@@ -186,5 +190,5 @@ void NetdSyncStats(void)
 void NetdReportLink(void)
 {
     nic_block->link_down = !g_genet.link_up;
-    Signal(g_genet.event, NIC_DOORBELL_LINK, false);
+    Signal(netd_bell, NIC_NETD_DOORBELL, false);
 }
