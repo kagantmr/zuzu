@@ -214,7 +214,7 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
                 VmmFixPermission(current_space->as, dfar, is_write, false))
                 return;
 
-            KERROR("Oops! '%s' (SPID %d, TID %d) killed: data abort @ 0x%08X (%s %s)\n",
+            KDEBUG("Oops! '%s' (SPID %d, TID %d) killed: data abort @ 0x%08X (%s %s)\n",
                    current_space->name, current_space->spid, current_task->tid, dfar,
                    (dfsr & (1 << 11)) ? "write" : "read", DecodeFsr(dfsr));
             TaskFault(current_task, KILLED_FAULT_DATA);
@@ -229,7 +229,7 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
             if (is_permission && VmmFixPermission(current_space->as, dfar, is_write, false))
                 return;
 
-            KERROR("Oops! Kernel fault in SVC from '%s' (SPID %d, TID %d, state %d) pc=0x%08X @ "
+            KDEBUG("Oops! Kernel fault in SVC from '%s' (SPID %d, TID %d, state %d) pc=0x%08X @ "
                    "0x%08X (%s %s)\n",
                    current_space->name, current_space->spid, current_task->tid,
                    (int)current_task->state, (unsigned)frame->return_pc, dfar,
