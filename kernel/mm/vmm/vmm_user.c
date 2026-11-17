@@ -190,6 +190,63 @@ Err VmmUnmapUserRegion(SpaceObject *space, VirtAddr va)
     return ZUZU_OK;
 }
 
+/**
+ * @brief Clears the mapped address on the memory handle that mapped @p va, if any.
+ *
+ * @param[in,out] space The space whose handle table is searched.
+ * @param[in] va Start address the handle was mapped at.
+ */
+static void VmmForgetHandleMapping(SpaceObject *space, VirtAddr va)
+{
+    for (uint32_t w = 0; w < BITMAP_WORDS(HANDLE_MAX_SLOTS); w++) {
+        uint32_t bits = space->handle_table.slot_bitmap[w];
+        while (bits) {
+            uint32_t i = (w * 32U) + (uint32_t)__builtin_ctz(bits);
+            bits &= bits - 1U;
+            HandleTableEntry *entry = HandleTableGet(&space->handle_table, (Handle)i);
+            if (entry && entry->type == HANDLE_MEM && entry->mapped_va == va) {
+                entry->mapped_va = 0;
+                return;
+            }
+        }
+    }
+}
+
+Err VmmUnmapUserChunk(SpaceObject *space, VirtAddr va, PhysAddr *scratch, size_t max_pages,
+                      VirtAddr *next)
+{
+    VirtMemRegion *r = VmmFindRegion(space->as, va);
+    ENSURE_RET(r, ERR_NOENT);
+    ENSURE_RET(r->vaddr_start == va, ERR_BADARG);
+    ENSURE_RET(!(r->flags & VM_FLAG_PINNED), ERR_NOPERM);
+
+    if (r->owner != VM_BACKING_ANON)
+        VmmForgetHandleMapping(space, va);
+
+    size_t chunk = max_pages * PAGE_SIZE;
+    bool last = r->owner == VM_BACKING_NONE || r->size <= chunk;
+    size_t len = last ? r->size : chunk;
+
+    if (r->owner == VM_BACKING_ANON) {
+        size_t n = ArchMmuUnmapCollect(space->as, va, len, scratch, max_pages);
+        for (size_t i = 0; i < n; i++)
+            PmmFreeFrame(scratch[i]);
+    }
+
+    *next = 0;
+    if (last) {
+        ENSURE(VmmRemoveRegion(space->as, va, r->size),
+               panic("Found region, but VmmRemoveRegion failed"));
+        return ZUZU_OK;
+    }
+
+    if (r->owner == VM_BACKING_SHARED)
+        VmmUnmapRange(space->as, va, len, true);
+    VmmTrimRegionFront(r, len);
+    *next = va + len;
+    return ZUZU_OK;
+}
+
 Err VmmProtectUserRange(SpaceObject *space, VirtAddr va, size_t size, MemProt new_prot)
 {
     ENSURE_RET(0 != size, ERR_BADARG);

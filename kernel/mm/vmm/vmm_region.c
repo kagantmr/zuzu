@@ -71,6 +71,14 @@ VirtMemRegion *VmmFindRegion(AddressSpace *as, VirtAddr va)
     return bsearch(&va, as->regions.data, as->regions.len, sizeof(VirtMemRegion), RegionContainsVa);
 }
 
+void VmmTrimRegionFront(VirtMemRegion *r, size_t bytes)
+{
+    r->vaddr_start += bytes;
+    r->size -= bytes;
+    if (r->owner == VM_BACKING_SHARED)
+        r->backing_page_offset += bytes / PAGE_SIZE;
+}
+
 bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, VirtAddr page_va)
 {
     if (!as || !r)

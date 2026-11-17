@@ -141,6 +141,17 @@ void AddressSpaceDestroy(AddressSpace *as);
 bool VmmAddRegion(AddressSpace *restrict as, const VirtMemRegion *restrict region);
 
 /**
+ * @brief Drop the first @p bytes of a region without touching its mappings or its reference.
+ *
+ * The region list stays sorted, since the start only moves within the region's own range. The
+ * caller unmaps the dropped range itself.
+ *
+ * @param[in,out] r The region to shrink.
+ * @param[in] bytes Bytes to drop; page-aligned and less than the region's size.
+ */
+void VmmTrimRegionFront(VirtMemRegion *r, size_t bytes);
+
+/**
  * @brief Unmap and remove a region, dropping its reference to the backing object.
  *
  * @param[in,out] as The space holding the region.
@@ -280,6 +291,26 @@ Err VmmMapAnon(SpaceObject *space, VirtAddr hint, size_t size, MemProt prot, Vir
  */
 Err VmmMapMemObj(SpaceObject *space, HandleTableEntry *entry, MemProt prot, VirtAddr hint,
                  VirtAddr *out);
+
+/**
+ * @brief Unmap at most @p max_pages of the user region that starts at an address.
+ *
+ * Anonymous pages in that part are freed and the region's front is trimmed; the call that reaches
+ * the region's end removes it and drops its reference on the backing object. Device regions are
+ * removed whole. The memory handle that mapped the region has its mapped address cleared.
+ *
+ * @param[in,out] space The space holding the region.
+ * @param[in] va Start address of the region.
+ * @param[out] scratch Room for @p max_pages frames.
+ * @param[in] max_pages Most pages to unmap in this call.
+ * @param[out] next Start of what is left of the region, or 0 once it is gone.
+ * @return ZUZU_OK on success.
+ * @retval ERR_NOENT No region contains @p va.
+ * @retval ERR_BADARG @p va is not the region's start.
+ * @retval ERR_NOPERM The region is pinned.
+ */
+Err VmmUnmapUserChunk(SpaceObject *space, VirtAddr va, PhysAddr *scratch, size_t max_pages,
+                      VirtAddr *next);
 
 /**
  * @brief Unmap the user region that starts at an address.
