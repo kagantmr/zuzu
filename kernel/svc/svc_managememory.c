@@ -52,8 +52,15 @@ void SvcManageMemory(CpuState *frame)
         VirtAddr va = (VirtAddr)(*ArchGetFromFrame(frame, 1));
         size_t size = (size_t)(*ArchGetFromFrame(frame, 2));
         MemProt new_prot = (MemProt)(*ArchGetFromFrame(frame, 3));
-
-        ArchSetInFrame(frame, 0, VmmProtectUserRange(CURRENT_SPACE, va, size, new_prot));
+        VirtAddr next = 0;
+        Err rc = VmmProtectUserChunk(CURRENT_SPACE, va, size, new_prot, SVC_CHUNK_PAGES, &next);
+        if (rc == ZUZU_OK && next) {
+            ArchSetInFrame(frame, 1, (Register)next);
+            ArchSetInFrame(frame, 2, (Register)(size - (next - va)));
+            ArchRewindSvc(frame);
+            break;
+        }
+        ArchSetInFrame(frame, 0, rc);
     } break;
     case MNGMEM_INJECTOBJ: {
         Handle kitten_space_handle = (Handle)(*ArchGetFromFrame(frame, 1));

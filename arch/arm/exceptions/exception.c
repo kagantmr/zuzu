@@ -148,6 +148,9 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
             if ((status == 0x05 || status == 0x07) && ifar < KERNEL_VA_BASE && current_space->as &&
                 VmmDemandPage(current_space->as, ifar, false))
                 return;
+            if ((status == 0x0D || status == 0x0F) && ifar < KERNEL_VA_BASE && current_space->as &&
+                VmmFixPermission(current_space->as, ifar, false, true))
+                return;
             TaskFault(current_task, KILLED_FAULT_PREFETCH);
             Schedule();
         } else {
@@ -178,6 +181,8 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
 
         uint32_t fault_status = (dfsr & 0xF) | ((dfsr >> 6) & 0x10);
         bool is_translation = (fault_status == 0x05 || fault_status == 0x07);
+        bool is_permission = (fault_status == 0x0D || fault_status == 0x0F);
+        bool is_write = (dfsr & (1 << 11)) != 0;
 
         if (dfar >= KSTACK_REGION_BASE && dfar < KSTACK_REGION_TOP) {
             uint32_t offset_in_slot = (dfar - KSTACK_REGION_BASE) % KSTACK_SLOT_SIZE;
@@ -199,12 +204,15 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
         if (likely(from_user && current_space && current_space->as)) {
             
             if (likely(is_translation && dfar < KERNEL_VA_BASE) &&
-                VmmDemandPage(current_space->as, dfar, (dfsr & (1 << 11)) != 0)) {
+                VmmDemandPage(current_space->as, dfar, is_write)) {
 #ifdef CONFIG_ZUZU_BENCH
                 BENCH_END(g_bench_lazy_map_fault, bench_start);
 #endif
                 return;
             }
+            if (is_permission && dfar < KERNEL_VA_BASE &&
+                VmmFixPermission(current_space->as, dfar, is_write, false))
+                return;
 
             KERROR("Oops! '%s' (SPID %d, TID %d) killed: data abort @ 0x%08X (%s %s)\n",
                    current_space->name, current_space->spid, current_task->tid, dfar,
@@ -212,12 +220,14 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
             TaskFault(current_task, KILLED_FAULT_DATA);
             Schedule();
         } else if (from_svc && current_space && current_space->as && dfar < KERNEL_VA_BASE) {
-            if (is_translation && VmmDemandPage(current_space->as, dfar, (dfsr & (1 << 11)) != 0)) {
+            if (is_translation && VmmDemandPage(current_space->as, dfar, is_write)) {
 #ifdef CONFIG_ZUZU_BENCH
                 BENCH_END(g_bench_lazy_map_fault, bench_start);
 #endif
                 return;
             }
+            if (is_permission && VmmFixPermission(current_space->as, dfar, is_write, false))
+                return;
 
             KERROR("Oops! Kernel fault in SVC from '%s' (SPID %d, TID %d, state %d) pc=0x%08X @ "
                    "0x%08X (%s %s)\n",

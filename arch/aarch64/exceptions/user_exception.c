@@ -83,6 +83,8 @@ void __hot UserSyncException(CpuState *frame)
         bool write = is_data && EsrIsWrite(iss);
         if (EsrIsTranslationFault(iss) && VmmDemandPage(current_space->as, far, write))
             return;
+        if (EsrIsPermissionFault(iss) && VmmFixPermission(current_space->as, far, write, !is_data))
+            return;
         KDEBUG("Oops! '%s' (SPID %d, TID %d) killed: segmentation fault, %s @ " REG_FMT
                " pc=" REG_FMT " (%s)",
                current_space->name, current_space->spid, current_task->tid,

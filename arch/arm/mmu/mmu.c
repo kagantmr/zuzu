@@ -395,8 +395,11 @@ bool ArchMmuProtect(AddressSpace *as, VirtAddr va, size_t size, MemProt prot)
         uint32_t type = l1_entry & DESC_TYPE_MASK;
 
         if (type == DESC_SECTION) {
-            l1[l1_idx] = L1SetProt(l1_entry, prot);
-            changed = true;
+            uint32_t e = L1SetProt(l1_entry, prot);
+            if (e != l1_entry) {
+                l1[l1_idx] = e;
+                changed = true;
+            }
             offset += SECTION_SIZE - PAGE_SIZE;
             continue;
         }
@@ -409,8 +412,11 @@ bool ArchMmuProtect(AddressSpace *as, VirtAddr va, size_t size, MemProt prot)
             if (!(l2[l2_idx] & L2_SMALL_TAG))
                 continue;
 
-            l2[l2_idx] = L2SetProt(l2[l2_idx], prot);
-            changed = true;
+            uint32_t e = L2SetProt(l2[l2_idx], prot);
+            if (e != l2[l2_idx]) {
+                l2[l2_idx] = e;
+                changed = true;
+            }
         }
     }
 

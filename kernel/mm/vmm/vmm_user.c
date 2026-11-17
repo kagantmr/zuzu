@@ -247,7 +247,8 @@ Err VmmUnmapUserChunk(SpaceObject *space, VirtAddr va, PhysAddr *scratch, size_t
     return ZUZU_OK;
 }
 
-Err VmmProtectUserRange(SpaceObject *space, VirtAddr va, size_t size, MemProt new_prot)
+Err VmmProtectUserChunk(SpaceObject *space, VirtAddr va, size_t size, MemProt new_prot,
+                        size_t max_pages, VirtAddr *next)
 {
     ENSURE_RET(0 != size, ERR_BADARG);
     ENSURE_RET(!(size % PAGE_SIZE), ERR_BADARG);
@@ -256,15 +257,52 @@ Err VmmProtectUserRange(SpaceObject *space, VirtAddr va, size_t size, MemProt ne
     ENSURE_RET(!(new_prot & ~(uint32_t)(PROT_EXEC | PROT_WRITE | PROT_READ)), ERR_BADARG);
     ENSURE_RET(!((new_prot & PROT_WRITE) && (new_prot & PROT_EXEC)), ERR_BADARG);
 
-    const VirtMemRegion *r = VmmFindRegion(space->as, va);
+    VirtMemRegion *r = VmmFindRegion(space->as, va);
     ENSURE_RET(r, ERR_BADARG);
     ENSURE_RET(!(new_prot & ~r->max_prot), ERR_NOPERM);
+    ENSURE_RET(!(r->flags & VM_FLAG_PINNED), ERR_BADARG);
+    ENSURE_RET(!((new_prot & PROT_EXEC) &&
+                 (r->memtype == VM_MEM_DEVICE || r->memtype == VM_MEM_NORMAL_NC)),
+               ERR_BADARG);
 
-    ENSURE_RET(va == r->vaddr_start && size == r->size, ERR_BADARG);
+    MemProt prot = new_prot | VM_PROT_USER;
+    VirtAddr end = r->vaddr_start + r->size;
+    bool whole = va == r->vaddr_start && size == r->size;
+    bool tail = va > r->vaddr_start && va + size == end && r->prot == prot;
+    ENSURE_RET(whole || tail, ERR_BADARG);
 
-    ENSURE_RET(VmmProtectPage(space->as, va, size, new_prot | VM_PROT_USER), ERR_BADARG);
-
+    r->prot = prot;
+    size_t chunk = max_pages * PAGE_SIZE;
+    size_t len = size < chunk ? size : chunk;
+    (void)ArchMmuProtect(space->as, va, len, prot);
+    *next = len < size ? va + len : 0;
     return ZUZU_OK;
+}
+
+bool VmmFixPermission(AddressSpace *as, VirtAddr va, bool write, bool exec)
+{
+    if (unlikely(!as || va >= USER_VA_TOP))
+        return false;
+
+    VirtMemRegion *r = VmmFindRegion(as, va);
+    if (unlikely(!r || (r->flags & VM_FLAG_GUARD)))
+        return false;
+    if (write && !(r->prot & PROT_WRITE))
+        return false;
+    if (exec && !(r->prot & PROT_EXEC))
+        return false;
+    if (!write && !exec && !(r->prot & PROT_READ))
+        return false;
+
+    VirtAddr page_va = align_down(va, PAGE_SIZE);
+    PhysAddr pa = ArchMmuTranslate(as->pt_root_physaddr, page_va);
+    if (!pa)
+        return false;
+    if (exec) {
+        ArchCacheCleanDcacheRangePou(PA_TO_VA(align_down(pa, PAGE_SIZE)), PAGE_SIZE);
+        ArchCacheInvalidateIcacheAll();
+    }
+    return ArchMmuProtect(as, page_va, PAGE_SIZE, r->prot);
 }
 
 bool VmmMapUserPage(AddressSpace *as, PhysAddr pa, VirtAddr va, MemProt prot)

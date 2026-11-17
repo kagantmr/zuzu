@@ -542,6 +542,36 @@ static void TestMemory(void)
     MemProtect((VirtAddr)a, 8192, PROT_RW);
     CheckEq(MemUnmap(a), ZUZU_OK, "Unmap(anon) OK");
 
+    /* Protect and unmap across several kernel entries */
+    const uint32_t wide_pages = 300;
+    const size_t wide_bytes = (size_t)wide_pages * 4096;
+    uint8_t *wide = MemMapAnon(wide_bytes, 0, PROT_RW);
+    Check(!PtrIsErr(wide), "MemMapAnon(300 pages) OK");
+    if (!PtrIsErr(wide)) {
+        for (uint32_t i = 0; i < wide_pages; i++)
+            wide[i * 4096] = (uint8_t)i;
+        CheckEq(MemProtect((VirtAddr)wide, wide_bytes, PROT_READ), ZUZU_OK,
+                "Protect(300 pages, read-only) OK");
+        bool intact = true;
+        for (uint32_t i = 0; i < wide_pages; i++)
+            intact &= wide[i * 4096] == (uint8_t)i;
+        Check(intact, "300 read-only pages keep their contents");
+        CheckEq(MemProtect((VirtAddr)wide + 64 * 4096, wide_bytes - 64 * 4096, PROT_READ), ZUZU_OK,
+                "Protect(tail, same protection) OK");
+        CheckEq(MemProtect((VirtAddr)wide + 64 * 4096, wide_bytes - 64 * 4096, PROT_RW),
+                ERR_BADARG, "Protect(tail, other protection) -> BADARG");
+        CheckEq(MemProtect((VirtAddr)wide, wide_bytes, PROT_RW), ZUZU_OK,
+                "Protect(300 pages, read-write) OK");
+        for (uint32_t i = 0; i < wide_pages; i++)
+            wide[i * 4096] = (uint8_t)(i + 1);
+        intact = true;
+        for (uint32_t i = 0; i < wide_pages; i++)
+            intact &= wide[i * 4096] == (uint8_t)(i + 1);
+        Check(intact, "all 300 pages are writable again");
+        CheckEq(MemUnmap(wide), ZUZU_OK, "Unmap(300 pages) OK");
+        CheckEq(MemUnmap(wide), ERR_NOENT, "the whole 300-page region is gone");
+    }
+
     /* Shared memory objects */
     Handle mem = CreateMem(2, 0);
     Check(mem >= 0, "CreateMem(2) OK");

@@ -184,6 +184,8 @@ void KernelSyncException(CpuState *frame)
             SpaceObject *space = current_task->owner;
             if (EsrIsTranslationFault(iss) && VmmDemandPage(space->as, fa, write))
                 return;
+            if (EsrIsPermissionFault(iss) && VmmFixPermission(space->as, fa, write, false))
+                return;
 
             KERROR("Oops! Kernel fault on a user address in a svc from '%s' (SPID %d, TID %d) "
                    "pc=" REG_FMT " @ " REG_FMT " (%s %s)",
