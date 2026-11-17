@@ -238,4 +238,11 @@ static inline bool ArchFlagsInIrqContext(Register flags)
     return false;
 }
 
+/**
+ * @brief Arch helper in restarting a svc.
+ *
+ * @param[in] f The frame of the task to restart the svc of.
+ */
+static inline void ArchRewindSvc(CpuState *f) { f->return_pc -= 4; }
+
 #endif // ARCH_AARCH64_IMPL_REGS_H
