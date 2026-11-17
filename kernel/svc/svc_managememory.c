@@ -38,7 +38,15 @@ void SvcManageMemory(CpuState *frame)
     } break;
     case MNGMEM_UNMAP: {
         VirtAddr va = (VirtAddr)(*ArchGetFromFrame(frame, 1));
-        ArchSetInFrame(frame, 0, VmmUnmapUserRegion(CURRENT_SPACE, va));
+        VirtAddr next = 0;
+        PhysAddr pas[SVC_CHUNK_PAGES];
+        Err rc = VmmUnmapUserChunk(CURRENT_SPACE, va, pas, SVC_CHUNK_PAGES, &next);
+        if (rc == ZUZU_OK && next) {
+            ArchSetInFrame(frame, 1, (Register)next);
+            ArchRewindSvc(frame);
+            break;
+        }
+        ArchSetInFrame(frame, 0, rc);
     } break;
     case MNGMEM_PROTECT: {
         VirtAddr va = (VirtAddr)(*ArchGetFromFrame(frame, 1));
