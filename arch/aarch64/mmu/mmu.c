@@ -446,6 +446,37 @@ void ArchMmuFlushTlb(void)
                          : "memory");
 }
 
+typedef struct {
+    PhysAddr *out;
+    size_t max;
+    size_t n;
+} CollectCtx;
+
+static void CollectSlot(AArch64Pte *slot, int level, VirtAddr va, void *ctx)
+{
+    CollectCtx *c = ctx;
+    (void)va;
+    if (level != PTE_LEVEL_LAST)
+        return;
+    assert(c->n < c->max);
+    c->out[c->n++] = (PhysAddr)(*slot & PTE_ADDR_MASK);
+    *slot = 0;
+}
+
+size_t ArchMmuUnmapCollect(AddressSpace *as, VirtAddr va, size_t size, PhysAddr *out, size_t max)
+{
+    CollectCtx c = {.out = out, .max = max, .n = 0};
+    WalkRange(RootOf(as), va, size, CollectSlot, &c);
+    if (c.n) {
+        __asm__ volatile("dsb ishst" ::: "memory");
+        for (VirtAddr p = va; p < va + size; p += PAGE_SIZE)
+            __asm__ volatile("tlbi vae1, %0" ::"r"(TLBI_ASID(as->asid_token.asid) | TLBI_VA(p))
+                             : "memory");
+        __asm__ volatile("dsb ish\n\tisb" ::: "memory");
+    }
+    return c.n;
+}
+
 void ArchMmuFlushTlbAsid(Asid asid)
 {
     if (asid == 0) {

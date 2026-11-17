@@ -162,6 +162,21 @@ PhysAddr ArchMmuTranslate(PhysAddr ttbr_pa, VirtAddr va);
 bool ArchMmuUnmapPage(AddressSpace *as, VirtAddr va);
 
 /**
+ * @brief Unmaps the pages in a range, stores their frames, and flushes them from the TLB.
+ *
+ * Only page-level entries are cleared; sections and blocks are left alone, and so are the page
+ * tables. The caller frees the stored frames once this returns.
+ *
+ * @param[in,out] as   Address space.
+ * @param[in]     va   Start of the range; page-aligned.
+ * @param[in]     size Length in bytes; page-aligned and at most @p max pages.
+ * @param[out]    out  Frames of the pages that were mapped.
+ * @param[in]     max  Capacity of @p out.
+ * @return Number of frames stored in @p out.
+ */
+size_t ArchMmuUnmapCollect(AddressSpace *as, VirtAddr va, size_t size, PhysAddr *out, size_t max);
+
+/**
  * @brief Frees the anonymous memory still mapped in a user space, and all of its tables.
  *
  * Pages that belong to memory objects, device mappings and the syspage are left alone. The
