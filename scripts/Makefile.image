@@ -27,7 +27,16 @@ INITRD_ROOT_FILES := $(shell find $(INITRD_ROOT_DIR) -type f 2>/dev/null)
 
 # The board's boot.manifest is both the packing list (BOOT_PROGS) and the
 # runtime spawn list, and ships in the image as /boot.manifest.
-$(INITRD): $(ZXF_PROG_FILES) $(BOOT_MANIFEST) $(INITRD_ROOT_FILES)
+# The stamp changes when CONSOLE switches the manifest, so a stale initrd is never reused.
+BOOT_MANIFEST_STAMP = $(O)/.boot-manifest
+
+.PHONY: boot-manifest-check
+$(BOOT_MANIFEST_STAMP): boot-manifest-check
+	@mkdir -p $(dir $@)
+	@printf '%s' '$(BOOT_MANIFEST)' | cmp -s - $@ 2>/dev/null || \
+	    printf '%s' '$(BOOT_MANIFEST)' > $@
+
+$(INITRD): $(ZXF_PROG_FILES) $(BOOT_MANIFEST) $(BOOT_MANIFEST_STAMP) $(INITRD_ROOT_FILES)
 	$(call check-tool,cpio,install it via your package manager (e.g. apt/brew install cpio).)
 	@rm -rf $(O)/initrd
 	@mkdir -p $(O)/initrd/bin

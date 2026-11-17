@@ -27,6 +27,7 @@ static struct {
     bool notified;                   /* on_bound already fired? */
     uint8_t ack_buf[DHCP_ACK_BUFSZ]; /* ACK held while ACD probes offered_ip */
     uint16_t ack_len;                /* bytes valid in ack_buf */
+    bool link_down;
 } dhcp;
 
 static size_t DhcpOptU8(uint8_t *p, uint8_t code, uint8_t val)
@@ -137,6 +138,33 @@ static __attribute__((cold)) int DhcpSendRenew(Ipv4Addr dst)
     if (rc == ZUZU_OK)
         dhcp.sent_ms = NetNowMs();
     return rc;
+}
+
+static __attribute__((cold)) int DhcpSendReboot(void)
+{
+    uint8_t buf[sizeof(DhcpMsg) + 64];
+
+    size_t len = DhcpBuild(buf);
+
+    len += DhcpOptU8(buf + len, DHCP_OPT_MSGTYPE, DHCP_REQUEST);
+    len += DhcpOptU32(buf + len, DHCP_OPT_REQ_IP, netif.ip);
+
+    static const uint8_t params[] = {DHCP_OPT_SUBNET, DHCP_OPT_ROUTER, DHCP_OPT_DNS};
+    len += DhcpOptRaw(buf + len, DHCP_OPT_PARAM_LIST, params, sizeof(params));
+
+    buf[len++] = DHCP_OPT_END;
+
+    int rc = UdpSend(BROADCAST_IP, DHCP_CLIENT_PORT, DHCP_SERVER_PORT, buf, len);
+    if (rc == ZUZU_OK)
+        dhcp.sent_ms = NetNowMs();
+    return rc;
+}
+
+static bool DhcpLeaseValid(void)
+{
+    if (dhcp.lease_secs == DHCP_LEASE_INFINITE)
+        return true;
+    return (NetNowMs() - dhcp.bound_ms) / 1000 < dhcp.lease_secs;
 }
 
 /* DHCPDECLINE (RFC 2131 4.4.4): tell the server the offered address is already
@@ -289,7 +317,8 @@ static __attribute__((cold)) void DhcpRecv(Ipv4Addr src_ip, NetPort src_port, Ne
         return;
     uint8_t msgtype = *p;
 
-    bool renewing = (dhcp.state == DHCP_RENEWING || dhcp.state == DHCP_REBINDING);
+    bool renewing = (dhcp.state == DHCP_RENEWING || dhcp.state == DHCP_REBINDING ||
+                     dhcp.state == DHCP_REBOOTING);
 
     if (dhcp.state == DHCP_SELECTING && msgtype == DHCP_OFFER) {
         dhcp.offered_ip = m->yiaddr; /* raw, no swap */
@@ -314,7 +343,10 @@ static __attribute__((cold)) void DhcpRecv(Ipv4Addr src_ip, NetPort src_port, Ne
             DhcpBeginAcd(data, len);
 
     } else if ((dhcp.state == DHCP_REQUESTING || renewing) && msgtype == DHCP_NAK) {
-        DhcpRestart(); /* lease refused: start over */
+        if (renewing)
+            LOG_INFO(LOG_TAG, "lease on %u.%u.%u.%u refused, starting over", IP4(netif.ip));
+        netif.ip = netif.netmask = netif.gateway = netif.dns = 0;
+        DhcpRestart();
     }
 }
 
@@ -333,12 +365,33 @@ __attribute__((cold)) void DhcpInit(DhcpBoundCb on_bound)
 bool DhcpIsBound(void)
 {
     return dhcp.state == DHCP_BOUND || dhcp.state == DHCP_RENEWING ||
-           dhcp.state == DHCP_REBINDING; /* lease still valid while renewing */
+           dhcp.state == DHCP_REBINDING ||
+           dhcp.state == DHCP_REBOOTING; /* lease still valid while renewing */
+}
+
+void DhcpLinkDown(void) { dhcp.link_down = true; }
+
+void DhcpLinkUp(void)
+{
+    dhcp.link_down = false;
+    if (!DhcpIsBound() || !DhcpLeaseValid()) {
+        netif.ip = netif.netmask = netif.gateway = netif.dns = 0;
+        DhcpRestart();
+        return;
+    }
+    dhcp.state = DHCP_REBOOTING;
+    dhcp.xid = NetNowMs();
+    dhcp.start_ms = NetNowMs();
+    dhcp.retries = 0;
+    DhcpSendReboot();
 }
 
 void DhcpTick(void)
 {
     uint32_t now = NetNowMs();
+
+    if (dhcp.link_down)
+        return;
 
     switch (dhcp.state) {
     case DHCP_INIT:
@@ -388,5 +441,19 @@ void DhcpTick(void)
             DhcpSendRenew(dhcp.state == DHCP_RENEWING ? dhcp.server_id : BROADCAST_IP);
         return;
     }
+
+    case DHCP_REBOOTING:
+        if ((int32_t)(now - dhcp.sent_ms) < DHCP_TIMEOUT_MS)
+            return;
+        if (dhcp.retries < DHCP_MAX_RETRIES) {
+            dhcp.retries++;
+            DhcpSendReboot();
+            return;
+        }
+        LOG_INFO(LOG_TAG, "no DHCP reply for %u.%u.%u.%u after link up, starting over",
+                 IP4(netif.ip));
+        netif.ip = netif.netmask = netif.gateway = netif.dns = 0;
+        DhcpRestart();
+        return;
     }
 }

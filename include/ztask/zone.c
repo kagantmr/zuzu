@@ -5,7 +5,7 @@
 
 #include <stdatomic.h>
 #include <stdbool.h>
-#include <sync/zone.h>
+#include <ztask/zone.h>
 #include <types.h>
 #include <util/tls.h>
 #include <zuzu/zuzu.h>

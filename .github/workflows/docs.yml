@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "include/**"
+      - "arch/**/*.h"
       - "docs/Doxyfile"
       - "docs/groups.dox"
       - "docs/doc-publish"
@@ -49,7 +50,7 @@ jobs:
         run: |
           git config user.name "zuzu-docs-bot"
           git config user.email "zuzu-docs-bot@users.noreply.github.com"
-          git add -A docs/reference
+          git add -A docs/reference docs/internals/arch
           if git diff --cached --quiet; then
             echo "no changes"
             exit 0

@@ -33,8 +33,8 @@ extern "C" {
 
 /** @brief Bytes per block. */
 #define SD_BLOCK_SIZE 512u
-/** @brief Size of the transfer buffer: one page, so at most 8 blocks per request. */
-#define SD_BUF_SIZE 4096u
+/** @brief Size of the transfer buffer: 16 pages, so at most 128 blocks per request. */
+#define SD_BUF_SIZE 65536u
 
 /** @brief A request, in the message buffer. */
 typedef struct {

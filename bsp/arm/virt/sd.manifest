@@ -5,3 +5,7 @@ hello_newlib
 kilo
 cat
 ls
+logs
+grep
+logger
+rm

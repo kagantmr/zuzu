@@ -94,3 +94,4 @@ docs/*.md
 
 __pycache__/
 *.pyc
+docs/prowl-plan.md

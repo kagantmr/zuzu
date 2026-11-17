@@ -9,5 +9,6 @@
 #include "cv.h"
 #include "sem.h"
 #include "zone.h"
+#include "ztask.h"
 
 #endif /* ZUZU_SYNC_PRIMITIVES_H */

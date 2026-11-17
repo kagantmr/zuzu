@@ -7,3 +7,8 @@ nettest
 ifconfig
 cat
 ls
+logs
+grep
+logger
+rm
+termtest

@@ -31,6 +31,8 @@ static Handle block_dev_handle = -1;
 static Handle g_event = -1;
 static Handle g_buf_mem = -1;
 static uint32_t *shmem_buf = NULL;
+static uint32_t g_dma_bus;
+static bool g_sdma;
 static int current_op = 0;
 
 static void BusyDelay(uint32_t n)
@@ -203,50 +205,51 @@ static int Emmc2HwInit(void)
     return 0;
 }
 
-/* Synchronous transfer: after the command is issued, sleep on the event until
- * the controller raises BUF_RD/WR_READY (or an error), move the data, and
- * return. The IRQ line is masked by the kernel on every interrupt, so the
- * source is cleared first, then the line re-armed, then int_status re-read. */
-static int Emmc2WaitTransfer(uint32_t *buf)
+/* Synchronous transfer: the controller moves the block by SDMA. Sleep on the
+ * event until XFER_COMPLETE (or an error). The IRQ line is masked by the kernel
+ * on every interrupt, so the source is cleared first, then the line re-armed,
+ * then int_status re-read. */
+static int Emmc2WaitTransfer(uint32_t *pio)
 {
     bool irq = true; /* command interrupts may already have masked the line */
 
-    for (uint32_t polls = 0; polls < XFER_TIMEOUT_POLLS; polls++) {
+    for (uint32_t polls = 0; polls < XFER_TIMEOUT_POLLS;) {
         uint32_t status = emmc2->int_status;
 
         if (status & SDHCI_INT_ERROR) {
             LOG_ERROR(LOG_TAG, "transfer error STATUS=0x%08x", status);
             emmc2->int_status = status;
-            emmc2->clk_ctrl_reset |= SDHCI_RESET_DATA;
-            while (emmc2->clk_ctrl_reset & SDHCI_RESET_DATA)
+            emmc2->clk_ctrl_reset |= SDHCI_RESET_CMD | SDHCI_RESET_DATA;
+            while (emmc2->clk_ctrl_reset & (SDHCI_RESET_CMD | SDHCI_RESET_DATA))
                 ;
             IrqRearm(block_dev_handle);
             return SD_ERR_IO;
         }
-        if (current_op == OP_READ && (status & SDHCI_INT_BUF_RD_READY)) {
-            emmc2->int_status = SDHCI_INT_BUF_RD_READY;
-            for (size_t i = 0; i < MCI_BLOCK_WORDS; i++) {
-                buf[i] = emmc2->data_port;
-            }
-            while (!(emmc2->int_status & SDHCI_INT_XFER_COMPLETE))
-                ;
-            emmc2->int_status = SDHCI_INT_XFER_COMPLETE;
+        if (status & SDHCI_INT_XFER_COMPLETE) {
+            emmc2->int_status = SDHCI_INT_XFER_COMPLETE | SDHCI_INT_DMA;
             IrqRearm(block_dev_handle);
             return ZUZU_OK;
         }
-        if (current_op == OP_WRITE && (status & SDHCI_INT_BUF_WR_READY)) {
+        if (pio && current_op == OP_READ && (status & SDHCI_INT_BUF_RD_READY)) {
+            emmc2->int_status = SDHCI_INT_BUF_RD_READY;
+            for (size_t i = 0; i < MCI_BLOCK_WORDS; i++)
+                pio[i] = emmc2->data_port;
+            pio += MCI_BLOCK_WORDS;
+            continue;
+        }
+        if (pio && current_op == OP_WRITE && (status & SDHCI_INT_BUF_WR_READY)) {
             emmc2->int_status = SDHCI_INT_BUF_WR_READY;
-            for (size_t i = 0; i < MCI_BLOCK_WORDS; i++) {
-                emmc2->data_port = buf[i];
-            }
-            while (!(emmc2->int_status & SDHCI_INT_XFER_COMPLETE))
-                ;
-            emmc2->int_status = SDHCI_INT_XFER_COMPLETE;
-            IrqRearm(block_dev_handle);
-            return ZUZU_OK;
+            for (size_t i = 0; i < MCI_BLOCK_WORDS; i++)
+                emmc2->data_port = pio[i];
+            pio += MCI_BLOCK_WORDS;
+            continue;
+        }
+        if (status & SDHCI_INT_DMA) {
+            emmc2->int_status = SDHCI_INT_DMA;
+            emmc2->sdma_addr = emmc2->sdma_addr;
+            status &= ~SDHCI_INT_DMA;
         }
 
-        /* Spurious, or XFER_COMPLETE from a previous step */
         if (status)
             emmc2->int_status = status;
         if (irq) {
@@ -256,32 +259,46 @@ static int Emmc2WaitTransfer(uint32_t *buf)
 
         EventWaitResult ev = FormatToEventWait(WaitOn(g_event, POLL_MS));
         irq = ev.status == ZUZU_OK && (ev.bits & MASK(BIT_IRQ));
+        polls++;
     }
 
     LOG_ERROR(LOG_TAG, "transfer timed out");
     return SD_ERR_IO;
 }
 
-static int Emmc2Transfer(int op, uint32_t block_num, uint32_t *buf)
+static int Emmc2Transfer(int op, uint32_t block_num, uint32_t count)
 {
     uint32_t addr = is_sdhc ? block_num : block_num * MCI_BLOCK_SIZE;
+    size_t len = (size_t)count * MCI_BLOCK_SIZE;
 
     current_op = op;
-    emmc2->block_size_count = (1U << 16) | 512U;
-    emmc2->int_status = 0xFFFFFFFF;
+    if (g_sdma)
+        DmaSync(block_dev_handle, g_dma_bus, len, DMA_SYNC_FOR_DEVICE);
 
-    int rc;
+    emmc2->int_status = 0xFFFFFFFF;
+    if (g_sdma)
+        emmc2->sdma_addr = g_dma_bus;
+    emmc2->block_size_count = (count << 16) | SDHCI_BLKSZ_BOUNDARY_512K | MCI_BLOCK_SIZE;
+
+    uint32_t flags = SDHCI_CMD_RESP_48 | SDHCI_CMD_CRC_CHECK | SDHCI_CMD_IDX_CHECK |
+                     SDHCI_CMD_DATA_EN | SDHCI_TRNS_BLK_CNT_EN;
+    if (g_sdma)
+        flags |= SDHCI_TRNS_DMA;
+    if (count > 1)
+        flags |= SDHCI_TRNS_MULTI | SDHCI_TRNS_AUTO_CMD12;
+
+    uint32_t cmd;
     if (op == OP_READ) {
-        rc = Emmc2SendCmd(17, addr,
-                          SDHCI_CMD_RESP_48 | SDHCI_CMD_CRC_CHECK | SDHCI_CMD_IDX_CHECK |
-                              SDHCI_CMD_DATA_EN | SDHCI_TRNS_READ | SDHCI_TRNS_BLK_CNT_EN);
+        flags |= SDHCI_TRNS_READ;
+        cmd = (count > 1) ? 18 : 17;
     } else {
-        rc = Emmc2SendCmd(24, addr,
-                          SDHCI_CMD_RESP_48 | SDHCI_CMD_CRC_CHECK | SDHCI_CMD_IDX_CHECK |
-                              SDHCI_CMD_DATA_EN | SDHCI_TRNS_BLK_CNT_EN);
+        cmd = (count > 1) ? 25 : 24;
     }
 
-    rc = (rc < 0) ? SD_ERR_IO : Emmc2WaitTransfer(buf);
+    int rc = Emmc2SendCmd(cmd, addr, flags);
+    rc = (rc < 0) ? SD_ERR_IO : Emmc2WaitTransfer(g_sdma ? NULL : shmem_buf);
+    if (g_sdma && rc == ZUZU_OK && op == OP_READ)
+        DmaSync(block_dev_handle, g_dma_bus, len, DMA_SYNC_FOR_CPU);
     current_op = 0;
     return rc;
 }
@@ -317,9 +334,7 @@ static void ServeTransfer(const SdRequest *req)
     }
 
     int op = (req->cmd == SD_CMD_READ) ? OP_READ : OP_WRITE;
-    int rc = ZUZU_OK;
-    for (uint32_t i = 0; i < req->count && rc == ZUZU_OK; i++)
-        rc = Emmc2Transfer(op, req->lba + i, shmem_buf + (i * MCI_BLOCK_WORDS));
+    int rc = Emmc2Transfer(op, req->lba, req->count);
     ReplyStatus((Err)rc);
 }
 
@@ -366,6 +381,59 @@ static Handle WaitForDevsvc(void)
     }
 }
 
+/* A restarted driver finds the mappings its previous instance left on the
+ * device. Adopt the first one that fits and unmap every other one, so none of
+ * them stays pinned. */
+static Err Emmc2DmaBufInit(void)
+{
+    bool adopted = false;
+    size_t index = 0;
+    for (;;) {
+        SvcResult idr = HandleQueryAt(block_dev_handle, QUERY_DMA_ID, index);
+        if (idr.r0 != ZUZU_OK)
+            break;
+        uint32_t id = (uint32_t)idr.r1;
+
+        if (!adopted) {
+            SvcResult len = HandleQueryAt(block_dev_handle, QUERY_DMA_LEN, id);
+            SvcResult dir = HandleQueryAt(block_dev_handle, QUERY_DMA_DIR, id);
+            SvcResult bus = HandleQueryAt(block_dev_handle, QUERY_DMA_BUS, id);
+            if (len.r0 == ZUZU_OK && dir.r0 == ZUZU_OK && bus.r0 == ZUZU_OK &&
+                (uint32_t)len.r1 >= SD_BUF_SIZE && (DmaDir)dir.r1 == DMA_BIDIRECTIONAL) {
+                Handle h = DmaAdopt(block_dev_handle, id);
+                if (h >= 0) {
+                    g_buf_mem = h;
+                    g_dma_bus = (uint32_t)bus.r1;
+                    adopted = true;
+                    LOG_INFO(LOG_TAG, "adopted DMA buffer, bus 0x%08x", g_dma_bus);
+                    index++; /* keep this one; look at the next */
+                    continue;
+                }
+                LOG_WARN(LOG_TAG, "DmaAdopt failed: %s", StrToError(h));
+            }
+        }
+
+        /* Unmapping shifts the list, so the same index names the next mapping. */
+        if (DmaUnmap(block_dev_handle, id) != ZUZU_OK)
+            index++;
+    }
+    if (adopted)
+        return ZUZU_OK;
+
+    g_buf_mem = CreateMem(SD_BUF_SIZE / 4096, MEM_CONTIG);
+    if (g_buf_mem < 0)
+        return g_buf_mem;
+
+    DmaMapResult m = DmaMap(block_dev_handle, g_buf_mem, 0, SD_BUF_SIZE, DMA_BIDIRECTIONAL);
+    if (m.status != ZUZU_OK) {
+        LOG_ERROR(LOG_TAG, "DmaMap failed: %s", StrToError(m.status));
+        HandleClose(g_buf_mem);
+        return m.status;
+    }
+    g_dma_bus = (uint32_t)m.bus_addr;
+    return ZUZU_OK;
+}
+
 static int Emmc2ServiceInit(void)
 {
     Handle devsvc_port = WaitForDevsvc();
@@ -386,9 +454,11 @@ static int Emmc2ServiceInit(void)
 
     if (Emmc2HwInit() < 0)
         return -1;
+    g_sdma = (emmc2->capabilites[0] & SDHCI_CAN_DO_SDMA) != 0;
+    if (!g_sdma)
+        LOG_INFO(LOG_TAG, "controller has no SDMA, using PIO");
 
-    g_buf_mem = CreateMem(SD_BUF_SIZE / 4096, 0);
-    if (g_buf_mem < 0)
+    if (Emmc2DmaBufInit() != ZUZU_OK)
         return -1;
     void *shm_addr = MemMap(g_buf_mem, 0, PROT_RW);
     if (PtrIsErr(shm_addr))

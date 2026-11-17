@@ -9,8 +9,8 @@
 #include "zuzu/err.h"
 #include <stdatomic.h>
 #include <stdint.h>
-#include <sync/sem.h>
-#include <sync/zone.h>
+#include <ztask/sem.h>
+#include <ztask/zone.h>
 #include <types.h>
 
 /**

@@ -15,8 +15,10 @@ extern "C" {
 
 /** @brief Doorbell bit, netd to driver: frames queued in the tx ring. */
 #define NIC_DOORBELL_TX (1u << 0)
-/** @brief Doorbell bit, driver to netd: frames queued in the rx ring. */
-#define NIC_DOORBELL_RX (1u << 1)
+/** @brief Bit on netd's event that the driver signals when rx frames are queued or link_down changes. */
+#define NIC_NETD_BIT 30
+/** @brief Mask of NIC_NETD_BIT. */
+#define NIC_NETD_DOORBELL (1u << NIC_NETD_BIT)
 
 /** @brief Driver statistics counters. */
 typedef enum {
@@ -33,6 +35,7 @@ typedef enum {
 /** @brief Counters the driver keeps in the shared memory for netd and tools to read. */
 typedef struct {
     volatile uint32_t stat[NIC_STAT_COUNT]; /**< Counters, indexed by NicStat. */
+    volatile uint32_t link_down; /**< Nonzero while the driver sees no link; 0 means up. */
 } NicStatsBlock;
 
 /** @brief Offset of the NicStatsBlock: in the rx ring's pages, just after the ring. */

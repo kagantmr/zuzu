@@ -6,7 +6,7 @@
 #include <zuzu/zuzu.h>
 #include <list.h>
 
-#define SESSION_MAX 30
+#define SESSION_MAX 29
 #define SESSION_SOCKETS_MAX 64
 
 typedef struct {

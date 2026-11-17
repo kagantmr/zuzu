@@ -2,7 +2,7 @@
 #define EMMC2DRV_H
 #include <stdint.h>
 
-typedef struct __attribute__((packed)) {
+typedef struct {
     volatile uint32_t sdma_addr;        // 0x000
     volatile uint32_t block_size_count; // 0x004
     volatile uint32_t argument;         // 0x008
@@ -27,6 +27,7 @@ typedef struct __attribute__((packed)) {
 /* Transfer Mode Flags (CMD_XFER_MODE lower 16 bits) */
 #define SDHCI_TRNS_DMA (1u << 0)
 #define SDHCI_TRNS_BLK_CNT_EN (1u << 1)
+#define SDHCI_TRNS_AUTO_CMD12 (1u << 2)
 #define SDHCI_TRNS_READ (1u << 4)
 #define SDHCI_TRNS_MULTI (1u << 5)
 
@@ -43,6 +44,7 @@ typedef struct __attribute__((packed)) {
 /* Interrupt Status/Enable Flags (INT_STATUS, INT_ENABLE, INT_SIGNAL) */
 #define SDHCI_INT_CMD_COMPLETE (1u << 0)
 #define SDHCI_INT_XFER_COMPLETE (1u << 1)
+#define SDHCI_INT_DMA (1u << 3)
 #define SDHCI_INT_BUF_WR_READY (1u << 4)
 #define SDHCI_INT_BUF_RD_READY (1u << 5)
 #define SDHCI_INT_ERROR (1u << 15)
@@ -58,6 +60,10 @@ typedef struct __attribute__((packed)) {
 /* Host Control 1 Power Settings (HOST_CTRL_1) */
 #define SDHCI_POWER_ON (1u << 8)
 #define SDHCI_POWER_330V (7u << 9)
+
+#define SDHCI_BLKSZ_BOUNDARY_512K (7u << 12)
+
+#define SDHCI_CAN_DO_SDMA (1u << 22)
 
 #define MCI_BLOCK_SIZE 512u
 #define MCI_BLOCK_WORDS (MCI_BLOCK_SIZE / 4u)

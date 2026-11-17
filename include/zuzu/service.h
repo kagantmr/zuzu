@@ -61,6 +61,14 @@ Err RegisterService(const char *name, Handle port);
  */
 Handle LookupService(const char *name);
 
+/**
+ * @brief Poll until a service registers (bootstrap).
+ * 
+ * @param[in] name The name to wait for registration.
+ * @return The found port handle on success.
+ */
+Handle WaitForService(const char *name);
+
 #ifdef __cplusplus
 }
 #endif

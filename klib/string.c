@@ -78,6 +78,29 @@ char *strncpy(char *dest, const char *src, size_t n)
     return ret;
 }
 
+char *strcat(char *dest, const char *src)
+{
+    char *end = dest;
+    while (*end)
+        end++;
+    while ((*end++ = *src++))
+        ;
+    return dest;
+}
+
+char *strncat(char *dest, const char *src, size_t n)
+{
+    char *end = dest;
+    while (*end)
+        end++;
+    while (n > 0 && *src) {
+        *end++ = *src++;
+        n--;
+    }
+    *end = '\0';
+    return dest;
+}
+
 char *strchr(const char *s, int c)
 {
     while (*s) {

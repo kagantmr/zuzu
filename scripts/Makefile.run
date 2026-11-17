@@ -13,6 +13,8 @@ PCAP_FILE ?= /tmp/zuzu.pcap
 #   GRAPHIC=1               open QEMU's display window, scaled to fit when resized (the
 #                           serial console stays on this terminal), instead of -nographic
 #   GFX_BACKEND=<name>      display backend for GRAPHIC=1; cocoa on macOS, gtk elsewhere
+#   CONSOLE=serial          boot the board's boot.serial.manifest (shell on the UART, no display
+#                           stack); `make smoke` uses it by default where the board has one
 comma := ,
 NET         ?=
 GRAPHIC     ?=

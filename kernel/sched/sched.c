@@ -81,7 +81,7 @@ _Static_assert(SCHED_PRIORITY_LEVELS <= 32, "ready_mask is a uint32_t");
 static uint32_t ready_mask = 0;
 
 #define LOG_FMT(fmt) "(sched) " fmt
-#include <util/log.h>
+#include "core/log.h"
 
 static void IdleTask(void) __attribute__((noreturn));
 static void SchedArmTimer(void);
