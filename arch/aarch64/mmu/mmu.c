@@ -12,6 +12,7 @@
 #include <arch_impl/barrier.h>
 #include <arch_impl/regs.h>
 #include <arch_impl/sysreg.h>
+#include <assert.h>
 #include <string.h>
 #include <zuzu/user_layout.h>
 
@@ -446,12 +447,23 @@ void ArchMmuFlushTlb(void)
                          : "memory");
 }
 
+/** @brief Context of CollectSlot(). */
 typedef struct {
-    PhysAddr *out;
-    size_t max;
-    size_t n;
+    PhysAddr *out; /**< Frames of the cleared pages. */
+    size_t max;    /**< Capacity of out. */
+    size_t n;      /**< Frames stored so far. */
 } CollectCtx;
 
+/**
+ * @brief WalkRange() callback for ArchMmuUnmapCollect(): clears a page and stores its frame.
+ *
+ * Blocks are left mapped.
+ *
+ * @param[in,out] slot  Leaf entry.
+ * @param[in]     level Its level.
+ * @param[in]     va    Unused.
+ * @param[in,out] ctx   CollectCtx.
+ */
 static void CollectSlot(AArch64Pte *slot, int level, VirtAddr va, void *ctx)
 {
     CollectCtx *c = ctx;
