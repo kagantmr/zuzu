@@ -1,10 +1,8 @@
-#define UDBG_ENABLED 1
 #include <dev/log.h>
 #include <string.h>
 #include <zuzu/err.h>
 #include <zuzu/msg.h>
 #include <zuzu/service.h>
-#include <zuzu/udbg.h>
 #include <zuzu/uptime.h>
 #include <zuzu/zuzu.h>
 
@@ -20,8 +18,6 @@
 
 /** @brief Client id stored on records that arrive through LOG_CRASH. */
 #define CLIENT_CRASH 0xFFU
-/** @brief Console mirror level that means "off". */
-#define CONSOLE_OFF (LOG_LEVEL_FATAL + 1)
 /** @brief Marker on the admin handle. Slot byte 0xFF is never a session. */
 #define MARKER_ADMIN 0xFFU
 /** @brief Marker on a session handle: a generation, then the slot. Never zero or MARKER_ADMIN. */
@@ -88,7 +84,6 @@ static bool g_admin_claimed;
 static uint32_t g_seq;
 static uint32_t g_malformed;
 static uint32_t g_dropped_closed;
-static uint32_t g_console_level = LOG_LEVEL_INFO;
 
 /** @brief Reply with just a status word. */
 static void ReplyStatus(Err status)
@@ -313,26 +308,6 @@ static uint8_t SourceMin(const char source[LOG_SOURCE_MAX])
 }
 
 /**
- * @brief Print a record on the console when it is at or above the mirror level.
- * @param[in] e   The record's header.
- * @param[in] msg The message.
- */
-static void Mirror(const LogEntryHdr *e, const uint8_t *msg)
-{
-    static const char *const names[] = {"TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"};
-    if (e->level < g_console_level)
-        return;
-    char src[LOG_SOURCE_MAX + 1];
-    memcpy(src, e->source, LOG_SOURCE_MAX);
-    src[LOG_SOURCE_MAX] = '\0';
-    char text[LOG_MSG_MAX + 1];
-    memcpy(text, msg, e->length);
-    text[e->length] = '\0';
-    UserspaceDebugLog("[%6u %-5s] (%s) %s", (unsigned)(e->timestamp_us / 1000U), names[e->level],
-                      src, text);
-}
-
-/**
  * @brief Stamp a validated record and store it.
  * @param[in] client Session the bytes came from, or CLIENT_CRASH.
  * @param[in] h      The client's header.
@@ -351,7 +326,6 @@ static void Store(uint8_t client, const LogWireHdr *h, const uint8_t *msg, Ring 
         return;
     g_seq++;
     RingAppend(ring, &e, msg);
-    Mirror(&e, msg);
 }
 
 /**
@@ -627,7 +601,7 @@ static void HandleRead(Client *c, const PortWaitResult *r)
 }
 
 /**
- * @brief Handle LOG_SETLEVEL: the console mirror level, or one source's minimum.
+ * @brief Handle LOG_SETLEVEL: one source's minimum level.
  * @param[in] c The session whose handle was used, or NULL for the admin handle.
  * @param[in] r The call.
  */
@@ -639,7 +613,7 @@ static void HandleSetLevel(const Client *c, const PortWaitResult *r)
         return;
     }
     memcpy(&req, GetMessageBox(), sizeof(req));
-    if (req.level > CONSOLE_OFF) {
+    if (req.level > LOG_LEVEL_FATAL + 1) {
         ReplyStatus(ERR_BADARG);
         return;
     }
@@ -650,8 +624,7 @@ static void HandleSetLevel(const Client *c, const PortWaitResult *r)
             ReplyStatus(ERR_NOPERM);
             return;
         }
-        g_console_level = req.level;
-        ReplyStatus(ZUZU_OK);
+        ReplyStatus(ERR_BADARG);
         return;
     }
     if (c && memcmp(src, c->source, LOG_SOURCE_MAX) != 0) {
@@ -690,8 +663,7 @@ static void HandleStats(void)
                          .next_seq = g_seq,
                          .records = g_hist.count + g_crash.count,
                          .dropped = g_dropped_closed,
-                         .malformed = g_malformed,
-                         .console_level = g_console_level};
+                         .malformed = g_malformed};
     for (int i = 0; i < MAX_SESSIONS; i++) {
         const Client *c = &g_clients[i];
         if (!c->in_use)

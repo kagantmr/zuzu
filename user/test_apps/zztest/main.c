@@ -4604,17 +4604,17 @@ static void TestLogsvc(void)
             "LOG_CLOSE on the public handle -> NOPERM");
     LogCrashRequest cr = {.cmd = LOG_CRASH, .level = LOG_LEVEL_ERROR, .length = 0};
     CheckEq(LogCall(port, &cr, sizeof(cr), -1, NULL), ERR_NOPERM, "LOG_CRASH on the public handle -> NOPERM");
-    LogLevelRequest console = {.cmd = LOG_SETLEVEL, .level = LOG_LEVEL_FATAL + 1};
-    CheckEq(LogCall(port, &console, sizeof(console), -1, NULL), ERR_NOPERM,
-            "the console level on the public handle -> NOPERM");
+    LogLevelRequest anysrc = {.cmd = LOG_SETLEVEL, .level = LOG_LEVEL_FATAL + 1};
+    CheckEq(LogCall(port, &anysrc, sizeof(anysrc), -1, NULL), ERR_NOPERM,
+            "an empty-source level on the public handle -> NOPERM");
     Handle admin = -1;
     CheckEq(LogAdminClaim(port, &admin), ERR_BUSY, "the admin handle is already claimed (by rootsvc)");
 
     LogConn c;
     CheckEq(LogClientConnect(port, ZZ_TAG, &c), ZUZU_OK, "open a writer session");
     CheckEq(LogCall(c.port, &cr, sizeof(cr), -1, NULL), ERR_NOPERM, "LOG_CRASH on a session handle -> NOPERM");
-    CheckEq(LogCall(c.port, &console, sizeof(console), -1, NULL), ERR_NOPERM,
-            "the console level on a session handle -> NOPERM");
+    CheckEq(LogCall(c.port, &anysrc, sizeof(anysrc), -1, NULL), ERR_NOPERM,
+            "an empty-source level on a session handle -> NOPERM");
     CheckEq(LogCall(c.port, &(LogAttachRequest){.cmd = LOG_ATTACH, .kind = LOG_KIND_WRITER},
                     sizeof(LogAttachRequest), -1, NULL),
             ERR_NOPERM, "LOG_ATTACH on a session handle -> NOPERM");
