@@ -56,7 +56,6 @@ MemObject *MemObjCreateDevice(PhysAddr phys_base, size_t size, Irq irq)
     ENSURE_RET(mem, NULL);
     mem->kind = MEMKIND_DEVICE;
     mem->ref_count = 1;
-    mem->exec_synced = false;
     PhysAddr page_base = phys_base & ~(PhysAddr)(PAGE_SIZE - 1);
     mem->dev.phys_base = page_base;
     mem->dev.size = size + (size_t)(phys_base - page_base);
@@ -75,7 +74,6 @@ MemObject *MemObjCreateShm(PhysAddr *page_addrs, size_t page_count, CreateMemory
     ENSURE_RET(mem, NULL);
     mem->kind = MEMKIND_SHARED;
     mem->ref_count = 1;
-    mem->exec_synced = false;
     mem->shm.page_addrs = page_addrs;
     mem->shm.page_count = page_count;
     mem->shm.flags = flags;

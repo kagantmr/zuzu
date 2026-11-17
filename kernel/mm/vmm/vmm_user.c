@@ -385,37 +385,10 @@ Err InjectObjIntoSpace(SpaceObject *kitten, SpaceObject *parent, const InjectObj
     size_t obj_bytes = mem->shm.page_count * PAGE_SIZE;
     ENSURE_RET(args->offset < obj_bytes && args->len <= obj_bytes - args->offset, ERR_BADARG);
 
-    size_t first = args->offset / PAGE_SIZE;
-    size_t pages = args->len / PAGE_SIZE;
-
-    if (args->prot & PROT_EXEC) {
-        for (size_t i = 0; i < pages; i++)
-            ENSURE_RET(mem->shm.page_addrs[first + i], ERR_BADARG);
-    }
-
     region.owner = VM_BACKING_SHARED;
     region.backing = mem;
-    region.backing_page_offset = first;
+    region.backing_page_offset = args->offset / PAGE_SIZE;
     ENSURE_RET(VmmAddRegion(kitten->as, &region), ERR_NOMEM);
-
-    for (size_t i = 0; i < pages; i++) {
-        PhysAddr pa = mem->shm.page_addrs[first + i];
-        if (!pa)
-            continue;
-        if (!VmmMapUserPage(kitten->as, pa, args->dest_vaddr + (i * PAGE_SIZE), args->prot)) {
-            VmmRemoveRegion(kitten->as, args->dest_vaddr, args->len);
-            return ERR_NOMEM;
-        }
-    }
-
-    if ((args->prot & PROT_EXEC) && !mem->exec_synced) {
-        for (size_t i = 0; i < mem->shm.page_count; i++) {
-            if (mem->shm.page_addrs[i])
-                ArchCacheCleanDcacheRangePou(PA_TO_VA(mem->shm.page_addrs[i]), PAGE_SIZE);
-        }
-        ArchCacheInvalidateIcacheAll();
-        mem->exec_synced = true;
-    }
-
+    
     return ZUZU_OK;
 }

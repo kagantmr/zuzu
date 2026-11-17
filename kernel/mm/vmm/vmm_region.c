@@ -8,7 +8,7 @@
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/mem_object.h"
 #include "kernel/mm/pmm/pmm.h"
-
+#include <arch/cache.h>
 #include <arch/asid.h>
 #include <arch/mmu.h>
 #include <stdlib.h>
@@ -120,6 +120,11 @@ bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, Vi
         allocated_new = true;
     } else {
         return false;
+    }
+
+    if (r->prot & PROT_EXEC) {
+        ArchCacheCleanDcacheRangePou(PA_TO_VA(new_pa), PAGE_SIZE);
+        ArchCacheInvalidateIcacheAll();
     }
 
     if (!VmmMapRange(as, page_va, new_pa, PAGE_SIZE, r->prot, r->memtype)) {

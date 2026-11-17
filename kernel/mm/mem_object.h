@@ -37,7 +37,6 @@ typedef struct DmaMappingStruct {
 typedef struct MemObjectStruct {
     MemKind kind;     /**< Which union member is valid. */
     size_t ref_count; /**< Number of outstanding references. */
-    bool exec_synced; /**< Whether instruction/data caches have been synced for execution. */
     union {
         struct {
             PhysAddr phys_base;   /**< Physical base address of the device window. */
