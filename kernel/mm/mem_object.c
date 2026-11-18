@@ -187,7 +187,7 @@ Err MemObjDmaUnmap(MemObject *dev, uint32_t id)
     return ERR_NOENT;
 }
     
-Err MemObjDmaSync(MemObject *dev, uintptr_t bus, size_t len, DmaSyncOp op)
+Err MemObjDmaSync(MemObject *dev, uintptr_t bus, size_t len, size_t work, DmaSyncOp op)
 {
     ENSURE_RET(dev->kind == MEMKIND_DEVICE, ERR_BADTYPE);
     ENSURE_RET(op <= DMA_SYNC_FOR_CPU, ERR_BADARG);
@@ -202,9 +202,9 @@ Err MemObjDmaSync(MemObject *dev, uintptr_t bus, size_t len, DmaSyncOp op)
 
         PhysAddr phys = m->mem->shm.page_addrs[0] + m->offset + (bus - m->bus_addr);
         if (op == DMA_SYNC_FOR_DEVICE)
-            ArchCacheCleanInvalidateDcacheRange(PA_TO_VA(phys), len);
+            ArchCacheCleanInvalidateDcacheRange(PA_TO_VA(phys), work);
         else if (m->dir & DMA_FROM_DEVICE)
-            ArchCacheInvalidateDcacheRange(PA_TO_VA(phys), len);
+            ArchCacheInvalidateDcacheRange(PA_TO_VA(phys), work);
         return ZUZU_OK;
     }   
     return ERR_NOENT;

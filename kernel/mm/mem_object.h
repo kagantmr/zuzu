@@ -60,8 +60,7 @@ typedef struct MemObjectStruct {
 
 /**
  * @brief Create a shared-memory object that takes ownership of the given frames.
- * @param[in] page_addrs Heap-allocated array of physical frame addresses; ownership passes to the
- * object.
+ * @param[in] page_addrs Heap-allocated array of physical frame addresses
  * @param[in] page_count Number of entries in @p page_addrs.
  * @param[in] flags Memory creation flags.
  * @return New object with reference count 1, or NULL if allocation failed.
@@ -88,21 +87,20 @@ MemObject *MemObjCreateDevice(PhysAddr phys_base, size_t size, Irq irq);
 void MemObjRef(MemObject *mem);
 
 /**
- * @brief Drop a reference; frees the object when the count reaches zero.
+ * @brief Drop a reference to a Memory object
  *
  * Freeing a shared object returns its frames to the PMM and frees the frame array.
  * Freeing a device object releases every remaining DMA mapping and its reference
  * on the mapped memory.
  *
- * @param[in,out] mem Object to release; NULL is ignored.
+ * @param[in,out] mem Object to release
  */
 void MemObjUnref(MemObject *mem);
 
 /**
- * @brief Remove a mapping of an object from an address space, then drop a reference.
+ * @brief Remove a mapping of an object from an address space then drop a reference.
  * @param[in,out] as Address space the object is mapped into.
- * @param[in] mapped_va Virtual address of the mapping, or 0 if it was never mapped (skips the
- * unmap).
+ * @param[in] mapped_va Virtual address of the mapping or 0 if it was never mapped.
  * @param[in,out] mem Object whose reference is dropped.
  */
 void MemObjUnmapAndDrop(AddressSpace *as, VirtAddr mapped_va, MemObject *mem);
@@ -164,19 +162,18 @@ const DmaMapping *MemObjDmaFind(const MemObject *dev, uint32_t id);
 /**
  * @brief Synchronize CPU caches for a sub-range of an existing DMA mapping.
  *
- * Does nothing (and succeeds) for uncached mappings. DMA_SYNC_FOR_DEVICE cleans
- * and invalidates the range; the other operation invalidates it only if the
- * mapping can be written by the device.
+ * @note Has no effect on uncached mappings.
  *
  * @param[in,out] dev Device object owning the mapping.
  * @param[in] bus Bus address of the start of the range; must be DMA_ALIGN aligned.
  * @param[in] len Length in bytes; non-zero and DMA_ALIGN aligned.
+ * @param[in] work The chunk of the DMA mapping to invalidate.
  * @param[in] op Sync operation (DMA_SYNC_FOR_DEVICE or DMA_SYNC_FOR_CPU).
  * @return ZUZU_OK on success, or an error code.
  * @retval ERR_BADTYPE @p dev is not a device object.
  * @retval ERR_BADARG Invalid operation, or zero/unaligned range.
  * @retval ERR_NOENT The range is not contained in any single mapping.
  */
-Err MemObjDmaSync(MemObject *dev, uintptr_t bus, size_t len, DmaSyncOp op);
+Err MemObjDmaSync(MemObject *dev, uintptr_t bus, size_t len, size_t work, DmaSyncOp op);
 
 #endif /* KERNEL_MM_MEM_OBJECT_H */

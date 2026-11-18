@@ -1696,6 +1696,35 @@ static void TestDma(void)
     CheckEq(DmaSync(dev, s.bus_addr, DMA_ALIGN, DMA_SYNC_FOR_CPU), ERR_NOENT,
             "DmaSync after DmaUnmap -> NOENT");
 
+    const size_t big_pages = 160;
+    const size_t big_len = big_pages * 4096;
+    const size_t half = big_len / 2;
+    Handle big = CreateMem(big_pages, MEM_CONTIG);
+    Check(big >= 0, "CreateMem(160, MEM_CONTIG) for chunked sync");
+    DmaMapResult b = DmaMap(dev, big, 0, big_len, DMA_BIDIRECTIONAL);
+    CheckEq(b.status, ZUZU_OK, "DmaMap(160 pages) OK");
+    CheckEq(DmaSync(dev, b.bus_addr, big_len, DMA_SYNC_FOR_DEVICE), ZUZU_OK,
+            "DmaSync(160 pages, for device) restarts to completion");
+    CheckEq(DmaSync(dev, b.bus_addr, big_len, DMA_SYNC_FOR_CPU), ZUZU_OK,
+            "DmaSync(160 pages, for cpu) restarts to completion");
+    CheckEq(DmaSync(dev, b.bus_addr + 4096, big_len - 4096, DMA_SYNC_FOR_CPU), ZUZU_OK,
+            "DmaSync(offset multi-chunk range ending at the mapping end) OK");
+    CheckEq(DmaSync(dev, b.bus_addr, big_len + 4096, DMA_SYNC_FOR_DEVICE), ERR_NOENT,
+            "DmaSync(multi-chunk range one page past the mapping) -> NOENT");
+    CheckEq(DmaUnmap(dev, b.id), ZUZU_OK, "DmaUnmap(160 pages)");
+
+    DmaMapResult lo = DmaMap(dev, big, 0, half, DMA_BIDIRECTIONAL);
+    DmaMapResult hi = DmaMap(dev, big, half, half, DMA_BIDIRECTIONAL);
+    CheckEq(lo.status | hi.status, ZUZU_OK, "DmaMap two adjacent halves");
+    CheckEq(hi.bus_addr, lo.bus_addr + half, "the halves are adjacent on the bus");
+    CheckEq(DmaSync(dev, lo.bus_addr, big_len, DMA_SYNC_FOR_DEVICE), ERR_NOENT,
+            "DmaSync spanning two adjacent mappings -> NOENT");
+    CheckEq(DmaSync(dev, hi.bus_addr, half, DMA_SYNC_FOR_CPU), ZUZU_OK,
+            "DmaSync(whole upper half) OK");
+    CheckEq(DmaUnmap(dev, lo.id), ZUZU_OK, "DmaUnmap(lower half)");
+    CheckEq(DmaUnmap(dev, hi.id), ZUZU_OK, "DmaUnmap(upper half)");
+    HandleClose(big);
+
     int32_t dma_base = HandleQuery(dev, QUERY_DMA_COUNT).r1;
     DmaMapResult q = DmaMap(dev, buf, 4096, 8192, DMA_FROM_DEVICE);
     CheckEq(q.status, ZUZU_OK, "DmaMap for query checks");

@@ -153,13 +153,21 @@ void SvcManageMemory(CpuState *frame)
         size_t len = (size_t)(*ArchGetFromFrame(frame, 3));
         DmaSyncOp op = (DmaSyncOp)(raw & 1U);
         uintptr_t bus_addr = raw & ~(uintptr_t)1U;
-
+        size_t chunk = (len > SVC_CHUNK_PAGES * PAGE_SIZE) ? (SVC_CHUNK_PAGES * PAGE_SIZE) : len;
+        
         HandleTableEntry *dev = HandleTableLookup(&CURRENT_SPACE->handle_table, dev_handle);
         ENSURE_ERR(frame, dev, ERR_BADHANDLE);
         ENSURE_ERR(frame, (HANDLE_MEM == dev->type), ERR_BADTYPE);
         ENSURE_ERR(frame, dev->perms & PERM_MAP, ERR_NOPERM);
 
-        ArchSetInFrame(frame, 0, MemObjDmaSync(dev->mem, bus_addr, len, op));
+        Err retcode = MemObjDmaSync(dev->mem, bus_addr, len, chunk, op);
+        if (retcode == ZUZU_OK && len > chunk) {
+            ArchSetInFrame(frame, 2, (Register)((bus_addr + chunk) | op));
+            ArchSetInFrame(frame, 3, (Register)(len - chunk));
+            ArchRewindSvc(frame);
+            break;
+        }
+        ArchSetInFrame(frame, 0, retcode);
     } break;
     default:
         ArchSetInFrame(frame, 0, ERR_BADARG);
