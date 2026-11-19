@@ -111,12 +111,10 @@ static bool PmmIsRecorded(PhysAddr pa)
 static void PmmRebuildFreelist(void)
 {
     pmm_state.freelist_head = 0;
-    for (size_t i = 0; i < pmm_state.span_frames; i++) {
-        if (!BitmapTest(pmm_state.bitmap, i)) {
-            PhysAddr pa = PfnToPa(pmm_state.pfn_base + i);
-            PushNode(pa);
-        }
-    }
+    const size_t span = pmm_state.span_frames;
+    for (size_t i = BitmapNextZero(pmm_state.bitmap, span, 0); i < span;
+         i = BitmapNextZero(pmm_state.bitmap, span, i + 1))
+        PushNode(PfnToPa(pmm_state.pfn_base + i));
     pmm_state.freelist_ready = true;
 }
 
@@ -361,48 +359,7 @@ PhysAddr PmmAllocFrame(void)
 }
 PhysAddr PmmAllocFramesContig(size_t n_frames)
 {
-
-    if (n_frames == 0 || pmm_state.free_frames < n_frames) {
-        return PA_NULL;
-    }
-
-    assert(pmm_state.bitmap != NULL);
-    assert(pmm_state.span_frames == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
-    assert(pmm_state.free_frames <= pmm_state.total_frames);
-    assert(n_frames <= pmm_state.total_frames);
-
-    size_t total_pages = pmm_state.span_frames;
-    size_t consecutive = 0;
-    size_t start_index = 0;
-
-    for (size_t index = 0; index < total_pages; index++) {
-        if (!BitmapTest(pmm_state.bitmap, index)) {
-            if (consecutive == 0) {
-                start_index = index;
-            }
-            consecutive++;
-
-            if (consecutive == n_frames) {
-                PhysAddr start_pa = PfnToPa(pmm_state.pfn_base + start_index);
-                PhysAddr end_pa = PfnToPa(pmm_state.pfn_base + start_index + n_frames);
-                if (PmmMarkRange(start_pa, end_pa) != ZUZU_OK) {
-                    return PA_NULL;
-                }
-
-                Pfn pfn = pmm_state.pfn_base + start_index;
-                PhysAddr addr = PfnToPa(pfn);
-                assert(addr % PAGE_SIZE == 0);
-                assert(pfn >= pmm_state.pfn_base && (pfn + n_frames) <= pmm_state.pfn_end);
-                SyspageUpdateMem();
-                PmmSignalSubscribers();
-                return addr;
-            }
-        } else {
-            consecutive = 0;
-        }
-    }
-
-    return PA_NULL;
+    return PmmAllocFramesContigAligned(n_frames, 1);
 }
 
 void PmmFreeFrame(const PhysAddr addr)
@@ -444,73 +401,45 @@ BENCH_STAT(g_bench_pmm_tail, "pmm contig: syspage+signal");
 
 PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
 {
-
-    if (n_frames == 0) {
+    if (n_frames == 0 || pmm_state.free_frames < n_frames)
         return PA_NULL;
-    }
     if (align_frames == 0)
         align_frames = 1;
-    if ((align_frames & (align_frames - 1)) != 0) {
-        return PA_NULL;
-    }
-
-    if (pmm_state.free_frames < n_frames) {
-        return PA_NULL;
-    }
 
     assert(pmm_state.bitmap != NULL);
     assert(pmm_state.span_frames == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
 
-    const size_t total_pages = pmm_state.span_frames;
-    size_t consecutive = 0;
-    size_t start_index = 0;
 #ifdef CONFIG_ZUZU_BENCH
-    uint32_t bench_scan_start = BENCH_BEGIN();
+    uint32_t bench_step = BENCH_BEGIN();
 #endif
+    const size_t span = pmm_state.span_frames;
+    const size_t index =
+        BitmapFindClearRun(pmm_state.bitmap, span, n_frames, align_frames, pmm_state.pfn_base);
+#ifdef CONFIG_ZUZU_BENCH
+    BENCH_END(g_bench_pmm_scan, bench_step);
+#endif
+    if (index >= span)
+        return PA_NULL;
 
-    for (size_t index = 0; index < total_pages; index++) {
-        if (consecutive == 0) {
-            if (((pmm_state.pfn_base + index) & (align_frames - 1)) != 0) {
-                continue;
-            }
-        }
-
-        if (!BitmapTest(pmm_state.bitmap, index)) {
-            if (consecutive == 0)
-                start_index = index;
-            consecutive++;
-
-            if (consecutive == n_frames) {
-                const PhysAddr start_pa = PfnToPa(pmm_state.pfn_base + start_index);
-                const PhysAddr end_pa = PfnToPa(pmm_state.pfn_base + start_index + n_frames);
+    const PhysAddr start_pa = PfnToPa(pmm_state.pfn_base + index);
+    const PhysAddr end_pa = PfnToPa(pmm_state.pfn_base + index + n_frames);
 
 #ifdef CONFIG_ZUZU_BENCH
-                BENCH_END(g_bench_pmm_scan, bench_scan_start);
-                uint32_t bench_step = BENCH_BEGIN();
+    bench_step = BENCH_BEGIN();
 #endif
-                if (PmmMarkRange(start_pa, end_pa) != ZUZU_OK) {
-                    return PA_NULL;
-                }
-
+    if (PmmMarkRange(start_pa, end_pa) != ZUZU_OK)
+        return PA_NULL;
 #ifdef CONFIG_ZUZU_BENCH
-                BENCH_END(g_bench_pmm_freelist, bench_step);
-                bench_step = BENCH_BEGIN();
+    BENCH_END(g_bench_pmm_freelist, bench_step);
+    bench_step = BENCH_BEGIN();
 #endif
 
-                SyspageUpdateMem();
-                PmmSignalSubscribers();
+    SyspageUpdateMem();
+    PmmSignalSubscribers();
 #ifdef CONFIG_ZUZU_BENCH
-                BENCH_END(g_bench_pmm_tail, bench_step);
+    BENCH_END(g_bench_pmm_tail, bench_step);
 #endif
-
-                return start_pa;
-            }
-        } else {
-            consecutive = 0;
-        }
-    }
-
-    return PA_NULL;
+    return start_pa;
 }
 
 size_t PmmAllocFramesScattered(const size_t n_frames, PhysAddr *out_addrs)
