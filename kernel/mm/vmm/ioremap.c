@@ -10,7 +10,7 @@
 #include <stdint.h>
 
 /** @brief Occupancy bitmap of the ioremap window, one bit per section slot. */
-static uint32_t ioremap_bitmap[(IOREMAP_MAX_SLOT + 31) / 32];
+static BitmapWord ioremap_bitmap[BITMAP_WORDS(IOREMAP_MAX_SLOT)];
 
 _Static_assert(IOREMAP_MAX_SLOT <= IOREMAP_SLOTS,
                "kstack region base falls outside the ioremap window");
@@ -32,7 +32,8 @@ static IoremapEntry ioremap_table[IOREMAP_MAX_ENTRIES];
  */
 static int BitmapFindFree(uint32_t n)
 {
-    return BitmapFindClearRun(ioremap_bitmap, IOREMAP_MAX_SLOT, n);
+    size_t slot = BitmapFindClearRun(ioremap_bitmap, IOREMAP_MAX_SLOT, n, 1, 0);
+    return slot < IOREMAP_MAX_SLOT ? (int)slot : -1;
 }
 
 /**

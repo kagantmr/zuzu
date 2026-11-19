@@ -223,7 +223,7 @@ void PmmInit(void)
     pmm_state.free_frames = 0;
 
     PhysAddr bitmap_start_pa = align_up(kernel_layout.kernel_end_pa, PAGE_SIZE);
-    size_t bitmap_size = align_up(BITMAP_WORDS(pmm_state.span_frames) * sizeof(uint32_t), PAGE_SIZE);
+    size_t bitmap_size = align_up(BITMAP_WORDS(pmm_state.span_frames) * sizeof(BitmapWord), PAGE_SIZE);
     PhysAddr bitmap_end_pa = bitmap_start_pa + bitmap_size;
 
     assert(bitmap_end_pa <= kernel_layout.stack_base_pa);
@@ -232,7 +232,7 @@ void PmmInit(void)
     kernel_layout.bitmap_start_pa = bitmap_start_pa;
     kernel_layout.bitmap_end_pa = bitmap_end_pa;
 
-    kernel_layout.bitmap_va = (uint32_t *)PA_TO_VA(kernel_layout.bitmap_start_pa);
+    kernel_layout.bitmap_va = (BitmapWord *)PA_TO_VA(kernel_layout.bitmap_start_pa);
 
     pmm_state.bitmap = kernel_layout.bitmap_va;
     memset(pmm_state.bitmap, 0xFF, bitmap_size);

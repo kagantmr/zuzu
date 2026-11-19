@@ -38,7 +38,7 @@ typedef struct SpaceObjectStruct {
     ListHead waiters; /**< Tasks waiting for the space to become hollow. */
     PhysAddr tcb_page_pa[MAX_TCB_PAGES]; /**< Physical pages of the TLS window; 0 where not allocated. */
     VirtAddr tcb_page_va; /**< Where the TLS window is mapped in the space. */
-    uint32_t tcb_slot_bitmap[BITMAP_WORDS(256)]; /**< One bit per TLS slot, set while in use. */
+    BitmapWord tcb_slot_bitmap[BITMAP_WORDS(256)]; /**< One bit per TLS slot, set while in use. */
     bool torn_down; /**< SpaceDestroy() has run; only a zombie main task may keep the object alive. */
     ObserverSet observers; /**< Events signalled when the space becomes hollow. */
     uint32_t ref_count; /**< References held by handles, tasks and teardown in progress. */
@@ -55,11 +55,11 @@ _Static_assert(TCB_MAX_SLOTS <= 256, "tcb_slot_bitmap is 256 bits wide");
  */
 static inline int TcbSlotAlloc(SpaceObject *sp)
 {
-    int slot = BitmapFindFirstZero(sp->tcb_slot_bitmap, TCB_MAX_SLOTS);
-    if (slot < 0)
+    size_t slot = BitmapFindFirstZero(sp->tcb_slot_bitmap, TCB_MAX_SLOTS);
+    if (slot >= TCB_MAX_SLOTS)
         return -1;
-    BitmapSet(sp->tcb_slot_bitmap, (size_t)slot);
-    return slot;
+    BitmapSet(sp->tcb_slot_bitmap, slot);
+    return (int)slot;
 }
 
 /**
