@@ -1,6 +1,6 @@
 /**
  * @file
- * @brief Fixed-size bitmaps stored in 32-bit words.
+ * @brief Fixed-size bitmaps stored in machine words.
  */
 
 #ifndef BITMAP_H
@@ -8,9 +8,16 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
+
+/** @brief One bitmap word: 32 bits on ARM32, 64 on AArch64. */
+typedef unsigned long BitmapWord;
+
+/** @brief Bits in one bitmap word. */
+#define BITMAP_WORD_BITS (sizeof(BitmapWord) * 8)
 
 /** @brief Words needed for a bitmap of @p nbits bits. */
-#define BITMAP_WORDS(nbits) (((nbits) + 31) / 32)
+#define BITMAP_WORDS(nbits) (((nbits) + (BITMAP_WORD_BITS - 1)) / BITMAP_WORD_BITS)
 
 /**
  * @brief Clears every bit.
@@ -18,10 +25,9 @@
  * @param[out] words Bitmap.
  * @param[in]  nbits Bits in the bitmap.
  */
-static inline void BitmapZero(uint32_t *words, const size_t nbits)
+static inline void BitmapZero(BitmapWord *words, const size_t nbits)
 {
-    for (size_t w = 0; w < BITMAP_WORDS(nbits); w++)
-        words[w] = 0;
+    memset(words, 0, BITMAP_WORDS(nbits) * sizeof(BitmapWord));
 }
 
 /**
@@ -30,7 +36,10 @@ static inline void BitmapZero(uint32_t *words, const size_t nbits)
  * @param[in,out] words Bitmap.
  * @param[in]     i     Bit index.
  */
-static inline void BitmapSet(uint32_t *words, const size_t i) { words[i / 32] |= 1U << (i % 32); }
+static inline void BitmapSet(BitmapWord *words, const size_t i)
+{
+    words[i / BITMAP_WORD_BITS] |= (BitmapWord)1 << (i % BITMAP_WORD_BITS);
+}
 
 /**
  * @brief Clears one bit.
@@ -38,9 +47,9 @@ static inline void BitmapSet(uint32_t *words, const size_t i) { words[i / 32] |=
  * @param[in,out] words Bitmap.
  * @param[in]     i     Bit index.
  */
-static inline void BitmapClr(uint32_t *words, const size_t i)
+static inline void BitmapClr(BitmapWord *words, const size_t i)
 {
-    words[i / 32] &= ~(1U << (i % 32));
+    words[i / BITMAP_WORD_BITS] &= ~((BitmapWord)1 << (i % BITMAP_WORD_BITS));
 }
 
 /**
@@ -50,9 +59,57 @@ static inline void BitmapClr(uint32_t *words, const size_t i)
  * @param[in] i     Bit index.
  * @return 1 if set, 0 if clear.
  */
-static inline int BitmapTest(const uint32_t *words, const size_t i)
+static inline int BitmapTest(const BitmapWord *words, const size_t i)
 {
-    return ((words[i / 32] >> (i % 32)) & 1U) ? 1 : 0;
+    return ((words[i / BITMAP_WORD_BITS] >> (i % BITMAP_WORD_BITS)) & 1U) ? 1 : 0;
+}
+
+/**
+ * @brief Finds the lowest clear bit at or after @p from.
+ *
+ * @param[in] words Bitmap.
+ * @param[in] nbits Bits in the bitmap.
+ * @param[in] from  First bit to look at.
+ * @return Its index, or @p nbits if there is none.
+ */
+static inline size_t BitmapNextZero(const BitmapWord *words, const size_t nbits, const size_t from)
+{
+    if (from >= nbits)
+        return nbits;
+    size_t w = from / BITMAP_WORD_BITS;
+    const size_t last = (nbits - 1) / BITMAP_WORD_BITS;
+    BitmapWord cur = ~words[w] & (~(BitmapWord)0 << (from % BITMAP_WORD_BITS));
+    while (cur == 0) {
+        if (++w > last)
+            return nbits;
+        cur = ~words[w];
+    }
+    const size_t i = (w * BITMAP_WORD_BITS) + (size_t)__builtin_ctzl(cur);
+    return i < nbits ? i : nbits;
+}
+
+/**
+ * @brief Finds the lowest set bit at or after @p from.
+ *
+ * @param[in] words Bitmap.
+ * @param[in] nbits Bits in the bitmap.
+ * @param[in] from  First bit to look at.
+ * @return Its index, or @p nbits if there is none.
+ */
+static inline size_t BitmapNextSet(const BitmapWord *words, const size_t nbits, const size_t from)
+{
+    if (from >= nbits)
+        return nbits;
+    size_t w = from / BITMAP_WORD_BITS;
+    const size_t last = (nbits - 1) / BITMAP_WORD_BITS;
+    BitmapWord cur = words[w] & (~(BitmapWord)0 << (from % BITMAP_WORD_BITS));
+    while (cur == 0) {
+        if (++w > last)
+            return nbits;
+        cur = words[w];
+    }
+    const size_t i = (w * BITMAP_WORD_BITS) + (size_t)__builtin_ctzl(cur);
+    return i < nbits ? i : nbits;
 }
 
 /**
@@ -60,46 +117,41 @@ static inline int BitmapTest(const uint32_t *words, const size_t i)
  *
  * @param[in] words Bitmap.
  * @param[in] nbits Bits in the bitmap.
- * @return Its index, or -1 if every bit is set.
+ * @return Its index, or @p nbits if every bit is set.
  */
-static inline int BitmapFindFirstZero(const uint32_t *words, const size_t nbits)
+static inline size_t BitmapFindFirstZero(const BitmapWord *words, const size_t nbits)
 {
-    const size_t full = nbits / 32;
-    for (size_t w = 0; w < full; w++) {
-        if (words[w] != 0xFFFFFFFFU)
-            return (int)((w * 32) + (size_t)__builtin_ctz(~words[w]));
-    }
-    const size_t rem = nbits % 32;
-    if (rem) {
-        const uint32_t free = ~words[full] & ((1U << rem) - 1U);
-        if (free)
-            return (int)((full * 32) + (size_t)__builtin_ctz(free));
-    }
-    return -1;
+    return BitmapNextZero(words, nbits, 0);
 }
 
 /**
- * @brief Finds the first run of @p run consecutive clear bits, scanning a bit at a time.
+ * @brief Finds the first run of @p run consecutive clear bits whose start, plus @p phase, is a
+ * multiple of @p align.
  *
  * @param[in] words Bitmap.
  * @param[in] nbits Bits in the bitmap.
  * @param[in] run   Length of the run.
- * @return Index of the run's first bit, or -1 if there is none or @p run is 0 or too long.
+ * @param[in] align Required alignment, a power of two; 1 for none.
+ * @param[in] phase Offset added to a bit index before checking its alignment.
+ * @return Index of the run's first bit, or @p nbits if there is none, @p run is 0 or too long, or
+ * @p align is not a power of two.
  */
-static inline int BitmapFindClearRun(const uint32_t *words, const size_t nbits, const size_t run)
+static inline size_t BitmapFindClearRun(const BitmapWord *words, const size_t nbits,
+                                        const size_t run, const size_t align, const size_t phase)
 {
-    if (run == 0 || run > nbits)
-        return -1;
-    size_t count = 0;
-    for (size_t i = 0; i < nbits; i++) {
-        if (BitmapTest(words, i)) {
-            count = 0;
-            continue;
-        }
-        if (++count == run)
-            return (int)(i + 1 - run);
+    if (run == 0 || run > nbits || align == 0 || (align & (align - 1)) != 0)
+        return nbits;
+    size_t i = 0;
+    for (;;) {
+        size_t start = BitmapNextZero(words, nbits, i);
+        start = ((start + phase + align - 1) & ~(align - 1)) - phase;
+        if (start >= nbits || nbits - start < run)
+            return nbits;
+        const size_t end = BitmapNextSet(words, start + run, start);
+        if (end - start >= run)
+            return start;
+        i = end;
     }
-    return -1;
 }
 
 /**
@@ -109,10 +161,14 @@ static inline int BitmapFindClearRun(const uint32_t *words, const size_t nbits, 
  * @param[in]     start First bit.
  * @param[in]     count Number of bits.
  */
-static inline void BitmapSetRange(uint32_t *words, const size_t start, const size_t count)
+static inline void BitmapSetRange(BitmapWord *words, size_t start, size_t count)
 {
-    for (size_t i = 0; i < count; i++)
-        BitmapSet(words, start + i);
+    for (; count > 0 && start % BITMAP_WORD_BITS; count--)
+        BitmapSet(words, start++);
+    for (; count >= BITMAP_WORD_BITS; count -= BITMAP_WORD_BITS, start += BITMAP_WORD_BITS)
+        words[start / BITMAP_WORD_BITS] = ~(BitmapWord)0;
+    for (; count > 0; count--)
+        BitmapSet(words, start++);
 }
 
 /**
@@ -122,10 +178,14 @@ static inline void BitmapSetRange(uint32_t *words, const size_t start, const siz
  * @param[in]     start First bit.
  * @param[in]     count Number of bits.
  */
-static inline void BitmapClrRange(uint32_t *words, const size_t start, const size_t count)
+static inline void BitmapClrRange(BitmapWord *words, size_t start, size_t count)
 {
-    for (size_t i = 0; i < count; i++)
-        BitmapClr(words, start + i);
+    for (; count > 0 && start % BITMAP_WORD_BITS; count--)
+        BitmapClr(words, start++);
+    for (; count >= BITMAP_WORD_BITS; count -= BITMAP_WORD_BITS, start += BITMAP_WORD_BITS)
+        words[start / BITMAP_WORD_BITS] = 0;
+    for (; count > 0; count--)
+        BitmapClr(words, start++);
 }
 
 #endif

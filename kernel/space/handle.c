@@ -69,9 +69,9 @@ static bool HandleTableHoldsMem(HandleTable *t, const MemObject *mem,
                                 const HandleTableEntry *except)
 {
     for (uint32_t w = 0; w < BITMAP_WORDS(HANDLE_MAX_SLOTS); w++) {
-        uint32_t bits = t->slot_bitmap[w];
+        BitmapWord bits = t->slot_bitmap[w];
         while (bits) {
-            uint32_t i = (w * 32U) + (uint32_t)__builtin_ctz(bits);
+            uint32_t i = (uint32_t)(w * BITMAP_WORD_BITS) + (uint32_t)__builtin_ctzl(bits);
             bits &= bits - 1U;
             HandleTableEntry *e = HandleTableGet(t, (Handle)i);
             if (e && e != except && e->type == HANDLE_MEM && e->mem == mem)

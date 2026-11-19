@@ -61,7 +61,7 @@ static ListHead run_queues[SCHED_PRIORITY_LEVELS];
 /** @brief Tasks with a timeout, bucketed by the slot their deadline falls in. */
 static ListHead sleep_wheel[SLEEP_QUEUE_SIZE];
 /** @brief One bit per sleep wheel slot, set while the slot has tasks. */
-static uint32_t wheel_occ[BITMAP_WORDS(SLEEP_QUEUE_SIZE)];
+static BitmapWord wheel_occ[BITMAP_WORDS(SLEEP_QUEUE_SIZE)];
 /** @brief The earliest deadline in each sleep wheel slot. */
 static uint64_t wheel_min[SLEEP_QUEUE_SIZE];
 /** @brief The sleep wheel slot that time has reached. */
@@ -507,7 +507,7 @@ static uint32_t WheelScanFromNow(void)
         uint32_t slot = start + i;
         if (slot >= SLEEP_QUEUE_SIZE)
             slot -= SLEEP_QUEUE_SIZE;
-        if (wheel_occ[slot >> 5] & (1U << (slot & 31)))
+        if (BitmapTest(wheel_occ, slot))
             return i;
     }
     return SLEEP_QUEUE_SIZE;

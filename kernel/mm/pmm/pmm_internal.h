@@ -6,6 +6,7 @@
 #define KERNEL_MM_PMM_PMM_INTERNAL_H
 
 #include "pmm.h"
+#include <bitmap.h>
 #include <list.h>
 #include <stdbool.h>
 
@@ -16,8 +17,7 @@ typedef struct {
     size_t span_frames;     /**< Frames from pfn_base to pfn_end, holes included; bits in the bitmap. */
     size_t total_frames;    /**< Frames of RAM in the banks, holes excluded. */
     size_t free_frames;     /**< Number of free frames. */
-    uint8_t *bitmap;        /**< Allocation bitmap, one bit per frame (1 = allocated). */
-    size_t bitmap_bytes;    /**< Bytes of bitmap actually in use. */
+    BitmapWord *bitmap;     /**< Allocation bitmap, one bit per frame (1 = allocated). */
     PhysAddr freelist_head; /**< Physical address of the first free frame, 0 if the list is empty. */
     bool freelist_ready;    /**< True once the free list has been built. */
     bool in_pressure;       /**< True while memory is below the low-water mark. */

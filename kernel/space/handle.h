@@ -94,12 +94,12 @@ typedef HandleTableEntry HandleBlock[HANDLE_BLOCK_SLOTS];
  */
 typedef struct {
     HandleBlock *blocks[HANDLE_MAX_BLOCKS]; /**< The blocks; NULL for those not allocated yet. */
-    uint32_t
+    BitmapWord
         slot_bitmap[BITMAP_WORDS(HANDLE_MAX_SLOTS)]; /**< One bit per slot, set while in use. */
     uint32_t full_words; /**< One bit per slot_bitmap word, set while that word is full. */
 } HandleTable;
 
-_Static_assert(BITMAP_WORDS(HANDLE_MAX_SLOTS) == 32, "full_words has one bit per bitmap word");
+_Static_assert(BITMAP_WORDS(HANDLE_MAX_SLOTS) <= 32, "full_words has one bit per bitmap word");
 
 /**
  * @brief Set up an empty handle table.
@@ -169,11 +169,11 @@ static inline bool HandleBlockEnsure(HandleTable *t, uint32_t i)
  */
 static inline Handle HandleTableFindFree(HandleTable *t)
 {
-    uint32_t open = ~t->full_words;
+    uint32_t open = ~t->full_words & (uint32_t)((1ULL << BITMAP_WORDS(HANDLE_MAX_SLOTS)) - 1U);
     if (!open)
         return -1;
     uint32_t w = (uint32_t)__builtin_ctz(open);
-    uint32_t slot = (w * 32U) + (uint32_t)__builtin_ctz(~t->slot_bitmap[w]);
+    uint32_t slot = (uint32_t)(w * BITMAP_WORD_BITS) + (uint32_t)__builtin_ctzl(~t->slot_bitmap[w]);
     if (!HandleBlockEnsure(t, slot))
         return -1;
     return (Handle)slot;
@@ -233,8 +233,8 @@ static inline void HandleEntryClaim(HandleTable *t, HandleTableEntry *e)
     if (i >= HANDLE_MAX_SLOTS)
         return;
     BitmapSet(t->slot_bitmap, i);
-    if (t->slot_bitmap[i / 32U] == 0xFFFFFFFFU)
-        t->full_words |= 1U << (i / 32U);
+    if (t->slot_bitmap[i / BITMAP_WORD_BITS] == ~(BitmapWord)0)
+        t->full_words |= 1U << (i / BITMAP_WORD_BITS);
 }
 
 /**
@@ -250,8 +250,8 @@ static inline __attribute__((returns_nonnull)) HandleTableEntry *HandleTableClai
     uint32_t slot = (uint32_t)i & (HANDLE_MAX_SLOTS - 1U);
     HandleTableEntry *e = &(*t->blocks[slot / HANDLE_BLOCK_SLOTS])[slot % HANDLE_BLOCK_SLOTS];
     BitmapSet(t->slot_bitmap, slot);
-    if (t->slot_bitmap[slot / 32U] == 0xFFFFFFFFU)
-        t->full_words |= 1U << (slot / 32U);
+    if (t->slot_bitmap[slot / BITMAP_WORD_BITS] == ~(BitmapWord)0)
+        t->full_words |= 1U << (slot / BITMAP_WORD_BITS);
     return e;
 }
 
@@ -268,7 +268,7 @@ static inline void HandleEntryFree(HandleTable *t, HandleTableEntry *e)
     uint32_t i = HandleEntryIndex(t, e);
     if (i < HANDLE_MAX_SLOTS) {
         BitmapClr(t->slot_bitmap, i);
-        t->full_words &= ~(1U << (i / 32U));
+        t->full_words &= ~(1U << (i / BITMAP_WORD_BITS));
     }
     uint32_t next_gen = (e->generation + 1) & HANDLE_GEN_MASK;
     uint16_t slot = e->slot;

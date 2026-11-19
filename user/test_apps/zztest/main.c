@@ -19,6 +19,7 @@
 #define UDBG_ENABLED 1
 
 #include <arch/svc.h>
+#include <bitmap.h>
 #include <dev/devm.h>
 #include <dev/log.h>
 #include <stdio.h>
@@ -341,6 +342,51 @@ static void KittenFree(Kitten *k)
 }
 
 /* ---------------- 1. svc basics ---------------- */
+
+static void TestBitmap(void)
+{
+    BeginSection("bitmap");
+
+    enum { W = BITMAP_WORD_BITS, NBITS = (2 * BITMAP_WORD_BITS) + 5 };
+    BitmapWord bm[BITMAP_WORDS(NBITS)];
+
+    BitmapZero(bm, NBITS);
+    CheckEq((int32_t)BitmapFindFirstZero(bm, NBITS), 0, "empty map: first zero is 0");
+    CheckEq((int32_t)BitmapNextSet(bm, NBITS, 0), NBITS, "empty map: no set bit");
+    CheckEq((int32_t)BitmapFindClearRun(bm, NBITS, NBITS, 1, 0), 0, "empty map: whole-map run at 0");
+
+    BitmapSet(bm, W + 1);
+    Check(BitmapTest(bm, W + 1) && !BitmapTest(bm, W), "set bit in the second word reads back");
+    CheckEq((int32_t)BitmapNextSet(bm, NBITS, 0), W + 1, "next set finds a bit across a word");
+    CheckEq((int32_t)BitmapNextSet(bm, NBITS, W + 2), NBITS, "next set past the only bit -> nbits");
+    BitmapClr(bm, W + 1);
+    Check(!BitmapTest(bm, W + 1), "cleared bit reads back clear");
+
+    BitmapSetRange(bm, 0, NBITS);
+    CheckEq((int32_t)BitmapFindFirstZero(bm, NBITS), NBITS, "full map: first zero -> nbits");
+    CheckEq((int32_t)BitmapNextZero(bm, NBITS, 3), NBITS, "full map: next zero -> nbits");
+    CheckEq((int32_t)BitmapFindClearRun(bm, NBITS, 1, 1, 0), NBITS,
+            "full map: clear tail bits past nbits are not used");
+
+    BitmapClrRange(bm, W - 3, 6);
+    CheckEq((int32_t)BitmapFindFirstZero(bm, NBITS), W - 3, "first zero after clearing a range");
+    CheckEq((int32_t)BitmapNextSet(bm, NBITS, W - 3), W + 3, "next set ends the cleared range");
+    CheckEq((int32_t)BitmapFindClearRun(bm, NBITS, 6, 1, 0), W - 3, "run across a word boundary");
+    CheckEq((int32_t)BitmapFindClearRun(bm, NBITS, 7, 1, 0), NBITS, "run one too long -> nbits");
+    CheckEq((int32_t)BitmapFindClearRun(bm, NBITS, 3, 4, 0), W, "aligned run skips an unaligned start");
+    CheckEq((int32_t)BitmapFindClearRun(bm, NBITS, 4, 4, 0), NBITS, "aligned run that does not fit -> nbits");
+    CheckEq((int32_t)BitmapFindClearRun(bm, NBITS, 6, 4, 3), W - 3, "phase shifts the alignment");
+    BitmapSetRange(bm, W - 3, 6);
+
+    BitmapClrRange(bm, NBITS - 2, 2);
+    CheckEq((int32_t)BitmapFindClearRun(bm, NBITS, 2, 1, 0), NBITS - 2, "run ending at nbits");
+    CheckEq((int32_t)BitmapFindClearRun(bm, NBITS, 3, 1, 0), NBITS, "run past nbits -> nbits");
+
+    BitmapZero(bm, NBITS);
+    CheckEq((int32_t)BitmapFindClearRun(bm, NBITS, NBITS + 1, 1, 0), NBITS, "run longer than map -> nbits");
+    CheckEq((int32_t)BitmapFindClearRun(bm, NBITS, 0, 1, 0), NBITS, "zero-length run -> nbits");
+    CheckEq((int32_t)BitmapFindClearRun(bm, NBITS, 1, 3, 0), NBITS, "non-power-of-two align -> nbits");
+}
 
 static void TestBasics(void)
 {
@@ -4843,6 +4889,7 @@ static void TestLogsvc(void)
 
 static void RunSuite(void)
 {
+    TestBitmap();
     TestBasics();
     TestHandles();
     TestMemory();

@@ -210,9 +210,9 @@ void SpaceDestroy(SpaceObject *sp)
     IrqReleaseAll(sp);
 
     for (uint32_t w = 0; w < BITMAP_WORDS(HANDLE_MAX_SLOTS); w++) {
-        uint32_t bits = sp->handle_table.slot_bitmap[w];
+        BitmapWord bits = sp->handle_table.slot_bitmap[w];
         while (bits) {
-            uint32_t i = (w * 32U) + (uint32_t)__builtin_ctz(bits);
+            uint32_t i = (uint32_t)(w * BITMAP_WORD_BITS) + (uint32_t)__builtin_ctzl(bits);
             bits &= bits - 1U;
             HandleTableEntry *entry = HandleTableGet(&sp->handle_table, (Handle)i);
             if (!entry || entry->type == HANDLE_FREE)
