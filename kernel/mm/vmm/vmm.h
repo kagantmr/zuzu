@@ -320,7 +320,9 @@ Err InjectObjIntoSpace(SpaceObject *kitten, SpaceObject *parent, const InjectObj
  *
  * The range is either the whole region, or its tail when the region already has @p new_prot; the
  * second form finishes an earlier call. The region's protection changes at once, so pages whose
- * entries are not rewritten yet are repaired by VmmFixPermission() if they fault.
+ * entries are not rewritten yet are repaired by VmmFixPermission() if they fault. Entries are
+ * written without execute permission; the first instruction fetch on each page faults into
+ * VmmFixPermission(), which syncs the caches before allowing it.
  *
  * @param[in,out] space The space holding the region.
  * @param[in] va Page-aligned start of the range.

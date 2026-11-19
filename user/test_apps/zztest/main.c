@@ -210,6 +210,8 @@ static int32_t WorkerJoin(Worker *w)
 #ifdef __aarch64__
 static const uint32_t kCodeLoop[] = {0x14000000};
 static const uint32_t kCodeQuit42[] = {0xD2800540, SYS(SVC_QUIT)};
+static const uint32_t kFnRet42[] = {0x52800540, 0xD65F03C0}; /* mov w0,#42; ret */
+static const uint32_t kFnRet7[] = {0x528000E0, 0xD65F03C0};  /* mov w0,#7; ret */
 static const uint32_t kCodeFaultData[] = {0xD2800000, 0xF9400001};
 static const uint32_t kCodeFaultPrefetch[] = {0xD2800000, 0xD61F0000};
 static const uint32_t kCodeFaultUndef[] = {0x00000000};
@@ -224,6 +226,8 @@ static const uint32_t kCodeSleepQuit[] = {0xD2800280, SYS(SVC_SLEEP), 0xD28000C0
 #else
 static const uint32_t kCodeLoop[] = {0xEAFFFFFE};                      /* b . */
 static const uint32_t kCodeQuit42[] = {0xE3A0002A, SYS(SVC_QUIT)};        /* mov r0,#42; svc QUIT */
+static const uint32_t kFnRet42[] = {0xE3A0002A, 0xE12FFF1E};           /* mov r0,#42; bx lr */
+static const uint32_t kFnRet7[] = {0xE3A00007, 0xE12FFF1E};            /* mov r0,#7; bx lr */
 static const uint32_t kCodeFaultData[] = {0xE3A00000, 0xE5901000};     /* mov r0,#0; ldr r1,[r0] */
 static const uint32_t kCodeFaultPrefetch[] = {0xE3A00000, 0xE12FFF10}; /* mov r0,#0; bx r0 */
 static const uint32_t kCodeFaultUndef[] = {0xE7F000F0};                /* udf */
@@ -572,6 +576,28 @@ static void TestMemory(void)
         CheckEq(MemUnmap(wide), ERR_NOENT, "the whole 300-page region is gone");
     }
 
+    uint32_t *code = MemMapAnon(4096, 0, PROT_RW);
+    Check(!PtrIsErr(code), "MemMapAnon(code page) OK");
+    if (!PtrIsErr(code)) {
+        int (*fn)(void) = (int (*)(void))(VirtAddr)code;
+        memcpy(code, kFnRet42, sizeof(kFnRet42));
+        CheckEq(MemProtect((VirtAddr)code, 4096, PROT_READ | PROT_EXEC), ZUZU_OK,
+                "Protect(written page, read-exec) OK");
+        CheckEq(fn(), 42, "code written then made executable runs");
+        CheckEq(MemProtect((VirtAddr)code, 4096, PROT_RW), ZUZU_OK,
+                "Protect(code page, read-write) OK");
+        memcpy(code, kFnRet7, sizeof(kFnRet7));
+        CheckEq(MemProtect((VirtAddr)code, 4096, PROT_READ | PROT_EXEC), ZUZU_OK,
+                "Protect(rewritten page, read-exec) OK");
+        CheckEq(fn(), 7, "rewritten code runs, not the stale instructions");
+        CheckEq(MemUnmap(code), ZUZU_OK, "Unmap(code page) OK");
+    }
+
+    CheckEq(CreateMem(MEM_MAX_PAGES + 1, 0), ERR_OVERFLOW,
+            "CreateMem above MEM_MAX_PAGES -> OVERFLOW");
+    CheckEq(CreateMem(MEM_CONTIG_MAX_PAGES + 1, MEM_CONTIG), ERR_OVERFLOW,
+            "CreateMem(MEM_CONTIG) above MEM_CONTIG_MAX_PAGES -> OVERFLOW");
+
     /* Shared memory objects */
     Handle mem = CreateMem(2, 0);
     Check(mem >= 0, "CreateMem(2) OK");
@@ -595,13 +621,14 @@ static void TestMemory(void)
     CheckEq(MemUnmap(m), ERR_NOENT, "closing the handle unmapped the region");
 
     CheckEq(CreateMem(0, 0), ERR_BADARG, "CreateMem(0) -> BADARG");
-    CheckEq(CreateMem(PagesMoreThanRam(), 0), ERR_NOMEM, "CreateMem(more than RAM) -> NOMEM");
+    CheckEq(CreateMem(PagesMoreThanRam(), 0), ERR_OVERFLOW, "CreateMem(more than RAM) -> OVERFLOW");
 
     /* Contiguous and uncached memory */
     CheckEq(CreateMem(1, (CreateMemoryFlags)0x80), ERR_BADARG, "CreateMem(unknown flag) -> BADARG");
     CheckEq(CreateMem(1, MEM_UNCACHED), ERR_BADARG, "MEM_UNCACHED without MEM_CONTIG -> BADARG");
     CheckEq(CreateMem(0, MEM_CONTIG), ERR_BADARG, "CreateMem(0, MEM_CONTIG) -> BADARG");
-    CheckEq(CreateMem(PagesMoreThanRam(), MEM_CONTIG), ERR_NOMEM, "MEM_CONTIG larger than RAM -> NOMEM");
+    CheckEq(CreateMem(PagesMoreThanRam(), MEM_CONTIG), ERR_OVERFLOW,
+            "MEM_CONTIG larger than RAM -> OVERFLOW");
 
     for (int round = 0; round < 2; round++) {
         Handle warm = CreateMem(4, MEM_CONTIG);

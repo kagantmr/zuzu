@@ -236,7 +236,7 @@ Err VmmProtectUserChunk(SpaceObject *space, VirtAddr va, size_t size, MemProt ne
     r->prot = prot;
     size_t chunk = max_pages * PAGE_SIZE;
     size_t len = size < chunk ? size : chunk;
-    (void)ArchMmuProtect(space->as, va, len, prot);
+    (void)ArchMmuProtect(space->as, va, len, prot & ~(MemProt)PROT_EXEC);
     *next = len < size ? va + len : 0;
     return ZUZU_OK;
 }
