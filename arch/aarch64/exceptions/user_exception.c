@@ -33,7 +33,7 @@ static void KillCurrentTask(const CpuState *frame, KilledReason reason, const ch
                             uint64_t esr)
 {
     SpaceObject *space = current_task->owner;
-    KERROR("Oops! '%s' (SPID %d, TID %d) killed: %s (ESR=" REG_FMT ") @ pc=" REG_FMT,
+    KDEBUG("Oops! '%s' (SPID %d, TID %d) killed: %s (ESR=" REG_FMT ") @ pc=" REG_FMT,
            space ? space->name : "?", space ? space->spid : -1, current_task->tid, what,
            REG_ARG(esr), REG_ARG(frame->return_pc));
     TaskFault(current_task, (Err)reason);
@@ -83,7 +83,9 @@ void __hot UserSyncException(CpuState *frame)
         bool write = is_data && EsrIsWrite(iss);
         if (EsrIsTranslationFault(iss) && VmmDemandPage(current_space->as, far, write))
             return;
-        KERROR("Oops! '%s' (SPID %d, TID %d) killed: segmentation fault, %s @ " REG_FMT
+        if (EsrIsPermissionFault(iss) && VmmFixPermission(current_space->as, far, write, !is_data))
+            return;
+        KDEBUG("Oops! '%s' (SPID %d, TID %d) killed: segmentation fault, %s @ " REG_FMT
                " pc=" REG_FMT " (%s)",
                current_space->name, current_space->spid, current_task->tid,
                is_data ? (write ? "write" : "read") : "execute", REG_ARG(far),

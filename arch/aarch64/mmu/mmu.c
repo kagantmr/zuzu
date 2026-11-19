@@ -389,8 +389,10 @@ static void ProtectSlot(AArch64Pte *slot, int level, VirtAddr va, void *ctx)
     if ((e & PTE_ATTRINDX_MASK) != PTE_ATTRINDX(PTE_ATTRINDX_NORMAL))
         e |= PTE_PXN | PTE_UXN;
 
-    *slot = e;
-    c->changed = true;
+    if (e != *slot) {
+        *slot = e;
+        c->changed = true;
+    }
 }
 
 bool ArchMmuProtect(AddressSpace *as, VirtAddr va, size_t size, MemProt prot)

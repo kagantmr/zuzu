@@ -56,7 +56,6 @@ MemObject *MemObjCreateDevice(PhysAddr phys_base, size_t size, Irq irq)
     ENSURE_RET(mem, NULL);
     mem->kind = MEMKIND_DEVICE;
     mem->ref_count = 1;
-    mem->exec_synced = false;
     PhysAddr page_base = phys_base & ~(PhysAddr)(PAGE_SIZE - 1);
     mem->dev.phys_base = page_base;
     mem->dev.size = size + (size_t)(phys_base - page_base);
@@ -75,7 +74,6 @@ MemObject *MemObjCreateShm(PhysAddr *page_addrs, size_t page_count, CreateMemory
     ENSURE_RET(mem, NULL);
     mem->kind = MEMKIND_SHARED;
     mem->ref_count = 1;
-    mem->exec_synced = false;
     mem->shm.page_addrs = page_addrs;
     mem->shm.page_count = page_count;
     mem->shm.flags = flags;
@@ -140,9 +138,6 @@ Err MemObjDmaMap(MemObject *dev, MemObject *mem, size_t offset, size_t len, DmaD
     ENSURE_RET(len - 1 <= dev->dev.dma_limit && bus <= dev->dev.dma_limit - (len - 1), ERR_BADARG);
     ENSURE_RET(dev->dev.dma_map_count < DMA_MAX_MAPPINGS, ERR_NOMEM);
 
-    if (!(mem->shm.flags & MEM_UNCACHED))
-        ArchCacheCleanInvalidateDcacheRange(PA_TO_VA(phys), len);
-
     DmaMapping *m = DmaMappingAlloc();
     ENSURE_RET(m, ERR_NOMEM);
 
@@ -174,10 +169,6 @@ Err MemObjDmaUnmap(MemObject *dev, uint32_t id)
     while (*link) {
         DmaMapping *m = *link;
         if (m->id == id) {
-            if ((m->dir & DMA_FROM_DEVICE) && !(m->mem->shm.flags & MEM_UNCACHED)) {
-                PhysAddr phys = m->mem->shm.page_addrs[0] + m->offset;
-                ArchCacheInvalidateDcacheRange(PA_TO_VA(phys), m->len);
-            }
             *link = m->next;
             dev->dev.dma_map_count--;
             MemObjUnref(m->mem);
@@ -189,7 +180,7 @@ Err MemObjDmaUnmap(MemObject *dev, uint32_t id)
     return ERR_NOENT;
 }
     
-Err MemObjDmaSync(MemObject *dev, uintptr_t bus, size_t len, DmaSyncOp op)
+Err MemObjDmaSync(MemObject *dev, uintptr_t bus, size_t len, size_t work, DmaSyncOp op)
 {
     ENSURE_RET(dev->kind == MEMKIND_DEVICE, ERR_BADTYPE);
     ENSURE_RET(op <= DMA_SYNC_FOR_CPU, ERR_BADARG);
@@ -204,9 +195,9 @@ Err MemObjDmaSync(MemObject *dev, uintptr_t bus, size_t len, DmaSyncOp op)
 
         PhysAddr phys = m->mem->shm.page_addrs[0] + m->offset + (bus - m->bus_addr);
         if (op == DMA_SYNC_FOR_DEVICE)
-            ArchCacheCleanInvalidateDcacheRange(PA_TO_VA(phys), len);
+            ArchCacheCleanInvalidateDcacheRange(PA_TO_VA(phys), work);
         else if (m->dir & DMA_FROM_DEVICE)
-            ArchCacheInvalidateDcacheRange(PA_TO_VA(phys), len);
+            ArchCacheInvalidateDcacheRange(PA_TO_VA(phys), work);
         return ZUZU_OK;
     }   
     return ERR_NOENT;

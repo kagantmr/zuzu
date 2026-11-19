@@ -210,6 +210,8 @@ static int32_t WorkerJoin(Worker *w)
 #ifdef __aarch64__
 static const uint32_t kCodeLoop[] = {0x14000000};
 static const uint32_t kCodeQuit42[] = {0xD2800540, SYS(SVC_QUIT)};
+static const uint32_t kFnRet42[] = {0x52800540, 0xD65F03C0}; /* mov w0,#42; ret */
+static const uint32_t kFnRet7[] = {0x528000E0, 0xD65F03C0};  /* mov w0,#7; ret */
 static const uint32_t kCodeFaultData[] = {0xD2800000, 0xF9400001};
 static const uint32_t kCodeFaultPrefetch[] = {0xD2800000, 0xD61F0000};
 static const uint32_t kCodeFaultUndef[] = {0x00000000};
@@ -224,6 +226,8 @@ static const uint32_t kCodeSleepQuit[] = {0xD2800280, SYS(SVC_SLEEP), 0xD28000C0
 #else
 static const uint32_t kCodeLoop[] = {0xEAFFFFFE};                      /* b . */
 static const uint32_t kCodeQuit42[] = {0xE3A0002A, SYS(SVC_QUIT)};        /* mov r0,#42; svc QUIT */
+static const uint32_t kFnRet42[] = {0xE3A0002A, 0xE12FFF1E};           /* mov r0,#42; bx lr */
+static const uint32_t kFnRet7[] = {0xE3A00007, 0xE12FFF1E};            /* mov r0,#7; bx lr */
 static const uint32_t kCodeFaultData[] = {0xE3A00000, 0xE5901000};     /* mov r0,#0; ldr r1,[r0] */
 static const uint32_t kCodeFaultPrefetch[] = {0xE3A00000, 0xE12FFF10}; /* mov r0,#0; bx r0 */
 static const uint32_t kCodeFaultUndef[] = {0xE7F000F0};                /* udf */
@@ -542,6 +546,58 @@ static void TestMemory(void)
     MemProtect((VirtAddr)a, 8192, PROT_RW);
     CheckEq(MemUnmap(a), ZUZU_OK, "Unmap(anon) OK");
 
+    /* Protect and unmap across several kernel entries */
+    const uint32_t wide_pages = 300;
+    const size_t wide_bytes = (size_t)wide_pages * 4096;
+    uint8_t *wide = MemMapAnon(wide_bytes, 0, PROT_RW);
+    Check(!PtrIsErr(wide), "MemMapAnon(300 pages) OK");
+    if (!PtrIsErr(wide)) {
+        for (uint32_t i = 0; i < wide_pages; i++)
+            wide[i * 4096] = (uint8_t)i;
+        CheckEq(MemProtect((VirtAddr)wide, wide_bytes, PROT_READ), ZUZU_OK,
+                "Protect(300 pages, read-only) OK");
+        bool intact = true;
+        for (uint32_t i = 0; i < wide_pages; i++)
+            intact &= wide[i * 4096] == (uint8_t)i;
+        Check(intact, "300 read-only pages keep their contents");
+        CheckEq(MemProtect((VirtAddr)wide + 64 * 4096, wide_bytes - 64 * 4096, PROT_READ), ZUZU_OK,
+                "Protect(tail, same protection) OK");
+        CheckEq(MemProtect((VirtAddr)wide + 64 * 4096, wide_bytes - 64 * 4096, PROT_RW),
+                ERR_BADARG, "Protect(tail, other protection) -> BADARG");
+        CheckEq(MemProtect((VirtAddr)wide, wide_bytes, PROT_RW), ZUZU_OK,
+                "Protect(300 pages, read-write) OK");
+        for (uint32_t i = 0; i < wide_pages; i++)
+            wide[i * 4096] = (uint8_t)(i + 1);
+        intact = true;
+        for (uint32_t i = 0; i < wide_pages; i++)
+            intact &= wide[i * 4096] == (uint8_t)(i + 1);
+        Check(intact, "all 300 pages are writable again");
+        CheckEq(MemUnmap(wide), ZUZU_OK, "Unmap(300 pages) OK");
+        CheckEq(MemUnmap(wide), ERR_NOENT, "the whole 300-page region is gone");
+    }
+
+    uint32_t *code = MemMapAnon(4096, 0, PROT_RW);
+    Check(!PtrIsErr(code), "MemMapAnon(code page) OK");
+    if (!PtrIsErr(code)) {
+        int (*fn)(void) = (int (*)(void))(VirtAddr)code;
+        memcpy(code, kFnRet42, sizeof(kFnRet42));
+        CheckEq(MemProtect((VirtAddr)code, 4096, PROT_READ | PROT_EXEC), ZUZU_OK,
+                "Protect(written page, read-exec) OK");
+        CheckEq(fn(), 42, "code written then made executable runs");
+        CheckEq(MemProtect((VirtAddr)code, 4096, PROT_RW), ZUZU_OK,
+                "Protect(code page, read-write) OK");
+        memcpy(code, kFnRet7, sizeof(kFnRet7));
+        CheckEq(MemProtect((VirtAddr)code, 4096, PROT_READ | PROT_EXEC), ZUZU_OK,
+                "Protect(rewritten page, read-exec) OK");
+        CheckEq(fn(), 7, "rewritten code runs, not the stale instructions");
+        CheckEq(MemUnmap(code), ZUZU_OK, "Unmap(code page) OK");
+    }
+
+    CheckEq(CreateMem(MEM_MAX_PAGES + 1, 0), ERR_OVERFLOW,
+            "CreateMem above MEM_MAX_PAGES -> OVERFLOW");
+    CheckEq(CreateMem(MEM_CONTIG_MAX_PAGES + 1, MEM_CONTIG), ERR_OVERFLOW,
+            "CreateMem(MEM_CONTIG) above MEM_CONTIG_MAX_PAGES -> OVERFLOW");
+
     /* Shared memory objects */
     Handle mem = CreateMem(2, 0);
     Check(mem >= 0, "CreateMem(2) OK");
@@ -565,13 +621,14 @@ static void TestMemory(void)
     CheckEq(MemUnmap(m), ERR_NOENT, "closing the handle unmapped the region");
 
     CheckEq(CreateMem(0, 0), ERR_BADARG, "CreateMem(0) -> BADARG");
-    CheckEq(CreateMem(PagesMoreThanRam(), 0), ERR_NOMEM, "CreateMem(more than RAM) -> NOMEM");
+    CheckEq(CreateMem(PagesMoreThanRam(), 0), ERR_OVERFLOW, "CreateMem(more than RAM) -> OVERFLOW");
 
     /* Contiguous and uncached memory */
     CheckEq(CreateMem(1, (CreateMemoryFlags)0x80), ERR_BADARG, "CreateMem(unknown flag) -> BADARG");
     CheckEq(CreateMem(1, MEM_UNCACHED), ERR_BADARG, "MEM_UNCACHED without MEM_CONTIG -> BADARG");
     CheckEq(CreateMem(0, MEM_CONTIG), ERR_BADARG, "CreateMem(0, MEM_CONTIG) -> BADARG");
-    CheckEq(CreateMem(PagesMoreThanRam(), MEM_CONTIG), ERR_NOMEM, "MEM_CONTIG larger than RAM -> NOMEM");
+    CheckEq(CreateMem(PagesMoreThanRam(), MEM_CONTIG), ERR_OVERFLOW,
+            "MEM_CONTIG larger than RAM -> OVERFLOW");
 
     for (int round = 0; round < 2; round++) {
         Handle warm = CreateMem(4, MEM_CONTIG);
@@ -1665,6 +1722,36 @@ static void TestDma(void)
     CheckEq(DmaUnmap(dev, s.id), ZUZU_OK, "DmaUnmap after sync checks");
     CheckEq(DmaSync(dev, s.bus_addr, DMA_ALIGN, DMA_SYNC_FOR_CPU), ERR_NOENT,
             "DmaSync after DmaUnmap -> NOENT");
+
+    const size_t big_pages = 160;
+    const size_t big_len = big_pages * 4096;
+    const size_t half = big_len / 2;
+    Handle big = CreateMem(big_pages, MEM_CONTIG);
+    Check(big >= 0, "CreateMem(160, MEM_CONTIG) for chunked sync");
+    DmaMapResult b = DmaMap(dev, big, 0, big_len, DMA_BIDIRECTIONAL);
+    CheckEq(b.status, ZUZU_OK, "DmaMap(160 pages) OK");
+    CheckEq(DmaSync(dev, b.bus_addr, big_len, DMA_SYNC_FOR_DEVICE), ZUZU_OK,
+            "DmaSync(160 pages, for device) restarts to completion");
+    CheckEq(DmaSync(dev, b.bus_addr, big_len, DMA_SYNC_FOR_CPU), ZUZU_OK,
+            "DmaSync(160 pages, for cpu) restarts to completion");
+    CheckEq(DmaSync(dev, b.bus_addr + 4096, big_len - 4096, DMA_SYNC_FOR_CPU), ZUZU_OK,
+            "DmaSync(offset multi-chunk range ending at the mapping end) OK");
+    CheckEq(DmaSync(dev, b.bus_addr, big_len + 4096, DMA_SYNC_FOR_DEVICE), ERR_NOENT,
+            "DmaSync(multi-chunk range one page past the mapping) -> NOENT");
+    CheckEq(DmaUnmap(dev, b.id), ZUZU_OK, "DmaUnmap(160 pages)");
+
+    DmaMapResult lo = DmaMap(dev, big, 0, half, DMA_BIDIRECTIONAL);
+    DmaMapResult hi = DmaMap(dev, big, half, half, DMA_BIDIRECTIONAL);
+    CheckEq(lo.status | hi.status, ZUZU_OK, "DmaMap two adjacent halves");
+    CheckEq((int32_t)hi.bus_addr, (int32_t)(lo.bus_addr + half),
+            "the halves are adjacent on the bus");
+    CheckEq(DmaSync(dev, lo.bus_addr, big_len, DMA_SYNC_FOR_DEVICE), ERR_NOENT,
+            "DmaSync spanning two adjacent mappings -> NOENT");
+    CheckEq(DmaSync(dev, hi.bus_addr, half, DMA_SYNC_FOR_CPU), ZUZU_OK,
+            "DmaSync(whole upper half) OK");
+    CheckEq(DmaUnmap(dev, lo.id), ZUZU_OK, "DmaUnmap(lower half)");
+    CheckEq(DmaUnmap(dev, hi.id), ZUZU_OK, "DmaUnmap(upper half)");
+    HandleClose(big);
 
     int32_t dma_base = HandleQuery(dev, QUERY_DMA_COUNT).r1;
     DmaMapResult q = DmaMap(dev, buf, 4096, 8192, DMA_FROM_DEVICE);

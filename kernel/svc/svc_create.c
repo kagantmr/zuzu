@@ -125,6 +125,9 @@ void SvcCreate(CpuState *frame)
 
         size_t page_count = (size_t)(*ArchGetFromFrame(frame, 1));
         ENSURE_ERR(frame, (page_count > 0), ERR_BADARG);
+        ENSURE_ERR(frame,
+                   page_count <= ((flags & MEM_CONTIG) ? MEM_CONTIG_MAX_PAGES : MEM_MAX_PAGES),
+                   ERR_OVERFLOW);
 
         ENSURE_ERR(frame, page_count <= PmmGetStats().free_frames, ERR_NOMEM);
         ENSURE_ERR(frame, page_count <= SIZE_MAX / sizeof(PhysAddr), ERR_NOMEM);

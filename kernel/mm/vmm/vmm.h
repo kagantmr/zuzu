@@ -222,23 +222,6 @@ bool VmmMapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size, MemPro
 bool VmmUnmapRange(AddressSpace *as, VirtAddr va, size_t size, bool flush);
 
 /**
- * @brief Change the protection of part of a region.
- *
- * The range must lie inside one region that is not pinned. Device and uncached regions cannot be
- * made executable. On success the region's recorded protection is updated to new_prot. This does
- * not check max_prot; VmmProtectUserRange() does.
- *
- * @param[in,out] as The space holding the range.
- * @param[in] va Start of the range.
- * @param[in] size Length in bytes.
- * @param[in] new_prot The new protection.
- * @return true on success.
- * @retval false No region contains the range, the region is pinned, the request is illegal for
- *               its memory type, or the architecture layer failed.
- */
-bool VmmProtectPage(AddressSpace *as, VirtAddr va, size_t size, MemProt new_prot);
-
-/**
  * @brief Map one normal-memory page into a user address space.
  *
  * @param[in,out] as The user space to map into.
@@ -313,21 +296,6 @@ Err VmmUnmapUserChunk(SpaceObject *space, VirtAddr va, PhysAddr *scratch, size_t
                       VirtAddr *next);
 
 /**
- * @brief Unmap the user region that starts at an address.
- *
- * Anonymous regions have their resident frames freed, and the mapped address is cleared on the
- * handle that mapped a memory object.
- *
- * @param[in,out] space The space holding the region.
- * @param[in] va Start address of the region.
- * @return ZUZU_OK on success.
- * @retval ERR_NOENT No region contains va.
- * @retval ERR_BADARG va is not the start of the region.
- * @retval ERR_NOPERM The region is pinned.
- */
-Err VmmUnmapUserRegion(SpaceObject *space, VirtAddr va);
-
-/**
  * @brief Install a region into a space that has no tasks yet, on behalf of its parent.
  *
  * The source is either anonymous memory or a range of a shared memory object reachable through a
@@ -348,17 +316,42 @@ Err VmmUnmapUserRegion(SpaceObject *space, VirtAddr va);
 Err InjectObjIntoSpace(SpaceObject *kitten, SpaceObject *parent, const InjectObjArgs *args);
 
 /**
- * @brief Change the protection of a user range, bounded by the region's max_prot.
+ * @brief Change the protection of a user region, rewriting at most @p max_pages page entries.
  *
- * @param[in,out] space The space holding the range.
+ * The range is either the whole region, or its tail when the region already has @p new_prot; the
+ * second form finishes an earlier call. The region's protection changes at once, so pages whose
+ * entries are not rewritten yet are repaired by VmmFixPermission() if they fault. Entries are
+ * written without execute permission; the first instruction fetch on each page faults into
+ * VmmFixPermission(), which syncs the caches before allowing it.
+ *
+ * @param[in,out] space The space holding the region.
  * @param[in] va Page-aligned start of the range.
  * @param[in] size Page-aligned length in bytes.
  * @param[in] new_prot New protection; writable and executable together is refused.
+ * @param[in] max_pages Most page entries to rewrite in this call.
+ * @param[out] next Start of the range still to rewrite, or 0 when done.
  * @return ZUZU_OK on success.
- * @retval ERR_BADARG Unaligned or out-of-range arguments, an illegal protection, or no region.
+ * @retval ERR_BADARG Unaligned or out-of-range arguments, an illegal protection, no region, a
+ *                    range that is neither the whole region nor a matching tail, a pinned region,
+ *                    or exec on device or uncached memory.
  * @retval ERR_NOPERM new_prot exceeds the region's max_prot.
  */
-Err VmmProtectUserRange(SpaceObject *space, VirtAddr va, size_t size, MemProt new_prot);
+Err VmmProtectUserChunk(SpaceObject *space, VirtAddr va, size_t size, MemProt new_prot,
+                        size_t max_pages, VirtAddr *next);
+
+/**
+ * @brief Repair a permission fault on a page whose entry is older than its region's protection.
+ *
+ * Rewrites the page's entry to the region's protection when the region allows the access, and
+ * syncs the caches first when the access is an instruction fetch.
+ *
+ * @param[in,out] as The space that faulted.
+ * @param[in] va The faulting address.
+ * @param[in] write Whether the access was a write.
+ * @param[in] exec Whether the access was an instruction fetch.
+ * @return true if the entry changed and the access can be retried.
+ */
+bool VmmFixPermission(AddressSpace *as, VirtAddr va, bool write, bool exec);
 
 /**
  * @brief Drop the boot-time identity mapping of RAM.

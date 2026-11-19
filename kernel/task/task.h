@@ -117,6 +117,7 @@ struct TaskObjectStruct {
     Handle serving_handle;    /**< Handle of the port this task last received on. */
     EventWord wait_mask; /**< Bits this task is waiting for on an event. */
     bool wait_all;       /**< Wake only when every bit in wait_mask is pending. */
+    Err timeout_rc;      /**< Value returned in r0 when the task's timeout expires. */
 };
 
 /**
