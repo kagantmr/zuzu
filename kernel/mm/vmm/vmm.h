@@ -296,21 +296,6 @@ Err VmmUnmapUserChunk(SpaceObject *space, VirtAddr va, PhysAddr *scratch, size_t
                       VirtAddr *next);
 
 /**
- * @brief Unmap the user region that starts at an address.
- *
- * Anonymous regions have their resident frames freed, and the mapped address is cleared on the
- * handle that mapped a memory object.
- *
- * @param[in,out] space The space holding the region.
- * @param[in] va Start address of the region.
- * @return ZUZU_OK on success.
- * @retval ERR_NOENT No region contains va.
- * @retval ERR_BADARG va is not the start of the region.
- * @retval ERR_NOPERM The region is pinned.
- */
-Err VmmUnmapUserRegion(SpaceObject *space, VirtAddr va);
-
-/**
  * @brief Install a region into a space that has no tasks yet, on behalf of its parent.
  *
  * The source is either anonymous memory or a range of a shared memory object reachable through a

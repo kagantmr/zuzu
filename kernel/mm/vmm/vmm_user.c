@@ -152,44 +152,6 @@ Err VmmMapMemObj(SpaceObject *space, HandleTableEntry *entry, MemProt prot, Virt
     return ZUZU_OK;
 }
 
-Err VmmUnmapUserRegion(SpaceObject *space, VirtAddr va)
-{
-    VirtMemRegion *found = VmmFindRegion(space->as, va);
-
-    ENSURE_RET(found, ERR_NOENT);
-    ENSURE_RET(found->vaddr_start == va, ERR_BADARG);
-    ENSURE_RET(!(found->flags & VM_FLAG_PINNED), ERR_NOPERM);
-
-    switch (found->owner) {
-    case VM_BACKING_ANON: {
-        for (VirtAddr anon_va = va; (anon_va < va + found->size); anon_va += PAGE_SIZE) {
-            PhysAddr anon_pa = ArchMmuTranslate(space->as->pt_root_physaddr, anon_va);
-            (anon_pa == 0) ? (void)anon_pa : PmmFreeFrame(anon_pa);
-        }
-    } break;
-    case VM_BACKING_NONE:
-    case VM_BACKING_SHARED: {
-        bool found_in_table = false;
-        for (Handle i = 0; i < (Handle)HANDLE_MAX_SLOTS; i++) {
-            HandleTableEntry *entry = HandleTableGet(&space->handle_table, i);
-            if (!entry)
-                continue;
-            if (entry->type == HANDLE_MEM && entry->mapped_va == va) {
-                found_in_table = true;
-                entry->mapped_va = 0;
-                break;
-            }
-        }
-        ENSURE(found_in_table || found->owner == VM_BACKING_SHARED,
-               KWARN("Couldn't find unmap entry in handle table"));
-    }
-    }
-
-    ENSURE(VmmRemoveRegion(space->as, found->vaddr_start, found->size),
-           panic("Found region, but VmmRemoveRegion failed"));
-    return ZUZU_OK;
-}
-
 /**
  * @brief Clears the mapped address on the memory handle that mapped @p va, if any.
  *
