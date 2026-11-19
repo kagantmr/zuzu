@@ -14,6 +14,7 @@
 #include <arch/symbols.h>
 
 #include <assert.h>
+#include <bitmap.h>
 #include <list.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -111,9 +112,7 @@ static void PmmRebuildFreelist(void)
 {
     pmm_state.freelist_head = 0;
     for (size_t i = 0; i < pmm_state.span_frames; i++) {
-        size_t byte_idx = i / 8;
-        size_t bit_idx = i % 8;
-        if (!(pmm_state.bitmap[byte_idx] & (1U << bit_idx))) {
+        if (!BitmapTest(pmm_state.bitmap, i)) {
             PhysAddr pa = PfnToPa(pmm_state.pfn_base + i);
             PushNode(pa);
         }
@@ -153,13 +152,10 @@ static PhysAddr PmmTakeFreeFrame(void)
     PhysAddr pa = PopNode();
 
     size_t index = PaToPfn(pa) - pmm_state.pfn_base;
-    size_t byte_idx = index / 8;
-    size_t bit_idx = index % 8;
+    assert(index < pmm_state.span_frames);
+    assert(!BitmapTest(pmm_state.bitmap, index));
 
-    assert(byte_idx < pmm_state.bitmap_bytes);
-    assert(!(pmm_state.bitmap[byte_idx] & (1U << bit_idx)));
-
-    pmm_state.bitmap[byte_idx] |= (uint8_t)(1U << bit_idx);
+    BitmapSet(pmm_state.bitmap, index);
     pmm_state.free_frames--;
     assert(pmm_state.free_frames <= pmm_state.total_frames);
 
@@ -227,8 +223,7 @@ void PmmInit(void)
     pmm_state.free_frames = 0;
 
     PhysAddr bitmap_start_pa = align_up(kernel_layout.kernel_end_pa, PAGE_SIZE);
-    size_t bitmap_bytes = (pmm_state.span_frames + 7) / 8;
-    size_t bitmap_size = align_up(bitmap_bytes, PAGE_SIZE);
+    size_t bitmap_size = align_up(BITMAP_WORDS(pmm_state.span_frames) * sizeof(uint32_t), PAGE_SIZE);
     PhysAddr bitmap_end_pa = bitmap_start_pa + bitmap_size;
 
     assert(bitmap_end_pa <= kernel_layout.stack_base_pa);
@@ -237,10 +232,9 @@ void PmmInit(void)
     kernel_layout.bitmap_start_pa = bitmap_start_pa;
     kernel_layout.bitmap_end_pa = bitmap_end_pa;
 
-    kernel_layout.bitmap_va = (uint8_t *)PA_TO_VA(kernel_layout.bitmap_start_pa);
+    kernel_layout.bitmap_va = (uint32_t *)PA_TO_VA(kernel_layout.bitmap_start_pa);
 
     pmm_state.bitmap = kernel_layout.bitmap_va;
-    pmm_state.bitmap_bytes = bitmap_bytes;
     memset(pmm_state.bitmap, 0xFF, bitmap_size);
 
     for (size_t i = 0; i < kernel_layout.ram_bank_count; i++) {
@@ -294,22 +288,13 @@ Err PmmMarkRange(PhysAddr start, PhysAddr end)
     assert(pmm_state.bitmap != NULL);
     assert(pmm_state.pfn_end > pmm_state.pfn_base);
     assert(pmm_state.span_frames == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
-    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.span_frames);
 
     bool needs_rebuild = false;
     for (Pfn pfn = start_pfn; pfn < end_pfn; pfn++) {
-        size_t index = pfn - pmm_state.pfn_base;
-        size_t byte_idx = index / 8;
-        size_t bit_idx = index % 8;
+        const size_t index = pfn - pmm_state.pfn_base;
 
-        assert(byte_idx < pmm_state.bitmap_bytes);
-        if (byte_idx >= pmm_state.bitmap_bytes)
-            break;
-
-        uint8_t mask = (uint8_t)(1U << bit_idx);
-
-        if (!(pmm_state.bitmap[byte_idx] & mask)) {
-            pmm_state.bitmap[byte_idx] |= mask;
+        if (!BitmapTest(pmm_state.bitmap, index)) {
+            BitmapSet(pmm_state.bitmap, index);
             if (pmm_state.free_frames > 0)
                 pmm_state.free_frames--;
             assert(pmm_state.free_frames <= pmm_state.total_frames);
@@ -348,21 +333,12 @@ Err PmmUnmarkRange(const PhysAddr start, const PhysAddr end)
     assert(pmm_state.bitmap != NULL);
     assert(pmm_state.pfn_end > pmm_state.pfn_base);
     assert(pmm_state.span_frames == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
-    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.span_frames);
 
     for (Pfn pfn = start_pfn; pfn < end_pfn; pfn++) {
         const size_t index = pfn - pmm_state.pfn_base;
-        const size_t byte_idx = index / 8;
-        const size_t bit_idx = index % 8;
 
-        assert(byte_idx < pmm_state.bitmap_bytes);
-        if (byte_idx >= pmm_state.bitmap_bytes)
-            break;
-
-        const uint8_t mask = (uint8_t)(1U << bit_idx);
-
-        if (pmm_state.bitmap[byte_idx] & mask) {
-            pmm_state.bitmap[byte_idx] &= ~mask;
+        if (BitmapTest(pmm_state.bitmap, index)) {
+            BitmapClr(pmm_state.bitmap, index);
             if (pmm_state.free_frames < pmm_state.total_frames)
                 pmm_state.free_frames++;
             assert(pmm_state.free_frames <= pmm_state.total_frames);
@@ -392,7 +368,6 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
 
     assert(pmm_state.bitmap != NULL);
     assert(pmm_state.span_frames == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
-    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.span_frames);
     assert(pmm_state.free_frames <= pmm_state.total_frames);
     assert(n_frames <= pmm_state.total_frames);
 
@@ -401,15 +376,7 @@ PhysAddr PmmAllocFramesContig(size_t n_frames)
     size_t start_index = 0;
 
     for (size_t index = 0; index < total_pages; index++) {
-        size_t byte_idx = index / 8;
-        size_t bit_idx = index % 8;
-        uint8_t mask = (uint8_t)(1U << bit_idx);
-
-        if (byte_idx >= pmm_state.bitmap_bytes) {
-            break;
-        }
-
-        if (!(pmm_state.bitmap[byte_idx] & mask)) {
+        if (!BitmapTest(pmm_state.bitmap, index)) {
             if (consecutive == 0) {
                 start_index = index;
             }
@@ -447,18 +414,13 @@ void PmmFreeFrame(const PhysAddr addr)
     assert(pfn >= pmm_state.pfn_base && pfn < pmm_state.pfn_end);
 
     size_t index = pfn - pmm_state.pfn_base;
-    size_t byte_idx = index / 8;
-    size_t bit_idx = index % 8;
-
-    assert(byte_idx < pmm_state.bitmap_bytes);
+    assert(index < pmm_state.span_frames);
 
     assert(pmm_state.bitmap != NULL);
     assert(pmm_state.free_frames <= pmm_state.total_frames);
 
-    const uint8_t mask = (uint8_t)(1U << bit_idx);
-
-    if (pmm_state.bitmap[byte_idx] & mask) {
-        pmm_state.bitmap[byte_idx] &= ~mask;
+    if (BitmapTest(pmm_state.bitmap, index)) {
+        BitmapClr(pmm_state.bitmap, index);
         pmm_state.free_frames++;
         assert(pmm_state.free_frames <= pmm_state.total_frames);
 
@@ -498,7 +460,6 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
 
     assert(pmm_state.bitmap != NULL);
     assert(pmm_state.span_frames == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
-    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.span_frames);
 
     const size_t total_pages = pmm_state.span_frames;
     size_t consecutive = 0;
@@ -514,14 +475,7 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
             }
         }
 
-        size_t byte_idx = index / 8;
-        size_t bit_idx = index % 8;
-        uint8_t mask = (uint8_t)(1U << bit_idx);
-
-        if (byte_idx >= pmm_state.bitmap_bytes)
-            break;
-
-        if (!(pmm_state.bitmap[byte_idx] & mask)) {
+        if (!BitmapTest(pmm_state.bitmap, index)) {
             if (consecutive == 0)
                 start_index = index;
             consecutive++;
@@ -566,7 +520,6 @@ size_t PmmAllocFramesScattered(const size_t n_frames, PhysAddr *out_addrs)
     }
     assert(pmm_state.bitmap != NULL);
     assert(pmm_state.span_frames == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
-    assert(pmm_state.bitmap_bytes * 8ULL >= pmm_state.span_frames);
     assert(pmm_state.free_frames <= pmm_state.total_frames);
     assert(n_frames <= pmm_state.total_frames);
     for (size_t i = 0; i < n_frames; i++) {

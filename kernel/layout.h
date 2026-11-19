@@ -45,7 +45,7 @@ typedef struct {
 
     PhysAddr bitmap_start_pa; /**< Physical start of the frame allocator bitmap. */
     PhysAddr bitmap_end_pa; /**< Physical end of the frame allocator bitmap. */
-    uint8_t *bitmap_va; /**< Virtual address of the frame allocator bitmap. */
+    uint32_t *bitmap_va; /**< Virtual address of the frame allocator bitmap. */
 
     PhysAddr heap_start_pa; /**< Physical start of the kernel heap. */
     PhysAddr heap_end_pa; /**< Physical end of the kernel heap. */
