@@ -56,8 +56,6 @@ _Noreturn void kmain(void)
     CreateRootService(initrd_pa, initrd_size);
 
     KINFO("Kernel up");
-    LbxKick(); LbxKick();
-
     Schedule();
 
     panic("Unreachable: %s:%d", __FILE__, __LINE__);
