@@ -749,6 +749,8 @@ static inline SpaceWaitResult WaitOnSpace(Handle space, Duration timeout)
  * @param[in] flags      MEM_CONTIG and/or MEM_UNCACHED, or 0.
  * @return A memory handle with all permissions, or a negative error code.
  * @retval ERR_BADARG @p page_count is 0, @p flags has unknown bits, or MEM_UNCACHED without MEM_CONTIG.
+ * @retval ERR_OVERFLOW @p page_count is above MEM_MAX_PAGES, or above MEM_CONTIG_MAX_PAGES with
+ *                      MEM_CONTIG; create several objects instead.
  * @retval ERR_NOMEM  Not enough free (or contiguous) memory, or the handle table is full.
  */
 static inline Handle CreateMem(size_t page_count, CreateMemoryFlags flags)

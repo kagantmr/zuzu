@@ -131,6 +131,11 @@ typedef enum {
         (MEM_CONTIG | MEM_UNCACHED) /**< Both flags are OR'ed. Useful for DMA buffers. */
 } CreateMemoryFlags;
 
+/** @brief Largest page count CreateMem() accepts without MEM_CONTIG (32 MiB). */
+#define MEM_MAX_PAGES 8192u
+/** @brief Largest page count CreateMem() accepts with MEM_CONTIG (4 MiB). */
+#define MEM_CONTIG_MAX_PAGES 1024u
+
 /** @brief Direction enum for DMA memory operations. */
 typedef enum {
     DMA_TO_DEVICE = 1,     /**< This Memory is read from a DMAC and sent to the device */
