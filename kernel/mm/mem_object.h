@@ -109,8 +109,8 @@ void MemObjUnmapAndDrop(AddressSpace *as, VirtAddr mapped_va, MemObject *mem);
  * @brief Map a physically contiguous shared range for DMA by a device.
  *
  * The range must be page aligned, lie within @p mem, and be reachable under the
- * device's DMA limit. For cached memory the data cache range is cleaned and
- * invalidated. The mapping holds a reference on @p mem.
+ * device's DMA limit. No cache maintenance is done; callers sync with
+ * MemObjDmaSync(). The mapping holds a reference on @p mem.
  *
  * @param[in,out] dev Device object that will access the memory.
  * @param[in,out] mem Shared object created with MEM_CONTIG.
@@ -132,8 +132,7 @@ Err MemObjDmaMap(MemObject *dev, MemObject *mem, size_t offset, size_t len, DmaD
 /**
  * @brief Remove a DMA mapping.
  *
- * For mappings that can be written by the device, the data cache range is
- * invalidated (cached memory only) before the mapping is released.
+ * No cache maintenance is done; callers sync with MemObjDmaSync() first.
  *
  * @param[in,out] dev Device object owning the mapping.
  * @param[in] id Mapping id returned by MemObjDmaMap().

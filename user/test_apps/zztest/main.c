@@ -1716,7 +1716,8 @@ static void TestDma(void)
     DmaMapResult lo = DmaMap(dev, big, 0, half, DMA_BIDIRECTIONAL);
     DmaMapResult hi = DmaMap(dev, big, half, half, DMA_BIDIRECTIONAL);
     CheckEq(lo.status | hi.status, ZUZU_OK, "DmaMap two adjacent halves");
-    CheckEq(hi.bus_addr, lo.bus_addr + half, "the halves are adjacent on the bus");
+    CheckEq((int32_t)hi.bus_addr, (int32_t)(lo.bus_addr + half),
+            "the halves are adjacent on the bus");
     CheckEq(DmaSync(dev, lo.bus_addr, big_len, DMA_SYNC_FOR_DEVICE), ERR_NOENT,
             "DmaSync spanning two adjacent mappings -> NOENT");
     CheckEq(DmaSync(dev, hi.bus_addr, half, DMA_SYNC_FOR_CPU), ZUZU_OK,

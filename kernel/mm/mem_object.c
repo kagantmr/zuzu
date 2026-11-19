@@ -138,9 +138,6 @@ Err MemObjDmaMap(MemObject *dev, MemObject *mem, size_t offset, size_t len, DmaD
     ENSURE_RET(len - 1 <= dev->dev.dma_limit && bus <= dev->dev.dma_limit - (len - 1), ERR_BADARG);
     ENSURE_RET(dev->dev.dma_map_count < DMA_MAX_MAPPINGS, ERR_NOMEM);
 
-    if (!(mem->shm.flags & MEM_UNCACHED))
-        ArchCacheCleanInvalidateDcacheRange(PA_TO_VA(phys), len);
-
     DmaMapping *m = DmaMappingAlloc();
     ENSURE_RET(m, ERR_NOMEM);
 
@@ -172,10 +169,6 @@ Err MemObjDmaUnmap(MemObject *dev, uint32_t id)
     while (*link) {
         DmaMapping *m = *link;
         if (m->id == id) {
-            if ((m->dir & DMA_FROM_DEVICE) && !(m->mem->shm.flags & MEM_UNCACHED)) {
-                PhysAddr phys = m->mem->shm.page_addrs[0] + m->offset;
-                ArchCacheInvalidateDcacheRange(PA_TO_VA(phys), m->len);
-            }
             *link = m->next;
             dev->dev.dma_map_count--;
             MemObjUnref(m->mem);
