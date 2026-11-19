@@ -213,6 +213,44 @@ void BenchCreateObjects(void)
         ReportBuf(name, g_samples_b, m);
         Point("free mem vs pages", "pages", pages[k], "cycles", (uint64_t)g_samples[m / 2] * 1000);
     }
+
+    static const uint32_t contig[] = {1, 16, 64, 256, 1024};
+    volatile uint8_t *zbuf = MemMapAnon(1024 * PAGE, 0, PROT_RW);
+    if (PtrIsErr((const void *)zbuf)) {
+        printf("map zero buffer failed\n");
+        return;
+    }
+    for (uint32_t o = 0; o < 1024 * PAGE; o += PAGE)
+        zbuf[o] = 1;
+    for (uint32_t k = 0; k < ARRAY_LEN(contig); k++) {
+        char name[40];
+        uint32_t m = contig[k] >= 256 ? (n < 32 ? n : 32) : (n < 256 ? n : 256);
+        for (uint32_t i = 0; i < m; i++) {
+            Handle h;
+            TIMED(g_samples, i, h = CreateMem(contig[k], MEM_CONTIG));
+            if (h < 0) {
+                printf("create contig %u pages failed: %d\n", (unsigned)contig[k], (int)h);
+                return;
+            }
+            HandleClose(h);
+            TIMED(g_samples_b, i, h = CreateMem(contig[k], MEM_CONTIG | MEM_UNCACHED));
+            if (h < 0) {
+                printf("create uncached %u pages failed: %d\n", (unsigned)contig[k], (int)h);
+                return;
+            }
+            HandleClose(h);
+            TIMED(g_samples_c, i, memset((void *)zbuf, 0, contig[k] * PAGE));
+        }
+        snprintf(name, sizeof(name), "create contig %up", (unsigned)contig[k]);
+        Report(name, m);
+        Point("create contig vs pages", "pages", contig[k], "cycles",
+              (uint64_t)g_samples[m / 2] * 1000);
+        snprintf(name, sizeof(name), "create uncached %up", (unsigned)contig[k]);
+        ReportBuf(name, g_samples_b, m);
+        snprintf(name, sizeof(name), "user memset %up", (unsigned)contig[k]);
+        ReportBuf(name, g_samples_c, m);
+    }
+    MemUnmap((void *)zbuf);
 }
 
 void BenchMemMap(void)
