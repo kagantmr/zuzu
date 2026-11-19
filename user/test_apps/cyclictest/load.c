@@ -18,7 +18,7 @@ static const Load kLoads[] = {
     {"syscall", "short syscalls in a tight loop", "syscall"},
     {"mem", "4 MB memcpy per worker (cache/DRAM pressure)", "mem"},
     {"vm", "map 1 MB anon, fault every page, unmap", "vm"},
-    {"space", "create space, inject 256 pages, destroy", "space"},
+    {"space", "touch 256 fresh pages, inject, destroy (frees them)", "space"},
     {"ipc", "512 B same-space IPC ping-pong", "ipc"},
     {"fs", "64 KB SD write + read through fsd", "fs"},
     {"all", "every load above at once", "cpu,syscall,mem,vm,space,ipc,fs"},
@@ -98,32 +98,30 @@ static void VmWorker(Worker *w)
 
 static void SpaceWorker(Worker *w)
 {
-    Handle obj = CreateMem(SPACE_PAGES, 0);
-    if (obj < 0)
-        Finish(w, obj);
-    uint8_t *m = MemMap(obj, 0, PROT_RW);
-    if (PtrIsErr(m)) {
-        HandleClose(obj);
-        Finish(w, ERR_NOMEM);
-    }
-    for (uint32_t i = 0; i < SPACE_PAGES; i++)
-        m[i * PAGE] = (uint8_t)i;
-    MemUnmap(m);
     while (!g_stop) {
+        Handle obj = CreateMem(SPACE_PAGES, 0);
+        if (obj < 0)
+            Finish(w, obj);
+        uint8_t *m = MemMap(obj, 0, PROT_RW);
+        if (PtrIsErr(m)) {
+            HandleClose(obj);
+            Finish(w, ERR_NOMEM);
+        }
+        for (uint32_t i = 0; i < SPACE_PAGES; i++)
+            m[i * PAGE] = (uint8_t)i;
+        MemUnmap(m);
         Handle sp = CreateSpace("cyclictest-load");
         if (sp < 0) {
             HandleClose(obj);
             Finish(w, sp);
         }
         Err rc = MemInjectObj(sp, obj, USER_ELF_BASE, 0, SPACE_PAGES * PAGE, PROT_RW);
+        HandleClose(obj);
         HandleDestroy(sp);
-        if (rc != ZUZU_OK) {
-            HandleClose(obj);
+        if (rc != ZUZU_OK)
             Finish(w, rc);
-        }
         w->ops++;
     }
-    HandleClose(obj);
     Finish(w, ZUZU_OK);
 }
 
