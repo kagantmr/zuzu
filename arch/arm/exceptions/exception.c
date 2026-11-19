@@ -141,9 +141,6 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
         bool from_user = (frame->return_cpsr & 0x1F) == 0x10;
 
         if (from_user && current_space) {
-            KDEBUG("Oops! '%s' (SPID %d, TID %d) killed: prefetch abort @ 0x%08X (%s)\n",
-                   current_space->name, current_space->spid, current_task->tid, ifar,
-                   DecodeFsr(ifsr));
             uint32_t status = (ifsr & 0xF) | ((ifsr >> 6) & 0x10);
             if ((status == 0x05 || status == 0x07) && ifar < KERNEL_VA_BASE && current_space->as &&
                 VmmDemandPage(current_space->as, ifar, false))
@@ -151,6 +148,9 @@ void __hot ExceptionDispatch(ExceptionType exctype, CpuState *frame)
             if ((status == 0x0D || status == 0x0F) && ifar < KERNEL_VA_BASE && current_space->as &&
                 VmmFixPermission(current_space->as, ifar, false, true))
                 return;
+            KDEBUG("Oops! '%s' (SPID %d, TID %d) killed: prefetch abort @ 0x%08X (%s)\n",
+                   current_space->name, current_space->spid, current_task->tid, ifar,
+                   DecodeFsr(ifsr));
             TaskFault(current_task, KILLED_FAULT_PREFETCH);
             Schedule();
         } else {
