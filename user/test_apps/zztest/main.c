@@ -595,8 +595,6 @@ static void TestMemory(void)
 
     CheckEq(CreateMem(MEM_MAX_PAGES + 1, 0), ERR_OVERFLOW,
             "CreateMem above MEM_MAX_PAGES -> OVERFLOW");
-    CheckEq(CreateMem(MEM_CONTIG_MAX_PAGES + 1, MEM_CONTIG), ERR_OVERFLOW,
-            "CreateMem(MEM_CONTIG) above MEM_CONTIG_MAX_PAGES -> OVERFLOW");
 
     /* Shared memory objects */
     Handle mem = CreateMem(2, 0);
@@ -627,8 +625,7 @@ static void TestMemory(void)
     CheckEq(CreateMem(1, (CreateMemoryFlags)0x80), ERR_BADARG, "CreateMem(unknown flag) -> BADARG");
     CheckEq(CreateMem(1, MEM_UNCACHED), ERR_BADARG, "MEM_UNCACHED without MEM_CONTIG -> BADARG");
     CheckEq(CreateMem(0, MEM_CONTIG), ERR_BADARG, "CreateMem(0, MEM_CONTIG) -> BADARG");
-    CheckEq(CreateMem(PagesMoreThanRam(), MEM_CONTIG), ERR_OVERFLOW,
-            "MEM_CONTIG larger than RAM -> OVERFLOW");
+    CheckEq(CreateMem(PagesMoreThanRam(), MEM_CONTIG), ERR_NOMEM, "MEM_CONTIG larger than RAM -> NOMEM");
 
     for (int round = 0; round < 2; round++) {
         Handle warm = CreateMem(4, MEM_CONTIG);

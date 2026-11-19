@@ -214,13 +214,13 @@ void BenchCreateObjects(void)
         Point("free mem vs pages", "pages", pages[k], "cycles", (uint64_t)g_samples[m / 2] * 1000);
     }
 
-    static const uint32_t contig[] = {1, 16, 64, 256, 1024};
-    volatile uint8_t *zbuf = MemMapAnon(1024 * PAGE, 0, PROT_RW);
+    static const uint32_t contig[] = {1, 16, 64, 256, 1024, 2048};
+    volatile uint8_t *zbuf = MemMapAnon(2048 * PAGE, 0, PROT_RW);
     if (PtrIsErr((const void *)zbuf)) {
         printf("map zero buffer failed\n");
         return;
     }
-    for (uint32_t o = 0; o < 1024 * PAGE; o += PAGE)
+    for (uint32_t o = 0; o < 2048 * PAGE; o += PAGE)
         zbuf[o] = 1;
     for (uint32_t k = 0; k < ARRAY_LEN(contig); k++) {
         char name[40];
