@@ -208,6 +208,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
 
     task->owner = owner;
     task->sleep_slot = -1;
+    task->timeout_rc = ERR_TIMEOUT;
     ListInit(&task->joiners);
     task->state = TASK_STATE_FROZEN;
     task->ipc_state = IPC_NONE;

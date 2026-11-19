@@ -289,7 +289,7 @@ void SchedInsertSleepQueue(TaskObject *t)
 }
 
 /**
- * @brief Wake a task whose timeout expired, returning ERR_TIMEOUT from its syscall.
+ * @brief Wake a task whose timeout expired, returning its timeout_rc from its syscall.
  *
  * A caller waiting on a call has the call withdrawn first.
  *
@@ -303,7 +303,7 @@ static void SchedWakeTimedOut(TaskObject *t)
         ArchSetInFrame(t->trap_frame, 1, 0);
         ArchSetInFrame(t->trap_frame, 3, (Register)-1);
     }
-    ArchSetInFrame(t->trap_frame, 0, ERR_TIMEOUT);
+    ArchSetInFrame(t->trap_frame, 0, t->timeout_rc);
     SchedUnblock(t);
     SchedAdd(t);
 }
@@ -574,6 +574,7 @@ void SchedUnblock(TaskObject *t)
         ListRemove(&t->wait_slot.node);
     SchedRemoveSleepQueue(t);
     t->wake_deadline = 0;
+    t->timeout_rc = ERR_TIMEOUT;
     t->ipc_state = IPC_NONE;
     t->blocked_port = NULL;
     t->state = TASK_STATE_READY;
