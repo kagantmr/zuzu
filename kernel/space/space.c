@@ -26,6 +26,8 @@ static SpaceObject *spaces[MAX_SPACES];
 /** @brief Allocator for space objects. */
 static KSlabCache space_cache;
 
+SpaceObject kernel_space;
+
 /** @brief Move to the next space ID, wrapping to 1 before it can go negative. */
 static void SpidAdvance(void)
 {
@@ -312,4 +314,19 @@ bool SpaceIsSelfOrAncestor(const SpaceObject *sp, const SpaceObject *target)
         sp = sp->parent_spid == -1 ? NULL : SpaceFindBySpid(sp->parent_spid);
     }
     return false;
+}
+
+void SpaceInitKernelSpace(void)
+{
+    memset(&kernel_space, 0, sizeof(kernel_space));
+    ListInit(&kernel_space.tasks);
+    ObserverInit(&kernel_space.observers);
+    HandleTableInit(&kernel_space.handle_table);
+    ListInit(&kernel_space.waiters);
+    kernel_space.as = VmmGetKernelAddressSpace();
+    kernel_space.spid = 0;
+    kernel_space.parent_spid = -1;
+    strncpy(kernel_space.name, "zuzu", 4);
+    kernel_space.max_prio = SCHED_PRIORITY_LEVELS - 1;
+    kernel_space.ref_count = 1; // important
 }

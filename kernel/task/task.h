@@ -265,4 +265,14 @@ bool TaskIsDead(const TaskObject *task);
  * @param[in] reason Why it faulted.
  */
 void TaskFault(TaskObject *task, Err reason);
+
+/**
+ * @brief Create a kernel task from an entry point.
+ * 
+ * @param[in] entry The entry function to execute from.
+ * @param[in] priority The priority of the task.
+ * 
+ * @return The task, READY but not queued or NULL on a bad priority or when out of memory or task IDs.
+ */
+TaskObject *TaskCreateKernel(void (*entry)(void), Prio priority);
 #endif // KERNEL_TASK_TASK_H

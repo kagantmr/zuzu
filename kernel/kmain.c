@@ -20,6 +20,8 @@
 #include "core/version.h"
 #include "kernel/loader/boot_programs.h"
 #include "kernel/loader/initrd.h"
+#include "kernel/space/space.h"
+#include "kernel/lbx/lbx.h"
 #include "kernel/syspage.h"
 #include "types.h"
 #include <stdint.h>
@@ -32,7 +34,9 @@ _Noreturn void kmain(void)
 {
     KINFO("Booting %s", "zuzu-" ZUZU_CODENAME "-" ZUZU_VERSION);
 
+    SpaceInitKernelSpace();
     SchedInit();
+    LbxInit();
     ArchGlobalIrqEnable();
 
     SyspageInit();
@@ -52,6 +56,7 @@ _Noreturn void kmain(void)
     CreateRootService(initrd_pa, initrd_size);
 
     KINFO("Kernel up");
+    LbxKick(); LbxKick();
 
     Schedule();
 

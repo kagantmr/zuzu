@@ -159,3 +159,9 @@ _Noreturn void early(void *dtb_ptr)
 
     kmain();
 }
+
+void ArchBootStackRange(PhysAddr *base, PhysAddr *end)
+{
+    *base = kernel_layout.stack_base_pa;
+    *end = kernel_layout.stack_top_pa;
+}

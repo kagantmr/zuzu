@@ -19,6 +19,11 @@
 #define MAX_SPACES 512
 
 /**
+ * @brief Definition of the kernel Space itself, owner of kernel tasks and handles.
+ */
+extern SpaceObject kernel_space;
+
+/**
  * @brief Represents a space object.
  */
 typedef struct SpaceObjectStruct {
@@ -45,6 +50,14 @@ typedef struct SpaceObjectStruct {
 } SpaceObject;
 
 _Static_assert(TCB_MAX_SLOTS <= 256, "tcb_slot_bitmap is 256 bits wide");
+
+/**
+ * @brief Check whether a space is the kernel's own space.
+ *
+ * @param[in] sp The space.
+ * @return true if @p sp is kernel_space.
+ */
+static inline bool SpaceIsKernel(const SpaceObject *sp) { return sp == &kernel_space; }
 
 /**
  * @brief Allocate a slot for the TLS page in a space.
@@ -210,5 +223,10 @@ void SpaceUnref(SpaceObject *sp);
  * @return true if every task in it has exited.
  */
 bool SpaceIsHollow(const SpaceObject *sp);
+
+/**
+ * @brief Initializes the zuzu kernel's main space.
+ */
+void SpaceInitKernelSpace(void);
 
 #endif /* KERNEL_SPACE_SPACE_H */

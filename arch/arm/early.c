@@ -23,6 +23,8 @@
 
 extern char __stack_region_base__[]; /**< Physical bottom of the IRQ, abort, undefined and SVC stacks. */
 extern char __stack_region_end__[];  /**< Physical top of those stacks. */
+extern char __svc_stack_base__[];    /**< Physical bottom of the SVC stack, the one boot runs on. */
+extern char __svc_stack_top__[];     /**< Physical top of the SVC stack. */
 
 /** @brief Physical and virtual layout of RAM and the kernel image, filled in by early(). */
 RamLayout kernel_layout;
@@ -184,4 +186,10 @@ _Noreturn void early(void *dtb_ptr)
     KDEBUG("Boot info initialized from DTB: dev_count=%u", boot_info_dev_count());
     KDEBUG("Handoff to kmain");
     kmain();
+}
+
+void ArchBootStackRange(PhysAddr *base, PhysAddr *end)
+{
+    *base = (PhysAddr)__svc_stack_base__;
+    *end = (PhysAddr)__svc_stack_top__;
 }

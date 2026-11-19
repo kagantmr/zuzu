@@ -109,7 +109,6 @@ static void SchedInitIdleTask(void)
 {
     VirtAddr sp = (VirtAddr)idle_stack + sizeof(idle_stack);
     sp &= ~(VirtAddr)15U;
-
     idle_task.kernel_sp = ArchTaskKernelInit((void *)sp, IdleTask);
 }
 
@@ -126,6 +125,10 @@ void SchedInit(void)
     wheel_now_slot = ArchTimerNow() >> slot_shift;
     current_task = NULL;
     on_idle_stack = false;
+    idle_task.owner = &kernel_space;
+    idle_task.priority = 0;
+    idle_task.tcb_slot = TCB_SLOT_NONE;
+    ListAddTail(&idle_task.space_node, &kernel_space.tasks.node);
     SchedInitIdleTask();
     ArchTimerSetHandler(SchedTimerExpired);
 }
@@ -384,8 +387,7 @@ static void SchedIdleWait(void)
         }
 
         ArchCpuIdle();
-        ArchGlobalIrqEnable();
-        ArchGlobalIrqDisable();
+        SchedOpenIrqWindow();
 
         if (SchedIsWorkPending()) {
             if (do_resched)
