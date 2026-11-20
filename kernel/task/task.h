@@ -119,6 +119,13 @@ struct TaskObjectStruct {
 };
 
 /**
+ * @brief Drops what a half-done checkpointed syscall left in a task.
+ *
+ * @param[in,out] task The task.
+ */
+void TaskDropCheckpoint(TaskObject *task);
+
+/**
  * @brief Remove a task from every queue, free its kernel stack and thread-local slot, and free it
  * unless something still references it.
  *

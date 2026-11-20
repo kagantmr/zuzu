@@ -165,14 +165,19 @@ void TaskQueueDestroy(TaskObject *task)
         LbxQueue(&task->lbx_node, TaskLbxStep);
 }
 
+void TaskDropCheckpoint(TaskObject *task)
+{
+    if (task->checkpoint.obj && task->checkpoint.drop)
+        task->checkpoint.drop(task->checkpoint.obj);
+    task->checkpoint = (CheckpointState){0};
+}
+
 void TaskDestroy(TaskObject *task)
 {
     if (!task || task->released)
         return;
     LbxCancel(&task->lbx_node);
-    if (task->checkpoint.obj && task->checkpoint.drop)
-        task->checkpoint.drop(task->checkpoint.obj);
-    task->checkpoint = (CheckpointState){0};
+    TaskDropCheckpoint(task);
     TaskUnlinkWaits(task);
     TaskObjectUnregister(task);
     if (fpu_owner == task)
