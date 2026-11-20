@@ -10,12 +10,12 @@ static uint32_t g_tx_slot = 0;
 
 Err GenetTxInit(void)
 {
-    g_tx_buf_h = CreateMem(GENET_BUF_PAGES, MEM_CONTIG | MEM_UNCACHED);
+    g_tx_buf_h = CreateMem(GENET_BUF_PAGES, MEM_CONTIG);
     if (g_tx_buf_h < 0) {
         LOG_ERROR(LOG_TAG, "CreateMem failed: %s", StrToError(g_tx_buf_h));
         return g_tx_buf_h;
     }
-    DmaMapResult res = DmaMap(g_genet.dev, g_tx_buf_h, 0, GENET_BUF_PAGES * 4096, DMA_TO_DEVICE);
+    DmaMapResult res = DmaMap(g_genet.dev, g_tx_buf_h, 0, (GENET_BUF_PAGES * 4096), DMA_TO_DEVICE);
     if (res.status != ZUZU_OK) {
         LOG_ERROR(LOG_TAG, "DmaMap failed: %s", StrToError(res.status));
         return res.status;
@@ -68,6 +68,11 @@ Err GenetTx(const void *frame, uint32_t len)
     if (len < GENET_MIN_FRAME) {
         memset(buf + len, 0, GENET_MIN_FRAME - len);
         len = GENET_MIN_FRAME;
+    }
+    Err rc = ZUZU_OK;
+    if ((rc = DmaSync(g_genet.dev, g_tx_bus + (g_tx_slot * GENET_BUF_SIZE), (len + 63) & ~63U,
+                      DMA_SYNC_FOR_DEVICE)) != ZUZU_OK) {
+        return rc;
     }
 
     GenetDesc *d = &g_genet.tx_desc[g_tx_slot];
