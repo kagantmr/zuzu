@@ -9,6 +9,7 @@
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/sched/sched.h"
 #include "kernel/checkpoint/checkpoint.h"
+#include "kernel/syspage.h"
 #include <arch/platform.h>
 
 #define LOG_FMT(fmt) "(lbx) " fmt
@@ -25,6 +26,20 @@ static ListHead lbx_queues[SCHED_PRIORITY_LEVELS];
 static uint32_t lbx_ready;
 /** @brief Where lbx sleeps while every queue is empty. */
 static ListHead lbx_wait_queue = LIST_HEAD_INIT(lbx_wait_queue);
+/** @brief Objects queued and not yet fully reclaimed. */
+static uint32_t lbx_pending;
+
+/**
+ * @brief Changes the pending count and mirrors it into the syspage.
+ *
+ * @param[in] delta Amount to add.
+ */
+static void LbxPendingAdd(int32_t delta)
+{
+    lbx_pending += (uint32_t)delta;
+    if (g_sp)
+        g_sp->lbx_pending = lbx_pending;
+}
 
 /**
  * @brief Gets rid of the kmain boot stack.
@@ -57,6 +72,8 @@ static void LbxMain(void)
             LbxNode *n = container_of(ln, LbxNode, node);
             if (n->step(n, LBX_BUDGET) == LBX_MORE)
                 ListAddTail(&n->node, &lbx_queues[top].node);
+            else
+                LbxPendingAdd(-1);
             if (ListIsEmpty(&lbx_queues[top]))
                 lbx_ready &= ~(1U << top);
             CheckpointTask();
@@ -74,6 +91,7 @@ void LbxQueue(LbxNode *n, LbxStepFn step)
     n->step = step;
     n->prio = p;
     ListAddTail(&n->node, &lbx_queues[p].node);
+    LbxPendingAdd(1);
     lbx_ready |= 1U << p;
     if (lbx->state == TASK_STATE_BLOCKED)
         SchedUnblock(lbx);
@@ -88,6 +106,7 @@ void LbxCancel(LbxNode *n)
     if (!n->node.next)
         return;
     ListRemove(&n->node);
+    LbxPendingAdd(-1);
     if (ListIsEmpty(&lbx_queues[n->prio]))
         lbx_ready &= ~(1U << n->prio);
 }
