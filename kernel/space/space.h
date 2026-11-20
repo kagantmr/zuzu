@@ -23,6 +23,14 @@
  */
 extern SpaceObject kernel_space;
 
+/** @brief How far lbx has got reclaiming a torn-down space. */
+typedef enum {
+    SPACE_REAP_TASKS,   /**< Destroying the space's tasks. */
+    SPACE_REAP_REGIONS, /**< Unmapping regions and freeing their pages. */
+    SPACE_REAP_HANDLES, /**< Releasing handles. */
+    SPACE_REAP_TABLES,  /**< Freeing the page tables, ASID and handle table. */
+} SpaceReapPhase;
+
 /**
  * @brief Represents a space object.
  */
@@ -47,6 +55,9 @@ typedef struct SpaceObjectStruct {
     bool torn_down; /**< SpaceDestroy() has run; only a zombie main task may keep the object alive. */
     ObserverSet observers; /**< Events signalled when the space becomes hollow. */
     uint32_t ref_count; /**< References held by handles, tasks and teardown in progress. */
+    LbxNode lbx_node; /**< Link in lbx's queue while the space is being reclaimed. */
+    SpaceReapPhase reap_phase; /**< What lbx is reclaiming next. */
+    uint32_t reap_pos; /**< Next handle slot to release in SPACE_REAP_HANDLES. */
 } SpaceObject;
 
 _Static_assert(TCB_MAX_SLOTS <= 256, "tcb_slot_bitmap is 256 bits wide");
@@ -149,9 +160,10 @@ SpaceObject *SpaceFindBySpid(Spid spid);
 
 /**
  * @brief Tear down a space: terminate its tasks, wake anyone waiting on it, release its
- * interrupts and handles, and free its address space.
+ * interrupts, kill the ports and events it owns, and hand the rest to lbx.
  *
- * The object itself is freed once nothing references it any more. Calling this twice is harmless.
+ * lbx destroys the tasks, frees the address space and releases the handles in bounded steps. The
+ * object itself is freed once nothing references it any more. Calling this twice is harmless.
  *
  * @param[in] sp The space to tear down.
  */

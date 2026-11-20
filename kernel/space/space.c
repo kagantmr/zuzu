@@ -6,9 +6,11 @@
 #include "space.h"
 
 #include "kernel/irq/irq_relay.h"
+#include "kernel/lbx/lbx.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/sched/sched.h"
+#include "kernel/checkpoint/checkpoint.h"
 #include "kernel/syspage.h"
 #include "kernel/task/task.h"
 #include <arch/mmu.h>
@@ -25,6 +27,8 @@ static uint32_t next_spid = 1;
 static SpaceObject *spaces[MAX_SPACES];
 /** @brief Allocator for space objects. */
 static KSlabCache space_cache;
+/** @brief Frames collected by one teardown step; lbx is the only user. */
+static PhysAddr space_reap_scratch[CHECKPOINT_PAGES];
 
 SpaceObject kernel_space;
 
@@ -61,6 +65,7 @@ static Spid SpidAlloc(SpaceObject *sp)
     spaces[slot] = sp;
     return spid;
 }
+
 
 SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
 {
@@ -181,9 +186,96 @@ SpaceObject *SpaceFindBySpid(Spid spid)
     return NULL;
 }
 
+/**
+ * @brief Kill the ports and events a space owns, failing their waiters.
+ *
+ * @param[in] sp The space being torn down.
+ */
+static void SpaceKillOwned(SpaceObject *sp)
+{
+    for (size_t i = BitmapNextSet(sp->handle_table.slot_bitmap, HANDLE_MAX_SLOTS, 0);
+         i < HANDLE_MAX_SLOTS;
+         i = BitmapNextSet(sp->handle_table.slot_bitmap, HANDLE_MAX_SLOTS, i + 1)) {
+        HandleTableEntry *entry = HandleTableGet(&sp->handle_table, (Handle)i);
+        if (!entry)
+            continue;
+        if (entry->type == HANDLE_PORT && entry->port && entry->port->owner_spid == sp->spid)
+            PortKill(entry->port);
+        else if (entry->type == HANDLE_EVENT && entry->event &&
+                 entry->event->owner_spid == sp->spid)
+            EventKill(entry->event);
+    }
+}
+
+/**
+ * @brief Runs one step of a torn-down space's current reclaim phase: destroys its tasks, then
+ * frees its address space, handles and tables.
+ *
+ * @param[in,out] sp The space.
+ * @param[in] budget The most tasks, pages or handles to reclaim.
+ * @return LBX_MORE if work is left, LBX_DONE once the teardown reference is dropped.
+ */
+static LbxResult SpaceLbxPhase(SpaceObject *sp, uint32_t budget)
+{
+    switch (sp->reap_phase) {
+    case SPACE_REAP_TASKS:
+        for (; budget > 0 && !ListIsEmpty(&sp->tasks); budget--)
+            TaskDestroy(container_of(sp->tasks.node.next, TaskObject, space_node));
+        if (ListIsEmpty(&sp->tasks))
+            sp->reap_phase = SPACE_REAP_REGIONS;
+        return LBX_MORE;
+
+    case SPACE_REAP_REGIONS: {
+        size_t pages = budget < CHECKPOINT_PAGES ? budget : CHECKPOINT_PAGES;
+        if (sp->as && VmmTeardownChunk(sp->as, space_reap_scratch, pages))
+            return LBX_MORE;
+        sp->reap_phase = SPACE_REAP_HANDLES;
+        sp->reap_pos = 0;
+        return LBX_MORE;
+    }
+
+    case SPACE_REAP_HANDLES:
+        for (; budget > 0; budget--) {
+            size_t i = BitmapNextSet(sp->handle_table.slot_bitmap, HANDLE_MAX_SLOTS, sp->reap_pos);
+            if (i >= HANDLE_MAX_SLOTS) {
+                sp->reap_phase = SPACE_REAP_TABLES;
+                return LBX_MORE;
+            }
+            sp->reap_pos = (uint32_t)i + 1;
+            HandleTableEntry *entry = HandleTableGet(&sp->handle_table, (Handle)i);
+            if (entry && entry->type != HANDLE_FREE)
+                HandleRelease(sp, entry);
+        }
+        return LBX_MORE;
+
+    case SPACE_REAP_TABLES:
+        if (sp->as) {
+            if (AddressSpaceDestroyChunk(sp->as, 1))
+                return LBX_MORE;
+            sp->as = NULL;
+        }
+        HandleTableDestroy(&sp->handle_table);
+        SpaceUnref(sp);
+        return LBX_DONE;
+    }
+    return LBX_MORE;
+}
+
+/**
+ * @brief lbx step for a torn-down space; runs the current phase.
+ *
+ * @param[in,out] n The space's lbx node.
+ * @param[in] budget The most tasks, pages or handles to reclaim.
+ * @return LBX_MORE if work is left, LBX_DONE once the teardown reference is dropped.
+ */
+static LbxResult SpaceLbxStep(LbxNode *n, uint32_t budget)
+{
+    return SpaceLbxPhase(container_of(n, SpaceObject, lbx_node), budget);
+}
+
 void SpaceDestroy(SpaceObject *sp)
 {
-    if (!sp || sp->torn_down)
+    if (!sp || sp->torn_down || SpaceIsKernel(sp))
         return;
     sp->torn_down = true;
     sp->ref_count++;
@@ -192,14 +284,8 @@ void SpaceDestroy(SpaceObject *sp)
     while (task_node != &sp->tasks.node) {
         ListNode *next = task_node->next;
         TaskObject *task = container_of(task_node, TaskObject, space_node);
-        TaskRef(task);
         if (task->state != TASK_STATE_ZOMBIE)
             TaskTerminate(task, ERR_DEAD);
-        if (task != current_task)
-            TaskDestroy(task);
-        else
-            TaskQueueDestroy(task);
-        TaskUnref(task);
         task_node = next;
     }
 
@@ -210,36 +296,14 @@ void SpaceDestroy(SpaceObject *sp)
     }
 
     IrqReleaseAll(sp);
-
-    for (uint32_t w = 0; w < BITMAP_WORDS(HANDLE_MAX_SLOTS); w++) {
-        BitmapWord bits = sp->handle_table.slot_bitmap[w];
-        while (bits) {
-            uint32_t i = (uint32_t)(w * BITMAP_WORD_BITS) + (uint32_t)__builtin_ctzl(bits);
-            bits &= bits - 1U;
-            HandleTableEntry *entry = HandleTableGet(&sp->handle_table, (Handle)i);
-            if (!entry || entry->type == HANDLE_FREE)
-                continue;
-            if (entry->type == HANDLE_PORT && entry->port && entry->port->owner_spid == sp->spid)
-                PortKill(entry->port);
-            else if (entry->type == HANDLE_EVENT && entry->event &&
-                     entry->event->owner_spid == sp->spid)
-                EventKill(entry->event);
-            HandleRelease(sp, entry);
-        }
-    }
-
-    if (sp->as) {
-        ArchMmuFreeUserPages(sp->as);
-        AddressSpaceDestroy(sp->as);
-        sp->as = NULL;
-    }
-    HandleTableDestroy(&sp->handle_table);
+    SpaceKillOwned(sp);
 
     uint32_t slot = (uint32_t)sp->spid % MAX_SPACES;
     if (spaces[slot] == sp)
         spaces[slot] = NULL;
 
-    SpaceUnref(sp);
+    sp->reap_phase = SPACE_REAP_TASKS;
+    LbxQueue(&sp->lbx_node, SpaceLbxStep);
 }
 
 void SpaceFinalize(SpaceObject *sp)

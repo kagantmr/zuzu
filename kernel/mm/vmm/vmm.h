@@ -307,6 +307,19 @@ Err VmmUnmapUserChunk(SpaceObject *space, VirtAddr va, PhysAddr *scratch, size_t
                       VirtAddr *next);
 
 /**
+ * @brief Tear down part of the last region of a dead address space.
+ *
+ * Pinned regions are torn down too. Anonymous pages are freed; other backings are only unmapped,
+ * and the region's reference on its backing object is dropped once the whole region is gone.
+ *
+ * @param[in,out] as The address space, which no task may be running in.
+ * @param[out] scratch Room for @p max_pages frames.
+ * @param[in] max_pages Most pages to tear down in this call.
+ * @return true while regions are left.
+ */
+bool VmmTeardownChunk(AddressSpace *as, PhysAddr *scratch, size_t max_pages);
+
+/**
  * @brief Install a region into a space that has no tasks yet, on behalf of its parent.
  *
  * The source is either anonymous memory or a range of a shared memory object reachable through a

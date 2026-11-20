@@ -209,6 +209,35 @@ Err VmmUnmapUserChunk(SpaceObject *space, VirtAddr va, PhysAddr *scratch, size_t
     return ZUZU_OK;
 }
 
+bool VmmTeardownChunk(AddressSpace *as, PhysAddr *scratch, size_t max_pages)
+{
+    if (as->regions.len == 0)
+        return false;
+    VirtMemRegion *r = vm_region_vec_get(&as->regions, as->regions.len - 1);
+    if (!r)
+        return false;
+    VirtAddr va = r->vaddr_start;
+    size_t chunk = max_pages * PAGE_SIZE;
+    bool last = r->size <= chunk;
+    size_t len = last ? r->size : chunk;
+
+    if (r->owner == VM_BACKING_ANON) {
+        size_t n = ArchMmuUnmapCollect(as, va, len, scratch, max_pages);
+        for (size_t i = 0; i < n; i++)
+            PmmFreeFrame(scratch[i]);
+    }
+
+    if (last) {
+        ENSURE(VmmRemoveRegion(as, va, r->size),
+               panic("Found region, but VmmRemoveRegion failed"));
+    } else {
+        if (r->owner != VM_BACKING_ANON)
+            VmmUnmapRange(as, va, len, true);
+        VmmTrimRegionFront(r, len);
+    }
+    return as->regions.len != 0;
+}
+
 Err VmmProtectUserChunk(SpaceObject *space, VirtAddr va, size_t size, MemProt new_prot,
                         size_t max_pages, VirtAddr *next)
 {
