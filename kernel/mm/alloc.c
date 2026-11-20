@@ -242,14 +242,32 @@ static bool HeapGrow(size_t min_payload)
         pages = HEAP_GROW_MIN_PAGES;
     }
 
-    if (heap_seg_count == HEAP_MAX_SEGMENTS)
-        return false;
     PhysAddr heap_pa = PmmAllocFramesContig(pages);
     if (!heap_pa) {
         return false;
     }
 
     VirtAddr heap_va = PA_TO_VA(heap_pa);
+    VirtAddr seg_end_va = heap_va + (pages * PAGE_SIZE);
+    HeapSegment *seg = NULL;
+    for (uint32_t i = 0; i < heap_seg_count && !seg; i++) {
+        if (heap_segs[i].end == heap_va) {
+            seg = &heap_segs[i];
+            seg->end = seg_end_va;
+        } else if (heap_segs[i].start == seg_end_va) {
+            seg = &heap_segs[i];
+            seg->start = heap_va;
+        }
+    }
+    if (!seg) {
+        if (heap_seg_count == HEAP_MAX_SEGMENTS) {
+            for (size_t i = 0; i < pages; i++)
+                PmmFreeFrame(heap_pa + i * PAGE_SIZE);
+            KERROR("Heap growth: all %u segments in use", (unsigned)HEAP_MAX_SEGMENTS);
+            return false;
+        }
+        heap_segs[heap_seg_count++] = (HeapSegment){.start = heap_va, .end = seg_end_va};
+    }
     KHeapBlock *block = (KHeapBlock *)heap_va;
     block->size = align_down(pages * PAGE_SIZE - HDR, ALIGNMENT);
     block->state = KBLOCK_FREE;
@@ -259,8 +277,6 @@ static bool HeapGrow(size_t min_payload)
     HeapAppendBlk(block);
 
     PhysAddr seg_end_pa = heap_pa + (pages * PAGE_SIZE);
-    VirtAddr seg_end_va = heap_va + (pages * PAGE_SIZE);
-    heap_segs[heap_seg_count++] = (HeapSegment){.start = heap_va, .end = seg_end_va};
 
     if (kernel_layout.heap_start_pa == 0 || heap_pa < kernel_layout.heap_start_pa) {
         kernel_layout.heap_start_pa = heap_pa;
