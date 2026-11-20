@@ -125,9 +125,13 @@ static uint64_t NowMs(void) { return UptimeMs(); }
 
 static uint64_t TickMs(void) { return 1; }
 
+static uint32_t LbxPending(void) { return ((const volatile Syspage *)SYSPAGE)->lbx_pending; }
+
 static void SleepAndSettle(void)
 {
-    Sleep(100); /* lets the deferred thread reaper run before counting pages */
+    Sleep(100);
+    for (int i = 0; i < 200 && LbxPending() != 0; i++)
+        Sleep(1);
 }
 
 /* ---------------- worker threads (same Space) ---------------- */
@@ -713,9 +717,9 @@ static void TestMemory(void)
           "MemProtect(uncached, +X) refused");
     HandleClose(um);
 
-    /* No page leaks across map/touch/unmap. One warm-up round absorbs lazy
-     * one-time kernel allocations before the baseline is taken. */
-    for (int round = 0; round < 2; round++) {
+    /* No page leaks across map/touch/unmap. A warm-up as long as the measured
+     * loop absorbs lazy one-time kernel allocations before the baseline is taken. */
+    for (int round = 0; round < 40; round++) {
         uint8_t *w = MemMapAnon(16384, 0, PROT_RW);
         memset((void *)w, 1, 16384);
         MemUnmap(w);
@@ -738,6 +742,73 @@ static void TestMemory(void)
     SleepAndSettle();
     CheckEq((int32_t)PagesFree(), (int32_t)before,
             "no free-page change after 40 map/touch/unmap rounds");
+}
+
+/* ---------------- 3b. litterbox ---------------- */
+
+/* Several lbx budgets' worth, so reclaiming one object takes more than one step. */
+#define LBX_TEST_PAGES 300
+
+static void LbxRoundTrip(size_t stride)
+{
+    Handle h = CreateMem(LBX_TEST_PAGES, 0);
+    volatile uint8_t *p = MemMap(h, 0, PROT_RW);
+    if (!PtrIsErr((void *)p)) {
+        for (size_t i = 0; i < LBX_TEST_PAGES; i += stride)
+            p[i * 4096] = (uint8_t)i;
+        MemUnmap((void *)p);
+    }
+    HandleClose(h);
+}
+
+/* Eight objects alive at once, closed together. */
+static void LbxBatch(void)
+{
+    Handle hs[8];
+    for (int i = 0; i < 8; i++) {
+        hs[i] = CreateMem(LBX_TEST_PAGES / 4, 0);
+        volatile uint8_t *p = MemMap(hs[i], 0, PROT_RW);
+        if (!PtrIsErr((void *)p)) {
+            for (size_t j = 0; j < LBX_TEST_PAGES / 4; j++)
+                p[j * 4096] = 1;
+            MemUnmap((void *)p);
+        }
+    }
+    for (int i = 0; i < 8; i++)
+        HandleClose(hs[i]);
+}
+
+static void TestLbx(void)
+{
+    BeginSection("litterbox");
+
+    LbxRoundTrip(1);
+    LbxBatch();
+    SleepAndSettle();
+    CheckEq((int32_t)LbxPending(), 0, "lbx drains its queue after a big close");
+
+    uint32_t before = PagesFree();
+    LbxRoundTrip(1);
+    SleepAndSettle();
+    CheckEq((int32_t)PagesFree(), (int32_t)before,
+            "closing a multi-step memory object frees every page");
+
+    for (int round = 0; round < 4; round++)
+        LbxRoundTrip(1);
+    SleepAndSettle();
+    CheckEq((int32_t)PagesFree(), (int32_t)before,
+            "reusing reclaimed memory objects frees every page");
+
+    LbxRoundTrip(3);
+    SleepAndSettle();
+    CheckEq((int32_t)PagesFree(), (int32_t)before,
+            "a partly touched memory object frees every page");
+
+    LbxBatch();
+    SleepAndSettle();
+    CheckEq((int32_t)LbxPending(), 0, "lbx drains several queued objects");
+    CheckEq((int32_t)PagesFree(), (int32_t)before,
+            "several queued memory objects free every page");
 }
 
 /* ---------------- 4. events ---------------- */
@@ -4893,6 +4964,7 @@ static void RunSuite(void)
     TestBasics();
     TestHandles();
     TestMemory();
+    TestLbx();
     TestEvents();
     TestEventMasks();
     TestIpc();
