@@ -294,7 +294,7 @@ Err PortHoldCurrent(TaskObject *server, Ticket *out)
     }
 
     if (!port->held) {
-        port->held = KZAlloc(PORT_HELD_SLOTS * sizeof(HeldCall));
+        port->held = PortHeldAlloc();
         if (!port->held)
             return ERR_NOMEM;
     }

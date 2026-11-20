@@ -102,6 +102,20 @@ typedef struct {
 _Static_assert(BITMAP_WORDS(HANDLE_MAX_SLOTS) <= 32, "full_words has one bit per bitmap word");
 
 /**
+ * @brief Allocate a zeroed handle block from its slab cache.
+ *
+ * @return The block, or NULL if memory ran out.
+ */
+HandleBlock *HandleBlockAlloc(void);
+
+/**
+ * @brief Return a handle block to its slab cache.
+ *
+ * @param[in] blk The block, or NULL.
+ */
+void HandleBlockFree(HandleBlock *blk);
+
+/**
  * @brief Set up an empty handle table.
  *
  * @param[in] t The table to initialize.
@@ -116,7 +130,7 @@ static inline void HandleTableInit(HandleTable *t) { memset(t, 0, sizeof(*t)); }
 static inline void HandleTableDestroy(HandleTable *t)
 {
     for (uint32_t b = 0; b < HANDLE_MAX_BLOCKS; b++) {
-        KFree(t->blocks[b]);
+        HandleBlockFree(t->blocks[b]);
         t->blocks[b] = NULL;
     }
     BitmapZero(t->slot_bitmap, HANDLE_MAX_SLOTS);
@@ -152,7 +166,7 @@ static inline bool HandleBlockEnsure(HandleTable *t, uint32_t i)
     uint32_t b = i / HANDLE_BLOCK_SLOTS;
     if (t->blocks[b])
         return true;
-    HandleBlock *blk = KZAlloc(sizeof(HandleBlock));
+    HandleBlock *blk = HandleBlockAlloc();
     if (!blk)
         return false;
     for (uint32_t j = 0; j < HANDLE_BLOCK_SLOTS; j++)
