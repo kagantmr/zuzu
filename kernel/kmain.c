@@ -38,10 +38,10 @@ _Noreturn void kmain(void)
     SpaceInitKernelSpace();
     SchedInit();
     LbxInit();
-    PmmZeroPoolStart();
     ArchGlobalIrqEnable();
 
     SyspageInit();
+    PmmZeroPoolStart();
     BootInfoInit();
 
     uint64_t chosen_pa, chosen_size;

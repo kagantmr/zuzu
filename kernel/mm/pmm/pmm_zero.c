@@ -12,6 +12,8 @@
 
 /** @brief Zeroed frames the pool holds when full. */
 #define ZERO_POOL_SIZE 32U
+/** @brief Free-memory percentage below which the pool stops refilling. */
+#define ZERO_POOL_MIN_FREE_PCT 20U
 
 /** @brief The zeroed frames. */
 static PhysAddr zero_pool[ZERO_POOL_SIZE];
@@ -21,6 +23,17 @@ static uint32_t zero_count;
 static bool zero_started;
 /** @brief The pool's place in the lbx queue. */
 static LbxNode zero_node;
+
+/**
+ * @brief Tells whether free memory is high enough to keep frames in the pool.
+ *
+ * @return true if the pool may take another frame.
+ */
+static bool PmmZeroPoolMayGrow(void)
+{
+    PmmStats st = PmmGetStats();
+    return st.free_frames * 100U > st.total_frames * ZERO_POOL_MIN_FREE_PCT;
+}
 
 /**
  * @brief lbx step that zeroes one frame into the pool.
@@ -33,7 +46,7 @@ static LbxResult PmmZeroLbxStep(LbxNode *n, uint32_t budget)
 {
     (void)n;
     (void)budget;
-    if (zero_count >= ZERO_POOL_SIZE)
+    if (zero_count >= ZERO_POOL_SIZE || !PmmZeroPoolMayGrow())
         return LBX_DONE;
     PhysAddr pa = PmmAllocFrame();
     if (pa == PA_NULL)
@@ -51,12 +64,22 @@ void PmmZeroPoolStart(void)
 
 PhysAddr PmmAllocZeroedFrame(void)
 {
-    if (zero_started)
+    PhysAddr pa = zero_count ? zero_pool[--zero_count] : PA_NULL;
+    if (zero_started && zero_count < ZERO_POOL_SIZE && PmmZeroPoolMayGrow())
         LbxQueueIdle(&zero_node, PmmZeroLbxStep);
-    if (zero_count)
-        return zero_pool[--zero_count];
-    PhysAddr pa = PmmAllocFrame();
+    if (pa != PA_NULL)
+        return pa;
+    pa = PmmAllocFrame();
     if (pa != PA_NULL)
         memset((void *)PA_TO_VA(pa), 0, PAGE_SIZE);
     return pa;
+}
+
+bool PmmZeroPoolRelease(void)
+{
+    if (!zero_count)
+        return false;
+    while (zero_count)
+        PmmFreeFrame(zero_pool[--zero_count]);
+    return true;
 }

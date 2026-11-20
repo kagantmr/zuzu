@@ -352,6 +352,8 @@ Err PmmUnmarkRange(const PhysAddr start, const PhysAddr end)
 PhysAddr PmmAllocFrame(void)
 {
     PhysAddr pa = PmmTakeFreeFrame();
+    if (pa == 0 && PmmZeroPoolRelease())
+        pa = PmmTakeFreeFrame();
     if (pa != 0) {
         SyspageUpdateMem();
     }
@@ -399,7 +401,14 @@ BENCH_STAT(g_bench_pmm_freelist, "pmm contig: mark (unlinks)");
 BENCH_STAT(g_bench_pmm_tail, "pmm contig: syspage+signal");
 #endif
 
-PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
+/**
+ * @brief Allocates a run of frames without touching the zeroed-frame pool.
+ *
+ * @param[in] n_frames Number of frames, non-zero.
+ * @param[in] align_frames Alignment in frames; a power of two (0 is treated as 1).
+ * @return Physical address of the first frame, or PA_NULL.
+ */
+static PhysAddr PmmTakeFramesContig(const size_t n_frames, size_t align_frames)
 {
     if (n_frames == 0 || pmm_state.free_frames < n_frames)
         return PA_NULL;
@@ -440,6 +449,14 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
     BENCH_END(g_bench_pmm_tail, bench_step);
 #endif
     return start_pa;
+}
+
+PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
+{
+    PhysAddr pa = PmmTakeFramesContig(n_frames, align_frames);
+    if (pa == PA_NULL && PmmZeroPoolRelease())
+        pa = PmmTakeFramesContig(n_frames, align_frames);
+    return pa;
 }
 
 size_t PmmAllocFramesScattered(const size_t n_frames, PhysAddr *out_addrs)

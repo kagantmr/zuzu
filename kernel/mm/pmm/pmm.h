@@ -111,6 +111,12 @@ PhysAddr PmmAllocZeroedFrame(void);
 void PmmZeroPoolStart(void);
 
 /**
+ * @brief Gives every frame in the zeroed-frame pool back to the free list.
+ * @return true if any frame was given back.
+ */
+bool PmmZeroPoolRelease(void);
+
+/**
  * @brief Allocate a run of physically contiguous frames (first fit).
  * @param[in] n_frames Number of frames, non-zero.
  * @return Physical address of the first frame, or PA_NULL on failure.
