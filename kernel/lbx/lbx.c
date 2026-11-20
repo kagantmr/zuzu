@@ -70,9 +70,10 @@ static void LbxMain(void)
                 continue;
             }
             LbxNode *n = container_of(ln, LbxNode, node);
-            if (n->step(n, LBX_BUDGET) == LBX_MORE)
+            if (n->step(n, LBX_BUDGET) == LBX_MORE) {
                 ListAddTail(&n->node, &lbx_queues[top].node);
-            else
+                lbx_ready |= 1U << top;
+            } else
                 LbxPendingAdd(-1);
             if (ListIsEmpty(&lbx_queues[top]))
                 lbx_ready &= ~(1U << top);
