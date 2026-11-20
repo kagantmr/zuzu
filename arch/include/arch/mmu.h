@@ -37,6 +37,21 @@ PhysAddr ArchMmuCreateTables(AddressSpaceType type);
 void ArchMmuFreeTables(PhysAddr ttbr_pa, AddressSpaceType type);
 
 /**
+ * @brief Frees some of an address space's tables, deepest tables first, so a teardown can stop
+ * between calls.
+ *
+ * The tables must no longer be in use and their TLB entries must be flushed. The pages they map
+ * are not freed. Call until it returns false; the root table goes last.
+ *
+ * @param[in] ttbr_pa Physical address of the root table; 0 is ignored.
+ * @param[in] type Kind of address space.
+ * @param[in,out] pos Where to resume; 0 on the first call.
+ * @param[in] budget The most tables to free.
+ * @return true if tables are left.
+ */
+bool ArchMmuFreeTablesChunk(PhysAddr ttbr_pa, AddressSpaceType type, size_t *pos, size_t budget);
+
+/**
  * @brief Maps a physically contiguous range.
  *
  * The range must be page-aligned. An architecture may map it with larger blocks where

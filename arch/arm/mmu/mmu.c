@@ -226,6 +226,34 @@ void ArchMmuFreeTables(PhysAddr ttbr_pa, AddressSpaceType type)
     }
 }
 
+/** @brief L1 entries ArchMmuFreeTablesChunk() looks at for each table it may free. */
+#define FREE_SCAN_PER_TABLE 64U
+
+bool ArchMmuFreeTablesChunk(PhysAddr ttbr_pa, AddressSpaceType type, size_t *pos, size_t budget)
+{
+    if (ttbr_pa == 0)
+        return false;
+
+    uint32_t *l1 = (uint32_t *)PA_TO_VA(ttbr_pa);
+    size_t entries = L1EntryCount(type);
+    size_t scan = budget * FREE_SCAN_PER_TABLE;
+
+    for (; *pos < entries && budget > 0 && scan > 0; (*pos)++, scan--) {
+        if ((l1[*pos] & DESC_TYPE_MASK) == DESC_L2) {
+            L2PtPoolFree(l1[*pos] & L1_L2PTR_BASE_MASK);
+            l1[*pos] = 0;
+            budget--;
+        }
+    }
+    if (*pos < entries)
+        return true;
+
+    size_t pages = PagesL1Table(type);
+    for (size_t i = 0; i < pages; i++)
+        PmmFreeFrame(ttbr_pa + i * PAGE_SIZE);
+    return false;
+}
+
 /**
  * @brief Undoes part of a MapRange(): clears the sections and pages mapped in [@p va, @p va + @p
  * size).

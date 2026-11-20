@@ -11,6 +11,7 @@
 #include <arch/cache.h>
 #include <arch/asid.h>
 #include <arch/mmu.h>
+#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -213,6 +214,32 @@ void AddressSpaceDestroy(AddressSpace *as)
     ArchMmuFreeTables(as->pt_root_physaddr, as->type);
     vm_region_vec_destroy(&as->regions);
     KSlabFree(&addrspace_cache, as);
+}
+
+bool AddressSpaceDestroyChunk(AddressSpace *as, size_t budget)
+{
+    if (!as)
+        return false;
+    if (as == g_current_addrspace) {
+        panic("Attempted to destroy active addrspace %p (asid=%u)", (void *)as,
+              as->asid_token.asid);
+    }
+    assert(as->regions.len == 0);
+
+    if (as->asid_token.asid != 0) {
+        if (as->pt_root_physaddr)
+            ArchMmuFlushTlbAsid(as->asid_token.asid);
+        AsidFree(as->asid_token);
+        as->asid_token = (AsidToken){0};
+        return true;
+    }
+
+    if (ArchMmuFreeTablesChunk(as->pt_root_physaddr, as->type, &as->teardown_pos, budget))
+        return true;
+
+    vm_region_vec_destroy(&as->regions);
+    KSlabFree(&addrspace_cache, as);
+    return false;
 }
 
 bool VmmAddRegion(AddressSpace *restrict as, const VirtMemRegion *restrict region)

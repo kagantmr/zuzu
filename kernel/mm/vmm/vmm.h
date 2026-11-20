@@ -88,6 +88,7 @@ typedef struct AddressSpaceStruct {
     vm_region_vec_t regions;   /**< Regions sorted by start address, never overlapping. */
     AddressSpaceType type;     /**< Kernel or user. */
     AsidToken asid_token;      /**< ASID held by the space; zero for the kernel space. */
+    size_t teardown_pos;       /**< Where AddressSpaceDestroyChunk() resumes freeing tables. */
 } AddressSpace;
 
 /** @brief Size in bytes of the ioremap window. */
@@ -124,6 +125,16 @@ AddressSpace *AddressSpaceCreate(AddressSpaceType type);
  * @param[in] as The space to destroy; NULL is ignored.
  */
 void AddressSpaceDestroy(AddressSpace *as);
+
+/**
+ * @brief Destroys part of an address space whose regions are all removed; call until it returns
+ * false.
+ *
+ * @param[in,out] as The address space; must not be active.
+ * @param[in] budget The most page tables to free.
+ * @return true if the address space is not yet destroyed.
+ */
+bool AddressSpaceDestroyChunk(AddressSpace *as, size_t budget);
 
 /**
  * @brief Insert a region into an address space, keeping the list sorted.

@@ -250,6 +250,78 @@ void ArchMmuFreeTables(PhysAddr ttbr_pa, AddressSpaceType type)
     FreeLevel((AArch64Pte *)PA_TO_VA(ttbr_pa), 0);
 }
 
+/** @brief Table entries ArchMmuFreeTablesChunk() may look at for each table it may free. */
+#define FREE_SCAN_PER_TABLE 128U
+
+/** @brief Result of FreeFirstLeafTable(). */
+typedef enum {
+    FREE_TABLE_FREED,  /**< A table below the root was freed. */
+    FREE_TABLE_ROOT,   /**< The root was freed; nothing is left. */
+    FREE_TABLE_PAUSED, /**< The scan budget ran out; @c pos says where to resume. */
+} FreeTableResult;
+
+/**
+ * @brief Frees the first table, in address order, that has no tables below it.
+ *
+ * Every table before @p pos must already be freed and unlinked.
+ *
+ * @param[in,out] root Level 0 table.
+ * @param[in,out] pos Address the walk resumes from; set to the start of the freed table's range,
+ * or to where the scan stopped.
+ * @param[in,out] scan Entries the walk may still look at.
+ * @return What happened.
+ */
+static FreeTableResult FreeFirstLeafTable(AArch64Pte *root, size_t *pos, size_t *scan)
+{
+    AArch64Pte *table = root;
+    AArch64Pte *parent = NULL;
+    VirtAddr va = 0;
+    bool on_path = true;
+
+    for (int level = 0;; level++) {
+        unsigned start = on_path ? (unsigned)PteIndex((VirtAddr)*pos, level) : 0;
+        unsigned i = start;
+        while (i < PTE_ENTRIES && !PteIsTable(table[i], level)) {
+            if (*scan == 0) {
+                *pos = (size_t)(va + (VirtAddr)i * PteLevelSize(level));
+                return FREE_TABLE_PAUSED;
+            }
+            (*scan)--;
+            i++;
+        }
+        if (i == PTE_ENTRIES) {
+            PmmFreeFrame(VA_TO_PA((VirtAddr)table));
+            if (!parent)
+                return FREE_TABLE_ROOT;
+            *parent = 0;
+            *pos = (size_t)va;
+            return FREE_TABLE_FREED;
+        }
+        if (i != start)
+            on_path = false;
+        va += (VirtAddr)i * PteLevelSize(level);
+        parent = &table[i];
+        table = TableOf(*parent);
+    }
+}
+
+bool ArchMmuFreeTablesChunk(PhysAddr ttbr_pa, AddressSpaceType type, size_t *pos, size_t budget)
+{
+    (void)type;
+    if (!ttbr_pa)
+        return false;
+    AArch64Pte *root = (AArch64Pte *)PA_TO_VA(ttbr_pa);
+    size_t scan = budget * FREE_SCAN_PER_TABLE;
+    for (; budget > 0; budget--) {
+        FreeTableResult r = FreeFirstLeafTable(root, pos, &scan);
+        if (r == FREE_TABLE_ROOT)
+            return false;
+        if (r == FREE_TABLE_PAUSED)
+            return true;
+    }
+    return true;
+}
+
 /**
  * @brief Tells whether a 2 MiB block can map [@p va, @p va + @p left) from @p pa.
  *
