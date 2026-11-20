@@ -7,6 +7,7 @@
 
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/mm/vmm/vmm.h"
+#include "kernel/lbx/lbx_node.h"
 #include <types.h>
 
 /** @brief Kind of backing store a MemObject describes. */
@@ -56,6 +57,8 @@ typedef struct MemObjectStruct {
     };
     Spid owner_spid; /**< Space that may stamp markers on, revoke or destroy this object; -1 if
                         none. */
+    LbxNode lbx_node;  /**< Link in lbx's queue once the last reference is gone. */
+    size_t reap_pos;   /**< Next page (shared) to free while being reclaimed. */
 } MemObject;
 
 /**

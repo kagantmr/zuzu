@@ -5,6 +5,7 @@
 #include "mem_object.h"
 #include "core/ensure.h"
 #include "kernel/mm/alloc.h"
+#include "kernel/lbx/lbx.h"
 #include <arch/cache.h>
 #include <string.h>
 
@@ -22,8 +23,10 @@ static MemObject *MemObjAlloc(void)
     if (!mem_obj_cache.obj_size)
         KSlabInit(&mem_obj_cache, sizeof(MemObject));
     MemObject *obj = KSlabAlloc(&mem_obj_cache);
-    if (obj)
+    if (obj) {
+        memset(obj, 0, sizeof(*obj));
         obj->owner_spid = -1;
+    }
     return obj;
 }
 
@@ -49,6 +52,50 @@ static DmaMapping *DmaMappingAlloc(void)
  * @param[in] m Mapping to free.
  */
 static void DmaMappingFree(DmaMapping *m) { KSlabFree(&dma_map_cache, m); }
+
+/**
+ * @brief Frees part of a dead MemObject: its pages or DMA mappings, then the object.
+ *
+ * @param[in,out] mem The object.
+ * @param[in] budget The most pages or mappings to free.
+ * @return LBX_MORE if work is left, LBX_DONE once the object is freed.
+ */
+static LbxResult MemObjLbxRun(MemObject *mem, uint32_t budget)
+{
+    if (mem->kind == MEMKIND_SHARED) {
+        for (; budget > 0 && mem->reap_pos < mem->shm.page_count; budget--) {
+            PhysAddr pa = mem->shm.page_addrs[mem->reap_pos++];
+            if (pa)
+                PmmFreeFrame(pa);
+        }
+        if (mem->reap_pos < mem->shm.page_count)
+            return LBX_MORE;
+        KFree(mem->shm.page_addrs);
+    } else if (mem->kind == MEMKIND_DEVICE) {
+        for (; budget > 0 && mem->dev.dma_maps; budget--) {
+            DmaMapping *m = mem->dev.dma_maps;
+            mem->dev.dma_maps = m->next;
+            MemObjUnref(m->mem);
+            DmaMappingFree(m);
+        }
+        if (mem->dev.dma_maps)
+            return LBX_MORE;
+    }
+    MemObjFree(mem);
+    return LBX_DONE;
+}
+
+/**
+ * @brief lbx step for a dead MemObject.
+ *
+ * @param[in,out] n The object's lbx node.
+ * @param[in] budget The most pages or mappings to free.
+ * @return LBX_MORE if work is left, LBX_DONE once the object is freed.
+ */
+static LbxResult MemObjLbxStep(LbxNode *n, uint32_t budget)
+{
+    return MemObjLbxRun(container_of(n, MemObject, lbx_node), budget);
+}
 
 MemObject *MemObjCreateDevice(PhysAddr phys_base, size_t size, Irq irq)
 {
@@ -92,24 +139,8 @@ void MemObjUnref(MemObject *mem)
         return;
     if (mem->ref_count > 0)
         mem->ref_count--;
-    if (mem->ref_count == 0) {
-        if (mem->kind == MEMKIND_SHARED) {
-            for (size_t i = 0; i < mem->shm.page_count; i++)
-                if (mem->shm.page_addrs[i] != 0)
-                    PmmFreeFrame(mem->shm.page_addrs[i]);
-            KFree(mem->shm.page_addrs);
-        }
-        if (mem->kind == MEMKIND_DEVICE) {
-            DmaMapping *m = mem->dev.dma_maps;
-            while (m) {
-                DmaMapping *next = m->next;
-                MemObjUnref(m->mem);
-                DmaMappingFree(m);
-                m = next;
-            }
-        }
-        MemObjFree(mem);
-    }
+    if (mem->ref_count == 0)
+        LbxQueue(&mem->lbx_node, MemObjLbxStep);
 }
 
 void MemObjUnmapAndDrop(AddressSpace *as, VirtAddr mapped_va, MemObject *mem)
