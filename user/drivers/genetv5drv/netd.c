@@ -222,7 +222,11 @@ Err NetdTx(void)
 void NetdSyncStats(void)
 {
     nic_stats[NIC_STAT_IRQ] = g_genet.irqs;
-    nic_stats[NIC_STAT_TX_PACKETS] = g_genet.tx_packets;
+    nic_stats[NIC_STAT_TX_PACKETS] = g_genet.tx_completed;
+    nic_stats[NIC_STAT_TX_TIMEOUTS] = g_genet.tx_timeouts;
+    nic_stats[NIC_STAT_RX_OVERFLOWS] = g_genet.rx_overflows;
+    nic_stats[NIC_STAT_TX_UNDERRUNS] = g_genet.tx_underruns;
+    nic_stats[NIC_STAT_IRQ_OTHER] = g_genet.irq_other;
     nic_stats[NIC_STAT_RX_ERRORS] = g_genet.rx_errors;
 }
 

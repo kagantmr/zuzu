@@ -186,6 +186,10 @@ typedef struct {
 _Static_assert(offsetof(GenetIntrl2, clear) == 0x08, "layout");
 _Static_assert(offsetof(GenetIntrl2, mask_clear) == 0x14, "layout");
 
+/** @brief INTRL2_0: the TX buffer ran dry in the middle of a frame. */
+#define TBUF_UNDERRUN (1u << 8)
+/** @brief INTRL2_0: the RX buffer overflowed and dropped frames. */
+#define RBUF_OVERFLOW (1u << 9)
 #define RXDMA_MBDONE (1u << 13)
 
 #define TXDMA_MBDONE (1u << 16)

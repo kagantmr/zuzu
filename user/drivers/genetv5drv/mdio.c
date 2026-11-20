@@ -24,6 +24,15 @@ Err MdioRead(uint32_t reg, uint16_t *out)
     return ZUZU_OK;
 }
 
+Err MdioReadLatched(uint32_t reg, uint16_t *out)
+{
+    Err rc = MdioRead(reg, out);
+    if (rc != ZUZU_OK)
+        return rc;
+    rc = MdioRead(reg, out);
+    return rc;
+}
+
 Err MdioWrite(uint32_t reg, uint16_t value)
 {
     GenetMdioCmd c = {.raw = 0};

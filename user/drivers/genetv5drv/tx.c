@@ -1,12 +1,15 @@
 #include "genet.h"
 #include <string.h>
 #include <util/log.h>
+#include <zuzu/uptime.h>
 
 static Handle g_tx_buf_h = -1;
 static uint8_t *g_tx_buf = NULL;
 static uint32_t g_tx_bus = 0;
 static uint32_t g_tx_prod = 0;
 static uint32_t g_tx_slot = 0;
+static uint32_t g_tx_cons_seen;
+static uint64_t g_tx_progress_ms;
 
 Err GenetTxInit(void)
 {
@@ -15,7 +18,7 @@ Err GenetTxInit(void)
         LOG_ERROR(LOG_TAG, "CreateMem failed: %s", StrToError(g_tx_buf_h));
         return g_tx_buf_h;
     }
-    DmaMapResult res = DmaMap(g_genet.dev, g_tx_buf_h, 0, (GENET_BUF_PAGES * 4096), DMA_TO_DEVICE);
+    DmaMapResult res = DmaMap(g_genet.dev, g_tx_buf_h, 0, GENET_BUF_PAGES * 4096, DMA_TO_DEVICE);
     if (res.status != ZUZU_OK) {
         LOG_ERROR(LOG_TAG, "DmaMap failed: %s", StrToError(res.status));
         return res.status;
@@ -30,24 +33,32 @@ Err GenetTxInit(void)
     g_genet.tx_ring = (GenetTxRing *)(g_genet.base + GENET_TRING16_OFF);
     g_genet.tx_desc = (GenetDesc *)(g_genet.base + GENET_TDESC_OFF);
 
+    GenetTxRingStart();
+    return ZUZU_OK;
+}
+
+void GenetTxRingStart(void)
+{
     GenetTxRing *ring = g_genet.tx_ring;
+    uint32_t idx = ring->cons_index & 0xffff;
+    uint32_t pos = (idx & (GENET_RING_SIZE - 1)) * GENET_DESC_WORDS;
     g_genet.tdma->scb_burst_size = 8;
     ring->start_addr = 0;
-    ring->read_ptr = 0;
-    ring->write_ptr = 0;
-    ring->end_addr = (GENET_RING_SIZE * 3) - 1;
-    ring->prod_index = 0;
-    ring->cons_index = 0;
+    ring->end_addr = (GENET_RING_SIZE * GENET_DESC_WORDS) - 1;
+    ring->read_ptr = pos;
+    ring->write_ptr = pos;
+    ring->prod_index = idx;
     ring->mbuf_done_thresh = 1;
     ring->flow_period = 0;
     ring->ring_buf_size = (GENET_RING_SIZE << 16) | GENET_BUF_SIZE;
     g_genet.tdma->ring_cfg = DMA_RING16_CFG_EN;
-    g_tx_prod = 0;
-    g_tx_slot = 0;
+    g_tx_prod = idx;
+    g_tx_slot = idx & (GENET_RING_SIZE - 1);
+    g_tx_cons_seen = idx;
+    g_tx_progress_ms = UptimeMs();
 
     g_genet.tdma->ctrl = DMA_RING16_BUF_EN | DMA_EN;
     g_genet.umac->cmd |= CMD_TX_EN;
-    return ZUZU_OK;
 }
 
 Err GenetTx(const void *frame, uint32_t len)
@@ -62,6 +73,9 @@ Err GenetTx(const void *frame, uint32_t len)
         g_genet.tx_busy++;
         return ERR_BUSY;
     }
+
+    if (((g_tx_prod - cons) & 0xffff) == 0)
+        g_tx_progress_ms = UptimeMs();
 
     uint8_t *buf = g_tx_buf + (g_tx_slot * GENET_BUF_SIZE);
     memcpy(buf, frame, len);
@@ -87,4 +101,25 @@ Err GenetTx(const void *frame, uint32_t len)
     g_genet.tx_ring->prod_index = g_tx_prod;
     g_genet.tx_packets++;
     return ZUZU_OK;
+}
+
+void GenetTxReclaim(void)
+{
+    uint32_t cons = g_genet.tx_ring->cons_index & 0xffff;
+    uint32_t done = (cons - g_tx_cons_seen) & 0xffff;
+    g_genet.tx_completed += done;
+    g_tx_cons_seen = cons;
+    if (done > 0)
+        g_tx_progress_ms = UptimeMs();
+}
+
+bool GenetTxStuck(uint64_t now)
+{
+    uint32_t pending = (g_tx_prod - g_tx_cons_seen) & 0xffff;
+    if (pending == 0 || !g_genet.link_up || now - g_tx_progress_ms <= GENET_TX_TIMEOUT_MS)
+        return false;
+    g_genet.tx_timeouts++;
+    LOG_WARN(LOG_TAG, "tx ring stuck: %u frames pending, cons %u", pending, g_tx_cons_seen);
+    g_tx_progress_ms = now;
+    return true;
 }

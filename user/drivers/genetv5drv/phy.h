@@ -24,4 +24,9 @@
 #define CTRL1000_FULL (1u << 9)
 #define STAT1000_FULL (1u << 11)
 
+#define MII_ESTATUS 15
+#define BMSR_ESTATEN (1u << 8)
+#define ESTATUS_1000_THALF (1u << 12)
+#define ESTATUS_1000_TFULL (1u << 13)
+
 #endif /* USER_DRIVERS_GENETV5DRV_PHY_H */

@@ -29,31 +29,37 @@ Err GenetRxInit(void)
         return (Err)(VirtAddr)g_rx_buf;
     }
 
+    GenetRxRingStart();
+    return ZUZU_OK;
+}
+
+void GenetRxRingStart(void)
+{
     GenetRxRing *ring = g_genet.rx_ring;
+    uint32_t idx = ring->prod_index & 0xffff;
+    uint32_t pos = (idx & (GENET_RING_SIZE - 1)) * GENET_DESC_WORDS;
     g_genet.rdma->scb_burst_size = 8;
     ring->start_addr = 0;
-    ring->read_ptr = 0;
-    ring->write_ptr = 0;
-    ring->end_addr = (GENET_RING_SIZE * 3) - 1;
-    ring->prod_index = 0;
-    ring->cons_index = 0;
+    ring->end_addr = (GENET_RING_SIZE * GENET_DESC_WORDS) - 1;
+    ring->read_ptr = pos;
+    ring->write_ptr = pos;
+    ring->cons_index = idx;
     ring->mbuf_done_thresh = 1;
     ring->xon_xoff_thresh = (5 << 16) | (GENET_RING_SIZE >> 4);
     ring->ring_buf_size = (GENET_RING_SIZE << 16) | GENET_BUF_SIZE;
     g_genet.rdma->ring_cfg = DMA_RING16_CFG_EN;
 
     for (uint32_t i = 0; i < GENET_RING_SIZE; i++) {
-        g_genet.rx_desc[i].addr_lo = (uint32_t)res.bus_addr + (i * GENET_BUF_SIZE);
+        g_genet.rx_desc[i].addr_lo = (uint32_t)g_rx_bus + (i * GENET_BUF_SIZE);
         g_genet.rx_desc[i].addr_hi = 0;
         g_genet.rx_desc[i].length_status = (GENET_BUF_SIZE << DESC_LEN_SHIFT) | DESC_OWN;
     }
-    g_rx_cons = 0;
-    g_rx_slot = 0;
+    g_rx_cons = idx;
+    g_rx_slot = idx & (GENET_RING_SIZE - 1);
 
     GenetWmb();
     g_genet.rdma->ctrl = DMA_RING16_BUF_EN | DMA_EN;
     g_genet.umac->cmd |= CMD_RX_EN;
-    return ZUZU_OK;
 }
 
 void GenetRxPoll(GenetRxFn fn)

@@ -36,17 +36,24 @@ int main()
     rc = ConnectToNetd();
     if (rc != ZUZU_OK)
         return rc;
-    GenetIrqEnable(RXDMA_MBDONE);
+    GenetIrqEnable(RXDMA_MBDONE | TBUF_UNDERRUN | RBUF_OVERFLOW);
     LOG_INFO(LOG_TAG, "Ready");
 
     uint64_t last_poll = UptimeMs();
     for (;;) {
         EventWaitResult r =
             WaitOnEvent(g_genet.event, GENET_LINK_POLL_MS, GENET_IRQ_MASK | NIC_DOORBELL_TX, false);
+        GenetTxReclaim();
         bool kick_tx = r.status == ZUZU_OK && (r.bits & NIC_DOORBELL_TX);
 
         if (r.status == ZUZU_OK && (r.bits & GENET_IRQ_MASK)) {
             uint32_t stat = GenetIrqAck();
+            if (stat & TBUF_UNDERRUN)
+                g_genet.tx_underruns++;
+            if (stat & RBUF_OVERFLOW)
+                g_genet.rx_overflows++;
+            if (stat & ~(RXDMA_MBDONE | TXDMA_MBDONE | TBUF_UNDERRUN | RBUF_OVERFLOW))
+                g_genet.irq_other++;
             if (stat & RXDMA_MBDONE)
                 NetdRx();
             if (stat & TXDMA_MBDONE) {
@@ -64,6 +71,12 @@ int main()
             PhyPollLink();
             if (g_genet.link_up != was_up)
                 NetdReportLink();
+            if (GenetTxStuck(now)) {
+                if (DmaStop() == ZUZU_OK) {
+                    GenetRxRingStart();
+                    GenetTxRingStart();
+                }
+            }
             NetdSyncStats();
             last_poll = now;
         }

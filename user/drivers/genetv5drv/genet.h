@@ -10,7 +10,11 @@
 #define GENET_BUF_SIZE 2048
 #define GENET_BUF_PAGES (GENET_RING_SIZE * GENET_BUF_SIZE / 4096)
 #define GENET_MIN_FRAME 60
+/** @brief Size of one DMA descriptor in 32-bit words; ring pointers count in these. */
+#define GENET_DESC_WORDS 3
 #define GENET_LINK_POLL_MS 1000
+/** @brief Queued TX frames with no completion for this long mean the ring is stuck. */
+#define GENET_TX_TIMEOUT_MS 2000
 #define GENET_IRQ_BIT 2
 #define GENET_IRQ_MASK (1u << GENET_IRQ_BIT)
 
@@ -42,6 +46,8 @@ typedef struct {
     uint32_t mbps;
     uint32_t tx_packets, tx_busy;
     uint32_t rx_packets, rx_errors;
+    uint32_t tx_completed, tx_timeouts;
+    uint32_t tx_underruns, rx_overflows, irq_other;
     uint32_t irqs;
 } Genet;
 
@@ -52,6 +58,8 @@ extern Genet g_genet;
 Err MdioRead(uint32_t reg, uint16_t *out);
 /** @brief Write a PHY register over MDIO. */
 Err MdioWrite(uint32_t reg, uint16_t value);
+/** @brief Read a PHY register twice so latched status bits show the current state. */
+Err MdioReadLatched(uint32_t reg, uint16_t *out);
 
 /** @brief Restart autonegotiation. */
 Err PhyStartAutoNeg(void);
@@ -90,11 +98,19 @@ uint32_t GenetIrqAck(void);
 
 /** @brief Set up the TX buffers and ring 16, and enable TX. */
 Err GenetTxInit(void);
+/** @brief Program and enable TX ring 16, starting from the index the hardware already holds. */
+void GenetTxRingStart(void);
 /** @brief Queue one frame on ring 16; ERR_BUSY when the ring is full. */
 Err GenetTx(const void *frame, uint32_t len);
+/** @brief Count TX frames the hardware finished since the last call. */
+void GenetTxReclaim(void);
+/** @brief True, and counted, when queued TX frames stalled for GENET_TX_TIMEOUT_MS. */
+bool GenetTxStuck(uint64_t now);
 
 /** @brief Set up the RX buffers and ring 16, and enable RX. */
 Err GenetRxInit(void);
+/** @brief Re-arm every RX descriptor and enable ring 16 from the hardware's current index. */
+void GenetRxRingStart(void);
 /** @brief Pass every good frame received since the last call to @p fn and recycle its buffer. */
 void GenetRxPoll(GenetRxFn fn);
 

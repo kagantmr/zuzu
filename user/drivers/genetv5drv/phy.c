@@ -4,14 +4,27 @@
 
 Err PhyStartAutoNeg(void)
 {
-    uint16_t ctrl1000 = 0;
-    Err rc = MdioRead(MII_CTRL1000, &ctrl1000);
+    uint16_t ctrl1000 = 0, bmsr = 0, estatus = 0;
+    Err rc = MdioRead(MII_BMSR, &bmsr);
+    if (rc == ZUZU_OK && (bmsr & BMSR_ESTATEN))
+        rc = MdioRead(MII_ESTATUS, &estatus);
+    if (rc == ZUZU_OK)
+        rc = MdioRead(MII_CTRL1000, &ctrl1000);
+
+    uint16_t adv1000 = 0;
+    if (estatus & ESTATUS_1000_TFULL)
+        adv1000 |= CTRL1000_FULL;
+    if (estatus & ESTATUS_1000_THALF)
+        adv1000 |= CTRL1000_HALF;
+    LOG_DEBUG(LOG_TAG, "PHY 1000BASE-T: full %d half %d", !!(adv1000 & CTRL1000_FULL),
+              !!(adv1000 & CTRL1000_HALF));
+
     if (rc == ZUZU_OK)
         rc = MdioWrite(MII_ADVERTISE,
                        ADV_CSMA | ADV_10HALF | ADV_10FULL | ADV_100HALF | ADV_100FULL);
     if (rc == ZUZU_OK)
         rc = MdioWrite(MII_CTRL1000,
-                       (uint16_t)((ctrl1000 & ~(CTRL1000_HALF | CTRL1000_FULL)) | (CTRL1000_FULL)));
+                       (uint16_t)((ctrl1000 & ~(CTRL1000_HALF | CTRL1000_FULL)) | adv1000));
     if (rc == ZUZU_OK)
         rc = MdioWrite(MII_BMCR, BMCR_ANENABLE | BMCR_ANRESTART);
     if (rc != ZUZU_OK) {
@@ -29,9 +42,7 @@ Err PhyGetSpeed(uint32_t *umac_speed, uint32_t *mbps)
     if (rc == ZUZU_OK)
         rc = MdioRead(MII_PHYSID2, &id2);
     if (rc == ZUZU_OK)
-        rc = MdioRead(MII_BMSR, &bmsr);
-    if (rc == ZUZU_OK)
-        rc = MdioRead(MII_BMSR, &bmsr);
+        rc = MdioReadLatched(MII_BMSR, &bmsr);
     if (rc == ZUZU_OK)
         rc = MdioRead(MII_ADVERTISE, &adv);
     if (rc == ZUZU_OK)
@@ -71,7 +82,7 @@ Err PhyGetSpeed(uint32_t *umac_speed, uint32_t *mbps)
 void PhyPollLink(void)
 {
     uint16_t bmsr = 0;
-    if (MdioRead(MII_BMSR, &bmsr) != ZUZU_OK || MdioRead(MII_BMSR, &bmsr) != ZUZU_OK)
+    if (MdioReadLatched(MII_BMSR, &bmsr) != ZUZU_OK)
         return;
     bool up = (bmsr & BMSR_LSTATUS) && (bmsr & BMSR_ANEGCOMPLETE);
     if (up == g_genet.link_up)
