@@ -132,8 +132,7 @@ void TaskUnref(TaskObject *t)
     if (t->ref_count == 0 && t->released) {
         KSlabFree(&task_cache, t);
     } else if (t->ref_count == 0 && t->state == TASK_STATE_FROZEN) {
-
-        TaskDestroy(t);
+        TaskQueueDestroy(t);
     }
 }
 
@@ -456,11 +455,8 @@ void TaskTerminate(TaskObject *task, Err exit_status)
 
     if (space_hollow)
         return;
-    if (task == current_task) {
-        TaskQueueDestroy(task);
-    } else {
-        TaskDestroy(task);
-    }
+
+    TaskQueueDestroy(task);
 }
 
 void TaskFault(TaskObject *task, Err reason)
