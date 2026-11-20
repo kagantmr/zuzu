@@ -28,7 +28,7 @@ PhysAddr ArchMmuCreateTables(AddressSpaceType type);
  * @brief Free page tables for a given address space type.
  *
  * Frees the root table and every lower-level table it points to, but not the
- * pages they map; see ArchMmuFreeUserPages(). A @p ttbr_pa of 0 is ignored.
+ * pages they map. A @p ttbr_pa of 0 is ignored.
  *
  * @param[in] ttbr_pa Base address of the root page table.
  * @param[in] type The type of the address space.
@@ -190,17 +190,6 @@ bool ArchMmuUnmapPage(AddressSpace *as, VirtAddr va);
  * @return Number of frames stored in @p out.
  */
 size_t ArchMmuUnmapCollect(AddressSpace *as, VirtAddr va, size_t size, PhysAddr *out, size_t max);
-
-/**
- * @brief Frees the anonymous memory still mapped in a user space, and all of its tables.
- *
- * Pages that belong to memory objects, device mappings and the syspage are left alone. The
- * space's TLB entries are flushed first, and pt_root_physaddr is 0 afterwards, so
- * AddressSpaceDestroy() skips the flush and the per-region unmaps.
- *
- * @param[in] as Address space; ignored if NULL.
- */
-void ArchMmuFreeUserPages(AddressSpace *as);
 
 /**
  * @brief Makes the kernel's tables the upper-half (TTBR1) tables and flushes the TLB.

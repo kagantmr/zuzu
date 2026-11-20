@@ -117,16 +117,6 @@ AddressSpace *VmmGetKernelAddressSpace(void);
 AddressSpace *AddressSpaceCreate(AddressSpaceType type);
 
 /**
- * @brief Tear down an address space.
- *
- * Unmaps every region, drops the references to their backing objects, and frees the ASID and page
- * tables. Panics if the space is currently active.
- *
- * @param[in] as The space to destroy; NULL is ignored.
- */
-void AddressSpaceDestroy(AddressSpace *as);
-
-/**
  * @brief Destroys part of an address space whose regions are all removed; call until it returns
  * false.
  *

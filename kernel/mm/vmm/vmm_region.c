@@ -184,36 +184,6 @@ AddressSpace *AddressSpaceCreate(AddressSpaceType type)
     return as;
 }
 
-void AddressSpaceDestroy(AddressSpace *as)
-{
-    if (!as)
-        return;
-    if (as == g_current_addrspace) {
-        panic("Attempted to destroy active addrspace %p (asid=%u)", (void *)as,
-              as->asid_token.asid);
-    }
-
-    bool has_tables = as->pt_root_physaddr != 0;
-    if (has_tables && as->asid_token.asid != 0)
-        ArchMmuFlushTlbAsid(as->asid_token.asid);
-
-    for (uint32_t i = 0; i < as->regions.len; i++) {
-        VirtMemRegion *r = vm_region_vec_get(&as->regions, i);
-        if (!r)
-            continue;
-        if (has_tables)
-            VmmUnmapRange(as, r->vaddr_start, r->size, false);
-        MemObjUnref((MemObject *)r->backing);
-    }
-
-    if (as->asid_token.asid != 0)
-        AsidFree(as->asid_token);
-
-    ArchMmuFreeTables(as->pt_root_physaddr, as->type);
-    vm_region_vec_destroy(&as->regions);
-    KSlabFree(&addrspace_cache, as);
-}
-
 bool AddressSpaceDestroyChunk(AddressSpace *as, size_t budget)
 {
     if (!as)

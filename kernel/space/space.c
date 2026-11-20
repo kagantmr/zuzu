@@ -157,10 +157,8 @@ SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
     return sp;
 
 fail_as:
-    if (sp->as)
-        ArchMmuFreeUserPages(sp->as);
-    AddressSpaceDestroy(sp->as);
-    memset(sp->tcb_page_pa, 0, sizeof(sp->tcb_page_pa));
+    while (VmmTeardownChunk(sp->as, space_reap_scratch, CHECKPOINT_PAGES)) {}
+    while (AddressSpaceDestroyChunk(sp->as, CHECKPOINT_PAGES)) {}
 fail_handles:
     HandleTableDestroy(&sp->handle_table);
     KSlabFree(&space_cache, sp);
