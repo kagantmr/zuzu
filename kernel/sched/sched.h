@@ -8,6 +8,7 @@
 #define KERNEL_SCHED_SCHED_H
 
 #include "kernel/task/task.h"
+#include <arch/cpu.h>
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -63,13 +64,6 @@ void SchedAdd(TaskObject *t);
  * @param[in] t The task to add.
  */
 void SchedAddFront(TaskObject *t);
-
-/**
- * @brief Queue task @p t for destruction.
- * 
- * @param[in] t The task to destroy.
- */
-void SchedQueueDestroyTask(TaskObject *t);
 
 /**
  * @brief Scheduler entry point. Reschedules tasks.
@@ -192,5 +186,16 @@ void SchedWaitQueueAddTask(ListHead *q, TaskObject *t);
  * path calls Schedule() when it is set.
  */
 extern volatile bool do_resched;
+
+/**
+ * @brief Let pending interrupts in for a moment, then mask them again.
+ *
+ * Called between chunks of long kernel work so interrupts are not held off for all of it.
+ */
+static inline void SchedOpenIrqWindow(void)
+{
+    ArchGlobalIrqEnable();
+    ArchGlobalIrqDisable();
+}
 
 #endif

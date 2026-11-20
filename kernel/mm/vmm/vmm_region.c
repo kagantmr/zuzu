@@ -8,9 +8,10 @@
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/mem_object.h"
 #include "kernel/mm/pmm/pmm.h"
-
+#include <arch/cache.h>
 #include <arch/asid.h>
 #include <arch/mmu.h>
+#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -71,6 +72,14 @@ VirtMemRegion *VmmFindRegion(AddressSpace *as, VirtAddr va)
     return bsearch(&va, as->regions.data, as->regions.len, sizeof(VirtMemRegion), RegionContainsVa);
 }
 
+void VmmTrimRegionFront(VirtMemRegion *r, size_t bytes)
+{
+    r->vaddr_start += bytes;
+    r->size -= bytes;
+    if (r->owner == VM_BACKING_SHARED)
+        r->backing_page_offset += bytes / PAGE_SIZE;
+}
+
 bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, VirtAddr page_va)
 {
     if (!as || !r)
@@ -97,21 +106,24 @@ bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, Vi
 
         new_pa = mem->shm.page_addrs[page_index];
         if (new_pa == 0) {
-            new_pa = PmmAllocFrame();
+            new_pa = PmmAllocZeroedFrame();
             if (new_pa == 0)
                 return false;
-            memset((void *)PA_TO_VA(new_pa), 0, PAGE_SIZE);
             mem->shm.page_addrs[page_index] = new_pa;
             allocated_new = true;
         }
     } else if (r->owner == VM_BACKING_ANON) {
-        new_pa = PmmAllocFrame();
+        new_pa = PmmAllocZeroedFrame();
         if (new_pa == 0)
             return false;
-        memset((void *)PA_TO_VA(new_pa), 0, PAGE_SIZE);
         allocated_new = true;
     } else {
         return false;
+    }
+
+    if (r->prot & PROT_EXEC) {
+        ArchCacheCleanDcacheRangePou(PA_TO_VA(new_pa), PAGE_SIZE);
+        ArchCacheInvalidateIcacheAll();
     }
 
     if (!VmmMapRange(as, page_va, new_pa, PAGE_SIZE, r->prot, r->memtype)) {
@@ -172,34 +184,30 @@ AddressSpace *AddressSpaceCreate(AddressSpaceType type)
     return as;
 }
 
-void AddressSpaceDestroy(AddressSpace *as)
+bool AddressSpaceDestroyChunk(AddressSpace *as, size_t budget)
 {
     if (!as)
-        return;
+        return false;
     if (as == g_current_addrspace) {
         panic("Attempted to destroy active addrspace %p (asid=%u)", (void *)as,
               as->asid_token.asid);
     }
+    assert(as->regions.len == 0);
 
-    bool has_tables = as->pt_root_physaddr != 0;
-    if (has_tables && as->asid_token.asid != 0)
-        ArchMmuFlushTlbAsid(as->asid_token.asid);
-
-    for (uint32_t i = 0; i < as->regions.len; i++) {
-        VirtMemRegion *r = vm_region_vec_get(&as->regions, i);
-        if (!r)
-            continue;
-        if (has_tables)
-            VmmUnmapRange(as, r->vaddr_start, r->size, false);
-        MemObjUnref((MemObject *)r->backing);
+    if (as->asid_token.asid != 0) {
+        if (as->pt_root_physaddr)
+            ArchMmuFlushTlbAsid(as->asid_token.asid);
+        AsidFree(as->asid_token);
+        as->asid_token = (AsidToken){0};
+        return true;
     }
 
-    if (as->asid_token.asid != 0)
-        AsidFree(as->asid_token);
+    if (ArchMmuFreeTablesChunk(as->pt_root_physaddr, as->type, &as->teardown_pos, budget))
+        return true;
 
-    ArchMmuFreeTables(as->pt_root_physaddr, as->type);
     vm_region_vec_destroy(&as->regions);
     KSlabFree(&addrspace_cache, as);
+    return false;
 }
 
 bool VmmAddRegion(AddressSpace *restrict as, const VirtMemRegion *restrict region)

@@ -23,6 +23,8 @@
 
 extern char __stack_region_base__[]; /**< Physical bottom of the IRQ, abort, undefined and SVC stacks. */
 extern char __stack_region_end__[];  /**< Physical top of those stacks. */
+extern char __svc_stack_base__[];    /**< Physical bottom of the SVC stack, the one boot runs on. */
+extern char __svc_stack_top__[];     /**< Physical top of the SVC stack. */
 
 /** @brief Physical and virtual layout of RAM and the kernel image, filled in by early(). */
 RamLayout kernel_layout;
@@ -83,19 +85,6 @@ static void vfp_init(void)
 }
 
 /**
- * @brief Reads the PMU cycle counter.
- *
- * @return The cycle count.
- */
-int rdcyc(void);
-int rdcyc(void)
-{
-    uint32_t value;
-    __asm__ volatile("mrc p15, 0, %0, c9, c13, 0" : "=r"(value));
-    return (int)value;
-}
-
-/**
  * @brief First C function, called by _start with the MMU on.
  *
  * Parses the device tree, maps RAM, starts the PMM, heap and VMM, frees the boot
@@ -144,8 +133,6 @@ _Noreturn void early(void *dtb_ptr)
 
     kernel_layout.stack_base_va = PA_TO_VA(kernel_layout.stack_base_pa);
     kernel_layout.stack_top_va = PA_TO_VA(kernel_layout.stack_top_pa);
-    kernel_layout.kernel_start_va = PA_TO_VA(kernel_layout.kernel_start_pa);
-    kernel_layout.kernel_end_va = PA_TO_VA(kernel_layout.kernel_end_pa);
 
     PhysAddr dtb_end_pa = kernel_layout.dtb_start_pa + FdtTotalSize();
     struct {
@@ -184,4 +171,10 @@ _Noreturn void early(void *dtb_ptr)
     KDEBUG("Boot info initialized from DTB: dev_count=%u", boot_info_dev_count());
     KDEBUG("Handoff to kmain");
     kmain();
+}
+
+void ArchBootStackRange(PhysAddr *base, PhysAddr *end)
+{
+    *base = (PhysAddr)__svc_stack_base__;
+    *end = (PhysAddr)__svc_stack_top__;
 }

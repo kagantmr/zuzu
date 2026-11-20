@@ -7,11 +7,9 @@
 #define ARCH_AARCH64_IMPL_CPU_H
 
 #include <arch_impl/sysreg.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <types.h>
-
-/** @brief A saved DAIF, as returned by ArchIrqSave(). */
-typedef uint64_t IrqState;
 
 /** @brief Masks IRQs on this CPU (msr daifset, #2). */
 static inline void ArchGlobalIrqDisable(void) { __asm__ volatile("msr daifset, #2" ::: "memory"); }
@@ -20,26 +18,11 @@ static inline void ArchGlobalIrqDisable(void) { __asm__ volatile("msr daifset, #
 static inline void ArchGlobalIrqEnable(void) { __asm__ volatile("msr daifclr, #2" ::: "memory"); }
 
 /**
- * @brief Masks IRQs and returns the previous DAIF, for ArchIrqRestore().
+ * @brief Checks whether an IRQ is waiting, even while IRQs are masked (ISR_EL1.I).
  *
- * @return DAIF before masking.
+ * @return true if an IRQ is pending.
  */
-static inline IrqState ArchIrqSave(void)
-{
-    uint64_t daif = READ_SYSREG(daif);
-    ArchGlobalIrqDisable();
-    return daif;
-}
-
-/**
- * @brief Restores the IRQ mask saved by ArchIrqSave().
- *
- * @param[in] state Value returned by ArchIrqSave().
- */
-static inline void ArchIrqRestore(IrqState state)
-{
-    WRITE_SYSREG(daif, state);
-}
+static inline bool ArchIrqPending(void) { return (READ_SYSREG(isr_el1) & (1U << 7)) != 0; }
 
 /** @brief Waits for an interrupt (wfi). */
 static inline void ArchCpuIdle(void) { __asm__ volatile("wfi" ::: "memory"); }

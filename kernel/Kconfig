@@ -1,16 +1,5 @@
 menu "Kernel debugging"
 
-config PMM_TRACE
-	bool "Trace physical memory allocations"
-	default n
-
-config TIME_MEASURE
-	bool "Timing instrumentation"
-	default n
-	help
-	  Changes generated code on hot paths. Off in anything you intend to
-	  benchmark against a production build.
-
 config ZUZU_BENCH
 	bool "PMCCNTR min/avg/max instrumentation"
 	default n

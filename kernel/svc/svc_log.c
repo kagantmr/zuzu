@@ -3,7 +3,7 @@
  * @brief Implementation of the Log() svc.
  */
 
-#include "core/log.h"
+#include "core/kprintf.h"
 #include "kernel/space/space.h"
 #include "svc.h"
 #include <arch/regs.h>

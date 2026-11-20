@@ -88,6 +88,7 @@ typedef struct AddressSpaceStruct {
     vm_region_vec_t regions;   /**< Regions sorted by start address, never overlapping. */
     AddressSpaceType type;     /**< Kernel or user. */
     AsidToken asid_token;      /**< ASID held by the space; zero for the kernel space. */
+    size_t teardown_pos;       /**< Where AddressSpaceDestroyChunk() resumes freeing tables. */
 } AddressSpace;
 
 /** @brief Size in bytes of the ioremap window. */
@@ -116,14 +117,14 @@ AddressSpace *VmmGetKernelAddressSpace(void);
 AddressSpace *AddressSpaceCreate(AddressSpaceType type);
 
 /**
- * @brief Tear down an address space.
+ * @brief Destroys part of an address space whose regions are all removed; call until it returns
+ * false.
  *
- * Unmaps every region, drops the references to their backing objects, and frees the ASID and page
- * tables. Panics if the space is currently active.
- *
- * @param[in] as The space to destroy; NULL is ignored.
+ * @param[in,out] as The address space; must not be active.
+ * @param[in] budget The most page tables to free.
+ * @return true if the address space is not yet destroyed.
  */
-void AddressSpaceDestroy(AddressSpace *as);
+bool AddressSpaceDestroyChunk(AddressSpace *as, size_t budget);
 
 /**
  * @brief Insert a region into an address space, keeping the list sorted.
@@ -139,6 +140,17 @@ void AddressSpaceDestroy(AddressSpace *as);
  *               region, or the region list could not grow.
  */
 bool VmmAddRegion(AddressSpace *restrict as, const VirtMemRegion *restrict region);
+
+/**
+ * @brief Drop the first @p bytes of a region without touching its mappings or its reference.
+ *
+ * The region list stays sorted, since the start only moves within the region's own range. The
+ * caller unmaps the dropped range itself.
+ *
+ * @param[in,out] r The region to shrink.
+ * @param[in] bytes Bytes to drop; page-aligned and less than the region's size.
+ */
+void VmmTrimRegionFront(VirtMemRegion *r, size_t bytes);
 
 /**
  * @brief Unmap and remove a region, dropping its reference to the backing object.
@@ -211,23 +223,6 @@ bool VmmMapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size, MemPro
 bool VmmUnmapRange(AddressSpace *as, VirtAddr va, size_t size, bool flush);
 
 /**
- * @brief Change the protection of part of a region.
- *
- * The range must lie inside one region that is not pinned. Device and uncached regions cannot be
- * made executable. On success the region's recorded protection is updated to new_prot. This does
- * not check max_prot; VmmProtectUserRange() does.
- *
- * @param[in,out] as The space holding the range.
- * @param[in] va Start of the range.
- * @param[in] size Length in bytes.
- * @param[in] new_prot The new protection.
- * @return true on success.
- * @retval false No region contains the range, the region is pinned, the request is illegal for
- *               its memory type, or the architecture layer failed.
- */
-bool VmmProtectPage(AddressSpace *as, VirtAddr va, size_t size, MemProt new_prot);
-
-/**
  * @brief Map one normal-memory page into a user address space.
  *
  * @param[in,out] as The user space to map into.
@@ -282,19 +277,37 @@ Err VmmMapMemObj(SpaceObject *space, HandleTableEntry *entry, MemProt prot, Virt
                  VirtAddr *out);
 
 /**
- * @brief Unmap the user region that starts at an address.
+ * @brief Unmap at most @p max_pages of the user region that starts at an address.
  *
- * Anonymous regions have their resident frames freed, and the mapped address is cleared on the
- * handle that mapped a memory object.
+ * Anonymous pages in that part are freed and the region's front is trimmed; the call that reaches
+ * the region's end removes it and drops its reference on the backing object. Device regions are
+ * removed whole. The memory handle that mapped the region has its mapped address cleared.
  *
  * @param[in,out] space The space holding the region.
  * @param[in] va Start address of the region.
+ * @param[out] scratch Room for @p max_pages frames.
+ * @param[in] max_pages Most pages to unmap in this call.
+ * @param[out] next Start of what is left of the region, or 0 once it is gone.
  * @return ZUZU_OK on success.
- * @retval ERR_NOENT No region contains va.
- * @retval ERR_BADARG va is not the start of the region.
+ * @retval ERR_NOENT No region contains @p va.
+ * @retval ERR_BADARG @p va is not the region's start.
  * @retval ERR_NOPERM The region is pinned.
  */
-Err VmmUnmapUserRegion(SpaceObject *space, VirtAddr va);
+Err VmmUnmapUserChunk(SpaceObject *space, VirtAddr va, PhysAddr *scratch, size_t max_pages,
+                      VirtAddr *next);
+
+/**
+ * @brief Tear down part of the last region of a dead address space.
+ *
+ * Pinned regions are torn down too. Anonymous pages are freed; other backings are only unmapped,
+ * and the region's reference on its backing object is dropped once the whole region is gone.
+ *
+ * @param[in,out] as The address space, which no task may be running in.
+ * @param[out] scratch Room for @p max_pages frames.
+ * @param[in] max_pages Most pages to tear down in this call.
+ * @return true while regions are left.
+ */
+bool VmmTeardownChunk(AddressSpace *as, PhysAddr *scratch, size_t max_pages);
 
 /**
  * @brief Install a region into a space that has no tasks yet, on behalf of its parent.
@@ -317,17 +330,42 @@ Err VmmUnmapUserRegion(SpaceObject *space, VirtAddr va);
 Err InjectObjIntoSpace(SpaceObject *kitten, SpaceObject *parent, const InjectObjArgs *args);
 
 /**
- * @brief Change the protection of a user range, bounded by the region's max_prot.
+ * @brief Change the protection of a user region, rewriting at most @p max_pages page entries.
  *
- * @param[in,out] space The space holding the range.
+ * The range is either the whole region, or its tail when the region already has @p new_prot; the
+ * second form finishes an earlier call. The region's protection changes at once, so pages whose
+ * entries are not rewritten yet are repaired by VmmFixPermission() if they fault. Entries are
+ * written without execute permission; the first instruction fetch on each page faults into
+ * VmmFixPermission(), which syncs the caches before allowing it.
+ *
+ * @param[in,out] space The space holding the region.
  * @param[in] va Page-aligned start of the range.
  * @param[in] size Page-aligned length in bytes.
  * @param[in] new_prot New protection; writable and executable together is refused.
+ * @param[in] max_pages Most page entries to rewrite in this call.
+ * @param[out] next Start of the range still to rewrite, or 0 when done.
  * @return ZUZU_OK on success.
- * @retval ERR_BADARG Unaligned or out-of-range arguments, an illegal protection, or no region.
+ * @retval ERR_BADARG Unaligned or out-of-range arguments, an illegal protection, no region, a
+ *                    range that is neither the whole region nor a matching tail, a pinned region,
+ *                    or exec on device or uncached memory.
  * @retval ERR_NOPERM new_prot exceeds the region's max_prot.
  */
-Err VmmProtectUserRange(SpaceObject *space, VirtAddr va, size_t size, MemProt new_prot);
+Err VmmProtectUserChunk(SpaceObject *space, VirtAddr va, size_t size, MemProt new_prot,
+                        size_t max_pages, VirtAddr *next);
+
+/**
+ * @brief Repair a permission fault on a page whose entry is older than its region's protection.
+ *
+ * Rewrites the page's entry to the region's protection when the region allows the access, and
+ * syncs the caches first when the access is an instruction fetch.
+ *
+ * @param[in,out] as The space that faulted.
+ * @param[in] va The faulting address.
+ * @param[in] write Whether the access was a write.
+ * @param[in] exec Whether the access was an instruction fetch.
+ * @return true if the entry changed and the access can be retried.
+ */
+bool VmmFixPermission(AddressSpace *as, VirtAddr va, bool write, bool exec);
 
 /**
  * @brief Drop the boot-time identity mapping of RAM.
@@ -348,13 +386,6 @@ void VmmRemoveIdentityMapping(void);
  *         free.
  */
 void *IoRemap(PhysAddr phys, size_t size);
-
-/**
- * @brief Release a mapping made by IoRemap().
- *
- * @param[in] va The pointer IoRemap() returned; NULL and unknown addresses are ignored.
- */
-void IoUnmap(void *va);
 
 /**
  * @brief Check that a range is accessible, faulting in missing pages.

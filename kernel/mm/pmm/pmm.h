@@ -100,6 +100,23 @@ Err PmmUnmarkRange(PhysAddr start, PhysAddr end);
 PhysAddr PmmAllocFrame(void);
 
 /**
+ * @brief Allocate one zeroed frame, from the pool lbx zeroes ahead of time when it can.
+ * @return Physical address of the frame, or PA_NULL if none is free.
+ */
+PhysAddr PmmAllocZeroedFrame(void);
+
+/**
+ * @brief Lets lbx start filling the zeroed-frame pool; call once lbx exists.
+ */
+void PmmZeroPoolStart(void);
+
+/**
+ * @brief Gives every frame in the zeroed-frame pool back to the free list.
+ * @return true if any frame was given back.
+ */
+bool PmmZeroPoolRelease(void);
+
+/**
  * @brief Allocate a run of physically contiguous frames (first fit).
  * @param[in] n_frames Number of frames, non-zero.
  * @return Physical address of the first frame, or PA_NULL on failure.
@@ -122,18 +139,6 @@ void PmmFreeFrame(PhysAddr addr);
  * @return Physical address of the first frame, or PA_NULL on failure or invalid alignment.
  */
 PhysAddr PmmAllocFramesContigAligned(size_t n_frames, size_t align_frames);
-
-/**
- * @brief Allocate frames that need not be contiguous.
- *
- * May return fewer frames than requested if the free list runs out part way;
- * frames already taken are not released.
- *
- * @param[in] n_frames Number of frames wanted.
- * @param[out] out_addrs Array of at least @p n_frames entries receiving the frame addresses.
- * @return Number of frames actually allocated (0 for invalid arguments or insufficient free memory).
- */
-size_t PmmAllocFramesScattered(size_t n_frames, PhysAddr *out_addrs);
 
 /**
  * @brief Subscribe an event object to low-memory notifications.

@@ -131,6 +131,9 @@ typedef enum {
         (MEM_CONTIG | MEM_UNCACHED) /**< Both flags are OR'ed. Useful for DMA buffers. */
 } CreateMemoryFlags;
 
+/** @brief Largest page count CreateMem() accepts without MEM_CONTIG (32 MiB). */
+#define MEM_MAX_PAGES 8192u
+
 /** @brief Direction enum for DMA memory operations. */
 typedef enum {
     DMA_TO_DEVICE = 1,     /**< This Memory is read from a DMAC and sent to the device */
@@ -284,6 +287,11 @@ typedef enum {
     MNGTASK_SET_REGS,      /**< Change the register frame of an owned task. */
     MNGTASK_SET_MAX_TIMESLICE /**< Change the longest timeslice the caller or an owned task may set. */
 } ManageTaskVerb;
+
+/**
+ * @brief A priority is an integer denoting how much this task is allowed to use the CPU.
+ */
+typedef uint32_t Prio;
 
 #ifdef __cplusplus
 }

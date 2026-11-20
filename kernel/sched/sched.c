@@ -29,13 +29,6 @@
 /** @brief Number of slots in the sleep wheel. */
 #define SLEEP_QUEUE_SIZE 512
 
-#ifdef CONFIG_ZUZU_BENCH
-/** @brief Time taken to destroy one reaped task. */
-BENCH_STAT(g_bench_reap_task, "sched: reap one task");
-#endif
-
-/** @brief Tasks that have exited and wait to be destroyed off their own stack. */
-static ListHead task_destroy_queue = LIST_HEAD_INIT(task_destroy_queue);
 /** @brief The running task, or NULL while the idle loop runs. */
 TaskObject *current_task;
 /** @brief The task whose registers are currently in the FPU. */
@@ -61,7 +54,7 @@ static ListHead run_queues[SCHED_PRIORITY_LEVELS];
 /** @brief Tasks with a timeout, bucketed by the slot their deadline falls in. */
 static ListHead sleep_wheel[SLEEP_QUEUE_SIZE];
 /** @brief One bit per sleep wheel slot, set while the slot has tasks. */
-static uint32_t wheel_occ[BITMAP_WORDS(SLEEP_QUEUE_SIZE)];
+static BitmapWord wheel_occ[BITMAP_WORDS(SLEEP_QUEUE_SIZE)];
 /** @brief The earliest deadline in each sleep wheel slot. */
 static uint64_t wheel_min[SLEEP_QUEUE_SIZE];
 /** @brief The sleep wheel slot that time has reached. */
@@ -85,18 +78,16 @@ static uint32_t ready_mask = 0;
 
 static void IdleTask(void) __attribute__((noreturn));
 static void SchedArmTimer(void);
-static void SchedConsumeDestroyQueue(void);
 static void SchedIdleWait(void);
 
 /**
- * @brief The idle loop: reap dead tasks, wait for work, then reschedule.
+ * @brief The idle loop: wait for work, then reschedule.
  */
 static void IdleTask(void)
 {
     on_idle_stack = true;
     for (;;) {
         VmmActivateAddressSpace(VmmGetKernelAddressSpace());
-        SchedConsumeDestroyQueue();
         SchedIdleWait();
         Schedule();
     }
@@ -109,7 +100,6 @@ static void SchedInitIdleTask(void)
 {
     VirtAddr sp = (VirtAddr)idle_stack + sizeof(idle_stack);
     sp &= ~(VirtAddr)15U;
-
     idle_task.kernel_sp = ArchTaskKernelInit((void *)sp, IdleTask);
 }
 
@@ -126,6 +116,10 @@ void SchedInit(void)
     wheel_now_slot = ArchTimerNow() >> slot_shift;
     current_task = NULL;
     on_idle_stack = false;
+    idle_task.owner = &kernel_space;
+    idle_task.priority = 0;
+    idle_task.tcb_slot = TCB_SLOT_NONE;
+    ListAddTail(&idle_task.space_node, &kernel_space.tasks.node);
     SchedInitIdleTask();
     ArchTimerSetHandler(SchedTimerExpired);
 }
@@ -172,52 +166,6 @@ static void SchedEnqueue(TaskObject *t, bool front)
 void SchedAdd(TaskObject *t) { SchedEnqueue(t, false); }
 
 void SchedAddFront(TaskObject *t) { SchedEnqueue(t, true); }
-
-void SchedQueueDestroyTask(TaskObject *t)
-{
-    if (!t)
-        return;
-    if (t->destroy_node.next || t->destroy_node.prev) {
-        return;
-    }
-    ListAddTail(&t->destroy_node, &task_destroy_queue.node);
-}
-
-/**
- * @brief Destroy every queued task except the running one, which stays queued.
- */
-static void SchedConsumeDestroyQueue(void)
-{
-    ListHead deferred = LIST_HEAD_INIT(deferred);
-
-    while (!ListIsEmpty(&task_destroy_queue)) {
-        ListNode *node = ListPopFront(&task_destroy_queue);
-        if (!node)
-            break;
-        TaskObject *t = container_of(node, TaskObject, destroy_node);
-
-        if (t == current_task) {
-            ListAddTail(&t->destroy_node, &deferred.node);
-            continue;
-        }
-
-#ifdef CONFIG_ZUZU_BENCH
-        uint32_t bench_start = BENCH_BEGIN();
-#endif
-        TaskDestroy(t);
-#ifdef CONFIG_ZUZU_BENCH
-        BENCH_END(g_bench_reap_task, bench_start);
-#endif
-    }
-
-    while (!ListIsEmpty(&deferred)) {
-        ListNode *node = ListPopFront(&deferred);
-        if (!node)
-            break;
-        TaskObject *t = container_of(node, TaskObject, destroy_node);
-        ListAddTail(&t->destroy_node, &task_destroy_queue.node);
-    }
-}
 
 /**
  * @brief Check whether anything is ready to run or a reschedule was requested.
@@ -289,7 +237,7 @@ void SchedInsertSleepQueue(TaskObject *t)
 }
 
 /**
- * @brief Wake a task whose timeout expired, returning ERR_TIMEOUT from its syscall.
+ * @brief Wake a task whose timeout expired, returning its timeout_rc from its syscall.
  *
  * A caller waiting on a call has the call withdrawn first.
  *
@@ -303,7 +251,7 @@ static void SchedWakeTimedOut(TaskObject *t)
         ArchSetInFrame(t->trap_frame, 1, 0);
         ArchSetInFrame(t->trap_frame, 3, (Register)-1);
     }
-    ArchSetInFrame(t->trap_frame, 0, ERR_TIMEOUT);
+    ArchSetInFrame(t->trap_frame, 0, t->timeout_rc);
     SchedUnblock(t);
     SchedAdd(t);
 }
@@ -384,8 +332,7 @@ static void SchedIdleWait(void)
         }
 
         ArchCpuIdle();
-        ArchGlobalIrqEnable();
-        ArchGlobalIrqDisable();
+        SchedOpenIrqWindow();
 
         if (SchedIsWorkPending()) {
             if (do_resched)
@@ -393,15 +340,6 @@ static void SchedIdleWait(void)
             return;
         }
     }
-}
-
-/**
- * @brief Reap dead tasks and wake expired sleepers; run on every reschedule.
- */
-static void SchedDoHousekeeping(void)
-{
-    SchedConsumeDestroyQueue();
-    SchedWakeSleepers();
 }
 
 /**
@@ -507,7 +445,7 @@ static uint32_t WheelScanFromNow(void)
         uint32_t slot = start + i;
         if (slot >= SLEEP_QUEUE_SIZE)
             slot -= SLEEP_QUEUE_SIZE;
-        if (wheel_occ[slot >> 5] & (1U << (slot & 31)))
+        if (BitmapTest(wheel_occ, slot))
             return i;
     }
     return SLEEP_QUEUE_SIZE;
@@ -574,6 +512,7 @@ void SchedUnblock(TaskObject *t)
         ListRemove(&t->wait_slot.node);
     SchedRemoveSleepQueue(t);
     t->wake_deadline = 0;
+    t->timeout_rc = ERR_TIMEOUT;
     t->ipc_state = IPC_NONE;
     t->blocked_port = NULL;
     t->state = TASK_STATE_READY;
@@ -596,9 +535,10 @@ void __hot Schedule(void)
         }
     }
 
-    SchedDoHousekeeping();
+    SchedWakeSleepers();
 
     TaskObject *next = SchedPickNext();
+    do_resched = 0;
     SchedSwitchNext(next);
 }
 

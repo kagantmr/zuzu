@@ -5,7 +5,6 @@
 
 #include "irq_relay.h"
 #include "kernel/space/space.h"
-#include "kernel/sched/sched.h"
 #include <arch/irq.h>
 #include <compiler.h>
 

@@ -83,6 +83,23 @@ class Console:
         os.close(self.master)
 
 
+def wait_ready(con, timeout):
+    deadline = time.monotonic() + timeout
+    while True:
+        start = len(con._flat())
+        con.send(b"logs -s netd")
+        try:
+            con.wait_for(PROMPT, 5.0)
+        except Timeout:
+            pass
+        else:
+            if con._flat().find(READY, start) >= 0:
+                return
+        if time.monotonic() >= deadline:
+            raise Timeout()
+        time.sleep(1.0)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--prompt-only", action="store_true",
@@ -101,8 +118,7 @@ def main():
         if args.prompt_only:
             print("\n[smoke] reached shell prompt", file=sys.stderr)
             return 0
-        con.pos = 0
-        con.wait_for(READY, args.timeout)
+        wait_ready(con, args.timeout)
         con.send(b"cd bin")
         con.wait_for(PROMPT, 15.0)
         con.send(b"zztest")

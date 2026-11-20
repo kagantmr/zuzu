@@ -203,6 +203,7 @@ void SvcManageTask(CpuState *frame)
                    CopyFromUser(&regs, (const void *)(*ArchGetFromFrame(frame, 2)), sizeof(regs)),
                    ERR_BADPTR);
         ENSURE_ERR(frame, ArchRegsToFrame(target->trap_frame, &regs), ERR_BADARG);
+        TaskDropCheckpoint(target);
         ArchSetInFrame(frame, 0, ZUZU_OK);
     } break;
 

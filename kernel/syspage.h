@@ -9,6 +9,10 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <types.h>
+#include <zuzu/syspage.h>
+
+/** @brief Kernel mapping of the syspage; NULL before SyspageInit(). */
+extern Syspage *g_sp;
 
 /**
  * @brief Build the system information page: version, build, machine, CPU, memory totals, timer and device names.

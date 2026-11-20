@@ -19,6 +19,19 @@
 #define MAX_SPACES 512
 
 /**
+ * @brief Definition of the kernel Space itself, owner of kernel tasks and handles.
+ */
+extern SpaceObject kernel_space;
+
+/** @brief How far lbx has got reclaiming a torn-down space. */
+typedef enum {
+    SPACE_REAP_TASKS,   /**< Destroying the space's tasks. */
+    SPACE_REAP_REGIONS, /**< Unmapping regions and freeing their pages. */
+    SPACE_REAP_HANDLES, /**< Releasing handles. */
+    SPACE_REAP_TABLES,  /**< Freeing the page tables, ASID and handle table. */
+} SpaceReapPhase;
+
+/**
  * @brief Represents a space object.
  */
 typedef struct SpaceObjectStruct {
@@ -38,13 +51,24 @@ typedef struct SpaceObjectStruct {
     ListHead waiters; /**< Tasks waiting for the space to become hollow. */
     PhysAddr tcb_page_pa[MAX_TCB_PAGES]; /**< Physical pages of the TLS window; 0 where not allocated. */
     VirtAddr tcb_page_va; /**< Where the TLS window is mapped in the space. */
-    uint32_t tcb_slot_bitmap[BITMAP_WORDS(256)]; /**< One bit per TLS slot, set while in use. */
+    BitmapWord tcb_slot_bitmap[BITMAP_WORDS(256)]; /**< One bit per TLS slot, set while in use. */
     bool torn_down; /**< SpaceDestroy() has run; only a zombie main task may keep the object alive. */
     ObserverSet observers; /**< Events signalled when the space becomes hollow. */
     uint32_t ref_count; /**< References held by handles, tasks and teardown in progress. */
+    LbxNode lbx_node; /**< Link in lbx's queue while the space is being reclaimed. */
+    SpaceReapPhase reap_phase; /**< What lbx is reclaiming next. */
+    uint32_t reap_pos; /**< Next handle slot to release in SPACE_REAP_HANDLES. */
 } SpaceObject;
 
 _Static_assert(TCB_MAX_SLOTS <= 256, "tcb_slot_bitmap is 256 bits wide");
+
+/**
+ * @brief Check whether a space is the kernel's own space.
+ *
+ * @param[in] sp The space.
+ * @return true if @p sp is kernel_space.
+ */
+static inline bool SpaceIsKernel(const SpaceObject *sp) { return sp == &kernel_space; }
 
 /**
  * @brief Allocate a slot for the TLS page in a space.
@@ -55,11 +79,11 @@ _Static_assert(TCB_MAX_SLOTS <= 256, "tcb_slot_bitmap is 256 bits wide");
  */
 static inline int TcbSlotAlloc(SpaceObject *sp)
 {
-    int slot = BitmapFindFirstZero(sp->tcb_slot_bitmap, TCB_MAX_SLOTS);
-    if (slot < 0)
+    size_t slot = BitmapFindFirstZero(sp->tcb_slot_bitmap, TCB_MAX_SLOTS);
+    if (slot >= TCB_MAX_SLOTS)
         return -1;
-    BitmapSet(sp->tcb_slot_bitmap, (size_t)slot);
-    return slot;
+    BitmapSet(sp->tcb_slot_bitmap, slot);
+    return (int)slot;
 }
 
 /**
@@ -136,9 +160,10 @@ SpaceObject *SpaceFindBySpid(Spid spid);
 
 /**
  * @brief Tear down a space: terminate its tasks, wake anyone waiting on it, release its
- * interrupts and handles, and free its address space.
+ * interrupts, kill the ports and events it owns, and hand the rest to lbx.
  *
- * The object itself is freed once nothing references it any more. Calling this twice is harmless.
+ * lbx destroys the tasks, frees the address space and releases the handles in bounded steps. The
+ * object itself is freed once nothing references it any more. Calling this twice is harmless.
  *
  * @param[in] sp The space to tear down.
  */
@@ -210,5 +235,10 @@ void SpaceUnref(SpaceObject *sp);
  * @return true if every task in it has exited.
  */
 bool SpaceIsHollow(const SpaceObject *sp);
+
+/**
+ * @brief Initializes the zuzu kernel's main space.
+ */
+void SpaceInitKernelSpace(void);
 
 #endif /* KERNEL_SPACE_SPACE_H */

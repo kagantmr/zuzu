@@ -8,10 +8,18 @@
 #include "kernel/ipc/port.h"
 #include "kernel/space/space.h"
 #include "svc.h"
+#include "kernel/checkpoint/checkpoint.h"
 #include <arch/cache.h>
 #include <arch/regs.h>
 #include <types.h>
 #include <zuzu/err.h>
+
+/**
+ * @brief Drops a half-built memory object left in a dead task's checkpoint state.
+ *
+ * @param[in] obj The MemObject.
+ */
+static void DropMem(void *obj) { MemObjUnref(obj); }
 
 void SvcCreate(CpuState *frame)
 {
@@ -120,30 +128,60 @@ void SvcCreate(CpuState *frame)
     } break;
     case OBJECT_MEMORY: {
         CreateMemoryFlags flags = (CreateMemoryFlags)(*ArchGetFromFrame(frame, 2));
-        ENSURE_ERR(frame, !(flags & (unsigned)~MEM_FLAGS_ALL), ERR_BADARG);
-        ENSURE_ERR(frame, !(flags & MEM_UNCACHED) || (flags & MEM_CONTIG), ERR_BADARG);
-
         size_t page_count = (size_t)(*ArchGetFromFrame(frame, 1));
-        ENSURE_ERR(frame, (page_count > 0), ERR_BADARG);
+        CheckpointState *cp = &current_task->checkpoint;
+        MemObject *mem = NULL;
+        size_t pos = 0;
 
-        ENSURE_ERR(frame, page_count <= PmmGetStats().free_frames, ERR_NOMEM);
-        ENSURE_ERR(frame, page_count <= SIZE_MAX / sizeof(PhysAddr), ERR_NOMEM);
+        if (cp->kind == CHECKPOINT_CREATE_MEM) {
+            mem = cp->obj;
+            pos = cp->pos;
+            if (mem->shm.page_count != page_count || mem->shm.flags != flags) {
+                MemObjUnref(mem);
+                mem = NULL;
+                pos = 0;
+            }
+            *cp = (CheckpointState){0};
+        }
 
-        PhysAddr *page_addrs = KZAlloc(page_count * sizeof(PhysAddr));
-        ENSURE_ERR(frame, (NULL != page_addrs), ERR_NOMEM);
+        if (!mem) {
+            ENSURE_ERR(frame, !(flags & (unsigned)~MEM_FLAGS_ALL), ERR_BADARG);
+            ENSURE_ERR(frame, !(flags & MEM_UNCACHED) || (flags & MEM_CONTIG), ERR_BADARG);
+            ENSURE_ERR(frame, (page_count > 0), ERR_BADARG);
+            ENSURE_ERR(frame, (flags & MEM_CONTIG) || page_count <= MEM_MAX_PAGES, ERR_OVERFLOW);
+            ENSURE_ERR(frame, page_count <= PmmGetStats().free_frames, ERR_NOMEM);
+            ENSURE_ERR(frame, page_count <= SIZE_MAX / sizeof(PhysAddr), ERR_NOMEM);
 
-        MemObject *mem = MemObjCreateShm(page_addrs, page_count, flags);
-        ENSURE(NULL != mem, KFree(page_addrs); ArchSetInFrame(frame, 0, ERR_NOMEM); return);
-        mem->owner_spid = CURRENT_SPACE->spid;
+            PhysAddr *page_addrs = KZAlloc(page_count * sizeof(PhysAddr));
+            ENSURE_ERR(frame, (NULL != page_addrs), ERR_NOMEM);
+
+            mem = MemObjCreateShm(page_addrs, page_count, flags);
+            ENSURE(NULL != mem, KFree(page_addrs); ArchSetInFrame(frame, 0, ERR_NOMEM); return);
+            mem->owner_spid = CURRENT_SPACE->spid;
+
+            if (flags & MEM_CONTIG) {
+                PhysAddr base = PmmAllocFramesContig(page_count);
+                ENSURE(PA_NULL != base, MemObjUnref(mem); ArchSetInFrame(frame, 0, ERR_NOMEM);
+                       return);
+                for (size_t i = 0; i < page_count; i++)
+                    page_addrs[i] = base + (i * PAGE_SIZE);
+            }
+        }
 
         if (flags & MEM_CONTIG) {
-            PhysAddr base = PmmAllocFramesContig(page_count);
-            ENSURE(PA_NULL != base, MemObjUnref(mem); ArchSetInFrame(frame, 0, ERR_NOMEM); return);
-            memset((void *)PA_TO_VA(base), 0, page_count * PAGE_SIZE);
-            if (flags & MEM_UNCACHED)
-                ArchCacheCleanInvalidateDcacheRange(PA_TO_VA(base), page_count * PAGE_SIZE);
-            for (size_t i = 0; i < page_count; i++)
-                page_addrs[i] = base + (i * PAGE_SIZE);
+            VirtAddr base_va = PA_TO_VA(mem->shm.page_addrs[0]);
+            while (pos < page_count) {
+                memset((void *)(base_va + pos * PAGE_SIZE), 0, PAGE_SIZE);
+                if (flags & MEM_UNCACHED)
+                    ArchCacheCleanInvalidateDcacheRange(base_va + pos * PAGE_SIZE, PAGE_SIZE);
+                pos++;
+                if (pos < page_count && CheckpointDue()) {
+                    *cp = (CheckpointState){
+                        .kind = CHECKPOINT_CREATE_MEM, .obj = mem, .pos = pos, .drop = DropMem};
+                    ArchRewindSvc(frame);
+                    return;
+                }
+            }
         }
 
         Handle new_handle = HandleTableFindFree(&CURRENT_SPACE->handle_table);

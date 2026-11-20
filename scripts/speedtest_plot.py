@@ -65,6 +65,8 @@ class Run:
     def to_ns(self, v, unit):
         if unit == "us":
             return v * 1000.0
+        if unit == "ns":
+            return float(v)
         if self.khz <= 0:
             return float(v)
         return v * 1e6 / self.khz
@@ -422,9 +424,10 @@ def build(runs):
         for s in r.sections:
             if s not in sections:
                 sections.append(s)
-    o = ['<!doctype html><html><head><meta charset="utf-8"><title>zuzu speedtest</title>'
-         '<style>%s</style></head><body><div class="viz-root">' % (CSS % (var_l, var_d))]
-    o.append("<h1>zuzu speedtest</h1>")
+    tool = runs[0].meta.get(("init", "tool"), "speedtest")
+    o = ['<!doctype html><html><head><meta charset="utf-8"><title>zuzu %s</title>'
+         '<style>%s</style></head><body><div class="viz-root">' % (esc(tool), CSS % (var_l, var_d))]
+    o.append("<h1>zuzu %s</h1>" % esc(tool))
     o.append('<p class="sub">%s</p>' % esc(" vs ".join(r.label for r in runs)))
     o.append(legend([r.label for r in runs]))
     for r in runs:

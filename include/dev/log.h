@@ -83,10 +83,9 @@ _Static_assert(sizeof(LogEntryHdr) == 24, "LogEntryHdr is 24 bytes");
 /** @brief Reader: choose what to receive. LogReadRequest. Session handle. */
 #define LOG_READ 5
 /**
- * @brief Set one source's minimum level, or the console mirror level. LogLevelRequest.
+ * @brief Set one source's minimum level. LogLevelRequest.
  *
- * A session handle may set the level of its own source tag only. The console level, which has an
- * all-zero source, needs the admin handle.
+ * A session handle may set the level of its own source tag only; the admin handle may set any.
  */
 #define LOG_SETLEVEL 6
 /** @brief Read counters. LogIndexRequest; replies LogStatsReply. Any handle. */
@@ -144,7 +143,7 @@ typedef struct {
 typedef struct {
     uint32_t cmd;                /**< LOG_SETLEVEL. */
     uint32_t level;              /**< The new minimum LogLevel. */
-    char source[LOG_SOURCE_MAX]; /**< The source it applies to; all zero for the console mirror. */
+    char source[LOG_SOURCE_MAX]; /**< The source it applies to. */
 } LogLevelRequest;
 
 /** @brief LOG_STATS reply. */
@@ -155,7 +154,6 @@ typedef struct {
     uint32_t records;       /**< Records in the history now. */
     uint32_t dropped;       /**< Records clients could not fit, added up over all sessions. */
     uint32_t malformed;     /**< Records logsvc threw away as invalid. */
-    uint32_t console_level; /**< Current console mirror level. */
 } LogStatsReply;
 
 /** @brief LOG_CRASH request: a header, then @c length message bytes. */

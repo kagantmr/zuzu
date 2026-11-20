@@ -28,13 +28,28 @@ PhysAddr ArchMmuCreateTables(AddressSpaceType type);
  * @brief Free page tables for a given address space type.
  *
  * Frees the root table and every lower-level table it points to, but not the
- * pages they map; see ArchMmuFreeUserPages(). A @p ttbr_pa of 0 is ignored.
+ * pages they map. A @p ttbr_pa of 0 is ignored.
  *
  * @param[in] ttbr_pa Base address of the root page table.
  * @param[in] type The type of the address space.
  *
  */
 void ArchMmuFreeTables(PhysAddr ttbr_pa, AddressSpaceType type);
+
+/**
+ * @brief Frees some of an address space's tables, deepest tables first, so a teardown can stop
+ * between calls.
+ *
+ * The tables must no longer be in use and their TLB entries must be flushed. The pages they map
+ * are not freed. Call until it returns false; the root table goes last.
+ *
+ * @param[in] ttbr_pa Physical address of the root table; 0 is ignored.
+ * @param[in] type Kind of address space.
+ * @param[in,out] pos Where to resume; 0 on the first call.
+ * @param[in] budget The most tables to free.
+ * @return true if tables are left.
+ */
+bool ArchMmuFreeTablesChunk(PhysAddr ttbr_pa, AddressSpaceType type, size_t *pos, size_t budget);
 
 /**
  * @brief Maps a physically contiguous range.
@@ -162,15 +177,19 @@ PhysAddr ArchMmuTranslate(PhysAddr ttbr_pa, VirtAddr va);
 bool ArchMmuUnmapPage(AddressSpace *as, VirtAddr va);
 
 /**
- * @brief Frees the anonymous memory still mapped in a user space, and all of its tables.
+ * @brief Unmaps the pages in a range, stores their frames, and flushes them from the TLB.
  *
- * Pages that belong to memory objects, device mappings and the syspage are left alone. The
- * space's TLB entries are flushed first, and pt_root_physaddr is 0 afterwards, so
- * AddressSpaceDestroy() skips the flush and the per-region unmaps.
+ * Only page-level entries are cleared; sections and blocks are left alone, and so are the page
+ * tables. The caller frees the stored frames once this returns.
  *
- * @param[in] as Address space; ignored if NULL.
+ * @param[in,out] as   Address space.
+ * @param[in]     va   Start of the range; page-aligned.
+ * @param[in]     size Length in bytes; page-aligned and at most @p max pages.
+ * @param[out]    out  Frames of the pages that were mapped.
+ * @param[in]     max  Capacity of @p out.
+ * @return Number of frames stored in @p out.
  */
-void ArchMmuFreeUserPages(AddressSpace *as);
+size_t ArchMmuUnmapCollect(AddressSpace *as, VirtAddr va, size_t size, PhysAddr *out, size_t max);
 
 /**
  * @brief Makes the kernel's tables the upper-half (TTBR1) tables and flushes the TLB.

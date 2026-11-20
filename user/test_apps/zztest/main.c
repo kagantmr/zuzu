@@ -19,6 +19,7 @@
 #define UDBG_ENABLED 1
 
 #include <arch/svc.h>
+#include <bitmap.h>
 #include <dev/devm.h>
 #include <dev/log.h>
 #include <stdio.h>
@@ -124,9 +125,13 @@ static uint64_t NowMs(void) { return UptimeMs(); }
 
 static uint64_t TickMs(void) { return 1; }
 
+static uint32_t LbxPending(void) { return ((const volatile Syspage *)SYSPAGE)->lbx_pending; }
+
 static void SleepAndSettle(void)
 {
-    Sleep(100); /* lets the deferred thread reaper run before counting pages */
+    Sleep(100);
+    for (int i = 0; i < 200 && LbxPending() != 0; i++)
+        Sleep(1);
 }
 
 /* ---------------- worker threads (same Space) ---------------- */
@@ -210,6 +215,8 @@ static int32_t WorkerJoin(Worker *w)
 #ifdef __aarch64__
 static const uint32_t kCodeLoop[] = {0x14000000};
 static const uint32_t kCodeQuit42[] = {0xD2800540, SYS(SVC_QUIT)};
+static const uint32_t kFnRet42[] = {0x52800540, 0xD65F03C0}; /* mov w0,#42; ret */
+static const uint32_t kFnRet7[] = {0x528000E0, 0xD65F03C0};  /* mov w0,#7; ret */
 static const uint32_t kCodeFaultData[] = {0xD2800000, 0xF9400001};
 static const uint32_t kCodeFaultPrefetch[] = {0xD2800000, 0xD61F0000};
 static const uint32_t kCodeFaultUndef[] = {0x00000000};
@@ -224,6 +231,8 @@ static const uint32_t kCodeSleepQuit[] = {0xD2800280, SYS(SVC_SLEEP), 0xD28000C0
 #else
 static const uint32_t kCodeLoop[] = {0xEAFFFFFE};                      /* b . */
 static const uint32_t kCodeQuit42[] = {0xE3A0002A, SYS(SVC_QUIT)};        /* mov r0,#42; svc QUIT */
+static const uint32_t kFnRet42[] = {0xE3A0002A, 0xE12FFF1E};           /* mov r0,#42; bx lr */
+static const uint32_t kFnRet7[] = {0xE3A00007, 0xE12FFF1E};            /* mov r0,#7; bx lr */
 static const uint32_t kCodeFaultData[] = {0xE3A00000, 0xE5901000};     /* mov r0,#0; ldr r1,[r0] */
 static const uint32_t kCodeFaultPrefetch[] = {0xE3A00000, 0xE12FFF10}; /* mov r0,#0; bx r0 */
 static const uint32_t kCodeFaultUndef[] = {0xE7F000F0};                /* udf */
@@ -337,6 +346,51 @@ static void KittenFree(Kitten *k)
 }
 
 /* ---------------- 1. svc basics ---------------- */
+
+static void TestBitmap(void)
+{
+    BeginSection("bitmap");
+
+    enum { W = BITMAP_WORD_BITS, NBITS = (2 * BITMAP_WORD_BITS) + 5 };
+    BitmapWord bm[BITMAP_WORDS(NBITS)];
+
+    BitmapZero(bm, NBITS);
+    CheckEq((int32_t)BitmapFindFirstZero(bm, NBITS), 0, "empty map: first zero is 0");
+    CheckEq((int32_t)BitmapNextSet(bm, NBITS, 0), NBITS, "empty map: no set bit");
+    CheckEq((int32_t)BitmapFindClearRun(bm, NBITS, NBITS, 1, 0), 0, "empty map: whole-map run at 0");
+
+    BitmapSet(bm, W + 1);
+    Check(BitmapTest(bm, W + 1) && !BitmapTest(bm, W), "set bit in the second word reads back");
+    CheckEq((int32_t)BitmapNextSet(bm, NBITS, 0), W + 1, "next set finds a bit across a word");
+    CheckEq((int32_t)BitmapNextSet(bm, NBITS, W + 2), NBITS, "next set past the only bit -> nbits");
+    BitmapClr(bm, W + 1);
+    Check(!BitmapTest(bm, W + 1), "cleared bit reads back clear");
+
+    BitmapSetRange(bm, 0, NBITS);
+    CheckEq((int32_t)BitmapFindFirstZero(bm, NBITS), NBITS, "full map: first zero -> nbits");
+    CheckEq((int32_t)BitmapNextZero(bm, NBITS, 3), NBITS, "full map: next zero -> nbits");
+    CheckEq((int32_t)BitmapFindClearRun(bm, NBITS, 1, 1, 0), NBITS,
+            "full map: clear tail bits past nbits are not used");
+
+    BitmapClrRange(bm, W - 3, 6);
+    CheckEq((int32_t)BitmapFindFirstZero(bm, NBITS), W - 3, "first zero after clearing a range");
+    CheckEq((int32_t)BitmapNextSet(bm, NBITS, W - 3), W + 3, "next set ends the cleared range");
+    CheckEq((int32_t)BitmapFindClearRun(bm, NBITS, 6, 1, 0), W - 3, "run across a word boundary");
+    CheckEq((int32_t)BitmapFindClearRun(bm, NBITS, 7, 1, 0), NBITS, "run one too long -> nbits");
+    CheckEq((int32_t)BitmapFindClearRun(bm, NBITS, 3, 4, 0), W, "aligned run skips an unaligned start");
+    CheckEq((int32_t)BitmapFindClearRun(bm, NBITS, 4, 4, 0), NBITS, "aligned run that does not fit -> nbits");
+    CheckEq((int32_t)BitmapFindClearRun(bm, NBITS, 6, 4, 3), W - 3, "phase shifts the alignment");
+    BitmapSetRange(bm, W - 3, 6);
+
+    BitmapClrRange(bm, NBITS - 2, 2);
+    CheckEq((int32_t)BitmapFindClearRun(bm, NBITS, 2, 1, 0), NBITS - 2, "run ending at nbits");
+    CheckEq((int32_t)BitmapFindClearRun(bm, NBITS, 3, 1, 0), NBITS, "run past nbits -> nbits");
+
+    BitmapZero(bm, NBITS);
+    CheckEq((int32_t)BitmapFindClearRun(bm, NBITS, NBITS + 1, 1, 0), NBITS, "run longer than map -> nbits");
+    CheckEq((int32_t)BitmapFindClearRun(bm, NBITS, 0, 1, 0), NBITS, "zero-length run -> nbits");
+    CheckEq((int32_t)BitmapFindClearRun(bm, NBITS, 1, 3, 0), NBITS, "non-power-of-two align -> nbits");
+}
 
 static void TestBasics(void)
 {
@@ -542,6 +596,56 @@ static void TestMemory(void)
     MemProtect((VirtAddr)a, 8192, PROT_RW);
     CheckEq(MemUnmap(a), ZUZU_OK, "Unmap(anon) OK");
 
+    /* Protect and unmap across several kernel entries */
+    const uint32_t wide_pages = 300;
+    const size_t wide_bytes = (size_t)wide_pages * 4096;
+    uint8_t *wide = MemMapAnon(wide_bytes, 0, PROT_RW);
+    Check(!PtrIsErr(wide), "MemMapAnon(300 pages) OK");
+    if (!PtrIsErr(wide)) {
+        for (uint32_t i = 0; i < wide_pages; i++)
+            wide[i * 4096] = (uint8_t)i;
+        CheckEq(MemProtect((VirtAddr)wide, wide_bytes, PROT_READ), ZUZU_OK,
+                "Protect(300 pages, read-only) OK");
+        bool intact = true;
+        for (uint32_t i = 0; i < wide_pages; i++)
+            intact &= wide[i * 4096] == (uint8_t)i;
+        Check(intact, "300 read-only pages keep their contents");
+        CheckEq(MemProtect((VirtAddr)wide + 64 * 4096, wide_bytes - 64 * 4096, PROT_READ), ZUZU_OK,
+                "Protect(tail, same protection) OK");
+        CheckEq(MemProtect((VirtAddr)wide + 64 * 4096, wide_bytes - 64 * 4096, PROT_RW),
+                ERR_BADARG, "Protect(tail, other protection) -> BADARG");
+        CheckEq(MemProtect((VirtAddr)wide, wide_bytes, PROT_RW), ZUZU_OK,
+                "Protect(300 pages, read-write) OK");
+        for (uint32_t i = 0; i < wide_pages; i++)
+            wide[i * 4096] = (uint8_t)(i + 1);
+        intact = true;
+        for (uint32_t i = 0; i < wide_pages; i++)
+            intact &= wide[i * 4096] == (uint8_t)(i + 1);
+        Check(intact, "all 300 pages are writable again");
+        CheckEq(MemUnmap(wide), ZUZU_OK, "Unmap(300 pages) OK");
+        CheckEq(MemUnmap(wide), ERR_NOENT, "the whole 300-page region is gone");
+    }
+
+    uint32_t *code = MemMapAnon(4096, 0, PROT_RW);
+    Check(!PtrIsErr(code), "MemMapAnon(code page) OK");
+    if (!PtrIsErr(code)) {
+        int (*fn)(void) = (int (*)(void))(VirtAddr)code;
+        memcpy(code, kFnRet42, sizeof(kFnRet42));
+        CheckEq(MemProtect((VirtAddr)code, 4096, PROT_READ | PROT_EXEC), ZUZU_OK,
+                "Protect(written page, read-exec) OK");
+        CheckEq(fn(), 42, "code written then made executable runs");
+        CheckEq(MemProtect((VirtAddr)code, 4096, PROT_RW), ZUZU_OK,
+                "Protect(code page, read-write) OK");
+        memcpy(code, kFnRet7, sizeof(kFnRet7));
+        CheckEq(MemProtect((VirtAddr)code, 4096, PROT_READ | PROT_EXEC), ZUZU_OK,
+                "Protect(rewritten page, read-exec) OK");
+        CheckEq(fn(), 7, "rewritten code runs, not the stale instructions");
+        CheckEq(MemUnmap(code), ZUZU_OK, "Unmap(code page) OK");
+    }
+
+    CheckEq(CreateMem(MEM_MAX_PAGES + 1, 0), ERR_OVERFLOW,
+            "CreateMem above MEM_MAX_PAGES -> OVERFLOW");
+
     /* Shared memory objects */
     Handle mem = CreateMem(2, 0);
     Check(mem >= 0, "CreateMem(2) OK");
@@ -565,7 +669,7 @@ static void TestMemory(void)
     CheckEq(MemUnmap(m), ERR_NOENT, "closing the handle unmapped the region");
 
     CheckEq(CreateMem(0, 0), ERR_BADARG, "CreateMem(0) -> BADARG");
-    CheckEq(CreateMem(PagesMoreThanRam(), 0), ERR_NOMEM, "CreateMem(more than RAM) -> NOMEM");
+    CheckEq(CreateMem(PagesMoreThanRam(), 0), ERR_OVERFLOW, "CreateMem(more than RAM) -> OVERFLOW");
 
     /* Contiguous and uncached memory */
     CheckEq(CreateMem(1, (CreateMemoryFlags)0x80), ERR_BADARG, "CreateMem(unknown flag) -> BADARG");
@@ -613,9 +717,9 @@ static void TestMemory(void)
           "MemProtect(uncached, +X) refused");
     HandleClose(um);
 
-    /* No page leaks across map/touch/unmap. One warm-up round absorbs lazy
-     * one-time kernel allocations before the baseline is taken. */
-    for (int round = 0; round < 2; round++) {
+    /* No page leaks across map/touch/unmap. A warm-up as long as the measured
+     * loop absorbs lazy one-time kernel allocations before the baseline is taken. */
+    for (int round = 0; round < 40; round++) {
         uint8_t *w = MemMapAnon(16384, 0, PROT_RW);
         memset((void *)w, 1, 16384);
         MemUnmap(w);
@@ -638,6 +742,73 @@ static void TestMemory(void)
     SleepAndSettle();
     CheckEq((int32_t)PagesFree(), (int32_t)before,
             "no free-page change after 40 map/touch/unmap rounds");
+}
+
+/* ---------------- 3b. litterbox ---------------- */
+
+/* Several lbx budgets' worth, so reclaiming one object takes more than one step. */
+#define LBX_TEST_PAGES 300
+
+static void LbxRoundTrip(size_t stride)
+{
+    Handle h = CreateMem(LBX_TEST_PAGES, 0);
+    volatile uint8_t *p = MemMap(h, 0, PROT_RW);
+    if (!PtrIsErr((void *)p)) {
+        for (size_t i = 0; i < LBX_TEST_PAGES; i += stride)
+            p[i * 4096] = (uint8_t)i;
+        MemUnmap((void *)p);
+    }
+    HandleClose(h);
+}
+
+/* Eight objects alive at once, closed together. */
+static void LbxBatch(void)
+{
+    Handle hs[8];
+    for (int i = 0; i < 8; i++) {
+        hs[i] = CreateMem(LBX_TEST_PAGES / 4, 0);
+        volatile uint8_t *p = MemMap(hs[i], 0, PROT_RW);
+        if (!PtrIsErr((void *)p)) {
+            for (size_t j = 0; j < LBX_TEST_PAGES / 4; j++)
+                p[j * 4096] = 1;
+            MemUnmap((void *)p);
+        }
+    }
+    for (int i = 0; i < 8; i++)
+        HandleClose(hs[i]);
+}
+
+static void TestLbx(void)
+{
+    BeginSection("litterbox");
+
+    LbxRoundTrip(1);
+    LbxBatch();
+    SleepAndSettle();
+    CheckEq((int32_t)LbxPending(), 0, "lbx drains its queue after a big close");
+
+    uint32_t before = PagesFree();
+    LbxRoundTrip(1);
+    SleepAndSettle();
+    CheckEq((int32_t)PagesFree(), (int32_t)before,
+            "closing a multi-step memory object frees every page");
+
+    for (int round = 0; round < 4; round++)
+        LbxRoundTrip(1);
+    SleepAndSettle();
+    CheckEq((int32_t)PagesFree(), (int32_t)before,
+            "reusing reclaimed memory objects frees every page");
+
+    LbxRoundTrip(3);
+    SleepAndSettle();
+    CheckEq((int32_t)PagesFree(), (int32_t)before,
+            "a partly touched memory object frees every page");
+
+    LbxBatch();
+    SleepAndSettle();
+    CheckEq((int32_t)LbxPending(), 0, "lbx drains several queued objects");
+    CheckEq((int32_t)PagesFree(), (int32_t)before,
+            "several queued memory objects free every page");
 }
 
 /* ---------------- 4. events ---------------- */
@@ -1665,6 +1836,36 @@ static void TestDma(void)
     CheckEq(DmaUnmap(dev, s.id), ZUZU_OK, "DmaUnmap after sync checks");
     CheckEq(DmaSync(dev, s.bus_addr, DMA_ALIGN, DMA_SYNC_FOR_CPU), ERR_NOENT,
             "DmaSync after DmaUnmap -> NOENT");
+
+    const size_t big_pages = 160;
+    const size_t big_len = big_pages * 4096;
+    const size_t half = big_len / 2;
+    Handle big = CreateMem(big_pages, MEM_CONTIG);
+    Check(big >= 0, "CreateMem(160, MEM_CONTIG) for chunked sync");
+    DmaMapResult b = DmaMap(dev, big, 0, big_len, DMA_BIDIRECTIONAL);
+    CheckEq(b.status, ZUZU_OK, "DmaMap(160 pages) OK");
+    CheckEq(DmaSync(dev, b.bus_addr, big_len, DMA_SYNC_FOR_DEVICE), ZUZU_OK,
+            "DmaSync(160 pages, for device) restarts to completion");
+    CheckEq(DmaSync(dev, b.bus_addr, big_len, DMA_SYNC_FOR_CPU), ZUZU_OK,
+            "DmaSync(160 pages, for cpu) restarts to completion");
+    CheckEq(DmaSync(dev, b.bus_addr + 4096, big_len - 4096, DMA_SYNC_FOR_CPU), ZUZU_OK,
+            "DmaSync(offset multi-chunk range ending at the mapping end) OK");
+    CheckEq(DmaSync(dev, b.bus_addr, big_len + 4096, DMA_SYNC_FOR_DEVICE), ERR_NOENT,
+            "DmaSync(multi-chunk range one page past the mapping) -> NOENT");
+    CheckEq(DmaUnmap(dev, b.id), ZUZU_OK, "DmaUnmap(160 pages)");
+
+    DmaMapResult lo = DmaMap(dev, big, 0, half, DMA_BIDIRECTIONAL);
+    DmaMapResult hi = DmaMap(dev, big, half, half, DMA_BIDIRECTIONAL);
+    CheckEq(lo.status | hi.status, ZUZU_OK, "DmaMap two adjacent halves");
+    CheckEq((int32_t)hi.bus_addr, (int32_t)(lo.bus_addr + half),
+            "the halves are adjacent on the bus");
+    CheckEq(DmaSync(dev, lo.bus_addr, big_len, DMA_SYNC_FOR_DEVICE), ERR_NOENT,
+            "DmaSync spanning two adjacent mappings -> NOENT");
+    CheckEq(DmaSync(dev, hi.bus_addr, half, DMA_SYNC_FOR_CPU), ZUZU_OK,
+            "DmaSync(whole upper half) OK");
+    CheckEq(DmaUnmap(dev, lo.id), ZUZU_OK, "DmaUnmap(lower half)");
+    CheckEq(DmaUnmap(dev, hi.id), ZUZU_OK, "DmaUnmap(upper half)");
+    HandleClose(big);
 
     int32_t dma_base = HandleQuery(dev, QUERY_DMA_COUNT).r1;
     DmaMapResult q = DmaMap(dev, buf, 4096, 8192, DMA_FROM_DEVICE);
@@ -4604,17 +4805,17 @@ static void TestLogsvc(void)
             "LOG_CLOSE on the public handle -> NOPERM");
     LogCrashRequest cr = {.cmd = LOG_CRASH, .level = LOG_LEVEL_ERROR, .length = 0};
     CheckEq(LogCall(port, &cr, sizeof(cr), -1, NULL), ERR_NOPERM, "LOG_CRASH on the public handle -> NOPERM");
-    LogLevelRequest console = {.cmd = LOG_SETLEVEL, .level = LOG_LEVEL_FATAL + 1};
-    CheckEq(LogCall(port, &console, sizeof(console), -1, NULL), ERR_NOPERM,
-            "the console level on the public handle -> NOPERM");
+    LogLevelRequest anysrc = {.cmd = LOG_SETLEVEL, .level = LOG_LEVEL_FATAL + 1};
+    CheckEq(LogCall(port, &anysrc, sizeof(anysrc), -1, NULL), ERR_NOPERM,
+            "an empty-source level on the public handle -> NOPERM");
     Handle admin = -1;
     CheckEq(LogAdminClaim(port, &admin), ERR_BUSY, "the admin handle is already claimed (by rootsvc)");
 
     LogConn c;
     CheckEq(LogClientConnect(port, ZZ_TAG, &c), ZUZU_OK, "open a writer session");
     CheckEq(LogCall(c.port, &cr, sizeof(cr), -1, NULL), ERR_NOPERM, "LOG_CRASH on a session handle -> NOPERM");
-    CheckEq(LogCall(c.port, &console, sizeof(console), -1, NULL), ERR_NOPERM,
-            "the console level on a session handle -> NOPERM");
+    CheckEq(LogCall(c.port, &anysrc, sizeof(anysrc), -1, NULL), ERR_NOPERM,
+            "an empty-source level on a session handle -> NOPERM");
     CheckEq(LogCall(c.port, &(LogAttachRequest){.cmd = LOG_ATTACH, .kind = LOG_KIND_WRITER},
                     sizeof(LogAttachRequest), -1, NULL),
             ERR_NOPERM, "LOG_ATTACH on a session handle -> NOPERM");
@@ -4759,9 +4960,11 @@ static void TestLogsvc(void)
 
 static void RunSuite(void)
 {
+    TestBitmap();
     TestBasics();
     TestHandles();
     TestMemory();
+    TestLbx();
     TestEvents();
     TestEventMasks();
     TestIpc();

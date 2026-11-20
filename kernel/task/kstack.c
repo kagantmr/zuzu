@@ -14,7 +14,7 @@
 #include <types.h>
 
 /** @brief One bit per slot, set while the slot is in use. */
-static uint32_t bitmap[BITMAP_WORDS(MAX_KSTACKS)];
+static BitmapWord bitmap[BITMAP_WORDS(MAX_KSTACKS)];
 
 /** @brief The frame backing each slot's stack, or 0 while free. */
 static PhysAddr slot_pa[MAX_KSTACKS];
@@ -22,8 +22,8 @@ static PhysAddr slot_pa[MAX_KSTACKS];
 
 VirtAddr KStackAlloc(void)
 {
-    int found = BitmapFindFirstZero(bitmap, MAX_KSTACKS);
-    if (found >= 0) {
+    size_t found = BitmapFindFirstZero(bitmap, MAX_KSTACKS);
+    if (found < MAX_KSTACKS) {
         uint32_t slot = (uint32_t)found;
 
         PhysAddr page_pa = PmmAllocFrame();

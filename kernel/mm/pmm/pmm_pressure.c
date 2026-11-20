@@ -7,6 +7,7 @@
 #include "kernel/ipc/event.h"
 #include "kernel/mm/alloc.h"
 
+#include <string.h>
 #include <zuzu/err.h>
 
 /** @brief Free-memory percentage below which subscribers are signalled. */
@@ -16,6 +17,9 @@
 
 #define LOG_FMT(fmt) "(pmm) " fmt
 #include "core/log.h"
+
+/** @brief Allocator for pressure subscribers. */
+static KSlabCache subscriber_cache;
 
 /** @brief A low-memory subscriber entry. */
 typedef struct {
@@ -41,7 +45,7 @@ void PmmSignalSubscribers(void)
             if (!sub->ev->alive) {
                 ListRemove(pos);
                 EventUnref(sub->ev);
-                KFree(sub);
+                KSlabFree(&subscriber_cache, sub);
                 continue;
             }
 
@@ -66,13 +70,16 @@ int PmmSubscribe(EventObject *ev)
         if (!sub->ev->alive) {
             ListRemove(pos);
             EventUnref(sub->ev);
-            KFree(sub);
+            KSlabFree(&subscriber_cache, sub);
         }
     }
 
-    PmmSubscriber *new_node = KZAlloc(sizeof(PmmSubscriber));
+    if (!subscriber_cache.obj_size)
+        KSlabInit(&subscriber_cache, sizeof(PmmSubscriber));
+    PmmSubscriber *new_node = KSlabAlloc(&subscriber_cache);
     if (!new_node)
         return ERR_NOMEM;
+    memset(new_node, 0, sizeof(*new_node));
     new_node->ev = ev;
     EventBindBit(ev, 0);
     ListAddTail(&new_node->node, &pmm_subscribers.node);

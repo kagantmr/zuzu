@@ -40,7 +40,7 @@ PhysAddr L2PtPoolAlloc(void)
         }
     }
 
-    PhysAddr page_pa = PmmAllocFrame();
+    PhysAddr page_pa = PmmAllocZeroedFrame();
     if (!page_pa) {
         return 0;
     }
@@ -52,8 +52,6 @@ PhysAddr L2PtPoolAlloc(void)
         PmmFreeFrame(page_pa);
         return 0;
     }
-
-    memset((void *)PA_TO_VA(page_pa), 0, PAGE_SIZE);
 
     entry->page_pa = page_pa;
     entry->used_mask = 0x1;

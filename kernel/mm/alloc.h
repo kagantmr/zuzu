@@ -1,6 +1,7 @@
 /**
  * @file alloc.h
- * @brief Kernel heap (first-fit, coalescing) and fixed-size slab caches.
+ * @brief Kernel allocator: size-class slab caches, a first-fit coalescing heap for large
+ * requests, and fixed-size slab caches.
  */
 
 #ifndef KERNEL_MM_ALLOC_H
@@ -16,6 +17,8 @@
 #define HEAP_GROW_MIN_PAGES 16
 /** @brief Alignment of every heap payload, in bytes. */
 #define ALIGNMENT 16
+/** @brief Largest KMalloc() request served by a size class; bigger ones use the first-fit heap. */
+#define KMALLOC_CLASS_MAX 4032
 /** @brief Smallest payload a heap block can hold. */
 #define MIN_PAYLOAD ALIGNMENT
 
@@ -110,7 +113,7 @@ void KHeapInit(void);
  *
  * @param[out] cache    Cache to set up.
  * @param[in]  obj_size Object size; raised to a pointer and rounded up to 8. Must fit in a page
- *                      after the slab header.
+ *                      after the slab header, which is padded to ALIGNMENT.
  */
 void KSlabInit(KSlabCache *cache, size_t obj_size);
 /**

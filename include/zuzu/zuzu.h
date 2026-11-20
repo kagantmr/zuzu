@@ -749,6 +749,8 @@ static inline SpaceWaitResult WaitOnSpace(Handle space, Duration timeout)
  * @param[in] flags      MEM_CONTIG and/or MEM_UNCACHED, or 0.
  * @return A memory handle with all permissions, or a negative error code.
  * @retval ERR_BADARG @p page_count is 0, @p flags has unknown bits, or MEM_UNCACHED without MEM_CONTIG.
+ * @retval ERR_OVERFLOW @p page_count is above MEM_MAX_PAGES without MEM_CONTIG; create several
+ *                      objects instead.
  * @retval ERR_NOMEM  Not enough free (or contiguous) memory, or the handle table is full.
  */
 static inline Handle CreateMem(size_t page_count, CreateMemoryFlags flags)
@@ -941,8 +943,8 @@ static inline DmaMapResult FormatToDmaMap(SvcResult r)
 /**
  * @brief Lets a device reach part of a memory object by DMA.
  *
- * Cached memory is cleaned and invalidated at map time; use DmaSync() around
- * later transfers. The mapping belongs to the device, not the caller, so it
+ * No cache maintenance is done here: for cached memory, call DmaSync() before
+ * and after every transfer. The mapping belongs to the device, not the caller, so it
  * survives the driver exiting; DmaAdopt() lets a restarted driver take it over.
  *
  * @syscall_num SVC_MANAGEMEMORY / MNGMEM_DMAMAP
@@ -973,6 +975,8 @@ static inline DmaMapResult DmaMap(Handle dev, Handle mem, size_t offset, size_t 
 
 /**
  * @brief Removes a DMA mapping and releases its hold on the memory.
+ *
+ * No cache maintenance is done; sync for the CPU first if it will read the data.
  *
  * @syscall_num SVC_MANAGEMEMORY / MNGMEM_DMAUNMAP
  * @syscall_group memory

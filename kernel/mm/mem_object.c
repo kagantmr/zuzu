@@ -5,6 +5,7 @@
 #include "mem_object.h"
 #include "core/ensure.h"
 #include "kernel/mm/alloc.h"
+#include "kernel/lbx/lbx.h"
 #include <arch/cache.h>
 #include <string.h>
 
@@ -22,8 +23,10 @@ static MemObject *MemObjAlloc(void)
     if (!mem_obj_cache.obj_size)
         KSlabInit(&mem_obj_cache, sizeof(MemObject));
     MemObject *obj = KSlabAlloc(&mem_obj_cache);
-    if (obj)
+    if (obj) {
+        memset(obj, 0, sizeof(*obj));
         obj->owner_spid = -1;
+    }
     return obj;
 }
 
@@ -50,13 +53,45 @@ static DmaMapping *DmaMappingAlloc(void)
  */
 static void DmaMappingFree(DmaMapping *m) { KSlabFree(&dma_map_cache, m); }
 
+/**
+ * @brief Frees part of a dead MemObject: its pages or DMA mappings, then the object.
+ *
+ * @param[in,out] n The object's lbx node.
+ * @param[in] budget The most pages or mappings to free.
+ * @return LBX_MORE if work is left, LBX_DONE once the object is freed.
+ */
+static LbxResult MemObjLbxStep(LbxNode *n, uint32_t budget)
+{
+    MemObject *mem = container_of(n, MemObject, lbx_node);
+    if (mem->kind == MEMKIND_SHARED) {
+        for (; budget > 0 && mem->reap_pos < mem->shm.page_count; budget--) {
+            PhysAddr pa = mem->shm.page_addrs[mem->reap_pos++];
+            if (pa)
+                PmmFreeFrame(pa);
+        }
+        if (mem->reap_pos < mem->shm.page_count)
+            return LBX_MORE;
+        KFree(mem->shm.page_addrs);
+    } else if (mem->kind == MEMKIND_DEVICE) {
+        for (; budget > 0 && mem->dev.dma_maps; budget--) {
+            DmaMapping *m = mem->dev.dma_maps;
+            mem->dev.dma_maps = m->next;
+            MemObjUnref(m->mem);
+            DmaMappingFree(m);
+        }
+        if (mem->dev.dma_maps)
+            return LBX_MORE;
+    }
+    MemObjFree(mem);
+    return LBX_DONE;
+}
+
 MemObject *MemObjCreateDevice(PhysAddr phys_base, size_t size, Irq irq)
 {
     MemObject *mem = MemObjAlloc();
     ENSURE_RET(mem, NULL);
     mem->kind = MEMKIND_DEVICE;
     mem->ref_count = 1;
-    mem->exec_synced = false;
     PhysAddr page_base = phys_base & ~(PhysAddr)(PAGE_SIZE - 1);
     mem->dev.phys_base = page_base;
     mem->dev.size = size + (size_t)(phys_base - page_base);
@@ -75,7 +110,6 @@ MemObject *MemObjCreateShm(PhysAddr *page_addrs, size_t page_count, CreateMemory
     ENSURE_RET(mem, NULL);
     mem->kind = MEMKIND_SHARED;
     mem->ref_count = 1;
-    mem->exec_synced = false;
     mem->shm.page_addrs = page_addrs;
     mem->shm.page_count = page_count;
     mem->shm.flags = flags;
@@ -94,24 +128,8 @@ void MemObjUnref(MemObject *mem)
         return;
     if (mem->ref_count > 0)
         mem->ref_count--;
-    if (mem->ref_count == 0) {
-        if (mem->kind == MEMKIND_SHARED) {
-            for (size_t i = 0; i < mem->shm.page_count; i++)
-                if (mem->shm.page_addrs[i] != 0)
-                    PmmFreeFrame(mem->shm.page_addrs[i]);
-            KFree(mem->shm.page_addrs);
-        }
-        if (mem->kind == MEMKIND_DEVICE) {
-            DmaMapping *m = mem->dev.dma_maps;
-            while (m) {
-                DmaMapping *next = m->next;
-                MemObjUnref(m->mem);
-                DmaMappingFree(m);
-                m = next;
-            }
-        }
-        MemObjFree(mem);
-    }
+    if (mem->ref_count == 0)
+        LbxQueue(&mem->lbx_node, MemObjLbxStep);
 }
 
 void MemObjUnmapAndDrop(AddressSpace *as, VirtAddr mapped_va, MemObject *mem)
@@ -139,9 +157,6 @@ Err MemObjDmaMap(MemObject *dev, MemObject *mem, size_t offset, size_t len, DmaD
     uintptr_t bus = phys + dev->dev.bus_offset;
     ENSURE_RET(len - 1 <= dev->dev.dma_limit && bus <= dev->dev.dma_limit - (len - 1), ERR_BADARG);
     ENSURE_RET(dev->dev.dma_map_count < DMA_MAX_MAPPINGS, ERR_NOMEM);
-
-    if (!(mem->shm.flags & MEM_UNCACHED))
-        ArchCacheCleanInvalidateDcacheRange(PA_TO_VA(phys), len);
 
     DmaMapping *m = DmaMappingAlloc();
     ENSURE_RET(m, ERR_NOMEM);
@@ -174,10 +189,6 @@ Err MemObjDmaUnmap(MemObject *dev, uint32_t id)
     while (*link) {
         DmaMapping *m = *link;
         if (m->id == id) {
-            if ((m->dir & DMA_FROM_DEVICE) && !(m->mem->shm.flags & MEM_UNCACHED)) {
-                PhysAddr phys = m->mem->shm.page_addrs[0] + m->offset;
-                ArchCacheInvalidateDcacheRange(PA_TO_VA(phys), m->len);
-            }
             *link = m->next;
             dev->dev.dma_map_count--;
             MemObjUnref(m->mem);
@@ -189,7 +200,7 @@ Err MemObjDmaUnmap(MemObject *dev, uint32_t id)
     return ERR_NOENT;
 }
     
-Err MemObjDmaSync(MemObject *dev, uintptr_t bus, size_t len, DmaSyncOp op)
+Err MemObjDmaSync(MemObject *dev, uintptr_t bus, size_t len, size_t work, DmaSyncOp op)
 {
     ENSURE_RET(dev->kind == MEMKIND_DEVICE, ERR_BADTYPE);
     ENSURE_RET(op <= DMA_SYNC_FOR_CPU, ERR_BADARG);
@@ -204,9 +215,9 @@ Err MemObjDmaSync(MemObject *dev, uintptr_t bus, size_t len, DmaSyncOp op)
 
         PhysAddr phys = m->mem->shm.page_addrs[0] + m->offset + (bus - m->bus_addr);
         if (op == DMA_SYNC_FOR_DEVICE)
-            ArchCacheCleanInvalidateDcacheRange(PA_TO_VA(phys), len);
+            ArchCacheCleanInvalidateDcacheRange(PA_TO_VA(phys), work);
         else if (m->dir & DMA_FROM_DEVICE)
-            ArchCacheInvalidateDcacheRange(PA_TO_VA(phys), len);
+            ArchCacheInvalidateDcacheRange(PA_TO_VA(phys), work);
         return ZUZU_OK;
     }   
     return ERR_NOENT;

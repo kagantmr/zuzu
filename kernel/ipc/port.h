@@ -39,6 +39,13 @@ typedef struct {
 } HeldCall;
 
 /**
+ * @brief Allocate a zeroed array of PORT_HELD_SLOTS held calls from its slab cache.
+ *
+ * @return The array, or NULL if memory ran out.
+ */
+HeldCall *PortHeldAlloc(void);
+
+/**
  * @brief Represents a port object.
  */
 typedef struct {

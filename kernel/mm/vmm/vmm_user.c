@@ -152,45 +152,94 @@ Err VmmMapMemObj(SpaceObject *space, HandleTableEntry *entry, MemProt prot, Virt
     return ZUZU_OK;
 }
 
-Err VmmUnmapUserRegion(SpaceObject *space, VirtAddr va)
+/**
+ * @brief Clears the mapped address on the memory handle that mapped @p va, if any.
+ *
+ * @param[in,out] space The space whose handle table is searched.
+ * @param[in] va Start address the handle was mapped at.
+ */
+static void VmmForgetHandleMapping(SpaceObject *space, VirtAddr va)
 {
-    VirtMemRegion *found = VmmFindRegion(space->as, va);
-
-    ENSURE_RET(found, ERR_NOENT);
-    ENSURE_RET(found->vaddr_start == va, ERR_BADARG);
-    ENSURE_RET(!(found->flags & VM_FLAG_PINNED), ERR_NOPERM);
-
-    switch (found->owner) {
-    case VM_BACKING_ANON: {
-        for (VirtAddr anon_va = va; (anon_va < va + found->size); anon_va += PAGE_SIZE) {
-            PhysAddr anon_pa = ArchMmuTranslate(space->as->pt_root_physaddr, anon_va);
-            (anon_pa == 0) ? (void)anon_pa : PmmFreeFrame(anon_pa);
-        }
-    } break;
-    case VM_BACKING_NONE:
-    case VM_BACKING_SHARED: {
-        bool found_in_table = false;
-        for (Handle i = 0; i < (Handle)HANDLE_MAX_SLOTS; i++) {
-            HandleTableEntry *entry = HandleTableGet(&space->handle_table, i);
-            if (!entry)
-                continue;
-            if (entry->type == HANDLE_MEM && entry->mapped_va == va) {
-                found_in_table = true;
+    for (uint32_t w = 0; w < BITMAP_WORDS(HANDLE_MAX_SLOTS); w++) {
+        BitmapWord bits = space->handle_table.slot_bitmap[w];
+        while (bits) {
+            uint32_t i = (uint32_t)(w * BITMAP_WORD_BITS) + (uint32_t)__builtin_ctzl(bits);
+            bits &= bits - 1U;
+            HandleTableEntry *entry = HandleTableGet(&space->handle_table, (Handle)i);
+            if (entry && entry->type == HANDLE_MEM && entry->mapped_va == va) {
                 entry->mapped_va = 0;
-                break;
+                return;
             }
         }
-        ENSURE(found_in_table || found->owner == VM_BACKING_SHARED,
-               KWARN("Couldn't find unmap entry in handle table"));
     }
+}
+
+Err VmmUnmapUserChunk(SpaceObject *space, VirtAddr va, PhysAddr *scratch, size_t max_pages,
+                      VirtAddr *next)
+{
+    VirtMemRegion *r = VmmFindRegion(space->as, va);
+    ENSURE_RET(r, ERR_NOENT);
+    ENSURE_RET(r->vaddr_start == va, ERR_BADARG);
+    ENSURE_RET(!(r->flags & VM_FLAG_PINNED), ERR_NOPERM);
+
+    if (r->owner != VM_BACKING_ANON)
+        VmmForgetHandleMapping(space, va);
+
+    size_t chunk = max_pages * PAGE_SIZE;
+    bool last = r->owner == VM_BACKING_NONE || r->size <= chunk;
+    size_t len = last ? r->size : chunk;
+
+    if (r->owner == VM_BACKING_ANON) {
+        size_t n = ArchMmuUnmapCollect(space->as, va, len, scratch, max_pages);
+        for (size_t i = 0; i < n; i++)
+            PmmFreeFrame(scratch[i]);
     }
 
-    ENSURE(VmmRemoveRegion(space->as, found->vaddr_start, found->size),
-           panic("Found region, but VmmRemoveRegion failed"));
+    *next = 0;
+    if (last) {
+        ENSURE(VmmRemoveRegion(space->as, va, r->size),
+               panic("Found region, but VmmRemoveRegion failed"));
+        return ZUZU_OK;
+    }
+
+    if (r->owner == VM_BACKING_SHARED)
+        VmmUnmapRange(space->as, va, len, true);
+    VmmTrimRegionFront(r, len);
+    *next = va + len;
     return ZUZU_OK;
 }
 
-Err VmmProtectUserRange(SpaceObject *space, VirtAddr va, size_t size, MemProt new_prot)
+bool VmmTeardownChunk(AddressSpace *as, PhysAddr *scratch, size_t max_pages)
+{
+    if (as->regions.len == 0)
+        return false;
+    VirtMemRegion *r = vm_region_vec_get(&as->regions, as->regions.len - 1);
+    if (!r)
+        return false;
+    VirtAddr va = r->vaddr_start;
+    size_t chunk = max_pages * PAGE_SIZE;
+    bool last = r->size <= chunk;
+    size_t len = last ? r->size : chunk;
+
+    if (r->owner == VM_BACKING_ANON) {
+        size_t n = ArchMmuUnmapCollect(as, va, len, scratch, max_pages);
+        for (size_t i = 0; i < n; i++)
+            PmmFreeFrame(scratch[i]);
+    }
+
+    if (last) {
+        ENSURE(VmmRemoveRegion(as, va, r->size),
+               panic("Found region, but VmmRemoveRegion failed"));
+    } else {
+        if (r->owner != VM_BACKING_ANON)
+            VmmUnmapRange(as, va, len, true);
+        VmmTrimRegionFront(r, len);
+    }
+    return as->regions.len != 0;
+}
+
+Err VmmProtectUserChunk(SpaceObject *space, VirtAddr va, size_t size, MemProt new_prot,
+                        size_t max_pages, VirtAddr *next)
 {
     ENSURE_RET(0 != size, ERR_BADARG);
     ENSURE_RET(!(size % PAGE_SIZE), ERR_BADARG);
@@ -199,15 +248,52 @@ Err VmmProtectUserRange(SpaceObject *space, VirtAddr va, size_t size, MemProt ne
     ENSURE_RET(!(new_prot & ~(uint32_t)(PROT_EXEC | PROT_WRITE | PROT_READ)), ERR_BADARG);
     ENSURE_RET(!((new_prot & PROT_WRITE) && (new_prot & PROT_EXEC)), ERR_BADARG);
 
-    const VirtMemRegion *r = VmmFindRegion(space->as, va);
+    VirtMemRegion *r = VmmFindRegion(space->as, va);
     ENSURE_RET(r, ERR_BADARG);
     ENSURE_RET(!(new_prot & ~r->max_prot), ERR_NOPERM);
+    ENSURE_RET(!(r->flags & VM_FLAG_PINNED), ERR_BADARG);
+    ENSURE_RET(!((new_prot & PROT_EXEC) &&
+                 (r->memtype == VM_MEM_DEVICE || r->memtype == VM_MEM_NORMAL_NC)),
+               ERR_BADARG);
 
-    ENSURE_RET(va == r->vaddr_start && size == r->size, ERR_BADARG);
+    MemProt prot = new_prot | VM_PROT_USER;
+    VirtAddr end = r->vaddr_start + r->size;
+    bool whole = va == r->vaddr_start && size == r->size;
+    bool tail = va > r->vaddr_start && va + size == end && r->prot == prot;
+    ENSURE_RET(whole || tail, ERR_BADARG);
 
-    ENSURE_RET(VmmProtectPage(space->as, va, size, new_prot | VM_PROT_USER), ERR_BADARG);
-
+    r->prot = prot;
+    size_t chunk = max_pages * PAGE_SIZE;
+    size_t len = size < chunk ? size : chunk;
+    (void)ArchMmuProtect(space->as, va, len, prot & ~(MemProt)PROT_EXEC);
+    *next = len < size ? va + len : 0;
     return ZUZU_OK;
+}
+
+bool VmmFixPermission(AddressSpace *as, VirtAddr va, bool write, bool exec)
+{
+    if (unlikely(!as || va >= USER_VA_TOP))
+        return false;
+
+    VirtMemRegion *r = VmmFindRegion(as, va);
+    if (unlikely(!r || (r->flags & VM_FLAG_GUARD)))
+        return false;
+    if (write && !(r->prot & PROT_WRITE))
+        return false;
+    if (exec && !(r->prot & PROT_EXEC))
+        return false;
+    if (!write && !exec && !(r->prot & PROT_READ))
+        return false;
+
+    VirtAddr page_va = align_down(va, PAGE_SIZE);
+    PhysAddr pa = ArchMmuTranslate(as->pt_root_physaddr, page_va);
+    if (!pa)
+        return false;
+    if (exec) {
+        ArchCacheCleanDcacheRangePou(PA_TO_VA(align_down(pa, PAGE_SIZE)), PAGE_SIZE);
+        ArchCacheInvalidateIcacheAll();
+    }
+    return ArchMmuProtect(as, page_va, PAGE_SIZE, r->prot);
 }
 
 bool VmmMapUserPage(AddressSpace *as, PhysAddr pa, VirtAddr va, MemProt prot)
@@ -328,37 +414,10 @@ Err InjectObjIntoSpace(SpaceObject *kitten, SpaceObject *parent, const InjectObj
     size_t obj_bytes = mem->shm.page_count * PAGE_SIZE;
     ENSURE_RET(args->offset < obj_bytes && args->len <= obj_bytes - args->offset, ERR_BADARG);
 
-    size_t first = args->offset / PAGE_SIZE;
-    size_t pages = args->len / PAGE_SIZE;
-
-    if (args->prot & PROT_EXEC) {
-        for (size_t i = 0; i < pages; i++)
-            ENSURE_RET(mem->shm.page_addrs[first + i], ERR_BADARG);
-    }
-
     region.owner = VM_BACKING_SHARED;
     region.backing = mem;
-    region.backing_page_offset = first;
+    region.backing_page_offset = args->offset / PAGE_SIZE;
     ENSURE_RET(VmmAddRegion(kitten->as, &region), ERR_NOMEM);
-
-    for (size_t i = 0; i < pages; i++) {
-        PhysAddr pa = mem->shm.page_addrs[first + i];
-        if (!pa)
-            continue;
-        if (!VmmMapUserPage(kitten->as, pa, args->dest_vaddr + (i * PAGE_SIZE), args->prot)) {
-            VmmRemoveRegion(kitten->as, args->dest_vaddr, args->len);
-            return ERR_NOMEM;
-        }
-    }
-
-    if ((args->prot & PROT_EXEC) && !mem->exec_synced) {
-        for (size_t i = 0; i < mem->shm.page_count; i++) {
-            if (mem->shm.page_addrs[i])
-                ArchCacheCleanDcacheRangePou(PA_TO_VA(mem->shm.page_addrs[i]), PAGE_SIZE);
-        }
-        ArchCacheInvalidateIcacheAll();
-        mem->exec_synced = true;
-    }
-
+    
     return ZUZU_OK;
 }

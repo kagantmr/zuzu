@@ -62,6 +62,14 @@ static inline uint32_t EsrIss(uint64_t esr) { return (uint32_t)(esr & 0x1FFFFFF)
 static inline bool EsrIsTranslationFault(uint32_t iss) { return ((iss & 0x3F) >> 2) == 0x1; }
 
 /**
+ * @brief Whether an abort's fault status code is a permission fault, at any level.
+ *
+ * @param[in] iss ESR_EL1.ISS of a data or instruction abort.
+ * @return true for DFSC/IFSC 0x0C-0x0F.
+ */
+static inline bool EsrIsPermissionFault(uint32_t iss) { return ((iss & 0x3F) >> 2) == 0x3; }
+
+/**
  * @brief Whether a data abort was caused by a write (ISS.WnR).
  *
  * @param[in] iss ESR_EL1.ISS of a data abort.

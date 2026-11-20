@@ -25,7 +25,7 @@ zuzu is still under active development. Contributions are appreciated, please re
 | Task lifecycle & scheduling                            | done    | Loaf                          |
 | Loaf rewrite                                           | done    | Prowl                         |
 | Object management                                      | done    | Prowl                         |
-| AArch64 port                                           | IN PROGRESS | Prowl 2.1.1                   |
+| AArch64 port                                           | done    | Prowl 2.1.1                   |
 | Settlement of the object model semantics               | pending | Knead                         |
 | Global lap and SMP                                     | done    | Knead                         |
 
@@ -38,7 +38,7 @@ zuzu is still under active development. Contributions are appreciated, please re
 | Network stack: link layer, IP       | done    | zuzuOS v0.7                   |
 | Network stack: UDP & TCP            | done    | zuzuOS v0.8                   |
 | BSP: Graphics stack & KMI drivers   | done    | zuzuOS v0.8                   |
-| Raspberry Pi 4: Ethernet (GENET)    | pending | zuzuOS v0.8                   |
+| Raspberry Pi 4: Ethernet (GENET)    | done    | zuzuOS v0.8                   |
 | Network stack: multiple devices     | pending | zuzuOS v0.8                   |
 | Resurrection: Driver crash recovery | pending | zuzuOS v0.8                   |
 | Resurrection: Full crash recovery   | pending | zuzuOS v0.9                   |

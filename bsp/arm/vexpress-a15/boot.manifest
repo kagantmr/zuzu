@@ -18,6 +18,7 @@ bin/fsd|none:prio=3,maxprio=3|/svc/fsd
 bin/lan9118drv|none:prio=5,maxprio=5
 bin/netd|none:prio=4,maxprio=4|/svc/netd
 bin/zzsh|none:late,respawn
+bin/logsave|none:late
 
 # Everything else is spawned from the SD card: see services.manifest.
 

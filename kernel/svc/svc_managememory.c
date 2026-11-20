@@ -4,6 +4,7 @@
  */
 
 #include "core/ensure.h"
+#include "kernel/checkpoint/checkpoint.h"
 #include "kernel/mm/mem_object.h"
 #include "kernel/mm/vmm/vmm.h"
 #include "kernel/space/space.h"
@@ -38,14 +39,36 @@ void SvcManageMemory(CpuState *frame)
     } break;
     case MNGMEM_UNMAP: {
         VirtAddr va = (VirtAddr)(*ArchGetFromFrame(frame, 1));
-        ArchSetInFrame(frame, 0, VmmUnmapUserRegion(CURRENT_SPACE, va));
+        PhysAddr pas[CHECKPOINT_PAGES];
+        for (;;) {
+            VirtAddr next = 0;
+            Err rc = VmmUnmapUserChunk(CURRENT_SPACE, va, pas, CHECKPOINT_PAGES, &next);
+            if (rc != ZUZU_OK || !next) {
+                ArchSetInFrame(frame, 0, rc);
+                break;
+            }
+            va = next;
+            ArchSetInFrame(frame, 1, (Register)va);
+            CHECKPOINT_SVC(frame);
+        }
     } break;
     case MNGMEM_PROTECT: {
         VirtAddr va = (VirtAddr)(*ArchGetFromFrame(frame, 1));
         size_t size = (size_t)(*ArchGetFromFrame(frame, 2));
         MemProt new_prot = (MemProt)(*ArchGetFromFrame(frame, 3));
-
-        ArchSetInFrame(frame, 0, VmmProtectUserRange(CURRENT_SPACE, va, size, new_prot));
+        for (;;) {
+            VirtAddr next = 0;
+            Err rc = VmmProtectUserChunk(CURRENT_SPACE, va, size, new_prot, CHECKPOINT_PAGES, &next);
+            if (rc != ZUZU_OK || !next) {
+                ArchSetInFrame(frame, 0, rc);
+                break;
+            }
+            size -= next - va;
+            va = next;
+            ArchSetInFrame(frame, 1, (Register)va);
+            ArchSetInFrame(frame, 2, (Register)size);
+            CHECKPOINT_SVC(frame);
+        }
     } break;
     case MNGMEM_INJECTOBJ: {
         Handle kitten_space_handle = (Handle)(*ArchGetFromFrame(frame, 1));
@@ -138,13 +161,24 @@ void SvcManageMemory(CpuState *frame)
         size_t len = (size_t)(*ArchGetFromFrame(frame, 3));
         DmaSyncOp op = (DmaSyncOp)(raw & 1U);
         uintptr_t bus_addr = raw & ~(uintptr_t)1U;
-
         HandleTableEntry *dev = HandleTableLookup(&CURRENT_SPACE->handle_table, dev_handle);
         ENSURE_ERR(frame, dev, ERR_BADHANDLE);
         ENSURE_ERR(frame, (HANDLE_MEM == dev->type), ERR_BADTYPE);
         ENSURE_ERR(frame, dev->perms & PERM_MAP, ERR_NOPERM);
 
-        ArchSetInFrame(frame, 0, MemObjDmaSync(dev->mem, bus_addr, len, op));
+        for (;;) {
+            size_t chunk = (len > CHECKPOINT_PAGES * PAGE_SIZE) ? (CHECKPOINT_PAGES * PAGE_SIZE) : len;
+            Err retcode = MemObjDmaSync(dev->mem, bus_addr, len, chunk, op);
+            if (retcode != ZUZU_OK || len <= chunk) {
+                ArchSetInFrame(frame, 0, retcode);
+                break;
+            }
+            bus_addr += chunk;
+            len -= chunk;
+            ArchSetInFrame(frame, 2, (Register)(bus_addr | op));
+            ArchSetInFrame(frame, 3, (Register)len);
+            CHECKPOINT_SVC(frame);
+        }
     } break;
     default:
         ArchSetInFrame(frame, 0, ERR_BADARG);
