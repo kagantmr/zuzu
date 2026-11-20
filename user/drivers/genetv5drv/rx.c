@@ -5,13 +5,14 @@ static Handle g_rx_buf_h = -1;
 static uint8_t *g_rx_buf = NULL;
 static uint32_t g_rx_cons = 0;
 static uint32_t g_rx_slot = 0;
+static uintptr_t g_rx_bus = 0;
 
 Err GenetRxInit(void)
 {
     g_genet.rx_ring = (GenetRxRing *)(g_genet.base + GENET_RRING16_OFF);
     g_genet.rx_desc = (GenetDesc *)(g_genet.base + GENET_RDESC_OFF);
 
-    g_rx_buf_h = CreateMem(GENET_BUF_PAGES, MEM_CONTIG | MEM_UNCACHED);
+    g_rx_buf_h = CreateMem(GENET_BUF_PAGES, MEM_CONTIG);
     if (g_rx_buf_h < 0) {
         LOG_ERROR(LOG_TAG, "CreateMem failed: %s", StrToError(g_rx_buf_h));
         return g_rx_buf_h;
@@ -21,6 +22,7 @@ Err GenetRxInit(void)
         LOG_ERROR(LOG_TAG, "DmaMap failed: %s", StrToError(res.status));
         return res.status;
     }
+    g_rx_bus = res.bus_addr;
     g_rx_buf = MemMap(g_rx_buf_h, 0, PROT_RW);
     if (PtrIsErr(g_rx_buf)) {
         LOG_ERROR(LOG_TAG, "MemMap of rx buffer failed: %s", StrToError((Err)(VirtAddr)g_rx_buf));
@@ -66,6 +68,9 @@ void GenetRxPoll(GenetRxFn fn)
         if ((ls & DESC_RX_ERRORS) || !whole || len < 2 + 14 || len > GENET_BUF_SIZE) {
             g_genet.rx_errors++;
             LOG_DEBUG(LOG_TAG, "rx drop: status %04x len %u", ls & 0xffff, len);
+        } else if (DmaSync(g_genet.dev, g_rx_bus + (g_rx_slot * GENET_BUF_SIZE), (len + 63) & ~63u,
+                           DMA_SYNC_FOR_CPU) != ZUZU_OK) {
+            g_genet.rx_errors++;
         } else {
             g_genet.rx_packets++;
             fn(g_rx_buf + (g_rx_slot * GENET_BUF_SIZE) + 2, len - 2);
