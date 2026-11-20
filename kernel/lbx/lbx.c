@@ -83,11 +83,17 @@ static void LbxMain(void)
     }
 }
 
-void LbxQueue(LbxNode *n, LbxStepFn step)
+/**
+ * @brief Queues an object at a given priority.
+ *
+ * @param[in,out] n The object's node.
+ * @param[in] step Reclaims the next part of the object.
+ * @param[in] p Priority the work runs at.
+ */
+static void LbxQueueAt(LbxNode *n, LbxStepFn step, Prio p)
 {
     if (n->node.next)
         return;
-    Prio p = current_task ? current_task->priority : 0;
     n->step = step;
     n->prio = p;
     ListAddTail(&n->node, &lbx_queues[p].node);
@@ -100,6 +106,13 @@ void LbxQueue(LbxNode *n, LbxStepFn step)
     if (lbx->state == TASK_STATE_READY && !lbx->node.next)
         SchedAdd(lbx);
 }
+
+void LbxQueue(LbxNode *n, LbxStepFn step)
+{
+    LbxQueueAt(n, step, current_task ? current_task->priority : 0);
+}
+
+void LbxQueueIdle(LbxNode *n, LbxStepFn step) { LbxQueueAt(n, step, 0); }
 
 void LbxCancel(LbxNode *n)
 {

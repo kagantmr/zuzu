@@ -106,18 +106,16 @@ bool VmmPageFaultHandle(AddressSpace *restrict as, VirtMemRegion *restrict r, Vi
 
         new_pa = mem->shm.page_addrs[page_index];
         if (new_pa == 0) {
-            new_pa = PmmAllocFrame();
+            new_pa = PmmAllocZeroedFrame();
             if (new_pa == 0)
                 return false;
-            memset((void *)PA_TO_VA(new_pa), 0, PAGE_SIZE);
             mem->shm.page_addrs[page_index] = new_pa;
             allocated_new = true;
         }
     } else if (r->owner == VM_BACKING_ANON) {
-        new_pa = PmmAllocFrame();
+        new_pa = PmmAllocZeroedFrame();
         if (new_pa == 0)
             return false;
-        memset((void *)PA_TO_VA(new_pa), 0, PAGE_SIZE);
         allocated_new = true;
     } else {
         return false;

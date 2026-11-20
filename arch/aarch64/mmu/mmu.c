@@ -57,10 +57,7 @@ static inline AArch64Pte *TableOf(AArch64Pte e)
  */
 static PhysAddr AllocTable(void)
 {
-    PhysAddr pa = PmmAllocFrame();
-    if (pa != PA_NULL)
-        memset((void *)PA_TO_VA(pa), 0, PAGE_SIZE);
-    return pa;
+    return PmmAllocZeroedFrame();
 }
 
 /**

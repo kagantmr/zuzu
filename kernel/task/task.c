@@ -266,7 +266,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
 
     uint32_t tcb_page = (uint32_t)tcb_slot_idx / SLOTS_PER_PAGE;
     if (!owner->tcb_page_pa[tcb_page]) {
-        PhysAddr pa = PmmAllocFrame();
+        PhysAddr pa = PmmAllocZeroedFrame();
         if (!pa || !VmmMapUserPage(owner->as, pa, owner->tcb_page_va + (tcb_page * PAGE_SIZE),
                                    VM_PROT_USER | PROT_READ | PROT_WRITE)) {
             if (pa)
@@ -277,7 +277,6 @@ TaskObject *TaskCreate(SpaceObject *owner)
             KSlabFree(&task_cache, task);
             return NULL;
         }
-        memset((void *)PA_TO_VA(pa), 0, PAGE_SIZE);
         owner->tcb_page_pa[tcb_page] = pa;
     }
     ThreadLocalData *tcb = (ThreadLocalData *)TcbSlotKernelVa(owner, (uint32_t)tcb_slot_idx);

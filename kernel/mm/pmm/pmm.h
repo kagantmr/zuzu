@@ -100,6 +100,17 @@ Err PmmUnmarkRange(PhysAddr start, PhysAddr end);
 PhysAddr PmmAllocFrame(void);
 
 /**
+ * @brief Allocate one zeroed frame, from the pool lbx zeroes ahead of time when it can.
+ * @return Physical address of the frame, or PA_NULL if none is free.
+ */
+PhysAddr PmmAllocZeroedFrame(void);
+
+/**
+ * @brief Lets lbx start filling the zeroed-frame pool; call once lbx exists.
+ */
+void PmmZeroPoolStart(void);
+
+/**
  * @brief Allocate a run of physically contiguous frames (first fit).
  * @param[in] n_frames Number of frames, non-zero.
  * @return Physical address of the first frame, or PA_NULL on failure.

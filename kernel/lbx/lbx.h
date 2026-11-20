@@ -25,6 +25,16 @@ void LbxInit(void);
 void LbxQueue(LbxNode *n, LbxStepFn step);
 
 /**
+ * @brief Queues work that only runs when nothing above priority 0 is ready.
+ *
+ * Does nothing if the node is already queued.
+ *
+ * @param[in,out] n The work's node.
+ * @param[in] step Does the next part of the work.
+ */
+void LbxQueueIdle(LbxNode *n, LbxStepFn step);
+
+/**
  * @brief Takes an object off the queue, if it is queued.
  *
  * @param[in,out] n The object's node.

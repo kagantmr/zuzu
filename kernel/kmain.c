@@ -22,6 +22,7 @@
 #include "kernel/loader/initrd.h"
 #include "kernel/space/space.h"
 #include "kernel/lbx/lbx.h"
+#include "kernel/mm/pmm/pmm.h"
 #include "kernel/syspage.h"
 #include "types.h"
 #include <stdint.h>
@@ -37,6 +38,7 @@ _Noreturn void kmain(void)
     SpaceInitKernelSpace();
     SchedInit();
     LbxInit();
+    PmmZeroPoolStart();
     ArchGlobalIrqEnable();
 
     SyspageInit();
