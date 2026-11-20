@@ -5,16 +5,28 @@
 
 #include "port.h"
 #include "core/ensure.h"
-#include "kernel/ipc/msg.h"
 #include "kernel/mm/alloc.h"
-#include "kernel/sched/sched.h"
 #include "kernel/space/space.h"
+#include <string.h>
 #include <zuzu/err.h>
 
 /**
  * @brief Slab cache to allocate ports fast.
  */
 static KSlabCache port_cache;
+
+/** @brief Allocator for ports' held-call arrays. */
+static KSlabCache held_cache;
+
+HeldCall *PortHeldAlloc(void)
+{
+    if (!held_cache.obj_size)
+        KSlabInit(&held_cache, PORT_HELD_SLOTS * sizeof(HeldCall));
+    HeldCall *held = KSlabAlloc(&held_cache);
+    if (held)
+        memset(held, 0, PORT_HELD_SLOTS * sizeof(HeldCall));
+    return held;
+}
 
 /**
  * @brief Allocate a port object from its slab cache.
@@ -101,7 +113,7 @@ void PortUnref(PortObject *port)
         return;
     PortKill(port);
     ObserverClear(&port->observers);
-    KFree(port->held);
+    KSlabFree(&held_cache, port->held);
     PortObjFree(port);
 }
 

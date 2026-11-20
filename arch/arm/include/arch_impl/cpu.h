@@ -6,11 +6,9 @@
 #ifndef ARCH_ARM_IMPL_CPU_H
 #define ARCH_ARM_IMPL_CPU_H
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <types.h>
-
-/** @brief A saved CPSR, as returned by ArchIrqSave(). */
-typedef uint32_t IrqState;
 
 /** @brief Masks IRQs on this CPU (cpsid i). */
 static inline void ArchGlobalIrqDisable(void) { __asm__ volatile("cpsid i" ::: "memory"); }
@@ -19,26 +17,15 @@ static inline void ArchGlobalIrqDisable(void) { __asm__ volatile("cpsid i" ::: "
 static inline void ArchGlobalIrqEnable(void) { __asm__ volatile("cpsie i" ::: "memory"); }
 
 /**
- * @brief Masks IRQs and returns the previous CPSR, for ArchIrqRestore().
+ * @brief Checks whether an IRQ is waiting, even while IRQs are masked (ISR.I).
  *
- * @return The CPSR before masking.
+ * @return true if an IRQ is pending.
  */
-static inline IrqState ArchIrqSave(void)
+static inline bool ArchIrqPending(void)
 {
-    uint32_t cpsr;
-    __asm__ volatile("mrs %0, cpsr" : "=r"(cpsr)::"memory");
-    __asm__ volatile("cpsid i" ::: "memory");
-    return cpsr;
-}
-
-/**
- * @brief Restores the IRQ mask saved by ArchIrqSave().
- *
- * @param[in] state Value returned by ArchIrqSave().
- */
-static inline void ArchIrqRestore(IrqState state)
-{
-    __asm__ volatile("msr cpsr_c, %0" ::"r"(state) : "memory");
+    uint32_t isr;
+    __asm__ volatile("mrc p15, 0, %0, c12, c1, 0" : "=r"(isr));
+    return (isr & (1U << 7)) != 0;
 }
 
 /** @brief Waits for an interrupt (wfi). */

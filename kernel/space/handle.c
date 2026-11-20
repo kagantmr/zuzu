@@ -8,10 +8,26 @@
 #include "kernel/ipc/event.h"
 #include "kernel/ipc/port.h"
 #include "kernel/irq/irq_relay.h"
+#include "kernel/mm/alloc.h"
 #include "kernel/mm/mem_object.h"
 #include "kernel/task/task.h"
 #include "space.h"
 #include <string.h>
+
+/** @brief Allocator for handle blocks. */
+static KSlabCache handle_block_cache;
+
+HandleBlock *HandleBlockAlloc(void)
+{
+    if (!handle_block_cache.obj_size)
+        KSlabInit(&handle_block_cache, sizeof(HandleBlock));
+    HandleBlock *blk = KSlabAlloc(&handle_block_cache);
+    if (blk)
+        memset(blk, 0, sizeof(*blk));
+    return blk;
+}
+
+void HandleBlockFree(HandleBlock *blk) { KSlabFree(&handle_block_cache, blk); }
 
 Err HandleCopyInto(HandleTable *dst_table, HandleTableEntry *src, HandlePerms perms, Marker marker,
                    Handle *out)
@@ -69,9 +85,9 @@ static bool HandleTableHoldsMem(HandleTable *t, const MemObject *mem,
                                 const HandleTableEntry *except)
 {
     for (uint32_t w = 0; w < BITMAP_WORDS(HANDLE_MAX_SLOTS); w++) {
-        uint32_t bits = t->slot_bitmap[w];
+        BitmapWord bits = t->slot_bitmap[w];
         while (bits) {
-            uint32_t i = (w * 32U) + (uint32_t)__builtin_ctz(bits);
+            uint32_t i = (uint32_t)(w * BITMAP_WORD_BITS) + (uint32_t)__builtin_ctzl(bits);
             bits &= bits - 1U;
             HandleTableEntry *e = HandleTableGet(t, (Handle)i);
             if (e && e != except && e->type == HANDLE_MEM && e->mem == mem)

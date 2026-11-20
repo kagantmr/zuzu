@@ -12,6 +12,7 @@
 #include <arch_impl/barrier.h>
 #include <arch_impl/regs.h>
 #include <arch_impl/sysreg.h>
+#include <assert.h>
 #include <string.h>
 #include <zuzu/user_layout.h>
 
@@ -56,10 +57,7 @@ static inline AArch64Pte *TableOf(AArch64Pte e)
  */
 static PhysAddr AllocTable(void)
 {
-    PhysAddr pa = PmmAllocFrame();
-    if (pa != PA_NULL)
-        memset((void *)PA_TO_VA(pa), 0, PAGE_SIZE);
-    return pa;
+    return PmmAllocZeroedFrame();
 }
 
 /**
@@ -249,6 +247,78 @@ void ArchMmuFreeTables(PhysAddr ttbr_pa, AddressSpaceType type)
     FreeLevel((AArch64Pte *)PA_TO_VA(ttbr_pa), 0);
 }
 
+/** @brief Table entries ArchMmuFreeTablesChunk() may look at for each table it may free. */
+#define FREE_SCAN_PER_TABLE 128U
+
+/** @brief Result of FreeFirstLeafTable(). */
+typedef enum {
+    FREE_TABLE_FREED,  /**< A table below the root was freed. */
+    FREE_TABLE_ROOT,   /**< The root was freed; nothing is left. */
+    FREE_TABLE_PAUSED, /**< The scan budget ran out; @c pos says where to resume. */
+} FreeTableResult;
+
+/**
+ * @brief Frees the first table, in address order, that has no tables below it.
+ *
+ * Every table before @p pos must already be freed and unlinked.
+ *
+ * @param[in,out] root Level 0 table.
+ * @param[in,out] pos Address the walk resumes from; set to the start of the freed table's range,
+ * or to where the scan stopped.
+ * @param[in,out] scan Entries the walk may still look at.
+ * @return What happened.
+ */
+static FreeTableResult FreeFirstLeafTable(AArch64Pte *root, size_t *pos, size_t *scan)
+{
+    AArch64Pte *table = root;
+    AArch64Pte *parent = NULL;
+    VirtAddr va = 0;
+    bool on_path = true;
+
+    for (int level = 0;; level++) {
+        unsigned start = on_path ? (unsigned)PteIndex((VirtAddr)*pos, level) : 0;
+        unsigned i = level == PTE_LEVEL_LAST ? PTE_ENTRIES : start;
+        while (i < PTE_ENTRIES && !PteIsTable(table[i], level)) {
+            if (*scan == 0) {
+                *pos = (size_t)(va + (VirtAddr)i * PteLevelSize(level));
+                return FREE_TABLE_PAUSED;
+            }
+            (*scan)--;
+            i++;
+        }
+        if (i == PTE_ENTRIES) {
+            PmmFreeFrame(VA_TO_PA((VirtAddr)table));
+            if (!parent)
+                return FREE_TABLE_ROOT;
+            *parent = 0;
+            *pos = (size_t)va;
+            return FREE_TABLE_FREED;
+        }
+        if (i != start)
+            on_path = false;
+        va += (VirtAddr)i * PteLevelSize(level);
+        parent = &table[i];
+        table = TableOf(*parent);
+    }
+}
+
+bool ArchMmuFreeTablesChunk(PhysAddr ttbr_pa, AddressSpaceType type, size_t *pos, size_t budget)
+{
+    (void)type;
+    if (!ttbr_pa)
+        return false;
+    AArch64Pte *root = (AArch64Pte *)PA_TO_VA(ttbr_pa);
+    size_t scan = budget * FREE_SCAN_PER_TABLE;
+    for (; budget > 0; budget--) {
+        FreeTableResult r = FreeFirstLeafTable(root, pos, &scan);
+        if (r == FREE_TABLE_ROOT)
+            return false;
+        if (r == FREE_TABLE_PAUSED)
+            return true;
+    }
+    return true;
+}
+
 /**
  * @brief Tells whether a 2 MiB block can map [@p va, @p va + @p left) from @p pa.
  *
@@ -388,8 +458,10 @@ static void ProtectSlot(AArch64Pte *slot, int level, VirtAddr va, void *ctx)
     if ((e & PTE_ATTRINDX_MASK) != PTE_ATTRINDX(PTE_ATTRINDX_NORMAL))
         e |= PTE_PXN | PTE_UXN;
 
-    *slot = e;
-    c->changed = true;
+    if (e != *slot) {
+        *slot = e;
+        c->changed = true;
+    }
 }
 
 bool ArchMmuProtect(AddressSpace *as, VirtAddr va, size_t size, MemProt prot)
@@ -444,6 +516,48 @@ void ArchMmuFlushTlb(void)
                      "dsb ish\n"
                      "isb\n" ::
                          : "memory");
+}
+
+/** @brief Context of CollectSlot(). */
+typedef struct {
+    PhysAddr *out; /**< Frames of the cleared pages. */
+    size_t max;    /**< Capacity of out. */
+    size_t n;      /**< Frames stored so far. */
+} CollectCtx;
+
+/**
+ * @brief WalkRange() callback for ArchMmuUnmapCollect(): clears a page and stores its frame.
+ *
+ * Blocks are left mapped.
+ *
+ * @param[in,out] slot  Leaf entry.
+ * @param[in]     level Its level.
+ * @param[in]     va    Unused.
+ * @param[in,out] ctx   CollectCtx.
+ */
+static void CollectSlot(AArch64Pte *slot, int level, VirtAddr va, void *ctx)
+{
+    CollectCtx *c = ctx;
+    (void)va;
+    if (level != PTE_LEVEL_LAST)
+        return;
+    assert(c->n < c->max);
+    c->out[c->n++] = (PhysAddr)(*slot & PTE_ADDR_MASK);
+    *slot = 0;
+}
+
+size_t ArchMmuUnmapCollect(AddressSpace *as, VirtAddr va, size_t size, PhysAddr *out, size_t max)
+{
+    CollectCtx c = {.out = out, .max = max, .n = 0};
+    WalkRange(RootOf(as), va, size, CollectSlot, &c);
+    if (c.n) {
+        __asm__ volatile("dsb ishst" ::: "memory");
+        for (VirtAddr p = va; p < va + size; p += PAGE_SIZE)
+            __asm__ volatile("tlbi vae1, %0" ::"r"(TLBI_ASID(as->asid_token.asid) | TLBI_VA(p))
+                             : "memory");
+        __asm__ volatile("dsb ish\n\tisb" ::: "memory");
+    }
+    return c.n;
 }
 
 void ArchMmuFlushTlbAsid(Asid asid)
@@ -503,85 +617,6 @@ bool ArchMmuUnmapPage(AddressSpace *as, VirtAddr va)
 
     *slot = 0;
     return true;
-}
-
-/** @brief Walks the sorted region list alongside an ascending scan of user addresses. */
-typedef struct {
-    const AddressSpace *as; /**< Address space being torn down. */
-    uint32_t idx;           /**< First region that may still contain the next address. */
-} RegionCursor;
-
-/**
- * @brief Finds what backs a user address, for addresses passed in ascending order.
- *
- * @param[in,out] rc Cursor; advanced past regions that end at or below @p va.
- * @param[in]     va Virtual address, not below the previous call's.
- * @return The backing of the region that contains @p va, or VM_BACKING_ANON if none does.
- */
-static VirtMemBacking RegionCursorOwner(RegionCursor *rc, VirtAddr va)
-{
-    while (rc->idx < rc->as->regions.len) {
-        const VirtMemRegion *r = &rc->as->regions.data[rc->idx];
-        VirtAddr end = r->vaddr_start + r->size;
-        if (end >= r->vaddr_start && va < end)
-            return va >= r->vaddr_start ? r->owner : VM_BACKING_ANON;
-        rc->idx++;
-    }
-    return VM_BACKING_ANON;
-}
-
-/**
- * @brief Frees a user table, every table below it, and the anonymous pages they map.
- *
- * Skips blocks, the syspage, device memory, pages owned by memory objects and pages at or above
- * USER_VA_TOP. Runs of eight empty entries are skipped with one test.
- *
- * @param[in]     table Table at @p level.
- * @param[in]     level Translation level of @p table.
- * @param[in]     base  Virtual address the table's first entry maps.
- * @param[in,out] rc    Region cursor.
- */
-static void FreeUserLevel(AArch64Pte *table, int level, VirtAddr base, RegionCursor *rc)
-{
-    uint64_t size = PteLevelSize(level);
-
-    for (unsigned g = 0; g < PTE_ENTRIES; g += 8) {
-        const AArch64Pte *p = &table[g];
-        if (!(p[0] | p[1] | p[2] | p[3] | p[4] | p[5] | p[6] | p[7]))
-            continue;
-        for (unsigned i = g; i < g + 8; i++) {
-            AArch64Pte e = table[i];
-            VirtAddr va = base + (VirtAddr)i * size;
-
-            if (!(e & PTE_VALID))
-                continue;
-            if (PteIsTable(e, level)) {
-                FreeUserLevel(TableOf(e), level + 1, va, rc);
-                continue;
-            }
-            if (level != PTE_LEVEL_LAST || va >= USER_VA_TOP || va == USER_SYSPAGE_VA)
-                continue;
-            if ((e & PTE_ATTRINDX_MASK) == PTE_ATTRINDX(PTE_ATTRINDX_DEVICE))
-                continue;
-            if (RegionCursorOwner(rc, va) != VM_BACKING_ANON)
-                continue;
-            PmmFreeFrame(e & PTE_ADDR_MASK);
-        }
-    }
-    PmmFreeFrame(VA_TO_PA((VirtAddr)table));
-}
-
-void ArchMmuFreeUserPages(AddressSpace *as)
-{
-    if (!as || !as->pt_root_physaddr)
-        return;
-
-    if (as->asid_token.asid != 0)
-        ArchMmuFlushTlbAsid(as->asid_token.asid);
-
-    RegionCursor rc = {.as = as, .idx = 0};
-    FreeUserLevel(RootOf(as), 0, 0, &rc);
-    as->pt_root_physaddr = 0;
 }
 
 void ArchMmuInitTtbr1(AddressSpace *as)

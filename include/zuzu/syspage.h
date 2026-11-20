@@ -57,12 +57,12 @@ typedef struct {
     char build[24];      /**< Build date. */
     char machine[20];    /**< Machine zuzu is booting on. */
     char cpu[24];        /**< CPU within the machine. */
-    uint32_t mem_total_kb; /**< Total memory in kilobytes. */
-    uint32_t mem_free_kb;  /**< Free memory in kilobytes. */
+    uint32_t mem_total_kb;                     /**< Total memory in kilobytes. */
+    uint32_t mem_free_kb;                      /**< Free memory in kilobytes. */
     uint64_t counter_freq;                     /**< Counter frequency.  */
     uint64_t counter_boot;                     /**< Counter value at boot. */
     uint8_t dev_count;                         /**< Device count. */
-    uint32_t _reserved;                        /**< Reserved */
+    uint32_t lbx_pending;                      /**< Objects queued on lbx, not yet reclaimed. */
     SyspageDevEntry devs[SYSPAGE_MAX_DEVICES]; /**< Device names list. */
     uint32_t _reserved2;                       /**< Reserved */
     uint32_t us_mult;  /**< Counter ticks to microseconds: us = (ticks * us_mult) >> us_shift; 0 if

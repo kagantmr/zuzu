@@ -4,7 +4,6 @@
  */
 
 #include "core/kprintf.h"
-#include "core/panic.h"
 #include "kernel/boot_info.h"
 #include "kernel/dev/fdt_wrappers.h"
 #include "kernel/kmain.h"
@@ -128,8 +127,6 @@ _Noreturn void early(void *dtb_ptr)
 
     kernel_layout.stack_base_va = PA_TO_VA(kernel_layout.stack_base_pa);
     kernel_layout.stack_top_va = PA_TO_VA(kernel_layout.stack_top_pa);
-    kernel_layout.kernel_start_va = PA_TO_VA(kernel_layout.kernel_start_pa);
-    kernel_layout.kernel_end_va = PA_TO_VA(kernel_layout.kernel_end_pa);
 
     VmmRemoveIdentityMapping();
     VmmLockdownKernelMapping();
@@ -158,4 +155,10 @@ _Noreturn void early(void *dtb_ptr)
     ArchPlatformInitDevices();
 
     kmain();
+}
+
+void ArchBootStackRange(PhysAddr *base, PhysAddr *end)
+{
+    *base = kernel_layout.stack_base_pa;
+    *end = kernel_layout.stack_top_pa;
 }

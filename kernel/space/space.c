@@ -6,9 +6,11 @@
 #include "space.h"
 
 #include "kernel/irq/irq_relay.h"
+#include "kernel/lbx/lbx.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/sched/sched.h"
+#include "kernel/checkpoint/checkpoint.h"
 #include "kernel/syspage.h"
 #include "kernel/task/task.h"
 #include <arch/mmu.h>
@@ -25,6 +27,10 @@ static uint32_t next_spid = 1;
 static SpaceObject *spaces[MAX_SPACES];
 /** @brief Allocator for space objects. */
 static KSlabCache space_cache;
+/** @brief Frames collected by one teardown step; lbx is the only user. */
+static PhysAddr space_reap_scratch[CHECKPOINT_PAGES];
+
+SpaceObject kernel_space;
 
 /** @brief Move to the next space ID, wrapping to 1 before it can go negative. */
 static void SpidAdvance(void)
@@ -60,6 +66,7 @@ static Spid SpidAlloc(SpaceObject *sp)
     return spid;
 }
 
+
 SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
 {
     if (!space_cache.obj_size)
@@ -93,17 +100,9 @@ SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
     if (!VmmAddRegion(sp->as, &sys_region))
         goto fail_as;
 
-    PhysAddr tcb_page0_phys_addr = PmmAllocFrame();
-    if (!tcb_page0_phys_addr)
-        goto fail_as;
-    sp->tcb_page_pa[0] = tcb_page0_phys_addr;
-
     VirtAddr tcb_user_va =
         VmmFindFreeVa(sp->as, USER_MMAP_BASE, USER_DEVICE_BASE, MAX_TCB_PAGES * PAGE_SIZE);
     if (!tcb_user_va)
-        goto fail_as;
-    if (!VmmMapUserPage(sp->as, tcb_page0_phys_addr, tcb_user_va,
-                        VM_PROT_USER | PROT_READ | PROT_WRITE))
         goto fail_as;
 
     VirtMemRegion tcb_region = {
@@ -140,8 +139,6 @@ SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
     if (!VmmAddRegion(sp->as, &stack_guard))
         goto fail_as;
 
-    memset((void *)PA_TO_VA(tcb_page0_phys_addr), 0, PAGE_SIZE);
-    memset(sp->tcb_slot_bitmap, 0, sizeof(sp->tcb_slot_bitmap));
 
     Spid spid = SpidAlloc(sp);
     if (!spid)
@@ -160,10 +157,8 @@ SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
     return sp;
 
 fail_as:
-    if (sp->as)
-        ArchMmuFreeUserPages(sp->as);
-    AddressSpaceDestroy(sp->as);
-    memset(sp->tcb_page_pa, 0, sizeof(sp->tcb_page_pa));
+    while (VmmTeardownChunk(sp->as, space_reap_scratch, CHECKPOINT_PAGES)) {}
+    while (AddressSpaceDestroyChunk(sp->as, CHECKPOINT_PAGES)) {}
 fail_handles:
     HandleTableDestroy(&sp->handle_table);
     KSlabFree(&space_cache, sp);
@@ -179,9 +174,85 @@ SpaceObject *SpaceFindBySpid(Spid spid)
     return NULL;
 }
 
+/**
+ * @brief Kill the ports and events a space owns, failing their waiters.
+ *
+ * @param[in] sp The space being torn down.
+ */
+static void SpaceKillOwned(SpaceObject *sp)
+{
+    for (size_t i = BitmapNextSet(sp->handle_table.slot_bitmap, HANDLE_MAX_SLOTS, 0);
+         i < HANDLE_MAX_SLOTS;
+         i = BitmapNextSet(sp->handle_table.slot_bitmap, HANDLE_MAX_SLOTS, i + 1)) {
+        HandleTableEntry *entry = HandleTableGet(&sp->handle_table, (Handle)i);
+        if (!entry)
+            continue;
+        if (entry->type == HANDLE_PORT && entry->port && entry->port->owner_spid == sp->spid)
+            PortKill(entry->port);
+        else if (entry->type == HANDLE_EVENT && entry->event &&
+                 entry->event->owner_spid == sp->spid)
+            EventKill(entry->event);
+    }
+}
+
+/**
+ * @brief Runs one step of a torn-down space's current reclaim phase: destroys its tasks, then
+ * frees its address space, handles and tables.
+ *
+ * @param[in,out] n The space's lbx node.
+ * @param[in] budget The most tasks, pages or handles to reclaim.
+ * @return LBX_MORE if work is left, LBX_DONE once the teardown reference is dropped.
+ */
+static LbxResult SpaceLbxStep(LbxNode *n, uint32_t budget)
+{
+    SpaceObject *sp = container_of(n, SpaceObject, lbx_node);
+    switch (sp->reap_phase) {
+    case SPACE_REAP_TASKS:
+        for (; budget > 0 && !ListIsEmpty(&sp->tasks); budget--)
+            TaskDestroy(container_of(sp->tasks.node.next, TaskObject, space_node));
+        if (ListIsEmpty(&sp->tasks))
+            sp->reap_phase = SPACE_REAP_REGIONS;
+        return LBX_MORE;
+
+    case SPACE_REAP_REGIONS: {
+        size_t pages = budget < CHECKPOINT_PAGES ? budget : CHECKPOINT_PAGES;
+        if (sp->as && VmmTeardownChunk(sp->as, space_reap_scratch, pages))
+            return LBX_MORE;
+        sp->reap_phase = SPACE_REAP_HANDLES;
+        sp->reap_pos = 0;
+        return LBX_MORE;
+    }
+
+    case SPACE_REAP_HANDLES:
+        for (; budget > 0; budget--) {
+            size_t i = BitmapNextSet(sp->handle_table.slot_bitmap, HANDLE_MAX_SLOTS, sp->reap_pos);
+            if (i >= HANDLE_MAX_SLOTS) {
+                sp->reap_phase = SPACE_REAP_TABLES;
+                return LBX_MORE;
+            }
+            sp->reap_pos = (uint32_t)i + 1;
+            HandleTableEntry *entry = HandleTableGet(&sp->handle_table, (Handle)i);
+            if (entry && entry->type != HANDLE_FREE)
+                HandleRelease(sp, entry);
+        }
+        return LBX_MORE;
+
+    case SPACE_REAP_TABLES:
+        if (sp->as) {
+            if (AddressSpaceDestroyChunk(sp->as, 1))
+                return LBX_MORE;
+            sp->as = NULL;
+        }
+        HandleTableDestroy(&sp->handle_table);
+        SpaceUnref(sp);
+        return LBX_DONE;
+    }
+    return LBX_MORE;
+}
+
 void SpaceDestroy(SpaceObject *sp)
 {
-    if (!sp || sp->torn_down)
+    if (!sp || sp->torn_down || SpaceIsKernel(sp))
         return;
     sp->torn_down = true;
     sp->ref_count++;
@@ -190,14 +261,8 @@ void SpaceDestroy(SpaceObject *sp)
     while (task_node != &sp->tasks.node) {
         ListNode *next = task_node->next;
         TaskObject *task = container_of(task_node, TaskObject, space_node);
-        TaskRef(task);
         if (task->state != TASK_STATE_ZOMBIE)
             TaskTerminate(task, ERR_DEAD);
-        if (task != current_task)
-            TaskDestroy(task);
-        else
-            SchedQueueDestroyTask(task);
-        TaskUnref(task);
         task_node = next;
     }
 
@@ -208,36 +273,14 @@ void SpaceDestroy(SpaceObject *sp)
     }
 
     IrqReleaseAll(sp);
-
-    for (uint32_t w = 0; w < BITMAP_WORDS(HANDLE_MAX_SLOTS); w++) {
-        uint32_t bits = sp->handle_table.slot_bitmap[w];
-        while (bits) {
-            uint32_t i = (w * 32U) + (uint32_t)__builtin_ctz(bits);
-            bits &= bits - 1U;
-            HandleTableEntry *entry = HandleTableGet(&sp->handle_table, (Handle)i);
-            if (!entry || entry->type == HANDLE_FREE)
-                continue;
-            if (entry->type == HANDLE_PORT && entry->port && entry->port->owner_spid == sp->spid)
-                PortKill(entry->port);
-            else if (entry->type == HANDLE_EVENT && entry->event &&
-                     entry->event->owner_spid == sp->spid)
-                EventKill(entry->event);
-            HandleRelease(sp, entry);
-        }
-    }
-
-    if (sp->as) {
-        ArchMmuFreeUserPages(sp->as);
-        AddressSpaceDestroy(sp->as);
-        sp->as = NULL;
-    }
-    HandleTableDestroy(&sp->handle_table);
+    SpaceKillOwned(sp);
 
     uint32_t slot = (uint32_t)sp->spid % MAX_SPACES;
     if (spaces[slot] == sp)
         spaces[slot] = NULL;
 
-    SpaceUnref(sp);
+    sp->reap_phase = SPACE_REAP_TASKS;
+    LbxQueue(&sp->lbx_node, SpaceLbxStep);
 }
 
 void SpaceFinalize(SpaceObject *sp)
@@ -312,4 +355,19 @@ bool SpaceIsSelfOrAncestor(const SpaceObject *sp, const SpaceObject *target)
         sp = sp->parent_spid == -1 ? NULL : SpaceFindBySpid(sp->parent_spid);
     }
     return false;
+}
+
+void SpaceInitKernelSpace(void)
+{
+    memset(&kernel_space, 0, sizeof(kernel_space));
+    ListInit(&kernel_space.tasks);
+    ObserverInit(&kernel_space.observers);
+    HandleTableInit(&kernel_space.handle_table);
+    ListInit(&kernel_space.waiters);
+    kernel_space.as = VmmGetKernelAddressSpace();
+    kernel_space.spid = 0;
+    kernel_space.parent_spid = -1;
+    strncpy(kernel_space.name, "zuzu", 4);
+    kernel_space.max_prio = SCHED_PRIORITY_LEVELS - 1;
+    kernel_space.ref_count = 1; // important
 }

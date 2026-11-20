@@ -3,8 +3,9 @@
  * @brief Implementation of tasks: creation, teardown, faults and priority inheritance.
  */
 
+#include "kernel/bench.h"
 #include "kernel/clock.h"
-#include "kernel/ipc/msg.h"
+#include "kernel/lbx/lbx.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/mm/vmm/vmm.h"
@@ -29,6 +30,11 @@ static Tid next_tid = 1;
 static TaskObject *task_table[MAX_TASKS];
 /** @brief Allocator for task objects. */
 static KSlabCache task_cache;
+
+#ifdef CONFIG_ZUZU_BENCH
+/** @brief Time taken to destroy one reaped task. */
+BENCH_STAT(g_bench_reap_task, "lbx: reap one task");
+#endif
 
 /**
  * @brief Pick an ID for a task and enter it in the task table.
@@ -125,15 +131,52 @@ void TaskUnref(TaskObject *t)
     if (t->ref_count == 0 && t->released) {
         KSlabFree(&task_cache, t);
     } else if (t->ref_count == 0 && t->state == TASK_STATE_FROZEN) {
-        
-        TaskDestroy(t);
+        if (t->owner)
+            t->owner->live_tasks--;
+        t->state = TASK_STATE_ZOMBIE;
+        TaskQueueDestroy(t);
     }
+}
+
+/**
+ * @brief lbx step for a dead task: destroys it in one go.
+ *
+ * @param[in,out] n The task's lbx node.
+ * @param[in] budget Unused; destroying a task is one unit.
+ * @return LBX_DONE.
+ */
+static LbxResult TaskLbxStep(LbxNode *n, uint32_t budget)
+{
+    (void)budget;
+#ifdef CONFIG_ZUZU_BENCH
+    uint32_t bench_start = BENCH_BEGIN();
+#endif
+    TaskDestroy(container_of(n, TaskObject, lbx_node));
+#ifdef CONFIG_ZUZU_BENCH
+    BENCH_END(g_bench_reap_task, bench_start);
+#endif
+    return LBX_DONE;
+}
+
+void TaskQueueDestroy(TaskObject *task)
+{
+    if (task)
+        LbxQueue(&task->lbx_node, TaskLbxStep);
+}
+
+void TaskDropCheckpoint(TaskObject *task)
+{
+    if (task->checkpoint.obj && task->checkpoint.drop)
+        task->checkpoint.drop(task->checkpoint.obj);
+    task->checkpoint = (CheckpointState){0};
 }
 
 void TaskDestroy(TaskObject *task)
 {
     if (!task || task->released)
         return;
+    LbxCancel(&task->lbx_node);
+    TaskDropCheckpoint(task);
     TaskUnlinkWaits(task);
     TaskObjectUnregister(task);
     if (fpu_owner == task)
@@ -143,7 +186,7 @@ void TaskDestroy(TaskObject *task)
     SpaceObject *owner = task->owner;
     if (owner && task->state != TASK_STATE_ZOMBIE)
         owner->live_tasks--;
-    
+
     if (owner && task->tcb_slot < TCB_MAX_SLOTS &&
         owner->tcb_page_pa[task->tcb_slot / SLOTS_PER_PAGE]) {
         memset((void *)TcbSlotKernelVa(owner, task->tcb_slot), 0, TCB_SLOT_SIZE);
@@ -208,6 +251,7 @@ TaskObject *TaskCreate(SpaceObject *owner)
 
     task->owner = owner;
     task->sleep_slot = -1;
+    task->timeout_rc = ERR_TIMEOUT;
     ListInit(&task->joiners);
     task->state = TASK_STATE_FROZEN;
     task->ipc_state = IPC_NONE;
@@ -226,10 +270,10 @@ TaskObject *TaskCreate(SpaceObject *owner)
         KSlabFree(&task_cache, task);
         return NULL;
     }
-    
+
     uint32_t tcb_page = (uint32_t)tcb_slot_idx / SLOTS_PER_PAGE;
     if (!owner->tcb_page_pa[tcb_page]) {
-        PhysAddr pa = PmmAllocFrame();
+        PhysAddr pa = PmmAllocZeroedFrame();
         if (!pa || !VmmMapUserPage(owner->as, pa, owner->tcb_page_va + (tcb_page * PAGE_SIZE),
                                    VM_PROT_USER | PROT_READ | PROT_WRITE)) {
             if (pa)
@@ -240,7 +284,6 @@ TaskObject *TaskCreate(SpaceObject *owner)
             KSlabFree(&task_cache, task);
             return NULL;
         }
-        memset((void *)PA_TO_VA(pa), 0, PAGE_SIZE);
         owner->tcb_page_pa[tcb_page] = pa;
     }
     ThreadLocalData *tcb = (ThreadLocalData *)TcbSlotKernelVa(owner, (uint32_t)tcb_slot_idx);
@@ -265,6 +308,64 @@ TaskObject *TaskCreate(SpaceObject *owner)
            task->tid, owner->spid, owner->name, task->state, (void *)task->kernel_stack_top);
 
     return task;
+}
+
+TaskObject *TaskCreateKernel(void (*entry)(void), Prio priority)
+{
+    if (!entry || priority >= SCHED_PRIORITY_LEVELS)
+        return NULL;
+
+    // get a TaskObject
+    if (!task_cache.obj_size)
+        KSlabInit(&task_cache, sizeof(TaskObject));
+    TaskObject *task = KSlabAlloc(&task_cache);
+    if (!task)
+        return NULL;
+    memset(task, 0, sizeof(*task));
+    ObserverInit(&task->observers);
+
+    task->kernel_stack_top = KStackAlloc();
+    if (!task->kernel_stack_top) {
+        goto KStackFail;
+    }
+
+    static CpuState kernel_scratch_frame;
+    task->trap_frame = &kernel_scratch_frame;
+    memset(task->trap_frame, 0, sizeof(*task->trap_frame));
+
+    task->tid = RegisterTask(task);
+    if (task->tid == 0) {
+        goto RegisterFail;
+    }
+
+    task->kernel_sp = ArchTaskKernelInit((void *)task->kernel_stack_top, entry);
+    task->owner = &kernel_space;
+    task->sleep_slot = -1;
+    task->timeout_rc = ERR_TIMEOUT;
+    ListInit(&task->joiners);
+    task->state = TASK_STATE_READY;
+    task->ipc_state = IPC_NONE;
+    task->priority = priority;
+    task->base_prio = priority;
+    task->time_slice_us = TIMESLICE_DEFAULT_US;
+    task->time_slice_counts = ClockUsToCounts(TIMESLICE_DEFAULT_US);
+    task->max_time_slice_us = TIMESLICE_MAX_US;
+    task->max_prio = SCHED_PRIORITY_LEVELS - 1;
+    task->tcb_slot = TCB_SLOT_NONE;
+    
+    ListAddTail(&task->space_node, &kernel_space.tasks.node);
+    kernel_space.live_tasks++;
+    
+    KTRACE("kernel task create: tid=%u prio=%u kernel_stack_top=%p", task->tid, priority,
+           (void *)task->kernel_stack_top);
+
+    return task;
+
+RegisterFail:
+    KStackFree(task->kernel_stack_top);
+KStackFail:
+    KSlabFree(&task_cache, task);
+    return NULL;
 }
 
 void TaskUnlinkWaits(TaskObject *t)
@@ -360,11 +461,8 @@ void TaskTerminate(TaskObject *task, Err exit_status)
 
     if (space_hollow)
         return;
-    if (task == current_task) {
-        SchedQueueDestroyTask(task);
-    } else {
-        TaskDestroy(task);
-    }
+
+    TaskQueueDestroy(task);
 }
 
 void TaskFault(TaskObject *task, Err reason)
@@ -438,7 +536,7 @@ static void RecomputePriorityAt(TaskObject *t, unsigned depth)
 
     if (t->reply_holder && depth < PRIORITY_PROPAGATION_DEPTH)
         RecomputePriorityAt(t->reply_holder, depth + 1);
-    
+
     if (t->state == TASK_STATE_BLOCKED && t->node.next && t->blocked_port &&
         depth < PRIORITY_PROPAGATION_DEPTH)
         PortBoostServersAt(t->blocked_port, depth + 1);
@@ -479,3 +577,4 @@ void TaskSyncTcbPrio(TaskObject *t)
     tcb->prio = (uint8_t)t->base_prio;
     tcb->max_prio = (uint8_t)t->max_prio;
 }
+

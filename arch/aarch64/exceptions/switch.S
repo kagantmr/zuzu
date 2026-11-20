@@ -5,17 +5,6 @@
 
 #include <generated/asm-offsets.h>
 
-/**
- * With CONFIG_TIME_MEASURE, ctx_switch_cost receives the cycle count of the last switch.
- */
-#ifdef CONFIG_TIME_MEASURE
-.bss
-.balign 8
-.global ctx_switch_cost
-ctx_switch_cost:
-    .quad 0
-#endif
-
 .text
 
 /**
@@ -31,12 +20,6 @@ ctx_switch_cost:
  */
 .global ContextSwitch
 ContextSwitch:
-
-#ifdef CONFIG_TIME_MEASURE
-    isb
-    mrs x3, pmccntr_el0
-    isb
-#endif
 
     clrex
     cbz x0, 1f
@@ -63,14 +46,5 @@ ContextSwitch:
     ldp x27, x28, [sp, #64]
     ldp x29, x30, [sp, #80]
     add sp, sp, #96
-
-#ifdef CONFIG_TIME_MEASURE
-    isb
-    mrs x4, pmccntr_el0
-    sub x4, x4, x3
-    adrp x5, ctx_switch_cost
-    str x4, [x5, :lo12:ctx_switch_cost]
-    isb
-#endif
 
     ret

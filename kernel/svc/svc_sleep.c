@@ -16,7 +16,6 @@ void SvcSleep(CpuState *frame)
 
     current_task->state = TASK_STATE_BLOCKED;
     SchedInsertSleepQueue(current_task);
+    current_task->timeout_rc = ZUZU_OK;
     Schedule();
-
-    ArchSetInFrame(frame, 0, ZUZU_OK);
 }

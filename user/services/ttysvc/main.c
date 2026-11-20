@@ -749,10 +749,12 @@ static bool ProcessInbound(Session *f, const Endpoint *ep, uint8_t c)
 
 static void RouteInbound(Session *p, Session *f, const Endpoint *ep)
 {
+    if (!f)
+        return;
     while (UpAvail(p) > 0) {
-        if (f && !ProcessInbound(f, ep, UpPeek(p)))
+        if (!ProcessInbound(f, ep, UpPeek(p)))
             break;
-        UpDrop(p); /* with no foreground consumer the byte is discarded */
+        UpDrop(p);
     }
 }
 

@@ -10,6 +10,8 @@
 #include "kernel/ipc/observer.h"
 #include "kernel/ipc/port.h"
 #include "kernel/mm/vmm/vmm.h"
+#include "kernel/checkpoint/checkpoint_state.h"
+#include "kernel/lbx/lbx_node.h"
 #include <arch/fpu.h>
 #include <arch/regs.h>
 #include <list.h>
@@ -19,11 +21,6 @@
  * @brief Forward declaration of SpaceObject.
  */
 typedef struct SpaceObjectStruct SpaceObject;
-
-/**
- * @brief A priority is an integer denoting how much this task is allowed to use the CPU
- */
-typedef uint32_t Prio;
 
 /**
  * @brief Represents the task lifecycle.
@@ -81,7 +78,8 @@ struct TaskObjectStruct {
     Time slice_remaining;     /**< Counter ticks left of the time slice if it was preempted. */
     int16_t sleep_slot;       /**< Sleep wheel slot the task is in, or -1. */
     TaskState state;          /**< Where the task is in its lifecycle. */
-    ListNode destroy_node;    /**< Link in the queue of tasks waiting to be reaped. */
+    LbxNode lbx_node;         /**< Link in lbx's queue while the task waits to be destroyed. */
+    CheckpointState checkpoint; /**< Progress of a checkpointed syscall the task is in. */
     IpcState ipc_state;       /**< Whether the task is waiting on a call. */
     PortObject *blocked_port; /**< The port the task's call is queued or being served on. */
     ReplyObject reply_cap_storage; /**< The reply capability for the task's own outgoing call. */
@@ -117,7 +115,15 @@ struct TaskObjectStruct {
     Handle serving_handle;    /**< Handle of the port this task last received on. */
     EventWord wait_mask; /**< Bits this task is waiting for on an event. */
     bool wait_all;       /**< Wake only when every bit in wait_mask is pending. */
+    Err timeout_rc;      /**< Value returned in r0 when the task's timeout expires. */
 };
+
+/**
+ * @brief Drops what a half-done checkpointed syscall left in a task.
+ *
+ * @param[in,out] task The task.
+ */
+void TaskDropCheckpoint(TaskObject *task);
 
 /**
  * @brief Remove a task from every queue, free its kernel stack and thread-local slot, and free it
@@ -128,6 +134,13 @@ struct TaskObjectStruct {
  * @param[in] task The task to destroy.
  */
 void TaskDestroy(TaskObject *task);
+
+/**
+ * @brief Queue a dead task on lbx, which destroys it off its own stack.
+ *
+ * @param[in] task The task.
+ */
+void TaskQueueDestroy(TaskObject *task);
 
 /**
  * @brief Create a task in a space.
@@ -264,4 +277,14 @@ bool TaskIsDead(const TaskObject *task);
  * @param[in] reason Why it faulted.
  */
 void TaskFault(TaskObject *task, Err reason);
+
+/**
+ * @brief Create a kernel task from an entry point.
+ * 
+ * @param[in] entry The entry function to execute from.
+ * @param[in] priority The priority of the task.
+ * 
+ * @return The task, READY but not queued or NULL on a bad priority or when out of memory or task IDs.
+ */
+TaskObject *TaskCreateKernel(void (*entry)(void), Prio priority);
 #endif // KERNEL_TASK_TASK_H

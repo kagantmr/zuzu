@@ -51,29 +51,6 @@ bool VmmUnmapRange(AddressSpace *as, VirtAddr va, size_t size, bool flush)
     return ArchMmuUnmap(as, va, size, flush);
 }
 
-bool VmmProtectPage(AddressSpace *as, VirtAddr va, size_t size, MemProt new_prot)
-{
-    if (!as || size == 0)
-        return false;
-
-    VirtMemRegion *r = VmmFindRegion(as, va);
-    if (!r)
-        return false;
-    if (va + size > r->vaddr_start + r->size)
-        return false;
-    if (r->memtype == VM_MEM_DEVICE && (new_prot & PROT_EXEC))
-        return false;
-    if (r->memtype == VM_MEM_NORMAL_NC && (new_prot & PROT_EXEC))
-        return false;
-    if (r->flags & VM_FLAG_PINNED)
-        return false;
-
-    (void)ArchMmuProtect(as, va, size, new_prot);
-    
-    r->prot = new_prot;
-    return true;
-}
-
 void VmmActivateAddressSpace(AddressSpace *as)
 {
     if (!as)

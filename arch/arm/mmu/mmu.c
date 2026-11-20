@@ -3,6 +3,7 @@
  * @brief ARMv7-A translation tables: creating, mapping, protecting and tearing down.
  */
 
+#include "kernel/layout.h"
 #include "kernel/mm/pmm/pmm.h"
 #include "l2_pool.h"
 #include "types.h"
@@ -14,7 +15,6 @@
 #include <assert.h>
 #include <stdint.h>
 #include <string.h>
-#include "kernel/layout.h"
 
 #include BOARD_BOOT_H
 
@@ -35,7 +35,7 @@ extern RamLayout kernel_layout;
  * @return false if @p va is out of range or no L2 table could be allocated.
  */
 static bool MmuMapPage(AddressSpace *as, VirtAddr va, PhysAddr pa, VirtMemType memtype,
-                           MemProt prot);
+                       MemProt prot);
 
 /**
  * @brief Entries in an L1 table of the given kind.
@@ -43,7 +43,7 @@ static bool MmuMapPage(AddressSpace *as, VirtAddr va, PhysAddr pa, VirtMemType m
  * @param[in] type User or kernel.
  * @return 2048 for user tables, 4096 for the kernel's.
  */
-static inline size_t l1_entry_count(AddressSpaceType type)
+static inline size_t L1EntryCount(AddressSpaceType type)
 {
     return (type == ADDRESS_SPACE_USER) ? L1_ENTRIES_USER : L1_ENTRIES_KERNEL;
 }
@@ -54,9 +54,9 @@ static inline size_t l1_entry_count(AddressSpaceType type)
  * @param[in] type User or kernel.
  * @return Size in bytes.
  */
-static inline size_t l1_table_bytes(AddressSpaceType type)
+static inline size_t BytesL1Table(AddressSpaceType type)
 {
-    return l1_entry_count(type) * L1_DESC_BYTES;
+    return L1EntryCount(type) * L1_DESC_BYTES;
 }
 
 /**
@@ -65,10 +65,7 @@ static inline size_t l1_table_bytes(AddressSpaceType type)
  * @param[in] type User or kernel.
  * @return Number of pages.
  */
-static inline size_t l1_table_pages(AddressSpaceType type)
-{
-    return l1_table_bytes(type) / PAGE_SIZE;
-}
+static inline size_t PagesL1Table(AddressSpaceType type) { return BytesL1Table(type) / PAGE_SIZE; }
 
 /**
  * @brief AP[1:0] bits for a protection.
@@ -76,7 +73,7 @@ static inline size_t l1_table_pages(AddressSpaceType type)
  * @param[in] prot Protection.
  * @return AP_USER_RW, AP_USER_RO or AP_KERNEL_RW.
  */
-static inline uint32_t ap_bits(MemProt prot)
+static inline uint32_t BuildApBits(MemProt prot)
 {
     if (prot & VM_PROT_USER)
         return (prot & PROT_WRITE) ? AP_USER_RW : AP_USER_RO;
@@ -93,11 +90,11 @@ static inline uint32_t ap_bits(MemProt prot)
  * @param[in] memtype Memory type.
  * @return The descriptor.
  */
-static uint32_t l1_section_desc(PhysAddr pa, MemProt prot, VirtMemType memtype)
+static uint32_t L1BuildDescriptor(PhysAddr pa, MemProt prot, VirtMemType memtype)
 {
     uint32_t e = (uint32_t)(pa & L1_SECTION_BASE_MASK) | L1_SECTION_TAG;
 
-    e |= ap_bits(prot) << L1_SECT_AP_SHIFT;
+    e |= BuildApBits(prot) << L1_SECT_AP_SHIFT;
     if (!(prot & PROT_EXEC))
         e |= MMU_BIT(L1_SECT_XN_BIT);
     if (prot & VM_PROT_USER)
@@ -126,11 +123,11 @@ static uint32_t l1_section_desc(PhysAddr pa, MemProt prot, VirtMemType memtype)
  * @param[in] memtype Memory type.
  * @return The descriptor.
  */
-static uint32_t l2_page_desc(PhysAddr pa, MemProt prot, VirtMemType memtype)
+static uint32_t L2BuildDescriptor(PhysAddr pa, MemProt prot, VirtMemType memtype)
 {
     uint32_t e = (uint32_t)(pa & L2_SMALL_BASE_MASK) | L2_SMALL_TAG;
 
-    e |= ap_bits(prot) << L2_PAGE_AP_SHIFT;
+    e |= BuildApBits(prot) << L2_PAGE_AP_SHIFT;
     if (!(prot & PROT_EXEC))
         e |= MMU_BIT(L2_PAGE_XN_BIT);
     if (prot & VM_PROT_USER)
@@ -158,10 +155,10 @@ static uint32_t l2_page_desc(PhysAddr pa, MemProt prot, VirtMemType memtype)
  * @param[in] prot New protection.
  * @return The updated descriptor.
  */
-static uint32_t l1_section_set_prot(uint32_t e, MemProt prot)
+static uint32_t L1SetProt(uint32_t e, MemProt prot)
 {
     e &= ~((AP_MASK << L1_SECT_AP_SHIFT) | MMU_BIT(L1_SECT_AP2_BIT) | MMU_BIT(L1_SECT_XN_BIT));
-    e |= ap_bits(prot) << L1_SECT_AP_SHIFT;
+    e |= BuildApBits(prot) << L1_SECT_AP_SHIFT;
     if (!(prot & PROT_EXEC))
         e |= MMU_BIT(L1_SECT_XN_BIT);
     return e;
@@ -174,10 +171,10 @@ static uint32_t l1_section_set_prot(uint32_t e, MemProt prot)
  * @param[in] prot New protection.
  * @return The updated descriptor.
  */
-static uint32_t l2_page_set_prot(uint32_t e, MemProt prot)
+static uint32_t L2SetProt(uint32_t e, MemProt prot)
 {
     e &= ~((AP_MASK << L2_PAGE_AP_SHIFT) | MMU_BIT(L2_PAGE_AP2_BIT) | MMU_BIT(L2_PAGE_XN_BIT));
-    e |= ap_bits(prot) << L2_PAGE_AP_SHIFT;
+    e |= BuildApBits(prot) << L2_PAGE_AP_SHIFT;
     if (!(prot & PROT_EXEC))
         e |= MMU_BIT(L2_PAGE_XN_BIT);
     return e;
@@ -189,12 +186,12 @@ static uint32_t l2_page_set_prot(uint32_t e, MemProt prot)
  * @param[in] ttbr_pa Physical address of the L1 table.
  * @return The TTBR value.
  */
-static inline uint32_t ttbr_value(PhysAddr ttbr_pa) { return (uint32_t)ttbr_pa | TTBR_WALK_ATTRS; }
+static inline uint32_t TtbrValue(PhysAddr ttbr_pa) { return (uint32_t)ttbr_pa | TTBR_WALK_ATTRS; }
 
 PhysAddr ArchMmuCreateTables(AddressSpaceType type)
 {
-    const size_t l1_bytes = l1_table_bytes(type);
-    const size_t l1_pages = l1_table_pages(type);
+    const size_t l1_bytes = BytesL1Table(type);
+    const size_t l1_pages = PagesL1Table(type);
 
     PhysAddr l1_pa = PmmAllocFramesContigAligned(l1_pages, l1_pages);
     if (!l1_pa)
@@ -214,8 +211,8 @@ void ArchMmuFreeTables(PhysAddr ttbr_pa, AddressSpaceType type)
     }
 
     uint32_t *l1 = (uint32_t *)PA_TO_VA(ttbr_pa);
-    size_t entries = l1_entry_count(type);
-    size_t pages = l1_table_pages(type);
+    size_t entries = L1EntryCount(type);
+    size_t pages = PagesL1Table(type);
 
     for (size_t i = 0; i < entries; i++) {
         if ((l1[i] & DESC_TYPE_MASK) == DESC_L2) {
@@ -229,8 +226,37 @@ void ArchMmuFreeTables(PhysAddr ttbr_pa, AddressSpaceType type)
     }
 }
 
+/** @brief L1 entries ArchMmuFreeTablesChunk() looks at for each table it may free. */
+#define FREE_SCAN_PER_TABLE 64U
+
+bool ArchMmuFreeTablesChunk(PhysAddr ttbr_pa, AddressSpaceType type, size_t *pos, size_t budget)
+{
+    if (ttbr_pa == 0)
+        return false;
+
+    uint32_t *l1 = (uint32_t *)PA_TO_VA(ttbr_pa);
+    size_t entries = L1EntryCount(type);
+    size_t scan = budget * FREE_SCAN_PER_TABLE;
+
+    for (; *pos < entries && budget > 0 && scan > 0; (*pos)++, scan--) {
+        if ((l1[*pos] & DESC_TYPE_MASK) == DESC_L2) {
+            L2PtPoolFree(l1[*pos] & L1_L2PTR_BASE_MASK);
+            l1[*pos] = 0;
+            budget--;
+        }
+    }
+    if (*pos < entries)
+        return true;
+
+    size_t pages = PagesL1Table(type);
+    for (size_t i = 0; i < pages; i++)
+        PmmFreeFrame(ttbr_pa + i * PAGE_SIZE);
+    return false;
+}
+
 /**
- * @brief Undoes part of a MapRange(): clears the sections and pages mapped in [@p va, @p va + @p size).
+ * @brief Undoes part of a MapRange(): clears the sections and pages mapped in [@p va, @p va + @p
+ * size).
  *
  * @param[in,out] as   Address space.
  * @param[in]     va   Start of what was mapped.
@@ -279,7 +305,7 @@ static bool MapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size, Me
         return false;
 
     uint32_t *l1 = (uint32_t *)PA_TO_VA(as->pt_root_physaddr);
-    size_t max_idx = l1_entry_count(as->type);
+    size_t max_idx = L1EntryCount(as->type);
     bool sections = allow_sections && as->type != ADDRESS_SPACE_USER;
 
     for (size_t off = 0; off < size;) {
@@ -294,7 +320,7 @@ static bool MapRange(AddressSpace *as, VirtAddr va, PhysAddr pa, size_t size, Me
 
         if (sections && (cur_va % SECTION_SIZE) == 0 && (cur_pa % SECTION_SIZE) == 0 &&
             size - off >= SECTION_SIZE && (l1[idx] & DESC_TYPE_MASK) == DESC_FAULT) {
-            l1[idx] = l1_section_desc(cur_pa, prot, memtype);
+            l1[idx] = L1BuildDescriptor(cur_pa, prot, memtype);
             off += SECTION_SIZE;
             continue;
         }
@@ -357,8 +383,7 @@ bool ArchMmuUnmap(AddressSpace *as, VirtAddr va, size_t size, bool flush)
                 needs_trailing_flush = true;
             }
         }
-    }
-    else if ((va % PAGE_SIZE) == 0 && (size % PAGE_SIZE) == 0) {
+    } else if ((va % PAGE_SIZE) == 0 && (size % PAGE_SIZE) == 0) {
         page_mode = true;
         for (size_t offset = 0; offset < size; offset += PAGE_SIZE) {
             if (ArchMmuUnmapPage(as, va + offset)) {
@@ -398,8 +423,11 @@ bool ArchMmuProtect(AddressSpace *as, VirtAddr va, size_t size, MemProt prot)
         uint32_t type = l1_entry & DESC_TYPE_MASK;
 
         if (type == DESC_SECTION) {
-            l1[l1_idx] = l1_section_set_prot(l1_entry, prot);
-            changed = true;
+            uint32_t e = L1SetProt(l1_entry, prot);
+            if (e != l1_entry) {
+                l1[l1_idx] = e;
+                changed = true;
+            }
             offset += SECTION_SIZE - PAGE_SIZE;
             continue;
         }
@@ -412,8 +440,11 @@ bool ArchMmuProtect(AddressSpace *as, VirtAddr va, size_t size, MemProt prot)
             if (!(l2[l2_idx] & L2_SMALL_TAG))
                 continue;
 
-            l2[l2_idx] = l2_page_set_prot(l2[l2_idx], prot);
-            changed = true;
+            uint32_t e = L2SetProt(l2[l2_idx], prot);
+            if (e != l2[l2_idx]) {
+                l2[l2_idx] = e;
+                changed = true;
+            }
         }
     }
 
@@ -433,8 +464,7 @@ void ArchMmuEnable(AddressSpace *as)
     Dsb();
     Isb();
 
-    __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"(ttbr_value(as->pt_root_physaddr))
-                     : "memory");
+    __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"(TtbrValue(as->pt_root_physaddr)) : "memory");
 
     __asm__ volatile("mcr p15, 0, %0, c3, c0, 0" ::"r"(DACR_DOMAIN0_CLIENT) : "memory");
 
@@ -464,13 +494,11 @@ void ArchMmuSwitch(AddressSpace *as)
 
     Isb();
 
-    __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"(ttbr_value(as->pt_root_physaddr))
-                     : "memory");
+    __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"(TtbrValue(as->pt_root_physaddr)) : "memory");
 
     Isb();
 
-    __asm__ volatile("mcr p15, 0, %0, c13, c0, 1" ::"r"((uint32_t)as->asid_token.asid)
-                     : "memory");
+    __asm__ volatile("mcr p15, 0, %0, c13, c0, 1" ::"r"((uint32_t)as->asid_token.asid) : "memory");
 
     /**
      * load bearing ISB. removed this and spent 12-14 sep 2026 entirely bugging
@@ -605,7 +633,7 @@ static bool MmuBreakSection(uint32_t *l1, uint32_t l1_idx, uint8_t asid)
 }
 
 static bool MmuMapPage(AddressSpace *as, VirtAddr va, PhysAddr pa, VirtMemType memtype,
-                           MemProt prot)
+                       MemProt prot)
 {
     if (!as) {
         return false;
@@ -619,7 +647,7 @@ static bool MmuMapPage(AddressSpace *as, VirtAddr va, PhysAddr pa, VirtMemType m
 
     uint32_t l1_idx = L1_IDX(va);
     uint32_t l2_idx = L2_IDX(va);
-    if (l1_idx >= l1_entry_count(as->type))
+    if (l1_idx >= L1EntryCount(as->type))
         return false;
 
     uint32_t l1_entry = l1[l1_idx];
@@ -643,7 +671,7 @@ static bool MmuMapPage(AddressSpace *as, VirtAddr va, PhysAddr pa, VirtMemType m
         l2 = (uint32_t *)PA_TO_VA(l1[l1_idx] & L1_L2PTR_BASE_MASK);
     }
 
-    l2[l2_idx] = l2_page_desc(pa, prot, memtype);
+    l2[l2_idx] = L2BuildDescriptor(pa, prot, memtype);
 
     Dsb();
     return true;
@@ -671,95 +699,46 @@ bool ArchMmuUnmapPage(AddressSpace *as, VirtAddr va)
     return true;
 }
 
-/** @brief Walks the sorted region list alongside an ascending scan of user addresses. */
-typedef struct {
-    const AddressSpace *as; /**< Address space being torn down. */
-    uint32_t idx;           /**< First region that may still contain the next address. */
-} RegionCursor;
-
-/**
- * @brief Finds what backs a user address, for addresses passed in ascending order.
- *
- * @param[in,out] rc Cursor; advanced past regions that end at or below @p va.
- * @param[in]     va Virtual address, not below the previous call's.
- * @return The backing of the region that contains @p va, or VM_BACKING_ANON if none does.
- */
-static VirtMemBacking RegionCursorOwner(RegionCursor *rc, VirtAddr va)
+size_t ArchMmuUnmapCollect(AddressSpace *as, VirtAddr va, size_t size, PhysAddr *out, size_t max)
 {
-    while (rc->idx < rc->as->regions.len) {
-        const VirtMemRegion *r = &rc->as->regions.data[rc->idx];
-        VirtAddr end = r->vaddr_start + r->size;
-        if (end >= r->vaddr_start && va < end)
-            return va >= r->vaddr_start ? r->owner : VM_BACKING_ANON;
-        rc->idx++;
-    }
-    return VM_BACKING_ANON;
-}
+    if (!as || size == 0 || (va % PAGE_SIZE) || (size % PAGE_SIZE))
+        return 0;
+    assert(size / PAGE_SIZE <= max);
 
-/**
- * @brief Frees the anonymous pages an L2 table maps, then the table.
- *
- * @param[in]     l2_pa Physical address of the L2 table.
- * @param[in]     base  Virtual address of the table's section.
- * @param[in,out] rc    Region cursor.
- */
-static void FreeUserL2(uint32_t l2_pa, VirtAddr base, RegionCursor *rc)
-{
-    const uint32_t *l2 = (const uint32_t *)PA_TO_VA(l2_pa);
+    uint32_t *l1 = (uint32_t *)PA_TO_VA(as->pt_root_physaddr);
+    VirtAddr end = va + size;
+    size_t n = 0;
 
-    for (size_t g = 0; g < L2_ENTRIES; g += 8) {
-        const uint32_t *p = &l2[g];
-        if (!(p[0] | p[1] | p[2] | p[3] | p[4] | p[5] | p[6] | p[7]))
-            continue;
-        for (size_t j = g; j < g + 8; j++) {
-            uint32_t e = l2[j];
-            VirtAddr va = base | ((VirtAddr)j << MMU_PAGE_SHIFT);
+    for (VirtAddr cur = va; cur < end;) {
+        VirtAddr section_end = (cur & ~(VirtAddr)(SECTION_SIZE - 1)) + SECTION_SIZE;
+        VirtAddr stop = (section_end > end || section_end <= cur) ? end : section_end;
+        uint32_t l1_entry = l1[L1_IDX(cur)];
 
-            if (!(e & L2_SMALL_TAG) || va == USER_SYSPAGE_VA)
-                continue;
-            if ((e & L2_PAGE_ATTR_MASK) == L2_PAGE_ATTR_DEVICE)
-                continue;
-            if (RegionCursorOwner(rc, va) != VM_BACKING_ANON)
-                continue;
-            PmmFreeFrame(e & L2_SMALL_BASE_MASK);
+        if ((l1_entry & DESC_TYPE_MASK) == DESC_L2) {
+            uint32_t *l2 = (uint32_t *)PA_TO_VA(l1_entry & L1_L2PTR_BASE_MASK);
+            for (VirtAddr p = cur; p < stop; p += PAGE_SIZE) {
+                uint32_t e = l2[L2_IDX(p)];
+                if (!(e & L2_SMALL_TAG))
+                    continue;
+                out[n++] = (PhysAddr)(e & L2_SMALL_BASE_MASK);
+                l2[L2_IDX(p)] = 0;
+            }
         }
-    }
-    L2PtPoolFree(l2_pa);
-}
-
-void ArchMmuFreeUserPages(AddressSpace *as)
-{
-    if (!as || !as->pt_root_physaddr)
-        return;
-
-    if (as->asid_token.asid != 0)
-        ArchMmuFlushTlbAsid(as->asid_token.asid);
-
-    PhysAddr ttbr_pa = as->pt_root_physaddr;
-    const uint32_t *l1 = (const uint32_t *)PA_TO_VA(ttbr_pa);
-    size_t entries = l1_entry_count(ADDRESS_SPACE_USER);
-    RegionCursor rc = {.as = as, .idx = 0};
-
-    for (size_t g = 0; g < entries; g += 8) {
-        const uint32_t *p = &l1[g];
-        if (!(p[0] | p[1] | p[2] | p[3] | p[4] | p[5] | p[6] | p[7]))
-            continue;
-        for (size_t i = g; i < g + 8; i++) {
-            if ((l1[i] & DESC_TYPE_MASK) == DESC_L2)
-                FreeUserL2(l1[i] & L1_L2PTR_BASE_MASK, (VirtAddr)i << MMU_SECTION_SHIFT, &rc);
-        }
+        cur = stop;
     }
 
-    size_t pages = l1_table_pages(ADDRESS_SPACE_USER);
-    for (size_t i = 0; i < pages; i++)
-        PmmFreeFrame(ttbr_pa + i * PAGE_SIZE);
-    as->pt_root_physaddr = 0;
+    if (n) {
+        ArchSyncBarrier();
+        for (VirtAddr p = va; p < end; p += PAGE_SIZE)
+            ArchMmuFlushTlbVaAsid(p, as->asid_token.asid);
+        ArchSyncBarrier();
+    }
+    return n;
 }
 
 void ArchMmuInitTtbr1(AddressSpace *as)
 {
-    __asm__ volatile("mcr p15, 0, %0, c2, c0, 1" ::"r"(ttbr_value(as->pt_root_physaddr))
-                     : "memory");
+    __asm__ volatile("mcr p15, 0, %0, c2, c0, 1" ::"r"(TtbrValue(as->pt_root_physaddr)) : "memory");
 
     Isb();
 
@@ -805,8 +784,7 @@ bool ArchMmuInstallKernelSpace(AddressSpace *as)
     Dsb();
     __asm__ volatile("mcr p15, 0, %0, c13, c0, 1" ::"r"(0U) : "memory");
     Isb();
-    __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"(ttbr_value(as->pt_root_physaddr))
-                     : "memory");
+    __asm__ volatile("mcr p15, 0, %0, c2, c0, 0" ::"r"(TtbrValue(as->pt_root_physaddr)) : "memory");
     Isb();
     AsidSetActive(0);
 

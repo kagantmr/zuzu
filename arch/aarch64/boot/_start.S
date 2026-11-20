@@ -130,9 +130,6 @@ mmu_setup:
 
     ldr x0, =higher_half_entry
     br  x0
-hang:
-    wfi
-    b hang
     
 
 .size _start, . - _start
