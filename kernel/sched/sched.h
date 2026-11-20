@@ -66,13 +66,6 @@ void SchedAdd(TaskObject *t);
 void SchedAddFront(TaskObject *t);
 
 /**
- * @brief Queue task @p t for destruction.
- * 
- * @param[in] t The task to destroy.
- */
-void SchedQueueDestroyTask(TaskObject *t);
-
-/**
  * @brief Scheduler entry point. Reschedules tasks.
  */
 void __hot Schedule(void);

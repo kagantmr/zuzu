@@ -3,7 +3,9 @@
  * @brief Implementation of tasks: creation, teardown, faults and priority inheritance.
  */
 
+#include "kernel/bench.h"
 #include "kernel/clock.h"
+#include "kernel/lbx/lbx.h"
 #include "kernel/ipc/msg.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm/pmm.h"
@@ -29,6 +31,11 @@ static Tid next_tid = 1;
 static TaskObject *task_table[MAX_TASKS];
 /** @brief Allocator for task objects. */
 static KSlabCache task_cache;
+
+#ifdef CONFIG_ZUZU_BENCH
+/** @brief Time taken to destroy one reaped task. */
+BENCH_STAT(g_bench_reap_task, "lbx: reap one task");
+#endif
 
 /**
  * @brief Pick an ID for a task and enter it in the task table.
@@ -130,10 +137,37 @@ void TaskUnref(TaskObject *t)
     }
 }
 
+/**
+ * @brief lbx step for a dead task: destroys it in one go.
+ *
+ * @param[in,out] n The task's lbx node.
+ * @param[in] budget Unused; destroying a task is one unit.
+ * @return LBX_DONE.
+ */
+static LbxResult TaskLbxStep(LbxNode *n, uint32_t budget)
+{
+    (void)budget;
+#ifdef CONFIG_ZUZU_BENCH
+    uint32_t bench_start = BENCH_BEGIN();
+#endif
+    TaskDestroy(container_of(n, TaskObject, lbx_node));
+#ifdef CONFIG_ZUZU_BENCH
+    BENCH_END(g_bench_reap_task, bench_start);
+#endif
+    return LBX_DONE;
+}
+
+void TaskQueueDestroy(TaskObject *task)
+{
+    if (task)
+        LbxQueue(&task->lbx_node, TaskLbxStep);
+}
+
 void TaskDestroy(TaskObject *task)
 {
     if (!task || task->released)
         return;
+    LbxCancel(&task->lbx_node);
     TaskUnlinkWaits(task);
     TaskObjectUnregister(task);
     if (fpu_owner == task)
@@ -420,7 +454,7 @@ void TaskTerminate(TaskObject *task, Err exit_status)
     if (space_hollow)
         return;
     if (task == current_task) {
-        SchedQueueDestroyTask(task);
+        TaskQueueDestroy(task);
     } else {
         TaskDestroy(task);
     }
@@ -538,3 +572,4 @@ void TaskSyncTcbPrio(TaskObject *t)
     tcb->prio = (uint8_t)t->base_prio;
     tcb->max_prio = (uint8_t)t->max_prio;
 }
+

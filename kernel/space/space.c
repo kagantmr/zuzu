@@ -198,7 +198,7 @@ void SpaceDestroy(SpaceObject *sp)
         if (task != current_task)
             TaskDestroy(task);
         else
-            SchedQueueDestroyTask(task);
+            TaskQueueDestroy(task);
         TaskUnref(task);
         task_node = next;
     }

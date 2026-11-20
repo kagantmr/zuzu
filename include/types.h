@@ -288,6 +288,11 @@ typedef enum {
     MNGTASK_SET_MAX_TIMESLICE /**< Change the longest timeslice the caller or an owned task may set. */
 } ManageTaskVerb;
 
+/**
+ * @brief A priority is an integer denoting how much this task is allowed to use the CPU.
+ */
+typedef uint32_t Prio;
+
 #ifdef __cplusplus
 }
 #endif

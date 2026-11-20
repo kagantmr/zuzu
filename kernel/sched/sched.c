@@ -29,13 +29,6 @@
 /** @brief Number of slots in the sleep wheel. */
 #define SLEEP_QUEUE_SIZE 512
 
-#ifdef CONFIG_ZUZU_BENCH
-/** @brief Time taken to destroy one reaped task. */
-BENCH_STAT(g_bench_reap_task, "sched: reap one task");
-#endif
-
-/** @brief Tasks that have exited and wait to be destroyed off their own stack. */
-static ListHead task_destroy_queue = LIST_HEAD_INIT(task_destroy_queue);
 /** @brief The running task, or NULL while the idle loop runs. */
 TaskObject *current_task;
 /** @brief The task whose registers are currently in the FPU. */
@@ -85,18 +78,16 @@ static uint32_t ready_mask = 0;
 
 static void IdleTask(void) __attribute__((noreturn));
 static void SchedArmTimer(void);
-static void SchedConsumeDestroyQueue(void);
 static void SchedIdleWait(void);
 
 /**
- * @brief The idle loop: reap dead tasks, wait for work, then reschedule.
+ * @brief The idle loop: wait for work, then reschedule.
  */
 static void IdleTask(void)
 {
     on_idle_stack = true;
     for (;;) {
         VmmActivateAddressSpace(VmmGetKernelAddressSpace());
-        SchedConsumeDestroyQueue();
         SchedIdleWait();
         Schedule();
     }
@@ -175,52 +166,6 @@ static void SchedEnqueue(TaskObject *t, bool front)
 void SchedAdd(TaskObject *t) { SchedEnqueue(t, false); }
 
 void SchedAddFront(TaskObject *t) { SchedEnqueue(t, true); }
-
-void SchedQueueDestroyTask(TaskObject *t)
-{
-    if (!t)
-        return;
-    if (t->destroy_node.next || t->destroy_node.prev) {
-        return;
-    }
-    ListAddTail(&t->destroy_node, &task_destroy_queue.node);
-}
-
-/**
- * @brief Destroy every queued task except the running one, which stays queued.
- */
-static void SchedConsumeDestroyQueue(void)
-{
-    ListHead deferred = LIST_HEAD_INIT(deferred);
-
-    while (!ListIsEmpty(&task_destroy_queue)) {
-        ListNode *node = ListPopFront(&task_destroy_queue);
-        if (!node)
-            break;
-        TaskObject *t = container_of(node, TaskObject, destroy_node);
-
-        if (t == current_task) {
-            ListAddTail(&t->destroy_node, &deferred.node);
-            continue;
-        }
-
-#ifdef CONFIG_ZUZU_BENCH
-        uint32_t bench_start = BENCH_BEGIN();
-#endif
-        TaskDestroy(t);
-#ifdef CONFIG_ZUZU_BENCH
-        BENCH_END(g_bench_reap_task, bench_start);
-#endif
-    }
-
-    while (!ListIsEmpty(&deferred)) {
-        ListNode *node = ListPopFront(&deferred);
-        if (!node)
-            break;
-        TaskObject *t = container_of(node, TaskObject, destroy_node);
-        ListAddTail(&t->destroy_node, &task_destroy_queue.node);
-    }
-}
 
 /**
  * @brief Check whether anything is ready to run or a reschedule was requested.
@@ -398,13 +343,9 @@ static void SchedIdleWait(void)
 }
 
 /**
- * @brief Reap dead tasks and wake expired sleepers; run on every reschedule.
+ * @brief Wake expired sleepers; run on every reschedule.
  */
-static void SchedDoHousekeeping(void)
-{
-    SchedConsumeDestroyQueue();
-    SchedWakeSleepers();
-}
+static void SchedDoHousekeeping(void) { SchedWakeSleepers(); }
 
 /**
  * @brief Take the first task of the highest non-empty priority level off its run queue.
