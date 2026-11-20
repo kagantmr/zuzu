@@ -543,6 +543,7 @@ void __hot Schedule(void)
     SchedDoHousekeeping();
 
     TaskObject *next = SchedPickNext();
+    do_resched = 0;
     SchedSwitchNext(next);
 }
 
