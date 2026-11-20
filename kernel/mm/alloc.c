@@ -27,6 +27,30 @@ KHeapBlock *heap_head = NULL;
 /** @brief Last heap block in address order. */
 static KHeapBlock *heap_tail = NULL;
 
+/** @brief Most segments the heap can grow to. */
+#define HEAP_MAX_SEGMENTS 32
+
+/** @brief One contiguous range of heap memory. */
+typedef struct {
+    VirtAddr start; /**< First byte. */
+    VirtAddr end;   /**< One past the last byte. */
+} HeapSegment;
+
+/** @brief Every heap segment, in the order they were added. */
+static HeapSegment heap_segs[HEAP_MAX_SEGMENTS];
+/** @brief Number of entries in heap_segs. */
+static uint32_t heap_seg_count;
+
+/** @brief Object sizes of the KMalloc() size classes, smallest first; all multiples of ALIGNMENT. */
+static const uint16_t kmalloc_class_sizes[] = {16,  32,   64,   128,  192,  256,  384,
+                                               512, 768, 1024, 1360, 2016, KMALLOC_CLASS_MAX};
+/** @brief Number of KMalloc() size classes. */
+#define KMALLOC_CLASSES (sizeof(kmalloc_class_sizes) / sizeof(kmalloc_class_sizes[0]))
+/** @brief One slab cache per KMalloc() size class. */
+static KSlabCache kmalloc_caches[KMALLOC_CLASSES];
+
+_Static_assert(KMALLOC_CLASS_MAX % ALIGNMENT == 0, "size classes must keep ALIGNMENT");
+
 /**
  * @brief Pushes a slab on the front of a slab list.
  *
@@ -72,7 +96,7 @@ static KSlab *SlabGrow(KSlabCache *cache)
         return NULL;
 
     KSlab *slab = (KSlab *)PA_TO_VA(pa);
-    size_t hdr_size = align_up(sizeof(KSlab), 8);
+    size_t hdr_size = align_up(sizeof(KSlab), ALIGNMENT);
     uint8_t *data = (uint8_t *)slab + hdr_size;
     size_t usable = PAGE_SIZE - hdr_size;
 
@@ -105,7 +129,7 @@ static void CreateSlabCache(KSlabCache *cache, size_t obj_size)
     cache->partial = NULL;
     cache->full = NULL;
     cache->empty_hold = NULL;
-    assert(cache->obj_size <= PAGE_SIZE - align_up(sizeof(KSlab), 8));
+    assert(cache->obj_size <= PAGE_SIZE - align_up(sizeof(KSlab), ALIGNMENT));
 }
 
 /**
@@ -218,6 +242,8 @@ static bool HeapGrow(size_t min_payload)
         pages = HEAP_GROW_MIN_PAGES;
     }
 
+    if (heap_seg_count == HEAP_MAX_SEGMENTS)
+        return false;
     PhysAddr heap_pa = PmmAllocFramesContig(pages);
     if (!heap_pa) {
         return false;
@@ -234,6 +260,7 @@ static bool HeapGrow(size_t min_payload)
 
     PhysAddr seg_end_pa = heap_pa + (pages * PAGE_SIZE);
     VirtAddr seg_end_va = heap_va + (pages * PAGE_SIZE);
+    heap_segs[heap_seg_count++] = (HeapSegment){.start = heap_va, .end = seg_end_va};
 
     if (kernel_layout.heap_start_pa == 0 || heap_pa < kernel_layout.heap_start_pa) {
         kernel_layout.heap_start_pa = heap_pa;
@@ -244,7 +271,7 @@ static bool HeapGrow(size_t min_payload)
         kernel_layout.heap_end_va = (void *)seg_end_va;
     }
 
-    KDEBUG("Heap growth: heap size is now %u KB", wanted / 1024);
+    KDEBUG("Heap growth: added %u KB", (unsigned)(pages * PAGE_SIZE / 1024));
     return true;
 }
 
@@ -269,7 +296,13 @@ static void HeapMerge(KHeapBlock *block)
         heap_tail = block;
 }
 
-void *KMalloc(size_t size)
+/**
+ * @brief First-fit allocation from the heap block list.
+ *
+ * @param[in] size Bytes wanted.
+ * @return The payload, or NULL.
+ */
+static void *KMallocFirstFit(size_t size)
 {
     if (!size) {
         return NULL;
@@ -329,7 +362,36 @@ void *KCalloc(size_t nmemb, size_t size)
     return KZAlloc(nmemb * size);
 }
 
-void KFree(void *ptr)
+/**
+ * @brief Finds the smallest size class that holds a request.
+ *
+ * @param[in] size Bytes wanted.
+ * @return The class's cache, or NULL if @p size is above KMALLOC_CLASS_MAX.
+ */
+static KSlabCache *KMallocClass(size_t size)
+{
+    for (size_t i = 0; i < KMALLOC_CLASSES; i++)
+        if (size <= kmalloc_class_sizes[i])
+            return &kmalloc_caches[i];
+    return NULL;
+}
+
+void *KMalloc(size_t size)
+{
+    if (!size)
+        return NULL;
+    KSlabCache *cache = KMallocClass(size);
+    if (cache)
+        return SlabAlloc(cache);
+    return KMallocFirstFit(size);
+}
+
+/**
+ * @brief Returns a payload to the heap and merges it with free neighbours.
+ *
+ * @param[in] ptr The payload.
+ */
+static void KFreeBlock(void *ptr)
 {
     if (!ptr) {
         return;
@@ -364,6 +426,38 @@ void KFree(void *ptr)
         HeapMerge(header->prev);
 }
 
+/**
+ * @brief Checks whether a pointer lies in a heap segment.
+ *
+ * @param[in] ptr The pointer.
+ * @return true if a heap segment holds it.
+ */
+static bool InHeap(const void *ptr)
+{
+    VirtAddr va = (VirtAddr)ptr;
+    for (uint32_t i = 0; i < heap_seg_count; i++)
+        if (va >= heap_segs[i].start && va < heap_segs[i].end)
+            return true;
+    return false;
+}
+
+void KFree(void *ptr)
+{
+    if (!ptr)
+        return;
+    if (InHeap(ptr)) {
+        KFreeBlock(ptr);
+        return;
+    }
+    KSlab *slab = (KSlab *)align_down((VirtAddr)ptr, PAGE_SIZE);
+    if (slab->owner_cache < &kmalloc_caches[0] ||
+        slab->owner_cache >= &kmalloc_caches[KMALLOC_CLASSES]) {
+        KERROR("KFree: %p did not come from KMalloc", ptr);
+        return;
+    }
+    SlabFree(slab->owner_cache, ptr);
+}
+
 _Static_assert(HEAP_INITIAL_SIZE % PAGE_SIZE == 0, "Heap is not aligned to page");
 
 void KHeapInit(void)
@@ -374,6 +468,9 @@ void KHeapInit(void)
     kernel_layout.heap_end_pa = 0;
     kernel_layout.heap_start_va = NULL;
     kernel_layout.heap_end_va = NULL;
+    heap_seg_count = 0;
+    for (size_t i = 0; i < KMALLOC_CLASSES; i++)
+        CreateSlabCache(&kmalloc_caches[i], kmalloc_class_sizes[i]);
 
     if (!HeapGrow(HEAP_INITIAL_SIZE - HDR)) {
         panic("Heap could not be allocated");
