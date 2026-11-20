@@ -4,6 +4,15 @@
 #include <util/log.h>
 #include <zuzu/uptime.h>
 
+/** @brief Stop DMA and restart both rings, dropping frames still queued for transmit. */
+static void RestartRings(void)
+{
+    if (DmaStop() == ZUZU_OK) {
+        GenetRxRingStart();
+        GenetTxRingStart();
+    }
+}
+
 int main()
 {
     Err rc = MapRegs();
@@ -69,14 +78,13 @@ int main()
         if (now - last_poll >= GENET_LINK_POLL_MS) {
             bool was_up = g_genet.link_up;
             PhyPollLink();
-            if (g_genet.link_up != was_up)
+            if (g_genet.link_up != was_up) {
+                if (!g_genet.link_up)
+                    RestartRings();
                 NetdReportLink();
-            if (GenetTxStuck(now)) {
-                if (DmaStop() == ZUZU_OK) {
-                    GenetRxRingStart();
-                    GenetTxRingStart();
-                }
             }
+            if (GenetTxStuck(now))
+                RestartRings();
             NetdSyncStats();
             last_poll = now;
         }

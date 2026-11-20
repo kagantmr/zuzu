@@ -35,5 +35,14 @@ int main(void)
     printf("  NETMASK  %u.%u.%u.%u\n", IP4(nif.netmask));
     printf("  GATEWAY  %u.%u.%u.%u\n", IP4(nif.gateway));
     printf("  DNS      %u.%u.%u.%u\n", IP4(nif.dns));
+    printf("  LINK     %s\n", nif.link_up ? "up" : "down");
+    printf("  RX       %u packets, %u errors, %u oversize, %u ring full, %u overflows\n",
+           nif.stat[NIC_STAT_RX_PACKETS], nif.stat[NIC_STAT_RX_ERRORS],
+           nif.stat[NIC_STAT_RX_OVERSIZE], nif.stat[NIC_STAT_RX_RING_FULL],
+           nif.stat[NIC_STAT_RX_OVERFLOWS]);
+    printf("  TX       %u packets, %u drops, %u timeouts, %u underruns\n",
+           nif.stat[NIC_STAT_TX_PACKETS], nif.stat[NIC_STAT_TX_DROPS],
+           nif.stat[NIC_STAT_TX_TIMEOUTS], nif.stat[NIC_STAT_TX_UNDERRUNS]);
+    printf("  IRQ      %u, %u unhandled\n", nif.stat[NIC_STAT_IRQ], nif.stat[NIC_STAT_IRQ_OTHER]);
     return 0;
 }

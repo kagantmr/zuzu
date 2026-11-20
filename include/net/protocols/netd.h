@@ -10,6 +10,7 @@
 extern "C" {
 #endif
 
+#include <net/protocols/nic.h>
 #include <stdint.h>
 
 /** @brief One-byte opcodes on netd's service port. */
@@ -69,6 +70,8 @@ typedef struct {
     Ipv4Addr dns;     /**< DNS server. */
     MacAddr mac;      /**< Hardware address. */
     char name[8];     /**< Interface name, NUL-terminated. */
+    uint32_t link_up; /**< Nonzero while the driver reports link. */
+    uint32_t stat[NIC_STAT_COUNT]; /**< Driver counters, indexed by NicStat; 0 with no driver. */
 } NetdNetif;
 
 

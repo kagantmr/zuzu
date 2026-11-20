@@ -116,6 +116,11 @@ static void HandleNetdCall(const PortWaitResult *call)
         
         memcpy(out.mac, netif.mac, sizeof(out.mac));
         strncpy(out.name, "eth0", sizeof(out.name) - 1);
+        if (stats) {
+            out.link_up = !stats->link_down;
+            for (int i = 0; i < NIC_STAT_COUNT; i++)
+                out.stat[i] = stats->stat[i];
+        }
         MsgWrite(&out, sizeof(out));
         Reply(sizeof(out), -1);
     } break;
