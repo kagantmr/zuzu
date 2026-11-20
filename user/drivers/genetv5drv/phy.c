@@ -2,20 +2,16 @@
 #include "genet.h"
 #include <util/log.h>
 
-#define ANEG_POLL_MS 100
-#define ANEG_TIMEOUT_MS 15000
-#define ADVERTISE_1000 1
-
-Err PhyNegotiate(void)
+Err PhyStartAutoNeg(void)
 {
-    uint16_t ctrl1000 = 0, bmsr = 0;
+    uint16_t ctrl1000 = 0;
     Err rc = MdioRead(MII_CTRL1000, &ctrl1000);
     if (rc == ZUZU_OK)
         rc = MdioWrite(MII_ADVERTISE,
                        ADV_CSMA | ADV_10HALF | ADV_10FULL | ADV_100HALF | ADV_100FULL);
     if (rc == ZUZU_OK)
-        rc = MdioWrite(MII_CTRL1000, (uint16_t)((ctrl1000 & ~(CTRL1000_HALF | CTRL1000_FULL)) |
-                                                (ADVERTISE_1000 ? CTRL1000_FULL : 0)));
+        rc = MdioWrite(MII_CTRL1000,
+                       (uint16_t)((ctrl1000 & ~(CTRL1000_HALF | CTRL1000_FULL)) | (CTRL1000_FULL)));
     if (rc == ZUZU_OK)
         rc = MdioWrite(MII_BMCR, BMCR_ANENABLE | BMCR_ANRESTART);
     if (rc != ZUZU_OK) {
@@ -23,22 +19,7 @@ Err PhyNegotiate(void)
         return rc;
     }
 
-    for (uint32_t ms = 0; ms < ANEG_TIMEOUT_MS; ms += ANEG_POLL_MS) {
-        Sleep(ANEG_POLL_MS);
-        rc = MdioRead(MII_BMSR, &bmsr);
-        if (rc == ZUZU_OK)
-            rc = MdioRead(MII_BMSR, &bmsr);
-        if (rc != ZUZU_OK) {
-            LOG_ERROR(LOG_TAG, "MDIO read failed: %s", StrToError(rc));
-            return rc;
-        }
-        if ((bmsr & BMSR_LSTATUS) && (bmsr & BMSR_ANEGCOMPLETE)) {
-            LOG_DEBUG(LOG_TAG, "autonegotiation done after %u ms", ms + ANEG_POLL_MS);
-            return ZUZU_OK;
-        }
-    }
-    LOG_ERROR(LOG_TAG, "autonegotiation timed out, bmsr %04x", bmsr);
-    return ERR_TIMEOUT;
+    return rc;
 }
 
 Err PhyGetSpeed(uint32_t *umac_speed, uint32_t *mbps)

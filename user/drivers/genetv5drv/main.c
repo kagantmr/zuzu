@@ -14,6 +14,8 @@ int main()
     if (rc == ZUZU_OK)
         rc = DmaStop();
     if (rc == ZUZU_OK)
+        rc = DmaReclaim();
+    if (rc == ZUZU_OK)
         rc = GenetIrqInit();
     if (rc != ZUZU_OK)
         return rc;
@@ -22,14 +24,9 @@ int main()
     UmacReset();
     WriteMac();
 
-    uint32_t umac_speed = 0;
-    rc = PhyNegotiate();
-    if (rc == ZUZU_OK)
-        rc = PhyGetSpeed(&umac_speed, &g_genet.mbps);
+    rc = PhyStartAutoNeg();
     if (rc != ZUZU_OK)
         return rc;
-    SetLink(umac_speed);
-    g_genet.link_up = true;
 
     rc = GenetTxInit();
     if (rc == ZUZU_OK)
@@ -40,9 +37,7 @@ int main()
     if (rc != ZUZU_OK)
         return rc;
     GenetIrqEnable(RXDMA_MBDONE);
-    LOG_INFO(LOG_TAG, "up: %u Mb/s, MAC %02x:%02x:%02x:%02x:%02x:%02x", g_genet.mbps,
-             g_genet.mac[0], g_genet.mac[1], g_genet.mac[2], g_genet.mac[3], g_genet.mac[4],
-             g_genet.mac[5]);
+    LOG_INFO(LOG_TAG, "Ready");
 
     uint64_t last_poll = UptimeMs();
     for (;;) {

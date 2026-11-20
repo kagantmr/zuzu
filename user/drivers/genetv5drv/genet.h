@@ -53,8 +53,8 @@ Err MdioRead(uint32_t reg, uint16_t *out);
 /** @brief Write a PHY register over MDIO. */
 Err MdioWrite(uint32_t reg, uint16_t value);
 
-/** @brief Restart autonegotiation and wait for link. */
-Err PhyNegotiate(void);
+/** @brief Restart autonegotiation. */
+Err PhyStartAutoNeg(void);
 /** @brief Read the negotiated speed from the PHY. */
 Err PhyGetSpeed(uint32_t *umac_speed, uint32_t *mbps);
 /** @brief Check the PHY link and reprogram the MAC when it changes. */
@@ -68,6 +68,8 @@ Err CheckRev(void);
 Err GetMac(void);
 /** @brief Stop both DMA engines and flush TX. */
 Err DmaStop(void);
+/** @brief Remove DMA mappings attached to the device. */
+Err DmaReclaim(void);
 /** @brief Power up the EXT block and reset the PHY. */
 void ExtPowerUp(void);
 /** @brief Reset the UMAC, RBUF and MIB counters. */

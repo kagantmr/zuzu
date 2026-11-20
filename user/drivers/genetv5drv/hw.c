@@ -81,6 +81,26 @@ Err DmaStop(void)
     return ZUZU_OK;
 }
 
+Err DmaReclaim(void)
+{
+    SvcResult r;
+    size_t count = 0;
+    Err rc;
+    for (;;) {
+        r = HandleQueryAt(g_genet.dev, QUERY_DMA_ID, 0);
+        if (r.r0 != ZUZU_OK)
+            break;
+        if ((rc = DmaUnmap(g_genet.dev, r.r1)) != ZUZU_OK) {
+            return (rc);
+        }
+        count++;
+    }
+    if (count > 0)
+        LOG_INFO(LOG_TAG, "Reclaimed %zu mappings", count);
+
+    return ZUZU_OK;
+}
+
 void ExtPowerUp(void)
 {
     uint32_t reg =

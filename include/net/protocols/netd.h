@@ -15,7 +15,7 @@ extern "C" {
 /** @brief One-byte opcodes on netd's service port. */
 typedef enum {
     NETD_GET_NETIF = 1,       /**< Read the interface configuration (NetdNetif). */
-    NETD_DRVHANDSHAKE_INIT,   /**< Driver begins: grants its doorbell and sends its MAC. */
+    NETD_DRVHANDSHAKE_INIT,   /**< Driver begins: grants its doorbell and sends its MAC and a u64 driver key (0 = allocate fresh). */
     NETD_DRVHANDSHAKE_STAGE2, /**< Grants the tx ring's memory. */
     NETD_DRVHANDSHAKE_STAGE3, /**< Grants the rx ring's memory; the reply holds the name and grants netd's event. */
     NETD_DRVNOTIFY,           /**< Reserved; unused. */
