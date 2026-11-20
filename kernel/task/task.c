@@ -132,6 +132,9 @@ void TaskUnref(TaskObject *t)
     if (t->ref_count == 0 && t->released) {
         KSlabFree(&task_cache, t);
     } else if (t->ref_count == 0 && t->state == TASK_STATE_FROZEN) {
+        if (t->owner)
+            t->owner->live_tasks--;
+        t->state = TASK_STATE_ZOMBIE;
         TaskQueueDestroy(t);
     }
 }
