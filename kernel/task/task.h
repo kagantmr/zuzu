@@ -10,6 +10,7 @@
 #include "kernel/ipc/observer.h"
 #include "kernel/ipc/port.h"
 #include "kernel/mm/vmm/vmm.h"
+#include "kernel/checkpoint/checkpoint_state.h"
 #include "kernel/lbx/lbx_node.h"
 #include <arch/fpu.h>
 #include <arch/regs.h>
@@ -78,6 +79,7 @@ struct TaskObjectStruct {
     int16_t sleep_slot;       /**< Sleep wheel slot the task is in, or -1. */
     TaskState state;          /**< Where the task is in its lifecycle. */
     LbxNode lbx_node;         /**< Link in lbx's queue while the task waits to be destroyed. */
+    CheckpointState checkpoint; /**< Progress of a checkpointed syscall the task is in. */
     IpcState ipc_state;       /**< Whether the task is waiting on a call. */
     PortObject *blocked_port; /**< The port the task's call is queued or being served on. */
     ReplyObject reply_cap_storage; /**< The reply capability for the task's own outgoing call. */

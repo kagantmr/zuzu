@@ -8,14 +8,14 @@
 #include "core/panic.h"
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/sched/sched.h"
-#include "kernel/svc/svc.h"
+#include "kernel/checkpoint/checkpoint.h"
 #include <arch/platform.h>
 
 #define LOG_FMT(fmt) "(lbx) " fmt
 #include "core/log.h"
 
 /** @brief Most work units one step may do. */
-#define LBX_BUDGET SVC_CHUNK_PAGES
+#define LBX_BUDGET CHECKPOINT_PAGES
 
 /** @brief The litterbox task. */
 static TaskObject *lbx;
@@ -59,8 +59,7 @@ static void LbxMain(void)
                 ListAddTail(&n->node, &lbx_queues[top].node);
             if (ListIsEmpty(&lbx_queues[top]))
                 lbx_ready &= ~(1U << top);
-            SchedOpenIrqWindow();
-            Schedule();
+            CheckpointTask();
         }
         SchedSetEffective(lbx, 0);
         SchedBlockOn(&lbx_wait_queue, TIMEOUT_INFINITE);

@@ -21,11 +21,6 @@
 #define CURRENT_SPACE (current_task->owner)
 
 /**
- * @brief Amount of pages a memory svc is allowed to process in one svc.
- */
-#define SVC_CHUNK_PAGES 64
-
-/**
  * @brief Copy out a kernel buffer to a user buffer, checking for faults.
  *
  * @param[out] uaddr The user address.

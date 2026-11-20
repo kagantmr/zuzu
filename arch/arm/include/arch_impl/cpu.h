@@ -6,6 +6,7 @@
 #ifndef ARCH_ARM_IMPL_CPU_H
 #define ARCH_ARM_IMPL_CPU_H
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <types.h>
 
@@ -39,6 +40,18 @@ static inline IrqState ArchIrqSave(void)
 static inline void ArchIrqRestore(IrqState state)
 {
     __asm__ volatile("msr cpsr_c, %0" ::"r"(state) : "memory");
+}
+
+/**
+ * @brief Checks whether an IRQ is waiting, even while IRQs are masked (ISR.I).
+ *
+ * @return true if an IRQ is pending.
+ */
+static inline bool ArchIrqPending(void)
+{
+    uint32_t isr;
+    __asm__ volatile("mrc p15, 0, %0, c12, c1, 0" : "=r"(isr));
+    return (isr & (1U << 7)) != 0;
 }
 
 /** @brief Waits for an interrupt (wfi). */
