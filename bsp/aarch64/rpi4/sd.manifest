@@ -8,6 +8,7 @@ zztest
 hello_newlib
 kilo
 ifconfig
+netbench
 cat
 ls
 rm
