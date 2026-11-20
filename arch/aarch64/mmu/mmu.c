@@ -277,7 +277,7 @@ static FreeTableResult FreeFirstLeafTable(AArch64Pte *root, size_t *pos, size_t 
 
     for (int level = 0;; level++) {
         unsigned start = on_path ? (unsigned)PteIndex((VirtAddr)*pos, level) : 0;
-        unsigned i = start;
+        unsigned i = level == PTE_LEVEL_LAST ? PTE_ENTRIES : start;
         while (i < PTE_ENTRIES && !PteIsTable(table[i], level)) {
             if (*scan == 0) {
                 *pos = (size_t)(va + (VirtAddr)i * PteLevelSize(level));
