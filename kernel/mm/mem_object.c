@@ -56,12 +56,13 @@ static void DmaMappingFree(DmaMapping *m) { KSlabFree(&dma_map_cache, m); }
 /**
  * @brief Frees part of a dead MemObject: its pages or DMA mappings, then the object.
  *
- * @param[in,out] mem The object.
+ * @param[in,out] n The object's lbx node.
  * @param[in] budget The most pages or mappings to free.
  * @return LBX_MORE if work is left, LBX_DONE once the object is freed.
  */
-static LbxResult MemObjLbxRun(MemObject *mem, uint32_t budget)
+static LbxResult MemObjLbxStep(LbxNode *n, uint32_t budget)
 {
+    MemObject *mem = container_of(n, MemObject, lbx_node);
     if (mem->kind == MEMKIND_SHARED) {
         for (; budget > 0 && mem->reap_pos < mem->shm.page_count; budget--) {
             PhysAddr pa = mem->shm.page_addrs[mem->reap_pos++];
@@ -83,18 +84,6 @@ static LbxResult MemObjLbxRun(MemObject *mem, uint32_t budget)
     }
     MemObjFree(mem);
     return LBX_DONE;
-}
-
-/**
- * @brief lbx step for a dead MemObject.
- *
- * @param[in,out] n The object's lbx node.
- * @param[in] budget The most pages or mappings to free.
- * @return LBX_MORE if work is left, LBX_DONE once the object is freed.
- */
-static LbxResult MemObjLbxStep(LbxNode *n, uint32_t budget)
-{
-    return MemObjLbxRun(container_of(n, MemObject, lbx_node), budget);
 }
 
 MemObject *MemObjCreateDevice(PhysAddr phys_base, size_t size, Irq irq)

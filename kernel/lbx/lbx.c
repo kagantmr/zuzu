@@ -15,9 +15,6 @@
 #define LOG_FMT(fmt) "(lbx) " fmt
 #include "core/log.h"
 
-/** @brief Most work units one step may do. */
-#define LBX_BUDGET CHECKPOINT_PAGES
-
 /** @brief The litterbox task. */
 static TaskObject *lbx;
 /** @brief Queued objects, one queue per priority level. */
@@ -70,7 +67,7 @@ static void LbxMain(void)
                 continue;
             }
             LbxNode *n = container_of(ln, LbxNode, node);
-            if (n->step(n, LBX_BUDGET) == LBX_MORE) {
+            if (n->step(n, CHECKPOINT_PAGES) == LBX_MORE) {
                 ListAddTail(&n->node, &lbx_queues[top].node);
                 lbx_ready |= 1U << top;
             } else

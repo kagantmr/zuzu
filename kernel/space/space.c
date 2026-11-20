@@ -199,12 +199,13 @@ static void SpaceKillOwned(SpaceObject *sp)
  * @brief Runs one step of a torn-down space's current reclaim phase: destroys its tasks, then
  * frees its address space, handles and tables.
  *
- * @param[in,out] sp The space.
+ * @param[in,out] n The space's lbx node.
  * @param[in] budget The most tasks, pages or handles to reclaim.
  * @return LBX_MORE if work is left, LBX_DONE once the teardown reference is dropped.
  */
-static LbxResult SpaceLbxPhase(SpaceObject *sp, uint32_t budget)
+static LbxResult SpaceLbxStep(LbxNode *n, uint32_t budget)
 {
+    SpaceObject *sp = container_of(n, SpaceObject, lbx_node);
     switch (sp->reap_phase) {
     case SPACE_REAP_TASKS:
         for (; budget > 0 && !ListIsEmpty(&sp->tasks); budget--)
@@ -247,18 +248,6 @@ static LbxResult SpaceLbxPhase(SpaceObject *sp, uint32_t budget)
         return LBX_DONE;
     }
     return LBX_MORE;
-}
-
-/**
- * @brief lbx step for a torn-down space; runs the current phase.
- *
- * @param[in,out] n The space's lbx node.
- * @param[in] budget The most tasks, pages or handles to reclaim.
- * @return LBX_MORE if work is left, LBX_DONE once the teardown reference is dropped.
- */
-static LbxResult SpaceLbxStep(LbxNode *n, uint32_t budget)
-{
-    return SpaceLbxPhase(container_of(n, SpaceObject, lbx_node), budget);
 }
 
 void SpaceDestroy(SpaceObject *sp)
