@@ -4,7 +4,6 @@
  */
 
 #include "core/kprintf.h"
-#include "core/panic.h"
 #include "kernel/boot_info.h"
 #include "kernel/dev/fdt_wrappers.h"
 #include "kernel/kmain.h"

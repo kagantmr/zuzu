@@ -7,7 +7,6 @@
 #include "observer.h"
 
 #include "core/ensure.h"
-#include "core/panic.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/sched/sched.h"
 #include "kernel/space/space.h"

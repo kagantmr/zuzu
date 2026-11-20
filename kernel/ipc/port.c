@@ -5,9 +5,7 @@
 
 #include "port.h"
 #include "core/ensure.h"
-#include "kernel/ipc/msg.h"
 #include "kernel/mm/alloc.h"
-#include "kernel/sched/sched.h"
 #include "kernel/space/space.h"
 #include <string.h>
 #include <zuzu/err.h>

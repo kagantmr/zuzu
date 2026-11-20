@@ -4,7 +4,6 @@
  */
 
 #include "core/log.h"
-#include "core/panic.h"
 #include "esr.h"
 #include "kernel/bench.h"
 #include "kernel/mm/pmm/pmm.h"
@@ -12,7 +11,6 @@
 #include "kernel/sched/sched.h"
 #include "kernel/space/space.h"
 #include "kernel/svc/svc.h"
-#include "kernel/task/kstack.h"
 #include "kernel/task/task.h"
 #include <arch/fpu.h>
 #include <arch/irq.h>

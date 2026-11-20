@@ -6,7 +6,6 @@
 #include "kernel/bench.h"
 #include "kernel/clock.h"
 #include "kernel/lbx/lbx.h"
-#include "kernel/ipc/msg.h"
 #include "kernel/mm/alloc.h"
 #include "kernel/mm/pmm/pmm.h"
 #include "kernel/mm/vmm/vmm.h"
