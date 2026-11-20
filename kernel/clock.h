@@ -33,12 +33,6 @@ static inline uint64_t ClockCountsTo(uint64_t counts, uint64_t per_sec)
  * @return The time, rounded down.
  */
 static inline uint64_t ClockNowMs(void) { return ClockCountsTo(ArchTimerNow(), 1000); }
-/**
- * @brief Get the timer's current time in microseconds since it started counting.
- *
- * @return The time, rounded down.
- */
-static inline uint64_t ClockNowUs(void) { return ClockCountsTo(ArchTimerNow(), 1000000); }
 
 /**
  * @brief Convert microseconds into timer ticks.

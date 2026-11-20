@@ -11,36 +11,11 @@
 #include <stdint.h>
 #include <types.h>
 
-/** @brief A saved DAIF, as returned by ArchIrqSave(). */
-typedef uint64_t IrqState;
-
 /** @brief Masks IRQs on this CPU (msr daifset, #2). */
 static inline void ArchGlobalIrqDisable(void) { __asm__ volatile("msr daifset, #2" ::: "memory"); }
 
 /** @brief Unmasks IRQs on this CPU (msr daifclr, #2). */
 static inline void ArchGlobalIrqEnable(void) { __asm__ volatile("msr daifclr, #2" ::: "memory"); }
-
-/**
- * @brief Masks IRQs and returns the previous DAIF, for ArchIrqRestore().
- *
- * @return DAIF before masking.
- */
-static inline IrqState ArchIrqSave(void)
-{
-    uint64_t daif = READ_SYSREG(daif);
-    ArchGlobalIrqDisable();
-    return daif;
-}
-
-/**
- * @brief Restores the IRQ mask saved by ArchIrqSave().
- *
- * @param[in] state Value returned by ArchIrqSave().
- */
-static inline void ArchIrqRestore(IrqState state)
-{
-    WRITE_SYSREG(daif, state);
-}
 
 /**
  * @brief Checks whether an IRQ is waiting, even while IRQs are masked (ISR_EL1.I).

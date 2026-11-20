@@ -85,19 +85,6 @@ static void vfp_init(void)
 }
 
 /**
- * @brief Reads the PMU cycle counter.
- *
- * @return The cycle count.
- */
-int rdcyc(void);
-int rdcyc(void)
-{
-    uint32_t value;
-    __asm__ volatile("mrc p15, 0, %0, c9, c13, 0" : "=r"(value));
-    return (int)value;
-}
-
-/**
  * @brief First C function, called by _start with the MMU on.
  *
  * Parses the device tree, maps RAM, starts the PMM, heap and VMM, frees the boot

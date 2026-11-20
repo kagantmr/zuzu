@@ -388,13 +388,6 @@ void VmmRemoveIdentityMapping(void);
 void *IoRemap(PhysAddr phys, size_t size);
 
 /**
- * @brief Release a mapping made by IoRemap().
- *
- * @param[in] va The pointer IoRemap() returned; NULL and unknown addresses are ignored.
- */
-void IoUnmap(void *va);
-
-/**
  * @brief Check that a range is accessible, faulting in missing pages.
  *
  * Every page not yet mapped must belong to a non-guard region with the needed access, and is then

@@ -409,10 +409,6 @@ void *KMalloc(size_t size)
  */
 static void KFreeBlock(void *ptr)
 {
-    if (!ptr) {
-        return;
-    }
-
     if (((VirtAddr)ptr % ALIGNMENT) != 0) {
         KERROR("KFree: pointer not aligned");
         return;

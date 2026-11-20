@@ -343,11 +343,6 @@ static void SchedIdleWait(void)
 }
 
 /**
- * @brief Wake expired sleepers; run on every reschedule.
- */
-static void SchedDoHousekeeping(void) { SchedWakeSleepers(); }
-
-/**
  * @brief Take the first task of the highest non-empty priority level off its run queue.
  *
  * @return The task, or the idle task when nothing is ready.
@@ -540,7 +535,7 @@ void __hot Schedule(void)
         }
     }
 
-    SchedDoHousekeeping();
+    SchedWakeSleepers();
 
     TaskObject *next = SchedPickNext();
     do_resched = 0;

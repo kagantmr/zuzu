@@ -18,7 +18,6 @@ _Static_assert(IOREMAP_MAX_SLOT <= IOREMAP_SLOTS,
 /** @brief Bookkeeping for one live ioremap mapping. */
 typedef struct {
     VirtAddr va;       /**< Section-aligned start of the mapping; 0 marks a free entry. */
-    uint32_t sections; /**< Number of sections mapped. */
 } IoremapEntry;
 
 /** @brief Table of live ioremap mappings. */
@@ -59,22 +58,6 @@ static void BitmapFree(uint32_t start, uint32_t count)
 }
 
 /**
- * @brief Look up the table entry for a mapping.
- *
- * @param[in] va Section-aligned start address of the mapping.
- * @return The entry, or NULL if none matches.
- */
-static IoremapEntry *IoremapFind(VirtAddr va)
-{
-    for (size_t i = 0; i < IOREMAP_MAX_ENTRIES; i++) {
-        if (ioremap_table[i].va == va) {
-            return &ioremap_table[i];
-        }
-    }
-    return NULL;
-}
-
-/**
  * @brief Find an unused table entry.
  *
  * @return A free entry, or NULL if the table is full.
@@ -105,10 +88,6 @@ void *IoRemap(PhysAddr phys, size_t size)
     if (slot < 0) {
         return NULL;
     }
-    
-    if ((uint32_t)slot + sections_needed > IOREMAP_MAX_SLOT) {
-        return NULL;
-    }
 
     VirtAddr va = IOREMAP_BASE + ((uint32_t)slot * SECTION_SIZE);
 
@@ -126,29 +105,7 @@ void *IoRemap(PhysAddr phys, size_t size)
         return NULL;
     }
     entry->va = va;
-    entry->sections = sections_needed;
 
     return (void *)(va + offset);
 }
 
-void IoUnmap(void *va)
-{
-    if (!va) {
-        return;
-    }
-
-    VirtAddr base_va = align_down((VirtAddr)va, SECTION_SIZE);
-    IoremapEntry *entry = IoremapFind(base_va);
-    if (!entry) {
-        return;
-    }
-
-    size_t size = entry->sections * SECTION_SIZE;
-    VmmUnmapRange(g_kernel_as, entry->va, size, true);
-
-    uint32_t slot_start = (uint32_t)((entry->va - IOREMAP_BASE) / SECTION_SIZE);
-    BitmapFree(slot_start, entry->sections);
-
-    entry->va = 0;
-    entry->sections = 0;
-}

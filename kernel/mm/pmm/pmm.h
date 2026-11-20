@@ -141,18 +141,6 @@ void PmmFreeFrame(PhysAddr addr);
 PhysAddr PmmAllocFramesContigAligned(size_t n_frames, size_t align_frames);
 
 /**
- * @brief Allocate frames that need not be contiguous.
- *
- * May return fewer frames than requested if the free list runs out part way;
- * frames already taken are not released.
- *
- * @param[in] n_frames Number of frames wanted.
- * @param[out] out_addrs Array of at least @p n_frames entries receiving the frame addresses.
- * @return Number of frames actually allocated (0 for invalid arguments or insufficient free memory).
- */
-size_t PmmAllocFramesScattered(size_t n_frames, PhysAddr *out_addrs);
-
-/**
  * @brief Subscribe an event object to low-memory notifications.
  *
  * The PMM takes a reference on the event and signals EVENT_MEMMGMT_BIT when free

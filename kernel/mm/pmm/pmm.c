@@ -459,23 +459,3 @@ PhysAddr PmmAllocFramesContigAligned(const size_t n_frames, size_t align_frames)
     return pa;
 }
 
-size_t PmmAllocFramesScattered(const size_t n_frames, PhysAddr *out_addrs)
-{
-    if (n_frames == 0 || !out_addrs || pmm_state.free_frames < n_frames) {
-        return 0;
-    }
-    assert(pmm_state.bitmap != NULL);
-    assert(pmm_state.span_frames == (size_t)(pmm_state.pfn_end - pmm_state.pfn_base));
-    assert(pmm_state.free_frames <= pmm_state.total_frames);
-    assert(n_frames <= pmm_state.total_frames);
-    for (size_t i = 0; i < n_frames; i++) {
-        const PhysAddr new_page = PmmTakeFreeFrame();
-        if (new_page == 0) {
-            SyspageUpdateMem();
-            return i;
-        }
-        out_addrs[i] = new_page;
-    }
-    SyspageUpdateMem();
-    return n_frames;
-}
