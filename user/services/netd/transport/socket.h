@@ -17,6 +17,7 @@ typedef struct {
     int pcb; /* for TCP, -1 if none */
     bool listener;
     bool peer_closed;
+    bool closing; /* app closed it; netd still drains its tx ring into TCP */
     int accept_n;
     int accept_q[SOCK_ACCEPT_MAX];
     uint32_t kind;
