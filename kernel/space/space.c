@@ -100,17 +100,9 @@ SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
     if (!VmmAddRegion(sp->as, &sys_region))
         goto fail_as;
 
-    PhysAddr tcb_page0_phys_addr = PmmAllocFrame();
-    if (!tcb_page0_phys_addr)
-        goto fail_as;
-    sp->tcb_page_pa[0] = tcb_page0_phys_addr;
-
     VirtAddr tcb_user_va =
         VmmFindFreeVa(sp->as, USER_MMAP_BASE, USER_DEVICE_BASE, MAX_TCB_PAGES * PAGE_SIZE);
     if (!tcb_user_va)
-        goto fail_as;
-    if (!VmmMapUserPage(sp->as, tcb_page0_phys_addr, tcb_user_va,
-                        VM_PROT_USER | PROT_READ | PROT_WRITE))
         goto fail_as;
 
     VirtMemRegion tcb_region = {
@@ -147,8 +139,6 @@ SpaceObject *SpaceCreate(const char *name, const SpaceObject *parent)
     if (!VmmAddRegion(sp->as, &stack_guard))
         goto fail_as;
 
-    memset((void *)PA_TO_VA(tcb_page0_phys_addr), 0, PAGE_SIZE);
-    memset(sp->tcb_slot_bitmap, 0, sizeof(sp->tcb_slot_bitmap));
 
     Spid spid = SpidAlloc(sp);
     if (!spid)
