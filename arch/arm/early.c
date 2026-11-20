@@ -133,8 +133,6 @@ _Noreturn void early(void *dtb_ptr)
 
     kernel_layout.stack_base_va = PA_TO_VA(kernel_layout.stack_base_pa);
     kernel_layout.stack_top_va = PA_TO_VA(kernel_layout.stack_top_pa);
-    kernel_layout.kernel_start_va = PA_TO_VA(kernel_layout.kernel_start_pa);
-    kernel_layout.kernel_end_va = PA_TO_VA(kernel_layout.kernel_end_pa);
 
     PhysAddr dtb_end_pa = kernel_layout.dtb_start_pa + FdtTotalSize();
     struct {

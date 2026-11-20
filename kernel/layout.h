@@ -36,8 +36,6 @@ typedef struct {
 
     PhysAddr kernel_start_pa; /**< Physical start of the kernel image. */
     PhysAddr kernel_end_pa; /**< Physical end of the kernel image. */
-    VirtAddr kernel_start_va; /**< Virtual start of the kernel image. */
-    VirtAddr kernel_end_va; /**< Virtual end of the kernel image. */
 
     PhysAddr stack_base_pa; /**< Physical low end of the boot stack. */
     PhysAddr stack_top_pa; /**< Physical high end of the boot stack. */

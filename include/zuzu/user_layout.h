@@ -13,16 +13,6 @@ extern "C" {
 #include <stdint.h>
 #include <arch_impl/user_layout.h>
 
-/**
- * @brief How many stack pages a task comes with.
- */
-#define USER_STACK_PAGES 4u
-
-/**
- * @brief Size of the stack, calculated from USER_STACK_PAGES.
- */
-#define USER_STACK_SIZE (USER_STACK_PAGES * 0x1000UL)
-
 #ifdef __cplusplus
 }
 #endif
