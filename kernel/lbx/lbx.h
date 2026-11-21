@@ -15,7 +15,7 @@
 void LbxInit(void);
 
 /**
- * @brief Queues a dead object for reclamation at the current task's priority.
+ * @brief Queues a dead object for reclamation one priority level above the current task.
  *
  * Does nothing if the node is already queued.
  *
