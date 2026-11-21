@@ -107,7 +107,13 @@ static void LbxQueueAt(LbxNode *n, LbxStepFn step, Prio p)
 
 void LbxQueue(LbxNode *n, LbxStepFn step)
 {
-    LbxQueueAt(n, step, current_task ? current_task->priority : 0);
+    Prio p = 0;
+    if (current_task == lbx)
+        p = lbx->priority;
+    else if (current_task)
+        p = current_task->priority + 1 < SCHED_PRIORITY_LEVELS ? current_task->priority + 1
+                                                               : SCHED_PRIORITY_LEVELS - 1;
+    LbxQueueAt(n, step, p);
 }
 
 void LbxQueueIdle(LbxNode *n, LbxStepFn step) { LbxQueueAt(n, step, 0); }
