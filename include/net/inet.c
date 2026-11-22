@@ -23,9 +23,4 @@ bool Ipv4ToBytes(const char *s, Ipv4Addr *out)
     return true;
 }
 
-/**
- * @brief Parse @p ip into @p buf; false on anything else.
- * @param[in] s the numerical IP address
- * @param[out] buf The string holding the IP address
- */
 void Ipv4ToStr(Ipv4Addr ip, char *buf) { (void)snprintf(buf, 16, "%u.%u.%u.%u", IP4(ip)); }
