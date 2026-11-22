@@ -2,9 +2,26 @@
 #include "genet.h"
 #include <util/log.h>
 
+/** @brief Log the RGMII block and the BCM54213PE's clock delay settings; read-only. */
+static void PhyLogRgmii(void)
+{
+    uint16_t aux = 0, clk = 0;
+    Err rc = MdioWrite(MII_BCM_AUX_CTL, BCM_AUXCTL_SHDWSEL_MISC |
+                                            (BCM_AUXCTL_SHDWSEL_MISC << BCM_AUXCTL_READ_SHIFT));
+    if (rc == ZUZU_OK)
+        rc = MdioRead(MII_BCM_AUX_CTL, &aux);
+    if (rc == ZUZU_OK)
+        rc = MdioWrite(MII_BCM_SHADOW, BCM_SHADOW_CLK_CTRL << BCM_SHADOW_SELECT_SHIFT);
+    if (rc == ZUZU_OK)
+        rc = MdioRead(MII_BCM_SHADOW, &clk);
+    LOG_DEBUG(LOG_TAG, "RGMII oob_ctrl %08x, PHY aux-misc %04x clk-ctrl %04x (rc %d)",
+              g_genet.ext->rgmii_oob_ctrl, aux, clk, rc);
+}
+
 Err PhyStartAutoNeg(void)
 {
     uint16_t ctrl1000 = 0, bmsr = 0, estatus = 0;
+    PhyLogRgmii();
     Err rc = MdioRead(MII_BMSR, &bmsr);
     if (rc == ZUZU_OK && (bmsr & BMSR_ESTATEN))
         rc = MdioRead(MII_ESTATUS, &estatus);
@@ -71,9 +88,9 @@ Err PhyGetSpeed(uint32_t *umac_speed, uint32_t *mbps)
     }
     g_genet.rx_pause = rx;
     g_genet.tx_pause = tx;
-    
+
     LOG_INFO(LOG_TAG, "PHY id %04x:%04x adv %04x lpa %04x ctrl1000 %04x stat1000 %04x", id1, id2,
-              adv, lpa, ctrl1000, stat1000);
+             adv, lpa, ctrl1000, stat1000);
     LOG_INFO(LOG_TAG, "pause: rx %d tx %d", g_genet.rx_pause, g_genet.tx_pause);
     uint16_t common = adv & lpa;
     if ((ctrl1000 & CTRL1000_FULL) && (stat1000 & STAT1000_FULL)) {
@@ -86,7 +103,7 @@ Err PhyGetSpeed(uint32_t *umac_speed, uint32_t *mbps)
         *umac_speed = UMAC_SPEED_10;
         *mbps = 10;
     }
-    
+
     return ZUZU_OK;
 }
 

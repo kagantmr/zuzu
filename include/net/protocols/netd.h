@@ -10,6 +10,7 @@
 extern "C" {
 #endif
 
+#include <net/nettypes.h>
 #include <net/protocols/nic.h>
 #include <stdint.h>
 
@@ -46,21 +47,6 @@ typedef enum {
 typedef struct {
     NetdOpcode op; /**< The opcode. */
 } NetdHandshakeData;
-
-/**
- * @brief Expands an IPv4 address in network byte order into four printf arguments, for
- * "%u.%u.%u.%u".
- */
-#define IP4(x)                                                                                     \
-    (unsigned)((x) & 0xff), (unsigned)(((x) >> 8) & 0xff), (unsigned)(((x) >> 16) & 0xff),         \
-        (unsigned)(((x) >> 24) & 0xff)
-
-/** @brief IPv4 address in network byte order. */
-typedef uint32_t Ipv4Addr;
-/** @brief TCP or UDP port. */
-typedef uint16_t NetPort;
-/** @brief Ethernet MAC address. */
-typedef uint8_t MacAddr[6];
 
 /** @brief One network interface's configuration, as NETD_GET_NETIF returns it. */
 typedef struct {

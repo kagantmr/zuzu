@@ -6,6 +6,7 @@
 #ifndef NIC_PROTOCOL_H
 #define NIC_PROTOCOL_H
 
+#include <net/nettypes.h>
 #include <net/packetring.h>
 #include <stdint.h>
 

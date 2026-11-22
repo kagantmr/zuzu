@@ -4,10 +4,6 @@
 #include <zuzu/service.h>
 #include <zuzu/zuzu.h>
 
-#define IP4(x)                                                                                     \
-    (unsigned)((x) & 0xff), (unsigned)(((x) >> 8) & 0xff), (unsigned)(((x) >> 16) & 0xff),         \
-        (unsigned)(((x) >> 24) & 0xff)
-
 int main(void)
 {
     Handle netd = LookupService("/svc/netd");
