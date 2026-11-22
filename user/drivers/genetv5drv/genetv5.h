@@ -77,6 +77,8 @@ _Static_assert(offsetof(GenetUmac, mdio_cmd) == 0x614, "layout");
 #define CMD_SPEED_SHIFT 2
 #define CMD_SW_RESET (1u << 13)
 #define CMD_LCL_LOOP_EN (1u << 15)
+#define CMD_RX_PAUSE_IGNORE (1u << 8)
+#define CMD_TX_PAUSE_IGNORE (1u << 28)
 
 #define UMAC_SPEED_10 0
 #define UMAC_SPEED_100 1

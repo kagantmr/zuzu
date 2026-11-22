@@ -20,8 +20,8 @@ Err PhyStartAutoNeg(void)
               !!(adv1000 & CTRL1000_HALF));
 
     if (rc == ZUZU_OK)
-        rc = MdioWrite(MII_ADVERTISE,
-                       ADV_CSMA | ADV_10HALF | ADV_10FULL | ADV_100HALF | ADV_100FULL);
+        rc = MdioWrite(MII_ADVERTISE, ADV_CSMA | ADV_10HALF | ADV_10FULL | ADV_100HALF |
+                                          ADV_100FULL | ADV_PAUSE_CAP | ADV_PAUSE_ASYM);
     if (rc == ZUZU_OK)
         rc = MdioWrite(MII_CTRL1000,
                        (uint16_t)((ctrl1000 & ~(CTRL1000_HALF | CTRL1000_FULL)) | adv1000));
@@ -37,6 +37,7 @@ Err PhyStartAutoNeg(void)
 
 Err PhyGetSpeed(uint32_t *umac_speed, uint32_t *mbps)
 {
+    bool rx = false, tx = false;
     uint16_t id1 = 0, id2 = 0, bmsr = 0, adv = 0, lpa = 0, ctrl1000 = 0, stat1000 = 0;
     Err rc = MdioRead(MII_PHYSID1, &id1);
     if (rc == ZUZU_OK)
@@ -60,8 +61,20 @@ Err PhyGetSpeed(uint32_t *umac_speed, uint32_t *mbps)
         return ERR_NOTCONN;
     }
 
-    LOG_DEBUG(LOG_TAG, "PHY id %04x:%04x adv %04x lpa %04x ctrl1000 %04x stat1000 %04x", id1, id2,
+    if (adv & ADV_PAUSE_CAP) {
+        if (lpa & ADV_PAUSE_CAP)
+            rx = tx = true;
+        else if ((lpa & ADV_PAUSE_ASYM) && (adv & ADV_PAUSE_ASYM))
+            rx = true;
+    } else if ((adv & ADV_PAUSE_ASYM) && (lpa & ADV_PAUSE_CAP) && (lpa & ADV_PAUSE_ASYM)) {
+        tx = true;
+    }
+    g_genet.rx_pause = rx;
+    g_genet.tx_pause = tx;
+    
+    LOG_INFO(LOG_TAG, "PHY id %04x:%04x adv %04x lpa %04x ctrl1000 %04x stat1000 %04x", id1, id2,
               adv, lpa, ctrl1000, stat1000);
+    LOG_INFO(LOG_TAG, "pause: rx %d tx %d", g_genet.rx_pause, g_genet.tx_pause);
     uint16_t common = adv & lpa;
     if ((ctrl1000 & CTRL1000_FULL) && (stat1000 & STAT1000_FULL)) {
         *umac_speed = UMAC_SPEED_1000;
@@ -73,6 +86,7 @@ Err PhyGetSpeed(uint32_t *umac_speed, uint32_t *mbps)
         *umac_speed = UMAC_SPEED_10;
         *mbps = 10;
     }
+    
     return ZUZU_OK;
 }
 

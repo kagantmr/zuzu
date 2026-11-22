@@ -82,6 +82,7 @@ typedef struct {
     uint32_t tx_completed, tx_timeouts;
     uint32_t tx_underruns, rx_overflows, irq_other;
     uint32_t irqs;
+    bool tx_pause, rx_pause;
 } Genet;
 
 /** @brief The one GENET instance. */

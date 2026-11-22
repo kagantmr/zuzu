@@ -22,8 +22,9 @@
 #define ADV_100FULL (1u << 8)
 #define CTRL1000_HALF (1u << 8)
 #define CTRL1000_FULL (1u << 9)
+#define ADV_PAUSE_CAP (1u << 10)
+#define ADV_PAUSE_ASYM (1u << 11)
 #define STAT1000_FULL (1u << 11)
-
 #define MII_ESTATUS 15
 #define BMSR_ESTATEN (1u << 8)
 #define ESTATUS_1000_THALF (1u << 12)
