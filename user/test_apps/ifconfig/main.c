@@ -44,5 +44,10 @@ int main(void)
            nif.stat[NIC_STAT_TX_PACKETS], nif.stat[NIC_STAT_TX_DROPS],
            nif.stat[NIC_STAT_TX_TIMEOUTS], nif.stat[NIC_STAT_TX_UNDERRUNS]);
     printf("  IRQ      %u, %u unhandled\n", nif.stat[NIC_STAT_IRQ], nif.stat[NIC_STAT_IRQ_OTHER]);
+    printf("  MAC RX   %u bytes, %u bad FCS, %u misaligned, %u runts, %u oversize\n",
+           nif.stat[NIC_STAT_MAC_RX_BYTES], nif.stat[NIC_STAT_MAC_RX_FCS],
+           nif.stat[NIC_STAT_MAC_RX_ALIGN], nif.stat[NIC_STAT_MAC_RX_RUNT],
+           nif.stat[NIC_STAT_MAC_RX_OVERSIZE]);
+    printf("  MAC TX   %u bytes\n", nif.stat[NIC_STAT_MAC_TX_BYTES]);
     return 0;
 }

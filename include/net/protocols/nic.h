@@ -22,18 +22,24 @@ extern "C" {
 
 /** @brief Driver statistics counters. */
 typedef enum {
-    NIC_STAT_IRQ = 0,      /**< Interrupts serviced. */
-    NIC_STAT_RX_PACKETS,   /**< Frames delivered to the rx ring. */
-    NIC_STAT_TX_PACKETS,   /**< Frames the hardware finished sending. */
-    NIC_STAT_RX_RING_FULL, /**< Frames dropped because the rx ring was full. */
-    NIC_STAT_RX_ERRORS,    /**< Received frames the NIC flagged as bad. */
-    NIC_STAT_RX_OVERSIZE,  /**< Received frames dropped for exceeding NIC_FRAME_SIZE. */
-    NIC_STAT_TX_DROPS,     /**< Frames dropped because the tx FIFO was full. */
-    NIC_STAT_TX_TIMEOUTS,  /**< Times the driver found its tx ring stuck. */
-    NIC_STAT_RX_OVERFLOWS, /**< Times the NIC's rx buffer overflowed. */
-    NIC_STAT_TX_UNDERRUNS, /**< Times the NIC's tx buffer ran dry mid-frame. */
-    NIC_STAT_IRQ_OTHER,    /**< Interrupts with a cause the driver does not handle. */
-    NIC_STAT_COUNT         /**< Number of counters. */
+    NIC_STAT_IRQ = 0,         /**< Interrupts serviced. */
+    NIC_STAT_RX_PACKETS,      /**< Frames delivered to the rx ring. */
+    NIC_STAT_TX_PACKETS,      /**< Frames the hardware finished sending. */
+    NIC_STAT_RX_RING_FULL,    /**< Frames dropped because the rx ring was full. */
+    NIC_STAT_RX_ERRORS,       /**< Received frames the NIC flagged as bad. */
+    NIC_STAT_RX_OVERSIZE,     /**< Received frames dropped for exceeding NIC_FRAME_SIZE. */
+    NIC_STAT_TX_DROPS,        /**< Frames dropped because the tx FIFO was full. */
+    NIC_STAT_TX_TIMEOUTS,     /**< Times the driver found its tx ring stuck. */
+    NIC_STAT_RX_OVERFLOWS,    /**< Times the NIC's rx buffer overflowed. */
+    NIC_STAT_TX_UNDERRUNS,    /**< Times the NIC's tx buffer ran dry mid-frame. */
+    NIC_STAT_IRQ_OTHER,       /**< Interrupts with a cause the driver does not handle. */
+    NIC_STAT_MAC_RX_BYTES,    /**< Bytes the MAC received, from its MIB; wraps at 2^32. */
+    NIC_STAT_MAC_TX_BYTES,    /**< Bytes the MAC sent, from its MIB; wraps at 2^32. */
+    NIC_STAT_MAC_RX_FCS,      /**< Frames the MAC received with a bad FCS. */
+    NIC_STAT_MAC_RX_ALIGN,    /**< Frames the MAC received with an alignment error. */
+    NIC_STAT_MAC_RX_RUNT,     /**< Runt frames the MAC received. */
+    NIC_STAT_MAC_RX_OVERSIZE, /**< Oversize frames the MAC received. */
+    NIC_STAT_COUNT            /**< Number of counters. */
 } NicStat;
 
 /** @brief Counters the driver keeps in the shared memory for netd and tools to read. */

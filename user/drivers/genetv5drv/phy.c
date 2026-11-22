@@ -55,16 +55,13 @@ Err PhyGetSpeed(uint32_t *umac_speed, uint32_t *mbps)
         LOG_ERROR(LOG_TAG, "MDIO read failed: %s", StrToError(rc));
         return rc;
     }
-    LOG_DEBUG(LOG_TAG, "PHY id %04x:%04x link %u aneg %u", id1, id2, !!(bmsr & BMSR_LSTATUS),
-              !!(bmsr & BMSR_ANEGCOMPLETE));
-
     if (!(bmsr & BMSR_LSTATUS) || !(bmsr & BMSR_ANEGCOMPLETE)) {
         LOG_ERROR(LOG_TAG, "no link");
         return ERR_NOTCONN;
     }
 
-    LOG_DEBUG(LOG_TAG, "adv %04x lpa %04x ctrl1000 %04x stat1000 %04x", adv, lpa, ctrl1000,
-              stat1000);
+    LOG_DEBUG(LOG_TAG, "PHY id %04x:%04x adv %04x lpa %04x ctrl1000 %04x stat1000 %04x", id1, id2,
+              adv, lpa, ctrl1000, stat1000);
     uint16_t common = adv & lpa;
     if ((ctrl1000 & CTRL1000_FULL) && (stat1000 & STAT1000_FULL)) {
         *umac_speed = UMAC_SPEED_1000;

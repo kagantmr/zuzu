@@ -13,7 +13,8 @@ static void RestartRings(void)
     }
 }
 
-int main()
+/** @brief Bring up the hardware and register with netd; the caller cleans up on failure. */
+static Err Start(void)
 {
     Err rc = MapRegs();
     if (rc == ZUZU_OK)
@@ -34,17 +35,23 @@ int main()
     WriteMac();
 
     rc = PhyStartAutoNeg();
-    if (rc != ZUZU_OK)
-        return rc;
-
-    rc = GenetTxInit();
+    if (rc == ZUZU_OK)
+        rc = GenetTxInit();
     if (rc == ZUZU_OK)
         rc = GenetRxInit();
-    if (rc != ZUZU_OK)
+    if (rc == ZUZU_OK)
+        rc = ConnectToNetd();
+    return rc;
+}
+
+int main()
+{
+    Err rc = Start();
+    if (rc != ZUZU_OK) {
+        LOG_ERROR(LOG_TAG, "start-up failed: %s", StrToError(rc));
+        GenetShutdown();
         return rc;
-    rc = ConnectToNetd();
-    if (rc != ZUZU_OK)
-        return rc;
+    }
     GenetIrqEnable(RXDMA_MBDONE | TBUF_UNDERRUN | RBUF_OVERFLOW);
     LOG_INFO(LOG_TAG, "Ready");
 

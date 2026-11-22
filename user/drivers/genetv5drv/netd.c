@@ -173,6 +173,14 @@ static Err NetdHandshake(void)
     return rc;
 }
 
+void NetdDisconnect(void)
+{
+    FreePacketRings();
+    if (netd_bell >= 0)
+        HandleClose(netd_bell);
+    netd_bell = -1;
+}
+
 Err ConnectToNetd(void)
 {
     Err rc = InitPacketRings();
@@ -229,6 +237,12 @@ void NetdSyncStats(void)
     nic_stats[NIC_STAT_TX_UNDERRUNS] = g_genet.tx_underruns;
     nic_stats[NIC_STAT_IRQ_OTHER] = g_genet.irq_other;
     nic_stats[NIC_STAT_RX_ERRORS] = g_genet.rx_errors;
+    nic_stats[NIC_STAT_MAC_RX_BYTES] = MibRead(MIB_RX_BYTES);
+    nic_stats[NIC_STAT_MAC_TX_BYTES] = MibRead(MIB_TX_BYTES);
+    nic_stats[NIC_STAT_MAC_RX_FCS] = MibRead(MIB_RX_FCS);
+    nic_stats[NIC_STAT_MAC_RX_ALIGN] = MibRead(MIB_RX_ALIGN);
+    nic_stats[NIC_STAT_MAC_RX_RUNT] = MibRead(MIB_RX_RUNT);
+    nic_stats[NIC_STAT_MAC_RX_OVERSIZE] = MibRead(MIB_RX_OVERSIZE);
 }
 
 void NetdReportLink(void)

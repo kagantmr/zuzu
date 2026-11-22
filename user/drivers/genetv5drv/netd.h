@@ -5,6 +5,8 @@
 
 /** @brief Create the shared packet rings and register with netd over the shared event. */
 Err ConnectToNetd(void);
+/** @brief Unmap and close the packet rings and netd's doorbell, if they exist. */
+void NetdDisconnect(void);
 /** @brief Move up to the budget received frame into netd's RX ring and ring its doorbell. */
 bool NetdRx(void);
 /** @brief Hand queued frames from netd's TX ring to the hardware; ERR_BUSY if some had to wait. */

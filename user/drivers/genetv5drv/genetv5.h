@@ -83,6 +83,18 @@ _Static_assert(offsetof(GenetUmac, mdio_cmd) == 0x614, "layout");
 #define UMAC_SPEED_1000 2
 
 #define MIB_RESET_ALL 0x7u
+/** @brief UMAC offset of the MIB counter for bytes received. */
+#define MIB_RX_BYTES 0x42c
+/** @brief UMAC offset of the MIB counter for received frames with a bad FCS. */
+#define MIB_RX_FCS 0x438
+/** @brief UMAC offset of the MIB counter for received frames with an alignment error. */
+#define MIB_RX_ALIGN 0x448
+/** @brief UMAC offset of the MIB counter for received oversize frames. */
+#define MIB_RX_OVERSIZE 0x458
+/** @brief UMAC offset of the MIB counter for bytes transmitted. */
+#define MIB_TX_BYTES 0x4e8
+/** @brief UMAC offset of the MIB counter for received runt frames. */
+#define MIB_RX_RUNT 0x500
 #define ENET_MAX_FRAME_LEN 1536
 
 typedef struct {

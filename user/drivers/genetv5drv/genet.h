@@ -8,7 +8,38 @@
 
 #define GENET_RING_SIZE 256
 #define GENET_BUF_SIZE 2048
-#define GENET_BUF_PAGES (GENET_RING_SIZE * GENET_BUF_SIZE / 4096)
+/** @brief Bytes of DMA buffer behind one ring. */
+#define GENET_BUF_BYTES (GENET_RING_SIZE * GENET_BUF_SIZE)
+/** @brief Page size the DMA buffers are allocated in. */
+#define GENET_PAGE_SIZE 4096
+/** @brief Pages of DMA buffer behind one ring. */
+#define GENET_BUF_PAGES (GENET_BUF_BYTES / GENET_PAGE_SIZE)
+/** @brief Cache line size; DMA syncs are rounded up to whole lines. */
+#define GENET_CACHE_LINE 64
+/** @brief Round @p len up to a whole number of cache lines. */
+#define GENET_SYNC_LEN(len) (((len) + GENET_CACHE_LINE - 1) & ~(uint32_t)(GENET_CACHE_LINE - 1))
+/** @brief Ring producer and consumer indices are 16 bits wide. */
+#define GENET_IDX_MASK 0xffffu
+/** @brief Last descriptor word of a ring, as programmed into end_addr. */
+#define GENET_RING_END_ADDR ((GENET_RING_SIZE * GENET_DESC_WORDS) - 1)
+/** @brief Bytes the DMA engines move per system-bus burst. */
+#define GENET_DMA_BURST 8
+/** @brief Frames the DMA engines complete before raising a done interrupt. */
+#define GENET_MBUF_DONE_THRESH 1
+/** @brief Shift of the low (XOFF) flow-control threshold in xon_xoff_thresh. */
+#define GENET_FC_LO_SHIFT 16
+/** @brief Free buffers at which RX flow control asserts XOFF. */
+#define GENET_FC_LO_THRESH 5
+/** @brief Free buffers at which RX flow control releases XON. */
+#define GENET_FC_HI_THRESH (GENET_RING_SIZE >> 4)
+/** @brief Bytes of padding the RBUF puts in front of each received frame. */
+#define GENET_RX_PAD 2
+/** @brief Length of an Ethernet header. */
+#define GENET_ETH_HDR_LEN 14
+/** @brief Major revision field value that identifies GENET v5. */
+#define GENET_REV_MAJOR_V5 6
+/** @brief Every INTRL2 source. */
+#define GENET_IRQ_ALL 0xffffffffu
 #define GENET_MIN_FRAME 60
 /** @brief Size of one DMA descriptor in 32-bit words; ring pointers count in these. */
 #define GENET_DESC_WORDS 3
@@ -80,10 +111,14 @@ Err GetMac(void);
 Err DmaStop(void);
 /** @brief Remove DMA mappings attached to the device. */
 Err DmaReclaim(void);
+/** @brief Undo whatever start-up built: stop DMA, drop mappings and buffers, close handles. */
+void GenetShutdown(void);
 /** @brief Power up the EXT block and reset the PHY. */
 void ExtPowerUp(void);
 /** @brief Reset the UMAC, RBUF and MIB counters. */
 void UmacReset(void);
+/** @brief Read one UMAC MIB counter at the given UMAC offset. */
+uint32_t MibRead(uint32_t offset);
 /** @brief Program the MAC address into the UMAC. */
 void WriteMac(void);
 /** @brief Configure RGMII and the UMAC speed, keeping the TX/RX enables. */
@@ -100,6 +135,8 @@ uint32_t GenetIrqAck(void);
 
 /** @brief Set up the TX buffers and ring 16, and enable TX. */
 Err GenetTxInit(void);
+/** @brief Unmap and close the TX buffer, whatever state GenetTxInit() reached. */
+void GenetTxFree(void);
 /** @brief Program and enable TX ring 16, starting from the index the hardware already holds. */
 void GenetTxRingStart(void);
 /** @brief Queue one frame on ring 16; ERR_BUSY when the ring is full. */
@@ -111,6 +148,8 @@ bool GenetTxStuck(uint64_t now);
 
 /** @brief Set up the RX buffers and ring 16, and enable RX. */
 Err GenetRxInit(void);
+/** @brief Unmap and close the RX buffer, whatever state GenetRxInit() reached. */
+void GenetRxFree(void);
 /** @brief Re-arm every RX descriptor and enable ring 16 from the hardware's current index. */
 void GenetRxRingStart(void);
 /** @brief Pass up to GENET_RX_BUDGET good frames to @p fn and recycle their buffers; true if frames remain. */

@@ -18,17 +18,18 @@ Err GenetTxInit(void)
         LOG_ERROR(LOG_TAG, "CreateMem failed: %s", StrToError(g_tx_buf_h));
         return g_tx_buf_h;
     }
-    DmaMapResult res = DmaMap(g_genet.dev, g_tx_buf_h, 0, GENET_BUF_PAGES * 4096, DMA_TO_DEVICE);
+    DmaMapResult res = DmaMap(g_genet.dev, g_tx_buf_h, 0, GENET_BUF_BYTES, DMA_TO_DEVICE);
     if (res.status != ZUZU_OK) {
         LOG_ERROR(LOG_TAG, "DmaMap failed: %s", StrToError(res.status));
         return res.status;
     }
     g_tx_bus = (uint32_t)res.bus_addr;
-    g_tx_buf = MemMap(g_tx_buf_h, 0, PROT_RW);
-    if (PtrIsErr(g_tx_buf)) {
-        LOG_ERROR(LOG_TAG, "MemMap of tx buffer failed: %s", StrToError((Err)(VirtAddr)g_tx_buf));
-        return (Err)(VirtAddr)g_tx_buf;
+    void *va = MemMap(g_tx_buf_h, 0, PROT_RW);
+    if (PtrIsErr(va)) {
+        LOG_ERROR(LOG_TAG, "MemMap of tx buffer failed: %s", StrToError((Err)(VirtAddr)va));
+        return (Err)(VirtAddr)va;
     }
+    g_tx_buf = va;
 
     g_genet.tx_ring = (GenetTxRing *)(g_genet.base + GENET_TRING16_OFF);
     g_genet.tx_desc = (GenetDesc *)(g_genet.base + GENET_TDESC_OFF);
@@ -37,18 +38,28 @@ Err GenetTxInit(void)
     return ZUZU_OK;
 }
 
+void GenetTxFree(void)
+{
+    if (g_tx_buf)
+        MemUnmap(g_tx_buf);
+    if (g_tx_buf_h >= 0)
+        HandleClose(g_tx_buf_h);
+    g_tx_buf = NULL;
+    g_tx_buf_h = -1;
+}
+
 void GenetTxRingStart(void)
 {
     GenetTxRing *ring = g_genet.tx_ring;
-    uint32_t idx = ring->cons_index & 0xffff;
+    uint32_t idx = ring->cons_index & GENET_IDX_MASK;
     uint32_t pos = (idx & (GENET_RING_SIZE - 1)) * GENET_DESC_WORDS;
-    g_genet.tdma->scb_burst_size = 8;
+    g_genet.tdma->scb_burst_size = GENET_DMA_BURST;
     ring->start_addr = 0;
-    ring->end_addr = (GENET_RING_SIZE * GENET_DESC_WORDS) - 1;
+    ring->end_addr = GENET_RING_END_ADDR;
     ring->read_ptr = pos;
     ring->write_ptr = pos;
     ring->prod_index = idx;
-    ring->mbuf_done_thresh = 1;
+    ring->mbuf_done_thresh = GENET_MBUF_DONE_THRESH;
     ring->flow_period = 0;
     ring->ring_buf_size = (GENET_RING_SIZE << 16) | GENET_BUF_SIZE;
     g_genet.tdma->ring_cfg = DMA_RING16_CFG_EN;
@@ -68,13 +79,13 @@ Err GenetTx(const void *frame, uint32_t len)
     if (!g_genet.link_up)
         return ERR_NOTCONN;
 
-    uint32_t cons = g_genet.tx_ring->cons_index & 0xffff;
-    if (((g_tx_prod - cons) & 0xffff) >= GENET_RING_SIZE) {
+    uint32_t cons = g_genet.tx_ring->cons_index & GENET_IDX_MASK;
+    if (((g_tx_prod - cons) & GENET_IDX_MASK) >= GENET_RING_SIZE) {
         g_genet.tx_busy++;
         return ERR_BUSY;
     }
 
-    if (((g_tx_prod - cons) & 0xffff) == 0)
+    if (((g_tx_prod - cons) & GENET_IDX_MASK) == 0)
         g_tx_progress_ms = UptimeMs();
 
     uint8_t *buf = g_tx_buf + (g_tx_slot * GENET_BUF_SIZE);
@@ -84,7 +95,7 @@ Err GenetTx(const void *frame, uint32_t len)
         len = GENET_MIN_FRAME;
     }
     Err rc = ZUZU_OK;
-    if ((rc = DmaSync(g_genet.dev, g_tx_bus + (g_tx_slot * GENET_BUF_SIZE), (len + 63) & ~63U,
+    if ((rc = DmaSync(g_genet.dev, g_tx_bus + (g_tx_slot * GENET_BUF_SIZE), GENET_SYNC_LEN(len),
                       DMA_SYNC_FOR_DEVICE)) != ZUZU_OK) {
         return rc;
     }
@@ -96,7 +107,7 @@ Err GenetTx(const void *frame, uint32_t len)
         (len << DESC_LEN_SHIFT) | DESC_TX_QTAG | DESC_EOP | DESC_SOP | DESC_TX_APPEND_CRC;
 
     g_tx_slot = (g_tx_slot + 1) % GENET_RING_SIZE;
-    g_tx_prod = (g_tx_prod + 1) & 0xffff;
+    g_tx_prod = (g_tx_prod + 1) & GENET_IDX_MASK;
     GenetWmb();
     g_genet.tx_ring->prod_index = g_tx_prod;
     g_genet.tx_packets++;
@@ -105,8 +116,8 @@ Err GenetTx(const void *frame, uint32_t len)
 
 void GenetTxReclaim(void)
 {
-    uint32_t cons = g_genet.tx_ring->cons_index & 0xffff;
-    uint32_t done = (cons - g_tx_cons_seen) & 0xffff;
+    uint32_t cons = g_genet.tx_ring->cons_index & GENET_IDX_MASK;
+    uint32_t done = (cons - g_tx_cons_seen) & GENET_IDX_MASK;
     g_genet.tx_completed += done;
     g_tx_cons_seen = cons;
     if (done > 0)
@@ -115,7 +126,7 @@ void GenetTxReclaim(void)
 
 bool GenetTxStuck(uint64_t now)
 {
-    uint32_t pending = (g_tx_prod - g_tx_cons_seen) & 0xffff;
+    uint32_t pending = (g_tx_prod - g_tx_cons_seen) & GENET_IDX_MASK;
     if (pending == 0 || !g_genet.link_up || now - g_tx_progress_ms <= GENET_TX_TIMEOUT_MS)
         return false;
     g_genet.tx_timeouts++;

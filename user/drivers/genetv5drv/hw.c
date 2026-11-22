@@ -1,5 +1,6 @@
 #include "dev/devm.h"
 #include "genet.h"
+#include "netd.h"
 #include <dev/protocols/mbox.h>
 #include <util/log.h>
 #include <zuzu/service.h>
@@ -39,7 +40,7 @@ Err CheckRev(void)
 {
     uint32_t rev = g_genet.sys->rev_ctrl;
     uint32_t major = (rev >> 24) & 0xf;
-    if (major != 6) {
+    if (major != GENET_REV_MAJOR_V5) {
         LOG_ERROR(LOG_TAG, "not GENET v5: rev_ctrl 0x%08x", rev);
         return ERR_BADTYPE;
     }
@@ -101,6 +102,26 @@ Err DmaReclaim(void)
     return ZUZU_OK;
 }
 
+void GenetShutdown(void)
+{
+    if (g_genet.intrl2_0)
+        g_genet.intrl2_0->mask_set = GENET_IRQ_ALL;
+    if (g_genet.tdma && g_genet.rdma)
+        DmaStop();
+    NetdDisconnect();
+    if (g_genet.dev >= 0)
+        DmaReclaim();
+    GenetTxFree();
+    GenetRxFree();
+    if (g_genet.event >= 0)
+        HandleClose(g_genet.event);
+    if (g_genet.base)
+        MemUnmap(g_genet.base);
+    if (g_genet.dev >= 0)
+        HandleClose(g_genet.dev);
+    g_genet = (Genet){.dev = -1, .event = -1};
+}
+
 void ExtPowerUp(void)
 {
     uint32_t reg =
@@ -137,6 +158,11 @@ void UmacReset(void)
 
     g_genet.rbuf->ctrl |= RBUF_ALIGN_2B;
     g_genet.rbuf->tbuf_size_ctrl = 1;
+}
+
+uint32_t MibRead(uint32_t offset)
+{
+    return *(volatile uint32_t *)((uint8_t *)g_genet.umac + offset);
 }
 
 void WriteMac(void)
