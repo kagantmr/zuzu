@@ -49,12 +49,14 @@ int main()
     LOG_INFO(LOG_TAG, "Ready");
 
     uint64_t last_poll = UptimeMs();
+    bool rx_more = false;
     for (;;) {
         EventWaitResult r =
-            WaitOnEvent(g_genet.event, GENET_LINK_POLL_MS, GENET_IRQ_MASK | NIC_DOORBELL_TX, false);
+            WaitOnEvent(g_genet.event, (rx_more ? TIMEOUT_POLL : GENET_LINK_POLL_MS),
+                        GENET_IRQ_MASK | NIC_DOORBELL_TX, false);
         GenetTxReclaim();
         bool kick_tx = r.status == ZUZU_OK && (r.bits & NIC_DOORBELL_TX);
-
+        bool do_rx = rx_more;
         if (r.status == ZUZU_OK && (r.bits & GENET_IRQ_MASK)) {
             uint32_t stat = GenetIrqAck();
             if (stat & TBUF_UNDERRUN)
@@ -64,12 +66,15 @@ int main()
             if (stat & ~(RXDMA_MBDONE | TXDMA_MBDONE | TBUF_UNDERRUN | RBUF_OVERFLOW))
                 g_genet.irq_other++;
             if (stat & RXDMA_MBDONE)
-                NetdRx();
+                do_rx = true;
             if (stat & TXDMA_MBDONE) {
                 GenetIrqDisable(TXDMA_MBDONE);
                 kick_tx = true;
             }
         }
+
+        if (do_rx)
+            rx_more = NetdRx();
 
         if (kick_tx && NetdTx() == ERR_BUSY)
             GenetIrqEnable(TXDMA_MBDONE);

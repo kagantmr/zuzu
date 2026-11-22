@@ -17,7 +17,7 @@ Err GenetRxInit(void)
         LOG_ERROR(LOG_TAG, "CreateMem failed: %s", StrToError(g_rx_buf_h));
         return g_rx_buf_h;
     }
-    DmaMapResult res = DmaMap(g_genet.dev, g_rx_buf_h, 0, GENET_BUF_PAGES * 4096, DMA_FROM_DEVICE);
+    DmaMapResult res = DmaMap(g_genet.dev, g_rx_buf_h, 0, ((size_t)GENET_BUF_PAGES * 4096), DMA_FROM_DEVICE);
     if (res.status != ZUZU_OK) {
         LOG_ERROR(LOG_TAG, "DmaMap failed: %s", StrToError(res.status));
         return res.status;
@@ -62,10 +62,12 @@ void GenetRxRingStart(void)
     g_genet.umac->cmd |= CMD_RX_EN;
 }
 
-void GenetRxPoll(GenetRxFn fn)
+bool GenetRxPoll(GenetRxFn fn)
 {
     uint32_t prod = g_genet.rx_ring->prod_index & 0xffff;
-    while (g_rx_cons != prod) {
+    uint32_t budget = GENET_RX_BUDGET;
+    while (g_rx_cons != prod &&  budget > 0) {
+        budget--;
         GenetRmb();
         uint32_t ls = g_genet.rx_desc[g_rx_slot].length_status;
         uint32_t len = (ls >> DESC_LEN_SHIFT) & DESC_LEN_MASK;
@@ -87,4 +89,5 @@ void GenetRxPoll(GenetRxFn fn)
         GenetRmb();
         g_genet.rx_ring->cons_index = g_rx_cons;
     }
+    return g_rx_cons != (g_genet.rx_ring->prod_index & 0xffff);
 }

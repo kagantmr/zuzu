@@ -197,12 +197,13 @@ static void PushFrame(const uint8_t *frame, uint32_t len)
     rx_pushed = true;
 }
 
-void NetdRx(void)
+bool NetdRx(void)
 {
     rx_pushed = false;
-    GenetRxPoll(PushFrame);
+    bool more = GenetRxPoll(PushFrame);
     if (rx_pushed)
         Signal(netd_bell, NIC_NETD_DOORBELL, false);
+    return more;
 }
 
 Err NetdTx(void)

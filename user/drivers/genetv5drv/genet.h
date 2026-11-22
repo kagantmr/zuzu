@@ -17,6 +17,8 @@
 #define GENET_TX_TIMEOUT_MS 2000
 #define GENET_IRQ_BIT 2
 #define GENET_IRQ_MASK (1u << GENET_IRQ_BIT)
+/** @brief Most RX frames GenetRxPoll() handles per call. */
+#define GENET_RX_BUDGET 64
 
 /** @brief Order CPU writes to DMA memory before a later doorbell write. */
 static inline void GenetWmb(void) { __asm__ volatile("dmb oshst" ::: "memory"); }
@@ -111,7 +113,7 @@ bool GenetTxStuck(uint64_t now);
 Err GenetRxInit(void);
 /** @brief Re-arm every RX descriptor and enable ring 16 from the hardware's current index. */
 void GenetRxRingStart(void);
-/** @brief Pass every good frame received since the last call to @p fn and recycle its buffer. */
-void GenetRxPoll(GenetRxFn fn);
+/** @brief Pass up to GENET_RX_BUDGET good frames to @p fn and recycle their buffers; true if frames remain. */
+bool GenetRxPoll(GenetRxFn fn)
 
 #endif /* USER_DRIVERS_GENETV5DRV_GENET_H */
