@@ -12,7 +12,7 @@
 #define GENET_MIN_FRAME 60
 /** @brief Size of one DMA descriptor in 32-bit words; ring pointers count in these. */
 #define GENET_DESC_WORDS 3
-#define GENET_LINK_POLL_MS 1000
+#define GENET_LINK_POLL_MS 250
 /** @brief Queued TX frames with no completion for this long mean the ring is stuck. */
 #define GENET_TX_TIMEOUT_MS 2000
 #define GENET_IRQ_BIT 2
