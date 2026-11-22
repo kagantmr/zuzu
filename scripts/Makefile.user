@@ -176,7 +176,11 @@ $(NEWLIB_INC)/syslog.h:
 NEWLIB_INC_STAMPS = $(NEWLIB_INC)/zuzu $(NEWLIB_INC)/dirent.h $(NEWLIB_INC)/termios.h \
                     $(NEWLIB_INC)/syslog.h
 
-$(O)/user/newlib_apps/%.o: user/newlib_apps/%.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF) $(NEWLIB_INC_STAMPS)
+NEWLIB_APP_OBJS := $(foreach p,$(NEWLIB_PROGS),$(USER_$(p)_OBJS))
+NEWLIB_APP_OBJS_IN  := $(filter-out $(O)/user/ext/%,$(NEWLIB_APP_OBJS))
+NEWLIB_APP_OBJS_EXT := $(filter $(O)/user/ext/%,$(NEWLIB_APP_OBJS))
+
+$(NEWLIB_APP_OBJS_IN): $(O)/user/%.o: user/%.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF) $(NEWLIB_INC_STAMPS)
 	$(call check-newlib-toolchain)
 	@mkdir -p $(dir $@)
 	@echo "  CC[nl]  $<"
@@ -184,7 +188,7 @@ $(O)/user/newlib_apps/%.o: user/newlib_apps/%.c $(FLAGS_STAMP) $(KCONFIG_AUTOCON
 	@$(call record-cmd,$(NEWLIB_CC) $(NEWLIB_USER_CFLAGS_C) -c $< -o $@)
 
 ifneq ($(EXT),)
-$(O)/user/ext/newlib_apps/%.o: $(EXT)/user/newlib_apps/%.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF) $(NEWLIB_INC_STAMPS)
+$(NEWLIB_APP_OBJS_EXT): $(O)/user/ext/%.o: $(EXT)/user/%.c $(FLAGS_STAMP) $(KCONFIG_AUTOCONF) $(NEWLIB_INC_STAMPS)
 	$(call check-newlib-toolchain)
 	@mkdir -p $(dir $@)
 	@echo "  CC[nl]  $<"
