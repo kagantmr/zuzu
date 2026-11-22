@@ -114,6 +114,6 @@ Err GenetRxInit(void);
 /** @brief Re-arm every RX descriptor and enable ring 16 from the hardware's current index. */
 void GenetRxRingStart(void);
 /** @brief Pass up to GENET_RX_BUDGET good frames to @p fn and recycle their buffers; true if frames remain. */
-bool GenetRxPoll(GenetRxFn fn)
+bool GenetRxPoll(GenetRxFn fn);
 
 #endif /* USER_DRIVERS_GENETV5DRV_GENET_H */
