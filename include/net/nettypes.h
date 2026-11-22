@@ -7,6 +7,7 @@
 #define NET_NETTYPES_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,6 +30,23 @@ typedef uint32_t Ipv4Addr;
 typedef uint16_t NetPort;
 /** @brief Ethernet MAC address. */
 typedef uint8_t MacAddr[MAC_ADDR_LEN];
+
+
+/**
+ * @brief Format @p ip into @p buf
+ * @param[in] ip the numerical IP address
+ * @param[out] buf The string holding the IP address
+ *
+ */
+void Ipv4ToStr(Ipv4Addr ip, char *buf);
+
+/**
+ * @brief Parse @p into @p out
+ * 
+ * @param[in] s The IP string
+ * @param[out] out Pointer to the numerical address to write to.
+ */
+bool Ipv4ToBytes(const char *s, Ipv4Addr *out);
 
 #ifdef __cplusplus
 }

@@ -56,6 +56,7 @@ static inline bool RateAllow(RateLimiter *rl, uint32_t rate, uint32_t burst)
 
 extern NicRing *tx_ring, *rx_ring;
 extern NicStatsBlock *stats;
+extern NicCntlBlock *cntl;
 extern Handle g_svc_port;
 extern Handle g_event;
 extern Handle g_nic_doorbell_ev; /* shared with the NIC driver: RX bit in, TX bit out */

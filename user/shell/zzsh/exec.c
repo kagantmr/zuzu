@@ -886,6 +886,14 @@ static int RunPrograms(const ShPipeline *pl)
         ShPrintf("zzsh: fsd unavailable\n");
         return STATUS_CANNOT_RUN;
     }
+    for (int i = 0; i < n; i++) {
+        char found[PATH_MAX_LEN];
+        if (!FindBuiltin(pl->cmd[i].argv[0]) &&
+            !ShFindProgram(pl->cmd[i].argv[0], found, sizeof(found))) {
+            ShPrintf("zzsh: %s: command not found\n", pl->cmd[i].argv[0]);
+            return STATUS_NOT_FOUND;
+        }
+    }
 
     Pump pu = {0};
     uint32_t in_fd = 0, out_fd = 0;
