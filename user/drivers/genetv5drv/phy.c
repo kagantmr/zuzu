@@ -89,9 +89,9 @@ Err PhyGetSpeed(uint32_t *umac_speed, uint32_t *mbps)
     g_genet.rx_pause = rx;
     g_genet.tx_pause = tx;
 
-    LOG_INFO(LOG_TAG, "PHY id %04x:%04x adv %04x lpa %04x ctrl1000 %04x stat1000 %04x", id1, id2,
-             adv, lpa, ctrl1000, stat1000);
-    LOG_INFO(LOG_TAG, "pause: rx %d tx %d", g_genet.rx_pause, g_genet.tx_pause);
+    LOG_DEBUG(LOG_TAG, "PHY id %04x:%04x adv %04x lpa %04x ctrl1000 %04x stat1000 %04x", id1, id2,
+              adv, lpa, ctrl1000, stat1000);
+    LOG_DEBUG(LOG_TAG, "pause: rx %d tx %d", g_genet.rx_pause, g_genet.tx_pause);
     uint16_t common = adv & lpa;
     if ((ctrl1000 & CTRL1000_FULL) && (stat1000 & STAT1000_FULL)) {
         *umac_speed = UMAC_SPEED_1000;

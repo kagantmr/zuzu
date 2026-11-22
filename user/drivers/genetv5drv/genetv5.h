@@ -40,6 +40,10 @@ _Static_assert(offsetof(GenetExt, rgmii_oob_ctrl) == 0x0c, "layout");
 #define EXT_PWR_DOWN_PHY_RD (1u << 19)
 #define EXT_PWR_DOWN_PHY_EN (1u << 20)
 
+#define CMD_PROMISC (1u << 4)
+/** @brief Number of destination MAC filter slots in the UniMAC. */
+#define MDF_SLOTS 17
+
 #define RGMII_LINK (1u << 4)
 #define OOB_DISABLE (1u << 5)
 #define RGMII_MODE_EN (1u << 6)
@@ -67,6 +71,9 @@ typedef struct {
     volatile uint32_t mib_ctrl;        /* 0x580 */
     uint32_t _rsvd2[(0x614 - 0x584) / 4];
     volatile uint32_t mdio_cmd;        /* 0x614 */
+    uint32_t _rsvd3[(0x650 - 0x618) / 4];
+    volatile uint32_t mdf_ctrl;     /* 0x650 */
+    volatile uint32_t mdf_addr[34]; /* 0x654 */
 } GenetUmac;
 _Static_assert(offsetof(GenetUmac, tx_flush) == 0x334, "layout");
 _Static_assert(offsetof(GenetUmac, mib_ctrl) == 0x580, "layout");

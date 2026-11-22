@@ -52,6 +52,7 @@ int main()
         GenetShutdown();
         return rc;
     }
+    NetdApplyCntl();
     GenetIrqEnable(RXDMA_MBDONE | TBUF_UNDERRUN | RBUF_OVERFLOW);
     LOG_INFO(LOG_TAG, "Ready");
 
@@ -60,8 +61,10 @@ int main()
     for (;;) {
         EventWaitResult r =
             WaitOnEvent(g_genet.event, (rx_more ? TIMEOUT_POLL : GENET_LINK_POLL_MS),
-                        GENET_IRQ_MASK | NIC_DOORBELL_TX, false);
+                        GENET_IRQ_MASK | NIC_DOORBELL_TX | NIC_DOORBELL_CNTL, false);
         GenetTxReclaim();
+        if (r.status == ZUZU_OK && (r.bits & NIC_DOORBELL_CNTL))
+            NetdApplyCntl();
         bool kick_tx = r.status == ZUZU_OK && (r.bits & NIC_DOORBELL_TX);
         bool do_rx = rx_more;
         if (r.status == ZUZU_OK && (r.bits & GENET_IRQ_MASK)) {

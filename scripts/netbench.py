@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Host side of netbench: drive the Pi's netbench server and print results.
 
-Usage: netbench.py <pi-ip> [--tests tcp-rx,tcp-tx,udp-echo,udp-rx,ping] [--repeat 3]
+Usage: netbench.py <pi-ip> [--tests tcp-rx,tcp-tx,udp-echo,udp-rx,ping] [--repeat 3] [--quit]
 
 Wire protocol (all integers little-endian):
   tcp-rx   port 5201  host sends u64 N, then N bytes; Pi replies u64 bytes received.
@@ -134,7 +134,12 @@ def main():
     ap.add_argument("--rx-count", type=int, default=20000)
     ap.add_argument("--rx-size", type=int, default=DGRAM_MAX)
     ap.add_argument("--rx-pps", type=int, default=0, help="0 = as fast as possible")
+    ap.add_argument("--quit", action="store_true", help="tell the Pi's netbench to exit")
     args = ap.parse_args()
+    if args.quit:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as q:
+            q.sendto(b"quit", (args.ip, PORT_UDP_RX))
+        return
     tests = args.tests.split(",")
 
     for name, fn in (("tcp-rx", tcp_rx), ("tcp-tx", tcp_tx)):

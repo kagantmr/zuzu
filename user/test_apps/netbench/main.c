@@ -70,24 +70,27 @@ static void ServeUdpEcho(int sock, const uint8_t *buf, int len, uint32_t ip, uin
     SockSendTo(sock, ip, port, buf, (uint16_t)len);
 }
 
-/** @brief Count one udp-rx datagram, or answer and reset on "done". */
-static void ServeUdpRx(int sock, UdpRxState *st, const uint8_t *buf, int len, uint32_t ip,
+/** @brief Count one udp-rx datagram, answer and reset on "done"; true on "quit". */
+static bool ServeUdpRx(int sock, UdpRxState *st, const uint8_t *buf, int len, uint32_t ip,
                        uint16_t port)
 {
+    if (len == 4 && memcmp(buf, "quit", 4) == 0)
+        return true;
     if (len == 4 && memcmp(buf, "done", 4) == 0) {
         uint32_t reply[2] = {st->received, st->highest};
         SockSendTo(sock, ip, port, reply, sizeof(reply));
         st->received = 0;
         st->highest = 0;
-        return;
+        return false;
     }
     if (len < 4)
-        return;
+        return false;
     uint32_t seq;
     memcpy(&seq, buf, sizeof(seq));
     st->received++;
     if (seq + 1 > st->highest)
         st->highest = seq + 1;
+    return false;
 }
 
 /** @brief Open a TCP listener on @p port. */
@@ -157,7 +160,8 @@ int main(void)
             busy = true;
         }
         while ((n = SockRecvFrom(udp_rx, buf, sizeof(buf), &ip, &port, TIMEOUT_POLL)) >= 0) {
-            ServeUdpRx(udp_rx, &st, buf, n, ip, port);
+            if (ServeUdpRx(udp_rx, &st, buf, n, ip, port))
+                return 0;
             busy = true;
         }
 

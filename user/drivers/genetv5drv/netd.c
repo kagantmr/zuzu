@@ -13,6 +13,7 @@ static Handle shm_tx_handle = -1, shm_rx_handle = -1;
 static Handle netd_bell = -1;
 static NicRing *nic_rx, *nic_tx;
 static NicStatsBlock *nic_block;
+static NicCntlBlock *nic_cntl_block;
 static volatile uint32_t *nic_stats;
 static char ifname[16];
 static bool rx_pushed;
@@ -68,6 +69,9 @@ static Err InitPacketRings(void)
     nic_stats = nic_block->stat;
     memset(nic_block, 0, sizeof(NicStatsBlock));
     nic_block->link_down = !g_genet.link_up;
+
+    nic_cntl_block = (NicCntlBlock *)((uint8_t *)nic_rx + NIC_CNTL_OFFSET);
+    memset(nic_cntl_block, 0, sizeof(NicCntlBlock));
 
     nic_tx->head = 0;
     nic_tx->tail = 0;
@@ -249,4 +253,40 @@ void NetdReportLink(void)
 {
     nic_block->link_down = !g_genet.link_up;
     Signal(netd_bell, NIC_NETD_DOORBELL, false);
+}
+
+/** @brief Write one MAC into MDF slot @p slot and return its enable bit. */
+static uint32_t MdfSet(uint32_t slot, const uint8_t *mac)
+{
+    g_genet.umac->mdf_addr[slot * 2] = ((uint32_t)mac[0] << 8) | mac[1];
+    g_genet.umac->mdf_addr[slot * 2 + 1] =
+        ((uint32_t)mac[2] << 24) | ((uint32_t)mac[3] << 16) | ((uint32_t)mac[4] << 8) | mac[5];
+    return 1u << (MDF_SLOTS - 1 - slot);
+}
+
+void NetdApplyCntl(void)
+{
+    uint32_t flags = nic_cntl_block->flags;
+    uint32_t count = nic_cntl_block->mcast_count;
+    if (count > NIC_MCAST_MAX)
+        count = NIC_MCAST_MAX;
+
+    uint32_t cmd = g_genet.umac->cmd;
+    if (flags & (NIC_CNTL_PROMISC | NIC_CNTL_ALLMULTI)) {
+        g_genet.umac->mdf_ctrl = 0;
+        g_genet.umac->cmd = cmd | CMD_PROMISC;
+        return;
+    }
+
+    static const MacAddr bcast = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+    uint32_t enable = MdfSet(0, bcast);
+    enable |= MdfSet(1, g_genet.mac);
+    for (uint32_t i = 0; i < count; i++) {
+        MacAddr m;
+        for (uint32_t b = 0; b < MAC_ADDR_LEN; b++)
+            m[b] = nic_cntl_block->mcast[i][b];
+        enable |= MdfSet(i + 2, m);
+    }
+    g_genet.umac->mdf_ctrl = enable;
+    g_genet.umac->cmd = cmd & ~CMD_PROMISC;
 }

@@ -15,5 +15,7 @@ Err NetdTx(void);
 void NetdReportLink(void);
 /** @brief Copy the driver counters into the stats block netd reads. */
 void NetdSyncStats(void);
+/** @brief Program the MAC address filter and promiscuous mode from netd's control block. */
+void NetdApplyCntl(void);
 
 #endif /* DRIVERS_GENETV5DRV_NETD_H */
