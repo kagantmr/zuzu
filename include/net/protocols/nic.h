@@ -14,12 +14,34 @@
 extern "C" {
 #endif
 
-/** @brief Doorbell bit, netd to driver: frames queued in the tx ring. */
+/** @brief Doorbell bit, netd to driver indicating frames are queued in the tx ring. */
 #define NIC_DOORBELL_TX (1u << 0)
-/** @brief Bit on netd's event that the driver signals when rx frames are queued or link_down changes. */
+
+/** @brief Indicates there is a new control message */
+#define NIC_DOORBELL_CNTL (1u << 1)
+
+/** @brief Bit on netd's event that the driver signals when rx frames are queued or link_down
+ * changes. */
 #define NIC_NETD_BIT 30
 /** @brief Mask of NIC_NETD_BIT. */
 #define NIC_NETD_DOORBELL (1u << NIC_NETD_BIT)
+/** @brief Maximum multicast groups the NIC is allowed to have. */
+#define NIC_MCAST_MAX 15
+
+/**
+ * @brief Turn on promiscuous mode.
+ */
+#define NIC_CNTL_PROMISC (1u << 0)
+
+/**
+ * @brief Receive all multicast packets.
+ */
+#define NIC_CNTL_ALLMULTI (1u << 1)
+
+/**
+ * @brief Offset of the NIC control block.
+ */
+#define NIC_CNTL_OFFSET (NIC_STATS_OFFSET + ((sizeof(NicStatsBlock) + 7u) & ~7u))
 
 /** @brief Driver statistics counters. */
 typedef enum {
@@ -49,11 +71,20 @@ typedef struct {
     volatile uint32_t link_down; /**< Nonzero while the driver sees no link; 0 means up. */
 } NicStatsBlock;
 
+/** @brief Control settings netd can alter from the driver. */
+typedef struct {
+    volatile uint32_t flags;               /**< Flags of the network interface */
+    volatile uint32_t mcast_count;         /**< Count of multicast entries. */
+    volatile MacAddr mcast[NIC_MCAST_MAX]; /**< Multicast MAC addresses. */
+} NicCntlBlock;
+
 /** @brief Offset of the NicStatsBlock: in the rx ring's pages, just after the ring. */
 #define NIC_STATS_OFFSET (NIC_RX_OFFSET + ((NIC_RING_BYTES + 7u) & ~7u))
 
 _Static_assert(NIC_STATS_OFFSET + sizeof(NicStatsBlock) <= NIC_RX_OFFSET + NIC_RING_STRIDE,
                "stats overflow rx page group");
+_Static_assert(NIC_CNTL_OFFSET + sizeof(NicCntlBlock) <= NIC_RX_OFFSET + NIC_RING_STRIDE,
+               "cntl overflows rx page group");
 
 #ifdef __cplusplus
 }
