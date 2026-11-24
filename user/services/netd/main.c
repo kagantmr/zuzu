@@ -105,6 +105,8 @@ static Err SetRxFilter(const NetdRxFilter *req)
     cntl->mcast_count = req->mcast_count;
     cntl->flags = req->flags & (NIC_CNTL_PROMISC | NIC_CNTL_ALLMULTI);
     return Signal(g_nic_doorbell_ev, NIC_DOORBELL_CNTL, false);
+}
+
 static void CtlReject(Err err, Handle granted)
 {
     if (granted >= 0)
@@ -159,7 +161,7 @@ static void HandleNetdCall(const PortWaitResult *call)
                 rc = SetRxFilter(&req);
         }
         MsgWrite(&rc, sizeof(rc));
-        Reply(sizeof(rc), -1);
+        CtlReply(sizeof(rc), -1);
     } break;
     default: {
         CtlReject(ERR_NOSYS, call->granted);

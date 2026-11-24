@@ -18,10 +18,6 @@
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
-typedef uint32_t Ipv4Addr;
-typedef uint16_t NetPort;
-typedef uint8_t MacAddr[6];
-
 static inline uint32_t NetNowMs(void) { return (uint32_t)UptimeMs(); }
 
 typedef struct {
