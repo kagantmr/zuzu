@@ -1,3 +1,9 @@
+/**
+ * @file inet.c
+ * 
+ * @brief Implementation of IP conversion functions.
+ */
+
 #include "nettypes.h"
 #include <stdbool.h>
 #include <string.h>

@@ -45,6 +45,8 @@ void Ipv4ToStr(Ipv4Addr ip, char *buf);
  * 
  * @param[in] s The IP string
  * @param[out] out Pointer to the numerical address to write to.
+ * 
+ * @return bool
  */
 bool Ipv4ToBytes(const char *s, Ipv4Addr *out);
 
