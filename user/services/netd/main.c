@@ -20,11 +20,7 @@
 #include "app/dhcp.h"
 #include "ctl.h"
 
-NicRing *tx_ring, *rx_ring;
-NicStatsBlock *stats;
-Handle g_svc_port = -1;
-Handle g_event = -1;
-Handle g_nic_doorbell_ev = -1;
+
 
 #define LEGACY_POLL_CAP 50u
 

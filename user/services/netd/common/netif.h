@@ -61,6 +61,12 @@ struct Netif {
     const NetifOps *ops;
     struct NetifDhcp *dhcp; /* NULL unless NETIF_F_DHCP; defined in app/dhcp.c */
     NetifCounters counters;
+
+    NicRing *tx_ring, *rx_ring;
+    NicStatsBlock *stats;
+    Handle g_svc_port = -1;
+    Handle g_event = -1;
+    Handle g_nic_doorbell_ev = -1;
 };
 
 extern Netif netifs[NETIF_MAX];
