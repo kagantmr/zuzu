@@ -18,6 +18,7 @@
 #include "transport/udp.h"
 #include "app/dns.h"
 #include "app/dhcp.h"
+#include "ctl.h"
 
 NicRing *tx_ring, *rx_ring;
 NicStatsBlock *stats;
@@ -26,8 +27,6 @@ Handle g_event = -1;
 Handle g_nic_doorbell_ev = -1;
 
 #define LEGACY_POLL_CAP 50u
-#define PORT_BIT 0
-#define PORT_MASK (1u << PORT_BIT)
 
 /**
  * UDP echo handler
@@ -79,12 +78,6 @@ static Err InitNetdServices(void)
     if (g_event < 0)
         return g_event;
 
-    retval = Bind(EVENT_PORT, g_event, g_svc_port, PORT_BIT);
-    if (retval < 0) {
-        LOG_ERROR(LOG_TAG, "port bind failed");
-        return retval;
-    }
-
     retval = RegisterService("/svc/netd", g_svc_port);
     if (retval < 0) {
         LOG_ERROR(LOG_TAG, "registration failed");
@@ -102,6 +95,14 @@ static void RejectCall(Err err, Handle granted)
     Reply(sizeof(err), -1);
 }
 
+static void CtlReject(Err err, Handle granted)
+{
+    if (granted >= 0)
+        HandleClose(granted);
+    MsgWrite(&err, sizeof(err));
+    CtlReply(sizeof(err), -1);
+}
+
 static void HandleNetdCall(const PortWaitResult *call)
 {
     uint8_t op = call->xlen >= 1 ? *(const uint8_t *)GetMessageBox() : 0;
@@ -116,10 +117,10 @@ static void HandleNetdCall(const PortWaitResult *call)
         memcpy(out.mac, netif.mac, sizeof(out.mac));
         strncpy(out.name, "eth0", sizeof(out.name) - 1);
         MsgWrite(&out, sizeof(out));
-        Reply(sizeof(out), -1);
+        CtlReply(sizeof(out), -1);
     } break;
     default: {
-        RejectCall(ERR_NOSYS, call->granted);
+        CtlReject(ERR_NOSYS, call->granted);
         return;
     }
     }
@@ -246,9 +247,12 @@ int main()
     PortInit();
     DnsInit();
     DhcpInit(OnDhcpBound); /* kicks off DORA; OnDhcpBound fires when bound */
-
     
     UdpBind(7, UdpEchoHandler);
+
+    retval = CtlStart();
+    if (retval < 0)
+        return retval;
 
     LOG_INFO(LOG_TAG, "online");
 
@@ -265,7 +269,7 @@ int main()
         else
             sleep_ms = next - now > LEGACY_POLL_CAP ? LEGACY_POLL_CAP : next - now;
 
-        /* 2. one wait for the driver, the public port and every session */
+        /* 2. one wait for the driver, the ctl mailbox and every session */
         EventWaitResult ev = WaitOnEvent(g_event, sleep_ms, 0, false);
         CheckLink();
 
@@ -276,12 +280,10 @@ int main()
             PacketRingConsume(rx_ring);
         }
 
-        if (ev.status == ZUZU_OK && (ev.bits & PORT_MASK)) {
-            PortWaitResult call;
-            while ((call = WaitOnPort(g_svc_port, TIMEOUT_POLL)).status == ZUZU_OK) {
-                if (!SessionHandle(&call))
-                    HandleNetdCall(&call);
-            }
+        PortWaitResult call;
+        while (CtlNextCall(&call)) {
+            if (!SessionHandle(&call))
+                HandleNetdCall(&call);
         }
         if (ev.status == ZUZU_OK)
             SessionDoorbell(ev.bits);
