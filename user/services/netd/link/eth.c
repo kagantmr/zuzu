@@ -43,7 +43,7 @@ int EthTx(MacAddr dst_mac, uint16_t ethertype, uint8_t *payload, uint16_t len)
         return ERR_OVERFLOW;
 
     /* Build the frame directly in a tx-ring slot */
-    NicFrame *slot = PacketRingReserve(tx_ring);
+    NicFrame *slot = PacketRingReserve(netif.drv.tx_ring);
     if (!slot)
         return ERR_BUFFULL;
 
@@ -53,10 +53,10 @@ int EthTx(MacAddr dst_mac, uint16_t ethertype, uint8_t *payload, uint16_t len)
     hdr->ethertype = htons(ethertype);
     memcpy(slot->data + sizeof(EthHdr), payload, len);
     slot->len = (uint32_t)total_len;
-    PacketRingCommit(tx_ring);
+    PacketRingCommit(netif.drv.tx_ring);
 
     /* Async doorbell */
-    return Signal(g_nic_doorbell_ev, NIC_DOORBELL_TX, false);
+    return Signal(netif.drv.doorbell, NIC_DOORBELL_TX, false);
 }
 
 int EthSendFrame(TxFrame *f, MacAddr dst_mac, uint16_t ethertype)
@@ -66,11 +66,11 @@ int EthSendFrame(TxFrame *f, MacAddr dst_mac, uint16_t ethertype)
         return ERR_OVERFLOW; /* slot abandoned (uncommitted) */
 
     memcpy(hdr->dst_mac, dst_mac, 6);
-    memcpy(hdr->src_mac, netif.mac, 6);
+    memcpy(hdr->src_mac, f->nif->mac, 6);
     hdr->ethertype = htons(ethertype);
 
     /* Header lands at slot->data[0], the whole frame is now contiguous. */
     f->slot->len = TxFrameLen(f);
-    PacketRingCommit(tx_ring);
-    return Signal(g_nic_doorbell_ev, NIC_DOORBELL_TX, false);
+    PacketRingCommit(f->nif->drv.tx_ring);
+    return Signal(f->nif->drv.doorbell, NIC_DOORBELL_TX, false);
 }

@@ -20,12 +20,8 @@
 #include "app/dhcp.h"
 #include "ctl.h"
 
-NicRing *tx_ring, *rx_ring;
-NicStatsBlock *stats;
-NicCntlBlock *cntl;
 Handle g_svc_port = -1;
 Handle g_event = -1;
-Handle g_nic_doorbell_ev = -1;
 
 #define LEGACY_POLL_CAP 50u
 
@@ -44,7 +40,7 @@ static bool link_up = true;
 
 static void CheckLink(void)
 {
-    bool up = !stats->link_down;
+    bool up = !netif.drv.stats->link_down;
     if (up == link_up)
         return;
     link_up = up;
@@ -99,12 +95,13 @@ static void RejectCall(Err err, Handle granted)
 /** @brief Publish @p req in the control block and tell the driver to apply it. */
 static Err SetRxFilter(const NetdRxFilter *req)
 {
+    NicCntlBlock *cntl = netif.drv.cntl;
     for (uint32_t i = 0; i < req->mcast_count; i++)
         for (uint32_t b = 0; b < MAC_ADDR_LEN; b++)
             cntl->mcast[i][b] = req->mcast[i][b];
     cntl->mcast_count = req->mcast_count;
     cntl->flags = req->flags & (NIC_CNTL_PROMISC | NIC_CNTL_ALLMULTI);
-    return Signal(g_nic_doorbell_ev, NIC_DOORBELL_CNTL, false);
+    return Signal(netif.drv.doorbell, NIC_DOORBELL_CNTL, false);
 }
 
 static void CtlReject(Err err, Handle granted)
@@ -127,7 +124,9 @@ static void HandleNetdCall(const PortWaitResult *call)
             .ip = netif.ip, .netmask = netif.netmask, .gateway = netif.gateway, .dns = netif.dns};
         
         memcpy(out.mac, netif.mac, sizeof(out.mac));
-        strncpy(out.name, "eth0", sizeof(out.name) - 1);
+        strncpy(out.name, netif.name, sizeof(out.name) - 1);
+        const NicStatsBlock *stats = netif.drv.stats;
+        const NicCntlBlock *cntl = netif.drv.cntl;
         if (stats) {
             out.link_up = !stats->link_down;
             for (int i = 0; i < NIC_STAT_COUNT; i++)
@@ -149,7 +148,7 @@ static void HandleNetdCall(const PortWaitResult *call)
 
         Err rc = ZUZU_OK;
         NetdRxFilter req;
-        if (!cntl || g_nic_doorbell_ev < 0) {
+        if (!netif.drv.cntl || netif.drv.doorbell < 0) {
             rc = ERR_SYSDOWN;
         } else if (call->xlen < sizeof(req)) {
             rc = ERR_BADARG;
@@ -190,7 +189,7 @@ static __attribute__((cold)) Err PerformDriverHandshake(PortWaitResult res)
         RejectCall(ERR_BADHANDLE, -1);
         return ERR_BADHANDLE;
     }
-    g_nic_doorbell_ev = res.granted;
+    netif.drv.doorbell = res.granted;
 
     Marker drv_marker = res.sender;
     const uint8_t *msg = GetMessageBox();
@@ -207,7 +206,7 @@ static __attribute__((cold)) Err PerformDriverHandshake(PortWaitResult res)
         RejectCall(rc, r.granted);
         return rc;
     }
-    tx_ring = (NicRing *)MemMap(r.granted, 0, PROT_RW);
+    NicRing *tx_ring = (NicRing *)MemMap(r.granted, 0, PROT_RW);
     if (PtrIsErr(tx_ring)) {
         RejectCall(ERR_BADHANDLE, r.granted);
         return ERR_BADHANDLE;
@@ -223,13 +222,16 @@ static __attribute__((cold)) Err PerformDriverHandshake(PortWaitResult res)
         RejectCall(rc, r.granted);
         return rc;
     }
-    rx_ring = (NicRing *)MemMap(r.granted, 0, PROT_RW);
+    NicRing *rx_ring = (NicRing *)MemMap(r.granted, 0, PROT_RW);
     if (PtrIsErr(rx_ring)) {
         RejectCall(ERR_BADHANDLE, r.granted);
         return ERR_BADHANDLE;
     }
-    stats = (NicStatsBlock *)((uint8_t *)rx_ring + NIC_STATS_OFFSET);
-    cntl = (NicCntlBlock *)((uint8_t *)rx_ring + NIC_CNTL_OFFSET);
+    netif.drv.tx_ring = tx_ring;
+    netif.drv.rx_ring = rx_ring;
+    netif.drv.stats = (NicStatsBlock *)((uint8_t *)rx_ring + NIC_STATS_OFFSET);
+    netif.drv.cntl = (NicCntlBlock *)((uint8_t *)rx_ring + NIC_CNTL_OFFSET);
+    strncpy(netif.name, "eth0", sizeof(netif.name) - 1);
 
     Handle bell;
     rc = HandleDup(g_event, PERM_SEND | PERM_TXFR, MARKER_NONE, &bell);
@@ -241,7 +243,7 @@ static __attribute__((cold)) Err PerformDriverHandshake(PortWaitResult res)
     MsgWriter w;
     MsgWriterInit(&w);
     MsgPutU32(&w, ZUZU_OK);
-    MsgPutStr(&w, "eth0");
+    MsgPutStr(&w, netif.name);
     rc = Reply(w.off, bell);
     HandleClose(bell);
     return rc;
@@ -320,9 +322,9 @@ int main()
 
         /* 3. DRAIN RX FIRST: process inbound before any timer fires */
         NicFrame *frame;
-        while ((frame = PacketRingPeek(rx_ring)) != NULL) {
+        while ((frame = PacketRingPeek(netif.drv.rx_ring)) != NULL) {
             EthRx(frame->data, (uint16_t)frame->len);
-            PacketRingConsume(rx_ring);
+            PacketRingConsume(netif.drv.rx_ring);
         }
 
         PortWaitResult call;

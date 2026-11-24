@@ -140,7 +140,7 @@ int IpTx(uint8_t *payload, uint16_t payload_len, Ipv4Addr src_ip, Ipv4Addr dst_i
     /* Reserve room for the Ethernet + IP headers in front of the payload, then
        copy the caller's payload once into its final position in the slot. */
     TxFrame f;
-    int rc = TxFrameInit(&f, sizeof(EthHdr) + sizeof(IpHeader));
+    int rc = TxFrameInit(&f, &netif, sizeof(EthHdr) + sizeof(IpHeader));
     if (rc != ZUZU_OK)
         return rc;
 

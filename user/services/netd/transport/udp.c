@@ -110,7 +110,7 @@ int UdpSend(Ipv4Addr dst_ip, NetPort src_port, NetPort dst_port, const uint8_t *
     /* Reserve room for the Ethernet + IP + UDP headers in front of the payload,
        then copy the caller's payload once into its final position in the slot. */
     TxFrame f;
-    int rc = TxFrameInit(&f, sizeof(EthHdr) + sizeof(IpHeader) + sizeof(UdpHeader));
+    int rc = TxFrameInit(&f, &netif, sizeof(EthHdr) + sizeof(IpHeader) + sizeof(UdpHeader));
     if (rc != ZUZU_OK)
         return rc;
 

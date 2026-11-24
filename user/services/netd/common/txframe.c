@@ -1,12 +1,13 @@
 #include "txframe.h"
 #include <zuzu/err.h>
 
-int TxFrameInit(TxFrame *f, uint16_t headroom)
+int TxFrameInit(TxFrame *f, Netif *nif, uint16_t headroom)
 {
-    NicFrame *slot = PacketRingReserve(tx_ring);
+    NicFrame *slot = PacketRingReserve(nif->drv.tx_ring);
     if (!slot)
         return ERR_BUFFULL;
     f->slot = slot;
+    f->nif = nif;
     f->front = headroom;
     f->end = headroom;
     return ZUZU_OK;
